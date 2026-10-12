@@ -163,7 +163,7 @@ wevir/
 | **M0** | **地基准备** | | | |
 | T0.1 | 初始化 monorepo 与工程规范 | — | [x] | pnpm 12 workspace、TS 7（NodeNext）、Biome 2.5 `noRestrictedImports` + `scripts/check-engine-boundary.mjs` 守引擎边界（`spikes/` 豁免、不得被反向引用）、Vitest 5 projects、tsdown；占位包 `packages/protocol`；AGENTS.md |
 | T0.2 | 上游参考快照与许可证核实 | T0.1 | [x] | `scripts/upstream-sync.sh` + `docs/upstream/upstream.lock`（dsh `d743267` = tag `dsh-v0.2.1-alpha.2`、OpenWork `ad22cdc`、Paseo `dc7bc8d`）；`docs/upstream/UPSTREAM.md`：Paseo 实为 Apache-2.0，OpenWork `ee/` 之外 MIT；`.gitignore` 改为 `/upstream/`（原写法误忽略了 `docs/upstream/`） |
-| T0.3 | dsh 接入 Spike（ACP vs SDK） | T0.2 | [ ] | 可与 T0.4、T0.5 并行 |
+| T0.3 | dsh 接入 Spike（ACP vs SDK） | T0.2 | [x] | `2ce30c0`：`docs/research/dsh-integration-spike.md` + `spikes/dsh-acp/`；ACP 可作骨架主路径，缺增量流式，用 Cordis 插件旁路（stream-tap）补齐；报告 §11.3 的计划修改建议交 T0.6 |
 | T0.4 | Paseo 架构研读 | T0.2 | [x] | `docs/research/paseo-notes.md`（Paseo `dc7bc8d`）：8 个问题逐条附源码行号；§9 三栏结论，直接采纳 A1–A21 各自落到 T1.1–T5.1；§10 对 ADR-0002 与 T1.2–T5.1 的修改建议交 T0.6 |
 | T0.5 | OpenWork 架构研读 | T0.2 | [ ] | 可并行 |
 | T0.6 | 首批 ADR 定稿 | T0.3–T0.5 | [ ] | |
@@ -236,7 +236,7 @@ wevir/
 
 **T0.6 首批 ADR 定稿**
 - `docs/adr/0001-runtime-integration.md`：dsh 接入路径（依据 T0.3）。
-- `docs/adr/0002-host-transport-and-process-model.md`：JSON-RPC over WebSocket，监听 127.0.0.1 随机端口 + Bearer token；骨架阶段 Host 由桌面端拉起、随桌面退出，但 Host 代码独立可运行，为将来常驻 daemon 留路（依据 T0.4）。
+- `docs/adr/0002-host-transport-and-process-model.md`：JSON-RPC over WebSocket，监听 127.0.0.1 随机端口；令牌每次启动随机生成，在首帧 `host.hello` 的参数里出示，不用 `Authorization` 头（Electron 渲染进程的浏览器 WebSocket 设不了请求头）；骨架阶段 Host 由桌面端拉起、随桌面退出，桌面只停止本次自己拉起的 Host（按 `{pid, startedAt}` 判定），附着到 CLI 启动的 Host 时不停止；Host 代码独立可运行，为将来常驻 daemon 留路（依据 T0.4，`docs/research/paseo-notes.md` A14、A17、D9）。
 - `docs/adr/0003-storage.md`：`better-sqlite3` vs `node:sqlite`（考虑 Electron 原生模块重编译）。
 - `docs/adr/0004-repo-tooling.md`：确认 §1.4 的工具链。
 - **Gate M0**：ADR 0001–0004 状态为 Accepted；本文件 §3、§6 已按 Spike 结论更新。
@@ -374,3 +374,4 @@ wevir/
 | 2026-10-12 | v0.1 初稿：基于调研结论与 dsh / OpenWork / Paseo 当前仓库核实 |
 | 2026-10-12 | T0.1：§2.2 引擎边界补充“不得声明依赖”与 `spikes/` 豁免（产品代码不得反向引用 spikes/） |
 | 2026-10-12 | T0.2：§1.2 Paseo 许可证核实为 Apache-2.0；上游锁定提交与许可证结论见 `docs/upstream/UPSTREAM.md` |
+| 2026-10-12 | T0.4：§6 T0.6 的 ADR-0002 由“Bearer token”改为令牌在 `host.hello` 中出示，并写明桌面只停止自己拉起的 Host；§5 补勾 T0.3 |

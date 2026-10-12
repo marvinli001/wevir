@@ -480,9 +480,9 @@ Wevir 不采纳这一层，这里只划清边界和冲突点。
 
 ## 10. 对 SKELETON_PLAN 的修改建议（由 T0.6 落实）
 
-本任务只产出研究笔记，不改计划正文；以下修改交给 T0.6，与 T0.3 报告 §11.3 的建议一起落实。
+除 ADR-0002 一条已直接改进计划外，以下修改交给 T0.6，与 T0.3 报告 §11.3 的建议一起落实。
 
-- **ADR-0002**：T0.6 草案写的是“Bearer token”。建议改为令牌在 `host.hello` 参数里出示：Electron 渲染进程用的是浏览器 WebSocket，设不了 `Authorization` 头（A14）。同时记下“Host 由桌面拉起、只停自己拉起的”与“常驻 daemon 推迟到移动端”（A17、D9）。
+- **ADR-0002**（已定，计划 §6 T0.6 已改写）：令牌在 `host.hello` 参数里出示，不用 Bearer 头，因为 Electron 渲染进程用的是浏览器 WebSocket，设不了 `Authorization` 头（A14）；Host 由桌面拉起、桌面只停自己拉起的，常驻 daemon 推迟到移动端（A17、D9）。T0.6 写 ADR 时照此记录。
 - **T1.2**：`host.hello` 结果加 `hostId`、`hostVersion`、`minProtocolVersion`、`features`、`permissions`（A1）；`events.subscribe` 返回 `subscriptionId`、通知带 `subscriptionId`、回放结束标记（A5、A6）；`session.get` 快照含 `pendingApprovals`、`activeTurn`、`lastSeq`（A7）；`session.send` 加 `clientMessageId`（A12）；新增事件 `approval.resolved`（含 `decidedBy`）（A9）；`host-api.md` 加“兼容规则”和“错误码表”两节（A2、A3）。
 - **T2.2**：助手增量先合并再分配 `seq`；工具输出截断上限（A8）。
 - **T2.3**：每会话命令串行、`session_busy`、审批提交期间暂扣引擎事件、`cancelled` 与结果未知的处理（A9–A12）。
