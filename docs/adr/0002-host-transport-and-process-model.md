@@ -101,4 +101,5 @@
 
 ## 补记
 
-（暂无）
+1. **2026-10-12，T1.2：能力门控不扣下事件。** 决策 2 写的是“不支持就降级或不发”，决策 3 又要求客户端把 `seq` 的空洞当作缺口重新订阅；Host 若因为某个连接缺少能力位而不发某条事件，这个连接就会在同一位置反复误判缺口。定稿为：订阅内 `seq` 连续，Host 不扣下任何事件；能力位只用来降级已知事件类型里的新枚举值或新形状；全新的事件类型直接发送，客户端从 v0 起必须忽略不认识的 `type` 并照常推进 `lastSeq`。`engine.raw` 因此也不门控。详见 [host-api.md](../architecture/host-api.md) §4、§10。
+2. **2026-10-12，T1.2：错误码与关闭码定稿。** 决策 2 与“后果”里的 `unauthorized`、`incompatible_protocol`、`session_busy`、`already_decided`、`client_message_conflict` 一类名称定稿为 `UNAUTHORIZED`、`INCOMPATIBLE_PROTOCOL`、`SESSION_BUSY`、`ALREADY_DECIDED`、`CLIENT_MESSAGE_CONFLICT` 等，数值与关闭码见 [host-api.md](../architecture/host-api.md) §7、§8。

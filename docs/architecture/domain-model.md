@@ -12,7 +12,7 @@
 | `// → adapter 接口` | T1.3 的接口包，Host 与适配器之间的类型，不上线缆 | T1.3 |
 | `// → client-sdk` | 客户端投影，只在客户端存在 | T4.1 |
 
-字段名、错误码名在本文件里是草案，T1.2 定稿时如有改名，以 `host-api.md` 为准并回写本文件。
+字段名、错误码名在本文件里原是草案，T1.2 已在 [host-api.md](./host-api.md) 定稿并回写本文件（错误码名见 host-api.md §9）；以后以 host-api.md 为准。
 
 ---
 
@@ -44,7 +44,7 @@ Host 是唯一的事实来源（计划 §2.1）。Host 里的数据分两类：
 
 ### 1.1 ID 与映射
 
-Host 生成的 ID 都是带类型前缀的不透明字符串，客户端不得解析其内容；生成算法由 T1.2 定（要求：全局唯一、可按字典序大致对应创建时间）。
+Host 生成的 ID 都是带类型前缀的不透明字符串，客户端不得解析其内容；生成算法见 [host-api.md](./host-api.md) §6（`<前缀>_<ULID>`）。
 
 | ID | 生成者 | 形式 | 唯一范围 |
 |---|---|---|---|
@@ -313,7 +313,7 @@ type WevirEvent = /* §6.2 的判别联合，按 type 区分 payload */
 
 - 只有事件库（T2.2）分配 `seq`，在会话锁内原子追加。增量文本先按短窗口合并（60 ms，ADR-0002 §3）再分配 `seq`；不能合并的事件到达时先 flush 已缓冲的增量，保证顺序。
 - 事件不修改、不删除。“替换”（已提交消息替换增量）是投影层的语义，事件本身都保留。
-- 客户端遇到不认识的 `type` 必须忽略（向前兼容）；Host 发新事件类型前按客户端 `capabilities` 门控（ADR-0002 §2）。
+- 客户端遇到不认识的 `type` 必须忽略内容、照常推进 `lastSeq`（向前兼容）。Host 不扣下任何事件（订阅内 `seq` 连续），能力位只用来降级已知事件里的新枚举值或新形状（host-api.md §4、§10；ADR-0002 补记 1）。
 - 工具输出、`input` 等大字段入库前按统一上限截断，上限写进 `host-api.md`（ADR-0002 §3）。
 
 ### 3.6 预留实体（v0 不实现）
@@ -389,13 +389,13 @@ resume 失败（#12 的反面）不改变状态：`error` 仍是 `error`，`clos
 
 ### 4.2 各状态下的命令
 
-每个会话的命令在 Host 内串行执行（ADR-0002 §4）。错误码名为草案，T1.2 定稿。
+每个会话的命令在 Host 内串行执行（ADR-0002 §4）。错误码名已由 T1.2 定稿（host-api.md §7）。
 
 | 命令 | `idle` | `running` / `awaiting_approval` | `cancelling` | `error` | `closed` |
 |---|---|---|---|---|---|
-| `session.send` | 接受（#2） | `session_busy`，`data` 带当前状态；不排队、不打断（ADR-0002 §4） | `session_busy` | `session_inactive`，需先 resume | `session_inactive` |
+| `session.send` | 接受（#2） | `SESSION_BUSY`，`data` 带当前状态；不排队、不打断（ADR-0002 §4） | `SESSION_BUSY` | `INVALID_STATE`（`data.state`），需先 resume | `INVALID_STATE` |
 | `session.cancel` | 成功，无操作（幂等） | 接受（#5） | 成功，无操作 | 成功，无操作 | 成功，无操作 |
-| `approval.respond` | `already_decided` 或 `not_found` | 对 `pending` 审批接受（§5） | `already_decided`（已结为 `cancelled`） | `already_decided` | `already_decided` |
+| `approval.respond` | `ALREADY_DECIDED` 或 `APPROVAL_NOT_FOUND` | 对 `pending` 审批接受（§5） | `ALREADY_DECIDED`（已结为 `cancelled`） | `ALREADY_DECIDED` | `ALREADY_DECIDED` |
 | `session.close` | 接受（#13） | 接受（#14） | 接受（#14） | 接受（#13） | 成功，无操作 |
 | `session.resume` | 成功，无操作 | 成功，无操作 | 成功，无操作 | 接受（#12） | 接受（#12） |
 
@@ -420,7 +420,7 @@ stateDiagram-v2
 
 1. **创建**：适配器上报 `request_permission` 时，会话管理器分配 `ApprovalId`，从同一会话里 `toolCallId` 相同的 `tool.started` 取详情，写 `approval.requested`，会话转 `awaiting_approval`。
 2. **首个决定生效**：`approval.respond` 按会话串行处理。第一个到达的请求把审批锁定为“提交中”，经适配器回复引擎（ACP `{"outcome":{"outcome":"selected","optionId":…}}`）；成功后写 `approval.resolved`，`status` 按所选选项的 `category` 取 `approved` 或 `denied`，`decidedBy` 取该连接的 `ClientIdentity`。
-3. **后到者**：审批已不是 `pending` 时，`approval.respond` 返回 `already_decided`，`data` 带既有的 `status` 与 `resolution`。因为命令串行，“提交中”期间到达的请求会排在后面，拿到的同样是 `already_decided`。`optionId` 不在选项里返回参数错误，不改变审批。
+3. **后到者**：审批已不是 `pending` 时，`approval.respond` 返回 `ALREADY_DECIDED`，`data` 带既有的 `status` 与 `resolution`。因为命令串行，“提交中”期间到达的请求会排在后面，拿到的同样是 `ALREADY_DECIDED`。`optionId` 不在选项里返回 `INVALID_PARAMS`，不改变审批。
 4. **暂扣引擎事件**：提交期间，同一会话里适配器上报的引擎事件先缓冲，等 `approval.resolved` 写入后再追加。dsh 回复后几毫秒就发出该工具的 `tool_call_update`（`B-permission-allow.jsonl`：回复 901 ms，更新 906 ms），不暂扣会出现“工具已完成、审批还未决定”的顺序（ADR-0002 §4）。
 5. **由 Host 结算为 `cancelled`**：`session.cancel`（`turn_cancelled`）、`session.close`（`session_closed`）、dsh 进程退出（`engine_exited`）、Host 优雅退出（`host_shutdown`）。前两种情况适配器必须以 `{"outcome":{"outcome":"cancelled"}}` 回复 ACP，否则 dsh 侧悬挂（ADR-0001 §6）；`decidedBy` 为空。
 6. **由 Host 结算为 `expired`**：Host 非正常退出后重启，启动对账时把残留的 `pending` 审批结为 `expired`（`host_restarted`）。此时 dsh 进程已随 Host 消失，没有可回复的请求。
@@ -847,7 +847,7 @@ type ChatPart =
 
 | 事项 | 任务 |
 |---|---|
-| ID 生成算法、错误码最终命名（`session_busy`、`session_inactive`、`already_decided`、`not_found`）、截断上限、`engine.raw` 是否按能力门控 | T1.2 |
+| ~~ID 生成算法、错误码最终命名、截断上限、`engine.raw` 是否按能力门控~~：已定稿，见 host-api.md §6、§7、§9、§11；`engine.raw` 不门控（§5） | T1.2 ✅ |
 | 展示类型映射、错误归类、增量对齐放在适配器还是 Host；`AgentEvent` 定稿 | T1.3 |
 | `workspaces.removed_at`、`sessions` 缓存列、`approvals` 表、引擎会话 ID 唯一索引 | T2.1 |
 | 标题截取长度、取消超时、Host 重启对账的实现 | T2.3 |

@@ -173,7 +173,7 @@ wevir/
 | T0.6 | 首批 ADR 定稿 | T0.3–T0.5 | [x] | `docs/adr/` README + 0001–0004 Accepted：ACP + stream-tap 旁路、JSON-RPC/WS 与进程模型（吸收 Paseo A1–A21）、`node:sqlite`（附基准实测）、工具链确认；§1.4、§3、§6 同步，新增 T3.2a；UPSTREAM.md 补 OpenWork 许可证三点与 dsh 依赖闭包初核 |
 | **M1** | **契约先行** | | | |
 | T1.1 | 领域模型 v0 | T0.6 | [x] | `docs/architecture/domain-model.md`：五个实体与三个预留实体、产品层事实 / 引擎投影划分与会话 ID 映射、会话与审批状态机（mermaid）、事件目录 v0（新增 `user.message`、`turn.*`、`assistant.stream_ended`、`todo.updated`）、增量合并与工具收尾规则、dsh 工具名 → 展示类型、不直接采用 `UIMessage`；§9 逐项对照全部 ACP 样本 |
-| T1.2 | Host API v0（protocol 包） | T1.1 | [ ] | |
+| T1.2 | Host API v0（protocol 包） | T1.1 | [x] | `packages/protocol`（zod 4.6）：协议 `0.1.0` 与版本协商、领域实体、JSON-RPC 封装、20 个方法 + `events.event` 的注册表 `MethodSchemas` / `NotificationSchemas`、19 种事件的判别联合、错误码与关闭码、截断与连接健康常量；`docs/architecture/host-api.md`（表格由测试与代码比对）；冻结样本 `src/compat/0.1.0.json`；ADR-0002 补记能力门控不扣事件 |
 | T1.3 | AgentRuntimeAdapter 接口 + 契约测试 + echo 适配器 | T1.1 | [ ] | 可与 T1.2 并行 |
 | **M2** | **Local Agent Host 核心** | | | |
 | T2.1 | storage：SQLite schema 与迁移 | T1.2 | [ ] | |

@@ -182,6 +182,12 @@ importers:
         specifier: ^5.0.3
         version: 5.0.3(@types/node@22.20.5)(vite@8.3.4(@types/node@22.20.5))
 
+  packages/protocol:
+    dependencies:
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
+
 packages:
 
   '@biomejs/biome@2.5.15':
@@ -949,6 +955,9 @@ packages:
     resolution: {integrity: sha512-t5pANCF6k9rgJre7jk8DMAU4lEoI1oWWZgXk0fcvmCYQquFVWv0rf6Awwt56nnPiHb0E24dhtrpfgf9ChTCbrQ==}
     engines: {node: '>=14.18.0'}
 
+  zod@4.6.5:
+    resolution: {integrity: sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q==}
+
 snapshots:
 
   '@biomejs/biome@2.5.15':
@@ -1450,3 +1459,5 @@ snapshots:
     dependencies:
       '@yuku-toolchain/types': 0.18.1
       yuku-core: 0.18.1
+
+  zod@4.6.5: {}

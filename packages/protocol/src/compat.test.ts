@@ -1,0 +1,115 @@
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import frozen010 from './compat/0.1.0.json' with { type: 'json' };
+import {
+  ErrorCode,
+  type ErrorCodeName,
+  ErrorDataSchemas,
+  EventPayloadSchemas,
+  isKnownEventType,
+  isMethodName,
+  JsonRpcErrorResponseSchema,
+  MethodSchemas,
+  NotificationSchemas,
+  WevirEventSchema,
+} from './index.js';
+
+// compat/<版本>.json 是该协议版本发布时冻结的报文样本，之后只加新文件、不改旧文件。
+// 当前 schema 必须仍能解析所有旧样本（host-api.md「兼容规则」）。
+
+interface FrozenSamples {
+  protocolVersion: string;
+  methods: Record<string, { params: unknown[]; result: unknown[] }>;
+  notifications: Record<string, unknown[]>;
+  events: unknown[];
+  errors: { name: string; response: { error: { code: number; data?: unknown } } }[];
+}
+
+const frozenVersions: FrozenSamples[] = [frozen010];
+
+function issuesOf(schema: z.ZodType, value: unknown) {
+  return schema.safeParse(value).error?.issues;
+}
+
+describe.each(frozenVersions)('旧报文仍能解析：$protocolVersion', (frozen) => {
+  it('方法：名字都还在，params 与 result 都能解析', () => {
+    for (const [method, samples] of Object.entries(frozen.methods)) {
+      expect(isMethodName(method), `方法被删除：${method}`).toBe(true);
+      if (!isMethodName(method)) continue;
+      for (const params of samples.params) {
+        expect(issuesOf(MethodSchemas[method].params, params), method).toBeUndefined();
+      }
+      for (const result of samples.result) {
+        expect(issuesOf(MethodSchemas[method].result, result), method).toBeUndefined();
+      }
+    }
+  });
+
+  it('通知', () => {
+    for (const [name, samples] of Object.entries(frozen.notifications)) {
+      expect(name in NotificationSchemas, `通知被删除：${name}`).toBe(true);
+      const schema = NotificationSchemas[name as keyof typeof NotificationSchemas].params;
+      for (const params of samples) expect(issuesOf(schema, params), name).toBeUndefined();
+    }
+  });
+
+  it('事件：类型都还在，整条事件能解析', () => {
+    for (const event of frozen.events) {
+      const type = (event as { type: string }).type;
+      expect(isKnownEventType(type), `事件类型被删除：${type}`).toBe(true);
+      expect(issuesOf(WevirEventSchema, event), type).toBeUndefined();
+    }
+  });
+
+  it('错误：数值没变，data 能解析', () => {
+    for (const { name, response } of frozen.errors) {
+      expect(ErrorCode[name as ErrorCodeName], `错误码被删除或改值：${name}`).toBe(
+        response.error.code,
+      );
+      expect(issuesOf(JsonRpcErrorResponseSchema, response), name).toBeUndefined();
+      const dataSchema = ErrorDataSchemas[name as keyof typeof ErrorDataSchemas];
+      expect(issuesOf(dataSchema, response.error.data), name).toBeUndefined();
+    }
+  });
+});
+
+describe('兼容纪律的演示', () => {
+  const objectSchemas: [string, z.ZodObject][] = [
+    ...Object.entries(MethodSchemas).flatMap(([m, s]) =>
+      [
+        [`${m} params`, s.params],
+        [`${m} result`, s.result],
+      ].filter((entry): entry is [string, z.ZodObject] => entry[1] instanceof z.ZodObject),
+    ),
+    ...Object.entries(EventPayloadSchemas),
+  ];
+
+  function frozenSamplesFor(name: string): unknown[] {
+    const [key, part] = name.split(' ');
+    const method = frozen010.methods[key as keyof typeof frozen010.methods];
+    if (method && (part === 'params' || part === 'result')) return method[part];
+    return frozen010.events
+      .filter((event) => event.type === name)
+      .map((event) => (event as { payload: unknown }).payload);
+  }
+
+  it('给 schema 加一个 optional 字段后，旧样本照样通过（新 Host 读旧客户端）', () => {
+    for (const [name, schema] of objectSchemas) {
+      const evolved = schema.extend({ addedInFuture: z.string().optional() });
+      const samples = frozenSamplesFor(name);
+      expect(samples.length, `没有冻结样本：${name}`).toBeGreaterThan(0);
+      for (const sample of samples) expect(issuesOf(evolved, sample), name).toBeUndefined();
+    }
+  });
+
+  it('新报文多出的字段，旧 schema 忽略它（旧客户端读新 Host）', () => {
+    for (const [name, schema] of objectSchemas) {
+      for (const sample of frozenSamplesFor(name)) {
+        const newer = { ...(sample as object), addedInFuture: 'x' };
+        const parsed = schema.safeParse(newer);
+        expect(parsed.error?.issues, name).toBeUndefined();
+        expect(parsed.data).not.toHaveProperty('addedInFuture');
+      }
+    }
+  });
+});

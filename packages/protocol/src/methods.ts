@@ -1,0 +1,361 @@
+import { z } from 'zod';
+import {
+  ClientCapabilitiesSchema,
+  HostFeaturesSchema,
+  type Permission,
+  PermissionsSchema,
+} from './capabilities.js';
+import {
+  ApprovalIdSchema,
+  ClientKindSchema,
+  ClientTokenSchema,
+  HostIdSchema,
+  ProviderIdSchema,
+  SeqCursorSchema,
+  SeqSchema,
+  SessionIdSchema,
+  SubscriptionIdSchema,
+  TurnIdSchema,
+  WorkspaceIdSchema,
+} from './common.js';
+import {
+  ApprovalResolutionSchema,
+  EngineErrorInfoSchema,
+  HttpUrlSchema,
+  ProviderApiSchema,
+  ProviderCompatSchema,
+  ProviderModelSchema,
+  ProviderProfileSchema,
+  ResolvedApprovalStatusSchema,
+  SessionSchema,
+  SessionSnapshotSchema,
+  UserContentPartSchema,
+  WorkspaceSchema,
+} from './entities.js';
+import { WevirEventSchema } from './events.js';
+import { ProtocolVersionSchema } from './version.js';
+
+// Host API v0 的方法与通知。语义、错误与示例报文见 docs/architecture/host-api.md。
+
+const EmptySchema = z.object({});
+
+// ── host.* ────────────────────────────────────────────────────────────
+
+export const HostHelloParamsSchema = z.object({
+  /** `run/host.json` 里的令牌。 */
+  token: z.string().min(1),
+  protocolVersion: ProtocolVersionSchema,
+  clientKind: ClientKindSchema,
+  /** 设备级标识。 */
+  deviceId: ClientTokenSchema,
+  /** 每个安装持久；同一台设备上的桌面与 CLI 不同。 */
+  clientId: ClientTokenSchema,
+  capabilities: ClientCapabilitiesSchema,
+});
+
+export const HostHelloResultSchema = z.object({
+  hostId: HostIdSchema,
+  hostVersion: z.string().min(1),
+  /** 协商后的版本：客户端与 Host 中较低的一个。 */
+  protocolVersion: ProtocolVersionSchema,
+  minProtocolVersion: ProtocolVersionSchema,
+  features: HostFeaturesSchema,
+  /** 本连接拿到的权限；骨架阶段恒为 `PERMISSIONS` 全部。 */
+  permissions: PermissionsSchema,
+});
+
+// ── workspace.* ───────────────────────────────────────────────────────
+
+export const WorkspaceListResultSchema = z.object({
+  workspaces: z.array(WorkspaceSchema),
+});
+
+export const WorkspaceAddParamsSchema = z.object({
+  /** 绝对路径；Host 取 realpath 后去重。 */
+  rootPath: z.string().min(1),
+  /** 省略时取目录名。 */
+  displayName: z.string().min(1).optional(),
+});
+
+export const WorkspaceAddResultSchema = z.object({
+  workspace: WorkspaceSchema,
+  /** false：同一 realpath 已有工作区（含曾被移除的），返回原 `id`。 */
+  created: z.boolean(),
+});
+
+export const WorkspaceRemoveParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+});
+
+// ── provider.* ────────────────────────────────────────────────────────
+
+export const ProviderListResultSchema = z.object({
+  providers: z.array(ProviderProfileSchema),
+});
+
+const providerUpsertCommon = {
+  displayName: z.string().min(1),
+  defaultModelId: z.string().min(1),
+  /**
+   * 省略：保留已存的 Key；字符串：设置或替换；null：删除。
+   * Key 只进 SecretStore，Host 不得把它写进日志或任何响应。
+   */
+  apiKey: z.string().min(1).nullable().optional(),
+};
+
+/** 整体替换非密钥字段（不是合并）；`id` 不存在时新建。`kind` 创建后不可改。 */
+export const ProviderUpsertParamsSchema = z.discriminatedUnion('kind', [
+  z.object({
+    ...providerUpsertCommon,
+    /** dsh 的路由名固定，所以这类 Profile 最多一个。 */
+    id: z.literal('deepseek-official'),
+    kind: z.literal('deepseek-official'),
+    baseURL: HttpUrlSchema.optional(),
+    models: z.array(ProviderModelSchema),
+  }),
+  z.object({
+    ...providerUpsertCommon,
+    id: ProviderIdSchema,
+    kind: z.literal('openai-compatible'),
+    api: ProviderApiSchema,
+    baseURL: HttpUrlSchema,
+    compat: ProviderCompatSchema.optional(),
+    models: z.array(ProviderModelSchema).min(1),
+  }),
+]);
+
+export const ProviderUpsertResultSchema = z.object({
+  provider: ProviderProfileSchema,
+  created: z.boolean(),
+});
+
+export const ProviderIdParamsSchema = z.object({
+  providerId: ProviderIdSchema,
+});
+
+export const ProviderTestParamsSchema = z.object({
+  providerId: ProviderIdSchema,
+  /** 省略时用 `defaultModelId`。 */
+  modelId: z.string().min(1).optional(),
+});
+
+export const ProviderTestResultSchema = z.object({
+  ok: z.boolean(),
+  latencyMs: z.int().min(0).optional(),
+  /** `ok` 为 false 时必有。 */
+  error: EngineErrorInfoSchema.optional(),
+});
+
+// ── session.* ─────────────────────────────────────────────────────────
+
+export const SessionCreateParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  providerId: ProviderIdSchema,
+  /** 省略时用 Provider 的 `defaultModelId`。 */
+  modelId: z.string().min(1).optional(),
+  reasoningEffort: z.string().min(1).optional(),
+});
+
+export const SessionResultSchema = z.object({
+  session: SessionSchema,
+});
+
+export const SessionListParamsSchema = z.object({
+  /** 省略时列出所有未移除工作区的会话。 */
+  workspaceId: WorkspaceIdSchema.optional(),
+});
+
+export const SessionListResultSchema = z.object({
+  /** 按 `updatedAt` 从新到旧。 */
+  sessions: z.array(SessionSchema),
+});
+
+export const SessionIdParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+export const SessionSendParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  content: z.array(UserContentPartSchema).min(1),
+  /** 幂等键：同一会话里同一 ID 重发返回原结果，不再发给引擎；请求体不同则 `CLIENT_MESSAGE_CONFLICT`。 */
+  clientMessageId: ClientTokenSchema.optional(),
+});
+
+export const SessionSendResultSchema = z.object({
+  turnId: TurnIdSchema,
+  /** 本次 `user.message` 事件的 `seq`。 */
+  seq: SeqSchema,
+});
+
+// ── approval.* ────────────────────────────────────────────────────────
+
+export const ApprovalRespondParamsSchema = z.object({
+  approvalId: ApprovalIdSchema,
+  /** 必须是该审批 `options` 里的一个，否则 `INVALID_PARAMS`。 */
+  optionId: z.string().min(1),
+});
+
+export const ApprovalRespondResultSchema = z.object({
+  approvalId: ApprovalIdSchema,
+  status: ResolvedApprovalStatusSchema,
+  resolution: ApprovalResolutionSchema,
+});
+
+// ── events.* ──────────────────────────────────────────────────────────
+
+export const EventsSubscribeParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  /** 补发 `seq > sinceSeq` 的事件；0 = 从头开始。 */
+  sinceSeq: SeqCursorSchema,
+});
+
+export const EventsSubscribeResultSchema = z.object({
+  subscriptionId: SubscriptionIdSchema,
+  /** 回放结束标记：订阅建立时会话的 `lastSeq`。客户端应用到这个 `seq` 即追平，之后都是实时事件。 */
+  replayedThroughSeq: SeqCursorSchema,
+});
+
+export const EventsUnsubscribeParamsSchema = z.object({
+  subscriptionId: SubscriptionIdSchema,
+});
+
+/** `events.event` 通知的参数：每条通知一个事件。 */
+export const EventsEventParamsSchema = z.object({
+  subscriptionId: SubscriptionIdSchema,
+  event: WevirEventSchema,
+});
+
+// ── 注册表 ────────────────────────────────────────────────────────────
+
+export interface MethodSpec {
+  params: z.ZodType;
+  result: z.ZodType;
+  /** 调用所需权限；null = 不需要（握手与心跳）。 */
+  permission: Permission | null;
+}
+
+/**
+ * 客户端 → Host 的方法注册表，Host 与 client-sdk 共用。键是方法名，顺序与 host-api.md 的方法表一致。
+ * 除 `host.hello` 外，所有方法都要求本连接已完成 hello。
+ */
+export const MethodSchemas = {
+  'host.hello': {
+    params: HostHelloParamsSchema,
+    result: HostHelloResultSchema,
+    permission: null,
+  },
+  'host.ping': { params: EmptySchema, result: EmptySchema, permission: null },
+  'host.shutdown': { params: EmptySchema, result: EmptySchema, permission: 'host.manage' },
+
+  'workspace.list': {
+    params: EmptySchema,
+    result: WorkspaceListResultSchema,
+    permission: 'workspace.read',
+  },
+  'workspace.add': {
+    params: WorkspaceAddParamsSchema,
+    result: WorkspaceAddResultSchema,
+    permission: 'workspace.write',
+  },
+  'workspace.remove': {
+    params: WorkspaceRemoveParamsSchema,
+    result: EmptySchema,
+    permission: 'workspace.write',
+  },
+
+  'provider.list': {
+    params: EmptySchema,
+    result: ProviderListResultSchema,
+    permission: 'provider.read',
+  },
+  'provider.upsert': {
+    params: ProviderUpsertParamsSchema,
+    result: ProviderUpsertResultSchema,
+    permission: 'provider.write',
+  },
+  'provider.remove': {
+    params: ProviderIdParamsSchema,
+    result: EmptySchema,
+    permission: 'provider.write',
+  },
+  'provider.test': {
+    params: ProviderTestParamsSchema,
+    result: ProviderTestResultSchema,
+    permission: 'provider.write',
+  },
+
+  'session.create': {
+    params: SessionCreateParamsSchema,
+    result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.list': {
+    params: SessionListParamsSchema,
+    result: SessionListResultSchema,
+    permission: 'session.read',
+  },
+  'session.get': {
+    params: SessionIdParamsSchema,
+    result: SessionSnapshotSchema,
+    permission: 'session.read',
+  },
+  'session.send': {
+    params: SessionSendParamsSchema,
+    result: SessionSendResultSchema,
+    permission: 'session.write',
+  },
+  'session.cancel': {
+    params: SessionIdParamsSchema,
+    result: EmptySchema,
+    permission: 'session.write',
+  },
+  'session.close': {
+    params: SessionIdParamsSchema,
+    result: EmptySchema,
+    permission: 'session.write',
+  },
+  'session.resume': {
+    params: SessionIdParamsSchema,
+    result: SessionResultSchema,
+    permission: 'session.write',
+  },
+
+  'approval.respond': {
+    params: ApprovalRespondParamsSchema,
+    result: ApprovalRespondResultSchema,
+    permission: 'session.write',
+  },
+
+  'events.subscribe': {
+    params: EventsSubscribeParamsSchema,
+    result: EventsSubscribeResultSchema,
+    permission: 'session.read',
+  },
+  'events.unsubscribe': {
+    params: EventsUnsubscribeParamsSchema,
+    result: EmptySchema,
+    permission: 'session.read',
+  },
+} as const satisfies Record<string, MethodSpec>;
+
+export type MethodName = keyof typeof MethodSchemas;
+export type MethodParams<M extends MethodName> = z.infer<(typeof MethodSchemas)[M]['params']>;
+export type MethodResult<M extends MethodName> = z.infer<(typeof MethodSchemas)[M]['result']>;
+
+export const METHOD_NAMES = Object.keys(MethodSchemas) as MethodName[];
+
+export function isMethodName(method: string): method is MethodName {
+  return Object.hasOwn(MethodSchemas, method);
+}
+
+/** Host → 客户端的通知注册表。 */
+export const NotificationSchemas = {
+  'events.event': { params: EventsEventParamsSchema },
+} as const satisfies Record<string, { params: z.ZodType }>;
+
+export type NotificationName = keyof typeof NotificationSchemas;
+export type NotificationParams<N extends NotificationName> = z.infer<
+  (typeof NotificationSchemas)[N]['params']
+>;
+
+export const NOTIFICATION_NAMES = Object.keys(NotificationSchemas) as NotificationName[];
