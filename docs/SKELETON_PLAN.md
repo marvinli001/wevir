@@ -164,7 +164,7 @@ wevir/
 | T0.1 | 初始化 monorepo 与工程规范 | — | [x] | pnpm 12 workspace、TS 7（NodeNext）、Biome 2.5 `noRestrictedImports` + `scripts/check-engine-boundary.mjs` 守引擎边界（`spikes/` 豁免、不得被反向引用）、Vitest 5 projects、tsdown；占位包 `packages/protocol`；AGENTS.md |
 | T0.2 | 上游参考快照与许可证核实 | T0.1 | [x] | `scripts/upstream-sync.sh` + `docs/upstream/upstream.lock`（dsh `d743267` = tag `dsh-v0.2.1-alpha.2`、OpenWork `ad22cdc`、Paseo `dc7bc8d`）；`docs/upstream/UPSTREAM.md`：Paseo 实为 Apache-2.0，OpenWork `ee/` 之外 MIT；`.gitignore` 改为 `/upstream/`（原写法误忽略了 `docs/upstream/`） |
 | T0.3 | dsh 接入 Spike（ACP vs SDK） | T0.2 | [ ] | 可与 T0.4、T0.5 并行 |
-| T0.4 | Paseo 架构研读 | T0.2 | [ ] | 可并行 |
+| T0.4 | Paseo 架构研读 | T0.2 | [x] | `docs/research/paseo-notes.md`（Paseo `dc7bc8d`）：8 个问题逐条附源码行号；§9 三栏结论，直接采纳 A1–A21 各自落到 T1.1–T5.1；§10 对 ADR-0002 与 T1.2–T5.1 的修改建议交 T0.6 |
 | T0.5 | OpenWork 架构研读 | T0.2 | [ ] | 可并行 |
 | T0.6 | 首批 ADR 定稿 | T0.3–T0.5 | [ ] | |
 | **M1** | **契约先行** | | | |
