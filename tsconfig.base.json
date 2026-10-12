@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    // NodeNext 而非 Bundler：host / adapter-dsh / cli 直接跑在 Node 上，类型检查要和 Node 的真实
+    // 解析规则一致（相对导入写 .js 后缀、严格遵守依赖的 exports）。按 NodeNext 写的代码打包器
+    // 也能处理，反之不成立。只走打包器的包（如将来的 desktop renderer）可在自己的 tsconfig 里
+    // 改成 "module": "preserve" + "moduleResolution": "bundler"。
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "moduleDetection": "force",
+    // 各包按需声明，例如 Node 包写 ["node"]；protocol 这类两端共用的包保持为空。
+    "types": [],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "declaration": true,
+    "declarationMap": true
+  }
+}
