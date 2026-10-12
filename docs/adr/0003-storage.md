@@ -83,4 +83,10 @@
 
 ## 补记
 
-（暂无）
+1. **2026-10-13，T2.1：实现时定下的细节。**
+   - **加载方式**：驱动模块用 `process.getBuiltinModule('node:sqlite')`（Node 22.3 加入）在第一次打开数据库时才加载，而不是文件顶部的静态 `import`。原因：Node 22 上加载 `node:sqlite` 会打印实验性警告，只用 `SecretStore` 等不开库的场景不该出现；ESM 命名空间导入还会读到全部导出，包括 26.11 起弃用的 `DatabaseSync` 别名。仍然只有 `src/driver.ts` 加载它，测试会检查。
+   - **busy timeout 与 defensive**：busy timeout 用 `PRAGMA busy_timeout = 5000` 设置（任何版本都有），不依赖 22.16 才有的 `timeout` 选项；`enableDefensive(true)`（24.12 加入）存在才调用。
+   - **迁移文件在运行时读取**：`migrate()` 从 `<包根>/migrations/` 读 SQL（`src/` 与 `dist/` 都在包根下一层），`package.json` 的 `files` 包含 `migrations`。将来把 Host 打成单文件或放进 asar 时，要么一起带上这个目录，要么改成构建期内联；只改 `src/migrate.ts`。
+   - **`SecretStore` 是异步接口**（`Promise`）：文件实现用不到，但系统钥匙串的 API 多是异步的，迁移时接口不变。
+   - **`clientMessageId` 回执**（表 `send_receipts`）的 `status`：`accepted`（已写 `user.message`、未确认引擎收到）→ `confirmed`；Host 启动对账时仍是 `accepted` 的标为 `unknown`，不自动重发（ADR-0002 §4）。请求指纹由 `requestFingerprint()` 计算：对象键排序后的 JSON 的 SHA-256。何时置 `confirmed` 由 T2.3 决定。
+   - **未在 Node 22.19 上实测**：本机只有 Node 26.10。驱动只用了 22.19 文档里已有的 API（`DatabaseSync`、`exec` / `prepare`、`isOpen` / `isTransaction`、命名参数），T6.2 的 CI 按“后果”一节再跑一次 `engines` 下限。

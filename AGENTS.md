@@ -32,7 +32,8 @@ Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨�
 wevir/
 ├─ packages/
 │  ├─ protocol/        Host API 协议包：zod schema、方法注册表、事件、错误码（见 docs/architecture/host-api.md）
-│  └─ runtime-adapter/ 引擎适配接口 AgentRuntimeAdapter / AgentEvent；子路径 ./contract 是契约测试套件，./echo 是开发用假引擎
+│  ├─ runtime-adapter/ 引擎适配接口 AgentRuntimeAdapter / AgentEvent；子路径 ./contract 是契约测试套件，./echo 是开发用假引擎
+│  └─ storage/         Host 本地存储：node:sqlite 驱动（只在 src/driver.ts）、事务、手写 SQL 迁移（migrations/）、各表仓储、SecretStore
 ├─ docs/               规划、任务 prompt、上游登记（docs/upstream/）、ADR、研究笔记、架构文档（docs/architecture/）
 ├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh）
 ├─ biome.json          lint + format（含引擎边界规则）
