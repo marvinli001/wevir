@@ -8,14 +8,17 @@
   "sideEffects": false,
   "exports": {
     ".": {
+      "@wevir/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
     "./echo": {
+      "@wevir/source": "./src/echo.ts",
       "types": "./dist/echo.d.ts",
       "default": "./dist/echo.js"
     },
     "./contract": {
+      "@wevir/source": "./src/contract.ts",
       "types": "./dist/contract.d.ts",
       "default": "./dist/contract.js"
     },

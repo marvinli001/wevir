@@ -75,4 +75,24 @@
 
 ## 补记
 
-（暂无）
+1. **2026-10-13，chore（M2 前置）：工作区包之间按源码解析。** 库包的 `exports` 原先只指向 `dist/`；M2 起 `packages/host` 依赖 `@wevir/protocol` 与 `@wevir/runtime-adapter`（测试里 import `./echo`、`./contract`），T3.x 的 adapter-dsh 跑 `runAdapterContract`。实测在没有 `dist/` 时消费方 `tsc --noEmit` 报 TS2307（找不到 `@wevir/runtime-adapter/echo`），Vitest 报 `Failed to resolve entry`；有 `dist/` 但过期时则静默地检查和测试旧代码。定为：
+   - 每个库包 `exports` 的每个子路径，第一个条件写 `"@wevir/source": "./src/<入口>.ts"`，其后照旧是指向 `dist/` 的 `types` / `default`。条件名带作用域，外部工具和第三方包不会启用它。
+   - `tsconfig.base.json` 设 `"customConditions": ["@wevir/source"]`，所有包继承。
+   - 每个包的 `vitest.config.ts` 设 `ssr: { resolve: { conditions: ['@wevir/source'] } }`。
+   - Node 直接运行、tsdown 打包和发布不认这个条件，照常走 `dist/`。
+
+   按 node_modules 里实际安装的版本核实：
+   - **TypeScript 7.0.2（tsgo）**：`tsc --all` 列出 `--customConditions`，与 `nodenext` 一起生效；`tsc --listFiles` 显示消费方程序里是 `packages/*/src/*.ts`。
+   - **Vitest 5.0.3 + Vite 8.3.4**：按 glob 发现的 project 配置文件不继承根配置（`extends` 只存在于内联 project 的类型 `TestProjectInlineConfiguration`），写在根 `vitest.config.ts` 实测无效。Node 环境的测试跑在 Vite 的 `ssr` 环境里，Vitest 的 `vitest:config` 插件给 `environments.ssr.resolve` 设了默认条件 `['node', 'development|production']`，所以顶层 `resolve.conditions` 到不了 ssr 环境（实测仍失败）；`ssr.resolve.conditions` 生效，并与默认值拼接成 `['@wevir/source', 'node', 'development|production']`，不需要手动带上 `defaultServerConditions`。
+   - **tsdown 0.23.1**：消费方构建时，`dependencies` 里的 `@wevir/*` 默认 external，JS 与 d.ts 产物都保留 `import … from '@wevir/protocol'`，运行时由 Node 按默认条件解析到 `dist/`（构建后用纯 Node 运行通过）。tsdown 自带的 `exports.devExports: '<条件名>'` 能生成同样形状的 exports，但它在每次构建时改写 `package.json`，生成的条目也没有 `types`，所以 exports 继续手写；条件名不变，以后改用它不影响本约定。
+   - **验收**：临时消费方包同时 import 两个包（含 `./echo`、`./contract`，并跑一遍 `runAdapterContract`，另用 `@ts-expect-error` 确认类型没有退化成 `any`）。删除全部 `dist/` 后 `pnpm typecheck`、`pnpm test`（9 个测试文件，255 通过、3 跳过）、`pnpm lint` 通过；把 protocol 的 `dist/` 换成一加载就抛错、类型故意写错的文件后，消费方的测试和类型检查仍通过，说明优先走源码。临时包已删除。
+
+   备选方案：TS project references + `tsc -b`（tsgo 7.0 支持 `--build`）只解决类型检查，Vitest 仍按 exports 解析到 `dist/`，而且 `composite` 要输出 d.ts 和 tsbuildinfo，与 tsdown 的 `dist/` 成为两个 d.ts 来源；要求先 `pnpm build` 会让每次类型检查和测试都全量构建，`dist/` 过期时静默测旧代码，CI 多一步；tsconfig `paths` 或 Vitest `resolve.alias` 要在 exports 之外再维护一份子路径映射，还绕过了 exports 的封装。三者都不采纳。
+
+   后果：
+   - 消费方类型检查会用**自己的** compilerOptions 检查依赖包的源码，所以消费方的 `types` 要覆盖依赖源码用到的环境类型。例如依赖 `@wevir/runtime-adapter` 的包要有 `"types": ["node"]`（`contract.ts` 用了 `process`）。
+   - 只有类型检查和 Vitest 认这个条件。在 Node 里直接运行工作区包（如 T2.5 的 `wevir-host` 入口）仍要先 `pnpm build`。不要给 `node` 传 `--conditions=@wevir/source`：Node 22.18 起虽然能剥离类型，但源码里的相对导入写的是 `.js`，实测（Node 26）报 `ERR_MODULE_NOT_FOUND`。
+   - Vitest 把 `ssr.resolve.conditions` 原样作为 `--conditions` 传给测试 worker（换成 `environments.ssr` 写法也一样）。`child_process.fork` 默认继承 `process.execArgv`，所以测试里 fork 出来的 Node 子进程加载工作区包时会落到 `src/` 并失败。启动子进程用 `spawn(process.execPath, …)`，或给 `fork` 显式传 `execArgv`；子进程跑的是 `dist/`，这类测试（如 Gate M2 里杀掉并重启 Host）要先 `pnpm build`。
+   - T6.2 的 CI 跑 typecheck / test 前不需要构建，只有上一条那类测试出现时再加。
+   - 以后有 jsdom / happy-dom 等 Web 环境的 project（T5.x 的 renderer）时，这些测试走 Vite 的 client 环境，要再设顶层 `resolve.conditions: ['@wevir/source']`（实测同样与默认值拼接）。electron-vite 的开发构建如果要直接用源码，也要在 renderer 配置里加这个条件，否则按默认条件走 `dist/`。
+   - 包都是 `private`，`files` 只含 `dist`；万一将来发布，`@wevir/source` 指向的 `src/` 不在包里，但外部不会启用这个条件。

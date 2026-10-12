@@ -10,6 +10,10 @@
     "module": "nodenext",
     "moduleResolution": "nodenext",
     "moduleDetection": "force",
+    // 工作区库包的 exports 里第一个条件是 "@wevir/source"，指向 src/*.ts。类型检查认这个条件，
+    // 所以依赖其他工作区包时不需要先 pnpm build；Node、打包器和发布出去的包不认它，照常走 dist/。
+    // Vitest 对应的设置在各包 vitest.config.ts 的 ssr.resolve.conditions（ADR-0004 补记 1）。
+    "customConditions": ["@wevir/source"],
     // 各包按需声明，例如 Node 包写 ["node"]；protocol 这类两端共用的包保持为空。
     "types": [],
 

@@ -49,7 +49,7 @@ wevir/
 | 命令 | 作用 |
 |---|---|
 | `pnpm install` | 安装依赖 |
-| `pnpm build` | 构建所有包（库用 tsdown） |
+| `pnpm build` | 构建所有包（库用 tsdown）；typecheck 和 test 不依赖它，只有在 Node 里直接运行包时才需要先构建 |
 | `pnpm dev` | 并行运行各包的 `dev` 脚本（目前没有包提供） |
 | `pnpm lint` | `biome check`（lint、格式检查、import 边界）+ 依赖声明边界检查 |
 | `pnpm lint:fix` | 自动修复 lint 与格式问题 |
@@ -66,7 +66,12 @@ wevir/
 - 全仓库 ESM（`"type": "module"`），TypeScript strict。模块解析用 `NodeNext`，所以相对导入要写 `.js` 后缀：`import { x } from './x.js'`。只走打包器的包可以在自己的 tsconfig 里改用 `bundler`。
 - 测试文件与源码放在一起，命名 `*.test.ts`，从 `vitest` 显式 import `describe` / `it` / `expect`。
 - 新建一个库包时照 `packages/protocol` 抄：
-  - `package.json`：`"type": "module"`，`exports` 指向 `dist/`，脚本 `build`（tsdown）、`typecheck`（`tsc --noEmit`）、`test`（`vitest run`）。
+  - `package.json`：`"type": "module"`；`exports` 的每个子路径第一个条件写 `"@wevir/source": "./src/<入口>.ts"`，其后是指向 `dist/` 的 `types` / `default`；脚本 `build`（tsdown）、`typecheck`（`tsc --noEmit`）、`test`（`vitest run`）。
   - `tsconfig.json`：继承 `../../tsconfig.base.json`；运行在 Node 上的包加 `"types": ["node"]`。
-  - `tsdown.config.ts` 与 `vitest.config.ts`（用 `defineProject` 写 `name`）。
+  - `tsdown.config.ts` 与 `vitest.config.ts`（用 `defineProject` 写 `name`，并照抄 `ssr.resolve.conditions`）。
+  - pnpm 12.6 的坑：新包没有 `dependencies`（什么都不依赖，或只声明了可选 peer）时，`pnpm install` 显示 “Already up to date”，不会往 `pnpm-lock.yaml` 写这个包的 `importers` 条目，之后 `pnpm install --frozen-lockfile`（CI）报 `ERR_PNPM_PACKAGE_MANAGER_NO_IMPORTER`；报错里建议的 `--lockfile-only` 也补不上。运行 `pnpm install --fix-lockfile`，确认 lockfile 里有 `packages/<名字>` 条目再提交。
+- 工作区包之间的依赖用 `"workspace:*"` 声明。类型检查（`tsconfig.base.json` 的 `customConditions`）和 Vitest（各包的 `ssr.resolve.conditions`）都认 `@wevir/source` 条件，直接用依赖包的源码，不需要先 `pnpm build`；Node 直接运行、打包和发布走 `dist/`（ADR-0004 补记 1）。由此带来三条要求：
+  - 消费方的 `types` 要覆盖依赖源码用到的环境类型，例如依赖 `@wevir/runtime-adapter` 要有 `"types": ["node"]`。
+  - 测试里启动 Node 子进程不要继承 Vitest worker 的 `execArgv`（里面有 `--conditions @wevir/source`）：用 `spawn(process.execPath, …)`，或给 `fork` 显式传 `execArgv`。子进程跑 `dist/`，这类测试要先 `pnpm build`。
+  - Web 环境（jsdom 等）的 Vitest project 还要设顶层 `resolve.conditions: ['@wevir/source']`。
 - 公共开发工具（TypeScript、Biome、Vitest、tsdown、`@types/node`）装在根目录，包里只声明自己的运行时依赖。
