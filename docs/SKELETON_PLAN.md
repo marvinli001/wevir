@@ -178,7 +178,7 @@ wevir/
 | **M2** | **Local Agent Host 核心** | | | |
 | T2.1 | storage：SQLite schema 与迁移 | T1.2 | [x] | `packages/storage`（零依赖）：`node:sqlite` 只在 `src/driver.ts` 经 `process.getBuiltinModule` 延迟加载，兼容 `Database` / `DatabaseSync`；同步 `transaction()`（`BEGIN IMMEDIATE`，拒绝 Promise 与嵌套）；`migrations/0001_init.sql` + `schema_version`，启动时在事务里迁移；六张表的仓储（含 `send_receipts` 与 `requestFingerprint`）；`FileSecretStore`（0600 临时文件 + rename）。ADR-0003 补记 1 |
 | T2.2 | 事件库与回放 | T2.1 | [x] | `packages/host`：`EventStore`（`append` / `appendMany` 在 `BEGIN IMMEDIATE` 事务里读库内最大 `seq` 顺延，同一事务更新 `sessions` 缓存列与 `approvals` 表；`appendDelta` 按 60 ms 窗口首尾 flush、相邻同块合并，其他事件先 flush 增量；入库前按 host-api §11 截断；`readSince`；`subscribe` 返回 `lastSeq` 并按 `seq` 交付、支持重入）；`snapshot.ts`：事件 → 快照的纯函数推导与写入前校验（§4.1 状态转换表）；domain-model §3.3、§3.5 补推导规则 |
-| T2.3 | 会话管理器与审批状态机 | T2.2, T1.3 | [ ] | |
+| T2.3 | 会话管理器与审批状态机 | T2.2, T1.3 | [x] | `packages/host` 的 `SessionManager`：create / send / cancel / close / resume / respondToApproval，引擎会话映射与 `AgentEvent` → WevirEvent（增量、StreamId、`replaces`、审批详情、取消期间 failed → cancelled、回合结束补 unknown）；按会话串行，`send` 到达即查忙（`SESSION_BUSY` 不排队）；审批首个决定生效、提交期间暂扣引擎事件；取消 / 关闭 / 引擎退出结掉未决审批；`clientMessageId` 回执与事件同一事务（`EventStore.appendMany` 的 `inTransaction`）；适配器抛错、事件流中断按 #10 转 `error`；`recover()` 启动对账（#15、审批 expired、回执 unknown）；标题 50 字符、取消时限 5 s；`HostError`、ULID。测试用 EchoAdapter 走过 §4.1 全部 20 条转换；domain-model 新增 §4.3 实现约定，host-api §3.1 补 send / cancel / approval.respond 的细节 |
 | T2.4 | WebSocket JSON-RPC 服务 | T2.3 | [ ] | |
 | T2.5 | Host 进程入口与运行时文件 | T2.4 | [ ] | |
 | **M3** | **dsh 适配器** | | | |

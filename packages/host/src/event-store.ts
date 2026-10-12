@@ -106,9 +106,15 @@ export class EventStore {
 
   /**
    * 在一个事务里依次追加多条事件（例如一次状态转换的全部事件，domain-model §4.1），要么全写，
-   * 要么全不写。
+   * 要么全不写。`options.inTransaction` 在同一事务里、事件写入之后同步执行，拿到的是这批事件
+   * （不含先写掉的增量）；用来写必须与事件同生共死的其他行，例如 `session.send` 的发送回执。
+   * 它抛错时整批回滚。
    */
-  appendMany(sessionId: SessionId, inputs: readonly AppendInput[]): WevirEvent[] {
+  appendMany(
+    sessionId: SessionId,
+    inputs: readonly AppendInput[],
+    options: { inTransaction?: (events: readonly WevirEvent[]) => void } = {},
+  ): WevirEvent[] {
     this.#assertOpen();
     SessionIdSchema.parse(sessionId);
     const prepared = inputs.map((input) => {
@@ -117,7 +123,7 @@ export class EventStore {
       }
       return prepare(input);
     });
-    return this.#commit(sessionId, prepared);
+    return this.#commit(sessionId, prepared, options.inTransaction);
   }
 
   /**
@@ -221,7 +227,11 @@ export class EventStore {
   }
 
   /** 写入缓冲的增量与 `inputs`，返回 `inputs` 对应的事件。 */
-  #commit(sessionId: SessionId, inputs: readonly AppendInput[]): WevirEvent[] {
+  #commit(
+    sessionId: SessionId,
+    inputs: readonly AppendInput[],
+    inTransaction?: (events: readonly WevirEvent[]) => void,
+  ): WevirEvent[] {
     const buffer = this.#buffers.get(sessionId);
     const deltas = buffer?.parts ?? [];
     if (deltas.length === 0 && inputs.length === 0) return [];
@@ -245,6 +255,7 @@ export class EventStore {
         events.push(event);
       }
       this.#storage.sessions.update(sessionId, toCachePatch(projection));
+      inTransaction?.(events.slice(deltas.length));
       return { events, projection };
     });
 

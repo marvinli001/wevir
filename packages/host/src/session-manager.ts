@@ -1,0 +1,1335 @@
+import { stat } from 'node:fs/promises';
+import type {
+  ApprovalDetail,
+  ApprovalId,
+  ApprovalOption,
+  ApprovalRequest,
+  ApprovalResolution,
+  ClientIdentity,
+  EngineErrorCategory,
+  EngineErrorInfo,
+  MethodParams,
+  MethodResult,
+  ResolvedApprovalStatus,
+  Session,
+  SessionId,
+  SessionSnapshot,
+  SessionState,
+  StateChangeReason,
+  StreamBlockRef,
+  StreamId,
+  ToolDisplay,
+  TurnId,
+  TurnOutcome,
+  UserContentPart,
+} from '@wevir/protocol';
+import {
+  type AgentEvent,
+  type AgentRuntimeAdapter,
+  type ApprovalCancelledEvent,
+  type ApprovalRequestedEvent,
+  type DeltaBlockRef,
+  isAdapterError,
+  type SessionConfig,
+} from '@wevir/runtime-adapter';
+import {
+  type ApprovalRecord,
+  requestFingerprint,
+  type SessionRecord,
+  type Storage,
+} from '@wevir/storage';
+import { HostError } from './errors.js';
+import type { AppendInput, EventStore } from './event-store.js';
+import { newId } from './ids.js';
+
+/**
+ * 取消后等回合结算的时限（domain-model §4.1 #9）。T0.3 实测 dsh 3–64 ms 结算；超过它仍没有终结
+ * 事件，就当作无法确认已停止。
+ */
+export const CANCEL_TIMEOUT_MS = 5000;
+
+/** 标题取首条用户消息的前多少个字符（按码点计，空白折叠成一个空格）。 */
+export const TITLE_MAX_LENGTH = 50;
+
+export interface SessionManagerOptions {
+  storage: Storage;
+  /** 与 `storage` 同一个数据库上的事件库；会话事件都经它写入。 */
+  events: EventStore;
+  /** 由 Host 独占的引擎适配器。SessionManager 不 `dispose` 它。 */
+  adapter: AgentRuntimeAdapter;
+  /** `sessions.engine` 列的值，v0 恒为 `dsh`。 */
+  engine?: string;
+  /** 默认 `CANCEL_TIMEOUT_MS`。 */
+  cancelTimeoutMs?: number;
+  /** 后台错误：处理引擎事件失败、丢弃的引擎事件等。默认打到 stderr。 */
+  onError?: (error: unknown) => void;
+}
+
+/** `recover()` 的结果：启动对账修正了什么。 */
+export interface RecoveryReport {
+  /** 结为 `expired` 的审批数。 */
+  expiredApprovals: number;
+  /** 由活动状态修正为 `idle` 的会话（#15）。 */
+  interruptedSessions: SessionId[];
+  /** 标为结果未知的发送回执数。 */
+  unknownSends: number;
+}
+
+interface ToolInfo {
+  toolName: string;
+  display: ToolDisplay;
+  input?: unknown;
+}
+
+interface Deferred {
+  readonly promise: Promise<void>;
+  resolve(): void;
+}
+
+/** 进行中的回合在 Host 内存里的部分：引擎 ID 到 Host ID 的映射、未收尾的工具。 */
+interface TurnRuntime {
+  readonly turnId: TurnId;
+  /** 引擎的 attemptId → StreamId。 */
+  readonly streams: Map<string, StreamId>;
+  /** 已开始、未结束的工具调用，回合结束时补 `unknown`（domain-model §6.4）。 */
+  readonly openTools: Set<string>;
+  /** 本回合 `tool.started` 的内容，审批详情从这里取（domain-model §5 第 1 条）。 */
+  readonly tools: Map<string, ToolInfo>;
+  /** `turn.finished` 写入时完成。 */
+  readonly finished: Deferred;
+}
+
+/** 一次对引擎事件流的订阅。 */
+interface Attachment {
+  readonly iterator: AsyncIterator<AgentEvent>;
+  /** Host 主动断开（关闭、引擎异常、dispose）。之后到达的事件丢弃，流结束也不算中断。 */
+  detached: boolean;
+}
+
+interface SessionRuntime {
+  readonly id: SessionId;
+  readonly engineSessionId: string;
+  /** 命令串行：每个命令排在上一个之后（ADR-0002 §4）。永不 reject。 */
+  tail: Promise<unknown>;
+  /** 没有时引擎会话尚未挂上：Host 重启后、关闭后、引擎异常后。 */
+  attachment?: Attachment;
+  turn?: TurnRuntime;
+  /** 大于 0 时引擎事件先缓冲，等审批结算写入后再处理（domain-model §5 第 4 条）。 */
+  holds: number;
+  readonly held: Array<() => void>;
+  /** 引擎的审批 requestId ↔ Host 的 ApprovalId，只保留未决的。 */
+  readonly approvalIds: Map<string, ApprovalId>;
+  readonly requestIds: Map<ApprovalId, string>;
+}
+
+const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
+
+/** 适配器结掉审批的原因 → Host 的审批结算原因。 */
+const ENGINE_CANCEL_REASONS = {
+  turn_cancelled: 'turn_cancelled',
+  turn_ended: 'turn_cancelled',
+  engine_exited: 'engine_exited',
+  disposed: 'host_shutdown',
+} as const satisfies Record<ApprovalCancelledEvent['reason'], ApprovalResolution['reason']>;
+
+/**
+ * 会话管理器（T2.3）：把 `AgentRuntimeAdapter` 与事件库连起来，落地会话状态机（domain-model §4）与
+ * 审批生命周期（§5）。
+ *
+ * - **映射。** Wevir 会话与引擎会话一一对应，映射存在 `sessions` 表；适配器的事件按会话订阅，
+ *   Host 配上 `turnId`、`StreamId`、`ApprovalId` 写成 WevirEvent。
+ * - **命令串行。** 每个会话的 `send`、`cancel`、`respondToApproval`、`close`、`resume` 排队执行。
+ *   引擎事件不排队，随到随写；两者都是同步写库，不会交错出半个状态转换。
+ * - **状态机。** 每次转换的全部事件在一个事务里写入，事件库按 §4.1 的表校验。命令在不允许的状态下
+ *   返回 `SESSION_BUSY` / `INVALID_STATE` / `ALREADY_DECIDED`（§4.2）。
+ * - **引擎异常。** 进程退出、适配器调用失败、事件流中断都当作引擎不可用：未决审批结为 `cancelled`、
+ *   回合以 `interrupted` 结束、写 `engine.error`（`fatal: true`），会话转 `error`（#10），历史保留，
+ *   `resume` 可恢复。
+ * - **启动对账。** `recover()` 在服务客户端之前调用一次（#15、§5 第 6 条、ADR-0002 §4）。
+ */
+export class SessionManager {
+  readonly #storage: Storage;
+  readonly #events: EventStore;
+  readonly #adapter: AgentRuntimeAdapter;
+  readonly #engine: string;
+  readonly #cancelTimeoutMs: number;
+  readonly #onError: (error: unknown) => void;
+  readonly #runtimes = new Map<SessionId, SessionRuntime>();
+  /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
+  readonly #whenDisposed = deferred();
+  #disposed = false;
+
+  constructor(options: SessionManagerOptions) {
+    this.#storage = options.storage;
+    this.#events = options.events;
+    this.#adapter = options.adapter;
+    this.#engine = options.engine ?? 'dsh';
+    this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#onError =
+      options.onError ?? ((error) => console.error('[wevir-host] session manager:', error));
+  }
+
+  /**
+   * Host 启动对账，在接受任何命令之前调用一次。上次 Host 非正常退出时：残留的未决审批结为
+   * `expired`（`host_restarted`）；停在活动状态的会话补齐未收尾的工具、以 `interrupted` 结束回合并
+   * 回到 `idle`（#15）；“已接受、未确认引擎收到”的发送回执标为 `unknown`，不自动重发。引擎会话都
+   * 没有挂上，下一次 `send` 前自动 resume。
+   */
+  recover(): RecoveryReport {
+    this.#assertOpen();
+    const report: RecoveryReport = {
+      expiredApprovals: 0,
+      interruptedSessions: [],
+      unknownSends: 0,
+    };
+    for (const record of this.#storage.sessions.list({ includeRemovedWorkspaces: true })) {
+      const sessionId = record.id as SessionId;
+      const snapshot = this.#events.snapshot(sessionId);
+      if (!snapshot) continue;
+      const { state, activeTurn } = snapshot.session;
+      const active = ACTIVE_STATES.includes(state);
+      if (!active && snapshot.pendingApprovals.length === 0) continue;
+
+      const inputs = resolveAll(snapshot.pendingApprovals, 'expired', { reason: 'host_restarted' });
+      if (active) {
+        if (activeTurn) {
+          inputs.push(
+            ...finishTurn(
+              activeTurn.turnId,
+              this.#openToolsFromEvents(sessionId, activeTurn.turnId),
+              'interrupted',
+              durationSince(activeTurn.startedAt),
+            ),
+          );
+        }
+        inputs.push(stateChanged(state, 'idle', 'host_restarted'));
+        report.interruptedSessions.push(sessionId);
+      }
+      this.#events.appendMany(sessionId, inputs);
+      report.expiredApprovals += snapshot.pendingApprovals.length;
+    }
+    report.unknownSends = this.#storage.sendReceipts.markAcceptedAsUnknown(isoNow());
+    return report;
+  }
+
+  /**
+   * `session.create`：先建引擎会话，成功后才写 `session.created`（#1）。返回的会话是 `idle`、
+   * `lastSeq` 为 1。
+   */
+  async create(params: MethodParams<'session.create'>): Promise<Session> {
+    this.#assertOpen();
+    const workspace = this.#storage.workspaces.get(params.workspaceId);
+    if (!workspace || workspace.removedAt !== undefined) {
+      throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${params.workspaceId} not found`);
+    }
+    const provider = this.#storage.providers.get(params.providerId);
+    if (!provider) {
+      throw new HostError('PROVIDER_NOT_FOUND', `provider ${params.providerId} not found`);
+    }
+    await assertDirectory(workspace.rootPath);
+
+    const config: SessionConfig = {
+      cwd: workspace.rootPath,
+      providerId: provider.id,
+      modelId: params.modelId ?? provider.defaultModelId,
+    };
+    if (params.reasoningEffort !== undefined) config.reasoningEffort = params.reasoningEffort;
+    let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
+    try {
+      engineSession = await this.#adapter.createSession(config);
+    } catch (error) {
+      const info = engineErrorInfo(error);
+      throw new HostError('ENGINE_ERROR', info.message, info);
+    }
+
+    const sessionId = newId('ses');
+    const now = isoNow();
+    const modelId = engineSession.modelId ?? config.modelId;
+    const reasoningEffort = engineSession.reasoningEffort ?? config.reasoningEffort;
+    try {
+      const record: SessionRecord = {
+        id: sessionId,
+        workspaceId: workspace.id,
+        cwd: config.cwd,
+        engine: this.#engine,
+        engineSessionId: engineSession.engineSessionId,
+        providerId: provider.id,
+        modelId,
+        title: '',
+        titleSource: 'first_prompt',
+        state: 'idle',
+        lastSeq: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+      this.#storage.sessions.insert(record);
+      this.#events.append(sessionId, {
+        type: 'session.created',
+        source: 'host',
+        payload: {
+          workspaceId: params.workspaceId,
+          cwd: config.cwd,
+          providerId: provider.id,
+          modelId,
+          ...(reasoningEffort !== undefined && { reasoningEffort }),
+        },
+      });
+    } catch (error) {
+      // 会话没建成，尽力回收引擎会话。
+      await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
+      throw error;
+    }
+
+    const runtime = this.#runtime(sessionId);
+    try {
+      this.#attach(runtime);
+    } catch (error) {
+      this.#engineFailed(runtime, engineErrorInfo(error));
+    }
+    return this.#snapshot(runtime).session;
+  }
+
+  /**
+   * `session.send`。`clientMessageId` 的幂等检查排在状态检查之前（domain-model §4.2）：同一 ID、同样
+   * 的内容返回原结果，不再发给引擎；内容不同返回 `CLIENT_MESSAGE_CONFLICT`。会话不是 `idle` 时返回
+   * `SESSION_BUSY`（活动中）或 `INVALID_STATE`（`error` / `closed`），不排队、不打断。
+   *
+   * 接受后先写 `user.message`、`turn.started`、（首个回合的）`session.title_changed` 和
+   * idle→running，同一事务里记回执 `accepted`，再交给引擎；引擎确认收到后回执改为 `confirmed`。
+   * 引擎拒收时会话转 `error`（#10），本次仍返回已接受的 `turnId` 与 `seq`，与重发时的“原结果”一致。
+   */
+  async send(
+    params: MethodParams<'session.send'>,
+    sentBy: ClientIdentity,
+  ): Promise<MethodResult<'session.send'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    const { clientMessageId } = params;
+    const fingerprint = requestFingerprint(params.content);
+    // 到达时先查一遍：会话忙就立即返回，不排在进行中的命令（例如等结算的取消）后面。回执只增不删，
+    // 在命令队列外读也安全；进入队列后再查一遍。
+    const replayed = this.#replay(runtime, clientMessageId, fingerprint);
+    if (replayed) return replayed;
+    assertSendable(this.#snapshot(runtime));
+    return this.#serial(runtime, async () => {
+      const replayed = this.#replay(runtime, clientMessageId, fingerprint);
+      if (replayed) return replayed;
+      assertSendable(this.#snapshot(runtime));
+      if (!runtime.attachment) {
+        await this.#autoResume(runtime);
+        // 等待期间引擎可能已经报了退出。
+        assertSendable(this.#snapshot(runtime));
+      }
+
+      const snapshot = this.#snapshot(runtime);
+      const turnId = newId('trn');
+      const inputs: AppendInput[] = [
+        {
+          type: 'user.message',
+          source: 'host',
+          payload: {
+            turnId,
+            content: params.content,
+            sentBy,
+            ...(clientMessageId !== undefined && { clientMessageId }),
+          },
+        },
+        { type: 'turn.started', source: 'host', payload: { turnId } },
+      ];
+      const title = makeTitle(params.content);
+      if (
+        title !== '' &&
+        snapshot.session.title === '' &&
+        snapshot.session.titleSource === 'first_prompt'
+      ) {
+        inputs.push({
+          type: 'session.title_changed',
+          source: 'host',
+          payload: { title, source: 'first_prompt' },
+        });
+      }
+      inputs.push(stateChanged('idle', 'running', 'turn_started'));
+      const [message] = this.#write(runtime, inputs, {
+        inTransaction: (events) => {
+          const event = events[0];
+          if (clientMessageId === undefined || !event) return;
+          this.#storage.sendReceipts.insert({
+            sessionId: runtime.id,
+            clientMessageId,
+            fingerprint,
+            status: 'accepted',
+            turnId,
+            seq: event.seq,
+            createdAt: event.ts,
+            updatedAt: event.ts,
+          });
+        },
+      });
+      if (!message) throw new Error('user.message 未写入');
+      runtime.turn = {
+        turnId,
+        streams: new Map(),
+        openTools: new Set(),
+        tools: new Map(),
+        finished: deferred(),
+      };
+
+      try {
+        await this.#adapter.send(runtime.engineSessionId, { content: params.content });
+      } catch (error) {
+        // 引擎没有接受这个回合。等待期间回合可能已经以别的方式结束（例如引擎退出）。
+        if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
+        return { turnId, seq: message.seq };
+      }
+      if (clientMessageId !== undefined) {
+        this.#storage.sendReceipts.setStatus(runtime.id, clientMessageId, 'confirmed', isoNow());
+      }
+      return { turnId, seq: message.seq };
+    });
+  }
+
+  /**
+   * `session.cancel`。活动中：未决审批结为 `cancelled`（`turn_cancelled`），会话转 `cancelling`，
+   * 再让引擎取消（#5）；等到回合结算（#8）才返回，超过 `cancelTimeoutMs` 或引擎报
+   * `cancel_unconfirmed` 时转 `error`（#9）。其他状态成功、无操作。
+   */
+  async cancel(sessionId: SessionId): Promise<void> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    await this.#serial(runtime, () => this.#cancelTurn(runtime, 'turn_cancelled'));
+  }
+
+  /**
+   * `session.close`。活动中先按 #5 取消（审批原因 `session_closed`）并等结算（#8 / #9），然后关闭引擎
+   * 会话、转 `closed`（#13、#14）。引擎关闭失败不阻止关闭，记一条 `engine.error`。已关闭时成功、
+   * 无操作。
+   */
+  async close(sessionId: SessionId): Promise<void> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    await this.#serial(runtime, async () => {
+      let { state } = this.#snapshot(runtime).session;
+      if (state === 'closed') return;
+      if (ACTIVE_STATES.includes(state)) {
+        await this.#cancelTurn(runtime, 'session_closed');
+        state = this.#snapshot(runtime).session.state;
+      }
+      if (state !== 'idle' && state !== 'error') {
+        throw new Error(`会话 ${runtime.id} 取消后仍是 ${state}`);
+      }
+
+      const inputs: AppendInput[] = [];
+      const attachment = runtime.attachment;
+      if (attachment) {
+        // 关闭会结束事件流，这是预期的。
+        attachment.detached = true;
+        try {
+          await this.#adapter.close(runtime.engineSessionId);
+        } catch (error) {
+          inputs.push(engineError(engineErrorInfo(error, 'session_unavailable'), false));
+        }
+        this.#detach(runtime);
+      }
+      inputs.push(stateChanged(state, 'closed', 'closed'));
+      this.#write(runtime, inputs);
+    });
+  }
+
+  /**
+   * `session.resume`：`error` / `closed` 时把引擎会话重新挂上（同一 cwd），成功后转 `idle`（#12）；
+   * 其他状态成功、无操作。引擎拒绝时追加一条 `engine.error`（`session_unavailable`）、状态不变，
+   * 返回 `ENGINE_ERROR`。
+   */
+  async resume(sessionId: SessionId): Promise<Session> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    return this.#serial(runtime, async () => {
+      const { session } = this.#snapshot(runtime);
+      if (session.state !== 'error' && session.state !== 'closed') return session;
+      const record = this.#record(runtime);
+      if (!this.#storage.providers.get(record.providerId)) {
+        throw new HostError('PROVIDER_NOT_FOUND', `provider ${record.providerId} not found`);
+      }
+      try {
+        await this.#adapter.resumeSession(runtime.engineSessionId, sessionConfig(record));
+        if (!runtime.attachment) this.#attach(runtime);
+      } catch (error) {
+        const info = engineErrorInfo(error, 'session_unavailable');
+        this.#write(runtime, [engineError(info, false)]);
+        throw new HostError('ENGINE_ERROR', info.message, info);
+      }
+      this.#write(runtime, [stateChanged(session.state, 'idle', 'resumed')]);
+      return this.#snapshot(runtime).session;
+    });
+  }
+
+  /**
+   * `approval.respond`，按会话串行，首个决定生效（domain-model §5）。提交到引擎期间暂扣该会话的引擎
+   * 事件，引擎确认后先写 `approval.resolved`（带 `decidedBy`）、必要时 awaiting_approval→running，
+   * 再处理暂扣的事件。审批已结算时返回 `ALREADY_DECIDED` 与既有决定；`optionId` 不在选项里返回
+   * `INVALID_PARAMS`，审批不变。引擎回复失败当作引擎异常（#10），审批随之结为 `cancelled`，本次
+   * 同样返回 `ALREADY_DECIDED`。
+   */
+  async respondToApproval(
+    params: MethodParams<'approval.respond'>,
+    decidedBy: ClientIdentity,
+  ): Promise<MethodResult<'approval.respond'>> {
+    this.#assertOpen();
+    const { approvalId, optionId } = params;
+    const found = this.#storage.approvals.get(approvalId);
+    if (!found) throw new HostError('APPROVAL_NOT_FOUND', `approval ${approvalId} not found`);
+    const runtime = this.#runtime(found.sessionId as SessionId, 'APPROVAL_NOT_FOUND');
+    return this.#serial(runtime, async () => {
+      const approval = this.#approvalRecord(approvalId);
+      if (approval.status !== 'pending') throw alreadyDecided(approval);
+      const option = (approval.options as ApprovalOption[]).find((o) => o.optionId === optionId);
+      if (!option) throw invalidOption(approvalId, optionId);
+      const requestId = runtime.requestIds.get(approvalId);
+      if (requestId === undefined) throw new Error(`审批 ${approvalId} 没有对应的引擎请求`);
+
+      const status: ResolvedApprovalStatus = option.category === 'allow' ? 'approved' : 'denied';
+      const resolution: ApprovalResolution = { reason: 'user', optionId, decidedBy };
+      let failure: { error: unknown } | undefined;
+      runtime.holds += 1;
+      try {
+        try {
+          await this.#adapter.respondToApproval(runtime.engineSessionId, requestId, { optionId });
+        } catch (error) {
+          failure = { error };
+        }
+        if (!failure) {
+          const snapshot = this.#snapshot(runtime);
+          const inputs: AppendInput[] = [resolved(approvalId, status, resolution)];
+          if (
+            snapshot.session.state === 'awaiting_approval' &&
+            snapshot.pendingApprovals.every((pending) => pending.id === approvalId)
+          ) {
+            inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
+          }
+          this.#write(runtime, inputs);
+        } else if (
+          // approval_not_found：引擎侧已经结束了这个审批，它的 approval.cancelled 在暂扣的事件里。
+          !isAdapterError(failure.error, 'invalid_option') &&
+          !isAdapterError(failure.error, 'approval_not_found')
+        ) {
+          this.#engineFailed(runtime, engineErrorInfo(failure.error));
+        }
+      } finally {
+        this.#release(runtime);
+      }
+
+      if (!failure) return { approvalId, status, resolution };
+      if (isAdapterError(failure.error, 'invalid_option'))
+        throw invalidOption(approvalId, optionId);
+      const after = this.#approvalRecord(approvalId);
+      if (after.status !== 'pending') throw alreadyDecided(after);
+      throw new Error(`引擎报告审批 ${approvalId} 已不在未决状态，但没有上报结束事件`);
+    });
+  }
+
+  /**
+   * 停止消费引擎事件，之后不再写任何事件（不 `dispose` 适配器），等进行中的命令结束：还在等引擎的
+   * 命令照常等适配器返回，然后以 `HOST_SHUTTING_DOWN` 失败。之后的调用同样返回
+   * `HOST_SHUTTING_DOWN`。Host 优雅退出时先按 ADR-0002 §6 取消回合，再调用它（T2.5）。
+   */
+  async dispose(): Promise<void> {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    this.#whenDisposed.resolve();
+    for (const runtime of this.#runtimes.values()) this.#detach(runtime);
+    await Promise.all([...this.#runtimes.values()].map((runtime) => runtime.tail));
+  }
+
+  // ── 命令的组成部分 ──────────────────────────────────────────────────
+
+  /** `clientMessageId` 已有回执时：内容相同返回原结果，不同抛 `CLIENT_MESSAGE_CONFLICT`。 */
+  #replay(
+    runtime: SessionRuntime,
+    clientMessageId: string | undefined,
+    fingerprint: string,
+  ): MethodResult<'session.send'> | undefined {
+    if (clientMessageId === undefined) return undefined;
+    const receipt = this.#storage.sendReceipts.get(runtime.id, clientMessageId);
+    if (!receipt) return undefined;
+    if (receipt.fingerprint !== fingerprint) {
+      throw new HostError(
+        'CLIENT_MESSAGE_CONFLICT',
+        `clientMessageId ${clientMessageId} was used with a different request`,
+        { clientMessageId },
+      );
+    }
+    return { turnId: receipt.turnId as TurnId, seq: receipt.seq };
+  }
+
+  /** send 前把尚未挂上的引擎会话挂上；失败时 idle→error（#11），返回 `ENGINE_ERROR`。 */
+  async #autoResume(runtime: SessionRuntime): Promise<void> {
+    try {
+      await this.#adapter.resumeSession(
+        runtime.engineSessionId,
+        sessionConfig(this.#record(runtime)),
+      );
+      this.#attach(runtime);
+    } catch (error) {
+      const info = engineErrorInfo(error, 'session_unavailable');
+      const { state } = this.#snapshot(runtime).session;
+      if (state === 'idle') {
+        this.#write(runtime, [
+          engineError(info, true),
+          stateChanged('idle', 'error', 'resume_failed'),
+        ]);
+      }
+      throw new HostError('ENGINE_ERROR', info.message, info);
+    }
+  }
+
+  /** #5，然后等结算（#8）或判定无法确认（#9）。不在活动状态时什么都不做。 */
+  async #cancelTurn(
+    runtime: SessionRuntime,
+    reason: 'turn_cancelled' | 'session_closed',
+  ): Promise<void> {
+    const snapshot = this.#snapshot(runtime);
+    const { state } = snapshot.session;
+    if (state === 'running' || state === 'awaiting_approval') {
+      this.#write(runtime, [
+        ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason }),
+        stateChanged(state, 'cancelling', 'cancel_requested'),
+      ]);
+    } else if (state !== 'cancelling') {
+      return;
+    }
+    // 等到回合结算（turn.finished 写入，可能经由引擎退出等别的路径）为止。引擎报取消失败、超时，
+    // 或者没有内存里的回合可等，都按无法确认处理。
+    const turn = runtime.turn;
+    const deadline = Date.now() + this.#cancelTimeoutMs;
+    const finished = turn ? turn.finished.promise.then(() => 'finished' as const) : never();
+    const disposed = this.#whenDisposed.promise.then(() => 'disposed' as const);
+    const engine = this.#adapter.cancel(runtime.engineSessionId).then(
+      () => (turn ? ('confirmed' as const) : ('failed' as const)),
+      () => 'failed' as const,
+    );
+    let outcome = await settleBy(Promise.race([finished, engine, disposed]), deadline);
+    // 适配器返回时终结事件已经发出，等 Host 处理完。
+    if (outcome === 'confirmed')
+      outcome = await settleBy(Promise.race([finished, disposed]), deadline);
+    if (outcome === 'finished' || outcome === 'disposed' || runtime.turn !== turn) return;
+
+    // #9
+    const { session } = this.#snapshot(runtime);
+    if (session.state !== 'cancelling') return;
+    const turnId = session.activeTurn?.turnId;
+    this.#detach(runtime);
+    this.#write(runtime, [
+      engineError(
+        {
+          category: 'cancel_unconfirmed',
+          message: `engine did not confirm the cancellation within ${this.#cancelTimeoutMs} ms`,
+        },
+        true,
+        turnId,
+      ),
+      ...(turnId !== undefined
+        ? finishTurn(turnId, turn?.openTools ?? [], 'interrupted', this.#turnDuration(runtime))
+        : []),
+      stateChanged('cancelling', 'error', 'cancel_unconfirmed'),
+    ]);
+  }
+
+  // ── 引擎事件 ──────────────────────────────────────────────────────
+
+  /** 订阅引擎会话的事件并开始消费。`subscribe` 同步抛出的错误交给调用方。 */
+  #attach(runtime: SessionRuntime): void {
+    const iterator = this.#adapter.subscribe(runtime.engineSessionId)[Symbol.asyncIterator]();
+    const attachment: Attachment = { iterator, detached: false };
+    runtime.attachment = attachment;
+    void this.#consume(runtime, attachment);
+  }
+
+  /** Host 主动断开当前订阅：之后的事件丢弃，流结束不算中断。 */
+  #detach(runtime: SessionRuntime): void {
+    const attachment = runtime.attachment;
+    if (!attachment) return;
+    runtime.attachment = undefined;
+    attachment.detached = true;
+    attachment.iterator.return?.().catch(this.#onError);
+  }
+
+  async #consume(runtime: SessionRuntime, attachment: Attachment): Promise<void> {
+    let failure: EngineErrorInfo;
+    try {
+      for (;;) {
+        const result = await attachment.iterator.next();
+        if (attachment.detached) return;
+        if (result.done) break;
+        const event = result.value;
+        this.#dispatch(runtime, () => this.#handle(runtime, event));
+        // engine.exited 是该会话订阅的最后一个事件。
+        if (event.type === 'engine.exited') return;
+      }
+      failure = { category: 'unknown', message: 'engine event stream ended unexpectedly' };
+    } catch (error) {
+      if (attachment.detached) return;
+      failure = { category: 'unknown', message: `engine event stream failed: ${errorText(error)}` };
+    }
+    this.#dispatch(runtime, () => {
+      if (runtime.attachment === attachment) this.#engineFailed(runtime, failure);
+    });
+  }
+
+  /** 审批提交期间先缓冲，否则立即处理。处理失败交给 `onError`。 */
+  #dispatch(runtime: SessionRuntime, task: () => void): void {
+    if (runtime.holds > 0) {
+      runtime.held.push(task);
+      return;
+    }
+    try {
+      task();
+    } catch (error) {
+      this.#onError(error);
+    }
+  }
+
+  /** 解除一层暂扣；全部解除后按到达顺序处理缓冲的事件。 */
+  #release(runtime: SessionRuntime): void {
+    runtime.holds -= 1;
+    // dispose 之后不再写事件，暂扣的事件随之丢弃。
+    if (this.#disposed) runtime.held.length = 0;
+    while (runtime.holds === 0 && runtime.held.length > 0) {
+      const task = runtime.held.shift() as () => void;
+      try {
+        task();
+      } catch (error) {
+        this.#onError(error);
+      }
+    }
+  }
+
+  /** 把一个引擎事件写成 WevirEvent（domain-model §6、§9）。 */
+  #handle(runtime: SessionRuntime, event: AgentEvent): void {
+    const sessionId = runtime.id;
+    switch (event.type) {
+      case 'engine.exited':
+        this.#engineFailed(runtime, exitInfo(event), { exited: true });
+        return;
+      case 'engine.raw':
+        if (event.protocol !== 'acp') {
+          this.#onError(new Error(`会话 ${sessionId}：不认识的引擎协议 ${event.protocol}，丢弃`));
+          return;
+        }
+        this.#write(runtime, [
+          {
+            type: 'engine.raw',
+            source: 'engine',
+            payload: {
+              protocol: 'acp',
+              method: event.method,
+              ...(event.kind !== undefined && { kind: event.kind }),
+              ...(event.params !== undefined && { params: event.params }),
+            },
+          },
+        ]);
+        return;
+      case 'usage.updated':
+        this.#write(runtime, [
+          {
+            type: 'usage.updated',
+            source: 'engine',
+            payload: { contextUsed: event.contextUsed, contextSize: event.contextSize },
+          },
+        ]);
+        return;
+    }
+
+    // 其余事件都属于进行中的回合。
+    const turn = runtime.turn;
+    if (!turn) {
+      // Host 已判定回合结束（取消超时、引擎异常、关闭）之后，引擎的残余事件是预期的。
+      const { state } = this.#snapshot(runtime).session;
+      if (state !== 'error' && state !== 'closed') {
+        this.#onError(new Error(`会话 ${sessionId} 没有进行中的回合，丢弃引擎事件 ${event.type}`));
+      }
+      return;
+    }
+    const { turnId } = turn;
+    switch (event.type) {
+      case 'assistant.delta':
+        this.#events.appendDelta(sessionId, {
+          turnId,
+          streamId: streamOf(turn, event.attemptId),
+          blockIndex: event.blockIndex,
+          kind: event.kind,
+          text: event.text,
+        });
+        return;
+      case 'assistant.stream_ended':
+        this.#write(runtime, [
+          {
+            type: 'assistant.stream_ended',
+            source: 'engine',
+            payload: { turnId, streamId: streamOf(turn, event.attemptId), outcome: event.outcome },
+          },
+        ]);
+        return;
+      case 'assistant.message':
+      case 'assistant.thought':
+        this.#write(runtime, [
+          {
+            type: event.type,
+            source: 'engine',
+            payload: {
+              turnId,
+              messageId: event.messageId,
+              text: event.text,
+              replaces: blockRefs(turn, event.replaces),
+            },
+          },
+        ]);
+        return;
+      case 'tool.started': {
+        const info: ToolInfo = { toolName: event.toolName, display: event.display };
+        if (event.input !== undefined) info.input = event.input;
+        turn.tools.set(event.toolCallId, info);
+        turn.openTools.add(event.toolCallId);
+        this.#write(runtime, [
+          {
+            type: 'tool.started',
+            source: 'engine',
+            payload: { turnId, toolCallId: event.toolCallId, ...info },
+          },
+        ]);
+        return;
+      }
+      case 'tool.updated':
+        this.#write(runtime, [
+          {
+            type: 'tool.updated',
+            source: 'engine',
+            payload: {
+              turnId,
+              toolCallId: event.toolCallId,
+              ...(event.display !== undefined && { display: event.display }),
+              ...(event.input !== undefined && { input: event.input }),
+              ...(event.output !== undefined && {
+                output: { text: event.output, truncated: false },
+              }),
+            },
+          },
+        ]);
+        return;
+      case 'tool.finished': {
+        // 取消期间的 failed 记为 cancelled，原文保留（domain-model §6.4）。
+        const cancelling = this.#snapshot(runtime).session.state === 'cancelling';
+        turn.openTools.delete(event.toolCallId);
+        this.#write(runtime, [
+          {
+            type: 'tool.finished',
+            source: 'engine',
+            payload: {
+              turnId,
+              toolCallId: event.toolCallId,
+              status: event.status === 'failed' && cancelling ? 'cancelled' : event.status,
+              ...(event.output !== undefined && {
+                output: { text: event.output, truncated: false },
+              }),
+            },
+          },
+        ]);
+        return;
+      }
+      case 'todo.updated':
+        this.#write(runtime, [
+          {
+            type: 'todo.updated',
+            source: 'host',
+            payload: { turnId, toolCallId: event.toolCallId, items: event.items },
+          },
+        ]);
+        return;
+      case 'approval.requested':
+        this.#approvalRequested(runtime, turn, event);
+        return;
+      case 'approval.cancelled':
+        this.#approvalCancelled(runtime, event);
+        return;
+      case 'turn.settled':
+        this.#turnEnded(runtime, turn, event.outcome, event.stopReason);
+        return;
+      case 'turn.failed':
+        this.#turnEnded(runtime, turn, 'failed', undefined, {
+          category: event.category,
+          message: event.message,
+          ...(event.code !== undefined && { code: event.code }),
+        });
+        return;
+    }
+  }
+
+  /** #3：分配 ApprovalId，详情取自同一 toolCallId 的 `tool.started`。 */
+  #approvalRequested(
+    runtime: SessionRuntime,
+    turn: TurnRuntime,
+    event: ApprovalRequestedEvent,
+  ): void {
+    const { state } = this.#snapshot(runtime).session;
+    const approvalId = newId('apr');
+    const tool = turn.tools.get(event.toolCallId);
+    const approval: ApprovalRequest = {
+      id: approvalId,
+      sessionId: runtime.id,
+      turnId: turn.turnId,
+      toolCallId: event.toolCallId,
+      options: event.options.map((option) => ({
+        optionId: option.optionId,
+        label: option.label,
+        kind: option.kind,
+        category: option.kind.startsWith('allow_') ? 'allow' : 'reject',
+      })),
+      detail: tool ? approvalDetail(tool) : null,
+      status: 'pending',
+      createdAt: isoNow(),
+    };
+    runtime.approvalIds.set(event.requestId, approvalId);
+    runtime.requestIds.set(approvalId, event.requestId);
+    const inputs: AppendInput[] = [
+      { type: 'approval.requested', source: 'engine', payload: { approval } },
+    ];
+    if (state === 'running') {
+      inputs.push(stateChanged('running', 'awaiting_approval', 'approval_requested'));
+    } else if (state === 'cancelling') {
+      // 取消已经开始：照记这次请求，并立即结掉；引擎侧由适配器的取消一并回复。
+      inputs.push(resolved(approvalId, 'cancelled', { reason: 'turn_cancelled' }));
+    }
+    this.#write(runtime, inputs);
+  }
+
+  /**
+   * 引擎侧结掉的审批。Host 已经结算过的（取消、关闭）不再重复。原因是引擎退出时不在这里结算：随后的
+   * `engine.exited` 一并处理，会话从 awaiting_approval 直接转 error（#10），不经过 running。
+   */
+  #approvalCancelled(runtime: SessionRuntime, event: ApprovalCancelledEvent): void {
+    if (event.reason === 'engine_exited') return;
+    const approvalId = runtime.approvalIds.get(event.requestId);
+    if (approvalId === undefined) return;
+    const snapshot = this.#snapshot(runtime);
+    if (!snapshot.pendingApprovals.some((pending) => pending.id === approvalId)) return;
+    const inputs: AppendInput[] = [
+      resolved(approvalId, 'cancelled', { reason: ENGINE_CANCEL_REASONS[event.reason] }),
+    ];
+    if (snapshot.session.state === 'awaiting_approval' && snapshot.pendingApprovals.length === 1) {
+      inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
+    }
+    this.#write(runtime, inputs);
+  }
+
+  /**
+   * 回合结算（#6、#7、#8）：回合失败先写 `engine.error`（`fatal: false`）；仍未决的审批结为
+   * `cancelled`；未收尾的工具补 `unknown`；`turn.finished`；回到 `idle`。取消期间的失败记为
+   * `cancelled`。
+   */
+  #turnEnded(
+    runtime: SessionRuntime,
+    turn: TurnRuntime,
+    outcome: TurnOutcome,
+    engineStopReason?: string,
+    error?: EngineErrorInfo & { code?: number },
+  ): void {
+    const snapshot = this.#snapshot(runtime);
+    let state = snapshot.session.state;
+    const inputs: AppendInput[] = [];
+    if (error) {
+      inputs.push({
+        type: 'engine.error',
+        source: 'engine',
+        payload: { ...error, turnId: turn.turnId, fatal: false },
+      });
+    }
+    // 适配器本应先发 approval.cancelled（turn_ended）；没发的话由 Host 结掉。
+    inputs.push(
+      ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'turn_cancelled' }),
+    );
+    if (state === 'awaiting_approval') {
+      inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
+      state = 'running';
+    }
+    const finalOutcome = outcome === 'failed' && state === 'cancelling' ? 'cancelled' : outcome;
+    inputs.push(
+      ...finishTurn(
+        turn.turnId,
+        turn.openTools,
+        finalOutcome,
+        this.#turnDuration(runtime),
+        engineStopReason,
+      ),
+      stateChanged(state, 'idle', 'turn_finished'),
+    );
+    this.#write(runtime, inputs);
+  }
+
+  /**
+   * 引擎不可用（#10）：进程退出、适配器调用失败、事件流中断。断开订阅；会话已是 `error` / `closed`
+   * 时只断开。否则未决审批结为 `cancelled`（`engine_exited`）、有回合时补齐工具并以 `interrupted`
+   * 结束、写 `engine.error`（`fatal: true`），转 `error`。不是进程退出时，再尽力让引擎停下可能还在
+   * 跑的回合。
+   */
+  #engineFailed(
+    runtime: SessionRuntime,
+    info: EngineErrorInfo,
+    options: { exited?: boolean } = {},
+  ): void {
+    this.#detach(runtime);
+    const snapshot = this.#snapshot(runtime);
+    const { state, activeTurn } = snapshot.session;
+    if (state === 'error' || state === 'closed') return;
+    const inputs = resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'engine_exited' });
+    if (activeTurn) {
+      inputs.push(
+        ...finishTurn(
+          activeTurn.turnId,
+          runtime.turn?.openTools ?? [],
+          'interrupted',
+          durationSince(activeTurn.startedAt),
+        ),
+      );
+    }
+    inputs.push(
+      engineError(info, true, activeTurn?.turnId),
+      stateChanged(state, 'error', 'engine_exited'),
+    );
+    this.#write(runtime, inputs);
+    if (!options.exited) this.#adapter.cancel(runtime.engineSessionId).catch(() => {});
+  }
+
+  // ── 工具 ─────────────────────────────────────────────────────────
+
+  /**
+   * 写一批事件，并同步内存里的回合与审批映射：`turn.finished` 清掉进行中的回合，`approval.resolved`
+   * 去掉 requestId 映射（之后引擎再报这个审批就忽略）。`dispose` 之后不再写。
+   */
+  #write(
+    runtime: SessionRuntime,
+    inputs: readonly AppendInput[],
+    options?: Parameters<EventStore['appendMany']>[2],
+  ) {
+    this.#assertOpen();
+    const events = this.#events.appendMany(runtime.id, inputs, options);
+    for (const event of events) {
+      if (event.type === 'turn.finished') {
+        const turn = runtime.turn;
+        if (turn?.turnId === event.payload.turnId) {
+          runtime.turn = undefined;
+          turn.finished.resolve();
+        }
+      } else if (event.type === 'approval.resolved') {
+        const requestId = runtime.requestIds.get(event.payload.approvalId);
+        if (requestId !== undefined) {
+          runtime.requestIds.delete(event.payload.approvalId);
+          runtime.approvalIds.delete(requestId);
+        }
+      }
+    }
+    return events;
+  }
+
+  /** 排在该会话上一个命令之后执行。 */
+  #serial<T>(runtime: SessionRuntime, command: () => Promise<T>): Promise<T> {
+    const result = runtime.tail.then(command);
+    runtime.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  /** 会话的内存状态；会话不存在或所属工作区已移除时抛 `notFound`。 */
+  #runtime(
+    sessionId: SessionId,
+    notFound: 'SESSION_NOT_FOUND' | 'APPROVAL_NOT_FOUND' = 'SESSION_NOT_FOUND',
+  ): SessionRuntime {
+    const record = this.#storage.sessions.get(sessionId);
+    const workspace = record && this.#storage.workspaces.get(record.workspaceId);
+    if (!record || !workspace || workspace.removedAt !== undefined) {
+      throw notFound === 'SESSION_NOT_FOUND'
+        ? new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`)
+        : new HostError('APPROVAL_NOT_FOUND', `approval of session ${sessionId} not found`);
+    }
+    let runtime = this.#runtimes.get(sessionId);
+    if (!runtime) {
+      runtime = {
+        id: sessionId,
+        engineSessionId: record.engineSessionId,
+        tail: Promise.resolve(),
+        holds: 0,
+        held: [],
+        approvalIds: new Map(),
+        requestIds: new Map(),
+      };
+      this.#runtimes.set(sessionId, runtime);
+    }
+    return runtime;
+  }
+
+  #record(runtime: SessionRuntime): SessionRecord {
+    const record = this.#storage.sessions.get(runtime.id);
+    if (!record) throw new Error(`会话 ${runtime.id} 不存在`);
+    return record;
+  }
+
+  #snapshot(runtime: SessionRuntime): SessionSnapshot {
+    const snapshot = this.#events.snapshot(runtime.id);
+    if (!snapshot) throw new Error(`会话 ${runtime.id} 不存在`);
+    return snapshot;
+  }
+
+  #approvalRecord(approvalId: ApprovalId): ApprovalRecord {
+    const record = this.#storage.approvals.get(approvalId);
+    if (!record) throw new HostError('APPROVAL_NOT_FOUND', `approval ${approvalId} not found`);
+    return record;
+  }
+
+  #turnDuration(runtime: SessionRuntime): number {
+    const activeTurn = this.#snapshot(runtime).session.activeTurn;
+    return activeTurn ? durationSince(activeTurn.startedAt) : 0;
+  }
+
+  /** 启动对账用：从事件里找出回合中已开始、未结束的工具调用。 */
+  #openToolsFromEvents(sessionId: SessionId, turnId: TurnId): Set<string> {
+    const open = new Set<string>();
+    for (const event of this.#events.readSince(sessionId, 0)) {
+      if (event.type === 'tool.started' && event.payload.turnId === turnId) {
+        open.add(event.payload.toolCallId);
+      } else if (event.type === 'tool.finished' && event.payload.turnId === turnId) {
+        open.delete(event.payload.toolCallId);
+      }
+    }
+    return open;
+  }
+
+  #assertOpen(): void {
+    if (this.#disposed) throw new HostError('HOST_SHUTTING_DOWN', 'host is shutting down');
+  }
+}
+
+// ── 事件构造 ─────────────────────────────────────────────────────────
+
+function stateChanged(
+  from: SessionState,
+  to: SessionState,
+  reason: StateChangeReason,
+): AppendInput {
+  return { type: 'session.state_changed', source: 'host', payload: { from, to, reason } };
+}
+
+function resolved(
+  approvalId: ApprovalId,
+  status: ResolvedApprovalStatus,
+  resolution: ApprovalResolution,
+): AppendInput {
+  return { type: 'approval.resolved', source: 'host', payload: { approvalId, status, resolution } };
+}
+
+function resolveAll(
+  pending: readonly ApprovalRequest[],
+  status: ResolvedApprovalStatus,
+  resolution: ApprovalResolution,
+): AppendInput[] {
+  return pending.map((approval) => resolved(approval.id, status, resolution));
+}
+
+function engineError(
+  info: EngineErrorInfo & { code?: number },
+  fatal: boolean,
+  turnId?: TurnId,
+): AppendInput {
+  return {
+    type: 'engine.error',
+    source: 'host',
+    payload: { ...info, fatal, ...(turnId !== undefined && { turnId }) },
+  };
+}
+
+/** 结束回合：未收尾的工具补 `tool.finished`（`unknown`，domain-model §6.4），再 `turn.finished`。 */
+function finishTurn(
+  turnId: TurnId,
+  openTools: Iterable<string>,
+  outcome: TurnOutcome,
+  durationMs: number,
+  engineStopReason?: string,
+): AppendInput[] {
+  const inputs: AppendInput[] = [...openTools].map((toolCallId) => ({
+    type: 'tool.finished',
+    source: 'host',
+    payload: { turnId, toolCallId, status: 'unknown' },
+  }));
+  inputs.push({
+    type: 'turn.finished',
+    source: 'host',
+    payload: {
+      turnId,
+      outcome,
+      durationMs,
+      ...(engineStopReason !== undefined && { engineStopReason }),
+    },
+  });
+  return inputs;
+}
+
+// ── 小工具 ───────────────────────────────────────────────────────────
+
+function assertSendable(snapshot: SessionSnapshot): void {
+  const { state, activeTurn } = snapshot.session;
+  if (ACTIVE_STATES.includes(state)) {
+    throw new HostError('SESSION_BUSY', 'session is busy', {
+      state,
+      ...(activeTurn !== undefined && { activeTurn }),
+    });
+  }
+  if (state !== 'idle') {
+    throw new HostError('INVALID_STATE', `session is ${state}; resume it first`, { state });
+  }
+}
+
+function alreadyDecided(approval: ApprovalRecord): HostError<'ALREADY_DECIDED'> {
+  return new HostError('ALREADY_DECIDED', 'approval already decided', {
+    approvalId: approval.id as ApprovalId,
+    status: approval.status as ResolvedApprovalStatus,
+    resolution: approval.resolution as ApprovalResolution,
+  });
+}
+
+function invalidOption(approvalId: ApprovalId, optionId: string): HostError<'INVALID_PARAMS'> {
+  return new HostError('INVALID_PARAMS', `option ${optionId} is not offered by ${approvalId}`, {
+    issues: [{ path: ['optionId'], message: `not one of the approval's options: ${optionId}` }],
+  });
+}
+
+/** 工作区目录必须还在（domain-model §3.1：目录被移动或删除后建会话会失败）。 */
+async function assertDirectory(path: string): Promise<void> {
+  let reason: 'not_found' | 'not_directory' | 'not_accessible' | undefined;
+  try {
+    if (!(await stat(path)).isDirectory()) reason = 'not_directory';
+  } catch (error) {
+    reason = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'not_found' : 'not_accessible';
+  }
+  if (reason) {
+    throw new HostError('WORKSPACE_PATH_INVALID', `workspace path is unusable: ${path}`, {
+      path,
+      reason,
+    });
+  }
+}
+
+function sessionConfig(record: SessionRecord): SessionConfig {
+  const config: SessionConfig = {
+    cwd: record.cwd,
+    providerId: record.providerId,
+    modelId: record.modelId,
+  };
+  if (record.reasoningEffort !== undefined) config.reasoningEffort = record.reasoningEffort;
+  return config;
+}
+
+/** 适配器错误 → `engine.error` 的归类与原文。 */
+function engineErrorInfo(
+  error: unknown,
+  fallback: EngineErrorCategory = 'unknown',
+): EngineErrorInfo {
+  const message = errorText(error);
+  if (isAdapterError(error)) {
+    switch (error.code) {
+      case 'session_not_found':
+      case 'session_closed':
+      case 'session_unavailable':
+        return { category: 'session_unavailable', message };
+      case 'cancel_unconfirmed':
+        return { category: 'cancel_unconfirmed', message };
+    }
+  }
+  return { category: fallback, message };
+}
+
+function exitInfo(event: Extract<AgentEvent, { type: 'engine.exited' }>): EngineErrorInfo {
+  const how = event.signal !== null ? `signal ${event.signal}` : `code ${event.exitCode}`;
+  const tail = event.stderrTail ? `\n${event.stderrTail}` : '';
+  return { category: 'engine_exited', message: `engine exited with ${how}${tail}` };
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function makeTitle(content: readonly UserContentPart[]): string {
+  const text = content
+    .map((part) => part.text)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return Array.from(text).slice(0, TITLE_MAX_LENGTH).join('');
+}
+
+function approvalDetail(tool: ToolInfo): ApprovalDetail {
+  const detail: ApprovalDetail = { toolName: tool.toolName, display: tool.display };
+  const { input } = tool;
+  if (input === undefined) return detail;
+  detail.input = input;
+  if (input !== null && typeof input === 'object') {
+    const { justification, sandbox_permissions: sandboxPermissions } = input as Record<
+      string,
+      unknown
+    >;
+    if (typeof justification === 'string') detail.justification = justification;
+    if (typeof sandboxPermissions === 'string') detail.sandboxPermissions = sandboxPermissions;
+  }
+  return detail;
+}
+
+function streamOf(turn: TurnRuntime, attemptId: string): StreamId {
+  let streamId = turn.streams.get(attemptId);
+  if (!streamId) {
+    streamId = newId('stm');
+    turn.streams.set(attemptId, streamId);
+  }
+  return streamId;
+}
+
+/** 引擎的增量块引用换成 StreamId；对不上的（没见过的 attempt）丢掉。 */
+function blockRefs(turn: TurnRuntime, refs: readonly DeltaBlockRef[]): StreamBlockRef[] {
+  const result: StreamBlockRef[] = [];
+  for (const ref of refs) {
+    const streamId = turn.streams.get(ref.attemptId);
+    if (streamId) result.push({ streamId, blockIndex: ref.blockIndex });
+  }
+  return result;
+}
+
+function deferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** 在 `deadline`（`Date.now()` 毫秒）之前等到 `promise` 的结果，超时为 `'timeout'`。 */
+async function settleBy<T>(promise: Promise<T>, deadline: number): Promise<T | 'timeout'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), Math.max(0, deadline - Date.now()));
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function never(): Promise<never> {
+  return new Promise(() => {});
+}
+
+function durationSince(startedAt: string): number {
+  return Math.max(0, Date.now() - Date.parse(startedAt));
+}
+
+function isoNow(): string {
+  return new Date().toISOString();
+}

@@ -187,6 +187,9 @@ importers:
       '@wevir/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
       '@wevir/storage':
         specifier: workspace:*
         version: link:../storage

@@ -117,6 +117,41 @@ describe('EventStore.append / readSince', () => {
     expect(store.append(SES, ev.usage(1)).seq).toBe(2);
   });
 
+  it('appendMany 的 inTransaction 与事件同一事务：拿到本批事件（不含先写掉的增量），抛错则整批回滚', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage, { deltaWindowMs: 1000 });
+    store.appendDelta(SES, delta('a'));
+    store.appendDelta(SES, delta('b', 1)); // 窗口内，留在缓冲里
+    const seen: number[][] = [];
+    store.appendMany(SES, [ev.usage(1), ev.usage(2)], {
+      inTransaction: (events) => {
+        seen.push(seqs(events));
+        storage.sendReceipts.insert({
+          sessionId: SES,
+          clientMessageId: 'm1',
+          fingerprint: 'f',
+          status: 'accepted',
+          turnId: TURN,
+          seq: events[0]?.seq ?? 0,
+          createdAt: T0,
+          updatedAt: T0,
+        });
+      },
+    });
+    expect(seen).toEqual([[4, 5]]);
+    expect(storage.sendReceipts.get(SES, 'm1')?.seq).toBe(4);
+
+    expect(() =>
+      store.appendMany(SES, [ev.usage(3)], {
+        inTransaction: () => {
+          throw new Error('receipt failed');
+        },
+      }),
+    ).toThrow('receipt failed');
+    expect(store.readSince(SES, 0)).toHaveLength(5);
+    expect(store.append(SES, ev.usage(4)).seq).toBe(6);
+  });
+
   it('同一会话并发 append：交错的异步调用方之间 seq 连续、无重复，各自顺序不变', async () => {
     const storage = open(dataDir());
     const store = createStore(storage, { deltaWindowMs: 2 });
