@@ -1,0 +1,16 @@
+{
+  "route": "deepseek-official / deepseek-v4-flash → mock /anthropic/v1/messages",
+  "stopReason": "end_turn",
+  "updateCounts": {
+    "agent_message_chunk": 1,
+    "usage_update": 1
+  },
+  "assistantText": "OK",
+  "durationMs": 46,
+  "mockSaw": [
+    {
+      "path": "/anthropic/v1/messages",
+      "auth": "<MOCK_KEY>"
+    }
+  ]
+}

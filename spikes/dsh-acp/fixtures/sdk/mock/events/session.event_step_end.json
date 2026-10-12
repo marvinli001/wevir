@@ -1,0 +1,15 @@
+{
+  "method": "session.event",
+  "params": {
+    "sessionId": "e32028a6-5ca6-48f7-a88e-35db0c57aad9",
+    "event": {
+      "type": "step/end",
+      "seq": 16,
+      "time": 1791777271247,
+      "data": {
+        "turn": 1,
+        "step": 1
+      }
+    }
+  }
+}

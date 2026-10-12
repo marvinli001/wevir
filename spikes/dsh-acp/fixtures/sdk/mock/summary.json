@@ -1,0 +1,68 @@
+{
+  "initializeMs": 417,
+  "sessionsSeen": 2,
+  "runs": {
+    "readWrite": {
+      "ms": 402,
+      "types": {
+        "session.event:permission/preset": 1,
+        "session.event:sandbox/mode": 1,
+        "session.event:approval/policy": 1,
+        "session.event:agent/inbox/spliced": 2,
+        "session.status": 2,
+        "session.event:turn/start": 1,
+        "session.event:step/start": 3,
+        "session.event:system/message": 1,
+        "session.event:user/message": 2,
+        "session.event:request/header": 1,
+        "session.event:request/context": 1,
+        "session.event:session/title": 1,
+        "session.event:assistant/message": 3,
+        "session.event:tool/call": 2,
+        "session.event:tool/result": 2,
+        "session.event:step/end": 3,
+        "session.event:turn/end": 1
+      }
+    },
+    "escalation": {
+      "ms": 285,
+      "types": {
+        "session.event:agent/inbox/spliced": 2,
+        "session.status": 2,
+        "session.event:turn/start": 1,
+        "session.event:step/start": 3,
+        "session.event:user/message": 1,
+        "session.event:assistant/message": 3,
+        "session.event:tool/call": 2,
+        "session.event:tool/result": 2,
+        "session.event:step/end": 3,
+        "session.event:approval/asked": 1,
+        "session.event:approval/decided": 1,
+        "session.event:turn/end": 1
+      }
+    },
+    "todoSubagent": {
+      "ms": 435,
+      "types": {
+        "session.event:agent/inbox/spliced": 6,
+        "session.status": 6,
+        "session.event:turn/start": 3,
+        "session.event:step/start": 8,
+        "session.event:user/message": 4,
+        "session.event:assistant/message": 8,
+        "session.event:tool/call": 5,
+        "session.event:todo/write": 2,
+        "session.event:tool/result": 5,
+        "session.event:step/end": 8,
+        "subagent.started": 1,
+        "session.event:subagent/catalog": 1,
+        "session.event:system/message": 1,
+        "session.event:request/header": 1,
+        "session.event:request/context": 1,
+        "session.event:session/title": 1,
+        "session.event:turn/end": 3,
+        "subagent.finished": 1
+      }
+    }
+  }
+}

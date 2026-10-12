@@ -1,0 +1,14 @@
+{
+  "method": "session.event",
+  "params": {
+    "sessionId": "e32028a6-5ca6-48f7-a88e-35db0c57aad9",
+    "event": {
+      "type": "sandbox/mode",
+      "seq": 1,
+      "time": 1791777271130,
+      "data": {
+        "mode": "workspace-write"
+      }
+    }
+  }
+}

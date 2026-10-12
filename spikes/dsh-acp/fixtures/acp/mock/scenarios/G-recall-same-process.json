@@ -1,0 +1,35 @@
+{
+  "prompt": "[wevir:RECALL] 我之前让你记住的暗号是什么？只回答暗号本身。",
+  "stopReason": "end_turn",
+  "durationMs": 45,
+  "firstUpdateAfterMs": 45,
+  "updateCounts": {
+    "agent_message_chunk": 1,
+    "usage_update": 1
+  },
+  "permissions": [],
+  "assistantText": "暗号：wevir-ff9df8；summary.md：total=15；历史消息数：36",
+  "updates": [
+    {
+      "dt": 45,
+      "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+      "update": {
+        "content": {
+          "text": "暗号：wevir-ff9df8；summary.md：total=15；历史消息数：36",
+          "type": "text"
+        },
+        "messageId": "c2513d69-e40a-447a-aaa1-636fd6329a99",
+        "sessionUpdate": "agent_message_chunk"
+      }
+    },
+    {
+      "dt": 45,
+      "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+      "update": {
+        "used": 7359,
+        "size": 262144,
+        "sessionUpdate": "usage_update"
+      }
+    }
+  ]
+}

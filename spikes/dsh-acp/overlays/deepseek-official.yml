@@ -1,0 +1,13 @@
+# DeepSeek 官方 Provider 的最小 --patch overlay。
+# llm-deepseek（deepseek-official 路由）默认读 DEEPSEEK_API_KEY；这里只把引用改成 Wevir 自己的变量名，
+# 避免与用户 shell 里已有的 DEEPSEEK_API_KEY 混用。acp 条目保持 acp-app 默认的
+# provider: deepseek-official / model: deepseek-v4-flash，不需要覆盖。
+# 注意：dsh-base 的 web_search 另有自己的 apiKeyEnv（默认 DEEPSEEK_API_KEY），需要时一并改。
+
+- id: llm-deepseek
+  config:
+    apiKeyEnv: WEVIR_SPIKE_API_KEY
+
+- id: web-search-deepseek
+  config:
+    apiKeyEnv: WEVIR_SPIKE_API_KEY

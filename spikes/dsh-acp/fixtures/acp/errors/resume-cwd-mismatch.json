@@ -1,0 +1,7 @@
+{
+  "error": {
+    "name": "RequestError",
+    "message": "Invalid params: session cwd does not match: <TMP>/wevir-dsh-other-hpVTfy",
+    "code": -32602
+  }
+}

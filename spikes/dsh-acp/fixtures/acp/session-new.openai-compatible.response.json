@@ -1,0 +1,42 @@
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "sessionId": "d6b5642b-5e1d-459c-8540-0cdc94d3cb66",
+    "configOptions": [
+      {
+        "id": "model",
+        "name": "Model",
+        "category": "model",
+        "type": "select",
+        "currentValue": "[\"wevir-spike\",\"your-model-id\"]",
+        "options": [
+          {
+            "group": "deepseek-official",
+            "name": "DeepSeek",
+            "options": [
+              {
+                "value": "[\"deepseek-official\",\"deepseek-flash\"]",
+                "name": "DeepSeek-V4.1-Flash"
+              },
+              {
+                "value": "[\"deepseek-official\",\"deepseek-v4-pro\"]",
+                "name": "DeepSeek-V4-Pro",
+                "description": "Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost."
+              }
+            ]
+          },
+          {
+            "group": "wevir-spike",
+            "name": "Wevir Spike",
+            "options": [
+              {
+                "value": "[\"wevir-spike\",\"your-model-id\"]",
+                "name": "your-model-id"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

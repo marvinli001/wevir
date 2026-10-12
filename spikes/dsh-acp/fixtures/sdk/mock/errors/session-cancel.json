@@ -1,0 +1,7 @@
+{
+  "error": {
+    "name": "JsonRpcResponseError",
+    "message": "unknown DeepSeek Harness SDK runtime method: session/cancel",
+    "code": -32603
+  }
+}

@@ -1,0 +1,14 @@
+[
+  [
+    {
+      "type": "text",
+      "text": "Error: [sandbox: file access denied under workspace-write mode]\n[sandbox: escalation available — retry this exact operation once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]"
+    }
+  ],
+  [
+    {
+      "type": "text",
+      "text": "Error: sandbox escalation to \"danger-full-access\" requires approval, but no approval channel is available"
+    }
+  ]
+]

@@ -1,0 +1,13 @@
+{
+  "acp": {
+    "agentMessageChunks": 1,
+    "firstAfterMs": 3317
+  },
+  "tap": {
+    "frames": 36,
+    "chunkFrames": 35,
+    "firstChunkAfterMs": 85,
+    "lastChunkAfterMs": 3312
+  },
+  "turnMs": 3318
+}

@@ -1,0 +1,19 @@
+{
+  "allow": {
+    "outcome": {
+      "outcome": "selected",
+      "optionId": "allow-once"
+    }
+  },
+  "deny": {
+    "outcome": {
+      "outcome": "selected",
+      "optionId": "reject-once"
+    }
+  },
+  "cancelled": {
+    "outcome": {
+      "outcome": "cancelled"
+    }
+  }
+}

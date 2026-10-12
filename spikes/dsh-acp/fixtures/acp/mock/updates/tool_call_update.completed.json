@@ -1,0 +1,17 @@
+{
+  "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+  "update": {
+    "toolCallId": "call_mv4pwxip_0",
+    "status": "completed",
+    "content": [
+      {
+        "content": {
+          "text": "<path><TMP>/wevir-dsh-flow-2WZM4k/input.csv</path>\n<type>file</type>\n<content>\n1: city,count\n2: 北京,3\n3: 上海,5\n4: 深圳,7\n\n(End of file - total 4 lines)\n</content>",
+          "type": "text"
+        },
+        "type": "content"
+      }
+    ],
+    "sessionUpdate": "tool_call_update"
+  }
+}

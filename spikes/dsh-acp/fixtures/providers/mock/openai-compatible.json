@@ -1,0 +1,16 @@
+{
+  "route": "wevir-mock / wevir-mock @ http://127.0.0.1:<PORT>/v1",
+  "stopReason": "end_turn",
+  "updateCounts": {
+    "agent_message_chunk": 1,
+    "usage_update": 1
+  },
+  "assistantText": "OK",
+  "durationMs": 136,
+  "mockSaw": [
+    {
+      "path": "/v1/chat/completions",
+      "auth": "Bearer <MOCK_KEY>"
+    }
+  ]
+}

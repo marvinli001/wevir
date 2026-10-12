@@ -1,0 +1,128 @@
+[
+  {
+    "dt": 22,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "start",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 1,
+      "turn": 1,
+      "step": 1
+    }
+  },
+  {
+    "dt": 85,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "chunk",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 2,
+      "index": 0,
+      "time": 1791777266733,
+      "chunk": {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "reasoning"
+      }
+    }
+  },
+  {
+    "dt": 85,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "chunk",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 3,
+      "index": 1,
+      "time": 1791777266733,
+      "chunk": {
+        "type": "reasoning-delta",
+        "index": 0,
+        "text": "简单介"
+      }
+    }
+  },
+  {
+    "dt": 183,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "chunk",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 4,
+      "index": 2,
+      "time": 1791777266831,
+      "chunk": {
+        "type": "reasoning-delta",
+        "index": 0,
+        "text": "绍即可"
+      }
+    }
+  },
+  {
+    "dt": 284,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "chunk",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 5,
+      "index": 3,
+      "time": 1791777266932,
+      "chunk": {
+        "type": "reasoning-delta",
+        "index": 0,
+        "text": "。"
+      }
+    }
+  },
+  {
+    "dt": 385,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "chunk",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 6,
+      "index": 4,
+      "time": 1791777267033,
+      "chunk": {
+        "type": "block-start",
+        "index": 1,
+        "blockType": "text"
+      }
+    }
+  },
+  {
+    "dt": 3210,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "chunk",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 35,
+      "index": 33,
+      "time": 1791777269858,
+      "chunk": {
+        "type": "text-delta",
+        "index": 1,
+        "text": "。"
+      }
+    }
+  },
+  {
+    "dt": 3312,
+    "sessionId": "a7fdfd62-c763-4192-9f97-ed0927e3b289",
+    "frame": {
+      "type": "chunk",
+      "attemptId": "a7fdfd62-c763-4192-9f97-ed0927e3b289:1",
+      "revision": 36,
+      "index": 34,
+      "time": 1791777269960,
+      "chunk": {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "reasoning",
+          "text": "简单介绍即可。"
+        }
+      }
+    }
+  }
+]

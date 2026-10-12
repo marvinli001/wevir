@@ -1,0 +1,20 @@
+{
+  "method": "session.event",
+  "params": {
+    "sessionId": "e32028a6-5ca6-48f7-a88e-35db0c57aad9",
+    "event": {
+      "type": "session/title",
+      "seq": 12,
+      "time": 1791777271171,
+      "data": {
+        "title": "[wevir:A] 读取工作区里的 input.cs",
+        "messageSeqs": [
+          8
+        ],
+        "source": {
+          "kind": "fallback"
+        }
+      }
+    }
+  }
+}

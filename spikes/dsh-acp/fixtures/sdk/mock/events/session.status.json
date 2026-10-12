@@ -1,0 +1,7 @@
+{
+  "method": "session.status",
+  "params": {
+    "sessionId": "e32028a6-5ca6-48f7-a88e-35db0c57aad9",
+    "status": "running"
+  }
+}

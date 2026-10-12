@@ -1,0 +1,8 @@
+{
+  "error": {
+    "name": "RequestError",
+    "message": "Internal error: turn failed: llm-deepseek: no API key for provider route \"deepseek-official\"; store WEVIR_SPIKE_API_KEY through the credentials service (the web Models page writes it), or export WEVIR_SPIKE_API_KEY in the launching environment",
+    "code": -32603
+  },
+  "updates": []
+}

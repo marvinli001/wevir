@@ -1,0 +1,175 @@
+{
+  "method": "session.event",
+  "params": {
+    "sessionId": "e32028a6-5ca6-48f7-a88e-35db0c57aad9",
+    "event": {
+      "type": "assistant/message",
+      "seq": 13,
+      "time": 1791777271239,
+      "data": {
+        "turn": 1,
+        "step": 1,
+        "message": {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "reasoning",
+              "text": "先读取 input.csv。"
+            },
+            {
+              "type": "tool-call",
+              "id": "call_mv4pxaro_0",
+              "name": "read",
+              "arguments": "{\"file_path\":\"input.csv\"}"
+            }
+          ],
+          "source": {
+            "kind": "model",
+            "provider": "wevir-mock",
+            "model": "wevir-mock",
+            "replayState": {
+              "response": {
+                "kind": "pi-ai",
+                "version": 2,
+                "api": "openai-completions",
+                "provider": "wevir-mock",
+                "model": "wevir-mock",
+                "responseId": "chatcmpl-1791777271219",
+                "stopReason": "toolUse"
+              },
+              "blocks": [
+                {
+                  "type": "reasoning",
+                  "thinkingSignature": "reasoning_content"
+                },
+                {
+                  "type": "tool-call"
+                }
+              ]
+            }
+          },
+          "id": "31ee84de-93f0-4888-ab73-fa0be2541e56"
+        },
+        "usage": {
+          "inputTokens": 100,
+          "outputTokens": 20,
+          "totalTokens": 120
+        },
+        "stream": [
+          {
+            "type": "chunk",
+            "time": 1791777271222,
+            "chunk": {
+              "type": "block-start",
+              "index": 0,
+              "blockType": "reasoning"
+            }
+          },
+          {
+            "type": "reasoning-chunks",
+            "time0": 1791777271222,
+            "index": 0,
+            "dt": [
+              3,
+              6
+            ],
+            "texts": [
+              "先读取 i",
+              "nput.",
+              "csv。"
+            ]
+          },
+          {
+            "type": "chunk",
+            "time": 1791777271237,
+            "chunk": {
+              "type": "block-start",
+              "index": 1,
+              "blockType": "tool-call"
+            }
+          },
+          {
+            "type": "tool-call-chunks",
+            "time0": 1791777271238,
+            "index": 1,
+            "dt": [],
+            "id": "call_mv4pxaro_0",
+            "name": "read",
+            "args": [
+              "{\"file_path\":\"input.csv\"}"
+            ]
+          },
+          {
+            "type": "chunk",
+            "time": 1791777271238,
+            "chunk": {
+              "type": "block-end",
+              "index": 0,
+              "block": {
+                "type": "reasoning",
+                "text": "先读取 input.csv。"
+              }
+            }
+          },
+          {
+            "type": "chunk",
+            "time": 1791777271238,
+            "chunk": {
+              "type": "block-end",
+              "index": 1,
+              "block": {
+                "type": "tool-call",
+                "id": "call_mv4pxaro_0",
+                "name": "read",
+                "arguments": "{\"file_path\":\"input.csv\"}"
+              }
+            }
+          },
+          {
+            "type": "chunk",
+            "time": 1791777271238,
+            "chunk": {
+              "type": "usage",
+              "usage": {
+                "inputTokens": 100,
+                "outputTokens": 20,
+                "totalTokens": 120
+              }
+            }
+          },
+          {
+            "type": "chunk",
+            "time": 1791777271238,
+            "chunk": {
+              "type": "finish",
+              "reason": {
+                "kind": "tool-calls"
+              },
+              "replayState": {
+                "response": {
+                  "kind": "pi-ai",
+                  "version": 2,
+                  "api": "openai-completions",
+                  "provider": "wevir-mock",
+                  "model": "wevir-mock",
+                  "responseId": "chatcmpl-1791777271219",
+                  "stopReason": "toolUse"
+                },
+                "blocks": [
+                  {
+                    "type": "reasoning",
+                    "thinkingSignature": "reasoning_content"
+                  },
+                  {
+                    "type": "tool-call"
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "surfaceOp": "append"
+    }
+  }
+}

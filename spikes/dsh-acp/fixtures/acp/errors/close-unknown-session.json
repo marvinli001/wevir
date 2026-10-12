@@ -1,0 +1,7 @@
+{
+  "error": {
+    "name": "RequestError",
+    "message": "Invalid params: unknown session: no-such-session",
+    "code": -32602
+  }
+}
