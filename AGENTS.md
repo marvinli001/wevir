@@ -9,7 +9,9 @@ Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨�
 ## 仓库规则
 
 1. **一次改动只做一个任务。** 任务以 `docs/SKELETON_PLAN.md` §5 的 ID 为准。发现计划与现实不符，先改计划和对应 ADR，再改代码；不擅自扩大范围或提前做后续任务。
-2. **引擎在适配器后面。** 除 `packages/adapter-dsh` 外，任何代码不得 import `@deepseek-ai/*`。`pnpm lint` 用 Biome 的 `noRestrictedImports` 强制（配置在 `biome.json`），覆盖静态 import、`import type`、`export … from`、动态 `import()` 和子路径。`spikes/` 是不进入产品构建的一次性验证代码，豁免此条。
+2. **引擎在适配器后面。** 除 `packages/adapter-dsh` 外，任何代码不得 import `@deepseek-ai/*`，也不得在 package.json 里声明它。`spikes/` 是不进入产品构建的一次性验证代码，可以直接用 dsh；反过来，产品代码不得引用 `spikes/`。`pnpm lint` 用两道检查强制：
+   - Biome `noRestrictedImports`（`biome.json`）：拦截静态 import、`import type`、`export … from`、动态 `import()`、子路径，以及指向 `spikes/` 的导入。
+   - `scripts/check-engine-boundary.mjs`：检查根目录和各工作区包的依赖声明（含 `npm:` 别名、指向 `spikes/` 的 `file:`/`link:`）。pnpm 的 node_modules 是隔离的，没声明的包解析不到，所以 `require()`、`createRequire()` 这类 lint 看不见的写法在运行时也会失败。因此不要开启 `node-linker=hoisted`、`shamefully-hoist`，也不要用 `public-hoist-pattern` 提升 `@deepseek-ai/*`。
 3. **`upstream/` 只读。** 那里是上游仓库的参考克隆，不修改、不提交。移植上游代码时，在文件头写明来源仓库、路径、提交 SHA 和许可证，并登记到 `docs/upstream/UPSTREAM.md`。OpenWork 的 `ee/` 目录禁止参考和移植。
 4. **不读原始调研聊天记录。** `~/Downloads` 下约 7MB 的调研记录不要喂给模型，需要的结论已经在 `docs/SKELETON_PLAN.md` 里。
 5. **密钥不落地。** 模型 API Key 等密钥不得写入仓库、日志、测试快照或 `DSH_HOME`。Host 通过子进程环境变量把 Key 传给 dsh。
@@ -31,6 +33,7 @@ wevir/
 ├─ packages/
 │  └─ protocol/        Host API 协议包（目前只有 PROTOCOL_VERSION 占位）
 ├─ docs/               规划、任务 prompt、ADR、研究笔记
+├─ scripts/            仓库脚本（check-engine-boundary.mjs）
 ├─ biome.json          lint + format（含引擎边界规则）
 ├─ tsconfig.base.json  所有包共用的 TS 配置
 └─ vitest.config.ts    根测试配置，每个包是一个 project
@@ -47,7 +50,7 @@ wevir/
 | `pnpm install` | 安装依赖 |
 | `pnpm build` | 构建所有包（库用 tsdown） |
 | `pnpm dev` | 并行运行各包的 `dev` 脚本（目前没有包提供） |
-| `pnpm lint` | `biome check`：lint、格式检查、引擎边界 |
+| `pnpm lint` | `biome check`（lint、格式检查、import 边界）+ 依赖声明边界检查 |
 | `pnpm lint:fix` | 自动修复 lint 与格式问题 |
 | `pnpm format` | 只格式化 |
 | `pnpm typecheck` | 各包 `tsc --noEmit` |

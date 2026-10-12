@@ -33,7 +33,7 @@
 
 硬性规则：
 1. 只做本任务。发现计划有问题，写进最后的汇报，不擅自扩大范围或提前做后续任务。
-2. 除 packages/adapter-dsh 外，任何代码不得 import '@deepseek-ai/*'。
+2. 除 packages/adapter-dsh 外，任何代码不得 import 或声明依赖 '@deepseek-ai/*'（spikes/ 一次性验证代码豁免，但产品代码不得引用 spikes/）。
 3. upstream/ 是只读参考，不修改。移植上游代码时，在文件头写明来源仓库、路径、提交 SHA、许可证，并登记到 docs/upstream/UPSTREAM.md。OpenWork 的 ee/ 目录禁止参考和移植。
 4. 不要读取 ~/Downloads 下的原始调研聊天记录（约 7MB），需要的结论已经在 SKELETON_PLAN.md 里。
 5. 密钥不得写入仓库、日志、测试快照或 DSH_HOME。
@@ -788,3 +788,4 @@ Phase 1 的范围和优先级需要我确认：用选项列出，不要自行定
 | 日期 | 变更 |
 |---|---|
 | 2026-10-12 | v0.1 初稿：覆盖 T0.1–T6.4，以及 P-NEXT、P-REVIEW、P-HANDOFF、P-PLAN-SYNC、P-TEMPLATE |
+| 2026-10-12 | 通用前缀规则 2：补充“不得声明依赖”与 spikes/ 豁免，与 SKELETON_PLAN §2.2 一致 |

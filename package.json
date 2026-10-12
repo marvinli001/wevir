@@ -12,7 +12,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel --if-present dev",
-    "lint": "biome check .",
+    "lint": "biome check . && node scripts/check-engine-boundary.mjs",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "typecheck": "pnpm -r typecheck",

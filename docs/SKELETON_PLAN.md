@@ -71,7 +71,7 @@
 ## 2. 地基原则
 
 1. **一个事实来源。** 会话、任务、审批的状态以 Wevir Host 的事件库为准。dsh 的会话日志是引擎层事实，Host 负责把它翻译成产品层事实。
-2. **引擎在适配器后面。** `packages/adapter-dsh` 之外的任何包不得 `import '@deepseek-ai/*'`（T0.1 用 lint 规则强制）。
+2. **引擎在适配器后面。** `packages/adapter-dsh` 之外的任何包不得 `import '@deepseek-ai/*'`，也不得声明这类依赖（T0.1 用 Biome 规则 + `scripts/check-engine-boundary.mjs` 强制）。`spikes/` 不属于产品代码，豁免；但产品代码不得反向引用 `spikes/`。
 3. **契约先行。** 先有 `packages/protocol` 的类型与 schema，再写 Host 和客户端；协议带版本号，握手时校验。
 4. **先竖切，再铺开。** 先打通“建会话 → 发提示 → 看流式输出 → 审批 → 取消 → 重启恢复”这一条线，再加功能。
 5. **先 CLI 后 GUI。** CLI 客户端能完整走通，才开始做桌面 UI。CLI 同时证明“多客户端共享同一事件流”，这是将来手机端的地基。
@@ -161,7 +161,7 @@ wevir/
 | ID | 任务 | 依赖 | 状态 | 备注 |
 |---|---|---|---|---|
 | **M0** | **地基准备** | | | |
-| T0.1 | 初始化 monorepo 与工程规范 | — | [x] | pnpm 12 workspace、TS 7（NodeNext）、Biome 2.5（`noRestrictedImports` 守引擎边界，`spikes/` 豁免）、Vitest 5 projects、tsdown；占位包 `packages/protocol`；AGENTS.md |
+| T0.1 | 初始化 monorepo 与工程规范 | — | [x] | pnpm 12 workspace、TS 7（NodeNext）、Biome 2.5 `noRestrictedImports` + `scripts/check-engine-boundary.mjs` 守引擎边界（`spikes/` 豁免、不得被反向引用）、Vitest 5 projects、tsdown；占位包 `packages/protocol`；AGENTS.md |
 | T0.2 | 上游参考快照与许可证核实 | T0.1 | [ ] | |
 | T0.3 | dsh 接入 Spike（ACP vs SDK） | T0.2 | [ ] | 可与 T0.4、T0.5 并行 |
 | T0.4 | Paseo 架构研读 | T0.2 | [ ] | 可并行 |
@@ -372,3 +372,4 @@ wevir/
 | 日期 | 变更 |
 |---|---|
 | 2026-10-12 | v0.1 初稿：基于调研结论与 dsh / OpenWork / Paseo 当前仓库核实 |
+| 2026-10-12 | T0.1：§2.2 引擎边界补充“不得声明依赖”与 `spikes/` 豁免（产品代码不得反向引用 spikes/） |

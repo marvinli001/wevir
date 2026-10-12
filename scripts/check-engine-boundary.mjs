@@ -1,0 +1,79 @@
+// 引擎边界的第二道防线：检查各工作区包 package.json 里的依赖声明。
+//
+// Biome 的 noRestrictedImports（见 biome.json）负责拦截静态 import、动态 import() 等写法，
+// 但看不见 CommonJS require()、createRequire() 之类的加载方式。pnpm 的 node_modules 是隔离的：
+// 一个包只能解析到自己声明的依赖，以及根 package.json 的依赖。所以只要 adapter-dsh 以外
+// （包括仓库根）没有声明 @deepseek-ai/*，任何写法在运行时都解析不到。
+// 前提是不开启 node-linker=hoisted、shamefully-hoist，也不用 public-hoist-pattern 提升 @deepseek-ai。
+//
+// 同时禁止通过 file: / link: / portal: 依赖指向 spikes/，避免绕过 import 规则。
+
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ENGINE_OWNER = 'packages/adapter-dsh';
+const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+
+/** 从 pnpm-workspace.yaml 读取 `<dir>/*` 形式的包目录；遇到其他写法直接报错，避免静默漏检。 */
+function workspaceDirs() {
+  const yaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
+  const section = yaml.match(/^packages:\s*\n((?:[ \t]+-.*\n?)+)/m);
+  if (!section) throw new Error('pnpm-workspace.yaml 中找不到 packages 列表');
+  return section[1]
+    .split('\n')
+    .map((line) => line.replace(/^\s*-\s*/, '').replace(/^['"]|['"]$/g, ''))
+    .filter(Boolean)
+    .map((glob) => {
+      const m = glob.match(/^([\w.-]+)\/\*$/);
+      if (!m) {
+        throw new Error(`check-engine-boundary 只支持 "<dir>/*" 形式的工作区路径，遇到："${glob}"`);
+      }
+      return m[1];
+    });
+}
+
+function manifests() {
+  const dirs = ['.'];
+  for (const parent of workspaceDirs()) {
+    const abs = join(root, parent);
+    if (!existsSync(abs)) continue;
+    for (const entry of readdirSync(abs, { withFileTypes: true })) {
+      if (entry.isDirectory() && existsSync(join(abs, entry.name, 'package.json'))) {
+        dirs.push(`${parent}/${entry.name}`);
+      }
+    }
+  }
+  return dirs;
+}
+
+const violations = [];
+const dirs = manifests();
+
+for (const dir of dirs) {
+  const file = join(root, dir, 'package.json');
+  const pkg = JSON.parse(readFileSync(file, 'utf8'));
+  const where = relative(root, file);
+  for (const field of DEP_FIELDS) {
+    for (const [name, spec] of Object.entries(pkg[field] ?? {})) {
+      const isEngine = name.startsWith('@deepseek-ai/') || /^npm:@deepseek-ai\//.test(spec);
+      if (isEngine && dir !== ENGINE_OWNER) {
+        violations.push(
+          `${where}: ${field}.${name} — 只有 ${ENGINE_OWNER} 可以依赖 @deepseek-ai/*`,
+        );
+      }
+      if (/^(file|link|portal):/.test(spec) && /(^|[/\\:])spikes([/\\]|$)/.test(spec)) {
+        violations.push(`${where}: ${field}.${name} — 不得依赖 spikes/ 下的代码`);
+      }
+    }
+  }
+}
+
+if (violations.length > 0) {
+  console.error('引擎边界检查失败（见 AGENTS.md 仓库规则第 2 条）：');
+  for (const v of violations) console.error(`  ✗ ${v}`);
+  process.exit(1);
+}
+console.log(`引擎边界：${dirs.length} 个 package.json 检查通过。`);

@@ -39,6 +39,10 @@
               {
                 "group": ["@deepseek-ai/**"],
                 "message": "引擎边界：只有 packages/adapter-dsh 可以 import @deepseek-ai/*（见 AGENTS.md）。"
+              },
+              {
+                "group": ["**/spikes/**"],
+                "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
               }
             ]
           }
@@ -48,7 +52,27 @@
   },
   "overrides": [
     {
-      "includes": ["packages/adapter-dsh/**", "spikes/**"],
+      "includes": ["packages/adapter-dsh/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**/spikes/**"],
+                    "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["spikes/**"],
       "linter": {
         "rules": {
           "style": {
