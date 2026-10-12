@@ -32,8 +32,8 @@ Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨�
 wevir/
 ├─ packages/
 │  └─ protocol/        Host API 协议包（目前只有 PROTOCOL_VERSION 占位）
-├─ docs/               规划、任务 prompt、ADR、研究笔记
-├─ scripts/            仓库脚本（check-engine-boundary.mjs）
+├─ docs/               规划、任务 prompt、上游登记（docs/upstream/）、ADR、研究笔记
+├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh）
 ├─ biome.json          lint + format（含引擎边界规则）
 ├─ tsconfig.base.json  所有包共用的 TS 配置
 └─ vitest.config.ts    根测试配置，每个包是一个 project
@@ -56,6 +56,7 @@ wevir/
 | `pnpm typecheck` | 各包 `tsc --noEmit` |
 | `pnpm test` | 从根目录运行全部 Vitest project |
 | `pnpm --filter @wevir/protocol test` | 只跑单个包 |
+| `bash scripts/upstream-sync.sh` | 按 `docs/upstream/upstream.lock` 把上游参考仓库浅克隆到 `upstream/`；`WEVIR_GITHUB_MIRROR` 可替换 GitHub 前缀 |
 
 国内网络：npm 镜像与 `ELECTRON_MIRROR` 的切换方法写在 `.npmrc` 注释里。
 

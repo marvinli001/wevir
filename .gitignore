@@ -5,7 +5,7 @@ coverage/
 *.tsbuildinfo
 
 # 上游只读克隆（scripts/upstream-sync.sh 生成）
-upstream/
+/upstream/
 
 # 本地运行时数据
 .wevir-dev/

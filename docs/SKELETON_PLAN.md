@@ -34,7 +34,7 @@
 |---|---:|---|---|---|---|
 | [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh） | 247,521 | MIT | `master` | **Agent 执行内核**：Agent Loop、工具、模型适配、会话日志、审批、沙箱、Cordis 插件 | **作为依赖运行**（锁定版本，子进程），不 fork |
 | [OpenWork](https://github.com/different-ai/openwork) | 24,004 | 核心 MIT，`ee/` 另行许可 | `dev` | **桌面产品与交互参考**：工作区、文件交付、Skills/MCP 管理、任务展示 | **只读参考**，必要时按文件选择性移植（仅 MIT 部分） |
-| [Paseo](https://github.com/getpaseo/paseo) | 20,517 | 待核实（API 显示 NOASSERTION，早前调研为 Apache-2.0） | `main` | **多端与远程架构参考**：daemon、WebSocket 协议、设备配对、加密中继、Expo 手机端 | **只读参考**，骨架阶段不移植代码 |
+| [Paseo](https://github.com/getpaseo/paseo) | 20,517 | Apache-2.0（T0.2 核实；API 显示 NOASSERTION 是因为根 LICENSE 前加了适用范围说明） | `main` | **多端与远程架构参考**：daemon、WebSocket 协议、设备配对、加密中继、Expo 手机端 | **只读参考**，骨架阶段不移植代码 |
 
 > dsh 仍是 developer preview，官方明确会有不兼容变更。所以：**Wevir 的 UI 和 Host 业务代码不得直接依赖 dsh 内部类型**，只有 `adapter-dsh` 一个包可以碰它。
 
@@ -162,7 +162,7 @@ wevir/
 |---|---|---|---|---|
 | **M0** | **地基准备** | | | |
 | T0.1 | 初始化 monorepo 与工程规范 | — | [x] | pnpm 12 workspace、TS 7（NodeNext）、Biome 2.5 `noRestrictedImports` + `scripts/check-engine-boundary.mjs` 守引擎边界（`spikes/` 豁免、不得被反向引用）、Vitest 5 projects、tsdown；占位包 `packages/protocol`；AGENTS.md |
-| T0.2 | 上游参考快照与许可证核实 | T0.1 | [ ] | |
+| T0.2 | 上游参考快照与许可证核实 | T0.1 | [x] | `scripts/upstream-sync.sh` + `docs/upstream/upstream.lock`（dsh `d743267` = tag `dsh-v0.2.1-alpha.2`、OpenWork `ad22cdc`、Paseo `dc7bc8d`）；`docs/upstream/UPSTREAM.md`：Paseo 实为 Apache-2.0，OpenWork `ee/` 之外 MIT；`.gitignore` 改为 `/upstream/`（原写法误忽略了 `docs/upstream/`） |
 | T0.3 | dsh 接入 Spike（ACP vs SDK） | T0.2 | [ ] | 可与 T0.4、T0.5 并行 |
 | T0.4 | Paseo 架构研读 | T0.2 | [ ] | 可并行 |
 | T0.5 | OpenWork 架构研读 | T0.2 | [ ] | 可并行 |
@@ -373,3 +373,4 @@ wevir/
 |---|---|
 | 2026-10-12 | v0.1 初稿：基于调研结论与 dsh / OpenWork / Paseo 当前仓库核实 |
 | 2026-10-12 | T0.1：§2.2 引擎边界补充“不得声明依赖”与 `spikes/` 豁免（产品代码不得反向引用 spikes/） |
+| 2026-10-12 | T0.2：§1.2 Paseo 许可证核实为 Apache-2.0；上游锁定提交与许可证结论见 `docs/upstream/UPSTREAM.md` |
