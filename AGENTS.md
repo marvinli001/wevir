@@ -32,7 +32,7 @@ Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨�
 wevir/
 ├─ packages/
 │  └─ protocol/        Host API 协议包（目前只有 PROTOCOL_VERSION 占位）
-├─ docs/               规划、任务 prompt、上游登记（docs/upstream/）、ADR、研究笔记
+├─ docs/               规划、任务 prompt、上游登记（docs/upstream/）、ADR、研究笔记、架构文档（docs/architecture/）
 ├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh）
 ├─ biome.json          lint + format（含引擎边界规则）
 ├─ tsconfig.base.json  所有包共用的 TS 配置

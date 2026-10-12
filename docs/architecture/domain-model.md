@@ -1,0 +1,855 @@
+# Wevir 领域模型 v0
+
+> 状态：v0（T1.1）· 日期：2026-10-12
+> 依据：[SKELETON_PLAN](../SKELETON_PLAN.md) §2、§6 M1；[ADR-0001](../adr/0001-runtime-integration.md)、[ADR-0002](../adr/0002-host-transport-and-process-model.md)；[dsh 接入 Spike](../research/dsh-integration-spike.md)（样本在 `spikes/dsh-acp/fixtures/`）；[Paseo 研读](../research/paseo-notes.md) §7.1、A20；[OpenWork 研读](../research/openwork-notes.md) §3.2、§3.9、§4.5
+> 下游：T1.2（`packages/protocol` 的 schema 与 `host-api.md`）、T1.3（`AgentEvent`）、T2.1–T2.3（表结构、事件库、状态机）、T3.2–T3.3（ACP 映射、审批桥接）、T4.1（客户端投影）
+
+本文件定义 Wevir 拥有哪些实体、它们的字段和状态怎么变、Host 往事件库里写哪些事件。不含实现代码；TS 代码块是给后续任务落地的类型草案，每块标注落在哪个包：
+
+| 标注 | 落地位置 | 任务 |
+|---|---|---|
+| `// → protocol` | `packages/protocol`，线缆类型，配 zod schema | T1.2 |
+| `// → adapter 接口` | T1.3 的接口包，Host 与适配器之间的类型，不上线缆 | T1.3 |
+| `// → client-sdk` | 客户端投影，只在客户端存在 | T4.1 |
+
+字段名、错误码名在本文件里是草案，T1.2 定稿时如有改名，以 `host-api.md` 为准并回写本文件。
+
+---
+
+## 1. 两类事实
+
+Host 是唯一的事实来源（计划 §2.1）。Host 里的数据分两类：
+
+- **产品层事实**：Wevir 自己创建、自己决定的数据。dsh 不知道它们，或者 ACP 不提供。
+- **引擎事实的投影**：dsh 是事实的拥有者，Host 把 ACP 消息翻译成 Wevir 事件存一份，供回放和多端同步。投影只增不改；引擎的原值（工具名、`rawInput`、选项 ID、错误原文）原样保留。
+
+| 事实 | 类别 | 来源 | 说明 |
+|---|---|---|---|
+| 工作区（`Workspace`） | 产品 | Host | dsh 只看到 `session/new` 的 `cwd` |
+| Provider 配置（`ProviderProfile`） | 产品 | Host（SQLite + SecretStore） | 由 T3.4 投影成 dsh overlay；Key 只经子进程环境变量传入 |
+| 会话身份、所属工作区、标题、创建与更新时间、会话列表 | 产品 | Host | ACP `session/list` 只有 `sessionId` + `cwd`，且不含活跃会话（T0.3 §3.2）；标题取首条提示词（ADR-0001 §5 第 4 条） |
+| 会话状态（`SessionState`） | 产品，由引擎信号驱动 | Host 状态机（§4） | ACP 只有 `session/prompt` 的结算 |
+| 事件序号 `seq` | 产品 | Host | ACP 没有序号（ADR-0001 §5 第 3 条） |
+| 回合（`turnId`）与用户消息 | 产品 | Host | ACP 不回发用户消息 |
+| 审批的身份、状态、`decidedBy`、过期 | 产品 | Host | 选项列表与 `toolCallId` 来自引擎 |
+| todo 列表 | 产品，从引擎数据推导 | 解析 `todo_write` 的 `rawInput` | ADR-0001 §5 第 5 条 |
+| 工具展示类型、路径 | 产品，从引擎数据推导 | 按工具名映射（§7） | ACP `kind` 恒为 `other` |
+| 错误分类 | 产品，从引擎数据推导 | 按错误原文前缀归类，保留原文 | ADR-0001 §5 第 9 条 |
+| 已提交的助手消息与思考 | 引擎投影 | `agent_message_chunk` / `agent_thought_chunk` | |
+| 增量文本 | 引擎投影（非公开契约） | stream-tap 旁路（T3.2a） | 被已提交消息替换（§6.3） |
+| 工具调用输入、结果、状态 | 引擎投影 | `tool_call` / `tool_call_update` | `cancelled`、`unknown` 两个状态由 Host 推导（§6.4） |
+| 上下文用量 | 引擎投影 | `usage_update` | |
+| 可选模型与推理强度 | 引擎投影 | `session/new` 的 `configOptions` | |
+| 模型可见的对话上下文 | **只属于引擎** | dsh 会话日志 | Wevir 不复制、不重建；resume 由 dsh 负责（T0.3 §8） |
+
+### 1.1 ID 与映射
+
+Host 生成的 ID 都是带类型前缀的不透明字符串，客户端不得解析其内容；生成算法由 T1.2 定（要求：全局唯一、可按字典序大致对应创建时间）。
+
+| ID | 生成者 | 形式 | 唯一范围 |
+|---|---|---|---|
+| `WorkspaceId` | Host | `ws_…` | Host |
+| `SessionId` | Host | `ses_…` | Host |
+| `TurnId` | Host | `trn_…` | Host |
+| `ApprovalId` | Host | `apr_…` | Host |
+| `StreamId` | Host | `stm_…`（每个 LLM attempt 一个） | 会话 |
+| `ProviderId` | 用户（或 Host 按显示名生成建议值） | `^[a-z][a-z0-9-]{0,31}$` | Host |
+| 引擎会话 ID | dsh | ACP `sessionId`（UUID） | dsh 的 `DSH_HOME` |
+| `toolCallId` | dsh | 原样，如 `call_mv4pwxip_0` | 会话 |
+| `messageId` | dsh | 原样（UUID） | 会话 |
+| `optionId` | dsh | 原样，如 `allow-once` | 单个审批请求 |
+
+**Wevir 会话 ↔ 引擎会话**：
+
+- 一对一。`session.create` 时 Host 先调用适配器 `createSession`（ACP `session/new`），拿到引擎会话 ID 后才写 `session.created`；之后 `Session.engine.sessionId` 不再改变。ACP 的 `session/resume` 沿用同一个 `sessionId`（T0.3 §3.2），所以 resume、Host 重启、dsh 进程重启都不改映射。
+- 映射只由 Host 保存（`sessions` 表，T2.1；对引擎会话 ID 建唯一索引）。适配器上报的事件以引擎会话 ID 为键，Host 据此路由到 Wevir 会话；Wevir 会话 ID 从不发给 dsh。
+- 客户端只用 Wevir 会话 ID。`session.get` 可以带出 `engine` 字段用于诊断，客户端不得据此做任何操作。
+- `Session.cwd` 是创建时工作区 `rootPath` 的 realpath，同样不可变：ACP resume 必须用同一个 cwd（按 realpath 比较，T0.3 §3.2）。
+- dsh 的 LLM attempt ID（形如 `<引擎会话 ID>:<n>`）只在适配器内部出现，Host 为每个 attempt 分配 `StreamId`。
+
+---
+
+## 2. 公共类型
+
+```ts
+// → protocol
+type WorkspaceId = `ws_${string}`
+type SessionId = `ses_${string}`
+type TurnId = `trn_${string}`
+type ApprovalId = `apr_${string}`
+type StreamId = `stm_${string}`
+type ProviderId = string // ^[a-z][a-z0-9-]{0,31}$，创建后不可改
+
+type IsoTime = string // ISO 8601，UTC，毫秒精度
+
+type ClientKind = 'desktop' | 'cli' | 'mobile' // mobile 预留（ADR-0002 §2）
+
+// 发起操作的客户端，取自该连接 host.hello 的参数（ADR-0002 §2）
+interface ClientIdentity {
+  deviceId: string
+  clientId: string
+  clientKind: ClientKind
+}
+```
+
+---
+
+## 3. 实体
+
+每个实体的“创建者 / 修改者”指 Host 内负责它的模块。所有修改都经过事件（会话相关）或 RPC 方法（工作区、Provider）；客户端只能通过 Host API 发起。
+
+### 3.1 Workspace
+
+用户授权给 Wevir 的一个本地目录。会话在其中运行，`session/new` 的 `cwd` 就是它的 `rootPath`。
+
+```ts
+// → protocol
+interface Workspace {
+  id: WorkspaceId
+  rootPath: string
+  displayName: string
+  createdAt: IsoTime
+  updatedAt: IsoTime
+}
+```
+
+| 字段 | 含义 | 创建 | 修改 |
+|---|---|---|---|
+| `id` | Host 分配 | `workspace.add` | 不可改 |
+| `rootPath` | 目录的 realpath（`fs.realpath` 之后的绝对路径）。Host 按它去重：同一路径（含经符号链接到达的同一目录）再次添加，返回已有的工作区 | `workspace.add` | 不可改。目录被移动或删除后工作区仍在，在其中建会话或 resume 会失败 |
+| `displayName` | 显示名，默认取目录名 | `workspace.add` | 用户改名（T5.4） |
+| `createdAt` / `updatedAt` | 时间 | Host | Host |
+
+规则：
+
+- 一个 Session 恰属一个工作区（ACP 只有一个主 workspace，T0.3）。工作区之间不嵌套检查：两个工作区可以是父子目录，各自独立。
+- `workspace.remove` 只注销，不删除磁盘上任何文件（OpenWork §4.5）。有未关闭会话（状态不是 `closed`）的工作区不能移除，返回错误。已关闭会话的历史随工作区一起从列表中隐藏，事件库不删；同一 `rootPath` 再次添加时恢复原 `id`，历史重新可见。实现上用 `removedAt` 软删除列，不进线缆类型。
+- 工作区本身不带权限设置。dsh 的权限模式是进程级的 `workspace-write`（ADR-0001 §4）；“工作区外授权目录”之类的设置推迟到 Phase 1，届时按工作区生效（OpenWork §4.5）。
+
+### 3.2 ProviderProfile
+
+一个模型服务的配置。T3.4 把它翻译成 dsh 的 `--patch` overlay（格式见 T0.3 §6.2）。
+
+```ts
+// → protocol
+type ProviderKind = 'deepseek-official' | 'openai-compatible'
+type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages'
+
+interface ProviderModel {
+  id: string              // 发给服务端的模型 ID
+  displayName?: string
+  contextWindow?: number  // 不填时 dsh 按 262144 猜，usage.updated 的 contextSize 会失真
+}
+
+interface ProviderCompat { // 只对 openai-compatible 有意义，原样写进 overlay 的 compat
+  supportsDeveloperRole?: boolean
+  maxTokensField?: 'max_tokens' | 'max_completion_tokens'
+  thinkingFormat?: string
+  requiresReasoningContentOnAssistantMessages?: boolean
+}
+
+interface ProviderProfile {
+  id: ProviderId
+  kind: ProviderKind
+  displayName: string
+  api?: ProviderApi       // openai-compatible 必填
+  baseURL?: string        // openai-compatible 必填；deepseek-official 可选（覆盖官方地址）
+  compat?: ProviderCompat
+  models: ProviderModel[] // deepseek-official 可为空，用 dsh 自带目录
+  defaultModelId: string
+  hasSecret: boolean      // 线缆上只暴露有没有 Key，不暴露 secretRef
+  createdAt: IsoTime
+  updatedAt: IsoTime
+}
+```
+
+| 字段 | 含义 | 创建 | 修改 |
+|---|---|---|---|
+| `id` | Provider ID，同时是 dsh 的 provider 路由名。**会写进 dsh 会话日志，创建后不可改名**（T0.3 §6.2）；要“改名”只能新建一个再删旧的 | `provider.upsert`（新 ID） | 不可改 |
+| `kind` | `deepseek-official` 走 `llm-deepseek`，dsh 的路由名固定为 `deepseek-official`，所以这类 Profile 最多一个，`id` 必须是 `deepseek-official`；`openai-compatible` 走 `llm-pi-ai` 的自定义 provider | 创建时 | 不可改 |
+| `displayName` | 显示名，写进 overlay 的 `displayName` | 创建时 | `provider.upsert` |
+| `api`、`baseURL`、`compat`、`models`、`defaultModelId` | 写进 overlay | 创建时 | `provider.upsert`。是否需要重启 dsh 才生效由 T3.4 实测（ADR-0001 未决事项 4） |
+| `hasSecret` | Key 是否已存 | Host | `provider.upsert` 带 Key 时 |
+| `createdAt` / `updatedAt` | 时间 | Host | Host |
+
+规则：
+
+- Key 不在 Profile 里。Host 的 `SecretStore`（ADR-0003）以 Provider ID 为键保存；存储层的 `secretRef` 列不上线缆。Key 只经子进程环境变量 `WEVIR_PROVIDER_<ID>_KEY` 传给 dsh，`<ID>` 是 Provider ID 转大写、`-` 换成 `_`（ID 只含小写字母、数字和 `-`，不会撞名）。overlay 里只写 `apiKeyEnv` 变量名。`deepseek-official` 的 Key 同时用于 `web-search-deepseek`（T0.3 §6.2）。
+- 被未关闭会话引用的 Profile 不能删除。已关闭会话引用的 Profile 删除后，这些会话不能 resume，直到再建一个同 ID 的 Profile。
+- OAuth 类 Provider 不在 v0（ADR-0001 未决事项 1）。
+
+### 3.3 Session
+
+一次与 Agent 的对话，恰属一个工作区，对应恰好一个引擎会话。
+
+```ts
+// → protocol
+type SessionState = 'idle' | 'running' | 'awaiting_approval' | 'cancelling' | 'error' | 'closed'
+
+interface ActiveTurn {
+  turnId: TurnId
+  startedAt: IsoTime
+  clientMessageId?: string
+}
+
+interface Session {
+  id: SessionId
+  workspaceId: WorkspaceId
+  cwd: string                      // 创建时的 rootPath（realpath），resume 用
+  engine: { kind: 'dsh'; sessionId: string } // 仅诊断用
+  providerId: ProviderId
+  modelId: string
+  reasoningEffort?: string         // dsh 的 reasoning_effort 选项值，原样（off / low / high / max）
+  title: string
+  titleSource: 'first_prompt' | 'user'
+  state: SessionState
+  activeTurn?: ActiveTurn
+  lastError?: { category: EngineErrorCategory; message: string }
+  createdAt: IsoTime
+  updatedAt: IsoTime               // 最后一个事件的 ts
+  lastSeq: number
+}
+
+// session.get 的结果（ADR-0002 §3）
+interface SessionSnapshot {
+  session: Session
+  pendingApprovals: ApprovalRequest[]
+  todos?: TodoItem[]               // 最近一次 todo.updated
+  usage?: { contextUsed: number; contextSize: number } // 最近一次 usage.updated
+}
+```
+
+| 字段 | 含义 | 创建 | 修改 |
+|---|---|---|---|
+| `id`、`workspaceId`、`cwd`、`engine` | 身份与映射（§1.1） | 会话管理器（T2.3），`session.create` | 不可改 |
+| `providerId`、`modelId`、`reasoningEffort` | 创建时选定；v0 没有中途切换模型的方法（预留 `session.config_changed`，§6.6） | `session.create` | v0 不可改 |
+| `title`、`titleSource` | 首条用户消息生成，截取前若干字（长度由 T2.3 定） | 首个 `user.message` 时 Host 写 `session.title_changed` | 用户改名（方法在 T1.2 之后按需加） |
+| `state`、`activeTurn`、`lastError` | 状态机（§4） | Host | 只由状态机修改 |
+| `createdAt`、`updatedAt`、`lastSeq` | | 事件库（T2.2） | 每次追加事件 |
+
+除身份字段外，`Session` 的其余字段都可以由事件序列推导出来。`sessions` 表存一份缓存供会话列表使用，与事件推导结果不一致时以事件为准（T2.2 的“Host 重启后状态一致”）。
+
+### 3.4 ApprovalRequest
+
+引擎要求用户批准的一次操作。dsh 的审批只来自沙箱升级（ADR-0001 §6）：工作区外、且不在系统临时目录的操作先被沙箱拒绝，模型带 `sandbox_permissions` 重试时才发出 `session/request_permission`。
+
+```ts
+// → protocol
+type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'cancelled' | 'expired'
+
+interface ApprovalOption {
+  optionId: string            // 引擎原样，approval.respond 回传它
+  label: string               // 引擎原样（dsh 给英文 "Allow once" / "Reject"），界面按 kind 本地化，未知 kind 才显示 label
+  kind: string                // 引擎原样（ACP: allow_once / allow_always / reject_once / reject_always）
+  category: 'allow' | 'reject'
+}
+
+interface ApprovalDetail {     // 取自同一 toolCallId 的 tool.started
+  toolName: string
+  display: ToolDisplay        // §7
+  input: unknown              // rawInput 原样（截断规则同工具输出）
+  justification?: string      // rawInput.justification
+  sandboxPermissions?: string // rawInput.sandbox_permissions，如 "danger-full-access"
+}
+
+type ApprovalResolutionReason =
+  | 'user'            // 某个客户端做了选择
+  | 'turn_cancelled'  // session.cancel
+  | 'session_closed'  // session.close
+  | 'engine_exited'   // dsh 进程退出
+  | 'host_shutdown'   // Host 优雅退出
+  | 'host_restarted'  // Host 非正常退出后重启时发现残留
+
+interface ApprovalResolution {
+  optionId?: string          // reason 为 'user' 时必有
+  decidedBy?: ClientIdentity // reason 为 'user' 时必有
+  reason: ApprovalResolutionReason
+}
+
+interface ApprovalRequest {
+  id: ApprovalId
+  sessionId: SessionId
+  turnId: TurnId
+  toolCallId: string
+  options: ApprovalOption[]
+  detail: ApprovalDetail | null // 找不到对应 tool.started 时为 null，界面显示通用文案
+  status: ApprovalStatus
+  createdAt: IsoTime
+  resolvedAt?: IsoTime
+  resolution?: ApprovalResolution
+}
+```
+
+| 字段 | 含义 | 创建 | 修改 |
+|---|---|---|---|
+| `id` | Host 分配 | 适配器上报审批请求时，会话管理器写 `approval.requested` | 不可改 |
+| `toolCallId`、`options` | 引擎原样。`category` 由 `kind` 前缀推导：`allow_` 开头为 `allow`，其余一律 `reject`（保守，未知 kind 不会被当作批准） | 同上 | 不可改 |
+| `detail` | Host 在同一会话里找 `toolCallId` 相同的 `tool.started`，取其 `toolName`、`display` 与 `input` | 同上 | 不可改 |
+| `status`、`resolvedAt`、`resolution` | §5 | 同上（`pending`） | 只由审批状态机修改，写 `approval.resolved` |
+
+`approval.respond` 的参数是 `{ approvalId, optionId }`，`optionId` 必须是该请求 `options` 里的一个。适配器内部保留 ACP 请求的 JSON-RPC id 用于回复，它不属于领域模型。
+
+“总是允许”：dsh 只给 `allow_once` / `reject_once`（T0.3 §5.2），v0 不做；将来由 Host 记规则自动应答，届时 `ApprovalResolutionReason` 增加 `'rule'`，`decidedBy` 为空。
+
+### 3.5 WevirEvent
+
+会话内追加写的事件，是会话所有产品状态的来源。信封沿用计划 §6 T1.2：
+
+```ts
+// → protocol
+interface WevirEventEnvelope<T extends string, P> {
+  seq: number                 // 会话内从 1 开始连续递增，无空洞
+  sessionId: SessionId
+  ts: IsoTime                 // Host 追加时的时间
+  type: T
+  source: 'host' | 'engine'   // engine = 引擎事实的投影；host = Host 自己的事实或推导
+  payload: P
+}
+
+type WevirEvent = /* §6.2 的判别联合，按 type 区分 payload */
+```
+
+规则：
+
+- 只有事件库（T2.2）分配 `seq`，在会话锁内原子追加。增量文本先按短窗口合并（60 ms，ADR-0002 §3）再分配 `seq`；不能合并的事件到达时先 flush 已缓冲的增量，保证顺序。
+- 事件不修改、不删除。“替换”（已提交消息替换增量）是投影层的语义，事件本身都保留。
+- 客户端遇到不认识的 `type` 必须忽略（向前兼容）；Host 发新事件类型前按客户端 `capabilities` 门控（ADR-0002 §2）。
+- 工具输出、`input` 等大字段入库前按统一上限截断，上限写进 `host-api.md`（ADR-0002 §3）。
+
+### 3.6 预留实体（v0 不实现）
+
+| 实体 | 用途 | 与现有实体的关系 |
+|---|---|---|
+| `Task` | 用户的一个目标，可能跨多个会话、多次回合完成（例如“整理本周周报”），对应 dsh 的 goal 能力或 Wevir 自己的任务编排；Phase 1 的任务视图以它为单位 | 一个 Task 关联多个 Session（Session 增加可选 `taskId`）；属于一个 Workspace |
+| `Artifact` | Agent 交付给用户的文件成果（文档、表格、代码文件），可预览、可在访达中显示 | 由某个 Session 的某次工具调用产生（`write` / `edit` 的路径、dsh `present` 工具的文件列表），以 `(sessionId, toolCallId, path)` 关联；路径必须在所属 Workspace 内。骨架只在工具卡片上显示路径 chip（OpenWork §3.9），成果面板放 Phase 1 |
+| `Device` | 一台配对过的设备（桌面、手机），带设备凭据和权限，可撤销 | `host.hello` 的 `deviceId`、`ApprovalResolution.decidedBy.deviceId`、`user.message.sentBy.deviceId` 都指向它；骨架只有 ID，没有实体（ADR-0002 未决事项 3） |
+
+---
+
+## 4. 会话状态机
+
+```mermaid
+stateDiagram-v2
+    [*] --> idle: session.create（引擎 session/new 成功）
+    idle --> running: session.send 被接受
+    running --> awaiting_approval: approval.requested
+    awaiting_approval --> running: 最后一个未决审批被决定
+    running --> cancelling: session.cancel
+    awaiting_approval --> cancelling: session.cancel（未决审批 → cancelled）
+    running --> idle: 回合结算（end_turn / 回合失败）
+    cancelling --> idle: 回合结算（cancelled）
+    cancelling --> error: 取消超时，无法确认已停止
+    running --> error: dsh 进程退出
+    awaiting_approval --> error: dsh 进程退出
+    cancelling --> error: dsh 进程退出
+    idle --> error: dsh 进程退出 / 自动 resume 失败
+    error --> idle: session.resume 成功
+    idle --> closed: session.close
+    error --> closed: session.close
+    closed --> idle: session.resume 成功
+    running --> idle: Host 重启（回合中断）
+    awaiting_approval --> idle: Host 重启（审批 → expired）
+    cancelling --> idle: Host 重启
+```
+
+状态含义：
+
+| 状态 | 含义 |
+|---|---|
+| `idle` | 没有进行中的回合，可以接受 `session.send`。引擎会话可能已挂在 dsh 进程上，也可能尚未挂上（Host 或 dsh 重启后）；后者在下一次 send 前由 Host 自动 resume，对客户端透明 |
+| `running` | 一个回合正在执行（`session/prompt` 未结算） |
+| `awaiting_approval` | 回合中，至少有一个 `pending` 审批 |
+| `cancelling` | 已向引擎发出取消，等 `session/prompt` 以 `cancelled` 结算 |
+| `error` | 引擎会话不可用：dsh 进程退出、取消无法确认、resume 失败。历史保留，`session.resume` 可恢复 |
+| `closed` | 用户关闭；引擎会话已 `session/close`，可 resume |
+
+### 4.1 转换与触发事件
+
+“写入的事件”按顺序列出，都在同一把会话锁内追加。`session.state_changed` 每次都写，表里省略。
+
+| # | 从 | 到 | 触发 | 写入的事件（`reason`） |
+|---|---|---|---|---|
+| 1 | — | `idle` | `session.create`：适配器 `createSession` 成功 | `session.created`（初始状态隐含为 `idle`，不写 `state_changed`）。失败时不建会话，RPC 返回错误 |
+| 2 | `idle` | `running` | `session.send` 被接受（必要时先自动 resume） | `user.message`、`turn.started`、首个回合还有 `session.title_changed`（`turn_started`） |
+| 3 | `running` | `awaiting_approval` | 适配器上报审批请求 | `approval.requested`（`approval_requested`） |
+| 4 | `awaiting_approval` | `running` | 某个审批被决定后不再有 `pending` 审批 | `approval.resolved`（`approvals_settled`） |
+| 5 | `running` / `awaiting_approval` | `cancelling` | `session.cancel` | 每个未决审批一条 `approval.resolved`（`turn_cancelled`），适配器以 `cancelled` 回复 ACP；然后发 `session/cancel`（`cancel_requested`） |
+| 6 | `running` | `idle` | `session/prompt` 结算为 `end_turn` | 未收尾工具的 `tool.finished`（`unknown`，§6.4）、`turn.finished`（`completed`）（`turn_finished`） |
+| 7 | `running` | `idle` | `session/prompt` 以 `-32603` 失败（回合失败，如缺 Key） | `engine.error`（`fatal: false`）、未收尾工具的 `tool.finished`、`turn.finished`（`failed`）（`turn_finished`）。会话仍可用，修好配置后可继续发送 |
+| 8 | `cancelling` | `idle` | `session/prompt` 结算（`cancelled`，或取消过程中失败） | 未收尾工具的 `tool.finished`、`turn.finished`（`cancelled`）（`turn_finished`） |
+| 9 | `cancelling` | `error` | 取消后超时仍未结算（超时值 T2.3 定；T0.3 实测 3–64 ms 结算） | `engine.error`（`cancel_unconfirmed`，`fatal: true`）、`turn.finished`（`interrupted`）（`cancel_unconfirmed`）。适配器随后按 T3.1 重启 dsh |
+| 10 | `idle` / `running` / `awaiting_approval` / `cancelling` | `error` | dsh 进程退出（不论是否在回合中，ADR-0001 §2）；只影响已挂在该进程上的会话 | 未决审批 `approval.resolved`（`engine_exited`）、有回合时 `turn.finished`（`interrupted`）、`engine.error`（`engine_exited`，`fatal: true`）（`engine_exited`） |
+| 11 | `idle` | `error` | send 前的自动 resume 失败 | `engine.error`（`session_unavailable`）（`resume_failed`）；本次 send 返回错误，不写 `user.message` |
+| 12 | `error` / `closed` | `idle` | `session.resume` 成功（ACP `session/resume`，同一 cwd） | （`resumed`） |
+| 13 | `idle` / `error` | `closed` | `session.close` | （`closed`）。`error` 状态下引擎会话可能已不存在，ACP `session/close` 失败不阻止关闭 |
+| 14 | `running` / `awaiting_approval` / `cancelling` | `closed` | `session.close`：先按 #5 取消（审批 `reason` 为 `session_closed`），等回合结算（同 #8 / #9），再关闭 | 依次为 #5、#8、#13 的事件；取消无法确认时仍转 `closed`，适配器重启 dsh |
+| 15 | `running` / `awaiting_approval` / `cancelling` | `idle` | Host 非正常退出后重启，发现会话停在活动状态 | 未决审批 `approval.resolved`（`expired`，`host_restarted`）、`turn.finished`（`interrupted`）（`host_restarted`）。Host 优雅退出时已按 ADR-0002 §6 取消回合，不会走到这里 |
+
+resume 失败（#12 的反面）不改变状态：`error` 仍是 `error`，`closed` 仍是 `closed`，追加一条 `engine.error`（`session_unavailable`），RPC 返回错误。
+
+### 4.2 各状态下的命令
+
+每个会话的命令在 Host 内串行执行（ADR-0002 §4）。错误码名为草案，T1.2 定稿。
+
+| 命令 | `idle` | `running` / `awaiting_approval` | `cancelling` | `error` | `closed` |
+|---|---|---|---|---|---|
+| `session.send` | 接受（#2） | `session_busy`，`data` 带当前状态；不排队、不打断（ADR-0002 §4） | `session_busy` | `session_inactive`，需先 resume | `session_inactive` |
+| `session.cancel` | 成功，无操作（幂等） | 接受（#5） | 成功，无操作 | 成功，无操作 | 成功，无操作 |
+| `approval.respond` | `already_decided` 或 `not_found` | 对 `pending` 审批接受（§5） | `already_decided`（已结为 `cancelled`） | `already_decided` | `already_decided` |
+| `session.close` | 接受（#13） | 接受（#14） | 接受（#14） | 接受（#13） | 成功，无操作 |
+| `session.resume` | 成功，无操作 | 成功，无操作 | 成功，无操作 | 接受（#12） | 接受（#12） |
+
+`session.send` 的 `clientMessageId` 幂等（ADR-0002 §4）在状态检查之前：同一 ID 重发返回原结果，不论现在处于什么状态。
+
+---
+
+## 5. 审批生命周期
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: approval.requested
+    pending --> approved: approval.respond（allow 类选项）
+    pending --> denied: approval.respond（reject 类选项）
+    pending --> cancelled: session.cancel / session.close / dsh 退出 / Host 优雅退出
+    pending --> expired: Host 非正常退出后重启
+    approved --> [*]
+    denied --> [*]
+    cancelled --> [*]
+    expired --> [*]
+```
+
+1. **创建**：适配器上报 `request_permission` 时，会话管理器分配 `ApprovalId`，从同一会话里 `toolCallId` 相同的 `tool.started` 取详情，写 `approval.requested`，会话转 `awaiting_approval`。
+2. **首个决定生效**：`approval.respond` 按会话串行处理。第一个到达的请求把审批锁定为“提交中”，经适配器回复引擎（ACP `{"outcome":{"outcome":"selected","optionId":…}}`）；成功后写 `approval.resolved`，`status` 按所选选项的 `category` 取 `approved` 或 `denied`，`decidedBy` 取该连接的 `ClientIdentity`。
+3. **后到者**：审批已不是 `pending` 时，`approval.respond` 返回 `already_decided`，`data` 带既有的 `status` 与 `resolution`。因为命令串行，“提交中”期间到达的请求会排在后面，拿到的同样是 `already_decided`。`optionId` 不在选项里返回参数错误，不改变审批。
+4. **暂扣引擎事件**：提交期间，同一会话里适配器上报的引擎事件先缓冲，等 `approval.resolved` 写入后再追加。dsh 回复后几毫秒就发出该工具的 `tool_call_update`（`B-permission-allow.jsonl`：回复 901 ms，更新 906 ms），不暂扣会出现“工具已完成、审批还未决定”的顺序（ADR-0002 §4）。
+5. **由 Host 结算为 `cancelled`**：`session.cancel`（`turn_cancelled`）、`session.close`（`session_closed`）、dsh 进程退出（`engine_exited`）、Host 优雅退出（`host_shutdown`）。前两种情况适配器必须以 `{"outcome":{"outcome":"cancelled"}}` 回复 ACP，否则 dsh 侧悬挂（ADR-0001 §6）；`decidedBy` 为空。
+6. **由 Host 结算为 `expired`**：Host 非正常退出后重启，启动对账时把残留的 `pending` 审批结为 `expired`（`host_restarted`）。此时 dsh 进程已随 Host 消失，没有可回复的请求。
+7. 审批结算后，引擎随后的 `tool_call_update` 照常映射为 `tool.finished`：批准后通常 `completed`；拒绝后 `failed`，结果文本是 dsh 的拒绝说明；取消后 `cancelled`（§6.4）。
+
+---
+
+## 6. 事件类型目录 v0
+
+### 6.1 总表
+
+| `type` | `source` | 含义 | 来源 |
+|---|---|---|---|
+| `session.created` | host | 会话建立，`seq = 1` | `session.create` + ACP `session/new` 结果 |
+| `session.title_changed` | host | 标题变化 | 首个 `user.message`；用户改名 |
+| `session.state_changed` | host | 状态机转换（§4.1） | Host |
+| `user.message` | host | 用户发出的消息 | `session.send`（ACP 不回发用户消息） |
+| `turn.started` | host | 回合开始 | `session.send` 被接受，Host 发出 `session/prompt` |
+| `turn.finished` | host | 回合结束 | `session/prompt` 的结果或失败；进程退出；Host 重启 |
+| `assistant.delta` | engine | 助手文本或思考的增量 | stream-tap 旁路的 `text-delta` / `reasoning-delta`（T3.2a） |
+| `assistant.stream_ended` | engine | 一个 LLM attempt 的增量流结束 | stream-tap 的 `end` 帧 |
+| `assistant.message` | engine | 已提交的助手消息，替换对应增量 | ACP `agent_message_chunk` |
+| `assistant.thought` | engine | 已提交的思考内容，替换对应增量 | ACP `agent_thought_chunk` |
+| `tool.started` | engine | 工具调用开始 | ACP `tool_call` |
+| `tool.updated` | engine | 工具调用的中间更新 | ACP `tool_call_update`（非终态） |
+| `tool.finished` | engine / host | 工具调用结束 | ACP `tool_call_update`（`completed` / `failed`）；Host 收尾时补写（`source: host`） |
+| `todo.updated` | host | 待办列表（完整列表） | 从 `todo_write` 的 `tool_call.rawInput` 推导 |
+| `approval.requested` | engine | 新的审批请求 | ACP `session/request_permission` |
+| `approval.resolved` | host | 审批结算，带 `decidedBy` | `approval.respond` 或 Host 结算 |
+| `usage.updated` | engine | 上下文用量 | ACP `usage_update` |
+| `engine.error` | engine / host | 引擎错误，已归类并保留原文 | `-32603` 回合失败、进程退出、resume 失败、取消超时 |
+| `engine.raw` | engine | 适配器不认识的引擎消息，原样保留 | 未识别的 `sessionUpdate` 或通知 |
+
+和计划草稿相比的调整，都来自 Spike 样本：
+
+- 新增 `user.message`、`turn.started` / `turn.finished`：ACP 不回发用户消息，回合边界只有 `session/prompt` 的请求与结算；回放和快照的 `activeTurn` 需要它们。
+- 新增 `assistant.stream_ended`：旁路的 `end` 帧区分 `committed` 与 `abandoned`（重试时被丢弃的 attempt），客户端据此丢掉不会被替换的增量。
+- 新增 `todo.updated`、`session.created`、`session.title_changed`：ADR-0001 §5 规定由 Host 推导的事实，以事件形式落库，快照和回放都从事件得到。
+- 没有 `plan.*`、`subagent.*`：dsh 的 ACP 从不发 `plan`（T0.3 §3.3），子 agent 只能看到父会话的 `subagent` 工具调用（ADR-0001 §5 第 10 条），按普通工具处理。
+
+### 6.2 payload 类型
+
+```ts
+// → protocol
+type StateChangeReason =
+  | 'turn_started' | 'approval_requested' | 'approvals_settled' | 'cancel_requested'
+  | 'turn_finished' | 'cancel_unconfirmed' | 'engine_exited' | 'resume_failed'
+  | 'resumed' | 'closed' | 'host_restarted'
+
+type TurnOutcome =
+  | 'completed'   // ACP stopReason end_turn
+  | 'cancelled'   // ACP stopReason cancelled
+  | 'failed'      // session/prompt 以 JSON-RPC 错误结束（见同回合的 engine.error）
+  | 'interrupted' // 没有拿到结算：进程退出、取消超时、Host 重启
+
+type EngineErrorCategory =
+  | 'missing_credentials' // "no API key" / "no credential for provider route"
+  | 'provider'            // Provider 返回的错误（前缀规则由 T3.2 依真实样本补全）
+  | 'engine_exited'       // dsh 进程退出
+  | 'cancel_unconfirmed'  // 取消后超时未结算
+  | 'session_unavailable' // resume / close 被拒：unknown session、cwd 不一致等
+  | 'unknown'
+
+interface StreamBlockRef { streamId: StreamId; blockIndex: number }
+
+interface TodoItem {
+  content: string
+  status: string // dsh todo_write 原值，样本里只有 pending / in_progress / completed；其他值原样保留，界面按 pending 显示
+}
+
+interface ToolOutput {
+  text: string        // ACP content[] 里所有 text 拼接（T0.3 只见到 {type:'content', content:{type:'text'}}）
+  truncated: boolean
+  originalLength?: number
+}
+
+type WevirEvent =
+  | WevirEventEnvelope<'session.created', {
+      workspaceId: WorkspaceId
+      cwd: string
+      providerId: ProviderId
+      modelId: string
+      reasoningEffort?: string
+    }>
+  | WevirEventEnvelope<'session.title_changed', { title: string; source: 'first_prompt' | 'user' }>
+  | WevirEventEnvelope<'session.state_changed', {
+      from: SessionState
+      to: SessionState
+      reason: StateChangeReason
+    }>
+  | WevirEventEnvelope<'user.message', {
+      turnId: TurnId
+      clientMessageId?: string
+      content: Array<{ type: 'text'; text: string }> // v0 只有文本；dsh promptCapabilities 不支持图片、音频
+      sentBy: ClientIdentity
+    }>
+  | WevirEventEnvelope<'turn.started', { turnId: TurnId }>
+  | WevirEventEnvelope<'turn.finished', {
+      turnId: TurnId
+      outcome: TurnOutcome
+      engineStopReason?: string // 引擎原值
+      durationMs: number
+    }>
+  | WevirEventEnvelope<'assistant.delta', {
+      turnId: TurnId
+      streamId: StreamId
+      blockIndex: number        // attempt 内的块序号，取旁路 chunk 的 index
+      kind: 'text' | 'reasoning'
+      text: string              // Host 按 60 ms 合并后的片段
+    }>
+  | WevirEventEnvelope<'assistant.stream_ended', {
+      turnId: TurnId
+      streamId: StreamId
+      outcome: 'committed' | 'abandoned'
+    }>
+  | WevirEventEnvelope<'assistant.message', {
+      turnId: TurnId
+      messageId: string         // 引擎原值
+      text: string
+      replaces: StreamBlockRef[] // 本条替换的增量块；没有旁路或对不上时为空
+    }>
+  | WevirEventEnvelope<'assistant.thought', {
+      turnId: TurnId
+      messageId: string         // 与同一 attempt 的 assistant.message 相同（F-stream-granularity.jsonl）
+      text: string
+      replaces: StreamBlockRef[]
+    }>
+  | WevirEventEnvelope<'tool.started', {
+      turnId: TurnId
+      toolCallId: string
+      toolName: string          // ACP tool_call.title，dsh 里就是工具名
+      display: ToolDisplay      // §7
+      input: unknown            // rawInput 原样（截断后）
+    }>
+  | WevirEventEnvelope<'tool.updated', {
+      turnId: TurnId
+      toolCallId: string
+      display?: ToolDisplay
+      input?: unknown
+      output?: ToolOutput
+    }>
+  | WevirEventEnvelope<'tool.finished', {
+      turnId: TurnId
+      toolCallId: string
+      status: 'completed' | 'failed' | 'cancelled' | 'unknown'
+      output?: ToolOutput       // Host 收尾补写（unknown）时没有
+    }>
+  | WevirEventEnvelope<'todo.updated', {
+      turnId: TurnId
+      toolCallId: string        // 来源 todo_write 调用
+      items: TodoItem[]
+    }>
+  | WevirEventEnvelope<'approval.requested', { approval: ApprovalRequest }> // status 恒为 pending
+  | WevirEventEnvelope<'approval.resolved', {
+      approvalId: ApprovalId
+      status: Exclude<ApprovalStatus, 'pending'>
+      resolution: ApprovalResolution
+    }>
+  | WevirEventEnvelope<'usage.updated', {
+      contextUsed: number       // ACP usage_update.used
+      contextSize: number       // ACP usage_update.size（模型未声明 contextWindow 时是猜测值）
+    }>
+  | WevirEventEnvelope<'engine.error', {
+      category: EngineErrorCategory
+      message: string           // 引擎原文，始终保留
+      code?: number             // JSON-RPC 错误码
+      turnId?: TurnId
+      fatal: boolean            // true：会话因此进入 error
+    }>
+  | WevirEventEnvelope<'engine.raw', {
+      protocol: 'acp'
+      method: string            // 如 'session/update'
+      kind?: string             // session/update 的 sessionUpdate 值
+      params: unknown           // 原样（截断后）
+    }>
+```
+
+适配器向 Host 上报的 `AgentEvent`（T1.3）是这份目录去掉 Host 自己的事实（`session.*`、`user.message`、`turn.started`、`todo.updated`、`approval.resolved`）、换成引擎 ID 的版本。草案：
+
+```ts
+// → adapter 接口
+type AgentEvent =
+  | { type: 'assistant.delta'; engineSessionId: string; attemptId: string; blockIndex: number; kind: 'text' | 'reasoning'; text: string }
+  | { type: 'assistant.stream_ended'; engineSessionId: string; attemptId: string; outcome: 'committed' | 'abandoned' }
+  | { type: 'assistant.message' | 'assistant.thought'; engineSessionId: string; messageId: string; text: string }
+  | { type: 'tool.started'; engineSessionId: string; toolCallId: string; toolName: string; input: unknown }
+  | { type: 'tool.updated'; engineSessionId: string; toolCallId: string; input?: unknown; output?: string }
+  | { type: 'tool.finished'; engineSessionId: string; toolCallId: string; status: 'completed' | 'failed'; output?: string }
+  | { type: 'approval.requested'; engineSessionId: string; requestKey: string; toolCallId: string; options: Array<Omit<ApprovalOption, 'category'>> }
+  | { type: 'usage.updated'; engineSessionId: string; used: number; size: number }
+  | { type: 'turn.settled'; engineSessionId: string; stopReason: string }               // session/prompt 结果
+  | { type: 'turn.failed'; engineSessionId: string; code: number; message: string }     // session/prompt 错误
+  | { type: 'engine.exited'; code: number | null; signal: string | null; stderrTail: string }
+  | { type: 'engine.raw'; engineSessionId?: string; method: string; params: unknown }
+```
+
+展示类型（§7）、错误归类、增量对齐（§6.3）、`cancelled` / `unknown` 推导（§6.4）都放在 Host 侧做还是适配器侧做，由 T1.3 决定；本文件只规定结果。原则是：依赖 dsh 工具名或错误措辞的规则属于 dsh 适配器，依赖 Host 状态（会话是否在 `cancelling`）的规则属于 Host。
+
+### 6.3 增量与已提交消息的合并规则
+
+依据：T0.3 §4、ADR-0001 §3；样本 `stream-tap/mock/frames.sample.json`、`acp/mock/transcripts/F-stream-granularity.jsonl`、`todo-subagent.jsonl`。
+
+事实：
+
+- 旁路每个 LLM attempt 一组帧：`start`（`attemptId`、`turn`、`step`）→ 若干 `chunk`（`block-start` / `text-delta` / `reasoning-delta` / `tool-call-delta` / `block-end` / `usage` / `finish`）→ `end`（`outcome.kind` 为 `committed` 或 `abandoned`）。
+- ACP 对每个已提交的 attempt 至多发一条 `agent_thought_chunk` 和一条 `agent_message_chunk`，二者 `messageId` 相同；`messageId` 与旁路的 `attemptId` 不同。一个回合可以有多个 attempt，各自产生已提交消息（`todo-subagent.jsonl`：子 agent 启动后一条消息，最后一条消息）。
+- 取消时 ACP 一次性补发已生成的部分，作为一条 `agent_message_chunk`，随后结算为 `cancelled`（`E2-cancel-during-generation.jsonl`）。
+
+规则：
+
+1. Host 为每个 `start` 帧分配 `StreamId`；`text-delta` / `reasoning-delta` 合并后写 `assistant.delta`；`end` 帧写 `assistant.stream_ended`。其余 chunk 类型（`block-start`、`block-end`、`tool-call-delta`、`usage`、`finish`）只供适配器内部判断块边界，不落库：工具调用以 ACP `tool_call` 为准，用量以 `usage_update` 为准。
+2. 对齐：每个会话维护一个“等待替换”的 attempt 队列，只收含 `text` 或 `reasoning` 块、且没有以 `abandoned` 结束的 attempt。ACP 出现一个新的 `messageId` 时，取队首 attempt 与之配对；`assistant.thought` 的 `replaces` 列出该 attempt 的 reasoning 块，`assistant.message` 列出 text 块。配不上（队列为空、旁路缺失）时 `replaces` 为空。
+3. 客户端投影：收到 `assistant.message` / `assistant.thought` 后，删掉 `replaces` 指向的增量块，在原位置显示已提交内容；`replaces` 为空时追加在回合末尾。
+4. 兜底：`turn.finished` 之后，本回合仍未被替换的增量块一律丢弃，以已提交消息为准。`abandoned` 的 attempt 在收到 `assistant.stream_ended` 时即可丢弃。
+5. 旁路缺失或没有数据时，事件流里只有 `assistant.message` / `assistant.thought`，其余行为不变（ADR-0001 §3）。
+
+dsh 会丢弃只含空白的文本块，对齐细节由 T3.2 用样本测试固定；规则 4 保证任何对齐错误都不会在回合结束后留下重复文本。
+
+### 6.4 工具调用的收尾规则
+
+- ACP `tool_call` 的 `status` 直接是 `in_progress`，没有 `pending`（T0.3 §3.3），所以 `tool.started` 即“运行中”。
+- `tool_call_update` 的 `status` 为 `completed` 或 `failed` 时写 `tool.finished`；为空或 `in_progress` 时写 `tool.updated`（T0.3 未观测到，按 ACP 协议预留）。
+- **`cancelled` 由 Host 推导**：dsh 对被取消的工具报 `failed`，文本是 `Error: tool call aborted`（E1）或 `Error: approval for escalating … was cancelled`（D）。会话处于 `cancelling` 时到达的 `failed` 一律记为 `cancelled`，原文保留在 `output`。不靠文本匹配。
+- **`unknown` 由 Host 补写**：`turn.finished` 之前，本回合仍未收尾的工具调用补一条 `tool.finished`（`status: 'unknown'`，`source: 'host'`），回放时不会一直转圈（OpenWork §3.4）。
+- 沙箱拒绝后的升级重试是**两个**工具调用（不同 `toolCallId`），各自完整收尾（T0.3 §5.3）；第一次的 `failed` 文本带沙箱提示，界面可据此折叠。
+- `todo_write` 照常产生 `tool.started` / `tool.finished`，同时 Host 在 `tool.started` 之后追加 `todo.updated`（`rawInput.todos` 是完整列表）。
+- `subagent` 的结果是 `started subagent <id>`，立即 `completed`（`todo-subagent.jsonl`）；子会话的活动 v0 看不到。
+
+---
+
+## 7. 工具调用的展示类型
+
+ACP `kind` 恒为 `other`、没有 `locations` / `diff`（T0.3 §3.3），Host 按工具名映射展示类型，并从 `rawInput` 提取界面要用的字段。分类参考 Paseo `ToolCallDetail`（`shell`、`read`、`edit`、`write`、`search`、`fetch`、`plan`、`sub_agent`、`unknown`；Paseo 的 `worktree_setup`、`plain_text` 对 dsh 无对应，不采用）。
+
+```ts
+// → protocol
+type ToolDisplayKind = 'shell' | 'read' | 'edit' | 'write' | 'search' | 'fetch' | 'plan' | 'sub_agent' | 'unknown'
+
+interface ToolDisplay {
+  kind: ToolDisplayKind
+  summary?: string   // 一行摘要：路径、命令、查询词或 URL
+  paths?: string[]   // 涉及的文件路径（rawInput 原值，可能是相对路径）；界面做路径 chip
+  command?: string   // shell
+  query?: string     // search
+  url?: string       // fetch
+  mcpServer?: string // mcp__<server>__<tool> 的 server 部分
+}
+```
+
+映射草案。“观测”列：✅ 在 T0.3 样本中出现过；源码 = 只在上游 `d743267` 的 `dsh-base` 组合中注册过，未在 Spike 中出现，`rawInput` 字段名取自工具定义，T3.2 遇到真实样本再核对。
+
+| dsh 工具名 | 观测 | 展示类型 | 提取字段（`rawInput`） |
+|---|---|---|---|
+| `read` | ✅ | `read` | `file_path` → `paths`、`summary` |
+| `read_image` | 源码 | `read` | `file_path` |
+| `write` | ✅ | `write` | `file_path` → `paths`；`content` 不进 `display`（在 `input` 里）；`sandbox_permissions`、`justification` 进审批详情 |
+| `edit` | 源码 | `edit` | `file_path`；`old_string` / `new_string` 供界面生成 diff（T5.3） |
+| `str_replace_editor` | 源码 | `edit` | `path` |
+| `bash`、`pwsh` | ✅（bash） | `shell` | `command` → `command`、`summary`；`description` 作副标题 |
+| `job_output`、`job_list`、`job_kill` | 源码 | `shell` | 后台任务操作，`summary` 取任务 ID |
+| `grep` | 源码 | `search` | `pattern` → `query`；`path` → `paths` |
+| `glob` | 源码 | `search` | `pattern` → `query`；`path` → `paths` |
+| `web_search` | 源码 | `search` | 查询词列表拼成 `query` |
+| `web_fetch` | 源码 | `fetch` | `url` |
+| `todo_write` | ✅ | `plan` | `todos`（另写 `todo.updated`） |
+| `plan` | 源码 | `plan` | `plan`（Markdown，计划模式；dsh ACP 不发 plan 事件） |
+| `subagent` | ✅ | `sub_agent` | `description` → `summary`；`prompt` 在 `input` 里 |
+| `send_message`、`interrupt_agent`、`list_agents`、`list_subagent_models` | 源码 | `sub_agent` | |
+| `mcp__<server>__<tool>` | 源码（命名规则） | `unknown` | `mcpServer` |
+| `present`、`skill`、`working_directory`、`lsp`、goal 系列等其他工具 | 源码 | `unknown` | `present` 的文件列表 → `paths`（将来的 Artifact 来源） |
+| 其他任何名字 | — | `unknown` | 无 |
+
+映射表属于 dsh 适配器（依赖 dsh 工具名），以代码常量形式落在 `packages/adapter-dsh`（T3.2），并写进 `docs/architecture/acp-event-mapping.md`。展示类型只影响界面，不影响任何状态转换。
+
+---
+
+## 8. 客户端消息投影与 AI SDK `UIMessage`
+
+**决定：不直接采用 `UIMessage` 及其部件类型；照它的分层做，文本与思考部件保持同形，工具与审批部件用 Wevir 自己的形状。** 投影代码与类型放在 `packages/client-sdk`（T4.1），CLI 与桌面共用；协议包和 client-sdk 都不依赖 `ai`。
+
+分层（OpenWork §3.2）：协议事件（`WevirEvent`，按 `seq` 应用）→ 客户端投影（消息 + 部件）→ 渲染。
+
+理由（核对的是 npm 上的 `ai@6.0.303` 与当前 `latest` `ai@7.0.137`，均为 Apache-2.0）：
+
+1. **审批语义装不下。** `UIMessage` 的工具审批是二元的：`approval: { id, approved: boolean, reason? }`，状态只有 `approval-requested` / `approval-responded` / `output-denied`。Wevir 要原样携带引擎的选项列表、回传 `optionId`、记录 `decidedBy`，还有 `cancelled`、`expired` 两种非用户结算，都没有位置。
+2. **工具状态装不下。** `UIMessage` 的工具状态没有“已取消”和“状态未知”，也没有展示类型和路径；硬塞进 `toolMetadata` 等于自定义形状，失去采用它的意义。
+3. **它变得比 Wevir 的协议快。** 部件联合在 v6 → v7 里新增了 `custom`、`reasoning-file` 两种部件，审批对象也加了字段。客户端对部件做穷举 `switch` 时，升级 `ai` 就编译失败；Wevir 的兼容纪律（只增不减、新字段 optional，ADR-0002 §2）不能绑在第三方的发版节奏上。
+4. **依赖边界。** client-sdk 只依赖 `packages/protocol`（ADR-0002 §7）。`ai` 即使只 `import type` 也要装进依赖树，并带上 `@ai-sdk/gateway`、`@ai-sdk/provider`、`@ai-sdk/provider-utils` 三个运行时依赖。
+5. **同形的部分照搬。** `text` / `reasoning` 部件用 `{ type, text, state: 'streaming' | 'done' }`，与 `UIMessage` 一致；消息用 `{ id, role, parts }` 的外形。桌面（T5.3）如果要用基于 `UIMessage` 的现成渲染组件，在 `apps/desktop` 写一个单向转换函数，届时只在 `apps/desktop` 以 `import type` 引入 `ai`，并锁定精确版本。
+
+投影草案（`StreamBlockRef`、`ToolDisplay` 等从 protocol 导入）：
+
+```ts
+// → client-sdk
+interface ChatMessage {
+  id: string                     // user：turnId；assistant：`${turnId}:assistant`
+  role: 'user' | 'assistant'
+  turnId: TurnId
+  parts: ChatPart[]
+  seqRange: [number, number]     // 组成本消息的事件 seq 范围，供调试与增量重绘
+}
+
+type ChatPart =
+  | { type: 'text'; text: string; state: 'streaming' | 'done'; stream?: StreamBlockRef }
+  | { type: 'reasoning'; text: string; state: 'streaming' | 'done'; stream?: StreamBlockRef }
+  | {
+      type: 'tool'
+      toolCallId: string
+      toolName: string
+      display: ToolDisplay
+      status: 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+      input: unknown
+      output?: ToolOutput
+      approval?: { approvalId: ApprovalId; status: ApprovalStatus; options: ApprovalOption[]; resolution?: ApprovalResolution }
+    }
+  | { type: 'todo'; items: TodoItem[] }
+  | { type: 'error'; category: EngineErrorCategory; message: string }
+```
+
+一个回合投影成一条 `user` 消息加一条 `assistant` 消息，回合内多个 attempt 的文本、思考与工具按事件顺序排成部件；`state: 'streaming'` 的部件来自增量，被已提交消息替换后变为 `'done'`（§6.3）。`engine.raw` 默认不投影，开发者模式下作为调试信息显示。
+
+---
+
+## 9. ACP 样本对照（验收）
+
+`spikes/dsh-acp/fixtures/` 下每个 ACP 样本对应的 Wevir 事件。`sdk/` 下的样本属于未采用的 SDK 路径（ADR-0001），不在此列；`providers/`、`env-hygiene/`、`measure/` 是 Provider 请求与测量记录，不是 ACP 消息。
+
+覆盖范围：对 `acp/` 下全部 JSON 与 JSONL（`acp/transcripts/lifecycle.jsonl`、`acp/mock/transcripts/*.jsonl` 含 `concurrency`、`flow-process-1/2`，`acp/mock/scenarios/*.json` 是同一批帧的按场景摘要）逐条枚举，出现过的消息种类只有：`session/update` 的 5 种 `sessionUpdate`（`agent_message_chunk`、`agent_thought_chunk`、`tool_call`、`tool_call_update` 的 `completed` / `failed`、`usage_update`），`session/request_permission` 及其 3 种回复，方法 `initialize`、`session/new`、`prompt`、`cancel`、`close`、`list`、`resume`、`load`，`stopReason` `end_turn` / `cancelled`，以及 6 个错误。下面 9.1–9.4 逐一给出对应。
+
+### 9.1 引擎 → 客户端的会话更新（`session/update`）
+
+| ACP | 样本 | Wevir 事件 |
+|---|---|---|
+| `agent_message_chunk` | `acp/mock/updates/agent_message_chunk.json`；全部 transcripts | `assistant.message` |
+| `agent_thought_chunk` | `acp/mock/updates/agent_thought_chunk.json`；`F-stream-granularity.jsonl` | `assistant.thought` |
+| `tool_call`（`in_progress`） | `acp/mock/updates/tool_call.json`；`permission/after-*.tool-lifecycle.json` | `tool.started`（`todo_write` 另加 `todo.updated`） |
+| `tool_call_update`（`completed`） | `acp/mock/updates/tool_call_update.completed.json` | `tool.finished`（`completed`） |
+| `tool_call_update`（`failed`） | `acp/mock/updates/tool_call_update.failed.json`；`E1`、`D` transcripts | `tool.finished`（`failed`；会话在 `cancelling` 时为 `cancelled`，§6.4） |
+| `usage_update` | `acp/mock/updates/usage_update.json` | `usage.updated` |
+| `tool_call_update`（非终态） | 未观测 | `tool.updated` |
+| `config_option_update` | 未观测（dsh 源码存在） | v0：`engine.raw`；将来 `session.config_changed` |
+| 其他任何 `sessionUpdate` | — | `engine.raw` |
+
+### 9.2 引擎 → 客户端的请求
+
+| ACP | 样本 | Wevir 事件 |
+|---|---|---|
+| `session/request_permission` | `acp/mock/permission/request.json`；`B`、`C`、`D` transcripts | `approval.requested`；会话 → `awaiting_approval` |
+
+### 9.3 客户端 → 引擎的请求与结果
+
+这些是 Host 经适配器发出的调用。它们本身不是事件，但请求被接受、结果或错误都会落成事件：
+
+| ACP | 样本 | Wevir 事件 |
+|---|---|---|
+| `initialize` 请求 / 结果 | `acp/initialize.*.json` | 无：dsh 进程级握手，不属于任何会话。适配器据 `agentCapabilities` 确认 `close` / `list` / `resume` 可用 |
+| `session/new` 请求 / 结果 | `acp/session-new*.json` | `session.created`（`configOptions` 的当前模型与推理强度写入 payload） |
+| `session/prompt` 请求 | 全部场景 transcripts | `user.message`、`turn.started`；会话 → `running` |
+| `session/prompt` 结果 `end_turn` | 全部场景 | `turn.finished`（`completed`）；会话 → `idle` |
+| `session/prompt` 结果 `cancelled` | `D`、`E1`、`E2` | `turn.finished`（`cancelled`）；会话 → `idle` |
+| `session/cancel` 通知 | `D`、`E1`、`E2` | `session.state_changed`（→ `cancelling`），之前先结掉未决审批 |
+| `request_permission` 的回复 `selected allow-once` | `permission/responses.json` 的 `allow`；`B-permission-allow.jsonl` | `approval.resolved`（`approved`） |
+| 回复 `selected reject-once` | `responses.json` 的 `deny`；`C-permission-deny.jsonl` | `approval.resolved`（`denied`） |
+| 回复 `cancelled` | `responses.json` 的 `cancelled`；`D-permission-cancel.jsonl` | `approval.resolved`（`cancelled`，`turn_cancelled`） |
+| `session/close` 结果 | `acp/session-close.response.json`；`acp/transcripts/lifecycle.jsonl` | `session.state_changed`（→ `closed`） |
+| `session/resume` 结果 | `acp/session-resume.response.json`；`lifecycle.jsonl`、`flow-process-2.jsonl` | `session.state_changed`（→ `idle`，`resumed`） |
+| `session/list` 结果 | `acp/session-list.response.json`；`lifecycle.jsonl` | 无：Wevir 不用它（ADR-0001 §5 第 2 条），会话列表来自事件库 |
+| `session/load` 请求 | `lifecycle.jsonl` | 无：Spike 的探测调用，Wevir 不调用（错误见 9.4） |
+
+### 9.4 错误
+
+| ACP 错误 | 样本 | Wevir 事件 |
+|---|---|---|
+| `-32603 turn failed: llm-pi-ai: no credential for provider route …` | `acp/errors/prompt-missing-key.openai-compatible.json` | `engine.error`（`missing_credentials`，`fatal: false`）+ `turn.finished`（`failed`）；会话 → `idle` |
+| `-32603 turn failed: llm-deepseek: no API key for provider route …` | `acp/errors/prompt-missing-key.deepseek-official.json` | 同上 |
+| `-32602 unknown session` | `acp/errors/close-unknown-session.json` | close 时：不阻止关闭，记 `engine.error`（`session_unavailable`）；resume 时：`engine.error`（`session_unavailable`），状态不变 |
+| `-32602 session cwd does not match` | `acp/errors/resume-cwd-mismatch.json` | `engine.error`（`session_unavailable`）；状态不变。Host 用 `Session.cwd` resume，出现即说明工作区目录被替换 |
+| `-32602 session is already active` | `acp/errors/resume-active-session.json` | 无：适配器视为“已挂上”，resume 按成功处理（T3.5） |
+| `-32601 Method not found`（`session/load`） | `acp/errors/session-load-unsupported.json` | 无：Wevir 从不调用 `session/load`，历史来自事件库 |
+| 进程退出 | 无样本（T3.1 补） | `engine.error`（`engine_exited`，`fatal: true`）等，§4.1 #10 |
+
+### 9.5 增量旁路帧（非 ACP）
+
+| 帧 | 样本 | Wevir 事件 |
+|---|---|---|
+| `start` | `stream-tap/mock/frames.sample.json` | 无单独事件：分配 `StreamId` |
+| `chunk` / `text-delta`、`reasoning-delta` | 同上 | `assistant.delta` |
+| `chunk` / `block-start`、`block-end`、`tool-call-delta`、`usage`、`finish` | `block-start`、`block-end` 见同上；其余见上游 `StreamChunk` 定义 | 不落库，只供适配器判断块边界（§6.3 规则 1） |
+| `end` | 未录到：`stream-tap/mock/summary.json` 记 36 帧 = 1 个 `start` + 35 个 `chunk`；形状取自上游 `AssistantStreamFrame`（`packages/core/agent/src/runtime-types.ts`）。T3.2a 需确认插件能收到 `end` 帧，收不到时以 ACP 已提交消息为准关闭 attempt | `assistant.stream_ended` |
+
+### 9.6 两个完整场景
+
+**B：审批批准**（`acp/mock/transcripts/B-permission-allow.jsonl`），会话初始 `idle`：
+
+| ACP | Wevir 事件（`seq` 递增） |
+|---|---|
+| `session/prompt` 请求 | `user.message` → `turn.started` → `session.state_changed` idle→running |
+| `usage_update` | `usage.updated` |
+| `tool_call` write | `tool.started`（`write`，`paths` = 工作区外路径） |
+| `tool_call_update` failed（沙箱拒绝） | `tool.finished`（`failed`） |
+| `usage_update` | `usage.updated` |
+| `tool_call` write（带 `sandbox_permissions`） | `tool.started` |
+| `session/request_permission` | `approval.requested`（详情取自上一条 `tool.started`）→ `session.state_changed` running→awaiting_approval |
+| 回复 `allow-once` | `approval.resolved`（`approved`，`decidedBy`）→ `session.state_changed` awaiting_approval→running |
+| `tool_call_update` completed（提交期间暂扣，审批结算后追加） | `tool.finished`（`completed`） |
+| `agent_message_chunk` | `assistant.message` |
+| `usage_update` | `usage.updated` |
+| 结果 `end_turn` | `turn.finished`（`completed`）→ `session.state_changed` running→idle |
+
+**E2：生成中取消**（`E2-cancel-during-generation.jsonl`，带旁路时）：
+
+| 输入 | Wevir 事件 |
+|---|---|
+| `session/prompt` 请求 | `user.message` → `turn.started` → `session.state_changed` idle→running |
+| 旁路 `start`、`text-delta` × N | `assistant.delta` × M（按 60 ms 合并） |
+| `session.cancel` | `session.state_changed` running→cancelling；适配器发 `session/cancel` |
+| 旁路 `end`（`committed`） | `assistant.stream_ended` |
+| `agent_message_chunk`（已生成的半段） | `assistant.message`（`replaces` 指向上述增量块） |
+| 结果 `cancelled` | `turn.finished`（`cancelled`）→ `session.state_changed` cancelling→idle |
+
+---
+
+## 10. 留给后续任务
+
+| 事项 | 任务 |
+|---|---|
+| ID 生成算法、错误码最终命名（`session_busy`、`session_inactive`、`already_decided`、`not_found`）、截断上限、`engine.raw` 是否按能力门控 | T1.2 |
+| 展示类型映射、错误归类、增量对齐放在适配器还是 Host；`AgentEvent` 定稿 | T1.3 |
+| `workspaces.removed_at`、`sessions` 缓存列、`approvals` 表、引擎会话 ID 唯一索引 | T2.1 |
+| 标题截取长度、取消超时、Host 重启对账的实现 | T2.3 |
+| 增量对齐的边界情况（空白块、多 attempt）用样本测试固定；`provider` 错误前缀；映射表写入 `acp-event-mapping.md` | T3.2 |
+| 真实模型下 `agent_thought_chunk` 的频率、`usage_update` 数值（ADR-0001 未决事项 3） | 有 Key 后补跑 Spike |

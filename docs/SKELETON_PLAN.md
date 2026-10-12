@@ -172,7 +172,7 @@ wevir/
 | T0.5 | OpenWork 架构研读 | T0.2 | [x] | `docs/research/openwork-notes.md`（OpenWork `ad22cdc`）：6 个问题逐条附源码行号；§8 可移植候选 32 项（全在 `ee/` 之外，逐项给许可证、依赖、OpenCode 耦合与建议）；§9 M5 布局建议；§10 对 T5.1–T5.4、T1.1 与 UPSTREAM.md 的修改建议交 T0.6 |
 | T0.6 | 首批 ADR 定稿 | T0.3–T0.5 | [x] | `docs/adr/` README + 0001–0004 Accepted：ACP + stream-tap 旁路、JSON-RPC/WS 与进程模型（吸收 Paseo A1–A21）、`node:sqlite`（附基准实测）、工具链确认；§1.4、§3、§6 同步，新增 T3.2a；UPSTREAM.md 补 OpenWork 许可证三点与 dsh 依赖闭包初核 |
 | **M1** | **契约先行** | | | |
-| T1.1 | 领域模型 v0 | T0.6 | [ ] | |
+| T1.1 | 领域模型 v0 | T0.6 | [x] | `docs/architecture/domain-model.md`：五个实体与三个预留实体、产品层事实 / 引擎投影划分与会话 ID 映射、会话与审批状态机（mermaid）、事件目录 v0（新增 `user.message`、`turn.*`、`assistant.stream_ended`、`todo.updated`）、增量合并与工具收尾规则、dsh 工具名 → 展示类型、不直接采用 `UIMessage`；§9 逐项对照全部 ACP 样本 |
 | T1.2 | Host API v0（protocol 包） | T1.1 | [ ] | |
 | T1.3 | AgentRuntimeAdapter 接口 + 契约测试 + echo 适配器 | T1.1 | [ ] | 可与 T1.2 并行 |
 | **M2** | **Local Agent Host 核心** | | | |
