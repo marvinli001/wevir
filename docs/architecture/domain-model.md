@@ -598,26 +598,22 @@ type WevirEvent =
     }>
 ```
 
-适配器向 Host 上报的 `AgentEvent`（T1.3）是这份目录去掉 Host 自己的事实（`session.*`、`user.message`、`turn.started`、`todo.updated`、`approval.resolved`）、换成引擎 ID 的版本。草案：
+适配器向 Host 上报的 `AgentEvent` 是这份目录去掉 Host 自己的事实（`session.*`、`user.message`、`turn.started`、`approval.resolved`）、换成引擎 ID 的版本。T1.3 已定稿，以 `packages/runtime-adapter/src/events.ts` 为准（接口与类型见同目录 `adapter.ts`、`types.ts`），这里只记与原草案的差异：
 
-```ts
-// → adapter 接口
-type AgentEvent =
-  | { type: 'assistant.delta'; engineSessionId: string; attemptId: string; blockIndex: number; kind: 'text' | 'reasoning'; text: string }
-  | { type: 'assistant.stream_ended'; engineSessionId: string; attemptId: string; outcome: 'committed' | 'abandoned' }
-  | { type: 'assistant.message' | 'assistant.thought'; engineSessionId: string; messageId: string; text: string }
-  | { type: 'tool.started'; engineSessionId: string; toolCallId: string; toolName: string; input: unknown }
-  | { type: 'tool.updated'; engineSessionId: string; toolCallId: string; input?: unknown; output?: string }
-  | { type: 'tool.finished'; engineSessionId: string; toolCallId: string; status: 'completed' | 'failed'; output?: string }
-  | { type: 'approval.requested'; engineSessionId: string; requestKey: string; toolCallId: string; options: Array<Omit<ApprovalOption, 'category'>> }
-  | { type: 'usage.updated'; engineSessionId: string; used: number; size: number }
-  | { type: 'turn.settled'; engineSessionId: string; stopReason: string }               // session/prompt 结果
-  | { type: 'turn.failed'; engineSessionId: string; code: number; message: string }     // session/prompt 错误
-  | { type: 'engine.exited'; code: number | null; signal: string | null; stderrTail: string }
-  | { type: 'engine.raw'; engineSessionId?: string; method: string; params: unknown }
-```
+| 事件 | 定稿 |
+|---|---|
+| `assistant.message` / `assistant.thought` | 加 `replaces: DeltaBlockRef[]`（`{ attemptId, blockIndex }`），由适配器对齐增量（§6.3 规则 2），Host 只把 `attemptId` 换成 `StreamId` |
+| `tool.started` / `tool.updated` | 加 `display: ToolDisplay`（§7），由适配器按工具名映射；`input` 可省略 |
+| `todo.updated` | 新增：适配器从 `todo_write` 的 `rawInput` 解析出完整列表，Host 照写成 `todo.updated` |
+| `approval.requested` | `requestKey` 改名 `requestId`；选项 `{ optionId, label, kind }` 原样，`category` 由 Host 推导 |
+| `approval.cancelled` | 新增：没经过 `respondToApproval` 就结束的审批（`turn_cancelled` / `turn_ended` / `engine_exited` / `disposed`），Host 据此对账 |
+| `usage.updated` | 字段改为 `contextUsed` / `contextSize`，与 WevirEvent 同名 |
+| `turn.settled` | 加 `outcome: 'completed' \| 'cancelled'`，`stopReason` 保留引擎原值 |
+| `turn.failed` | 加 `category`（`missing_credentials` / `provider` / `unknown`），由适配器按错误原文归类；`code` 可省略 |
+| `engine.exited` | 发给每个挂在该进程上的会话（带 `engineSessionId`），是该会话订阅的最后一个事件；字段 `exitCode`、`signal`、`stderrTail?` |
+| `engine.raw` | 加 `protocol`、`kind?`；`engineSessionId` 必填（按会话订阅） |
 
-展示类型（§7）、错误归类、增量对齐（§6.3）、`cancelled` / `unknown` 推导（§6.4）都放在 Host 侧做还是适配器侧做，由 T1.3 决定；本文件只规定结果。原则是：依赖 dsh 工具名或错误措辞的规则属于 dsh 适配器，依赖 Host 状态（会话是否在 `cancelling`）的规则属于 Host。
+规则放在哪一侧：依赖 dsh 工具名、错误措辞或旁路帧细节的放适配器（展示类型、`todo.updated`、错误归类、增量对齐）；依赖 Host 状态的放 Host（取消期间的 `failed` 记为 `cancelled`、回合结束补 `unknown`、60 ms 合并增量、截断）。
 
 ### 6.3 增量与已提交消息的合并规则
 
@@ -848,7 +844,7 @@ type ChatPart =
 | 事项 | 任务 |
 |---|---|
 | ~~ID 生成算法、错误码最终命名、截断上限、`engine.raw` 是否按能力门控~~：已定稿，见 host-api.md §6、§7、§9、§11；`engine.raw` 不门控（§5） | T1.2 ✅ |
-| 展示类型映射、错误归类、增量对齐放在适配器还是 Host；`AgentEvent` 定稿 | T1.3 |
+| ~~展示类型映射、错误归类、增量对齐放在适配器还是 Host；`AgentEvent` 定稿~~ 已定稿：放适配器，见 §6.2 末尾与 `packages/runtime-adapter` | T1.3 |
 | `workspaces.removed_at`、`sessions` 缓存列、`approvals` 表、引擎会话 ID 唯一索引 | T2.1 |
 | 标题截取长度、取消超时、Host 重启对账的实现 | T2.3 |
 | 增量对齐的边界情况（空白块、多 attempt）用样本测试固定；`provider` 错误前缀；映射表写入 `acp-event-mapping.md` | T3.2 |
