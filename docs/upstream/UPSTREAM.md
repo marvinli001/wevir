@@ -48,7 +48,13 @@ bash scripts/upstream-sync.sh
 结论与义务：
 
 - Wevir 把 dsh **作为锁定版本的依赖运行，不移植源码**（SKELETON_PLAN §1.2）。分发 dsh 时随附它的 `LICENSE` 和 `THIRD_PARTY_NOTICES.md`。
-- `THIRD_PARTY_NOTICES.md` 里有不属于宽松许可证的运行时依赖：`@deepseek-ai/libreoffice-kit*`（MPL-2.0，需让接收者能拿到对应源码）、`@anthropic-ai/claude-agent-sdk` 及其平台包（`SEE LICENSE IN README.md` / `LICENSE.md`，专有条款）。桌面端打包 dsh 前，要先核对 npm 包 `@deepseek-ai/dsh` 实际会安装的依赖闭包（留给 T3.1 / T6.3）。
+- `THIRD_PARTY_NOTICES.md` 里有不属于宽松许可证的运行时依赖：`@deepseek-ai/libreoffice-kit*`（MPL-2.0，需让接收者能拿到对应源码）、`@anthropic-ai/claude-agent-sdk` 及其平台包（`SEE LICENSE IN README.md` / `LICENSE.md`，专有条款）。
+- **npm 依赖闭包的初步核对**（T0.6，依据 `spikes/dsh-acp/package-lock.json`：`@deepseek-ai/dsh@0.2.1-alpha.2` 加 `dsh-sdk-client`、`@agentclientprotocol/sdk@1.4.0`，npm 11 安装，共 632 个包，含各平台的可选包条目）：
+  - **没有** `@anthropic-ai/claude-agent-sdk`；`@anthropic-ai/sdk` 0.129.0 是 MIT。
+  - MPL-2.0：`@deepseek-ai/libreoffice-kit` 0.1.5 及其 5 个平台 / wasm 可选包，由 `dsh-office-to-pdf`、`dsh-skill-office` 引入。分发时要让接收者能拿到对应源码。
+  - LGPL-3.0-or-later：`sharp` 0.35.5（本身 Apache-2.0，由 `dsh-attachment-local` 引入）的预编译 libvips 包 `@img/sharp-libvips-*`，以及 `@img/sharp-win32-*`（`Apache-2.0 AND LGPL-3.0-or-later`）、`@img/sharp-wasm32`。分发时要满足 LGPL-3.0 对所用库的义务（随附许可证、提供对应源码或获取方式、以用户可替换的共享库形式使用），具体条款由 T6.3 按 LGPL-3.0 第 4 条逐项核对。
+  - 其余均为宽松许可证（MIT、ISC、Apache-2.0、BSD、0BSD、BlueOak、CC0、CC-BY-4.0、Python-2.0 等）。
+  - 这只是 Spike 环境下的结果。T3.1 改用 pnpm 安装后重新核对一次；桌面端打包 dsh 前（T6.3 / 打包阶段）按实际打进安装包的文件再核对，并据此生成第三方声明。
 - 万一需要移植 dsh 源码，按 MIT 处理（见 §5）；碰到上表子目录时，按该目录自己的许可证处理。
 
 ### 2.2 OpenWork：`ee/` 之外 MIT，`ee/` 禁止参考和移植
@@ -72,6 +78,16 @@ bash scripts/upstream-sync.sh
 - `packages/codemode` 派生自 `anomalyco/opencode` 的 codemode（MIT，`Copyright (c) the opencode contributors`，上游提交 `38e10eb`），见 `packages/codemode/NOTICE`。从这里移植时，OpenWork 和 opencode 的版权声明都要保留。
 - MIT 只授权著作权，不授权商标。`OpenWork` 名称与 logo（如 `openwork-logo-transparent.svg`）不随代码移植。
 - `legal/` 里是 OpenWork 的贡献者许可协议（CLA），与移植无关。
+
+T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以上结论成立，并补充三点：
+
+1. **MIT 区域里有未署名的第三方派生内容**。移植时要另外保留原始版权声明，或者直接从原始来源获取：
+   - `apps/app/src/styles/colors.css`：Radix Colors 生成的数值（MIT，© WorkOS）。Wevir 改为直接依赖 `@radix-ui/colors`。
+   - `apps/app/src/components/ui/*`：shadcn CLI 生成的组件（MIT，© shadcn）。Wevir 用 shadcn CLI 自己生成，不从 OpenWork 拷贝。
+   - `apps/app/src/components/ui/{message,chain-of-thought,source,tool,image}.tsx`：导出 API 与 prompt-kit（MIT）一致，文件里没写来源；`apps/app/components.json` 还配置了 `@ai-elements` registry（Apache-2.0）。出处无法从文件本身确认，**一律只参考、不移植**。
+   - `apps/app/src/components/markdown/markdown-math.ts:6`：注释称数学公式分隔规则与上游 opencode web（MIT）相同，移植时保留这条注释。
+2. **npm 依赖中的非 MIT 许可证**（2026-10-12 `npm view` 核对）：`@pierre/diffs` 1.3.5、`@pierre/trees` 1.0.0-beta.6、`ai` 6.x 为 Apache-2.0；`dompurify` 3.x 为 `(MPL-2.0 OR Apache-2.0)`；`@paper-design/shaders` 0.0.72 的 package.json 只写“SEE LICENSE IN …”，tarball 内 LICENSE 为 MIT（© Lost Coast Labs），后续版本须重新核对。Wevir 引入这些依赖时由 T6.3 汇总进第三方声明。
+3. **商标与网络**：`packages/ui` 的 `ProviderIcon` 运行时从 simpleicons CDN 和 Google s2 服务拉取模型厂商 logo。厂商 logo 是商标，MIT 不授权；Google 服务在大陆不可达。Wevir 不移植这一机制，只做本地缩写头像。
 
 ### 2.3 Paseo：Apache-2.0
 
