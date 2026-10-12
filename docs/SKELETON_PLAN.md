@@ -165,7 +165,7 @@ wevir/
 | T0.2 | 上游参考快照与许可证核实 | T0.1 | [x] | `scripts/upstream-sync.sh` + `docs/upstream/upstream.lock`（dsh `d743267` = tag `dsh-v0.2.1-alpha.2`、OpenWork `ad22cdc`、Paseo `dc7bc8d`）；`docs/upstream/UPSTREAM.md`：Paseo 实为 Apache-2.0，OpenWork `ee/` 之外 MIT；`.gitignore` 改为 `/upstream/`（原写法误忽略了 `docs/upstream/`） |
 | T0.3 | dsh 接入 Spike（ACP vs SDK） | T0.2 | [x] | `2ce30c0`：`docs/research/dsh-integration-spike.md` + `spikes/dsh-acp/`；ACP 可作骨架主路径，缺增量流式，用 Cordis 插件旁路（stream-tap）补齐；报告 §11.3 的计划修改建议交 T0.6 |
 | T0.4 | Paseo 架构研读 | T0.2 | [x] | `docs/research/paseo-notes.md`（Paseo `dc7bc8d`）：8 个问题逐条附源码行号；§9 三栏结论，直接采纳 A1–A21 各自落到 T1.1–T5.1；§10 对 ADR-0002 与 T1.2–T5.1 的修改建议交 T0.6 |
-| T0.5 | OpenWork 架构研读 | T0.2 | [ ] | 可并行 |
+| T0.5 | OpenWork 架构研读 | T0.2 | [x] | `docs/research/openwork-notes.md`（OpenWork `ad22cdc`）：6 个问题逐条附源码行号；§8 可移植候选 32 项（全在 `ee/` 之外，逐项给许可证、依赖、OpenCode 耦合与建议）；§9 M5 布局建议；§10 对 T5.1–T5.4、T1.1 与 UPSTREAM.md 的修改建议交 T0.6 |
 | T0.6 | 首批 ADR 定稿 | T0.3–T0.5 | [ ] | |
 | **M1** | **契约先行** | | | |
 | T1.1 | 领域模型 v0 | T0.6 | [ ] | |
