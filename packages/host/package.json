@@ -1,0 +1,29 @@
+{
+  "name": "@wevir/host",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir Local Agent Host: event store, replay and session snapshots.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/protocol": "workspace:*",
+    "@wevir/storage": "workspace:*"
+  }
+}

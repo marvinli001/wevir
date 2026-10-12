@@ -1,0 +1,262 @@
+// 测试共用：临时数据目录上的 Storage / EventStore，以及各类事件的构造函数。只被 *.test.ts 引用，
+// 不进 index。
+
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type {
+  ApprovalId,
+  ApprovalRequest,
+  ClientIdentity,
+  EngineErrorCategory,
+  ResolvedApprovalStatus,
+  SessionId,
+  SessionState,
+  StateChangeReason,
+  StreamId,
+  ToolFinishStatus,
+  TurnId,
+  TurnOutcome,
+} from '@wevir/protocol';
+import { openStorage, type Storage } from '@wevir/storage';
+import { afterEach, beforeEach } from 'vitest';
+import type { AppendInput, DeltaInput } from './event-store.js';
+import { EventStore, type EventStoreOptions } from './event-store.js';
+
+export const SES: SessionId = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR';
+export const SES2: SessionId = 'ses_01JA2B3C4D5E6F7G8H9JKMNPQS';
+export const TURN: TurnId = 'trn_1';
+export const TURN2: TurnId = 'trn_2';
+export const STREAM: StreamId = 'stm_1';
+export const T0 = '2026-10-13T00:00:00.000Z';
+
+export const identity: ClientIdentity = { deviceId: 'dev-1', clientId: 'cli-1', clientKind: 'cli' };
+
+/** 注册 beforeEach / afterEach：每个用例一个新的临时数据目录，结束时删除。 */
+export function useTempDir(): () => string {
+  let dir: string | undefined;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'wevir-host-'));
+  });
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+  return () => {
+    if (!dir) throw new Error('useTempDir() 只能在用例里取值');
+    return dir;
+  };
+}
+
+/** 打开的 Storage 在用例结束时统一关闭。 */
+export function useStorages(): { open: (dataDir: string) => Storage } {
+  const opened: Storage[] = [];
+  afterEach(() => {
+    for (const storage of opened.splice(0)) if (storage.db.isOpen) storage.close();
+  });
+  return {
+    open: (dataDir) => {
+      const storage = openStorage({ dataDir });
+      opened.push(storage);
+      return storage;
+    },
+  };
+}
+
+/** 插入工作区与会话行（身份字段），满足事件表的外键。 */
+export function seedSession(storage: Storage, id: SessionId = SES): void {
+  const workspaceId = 'ws_1';
+  if (!storage.workspaces.get(workspaceId)) {
+    storage.workspaces.insert({
+      id: workspaceId,
+      rootPath: '/home/u/project',
+      displayName: 'project',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+  }
+  storage.sessions.insert({
+    id,
+    workspaceId,
+    cwd: '/home/u/project',
+    engine: 'dsh',
+    engineSessionId: `engine-${id}`,
+    providerId: 'deepseek-official',
+    modelId: 'deepseek-chat',
+    reasoningEffort: 'high',
+    title: '',
+    titleSource: 'first_prompt',
+    state: 'idle',
+    lastSeq: 0,
+    createdAt: T0,
+    updatedAt: T0,
+  });
+}
+
+/** 一个会话已建好（行已插入、`session.created` 已写）的 EventStore。 */
+export function createStore(
+  storage: Storage,
+  options: Omit<EventStoreOptions, 'storage'> = {},
+  sessionIds: SessionId[] = [SES],
+): EventStore {
+  const store = new EventStore({ storage, ...options });
+  for (const id of sessionIds) {
+    if (!storage.sessions.get(id)) seedSession(storage, id);
+    if (storage.events.lastSeq(id) === 0) store.append(id, ev.created());
+  }
+  return store;
+}
+
+export function approval(id: ApprovalId, turnId: TurnId = TURN): ApprovalRequest {
+  return {
+    id,
+    sessionId: SES,
+    turnId,
+    toolCallId: `call_${id}`,
+    options: [
+      { optionId: 'allow-once', label: 'Allow once', kind: 'allow_once', category: 'allow' },
+      { optionId: 'reject-once', label: 'Reject', kind: 'reject_once', category: 'reject' },
+    ],
+    detail: {
+      toolName: 'write',
+      display: { kind: 'write', paths: ['/tmp/out.txt'] },
+      input: { file_path: '/tmp/out.txt', content: 'x' },
+    },
+    status: 'pending',
+    createdAt: T0,
+  };
+}
+
+/** 某一类型的 `append` 输入。 */
+export type Input<T extends AppendInput['type']> = Extract<AppendInput, { type: T }>;
+
+/** 各类事件的构造函数（payload 取最小合法形状）。 */
+export const ev = {
+  created: (): Input<'session.created'> => ({
+    type: 'session.created',
+    source: 'host',
+    payload: {
+      workspaceId: 'ws_1',
+      cwd: '/home/u/project',
+      providerId: 'deepseek-official',
+      modelId: 'deepseek-chat',
+      reasoningEffort: 'high',
+    },
+  }),
+  title: (title: string): Input<'session.title_changed'> => ({
+    type: 'session.title_changed',
+    source: 'host',
+    payload: { title, source: 'first_prompt' },
+  }),
+  state: (
+    from: SessionState,
+    to: SessionState,
+    reason: StateChangeReason,
+  ): Input<'session.state_changed'> => ({
+    type: 'session.state_changed',
+    source: 'host',
+    payload: { from, to, reason },
+  }),
+  user: (turnId: TurnId = TURN, clientMessageId?: string): Input<'user.message'> => ({
+    type: 'user.message',
+    source: 'host',
+    payload: {
+      turnId,
+      content: [{ type: 'text', text: '写一个 summary.md' }],
+      sentBy: identity,
+      ...(clientMessageId === undefined ? {} : { clientMessageId }),
+    },
+  }),
+  turnStarted: (turnId: TurnId = TURN): Input<'turn.started'> => ({
+    type: 'turn.started',
+    source: 'host',
+    payload: { turnId },
+  }),
+  turnFinished: (outcome: TurnOutcome, turnId: TurnId = TURN): Input<'turn.finished'> => ({
+    type: 'turn.finished',
+    source: 'host',
+    payload: { turnId, outcome, durationMs: 10 },
+  }),
+  toolStarted: (
+    toolCallId: string,
+    input?: unknown,
+    turnId: TurnId = TURN,
+  ): Input<'tool.started'> => ({
+    type: 'tool.started',
+    source: 'engine',
+    payload: {
+      turnId,
+      toolCallId,
+      toolName: 'bash',
+      display: { kind: 'shell', command: 'ls' },
+      ...(input === undefined ? {} : { input }),
+    },
+  }),
+  toolFinished: (
+    toolCallId: string,
+    status: ToolFinishStatus,
+    text?: string,
+    turnId: TurnId = TURN,
+  ): Input<'tool.finished'> => ({
+    type: 'tool.finished',
+    source: status === 'unknown' ? 'host' : 'engine',
+    payload: {
+      turnId,
+      toolCallId,
+      status,
+      ...(text === undefined ? {} : { output: { text, truncated: false } }),
+    },
+  }),
+  approvalRequested: (id: ApprovalId, turnId: TurnId = TURN): Input<'approval.requested'> => ({
+    type: 'approval.requested',
+    source: 'engine',
+    payload: { approval: approval(id, turnId) },
+  }),
+  approvalResolved: (
+    approvalId: ApprovalId,
+    status: ResolvedApprovalStatus,
+    reason: 'user' | 'turn_cancelled' | 'session_closed' | 'engine_exited' | 'host_restarted',
+  ): Input<'approval.resolved'> => ({
+    type: 'approval.resolved',
+    source: 'host',
+    payload: {
+      approvalId,
+      status,
+      resolution:
+        reason === 'user' ? { reason, optionId: 'allow-once', decidedBy: identity } : { reason },
+    },
+  }),
+  engineError: (
+    category: EngineErrorCategory,
+    fatal: boolean,
+    turnId?: TurnId,
+  ): Input<'engine.error'> => ({
+    type: 'engine.error',
+    source: fatal ? 'host' : 'engine',
+    payload: {
+      category,
+      message: `${category} 原文`,
+      fatal,
+      ...(turnId === undefined ? {} : { turnId }),
+    },
+  }),
+  usage: (contextUsed: number): Input<'usage.updated'> => ({
+    type: 'usage.updated',
+    source: 'engine',
+    payload: { contextUsed, contextSize: 262144 },
+  }),
+  todo: (items: Array<{ content: string; status: string }>): Input<'todo.updated'> => ({
+    type: 'todo.updated',
+    source: 'host',
+    payload: { turnId: TURN, toolCallId: 'call_todo', items },
+  }),
+};
+
+export function delta(
+  text: string,
+  blockIndex = 0,
+  kind: 'text' | 'reasoning' = 'text',
+  turnId: TurnId = TURN,
+): DeltaInput {
+  return { turnId, streamId: STREAM, blockIndex, kind, text };
+}
