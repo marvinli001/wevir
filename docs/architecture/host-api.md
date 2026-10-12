@@ -11,10 +11,10 @@
 
 ## 1. 传输
 
-- JSON-RPC 2.0 over WebSocket，文本帧，一帧一个 JSON-RPC 对象（ADR-0002 §1）。**v0 不支持批量**：收到 JSON 数组时 Host 回一个 `INVALID_REQUEST`（`id: null`）。
+- JSON-RPC 2.0 over WebSocket，文本帧，一帧一个 JSON-RPC 对象（ADR-0002 §1）。**v0 不支持批量**：收到 JSON 数组时 Host 回一个 `INVALID_REQUEST`（`id: null`）；二进制帧同样回 `INVALID_REQUEST`（`id: null`）。
 - 参数一律按名称传（对象）；方法没有参数时传 `{}`，省略 `params` 等同于 `{}`。请求 `id` 用字符串或整数，不用 `null`。
 - 客户端只发请求；Host 只发响应和通知（v0 只有 `events.event`）。同一连接上可以连发多个请求，响应顺序不保证与请求一致，按 `id` 对应；同一会话的命令在 Host 内串行执行（ADR-0002 §4）。
-- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头与 `Origin` 白名单，不通过直接 403，不会走到 JSON-RPC 层（白名单的具体值由 T5.1 写进本节）。
+- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行白名单），不通过直接 403，不会走到 JSON-RPC 层（白名单的具体值由 T5.1 写进本节；在此之前白名单为空）。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426。
 
 ## 2. 握手：`host.hello`
 
@@ -355,3 +355,5 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | 发送缓冲 | `SEND_BUFFER_LIMIT_BYTES` = 8 MiB | 每条连接一个上限，超限只断这一条（`SEND_BUFFER_OVERFLOW`），不影响同一会话的其他订阅者 |
 
 Host 不主动 ping 客户端。client-sdk 的请求超时、连接超时、心跳超时分开配置，默认值由 T4.1 定。
+
+发送缓冲按“积压”计：ws 还没写到套接字的字节，加上补发期间排队等待发出的实时事件（§4 第 1 条）。Host 每次发帧前检查积压，已超过上限就不再发送、以 `SEND_BUFFER_OVERFLOW` 关闭；单个大帧本身不算超限（`assistant.*` 等事件不截断，§11），所以积压最多超出上限一帧。补发按批读取，并在积压达到上限的四分之一时等它写出再继续，补发本身不会触发超限。Host 主动关闭连接后最多等 2 s 的关闭握手，对方不回关闭帧就直接断开 TCP。

@@ -2,7 +2,7 @@
   "name": "@wevir/host",
   "version": "0.0.0",
   "private": true,
-  "description": "Wevir Local Agent Host: event store, replay, session snapshots and the session manager.",
+  "description": "Wevir Local Agent Host: event store, replay, session snapshots, the session manager and the WebSocket JSON-RPC server.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -25,6 +25,10 @@
   "dependencies": {
     "@wevir/protocol": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",
-    "@wevir/storage": "workspace:*"
+    "@wevir/storage": "workspace:*",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2"
   }
 }
