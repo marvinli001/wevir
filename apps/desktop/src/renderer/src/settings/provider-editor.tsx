@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import {
+  connectionChanged,
   deepseekModelChoices,
   type FormErrors,
   modelRow,
@@ -21,6 +22,8 @@ export interface SaveOutcome {
   id: string;
   displayName: string;
   hasSecret: boolean;
+  /** 改了影响连接的字段（或是新建的）：列表要丢掉旧的测试结果，有 Key 时重测。 */
+  connectionChanged: boolean;
   /** Profile 已保存，但引擎没能用上新配置（ENGINE_ERROR，host-api.md §3.1）。 */
   engineError?: string;
 }
@@ -62,29 +65,27 @@ export function ProviderEditor({
   // 按模板新建（含 DeepSeek 官方）时其余字段都已填好，Key 放在最前并聚焦：用户只需填 Key。
   const keyFirst = !form.editing && (form.preset !== undefined || !openAI);
   const keyField = (
-    <>
-      <FormField
+    <FormField
+      id={`${ids}-key`}
+      label={t('provider.form.apiKey')}
+      hint={t('provider.form.apiKeyHint')}
+    >
+      <Input
         id={`${ids}-key`}
-        label={t('provider.form.apiKey')}
-        hint={t('provider.form.apiKeyHint')}
-      >
-        <Input
-          id={`${ids}-key`}
-          type="password"
-          className="font-mono"
-          autoComplete="off"
-          spellCheck={false}
-          autoFocus={keyFirst}
-          value={form.apiKey}
-          placeholder={
-            form.hasSecret
-              ? t('provider.form.apiKeyPlaceholderSet')
-              : t('provider.form.apiKeyPlaceholder')
-          }
-          onChange={(event) => update({ apiKey: event.target.value })}
-        />
-      </FormField>
-    </>
+        type="password"
+        className="font-mono"
+        autoComplete="off"
+        spellCheck={false}
+        autoFocus={keyFirst}
+        value={form.apiKey}
+        placeholder={
+          form.hasSecret
+            ? t('provider.form.apiKeyPlaceholderSet')
+            : t('provider.form.apiKeyPlaceholder')
+        }
+        onChange={(event) => update({ apiKey: event.target.value })}
+      />
+    </FormField>
   );
 
   const submit = async (event: FormEvent) => {
@@ -94,18 +95,18 @@ export function ProviderEditor({
     setFailure(undefined);
     if (Object.keys(local).length > 0) return;
     const params = toUpsertParams(form);
-    const hasSecret = params.apiKey !== undefined || form.hasSecret;
+    const outcome: SaveOutcome = {
+      id: params.id,
+      displayName: params.displayName,
+      hasSecret: params.apiKey !== undefined || form.hasSecret,
+      connectionChanged: connectionChanged(initial, form),
+    };
     setSaving(true);
     try {
       await client.request('provider.upsert', params);
     } catch (error) {
       if (isRpcError(error, 'ENGINE_ERROR')) {
-        await onSaved({
-          id: params.id,
-          displayName: params.displayName,
-          hasSecret,
-          engineError: describe(error),
-        });
+        await onSaved({ ...outcome, engineError: describe(error) });
         return;
       }
       setSaving(false);
@@ -126,7 +127,7 @@ export function ProviderEditor({
       setFailure({ title: t('provider.form.saveFailed', { error: describe(error) }), items: [] });
       return;
     }
-    await onSaved({ id: params.id, displayName: params.displayName, hasSecret });
+    await onSaved(outcome);
   };
 
   return (

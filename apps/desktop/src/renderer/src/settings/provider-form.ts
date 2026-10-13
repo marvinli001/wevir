@@ -202,6 +202,26 @@ function parseContextWindow(text: string): number | undefined {
   return Number.isInteger(value) && value >= 1 ? value : undefined;
 }
 
+/**
+ * 保存后要不要重测连接：新建的，或者改了影响连接的字段（Key、地址、协议、默认模型；provider.test 只用
+ * 默认模型）。只改显示名称、增删其他模型时不再发请求，沿用上一次的结果。
+ */
+export function connectionChanged(initial: ProviderForm, form: ProviderForm): boolean {
+  if (!initial.editing) return true;
+  return (
+    form.apiKey.trim() !== '' ||
+    form.baseURL.trim() !== initial.baseURL.trim() ||
+    (form.kind === 'openai-compatible' && form.api !== initial.api) ||
+    defaultModelOf(form) !== defaultModelOf(initial)
+  );
+}
+
+function defaultModelOf(form: ProviderForm): string {
+  return form.kind === 'openai-compatible'
+    ? (form.models[form.defaultIndex]?.id.trim() ?? '')
+    : form.defaultModelId;
+}
+
 /** 表单 → provider.upsert 的参数（先过 validateForm）。Key 留空时不带 `apiKey`，Host 保留已存的 Key。 */
 export function toUpsertParams(form: ProviderForm): MethodParams<'provider.upsert'> {
   const apiKey = form.apiKey.trim();

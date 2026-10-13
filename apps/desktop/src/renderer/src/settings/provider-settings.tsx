@@ -32,7 +32,7 @@ type TestState = { status: 'running' } | { status: 'done'; result: TestPresentat
 
 /**
  * 设置 → 模型 Provider（T5.4）：列表、新增（先选 DeepSeek 官方或 OpenAI 兼容模板）、编辑、删除、测试连接。
- * Key 只在表单里输入一次，之后只显示“已设置”。保存后自动测一次连接（有 Key 时）。
+ * Key 只在表单里输入一次，之后只显示“已设置”。有 Key、且新建或改了影响连接的字段时，保存后自动测一次连接。
  */
 export function ProviderSettings() {
   const data = useWorkbenchData();
@@ -66,7 +66,7 @@ export function ProviderSettings() {
   const saved = async (outcome: SaveOutcome) => {
     await store?.refresh();
     setView({ kind: 'list' });
-    setTests(({ [outcome.id]: _stale, ...rest }) => rest);
+    if (outcome.connectionChanged) setTests(({ [outcome.id]: _stale, ...rest }) => rest);
     if (outcome.engineError !== undefined) {
       setNotice({
         tone: 'warning',
@@ -80,7 +80,8 @@ export function ProviderSettings() {
     } else {
       setNotice({ tone: 'warning', text: t('provider.savedNoKey', { name: outcome.displayName }) });
     }
-    if (outcome.hasSecret) void runTest(outcome.id);
+    // 只在新建或改了 Key、地址、协议、默认模型时自动测一次（一次最小请求）；只改名称不发请求。
+    if (outcome.hasSecret && outcome.connectionChanged) void runTest(outcome.id);
   };
 
   if (view.kind === 'form' && client) {

@@ -6,6 +6,7 @@ import {
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  connectionChanged,
   deepseekModelChoices,
   editForm,
   modelRow,
@@ -150,6 +151,48 @@ describe('编辑已有 Provider', () => {
     );
     expect(form.defaultIndex).toBe(1);
     expect(toUpsertParams({ ...form, defaultIndex: 0 }).defaultModelId).toBe('a');
+  });
+});
+
+describe('保存后要不要重测连接', () => {
+  it('新建的总要测', () => {
+    const form = newOpenAIForm(kimi, []);
+    expect(connectionChanged(form, form)).toBe(true);
+    expect(connectionChanged(newDeepSeekForm(), newDeepSeekForm())).toBe(true);
+  });
+
+  it('编辑时只改名称或增加非默认模型不测；改 Key、地址、协议、默认模型要测', () => {
+    const initial = editForm(profile({ models: [{ id: 'a' }, { id: 'b' }], defaultModelId: 'a' }));
+    expect(connectionChanged(initial, { ...initial, displayName: '新名字' })).toBe(false);
+    expect(
+      connectionChanged(initial, {
+        ...initial,
+        models: [...initial.models, modelRow({ id: 'c' })],
+      }),
+    ).toBe(false);
+    expect(connectionChanged(initial, { ...initial, apiKey: 'sk-new' })).toBe(true);
+    expect(connectionChanged(initial, { ...initial, baseURL: 'https://api.moonshot.ai/v1' })).toBe(
+      true,
+    );
+    expect(connectionChanged(initial, { ...initial, api: 'openai-responses' })).toBe(true);
+    expect(connectionChanged(initial, { ...initial, defaultIndex: 1 })).toBe(true);
+  });
+
+  it('DeepSeek 官方换默认模型要测', () => {
+    const initial = editForm(
+      profile({
+        id: 'deepseek-official',
+        kind: 'deepseek-official',
+        api: undefined,
+        baseURL: undefined,
+        models: [],
+        defaultModelId: 'deepseek-flash',
+      }),
+    );
+    expect(connectionChanged(initial, { ...initial, displayName: 'DS' })).toBe(false);
+    expect(connectionChanged(initial, { ...initial, defaultModelId: 'deepseek-v4-pro' })).toBe(
+      true,
+    );
   });
 });
 
