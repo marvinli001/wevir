@@ -112,7 +112,7 @@ ACP 给不了、或给得不完整的信息，由 Host / 适配器自己补，�
 1. **OAuth 类 Provider**（Codex、Claude 等订阅账号登录）：ACP 没有登录入口；grant 的 refresh token 会轮换，只能留在 dsh 能写的 `DSH_HOME/.credentials.yaml`，与计划 §2.8“密钥不落 DSH_HOME”冲突（T0.3 §6.4）。Phase 1 前单独做 Spike 决定登录入口、存放位置和各家条款；在那之前 Wevir 只支持 API Key 类 Provider，§2.8 不改。
 2. **`DSH_AGENTS_HOME` 是否共享用户的 `~/.agents`**：骨架隔离；Phase 1 做 Skills 管理时再定。
 3. **真实模型下的待验证项**（T0.3 §9：模型是否按提示升级、真实流式节奏下的首字时间差、DeepSeek 官方路由、`usage_update` 数值）：有 Key 后执行 `WEVIR_SPIKE_API_KEY=... npm run spike`，结果补记到本 ADR。
-4. **Provider 变更是否需要重启 dsh 进程**：T0.3 没有测；T3.4 验证后补记。
+4. ~~**Provider 变更是否需要重启 dsh 进程**~~：已由 T3.4 实测，需要重启，见补记 5。
 
 ## 补记
 
@@ -149,3 +149,12 @@ ACP 给不了、或给得不完整的信息，由 Host / 适配器自己补，�
    - **重复决定**：Host 首个决定生效、之后 `ALREADY_DECIDED`（T2.3）；适配器另外保证一个 `requestId` 只回复 dsh 一次（先移出未决表再回复，并发的第二个决定报 `approval_not_found`）。
    - **触发审批的测试目标**：dsh `workspace-write` 的可写根是工作区、`/tmp` 与 dsh 进程的 `os.tmpdir()`（上游 `packages/sandbox/sandbox/src/roots.ts`），测试的临时目录通常就在其中，所以要审批的用例把目标建在 `packages/adapter-dsh/.test-outside/`（gitignore）。真实 dsh + mock Provider 下复核了：工作区内与系统临时目录的写入没有审批，工作区外写入先被沙箱拒绝、升级重试才请求审批，批准后写成、拒绝后工具失败。
    - **真实模型尚未验证**（未决事项 3 仍未决）：`dsh-adapter.approval.integration.test.ts` 的真实模型用例要求一次工作区外、且不在系统临时目录的写入，设了 `WEVIR_TEST_API_KEY` 才跑（默认 DeepSeek 官方路由，`WEVIR_TEST_BASE_URL` + `WEVIR_TEST_MODEL` 改走 OpenAI 兼容服务）；T3.3 完成时本机没有 Key，未运行。
+5. **2026-10-13，T3.4：Provider 配置桥接与变更的生效。** 映射规则、国内服务示例与 `provider.test` 的归类在 [providers.md](../architecture/providers.md)，代码在 `packages/adapter-dsh/src/{provider-config,provider-test,dsh-adapter,dsh-process}.ts` 与 `packages/host/src/host-methods.ts`。决策 4 没有写到、由 T3.4 定下或实测确认的部分：
+   - **接口**：`AgentRuntimeAdapter` 新增三个可选方法：`validateProvider`（Host 在 `provider.upsert` 写库前调用，dsh 启动时校验整份配置，任何一处不合法都会让进程起不来，所以先挡住）、`configureProviders`（Host 启动时一次、每次 `provider.upsert` / `provider.remove` 写库后一次，传全部 Provider 与 Key）、`testProvider`。Host 不接触 dsh 的配置格式。
+   - **overlay**：写在 `<DSH_HOME>/wevir/providers.yml`（0700 / 0600，临时文件 + rename），排在调用方的 `patches` 之前，只含 `apiKeyEnv` 变量名；用 JSON 写（YAML 1.2 是 JSON 的超集，实测 dsh 照收）。`llm-deepseek` 与 `web-search-deepseek` 的 Key 引用总是改成 `WEVIR_PROVIDER_DEEPSEEK_OFFICIAL_KEY`，没有 DeepSeek Provider 时也改；不写 `acp` 条目。`openai-compatible` 的 compat 按地址补默认值，每个开关只写给认它的协议（路由上写了读不了的开关 dsh 会拒绝整份配置）。`anthropic-messages` 只预留类型，`validateProvider` 拒绝。
+   - **会话的路由**：`DshAdapter.createSession` 在 `session/new` 之后用 `session/set_config_option` 选定 `SessionConfig` 的 Provider 与模型（值是 dsh 的 `JSON.stringify([provider, model])`），给了推理强度时再设 `reasoning_effort`；选不上报 `invalid_input` 并关掉引擎侧的会话。补记 3 写的“Provider 与模型由 overlay 决定，适配器不切换”作废：一个 dsh 进程承载多个 Provider，`acp` 条目只能有一个默认路由。
+   - **实测：dsh 不热加载 Provider 配置**（真实 dsh + 两个本地 mock Provider，`dsh-adapter.providers.integration.test.ts`）。运行中改 `--patch` 传入的 overlay（同一 Provider 换 `baseURL`），已有会话与新建会话的请求都还发往旧地址；改 `$DSH_HOME/profiles/acp/cordis.patch.yml` 加一个 Provider，新 Provider 的模型选不上（`unknown model option`）；Key 在子进程环境里，运行中的进程看不到新值。原因是 acp profile 关掉了 `hmr`，也没有 Web 界面的 `config-editor` 写入路径。重启 dsh 之后，新会话用新配置；旧会话 resume 之后的请求同样发往新地址、带新 Key（路由按 Provider ID 在每次请求时解析）。**Provider 变更必须重启 dsh 进程。**
+   - **生效策略**：`configureProviders` 先换下一次 spawn 的配置（`DshProcess.setLaunchConfig`，之后的首次启动、崩溃重启、计划重启都用它）。dsh 没在运行就到此为止；在运行且没有进行中的回合时立即计划重启（`DshProcess.restart`：与 `dispose` 同一个回收阶梯，不发 `exit`、不计入崩溃重启次数），返回时新进程已就绪；有回合（含等审批）时不打断，等最后一个回合结束再重启，其间新建的会话建在旧进程上、用旧配置。
+   - **对运行中会话的影响**：重启前挂在旧进程上的会话以 `engine.exited`（新增可选字段 `reason: 'config_changed'`，`exitCode` / `signal` 为 null）脱开，Host 转 `error`，消息提示 resume；只在没有回合时重启，所以没有回合被打断、没有审批被结掉。resume（T3.5）之后会话用新配置继续；被删除的 Provider 的会话不能 resume。
+   - **`provider.test` 不经 dsh**：适配器按 dsh 的请求拼法直接向 Provider 发一次最小的流式请求（`max_tokens` 1，收到第一条合乎协议的数据就断开），按状态码与错误原文归为 `missing_key` / `network` / `timeout` / `auth` / `model_not_found` / `protocol` / `rate_limited` / `server` / `unknown`。经 dsh 的话每次都带完整系统提示词与工具定义，代价高，失败时也只有自由文本（补记 3）。协议为此升到 0.2.0（`provider.test` 结果加 `reason`、`httpStatus`，`ProviderModel` 加 `maxTokens`、`supportsImages`、`reasoningEfforts`，均为 optional；最低版本仍是 0.1.0）。
+   - **真实 Provider 尚未验证**：`provider-test.integration.test.ts`（正确 Key 成功、错误 Key 为 `auth`、不存在的模型为 `model_not_found`）设了 `WEVIR_TEST_API_KEY` 才跑，T3.4 完成时本机没有 Key，未运行；`model_not_found` 依赖服务端措辞，最需要在真实端点上确认。

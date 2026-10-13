@@ -46,6 +46,33 @@ export {
   resolveDshEntry,
 } from './paths.js';
 export {
+  COMPAT_APIS,
+  DEEPSEEK_OFFICIAL,
+  DSH_DEEPSEEK_MODELS,
+  effectiveCompat,
+  isDeepSeekHost,
+  isOpenAIOfficial,
+  type OverlayEntry,
+  providerEnv,
+  providerKeyEnv,
+  providerOverlayEntries,
+  providerOverlayPath,
+  REASONING_LEVELS,
+  RESERVED_PROVIDER_IDS,
+  renderProviderOverlay,
+  SUPPORTED_APIS,
+  validateProviderConfig,
+  wevirConfigDir,
+  writeProviderOverlay,
+} from './provider-config.js';
+export {
+  DEEPSEEK_DEFAULT_BASE_URL,
+  deepseekMessagesUrl,
+  PROVIDER_TEST_TIMEOUT_MS,
+  type ProviderTestOptions,
+  testProvider,
+} from './provider-test.js';
+export {
   type AdapterLogger,
   SessionEventQueue,
   type WarnOnce,

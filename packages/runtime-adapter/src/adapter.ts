@@ -4,6 +4,9 @@ import type {
   ApprovalDecision,
   EngineSession,
   PendingApproval,
+  ProviderConfig,
+  ProviderIssue,
+  ProviderTestResult,
   SessionConfig,
 } from './types.js';
 
@@ -95,6 +98,26 @@ export interface AgentRuntimeAdapter {
    * 错误：`session_not_found`、`cancel_unconfirmed`、`disposed`。
    */
   close(engineSessionId: string): Promise<void>;
+
+  /**
+   * 检查引擎能否接受这个 Provider 配置（T3.4）。Host 在 `provider.upsert` 写库之前调用，有问题就拒绝请求。
+   * 返回空数组表示可以；不抛错。不实现表示引擎不检查。
+   */
+  validateProvider?(provider: ProviderConfig): ProviderIssue[];
+
+  /**
+   * 换上整套 Provider 配置（T3.4）：Host 启动时一次，之后每次 `provider.upsert` / `provider.remove` 一次，
+   * 传入全部 Provider（含 Key）。返回时新配置已经交给引擎；何时对运行中的会话生效由实现决定并写明
+   * （dsh：引擎不热加载，空闲时重启进程，会话按 `engine.exited`（`config_changed`）脱开，见 ADR-0001 补记 5）。
+   * 错误：`engine_unavailable`（新配置下引擎起不来）、`disposed`。
+   */
+  configureProviders?(providers: readonly ProviderConfig[]): Promise<void>;
+
+  /**
+   * `provider.test`（T3.4）：用这个 Provider 发一次最小请求，验证地址、协议、Key 与模型。不抛错，失败写在结果里。
+   * 不实现时 Host 回“不可用”。
+   */
+  testProvider?(provider: ProviderConfig, modelId: string): Promise<ProviderTestResult>;
 
   /**
    * 释放全部资源（dsh：关 stdin，超时再 SIGTERM、SIGKILL）。进行中的回合被放弃，未决审批以

@@ -43,6 +43,8 @@ import {
   ProviderKindSchema,
   ProviderModelSchema,
   ProviderProfileSchema,
+  ProviderReasoningLevelSchema,
+  ProviderTestFailureSchema,
   ResolvedApprovalStatusSchema,
   SeqCursorSchema,
   SeqSchema,
@@ -202,10 +204,26 @@ const standaloneCases: Case[] = [
     invalid: ['openai'],
   },
   {
+    name: 'ProviderReasoningLevel',
+    schema: ProviderReasoningLevelSchema,
+    valid: ['off', 'xhigh'],
+    invalid: ['none', 'High'],
+  },
+  {
     name: 'ProviderModel',
     schema: ProviderModelSchema,
-    valid: [{ id: 'm' }, { id: 'm', contextWindow: 8192 }],
-    invalid: [{ id: '' }, { id: 'm', contextWindow: 0 }],
+    valid: [
+      { id: 'm' },
+      { id: 'm', contextWindow: 8192 },
+      { id: 'm', maxTokens: 4096, supportsImages: true, reasoningEfforts: ['off', 'high'] },
+      { id: 'm', reasoningEfforts: [] },
+    ],
+    invalid: [
+      { id: '' },
+      { id: 'm', contextWindow: 0 },
+      { id: 'm', maxTokens: 0 },
+      { id: 'm', reasoningEfforts: ['turbo'] },
+    ],
   },
   {
     name: 'ProviderCompat',
@@ -224,6 +242,12 @@ const standaloneCases: Case[] = [
     schema: ProviderProfileSchema,
     valid: [deepseekProvider, compatibleProvider],
     invalid: [{ ...deepseekProvider, kind: 'deepseek' }],
+  },
+  {
+    name: 'ProviderTestFailure',
+    schema: ProviderTestFailureSchema,
+    valid: ['auth', 'model_not_found'],
+    invalid: ['401', ''],
   },
   {
     name: 'EngineErrorCategory',

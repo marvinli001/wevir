@@ -14,6 +14,9 @@ import {
   type EngineSession,
   isAdapterError,
   type PendingApproval,
+  type ProviderConfig,
+  type ProviderIssue,
+  type ProviderTestResult,
   type SessionConfig,
   type TurnFailedEvent,
   type TurnSettledEvent,
@@ -25,6 +28,14 @@ import {
   type DshProcessOptions,
   type DshStreamTapOptions,
 } from './dsh-process.js';
+import {
+  providerEnv,
+  providerOverlayPath,
+  renderProviderOverlay,
+  validateProviderConfig,
+  writeProviderOverlay,
+} from './provider-config.js';
+import { type ProviderTestOptions, testProvider } from './provider-test.js';
 import {
   type AdapterLogger,
   SessionEventQueue,
@@ -55,6 +66,13 @@ export interface DshAdapterOptions
   /** 告警日志（Host 的 Logger 满足这个接口），默认写 stderr。 */
   logger?: AdapterLogger;
   cancelTimeoutMs?: number;
+  /**
+   * 启动前就已知的 Provider（T3.4），等同构造后立即 `configureProviders`。Provider overlay 排在 `patches`
+   * 之前，`patches` 里同 `id` 的条目会整体覆盖它（测试用）。
+   */
+  providers?: readonly ProviderConfig[];
+  /** `testProvider` 的选项（测试注入 fetch、缩短时限）。 */
+  providerTest?: ProviderTestOptions;
 }
 
 interface Turn {
@@ -98,8 +116,13 @@ interface PendingPermission {
  * `session/update` 写完再发审批请求（上游 `dsh-acp/src/index.ts` 的 `drainUpdates`），而更新在 SDK 之前就已入队，
  * 所以该工具的 `tool.started` 总在 `approval.requested` 之前；dsh 收到回复之前不会写出这个工具的结果。
  *
+ * Provider（T3.4，docs/architecture/providers.md）：`configureProviders` 把整套 Provider 写成
+ * `<DSH_HOME>/wevir/providers.yml`（只含 Key 的变量名），Key 放进下一次 spawn 的环境。dsh 不热加载配置
+ * （ADR-0001 补记 5），所以运行中的进程要重启才用上新配置：没有进行中的回合时立即重启，否则等最后一个回合
+ * 结束再重启；挂着的会话先以 `engine.exited`（`config_changed`）脱开，之后 resume（T3.5）即用新配置。
+ * 每个会话的路由（Provider 与模型）在 `session/new` 之后用 `session/set_config_option` 选定。
+ *
  * 尚未实现的部分：脱开或关闭之后的 `resumeSession`（T3.5）、`cancel` 无法确认时重启 dsh（T3.5）。
- * `SessionConfig` 的 Provider 与模型由 T3.4 的 overlay 决定，这里不切换。
  */
 export class DshAdapter implements AgentRuntimeAdapter {
   readonly process: DshProcess;
@@ -107,14 +130,25 @@ export class DshAdapter implements AgentRuntimeAdapter {
   readonly #logger: AdapterLogger;
   readonly #warnOnce: WarnOnce;
   readonly #cancelTimeoutMs: number;
+  readonly #basePatches: readonly string[];
+  readonly #baseEnv: Readonly<Record<string, string>>;
+  readonly #providerTest: ProviderTestOptions | undefined;
   #nextRequestId = 0;
   #disposed: Promise<void> | undefined;
+  /** 为应用新配置的重启（合并并发的请求）。 */
+  #configRestart: Promise<void> | undefined;
+  /** 进行中的 `createSession` 数：它们的会话还没登记，重启要等它们完成，否则会话会挂在被回收的进程上。 */
+  #creating = 0;
 
   constructor(options: DshAdapterOptions) {
-    const { streamTap, logger, cancelTimeoutMs, ...processOptions } = options;
+    const { streamTap, logger, cancelTimeoutMs, providers, providerTest, ...processOptions } =
+      options;
     this.#logger = logger ?? STDERR_LOGGER;
     this.#warnOnce = warnOnceVia(this.#logger);
     this.#cancelTimeoutMs = cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#basePatches = processOptions.patches ?? [];
+    this.#baseEnv = processOptions.env ?? {};
+    this.#providerTest = providerTest;
     this.process = new DshProcess({
       ...processOptions,
       onSessionUpdate: (params) => this.#onSessionUpdate(params),
@@ -138,6 +172,26 @@ export class DshAdapter implements AgentRuntimeAdapter {
     this.process.on('failed', ({ restarts }) =>
       this.#logger.warn(`dsh 进程连续重启 ${restarts} 次仍失败，停止重启`),
     );
+    if (providers !== undefined) this.#writeProviders(providers);
+  }
+
+  validateProvider(provider: ProviderConfig): ProviderIssue[] {
+    return validateProviderConfig(provider);
+  }
+
+  /**
+   * 换上整套 Provider：重写 overlay、换掉下一次 spawn 的 Key。dsh 进程没在运行时到此为止，下次启动生效；
+   * 在运行且没有进行中的回合时立即重启（返回时新进程已就绪），有回合时等最后一个回合结束再重启。
+   * 不合法的 Provider 抛 `invalid_input`（Host 应先 `validateProvider`），此时什么都不改。
+   */
+  async configureProviders(providers: readonly ProviderConfig[]): Promise<void> {
+    this.#assertUsable();
+    this.#writeProviders(providers);
+    await this.#applyConfigIfIdle();
+  }
+
+  testProvider(provider: ProviderConfig, modelId: string): Promise<ProviderTestResult> {
+    return testProvider(provider, modelId, this.#providerTest);
   }
 
   /** 适配器记得的会话数（含已关闭、已脱开的）；dispose 之后为 0。 */
@@ -149,25 +203,43 @@ export class DshAdapter implements AgentRuntimeAdapter {
     this.#assertUsable();
     if (!config.cwd) throw new AdapterError('invalid_input', 'cwd 不能为空');
     await this.process.start();
+    // 配置换过、还在等回合结束的重启：没有回合了就先重启，新会话直接用新配置。
+    await this.#applyConfigIfIdle();
     this.#assertUsable();
-    let response: { sessionId: string; configOptions?: unknown };
+    const connection = this.process.connection;
+    this.#creating += 1;
     try {
-      response = await this.process.connection.agent.request(methods.agent.session.new, {
+      let response: { sessionId: string; configOptions?: unknown };
+      try {
+        response = await connection.agent.request(methods.agent.session.new, {
+          cwd: config.cwd,
+          mcpServers: [],
+        });
+      } catch (error) {
+        throw engineError(error, 'session/new');
+      }
+      const id = response.sessionId;
+      let configOptions: unknown;
+      try {
+        configOptions = await this.#selectRoute(id, config, response.configOptions);
+      } catch (error) {
+        // 选不上路由的会话不交给 Host，引擎侧也关掉。
+        await connection.agent
+          .request(methods.agent.session.close, { sessionId: id })
+          .catch(() => {});
+        throw error;
+      }
+      this.#sessions.set(id, {
+        id,
         cwd: config.cwd,
-        mcpServers: [],
+        status: 'open',
+        queue: new SessionEventQueue(id, this.#warnOnce),
+        approvals: new Map(),
       });
-    } catch (error) {
-      throw engineError(error, 'session/new');
+      return { engineSessionId: id, ...sessionConfigInfo(configOptions) };
+    } finally {
+      this.#creating -= 1;
     }
-    const id = response.sessionId;
-    this.#sessions.set(id, {
-      id,
-      cwd: config.cwd,
-      status: 'open',
-      queue: new SessionEventQueue(id, this.#warnOnce),
-      approvals: new Map(),
-    });
-    return { engineSessionId: id, ...sessionConfigInfo(response.configOptions) };
   }
 
   async resumeSession(engineSessionId: string, _config: SessionConfig): Promise<EngineSession> {
@@ -418,6 +490,100 @@ export class DshAdapter implements AgentRuntimeAdapter {
     this.#cancelApprovals(session, 'turn_ended');
     session.turn = undefined;
     session.queue.endTurn(event);
+    // 等这个回合结束的配置重启（configureProviders 时有回合在跑）。
+    if (this.process.launchConfigStale) {
+      this.#applyConfigIfIdle().catch((error: unknown) =>
+        this.#logger.warn('为应用新的 Provider 配置重启 dsh 失败', {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+  }
+
+  /**
+   * 选定会话的路由：dsh 的模型选项值是 `JSON.stringify([provider, model])`（上游 `dsh-acp/src/model-control.ts`），
+   * 与 `session/new` 给的当前值不同就 `set_config_option`；给了推理强度也一样。返回最终的 `configOptions`。
+   * 选不上（dsh 没有这个 Provider 或模型，`-32602 unknown model option`）报 `invalid_input`。
+   */
+  async #selectRoute(
+    engineSessionId: string,
+    config: SessionConfig,
+    initial: unknown,
+  ): Promise<unknown> {
+    const connection = this.process.connection;
+    let configOptions = initial;
+    const set = async (configId: string, value: string, what: string) => {
+      try {
+        const result = await connection.agent.request(methods.agent.session.setConfigOption, {
+          sessionId: engineSessionId,
+          configId,
+          value,
+        });
+        configOptions = result.configOptions;
+      } catch (error) {
+        const failed = engineError(error, 'session/set_config_option');
+        throw new AdapterError(
+          failed.code,
+          `dsh 选不上${what}（Provider 配置里有没有它？配置改过但还没生效？）：${failed.message}`,
+          { cause: error },
+        );
+      }
+    };
+    const route = JSON.stringify([config.providerId, config.modelId]);
+    if (currentOption(configOptions, 'model') !== route) {
+      await set('model', route, ` ${config.providerId} 的模型 ${config.modelId}`);
+    }
+    const effort = config.reasoningEffort;
+    if (effort !== undefined && currentOption(configOptions, 'reasoning_effort') !== effort) {
+      await set('reasoning_effort', effort, `推理强度 ${effort}`);
+    }
+    return configOptions;
+  }
+
+  #writeProviders(providers: readonly ProviderConfig[]): void {
+    let overlay: string;
+    try {
+      overlay = renderProviderOverlay(providers);
+    } catch (error) {
+      throw new AdapterError(
+        'invalid_input',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    writeProviderOverlay(this.process.paths, overlay);
+    this.process.setLaunchConfig({
+      patches: [providerOverlayPath(this.process.paths), ...this.#basePatches],
+      env: { ...this.#baseEnv, ...providerEnv(providers) },
+    });
+  }
+
+  /**
+   * 进程用的是旧配置且空闲（没有进行中的回合、没有进行中的 `createSession`）时重启它；否则什么都不做，
+   * 等下一个回合结束或下一次 `createSession` 再看。
+   */
+  async #applyConfigIfIdle(): Promise<void> {
+    if (this.#configRestart !== undefined) return this.#configRestart;
+    if (this.process.state !== 'ready' || !this.process.launchConfigStale) return;
+    if (this.#creating > 0) return;
+    if ([...this.#sessions.values()].some((session) => session.turn !== undefined)) return;
+    this.#configRestart = (async () => {
+      // 先脱开会话（同步），之后的 send 报 session_closed，不会在旧进程上开新回合。
+      for (const session of this.#sessions.values()) {
+        if (session.status !== 'open') continue;
+        session.status = 'detached';
+        session.queue.exited({
+          type: 'engine.exited',
+          engineSessionId: session.id,
+          exitCode: null,
+          signal: null,
+          reason: 'config_changed',
+        });
+      }
+      await this.process.restart();
+    })().finally(() => {
+      this.#configRestart = undefined;
+    });
+    return this.#configRestart;
   }
 
   #onExit(exit: DshExit): void {
@@ -481,6 +647,16 @@ function cancelledEvent(
     requestId: info.requestId,
     reason,
   };
+}
+
+/** ACP `configOptions` 里某个选项的 `currentValue`。 */
+function currentOption(configOptions: unknown, id: string): string | undefined {
+  if (!Array.isArray(configOptions)) return undefined;
+  const option: unknown = configOptions.find(
+    (o) => typeof o === 'object' && o !== null && (o as { id?: unknown }).id === id,
+  );
+  const value = (option as { currentValue?: unknown } | undefined)?.currentValue;
+  return typeof value === 'string' ? value : undefined;
 }
 
 /** ACP 调用失败 → AdapterError：参数错误是 `invalid_input`，其余是 `engine_unavailable`。 */

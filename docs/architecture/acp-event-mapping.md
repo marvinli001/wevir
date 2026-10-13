@@ -55,7 +55,8 @@ ACP 的其他消息不经过 `mapAcpUpdate`：
 | `session/prompt` 错误 | `turn.failed` | 按 §3 归类，原文与错误码保留 | `errors/prompt-*.json` |
 | dsh 进程退出 | `engine.exited` | 每个挂着的会话一条，是订阅的最后一个事件；进行中的回合不再有 `turn.*` | — |
 | `session/request_permission` | `approval.requested`；结束时 `approval.cancelled` | 经 ACP SDK 应答（不截下）：适配器分配 `requestId`，选项原样，挂起到 `respondToApproval`，或以 `cancelled` 回复（§5） | `mock/permission/request.json`、`mock/transcripts/B-permission-allow.jsonl` |
-| `session/new` 结果 | 无 | `configOptions` 里引擎当前的模型（`model` 的值是 JSON 编码的 `["<provider>","<model>"]`）与推理强度作为 `createSession` 的返回值 | `session-new.response.json`、`session-new.openai-compatible.response.json` |
+| `session/new` 结果 | 无 | `configOptions` 里引擎当前的模型（`model` 的值是 JSON 编码的 `["<provider>","<model>"]`）与推理强度作为 `createSession` 的返回值；与 `SessionConfig` 不同时先 `session/set_config_option`（`model`、`reasoning_effort`），返回设置之后的值（T3.4，providers.md §2.2） | `session-new.response.json`、`session-new.openai-compatible.response.json` |
+| 适配器为应用新 Provider 配置重启 dsh | `engine.exited`（`reason: config_changed`） | 只在没有回合时发生，`exitCode` / `signal` 为 null（T3.4，providers.md §5） | — |
 
 ## 2. 工具名 → 展示类型
 

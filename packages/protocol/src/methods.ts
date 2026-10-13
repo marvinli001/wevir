@@ -139,11 +139,34 @@ export const ProviderTestParamsSchema = z.object({
   modelId: z.string().min(1).optional(),
 });
 
+/**
+ * `provider.test` 失败的原因（0.2.0），供界面给出对应的修复提示；原文在 `error.message`。
+ * missing_key：没有存 Key，没有发请求；network：连不上（DNS、拒绝连接、TLS）；timeout：时限内没有响应；
+ * auth：401 / 403；model_not_found：服务端说没有这个模型；protocol：地址能连上但不按所选协议应答
+ * （404 / 405、返回的不是该协议的流）；rate_limited：429（含额度用完）；server：5xx；unknown：其他。
+ */
+export const ProviderTestFailureSchema = z.enum([
+  'missing_key',
+  'network',
+  'timeout',
+  'auth',
+  'model_not_found',
+  'protocol',
+  'rate_limited',
+  'server',
+  'unknown',
+]);
+export type ProviderTestFailure = z.infer<typeof ProviderTestFailureSchema>;
+
 export const ProviderTestResultSchema = z.object({
   ok: z.boolean(),
   latencyMs: z.int().min(0).optional(),
   /** `ok` 为 false 时必有。 */
   error: EngineErrorInfoSchema.optional(),
+  /** `ok` 为 false 时有（0.2.0）。 */
+  reason: ProviderTestFailureSchema.optional(),
+  /** 服务端返回的 HTTP 状态码（0.2.0）；没有收到响应时省略。 */
+  httpStatus: z.int().min(100).max(599).optional(),
 });
 
 // ── session.* ─────────────────────────────────────────────────────────

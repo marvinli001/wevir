@@ -1278,6 +1278,12 @@ function engineErrorInfo(
 }
 
 function exitInfo(event: Extract<AgentEvent, { type: 'engine.exited' }>): EngineErrorInfo {
+  if (event.reason === 'config_changed') {
+    return {
+      category: 'engine_exited',
+      message: 'engine restarted to apply provider changes; resume the session to continue',
+    };
+  }
   const how = event.signal !== null ? `signal ${event.signal}` : `code ${event.exitCode}`;
   const tail = event.stderrTail ? `\n${event.stderrTail}` : '';
   return { category: 'engine_exited', message: `engine exited with ${how}${tail}` };

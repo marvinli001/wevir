@@ -1,0 +1,1062 @@
+{
+  "protocolVersion": "0.2.0",
+  "frozenAt": "2026-10-13",
+  "methods": {
+    "host.hello": {
+      "params": [
+        {
+          "token": "test-token-not-a-secret",
+          "protocolVersion": "0.2.0",
+          "clientKind": "desktop",
+          "deviceId": "dev-6f1c2a",
+          "clientId": "desk-81d0aa",
+          "capabilities": {}
+        }
+      ],
+      "result": [
+        {
+          "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "hostVersion": "0.0.0",
+          "protocolVersion": "0.2.0",
+          "minProtocolVersion": "0.1.0",
+          "features": {},
+          "permissions": ["host.manage", "session.read", "session.write"]
+        }
+      ]
+    },
+    "host.ping": {
+      "params": [{}],
+      "result": [{}]
+    },
+    "host.shutdown": {
+      "params": [{}],
+      "result": [{}]
+    },
+    "workspace.list": {
+      "params": [{}],
+      "result": [
+        {
+          "workspaces": [
+            {
+              "id": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "rootPath": "/Users/me/projects/wevir",
+              "displayName": "wevir",
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "workspace.add": {
+      "params": [
+        {
+          "rootPath": "/Users/me/projects/wevir"
+        },
+        {
+          "rootPath": "/tmp/a",
+          "displayName": "A"
+        }
+      ],
+      "result": [
+        {
+          "workspace": {
+            "id": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "rootPath": "/Users/me/projects/wevir",
+            "displayName": "wevir",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:00.000Z"
+          },
+          "created": true
+        }
+      ]
+    },
+    "workspace.remove": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [{}]
+    },
+    "provider.list": {
+      "params": [{}],
+      "result": [
+        {
+          "providers": [
+            {
+              "id": "deepseek-official",
+              "kind": "deepseek-official",
+              "displayName": "DeepSeek",
+              "models": [],
+              "defaultModelId": "deepseek-chat",
+              "hasSecret": true,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            },
+            {
+              "id": "local-ollama",
+              "kind": "openai-compatible",
+              "displayName": "本机 Ollama",
+              "api": "openai-completions",
+              "baseURL": "http://127.0.0.1:11434/v1",
+              "compat": {
+                "supportsDeveloperRole": false,
+                "maxTokensField": "max_tokens"
+              },
+              "models": [
+                {
+                  "id": "qwen3:8b",
+                  "displayName": "Qwen3 8B",
+                  "contextWindow": 32768
+                },
+                {
+                  "id": "qwen3-vl:8b",
+                  "contextWindow": 262144,
+                  "maxTokens": 32768,
+                  "supportsImages": true,
+                  "reasoningEfforts": ["off", "high"]
+                }
+              ],
+              "defaultModelId": "qwen3:8b",
+              "hasSecret": false,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            }
+          ]
+        }
+      ]
+    },
+    "provider.upsert": {
+      "params": [
+        {
+          "id": "deepseek-official",
+          "kind": "deepseek-official",
+          "displayName": "DeepSeek",
+          "models": [],
+          "defaultModelId": "deepseek-chat",
+          "apiKey": "placeholder-not-a-key"
+        },
+        {
+          "id": "local-ollama",
+          "kind": "openai-compatible",
+          "displayName": "本机 Ollama",
+          "api": "openai-completions",
+          "baseURL": "http://127.0.0.1:11434/v1",
+          "models": [
+            {
+              "id": "qwen3:8b"
+            },
+            {
+              "id": "qwen3-vl:8b",
+              "maxTokens": 32768,
+              "supportsImages": true,
+              "reasoningEfforts": []
+            }
+          ],
+          "defaultModelId": "qwen3:8b",
+          "apiKey": null
+        }
+      ],
+      "result": [
+        {
+          "provider": {
+            "id": "local-ollama",
+            "kind": "openai-compatible",
+            "displayName": "本机 Ollama",
+            "api": "openai-completions",
+            "baseURL": "http://127.0.0.1:11434/v1",
+            "compat": {
+              "supportsDeveloperRole": false,
+              "maxTokensField": "max_tokens"
+            },
+            "models": [
+              {
+                "id": "qwen3:8b",
+                "displayName": "Qwen3 8B",
+                "contextWindow": 32768
+              },
+              {
+                "id": "qwen3-vl:8b",
+                "contextWindow": 262144,
+                "maxTokens": 32768,
+                "supportsImages": true,
+                "reasoningEfforts": ["off", "high"]
+              }
+            ],
+            "defaultModelId": "qwen3:8b",
+            "hasSecret": false,
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:00.000Z"
+          },
+          "created": false
+        }
+      ]
+    },
+    "provider.remove": {
+      "params": [
+        {
+          "providerId": "local-ollama"
+        }
+      ],
+      "result": [{}]
+    },
+    "provider.test": {
+      "params": [
+        {
+          "providerId": "local-ollama"
+        },
+        {
+          "providerId": "local-ollama",
+          "modelId": "qwen3:8b"
+        }
+      ],
+      "result": [
+        {
+          "ok": true,
+          "latencyMs": 420
+        },
+        {
+          "ok": false,
+          "error": {
+            "category": "missing_credentials",
+            "message": "no API key"
+          }
+        },
+        {
+          "ok": false,
+          "latencyMs": 180,
+          "error": {
+            "category": "provider",
+            "message": "API Key 无效或没有权限（HTTP 401）"
+          },
+          "reason": "auth",
+          "httpStatus": 401
+        },
+        {
+          "ok": false,
+          "error": {
+            "category": "provider",
+            "message": "连不上 127.0.0.1:11434（ECONNREFUSED）"
+          },
+          "reason": "network"
+        }
+      ]
+    },
+    "session.create": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "providerId": "deepseek-official"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "providerId": "deepseek-official",
+          "modelId": "deepseek-reasoner",
+          "reasoningEffort": "max"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          }
+        }
+      ]
+    },
+    "session.list": {
+      "params": [
+        {},
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "sessions": [
+            {
+              "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "cwd": "/Users/me/projects/wevir",
+              "engine": {
+                "kind": "dsh",
+                "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+              },
+              "providerId": "deepseek-official",
+              "modelId": "deepseek-chat",
+              "reasoningEffort": "high",
+              "title": "整理本周周报",
+              "titleSource": "first_prompt",
+              "state": "awaiting_approval",
+              "activeTurn": {
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "startedAt": "2026-10-12T08:00:00.000Z",
+                "clientMessageId": "msg-1"
+              },
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:05.250Z",
+              "lastSeq": 12
+            }
+          ]
+        }
+      ]
+    },
+    "session.get": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "todos": [
+            {
+              "content": "列出本周提交",
+              "status": "in_progress"
+            }
+          ],
+          "usage": {
+            "contextUsed": 5120,
+            "contextSize": 262144
+          }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "idle",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": []
+        }
+      ]
+    },
+    "session.send": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "content": [
+            {
+              "type": "text",
+              "text": "继续"
+            }
+          ]
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "content": [
+            {
+              "type": "text",
+              "text": "继续"
+            }
+          ],
+          "clientMessageId": "msg-2"
+        }
+      ],
+      "result": [
+        {
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 13
+        }
+      ]
+    },
+    "session.cancel": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [{}]
+    },
+    "session.close": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [{}]
+    },
+    "session.resume": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          }
+        }
+      ]
+    },
+    "approval.respond": {
+      "params": [
+        {
+          "approvalId": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "optionId": "allow-once"
+        }
+      ],
+      "result": [
+        {
+          "approvalId": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "status": "approved",
+          "resolution": {
+            "optionId": "allow-once",
+            "decidedBy": {
+              "deviceId": "dev-6f1c2a",
+              "clientId": "desk-81d0aa",
+              "clientKind": "desktop"
+            },
+            "reason": "user"
+          }
+        }
+      ]
+    },
+    "events.subscribe": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sinceSeq": 0
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sinceSeq": 12
+        }
+      ],
+      "result": [
+        {
+          "subscriptionId": "sub_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "replayedThroughSeq": 12
+        }
+      ]
+    },
+    "events.unsubscribe": {
+      "params": [
+        {
+          "subscriptionId": "sub_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [{}]
+    }
+  },
+  "notifications": {
+    "events.event": [
+      {
+        "subscriptionId": "sub_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "event": {
+          "seq": 13,
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "ts": "2026-10-12T08:00:00.000Z",
+          "type": "assistant.delta",
+          "source": "engine",
+          "payload": {
+            "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "streamId": "stm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "blockIndex": 0,
+            "kind": "text",
+            "text": "好的，"
+          }
+        }
+      }
+    ]
+  },
+  "events": [
+    {
+      "seq": 1,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "session.created",
+      "source": "host",
+      "payload": {
+        "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "cwd": "/Users/me/projects/wevir",
+        "providerId": "deepseek-official",
+        "modelId": "deepseek-chat",
+        "reasoningEffort": "high"
+      }
+    },
+    {
+      "seq": 2,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "session.title_changed",
+      "source": "host",
+      "payload": {
+        "title": "整理本周周报",
+        "source": "first_prompt"
+      }
+    },
+    {
+      "seq": 3,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "session.state_changed",
+      "source": "host",
+      "payload": {
+        "from": "running",
+        "to": "awaiting_approval",
+        "reason": "approval_requested"
+      }
+    },
+    {
+      "seq": 4,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "user.message",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "clientMessageId": "msg-1",
+        "content": [
+          {
+            "type": "text",
+            "text": "帮我整理本周周报"
+          }
+        ],
+        "sentBy": {
+          "deviceId": "dev-6f1c2a",
+          "clientId": "cli-3e9b70",
+          "clientKind": "cli"
+        }
+      }
+    },
+    {
+      "seq": 5,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "turn.started",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+      }
+    },
+    {
+      "seq": 6,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "turn.finished",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "outcome": "completed",
+        "engineStopReason": "end_turn",
+        "durationMs": 5250
+      }
+    },
+    {
+      "seq": 7,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "assistant.delta",
+      "source": "engine",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "streamId": "stm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "blockIndex": 0,
+        "kind": "text",
+        "text": "好的，"
+      }
+    },
+    {
+      "seq": 8,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "assistant.stream_ended",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "streamId": "stm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "outcome": "committed"
+      }
+    },
+    {
+      "seq": 9,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "assistant.message",
+      "source": "engine",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "messageId": "0f5e2d9c-41b7-4c1a-8e3d-6a2b9c0d1e7f",
+        "text": "好的，我来整理。",
+        "replaces": [
+          {
+            "streamId": "stm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "blockIndex": 0
+          }
+        ]
+      }
+    },
+    {
+      "seq": 10,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "assistant.thought",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "messageId": "0f5e2d9c-41b7-4c1a-8e3d-6a2b9c0d1e7f",
+        "text": "先列出提交记录。",
+        "replaces": []
+      }
+    },
+    {
+      "seq": 11,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "tool.started",
+      "source": "engine",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "toolCallId": "call_mv4pwxip_1",
+        "toolName": "write",
+        "display": {
+          "kind": "write",
+          "summary": "/tmp/wevir-outside.txt",
+          "paths": ["/tmp/wevir-outside.txt"]
+        },
+        "input": {
+          "file_path": "/tmp/wevir-outside.txt",
+          "content": "hello"
+        }
+      }
+    },
+    {
+      "seq": 12,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "tool.updated",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "toolCallId": "call_mv4pwxip_2",
+        "output": {
+          "text": "partial",
+          "truncated": false
+        }
+      }
+    },
+    {
+      "seq": 13,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "tool.finished",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "toolCallId": "call_mv4pwxip_2",
+        "status": "completed",
+        "output": {
+          "text": "ok",
+          "truncated": true,
+          "originalLength": 70000
+        }
+      }
+    },
+    {
+      "seq": 14,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "todo.updated",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "toolCallId": "call_mv4pwxip_0",
+        "items": [
+          {
+            "content": "列出本周提交",
+            "status": "in_progress"
+          }
+        ]
+      }
+    },
+    {
+      "seq": 15,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "approval.requested",
+      "source": "host",
+      "payload": {
+        "approval": {
+          "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "toolCallId": "call_mv4pwxip_1",
+          "options": [
+            {
+              "optionId": "allow-once",
+              "label": "Allow once",
+              "kind": "allow_once",
+              "category": "allow"
+            },
+            {
+              "optionId": "reject-once",
+              "label": "Reject",
+              "kind": "reject_once",
+              "category": "reject"
+            }
+          ],
+          "detail": {
+            "toolName": "write",
+            "display": {
+              "kind": "write",
+              "summary": "/tmp/wevir-outside.txt",
+              "paths": ["/tmp/wevir-outside.txt"]
+            },
+            "input": {
+              "file_path": "/tmp/wevir-outside.txt",
+              "content": "hello",
+              "sandbox_permissions": "danger-full-access",
+              "justification": "write outside workspace"
+            },
+            "justification": "write outside workspace",
+            "sandboxPermissions": "danger-full-access"
+          },
+          "status": "pending",
+          "createdAt": "2026-10-12T08:00:00.000Z"
+        }
+      }
+    },
+    {
+      "seq": 16,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "approval.resolved",
+      "source": "host",
+      "payload": {
+        "approvalId": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "status": "approved",
+        "resolution": {
+          "optionId": "allow-once",
+          "decidedBy": {
+            "deviceId": "dev-6f1c2a",
+            "clientId": "desk-81d0aa",
+            "clientKind": "desktop"
+          },
+          "reason": "user"
+        }
+      }
+    },
+    {
+      "seq": 17,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "usage.updated",
+      "source": "host",
+      "payload": {
+        "contextUsed": 5120,
+        "contextSize": 262144
+      }
+    },
+    {
+      "seq": 18,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "engine.error",
+      "source": "host",
+      "payload": {
+        "category": "missing_credentials",
+        "message": "turn failed: llm-deepseek: no API key for provider route deepseek-official",
+        "code": -32603,
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "fatal": false
+      }
+    },
+    {
+      "seq": 19,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "engine.raw",
+      "source": "host",
+      "payload": {
+        "protocol": "acp",
+        "method": "session/update",
+        "kind": "config_option_update",
+        "params": {
+          "sessionUpdate": "config_option_update"
+        }
+      }
+    }
+  ],
+  "errors": [
+    {
+      "name": "METHOD_NOT_FOUND",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "method not found",
+          "data": {
+            "hostVersion": "0.0.0",
+            "hint": "请升级 Wevir Host"
+          }
+        }
+      }
+    },
+    {
+      "name": "INVALID_PARAMS",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "error": {
+          "code": -32602,
+          "message": "invalid params",
+          "data": {
+            "issues": [
+              {
+                "path": ["content", 0, "text"],
+                "message": "Invalid input"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "INCOMPATIBLE_PROTOCOL",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "error": {
+          "code": -32002,
+          "message": "incompatible protocol",
+          "data": {
+            "hostVersion": "0.0.0",
+            "protocolVersion": "0.1.0",
+            "minProtocolVersion": "0.1.0"
+          }
+        }
+      }
+    },
+    {
+      "name": "INVALID_STATE",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": {
+          "code": -32020,
+          "message": "invalid state",
+          "data": {
+            "state": "closed"
+          }
+        }
+      }
+    },
+    {
+      "name": "SESSION_BUSY",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "error": {
+          "code": -32021,
+          "message": "session busy",
+          "data": {
+            "state": "running",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "ALREADY_DECIDED",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "error": {
+          "code": -32022,
+          "message": "already decided",
+          "data": {
+            "approvalId": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "status": "cancelled",
+            "resolution": {
+              "reason": "turn_cancelled"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "CLIENT_MESSAGE_CONFLICT",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "error": {
+          "code": -32023,
+          "message": "client message conflict",
+          "data": {
+            "clientMessageId": "msg-1"
+          }
+        }
+      }
+    },
+    {
+      "name": "RESOURCE_IN_USE",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "error": {
+          "code": -32024,
+          "message": "resource in use",
+          "data": {
+            "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"]
+          }
+        }
+      }
+    },
+    {
+      "name": "WORKSPACE_PATH_INVALID",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 9,
+        "error": {
+          "code": -32040,
+          "message": "workspace path invalid",
+          "data": {
+            "path": "/Users/me/gone",
+            "reason": "not_found"
+          }
+        }
+      }
+    },
+    {
+      "name": "ENGINE_ERROR",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 10,
+        "error": {
+          "code": -32041,
+          "message": "engine error",
+          "data": {
+            "category": "session_unavailable",
+            "message": "session cwd does not match"
+          }
+        }
+      }
+    }
+  ]
+}

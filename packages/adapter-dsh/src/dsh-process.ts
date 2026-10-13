@@ -131,9 +131,12 @@ export interface DshProcessEventMap {
 export interface DshProcessOptions {
   /** Wevir 数据目录（绝对路径）；dsh 用其中的 `engines/dsh` 与 `engines/dsh-agents`（`dshPaths`）。 */
   home: string;
-  /** 依次以 `--patch <文件>` 传给 dsh 的配置 overlay（T3.4 生成 Provider 配置）。 */
+  /** 依次以 `--patch <文件>` 传给 dsh 的配置 overlay（T3.4 生成 Provider 配置）。之后可用 `setLaunchConfig` 换。 */
   patches?: readonly string[];
-  /** 额外注入 dsh 环境的变量（T3.4：`WEVIR_PROVIDER_<ID>_KEY`），不能覆盖固定注入的变量。 */
+  /**
+   * 额外注入 dsh 环境的变量（T3.4：`WEVIR_PROVIDER_<ID>_KEY`），不能覆盖固定注入的变量。之后可用
+   * `setLaunchConfig` 换。
+   */
   env?: Readonly<Record<string, string>>;
   /**
    * 增量流式旁路（T3.2a，ADR-0001 §3）。不给时 dsh 只有 stdin、stdout、stderr，只有 ACP 的已提交消息。
@@ -261,6 +264,8 @@ interface Launch {
   streamTap: StreamTapState;
   /** initialize 之后等插件报到的计时器。 */
   streamTapGrace?: NodeJS.Timeout;
+  /** spawn 时用的启动配置版本（`setLaunchConfig` 每调用一次加一）。 */
+  configRevision: number;
 }
 
 /**
@@ -284,11 +289,17 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
   #restarts = 0;
   #restartTimer: NodeJS.Timeout | undefined;
   #disposing: Promise<void> | undefined;
+  #patches: readonly string[];
+  #env: Readonly<Record<string, string>> | undefined;
+  #configRevision = 0;
+  #restartRequest: Promise<InitializeResponse> | undefined;
 
   constructor(options: DshProcessOptions) {
     super();
     this.paths = dshPaths(options.home);
     this.#options = options;
+    this.#patches = options.patches ?? [];
+    this.#env = options.env;
     this.#restartPolicy = { ...RESTART_POLICY, ...options.restart };
     this.#disposeTimeouts = { ...DISPOSE_TIMEOUTS, ...options.disposeTimeouts };
   }
@@ -321,6 +332,67 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
   /** 当前（或最近一个）进程的增量流式旁路状态（T3.2a）；还没启动过或没有配置旁路时为 `off`。 */
   get streamTapState(): StreamTapState {
     return this.#current?.streamTap ?? 'off';
+  }
+
+  /**
+   * 当前进程是否用的是旧的启动配置：`setLaunchConfig` 换了配置，而进程是在那之前 spawn 的。dsh 不热加载
+   * overlay，也读不到新的环境变量（T3.4 实测，ADR-0001 补记 5），要 `restart()` 才生效。没有进程时为 false。
+   */
+  get launchConfigStale(): boolean {
+    const launch = this.#current;
+    return (
+      launch !== undefined &&
+      launch.exit === undefined &&
+      launch.stopping === undefined &&
+      launch.configRevision !== this.#configRevision
+    );
+  }
+
+  /**
+   * 换下一次 spawn 用的 `--patch` 列表与额外环境变量（T3.4：Provider overlay 与 Key）。不影响正在运行的进程；
+   * 之后的任何启动（`start`、自动重启、`restart`）都用新配置。只给其中一项时另一项不变。
+   */
+  setLaunchConfig(config: {
+    patches?: readonly string[];
+    env?: Readonly<Record<string, string>>;
+  }): void {
+    if (config.patches !== undefined) this.#patches = [...config.patches];
+    if (config.env !== undefined) this.#env = { ...config.env };
+    this.#configRevision += 1;
+  }
+
+  /**
+   * 有计划地重启：回收当前进程（与 `dispose` 同一个阶梯，不发 `exit` 事件，不计入自动重启次数），再按当前的
+   * 启动配置启动一个新进程。旧连接上的会话随旧进程失效，调用方先自行处理（`DshAdapter` 发 `engine.exited`）。
+   * 进行中的 ACP 请求以 `engine_unavailable` 失败。没有进程时等同 `start()`；正在启动时等它完成再重启。
+   * 并发调用合并为一次。失败抛 `engine_unavailable`，`dispose` 之后抛 `disposed`。
+   */
+  restart(): Promise<InitializeResponse> {
+    if (this.#disposing !== undefined) {
+      return Promise.reject(new AdapterError('disposed', 'dsh 进程已释放'));
+    }
+    this.#restartRequest ??= (async () => {
+      await this.#starting?.catch(() => {});
+      if (this.#disposing !== undefined) throw new AdapterError('disposed', 'dsh 进程已释放');
+      clearTimeout(this.#restartTimer);
+      this.#restartTimer = undefined;
+      const launch = this.#current;
+      this.#state = 'starting';
+      const run = (async () => {
+        if (launch !== undefined) {
+          await this.#stop(launch, new AdapterError('engine_unavailable', 'dsh 进程正在重启'));
+        }
+        if (this.#disposing !== undefined) throw new AdapterError('disposed', 'dsh 进程已释放');
+        return this.#launch(false);
+      })();
+      this.#starting = run.finally(() => {
+        this.#starting = undefined;
+      });
+      return this.#starting;
+    })().finally(() => {
+      this.#restartRequest = undefined;
+    });
+    return this.#restartRequest;
   }
 
   /** 当前进程的 ACP 连接。不在 `ready` 时抛 `engine_unavailable`（`disposed` 之后抛 `disposed`）。 */
@@ -382,13 +454,14 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
       const entry = this.#options.entry ?? resolveDshEntry().entry;
       const tapOverlay = await this.#prepareStreamTap(entry);
       if (this.#disposing !== undefined) throw new AdapterError('disposed', 'dsh 进程已释放');
-      const patches = this.#options.patches ?? [];
+      const patches = this.#patches;
+      const configRevision = this.#configRevision;
       const spec = dshSpawnSpec({
         entry,
         paths: this.paths,
         nodePath: this.#options.nodePath,
         patches: tapOverlay === undefined ? patches : [...patches, tapOverlay],
-        env: this.#options.env,
+        env: this.#env,
         streamFd: tapOverlay !== undefined,
         parentEnv: this.#options.parentEnv,
       });
@@ -398,7 +471,7 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
           : this.#options.streamTap === undefined
             ? 'off'
             : 'unavailable';
-      launch = this.#spawn(spec, generation, streamTap);
+      launch = this.#spawn(spec, generation, streamTap, configRevision);
     } catch (error) {
       if (this.#disposing !== undefined) throw new AdapterError('disposed', 'dsh 进程已释放');
       this.#state = 'stopped';
@@ -507,7 +580,12 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
     launch.streamTapGrace.unref();
   }
 
-  #spawn(spec: DshSpawnSpec, generation: number, streamTap: StreamTapState): Launch {
+  #spawn(
+    spec: DshSpawnSpec,
+    generation: number,
+    streamTap: StreamTapState,
+    configRevision: number,
+  ): Launch {
     const child = nodeSpawn(spec.command, spec.args, spec.options);
     const { stdin, stdout, stderr } = child;
     if (stdin === null || stdout === null || stderr === null) {
@@ -553,7 +631,15 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
           }),
         ),
       });
-    const launch: Launch = { generation, child, connection, stderrTail: '', exited, streamTap };
+    const launch: Launch = {
+      generation,
+      child,
+      connection,
+      stderrTail: '',
+      exited,
+      streamTap,
+      configRevision,
+    };
 
     stderr.setEncoding('utf8');
     stderr.on('data', (chunk: string) => {

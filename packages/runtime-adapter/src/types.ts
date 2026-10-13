@@ -94,3 +94,71 @@ export interface TodoItem {
   /** 引擎原值（dsh 已见 pending / in_progress / completed），其他值原样保留。 */
   status: string;
 }
+
+// ── Provider（T3.4）──────────────────────────────────────────────────────
+
+/** 与 @wevir/protocol 的 `ProviderCompat` 同形：OpenAI 兼容服务的请求格式修正（domain-model.md §3.2）。 */
+export interface ProviderCompatConfig {
+  supportsDeveloperRole?: boolean;
+  maxTokensField?: 'max_tokens' | 'max_completion_tokens';
+  thinkingFormat?: string;
+  requiresReasoningContentOnAssistantMessages?: boolean;
+}
+
+/** 与 @wevir/protocol 的 `ProviderModel` 同形。 */
+export interface ProviderModelConfig {
+  id: string;
+  displayName?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  supportsImages?: boolean;
+  /** 推理档位（off / minimal / low / medium / high / xhigh / max）；空数组表示不推理。 */
+  reasoningEfforts?: string[];
+}
+
+/**
+ * 交给引擎的一个 Provider：`ProviderProfile` 的非密钥字段加上 SecretStore 里的 Key，由 Host 组装，
+ * 只在内存里传递。适配器只能经子进程环境变量把 Key 交给引擎，不得写进文件或日志（AGENTS.md 规则 5）。
+ */
+export interface ProviderConfig {
+  /** Provider ID，也是引擎的路由名（dsh：provider 路由，写进会话日志，创建后不可改名）。 */
+  id: string;
+  kind: 'deepseek-official' | 'openai-compatible';
+  displayName: string;
+  /** `openai-compatible` 必有：openai-completions / openai-responses / anthropic-messages。 */
+  api?: string;
+  baseURL?: string;
+  compat?: ProviderCompatConfig;
+  models: ProviderModelConfig[];
+  defaultModelId: string;
+  /** 没有存 Key 时省略。 */
+  apiKey?: string;
+}
+
+/** `validateProvider` 发现的一个问题：字段路径（相对 ProviderConfig）与给人看的说明。 */
+export interface ProviderIssue {
+  path: Array<string | number>;
+  message: string;
+}
+
+/** 与 @wevir/protocol 的 `ProviderTestFailure` 同形。 */
+export type ProviderTestFailure =
+  | 'missing_key'
+  | 'network'
+  | 'timeout'
+  | 'auth'
+  | 'model_not_found'
+  | 'protocol'
+  | 'rate_limited'
+  | 'server'
+  | 'unknown';
+
+/** 与 @wevir/protocol 的 `provider.test` 结果同形。 */
+export interface ProviderTestResult {
+  ok: boolean;
+  latencyMs?: number;
+  /** `ok` 为 false 时必有；`message` 给人看，不含 Key。 */
+  error?: { category: 'missing_credentials' | 'provider' | 'unknown'; message: string };
+  reason?: ProviderTestFailure;
+  httpStatus?: number;
+}

@@ -30,6 +30,8 @@ export interface EchoExitInfo {
   /** 默认 'SIGKILL'。 */
   signal?: string | null;
   stderrTail?: string;
+  /** 模拟适配器为应用新配置主动重启（T3.4）。 */
+  reason?: 'config_changed';
 }
 
 /** Echo 的审批选项，取 dsh 的值（T0.3 §5.2）。 */
@@ -247,6 +249,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         exitCode: info.exitCode ?? null,
         signal: info.signal === undefined ? 'SIGKILL' : info.signal,
         ...(info.stderrTail !== undefined && { stderrTail: info.stderrTail }),
+        ...(info.reason !== undefined && { reason: info.reason }),
       });
       session.hub.end();
       session.status = 'detached';

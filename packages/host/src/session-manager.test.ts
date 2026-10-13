@@ -930,6 +930,21 @@ describe('SessionManager：引擎异常（#10）', () => {
     expect(snapshot(h, id).session.lastError?.category).toBe('engine_exited');
   });
 
+  it('适配器为应用新的 Provider 配置重启引擎（config_changed）：会话 error，消息提示 resume，之后能继续', async () => {
+    const h = setup();
+    const id = await create(h);
+    await h.adapter.simulateEngineExit({ exitCode: null, signal: null, reason: 'config_changed' });
+    await waitForState(h, id, 'error');
+    expect(ofType(h, id, 'engine.error')[0]?.payload).toEqual({
+      category: 'engine_exited',
+      message: 'engine restarted to apply provider changes; resume the session to continue',
+      fatal: true,
+    });
+    await h.manager.resume(id);
+    await send(h, id, 'hello again');
+    await waitForState(h, id, 'idle');
+  });
+
   it('生成中、回合之间、取消中引擎退出都转 error', async () => {
     const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 5, chunkSize: 1 }) });
     const running = await create(h);

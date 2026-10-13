@@ -12,7 +12,8 @@
 //   crash-once      同上，但只在第一次启动时（以 cwd 里的标记文件区分）
 //   ask-permission  回应 initialize 后发一条 session/update 和一个 session/request_permission
 //   acp             DshAdapter 测试用（T3.2）：回应 session/new、session/prompt、session/cancel、
-//                   session/close，按提示词的第一个词决定回合怎么走（见下方 PROMPT_SCRIPTS）。
+//                   session/close、session/set_config_option（T3.4：值里含 missing 时报 -32602，其余照收），
+//                   按提示词的第一个词决定回合怎么走（见下方 PROMPT_SCRIPTS）。
 //                   第一个词是 `replay:<样本名>` 时回放 $FAKE_DSH_FIXTURES/<样本名>.jsonl（T3.3，见 replay()）。
 //                   收到的每条客户端消息（initialize 之外）按顺序记在 fake-dsh.json 的 received 里。
 // FAKE_DSH_GRANDCHILD=1：再拉起一个不理会 SIGTERM 的子进程（留在同一进程组里）。
@@ -332,6 +333,34 @@ function acp(message) {
       chunk(params.sessionId, 'agent_message_chunk', 'msg-half', '指南针、造纸术'),
       { id: promptId, result: { stopReason: 'cancelled' } },
     ]);
+  } else if (method === 'session/set_config_option') {
+    if (params.value.includes('missing')) {
+      send({
+        id,
+        error: { code: -32602, message: `Invalid params: unknown model option: ${params.value}` },
+      });
+      return;
+    }
+    send({
+      id,
+      result: {
+        configOptions: [
+          {
+            id: 'model',
+            type: 'select',
+            currentValue:
+              params.configId === 'model' ? params.value : '["wevir-test","wevir-mock"]',
+            options: [],
+          },
+          {
+            id: 'reasoning_effort',
+            type: 'select',
+            currentValue: params.configId === 'reasoning_effort' ? params.value : 'high',
+            options: [],
+          },
+        ],
+      },
+    });
   } else if (method === 'session/close') {
     if (!forgotten.has(params.sessionId)) send({ id, result: {} });
     else

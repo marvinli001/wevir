@@ -128,17 +128,22 @@ interface Workspace {
 
 ### 3.2 ProviderProfile
 
-一个模型服务的配置。T3.4 把它翻译成 dsh 的 `--patch` overlay（格式见 T0.3 §6.2）。
+一个模型服务的配置。T3.4 把它翻译成 dsh 的 `--patch` overlay，映射、compat 默认值、生效策略与国内服务示例见 [providers.md](./providers.md)。
 
 ```ts
 // → protocol
 type ProviderKind = 'deepseek-official' | 'openai-compatible'
 type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages'
 
+type ProviderReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+
 interface ProviderModel {
   id: string              // 发给服务端的模型 ID
   displayName?: string
   contextWindow?: number  // 不填时 dsh 按 262144 猜，usage.updated 的 contextSize 会失真
+  maxTokens?: number      // 最大输出（协议 0.2.0）
+  supportsImages?: boolean // 是否接受图片（0.2.0）；省略沿用 dsh 目录
+  reasoningEfforts?: ProviderReasoningLevel[] // 推理档位（0.2.0，只对 openai-compatible）；[] 表示不推理
 }
 
 interface ProviderCompat { // 只对 openai-compatible 有意义，原样写进 overlay 的 compat
@@ -168,7 +173,7 @@ interface ProviderProfile {
 | `id` | Provider ID，同时是 dsh 的 provider 路由名。**会写进 dsh 会话日志，创建后不可改名**（T0.3 §6.2）；要“改名”只能新建一个再删旧的 | `provider.upsert`（新 ID） | 不可改 |
 | `kind` | `deepseek-official` 走 `llm-deepseek`，dsh 的路由名固定为 `deepseek-official`，所以这类 Profile 最多一个，`id` 必须是 `deepseek-official`；`openai-compatible` 走 `llm-pi-ai` 的自定义 provider | 创建时 | 不可改 |
 | `displayName` | 显示名，写进 overlay 的 `displayName` | 创建时 | `provider.upsert` |
-| `api`、`baseURL`、`compat`、`models`、`defaultModelId` | 写进 overlay | 创建时 | `provider.upsert`。是否需要重启 dsh 才生效由 T3.4 实测（ADR-0001 未决事项 4） |
+| `api`、`baseURL`、`compat`、`models`、`defaultModelId` | 写进 overlay；写库前经适配器检查（dsh 不接受的配置回 `INVALID_PARAMS`） | 创建时 | `provider.upsert`。dsh 不热加载，适配器在没有回合时重启 dsh 才生效，挂着的会话以 `engine.exited`（`config_changed`）转 `error`、resume 后用新配置（ADR-0001 补记 5，providers.md §5） |
 | `hasSecret` | Key 是否已存 | Host | `provider.upsert` 带 Key 时 |
 | `createdAt` / `updatedAt` | 时间 | Host | Host |
 
@@ -176,6 +181,7 @@ interface ProviderProfile {
 
 - Key 不在 Profile 里。Host 的 `SecretStore`（ADR-0003）以 Provider ID 为键保存；存储层的 `secretRef` 列不上线缆。Key 只经子进程环境变量 `WEVIR_PROVIDER_<ID>_KEY` 传给 dsh，`<ID>` 是 Provider ID 转大写、`-` 换成 `_`（ID 只含小写字母、数字和 `-`，不会撞名）。overlay 里只写 `apiKeyEnv` 变量名。`deepseek-official` 的 Key 同时用于 `web-search-deepseek`（T0.3 §6.2）。
 - 被未关闭会话引用的 Profile 不能删除。已关闭会话引用的 Profile 删除后，这些会话不能 resume，直到再建一个同 ID 的 Profile。
+- `openai-compatible` 的 ID 不能是 `deepseek-official`、`deepseek-account`（dsh 内置路由名）；`api` 暂只支持 `openai-completions`、`openai-responses`，`anthropic-messages` 只预留类型（providers.md §2）。
 - OAuth 类 Provider 不在 v0（ADR-0001 未决事项 1）。
 
 ### 3.3 Session
@@ -626,7 +632,7 @@ type WevirEvent =
 | `usage.updated` | 字段改为 `contextUsed` / `contextSize`，与 WevirEvent 同名 |
 | `turn.settled` | 加 `outcome: 'completed' \| 'cancelled'`，`stopReason` 保留引擎原值 |
 | `turn.failed` | 加 `category`（`missing_credentials` / `provider` / `unknown`），由适配器按错误原文归类；`code` 可省略 |
-| `engine.exited` | 发给每个挂在该进程上的会话（带 `engineSessionId`），是该会话订阅的最后一个事件；字段 `exitCode`、`signal`、`stderrTail?` |
+| `engine.exited` | 发给每个挂在该进程上的会话（带 `engineSessionId`），是该会话订阅的最后一个事件；字段 `exitCode`、`signal`、`stderrTail?`，以及 `reason?`：`config_changed` 表示适配器为应用新的 Provider 配置主动重启（T3.4，只在没有回合时，Host 照 #10 转 `error`、消息提示 resume） |
 | `engine.raw` | 加 `protocol`、`kind?`；`engineSessionId` 必填（按会话订阅） |
 
 规则放在哪一侧：依赖 dsh 工具名、错误措辞或旁路帧细节的放适配器（展示类型、`todo.updated`、错误归类、增量对齐）；依赖 Host 状态的放 Host（取消期间的 `failed` 记为 `cancelled`、回合结束补 `unknown`、60 ms 合并增量、截断）。

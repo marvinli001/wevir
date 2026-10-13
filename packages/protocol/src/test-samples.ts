@@ -67,7 +67,16 @@ export const compatibleProvider: ProviderProfile = {
   api: 'openai-completions',
   baseURL: 'http://127.0.0.1:11434/v1',
   compat: { supportsDeveloperRole: false, maxTokensField: 'max_tokens' },
-  models: [{ id: 'qwen3:8b', displayName: 'Qwen3 8B', contextWindow: 32768 }],
+  models: [
+    { id: 'qwen3:8b', displayName: 'Qwen3 8B', contextWindow: 32768 },
+    {
+      id: 'qwen3-vl:8b',
+      contextWindow: 262144,
+      maxTokens: 32768,
+      supportsImages: true,
+      reasoningEfforts: ['off', 'high'],
+    },
+  ],
   defaultModelId: 'qwen3:8b',
   hasSecret: false,
   createdAt: TS,
@@ -460,8 +469,20 @@ export const methodSamples: MethodSamples = {
       valid: [
         { ok: true, latencyMs: 420 },
         { ok: false, error: { category: 'missing_credentials', message: 'no API key' } },
+        {
+          ok: false,
+          latencyMs: 180,
+          error: { category: 'provider', message: 'API Key 无效或没有权限（HTTP 401）' },
+          reason: 'auth',
+          httpStatus: 401,
+        },
+        {
+          ok: false,
+          error: { category: 'provider', message: '连不上 127.0.0.1:11434（ECONNREFUSED）' },
+          reason: 'network',
+        },
       ],
-      invalid: [{ ok: 'yes' }],
+      invalid: [{ ok: 'yes' }, { ok: false, reason: 'teapot' }, { ok: false, httpStatus: 42 }],
     },
   },
   'session.create': {

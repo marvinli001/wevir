@@ -129,12 +129,19 @@ function overlay(route: 'openai-compatible' | 'deepseek-official', origin: strin
   return file;
 }
 
-async function failTurn(adapter: DshAdapter, cwd: string, prompt: string): Promise<AgentEvent> {
-  const { engineSessionId } = await adapter.createSession({
-    cwd,
-    providerId: 'wevir-test',
-    modelId: MOCK_MODEL,
-  });
+/** 各路由的会话配置：deepseek-official 用 acp profile 的默认模型（录制样本时就是它）。 */
+const ROUTES = {
+  'openai-compatible': { providerId: 'wevir-test', modelId: MOCK_MODEL },
+  'deepseek-official': { providerId: 'deepseek-official', modelId: 'deepseek-v4-flash' },
+} as const;
+
+async function failTurn(
+  adapter: DshAdapter,
+  cwd: string,
+  route: keyof typeof ROUTES,
+  prompt: string,
+): Promise<AgentEvent> {
+  const { engineSessionId } = await adapter.createSession({ cwd, ...ROUTES[route] });
   const events = adapter.subscribe(engineSessionId)[Symbol.asyncIterator]();
   await adapter.send(engineSessionId, { content: [{ type: 'text', text: prompt }] });
   for (;;) {
@@ -198,7 +205,7 @@ describe('真实 dsh：Provider 失败时的 -32603 原文与归类', () => {
       const cwd = tempDir('ws');
       const cases = CASES.filter((c) => c.route === route);
       const results = await Promise.all(
-        cases.map((c) => failTurn(adapter, cwd, `[case:${c.marker}] 你好`)),
+        cases.map((c) => failTurn(adapter, cwd, route, `[case:${c.marker}] 你好`)),
       );
       cases.forEach((c, i) => {
         const { error } = readFixture<{ error: { message: string } }>(c.fixture);

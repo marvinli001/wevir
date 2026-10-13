@@ -2,7 +2,7 @@
 // 像真实 Provider 一样只看请求里的 messages 决定回复，不需要 Key。配套的 overlay 把 dsh 的 acp 路由指过来。
 
 import { writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, type IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 
@@ -53,13 +53,19 @@ export interface MockReply {
   delayMs?: number;
 }
 
+/** 请求的路径与头（T3.4 用来确认 Key 经哪个请求头到达、请求发到了哪个 Provider）。 */
+export interface MockRequestMeta {
+  url: string;
+  headers: IncomingHttpHeaders;
+}
+
 export interface MockModel {
   baseURL: string;
   close(): Promise<void>;
 }
 
 export async function startMockModel(
-  script: (request: MockRequest) => MockReply,
+  script: (request: MockRequest, meta: MockRequestMeta) => MockReply,
 ): Promise<MockModel> {
   // dsh 用 Provider 给的 id 作 ACP 的 toolCallId，一个会话里的工具调用 id 不能重复。
   let toolCalls = 0;
@@ -75,7 +81,10 @@ export async function startMockModel(
       body += chunk;
     });
     req.on('end', async () => {
-      const reply = script(JSON.parse(body) as MockRequest);
+      const reply = script(JSON.parse(body) as MockRequest, {
+        url: req.url ?? '',
+        headers: req.headers,
+      });
       let closed = false;
       res.on('close', () => {
         closed = !res.writableFinished;

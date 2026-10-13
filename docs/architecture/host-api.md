@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.1.0` · 日期：2026-10-12
+> 状态：v0（T1.2）· 协议版本 `0.2.0`（T3.4：Provider 模型字段与 `provider.test` 的失败原因；最低兼容 `0.1.0`）· 日期：2026-10-13
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -75,7 +75,7 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `provider.list` | `provider.read` | `{}` | `providers: ProviderProfile[]` | |
 | `provider.upsert` | `provider.write` | 按 `kind` 区分，见下 | `provider, created` | |
 | `provider.remove` | `provider.write` | `providerId` | `{}` | `PROVIDER_NOT_FOUND`、`RESOURCE_IN_USE` |
-| `provider.test` | `provider.write` | `providerId, modelId?` | `ok, latencyMs?, error?` | `PROVIDER_NOT_FOUND` |
+| `provider.test` | `provider.write` | `providerId, modelId?` | `ok, latencyMs?, error?, reason?, httpStatus?` | `PROVIDER_NOT_FOUND` |
 | `session.create` | `session.write` | `workspaceId, providerId, modelId?, reasoningEffort?` | `session` | `WORKSPACE_NOT_FOUND`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.list` | `session.read` | `workspaceId?` | `sessions: Session[]` | `WORKSPACE_NOT_FOUND` |
 | `session.get` | `session.read` | `sessionId` | `SessionSnapshot` | `SESSION_NOT_FOUND` |
@@ -100,9 +100,9 @@ Host → 客户端的通知：
 - **`host.shutdown`**：Host 先回 `{}`，再按 ADR-0002 §6 的顺序优雅退出，最后以 `GOING_AWAY` 关闭所有连接。退出期间到达的请求回 `HOST_SHUTTING_DOWN`。
 - **`workspace.add`**：`rootPath` 必须是绝对路径、存在、是目录，否则 `WORKSPACE_PATH_INVALID`（`data.reason` 为 `not_absolute` / `not_found` / `not_directory` / `not_accessible`）。Host 取 realpath 去重：已有同一 realpath 的工作区（含曾被移除的）时返回它，`created: false`。
 - **`workspace.remove`**：只注销，不删磁盘文件；有未关闭会话时回 `RESOURCE_IN_USE`，`data.sessionIds` 列出这些会话。
-- **`provider.upsert`**：参数按 `kind` 判别。`deepseek-official` 的 `id` 固定为 `deepseek-official`；`openai-compatible` 必须给 `api`、`baseURL`（http / https，允许 localhost 与 IP）和至少一个模型。语义是整体替换非密钥字段，不是合并；`id` 不存在时新建（`created: true`）。`kind` 创建后不可改，改了回 `INVALID_PARAMS`；`defaultModelId` 不在 `models` 里（`openai-compatible`）同样回 `INVALID_PARAMS`。`apiKey`：省略 = 保留已存的 Key，字符串 = 设置或替换，`null` = 删除。**Key 只进 SecretStore，Host 不得把它写进日志、事件或任何响应**；响应里只有 `hasSecret`。
+- **`provider.upsert`**：参数按 `kind` 判别。`deepseek-official` 的 `id` 固定为 `deepseek-official`；`openai-compatible` 必须给 `api`、`baseURL`（http / https，允许 localhost 与 IP）和至少一个模型。语义是整体替换非密钥字段，不是合并；`id` 不存在时新建（`created: true`）。`kind` 创建后不可改，改了回 `INVALID_PARAMS`；`defaultModelId` 不在 `models` 里（`openai-compatible`）同样回 `INVALID_PARAMS`。`apiKey`：省略 = 保留已存的 Key，字符串 = 设置或替换，`null` = 删除。**Key 只进 SecretStore，Host 不得把它写进日志、事件或任何响应**；响应里只有 `hasSecret`。写库前 Host 让引擎适配器检查配置（`validateProvider`），引擎不接受时回 `INVALID_PARAMS`（`data.issues` 是适配器给的字段路径与说明，例如 `anthropic-messages` 暂不支持、compat 开关与协议不匹配），不写库。写库后 Host 把全部 Provider 交给引擎；引擎没能用上新配置时回 `ENGINE_ERROR`，但 Profile 已保存（`provider.remove` 同样）。新配置何时对运行中的会话生效见 [providers.md](./providers.md) §5。
 - **`provider.remove`**：同时删除 Key。被未关闭会话引用时回 `RESOURCE_IN_USE`。
-- **`provider.test`**：用该 Provider 发一次最小请求。连通与否放在结果里（`ok`、`error.category` / `error.message`），不作为 JSON-RPC 错误；只有 Provider 不存在才回错误。
+- **`provider.test`**：用该 Provider 发一次最小请求（带已存的 Key）。连通与否放在结果里（`ok`、`error.category` / `error.message`），不作为 JSON-RPC 错误；只有 Provider 不存在才回错误。0.2.0 起失败时另有 `reason`（`missing_key` / `network` / `timeout` / `auth` / `model_not_found` / `protocol` / `rate_limited` / `server` / `unknown`）与收到的 `httpStatus`，归类规则见 [providers.md](./providers.md) §6。
 - **`session.create`**：`modelId` 省略时用 Provider 的 `defaultModelId`。Host 先建引擎会话，成功后才写 `session.created`（`seq = 1`），返回的 `session.state` 为 `idle`、`lastSeq` 为 1。引擎失败回 `ENGINE_ERROR`，不建会话。
 - **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。
 - **`session.get`**：返回由事件推导的快照 `{session: {state, activeTurn, lastSeq, …}, pendingApprovals, todos?, usage?}`（ADR-0002 §3）。中途加入的客户端先取快照，再以 `sinceSeq = session.lastSeq` 订阅。
@@ -297,6 +297,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 **版本**
 
 - `PROTOCOL_VERSION` 是 `主.次.修订` 三段的 semver，不带预发布标签。主版本不同即不兼容，Host 拒绝 hello；同一主版本内次版本只增不减、向后兼容；修订号只用于不改变线缆形状的修正。
+- 版本历史：`0.1.0`（T1.2，基线）；`0.2.0`（T3.4）：`ProviderModel` 加 `maxTokens`、`supportsImages`、`reasoningEfforts`，`provider.test` 结果加 `reason`、`httpStatus`，全部 optional，`MIN_PROTOCOL_VERSION` 仍是 `0.1.0`。新 Host 服务 0.1.0 客户端：多出的字段被旧 schema 忽略（规则 5）；0.2.0 客户端连旧 Host：旧 Host 不发这些字段，客户端按 optional 处理。
 - 协商（`negotiateProtocolVersion`）：主版本相同且客户端不低于 `minProtocolVersion` 才接受，协商结果取双方中较低的版本。Host 提高 `minProtocolVersion` 等于放弃更老的客户端，要在变更说明里写明。
 
 **线缆契约（永远遵守）**

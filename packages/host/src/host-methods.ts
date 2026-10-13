@@ -13,6 +13,7 @@ import type {
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
+import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type { ProviderProfileRecord, SecretStore, Storage, WorkspaceRecord } from '@wevir/storage';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
@@ -49,13 +50,34 @@ export interface HostMethodsOptions {
   /** Provider 的 Key 只进这里，以 Provider ID 为键（domain-model §3.2）。 */
   secrets: SecretStore;
   /**
-   * `provider.test` 的实际探测：用该 Provider 发一次最小请求。由引擎侧提供（T3.4）；没有时
+   * 引擎侧的 Provider 桥接（T3.4，`AgentRuntimeAdapter` 的可选方法）：写库前检查配置、每次变更后换上整套
+   * Provider（含 Key）、`provider.test` 的探测。适配器没实现的部分跳过；没有 `testProvider` 时
    * `provider.test` 回 `ok: false`。
    */
-  testProvider?: (
-    provider: ProviderProfile,
-    modelId: string,
-  ) => Promise<MethodResult<'provider.test'>>;
+  providers?: ProviderBridge;
+}
+
+export type ProviderBridge = Pick<
+  AgentRuntimeAdapter,
+  'validateProvider' | 'configureProviders' | 'testProvider'
+>;
+
+/**
+ * 把存储里的全部 Provider（含 Key）交给引擎（`configureProviders`）。Host 启动时调用一次，之后每次
+ * `provider.upsert` / `provider.remove` 写库后调用（`createHostMethods` 内部）。
+ */
+export async function syncProviders(
+  storage: Storage,
+  secrets: SecretStore,
+  bridge: ProviderBridge | undefined,
+): Promise<void> {
+  if (bridge?.configureProviders === undefined) return;
+  const configs = await Promise.all(
+    storage.providers
+      .list()
+      .map(async (record) => toProviderConfig(record, await secretOf(secrets, record))),
+  );
+  await bridge.configureProviders(configs);
 }
 
 /**
@@ -63,7 +85,16 @@ export interface HostMethodsOptions {
  * 读写存储。参数已经过方法注册表校验；返回值由 RPC 层按注册表校验后再发出。
  */
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
-  const { storage, events, sessions, secrets } = options;
+  const { storage, events, sessions, secrets, providers: bridge } = options;
+  // 写库成功之后才调用；引擎没能用上新配置时 Profile 仍已保存，报 ENGINE_ERROR 说明这一点。
+  const applyProviders = async () => {
+    try {
+      await syncProviders(storage, secrets, bridge);
+    } catch (error) {
+      const message = `provider saved, but the engine could not apply it: ${errorText(error)}`;
+      throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
+    }
+  };
   // Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次 upsert 交错。
   let providerTail: Promise<unknown> = Promise.resolve();
   const serialProvider = <T>(op: () => Promise<T>): Promise<T> => {
@@ -127,6 +158,32 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           throw invalidParams(['defaultModelId'], 'defaultModelId must be one of models');
         }
 
+        const candidate: ProviderConfig = toProviderConfig(
+          {
+            id: params.id,
+            kind: params.kind,
+            displayName: params.displayName,
+            models: params.models,
+            defaultModelId: params.defaultModelId,
+            createdAt: '',
+            updatedAt: '',
+            ...(params.baseURL !== undefined && { baseURL: params.baseURL }),
+            ...(params.kind === 'openai-compatible' && {
+              api: params.api,
+              ...(params.compat !== undefined && { compat: params.compat }),
+            }),
+          },
+          undefined,
+        );
+        const issues = bridge?.validateProvider?.(candidate) ?? [];
+        if (issues.length > 0) {
+          throw new HostError(
+            'INVALID_PARAMS',
+            `the engine does not accept this provider: ${issues.map((i) => i.message).join('; ')}`,
+            { issues },
+          );
+        }
+
         let secretRef = existing?.secretRef;
         if (typeof params.apiKey === 'string') {
           secretRef = params.id;
@@ -154,6 +211,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         if (secretRef !== undefined) record.secretRef = secretRef;
         if (existing) storage.providers.update(record);
         else storage.providers.insert(record);
+        await applyProviders();
         return { provider: toProviderProfile(record), created: !existing };
       }),
 
@@ -177,6 +235,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         }
         if (provider.secretRef !== undefined) await secrets.delete(provider.secretRef);
         storage.providers.delete(providerId);
+        await applyProviders();
         return {};
       }),
 
@@ -185,13 +244,15 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (!provider) {
         throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
       }
-      if (!options.testProvider) {
+      if (bridge?.testProvider === undefined) {
         return {
           ok: false,
           error: { category: 'unknown', message: 'provider test is not available in this host' },
+          reason: 'unknown',
         };
       }
-      return options.testProvider(toProviderProfile(provider), modelId ?? provider.defaultModelId);
+      const config = toProviderConfig(provider, await secretOf(secrets, provider));
+      return bridge.testProvider(config, modelId ?? provider.defaultModelId);
     },
 
     'session.create': async (params) => ({ session: await sessions.create(params) }),
@@ -307,6 +368,36 @@ function toProviderProfile(record: ProviderProfileRecord): ProviderProfile {
   };
   // 记录里的枚举与 JSON 列是 string / unknown；形状由写入时的参数校验保证，发出前再按注册表校验。
   return profile as ProviderProfile;
+}
+
+/** 存储的一行 + Key → 交给引擎的 Provider。`models`、`compat` 是写入时已校验过的 protocol 形状。 */
+function toProviderConfig(
+  record: ProviderProfileRecord,
+  apiKey: string | undefined,
+): ProviderConfig {
+  const config: ProviderConfig = {
+    id: record.id,
+    kind: record.kind as ProviderConfig['kind'],
+    displayName: record.displayName,
+    models: record.models as ProviderConfig['models'],
+    defaultModelId: record.defaultModelId,
+  };
+  if (record.api !== undefined) config.api = record.api;
+  if (record.baseURL !== undefined) config.baseURL = record.baseURL;
+  if (record.compat !== undefined) config.compat = record.compat as ProviderConfig['compat'];
+  if (apiKey !== undefined) config.apiKey = apiKey;
+  return config;
+}
+
+async function secretOf(
+  secrets: SecretStore,
+  record: ProviderProfileRecord,
+): Promise<string | undefined> {
+  return record.secretRef === undefined ? undefined : await secrets.get(record.secretRef);
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function invalidParams(path: string[], message: string): HostError<'INVALID_PARAMS'> {

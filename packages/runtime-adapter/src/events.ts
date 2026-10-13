@@ -171,11 +171,16 @@ export interface TurnFailedEvent {
 export interface EngineExitedEvent {
   type: 'engine.exited';
   engineSessionId: string;
-  /** 进程退出码；被信号杀死时为 null。 */
+  /** 进程退出码；被信号杀死、或适配器主动重启（`reason`）时为 null。 */
   exitCode: number | null;
   signal: string | null;
   /** stderr 尾部，供诊断。 */
   stderrTail?: string;
+  /**
+   * 不是意外退出：config_changed 表示适配器为应用新的 Provider 配置主动重启了引擎（T3.4，只在没有回合时发生）。
+   * 省略表示进程自己退出了。
+   */
+  reason?: 'config_changed';
 }
 
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */

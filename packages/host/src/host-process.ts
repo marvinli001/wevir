@@ -6,7 +6,7 @@ import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { EventStore } from './event-store.js';
 import { homePath } from './home.js';
-import { createHostMethods } from './host-methods.js';
+import { createHostMethods, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
 import type { Logger } from './logger.js';
 import { HostRpcServer } from './rpc-server.js';
@@ -126,6 +126,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
 
+    // 把已存的 Provider（含 Key）交给引擎（T3.4）。失败不阻止 Host 启动：会话建不起来时报引擎错误。
+    const secrets = new FileSecretStore(home);
+    await syncProviders(storage, secrets, adapter).catch((error: unknown) =>
+      logger.error('failed to apply providers to the engine', { error }),
+    );
+
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
     let requestShutdown: (trigger: ShutdownTrigger) => void = () => {};
@@ -139,7 +145,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         storage,
         events: store,
         sessions: manager,
-        secrets: new FileSecretStore(home),
+        secrets,
+        providers: adapter,
       }),
       ...(options.port !== undefined && { port: options.port }),
       onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),
