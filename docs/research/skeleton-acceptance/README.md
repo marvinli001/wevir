@@ -144,3 +144,24 @@ Gate M5 的手动验收截图与录屏放在这里（[SKELETON_PLAN §6 M5](../.
 5. **`host-process.dsh.integration` 的“重启 Host → 追问”偶发失败**：重启前取历史时最后一条 `session.state_changed` 还没到。与本任务无关，并行进行的 T6.2 已在 `4ca8e03` 里修好（按快照的 `lastSeq` 等最后一条事件到了再取历史）。
 
 改动：`apps/desktop/electron.vite.config.ts`、`apps/desktop/package.json` 的 `dev` 脚本（问题 1、2），`.npmrc` 的 Electron 注释。修复后的全新克隆即上表“第一次 `pnpm dev`（修复后）”一行。
+
+## T6.4 §4.2 九条复验（2026-10-14）
+
+环境：仓库根目录 `pnpm install`（Already up to date）、`pnpm build` 后 `pnpm dev`（开发模式），`WEVIR_HOME` 指向全新的临时数据目录，桌面端自己拉起 `wevir-host --adapter dsh`（真实 dsh 0.2.1-alpha.2，stream-tap 旁路开启）。工作树里有并行进行、尚未提交的 T4.2（`apps/cli`），第 7 条用的就是它。本机没有模型 Key，Provider 是本地脚本化的 OpenAI 兼容服务（`@wevir/adapter-dsh/testing` 的 `startMockModel`），按提示里的 `[t64:X]` 决定回复：A 读 README、glob 后流式输出表格与代码块，B / C / E 写工作区外的文件（先被沙箱拒绝，带 `sandbox_permissions` 重试时请求审批），D 长回答，CSV 见第 8 条，其他提示回答“上下文里有几条你的消息”。审批用例写到 `packages/adapter-dsh/.test-outside/t64/`（工作区外、不在系统临时目录），用完删掉。工作区 `quarterly-report` 里有 `README.md` 与 `data/` 下三个 CSV。操作经 Chrome DevTools 协议（`WEVIR_DESKTOP_DEBUG_PORT=9361`）发点击、文字输入与按键，系统文件夹选择器照 T5.4 的做法经主进程 inspector（`pnpm dev --inspect 9362`）换成返回固定文件夹；截图 1 倍像素密度、系统浅色。
+
+| 条目 | 结果 | 做法与观察 | 截图 |
+|---|---|---|---|
+| 1. `pnpm install && pnpm dev` 启动 Host 与桌面应用 | 通过 | 窗口打开，左栏底部“Host 已连接”，全新数据目录显示三步引导；主进程日志 `launching host` → `host owned {pid, startedAt}`，协议 0.3.0 | `t6.4-1-dev-started.png` |
+| 2. 添加工作区、配置 Provider | 通过（mock Provider） | 引导“去配置”→“添加 Provider”→“其他 OpenAI 兼容服务”，填显示名称、ID、地址、模型与 Key，保存后自动测试“连接成功”，卡片显示“Key 已设置”；设置 → 工作区 →“添加文件夹”，“已添加工作区“quarterly-report””。DeepSeek 官方与真实的 OpenAI 兼容地址需要 Key，本机未测 | `t6.4-2-provider-form.png`、`t6.4-2-provider-saved.png`、`t6.4-2-workspace-added.png` |
+| 3. 流式输出与工具调用过程 | 通过 | 首页“新建会话”进草稿页，Enter 发送；`read` → `glob` 聚合为“读取 1 个文件、搜索 1 次”，表格只出现第一行时截图（“运行中 · 0.2 秒”、发送键变“停止”）；回合结束后代码块高亮、“本轮已完成 · 1.4 秒” | `t6.4-3-streaming.png`、`t6.4-3-done.png` |
+| 4. 审批卡片，允许 / 拒绝正确传回 | 通过 | `[t64:B]`：第一次写被沙箱拒绝，重试时输入框上方出现审批卡片（目标、“完全访问，不受工作区限制”、Agent 的理由、内容预览），左栏标“待审批”；点“允许一次”，`allowed.md` 写入、内容 `t64-B`。`[t64:C]` 点“拒绝”，工具显示“被拒绝”与 dsh 原文，目录里没有 `denied.md` | `t6.4-4-approval.png`、`t6.4-4-allowed.png`、`t6.4-4-denied.png` |
+| 5. 运行中取消 | 通过 | `[t64:D]` 输出到第 6 段时点“停止”，“本轮已取消 · 2 秒”，已生成的 7 段保留，回到空闲 | `t6.4-5-before-cancel.png`、`t6.4-5-cancelled.png` |
+| 6. 完全退出再打开，列表与历史都在，能继续 | 通过 | DevTools `Browser.close` 退出：主进程日志 “closing the ownership pipe → owned host exited”，没有 Host 进程，`run/` 为空。再 `pnpm dev`：拉起新 Host，直接回到上次的会话；URL、会话区文字（2300 字节）与左栏文字和退出前逐字节相同。追问后显示“引擎会话已恢复（dsh 0.2.1-alpha.2）”，模型回答“上下文里有 5 条你的消息”，即 dsh 恢复了之前的 4 轮对话 | `t6.4-6-reopened.png`、`t6.4-6-continued.png` |
+| 7. CLI attach 同一事件流，CLI 审批、桌面同步 | 通过（未提交的 T4.2 CLI） | `expect` 起伪终端运行 `wevir session attach <id>`：从头回放全部历史（含桌面的允许 / 拒绝、取消、“引擎会话已恢复”），“以上为历史，以下为实时”。桌面发 `[t64:E]`，两边同时出现审批；CLI 输入 `1`，CLI 显示“本终端已处理：允许一次”，桌面卡片收起并提示“已由本机的命令行处理：允许一次”，工具转成功、`by-cli.md` 写入 | `t6.4-7-approval-both.png`、`t6.4-7-resolved-by-cli.png`、`t6.4-7-cli-attach.txt`（CLI 屏幕，去掉了控制序列，临时目录写作 `<scratch>`） |
+| 8. 临时工作区里的真实多步骤文件任务 | 部分通过：真实 dsh 通过，真实模型未跑 | 新会话发“读取 data 目录下的所有 CSV，按文件汇总行数和金额，再算销售减退款的净额，写成 summary.md”。dsh 依次执行 `glob` → 3 次 `read` → `write`，脚本化的模型只根据 dsh 读回的内容计算；`summary.md` 的三行合计 445.75、550.00、55.50 与净额 940.25 和手算一致。**真实模型下的同一任务没有执行**（本机没有 Key），与 Gate M3 第 3 层、Gate M4 是同一个缺口 | `t6.4-8-csv-summary.png` |
+| 9. CI 在 macOS 与 Windows 上跑通 lint、typecheck、test | 通过（截至 `4ca8e03`） | `main` 上 run 38475778589（T6.2 推送）四个 job 全部成功：macOS / Windows × Node 24（`.node-version`）/ 22.19。HEAD `31a91ea`（T6.1）尚未推送，CI 没跑过；本地对当前工作树（含未提交的 `apps/cli`）`pnpm lint`、`pnpm typecheck` 通过，`pnpm vitest run --maxWorkers=2` 1038 通过、9 跳过（真实模型层，没有 Key），46 s | — |
+
+验收中看到、本任务不改的（记入复盘与 Phase 1 计划）：
+
+- 写类工具卡片的结果行显示 dsh 的原始包装 `<path>…</path>`（`t6.4-8-csv-summary.png`），读写工具的结果应按 dsh 的格式解析成路径与摘要。
+- 审批之前那次被沙箱拒绝的写入显示为红色“失败”的工具卡片，带 dsh 的英文原文（`t6.4-7-approval-both.png`）；用户看到的是“先失败、再请求审批”，应与随后的审批合并展示。
