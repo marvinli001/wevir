@@ -1,0 +1,64 @@
+[
+  {
+    "toolCallId": "call_mv4pwxoj_0",
+    "updates": [
+      {
+        "toolCallId": "call_mv4pwxoj_0",
+        "title": "write",
+        "kind": "other",
+        "status": "in_progress",
+        "rawInput": {
+          "file_path": "<DSH_HOME>/wevir-spike/outside-flow-fTTznv/allowed.txt",
+          "content": "hello\n"
+        },
+        "sessionUpdate": "tool_call"
+      },
+      {
+        "toolCallId": "call_mv4pwxoj_0",
+        "status": "failed",
+        "content": [
+          {
+            "content": {
+              "text": "Error: [sandbox: file access denied under workspace-write mode]\n[sandbox: escalation available — retry this exact operation once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]",
+              "type": "text"
+            },
+            "type": "content"
+          }
+        ],
+        "sessionUpdate": "tool_call_update"
+      }
+    ]
+  },
+  {
+    "toolCallId": "call_mv4pwxp4_0",
+    "updates": [
+      {
+        "toolCallId": "call_mv4pwxp4_0",
+        "title": "write",
+        "kind": "other",
+        "status": "in_progress",
+        "rawInput": {
+          "file_path": "<DSH_HOME>/wevir-spike/outside-flow-fTTznv/allowed.txt",
+          "content": "hello\n",
+          "sandbox_permissions": "danger-full-access",
+          "justification": "用户要求在工作区之外创建这个文件。"
+        },
+        "sessionUpdate": "tool_call"
+      },
+      {
+        "toolCallId": "call_mv4pwxp4_0",
+        "status": "completed",
+        "content": [
+          {
+            "content": {
+              "text": "<path><DSH_HOME>/wevir-spike/outside-flow-fTTznv/allowed.txt</path>\n<type>file</type>\n<content>\nCreated file\n</content>",
+              "type": "text"
+            },
+            "type": "content"
+          }
+        ],
+        "sessionUpdate": "tool_call_update"
+      }
+    ]
+  }
+]

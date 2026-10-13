@@ -184,7 +184,7 @@ wevir/
 | **M3** | **dsh 适配器** | | | |
 | T3.1 | dsh 进程管理（定位、启动、独立 DSH_HOME） | T2.5 | [x] | `packages/adapter-dsh`：精确依赖 dsh `0.2.1-alpha.2` 与 ACP SDK `1.4.0`；`allowBuilds` 逐个登记 pnpm 报出的 5 个构建脚本（放行 3 个、拒绝 2 个，键带版本，ADR-0004 补记 2）；`resolveDshEntry` 从依赖读 `bin.dsh`；`engines/dsh` 与 `engines/dsh-agents`（0700）；白名单环境 `buildDshEnv`；`DshProcess`：`dsh --profile acp` + `--patch` 插槽 + 可选 fd 3、`clientCapabilities: {}`、initialize 15 s、stderr 尾部、退出即上报、3 次指数退避重启、stdin EOF → SIGTERM → SIGKILL（≤ 4.5 s），POSIX 上自成进程组。真实 dsh 集成测试：initialize 520 ms、单进程 3 会话、dispose 22 ms 无残留；假 Host 被 SIGKILL 后 dsh 51 ms 内退出、bash 工具子进程一并结束（ADR-0001 补记 1）。UPSTREAM.md §1.1 记版本，§2.1 用 pnpm lockfile 复核闭包许可证（622 个，结论不变） |
 | T3.2a | 增量流式旁路（stream-tap 插件） | T3.1 | [x] | `packages/adapter-dsh/stream-tap/`：纯 JS Cordis 插件，只用 `ctx`，把 `agent/assistant-stream` 帧连同 sessionId 以 NDJSON 写到 `WEVIR_STREAM_FD`（先写 ready）；`src/stream-tap.ts`：`dsh plugin --profile acp add link:` 装进 acp profile（已装好且指向同一目录则跳过）、随附 `overlay.yml` insert、`StreamTapDecoder`（切行、文本与推理分开、畸形行告警跳过）；`DshProcess` 的 `streamTap` 选项与 `streamTapState`，装不上 / 没报到都只告警、退化为已提交消息；`dshAdapterCapabilities` 按旁路状态声明 `incrementalStream`。真实 dsh + mock Provider：首个增量 82 ms 对 ACP 整条消息约 2420 ms，去掉插件或插件加载失败会话照常完成。ADR-0001 补记 2（含打包时 pnpm 的待定项） |
-| T3.2 | ACP → Wevir 事件映射 | T3.1, T3.2a | [ ] | |
+| T3.2 | ACP → Wevir 事件映射 | T3.1, T3.2a | [x] | `packages/adapter-dsh`：纯函数 `mapAcpUpdate`（5 种实发类型 + `config_option_update` 有意留作 `engine.raw`，其余与字段不合预期的原样 `engine.raw`、按原因与类型告警一次）；`DshProcess` 在 ACP SDK 之前截下 `session/update`（SDK 的 zod 校验会丢类型、删字段）；`DeltaMerger` 按会话内顺序 + 内容前缀对齐增量（含取消时的半段、已提交消息先到、尾部增量迟到、`assistant/attempt` 记为 abandoned）；`DSH_TOOLS` 工具名 → 展示类型与 `rawInput` 路径，`todo_write` → `todo.updated`；`classifyTurnError`（缺凭据 / Provider / 未知，原文保留，补录 5 个真实 dsh 的 Provider 错误样本）；`DshAdapter`（会话生命周期 + 每会话有序事件队列，审批与 resume 留给 T3.3、T3.5）。T0.3 样本复制进 `src/test-fixtures/acp/`，快照测试逐个覆盖；`docs/architecture/acp-event-mapping.md` 三张表与代码由测试核对；ADR-0001 补记 3。验收：adapter-dsh 14 个测试文件 185 条通过（含真实 dsh + mock Provider：增量替换、生成中取消、Provider 错误原文逐字比对），全仓 677 条通过 |
 | T3.3 | 审批桥接 | T3.2 | [ ] | |
 | T3.4 | Provider 配置桥接 | T3.1 | [ ] | 可与 T3.2a、T3.2 并行 |
 | T3.5 | 会话恢复 | T3.3 | [ ] | |
@@ -320,13 +320,13 @@ wevir/
 
 **T3.2a 增量流式旁路**（T0.6 新增）：把 `spikes/dsh-acp/stream-tap` 产品化为 `packages/adapter-dsh` 内的 Cordis 插件（只用 `ctx`，不 import `@deepseek-ai/*`）：监听 `agent/assistant-stream`，以 NDJSON 写到 `WEVIR_STREAM_FD` 指定的 fd 3；用 `dsh plugin --profile acp add link:<插件目录>` 装进 Wevir 的 `DSH_HOME`，overlay 中 `insert`；适配器读取 fd 3，按会话产出增量事件。插件缺失或没有数据时退化为只有已提交消息，其他功能不受影响。§4.2 第 3 条依赖本任务。
 
-**T3.2 事件映射**：ACP `session/update` 各类型 → `AgentEvent`，以 `spikes/dsh-acp/fixtures/acp/mock/` 为输入；合并 T3.2a 的增量与 ACP 的已提交消息（后者到达时替换前者，按会话内顺序对齐）；工具名 → 展示类型，并从 `rawInput` 提取路径；解析 `todo_write` 的 `rawInput`；取消时一次补发的半段消息；`-32603` 错误文本按前缀归类（缺凭据、Provider 错误、未知）并保留原文；未识别类型映射为 `engine.raw` 保留下来，不丢弃；映射表写入 `docs/architecture/acp-event-mapping.md`。
+**T3.2 事件映射**：ACP `session/update` 各类型 → `AgentEvent`，以 `spikes/dsh-acp/fixtures/acp/mock/` 为输入；合并 T3.2a 的增量与 ACP 的已提交消息（后者到达时替换前者，按会话内顺序对齐）；工具名 → 展示类型，并从 `rawInput` 提取路径；解析 `todo_write` 的 `rawInput`；取消时一次补发的半段消息；`-32603` 错误文本按前缀归类（缺凭据、Provider 错误、未知）并保留原文；未识别类型映射为 `engine.raw` 保留下来，不丢弃；映射表写入 `docs/architecture/acp-event-mapping.md`。dsh 的 `AgentRuntimeAdapter` 实现 `DshAdapter` 由本任务建立（T3.1 只有进程管理）：会话的建立、发送、取消、关闭与引擎退出上报，以及每个引擎会话一个有序事件队列；审批由 T3.3、resume 由 T3.5 接上（实施时补记）。
 
 **T3.3 审批桥接**：`session/request_permission` → `ApprovalRequest` 事件 → 等待 `approval.respond` → 回复 ACP。请求只带 `toolCallId`，详情取同一 `toolCallId` 之前那条 `tool_call` 的 `rawInput`；选项原样携带（dsh 只有 `allow_once` / `reject_once`）。客户端取消或会话关闭时必须以 `cancelled` 回复挂起的审批；Host 退出时同样回复 `cancelled`，重启后残留的未决审批标记为 `expired`。dsh 的审批只来自沙箱升级（工作区外、且不在系统临时目录的操作，模型按提示带 `sandbox_permissions` 重试时才出现），UI 文案与测试用例据此设计。
 
 **T3.4 Provider 桥接**：`ProviderProfile` → dsh 配置 overlay（格式见 T0.3 §6.2：`baseURL`、`api`（`openai-completions` / `openai-responses` / `anthropic-messages`）、`compat`、模型列表与 `contextWindow`、`apiKeyEnv`；`web-search-deepseek` 的 Key 引用一并处理）；Provider ID 会写进 dsh 会话日志，创建后不可改名；密钥仅通过子进程环境变量 `WEVIR_PROVIDER_<ID>_KEY` 传入；首批支持 DeepSeek 官方 + OpenAI 兼容（覆盖通义、Kimi、智谱等国内服务）；`provider.test` 做一次最小请求验证；Provider 变更后是否要重启 dsh 进程，本任务实测后补记到 ADR-0001。OAuth 类 Provider 不做。
 
-**T3.5 会话恢复**：`session.resume` → ACP `session/resume`，必须使用会话创建时的工作区路径（dsh 按 realpath 比较），活跃会话不能 resume；界面历史、会话列表与标题始终来自 Wevir 事件库；记录 resume 前后上下文差异（T0.3：新进程 resume 后模型可见的上下文完整，只缺界面层信息）。
+**T3.5 会话恢复**：`session.resume` → ACP `session/resume`，必须使用会话创建时的工作区路径（dsh 按 realpath 比较），活跃会话不能 resume；`cancel` 报 `cancel_unconfirmed` 之后重启 dsh 进程，受影响的会话按引擎退出处理、可 resume（T3.2 的 `DshAdapter` 尚未做）；界面历史、会话列表与标题始终来自 Wevir 事件库；记录 resume 前后上下文差异（T0.3：新进程 resume 后模型可见的上下文完整，只缺界面层信息）。
 
 **T3.6 适配器契约测试**：同一套 T1.3 契约测试分三层跑 dsh 适配器：(1) 用 T0.3 录制的样本离线回放；(2) 真实 dsh + 本地 mock Provider（复用 `spikes/dsh-acp/src/mock-llm.ts` 的做法），不需要 Key 就能端到端覆盖工具、审批、取消、resume 与增量旁路（T0.3 的 mock 套件约 25 秒）；(3) 真实模型，由环境变量开关（无 Key 时跳过）。
 - **Gate M3**：第 1、2 层契约测试全绿，第 3 层在本机跑通一次；升级 dsh 时的检查清单写入 `docs/upstream/UPSTREAM.md`（含重跑旁路测试、重新核对依赖闭包的许可证）。
@@ -404,3 +404,4 @@ wevir/
 | 2026-10-12 | T0.6：ADR-0001–0004 Accepted；§1.4 按 ADR-0004 改写（补版本、`allowBuilds`、引擎依赖、`ws`、`node:sqlite`）；§3.1 按 T0.3 实测改写 ACP / SDK 能力与缺口和进程环境要点；§6 M1–M6 吸收 ADR-0001–0003 与 Paseo A1–A21、OpenWork 布局建议，M3 新增 T3.2a 增量流式旁路（§5 同步）、T3.6 增加“真实 dsh + mock Provider”层，Gate M4 写明审批用例要有工作区外操作；§1.3、§2.8、§7、§8 相应补充 |
 | 2026-10-13 | T2.4：§6 T2.4 写明 Host API 全部方法的 Host 侧执行归本任务（工作区、Provider 方法此前没有任务认领，host-api.md 的下游写的是“T2.4（Host 侧执行）”）；`provider.test` 的实际探测仍属 T3.4 |
 | 2026-10-13 | T2.5：§6 T3.1 补两条要求：`dispose` 阶梯 5 s 内返回；Host 被强杀或跳过 `dispose` 时 dsh 因 stdin EOF 自行退出、工具子进程随之结束（ADR-0002 补记 3 的退出预算） |
+| 2026-10-13 | T3.2：§6 T3.2 写明 `DshAdapter`（会话生命周期与事件路径）由本任务建立，此前没有任务认领，T3.3、T3.6 都以它存在为前提；§6 T3.5 补“`cancel_unconfirmed` 之后重启 dsh” |

@@ -7,7 +7,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!spikes/**/fixtures"]
+    "includes": ["**", "!spikes/**/fixtures", "!packages/adapter-dsh/src/test-fixtures/acp"]
   },
   "formatter": {
     "enabled": true,

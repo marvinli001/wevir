@@ -1,0 +1,18 @@
+{
+  "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+  "toolCall": {
+    "toolCallId": "call_mv4pwxp4_0"
+  },
+  "options": [
+    {
+      "optionId": "allow-once",
+      "name": "Allow once",
+      "kind": "allow_once"
+    },
+    {
+      "optionId": "reject-once",
+      "name": "Reject",
+      "kind": "reject_once"
+    }
+  ]
+}

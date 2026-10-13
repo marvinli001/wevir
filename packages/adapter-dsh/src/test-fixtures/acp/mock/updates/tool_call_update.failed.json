@@ -1,0 +1,17 @@
+{
+  "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+  "update": {
+    "toolCallId": "call_mv4pwxoj_0",
+    "status": "failed",
+    "content": [
+      {
+        "content": {
+          "text": "Error: [sandbox: file access denied under workspace-write mode]\n[sandbox: escalation available — retry this exact operation once with sandbox_permissions (the narrowest wider mode that suffices) + justification; the approval prompt asks the user]",
+          "type": "text"
+        },
+        "type": "content"
+      }
+    ],
+    "sessionUpdate": "tool_call_update"
+  }
+}

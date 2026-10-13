@@ -76,7 +76,9 @@ async function setup(options: {
     home: options.home ?? tempDir('home'),
     patches: [writeMockOverlay(tempDir('overlay'), model.baseURL)],
     env: { [MOCK_KEY_ENV]: MOCK_KEY },
-    onSessionUpdate: (params) => void updates.push({ at: performance.now(), value: params }),
+    // 测试只用到 dsh 实际发送的几种更新，结构与 SDK 的类型一致。
+    onSessionUpdate: (params) =>
+      void updates.push({ at: performance.now(), value: params as SessionNotification }),
   };
   if (options.streamTap !== false) {
     dshOptions.streamTap = {

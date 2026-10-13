@@ -1,0 +1,10 @@
+{
+  "error": {
+    "name": "RequestError",
+    "message": "\"Method not found\": session/load",
+    "code": -32601,
+    "data": {
+      "method": "session/load"
+    }
+  }
+}

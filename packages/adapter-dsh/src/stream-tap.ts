@@ -148,7 +148,15 @@ export type StreamTapEvent = AssistantDeltaEvent | AssistantStreamEndedEvent;
 export type StreamTapFrame =
   | { type: 'start'; attemptId: string }
   | { type: 'chunk'; attemptId: string; chunk: StreamTapChunk }
-  | { type: 'end'; attemptId: string; outcome: { kind: 'committed' | 'abandoned' } };
+  | {
+      type: 'end';
+      attemptId: string;
+      /**
+       * committed 的 `eventType` 是这次 attempt 落成的会话事件：`assistant/message`（有已提交消息），或
+       * `assistant/attempt`（只记下这次调用，没有消息：取消时没有非空白内容、出错重试）。
+       */
+      outcome: { kind: 'committed'; eventType?: string } | { kind: 'abandoned' };
+    };
 
 export type StreamTapChunk =
   | { type: 'text-delta' | 'reasoning-delta'; index: number; text: string }
@@ -202,7 +210,8 @@ export function parseStreamTapLine(line: string): StreamTapRecord {
 
 /**
  * 一条记录对应的 AgentEvent：`text-delta` → `assistant.delta`（text），`reasoning-delta` →
- * `assistant.delta`（reasoning），`end` → `assistant.stream_ended`；空文本的增量与其余帧不产出事件。
+ * `assistant.delta`（reasoning），`end` → `assistant.stream_ended`（落成 `assistant/attempt` 的记为
+ * abandoned）；空文本的增量与其余帧不产出事件。
  * `engineSessionId` 是 dsh 的会话 ID，与 ACP 的 `sessionId` 相同。
  */
 export function streamTapEvents(record: StreamTapRecord): StreamTapEvent[] {
@@ -214,7 +223,11 @@ export function streamTapEvents(record: StreamTapRecord): StreamTapEvent[] {
         type: 'assistant.stream_ended',
         engineSessionId,
         attemptId: frame.attemptId,
-        outcome: frame.outcome.kind,
+        // 落成 assistant/attempt 的 attempt 没有已提交消息，它的增量不会被替换，对 Host 来说与丢弃相同。
+        outcome:
+          frame.outcome.kind === 'committed' && frame.outcome.eventType !== 'assistant/attempt'
+            ? 'committed'
+            : 'abandoned',
       },
     ];
   }

@@ -210,6 +210,22 @@ describe('StreamTapDecoder：NDJSON 解析', () => {
       },
     ]);
   });
+
+  it('committed 但落成 assistant/attempt（没有已提交消息）的 end 帧记为 abandoned', () => {
+    const end = (eventType?: string) =>
+      streamTapEvents(
+        parseStreamTapLine(
+          frameLine({
+            type: 'end',
+            index: 3,
+            outcome: { kind: 'committed', ...(eventType && { eventType, seq: 9 }) },
+          }).trim(),
+        ),
+      ).map((e) => e.type === 'assistant.stream_ended' && e.outcome);
+    expect(end('assistant/attempt')).toEqual(['abandoned']);
+    expect(end('assistant/message')).toEqual(['committed']);
+    expect(end()).toEqual(['committed']);
+  });
 });
 
 describe('stream-tap 插件（../stream-tap，在 dsh 进程里运行）', () => {

@@ -1,0 +1,7 @@
+{
+  "error": {
+    "name": "RequestError",
+    "message": "Invalid params: session is already active: 06ff3891-7c11-4302-9569-03c2f3b05e78",
+    "code": -32602
+  }
+}

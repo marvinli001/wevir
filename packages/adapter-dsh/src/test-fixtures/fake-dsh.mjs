@@ -11,6 +11,8 @@
 //   crash-after-init  回应 initialize 50 ms 后以退出码 3 退出（每次启动都这样）
 //   crash-once      同上，但只在第一次启动时（以 cwd 里的标记文件区分）
 //   ask-permission  回应 initialize 后发一条 session/update 和一个 session/request_permission
+//   acp             DshAdapter 测试用（T3.2）：回应 session/new、session/prompt、session/cancel、
+//                   session/close，按提示词的第一个词决定回合怎么走（见下方 PROMPT_SCRIPTS）
 // FAKE_DSH_GRANDCHILD=1：再拉起一个不理会 SIGTERM 的子进程（留在同一进程组里）。
 //
 // stream-tap（T3.2a）：
@@ -67,8 +69,12 @@ if (mode === 'exit-on-start') {
   process.stderr.write('fake dsh: cannot start\n');
   process.exit(7);
 }
-if (process.env.WEVIR_STREAM_FD !== undefined && process.env.FAKE_DSH_TAP !== 'silent') {
-  const tap = createWriteStream('', { fd: Number(process.env.WEVIR_STREAM_FD) });
+const tap =
+  process.env.WEVIR_STREAM_FD !== undefined && process.env.FAKE_DSH_TAP !== 'silent'
+    ? createWriteStream('', { fd: Number(process.env.WEVIR_STREAM_FD) })
+    : undefined;
+if (tap !== undefined && mode === 'acp') tap.write('{"type":"ready"}\n');
+if (tap !== undefined && mode !== 'acp') {
   const frame = (frame) =>
     JSON.stringify({
       type: 'frame',
@@ -142,6 +148,8 @@ lines.on('line', (line) => {
         },
       });
     }
+  } else if (mode === 'acp') {
+    acp(message);
   } else if (message.id === 'permission-1') {
     record.permissionResponse = message.result ?? message.error;
     save();
@@ -152,3 +160,168 @@ lines.on('close', () => {
   save();
   if (mode !== 'ignore-eof' && mode !== 'ignore-sigterm') process.exit(0);
 });
+
+// ── acp 模式 ───────────────────────────────────────────────────────────────────────
+
+let sessionCount = 0;
+/** sessionId → 等 session/cancel 的 prompt 请求 id。 */
+const hanging = new Map();
+/** 引擎侧“丢了”的会话：session/close 报 unknown session（T0.3 fixtures/acp/errors/close-unknown-session.json）。 */
+const forgotten = new Set();
+
+const update = (sessionId, body) => ({
+  method: 'session/update',
+  params: { sessionId, update: body },
+});
+const chunk = (sessionId, kind, messageId, text) =>
+  update(sessionId, { sessionUpdate: kind, messageId, content: { type: 'text', text } });
+/** 一次写出多条消息：dsh 的 stdout 上，回合最后的更新和 prompt 的结果常在同一次读里到达。 */
+const sendAll = (messages) =>
+  process.stdout.write(
+    messages.map((m) => `${JSON.stringify({ jsonrpc: '2.0', ...m })}\n`).join(''),
+  );
+const tapFrame = (sessionId, frame) =>
+  tap?.write(`${JSON.stringify({ type: 'frame', sessionId, frame })}\n`);
+
+/** 提示词第一个词 → 回合脚本。 */
+const PROMPT_SCRIPTS = {
+  // 各类更新（含 dsh 不发的类型）与结果在同一次写里，检验顺序与 engine.raw。
+  order: (sid, id) =>
+    sendAll([
+      update(sid, { sessionUpdate: 'usage_update', used: 10, size: 100 }),
+      update(sid, { sessionUpdate: 'future_update', detail: { kept: true } }),
+      update(sid, {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-todo',
+        title: 'todo_write',
+        kind: 'other',
+        status: 'in_progress',
+        rawInput: { todos: [{ content: '读取', status: 'in_progress' }] },
+      }),
+      update(sid, {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-todo',
+        status: 'completed',
+        content: [{ type: 'content', content: { type: 'text', text: 'Updated todo list' } }],
+      }),
+      chunk(sid, 'agent_message_chunk', 'msg-1', '好的。'),
+      { id, result: { stopReason: 'end_turn' } },
+    ]),
+  // 与 T0.3 fixtures/acp/errors/prompt-missing-key.openai-compatible.json 同形。
+  fail: (_sid, id) =>
+    sendAll([
+      {
+        id,
+        error: {
+          code: -32603,
+          message:
+            'Internal error: turn failed: llm-pi-ai: no credential for provider route "wevir-test"; its profile resolves WEVIR_PROVIDER_WEVIR_TEST_KEY, which is not set',
+        },
+      },
+    ]),
+  // 增量先到 fd 3（含一个子 agent 会话的帧），已提交消息后到 stdout，committed 的 end 帧最后才到。
+  stream: (sid, id) => {
+    const attemptId = `${sid}:1`;
+    const delta = (index, text) =>
+      tapFrame(sid, {
+        type: 'chunk',
+        attemptId,
+        index,
+        chunk: { type: 'text-delta', index: 0, text },
+      });
+    tapFrame(sid, { type: 'start', attemptId, turn: 1, step: 1 });
+    delta(1, '你好，');
+    tapFrame('child-session', {
+      type: 'chunk',
+      attemptId: 'child-session:1',
+      index: 1,
+      chunk: { type: 'text-delta', index: 0, text: '子 agent' },
+    });
+    delta(2, '世界');
+    setTimeout(() => {
+      sendAll([
+        chunk(sid, 'agent_message_chunk', 'msg-1', '你好，世界'),
+        { id, result: { stopReason: 'end_turn' } },
+      ]);
+      setTimeout(
+        () =>
+          tapFrame(sid, {
+            type: 'end',
+            attemptId,
+            index: 3,
+            outcome: { kind: 'committed', eventType: 'assistant/message' },
+          }),
+        20,
+      );
+    }, 50);
+  },
+  // 生成中等取消：取消后一次补发已生成的半段，结算为 cancelled（T0.3 场景 E2）。
+  hang: (sid, id) => {
+    const attemptId = `${sid}:1`;
+    tapFrame(sid, {
+      type: 'chunk',
+      attemptId,
+      index: 1,
+      chunk: { type: 'text-delta', index: 0, text: '指南针、' },
+    });
+    tapFrame(sid, {
+      type: 'chunk',
+      attemptId,
+      index: 2,
+      chunk: { type: 'text-delta', index: 0, text: '造纸术' },
+    });
+    hanging.set(sid, id);
+  },
+  // 回合正常结束，但引擎从此不认识这个会话。
+  forget: (sid, id) => {
+    forgotten.add(sid);
+    sendAll([{ id, result: { stopReason: 'end_turn' } }]);
+  },
+  // 不理会取消：cancel 应在时限内报 cancel_unconfirmed。
+  stuck: () => {},
+  // 回合中途进程退出。
+  exit: () => {
+    process.stderr.write('fake dsh: exit during turn\n');
+    process.exit(3);
+  },
+};
+
+function acp(message) {
+  const { id, method, params } = message;
+  if (method === 'session/new') {
+    record.sessionNew = params;
+    save();
+    sessionCount += 1;
+    send({
+      id,
+      result: {
+        sessionId: `fake-${sessionCount}`,
+        configOptions: [
+          { id: 'model', type: 'select', currentValue: '["wevir-test","wevir-mock"]', options: [] },
+          { id: 'reasoning_effort', type: 'select', currentValue: 'high', options: [] },
+        ],
+      },
+    });
+  } else if (method === 'session/prompt') {
+    const word = params.prompt[0]?.text.split(' ')[0];
+    const script = PROMPT_SCRIPTS[word] ?? PROMPT_SCRIPTS.order;
+    script(params.sessionId, id);
+  } else if (method === 'session/cancel') {
+    const promptId = hanging.get(params.sessionId);
+    if (promptId === undefined) return;
+    hanging.delete(params.sessionId);
+    sendAll([
+      chunk(params.sessionId, 'agent_message_chunk', 'msg-half', '指南针、造纸术'),
+      { id: promptId, result: { stopReason: 'cancelled' } },
+    ]);
+  } else if (method === 'session/close') {
+    if (!forgotten.has(params.sessionId)) send({ id, result: {} });
+    else
+      send({
+        id,
+        error: { code: -32602, message: `Invalid params: unknown session: ${params.sessionId}` },
+      });
+  } else if (id !== undefined) {
+    send({ id, error: { code: -32601, message: `"Method not found": ${method}` } });
+  }
+}

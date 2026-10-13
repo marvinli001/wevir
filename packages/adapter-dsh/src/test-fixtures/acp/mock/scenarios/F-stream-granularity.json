@@ -1,0 +1,48 @@
+{
+  "prompt": "[wevir:STREAM] 不要调用任何工具。用大约 300 字介绍一下杭州西湖。",
+  "stopReason": "end_turn",
+  "durationMs": 3279,
+  "firstUpdateAfterMs": 3278,
+  "updateCounts": {
+    "agent_thought_chunk": 1,
+    "agent_message_chunk": 1,
+    "usage_update": 1
+  },
+  "permissions": [],
+  "assistantText": "西湖位于浙江省杭州市西部，三面环山，一面临城，湖面约六点五平方公里。苏堤与白堤把湖面分隔开来，断桥残雪、平湖秋月、三潭印月等十景各有季节。白居易与苏轼都曾在杭州为官并疏浚西湖，留下诗文与堤岸。二〇一一年西湖文化景观列入世界遗产名录。今天的西湖既是市民散步的公园，也是游客最集中的景区，春天看桃柳，夏天赏荷花，秋天闻桂香，冬天看雪后的断桥。",
+  "updates": [
+    {
+      "dt": 3278,
+      "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+      "update": {
+        "content": {
+          "text": "简单介绍即可。",
+          "type": "text"
+        },
+        "messageId": "ab3197e4-1452-4468-9f0d-57389951dfde",
+        "sessionUpdate": "agent_thought_chunk"
+      }
+    },
+    {
+      "dt": 3279,
+      "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+      "update": {
+        "content": {
+          "text": "西湖位于浙江省杭州市西部，三面环山，一面临城，湖面约六点五平方公里。苏堤与白堤把湖面分隔开来，断桥残雪、平湖秋月、三潭印月等十景各有季节。白居易与苏轼都曾在杭州为官并疏浚西湖，留下诗文与堤岸。二〇一一年西湖文化景观列入世界遗产名录。今天的西湖既是市民散步的公园，也是游客最集中的景区，春天看桃柳，夏天赏荷花，秋天闻桂香，冬天看雪后的断桥。",
+          "type": "text"
+        },
+        "messageId": "ab3197e4-1452-4468-9f0d-57389951dfde",
+        "sessionUpdate": "agent_message_chunk"
+      }
+    },
+    {
+      "dt": 3279,
+      "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+      "update": {
+        "used": 7322,
+        "size": 262144,
+        "sessionUpdate": "usage_update"
+      }
+    }
+  ]
+}

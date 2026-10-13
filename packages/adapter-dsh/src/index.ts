@@ -1,4 +1,17 @@
+export {
+  type AcpRawReason,
+  type AcpSessionNotification,
+  type AcpSessionUpdate,
+  isAcpSessionNotification,
+  MAPPED_ACP_UPDATES,
+  mapAcpUpdate,
+  type OnRawUpdate,
+  RAW_BY_DESIGN_ACP_UPDATES,
+  sessionConfigInfo,
+} from './acp-mapping.js';
 export { dshAdapterCapabilities } from './capabilities.js';
+export { DeltaMerger } from './delta-merge.js';
+export { CANCEL_TIMEOUT_MS, DshAdapter, type DshAdapterOptions } from './dsh-adapter.js';
 export {
   DISPOSE_TIMEOUTS,
   type DisposeTimeouts,
@@ -33,6 +46,12 @@ export {
   resolveDshEntry,
 } from './paths.js';
 export {
+  type AdapterLogger,
+  SessionEventQueue,
+  type WarnOnce,
+  warnOnceVia,
+} from './session-events.js';
+export {
   defaultStreamTapPluginDir,
   ensureStreamTapInstalled,
   isStreamTapInstalled,
@@ -51,3 +70,12 @@ export {
   streamTapEvents,
   streamTapOverlay,
 } from './stream-tap.js';
+export { DSH_TOOLS, parseTodoItems, TODO_TOOL, toolDisplay } from './tool-display.js';
+export {
+  type ClassifiedTurnError,
+  classifyTurnError,
+  INTERNAL_ERROR_CODE,
+  TURN_ERROR_RULES,
+  type TurnErrorCategory,
+  type TurnErrorRule,
+} from './turn-error.js';

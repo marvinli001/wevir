@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
+  type AnyMessage,
   type ClientConnection,
   client,
   type Implementation,
@@ -13,7 +14,6 @@ import {
   PROTOCOL_VERSION,
   type RequestPermissionRequest,
   type RequestPermissionResponse,
-  type SessionNotification,
 } from '@agentclientprotocol/sdk';
 import { AdapterError } from '@wevir/runtime-adapter';
 import { buildDshEnv, STREAM_FD } from './env.js';
@@ -142,8 +142,13 @@ export interface DshProcessOptions {
    * 装不上时照常启动，只是没有旁路（`streamTapState` 为 `unavailable`）。
    */
   streamTap?: DshStreamTapOptions;
-  /** ACP `session/update` 通知（按 dsh 发出的顺序）。 */
-  onSessionUpdate?: (params: SessionNotification) => void | Promise<void>;
+  /**
+   * ACP `session/update` 通知的原始参数，按 dsh 写出的顺序同步调用，不得抛错。在 ACP SDK 之前截下、不经它的
+   * 校验（T3.2）：SDK 的 zod 校验会丢掉不认识的 `sessionUpdate` 类型、删掉不认识的字段，而这些要以
+   * `engine.raw` 原样保留。因为在 SDK 读到消息之前调用，同一条流里排在后面的响应（例如 `session/prompt`
+   * 的结果）兑现时，它前面的通知都已交付。
+   */
+  onSessionUpdate?: (params: unknown) => void;
   /**
    * ACP `session/request_permission`。不给时一律回复 `cancelled`：不替用户批准任何操作。
    * `signal` 在 dsh 取消请求或连接关闭时触发。
@@ -516,25 +521,38 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
     const exited = new Promise<DshExit>((resolve) => {
       settle = resolve;
     });
+    const wire = ndJsonStream(
+      Writable.toWeb(stdin) as WritableStream<Uint8Array>,
+      // stdout 可能先于 exit 事件结束；等进程退出记下来再结束输入，进行中的请求才会以
+      // “进程已退出”失败，而不是笼统的连接关闭。
+      (Readable.toWeb(stdout) as ReadableStream<Uint8Array>).pipeThrough(
+        new TransformStream<Uint8Array, Uint8Array>({ flush: () => exited.then(() => {}) }),
+      ),
+    );
     const connection = client({ name: 'wevir' })
       .onRequest(methods.client.session.requestPermission, ({ params, signal }) =>
         this.#options.onRequestPermission !== undefined
           ? this.#options.onRequestPermission(params, signal)
           : { outcome: { outcome: 'cancelled' } },
       )
-      .onNotification(methods.client.session.update, ({ params }) =>
-        this.#options.onSessionUpdate?.(params),
-      )
-      .connect(
-        ndJsonStream(
-          Writable.toWeb(stdin) as WritableStream<Uint8Array>,
-          // stdout 可能先于 exit 事件结束；等进程退出记下来再结束输入，进行中的请求才会以
-          // “进程已退出”失败，而不是笼统的连接关闭。
-          (Readable.toWeb(stdout) as ReadableStream<Uint8Array>).pipeThrough(
-            new TransformStream<Uint8Array, Uint8Array>({ flush: () => exited.then(() => {}) }),
-          ),
+      .connect({
+        writable: wire.writable,
+        readable: wire.readable.pipeThrough(
+          new TransformStream<AnyMessage, AnyMessage>({
+            transform: (message, controller) => {
+              if (!isSessionUpdate(message)) {
+                controller.enqueue(message);
+                return;
+              }
+              try {
+                this.#options.onSessionUpdate?.(message.params);
+              } catch {
+                // 回调约定不抛错；万一抛了也不能让 ACP 连接断开。
+              }
+            },
+          }),
         ),
-      );
+      });
     const launch: Launch = { generation, child, connection, stderrTail: '', exited, streamTap };
 
     stderr.setEncoding('utf8');
@@ -659,6 +677,15 @@ async function settledWithin(promise: Promise<unknown>, ms: number): Promise<boo
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** dsh 写出的 `session/update` 通知（没有 id 的 JSON-RPC 消息）。 */
+function isSessionUpdate(message: AnyMessage): message is AnyMessage & { params?: unknown } {
+  return (
+    !Array.isArray(message) &&
+    (message as { method?: unknown }).method === methods.client.session.update &&
+    !('id' in message)
+  );
 }
 
 function describe(error: unknown): string {

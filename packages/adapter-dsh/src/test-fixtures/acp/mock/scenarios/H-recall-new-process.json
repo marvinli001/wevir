@@ -1,0 +1,35 @@
+{
+  "prompt": "[wevir:RECALL] 不要调用任何工具，只凭记忆回答：1）我让你记住的暗号；2）你之前写入 summary.md 的内容；3）哪些写入请求被拒绝或取消了。",
+  "stopReason": "end_turn",
+  "durationMs": 195,
+  "firstUpdateAfterMs": 194,
+  "updateCounts": {
+    "agent_message_chunk": 1,
+    "usage_update": 1
+  },
+  "permissions": [],
+  "assistantText": "暗号：wevir-ff9df8；summary.md：total=15；历史消息数：38",
+  "updates": [
+    {
+      "dt": 194,
+      "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+      "update": {
+        "content": {
+          "text": "暗号：wevir-ff9df8；summary.md：total=15；历史消息数：38",
+          "type": "text"
+        },
+        "messageId": "98e9f4a6-6466-4015-b9c2-b3c0295a7d40",
+        "sessionUpdate": "agent_message_chunk"
+      }
+    },
+    {
+      "dt": 195,
+      "sessionId": "a96a4101-fee3-411e-b638-d9e25710d351",
+      "update": {
+        "used": 7407,
+        "size": 262144,
+        "sessionUpdate": "usage_update"
+      }
+    }
+  ]
+}
