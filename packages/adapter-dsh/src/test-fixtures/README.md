@@ -3,7 +3,7 @@
 | 路径 | 内容 |
 |---|---|
 | `fake-dsh.mjs` | 假 dsh：按 ACP 的 NDJSON 帧回应，`FAKE_DSH_MODE` 决定行为（文件头有说明）；DshProcess 与 DshAdapter 的单元测试用 |
-| `mock-model.ts` | 本地脚本化的 OpenAI Chat Completions 流式服务，真实 dsh 的集成测试用，不需要 Key |
+| `mock-model.ts` | 本地脚本化的 OpenAI Chat Completions 流式服务，真实 dsh 的集成测试用，不需要 Key；经 `../testing.ts`（子路径 `@wevir/adapter-dsh/testing`）导出给 Host 的端到端测试 |
 | `real-model.ts` | 真实模型的 overlay（设了 `WEVIR_TEST_API_KEY` 的用例共用；默认 DeepSeek 官方路由，`WEVIR_TEST_BASE_URL` / `WEVIR_TEST_MODEL` 改走 OpenAI 兼容服务） |
 | `acp/` | ACP 样本，见下 |
 | `stream-tap/frames.sample.json` | stream-tap 旁路帧的抽样（`spikes/dsh-acp/fixtures/stream-tap/mock/`，T0.3） |

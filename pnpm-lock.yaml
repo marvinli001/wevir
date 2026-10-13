@@ -193,16 +193,6 @@ importers:
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../runtime-adapter
-    devDependencies:
-      '@wevir/host':
-        specifier: workspace:*
-        version: link:../host
-      '@wevir/protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      '@wevir/storage':
-        specifier: workspace:*
-        version: link:../storage
 
   packages/host:
     dependencies:
@@ -222,6 +212,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+      '@wevir/adapter-dsh':
+        specifier: workspace:*
+        version: link:../adapter-dsh
 
   packages/protocol:
     dependencies:
