@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
@@ -9,6 +10,7 @@ import { DEV_SERVER_PORT } from './src/shared/renderer-origin.js';
 // 工作区包按 exports 的 "@wevir/source" 条件直接用源码打进 main 与 renderer（ADR-0004 补记 1），改了
 // client-sdk 等包不用先构建，开发时也能热更新。Host 本身仍是 dist/ 里的 wevir-host 子进程。
 const WORKSPACE_PACKAGES = ['@wevir/client-sdk', '@wevir/host', '@wevir/protocol'];
+const RENDERER_SRC = fileURLToPath(new URL('./src/renderer/src', import.meta.url));
 
 export default defineConfig(({ command }) => {
   // 开发服务器的 CSP nonce：每次启动随机生成，Vite 把它加到引导脚本与注入的 <style> 上（src/shared/csp.ts）。
@@ -26,7 +28,11 @@ export default defineConfig(({ command }) => {
       },
     },
     renderer: {
-      resolve: { conditions: ['@wevir/source', ...defaultClientConditions] },
+      resolve: {
+        conditions: ['@wevir/source', ...defaultClientConditions],
+        // shadcn 原语按 @/ 引用（components.json 的 aliases），与 src/renderer/tsconfig.json 的 paths 一致。
+        alias: { '@': RENDERER_SRC },
+      },
       server: {
         // 渲染进程的 origin 必须在 Host 的 Origin 白名单里（host-api.md §1）：固定主机与端口，不换端口。
         host: 'localhost',

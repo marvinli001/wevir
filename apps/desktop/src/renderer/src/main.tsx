@@ -1,7 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
+import { bootstrapTheme } from './theme/theme.js';
 import './index.css';
+
+bootstrapTheme();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html 里缺少 #root');

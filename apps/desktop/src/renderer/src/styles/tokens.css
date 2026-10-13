@@ -1,0 +1,73 @@
+/* 设计 Token 的第二层：语义变量（T5.2）。全应用只有这一套，界面代码与 shadcn 原语只经它们取色。
+ *
+ * 引用的是 palette.css 的色阶变量；色阶本身随 <html data-theme> 切换，所以大多数语义变量亮暗共用一份
+ * 定义，只有亮暗取阶不同的几个在下面的暗色块里覆盖。阶的用法按 Radix 的约定：1–2 背景，3–5 组件底色
+ * （常态 / 悬停 / 按下），6–8 边框，9–10 实色，11–12 文字。
+ *
+ * 命名沿用 shadcn 的约定，生成的原语不用改类名就能用。注意两点：
+ * - “强调色”是 --primary（靛蓝）。--accent 按 shadcn 的含义是中性的悬停 / 选中底色，不是品牌色。
+ * - 状态色各有两档：--success / --warning / --destructive 是文字档（第 11 阶，可读性够），用于文字、
+ *   图标、描边和 `/10` 这类淡底；*-solid 是实色档（第 9 阶），用于状态点和实色填充。 */
+
+:root {
+  /* 背景层级：画布 → 侧栏 → 弱填充 → 悬停 / 选中 */
+  --background: var(--sand-1);
+  --sidebar: var(--sand-2);
+  --muted: var(--sand-3);
+  --accent: var(--sand-4);
+  --card: var(--sand-1);
+  --popover: var(--sand-1);
+  --secondary: var(--sand-3);
+
+  /* 文字层级：正文 → 次要 → 弱提示（时间、快捷键提示等，不用于必须读的内容） */
+  --foreground: var(--sand-12);
+  --muted-foreground: var(--sand-11);
+  --faint-foreground: var(--sand-10);
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+
+  /* 边框：分隔线 → 控件边框 → 焦点环 */
+  --border: var(--sand-6);
+  --input: var(--sand-7);
+  --ring: var(--indigo-8);
+
+  /* 强调色。第 9 阶上的文字用白色（Radix 对靛蓝的建议），这是语义层唯一的字面量。 */
+  --primary: var(--indigo-9);
+  --primary-foreground: #fff;
+
+  /* 状态 */
+  --success: var(--green-11);
+  --success-solid: var(--green-9);
+  --warning: var(--amber-11);
+  --warning-solid: var(--amber-9);
+  --destructive: var(--red-11);
+  --destructive-solid: var(--red-9);
+
+  /* 侧栏（左栏与右栏共用） */
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-accent: var(--sand-4);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-ring: var(--ring);
+
+  /* 遮罩与阴影 */
+  --overlay: color-mix(in oklab, var(--sand-12) 25%, transparent);
+  --shadow-color: color-mix(in oklab, var(--sand-12) 10%, transparent);
+
+  /* 圆角：所有阶梯都从它推导（theme.css 的 --radius-*），嵌套时外层比内层大一阶。 */
+  --radius: 0.5rem;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  /* 暗色下浮层要比画布亮一阶才看得出层次。 */
+  --card: var(--sand-2);
+  --popover: var(--sand-2);
+  --overlay: color-mix(in oklab, var(--sand-1) 60%, transparent);
+  --shadow-color: color-mix(in oklab, var(--sand-1) 60%, transparent);
+
+  color-scheme: dark;
+}

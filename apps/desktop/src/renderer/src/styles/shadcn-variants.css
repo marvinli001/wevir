@@ -1,0 +1,36 @@
+/* shadcn 原语用到的 Tailwind 自定义变体（data-open、data-closed 等，对应 Base UI 的 data-* 状态属性）。
+ * 摘自 shadcn 4.21.4 的 tailwind.css（MIT License，Copyright (c) 2023 shadcn），只取原语用到的部分，
+ * 免得为一份 CSS 把 shadcn CLI 装成依赖；以后生成的原语用到新的 data-* 变体时，从同一文件补进来。 */
+
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state="closed"]),
+  &:where([data-closed]:not([data-closed="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation="horizontal"]) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation="vertical"]) {
+    @slot;
+  }
+}

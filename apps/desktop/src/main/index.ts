@@ -3,6 +3,7 @@
 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sand, sandDark } from '@radix-ui/colors';
 import { resolveHome } from '@wevir/host/runtime';
 import {
   app,
@@ -10,6 +11,7 @@ import {
   dialog,
   type IpcMainInvokeEvent,
   ipcMain,
+  nativeTheme,
   protocol,
   session,
   shell,
@@ -22,6 +24,7 @@ import {
   DEV_SERVER_ORIGIN,
   rendererOriginOf,
 } from '../shared/renderer-origin.js';
+import { isThemeMode } from '../shared/theme.js';
 import {
   HostLifecycle,
   type Log,
@@ -130,6 +133,12 @@ function run(): void {
     }
     await shell.openExternal(url);
   });
+  ipcMain.handle(IPC_CHANNELS.setThemeSource, async (event, mode: unknown): Promise<void> => {
+    const window = assertSender(event);
+    if (!isThemeMode(mode)) throw new Error('主题模式只能是 system、light 或 dark');
+    nativeTheme.themeSource = mode;
+    window.setBackgroundColor(windowBackground());
+  });
 
   // 所有 webContents（含将来的）一律：新窗口拒绝，外部链接交给系统浏览器；只允许同 origin 的导航
   // （开发服务器的整页刷新）；不允许挂 <webview>（Electron 安全清单第 12、13 条）。
@@ -185,13 +194,24 @@ function run(): void {
   });
 }
 
+/**
+ * 窗口底色，与渲染进程的 --background（tokens.css：sand 第 1 阶）一致，窗口缩放露出未绘制区域时不闪色。
+ * 启动时 themeSource 是 'system'，渲染进程按存储的主题模式调用 setThemeSource 后再更新。
+ */
+function windowBackground(): string {
+  return nativeTheme.shouldUseDarkColors ? sandDark.sand1 : sand.sand1;
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
-    width: 1200,
+    width: 1280,
     height: 800,
-    minWidth: 720,
-    minHeight: 480,
+    // 左栏最窄 220 + 中栏最窄 560，再留出拖动与边框的余量；更窄（例如放大界面后）由渲染进程的
+    // 折叠规则处理（src/renderer/src/layout/layout-rules.ts）。
+    minWidth: 960,
+    minHeight: 600,
     title: 'Wevir',
+    backgroundColor: windowBackground(),
     show: false,
     webPreferences: {
       // 沙箱里的 preload 不能是 ESM，electron-vite 把它打成单个 CJS 文件（ADR-0004 §3）。

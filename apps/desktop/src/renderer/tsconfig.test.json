@@ -1,0 +1,9 @@
+{
+  // 渲染进程纯逻辑的测试（Vitest 跑在 Node 上）。被测源码照样按 DOM 类型检查，只是多了 Node 与 Vitest 的类型。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src/**/*.test.ts", "src/env.d.ts"],
+  "exclude": []
+}

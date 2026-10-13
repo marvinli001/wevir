@@ -2,6 +2,7 @@
 // 通道名，渲染进程、preload、主进程共用；不 import Node 或 Electron 的东西。
 
 import type { ClientIdentity } from '@wevir/protocol';
+import type { ThemeMode } from './theme.js';
 
 /** 连接 Host 需要的全部信息。令牌只放在渲染进程的内存里，不写 localStorage 等任何持久化位置。 */
 export interface HostConnection {
@@ -22,10 +23,16 @@ export interface DesktopApi {
   selectFolder(): Promise<string | null>;
   /** 用系统浏览器打开链接；只接受 http、https、mailto。 */
   openExternal(url: string): Promise<void>;
+  /**
+   * 让窗口外观跟随界面主题（Electron `nativeTheme.themeSource`）：标题栏、原生控件、窗口底色；也决定
+   * 渲染进程里 `prefers-color-scheme` 的取值。界面主题本身由渲染进程的 data-theme 决定（T5.2）。
+   */
+  setThemeSource(mode: ThemeMode): Promise<void>;
 }
 
 export const IPC_CHANNELS = {
   getHostConnection: 'wevir:get-host-connection',
   selectFolder: 'wevir:select-folder',
   openExternal: 'wevir:open-external',
+  setThemeSource: 'wevir:set-theme-source',
 } as const;

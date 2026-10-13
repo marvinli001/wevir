@@ -11,7 +11,8 @@
     "dev": "pnpm --filter \"@wevir/host...\" build && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer && tsc --noEmit -p src/renderer/tsconfig.test.json",
+    "palette": "node scripts/generate-palette.ts",
     "test": "vitest run"
   },
   "dependencies": {
@@ -20,16 +21,23 @@
     "@wevir/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@base-ui/react": "^1.9.0",
+    "@radix-ui/colors": "^3.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
     "@wevir/runtime-adapter": "workspace:*",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.4.0",
     "electron": "^44.7.0",
     "electron-vite": "^5.0.0",
+    "lucide-react": "^1.55.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-router": "^8.4.0",
     "tailwindcss": "^4.3.3",
+    "tw-animate-css": "^1.4.0",
     "vite": "^7.3.7"
   }
 }

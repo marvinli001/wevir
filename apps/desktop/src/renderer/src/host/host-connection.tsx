@@ -4,7 +4,7 @@ import {
   WevirClient,
   webSocketTransport,
 } from '@wevir/client-sdk';
-import { useEffect, useState } from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 
 export type HostConnectionView =
   | { status: 'connecting' }
@@ -14,18 +14,29 @@ export type HostConnectionView =
   /** 第一次就连不上（Host 没能启动、找不到 Node 等），client-sdk 不重试。 */
   | { status: 'failed'; error: string };
 
+export interface HostConnection {
+  view: HostConnectionView;
+  /** 第一次连上之后才有；断线重连期间仍是同一个客户端（请求会排队）。 */
+  client: WevirClient | undefined;
+}
+
+const HostConnectionContext = createContext<HostConnection | null>(null);
+
 /**
- * 连接 Host 并跟踪连接状态。端点每次连接尝试前向主进程要（`window.wevir.getHostConnection()`），令牌只在
- * 这次调用的返回值与 client-sdk 的内存里。
+ * 连接 Host 并跟踪连接状态（T5.1），T5.2 起经 context 交给整个界面。端点每次连接尝试前向主进程要
+ * （`window.wevir.getHostConnection()`），令牌只在这次调用的返回值与 client-sdk 的内存里。
  */
-export function useHostConnection(): HostConnectionView {
-  const [view, setView] = useState<HostConnectionView>({ status: 'connecting' });
+export function HostConnectionProvider({ children }: { children: ReactNode }) {
+  const [connection, setConnection] = useState<HostConnection>({
+    view: { status: 'connecting' },
+    client: undefined,
+  });
 
   useEffect(() => {
     let disposed = false;
     let client: WevirClient | undefined;
-    const update = (next: HostConnectionView) => {
-      if (!disposed) setView(next);
+    const update = (view: HostConnectionView) => {
+      if (!disposed) setConnection((current) => ({ ...current, view }));
     };
     void (async () => {
       try {
@@ -44,7 +55,7 @@ export function useHostConnection(): HostConnectionView {
           return;
         }
         client = connected;
-        update({ status: 'connected', hello: connected.hello });
+        setConnection({ view: { status: 'connected', hello: connected.hello }, client: connected });
       } catch (error) {
         update({ status: 'failed', error: describe(error) });
       }
@@ -55,7 +66,13 @@ export function useHostConnection(): HostConnectionView {
     };
   }, []);
 
-  return view;
+  return <HostConnectionContext value={connection}>{children}</HostConnectionContext>;
+}
+
+export function useHostConnection(): HostConnection {
+  const connection = useContext(HostConnectionContext);
+  if (!connection) throw new Error('useHostConnection 必须在 HostConnectionProvider 之内使用');
+  return connection;
 }
 
 function toView(state: ConnectionState): HostConnectionView {
@@ -74,7 +91,7 @@ function toView(state: ConnectionState): HostConnectionView {
 }
 
 /** 去掉 Electron 给 IPC 错误加的前缀（“Error invoking remote method '…': HostStartError: ”）。 */
-function describe(error: unknown): string {
+export function describe(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '');
 }

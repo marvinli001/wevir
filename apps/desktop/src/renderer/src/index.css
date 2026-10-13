@@ -1,1 +1,50 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "./styles/palette.css";
+@import "./styles/tokens.css";
+@import "./styles/theme.css";
+@import "./styles/shadcn-variants.css";
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background font-sans text-base text-foreground antialiased;
+  }
+
+  code,
+  kbd,
+  samp,
+  pre {
+    font-size: var(--text-sm);
+  }
+}
+
+/* Base UI 的 ScrollArea 靠这个类隐藏原生滚动条。它原本以内联 <style> 插入，被 CSP 拦下，所以 App.tsx 用
+ * CSPProvider 关掉插入，规则写在这里（Base UI 文档 utils/csp-provider 的写法）。 */
+.base-ui-disable-scrollbar {
+  scrollbar-width: none;
+}
+
+.base-ui-disable-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 不放进任何 @layer：未分层的样式优先于 Tailwind 的 utilities 层，不需要 !important 也能盖过 animate-*。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+  }
+}

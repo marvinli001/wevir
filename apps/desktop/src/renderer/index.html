@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- 内容安全策略以响应头下发（src/shared/csp.ts），这里不重复。 -->
     <title>Wevir</title>
+    <!-- 首帧前设置 data-theme：普通脚本、同步加载，必须在样式与应用脚本之前（public/theme-init.js）。 -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,6 +1,6 @@
 {
   // 渲染进程只走打包器（electron-vite / Vite），按 bundler 解析；只有 DOM，没有 Node 类型，用到 Node 的
-  // 东西就编译失败。
+  // 东西就编译失败。测试另由 tsconfig.test.json 检查（Vitest 的类型会带进 Node 类型）。
   "extends": "../../../../tsconfig.base.json",
   "compilerOptions": {
     "module": "preserve",
@@ -8,7 +8,10 @@
     "lib": ["es2023", "dom", "dom.iterable"],
     "types": ["vite/client"],
     "jsx": "react-jsx",
-    "noEmit": true
+    "noEmit": true,
+    // shadcn 生成的原语按 @/ 引用（components.json 的 aliases），与 electron.vite.config.ts 的 alias 一致。
+    "paths": { "@/*": ["./src/*"] }
   },
-  "include": [".", "../shared/desktop-api.ts"]
+  "include": [".", "../shared/desktop-api.ts"],
+  "exclude": ["**/*.test.ts", "public"]
 }
