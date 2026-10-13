@@ -42,6 +42,12 @@ export type HostProcessStatus =
   /** Host 起不来（首次启动失败，或重新拉起都失败了）：`error` 是给人看的中文说明。 */
   | { phase: 'failed'; error: string; logPath: string };
 
+/** 窗口标题栏的形态。macOS 隐藏了系统标题栏，红绿灯浮在页面左上角，由页面的顶栏充当标题栏。 */
+export interface WindowChrome {
+  /** 红绿灯此刻浮在页面左上角（macOS 且不在全屏）：左上角的顶栏要给它们让出位置。 */
+  trafficLights: boolean;
+}
+
 export interface DesktopApi {
   /**
    * 当前 Host 的连接信息。首次启动时等 Host 就绪（附着或拉起）；之后每次重读 `run/host.json`，所以 Host 换了
@@ -69,6 +75,10 @@ export interface DesktopApi {
    * 渲染进程里 `prefers-color-scheme` 的取值。界面主题本身由渲染进程的 data-theme 决定（T5.2）。
    */
   setThemeSource(mode: ThemeMode): Promise<void>;
+  /** 当前的窗口标题栏形态。同步取值：preload 按平台给出初值，之后跟着主进程的推送更新。 */
+  getWindowChrome(): WindowChrome;
+  /** 订阅窗口标题栏形态的变化（进出全屏、页面重新加载），返回取消订阅的函数。 */
+  onWindowChrome(listener: (chrome: WindowChrome) => void): () => void;
 }
 
 export const IPC_CHANNELS = {
@@ -81,4 +91,6 @@ export const IPC_CHANNELS = {
   openExternal: 'wevir:open-external',
   copyText: 'wevir:copy-text',
   setThemeSource: 'wevir:set-theme-source',
+  /** 主进程 → 渲染进程的推送。 */
+  windowChrome: 'wevir:window-chrome',
 } as const;

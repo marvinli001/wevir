@@ -23,7 +23,7 @@ export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
   const location = useLocation();
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center justify-between pr-2 pl-3.5">
+      <div className="app-drag flex h-11 shrink-0 items-center justify-between pr-2 pl-[max(0.875rem,var(--traffic-lights-inset))]">
         <span className="text-sm font-semibold tracking-wide">{t('app.name')}</span>
         <IconButton label={t('layout.collapseSidebar')} onClick={onCollapse} tooltipSide="bottom">
           <PanelLeftClose />

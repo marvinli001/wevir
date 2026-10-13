@@ -30,6 +30,33 @@
   }
 }
 
+/* 窗口标题栏（layout/window-chrome.ts）：macOS 隐藏了系统标题栏，红绿灯浮在左上角时，左上角的顶栏让出
+ * 这么宽（红绿灯在 x = 16 起，约 52 px 宽，见主进程 createWindow）。 */
+:root {
+  --traffic-lights-inset: 0px;
+}
+
+:root[data-traffic-lights] {
+  --traffic-lights-inset: 78px;
+}
+
+/* 顶栏充当标题栏：按住可以拖动窗口，双击按系统设置缩放。拖动区域收不到鼠标事件，所以其中的控件要排除；
+ * 弹出的对话框与侧边浮层盖在顶栏上时也要排除，否则点不到它们的顶部。 */
+@utility app-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+.app-drag :where(button, a, input, textarea, select, [role="button"], [role="tab"]),
+[data-slot="dialog-overlay"],
+[data-slot="dialog-content"],
+[data-slot="sheet-overlay"],
+[data-slot="sheet-content"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
 /* Base UI 的 ScrollArea 靠这个类隐藏原生滚动条。它原本以内联 <style> 插入，被 CSP 拦下，所以 App.tsx 用
  * CSPProvider 关掉插入，规则写在这里（Base UI 文档 utils/csp-provider 的写法）。 */
 .base-ui-disable-scrollbar {

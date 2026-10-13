@@ -3,7 +3,21 @@
 // CJS 文件（沙箱里的 preload 不能是 ESM），只能 import `electron`。
 
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
-import { type DesktopApi, type HostProcessStatus, IPC_CHANNELS } from '../shared/desktop-api.js';
+import {
+  type DesktopApi,
+  type HostProcessStatus,
+  IPC_CHANNELS,
+  type WindowChrome,
+} from '../shared/desktop-api.js';
+
+// 窗口标题栏的形态要在首帧前就能同步读到（顶栏的左边距），所以按平台给出初值（窗口创建时不在全屏），之后由
+// 主进程在进出全屏、页面加载完成时推送。沙箱里的 preload 也有 process.platform。
+let windowChrome: WindowChrome = { trafficLights: process.platform === 'darwin' };
+const windowChromeListeners = new Set<(chrome: WindowChrome) => void>();
+ipcRenderer.on(IPC_CHANNELS.windowChrome, (_event: IpcRendererEvent, chrome: WindowChrome) => {
+  windowChrome = chrome;
+  for (const listener of windowChromeListeners) listener(chrome);
+});
 
 const api: DesktopApi = {
   getHostConnection: () => ipcRenderer.invoke(IPC_CHANNELS.getHostConnection),
@@ -21,6 +35,13 @@ const api: DesktopApi = {
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
   copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),
   setThemeSource: (mode) => ipcRenderer.invoke(IPC_CHANNELS.setThemeSource, mode),
+  getWindowChrome: () => windowChrome,
+  onWindowChrome: (listener) => {
+    windowChromeListeners.add(listener);
+    return () => {
+      windowChromeListeners.delete(listener);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld('wevir', api);

@@ -21,6 +21,7 @@ import {
   type HostConnection,
   type HostProcessStatus,
   IPC_CHANNELS,
+  type WindowChrome,
 } from '../shared/desktop-api.js';
 import {
   APP_ENTRY_URL,
@@ -235,6 +236,18 @@ function windowBackground(): string {
   return nativeTheme.shouldUseDarkColors ? sandDark.sand1 : sand.sand1;
 }
 
+/**
+ * macOS 隐藏系统标题栏，由页面的顶栏（高 44 px，h-11）充当标题栏，红绿灯浮在它的左侧、垂直居中。页面给
+ * 红绿灯让出的宽度在渲染进程的 index.css（--traffic-lights-inset）。其他平台仍用系统标题栏。
+ */
+const HIDDEN_TITLE_BAR = process.platform === 'darwin';
+const TRAFFIC_LIGHT_POSITION = { x: 16, y: 15 };
+
+/** 红绿灯浮在页面上的时候：隐藏了系统标题栏，且不在全屏（全屏时系统把它们收进菜单栏）。 */
+function windowChrome(window: BrowserWindow): WindowChrome {
+  return { trafficLights: HIDDEN_TITLE_BAR && !window.isFullScreen() };
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
@@ -244,6 +257,10 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     title: 'Wevir',
+    ...(HIDDEN_TITLE_BAR && {
+      titleBarStyle: 'hidden',
+      trafficLightPosition: TRAFFIC_LIGHT_POSITION,
+    }),
     backgroundColor: windowBackground(),
     show: false,
     webPreferences: {
@@ -258,6 +275,12 @@ function createWindow(): BrowserWindow {
     },
   });
   window.once('ready-to-show', () => window.show());
+  // preload 按平台给出初值；进出全屏与页面（重新）加载完成时推送实际状态，例如在全屏里刷新页面。
+  const pushWindowChrome = () =>
+    window.webContents.send(IPC_CHANNELS.windowChrome, windowChrome(window));
+  window.on('enter-full-screen', pushWindowChrome);
+  window.on('leave-full-screen', pushWindowChrome);
+  window.webContents.on('dom-ready', pushWindowChrome);
   void window.loadURL(devServerUrl ?? APP_ENTRY_URL);
   return window;
 }

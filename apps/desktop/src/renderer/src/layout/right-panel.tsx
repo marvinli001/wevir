@@ -31,7 +31,7 @@ export function RightPanel({
   const active = tabs[activeIndex];
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-sidebar-border px-2">
+      <div className="app-drag flex h-11 shrink-0 items-center gap-1 border-b border-sidebar-border px-2">
         <div role="tablist" className="flex min-w-0 flex-1 items-center gap-1">
           {tabs.map((tab, index) => (
             <button

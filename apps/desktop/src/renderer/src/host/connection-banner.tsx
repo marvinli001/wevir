@@ -28,7 +28,7 @@ export function ConnectionBanner() {
       role="status"
       data-testid="connection-banner"
       data-tone="success"
-      className="flex shrink-0 items-center gap-2.5 border-b border-success/20 bg-success/10 px-4 py-2 text-sm text-success"
+      className="flex shrink-0 items-center gap-2.5 border-b border-success/20 bg-success/10 py-2 pr-4 pl-[max(1rem,var(--traffic-lights-inset))] text-sm text-success"
     >
       <CircleCheck className="size-4 shrink-0" />
       <p className="font-medium">{t('connection.reconnected')}</p>
@@ -45,7 +45,8 @@ function BannerView({ banner, onAction }: { banner: Banner; onAction: () => void
       data-testid="connection-banner"
       data-tone={banner.tone}
       className={cn(
-        'flex shrink-0 items-start gap-2.5 border-b px-4 py-2 text-sm',
+        // 在窗口最上方，左边给红绿灯让位（layout/window-chrome.ts）。
+        'flex shrink-0 items-start gap-2.5 border-b py-2 pr-4 pl-[max(1rem,var(--traffic-lights-inset))] text-sm',
         danger
           ? 'border-destructive/20 bg-destructive/10 text-destructive'
           : 'border-warning/20 bg-warning/10 text-warning',

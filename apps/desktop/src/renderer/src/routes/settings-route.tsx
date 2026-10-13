@@ -41,7 +41,7 @@ export function SettingsRoute() {
         aria-label={t('settings.title')}
         className="flex w-56 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
       >
-        <div className="flex h-11 shrink-0 items-center gap-1.5 px-2">
+        <div className="app-drag flex h-11 shrink-0 items-center gap-1.5 pr-2 pl-[max(0.5rem,var(--traffic-lights-inset))]">
           <IconButton label={t('settings.back')} onClick={back} tooltipSide="bottom">
             <ArrowLeft />
           </IconButton>
@@ -67,10 +67,12 @@ export function SettingsRoute() {
           ))}
         </ul>
       </nav>
-      <main className="min-w-0 flex-1">
+      <main className="flex min-w-0 flex-1 flex-col">
+        {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动。 */}
+        <div className="app-drag h-11 shrink-0" />
         {isSettingsTab(tab) ? (
-          <ScrollArea className="h-full">
-            <div className="mx-auto w-full max-w-2xl px-8 py-8">
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="mx-auto w-full max-w-2xl px-8 pt-2 pb-8">
               <h1 className="mb-6 text-xl font-semibold">{t(TAB_LABELS[tab])}</h1>
               <SettingsTabContent tab={tab} />
             </div>

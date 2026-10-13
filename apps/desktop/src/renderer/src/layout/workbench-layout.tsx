@@ -1,3 +1,4 @@
+import { cn } from 'cn';
 import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useParams } from 'react-router';
@@ -96,7 +97,13 @@ export function WorkbenchLayout() {
       </Sheet>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+        <header
+          className={cn(
+            'app-drag flex h-11 shrink-0 items-center gap-2 border-b border-border px-3',
+            // 左栏没有停靠时，这条顶栏在窗口最左边，要给红绿灯让位。
+            plan.sidebar !== 'docked' && 'pl-[max(0.75rem,var(--traffic-lights-inset))]',
+          )}
+        >
           {plan.sidebar !== 'docked' && (
             <IconButton
               ref={sidebarToggleRef}
