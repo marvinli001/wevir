@@ -35,7 +35,7 @@
 | SQLite | Node 内置 `node:sqlite`，无 npm 依赖 | ADR-0003 |
 | 依赖的构建脚本 | 用 `pnpm-workspace.yaml` 的 `allowBuilds` 逐个登记（`true` 允许、`false` 拒绝）；保持 pnpm 默认的 `strictDepBuilds: true`，未登记的构建脚本让安装直接失败；不用 `dangerouslyAllowAllBuilds` | pnpm v11 起 `onlyBuiltDependencies` 等设置已移除，由 `allowBuilds` 取代（pnpm 文档 `settings/build`）。T0.3 报告里“pnpm 的 `onlyBuiltDependencies`”的说法据此更正 |
 | 版本策略 | 开发工具用 `^` 范围加 lockfile；与引擎和协议直接相关的依赖（dsh、ACP SDK）写精确版本 | 计划 §8“精确锁版本” |
-| 依赖提升 | 不开 `node-linker=hoisted`、`shamefully-hoist`，不用 `public-hoist-pattern` 提升 `@deepseek-ai/*` | AGENTS.md 规则 2（没声明的包解析不到，是引擎边界的第二道保险） |
+| 依赖提升 | 不开 `node-linker=hoisted`、`shamefully-hoist`，不用 `public-hoist-pattern` 提升 `@deepseek-ai/*`；另设 `extendNodePath: false`，并禁用会注入 `NODE_PATH` 的设置（补记 3） | AGENTS.md 规则 2（没声明的包解析不到，是引擎边界的第二道保险） |
 
 需要登记到 `allowBuilds` 的包，由引入它们的任务在 `pnpm install` 的输出里确认后逐个写入：
 
@@ -104,3 +104,25 @@
    取舍与上游 dsh 仓库自己 `pnpm-workspace.yaml` 的 `allowBuilds` 一致。另外两点：
    - 报 `ERR_PNPM_IGNORED_BUILDS` 的同时，pnpm 会往 `pnpm-workspace.yaml` 里写入值为 `set this to true or false` 的占位条目，审查时要把它们换成真正的布尔值。
    - 本机实测：没有执行安装脚本时，`koffi` 与 `node-pty` 的预编译文件在 macOS arm64 上也能加载。放行它们是为了覆盖缺预编译的平台、被省略的可选包，以及 Windows 上 ConPTY 的文件放置。
+
+3. **2026-10-13，chore（T3.1 的发现）：命令 shim 的 `NODE_PATH` 绕过依赖隔离。** pnpm 默认（`extendNodePath: true`）在 `node_modules/.bin` 的每个命令 shim 里导出 `NODE_PATH=<该工具自己的依赖目录>:node_modules/.pnpm/node_modules`。后者是 `hoistPattern` 默认 `*` 的私有提升目录，`@deepseek-ai/dsh` 及其依赖闭包里共 300 个 `@deepseek-ai/*` 包都在里面。CommonJS 解析沿目录查找失败后会再查 `NODE_PATH`，所以经 shim 启动的进程（`pnpm test` 和包目录里的 `pnpm test` 都走 `.bin/vitest`）及其子进程里，没声明依赖也能 `createRequire(…).resolve('@deepseek-ai/dsh/package.json')`。规则 2 原先“`require()`、`createRequire()` 在运行时也会失败”的说法只对纯 `node` 成立：违规代码的测试会通过，生产会失败。
+
+   本机复现（pnpm 12.6.0、Vitest 5.0.3，`packages/host` 里的临时测试，已删除）：
+   - Vitest worker 的 `NODE_PATH` 是 vitest 自己的两个依赖目录加 `node_modules/.pnpm/node_modules`，`createRequire(import.meta.url).resolve('@deepseek-ai/dsh/package.json')` 解析到 `.pnpm/@deepseek-ai+dsh@0.2.1-alpha.2_…`。
+   - 在 `packages/host` 下直接 `node -e`、`pnpm exec node`、`pnpm run` 脚本里的 `node`（`pnpm dev:host`、`pnpm gate:m2` 就是这种）都没有 `NODE_PATH`，同样的调用报 `MODULE_NOT_FOUND`。
+   - ESM 不受影响：同一个 worker 里 `import('@deepseek-ai/dsh/package.json')` 和 `import.meta.resolve('@deepseek-ai/dsh')` 都报找不到包。
+
+   定为：`pnpm-workspace.yaml` 设 `extendNodePath: false`，shim 不再导出 `NODE_PATH`，经 shim 启动的进程与纯 `node` 的解析结果一致。核实：
+   - pnpm 12.6 认这个设置，但只在创建 shim 时生效：改了设置后普通的 `pnpm install` 报 “Already up to date”，旧 shim 原样保留；`pnpm install --force`（或删掉 `node_modules` 重装）后 shim 里没有 `NODE_PATH`。lockfile 不记录这个设置，`pnpm-lock.yaml` 没有变化。
+   - 设置后，从根目录跑和在包目录里跑 Vitest，上面的探针都报 `Cannot find module`。`pnpm lint`、`pnpm typecheck`、`pnpm test`（33 个测试文件，526 通过、1 跳过）、`pnpm build` 通过。
+   - pnpm 文档（`settings/other` 的 `extendNodePath`）说这个 `NODE_PATH` 是给从工作目录解析模块的 CLI 准备的（例如 jest、eslint 用的 `import-local`）。仓库现有的工具（Vitest、tsc、Biome、tsdown）不靠它；以后引入这类工具，要先确认它在 `extendNodePath: false` 下能用，不能为它重新打开。
+
+   备选方案：
+   - 在根 `vitest.config.ts` 顶部 `delete process.env.NODE_PATH`（配置在 Vitest 主进程里先于 worker 求值）：实测对根目录的 `pnpm test` 有效，但在包目录里跑只加载包自己的配置，仍然泄漏；每个包都写一遍又要求新包照抄。不采纳。
+   - 在 `check-engine-boundary.mjs` 里 grep `require(` / `createRequire` 配 `@deepseek-ai`：包名通常是 `createRequire(…)` 返回函数的参数，正则只能退化成“禁止任何 `@deepseek-ai/` 字符串”，与 Biome 规则重叠，也挡不住拼出来的包名；而且只管引擎包，其他没声明的依赖照样测试通过、生产失败。不采纳。
+   - 收窄 `hoistPattern`（例如加 `!@deepseek-ai/*`）：改的是 dsh 依赖闭包的安装布局，dsh 子包之间若靠私有提升互相解析就会坏，要重新验证整个 dsh；同样只管引擎包。不采纳。
+
+   后果：
+   - 之前装过依赖的 checkout 要执行一次 `pnpm install --force`，否则本机 shim 仍带 `NODE_PATH`，违规写法只会在 CI 暴露；CI 每次全新安装，不受影响。
+   - 另外两个设置也会注入 `NODE_PATH`，一并禁用（pnpm 12 CHANGELOG）：`enableGlobalVirtualStore` 让 `pnpm run` / `pnpm exec` 起的每个进程都带 `NODE_PATH`，还用 `NODE_OPTIONS` 的 `--import` 钩子让 ESM 也认它；`preferSymlinkedExecutables` 把 `.bin` 换成符号链接，同时给脚本导出 `NODE_PATH`（`node-linker=hoisted` 时自动开启）。
+   - adapter-dsh 给 dsh 子进程的白名单环境本来就不传 `NODE_PATH`（ADR-0001），不变。

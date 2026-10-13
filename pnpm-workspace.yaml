@@ -2,6 +2,12 @@ packages:
   - apps/*
   - packages/*
 
+# 引擎边界（AGENTS.md 规则 2，ADR-0004 补记 3）：node_modules/.bin 里的命令 shim 默认把
+# node_modules/.pnpm/node_modules（所有依赖的私有提升目录，含 @deepseek-ai/*）写进 NODE_PATH，
+# 经 shim 启动的 Vitest 等进程里 require()/createRequire() 能解析到包内没声明的依赖，生产里则解析不到。
+# 关掉它让 shim 启动的进程与纯 node 一致。只在创建 shim 时生效：改了这一行要 pnpm install --force。
+extendNodePath: false
+
 # 依赖的构建脚本逐个审查（ADR-0004 §2）：strictDepBuilds 保持默认开启，未登记的构建脚本让安装失败；
 # 不用 dangerouslyAllowAllBuilds。键带精确版本，依赖升级换了版本就要重新审查一次。
 # 下面 5 个都来自 @deepseek-ai/dsh@0.2.1-alpha.2（T3.1，pnpm install 的 ERR_PNPM_IGNORED_BUILDS

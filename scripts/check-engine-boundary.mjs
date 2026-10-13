@@ -4,7 +4,10 @@
 // 但看不见 CommonJS require()、createRequire() 之类的加载方式。pnpm 的 node_modules 是隔离的：
 // 一个包只能解析到自己声明的依赖，以及根 package.json 的依赖。所以只要 adapter-dsh 以外
 // （包括仓库根）没有声明 @deepseek-ai/*，任何写法在运行时都解析不到。
-// 前提是不开启 node-linker=hoisted、shamefully-hoist，也不用 public-hoist-pattern 提升 @deepseek-ai。
+// 前提是不开启 node-linker=hoisted、shamefully-hoist、enableGlobalVirtualStore、preferSymlinkedExecutables，
+// 不用 public-hoist-pattern 提升 @deepseek-ai，并保持 pnpm-workspace.yaml 的 extendNodePath: false：
+// 否则命令 shim 会把 node_modules/.pnpm/node_modules 写进 NODE_PATH，require() 经它解析到没声明的包
+// （ADR-0004 补记 3）。
 //
 // 同时禁止通过 file: / link: / portal: 依赖指向 spikes/，避免绕过 import 规则。
 
