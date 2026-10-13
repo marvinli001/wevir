@@ -19,6 +19,13 @@ export const HOST_VERSION: string = packageJson.version;
 /** 优雅退出的整体上限，超过就强制退出（ADR-0002 §6）。 */
 export const SHUTDOWN_TIMEOUT_MS = 10_000;
 
+/**
+ * 退出流程里可能卡住的三步（等在途请求、取消回合、dispose 适配器）共用的时间预算。超出的那一步记日志
+ * 后跳过，后面的刷写 SQLite、关闭连接（自带 2 s 关闭握手时限）、删除 `host.json` 照常执行，合起来仍在
+ * `SHUTDOWN_TIMEOUT_MS` 之内；引擎卡住也不会让数据库没关、`host.json` 没删。
+ */
+export const SHUTDOWN_BUDGET_MS = 7000;
+
 /** 谁触发了退出，记进日志。 */
 export type ShutdownTrigger =
   | { kind: 'rpc'; client: ClientIdentity }
@@ -42,6 +49,8 @@ export interface StartHostOptions {
    * （10 s 上限、退出码）。
    */
   onShutdownRequest?: (trigger: ShutdownTrigger) => void;
+  /** 默认 `SHUTDOWN_BUDGET_MS`。 */
+  shutdownBudgetMs?: number;
 }
 
 export interface RunningHost {
@@ -52,8 +61,9 @@ export interface RunningHost {
   /**
    * 按 ADR-0002 §6 的顺序优雅退出：停止接受新连接 → 取消运行中的回合、未决审批结为 `cancelled` →
    * dispose 适配器（回收引擎进程树）→ 刷写 SQLite → 关闭 WebSocket 连接 → 删除 `host.json`。
-   * 每一步失败只记日志、继续下一步。可重复调用，返回同一个 Promise；10 s 上限由调用方负责
-   * （进程入口超时后调用 `releaseRuntimeFileSync()` 再强制退出）。
+   * 每一步失败只记日志、继续下一步；前三步共用 `shutdownBudgetMs` 的预算，超出的跳过。可重复调用，
+   * 返回同一个 Promise。10 s 的硬上限由调用方兜底（进程入口超时后调用 `releaseRuntimeFileSync()`
+   * 再强制退出）。
    */
   shutdown(trigger?: ShutdownTrigger): Promise<void>;
   /** 强制退出前同步删除自己的 `host.json`，返回是否删除。 */
@@ -149,6 +159,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       shutdown: (trigger = { kind: 'api' }) => {
         stopping ??= shutdownSequence({
           trigger,
+          budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,
           logger,
           rpc: server,
           sessions: manager,
@@ -189,6 +200,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
 
 interface ShutdownParts {
   trigger: ShutdownTrigger;
+  budgetMs: number;
   logger: Logger;
   rpc: HostRpcServer;
   sessions: SessionManager;
@@ -201,21 +213,36 @@ interface ShutdownParts {
 async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   const { logger } = parts;
   const startedAt = performance.now();
+  const deadline = startedAt + parts.budgetMs;
   logger.info('shutting down', { trigger: describeTrigger(parts.trigger) });
-  const step = async (name: string, run: () => unknown): Promise<void> => {
+  /** 执行一步，返回是否完成。`bounded` 的步骤超过预算就记日志、不再等它。 */
+  const step = async (name: string, run: () => unknown, bounded = false): Promise<boolean> => {
     const stepStartedAt = performance.now();
     try {
-      await run();
+      const result = Promise.resolve().then(run);
+      if (bounded && (await beforeDeadline(result, deadline)) === 'timeout') {
+        logger.error('shutdown step timed out', { step: name, ms: elapsed(stepStartedAt) });
+        return false;
+      }
+      await result;
       logger.info('shutdown step done', { step: name, ms: elapsed(stepStartedAt) });
+      return true;
     } catch (error) {
       logger.error('shutdown step failed', { step: name, ms: elapsed(stepStartedAt), error });
+      return false;
     }
   };
   // 新连接回 503、新请求回 HOST_SHUTTING_DOWN，等在途请求结束；已连上的客户端继续收事件。
-  await step('stop_accepting', () => parts.rpc.stopAccepting());
+  await step('stop_accepting', () => parts.rpc.stopAccepting(), true);
   // 取消回合的事件经订阅推送出去，所以连接要留到后面再关。
-  await step('cancel_turns', () => parts.sessions.shutdown());
-  await step('dispose_adapter', () => parts.adapter.dispose());
+  if (!(await step('cancel_turns', () => parts.sessions.shutdown(), true))) {
+    // 不再等引擎结算：先停止写事件，之后才能安全地关闭数据库。会话停在活动状态，下次启动时对账（#15）。
+    void parts.sessions.dispose().catch((error: unknown) => {
+      logger.error('session manager dispose failed', { error });
+    });
+  }
+  // 超时的话引擎进程留给适配器自己回收（dsh 读到 stdin EOF 即退出，T3.1）。
+  await step('dispose_adapter', () => parts.adapter.dispose(), true);
   await step('flush_storage', () => {
     parts.events.close();
     parts.storage.close();
@@ -229,6 +256,22 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
     }
   });
   logger.info('host stopped', { ms: elapsed(startedAt) });
+}
+
+/** `promise` 在 `deadline`（`performance.now()` 的时刻）之前完成返回 `done`，否则 `timeout`。 */
+async function beforeDeadline(
+  promise: Promise<unknown>,
+  deadline: number,
+): Promise<'done' | 'timeout'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), Math.max(0, deadline - performance.now()));
+  });
+  try {
+    return await Promise.race([promise.then(() => 'done' as const), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function describeTrigger(trigger: ShutdownTrigger): Record<string, unknown> {

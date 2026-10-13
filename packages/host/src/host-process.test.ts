@@ -39,7 +39,9 @@ const SHUTDOWN_STEPS = [
 ];
 
 async function start(
-  options: Partial<Pick<StartHostOptions, 'home' | 'adapter' | 'port' | 'onShutdownRequest'>> = {},
+  options: Partial<
+    Pick<StartHostOptions, 'home' | 'adapter' | 'port' | 'onShutdownRequest' | 'shutdownBudgetMs'>
+  > = {},
 ) {
   const lines: Array<Record<string, unknown>> = [];
   const logger = createLogger({
@@ -166,6 +168,63 @@ describe('startHost', () => {
     // 优雅退出已结清会话，重启时不需要对账。
     const again = await start({ home });
     expect(again.lines.some((l) => l.msg === 'recovered from unclean shutdown')).toBe(false);
+    const client2 = await connect(again.host);
+    expect((await client2.request('session.get', { sessionId })).session.state).toBe('idle');
+  });
+
+  it('引擎卡住（取消与 dispose 都不返回）：超出预算的步骤跳过，照常关闭数据库与连接、删除 host.json；下次启动对账', async () => {
+    const releases: Array<() => void> = [];
+    class HangingAdapter extends EchoAdapter {
+      override cancel(): Promise<void> {
+        return new Promise<void>(() => {});
+      }
+      override dispose(): Promise<void> {
+        return new Promise<void>((resolve) => releases.push(() => resolve(super.dispose())));
+      }
+    }
+    const { host, home, lines } = await start({
+      adapter: new HangingAdapter({ stepDelayMs: 1 }),
+      shutdownBudgetMs: 200,
+    });
+    const client = await connect(host);
+    const sessionId = await createSession(client);
+    const { subscriptionId } = await client.request('events.subscribe', { sessionId, sinceSeq: 0 });
+    await client.request('session.send', {
+      sessionId,
+      content: [{ type: 'text', text: 'please approve' }],
+    });
+    await client.until(
+      () => client.events(subscriptionId).find((e) => e.type === 'approval.requested'),
+      'approval.requested',
+    );
+
+    const startedAt = performance.now();
+    await host.shutdown();
+    expect(performance.now() - startedAt).toBeLessThan(2000);
+    expect((await client.closed).code).toBe(CloseCode.GOING_AWAY);
+    expect(existsSync(runtimeFile(home))).toBe(false);
+    // 数据库已关闭：WAL 检查点完成后伴随文件被删除。
+    expect(existsSync(join(home, 'wevir.db-wal'))).toBe(false);
+    expect(
+      lines.filter((l) => String(l.msg).startsWith('shutdown step')).map((l) => [l.msg, l.step]),
+    ).toEqual([
+      ['shutdown step done', 'stop_accepting'],
+      ['shutdown step timed out', 'cancel_turns'],
+      ['shutdown step timed out', 'dispose_adapter'],
+      ['shutdown step done', 'flush_storage'],
+      ['shutdown step done', 'close_connections'],
+      ['shutdown step done', 'remove_runtime_file'],
+    ]);
+    // 审批在等引擎之前已结为 cancelled（host_shutdown）；回合没能结算，会话停在 cancelling。
+    expect(transitions(client.events(subscriptionId)).at(-1)).toBe(
+      'awaiting_approval→cancelling:cancel_requested',
+    );
+    releases.shift()?.();
+
+    const again = await start({ home });
+    expect(again.lines.find((l) => l.msg === 'recovered from unclean shutdown')).toMatchObject({
+      interruptedSessions: [sessionId],
+    });
     const client2 = await connect(again.host);
     expect((await client2.request('session.get', { sessionId })).session.state).toBe('idle');
   });

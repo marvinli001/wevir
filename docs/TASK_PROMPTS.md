@@ -491,12 +491,12 @@ Gate M2（写一个 scripts/gate-m2.ts 自动化执行并在汇报中贴结果�
 3. 解析 dsh 可执行入口（从依赖包中解析，不依赖全局 PATH）。
 4. 独立 DSH_HOME：<Wevir 数据目录>/engines/dsh；首次启动时初始化所需目录。
 5. 子进程环境按白名单构造（ADR-0001 §4）：不继承用户 shell 里的 Provider Key；注入 DSH_HOME、DSH_AGENTS_HOME（指向 Wevir 专属的空目录）、DSH_TELEMETRY_DISABLED=1、DSH_PERMISSION_MODE=workspace-write；进程 cwd 为 DSH_HOME（必须先建好，否则 spawn 报 ENOENT），绝不能是用户工作区。
-6. DshProcess：启动 `dsh --profile acp`，预留 T3.4 的 --patch overlay 插槽，以及 T3.2a 要用的第 4 个 stdio 管道（fd 3）；initialize 的 clientCapabilities 不声明 fs 与 terminal；stdout 只走协议，stderr 保留有界尾部用于诊断；initialize 超时（默认 15 秒，T0.3 实测约 0.5 秒）；进程在任何时候退出（包括回合之间）都上报为引擎错误；有限次数的自动重启（指数退避）；dispose 时关 stdin（T0.3：EOF 后约 25 ms 退出）→ SIGTERM → SIGKILL 阶梯。ACP 没有 shutdown 方法。
+6. DshProcess：启动 `dsh --profile acp`，预留 T3.4 的 --patch overlay 插槽，以及 T3.2a 要用的第 4 个 stdio 管道（fd 3）；initialize 的 clientCapabilities 不声明 fs 与 terminal；stdout 只走协议，stderr 保留有界尾部用于诊断；initialize 超时（默认 15 秒，T0.3 实测约 0.5 秒）；进程在任何时候退出（包括回合之间）都上报为引擎错误；有限次数的自动重启（指数退避）；dispose 时关 stdin（T0.3：EOF 后约 25 ms 退出）→ SIGTERM → SIGKILL 阶梯，整个阶梯 5 s 内返回（Host 退出时可能卡住的步骤共用 7 s 预算，超出的被跳过，ADR-0002 补记 3）。ACP 没有 shutdown 方法。Host 被强杀（或跳过 dispose）时，dsh 必须因 stdin EOF 自行退出，它拉起的工具子进程（如 bash 命令）也要随之结束；做不到就改用进程组等办法并写进 ADR-0001。
 7. 单个 dsh 进程承载全部会话（T0.3 已验证 3 会话并发，ADR-0001 §2）。
 
 验收：
 - 单测：可执行入口解析、DSH_HOME 初始化、白名单环境（用户 shell 的 DEEPSEEK_API_KEY 等不会传入）、dispose 阶梯（用假子进程模拟）。
-- 集成测试（需要本机能运行 dsh，不需要模型 Key）：启动 → initialize 成功 → dispose 后无残留进程。
+- 集成测试（需要本机能运行 dsh，不需要模型 Key）：启动 → initialize 成功 → dispose 后无残留进程；运行一个长时间的工具命令时 SIGKILL 掉 Host（wevir-host 子进程），确认 dsh 及其工具子进程都退出。
 - pnpm install 在 strictDepBuilds 默认开启下通过。
 ````
 
@@ -847,3 +847,4 @@ Phase 1 的范围和优先级需要我确认：用选项列出，不要自行定
 | 2026-10-12 | 通用前缀规则 2：补充“不得声明依赖”与 spikes/ 豁免，与 SKELETON_PLAN §2.2 一致 |
 | 2026-10-12 | T0.6：按 ADR-0001–0004 同步 P-T1.1–P-T6.4：协议细节（hello 参数与结果、subscriptionId、快照、clientMessageId、SESSION_BUSY、approval.resolved/decidedBy、兼容规则、Host/Origin 校验、心跳）、host.json 与归属管道、node:sqlite 与 SecretStore、dsh 进程环境与 allowBuilds、新增 P-T3.2a 增量流式旁路、T3.2 合并增量、T3.6 三层契约测试、Gate M4 审批用例需工作区外操作、T5.1 preload CJS 与版本规则、T5.2/T5.3 的 OpenWork 布局建议、T6.2 Node 下限 job、T6.3 依赖许可证、T6.4 候选范围 |
 | 2026-10-13 | T2.5：P-T5.1 写明归属管道参数名 `--exit-on-stdin-eof`、就绪行与退出码 3（ADR-0002 补记 3） |
+| 2026-10-13 | T2.5：P-T3.1 补 dispose 阶梯 5 s 上限，以及 Host 被强杀时 dsh 与工具子进程随 stdin EOF 退出的要求与验收 |
