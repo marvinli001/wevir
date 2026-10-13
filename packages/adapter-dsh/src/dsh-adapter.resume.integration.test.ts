@@ -221,13 +221,21 @@ interface RecordedError {
   error: { name: string; message: string; code: number; data?: unknown };
 }
 
-/** 样本里的占位符：会话 ID、DSH_HOME、会话日志的 cwd 编码目录、临时目录。 */
+/**
+ * 样本里的占位符：会话 ID、DSH_HOME、会话日志的 cwd 编码目录、临时目录。逐个字符串替换（JSON 文本里
+ * Windows 路径的反斜杠被转义，整段匹配不上），占位符后面的路径分隔符统一成 /，样本与平台无关。
+ */
 function normalized(value: unknown, sessionId: string, dshHome: string, tmp: string): unknown {
-  const text = JSON.stringify(value)
-    .replaceAll(sessionId, '<SESSION_ID>')
-    .replaceAll(dshHome, '<DSH_HOME>')
-    .replace(/<DSH_HOME>\/sessions\/[^/]+\//g, '<DSH_HOME>/sessions/<CWD>/')
-    .replaceAll(tmp, '<TMP>');
+  const text = JSON.stringify(value, (_key, v: unknown) =>
+    typeof v === 'string'
+      ? v
+          .replaceAll(sessionId, '<SESSION_ID>')
+          .replaceAll(dshHome, '<DSH_HOME>')
+          .replaceAll(tmp, '<TMP>')
+          .replace(/<(DSH_HOME|TMP)>[^\s)'"]*/g, (path) => path.replaceAll('\\', '/'))
+          .replace(/<DSH_HOME>\/sessions\/[^/]+\//g, '<DSH_HOME>/sessions/<CWD>/')
+      : v,
+  );
   return JSON.parse(text);
 }
 

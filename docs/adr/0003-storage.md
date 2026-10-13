@@ -90,3 +90,5 @@
    - **`SecretStore` 是异步接口**（`Promise`）：文件实现用不到，但系统钥匙串的 API 多是异步的，迁移时接口不变。
    - **`clientMessageId` 回执**（表 `send_receipts`）的 `status`：`accepted`（已写 `user.message`、未确认引擎收到）→ `confirmed`；Host 启动对账时仍是 `accepted` 的标为 `unknown`，不自动重发（ADR-0002 §4）。请求指纹由 `requestFingerprint()` 计算：对象键排序后的 JSON 的 SHA-256。何时置 `confirmed` 由 T2.3 决定。
    - **未在 Node 22.19 上实测**：本机只有 Node 26.10。驱动只用了 22.19 文档里已有的 API（`DatabaseSync`、`exec` / `prepare`、`isOpen` / `isTransaction`、命名参数），T6.2 的 CI 按“后果”一节再跑一次 `engines` 下限。
+
+2. **2026-10-14，T6.2：在 Node 22.19 上实测。** CI 的 `node-min` job 在 macOS 与 Windows 上用 Node 22.19.0 跑全部测试（含 storage 与 host），与 `.node-version`（24）的 job 一样通过；补记 1 末条的“未在 Node 22.19 上实测”就此关闭。22.19 上加载 `node:sqlite` 照预期打印 `ExperimentalWarning: SQLite is an experimental feature`，不影响结果。

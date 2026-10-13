@@ -13,13 +13,16 @@
 // 同时禁止通过 file: / link: / portal: 依赖指向 spikes/，避免绕过 import 规则。
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ENGINE_OWNER = 'packages/adapter-dsh';
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
 const root = fileURLToPath(new URL('..', import.meta.url));
+
+/** 仓库内的相对路径，统一用 / 分隔（Windows 上 relative() 用反斜杠），报错与 CI 注解都用它。 */
+const repoPath = (abs) => relative(root, abs).split(sep).join('/');
 
 /** 从 pnpm-workspace.yaml 读取 `<dir>/*` 形式的包目录；遇到其他写法直接报错，避免静默漏检。 */
 function workspaceDirs() {
@@ -59,17 +62,18 @@ const dirs = manifests();
 for (const dir of dirs) {
   const file = join(root, dir, 'package.json');
   const pkg = JSON.parse(readFileSync(file, 'utf8'));
-  const where = relative(root, file);
+  const where = repoPath(file);
   for (const field of DEP_FIELDS) {
     for (const [name, spec] of Object.entries(pkg[field] ?? {})) {
       const isEngine = name.startsWith('@deepseek-ai/') || /^npm:@deepseek-ai\//.test(spec);
       if (isEngine && dir !== ENGINE_OWNER) {
-        violations.push(
-          `${where}: ${field}.${name} — 只有 ${ENGINE_OWNER} 可以依赖 @deepseek-ai/*`,
-        );
+        violations.push({
+          file: where,
+          message: `${field}.${name} — 只有 ${ENGINE_OWNER} 可以依赖 @deepseek-ai/*`,
+        });
       }
       if (/^(file|link|portal):/.test(spec) && /(^|[/\\:])spikes([/\\]|$)/.test(spec)) {
-        violations.push(`${where}: ${field}.${name} — 不得依赖 spikes/ 下的代码`);
+        violations.push({ file: where, message: `${field}.${name} — 不得依赖 spikes/ 下的代码` });
       }
     }
   }
@@ -84,16 +88,22 @@ for (const dir of dirs) {
     if (!entry.isFile()) continue;
     shims += 1;
     if (readFileSync(join(bin, entry.name), 'utf8').includes('NODE_PATH')) {
-      violations.push(
-        `${relative(root, join(bin, entry.name))} — 命令 shim 导出了 NODE_PATH：确认 pnpm-workspace.yaml 有 extendNodePath: false，再运行 pnpm install --force`,
-      );
+      violations.push({
+        file: repoPath(join(bin, entry.name)),
+        message:
+          '命令 shim 导出了 NODE_PATH：确认 pnpm-workspace.yaml 有 extendNodePath: false，再运行 pnpm install --force',
+      });
     }
   }
 }
 
 if (violations.length > 0) {
   console.error('引擎边界检查失败（见 AGENTS.md 仓库规则第 2 条）：');
-  for (const v of violations) console.error(`  ✗ ${v}`);
+  for (const v of violations) console.error(`  ✗ ${v.file}: ${v.message}`);
+  // GitHub Actions 里另输出错误注解，失败原因直接显示在运行摘要与 PR 的文件上。
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    for (const v of violations) console.log(`::error file=${v.file},title=引擎边界::${v.message}`);
+  }
   process.exit(1);
 }
 console.log(`引擎边界：${dirs.length} 个 package.json、${shims} 个命令 shim 检查通过。`);

@@ -134,3 +134,10 @@
    - **附着的 Host 不在了**：每秒检查它的 pid，不在了进入 `waiting`，不替它拉起；host.json 出现新的、活着且能 hello 的 Host 就附着它。
    - **状态推给渲染进程**：主进程的 Host 进程状态（`starting` / `running` / `restarting` / `waiting` / `failed`，`HostProcessStatus`）经 preload 的 `getHostStatus` / `onHostStatus` 交给界面，`retryHost` 是手动重试。回到 `running` 时渲染进程立即 `reconnectNow()`，不等 client-sdk 的退避；`getHostConnection` 在重新拉起期间与 `failed` 时立即 reject（client-sdk 按退避重试），首次启动时仍等它就绪。
    - **重连后的补齐**仍由 client-sdk 按 `seq` 续订（补记 4）；桌面端的列表与消息投影不另做去重。
+
+7. **2026-10-14，T6.2：Windows 上拉起方被强杀时 Host 不走优雅退出。** 决策 6 与补记 5 写的“桌面崩溃或被强杀时由操作系统关闭管道，Host 读到 EOF 照常优雅退出”只在 POSIX 上成立。Windows CI 实测：Node（libuv）把没有 `detached` 的子进程放进一个“最后一个句柄关闭即结束”（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）的 job object，拉起方一死，Host 连同它拉起的 dsh 被系统直接结束，不会读到 EOF。结果：
+   - 不留孤儿进程这一点仍然成立；但退出流程（取消回合、结掉未决审批、删除 `host.json`）没有执行。留下的 `host.json` 是陈旧的（pid 已不在），下一次启动按陈旧处理（决策 6）；被打断的回合由下一个 Host 的启动对账结为 `interrupted`（T5.5）；SQLite 是 WAL，已提交的事务不丢（ADR-0003）。
+   - 测试 `apps/desktop/src/main/host-lifecycle.test.ts` 的“拉起方被强制杀掉”按平台断言：POSIX 上 `host.json` 被删除，Windows 上留下陈旧文件。
+   - 若要 Windows 与 POSIX 一致（拉起方崩溃后仍走优雅退出），可在 Windows 上以 `detached: true` 拉起 Host（不进 job object，读到 EOF 后自行退出）；代价是 EOF 处理一旦失效就会留下孤儿进程。骨架不改，留给 Windows 打包阶段（未决事项 1）一并决定。
+   - 同一批 Windows 测试还确认了决策 6 的另一条：对其他进程发 SIGTERM 就是 TerminateProcess，测试里要让 Host 优雅退出都改走 `host.shutdown`（与 `wevir host stop` 相同）。
+   - 运行时文件：Windows 上 rename 覆盖一个正被别的进程打开的 `host.json`（客户端重连时会反复重读它）会以 EPERM 暂时失败，Host 启动随之失败。`RuntimeFile.publish` 改为在 Windows 上遇到 EPERM / EACCES / EBUSY 时短暂重试（共约 1 s），其他平台不变。

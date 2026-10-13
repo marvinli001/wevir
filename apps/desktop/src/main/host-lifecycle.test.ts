@@ -60,16 +60,26 @@ beforeEach(() => {
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
   for (const lifecycle of lifecycles.splice(0)) await lifecycle.stop();
-  // 用例中途失败时也不留下 Host 进程。
-  for (const pid of pids.splice(0)) if (isProcessAlive(pid)) process.kill(pid, 'SIGKILL');
-  rmSync(tempDir, { recursive: true, force: true });
+  // 用例中途失败时也不留下 Host 进程。等它们真正退出再删目录：Windows 上进程还开着日志与数据库时删不掉
+  // （EPERM），刚退出时句柄也可能稍晚才释放，所以删除另带重试。
+  for (const pid of pids.splice(0)) {
+    if (!isProcessAlive(pid)) continue;
+    process.kill(pid, 'SIGKILL');
+    await exited(pid);
+  }
+  rmSync(tempDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 });
 
 function runtimeFile(home: string): string {
   return join(home, 'run', 'host.json');
 }
 
-function readRuntime(home: string): { pid: number; startedAt: string; url?: string } {
+function readRuntime(home: string): {
+  pid: number;
+  startedAt: string;
+  url?: string;
+  token?: string;
+} {
   return JSON.parse(readFileSync(runtimeFile(home), 'utf8'));
 }
 
@@ -106,8 +116,35 @@ async function startDetachedHost(home: string): Promise<number> {
   child.unref();
   const pid = child.pid as number;
   pids.push(pid);
-  await until(() => existsSync(runtimeFile(home)) && readRuntime(home).url !== undefined);
+  // 等的是这个进程写出的地址：数据目录里可能还留着被杀掉的 Host 的陈旧 host.json。Host 先排他创建
+  // host.json 再写入（runtime-file.ts），轮询时会读到空文件，没读到完整的 JSON 就当还没写好。
+  await until(() => {
+    try {
+      const runtime = readRuntime(home);
+      return runtime.pid === pid && runtime.url !== undefined;
+    } catch {
+      return false;
+    }
+  });
   return pid;
+}
+
+/**
+ * 让 Host 优雅退出（删除 host.json），与 `wevir host stop` 一样走 `host.shutdown`。不用 SIGTERM：Windows 上
+ * 那是 TerminateProcess，Host 来不及清理（ADR-0002 §6）。
+ */
+async function shutdownHost(home: string, pid: number): Promise<void> {
+  const { url, token } = readRuntime(home);
+  if (url === undefined || token === undefined) throw new Error(`${home} 的 Host 还没有就绪`);
+  const client = await WevirClient.connect({
+    endpoint: { url, token },
+    transport: webSocketTransport(WebSocket),
+    identity,
+  });
+  // Host 先回响应再断开所有连接，断开先到时请求以连接断开失败，同样等它退出即可。
+  await client.request('host.shutdown', {}).catch(() => {});
+  client.close();
+  await exited(pid);
 }
 
 async function until(check: () => boolean, timeoutMs = 15_000): Promise<void> {
@@ -176,7 +213,13 @@ describe('HostLifecycle', () => {
 
     parent.kill('SIGKILL');
     await exited(hostPid);
-    expect(existsSync(runtimeFile(home))).toBe(false);
+    if (process.platform === 'win32') {
+      // Windows：libuv 把非 detached 的子进程放进“句柄关闭即结束”的 job object，拉起方一死 Host 就被系统
+      // 直接结束，来不及删 host.json。留下的文件是陈旧的（pid 已不在），下一次启动按陈旧处理。
+      expect(readRuntime(home).pid).toBe(hostPid);
+    } else {
+      expect(existsSync(runtimeFile(home))).toBe(false);
+    }
   });
 
   it('已有 Host（分离启动、没有归属管道）：附着；stop 不停它', async () => {
@@ -190,8 +233,7 @@ describe('HostLifecycle', () => {
     expect(isProcessAlive(existing)).toBe(true);
     expect(readRuntime(home).pid).toBe(existing);
 
-    process.kill(existing, 'SIGTERM');
-    await exited(existing);
+    await shutdownHost(home, existing);
   });
 
   it('拉起的 Host 以退出码 3 结束（别的 Host 先占住了数据目录）：等它就绪后附着', async () => {
@@ -520,7 +562,7 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     const { lifecycle: host, logs, statuses } = lifecycle(home, { timeouts: { watchMs: 50 } });
     expect((await host.start()).ownership).toMatchObject({ kind: 'attached', pid: existing });
 
-    process.kill(existing, 'SIGTERM');
+    await shutdownHost(home, existing);
     await until(() => host.status.phase === 'waiting');
     expect(host.status).toEqual({ phase: 'waiting', pid: existing });
     await sleep(300);

@@ -1,0 +1,115 @@
+# T6.2：macOS 与 Windows 上的 lint、typecheck、test，另跑一次 engines 下限 Node 22.19。
+#
+# dsh 相关测试（packages/adapter-dsh 的三层契约测试与其余 *.integration.test.ts、packages/host 的
+# *.dsh.integration.test.ts）在 CI 里的取舍：
+# - 回放（fake-dsh 回放 T0.3 样本）：照常跑，约 1 s。
+# - 真实 dsh + mock Provider（T3.6）：进 CI。不需要 Key；耗时可以接受：本机（macOS）这类测试合计约 28 s，
+#   CI 的 Windows runner 上最慢的契约套件 60–75 s，与其他文件并行，整个 test 步骤 95–115 s，一个 job 约
+#   3 分钟。而 dsh 进程的启动与回收、路径与沙箱只有这一层在 Windows 上真正跑到，正是 Windows CI 要覆盖的东西
+#   （T6.2 首跑在 Windows 上发现的问题多数出在这一层）。
+# - 真实模型：不跑。下面把 WEVIR_TEST_API_KEY 显式置空，相关用例按设计跳过并打印原因；仓库 secret 也不传进来。
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  WEVIR_TEST_API_KEY: ''
+  WEVIR_TEST_PROVIDER: ''
+
+defaults:
+  run:
+    # Windows 也用 Git Bash：GitHub 的 bash 带 -e -o pipefail，多行命令任何一行失败都会让步骤失败
+    # （pwsh 只看最后一条命令的退出码）。
+    shell: bash
+
+jobs:
+  check:
+    name: ${{ matrix.os }} · Node .node-version
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # 版本取 package.json 的 packageManager。
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: 版本
+        run: node -v && pnpm -v
+
+      # strictDepBuilds 保持 pnpm 的默认开启：没在 pnpm-workspace.yaml 的 allowBuilds 里登记的构建脚本让安装失败。
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      # 与 pnpm lint 里的同一组检查，单独成一步，失败时一眼看出是引擎边界（AGENTS.md 仓库规则第 2 条）。
+      # --only 会把 spikes/ 里关掉的规则以 warning 打开，--diagnostic-level=error 只看真正的违规。
+      - name: 引擎边界（只有 packages/adapter-dsh 可以依赖 @deepseek-ai/*）
+        run: |
+          pnpm exec biome lint --only=style/noRestrictedImports --diagnostic-level=error --reporter=default --reporter=github .
+          node scripts/check-engine-boundary.mjs
+
+      - name: Lint
+        run: pnpm exec biome check --reporter=default --reporter=github .
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # 部分测试启动 dist/ 里的 wevir-host 子进程（AGENTS.md「写代码的约定」），要先构建。
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+  node-min:
+    # ADR-0003：node:sqlite 的 API 在 22 / 24 / 26 之间有差异，storage 的驱动只用 22.19 已有的 API。
+    # 跑全部测试（含 storage 与 host），覆盖运行在 engines 下限上的所有代码。
+    name: ${{ matrix.os }} · Node 22.19（engines 下限）
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.19.0
+          cache: pnpm
+
+      - name: 版本
+        run: |
+          node -v && pnpm -v
+          node -e "if (process.version !== 'v22.19.0') { console.error('期望 Node v22.19.0，实际 ' + process.version); process.exit(1); }"
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test

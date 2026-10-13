@@ -137,7 +137,10 @@ describe('stream-tap 旁路（真实 dsh + mock Provider）', () => {
       readFileSync(join(dshProfileDir(dsh.paths), 'package.json'), 'utf8'),
     );
     const pluginDir = realpathSync(defaultStreamTapPluginDir());
-    expect(manifest.dependencies).toEqual({ [STREAM_TAP_PACKAGE]: `link:${pluginDir}` });
+    // pnpm 在 Windows 上把 link: 路径写成 / 分隔（isStreamTapInstalled 比的是真实目录，不比这个字符串）。
+    expect(manifest.dependencies).toEqual({
+      [STREAM_TAP_PACKAGE]: `link:${pluginDir.replaceAll('\\', '/')}`,
+    });
     expect(isStreamTapInstalled(dsh.paths, pluginDir)).toBe(true);
 
     const turn = await t.prompt();

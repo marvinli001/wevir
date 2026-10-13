@@ -150,8 +150,15 @@ async function firstRun(provider: Record<string, unknown>) {
   expect(told.find((e) => e.type === 'turn.finished')?.payload).toMatchObject({
     outcome: 'completed',
   });
-  const history = first.client.events(subscription);
+  // turn.finished 之后还有一条 session.state_changed（running → idle）：按快照的 lastSeq 等它到了再取历史，
+  // 否则机器忙时历史会少最后一条，重启后的回放与它对不上。
   const snapshot: SessionSnapshot = await first.client.request('session.get', { sessionId: id });
+  await first.client.until(
+    () =>
+      first.client.events(subscription).at(-1)?.seq === snapshot.session.lastSeq ? true : undefined,
+    'lastSeq',
+  );
+  const history = first.client.events(subscription);
   await first.host.shutdown();
   return { home, id, history, snapshot };
 }

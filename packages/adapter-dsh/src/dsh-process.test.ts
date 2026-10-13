@@ -28,6 +28,8 @@ import type { StreamTapEvent, StreamTapWarning } from './stream-tap.js';
 
 const FAKE_DSH = fileURLToPath(new URL('./test-fixtures/fake-dsh.mjs', import.meta.url));
 const posix = process.platform !== 'win32';
+// 回收阶梯实际停在哪一步：Windows 上 kill('SIGTERM') 就是 TerminateProcess，进程无法忽略，走不到 SIGKILL。
+const LAST_RESORT: NodeJS.Signals = posix ? 'SIGKILL' : 'SIGTERM';
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => {
@@ -448,9 +450,10 @@ describe('DshProcess', () => {
       const grandchild = await waitFor(() => record(dsh).grandchild);
       expect(alive(grandchild)).toBe(true);
       await dsh.dispose();
-      expect(dsh.lastExit).toMatchObject({ exitCode: null, signal: 'SIGKILL' });
-      if (posix) await waitFor(() => (alive(grandchild) ? undefined : true));
-      else process.kill(grandchild, 'SIGKILL');
+      expect(dsh.lastExit).toMatchObject({ exitCode: null, signal: LAST_RESORT });
+      // POSIX 上靠发给进程组；Windows 上 dsh（Node）把没有 detached 的子进程放进“句柄关闭即结束”的
+      // job object，dsh 被结束时它们一起结束（ADR-0002 补记 7）。
+      await waitFor(() => (alive(grandchild) ? undefined : true));
     });
 
     it('默认时限下最坏情况（只能 SIGKILL）也在 5 s 内返回', async () => {
@@ -459,9 +462,9 @@ describe('DshProcess', () => {
       const t0 = performance.now();
       await dsh.dispose();
       const elapsed = performance.now() - t0;
-      expect(dsh.lastExit?.signal).toBe('SIGKILL');
+      expect(dsh.lastExit?.signal).toBe(LAST_RESORT);
       expect(elapsed).toBeGreaterThanOrEqual(
-        DISPOSE_TIMEOUTS.stdinEofMs + DISPOSE_TIMEOUTS.sigtermMs - 50,
+        DISPOSE_TIMEOUTS.stdinEofMs + (posix ? DISPOSE_TIMEOUTS.sigtermMs : 0) - 50,
       );
       expect(elapsed).toBeLessThan(5000);
     }, 10_000);

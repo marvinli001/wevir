@@ -1,4 +1,5 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -72,6 +73,22 @@ describe('RuntimeFile', () => {
     });
     expect(readdirSync(join(tempDir(), 'run'))).toEqual([RUNTIME_FILE]);
     if (POSIX) expect(mode(filePath())).toBe(0o600);
+  });
+
+  it('publish：别的进程正读着 host.json 时也能替换（Windows 上 rename 会暂时失败，要重试）', async () => {
+    const file = await RuntimeFile.acquire({ home: tempDir(), ...versions });
+    // 另一个进程打开着 host.json，0.3 s 后才关（客户端重连时就是这样反复读它）。
+    const reader = spawn(process.execPath, [
+      '-e',
+      'const fs = require("node:fs"); const fd = fs.openSync(process.argv[1], "r"); ' +
+        'process.stdout.write("open\\n"); setTimeout(() => fs.closeSync(fd), 300);',
+      filePath(),
+    ]);
+    const exited = once(reader, 'exit');
+    await once(reader.stdout, 'data');
+    await file.publish('ws://127.0.0.1:1234/', 'tok');
+    expect(read()).toMatchObject({ url: 'ws://127.0.0.1:1234/', token: 'tok' });
+    await exited;
   });
 
   it('已有活着的 Host：抛 HostAlreadyRunningError，不动它的文件', async () => {

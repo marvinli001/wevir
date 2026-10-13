@@ -49,6 +49,10 @@ const READ_RETRY_DELAY_MS = 50;
 /** 占位被并发的启动者抢走或刚好回收时，重试排他创建的次数。 */
 const ACQUIRE_ATTEMPTS = 3;
 
+/** Windows 上 rename 覆盖正被别的进程读着的 host.json 时暂时失败，重试的次数与间隔（共约 1 s）。 */
+const RENAME_RETRY_ATTEMPTS = 20;
+const RENAME_RETRY_DELAY_MS = 50;
+
 export interface StaleCheckOptions {
   /** 默认 `kill(pid, 0)`：进程存在（含 EPERM，即属于别的用户）为活着。 */
   isAlive?: (pid: number) => boolean;
@@ -193,7 +197,7 @@ export class RuntimeFile {
     const temp = `${this.path}.${this.info.pid}.${randomBytes(4).toString('hex')}.tmp`;
     try {
       await writeNew(temp, content);
-      await rename(temp, this.path);
+      await replaceFile(temp, this.path);
     } catch (error) {
       await rm(temp, { force: true });
       throw error;
@@ -215,6 +219,24 @@ export class RuntimeFile {
 
 function sameOwner(a: Pick<HostRuntimeInfo, 'pid' | 'startedAt'>, b: typeof a): boolean {
   return a.pid === b.pid && a.startedAt === b.startedAt;
+}
+
+/**
+ * rename 覆盖。Windows 上目标正被别的进程打开时（客户端重连时会重读 host.json）替换以 EPERM / EACCES /
+ * EBUSY 失败，对方读完就释放：短暂重试（graceful-fs 也这样做）。其他平台、其他错误照常抛出。
+ */
+async function replaceFile(from: string, to: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const busy = code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
+      if (process.platform !== 'win32' || !busy || attempt >= RENAME_RETRY_ATTEMPTS) throw error;
+      await sleep(RENAME_RETRY_DELAY_MS);
+    }
+  }
 }
 
 /** 排他创建并写入；文件已存在返回 false。 */

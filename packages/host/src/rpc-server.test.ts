@@ -588,10 +588,16 @@ describe('工作区与 Provider', () => {
     const first = await client.request('workspace.add', { rootPath: h.workspaceDir });
     expect(first).toMatchObject({
       created: true,
-      workspace: { rootPath: realpathSync(h.workspaceDir), displayName: basename(h.workspaceDir) },
+      // Host 用 fs/promises 的 realpath（原生实现）：Windows 上还会把 8.3 短名（RUNNER~1）展开成长名，
+      // JS 实现的 realpathSync 不会。
+      workspace: {
+        rootPath: realpathSync.native(h.workspaceDir),
+        displayName: basename(h.workspaceDir),
+      },
     });
     const link = join(tempDir(), 'link');
-    symlinkSync(h.workspaceDir, link);
+    // junction：Windows 上建目录链接不需要管理员权限或开发者模式；POSIX 上忽略这个参数。
+    symlinkSync(h.workspaceDir, link, 'junction');
     const again = await client.request('workspace.add', { rootPath: link, displayName: 'other' });
     expect(again).toEqual({ created: false, workspace: first.workspace });
 
