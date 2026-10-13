@@ -28,7 +28,10 @@
 ## 4. dsh 引擎
 
 - **独立的 dsh 目录。** `DSH_HOME` 是 `<数据目录>/engines/dsh`，不与用户自己装的 dsh 混用；dsh 进程的 cwd 也是它，所以工作区里的 `.env` 不会被 dsh 当作凭据读进来。
-- **`DSH_AGENTS_HOME` 被隔离。** dsh 默认把 `~/.agents` 里的 skills 与 `AGENTS.md` 放进每个会话的首个请求。Wevir 把它指向空目录 `<数据目录>/engines/dsh-agents`，你自己 `~/.agents` 里的内容不会进入 Wevir 的会话，那里的 skills 在骨架阶段也就用不了（ADR-0001 未决事项 2，Phase 1 做 Skills 管理时再定）。
+- **`DSH_AGENTS_HOME` 被隔离，但只隔离用户级。** dsh 默认把 `~/.agents` 里的 skills 与 `AGENTS.md` 放进每个会话的首个请求。Wevir 把它指向空目录 `<数据目录>/engines/dsh-agents`，你自己 `~/.agents` 里的内容不会进入 Wevir 的会话，那里的 skills 在骨架阶段也就用不了（ADR-0001 未决事项 2，Phase 1 做 Skills 管理时再定）。
+  - **工作区里的项目级指令文件与 skills 照常进入会话。** dsh 从会话 cwd（即工作区）向上找项目根：最近的含 `.git` 的目录，没有就是 cwd 本身。`<项目根>/.dsh/skills` 与 `<项目根>/.agents/skills` 里的 skills 列进会话的 skill 目录（名称与描述在请求里，正文由模型调 `skill` 工具读取）；从项目根到 cwd 每一层的 `AGENTS.md`、`CLAUDE.md`、`AGENTS.local.md`、`CLAUDE.local.md` 拼进首个请求，整条指令消息上限 64 KB；之后 Agent 读写更深目录里的文件时，那一层的指令文件也会追加进来。工作区是某个仓库的子目录时，项目根在工作区之上，工作区外、仓库内的这些文件同样会读到。
+  - **打开不可信的仓库作为工作区，这些文件就是提示词注入面。** 仓库作者写进去的内容会和你的提示一起交给模型，而按下文沙箱一条，模型在工作区内写文件不需要审批，读工作区外的文件、访问网络也不触发审批。指令文件是符号链接时 dsh 会跟随，仓库可以借此把工作区外的文件内容带进会话。骨架阶段 Wevir 不关闭、不过滤这些文件，也不提示它们被加载；添加工作区之前，先看过仓库里的这些文件。
+  - 来源：dsh `docs/subsystems/skills.md`（Local discovery priority）与 `packages/context/agent-instructions/README.md`；acp profile 从 `packages/bundle/base/cordis.patch.yml` 继承这两个插件，没有关掉（锁定提交 `d743267`，即 tag `dsh-v0.2.1-alpha.2`）。
 - **白名单环境。** dsh 子进程只继承 `PATH`、`HOME`、用户名、shell、区域与时区、临时目录、代理变量、`NODE_EXTRA_CA_CERTS` 和 Windows 的系统变量；你 shell 里的 `DEEPSEEK_API_KEY`、`OPENAI_*`、`ANTHROPIC_*`、自己的 `DSH_*`、`NODE_OPTIONS` 都不会传进去。固定注入 `DSH_TELEMETRY_DISABLED=1`，关掉 dsh 的遥测。
 - **`workspace-write` 沙箱与审批。** Wevir 固定 `DSH_PERMISSION_MODE=workspace-write`：
   - 工作区内的读写**不需要审批**；
