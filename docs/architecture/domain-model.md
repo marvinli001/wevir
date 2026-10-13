@@ -743,7 +743,7 @@ interface ToolDisplay {
 
 ## 8. 客户端消息投影与 AI SDK `UIMessage`
 
-**决定：不直接采用 `UIMessage` 及其部件类型；照它的分层做，文本与思考部件保持同形，工具与审批部件用 Wevir 自己的形状。** 投影代码与类型放在 `packages/client-sdk`（T4.1），CLI 与桌面共用；协议包和 client-sdk 都不依赖 `ai`。
+**决定：不直接采用 `UIMessage` 及其部件类型；照它的分层做，文本与思考部件保持同形，工具与审批部件用 Wevir 自己的形状。** 投影代码与类型放在 `packages/client-sdk`（原定 T4.1，由 T5.3 落地），CLI 与桌面共用；协议包和 client-sdk 都不依赖 `ai`。
 
 分层（OpenWork §3.2）：协议事件（`WevirEvent`，按 `seq` 应用）→ 客户端投影（消息 + 部件）→ 渲染。
 
@@ -755,36 +755,54 @@ interface ToolDisplay {
 4. **依赖边界。** client-sdk 只依赖 `packages/protocol`（ADR-0002 §7）。`ai` 即使只 `import type` 也要装进依赖树，并带上 `@ai-sdk/gateway`、`@ai-sdk/provider`、`@ai-sdk/provider-utils` 三个运行时依赖。
 5. **同形的部分照搬。** `text` / `reasoning` 部件用 `{ type, text, state: 'streaming' | 'done' }`，与 `UIMessage` 一致；消息用 `{ id, role, parts }` 的外形。桌面（T5.3）如果要用基于 `UIMessage` 的现成渲染组件，在 `apps/desktop` 写一个单向转换函数，届时只在 `apps/desktop` 以 `import type` 引入 `ai`，并锁定精确版本。
 
-投影草案（`StreamBlockRef`、`ToolDisplay` 等从 protocol 导入）：
+定稿（T5.3，`packages/client-sdk/src/projection.ts` 的 `TranscriptProjection`；与 T1.1 草案的差异写在代码块之后）：
 
 ```ts
 // → client-sdk
-interface ChatMessage {
-  id: string                     // user：turnId；assistant：`${turnId}:assistant`
-  role: 'user' | 'assistant'
-  turnId: TurnId
-  parts: ChatPart[]
-  seqRange: [number, number]     // 组成本消息的事件 seq 范围，供调试与增量重绘
+interface MessageBase { id: string; parts: readonly ChatPart[]; seqRange: readonly [number, number] }
+interface UserChatMessage extends MessageBase {       // id = turnId
+  role: 'user'; turnId: TurnId; sentBy: ClientIdentity; clientMessageId?: string; ts: IsoTime
 }
+interface AssistantChatMessage extends MessageBase {  // id = `${turnId}:assistant`
+  role: 'assistant'; turnId: TurnId
+  startedAt?: IsoTime                                 // turn.started 的时刻
+  finished?: { outcome: TurnOutcome; durationMs: number }
+}
+interface SystemChatMessage extends MessageBase { role: 'system' } // id = `system:${seq}`，不属于回合的提示与错误
+type ChatMessage = UserChatMessage | AssistantChatMessage | SystemChatMessage
 
+interface StreamPartFields { key: string; text: string; state: 'streaming' | 'done'; stream?: StreamBlockRef }
 type ChatPart =
-  | { type: 'text'; text: string; state: 'streaming' | 'done'; stream?: StreamBlockRef }
-  | { type: 'reasoning'; text: string; state: 'streaming' | 'done'; stream?: StreamBlockRef }
+  | ({ type: 'text' } & StreamPartFields)
+  | ({ type: 'reasoning' } & StreamPartFields)
   | {
-      type: 'tool'
-      toolCallId: string
-      toolName: string
-      display: ToolDisplay
+      type: 'tool'; key: string; toolCallId: string; toolName: string; display: ToolDisplay
       status: 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled' | 'unknown'
-      input: unknown
-      output?: ToolOutput
-      approval?: { approvalId: ApprovalId; status: ApprovalStatus; options: ApprovalOption[]; resolution?: ApprovalResolution }
+      input: unknown; output?: ToolOutput
+      approval?: { approvalId: ApprovalId; status: ApprovalStatus; options: readonly ApprovalOption[]; resolution?: ApprovalResolution }
+      startedAt: IsoTime; finishedAt?: IsoTime
     }
-  | { type: 'todo'; items: TodoItem[] }
-  | { type: 'error'; category: EngineErrorCategory; message: string }
+  | { type: 'todo'; key: string; items: readonly TodoItem[] }        // 每个回合一份，原位更新
+  | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
+  | { type: 'raw'; key: string; method: string; kind?: string; params: unknown } // 只在 includeRaw 时投影
+  | { type: 'notice'; key: string; notice: { kind: 'resumed'; engineVersion?: string } | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string } | { kind: 'closed' } }
+
+interface Transcript {                // TranscriptProjection.snapshot()
+  sessionId: SessionId | undefined
+  messages: readonly ChatMessage[]
+  approvals: ReadonlyMap<ApprovalId, ApprovalRequest>  // 含已结算
+  pendingApprovals: readonly ApprovalRequest[]          // 按 createdAt
+  state: SessionState | undefined; activeTurnId: TurnId | undefined; title: string
+  readOnly: SessionReadOnly | undefined; lastError: EngineErrorInfo | undefined; usage: Usage | undefined
+  lastSeq: number
+}
 ```
 
-一个回合投影成一条 `user` 消息加一条 `assistant` 消息，回合内多个 attempt 的文本、思考与工具按事件顺序排成部件；`state: 'streaming'` 的部件来自增量，被已提交消息替换后变为 `'done'`（§6.3）。`engine.raw` 默认不投影，开发者模式下作为调试信息显示。
+一个回合投影成一条 `user` 消息加一条 `assistant` 消息，回合内多个 attempt 的文本、思考与工具按事件顺序排成部件；`state: 'streaming'` 的部件来自增量，被已提交消息替换后变为 `'done'`，并沿用增量块的 `key`（渲染层据此复用 DOM，§6.3 规则 3）。`turn.finished` 时丢掉本回合仍未替换的增量（规则 4），仍在运行的工具投影为 `unknown`（§6.4 的客户端兜底）。审批按同一 `toolCallId` 挂到工具部件上，未决时工具为 `awaiting_approval`。`engine.raw` 默认不投影（`includeRaw`），桌面端只在开发模式打开。
+
+与草案相比：加了 `system` 角色（引擎在空闲时退出、resume 失败这类没有回合的错误，以及恢复、只读、关闭提示）、部件的 `key`、工具的起止时刻、`notice` 与 `raw` 部件；`Transcript` 带着会话状态与审批，界面的状态指示与审批卡片与消息流出自同一条事件流。性能约定：`snapshot()` 只为改动过的消息生成新对象，没有新事件时返回同一个快照，调用方可以攒一批事件再取（桌面按帧）。
+
+会话列表的实时状态另有 `applySessionEvent(session, event)`（`packages/client-sdk/src/session-state.ts`），规则同 Host 的快照推导（§3.3），只更新 `Session` 自己的字段。
 
 ---
 

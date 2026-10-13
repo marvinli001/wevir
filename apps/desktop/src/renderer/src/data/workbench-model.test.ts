@@ -1,6 +1,12 @@
 import type { Session, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { groupSessions, resolveRoute, sessionMarker, type WorkbenchData } from './workbench-model';
+import {
+  groupSessions,
+  mergeSessions,
+  resolveRoute,
+  sessionMarker,
+  type WorkbenchData,
+} from './workbench-model';
 
 const NOW = '2026-10-13T00:00:00.000Z';
 
@@ -27,15 +33,38 @@ function session(id: `ses_${string}`, workspaceId: `ws_${string}`, extra: Partia
 }
 
 describe('groupSessions', () => {
-  it('会话归到各自的工作区下并保持原顺序；未知工作区的会话不显示', () => {
+  it('会话归到各自的工作区下，按最近活动从新到旧；未知工作区的会话不显示', () => {
+    const later = '2026-10-13T00:00:05.000Z';
     const entries = groupSessions(
       [workspace('ws_a'), workspace('ws_b')],
-      [session('ses_2', 'ws_a'), session('ses_3', 'ws_x'), session('ses_1', 'ws_a')],
+      [
+        session('ses_1', 'ws_a'),
+        session('ses_3', 'ws_x'),
+        session('ses_2', 'ws_a'),
+        session('ses_0', 'ws_a', { updatedAt: later }),
+      ],
     );
     expect(entries.map((entry) => [entry.workspace.id, entry.sessions.map((s) => s.id)])).toEqual([
-      ['ws_a', ['ses_2', 'ses_1']],
+      ['ws_a', ['ses_0', 'ses_2', 'ses_1']],
       ['ws_b', []],
     ]);
+  });
+});
+
+describe('mergeSessions', () => {
+  it('两边都有时取 lastSeq 大的；列表里没有的会话去掉', () => {
+    const liveNewer = session('ses_1', 'ws_a', { lastSeq: 9, state: 'running' });
+    const liveOlder = session('ses_2', 'ws_a', { lastSeq: 2 });
+    const gone = session('ses_3', 'ws_a');
+    const live = new Map([liveNewer, liveOlder, gone].map((s) => [s.id, s] as const));
+    const fetchedNewer = session('ses_2', 'ws_a', { lastSeq: 5, title: '新' });
+    const added = session('ses_4', 'ws_b');
+    const merged = mergeSessions(live, [
+      session('ses_1', 'ws_a', { lastSeq: 3 }),
+      fetchedNewer,
+      added,
+    ]);
+    expect([...merged.values()]).toEqual([liveNewer, fetchedNewer, added]);
   });
 });
 

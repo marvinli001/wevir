@@ -4,6 +4,8 @@
 @import "./styles/tokens.css";
 @import "./styles/theme.css";
 @import "./styles/shadcn-variants.css";
+@import "./styles/markdown.css";
+@import "./styles/session.css";
 
 @layer base {
   * {

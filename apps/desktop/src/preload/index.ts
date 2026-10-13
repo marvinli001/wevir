@@ -9,6 +9,7 @@ const api: DesktopApi = {
   getHostConnection: () => ipcRenderer.invoke(IPC_CHANNELS.getHostConnection),
   selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.selectFolder),
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
+  copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),
   setThemeSource: (mode) => ipcRenderer.invoke(IPC_CHANNELS.setThemeSource, mode),
 };
 

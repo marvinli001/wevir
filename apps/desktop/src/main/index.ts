@@ -8,6 +8,7 @@ import { resolveHome } from '@wevir/host/runtime';
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   type IpcMainInvokeEvent,
   ipcMain,
@@ -133,6 +134,13 @@ function run(): void {
     }
     await shell.openExternal(url);
   });
+  ipcMain.handle(IPC_CHANNELS.copyText, async (event, text: unknown): Promise<void> => {
+    assertSender(event);
+    if (typeof text !== 'string' || text.length > MAX_COPY_LENGTH) {
+      throw new Error('只能复制字符串，且不超过 8M 个字符');
+    }
+    clipboard.writeText(text);
+  });
   ipcMain.handle(IPC_CHANNELS.setThemeSource, async (event, mode: unknown): Promise<void> => {
     const window = assertSender(event);
     if (!isThemeMode(mode)) throw new Error('主题模式只能是 system、light 或 dark');
@@ -228,6 +236,9 @@ function createWindow(): BrowserWindow {
   void window.loadURL(devServerUrl ?? APP_ENTRY_URL);
   return window;
 }
+
+/** copyText 一次最多复制的字符数（UTF-16 code unit），挡住渲染进程塞来的超大字符串。 */
+const MAX_COPY_LENGTH = 8 * 1024 * 1024;
 
 function isExternalUrl(url: string): boolean {
   try {

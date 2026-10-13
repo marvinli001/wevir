@@ -1,0 +1,167 @@
+// SPDX-License-Identifier: MIT
+// 移植自 different-ai/openwork apps/app/src/react-app/domains/session/surface/scroll-controller.ts
+//（另参照同目录 scroll-store.ts、scroll-overlay.tsx）
+// 来源提交 ad22cdc2217370f28f24f0f8758016c2921e3c73
+// Copyright (c) 2026-present Different AI, Inc.
+// 修改：改写（T5.3，OpenWork 候选 #3）。保留两种模式的状态机：贴底（stickyBottom）时内容或视口尺寸一变就
+// 滚到底，手动（manual）时不动；只有真实的输入手势（滚轮、触摸、导航键、拖滚动条）才能切换模式，布局钳位与
+// 程序滚动触发的 scroll 事件不算；手势滚到底部回到贴底；贴底时键盘焦点等把旧内容滚进视野也转为手动；
+// overflow-anchor 贴底时为 none、手动时为 auto（手动阅读时由浏览器锚定位置）；发送消息即回到贴底。去掉
+// 移动端轮次留白、滚动位置与几何信息的持久化、历史分页、“跳到消息开头”，状态不进全局 store，只交出
+// “是否贴底”给“跳到最新”按钮。
+
+import { type RefObject, useCallback, useLayoutEffect, useRef, useState } from 'react';
+
+/** 距底部不超过这么多像素算在底部。 */
+const BOTTOM_GAP_PX = 2;
+/** 手势之后这段时间内的滚动算手势造成的（触控板惯性会比原始事件持续更久）。 */
+const GESTURE_WINDOW_MS = 600;
+const NAVIGATION_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
+
+interface Controller {
+  jumpToLatest(behavior: ScrollBehavior): void;
+}
+
+export interface StickToBottom {
+  /** 贴底模式。手动模式下显示“跳到最新”。 */
+  sticky: boolean;
+  /** 回到贴底并滚到最新（“跳到最新”、发送消息）。 */
+  jumpToLatest(behavior?: ScrollBehavior): void;
+}
+
+/**
+ * 消息流的滚动控制。`container` 是滚动容器，`content` 是里面随消息增长的内容；`resetKey`（会话 ID）变化时
+ * 回到贴底。
+ */
+export function useStickToBottom(
+  containerRef: RefObject<HTMLElement | null>,
+  contentRef: RefObject<HTMLElement | null>,
+  resetKey: string,
+): StickToBottom {
+  const [sticky, setSticky] = useState(true);
+  const controller = useRef<Controller | null>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resetKey 变化时重建，回到贴底。
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const content = contentRef.current;
+    if (!container || !content) return;
+    let mode: 'sticky' | 'manual' = 'sticky';
+    let lastGestureAt = Number.NEGATIVE_INFINITY;
+    let pointerDown = false;
+    let smoothJump = false;
+    let lastKnownTop = container.scrollTop;
+
+    const setMode = (next: 'sticky' | 'manual') => {
+      if (mode === next) return;
+      mode = next;
+      container.style.overflowAnchor = next === 'manual' ? 'auto' : 'none';
+      setSticky(next === 'sticky');
+    };
+    const hasGesture = () => pointerDown || performance.now() - lastGestureAt < GESTURE_WINDOW_MS;
+    const atBottom = () =>
+      container.scrollHeight - container.scrollTop - container.clientHeight <= BOTTOM_GAP_PX;
+    const toBottom = () => {
+      container.scrollTop = container.scrollHeight;
+      lastKnownTop = container.scrollTop;
+    };
+
+    const reconcile = () => {
+      if (mode === 'sticky' && !hasGesture() && !atBottom()) {
+        smoothJump = false;
+        toBottom();
+      }
+    };
+
+    const onScroll = () => {
+      const top = container.scrollTop;
+      if (top === lastKnownTop) return;
+      if (hasGesture()) {
+        // 只有真实输入能换模式；惯性滚动延长手势窗口。
+        lastGestureAt = performance.now();
+        smoothJump = false;
+        setMode(atBottom() ? 'sticky' : 'manual');
+      } else if (smoothJump) {
+        if (atBottom()) smoothJump = false;
+      } else if (mode === 'sticky' && top < lastKnownTop && !atBottom()) {
+        // 没有滚动手势却往上移了：键盘焦点等把旧内容滚进视野，用户在读它，不要在下一个片段到达时拉回去。
+        setMode('manual');
+      } else if (mode === 'manual' && atBottom()) {
+        // 别的方式（查找、焦点移动）把视图带到了底部：同样回到贴底。
+        setMode('sticky');
+      }
+      lastKnownTop = container.scrollTop;
+    };
+
+    const markGesture = () => {
+      lastGestureAt = performance.now();
+      if (smoothJump) {
+        // 平滑跳转途中又动了滚轮：停在当前位置，交给用户。
+        container.scrollTo({ top: container.scrollTop, behavior: 'instant' });
+        smoothJump = false;
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest('input, textarea, select, [contenteditable="true"]')
+      ) {
+        return;
+      }
+      if (NAVIGATION_KEYS.has(event.key)) markGesture();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.isPrimary && event.button === 0) pointerDown = true;
+    };
+    const onPointerUp = () => {
+      if (!pointerDown) return;
+      pointerDown = false;
+      lastGestureAt = performance.now();
+    };
+
+    container.style.overflowAnchor = 'none';
+    setSticky(true);
+    toBottom();
+
+    const observer = new ResizeObserver(reconcile);
+    observer.observe(content);
+    observer.observe(container);
+    container.addEventListener('scroll', onScroll, { passive: true });
+    container.addEventListener('wheel', markGesture, { passive: true });
+    container.addEventListener('touchmove', markGesture, { passive: true });
+    container.addEventListener('keydown', onKeyDown);
+    container.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+
+    controller.current = {
+      jumpToLatest(behavior) {
+        lastGestureAt = Number.NEGATIVE_INFINITY;
+        setMode('sticky');
+        smoothJump = behavior === 'smooth';
+        container.scrollTo({ top: container.scrollHeight, behavior });
+        if (!smoothJump) lastKnownTop = container.scrollTop;
+      },
+    };
+
+    return () => {
+      observer.disconnect();
+      container.removeEventListener('scroll', onScroll);
+      container.removeEventListener('wheel', markGesture);
+      container.removeEventListener('touchmove', markGesture);
+      container.removeEventListener('keydown', onKeyDown);
+      container.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+      controller.current = null;
+    };
+  }, [containerRef, contentRef, resetKey]);
+
+  const jumpToLatest = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    controller.current?.jumpToLatest(reduced ? 'auto' : behavior);
+  }, []);
+
+  return { sticky, jumpToLatest };
+}

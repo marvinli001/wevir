@@ -5,5 +5,7 @@ export * from './capabilities.js';
 export * from './client.js';
 export * from './errors.js';
 export { type BackoffOptions, DEFAULT_BACKOFF, type ReconnectReason } from './lifecycle.js';
+export * from './projection.js';
+export * from './session-state.js';
 export type { EventSubscription, SubscribeOptions, SubscriptionItem } from './subscription.js';
 export * from './transport.js';

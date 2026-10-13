@@ -52,6 +52,15 @@
   --sidebar-accent-foreground: var(--foreground);
   --sidebar-ring: var(--ring);
 
+  /* 代码：块底色与语法高亮（T5.3，highlight.js 的类名在 markdown.css 里映射到这些变量） */
+  --code-background: var(--sand-2);
+  --code-keyword: var(--indigo-11);
+  --code-string: var(--green-11);
+  --code-number: var(--amber-11);
+  --code-title: var(--red-11);
+  --code-comment: var(--sand-10);
+  --code-meta: var(--sand-11);
+
   /* 遮罩与阴影 */
   --overlay: color-mix(in oklab, var(--sand-12) 25%, transparent);
   --shadow-color: color-mix(in oklab, var(--sand-12) 10%, transparent);

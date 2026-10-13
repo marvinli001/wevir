@@ -1,49 +1,82 @@
-import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
-import { describe, useHostConnection } from '@/host/host-connection';
-import { recordBaselines } from './seen-sessions';
-import { groupSessions, type WorkbenchData } from './workbench-model';
+import type { SessionId } from '@wevir/protocol';
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { useHostConnection } from '@/host/host-connection';
+import { TranscriptCache, type TranscriptState } from './transcript-store';
+import type { WorkbenchData } from './workbench-model';
+import { LIST_REFRESH_MS, WorkbenchStore } from './workbench-store';
 
-const WorkbenchDataContext = createContext<WorkbenchData>({ status: 'loading' });
+interface Stores {
+  workbench: WorkbenchStore;
+  transcripts: TranscriptCache;
+}
+
+const StoresContext = createContext<Stores | undefined>(undefined);
+
+const LOADING: WorkbenchData = { status: 'loading' };
+const noop = () => () => {};
 
 /**
- * 工作区与会话列表的快照：每次（重新）连上 Host 时读一次 workspace.list 与 session.list。骨架只读
- * 快照，不订阅事件；会话状态的实时更新、按最近活动排序、新建会话归 T5.3。
+ * 工作区与会话列表（workbench-store.ts）。每次连上 Host（含重连）、每 10 s、窗口获得焦点时重读列表；
+ * 已知会话的变化经事件订阅实时到达。
  */
 export function WorkbenchDataProvider({ children }: { children: ReactNode }) {
   const { view, client } = useHostConnection();
-  const [data, setData] = useState<WorkbenchData>({ status: 'loading' });
+  const [stores, setStores] = useState<Stores>();
+  const store = stores?.workbench;
   // 每次连上（含重连）hello 都是新对象，据此重新读取。
   const hello = view.status === 'connected' ? view.hello : undefined;
 
   useEffect(() => {
-    if (!client || !hello) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const [{ workspaces }, { sessions }] = await Promise.all([
-          client.request('workspace.list'),
-          client.request('session.list'),
-        ]);
-        if (cancelled) return;
-        recordBaselines(sessions);
-        setData({ status: 'ready', workspaces: groupSessions(workspaces, sessions) });
-      } catch (error) {
-        // 已经有数据时保留旧快照（断线重连中途失败很常见），没有数据才显示错误。
-        if (!cancelled) {
-          setData((current) =>
-            current.status === 'ready' ? current : { status: 'error', error: describe(error) },
-          );
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
+    if (!client) return;
+    const created = {
+      workbench: new WorkbenchStore(client),
+      transcripts: new TranscriptCache(client),
     };
-  }, [client, hello]);
+    setStores(created);
+    return () => {
+      created.workbench.dispose();
+      created.transcripts.dispose();
+    };
+  }, [client]);
 
-  return <WorkbenchDataContext value={data}>{children}</WorkbenchDataContext>;
+  useEffect(() => {
+    if (!store || !hello) return;
+    void store.refresh();
+    const timer = window.setInterval(() => void store.refresh(), LIST_REFRESH_MS);
+    const onFocus = () => void store.refresh();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [store, hello]);
+
+  return <StoresContext value={stores}>{children}</StoresContext>;
 }
 
 export function useWorkbenchData(): WorkbenchData {
-  return useContext(WorkbenchDataContext);
+  const store = useContext(StoresContext)?.workbench;
+  return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? (() => LOADING));
+}
+
+/** 列表的写入口（新建会话后立即放进列表等）；还没连上 Host 时为 undefined。 */
+export function useWorkbenchStore(): WorkbenchStore | undefined {
+  return useContext(StoresContext)?.workbench;
+}
+
+const NO_TRANSCRIPT = () => undefined;
+
+/** 一个会话的消息投影（transcript-store.ts），按帧更新；还没连上 Host 时为 undefined。 */
+export function useTranscript(sessionId: SessionId): TranscriptState | undefined {
+  const cache = useContext(StoresContext)?.transcripts;
+  const store = useMemo(() => cache?.get(sessionId), [cache, sessionId]);
+  return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? NO_TRANSCRIPT);
 }

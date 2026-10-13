@@ -148,3 +148,9 @@
    - **Biome**：CSS 里有 `@theme`、`@custom-variant`、`@apply`，打开 `css.parser.tailwindDirectives`。
    - **渲染进程的测试**：只测不碰 DOM 的纯逻辑（路由、折叠规则、数据模型、文案），跑在 Node 上；Vitest 的类型会带进 Node 类型，所以测试另由 `src/renderer/tsconfig.test.json` 检查，`src/renderer/tsconfig.json` 排除测试，渲染进程源码仍然只有 DOM 类型。
    - 许可证：新增依赖里 `lucide-react` 为 ISC、`class-variance-authority` 为 Apache-2.0，其余 MIT，由 T6.3 汇总进第三方声明。
+
+6. **2026-10-13，T5.3：会话视图的 Markdown 与高亮依赖。** 版本（2026-10-13 查 npm registry，都是 `apps/desktop` 的 devDependencies，由打包器打进产物）：
+   - **marked 18.1.0 + DOMPurify 3.4.16**：与 OpenWork 候选 #4 同一套（marked 解析、DOMPurify 清洗、`dangerouslySetInnerHTML`），渲染器改写自它的 `markdown-primitive.ts`（UPSTREAM.md §4）。当时最新的 marked 18.1.1、DOMPurify 3.4.17 发布不到一天，被 `minimumReleaseAge` 拦下，用前一个版本；`pnpm add` 自动写进 `pnpm-workspace.yaml` 的 `minimumReleaseAgeExclude` 已删掉，lockfile 里的条目改回旧版本后重装核对（同补记 5 的 lucide-react）。DOMPurify 是 MPL-2.0 OR Apache-2.0，选 Apache-2.0，T6.3 汇总进第三方声明。
+   - **highlight.js 11.12.0（BSD-3-Clause），不用 OpenWork 的 Shiki**：渲染进程的 CSP 不放行 HTML 里的 `style` 属性（`style-src` 不含 `'unsafe-inline'`），Shiki 的输出是逐个 token 的内联 `style`；它默认的 Oniguruma 引擎还要 WebAssembly，CSP 的 `script-src` 没有 `'wasm-unsafe-eval'`。highlight.js 输出带类名的 `<span>`，颜色在 `styles/markdown.css` 里映射到 `tokens.css` 的代码 Token，亮暗主题跟着语义变量走。只用 `highlight.js/lib/common`（常见语言），动态 `import()` 成单独的 chunk，代码块进入视口附近才加载、才高亮。
+   - **剪贴板**：渲染进程的权限一律拒绝（T5.1），`navigator.clipboard.writeText` 要 `clipboard-sanitized-write`，被拒；不放开权限，preload 加 `copyText`，由主进程 `clipboard.writeText` 代写（只写不读，校验发送方与长度）。
+   - **渲染进程的测试**：Markdown 渲染器的测试跑在 Node 上，没有 DOM，DOMPurify 用不了，测试里 `vi.mock('dompurify')` 换成原样返回，只核对 marked 的输出与流式时的块复用；清洗本身在 Electron 渲染进程里核对（`javascript:` 链接、原文 HTML、属性注入）。

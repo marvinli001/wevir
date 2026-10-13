@@ -1,7 +1,7 @@
 import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight, PanelLeftClose, Plus, Settings } from 'lucide-react';
-import { Link, NavLink, useLocation } from 'react-router';
+import { ChevronRight, PanelLeftClose, Plus, Settings, SquarePen } from 'lucide-react';
+import { Link, NavLink, useLocation, useParams } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,6 +28,10 @@ export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         <IconButton label={t('layout.collapseSidebar')} onClick={onCollapse} tooltipSide="bottom">
           <PanelLeftClose />
         </IconButton>
+      </div>
+
+      <div className="shrink-0 px-2 pb-1">
+        <NewSessionLink />
       </div>
 
       <div className="flex h-8 shrink-0 items-center justify-between pr-2 pl-3.5">
@@ -60,6 +64,22 @@ export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         <HostStatus />
       </div>
     </div>
+  );
+}
+
+/** “新建会话”：进当前工作区（没有选中时是第一个工作区）的新会话草稿，草稿页里可以换工作区。 */
+function NewSessionLink() {
+  const data = useWorkbenchData();
+  const { workspaceId } = useParams();
+  if (data.status !== 'ready' || data.workspaces.length === 0) return null;
+  const target =
+    data.workspaces.find((entry) => entry.workspace.id === workspaceId) ?? data.workspaces[0];
+  if (!target) return null;
+  return (
+    <Link to={paths.draft(target.workspace.id)} className={cn(ROW, 'text-sidebar-foreground')}>
+      <SquarePen className="size-4 text-muted-foreground" aria-hidden />
+      {t('sidebar.newSessionAny')}
+    </Link>
   );
 }
 

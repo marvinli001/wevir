@@ -1,10 +1,10 @@
 // 左栏“工作区 → 会话”树的数据模型与路由解析（T5.2）。纯函数，不碰 DOM 与 Host 连接。
 
-import type { Session, Workspace } from '@wevir/protocol';
+import type { Session, SessionId, Workspace } from '@wevir/protocol';
 
 export interface WorkspaceEntry {
   workspace: Workspace;
-  /** 属于这个工作区的会话，保持 session.list 的顺序（按 updatedAt 从新到旧）。 */
+  /** 属于这个工作区的会话，按最近活动（`updatedAt`，最后一个事件的时刻）从新到旧。 */
   sessions: Session[];
 }
 
@@ -13,15 +13,40 @@ export type WorkbenchData =
   | { status: 'ready'; workspaces: WorkspaceEntry[] }
   | { status: 'error'; error: string };
 
-/** 会话按 workspaceId 归到各自的工作区下；不属于任何已知工作区的会话不显示。 */
+/**
+ * 会话按 workspaceId 归到各自的工作区下，每组按最近活动从新到旧（同一时刻按 ID 倒序，顺序稳定）；不属于
+ * 任何已知工作区的会话不显示。
+ */
 export function groupSessions(
   workspaces: readonly Workspace[],
-  sessions: readonly Session[],
+  sessions: Iterable<Session>,
 ): WorkspaceEntry[] {
   const entries = workspaces.map((workspace) => ({ workspace, sessions: [] as Session[] }));
   const byId = new Map(entries.map((entry) => [entry.workspace.id, entry]));
   for (const session of sessions) byId.get(session.workspaceId)?.sessions.push(session);
+  for (const entry of entries) entry.sessions.sort(byRecentActivity);
   return entries;
+}
+
+function byRecentActivity(a: Session, b: Session): number {
+  if (a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? 1 : -1;
+  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+}
+
+/**
+ * 重新读到的会话列表与本地实时跟着事件更新的会话合并：两边都有时取 `lastSeq` 大的（订阅可能已经比列表
+ * 新，也可能还没追上）；列表里没有的会话（所在工作区已移除）去掉。
+ */
+export function mergeSessions(
+  live: ReadonlyMap<SessionId, Session>,
+  fetched: readonly Session[],
+): Map<SessionId, Session> {
+  const merged = new Map<SessionId, Session>();
+  for (const session of fetched) {
+    const current = live.get(session.id);
+    merged.set(session.id, current && current.lastSeq >= session.lastSeq ? current : session);
+  }
+  return merged;
 }
 
 /** 会话行左侧的状态标记。`cancelling` 仍算运行中；只读会话与上一回合失败（idle 下有 lastError）算出错。 */

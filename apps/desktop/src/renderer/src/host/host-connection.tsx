@@ -4,6 +4,7 @@ import {
   WevirClient,
   webSocketTransport,
 } from '@wevir/client-sdk';
+import type { ClientIdentity } from '@wevir/protocol';
 import { createContext, type ReactNode, useContext, useEffect, useState } from 'react';
 
 export type HostConnectionView =
@@ -18,6 +19,8 @@ export interface HostConnection {
   view: HostConnectionView;
   /** 第一次连上之后才有；断线重连期间仍是同一个客户端（请求会排队）。 */
   client: WevirClient | undefined;
+  /** 本连接在 `host.hello` 里的身份，用来认出“本端做的决定”“本端发的消息”。 */
+  identity: ClientIdentity | undefined;
 }
 
 const HostConnectionContext = createContext<HostConnection | null>(null);
@@ -30,6 +33,7 @@ export function HostConnectionProvider({ children }: { children: ReactNode }) {
   const [connection, setConnection] = useState<HostConnection>({
     view: { status: 'connecting' },
     client: undefined,
+    identity: undefined,
   });
 
   useEffect(() => {
@@ -55,7 +59,11 @@ export function HostConnectionProvider({ children }: { children: ReactNode }) {
           return;
         }
         client = connected;
-        setConnection({ view: { status: 'connected', hello: connected.hello }, client: connected });
+        setConnection({
+          view: { status: 'connected', hello: connected.hello },
+          client: connected,
+          identity,
+        });
       } catch (error) {
         update({ status: 'failed', error: describe(error) });
       }

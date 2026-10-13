@@ -1,0 +1,235 @@
+/* 助手消息的 Markdown 排版（T5.3）。markdown.ts 输出几乎不带类名的语义 HTML，样式都在这里，只经设计 Token
+ * 取色。块包在 display: contents 的 div 里（markdown-view.tsx），所以选择器用后代选择器，首尾边距按
+ * “第一个块的第一个元素”收掉。 */
+
+@layer components {
+  .markdown {
+    overflow-wrap: anywhere;
+    line-height: var(--text-base--line-height);
+  }
+
+  .markdown :where(p, ul, ol, blockquote, pre, table, .md-code, h1, h2, h3, h4, h5, h6, hr) {
+    margin-block: 0.75em;
+  }
+
+  .markdown > :first-child > :first-child {
+    margin-top: 0;
+  }
+
+  .markdown > :last-child > :last-child {
+    margin-bottom: 0;
+  }
+
+  .markdown :where(h1, h2, h3, h4, h5, h6) {
+    font-weight: 600;
+    line-height: 1.4;
+    margin-top: 1.25em;
+  }
+
+  .markdown h1 {
+    font-size: var(--text-xl);
+  }
+
+  .markdown h2 {
+    font-size: var(--text-lg);
+  }
+
+  .markdown :where(h3, h4, h5, h6) {
+    font-size: var(--text-base);
+  }
+
+  .markdown :where(ul, ol) {
+    padding-left: 1.5em;
+  }
+
+  .markdown ul {
+    list-style: disc;
+  }
+
+  .markdown ol {
+    list-style: decimal;
+  }
+
+  .markdown li + li,
+  .markdown li > :where(ul, ol) {
+    margin-top: 0.25em;
+  }
+
+  .markdown li > :where(p, ul, ol) {
+    margin-block: 0.25em;
+  }
+
+  .markdown li:has(> input[type="checkbox"]) {
+    list-style: none;
+    margin-left: -1.25em;
+  }
+
+  .markdown input[type="checkbox"] {
+    margin-right: 0.4em;
+    vertical-align: -0.1em;
+  }
+
+  .markdown blockquote {
+    border-left: 3px solid var(--border);
+    padding-left: 0.875em;
+    color: var(--muted-foreground);
+  }
+
+  .markdown a {
+    color: var(--primary);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in oklab, var(--primary) 40%, transparent);
+    text-underline-offset: 2px;
+  }
+
+  .markdown a:hover {
+    text-decoration-color: var(--primary);
+  }
+
+  .markdown hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .markdown :where(strong, b) {
+    font-weight: 600;
+  }
+
+  .markdown :not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--muted);
+    border-radius: var(--radius-sm);
+    padding: 0.1em 0.35em;
+  }
+
+  .markdown table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: var(--text-sm);
+  }
+
+  .markdown :where(th, td) {
+    border: 1px solid var(--border);
+    padding: 0.35em 0.65em;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .markdown th {
+    background: var(--muted);
+    font-weight: 600;
+  }
+
+  .markdown :where(th, td)[align="center"] {
+    text-align: center;
+  }
+
+  .markdown :where(th, td)[align="right"] {
+    text-align: right;
+  }
+
+  /* 代码块：标题行（语言 + 复制）+ 可横向滚动的源码。 */
+  .markdown .md-code {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--code-background);
+    overflow: hidden;
+  }
+
+  .markdown .md-code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-xs);
+    color: var(--muted-foreground);
+  }
+
+  .markdown .md-code-copy {
+    border-radius: var(--radius-sm);
+    padding: 0.125rem 0.5rem;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .markdown .md-code-copy:hover {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+
+  .markdown .md-code-copy:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
+  .markdown .md-code pre {
+    margin: 0;
+    overflow-x: auto;
+    padding: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.55;
+    tab-size: 2;
+  }
+
+  /* highlight.js 的类名 → 代码 Token。 */
+  .markdown .hljs-comment,
+  .markdown .hljs-quote {
+    color: var(--code-comment);
+    font-style: italic;
+  }
+
+  .markdown .hljs-keyword,
+  .markdown .hljs-selector-tag,
+  .markdown .hljs-built_in,
+  .markdown .hljs-type,
+  .markdown .hljs-doctag {
+    color: var(--code-keyword);
+  }
+
+  .markdown .hljs-string,
+  .markdown .hljs-regexp,
+  .markdown .hljs-addition,
+  .markdown .hljs-template-tag,
+  .markdown .hljs-template-variable {
+    color: var(--code-string);
+  }
+
+  .markdown .hljs-number,
+  .markdown .hljs-literal,
+  .markdown .hljs-symbol,
+  .markdown .hljs-bullet,
+  .markdown .hljs-variable,
+  .markdown .hljs-attr,
+  .markdown .hljs-attribute {
+    color: var(--code-number);
+  }
+
+  .markdown .hljs-title,
+  .markdown .hljs-section,
+  .markdown .hljs-name,
+  .markdown .hljs-selector-id,
+  .markdown .hljs-selector-class,
+  .markdown .hljs-deletion {
+    color: var(--code-title);
+  }
+
+  .markdown .hljs-meta,
+  .markdown .hljs-params,
+  .markdown .hljs-subst {
+    color: var(--code-meta);
+  }
+
+  .markdown .hljs-emphasis {
+    font-style: italic;
+  }
+
+  .markdown .hljs-strong {
+    font-weight: 600;
+  }
+}
