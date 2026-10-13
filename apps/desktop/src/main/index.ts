@@ -4,7 +4,7 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sand, sandDark } from '@radix-ui/colors';
-import { resolveHome } from '@wevir/host/runtime';
+import { HOME_LAYOUT, LOG_FILE, resolveHome } from '@wevir/host/runtime';
 import {
   app,
   BrowserWindow,
@@ -17,7 +17,11 @@ import {
   session,
   shell,
 } from 'electron';
-import { type HostConnection, IPC_CHANNELS } from '../shared/desktop-api.js';
+import {
+  type HostConnection,
+  type HostProcessStatus,
+  IPC_CHANNELS,
+} from '../shared/desktop-api.js';
 import {
   APP_ENTRY_URL,
   APP_ORIGIN,
@@ -83,7 +87,8 @@ if (app.requestSingleInstanceLock()) {
 function run(): void {
   let mainWindow: BrowserWindow | undefined;
 
-  // Host 与窗口并行准备。只尝试一次；失败时 getHostConnection 把原因交给渲染进程显示。
+  // Host 与窗口并行准备。首次只尝试一次，失败时 getHostConnection 把原因交给渲染进程显示；之后拥有的 Host
+  // 意外退出由 HostLifecycle 重新拉起，状态经 hostStatus 推给渲染进程（T5.5）。
   const host = (async () => {
     const identity = await loadDesktopIdentity(home);
     const lifecycle = new HostLifecycle({
@@ -93,11 +98,22 @@ function run(): void {
       hostEntry: resolveHostEntry(),
       log,
     });
+    lifecycle.onStatus((status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.hostStatus, status);
+      }
+    });
     return { identity, lifecycle };
   })();
   void host
     .then(({ lifecycle }) => lifecycle.start())
     .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+  /** 连 HostLifecycle 都建不起来（找不到 Node、Host 没有构建）时，界面看到的状态。 */
+  const setupFailure = (error: unknown): HostProcessStatus => ({
+    phase: 'failed',
+    error: error instanceof Error ? error.message : String(error),
+    logPath: join(home, HOME_LAYOUT.logsDir, LOG_FILE),
+  });
 
   /** IPC 只接受主窗口主框架、且来自渲染进程 origin 的调用（Electron 安全清单第 17 条）。 */
   const assertSender = (event: IpcMainInvokeEvent): BrowserWindow => {
@@ -119,6 +135,15 @@ function run(): void {
     assertSender(event);
     const { identity, lifecycle } = await host;
     return { ...(await lifecycle.endpoint()), identity };
+  });
+  ipcMain.handle(IPC_CHANNELS.getHostStatus, async (event): Promise<HostProcessStatus> => {
+    assertSender(event);
+    return host.then(({ lifecycle }) => lifecycle.status, setupFailure);
+  });
+  ipcMain.handle(IPC_CHANNELS.retryHost, async (event): Promise<void> => {
+    assertSender(event);
+    const { lifecycle } = await host;
+    void lifecycle.retry();
   });
   ipcMain.handle(IPC_CHANNELS.selectFolder, async (event): Promise<string | null> => {
     const window = assertSender(event);

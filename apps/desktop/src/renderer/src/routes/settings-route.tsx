@@ -6,7 +6,7 @@ import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useHostConnection } from '@/host/host-connection';
-import { hostStatusText } from '@/host/host-status';
+import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
@@ -142,10 +142,19 @@ function AppearanceSettings() {
 }
 
 function AboutSettings() {
-  const { view } = useHostConnection();
+  const { view, hostStatus } = useHostConnection();
   const hello = view.status === 'connected' ? view.hello : undefined;
+  const ownership = hostStatus?.phase === 'running' ? hostStatus.ownership : undefined;
   const rows: [string, string | undefined, string?][] = [
-    [t('settings.about.status'), hostStatusText(view)],
+    [t('settings.about.status'), hostIndicator(view, hostStatus).text],
+    [
+      t('settings.about.process'),
+      ownership &&
+        t(ownership.kind === 'owned' ? 'settings.about.owned' : 'settings.about.attached', {
+          pid: ownership.pid,
+        }),
+      'host-process',
+    ],
     [t('settings.about.protocolVersion'), hello?.protocolVersion, 'protocol-version'],
     [t('settings.about.hostVersion'), hello?.hostVersion, 'host-version'],
     [t('settings.about.hostId'), hello?.hostId],

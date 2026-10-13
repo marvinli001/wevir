@@ -14,6 +14,12 @@ export function isBusy(state: SessionState | undefined): boolean {
 /** 未发送的草稿按会话留在内存里，切走再切回来还在（不持久化）。 */
 const drafts = new Map<string, string>();
 
+/** 预先放一份草稿（基于历史新建会话，T5.5）：下次打开这个输入框时显示。 */
+export function setDraft(draftKey: string, text: string): void {
+  if (text) drafts.set(draftKey, text);
+  else drafts.delete(draftKey);
+}
+
 /**
  * 输入框：Enter 发送、Shift+Enter 换行、输入法合成期间不发送（openwork-notes §3.7）；运行中不允许再发送
  * （Host 会回 SESSION_BUSY，ADR-0002 §4），发送键变为“停止”，Esc 也可以停止。`onSend` 返回 true 表示已
@@ -50,10 +56,16 @@ export function Composer({
   const busy = isBusy(state);
   const canSend = !busy && !disabled && !sending && text.trim() !== '';
 
+  useEffect(() => setDraft(draftKey, text), [draftKey, text]);
+
+  // 带着草稿打开时光标放到末尾、滚到底（基于历史新建的长草稿，接着写“接下来”）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在挂载时。
   useEffect(() => {
-    if (text) drafts.set(draftKey, text);
-    else drafts.delete(draftKey);
-  }, [draftKey, text]);
+    const textarea = textareaRef.current;
+    if (!autoFocus || !textarea || textarea.value === '') return;
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    textarea.scrollTop = textarea.scrollHeight;
+  }, []);
 
   // Esc 停止：焦点不在输入框里也算（弹层打开时让弹层先处理 Esc）。
   useEffect(() => {

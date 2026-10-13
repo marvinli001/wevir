@@ -411,13 +411,15 @@ export class TranscriptProjection {
     const { turnId, outcome, durationMs } = event.payload;
     const message = this.#assistant(turnId, event.seq);
     message.finished = { outcome, durationMs };
-    // domain-model §6.3 规则 4：本回合没被替换的增量一律丢弃；§6.4：未收尾的工具不再转圈。
-    message.parts = message.parts
-      .filter((part) => !(isStreamPart(part) && part.state === 'streaming'))
-      .map(
-        (part): ChatPart =>
-          part.type === 'tool' && isOpen(part.status) ? { ...part, status: 'unknown' } : part,
-      );
+    // domain-model §6.3 规则 4：本回合没被替换的增量丢弃，以已提交消息为准；回合被中断（Host 或引擎退出）时已提交
+    // 消息不会再来，保留中断前已生成的部分（T5.5）。§6.4：未收尾的工具不再转圈。
+    const keepPartial = outcome === 'interrupted';
+    message.parts = message.parts.flatMap((part): ChatPart[] => {
+      if (isStreamPart(part) && part.state === 'streaming') {
+        return keepPartial && part.text.trim() !== '' ? [{ ...part, state: 'done' }] : [];
+      }
+      return [part.type === 'tool' && isOpen(part.status) ? { ...part, status: 'unknown' } : part];
+    });
     if (this.#activeTurnId === turnId) this.#activeTurnId = undefined;
   }
 

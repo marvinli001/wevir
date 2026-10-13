@@ -1,9 +1,12 @@
-// 桌面主进程里 Host 的发现、拉起与停止（ADR-0002 §6、补记 3，Paseo A17）。不依赖 Electron，单独可测。
+// 桌面主进程里 Host 的发现、拉起、重新拉起与停止（ADR-0002 §6、补记 3，Paseo A17）。不依赖 Electron，单独可测。
 //
 // - 先读 run/host.json 并探活（连接 + hello）：Host 在运行就附着，退出时不停它。
 // - 否则用开发者本机的 Node 以子进程启动 wevir-host，带归属管道参数 --exit-on-stdin-eof 并持有其 stdin，
 //   等 stdout 的就绪行或 host.json 出现 url，记下 {pid, startedAt}，视为拥有。退出码 3 说明有别的 Host
 //   抢先占住了数据目录，改为等它就绪后附着。
+// - 拥有的 Host 意外退出（T5.5）：按 host.json 的 {pid, startedAt} 确认旧进程已退出后重新拉起，最多 3 次；
+//   这期间别人启动了 Host 就附着它。都失败了进入 failed，界面显示原因与日志路径，可以手动重试。
+// - 附着的 Host 不在了（T5.5）：不替它拉起，等 host.json 出现新的地址再附着。
 // - 退出时只停自己拉起的 Host：先关归属管道，超时再 host.shutdown，仍不退出才强制结束。
 
 import { type ChildProcess, spawn } from 'node:child_process';
@@ -24,16 +27,19 @@ import {
   EXIT_CODE,
   HOME_LAYOUT,
   type HostRuntimeInfo,
+  isProcessAlive,
+  LOG_FILE,
   parseRuntimeInfo,
   RUNTIME_FILE,
 } from '@wevir/host/runtime';
 import type { ClientIdentity } from '@wevir/protocol';
+import {
+  type HostOwnership,
+  type HostProcessStatus,
+  MAX_HOST_RESTARTS,
+} from '../shared/desktop-api.js';
 
-export type HostOwnership =
-  /** 本次桌面会话拉起的 Host：持有它的 stdin 归属管道，退出时停止它。 */
-  | { kind: 'owned'; pid: number; startedAt: string }
-  /** 已在运行的 Host（CLI 的 `wevir host start`、手动的 wevir-host 等）：只连接，退出时不停。 */
-  | { kind: 'attached'; pid: number; startedAt: string };
+export type { HostOwnership, HostProcessStatus } from '../shared/desktop-api.js';
 
 export interface HostReady {
   ownership: HostOwnership;
@@ -49,6 +55,17 @@ export interface HostLifecycleTimeouts {
   pipeCloseMs: number;
   /** 发出 `host.shutdown` 后再等的时间（Host 自己的优雅退出上限是 10 s）；超过就强制结束。 */
   shutdownMs: number;
+  /**
+   * 拥有的 Host 意外退出后，第 n 次重新拉起之前等待的时间（T5.5）。长度就是最多重试的次数
+   * （`MAX_HOST_RESTARTS`）。
+   */
+  restartDelaysMs: readonly number[];
+  /** 重新拉起的 Host 连续运行这么久之后，重试次数清零：隔很久的偶发崩溃不会耗尽次数。 */
+  stableMs: number;
+  /** 重新拉起之前，host.json 仍记着旧进程时，等它退出的上限。 */
+  exitConfirmMs: number;
+  /** 附着时检查 Host 进程是否还在、等它回来时重读 host.json 的间隔。 */
+  watchMs: number;
 }
 
 export const DEFAULT_HOST_LIFECYCLE_TIMEOUTS: HostLifecycleTimeouts = {
@@ -56,6 +73,10 @@ export const DEFAULT_HOST_LIFECYCLE_TIMEOUTS: HostLifecycleTimeouts = {
   startMs: 30_000,
   pipeCloseMs: 5000,
   shutdownMs: 12_000,
+  restartDelaysMs: [1000, 2000, 4000],
+  stableMs: 60_000,
+  exitConfirmMs: 5000,
+  watchMs: 1000,
 };
 
 export type LogLevel = 'info' | 'warn' | 'error';
@@ -97,10 +118,21 @@ export class HostLifecycle {
   readonly #options: HostLifecycleOptions;
   readonly #timeouts: HostLifecycleTimeouts;
   readonly #log: Log;
-  #starting: Promise<HostReady> | undefined;
+  /** 首次附着或拉起。 */
+  #initial: Promise<HostReady> | undefined;
+  /** 首次之后正在进行的重新拉起、等外部 Host 回来或手动重试。 */
+  #recovery: Promise<void> | undefined;
   #stopping: Promise<void> | undefined;
+  /** 退出时中止重新拉起的等待与附着的检查。 */
+  readonly #shutdown = new AbortController();
   #ready: HostReady | undefined;
-  /** 本次拉起的子进程（含就绪前、退出码 3 的那个）。 */
+  #readyAt = 0;
+  /** 自上次稳定运行以来重新拉起的次数。 */
+  #restarts = 0;
+  #status: HostProcessStatus = { phase: 'starting' };
+  readonly #listeners = new Set<(status: HostProcessStatus) => void>();
+  #watchTimer: ReturnType<typeof setInterval> | undefined;
+  /** 最近一次拉起的子进程（含就绪前、退出码 3 的那个）。 */
   #child: OwnedChild | undefined;
 
   constructor(options: HostLifecycleOptions) {
@@ -113,32 +145,75 @@ export class HostLifecycle {
     return this.#ready?.ownership;
   }
 
-  /**
-   * 附着到已有的 Host，或拉起一个。只尝试一次，重复调用返回同一个 Promise（失败也一样）；Host 中途退出
-   * 后是否重新拉起留给 T5.5。
-   */
-  start(): Promise<HostReady> {
-    if (this.#stopping) return Promise.reject(new HostStartError('桌面端正在退出'));
-    this.#starting ??= this.#start().then((ready) => {
-      this.#ready = ready;
-      this.#log('info', `host ${ready.ownership.kind}`, {
-        pid: ready.ownership.pid,
-        startedAt: ready.ownership.startedAt,
-        hostVersion: ready.hello.hostVersion,
-        protocolVersion: ready.hello.protocolVersion,
-      });
-      return ready;
-    });
-    return this.#starting;
+  get status(): HostProcessStatus {
+    return this.#status;
+  }
+
+  /** Host 的结构化日志（`<数据目录>/logs/host.log`），起不来时告诉用户去看它。 */
+  get logPath(): string {
+    return join(this.#options.home, HOME_LAYOUT.logsDir, LOG_FILE);
+  }
+
+  /** 订阅 Host 进程状态的变化，返回取消订阅的函数。 */
+  onStatus(listener: (status: HostProcessStatus) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   }
 
   /**
-   * 渲染进程连接用的端点：等 Host 就绪后重读 `run/host.json`，所以附着的 Host 被别人重启（换了端口与
-   * 令牌）之后也能拿到新的（ADR-0002 补记 4）。
+   * 首次附着到已有的 Host，或拉起一个。只尝试一次，重复调用返回同一个 Promise（失败也一样）；之后 Host 意外
+   * 退出、附着的 Host 不在了由生命周期自己处理，失败后的重试走 `retry()`。
+   */
+  start(): Promise<HostReady> {
+    if (this.#stopping) return Promise.reject(new HostStartError('桌面端正在退出'));
+    if (!this.#initial) {
+      this.#initial = this.#start();
+      this.#initial.then(
+        (ready) => this.#becomeReady(ready),
+        (error: unknown) => this.#fail(error),
+      );
+    }
+    return this.#initial;
+  }
+
+  /**
+   * Host 起不来（`failed`）之后手动重试：重试次数清零，重新附着或拉起。其他状态下什么也不做（附着的 Host
+   * 不在了只等它回来，不替它拉起）。
+   */
+  retry(): Promise<void> {
+    if (this.#stopping || this.#status.phase !== 'failed' || this.#recovery) {
+      return this.#recovery ?? Promise.resolve();
+    }
+    this.#restarts = 0;
+    this.#setStatus({ phase: 'starting' });
+    return this.#runRecovery(async () => {
+      try {
+        this.#becomeReady(await this.#start());
+      } catch (error) {
+        this.#fail(error);
+      }
+    });
+  }
+
+  /**
+   * 渲染进程连接用的端点：首次等 Host 就绪；之后重读 `run/host.json`，所以 Host 被重新拉起或附着的 Host 被别人
+   * 重启（换了端口与令牌）之后也能拿到新的（ADR-0002 补记 4）。正在重新拉起或起不来时 reject：client-sdk
+   * 按退避重试，界面收到 `running` 后立即重连。
    */
   async endpoint(): Promise<HostEndpoint> {
-    await this.start();
-    return readHostEndpoint(this.#options.home);
+    await this.start().catch(() => {});
+    const status = this.#status;
+    switch (status.phase) {
+      case 'failed':
+        throw new HostStartError(status.error);
+      case 'starting':
+      case 'restarting':
+        throw new HostStartError('Host 正在重新启动');
+      case 'running':
+      case 'waiting':
+        // waiting 时 host.json 可能已经回来、只是还没轮到检查，照读；没有就 reject。
+        return readHostEndpoint(this.#options.home);
+    }
   }
 
   /**
@@ -150,6 +225,169 @@ export class HostLifecycle {
     this.#stopping ??= this.#stop();
     return this.#stopping;
   }
+
+  // ── 状态 ────────────────────────────────────────────────────────────
+
+  #setStatus(status: HostProcessStatus): void {
+    this.#status = status;
+    for (const listener of [...this.#listeners]) {
+      try {
+        listener(status);
+      } catch (error) {
+        this.#log('warn', 'a host status listener threw', { error: describe(error) });
+      }
+    }
+  }
+
+  #becomeReady(ready: HostReady): void {
+    this.#ready = ready;
+    this.#readyAt = performance.now();
+    // 退出期间就绪的（重新拉起刚好完成）：记下归属给 stop 用，不再报状态、不开始检查。
+    if (this.#stopping) return;
+    this.#log('info', `host ${ready.ownership.kind}`, {
+      pid: ready.ownership.pid,
+      startedAt: ready.ownership.startedAt,
+      hostVersion: ready.hello.hostVersion,
+      protocolVersion: ready.hello.protocolVersion,
+    });
+    this.#setStatus({ phase: 'running', ownership: ready.ownership });
+    if (ready.ownership.kind === 'attached') this.#watchAttached(ready.ownership);
+  }
+
+  #fail(error: unknown): void {
+    this.#ready = undefined;
+    if (this.#stopping) return;
+    const message = describe(error);
+    this.#log('error', 'host unavailable', { error: message, logPath: this.logPath });
+    this.#setStatus({ phase: 'failed', error: message, logPath: this.logPath });
+  }
+
+  #runRecovery(task: () => Promise<void>): Promise<void> {
+    const run = task().finally(() => {
+      if (this.#recovery === run) this.#recovery = undefined;
+    });
+    this.#recovery = run;
+    return run;
+  }
+
+  // ── 意外退出与重新拉起（T5.5） ──────────────────────────────────────
+
+  /** 拥有的 Host 在就绪之后退出了，而不是本端要它退出。 */
+  #onOwnedExit(
+    ownership: HostOwnership,
+    child: OwnedChild,
+    exit: { code: number | null; signal: NodeJS.Signals | null },
+  ): void {
+    const reason = exit.code === null ? `信号 ${exit.signal}` : `退出码 ${exit.code}`;
+    this.#log('error', 'owned host exited unexpectedly', {
+      pid: ownership.pid,
+      code: exit.code,
+      signal: exit.signal,
+      stderr: child.stderrTail(),
+    });
+    this.#ready = undefined;
+    if (performance.now() - this.#readyAt >= this.#timeouts.stableMs) this.#restarts = 0;
+    void this.#runRecovery(() => this.#restartLoop(ownership, `Host 意外退出（${reason}）`));
+  }
+
+  async #restartLoop(previous: HostOwnership, firstReason: string): Promise<void> {
+    const delays = this.#timeouts.restartDelaysMs;
+    const maxAttempts = Math.min(delays.length, MAX_HOST_RESTARTS);
+    let reason = firstReason;
+    while (this.#restarts < maxAttempts) {
+      const attempt = ++this.#restarts;
+      this.#setStatus({ phase: 'restarting', attempt, maxAttempts, reason });
+      try {
+        await sleep(delays[attempt - 1] ?? 0, undefined, { signal: this.#shutdown.signal });
+      } catch {
+        return; // 桌面端在退出。
+      }
+      try {
+        this.#log('info', 'restarting host', { attempt, maxAttempts });
+        this.#becomeReady(await this.#relaunch(previous));
+        return;
+      } catch (error) {
+        if (this.#stopping) return;
+        reason = describe(error);
+        this.#log('warn', 'host restart failed', { attempt, error: reason });
+      }
+    }
+    this.#fail(
+      new HostStartError(`${firstReason}，重新拉起 ${maxAttempts} 次都没有成功：${reason}`),
+    );
+  }
+
+  /**
+   * 重新拉起之前按 host.json 的 `{pid, startedAt}` 确认旧进程已退出（Paseo A17）：仍记着旧进程就等它退出（超时
+   * 报错，不会同时跑两个 Host），新 Host 会把这份陈旧的 host.json 换掉。host.json 已经是别人的 Host（这期间
+   * `wevir host start` 等）就附着它；没有 host.json 就拉起。
+   */
+  async #relaunch(previous: HostOwnership): Promise<HostReady> {
+    const info = await this.#readRuntimeInfo();
+    if (info?.pid === previous.pid && info.startedAt === previous.startedAt) {
+      const deadline = performance.now() + this.#timeouts.exitConfirmMs;
+      while (isProcessAlive(info.pid)) {
+        if (performance.now() >= deadline) {
+          throw new HostStartError(`旧的 Host 进程（pid ${info.pid}）还没有退出`);
+        }
+        await sleep(POLL_INTERVAL_MS, undefined, { signal: this.#shutdown.signal });
+      }
+      this.#log('info', 'the previous host has exited; launching a new one', { pid: info.pid });
+      return this.#launch();
+    }
+    return this.#start();
+  }
+
+  // ── 附着的 Host（T5.5） ──────────────────────────────────────────────
+
+  /** 定时检查附着的 Host 进程还在不在；不在了就进入 waiting，等 host.json 出现新的地址。 */
+  #watchAttached(ownership: HostOwnership): void {
+    clearInterval(this.#watchTimer);
+    this.#watchTimer = setInterval(() => {
+      if (this.#stopping || this.#ready?.ownership !== ownership) {
+        clearInterval(this.#watchTimer);
+        return;
+      }
+      if (isProcessAlive(ownership.pid)) return;
+      clearInterval(this.#watchTimer);
+      this.#log('warn', 'attached host is gone; waiting for it to come back', {
+        pid: ownership.pid,
+      });
+      this.#ready = undefined;
+      this.#setStatus({ phase: 'waiting', pid: ownership.pid });
+      void this.#runRecovery(() => this.#waitForHost(ownership));
+    }, this.#timeouts.watchMs);
+    this.#watchTimer.unref?.();
+  }
+
+  /** 等 host.json 出现一个活着、能 hello 的 Host（不是刚消失的那个），附着它。不限时，直到桌面端退出。 */
+  async #waitForHost(gone: HostOwnership): Promise<void> {
+    const { signal } = this.#shutdown;
+    while (!signal.aborted) {
+      try {
+        await sleep(this.#timeouts.watchMs, undefined, { signal });
+      } catch {
+        return;
+      }
+      const info = await this.#readRuntimeInfo();
+      if (info?.url === undefined || info.pid === gone.pid || !isProcessAlive(info.pid)) continue;
+      try {
+        const hello = await this.#probe();
+        this.#becomeReady({
+          ownership: { kind: 'attached', pid: info.pid, startedAt: info.startedAt },
+          hello,
+        });
+        return;
+      } catch (error) {
+        this.#log('warn', 'a host is back in host.json but did not answer yet', {
+          pid: info.pid,
+          error: describe(error),
+        });
+      }
+    }
+  }
+
+  // ── 附着与拉起 ──────────────────────────────────────────────────────
 
   async #start(): Promise<HostReady> {
     const attached = await this.#tryAttach();
@@ -257,14 +495,18 @@ export class HostLifecycle {
       hasExited: () => exitInfo !== undefined,
       stderrTail: () => stderr.trim(),
     };
-    void exited.then(({ code, signal }) => {
-      if (this.#ready?.ownership.kind === 'owned' && !this.#stopping) {
-        this.#log('error', 'owned host exited unexpectedly', {
-          code,
-          signal,
-          stderr: child.stderrTail(),
-        });
+    void exited.then((exit) => {
+      // 就绪之前的退出由 #launch 处理；这里只管已经就绪、视为拥有的那个子进程。
+      const ownership = this.#ready?.ownership;
+      if (
+        this.#stopping ||
+        this.#child !== child ||
+        ownership?.kind !== 'owned' ||
+        ownership.pid !== proc.pid
+      ) {
+        return;
       }
+      this.#onOwnedExit(ownership, child, exit);
     });
     this.#child = child;
     return child;
@@ -344,8 +586,11 @@ export class HostLifecycle {
   }
 
   async #stop(): Promise<void> {
-    // 启动还在进行时先等它结束（成功或失败），才知道子进程与归属。
-    await this.#starting?.catch(() => {});
+    this.#shutdown.abort();
+    clearInterval(this.#watchTimer);
+    // 启动或重新拉起还在进行时先等它结束（成功或失败），才知道子进程与归属。
+    await this.#initial?.catch(() => {});
+    await this.#recovery?.catch(() => {});
     const child = this.#child;
     if (!child || child.hasExited()) return;
     const ownership = this.#ready?.ownership;

@@ -12,7 +12,9 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
-import { Composer } from './composer';
+import { Composer, setDraft } from './composer';
+import { historyDigest } from './history-digest';
+import { RecoveryPanel } from './recovery-panel';
 import { SessionStatus } from './session-status';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 
@@ -65,6 +67,23 @@ export function SessionView({ session }: { session: Session }) {
     transcriptRef.current = handle;
   }, []);
 
+  const resume = useCallback(async () => {
+    if (!client) return;
+    await client.request('session.resume', { sessionId: session.id });
+  }, [client, session.id]);
+
+  // 基于历史新建（T5.5）：对话记录放进同一工作区新会话的输入框，沿用原会话的 Provider，用户确认后发送。
+  const navigate = useNavigate();
+  const startFromHistory = useCallback(() => {
+    if (!transcript) return;
+    setDraft(newSessionDraftKey(session.workspaceId), historyDigest(transcript));
+    const origin: DraftOrigin = {
+      providerId: session.providerId,
+      fromTitle: transcript.title || session.title,
+    };
+    navigate(paths.draft(session.workspaceId), { state: origin });
+  }, [transcript, session.workspaceId, session.providerId, session.title, navigate]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       {state?.error ? (
@@ -88,6 +107,16 @@ export function SessionView({ session }: { session: Session }) {
       )}
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
         {transcript && <ApprovalDock transcript={transcript} client={client} self={identity} />}
+        <RecoveryPanel
+          // 换会话、或从出错变为只读（恢复失败的原因已经写在只读说明里）时重建，清掉上一次的失败提示。
+          key={`${session.id}:${readOnly ? 'read-only' : 'error'}`}
+          state={sessionState}
+          readOnly={readOnly}
+          lastError={transcript?.lastError ?? session.lastError}
+          disabled={!client || !transcript}
+          onResume={resume}
+          onFromHistory={startFromHistory}
+        />
         {notice && (
           <p
             role="alert"
@@ -112,6 +141,25 @@ export function SessionView({ session }: { session: Session }) {
   );
 }
 
+/** 新会话草稿页输入框的草稿归属。 */
+function newSessionDraftKey(workspaceId: string): string {
+  return `draft:${workspaceId}`;
+}
+
+/** 从只读会话“基于历史新建”时带给草稿页的路由 state。 */
+interface DraftOrigin {
+  providerId: string;
+  fromTitle: string;
+}
+
+function draftOrigin(state: unknown): DraftOrigin | undefined {
+  if (state === null || typeof state !== 'object') return undefined;
+  const { providerId, fromTitle } = state as Record<string, unknown>;
+  return typeof providerId === 'string' && typeof fromTitle === 'string'
+    ? { providerId, fromTitle }
+    : undefined;
+}
+
 /**
  * 新会话草稿（`/workspace/:wid/session`）：选工作区与模型，发出第一条消息时才建会话，建好后跳到会话页。
  */
@@ -121,7 +169,8 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const store = useWorkbenchStore();
   const navigate = useNavigate();
   const location = useLocation();
-  const [chosen, setProviderId] = useState<string>();
+  const origin = draftOrigin(location.state);
+  const [chosen, setProviderId] = useState<string | undefined>(origin?.providerId);
   const [error, setError] = useState<string>();
 
   // Provider 列表随工作区列表一起读（workbench-store.ts），设置页改了之后这里跟着变。
@@ -180,6 +229,14 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             {error}
           </p>
         )}
+        {origin && (
+          <p
+            data-testid="draft-from-history"
+            className="mb-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
+          >
+            {t('history.draftNotice', { title: origin.fromTitle })}
+          </p>
+        )}
         {noProvider && (
           <div
             role="alert"
@@ -198,7 +255,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
         )}
         <Composer
           key={workspaceId}
-          draftKey={`draft:${workspaceId}`}
+          draftKey={newSessionDraftKey(workspaceId)}
           state="idle"
           disabled={!client || !providerId}
           onSend={send}

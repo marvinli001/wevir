@@ -4,6 +4,7 @@
 
 export { EXIT_CODE } from './exit-code.js';
 export { HOME_LAYOUT, homePath, type ResolveHomeOptions, resolveHome } from './home.js';
+export { LOG_FILE } from './logger.js';
 export {
   type HostRuntimeInfo,
   isProcessAlive,

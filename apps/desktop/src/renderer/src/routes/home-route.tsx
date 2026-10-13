@@ -7,15 +7,17 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { CenterPage } from './center-page';
+import { useRestoreLastLocation } from './last-location';
 import { paths } from './paths';
 import { PendingPage } from './route-states';
 
 /**
- * `/`：没有选中会话。不自动跳到第一个工作区或最近的会话（启动时恢复上次会话归 T5.5）。还没有 Provider、
- * 工作区或任何会话时显示首次使用的引导（T5.4）。
+ * `/`：没有选中会话。不自动跳到第一个工作区或最近的会话；只有应用刚打开时回到上次打开的会话或工作区（T5.5，
+ * last-location.ts）。还没有 Provider、工作区或任何会话时显示首次使用的引导（T5.4）。
  */
 export function HomeRoute() {
   const data = useWorkbenchData();
+  useRestoreLastLocation(data);
   if (data.status === 'loading') return <PendingPage />;
   if (data.status === 'error') return <PendingPage error={data.error} />;
   const first = data.workspaces[0];

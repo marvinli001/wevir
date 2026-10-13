@@ -6,6 +6,7 @@ import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { resolveRoute, type WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
+import { useRememberLocation } from '@/routes/last-location';
 import { clampSidebarWidth, LAYOUT, type LayoutPlan, planLayout } from './layout-rules';
 import { layoutPrefs, transientLayout, useViewportWidth } from './layout-state';
 import { RightPanel } from './right-panel';
@@ -36,6 +37,7 @@ export function WorkbenchLayout() {
   const { workspaceId, sessionId } = useParams();
   const header = useHeader(workspaceId, sessionId);
   const location = useLocation();
+  useRememberLocation(workspaceId, sessionId);
 
   // 在浮层左栏里选了会话就收起浮层。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在路由变化时触发。

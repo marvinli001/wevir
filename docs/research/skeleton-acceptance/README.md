@@ -76,3 +76,37 @@ Gate M5 的手动验收截图与录屏放在这里（[SKELETON_PLAN §6 M5](../.
 | 再添加同一个文件夹 | “已重新添加工作区“wevir-demo”，之前的会话也回来了。”，1 个会话 | — |
 
 有了 Provider、工作区与会话之后，首页回到“选择一个会话”，带“新建会话”按钮。
+
+## Gate M5 与 T5.5 重启恢复、断线重连（2026-10-14）
+
+环境：仓库根目录 `pnpm install --frozen-lockfile`（Lockfile is up to date）后 `pnpm dev`（开发模式），`WEVIR_HOME` 指向全新的临时数据目录，桌面端自己拉起 `wevir-host --adapter dsh`（真实 dsh 0.2.1-alpha.2，stream-tap 旁路开启）。本机没有模型 Key，Provider 是本地脚本化的 OpenAI 兼容服务（固定端口，按提示里的 `[demo:A]`…`[demo:E]` 决定回复：A 读文件 / glob 后流式输出表格与代码块，B / C / E 写工作区外的文件触发审批，D 长回答；其他提示回答“上下文里有几条你的消息”，用来确认重启后模型看得到之前的对话）。审批用例写到 `packages/adapter-dsh/.test-outside/t55/`（工作区外、不在系统临时目录），用完删掉。操作经 Chrome DevTools 协议（远程调试端口，`WEVIR_DESKTOP_DEBUG_PORT=9349`）发真实的点击、文字输入与按键，截图 1 倍像素密度、系统深色。系统文件夹选择器照 T5.4 的做法经主进程 inspector（`pnpm dev --inspect 9350`）换成返回固定文件夹，其余（IPC、发送方校验、`workspace.add`）都是真的。验收期间窗口有时被别的窗口挡住（`visibilityState: hidden`，不出帧），驱动脚本每次轮询前截一小块图强制出一帧，与界面逻辑无关。
+
+### §4.2 第 1–7 条
+
+| 条目 | 做法与结果 | 截图 |
+|---|---|---|
+| 1. `pnpm install && pnpm dev` 能启动 Host 与桌面应用 | 窗口打开，左栏底部“Host 已连接”，全新数据目录显示三步引导；主进程日志 `host owned {pid, startedAt}` | `m5-1-dev-started.png` |
+| 2. 添加本地文件夹作为工作区、配置 Provider | 设置 → 模型 Provider →“其他 OpenAI 兼容服务”，填本地服务地址、模型 `wevir-mock` 与 Key，保存后自动测试“连接成功”；设置 → 工作区 →“添加文件夹”，“已添加工作区“quarterly-report””。DeepSeek 官方与真实 OpenAI 兼容地址需要 Key，本机未测 | `m5-2-provider-form.png`、`m5-2-provider-saved.png`、`m5-2-workspace-added.png` |
+| 3. 新建会话、发送提示，看到流式输出和工具调用 | 引导第 3 步进草稿页，发送后跳到会话页；`read` → `glob` → `read` 聚合成“读取 2 个文件、搜索 1 次”，表格逐行出现时截图（状态“运行中 · 1 秒”、发送键变“停止”），回合结束后代码块高亮 | `m5-3-streaming.png`、`m5-3-done.png` |
+| 4. 权限请求时出现审批卡片，允许 / 拒绝正确传回 | `[demo:B]`：沙箱先拒绝，模型带 `sandbox_permissions` 重试时输入框上方出现审批卡片（目标、所需权限、理由、内容预览），左栏标“待审批”；点“允许一次”，文件写入。`[demo:C]` 点“拒绝”，工具显示“被拒绝”，文件没有写入（目录里只有 allowed 与后面 CLI 批准的两份） | `m5-4-approval.png`、`m5-4-allowed.png`、`m5-4-denied.png` |
+| 5. 运行中可以取消 | `[demo:D]` 输出到第 6 段时点“停止”，“本轮已取消 · 2.2 秒”，已生成的部分保留，回到空闲 | `m5-5-before-cancel.png`、`m5-5-cancelled.png` |
+| 6. 完全退出再打开，会话列表与完整历史都在，能在原会话上继续 | 关窗口退出：主进程日志“closing the ownership pipe → owned host exited”，Host 进程不在、`run/` 为空。再 `pnpm dev`：拉起新 Host，**直接回到上次打开的会话**（T5.5 第 1 条，没有经过首页），会话区的文字、左栏与退出前逐字相同（1632 字符比对）。追问后显示“引擎会话已恢复（dsh 0.2.1-alpha.2）”，模型回答“上下文里有 6 条你的消息”，即 dsh 恢复了之前的对话 | `m5-6-reopened.png`、`m5-6-continued.png` |
+| 7. `wevir session attach <id>` 与桌面看到同一事件流，在 CLI 中审批，桌面同步 | 伪终端里运行 `wevir session attach`：从头回放全部历史（含桌面发的消息、由桌面做的允许 / 拒绝、取消、“引擎会话已恢复”），“以上为历史，以下为实时”。桌面发 `[demo:E]`，两边同时出现审批；在 CLI 输入 `1`（允许一次），CLI 显示“本终端已处理：允许一次”，桌面的卡片收起并提示“已由本机的命令行处理：允许一次”，工具转成功、回合结束。CLI 是并行进行中的 T4.2（`apps/cli`，尚未提交）构建出的 `dist/main.js` | `m5-7-approval-both.png`、`m5-7-resolved-by-cli.png`、`m5-7-after-cli-approval.png`、`m5-7-cli-attach.txt`（CLI 屏幕记录，去掉了控制序列） |
+
+### T5.5 的四项
+
+| 场景 | 做法与结果 | 截图 |
+|---|---|---|
+| 拥有的 Host 在流式输出中途被 SIGKILL | 顶部“Host 意外退出，正在重新启动（第 1/3 次）…”，左栏底部“Host 重新启动中（第 1/3 次）”；主进程日志：`owned host exited unexpectedly {signal: SIGKILL}` → `restarting host {attempt: 1}` → `the previous host has exited; launching a new one {pid: <旧 pid>}`（host.json 还记着旧进程，确认它已退出才拉起）→ `host owned {pid: <新 pid>}`，约 1 s 后“已重新连接 Host。”。新 Host 的启动对账把被打断的回合记为“本轮被中断”，中断前已经显示的第 1–5 段保留（本任务调整了投影规则，见下）。刷新页面从头回放后，会话区文字与重连后的完全相同 | `t5.5-1-host-crashed-restarting.png`、`t5.5-2-reconnected.png` |
+| 桌面断线期间别的客户端产生事件 | 暂停渲染进程（DevTools `Debugger.pause`）→ `wevir host stop` → `wevir host start`（换了端口与令牌）→ 另一个客户端（CLI 身份）在同一会话发一条 `[demo:A]` 并跑完（seq 560 → 613，53 条事件）→ 恢复渲染进程。顶部出现断线提示，约 1.1 s 后补齐：那条消息只出现一次、回合完整，再刷新页面从头回放，会话区文字与补齐后的逐字相同。（只暂停渲染进程而不重启 Host 时连接不会断：Chromium 的网络栈照常回应 WebSocket 心跳，事件只是缓冲，不算断线用例） | `t5.5-6-caught-up-after-disconnect.png` |
+| 附着的 Host（`wevir host start` 启动） | 桌面端附着，设置 → 关于的“Host 进程”显示“外部启动，已附着（pid …）”。`wevir host stop` 后顶部“Host 已停止，等待它重新运行…”，说明这个 Host 不是桌面端启动的、不会替它启动；等了 5 s，主进程没有拉起任何 Host（日志里没有 `launching host`）。`wevir host start` 后自动附着到新进程并重连，会话区文字与停止前相同。退出桌面端后这个 Host 仍在运行 | `t5.5-3-attached-about.png`、`t5.5-4-external-host-stopped.png`、`t5.5-5-external-host-back.png` |
+| 重新拉起 3 次都失败 | 把 `wevir.db` 设为不可读后 SIGKILL 拥有的 Host：顶部依次显示第 1/3、2/3、3/3 次，随后变为红色“Host 无法启动：Host 意外退出（信号 SIGKILL），重新拉起 3 次都没有成功：Host 启动失败（退出码 1）：wevir-host: 启动失败：unable to open database file”，下面是日志路径与“复制日志路径”（经主进程写入剪贴板，内容就是 `…/logs/host.log`），右侧“重试”；左栏底部“Host 无法启动”。恢复文件权限后点“重试”：拉起新 Host，“已重新连接 Host。” | `t5.5-7-restarting-2-of-3.png`、`t5.5-8-host-failed.png`、`t5.5-9-retried.png` |
+| 会话出错 | 杀掉 Host 的 dsh 子进程：输入框上方“会话出错了”，写明“引擎退出：engine exited with signal SIGKILL”与提示，按钮“恢复会话”；点它后显示“引擎会话已恢复”、回到空闲 | `t5.5-10-session-error.png`、`t5.5-11-session-resumed.png` |
+| 会话只读 | 再杀一次 dsh，并把这个会话在 `DSH_HOME` 里的会话日志移走，点“恢复会话”：转为“会话只读，不能继续对话”，原因“引擎找不到这个会话（引擎数据目录可能被清理过）”与引擎原文，按钮“基于历史新建会话”“再试一次恢复”，输入框禁用。把会话日志放回去后点“再试一次恢复”能解除只读（之后又移走一次做下一步） | `t5.5-12-session-read-only.png` |
+| 基于历史新建会话 | 点“基于历史新建会话”：进同一工作区的新会话草稿，模型选的是原会话的 Provider，输入框里是整理好的对话记录（用户消息、助手正文、用到的工具），光标在末尾的“接下来：”之后，上方提示“已把会话“…”的对话记录放进输入框，可以先修改再发送”；补一句后发送，建出新会话并正常回复，左栏出现这个会话 | `t5.5-13-draft-from-history.png`、`t5.5-14-new-session-from-history.png` |
+
+验收中发现并在本任务里改掉的：
+
+- **Host 崩溃后已经显示的输出会消失。** 投影原来在回合结束时一律丢掉没被已提交消息替换的增量（domain-model §6.3 规则 4）；回合被中断（Host 非正常退出、引擎不可用）时已提交消息不会再来，这条规则就把已经显示的文字删掉了。改为 `interrupted` 的回合保留非空白的增量（`packages/client-sdk/src/projection.ts`，规则 4 同步修改）。
+- 左栏底部的连接状态与顶部提示不一致（Host 已放弃时仍显示“重连中（第 4 次）”），改为同样先看 Host 进程的状态。
+- “恢复会话”失败导致会话转为只读时，只读说明下面又重复了一遍同样的引擎原文，改为转只读时清掉失败提示。

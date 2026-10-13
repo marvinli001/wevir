@@ -199,6 +199,37 @@ describe('TranscriptProjection：增量与已提交消息（domain-model §6.3�
     expect(assistant).toMatchObject({ finished: { outcome: 'completed', durationMs: 10 } });
     expect(transcript.activeTurnId).toBeUndefined();
   });
+
+  it('回合被中断（Host 或引擎退出）时保留中断前已生成的增量，只含空白的块不留', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 0,
+      kind: 'reasoning',
+      text: '先看数据',
+    });
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 1,
+      kind: 'text',
+      text: '第 1 段：华东',
+    });
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 2,
+      kind: 'text',
+      text: ' ',
+    });
+    add('turn.finished', { turnId: TURN, outcome: 'interrupted', durationMs: 5 });
+    expect(assistantParts(list)).toMatchObject([
+      { type: 'reasoning', text: '先看数据', state: 'done' },
+      { type: 'text', text: '第 1 段：华东', state: 'done' },
+    ]);
+  });
 });
 
 describe('TranscriptProjection：工具与审批', () => {

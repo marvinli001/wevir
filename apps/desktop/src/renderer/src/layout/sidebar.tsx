@@ -9,7 +9,7 @@ import { isUnread, useSeenSessions } from '@/data/seen-sessions';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { type SessionMarker, sessionMarker, type WorkspaceEntry } from '@/data/workbench-model';
 import { useHostConnection } from '@/host/host-connection';
-import { HOST_STATUS_TONE, hostStatusText } from '@/host/host-status';
+import { hostIndicator } from '@/host/host-status';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
@@ -231,9 +231,14 @@ function SessionRow({
 }
 
 function HostStatus() {
-  const { view } = useHostConnection();
-  const { tone, pulse } = HOST_STATUS_TONE[view.status];
-  const error = view.status === 'failed' || view.status === 'closed' ? view.error : undefined;
+  const { view, hostStatus } = useHostConnection();
+  const { tone, pulse, text } = hostIndicator(view, hostStatus);
+  const error =
+    hostStatus?.phase === 'failed'
+      ? hostStatus.error
+      : view.status === 'failed' || view.status === 'closed'
+        ? view.error
+        : undefined;
   return (
     <p
       role="status"
@@ -242,7 +247,7 @@ function HostStatus() {
       className="flex h-7 items-center gap-2 px-2 text-xs text-muted-foreground"
     >
       <StatusDot tone={tone} pulse={pulse} />
-      <span className="truncate">{hostStatusText(view)}</span>
+      <span className="truncate">{text}</span>
     </p>
   );
 }
