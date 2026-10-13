@@ -52,3 +52,27 @@ Gate M5 的手动验收截图与录屏放在这里（[SKELETON_PLAN §6 M5](../.
 - **engine.raw**：开发模式下以虚线框的调试样式显示（“未识别的引擎消息（仅开发模式可见）· 方法 · 类型”，可展开原文）；生产构建不投影（`import.meta.env.DEV`）。
 - **复制与 CSP**：代码块“复制”经主进程写入系统剪贴板，按钮显示“已复制”；渲染、高亮期间没有 `securitypolicyviolation`。渲染进程里核对 DOMPurify：`javascript:` 链接只剩文字、原文 HTML 按文本显示、链接标题里的引号注入被转义。
 - **浅色主题**：`t5.3-8-light.png`。
+
+## T5.4 设置：Provider 与工作区（2026-10-14）
+
+环境：`electron-vite dev`（开发模式），`WEVIR_HOME` 指向全新的临时数据目录，桌面端自己拉起 `wevir-host --adapter dsh`（真实 dsh 0.2.1-alpha.2）。本机没有模型 Key，Provider 用本地脚本化的 OpenAI 兼容服务（`@wevir/adapter-dsh/testing` 的 `startMockModel`，任意 Key）。操作经 Chrome DevTools 协议（远程调试端口 9339）发真实的点击与文字输入，截图 1 倍像素密度、系统深色。系统文件夹选择器无法经 DevTools 协议操作：开发进程加 `--inspect 9340`，经主进程的 V8 inspector 把 `dialog.showOpenDialog` 换成返回固定文件夹（记录到的调用参数是 `{properties: ['openDirectory', 'createDirectory']}`），IPC、发送方校验、渲染进程与 Host 的 `workspace.add` 都是真的；“添加文件夹”按钮到系统对话框这一段是 T5.1 的 `selectFolder`，没有改动。
+
+| 步骤 | 结果 | 截图 |
+|---|---|---|
+| 全新数据目录启动 | 中栏显示“开始使用 Wevir”三步引导：配置模型 Provider（当前步）、添加工作区、新建会话 | `t5.4-1-onboarding.png` |
+| 点“去配置”→“添加 Provider” | 设置 → 模型 Provider；先选服务：DeepSeek 官方，或 OpenAI 兼容模板（通义千问、Kimi、智谱 GLM、DeepSeek OpenAI 兼容、本机 Ollama，取自 providers.md §7）、其他 OpenAI 兼容服务 | `t5.4-2-provider-picker.png` |
+| 选 Kimi 模板 | 地址、协议、模型（含上下文长度）都已填好，模板说明与官方文档链接在上方；Key（密码框）排在最前并获得焦点，只需填 Key | `t5.4-3-preset-form.png` |
+| 选“其他 OpenAI 兼容服务”，填本地 mock 的地址、模型 `wevir-mock` 与 Key，保存 | 回到列表，卡片显示 ID、默认模型、地址、“Key 已设置”；有 Key 时保存后自动测一次连接：“连接成功，用时 3 毫秒”。Key 不在页面 DOM、localStorage 里，只在 Host 的 `secrets.json`（0600） | `t5.4-4-custom-form.png`、`t5.4-11-providers-light.png`（浅色） |
+| 再加一个“本机 Ollama”（11434 端口没有服务） | 自动测试失败，读作“连不上服务”＋修复建议＋原文“127.0.0.1:11434 拒绝连接（ECONNREFUSED），服务是否在运行？” | `t5.4-5-test-failed.png` |
+| 编辑 mock Provider | 标题“编辑 本地模拟模型”，ID 不可改，Key 框为空、占位“已设置，留空保持不变”；取消 | — |
+| 删除 Ollama | 确认框写明会同时删除 Key、引用它的会话在重新添加同 ID 前不能继续；确认后从列表消失 | `t5.4-6-remove-provider.png` |
+| 关窗口重开（同一数据目录），回到首页 | Provider 还在，引导第 1 步打勾；点“去添加”→“添加文件夹” | — |
+| 选中 `…/t54/wevir-demo` | “已添加工作区“wevir-demo”。”，列表显示完整路径与会话数 | `t5.4-9-workspaces.png` |
+| 以 `/tmp/…/wevir-demo/` 再添加一次（与 `/private/tmp/…` 同一 realpath） | “这个文件夹已经是工作区“wevir-demo”。”，列表仍只有一行 | — |
+| 选一个不存在的路径 | “文件夹不存在：…” | — |
+| 返回首页 | 前两步打勾，第 3 步“新建会话”可点 | `t5.4-7-onboarding-step3.png` |
+| 新建会话：草稿页默认选中“本地模拟模型 · wevir-mock”，输入后 Enter | 建会话并跳到会话页，真实 dsh 经 mock Provider 流式回复，“本轮已完成 · 0.7 秒”；左栏出现该会话 | `t5.4-8-session.png` |
+| 移除这个工作区（有 1 个未关闭的会话） | 确认框写明只注销、不删除磁盘文件（附完整路径），1 个会话会隐藏、1 个未关闭的会话会先被关闭；确认后列表为空，磁盘上的 `README.md` 仍在 | `t5.4-10-remove-workspace.png` |
+| 再添加同一个文件夹 | “已重新添加工作区“wevir-demo”，之前的会话也回来了。”，1 个会话 | — |
+
+有了 Provider、工作区与会话之后，首页回到“选择一个会话”，带“新建会话”按钮。

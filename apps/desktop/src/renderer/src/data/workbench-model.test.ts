@@ -95,6 +95,7 @@ describe('resolveRoute', () => {
       [workspace('ws_a'), workspace('ws_b')],
       [session('ses_1', 'ws_a'), session('ses_2', 'ws_b')],
     ),
+    providers: [],
   };
 
   it('数据没到之前不判未找到', () => {

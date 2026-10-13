@@ -8,15 +8,17 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useHostConnection } from '@/host/host-connection';
 import { hostStatusText } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
+import { ProviderSettings } from '@/settings/provider-settings';
+import { WorkspaceSettings } from '@/settings/workspace-settings';
 import { setThemeMode, useTheme } from '@/theme/theme';
 import type { ThemeMode } from '../../../shared/theme.js';
 import { NotFound } from './not-found';
 import { isSettingsTab, paths, SETTINGS_TABS, type SettingsTab } from './paths';
 
 const TAB_LABELS: Record<SettingsTab, PlainMessageKey> = {
-  appearance: 'settings.tab.appearance',
   providers: 'settings.tab.providers',
   workspaces: 'settings.tab.workspaces',
+  appearance: 'settings.tab.appearance',
   about: 'settings.tab.about',
 };
 
@@ -88,9 +90,9 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
     case 'about':
       return <AboutSettings />;
     case 'providers':
+      return <ProviderSettings />;
     case 'workspaces':
-      // Provider 与工作区管理归 T5.4。
-      return <p className="text-muted-foreground">{t('settings.placeholder')}</p>;
+      return <WorkspaceSettings />;
   }
 }
 

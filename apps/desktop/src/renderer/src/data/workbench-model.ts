@@ -1,6 +1,6 @@
 // 左栏“工作区 → 会话”树的数据模型与路由解析（T5.2）。纯函数，不碰 DOM 与 Host 连接。
 
-import type { Session, SessionId, Workspace } from '@wevir/protocol';
+import type { ProviderProfile, Session, SessionId, Workspace } from '@wevir/protocol';
 
 export interface WorkspaceEntry {
   workspace: Workspace;
@@ -10,7 +10,7 @@ export interface WorkspaceEntry {
 
 export type WorkbenchData =
   | { status: 'loading' }
-  | { status: 'ready'; workspaces: WorkspaceEntry[] }
+  | { status: 'ready'; workspaces: WorkspaceEntry[]; providers: ProviderProfile[] }
   | { status: 'error'; error: string };
 
 /**

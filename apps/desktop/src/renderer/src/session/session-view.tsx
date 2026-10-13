@@ -1,9 +1,10 @@
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
-import type { ProviderProfile, Session } from '@wevir/protocol';
+import type { Session } from '@wevir/protocol';
 import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useLocation, useNavigate } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
+import { Button } from '@/components/ui/button';
 import { markSeen } from '@/data/seen-sessions';
 import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
@@ -119,27 +120,13 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const data = useWorkbenchData();
   const store = useWorkbenchStore();
   const navigate = useNavigate();
-  const [providers, setProviders] = useState<ProviderProfile[]>();
-  const [providerId, setProviderId] = useState<string>();
+  const location = useLocation();
+  const [chosen, setProviderId] = useState<string>();
   const [error, setError] = useState<string>();
 
-  useEffect(() => {
-    if (!client) return;
-    let cancelled = false;
-    client
-      .request('provider.list')
-      .then(({ providers: list }) => {
-        if (cancelled) return;
-        setProviders(list);
-        setProviderId((current) => current ?? list[0]?.id);
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) setError(t('session.providersFailed', { error: describe(reason) }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [client]);
+  // Provider 列表随工作区列表一起读（workbench-store.ts），设置页改了之后这里跟着变。
+  const providers = data.status === 'ready' ? data.providers : undefined;
+  const providerId = providers?.some((p) => p.id === chosen) ? chosen : providers?.[0]?.id;
 
   const workspaceId = entry.workspace.id;
   const send = useCallback(
@@ -185,13 +172,29 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
         </div>
       </div>
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
-        {(error || noProvider) && (
+        {error && (
           <p
             role="alert"
             className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
           >
-            {error ?? t('session.noProvider')}
+            {error}
           </p>
+        )}
+        {noProvider && (
+          <div
+            role="alert"
+            className="mb-2 flex items-center gap-3 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
+          >
+            <span className="min-w-0 flex-1">{t('session.noProvider')}</span>
+            <Button
+              size="sm"
+              variant="outline"
+              nativeButton={false}
+              render={<Link to={paths.settings('providers')} state={{ from: location }} />}
+            >
+              {t('session.goProviders')}
+            </Button>
+          </div>
         )}
         <Composer
           key={workspaceId}

@@ -12,9 +12,9 @@ export const ROUTE_PATTERNS = {
   settingsTab: '/settings/:tab',
 } as const;
 
-export const SETTINGS_TABS = ['appearance', 'providers', 'workspaces', 'about'] as const;
+export const SETTINGS_TABS = ['providers', 'workspaces', 'appearance', 'about'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
-export const DEFAULT_SETTINGS_TAB: SettingsTab = 'appearance';
+export const DEFAULT_SETTINGS_TAB: SettingsTab = 'providers';
 
 export function isSettingsTab(value: string | undefined): value is SettingsTab {
   return (SETTINGS_TABS as readonly (string | undefined)[]).includes(value);
