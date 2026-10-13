@@ -1,0 +1,17 @@
+{
+  "name": "wevir-spike-codex-app-server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "一次性验证：Wevir 以 codex app-server 为运行时，直连 Responses、经网关转 Chat Completions。不属于 pnpm workspace，不进入产品构建，没有 npm 依赖。",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "fetch": "bash scripts/fetch-binary.sh",
+    "spike": "node src/run-all.ts",
+    "real": "node src/real.ts",
+    "network": "node src/network-audit.ts"
+  }
+}

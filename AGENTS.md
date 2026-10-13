@@ -47,7 +47,7 @@ wevir/
 └─ vitest.config.ts    根测试配置，每个包是一个 project
 ```
 
-gitignore 掉的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`spikes/**/.dsh-home/`（Spike 用的独立 DSH_HOME）。
+gitignore 掉的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`spikes/**/.dsh-home/`（Spike 用的独立 DSH_HOME）、`spikes/**/.bin/`（Spike 下载的引擎二进制，如 codex-app-server）、`spikes/**/.run/`（Spike 运行时的临时目标目录）。
 
 ## 常用命令
 
