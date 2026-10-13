@@ -255,7 +255,7 @@ describe('DshAdapter', () => {
     expect(lb.some((e) => e.type === 'assistant.delta')).toBe(false);
   });
 
-  it('不认识的会话、审批（T3.3 之前）、resume 已挂着的会话、dispose 之后', async () => {
+  it('不认识的会话、没有未决审批、resume 已挂着的会话、dispose 之后', async () => {
     const { adapter, config } = setup({ streamTap: false });
     await expectAdapterError(adapter.send('nope', text('order')), 'session_not_found');
     expect(() => adapter.subscribe('nope')).toThrow(/不认识/);

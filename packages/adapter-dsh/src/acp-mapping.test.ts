@@ -46,6 +46,8 @@ const COVERED_ELSEWHERE: Record<string, string> = {
   'session-close.response.json': 'dsh-adapter.test.ts：close 收到 {} 后结束订阅',
   'errors/close-unknown-session.json':
     'dsh-adapter.test.ts：close 遇到 -32602 unknown session 仍算关闭',
+  'mock/permission/responses.json':
+    'dsh-adapter.approval.test.ts：回给 dsh 的 allow / deny / cancelled 响应与样本逐个相等（T3.3）',
 };
 
 /** 不属于 T3.2 的样本，写明原因。 */
@@ -54,7 +56,6 @@ const EXEMPT: Record<string, string> = {
   'errors/resume-active-session.json': 'resume 属于 T3.5',
   'errors/resume-cwd-mismatch.json': 'resume 属于 T3.5',
   'errors/session-load-unsupported.json': 'Wevir 不调用 session/load',
-  'mock/permission/responses.json': 'request_permission 的回复属于 T3.3',
   'mock/scenarios/F-stream-granularity.summary.json': '计时摘要，不含 ACP 消息（T0.3 §4）',
   'mock/scenarios/H-first-request-after-resume.json':
     'mock Provider 收到的模型请求，不是 ACP 消息（T3.5）',
@@ -214,7 +215,7 @@ describe('permission：审批前后两次工具调用的完整生命周期', () 
   });
 
   it.each(NOT_AN_UPDATE)(
-    '%s 不是 session/update，不会被当作会话更新路由（审批属于 T3.3）',
+    '%s 不是 session/update，不会被当作会话更新路由（审批桥接见 dsh-adapter.approval.test.ts）',
     (file) => {
       expect(isAcpSessionNotification(readFixture(file))).toBe(false);
     },

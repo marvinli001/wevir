@@ -80,7 +80,8 @@ export interface AgentRuntimeAdapter {
   listPendingApprovals(engineSessionId?: string): Promise<PendingApproval[]>;
 
   /**
-   * 取消进行中的回合（dsh：先以 cancelled 回复挂起的审批，再发 `session/cancel`，ADR-0001 §6）。
+   * 取消进行中的回合（dsh：发 `session/cancel`，并以 cancelled 回复挂起的审批，ADR-0001 §6；写出顺序同
+   * T0.3 场景 D，先 `session/cancel`）。
    * 未决审批以 `approval.cancelled`（`turn_cancelled`）结束，回合以 `turn.settled`（`cancelled`）
    * 或其他终结事件结束；返回时终结事件已经发出。幂等：没有回合、重复调用、会话已关闭或不认识都直接
    * 成功，一个回合只结算一次。

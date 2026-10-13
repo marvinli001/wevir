@@ -16,6 +16,35 @@ export interface MockRequest {
   messages: Array<{ role: string; content?: unknown }>;
 }
 
+/** 消息内容的文本：字符串，或 `[{type: 'text', text}]` 各段相连。 */
+export function textOf(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => (typeof part?.text === 'string' ? (part.text as string) : ''))
+    .join('');
+}
+
+/**
+ * 本回合：最后一条含 `marker` 的用户消息（dsh 会在提示之后另加一条运行时上下文的用户消息，所以不能取最后一条），
+ * 以及它之后的工具结果（按顺序）。
+ */
+export function turnOf(
+  request: MockRequest,
+  marker: string,
+): { prompt: string; toolResults: string[] } {
+  const index = request.messages.findLastIndex(
+    (m) => m.role === 'user' && textOf(m.content).includes(marker),
+  );
+  return {
+    prompt: index < 0 ? '' : textOf(request.messages[index]?.content),
+    toolResults: request.messages
+      .slice(index + 1)
+      .filter((m) => m.role === 'tool')
+      .map((m) => textOf(m.content)),
+  };
+}
+
 /** 一次回复：先逐片发思考，再逐片发文本，最后可选一个工具调用。每片之间等 `delayMs`。 */
 export interface MockReply {
   reasoning?: readonly string[];
@@ -32,6 +61,8 @@ export interface MockModel {
 export async function startMockModel(
   script: (request: MockRequest) => MockReply,
 ): Promise<MockModel> {
+  // dsh 用 Provider 给的 id 作 ACP 的 toolCallId，一个会话里的工具调用 id 不能重复。
+  let toolCalls = 0;
   const server = createServer((req, res) => {
     if (req.method === 'GET') {
       res.writeHead(200, { 'content-type': 'application/json' });
@@ -78,7 +109,7 @@ export async function startMockModel(
           tool_calls: [
             {
               index: 0,
-              id: 'call_wevir_mock',
+              id: `call_wevir_mock_${++toolCalls}`,
               type: 'function',
               function: {
                 name: reply.toolCall.name,

@@ -12,7 +12,9 @@
 //   crash-once      同上，但只在第一次启动时（以 cwd 里的标记文件区分）
 //   ask-permission  回应 initialize 后发一条 session/update 和一个 session/request_permission
 //   acp             DshAdapter 测试用（T3.2）：回应 session/new、session/prompt、session/cancel、
-//                   session/close，按提示词的第一个词决定回合怎么走（见下方 PROMPT_SCRIPTS）
+//                   session/close，按提示词的第一个词决定回合怎么走（见下方 PROMPT_SCRIPTS）。
+//                   第一个词是 `replay:<样本名>` 时回放 $FAKE_DSH_FIXTURES/<样本名>.jsonl（T3.3，见 replay()）。
+//                   收到的每条客户端消息（initialize 之外）按顺序记在 fake-dsh.json 的 received 里。
 // FAKE_DSH_GRANDCHILD=1：再拉起一个不理会 SIGTERM 的子进程（留在同一进程组里）。
 //
 // stream-tap（T3.2a）：
@@ -28,6 +30,7 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  readFileSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -149,7 +152,15 @@ lines.on('line', (line) => {
       });
     }
   } else if (mode === 'acp') {
-    acp(message);
+    record.received.push(message);
+    save();
+    if (message.method === undefined) {
+      // 客户端对 dsh 所发请求（session/request_permission）的响应。
+      waiters.get(message.id)?.(message);
+      waiters.delete(message.id);
+    } else {
+      acp(message);
+    }
   } else if (message.id === 'permission-1') {
     record.permissionResponse = message.result ?? message.error;
     save();
@@ -163,7 +174,10 @@ lines.on('close', () => {
 
 // ── acp 模式 ───────────────────────────────────────────────────────────────────────
 
+record.received = [];
 let sessionCount = 0;
+/** dsh 发出、等客户端回复的请求 id → 收到回复时调用。 */
+const waiters = new Map();
 /** sessionId → 等 session/cancel 的 prompt 请求 id。 */
 const hanging = new Map();
 /** 引擎侧“丢了”的会话：session/close 报 unknown session（T0.3 fixtures/acp/errors/close-unknown-session.json）。 */
@@ -303,7 +317,11 @@ function acp(message) {
       },
     });
   } else if (method === 'session/prompt') {
-    const word = params.prompt[0]?.text.split(' ')[0];
+    const word = params.prompt[0]?.text.split(' ')[0] ?? '';
+    if (word.startsWith('replay:')) {
+      void replay(word.slice('replay:'.length), params.sessionId, id);
+      return;
+    }
     const script = PROMPT_SCRIPTS[word] ?? PROMPT_SCRIPTS.order;
     script(params.sessionId, id);
   } else if (method === 'session/cancel') {
@@ -324,4 +342,41 @@ function acp(message) {
   } else if (id !== undefined) {
     send({ id, error: { code: -32601, message: `"Method not found": ${method}` } });
   }
+}
+
+/**
+ * 回放一份 T0.3 录制（`mock/transcripts/*.jsonl`）里 dsh 在第一个 session/prompt 之后写出的消息：会话 ID 换成
+ * 当前会话，prompt 的结果换成当前请求的 id，其他响应（回应录制里别的请求）跳过。连续的消息一次写出，所以
+ * 审批请求与它前面的 tool_call 在同一次读里到达。遇到 dsh 发出的请求（session/request_permission）先停下，
+ * 等客户端回复了再继续：回复的内容不影响后面回放什么，测试要用与决定相符的样本（B allow、C deny、D cancel）。
+ */
+async function replay(name, sessionId, promptId) {
+  const lines = readFileSync(join(process.env.FAKE_DSH_FIXTURES, `${name}.jsonl`), 'utf8')
+    .split('\n')
+    .filter((line) => line.trim() !== '')
+    .map((line) => JSON.parse(line));
+  const start = lines.findIndex((l) => l.dir === 'c2a' && l.msg.method === 'session/prompt');
+  const recordedSession = lines[start].msg.params.sessionId;
+  const recordedPrompt = lines[start].msg.id;
+  let batch = [];
+  const flush = () => {
+    if (batch.length > 0) process.stdout.write(batch.map((m) => `${JSON.stringify(m)}\n`).join(''));
+    batch = [];
+  };
+  for (const { dir, msg } of lines.slice(start + 1)) {
+    if (dir !== 'a2c') continue;
+    const out = JSON.parse(JSON.stringify(msg).replaceAll(recordedSession, sessionId));
+    if (out.method === undefined) {
+      if (out.id !== recordedPrompt) continue;
+      batch.push({ ...out, id: promptId });
+      continue;
+    }
+    batch.push(out);
+    if (out.id !== undefined) {
+      const answered = new Promise((resolve) => waiters.set(out.id, resolve));
+      flush();
+      await answered;
+    }
+  }
+  flush();
 }

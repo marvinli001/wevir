@@ -52,7 +52,8 @@ export function readTranscript(rel: string): TranscriptLine[] {
 /**
  * 按 DshAdapter 的路径回放一份录制：`session/prompt` 请求开回合，dsh 写出的 `session/update` 按顺序交给会话
  * 队列，`session/prompt` 的结果或错误结束回合。返回每个会话的事件（按 sessionId）与告警。
- * `session/request_permission` 属于 T3.3，回放里不处理。
+ * `session/request_permission` 不处理：审批由 DshAdapter 经 ACP SDK 应答，回放见 dsh-adapter.approval.test.ts
+ * （fake-dsh.mjs 的 replay）。
  */
 export async function replayTranscript(
   lines: readonly TranscriptLine[],

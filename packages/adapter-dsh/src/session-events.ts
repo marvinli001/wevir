@@ -1,4 +1,10 @@
-import { type AgentEvent, EventHub, type TurnTerminalEvent } from '@wevir/runtime-adapter';
+import {
+  type AgentEvent,
+  type ApprovalCancelledEvent,
+  type ApprovalRequestedEvent,
+  EventHub,
+  type TurnTerminalEvent,
+} from '@wevir/runtime-adapter';
 import {
   type AcpRawReason,
   type AcpSessionNotification,
@@ -14,10 +20,11 @@ export interface AdapterLogger {
 }
 
 /**
- * 一个引擎会话的有序事件队列（T3.2）。三路输入都是同步调用，按调用顺序产出事件：
+ * 一个引擎会话的有序事件队列（T3.2）。各路输入都是同步调用，按调用顺序产出事件：
  * - ACP `session/update`：DshProcess 在 SDK 之前按 dsh 写出的顺序交来（dsh-process.ts），所以本队列里的
  *   ACP 事件与 ACP 交付顺序一致，并且排在同一条流里后到的 `session/prompt` 结果（回合终结事件）之前；
  * - stream-tap 的增量（fd 3，另一条管道）：实时转发，由 `DeltaMerger` 与已提交消息对齐；
+ * - 审批（T3.3）：适配器收到 `session/request_permission` 与结束未决审批时交来；
  * - 回合边界：适配器发出 `session/prompt` 时 `beginTurn`，拿到结果时 `endTurn`。
  *
  * 回合之外只发 `engine.raw` 与 `engine.exited`（events.ts 的顺序约定）：回合外到达的其他 ACP 更新改发
@@ -95,6 +102,14 @@ export class SessionEventQueue {
     const out =
       event.type === 'assistant.delta' ? this.#merger.delta(event) : this.#merger.ended(event);
     if (out !== undefined) this.#hub.emit(out);
+  }
+
+  /**
+   * 审批的开始与结束（T3.3）。审批只属于回合（events.ts 的顺序约定），不在回合中时忽略；适配器在回合结束、
+   * 引擎退出之前先结束未决审批，所以 `approval.cancelled` 不会被丢掉。
+   */
+  approval(event: ApprovalRequestedEvent | ApprovalCancelledEvent): void {
+    if (this.#inTurn) this.#hub.emit(event);
   }
 
   /** 回合的终结事件（`turn.settled` / `turn.failed`）。不在回合中时忽略。 */
