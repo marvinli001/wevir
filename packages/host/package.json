@@ -2,7 +2,7 @@
   "name": "@wevir/host",
   "version": "0.0.0",
   "private": true,
-  "description": "Wevir Local Agent Host: event store, replay, session snapshots, the session manager and the WebSocket JSON-RPC server.",
+  "description": "Wevir Local Agent Host: event store, replay, session snapshots, the session manager, the WebSocket JSON-RPC server and the wevir-host executable.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -13,6 +13,9 @@
       "default": "./dist/index.js"
     },
     "./package.json": "./package.json"
+  },
+  "bin": {
+    "wevir-host": "./dist/main.js"
   },
   "files": [
     "dist"

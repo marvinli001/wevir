@@ -1,7 +1,8 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // main.ts 是可执行入口 wevir-host（package.json 的 bin）。
+  entry: ['src/index.ts', 'src/main.ts'],
   platform: 'node',
   // platform 为 node 时 tsdown 默认输出 .mjs；与其他包一致按 "type": "module" 输出 .js。
   fixedExtension: false,

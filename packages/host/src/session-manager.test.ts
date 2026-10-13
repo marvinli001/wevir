@@ -731,6 +731,58 @@ describe('SessionManager：取消与关闭', () => {
   });
 });
 
+describe('SessionManager：Host 优雅退出', () => {
+  it('shutdown()：新命令返回 HOST_SHUTTING_DOWN；活动回合按 #5 #8 取消，未决审批结为 cancelled（host_shutdown）；idle 的会话不动', async () => {
+    const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 5, chunkSize: 1 }) });
+    const waiting = await create(h);
+    const generating = await create(h);
+    const quiet = await create(h);
+    await send(h, waiting, 'please approve');
+    const approval = await waitForApproval(h, waiting);
+    await send(h, generating, 'a long reply that is still being generated');
+    await vi.waitFor(() =>
+      expect(ofType(h, generating, 'assistant.delta').length).toBeGreaterThan(0),
+    );
+
+    const stopping = h.manager.shutdown();
+    // 重复调用等同一次退出，不会提前 dispose、打断正在进行的取消。
+    expect(h.manager.shutdown()).toBe(stopping);
+    // 取消还在进行时到达的命令也被拒绝。
+    await expect(send(h, quiet, 'hi')).rejects.toMatchObject({ code: 'HOST_SHUTTING_DOWN' });
+    await expect(h.manager.cancel(quiet)).rejects.toMatchObject({ code: 'HOST_SHUTTING_DOWN' });
+    await stopping;
+
+    expect(ofType(h, waiting, 'approval.resolved')[0]?.payload).toEqual({
+      approvalId: approval.id,
+      status: 'cancelled',
+      resolution: { reason: 'host_shutdown' },
+    });
+    expect(transitions(h, waiting)).toEqual([
+      'idle→running:turn_started',
+      'running→awaiting_approval:approval_requested',
+      'awaiting_approval→cancelling:cancel_requested',
+      'cancelling→idle:turn_finished',
+    ]);
+    expect(transitions(h, generating)).toEqual([
+      'idle→running:turn_started',
+      'running→cancelling:cancel_requested',
+      'cancelling→idle:turn_finished',
+    ]);
+    for (const id of [waiting, generating]) {
+      expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('cancelled');
+    }
+    expect(transitions(h, quiet)).toEqual([]);
+    expect(h.storage.approvals.get(approval.id)?.status).toBe('cancelled');
+    // 已经 dispose：之后的调用同样被拒，重复调用无操作。
+    await expect(send(h, waiting, 'again')).rejects.toMatchObject({ code: 'HOST_SHUTTING_DOWN' });
+    await h.manager.shutdown();
+
+    // 重启后不需要对账：会话都已回到 idle，审批已结清。
+    const { report } = restart(h);
+    expect(report).toEqual({ expiredApprovals: 0, interruptedSessions: [], unknownSends: 0 });
+  });
+});
+
 describe('SessionManager：恢复会话（#12）', () => {
   it('error 与 closed 时 resume 回到 idle，之后能继续对话', async () => {
     const h = setup();

@@ -155,7 +155,7 @@ export class RpcConnection {
     return this.#subscriptions.size;
   }
 
-  /** 等这条连接上在途的请求全部结束（包括等待期间新到的）。 */
+  /** 等这条连接上在途的请求与补发全部结束（包括等待期间新到的）。 */
   async settle(): Promise<void> {
     while (this.#inflight.size > 0) await Promise.all([...this.#inflight]);
   }
@@ -426,11 +426,14 @@ export class RpcConnection {
       this.#drop(subscription);
       return;
     }
-    this.#replay(subscription, sinceSeq, lastSeq).catch((error: unknown) => {
-      // 补发失败（读库出错）时客户端会一直等不到事件；断开让它重连后重新订阅。
-      this.#host.onError(error);
-      this.terminate();
-    });
+    // 补发也算在途：优雅退出时等它读完库再关闭数据库（`settle()`）。
+    this.#track(
+      this.#replay(subscription, sinceSeq, lastSeq).catch((error: unknown) => {
+        // 补发失败（读库出错）时客户端会一直等不到事件；断开让它重连后重新订阅。
+        this.#host.onError(error);
+        this.terminate();
+      }),
+    );
   }
 
   async #replay(subscription: Subscription, sinceSeq: number, through: number): Promise<void> {

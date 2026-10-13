@@ -18,8 +18,10 @@ import type {
   TurnId,
   TurnOutcome,
 } from '@wevir/protocol';
+import { PROTOCOL_VERSION, type WevirEvent } from '@wevir/protocol';
 import { openStorage, type Storage } from '@wevir/storage';
 import { afterEach, beforeEach } from 'vitest';
+import { WebSocket } from 'ws';
 import type { AppendInput, DeltaInput } from './event-store.js';
 import { EventStore, type EventStoreOptions } from './event-store.js';
 
@@ -259,4 +261,107 @@ export function delta(
   turnId: TurnId = TURN,
 ): DeltaInput {
   return { turnId, streamId: STREAM, blockIndex, kind, text };
+}
+
+// ── 进程级测试用的最小 RPC 客户端 ───────────────────────────────────────
+
+interface RpcFrame {
+  id?: number;
+  // biome-ignore lint/suspicious/noExplicitAny: 测试按需读取任意形状的 result。
+  result?: any;
+  error?: { code: number; message: string; data?: unknown };
+  method?: string;
+  params?: { subscriptionId: string; event: WevirEvent };
+}
+
+/** 连到 Host 的 ws 客户端：按 `id` 等响应，按订阅收事件，`until` 每收到一帧重查一次。 */
+export class TestRpcClient {
+  readonly ws: WebSocket;
+  readonly closed: Promise<{ code: number; reason: string }>;
+  readonly #frames: RpcFrame[] = [];
+  readonly #listeners = new Set<() => void>();
+  #nextId = 1;
+
+  private constructor(ws: WebSocket) {
+    this.ws = ws;
+    ws.on('message', (data) => {
+      this.#frames.push(JSON.parse(String(data)) as RpcFrame);
+      this.#notify();
+    });
+    this.closed = new Promise((resolve) => {
+      ws.on('close', (code, reason) => {
+        resolve({ code, reason: String(reason) });
+        this.#notify();
+      });
+    });
+  }
+
+  static connect(url: string): Promise<TestRpcClient> {
+    const client = new TestRpcClient(new WebSocket(url));
+    return new Promise((resolve, reject) => {
+      client.ws.once('open', () => resolve(client));
+      client.ws.once('error', reject);
+    });
+  }
+
+  /** 发请求，返回响应帧（成功或失败都返回）。 */
+  call(method: string, params: unknown = {}): Promise<RpcFrame> {
+    const id = this.#nextId++;
+    this.ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
+    return this.until(() => this.#frames.find((frame) => frame.id === id), method);
+  }
+
+  /** 发请求，成功返回 result，失败抛错（带 `code`）。 */
+  // biome-ignore lint/suspicious/noExplicitAny: 同上。
+  async request(method: string, params: unknown = {}): Promise<any> {
+    const frame = await this.call(method, params);
+    if (frame.error) throw Object.assign(new Error(frame.error.message), frame.error);
+    return frame.result;
+  }
+
+  hello(token: string, who: ClientIdentity = identity): Promise<RpcFrame> {
+    return this.call('host.hello', {
+      token,
+      protocolVersion: PROTOCOL_VERSION,
+      ...who,
+      capabilities: {},
+    });
+  }
+
+  events(subscriptionId: string): WevirEvent[] {
+    return this.#frames.flatMap((frame) =>
+      frame.method === 'events.event' && frame.params?.subscriptionId === subscriptionId
+        ? [frame.params.event]
+        : [],
+    );
+  }
+
+  until<T>(check: () => T | undefined, label: string, timeoutMs = 5000): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const listener = () => {
+        const value = check();
+        if (value !== undefined) {
+          cleanup();
+          resolve(value);
+        } else if (this.ws.readyState === WebSocket.CLOSED) {
+          cleanup();
+          reject(new Error(`连接已关闭，${label} 未满足`));
+        }
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(`等待 ${label} 超时`));
+      }, timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.#listeners.delete(listener);
+      };
+      this.#listeners.add(listener);
+      listener();
+    });
+  }
+
+  #notify(): void {
+    for (const listener of [...this.#listeners]) listener();
+  }
 }

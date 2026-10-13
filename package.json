@@ -12,11 +12,13 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel --if-present dev",
+    "dev:host": "pnpm --filter \"@wevir/host...\" build && node packages/host/dist/main.js --home ./.wevir-dev --adapter echo",
     "lint": "biome check . && node scripts/check-engine-boundary.mjs",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "typecheck": "pnpm -r typecheck",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gate:m2": "pnpm --filter \"@wevir/host...\" build && node scripts/gate-m2.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

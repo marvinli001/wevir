@@ -1,0 +1,245 @@
+// T2.5：startHost 组装出的 Host（真实的存储、EchoAdapter、WebSocket 服务与 run/host.json），在进程内
+// 启动与退出。进程级的行为（信号、stdin 归属管道、SIGKILL 后重启）见 cli.test.ts 与 scripts/gate-m2.ts。
+
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
+import { join } from 'node:path';
+import { CloseCode, PROTOCOL_VERSION, type SessionId, type WevirEvent } from '@wevir/protocol';
+import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  HOST_VERSION,
+  type RunningHost,
+  type ShutdownTrigger,
+  type StartHostOptions,
+  startHost,
+} from './host-process.js';
+import { createLogger } from './logger.js';
+import { HostAlreadyRunningError, type HostRuntimeInfo } from './runtime-file.js';
+import { identity, TestRpcClient, useTempDir } from './test-utils.js';
+
+const tempDir = useTempDir();
+const running: RunningHost[] = [];
+const clients: TestRpcClient[] = [];
+
+// 注册在 useTempDir 之后：先断客户端、停 Host，再删临时目录。
+afterEach(async () => {
+  for (const client of clients.splice(0)) client.ws.terminate();
+  for (const host of running.splice(0)) await host.shutdown();
+});
+
+const SHUTDOWN_STEPS = [
+  'stop_accepting',
+  'cancel_turns',
+  'dispose_adapter',
+  'flush_storage',
+  'close_connections',
+  'remove_runtime_file',
+];
+
+async function start(
+  options: Partial<Pick<StartHostOptions, 'home' | 'adapter' | 'port' | 'onShutdownRequest'>> = {},
+) {
+  const lines: Array<Record<string, unknown>> = [];
+  const logger = createLogger({
+    level: 'debug',
+    mirror: (line) => lines.push(JSON.parse(line) as Record<string, unknown>),
+  });
+  const home = options.home ?? join(tempDir(), 'home');
+  const host = await startHost({
+    adapter: new EchoAdapter({ stepDelayMs: 1 }),
+    engine: 'echo',
+    logger,
+    ...options,
+    home,
+  });
+  running.push(host);
+  return { host, home, lines };
+}
+
+function runtimeFile(home: string): string {
+  return join(home, 'run', 'host.json');
+}
+
+function runtimeInfo(home: string): HostRuntimeInfo {
+  return JSON.parse(readFileSync(runtimeFile(home), 'utf8')) as HostRuntimeInfo;
+}
+
+async function connect(host: RunningHost): Promise<TestRpcClient> {
+  const client = await TestRpcClient.connect(host.url);
+  clients.push(client);
+  const frame = await client.hello(runtimeInfo(host.home).token as string);
+  expect(frame.error).toBeUndefined();
+  return client;
+}
+
+async function createSession(client: TestRpcClient): Promise<SessionId> {
+  const workspaceDir = join(tempDir(), 'workspace');
+  mkdirSync(workspaceDir, { recursive: true });
+  const { workspace } = await client.request('workspace.add', { rootPath: workspaceDir });
+  await client.request('provider.upsert', {
+    id: 'deepseek-official',
+    kind: 'deepseek-official',
+    displayName: 'DeepSeek',
+    models: [],
+    defaultModelId: 'deepseek-chat',
+  });
+  const { session } = await client.request('session.create', {
+    workspaceId: workspace.id,
+    providerId: 'deepseek-official',
+  });
+  return session.id;
+}
+
+function transitions(events: WevirEvent[]): string[] {
+  return events.flatMap((e) =>
+    e.type === 'session.state_changed'
+      ? [`${e.payload.from}→${e.payload.to}:${e.payload.reason}`]
+      : [],
+  );
+}
+
+describe('startHost', () => {
+  it('就绪后 host.json 带 url 与令牌；hostId 写进 host-id、跨重启不变；退出时删除 host.json', async () => {
+    const { host, home } = await start();
+    const info = runtimeInfo(home);
+    expect(info).toEqual({
+      pid: process.pid,
+      startedAt: expect.any(String),
+      protocolVersion: PROTOCOL_VERSION,
+      hostVersion: HOST_VERSION,
+      url: host.url,
+      token: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+    });
+    expect(Buffer.from(info.token as string, 'base64url')).toHaveLength(32);
+    expect(readFileSync(join(home, 'host-id'), 'utf8').trim()).toBe(host.hostId);
+    const client = await connect(host);
+    expect(await client.request('host.ping')).toEqual({});
+
+    await host.shutdown();
+    expect(existsSync(runtimeFile(home))).toBe(false);
+    expect((await client.closed).code).toBe(CloseCode.GOING_AWAY);
+
+    const again = await start({ home });
+    expect(again.host.hostId).toBe(host.hostId);
+    expect(runtimeInfo(home).token).not.toBe(info.token);
+  });
+
+  it('优雅退出按 ADR-0002 §6 的顺序：运行中的回合被取消、未决审批结为 cancelled（host_shutdown），订阅者在 1001 关闭前收到', async () => {
+    const { host, home, lines } = await start();
+    const client = await connect(host);
+    const sessionId = await createSession(client);
+    const { subscriptionId } = await client.request('events.subscribe', { sessionId, sinceSeq: 0 });
+    await client.request('session.send', {
+      sessionId,
+      content: [{ type: 'text', text: 'please approve' }],
+    });
+    const requested = await client.until(
+      () => client.events(subscriptionId).find((e) => e.type === 'approval.requested'),
+      'approval.requested',
+    );
+    const approvalId =
+      requested.type === 'approval.requested' ? requested.payload.approval.id : undefined;
+
+    await host.shutdown({ kind: 'api' });
+    expect((await client.closed).code).toBe(CloseCode.GOING_AWAY);
+    const events = client.events(subscriptionId);
+    expect(events.find((e) => e.type === 'approval.resolved')?.payload).toEqual({
+      approvalId,
+      status: 'cancelled',
+      resolution: { reason: 'host_shutdown' },
+    });
+    expect(events.find((e) => e.type === 'turn.finished')?.payload).toMatchObject({
+      outcome: 'cancelled',
+    });
+    expect(transitions(events).slice(-2)).toEqual([
+      'awaiting_approval→cancelling:cancel_requested',
+      'cancelling→idle:turn_finished',
+    ]);
+    expect(lines.filter((l) => l.msg === 'shutdown step done').map((l) => l.step)).toEqual(
+      SHUTDOWN_STEPS,
+    );
+    expect(lines.some((l) => l.msg === 'shutdown step failed')).toBe(false);
+    expect(existsSync(runtimeFile(home))).toBe(false);
+
+    // 优雅退出已结清会话，重启时不需要对账。
+    const again = await start({ home });
+    expect(again.lines.some((l) => l.msg === 'recovered from unclean shutdown')).toBe(false);
+    const client2 = await connect(again.host);
+    expect((await client2.request('session.get', { sessionId })).session.state).toBe('idle');
+  });
+
+  it('host.shutdown：默认直接优雅退出；给了 onShutdownRequest 时交给它，带发起方', async () => {
+    const { host, home } = await start();
+    const client = await connect(host);
+    expect(await client.request('host.shutdown')).toEqual({});
+    expect((await client.closed).code).toBe(CloseCode.GOING_AWAY);
+    await vi.waitFor(() => expect(existsSync(runtimeFile(home))).toBe(false));
+
+    const triggers: ShutdownTrigger[] = [];
+    const other = await start({
+      home: join(tempDir(), 'other'),
+      onShutdownRequest: (trigger) => triggers.push(trigger),
+    });
+    const client2 = await connect(other.host);
+    expect(await client2.request('host.shutdown')).toEqual({});
+    expect(triggers).toEqual([{ kind: 'rpc', client: identity }]);
+    expect(existsSync(runtimeFile(other.home))).toBe(true);
+  });
+
+  it('同一数据目录已有活着的 Host：抛 HostAlreadyRunningError，不打开数据库、不动对方的 host.json', async () => {
+    const home = join(tempDir(), 'home');
+    mkdirSync(join(home, 'run'), { recursive: true });
+    const theirs = JSON.stringify({
+      pid: process.ppid,
+      startedAt: new Date().toISOString(),
+      protocolVersion: PROTOCOL_VERSION,
+      hostVersion: HOST_VERSION,
+      url: 'ws://127.0.0.1:1/',
+      token: 'theirs',
+    });
+    writeFileSync(runtimeFile(home), theirs);
+    await expect(start({ home })).rejects.toBeInstanceOf(HostAlreadyRunningError);
+    expect(readFileSync(runtimeFile(home), 'utf8')).toBe(theirs);
+    expect(existsSync(join(home, 'wevir.db'))).toBe(false);
+  });
+
+  it('上一个 Host 被杀留下的 host.json：回收并记日志', async () => {
+    const home = join(tempDir(), 'home');
+    mkdirSync(join(home, 'run'), { recursive: true });
+    const pid = spawnSync(process.execPath, ['-e', '']).pid as number;
+    const stale = { pid, startedAt: new Date().toISOString() };
+    writeFileSync(
+      runtimeFile(home),
+      JSON.stringify({ ...stale, protocolVersion: '0.1.0', hostVersion: '0.0.0', url: 'ws://x/' }),
+    );
+    const { host, lines } = await start({ home });
+    expect(runtimeInfo(home)).toMatchObject({ pid: process.pid, url: host.url });
+    expect(lines.find((l) => l.msg === 'reclaimed stale runtime file')).toMatchObject({
+      stalePid: stale.pid,
+      staleStartedAt: stale.startedAt,
+    });
+  });
+
+  it('启动失败时回收已建好的部分：端口被占用 → 抛错、删除 host.json、dispose 适配器，之后可以再启动', async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, '127.0.0.1', resolve));
+    const port = (blocker.address() as { port: number }).port;
+    const home = join(tempDir(), 'home');
+    const adapter = new EchoAdapter();
+    try {
+      await expect(start({ home, adapter, port })).rejects.toMatchObject({ code: 'EADDRINUSE' });
+    } finally {
+      blocker.close();
+    }
+    expect(existsSync(runtimeFile(home))).toBe(false);
+    await expect(
+      adapter.createSession({ cwd: home, providerId: 'p', modelId: 'm' }),
+    ).rejects.toMatchObject({
+      code: 'disposed',
+    });
+    await start({ home });
+    expect(runtimeInfo(home).pid).toBe(process.pid);
+  });
+});

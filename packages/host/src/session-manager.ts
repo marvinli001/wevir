@@ -157,6 +157,9 @@ export class SessionManager {
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
   readonly #whenDisposed = deferred();
+  /** `shutdown()` 开始后为 true：新命令一律 `HOST_SHUTTING_DOWN`，已排队的照常执行。 */
+  #shuttingDown = false;
+  #shutdown: Promise<void> | undefined;
   #disposed = false;
 
   constructor(options: SessionManagerOptions) {
@@ -529,9 +532,33 @@ export class SessionManager {
   }
 
   /**
+   * Host 优雅退出的“取消运行中的回合”一步（ADR-0002 §6）：之后到达的命令返回
+   * `HOST_SHUTTING_DOWN`；每个会话排在已有命令之后，活动中的按 #5 取消，未决审批结为 `cancelled`
+   * （`host_shutdown`，domain-model §5 第 5 条），等结算（#8）或判定无法确认（#9）；最后 `dispose()`。
+   * 各会话并行，单个会话最多等 `cancelTimeoutMs`。不 `dispose` 适配器。可重复调用，返回同一个
+   * Promise。
+   */
+  shutdown(): Promise<void> {
+    this.#shutdown ??= this.#runShutdown();
+    return this.#shutdown;
+  }
+
+  async #runShutdown(): Promise<void> {
+    this.#shuttingDown = true;
+    await Promise.all(
+      [...this.#runtimes.values()].map((runtime) =>
+        this.#serial(runtime, () => this.#cancelTurn(runtime, 'host_shutdown')).catch(
+          this.#onError,
+        ),
+      ),
+    );
+    await this.dispose();
+  }
+
+  /**
    * 停止消费引擎事件，之后不再写任何事件（不 `dispose` 适配器），等进行中的命令结束：还在等引擎的
    * 命令照常等适配器返回，然后以 `HOST_SHUTTING_DOWN` 失败。之后的调用同样返回
-   * `HOST_SHUTTING_DOWN`。Host 优雅退出时先按 ADR-0002 §6 取消回合，再调用它（T2.5）。
+   * `HOST_SHUTTING_DOWN`。Host 优雅退出时用 `shutdown()`，它先取消回合再调用这里。
    */
   async dispose(): Promise<void> {
     if (this.#disposed) return;
@@ -586,7 +613,7 @@ export class SessionManager {
   /** #5，然后等结算（#8）或判定无法确认（#9）。不在活动状态时什么都不做。 */
   async #cancelTurn(
     runtime: SessionRuntime,
-    reason: 'turn_cancelled' | 'session_closed',
+    reason: 'turn_cancelled' | 'session_closed' | 'host_shutdown',
   ): Promise<void> {
     const snapshot = this.#snapshot(runtime);
     const { state } = snapshot.session;
@@ -1010,7 +1037,8 @@ export class SessionManager {
     inputs: readonly AppendInput[],
     options?: Parameters<EventStore['appendMany']>[2],
   ) {
-    this.#assertOpen();
+    // 不用 #assertOpen：shutdown() 期间取消回合、处理引擎事件仍要写。
+    if (this.#disposed) throw new HostError('HOST_SHUTTING_DOWN', 'host is shutting down');
     const events = this.#events.appendMany(runtime.id, inputs, options);
     for (const event of events) {
       if (event.type === 'turn.finished') {
@@ -1105,7 +1133,9 @@ export class SessionManager {
   }
 
   #assertOpen(): void {
-    if (this.#disposed) throw new HostError('HOST_SHUTTING_DOWN', 'host is shutting down');
+    if (this.#shuttingDown || this.#disposed) {
+      throw new HostError('HOST_SHUTTING_DOWN', 'host is shutting down');
+    }
   }
 }
 

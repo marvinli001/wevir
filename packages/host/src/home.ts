@@ -1,0 +1,66 @@
+import { homedir } from 'node:os';
+import { isAbsolute, join, posix, resolve, win32 } from 'node:path';
+
+/** 数据目录里的固定位置。`wevir.db`、`secrets.json` 由 storage 包定义。 */
+export const HOME_LAYOUT = {
+  /** 运行时文件 `host.json` 所在目录（0700）。 */
+  runDir: 'run',
+  /** 结构化日志目录（0700）。 */
+  logsDir: 'logs',
+  /** `hostId`：每个数据目录一个，跨 Host 重启不变（host-api.md §2）。 */
+  hostIdFile: 'host-id',
+} as const;
+
+export interface ResolveHomeOptions {
+  /** `--home` 参数。 */
+  home?: string;
+  /** 默认 `process.env`。 */
+  env?: NodeJS.ProcessEnv;
+  /** 默认 `process.platform`。 */
+  platform?: NodeJS.Platform;
+  /** 默认 `os.homedir()`。 */
+  homedir?: string;
+  /** 相对路径的基准，默认 `process.cwd()`。 */
+  cwd?: string;
+}
+
+/**
+ * 解析数据目录（SKELETON_PLAN §6 T2.5）：`WEVIR_HOME` > `--home` > 平台默认。相对路径按 `cwd`
+ * 解析成绝对路径。
+ *
+ * 平台默认：macOS `~/Library/Application Support/Wevir`，Windows `%APPDATA%\Wevir`（没有
+ * `APPDATA` 时退回 `~\AppData\Roaming\Wevir`），其他平台 `$XDG_DATA_HOME/wevir`（未设或不是
+ * 绝对路径时按 XDG 规范退回 `~/.local/share/wevir`）。
+ */
+export function resolveHome(options: ResolveHomeOptions = {}): string {
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  const path = platform === 'win32' ? win32 : posix;
+  const cwd = options.cwd ?? process.cwd();
+  const explicit = nonEmpty(env.WEVIR_HOME) ?? nonEmpty(options.home);
+  if (explicit !== undefined) return path.resolve(cwd, explicit);
+
+  const home = options.homedir ?? homedir();
+  switch (platform) {
+    case 'darwin':
+      return path.join(home, 'Library', 'Application Support', 'Wevir');
+    case 'win32':
+      return path.join(nonEmpty(env.APPDATA) ?? path.join(home, 'AppData', 'Roaming'), 'Wevir');
+    default: {
+      const xdg = nonEmpty(env.XDG_DATA_HOME);
+      const base =
+        xdg !== undefined && path.isAbsolute(xdg) ? xdg : path.join(home, '.local', 'share');
+      return path.join(base, 'wevir');
+    }
+  }
+}
+
+/** 数据目录里某个固定位置的绝对路径。 */
+export function homePath(home: string, entry: keyof typeof HOME_LAYOUT): string {
+  if (!isAbsolute(home)) throw new Error(`数据目录必须是绝对路径：${home}`);
+  return join(resolve(home), HOME_LAYOUT[entry]);
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  return value === undefined || value === '' ? undefined : value;
+}

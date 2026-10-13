@@ -1001,6 +1001,28 @@ describe('关闭', () => {
     await expect(RpcClient.connect(h.url)).rejects.toThrow();
   });
 
+  it('stopAccepting：不再接受新连接，未 hello 的连接以 1001 关闭、新请求回 HOST_SHUTTING_DOWN；已连上的订阅照常收到事件，close() 再以 1001 关闭', async () => {
+    const h = await startHost();
+    const client = await readyClient(h);
+    const sessionId = await createSession(h, client);
+    const { subscriptionId, replayedThroughSeq } = await subscribe(client, sessionId);
+    const pending = await RpcClient.connect(h.url);
+
+    await h.server.stopAccepting();
+    expect((await pending.closed).code).toBe(CloseCode.GOING_AWAY);
+    await expect(RpcClient.connect(h.url)).rejects.toThrow();
+    expect((await client.call('host.ping')).error?.code).toBe(ErrorCode.HOST_SHUTTING_DOWN);
+
+    // 退出流程里写的事件（例如取消回合）仍推送给已连上的订阅者。
+    h.events.append(sessionId, usage(1));
+    const event = await client.waitForEvent(subscriptionId, (e) => e.type === 'usage.updated');
+    expect(event.seq).toBe(replayedThroughSeq + 1);
+    expect(client.ws.readyState).toBe(WebSocket.OPEN);
+
+    await h.server.close();
+    expect((await client.closed).code).toBe(CloseCode.GOING_AWAY);
+  });
+
   it('等在途请求有上限：超时后照样关闭', async () => {
     const h = await startHost({
       methods: { 'workspace.list': () => new Promise<never>(() => {}) },

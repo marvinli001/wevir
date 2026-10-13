@@ -34,9 +34,9 @@ wevir/
 │  ├─ protocol/        Host API 协议包：zod schema、方法注册表、事件、错误码（见 docs/architecture/host-api.md）
 │  ├─ runtime-adapter/ 引擎适配接口 AgentRuntimeAdapter / AgentEvent；子路径 ./contract 是契约测试套件，./echo 是开发用假引擎
 │  ├─ storage/         Host 本地存储：node:sqlite 驱动（只在 src/driver.ts）、事务、手写 SQL 迁移（migrations/）、各表仓储、SecretStore
-│  └─ host/            Local Agent Host：事件库 EventStore（seq 分配、增量合并、截断、进程内事件总线）、会话快照推导、会话管理器 SessionManager（状态机、审批、引擎事件映射、启动对账）、WebSocket JSON-RPC 服务 HostRpcServer（升级校验、hello、分发与校验、订阅、连接健康）与 Host API 方法实现 createHostMethods
+│  └─ host/            Local Agent Host：事件库 EventStore（seq 分配、增量合并、截断、进程内事件总线）、会话快照推导、会话管理器 SessionManager（状态机、审批、引擎事件映射、启动对账）、WebSocket JSON-RPC 服务 HostRpcServer（升级校验、hello、分发与校验、订阅、连接健康）与 Host API 方法实现 createHostMethods；进程组装 startHost（运行时文件 run/host.json、结构化日志、按 ADR-0002 §6 优雅退出）与可执行入口 wevir-host（src/main.ts）
 ├─ docs/               规划、任务 prompt、上游登记（docs/upstream/）、ADR、研究笔记、架构文档（docs/architecture/）
-├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh）
+├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh、gate-m2.ts）
 ├─ biome.json          lint + format（含引擎边界规则）
 ├─ tsconfig.base.json  所有包共用的 TS 配置
 └─ vitest.config.ts    根测试配置，每个包是一个 project
@@ -53,6 +53,8 @@ wevir/
 | `pnpm install` | 安装依赖 |
 | `pnpm build` | 构建所有包（库用 tsdown）；typecheck 和 test 不依赖它，只有在 Node 里直接运行包时才需要先构建 |
 | `pnpm dev` | 并行运行各包的 `dev` 脚本（目前没有包提供） |
+| `pnpm dev:host` | 构建 `@wevir/host` 及其依赖，以 EchoAdapter 在 `./.wevir-dev` 启动 `wevir-host`（Ctrl-C 优雅退出） |
+| `pnpm gate:m2` | 构建后运行 `scripts/gate-m2.ts`：Gate M2 端到端验收（子进程 Host + 最小 WebSocket 客户端），加 `--keep` 保留临时数据目录 |
 | `pnpm lint` | `biome check`（lint、格式检查、import 边界）+ 依赖声明边界检查 |
 | `pnpm lint:fix` | 自动修复 lint 与格式问题 |
 | `pnpm format` | 只格式化 |

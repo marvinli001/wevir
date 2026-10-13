@@ -79,8 +79,9 @@ export interface HostRpcServerOptions {
  * - WebSocket 升级前校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与
  *   `Origin` 白名单，不通过一律 403，不会走到 JSON-RPC 层。非升级的 HTTP 请求回 426。
  * - 每条连接的协议细节见 `RpcConnection`。
- * - `close()`：停止接受新连接，新请求回 `HOST_SHUTTING_DOWN`，等在途请求结束（有上限），再以
- *   `GOING_AWAY` 关闭所有连接。
+ * - `stopAccepting()`：停止接受新连接，新请求回 `HOST_SHUTTING_DOWN`，等在途请求结束（有上限）；
+ *   `close()` 在此之后以 `GOING_AWAY` 关闭所有连接。进程入口在两者之间按 ADR-0002 §6 取消回合、
+ *   回收引擎、刷写 SQLite。
  */
 export class HostRpcServer {
   readonly #options: HostRpcServerOptions;
@@ -91,6 +92,9 @@ export class HostRpcServer {
   #http: Server | undefined;
   #port: number | undefined;
   #shuttingDown = false;
+  /** HTTP 服务停止监听、现有 TCP 连接都结束时完成。 */
+  #stopped: Promise<void> | undefined;
+  #stopping: Promise<void> | undefined;
   #closing: Promise<void> | undefined;
 
   constructor(options: HostRpcServerOptions) {
@@ -174,19 +178,29 @@ export class HostRpcServer {
   }
 
   /**
-   * 优雅关闭：停止接受新连接，之后到达的请求回 `HOST_SHUTTING_DOWN`；尚未 hello 的连接立即关闭；
-   * 等在途请求结束（最多 `drainTimeoutMs`），再以 `GOING_AWAY` 关闭所有连接，对方迟迟不回关闭帧的
-   * 直接断开。可重复调用，返回同一个 Promise。
+   * 优雅退出的第一步（ADR-0002 §6）：停止接受新连接（升级回 503），之后到达的请求回
+   * `HOST_SHUTTING_DOWN`，尚未 hello 的连接立即关闭，再等在途请求结束（最多 `drainTimeoutMs`）。
+   * 已完成 hello 的连接保持打开，退出期间写入的事件（取消回合、审批结为 `cancelled`）照常推送给
+   * 订阅者，最后由 `close()` 关闭。可重复调用，返回同一个 Promise。
+   */
+  stopAccepting(options: { drainTimeoutMs?: number } = {}): Promise<void> {
+    this.#stopping ??= this.#stopAccepting(options.drainTimeoutMs ?? SHUTDOWN_DRAIN_TIMEOUT_MS);
+    return this.#stopping;
+  }
+
+  /**
+   * 优雅关闭：先 `stopAccepting()`，再以 `GOING_AWAY` 关闭所有连接，对方迟迟不回关闭帧的直接断开。
+   * 可重复调用，返回同一个 Promise。
    */
   close(options: { drainTimeoutMs?: number } = {}): Promise<void> {
-    this.#closing ??= this.#shutdown(options.drainTimeoutMs ?? SHUTDOWN_DRAIN_TIMEOUT_MS);
+    this.#closing ??= this.#close(options.drainTimeoutMs);
     return this.#closing;
   }
 
-  async #shutdown(drainTimeoutMs: number): Promise<void> {
+  async #stopAccepting(drainTimeoutMs: number): Promise<void> {
     this.#shuttingDown = true;
     const http = this.#http;
-    const stopped = new Promise<void>((resolve) => {
+    this.#stopped = new Promise<void>((resolve) => {
       if (!http?.listening) resolve();
       else http.close(() => resolve());
     });
@@ -195,6 +209,10 @@ export class HostRpcServer {
       Promise.all([...this.#connections].map((connection) => connection.settle())),
       drainTimeoutMs,
     );
+  }
+
+  async #close(drainTimeoutMs: number | undefined): Promise<void> {
+    await this.stopAccepting(drainTimeoutMs === undefined ? {} : { drainTimeoutMs });
     for (const connection of this.#connections) connection.goAway();
     const closeTimeout = this.#connectionHost.limits.closeTimeoutMs;
     await withTimeout(
@@ -204,8 +222,8 @@ export class HostRpcServer {
     for (const connection of this.#connections) connection.terminate();
     await Promise.all([...this.#connections].map((connection) => connection.closed));
     // 还没发出升级请求的 TCP 连接也不等它超时。
-    http?.closeAllConnections();
-    await stopped;
+    this.#http?.closeAllConnections();
+    await this.#stopped;
   }
 
   #upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): void {
