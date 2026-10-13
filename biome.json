@@ -47,6 +47,15 @@
                 "message": "引擎边界：只有 packages/adapter-dsh 可以 import @deepseek-ai/*（见 AGENTS.md）。"
               },
               {
+                "group": [
+                  "@openai/codex",
+                  "@openai/codex/**",
+                  "@openai/codex-*",
+                  "@openai/codex-*/**"
+                ],
+                "message": "引擎边界：只有 packages/adapter-codex 可以 import @openai/codex*（见 AGENTS.md）。"
+              },
+              {
                 "group": ["**/spikes/**"],
                 "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
               }
@@ -66,6 +75,39 @@
               "level": "error",
               "options": {
                 "patterns": [
+                  {
+                    "group": [
+                      "@openai/codex",
+                      "@openai/codex/**",
+                      "@openai/codex-*",
+                      "@openai/codex-*/**"
+                    ],
+                    "message": "引擎边界：只有 packages/adapter-codex 可以 import @openai/codex*（见 AGENTS.md）。"
+                  },
+                  {
+                    "group": ["**/spikes/**"],
+                    "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/adapter-codex/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@deepseek-ai/**"],
+                    "message": "引擎边界：只有 packages/adapter-dsh 可以 import @deepseek-ai/*（见 AGENTS.md）。"
+                  },
                   {
                     "group": ["**/spikes/**"],
                     "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
@@ -89,6 +131,15 @@
                   {
                     "group": ["@deepseek-ai/**"],
                     "message": "stream-tap 插件在 dsh 进程里运行，只用 Cordis 的 ctx，不 import @deepseek-ai/*（T3.2a，ADR-0001 §3）。"
+                  },
+                  {
+                    "group": [
+                      "@openai/codex",
+                      "@openai/codex/**",
+                      "@openai/codex-*",
+                      "@openai/codex-*/**"
+                    ],
+                    "message": "引擎边界：只有 packages/adapter-codex 可以 import @openai/codex*（见 AGENTS.md）。"
                   },
                   {
                     "group": ["**/spikes/**"],

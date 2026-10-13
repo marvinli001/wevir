@@ -154,3 +154,9 @@
    - **highlight.js 11.12.0（BSD-3-Clause），不用 OpenWork 的 Shiki**：渲染进程的 CSP 不放行 HTML 里的 `style` 属性（`style-src` 不含 `'unsafe-inline'`），Shiki 的输出是逐个 token 的内联 `style`；它默认的 Oniguruma 引擎还要 WebAssembly，CSP 的 `script-src` 没有 `'wasm-unsafe-eval'`。highlight.js 输出带类名的 `<span>`，颜色在 `styles/markdown.css` 里映射到 `tokens.css` 的代码 Token，亮暗主题跟着语义变量走。只用 `highlight.js/lib/common`（常见语言），动态 `import()` 成单独的 chunk，代码块进入视口附近才加载、才高亮。
    - **剪贴板**：渲染进程的权限一律拒绝（T5.1），`navigator.clipboard.writeText` 要 `clipboard-sanitized-write`，被拒；不放开权限，preload 加 `copyText`，由主进程 `clipboard.writeText` 代写（只写不读，校验发送方与长度）。
    - **渲染进程的测试**：Markdown 渲染器的测试跑在 Node 上，没有 DOM，DOMPurify 用不了，测试里 `vi.mock('dompurify')` 换成原样返回，只核对 marked 的输出与流式时的块复用；清洗本身在 Electron 渲染进程里核对（`javascript:` 链接、原文 HTML、属性注入）。
+
+7. **2026-10-14，Codex 运行时调研：引擎边界加上 `@openai/codex*`。** ADR-0005 草案打算以 `codex app-server` 为默认引擎，将来由新包 `packages/adapter-codex` 独占它的 npm 包，与 dsh 的做法相同。提前把边界写进两道检查，免得以后有人先在别的包里引入：
+   - `scripts/check-engine-boundary.mjs` 改为按引擎列表检查：`@deepseek-ai/*` → `packages/adapter-dsh`，`@openai/codex` 与 `@openai/codex-*`（含 `npm:@openai/codex…` 别名，平台包就是这样声明的）→ `packages/adapter-codex`。`@openai/codexfoo`、`@openai/agents` 这类名字不算。
+   - `biome.json` 的 `noRestrictedImports` 在根规则、adapter-dsh 与 stream-tap 的覆盖里加上 `@openai/codex` 系列，另为 `packages/adapter-codex/**` 加一条覆盖：放行 codex，照旧拦 `@deepseek-ai/**` 与 `spikes/`。
+   - 用临时的探针包核对过：其他包里的 `import '@openai/codex-sdk'`、`'@openai/codex/bin'` 与依赖声明（含别名）都报错，adapter-codex 里的 codex 不报、`@deepseek-ai/dsh` 报；探针已删除。
+   - 目前没有任何包声明 codex：Spike 用的是 GitHub Release 的独立二进制（UPSTREAM.md §1.2），`spikes/` 不在 pnpm workspace 里。

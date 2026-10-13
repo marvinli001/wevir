@@ -1,11 +1,13 @@
 // 引擎边界的第二道防线：检查各工作区包 package.json 里的依赖声明。
 //
+// 每个引擎的 npm 包只能由它自己的适配器包声明（ENGINES）：@deepseek-ai/* 只在 packages/adapter-dsh，
+// @openai/codex（含 @openai/codex-sdk 等 @openai/codex-* 包）只在 packages/adapter-codex（ADR-0005 草案）。
 // Biome 的 noRestrictedImports（见 biome.json）负责拦截静态 import、动态 import() 等写法，
 // 但看不见 CommonJS require()、createRequire() 之类的加载方式。pnpm 的 node_modules 是隔离的：
-// 一个包只能解析到自己声明的依赖，以及根 package.json 的依赖。所以只要 adapter-dsh 以外
-// （包括仓库根）没有声明 @deepseek-ai/*，任何写法在运行时都解析不到。
+// 一个包只能解析到自己声明的依赖，以及根 package.json 的依赖。所以只要适配器包以外
+// （包括仓库根）没有声明引擎包，任何写法在运行时都解析不到。
 // 前提是不开启 node-linker=hoisted、shamefully-hoist、enableGlobalVirtualStore、preferSymlinkedExecutables，
-// 不用 public-hoist-pattern 提升 @deepseek-ai，并保持 pnpm-workspace.yaml 的 extendNodePath: false：
+// 不用 public-hoist-pattern 提升引擎包，并保持 pnpm-workspace.yaml 的 extendNodePath: false：
 // 否则命令 shim 会把 node_modules/.pnpm/node_modules 写进 NODE_PATH，require() 经它解析到没声明的包
 // （ADR-0004 补记 3）。这一条在安装时才生效，所以本脚本还检查已生成的 shim：设置被去掉、或者 checkout 在
 // 设置之前装过依赖（要 pnpm install --force 才会重写 shim），lint 都会失败，而不是让测试静默放过违规写法。
@@ -16,7 +18,19 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ENGINE_OWNER = 'packages/adapter-dsh';
+const ENGINES = [
+  {
+    owner: 'packages/adapter-dsh',
+    label: '@deepseek-ai/*',
+    matches: (name, spec) => name.startsWith('@deepseek-ai/') || /^npm:@deepseek-ai\//.test(spec),
+  },
+  {
+    owner: 'packages/adapter-codex',
+    label: '@openai/codex*',
+    matches: (name, spec) =>
+      /^@openai\/codex(-|$)/.test(name) || /^npm:@openai\/codex(-[^@]*)?(@|$)/.test(spec),
+  },
+];
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -65,12 +79,13 @@ for (const dir of dirs) {
   const where = repoPath(file);
   for (const field of DEP_FIELDS) {
     for (const [name, spec] of Object.entries(pkg[field] ?? {})) {
-      const isEngine = name.startsWith('@deepseek-ai/') || /^npm:@deepseek-ai\//.test(spec);
-      if (isEngine && dir !== ENGINE_OWNER) {
-        violations.push({
-          file: where,
-          message: `${field}.${name} — 只有 ${ENGINE_OWNER} 可以依赖 @deepseek-ai/*`,
-        });
+      for (const engine of ENGINES) {
+        if (engine.matches(name, spec) && dir !== engine.owner) {
+          violations.push({
+            file: where,
+            message: `${field}.${name} — 只有 ${engine.owner} 可以依赖 ${engine.label}`,
+          });
+        }
       }
       if (/^(file|link|portal):/.test(spec) && /(^|[/\\:])spikes([/\\]|$)/.test(spec)) {
         violations.push({ file: where, message: `${field}.${name} — 不得依赖 spikes/ 下的代码` });
