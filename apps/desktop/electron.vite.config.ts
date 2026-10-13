@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
-import { defaultClientConditions } from 'vite';
+import { defaultClientConditions, defaultServerConditions } from 'vite';
 import { developmentCsp } from './src/shared/csp.js';
 import { DEV_SERVER_PORT } from './src/shared/renderer-origin.js';
 
@@ -17,7 +17,9 @@ export default defineConfig(({ command }) => {
   const nonce = randomBytes(18).toString('base64');
   return {
     main: {
-      resolve: { conditions: ['@wevir/source'] },
+      // 主进程按 SSR 构建：对它生效的是 ssr.resolve.conditions，顶层 resolve.conditions 不起作用（T6.1 在全新
+      // 克隆里发现，之前主进程打包的其实是各包的 dist/，client-sdk 没构建过就失败）。
+      ssr: { resolve: { conditions: ['@wevir/source', ...defaultServerConditions] } },
       build: { externalizeDeps: { exclude: WORKSPACE_PACKAGES } },
     },
     preload: {

@@ -8,7 +8,7 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "pnpm --filter \"@wevir/host...\" build && electron-vite dev",
+    "dev": "pnpm --filter \"@wevir/host...\" build && install-electron && electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer && tsc --noEmit -p src/renderer/tsconfig.test.json",

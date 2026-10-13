@@ -110,3 +110,37 @@ Gate M5 的手动验收截图与录屏放在这里（[SKELETON_PLAN §6 M5](../.
 - **Host 崩溃后已经显示的输出会消失。** 投影原来在回合结束时一律丢掉没被已提交消息替换的增量（domain-model §6.3 规则 4）；回合被中断（Host 非正常退出、引擎不可用）时已提交消息不会再来，这条规则就把已经显示的文字删掉了。改为 `interrupted` 的回合保留非空白的增量（`packages/client-sdk/src/projection.ts`，规则 4 同步修改）。
 - 左栏底部的连接状态与顶部提示不一致（Host 已放弃时仍显示“重连中（第 4 次）”），改为同样先看 Host 进程的状态。
 - “恢复会话”失败导致会话转为只读时，只读说明下面又重复了一遍同样的引擎原文，改为转只读时清掉失败提示。
+
+## T6.1 开发文档：从全新克隆跑起 pnpm dev（2026-10-14）
+
+按 [docs/development.md](../../development.md) 从零走一遍，同时验证 §7 的大陆网络配置。
+
+环境：macOS 26（Apple Silicon）。干净环境用 `env -i` 构造：`HOME`、`TMPDIR` 是全新的空目录（没有任何 npm、pnpm、Electron、git 的配置与缓存，数据目录也随之是全新的），`PATH` 只有 Node 24.21.0 与系统目录（没有 Homebrew 的 Node 与 pnpm），git 是系统自带的 2.50.1。仓库是对本机仓库 `244825d`（T6.3）的全新 `git clone`。另起一个只记录目标域名的本地 HTTP 代理，经 `HTTPS_PROXY` 确认每一步访问了哪些域名。验证在维护者本机的网络上进行。
+
+| 步骤 | 做法 | 耗时 | 结果 |
+|---|---|---|---|
+| Node | 从 `npmmirror.com/mirrors/node/` 下载 24.21.0 macOS arm64 包 | 9 s | SHA-256 与 nodejs.org 的 `SHASUMS256.txt` 一致 |
+| pnpm | `npm install -g pnpm@12.6.0 --registry=https://registry.npmmirror.com` | 9 s | 只访问 `registry.npmmirror.com`、`cdn.npmmirror.com` |
+| 克隆 | `git clone` | < 1 s | 本地克隆 |
+| registry | `pnpm config set registry https://registry.npmmirror.com --location=global` | — | 写进 `~/Library/Preferences/pnpm/auth.ini`；`pnpm config delete … --location=global` 能改回 |
+| 安装 | `pnpm install` | 24 s | 137 个连接全部是 npmmirror 的两个域名；5 个构建脚本照 `allowBuilds` 运行，node-pty、koffi 用预编译文件，没有源码编译；之后 `git status` 干净（lockfile 未变） |
+| 第一次 `pnpm dev` | `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm dev` | 失败 | 问题 1、2，修好后重来 |
+| 第一次 `pnpm dev`（修复后） | 同上 | 26 s 显示“Host 已连接” | Electron 44.7.0（129 MB）从 npmmirror 下载 19 s，按 `checksums.json` 校验通过；只访问 `npmmirror.com`、`cdn.npmmirror.com`；全新数据目录显示三步引导（`t6.1-fresh-clone-dev.png`） |
+| 关窗口 | 经 DevTools 协议 `Browser.close` | — | 主进程日志 “closing the ownership pipe → owned host exited”，`run/` 为空 |
+| 第二次 `pnpm dev` | 不设镜像变量 | 4 s | Electron 已安装，`install-electron` 立即退出 |
+| 模型服务 | 经这个 Host 用无效 Key 登记 6 个 Provider 并 `provider.test`，测完删除 | — | DeepSeek（官方类型、OpenAI 兼容）、通义千问、Kimi、智谱：都是 `auth`（HTTP 401）；本机 Ollama 没装，未验证 |
+| 上游参考仓库 | `WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-sync.sh`；删掉 `upstream/` 后用 `https://gh-proxy.com/https://github.com` 再来一次 | 23 s、17 s | 三个仓库的 `HEAD` 都等于 lock 里的 SHA；两次分别只访问 `ghfast.top`、`gh-proxy.com`。同一天 `kkgithub.com`、`bgithub.xyz`、`githubfast.com` 不可用，`gitclone.com` 的分支头落后 |
+| echo 离线开发 | `pnpm dev:host`；另一个终端 `WEVIR_HOME="$PWD/.wevir-dev" pnpm dev` | — | 桌面端日志 `host attached`；发 `think tool 你好`，会话里出现工具卡片、思考过程与 `Echo: think tool 你好`（`t6.1-echo-offline.png`）；关窗口后 echo Host 仍在，Ctrl-C 后 `run/` 为空 |
+| 检查 | `pnpm lint`、`pnpm typecheck`、`pnpm build`、`pnpm test` | 2 s、2 s、3 s、14 s | 前三项通过；测试 988 通过、9 跳过、3 失败（问题 4、5） |
+
+遇到的问题：
+
+1. **`Failed to resolve entry for package "@wevir/client-sdk"`，`pnpm dev` 构建主进程时失败。** 主进程按 SSR 构建，对它生效的是 `ssr.resolve.conditions`，`electron.vite.config.ts` 写在顶层的 `resolve.conditions: ['@wevir/source']` 对它不起作用（Vite 文档 `ssr.resolve.conditions`），主进程一直打包的是各工作区包的 `dist/`。dev 脚本只构建 `@wevir/host` 及其依赖，全新克隆里 client-sdk 没有 `dist/` 就失败；已有的 checkout 不报错，但主进程用的是上次构建留下的 client-sdk。改为 `ssr: { resolve: { conditions: ['@wevir/source', ...defaultServerConditions] } }`，主进程改为打包源码（`out/main/index.js` 290 kB）。
+2. **`Error: Electron uninstall`。** electron-vite 5 找 Electron 时只看 `path.txt`，没有就直接报错，不会触发 Electron 44 自带的懒下载；`.npmrc` 原注释“第一次运行时下载”不对。桌面端的 dev 脚本在 `electron-vite dev` 之前加 `install-electron`：没装就按 `ELECTRON_MIRROR` 下载并校验，装好了立即退出。
+
+   这两个问题在开发机上都被已有的状态掩盖（client-sdk 构建过、Electron 手动装过），Gate M5 §4.2 第 1 条当时是在这样的 checkout 上通过的。
+3. **设了 `NODE_USE_ENV_PROXY=1` 与 `HTTPS_PROXY` 时，连本机的连接也走代理。** 验证时为了记录 Electron 的下载域名设了这两个变量，它们一路继承给了桌面主进程与 Host：代理日志里有一条到 Host 端口（127.0.0.1）的连接，`provider.test` 到本机 Ollama 也经过了代理，后者在测试代理上变成了 20 s 超时。写进开发指南的常见问题：同时设 `NO_PROXY=localhost,127.0.0.1`。
+4. **审批相关的真实 dsh 测试在 `/tmp` 下的克隆里失败**（`dsh-adapter.approval.integration` 的 allow / deny，`dsh-adapter.contract.integration` 整个文件）。临时克隆在 `/private/tmp` 下，审批用例的写入目标 `.test-outside/` 也就在 dsh 不需审批即可写的系统临时目录里，测试按设计直接报错说明原因。在不在临时目录的主仓库里复跑这两组：38 通过、3 跳过（真实模型，没有 Key）。写进开发指南 §6.3。
+5. **`host-process.dsh.integration` 的“重启 Host → 追问”偶发失败**：重启前取历史时最后一条 `session.state_changed` 还没到。与本任务无关，并行进行的 T6.2 已在 `4ca8e03` 里修好（按快照的 `lastSeq` 等最后一条事件到了再取历史）。
+
+改动：`apps/desktop/electron.vite.config.ts`、`apps/desktop/package.json` 的 `dev` 脚本（问题 1、2），`.npmrc` 的 Electron 注释。修复后的全新克隆即上表“第一次 `pnpm dev`（修复后）”一行。
