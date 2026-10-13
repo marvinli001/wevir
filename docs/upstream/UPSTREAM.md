@@ -144,7 +144,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 | Wevir 文件 | 来源路径 | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| `packages/client-sdk/src/lifecycle.ts` | OpenWork `apps/app/src/react-app/domains/session/sync/sync-stream-lifecycle.ts` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T4.1，OpenWork 候选 #1）：从事件流 SSE 的重连改为 Host 连接（建立传输 + `host.hello`）的重连状态机。保留两套指数退避（普通 1 s → 10 s、鉴权类 5 s → 60 s）、单一重试计时器、换代时重置退避并立即重连、换代前发起的尝试报的鉴权失败按普通失败处理；阶段改为 connecting / connected / reconnecting / closed，新增不可恢复的失败与首次连接失败即关闭；静默看门狗移到每条连接上（`rpc-channel.ts` 的心跳超时）；去掉诊断历史 |
 
 ## 5. 移植文件的文件头
 

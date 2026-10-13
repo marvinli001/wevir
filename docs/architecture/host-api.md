@@ -184,6 +184,7 @@ Host → 客户端的通知：
 - 先用 `WevirEventEnvelopeSchema` 解析；`type` 不认识（`isKnownEventType` 为假）就忽略这条事件的内容，**但照常推进 `lastSeq`**。认识的再用 `WevirEventSchema` 解析。
 - `sinceSeq > replayedThroughSeq` 说明客户端的缓存比 Host 还新（不应发生，例如数据目录被替换），丢弃本地缓存，以 `sinceSeq = 0` 重新订阅。
 - 中途加入：`session.get` 取快照，再以 `sinceSeq = session.lastSeq` 订阅。
+- client-sdk 的 `subscribe()` 按以上规则实现（T4.1）：订阅结果在收到它的那一帧里同步登记 `subscriptionId`（`ws` 会在同一轮里连续派发多帧，等 Promise 回调再登记会把紧随其后的事件误判为缺口）；断线重连后以已应用的最大 `seq` 续订；重新订阅时遇到 `HOST_SHUTTING_DOWN` 不结束订阅，等重连；在同一个 `seq` 上连续重新订阅 3 次仍没有进展（Host 每次在这里都发同样不合协议的东西）时，以 `ProtocolError` 结束订阅，不无限重试。
 
 ## 5. 事件类型
 
@@ -278,7 +279,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `LEASE_EXPIRED` | 4005 | 超过租约没有收到任何消息 |
 | `SEND_BUFFER_OVERFLOW` | 4006 | 这条连接的发送缓冲超限 |
 
-客户端遇到 4003、4004 不要自动重连（重连也会失败），提示用户升级或重新读取 `host.json`；其余情况按退避重连。
+客户端遇到 4003、4004 不要自动重连（重连也会失败），提示用户升级或重新读取 `host.json`；其余情况按退避重连。client-sdk（T4.1）的做法：4003 进入 `closed`；4004 在端点固定时同样进入 `closed`，端点由解析函数提供时（Node 入口每次连接前重读 `host.json`，桌面每次向主进程要）按慢速退避重试，Host 重启换了令牌也能连上（§12）。
 
 ## 9. 与领域模型草案的对应
 
@@ -358,6 +359,16 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | 租约 | `CONNECTION_LEASE_MS` = 45 s | Host 收到客户端的任何一帧都续租；45 s 什么都没收到，以 `LEASE_EXPIRED` 断开 |
 | 发送缓冲 | `SEND_BUFFER_LIMIT_BYTES` = 8 MiB | 每条连接一个上限，超限只断这一条（`SEND_BUFFER_OVERFLOW`），不影响同一会话的其他订阅者 |
 
-Host 不主动 ping 客户端。client-sdk 的请求超时、连接超时、心跳超时分开配置，默认值由 T4.1 定。
+Host 不主动 ping 客户端。client-sdk 的请求超时、连接超时、心跳超时分开配置，默认值由 T4.1 定（`DEFAULT_TIMEOUTS`、`DEFAULT_BACKOFF`，均可覆盖）：
+
+| 项 | 默认 | 说明 |
+|---|---|---|
+| 请求超时 | 60 s | 从调用起算，含断线期间排队等连接的时间，可按请求覆盖。最慢的是 `session.create` / `session.resume`（可能要拉起引擎）与 `provider.test`（一次真实的模型请求）；与 Paseo 客户端的默认 RPC 时限相同 |
+| 连接超时 | 10 s | 一次连接尝试：解析端点、建立 WebSocket、完成 `host.hello`。只连 loopback，比 Host 的 hello 时限（15 s）短，客户端先放弃 |
+| 心跳间隔 | 10 s | `PING_INTERVAL_MS` |
+| 心跳超时 | 20 s | 超过这么久没有收到 Host 的任何一帧（`host.ping` 的响应、事件都算），放弃这条连接并重连；不等关闭握手，死连接上它可能很久都等不到。容忍一次 ping 没有回音，远小于 45 s 租约 |
+| 重连退避 | 1 s 起翻倍、10 s 封顶；令牌被拒 5 s 起、60 s 封顶 | 连上即重置；`reconnectNow()`（例如桌面得知 Host 重启）重置退避并立即重试。首次连接失败不重试，直接报错 |
+
+已发出的请求遇到断线以 `ConnectionLostError` 结束、不自动重发（结果未知；`session.send` 可以带同一个 `clientMessageId` 重发确认，§3.1）；断线期间发起的请求排队，重连后发出。
 
 发送缓冲按“积压”计：ws 还没写到套接字的字节，加上补发期间排队等待发出的实时事件（§4 第 1 条）。Host 每次发帧前检查积压，已超过上限就不再发送、以 `SEND_BUFFER_OVERFLOW` 关闭；单个大帧本身不算超限（`assistant.*` 等事件不截断，§11），所以积压最多超出上限一帧。补发按批读取，并在积压达到上限的四分之一时等它写出再继续，补发本身不会触发超限。Host 主动关闭连接后最多等 2 s 的关闭握手，对方不回关闭帧就直接断开 TCP。

@@ -110,3 +110,13 @@
    - **就绪通知与退出码**：就绪后向 stdout 写一行 `{"event":"ready","pid","url","hostId","home"}`（不含令牌），拉起方可以据此知道何时读 `host.json`。退出码：0 正常退出；1 启动失败、致命错误或退出超时被强制结束；2 参数错误（含 dsh 未实现）；3 该数据目录已有活着的 Host（读 `host.json` 附着即可）。
    - **退出细节**：“停止接受新连接”一步同时让已连上的客户端的新请求回 `HOST_SHUTTING_DOWN`，并等在途请求与订阅补发结束（上限 5 s）；已 hello 的连接保留到“关闭 WebSocket 连接”一步，取消回合写下的事件因此能推送给订阅者。取消回合时未决审批的结算原因是 `host_shutdown`（domain-model §5 第 5 条）。退出期间再收到 SIGINT / SIGTERM、或整体超过 10 s，删除自己的 `host.json` 后以退出码 1 强制结束。可能卡住的三步（停止接受新连接时等在途请求、取消回合、dispose 适配器）共用 7 s 预算（`SHUTDOWN_BUDGET_MS`），超出的那一步记 `shutdown step timed out` 后跳过：取消回合超时则先让会话管理器停止写事件，会话停在活动状态，由下次启动的对账（#15）收尾；刷写 SQLite、关闭连接（自带 2 s 关闭握手时限）、删除 `host.json` 照常执行，所以引擎卡住也不会留下没关的数据库和陈旧的 `host.json`。10 s 硬上限只是兜底。适配器 `dispose` 被跳过或 Host 被强杀时，引擎进程树靠 dsh 自己读到 stdin EOF 退出，T3.1 负责保证并验收这一点（含 dsh 拉起的工具子进程）。
    - **日志**：JSON 行追加写到 `logs/host.log`（目录 0700、文件 0600，骨架阶段不轮转），stderr 是终端时同时镜像一份（`pnpm dev:host`）；被拉起、stderr 是管道时不写 stderr，避免拉起方不读时阻塞。字段名像令牌、密钥、密码、API Key、凭据、Authorization、Cookie 的整体替换为 `[REDACTED]`，本次启动的令牌在任何字符串里出现都替换。
+
+4. **2026-10-13，T4.1：client-sdk 的实现细节。** 决策 5、7 没有写到、由 T4.1 定下的部分（代码在 `packages/client-sdk`）：
+   - **端点**：`WevirClient.connect({endpoint})` 的端点可以是固定的 `{url, token}`，也可以是每次连接尝试前调用一次的解析函数。Host 重启会换端口和令牌，要跨 Host 重启自动重连就给解析函数：Node 入口 `@wevir/client-sdk/node` 的 `connectLocalHost({home})` 每次重读 `run/host.json`（文件不存在、还没写入 `url` 都报 `HostUnavailableError`，按普通退避重试）；桌面渲染进程每次向主进程要（T5.1）。首次连接失败不重试，直接以该错误 reject，CLI 据此报“Host 没有运行”。
+   - **超时与退避**的默认值见 [host-api.md](../architecture/host-api.md) §12。心跳超时按“多久没收到任何一帧”计，到时放弃连接、不等关闭握手。
+   - **握手失败**：`INCOMPATIBLE_PROTOCOL` 与 hello 参数、结果不合 schema 不可恢复，客户端进入 `closed`；`UNAUTHORIZED` 在端点固定时同样 `closed`（host-api.md §8），有解析函数时按慢速退避重试（OpenWork 的做法：本地服务重启时也会短暂出现鉴权失败）。
+   - **请求**：按方法注册表类型安全地调用，结果按 result schema 解析（剥离未知字段），JSON-RPC 错误映射为 `WevirRpcError`（按错误码名收窄，`data` 按 `ErrorDataSchemas` 解析）。断线期间发起的请求排队等连接，等待计入请求超时；已发出、未响应就断线的请求以 `ConnectionLostError` 结束，不自动重发。
+   - **订阅**：`subscribe()` 返回异步迭代器，产出事件、一次 `caught_up`（回放结束；`reset` 之后再一次）与 `reset`（本地 `seq` 比 Host 新）。断线重连、缺口补订对上层透明；细则见 host-api.md §4。
+   - **能力与功能**：`DEFAULT_CLIENT_CAPABILITIES` 以 `satisfies Record<ClientCapability, true>` 穷举 protocol 的能力位，CLI 与桌面继承；功能只经 `client.supports()` / `requireFeature()` 判断。
+   - **运行环境**：浏览器入口只依赖 `@wevir/protocol`。三道保证：`tsconfig.browser.json` 在没有 Node 类型的环境里再检查一遍浏览器入口能到达的源码；Biome 对这些源码开 `noNodejsModules`；`build-output.test.ts` 用 tsdown 构建并扫描 `dist/index.js` 能到达的文件。WebSocket 经 `webSocketTransport(WebSocket)` 注入，浏览器、Node ≥ 22 的全局 `WebSocket` 与 `ws` 都可以。
+   - **重连状态机**改写自 OpenWork `sync-stream-lifecycle.ts`（候选 #1），登记在 [UPSTREAM.md](../upstream/UPSTREAM.md) §4。

@@ -1,0 +1,39 @@
+{
+  "name": "@wevir/client-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir Host TypeScript client: connection, typed requests, event subscriptions with seq-based resume, heartbeat and reconnection. Runs in Node and the browser; the ./node entry reads run/host.json.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "@wevir/source": "./src/node.ts",
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.browser.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2",
+    "@wevir/host": "workspace:*",
+    "@wevir/runtime-adapter": "workspace:*",
+    "ws": "^8.22.0"
+  }
+}

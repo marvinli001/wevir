@@ -1,0 +1,11 @@
+{
+  // 浏览器入口（src/index.ts 能到达的全部源码）在没有 Node 类型、只有 DOM 类型的环境里再检查一遍：
+  // 用到 Buffer、process、node:* 之类就编译失败（ADR-0002 §7）。node 入口与测试不在其中。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom"],
+    "types": []
+  },
+  "include": ["src"],
+  "exclude": ["src/node.ts", "src/**/*.test.ts", "src/test-utils.ts"]
+}

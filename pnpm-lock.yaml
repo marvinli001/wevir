@@ -194,6 +194,25 @@ importers:
         specifier: workspace:*
         version: link:../runtime-adapter
 
+  packages/client-sdk:
+    dependencies:
+      '@wevir/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
+      '@wevir/host':
+        specifier: workspace:*
+        version: link:../host
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+      ws:
+        specifier: ^8.22.0
+        version: 8.22.0
+
   packages/host:
     dependencies:
       '@wevir/adapter-dsh':

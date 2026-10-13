@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // node 入口与测试（测试直接用 @wevir/host 的源码起真实 Host）需要 Node 的类型。浏览器入口不许用
+    // Node 的东西，由 tsconfig.browser.json 另做一遍不带 Node 类型的检查。
+    "types": ["node"]
+  },
+  "include": ["src", "*.config.ts"]
+}

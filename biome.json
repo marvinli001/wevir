@@ -97,6 +97,21 @@
       }
     },
     {
+      "includes": [
+        "packages/client-sdk/src/**",
+        "!packages/client-sdk/src/node.ts",
+        "!packages/client-sdk/src/**/*.test.ts",
+        "!packages/client-sdk/src/test-utils.ts"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
+    },
+    {
       "includes": ["spikes/**"],
       "linter": {
         "rules": {
