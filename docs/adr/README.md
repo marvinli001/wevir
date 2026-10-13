@@ -1,6 +1,6 @@
 # 架构决策记录（ADR）
 
-记录 Wevir 中影响多个任务、改动成本高、或推翻过计划假设的决定。计划（[SKELETON_PLAN.md](../SKELETON_PLAN.md)）说“做什么、按什么顺序做”，ADR 说“为什么这样定”。两者冲突时先改 ADR，再改计划和 [TASK_PROMPTS.md](../TASK_PROMPTS.md)（计划 §0 第 4 条）。
+记录 Wevir 中影响多个任务、改动成本高、或推翻过计划假设的决定。计划（[SKELETON_PLAN.md](../archive/skeleton/SKELETON_PLAN.md)）说“做什么、按什么顺序做”，ADR 说“为什么这样定”。两者冲突时先改 ADR，再改计划和 [TASK_PROMPTS.md](../archive/skeleton/TASK_PROMPTS.md)（计划 §0 第 4 条）。
 
 ## 索引
 

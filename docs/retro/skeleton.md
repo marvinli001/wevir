@@ -1,7 +1,7 @@
 # 骨架阶段复盘
 
 > 2026-10-14 · T6.4 · 覆盖 T0.1–T6.3 · 维护者：marvinli001
-> 依据：`git log`、[SKELETON_PLAN.md](../SKELETON_PLAN.md) 的任务备注与变更记录、ADR-0001–0004 的补记、[验收存档](../research/skeleton-acceptance/README.md)（含本任务的 §4.2 九条复验）。
+> 依据：`git log`、[SKELETON_PLAN.md](../archive/skeleton/SKELETON_PLAN.md) 的任务备注与变更记录、ADR-0001–0004 的补记、[验收存档](../research/skeleton-acceptance/README.md)（含本任务的 §4.2 九条复验）。
 
 ## 1. 结果
 

@@ -1,7 +1,9 @@
 # Wevir 初步骨架规划
 
-> 状态：**v1.0 已完成**（2026-10-14，T6.4；遗留项见 [PHASE1_PLAN.md §1](./PHASE1_PLAN.md) 与 [retro/skeleton.md §7](./retro/skeleton.md)）· 建立日期：2026-10-12 · 维护者：marvinli001
-> 配套文档：[TASK_PROMPTS.md](./TASK_PROMPTS.md)（每个任务可直接粘贴执行的 prompt）· [adr/](./adr/README.md)（架构决策记录）· 下一阶段：[PHASE1_PLAN.md](./PHASE1_PLAN.md)、[PHASE1_PROMPTS.md](./PHASE1_PROMPTS.md)
+> **已归档（2026-10-14）。** 骨架阶段的规划与任务记录，只作历史参考，不再更新；后续方向由维护者直接决定。
+
+> 状态：**v1.0 已完成**（2026-10-14，T6.4；遗留项见 [PHASE1_PLAN.md §1](../phase1/PHASE1_PLAN.md) 与 [retro/skeleton.md §7](../../retro/skeleton.md)）· 建立日期：2026-10-12 · 维护者：marvinli001
+> 配套文档：[TASK_PROMPTS.md](./TASK_PROMPTS.md)（每个任务可直接粘贴执行的 prompt）· [adr/](../../adr/README.md)（架构决策记录）· 下一阶段：[PHASE1_PLAN.md](../phase1/PHASE1_PLAN.md)、[PHASE1_PROMPTS.md](../phase1/PHASE1_PROMPTS.md)
 
 本文件回答三件事：**骨架阶段要做到什么程度、按什么顺序做、每一步怎么算完成。**
 具体执行时，一个任务开一个新会话，从 `TASK_PROMPTS.md` 复制对应 prompt。
@@ -52,7 +54,7 @@
 | 首版平台 | macOS、Windows；Linux 后续 |
 | 许可证 | MIT；移植代码各自遵循原条款并保留来源 |
 
-### 1.4 骨架阶段的工具链（[ADR-0004](./adr/0004-repo-tooling.md) 已确认）
+### 1.4 骨架阶段的工具链（[ADR-0004](../../adr/0004-repo-tooling.md) 已确认）
 
 | 项 | 决定 | 理由 / 出处 |
 |---|---|---|
@@ -91,14 +93,14 @@
 - 运行入口统一是 `dsh --profile <name>`，随附 profile：`web`、`headless`、`sdk`、`sdk-minimal`、`acp`。
 - 仓库版本 `0.2.1-alpha.2`；npm `@deepseek-ai/dsh` 的 `latest` 标签仍是 `0.2.0-rc.2`，必须写精确版本。ACP 客户端库锁定与 dsh-acp 相同的 `@agentclientprotocol/sdk@1.4.0`（npm latest 为 1.8.0），升级 dsh 时一起核对。
 - `$DSH_HOME` 决定 profile、凭据与数据位置 → Wevir 给 dsh 一个**独立的 DSH_HOME**（`<数据目录>/engines/dsh`），不与用户自己装的 dsh 混用。
-- 两条进程外接入路径（T0.3 实测，见 [dsh-integration-spike.md](./research/dsh-integration-spike.md)）：
+- 两条进程外接入路径（T0.3 实测，见 [dsh-integration-spike.md](../../research/dsh-integration-spike.md)）：
 
 | 路径 | 能力 | 缺口 |
 |---|---|---|
 | **ACP**（`dsh --profile acp`，stdio，标准 Agent Client Protocol v1，TS 库 `@agentclientprotocol/sdk`） | `session/new`、`list`、`resume`、`close`、`cancel`（结算为 `cancelled`，并杀掉正在跑的子进程）、`set_config_option`（模型/推理强度）、`session/update` 更新、`session/request_permission` 审批（allow / reject / cancel）、MCP 挂载；单进程可并发承载多个会话；冷启动到 initialize 约 0.5 s | **没有增量流式**：一条已提交消息一个 chunk，取消时一次补发已生成部分；不回放历史（无 `session/load`，resume 不发 update）；`session/list` 只有 `sessionId` + `cwd` 且不含活跃会话；审批只来自沙箱升级，请求只带 `toolCallId`，选项仅 `allow_once` / `reject_once`；没有标题、plan、todo 事件，子 agent 活动不可见；工具 `kind` 恒为 `other`，无 `locations` / `diff`；轮次失败以 `-32603` 自由文本返回；无终端、客户端文件系统；仅一个主 workspace；没有登录入口 |
 | **SDK JSON-RPC**（`dsh --profile sdk`，`@deepseek-ai/dsh-sdk-client`） | 打开会话、发提示、订阅会话事件与 subagent 通知、`session/wait`；标题、todo、子 agent 事件、会话内事件 `seq`、运行状态 | **无取消、无审批**（取消只能杀进程）；同样没有增量流式；没有 list / close |
 
-**接入路径（[ADR-0001](./adr/0001-runtime-integration.md)，T0.3 已验证）：以 ACP 为主路径，增量流式由 Wevir 自己的 Cordis 插件旁路补齐**（监听 dsh 进程内的 `agent/assistant-stream`，经额外 fd 输出，T3.2a）。历史回放、会话列表、标题与 `seq` 由 Wevir 事件库负责。
+**接入路径（[ADR-0001](../../adr/0001-runtime-integration.md)，T0.3 已验证）：以 ACP 为主路径，增量流式由 Wevir 自己的 Cordis 插件旁路补齐**（监听 dsh 进程内的 `agent/assistant-stream`，经额外 fd 输出，T3.2a）。历史回放、会话列表、标题与 `seq` 由 Wevir 事件库负责。
 
 - 进程环境要点（T0.3 §6.3、§10，ADR-0001 §4）：子进程环境按白名单构造，因为 dsh 的凭据解析顺序是“继承的环境变量 > `$DSH_HOME/.credentials.yaml` > `<进程 cwd>/.env` > `$DSH_HOME/.env`”；dsh 进程的 cwd 必须是 Wevir 自己的目录，不能是用户工作区；`DSH_AGENTS_HOME`（默认 `~/.agents`，其中的 skills 与 AGENTS.md 会进入每个会话）骨架阶段指向空目录；`DSH_TELEMETRY_DISABLED=1`；`DSH_PERMISSION_MODE=workspace-write`（工作区内读写、系统临时目录写入都不需要审批）。
 - Provider 配置：自定义 Provider 走 `dsh-llm-pi-ai`，在 `--patch` overlay 中声明 `baseURL`、协议（`openai-completions` / `openai-responses` / `anthropic-messages`）、`compat`、模型（含 `contextWindow`）和 `apiKeyEnv`；DeepSeek 官方走 `llm-deepseek`，`web-search-deepseek` 另有自己的 Key 引用。可复制的 overlay 见 T0.3 §6.2。OAuth 类 Provider（订阅账号登录）推迟，见 ADR-0001 未决事项 1。
@@ -106,11 +108,11 @@
 
 ### 3.2 OpenWork（参考重点目录）
 
-`apps/app`（React + Vite + Tailwind v4 主界面）、`apps/desktop`（Electron 壳）、`apps/server`、`packages/ui`、`packages/sdk`、`packages/types`、`docs/architecture`。**`ee/` 整个目录排除**。研读结论（信息架构、可移植候选 32 项、M5 布局建议）见 [openwork-notes.md](./research/openwork-notes.md)；会话数据、事件流与配置格式都是 OpenCode 的，Wevir 只借界面层与做法。
+`apps/app`（React + Vite + Tailwind v4 主界面）、`apps/desktop`（Electron 壳）、`apps/server`、`packages/ui`、`packages/sdk`、`packages/types`、`docs/architecture`。**`ee/` 整个目录排除**。研读结论（信息架构、可移植候选 32 项、M5 布局建议）见 [openwork-notes.md](../../research/openwork-notes.md)；会话数据、事件流与配置格式都是 OpenCode 的，Wevir 只借界面层与做法。
 
 ### 3.3 Paseo（参考重点目录）
 
-`packages/server`（daemon）、`packages/protocol`（`@getpaseo/protocol`）、`packages/client`、`packages/relay`、`packages/app`（Expo）、`packages/desktop`、`packages/cli`、`public-docs/sdk`。研读结论见 [paseo-notes.md](./research/paseo-notes.md)；骨架阶段直接采纳的 A1–A21 已写进 ADR-0002 与 §6 各任务。
+`packages/server`（daemon）、`packages/protocol`（`@getpaseo/protocol`）、`packages/client`、`packages/relay`、`packages/app`（Expo）、`packages/desktop`、`packages/cli`、`public-docs/sdk`。研读结论见 [paseo-notes.md](../../research/paseo-notes.md)；骨架阶段直接采纳的 A1–A21 已写进 ADR-0002 与 §6 各任务。
 
 ---
 
@@ -191,7 +193,7 @@ wevir/
 | T3.6 | 适配器契约测试（真实 dsh + 录制回放） | T3.5, T3.4 | [x] | `packages/adapter-dsh` 的三层契约测试 `dsh-adapter.contract*.test.ts`（同一套 `runAdapterContract`，18 条）：(1) fake-dsh 回放 T0.3 样本（`replay:permission` 按审批的回复接 B / C / D，`FAKE_DSH_STORE=1` 像真实 dsh 一样把会话记在 DSH_HOME），17 条通过，增量条款按能力开关跳过（T0.3 没有与 ACP 对齐的完整旁路录制），约 1 s；(2) 真实 dsh + mock Provider（经 T3.4 的 Provider 桥接，旁路开启），18 条全部通过，三次运行 20–24 s；(3) 真实模型，要 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`，缺则跳过并打印原因，本机无 Key 未运行。真实 dsh 上没有满足不了的条款（ADR-0001 补记 7）。`packages/host`：`wevir-host --adapter dsh` 接通（`createAdapter` 建 `DshAdapter`，启动时就解析 dsh 入口，告警写 Host 日志；`@wevir/adapter-dsh` 改为运行时依赖），`cli.dsh.integration.test.ts` 经 Host API 走真实 dsh 的流式回答与优雅退出，`scripts/gate-m2.ts` 的 B1 改为 dsh 能启动。`docs/upstream/UPSTREAM.md` §7 dsh 升级检查清单。验收：全仓 843 条通过、9 条跳过，`pnpm gate:m2` 通过，`node packages/host/dist/main.js --adapter dsh` 启动、SIGTERM 退出码 0。**Gate M3**：第 1、2 层全绿，`wevir-host --adapter dsh` 能启动；第 3 层待有 Key 时在本机跑一次 |
 | **M4** | **竖切联通：CLI** | | | |
 | T4.1 | client-sdk | T2.4 | [x] | `packages/client-sdk`（运行时只依赖 protocol）：`WevirClient.connect`（固定端点或每次尝试前调用的解析函数，自动 `host.hello`；`DEFAULT_CLIENT_CAPABILITIES` 以 `satisfies` 穷举能力位；功能只经 `supports` / `requireFeature` 判断）、按方法注册表类型安全的 `request`（结果按 schema 解析，错误映射为 `WevirRpcError` 等类型化错误，断线期间排队、已发出的不重发）、`subscribe` 异步迭代器（按 `seq` 去重、缺口退订后以 `sinceSeq = lastSeq` 重订、`caught_up` 回放结束标记、`reset`、重连以最大 `seq` 续订，订阅响应在收到的那一帧里同步登记路由）、每 10 s `host.ping` 与按静默计的心跳超时、重连状态机 `lifecycle.ts`（改写自 OpenWork `sync-stream-lifecycle.ts`，UPSTREAM.md §4 登记：普通 1 s → 10 s、令牌被拒 5 s → 60 s、`reconnectNow`）与 connecting / connected / reconnecting / closed 状态事件；默认超时 请求 60 s、连接 10 s、心跳超时 20 s（host-api.md §12，ADR-0002 补记 4）；传输层可替换，`webSocketTransport(WebSocket)` 注入浏览器 / Node 全局 / `ws`；`./node` 入口读 `run/host.json`（`connectLocalHost` 每次重读，跨 Host 重启自动重连）。浏览器入口由 `tsconfig.browser.json`（无 Node 类型）与 Biome `noNodejsModules` 把守。验收：client-sdk 52 条通过，其中对着真实 Host（`startHost` + EchoAdapter）5 条——正常流程；流式输出中途 `terminate()` 断开后重连，事件与从头回放逐条相同、无重复，续订的 `sinceSeq` 不小于断开时的 `seq` 且之后仍有增量；回放与实时阶段各丢一帧，两次都退订并以缺口前的 `lastSeq` 重订补齐；Host 重启换端口与令牌后自动重连续订；Node 全局 WHATWG WebSocket；`build-output.test.ts` 用 tsdown 构建，`dist/index.js` 能到达的文件里没有 `node:` 与 Node 内置模块（反向探针确认能查出）。全仓 895 条通过、9 条跳过 |
-| T4.2 | `wevir` CLI | T4.1, T3.6 | [ ] | 代码与测试已完成（未提交，`apps/cli`），Gate M4 要真实模型，在等 Key；跟踪见 PHASE1_PLAN §1 P0.1 |
+| T4.2 | `wevir` CLI | T4.1, T3.6 | [x] | `apps/cli`，2026-10-14 归档时随 `d156837` 提交；Gate M4 的真实模型验收未跑（没有 Key） |
 | **M5** | **桌面壳** | | | |
 | T5.1 | Electron 壳与 Host 生命周期 | T4.2 | [x] | `apps/desktop`：electron-vite 5.0.0 + Vite 7.3.7 + Electron 44.7.0，React 19 + Tailwind 4；main（ESM）/ preload（单个 CJS，只暴露 `getHostConnection` / `selectFolder` / `openExternal`）/ renderer，工作区包按 `@wevir/source` 用源码打进产物。`HostLifecycle`：host.json 探活后附着，否则用本机 Node 拉起 `wevir-host --exit-on-stdin-eof` 并持有 stdin，退出码 3 改为附着，退出时只停自己拉起的（关管道 → 5 s 后 `host.shutdown` → 12 s 后 SIGKILL）。安全基线：sandbox、contextIsolation、拒绝新窗口与跨 origin 导航、权限全拒、IPC 校验发送方、CSP 响应头（开发用 Vite nonce，均无 unsafe-inline / unsafe-eval）、调试端口只在开发模式。Origin 白名单 `wevir://app`、`http://localhost:5199` 进 `@wevir/protocol` 与 host-api.md §1，`startHost` 启用。Electron 44 没有 postinstall，`allowBuilds` 登记的是 esbuild 两个版本（ADR-0004 补记 4）；ADR-0002 补记 5。验收：desktop 17 条测试（真实 wevir-host：拥有 / 附着 / 退出码 3 / 启动失败 / 升级到 host.shutdown 与 SIGKILL / 拉起方被 SIGKILL）；`pnpm dev` 窗口显示“已连接、协议版本 0.3.0”，关窗口后 Host 0.3 s 内退出、无残留；SIGKILL Electron 主进程后 Host 以 `stdin_eof` 退出；先手动起 wevir-host 再开桌面端为附着，退出后该 Host 仍在；构建产物经 `wevir://app` 同样连上。桌面主进程依赖 T4.2 的 `@wevir/host/runtime` 子路径（数据目录、host.json 解析、退出码），T4.2 尚未提交，经确认随本任务一并提交 |
 | T5.2 | 设计 Token 与布局骨架 | T5.1 | [x] | `apps/desktop/src/renderer`：Token 三层（`@radix-ui/colors` 3.0.0 的 sand / indigo / red / amber / green 由脚本生成 `palette.css` → 一套语义变量 `tokens.css` → `@theme inline`，清空 Tailwind 自带调色板；正文 14px / 1.6、代码 13px、系统字体栈；圆角由 `--radius` 推导；暗色只认 `data-theme`）；主题模式移植 OpenWork #17 并修两处问题（首帧前脚本 `public/theme-init.js` 与运行时同一个 key、不认 `.dark`），经 preload `setThemeSource` 同步 nativeTheme；三栏布局（左栏 220–400 可拖可收、中栏限宽 760、右栏默认收起且按每会话一组标签设计；视口放不下时左栏 / 右栏改为浮层，窗口最小宽度 960）；hash 路由，URL 是唯一事实，找不到显示“未找到”；左栏会话行的运行中 / 待审批 / 出错 / 未读标记，数据是每次连上 Host 时读的列表快照（实时更新归 T5.3）；shadcn 4.21.4 `base-nova` 原语 + IconButton、StatusDot；文案模块 `i18n/`（zh-CN 源语言，`t()` 的参数按文案推出类型）。Base UI 的内联 `<style>` 被 CSP 拦下，改用 `CSPProvider disableStyleElements`（ADR-0004 补记 5）。验收：desktop 9 个测试文件 41 条（新增色阶生成、首帧前脚本、路由、折叠规则、数据模型、文案）；亮 / 暗切换与 1280、900 宽度的截图在 `docs/research/skeleton-acceptance/` |
@@ -239,7 +241,7 @@ wevir/
 - 关注：信息架构（工作区、会话、文件、Skills、MCP 的组织方式）；桌面壳与服务端的关系；UI 组件中值得移植的部分（仅 MIT 区域）；它与 OpenCode 的耦合点（Wevir 不能带走的部分）。
 - 产出：`docs/research/openwork-notes.md`，含“可移植组件候选清单”（路径 + 许可证 + 依赖）。
 
-**T0.6 首批 ADR 定稿**（索引与格式见 [docs/adr/README.md](./adr/README.md)）
+**T0.6 首批 ADR 定稿**（索引与格式见 [docs/adr/README.md](../../adr/README.md)）
 - `docs/adr/0001-runtime-integration.md`：ACP 子进程为主路径，增量流式由 stream-tap 插件旁路补齐；单进程多会话；进程环境白名单；Wevir 必须自行补足的能力清单（依据 T0.3）。
 - `docs/adr/0002-host-transport-and-process-model.md`：JSON-RPC 2.0 over WebSocket，监听 127.0.0.1 随机端口；令牌每次启动随机生成，在首帧 `host.hello` 的参数里出示，不用 `Authorization` 头（Electron 渲染进程的浏览器 WebSocket 设不了请求头）；骨架阶段 Host 由桌面端拉起、随桌面退出，桌面只停止本次自己拉起的 Host（按 `{pid, startedAt}` 判定），附着到 CLI 启动的 Host 时不停止；Host 代码独立可运行，为将来常驻 daemon 留路；吸收 Paseo 研读“直接采纳”的 A1–A21。
 - `docs/adr/0003-storage.md`：选 `node:sqlite`（dsh 自身也用它；better-sqlite3 13 已改 N-API，作为可切换的备选）；密钥骨架阶段存 0600 文件，后续迁移系统钥匙串。
@@ -314,7 +316,7 @@ wevir/
 
 ### M3 — dsh 适配器
 
-本里程碑的做法以 [ADR-0001](./adr/0001-runtime-integration.md) 为准，事实依据是 T0.3 报告与 `spikes/dsh-acp/fixtures/`。
+本里程碑的做法以 [ADR-0001](../../adr/0001-runtime-integration.md) 为准，事实依据是 T0.3 报告与 `spikes/dsh-acp/fixtures/`。
 
 **T3.1 进程管理**：`adapter-dsh` 精确锁定 `@deepseek-ai/dsh@0.2.1-alpha.2` 与 `@agentclientprotocol/sdk@1.4.0`；dsh 依赖里的构建脚本在 `allowBuilds` 中逐个登记（T0.3 在 npm 下是 5 个，pnpm 下以实际输出为准，ADR-0004）；从依赖包解析 dsh 可执行入口，不依赖全局 PATH；独立 `DSH_HOME`（`<数据目录>/engines/dsh`）；按 ADR-0001 §4 构造白名单环境（`DSH_AGENTS_HOME` 指向空目录、`DSH_TELEMETRY_DISABLED=1`、`DSH_PERMISSION_MODE=workspace-write`），进程 cwd 为 `DSH_HOME`（先建目录，不存在会 `ENOENT`）；启动 `dsh --profile acp`，预留 `--patch` 插槽（T3.4）和 fd 3（T3.2a）；`clientCapabilities` 不声明 `fs` 与 `terminal`；initialize 超时（实测约 0.5 s）与 stderr 尾部诊断；一个 dsh 进程承载全部会话（T0.3 已验证）；进程任何时候退出都上报为引擎错误，有限次数指数退避重启；`dispose` 先关 stdin（EOF 后约 25 ms 退出），超时再 SIGTERM、SIGKILL，整个阶梯在 5 s 内返回（Host 退出时前三步共用 7 s 预算，超出会被跳过，ADR-0002 补记 3）；Host 被强杀或跳过 `dispose` 时 dsh 必须因 stdin EOF 自行退出，验收要确认它拉起的工具子进程也随之结束。开发模式下 dsh 跑在系统 Node 上；打包后的运行时见 ADR-0002 未决事项 1。
 

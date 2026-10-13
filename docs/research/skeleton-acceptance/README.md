@@ -1,6 +1,6 @@
 # 骨架验收存档
 
-Gate M5 的手动验收截图与录屏放在这里（[SKELETON_PLAN §6 M5](../../SKELETON_PLAN.md)），按任务分节。
+Gate M5 的手动验收截图与录屏放在这里（[SKELETON_PLAN §6 M5](../../archive/skeleton/SKELETON_PLAN.md)），按任务分节。
 
 ## T5.2 设计 Token 与布局骨架（2026-10-13）
 

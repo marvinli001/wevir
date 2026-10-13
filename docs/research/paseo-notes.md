@@ -1,13 +1,13 @@
 # T0.4 Paseo 架构研读：daemon、协议、多端与中继
 
-> 日期：2026-10-12 · 任务：[SKELETON_PLAN §6 T0.4](../SKELETON_PLAN.md) · 上游：`getpaseo/paseo@dc7bc8d`（Apache-2.0，见 [UPSTREAM.md](../upstream/UPSTREAM.md)）
+> 日期：2026-10-12 · 任务：[SKELETON_PLAN §6 T0.4](../archive/skeleton/SKELETON_PLAN.md) · 上游：`getpaseo/paseo@dc7bc8d`（Apache-2.0，见 [UPSTREAM.md](../upstream/UPSTREAM.md)）
 > 只读研究，没有移植任何代码。
 
 ## 0. 怎么读这份报告
 
 - 文中路径都相对 `upstream/paseo/`，`文件:行号` 按锁定提交 `dc7bc8d` 核对过。每个文件在一节里第一次出现时尽量写全路径，之后只写文件名；文件名与完整路径的对照见本节末尾（同名文件只有 `connection-offer.ts` 和 `directory-sync/index.ts`，文中对它们始终写全路径）。
 - Paseo 的文档和代码不一致时以代码为准，并标注“文档漂移”。
-- “§x.y”指本文小节，“计划 §x.y”指 [SKELETON_PLAN](../SKELETON_PLAN.md) 的小节，“T0.3 §x”指 [dsh 接入 Spike 报告](dsh-integration-spike.md)。
+- “§x.y”指本文小节，“计划 §x.y”指 [SKELETON_PLAN](../archive/skeleton/SKELETON_PLAN.md) 的小节，“T0.3 §x”指 [dsh 接入 Spike 报告](dsh-integration-spike.md)。
 - 术语对照：Paseo 的 **daemon** ≈ Wevir 的 **Host**；Paseo 的 **agent** ≈ Wevir 的 **Session**（一个 agent 是一条长期对话）；Paseo 的 **Session**（`server/session.ts`）是“一个客户端的逻辑连接”，与 Wevir 的 Session 不是一回事；Paseo 的 **timeline** ≈ Wevir 的事件流投影。
 - 结论先行：
   1. Paseo 的握手、兼容规则、运行时文件、本地凭据、桌面“只停自己拉起的 daemon”这几块可以直接照搬到骨架，成本低、收益确定。

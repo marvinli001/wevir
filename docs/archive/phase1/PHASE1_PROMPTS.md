@@ -1,8 +1,10 @@
 # Wevir Phase 1 任务 Prompt 库
 
+> **已归档（2026-10-14）。** 骨架复盘时起草的 Phase 1 范围与 prompt，未执行，只作历史参考；后续方向由维护者直接决定。
+
 > 配套：[PHASE1_PLAN.md](./PHASE1_PLAN.md) · 建立日期：2026-10-14（T6.4）
 > 状态：v1.0。范围与顺序以 [PHASE1_PLAN §5](./PHASE1_PLAN.md) 的任务表为准（2026-10-14 确认）；标“Phase 2”的 prompt 没有选入 Phase 1，保留备用，执行前先按当时的计划复核。
-> 每个 prompt 对应 PHASE1_PLAN §3 的一个候选任务 ID。用法与骨架阶段相同（[TASK_PROMPTS.md](./TASK_PROMPTS.md#使用方法)）：新会话，先粘贴下面的通用前缀，再粘贴任务 prompt。
+> 每个 prompt 对应 PHASE1_PLAN §3 的一个候选任务 ID。用法与骨架阶段相同（[TASK_PROMPTS.md](../skeleton/TASK_PROMPTS.md#使用方法)）：新会话，先粘贴下面的通用前缀，再粘贴任务 prompt。
 
 ---
 

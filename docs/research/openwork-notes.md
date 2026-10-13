@@ -1,6 +1,6 @@
 # T0.5 OpenWork 架构研读：信息架构、桌面壳与可移植组件
 
-> 日期：2026-10-12 · 任务：[SKELETON_PLAN §6 T0.5](../SKELETON_PLAN.md) · 上游：`different-ai/openwork@ad22cdc`（`ee/` 之外 MIT，见 [UPSTREAM.md §2.2](../upstream/UPSTREAM.md)）
+> 日期：2026-10-12 · 任务：[SKELETON_PLAN §6 T0.5](../archive/skeleton/SKELETON_PLAN.md) · 上游：`different-ai/openwork@ad22cdc`（`ee/` 之外 MIT，见 [UPSTREAM.md §2.2](../upstream/UPSTREAM.md)）
 > 只读研究，没有移植任何代码，也没有打开 `ee/` 下的任何文件。MIT 区域里指向 `@openwork-ee/*` 的引用只记下引用位置，不跟进。
 
 ## 0. 怎么读这份报告
@@ -17,7 +17,7 @@
 
   其他路径写全。例如 `A/react-app/shell/app-root.tsx:451-565` 即 `apps/app/src/react-app/shell/app-root.tsx` 第 451–565 行。
 - OpenWork 的文档和代码不一致时以代码为准，并标注“文档漂移”。
-- “§x.y”指本文小节，“计划 §x.y”指 [SKELETON_PLAN](../SKELETON_PLAN.md)，“T0.3 §x”指 [dsh 接入 Spike 报告](dsh-integration-spike.md)，“A1–A21 / D1–D11 / N1–N12”指 [Paseo 研读](paseo-notes.md) §9 的条目。
+- “§x.y”指本文小节，“计划 §x.y”指 [SKELETON_PLAN](../archive/skeleton/SKELETON_PLAN.md)，“T0.3 §x”指 [dsh 接入 Spike 报告](dsh-integration-spike.md)，“A1–A21 / D1–D11 / N1–N12”指 [Paseo 研读](paseo-notes.md) §9 的条目。
 - 术语对照：
 
   | OpenWork | Wevir | 说明 |

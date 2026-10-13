@@ -1,7 +1,9 @@
 # Wevir Phase 1 规划
 
+> **已归档（2026-10-14）。** 骨架复盘时起草的 Phase 1 范围与 prompt，未执行，只作历史参考；后续方向由维护者直接决定。
+
 > 状态：**v1.0，范围与顺序已确认**（2026-10-14，维护者在 T6.4 中确认，§4）· 建立日期：2026-10-14（T6.4）· 维护者：marvinli001
-> 配套：[PHASE1_PROMPTS.md](./PHASE1_PROMPTS.md)（每个候选任务的 prompt）· [retro/skeleton.md](./retro/skeleton.md)（骨架复盘）· [SKELETON_PLAN.md](./SKELETON_PLAN.md)（规则 §0、地基原则 §2 继续有效）
+> 配套：[PHASE1_PROMPTS.md](./PHASE1_PROMPTS.md)（每个候选任务的 prompt）· [retro/skeleton.md](../../retro/skeleton.md)（骨架复盘）· [SKELETON_PLAN.md](../skeleton/SKELETON_PLAN.md)（规则 §0、地基原则 §2 继续有效）
 
 本文件回答：骨架之后先做什么、为什么、每一步怎么算完成。§3 是全部候选（含没选入 Phase 1、留给 Phase 2 的），§5 是确认后的任务表、里程碑与 Gate。
 

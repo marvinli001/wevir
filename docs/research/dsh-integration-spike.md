@@ -1,6 +1,6 @@
 # T0.3 dsh 接入 Spike：ACP vs SDK
 
-> 日期：2026-10-12 · 任务：[SKELETON_PLAN §6 T0.3](../SKELETON_PLAN.md) · 代码与样本：[`spikes/dsh-acp/`](../../spikes/dsh-acp/)
+> 日期：2026-10-12 · 任务：[SKELETON_PLAN §6 T0.3](../archive/skeleton/SKELETON_PLAN.md) · 代码与样本：[`spikes/dsh-acp/`](../../spikes/dsh-acp/)
 > 结论先行：**ACP 可以作为骨架主路径**，但它没有增量流式输出，§4.2 第 3 条“看到流式助手输出”必须靠 Wevir 自己补（本次已用一个 20 行的 Cordis 插件验证可行）。其余缺口都能在 Host / 适配器层补齐。
 
 ## 0. 怎么读这份报告

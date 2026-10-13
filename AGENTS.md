@@ -4,25 +4,25 @@
 
 Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨设备接续的 Agent 工作台：以 DeepSeek Harness（dsh）为 Agent 执行内核，以 OpenWork 为桌面交互参考，以 Paseo 为多端与远程架构参考，Wevir 自己拥有 Local Agent Host、会话协议和客户端。
 
-开始工作前先读 [docs/SKELETON_PLAN.md](docs/SKELETON_PLAN.md) 的 §0–§4，以及当前任务所在里程碑的 §6 小节。
+**工作方式：** 开发方向、范围与优先级由维护者在对话中直接决定，AI 助手负责辅助思考、补充遗漏和实现。骨架阶段的计划与任务 prompt、骨架复盘时起草的 Phase 1 规划已归档在 [docs/archive/](docs/archive/)，只作历史参考，不作为任务来源。仍然有效的设计依据是 [ADR](docs/adr/README.md) 与 [架构文档](docs/architecture/overview.md)。
 
 ## 仓库规则
 
-1. **一次改动只做一个任务。** 任务以 `docs/SKELETON_PLAN.md` §5 的 ID 为准。发现计划与现实不符，先改计划和对应 ADR，再改代码；不擅自扩大范围或提前做后续任务。
+1. **一次改动只做一件事。** 范围以维护者确认的为准，不擅自扩大范围或顺手做别的事。发现 ADR 或架构文档与现实不符，先改文档再改代码。
 2. **引擎在适配器后面。** 除 `packages/adapter-dsh` 外，任何代码不得 import `@deepseek-ai/*`，也不得在 package.json 里声明它。`spikes/` 是不进入产品构建的一次性验证代码，可以直接用 dsh；反过来，产品代码不得引用 `spikes/`。`pnpm lint` 用两道检查强制：
    - Biome `noRestrictedImports`（`biome.json`）：拦截静态 import、`import type`、`export … from`、动态 `import()`、子路径，以及指向 `spikes/` 的导入。
    - `scripts/check-engine-boundary.mjs`：检查根目录和各工作区包的依赖声明（含 `npm:` 别名、指向 `spikes/` 的 `file:`/`link:`）。pnpm 的 node_modules 是隔离的，沿目录向上查找时没声明的包解析不到，所以 `require()`、`createRequire()` 这类 lint 看不见的写法在运行时也会失败。例外是 `NODE_PATH`：CommonJS 解析认它（ESM 的 `import` 不认），而 pnpm 默认让 `node_modules/.bin` 的命令 shim 把私有提升目录 `node_modules/.pnpm/node_modules`（`@deepseek-ai/*` 都在里面）写进 `NODE_PATH`，经 shim 启动的 Vitest 及其子进程里这类写法能解析到，测试通过、生产失败。仓库在 `pnpm-workspace.yaml` 设了 `extendNodePath: false` 关掉它（ADR-0004 补记 3）；这个设置只在创建 shim 时生效，之前装过依赖的 checkout 要 `pnpm install --force` 一次；`pnpm lint` 会检查已生成的 shim，发现导出 `NODE_PATH` 就失败。因此不要开启 `node-linker=hoisted`、`shamefully-hoist`、`enableGlobalVirtualStore`、`preferSymlinkedExecutables`，不要用 `public-hoist-pattern` 提升 `@deepseek-ai/*`，也不要去掉 `extendNodePath: false`。
 3. **`upstream/` 只读。** 那里是上游仓库的参考克隆，不修改、不提交。移植上游代码时，在文件头写明来源仓库、路径、提交 SHA 和许可证，并登记到 `docs/upstream/UPSTREAM.md`。OpenWork 的 `ee/` 目录禁止参考和移植。
-4. **不读原始调研聊天记录。** `~/Downloads` 下约 7MB 的调研记录不要喂给模型，需要的结论已经在 `docs/SKELETON_PLAN.md` 里。
+4. **不读原始调研聊天记录。** `~/Downloads` 下约 7MB 的调研记录不要喂给模型，需要的结论已经提炼进 `docs/archive/skeleton/SKELETON_PLAN.md`（已归档）。
 5. **密钥不落地。** 模型 API Key 等密钥不得写入仓库、日志、测试快照或 `DSH_HOME`。Host 通过子进程环境变量把 Key 传给 dsh。
 6. **先查文档再写 API。** 涉及第三方库、框架或上游项目的 API 时，先查当前文档或 `upstream/` 中的源码，不凭记忆写。
 7. **风格跟随仓库。** 代码风格与已有代码保持一致，格式交给 Biome；不加与任务无关的抽象。
 
-### 完成一个任务时
+### 完成一项改动时
 
-- 运行该任务的验收步骤，如实记录命令和结果。
-- 在 `docs/SKELETON_PLAN.md` §5 把任务改为 `[x]`，备注写主要产出或提交号。
-- 提交一次 commit，message 以任务 ID 开头，例如 `T1.2: add Host API v0 schemas`。
+- 运行相关的验证（lint、typecheck、测试，必要时在真实应用里走一遍），如实报告命令和结果，没跑的要说明。
+- 改动影响到的 ADR、架构文档、`docs/development.md` 和本文件的目录说明一并更新。
+- 提交一次 commit，message 用一句话说明改了什么。
 
 ## 目录结构
 
@@ -40,14 +40,14 @@ wevir/
 │  ├─ adapter-dsh/     dsh 适配器（唯一可以依赖 @deepseek-ai/* 的包）：可执行入口解析与独立 DSH_HOME（paths.ts）、白名单环境（env.ts）、DshProcess（dsh --profile acp 的启动、initialize、退出上报与有限重启、stdin EOF → SIGTERM → SIGKILL 回收）；增量流式旁路：stream-tap/ 是在 dsh 进程里运行的 Cordis 插件（纯 JS，不 import @deepseek-ai/*），src/stream-tap.ts 负责把它装进 acp profile 并解码 fd 3 的 NDJSON；ACP → AgentEvent 映射（acp-mapping.ts、tool-display.ts、turn-error.ts，表见 docs/architecture/acp-event-mapping.md）、增量与已提交消息的对齐（delta-merge.ts）、每会话有序事件队列（session-events.ts）与 AgentRuntimeAdapter 实现 DshAdapter（dsh-adapter.ts，含审批桥接，见 acp-event-mapping.md §5）；Provider 桥接：ProviderConfig → `<DSH_HOME>/wevir/providers.yml` overlay 与 `WEVIR_PROVIDER_<ID>_KEY` 环境（provider-config.ts）、provider.test 的最小请求与失败归类（provider-test.ts），见 docs/architecture/providers.md；会话恢复：`session/resume` 与失败归类（resume-error.ts，丢失的会话报 `session_lost`），取消得不到确认时重启 dsh，见 acp-event-mapping.md §6；契约测试分三层（`dsh-adapter.contract*.test.ts`：T0.3 样本回放、真实 dsh + mock Provider、真实模型），dsh 升级按 docs/upstream/UPSTREAM.md §7 的检查清单；测试用假引擎（含样本回放）、mock 模型、真实模型的配置、审批用例的工作区外目录（`.test-outside/`，gitignore）、契约测试的共用部分与 ACP 样本（T0.3 的副本与后来补录的错误）在 src/test-fixtures/；子路径 ./testing 导出本地 mock Provider，给依赖本包做集成测试的包用
 │  ├─ host/            Local Agent Host：事件库 EventStore（seq 分配、增量合并、截断、进程内事件总线）、会话快照推导、会话管理器 SessionManager（状态机、审批、引擎事件映射、启动对账、引擎会话恢复与只读标记）、WebSocket JSON-RPC 服务 HostRpcServer（升级校验、hello、分发与校验、订阅、连接健康）与 Host API 方法实现 createHostMethods；进程组装 startHost（运行时文件 run/host.json、结构化日志、按 ADR-0002 §6 优雅退出）与可执行入口 wevir-host（src/main.ts，`--adapter dsh` 为默认，经 @wevir/adapter-dsh 的公开导出建 DshAdapter，`--adapter echo` 是开发用假引擎）；子路径 ./runtime（src/runtime.ts：数据目录、host.json 的解析与陈旧判断、退出码 EXIT_CODE，只依赖 Node 内置模块，给拉起 Host 的客户端进程用）；Host + 真实 dsh 的端到端测试为 `*.dsh.integration.test.ts`
 │  └─ client-sdk/      Host 的 TS 客户端（运行时只依赖 protocol，浏览器与 Node 共用）：WevirClient（connect 与 host.hello、默认能力表与功能判断、类型安全的 request 与类型化错误 errors.ts、断线排队）、订阅的异步迭代器（subscription.ts：按 seq 去重、缺口补订、回放结束标记、重连续订）、客户端消息投影（projection.ts 的 TranscriptProjection：事件 → 消息与部件，domain-model §8，CLI 与桌面共用）与会话列表的实时推导（session-state.ts 的 applySessionEvent）、每条连接的 JSON-RPC 与心跳（rpc-channel.ts）、重连状态机（lifecycle.ts，改写自 OpenWork）、可替换的传输层（transport.ts，WebSocket 由调用方注入）；子路径 ./node 读 run/host.json（node.ts，Node 内置模块只在这里）；tsconfig.browser.json 与 Biome noNodejsModules 守浏览器入口；对着真实 Host 的验收测试 `client.integration.test.ts` 以 devDependency 引用 @wevir/host
-├─ docs/               规划、任务 prompt、开发指南 development.md、安全说明 security.md、上游登记（docs/upstream/）、ADR、研究笔记、架构文档（docs/architecture/，总览 overview.md）
+├─ docs/               已归档的计划（docs/archive/）、复盘、开发指南 development.md、安全说明 security.md、上游登记（docs/upstream/）、ADR、研究笔记、架构文档（docs/architecture/，总览 overview.md）
 ├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh、gate-m2.ts）
 ├─ biome.json          lint + format（含引擎边界规则）
 ├─ tsconfig.base.json  所有包共用的 TS 配置
 └─ vitest.config.ts    根测试配置，每个包是一个 project
 ```
 
-骨架阶段的目标结构（`apps/desktop`、`apps/cli`、`packages/adapter-dsh` 等）见 [docs/SKELETON_PLAN.md §4.1](docs/SKELETON_PLAN.md#41-目标仓库结构)。gitignore 掉的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`spikes/**/.dsh-home/`（Spike 用的独立 DSH_HOME）。
+gitignore 掉的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`spikes/**/.dsh-home/`（Spike 用的独立 DSH_HOME）。
 
 ## 常用命令
 

@@ -1,8 +1,10 @@
 # Wevir 任务 Prompt 库
 
+> **已归档（2026-10-14）。** 骨架阶段的规划与任务记录，只作历史参考，不再更新；后续方向由维护者直接决定。
+
 > 配套：[SKELETON_PLAN.md](./SKELETON_PLAN.md) · 建立日期：2026-10-12
 > 每个 prompt 对应计划里的一个任务 ID。复制后粘贴到一个**新会话**中执行。
-> 骨架阶段已于 2026-10-14 完成（T6.4）；Phase 1 的 prompt 在 [PHASE1_PROMPTS.md](./PHASE1_PROMPTS.md)。
+> 骨架阶段已于 2026-10-14 完成（T6.4）；Phase 1 的 prompt 在 [PHASE1_PROMPTS.md](../phase1/PHASE1_PROMPTS.md)。
 
 ---
 
@@ -850,4 +852,4 @@ Phase 1 的范围和优先级需要我确认：用选项列出，不要自行定
 | 2026-10-13 | T2.5：P-T5.1 写明归属管道参数名 `--exit-on-stdin-eof`、就绪行与退出码 3（ADR-0002 补记 3） |
 | 2026-10-13 | T2.5：P-T3.1 补 dispose 阶梯 5 s 上限，以及 Host 被强杀时 dsh 与工具子进程随 stdin EOF 退出的要求与验收 |
 | 2026-10-13 | T5.1：P-T5.1 第 5 条改为按实际报出的构建脚本登记（Electron 44 没有 postinstall，登记的是 esbuild，ADR-0004 补记 4） |
-| 2026-10-14 | T6.4：Phase 1 的 prompt 另建 [PHASE1_PROMPTS.md](./PHASE1_PROMPTS.md)（通用前缀按复盘改了三条：先读 PHASE1_PLAN 与复盘、协议只加不减、并行任务用 worktree），本文件只保留骨架阶段 |
+| 2026-10-14 | T6.4：Phase 1 的 prompt 另建 [PHASE1_PROMPTS.md](../phase1/PHASE1_PROMPTS.md)（通用前缀按复盘改了三条：先读 PHASE1_PLAN 与复盘、协议只加不减、并行任务用 worktree），本文件只保留骨架阶段 |
