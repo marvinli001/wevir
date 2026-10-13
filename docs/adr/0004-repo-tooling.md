@@ -96,3 +96,11 @@
    - T6.2 的 CI 跑 typecheck / test 前不需要构建，只有上一条那类测试出现时再加。
    - 以后有 jsdom / happy-dom 等 Web 环境的 project（T5.x 的 renderer）时，这些测试走 Vite 的 client 环境，要再设顶层 `resolve.conditions: ['@wevir/source']`（实测同样与默认值拼接）。electron-vite 的开发构建如果要直接用源码，也要在 renderer 配置里加这个条件，否则按默认条件走 `dist/`。
    - 包都是 `private`，`files` 只含 `dist`；万一将来发布，`@wevir/source` 指向的 `src/` 不在包里，但外部不会启用这个条件。
+
+2. **2026-10-13，T3.1：dsh 依赖的构建脚本。** pnpm 12.6 安装 `@deepseek-ai/dsh@0.2.1-alpha.2` 时 `ERR_PNPM_IGNORED_BUILDS` 报出的正好是 T0.3 在 npm 下的那 5 个包。闭包里另有 sharp、sherpa-onnx、libreoffice-kit 等原生包，它们的预编译文件放在可选的平台包里，没有安装脚本，所以 pnpm 没有报。`allowBuilds` 的键写成 `<包>@<精确版本>`：依赖升级换了版本，安装就会重新报错，迫使逐个重新审查。每一项的理由写在 `pnpm-workspace.yaml` 的注释里：
+   - 放行：`@deepseek-ai/dsh-subprocess-local`、`node-pty`、`koffi`；
+   - 拒绝：`@google/genai`、`protobufjs`。
+
+   取舍与上游 dsh 仓库自己 `pnpm-workspace.yaml` 的 `allowBuilds` 一致。另外两点：
+   - 报 `ERR_PNPM_IGNORED_BUILDS` 的同时，pnpm 会往 `pnpm-workspace.yaml` 里写入值为 `set this to true or false` 的占位条目，审查时要把它们换成真正的布尔值。
+   - 本机实测：没有执行安装脚本时，`koffi` 与 `node-pty` 的预编译文件在 macOS arm64 上也能加载。放行它们是为了覆盖缺预编译的平台、被省略的可选包，以及 Windows 上 ConPTY 的文件放置。

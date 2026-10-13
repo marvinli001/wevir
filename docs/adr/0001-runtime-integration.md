@@ -116,4 +116,13 @@ ACP 给不了、或给得不完整的信息，由 Host / 适配器自己补，�
 
 ## 补记
 
-（暂无）
+1. **2026-10-13，T3.1：dsh 进程管理的实现细节。** 代码在 `packages/adapter-dsh/src/{paths,env,dsh-process}.ts`。决策 2、4 没有写到、由 T3.1 定下或实测确认的部分：
+   - **可执行入口**：读本包依赖 `@deepseek-ai/dsh/package.json` 的 `bin.dsh`（`lib/bin.js`），用 Node 运行，不查 PATH；解析到的版本不等于 `DSH_VERSION`（`0.2.1-alpha.2`）时启动失败。开发模式下 Node 是 Host 自己的 `process.execPath`（ADR-0002 未决事项 1）。
+   - **目录**：`DSH_HOME` 为 `<数据目录>/engines/dsh`，`DSH_AGENTS_HOME` 为 `<数据目录>/engines/dsh-agents`。后者放在 `DSH_HOME` 之外，`DSH_HOME` 只装 dsh 自己写的内容。每次启动前建好两个目录并收紧到 0700；`profiles/`、`sessions/` 等由 dsh 首次启动时生成。
+   - **环境**：白名单 `INHERITED_ENV` 只有 PATH、HOME、用户名、shell、区域与时区、临时目录、代理、`NODE_EXTRA_CA_CERTS` 和 Windows 的系统变量（Windows 上变量名不分大小写）。固定注入 `DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_TELEMETRY_DISABLED=1`、`DSH_PERMISSION_MODE=workspace-write`、`NO_COLOR=1`，变量名按 dsh-base 的 `cordis.patch.yml` 核对过。调用方的额外变量（T3.4 的 `WEVIR_PROVIDER_<ID>_KEY`）不能覆盖这几个。`NODE_OPTIONS` 与 `NODE_PATH` 都不传：pnpm 的 bin 脚本（`pnpm test` 等）会把 `NODE_PATH` 设成 `node_modules/.pnpm/node_modules`，Vitest 还会带上 `--conditions`。
+   - **启动参数**：`<Node> <入口> --profile acp [--patch <overlay>]…`（`dshSpawnSpec`），cwd 为 `DSH_HOME`。给了 `onStreamData` 才多开 fd 3 并设 `WEVIR_STREAM_FD=3`（T3.2a）。POSIX 上以 `detached` 启动、自成进程组：在终端里按 Ctrl-C 时 SIGINT 只到 Host，由 Host 按 ADR-0002 §6 的顺序收尾，dsh 不会同时被打断；回收时的 SIGTERM / SIGKILL 发给整个进程组。Windows 上不分离（分离会给 dsh 开新控制台）。
+   - **initialize**：`clientCapabilities: {}`，时限 15 s，dsh 回的协议版本不是 1 也算启动失败。失败报 `engine_unavailable`，消息里带退出码和 stderr 尾部（只保留最后 16 KiB）。显式 `start()` 失败不自动重试。
+   - **退出与重启**：就绪的进程意外退出（不论是否在回合中）时发 `exit` 事件（`DshExit`：退出码、信号、stderr 尾部），进行中的 ACP 请求以 `engine_unavailable`（“dsh 进程已退出（…）”）失败。stdout 可能先于进程的 exit 事件结束，所以 ACP 的输入流要等退出记下来才结束，否则请求只会得到笼统的“连接已关闭”。之后自动重启，最多连续 3 次，分别等 0.5 s、1 s、2 s（上限 8 s）；进程就绪后连续运行满 60 s 再退出，次数重新计算。次数用完停在 `failed`，再调 `start()` 也重新计算。每次重启都是新连接，旧会话随进程失效，要 resume（T3.5）。
+   - **回收**：关连接 → 关 stdin 等 2 s → SIGTERM 等 1.5 s → SIGKILL 等 1 s，最坏 4.5 s 返回，在 Host 退出的 7 s 预算之内（ADR-0002 补记 3）。`dispose` 引起的退出不发 `exit` 事件。
+   - **审批默认值**：没有接上审批处理器（T3.3 之前）时，`session/request_permission` 一律回复 `cancelled`，不替用户批准任何操作。
+   - **实测**（本机 macOS arm64，Node 26.10，`dsh-process.integration.test.ts`）：spawn 到 initialize 完成 520 ms；一个进程并发新建 3 个会话正常；空闲时 `dispose` 在第一步（stdin EOF）22 ms 返回，没有用到信号。另一条用例模拟 Host 被强杀：一个假 Host 按 `dshSpawnSpec` 拉起 dsh 并转发 stdio，模型换成本地脚本化的 OpenAI 兼容服务（不需要 Key），让 dsh 用 bash 工具执行 `sleep 291`。假 Host 被 SIGKILL 后，dsh 在 51 ms 内因 stdin EOF 退出，`sleep` 也随之结束。进程树检查依赖 `ps`，这条用例在 Windows 上跳过。

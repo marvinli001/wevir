@@ -1,0 +1,30 @@
+{
+  "name": "@wevir/adapter-dsh",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir engine adapter for DeepSeek Harness (dsh): process management over ACP.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@deepseek-ai/dsh": "0.2.1-alpha.2",
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

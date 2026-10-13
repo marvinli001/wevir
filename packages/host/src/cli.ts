@@ -119,7 +119,7 @@ export function createAdapter(kind: AdapterKind): AgentRuntimeAdapter {
       return new EchoAdapter();
     case 'dsh':
       throw new AdapterUnavailableError(
-        'dsh 适配器尚未实现（SKELETON_PLAN T3.1）；开发时请用 --adapter echo',
+        'dsh 适配器尚未实现（SKELETON_PLAN M3，T3.1 只完成了进程管理）；开发时请用 --adapter echo',
       );
   }
 }

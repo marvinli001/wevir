@@ -21,6 +21,17 @@ bash scripts/upstream-sync.sh
 补充：
 
 - dsh 的锁定提交就是 tag `dsh-v0.2.1-alpha.2` 指向的提交（GitHub compare 结果 `identical`），与 T0.3 锁定的 npm 版本 `@deepseek-ai/dsh@0.2.1-alpha.2` 是同一份源码。
+
+### 1.1 作为依赖运行的 npm 包
+
+只在 `packages/adapter-dsh/package.json` 声明，写精确版本（ADR-0001 §1、ADR-0004 §2）。
+
+| npm 包 | 锁定版本 | npm `latest`（2026-10-12） | 许可证 | 说明 |
+|---|---|---|---|---|
+| `@deepseek-ai/dsh` | `0.2.1-alpha.2` | `0.2.0-rc.2` | MIT | 与上表 dsh 锁定提交同源；`packages/adapter-dsh/src/paths.ts` 的 `DSH_VERSION` 与之相同，解析到别的版本时启动报错 |
+| `@agentclientprotocol/sdk` | `1.4.0` | `1.8.0` | Apache-2.0（Zed Industries） | 与 dsh-acp 自己锁定的版本相同；peer `zod` 由 pnpm 自动安装为工作区里的 4.6.x |
+
+两者在 `pnpm-lock.yaml` 里的完整依赖闭包、构建脚本放行（`pnpm-workspace.yaml` 的 `allowBuilds`）与许可证见 §2.1。
 - OpenWork 锁定提交比最新 release `v0.18.57` 超前 121 个提交；Paseo `main` 与 tag `v0.11.2` 已分叉（领先 51、落后 3，release 在单独的分支上打）。两者只作参考，不追 release。
 - GitHub API 把 OpenWork 和 Paseo 的许可证都识别为 `NOASSERTION`：两份根 `LICENSE` 都在标准文本前加了一段适用范围说明，GitHub 的识别器因此认不出。实际条款以下面的原文为准。
 
@@ -55,6 +66,13 @@ bash scripts/upstream-sync.sh
   - LGPL-3.0-or-later：`sharp` 0.35.5（本身 Apache-2.0，由 `dsh-attachment-local` 引入）的预编译 libvips 包 `@img/sharp-libvips-*`，以及 `@img/sharp-win32-*`（`Apache-2.0 AND LGPL-3.0-or-later`）、`@img/sharp-wasm32`。分发时要满足 LGPL-3.0 对所用库的义务（随附许可证、提供对应源码或获取方式、以用户可替换的共享库形式使用），具体条款由 T6.3 按 LGPL-3.0 第 4 条逐项核对。
   - 其余均为宽松许可证（MIT、ISC、Apache-2.0、BSD、0BSD、BlueOak、CC0、CC-BY-4.0、Python-2.0 等）。
   - 这只是 Spike 环境下的结果。T3.1 改用 pnpm 安装后重新核对一次；桌面端打包 dsh 前（T6.3 / 打包阶段）按实际打进安装包的文件再核对，并据此生成第三方声明。
+- **pnpm 安装后的复核**（T3.1，2026-10-13，依据 `pnpm-lock.yaml`）：从 importer `packages/adapter-dsh` 沿 `snapshots` 的 `dependencies` 与 `optionalDependencies` 走出生产依赖闭包，含所有平台的可选包，共 622 个 name@version（Spike 的 632 个里多了 `dsh-sdk-client` 及其依赖）。已安装的 552 个读各自 `package.json` 的 `license`，其他平台的 70 个用 `npm view <包>@<版本> license` 查。结论与 T0.6 一致：
+  - 计数：MIT 497、Apache-2.0 71、BSD-3-Clause 18、ISC 10、BSD-2-Clause 2，以及 0BSD、Unlicense（`fast-sha256`）、Python-2.0（`argparse`）、`(MIT OR CC0-1.0)`（`type-fest`）各 1。
+  - MPL-2.0（6 个）：`@deepseek-ai/libreoffice-kit` 0.1.5 及其 `darwin-arm64`、`darwin-x64`、`win32-arm64`、`win32-x64`、`wasm` 可选包。
+  - 含 LGPL-3.0-or-later（14 个）：`@img/sharp-libvips-*` 1.3.4 共 10 个（LGPL-3.0-or-later），`@img/sharp-win32-{arm64,ia32,x64}` 0.35.5（`Apache-2.0 AND LGPL-3.0-or-later`），`@img/sharp-wasm32` 0.35.5（`Apache-2.0 AND LGPL-3.0-or-later AND MIT`）。
+  - 仍然**没有** `@anthropic-ai/claude-agent-sdk`；`@anthropic-ai/sdk` 0.129.0 为 MIT。`sherpa-onnx-node` 1.13.8 及其平台包为 Apache-2.0。
+  - `pnpm licenses list --prod` 不列出可选的平台包（本机已安装的 `@img/sharp-libvips-darwin-arm64`、`libreoffice-kit-darwin-arm64` 也不在其中），所以不能用它代替上面的闭包核对。
+- **构建脚本**（T3.1，`pnpm-workspace.yaml` 的 `allowBuilds`，键带精确版本）：pnpm 报出的与 T0.3 在 npm 下相同的 5 个包。放行 `@deepseek-ai/dsh-subprocess-local`（给 node-pty 的 `spawn-helper` 恢复执行位）、`node-pty`（缺预编译时 node-gyp 编译；Windows 上放置 ConPTY 的 DLL）、`koffi`（验证预编译可加载，否则 CMake 编译）；拒绝 `@google/genai`（只有 `echo` 的 preinstall）与 `protobufjs`（只打印版本前缀警告）。与上游 dsh 仓库自己的 `allowBuilds` 取舍一致。
 - 万一需要移植 dsh 源码，按 MIT 处理（见 §5）；碰到上表子目录时，按该目录自己的许可证处理。
 
 ### 2.2 OpenWork：`ee/` 之外 MIT，`ee/` 禁止参考和移植
@@ -170,5 +188,5 @@ Apache-2.0 来源（Paseo）：
    ```
    许可证有变化，先更新本文件 §2 的结论。
 4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”。
-5. **跑契约测试**：`pnpm test`（M1 起包含 AgentRuntimeAdapter 契约测试，M3 起包含真实 dsh 的适配器契约测试）。升级 dsh 时，同步调整 `packages/adapter-dsh` 锁定的 npm 版本。
+5. **跑契约测试**：`pnpm test`（M1 起包含 AgentRuntimeAdapter 契约测试，M3 起包含真实 dsh 的适配器契约测试）。升级 dsh 时，同步调整 `packages/adapter-dsh` 锁定的 npm 版本与 `src/paths.ts` 的 `DSH_VERSION`、§1.1 的表；`allowBuilds` 的键带版本，`pnpm install` 会对换了版本的构建脚本报 `ERR_PNPM_IGNORED_BUILDS`，逐个重新审查后改键；按 §2.1 的方法重新核对依赖闭包的许可证。完整的检查清单由 T3.6 写入。
 6. **更新本文件 §1 仓库表**（提交、日期、结论），与 lock 改动放在同一个 commit 里。
