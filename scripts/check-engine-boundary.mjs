@@ -7,7 +7,8 @@
 // 前提是不开启 node-linker=hoisted、shamefully-hoist、enableGlobalVirtualStore、preferSymlinkedExecutables，
 // 不用 public-hoist-pattern 提升 @deepseek-ai，并保持 pnpm-workspace.yaml 的 extendNodePath: false：
 // 否则命令 shim 会把 node_modules/.pnpm/node_modules 写进 NODE_PATH，require() 经它解析到没声明的包
-// （ADR-0004 补记 3）。
+// （ADR-0004 补记 3）。这一条在安装时才生效，所以本脚本还检查已生成的 shim：设置被去掉、或者 checkout 在
+// 设置之前装过依赖（要 pnpm install --force 才会重写 shim），lint 都会失败，而不是让测试静默放过违规写法。
 //
 // 同时禁止通过 file: / link: / portal: 依赖指向 spikes/，避免绕过 import 规则。
 
@@ -74,9 +75,25 @@ for (const dir of dirs) {
   }
 }
 
+// 命令 shim 是普通文件（POSIX 上是 sh 脚本，Windows 上是 .cmd / .ps1）；符号链接指向的是工具自己的 JS，不检查。
+let shims = 0;
+for (const dir of dirs) {
+  const bin = join(root, dir, 'node_modules', '.bin');
+  if (!existsSync(bin)) continue;
+  for (const entry of readdirSync(bin, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    shims += 1;
+    if (readFileSync(join(bin, entry.name), 'utf8').includes('NODE_PATH')) {
+      violations.push(
+        `${relative(root, join(bin, entry.name))} — 命令 shim 导出了 NODE_PATH：确认 pnpm-workspace.yaml 有 extendNodePath: false，再运行 pnpm install --force`,
+      );
+    }
+  }
+}
+
 if (violations.length > 0) {
   console.error('引擎边界检查失败（见 AGENTS.md 仓库规则第 2 条）：');
   for (const v of violations) console.error(`  ✗ ${v}`);
   process.exit(1);
 }
-console.log(`引擎边界：${dirs.length} 个 package.json 检查通过。`);
+console.log(`引擎边界：${dirs.length} 个 package.json、${shims} 个命令 shim 检查通过。`);

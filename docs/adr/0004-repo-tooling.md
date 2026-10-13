@@ -117,12 +117,14 @@
    - 设置后，从根目录跑和在包目录里跑 Vitest，上面的探针都报 `Cannot find module`。`pnpm lint`、`pnpm typecheck`、`pnpm test`（33 个测试文件，526 通过、1 跳过）、`pnpm build` 通过。
    - pnpm 文档（`settings/other` 的 `extendNodePath`）说这个 `NODE_PATH` 是给从工作目录解析模块的 CLI 准备的（例如 jest、eslint 用的 `import-local`）。仓库现有的工具（Vitest、tsc、Biome、tsdown）不靠它；以后引入这类工具，要先确认它在 `extendNodePath: false` 下能用，不能为它重新打开。
 
+   设置只在创建 shim 时生效，单靠它的话，设置被去掉或 checkout 在设置之前装过依赖，测试都会静默放过违规写法。所以 `check-engine-boundary.mjs` 再检查根目录和各工作区包 `node_modules/.bin` 里已生成的 shim：任何一个普通文件里出现 `NODE_PATH` 就失败，提示补上设置并 `pnpm install --force`。符号链接（指向工具自己的 JS）不检查。实测把设置改成 `true` 并 `pnpm install --force` 后，`pnpm lint` 对全部 6 个 shim 报错；改回并重装后通过。
+
    备选方案：
    - 在根 `vitest.config.ts` 顶部 `delete process.env.NODE_PATH`（配置在 Vitest 主进程里先于 worker 求值）：实测对根目录的 `pnpm test` 有效，但在包目录里跑只加载包自己的配置，仍然泄漏；每个包都写一遍又要求新包照抄。不采纳。
    - 在 `check-engine-boundary.mjs` 里 grep `require(` / `createRequire` 配 `@deepseek-ai`：包名通常是 `createRequire(…)` 返回函数的参数，正则只能退化成“禁止任何 `@deepseek-ai/` 字符串”，与 Biome 规则重叠，也挡不住拼出来的包名；而且只管引擎包，其他没声明的依赖照样测试通过、生产失败。不采纳。
    - 收窄 `hoistPattern`（例如加 `!@deepseek-ai/*`）：改的是 dsh 依赖闭包的安装布局，dsh 子包之间若靠私有提升互相解析就会坏，要重新验证整个 dsh；同样只管引擎包。不采纳。
 
    后果：
-   - 之前装过依赖的 checkout 要执行一次 `pnpm install --force`，否则本机 shim 仍带 `NODE_PATH`，违规写法只会在 CI 暴露；CI 每次全新安装，不受影响。
-   - 另外两个设置也会注入 `NODE_PATH`，一并禁用（pnpm 12 CHANGELOG）：`enableGlobalVirtualStore` 让 `pnpm run` / `pnpm exec` 起的每个进程都带 `NODE_PATH`，还用 `NODE_OPTIONS` 的 `--import` 钩子让 ESM 也认它；`preferSymlinkedExecutables` 把 `.bin` 换成符号链接，同时给脚本导出 `NODE_PATH`（`node-linker=hoisted` 时自动开启）。
+   - 之前装过依赖的 checkout 要执行一次 `pnpm install --force`，否则 `pnpm lint` 失败。以后 T6.2 的 CI 每次全新安装，不受影响。
+   - 另外两个设置也会注入 `NODE_PATH`，一并禁用（pnpm 12 CHANGELOG）：`enableGlobalVirtualStore` 让 `pnpm run` / `pnpm exec` 起的每个进程都带 `NODE_PATH`，还用 `NODE_OPTIONS` 的 `--import` 钩子让 ESM 也认它；`preferSymlinkedExecutables` 把 `.bin` 换成符号链接，同时给脚本导出 `NODE_PATH`（`node-linker=hoisted` 时自动开启）。这两项注入的 `NODE_PATH` 不写在 shim 文件里，上面的 shim 检查发现不了，只靠文档禁止。
    - adapter-dsh 给 dsh 子进程的白名单环境本来就不传 `NODE_PATH`（ADR-0001），不变。
