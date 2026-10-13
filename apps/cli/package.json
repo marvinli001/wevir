@@ -1,0 +1,31 @@
+{
+  "name": "@wevir/cli",
+  "version": "0.0.0",
+  "private": true,
+  "description": "wevir command-line client: start and stop the local Host, manage workspaces and providers, create sessions and attach to them with live output and interactive approvals.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "bin": {
+    "wevir": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/client-sdk": "workspace:*",
+    "@wevir/host": "workspace:*",
+    "@wevir/protocol": "workspace:*",
+    "mute-stream": "3.0.0"
+  },
+  "devDependencies": {
+    "@types/mute-stream": "0.0.4",
+    "@wevir/adapter-dsh": "workspace:*",
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

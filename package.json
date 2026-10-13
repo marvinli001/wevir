@@ -12,6 +12,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm -r --parallel --if-present dev",
+    "wevir": "node apps/cli/dist/main.js",
     "dev:host": "pnpm --filter \"@wevir/host...\" build && node packages/host/dist/main.js --home ./.wevir-dev --adapter echo",
     "lint": "biome check . && node scripts/check-engine-boundary.mjs",
     "lint:fix": "biome check --write .",

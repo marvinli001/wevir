@@ -41,7 +41,7 @@
   "permissions":["host.manage","workspace.read","workspace.write","provider.read","provider.write","session.read","session.write"]}}
 ```
 
-- `clientKind`：`desktop`、`cli`；`mobile` 预留，骨架不出现。`deviceId` 是设备级标识；`clientId` 每个安装持久，同一台设备上的桌面与 CLI 不同。二者与 `clientKind` 组成该连接的 `ClientIdentity`，写进 `user.message.sentBy` 与 `approval.resolved` 的 `decidedBy`。
+- `clientKind`：`desktop`、`cli`；`mobile` 预留，骨架不出现。`deviceId` 是设备级标识；`clientId` 每个安装持久，同一台设备上的桌面与 CLI 不同。二者与 `clientKind` 组成该连接的 `ClientIdentity`，写进 `user.message.sentBy` 与 `approval.resolved` 的 `decidedBy`。客户端把它们存在数据目录里（T4.2）：`device-id` 本机的桌面与 CLI 共用，谁先用到谁创建；CLI 的 `clientId` 在 `cli-client-id`，同一台机器上开几个终端都是同一个 CLI 安装。
 - `hostId`：每个数据目录一个，跨 Host 重启不变，客户端据此认出“同一个 Host”。
 - `permissions`：骨架阶段恒为权限词表全部（`PERMISSIONS`），为设备权限预留；每个方法需要的权限见 §3。
 - `capabilities` / `features`：见 §10。v0 是基线，两张表都为空。
