@@ -6,4 +6,4 @@ Wevir 是面向中国大陆用户的**本地优先、开源、多模型、可跨
 - 任务 prompt 库：[docs/TASK_PROMPTS.md](docs/TASK_PROMPTS.md)
 - 贡献者与 AI 助手的仓库规则：[AGENTS.md](AGENTS.md)
 
-许可证：[MIT](LICENSE)
+许可证：[MIT](LICENSE)。移植自上游与其他第三方来源的文件及其版权声明见 [NOTICE](NOTICE)。

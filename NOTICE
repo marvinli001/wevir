@@ -1,0 +1,135 @@
+Wevir
+Copyright (c) 2026 Wevir contributors
+
+Wevir 以 MIT 许可证发布，见 LICENSE。
+
+本文件列出 Wevir 仓库里来自第三方的代码与数据：从上游项目移植的文件、由工具生成或从依赖包摘录的
+文件、录下来的上游运行输出，以及它们的来源、许可证与版权声明。每个文件的文件头写有来源与修改说明，
+逐文件的登记在 docs/upstream/UPSTREAM.md §4。
+
+npm 依赖不在本文件里：它们的许可证随各自的包分发，安装包的第三方声明见
+docs/upstream/third-party-notices.md。
+
+本文件、UPSTREAM.md §4 与各文件头三处一致，改动其中一处时另外两处一起改。
+
+
+1. OpenWork
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/different-ai/openwork
+来源提交：ad22cdc2217370f28f24f0f8758016c2921e3c73
+许可证：MIT（ee/ 目录之外的部分）
+版权：Copyright (c) 2026-present Different AI, Inc.
+      （OpenWork 根目录 LICENSE 写作 Copyright (c) 2026 Different AI）
+
+Wevir 不包含 OpenWork ee/ 目录（OpenWork Enterprise Edition License）的任何代码。
+
+移植的文件（左边是 Wevir 文件，右边是 OpenWork 的来源路径），均由 Wevir 修改，修改说明在各文件头：
+
+  packages/client-sdk/src/lifecycle.ts
+      <- apps/app/src/react-app/domains/session/sync/sync-stream-lifecycle.ts
+  apps/desktop/src/renderer/src/theme/theme.ts
+      <- apps/app/src/app/theme.ts
+  apps/desktop/src/renderer/public/theme-init.js
+      <- apps/app/index.html（第 19–32 行的内联脚本）
+  apps/desktop/src/renderer/src/session/markdown/markdown.ts
+      <- apps/app/src/components/markdown/markdown-primitive.ts
+  apps/desktop/src/renderer/src/session/scroll-controller.ts
+      <- apps/app/src/react-app/domains/session/surface/scroll-controller.ts
+  apps/desktop/src/renderer/src/session/tool-model.ts
+      <- apps/app/src/lib/tool-aggregate.ts
+         apps/app/src/lib/current-tool-lifecycle.ts
+  apps/desktop/src/renderer/src/session/approval-card.tsx
+      <- apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx
+
+上面的来源文件里没有第三方作品的署名。OpenWork 里由 Radix Colors 生成的色值与 shadcn 生成的组件
+没有从 OpenWork 拷贝，Wevir 直接从原始来源获取，见第 2、3 节。
+
+许可证全文见文末“MIT License”。
+
+
+2. shadcn/ui
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/shadcn-ui/ui
+许可证：MIT
+版权：Copyright (c) 2023 shadcn
+
+由 shadcn CLI 4.21.4 从官方 registry 生成（base-nova 风格），部分文件由 Wevir 修改，修改说明在各文件头：
+
+  apps/desktop/src/renderer/src/components/ui/button.tsx
+  apps/desktop/src/renderer/src/components/ui/dialog.tsx
+  apps/desktop/src/renderer/src/components/ui/input.tsx
+  apps/desktop/src/renderer/src/components/ui/scroll-area.tsx
+  apps/desktop/src/renderer/src/components/ui/sheet.tsx
+  apps/desktop/src/renderer/src/components/ui/textarea.tsx
+  apps/desktop/src/renderer/src/components/ui/tooltip.tsx
+
+摘自 shadcn 4.21.4 包内的 dist/tailwind.css：
+
+  apps/desktop/src/renderer/src/styles/shadcn-variants.css
+
+许可证全文见文末“MIT License”。
+
+
+3. Radix Colors
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/radix-ui/colors
+许可证：MIT
+版权：Copyright (c) 2021 Radix
+
+由 apps/desktop/scripts/generate-palette.ts 从 npm 包 @radix-ui/colors 3.0.0 生成的色值：
+
+  apps/desktop/src/renderer/src/styles/palette.css
+
+许可证全文见文末“MIT License”。
+
+
+4. DeepSeek Harness（dsh）
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/deepseek-ai/deepseek-harness
+来源提交：d743267388641bc76f17c45ce8b4c231aed1d32c（tag dsh-v0.2.1-alpha.2）
+许可证：MIT
+版权：Copyright (c) 2026 DeepSeek
+
+Wevir 不移植 dsh 的源码，而是把 npm 包 @deepseek-ai/dsh 0.2.1-alpha.2 作为依赖运行。下面两处测试
+样本是 dsh 运行时输出的录制，其中含 dsh 内置工具的 schema 与描述文本：
+
+  spikes/dsh-acp/fixtures/
+  packages/adapter-dsh/src/test-fixtures/acp/
+
+许可证全文见文末“MIT License”。
+
+
+5. Paseo
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/getpaseo/paseo
+来源提交：dc7bc8db124e837ba909ffd3b4b20e16adaebe24
+许可证：Apache License 2.0
+版权：Copyright (c) 2025-present Mohamed Boudra
+
+Wevir 目前没有移植 Paseo 的代码，只参考了它的架构设计，所以不涉及 Apache License 2.0 第 4 条的
+再分发义务。Paseo 在上面的提交下没有 NOTICE 文件。以后移植时，按 docs/upstream/UPSTREAM.md §2.3
+保留其版权与署名声明、标明修改、在这里列出文件并附 Apache License 2.0 全文；上游若加了 NOTICE 文件，
+把其中的署名内容一并收进这里。
+
+
+MIT License
+------------------------------------------------------------------------------------------------
+第 1–4 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

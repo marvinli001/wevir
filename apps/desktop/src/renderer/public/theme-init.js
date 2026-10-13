@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+// 移植自 different-ai/openwork apps/app/index.html（第 19–32 行的内联脚本）
+// 来源提交 ad22cdc2217370f28f24f0f8758016c2921e3c73
+// Copyright (c) 2026-present Different AI, Inc.
+// 修改：改为单独的普通脚本文件（生产 CSP 不放行内联脚本）；存储 key 换成运行时同一个 THEME_STORAGE_KEY
+// （OpenWork 这里只读旧 key，候选 #17 的问题之一）；不认识的值按跟随系统处理，与 theme.ts 一致；只写
+// data-theme，不再写内联的 color-scheme（由 tokens.css 按 data-theme 设置）。
+//
 // 首帧前设置 <html data-theme>（T5.2），暗色用户启动时不会先闪一帧亮色。index.html 在 <head> 里以普通
 // （非 module）脚本同步加载它；不内联，因为生产 CSP 是 script-src 'self'，不放行内联脚本。
 //

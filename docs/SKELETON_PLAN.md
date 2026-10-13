@@ -201,7 +201,7 @@ wevir/
 | **M6** | **骨架收尾** | | | |
 | T6.1 | 开发文档（含大陆镜像配置） | M5 | [ ] | |
 | T6.2 | CI（macOS + Windows） | T0.1 | [ ] | 可提前做 |
-| T6.3 | 上游来源与 NOTICE 核查 | M5 | [ ] | |
+| T6.3 | 上游来源与 NOTICE 核查 | M5 | [x] | 移植登记补 1 个：`apps/desktop/src/renderer/public/theme-init.js`（移植自 OpenWork `apps/app/index.html` 的首帧前脚本，此前没有文件头，只在 `theme.ts` 一行的来源里提到），OpenWork MIT 区域的移植共 7 个文件；UPSTREAM.md 新增 §4.1，登记 shadcn 生成或摘录的 8 个文件、Radix Colors 生成的 `palette.css` 与 dsh 运行输出的录制样本。根目录 `NOTICE`：OpenWork、shadcn、Radix Colors、dsh 各一节（来源、文件、版权）与 MIT 全文；Paseo 没有移植、锁定提交下也没有 NOTICE 文件，写明以后移植时的做法。相似度检查（jscpd 5.3.3，逐字、忽略标识符与字面量、函数级 AST 三遍，另扫非代码文件与打进产物的依赖，范围含未提交的 T4.2 `apps/cli`）：没有未登记的上游代码，没有 OpenWork `ee/` 的代码，命中逐条解释在 UPSTREAM.md §8（同时写下复查方法）。依赖许可证按当前 lockfile 重核：dsh 闭包 622 个，计数与 T3.1 相同；补记 dsh 的 npm 包不带 `THIRD_PARTY_NOTICES.md`、libvips 的包不带 LGPL 全文、`@img/sharp-wasm32` 把 libvips 静态编进 wasm、libreoffice-kit 平台包的 `sources/` 就是 MPL 的源码获取途径。Wevir 会分发的非 MIT 依赖：`class-variance-authority`（Apache-2.0）、`dompurify`（选 Apache-2.0）、`highlight.js`（BSD-3-Clause）、`lucide-react` 与 `mute-stream`（ISC）。第三方声明草稿与打包阶段的分发义务清单在 `docs/upstream/third-party-notices.md` |
 | T6.4 | 骨架复盘，规划 Phase 1 | 全部 | [ ] | |
 
 ---
@@ -355,7 +355,7 @@ wevir/
 
 - **T6.1** `docs/development.md`：环境要求、启动、调试、大陆镜像（npm registry、`ELECTRON_MIRROR`、GitHub 镜像）。
 - **T6.2** GitHub Actions：macOS + Windows 上 lint、typecheck、test（可提前到 M1 做）；Node 用 `.node-version`，另跑一次 `engines` 下限 22.19，覆盖 `node:sqlite` 在各版本间的 API 差异（ADR-0003）。
-- **T6.3** 检查所有移植文件的来源头部与 `UPSTREAM.md` 登记；生成 `NOTICE`；核对 dsh 依赖闭包中的 MPL-2.0 / LGPL-3.0 组件（UPSTREAM.md §2.1）与 OpenWork 区域里第三方派生内容的署名（§2.2）。
+- **T6.3** 检查所有移植文件的来源头部与 `UPSTREAM.md` 登记；生成 `NOTICE`；核对 dsh 依赖闭包中的 MPL-2.0 / LGPL-3.0 组件（UPSTREAM.md §2.1）与 OpenWork 区域里第三方派生内容的署名（§2.2）；把 Wevir 会分发的依赖整理成第三方声明草稿与打包阶段的分发义务清单（`docs/upstream/third-party-notices.md`）。
 - **T6.4** 复盘：更新本文件，产出 `docs/PHASE1_PLAN.md`（终端、Git Diff、文件预览、Skills/MCP 管理（扩展库统一入口、远程 MCP 的托管 OAuth）、OAuth 类 Provider 的 Spike、“总是允许”审批规则、手机端准备）。
 - **Gate M6**：§4.2 全部九条通过。
 
@@ -410,3 +410,4 @@ wevir/
 | 2026-10-13 | T5.3：§6 T5.3 补“左栏会话列表实时更新”的做法——Host 没有会话列表变化的推送，桌面端给每个会话开一条从它当前 lastSeq 开始的订阅跟上状态与标题，别的客户端新建的会话靠定时与获得焦点时重读列表发现（列表变化的推送留给需要时再加协议方法）；domain-model §8 的客户端投影原定 T4.1，T4.1 没做，由本任务放进 client-sdk 并把 §8 改成定稿 |
 | 2026-10-14 | T5.4：§6 T5.4 补“移除工作区、删除 Provider 被未关闭的会话挡住时，桌面端在确认框里写明并先关闭这些会话”（Host 的 `RESOURCE_IN_USE` 不变，关闭的会话可以 resume；不补的话用过的工作区在桌面端移不掉）；首次使用的引导放在首页，直到有第一个会话 |
 | 2026-10-14 | T5.5：§6 T5.5 补上任务 prompt 里的重试次数、确认旧进程与出错 / 只读的操作；“基于历史新建”的 Host 侧接口仍未排期，桌面端先用客户端做法（domain-model §4.4）；Host 崩溃后已显示的输出会被投影规则删掉，改为 `interrupted` 的回合保留增量（domain-model §6.3 规则 4）；ADR-0002 补记 6 记下重新拉起与附着的 Host 的做法。Gate M5 的 §4.2 第 1–7 条手动验收通过（第 7 条用的是尚未提交的 T4.2 CLI，T4.2 提交后以它为准） |
+| 2026-10-14 | T6.3：§6 T6.3 补上任务 prompt 里的第三方声明草稿与分发义务清单；移植登记表之外另设 UPSTREAM.md §4.1，登记由 shadcn、Radix Colors 生成或摘录的文件与 dsh 运行输出的录制；来源核查的方法与记录写在 UPSTREAM.md §8，登记表、文件头、`NOTICE` 三处一起改 |

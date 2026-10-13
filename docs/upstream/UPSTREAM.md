@@ -72,6 +72,11 @@ bash scripts/upstream-sync.sh
   - 含 LGPL-3.0-or-later（14 个）：`@img/sharp-libvips-*` 1.3.4 共 10 个（LGPL-3.0-or-later），`@img/sharp-win32-{arm64,ia32,x64}` 0.35.5（`Apache-2.0 AND LGPL-3.0-or-later`），`@img/sharp-wasm32` 0.35.5（`Apache-2.0 AND LGPL-3.0-or-later AND MIT`）。
   - 仍然**没有** `@anthropic-ai/claude-agent-sdk`；`@anthropic-ai/sdk` 0.129.0 为 MIT。`sherpa-onnx-node` 1.13.8 及其平台包为 Apache-2.0。
   - `pnpm licenses list --prod` 不列出可选的平台包（本机已安装的 `@img/sharp-libvips-darwin-arm64`、`libreoffice-kit-darwin-arm64` 也不在其中），所以不能用它代替上面的闭包核对。
+- **T6.3 复核**（2026-10-14，同一方法，依据当时工作区的 `pnpm-lock.yaml`）：闭包仍是 622 个 name@version（已安装 554 个、`npm view` 68 个），各许可证计数、MPL-2.0 的 6 个与含 LGPL-3.0-or-later 的 14 个都与 T3.1 相同，仍然没有 `@anthropic-ai/claude-agent-sdk`。看了已安装的包的实际内容，补充四点，分发时的做法见 [third-party-notices.md](./third-party-notices.md)：
+  - `@deepseek-ai/dsh` 的 npm 包里只有 `LICENSE`，**没有** `THIRD_PARTY_NOTICES.md`，分发时从锁定提交的上游仓库取。
+  - `@img/sharp-libvips-*` 包里没有 LGPL 许可证全文，只有 README 里的许可证表：libvips 与 glib、pango、fribidi、libheif、librsvg、libexif、proxy-libintl 为 LGPLv3，cairo 为 MPL-1.1，aom 为 BSD-2-Clause 加 AOM 专利许可，其余为宽松许可证；各库版本在包内 `versions.json`。macOS 上 `sharp-*.node` 经 `@rpath` 动态链接 `libvips-cpp.*.dylib`；`@img/sharp-wasm32` 把 libvips 编进了 wasm，不是可替换的共享库。
+  - `@deepseek-ai/libreoffice-kit-<平台>` 自带 `licenses/`（LibreOffice 的 MPL-2.0 与第三方声明、dsh 的 MIT）与 `sources/`（LibreOffice core 的上游提交、改动补丁与构建脚本），这就是 MPL-2.0 要求的源码获取途径；`@deepseek-ai/libreoffice-kit` 另有 `NOTICE`。
+  - 已安装的 554 个包里只有 `@deepseek-ai/libreoffice-kit` 带 `NOTICE` 文件；71 个 Apache-2.0 包中已安装的都没有，Apache-2.0 第 4(d) 条的 NOTICE 义务目前不涉及。没装的平台包（`@img/sharp-*`、`sherpa-onnx-*` 等）按同系列已安装的包推断，打包时按实际打进的文件再看一次。
 - **构建脚本**（T3.1，`pnpm-workspace.yaml` 的 `allowBuilds`，键带精确版本）：pnpm 报出的与 T0.3 在 npm 下相同的 5 个包。放行 `@deepseek-ai/dsh-subprocess-local`（给 node-pty 的 `spawn-helper` 恢复执行位）、`node-pty`（缺预编译时 node-gyp 编译；Windows 上放置 ConPTY 的 DLL）、`koffi`（验证预编译可加载，否则 CMake 编译）；拒绝 `@google/genai`（只有 `echo` 的 preinstall）与 `protobufjs`（只打印版本前缀警告）。与上游 dsh 仓库自己的 `allowBuilds` 取舍一致。
 - 万一需要移植 dsh 源码，按 MIT 处理（见 §5）；碰到上表子目录时，按该目录自己的许可证处理。
 
@@ -104,7 +109,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
    - `apps/app/src/components/ui/*`：shadcn CLI 生成的组件（MIT，© shadcn）。Wevir 用 shadcn CLI 自己生成，不从 OpenWork 拷贝。
    - `apps/app/src/components/ui/{message,chain-of-thought,source,tool,image}.tsx`：导出 API 与 prompt-kit（MIT）一致，文件里没写来源；`apps/app/components.json` 还配置了 `@ai-elements` registry（Apache-2.0）。出处无法从文件本身确认，**一律只参考、不移植**。
    - `apps/app/src/components/markdown/markdown-math.ts:6`：注释称数学公式分隔规则与上游 opencode web（MIT）相同，移植时保留这条注释。
-2. **npm 依赖中的非 MIT 许可证**（2026-10-12 `npm view` 核对）：`@pierre/diffs` 1.3.5、`@pierre/trees` 1.0.0-beta.6、`ai` 6.x 为 Apache-2.0；`dompurify` 3.x 为 `(MPL-2.0 OR Apache-2.0)`；`@paper-design/shaders` 0.0.72 的 package.json 只写“SEE LICENSE IN …”，tarball 内 LICENSE 为 MIT（© Lost Coast Labs），后续版本须重新核对。Wevir 引入这些依赖时由 T6.3 汇总进第三方声明。
+2. **npm 依赖中的非 MIT 许可证**（2026-10-12 `npm view` 核对）：`@pierre/diffs` 1.3.5、`@pierre/trees` 1.0.0-beta.6、`ai` 6.x 为 Apache-2.0；`dompurify` 3.x 为 `(MPL-2.0 OR Apache-2.0)`；`@paper-design/shaders` 0.0.72 的 package.json 只写“SEE LICENSE IN …”，tarball 内 LICENSE 为 MIT（© Lost Coast Labs），后续版本须重新核对。Wevir 引入这些依赖时由 T6.3 汇总进第三方声明。（T6.3：其中只有 `dompurify` 被 Wevir 引入，按 Apache-2.0 使用；Wevir 全部会分发的依赖汇总在 [third-party-notices.md](./third-party-notices.md) §2。）
 3. **商标与网络**：`packages/ui` 的 `ProviderIcon` 运行时从 simpleicons CDN 和 Google s2 服务拉取模型厂商 logo。厂商 logo 是商标，MIT 不授权；Google 服务在大陆不可达。Wevir 不移植这一机制，只做本地缩写头像。
 
 ### 2.3 Paseo：Apache-2.0
@@ -145,11 +150,23 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 | Wevir 文件 | 来源路径 | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|
 | `packages/client-sdk/src/lifecycle.ts` | OpenWork `apps/app/src/react-app/domains/session/sync/sync-stream-lifecycle.ts` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T4.1，OpenWork 候选 #1）：从事件流 SSE 的重连改为 Host 连接（建立传输 + `host.hello`）的重连状态机。保留两套指数退避（普通 1 s → 10 s、鉴权类 5 s → 60 s）、单一重试计时器、换代时重置退避并立即重连、换代前发起的尝试报的鉴权失败按普通失败处理；阶段改为 connecting / connected / reconnecting / closed，新增不可恢复的失败与首次连接失败即关闭；静默看门狗移到每条连接上（`rpc-channel.ts` 的心跳超时）；去掉诊断历史 |
-| `apps/desktop/src/renderer/src/theme/theme.ts` | OpenWork `apps/app/src/app/theme.ts`（首帧前脚本参照 `apps/app/index.html:19-32`） | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 移植（T5.2，OpenWork 候选 #17），修掉两处问题：首帧前脚本只读旧 key（Wevir 的 `public/theme-init.js` 与运行时共用 `shared/theme.ts` 的 `THEME_STORAGE_KEY`，测试核对）；暗色同时认 `.dark` 类（只写 `data-theme`，CSS 的暗色变体也只认它，`color-scheme` 由 tokens.css 设置）。另外去掉旧 key 迁移，nativeTheme 经 preload 的 `setThemeSource` 同步，加 `useTheme` |
+| `apps/desktop/src/renderer/src/theme/theme.ts` | OpenWork `apps/app/src/app/theme.ts` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 移植（T5.2，OpenWork 候选 #17），修掉两处问题：首帧前脚本只读旧 key（Wevir 的 `public/theme-init.js` 与运行时共用 `shared/theme.ts` 的 `THEME_STORAGE_KEY`，测试核对）；暗色同时认 `.dark` 类（只写 `data-theme`，CSS 的暗色变体也只认它，`color-scheme` 由 tokens.css 设置）。另外去掉旧 key 迁移，nativeTheme 经 preload 的 `setThemeSource` 同步，加 `useTheme` |
+| `apps/desktop/src/renderer/public/theme-init.js` | OpenWork `apps/app/index.html` 第 19–32 行的内联脚本 | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 移植（T5.2，候选 #17 的首帧前脚本；T6.3 补上文件头与本行，此前只在上一行的来源里提到）：改为单独的普通脚本文件（生产 CSP 不放行内联脚本）；存储 key 换成 `THEME_STORAGE_KEY`；不认识的值按跟随系统处理，与 `theme.ts` 一致（`shared/theme.test.ts` 在 `node:vm` 里核对）；只写 `data-theme`，不写内联 `color-scheme` |
 | `apps/desktop/src/renderer/src/session/markdown/markdown.ts` | OpenWork `apps/app/src/components/markdown/markdown-primitive.ts` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T5.3，OpenWork 候选 #4）：保留 `createStreamingMarkdownRenderer`（流式时只重新 lex 末尾 2 个块、已定的块复用同一个 `{__html}`、有引用式链接定义时整篇重来）与 DOMPurify 清洗；去掉 emoji、KaTeX、Mermaid、会话引用、favicon、视频与图片预览、Shiki。渲染器输出几乎不带类名的语义 HTML（样式在 `styles/markdown.css`），表格对齐用 `align` 属性、图片只显示为链接（CSP 不放行内联样式与外部图片），原文 HTML 按文本显示；高亮另在 `highlight.ts` 用 highlight.js 做（ADR-0004 补记 6） |
 | `apps/desktop/src/renderer/src/session/scroll-controller.ts` | OpenWork `apps/app/src/react-app/domains/session/surface/scroll-controller.ts`（另参照同目录 `scroll-store.ts`、`scroll-overlay.tsx`） | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T5.3，OpenWork 候选 #3）：保留贴底 / 手动两种模式的状态机（只有真实输入手势能切换模式、ResizeObserver 对账、`overflow-anchor` 随模式切换、键盘焦点把旧内容滚进视野时转手动、发送即回到贴底）；去掉移动端轮次留白、滚动位置与几何信息的持久化、历史分页、“跳到消息开头”，状态不进全局 store，只交出“是否贴底”给“跳到最新”按钮 |
 | `apps/desktop/src/renderer/src/session/tool-model.ts` | OpenWork `apps/app/src/lib/tool-aggregate.ts`、`apps/app/src/lib/current-tool-lifecycle.ts` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T5.3，OpenWork 候选 #6）：分类从 OpenCode 工具名换成 Wevir 的展示类型（`ToolDisplay.kind`），只聚合读取与搜索；标题改为中文计数；聚合内的思考按原顺序保留；“回合停止后未收尾的工具显示状态未知”照搬，另加“被拒绝” |
 | `apps/desktop/src/renderer/src/session/approval-card.tsx` | OpenWork `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T5.3，OpenWork 候选 #9）：保留输入框上方的内联面板、一次只显示第一个、可折叠的完整参数；按钮按审批请求携带的选项渲染，内容取同一 `toolCallId` 的 `rawInput`（`ApprovalRequest.detail`），标出“还有 N 个待审批”，另一端先处理时按 `approval.resolved` 收起并提示处理者 |
+
+### 4.1 其他第三方来源的文件
+
+不来自上面三个上游仓库、但含第三方作品的文件：由工具生成、从依赖包摘录，或是录下来的上游运行输出。根目录 [`NOTICE`](../../NOTICE) 同样列出它们。
+
+| Wevir 文件 | 来源 | 许可证与版权 | 说明 |
+|---|---|---|---|
+| `apps/desktop/src/renderer/src/components/ui/{button,dialog,input,scroll-area,sheet,textarea,tooltip}.tsx` | shadcn CLI 4.21.4 从官方 registry 生成（`components.json`：`base-nova`、Base UI、lucide） | MIT，`Copyright (c) 2023 shadcn` | T5.2 生成；button、dialog、scroll-area、sheet 有 Wevir 的改动，写在各自的文件头。OpenWork 的 `apps/app/src/components/ui/*` 也是 shadcn 生成的，两边相近属于同源（§8），不从 OpenWork 拷贝（§2.2 T0.5 复核第 1 点） |
+| `apps/desktop/src/renderer/src/styles/shadcn-variants.css` | shadcn 4.21.4 包内 `dist/tailwind.css` 的摘录 | MIT，`Copyright (c) 2023 shadcn` | 只取原语用到的 `@custom-variant` |
+| `apps/desktop/src/renderer/src/styles/palette.css` | `apps/desktop/scripts/generate-palette.ts` 从依赖 `@radix-ui/colors` 3.0.0 生成 | MIT，`Copyright (c) 2021 Radix` | 色值数据，文件头带声明。与 OpenWork `colors.css` 的色值相同是因为同源，不从那里拷贝 |
+| `spikes/dsh-acp/fixtures/**`、`packages/adapter-dsh/src/test-fixtures/acp/**` | dsh 0.2.1-alpha.2 运行时输出的录制（T0.3 起） | MIT，`Copyright (c) 2026 DeepSeek` | 录的是 dsh 发出的协议消息与事件，不是源码。`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` 含 dsh 内置工具的 schema 与描述文本，与上游 `snapshots/sdk/bash-tool/tool-schemas.expected.json` 相同 |
 
 ## 5. 移植文件的文件头
 
@@ -173,7 +190,15 @@ Apache-2.0 来源（Paseo）：
 // 由 Wevir 修改：<改了什么>
 ```
 
-上游文件原有的版权与许可证注释原样保留在这几行下面。许可证全文不逐文件复制，统一在分发物的第三方声明里提供（T6.3）。
+由工具生成或从依赖包摘录的第三方文件（§4.1）写生成工具与版本、许可证与版权，再写 Wevir 的改动：
+
+```ts
+// 由 shadcn CLI 4.21.4 从官方 registry 生成（components.json：base-nova，Base UI，lucide）。
+// MIT License，Copyright (c) 2023 shadcn。
+// Wevir 的改动：<改了什么>
+```
+
+上游文件原有的版权与许可证注释原样保留在这几行下面。许可证全文不逐文件复制：移植与派生文件的许可证全文与版权声明在根目录 [`NOTICE`](../../NOTICE)，依赖的在分发物的第三方声明里（草稿与分发义务见 [third-party-notices.md](./third-party-notices.md)）。登记表、文件头、`NOTICE` 三处一起改。
 
 ## 6. 升级流程
 
@@ -192,7 +217,7 @@ Apache-2.0 来源（Paseo）：
    git -C upstream/<名称> diff <旧SHA> HEAD --stat -- LICENSE LICENSES NOTICE THIRD_PARTY_NOTICES.md ee/LICENSE
    ```
    许可证有变化，先更新本文件 §2 的结论。
-4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”。
+4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”（文件头与 `NOTICE` 一起改）。然后按 §8 再做一次来源核查。
 5. **跑契约测试**：`pnpm test`（M1 起包含 AgentRuntimeAdapter 契约测试，M3 起包含 dsh 适配器的回放与真实 dsh 两层契约测试）。升级 dsh 时按 §7 的检查清单逐项做。
 6. **更新本文件 §1 仓库表**（提交、日期、结论），与 lock 改动放在同一个 commit 里。
 
@@ -246,3 +271,35 @@ T3.6 建立。dsh 是 developer preview，会有不兼容变更（SKELETON_PLAN 
    - `allowBuilds`：第 2 步报出的每个构建脚本，读过脚本内容再决定放行还是拒绝；键带新版本，取舍与理由记在 §2.1“构建脚本”。旧版本的键删掉。
 
 7. **收尾。** ADR-0001 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试的结果。`DSH_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，这是预期的，正好用来排查跨版本问题（ADR-0001 补记 6）。
+
+## 8. 来源核查
+
+T6.3 建立。登记表（§4、§4.1）、文件头与根目录 `NOTICE` 三处要一致。升级上游锁定提交（§6 第 4 步）、移植新文件的任务收尾、打包前各做一次：
+
+1. **找带来源标记的文件。** 已跟踪的文件用下面的命令，还没提交的新文件另用 `grep -r` 查同一组标记；逐个与 §4、§4.1 对照，文件头的仓库、路径、SHA、许可证要与登记一致。
+
+   ```bash
+   git grep -n -I -E "SPDX-License-Identifier|移植自|改写自|由 shadcn CLI|摘自|Copyright" -- ':!docs' ':!upstream' ':!pnpm-lock.yaml'
+   ```
+
+   注释里写“参照”“做法参考”“Paseo A17”“openwork-notes §3.1”这类的是设计参考，不登记，由第 2 步确认没有带进代码。
+2. **相似度检查。** 用 jscpd 把 Wevir 的源码（含未提交的）和 `upstream/` 三个仓库一起扫，只看一边是 Wevir、一边是上游的克隆。jscpd 装在仓库外的临时目录，不进仓库依赖。三遍：
+   - 逐字：`--min-tokens 40 --min-lines 4`；
+   - 忽略标识符与字面量：`--ignore-identifiers --ignore-literals --mode weak --min-tokens 50`，噪声大（import 块、对象字面量），逐条看 80 token 以上的；
+   - 函数级 AST 相似：`--similarity 0.85 --kind ast --min-tokens 60`。
+
+   共用参数：`--no-gitignore`（`upstream/` 被 gitignore）、`--cross-formats js-ts`、`-a`，排除 `node_modules`、`dist`、lockfile。另用逐字模式扫一遍 Markdown、JSON、YAML、SQL、Shell。OpenWork 的 `ee/` 也放进扫描范围，只用结果证明没有它的代码，不读其内容。再与打进渲染进程的依赖（highlight.js 的样式、shadcn 包的 `dist`、tailwindcss、tw-animate-css、marked）比一遍，找没写来源的摘录。
+3. **结果写成下面的记录**，每次一节。
+
+### T6.3（2026-10-14，上游锁定提交见 §1）
+
+范围：325 个源码文件（ts、tsx、js、mjs、cjs、css、html、sql、sh、yml）与 219 个其他文本文件，含并行进行中、尚未提交的 T4.2 `apps/cli`（22 个源码文件）。jscpd 5.3.3。
+
+- **带来源头部的文件**：OpenWork MIT 区域的移植 7 个（§4），shadcn 生成或摘录的 8 个与 Radix Colors 生成的 1 个（§4.1）。补登记 1 个：`theme-init.js` 此前没有文件头，只在 `theme.ts` 一行的来源里提到。
+- **Paseo 与 dsh**：没有移植它们的源码。Paseo 的 A13、A17、A21 等只在 `host-lifecycle.ts`、`runtime-file.ts`、`transport.ts` 等的注释里作为设计参考，扫描没有命中它们的实现。
+- **OpenWork `ee/`**：没有。代码、`package.json` 与 lockfile 里都没有 `@openwork-ee/*`。命中的都是通用写法：逐字 1 处（`connection-banner.tsx` 的“已复制”提示复位：`useState` + `useEffect` + `setTimeout`，5 行）；忽略标识符后 34 处、最大 89 token，是 import 块、`debug/info/warn/error` 这类对象字面量与同一写法；AST 相似 0 处。
+- **逐字**：27 处，分布在 5 个文件。`markdown.ts` ↔ `markdown-primitive.ts` 4 段（已登记）；`palette.css` ↔ OpenWork `colors.css` 20 段（都是 Radix Colors 的色值）；`tooltip.tsx` ↔ OpenWork 的同名文件（都是 shadcn 生成）；以及上面的 `ee/` 1 处、`spikes/dsh-acp/src/mock-llm.ts` 的 http server 关闭写法 1 处。
+- **忽略标识符与字面量**：582 处，分布在 82 个文件；80 token 以上 18 处，除已登记与同源生成的以外都是结构相同的数据：`theme.css` 的 `@theme inline` 映射与 `tokens.css` 的变量名 ↔ OpenWork `index.css`（都按 shadcn 的变量命名约定，取值由 Wevir 自定）、`zh-CN.ts` ↔ dsh 的 `en.ts`（键值表）、`env.ts` ↔ dsh 的文件类型表（字符串数组）、仓储的 `fromRow` 与 logger 的方法表（对象字面量）。
+- **AST 相似**：13 处，分布在 11 个文件。shadcn 生成的 `sheet`、`dialog`、`tooltip`、`scroll-area` ↔ OpenWork 的同名文件；`markdown.ts` 已登记；`dsh-adapter.ts` 与 `dsh-process.ts` 的 `settledWithin` ↔ Paseo `acp-agent.test.ts` 的 `settlesWithin`（`Promise.race` 加超时、`finally` 清计时器，10 行的通用写法）；其余是测试里的断言表。
+- **其他文本文件**：1 处，`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` ↔ dsh `snapshots/sdk/bash-tool/tool-schemas.expected.json`，是 dsh 运行输出的录制（§4.1）。
+- **与依赖比对**：只有 `shadcn-variants.css` ↔ shadcn `dist/tailwind.css`，已登记。
