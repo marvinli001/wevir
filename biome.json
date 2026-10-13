@@ -73,6 +73,30 @@
       }
     },
     {
+      "includes": ["packages/adapter-dsh/stream-tap/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@deepseek-ai/**"],
+                    "message": "stream-tap 插件在 dsh 进程里运行，只用 Cordis 的 ctx，不 import @deepseek-ai/*（T3.2a，ADR-0001 §3）。"
+                  },
+                  {
+                    "group": ["**/spikes/**"],
+                    "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["spikes/**"],
       "linter": {
         "rules": {

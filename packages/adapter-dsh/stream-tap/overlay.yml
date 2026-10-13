@@ -1,0 +1,6 @@
+# 以 --patch 传给 dsh：插入 stream-tap 插件行（T3.2a）。name 是包名，从 acp profile 的
+# node_modules 解析（由 `dsh plugin --profile acp add link:<本目录>` 装进去）。没装上时 dsh 只告警
+# “entry did not activate”，其余插件照常启动。
+- insert:
+    - id: wevir-stream-tap
+      name: '@wevir/dsh-stream-tap'

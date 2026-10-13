@@ -2,7 +2,7 @@
   "name": "@wevir/adapter-dsh",
   "version": "0.0.0",
   "private": true,
-  "description": "Wevir engine adapter for DeepSeek Harness (dsh): process management over ACP.",
+  "description": "Wevir engine adapter for DeepSeek Harness (dsh): process management over ACP and the stream-tap incremental-output plugin.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -15,7 +15,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "stream-tap"
   ],
   "scripts": {
     "build": "tsdown",

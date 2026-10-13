@@ -34,7 +34,7 @@ wevir/
 │  ├─ protocol/        Host API 协议包：zod schema、方法注册表、事件、错误码（见 docs/architecture/host-api.md）
 │  ├─ runtime-adapter/ 引擎适配接口 AgentRuntimeAdapter / AgentEvent；子路径 ./contract 是契约测试套件，./echo 是开发用假引擎
 │  ├─ storage/         Host 本地存储：node:sqlite 驱动（只在 src/driver.ts）、事务、手写 SQL 迁移（migrations/）、各表仓储、SecretStore
-│  ├─ adapter-dsh/     dsh 适配器（唯一可以依赖 @deepseek-ai/* 的包）：可执行入口解析与独立 DSH_HOME（paths.ts）、白名单环境（env.ts）、DshProcess（dsh --profile acp 的启动、initialize、退出上报与有限重启、stdin EOF → SIGTERM → SIGKILL 回收）；测试用假引擎在 src/test-fixtures/
+│  ├─ adapter-dsh/     dsh 适配器（唯一可以依赖 @deepseek-ai/* 的包）：可执行入口解析与独立 DSH_HOME（paths.ts）、白名单环境（env.ts）、DshProcess（dsh --profile acp 的启动、initialize、退出上报与有限重启、stdin EOF → SIGTERM → SIGKILL 回收）；增量流式旁路：stream-tap/ 是在 dsh 进程里运行的 Cordis 插件（纯 JS，不 import @deepseek-ai/*），src/stream-tap.ts 负责把它装进 acp profile 并解码 fd 3 的 NDJSON；测试用假引擎与 mock 模型在 src/test-fixtures/
 │  └─ host/            Local Agent Host：事件库 EventStore（seq 分配、增量合并、截断、进程内事件总线）、会话快照推导、会话管理器 SessionManager（状态机、审批、引擎事件映射、启动对账）、WebSocket JSON-RPC 服务 HostRpcServer（升级校验、hello、分发与校验、订阅、连接健康）与 Host API 方法实现 createHostMethods；进程组装 startHost（运行时文件 run/host.json、结构化日志、按 ADR-0002 §6 优雅退出）与可执行入口 wevir-host（src/main.ts）
 ├─ docs/               规划、任务 prompt、上游登记（docs/upstream/）、ADR、研究笔记、架构文档（docs/architecture/）
 ├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh、gate-m2.ts）

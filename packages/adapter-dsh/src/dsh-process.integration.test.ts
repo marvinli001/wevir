@@ -2,9 +2,7 @@
 // 需要模型回复的用例用本地脚本化的 OpenAI 兼容服务代替（startMockModel）。
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
@@ -12,6 +10,12 @@ import { client, methods, ndJsonStream, PROTOCOL_VERSION } from '@agentclientpro
 import { afterEach, describe, expect, it } from 'vitest';
 import { DshProcess, dshSpawnSpec } from './dsh-process.js';
 import { dshPaths, prepareDshHome, resolveDshEntry } from './paths.js';
+import {
+  MOCK_KEY,
+  MOCK_KEY_ENV,
+  startMockModel,
+  writeMockOverlay,
+} from './test-fixtures/mock-model.js';
 
 const posix = process.platform !== 'win32';
 const cleanups: Array<() => unknown> = [];
@@ -68,103 +72,20 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: s
 
 const SLEEP_SECONDS = 291;
 
-/**
- * 最小的 OpenAI Chat Completions 流式服务：对话里还没有工具结果时让模型调用 bash 执行
- * `sleep 291`，之后回一句文本。
- */
-async function startMockModel(): Promise<{ baseURL: string }> {
-  const server = createServer((req, res) => {
-    if (req.method === 'GET') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ object: 'list', data: [{ id: 'wevir-mock', object: 'model' }] }));
-      return;
-    }
-    let body = '';
-    req.setEncoding('utf8');
-    req.on('data', (chunk: string) => {
-      body += chunk;
-    });
-    req.on('end', () => {
-      const request = JSON.parse(body) as { messages: Array<{ role: string }> };
-      const hasToolResult = request.messages.some((m) => m.role === 'tool');
-      const chunk = (delta: unknown, finish: string | null) =>
-        `data: ${JSON.stringify({
-          id: 'chatcmpl-wevir',
-          object: 'chat.completion.chunk',
-          created: 0,
-          model: 'wevir-mock',
-          choices: [{ index: 0, delta, finish_reason: finish }],
-        })}\n\n`;
-      res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.write(chunk({ role: 'assistant', content: '' }, null));
-      if (hasToolResult) {
-        res.write(chunk({ content: 'done' }, null));
-        res.write(chunk({}, 'stop'));
-      } else {
-        res.write(
-          chunk(
-            {
-              tool_calls: [
-                {
-                  index: 0,
-                  id: 'call_wevir_sleep',
-                  type: 'function',
-                  function: {
-                    name: 'bash',
-                    arguments: JSON.stringify({
-                      command: `sleep ${SLEEP_SECONDS}`,
-                      description: 'Sleep',
-                    }),
-                  },
-                },
-              ],
-            },
-            null,
-          ),
-        );
-        res.write(chunk({}, 'tool_calls'));
-      }
-      res.end('data: [DONE]\n\n');
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  cleanups.push(
-    () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
+/** 对话里还没有工具结果时让模型调用 bash 执行 `sleep 291`，之后回一句文本。 */
+async function startSleepModel(): Promise<{ baseURL: string }> {
+  const model = await startMockModel((request) =>
+    request.messages.some((m) => m.role === 'tool')
+      ? { text: ['done'] }
+      : {
+          toolCall: {
+            name: 'bash',
+            arguments: { command: `sleep ${SLEEP_SECONDS}`, description: 'Sleep' },
+          },
+        },
   );
-  return { baseURL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/v1` };
-}
-
-/** 指向本地 mock 的 Provider overlay（格式见 T0.3 §6.2），只写 Key 的环境变量名。 */
-function writeMockOverlay(dir: string, baseURL: string): string {
-  const file = join(dir, 'provider.yml');
-  writeFileSync(
-    file,
-    [
-      '- id: llm-pi-ai',
-      '  config:',
-      '    providers:',
-      '      wevir-test:',
-      '        displayName: Wevir Test',
-      '        apiKeyEnv: WEVIR_PROVIDER_WEVIR_TEST_KEY',
-      '        api: openai-completions',
-      `        baseURL: ${baseURL}`,
-      '        compat:',
-      '          supportsDeveloperRole: false',
-      '          maxTokensField: max_tokens',
-      '        models:',
-      '          - id: wevir-mock',
-      '- id: acp',
-      '  config:',
-      '    provider: wevir-test',
-      '    model: wevir-mock',
-      '',
-    ].join('\n'),
-  );
-  return file;
+  cleanups.push(() => model.close());
+  return model;
 }
 
 describe('DshProcess（真实 dsh）', () => {
@@ -221,12 +142,12 @@ describe('DshProcess（真实 dsh）', () => {
     async () => {
       const home = tempDir('home');
       const workspace = tempDir('ws');
-      const model = await startMockModel();
+      const model = await startSleepModel();
       const spec = dshSpawnSpec({
         entry: resolveDshEntry().entry,
         paths: prepareDshHome(dshPaths(home)),
         patches: [writeMockOverlay(tempDir('overlay'), model.baseURL)],
-        env: { WEVIR_PROVIDER_WEVIR_TEST_KEY: 'wevir-mock-key-not-a-secret' },
+        env: { [MOCK_KEY_ENV]: MOCK_KEY },
       });
 
       // 假 Host：按 dshSpawnSpec 拉起 dsh，把自己的 stdin / stdout 转给它，然后被 SIGKILL。

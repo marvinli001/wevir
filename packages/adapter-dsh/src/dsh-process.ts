@@ -1,5 +1,7 @@
 import { type ChildProcess, spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
   type ClientConnection,
@@ -15,10 +17,15 @@ import {
 } from '@agentclientprotocol/sdk';
 import { AdapterError } from '@wevir/runtime-adapter';
 import { buildDshEnv, STREAM_FD } from './env.js';
-import { type DshPaths, dshPaths, prepareDshHome, resolveDshEntry } from './paths.js';
-
-/** dsh 的 ACP stdio 服务器 profile（ADR-0001 §1）。 */
-export const DSH_PROFILE = 'acp';
+import { DSH_PROFILE, type DshPaths, dshPaths, prepareDshHome, resolveDshEntry } from './paths.js';
+import {
+  defaultStreamTapPluginDir,
+  ensureStreamTapInstalled,
+  StreamTapDecoder,
+  type StreamTapEvent,
+  type StreamTapWarning,
+  streamTapOverlay,
+} from './stream-tap.js';
 
 /** `initialize` 的时限。T0.3 实测冷启动到 initialize 完成中位约 0.5 s，最大 0.61 s。 */
 export const INITIALIZE_TIMEOUT_MS = 15_000;
@@ -129,10 +136,12 @@ export interface DshProcessOptions {
   /** 额外注入 dsh 环境的变量（T3.4：`WEVIR_PROVIDER_<ID>_KEY`），不能覆盖固定注入的变量。 */
   env?: Readonly<Record<string, string>>;
   /**
-   * 增量流式旁路（T3.2a）：给了才在 spawn 时额外打开 fd 3 并设 `WEVIR_STREAM_FD=3`，读到的原始字节
-   * 交给它；不给时 dsh 只有 stdin、stdout、stderr。
+   * 增量流式旁路（T3.2a，ADR-0001 §3）。不给时 dsh 只有 stdin、stdout、stderr，只有 ACP 的已提交消息。
+   * 给了则每次启动前确认 stream-tap 插件已装进 acp profile（`ensureStreamTapInstalled`），以
+   * `--patch` 插入插件行，打开 fd 3 并设 `WEVIR_STREAM_FD=3`，把解码出的增量交给 `onEvent`。
+   * 装不上时照常启动，只是没有旁路（`streamTapState` 为 `unavailable`）。
    */
-  onStreamData?: (chunk: Buffer) => void;
+  streamTap?: DshStreamTapOptions;
   /** ACP `session/update` 通知（按 dsh 发出的顺序）。 */
   onSessionUpdate?: (params: SessionNotification) => void | Promise<void>;
   /**
@@ -155,6 +164,30 @@ export interface DshProcessOptions {
   /** 环境变量的继承来源，默认 `process.env`。 */
   parentEnv?: NodeJS.ProcessEnv;
 }
+
+export interface DshStreamTapOptions {
+  /** 插件目录，默认 `defaultStreamTapPluginDir()`（开发模式下即本包的 `stream-tap/`）；打包后由调用方给出。 */
+  pluginDir?: string;
+  /** 文本与推理的增量、attempt 结束（按 dsh 写出的顺序，带 dsh 的会话 ID）。同步调用，不得抛错。 */
+  onEvent: (event: StreamTapEvent) => void;
+  /** 畸形行、插件装不上或没加载。旁路的任何问题都只告警，不影响 dsh 进程。 */
+  onWarning: (warning: StreamTapWarning) => void;
+  installTimeoutMs?: number;
+  /** initialize 完成后等插件报到的时间，超时报 `not_loaded`。默认 `STREAM_TAP_READY_GRACE_MS`。 */
+  readyGraceMs?: number;
+}
+
+/**
+ * 当前进程的旁路状态。off：没有配置旁路；unavailable：插件装不上或启动后没有报到，本进程只有已提交消息；
+ * waiting：已插入插件，还没收到它的 ready；active：插件已加载，增量从 fd 3 到达。
+ */
+export type StreamTapState = 'off' | 'unavailable' | 'waiting' | 'active';
+
+/**
+ * initialize 完成后等插件报到的时间。插件在 dsh 启动挂载插件时写 ready，实测比 initialize 的响应早几毫秒
+ * 到达（两条管道之间没有顺序保证）。
+ */
+export const STREAM_TAP_READY_GRACE_MS = 2000;
 
 export interface DshSpawnSpecInput {
   entry: string;
@@ -220,6 +253,9 @@ interface Launch {
   readyAt?: number;
   /** 回收阶梯，每个进程只跑一次。 */
   stopping?: Promise<DshExit | undefined>;
+  streamTap: StreamTapState;
+  /** initialize 之后等插件报到的计时器。 */
+  streamTapGrace?: NodeJS.Timeout;
 }
 
 /**
@@ -275,6 +311,11 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
   /** 最近一次进程退出，含 `dispose` 引起的。 */
   get lastExit(): DshExit | undefined {
     return this.#lastExit;
+  }
+
+  /** 当前（或最近一个）进程的增量流式旁路状态（T3.2a）；还没启动过或没有配置旁路时为 `off`。 */
+  get streamTapState(): StreamTapState {
+    return this.#current?.streamTap ?? 'off';
   }
 
   /** 当前进程的 ACP 连接。不在 `ready` 时抛 `engine_unavailable`（`disposed` 之后抛 `disposed`）。 */
@@ -333,17 +374,28 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
     let launch: Launch;
     try {
       prepareDshHome(this.paths);
+      const entry = this.#options.entry ?? resolveDshEntry().entry;
+      const tapOverlay = await this.#prepareStreamTap(entry);
+      if (this.#disposing !== undefined) throw new AdapterError('disposed', 'dsh 进程已释放');
+      const patches = this.#options.patches ?? [];
       const spec = dshSpawnSpec({
-        entry: this.#options.entry ?? resolveDshEntry().entry,
+        entry,
         paths: this.paths,
         nodePath: this.#options.nodePath,
-        patches: this.#options.patches,
+        patches: tapOverlay === undefined ? patches : [...patches, tapOverlay],
         env: this.#options.env,
-        streamFd: this.#options.onStreamData !== undefined,
+        streamFd: tapOverlay !== undefined,
         parentEnv: this.#options.parentEnv,
       });
-      launch = this.#spawn(spec, generation);
+      const streamTap: StreamTapState =
+        tapOverlay !== undefined
+          ? 'waiting'
+          : this.#options.streamTap === undefined
+            ? 'off'
+            : 'unavailable';
+      launch = this.#spawn(spec, generation, streamTap);
     } catch (error) {
+      if (this.#disposing !== undefined) throw new AdapterError('disposed', 'dsh 进程已释放');
       this.#state = 'stopped';
       throw new AdapterError('engine_unavailable', `dsh 启动失败：${describe(error)}`, {
         cause: error,
@@ -379,6 +431,7 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
       if (launch.exit !== undefined) throw new Error('dsh 在 initialize 之后立即退出');
       launch.initialize = response;
       launch.readyAt = Date.now();
+      if (launch.streamTap === 'waiting') this.#awaitStreamTap(launch);
       this.#state = 'ready';
       this.emit('ready', {
         generation,
@@ -400,7 +453,56 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
     }
   }
 
-  #spawn(spec: DshSpawnSpec, generation: number): Launch {
+  /**
+   * 旁路的准备：确认插件已装好，返回要追加的 overlay；装不上时告警并返回 undefined，本次启动不开 fd 3。
+   * 旁路的任何问题都不让启动失败。
+   */
+  async #prepareStreamTap(entry: string): Promise<string | undefined> {
+    const tap = this.#options.streamTap;
+    if (tap === undefined) return undefined;
+    const pluginDir = resolve(tap.pluginDir ?? defaultStreamTapPluginDir());
+    try {
+      const overlay = streamTapOverlay(pluginDir);
+      // overlay 读不到时 dsh 整个启动失败，先在这里挡住。
+      if (!existsSync(overlay)) throw new Error(`插件目录里没有 ${overlay}`);
+      await ensureStreamTapInstalled({
+        paths: this.paths,
+        pluginDir,
+        entry,
+        nodePath: this.#options.nodePath,
+        parentEnv: this.#options.parentEnv,
+        timeoutMs: tap.installTimeoutMs,
+      });
+      return overlay;
+    } catch (error) {
+      tap.onWarning({
+        kind: 'install_failed',
+        message: `stream-tap 插件装不上，本次启动只有已提交消息：${describe(error)}`,
+      });
+      return undefined;
+    }
+  }
+
+  /** initialize 之后插件迟迟不报到（没装上、加载失败）：告警，本进程按没有旁路处理。 */
+  #awaitStreamTap(launch: Launch): void {
+    const tap = this.#options.streamTap;
+    if (tap === undefined) return;
+    const graceMs = tap.readyGraceMs ?? STREAM_TAP_READY_GRACE_MS;
+    launch.streamTapGrace = setTimeout(() => {
+      if (launch.streamTap !== 'waiting' || launch.exit !== undefined) return;
+      launch.streamTap = 'unavailable';
+      const tail = launch.stderrTail.trim().slice(-1000);
+      tap.onWarning({
+        kind: 'not_loaded',
+        message:
+          `dsh 就绪后 ${graceMs} ms 内 stream-tap 插件没有报到，本进程只有已提交消息` +
+          (tail === '' ? '' : `；stderr 尾部：${tail}`),
+      });
+    }, graceMs);
+    launch.streamTapGrace.unref();
+  }
+
+  #spawn(spec: DshSpawnSpec, generation: number, streamTap: StreamTapState): Launch {
     const child = nodeSpawn(spec.command, spec.args, spec.options);
     const { stdin, stdout, stderr } = child;
     if (stdin === null || stdout === null || stderr === null) {
@@ -433,15 +535,27 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
           ),
         ),
       );
-    const launch: Launch = { generation, child, connection, stderrTail: '', exited };
+    const launch: Launch = { generation, child, connection, stderrTail: '', exited, streamTap };
 
     stderr.setEncoding('utf8');
     stderr.on('data', (chunk: string) => {
       launch.stderrTail = (launch.stderrTail + chunk).slice(-STDERR_TAIL_CHARS);
     });
     const tap = child.stdio[STREAM_FD];
-    const onStreamData = this.#options.onStreamData;
-    if (onStreamData !== undefined && tap instanceof Readable) tap.on('data', onStreamData);
+    const tapOptions = this.#options.streamTap;
+    if (streamTap === 'waiting' && tapOptions !== undefined && tap instanceof Readable) {
+      // 一个进程一个解码器：上一个进程留下的半行不会接到新进程的数据上。
+      const decoder = new StreamTapDecoder({
+        onEvent: tapOptions.onEvent,
+        onReady: () => {
+          clearTimeout(launch.streamTapGrace);
+          launch.streamTap = 'active';
+        },
+        onWarning: tapOptions.onWarning,
+      });
+      tap.on('data', (chunk: Buffer) => decoder.push(chunk));
+      tap.on('end', () => decoder.end());
+    }
 
     const finish = (exitCode: number | null, signal: NodeJS.Signals | null, error?: Error) => {
       if (launch.exit !== undefined) return;
@@ -454,6 +568,7 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
         ...(error === undefined ? {} : { error }),
       };
       launch.exit = exit;
+      clearTimeout(launch.streamTapGrace);
       this.#lastExit = exit;
       settle(exit);
       connection.close(
@@ -504,6 +619,7 @@ export class DshProcess extends EventEmitter<DshProcessEventMap> {
   /** 回收阶梯：关连接（进行中的请求以 `reason` 失败）→ 关 stdin → SIGTERM → SIGKILL。 */
   #stop(launch: Launch, reason: unknown): Promise<DshExit | undefined> {
     launch.stopping ??= (async () => {
+      clearTimeout(launch.streamTapGrace);
       launch.connection.close(reason);
       if (launch.exit !== undefined) return launch.exit;
       const t = this.#disposeTimeouts;

@@ -1,7 +1,7 @@
+export { dshAdapterCapabilities } from './capabilities.js';
 export {
   DISPOSE_TIMEOUTS,
   type DisposeTimeouts,
-  DSH_PROFILE,
   type DshExit,
   type DshFailed,
   DshProcess,
@@ -12,18 +12,42 @@ export {
   type DshRestarting,
   type DshSpawnSpec,
   type DshSpawnSpecInput,
+  type DshStreamTapOptions,
   dshSpawnSpec,
   INITIALIZE_TIMEOUT_MS,
   RESTART_POLICY,
   type RestartPolicy,
   STDERR_TAIL_CHARS,
+  STREAM_TAP_READY_GRACE_MS,
+  type StreamTapState,
 } from './dsh-process.js';
 export { buildDshEnv, type DshEnvOptions, INHERITED_ENV, STREAM_FD } from './env.js';
 export {
+  DSH_PROFILE,
   DSH_VERSION,
   type DshEntry,
   type DshPaths,
   dshPaths,
+  dshProfileDir,
   prepareDshHome,
   resolveDshEntry,
 } from './paths.js';
+export {
+  defaultStreamTapPluginDir,
+  ensureStreamTapInstalled,
+  isStreamTapInstalled,
+  parseStreamTapLine,
+  STREAM_TAP_INSTALL_TIMEOUT_MS,
+  STREAM_TAP_MAX_LINE_BYTES,
+  STREAM_TAP_PACKAGE,
+  type StreamTapChunk,
+  StreamTapDecoder,
+  type StreamTapDecoderHandlers,
+  type StreamTapEvent,
+  type StreamTapFrame,
+  type StreamTapInstallInput,
+  type StreamTapRecord,
+  type StreamTapWarning,
+  streamTapEvents,
+  streamTapOverlay,
+} from './stream-tap.js';

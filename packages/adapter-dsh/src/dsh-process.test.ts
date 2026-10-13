@@ -1,7 +1,14 @@
 // DshProcess 的单元测试：dsh 换成 test-fixtures/fake-dsh.mjs 这个假引擎（真实子进程、真实信号）。
 // 真实 dsh 的用例在 dsh-process.integration.test.ts。
 
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,9 +20,11 @@ import {
   DshProcess,
   type DshProcessEventMap,
   type DshProcessOptions,
+  type DshStreamTapOptions,
   dshSpawnSpec,
 } from './dsh-process.js';
 import { dshPaths } from './paths.js';
+import type { StreamTapEvent, StreamTapWarning } from './stream-tap.js';
 
 const FAKE_DSH = fileURLToPath(new URL('./test-fixtures/fake-dsh.mjs', import.meta.url));
 const posix = process.platform !== 'win32';
@@ -39,7 +48,7 @@ function fake(
 ): DshProcess {
   const { extraEnv, ...rest } = options;
   const dsh = new DshProcess({
-    home: tempHome(),
+    home: options.home ?? tempHome(),
     entry: FAKE_DSH,
     env: { FAKE_DSH_MODE: mode, ...extraEnv },
     disposeTimeouts: FAST_DISPOSE,
@@ -171,15 +180,125 @@ describe('DshProcess', () => {
     }
     // 不声明 fs 与 terminal（ADR-0001 §1）
     expect(r.initialize).toMatchObject({ protocolVersion: 1, clientCapabilities: {} });
+    expect(dsh.streamTapState).toBe('off');
   });
 
-  it('onStreamData 给了才打开 fd 3，读到的字节原样交出', async () => {
-    const chunks: Buffer[] = [];
-    const dsh = fake('normal', { onStreamData: (chunk) => chunks.push(chunk) });
-    await dsh.start();
-    expect(record(dsh).env.WEVIR_STREAM_FD).toBe('3');
-    await waitFor(() => (chunks.length > 0 ? true : undefined));
-    expect(Buffer.concat(chunks).toString()).toBe('{"tap":1}\n');
+  describe('增量流式旁路（stream-tap）', () => {
+    /** 假的插件目录：假引擎只看路径，不加载里面的东西；`#prepareStreamTap` 要求有 overlay.yml。 */
+    function pluginDir(options: { failInstall?: boolean; overlay?: boolean } = {}): string {
+      const dir = tempHome();
+      if (options.overlay !== false) writeFileSync(join(dir, 'overlay.yml'), '[]\n');
+      if (options.failInstall) writeFileSync(join(dir, 'fake-install-fails'), '');
+      return dir;
+    }
+
+    function tapSink() {
+      const events: StreamTapEvent[] = [];
+      const warnings: StreamTapWarning[] = [];
+      return {
+        events,
+        warnings,
+        options: (dir: string, extra: Partial<DshStreamTapOptions> = {}): DshStreamTapOptions => ({
+          pluginDir: dir,
+          onEvent: (event) => events.push(event),
+          onWarning: (warning) => warnings.push(warning),
+          ...extra,
+        }),
+      };
+    }
+
+    function pluginCalls(dsh: DshProcess): string[] {
+      const log = join(dsh.paths.dshHome, 'plugin-calls.log');
+      return existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : [];
+    }
+
+    it('首次启动装插件、追加 overlay、开 fd 3；解码出增量与 end，畸形行告警后跳过', async () => {
+      const dir = pluginDir();
+      const sink = tapSink();
+      const dsh = fake('normal', { patches: ['/tmp/provider.yml'], streamTap: sink.options(dir) });
+      await dsh.start();
+
+      expect(pluginCalls(dsh)).toEqual([`plugin --profile acp add link:${dir}`]);
+      const r = record(dsh);
+      expect(r.argv).toEqual([
+        '--profile',
+        'acp',
+        '--patch',
+        '/tmp/provider.yml',
+        '--patch',
+        join(dir, 'overlay.yml'),
+      ]);
+      expect(r.env.WEVIR_STREAM_FD).toBe('3');
+
+      await waitFor(() => (sink.events.length >= 3 ? true : undefined));
+      expect(sink.events).toEqual([
+        {
+          type: 'assistant.delta',
+          engineSessionId: 'fake-session',
+          attemptId: 'a:1',
+          blockIndex: 1,
+          kind: 'text',
+          text: '你好',
+        },
+        {
+          type: 'assistant.delta',
+          engineSessionId: 'fake-session',
+          attemptId: 'a:1',
+          blockIndex: 0,
+          kind: 'reasoning',
+          text: '想',
+        },
+        {
+          type: 'assistant.stream_ended',
+          engineSessionId: 'fake-session',
+          attemptId: 'a:1',
+          outcome: 'committed',
+        },
+      ]);
+      expect(sink.warnings).toEqual([
+        expect.objectContaining({ kind: 'malformed', line: 'not json' }),
+      ]);
+      expect(dsh.streamTapState).toBe('active');
+    });
+
+    it('插件已经装好时不再运行 dsh plugin', async () => {
+      const home = tempHome();
+      const dir = pluginDir();
+      const first = fake('normal', { home, streamTap: tapSink().options(dir) });
+      await first.start();
+      await first.dispose();
+      const second = fake('normal', { home, streamTap: tapSink().options(dir) });
+      await second.start();
+      expect(pluginCalls(second)).toHaveLength(1);
+      expect(record(second).env.WEVIR_STREAM_FD).toBe('3');
+    });
+
+    it('插件装不上：告警 install_failed，照常启动，不开 fd 3、不插入插件行', async () => {
+      for (const dir of [pluginDir({ failInstall: true }), pluginDir({ overlay: false })]) {
+        const sink = tapSink();
+        const dsh = fake('normal', { streamTap: sink.options(dir) });
+        await dsh.start();
+        expect(dsh.state).toBe('ready');
+        expect(dsh.streamTapState).toBe('unavailable');
+        expect(sink.warnings).toEqual([expect.objectContaining({ kind: 'install_failed' })]);
+        const r = record(dsh);
+        expect(r.argv).toEqual(['--profile', 'acp']);
+        expect(r.env).not.toHaveProperty('WEVIR_STREAM_FD');
+      }
+    });
+
+    it('插件没有报到：宽限期后告警 not_loaded，按没有旁路处理', async () => {
+      const sink = tapSink();
+      const dsh = fake('normal', {
+        extraEnv: { FAKE_DSH_TAP: 'silent' },
+        streamTap: sink.options(pluginDir(), { readyGraceMs: 100 }),
+      });
+      await dsh.start();
+      expect(dsh.streamTapState).toBe('waiting');
+      await waitFor(() => sink.warnings.find((w) => w.kind === 'not_loaded'));
+      expect(dsh.streamTapState).toBe('unavailable');
+      expect(sink.events).toEqual([]);
+    });
   });
 
   it('session/update 交给 onSessionUpdate；没有审批处理器时回复 cancelled', async () => {

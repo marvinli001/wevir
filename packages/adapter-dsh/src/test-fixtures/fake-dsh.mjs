@@ -12,10 +12,44 @@
 //   crash-once      同上，但只在第一次启动时（以 cwd 里的标记文件区分）
 //   ask-permission  回应 initialize 后发一条 session/update 和一个 session/request_permission
 // FAKE_DSH_GRANDCHILD=1：再拉起一个不理会 SIGTERM 的子进程（留在同一进程组里）。
+//
+// stream-tap（T3.2a）：
+//   `plugin --profile acp add link:<目录>` 模拟 dsh plugin：在 profiles/acp 写 package.json 并把
+//   node_modules/@wevir/dsh-stream-tap 链到该目录，每次调用往 <cwd>/plugin-calls.log 追加一行；
+//   目录里有 fake-install-fails 文件时往 stderr 写一行后以退出码 1 退出。
+//   设了 WEVIR_STREAM_FD 时模拟插件往 fd 3 写：FAKE_DSH_TAP 为 frames（默认）时写 ready、一个分两次写
+//   的文本增量、一行畸形数据、一个推理增量和 end 帧；为 silent 时什么都不写（插件没加载）。
 
 import { spawn } from 'node:child_process';
-import { createWriteStream, existsSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+
+if (process.argv[2] === 'plugin') {
+  const spec = process.argv.at(-1);
+  const dir = spec.slice('link:'.length);
+  appendFileSync('plugin-calls.log', `${process.argv.slice(2).join(' ')}\n`);
+  if (existsSync(join(dir, 'fake-install-fails'))) {
+    process.stderr.write('fake dsh: pnpm failed\n');
+    process.exit(1);
+  }
+  const profile = join('profiles', 'acp');
+  const scope = join(profile, 'node_modules', '@wevir');
+  mkdirSync(scope, { recursive: true });
+  writeFileSync(
+    join(profile, 'package.json'),
+    JSON.stringify({ dependencies: { '@wevir/dsh-stream-tap': spec } }),
+  );
+  symlinkSync(dir, join(scope, 'dsh-stream-tap'), 'junction');
+  process.exit(0);
+}
 
 const mode = process.env.FAKE_DSH_MODE ?? 'normal';
 const record = { argv: process.argv.slice(2), cwd: process.cwd(), env: { ...process.env } };
@@ -33,8 +67,27 @@ if (mode === 'exit-on-start') {
   process.stderr.write('fake dsh: cannot start\n');
   process.exit(7);
 }
-if (process.env.WEVIR_STREAM_FD !== undefined) {
-  createWriteStream('', { fd: Number(process.env.WEVIR_STREAM_FD) }).write('{"tap":1}\n');
+if (process.env.WEVIR_STREAM_FD !== undefined && process.env.FAKE_DSH_TAP !== 'silent') {
+  const tap = createWriteStream('', { fd: Number(process.env.WEVIR_STREAM_FD) });
+  const frame = (frame) =>
+    JSON.stringify({
+      type: 'frame',
+      sessionId: 'fake-session',
+      frame: { attemptId: 'a:1', ...frame },
+    });
+  const delta = frame({
+    type: 'chunk',
+    index: 1,
+    chunk: { type: 'text-delta', index: 1, text: '你好' },
+  });
+  tap.write(`{"type":"ready"}\n${delta.slice(0, 40)}`);
+  setTimeout(() => {
+    tap.write(`${delta.slice(40)}\nnot json\n`);
+    tap.write(
+      `${frame({ type: 'chunk', index: 2, chunk: { type: 'reasoning-delta', index: 0, text: '想' } })}\n` +
+        `${frame({ type: 'end', index: 3, outcome: { kind: 'committed' } })}\n`,
+    );
+  }, 20);
 }
 if (process.env.FAKE_DSH_GRANDCHILD === '1') {
   const child = spawn(

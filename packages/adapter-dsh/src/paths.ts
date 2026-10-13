@@ -7,6 +7,9 @@ export const DSH_VERSION = '0.2.1-alpha.2';
 
 const DSH_PACKAGE = '@deepseek-ai/dsh';
 
+/** dsh 的 ACP stdio 服务器 profile（ADR-0001 §1）。 */
+export const DSH_PROFILE = 'acp';
+
 export interface DshEntry {
   /** dsh 可执行入口（`lib/bin.js`）的绝对路径，用 Node 运行。 */
   entry: string;
@@ -69,6 +72,15 @@ export function dshPaths(wevirHome: string): DshPaths {
   if (!isAbsolute(wevirHome)) throw new Error(`数据目录必须是绝对路径：${wevirHome}`);
   const engines = join(resolve(wevirHome), 'engines');
   return { dshHome: join(engines, 'dsh'), agentsHome: join(engines, 'dsh-agents') };
+}
+
+/**
+ * `DSH_PROFILE` 的 profile 目录 `$DSH_HOME/profiles/acp`：dsh 首次以该 profile 启动（或首次
+ * `dsh plugin --profile acp …`）时从随附模板生成，其中的 `package.json` 与 `node_modules/` 装着
+ * profile 自己的插件依赖（stream-tap，T3.2a）。
+ */
+export function dshProfileDir(paths: DshPaths): string {
+  return join(paths.dshHome, 'profiles', DSH_PROFILE);
 }
 
 /**
