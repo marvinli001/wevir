@@ -45,8 +45,11 @@ export interface AgentRuntimeAdapter {
 
   /**
    * 把已关闭、或引擎退出后脱开的会话重新挂到引擎上（dsh：ACP `session/resume`，必须用创建时的
-   * `cwd`）。会话已挂上时直接成功。恢复后需要重新 `subscribe`。
-   * 错误：`session_not_found`、`session_unavailable`、`engine_unavailable`、`disposed`。
+   * `cwd`）。适配器不认识的 ID 也照样向引擎恢复：Host 重启后适配器是新的，会话只在引擎的持久化里
+   * （T3.5）。会话已挂上时直接成功，不再问引擎。恢复后需要重新 `subscribe`，引擎不回放历史。
+   * 恢复后会话的 Provider、模型与推理强度按 `config` 重新选定。
+   * 错误：`invalid_input`（cwd 为空；Provider 或模型选不上）、`session_lost`（引擎没有这个会话或读不了它，
+   * 原因见 `lostReason`）、`session_unavailable`（引擎拒绝，例如 cwd 不一致）、`engine_unavailable`、`disposed`。
    */
   resumeSession(engineSessionId: string, config: SessionConfig): Promise<EngineSession>;
 
@@ -88,7 +91,8 @@ export interface AgentRuntimeAdapter {
    * 未决审批以 `approval.cancelled`（`turn_cancelled`）结束，回合以 `turn.settled`（`cancelled`）
    * 或其他终结事件结束；返回时终结事件已经发出。幂等：没有回合、重复调用、会话已关闭或不认识都直接
    * 成功，一个回合只结算一次。
-   * 错误：只有 `cancel_unconfirmed`（时限内无法确认已停止；dsh 适配器随后重启引擎进程）。
+   * 错误：只有 `cancel_unconfirmed`（时限内无法确认已停止）。适配器随后要让这个会话可以 `resumeSession`
+   * （dsh：重启引擎进程，同一进程上的会话都以 `engine.exited`（`cancel_unconfirmed`）脱开，T3.5）。
    */
   cancel(engineSessionId: string): Promise<void>;
 

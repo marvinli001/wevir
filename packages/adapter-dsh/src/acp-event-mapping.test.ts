@@ -1,5 +1,6 @@
-// docs/architecture/acp-event-mapping.md 的三张表与代码一致：§1 类型（以样本跑映射核对事件类型）、
-// §2 工具名 → 展示类型（与 DSH_TOOLS 双向一致）、§3 错误归类（与 TURN_ERROR_RULES 逐条一致，样本归到所在行）。
+// docs/architecture/acp-event-mapping.md 的四张表与代码一致：§1 类型（以样本跑映射核对事件类型）、
+// §2 工具名 → 展示类型（与 DSH_TOOLS 双向一致）、§3 错误归类（与 TURN_ERROR_RULES 逐条一致，样本归到所在行）、
+// §6 resume 失败的归类（与 RESUME_ERROR_RULES 逐条一致，样本归到所在行）。
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,7 @@ import {
   mapAcpUpdate,
   RAW_BY_DESIGN_ACP_UPDATES,
 } from './acp-mapping.js';
+import { classifyResumeError, RESUME_ERROR_RULES, type ResumeFailure } from './resume-error.js';
 import { readFixture, readTranscript } from './test-fixtures/acp-fixtures.js';
 import { DSH_TOOLS, toolDisplay } from './tool-display.js';
 import { classifyTurnError, TURN_ERROR_RULES } from './turn-error.js';
@@ -106,6 +108,31 @@ describe('acp-event-mapping.md 与代码一致', () => {
       for (const sample of codes(samplesCell)) {
         const { error } = readFixture<{ error: unknown }>(sample);
         expect(classifyTurnError(error).category, sample).toBe(codes(categoryCell)[0]);
+      }
+    }
+  });
+
+  it('§6：resume 失败的归类规则逐条一致，样本归到所在行', () => {
+    const failureOf = (cell: string): ResumeFailure => {
+      const [kind, reason] = codes(cell);
+      return (
+        kind === 'lost' ? { kind, reason } : { kind: kind as ResumeFailure['kind'] }
+      ) as ResumeFailure;
+    };
+    const rows = table(6);
+    const documented = rows.flatMap(([failureCell = '', codeCell = '', patternCell = '']) => {
+      const pattern = codes(patternCell).find((code) => code.startsWith('/'));
+      return pattern === undefined
+        ? []
+        : [[failureOf(failureCell), Number(codes(codeCell)[0]), pattern]];
+    });
+    expect(documented).toEqual(
+      RESUME_ERROR_RULES.map((rule) => [rule.failure, rule.code, String(rule.pattern)]),
+    );
+    for (const [failureCell = '', , , , , samplesCell = ''] of rows) {
+      for (const sample of codes(samplesCell)) {
+        const { error } = readFixture<{ error: unknown }>(sample);
+        expect(classifyResumeError(error).failure, sample).toEqual(failureOf(failureCell));
       }
     }
   });

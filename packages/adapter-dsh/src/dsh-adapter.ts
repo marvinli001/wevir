@@ -11,6 +11,7 @@ import {
   type AgentRuntimeAdapter,
   type ApprovalCancelledEvent,
   type ApprovalDecision,
+  type EngineExitedEvent,
   type EngineSession,
   isAdapterError,
   type PendingApproval,
@@ -28,6 +29,7 @@ import {
   type DshProcessOptions,
   type DshStreamTapOptions,
 } from './dsh-process.js';
+import { DSH_VERSION } from './paths.js';
 import {
   providerEnv,
   providerOverlayPath,
@@ -36,6 +38,7 @@ import {
   writeProviderOverlay,
 } from './provider-config.js';
 import { type ProviderTestOptions, testProvider } from './provider-test.js';
+import { classifyResumeError } from './resume-error.js';
 import {
   type AdapterLogger,
   SessionEventQueue,
@@ -122,7 +125,11 @@ interface PendingPermission {
  * 结束再重启；挂着的会话先以 `engine.exited`（`config_changed`）脱开，之后 resume（T3.5）即用新配置。
  * 每个会话的路由（Provider 与模型）在 `session/new` 之后用 `session/set_config_option` 选定。
  *
- * 尚未实现的部分：脱开或关闭之后的 `resumeSession`（T3.5）、`cancel` 无法确认时重启 dsh（T3.5）。
+ * 恢复（T3.5，acp-event-mapping.md §6）：`resumeSession` 对不在本进程上的会话发 ACP `session/resume`（创建时的
+ * cwd），再像建会话一样选定路由；Host 重启后适配器是新的，不认识的 ID 也照样问 dsh。dsh 不回放历史，界面历史由
+ * Host 的事件库负责。失败按 resume-error.ts 归类：会话日志没了、格式不兼容或损坏报 `session_lost`，Host 据此标为
+ * 只读。`cancel` 在时限内得不到确认时重启 dsh：卡住的回合随旧进程结束，挂着的会话都以 `engine.exited`
+ * （`cancel_unconfirmed`）脱开，之后 resume 到新进程上（dsh 不允许 resume 同一进程里仍活跃的会话）。
  */
 export class DshAdapter implements AgentRuntimeAdapter {
   readonly process: DshProcess;
@@ -135,10 +142,13 @@ export class DshAdapter implements AgentRuntimeAdapter {
   readonly #providerTest: ProviderTestOptions | undefined;
   #nextRequestId = 0;
   #disposed: Promise<void> | undefined;
-  /** 为应用新配置的重启（合并并发的请求）。 */
-  #configRestart: Promise<void> | undefined;
-  /** 进行中的 `createSession` 数：它们的会话还没登记，重启要等它们完成，否则会话会挂在被回收的进程上。 */
-  #creating = 0;
+  /** 进行中的有计划重启：应用新配置，或取消得不到确认（合并并发的请求）。 */
+  #restart: Promise<void> | undefined;
+  /**
+   * 进行中的 `createSession` / `resumeSession` 数：它们的会话还没登记，为配置而重启要等它们完成，否则会话会挂在
+   * 被回收的进程上。
+   */
+  #activating = 0;
 
   constructor(options: DshAdapterOptions) {
     const { streamTap, logger, cancelTimeoutMs, providers, providerTest, ...processOptions } =
@@ -202,12 +212,8 @@ export class DshAdapter implements AgentRuntimeAdapter {
   async createSession(config: SessionConfig): Promise<EngineSession> {
     this.#assertUsable();
     if (!config.cwd) throw new AdapterError('invalid_input', 'cwd 不能为空');
-    await this.process.start();
-    // 配置换过、还在等回合结束的重启：没有回合了就先重启，新会话直接用新配置。
-    await this.#applyConfigIfIdle();
-    this.#assertUsable();
-    const connection = this.process.connection;
-    this.#creating += 1;
+    const connection = await this.#readyConnection();
+    this.#activating += 1;
     try {
       let response: { sessionId: string; configOptions?: unknown };
       try {
@@ -229,24 +235,75 @@ export class DshAdapter implements AgentRuntimeAdapter {
           .catch(() => {});
         throw error;
       }
-      this.#sessions.set(id, {
-        id,
-        cwd: config.cwd,
-        status: 'open',
-        queue: new SessionEventQueue(id, this.#warnOnce),
-        approvals: new Map(),
-      });
-      return { engineSessionId: id, ...sessionConfigInfo(configOptions) };
+      this.#register(id, config.cwd);
+      return {
+        engineSessionId: id,
+        engineVersion: DSH_VERSION,
+        ...sessionConfigInfo(configOptions),
+      };
     } finally {
-      this.#creating -= 1;
+      this.#activating -= 1;
     }
   }
 
-  async resumeSession(engineSessionId: string, _config: SessionConfig): Promise<EngineSession> {
+  /**
+   * 已挂在本进程上的会话直接成功，不发 ACP（dsh 拒绝 resume 活跃的会话）。其余的（已关闭、引擎退出或重启后脱开、
+   * 适配器根本不认识）发 `session/resume`，再按 `config` 选定路由：dsh 恢复的是会话日志里最后的路由，Provider
+   * 配置换过之后可能已经不是 Host 记录的那个。dsh 说会话仍活跃（之前 `session/close` 失败、适配器按已关闭处理）
+   * 时直接沿用。路由选不上时把刚恢复的会话关掉再报错。
+   */
+  async resumeSession(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
     this.#assertUsable();
-    const session = this.#session(engineSessionId);
-    if (session.status === 'open') return { engineSessionId };
-    throw new AdapterError('session_unavailable', 'dsh 适配器的 resumeSession 尚未实现（T3.5）');
+    if (!config.cwd) throw new AdapterError('invalid_input', 'cwd 不能为空');
+    if (this.#sessions.get(engineSessionId)?.status === 'open') {
+      return { engineSessionId, engineVersion: DSH_VERSION };
+    }
+    const connection = await this.#readyConnection();
+    this.#activating += 1;
+    try {
+      let configOptions: unknown;
+      try {
+        ({ configOptions } = await connection.agent.request(methods.agent.session.resume, {
+          sessionId: engineSessionId,
+          cwd: config.cwd,
+          mcpServers: [],
+        }));
+      } catch (error) {
+        if (isAdapterError(error)) throw error;
+        const classified = classifyResumeError(error);
+        const { failure } = classified;
+        if (failure.kind !== 'already_active') {
+          throw new AdapterError(
+            failure.kind === 'lost'
+              ? 'session_lost'
+              : failure.kind === 'cwd_mismatch'
+                ? 'session_unavailable'
+                : 'engine_unavailable',
+            `session/resume 失败：${classified.message}`,
+            { cause: error, ...(failure.kind === 'lost' && { lostReason: failure.reason }) },
+          );
+        }
+        this.#logger.warn('dsh 里这个会话仍挂着（之前的 session/close 失败过），直接沿用', {
+          engineSessionId,
+        });
+      }
+      try {
+        configOptions = await this.#selectRoute(engineSessionId, config, configOptions);
+      } catch (error) {
+        await connection.agent
+          .request(methods.agent.session.close, { sessionId: engineSessionId })
+          .catch(() => {});
+        throw error;
+      }
+      this.#register(engineSessionId, config.cwd);
+      return {
+        engineSessionId,
+        engineVersion: DSH_VERSION,
+        ...sessionConfigInfo(configOptions),
+      };
+    } finally {
+      this.#activating -= 1;
+    }
   }
 
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
@@ -334,6 +391,14 @@ export class DshAdapter implements AgentRuntimeAdapter {
       await notified;
     }
     if (!(await settledWithin(turn.done, this.#cancelTimeoutMs))) {
+      // 引擎可能卡住了：重启 dsh，卡住的回合随旧进程结束，这个会话之后 resume 到新进程上（T3.5）。
+      if (session.turn === turn) {
+        this.#restartEngine('cancel_unconfirmed').catch((error: unknown) =>
+          this.#logger.warn('取消得不到确认，重启 dsh 失败', {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
       throw new AdapterError(
         'cancel_unconfirmed',
         `发出 session/cancel 后 ${this.#cancelTimeoutMs} ms 内回合没有结算`,
@@ -558,48 +623,72 @@ export class DshAdapter implements AgentRuntimeAdapter {
   }
 
   /**
-   * 进程用的是旧配置且空闲（没有进行中的回合、没有进行中的 `createSession`）时重启它；否则什么都不做，
-   * 等下一个回合结束或下一次 `createSession` 再看。
+   * 进程用的是旧配置且空闲（没有进行中的回合、没有进行中的 `createSession` / `resumeSession`）时重启它；
+   * 否则什么都不做，等下一个回合结束或下一次 `createSession` / `resumeSession` 再看。
    */
   async #applyConfigIfIdle(): Promise<void> {
-    if (this.#configRestart !== undefined) return this.#configRestart;
+    if (this.#restart !== undefined) return this.#restart;
     if (this.process.state !== 'ready' || !this.process.launchConfigStale) return;
-    if (this.#creating > 0) return;
+    if (this.#activating > 0) return;
     if ([...this.#sessions.values()].some((session) => session.turn !== undefined)) return;
-    this.#configRestart = (async () => {
-      // 先脱开会话（同步），之后的 send 报 session_closed，不会在旧进程上开新回合。
-      for (const session of this.#sessions.values()) {
-        if (session.status !== 'open') continue;
-        session.status = 'detached';
-        session.queue.exited({
-          type: 'engine.exited',
-          engineSessionId: session.id,
-          exitCode: null,
-          signal: null,
-          reason: 'config_changed',
-        });
-      }
-      await this.process.restart();
-    })().finally(() => {
-      this.#configRestart = undefined;
-    });
-    return this.#configRestart;
+    return this.#restartEngine('config_changed');
+  }
+
+  /**
+   * 有计划地重启 dsh：先把挂着的会话全部脱开（同步；之后的 send 报 session_closed，不会在旧进程上开新回合），
+   * 再回收旧进程、启动新进程。进行中的重启不重复发起。
+   */
+  #restartEngine(reason: NonNullable<EngineExitedEvent['reason']>): Promise<void> {
+    if (this.#restart !== undefined) return this.#restart;
+    this.#detachAll({ exitCode: null, signal: null, reason });
+    this.#restart = this.process
+      .restart()
+      .then(() => {})
+      .finally(() => {
+        this.#restart = undefined;
+      });
+    return this.#restart;
+  }
+
+  /** 启动或等进行中的重启完成，返回就绪的连接。配置换过、没有回合时先重启，新会话直接用新配置。 */
+  async #readyConnection() {
+    await this.process.start();
+    await this.#applyConfigIfIdle();
+    this.#assertUsable();
+    return this.process.connection;
   }
 
   #onExit(exit: DshExit): void {
+    this.#detachAll({
+      exitCode: exit.exitCode,
+      signal: exit.signal,
+      ...(exit.stderrTail !== '' && { stderrTail: exit.stderrTail }),
+    });
+  }
+
+  /**
+   * 挂着的会话全部脱开：结束未决审批（`engine_exited`，引擎已退出或即将被回收，回复写不出去也无妨）、丢下进行中的
+   * 回合（它的 `session/prompt` 随旧连接失败，`#settle` 发现回合已换掉就不再上报），发 `engine.exited`。
+   */
+  #detachAll(exit: Omit<EngineExitedEvent, 'type' | 'engineSessionId'>): void {
     for (const session of this.#sessions.values()) {
       if (session.status !== 'open') continue;
       session.status = 'detached';
       this.#cancelApprovals(session, 'engine_exited');
       session.turn = undefined;
-      session.queue.exited({
-        type: 'engine.exited',
-        engineSessionId: session.id,
-        exitCode: exit.exitCode,
-        signal: exit.signal,
-        ...(exit.stderrTail !== '' && { stderrTail: exit.stderrTail }),
-      });
+      session.queue.exited({ type: 'engine.exited', engineSessionId: session.id, ...exit });
     }
+  }
+
+  /** 登记一个刚挂到本进程上的会话；之前的记录（已关闭或已脱开，事件队列已结束）被替换。 */
+  #register(id: string, cwd: string): void {
+    this.#sessions.set(id, {
+      id,
+      cwd,
+      status: 'open',
+      queue: new SessionEventQueue(id, this.#warnOnce),
+      approvals: new Map(),
+    });
   }
 
   #assertUsable(): void {

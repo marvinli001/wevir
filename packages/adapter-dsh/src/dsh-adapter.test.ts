@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { type AgentEvent, isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DshAdapter, type DshAdapterOptions } from './dsh-adapter.js';
+import { DSH_VERSION } from './paths.js';
 import { readFixture } from './test-fixtures/acp-fixtures.js';
 
 const FAKE_DSH = fileURLToPath(new URL('./test-fixtures/fake-dsh.mjs', import.meta.url));
@@ -75,6 +76,7 @@ describe('DshAdapter', () => {
     const session = await adapter.createSession(config);
     expect(session).toEqual({
       engineSessionId: 'fake-1',
+      engineVersion: DSH_VERSION,
       modelId: 'wevir-mock',
       reasoningEffort: 'high',
     });
@@ -264,6 +266,7 @@ describe('DshAdapter', () => {
     expect(adapter.process.streamTapState).toBe('off');
     await expect(adapter.resumeSession(engineSessionId, config)).resolves.toEqual({
       engineSessionId,
+      engineVersion: DSH_VERSION,
     });
     expect(await adapter.listPendingApprovals()).toEqual([]);
     await expectAdapterError(

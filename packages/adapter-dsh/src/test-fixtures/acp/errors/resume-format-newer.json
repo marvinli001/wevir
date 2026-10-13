@@ -1,0 +1,11 @@
+{
+  "recordedBy": "T3.5 dsh-adapter.resume.integration.test.ts：真实 dsh 0.2.1-alpha.2，会话关闭后把日志头的 version 改为 5、文件名改为 session.v5.jsonl.zstd",
+  "error": {
+    "name": "RequestError",
+    "message": "Internal error",
+    "code": -32603,
+    "data": {
+      "details": "session \"<SESSION_ID>\" uses log format v5, but this harness reads only v4: the log was written by a newer harness — upgrade the harness to open it (raw log: <DSH_HOME>/sessions/<CWD>/<SESSION_ID>/session.v5.jsonl.zstd)"
+    }
+  }
+}

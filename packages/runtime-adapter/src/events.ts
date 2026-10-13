@@ -177,10 +177,11 @@ export interface EngineExitedEvent {
   /** stderr 尾部，供诊断。 */
   stderrTail?: string;
   /**
-   * 不是意外退出：config_changed 表示适配器为应用新的 Provider 配置主动重启了引擎（T3.4，只在没有回合时发生）。
-   * 省略表示进程自己退出了。
+   * 不是意外退出，而是适配器主动重启了引擎：config_changed 为应用新的 Provider 配置（T3.4，只在没有回合时
+   * 发生）；cancel_unconfirmed 是某个会话的取消在时限内得不到确认，引擎可能卡住，挂在同一进程上的会话一并
+   * 脱开（T3.5）。省略表示进程自己退出了。
    */
-  reason?: 'config_changed';
+  reason?: 'config_changed' | 'cancel_unconfirmed';
 }
 
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { AgentRuntimeAdapter } from './adapter.js';
 import { AdapterError } from './errors.js';
 import { EventHub } from './event-hub.js';
-import type { AgentEvent, ApprovalCancelledEvent } from './events.js';
+import type { AgentEvent, ApprovalCancelledEvent, EngineExitedEvent } from './events.js';
 import type {
   AgentInput,
   ApprovalDecision,
@@ -22,6 +22,8 @@ export interface EchoAdapterOptions {
   stepDelayMs?: number;
   /** false 时不发 `assistant.delta`，只发已提交消息（模拟 stream-tap 旁路缺失）。默认 true。 */
   incrementalStream?: boolean;
+  /** `createSession` / `resumeSession` 报的引擎版本（`EngineSession.engineVersion`）；默认不报。 */
+  engineVersion?: string;
 }
 
 /** `simulateEngineExit` 的参数，对应真实进程的退出信息。 */
@@ -30,8 +32,8 @@ export interface EchoExitInfo {
   /** 默认 'SIGKILL'。 */
   signal?: string | null;
   stderrTail?: string;
-  /** 模拟适配器为应用新配置主动重启（T3.4）。 */
-  reason?: 'config_changed';
+  /** 模拟适配器主动重启：应用新配置（T3.4）、取消得不到确认（T3.5）。 */
+  reason?: EngineExitedEvent['reason'];
 }
 
 /** Echo 的审批选项，取 dsh 的值（T0.3 §5.2）。 */
@@ -105,6 +107,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   readonly #chunkSize: number;
   readonly #stepDelayMs: number;
   readonly #incremental: boolean;
+  readonly #engineVersion: string | undefined;
   readonly #sessions = new Map<string, EchoSession>();
   readonly #timers = new Set<ReturnType<typeof setTimeout>>();
   #idCounter = 0;
@@ -114,6 +117,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     this.#chunkSize = Math.max(1, options.chunkSize ?? 4);
     this.#stepDelayMs = Math.max(0, options.stepDelayMs ?? 2);
     this.#incremental = options.incrementalStream ?? true;
+    this.#engineVersion = options.engineVersion;
   }
 
   /** 未触发的计时器数；dispose 之后应为 0。 */
@@ -137,19 +141,28 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       turnCount: 0,
     };
     this.#sessions.set(session.id, session);
-    return describeSession(session);
+    return this.#describe(session);
   }
 
+  /**
+   * 会话只在内存里：不认识的 ID（例如 Host 重启后的新实例）报 `session_lost`（`not_found`），与 dsh 的会话日志
+   * 被删除时相同。
+   */
   async resumeSession(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
     this.#assertUsable();
-    const session = this.#session(engineSessionId);
-    if (session.status === 'open') return describeSession(session);
+    const session = this.#sessions.get(engineSessionId);
+    if (session === undefined) {
+      throw new AdapterError('session_lost', `session is not resumable: ${engineSessionId}`, {
+        lostReason: 'not_found',
+      });
+    }
+    if (session.status === 'open') return this.#describe(session);
     if (config.cwd !== session.config.cwd) {
       throw new AdapterError('session_unavailable', `session cwd does not match: ${config.cwd}`);
     }
     session.status = 'open';
     session.hub = new EventHub();
-    return describeSession(session);
+    return this.#describe(session);
   }
 
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
@@ -255,6 +268,16 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       session.status = 'detached';
     }
     await Promise.all(turns);
+  }
+
+  #describe(session: EchoSession): EngineSession {
+    const { modelId, reasoningEffort } = session.config;
+    return {
+      engineSessionId: session.id,
+      modelId,
+      ...(reasoningEffort !== undefined && { reasoningEffort }),
+      ...(this.#engineVersion !== undefined && { engineVersion: this.#engineVersion }),
+    };
   }
 
   async #dispose(): Promise<void> {
@@ -499,15 +522,6 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     }
     return session;
   }
-}
-
-function describeSession(session: EchoSession): EngineSession {
-  const { modelId, reasoningEffort } = session.config;
-  return {
-    engineSessionId: session.id,
-    modelId,
-    ...(reasoningEffort !== undefined && { reasoningEffort }),
-  };
 }
 
 function copyApproval(info: PendingApproval): PendingApproval {

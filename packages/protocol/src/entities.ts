@@ -289,6 +289,28 @@ export type ActiveTurn = z.infer<typeof ActiveTurnSchema>;
 export const TitleSourceSchema = z.enum(['first_prompt', 'user']);
 export type TitleSource = z.infer<typeof TitleSourceSchema>;
 
+/**
+ * 会话为什么只读（0.3.0，T3.5）：引擎会话恢复不了，历史仍在 Host 的事件库里，可以基于它新建会话。
+ * - `engine_session_not_found`：引擎找不到这个会话（dsh 的会话日志被删除，例如引擎数据目录被清理）。
+ * - `engine_session_incompatible`：当前引擎读不了它的格式（日志由更新、或没有升级路径的更旧版本写入）。
+ * - `engine_session_corrupted`：引擎的会话日志损坏。
+ */
+export const SessionReadOnlyReasonSchema = z.enum([
+  'engine_session_not_found',
+  'engine_session_incompatible',
+  'engine_session_corrupted',
+]);
+export type SessionReadOnlyReason = z.infer<typeof SessionReadOnlyReasonSchema>;
+
+export const SessionReadOnlySchema = z.object({
+  reason: SessionReadOnlyReasonSchema,
+  /** 引擎原文。 */
+  message: z.string(),
+  /** 标为只读的时间（最近一条 `session.read_only` 的 `ts`）。 */
+  since: IsoTimeSchema,
+});
+export type SessionReadOnly = z.infer<typeof SessionReadOnlySchema>;
+
 export const SessionSchema = z.object({
   id: SessionIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -305,6 +327,11 @@ export const SessionSchema = z.object({
   state: SessionStateSchema,
   activeTurn: ActiveTurnSchema.optional(),
   lastError: EngineErrorInfoSchema.optional(),
+  /**
+   * 引擎会话恢复不了时有（0.3.0）：会话不能再发送，`session.resume` 会重试一次引擎，成功即清除。
+   * 状态是 `error` 或 `closed`。
+   */
+  readOnly: SessionReadOnlySchema.optional(),
   createdAt: IsoTimeSchema,
   /** 最后一个事件的 `ts`。 */
   updatedAt: IsoTimeSchema,

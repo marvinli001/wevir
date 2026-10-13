@@ -27,5 +27,10 @@
     "@agentclientprotocol/sdk": "1.4.0",
     "@deepseek-ai/dsh": "0.2.1-alpha.2",
     "@wevir/runtime-adapter": "workspace:*"
+  },
+  "devDependencies": {
+    "@wevir/host": "workspace:*",
+    "@wevir/protocol": "workspace:*",
+    "@wevir/storage": "workspace:*"
   }
 }

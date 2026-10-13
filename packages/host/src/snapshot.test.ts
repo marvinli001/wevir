@@ -351,7 +351,38 @@ describe('会话快照推导', () => {
     expect(session.lastError).toBeUndefined();
     expect(session.activeTurn).toEqual({ turnId: TURN2, startedAt: session.updatedAt });
   });
+
+  it('session.read_only 设置 readOnly（since 取事件时间），session.resumed 清除', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage);
+    const [marked] = store
+      .appendMany(SES, [...TO_ERROR, readOnly('engine_session_not_found')])
+      .slice(-1);
+    expect(store.snapshot(SES)?.session.readOnly).toEqual({
+      reason: 'engine_session_not_found',
+      message: 'session is not resumable',
+      since: marked?.ts,
+    });
+    store.appendMany(SES, [resumed, ev.state('error', 'idle', 'resumed')]);
+    const { session } = expectConsistent(storage, store);
+    expect(session.readOnly).toBeUndefined();
+    expect(session.state).toBe('idle');
+  });
 });
+
+function readOnly(reason: 'engine_session_not_found' | 'engine_session_incompatible'): AppendInput {
+  return {
+    type: 'session.read_only',
+    source: 'host',
+    payload: { reason, message: 'session is not resumable' },
+  };
+}
+
+const resumed: AppendInput = {
+  type: 'session.resumed',
+  source: 'host',
+  payload: { engineVersion: '0.2.1-alpha.2' },
+};
 
 describe('写入前的校验', () => {
   const dataDir = useTempDir();
@@ -370,6 +401,9 @@ describe('写入前的校验', () => {
       [ev.approvalRequested('apr_1'), ev.approvalResolved('apr_1', 'denied', 'user')],
       ev.approvalResolved('apr_1', 'approved', 'user'),
     ],
+    ['回合进行中恢复引擎会话', START, resumed],
+    ['idle 时标为只读', [], readOnly('engine_session_not_found')],
+    ['活动中标为只读', START, readOnly('engine_session_incompatible')],
   ];
 
   it.each(rejected)('%s', (_name, before, input) => {

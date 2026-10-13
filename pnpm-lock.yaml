@@ -193,6 +193,16 @@ importers:
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../runtime-adapter
+    devDependencies:
+      '@wevir/host':
+        specifier: workspace:*
+        version: link:../host
+      '@wevir/protocol':
+        specifier: workspace:*
+        version: link:../protocol
+      '@wevir/storage':
+        specifier: workspace:*
+        version: link:../storage
 
   packages/host:
     dependencies:

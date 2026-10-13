@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import frozen010 from './compat/0.1.0.json' with { type: 'json' };
 import frozen020 from './compat/0.2.0.json' with { type: 'json' };
+import frozen030 from './compat/0.3.0.json' with { type: 'json' };
 import {
   ErrorCode,
   type ErrorCodeName,
@@ -26,7 +27,7 @@ interface FrozenSamples {
   errors: { name: string; response: { error: { code: number; data?: unknown } } }[];
 }
 
-const frozenVersions: FrozenSamples[] = [frozen010, frozen020];
+const frozenVersions: FrozenSamples[] = [frozen010, frozen020, frozen030];
 
 function issuesOf(schema: z.ZodType, value: unknown) {
   return schema.safeParse(value).error?.issues;
@@ -85,13 +86,18 @@ describe('兼容纪律的演示', () => {
     ...Object.entries(EventPayloadSchemas),
   ];
 
+  /** 最早冻结了这个形状的版本里的样本（后来新增的事件类型只出现在新版本的样本里）。 */
   function frozenSamplesFor(name: string): unknown[] {
     const [key, part] = name.split(' ');
-    const method = frozen010.methods[key as keyof typeof frozen010.methods];
-    if (method && (part === 'params' || part === 'result')) return method[part];
-    return frozen010.events
-      .filter((event) => event.type === name)
-      .map((event) => (event as { payload: unknown }).payload);
+    for (const frozen of frozenVersions) {
+      const method = frozen.methods[key as string];
+      if (method && (part === 'params' || part === 'result')) return method[part];
+      const payloads = frozen.events
+        .filter((event) => (event as { type: string }).type === name)
+        .map((event) => (event as { payload: unknown }).payload);
+      if (payloads.length > 0) return payloads;
+    }
+    return [];
   }
 
   it('给 schema 加一个 optional 字段后，旧样本照样通过（新 Host 读旧客户端）', () => {

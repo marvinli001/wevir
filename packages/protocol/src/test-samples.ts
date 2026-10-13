@@ -137,6 +137,33 @@ export const userResolution: ApprovalResolution = {
   reason: 'user',
 };
 
+/** 引擎会话丢失后只读的会话（0.3.0）。 */
+export const readOnlySession: Session = {
+  id: ids.session,
+  workspaceId: ids.workspace,
+  cwd: '/Users/me/projects/wevir',
+  engine: { kind: 'dsh', sessionId: '6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14' },
+  providerId: 'deepseek-official',
+  modelId: 'deepseek-chat',
+  title: '整理本周周报',
+  titleSource: 'first_prompt',
+  state: 'error',
+  lastError: {
+    category: 'session_unavailable',
+    message:
+      'session/resume 失败：Invalid params: session is not resumable: 6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14',
+  },
+  readOnly: {
+    reason: 'engine_session_not_found',
+    message:
+      'session/resume 失败：Invalid params: session is not resumable: 6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14',
+    since: TS2,
+  },
+  createdAt: TS,
+  updatedAt: TS2,
+  lastSeq: 30,
+};
+
 export const snapshot: SessionSnapshot = {
   session,
   pendingApprovals: [pendingApproval],
@@ -158,8 +185,21 @@ export const eventPayloads: PayloadSamples = {
       providerId: 'deepseek-official',
       modelId: 'deepseek-chat',
       reasoningEffort: 'high',
+      engineVersion: '0.2.1-alpha.2',
     },
     invalid: { workspaceId: ids.workspace, cwd: '/x', providerId: 'DeepSeek', modelId: 'm' },
+  },
+  'session.resumed': {
+    valid: { engineVersion: '0.2.1-alpha.2' },
+    invalid: { engineVersion: 2 },
+  },
+  'session.read_only': {
+    valid: {
+      reason: 'engine_session_incompatible',
+      message:
+        'session/resume 失败：Internal error: session "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14" uses log format v5, but this harness reads only v4: the log was written by a newer harness — upgrade the harness to open it',
+    },
+    invalid: { reason: 'engine_session_missing', message: 'x' },
   },
   'session.title_changed': {
     valid: { title: '整理本周周报', source: 'first_prompt' },
@@ -510,7 +550,11 @@ export const methodSamples: MethodSamples = {
   'session.get': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
     result: {
-      valid: [snapshot, { session: { ...session, state: 'idle' }, pendingApprovals: [] }],
+      valid: [
+        snapshot,
+        { session: { ...session, state: 'idle' }, pendingApprovals: [] },
+        { session: readOnlySession, pendingApprovals: [] },
+      ],
       invalid: [{ session }],
     },
   },
@@ -609,7 +653,10 @@ export const errorDataSamples: ErrorDataSamples = {
     valid: { hostVersion: '0.0.0', protocolVersion: '0.1.0', minProtocolVersion: '0.1.0' },
     invalid: { hostVersion: '0.0.0', protocolVersion: 'v1', minProtocolVersion: '0.1.0' },
   },
-  INVALID_STATE: { valid: { state: 'closed' }, invalid: { state: 'gone' } },
+  INVALID_STATE: {
+    valid: { state: 'error', readOnly: readOnlySession.readOnly },
+    invalid: { state: 'gone' },
+  },
   SESSION_BUSY: {
     valid: { state: 'running', activeTurn: { turnId: ids.turn, startedAt: TS } },
     invalid: {},

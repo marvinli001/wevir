@@ -15,6 +15,9 @@
 //                   session/close、session/set_config_option（T3.4：值里含 missing 时报 -32602，其余照收），
 //                   按提示词的第一个词决定回合怎么走（见下方 PROMPT_SCRIPTS）。
 //                   第一个词是 `replay:<样本名>` 时回放 $FAKE_DSH_FIXTURES/<样本名>.jsonl（T3.3，见 replay()）。
+//                   session/resume（T3.5）：本进程里活跃的会话报 already active；会话 ID 以 RESUME_FAILURES 的前缀
+//                   开头时回放 acp/errors/ 里对应的真实 dsh 错误；本进程建过的会话 cwd 不同时报 cwd does not match；
+//                   其余（本进程没见过的 ID，相当于 Host 重启后）照收，configOptions 是会话最后选定的路由。
 //                   收到的每条客户端消息（initialize 之外）按顺序记在 fake-dsh.json 的 received 里。
 // FAKE_DSH_GRANDCHILD=1：再拉起一个不理会 SIGTERM 的子进程（留在同一进程组里）。
 //
@@ -183,6 +186,30 @@ const waiters = new Map();
 const hanging = new Map();
 /** 引擎侧“丢了”的会话：session/close 报 unknown session（T0.3 fixtures/acp/errors/close-unknown-session.json）。 */
 const forgotten = new Set();
+/** session/close 失败、但仍挂在本进程上的会话（T3.5：之后的 session/resume 报 already active）。 */
+const stubborn = new Set();
+/** 本进程上活跃的会话。 */
+const active = new Set();
+/** sessionId → 建会话时的 cwd（本进程建的才有）。 */
+const cwds = new Map();
+/** sessionId → 最后选定的 model 选项值。 */
+const routes = new Map();
+/** session/resume：会话 ID 前缀 → 回放的真实 dsh 错误（acp/errors/，T3.5 录制）。 */
+const RESUME_FAILURES = {
+  'gone-': 'resume-not-resumable.json',
+  'newer-': 'resume-format-newer.json',
+  'corrupt-': 'resume-log-corrupt.json',
+};
+const DEFAULT_ROUTE = '["wevir-test","wevir-mock"]';
+const configOptions = (sessionId, effort = 'high') => [
+  {
+    id: 'model',
+    type: 'select',
+    currentValue: routes.get(sessionId) ?? DEFAULT_ROUTE,
+    options: [],
+  },
+  { id: 'reasoning_effort', type: 'select', currentValue: effort, options: [] },
+];
 
 const update = (sessionId, body) => ({
   method: 'session/update',
@@ -290,6 +317,12 @@ const PROMPT_SCRIPTS = {
   // 回合正常结束，但引擎从此不认识这个会话。
   forget: (sid, id) => {
     forgotten.add(sid);
+    active.delete(sid);
+    sendAll([{ id, result: { stopReason: 'end_turn' } }]);
+  },
+  // 回合正常结束；之后的 session/close 失败，会话仍挂在本进程上。
+  stubborn: (sid, id) => {
+    stubborn.add(sid);
     sendAll([{ id, result: { stopReason: 'end_turn' } }]);
   },
   // 不理会取消：cancel 应在时限内报 cancel_unconfirmed。
@@ -307,16 +340,36 @@ function acp(message) {
     record.sessionNew = params;
     save();
     sessionCount += 1;
-    send({
-      id,
-      result: {
-        sessionId: `fake-${sessionCount}`,
-        configOptions: [
-          { id: 'model', type: 'select', currentValue: '["wevir-test","wevir-mock"]', options: [] },
-          { id: 'reasoning_effort', type: 'select', currentValue: 'high', options: [] },
-        ],
-      },
-    });
+    const sessionId = `fake-${sessionCount}`;
+    active.add(sessionId);
+    cwds.set(sessionId, params.cwd);
+    send({ id, result: { sessionId, configOptions: configOptions(sessionId) } });
+  } else if (method === 'session/resume') {
+    const { sessionId, cwd } = params;
+    const failure = Object.entries(RESUME_FAILURES).find(([prefix]) =>
+      sessionId.startsWith(prefix),
+    );
+    if (active.has(sessionId)) {
+      send({
+        id,
+        error: { code: -32602, message: `Invalid params: session is already active: ${sessionId}` },
+      });
+    } else if (failure !== undefined) {
+      const recorded = readFileSync(new URL(`./acp/errors/${failure[1]}`, import.meta.url), 'utf8');
+      const { name: _name, ...error } = JSON.parse(
+        recorded.replaceAll('<SESSION_ID>', sessionId),
+      ).error;
+      send({ id, error });
+    } else if (cwds.has(sessionId) && cwds.get(sessionId) !== cwd) {
+      send({
+        id,
+        error: { code: -32602, message: `Invalid params: session cwd does not match: ${cwd}` },
+      });
+    } else {
+      active.add(sessionId);
+      cwds.set(sessionId, cwd);
+      send({ id, result: { configOptions: configOptions(sessionId) } });
+    }
   } else if (method === 'session/prompt') {
     const word = params.prompt[0]?.text.split(' ')[0] ?? '';
     if (word.startsWith('replay:')) {
@@ -341,33 +394,29 @@ function acp(message) {
       });
       return;
     }
+    if (params.configId === 'model') routes.set(params.sessionId, params.value);
     send({
       id,
       result: {
-        configOptions: [
-          {
-            id: 'model',
-            type: 'select',
-            currentValue:
-              params.configId === 'model' ? params.value : '["wevir-test","wevir-mock"]',
-            options: [],
-          },
-          {
-            id: 'reasoning_effort',
-            type: 'select',
-            currentValue: params.configId === 'reasoning_effort' ? params.value : 'high',
-            options: [],
-          },
-        ],
+        configOptions: configOptions(
+          params.sessionId,
+          params.configId === 'reasoning_effort' ? params.value : 'high',
+        ),
       },
     });
   } else if (method === 'session/close') {
-    if (!forgotten.has(params.sessionId)) send({ id, result: {} });
-    else
+    if (forgotten.has(params.sessionId)) {
       send({
         id,
         error: { code: -32602, message: `Invalid params: unknown session: ${params.sessionId}` },
       });
+    } else if (stubborn.has(params.sessionId)) {
+      stubborn.delete(params.sessionId);
+      send({ id, error: { code: -32603, message: 'Internal error: fake close failure' } });
+    } else {
+      active.delete(params.sessionId);
+      send({ id, result: {} });
+    }
   } else if (id !== undefined) {
     send({ id, error: { code: -32601, message: `"Method not found": ${method}` } });
   }

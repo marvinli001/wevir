@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentRuntimeAdapter } from './adapter.js';
-import { type AdapterErrorCode, isAdapterError } from './errors.js';
+import { type AdapterError, type AdapterErrorCode, isAdapterError } from './errors.js';
 import {
   type AgentEvent,
   type ApprovalRequestedEvent,
@@ -456,10 +456,12 @@ export function runAdapterContract<A extends AgentRuntimeAdapter>(
       // 已挂上时直接成功，现有订阅不受影响。
       expect((await adapter.resumeSession(session.id, config)).engineSessionId).toBe(session.id);
       expect(reattached.log.ended).toBe(false);
-      await expectAdapterError(
+      // 引擎里没有的会话恢复不了（T3.5）：Host 据此把会话标为只读。
+      const lost = await expectAdapterError(
         () => adapter.resumeSession(UNKNOWN_SESSION, config),
-        'session_not_found',
+        'session_lost',
       );
+      expect(lost.lostReason).toBe('not_found');
     });
 
     it.skipIf(!simulateEngineExit)('引擎进程在回合之间退出：以 engine.exited 上报', async () => {
@@ -625,7 +627,10 @@ function pickOption(request: ApprovalRequestedEvent, category: 'allow' | 'reject
 }
 
 /** 同步抛出与返回 rejected Promise 都算失败；断言失败的是指定错误码的 AdapterError。 */
-async function expectAdapterError(action: () => unknown, code: AdapterErrorCode): Promise<void> {
+async function expectAdapterError(
+  action: () => unknown,
+  code: AdapterErrorCode,
+): Promise<AdapterError> {
   let caught: unknown;
   try {
     await action();
@@ -635,6 +640,7 @@ async function expectAdapterError(action: () => unknown, code: AdapterErrorCode)
   expect(isAdapterError(caught) ? caught.code : caught, `应以 AdapterError(${code}) 失败`).toBe(
     code,
   );
+  return caught as AdapterError;
 }
 
 /** 把一个订阅收进数组，提供“等到某个事件”的能力；超时或订阅结束时报出已收到的事件类型。 */

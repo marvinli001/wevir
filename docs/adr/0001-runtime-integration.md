@@ -78,7 +78,7 @@ ACP 给不了、或给得不完整的信息，由 Host / 适配器自己补，�
 
 - dsh 的审批**只来自沙箱升级**：`workspace-write` 下工作区内读写、系统临时目录写入都不需要审批；工作区外的操作先失败，模型带 `sandbox_permissions` 重试才触发 `request_permission`（T0.3 §5.1）。界面文案、验收用例都按这一点设计。
 - 客户端取消时，挂起的审批必须以 `{"outcome":{"outcome":"cancelled"}}` 回复，否则 dsh 侧悬挂（T0.3 §5.4）。
-- `session/resume` 只能用会话创建时的 `cwd`（按 realpath 比较），活跃会话不能 resume（`-32602 session is already active`，T0.3 §3.2）。
+- `session/resume` 只能用会话创建时的 `cwd`（按 realpath 比较），活跃会话不能 resume（`-32602 session is already active`，T0.3 §3.2）。引擎会话恢复不了时会话只读，历史仍在 Wevir（补记 6）。
 
 ### 7. 适配器接口的调整（T1.3）
 
@@ -158,3 +158,10 @@ ACP 给不了、或给得不完整的信息，由 Host / 适配器自己补，�
    - **对运行中会话的影响**：重启前挂在旧进程上的会话以 `engine.exited`（新增可选字段 `reason: 'config_changed'`，`exitCode` / `signal` 为 null）脱开，Host 转 `error`，消息提示 resume；只在没有回合时重启，所以没有回合被打断、没有审批被结掉。resume（T3.5）之后会话用新配置继续；被删除的 Provider 的会话不能 resume。
    - **`provider.test` 不经 dsh**：适配器按 dsh 的请求拼法直接向 Provider 发一次最小的流式请求（`max_tokens` 1，收到第一条合乎协议的数据就断开），按状态码与错误原文归为 `missing_key` / `network` / `timeout` / `auth` / `model_not_found` / `protocol` / `rate_limited` / `server` / `unknown`。经 dsh 的话每次都带完整系统提示词与工具定义，代价高，失败时也只有自由文本（补记 3）。协议为此升到 0.2.0（`provider.test` 结果加 `reason`、`httpStatus`，`ProviderModel` 加 `maxTokens`、`supportsImages`、`reasoningEfforts`，均为 optional；最低版本仍是 0.1.0）。
    - **真实 Provider 尚未验证**：`provider-test.integration.test.ts`（正确 Key 成功、错误 Key 为 `auth`、不存在的模型为 `model_not_found`）设了 `WEVIR_TEST_API_KEY` 才跑，T3.4 完成时本机没有 Key，未运行；`model_not_found` 依赖服务端措辞，最需要在真实端点上确认。
+6. **2026-10-13，T3.5：会话恢复。** 归类表在 [acp-event-mapping.md](../architecture/acp-event-mapping.md) §6，Host 一侧的规则在 [domain-model.md](../architecture/domain-model.md) §4.4，代码在 `packages/adapter-dsh/src/{resume-error,dsh-adapter}.ts` 与 `packages/host/src/{session-manager,snapshot}.ts`。决策 5、6 没有写到、由 T3.5 定下或实测确认的部分：
+   - **resume 不认 ID 的来历**：适配器不认识的会话（Host 重启后适配器是新的）照样发 `session/resume`，已挂在本进程上的直接成功、不发 ACP（dsh 拒绝 resume 活跃的会话）。恢复后按 Host 记录的路由 `set_config_option`：dsh 恢复的是日志里最后的路由，Provider 变更（补记 5）之后可能不同。dsh 说会话仍活跃（之前 `session/close` 失败、适配器按已关闭处理）时沿用它。
+   - **实测：恢复不了的会话**（真实 dsh，不需要模型）。会话日志被删除或日志头读不出来是 `-32602 session is not resumable`；日志由更新版本写入（格式 v5）、日志损坏是 `-32603 Internal error`，原文在 `data.details`（`… uses log format v5, but this harness reads only v4 …`、`… stored log is corrupt …`）；cwd 不存在与 cwd 不一致是同一句 `session cwd does not match`。三种恢复不了的情况适配器报新的 `session_lost`（`AdapterError.lostReason`：`not_found` / `incompatible` / `corrupted`），Host 据此把会话标为只读；cwd 不一致、引擎不可用不标只读。`AgentRuntimeAdapter` 的契约随之改为：`resumeSession` 遇到引擎里没有的会话报 `session_lost`（不再是 `session_not_found`）。
+   - **引擎版本**：`EngineSession` 加可选的 `engineVersion`，dsh 适配器填锁定并经 `resolveDshEntry` 核对过的包版本（ACP 的 `agentInfo.version` 恒为 0.0.1，T0.3 §3.1）。Host 记进 `session.created` 与新事件 `session.resumed`，排查跨版本问题时对比两者。
+   - **取消得不到确认时重启 dsh**：`cancel` 报 `cancel_unconfirmed` 的同时，适配器把挂着的会话全部以 `engine.exited`（`reason` 新增 `cancel_unconfirmed`）脱开并计划重启 dsh（与补记 5 同一条路径）。不重启的话，卡住的会话在 dsh 里仍活跃，resume 被拒，回合也一直占着它；代价是同进程上其他会话的回合被打断，它们按引擎退出处理、resume 后继续。
+   - **resume 前后的上下文**：新进程 resume 之后，模型收到的第一个请求带着之前的全部用户消息与回复（真实 dsh + mock Provider，与 T0.3 §8 一致）；界面层信息（历史、标题、列表）resume 不提供，全部来自事件库。真实模型的同一用例（追问能引用之前告知的暗号）需要 `WEVIR_TEST_API_KEY`，T3.5 完成时本机没有 Key，未运行。
+   - 协议为此升到 0.3.0：新事件 `session.resumed`、`session.read_only`，`Session.readOnly`，`INVALID_STATE` 的 `data.readOnly`，`session.created.engineVersion`，均为新类型或 optional 字段（host-api.md §10）。基于只读会话的历史新建会话只定了 Host 内部接口 `SessionFromHistory`，Host API 方法留到实现时再加。

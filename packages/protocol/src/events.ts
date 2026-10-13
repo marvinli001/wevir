@@ -15,6 +15,7 @@ import {
   ApprovalResolutionSchema,
   EngineErrorCategorySchema,
   ResolvedApprovalStatusSchema,
+  SessionReadOnlyReasonSchema,
   SessionStateSchema,
   StreamBlockRefSchema,
   TitleSourceSchema,
@@ -58,6 +59,22 @@ export const EventPayloadSchemas = {
     providerId: ProviderIdSchema,
     modelId: z.string().min(1),
     reasoningEffort: z.string().optional(),
+    /** 建立引擎会话的引擎版本（0.3.0；dsh：`@deepseek-ai/dsh` 的包版本）。适配器不报时省略。 */
+    engineVersion: z.string().optional(),
+  }),
+  /**
+   * 引擎会话重新挂上（0.3.0）：`session.resume`，或 send 前的自动 resume。引擎不回放历史，这条事件之前的
+   * 历史都来自事件库。
+   */
+  'session.resumed': z.object({
+    /** 恢复引擎会话的引擎版本，与 `session.created` 的对比可看出是否跨了版本。适配器不报时省略。 */
+    engineVersion: z.string().optional(),
+  }),
+  /** 引擎会话恢复不了，会话只读（0.3.0）。之后的 `session.resumed` 解除。 */
+  'session.read_only': z.object({
+    reason: SessionReadOnlyReasonSchema,
+    /** 引擎原文。 */
+    message: z.string(),
   }),
   'session.title_changed': z.object({
     title: z.string(),
@@ -206,6 +223,8 @@ function eventSchema<T extends WevirEventType>(type: T) {
 }
 
 export const SessionCreatedEventSchema = eventSchema('session.created');
+export const SessionResumedEventSchema = eventSchema('session.resumed');
+export const SessionReadOnlyEventSchema = eventSchema('session.read_only');
 export const SessionTitleChangedEventSchema = eventSchema('session.title_changed');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
 export const UserMessageEventSchema = eventSchema('user.message');
@@ -228,6 +247,8 @@ export const EngineRawEventSchema = eventSchema('engine.raw');
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionCreatedEventSchema,
+  SessionResumedEventSchema,
+  SessionReadOnlyEventSchema,
   SessionTitleChangedEventSchema,
   SessionStateChangedEventSchema,
   UserMessageEventSchema,

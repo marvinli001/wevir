@@ -49,6 +49,8 @@ import {
   SeqCursorSchema,
   SeqSchema,
   SessionIdSchema,
+  SessionReadOnlyReasonSchema,
+  SessionReadOnlySchema,
   SessionSchema,
   SessionSnapshotSchema,
   SessionStateSchema,
@@ -85,6 +87,7 @@ import {
   methodSamples,
   notificationSamples,
   pendingApproval,
+  readOnlySession,
   session,
   snapshot,
   TS,
@@ -360,9 +363,25 @@ const standaloneCases: Case[] = [
   },
   { name: 'TitleSource', schema: TitleSourceSchema, valid: ['user'], invalid: ['engine'] },
   {
+    name: 'SessionReadOnlyReason',
+    schema: SessionReadOnlyReasonSchema,
+    valid: ['engine_session_corrupted'],
+    invalid: ['engine_session_missing'],
+  },
+  {
+    name: 'SessionReadOnly',
+    schema: SessionReadOnlySchema,
+    valid: [readOnlySession.readOnly],
+    invalid: [{ reason: 'engine_session_not_found', message: 'x' }],
+  },
+  {
     name: 'Session',
     schema: SessionSchema,
-    valid: [session, { ...session, engine: { kind: 'future-engine', sessionId: 'x' } }],
+    valid: [
+      session,
+      { ...session, engine: { kind: 'future-engine', sessionId: 'x' } },
+      readOnlySession,
+    ],
     invalid: [{ ...session, workspaceId: ids.session }],
   },
   {

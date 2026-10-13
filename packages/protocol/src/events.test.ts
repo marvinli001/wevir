@@ -17,6 +17,10 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.cwd;
     case 'session.title_changed':
       return event.payload.title;
+    case 'session.resumed':
+      return event.payload.engineVersion ?? '';
+    case 'session.read_only':
+      return event.payload.reason;
     case 'session.state_changed':
       return `${event.payload.from}->${event.payload.to}`;
     case 'user.message':

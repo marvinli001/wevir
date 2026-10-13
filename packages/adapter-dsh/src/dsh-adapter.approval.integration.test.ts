@@ -5,14 +5,7 @@
 // - 真实模型：设了 WEVIR_TEST_API_KEY 才跑（默认 DeepSeek 官方路由，见 realModelOverlay），提示里要求一次
 //   工作区外、且不在系统临时目录的写入，并验证模型按沙箱提示升级（ADR-0001 未决事项 3）。
 
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -35,6 +28,7 @@ import {
   writeMockOverlay,
 } from './test-fixtures/mock-model.js';
 import { makeOutsideDir } from './test-fixtures/outside-dir.js';
+import { type ModelSetup, REAL_KEY, realModelSetup } from './test-fixtures/real-model.js';
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => {
@@ -84,14 +78,7 @@ function escalationScript(request: MockRequest): MockReply {
   return { text: [`结果：${(results.at(-1) ?? '').slice(0, 120)}`] };
 }
 
-interface Setup {
-  patches: string[];
-  env: Record<string, string>;
-  providerId: string;
-  modelId: string;
-}
-
-async function openSession({ patches, env, providerId, modelId }: Setup) {
+async function openSession({ patches, env, providerId, modelId }: ModelSetup) {
   const warnings: string[] = [];
   const adapter = new DshAdapter({
     home: tempDir('home'),
@@ -219,72 +206,9 @@ describe('DshAdapter 审批（真实 dsh + mock Provider）', () => {
   }, 30_000);
 });
 
-/**
- * 真实模型的 overlay，只写 Key 的环境变量名。默认 dsh acp profile 自带的 DeepSeek 官方路由（`deepseek-official`，
- * llm-deepseek）；设了 WEVIR_TEST_BASE_URL 时改走 OpenAI 兼容服务（llm-pi-ai），模型取 WEVIR_TEST_MODEL。
- */
-function realModelSetup(key: string): Setup {
-  const keyEnv = 'WEVIR_PROVIDER_WEVIR_REAL_KEY';
-  const baseURL = process.env.WEVIR_TEST_BASE_URL;
-  const model = process.env.WEVIR_TEST_MODEL;
-  const file = join(tempDir('overlay'), 'provider.yml');
-  if (baseURL === undefined) {
-    const lines = ['- id: llm-deepseek', '  config:', `    apiKeyEnv: ${keyEnv}`];
-    if (model !== undefined) {
-      lines.push(
-        '- id: acp',
-        '  config:',
-        '    provider: deepseek-official',
-        `    model: ${model}`,
-      );
-    }
-    writeFileSync(file, `${lines.join('\n')}\n`);
-    return {
-      patches: [file],
-      env: { [keyEnv]: key },
-      providerId: 'deepseek-official',
-      modelId: model ?? 'deepseek-v4-flash',
-    };
-  }
-  if (model === undefined) throw new Error('设了 WEVIR_TEST_BASE_URL 时要同时设 WEVIR_TEST_MODEL');
-  const deepseek = /(^|\.)deepseek\.com$/.test(new URL(baseURL).hostname);
-  writeFileSync(
-    file,
-    [
-      '- id: llm-pi-ai',
-      '  config:',
-      '    providers:',
-      '      wevir-real:',
-      `        apiKeyEnv: ${keyEnv}`,
-      '        api: openai-completions',
-      `        baseURL: ${baseURL}`,
-      '        compat:',
-      '          supportsDeveloperRole: false',
-      '          maxTokensField: max_tokens',
-      // DeepSeek 的 OpenAI 兼容端点（T0.3 §6.2）。
-      ...(deepseek
-        ? [
-            '          thinkingFormat: deepseek',
-            '          requiresReasoningContentOnAssistantMessages: true',
-          ]
-        : []),
-      '        models:',
-      `          - id: ${model}`,
-      '- id: acp',
-      '  config:',
-      '    provider: wevir-real',
-      `    model: ${model}`,
-      '',
-    ].join('\n'),
-  );
-  return { patches: [file], env: { [keyEnv]: key }, providerId: 'wevir-real', modelId: model };
-}
-
-const REAL_KEY = process.env.WEVIR_TEST_API_KEY;
-
-describe.skipIf(REAL_KEY === undefined || REAL_KEY === '')('DshAdapter 审批（真实模型）', () => {
+describe.skipIf(REAL_KEY === undefined)('DshAdapter 审批（真实模型）', () => {
   it('模型按沙箱提示升级：工作区外、且不在系统临时目录的写入出现审批，批准后写成', async () => {
-    const t = await openSession(realModelSetup(REAL_KEY as string));
+    const t = await openSession(realModelSetup(tempDir('overlay'), REAL_KEY as string));
     const target = join(outsideDir('real'), 'allowed.txt');
     const events = await t.turn(escalationPrompt(target), (r) => pick(r, 'allow_'));
     const tools = events

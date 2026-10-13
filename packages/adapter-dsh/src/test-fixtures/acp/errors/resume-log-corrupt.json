@@ -1,0 +1,11 @@
+{
+  "recordedBy": "T3.5 dsh-adapter.resume.integration.test.ts：真实 dsh 0.2.1-alpha.2，会话关闭后在日志末尾追加一个只含半条 JSON 记录的完整帧",
+  "error": {
+    "name": "RequestError",
+    "message": "Internal error",
+    "code": -32603,
+    "data": {
+      "details": "session \"<SESSION_ID>\": stored log is corrupt: Error: corrupt Zstandard session log: complete frame contains a torn JSONL record (raw log: <DSH_HOME>/sessions/<CWD>/<SESSION_ID>/session.v4.jsonl.zstd)"
+    }
+  }
+}

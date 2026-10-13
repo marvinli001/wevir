@@ -5,6 +5,7 @@ import {
   ApprovalResolutionSchema,
   EngineErrorInfoSchema,
   ResolvedApprovalStatusSchema,
+  SessionReadOnlySchema,
   SessionStateSchema,
 } from './entities.js';
 import { ProtocolVersionSchema } from './version.js';
@@ -73,6 +74,8 @@ export const ErrorDataSchemas = {
   }),
   INVALID_STATE: z.object({
     state: SessionStateSchema,
+    /** 会话只读时有（0.3.0）：引擎会话恢复不了的原因。 */
+    readOnly: SessionReadOnlySchema.optional(),
   }),
   SESSION_BUSY: z.object({
     state: SessionStateSchema,

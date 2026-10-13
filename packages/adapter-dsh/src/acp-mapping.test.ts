@@ -1,5 +1,5 @@
 // ACP → AgentEvent 的映射，以 T0.3 录制的样本为输入（test-fixtures/acp，来源见同目录 README.md）。
-// 每个样本要么在这里有快照测试，要么在 COVERED_ELSEWHERE / EXEMPT 里写明由哪个测试覆盖、或为什么不属于 T3.2；
+// 每个样本要么在这里有快照测试，要么在 COVERED_ELSEWHERE / EXEMPT 里写明由哪个测试覆盖、或为什么不属于映射；
 // 最后一条用例保证新加的样本不会被漏掉。
 
 import { existsSync } from 'node:fs';
@@ -48,17 +48,23 @@ const COVERED_ELSEWHERE: Record<string, string> = {
     'dsh-adapter.test.ts：close 遇到 -32602 unknown session 仍算关闭',
   'mock/permission/responses.json':
     'dsh-adapter.approval.test.ts：回给 dsh 的 allow / deny / cancelled 响应与样本逐个相等（T3.3）',
+  'errors/resume-active-session.json': 'resume-error.test.ts：归为 already_active（T3.5）',
+  'errors/resume-cwd-mismatch.json': 'resume-error.test.ts：归为 cwd_mismatch（T3.5）',
+  'errors/resume-not-resumable.json':
+    'resume-error.test.ts：归为 lost / not_found；真实 dsh 复现见 dsh-adapter.resume.integration.test.ts（T3.5）',
+  'errors/resume-format-newer.json':
+    'resume-error.test.ts：归为 lost / incompatible；真实 dsh 复现见 dsh-adapter.resume.integration.test.ts（T3.5）',
+  'errors/resume-log-corrupt.json':
+    'resume-error.test.ts：归为 lost / corrupted；真实 dsh 复现见 dsh-adapter.resume.integration.test.ts（T3.5）',
 };
 
 /** 不属于 T3.2 的样本，写明原因。 */
 const EXEMPT: Record<string, string> = {
   'session-list.response.json': 'Wevir 不用 session/list（ADR-0001 §5 第 2 条）',
-  'errors/resume-active-session.json': 'resume 属于 T3.5',
-  'errors/resume-cwd-mismatch.json': 'resume 属于 T3.5',
   'errors/session-load-unsupported.json': 'Wevir 不调用 session/load',
   'mock/scenarios/F-stream-granularity.summary.json': '计时摘要，不含 ACP 消息（T0.3 §4）',
   'mock/scenarios/H-first-request-after-resume.json':
-    'mock Provider 收到的模型请求，不是 ACP 消息（T3.5）',
+    'mock Provider 收到的模型请求，不是 ACP 消息；同一事实由 dsh-adapter.resume.integration.test.ts 用真实 dsh 复现（T3.5）',
 };
 
 interface Scenario {

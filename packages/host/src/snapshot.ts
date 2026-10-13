@@ -5,6 +5,7 @@ import type {
   IsoTime,
   Session,
   SessionId,
+  SessionReadOnly,
   SessionSnapshot,
   SessionState,
   StateChangeReason,
@@ -31,6 +32,8 @@ export interface SessionProjection {
   readonly titleSource: TitleSource;
   readonly activeTurn?: ActiveTurn;
   readonly lastError?: EngineErrorInfo;
+  /** 引擎会话恢复不了（T3.5）：`session.read_only` 设置，`session.resumed` 清除。 */
+  readonly readOnly?: SessionReadOnly;
   /** 仍是 `pending` 的审批，按请求先后排列。 */
   readonly pendingApprovals: readonly ApprovalRequest[];
   /** 最近一次 `todo.updated`。 */
@@ -57,6 +60,7 @@ export const INITIAL_PROJECTION: SessionProjection = {
  * - `lastError`：每条 `engine.error` 都会覆盖它（含回合失败这类不改变状态的错误）；回合开始
  *   （`turn_started`）或恢复（`resumed`）时清空。
  * - `activeTurn`：`turn.started` 设置，`turn.finished` 清空。
+ * - `readOnly`：`session.read_only` 设置（`since` 取事件的 `ts`），`session.resumed` 清空。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -65,6 +69,16 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     updatedAt: event.ts,
   };
   switch (event.type) {
+    case 'session.read_only':
+      next.readOnly = {
+        reason: event.payload.reason,
+        message: event.payload.message,
+        since: event.ts,
+      };
+      break;
+    case 'session.resumed':
+      next.readOnly = undefined;
+      break;
     case 'session.title_changed':
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
@@ -167,7 +181,7 @@ export function isAllowedTransition(
 /**
  * 检查一条待写入的事件与当前状态是否相容，不相容时抛 `EventRejectedError`。只守事件库自己能判断的
  * 不变量：第一条事件是 `session.created` 且只有一条；状态转换合法且 `from` 是当前状态；回合不重叠；
- * 审批只结算一次。
+ * 审批只结算一次；引擎会话只在没有活动回合时恢复；只读只出现在 `error` / `closed`。
  */
 export function checkEvent(
   projection: SessionProjection,
@@ -201,6 +215,20 @@ export function checkEvent(
     case 'turn.finished':
       if (projection.activeTurn?.turnId !== e.payload.turnId) {
         reject(`回合 ${e.payload.turnId} 不是当前回合`);
+      }
+      break;
+    case 'session.resumed':
+      if (
+        projection.state !== 'idle' &&
+        projection.state !== 'error' &&
+        projection.state !== 'closed'
+      ) {
+        reject(`会话是 ${projection.state}，引擎会话不会在此时恢复`);
+      }
+      break;
+    case 'session.read_only':
+      if (projection.state !== 'error' && projection.state !== 'closed') {
+        reject(`只读只出现在 error / closed 状态，会话是 ${projection.state}`);
       }
       break;
     case 'approval.requested': {
@@ -245,6 +273,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (record.reasoningEffort !== undefined) session.reasoningEffort = record.reasoningEffort;
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
+  if (projection.readOnly) session.readOnly = projection.readOnly;
   const snapshot: SessionSnapshot = {
     session,
     pendingApprovals: [...projection.pendingApprovals],

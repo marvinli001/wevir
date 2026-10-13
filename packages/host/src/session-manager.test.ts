@@ -841,6 +841,139 @@ describe('SessionManager：恢复会话（#12）', () => {
   });
 });
 
+describe('SessionManager：引擎会话恢复与只读（T3.5）', () => {
+  it('建会话与恢复都记下引擎版本：resume 写 session.resumed 再转 idle；自动 resume 的 session.resumed 在 user.message 之前', async () => {
+    const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 1, engineVersion: '9.9.9' }) });
+    const id = await create(h);
+    expect(ofType(h, id, 'session.created')[0]?.payload.engineVersion).toBe('9.9.9');
+
+    await h.manager.close(id);
+    let before = lastSeq(h, id);
+    await h.manager.resume(id);
+    expect(typesAfter(h, id, before)).toEqual(['session.resumed', 'session.state_changed']);
+    expect(ofType(h, id, 'session.resumed')[0]?.payload).toEqual({ engineVersion: '9.9.9' });
+
+    // Host 重启，引擎（同一个 EchoAdapter）还认识这个会话：send 前自动 resume。
+    const { h: next } = restart(h, h.adapter);
+    before = lastSeq(next, id);
+    await send(next, id, 'after restart');
+    await waitForState(next, id, 'idle');
+    expect(typesAfter(next, id, before).slice(0, 3)).toEqual([
+      'session.resumed',
+      'user.message',
+      'turn.started',
+    ]);
+    expect(ofType(next, id, 'session.resumed')).toHaveLength(2);
+  });
+
+  it('Host 重启后引擎会话没了：会话只读、给出原因；历史、标题、列表仍从事件库读；send 返回 INVALID_STATE 带原因', async () => {
+    const old = setup();
+    const id = await create(old);
+    await send(old, id, 'hello before restart');
+    await waitForState(old, id, 'idle');
+    const history = all(old, id);
+    const title = snapshot(old, id).session.title;
+
+    const { h } = restart(old);
+    // 重启后、恢复之前：快照与历史都来自事件库，不依赖引擎。
+    expect(all(h, id)).toEqual(history);
+    expect(snapshot(h, id).session).toMatchObject({ state: 'idle', title });
+
+    await expect(send(h, id, 'are you there?')).rejects.toMatchObject({ code: 'ENGINE_ERROR' });
+    const readOnly = snapshot(h, id).session.readOnly;
+    expect(readOnly).toEqual({
+      reason: 'engine_session_not_found',
+      message: expect.stringContaining('session is not resumable'),
+      since: ofType(h, id, 'session.read_only')[0]?.ts,
+    });
+    expect(state(h, id)).toBe('error');
+    expect(all(h, id).slice(0, history.length)).toEqual(history);
+    expect(snapshot(h, id).session.title).toBe(title);
+    expect(
+      h.storage.sessions
+        .list({})
+        .map((r) => h.events.snapshot(r.id as SessionId)?.session.readOnly),
+    ).toEqual([readOnly]);
+
+    // 只读时 send：INVALID_STATE，data 带原因，不发给引擎、不写事件。
+    const seq = lastSeq(h, id);
+    const resume = vi.spyOn(h.adapter, 'resumeSession');
+    await expect(send(h, id, 'again')).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+      data: { state: 'error', readOnly },
+    });
+    expect(resume).not.toHaveBeenCalled();
+    expect(lastSeq(h, id)).toBe(seq);
+
+    // resume 仍会重试引擎；同一原因不重复写 session.read_only。
+    await expect(h.manager.resume(id)).rejects.toMatchObject({ code: 'ENGINE_ERROR' });
+    expect(typesAfter(h, id, seq)).toEqual(['engine.error']);
+    expect(ofType(h, id, 'session.read_only')).toHaveLength(1);
+
+    // 引擎数据找回来了：resume 成功即解除只读。
+    resume.mockResolvedValueOnce({ engineSessionId: 'restored' });
+    vi.spyOn(h.adapter, 'subscribe').mockReturnValueOnce({
+      [Symbol.asyncIterator]: () => ({ next: never }),
+    });
+    expect(await h.manager.resume(id)).toMatchObject({ state: 'idle' });
+    expect(snapshot(h, id).session.readOnly).toBeUndefined();
+  });
+
+  it('closed 的会话恢复时引擎读不了它的日志：写 session.read_only（incompatible），仍是 closed', async () => {
+    const h = setup();
+    const id = await create(h);
+    await h.manager.close(id);
+    const message =
+      'session/resume 失败：Internal error: session "x" uses log format v5, but this harness reads only v4';
+    vi.spyOn(h.adapter, 'resumeSession').mockRejectedValueOnce(
+      new AdapterError('session_lost', message, { lostReason: 'incompatible' }),
+    );
+    await expect(h.manager.resume(id)).rejects.toMatchObject({
+      code: 'ENGINE_ERROR',
+      data: { category: 'session_unavailable', message },
+    });
+    expect(state(h, id)).toBe('closed');
+    expect(ofType(h, id, 'session.read_only')[0]?.payload).toEqual({
+      reason: 'engine_session_incompatible',
+      message,
+    });
+    expect(ofType(h, id, 'engine.error').at(-1)?.payload.fatal).toBe(false);
+  });
+
+  it('工作区目录不在了：resume 与 send 前的自动 resume 返回 WORKSPACE_PATH_INVALID，不问引擎、不写事件', async () => {
+    const old = setup();
+    const closed = await create(old);
+    const idle = await create(old);
+    await old.manager.close(closed);
+    const { h } = restart(old);
+    rmSync(h.workspaceDir, { recursive: true });
+    const resume = vi.spyOn(h.adapter, 'resumeSession');
+    const seqs = [lastSeq(h, closed), lastSeq(h, idle)];
+
+    await expect(h.manager.resume(closed)).rejects.toMatchObject({
+      code: 'WORKSPACE_PATH_INVALID',
+      data: { reason: 'not_found' },
+    });
+    await expect(send(h, idle, 'hi')).rejects.toMatchObject({ code: 'WORKSPACE_PATH_INVALID' });
+    expect(resume).not.toHaveBeenCalled();
+    expect([lastSeq(h, closed), lastSeq(h, idle)]).toEqual(seqs);
+    expect(state(h, idle)).toBe('idle');
+  });
+
+  it('引擎为确认不了的取消重启（cancel_unconfirmed）：会话 error，消息提示 resume', async () => {
+    const h = setup();
+    const id = await create(h);
+    await h.adapter.simulateEngineExit({ signal: null, reason: 'cancel_unconfirmed' });
+    await waitForState(h, id, 'error');
+    expect(ofType(h, id, 'engine.error').at(-1)?.payload).toMatchObject({
+      category: 'engine_exited',
+      message: expect.stringContaining('cancellation could not be confirmed; resume the session'),
+    });
+    await h.manager.resume(id);
+    expect(state(h, id)).toBe('idle');
+  });
+});
+
 describe('SessionManager：clientMessageId', () => {
   it('同一 ID 重发返回原结果、不再发给引擎，不论会话现在处于什么状态', async () => {
     const h = setup();
@@ -1105,15 +1238,20 @@ describe('SessionManager：Host 启动对账（#15、#11）', () => {
     });
     expect(sendSpy).not.toHaveBeenCalled();
 
-    // 新引擎不认识旧会话：send 前的自动 resume 失败（#11），不写 user.message。
+    // 新引擎不认识旧会话：send 前的自动 resume 失败（#11），不写 user.message；引擎会话没了，会话只读（T3.5）。
     const before = lastSeq(h, d);
     await expect(send(h, d, 'hi')).rejects.toMatchObject({
       code: 'ENGINE_ERROR',
       data: { category: 'session_unavailable' },
     });
-    expect(typesAfter(h, d, before)).toEqual(['engine.error', 'session.state_changed']);
+    expect(typesAfter(h, d, before)).toEqual([
+      'engine.error',
+      'session.state_changed',
+      'session.read_only',
+    ]);
     expect(transitions(h, d)).toEqual(['idle→error:resume_failed']);
     expect(ofType(h, d, 'engine.error')[0]?.payload.fatal).toBe(true);
+    expect(snapshot(h, d).session.readOnly?.reason).toBe('engine_session_not_found');
 
     // 再启动一次没有需要修正的东西。
     const again = restart(h).report;

@@ -10,9 +10,11 @@ import type {
   EngineErrorInfo,
   MethodParams,
   MethodResult,
+  ProviderId,
   ResolvedApprovalStatus,
   Session,
   SessionId,
+  SessionReadOnlyReason,
   SessionSnapshot,
   SessionState,
   StateChangeReason,
@@ -29,8 +31,10 @@ import {
   type ApprovalCancelledEvent,
   type ApprovalRequestedEvent,
   type DeltaBlockRef,
+  type EngineSession,
   isAdapterError,
   type SessionConfig,
+  type SessionLostReason,
 } from '@wevir/runtime-adapter';
 import {
   type ApprovalRecord,
@@ -124,6 +128,26 @@ interface SessionRuntime {
 
 const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
 
+/** 引擎会话恢复不了的原因（适配器的 `session_lost`）→ 会话只读的原因。 */
+const READ_ONLY_REASONS = {
+  not_found: 'engine_session_not_found',
+  incompatible: 'engine_session_incompatible',
+  corrupted: 'engine_session_corrupted',
+} as const satisfies Record<SessionLostReason, SessionReadOnlyReason>;
+
+/**
+ * 基于一个会话的历史新建会话（T3.5 只定接口，domain-model §4.4）：引擎会话恢复不了、会话只读之后的出路。
+ * 新会话在原会话的工作区里建新的引擎会话，Provider 与模型默认沿用原会话；原会话的历史从事件库读，怎样交给新的
+ * 引擎会话（整理成首个提示、摘要等）由实现决定，新会话的 `session.created` 记下来源。实现时 Host API 加对应的
+ * 方法，并在 `HOST_FEATURES` 里声明，客户端据此显示入口。
+ */
+export interface SessionFromHistory {
+  createFromHistory(
+    sourceSessionId: SessionId,
+    options?: { providerId?: ProviderId; modelId?: string; reasoningEffort?: string },
+  ): Promise<Session>;
+}
+
 /** 适配器结掉审批的原因 → Host 的审批结算原因。 */
 const ENGINE_CANCEL_REASONS = {
   turn_cancelled: 'turn_cancelled',
@@ -146,6 +170,9 @@ const ENGINE_CANCEL_REASONS = {
  *   回合以 `interrupted` 结束、写 `engine.error`（`fatal: true`），会话转 `error`（#10），历史保留，
  *   `resume` 可恢复。
  * - **启动对账。** `recover()` 在服务客户端之前调用一次（#15、§5 第 6 条、ADR-0002 §4）。
+ * - **恢复（T3.5）。** 引擎会话由 `resume` 或 send 前的自动 resume 重新挂上，成功写 `session.resumed`（带引擎
+ *   版本）。引擎不回放历史，界面历史、会话列表与标题都来自事件库。引擎报 `session_lost`（会话日志没了、格式
+ *   不兼容或损坏）时写 `session.read_only`：之后 send 返回 `INVALID_STATE` 并带上原因，resume 仍会重试引擎。
  */
 export class SessionManager {
   readonly #storage: Storage;
@@ -276,6 +303,9 @@ export class SessionManager {
           providerId: provider.id,
           modelId,
           ...(reasoningEffort !== undefined && { reasoningEffort }),
+          ...(engineSession.engineVersion !== undefined && {
+            engineVersion: engineSession.engineVersion,
+          }),
         },
       });
     } catch (error) {
@@ -440,29 +470,33 @@ export class SessionManager {
   }
 
   /**
-   * `session.resume`：`error` / `closed` 时把引擎会话重新挂上（同一 cwd），成功后转 `idle`（#12）；
-   * 其他状态成功、无操作。引擎拒绝时追加一条 `engine.error`（`session_unavailable`）、状态不变，
-   * 返回 `ENGINE_ERROR`。
+   * `session.resume`：`error` / `closed` 时把引擎会话重新挂上（创建时的 cwd），成功后写 `session.resumed` 并转
+   * `idle`（#12）；其他状态成功、无操作。工作区目录不在了返回 `WORKSPACE_PATH_INVALID`，不写事件。引擎拒绝时
+   * 追加一条 `engine.error`（`session_unavailable`）、状态不变，返回 `ENGINE_ERROR`；引擎会话恢复不了
+   * （`session_lost`）时另写 `session.read_only`。只读的会话照样重试引擎（引擎数据可能已经找回），成功即解除。
    */
   async resume(sessionId: SessionId): Promise<Session> {
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
     return this.#serial(runtime, async () => {
-      const { session } = this.#snapshot(runtime);
+      const snapshot = this.#snapshot(runtime);
+      const { session } = snapshot;
       if (session.state !== 'error' && session.state !== 'closed') return session;
       const record = this.#record(runtime);
       if (!this.#storage.providers.get(record.providerId)) {
         throw new HostError('PROVIDER_NOT_FOUND', `provider ${record.providerId} not found`);
       }
+      await assertDirectory(record.cwd);
+      let engine: EngineSession;
       try {
-        await this.#adapter.resumeSession(runtime.engineSessionId, sessionConfig(record));
+        engine = await this.#adapter.resumeSession(runtime.engineSessionId, sessionConfig(record));
         if (!runtime.attachment) this.#attach(runtime);
       } catch (error) {
         const info = engineErrorInfo(error, 'session_unavailable');
-        this.#write(runtime, [engineError(info, false)]);
+        this.#write(runtime, [engineError(info, false), ...readOnlyInputs(snapshot, error)]);
         throw new HostError('ENGINE_ERROR', info.message, info);
       }
-      this.#write(runtime, [stateChanged(session.state, 'idle', 'resumed')]);
+      this.#write(runtime, [resumedEvent(engine), stateChanged(session.state, 'idle', 'resumed')]);
       return this.#snapshot(runtime).session;
     });
   }
@@ -589,25 +623,33 @@ export class SessionManager {
     return { turnId: receipt.turnId as TurnId, seq: receipt.seq };
   }
 
-  /** send 前把尚未挂上的引擎会话挂上；失败时 idle→error（#11），返回 `ENGINE_ERROR`。 */
+  /**
+   * send 前把尚未挂上的引擎会话挂上，成功写 `session.resumed`（状态仍是 idle）。工作区目录不在了返回
+   * `WORKSPACE_PATH_INVALID`，状态不变；引擎失败时 idle→error（#11），返回 `ENGINE_ERROR`，引擎会话恢复不了时
+   * 另写 `session.read_only`。
+   */
   async #autoResume(runtime: SessionRuntime): Promise<void> {
+    const record = this.#record(runtime);
+    await assertDirectory(record.cwd);
+    let engine: EngineSession;
     try {
-      await this.#adapter.resumeSession(
-        runtime.engineSessionId,
-        sessionConfig(this.#record(runtime)),
-      );
+      engine = await this.#adapter.resumeSession(runtime.engineSessionId, sessionConfig(record));
       this.#attach(runtime);
     } catch (error) {
       const info = engineErrorInfo(error, 'session_unavailable');
-      const { state } = this.#snapshot(runtime).session;
-      if (state === 'idle') {
+      const snapshot = this.#snapshot(runtime);
+      if (snapshot.session.state === 'idle') {
         this.#write(runtime, [
           engineError(info, true),
           stateChanged('idle', 'error', 'resume_failed'),
+          ...readOnlyInputs(snapshot, error),
         ]);
       }
       throw new HostError('ENGINE_ERROR', info.message, info);
     }
+    // 等待期间引擎可能已经报了退出（会话转 error），那时不再记恢复。
+    if (this.#snapshot(runtime).session.state === 'idle')
+      this.#write(runtime, [resumedEvent(engine)]);
   }
 
   /** #5，然后等结算（#8）或判定无法确认（#9）。不在活动状态时什么都不做。 */
@@ -1177,6 +1219,31 @@ function engineError(
   };
 }
 
+function resumedEvent(engine: EngineSession): AppendInput {
+  return {
+    type: 'session.resumed',
+    source: 'host',
+    payload: engine.engineVersion === undefined ? {} : { engineVersion: engine.engineVersion },
+  };
+}
+
+/**
+ * 引擎报 `session_lost` 时的 `session.read_only`。已经因同一原因只读的不再重复写。写在会话转入 `error` 之后，
+ * 或会话已是 `error` / `closed` 时。
+ */
+function readOnlyInputs(snapshot: SessionSnapshot, error: unknown): AppendInput[] {
+  if (!isAdapterError(error, 'session_lost') || error.lostReason === undefined) return [];
+  const reason = READ_ONLY_REASONS[error.lostReason];
+  if (snapshot.session.readOnly?.reason === reason) return [];
+  return [
+    {
+      type: 'session.read_only',
+      source: 'host',
+      payload: { reason, message: error.message },
+    },
+  ];
+}
+
 /** 结束回合：未收尾的工具补 `tool.finished`（`unknown`，domain-model §6.4），再 `turn.finished`。 */
 function finishTurn(
   turnId: TurnId,
@@ -1212,6 +1279,14 @@ function assertSendable(snapshot: SessionSnapshot): void {
       state,
       ...(activeTurn !== undefined && { activeTurn }),
     });
+  }
+  const { readOnly } = snapshot.session;
+  if (readOnly !== undefined) {
+    throw new HostError(
+      'INVALID_STATE',
+      `session is read-only (${readOnly.reason}): its engine session cannot be resumed; start a new session from its history`,
+      { state, readOnly },
+    );
   }
   if (state !== 'idle') {
     throw new HostError('INVALID_STATE', `session is ${state}; resume it first`, { state });
@@ -1269,6 +1344,7 @@ function engineErrorInfo(
       case 'session_not_found':
       case 'session_closed':
       case 'session_unavailable':
+      case 'session_lost':
         return { category: 'session_unavailable', message };
       case 'cancel_unconfirmed':
         return { category: 'cancel_unconfirmed', message };
@@ -1282,6 +1358,13 @@ function exitInfo(event: Extract<AgentEvent, { type: 'engine.exited' }>): Engine
     return {
       category: 'engine_exited',
       message: 'engine restarted to apply provider changes; resume the session to continue',
+    };
+  }
+  if (event.reason === 'cancel_unconfirmed') {
+    return {
+      category: 'engine_exited',
+      message:
+        'engine restarted because a cancellation could not be confirmed; resume the session to continue',
     };
   }
   const how = event.signal !== null ? `signal ${event.signal}` : `code ${event.exitCode}`;

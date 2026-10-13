@@ -26,6 +26,11 @@ export interface EngineSession {
   /** 引擎实际采用的模型（ACP `session/new` 结果的 `configOptions`）；引擎不报时省略，Host 用请求值。 */
   modelId?: string;
   reasoningEffort?: string;
+  /**
+   * 建立或恢复这个会话的引擎版本（dsh：`@deepseek-ai/dsh` 的包版本；ACP 的 `agentInfo.version` 恒为 0.0.1，
+   * 不能用）。Host 记进 `session.created` / `session.resumed`，排查跨版本问题用（T3.5）。不知道时省略。
+   */
+  engineVersion?: string;
 }
 
 /** 一次 `send` 的用户输入。 */

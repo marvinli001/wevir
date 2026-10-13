@@ -191,6 +191,25 @@ dsh 不给审批请求设时限，也不撤回（0.2.1-alpha.2 不发 `$/cancel_
 
 测试：`dsh-adapter.approval.test.ts` 用 `fake-dsh.mjs` 回放 B / C / D 三份录制（真实子进程、真实 ACP 帧），覆盖批准、拒绝、两个决定同时到达与重复决定、审批挂起时取消、关闭、引擎退出、`dispose`，以及不属于回合的请求；回给 dsh 的响应与 `mock/permission/responses.json` 逐个相等。`dsh-adapter.approval.integration.test.ts` 用真实 dsh：mock Provider 下一次批准、一次拒绝，以及工作区内与系统临时目录的写入没有审批；真实模型用例需要 `WEVIR_TEST_API_KEY`。
 
-## 6. 不在本文件的部分
+## 6. 会话恢复（`session/resume`）
 
-- resume：`session/resume` 的结果与 `-32602` 错误（`errors/resume-*.json`）属于 T3.5。
+`DshAdapter.resumeSession`（T3.5）。已挂在本进程上的会话直接成功，不发 ACP：dsh 拒绝 resume 同一进程里仍活跃的会话。其余的会话（已 `close`、引擎退出或重启后脱开、适配器根本不认识它，Host 重启后就是这样）发 `session/resume`（`{sessionId, cwd, mcpServers: []}`，`cwd` 是会话创建时工作区的 realpath，dsh 按 realpath 比较），成功后像建会话一样用 `session/set_config_option` 选定 Host 记录的 Provider、模型与推理强度：dsh 恢复的是会话日志里最后的路由，Provider 配置换过之后可能已经不是它。结果带 `engineVersion`（适配器锁定的 dsh 版本，ACP 的 `agentInfo.version` 恒为 0.0.1）。dsh 不回放任何 `session/update`（T0.3 §3.2），历史由 Host 的事件库负责；模型可见的上下文由 dsh 的会话日志恢复，新进程 resume 后的第一个模型请求带着之前的全部消息（T0.3 §8，`dsh-adapter.resume.integration.test.ts` 用真实 dsh 复现）。
+
+失败按下表归类（`resume-error.ts` 的 `RESUME_ERROR_RULES`，自上而下第一条匹配的生效）。dsh-acp 自己拒绝的是 `-32602`；读会话日志时抛出的错误不是 RequestError，ACP SDK 把它包成 `-32603 Internal error`，原文在 `data.details`。规则匹配 `message`，`-32603` 匹配 `message` 与 `data.details` 拼成的 `Internal error: <details>`，`AdapterError.message` 保留这段全文。
+
+| 归类 | 错误码 | 原文（正则） | 来源 | 适配器 | 样本 |
+|---|---|---|---|---|---|
+| `lost` `not_found` | `-32602` | `/^Invalid params: session is not resumable: /` | 持久化里找不到可恢复的会话：会话日志被删除（`DSH_HOME` 被清理），或日志头读不出来（截断的日志也是这句） | `session_lost`，`lostReason: not_found` | `errors/resume-not-resumable.json` |
+| `cwd_mismatch` | `-32602` | `/^Invalid params: session cwd does not match: /` | `cwd` 与日志头里的不是同一目录；目录不存在也是这句 | `session_unavailable` | `errors/resume-cwd-mismatch.json` |
+| `already_active` | `-32602` | `/^Invalid params: session is already active: /` | 会话仍挂在本进程上：适配器以为它已关闭（之前的 `session/close` 失败过） | 告警后沿用，照常选定路由 | `errors/resume-active-session.json` |
+| `lost` `incompatible` | `-32603` | `/^Internal error: session "[^"]*" uses log format v\d+, /` | `SessionFormatUnsupportedError`：日志由更新的 dsh 写入，或更旧且没有升级路径 | `session_lost`，`lostReason: incompatible` | `errors/resume-format-newer.json` |
+| `lost` `corrupted` | `-32603` | `/^Internal error: (?:session "[^"]*": stored log (?:is corrupt\|has a malformed header)\|corrupt Zstandard session log\|session generation filename identifies v\d+, but its header identifies v\d+)/` | `SessionPersistenceCorruptionError`、Zstandard 帧结构错误、文件名与日志头的格式版本不一致 | `session_lost`，`lostReason: corrupted` | `errors/resume-log-corrupt.json` |
+| `unknown` | 其余 | — | 连接断开、dsh 的其他内部错误 | `engine_unavailable` | — |
+
+说明：
+
+- `errors/resume-not-resumable.json`、`resume-format-newer.json`、`resume-log-corrupt.json` 由 `dsh-adapter.resume.integration.test.ts` 用真实 dsh 复现并逐字比对（会话 ID、`DSH_HOME`、会话日志的 cwd 编码目录换成占位符）：关闭会话后删掉日志目录、把日志头改成格式 v5、在日志末尾追加半条记录。dsh 改措辞时这个测试先失败，设 `WEVIR_RECORD_FIXTURES=1` 重跑改写样本，再按新措辞改规则表。`fake-dsh.mjs` 回放的也是这三份样本。
+- 路由选不上（Provider 配置里没有这个模型了）报 `invalid_input`，刚恢复的会话在 dsh 侧关掉。
+- Host 一侧（domain-model.md §4.4）：`session_lost` 写 `session.read_only`（`not_found` / `incompatible` / `corrupted` 对应 `engine_session_not_found` / `engine_session_incompatible` / `engine_session_corrupted`），会话只读；其余失败只是 `engine.error`（`session_unavailable`）。Host 在调适配器之前先检查工作区目录还在，不在就回 `WORKSPACE_PATH_INVALID`。
+
+**取消得不到确认时重启 dsh。** `cancel` 发出 `session/cancel` 后 4 s 内回合没有结算，适配器报 `cancel_unconfirmed`，同时重启 dsh：卡住的回合随旧进程结束，挂在这个进程上的会话都以 `engine.exited`（`reason: cancel_unconfirmed`，`exitCode` 与 `signal` 为 null）脱开，Host 按引擎退出处理（domain-model.md §4.1 #10，取消的那个会话已按 #9 转 `error`）。之后 resume 到新进程上；不重启的话，dsh 里那个会话仍是活跃的，resume 会被 `already active` 拒绝，回合也一直占着它。T0.3 实测取消在 3–64 ms 内结算，这条路径只为 dsh 卡住时兜底。
