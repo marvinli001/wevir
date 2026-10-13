@@ -6,4 +6,5 @@ export * from './events.js';
 export * from './jsonrpc.js';
 export * from './limits.js';
 export * from './methods.js';
+export * from './origins.js';
 export * from './version.js';

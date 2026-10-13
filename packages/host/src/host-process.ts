@@ -1,6 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
-import { type ClientIdentity, type HostId, HostIdSchema, PROTOCOL_VERSION } from '@wevir/protocol';
+import {
+  type ClientIdentity,
+  DESKTOP_RENDERER_ORIGINS,
+  type HostId,
+  HostIdSchema,
+  PROTOCOL_VERSION,
+} from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
@@ -149,6 +155,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         providers: adapter,
       }),
       ...(options.port !== undefined && { port: options.port }),
+      // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
+      allowedOrigins: DESKTOP_RENDERER_ORIGINS,
       onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),
       onError: (error) => logger.error('rpc error', { error }),
     });

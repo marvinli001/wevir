@@ -1,6 +1,8 @@
 # 依赖与构建产物
 node_modules/
 dist/
+# electron-vite 的构建产物（apps/desktop）
+out/
 coverage/
 *.tsbuildinfo
 

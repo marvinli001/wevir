@@ -29,3 +29,9 @@ allowBuilds:
   '@google/genai@2.21.0': false
   # 拒绝：postinstall 只检查依赖方声明的版本前缀并打印警告，不生成任何文件。
   protobufjs@7.6.6: false
+  # 下面 2 个来自桌面端的构建工具（T5.1）：0.25.12 是 electron-vite 5 的依赖（打包 main / preload 的配置），
+  # 0.28.2 是 Vite 7（桌面端）与 Vite 8（Vitest）的依赖。
+  # 允许：postinstall 核对平台可选包 @esbuild/<平台> 里的二进制版本，非 Windows 上用它替换 bin/esbuild
+  # 的 JS 转发脚本；可选包缺失时才从 npm registry 下载同版本的二进制。与上游 dsh、OpenWork 的取舍一致。
+  esbuild@0.25.12: true
+  esbuild@0.28.2: true

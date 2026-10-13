@@ -1,0 +1,14 @@
+{
+  // 渲染进程只走打包器（electron-vite / Vite），按 bundler 解析；只有 DOM，没有 Node 类型，用到 Node 的
+  // 东西就编译失败。
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": ["vite/client"],
+    "jsx": "react-jsx",
+    "noEmit": true
+  },
+  "include": [".", "../shared/desktop-api.ts"]
+}

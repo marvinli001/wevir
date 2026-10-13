@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import { EXIT_CODE } from './exit-code.js';
 import { homePath, resolveHome } from './home.js';
 import {
   HOST_VERSION,
@@ -16,15 +17,7 @@ import { HostAlreadyRunningError } from './runtime-file.js';
 export const ADAPTER_KINDS = ['echo', 'dsh'] as const;
 export type AdapterKind = (typeof ADAPTER_KINDS)[number];
 
-/** `wevir-host` 的退出码。 */
-export const EXIT_CODE = {
-  ok: 0,
-  /** 启动失败、运行中的致命错误、优雅退出超时被强制结束。 */
-  failure: 1,
-  usage: 2,
-  /** 该数据目录已有活着的 Host（读 `run/host.json` 附着即可）。 */
-  alreadyRunning: 3,
-} as const;
+export { EXIT_CODE } from './exit-code.js';
 
 export const USAGE = `用法：wevir-host [选项]
 

@@ -1,0 +1,35 @@
+{
+  "name": "@wevir/desktop",
+  "productName": "Wevir",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir desktop shell (Electron + React): discovers or launches the local Host and connects the renderer to it.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "pnpm --filter \"@wevir/host...\" build && electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/client-sdk": "workspace:*",
+    "@wevir/host": "workspace:*",
+    "@wevir/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@wevir/runtime-adapter": "workspace:*",
+    "electron": "^44.7.0",
+    "electron-vite": "^5.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.7"
+  }
+}

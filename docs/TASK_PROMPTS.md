@@ -682,7 +682,7 @@ Gate M4（真实 dsh + 真实模型，逐条执行并在汇报中贴输出）：
 2. 主进程：读取 run/host.json 并探活（连接 + hello），Host 在运行就附着；否则用开发者本机的 Node 以子进程启动 workspace 中的 wevir-host（带归属管道参数 --exit-on-stdin-eof，主进程持有其 stdin），记下 {pid, startedAt}，等待 stdout 的就绪行或 host.json 出现 url（退出码 3 表示已有 Host 在运行，改为附着；见 ADR-0002 补记 3）；应用退出时只停止自己拉起的 Host（关闭归属管道，超时再 host.shutdown），附着的 Host 不停。打包后的运行时不在本任务范围（ADR-0002 未决事项 1）。
 3. preload 只通过 contextBridge 暴露最小接口：getHostConnection()（url、token）、选择文件夹对话框、打开外部链接。preload 打成单个 CJS 文件（沙箱里的 preload 不能用 ESM；多入口时用 electron-vite 的 isolatedEntries）。渲染进程不读 host.json，令牌只放内存。
 4. 安全基线：contextIsolation true、sandbox true、nodeIntegration false、严格 CSP；拦截 will-navigate 与 window.open，外部链接经 shell.openExternal；Chrome 远程调试端口只在开发模式开启。把渲染进程的 origin（开发服务器与打包后的协议）补进 Host 的 Origin 白名单与 host-api.md。
-5. 在 allowBuilds 中登记 electron（postinstall 下载二进制，镜像见 .npmrc 的 ELECTRON_MIRROR）。存储用 node:sqlite（ADR-0003），Host 跑在系统 Node 上，不涉及 Electron 原生模块重编译。
+5. 依赖的构建脚本按 ADR-0004 §2 登记到 allowBuilds（Electron 44 起没有 postinstall，二进制在第一次运行时下载，镜像见 .npmrc 的 ELECTRON_MIRROR；实际要登记的是 esbuild，见 ADR-0004 补记 4）。存储用 node:sqlite（ADR-0003），Host 跑在系统 Node 上，不涉及 Electron 原生模块重编译。
 6. 渲染进程暂时只显示连接状态和 Host 版本。
 7. 根脚本 pnpm dev 同时启动桌面端（由桌面端负责拉起 Host）。
 
@@ -848,3 +848,4 @@ Phase 1 的范围和优先级需要我确认：用选项列出，不要自行定
 | 2026-10-12 | T0.6：按 ADR-0001–0004 同步 P-T1.1–P-T6.4：协议细节（hello 参数与结果、subscriptionId、快照、clientMessageId、SESSION_BUSY、approval.resolved/decidedBy、兼容规则、Host/Origin 校验、心跳）、host.json 与归属管道、node:sqlite 与 SecretStore、dsh 进程环境与 allowBuilds、新增 P-T3.2a 增量流式旁路、T3.2 合并增量、T3.6 三层契约测试、Gate M4 审批用例需工作区外操作、T5.1 preload CJS 与版本规则、T5.2/T5.3 的 OpenWork 布局建议、T6.2 Node 下限 job、T6.3 依赖许可证、T6.4 候选范围 |
 | 2026-10-13 | T2.5：P-T5.1 写明归属管道参数名 `--exit-on-stdin-eof`、就绪行与退出码 3（ADR-0002 补记 3） |
 | 2026-10-13 | T2.5：P-T3.1 补 dispose 阶梯 5 s 上限，以及 Host 被强杀时 dsh 与工具子进程随 stdin EOF 退出的要求与验收 |
+| 2026-10-13 | T5.1：P-T5.1 第 5 条改为按实际报出的构建脚本登记（Electron 44 没有 postinstall，登记的是 esbuild，ADR-0004 补记 4） |

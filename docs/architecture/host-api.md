@@ -14,7 +14,15 @@
 - JSON-RPC 2.0 over WebSocket，文本帧，一帧一个 JSON-RPC 对象（ADR-0002 §1）。**v0 不支持批量**：收到 JSON 数组时 Host 回一个 `INVALID_REQUEST`（`id: null`）；二进制帧同样回 `INVALID_REQUEST`（`id: null`）。
 - 参数一律按名称传（对象）；方法没有参数时传 `{}`，省略 `params` 等同于 `{}`。请求 `id` 用字符串或整数，不用 `null`。
 - 客户端只发请求；Host 只发响应和通知（v0 只有 `events.event`）。同一连接上可以连发多个请求，响应顺序不保证与请求一致，按 `id` 对应；同一会话的命令在 Host 内串行执行（ADR-0002 §4）。
-- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行白名单），不通过直接 403，不会走到 JSON-RPC 层（白名单的具体值由 T5.1 写进本节；在此之前白名单为空）。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426。
+- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行下表的白名单，精确匹配），不通过直接 403，不会走到 JSON-RPC 层。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426。
+- Origin 白名单只有桌面渲染进程（T5.1，代码 `DESKTOP_RENDERER_ORIGINS`）。浏览器与渲染进程的 WebSocket 升级一定带 Origin 头；CLI 与测试用的 Node 客户端不带，不受白名单影响。白名单只是纵深防御，挡的是本机浏览器里任意网页发起的连接；鉴权仍靠 hello 里的令牌（§2）。
+
+<!-- registry:origins -->
+| Origin | 来源 |
+|---|---|
+| `wevir://app` | 构建后的渲染进程：主进程注册特权自定义协议 `wevir`（standard、secure），从 `wevir://app/index.html` 加载 electron-vite 的构建产物（`electron-vite build` / `preview`；打包同样用它）。不用 `file://`：它的 Origin 不是可以单独放行的值（Electron 安全清单第 18 条） |
+| `http://localhost:5199` | 开发模式（`pnpm dev`）：electron-vite 的开发服务器，端口固定（`strictPort`），被占用时开发服务器启动失败而不是换端口。只在主进程未打包且有开发服务器地址时使用 |
+
 - `run/host.json`（T2.5）：`{pid, startedAt, protocolVersion, hostVersion, url, token}`，`run/` 目录 0700、文件 0600。Host 启动时先排他创建不含 `url`、`token` 的占位，监听就绪后整体原子替换；读到没有 `url` 的文件说明 Host 正在启动，稍后重读。`{pid, startedAt}` 认定“同一个 Host”。Host 正常退出时删除它；进程被杀留下的文件由下一个 Host 判定陈旧后回收。令牌每次启动重新生成，Host 重启后用旧令牌 hello 得到 `UNAUTHORIZED`，客户端应重新读取 `host.json`。进程入口 `wevir-host` 的参数、退出码与数据目录布局见 ADR-0002 补记 3。
 
 ## 2. 握手：`host.hello`

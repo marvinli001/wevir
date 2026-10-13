@@ -5,9 +5,16 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
-import { CloseCode, PROTOCOL_VERSION, type SessionId, type WevirEvent } from '@wevir/protocol';
+import {
+  CloseCode,
+  DESKTOP_RENDERER_ORIGINS,
+  PROTOCOL_VERSION,
+  type SessionId,
+  type WevirEvent,
+} from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { WebSocket } from 'ws';
 import {
   HOST_VERSION,
   type RunningHost,
@@ -126,6 +133,24 @@ describe('startHost', () => {
     const again = await start({ home });
     expect(again.host.hostId).toBe(host.hostId);
     expect(runtimeInfo(home).token).not.toBe(info.token);
+  });
+
+  it('Origin 白名单是桌面渲染进程的 origin（host-api.md §1）：放行它们，拒绝其他带 Origin 的升级', async () => {
+    const { host } = await start();
+    const upgrade = (origin: string) =>
+      new Promise<string>((resolve) => {
+        const ws = new WebSocket(host.url, { origin });
+        ws.once('open', () => {
+          ws.terminate();
+          resolve('open');
+        });
+        ws.once('error', (error) => resolve(error.message));
+      });
+    expect(DESKTOP_RENDERER_ORIGINS).toEqual(['wevir://app', 'http://localhost:5199']);
+    for (const origin of DESKTOP_RENDERER_ORIGINS) expect(await upgrade(origin)).toBe('open');
+    for (const origin of ['http://localhost:5173', 'file://', 'null', 'wevir://evil']) {
+      expect(await upgrade(origin)).toBe('Unexpected server response: 403');
+    }
   });
 
   it('优雅退出按 ADR-0002 §6 的顺序：运行中的回合被取消、未决审批结为 cancelled（host_shutdown），订阅者在 1001 关闭前收到', async () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import hostApiDoc from '../../../docs/architecture/host-api.md?raw';
 import {
   CloseCode,
+  DESKTOP_RENDERER_ORIGINS,
   ErrorCode,
   ErrorDataSchemas,
   METHOD_NAMES,
@@ -69,6 +70,10 @@ describe('host-api.md 与代码一致', () => {
   it('关闭码表', () => {
     const rows = registryTable('close-codes');
     expect(rows.map((row) => [code(row[0]), Number(row[1])])).toEqual(Object.entries(CloseCode));
+  });
+
+  it('Origin 白名单', () => {
+    expect(registryTable('origins').map((row) => code(row[0]))).toEqual(DESKTOP_RENDERER_ORIGINS);
   });
 
   it('连接健康与截断上限的常量都写进了文档', () => {

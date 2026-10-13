@@ -1,0 +1,9 @@
+{
+  // 主进程、preload、共用模块、配置与测试。渲染进程另有 src/renderer/tsconfig.json。
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "noEmit": true
+  },
+  "include": ["src/main", "src/preload", "src/shared", "*.config.ts"]
+}

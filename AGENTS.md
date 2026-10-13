@@ -30,12 +30,14 @@ Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨�
 
 ```text
 wevir/
+├─ apps/
+│  └─ desktop/         Electron 桌面端（T5.1，electron-vite 5 + Vite 7，产物在 out/）：主进程 src/main（index.ts：窗口与安全基线——sandbox、contextIsolation、拒绝新窗口与跨 origin 导航、权限一律拒绝、IPC 校验发送方、开发模式才开的远程调试端口 9339；host-lifecycle.ts：读 run/host.json 探活后附着，否则用本机 Node 拉起 wevir-host 并持有 stdin 归属管道，退出时只停自己拉起的，不依赖 Electron，对着真实 Host 测试；renderer-files.ts：构建产物经 wevir://app 协议加载并带 CSP；identity.ts：desktop-client-id）、preload src/preload（单个 CJS，只暴露 window.wevir 的 getHostConnection / selectFolder / openExternal）、渲染进程 src/renderer（React + Tailwind v4，经 client-sdk 连 Host；自己的 tsconfig，只有 DOM 类型）、共用 src/shared（IPC 接口、渲染进程 origin、CSP）。工作区包按 @wevir/source 条件用源码打进 main 与 renderer；Host 本身跑 packages/host/dist，dev 脚本先构建它
 ├─ packages/
 │  ├─ protocol/        Host API 协议包：zod schema、方法注册表、事件、错误码（见 docs/architecture/host-api.md）
 │  ├─ runtime-adapter/ 引擎适配接口 AgentRuntimeAdapter / AgentEvent；子路径 ./contract 是契约测试套件，./echo 是开发用假引擎
 │  ├─ storage/         Host 本地存储：node:sqlite 驱动（只在 src/driver.ts）、事务、手写 SQL 迁移（migrations/）、各表仓储、SecretStore
 │  ├─ adapter-dsh/     dsh 适配器（唯一可以依赖 @deepseek-ai/* 的包）：可执行入口解析与独立 DSH_HOME（paths.ts）、白名单环境（env.ts）、DshProcess（dsh --profile acp 的启动、initialize、退出上报与有限重启、stdin EOF → SIGTERM → SIGKILL 回收）；增量流式旁路：stream-tap/ 是在 dsh 进程里运行的 Cordis 插件（纯 JS，不 import @deepseek-ai/*），src/stream-tap.ts 负责把它装进 acp profile 并解码 fd 3 的 NDJSON；ACP → AgentEvent 映射（acp-mapping.ts、tool-display.ts、turn-error.ts，表见 docs/architecture/acp-event-mapping.md）、增量与已提交消息的对齐（delta-merge.ts）、每会话有序事件队列（session-events.ts）与 AgentRuntimeAdapter 实现 DshAdapter（dsh-adapter.ts，含审批桥接，见 acp-event-mapping.md §5）；Provider 桥接：ProviderConfig → `<DSH_HOME>/wevir/providers.yml` overlay 与 `WEVIR_PROVIDER_<ID>_KEY` 环境（provider-config.ts）、provider.test 的最小请求与失败归类（provider-test.ts），见 docs/architecture/providers.md；会话恢复：`session/resume` 与失败归类（resume-error.ts，丢失的会话报 `session_lost`），取消得不到确认时重启 dsh，见 acp-event-mapping.md §6；契约测试分三层（`dsh-adapter.contract*.test.ts`：T0.3 样本回放、真实 dsh + mock Provider、真实模型），dsh 升级按 docs/upstream/UPSTREAM.md §7 的检查清单；测试用假引擎（含样本回放）、mock 模型、真实模型的配置、审批用例的工作区外目录（`.test-outside/`，gitignore）、契约测试的共用部分与 ACP 样本（T0.3 的副本与后来补录的错误）在 src/test-fixtures/；子路径 ./testing 导出本地 mock Provider，给依赖本包做集成测试的包用
-│  ├─ host/            Local Agent Host：事件库 EventStore（seq 分配、增量合并、截断、进程内事件总线）、会话快照推导、会话管理器 SessionManager（状态机、审批、引擎事件映射、启动对账、引擎会话恢复与只读标记）、WebSocket JSON-RPC 服务 HostRpcServer（升级校验、hello、分发与校验、订阅、连接健康）与 Host API 方法实现 createHostMethods；进程组装 startHost（运行时文件 run/host.json、结构化日志、按 ADR-0002 §6 优雅退出）与可执行入口 wevir-host（src/main.ts，`--adapter dsh` 为默认，经 @wevir/adapter-dsh 的公开导出建 DshAdapter，`--adapter echo` 是开发用假引擎）；Host + 真实 dsh 的端到端测试为 `*.dsh.integration.test.ts`
+│  ├─ host/            Local Agent Host：事件库 EventStore（seq 分配、增量合并、截断、进程内事件总线）、会话快照推导、会话管理器 SessionManager（状态机、审批、引擎事件映射、启动对账、引擎会话恢复与只读标记）、WebSocket JSON-RPC 服务 HostRpcServer（升级校验、hello、分发与校验、订阅、连接健康）与 Host API 方法实现 createHostMethods；进程组装 startHost（运行时文件 run/host.json、结构化日志、按 ADR-0002 §6 优雅退出）与可执行入口 wevir-host（src/main.ts，`--adapter dsh` 为默认，经 @wevir/adapter-dsh 的公开导出建 DshAdapter，`--adapter echo` 是开发用假引擎）；子路径 ./runtime（src/runtime.ts：数据目录、host.json 的解析与陈旧判断、退出码 EXIT_CODE，只依赖 Node 内置模块，给拉起 Host 的客户端进程用）；Host + 真实 dsh 的端到端测试为 `*.dsh.integration.test.ts`
 │  └─ client-sdk/      Host 的 TS 客户端（运行时只依赖 protocol，浏览器与 Node 共用）：WevirClient（connect 与 host.hello、默认能力表与功能判断、类型安全的 request 与类型化错误 errors.ts、断线排队）、订阅的异步迭代器（subscription.ts：按 seq 去重、缺口补订、回放结束标记、重连续订）、每条连接的 JSON-RPC 与心跳（rpc-channel.ts）、重连状态机（lifecycle.ts，改写自 OpenWork）、可替换的传输层（transport.ts，WebSocket 由调用方注入）；子路径 ./node 读 run/host.json（node.ts，Node 内置模块只在这里）；tsconfig.browser.json 与 Biome noNodejsModules 守浏览器入口；对着真实 Host 的验收测试 `client.integration.test.ts` 以 devDependency 引用 @wevir/host
 ├─ docs/               规划、任务 prompt、上游登记（docs/upstream/）、ADR、研究笔记、架构文档（docs/architecture/）
 ├─ scripts/            仓库脚本（check-engine-boundary.mjs、upstream-sync.sh、gate-m2.ts）
@@ -54,7 +56,7 @@ wevir/
 |---|---|
 | `pnpm install` | 安装依赖 |
 | `pnpm build` | 构建所有包（库用 tsdown）；typecheck 和 test 不依赖它，只有在 Node 里直接运行包时才需要先构建 |
-| `pnpm dev` | 并行运行各包的 `dev` 脚本（目前没有包提供） |
+| `pnpm dev` | 并行运行各包的 `dev` 脚本，目前只有桌面端：先构建 `@wevir/host` 及其依赖，再 `electron-vite dev` 打开窗口，由桌面端附着到已有的 Host 或拉起一个（关窗口即退出，并停掉自己拉起的 Host）；数据目录同 Host（`WEVIR_HOME` 或平台默认），`WEVIR_NODE` 指定拉起 Host 用的 Node |
 | `pnpm dev:host` | 构建 `@wevir/host` 及其依赖，以 EchoAdapter 在 `./.wevir-dev` 启动 `wevir-host`（Ctrl-C 优雅退出） |
 | `pnpm gate:m2` | 构建后运行 `scripts/gate-m2.ts`：Gate M2 端到端验收（子进程 Host + 最小 WebSocket 客户端），加 `--keep` 保留临时数据目录 |
 | `pnpm lint` | `biome check`（lint、格式检查、import 边界）+ 依赖声明边界检查 |

@@ -45,7 +45,7 @@ export interface HostRpcServerOptions {
   port?: number;
   /**
    * 带 `Origin` 头的升级请求只放行这些 origin（精确匹配）；不带 `Origin` 的（CLI、测试）一律放行。
-   * 桌面渲染进程的 origin 由 T5.1 补充。
+   * 默认为空；`startHost` 传入桌面渲染进程的 `DESKTOP_RENDERER_ORIGINS`（host-api.md §1）。
    */
   allowedOrigins?: readonly string[];
   /**

@@ -112,6 +112,21 @@
       }
     },
     {
+      "includes": [
+        "apps/desktop/src/renderer/**",
+        "apps/desktop/src/preload/**",
+        "apps/desktop/src/shared/**",
+        "!apps/desktop/src/**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNodejsModules": "error"
+          }
+        }
+      }
+    },
+    {
       "includes": ["spikes/**"],
       "linter": {
         "rules": {
