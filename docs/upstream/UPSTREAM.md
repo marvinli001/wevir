@@ -188,5 +188,56 @@ Apache-2.0 来源（Paseo）：
    ```
    许可证有变化，先更新本文件 §2 的结论。
 4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”。
-5. **跑契约测试**：`pnpm test`（M1 起包含 AgentRuntimeAdapter 契约测试，M3 起包含真实 dsh 的适配器契约测试）。升级 dsh 时，同步调整 `packages/adapter-dsh` 锁定的 npm 版本与 `src/paths.ts` 的 `DSH_VERSION`、§1.1 的表；`allowBuilds` 的键带版本，`pnpm install` 会对换了版本的构建脚本报 `ERR_PNPM_IGNORED_BUILDS`，逐个重新审查后改键；按 §2.1 的方法重新核对依赖闭包的许可证。完整的检查清单由 T3.6 写入。
+5. **跑契约测试**：`pnpm test`（M1 起包含 AgentRuntimeAdapter 契约测试，M3 起包含 dsh 适配器的回放与真实 dsh 两层契约测试）。升级 dsh 时按 §7 的检查清单逐项做。
 6. **更新本文件 §1 仓库表**（提交、日期、结论），与 lock 改动放在同一个 commit 里。
+
+## 7. dsh 升级检查清单
+
+T3.6 建立。dsh 是 developer preview，会有不兼容变更（SKELETON_PLAN §1.2）。Wevir 碰 dsh 的代码都在 `packages/adapter-dsh`，升级只改这个包、§1 的表和下面列到的文档。按顺序做，每一步的结论写进提交说明。哪一步发现不兼容，先改 ADR-0001 补记与对应的架构文档，再改代码（AGENTS.md）。下文的“旧 SHA / 新 SHA”是 `upstream.lock` 里 dsh 的旧锁定提交与新 tag `dsh-v<版本>` 指向的提交，先按 §6 第 1、2 步把 `upstream/deepseek-harness` 同步到新 SHA。
+
+1. **读上游变更。** dsh 仓库没有 CHANGELOG 文件，变更记录分在三处，再加上旁路依赖的一处内部接口：
+   - GitHub Releases 里 `dsh-v*` 的发布说明。
+   - `docs/persistence-changes/releases/`：各版本的会话日志格式变化。格式不兼容时，旧会话 resume 报 `session_lost`（`incompatible`，ADR-0001 补记 6），会话变成只读；发版说明里要告诉用户。
+   - `packages/acp/acp/README.zh.md` 的“已知限制与延期工作”：与 SKELETON_PLAN §3.1 的缺口表、ADR-0001 逐条对照。缺口补上了（例如 ACP 自己发增量、工具带 `locations` / `diff`、支持 `session/load`），Wevir 的补偿（旁路、Host 侧的历史与列表）可能变得重复或冲突；多了新限制，先补 ADR。
+   - 旁路依赖的进程内事件 `agent/assistant-stream`：帧的形状在 `packages/core/agent/src/runtime-types.ts`（`AssistantStreamFrame`）。它不是 dsh 的公开契约（ADR-0001“后果”），改名、改形状都不会写进发布说明。
+
+   ```bash
+   git -C upstream/deepseek-harness diff <旧SHA> <新SHA> --stat -- \
+     docs/persistence-changes/releases packages/acp/acp packages/core/agent/src/runtime-types.ts
+   ```
+
+2. **更新锁定版本，dsh 与 `@agentclientprotocol/sdk` 一起核对。** ACP SDK 取新 dsh 的 `packages/acp/acp/package.json` 锁定的版本（当前两者是 `0.2.1-alpha.2` 与 `1.4.0`），不单独追 npm 的 `latest`。npm 上 dsh 的 `latest` 标签可能落后于要用的版本（§1.1），一律写精确版本。要改的地方：
+   - `packages/adapter-dsh/package.json`（两个依赖都写精确版本）与 `src/paths.ts` 的 `DSH_VERSION`；
+   - `docs/upstream/upstream.lock` 与本文件 §1、§1.1 的表；
+   - SKELETON_PLAN §1.4 与 §3.1 里的版本号。
+
+   然后 `pnpm install`。换了版本的构建脚本会报 `ERR_PNPM_IGNORED_BUILDS`，留到第 6 步审查。
+
+3. **重新录制 fixtures。** 样本来源见 `packages/adapter-dsh/src/test-fixtures/README.md`。
+   - T0.3 的 ACP 样本：把 `spikes/dsh-acp/package.json` 里三个包的版本改成新的，`npm install` 后运行 `npm run spike:mock`（不需要 Key，约 25 秒）。用 `spikes/dsh-acp/fixtures/acp/` 替换 `packages/adapter-dsh/src/test-fixtures/acp/` 中来自 T0.3 的文件，`errors/` 下 T3.2、T3.5 补录的 8 个除外；`stream-tap/frames.sample.json` 同样从 `spikes/dsh-acp/fixtures/stream-tap/mock/` 取。有 Key 时再跑一次 `npm run spike`，真实模型的结论补记到 ADR-0001 未决事项 3。
+   - T3.5 的 resume 错误：`WEVIR_RECORD_FIXTURES=1` 运行 `dsh-adapter.resume.integration.test.ts`，改写 `errors/resume-*.json`。
+   - T3.2 的 Provider 错误：`turn-error.integration.test.ts` 用新 dsh 复现 `errors/prompt-provider-*.json` 并逐字比对，不一致时按失败输出更新样本。
+   - 运行 `acp-mapping.test.ts`：快照的变化就是映射结果的变化，逐条确认后再更新快照（`vitest -u`）。新增的样本文件要在该测试里归到某条用例。
+
+4. **跑三层契约测试，必须包含增量旁路。**
+
+   ```bash
+   pnpm vitest run --project adapter-dsh dsh-adapter.contract
+   ```
+
+   - 第 1 层回放（`dsh-adapter.contract.test.ts`，用第 3 步新录的样本）：除增量条款外全部通过。
+   - 第 2 层真实 dsh + mock Provider（`dsh-adapter.contract.integration.test.ts`）：全部通过，**增量条款要显示为通过，不能是跳过**。它失败说明 stream-tap 没装上、没加载或帧的形状变了；跑 `stream-tap.integration.test.ts` 与 `dsh-adapter.integration.test.ts`，看适配器告警的 `kind` 是 `stream_tap_install_failed`、`stream_tap_not_loaded`，还是 `stream_tap_malformed` 这类解码问题。
+   - 第 3 层真实模型（`dsh-adapter.contract.real.integration.test.ts`）：设 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`（见 ADR-0001 补记 7）在本机跑一次，结果贴进提交说明。
+   - 之后跑全仓 `pnpm test`（含其余 `*.integration.test.ts` 与 Host + 真实 dsh 的 `*.dsh.integration.test.ts`）和 `pnpm gate:m2`。设了 Key 时，`*.integration.test.ts` 里的真实模型用例一并运行。
+
+5. **对比事件映射表与错误文本归类。**
+   - [acp-event-mapping.md](../architecture/acp-event-mapping.md) 的三张表与代码由 `acp-event-mapping.test.ts` 核对。新出现或改了形状的 `sessionUpdate` 落成 `engine.raw`，每种告警一次（“ACP session/update 无法映射，保留为 engine.raw”，字段带 `sessionUpdate` 与 `reason`），逐个决定要不要映射。
+   - 工具名表 `DSH_TOOLS`（`tool-display.ts`）与新 dsh 的内置工具对照，没登记的工具展示类型是 `unknown`。
+   - 错误文本：`turn-error.ts` 的 `TURN_ERROR_RULES`（`-32603` 的前缀）与 `resume-error.ts`（acp-event-mapping.md §6）按第 3 步的新样本核对。dsh 改了措辞时原文仍然保留，但会归到 `unknown` 或 `engine_unavailable`，`session_lost` 也可能认不出来。
+   - 审批：选项仍是 `allow_once` / `reject_once`、审批仍只来自沙箱升级（ADR-0001 §6），第 2 层的审批条款与 `dsh-adapter.approval.integration.test.ts` 覆盖。`DSH_PERMISSION_MODE` 等进程环境变量的名字按 dsh-base 的 `cordis.patch.yml` 再核对一次（ADR-0001 补记 1）。
+
+6. **重新核对依赖闭包的许可证与 `allowBuilds`。**
+   - 许可证：按 §2.1“pnpm 安装后的复核”的方法，从 `pnpm-lock.yaml` 的 importer `packages/adapter-dsh` 沿 `dependencies` 与 `optionalDependencies` 走出生产依赖闭包（含各平台的可选包），已安装的读 `package.json`，其他平台的用 `npm view <包>@<版本> license`。与 §2.1 的计数对比，新出现的非宽松许可证（MPL、LGPL、GPL、专有条款）写进 §2.1 的结论。`pnpm licenses list --prod` 不列可选的平台包，不能代替。
+   - `allowBuilds`：第 2 步报出的每个构建脚本，读过脚本内容再决定放行还是拒绝；键带新版本，取舍与理由记在 §2.1“构建脚本”。旧版本的键删掉。
+
+7. **收尾。** ADR-0001 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试的结果。`DSH_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，这是预期的，正好用来排查跨版本问题（ADR-0001 补记 6）。

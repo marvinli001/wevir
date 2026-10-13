@@ -14,11 +14,15 @@
 //   acp             DshAdapter 测试用（T3.2）：回应 session/new、session/prompt、session/cancel、
 //                   session/close、session/set_config_option（T3.4：值里含 missing 时报 -32602，其余照收），
 //                   按提示词的第一个词决定回合怎么走（见下方 PROMPT_SCRIPTS）。
-//                   第一个词是 `replay:<样本名>` 时回放 $FAKE_DSH_FIXTURES/<样本名>.jsonl（T3.3，见 replay()）。
+//                   第一个词是 `replay:<样本名>` 时回放 $FAKE_DSH_FIXTURES/<样本名>.jsonl（T3.3，见 replay()）；
+//                   `replay:permission` 按客户端对审批的回复在 B / C / D 三份样本之间分支（T3.6，见 replayPermission()）。
 //                   session/resume（T3.5）：本进程里活跃的会话报 already active；会话 ID 以 RESUME_FAILURES 的前缀
 //                   开头时回放 acp/errors/ 里对应的真实 dsh 错误；本进程建过的会话 cwd 不同时报 cwd does not match；
 //                   其余（本进程没见过的 ID，相当于 Host 重启后）照收，configOptions 是会话最后选定的路由。
 //                   收到的每条客户端消息（initialize 之外）按顺序记在 fake-dsh.json 的 received 里。
+// FAKE_DSH_STORE=1（T3.6，契约测试的回放层）：像真实 dsh 一样把建过的会话记在 cwd（DSH_HOME）的 fake-sessions.json，
+//                   会话 ID 跨进程不重复；session/resume 只认记过的会话（cwd 按记录比较），没记过的回放
+//                   acp/errors/resume-not-resumable.json（真实 dsh 对日志不存在的会话就这样回）。
 // FAKE_DSH_GRANDCHILD=1：再拉起一个不理会 SIGTERM 的子进程（留在同一进程组里）。
 //
 // stream-tap（T3.2a）：
@@ -179,7 +183,17 @@ lines.on('close', () => {
 // ── acp 模式 ───────────────────────────────────────────────────────────────────────
 
 record.received = [];
-let sessionCount = 0;
+/** FAKE_DSH_STORE=1 时持久化的会话：sessionId → 建会话时的 cwd。 */
+const STORE_FILE = 'fake-sessions.json';
+const store =
+  process.env.FAKE_DSH_STORE === '1'
+    ? existsSync(STORE_FILE)
+      ? JSON.parse(readFileSync(STORE_FILE, 'utf8'))
+      : {}
+    : undefined;
+let sessionCount = store === undefined ? 0 : Object.keys(store).length;
+/** dsh 发给客户端的请求的 id；回放时换成本进程里不重复的值（两个会话可能回放同一份样本）。 */
+let requestCount = 0;
 /** dsh 发出、等客户端回复的请求 id → 收到回复时调用。 */
 const waiters = new Map();
 /** sessionId → 等 session/cancel 的 prompt 请求 id。 */
@@ -334,6 +348,15 @@ const PROMPT_SCRIPTS = {
   },
 };
 
+/** acp/errors/ 里录下的真实 dsh 错误（ACP 的 error 对象），`<SESSION_ID>` 换成请求里的 ID。 */
+function recordedError(file, sessionId) {
+  const recorded = readFileSync(new URL(`./acp/errors/${file}`, import.meta.url), 'utf8');
+  const { name: _name, ...error } = JSON.parse(
+    recorded.replaceAll('<SESSION_ID>', sessionId),
+  ).error;
+  return error;
+}
+
 function acp(message) {
   const { id, method, params } = message;
   if (method === 'session/new') {
@@ -343,23 +366,28 @@ function acp(message) {
     const sessionId = `fake-${sessionCount}`;
     active.add(sessionId);
     cwds.set(sessionId, params.cwd);
+    if (store !== undefined) {
+      store[sessionId] = params.cwd;
+      writeFileSync(STORE_FILE, JSON.stringify(store));
+    }
     send({ id, result: { sessionId, configOptions: configOptions(sessionId) } });
   } else if (method === 'session/resume') {
     const { sessionId, cwd } = params;
     const failure = Object.entries(RESUME_FAILURES).find(([prefix]) =>
       sessionId.startsWith(prefix),
     );
+    if (store !== undefined && Object.hasOwn(store, sessionId)) {
+      cwds.set(sessionId, store[sessionId]);
+    }
     if (active.has(sessionId)) {
       send({
         id,
         error: { code: -32602, message: `Invalid params: session is already active: ${sessionId}` },
       });
     } else if (failure !== undefined) {
-      const recorded = readFileSync(new URL(`./acp/errors/${failure[1]}`, import.meta.url), 'utf8');
-      const { name: _name, ...error } = JSON.parse(
-        recorded.replaceAll('<SESSION_ID>', sessionId),
-      ).error;
-      send({ id, error });
+      send({ id, error: recordedError(failure[1], sessionId) });
+    } else if (store !== undefined && !Object.hasOwn(store, sessionId)) {
+      send({ id, error: recordedError('resume-not-resumable.json', sessionId) });
     } else if (cwds.has(sessionId) && cwds.get(sessionId) !== cwd) {
       send({
         id,
@@ -422,39 +450,93 @@ function acp(message) {
   }
 }
 
-/**
- * 回放一份 T0.3 录制（`mock/transcripts/*.jsonl`）里 dsh 在第一个 session/prompt 之后写出的消息：会话 ID 换成
- * 当前会话，prompt 的结果换成当前请求的 id，其他响应（回应录制里别的请求）跳过。连续的消息一次写出，所以
- * 审批请求与它前面的 tool_call 在同一次读里到达。遇到 dsh 发出的请求（session/request_permission）先停下，
- * 等客户端回复了再继续：回复的内容不影响后面回放什么，测试要用与决定相符的样本（B allow、C deny、D cancel）。
- */
-async function replay(name, sessionId, promptId) {
+/** 一份 T0.3 录制（`mock/transcripts/<name>.jsonl`），从第一个 session/prompt 起。 */
+function transcript(name) {
   const lines = readFileSync(join(process.env.FAKE_DSH_FIXTURES, `${name}.jsonl`), 'utf8')
     .split('\n')
     .filter((line) => line.trim() !== '')
     .map((line) => JSON.parse(line));
   const start = lines.findIndex((l) => l.dir === 'c2a' && l.msg.method === 'session/prompt');
-  const recordedSession = lines[start].msg.params.sessionId;
-  const recordedPrompt = lines[start].msg.id;
+  return {
+    lines: lines.slice(start + 1),
+    sessionId: lines[start].msg.params.sessionId,
+    promptId: lines[start].msg.id,
+  };
+}
+
+/**
+ * 回放一份 T0.3 录制（`mock/transcripts/*.jsonl`）里 dsh 在第一个 session/prompt 之后写出的消息：会话 ID 换成
+ * 当前会话，prompt 的结果换成当前请求的 id，其他响应（回应录制里别的请求）跳过。连续的消息一次写出，所以
+ * 审批请求与它前面的 tool_call 在同一次读里到达。遇到 dsh 发出的请求（session/request_permission）先停下，
+ * 等客户端回复了再继续：回复的内容不影响后面回放什么，测试要用与决定相符的样本（B allow、C deny、D cancel），
+ * 或用 `replay:permission` 按回复分支。
+ */
+async function replay(name, sessionId, promptId) {
+  if (name === 'permission') return replayPermission(sessionId, promptId);
+  const recorded = transcript(name);
+  await play(recorded, recorded.lines, sessionId, promptId);
+}
+
+/** `replay:permission` 的分支：客户端对审批的回复 → 接着回放的样本（三份的前半段同构：先被沙箱拒绝，升级重试才请求审批）。 */
+const PERMISSION_BRANCHES = {
+  allow: 'B-permission-allow',
+  reject: 'C-permission-deny',
+  cancelled: 'D-permission-cancel',
+};
+
+/**
+ * 回放 B 到审批请求为止，再按客户端的回复（选了 allow_* 还是 reject_* 的选项，或 cancelled）接 B、C 或 D 在审批请求
+ * 之后的部分。后半段里升级重试那个工具的 toolCallId 换成 B 的，与已发出的 tool_call 和审批请求一致。
+ */
+async function replayPermission(sessionId, promptId) {
+  const first = transcript(PERMISSION_BRANCHES.allow);
+  const asks = (l) => l.dir === 'a2c' && l.msg.method === 'session/request_permission';
+  const at = first.lines.findIndex(asks);
+  const request = first.lines[at].msg.params;
+  const answer = await play(first, first.lines.slice(0, at + 1), sessionId, promptId);
+  const outcome = answer?.result?.outcome;
+  const kind = request.options.find((o) => o.optionId === outcome?.optionId)?.kind ?? '';
+  const branch =
+    outcome?.outcome === 'selected' ? (kind.startsWith('allow') ? 'allow' : 'reject') : 'cancelled';
+  const next = transcript(PERMISSION_BRANCHES[branch]);
+  const nextAt = next.lines.findIndex(asks);
+  const toolCallId = next.lines[nextAt].msg.params.toolCall.toolCallId;
+  await play(next, next.lines.slice(nextAt + 1), sessionId, promptId, [
+    [toolCallId, request.toolCall.toolCallId],
+  ]);
+}
+
+/**
+ * 写出录制里 dsh → 客户端的消息（见 replay()）。`replace` 是额外的字符串替换。dsh 发出的请求换成本进程里不重复的
+ * id，等到客户端回复再继续；返回最后一个请求收到的回复。
+ */
+async function play(recorded, lines, sessionId, promptId, replace = []) {
   let batch = [];
+  let answer;
   const flush = () => {
     if (batch.length > 0) process.stdout.write(batch.map((m) => `${JSON.stringify(m)}\n`).join(''));
     batch = [];
   };
-  for (const { dir, msg } of lines.slice(start + 1)) {
+  for (const { dir, msg } of lines) {
     if (dir !== 'a2c') continue;
-    const out = JSON.parse(JSON.stringify(msg).replaceAll(recordedSession, sessionId));
+    let json = JSON.stringify(msg).replaceAll(recorded.sessionId, sessionId);
+    for (const [from, to] of replace) json = json.replaceAll(from, to);
+    const out = JSON.parse(json);
     if (out.method === undefined) {
-      if (out.id !== recordedPrompt) continue;
+      if (out.id !== recorded.promptId) continue;
       batch.push({ ...out, id: promptId });
       continue;
     }
-    batch.push(out);
-    if (out.id !== undefined) {
-      const answered = new Promise((resolve) => waiters.set(out.id, resolve));
-      flush();
-      await answered;
+    if (out.id === undefined) {
+      batch.push(out);
+      continue;
     }
+    const id = `fake-request-${++requestCount}`;
+    batch.push({ ...out, id });
+    const answered = new Promise((resolve) => waiters.set(id, resolve));
+    flush();
+    answer = await answered;
   }
   flush();
+  return answer;
 }

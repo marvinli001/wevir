@@ -2,7 +2,7 @@
   "name": "@wevir/host",
   "version": "0.0.0",
   "private": true,
-  "description": "Wevir Local Agent Host: event store, replay, session snapshots, the session manager, the WebSocket JSON-RPC server and the wevir-host executable.",
+  "description": "Wevir Local Agent Host: event store, replay, session snapshots, the session manager, the WebSocket JSON-RPC server and the wevir-host executable (EchoAdapter or the dsh adapter).",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -26,13 +26,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@wevir/adapter-dsh": "workspace:*",
     "@wevir/protocol": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",
     "@wevir/storage": "workspace:*",
     "ws": "^8.22.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.2",
-    "@wevir/adapter-dsh": "workspace:*"
+    "@types/ws": "^8.18.2"
   }
 }

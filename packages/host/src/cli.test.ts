@@ -1,25 +1,25 @@
 // T2.5：wevir-host 的参数解析与主流程。runHostCli 在进程内运行，信号、stdin 与 stdout 换成假的；
-// 真正的子进程（SIGKILL 后重启等）见 scripts/gate-m2.ts。
+// 真正的子进程（SIGKILL 后重启等）见 scripts/gate-m2.ts，--adapter dsh 接真实 dsh 见 cli.dsh.integration.test.ts。
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PassThrough } from 'node:stream';
+import { DshAdapter } from '@wevir/adapter-dsh';
 import { CloseCode } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type AdapterKind,
+  createAdapter,
   EXIT_CODE,
   type HostCliOverrides,
-  type HostCliProcess,
   parseHostArgs,
   runHostCli,
   USAGE,
 } from './cli.js';
 import { HOST_VERSION } from './host-process.js';
-import { LOG_FILE } from './logger.js';
+import { createLogger, LOG_FILE } from './logger.js';
 import type { HostRuntimeInfo } from './runtime-file.js';
-import { TestRpcClient, useTempDir } from './test-utils.js';
+import { fakeProcess, TestRpcClient, useTempDir, waitReady } from './test-utils.js';
 
 const tempDir = useTempDir();
 
@@ -84,43 +84,6 @@ describe('parseHostArgs', () => {
 
 // ── 进程内运行 runHostCli ──────────────────────────────────────────────
 
-type Listener = (arg: never) => void;
-
-function fakeProcess(argv: string[], env: NodeJS.ProcessEnv = {}) {
-  const listeners = new Map<string, Listener[]>();
-  const out = { stdout: '', stderr: '' };
-  const stdin = new PassThrough();
-  const proc: HostCliProcess = {
-    argv,
-    env,
-    stdin,
-    stdout: { write: (text: string) => (out.stdout += text) },
-    stderr: { write: (text: string) => (out.stderr += text) },
-    on: ((event: string, listener: Listener) => {
-      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
-    }) as HostCliProcess['on'],
-    pid: process.pid,
-  };
-  const emit = (event: string, arg?: unknown) => {
-    for (const listener of listeners.get(event) ?? []) listener(arg as never);
-  };
-  return { proc, out, stdin, emit };
-}
-
-interface Ready {
-  event: 'ready';
-  pid: number;
-  url: string;
-  hostId: string;
-  home: string;
-}
-
-async function waitReady(out: { stdout: string }): Promise<Ready> {
-  await vi.waitFor(() => expect(out.stdout).toContain('"event":"ready"'), { timeout: 5000 });
-  const line = out.stdout.split('\n').find((l) => l.includes('"event":"ready"')) as string;
-  return JSON.parse(line) as Ready;
-}
-
 function runtimeInfo(home: string): HostRuntimeInfo {
   return JSON.parse(readFileSync(join(home, 'run', 'host.json'), 'utf8')) as HostRuntimeInfo;
 }
@@ -157,13 +120,31 @@ describe('runHostCli', () => {
     expect(bad.out.stderr).toContain('--port');
   });
 
-  it('--adapter dsh 尚未实现：明确报错、退出码 2，不创建数据目录', async () => {
+  it('--adapter dsh：DshAdapter 用数据目录下的 engines/，dsh 进程等到第一个会话才启动', () => {
+    const home = join(tempDir(), 'home');
+    const adapter = createAdapter('dsh', { home, logger: createLogger({ mirror: () => {} }) });
+    expect(adapter).toBeInstanceOf(DshAdapter);
+    const { process: dsh } = adapter as DshAdapter;
+    expect(dsh.paths.dshHome).toBe(join(home, 'engines', 'dsh'));
+    expect(dsh.state).toBe('stopped');
+    expect(existsSync(home)).toBe(false);
+    // 真实 dsh 上的端到端见 cli.dsh.integration.test.ts。
+  });
+
+  it('适配器建不起来（例如 dsh 的依赖没装好）：报错并以 1 退出，日志里有原因', async () => {
     const home = join(tempDir(), 'home');
     const fake = fakeProcess(['--home', home, '--adapter', 'dsh']);
-    expect(await runHostCli(fake.proc)).toBe(EXIT_CODE.usage);
-    expect(fake.out.stderr).toContain('dsh 适配器尚未实现');
-    expect(fake.out.stderr).toContain('--adapter echo');
-    expect(existsSync(home)).toBe(false);
+    const code = await runHostCli(fake.proc, {
+      createAdapter: () => {
+        throw new Error('找不到 @deepseek-ai/dsh');
+      },
+    });
+    expect(code).toBe(EXIT_CODE.failure);
+    expect(fake.out.stderr).toContain('无法创建 dsh 适配器：找不到 @deepseek-ai/dsh');
+    expect(logLines(home).find((l) => l.msg === 'failed to create adapter')).toMatchObject({
+      adapter: 'dsh',
+    });
+    expect(existsSync(join(home, 'run', 'host.json'))).toBe(false);
   });
 
   it('SIGTERM 优雅退出：退出码 0、删除 host.json；日志是 JSON 行且不含令牌，就绪行也不含令牌', async () => {

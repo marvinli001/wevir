@@ -17,14 +17,12 @@ import {
 } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DshAdapter } from './dsh-adapter.js';
+import { escalationPrompt, escalationScript } from './test-fixtures/escalation.js';
 import {
   MOCK_KEY,
   MOCK_KEY_ENV,
   MOCK_MODEL,
-  type MockReply,
-  type MockRequest,
   startMockModel,
-  turnOf,
   writeMockOverlay,
 } from './test-fixtures/mock-model.js';
 import { makeOutsideDir } from './test-fixtures/outside-dir.js';
@@ -45,37 +43,6 @@ function outsideDir(label: string): string {
   const { dir, remove } = makeOutsideDir(label);
   cleanups.push(remove);
   return dir;
-}
-
-/** 与 T0.3 的 ESC 提示相同：要求在工作区外的绝对路径写文件，被沙箱拒绝后按提示升级重试。 */
-function escalationPrompt(path: string): string {
-  return [
-    `[wevir:ESC] 请用 write 工具在绝对路径 ${path} 创建文件，内容只有一行：hello。`,
-    '这个路径在工作区之外，沙箱会先拒绝；被拒绝后请按工具提示带上 sandbox_permissions',
-    '（取最窄的更高权限）和一句 justification 重试一次，这会向我申请审批。',
-    '无论结果如何，最后用一句话告诉我文件是否已经写入。',
-  ].join('');
-}
-
-/** mock 模型的 ESC 脚本（照 T0.3 `spikes/dsh-acp/src/scenarios.ts`）：写 → 沙箱拒绝则升级重试 → 汇报。 */
-function escalationScript(request: MockRequest): MockReply {
-  const { prompt, toolResults: results } = turnOf(request, '[wevir:ESC]');
-  const path = /绝对路径 (\S+?) 创建/.exec(prompt)?.[1] ?? '';
-  const write = { file_path: path, content: 'hello\n' };
-  if (results.length === 0) return { toolCall: { name: 'write', arguments: write } };
-  if (results.length === 1 && /sandbox/i.test(results[0] ?? '')) {
-    return {
-      toolCall: {
-        name: 'write',
-        arguments: {
-          ...write,
-          sandbox_permissions: 'danger-full-access',
-          justification: '用户要求在工作区之外创建这个文件。',
-        },
-      },
-    };
-  }
-  return { text: [`结果：${(results.at(-1) ?? '').slice(0, 120)}`] };
 }
 
 async function openSession({ patches, env, providerId, modelId }: ModelSetup) {

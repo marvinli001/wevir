@@ -1,9 +1,10 @@
-// 测试共用：临时数据目录上的 Storage / EventStore，以及各类事件的构造函数。只被 *.test.ts 引用，
-// 不进 index。
+// 测试共用：临时数据目录上的 Storage / EventStore、各类事件的构造函数、最小 RPC 客户端，以及在进程内跑
+// runHostCli 用的假进程。只被 *.test.ts 引用，不进 index。
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import type {
   ApprovalId,
   ApprovalRequest,
@@ -20,8 +21,9 @@ import type {
 } from '@wevir/protocol';
 import { PROTOCOL_VERSION, type WevirEvent } from '@wevir/protocol';
 import { openStorage, type Storage } from '@wevir/storage';
-import { afterEach, beforeEach } from 'vitest';
+import { afterEach, beforeEach, expect, vi } from 'vitest';
 import { WebSocket } from 'ws';
+import type { HostCliProcess } from './cli.js';
 import type { AppendInput, DeltaInput } from './event-store.js';
 import { EventStore, type EventStoreOptions } from './event-store.js';
 
@@ -364,4 +366,45 @@ export class TestRpcClient {
   #notify(): void {
     for (const listener of [...this.#listeners]) listener();
   }
+}
+
+// ── 进程内运行 runHostCli ──────────────────────────────────────────────
+
+type Listener = (arg: never) => void;
+
+/** runHostCli 用的假进程：信号与 stdin 由测试触发，stdout / stderr 收进 `out`。 */
+export function fakeProcess(argv: string[], env: NodeJS.ProcessEnv = {}) {
+  const listeners = new Map<string, Listener[]>();
+  const out = { stdout: '', stderr: '' };
+  const stdin = new PassThrough();
+  const proc: HostCliProcess = {
+    argv,
+    env,
+    stdin,
+    stdout: { write: (text: string) => (out.stdout += text) },
+    stderr: { write: (text: string) => (out.stderr += text) },
+    on: ((event: string, listener: Listener) => {
+      listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+    }) as HostCliProcess['on'],
+    pid: process.pid,
+  };
+  const emit = (event: string, arg?: unknown) => {
+    for (const listener of listeners.get(event) ?? []) listener(arg as never);
+  };
+  return { proc, out, stdin, emit };
+}
+
+export interface Ready {
+  event: 'ready';
+  pid: number;
+  url: string;
+  hostId: string;
+  home: string;
+}
+
+/** 等 runHostCli 往 stdout 写就绪行。 */
+export async function waitReady(out: { stdout: string }): Promise<Ready> {
+  await vi.waitFor(() => expect(out.stdout).toContain('"event":"ready"'), { timeout: 5000 });
+  const line = out.stdout.split('\n').find((l) => l.includes('"event":"ready"')) as string;
+  return JSON.parse(line) as Ready;
 }

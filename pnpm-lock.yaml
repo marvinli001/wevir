@@ -196,6 +196,9 @@ importers:
 
   packages/host:
     dependencies:
+      '@wevir/adapter-dsh':
+        specifier: workspace:*
+        version: link:../adapter-dsh
       '@wevir/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -212,9 +215,6 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
-      '@wevir/adapter-dsh':
-        specifier: workspace:*
-        version: link:../adapter-dsh
 
   packages/protocol:
     dependencies:

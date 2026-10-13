@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { homePath, resolveHome } from './home.js';
@@ -9,7 +10,7 @@ import {
   type ShutdownTrigger,
   startHost,
 } from './host-process.js';
-import { createLogger, isLogLevel, type LogLevel } from './logger.js';
+import { createLogger, isLogLevel, type Logger, type LogLevel } from './logger.js';
 import { HostAlreadyRunningError } from './runtime-file.js';
 
 export const ADAPTER_KINDS = ['echo', 'dsh'] as const;
@@ -108,19 +109,27 @@ function parse(argv: readonly string[]) {
   });
 }
 
-/** 适配器不可用（参数层面的错误，退出码 2）。 */
-export class AdapterUnavailableError extends Error {
-  override readonly name = 'AdapterUnavailableError';
+/** 构造适配器时可用的东西。 */
+export interface AdapterContext {
+  /** 数据目录（绝对路径）；dsh 适配器用其中的 `engines/`（ADR-0001 §4）。 */
+  home: string;
+  /** Host 的日志；dsh 适配器的告警（旁路失效、映射不了的更新等）写进来。 */
+  logger: Logger;
 }
 
-export function createAdapter(kind: AdapterKind): AgentRuntimeAdapter {
+export function createAdapter(kind: AdapterKind, context: AdapterContext): AgentRuntimeAdapter {
   switch (kind) {
     case 'echo':
       return new EchoAdapter();
     case 'dsh':
-      throw new AdapterUnavailableError(
-        'dsh 适配器尚未实现（SKELETON_PLAN M3，T3.1 只完成了进程管理）；开发时请用 --adapter echo',
-      );
+      // dsh 进程在第一个会话时才启动（Provider 只写 overlay）。可执行入口在这里就解析：依赖没装好或版本不对时
+      // Host 直接启动失败，而不是等到建会话才报错。增量旁路默认开启（T3.2a）。
+      return new DshAdapter({
+        home: context.home,
+        entry: resolveDshEntry().entry,
+        clientInfo: { name: 'wevir', version: HOST_VERSION },
+        logger: context.logger,
+      });
   }
 }
 
@@ -141,7 +150,7 @@ export interface HostCliProcess {
 
 /** 测试用：替换适配器的构造与退出时限。 */
 export interface HostCliOverrides {
-  createAdapter?: (kind: AdapterKind) => AgentRuntimeAdapter;
+  createAdapter?: (kind: AdapterKind, context: AdapterContext) => AgentRuntimeAdapter;
   shutdownTimeoutMs?: number;
 }
 
@@ -173,14 +182,6 @@ export async function runHostCli(
   }
   const { options } = parsed;
 
-  let adapter: AgentRuntimeAdapter;
-  try {
-    adapter = (overrides.createAdapter ?? createAdapter)(options.adapter);
-  } catch (error) {
-    proc.stderr.write(`wevir-host: ${(error as Error).message}\n`);
-    return error instanceof AdapterUnavailableError ? EXIT_CODE.usage : EXIT_CODE.failure;
-  }
-
   const home = resolveHome({
     ...(options.home !== undefined && { home: options.home }),
     env: proc.env,
@@ -200,6 +201,18 @@ export async function runHostCli(
     hostVersion: HOST_VERSION,
     node: process.version,
   });
+
+  let adapter: AgentRuntimeAdapter;
+  try {
+    adapter = (overrides.createAdapter ?? createAdapter)(options.adapter, { home, logger });
+  } catch (error) {
+    logger.error('failed to create adapter', { adapter: options.adapter, error });
+    logger.close();
+    proc.stderr.write(
+      `wevir-host: 无法创建 ${options.adapter} 适配器：${(error as Error).message}\n`,
+    );
+    return EXIT_CODE.failure;
+  }
 
   return new Promise<number>((resolve) => {
     let host: RunningHost | undefined;
