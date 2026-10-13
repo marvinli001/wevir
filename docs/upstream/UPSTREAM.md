@@ -2,7 +2,7 @@
 
 > 建立于 T0.2（2026-10-12）。锁定提交以 [`upstream.lock`](./upstream.lock) 为准，本文件记录对应的核实结论。
 
-`upstream/` 是三个上游仓库的只读浅克隆，已被 gitignore。不修改、不提交其中任何文件。复现或更新：
+`upstream/` 是四个上游仓库的只读浅克隆，已被 gitignore。不修改、不提交其中任何文件。复现或更新：
 
 ```bash
 bash scripts/upstream-sync.sh
@@ -17,10 +17,12 @@ bash scripts/upstream-sync.sh
 | `deepseek-harness`（dsh） | https://github.com/deepseek-ai/deepseek-harness | `master` | `d743267388641bc76f17c45ce8b4c231aed1d32c` | 2026-10-09 | 2026-10-12 | **MIT**（部分子目录 BSD-3-Clause，见 §2.1） |
 | `openwork` | https://github.com/different-ai/openwork | `dev` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | 2026-10-11 | 2026-10-12 | **`ee/` 之外 MIT；`ee/` 为 OpenWork EE License（非开源）** |
 | `paseo` | https://github.com/getpaseo/paseo | `main` | `dc7bc8db124e837ba909ffd3b4b20e16adaebe24` | 2026-10-12 | 2026-10-12 | **Apache-2.0**（少数第三方组件 MIT） |
+| `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.162.1` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | 2026-10-09 | 2026-10-14 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
 
 补充：
 
 - dsh 的锁定提交就是 tag `dsh-v0.2.1-alpha.2` 指向的提交（GitHub compare 结果 `identical`），与 T0.3 锁定的 npm 版本 `@deepseek-ai/dsh@0.2.1-alpha.2` 是同一份源码。
+- codex 锁定的是 release tag `rust-v0.162.1` 指向的提交（2026-10-14 时的最新 release），与 `spikes/codex-app-server` 下载的二进制同一版本，源码与运行的程序一致。Codex 的 release 提交不在任何分支上（与 `main` 分叉：领先 4 个版本号提交，落后 245 个），所以 lock 的“分支”一栏写 tag，`upstream-sync.sh` 的回退路径按 tag 浅拉取。
 
 ### 1.1 作为依赖运行的 npm 包
 
@@ -30,6 +32,14 @@ bash scripts/upstream-sync.sh
 |---|---|---|---|---|
 | `@deepseek-ai/dsh` | `0.2.1-alpha.2` | `0.2.0-rc.2` | MIT | 与上表 dsh 锁定提交同源；`packages/adapter-dsh/src/paths.ts` 的 `DSH_VERSION` 与之相同，解析到别的版本时启动报错 |
 | `@agentclientprotocol/sdk` | `1.4.0` | `1.8.0` | Apache-2.0（Zed Industries） | 与 dsh-acp 自己锁定的版本相同；peer `zod` 由 pnpm 自动安装为工作区里的 4.6.x |
+
+### 1.2 作为二进制运行的上游程序
+
+目前只有 Spike 用到，产品还没有依赖。
+
+| 程序 | 版本 | 来源 | 校验 | 用处 |
+|---|---|---|---|---|
+| `codex-app-server`（独立二进制） | `rust-v0.162.1` | GitHub Release 资产 `codex-app-server-<target>.tar.gz` | sha256 写在 `spikes/codex-app-server/scripts/fetch-binary.sh`，取自 GitHub API 的 `digest` | `spikes/codex-app-server`；下载到 gitignore 的 `.bin/` |
 
 两者在 `pnpm-lock.yaml` 里的完整依赖闭包、构建脚本放行（`pnpm-workspace.yaml` 的 `allowBuilds`）与许可证见 §2.1。
 - OpenWork 锁定提交比最新 release `v0.18.57` 超前 121 个提交；Paseo `main` 与 tag `v0.11.2` 已分叉（领先 51、落后 3，release 在单独的分支上打）。两者只作参考，不追 release。
@@ -135,6 +145,27 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 6. 第 3 条专利授权附带终止条件：对该作品发起专利诉讼的一方，其获得的专利许可随之终止。
 7. 来自 `packages/expo-two-way-audio`、`packages/highlight/src/astro` 的代码按 MIT 处理，保留各自的版权声明。
 
+### 2.4 OpenAI Codex：Apache-2.0
+
+| 原文 | 内容 |
+|---|---|
+| [`upstream/codex/LICENSE`](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/LICENSE) | Apache License 2.0 全文 |
+| [`upstream/codex/NOTICE`](https://github.com/openai/codex/blob/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/NOTICE) | `OpenAI Codex`、`Copyright 2025 OpenAI`；并说明含有派生自 Ratatui 的代码（MIT，`Copyright (c) 2016-2022 Florian Dehau`、`Copyright (c) 2023-2025 The Ratatui Developers`） |
+
+自带其他许可证的部分：
+
+| 路径 | 许可证 | 说明 |
+|---|---|---|
+| `codex-rs/vendor/bubblewrap/` | LGPL-2.0-or-later（`COPYING`/`LICENSE` 为 GNU Library GPL v2） | `codex-rs/bwrap/build.rs` 把它编成单独的 `bwrap` 可执行文件，只在 Linux 包里作为 `codex-resources/bwrap` 随附（系统 `PATH` 上有 `bwrap` 时优先用系统的，`codex-rs/linux-sandbox/README.md`）。macOS 的独立 `codex-app-server` 不含它 |
+| `third_party/wezterm/` | MIT，`Copyright (c) 2018-Present Wez Furlong` | |
+| `codex-rs/skills/src/assets/samples/*/LICENSE.txt` | Apache-2.0 | Codex 首次启动时写进 `CODEX_HOME/skills/.system` 的内置 skill 样例 |
+
+结论与义务：
+
+- 目前只作参考和 Spike 里运行，**不移植源码**。将来随安装包分发 `codex-app-server` 二进制时，按 Apache-2.0 第 4 条随附 `LICENSE` 全文与 `NOTICE` 的署名内容（4(a)、4(d)），由打包任务汇总进第三方声明；Linux 包若带上 `bwrap`，另按 LGPL-2.0 提供其源码获取方式。
+- 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证在打包前另做一次核对，方法同 §2.1 对 npm 闭包的做法。
+- 不得使用 OpenAI 或 Codex 的名称与商标，说明来源的用途除外（Apache-2.0 第 6 条）。
+
 ## 3. 各仓库的参考重点
 
 与 SKELETON_PLAN §3 保持一致，以下路径在锁定提交下均已确认存在。
@@ -142,6 +173,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 - **dsh**（作为依赖，读文档和接口，不移植）：`docs/architecture.zh.md`、`docs/agent-lifecycle.zh.md`、`docs/capability-seams.zh.md`、`packages/acp/acp/README.zh.md`、`packages/sdk/{client,protocol,server}/README.zh.md`、`docs/user/guide/providers.md`。
 - **OpenWork**（桌面产品与交互参考，仅 MIT 区域）：`apps/app`（React + Vite + Tailwind v4 主界面）、`apps/desktop`（Electron 壳）、`apps/server`、`packages/ui`、`packages/sdk`、`packages/types`、`docs/architecture`。**`ee/` 排除**。
 - **Paseo**（多端与远程架构参考，骨架阶段不移植）：`packages/server`（daemon）、`packages/protocol`（`@getpaseo/protocol`）、`packages/client`、`packages/relay`、`packages/app`（Expo）、`packages/desktop`、`packages/cli`、`public-docs/sdk`。
+- **Codex**（Agent 运行时候选，作为二进制运行，读协议与源码，不移植）：`codex-rs/app-server/README.md` 与 `codex-rs/app-server-protocol/`（`schema/typescript/`、`schema/json/` 是这个版本生成的协议类型）、`codex-rs/model-provider-info/`（`[model_providers]` 配置）、`codex-rs/codex-api/src/sse/responses.rs`（解析模型流的事件）、`codex-rs/core/tests/common/responses.rs`（Responses SSE 的测试帮手）、`codex-rs/models-manager/`（模型目录）、`codex-rs/config/`（配置键）、`codex-rs/linux-sandbox/README.md`、`codex-rs/mxc-sandbox/README.md`。研读结论见 [docs/research/codex-notes.md](../research/codex-notes.md)。
 
 ## 4. 移植登记表
 
@@ -159,7 +191,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 ### 4.1 其他第三方来源的文件
 
-不来自上面三个上游仓库、但含第三方作品的文件：由工具生成、从依赖包摘录，或是录下来的上游运行输出。根目录 [`NOTICE`](../../NOTICE) 同样列出它们。
+不来自上面四个上游仓库、但含第三方作品的文件：由工具生成、从依赖包摘录，或是录下来的上游运行输出。根目录 [`NOTICE`](../../NOTICE) 同样列出它们。
 
 | Wevir 文件 | 来源 | 许可证与版权 | 说明 |
 |---|---|---|---|
@@ -210,7 +242,8 @@ Apache-2.0 来源（Paseo）：
 3. **看上游变更**：
    - dsh：GitHub Releases（tag `dsh-v*`）和 `docs/persistence-changes/releases/`（会话持久化格式变化）；
    - OpenWork：`changelog/release-tracker-*.md`；
-   - Paseo：根目录 `CHANGELOG.md`。
+   - Paseo：根目录 `CHANGELOG.md`；
+   - Codex：GitHub Releases（tag `rust-v*`）与根目录 `CHANGELOG.md`；协议面另用新版本的 `codex app-server generate-ts` 输出（或 `codex-rs/app-server-protocol/schema/`）与旧版本做 diff。
    同时对比新旧提交之间的许可证文件：
    ```bash
    git -C upstream/<名称> fetch --depth 1 origin <旧SHA>
@@ -283,7 +316,7 @@ T6.3 建立。登记表（§4、§4.1）、文件头与根目录 `NOTICE` 三处
    ```
 
    注释里写“参照”“做法参考”“Paseo A17”“openwork-notes §3.1”这类的是设计参考，不登记，由第 2 步确认没有带进代码。
-2. **相似度检查。** 用 jscpd 把 Wevir 的源码（含未提交的）和 `upstream/` 三个仓库一起扫，只看一边是 Wevir、一边是上游的克隆。jscpd 装在仓库外的临时目录，不进仓库依赖。三遍：
+2. **相似度检查。** 用 jscpd 把 Wevir 的源码（含未提交的）和 `upstream/` 下的上游仓库一起扫，只看一边是 Wevir、一边是上游的克隆。jscpd 装在仓库外的临时目录，不进仓库依赖。三遍：
    - 逐字：`--min-tokens 40 --min-lines 4`；
    - 忽略标识符与字面量：`--ignore-identifiers --ignore-literals --mode weak --min-tokens 50`，噪声大（import 块、对象字面量），逐条看 80 token 以上的；
    - 函数级 AST 相似：`--similarity 0.85 --kind ast --min-tokens 60`。

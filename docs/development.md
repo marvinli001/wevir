@@ -255,7 +255,7 @@ export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 
 ### 7.4 上游参考仓库：`WEVIR_GITHUB_MIRROR`
 
-`upstream/` 只是只读参考（读 dsh、OpenWork、Paseo 的源码、移植时核对），构建和运行都不需要它。`scripts/upstream-sync.sh` 把 `https://github.com` 前缀换成这个变量的值：
+`upstream/` 只是只读参考（读 dsh、OpenWork、Paseo、Codex 的源码、移植时核对），构建和运行都不需要它。`scripts/upstream-sync.sh` 把 `https://github.com` 前缀换成这个变量的值：
 
 ```bash
 WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-sync.sh
