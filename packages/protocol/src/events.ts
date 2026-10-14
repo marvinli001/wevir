@@ -18,6 +18,7 @@ import {
   SessionReadOnlyReasonSchema,
   SessionStateSchema,
   StreamBlockRefSchema,
+  SubagentSummarySchema,
   TitleSourceSchema,
   TodoItemSchema,
   ToolDisplaySchema,
@@ -61,6 +62,16 @@ export const EventPayloadSchemas = {
     reasoningEffort: z.string().optional(),
     /** 建立引擎会话的引擎版本（0.3.0；dsh：`@deepseek-ai/dsh` 的包版本）。适配器不报时省略。 */
     engineVersion: z.string().optional(),
+    /** 只有子会话有（0.6.0，domain-model §3.3.1）：父会话与派出它的工具调用。 */
+    parent: z
+      .object({
+        sessionId: SessionIdSchema,
+        /** 父会话里派出它的工具调用。 */
+        toolCallId: z.string().min(1),
+        /** 认出它时父会话进行中的回合。 */
+        turnId: TurnIdSchema.optional(),
+      })
+      .optional(),
   }),
   /**
    * 引擎会话重新挂上（0.3.0）：`session.resume`，或 send 前的自动 resume。引擎不回放历史，这条事件之前的
@@ -95,6 +106,11 @@ export const EventPayloadSchemas = {
   }),
   'turn.started': z.object({
     turnId: TurnIdSchema,
+    /**
+     * 子会话（0.6.0）：回合由引擎开始，这是父 agent 给它的输入（任务描述，或 `send_input` 发来的消息）。普通会话的
+     * 输入在同一回合的 `user.message`。
+     */
+    input: z.array(UserContentPartSchema).min(1).optional(),
   }),
   'turn.finished': z.object({
     turnId: TurnIdSchema,
@@ -197,6 +213,14 @@ export const EventPayloadSchemas = {
     /** 原样（截断后）。 */
     params: z.unknown().optional(),
   }),
+  /** 父会话派出了一个子 agent（0.6.0，domain-model §3.3.1），写在父会话的事件流。 */
+  'subagent.started': z.object({
+    subagent: SubagentSummarySchema,
+  }),
+  /** 子会话的摘要变了（0.6.0）：标题、状态、未决审批、昵称或角色。完整摘要，替换同一 `sessionId` 的上一份。 */
+  'subagent.updated': z.object({
+    subagent: SubagentSummarySchema,
+  }),
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -249,6 +273,8 @@ export const ApprovalResolvedEventSchema = eventSchema('approval.resolved');
 export const UsageUpdatedEventSchema = eventSchema('usage.updated');
 export const EngineErrorEventSchema = eventSchema('engine.error');
 export const EngineRawEventSchema = eventSchema('engine.raw');
+export const SubagentStartedEventSchema = eventSchema('subagent.started');
+export const SubagentUpdatedEventSchema = eventSchema('subagent.updated');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -273,6 +299,8 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   UsageUpdatedEventSchema,
   EngineErrorEventSchema,
   EngineRawEventSchema,
+  SubagentStartedEventSchema,
+  SubagentUpdatedEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

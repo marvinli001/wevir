@@ -1,6 +1,8 @@
 import type {
   ApprovalId,
   ApprovalRequest,
+  SessionId,
+  SubagentSummary,
   ToolDisplay,
   TurnId,
   WevirEvent,
@@ -15,6 +17,7 @@ import {
   optionLabel,
   READ_ONLY_LABEL,
   STATE_REASON_LABEL,
+  SUBAGENT_END_LABEL,
   TOOL_STATUS_LABEL,
   TURN_OUTCOME_LABEL,
   truncate,
@@ -69,6 +72,8 @@ export class EventRenderer {
   #current: string | undefined;
   readonly #tools = new Map<string, string>();
   readonly #approvals = new Map<ApprovalId, ApprovalRequest>();
+  /** 子会话上一次的摘要（R4），用来只在状态与审批变了时显示。 */
+  readonly #subagents = new Map<SessionId, SubagentSummary>();
 
   constructor(options: RendererOptions) {
     this.#sink = options.sink;
@@ -178,6 +183,10 @@ export class EventRenderer {
         this.#sink.line(this.#s.dim(`下一步：${ENGINE_ERROR_HINT[category]}`));
         return;
       }
+      case 'subagent.started':
+      case 'subagent.updated':
+        this.#subagent(event.payload.subagent);
+        return;
       case 'turn.finished': {
         const { outcome, durationMs, turnId } = event.payload;
         this.#dropTurn(turnId);
@@ -279,11 +288,43 @@ export class EventRenderer {
     this.#sink.line(`  ${paint(`⎿ ${label}`)}${detail ? this.#s.dim(`：${detail}`) : ''}`);
   }
 
-  #approvalRequested(approval: ApprovalRequest): void {
+  /**
+   * 子会话（R4）：开始、离开“运行中”（完成、失败、已关闭、已取消）、又开始工作各一行；它的审批在这里显示，由父会话的
+   * attach 回答（审批属于子会话，结果随摘要的 `pendingApprovals` 去掉）。
+   */
+  #subagent(summary: SubagentSummary): void {
+    const previous = this.#subagents.get(summary.sessionId);
+    this.#subagents.set(summary.sessionId, summary);
+    const title = this.#s.bold(summary.title || '子 agent');
+    if (previous === undefined) {
+      const model = [summary.modelId, summary.reasoningEffort].filter(Boolean).join(' · ');
+      this.#sink.endLine();
+      this.#sink.line(
+        `${this.#s.cyan('↳')} 子 agent 开始工作：${title}${this.#s.dim(`（${model}）`)}`,
+      );
+    } else if (previous.status !== 'running' && summary.status === 'running') {
+      this.#sink.line(`${this.#s.cyan('↳')} 子 agent 继续工作：${title}`);
+    }
+    if (summary.status !== 'running' && previous?.status !== summary.status) {
+      const paint = summary.status === 'completed' ? this.#s.green : this.#s.yellow;
+      this.#sink.line(paint(`↳ 子 agent ${SUBAGENT_END_LABEL[summary.status]}：`) + title);
+    }
+    const before = new Set(previous?.pendingApprovals.map((approval) => approval.id));
+    for (const approval of summary.pendingApprovals) {
+      if (!before.has(approval.id)) this.#approvalRequested(approval, summary.title || '子 agent');
+    }
+    for (const id of before) {
+      if (summary.pendingApprovals.some((approval) => approval.id === id)) continue;
+      this.#sink.line(this.#s.dim(`（子 agent ${summary.title || ''} 的审批已结束）`));
+    }
+  }
+
+  #approvalRequested(approval: ApprovalRequest, subagent?: string): void {
     this.#approvals.set(approval.id, approval);
     const detail = approval.detail;
     const what = detail ? `${detail.toolName}${describeTool(detail.display)}` : '一次工具调用';
-    this.#sink.line(this.#s.yellow(`⚠ 需要审批：${what}`));
+    const from = subagent === undefined ? '' : `（来自子 agent ${subagent}）`;
+    this.#sink.line(this.#s.yellow(`⚠ 需要审批${from}：${what}`));
     if (detail?.justification) this.#sink.line(`  理由：${detail.justification}`);
     if (detail?.sandboxPermissions) this.#sink.line(`  申请权限：${detail.sandboxPermissions}`);
     this.#sink.line(

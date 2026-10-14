@@ -148,6 +148,29 @@ describe('会话', () => {
     expect(filtered.out).toContain(id);
   });
 
+  it('子 agent（R4）：attach 显示开始与完成，子 agent 的审批在父会话里回答', async () => {
+    const { home, workspace } = await setup();
+    const result = await run(['session', 'new', '-w', workspace, 'subagent approve'], {
+      home,
+      input: 'y\n',
+    });
+    expect(result.code, result.err).toBe(0);
+    for (const line of [
+      '› subagent approve',
+      '● spawn_agent Helper task: helper approve',
+      '↳ 子 agent 开始工作：Helper task: helper approve（echo-model）',
+      '⚠ 需要审批（来自子 agent Helper task: helper approve）：echo_write /outside-workspace/echo.txt',
+      '↳ 子 agent 完成：Helper task: helper approve',
+      'Echo: subagent approve',
+      '── 本轮完成',
+    ]) {
+      expect(result.out).toContain(line);
+    }
+    // 子会话不进会话列表。
+    const list = await run(['session', 'list'], { home });
+    expect(list.out).not.toContain('Helper task');
+  });
+
   it('两端 attach：看到相同的事件；第二端审批，第一端显示“已由 cli/<deviceId> 处理”', async () => {
     const { home, workspace } = await setup();
     const { deviceId } = await loadCliIdentity(home);

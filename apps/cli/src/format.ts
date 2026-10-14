@@ -7,6 +7,7 @@ import type {
   SessionReadOnlyReason,
   SessionState,
   StateChangeReason,
+  SubagentStatus,
   ToolFinishStatus,
   TurnOutcome,
 } from '@wevir/protocol';
@@ -27,6 +28,14 @@ export const TURN_OUTCOME_LABEL: Record<TurnOutcome, string> = {
   cancelled: '已取消',
   failed: '失败',
   interrupted: '中断',
+};
+
+/** 子 agent 离开“运行中”时的说法（R4，domain-model §3.3.1）。 */
+export const SUBAGENT_END_LABEL: Record<Exclude<SubagentStatus, 'running'>, string> = {
+  completed: '完成',
+  failed: '失败',
+  closed: '已关闭',
+  cancelled: '已取消',
 };
 
 export const TOOL_STATUS_LABEL: Record<ToolFinishStatus, string> = {

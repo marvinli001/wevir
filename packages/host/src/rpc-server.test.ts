@@ -722,6 +722,75 @@ describe('工作区与 Provider', () => {
   });
 });
 
+describe('子会话（R4）', () => {
+  it('session.list 默认不含子会话，按 parentSessionId 列出；子会话可 get、可订阅、只读，不挡工作区移除', async () => {
+    const h = await startHost();
+    const client = await readyClient(h);
+    const parent = await createSession(h, client);
+    const { subscriptionId } = await subscribe(client, parent);
+    await client.request('session.send', {
+      sessionId: parent,
+      content: [{ type: 'text', text: 'subagent' }],
+    });
+    const started = await client.waitForEvent(subscriptionId, (e) => e.type === 'subagent.started');
+    if (started.type !== 'subagent.started') throw new Error('没有 subagent.started');
+    const child = started.payload.subagent.sessionId;
+    await client.waitForEvent(
+      subscriptionId,
+      (e) => e.type === 'subagent.updated' && e.payload.subagent.status === 'completed',
+    );
+    await client.waitForEvent(
+      subscriptionId,
+      (e) => e.type === 'session.state_changed' && e.payload.to === 'idle',
+    );
+
+    const ids = (result: { sessions: Array<{ id: string }> }) => result.sessions.map((s) => s.id);
+    expect(ids(await client.request('session.list'))).toEqual([parent]);
+    expect(ids(await client.request('session.list', { parentSessionId: parent }))).toEqual([child]);
+    expect(ids(await client.request('session.list', { parentSessionId: child }))).toEqual([]);
+    expect(
+      (await client.call('session.list', { parentSessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPZZ' }))
+        .error?.code,
+    ).toBe(ErrorCode.SESSION_NOT_FOUND);
+
+    const parentSnapshot = await client.request('session.get', { sessionId: parent });
+    expect(parentSnapshot.subagents).toEqual([
+      expect.objectContaining({ sessionId: child, status: 'completed', pendingApprovals: [] }),
+    ]);
+    const childSnapshot = await client.request('session.get', { sessionId: child });
+    expect(childSnapshot.session).toMatchObject({
+      parentSessionId: parent,
+      subagent: { status: 'completed' },
+    });
+    const childSub = await subscribe(client, child);
+    await client.until(
+      () => client.events(childSub.subscriptionId).at(-1)?.seq === childSnapshot.session.lastSeq,
+      'child replay',
+    );
+    expect(client.events(childSub.subscriptionId)[0]).toMatchObject({
+      type: 'session.created',
+      payload: { parent: { sessionId: parent } },
+    });
+
+    const send = await client.call('session.send', {
+      sessionId: child,
+      content: [{ type: 'text', text: 'hi' }],
+    });
+    expect(send.error).toMatchObject({
+      code: ErrorCode.INVALID_STATE,
+      data: { state: 'idle', parentSessionId: parent },
+    });
+    // 只有父会话挡住工作区移除。
+    const removeWs = await client.call('workspace.remove', {
+      workspaceId: parentSnapshot.session.workspaceId,
+    });
+    expect(removeWs.error).toMatchObject({
+      code: ErrorCode.RESOURCE_IN_USE,
+      data: { sessionIds: [parent] },
+    });
+  });
+});
+
 describe('events.subscribe', () => {
   it('先补发再实时：补发过程中并发写入的事件不丢不重、按 seq 连续，响应先于第一条事件', async () => {
     const h = await startHost({ replayBatchSize: 16 });

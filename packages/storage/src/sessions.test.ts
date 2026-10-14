@@ -99,6 +99,37 @@ describe('sessions', () => {
     expect(ids({ includeRemovedWorkspaces: true })).toEqual(['ses_2', 'ses_3', 'ses_1']);
   });
 
+  it('子会话（R4）：父子关系原样往返；默认列表不含子会话，按 parentSessionId 列出，includeChildren 全列', () => {
+    const s = storage();
+    seedSession(s, { id: 'ses_p', engineSessionId: 'e-parent', updatedAt: T0 });
+    const child = seedSession(s, {
+      id: 'ses_c',
+      engineSessionId: 'e-child',
+      parentSessionId: 'ses_p',
+      parentToolCallId: 'call_spawn_1',
+      updatedAt: T2,
+    });
+    seedSession(s, { id: 'ses_q', engineSessionId: 'e-other', updatedAt: T1 });
+    expect(s.sessions.get('ses_c')).toEqual(child);
+    expect(s.sessions.get('ses_p')?.parentSessionId).toBeUndefined();
+
+    const ids = (options?: Parameters<typeof s.sessions.list>[0]) =>
+      s.sessions.list(options).map((x) => x.id);
+    expect(ids()).toEqual(['ses_q', 'ses_p']);
+    expect(ids({ parentSessionId: 'ses_p' })).toEqual(['ses_c']);
+    expect(ids({ parentSessionId: 'ses_q' })).toEqual([]);
+    expect(ids({ includeChildren: true })).toEqual(['ses_c', 'ses_q', 'ses_p']);
+    // 子会话不算挡住工作区移除与 Provider 删除的未关闭会话。
+    expect(s.sessions.countOpenByWorkspace('ws_01')).toBe(2);
+    expect(s.sessions.countOpenByProvider('deepseek-official')).toBe(2);
+    // 父会话必须存在。
+    expect(() =>
+      s.sessions.insert(
+        session({ id: 'ses_x', engineSessionId: 'e-x', parentSessionId: 'ses_no' }),
+      ),
+    ).toThrow(/FOREIGN KEY constraint failed/);
+  });
+
   it('统计未关闭的会话', () => {
     const s = storage();
     seedSession(s, { id: 'ses_1', engineSessionId: 'e1', state: 'idle' });

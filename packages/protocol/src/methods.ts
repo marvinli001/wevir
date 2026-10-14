@@ -186,6 +186,10 @@ export const SessionResultSchema = z.object({
 export const SessionListParamsSchema = z.object({
   /** 省略时列出所有未移除工作区的会话。 */
   workspaceId: WorkspaceIdSchema.optional(),
+  /**
+   * 给了就只列出这个会话的子会话（0.6.0）；不给时不含子会话（domain-model §3.3.1）。
+   */
+  parentSessionId: SessionIdSchema.optional(),
 });
 
 export const SessionListResultSchema = z.object({

@@ -3,7 +3,13 @@
 
 import type { ContractOptions, ContractPrompts } from '@wevir/runtime-adapter/contract';
 import type { CodexAdapter } from '../codex-adapter.js';
-import { defaultMockScript, type MockScript, type MockToolCall } from './mock-model.js';
+import {
+  defaultMockScript,
+  type MockScript,
+  type MockToolCall,
+  SUBAGENT_PATTERN,
+  SUBAGENT_TASK_PREFIX,
+} from './mock-model.js';
 
 /** 适配器拉起过的 codex-app-server 进程（含自动重启的）的 pid。 */
 const launched = new WeakMap<CodexAdapter, number[]>();
@@ -71,11 +77,15 @@ export function approvalPrompt(target: string): string {
 
 /**
  * mock 模型的契约脚本：审批提示词先调一次越出沙箱的 `touch`，拿到结果后回一句话；其余交给默认脚本（`Say hello`
- * 一问一答，`Please call a tool` 在工作区里 `ls`）。
+ * 一问一答，`Please call a tool` 在工作区里 `ls`，`subagent` 派子 agent 并等它）。带审批标记的子 agent 提示词由父 agent
+ * 派出，子 agent（任务描述带着标记）去做越出沙箱的命令。
  */
 export function contractScript(target: string): MockScript {
   return (view) => {
-    if (!view.lastUserText.includes(APPROVAL_MARKER)) return defaultMockScript(view);
+    const text = view.lastUserText;
+    const parentOfSubagent =
+      !text.trimStart().startsWith(SUBAGENT_TASK_PREFIX) && SUBAGENT_PATTERN.test(text);
+    if (!text.includes(APPROVAL_MARKER) || parentOfSubagent) return defaultMockScript(view);
     if (view.toolOutputs.length > 0) return { text: ['命令已经', '处理完了。'], delayMs: 5 };
     return {
       text: ['这个文件在工作区之外，我申请一下权限。'],
@@ -91,6 +101,8 @@ export function mockContractPrompts(target: string): ContractPrompts {
     plain: 'Say hello',
     toolCall: 'Please call a tool',
     approval: approvalPrompt(target),
+    subagent: 'Please start a subagent',
+    subagentApproval: `Please start a subagent: ${approvalPrompt(target)}`,
   };
 }
 
@@ -104,6 +116,16 @@ export function realContractPrompts(target: string): ContractPrompts {
       `用 shell 命令 \`touch ${target}\` 创建这个文件。它在工作区之外，沙箱不允许写，`,
       '所以第一次调用就申请越出沙箱的权限（sandbox_permissions 设为 require_escalated），并写明理由。',
       '不要用 apply_patch，不要改用别的路径。完成后用一句话告诉我结果。',
+    ].join(''),
+    subagent: [
+      '用 multi_agent_v1 的 spawn_agent 派一个子 agent，任务是“只回复‘好’两个字，不要调用任何工具”；',
+      '再用 wait_agent 等它完成，然后用一句话告诉我它说了什么。你自己不要调用别的工具。',
+    ].join(''),
+    subagentApproval: [
+      '用 multi_agent_v1 的 spawn_agent 派一个子 agent，任务原文如下：',
+      `“用 shell 命令 \`touch ${target}\` 创建这个文件。它在工作区之外，沙箱不允许写，`,
+      '所以第一次调用就申请越出沙箱的权限（sandbox_permissions 设为 require_escalated），并写明理由。”',
+      '再用 wait_agent 等它完成，然后用一句话告诉我结果。你自己不要调用别的工具。',
     ].join(''),
   };
 }

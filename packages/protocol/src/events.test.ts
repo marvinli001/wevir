@@ -55,6 +55,9 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.category;
     case 'engine.raw':
       return event.payload.method;
+    case 'subagent.started':
+    case 'subagent.updated':
+      return event.payload.subagent.status;
     default: {
       const unhandled: never = event;
       return unhandled;

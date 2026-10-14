@@ -76,6 +76,8 @@ export const ErrorDataSchemas = {
     state: SessionStateSchema,
     /** 会话只读时有（0.3.0）：引擎会话恢复不了的原因。 */
     readOnly: SessionReadOnlySchema.optional(),
+    /** 子会话（0.6.0）：它由父 agent 驱动，不接受客户端的 send、cancel、close、resume。 */
+    parentSessionId: SessionIdSchema.optional(),
   }),
   SESSION_BUSY: z.object({
     state: SessionStateSchema,

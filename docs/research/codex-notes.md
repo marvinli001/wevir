@@ -60,7 +60,8 @@
 - 子 agent 是独立的 thread。父 thread 上是两个 `collabAgentToolCall` item（`spawnAgent`、`wait`），带 `receiverThreadIds`、`agentsStates`（含子 agent 的最终回答）。
 - **新 thread 自动挂到所有已初始化的连接**（`app-server/src/lib.rs:1291-1310`）：子 thread 的 `turn/started`、逐字增量、`item/completed`、`turn/completed` 都推到同一条连接上，按子 thread 的 `threadId` 区分；子回合的 `rootTurnId` 指向父回合。**子 thread 不发 `thread/started`**，父子关系要从 `collabAgentToolCall.receiverThreadIds` 或 `thread/read` 的 `parentThreadId` 得到。`thread/list {parentThreadId}` 要 `experimentalApi`（Spike `subagent`）。
 - 子 agent 发给模型的请求带 `x-openai-subagent: collab_spawn` 请求头，走同一个 Provider、同一个模型（Spike 实测请求的 `model` 都是配置的模型）。
-- 对 Wevir 的含义：`AgentEvent` 目前没有“子会话”的概念，要么把子 thread 的事件折叠成父会话里的一个工具卡片（最小改动），要么给协议加子会话（见 ADR-0005 未决事项）。
+- 对 Wevir 的含义：`AgentEvent` 目前没有“子会话”的概念，要么把子 thread 的事件折叠成父会话里的一个工具卡片（最小改动），要么给协议加子会话（见 ADR-0005 未决事项）。ADR-0005 决策 6.1 选了子会话，R4 实现（codex-event-mapping.md §6.5）。
+- **R4 补测（2026-10-14）**：父回合 `turn/interrupt` 不级联到子 thread（子回合照常跑完，子 thread 挂着的审批一直挂着，父回合的 `wait` 没有 `item/completed`）；对子 thread `turn/interrupt` 才结束子回合；`close_agent` 中断子回合并卸载子 thread；`wait_agent` 一个不存在的 ID 时 `item/started` 就列出它、`item/completed` 的 `agentsStates` 报 `notFound`；子 thread 的 `turn/started` 可能早于父 thread 上 spawn 的 `item/completed`。`thread/read` 子 thread 能拿到 `parentThreadId`、`agentNickname`、`agentRole`（都是稳定字段）。Wevir 由 Host 级联取消（domain-model §4.5）。
 
 ### 2.5 resume、fork 与持久化
 

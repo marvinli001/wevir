@@ -2,7 +2,8 @@
 // 分层照 OpenWork（openwork-notes §3.2）：协议事件 → 本投影 → 渲染。纯逻辑，不碰 DOM 与连接。
 //
 // 增量与已提交消息按 domain-model §6.3 合并；工具收尾按 §6.4，回合结束而工具未收尾时投影为 `unknown`
-// （Host 正常会补写，这里兜底，回放旧数据也不会一直转圈）。
+// （Host 正常会补写，这里兜底，回放旧数据也不会一直转圈）。子会话（R4）：父会话里每个子会话一个 `subagent` 部件与
+// `subagents` 摘要；子会话自己的回合输入（`turn.started.input`）投影成来自父 agent 的用户消息。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -22,6 +23,7 @@ import type {
   SessionReadOnlyReason,
   SessionState,
   StreamBlockRef,
+  SubagentSummary,
   TodoItem,
   ToolDisplay,
   ToolOutput,
@@ -78,7 +80,12 @@ export type ChatPart =
   | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
   /** 适配器不认识的引擎消息（`engine.raw`），只在 `includeRaw` 时投影。 */
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown }
-  | { type: 'notice'; key: string; notice: SessionNotice };
+  | { type: 'notice'; key: string; notice: SessionNotice }
+  /**
+   * 这个会话派出的一个子会话（R4，domain-model §8）：在派出它的回合里，`subagent.started` 时出现，随 `subagent.updated`
+   * 原位更新（`key` 是 `a:<子会话 ID>`）。界面据此画“开始工作 / 已完成”两行（R5）。
+   */
+  | { type: 'subagent'; key: string; subagent: SubagentSummary };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -101,7 +108,10 @@ interface MessageBase {
 export interface UserChatMessage extends MessageBase {
   role: 'user';
   turnId: TurnId;
-  sentBy: ClientIdentity;
+  /** 发出这条消息的客户端（`user.message`）。子会话里父 agent 给的输入没有。 */
+  sentBy?: ClientIdentity;
+  /** 子会话（R4）：这一回合的输入来自父 agent（`turn.started.input`），不是客户端发的。 */
+  fromParentAgent?: true;
   clientMessageId?: string;
   ts: IsoTime;
 }
@@ -137,7 +147,18 @@ export interface Transcript {
   readOnly: SessionReadOnly | undefined;
   lastError: EngineErrorInfo | undefined;
   usage: Usage | undefined;
+  /** 这个会话派出的子会话的摘要（R4），按派出的先后；规则同 Host 快照的 `subagents`。 */
+  subagents: readonly SubagentSummary[];
+  /** 子会话（R4）：父会话与派出它的工具调用（`session.created.parent`）。 */
+  parent: ParentRef | undefined;
   lastSeq: number;
+}
+
+/** 子会话的父会话（`session.created` 的 `parent`）。 */
+export interface ParentRef {
+  sessionId: SessionId;
+  toolCallId: string;
+  turnId?: TurnId;
 }
 
 export interface TranscriptProjectionOptions {
@@ -153,6 +174,7 @@ interface MutableMessage {
   firstSeq: number;
   lastSeq: number;
   sentBy?: ClientIdentity;
+  fromParentAgent?: true;
   clientMessageId?: string;
   ts?: IsoTime;
   startedAt?: IsoTime;
@@ -179,6 +201,10 @@ export class TranscriptProjection {
   #readOnly: SessionReadOnly | undefined;
   #lastError: EngineErrorInfo | undefined;
   #usage: Usage | undefined;
+  #subagents: SubagentSummary[] = [];
+  /** 子会话 ID → 它的部件所在的消息。 */
+  #subagentParts = new Map<SessionId, MutableMessage>();
+  #parent: ParentRef | undefined;
   #lastSeq = 0;
   #dirty = true;
   #snapshot: Transcript | undefined;
@@ -205,6 +231,9 @@ export class TranscriptProjection {
     this.#readOnly = undefined;
     this.#lastError = undefined;
     this.#usage = undefined;
+    this.#subagents = [];
+    this.#subagentParts.clear();
+    this.#parent = undefined;
     this.#lastSeq = 0;
     this.#dirty = true;
   }
@@ -214,9 +243,12 @@ export class TranscriptProjection {
     this.#lastSeq = event.seq;
     this.#dirty = true;
     switch (event.type) {
-      case 'session.created':
+      case 'session.created': {
         this.#state = 'idle';
+        const parent = event.payload.parent;
+        if (parent !== undefined) this.#parent = { ...parent };
         return;
+      }
       case 'session.resumed':
         this.#readOnly = undefined;
         this.#notice(event, { kind: 'resumed', engineVersion: event.payload.engineVersion });
@@ -241,6 +273,8 @@ export class TranscriptProjection {
         this.#userMessage(event);
         return;
       case 'turn.started': {
+        // 子会话：这一回合的输入来自父 agent（R4），投影成一条用户消息。
+        if (event.payload.input !== undefined) this.#agentInput(event);
         const message = this.#assistant(event.payload.turnId, event.seq);
         message.startedAt = event.ts;
         this.#activeTurnId = event.payload.turnId;
@@ -289,6 +323,10 @@ export class TranscriptProjection {
       case 'engine.raw':
         if (this.#includeRaw) this.#raw(event);
         return;
+      case 'subagent.started':
+      case 'subagent.updated':
+        this.#subagent(event);
+        return;
     }
   }
 
@@ -320,6 +358,8 @@ export class TranscriptProjection {
       readOnly: this.#readOnly,
       lastError: this.#lastError,
       usage: this.#usage,
+      subagents: this.#subagents,
+      parent: this.#parent,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -353,6 +393,31 @@ export class TranscriptProjection {
       lastSeq: event.seq,
       sentBy,
       clientMessageId,
+      ts: event.ts,
+      snapshot: undefined,
+    });
+  }
+
+  /** 子会话的回合输入（`turn.started.input`）：父 agent 发来的，没有 `sentBy`。 */
+  #agentInput(event: WevirEventOf<'turn.started'>): void {
+    const { turnId, input } = event.payload;
+    const turn = this.#turn(turnId);
+    if (turn.user || input === undefined) return;
+    turn.user = this.#push({
+      role: 'user',
+      id: turnId,
+      turnId,
+      parts: [
+        {
+          type: 'text',
+          key: 'text',
+          text: input.map((part) => part.text).join('\n'),
+          state: 'done',
+        },
+      ],
+      firstSeq: event.seq,
+      lastSeq: event.seq,
+      fromParentAgent: true,
       ts: event.ts,
       snapshot: undefined,
     });
@@ -563,6 +628,33 @@ export class TranscriptProjection {
     }));
   }
 
+  // ── 子会话 ───────────────────────────────────────────────────────────
+
+  /**
+   * `subagent.started` / `subagent.updated`：摘要列表按 `sessionId` 追加或替换；部件放在派出它的回合（没有回合时一条
+   * 系统消息），之后原位更新。
+   */
+  #subagent(event: WevirEventOf<'subagent.started'> | WevirEventOf<'subagent.updated'>): void {
+    const summary = event.payload.subagent;
+    const index = this.#subagents.findIndex((item) => item.sessionId === summary.sessionId);
+    this.#subagents =
+      index < 0
+        ? [...this.#subagents, summary]
+        : this.#subagents.map((item, i) => (i === index ? summary : item));
+    const key = `a:${summary.sessionId}`;
+    const existing = this.#subagentParts.get(summary.sessionId);
+    if (existing) {
+      this.#touch(existing, event.seq);
+      existing.parts = existing.parts.map((part) =>
+        part.key === key ? { type: 'subagent', key, subagent: summary } : part,
+      );
+      return;
+    }
+    const message = this.#target(summary.parentTurnId, event.seq);
+    message.parts.push({ type: 'subagent', key, subagent: summary });
+    this.#subagentParts.set(summary.sessionId, message);
+  }
+
   // ── 错误与调试 ───────────────────────────────────────────────────────
 
   #engineError(event: WevirEventOf<'engine.error'>): void {
@@ -623,7 +715,8 @@ function freeze(message: MutableMessage): ChatMessage {
         ...base,
         role: 'user',
         turnId: message.turnId as TurnId,
-        sentBy: message.sentBy as ClientIdentity,
+        ...(message.sentBy !== undefined && { sentBy: message.sentBy }),
+        ...(message.fromParentAgent && { fromParentAgent: true }),
         ...(message.clientMessageId !== undefined && { clientMessageId: message.clientMessageId }),
         ts: message.ts as IsoTime,
       };

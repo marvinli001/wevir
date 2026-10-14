@@ -218,6 +218,45 @@ describe('EventRenderer', () => {
     );
   });
 
+  it('子 agent（R4）：开始、完成各一行；它的审批标出来源，结束后说明', () => {
+    const { r, text } = renderer();
+    r.caughtUp();
+    const child: SessionId = 'ses_01JA2B3C4D5E6F7G8H9JKMNPZZ';
+    const summary = {
+      sessionId: child,
+      parentToolCallId: 'call_spawn_1',
+      title: 'Helper task',
+      modelId: 'deepseek-chat',
+      reasoningEffort: 'medium',
+      status: 'running' as const,
+      startedAt: '2026-10-13T00:00:00.000Z',
+      pendingApprovals: [],
+    };
+    const childApproval = { ...approval, sessionId: child };
+    r.render(ev('subagent.started', { subagent: summary }));
+    r.render(
+      ev('subagent.updated', { subagent: { ...summary, pendingApprovals: [childApproval] } }),
+    );
+    r.render(ev('subagent.updated', { subagent: { ...summary, title: 'Mock：核对' } }));
+    r.render(
+      ev('subagent.updated', {
+        subagent: { ...summary, title: 'Mock：核对', status: 'completed' },
+      }),
+    );
+    expect(text()).toBe(
+      [
+        '↳ 子 agent 开始工作：Helper task（deepseek-chat · medium）',
+        '⚠ 需要审批（来自子 agent Helper task）：write /home/u/out/summary.md',
+        '  理由：用户要求另存一份',
+        '  申请权限：danger-full-access',
+        '  选项：1) 允许一次  2) 拒绝',
+        '（子 agent Mock：核对 的审批已结束）',
+        '↳ 子 agent 完成：Mock：核对',
+        '',
+      ].join('\n'),
+    );
+  });
+
   it('审批：本终端处理的、以及非用户结束的', () => {
     const here = renderer({ decidedHere: true });
     here.r.caughtUp();

@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.5.0`（R3：`TitleSource` 加 `generated` 与能力位 `title_source_generated`、`session.title_changed` 加 `description`、`engine.raw` 的 `protocol` 放开为字符串；最低兼容 `0.1.0`）· 日期：2026-10-14
+> 状态：v0（T1.2）· 协议版本 `0.6.0`（R4：子会话——`Session` 加 `parentSessionId`、`subagent`，快照加 `subagents`，新事件 `subagent.started` / `subagent.updated`，`session.created` 加 `parent`、`turn.started` 加 `input`，`session.list` 加 `parentSessionId`，`INVALID_STATE` 的 `data` 加 `parentSessionId`；最低兼容 `0.1.0`）· 日期：2026-10-14
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -85,12 +85,12 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `provider.remove` | `provider.write` | `providerId` | `{}` | `PROVIDER_NOT_FOUND`、`RESOURCE_IN_USE` |
 | `provider.test` | `provider.write` | `providerId, modelId?` | `ok, latencyMs?, error?, reason?, httpStatus?` | `PROVIDER_NOT_FOUND` |
 | `session.create` | `session.write` | `workspaceId, providerId, modelId?, reasoningEffort?` | `session` | `WORKSPACE_NOT_FOUND`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
-| `session.list` | `session.read` | `workspaceId?` | `sessions: Session[]` | `WORKSPACE_NOT_FOUND` |
+| `session.list` | `session.read` | `workspaceId?, parentSessionId?` | `sessions: Session[]` | `WORKSPACE_NOT_FOUND`、`SESSION_NOT_FOUND` |
 | `session.get` | `session.read` | `sessionId` | `SessionSnapshot` | `SESSION_NOT_FOUND` |
 | `session.send` | `session.write` | `sessionId, content, clientMessageId?` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`CLIENT_MESSAGE_CONFLICT`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
-| `session.cancel` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND` |
-| `session.close` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND` |
-| `session.resume` | `session.write` | `sessionId` | `session` | `SESSION_NOT_FOUND`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.cancel` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
+| `session.close` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
+| `session.resume` | `session.write` | `sessionId` | `session` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `approval.respond` | `session.write` | `approvalId, optionId` | `approvalId, status, resolution` | `APPROVAL_NOT_FOUND`、`ALREADY_DECIDED` |
 | `events.subscribe` | `session.read` | `sessionId, sinceSeq` | `subscriptionId, replayedThroughSeq` | `SESSION_NOT_FOUND` |
 | `events.unsubscribe` | `session.read` | `subscriptionId` | `{}` | |
@@ -112,13 +112,13 @@ Host → 客户端的通知：
 - **`provider.remove`**：同时删除 Key。被未关闭会话引用时回 `RESOURCE_IN_USE`。
 - **`provider.test`**：用该 Provider 发一次最小请求（带已存的 Key）。连通与否放在结果里（`ok`、`error.category` / `error.message`），不作为 JSON-RPC 错误；只有 Provider 不存在才回错误。0.2.0 起失败时另有 `reason`（`missing_key` / `network` / `timeout` / `auth` / `model_not_found` / `protocol` / `rate_limited` / `server` / `unknown`）与收到的 `httpStatus`，归类规则见 [providers.md](./providers.md) §6。
 - **`session.create`**：`modelId` 省略时用 Provider 的 `defaultModelId`。Host 先建引擎会话，成功后才写 `session.created`（`seq = 1`），返回的 `session.state` 为 `idle`、`lastSeq` 为 1。引擎失败回 `ENGINE_ERROR`，不建会话。
-- **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。
-- **`session.get`**：返回由事件推导的快照 `{session: {state, activeTurn, lastSeq, …}, pendingApprovals, todos?, usage?}`（ADR-0002 §3）。中途加入的客户端先取快照，再以 `sinceSeq = session.lastSeq` 订阅。
-- **`session.send`**：会话是 `running` / `awaiting_approval` / `cancelling` 时回 `SESSION_BUSY`（`data` 带 `state` 与 `activeTurn`），不排队、不打断；`error` / `closed` 时回 `INVALID_STATE`（`data.state`），先 `session.resume`。`idle` 时接受，结果是新回合的 `turnId` 和这次 `user.message` 的 `seq`。`clientMessageId` 是幂等键，检查排在状态检查之前：同一会话里同一 ID、同样的 `content` 重发，返回原结果，不再发给引擎（不论会话现在处于什么状态，也不论那个回合后来怎样）；同一 ID、不同 `content` 回 `CLIENT_MESSAGE_CONFLICT`。send 前的自动 resume 失败回 `ENGINE_ERROR`（`category: session_unavailable`），工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不调引擎、状态不变）。会话只读（0.3.0，`session.readOnly`，引擎会话恢复不了）时回 `INVALID_STATE`，`data.readOnly` 给出原因与引擎原文，客户端据此提示“基于历史新建会话”，不要再提示 resume。Host 接受之后引擎拒收（适配器调用失败）时仍返回本回合的 `turnId` 与 `seq`：消息已被 Host 接受，失败经 `engine.error` 与 `session.state_changed`（→ `error`）送达，重发同一 `clientMessageId` 也返回这个结果（领域模型 §4.3）。
-- **`session.cancel`**：幂等，非活动状态下成功、无操作（领域模型 §4.2）。Host 等到回合结算（`turn.finished` 已写入），或判定无法确认（会话转 `error`，取消时限 5 s）才返回；结算细节以事件为准。
-- **`session.close`**：活动中的会话先取消再关闭（领域模型 §4.1 #14）；已关闭时成功、无操作。
-- **`session.resume`**：`error` / `closed` 时恢复为 `idle`，其余状态成功、无操作；返回最新的 `session`。成功时先写 `session.resumed`（0.3.0，带引擎版本），引擎不回放历史，历史以事件库为准。Provider 已被删除回 `PROVIDER_NOT_FOUND`；工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不写事件）；引擎拒绝回 `ENGINE_ERROR`（同时追加一条 `engine.error` 事件，状态不变）。引擎会话恢复不了（会话日志被删除、格式不兼容或损坏）时另写 `session.read_only`，会话带上 `readOnly`；只读会话仍可以 resume，引擎找回会话时成功并解除只读（领域模型 §4.4）。
-- **`approval.respond`**：`optionId` 必须是该审批 `options` 里的一个，否则 `INVALID_PARAMS`，审批不变。首个决定生效；审批已不是 `pending` 时回 `ALREADY_DECIDED`，`data` 带既有的 `status` 与 `resolution`（领域模型 §5）。提交给引擎失败时会话转 `error`，审批结为 `cancelled`（`engine_exited`），同样回 `ALREADY_DECIDED`（领域模型 §4.3）。
+- **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。默认**不含子会话**（0.6.0，领域模型 §3.3.1）：子会话由引擎派出、只读，跟着父会话显示，不进左栏的会话列表。带 `parentSessionId` 时只列出这个会话的子会话（不论 `workspaceId`；会话不存在或所属工作区已移除时回 `SESSION_NOT_FOUND`）；一个会话的子会话也在它的快照 `subagents` 里（摘要）。
+- **`session.get`**：返回由事件推导的快照 `{session: {state, activeTurn, lastSeq, …}, pendingApprovals, todos?, usage?, subagents?}`（ADR-0002 §3）。中途加入的客户端先取快照，再以 `sinceSeq = session.lastSeq` 订阅。0.6.0：子会话照常可以 `session.get`，`session` 带 `parentSessionId` 与 `subagent`（父工具调用、状态、起止时间）；派出过子会话的会话带 `subagents`，每个子会话一份摘要（标题、模型与推理强度、昵称、状态、起止时间，以及它的未决审批的副本），按 `startedAt` 排列（领域模型 §3.3.1）。
+- **`session.send`**：会话是 `running` / `awaiting_approval` / `cancelling` 时回 `SESSION_BUSY`（`data` 带 `state` 与 `activeTurn`），不排队、不打断；`error` / `closed` 时回 `INVALID_STATE`（`data.state`），先 `session.resume`。`idle` 时接受，结果是新回合的 `turnId` 和这次 `user.message` 的 `seq`。`clientMessageId` 是幂等键，检查排在状态检查之前：同一会话里同一 ID、同样的 `content` 重发，返回原结果，不再发给引擎（不论会话现在处于什么状态，也不论那个回合后来怎样）；同一 ID、不同 `content` 回 `CLIENT_MESSAGE_CONFLICT`。send 前的自动 resume 失败回 `ENGINE_ERROR`（`category: session_unavailable`），工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不调引擎、状态不变）。会话只读（0.3.0，`session.readOnly`，引擎会话恢复不了）时回 `INVALID_STATE`，`data.readOnly` 给出原因与引擎原文，客户端据此提示“基于历史新建会话”，不要再提示 resume。Host 接受之后引擎拒收（适配器调用失败）时仍返回本回合的 `turnId` 与 `seq`：消息已被 Host 接受，失败经 `engine.error` 与 `session.state_changed`（→ `error`）送达，重发同一 `clientMessageId` 也返回这个结果（领域模型 §4.3）。子会话（0.6.0）是只读的，由父 agent 驱动：回 `INVALID_STATE`，`data.parentSessionId` 是父会话（幂等检查照样在前）。
+- **`session.cancel`**：幂等，非活动状态下成功、无操作（领域模型 §4.2）。Host 等到回合结算（`turn.finished` 已写入），或判定无法确认（会话转 `error`，取消时限 5 s）才返回；结算细节以事件为准。0.6.0：同时取消这个会话所有活动中的子会话（递归，父会话空闲时也是），等它们一并结算（领域模型 §4.5：Codex 取消父回合时不动子 agent，由 Host 级联）。对子会话本身回 `INVALID_STATE`（`data.parentSessionId`）：子会话不能单独停止。
+- **`session.close`**：活动中的会话先取消再关闭（领域模型 §4.1 #14）；已关闭时成功、无操作。0.6.0：活动中的子会话同 `session.cancel` 一并取消，但不关闭（历史照常可读）；对子会话本身回 `INVALID_STATE`（子会话由父 agent 关闭）。
+- **`session.resume`**：`error` / `closed` 时恢复为 `idle`，其余状态成功、无操作；返回最新的 `session`。成功时先写 `session.resumed`（0.3.0，带引擎版本），引擎不回放历史，历史以事件库为准。Provider 已被删除回 `PROVIDER_NOT_FOUND`；工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不写事件）；引擎拒绝回 `ENGINE_ERROR`（同时追加一条 `engine.error` 事件，状态不变）。引擎会话恢复不了（会话日志被删除、格式不兼容或损坏）时另写 `session.read_only`，会话带上 `readOnly`；只读会话仍可以 resume，引擎找回会话时成功并解除只读（领域模型 §4.4）。对子会话回 `INVALID_STATE`（0.6.0）：子会话在父 agent 又用到它时由 Host 重新挂上（领域模型 §4.5 C5）。
+- **`approval.respond`**：`optionId` 必须是该审批 `options` 里的一个，否则 `INVALID_PARAMS`，审批不变。首个决定生效；审批已不是 `pending` 时回 `ALREADY_DECIDED`，`data` 带既有的 `status` 与 `resolution`（领域模型 §5）。提交给引擎失败时会话转 `error`，审批结为 `cancelled`（`engine_exited`），同样回 `ALREADY_DECIDED`（领域模型 §4.3）。子会话的审批（0.6.0）属于子会话，`approvalId` 取自子会话的事件流，或父会话快照与 `subagent.*` 事件里摘要的 `pendingApprovals`；任何连接都能回，不论它订阅的是父会话还是子会话，首个决定生效（领域模型 §5 第 8 条）。
 - **`events.subscribe` / `events.unsubscribe`**：见 §4。`events.unsubscribe` 对不存在或已释放的 `subscriptionId` 成功、无操作。
 
 ### 3.2 示例
@@ -194,6 +194,8 @@ Host → 客户端的通知：
 - 中途加入：`session.get` 取快照，再以 `sinceSeq = session.lastSeq` 订阅。
 - client-sdk 的 `subscribe()` 按以上规则实现（T4.1）：订阅结果在收到它的那一帧里同步登记 `subscriptionId`（`ws` 会在同一轮里连续派发多帧，等 Promise 回调再登记会把紧随其后的事件误判为缺口）；断线重连后以已应用的最大 `seq` 续订；重新订阅时遇到 `HOST_SHUTTING_DOWN` 不结束订阅，等重连；在同一个 `seq` 上连续重新订阅 3 次仍没有进展（Host 每次在这里都发同样不合协议的东西）时，以 `ProtocolError` 结束订阅，不无限重试。
 
+**子会话的事件在哪个流里**（0.6.0，领域模型 §3.3.1）：子会话有自己的事件流（`seq` 从 1 起），子 agent 的回合、增量、工具、审批都写在那里，按子会话的 `sessionId` 订阅；父会话的事件流里只有 `subagent.started`（派出了一个子会话）与 `subagent.updated`（它的标题、状态、未决审批变了，每次带完整摘要）。界面在父会话里显示子会话的开始与完成、来自子会话的审批，只订阅父会话就够；打开子 agent 视图时再订阅子会话。子会话的审批只在子会话的流里有 `approval.requested` / `approval.resolved`，父会话的流里是摘要的 `pendingApprovals` 跟着变。
+
 ## 5. 事件类型
 
 信封字段：`seq`（会话内从 1 开始连续递增）、`sessionId`、`ts`（Host 追加时间）、`type`、`source`（`host` / `engine`）、`payload`。各类型的 payload 字段、来源与触发时机见[领域模型](./domain-model.md) §6；代码在 `EventPayloadSchemas`。
@@ -222,6 +224,8 @@ Host → 客户端的通知：
 | `usage.updated` | engine |
 | `engine.error` | engine / host |
 | `engine.raw` | engine |
+| `subagent.started` | host |
+| `subagent.updated` | host |
 
 `engine.raw` 不按能力位门控，所有订阅者都收到（门控意味着扣下事件，会打断 `seq` 的连续性，§4 第 4 条）；客户端默认不投影它，开发者模式下作为调试信息显示。它的 `params` 按 §11 截断。
 
@@ -261,7 +265,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `PROVIDER_NOT_FOUND` | -32011 | Provider 不存在 | |
 | `SESSION_NOT_FOUND` | -32012 | 会话不存在（含所属工作区已移除） | |
 | `APPROVAL_NOT_FOUND` | -32013 | 审批不存在 | |
-| `INVALID_STATE` | -32020 | 会话当前状态不允许该操作（`error` / `closed` 时 send） | `state, readOnly?` |
+| `INVALID_STATE` | -32020 | 会话当前状态不允许该操作（`error` / `closed` 时 send；子会话不接受客户端的 send、cancel、close、resume） | `state, readOnly?, parentSessionId?` |
 | `SESSION_BUSY` | -32021 | 会话有进行中的回合 | `state, activeTurn?` |
 | `ALREADY_DECIDED` | -32022 | 审批已结算 | `approvalId, status, resolution` |
 | `CLIENT_MESSAGE_CONFLICT` | -32023 | 同一 `clientMessageId` 的请求体不同 | `clientMessageId` |
@@ -308,7 +312,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 **版本**
 
 - `PROTOCOL_VERSION` 是 `主.次.修订` 三段的 semver，不带预发布标签。主版本不同即不兼容，Host 拒绝 hello；同一主版本内次版本只增不减、向后兼容；修订号只用于不改变线缆形状的修正。
-- 版本历史：`0.1.0`（T1.2，基线）；`0.2.0`（T3.4）：`ProviderModel` 加 `maxTokens`、`supportsImages`、`reasoningEfforts`，`provider.test` 结果加 `reason`、`httpStatus`，全部 optional，`MIN_PROTOCOL_VERSION` 仍是 `0.1.0`。新 Host 服务 0.1.0 客户端：多出的字段被旧 schema 忽略（规则 5）；0.2.0 客户端连旧 Host：旧 Host 不发这些字段，客户端按 optional 处理。`0.3.0`（T3.5）：新事件类型 `session.resumed`、`session.read_only`，`session.created` 加 `engineVersion`，`Session` 加 `readOnly`，`INVALID_STATE` 的 `data` 加 `readOnly`，全部是新类型或 optional 字段，没有给已有类型加枚举值，不需要能力位；`session.send` 与 `session.resume` 可能多回 `WORKSPACE_PATH_INVALID`（已有错误码）。新 Host 服务旧客户端：旧客户端忽略两种新事件（规则 5，照常推进 `lastSeq`）与新字段，只读会话在它看来是普通的 `error`，send 回 `INVALID_STATE`、resume 回 `ENGINE_ERROR`；0.3.0 客户端连旧 Host：收不到这些事件与字段，按 optional 处理。`0.4.0`（ADR-0005 补记 7）：`ProviderCompat` 加 `supportsCustomTools`（布尔）与 `systemMessageMode`（`inline` / `merge` / `user`），只有 Codex 引擎的模型网关读它们，dsh 适配器接受但忽略；都是 optional 的新字段，不需要能力位。新 Host 服务旧客户端：旧客户端的 schema 丢掉这两个字段（规则 5），它编辑 Provider 时不会带回，按 `provider.upsert` 整体替换的语义，这两个开关会被清掉；0.4.0 客户端连旧 Host：旧 Host 丢掉它们，网关按默认处理。`0.5.0`（R3，ADR-0005 补记 8）：`TitleSource` 加 `generated`（会话的模型生成的标题，prompts/thread-title.md）——给已有类型加枚举值，按下面的规则用能力位 `title_source_generated` 门控：没有声明它的连接，`session.title_changed` 事件与 `session.create` / `session.get` / `session.list` / `session.resume` 结果里的 `generated` 换成 `first_prompt`（`rpc-connection.ts` 的 `adaptEventForClient` / `adaptResultForClient`），标题本身照发；`session.title_changed` 加 optional 的 `description`（检索摘要）；`engine.raw` 的 `protocol` 从字面量 `acp` 放开为非空字符串（Codex 引擎是 `codex-app-server`）。`engine.raw` 只是调试信息、不按能力位门控（§5），旧客户端的 schema 只认 `acp`，按 T4.1 的做法跳过不合 schema 的那几条（告警、照常推进 `lastSeq`），不影响别的事件。新 Host 服务旧客户端：标题来源降级，看到的仍是“自动标题”；0.5.0 客户端连旧 Host：收不到 `generated` 与 `description`，按 optional 处理。
+- 版本历史：`0.1.0`（T1.2，基线）；`0.2.0`（T3.4）：`ProviderModel` 加 `maxTokens`、`supportsImages`、`reasoningEfforts`，`provider.test` 结果加 `reason`、`httpStatus`，全部 optional，`MIN_PROTOCOL_VERSION` 仍是 `0.1.0`。新 Host 服务 0.1.0 客户端：多出的字段被旧 schema 忽略（规则 5）；0.2.0 客户端连旧 Host：旧 Host 不发这些字段，客户端按 optional 处理。`0.3.0`（T3.5）：新事件类型 `session.resumed`、`session.read_only`，`session.created` 加 `engineVersion`，`Session` 加 `readOnly`，`INVALID_STATE` 的 `data` 加 `readOnly`，全部是新类型或 optional 字段，没有给已有类型加枚举值，不需要能力位；`session.send` 与 `session.resume` 可能多回 `WORKSPACE_PATH_INVALID`（已有错误码）。新 Host 服务旧客户端：旧客户端忽略两种新事件（规则 5，照常推进 `lastSeq`）与新字段，只读会话在它看来是普通的 `error`，send 回 `INVALID_STATE`、resume 回 `ENGINE_ERROR`；0.3.0 客户端连旧 Host：收不到这些事件与字段，按 optional 处理。`0.4.0`（ADR-0005 补记 7）：`ProviderCompat` 加 `supportsCustomTools`（布尔）与 `systemMessageMode`（`inline` / `merge` / `user`），只有 Codex 引擎的模型网关读它们，dsh 适配器接受但忽略；都是 optional 的新字段，不需要能力位。新 Host 服务旧客户端：旧客户端的 schema 丢掉这两个字段（规则 5），它编辑 Provider 时不会带回，按 `provider.upsert` 整体替换的语义，这两个开关会被清掉；0.4.0 客户端连旧 Host：旧 Host 丢掉它们，网关按默认处理。`0.5.0`（R3，ADR-0005 补记 8）：`TitleSource` 加 `generated`（会话的模型生成的标题，prompts/thread-title.md）——给已有类型加枚举值，按下面的规则用能力位 `title_source_generated` 门控：没有声明它的连接，`session.title_changed` 事件与 `session.create` / `session.get` / `session.list` / `session.resume` 结果里的 `generated` 换成 `first_prompt`（`rpc-connection.ts` 的 `adaptEventForClient` / `adaptResultForClient`），标题本身照发；`session.title_changed` 加 optional 的 `description`（检索摘要）；`engine.raw` 的 `protocol` 从字面量 `acp` 放开为非空字符串（Codex 引擎是 `codex-app-server`）。`engine.raw` 只是调试信息、不按能力位门控（§5），旧客户端的 schema 只认 `acp`，按 T4.1 的做法跳过不合 schema 的那几条（告警、照常推进 `lastSeq`），不影响别的事件。新 Host 服务旧客户端：标题来源降级，看到的仍是“自动标题”；0.5.0 客户端连旧 Host：收不到 `generated` 与 `description`，按 optional 处理。`0.6.0`（R4，ADR-0005 补记 9）：子会话。新类型 `SubagentStatus`、`SubagentInfo`、`SubagentSummary`；`Session` 加 optional 的 `parentSessionId` 与 `subagent`，`SessionSnapshot` 加 `subagents`；新事件类型 `subagent.started` / `subagent.updated`；`session.created` 加 `parent`、`turn.started` 加 `input`；`session.list` 的参数加 `parentSessionId`，并且默认不再列出子会话；`INVALID_STATE` 的 `data` 加 `parentSessionId`，`session.cancel` / `session.close` / `session.resume` 可能回它（已有错误码，只对子会话）。都是新类型、新事件或 optional 字段，没有给已有类型加枚举值，不需要能力位。新 Host 服务旧客户端：`session.list` 不给它子会话，它也就不会订阅子会话；它忽略父会话流里的两种新事件（规则 5），快照里的 `subagents` 被它的 schema 丢掉，看到的父会话与 0.5.0 相同（子 agent 的派出、等待仍是工具调用），只是看不到、也回不了子会话的审批（审批挂到父会话被取消为止，取消会级联到子会话）。0.6.0 客户端连旧 Host：旧 Host 不认 `parentSessionId`（schema 丢掉它）而返回全部会话，旧 Host 上本来没有子会话，结果相同；收不到新事件与字段，按 optional 处理。
 - 协商（`negotiateProtocolVersion`）：主版本相同且客户端不低于 `minProtocolVersion` 才接受，协商结果取双方中较低的版本。Host 提高 `minProtocolVersion` 等于放弃更老的客户端，要在变更说明里写明。
 
 **线缆契约（永远遵守）**

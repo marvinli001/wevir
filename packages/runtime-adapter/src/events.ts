@@ -1,4 +1,4 @@
-import type { PendingApproval, TodoItem, ToolDisplay } from './types.js';
+import type { AgentInput, PendingApproval, TodoItem, ToolDisplay } from './types.js';
 
 // AgentEvent：适配器上报给 Host 的引擎无关中间表示。Host 给它配上 Wevir 会话 ID、turnId、seq，
 // 写成 WevirEvent（domain-model.md §6）。与那份事件目录相比：
@@ -14,11 +14,14 @@ import type { PendingApproval, TodoItem, ToolDisplay } from './types.js';
 // 截断）。
 //
 // 顺序约定：
-// - 一个会话同一时刻至多一个回合。`send` 成功之后到该回合的终结事件之前，事件都属于这个回合。
+// - 一个会话同一时刻至多一个回合。`send` 成功之后到该回合的终结事件之前，事件都属于这个回合。子会话（R4，
+//   domain-model §3.3.1）的回合由引擎开始：`turn.started` 之后到终结事件之前的事件属于它。
 // - 每个回合恰好一个终结事件：`turn.settled`、`turn.failed`，或（进程死了）`engine.exited`。
 //   回合内的其他事件都在终结事件之前发出。
-// - 回合之间只可能出现 `engine.exited` 与 `engine.raw`。
+// - 回合之间只可能出现 `engine.exited`、`engine.raw`、`subagent.*`（以及子会话的 `turn.started`）。
 // - `engine.exited` 之后该会话的订阅结束。
+// - 子会话：父会话的流里先有 `subagent.started`，子会话的流在第一个订阅者到来之前缓冲（`EventHub` 的
+//   `bufferUntilSubscribed`），Host 收到 `subagent.started` 再订阅不会漏事件。
 
 /** 增量块的引用：哪个 attempt 的第几个块。 */
 export interface DeltaBlockRef {
@@ -184,6 +187,59 @@ export interface EngineExitedEvent {
   reason?: 'config_changed' | 'cancel_unconfirmed';
 }
 
+/**
+ * 子会话的回合开始（R4）：只出现在子会话的流里，回合由引擎开始（父 agent 派了任务或发来消息），不经 `send`。
+ * 之后到终结事件为止的事件属于这个回合。
+ */
+export interface TurnStartedEvent {
+  type: 'turn.started';
+  /** 子会话。 */
+  engineSessionId: string;
+  /** 父 agent 给的输入（Codex：子 thread 这一回合的 userMessage）；引擎没给时省略。 */
+  input?: AgentInput['content'];
+}
+
+/**
+ * 父会话派出了一个子 agent（R4，domain-model §3.3.1）。发在**父**会话的流里，回合之内或之间都可能；子会话的流此后
+ * 可以订阅（之前的事件已缓冲）。同一个子会话被重新认出（引擎重启后父 agent 又用到它）时再发一次。
+ */
+export interface SubagentStartedEvent {
+  type: 'subagent.started';
+  /** 父会话。 */
+  engineSessionId: string;
+  /** 子会话的引擎会话 ID（Codex：子 thread）。 */
+  childEngineSessionId: string;
+  /** 父会话里派出它的工具调用（同一流里 `tool.started` 的 `toolCallId`）。 */
+  parentToolCallId: string;
+  /** 兜底标题：引擎给的名称 → 任务描述首行 → 昵称；都没有时为空串。 */
+  title: string;
+  /** 任务描述原文；Host 用它生成标题。 */
+  prompt?: string;
+  /** 子 agent 实际用的模型与推理强度；不知道时省略，Host 沿用父会话的。 */
+  modelId?: string;
+  reasoningEffort?: string;
+  /** 引擎给子 agent 起的名字（Codex 的 agentNickname）。 */
+  nickname?: string;
+  /** 引擎的子 agent 类型（Codex 的 agentRole）。 */
+  role?: string;
+}
+
+/**
+ * 子 agent 晚到的信息（R4），发在父会话的流里：新的兜底标题（引擎给的名称等）、昵称、角色，或父 agent 关掉了它
+ * （`closed`）。子会话的回合与状态以子会话自己的流为准。
+ */
+export interface SubagentUpdatedEvent {
+  type: 'subagent.updated';
+  /** 父会话。 */
+  engineSessionId: string;
+  childEngineSessionId: string;
+  title?: string;
+  nickname?: string;
+  role?: string;
+  /** 父 agent 关掉了它（Codex：`close_agent`）；进行中的回合引擎会另外结束。 */
+  closed?: true;
+}
+
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */
 export interface EngineRawEvent {
   type: 'engine.raw';
@@ -212,7 +268,10 @@ export type AgentEvent =
   | TurnSettledEvent
   | TurnFailedEvent
   | EngineExitedEvent
-  | EngineRawEvent;
+  | EngineRawEvent
+  | TurnStartedEvent
+  | SubagentStartedEvent
+  | SubagentUpdatedEvent;
 
 export type AgentEventType = AgentEvent['type'];
 

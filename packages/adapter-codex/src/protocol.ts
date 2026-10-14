@@ -108,10 +108,28 @@ export interface ThreadResumeParams {
 /** v2/ThreadResumeResponse.ts（与 ThreadStartResponse 同样只读这几项）。 */
 export type ThreadResumeResponse = ThreadStartResponse;
 
-/** v2/Thread.ts（只读 id）。 */
+/**
+ * v2/Thread.ts（只读这几项；都是稳定字段，`canAcceptDirectInput` 等实验字段不读）。子 agent 的 thread 有
+ * `parentThreadId`、`agentNickname`、`agentRole`（R4，codex-notes §2.4）。
+ */
 export interface Thread {
   id: string;
+  parentThreadId?: string | null;
+  agentNickname?: string | null;
+  agentRole?: string | null;
+  /** 界面给的 thread 名称（`thread/name/set`）。 */
+  name?: string | null;
   [key: string]: unknown;
+}
+
+/** v2/ThreadReadParams.ts（`includeTurns` 不发：只要元数据）。 */
+export interface ThreadReadParams {
+  threadId: string;
+}
+
+/** v2/ThreadReadResponse.ts */
+export interface ThreadReadResponse {
+  thread: Thread;
 }
 
 /** v2/ThreadStartResponse.ts */
@@ -156,6 +174,8 @@ export interface TurnError {
 /** v2/Turn.ts */
 export interface Turn {
   id: string;
+  /** 这串工作的第一个回合（子 agent 的回合指向派出它的父回合，codex-notes §2.4）。旧记录里可能为 null。 */
+  rootTurnId?: string | null;
   status: TurnStatus;
   error: TurnError | null;
   [key: string]: unknown;
@@ -270,7 +290,22 @@ export interface DynamicToolCallItem {
   success: boolean | null;
 }
 
-/** ThreadItem `collabAgentToolCall`（v2/CollabAgentTool.ts、v2/CollabAgentToolCallStatus.ts）。 */
+/**
+ * v2/CollabAgentStatus.ts：`pendingInit`、`running`、`interrupted`、`completed`、`errored`、`shutdown`、`notFound`
+ * （等待或关闭一个不存在的子 agent 时）。
+ */
+export type CollabAgentStatus = string;
+
+/** v2/CollabAgentState.ts */
+export interface CollabAgentState {
+  status: CollabAgentStatus;
+  message: string | null;
+}
+
+/**
+ * ThreadItem `collabAgentToolCall`（v2/CollabAgentTool.ts：`spawnAgent`、`sendInput`、`resumeAgent`、`wait`、`closeAgent`
+ * 等；v2/CollabAgentToolCallStatus.ts）。`receiverThreadIds` 是子 agent 的 thread（spawn 时就是新派出的那个）。
+ */
 export interface CollabAgentToolCallItem {
   type: 'collabAgentToolCall';
   id: string;
@@ -281,7 +316,14 @@ export interface CollabAgentToolCallItem {
   prompt: string | null;
   model: string | null;
   reasoningEffort: string | null;
-  agentsStates: Record<string, unknown>;
+  agentsStates: Record<string, CollabAgentState | undefined>;
+}
+
+/** ThreadItem `userMessage`（v2/UserInput.ts）：只读文本。 */
+export interface UserMessageItem {
+  type: 'userMessage';
+  id: string;
+  content: Array<{ type: string; text?: string; [key: string]: unknown }>;
 }
 
 /** ThreadItem `webSearch`（WebSearchItem.ts）。 */
@@ -357,6 +399,12 @@ export interface McpProgressNotification {
 export interface TurnNotification {
   threadId: string;
   turn: Turn;
+}
+
+/** v2/ThreadNameUpdatedNotification.ts */
+export interface ThreadNameUpdatedNotification {
+  threadId: string;
+  threadName?: string;
 }
 
 /** v2/TokenUsageBreakdown.ts */

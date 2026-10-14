@@ -8,6 +8,7 @@ import type {
   ProviderProfile,
   Session,
   SessionSnapshot,
+  SubagentSummary,
   ToolDisplay,
   Workspace,
 } from './entities.js';
@@ -28,6 +29,10 @@ export const TS2 = '2026-10-12T08:00:05.250Z';
 export const ids = {
   workspace: `ws_${ULID}`,
   session: `ses_${ULID}`,
+  /** 子会话（0.6.0）。 */
+  childSession: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  childTurn: 'trn_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  childApproval: 'apr_01JA2B3C4D5E6F7G8H9JKMNPR1',
   turn: `trn_${ULID}`,
   approval: `apr_${ULID}`,
   stream: `stm_${ULID}`,
@@ -163,6 +168,58 @@ export const readOnlySession: Session = {
   updatedAt: TS2,
   lastSeq: 30,
 };
+
+/** Codex 的子 agent 对应的子会话（0.6.0），在等审批。 */
+export const childSession: Session = {
+  id: ids.childSession,
+  workspaceId: ids.workspace,
+  cwd: '/Users/me/projects/wevir',
+  engine: { kind: 'codex', sessionId: '01a13896-dd36-7081-85e1-ba12e0474029' },
+  providerId: 'deepseek-official',
+  modelId: 'deepseek-chat',
+  reasoningEffort: 'medium',
+  title: '核对周报里的提交数',
+  titleSource: 'generated',
+  state: 'awaiting_approval',
+  activeTurn: { turnId: ids.childTurn, startedAt: TS },
+  parentSessionId: ids.session,
+  subagent: {
+    parentToolCallId: 'call_wevir_spawn_1',
+    parentTurnId: ids.turn,
+    status: 'running',
+    startedAt: TS,
+  },
+  createdAt: TS,
+  updatedAt: TS2,
+  lastSeq: 9,
+};
+
+export const childApproval: ApprovalRequest = {
+  ...pendingApproval,
+  id: ids.childApproval,
+  sessionId: ids.childSession,
+  turnId: ids.childTurn,
+  toolCallId: 'call_child_1',
+  options: [
+    { optionId: 'accept', label: '是，继续', kind: 'allow_accept', category: 'allow' },
+    { optionId: 'decline', label: '否，不运行并继续', kind: 'reject_decline', category: 'reject' },
+  ],
+};
+
+export const subagentSummary: SubagentSummary = {
+  sessionId: ids.childSession,
+  parentToolCallId: 'call_wevir_spawn_1',
+  parentTurnId: ids.turn,
+  title: '核对周报里的提交数',
+  modelId: 'deepseek-chat',
+  reasoningEffort: 'medium',
+  nickname: 'Kuhn',
+  status: 'running',
+  startedAt: TS,
+  pendingApprovals: [childApproval],
+};
+
+const { nickname: _nickname, ...startedSummary } = { ...subagentSummary, pendingApprovals: [] };
 
 export const snapshot: SessionSnapshot = {
   session,
@@ -332,6 +389,14 @@ export const eventPayloads: PayloadSamples = {
       params: { sessionUpdate: 'config_option_update' },
     },
     invalid: { protocol: '', method: 'session/update' },
+  },
+  'subagent.started': {
+    valid: { subagent: startedSummary },
+    invalid: { subagent: { ...subagentSummary, status: 'pending_init' } },
+  },
+  'subagent.updated': {
+    valid: { subagent: subagentSummary },
+    invalid: { subagent: { ...subagentSummary, pendingApprovals: undefined } },
   },
 };
 
@@ -541,9 +606,12 @@ export const methodSamples: MethodSamples = {
     result: { valid: [{ session }], invalid: [{ session: { ...session, state: 'paused' } }] },
   },
   'session.list': {
-    params: { valid: [{}, { workspaceId: ids.workspace }], invalid: [{ workspaceId: 'ws_' }] },
+    params: {
+      valid: [{}, { workspaceId: ids.workspace }, { parentSessionId: ids.session }],
+      invalid: [{ workspaceId: 'ws_' }, { parentSessionId: ids.workspace }],
+    },
     result: {
-      valid: [{ sessions: [session] }],
+      valid: [{ sessions: [session] }, { sessions: [childSession] }],
       invalid: [{ sessions: [{ ...session, lastSeq: -1 }] }],
     },
   },
@@ -554,8 +622,10 @@ export const methodSamples: MethodSamples = {
         snapshot,
         { session: { ...session, state: 'idle' }, pendingApprovals: [] },
         { session: readOnlySession, pendingApprovals: [] },
+        { ...snapshot, subagents: [subagentSummary] },
+        { session: childSession, pendingApprovals: [childApproval] },
       ],
-      invalid: [{ session }],
+      invalid: [{ session }, { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] }],
     },
   },
   'session.send': {

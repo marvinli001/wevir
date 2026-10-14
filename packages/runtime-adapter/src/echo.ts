@@ -75,6 +75,8 @@ interface EchoTurn {
 interface EchoSession {
   readonly id: string;
   readonly config: SessionConfig;
+  /** 子会话的父会话（`subagent` 关键词派出的）。 */
+  readonly parentId?: string;
   status: 'open' | 'closed' | 'detached';
   hub: EventHub<AgentEvent>;
   turn?: EchoTurn;
@@ -98,6 +100,10 @@ interface ReplyBlock {
  * | `approve` | 模拟一次需要审批的写文件（`echo_write`）：先发审批请求，等决定后继续；允许则工具完成，拒绝则工具失败，回合照常结束 |
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
+ * | `subagent` | 模拟 Codex 的子 agent（R4）：调 `spawn_agent` 派出一个子会话（父会话的流里 `subagent.started`），子会话以
+ *   `turn.started` 开始一个回合，输入是 `Helper task: <输入，subagent 换成 helper>`，所以输入里的其他关键词由子会话执行
+ *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
+ *   （`subagent.updated` 的 `closed`）。父回合被取消时子会话照常跑完（与 Codex 相同，Host 自己级联取消） |
  *
  * 取消时：未决审批以 `approval.cancelled` 结束，未完成的工具以 failed 结束，已生成的半段回复作为
  * 已提交消息补发（与 dsh 相同，T0.3 E2），回合以 `turn.settled`（`cancelled`）结束。
@@ -173,6 +179,9 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
     this.#assertUsable();
     const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) {
+      throw new AdapterError('invalid_input', 'a sub-agent session is driven by its parent agent');
+    }
     if (session.turn) throw new AdapterError('session_busy', 'a turn is already running');
     if (input.content.length === 0) throw new AdapterError('invalid_input', 'content is empty');
     session.turnCount += 1;
@@ -317,7 +326,10 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         return;
       }
 
-      if (/tool/i.test(text)) {
+      const subagent = session.parentId === undefined && /subagent/i.test(text);
+      if (subagent) await this.#runSubagent(session, turn, text, openTools);
+
+      if (!subagent && /tool/i.test(text)) {
         const toolCallId = this.#nextId('call_echo');
         emit({
           type: 'tool.started',
@@ -339,7 +351,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         });
       }
 
-      if (/approve/i.test(text)) {
+      if (!subagent && /approve/i.test(text)) {
         const toolCallId = this.#nextId('call_echo');
         const path = '/outside-workspace/echo.txt';
         emit({
@@ -375,7 +387,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         );
       }
 
-      if (/think/i.test(text)) {
+      if (!subagent && /think/i.test(text)) {
         blocks.push({ kind: 'reasoning', full: `Thinking about: ${text}`, generated: '' });
       }
       blocks.push({ kind: 'text', full: `Echo: ${text}`, generated: '' });
@@ -424,6 +436,107 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     } finally {
       if (session.turn === turn) session.turn = undefined;
     }
+  }
+
+  /**
+   * `subagent` 关键词：派出子会话（`spawn_agent` + `subagent.started`），让它跑一个回合，`wait_agent` 等它结束；有
+   * `close` 时再关掉它。父回合被打断时，等待随之结束，子会话不受影响。
+   */
+  async #runSubagent(
+    parent: EchoSession,
+    turn: EchoTurn,
+    text: string,
+    openTools: Map<string, string>,
+  ): Promise<void> {
+    const engineSessionId = parent.id;
+    const signal = turn.abort.signal;
+    const emit = (event: AgentEvent) => turn.hub.emit(event);
+    const prompt = `Helper task: ${text.replace(/subagent/gi, 'helper')}`;
+    const title = prompt.split('\n')[0] ?? prompt;
+    const tool = async (
+      toolName: string,
+      input: unknown,
+      body: (toolCallId: string) => Promise<string>,
+    ): Promise<void> => {
+      const toolCallId = this.#nextId('call_echo');
+      emit({
+        type: 'tool.started',
+        engineSessionId,
+        toolCallId,
+        toolName,
+        display: { kind: 'sub_agent', summary: title },
+        input,
+      });
+      openTools.set(toolCallId, 'Error: tool call aborted');
+      const output = await body(toolCallId);
+      openTools.delete(toolCallId);
+      emit({ type: 'tool.finished', engineSessionId, toolCallId, status: 'completed', output });
+    };
+
+    const child: EchoSession = {
+      id: `echo-${randomUUID()}`,
+      config: { ...parent.config },
+      parentId: parent.id,
+      status: 'open',
+      hub: new EventHub({ bufferUntilSubscribed: true }),
+      turnCount: 0,
+    };
+    let done: Promise<void> = Promise.resolve();
+    await tool('spawn_agent', { message: prompt }, async (toolCallId) => {
+      await this.#step(signal);
+      this.#sessions.set(child.id, child);
+      // 派出的工具调用结束之前报出子会话，与 Codex 的 collabAgentToolCall 完成时一致。
+      emit({
+        type: 'subagent.started',
+        engineSessionId,
+        childEngineSessionId: child.id,
+        parentToolCallId: toolCallId,
+        title,
+        prompt,
+        modelId: child.config.modelId,
+        ...(child.config.reasoningEffort !== undefined && {
+          reasoningEffort: child.config.reasoningEffort,
+        }),
+        nickname: 'Echo helper',
+      });
+      done = this.#startChildTurn(child, prompt);
+      return JSON.stringify({ agent_id: child.id });
+    });
+    await tool('wait_agent', { targets: [child.id] }, async () => {
+      await untilAborted(done, signal);
+      return JSON.stringify({ status: { [child.id]: 'done' } });
+    });
+    if (/close/i.test(text)) {
+      await tool('close_agent', { target: child.id }, async () => {
+        await this.#step(signal);
+        emit({
+          type: 'subagent.updated',
+          engineSessionId,
+          childEngineSessionId: child.id,
+          closed: true,
+        });
+        return '{}';
+      });
+    }
+  }
+
+  /** 子会话的一个回合：由“引擎”开始，先 `turn.started`（带输入），之后同普通回合。返回回合结束的 Promise。 */
+  #startChildTurn(child: EchoSession, prompt: string): Promise<void> {
+    child.turnCount += 1;
+    const turn: EchoTurn = {
+      abort: new AbortController(),
+      hub: child.hub,
+      cancelRequested: false,
+      done: Promise.resolve(),
+    };
+    child.turn = turn;
+    child.hub.emit({
+      type: 'turn.started',
+      engineSessionId: child.id,
+      input: [{ type: 'text', text: prompt }],
+    });
+    turn.done = this.#runTurn(child, turn, prompt);
+    return turn.done;
   }
 
   /** 发出已提交的思考与消息（同一 messageId），替换已发的增量块。 */
@@ -522,6 +635,22 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     }
     return session;
   }
+}
+
+/** 等 `promise`；`signal` 先被打断时以它的 reason reject。 */
+function untilAborted(promise: Promise<void>, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void promise.then(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    });
+  });
 }
 
 function copyApproval(info: PendingApproval): PendingApproval {

@@ -203,6 +203,19 @@ class AttachView {
       case 'approval.requested':
         this.#pending.set(event.payload.approval.id, event.payload.approval);
         break;
+      case 'subagent.started':
+      case 'subagent.updated': {
+        // 子会话的审批（R4）：在父会话里回答，审批属于子会话，摘要的 pendingApprovals 是它们当前的全部。
+        const { sessionId, pendingApprovals } = event.payload.subagent;
+        for (const [id, approval] of this.#pending) {
+          const still = pendingApprovals.some((pending) => pending.id === id);
+          if (approval.sessionId === sessionId && !still && !this.#inflight.has(id)) {
+            this.#pending.delete(id);
+          }
+        }
+        for (const approval of pendingApprovals) this.#pending.set(approval.id, approval);
+        break;
+      }
       case 'approval.resolved': {
         // 本终端的回复还在路上时，等它回来再显示：成功是本终端处理的，ALREADY_DECIDED 是别人先处理了。
         const inflight = this.#inflight.get(event.payload.approvalId);

@@ -57,6 +57,9 @@ import {
   StateChangeReasonSchema,
   StreamBlockRefSchema,
   StreamIdSchema,
+  SubagentInfoSchema,
+  SubagentStatusSchema,
+  SubagentSummarySchema,
   SubscriptionIdSchema,
   TitleSourceSchema,
   TodoItemSchema,
@@ -77,6 +80,7 @@ import {
   WorkspaceSchema,
 } from './index.js';
 import {
+  childSession,
   compatibleProvider,
   deepseekProvider,
   errorDataSamples,
@@ -90,6 +94,7 @@ import {
   readOnlySession,
   session,
   snapshot,
+  subagentSummary,
   TS,
   toolDisplay,
   ULID,
@@ -395,8 +400,30 @@ const standaloneCases: Case[] = [
       session,
       { ...session, engine: { kind: 'future-engine', sessionId: 'x' } },
       readOnlySession,
+      childSession,
     ],
-    invalid: [{ ...session, workspaceId: ids.session }],
+    invalid: [
+      { ...session, workspaceId: ids.session },
+      { ...childSession, parentSessionId: ids.workspace },
+    ],
+  },
+  {
+    name: 'SubagentStatus',
+    schema: SubagentStatusSchema,
+    valid: ['running', 'closed'],
+    invalid: ['pendingInit'],
+  },
+  {
+    name: 'SubagentInfo',
+    schema: SubagentInfoSchema,
+    valid: [childSession.subagent, { ...childSession.subagent, endedAt: TS }],
+    invalid: [{ ...childSession.subagent, parentToolCallId: '' }],
+  },
+  {
+    name: 'SubagentSummary',
+    schema: SubagentSummarySchema,
+    valid: [subagentSummary],
+    invalid: [{ ...subagentSummary, modelId: '' }],
   },
   {
     name: 'SessionSnapshot',

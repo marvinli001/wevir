@@ -1,4 +1,5 @@
 import { stat } from 'node:fs/promises';
+import { isDeepStrictEqual } from 'node:util';
 import type {
   ApprovalDetail,
   ApprovalId,
@@ -20,10 +21,12 @@ import type {
   StateChangeReason,
   StreamBlockRef,
   StreamId,
+  SubagentSummary,
   ToolDisplay,
   TurnId,
   TurnOutcome,
   UserContentPart,
+  WorkspaceId,
 } from '@wevir/protocol';
 import {
   type AgentEvent,
@@ -35,6 +38,9 @@ import {
   isAdapterError,
   type SessionConfig,
   type SessionLostReason,
+  type SubagentStartedEvent,
+  type SubagentUpdatedEvent,
+  type TurnStartedEvent,
 } from '@wevir/runtime-adapter';
 import {
   type ApprovalRecord,
@@ -121,6 +127,8 @@ interface Attachment {
 interface SessionRuntime {
   readonly id: SessionId;
   readonly engineSessionId: string;
+  /** 子会话的父会话（R4，domain-model §3.3.1）。 */
+  readonly parentId?: SessionId;
   /** 命令串行：每个命令排在上一个之后（ADR-0002 §4）。永不 reject。 */
   tail: Promise<unknown>;
   /** 没有时引擎会话尚未挂上：Host 重启后、关闭后、引擎异常后。 */
@@ -181,6 +189,10 @@ const ENGINE_CANCEL_REASONS = {
  * - **恢复（T3.5）。** 引擎会话由 `resume` 或 send 前的自动 resume 重新挂上，成功写 `session.resumed`（带引擎
  *   版本）。引擎不回放历史，界面历史、会话列表与标题都来自事件库。引擎报 `session_lost`（会话日志没了、格式
  *   不兼容或损坏）时写 `session.read_only`：之后 send 返回 `INVALID_STATE` 并带上原因，resume 仍会重试引擎。
+ * - **子会话（R4，domain-model §3.3.1、§4.5）。** 适配器在父会话的流里报 `subagent.started` 时建子会话（写它自己的
+ *   事件流与父会话的 `subagent.started`）并订阅它；它的回合由引擎开始（`turn.started`）；它的标题、状态、未决审批
+ *   每变一次，在父会话的流里写 `subagent.updated`。客户端对子会话的 send、cancel、close、resume 一律
+ *   `INVALID_STATE`；父会话被取消、关闭时级联取消它活动中的子会话（Codex 自己不级联）。
  */
 export class SessionManager {
   readonly #storage: Storage;
@@ -226,12 +238,31 @@ export class SessionManager {
       interruptedSessions: [],
       unknownSends: 0,
     };
-    for (const record of this.#storage.sessions.list({ includeRemovedWorkspaces: true })) {
+    const records = this.#storage.sessions.list({
+      includeRemovedWorkspaces: true,
+      includeChildren: true,
+    });
+    for (const record of records) {
       const sessionId = record.id as SessionId;
       const snapshot = this.#events.snapshot(sessionId);
       if (!snapshot) continue;
-      const { state, activeTurn } = snapshot.session;
+      const { state, activeTurn, subagent } = snapshot.session;
       const active = ACTIVE_STATES.includes(state);
+      if (!active && state === 'idle' && subagent?.status === 'running') {
+        // 子会话还没开始过回合就随 Host 退出了：引擎侧的子 agent 不在了，免得一直显示“运行中”（domain-model §4.5）。
+        this.#events.appendMany(sessionId, [
+          engineError(
+            {
+              category: 'engine_exited',
+              message: 'host restarted before the sub-agent session started a turn',
+            },
+            true,
+          ),
+          stateChanged('idle', 'error', 'engine_exited'),
+        ]);
+        this.#mirror(sessionId, record.parentSessionId as SessionId);
+        continue;
+      }
       if (!active && snapshot.pendingApprovals.length === 0) continue;
 
       const inputs = resolveAll(snapshot.pendingApprovals, 'expired', { reason: 'host_restarted' });
@@ -251,6 +282,9 @@ export class SessionManager {
       }
       this.#events.appendMany(sessionId, inputs);
       report.expiredApprovals += snapshot.pendingApprovals.length;
+      if (record.parentSessionId !== undefined) {
+        this.#mirror(sessionId, record.parentSessionId as SessionId);
+      }
     }
     report.unknownSends = this.#storage.sendReceipts.markAcceptedAsUnknown(isoNow());
     return report;
@@ -358,6 +392,7 @@ export class SessionManager {
     // 在命令队列外读也安全；进入队列后再查一遍。
     const replayed = this.#replay(runtime, clientMessageId, fingerprint);
     if (replayed) return replayed;
+    this.#assertNotChild(runtime);
     assertSendable(this.#snapshot(runtime));
     return this.#serial(runtime, async () => {
       const replayed = this.#replay(runtime, clientMessageId, fingerprint);
@@ -446,7 +481,11 @@ export class SessionManager {
   async cancel(sessionId: SessionId): Promise<void> {
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
-    await this.#serial(runtime, () => this.#cancelTurn(runtime, 'turn_cancelled'));
+    this.#assertNotChild(runtime);
+    await Promise.all([
+      this.#serial(runtime, () => this.#cancelTurn(runtime, 'turn_cancelled')),
+      this.#cancelChildren(runtime, 'turn_cancelled'),
+    ]);
   }
 
   /**
@@ -457,6 +496,9 @@ export class SessionManager {
   async close(sessionId: SessionId): Promise<void> {
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
+    // 活动中的子会话一并取消，但不关闭（domain-model §4.5）。
+    await this.#cancelChildren(runtime, 'turn_cancelled');
     await this.#serial(runtime, async () => {
       let { state } = this.#snapshot(runtime).session;
       if (state === 'closed') return;
@@ -494,6 +536,7 @@ export class SessionManager {
   async resume(sessionId: SessionId): Promise<Session> {
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
     return this.#serial(runtime, async () => {
       const snapshot = this.#snapshot(runtime);
       const { session } = snapshot;
@@ -874,6 +917,15 @@ export class SessionManager {
           },
         ]);
         return;
+      case 'subagent.started':
+        this.#subagentStarted(runtime, event);
+        return;
+      case 'subagent.updated':
+        this.#subagentUpdated(runtime, event);
+        return;
+      case 'turn.started':
+        this.#engineTurnStarted(runtime, event);
+        return;
     }
 
     // 其余事件都属于进行中的回合。
@@ -1064,6 +1116,317 @@ export class SessionManager {
     this.#write(runtime, inputs);
   }
 
+  // ── 子会话（R4，domain-model §3.3.1、§4.5） ─────────────────────────────
+
+  /**
+   * 适配器在父会话的流里报出一个子 agent（C1、C5）。没见过的引擎会话：建子会话（父会话的工作区、cwd 与 Provider，模型取
+   * 适配器报的），写它的 `session.created`（带 `parent`）与兜底标题，再写父会话的 `subagent.started`，然后订阅它、用会话
+   * 的模型生成标题。见过的（引擎重启后父 agent 又用到它）：重新订阅，`closed` / `error` 时恢复。
+   */
+  #subagentStarted(parent: SessionRuntime, event: SubagentStartedEvent): void {
+    const existing = this.#storage.sessions.getByEngineSessionId(
+      this.#engine,
+      event.childEngineSessionId,
+    );
+    if (existing !== undefined) {
+      if (existing.parentSessionId !== parent.id) {
+        this.#onError(
+          new Error(
+            `引擎会话 ${event.childEngineSessionId} 已属于会话 ${existing.id}，不能当作 ${parent.id} 的子会话`,
+          ),
+        );
+        return;
+      }
+      this.#reattachChild(this.#runtime(existing.id as SessionId));
+      return;
+    }
+    const parentRecord = this.#record(parent);
+    const childId = newId('ses');
+    const now = isoNow();
+    const modelId = event.modelId ?? parentRecord.modelId;
+    const reasoningEffort =
+      event.reasoningEffort ??
+      (event.modelId === undefined ? parentRecord.reasoningEffort : undefined);
+    const parentTurnId = parent.turn?.turnId;
+    const record: SessionRecord = {
+      id: childId,
+      workspaceId: parentRecord.workspaceId,
+      cwd: parentRecord.cwd,
+      engine: this.#engine,
+      engineSessionId: event.childEngineSessionId,
+      providerId: parentRecord.providerId,
+      modelId,
+      parentSessionId: parent.id,
+      parentToolCallId: event.parentToolCallId,
+      title: '',
+      titleSource: 'first_prompt',
+      state: 'idle',
+      lastSeq: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+    this.#storage.sessions.insert(record);
+    const child = this.#runtime(childId);
+    const title = makeTitle([{ type: 'text', text: event.title }]);
+    this.#write(child, [
+      {
+        type: 'session.created',
+        source: 'host',
+        payload: {
+          workspaceId: parentRecord.workspaceId as WorkspaceId,
+          cwd: parentRecord.cwd,
+          providerId: parentRecord.providerId,
+          modelId,
+          ...(reasoningEffort !== undefined && { reasoningEffort }),
+          parent: {
+            sessionId: parent.id,
+            toolCallId: event.parentToolCallId,
+            ...(parentTurnId !== undefined && { turnId: parentTurnId }),
+          },
+        },
+      },
+      ...(title === ''
+        ? []
+        : [
+            {
+              type: 'session.title_changed',
+              source: 'host',
+              payload: { title, source: 'first_prompt' },
+            } satisfies AppendInput,
+          ]),
+    ]);
+    const summary = this.#summary(childId, {
+      parentToolCallId: event.parentToolCallId,
+      ...(parentTurnId !== undefined && { parentTurnId }),
+      ...(event.nickname !== undefined && { nickname: event.nickname }),
+      ...(event.role !== undefined && { role: event.role }),
+    });
+    this.#write(parent, [
+      { type: 'subagent.started', source: 'host', payload: { subagent: summary } },
+    ]);
+    try {
+      this.#attach(child);
+    } catch (error) {
+      this.#engineFailed(child, engineErrorInfo(error));
+      return;
+    }
+    if (event.prompt !== undefined)
+      this.#generateTitle(child, [{ type: 'text', text: event.prompt }]);
+  }
+
+  /** 子会话又被报出：重新订阅；`closed` / `error` 时恢复（C5）。 */
+  #reattachChild(child: SessionRuntime): void {
+    if (!child.attachment) {
+      try {
+        this.#attach(child);
+      } catch (error) {
+        this.#onError(error);
+        return;
+      }
+    }
+    const { state } = this.#snapshot(child).session;
+    if (state === 'closed' || state === 'error') {
+      this.#write(child, [
+        { type: 'session.resumed', source: 'host', payload: {} },
+        stateChanged(state, 'idle', 'resumed'),
+      ]);
+    }
+  }
+
+  /**
+   * 子 agent 晚到的信息：新的兜底标题（标题仍是兜底的才换）、昵称与角色（只在父会话的摘要里）；`closed` 是父 agent 关掉了
+   * 它（C4）。
+   */
+  #subagentUpdated(parent: SessionRuntime, event: SubagentUpdatedEvent): void {
+    const record = this.#storage.sessions.getByEngineSessionId(
+      this.#engine,
+      event.childEngineSessionId,
+    );
+    if (record === undefined || record.parentSessionId !== parent.id) {
+      this.#onError(
+        new Error(`会话 ${parent.id} 没有引擎会话为 ${event.childEngineSessionId} 的子会话`),
+      );
+      return;
+    }
+    const child = this.#runtime(record.id as SessionId);
+    if (event.title !== undefined) {
+      const title = makeTitle([{ type: 'text', text: event.title }]);
+      const { session } = this.#snapshot(child);
+      if (title !== '' && session.titleSource === 'first_prompt' && session.title !== title) {
+        this.#write(child, [
+          {
+            type: 'session.title_changed',
+            source: 'host',
+            payload: { title, source: 'first_prompt' },
+          },
+        ]);
+      }
+    }
+    if (event.nickname !== undefined || event.role !== undefined) {
+      this.#mirror(child.id, parent.id, {
+        ...(event.nickname !== undefined && { nickname: event.nickname }),
+        ...(event.role !== undefined && { role: event.role }),
+      });
+    }
+    if (event.closed) this.#closeChild(child);
+  }
+
+  /**
+   * 父 agent 关掉了子会话（C4）：回合进行中时先结掉（未决审批 `session_closed`、未收尾工具 `unknown`、回合 `cancelled`），
+   * 再转 `closed`。不断开订阅：父 agent 可能又用到它（C5）；引擎随后报的这个回合的结算没有回合可对，丢弃。
+   */
+  #closeChild(child: SessionRuntime): void {
+    const snapshot = this.#snapshot(child);
+    let { state } = snapshot.session;
+    const { activeTurn } = snapshot.session;
+    if (state === 'closed') return;
+    const inputs: AppendInput[] = [];
+    if (activeTurn) {
+      inputs.push(
+        ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'session_closed' }),
+      );
+      if (state === 'awaiting_approval') {
+        inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
+        state = 'running';
+      }
+      inputs.push(
+        ...finishTurn(
+          activeTurn.turnId,
+          child.turn?.openTools ?? [],
+          'cancelled',
+          durationSince(activeTurn.startedAt),
+        ),
+        stateChanged(state, 'idle', 'turn_finished'),
+      );
+      state = 'idle';
+    }
+    inputs.push(stateChanged(state, 'closed', 'closed'));
+    this.#write(child, inputs);
+  }
+
+  /** 子会话的回合由引擎开始（C2）：`closed` / `error` 时先恢复（C5），再 `turn.started`（带输入）并转 `running`。 */
+  #engineTurnStarted(child: SessionRuntime, event: TurnStartedEvent): void {
+    if (child.parentId === undefined) {
+      this.#onError(new Error(`会话 ${child.id} 不是子会话，丢弃引擎开始的回合`));
+      return;
+    }
+    if (child.turn) {
+      this.#onError(
+        new Error(`子会话 ${child.id} 的回合 ${child.turn.turnId} 尚未结束，丢弃引擎开始的回合`),
+      );
+      return;
+    }
+    const { state } = this.#snapshot(child).session;
+    const inputs: AppendInput[] = [];
+    if (state === 'closed' || state === 'error') {
+      inputs.push(
+        { type: 'session.resumed', source: 'host', payload: {} },
+        stateChanged(state, 'idle', 'resumed'),
+      );
+    } else if (state !== 'idle') {
+      this.#onError(new Error(`子会话 ${child.id} 是 ${state}，丢弃引擎开始的回合`));
+      return;
+    }
+    const turnId = newId('trn');
+    const input = event.input?.filter((part) => part.text !== '');
+    inputs.push(
+      {
+        type: 'turn.started',
+        source: 'host',
+        payload: { turnId, ...(input !== undefined && input.length > 0 && { input }) },
+      },
+      stateChanged('idle', 'running', 'turn_started'),
+    );
+    this.#write(child, inputs);
+    child.turn = {
+      turnId,
+      streams: new Map(),
+      openTools: new Set(),
+      tools: new Map(),
+      finished: deferred(),
+    };
+  }
+
+  /**
+   * 子会话的摘要变了就在父会话的流里写 `subagent.updated`（完整摘要）。父会话还没有这个子会话的摘要（`subagent.started`
+   * 写下之前）时不写。`meta` 是适配器晚报的昵称与角色。
+   */
+  #mirror(
+    childId: SessionId,
+    parentId: SessionId | undefined,
+    meta: Pick<SubagentSummary, 'nickname' | 'role'> = {},
+  ): void {
+    if (parentId === undefined || this.#disposed) return;
+    const previous = this.#events
+      .snapshot(parentId)
+      ?.subagents?.find((summary) => summary.sessionId === childId);
+    if (previous === undefined) return;
+    const next = this.#summary(childId, { ...previous, ...meta });
+    if (isDeepStrictEqual(next, previous)) return;
+    this.#events.appendMany(parentId, [
+      { type: 'subagent.updated', source: 'host', payload: { subagent: next } },
+    ]);
+  }
+
+  /** 子会话的摘要：标题、模型、状态、起止时间与未决审批取自子会话的快照，其余取 `base`。 */
+  #summary(
+    childId: SessionId,
+    base: Pick<SubagentSummary, 'parentToolCallId' | 'parentTurnId' | 'nickname' | 'role'>,
+  ): SubagentSummary {
+    const snapshot = this.#events.snapshot(childId);
+    if (!snapshot) throw new Error(`会话 ${childId} 不存在`);
+    const { session, pendingApprovals } = snapshot;
+    const info = session.subagent;
+    return {
+      sessionId: childId,
+      parentToolCallId: base.parentToolCallId,
+      ...(base.parentTurnId !== undefined && { parentTurnId: base.parentTurnId }),
+      title: session.title,
+      modelId: session.modelId,
+      ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+      ...(base.nickname !== undefined && { nickname: base.nickname }),
+      ...(base.role !== undefined && { role: base.role }),
+      status: info?.status ?? 'running',
+      startedAt: info?.startedAt ?? session.createdAt,
+      ...(info?.endedAt !== undefined && { endedAt: info.endedAt }),
+      pendingApprovals,
+    };
+  }
+
+  /**
+   * 父会话被取消或关闭时级联取消子会话（domain-model §4.5：Codex 取消父回合时不动子 agent，ADR-0005 决策 6.1 要求取消
+   * 父回合即取消它）：每个活动中的子会话（递归）排进它自己的命令队列按 #5 取消，等它们都结算。
+   */
+  async #cancelChildren(
+    parent: SessionRuntime,
+    reason: 'turn_cancelled' | 'host_shutdown',
+  ): Promise<void> {
+    const children = this.#storage.sessions.list({
+      parentSessionId: parent.id,
+      includeRemovedWorkspaces: true,
+    });
+    await Promise.all(
+      children.map(async (record) => {
+        const child = this.#runtime(record.id as SessionId);
+        await Promise.all([
+          this.#serial(child, () => this.#cancelTurn(child, reason)),
+          this.#cancelChildren(child, reason),
+        ]);
+      }),
+    );
+  }
+
+  /** 子会话由父 agent 驱动，客户端的 send、cancel、close、resume 都不接受（domain-model §3.3.1）。 */
+  #assertNotChild(runtime: SessionRuntime): void {
+    if (runtime.parentId === undefined) return;
+    throw new HostError(
+      'INVALID_STATE',
+      'session is a sub-agent session; it is driven by its parent agent',
+      { state: this.#snapshot(runtime).session.state, parentSessionId: runtime.parentId },
+    );
+  }
+
   /**
    * 回合结算（#6、#7、#8）：回合失败先写 `engine.error`（`fatal: false`）；仍未决的审批结为
    * `cancelled`；未收尾的工具补 `unknown`；`turn.finished`；回到 `idle`。取消期间的失败记为
@@ -1171,6 +1534,8 @@ export class SessionManager {
         }
       }
     }
+    // 子会话的标题、状态、审批变了：父会话的摘要跟着变。
+    if (runtime.parentId !== undefined) this.#mirror(runtime.id, runtime.parentId);
     return events;
   }
 
@@ -1201,6 +1566,9 @@ export class SessionManager {
       runtime = {
         id: sessionId,
         engineSessionId: record.engineSessionId,
+        ...(record.parentSessionId !== undefined && {
+          parentId: record.parentSessionId as SessionId,
+        }),
         tail: Promise.resolve(),
         holds: 0,
         held: [],

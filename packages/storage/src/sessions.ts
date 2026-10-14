@@ -15,7 +15,7 @@ export interface SessionErrorRecord {
 }
 
 /**
- * `sessions` 表的一行。身份字段（`id` 到 `reasoningEffort`）创建后不变；`title` 之后是由事件推导的
+ * `sessions` 表的一行。身份字段（`id` 到 `parentToolCallId`）创建后不变；`title` 之后是由事件推导的
  * 缓存，与事件不一致时以事件为准（domain-model §3.3）。
  */
 export interface SessionRecord {
@@ -30,6 +30,10 @@ export interface SessionRecord {
   providerId: string;
   modelId: string;
   reasoningEffort?: string;
+  /** 子会话的父会话（R4，0002_subagents）；普通会话没有。 */
+  parentSessionId?: string;
+  /** 子会话：父会话里派出它的工具调用。 */
+  parentToolCallId?: string;
   title: string;
   titleSource: string;
   state: string;
@@ -58,14 +62,20 @@ export interface SessionRepository {
   /** 按引擎会话 ID 找 Wevir 会话（适配器事件的路由）。 */
   getByEngineSessionId(engine: string, engineSessionId: string): SessionRecord | undefined;
   /**
-   * 会话列表，最近更新的在前。默认隐藏已移除工作区的会话（domain-model §3.1）。
+   * 会话列表，最近更新的在前。默认隐藏已移除工作区的会话（domain-model §3.1），也不含子会话（§3.3.1）：给了
+   * `parentSessionId` 只列它的子会话，`includeChildren` 时普通会话与子会话都列。
    */
-  list(options?: { workspaceId?: string; includeRemovedWorkspaces?: boolean }): SessionRecord[];
+  list(options?: {
+    workspaceId?: string;
+    includeRemovedWorkspaces?: boolean;
+    parentSessionId?: string;
+    includeChildren?: boolean;
+  }): SessionRecord[];
   /** 更新缓存字段；会话不存在时返回 false。 */
   update(id: string, patch: SessionCachePatch): boolean;
-  /** 状态不是 `closed` 的会话数：有这样的会话时工作区不能移除（domain-model §3.1）。 */
+  /** 状态不是 `closed` 的会话数（不含子会话）：有这样的会话时工作区不能移除（domain-model §3.1）。 */
   countOpenByWorkspace(workspaceId: string): number;
-  /** 同上，Provider 被未关闭会话引用时不能删除（domain-model §3.2）。 */
+  /** 同上，Provider 被未关闭会话（不含子会话）引用时不能删除（domain-model §3.2）。 */
   countOpenByProvider(providerId: string): number;
 }
 
@@ -84,9 +94,11 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const insert = db.prepare(`
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
+      parent_session_id, parent_tool_call_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
+      :parentSessionId, :parentToolCallId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM sessions WHERE id = ?');
@@ -97,12 +109,17 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
     SELECT s.* FROM sessions s JOIN workspaces w ON w.id = s.workspace_id
     WHERE (:workspaceId IS NULL OR s.workspace_id = :workspaceId)
       AND (:includeRemoved = 1 OR w.removed_at IS NULL)
+      AND CASE
+        WHEN :parentSessionId IS NOT NULL THEN s.parent_session_id = :parentSessionId
+        WHEN :includeChildren = 1 THEN 1
+        ELSE s.parent_session_id IS NULL
+      END
     ORDER BY s.updated_at DESC, s.id DESC`);
   const countOpenByWorkspace = db.prepare(
-    "SELECT COUNT(*) AS n FROM sessions WHERE workspace_id = ? AND state <> 'closed'",
+    "SELECT COUNT(*) AS n FROM sessions WHERE workspace_id = ? AND state <> 'closed' AND parent_session_id IS NULL",
   );
   const countOpenByProvider = db.prepare(
-    "SELECT COUNT(*) AS n FROM sessions WHERE provider_id = ? AND state <> 'closed'",
+    "SELECT COUNT(*) AS n FROM sessions WHERE provider_id = ? AND state <> 'closed' AND parent_session_id IS NULL",
   );
 
   return {
@@ -116,6 +133,8 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         providerId: record.providerId,
         modelId: record.modelId,
         reasoningEffort: record.reasoningEffort ?? null,
+        parentSessionId: record.parentSessionId ?? null,
+        parentToolCallId: record.parentToolCallId ?? null,
         title: record.title,
         titleSource: record.titleSource,
         state: record.state,
@@ -139,6 +158,8 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         .all({
           workspaceId: options?.workspaceId ?? null,
           includeRemoved: options?.includeRemovedWorkspaces ? 1 : 0,
+          parentSessionId: options?.parentSessionId ?? null,
+          includeChildren: options?.includeChildren ? 1 : 0,
         })
         .map(fromRow);
     },
@@ -183,6 +204,10 @@ function fromRow(row: SqlRow): SessionRecord {
   };
   const reasoningEffort = optionalText(row, 'reasoning_effort');
   if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+  const parentSessionId = optionalText(row, 'parent_session_id');
+  if (parentSessionId !== undefined) record.parentSessionId = parentSessionId;
+  const parentToolCallId = optionalText(row, 'parent_tool_call_id');
+  if (parentToolCallId !== undefined) record.parentToolCallId = parentToolCallId;
   const activeTurn = optionalJson(row, 'active_turn');
   if (activeTurn !== undefined) record.activeTurn = activeTurn as ActiveTurnRecord;
   const lastError = optionalJson(row, 'last_error');

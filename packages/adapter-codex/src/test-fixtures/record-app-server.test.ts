@@ -164,7 +164,7 @@ const SCENARIOS: Scenario[] = [
   {
     name: 'subagent',
     description:
-      '子 agent：父 thread 调 multi_agent_v1.spawn_agent，子 thread 的通知推到同一连接（R2 按 engine.raw 挂在父会话上）',
+      '子 agent：父 thread 调 multi_agent_v1.spawn_agent、不等它就结束回合，子 thread 的通知推到同一连接（R4 起按子会话上报）',
     prompt: 'Spawn a helper',
     settleMs: 3000,
     script: (view) => {
@@ -180,6 +180,42 @@ const SCENARIOS: Scenario[] = [
           },
         ],
       };
+    },
+  },
+  {
+    name: 'subagent-wait',
+    description:
+      '子 agent：spawn → wait（与 Spike 的 subagent 场景相同），父回合等子 thread 的回合结束（wait 的 agentsStates 带子 agent 的回答）再回答',
+    prompt: 'Spawn a helper and wait',
+    settleMs: 1000,
+    script: (view) => {
+      if (view.lastUserText.startsWith('Helper task')) return { text: ['Helper', ' done.'] };
+      if (view.toolOutputs.length === 0) {
+        return {
+          toolCalls: [
+            {
+              kind: 'function',
+              namespace: 'multi_agent_v1',
+              name: 'spawn_agent',
+              args: { message: 'Helper task\nSay that you are done.' },
+            },
+          ],
+        };
+      }
+      if (view.toolOutputs.length === 1) {
+        const id = /"(?:agent_id|id)"\s*:\s*"([^"]+)"/.exec(view.toolOutputs[0] ?? '')?.[1];
+        return {
+          toolCalls: [
+            {
+              kind: 'function',
+              namespace: 'multi_agent_v1',
+              name: 'wait_agent',
+              args: { targets: [id], timeout_ms: 30000 },
+            },
+          ],
+        };
+      }
+      return { text: ['The helper is done.'] };
     },
   },
 ];

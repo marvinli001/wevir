@@ -331,6 +331,57 @@ export const SessionReadOnlySchema = z.object({
 });
 export type SessionReadOnly = z.infer<typeof SessionReadOnlySchema>;
 
+// ── 子会话（0.6.0，R4） ─────────────────────────────────────────────────
+
+/**
+ * 子会话的状态（domain-model §3.3.1）：由子会话自己的事件推导。`running` 刚派出或回合进行中；回合结束后是
+ * `completed` / `cancelled` / `failed`（回合失败或被中断）；父 agent 关掉它是 `closed`。
+ */
+export const SubagentStatusSchema = z.enum([
+  'running',
+  'completed',
+  'failed',
+  'closed',
+  'cancelled',
+]);
+export type SubagentStatus = z.infer<typeof SubagentStatusSchema>;
+
+/** 子会话的 `Session.subagent`。 */
+export const SubagentInfoSchema = z.object({
+  /** 父会话里派出它的工具调用（Codex：`collabAgentToolCall` 的 item ID）。 */
+  parentToolCallId: z.string().min(1),
+  /** 认出它时父会话进行中的回合；在父会话的回合之外认出的没有。 */
+  parentTurnId: TurnIdSchema.optional(),
+  status: SubagentStatusSchema,
+  /** 子会话 `session.created` 的时间。 */
+  startedAt: IsoTimeSchema,
+  /** 最近一次离开 `running` 的时间；`running` 时没有。 */
+  endedAt: IsoTimeSchema.optional(),
+});
+export type SubagentInfo = z.infer<typeof SubagentInfoSchema>;
+
+/** 父会话快照的 `subagents` 与 `subagent.*` 事件里的一项：一个子会话的摘要。 */
+export const SubagentSummarySchema = z.object({
+  /** 子会话。 */
+  sessionId: SessionIdSchema,
+  parentToolCallId: z.string().min(1),
+  parentTurnId: TurnIdSchema.optional(),
+  /** 子会话当前的标题。 */
+  title: z.string(),
+  modelId: z.string().min(1),
+  reasoningEffort: z.string().optional(),
+  /** 引擎给子 agent 起的名字（Codex 的 `agentNickname`）；晚到，可能没有。 */
+  nickname: z.string().optional(),
+  /** 引擎的子 agent 类型（Codex 的 `agentRole`）。 */
+  role: z.string().optional(),
+  status: SubagentStatusSchema,
+  startedAt: IsoTimeSchema,
+  endedAt: IsoTimeSchema.optional(),
+  /** 子会话的未决审批的副本（审批属于子会话，`approval.respond` 照常用它的 `id`）。 */
+  pendingApprovals: z.array(ApprovalRequestSchema),
+});
+export type SubagentSummary = z.infer<typeof SubagentSummarySchema>;
+
 export const SessionSchema = z.object({
   id: SessionIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -352,6 +403,10 @@ export const SessionSchema = z.object({
    * 状态是 `error` 或 `closed`。
    */
   readOnly: SessionReadOnlySchema.optional(),
+  /** 子会话的父会话（0.6.0）：引擎派出的子 agent，只读，由父 agent 驱动（domain-model §3.3.1）。 */
+  parentSessionId: SessionIdSchema.optional(),
+  /** 只有子会话有（0.6.0）。 */
+  subagent: SubagentInfoSchema.optional(),
   createdAt: IsoTimeSchema,
   /** 最后一个事件的 `ts`。 */
   updatedAt: IsoTimeSchema,
@@ -368,5 +423,7 @@ export const SessionSnapshotSchema = z.object({
   todos: z.array(TodoItemSchema).optional(),
   /** 最近一次 `usage.updated`。 */
   usage: UsageSchema.optional(),
+  /** 这个会话派出的子会话（0.6.0），按 `startedAt`；没有时省略。 */
+  subagents: z.array(SubagentSummarySchema).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

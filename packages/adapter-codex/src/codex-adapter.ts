@@ -48,7 +48,7 @@ import {
   writeCodexConfig,
 } from './config.js';
 import { buildCodexEnv } from './env.js';
-import { CodexEventMapper, isRecord } from './mapping.js';
+import { CodexEventMapper, IGNORED_NOTIFICATIONS, isRecord } from './mapping.js';
 import {
   CODEX_VERSION,
   type CodexPaths,
@@ -63,9 +63,12 @@ import {
   type ApprovalDecisionValue,
   type ApprovalRequestMethod,
   type ApprovalResponse,
+  type CollabAgentToolCallItem,
   type CommandExecutionRequestApprovalParams,
   type FileChangeRequestApprovalParams,
   type RequestId,
+  type ThreadReadParams,
+  type ThreadReadResponse,
   type ThreadResumeParams,
   type ThreadResumeResponse,
   type ThreadStartParams,
@@ -76,6 +79,13 @@ import {
   type TurnStartResponse,
 } from './protocol.js';
 import { classifyResumeError } from './resume-error.js';
+import {
+  collabReceivers,
+  isCollabItem,
+  nonEmpty,
+  subagentTitle,
+  userMessageInput,
+} from './subagents.js';
 import { lowestEffort, TITLE_THREAD_CONFIG, TitleCollector, titleViaGateway } from './title.js';
 
 /**
@@ -90,6 +100,16 @@ export const CANCEL_TIMEOUT_MS = 4000;
  */
 export const RESUME_RETRIES = 10;
 export const RESUME_RETRY_DELAY_MS = 200;
+
+/**
+ * 还没认出来的 thread 的通知先存着（R4）：子 thread 的第一批通知可能早于父会话里报出它的 collabAgentToolCall。每个
+ * thread 最多存这么多条，存了这么久还没认出来就丢掉（codex-event-mapping.md §6.5）。
+ */
+export const UNKNOWN_THREAD_BUFFER_LIMIT = 1000;
+export const UNKNOWN_THREAD_TTL_MS = 30_000;
+
+/** 按回合认出子 thread 时，父会话里正在进行的这几种 collab 工具调用就是派出（或又用到）它的那个。 */
+const CHILD_STARTING_TOOLS = new Set(['spawnAgent', 'resumeAgent', 'sendInput']);
 
 /** 告警与日志出口；Host 的 Logger 满足这个接口（`info` 给网关的请求日志，`addSecret` 登记网关令牌）。 */
 export interface CodexAdapterLogger {
@@ -165,6 +185,8 @@ interface CodexSession {
   readonly cwd: string;
   readonly providerId: string;
   readonly model: ProviderModelConfig;
+  /** 子会话（子 agent 的 thread）的父会话（R4）。 */
+  readonly parentId?: string;
   /** open：挂在当前进程上；closed：已 close；detached：进程退出或重启后脱开（`resumeSession` 接回）。 */
   status: 'open' | 'closed' | 'detached';
   readonly hub: EventHub<AgentEvent>;
@@ -172,6 +194,10 @@ interface CodexSession {
   turn?: Turn;
   /** Wevir 的 requestId → 未决审批。 */
   readonly approvals: Map<string, PendingCodexApproval>;
+  /** 进行中的 collabAgentToolCall（item ID → item），按 rootTurnId 认出子 thread 时用。 */
+  readonly collab: Map<string, CollabAgentToolCallItem>;
+  /** 子会话：回合已开始（`turn/started`），`turn.started` 等它的 userMessage 带上输入再发。 */
+  pendingTurnStart?: boolean;
 }
 
 /**
@@ -290,12 +316,14 @@ class Launcher implements CodexLauncher {
  *
  * - **审批**（§6.6）：命令与补丁的审批请求 → `approval.requested`（选项固定，详情取同一 item 的工具），回复
  *   `{decision}`；app-server 自己结束的请求（`serverRequest/resolved`）、回合结束时仍未决的、取消与引擎退出时的
- *   都以 `approval.cancelled` 结束，不再回复。子 thread 的审批 R4 之前一律拒绝。
+ *   都以 `approval.cancelled` 结束，不再回复。子 thread（子会话）的审批同样上报，按子会话的 ID 回复。
  * - **取消**（§4.1）：`turn/interrupt`，时限内回合没有结算就重启进程，挂着的会话以 `engine.exited`
  *   （`cancel_unconfirmed`）脱开，之后 `thread/resume` 到新进程上。
  * - **恢复**（§4.2）：`thread/resume`，失败按 `resume-error.ts` 归类（`session_lost` / `session_unavailable`）。
  * - **标题**（§4.4）：`generateTitle` 经网关（或临时 thread）用会话的模型发一次不带工具的请求。
- * - 子 thread 的事件按 engine.raw 挂在父会话上，R4 再做子会话。
+ * - **子会话**（§6.5，R4）：子 agent 的 thread 从父会话 `collabAgentToolCall` 的 `receiverThreadIds`（或子 thread
+ *   `turn/started` 的 `rootTurnId`）认出，在父会话的流里报 `subagent.started`，之后它的通知按子会话上报，回合由引擎
+ *   开始（`turn.started`）。认出之前的通知先存着。`close_agent` 报 `subagent.updated`（`closed`）。
  *
  * Provider（§5）：所有 Provider 都经网关（决策 2.2）。网关实例由本适配器在 Host 进程里创建并持有，每次启动
  * codex-app-server 新建一个（令牌随之换新）；`configureProviders` 立即交给运行中的网关（上游地址、Key、协议的变化
@@ -313,8 +341,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly #warned = new Set<string>();
   readonly #cancelTimeoutMs: number;
   readonly #sessions = new Map<string, CodexSession>();
-  /** 子 thread → 父会话（从 collabAgentToolCall 的 receiverThreadIds 得知）。 */
-  readonly #children = new Map<string, string>();
+  /** 还没认出来的 thread 的通知（子 thread 早于父会话里报出它的 collabAgentToolCall 到达时）。 */
+  readonly #unknownThreads = new Map<
+    string,
+    { readonly since: number; readonly notifications: Array<{ method: string; params: unknown }> }
+  >();
   /** app-server 的请求 id → 未决审批所在的会话与 Wevir 的 requestId（当前进程的；进程退出时清空）。 */
   readonly #approvalsByRpc = new Map<RequestId, { session: CodexSession; requestId: string }>();
   /** 生成标题的临时 thread → 收它的通知。 */
@@ -462,6 +493,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
     this.#assertUsable();
     const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) {
+      throw new AdapterError('invalid_input', '子会话由父 agent 驱动，不能直接发送');
+    }
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
     let settle!: () => void;
@@ -600,9 +634,6 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     session.turn?.settle();
     session.turn = undefined;
     session.hub.end();
-    for (const [child, parent] of this.#children) {
-      if (parent === engineSessionId) this.#children.delete(child);
-    }
   }
 
   dispose(): Promise<void> {
@@ -614,7 +645,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         session.hub.end();
       }
       this.#sessions.clear();
-      this.#children.clear();
+      this.#unknownThreads.clear();
       this.#approvalsByRpc.clear();
       for (const collector of this.#titleThreads.values()) {
         collector.fail(new AdapterError('disposed', 'Codex 适配器已释放'));
@@ -813,12 +844,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#deliver(session, method, params);
       return;
     }
-    const parent = this.#parentOf(threadId);
-    if (parent !== undefined) {
-      // 子 thread（子 agent，codex-notes §2.4）：R4 之前按 engine.raw 挂在父会话上；增量太多，不保留。
-      if (!/delta$/i.test(method)) {
-        parent.hub.emit(parent.mapper.raw(method, params, 'child_thread'));
-      }
+    // 没认出来的 thread（多半是还没报出来的子 agent），以及脱开了的子会话（引擎重启后父 agent 可能又用到它）：先存着。
+    if (session === undefined || session.parentId !== undefined) {
+      this.#holdUnknown(threadId, method, params);
       return;
     }
     if (method !== 'thread/started' && method !== 'thread/status/changed') {
@@ -855,7 +883,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   #deliver(session: CodexSession, method: string, params: unknown): void {
-    this.#trackChildren(session, method, params);
+    // 子会话的识别与关闭先记下，在这条通知自己的事件之后再报（subagent.* 跟在派出它的工具调用之后）。
+    const after = this.#trackCollab(session, method, params);
+    this.#deliverMapped(session, method, params);
+    for (const run of after) run();
+  }
+
+  #deliverMapped(session: CodexSession, method: string, params: unknown): void {
+    if (session.parentId !== undefined && this.#childNotification(session, method, params)) return;
     const turn = session.turn;
     // 不属于进行中回合的通知（上一个回合迟到的、或根本没有回合）：只保留 engine.raw 与用量（events.ts 的顺序约定）。
     const turnId = notificationTurnId(params);
@@ -863,11 +898,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       turn === undefined ||
       (turn.turnId !== undefined && turnId !== undefined && turnId !== turn.turnId);
     if (stale) {
-      // 用量的映射不读回合状态；其余一律原样保留。
+      // 用量的映射不读回合状态；按设计忽略的（thread 状态等）照样忽略；其余一律原样保留。
       const events =
         method === 'thread/tokenUsage/updated'
           ? session.mapper.map(method, params)
-          : [session.mapper.raw(method, params)];
+          : (IGNORED_NOTIFICATIONS as readonly string[]).includes(method)
+            ? []
+            : [session.mapper.raw(method, params)];
       for (const event of events) session.hub.emit(event);
       return;
     }
@@ -885,30 +922,231 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
   }
 
-  /** 父会话里 collabAgentToolCall 的 receiverThreadIds 是子 thread（codex-notes §2.4）。 */
-  #trackChildren(session: CodexSession, method: string, params: unknown): void {
-    if (method !== 'item/started' && method !== 'item/completed') return;
+  /**
+   * 会话里的 collabAgentToolCall（codex-notes §2.4，codex-event-mapping.md §6.5）：`receiverThreadIds` 里没认出来的
+   * thread 是这个会话的子 agent（`reportsChild`：`agentsStates` 报 notFound 的跳过），`close_agent` 完成时子 agent 被
+   * 关掉了。返回要在这条通知自己的事件之后执行的动作。进行中的 item 记下来，按 rootTurnId 认出子 thread 时用。
+   */
+  #trackCollab(session: CodexSession, method: string, params: unknown): Array<() => void> {
+    if (method !== 'item/started' && method !== 'item/completed') return [];
     const item = isRecord(params) ? params.item : undefined;
-    if (!isRecord(item) || item.type !== 'collabAgentToolCall') return;
-    const receivers = item.receiverThreadIds;
-    if (!Array.isArray(receivers)) return;
-    for (const child of receivers) {
-      if (typeof child === 'string' && !this.#sessions.has(child)) {
-        this.#children.set(child, session.id);
+    if (!isCollabItem(item)) return [];
+    if (method === 'item/started' && item.status === 'inProgress')
+      session.collab.set(item.id, item);
+    else session.collab.delete(item.id);
+    const after: Array<() => void> = [];
+    for (const childId of collabReceivers(item)) {
+      const known = this.#sessions.get(childId);
+      if (
+        (known === undefined || (known.parentId !== undefined && known.status !== 'open')) &&
+        reportsChild(method, item, childId)
+      ) {
+        after.push(() => this.#adoptChild(session, childId, item));
+      } else if (
+        method === 'item/completed' &&
+        item.tool === 'closeAgent' &&
+        item.status === 'completed' &&
+        known?.parentId === session.id
+      ) {
+        after.push(() =>
+          session.hub.emit({
+            type: 'subagent.updated',
+            engineSessionId: session.id,
+            childEngineSessionId: childId,
+            closed: true,
+          }),
+        );
       }
     }
+    return after;
   }
 
-  #parentOf(threadId: string): CodexSession | undefined {
-    const parentId = this.#children.get(threadId);
-    const parent = parentId === undefined ? undefined : this.#sessions.get(parentId);
-    return parent?.status === 'open' ? parent : undefined;
+  /**
+   * 认出一个子 agent：登记为子会话（Provider 与父会话相同，模型取 collab item 里的，选不上就用父会话的），在父会话的流里
+   * 报 `subagent.started`，把认出之前存下的通知按子会话处理，再去读它的昵称等（`thread/read`，稳定面）。脱开了的子会话
+   * 又被用到时同样重新登记。
+   */
+  #adoptChild(parent: CodexSession, childId: string, item: CollabAgentToolCallItem): void {
+    if (parent.status !== 'open' || this.#sessions.get(childId)?.status === 'open') return;
+    const provider = this.#providers.get(parent.providerId);
+    const requested = nonEmpty(item.model);
+    const model =
+      (requested === undefined
+        ? undefined
+        : provider?.models.find((candidate) => candidate.id === requested)) ?? parent.model;
+    this.#sessions.set(childId, {
+      id: childId,
+      cwd: parent.cwd,
+      providerId: parent.providerId,
+      model,
+      parentId: parent.id,
+      status: 'open',
+      // Host 收到 subagent.started 才订阅：之前的事件先存着。
+      hub: new EventHub<AgentEvent>({ bufferUntilSubscribed: true }),
+      mapper: new CodexEventMapper(childId, { contextSize: () => model.contextWindow }),
+      approvals: new Map(),
+      collab: new Map(),
+    });
+    const prompt = item.tool === 'spawnAgent' ? nonEmpty(item.prompt) : undefined;
+    const effort = nonEmpty(item.reasoningEffort);
+    parent.hub.emit({
+      type: 'subagent.started',
+      engineSessionId: parent.id,
+      childEngineSessionId: childId,
+      parentToolCallId: item.id,
+      title: subagentTitle({ prompt }),
+      ...(prompt !== undefined && { prompt }),
+      modelId: requested ?? parent.model.id,
+      ...(effort !== undefined && { reasoningEffort: fromCodexEffort(effort) }),
+    });
+    const held = this.#unknownThreads.get(childId);
+    this.#unknownThreads.delete(childId);
+    for (const notification of held?.notifications ?? []) {
+      this.#onNotification(notification.method, notification.params);
+    }
+    void this.#describeChild(parent, childId, prompt);
+  }
+
+  /** 子 agent 晚到的信息：`thread/read`（稳定面）的昵称、角色与 thread 名称 → 父会话流里的 `subagent.updated`。 */
+  async #describeChild(
+    parent: CodexSession,
+    childId: string,
+    prompt: string | undefined,
+  ): Promise<void> {
+    let read: ThreadReadResponse;
+    try {
+      read = await this.process.request<ThreadReadResponse>('thread/read', {
+        threadId: childId,
+      } satisfies ThreadReadParams);
+    } catch (error) {
+      this.#warnOnce('thread_read', '读子 agent 的 thread 信息失败，昵称与名称从缺', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    if (this.#sessions.get(parent.id) !== parent || parent.status !== 'open') return;
+    const nickname = nonEmpty(read.thread.agentNickname);
+    const role = nonEmpty(read.thread.agentRole);
+    const name = nonEmpty(read.thread.name);
+    // 兜底标题的顺序：名称 → 任务描述首行 → 昵称（subagentTitle）。有任务描述时昵称不改标题。
+    const title = name ?? (prompt === undefined ? nickname : undefined);
+    if (nickname === undefined && role === undefined && title === undefined) return;
+    parent.hub.emit({
+      type: 'subagent.updated',
+      engineSessionId: parent.id,
+      childEngineSessionId: childId,
+      ...(title !== undefined && { title }),
+      ...(nickname !== undefined && { nickname }),
+      ...(role !== undefined && { role }),
+    });
+  }
+
+  /**
+   * 子会话自己的几种通知（R4）：`turn/started` 开始一个由引擎发起的回合；回合的第一条通知到来时发 `turn.started`（是
+   * userMessage 就把它当输入）；`thread/name/updated` 是新的兜底标题。处理了返回 true。
+   */
+  #childNotification(session: CodexSession, method: string, params: unknown): boolean {
+    if (method === 'turn/started') {
+      const turnId = notificationTurnId(params);
+      if (turnId === undefined || session.turn !== undefined) {
+        session.hub.emit(session.mapper.raw(method, params));
+        return true;
+      }
+      let settle!: () => void;
+      session.turn = {
+        turnId,
+        cancelRequested: false,
+        done: new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+        settle: () => settle(),
+      };
+      session.mapper.reset();
+      session.pendingTurnStart = true;
+      return true;
+    }
+    if (method === 'thread/name/updated') {
+      const parent =
+        session.parentId === undefined ? undefined : this.#sessions.get(session.parentId);
+      const title = isRecord(params) ? nonEmpty(params.threadName) : undefined;
+      if (parent?.status === 'open' && title !== undefined) {
+        parent.hub.emit({
+          type: 'subagent.updated',
+          engineSessionId: parent.id,
+          childEngineSessionId: session.id,
+          title,
+        });
+      }
+      return true;
+    }
+    if (session.pendingTurnStart) {
+      session.pendingTurnStart = false;
+      const input =
+        method === 'item/started' && isRecord(params) ? userMessageInput(params.item) : undefined;
+      session.hub.emit({
+        type: 'turn.started',
+        engineSessionId: session.id,
+        ...(input !== undefined && { input }),
+      });
+      if (input !== undefined) return true;
+    }
+    return false;
+  }
+
+  /**
+   * 还没认出来的 thread 的通知：存着，等父会话里的 collabAgentToolCall 报出它（`#adoptChild` 时补上）。子 thread 的
+   * `turn/started` 带 `rootTurnId`：指向某个会话进行中的回合、而那个会话正好有一个进行中的派出类工具调用时，当场认出。
+   * 存满或过期就丢掉。
+   */
+  #holdUnknown(threadId: string, method: string, params: unknown): void {
+    const now = Date.now();
+    for (const [id, held] of this.#unknownThreads) {
+      if (now - held.since <= UNKNOWN_THREAD_TTL_MS) continue;
+      this.#unknownThreads.delete(id);
+      const methods = [...new Set(held.notifications.map((n) => n.method))].filter(
+        (m) => m !== 'thread/started' && m !== 'thread/status/changed',
+      );
+      if (methods.length > 0) {
+        this.#warnOnce('unknown_thread', 'codex-app-server 的通知属于没有认出来的 thread，丢弃', {
+          threadId: id,
+          methods,
+        });
+      }
+    }
+    let held = this.#unknownThreads.get(threadId);
+    if (held === undefined) {
+      held = { since: now, notifications: [] };
+      this.#unknownThreads.set(threadId, held);
+    }
+    if (held.notifications.length < UNKNOWN_THREAD_BUFFER_LIMIT) {
+      held.notifications.push({ method, params });
+    } else {
+      this.#warnOnce(`unknown_thread_overflow:${threadId}`, '没有认出来的 thread 通知太多，丢弃', {
+        threadId,
+      });
+    }
+    if (method === 'turn/started') this.#adoptByRootTurn(threadId, params);
+  }
+
+  #adoptByRootTurn(threadId: string, params: unknown): void {
+    const turn = isRecord(params) ? params.turn : undefined;
+    const rootTurnId = isRecord(turn) ? nonEmpty(turn.rootTurnId) : undefined;
+    if (rootTurnId === undefined) return;
+    for (const session of this.#sessions.values()) {
+      if (session.status !== 'open' || session.turn?.turnId !== rootTurnId) continue;
+      const starting = [...session.collab.values()].filter((item) =>
+        CHILD_STARTING_TOOLS.has(item.tool),
+      );
+      const [item] = starting;
+      if (starting.length === 1 && item !== undefined) this.#adoptChild(session, threadId, item);
+      return;
+    }
   }
 
   /**
    * 服务端请求（codex-event-mapping.md §6.6）。命令与补丁的审批属于进行中的回合时上报为 `approval.requested`，
-   * 等 `respondToApproval`；回合已开始取消时随即结掉。子 thread 的审批（R4 之前）、不属于进行中回合的审批回复
-   * `decline`；其余请求（`request_user_input`、MCP 等）回复“不支持”。
+   * 等 `respondToApproval`；回合已开始取消时随即结掉。子会话的审批同样处理。没有挂着的 thread、不属于进行中回合的
+   * 审批回复 `decline`；其余请求（`request_user_input`、MCP 等）回复“不支持”。
    */
   #onServerRequest(request: CodexServerRequest): Promise<unknown> {
     this.#options.onRawServerRequest?.(request);
@@ -930,22 +1168,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#warnOnce(`approval_shape:${method}`, 'Codex 的审批请求缺少字段，拒绝', { method });
       return decline;
     }
+    // 子会话（子 agent 的 thread）的审批与普通会话一样上报，属于子会话（R4，domain-model §5 第 8 条）。
     const session = this.#sessions.get(params.threadId);
     if (session?.status !== 'open') {
-      const parent = this.#parentOf(params.threadId);
-      if (parent !== undefined) {
-        parent.hub.emit(parent.mapper.raw(method, params, 'server_request'));
-        this.#warnOnce(
-          `child_approval:${method}`,
-          '子 agent 请求审批：子会话在 R4 实现，在那之前一律拒绝',
-          { method },
-        );
-      } else {
-        this.#warnOnce(`unknown_approval:${method}`, '审批请求属于没有挂着的 thread，拒绝', {
-          method,
-          threadId: params.threadId,
-        });
-      }
+      this.#warnOnce(`unknown_approval:${method}`, '审批请求属于没有挂着的 thread，拒绝', {
+        method,
+        threadId: params.threadId,
+      });
       return decline;
     }
     const turn = session.turn;
@@ -1044,7 +1273,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       session.hub.emit({ type: 'engine.exited', engineSessionId: session.id, ...exit });
       session.hub.end();
     }
-    this.#children.clear();
+    this.#unknownThreads.clear();
     this.#approvalsByRpc.clear();
     for (const collector of this.#titleThreads.values()) {
       collector.fail(new AdapterError('engine_unavailable', 'codex-app-server 已退出或正在重启'));
@@ -1100,6 +1329,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   #register(id: string, cwd: string, provider: ProviderConfig, model: ProviderModelConfig): void {
+    // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
+    this.#unknownThreads.delete(id);
     this.#sessions.set(id, {
       id,
       cwd,
@@ -1109,6 +1340,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       hub: new EventHub<AgentEvent>(),
       mapper: new CodexEventMapper(id, { contextSize: () => model.contextWindow }),
       approvals: new Map(),
+      collab: new Map(),
     });
   }
 
@@ -1153,6 +1385,16 @@ function engineSession(id: string, response: ThreadStartResponse): EngineSession
       }),
     engineVersion: CODEX_VERSION,
   };
+}
+
+/**
+ * collab item 里的一个 receiver 能不能当作子 agent 认领：`spawn_agent` 报的就是新派出的；其余工具（wait、close、
+ * send_input、resume_agent）可能指向不存在的 ID，`item/started` 时还没有状态，要等 `item/completed` 的 `agentsStates`
+ * 报出它的状态（不是 notFound，`collabReceivers` 已去掉）才算。
+ */
+function reportsChild(method: string, item: CollabAgentToolCallItem, childId: string): boolean {
+  if (item.tool === 'spawnAgent') return true;
+  return method === 'item/completed' && isRecord(item.agentsStates?.[childId]);
 }
 
 function copyApproval(info: PendingApproval): PendingApproval {

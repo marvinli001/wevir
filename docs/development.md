@@ -238,15 +238,16 @@ pnpm vitest run --project adapter-codex codex-adapter.contract
 
 | 文件 | 内容 | 需要 |
 |---|---|---|
-| `codex-adapter.contract.test.ts` | 契约第 1 层：假的 app-server（`test-fixtures/fake-app-server.mjs`）回放真实二进制录的通知与审批对话 | 无；约 3 s |
-| `codex-adapter.contract.integration.test.ts` | 契约第 2 层：真实 `codex-app-server` + 网关 + 本地 mock 模型 | 二进制；约 20 s |
+| `codex-adapter.contract.test.ts` | 契约第 1 层：假的 app-server（`test-fixtures/fake-app-server.mjs`）回放真实二进制录的通知与审批对话；子会话的条款跳过（回放层不模拟子 thread 的审批与中断） | 无；约 3 s |
+| `codex-adapter.contract.integration.test.ts` | 契约第 2 层：真实 `codex-app-server` + 网关 + 本地 mock 模型，含子会话的三条（派出与订阅、子会话的审批、取消子回合） | 二进制；约 20 s |
 | `codex-adapter.contract.real.integration.test.ts` | 契约第 3 层：真实二进制 + 网关 + 真实模型 | 二进制、`WEVIR_TEST_API_KEY`、`WEVIR_TEST_PROVIDER`（§6.3）；缺了跳过并打印原因 |
 | `mapping.test.ts`、`turn-error.test.ts`、`resume-error.test.ts` 等单元测试 | 回放真实二进制录的样本（`src/test-fixtures/app-server/`：通知、审批对话、错误）、配置与提示词的生成、展示类型 | 无 |
 | `codex-adapter.{approval,resume,turn}.integration.test.ts` | 审批的各个决定、恢复与取消的兜底、计划、错误归类、会话标题 | 二进制；共约 30 s |
-| `codex-adapter.integration.test.ts` | 握手、Provider 变更、子 thread、版本核对 | 二进制；约 5 s |
+| `codex-adapter.integration.test.ts` | 握手、Provider 变更、版本核对 | 二进制；约 5 s |
+| `codex-adapter.subagent.test.ts`、`codex-adapter.subagent.integration.test.ts` | 子会话（R4）：回放录制的子 agent 样本（含子 thread 先于 spawn 完成到达、按 rootTurnId 认出的顺序）；真实二进制上的 spawn → wait、不等子 agent、`close_agent`、取消父回合时子 agent 不受影响、notFound 不当作子会话 | 回放无；真实二进制约 3 s |
 | `codex-adapter.isolation.integration.test.ts` | 外连为零（代理 + lsof）、令牌与 Key 不落盘不进日志、命令看不到 `WEVIR_*` | 二进制；约 10 s |
 
-没有二进制时集成测试跳过并打印下载命令。审批用例写 `packages/adapter-codex/.test-outside/`（工作区外、且不在系统临时目录，gitignore），同 §6.4 的第一条。升级 Codex 按 [UPSTREAM.md](./upstream/UPSTREAM.md)「Codex 升级检查清单」，其中重录样本是 `WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`。Host 一侧的端到端是 `packages/host/src/cli.codex.integration.test.ts`。
+没有二进制时集成测试跳过并打印下载命令。审批用例写 `packages/adapter-codex/.test-outside/`（工作区外、且不在系统临时目录，gitignore），同 §6.4 的第一条。升级 Codex 按 [UPSTREAM.md](./upstream/UPSTREAM.md)「Codex 升级检查清单」，其中重录样本是 `WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`。Host 一侧的端到端是 `packages/host/src/cli.codex.integration.test.ts` 与子会话的 `cli.codex.subagent.integration.test.ts`（派出子会话、子会话的审批经父会话处理、取消父会话时级联取消；写 `packages/host/.test-outside/`）。mock 模型的默认脚本里“子智能体”（或 `subagent`）让父 agent 派一个子 agent 并等它（与 Spike 的 subagent 场景相同的 spawn → wait），再加“工作区外”让子 agent 请求审批、加“长”让它慢慢回答；echo 引擎的 `subagent` 关键词是同样的流程（`packages/runtime-adapter/src/echo.ts`）。
 
 ### 6.3 真实模型测试的环境变量
 

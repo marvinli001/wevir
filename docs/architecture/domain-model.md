@@ -29,6 +29,7 @@ Host 是唯一的事实来源（计划 §2.1）。Host 里的数据分两类：
 | Provider 配置（`ProviderProfile`） | 产品 | Host（SQLite + SecretStore） | 由 T3.4 投影成 dsh overlay；Key 只经子进程环境变量传入 |
 | 会话身份、所属工作区、标题、创建与更新时间、会话列表 | 产品 | Host | ACP `session/list` 只有 `sessionId` + `cwd`，且不含活跃会话（T0.3 §3.2）；标题取首条提示词（ADR-0001 §5 第 4 条） |
 | 会话状态（`SessionState`） | 产品，由引擎信号驱动 | Host 状态机（§4） | ACP 只有 `session/prompt` 的结算 |
+| 子会话：父子关系、子 agent 的状态与摘要（0.6.0，R4） | 产品，从引擎数据推导 | 适配器报出子 agent（Codex 的 `collabAgentToolCall`），Host 建子会话（§3.3.1） | 子 agent 的对话本身照常是引擎投影；dsh 等 ACP 引擎没有子会话 |
 | 事件序号 `seq` | 产品 | Host | ACP 没有序号（ADR-0001 §5 第 3 条） |
 | 回合（`turnId`）与用户消息 | 产品 | Host | ACP 不回发用户消息 |
 | 审批的身份、状态、`decidedBy`、过期 | 产品 | Host | 选项列表与 `toolCallId` 来自引擎 |
@@ -61,7 +62,7 @@ Host 生成的 ID 都是带类型前缀的不透明字符串，客户端不得�
 
 **Wevir 会话 ↔ 引擎会话**：
 
-- 一对一。`session.create` 时 Host 先调用适配器 `createSession`（ACP `session/new`），拿到引擎会话 ID 后才写 `session.created`；之后 `Session.engine.sessionId` 不再改变。ACP 的 `session/resume` 沿用同一个 `sessionId`（T0.3 §3.2），所以 resume、Host 重启、dsh 进程重启都不改映射。
+- 一对一。`session.create` 时 Host 先调用适配器 `createSession`（ACP `session/new`），拿到引擎会话 ID 后才写 `session.created`；之后 `Session.engine.sessionId` 不再改变。子会话（§3.3.1）不经 `session.create`：引擎自己派出子 agent，适配器报出它的引擎会话 ID（Codex 的子 thread），Host 据此建会话，同样一对一。ACP 的 `session/resume` 沿用同一个 `sessionId`（T0.3 §3.2），所以 resume、Host 重启、dsh 进程重启都不改映射。
 - 映射只由 Host 保存（`sessions` 表，T2.1；对引擎会话 ID 建唯一索引）。适配器上报的事件以引擎会话 ID 为键，Host 据此路由到 Wevir 会话；Wevir 会话 ID 从不发给 dsh。
 - 客户端只用 Wevir 会话 ID。`session.get` 可以带出 `engine` 字段用于诊断，客户端不得据此做任何操作。
 - `Session.cwd` 是创建时工作区 `rootPath` 的 realpath，同样不可变：ACP resume 必须用同一个 cwd（按 realpath 比较，T0.3 §3.2）。
@@ -214,6 +215,8 @@ interface Session {
   activeTurn?: ActiveTurn
   lastError?: { category: EngineErrorCategory; message: string }
   readOnly?: SessionReadOnly       // 0.3.0：引擎会话恢复不了（§4.4）
+  parentSessionId?: SessionId      // 0.6.0：子会话的父会话（§3.3.1）
+  subagent?: SubagentInfo          // 0.6.0：只有子会话有（§3.3.1）
   createdAt: IsoTime
   updatedAt: IsoTime               // 最后一个事件的 ts
   lastSeq: number
@@ -236,6 +239,7 @@ interface SessionSnapshot {
   pendingApprovals: ApprovalRequest[]
   todos?: TodoItem[]               // 最近一次 todo.updated
   usage?: { contextUsed: number; contextSize: number } // 最近一次 usage.updated
+  subagents?: SubagentSummary[]    // 0.6.0：这个会话派出的子会话，按 startedAt（§3.3.1）；没有时省略
 }
 ```
 
@@ -250,7 +254,65 @@ interface SessionSnapshot {
 
 除身份字段外，`Session` 的其余字段都可以由事件序列推导出来。`sessions` 表存一份缓存供会话列表使用，与事件推导结果不一致时以事件为准（T2.2 的“Host 重启后状态一致”）。
 
-T2.2 定下的推导规则（`packages/host/src/snapshot.ts` 的 `applyEvent`）：`title` / `titleSource` 取最近一条 `session.title_changed`，没有时为空串与 `first_prompt`；`activeTurn` 由 `turn.started` 设置（`startedAt` 是该事件的 `ts`，`clientMessageId` 取同一 `turnId` 的 `user.message`），`turn.finished` 清空；`lastError` 由每条 `engine.error` 覆盖（含回合失败这类不改变状态的错误，界面据此在 `idle` 下显示上次失败原因），状态以 `turn_started` 或 `resumed` 转换时清空；`readOnly` 由 `session.read_only` 设置（`since` 是该事件的 `ts`），`session.resumed` 清空（T3.5）。`sessions` 表的缓存列与 `approvals` 表都是事件的投影，由事件库在写事件的同一事务里更新。
+T2.2 定下的推导规则（`packages/host/src/snapshot.ts` 的 `applyEvent`）：`title` / `titleSource` 取最近一条 `session.title_changed`，没有时为空串与 `first_prompt`；`activeTurn` 由 `turn.started` 设置（`startedAt` 是该事件的 `ts`，`clientMessageId` 取同一 `turnId` 的 `user.message`），`turn.finished` 清空；`lastError` 由每条 `engine.error` 覆盖（含回合失败这类不改变状态的错误，界面据此在 `idle` 下显示上次失败原因），状态以 `turn_started` 或 `resumed` 转换时清空；`readOnly` 由 `session.read_only` 设置（`since` 是该事件的 `ts`），`session.resumed` 清空（T3.5）；`subagent` 与 `subagents` 见 §3.3.1（R4）。`sessions` 表的缓存列与 `approvals` 表都是事件的投影，由事件库在写事件的同一事务里更新。
+
+### 3.3.1 子会话（0.6.0，R4）
+
+引擎派出的子 agent（Codex 的 `multi_agent_v1.spawn_agent`）在 Wevir 里是父会话下的**子会话**，不折叠成工具卡片（ADR-0005 决策 6.1）。只有报子会话的引擎才有：适配器能力 `subagents`，Codex 与 echo 有，dsh 与其他 ACP 引擎没有（它们的子 agent 不产生更新，仍是父会话里的一个工具调用，§6.4）。
+
+```ts
+// → protocol
+type SubagentStatus = 'running' | 'completed' | 'failed' | 'closed' | 'cancelled'
+
+interface SubagentInfo {              // Session.subagent，只有子会话有
+  parentToolCallId: string            // 父会话里派出它的工具调用（Codex：collabAgentToolCall 的 item ID）
+  parentTurnId?: TurnId               // 认出它时父会话进行中的回合；在父会话的回合之外认出的没有
+  status: SubagentStatus
+  startedAt: IsoTime                  // 子会话 session.created 的 ts
+  endedAt?: IsoTime                   // 最近一次离开 running 的时刻；running 时没有
+}
+
+interface SubagentSummary {           // 父会话快照的 subagents 与 subagent.* 事件里的一项
+  sessionId: SessionId                // 子会话
+  parentToolCallId: string
+  parentTurnId?: TurnId
+  title: string                       // 子会话当前的标题
+  modelId: string
+  reasoningEffort?: string
+  nickname?: string                   // 引擎给子 agent 起的名字（Codex 的 agentNickname），晚到，可能没有
+  role?: string                       // 引擎的子 agent 类型（Codex 的 agentRole）
+  status: SubagentStatus
+  startedAt: IsoTime
+  endedAt?: IsoTime
+  pendingApprovals: ApprovalRequest[] // 子会话的未决审批的副本（审批属于子会话，§5）
+}
+```
+
+| 字段 | 子会话的取值 |
+|---|---|
+| `parentSessionId` | 父会话。Host 建子会话时写进 `sessions` 表（`parent_session_id`、`parent_tool_call_id`），之后不变 |
+| `workspaceId`、`cwd`、`providerId`、`engine.kind` | 与父会话相同；`engine.sessionId` 是子 agent 的引擎会话（Codex 的子 thread ID） |
+| `modelId`、`reasoningEffort` | 适配器报的子 agent 实际用的模型与推理强度（Codex：`spawn_agent` 时选的，没选就是父会话的）；没报时沿用父会话 |
+| `title`、`titleSource` | 先是兜底标题（`first_prompt`）：引擎给的名称 → 任务描述的第一行 → 昵称（ADR-0005 决策 6.1）；之后与普通会话一样用会话的模型生成一次（`generated`，输入是任务描述，§3.3）。兜底标题会随引擎晚到的名称或昵称更新，生成标题之后不再变 |
+| `state` 等 | 状态机与普通会话相同，触发者不同（§4.5） |
+| `subagent` | 下表，由子会话自己的事件推导 |
+
+| 子会话的事件 | `subagent.status` | `endedAt` |
+|---|---|---|
+| `session.created`（带 `parent`） | `running`（刚派出，回合马上开始） | — |
+| `turn.started` | `running` | 清空 |
+| `turn.finished`：`completed` / `cancelled` / `failed` / `interrupted` | `completed` / `cancelled` / `failed` / `failed` | 该事件的 `ts` |
+| `session.state_changed` → `closed` | `closed` | 已有时不变，否则取该事件的 `ts` |
+| `session.state_changed` → `error`，而一个回合都还没结束过 | `failed` | 同上 |
+
+规则：
+
+- **建立。** 适配器在父会话的事件流里报 `subagent.started`（§6.2 的 AgentEvent 表）。Host 新建会话：写 `sessions` 表，在子会话的事件流写 `session.created`（带 `parent`）与兜底标题，再在父会话的事件流写 `subagent.started`（子会话的摘要），然后订阅子会话的引擎事件。同一个引擎会话再次被报出（引擎重启后父 agent 又用到它）时不新建，按 §4.5 C5 重新挂上。两个会话的写入不在同一个事务里：先写子会话，Host 在两者之间退出时子会话在、父会话的摘要里没有它。
+- **自己的事件流。** 子会话的事件写进它自己的事件流（`seq` 从 1 起），客户端照常 `session.get`、`events.subscribe`。回合由引擎开始：`turn.started` 带这一回合的输入（`input`：任务描述，或父 agent 用 `send_input` 发来的消息），没有 `user.message`。
+- **只读。** 子会话由父 agent 驱动（与它交互只经父 agent，`send_input` 等由模型发起）：`session.send`、`session.cancel`、`session.close`、`session.resume` 一律 `INVALID_STATE`（`data.parentSessionId`）。子会话的回合怎样停止见 §4.5。
+- **父会话的摘要。** 子会话的标题、状态、未决审批，以及适配器晚报的昵称、角色，每变一次 Host 就在父会话的事件流写一条 `subagent.updated`（完整摘要，替换同一 `sessionId` 的上一份）。父会话快照的 `subagents` 由 `subagent.started` / `subagent.updated` 推导，父会话的订阅因此知道每个子会话的状态，以及有没有子会话在等审批。昵称与角色只在摘要里。
+- **列表。** `session.list` 默认不含子会话，带 `parentSessionId` 列出某个会话的子会话（host-api.md §3.1）。子会话不算“未关闭会话”：不挡工作区移除与 Provider 删除，它们跟着父会话走。
+- **嵌套。** 适配器可以在子会话的事件流里再报 `subagent.started`（子会话的子会话），规则相同。Codex 的默认深度 `agents.max_depth = 1`，Wevir 不改，实际不会出现。
 
 ### 3.4 ApprovalRequest
 
@@ -446,6 +508,30 @@ resume 失败（#12 的反面）不改变状态：`error` 仍是 `error`，`clos
 - **只读。** 适配器报 `session_lost`（引擎找不到会话、读不了它的格式、日志损坏）时，Host 在 `engine.error` 之后写 `session.read_only`（同一原因已只读时不重复写），会话停在 `error` 或 `closed` 并带 `readOnly`。只读会话的 `session.send` 返回 `INVALID_STATE`，`data.readOnly` 给出原因；`session.close` 照常；`session.resume` 仍会问引擎一次（引擎数据可能已经找回），成功即写 `session.resumed` 解除只读，失败只追加 `engine.error`。其余 resume 失败（cwd 不一致、引擎不可用）不标只读。
 - **基于历史新建会话。** 只读会话的出路是用它的历史开一个新会话。T3.5 只定接口（`packages/host` 的 `SessionFromHistory`）：在原会话的工作区新建引擎会话，Provider 与模型默认沿用，历史从事件库读，交给新引擎会话的方式由实现决定，新会话的 `session.created` 记下来源；实现时 Host API 加对应方法并在 `HOST_FEATURES` 声明。在那之前桌面端（T5.5）用客户端的做法：把只读会话的对话记录（用户消息、助手正文、工具摘要，超长时保留最近的部分）放进同一工作区新会话的输入框，Provider 沿用原会话，用户看过、改过再发；新会话的 `session.created` 不记来源。
 
+### 4.5 子会话的状态机与父会话（R4）
+
+子会话（§3.3.1）用同一套状态与转换（Host 的 `SESSION_TRANSITIONS` 不变），区别在触发者：回合由引擎开始，关闭与重新挂上由父 agent 决定，客户端的命令都不接受（`INVALID_STATE`）。
+
+| # | 从 | 到 | 触发 | 写入的事件（`reason`） |
+|---|---|---|---|---|
+| C1 | — | `idle` | 适配器在父会话的流里报 `subagent.started` | 子会话：`session.created`（`parent`）、`session.title_changed`（兜底标题）；父会话：`subagent.started` |
+| C2 | `idle` | `running` | 引擎开始子会话的一个回合（适配器 `turn.started`） | `turn.started`（`input`）（`turn_started`） |
+| #3、#4 | | | 审批，同普通会话 | |
+| C3 | `running` / `awaiting_approval` | `cancelling` | 父会话被取消或关闭（级联，见下） | 同 #5；之后同 #8 / #9 |
+| #6–#8 | | | 回合结束，同普通会话 | |
+| C4 | `idle` / `running` / `awaiting_approval` / `cancelling` / `error` | `closed` | 父 agent 关掉它（适配器 `subagent.updated` 的 `closed`；Codex 的 `close_agent`） | 回合进行中时先结掉：未决审批 `cancelled`（`session_closed`）、`awaiting_approval` 先回 `running`（`approvals_settled`）、未收尾工具 `unknown`、`turn.finished`（`cancelled`）（`turn_finished`）；然后（`closed`） |
+| C5 | `closed` / `error` | `idle` | 父 agent 又用到它：关掉的子 agent 又开始回合（Codex 的 `resume_agent`），或引擎重启后它又被报出 | `session.resumed`（`resumed`），随后通常是 C2 |
+| #10 | | `error` | 引擎进程退出，同普通会话 | |
+| #15 | | | Host 重启，同普通会话。另外，从没开始过回合的子会话（状态停在 `running`）写 `engine.error`（`engine_exited`，`fatal`）并 `idle` → `error`（`engine_exited`），免得一直显示“运行中” | |
+
+与父会话的关系：
+
+- **父会话的状态不受子会话影响。** 子会话在等审批时父会话仍是 `running`（父 agent 在等它）或 `idle`；父会话知道这件事只经 `subagent.updated` 的摘要（§3.3.1、§5）。
+- **父回合取消时 Codex 不动子 agent**（R4 在 `codex-app-server` `rust-v0.162.1` 上实测，mock 模型脚本 spawn → wait）：对父 thread 发 `turn/interrupt`，父回合 4–12 ms 内以 `interrupted` 结束，父回合里正在进行的 `wait` 没有 `item/completed`；子 thread 的回合照常跑到结束（`completed`，约 6 s 后），子 thread 挂着的审批一直挂着（thread 状态 `waitingOnApproval`）。父回合不 wait、自己先结束时同样如此。对**子** thread 发 `turn/interrupt` 才结束子回合（`interrupted`，挂着的审批随后 `serverRequest/resolved`）。`close_agent` 先中断子回合，再卸载子 thread（`notLoaded`）。
+- **Host 级联取消。** ADR-0005 决策 6.1 定的是“取消父回合即取消它”，Codex 自己做不到，由 Host 补上：对父会话的 `session.cancel`、`session.close` 与 Host 优雅退出，Host 同时对它每个活动中的子会话（递归）按 #5 取消（引擎侧是对子 thread 的 `turn/interrupt`），子会话审批的结算原因是 `turn_cancelled`（Host 退出时 `host_shutdown`），父子都结算之后命令才返回。父会话空闲而子会话还在跑时（父回合没等子 agent 就结束了），`session.cancel` 同样取消这些子会话。子会话不随父会话关闭，历史照常可读。
+- **子会话不能单独停止。** 子会话只读，`session.cancel` 对它是 `INVALID_STATE`。Codex 的终端界面允许在子 agent 视图里按 Esc 直接中断它的回合；要不要给子会话单独的停止按钮由维护者定，R4 不加。
+- **Host 重启之后**子会话按只读历史可读（`session.get`、订阅），引擎侧的子 agent 随旧进程没了；父 agent 恢复后再用到它（Codex 从 rollout 恢复子 thread）时按 C5 重新挂上。
+
 ---
 
 ## 5. 审批生命周期
@@ -470,6 +556,7 @@ stateDiagram-v2
 5. **由 Host 结算为 `cancelled`**：`session.cancel`（`turn_cancelled`）、`session.close`（`session_closed`）、dsh 进程退出（`engine_exited`）、Host 优雅退出（`host_shutdown`）。前两种情况适配器必须让引擎知道：dsh 以 `{"outcome":{"outcome":"cancelled"}}` 回复 ACP，否则 dsh 侧悬挂（ADR-0001 §6）；Codex 由 `turn/interrupt` 中断回合，app-server 自己收回请求（codex-event-mapping.md §6.6）。`decidedBy` 为空。
 6. **由 Host 结算为 `expired`**：Host 非正常退出后重启，启动对账时把残留的 `pending` 审批结为 `expired`（`host_restarted`）。此时 dsh 进程已随 Host 消失，没有可回复的请求。
 7. 审批结算后，引擎随后的 `tool_call_update` 照常映射为 `tool.finished`：批准后通常 `completed`；拒绝后 `failed`，结果文本是 dsh 的拒绝说明；取消后 `cancelled`（§6.4）。
+8. **子会话的审批**（R4，ADR-0005 补记 1）：属于子会话。`approval.requested` / `approval.resolved` 写在子会话的事件流里，`ApprovalRequest.sessionId` 是子会话，子会话照常进出 `awaiting_approval`。父会话这边：Host 每次在子会话里记下或结算一个审批，就在父会话的事件流写一条 `subagent.updated`，摘要的 `pendingApprovals` 是子会话当时全部未决审批的副本，所以父会话的快照与订阅都能看到“哪个子会话在等什么审批”，界面在父会话里显示它并标出来自哪个子会话（Codex 终端界面把子 agent 的审批冒到当前视图，带“Thread: 〈名字〉”）。`approval.respond` 只认 `approvalId`，任何有 `session.write` 的连接都能回，不论它看的是父会话还是子会话；规则同第 2、3 条（首个决定生效）。父会话的状态不因此变成 `awaiting_approval`。
 
 ---
 
@@ -500,13 +587,15 @@ stateDiagram-v2
 | `usage.updated` | engine | 上下文用量 | ACP `usage_update` |
 | `engine.error` | engine / host | 引擎错误，已归类并保留原文 | `-32603` 回合失败、进程退出、resume 失败、取消超时 |
 | `engine.raw` | engine | 适配器不认识的引擎消息，原样保留 | 未识别的 `sessionUpdate` 或通知 |
+| `subagent.started` | host | 父会话派出了一个子 agent，带子会话的摘要（0.6.0，R4，§3.3.1） | 适配器的 `subagent.started`；写在父会话的事件流 |
+| `subagent.updated` | host | 子会话的摘要变了：标题、状态、未决审批、昵称或角色（0.6.0） | 子会话的事件、适配器的 `subagent.updated`；写在父会话的事件流 |
 
 和计划草稿相比的调整，都来自 Spike 样本：
 
 - 新增 `user.message`、`turn.started` / `turn.finished`：ACP 不回发用户消息，回合边界只有 `session/prompt` 的请求与结算；回放和快照的 `activeTurn` 需要它们。
 - 新增 `assistant.stream_ended`：旁路的 `end` 帧区分 `committed` 与 `abandoned`（重试时被丢弃的 attempt），客户端据此丢掉不会被替换的增量。
 - 新增 `todo.updated`、`session.created`、`session.title_changed`：ADR-0001 §5 规定由 Host 推导的事实，以事件形式落库，快照和回放都从事件得到。
-- 没有 `plan.*`、`subagent.*`：dsh 的 ACP 从不发 `plan`（T0.3 §3.3），子 agent 只能看到父会话的 `subagent` 工具调用（ADR-0001 §5 第 10 条），按普通工具处理。
+- 没有 `plan.*`：dsh 的 ACP 从不发 `plan`（T0.3 §3.3）。`subagent.*` 原先也没有（dsh 的子 agent 只能看到父会话的 `subagent` 工具调用，ADR-0001 §5 第 10 条，按普通工具处理），R4 为 Codex 的子 agent 加上（0.6.0，§3.3.1）。
 
 ### 6.2 payload 类型
 
@@ -552,6 +641,11 @@ type WevirEvent =
       modelId: string
       reasoningEffort?: string
       engineVersion?: string       // 0.3.0：建立引擎会话的引擎版本
+      parent?: {                   // 0.6.0：只有子会话有（§3.3.1）
+        sessionId: SessionId
+        toolCallId: string         // 父会话里派出它的工具调用
+        turnId?: TurnId            // 认出它时父会话进行中的回合
+      }
     }>
   | WevirEventEnvelope<'session.resumed', { engineVersion?: string }> // 0.3.0
   | WevirEventEnvelope<'session.read_only', { reason: SessionReadOnlyReason; message: string }> // 0.3.0
@@ -571,7 +665,10 @@ type WevirEvent =
       content: Array<{ type: 'text'; text: string }> // v0 只有文本；dsh promptCapabilities 不支持图片、音频
       sentBy: ClientIdentity
     }>
-  | WevirEventEnvelope<'turn.started', { turnId: TurnId }>
+  | WevirEventEnvelope<'turn.started', {
+      turnId: TurnId
+      input?: Array<{ type: 'text'; text: string }> // 0.6.0：子会话的回合由引擎开始，这是父 agent 给它的输入
+    }>
   | WevirEventEnvelope<'turn.finished', {
       turnId: TurnId
       outcome: TurnOutcome
@@ -650,6 +747,8 @@ type WevirEvent =
       kind?: string             // ACP：session/update 的 sessionUpdate 值；Codex：item 类型等
       params: unknown           // 原样（截断后）
     }>
+  | WevirEventEnvelope<'subagent.started', { subagent: SubagentSummary }> // 0.6.0，父会话的事件流
+  | WevirEventEnvelope<'subagent.updated', { subagent: SubagentSummary }> // 0.6.0，完整摘要，替换同一 sessionId 的上一份
 ```
 
 适配器向 Host 上报的 `AgentEvent` 是这份目录去掉 Host 自己的事实（`session.*`、`user.message`、`turn.started`、`approval.resolved`）、换成引擎 ID 的版本。T1.3 已定稿，以 `packages/runtime-adapter/src/events.ts` 为准（接口与类型见同目录 `adapter.ts`、`types.ts`），这里只记与原草案的差异：
@@ -666,6 +765,11 @@ type WevirEvent =
 | `turn.failed` | 加 `category`（`missing_credentials` / `provider` / `unknown`），由适配器按错误原文归类；`code` 可省略 |
 | `engine.exited` | 发给每个挂在该进程上的会话（带 `engineSessionId`），是该会话订阅的最后一个事件；字段 `exitCode`、`signal`、`stderrTail?`，以及 `reason?`：`config_changed` 表示适配器为应用新的 Provider 配置主动重启（T3.4，只在没有回合时，Host 照 #10 转 `error`、消息提示 resume） |
 | `engine.raw` | 加 `protocol`、`kind?`；`engineSessionId` 必填（按会话订阅） |
+| `subagent.started` | 新增（R4）：在**父**会话的流里报出一个子 agent：`childEngineSessionId`、`parentToolCallId`、`title`（适配器按 §3.3.1 的顺序算出的兜底标题，可以为空）、`prompt?`（任务描述）、`modelId?`、`reasoningEffort?`、`nickname?`、`role?`。子会话的流在第一个订阅者到来之前缓冲，Host 收到它再订阅不会漏掉子会话的事件 |
+| `subagent.updated` | 新增（R4）：父会话的流里，子 agent 晚到的信息：`title?`（新的兜底标题，例如引擎给的名称）、`nickname?`、`role?`，或 `closed: true`（父 agent 关掉了它）。子会话的回合与状态以子会话自己的流为准 |
+| `turn.started` | 新增（R4）：只出现在子会话的流里，引擎开始的回合，带 `input?`（父 agent 给的输入）。之后到终结事件为止的事件属于这个回合；子会话不接受 `send`（`invalid_input`） |
+
+`subagent.started` / `subagent.updated` 可以出现在父会话的回合之内或之间（父回合不等子 agent 就结束时，昵称等信息在回合之后才到）。
 
 规则放在哪一侧：依赖 dsh 工具名、错误措辞或旁路帧细节的放适配器（展示类型、`todo.updated`、错误归类、增量对齐）；依赖 Host 状态的放 Host（取消期间的 `failed` 记为 `cancelled`、回合结束补 `unknown`、60 ms 合并增量、截断）。
 
@@ -697,7 +801,7 @@ type WevirEvent =
 - **`unknown` 由 Host 补写**：`turn.finished` 之前，本回合仍未收尾的工具调用补一条 `tool.finished`（`status: 'unknown'`，`source: 'host'`），回放时不会一直转圈（OpenWork §3.4）。
 - 沙箱拒绝后的升级重试是**两个**工具调用（不同 `toolCallId`），各自完整收尾（T0.3 §5.3）；第一次的 `failed` 文本带沙箱提示，界面可据此折叠。
 - `todo_write` 照常产生 `tool.started` / `tool.finished`，同时 Host 在 `tool.started` 之后追加 `todo.updated`（`rawInput.todos` 是完整列表）。
-- `subagent` 的结果是 `started subagent <id>`，立即 `completed`（`todo-subagent.jsonl`）；子会话的活动 v0 看不到。
+- dsh：`subagent` 的结果是 `started subagent <id>`，立即 `completed`（`todo-subagent.jsonl`）；子 agent 的活动看不到。Codex：派出、等待、关闭子 agent 的 `collabAgentToolCall` 照常是工具调用（`sub_agent` 展示类型），子 agent 本身是子会话（§3.3.1），它的活动在子会话里。
 
 ---
 
@@ -767,8 +871,8 @@ interface ToolDisplay {
 // → client-sdk
 interface MessageBase { id: string; parts: readonly ChatPart[]; seqRange: readonly [number, number] }
 interface UserChatMessage extends MessageBase {       // id = turnId
-  role: 'user'; turnId: TurnId; sentBy: ClientIdentity; clientMessageId?: string; ts: IsoTime
-}
+  role: 'user'; turnId: TurnId; sentBy?: ClientIdentity; fromParentAgent?: true; clientMessageId?: string; ts: IsoTime
+}                                                     // 子会话里父 agent 给的输入没有 sentBy、有 fromParentAgent（R4）
 interface AssistantChatMessage extends MessageBase {  // id = `${turnId}:assistant`
   role: 'assistant'; turnId: TurnId
   startedAt?: IsoTime                                 // turn.started 的时刻
@@ -792,6 +896,7 @@ type ChatPart =
   | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown } // 只在 includeRaw 时投影
   | { type: 'notice'; key: string; notice: { kind: 'resumed'; engineVersion?: string } | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string } | { kind: 'closed' } }
+  | { type: 'subagent'; key: string; subagent: SubagentSummary }   // R4：父会话里的一个子会话，随 subagent.updated 原位更新
 
 interface Transcript {                // TranscriptProjection.snapshot()
   sessionId: SessionId | undefined
@@ -800,6 +905,8 @@ interface Transcript {                // TranscriptProjection.snapshot()
   pendingApprovals: readonly ApprovalRequest[]          // 按 createdAt
   state: SessionState | undefined; activeTurnId: TurnId | undefined; title: string
   readOnly: SessionReadOnly | undefined; lastError: EngineErrorInfo | undefined; usage: Usage | undefined
+  subagents: readonly SubagentSummary[]                 // R4：这个会话派出的子会话
+  parent: { sessionId: SessionId; toolCallId: string; turnId?: TurnId } | undefined // R4：子会话的父会话
   lastSeq: number
 }
 ```
@@ -809,6 +916,11 @@ interface Transcript {                // TranscriptProjection.snapshot()
 与草案相比：加了 `system` 角色（引擎在空闲时退出、resume 失败这类没有回合的错误，以及恢复、只读、关闭提示）、部件的 `key`、工具的起止时刻、`notice` 与 `raw` 部件；`Transcript` 带着会话状态与审批，界面的状态指示与审批卡片与消息流出自同一条事件流。性能约定：`snapshot()` 只为改动过的消息生成新对象，没有新事件时返回同一个快照，调用方可以攒一批事件再取（桌面按帧）。
 
 会话列表的实时状态另有 `applySessionEvent(session, event)`（`packages/client-sdk/src/session-state.ts`），规则同 Host 的快照推导（§3.3），只更新 `Session` 自己的字段。
+
+子会话（R4，§3.3.1）在投影里的样子：
+
+- **父会话。** `Transcript.subagents` 是子会话的摘要（`subagent.started` 追加、`subagent.updated` 按 `sessionId` 替换，与 Host 的 `SessionSnapshot.subagents` 同一套推导）；另外每个子会话在派出它的回合的助手消息里有一个部件 `{ type: 'subagent'; key: 'a:<子会话 ID>'; subagent: SubagentSummary }`，位置在 `subagent.started` 到达时，之后随 `subagent.updated` 原位更新（界面据此画“〈标题〉开始工作”“〈标题〉已完成”两行，R5）。不属于回合的（父回合之外认出的）放在一条系统消息里。会话列表的推导另有 `applySubagentEvent(subagents, event)`（`session-state.ts`）。
+- **子会话。** `Transcript.parent` 取自 `session.created.parent`。`turn.started` 带 `input` 时投影出一条用户消息，`fromParentAgent: true`、没有 `sentBy`（`UserChatMessage.sentBy` 因此改为可选，只有 `user.message` 投影出的消息有）；其余部件与普通会话相同。`applySessionEvent` 对子会话另外推进 `subagent` 的状态与 `endedAt`（规则同 §3.3.1 的表）。
 
 ---
 
@@ -923,4 +1035,6 @@ interface Transcript {                // TranscriptProjection.snapshot()
 | ~~增量对齐的边界情况（空白块、多 attempt）用样本测试固定；`provider` 错误前缀；映射表写入 `acp-event-mapping.md`~~ 已落地，见 [acp-event-mapping.md](./acp-event-mapping.md) 与 `packages/adapter-dsh` | T3.2 ✅ |
 | ~~resume 的 cwd、活跃会话、引擎会话丢失；历史不依赖引擎回放~~ 已落地，见 §4.4、[acp-event-mapping.md](./acp-event-mapping.md) §6 | T3.5 ✅ |
 | 基于只读会话的历史新建会话：历史怎样交给新引擎会话、Host API 方法与 `HOST_FEATURES` 项（接口 `SessionFromHistory` 已定） | 待排期 |
+| ~~子会话：领域模型、状态机、Host 协议与存储、`AgentEvent`、Codex 的上报~~ 已落地，见 §3.3.1、§4.5、§5 第 8 条与 host-api.md（0.6.0） | R4 ✅ |
+| 子会话要不要单独的停止按钮（§4.5 末尾）；子智能体界面 | 维护者定；R5 |
 | 真实模型下 `agent_thought_chunk` 的频率、`usage_update` 数值（ADR-0001 未决事项 3） | 有 Key 后补跑 Spike |

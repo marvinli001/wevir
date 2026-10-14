@@ -14,9 +14,9 @@ import {
   startMockModel,
 } from './test-fixtures/mock-model.js';
 
-// 真实 codex-app-server + 网关 + mock 模型：握手、Provider 变更（不重启 / 空闲时重启 / 等回合结束）、子 thread 的事件、
-// 版本核对。契约条款在 codex-adapter.contract.integration.test.ts；审批、恢复与取消、计划与错误、标题在
-// codex-adapter.{approval,resume,turn}.integration.test.ts。
+// 真实 codex-app-server + 网关 + mock 模型：握手、Provider 变更（不重启 / 空闲时重启 / 等回合结束）、版本核对。契约条款在
+// codex-adapter.contract.integration.test.ts；审批、恢复与取消、计划与错误、标题、子会话在
+// codex-adapter.{approval,resume,turn,subagent}.integration.test.ts。
 
 const binary = codexBinaryOrSkip('adapter-codex 集成测试');
 const dirs = new TempDirs();
@@ -234,45 +234,6 @@ describe.skipIf(binary === undefined)(
       expect(result.find((e) => e.type === 'tool.finished')).toMatchObject({ status: 'completed' });
       expect(readFileSync(join(workspace, 'wevir-mock.txt'), 'utf8')).toContain(
         'hello from the Wevir mock model',
-      );
-    });
-
-    it('子 agent：子 thread 的通知按 engine.raw（kind child_thread）挂在父会话上，增量不保留', async () => {
-      const { adapter: a, workspace } = adapter();
-      const session = await a.createSession({
-        cwd: workspace,
-        providerId: 'mock',
-        modelId: MOCK_MODEL,
-      });
-      const events = collect(a, session.engineSessionId);
-      script = (view) => {
-        if (view.lastUserText.startsWith('Helper task')) return { text: ['Helper', ' done.'] };
-        if (view.toolOutputs.length > 0) return { text: ['Spawned.'] };
-        return {
-          toolCalls: [
-            {
-              kind: 'function',
-              namespace: 'multi_agent_v1',
-              name: 'spawn_agent',
-              args: { message: 'Helper task\nSay done.' },
-            },
-          ],
-        };
-      };
-      await turn(a, session.engineSessionId, 'spawn', events);
-      await waitFor(
-        () =>
-          events.some(
-            (e) =>
-              e.type === 'engine.raw' && e.kind === 'child_thread' && e.method === 'turn/completed',
-          ),
-        '子 thread 的 turn/completed',
-      );
-      const child = events.filter((e) => e.type === 'engine.raw' && e.kind === 'child_thread');
-      expect(child.every((e) => e.engineSessionId === session.engineSessionId)).toBe(true);
-      expect(child.some((e) => e.type === 'engine.raw' && /delta$/i.test(e.method))).toBe(false);
-      expect(child.some((e) => e.type === 'engine.raw' && e.method === 'item/completed')).toBe(
-        true,
       );
     });
 

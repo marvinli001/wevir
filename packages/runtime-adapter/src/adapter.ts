@@ -36,6 +36,12 @@ import type {
  *    引擎退出或 `dispose` 时迭代结束。
  * 9. 草案未定义的类型在 types.ts 定稿：`EngineSession` 带引擎实际采用的模型与推理强度
  *    （ACP `configOptions`）；`AgentInput` 与 `user.message` 的 `content` 同形。
+ *
+ * 子会话（R4，domain-model §3.3.1，契约能力 `subagents`）：引擎派出的子 agent 由适配器在父会话的流里以
+ * `subagent.started` 报出，子会话有自己的引擎会话 ID，`subscribe` 拿它的事件（第一个订阅者之前的已缓冲），它的
+ * 回合由引擎开始（`turn.started`）。子会话不接受 `send`（`invalid_input`）；`cancel` 中断它进行中的回合（Host 取消
+ * 父会话时级联用），`respondToApproval`、`listPendingApprovals`、`generateTitle` 照常。Host 不对子会话调用
+ * `close` 与 `resumeSession`。
  */
 export interface AgentRuntimeAdapter {
   /**
@@ -64,7 +70,7 @@ export interface AgentRuntimeAdapter {
 
   /**
    * 开始一个回合。引擎接受输入后返回，此前不会发出本回合的事件；回合以终结事件结束。
-   * 错误：`session_not_found`、`session_closed`、`session_busy`、`invalid_input`、
+   * 错误：`session_not_found`、`session_closed`、`session_busy`、`invalid_input`（含子会话：它由父 agent 驱动）、
    * `engine_unavailable`、`disposed`。
    */
   send(engineSessionId: string, input: AgentInput): Promise<void>;

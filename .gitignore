@@ -22,6 +22,7 @@ spikes/**/.run/
 /design-refs/
 packages/adapter-dsh/.test-outside/
 packages/adapter-codex/.test-outside/
+packages/host/.test-outside/
 
 # 密钥与本地环境
 .env

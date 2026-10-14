@@ -243,3 +243,97 @@ describe('EchoAdapter', () => {
     });
   });
 });
+
+describe('EchoAdapter 子会话（subagent）', () => {
+  async function collect(adapter: EchoAdapter, id: string, stop: (event: AgentEvent) => boolean) {
+    const read: AgentEvent[] = [];
+    for await (const event of adapter.subscribe(id)) {
+      read.push(event);
+      if (stop(event)) break;
+    }
+    return read;
+  }
+
+  it('父回合派出子会话、等它结束；子会话的回合由引擎开始，输入是任务描述', async () => {
+    const session = await open();
+    await session.send('subagent close');
+    const parent = await session.readUntil(settled);
+    expect(types(parent)).toEqual([
+      'tool.started',
+      'subagent.started',
+      'tool.finished',
+      'tool.started',
+      'tool.finished',
+      'tool.started',
+      'subagent.updated',
+      'tool.finished',
+      'assistant.delta',
+      'assistant.delta',
+      'assistant.delta',
+      'assistant.delta',
+      'assistant.delta',
+      'assistant.stream_ended',
+      'assistant.message',
+      'usage.updated',
+      'turn.settled',
+    ]);
+    const started = parent[1];
+    if (started?.type !== 'subagent.started') throw new Error('没有 subagent.started');
+    expect(started).toMatchObject({
+      engineSessionId: session.id,
+      parentToolCallId: (parent[0] as { toolCallId: string }).toolCallId,
+      title: 'Helper task: helper close',
+      prompt: 'Helper task: helper close',
+      modelId: 'echo-1',
+    });
+    expect(parent[6]).toMatchObject({
+      childEngineSessionId: started.childEngineSessionId,
+      closed: true,
+    });
+
+    // 子会话的事件在订阅之前就发完了，订阅仍能拿到（bufferUntilSubscribed）。
+    const child = await collect(session.adapter, started.childEngineSessionId, settled);
+    expect(child[0]).toEqual({
+      type: 'turn.started',
+      engineSessionId: started.childEngineSessionId,
+      input: [{ type: 'text', text: 'Helper task: helper close' }],
+    });
+    expect(child.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    await expect(
+      session.adapter.send(started.childEngineSessionId, {
+        content: [{ type: 'text', text: 'hi' }],
+      }),
+    ).rejects.toSatisfy((error) => isAdapterError(error, 'invalid_input'));
+  });
+
+  it('取消父回合不动子会话（与 Codex 相同）；取消子会话才结束它的回合', async () => {
+    const session = await open();
+    await session.send('subagent approve');
+    const head = await session.readUntil((event) => event.type === 'subagent.started');
+    const started = head.at(-1);
+    if (started?.type !== 'subagent.started') throw new Error('没有 subagent.started');
+    const childId = started.childEngineSessionId;
+    const childEvents = session.adapter.subscribe(childId)[Symbol.asyncIterator]();
+    const childUntil = async (stop: (event: AgentEvent) => boolean) => {
+      const read: AgentEvent[] = [];
+      for (;;) {
+        const next = await childEvents.next();
+        if (next.done) return read;
+        read.push(next.value);
+        if (stop(next.value)) return read;
+      }
+    };
+    await childUntil((event) => event.type === 'approval.requested');
+
+    await session.adapter.cancel(session.id);
+    expect((await session.readUntil(settled)).at(-1)).toMatchObject({ outcome: 'cancelled' });
+    expect(await session.adapter.listPendingApprovals(childId)).toHaveLength(1);
+
+    await session.adapter.cancel(childId);
+    const rest = await childUntil(settled);
+    expect(rest.find((event) => event.type === 'approval.cancelled')).toMatchObject({
+      reason: 'turn_cancelled',
+    });
+    expect(rest.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
+  });
+});

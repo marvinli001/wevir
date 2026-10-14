@@ -5,6 +5,7 @@ import {
   type AgentEvent,
   type ApprovalRequestedEvent,
   isTurnTerminal,
+  type SubagentStartedEvent,
   type ToolFinishedEvent,
   type TurnTerminalEvent,
 } from './events.js';
@@ -30,6 +31,11 @@ export interface AdapterCapabilities {
   resume: boolean;
   /** 同一实例上多个会话的回合可以同时进行。 */
   concurrentSessions: boolean;
+  /**
+   * 子会话（R4，domain-model §3.3.1）：按 `prompts.subagent` 派出子 agent，在父会话的流里报 `subagent.started`，子会话
+   * 的事件按它自己的引擎会话 ID 上报。Codex 有，dsh 与其他 ACP 引擎没有。
+   */
+  subagents: boolean;
 }
 
 /** 驱动引擎做出特定行为的提示词。真实模型或 mock Provider 按自己的脚本替换。 */
@@ -40,13 +46,19 @@ export interface ContractPrompts {
   toolCall: string;
   /** 引发一次审批（`approvals`），审批前先有同一 toolCallId 的 `tool.started`。 */
   approval: string;
+  /** 派出一个子 agent，子 agent 一问一答，父回合等它结束再回答（`subagents`；没有子会话的引擎不用给）。 */
+  subagent?: string;
+  /** 同上，但子 agent 先请求一次审批（`subagents` 且 `approvals`）。 */
+  subagentApproval?: string;
 }
 
 /** 默认提示词，按 EchoAdapter 的关键词写（echo.ts）。 */
-export const DEFAULT_CONTRACT_PROMPTS: Readonly<ContractPrompts> = Object.freeze({
+export const DEFAULT_CONTRACT_PROMPTS: Readonly<Required<ContractPrompts>> = Object.freeze({
   plain: 'Say hello',
   toolCall: 'Please call a tool',
   approval: 'Please approve writing a file outside the workspace',
+  subagent: 'Please start a subagent',
+  subagentApproval: 'Please start a subagent that needs to approve a write',
 });
 
 export interface ContractOptions<A extends AgentRuntimeAdapter = AgentRuntimeAdapter> {
@@ -73,7 +85,7 @@ export function runAdapterContract<A extends AgentRuntimeAdapter>(
   options: ContractOptions<A> = {},
 ): void {
   const caps = capabilities;
-  const prompts: ContractPrompts = { ...DEFAULT_CONTRACT_PROMPTS, ...options.prompts };
+  const prompts: Required<ContractPrompts> = { ...DEFAULT_CONTRACT_PROMPTS, ...options.prompts };
   const waitTimeoutMs = options.waitTimeoutMs ?? 5000;
   const simulateEngineExit = options.simulateEngineExit;
 
@@ -438,6 +450,130 @@ export function runAdapterContract<A extends AgentRuntimeAdapter>(
       expect(a.log.events.every((event) => event.engineSessionId === a.id)).toBe(true);
       expect(b.log.events.every((event) => event.engineSessionId === b.id)).toBe(true);
     });
+
+    /** 父会话发 `prompt`，等到父会话流里的 `subagent.started`，订阅子会话。 */
+    async function startSubagent(
+      adapter: A,
+      prompt: string,
+    ): Promise<{
+      parent: OpenSession;
+      from: number;
+      started: SubagentStartedEvent;
+      child: OpenSession;
+    }> {
+      const parent = await openSession(adapter);
+      const from = parent.log.events.length;
+      await adapter.send(parent.id, text(prompt));
+      const { event: started } = await parent.log.waitFor(
+        ofType('subagent.started'),
+        'subagent.started',
+        from,
+      );
+      return { parent, from, started, child: attach(adapter, started.childEngineSessionId) };
+    }
+
+    /** 子会话的一个回合：`turn.started` 开头、终结事件结尾，事件都属于子会话。 */
+    async function finishChildTurn(child: OpenSession, from = 0): Promise<TurnResult> {
+      const { index } = await child.log.waitFor(
+        ofType('turn.started'),
+        '子会话的 turn.started',
+        from,
+      );
+      const turn = await finishTurn(child, index);
+      expect(turn.events[0]?.type).toBe('turn.started');
+      return turn;
+    }
+
+    it.skipIf(!caps.subagents)(
+      '子会话：父会话的流里报 subagent.started，子会话的事件按它自己的 ID 上报，回合由引擎开始',
+      async () => {
+        const adapter = await newAdapter();
+        const { parent, from, started, child } = await startSubagent(adapter, prompts.subagent);
+        expect(started.engineSessionId).toBe(parent.id);
+        expect(started.childEngineSessionId).not.toBe(parent.id);
+        expect(typeof started.title).toBe('string');
+        // 派出它的工具调用在父会话的流里，且在 subagent.started 之前开始。
+        const startedAt = parent.log.events.indexOf(started);
+        expect(
+          parent.log.events
+            .slice(from, startedAt)
+            .some(
+              (event) =>
+                event.type === 'tool.started' && event.toolCallId === started.parentToolCallId,
+            ),
+        ).toBe(true);
+
+        // 子会话的事件早于订阅也不会丢：回合从 turn.started 开始。
+        const childTurn = await finishChildTurn(child);
+        expect(childTurn.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+        const childStart = childTurn.events[0];
+        if (childStart?.type === 'turn.started' && childStart.input !== undefined) {
+          expect(childStart.input.length).toBeGreaterThan(0);
+        }
+        expect(childTurn.events.filter(ofType('assistant.message')).length).toBeGreaterThan(0);
+
+        const parentTurn = await finishTurn(parent, from);
+        expect(parentTurn.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+        expect(parent.log.events.some((event) => event.engineSessionId !== parent.id)).toBe(false);
+
+        // 子会话由父 agent 驱动，不接受 send。
+        await expectAdapterError(
+          () => adapter.send(child.id, text(prompts.plain)),
+          'invalid_input',
+        );
+      },
+    );
+
+    it.skipIf(!caps.subagents || !caps.approvals)(
+      '子会话的审批：请求在子会话的流里，用子会话的 ID 回复',
+      async () => {
+        const adapter = await newAdapter();
+        const { parent, from, child } = await startSubagent(adapter, prompts.subagentApproval);
+        const { event: request } = await child.log.waitFor(
+          ofType('approval.requested'),
+          '子会话的审批请求',
+        );
+        expect(request.engineSessionId).toBe(child.id);
+        expect(await adapter.listPendingApprovals(child.id)).toHaveLength(1);
+        expect(await adapter.listPendingApprovals(parent.id)).toEqual([]);
+        expect(parent.log.events.some((event) => event.type === 'approval.requested')).toBe(false);
+
+        await adapter.respondToApproval(child.id, request.requestId, {
+          optionId: pickOption(request, 'allow').optionId,
+        });
+        const childTurn = await finishChildTurn(child);
+        expect(childTurn.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+        expect(toolFinished(childTurn.events, request.toolCallId)?.status).toBe('completed');
+        const parentTurn = await finishTurn(parent, from);
+        expect(parentTurn.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      },
+    );
+
+    it.skipIf(!caps.subagents || !caps.approvals)(
+      '取消子会话的回合（Host 取消父会话时级联用）：审批以 cancelled 结束，子回合以取消结算',
+      async () => {
+        const adapter = await newAdapter();
+        const { parent, from, child } = await startSubagent(adapter, prompts.subagentApproval);
+        const { event: request } = await child.log.waitFor(
+          ofType('approval.requested'),
+          '子会话的审批请求',
+        );
+        await adapter.cancel(child.id);
+        const childTurn = await finishChildTurn(child);
+        expect(childTurn.terminal).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
+        expect(
+          childTurn.events.find(
+            (event) => event.type === 'approval.cancelled' && event.requestId === request.requestId,
+          ),
+        ).toMatchObject({ reason: 'turn_cancelled' });
+        expect(await adapter.listPendingApprovals()).toEqual([]);
+
+        // 父回合可能还在等子 agent（Codex 的 wait 不因子回合被中断而结束），取消它收尾。
+        await adapter.cancel(parent.id);
+        const parentTurn = await finishTurn(parent, from);
+        expect(parentTurn.terminal.type).toBe('turn.settled');
+      },
+    );
 
     it.skipIf(!caps.resume)('close 之后 resumeSession 可以继续对话', async () => {
       const adapter = await newAdapter();

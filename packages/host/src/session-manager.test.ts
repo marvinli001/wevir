@@ -9,7 +9,7 @@ import type {
   WevirEventOf,
   WevirEventType,
 } from '@wevir/protocol';
-import { AdapterError, type AgentEvent } from '@wevir/runtime-adapter';
+import { AdapterError, type AgentEvent, EventHub } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import type { Storage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -48,7 +48,10 @@ afterEach(async () => {
   for (const h of live.splice(0)) {
     await Promise.race([h.manager.dispose(), delay(200)]);
     await h.adapter.dispose();
-    for (const record of h.storage.sessions.list({ includeRemovedWorkspaces: true })) {
+    for (const record of h.storage.sessions.list({
+      includeRemovedWorkspaces: true,
+      includeChildren: true,
+    })) {
       for (const e of h.events.readSince(record.id as SessionId, 0)) {
         if (e.type === 'session.state_changed') {
           seenTransitions.add(`${e.payload.from}→${e.payload.to}:${e.payload.reason}`);
@@ -1405,6 +1408,263 @@ describe('SessionManager：Codex 引擎的事件（R3）', () => {
   });
 });
 
+describe('SessionManager：子会话（R4）', () => {
+  /** 父会话的唯一一个子会话。 */
+  async function childOf(h: Harness, parent: SessionId): Promise<SessionId> {
+    let child: SessionId | undefined;
+    await vi.waitFor(
+      () => {
+        const records = h.storage.sessions.list({ parentSessionId: parent });
+        expect(records).toHaveLength(1);
+        child = records[0]?.id as SessionId;
+      },
+      { timeout: 2000, interval: 5 },
+    );
+    return child as SessionId;
+  }
+
+  function summaries(h: Harness, parent: SessionId) {
+    return snapshot(h, parent).subagents ?? [];
+  }
+
+  it('C1 C2：父回合派出子会话，子会话有自己的事件流，父会话的摘要跟着它的状态', async () => {
+    const h = setup();
+    const parent = await create(h);
+    const { turnId } = await send(h, parent, 'subagent');
+    await waitForState(h, parent, 'idle');
+    const child = await childOf(h, parent);
+    await waitForState(h, child, 'idle');
+
+    const spawn = ofType(h, parent, 'tool.started').find(
+      (e) => e.payload.toolName === 'spawn_agent',
+    );
+    const [started] = ofType(h, parent, 'subagent.started');
+    expect(started?.payload.subagent).toMatchObject({
+      sessionId: child,
+      parentToolCallId: spawn?.payload.toolCallId,
+      parentTurnId: turnId,
+      title: 'Helper task: helper',
+      modelId: 'deepseek-chat',
+      nickname: 'Echo helper',
+      status: 'running',
+      pendingApprovals: [],
+    });
+    // 子会话：session.created 带 parent，兜底标题，回合由引擎开始、带输入。
+    expect(typesAfter(h, child, 0)).toEqual([
+      'session.created',
+      'session.title_changed',
+      'turn.started',
+      'session.state_changed',
+      'assistant.delta*',
+      'assistant.stream_ended',
+      'assistant.message',
+      'usage.updated',
+      'turn.finished',
+      'session.state_changed',
+    ]);
+    expect(ofType(h, child, 'session.created')[0]?.payload.parent).toEqual({
+      sessionId: parent,
+      toolCallId: spawn?.payload.toolCallId,
+      turnId,
+    });
+    expect(ofType(h, child, 'turn.started')[0]?.payload.input).toEqual(text('Helper task: helper'));
+    expect(transitions(h, child)).toEqual([
+      'idle→running:turn_started',
+      'running→idle:turn_finished',
+    ]);
+
+    const session = snapshot(h, child).session;
+    expect(session).toMatchObject({
+      parentSessionId: parent,
+      title: 'Helper task: helper',
+      subagent: {
+        parentToolCallId: spawn?.payload.toolCallId,
+        parentTurnId: turnId,
+        status: 'completed',
+      },
+    });
+    expect(session.subagent?.endedAt).toEqual(expect.any(String));
+    expect(summaries(h, parent)).toEqual([
+      expect.objectContaining({
+        sessionId: child,
+        status: 'completed',
+        endedAt: session.subagent?.endedAt,
+      }),
+    ]);
+    // 父会话的状态与回合不受影响；父会话列表不含子会话。
+    expect(transitions(h, parent)).toEqual([
+      'idle→running:turn_started',
+      'running→idle:turn_finished',
+    ]);
+    expect(h.storage.sessions.list().map((record) => record.id)).toEqual([parent]);
+  });
+
+  it('子会话只读：send、cancel、close、resume 都是 INVALID_STATE，带上父会话', async () => {
+    const h = setup();
+    const parent = await create(h);
+    await send(h, parent, 'subagent');
+    const child = await childOf(h, parent);
+    await waitForState(h, parent, 'idle');
+    const invalid = { code: 'INVALID_STATE', data: { parentSessionId: parent } };
+    await expect(send(h, child, 'hi')).rejects.toMatchObject(invalid);
+    await expect(h.manager.cancel(child)).rejects.toMatchObject(invalid);
+    await expect(h.manager.close(child)).rejects.toMatchObject(invalid);
+    await expect(h.manager.resume(child)).rejects.toMatchObject(invalid);
+  });
+
+  it('子会话的审批：属于子会话，父会话的摘要带着它，任何连接都能回', async () => {
+    const h = setup();
+    const parent = await create(h);
+    await send(h, parent, 'subagent approve');
+    const child = await childOf(h, parent);
+    const approval = await waitForApproval(h, child);
+    expect(approval.sessionId).toBe(child);
+    // 父会话不进 awaiting_approval，它的摘要带着子会话的未决审批。
+    expect(state(h, parent)).toBe('running');
+    expect(snapshot(h, parent).pendingApprovals).toEqual([]);
+    expect(summaries(h, parent)[0]?.pendingApprovals).toEqual([approval]);
+    expect(ofType(h, parent, 'approval.requested')).toEqual([]);
+
+    await h.manager.respondToApproval({ approvalId: approval.id, optionId: 'allow-once' }, desktop);
+    await waitForState(h, parent, 'idle');
+    await waitForState(h, child, 'idle');
+    expect(ofType(h, child, 'approval.resolved')[0]?.payload).toMatchObject({
+      status: 'approved',
+      resolution: { decidedBy: desktop },
+    });
+    expect(summaries(h, parent)[0]).toMatchObject({ status: 'completed', pendingApprovals: [] });
+    // 父会话的流里，摘要先带上审批、再随结算去掉。
+    const counts = ofType(h, parent, 'subagent.updated').map(
+      (e) => e.payload.subagent.pendingApprovals.length,
+    );
+    expect(counts).toContain(1);
+    expect(counts.at(-1)).toBe(0);
+  });
+
+  it('C3：取消父会话时级联取消活动中的子会话（Codex 自己不级联）', async () => {
+    const h = setup();
+    const parent = await create(h);
+    await send(h, parent, 'subagent approve');
+    const child = await childOf(h, parent);
+    const approval = await waitForApproval(h, child);
+
+    await h.manager.cancel(parent);
+    await waitForState(h, child, 'idle');
+    expect(state(h, parent)).toBe('idle');
+    expect(ofType(h, parent, 'turn.finished').at(-1)?.payload.outcome).toBe('cancelled');
+    expect(ofType(h, child, 'approval.resolved')[0]?.payload).toMatchObject({
+      approvalId: approval.id,
+      status: 'cancelled',
+      resolution: { reason: 'turn_cancelled' },
+    });
+    expect(ofType(h, child, 'turn.finished').at(-1)?.payload.outcome).toBe('cancelled');
+    expect(transitions(h, child)).toEqual([
+      'idle→running:turn_started',
+      'running→awaiting_approval:approval_requested',
+      'awaiting_approval→cancelling:cancel_requested',
+      'cancelling→idle:turn_finished',
+    ]);
+    expect(summaries(h, parent)[0]).toMatchObject({ status: 'cancelled', pendingApprovals: [] });
+  });
+
+  it('C4：父 agent 关掉子会话；关闭父会话时子会话不随之关闭', async () => {
+    const h = setup();
+    const parent = await create(h);
+    await send(h, parent, 'subagent close');
+    await waitForState(h, parent, 'idle');
+    const child = await childOf(h, parent);
+    await waitForState(h, child, 'closed');
+    expect(transitions(h, child).at(-1)).toBe('idle→closed:closed');
+    expect(snapshot(h, child).session.subagent?.status).toBe('closed');
+    expect(summaries(h, parent)[0]?.status).toBe('closed');
+
+    const h2 = setup();
+    const parent2 = await create(h2);
+    await send(h2, parent2, 'subagent');
+    await waitForState(h2, parent2, 'idle');
+    const child2 = await childOf(h2, parent2);
+    await waitForState(h2, child2, 'idle');
+    await h2.manager.close(parent2);
+    expect(state(h2, parent2)).toBe('closed');
+    expect(state(h2, child2)).toBe('idle');
+  });
+
+  it('C4：父 agent 关掉进行中的子会话：先结掉审批与回合，再关闭；晚到的标题与昵称进摘要', async () => {
+    const injected = new EventHub<AgentEvent>();
+    const h = setup();
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      withInjected(subscribe(engineSessionId), injected, engineSessionId),
+    );
+    const parent = await create(h);
+    await send(h, parent, 'subagent approve');
+    const child = await childOf(h, parent);
+    const approval = await waitForApproval(h, child);
+    const engineParent = h.storage.sessions.get(parent)?.engineSessionId as string;
+    const engineChild = h.storage.sessions.get(child)?.engineSessionId as string;
+
+    // 引擎晚报的名称与昵称（Codex：thread/read、thread/name/updated）。
+    injected.emit({
+      type: 'subagent.updated',
+      engineSessionId: engineParent,
+      childEngineSessionId: engineChild,
+      title: 'Codex 给的名称',
+      nickname: 'Kuhn',
+      role: 'worker',
+    });
+    await vi.waitFor(() =>
+      expect(summaries(h, parent)[0]).toMatchObject({
+        title: 'Codex 给的名称',
+        nickname: 'Kuhn',
+        role: 'worker',
+      }),
+    );
+    expect(snapshot(h, child).session).toMatchObject({
+      title: 'Codex 给的名称',
+      titleSource: 'first_prompt',
+    });
+
+    // 父 agent 在子会话等审批时关掉它（Codex 的 close_agent）。
+    injected.emit({
+      type: 'subagent.updated',
+      engineSessionId: engineParent,
+      childEngineSessionId: engineChild,
+      closed: true,
+    });
+    await waitForState(h, child, 'closed');
+    expect(ofType(h, child, 'approval.resolved')[0]?.payload).toMatchObject({
+      approvalId: approval.id,
+      status: 'cancelled',
+      resolution: { reason: 'session_closed' },
+    });
+    expect(ofType(h, child, 'turn.finished').at(-1)?.payload.outcome).toBe('cancelled');
+    expect(transitions(h, child).slice(-3)).toEqual([
+      'awaiting_approval→running:approvals_settled',
+      'running→idle:turn_finished',
+      'idle→closed:closed',
+    ]);
+    expect(summaries(h, parent)[0]).toMatchObject({ status: 'closed', pendingApprovals: [] });
+    // 收尾：父回合还在等子 agent（echo 的子会话没被真的停下），取消它。
+    await h.manager.cancel(parent);
+  });
+
+  it('Host 重启：进行中的子会话按 #15 回到 idle（状态 failed），父会话的摘要跟着变，历史照常可读', async () => {
+    const first = setup();
+    const parent = await create(first);
+    await send(first, parent, 'subagent approve');
+    const child = await childOf(first, parent);
+    await waitForApproval(first, child);
+
+    const { h, report } = restart(first);
+    expect(report.interruptedSessions.sort()).toEqual([parent, child].sort());
+    expect(state(h, child)).toBe('idle');
+    expect(snapshot(h, child).session.subagent?.status).toBe('failed');
+    expect(summaries(h, parent)[0]).toMatchObject({ status: 'failed', pendingApprovals: [] });
+    expect(all(h, child).length).toBeGreaterThan(5);
+    await expect(send(h, child, 'hi')).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+});
+
 describe('SessionManager：其他', () => {
   it('dispose 之后的调用返回 HOST_SHUTTING_DOWN', async () => {
     const h = setup();
@@ -1461,6 +1721,34 @@ async function* justifyBeforeApproval(source: AsyncIterable<AgentEvent>) {
       } satisfies AgentEvent;
     }
     yield event;
+  }
+}
+
+/** 把测试注入的事件并进引擎的事件流（只收 `engineSessionId` 是这个会话的）。 */
+async function* withInjected(
+  source: AsyncIterable<AgentEvent>,
+  injected: EventHub<AgentEvent>,
+  engineSessionId: string,
+): AsyncIterable<AgentEvent> {
+  const engine = source[Symbol.asyncIterator]();
+  const extra = injected.subscribe();
+  let fromEngine = engine.next();
+  let fromTest = extra.next();
+  for (;;) {
+    const next = await Promise.race([
+      fromEngine.then((result) => ({ engine: true, result })),
+      fromTest.then((result) => ({ engine: false, result })),
+    ]);
+    if (next.engine) {
+      if (next.result.done) return;
+      yield next.result.value;
+      fromEngine = engine.next();
+    } else {
+      if (!next.result.done && next.result.value.engineSessionId === engineSessionId) {
+        yield next.result.value;
+      }
+      fromTest = extra.next();
+    }
   }
 }
 

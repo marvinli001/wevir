@@ -1,8 +1,8 @@
 # Codex app-server → Wevir 事件映射
 
-> 状态：v0.2（R2：进程、握手、配置、会话、回合与流式事件；R3：审批、取消的兜底、关闭与恢复、计划、错误归类、会话标题、三层契约测试）· 日期：2026-10-14
+> 状态：v0.3（R2：进程、握手、配置、会话、回合与流式事件；R3：审批、取消的兜底、关闭与恢复、计划、错误归类、会话标题、三层契约测试；R4：子会话）· 日期：2026-10-14
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 1、2、5、6、7 与补记（R2 的偏离见补记 5，R3 的见补记 8）；[Codex 研读与 Spike](../research/codex-notes.md) §2、§3.1、§3.3、§6、§10；[领域模型](./domain-model.md) §4.4、§5、§6、§7；[ACP 映射](./acp-event-mapping.md) §1.3、§1.4（Host 一侧的审批与恢复约定，Codex 照用）；[模型协议网关](./model-gateway.md)
-> 代码：`packages/adapter-codex/src/`（`paths.ts`、`env.ts`、`config.ts`、`prompts.ts`、`protocol.ts`、`codex-process.ts`、`mapping.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`title.ts`、`codex-adapter.ts`）
+> 代码：`packages/adapter-codex/src/`（`paths.ts`、`env.ts`、`config.ts`、`prompts.ts`、`protocol.ts`、`codex-process.ts`、`mapping.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`title.ts`、`subagents.ts`、`codex-adapter.ts`）
 > 样本：`packages/adapter-codex/src/test-fixtures/app-server/`，真实 `codex-app-server`（`rust-v0.162.1`）+ 网关 + mock 模型录的通知序列、审批对话与错误，录制方法见同目录的 README.md
 
 本文件写 Codex 引擎（`codex-app-server`）怎样被 Wevir 驱动，以及它的通知怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。协议类型以锁定提交下的 `upstream/codex/codex-rs/app-server-protocol/schema/typescript/`（及 `v2/`）为准，本包用到的子集手写在 `protocol.ts`，每个类型注明对应的 schema 文件。只用稳定面（`experimentalApi: false`）。
@@ -13,14 +13,14 @@
 codex-app-server stdout（逐行 JSON，不带 "jsonrpc"）
   ├─ 响应 ──▶ CodexProcess 按 id 配对 ──▶ request() 的结果（thread/start、thread/resume、turn/start、turn/interrupt、thread/unsubscribe）
   ├─ 服务端请求 ──▶ CodexAdapter（§6.6）
-  │     ├─ 命令 / 补丁的审批，属于进行中的回合 ──▶ tool.updated（理由）+ approval.requested，等 respondToApproval
-  │     ├─ 子 thread 的审批、不属于进行中回合的 ──▶ 回复 decline
+  │     ├─ 命令 / 补丁的审批，属于挂着的会话（含子会话）进行中的回合 ──▶ tool.updated（理由）+ approval.requested，等 respondToApproval
+  │     ├─ 没有挂着的 thread、不属于进行中回合的 ──▶ 回复 decline
   │     └─ 其余（request_user_input、MCP 等）──▶ 回复“不支持”
   └─ 通知（按写出顺序同步交付）──▶ CodexAdapter 按 threadId 路由
         ├─ serverRequest/resolved ──▶ 仍未决的审批以 approval.cancelled 结束（§6.6）
         ├─ 生成标题的临时 thread ──▶ TitleCollector（§4.4）
-        ├─ 挂着的会话 ──▶ 会话的 CodexEventMapper（mapping.ts）──▶ EventHub ──▶ subscribe()
-        ├─ 子 thread ──▶ 父会话的 engine.raw（kind: child_thread，增量丢弃，§6.5）
+        ├─ 挂着的会话（含子会话）──▶ collab item 认出子 agent（§6.5）+ 会话的 CodexEventMapper（mapping.ts）──▶ EventHub ──▶ subscribe()
+        ├─ 没认出来的 thread（多半是子 agent）──▶ 先存着，认出后按子会话补上；按 rootTurnId 当场认出（§6.5）
         └─ 其余 ──▶ 告警一次后丢弃（thread/started、thread/status/changed 不告警）
 进程退出 / 有计划的重启 ──▶ 每个挂着的会话：未决审批 approval.cancelled（engine_exited），再 engine.exited，订阅结束
 ```
@@ -196,8 +196,9 @@ R2 实测（真实二进制）：
 | `turn/completed` | `turn.settled` / `turn.failed` | `completed` → settled（`completed`），`interrupted` → settled（`cancelled`），`stopReason` 是 Codex 的状态原文；`failed` → `turn.failed`，`message` = `turn.error.message` + `additionalDetails`，`category` 与 `code` 见 §6.7。之前先收尾没提交的增量（§6.4）；`interrupted` 时还没结束的工具按 `failed` 收尾（§6.6） |
 | `error` | `engine.raw` | `willRetry: true` 不算回合失败（Codex 自己也只在状态栏短暂显示），只留 engine.raw，已经流出的增量以 `abandoned` 结束；`willRetry: false` 随后有 `turn/completed`（failed），以它为准 |
 | `serverRequest/resolved` | （无）或 `approval.cancelled` | 由适配器处理，不进映射器（§6.6） |
-| `turn/started`、`item/reasoning/summaryPartAdded`、`thread/status/changed`、`thread/started` | （无） | 按设计忽略：Host 自己写 `turn.started`、维护会话状态；块号已在增量里 |
-| `turn/diff/updated`、`thread/name/updated` 等其余带 threadId 的 | `engine.raw` | |
+| `turn/started`、`item/reasoning/summaryPartAdded`、`thread/status/changed`、`thread/started` | （无） | 按设计忽略：Host 自己写 `turn.started`、维护会话状态；块号已在增量里。回合之外到达时同样忽略（R4 起，子会话在两个回合之间的状态变化很多）。子会话的 `turn/started` 例外，见 §6.5 |
+| `thread/name/updated`（子会话） | 父会话流里的 `subagent.updated`（`title`） | §6.5 |
+| `turn/diff/updated`、`thread/name/updated`（普通会话）等其余带 threadId 的 | `engine.raw` | |
 | 不带 threadId 的（`account/*`、`remoteControl/*`、`mcpServer/*` 等） | （无） | `warning`、`configWarning`、`deprecationNotice` 写一次告警，其余忽略（codex-notes §6.4） |
 
 不属于进行中回合的通知（没有回合，或 `turnId` 是别的回合）：用量照常映射，其余一律 `engine.raw`（events.ts 的顺序约定：回合之间只有 `engine.raw` 与 `engine.exited`）。
@@ -239,9 +240,35 @@ Codex 的增量与已提交项共用 itemId，对齐是直接的，不需要 ada
 
 取消或出错发生在流式中途时，已发出的增量没有 `item/completed`（codex-notes §2.2，样本 `cancel.jsonl`）。`turn/completed` 时这些增量：含非空白字符的按已提交消息补发（`assistant.message` / `assistant.thought` + `stream_ended committed`），保留已经显示的输出，与 dsh 取消时一次性补发已生成部分的做法一致；只有空白的以 `abandoned` 结束。`error` 带 `willRetry: true` 时 Codex 会重发整个请求，已流出的增量以 `abandoned` 结束，不再补发。
 
-### 6.5 子 thread（子 agent）
+### 6.5 子 agent → 子会话（R4，`subagents.ts`、`codex-adapter.ts`）
 
-子 agent 是独立的 thread，它的通知自动推到同一连接（codex-notes §2.4）。R2 从父会话 `collabAgentToolCall` item 的 `receiverThreadIds` 记下子 thread → 父会话，子 thread 的通知作为父会话的 `engine.raw`（`kind: 'child_thread'`）上报，增量（方法名以 delta 结尾）丢弃，免得把逐字增量写满事件库。子 thread 的第一条通知（`thread/status/changed`）早于父会话的 `item/completed`，这时还不认识它，按设计丢弃。样本 `subagent.jsonl` 里父回合在子 thread 的回合之前结束，所以子 thread 的事件多数落在父会话的回合之间。R4 改为子会话。
+子 agent 是独立的 thread，它的通知自动推到同一连接，不发 `thread/started`（codex-notes §2.4）。R4 把它做成 Wevir 的**子会话**（domain-model §3.3.1、§4.5）：子 thread 是一个子会话（`engineSessionId` = 子 thread ID），它的通知按子会话上报；父会话的流里报出它。只用稳定面：`thread/list.parentThreadId` 是实验字段（Codex 的终端界面靠它），不用；父子关系来自 collab item，昵称来自 `thread/read`（稳定）。
+
+**认出子 agent。**
+
+| 依据 | 做法 |
+|---|---|
+| 父会话（或子会话自己）里 `collabAgentToolCall` 的 `receiverThreadIds` | `spawnAgent` 的 receiver 一出现就认（`item/completed` 时才填上）；`wait`、`closeAgent`、`sendInput`、`resumeAgent` 的 receiver 可能是不存在的 ID，要等 `item/completed` 的 `agentsStates` 报出它的状态才认，报 `notFound` 的跳过 |
+| 没认出来的 thread 的 `turn/started`，其 `rootTurnId` 等于某个挂着的会话进行中的回合 | 那个会话正好只有一个进行中的派出类工具调用（`spawnAgent` / `resumeAgent` / `sendInput`）时当场认出，父工具调用就是它。Codex 不保证两个 thread 的通知谁先到（样本 `subagent-early-child.jsonl`）；默认 `agents.max_depth = 1`，`rootTurnId` 就是父回合 |
+
+认出之前，没认出来的 thread 的通知先存着（每个 thread 至多 1000 条，30 s 认不出就丢掉并告警一次）；认出之后按子会话补上。认出时适配器：登记子会话（Provider 与父会话相同；模型取 collab item 的 `model`，Provider 里没有这个模型就用父会话的模型配置），子会话的 `EventHub` 在第一个订阅者之前缓冲（`bufferUntilSubscribed`）；在父会话的流里发 `subagent.started`（在这条通知自己的事件之后，所以总在派出它的 `tool.started` 之后）；再异步 `thread/read` 子 thread，有昵称、角色或名称时发 `subagent.updated`。进程重启后脱开的子会话再被 collab item 指到时同样重新登记，Host 按 C5 重新挂上。
+
+**`subagent.started` 的字段**：`childEngineSessionId`、`parentToolCallId`（collab item ID）、`title`（兜底标题，`subagentTitle`：thread 名称 → 任务描述首行 → 昵称；认出时只有任务描述，名称与昵称晚到）、`prompt`（`spawnAgent` 的任务描述，Host 用它生成标题）、`modelId`（item 的 `model`，`spawnAgent` 进行中时为空则用父会话的）、`reasoningEffort`（item 的，`none` 换成 `off`）。**`subagent.updated`**：`thread/read` 的 `agentNickname` / `agentRole`，以及名称（`name`，或子 thread 的 `thread/name/updated`）作为新的兜底标题；没有任务描述时昵称也作兜底标题；`closeAgent` 完成时 `closed: true`。
+
+**子会话自己的流。** 子 thread 的 `turn/started` 开始一个由引擎发起的回合：适配器记下回合，等这个回合的下一条通知——是 userMessage 的 `item/started` 就把它的文本作 `turn.started` 的 `input`（任务描述，或 `send_input` 发来的消息），否则不带输入——再发 `turn.started`；之后与普通会话相同（增量、工具、审批、计划、用量，`turn/completed` 是终结事件）。子会话不接受 `send`（`invalid_input`）；`cancel` 是对子 thread 的 `turn/interrupt`（Host 级联取消用）；`generateTitle` 用子会话的 Provider 与模型。子 thread 两个回合之间的 `thread/status/changed` 不再变成 engine.raw。
+
+**实测（`rust-v0.162.1`，R4，脚本与 Spike 的 subagent 场景相同）。**
+
+| 场景 | 观测 |
+|---|---|
+| spawn → wait | 子 thread：`thread/status/changed`（idle、active）、`turn/started`（`rootTurnId` = 父回合）、userMessage、增量、`turn/completed`；父 thread 的 `wait` 在子回合结束之后 `item/completed`，`agentsStates` 带子 agent 的回答。`thread/read` 子 thread：`parentThreadId`、`agentNickname`（如 Kuhn）、`agentRole` null、`name` null、`reasoningEffort` null（item 上是请求的 `medium`） |
+| 父回合不等子 agent | 父回合先 `turn/completed`，子 thread 的回合之后照常跑完 |
+| 父回合中途 `turn/interrupt` | 父回合 interrupted，`wait` 没有 `item/completed`；**子回合照常跑完**（completed）。子 thread 挂着审批时，审批一直挂着（`waitingOnApproval`） |
+| 对子 thread `turn/interrupt` | 子回合 interrupted，挂着的审批随后 `serverRequest/resolved`；父回合的 `wait` 不因此结束（等到 `timeout_ms`） |
+| `close_agent` | 子回合 interrupted，子 thread `notLoaded`；`closeAgent` 的 `agentsStates` 是关之前的状态（running） |
+| `wait_agent` 一个不存在的 ID | `item/started` 的 receiver 已有这个 ID、`agentsStates` 为空；`item/completed` 报 `notFound` |
+
+Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.jsonl`（不等子 agent）、`subagent-wait.jsonl`（spawn → wait），以及由前者调整顺序得到的 `subagent-early-child.jsonl`；假的 app-server 把样本里的子 thread 与子回合换成新 ID（`codex-adapter.subagent.test.ts`）。
 
 ### 6.6 审批与其他服务端请求
 
@@ -253,8 +280,8 @@ Codex 的增量与已提交项共用 itemId，对齐是直接的，不需要 ada
 |---|---|
 | `item/commandExecution/requestApproval`、`item/fileChange/requestApproval`，属于会话进行中的回合 | 先发 `approvalPrelude` 的事件，再 `approval.requested`（下面），等 `respondToApproval` |
 | 同上，回合已开始取消 | 照常上报，随即 `approval.cancelled`（`turn_cancelled`），不回复（app-server 中断回合时自己收回） |
-| 同上，属于子 thread（子 agent） | 回复 `decline`，父会话里留一条 engine.raw（`kind: server_request`），告警一次。子 agent 的审批要能在父会话里处理（ADR-0005 补记 1），随 R4 的子会话做 |
-| 同上，不属于进行中的回合、或会话没挂着 | 回复 `decline` 并告警 |
+| 同上，属于子会话（子 agent 的 thread） | 与普通会话相同，`approval.requested` 在子会话的流里，按子会话的 ID 回复（R4）。Host 把它放进父会话摘要的 `pendingApprovals`，客户端在父会话里显示并回复（domain-model §5 第 8 条） |
+| 同上，不属于进行中的回合、或 thread 没挂着（含还没认出来的子 thread） | 回复 `decline` 并告警 |
 | `item/permissions/requestApproval` | 回复“不支持”（`-32601`）。核实（锁定提交）：只来自 `request_permissions` 工具，要 `features.request_permissions_tool`（UnderDevelopment，默认关），Wevir 不开，不会出现 |
 | 其余（`item/tool/requestUserInput`、`mcpServer/elicitation/request` 等） | 回复“不支持”（`-32601`） |
 
@@ -308,24 +335,25 @@ Codex 的增量与已提交项共用 itemId，对齐是直接的，不需要 ada
 
 | 层 | 文件 | 内容 |
 |---|---|---|
-| 契约第 1 层：录制回放 | `codex-adapter.contract.test.ts` | 适配器用 node 跑 `test-fixtures/fake-app-server.mjs`（`binaryArgs`），它回放真实二进制录的样本：plain 是 `stream`，toolCall 是 `tool-shell`，approval 是 `approval-exec` 到审批请求为止、再按回复接 accept / decline / cancel 分支，审批挂起时取消接 interrupt 分支；有过回合的 thread 记在 CODEX_HOME，进程被杀后能恢复，没见过的回放真实的 `no rollout found`。不需要二进制、模型或 Key，CI 默认跑 |
-| 契约第 2 层 | `codex-adapter.contract.integration.test.ts` | 真实 `codex-app-server` + 网关（Responses 透传）+ mock 模型；审批用例让 mock 调一次越出沙箱的 `touch`（工作区外、且不在系统临时目录） |
+| 契约第 1 层：录制回放 | `codex-adapter.contract.test.ts` | 适配器用 node 跑 `test-fixtures/fake-app-server.mjs`（`binaryArgs`），它回放真实二进制录的样本：plain 是 `stream`，toolCall 是 `tool-shell`，approval 是 `approval-exec` 到审批请求为止、再按回复接 accept / decline / cancel 分支，审批挂起时取消接 interrupt 分支；有过回合的 thread 记在 CODEX_HOME，进程被杀后能恢复，没见过的回放真实的 `no rollout found`。子会话的条款跳过（`subagents: false`：假的 app-server 只回放子 thread 的通知，不模拟子 thread 的审批与中断）。不需要二进制、模型或 Key，CI 默认跑 |
+| 契约第 2 层 | `codex-adapter.contract.integration.test.ts` | 真实 `codex-app-server` + 网关（Responses 透传）+ mock 模型；审批用例让 mock 调一次越出沙箱的 `touch`（工作区外、且不在系统临时目录）；子会话用例让父 agent spawn → wait，子 agent 一问一答或请求审批 |
 | 契约第 3 层 | `codex-adapter.contract.real.integration.test.ts` | 真实二进制 + 网关 + 真实模型：`WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`（`deepseek-official`，或 `openai-compatible` 另加 `WEVIR_TEST_BASE_URL`、`WEVIR_TEST_MODEL`、`WEVIR_TEST_API`），没有就跳过并打印原因；保留 Codex 自己的重试；不进 CI |
 | 映射单元测试 | `mapping.test.ts` | 回放 `test-fixtures/app-server/` 的通知样本（一问一答、只读 / 搜索 / 普通命令、补丁、上游 400、流式中途取消、子 agent、计划）与审批对话（命令的四个分支、补丁的两个分支），另有边界情况 |
 | 归类单元测试 | `turn-error.test.ts`、`resume-error.test.ts`、`title.test.ts` | 回合失败与恢复失败的样本逐条归类；最低推理档位、临时 thread 的结果 |
 | 其他单元测试 | `tool-display.test.ts`、`config.test.ts`、`prompts.test.ts`、`env.test.ts`、`paths.test.ts` | 展示类型、生成的配置与模型目录、base.md 渲染、白名单环境、二进制解析与版本核对 |
-| 集成测试 | `codex-adapter.integration.test.ts` | 握手、会话与基础提示词、新增 Provider 不重启、模型目录变了空闲时重启 / 等回合结束、子 thread 的事件、版本核对 |
+| 集成测试 | `codex-adapter.integration.test.ts` | 握手、会话与基础提示词、新增 Provider 不重启、模型目录变了空闲时重启 / 等回合结束、版本核对 |
+| 子会话 | `codex-adapter.subagent.test.ts`（回放）、`codex-adapter.subagent.integration.test.ts`（真实二进制） | §6.5：回放三个子 agent 样本（含按 rootTurnId 认出），`thread/read` 不可用时降级；spawn → wait、不等子 agent、`close_agent`、取消父回合时子 agent 不受影响、notFound 不认 |
 | 审批 | `codex-adapter.approval.integration.test.ts` | 详情与理由、四个决定、本会话同意后不再问、补丁的“告诉它换个做法”、审批挂起时取消（之后到的 `serverRequest/resolved` 没有多余事件与告警）、工作区内不需要审批 |
 | 恢复与取消 | `codex-adapter.resume.integration.test.ts` | 关闭后恢复、换进程后恢复且下一回合带完整历史、`not_found` 与 `corrupted`、没对话过的会话、`cancel_unconfirmed` 时重启并能恢复 |
 | 计划、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`、缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
 | 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
-| Host | `packages/host/src/cli.codex.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收 |
+| Host | `packages/host/src/cli.codex.integration.test.ts`、`cli.codex.subagent.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收；子会话（派出、子会话的审批经父会话处理、取消父会话时级联取消） |
 
 二进制不在时第 2、3 层与集成测试跳过并打印下载命令；CI 下载并缓存二进制，macOS 与 Windows 都跑。录样本：`WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`（升级 Codex 后重录，再看映射、归类测试与第 1 层；`-t` 可以只录其中一组）。Codex 升级的完整步骤见 docs/upstream/UPSTREAM.md「Codex 升级检查清单」。
 
 ## 8. 留给后续任务
 
-- R4：子 thread 改为子会话（§6.5），子 agent 的审批在父会话里处理（§6.6，现在一律拒绝）。
+- ~~R4：子 thread 改为子会话（§6.5），子 agent 的审批在父会话里处理（§6.6）~~ 已做。子会话要不要单独的停止按钮（Codex 终端界面允许直接中断子 agent）留给维护者；`send_input`、`resume_agent` 让子会话再开始回合已按 C2 / C5 处理，但没有录到样本。
 - R6：ChatGPT 登录的会话不经网关，标题走临时 thread（§4.4 的 `titleVia`）。
 - R9：打包后二进制与提示词的位置（`binary`、`promptsDir` 选项；Host 的 `promptsDir`）。
 - “以后以这个前缀开头的命令不再问”（execpolicy 修订）与网络策略修订：要 Host 记规则（§6.6）。

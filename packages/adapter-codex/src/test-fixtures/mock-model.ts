@@ -292,6 +292,52 @@ export const MOCK_PATCH = [
 /** 生成会话标题的请求（prompts/thread-title.md 的第一句在说明里）。 */
 const TITLE_PROMPT = '你为 Wevir 的会话起标题';
 
+/** 子 agent 的任务描述的开头：mock 看到它就知道这是子 agent 的请求（子 thread 的第一条用户消息就是任务描述）。 */
+export const SUBAGENT_TASK_PREFIX = 'Helper task:';
+
+/** 让父 agent 派出子 agent 的提示词。 */
+export const SUBAGENT_PATTERN = /subagent|子智能体/i;
+
+/** `spawn_agent` 的结果里取子 agent 的 ID（与 Spike 的 subagent 场景相同）。 */
+function spawnedAgentId(output: string): string {
+  return /"(?:agent_id|id)"\s*:\s*"([^"]+)"/.exec(output)?.[1] ?? output;
+}
+
+/**
+ * 父 agent 派一个子 agent、等它结束（与 Spike 的 subagent 场景相同的 spawn → wait）：先 `spawn_agent`，任务描述是
+ * `Helper task:` 加用户的话；拿到 ID 后 `wait_agent`；等到结果后回一句话。
+ */
+function subagentParent(view: MockView): MockReply {
+  const outputs = view.toolOutputs;
+  if (outputs.length === 0) {
+    return {
+      text: ['我派一个子 agent 去做。'],
+      toolCalls: [
+        {
+          kind: 'function',
+          namespace: 'multi_agent_v1',
+          name: 'spawn_agent',
+          args: { message: `${SUBAGENT_TASK_PREFIX} ${view.lastUserText}\n做完说一声。` },
+        },
+      ],
+      delayMs: 5,
+    };
+  }
+  if (outputs.length === 1) {
+    return {
+      toolCalls: [
+        {
+          kind: 'function',
+          namespace: 'multi_agent_v1',
+          name: 'wait_agent',
+          args: { targets: [spawnedAgentId(outputs[0] ?? '')], timeout_ms: 30_000 },
+        },
+      ],
+    };
+  }
+  return { text: ['子 agent ', '已经完成了。'], delayMs: 5 };
+}
+
 /**
  * 默认脚本，按最后一条用户输入里的关键词决定（契约测试的默认提示词与桌面验收都用它）：
  * - 生成会话标题的请求：回 `{"title", "description"}`，标题是“Mock：”加用户消息的开头；
@@ -300,6 +346,9 @@ const TITLE_PROMPT = '你为 Wevir 的会话起标题';
  * - 含 `outside` 或“工作区外”：越出沙箱 `touch` 工作区外的文件（要审批），再回一句话。文件名取提示词里第一个
  *   `*.txt`，没有时是 `wevir-mock-outside.txt`；目录是 `WEVIR_MOCK_OUTSIDE_DIR`，没设时是家目录；
  * - 含 `long` 或“长”：慢慢流出一段长回答（约 6 秒），给流式中途取消用；
+ * - 含 `subagent` 或“子智能体”：派一个子 agent 并等它结束（spawn → wait，`subagentParent`）；子 agent 的请求（用户消息以
+ *   `Helper task:` 开头）照上面的规则回答，所以“子智能体 + 工作区外”让子 agent 请求审批，“子智能体 + 长”让它慢慢回答；
+ *   子 agent 的普通回答是“子 agent 完成了。”；
  * - 其余：先逐片发推理，再逐片发文本。
  */
 export const defaultMockScript: MockScript = (view) => {
@@ -314,6 +363,8 @@ export const defaultMockScript: MockScript = (view) => {
       .join('')}`;
     return { text: [JSON.stringify({ title, description: `mock 生成的标题：${asked ?? ''}` })] };
   }
+  const child = prompt.trimStart().startsWith(SUBAGENT_TASK_PREFIX);
+  if (!child && SUBAGENT_PATTERN.test(prompt)) return subagentParent(view);
   if (view.toolOutputs.length > 0) {
     return { text: ['工具已经运行完了', '，结果在上面。'], delayMs: 5 };
   }
@@ -357,6 +408,7 @@ export const defaultMockScript: MockScript = (view) => {
       delayMs: 150,
     };
   }
+  if (child) return { text: ['子 agent ', '完成了。'], delayMs: 5 };
   return {
     reasoning: ['用户在打招呼，', '简单回应即可。'],
     text: ['你好！', '我是 Wevir 的', ' mock 模型。'],

@@ -9,7 +9,7 @@ import type {
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { type ChatPart, projectTranscript, TranscriptProjection } from './projection.js';
-import { applySessionEvent } from './session-state.js';
+import { applySessionEvent, applySubagentEvent } from './session-state.js';
 import { identity, SES } from './test-utils.js';
 
 const TURN: TurnId = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR';
@@ -446,5 +446,142 @@ describe('applySessionEvent', () => {
     expect(applySessionEvent(base, list[0] as WevirEvent)).toBe(base);
     const other = { ...list[0], seq: 9, sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQS' } as WevirEvent;
     expect(applySessionEvent(base, other)).toBe(base);
+  });
+});
+
+describe('子会话（R4）', () => {
+  const CHILD = 'ses_01JA2B3C4D5E6F7G8H9JKMNPZZ' as const;
+  const summary = {
+    sessionId: CHILD,
+    parentToolCallId: 'call_spawn_1',
+    parentTurnId: TURN,
+    title: 'Helper task',
+    modelId: 'deepseek-chat',
+    status: 'running' as const,
+    startedAt: '2026-10-13T08:00:00.010Z',
+    pendingApprovals: [],
+  };
+
+  it('父会话：subagents 摘要按 sessionId 更新，派出它的回合里有一个原位更新的 subagent 部件', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('subagent.started', { subagent: summary });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const before = projection.snapshot();
+    expect(before.subagents).toEqual([summary]);
+    expect(assistantParts(list)).toEqual([
+      { type: 'subagent', key: `a:${CHILD}`, subagent: summary },
+    ]);
+
+    const done = { ...summary, status: 'completed' as const, endedAt: '2026-10-13T08:00:01.000Z' };
+    projection.apply(add('subagent.updated', { subagent: done }));
+    const after = projection.snapshot();
+    expect(after.subagents).toEqual([done]);
+    const parts = after.messages.find((m) => m.role === 'assistant')?.parts;
+    expect(parts).toEqual([{ type: 'subagent', key: `a:${CHILD}`, subagent: done }]);
+    expect(after.parent).toBeUndefined();
+  });
+
+  it('子会话：parent 取自 session.created，turn.started 的输入投影成来自父 agent 的用户消息', () => {
+    const list: WevirEvent[] = [];
+    let seq = 0;
+    const add = <T extends WevirEventType>(type: T, payload: WevirEventPayload<T>) => {
+      seq += 1;
+      list.push({
+        seq,
+        sessionId: CHILD,
+        ts: `2026-10-13T08:00:0${seq}.000Z`,
+        type,
+        source: 'host',
+        payload,
+      } as WevirEvent);
+    };
+    add('session.created', {
+      workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      cwd: '/tmp/w',
+      providerId: 'deepseek-official',
+      modelId: 'deepseek-chat',
+      parent: { sessionId: SES, toolCallId: 'call_spawn_1', turnId: TURN },
+    });
+    add('turn.started', {
+      turnId: TURN2,
+      input: [{ type: 'text', text: 'Helper task\n做完说一声' }],
+    });
+    add('session.state_changed', { from: 'idle', to: 'running', reason: 'turn_started' });
+    add('assistant.message', { turnId: TURN2, messageId: 'm1', text: '好了', replaces: [] });
+    const transcript = projectTranscript(list);
+    expect(transcript.parent).toEqual({ sessionId: SES, toolCallId: 'call_spawn_1', turnId: TURN });
+    const [user, assistant] = transcript.messages;
+    expect(user).toMatchObject({
+      role: 'user',
+      turnId: TURN2,
+      fromParentAgent: true,
+      parts: [{ type: 'text', text: 'Helper task\n做完说一声' }],
+    });
+    expect(user && 'sentBy' in user).toBe(false);
+    expect(assistant).toMatchObject({ role: 'assistant', turnId: TURN2 });
+  });
+
+  it('applySessionEvent 推进子会话的状态；applySubagentEvent 推进父会话的子会话列表', () => {
+    const child: Session = {
+      id: CHILD,
+      workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      cwd: '/tmp/w',
+      engine: { kind: 'codex', sessionId: 'thread-child' },
+      providerId: 'deepseek-official',
+      modelId: 'deepseek-chat',
+      title: 'Helper task',
+      titleSource: 'first_prompt',
+      state: 'idle',
+      parentSessionId: SES,
+      subagent: {
+        parentToolCallId: 'call_spawn_1',
+        status: 'running',
+        startedAt: summary.startedAt,
+      },
+      createdAt: summary.startedAt,
+      updatedAt: summary.startedAt,
+      lastSeq: 2,
+    };
+    const event = <T extends WevirEventType>(seq: number, type: T, payload: WevirEventPayload<T>) =>
+      ({
+        seq,
+        sessionId: CHILD,
+        ts: `2026-10-13T08:00:0${seq}.000Z`,
+        type,
+        source: 'host',
+        payload,
+      }) as WevirEvent;
+    let current = applySessionEvent(child, event(3, 'turn.started', { turnId: TURN2 }));
+    current = applySessionEvent(
+      current,
+      event(4, 'turn.finished', { turnId: TURN2, outcome: 'completed', durationMs: 5 }),
+    );
+    expect(current.subagent).toEqual({
+      parentToolCallId: 'call_spawn_1',
+      status: 'completed',
+      startedAt: summary.startedAt,
+      endedAt: '2026-10-13T08:00:04.000Z',
+    });
+    current = applySessionEvent(
+      current,
+      event(5, 'session.state_changed', { from: 'idle', to: 'closed', reason: 'closed' }),
+    );
+    expect(current.subagent).toMatchObject({
+      status: 'closed',
+      endedAt: '2026-10-13T08:00:04.000Z',
+    });
+
+    const { add } = events();
+    const started = add('subagent.started', { subagent: summary });
+    const list1 = applySubagentEvent([], started);
+    const done = { ...summary, status: 'completed' as const };
+    const list2 = applySubagentEvent(list1, add('subagent.updated', { subagent: done }));
+    expect(list1).toEqual([summary]);
+    expect(list2).toEqual([done]);
+    expect(
+      applySubagentEvent(list2, add('usage.updated', { contextUsed: 1, contextSize: 2 })),
+    ).toBe(list2);
   });
 });

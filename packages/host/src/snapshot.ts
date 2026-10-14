@@ -9,9 +9,13 @@ import type {
   SessionSnapshot,
   SessionState,
   StateChangeReason,
+  SubagentInfo,
+  SubagentStatus,
+  SubagentSummary,
   TitleSource,
   TodoItem,
   TurnId,
+  TurnOutcome,
   Usage,
   WevirEvent,
   WorkspaceId,
@@ -42,6 +46,10 @@ export interface SessionProjection {
   readonly usage?: Usage;
   /** 最近一条 `user.message`；同一回合的 `turn.started` 从这里取 `clientMessageId`。 */
   readonly lastUserMessage?: { readonly turnId: TurnId; readonly clientMessageId?: string };
+  /** 子会话（R4，domain-model §3.3.1）：`session.created.parent` 设置，状态由子会话自己的事件推导。 */
+  readonly subagent?: SubagentInfo;
+  /** 这个会话派出的子会话的摘要（`subagent.started` 追加，`subagent.updated` 替换），按派出的先后。 */
+  readonly subagents: readonly SubagentSummary[];
 }
 
 /** 还没有任何事件时的状态。`session.created` 不改变它（建会话后的初始状态隐含为 `idle`）。 */
@@ -51,6 +59,15 @@ export const INITIAL_PROJECTION: SessionProjection = {
   title: '',
   titleSource: 'first_prompt',
   pendingApprovals: [],
+  subagents: [],
+};
+
+/** 子会话的回合结果 → 子会话的状态（domain-model §3.3.1）。 */
+const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
+  completed: 'completed',
+  cancelled: 'cancelled',
+  failed: 'failed',
+  interrupted: 'failed',
 };
 
 /**
@@ -61,6 +78,9 @@ export const INITIAL_PROJECTION: SessionProjection = {
  *   （`turn_started`）或恢复（`resumed`）时清空。
  * - `activeTurn`：`turn.started` 设置，`turn.finished` 清空。
  * - `readOnly`：`session.read_only` 设置（`since` 取事件的 `ts`），`session.resumed` 清空。
+ * - `subagent`（子会话，domain-model §3.3.1）：`session.created` 的 `parent` 设置（`running`）；`turn.started` →
+ *   `running`；`turn.finished` 按结果；转 `closed` → `closed`；还在 `running` 时转 `error` → `failed`。
+ * - `subagents`（父会话）：`subagent.started` 追加，`subagent.updated` 按 `sessionId` 替换。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -69,6 +89,28 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     updatedAt: event.ts,
   };
   switch (event.type) {
+    case 'session.created': {
+      const parent = event.payload.parent;
+      if (parent !== undefined) {
+        next.subagent = {
+          parentToolCallId: parent.toolCallId,
+          ...(parent.turnId !== undefined && { parentTurnId: parent.turnId }),
+          status: 'running',
+          startedAt: event.ts,
+        };
+      }
+      break;
+    }
+    case 'subagent.started':
+    case 'subagent.updated': {
+      const summary = event.payload.subagent;
+      const index = projection.subagents.findIndex((item) => item.sessionId === summary.sessionId);
+      next.subagents =
+        index < 0
+          ? [...projection.subagents, summary]
+          : projection.subagents.map((item, i) => (i === index ? summary : item));
+      break;
+    }
     case 'session.read_only':
       next.readOnly = {
         reason: event.payload.reason,
@@ -83,12 +125,19 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
       break;
-    case 'session.state_changed':
+    case 'session.state_changed': {
       next.state = event.payload.to;
       if (event.payload.reason === 'turn_started' || event.payload.reason === 'resumed') {
         next.lastError = undefined;
       }
+      const subagent = projection.subagent;
+      if (subagent !== undefined && event.payload.to === 'closed') {
+        next.subagent = { ...subagent, status: 'closed', endedAt: subagent.endedAt ?? event.ts };
+      } else if (subagent?.status === 'running' && event.payload.to === 'error') {
+        next.subagent = { ...subagent, status: 'failed', endedAt: subagent.endedAt ?? event.ts };
+      }
       break;
+    }
     case 'user.message': {
       const { turnId, clientMessageId } = event.payload;
       next.lastUserMessage =
@@ -104,10 +153,21 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
           : undefined;
       if (clientMessageId !== undefined) activeTurn.clientMessageId = clientMessageId;
       next.activeTurn = activeTurn;
+      if (projection.subagent !== undefined) {
+        const { endedAt: _ended, ...rest } = projection.subagent;
+        next.subagent = { ...rest, status: 'running' };
+      }
       break;
     }
     case 'turn.finished':
       if (projection.activeTurn?.turnId === event.payload.turnId) next.activeTurn = undefined;
+      if (projection.subagent !== undefined) {
+        next.subagent = {
+          ...projection.subagent,
+          status: SUBAGENT_STATUS_OF_OUTCOME[event.payload.outcome],
+          endedAt: event.ts,
+        };
+      }
       break;
     case 'approval.requested':
       next.pendingApprovals = [...projection.pendingApprovals, event.payload.approval];
@@ -274,12 +334,17 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
+  if (record.parentSessionId !== undefined) {
+    session.parentSessionId = record.parentSessionId as SessionId;
+  }
+  if (projection.subagent) session.subagent = projection.subagent;
   const snapshot: SessionSnapshot = {
     session,
     pendingApprovals: [...projection.pendingApprovals],
   };
   if (projection.todos) snapshot.todos = [...projection.todos];
   if (projection.usage) snapshot.usage = projection.usage;
+  if (projection.subagents.length > 0) snapshot.subagents = [...projection.subagents];
   return structuredClone(snapshot);
 }
 

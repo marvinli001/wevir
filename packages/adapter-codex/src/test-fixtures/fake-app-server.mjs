@@ -14,6 +14,9 @@
 // - 恢复：有过回合的 thread 记在 cwd（CODEX_HOME）下的 fake-threads.json，进程被杀、重启之后照样能 thread/resume；没
 //   见过的 ID 回 errors/resume-not-found.json 的措辞，不是 UUID 的回 errors/resume-invalid-id.json 的措辞。
 // - 流式中途的 `turn/interrupt` 停止回放，发 `turn/completed`（interrupted）。
+// - 子 agent（R4）：样本里第一个出现的 thread 是当前 thread，别的 thread（子 thread）换成每次回放新生成的 ID，回合 ID
+//   同理（`rootTurnId` 照样指向当前回合）；当前 thread 的 `turn/completed` 之后接着回放子 thread 的行。只是回放，
+//   子 thread 本身不能 turn/start 或 interrupt。
 
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -65,33 +68,68 @@ function errorFixture(name) {
 }
 
 /**
- * 样本里的 ID 换成当前的：threadId → 当前 thread；turnId、rootTurnId 与 turn.id → 当前回合；item.id 与 itemId →
- * `<回合>:<原 ID>`（同一会话的几个回合不重复）；serverRequest/resolved 的 requestId → 当前的请求。
+ * 样本里的 ID 换成当前的：样本的（第一个）thread → 当前 thread，别的 thread → 新 ID；样本的（第一个）回合 →
+ * 当前回合，别的回合 → 新 ID；item.id 与 itemId → `<回合>:<原 ID>`（同一会话的几个回合不重复）；
+ * serverRequest/resolved 的 requestId → 当前的请求。
  */
 function substitute(value, turn, key) {
+  if (key === 'receiverThreadIds' && Array.isArray(value)) {
+    return value.map((id) => mapped(turn, 'threads', id, turn.thread.id));
+  }
+  if (key === 'agentsStates' && typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([id, state]) => [
+        mapped(turn, 'threads', id, turn.thread.id),
+        state,
+      ]),
+    );
+  }
   if (Array.isArray(value)) return value.map((entry) => substitute(entry, turn));
   if (typeof value === 'object' && value !== null) {
     const out = {};
     for (const [k, v] of Object.entries(value)) out[k] = substitute(v, turn, k);
     if (typeof value.id === 'string' && typeof value.type === 'string')
       out.id = `${turn.id}:${value.id}`;
-    if (key === 'turn' && typeof value.id === 'string') out.id = turn.id;
+    if (key === 'turn' && typeof value.id === 'string')
+      out.id = mapped(turn, 'turns', value.id, turn.id);
     return out;
   }
-  if (key === 'threadId') return turn.thread.id;
-  if (key === 'turnId' || key === 'rootTurnId') return turn.id;
+  if (key === 'threadId' || key === 'senderThreadId') {
+    return mapped(turn, 'threads', value, turn.thread.id);
+  }
+  if (key === 'turnId' || key === 'rootTurnId') return mapped(turn, 'turns', value, turn.id);
   if (key === 'itemId') return `${turn.id}:${value}`;
   if (key === 'requestId') return turn.requestId ?? value;
   return value;
+}
+
+/** 样本里的一个 ID（thread 或回合）→ 当前的：第一个出现的是 `current`，其余每个生成一个新的。 */
+function mapped(turn, kind, recorded, current) {
+  turn.ids ??= { threads: new Map(), turns: new Map() };
+  const ids = turn.ids[kind];
+  if (ids.size === 0) ids.set(recorded, current);
+  let id = ids.get(recorded);
+  if (id === undefined) {
+    id = randomUUID();
+    ids.set(recorded, id);
+  }
+  return id;
+}
+
+/** 这一行属于样本里的子 thread（不是第一个出现的 thread）。 */
+function childLine(turn, line) {
+  const threadId = line.params?.threadId ?? line.serverRequest?.params?.threadId;
+  const first = turn.ids?.threads.keys().next().value;
+  return typeof threadId === 'string' && first !== undefined && threadId !== first;
 }
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 async function replay(turn, name) {
   for (const line of fixture(name)) {
-    if (turn.ended) return;
+    if (turn.ended && !(turn.completed && childLine(turn, line))) return;
     await tick();
-    if (turn.ended) return;
+    if (turn.ended && !(turn.completed && childLine(turn, line))) return;
     if ('serverRequest' in line) {
       const id = nextRequestId++;
       turn.requestId = id;
@@ -117,7 +155,10 @@ async function replay(turn, name) {
 function emit(turn, line) {
   const message = substitute(line, turn);
   notify(turn.thread, message);
-  if (message.method === 'turn/completed') endTurn(turn);
+  if (message.method === 'turn/completed' && message.params.threadId === turn.thread.id) {
+    endTurn(turn);
+    turn.completed = true;
+  }
 }
 
 function endTurn(turn) {

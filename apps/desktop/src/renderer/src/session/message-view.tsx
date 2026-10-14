@@ -51,8 +51,10 @@ function UserMessage({
   self: ClientIdentity | undefined;
 }) {
   const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
-  // 本桌面端发的消息不标来源；别的客户端（CLI、另一台设备）发的标出来。
-  const fromElsewhere = !self || message.sentBy.clientId !== self.clientId;
+  // 本桌面端发的消息不标来源；别的客户端（CLI、另一台设备）发的标出来。子会话里父 agent 给的输入没有 sentBy
+  // （R4），怎样标注留给子智能体界面（R5）。
+  const { sentBy } = message;
+  const fromElsewhere = sentBy !== undefined && (!self || sentBy.clientId !== self.clientId);
   return (
     <div className="mt-6 flex flex-col items-end first:mt-0" data-message-role="user">
       <div className="max-w-[85%] rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
@@ -60,7 +62,7 @@ function UserMessage({
       </div>
       {fromElsewhere && (
         <span className="mt-1 text-xs text-faint-foreground">
-          {t('transcript.from', { who: clientLabel(message.sentBy, self) })}
+          {t('transcript.from', { who: clientLabel(sentBy, self) })}
         </span>
       )}
     </div>
@@ -151,6 +153,9 @@ const PartView = memo(function PartView({
       return <NoticePart part={part} />;
     case 'raw':
       return <RawPart part={part} />;
+    case 'subagent':
+      // 子会话的“开始工作 / 已完成”两行由子智能体界面（R5）来画。
+      return null;
   }
 });
 
