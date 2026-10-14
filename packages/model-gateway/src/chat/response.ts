@@ -120,6 +120,11 @@ export class ChatStreamTranslator {
     return events;
   }
 
+  /** 上游无视 stream 回了整个 `chat.completion`：字段与 chunk 相同，按一个 chunk 处理。 */
+  whole(body: unknown): ResponsesEvent[] {
+    return this.chunk(body);
+  }
+
   /**
    * 上游的流结束了（`[DONE]` 或连接正常关闭）。收到过 finish_reason 或 `[DONE]` 时按 finish_reason 收尾；
    * 两者都没有就是提前断开，按 response.failed 处理。

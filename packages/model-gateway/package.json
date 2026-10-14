@@ -2,7 +2,7 @@
   "name": "@wevir/model-gateway",
   "version": "0.0.0",
   "private": true,
-  "description": "Wevir model protocol gateway: serves OpenAI Responses to Codex and forwards to Responses or Chat Completions upstreams.",
+  "description": "Wevir model protocol gateway: serves OpenAI Responses to Codex and forwards to Responses, Chat Completions or Anthropic Messages upstreams.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,

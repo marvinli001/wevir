@@ -89,7 +89,7 @@ node packages/host/dist/main.js --home ./.wevir-dev --adapter dsh --log-level de
 | `packages/storage` | SQLite、迁移、仓储、SecretStore | `pnpm vitest run --project storage` |
 | `packages/adapter-acp` | 通用 ACP 适配器：引擎描述、ACP 进程、映射、事件队列、会话与审批记账 | `pnpm vitest run --project adapter-acp`；它的大部分行为由 adapter-dsh 的测试经 dsh 覆盖 |
 | `packages/adapter-dsh` | dsh 的引擎描述与启动器、增量旁路、Provider 桥接 | `pnpm vitest run --project adapter-dsh`（含真实 dsh + 本地 mock Provider，不需要 Key） |
-| `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §8 |
+| `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat、Anthropic Messages 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §9 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
 | `apps/desktop` | Electron 桌面端 | `pnpm dev`；`pnpm --filter @wevir/desktop palette` 重新生成色阶 |

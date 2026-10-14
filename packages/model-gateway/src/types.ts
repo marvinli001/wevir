@@ -70,8 +70,39 @@ export interface ChatRequest {
   [key: string]: unknown;
 }
 
+/** Anthropic Messages 的一个内容块（text、image、thinking、tool_use、tool_result 等），按 `type` 区分。 */
+export interface MessagesBlock {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface MessagesMessage {
+  role: 'user' | 'assistant';
+  content: MessagesBlock[];
+}
+
+export interface MessagesTool {
+  name: string;
+  description?: string;
+  input_schema: unknown;
+}
+
+/** 发给 Anthropic Messages 上游的请求体。 */
+export interface MessagesRequest {
+  model: string;
+  max_tokens: number;
+  messages: MessagesMessage[];
+  stream: true;
+  system?: MessagesBlock[];
+  tools?: MessagesTool[];
+  tool_choice?: unknown;
+  thinking?: JsonObject;
+  output_config?: JsonObject;
+  [key: string]: unknown;
+}
+
 /**
- * 网关读的 compat 开关。前四个与 Host 协议的 `ProviderCompat` 同形；后两个只有网关用（model-gateway.md §6），
+ * 网关读的 compat 开关。前四个与 Host 协议的 `ProviderCompat` 同形；后两个只有网关用（model-gateway.md §4.4），
  * Host 协议与 `@wevir/runtime-adapter` 的类型还没有它们，接进 Host 时（R2）再加（ADR-0005 补记 3）。
  */
 export interface GatewayCompat extends ProviderCompatConfig {
@@ -80,8 +111,15 @@ export interface GatewayCompat extends ProviderCompatConfig {
   /**
    * Chat 上游怎样收对话中间的 developer / system 消息：`inline`（默认）原位转 system；`merge` 全部并进开头的
    * 一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。
+   * Messages 上游没有 `inline`：默认与 `inline` 都按 `user` 处理，`merge` 并进顶层 system。
    */
   systemMessageMode?: 'inline' | 'merge' | 'user';
+  /**
+   * 协议共用的字段（各家思考开关的写法）。网关只在 `anthropic-messages` 上读它：`adaptive` 发
+   * `thinking: {type: adaptive}`，`enabled` 发 `thinking: {type: enabled, budget_tokens}`；不设时模型 ID 以
+   * `claude-` 开头用 `adaptive`，其余用 `enabled`（model-gateway.md §5.4）。
+   */
+  thinkingFormat?: string;
 }
 
 /** 网关接收的 Provider：Host 组装的 `ProviderConfig`（含 Key），compat 可以带网关自己的开关。 */

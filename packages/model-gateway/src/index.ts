@@ -7,10 +7,18 @@ export {
   type ModelGatewayOptions,
   startModelGateway,
 } from './gateway.js';
+export {
+  DEFAULT_MAX_TOKENS,
+  decodeThinking,
+  encodeThinking,
+  THINKING_ENVELOPE_PREFIX,
+  toMessagesRequest,
+} from './messages/request.js';
+export { MessagesStreamTranslator } from './messages/response.js';
 export { PROVIDER_TEST_TIMEOUT_MS, testProvider } from './provider-test.js';
 export {
-  ANTHROPIC_UNSUPPORTED,
   DEEPSEEK_RESPONSES_BASE_URL,
+  MESSAGES_THINKING_FORMATS,
   validateProvider,
 } from './providers.js';
 export type { GatewayCompat, GatewayProvider } from './types.js';

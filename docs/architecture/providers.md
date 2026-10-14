@@ -42,7 +42,7 @@ provider.test  ──► 适配器直接向 Provider 发一次最小流式请求
 | Wevir 字段 | `deepseek-official`（`llm-deepseek.config`） | `openai-compatible`（`llm-pi-ai.config.providers.<ID>`） |
 |---|---|---|
 | `displayName` | 不写（dsh 的显示名固定为 DeepSeek） | `displayName` |
-| `api` | 不允许 | `api`：`openai-completions` / `openai-responses`；`anthropic-messages` 只预留类型，`validateProvider` 拒绝 |
+| `api` | 不允许 | `api`：`openai-completions` / `openai-responses`；`anthropic-messages` 只预留类型，`validateProvider` 拒绝（dsh 不支持；Codex 引擎经模型网关支持，见 [model-gateway.md](./model-gateway.md) §5） |
 | `baseURL` | `baseURL`（省略用 dsh 的 `https://api.deepseek.com/anthropic`） | `baseURL`（必填） |
 | `compat` | 不允许 | `compat`，见 §2.3 |
 | `models[]` | 为空时不写 `models`，用 dsh 自带目录（`deepseek-flash`、`deepseek-v4-pro`）；不为空时整体替换目录 | `models`（必填，至少一个） |
@@ -117,7 +117,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 ## 4. 不做
 
 - **OAuth 类 Provider**（Codex、Claude 等订阅账号登录）：grant 只能存在 dsh 能写的 `DSH_HOME/.credentials.yaml`，与“密钥不落 DSH_HOME”冲突，ACP 也没有登录入口（ADR-0001 未决事项 1）。骨架只支持 API Key 类 Provider。
-- **`anthropic-messages` 协议**：协议类型里保留（`ProviderApi`），`validateProvider` 拒绝、`provider.test` 不发请求，等需要时再接。
+- **`anthropic-messages` 协议（dsh 引擎）**：协议类型里保留（`ProviderApi`），adapter-dsh 的 `validateProvider` 拒绝、`provider.test` 不发请求。Codex 引擎经模型网关支持（R10，[model-gateway.md](./model-gateway.md) §5）。
 - 按 Provider 配置请求头、超时、重试策略、`reasoning` 默认档位等 pi-ai 的其余字段：骨架不暴露。
 
 ## 5. Provider 变更的生效

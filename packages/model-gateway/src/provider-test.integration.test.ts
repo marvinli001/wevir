@@ -3,8 +3,8 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startModelGateway } from './gateway.js';
 import { probeRequest, testProvider } from './provider-test.js';
-import { ANTHROPIC_UNSUPPORTED } from './providers.js';
 import { startMockChat } from './test-fixtures/mock-chat.js';
+import { startMockMessages } from './test-fixtures/mock-messages.js';
 import { startMockResponses } from './test-fixtures/mock-responses.js';
 import { closedPort } from './test-fixtures/mock-server.js';
 import type { Reply } from './test-fixtures/model-script.js';
@@ -34,6 +34,12 @@ const provider = (
 
 async function chat(reply: Reply) {
   const mock = await startMockChat(() => reply);
+  cleanups.push(() => mock.close());
+  return mock;
+}
+
+async function messages(reply: Reply) {
+  const mock = await startMockMessages(() => reply);
   cleanups.push(() => mock.close());
   return mock;
 }
@@ -78,6 +84,27 @@ describe('testProvider：与正式请求同一条路', () => {
     expect(mock.requests[0]?.authorization).toBe(`Bearer ${KEY}`);
   });
 
+  it('Messages 转换：探测请求是 max_tokens 16 的一句 ping，Key 在 x-api-key', async () => {
+    const mock = await messages({ text: ['pong'] });
+    const result = await testProvider(provider('anthropic-messages', mock.baseURL), 'm');
+    expect(result).toEqual({ ok: true, latencyMs: expect.any(Number) });
+    expect(mock.requests[0]?.path).toBe('/v1/messages');
+    expect(mock.requests[0]?.body).toEqual({
+      model: 'm',
+      max_tokens: 16,
+      messages: [
+        {
+          role: 'user',
+          content: [{ type: 'text', text: 'ping', cache_control: { type: 'ephemeral' } }],
+        },
+      ],
+      stream: true,
+    });
+    expect(mock.requests[0]?.apiKey).toBe(KEY);
+    expect(mock.requests[0]?.authorization).toBeUndefined();
+    expect(mock.requests[0]?.headers['anthropic-version']).toBe('2023-06-01');
+  });
+
   it('Responses 透传：探测请求与 Codex 的请求同形', async () => {
     const mock = await responses({ text: ['pong'] });
     const result = await testProvider(provider('openai-responses', mock.baseURL), 'm');
@@ -117,10 +144,10 @@ describe('testProvider：失败归类（口径同 adapter-dsh，providers.md §6
     expect(mock.requests).toHaveLength(0);
   });
 
-  it('anthropic-messages → unknown，写明 R10 之后支持', async () => {
-    const result = await testProvider(provider('anthropic-messages', 'https://example.com'), 'm');
+  it('配置不对 → unknown，不发请求', async () => {
+    const result = await testProvider(provider('gemini', 'https://example.com'), 'm');
     expect(result).toMatchObject({ ok: false, reason: 'unknown' });
-    expect(result.error?.message).toContain(ANTHROPIC_UNSUPPORTED);
+    expect(result.error?.message).toContain('不认识的协议 gemini');
   });
 
   const http: Array<[number, Reply['httpError'], string]> = [
@@ -134,9 +161,13 @@ describe('testProvider：失败归类（口径同 adapter-dsh，providers.md §6
   ];
   for (const [status, httpError, reason] of http) {
     it(`HTTP ${status}（${httpError?.message ?? httpError?.body}）→ ${reason}`, async () => {
-      for (const api of ['openai-completions', 'openai-responses']) {
+      for (const api of ['openai-completions', 'openai-responses', 'anthropic-messages']) {
         const mock =
-          api === 'openai-completions' ? await chat({ httpError }) : await responses({ httpError });
+          api === 'openai-completions'
+            ? await chat({ httpError })
+            : api === 'anthropic-messages'
+              ? await messages({ httpError })
+              : await responses({ httpError });
         const result = await testProvider(provider(api, mock.baseURL), 'm');
         expect(result).toMatchObject({ ok: false, reason, httpStatus: status });
         expect(result.error?.message).not.toContain(KEY);
@@ -162,6 +193,12 @@ describe('testProvider：失败归类（口径同 adapter-dsh，providers.md §6
       ok: false,
       reason: 'auth',
     });
+    const messagesMock = await messages({
+      failed: { code: 'not_found_error', message: 'model: m not found' },
+    });
+    expect(
+      await testProvider(provider('anthropic-messages', messagesMock.baseURL), 'm'),
+    ).toMatchObject({ ok: false, reason: 'model_not_found', httpStatus: 200 });
   });
 
   it('连不上 → network；超时 → timeout', async () => {
@@ -187,8 +224,10 @@ describe('testProvider：失败归类（口径同 adapter-dsh，providers.md §6
       reason: 'protocol',
     });
     const wrong = await raw(200, 'text/event-stream', 'data: {"choices":[]}\n\n');
-    const result = await testProvider(provider('openai-responses', wrong), 'm');
-    expect(result).toMatchObject({ ok: false, reason: 'protocol' });
-    expect(result.error?.message).toContain('不是所选协议');
+    for (const api of ['openai-responses', 'anthropic-messages']) {
+      const result = await testProvider(provider(api, wrong), 'm');
+      expect(result).toMatchObject({ ok: false, reason: 'protocol' });
+      expect(result.error?.message).toContain('不是所选协议');
+    }
   });
 });

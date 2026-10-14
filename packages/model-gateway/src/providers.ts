@@ -9,11 +9,11 @@ export const DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com';
 export type Route =
   | { mode: 'responses'; url: string }
   | { mode: 'chat'; url: string }
+  | { mode: 'messages'; url: string }
   | { mode: 'unsupported'; message: string };
 
-/** Anthropic Messages 还没做（R10）：检查与请求时都这样说。 */
-export const ANTHROPIC_UNSUPPORTED =
-  'Codex 引擎的模型网关暂不支持 anthropic-messages 协议（R10 之后支持）';
+/** `anthropic-messages` 上 `compat.thinkingFormat` 的取值（model-gateway.md §5.4）。 */
+export const MESSAGES_THINKING_FORMATS = ['adaptive', 'enabled'] as const;
 
 /**
  * Provider → 上游地址与处理方式：
@@ -21,7 +21,9 @@ export const ANTHROPIC_UNSUPPORTED =
  *   不用：那是 dsh 的 Anthropic Messages 地址（providers.md §2.2），协议不同。
  * - `openai-compatible` + `openai-responses`：透传到 `<baseURL>/responses`。
  * - `openai-compatible` + `openai-completions`：转换后发往 `<baseURL>/chat/completions`。
- * - 其余（`anthropic-messages`、缺字段）：不支持，原因在 `message` 里。
+ * - `openai-compatible` + `anthropic-messages`：转换后发往 `<baseURL>/v1/messages`（`baseURL` 已以 `/v1` 结尾时
+ *   只加 `/messages`，与 adapter-dsh 对 DeepSeek 的 Messages 地址同一拼法）。
+ * - 其余（缺字段、取值不对）：不支持，原因在 `message` 里。
  */
 export function routeOf(
   provider: GatewayProvider,
@@ -33,9 +35,14 @@ export function routeOf(
   const issues = validateProvider(provider);
   if (issues.length > 0) return { mode: 'unsupported', message: describeIssues(issues) };
   const base = trimSlash(provider.baseURL ?? '');
-  return provider.api === 'openai-responses'
-    ? { mode: 'responses', url: `${base}/responses` }
-    : { mode: 'chat', url: `${base}/chat/completions` };
+  if (provider.api === 'openai-responses') return { mode: 'responses', url: `${base}/responses` };
+  if (provider.api === 'anthropic-messages') {
+    return {
+      mode: 'messages',
+      url: base.endsWith('/v1') ? `${base}/messages` : `${base}/v1/messages`,
+    };
+  }
+  return { mode: 'chat', url: `${base}/chat/completions` };
 }
 
 /**
@@ -45,8 +52,9 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
   const issues: ProviderIssue[] = [];
   const issue = (path: ProviderIssue['path'], message: string) => issues.push({ path, message });
   if (provider.kind === 'openai-compatible') {
-    if (provider.api === 'anthropic-messages') issue(['api'], ANTHROPIC_UNSUPPORTED);
-    else if (provider.api !== 'openai-responses' && provider.api !== 'openai-completions') {
+    if (
+      !['openai-responses', 'openai-completions', 'anthropic-messages'].includes(provider.api ?? '')
+    ) {
       issue(
         ['api'],
         provider.api === undefined
@@ -71,6 +79,17 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
   }
   if (compat.supportsCustomTools !== undefined && typeof compat.supportsCustomTools !== 'boolean') {
     issue(['compat', 'supportsCustomTools'], 'supportsCustomTools 只能是 true 或 false');
+  }
+  // 其他协议的 thinkingFormat 是 pi-ai 的写法（adapter-dsh 用），网关不读也不查。
+  if (
+    provider.api === 'anthropic-messages' &&
+    compat.thinkingFormat !== undefined &&
+    !(MESSAGES_THINKING_FORMATS as readonly string[]).includes(compat.thinkingFormat)
+  ) {
+    issue(
+      ['compat', 'thinkingFormat'],
+      'anthropic-messages 的 thinkingFormat 只能是 adaptive 或 enabled',
+    );
   }
   return issues;
 }

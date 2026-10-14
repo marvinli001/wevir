@@ -1,9 +1,10 @@
 // provider.test 改由网关实现（ADR-0005 决策 2.5）：用与正式请求相同的处理方式（prepareUpstream：透传加方言修正，
-// 或 Chat 转换）发一次最小的流式请求，收到第一条合乎协议的流式数据就断开。
+// 或 Chat / Messages 转换）发一次最小的流式请求，收到第一条合乎协议的流式数据就断开。
 // 失败归类的口径与 packages/adapter-dsh/src/provider-test.ts 相同（providers.md §6.2），这里复制了它的判断，
 // 因为网关不能依赖 adapter-dsh（会把 dsh 带进依赖）。
 
 import type { ProviderTestFailure, ProviderTestResult } from '@wevir/runtime-adapter';
+import { UPSTREAM_PROTOCOL_ERROR } from './messages/response.js';
 import { describeIssues, validateProvider } from './providers.js';
 import { SseParser } from './sse.js';
 import { isObject } from './tools.js';
@@ -28,7 +29,7 @@ export interface ProviderTestOptions {
 
 /**
  * 探测用的 Responses 请求：与 Codex 的请求同形（message 项、流式、不存储），只有一句 `ping`，输出上限 16
- * （OpenAI 要求至少 16；Chat 转换时按 compat 写成 max_tokens 等）。
+ * （OpenAI 要求至少 16；Chat 转换时按 compat 写成 max_tokens 等，Messages 转换时是 max_tokens）。
  */
 export function probeRequest(modelId: string): ResponsesRequest {
   return {
@@ -156,6 +157,10 @@ async function firstEvent(
     }
     if (event.type === 'response.failed' || event.type === 'error') {
       const response = isObject(event.response) ? event.response : {};
+      const error = isObject(response.error) ? response.error : {};
+      // Messages 转换发现上游的流不是 Messages 格式：与“不是所选协议的流”同样归为 protocol。
+      if (error.code === UPSTREAM_PROTOCOL_ERROR)
+        return { kind: 'none', raw: String(error.message) };
       return { kind: 'error', message: errorOf(response) ?? errorOf(event) ?? data };
     }
     if (event.type === 'response.created' || event.type === 'response.in_progress')

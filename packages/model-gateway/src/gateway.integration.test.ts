@@ -11,10 +11,17 @@ import {
   readEvents,
 } from './test-fixtures/codex.js';
 import { startMockChat } from './test-fixtures/mock-chat.js';
+import { signature, startMockMessages } from './test-fixtures/mock-messages.js';
 import { startMockResponses } from './test-fixtures/mock-responses.js';
 import { closedPort, type MockServer } from './test-fixtures/mock-server.js';
 import type { Script } from './test-fixtures/model-script.js';
-import type { ChatRequest, GatewayProvider, ResponsesItem, ResponsesRequest } from './types.js';
+import type {
+  ChatRequest,
+  GatewayProvider,
+  MessagesRequest,
+  ResponsesItem,
+  ResponsesRequest,
+} from './types.js';
 import { GATEWAY_VERSION } from './upstream.js';
 
 const UPSTREAM_KEY = 'sk-upstream-key-for-tests';
@@ -53,6 +60,12 @@ async function chatUpstream(script: Script): Promise<MockServer<ChatRequest>> {
   return mock;
 }
 
+async function messagesUpstream(script: Script): Promise<MockServer<MessagesRequest>> {
+  const mock = await startMockMessages(script);
+  cleanups.push(() => mock.close());
+  return mock;
+}
+
 const responsesProvider = (
   baseURL: string,
   patch: Partial<GatewayProvider> = {},
@@ -72,6 +85,17 @@ const chatProvider = (baseURL: string, patch: Partial<GatewayProvider> = {}): Ga
   ...responsesProvider(baseURL),
   id: 'chat',
   api: 'openai-completions',
+  ...patch,
+});
+
+/** mock 的 baseURL 到 `/v1` 为止；Anthropic 风格的 baseURL 不带 `/v1`，网关自己加。 */
+const messagesProvider = (
+  baseURL: string,
+  patch: Partial<GatewayProvider> = {},
+): GatewayProvider => ({
+  ...responsesProvider(baseURL.replace(/\/v1$/, '')),
+  id: 'claude',
+  api: 'anthropic-messages',
   ...patch,
 });
 
@@ -115,10 +139,10 @@ describe('令牌与路由', () => {
     expect(a.gw.token).not.toBe(b.gw.token);
   });
 
-  it('不认识的路径 404、非 POST 405、没有的 Provider 404、anthropic-messages 400、没有 Key 401、坏 JSON 400', async () => {
+  it('不认识的路径 404、非 POST 405、没有的 Provider 404、配置不对 400、没有 Key 401、坏 JSON 400', async () => {
     const { gw } = await gateway();
     gw.setProviders([
-      chatProvider('http://127.0.0.1:9/v1', { id: 'claude', api: 'anthropic-messages' }),
+      chatProvider('http://127.0.0.1:9/v1', { id: 'gemini', api: 'gemini-native' }),
       chatProvider('http://127.0.0.1:9/v1', { id: 'nokey', apiKey: undefined }),
       chatProvider('http://127.0.0.1:9/v1'),
     ]);
@@ -130,10 +154,10 @@ describe('令牌与路由', () => {
     expect((await fetch(`${gw.baseURL('chat')}/responses`, { headers: auth })).status).toBe(405);
     const body = { model: 'm', input: 'hi' };
     expect((await postResponses(gw.baseURL('nope'), gw.token, body)).status).toBe(404);
-    const anthropic = await postResponses(gw.baseURL('claude'), gw.token, body);
-    expect(anthropic.status).toBe(400);
-    expect(((await anthropic.json()) as { error: { message: string } }).error.message).toContain(
-      'R10 之后支持',
+    const unsupported = await postResponses(gw.baseURL('gemini'), gw.token, body);
+    expect(unsupported.status).toBe(400);
+    expect(((await unsupported.json()) as { error: { message: string } }).error.message).toContain(
+      '不认识的协议 gemini-native',
     );
     expect((await postResponses(gw.baseURL('nokey'), gw.token, body)).status).toBe(401);
     expect((await postResponses(gw.baseURL('chat'), gw.token, '{oops')).status).toBe(400);
@@ -442,6 +466,280 @@ describe('Chat 转换', () => {
   });
 });
 
+describe('Messages 转换', () => {
+  it('录制的请求转换后到达上游（x-api-key、anthropic-version，不带 Codex 的头）；思考、文本与 usage 映射回 Responses', async () => {
+    const mock = await messagesUpstream(() => ({ reasoning: ['先', '想'], text: ['已', '完成'] }));
+    const { gw } = await gateway();
+    gw.setProviders([messagesProvider(mock.baseURL)]);
+    const res = await postResponses(
+      gw.baseURL('claude'),
+      gw.token,
+      codexRequest('2-tool-results').body,
+    );
+    expect(res.status).toBe(200);
+    const events = await readEvents(res);
+    expect(codexProblems(events)).toEqual([]);
+    expect(doneItems(events)).toEqual([
+      expect.objectContaining({
+        type: 'reasoning',
+        content: [{ type: 'reasoning_text', text: '先想' }],
+        encrypted_content: expect.stringMatching(/^wevir-gw:anthropic:v1:/),
+      }),
+      expect.objectContaining({
+        type: 'message',
+        content: [{ type: 'output_text', text: '已完成' }],
+      }),
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: 'response.completed',
+      response: {
+        usage: {
+          input_tokens: 100,
+          input_tokens_details: { cached_tokens: 64, cache_write_tokens: 6 },
+          output_tokens: 20,
+          output_tokens_details: { reasoning_tokens: 7 },
+          total_tokens: 120,
+        },
+      },
+    });
+    const upstream = mock.requests[0];
+    expect(upstream?.path).toBe('/v1/messages');
+    expect(upstream?.apiKey).toBe(UPSTREAM_KEY);
+    expect(upstream?.authorization).toBeUndefined();
+    expect(upstream?.headers['anthropic-version']).toBe('2023-06-01');
+    expect(upstream?.body.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+    for (const name of Object.keys(CODEX_METADATA_HEADERS).filter((h) => h !== 'user-agent')) {
+      expect(upstream?.headers).not.toHaveProperty(name);
+    }
+  });
+
+  it('工具调用与跨回合思考：思考块连同签名原样带回（同一回合的工具结果之后、下一回合），上游按 Anthropic 的规则都接受', async () => {
+    const patch = '*** Begin Patch\n*** Add File: b.txt\n+b\n*** End Patch';
+    const replies = [
+      {
+        reasoning: ['要改', '文件'],
+        toolCalls: [
+          { kind: 'custom' as const, name: 'apply_patch', input: patch },
+          {
+            kind: 'function' as const,
+            name: 'wait_agent',
+            namespace: 'multi_agent_v1',
+            args: { targets: ['x'] },
+          },
+        ],
+      },
+      { reasoning: ['改好了'], text: ['完成'] },
+      { reasoning: ['记得'], text: ['上一轮改了 b.txt'] },
+    ];
+    let i = 0;
+    const mock = await messagesUpstream(() => replies[i++] ?? {});
+    const { gw } = await gateway();
+    gw.setProviders([messagesProvider(mock.baseURL)]);
+    const first = codexRequest('1-first-turn').body;
+    const turn = async (body: ResponsesRequest) => {
+      const res = await postResponses(gw.baseURL('claude'), gw.token, body);
+      expect(res.status).toBe(200);
+      const events = await readEvents(res);
+      expect(codexProblems(events)).toEqual([]);
+      expect(events.at(-1)?.type).toBe('response.completed');
+      return doneItems(events) as ResponsesItem[];
+    };
+
+    // 第一步：模型想了想，调了 apply_patch 与子 agent 的 wait_agent。
+    const calls = await turn(first);
+    expect(calls.slice(1)).toEqual([
+      { type: 'custom_tool_call', call_id: expect.any(String), name: 'apply_patch', input: patch },
+      {
+        type: 'function_call',
+        call_id: expect.any(String),
+        name: 'wait_agent',
+        namespace: 'multi_agent_v1',
+        arguments: '{"targets":["x"]}',
+      },
+    ]);
+    // 第二步：Codex 把输出项原样放回 input，加上两个工具的结果。
+    const second: ResponsesRequest = {
+      ...first,
+      input: [
+        ...(first.input as ResponsesItem[]),
+        ...calls,
+        { type: 'custom_tool_call_output', call_id: calls[1]?.call_id, output: 'Success.' },
+        { type: 'function_call_output', call_id: calls[2]?.call_id, output: '{"done":true}' },
+      ],
+    };
+    const answer = await turn(second);
+    // 第三步：下一回合。
+    const third: ResponsesRequest = {
+      ...first,
+      input: [
+        ...(second.input as ResponsesItem[]),
+        ...answer,
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: '上一轮做了什么？' }],
+        },
+      ],
+    };
+    const recall = await turn(third);
+    expect(recall.at(-1)).toMatchObject({
+      content: [{ type: 'output_text', text: '上一轮改了 b.txt' }],
+    });
+
+    expect(mock.requests.map((r) => r.body.messages.map((m) => m.role))).toEqual([
+      ['user'],
+      ['user', 'assistant', 'user'],
+      ['user', 'assistant', 'user', 'assistant', 'user'],
+    ]);
+    const thinking = (text: string) => ({
+      type: 'thinking',
+      thinking: text,
+      signature: signature(text),
+    });
+    expect(mock.requests[1]?.body.messages[1]?.content.map((b) => b.type)).toEqual([
+      'thinking',
+      'tool_use',
+      'tool_use',
+    ]);
+    expect(mock.requests[1]?.body.messages[1]?.content[0]).toEqual(thinking('要改文件'));
+    expect(mock.requests[1]?.body.messages[2]?.content.map((b) => b.type)).toEqual([
+      'tool_result',
+      'tool_result',
+    ]);
+    const history = mock.requests[2]?.body.messages ?? [];
+    expect(history[1]?.content[0]).toEqual(thinking('要改文件'));
+    expect(history[3]?.content).toEqual([thinking('改好了'), { type: 'text', text: '完成' }]);
+  });
+
+  it('上游不给签名：下一个请求不带思考块，其余照常', async () => {
+    const replies = [{ reasoning: ['无签名'], text: ['答'], noSignature: true }, { text: ['好'] }];
+    let i = 0;
+    const mock = await messagesUpstream(() => replies[i++] ?? {});
+    const { gw } = await gateway();
+    gw.setProviders([messagesProvider(mock.baseURL)]);
+    const body = { model: 'm', input: 'hi', reasoning: { effort: 'high' } };
+    const items = doneItems(
+      await readEvents(await postResponses(gw.baseURL('claude'), gw.token, body)),
+    );
+    const next = await postResponses(gw.baseURL('claude'), gw.token, {
+      ...body,
+      input: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+        ...items,
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '再说' }] },
+      ],
+    });
+    expect(next.status).toBe(200);
+    expect(mock.requests[1]?.body.messages[1]?.content).toEqual([{ type: 'text', text: '答' }]);
+  });
+
+  it('压缩请求（没有工具、历史里有工具调用）：上游接受占位工具', async () => {
+    const mock = await messagesUpstream(() => ({ text: ['摘要'] }));
+    const { gw } = await gateway();
+    gw.setProviders([messagesProvider(mock.baseURL)]);
+    const events = await readEvents(
+      await postResponses(gw.baseURL('claude'), gw.token, codexRequest('4-compact').body),
+    );
+    expect(events.at(-1)?.type).toBe('response.completed');
+    expect(mock.requests[0]?.body.tool_choice).toEqual({ type: 'none' });
+  });
+
+  it('stop_reason=max_tokens / refusal → response.incomplete；流里的 error 与提前断开 → response.failed（带原文）', async () => {
+    const replies = [
+      { text: ['截'], finishReason: 'max_tokens' },
+      { text: ['拒'], finishReason: 'refusal' },
+      { text: ['半'], failed: { code: 'overloaded_error', message: 'Overloaded: 原文' } },
+      { text: ['断'], disconnect: true },
+    ];
+    let i = 0;
+    const mock = await messagesUpstream(() => replies[i++] ?? {});
+    const { gw } = await gateway();
+    gw.setProviders([messagesProvider(mock.baseURL)]);
+    const body = codexRequest('1-first-turn').body;
+    const next = async () => readEvents(await postResponses(gw.baseURL('claude'), gw.token, body));
+    const length = await next();
+    expect(codexProblems(length)).toEqual([]);
+    expect(length.at(-1)).toMatchObject({
+      type: 'response.incomplete',
+      response: { incomplete_details: { reason: 'max_output_tokens' } },
+    });
+    expect((await next()).at(-1)).toMatchObject({
+      type: 'response.incomplete',
+      response: { incomplete_details: { reason: 'content_filter' } },
+    });
+    expect((await next()).at(-1)).toMatchObject({
+      type: 'response.failed',
+      response: { error: { code: 'overloaded_error', message: 'Overloaded: 原文' } },
+    });
+    const cut = await next();
+    expect(codexProblems(cut)).toEqual([]);
+    expect(cut.at(-1)).toMatchObject({
+      type: 'response.failed',
+      response: { error: { message: expect.stringMatching(/流中断|结束前断开/) } },
+    });
+  });
+
+  it('非 2xx：状态码原样，Anthropic 风格的正文整理成 {"error":{"message","type"}}，回显的 Key 遮掉；请求结构不对时上游的 400 原文转回', async () => {
+    const errors = [
+      { status: 529, code: 'overloaded_error', message: 'Overloaded' },
+      { status: 401, code: 'authentication_error', message: `invalid x-api-key ${UPSTREAM_KEY}` },
+    ];
+    let i = 0;
+    const mock = await messagesUpstream(() => ({ httpError: errors[i++] }));
+    const { gw, lines } = await gateway();
+    gw.setProviders([messagesProvider(mock.baseURL)]);
+    const body = codexRequest('1-first-turn').body;
+    const r529 = await postResponses(gw.baseURL('claude'), gw.token, body);
+    expect(r529.status).toBe(529);
+    expect(await r529.json()).toEqual({
+      error: { message: 'Overloaded', type: 'overloaded_error' },
+    });
+    const r401 = await postResponses(gw.baseURL('claude'), gw.token, body);
+    expect(r401.status).toBe(401);
+    expect(JSON.stringify(await r401.json())).not.toContain(UPSTREAM_KEY);
+    // 历史里有工具调用但没有对应的结果：mock 照 Anthropic 回 400。
+    const broken = await postResponses(gw.baseURL('claude'), gw.token, {
+      model: 'm',
+      input: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'x' }] },
+        { type: 'function_call', call_id: 'c', name: 'exec_command', arguments: '{}' },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'y' }] },
+      ],
+      tools: [{ type: 'function', name: 'exec_command' }],
+    });
+    expect(broken.status).toBe(400);
+    expect(await broken.json()).toEqual({
+      error: {
+        message: expect.stringContaining('without `tool_result` blocks'),
+        type: 'invalid_request_error',
+      },
+    });
+    await until(() => requestLogs(lines).length === 3);
+    expect(requestLogs(lines).map((l) => l.fields?.upstreamStatus)).toEqual([529, 401, 400]);
+  });
+
+  it('日志口径与 Chat 相同：不记请求体、响应体、Key、思考与签名', async () => {
+    const mock = await messagesUpstream(() => ({ reasoning: ['秘密思考'], text: ['秘密回答'] }));
+    const { gw, lines } = await gateway();
+    gw.setProviders([messagesProvider(mock.baseURL)]);
+    await (
+      await postResponses(gw.baseURL('claude'), gw.token, codexRequest('2-tool-results').body)
+    ).text();
+    await until(() => requestLogs(lines).length === 1);
+    expect(requestLogs(lines)[0]?.fields).toEqual({
+      method: 'POST',
+      providerId: 'claude',
+      outcome: 'completed',
+      upstreamStatus: 200,
+      durationMs: expect.any(Number),
+    });
+    const all = JSON.stringify(lines);
+    for (const secret of [UPSTREAM_KEY, gw.token, '秘密', signature('秘密思考'), 'notes.md']) {
+      expect(all).not.toContain(secret);
+    }
+  });
+});
+
 describe('上游错误', () => {
   it('非 2xx：状态码原样，正文整理成 {"error":{"message"}}，保留 code，回显的 Key 遮掉', async () => {
     const errors = [
@@ -513,16 +811,25 @@ describe('上游错误', () => {
 });
 
 describe('取消与配置更新', () => {
-  for (const mode of ['chat', 'resp'] as const) {
+  for (const mode of ['chat', 'resp', 'claude'] as const) {
     it(`${mode}：Codex 断开时中断上游，记为 client_closed`, async () => {
       const script: Script = () => ({
         text: Array.from({ length: 200 }, (_, n) => `${n} `),
         delayMs: 20,
       });
-      const mock = mode === 'chat' ? await chatUpstream(script) : await responsesUpstream(script);
+      const mock =
+        mode === 'chat'
+          ? await chatUpstream(script)
+          : mode === 'claude'
+            ? await messagesUpstream(script)
+            : await responsesUpstream(script);
       const { gw, lines } = await gateway();
       gw.setProviders([
-        mode === 'chat' ? chatProvider(mock.baseURL) : responsesProvider(mock.baseURL),
+        mode === 'chat'
+          ? chatProvider(mock.baseURL)
+          : mode === 'claude'
+            ? messagesProvider(mock.baseURL)
+            : responsesProvider(mock.baseURL),
       ]);
       const abort = new AbortController();
       const res = await postResponses(

@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ANTHROPIC_UNSUPPORTED,
-  DEEPSEEK_RESPONSES_BASE_URL,
-  routeOf,
-  validateProvider,
-} from './providers.js';
+import { DEEPSEEK_RESPONSES_BASE_URL, routeOf, validateProvider } from './providers.js';
 import type { GatewayProvider } from './types.js';
 
 const compatible = (patch: Partial<GatewayProvider>): GatewayProvider => ({
@@ -50,10 +45,23 @@ describe('routeOf', () => {
     });
   });
 
-  it('anthropic-messages 不支持，写明 R10 之后支持', () => {
-    const route = routeOf(compatible({ api: 'anthropic-messages' }));
-    expect(route).toEqual({ mode: 'unsupported', message: `api：${ANTHROPIC_UNSUPPORTED}` });
-    expect(ANTHROPIC_UNSUPPORTED).toContain('R10 之后支持');
+  it('anthropic-messages → Messages 转换：<baseURL>/v1/messages，baseURL 已以 /v1 结尾时只加 /messages', () => {
+    expect(
+      routeOf(
+        compatible({ api: 'anthropic-messages', baseURL: 'https://api.deepseek.com/anthropic' }),
+      ),
+    ).toEqual({ mode: 'messages', url: 'https://api.deepseek.com/anthropic/v1/messages' });
+    expect(routeOf(compatible({ api: 'anthropic-messages' }))).toEqual({
+      mode: 'messages',
+      url: 'https://example.com/v1/messages',
+    });
+  });
+
+  it('配置不对 → unsupported，原因写在 message 里', () => {
+    expect(routeOf(compatible({ api: 'gemini' }))).toEqual({
+      mode: 'unsupported',
+      message: 'api：不认识的协议 gemini',
+    });
   });
 });
 
@@ -68,9 +76,24 @@ describe('validateProvider', () => {
   });
 
   it('协议、地址与网关的 compat 开关', () => {
-    expect(validateProvider(compatible({ api: 'anthropic-messages' }))).toEqual([
-      { path: ['api'], message: ANTHROPIC_UNSUPPORTED },
+    expect(validateProvider(compatible({ api: 'anthropic-messages' }))).toEqual([]);
+    expect(
+      validateProvider(
+        compatible({ api: 'anthropic-messages', compat: { thinkingFormat: 'adaptive' } }),
+      ),
+    ).toEqual([]);
+    expect(
+      validateProvider(
+        compatible({ api: 'anthropic-messages', compat: { thinkingFormat: 'qwen' } }),
+      ),
+    ).toEqual([
+      {
+        path: ['compat', 'thinkingFormat'],
+        message: 'anthropic-messages 的 thinkingFormat 只能是 adaptive 或 enabled',
+      },
     ]);
+    // 其他协议的 thinkingFormat 是 pi-ai 的写法，网关不查。
+    expect(validateProvider(compatible({ compat: { thinkingFormat: 'qwen' } }))).toEqual([]);
     expect(
       validateProvider(compatible({ api: undefined, baseURL: undefined })).map((i) => i.path),
     ).toEqual([['api'], ['baseURL']]);

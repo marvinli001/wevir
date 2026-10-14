@@ -3,8 +3,14 @@
 
 import packageJson from '../package.json' with { type: 'json' };
 import { type ChatTranslation, toChatRequest } from './chat/request.js';
-import { ChatStreamTranslator } from './chat/response.js';
+import { ChatStreamTranslator, type UpstreamFailure } from './chat/response.js';
 import { applyDialects, type EventRewrite } from './dialects.js';
+import {
+  ANTHROPIC_VERSION,
+  type MessagesTranslation,
+  toMessagesRequest,
+} from './messages/request.js';
+import { MessagesStreamTranslator } from './messages/response.js';
 import { routeOf } from './providers.js';
 import { SseParser, sseEvent } from './sse.js';
 import { isObject } from './tools.js';
@@ -18,7 +24,7 @@ export const USER_AGENT = `wevir-gateway/${GATEWAY_VERSION}`;
 export type Prepared =
   | {
       ok: true;
-      mode: 'responses' | 'chat';
+      mode: 'responses' | 'chat' | 'messages';
       url: string;
       headers: Record<string, string>;
       payload: unknown;
@@ -26,8 +32,9 @@ export type Prepared =
       translate(response: Response, signal: AbortSignal): AsyncIterable<Uint8Array | string>;
       /** 透传且没有改写响应时，原样转回上游的 content-type。 */
       contentType(upstream: string | null): string;
-      /** Chat 转换的细节，或生效的方言修正（测试用）。 */
+      /** Chat / Messages 转换的细节，或生效的方言修正（测试用）。 */
       chat?: ChatTranslation;
+      messages?: MessagesTranslation;
       dialects?: string[];
     }
   | { ok: false; status: number; message: string };
@@ -50,8 +57,26 @@ export function prepareUpstream(
     'content-type': 'application/json',
     accept: 'text/event-stream',
     'user-agent': USER_AGENT,
-    ...(provider.apiKey ? { authorization: `Bearer ${provider.apiKey}` } : {}),
   };
+  if (route.mode === 'messages') {
+    // Anthropic 的认证头是 x-api-key（DeepSeek 等兼容服务同样支持），不发 Authorization。
+    if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
+    headers['anthropic-version'] = ANTHROPIC_VERSION;
+    const messages = toMessagesRequest(body, provider);
+    const origin = { provider: provider.id, model: body.model };
+    return {
+      ok: true,
+      mode: 'messages',
+      url: route.url,
+      headers,
+      payload: messages.request,
+      messages,
+      contentType: () => 'text/event-stream',
+      translate: (response, signal) =>
+        toResponsesEvents(response, new MessagesStreamTranslator(messages.names, origin), signal),
+    };
+  }
+  if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`;
   if (route.mode === 'chat') {
     const chat = toChatRequest(body, provider);
     return {
@@ -63,7 +88,7 @@ export function prepareUpstream(
       chat,
       contentType: () => 'text/event-stream',
       translate: (response, signal) =>
-        chatToResponses(response, new ChatStreamTranslator(chat.names), signal),
+        toResponsesEvents(response, new ChatStreamTranslator(chat.names), signal),
     };
   }
   const stripped: ResponsesRequest = { ...body };
@@ -118,13 +143,27 @@ async function* rewriteEvents(
   for (const message of parser.end()) yield encode(message.data);
 }
 
+/** Chat 与 Messages 两个转换器共同的样子：逐条吃上游的 SSE data，吐出 Responses 事件。 */
+export interface StreamTranslator {
+  /** 上游发了结束标记（Chat 的 `[DONE]`、Messages 的 message_stop），不用再读。 */
+  readonly done: boolean;
+  /** 已经发出终结事件。 */
+  readonly ended: boolean;
+  start(): ResponsesEvent[];
+  data(data: string): ResponsesEvent[];
+  /** 上游无视 `stream` 回了整个 JSON。 */
+  whole(body: unknown): ResponsesEvent[];
+  finish(): ResponsesEvent[];
+  fail(error: UpstreamFailure): ResponsesEvent[];
+}
+
 /**
- * Chat 上游的响应 → Responses 事件。流读到一半出错（连接被重置等）→ response.failed；`signal` 中断（Codex 断开、
- * 网关关闭）时原样抛出。上游无视 `stream` 回了整个 JSON 时按一个 chunk 处理。
+ * 转换型上游（Chat、Messages）的响应 → Responses 事件。流读到一半出错（连接被重置等）→ response.failed；`signal`
+ * 中断（Codex 断开、网关关闭）时原样抛出。上游无视 `stream` 回了整个 JSON 时交给 `whole`。
  */
-async function* chatToResponses(
+async function* toResponsesEvents(
   response: Response,
-  translator: ChatStreamTranslator,
+  translator: StreamTranslator,
   signal: AbortSignal,
 ): AsyncIterable<string> {
   const emit = (events: ResponsesEvent[]) => events.map(sseEvent).join('');
@@ -139,7 +178,7 @@ async function* chatToResponses(
         yield emit(translator.fail({ message: `上游返回的不是 JSON：${text.slice(0, 300)}` }));
         return;
       }
-      yield emit(translator.chunk(data));
+      yield emit(translator.whole(data));
       yield emit(translator.finish());
       return;
     }

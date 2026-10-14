@@ -9,6 +9,8 @@ export interface RecordedRequest<B> {
   headers: Record<string, string>;
   /** 上游收到的 Authorization 原值（测试核对 Key 换成了上游的）。 */
   authorization: string | undefined;
+  /** 上游收到的 x-api-key 原值（Messages 上游用它认证）。 */
+  apiKey: string | undefined;
   body: B;
   /** 响应没写完连接就断了（网关中断了上游）。 */
   aborted: boolean;
@@ -55,6 +57,7 @@ export async function startMockServer<B>(
         path: req.url,
         headers: redactHeaders(req.headers),
         authorization: req.headers.authorization,
+        apiKey: [req.headers['x-api-key']].flat()[0],
         body: JSON.parse(raw) as B,
         aborted: false,
       };

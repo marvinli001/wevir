@@ -27,13 +27,17 @@ export interface Reply {
   delayMs?: number;
   /** 不发流，直接回 HTTP 错误；`body` 给了就原样作正文（测试错误正文的整理）。 */
   httpError?: { status: number; message?: string; code?: string; body?: string };
-  /** Responses：流里发 response.failed。Chat：流里发 `{error}` 的 chunk。 */
+  /** Responses：流里发 response.failed。Chat：流里发 `{error}` 的 chunk。Messages：流里发 error 事件（code 是错误类型）。 */
   failed?: { code: string; message: string };
-  /** Chat：finish_reason（默认按有无工具调用取 stop / tool_calls）。 */
+  /** Chat：finish_reason（默认按有无工具调用取 stop / tool_calls）；Messages：stop_reason（默认 end_turn / tool_use）。 */
   finishReason?: string;
+  /** Messages：思考块不发签名（模拟不给签名的兼容服务）。 */
+  noSignature?: boolean;
+  /** Messages：思考块之后再发这些 redacted_thinking 块的 data。 */
+  redacted?: string[];
   /** 发完内容后直接断开连接，不发结束标记。 */
   disconnect?: boolean;
-  /** Chat：不按上面的字段渲染，直接发这些 `data:`（对象会 JSON 编码）。 */
+  /** Chat / Messages：不按上面的字段渲染，直接发这些 `data:`（对象会 JSON 编码）。 */
   rawChunks?: unknown[];
 }
 
