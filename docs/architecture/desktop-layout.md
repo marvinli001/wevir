@@ -627,7 +627,7 @@ interface StoredPanes {
 ## 7. 视觉
 
 - 只用 `tokens.css` 的语义变量，亮暗两套自动跟着变；不用截图里的颜色、图标与插画。图标用 lucide。
-- 主窗格底色 `background`，平铺，没有边框（两家都是这样）。窗格区的底色 `sidebar`（与左栏同一层级），窗格是 `background` 底、`border` 描边、`rounded-xl` 的卡片，没有阴影（截图 05）。
+- 主窗格底色 `background`，平铺，没有边框（两家都是这样）。窗格区（停靠、最大化、浮层）与主窗格同是 `background` 底（U17 起，原来是 `sidebar`，卡片四周露出一圈侧栏色，看着像主窗格与窗格区之间隔着一条色带；照 Claude Code 桌面端，`design-refs/claude-code-parallel-sessions/` 08–12，[desktop-tokens.md](../design/desktop-tokens.md) §21），窗格是 `background` 底、`border` 描边、`rounded-xl` 的卡片，没有阴影，只靠细边框与圆角和消息流分开（截图 05）。
 - 置顶摘要卡片是 `card` 底、`border` 描边、`rounded-xl`、`shadow-md`（截图 02）。变更的 +N / −M 用 `success` / `destructive` 文字色。
 - 窗格头的文字 `text-sm`；聚焦的窗格头 `foreground`，其他 `muted-foreground`；当前标签 `accent` 底。
 - 动效：窗格的尺寸不做过渡（排布按像素算，过渡会和拖动、窗口缩放打架）；菜单与浮层沿用原语自带的 100–200 ms 淡入，减少动效时关掉（`index.css` 已有的规则）。

@@ -299,10 +299,11 @@ export function WorkbenchLayout() {
                 />
               )}
             </main>
-            {/* 停靠的窗格区：外层过渡宽度，里面一列始终是窗格区的宽；收起时留着最后的内容滑出去。 */}
+            {/* 停靠的窗格区：外层过渡宽度，里面一列始终是窗格区的宽；收起时留着最后的内容滑出去。与主窗格同是画布色
+                （U17，desktop-tokens.md §21），窗格只靠细边框与圆角分开。 */}
             {plan.mode !== 'maximized' && (
               <div
-                className="layout-transition flex shrink-0 overflow-hidden bg-sidebar"
+                className="layout-transition flex shrink-0 overflow-hidden"
                 data-resizing={draftSizes !== undefined || undefined}
                 inert={!auxDocked}
                 style={{
@@ -344,7 +345,7 @@ export function WorkbenchLayout() {
               </div>
             )}
             {plan.mode === 'maximized' && plan.tree && (
-              <div className="flex min-w-0 flex-1 bg-sidebar p-2">{tree(plan.tree)}</div>
+              <div className="flex min-w-0 flex-1 p-2">{tree(plan.tree)}</div>
             )}
           </div>
         </div>
@@ -357,7 +358,7 @@ export function WorkbenchLayout() {
             side="right"
             showCloseButton={false}
             finalFocus={auxToggleRef}
-            className="gap-0 bg-sidebar text-sidebar-foreground data-[side=right]:w-(--overlay-width) data-[side=right]:sm:max-w-none"
+            className="gap-0 bg-background text-foreground data-[side=right]:w-(--overlay-width) data-[side=right]:sm:max-w-none"
             style={{ '--overlay-width': `${plan.auxWidth}px` } as CSSProperties}
           >
             <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
