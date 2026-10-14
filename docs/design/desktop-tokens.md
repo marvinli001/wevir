@@ -21,28 +21,28 @@
 
 | 语义变量 | Tailwind | 用途 | 浅色 | 深色 |
 |---|---|---|---|---|
-| `--background` | `bg-background` | 画布 | `#f4f3ed` | `#101114` |
-| `--sidebar` | `bg-sidebar` | 侧栏（左栏与它的浮层、设置页导航）；窗格区不用它（§21） | `#ecebe4` | `#0c0d10` |
-| `--card`、`--popover` | `bg-card`、`bg-popover` | 表面：卡片、浮层、菜单、输入框；侧栏里选中的行（`--sidebar-accent`） | `#fbfaf7` | `#17181c` |
-| `--switch-thumb` | `bg-switch-thumb` | 分段切换的滑块（输入框里的“插话 \| 排队”，U3 的 liquid-gooey 液面颜色；U4 起设置 → 外观的主题切换），轨道是 `--muted` | `#fbfaf7` | `#36383e` |
-| `--muted`、`--accent`、`--secondary` | `bg-muted` 等 | 次表面：弱填充、悬停与选中、次要按钮 | `#efede6` | `#1d1e23` |
-| `--border` | `border-border` | 分隔线 | `#dedbd1` | `#26282d` |
-| `--border-strong`（`--input`） | `border-input`、`bg-border-strong` | 强分隔线：控件边框、空闲的状态点 | `#ccc8bc` | `#36383e` |
+| `--background` | `bg-background` | 画布 | `#fcfbfa` | `#101114` |
+| `--sidebar` | `bg-sidebar` | 侧栏（左栏与它的浮层、设置页导航）；窗格区不用它（§21） | `#f7f6f3` | `#0c0d10` |
+| `--card`、`--popover` | `bg-card`、`bg-popover` | 表面：卡片、浮层、菜单、输入框；侧栏里选中的行（`--sidebar-accent`） | `#ffffff` | `#17181c` |
+| `--switch-thumb` | `bg-switch-thumb` | 分段切换的滑块（输入框里的“插话 \| 排队”，U3 的 liquid-gooey 液面颜色；U4 起设置 → 外观的主题切换），轨道是 `--muted` | `#ffffff` | `#36383e` |
+| `--muted`、`--accent`、`--secondary` | `bg-muted` 等 | 次表面：弱填充、悬停与选中、次要按钮 | `#f2f1ee` | `#1d1e23` |
+| `--border` | `border-border` | 分隔线 | `#e6e4e0` | `#26282d` |
+| `--border-strong`（`--input`） | `border-input`、`bg-border-strong` | 强分隔线：控件边框、空闲的状态点 | `#d3d1cc` | `#36383e` |
 | `--foreground` | `text-foreground` | 正文 | `#1a1a17` | `#eeede8` |
 | `--soft-foreground` | `text-soft-foreground` | 次正文：左栏的会话标题、代码的元信息 | `#45433d` | `#c4c3bd` |
 | `--muted-foreground` | `text-muted-foreground` | 说明文字：标签、时间、快捷键提示、图标、代码注释 | `#67635a` | `#9d9e9b` |
-| `--primary` / `--primary-foreground` | `bg-primary` | 主按钮（墨底，字是画布色）、选中项 | `#1a1a17` / `#f4f3ed` | `#eeede8` / `#101114` |
+| `--primary` / `--primary-foreground` | `bg-primary` | 主按钮（墨底，字是画布色）、选中项 | `#1a1a17` / `#fcfbfa` | `#eeede8` / `#101114` |
 | `--brand` | `text-brand` | 品牌主标与品牌时刻，不用于别处（§5） | 金 `#9b7840` | 铂金 `#dfded8` |
 | `--running`（`--ring`） | `text-running`、`bg-running` | 运行中、进行中的状态点；焦点环 | `#2f5f8a` | `#8db4dc` |
 | `--warning` | `text-warning` | 待审批、警告 | `#94570a` | `#e3a857` |
 | `--success` | `text-success` | 成功 | `#2f6b42` | `#86c597` |
 | `--destructive` | `text-destructive` | 失败、删除 | `#a23b30` | `#ee8f84` |
-| `--code-background` | — | 代码块底色（`markdown.css`） | `#efede6` | `#141519` |
+| `--code-background` | — | 代码块底色（`markdown.css`） | `#f2f1ee` | `#141519` |
 | `--code-keyword` / `string` / `number` / `title` | — | 语法高亮：运行蓝、成功绿、待审批赭、失败红 | deep 档 | pale 档 |
 | `--code-comment` / `--code-meta` | — | 注释用说明文字色，元信息用次正文色 | | |
 | `--overlay` | `bg-overlay` | 对话框与浮层的遮罩 | 正文色 25% | 侧栏色 60% |
 
-静器没有彩色的强调色：主按钮、选中项、链接都是墨色，彩色只表示状态。状态色每种只有一档，文字、图标、圆点、描边与 `bg-warning/10` 这类淡底都用它（T5.2 的 `*-solid` 实色档已去掉）。
+浅色的中性色 U17.1 起换成乳白（§22），深色不变。静器没有彩色的强调色：主按钮、选中项、链接都是墨色，彩色只表示状态。状态色每种只有一档，文字、图标、圆点、描边与 `bg-warning/10` 这类淡底都用它（T5.2 的 `*-solid` 实色档已去掉）。
 
 U3 起子会话头像是 bot-avatars 的小机器人（canvas 绘制），颜色要字面值，浅色、深色各六种写在 `session/avatar.ts`（方向稿 A 的头像配色）；thinking orb 的墨色（浅色 `#2b2a26`、深色 `#e9e8e2`）写在 `fx/orb.tsx`，金属与光束的颜色是库的 gold、mono 预设。原来的 `--avatar-1` … `--avatar-7` 与它们的原始色已删掉。
 
@@ -180,3 +180,11 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 - **为什么**：原来窗格区外层是侧栏色、窗格是画布色，卡片四周露出一圈侧栏色，主窗格和窗格区之间像隔着一条色带（浅色偏灰、深色偏黑），不像一个整体。Claude Code 桌面端的会话侧栏与后台任务窗格（`design-refs/claude-code-parallel-sessions/` 08–12）也是和消息流同一个底色，卡片只用细边框。侧栏色只留给左栏（它是导航，不是内容），设置页的导航同理。
 - **浮层**：窄窗口里窗格区盖在主窗格上时同样是画布色，和下面的消息流靠左边的分隔线与浮层阴影分开（`components/ui/sheet.tsx`）。
 - 顶栏的下边线横跨主窗格与窗格区，两边是同一条线、同一个底色。
+
+## 22. 浅色换成乳白（U17.1）
+
+- 维护者 2026-10-15 要浅色整体像 Codex 与 Claude Code 桌面端那样是乳白色。量了 `design-refs/` 里的截图：Claude Code 的画布是 `#fcfbfa`（会话侧栏、消息流、清单），卡片与窗格是纯白 `#ffffff`、边框约 `#e4e3e2`；Codex 是纯白 `#ffffff`、面板 `#f2f3f3`。取 Claude Code 的乳白（比 Codex 的纯白暖一点，和静器的墨色、金色主标相配）。
+- 象牙色阶（`palette.css`）整体提亮、去掉偏黄：表面 `#ffffff`、画布 `#fcfbfa`、侧栏 `#f7f6f3`、次表面（悬停、弱填充、代码底）`#f2f1ee`、分隔线 `#e6e4e0`、强分隔线 `#d3d1cc`；文字三档（`#1a1a17`、`#45433d`、`#67635a`）、状态色、金色主标不变。原来侧栏比次表面深（`#ecebe4` 对 `#efede6`），现在侧栏只比画布深一点、比次表面浅，所以色阶 3、4 对调：3 是侧栏、4 是次表面，`tokens.css` 跟着改引用。
+- 层级没变：侧栏 → 画布 → 次表面 → 表面。左栏仍比画布深一档（照 Claude Code，左栏与内容区之间靠这一点色差和一条分隔线），输入框、菜单、卡片是白底加分隔线与阴影浮在乳白上。
+- 品牌图标（`assets/icons/`）的底色仍是品牌的象牙 `#f4f3ed`，与应用的浅色画布不再相同；`THEME_BACKGROUND` 与首帧前脚本改成 `#fcfbfa`（§6）。
+- 对比度（§7 的测试）：底色都变亮了，文字对比度只升不降；金色主标对画布约 3.9:1、对表面约 4.1:1，仍够 3:1。

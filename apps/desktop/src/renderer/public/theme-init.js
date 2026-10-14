@@ -27,5 +27,5 @@
   }
   const root = document.documentElement;
   root.dataset.theme = theme;
-  root.style.backgroundColor = theme === 'dark' ? '#101114' : '#f4f3ed';
+  root.style.backgroundColor = theme === 'dark' ? '#101114' : '#fcfbfa';
 })();

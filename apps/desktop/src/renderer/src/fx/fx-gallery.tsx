@@ -38,14 +38,14 @@ function makeShot(theme: 'light' | 'dark', seed: number): string {
   const ctx = canvas.getContext('2d');
   if (!ctx) return '';
   const dark = theme === 'dark';
-  ctx.fillStyle = dark ? '#17181c' : '#fbfaf7';
+  ctx.fillStyle = dark ? '#17181c' : '#ffffff';
   ctx.fillRect(0, 0, 640, 400);
-  ctx.fillStyle = dark ? '#101114' : '#ecebe4';
+  ctx.fillStyle = dark ? '#101114' : '#f7f6f3';
   ctx.fillRect(0, 0, 150, 400);
   const ink = dark ? '#9d9e9b' : '#67635a';
   ctx.fillStyle = ink;
   for (let i = 0; i < 7; i++) ctx.fillRect(20, 40 + i * 32, 90 - ((i * 13 + seed) % 40), 8);
-  ctx.fillStyle = dark ? '#26282d' : '#efede6';
+  ctx.fillStyle = dark ? '#26282d' : '#f2f1ee';
   ctx.fillRect(180, 300, 430, 70);
   ctx.fillStyle = dark ? '#eeede8' : '#1a1a17';
   for (let i = 0; i < 5; i++) ctx.fillRect(180, 40 + i * 40, 360 - ((i * 47 + seed * 7) % 160), 10);

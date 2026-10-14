@@ -5,13 +5,14 @@
  * 决定。界面代码不直接用这里的变量，只用 tokens.css 的语义变量；每个变量都要被 tokens.css 用到（tokens.test.ts 核对）。 */
 
 :root {
-  /* 象牙：浅色主题的中性色，从亮到暗。2 是品牌底色。 */
-  --ivory-1: #fbfaf7;
-  --ivory-2: #f4f3ed;
-  --ivory-3: #efede6;
-  --ivory-4: #ecebe4;
-  --ivory-5: #dedbd1;
-  --ivory-6: #ccc8bc;
+  /* 象牙：浅色主题的中性色，从亮到暗。U17.1 起照 Codex 与 Claude Code 桌面端换成乳白（维护者 2026-10-15）：1 表面、
+   * 2 画布、3 侧栏、4 次表面、5 / 6 分隔线；品牌图标的底色仍是 #f4f3ed，与这里不同（desktop-tokens.md §22）。 */
+  --ivory-1: #ffffff;
+  --ivory-2: #fcfbfa;
+  --ivory-3: #f7f6f3;
+  --ivory-4: #f2f1ee;
+  --ivory-5: #e6e4e0;
+  --ivory-6: #d3d1cc;
   --ivory-7: #67635a;
   --ivory-8: #45433d;
   --ivory-9: #1a1a17;

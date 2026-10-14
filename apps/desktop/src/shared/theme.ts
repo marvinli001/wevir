@@ -13,10 +13,10 @@ export function isThemeMode(value: unknown): value is ThemeMode {
 }
 
 /**
- * 窗口与首帧的底色，即 tokens.css 的 --background（U1「静器」：浅色象牙、深色石墨，也是品牌底色）。主进程的窗口底色用它，
+ * 窗口与首帧的底色，即 tokens.css 的 --background（U1「静器」：浅色象牙、深色石墨；U17.1 起浅色是乳白，不再等于品牌底色）。主进程的窗口底色用它，
  * 首帧前脚本写的是同样的两个值；renderer 的 styles/tokens.test.ts 核对它与 tokens.css 一致，theme.test.ts 核对首帧前脚本。
  */
 export const THEME_BACKGROUND: Record<ResolvedTheme, string> = {
-  light: '#f4f3ed',
+  light: '#fcfbfa',
   dark: '#101114',
 };

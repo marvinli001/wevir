@@ -12,10 +12,10 @@
 :root {
   /* 背景层级：侧栏 → 画布 → 次表面（弱填充、悬停）→ 表面（卡片、浮层、输入框）。 */
   --background: var(--ivory-2);
-  --sidebar: var(--ivory-4);
-  --muted: var(--ivory-3);
-  --accent: var(--ivory-3);
-  --secondary: var(--ivory-3);
+  --sidebar: var(--ivory-3);
+  --muted: var(--ivory-4);
+  --accent: var(--ivory-4);
+  --secondary: var(--ivory-4);
   --card: var(--ivory-1);
   --popover: var(--ivory-1);
   /* 分段切换的滑块（输入框里的“插话 | 排队”，session/delivery-switch.tsx），轨道是 --muted。 */
@@ -43,7 +43,7 @@
   --destructive: var(--red-deep);
 
   /* 代码：块底色与语法高亮（highlight.js 的类名在 markdown.css 里映射到这些变量）。 */
-  --code-background: var(--ivory-3);
+  --code-background: var(--ivory-4);
   --code-keyword: var(--blue-deep);
   --code-string: var(--green-deep);
   --code-number: var(--ochre-deep);
