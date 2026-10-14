@@ -6,11 +6,19 @@ export const ROUTE_PATTERNS = {
   home: '/',
   /** 某个工作区里的一个会话。 */
   session: '/workspace/:workspaceId/session/:sessionId',
+  /**
+   * 会话的一个子智能体（R5，desktop-layout.md §5.2）：主窗格仍是父会话，“子智能体”窗格显示这个子会话。路由表里
+   * 是会话路由的子路由，进出详情时会话视图不重建。
+   */
+  agent: '/workspace/:workspaceId/session/:sessionId/agent/:childId',
   /** 在某个工作区里新建会话的草稿页（还没有会话 ID）。 */
   draft: '/workspace/:workspaceId/session',
   settings: '/settings',
   settingsTab: '/settings/:tab',
 } as const;
+
+/** `agent` 相对于会话路由的那一段（路由表里的子路由）。 */
+export const AGENT_SEGMENT = 'agent/:childId';
 
 export const SETTINGS_TABS = ['providers', 'workspaces', 'appearance', 'about'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
@@ -26,6 +34,8 @@ export const paths = {
   home: (): string => ROUTE_PATTERNS.home,
   session: (workspaceId: string, sessionId: string): string =>
     `/workspace/${segment(workspaceId)}/session/${segment(sessionId)}`,
+  agent: (workspaceId: string, sessionId: string, childId: string): string =>
+    `${paths.session(workspaceId, sessionId)}/agent/${segment(childId)}`,
   draft: (workspaceId: string): string => `/workspace/${segment(workspaceId)}/session`,
   settings: (tab: SettingsTab = DEFAULT_SETTINGS_TAB): string => `/settings/${tab}`,
 };

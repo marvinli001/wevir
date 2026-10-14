@@ -462,7 +462,7 @@ describe('子会话（R4）', () => {
     pendingApprovals: [],
   };
 
-  it('父会话：subagents 摘要按 sessionId 更新，派出它的回合里有一个原位更新的 subagent 部件', () => {
+  it('父会话：subagents 摘要按 sessionId 更新，派出它的回合里有原位更新的 subagent 部件', () => {
     const { list, add, turn } = events();
     turn();
     add('subagent.started', { subagent: summary });
@@ -475,12 +475,59 @@ describe('子会话（R4）', () => {
     ]);
 
     const done = { ...summary, status: 'completed' as const, endedAt: '2026-10-13T08:00:01.000Z' };
-    projection.apply(add('subagent.updated', { subagent: done }));
+    const ended = add('subagent.updated', { subagent: done });
+    projection.apply(ended);
     const after = projection.snapshot();
     expect(after.subagents).toEqual([done]);
     const parts = after.messages.find((m) => m.role === 'assistant')?.parts;
-    expect(parts).toEqual([{ type: 'subagent', key: `a:${CHILD}`, subagent: done }]);
+    // 父回合还没结束：“结束”部件跟在同一个回合里（R5）。
+    expect(parts).toEqual([
+      { type: 'subagent', key: `a:${CHILD}`, subagent: done },
+      { type: 'subagent', key: `a:${CHILD}:end:${ended.seq}`, subagent: done, ended: 'completed' },
+    ]);
     expect(after.parent).toBeUndefined();
+  });
+
+  it('子会话结束时，“结束”部件加在父会话当时的回合里；之后的摘要更新两个部件都跟着换', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('subagent.started', { subagent: summary });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    turn(TURN2, '继续');
+    add('assistant.message', { turnId: TURN2, messageId: 'm2', text: '还在等', replaces: [] });
+    const done = { ...summary, status: 'completed' as const, endedAt: '2026-10-13T08:00:01.000Z' };
+    add('subagent.updated', { subagent: done });
+    // 关闭不再加结束部件：只在离开 running 时加。
+    const closed = { ...done, status: 'closed' as const, title: '生成的标题' };
+    const last = add('subagent.updated', { subagent: closed });
+    const transcript = projectTranscript(list);
+    const [first, second] = transcript.messages.filter((m) => m.role === 'assistant');
+    expect(first?.parts).toEqual([{ type: 'subagent', key: `a:${CHILD}`, subagent: closed }]);
+    expect(second?.parts).toEqual([
+      { type: 'text', key: expect.any(String), text: '还在等', state: 'done' },
+      {
+        type: 'subagent',
+        key: `a:${CHILD}:end:${last.seq - 1}`,
+        subagent: closed,
+        ended: 'completed',
+      },
+    ]);
+  });
+
+  it('父会话空闲时子会话才结束：“结束”部件是一条系统消息', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('subagent.started', { subagent: summary });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    const failed = { ...summary, status: 'failed' as const, endedAt: '2026-10-13T08:00:01.000Z' };
+    const ended = add('subagent.updated', { subagent: failed });
+    const messages = projectTranscript(list).messages;
+    expect(messages.at(-1)).toMatchObject({
+      role: 'system',
+      parts: [{ type: 'subagent', key: `a:${CHILD}:end:${ended.seq}`, ended: 'failed' }],
+    });
   });
 
   it('子会话：parent 取自 session.created，turn.started 的输入投影成来自父 agent 的用户消息', () => {

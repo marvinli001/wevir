@@ -16,11 +16,13 @@ import type { PaneKind } from './pane-kinds';
 import type { PaneTab } from './pane-state';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
+import { SubagentsPane } from './panes/subagents-pane';
 
-/** 窗格内容拿得到的东西：当前路由所在的工作区与会话。 */
+/** 窗格内容拿得到的东西：当前路由所在的工作区与会话，以及路由里的子智能体（R5，desktop-layout.md §5.2）。 */
 export interface PaneContext {
   entry: WorkspaceEntry | undefined;
   sessionId: string | undefined;
+  childId: string | undefined;
 }
 
 interface PaneView {
@@ -40,7 +42,11 @@ const VIEWS: Record<PaneKind, PaneView> = {
     name: 'pane.kind.overview',
     render: (_, context) => <OverviewPane entry={context.entry} />,
   },
-  subagents: { icon: Bot, name: 'pane.kind.subagents', render: placeholder('subagents') },
+  subagents: {
+    icon: Bot,
+    name: 'pane.kind.subagents',
+    render: (_, context) => <SubagentsPane context={context} />,
+  },
   changes: { icon: GitCompare, name: 'pane.kind.changes', render: placeholder('changes') },
   file: {
     icon: FileText,

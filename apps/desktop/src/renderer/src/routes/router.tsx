@@ -7,7 +7,7 @@ import { t } from '@/i18n';
 import { WorkbenchLayout } from '@/layout/workbench-layout';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
-import { DEFAULT_SETTINGS_TAB, ROUTE_PATTERNS } from './paths';
+import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, ROUTE_PATTERNS } from './paths';
 import { SessionRoute } from './session-route';
 import { SettingsRoute } from './settings-route';
 
@@ -21,7 +21,12 @@ export const router = createHashRouter([
         children: [
           { path: ROUTE_PATTERNS.home, Component: HomeRoute },
           { path: ROUTE_PATTERNS.draft, Component: SessionRoute },
-          { path: ROUTE_PATTERNS.session, Component: SessionRoute },
+          {
+            path: ROUTE_PATTERNS.session,
+            Component: SessionRoute,
+            // 子智能体详情（R5）：主窗格不变，详情画在“子智能体”窗格里（workbench-layout.tsx），这里不渲染东西。
+            children: [{ path: AGENT_SEGMENT, element: null }],
+          },
           { path: '*', Component: NotFoundRoute },
         ],
       },

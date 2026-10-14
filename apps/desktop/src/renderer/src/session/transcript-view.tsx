@@ -88,6 +88,7 @@ export function TranscriptView({
               <MessageView
                 message={message}
                 turnActive={isTurnActive(message, transcript)}
+                hasSubagents={transcript.subagents.length > 0}
                 self={self}
               />
             </div>

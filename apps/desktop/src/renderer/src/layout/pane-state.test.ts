@@ -49,7 +49,7 @@ describe('pane-kinds', () => {
   });
 
   it('正式构建只能打开已经实现的种类，开发模式下还有占位', () => {
-    expect(openableKinds(false)).toEqual(['overview']);
+    expect(openableKinds(false)).toEqual(['overview', 'subagents']);
     expect(openableKinds(true)).toContain('terminal');
   });
 });

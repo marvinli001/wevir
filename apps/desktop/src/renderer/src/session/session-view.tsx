@@ -1,5 +1,5 @@
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
-import type { Session } from '@wevir/protocol';
+import type { Session, SubagentSummary } from '@wevir/protocol';
 import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
@@ -74,6 +74,11 @@ export function SessionView({ session }: { session: Session }) {
     await client.request('session.resume', { sessionId: session.id });
   }, [client, session.id]);
 
+  const subagentHref = useCallback(
+    (subagent: SubagentSummary) => paths.agent(session.workspaceId, session.id, subagent.sessionId),
+    [session.workspaceId, session.id],
+  );
+
   // 基于历史新建（T5.5）：对话记录放进同一工作区新会话的输入框，沿用原会话的 Provider，用户确认后发送。
   const navigate = useNavigate();
   const startFromHistory = useCallback(() => {
@@ -108,7 +113,14 @@ export function SessionView({ session }: { session: Session }) {
         </p>
       )}
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
-        {transcript && <ApprovalDock transcript={transcript} client={client} self={identity} />}
+        {transcript && (
+          <ApprovalDock
+            transcript={transcript}
+            client={client}
+            self={identity}
+            subagentHref={subagentHref}
+          />
+        )}
         <RecoveryPanel
           // 换会话、或从出错变为只读（恢复失败的原因已经写在只读说明里）时重建，清掉上一次的失败提示。
           key={`${session.id}:${readOnly ? 'read-only' : 'error'}`}

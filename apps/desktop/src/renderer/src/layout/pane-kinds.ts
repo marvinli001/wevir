@@ -32,7 +32,7 @@ export interface PaneKindSpec {
 
 export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
   overview: { minWidth: 280, minHeight: 160, shape: 'compact', multiple: false, available: true },
-  subagents: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: false },
+  subagents: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: true },
   changes: { minWidth: 360, minHeight: 240, shape: 'tall', multiple: false, available: false },
   file: {
     minWidth: 360,

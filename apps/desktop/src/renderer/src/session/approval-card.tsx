@@ -5,19 +5,23 @@
 // 修改：改写（T5.3，OpenWork 候选 #9）。保留“输入框上方的内联面板、不用模态框”“一次只显示第一个”“可折叠的
 // 完整参数”。按钮不再是固定的 reject / once / always，而是按审批请求携带的选项渲染（approval-model.ts）；
 // 内容取同一 toolCallId 的 rawInput（Host 放在 ApprovalRequest.detail：目标、所需权限、理由、写文件的内容
-// 预览）；标出“还有 N 个待审批”；另一端先处理时按 approval.resolved 收起并提示由谁处理。
+// 预览）；标出“还有 N 个待审批”；另一端先处理时按 approval.resolved 收起并提示由谁处理。R5：父会话里也显示子会话的
+// 审批（父会话快照里的副本），标出来自哪个子智能体，并能跳到它的视图。
 
 import { isRpcError, type Transcript, type WevirClient } from '@wevir/client-sdk';
-import type { ApprovalId, ApprovalRequest, ClientIdentity } from '@wevir/protocol';
+import type { ApprovalId, ApprovalRequest, ClientIdentity, SubagentSummary } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ShieldAlert } from 'lucide-react';
+import { ChevronRight, ShieldAlert } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { decidedHere, optionLabel, presentApproval, resolutionText } from './approval-model';
 import { Disclosure } from './disclosure';
 import { formatJson } from './format';
+import { SubagentAvatar } from './subagent-avatar';
+import { pendingApprovals, subagentTitle } from './subagent-model';
 
 /** 审批收起后的提示停留多久。 */
 const NOTICE_MS = 6000;
@@ -29,19 +33,25 @@ interface Notice {
 
 /**
  * 输入框上方的审批区：一次显示一个未决审批；它被结算后，不是本窗口做的决定就提示一句（“已由本机的 CLI
- * 处理：允许一次”“审批已取消（回合被取消）”）。
+ * 处理：允许一次”“审批已取消（回合被取消）”）。会话自己的与子会话的审批排在一起，按请求的先后（R5）；子会话的
+ * 审批另一端处理后不提示（父会话的事件流里只有摘要，没有结算的详情）。
  */
 export function ApprovalDock({
   transcript,
   client,
   self,
+  subagentHref,
 }: {
   transcript: Transcript;
   client: WevirClient | undefined;
   self: ClientIdentity | undefined;
+  /** 子会话的视图地址；给了才显示“查看子智能体”。 */
+  subagentHref?: (subagent: SubagentSummary) => string;
 }) {
-  const current = transcript.pendingApprovals[0];
-  const remaining = transcript.pendingApprovals.length - 1;
+  const items = pendingApprovals(transcript);
+  const current = items[0]?.approval;
+  const origin = items[0]?.subagent;
+  const remaining = items.length - 1;
   const [submitting, setSubmitting] = useState<ApprovalId>();
   const [notice, setNotice] = useState<Notice>();
   const shown = useRef<ApprovalId | undefined>(undefined);
@@ -102,6 +112,7 @@ export function ApprovalDock({
         <ApprovalCard
           key={current.id}
           approval={current}
+          origin={origin && { subagent: origin, href: subagentHref?.(origin) }}
           remaining={remaining}
           busy={submitting === current.id}
           error={notice?.tone === 'error' ? notice.text : undefined}
@@ -114,12 +125,15 @@ export function ApprovalDock({
 
 function ApprovalCard({
   approval,
+  origin,
   remaining,
   busy,
   error,
   onRespond,
 }: {
   approval: ApprovalRequest;
+  /** 来自子会话的审批：哪个子智能体，以及它的视图地址。 */
+  origin: { subagent: SubagentSummary; href: string | undefined } | undefined;
   remaining: number;
   busy: boolean;
   error: string | undefined;
@@ -133,6 +147,7 @@ function ApprovalCard({
       data-testid="approval-card"
       className="mb-2 rounded-xl border border-warning/40 bg-card shadow-sm"
     >
+      {origin && <ApprovalOrigin {...origin} />}
       <div className="flex items-start gap-2.5 px-3.5 pt-3">
         <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
         <div className="min-w-0 flex-1">
@@ -202,6 +217,35 @@ function ApprovalCard({
         ))}
       </div>
     </section>
+  );
+}
+
+/** 审批卡片顶上一行：来自哪个子智能体（Codex 终端界面的“Thread: 〈名字〉”），能跳到它的视图。 */
+function ApprovalOrigin({
+  subagent,
+  href,
+}: {
+  subagent: SubagentSummary;
+  href: string | undefined;
+}) {
+  const title = subagentTitle(subagent);
+  return (
+    <div
+      data-testid="approval-origin"
+      className="flex items-center gap-2 border-b border-border px-3.5 py-1.5 text-xs text-muted-foreground"
+    >
+      <SubagentAvatar sessionId={subagent.sessionId} className="size-3.5" />
+      <span className="min-w-0 flex-1 truncate">{t('approval.fromSubagent', { title })}</span>
+      {href && (
+        <Link
+          to={href}
+          className="flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {t('approval.viewSubagent')}
+          <ChevronRight aria-hidden className="size-3.5" />
+        </Link>
+      )}
+    </div>
   );
 }
 

@@ -1,6 +1,6 @@
 import { createMemoryRouter, matchPath } from 'react-router';
 import { describe, expect, it } from 'vitest';
-import { isSettingsTab, paths, ROUTE_PATTERNS } from './paths';
+import { AGENT_SEGMENT, isSettingsTab, paths, ROUTE_PATTERNS } from './paths';
 
 describe('路由', () => {
   it('会话、草稿、设置的路径与路由表匹配，ID 原样取回', () => {
@@ -13,6 +13,13 @@ describe('路由', () => {
       workspaceId: 'ws_a',
     });
     expect(matchPath(ROUTE_PATTERNS.session, paths.draft('ws_a'))).toBeNull();
+    expect(paths.agent('ws_a', 'ses_1', 'ses_2')).toBe('/workspace/ws_a/session/ses_1/agent/ses_2');
+    expect(matchPath(ROUTE_PATTERNS.agent, paths.agent('ws_a', 'ses_1', 'ses_2'))?.params).toEqual({
+      workspaceId: 'ws_a',
+      sessionId: 'ses_1',
+      childId: 'ses_2',
+    });
+    expect(ROUTE_PATTERNS.agent).toBe(`${ROUTE_PATTERNS.session}/${AGENT_SEGMENT}`);
     expect(matchPath(ROUTE_PATTERNS.settingsTab, paths.settings('about'))?.params).toEqual({
       tab: 'about',
     });
@@ -30,6 +37,32 @@ describe('路由', () => {
       [ROUTE_PATTERNS.session, { workspaceId: 'ws/a b', sessionId: 'ses?1' }],
     ]);
     router.dispose();
+  });
+
+  it('子智能体详情是会话路由的子路由：会话路由照样匹配，多出的别的段是“未找到”', () => {
+    const routes = [
+      { path: ROUTE_PATTERNS.session, children: [{ path: AGENT_SEGMENT }] },
+      { path: ROUTE_PATTERNS.draft },
+      { path: '*' },
+    ];
+    const agent = createMemoryRouter(routes, {
+      initialEntries: [paths.agent('ws_a', 'ses_1', 'ses?2')],
+    });
+    expect(agent.state.matches.map((match) => match.route.path)).toEqual([
+      ROUTE_PATTERNS.session,
+      AGENT_SEGMENT,
+    ]);
+    expect(agent.state.matches[0]?.params).toEqual({
+      workspaceId: 'ws_a',
+      sessionId: 'ses_1',
+      childId: 'ses?2',
+    });
+    agent.dispose();
+    const other = createMemoryRouter(routes, {
+      initialEntries: ['/workspace/ws_a/session/ses_1/files/x'],
+    });
+    expect(other.state.matches.map((match) => match.route.path)).toEqual(['*']);
+    other.dispose();
   });
 
   it('只认识列出的设置页', () => {

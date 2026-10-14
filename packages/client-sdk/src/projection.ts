@@ -2,8 +2,9 @@
 // 分层照 OpenWork（openwork-notes §3.2）：协议事件 → 本投影 → 渲染。纯逻辑，不碰 DOM 与连接。
 //
 // 增量与已提交消息按 domain-model §6.3 合并；工具收尾按 §6.4，回合结束而工具未收尾时投影为 `unknown`
-// （Host 正常会补写，这里兜底，回放旧数据也不会一直转圈）。子会话（R4）：父会话里每个子会话一个 `subagent` 部件与
-// `subagents` 摘要；子会话自己的回合输入（`turn.started.input`）投影成来自父 agent 的用户消息。
+// （Host 正常会补写，这里兜底，回放旧数据也不会一直转圈）。子会话（R4）：父会话里每个子会话一个“开始”的 `subagent`
+// 部件（R5 起结束时再加一个“结束”部件）与 `subagents` 摘要；子会话自己的回合输入（`turn.started.input`）投影成来自
+// 父 agent 的用户消息。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -23,6 +24,7 @@ import type {
   SessionReadOnlyReason,
   SessionState,
   StreamBlockRef,
+  SubagentStatus,
   SubagentSummary,
   TodoItem,
   ToolDisplay,
@@ -82,10 +84,17 @@ export type ChatPart =
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown }
   | { type: 'notice'; key: string; notice: SessionNotice }
   /**
-   * 这个会话派出的一个子会话（R4，domain-model §8）：在派出它的回合里，`subagent.started` 时出现，随 `subagent.updated`
-   * 原位更新（`key` 是 `a:<子会话 ID>`）。界面据此画“开始工作 / 已完成”两行（R5）。
+   * 这个会话派出的一个子会话（R4，domain-model §8）。“开始”部件在派出它的回合里，`subagent.started` 时出现（`key` 是
+   * `a:<子会话 ID>`）；子会话离开 `running` 时，在父会话当时所在的位置再加一个“结束”部件（R5：`ended` 是当时的状态，
+   * `key` 是 `a:<子会话 ID>:end:<seq>`）。两种部件的 `subagent` 都随 `subagent.updated` 原位换成最新的摘要。界面据此
+   * 画“开始工作”“已完成”两行。
    */
-  | { type: 'subagent'; key: string; subagent: SubagentSummary };
+  | {
+      type: 'subagent';
+      key: string;
+      subagent: SubagentSummary;
+      ended?: Exclude<SubagentStatus, 'running'>;
+    };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -202,8 +211,8 @@ export class TranscriptProjection {
   #lastError: EngineErrorInfo | undefined;
   #usage: Usage | undefined;
   #subagents: SubagentSummary[] = [];
-  /** 子会话 ID → 它的部件所在的消息。 */
-  #subagentParts = new Map<SessionId, MutableMessage>();
+  /** 子会话 ID → 它的部件（开始与结束）所在的消息。 */
+  #subagentParts = new Map<SessionId, MutableMessage[]>();
   #parent: ParentRef | undefined;
   #lastSeq = 0;
   #dirty = true;
@@ -631,28 +640,43 @@ export class TranscriptProjection {
   // ── 子会话 ───────────────────────────────────────────────────────────
 
   /**
-   * `subagent.started` / `subagent.updated`：摘要列表按 `sessionId` 追加或替换；部件放在派出它的回合（没有回合时一条
-   * 系统消息），之后原位更新。
+   * `subagent.started` / `subagent.updated`：摘要列表按 `sessionId` 追加或替换；“开始”部件放在派出它的回合（没有回合时
+   * 一条系统消息），之后原位更新。子会话离开 `running` 时，在父会话当前的回合（父会话空闲时一条系统消息）里加一个
+   * “结束”部件，所以“已完成”出现在它真正结束的位置（R5）。
    */
   #subagent(event: WevirEventOf<'subagent.started'> | WevirEventOf<'subagent.updated'>): void {
     const summary = event.payload.subagent;
     const index = this.#subagents.findIndex((item) => item.sessionId === summary.sessionId);
+    const previous = index < 0 ? undefined : this.#subagents[index];
     this.#subagents =
       index < 0
         ? [...this.#subagents, summary]
         : this.#subagents.map((item, i) => (i === index ? summary : item));
-    const key = `a:${summary.sessionId}`;
-    const existing = this.#subagentParts.get(summary.sessionId);
-    if (existing) {
-      this.#touch(existing, event.seq);
-      existing.parts = existing.parts.map((part) =>
-        part.key === key ? { type: 'subagent', key, subagent: summary } : part,
+    const messages = this.#subagentParts.get(summary.sessionId) ?? [];
+    for (const message of messages) {
+      this.#touch(message, event.seq);
+      message.parts = message.parts.map((part) =>
+        part.type === 'subagent' && part.subagent.sessionId === summary.sessionId
+          ? { ...part, subagent: summary }
+          : part,
       );
-      return;
     }
-    const message = this.#target(summary.parentTurnId, event.seq);
-    message.parts.push({ type: 'subagent', key, subagent: summary });
-    this.#subagentParts.set(summary.sessionId, message);
+    if (messages.length === 0) {
+      const message = this.#target(summary.parentTurnId, event.seq);
+      message.parts.push({ type: 'subagent', key: `a:${summary.sessionId}`, subagent: summary });
+      messages.push(message);
+    }
+    if (previous?.status === 'running' && summary.status !== 'running') {
+      const message = this.#target(this.#activeTurnId, event.seq);
+      message.parts.push({
+        type: 'subagent',
+        key: `a:${summary.sessionId}:end:${event.seq}`,
+        subagent: summary,
+        ended: summary.status,
+      });
+      if (!messages.includes(message)) messages.push(message);
+    }
+    this.#subagentParts.set(summary.sessionId, messages);
   }
 
   // ── 错误与调试 ───────────────────────────────────────────────────────

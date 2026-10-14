@@ -15,6 +15,8 @@ import { clientLabel } from './approval-model';
 import { Disclosure } from './disclosure';
 import { formatDuration, formatJson } from './format';
 import { MarkdownView } from './markdown/markdown-view';
+import { SubagentMarker } from './subagent-marker';
+import { visibleParts } from './subagent-model';
 import { Thought } from './thought';
 import { AggregateToolCard, ToolCard } from './tool-card';
 import { groupParts } from './tool-model';
@@ -26,18 +28,23 @@ import { groupParts } from './tool-model';
 export const MessageView = memo(function MessageView({
   message,
   turnActive,
+  hasSubagents,
   self,
 }: {
   message: ChatMessage;
   /** 这条消息所属的回合是否仍在进行（决定未收尾的工具算运行中还是状态未知）。 */
   turnActive: boolean;
+  /** 会话派出过子会话：collab 工具调用不再显示成卡片（subagent-model.ts 的 visibleParts）。 */
+  hasSubagents: boolean;
   self: ClientIdentity | undefined;
 }) {
   switch (message.role) {
     case 'user':
       return <UserMessage message={message} self={self} />;
     case 'assistant':
-      return <AssistantMessage message={message} turnActive={turnActive} />;
+      return (
+        <AssistantMessage message={message} turnActive={turnActive} hasSubagents={hasSubagents} />
+      );
     case 'system':
       return <SystemMessage message={message} />;
   }
@@ -52,7 +59,7 @@ function UserMessage({
 }) {
   const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
   // 本桌面端发的消息不标来源；别的客户端（CLI、另一台设备）发的标出来。子会话里父 agent 给的输入没有 sentBy
-  // （R4），怎样标注留给子智能体界面（R5）。
+  // （R4），标成“父 agent 派给它的任务”（R5）。
   const { sentBy } = message;
   const fromElsewhere = sentBy !== undefined && (!self || sentBy.clientId !== self.clientId);
   return (
@@ -65,6 +72,11 @@ function UserMessage({
           {t('transcript.from', { who: clientLabel(sentBy, self) })}
         </span>
       )}
+      {message.fromParentAgent && (
+        <span className="mt-1 text-xs text-faint-foreground">
+          {t('transcript.fromParentAgent')}
+        </span>
+      )}
     </div>
   );
 }
@@ -72,11 +84,13 @@ function UserMessage({
 function AssistantMessage({
   message,
   turnActive,
+  hasSubagents,
 }: {
   message: AssistantChatMessage;
   turnActive: boolean;
+  hasSubagents: boolean;
 }) {
-  const items = groupParts(message.parts);
+  const items = groupParts(visibleParts(message.parts, hasSubagents));
   const { finished } = message;
   return (
     <div className="mt-4" data-message-role="assistant">
@@ -154,8 +168,7 @@ const PartView = memo(function PartView({
     case 'raw':
       return <RawPart part={part} />;
     case 'subagent':
-      // 子会话的“开始工作 / 已完成”两行由子智能体界面（R5）来画。
-      return null;
+      return <SubagentMarker part={part} />;
   }
 });
 

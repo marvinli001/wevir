@@ -66,7 +66,9 @@ pnpm dev
 
 **调试。** 渲染进程：Chrome 打开 `chrome://inspect`，在 Configure 里加 `localhost:9339`，或直接用 `http://127.0.0.1:9339/json` 走 DevTools 协议。主进程的日志带 `[wevir-desktop]` 前缀，打在运行 `pnpm dev` 的终端里。Host 的日志在数据目录的 `logs/host.log`（§5.2）。
 
-**窗格布局。** 开发模式下顶栏“已打开的标签页”菜单的“打开窗格”里还列着以后的窗格种类（子智能体、变更、文件预览等）的占位，用来检查多个窗格的排布（[desktop-layout.md](./architecture/desktop-layout.md) §2.1）；正式构建里只有已经实现的种类。每个会话的窗格与尺寸存在渲染进程的 localStorage（`wevir.panes.v1`），想从头来过可以在 DevTools 里删掉它。
+**窗格布局。** 开发模式下顶栏“已打开的标签页”菜单的“打开窗格”里还列着以后的窗格种类（变更、文件预览等）的占位，用来检查多个窗格的排布（[desktop-layout.md](./architecture/desktop-layout.md) §2.1）；正式构建里只有已经实现的种类。每个会话的窗格与尺寸存在渲染进程的 localStorage（`wevir.panes.v1`），想从头来过可以在 DevTools 里删掉它。
+
+**子智能体（R5）。** 不用 Key 就能看到：用 `@wevir/adapter-codex/testing` 的 mock 模型登记一个 Provider（见下面 Codex 一段），在会话里发含“子智能体”的消息，父 agent 会派一个子 agent 并等它（spawn → wait）；再加“工具”让子 agent 跑一次 `ls`，加“长”让它慢慢回答，加“工作区外”让它请求审批（父会话的输入框上方会出现标着来自哪个子智能体的审批卡片；审批要写到工作区与系统临时目录之外，`WEVIR_MOCK_OUTSIDE_DIR` 指定目录）。消息流里点“〈标题〉开始工作 / 已完成”、置顶摘要的“子智能体”或列表里的一项进入子 agent 视图，地址是 `#/workspace/<工作区>/session/<父会话>/agent/<子会话>`（[desktop-layout.md](./architecture/desktop-layout.md) §10）。
 
 **引擎。** 桌面端拉起的 Host 用默认的 Codex。要用 dsh（可选引擎），或想让 Host 在关窗口之后继续运行，先在同一个数据目录里自己启动 Host，桌面端会附着到它（关窗口不停它）：
 

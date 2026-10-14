@@ -74,9 +74,15 @@ export function useWorkbenchStore(): WorkbenchStore | undefined {
 
 const NO_TRANSCRIPT = () => undefined;
 
-/** 一个会话的消息投影（transcript-store.ts），按帧更新；还没连上 Host 时为 undefined。 */
-export function useTranscript(sessionId: SessionId): TranscriptState | undefined {
+/**
+ * 一个会话的消息投影（transcript-store.ts），按帧更新；还没连上 Host、或没有给会话（草稿页的窗格、置顶摘要）时为
+ * undefined。
+ */
+export function useTranscript(sessionId: SessionId | undefined): TranscriptState | undefined {
   const cache = useContext(StoresContext)?.transcripts;
-  const store = useMemo(() => cache?.get(sessionId), [cache, sessionId]);
+  const store = useMemo(
+    () => (sessionId === undefined ? undefined : cache?.get(sessionId)),
+    [cache, sessionId],
+  );
   return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? NO_TRANSCRIPT);
 }

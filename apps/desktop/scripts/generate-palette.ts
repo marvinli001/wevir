@@ -11,8 +11,21 @@ import { fileURLToPath } from 'node:url';
 import * as radix from '@radix-ui/colors';
 import radixPackage from '@radix-ui/colors/package.json' with { type: 'json' };
 
-/** 一个中性色系、一个强调色、红 / 琥珀 / 绿三个状态色。语义层（tokens.css）只引用这几个。 */
-export const PALETTE_FAMILIES = ['sand', 'indigo', 'red', 'amber', 'green'] as const;
+/**
+ * 一个中性色系、一个强调色、红 / 琥珀 / 绿三个状态色；青、紫、湖蓝、粉四个只给子会话的头像用（R5，与靛蓝、绿、琥珀
+ * 一起凑成七种头像色）。语义层（tokens.css）只引用这几个。
+ */
+export const PALETTE_FAMILIES = [
+  'sand',
+  'indigo',
+  'red',
+  'amber',
+  'green',
+  'teal',
+  'violet',
+  'cyan',
+  'pink',
+] as const;
 
 export const PALETTE_FILE = fileURLToPath(
   new URL('../src/renderer/src/styles/palette.css', import.meta.url),

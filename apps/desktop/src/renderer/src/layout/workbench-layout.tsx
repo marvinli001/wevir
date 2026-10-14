@@ -1,7 +1,7 @@
 import { cn } from 'cn';
 import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useParams } from 'react-router';
+import { Outlet, useLocation, useNavigate, useParams } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useWorkbenchData } from '@/data/workbench-data';
@@ -9,6 +9,7 @@ import { resolveRoute, type WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { useRememberLocation } from '@/routes/last-location';
+import { paths } from '@/routes/paths';
 import { type AuxPlan, arrangePanes, auxRatioAfterDrag, focusOrder, PANE_LAYOUT } from './arrange';
 import { clampSidebarWidth, LAYOUT, planSidebar, type SidebarPlan } from './layout-rules';
 import { layoutPrefs, transientLayout, useViewportHeight, useViewportWidth } from './layout-state';
@@ -58,7 +59,7 @@ export function WorkbenchLayout() {
     sidebarOverlayOpen: transient.sidebarOverlayOpen,
   });
 
-  const { workspaceId, sessionId } = useParams();
+  const { workspaceId, sessionId, childId } = useParams();
   const header = useHeader(workspaceId, sessionId);
   const location = useLocation();
   useRememberLocation(workspaceId, sessionId);
@@ -91,15 +92,20 @@ export function WorkbenchLayout() {
   );
   const [openTabsOpen, setOpenTabsOpen] = useState(false);
 
-  // 换页面时收起侧栏与窗格区的浮层。
+  // 换页面时收起侧栏的浮层；换会话时收起窗格区的浮层（进出子智能体详情不算：详情就画在窗格区里）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在路由变化时触发。
   useEffect(() => {
-    transientLayout.set((state) => ({
-      ...state,
-      sidebarOverlayOpen: false,
-      auxOverlayOpen: false,
-    }));
+    transientLayout.set((state) =>
+      state.sidebarOverlayOpen ? { ...state, sidebarOverlayOpen: false } : state,
+    );
   }, [location.pathname]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在换会话时触发。
+  useEffect(() => {
+    transientLayout.set((state) =>
+      state.auxOverlayOpen ? { ...state, auxOverlayOpen: false } : state,
+    );
+  }, [scopeKey]);
+  useSubagentRoute(panes, workspaceId, sessionId, childId);
 
   // 浮层的开关只对浮层模式有意义；停靠后清掉，窗口再变窄时不会自己弹出来。
   useEffect(() => {
@@ -133,7 +139,7 @@ export function WorkbenchLayout() {
     onCommit: (key, fractions) => commitScope((current) => setSplitRatios(current, key, fractions)),
     onReset: (key) => commitScope((current) => resetSplitRatios(current, key)),
   };
-  const paneContext: PaneContext = { entry: header.entry, sessionId };
+  const paneContext: PaneContext = { entry: header.entry, sessionId, childId };
   const tree = (node: NonNullable<AuxPlan['tree']>) => (
     <PaneTree node={node} context={paneContext} resize={splitResize} />
   );
@@ -328,6 +334,41 @@ function toggleSidebar(plan: SidebarPlan): void {
   } else {
     transientLayout.set((state) => ({ ...state, sidebarOverlayOpen: !state.sidebarOverlayOpen }));
   }
+}
+
+/**
+ * 子智能体详情的路由（R5，desktop-layout.md §5.2）：URL 带 `agent/:childId` 时保证“子智能体”标签打开（窗格区收起、
+ * 在浮层里或被别的窗格最大化盖住时也显示出来）；还在这个地址时它被关掉，就回到父会话的地址。
+ */
+function useSubagentRoute(
+  panes: PaneController | undefined,
+  workspaceId: string | undefined,
+  sessionId: string | undefined,
+  childId: string | undefined,
+) {
+  const navigate = useNavigate();
+  const latest = useRef(panes);
+  latest.current = panes;
+  const ready = panes !== undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在进入详情（换子会话或会话）时打开一次。
+  useEffect(() => {
+    if (childId !== undefined && ready) latest.current?.open({ kind: 'subagents' });
+  }, [childId, sessionId, ready]);
+
+  const scopeKey = panes?.scopeKey;
+  const hasTab =
+    panes?.scope.groups.some((group) => group.tabs.some((tab) => tab.kind === 'subagents')) ??
+    false;
+  const previous = useRef<{ scopeKey?: string; hasTab: boolean }>({ hasTab: false });
+  useEffect(() => {
+    const before = previous.current;
+    previous.current = { scopeKey, hasTab };
+    // 只看同一个会话里“有 → 没有”：换会话时新会话可能还没打开这个标签，那不是用户关掉的。
+    if (before.scopeKey !== scopeKey || !before.hasTab || hasTab) return;
+    if (childId !== undefined && workspaceId !== undefined && sessionId !== undefined) {
+      navigate(paths.session(workspaceId, sessionId));
+    }
+  }, [scopeKey, hasTab, childId, workspaceId, sessionId, navigate]);
 }
 
 /** 内容区的尺寸：首帧前量一次，之后跟着 ResizeObserver。 */

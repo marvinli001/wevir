@@ -896,7 +896,7 @@ type ChatPart =
   | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown } // 只在 includeRaw 时投影
   | { type: 'notice'; key: string; notice: { kind: 'resumed'; engineVersion?: string } | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string } | { kind: 'closed' } }
-  | { type: 'subagent'; key: string; subagent: SubagentSummary }   // R4：父会话里的一个子会话，随 subagent.updated 原位更新
+  | { type: 'subagent'; key: string; subagent: SubagentSummary; ended?: Exclude<SubagentStatus, 'running'> } // R4：父会话里的一个子会话（开始；R5 起另有结束），随 subagent.updated 原位更新
 
 interface Transcript {                // TranscriptProjection.snapshot()
   sessionId: SessionId | undefined
@@ -919,7 +919,7 @@ interface Transcript {                // TranscriptProjection.snapshot()
 
 子会话（R4，§3.3.1）在投影里的样子：
 
-- **父会话。** `Transcript.subagents` 是子会话的摘要（`subagent.started` 追加、`subagent.updated` 按 `sessionId` 替换，与 Host 的 `SessionSnapshot.subagents` 同一套推导）；另外每个子会话在派出它的回合的助手消息里有一个部件 `{ type: 'subagent'; key: 'a:<子会话 ID>'; subagent: SubagentSummary }`，位置在 `subagent.started` 到达时，之后随 `subagent.updated` 原位更新（界面据此画“〈标题〉开始工作”“〈标题〉已完成”两行，R5）。不属于回合的（父回合之外认出的）放在一条系统消息里。会话列表的推导另有 `applySubagentEvent(subagents, event)`（`session-state.ts`）。
+- **父会话。** `Transcript.subagents` 是子会话的摘要（`subagent.started` 追加、`subagent.updated` 按 `sessionId` 替换，与 Host 的 `SessionSnapshot.subagents` 同一套推导）；另外每个子会话在派出它的回合的助手消息里有一个“开始”部件 `{ type: 'subagent'; key: 'a:<子会话 ID>'; subagent: SubagentSummary }`，位置在 `subagent.started` 到达时，之后随 `subagent.updated` 原位更新；不属于回合的（父回合之外认出的）放在一条系统消息里。子会话离开 `running`（`subagent.updated` 的状态从 `running` 变成别的）时，再在父会话**当时**的位置加一个“结束”部件 `{ …, key: 'a:<子会话 ID>:end:<seq>', ended: <当时的状态> }`：父会话有进行中的回合就放在这个回合的助手消息里，否则是一条系统消息（R5）。所以“〈标题〉已完成”出现在子 agent 真正结束的地方，而不是紧贴着“开始工作”（Codex 桌面端的样子，`design-refs/01`）。之后的摘要更新（例如晚到的生成标题、`completed` → `closed`）原位换掉两种部件的 `subagent`，“结束”部件的 `ended` 不变；只有离开 `running` 才加，所以完成后被父 agent 关闭不会再多一行，关掉又用到（C5）再结束会再加一行。会话列表的推导另有 `applySubagentEvent(subagents, event)`（`session-state.ts`）。
 - **子会话。** `Transcript.parent` 取自 `session.created.parent`。`turn.started` 带 `input` 时投影出一条用户消息，`fromParentAgent: true`、没有 `sentBy`（`UserChatMessage.sentBy` 因此改为可选，只有 `user.message` 投影出的消息有）；其余部件与普通会话相同。`applySessionEvent` 对子会话另外推进 `subagent` 的状态与 `endedAt`（规则同 §3.3.1 的表）。
 
 ---

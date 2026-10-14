@@ -26,13 +26,18 @@ export interface SummarySection {
 
 const sections: SummarySection[] = [];
 
-/** 在模块加载时调用；渲染开始后再登记会打乱 hook 的调用顺序。 */
+/**
+ * 在模块加载时调用；渲染开始后再登记会打乱 hook 的调用顺序。同一个 `id` 再登记是替换（开发模式的热更新会重新执行
+ * 登记它的模块），节数不变。
+ */
 export function registerSummarySection(section: SummarySection): void {
-  sections.push(section);
+  const index = sections.findIndex((existing) => existing.id === section.id);
+  if (index >= 0) sections[index] = section;
+  else sections.push(section);
   sections.sort((a, b) => a.order - b.order);
 }
 
-/** 当前会话有内容的各节。R12 只做框架，还没有任何一节，所以总是空的。 */
+/** 当前会话有内容的各节（R5 起有“子智能体”一节，layout/panes/subagents-pane.tsx）。 */
 export function useSummarySections(
   sessionId: string | undefined,
 ): { id: string; content: ReactNode }[] {

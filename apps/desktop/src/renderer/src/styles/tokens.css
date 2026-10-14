@@ -61,6 +61,23 @@
   --code-comment: var(--sand-10);
   --code-meta: var(--sand-11);
 
+  /* 子会话头像（R5，session/avatar.ts 按会话 ID 选一种颜色与形状）：主色是第 9 阶，辅色是第 7 阶。亮暗用同一份
+   * 定义，色阶本身随主题切换。 */
+  --avatar-1: var(--indigo-9);
+  --avatar-1-soft: var(--indigo-7);
+  --avatar-2: var(--teal-9);
+  --avatar-2-soft: var(--teal-7);
+  --avatar-3: var(--green-9);
+  --avatar-3-soft: var(--green-7);
+  --avatar-4: var(--amber-9);
+  --avatar-4-soft: var(--amber-7);
+  --avatar-5: var(--violet-9);
+  --avatar-5-soft: var(--violet-7);
+  --avatar-6: var(--cyan-9);
+  --avatar-6-soft: var(--cyan-7);
+  --avatar-7: var(--pink-9);
+  --avatar-7-soft: var(--pink-7);
+
   /* 遮罩与阴影 */
   --overlay: color-mix(in oklab, var(--sand-12) 25%, transparent);
   --shadow-color: color-mix(in oklab, var(--sand-12) 10%, transparent);
