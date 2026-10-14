@@ -52,8 +52,8 @@
 ### 4. UI 原语与样式的默认值（T5.2，可在 T5.2 的 ADR 中推翻）
 
 - 原语用 shadcn CLI 从官方 registry 生成 Base UI 版本（不从 OpenWork 拷贝，OpenWork #20），图标用 lucide。
-- 色阶取自 `@radix-ui/colors` npm 包，只取用到的色系；三层 Token（色阶 → 一套语义变量 → `@theme inline`），暗色只认 `data-theme`（OpenWork 研读 §9.3）。
-- 不引入网络字体，用系统字体栈。
+- 色阶取自 `@radix-ui/colors` npm 包，只取用到的色系；三层 Token（色阶 → 一套语义变量 → `@theme inline`），暗色只认 `data-theme`（OpenWork 研读 §9.3）。U1 起原始色改为手写，不再用 Radix（补记 8）。
+- 不引入网络字体，用系统字体栈。U1 起界面与代码字体随应用打包，中文仍用系统字体（补记 8）。
 
 ## 备选方案
 
@@ -160,3 +160,8 @@
    - `biome.json` 的 `noRestrictedImports` 在根规则、adapter-dsh 与 stream-tap 的覆盖里加上 `@openai/codex` 系列，另为 `packages/adapter-codex/**` 加一条覆盖：放行 codex，照旧拦 `@deepseek-ai/**` 与 `spikes/`。
    - 用临时的探针包核对过：其他包里的 `import '@openai/codex-sdk'`、`'@openai/codex/bin'` 与依赖声明（含别名）都报错，adapter-codex 里的 codex 不报、`@deepseek-ai/dsh` 报；探针已删除。
    - 目前没有任何包声明 codex：Spike 用的是 GitHub Release 的独立二进制（UPSTREAM.md §1.2），`spikes/` 不在 pnpm workspace 里。
+
+8. **2026-10-14，U1：设计变量与字体换成「A 静器」，决策 4 与补记 5 的色阶、字体两项改了。** 维护者当天选定桌面端的视觉方向「A 静器」（方向稿登记在 CODEX_RUNTIME_PROMPTS.md「界面参考」），说明见 [docs/design/desktop-tokens.md](../design/desktop-tokens.md)。
+   - **色阶不再取自 `@radix-ui/colors`**：静器的颜色是一组定值（品牌的象牙白与石墨黑、墨色主按钮、四种状态色），没有可用的 Radix 色阶，`palette.css` 改为手写的原始色（不随主题切换，浅色、深色各用哪些由 `tokens.css` 定），删掉 `scripts/generate-palette.ts`、它的测试、`palette` 脚本与依赖；主进程的窗口底色改用 `src/shared/theme.ts` 的 `THEME_BACKGROUND`。三层结构与“暗色只认 `data-theme`”不变；Tailwind 自带的阴影也清空，只留语义的一档。
+   - **字体随应用打包**：决策 4 的“不引入网络字体”不变，“用系统字体栈”改为：拉丁字母用 Mona Sans、代码用 JetBrains Mono、标题宋体用 Noto Serif SC 的固定文案子集，WOFF2 由 `apps/desktop/scripts/build-fonts.py` 从固定版本生成并提交（可选工具 fonttools，同图标的转曲脚本），中文正文仍用系统字体（维护者定，不打包）。CSP 不变（`font-src 'self'`）；Vite 默认把小于 4 KiB 的资源内联成 `data:` URI，`electron.vite.config.ts` 让 `.woff2` 总是单独成文件。
+   - **校验**：`styles/tokens.test.ts` 从 CSS 读值核对文字对背景的对比度（正文与说明文字至少 4.5:1）与几条结构约定，代替原来“生成结果一致”的测试。

@@ -22,7 +22,7 @@ export const Thought = memo(function Thought({
           <span className={streaming ? 'animate-pulse' : undefined}>
             {streaming ? t('thought.streaming') : t('thought.title')}
           </span>
-          <span className="text-xs text-faint-foreground">
+          <span className="text-xs text-muted-foreground">
             {t('thought.length', { count: [...part.text].length })}
           </span>
         </>

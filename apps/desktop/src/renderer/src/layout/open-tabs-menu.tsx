@@ -51,7 +51,7 @@ export function OpenTabsMenu({
           >
             <span
               aria-hidden
-              className="flex h-4 min-w-4 items-center justify-center rounded-[4px] border-[1.5px] border-current px-0.5 text-[10px] leading-none font-semibold tabular-nums"
+              className="flex h-4 min-w-4 items-center justify-center rounded-sm border-[1.5px] border-current px-0.5 text-[10px] leading-none font-semibold tabular-nums"
             >
               {count}
             </span>

@@ -68,17 +68,17 @@ function UserMessage({
         {text}
       </div>
       {fromElsewhere && (
-        <span className="mt-1 text-xs text-faint-foreground">
+        <span className="mt-1 text-xs text-muted-foreground">
           {t('transcript.from', { who: clientLabel(sentBy, self) })}
         </span>
       )}
       {message.fromParentAgent && (
-        <span className="mt-1 text-xs text-faint-foreground">
+        <span className="mt-1 text-xs text-muted-foreground">
           {t('transcript.fromParentAgent')}
         </span>
       )}
       {message.steered && (
-        <span className="mt-1 text-xs text-faint-foreground" data-steered>
+        <span className="mt-1 text-xs text-muted-foreground" data-steered>
           {t('transcript.steered')}
         </span>
       )}
@@ -118,13 +118,13 @@ function AssistantMessage({
         ),
       )}
       {turnActive && items.length === 0 && (
-        <p className="animate-pulse text-sm text-faint-foreground">{t('transcript.waiting')}</p>
+        <p className="animate-pulse text-sm text-muted-foreground">{t('transcript.waiting')}</p>
       )}
       {finished && (
         <p
           className={cn(
             'mt-2 text-xs',
-            finished.outcome === 'completed' ? 'text-faint-foreground' : 'text-warning',
+            finished.outcome === 'completed' ? 'text-muted-foreground' : 'text-warning',
           )}
         >
           {t('transcript.turnFooter', {
@@ -181,7 +181,7 @@ const TODO_MARKS: Record<string, string> = { completed: '☑', in_progress: '◐
 
 function TodoList({ part }: { part: ChatPartOf<'todo'> }) {
   return (
-    <div className="my-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
+    <div className="my-2 rounded-xl border border-border bg-card px-3 py-2 text-sm">
       <h4 className="mb-1 text-xs font-medium text-muted-foreground">{t('todo.title')}</h4>
       <ul className="space-y-0.5">
         {part.items.map((item, index) => (
@@ -190,7 +190,7 @@ function TodoList({ part }: { part: ChatPartOf<'todo'> }) {
             key={index}
             className={cn(
               'flex gap-2',
-              item.status === 'completed' && 'text-faint-foreground line-through',
+              item.status === 'completed' && 'text-muted-foreground line-through',
             )}
           >
             <span aria-hidden>{TODO_MARKS[item.status] ?? '☐'}</span>
@@ -206,7 +206,7 @@ function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
   return (
     <div
       role="note"
-      className="my-2 flex gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
+      className="my-2 flex gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm"
     >
       <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-destructive" />
       <div className="min-w-0">
@@ -231,7 +231,7 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
         ? t('notice.readOnly', { reason: t(`readOnly.${notice.reason}`) })
         : t('notice.closed');
   return (
-    <p className="my-2 flex items-center justify-center gap-1.5 text-xs text-faint-foreground">
+    <p className="my-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
       <Info aria-hidden className="size-3.5" />
       {text}
     </p>
@@ -243,7 +243,7 @@ function RawPart({ part }: { part: ChatPartOf<'raw'> }) {
   return (
     <Disclosure
       className="my-1 rounded-md border border-dashed border-border px-2 py-1"
-      summaryClassName="gap-1.5 font-mono text-xs text-faint-foreground"
+      summaryClassName="gap-1.5 font-mono text-xs text-muted-foreground"
       summary={
         <>
           <Bug aria-hidden className="size-3.5 shrink-0" />
@@ -254,7 +254,7 @@ function RawPart({ part }: { part: ChatPartOf<'raw'> }) {
         </>
       }
     >
-      <pre className="mt-1 max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap text-faint-foreground">
+      <pre className="mt-1 max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
         {formatJson(part.params).text}
       </pre>
     </Disclosure>

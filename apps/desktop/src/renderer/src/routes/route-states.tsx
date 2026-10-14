@@ -21,7 +21,7 @@ export function PendingPage({ error }: { error?: string }) {
   }
   return (
     <CenterPage>
-      <p className="py-16 text-center text-sm text-faint-foreground">{t('common.loading')}</p>
+      <p className="py-16 text-center text-sm text-muted-foreground">{t('common.loading')}</p>
     </CenterPage>
   );
 }

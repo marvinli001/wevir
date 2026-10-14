@@ -17,7 +17,7 @@ export function OverviewPane({ entry }: { entry: WorkspaceEntry | undefined }) {
         )}
         <section className="space-y-1.5">
           <h3 className="text-xs font-medium text-muted-foreground">{t('pane.overview.files')}</h3>
-          <p className="text-sm text-faint-foreground">{t('pane.overview.filesEmpty')}</p>
+          <p className="text-sm text-muted-foreground">{t('pane.overview.filesEmpty')}</p>
         </section>
       </div>
     </ScrollArea>

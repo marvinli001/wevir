@@ -72,11 +72,11 @@ export function WorkspaceSettings() {
       {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
       {notice && <NoticeBanner notice={notice} />}
       {data.workspaces.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-muted-foreground">
+        <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-muted-foreground">
           {t('workspace.empty')}
         </p>
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border">
+        <ul className="divide-y divide-border rounded-xl border border-border">
           {data.workspaces.map((entry) => (
             <WorkspaceRow
               key={entry.workspace.id}
@@ -115,7 +115,7 @@ function WorkspaceRow({
         <p className="truncate font-medium">{workspace.displayName}</p>
         <p className="font-mono text-sm break-all text-muted-foreground">{workspace.rootPath}</p>
       </div>
-      <span className="shrink-0 text-sm text-faint-foreground">
+      <span className="shrink-0 text-sm text-muted-foreground">
         {t('workspace.sessions', { count: sessions.length })}
       </span>
       <IconButton

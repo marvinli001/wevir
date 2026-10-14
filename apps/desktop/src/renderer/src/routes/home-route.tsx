@@ -99,7 +99,7 @@ function Onboarding({
               data-step={step.id}
               data-done={step.done || undefined}
               className={cn(
-                'flex gap-3 rounded-lg border p-4',
+                'flex gap-3 rounded-xl border p-4',
                 active ? 'border-primary/40 bg-primary/5' : 'border-border',
               )}
             >
@@ -107,7 +107,7 @@ function Onboarding({
                 className={cn(
                   'flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
                   step.done
-                    ? 'bg-success-solid text-primary-foreground'
+                    ? 'bg-success text-primary-foreground'
                     : active
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-muted-foreground',

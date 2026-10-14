@@ -6,7 +6,7 @@
 // shared/theme.ts 的 THEME_STORAGE_KEY）；暗色同时认 `.dark` 类（这里只写 data-theme，CSS 的暗色变体也只认
 // 它，color-scheme 由 tokens.css 按 data-theme 设置，不再写内联样式）。另外：去掉旧 key 的迁移；Electron
 // nativeTheme 经 preload 的 setThemeSource 同步；系统主题变化时不再重复同步 nativeTheme（跟随系统时
-// themeSource 本来就是 'system'）；加了 useTheme。
+// themeSource 本来就是 'system'）；加了 useTheme；U1 起启动时去掉首帧前脚本给 <html> 涂的底色。
 
 import { useSyncExternalStore } from 'react';
 import {
@@ -62,9 +62,13 @@ function ensureSystemSubscription(): void {
   });
 }
 
-/** 启动时调用一次：按存储的模式设置 data-theme（首帧前脚本已经设过，这里再确认）并同步 nativeTheme。 */
+/**
+ * 启动时调用一次：按存储的模式设置 data-theme（首帧前脚本已经设过，这里再确认）并同步 nativeTheme。样式表此时已经
+ * 生效，去掉首帧前脚本给 <html> 涂的底色，之后切换主题只看 CSS。
+ */
 export function bootstrapTheme(): void {
   const mode = getMode();
+  document.documentElement.style.removeProperty('background-color');
   apply(mode);
   syncNativeTheme(mode);
   ensureSystemSubscription();

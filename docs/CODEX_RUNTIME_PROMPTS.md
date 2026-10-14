@@ -31,6 +31,7 @@
 - **布局原则**：窗格（会话、子智能体、文件、后台任务、清单等）都能拖动调尺寸、最大化、关闭；整体布局随打开的窗格种类与数量动态变化（截图 05–07）。细节见 R12 的 [desktop-layout.md](architecture/desktop-layout.md) 与 [ADR-0006](adr/0006-desktop-workbench-panes.md)。
 - **交互语义**（子 agent 怎样出现、审批有哪些选项、计划怎样更新、中断、插话与排队）：先读 codex-notes §2.7 的摘要，细节再看 `upstream/codex/codex-rs/tui/` 的源码，它和桌面端一样是 app-server 的客户端。注意它打开了实验面，Wevir 不开（ADR-0005 决策 5、补记 1）。
 - **不拷贝任何闭源代码与素材**（包括从安装包里解出来的脚本、图标、字体），也不把截图提交进仓库；只照着截图用 Wevir 自己的设计 token 与组件实现。
+- **视觉方向**：维护者 2026-10-14 选定方向稿的「A 静器」（`design-refs/wevir-directions/`），工具操作像 Claude Code 与 Codex 桌面端那样默认折叠（截图 09–12）。改造分四步：U1 设计变量与字体（落地的变量见 [desktop-tokens.md](design/desktop-tokens.md)）→ U2 消息流折叠 → U3 libraries.dev 动效 → U4 首页与设置页。
 
 | `design-refs/` 下的文件 | 内容 |
 |---|---|
@@ -41,6 +42,11 @@
 | `05-claude-code-desktop-panes.png` | Claude Code 桌面端的多窗格：后台任务列表（分组“Finished 17”、每项状态 / 用时 / token / 工具次数 / “View transcript”）、文件预览（大纲、搜索、菜单、最大化、关闭，滚动时顶部有“Continued from …”）、清单窗格；每个窗格可最大化、关闭，按数量排布 |
 | `07-codex-open-tabs-menu.png` | 右上角的计数按钮展开“已打开的标签页”列表 |
 | `08-codex-toggle-pinned-summary.png` | “切换置顶摘要”按钮的提示 |
+| `09-claude-code-folded-steps.png` | Claude Code 桌面端的消息流：连续的工具调用合成一行灰色摘要（“Ran 6 commands”“Created 2 files, ran 3 commands +202 −0 ›”），可展开；叙述文字照常显示，小标题分段；进行中的一行带动画图标与用时 |
+| `10-codex-turn-processed.png` | Codex 桌面端：回合结束后整段收进“已处理 5分钟 46秒”分隔行，下面只留叙述与“已查看 1 张图像”“已运行 …”这类一行摘要；消息流底部“5 个文件已更改 +6 −6”；输入框带权限与模型选择 |
+| `11-codex-thinking.png` | Codex 桌面端回合进行中：“已处理 17秒”下的叙述与渐隐闪动的“正在思考” |
+| `12-codex-expanded-steps.png` | Codex 桌面端展开的步骤：每步一行图标与说法（“已运行 git status --short --branch”“已在 MEMORY.md 中搜索 …”），进行中的一行可展开 |
+| `wevir-directions/` | 维护者 2026-10-14 选定的视觉方向稿，是 Wevir 自己做的可交互原型，不是第三方界面：`wevir-directions.html` 用浏览器直接打开（顶部切到「A 静器」；场景有首页、运行中的会话、动效样张；主题可选跟随系统 / 浅色 / 深色），在线版 https://claude.ai/artifact/B71Ltb79KoP81cKfB2mwDC ；`src/` 是原型源码（React + esbuild，A 的变量在 `styles.css` 的 `.app` 与 `.app[data-dir='a'][data-mode='dark']`）。原型代码只作参考，不进产品代码 |
 
 ---
 

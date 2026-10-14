@@ -38,6 +38,6 @@ export function SettingsLoading({ data }: { data: Exclude<WorkbenchData, { statu
   return data.status === 'error' ? (
     <NoticeBanner notice={{ tone: 'error', text: data.error }} />
   ) : (
-    <p className="text-sm text-faint-foreground">{t('common.loading')}</p>
+    <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
   );
 }

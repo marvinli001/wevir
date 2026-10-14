@@ -1,99 +1,160 @@
-/* 设计 Token 的第二层：语义变量（T5.2）。全应用只有这一套，界面代码与 shadcn 原语只经它们取色。
+/* 设计 Token 的第二层：语义变量（T5.2 建立，U1 换成视觉方向「A 静器」的值，说明见 docs/design/desktop-tokens.md）。
+ * 全应用只有这一套，界面代码与 shadcn 原语只经它们取色、取字体、取圆角与阴影。
  *
- * 引用的是 palette.css 的色阶变量；色阶本身随 <html data-theme> 切换，所以大多数语义变量亮暗共用一份
- * 定义，只有亮暗取阶不同的几个在下面的暗色块里覆盖。阶的用法按 Radix 的约定：1–2 背景，3–5 组件底色
- * （常态 / 悬停 / 按下），6–8 边框，9–10 实色，11–12 文字。
+ * 颜色引用 palette.css 的原始色：浅色在 :root，深色只认 <html data-theme="dark">，两块各写一遍颜色，结构相同。
+ * 文字对各自的背景至少 4.5:1，tokens.test.ts 从这两个文件读值核对，改色后跑一遍 desktop 的测试。
  *
- * 命名沿用 shadcn 的约定，生成的原语不用改类名就能用。注意两点：
- * - “强调色”是 --primary（靛蓝）。--accent 按 shadcn 的含义是中性的悬停 / 选中底色，不是品牌色。
- * - 状态色各有两档：--success / --warning / --destructive 是文字档（第 11 阶，可读性够），用于文字、
- *   图标、描边和 `/10` 这类淡底；*-solid 是实色档（第 9 阶），用于状态点和实色填充。 */
+ * 命名沿用 shadcn 的约定，生成的原语不用改类名就能用。注意几点：
+ * - 静器没有彩色的强调色：--primary 是墨色（主按钮、选中项），--accent 按 shadcn 的含义是中性的悬停 / 选中底色。
+ * - 品牌色 --brand（浅色金、深色铂金）只用于品牌主标和品牌时刻；字标、线性功能图标用文字色。
+ * - 状态色每种一档，文字、图标、圆点、描边和 `/10` 这类淡底都用它；--running 是运行中，焦点环也用它。 */
 
 :root {
-  /* 背景层级：画布 → 侧栏 → 弱填充 → 悬停 / 选中 */
-  --background: var(--sand-1);
-  --sidebar: var(--sand-2);
-  --muted: var(--sand-3);
-  --accent: var(--sand-4);
-  --card: var(--sand-1);
-  --popover: var(--sand-1);
-  --secondary: var(--sand-3);
+  /* 背景层级：侧栏 → 画布 → 次表面（弱填充、悬停）→ 表面（卡片、浮层、输入框）。 */
+  --background: var(--ivory-2);
+  --sidebar: var(--ivory-4);
+  --muted: var(--ivory-3);
+  --accent: var(--ivory-3);
+  --secondary: var(--ivory-3);
+  --card: var(--ivory-1);
+  --popover: var(--ivory-1);
 
-  /* 文字层级：正文 → 次要 → 弱提示（时间、快捷键提示等，不用于必须读的内容） */
-  --foreground: var(--sand-12);
-  --muted-foreground: var(--sand-11);
-  --faint-foreground: var(--sand-10);
-  --card-foreground: var(--foreground);
-  --popover-foreground: var(--foreground);
-  --secondary-foreground: var(--foreground);
-  --accent-foreground: var(--foreground);
+  /* 文字层级：正文 → 次正文 → 说明文字（标签、时间、快捷键提示、图标）。 */
+  --foreground: var(--ivory-9);
+  --soft-foreground: var(--ivory-8);
+  --muted-foreground: var(--ivory-7);
 
-  /* 边框：分隔线 → 控件边框 → 焦点环 */
-  --border: var(--sand-6);
-  --input: var(--sand-7);
-  --ring: var(--indigo-8);
+  /* 分隔线 → 强分隔线（控件边框、空闲的状态点）。 */
+  --border: var(--ivory-5);
+  --border-strong: var(--ivory-6);
 
-  /* 强调色。第 9 阶上的文字用白色（Radix 对靛蓝的建议），这是语义层唯一的字面量。 */
-  --primary: var(--indigo-9);
-  --primary-foreground: #fff;
+  /* 主按钮：墨底，字用画布色。 */
+  --primary: var(--ivory-9);
+  --primary-foreground: var(--ivory-2);
+
+  --brand: var(--gold);
 
   /* 状态 */
-  --success: var(--green-11);
-  --success-solid: var(--green-9);
-  --warning: var(--amber-11);
-  --warning-solid: var(--amber-9);
-  --destructive: var(--red-11);
-  --destructive-solid: var(--red-9);
+  --running: var(--blue-deep);
+  --success: var(--green-deep);
+  --warning: var(--ochre-deep);
+  --destructive: var(--red-deep);
 
-  /* 侧栏（左栏与右栏共用） */
-  --sidebar-foreground: var(--foreground);
-  --sidebar-border: var(--border);
-  --sidebar-accent: var(--sand-4);
-  --sidebar-accent-foreground: var(--foreground);
-  --sidebar-ring: var(--ring);
+  /* 代码：块底色与语法高亮（highlight.js 的类名在 markdown.css 里映射到这些变量）。 */
+  --code-background: var(--ivory-3);
+  --code-keyword: var(--blue-deep);
+  --code-string: var(--green-deep);
+  --code-number: var(--ochre-deep);
+  --code-title: var(--red-deep);
 
-  /* 代码：块底色与语法高亮（T5.3，highlight.js 的类名在 markdown.css 里映射到这些变量） */
-  --code-background: var(--sand-2);
-  --code-keyword: var(--indigo-11);
-  --code-string: var(--green-11);
-  --code-number: var(--amber-11);
-  --code-title: var(--red-11);
-  --code-comment: var(--sand-10);
-  --code-meta: var(--sand-11);
+  /* 子会话头像（R5，session/avatar.ts 按会话 ID 选一种颜色与形状）。 */
+  --avatar-1: var(--tan);
+  --avatar-2: var(--slate);
+  --avatar-3: var(--sage);
+  --avatar-4: var(--rose);
+  --avatar-5: var(--lavender);
+  --avatar-6: var(--straw);
+  --avatar-7: var(--teal);
 
-  /* 子会话头像（R5，session/avatar.ts 按会话 ID 选一种颜色与形状）：主色是第 9 阶，辅色是第 7 阶。亮暗用同一份
-   * 定义，色阶本身随主题切换。 */
-  --avatar-1: var(--indigo-9);
-  --avatar-1-soft: var(--indigo-7);
-  --avatar-2: var(--teal-9);
-  --avatar-2-soft: var(--teal-7);
-  --avatar-3: var(--green-9);
-  --avatar-3-soft: var(--green-7);
-  --avatar-4: var(--amber-9);
-  --avatar-4-soft: var(--amber-7);
-  --avatar-5: var(--violet-9);
-  --avatar-5-soft: var(--violet-7);
-  --avatar-6: var(--cyan-9);
-  --avatar-6-soft: var(--cyan-7);
-  --avatar-7: var(--pink-9);
-  --avatar-7-soft: var(--pink-7);
-
-  /* 遮罩与阴影 */
-  --overlay: color-mix(in oklab, var(--sand-12) 25%, transparent);
-  --shadow-color: color-mix(in oklab, var(--sand-12) 10%, transparent);
-
-  /* 圆角：所有阶梯都从它推导（theme.css 的 --radius-*），嵌套时外层比内层大一阶。 */
-  --radius: 0.5rem;
+  /* 遮罩与阴影。静器只有一档阴影，卡片默认不带，浮起的东西（输入框、浮层、菜单）才带。 */
+  --overlay: color-mix(in oklab, var(--ivory-9) 25%, transparent);
+  --elevation: 0 1px 2px rgba(26, 26, 23, 0.05), 0 10px 30px -16px rgba(26, 26, 23, 0.18);
 
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  /* 暗色下浮层要比画布亮一阶才看得出层次。 */
-  --card: var(--sand-2);
-  --popover: var(--sand-2);
-  --overlay: color-mix(in oklab, var(--sand-1) 60%, transparent);
-  --shadow-color: color-mix(in oklab, var(--sand-1) 60%, transparent);
+  --background: var(--graphite-2);
+  --sidebar: var(--graphite-1);
+  --muted: var(--graphite-5);
+  --accent: var(--graphite-5);
+  --secondary: var(--graphite-5);
+  --card: var(--graphite-4);
+  --popover: var(--graphite-4);
+
+  --foreground: var(--graphite-10);
+  --soft-foreground: var(--graphite-9);
+  --muted-foreground: var(--graphite-8);
+
+  --border: var(--graphite-6);
+  --border-strong: var(--graphite-7);
+
+  --primary: var(--graphite-10);
+  --primary-foreground: var(--graphite-2);
+
+  --brand: var(--platinum);
+
+  --running: var(--blue-pale);
+  --success: var(--green-pale);
+  --warning: var(--ochre-pale);
+  --destructive: var(--red-pale);
+
+  --code-background: var(--graphite-3);
+  --code-keyword: var(--blue-pale);
+  --code-string: var(--green-pale);
+  --code-number: var(--ochre-pale);
+  --code-title: var(--red-pale);
+
+  --avatar-1: var(--tan-pale);
+  --avatar-2: var(--slate-pale);
+  --avatar-3: var(--sage-pale);
+  --avatar-4: var(--rose-pale);
+  --avatar-5: var(--lavender-pale);
+  --avatar-6: var(--straw-pale);
+  --avatar-7: var(--teal-pale);
+
+  --overlay: color-mix(in oklab, var(--graphite-1) 60%, transparent);
+  --elevation: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
 
   color-scheme: dark;
+}
+
+/* 亮暗共用的部分：由上面的变量推导，或与主题无关。 */
+:root {
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --secondary-foreground: var(--foreground);
+  --accent-foreground: var(--foreground);
+
+  /* 控件边框用强分隔线；焦点环用运行色（方向稿的 :focus-visible）。 */
+  --input: var(--border-strong);
+  --ring: var(--running);
+
+  /* 侧栏（左栏与右栏共用）：选中的行是表面色，悬停是它的 60%。 */
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-accent: var(--card);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-ring: var(--ring);
+
+  --code-comment: var(--muted-foreground);
+  --code-meta: var(--soft-foreground);
+
+  /* 头像的辅色：主色与画布混合，亮暗自动跟着变。 */
+  --avatar-1-soft: color-mix(in oklab, var(--avatar-1) 45%, var(--background));
+  --avatar-2-soft: color-mix(in oklab, var(--avatar-2) 45%, var(--background));
+  --avatar-3-soft: color-mix(in oklab, var(--avatar-3) 45%, var(--background));
+  --avatar-4-soft: color-mix(in oklab, var(--avatar-4) 45%, var(--background));
+  --avatar-5-soft: color-mix(in oklab, var(--avatar-5) 45%, var(--background));
+  --avatar-6-soft: color-mix(in oklab, var(--avatar-6) 45%, var(--background));
+  --avatar-7-soft: color-mix(in oklab, var(--avatar-7) 45%, var(--background));
+
+  /* 圆角：卡片（含窗格、对话框、浮层与菜单、消息输入框）12px，按钮、输入控件与列表项 8px；theme.css 的
+   * --radius-* 阶梯由这两个推导，嵌套时外层比内层大一阶。 */
+  --radius-card: 12px;
+  --radius-control: 8px;
+
+  /* 字体（styles/fonts.css 声明随应用打包的字体，不从网络加载）：
+   * - 界面：拉丁字母用 Mona Sans（品牌字标的字体），中文用系统字体，不打包。
+   * - 代码：JetBrains Mono，中文同样回落到系统字体。
+   * - 标题宋体：Noto Serif SC 按固定文案做的子集（"Wevir Display"），只用在那些文案上（U4 的首页标题）；
+   *   子集里没有的字回落到系统宋体。 */
+  --font-ui:
+    "Mona Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
+    "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
+  --font-code:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", "Noto Sans CJK SC", monospace;
+  --font-display:
+    "Wevir Display", "Noto Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", "SimSun", serif;
 }

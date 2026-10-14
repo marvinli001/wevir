@@ -118,7 +118,7 @@ R2（2026-10-14）起产品开始用它：`packages/adapter-codex` 以子进程�
 T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以上结论成立，并补充三点：
 
 1. **MIT 区域里有未署名的第三方派生内容**。移植时要另外保留原始版权声明，或者直接从原始来源获取：
-   - `apps/app/src/styles/colors.css`：Radix Colors 生成的数值（MIT，© WorkOS）。Wevir 改为直接依赖 `@radix-ui/colors`。
+   - `apps/app/src/styles/colors.css`：Radix Colors 生成的数值（MIT，© WorkOS）。Wevir 改为直接依赖 `@radix-ui/colors`（U1 起换成手写的「静器」原始色，不再使用 Radix Colors，见 [desktop-tokens.md](../design/desktop-tokens.md)）。
    - `apps/app/src/components/ui/*`：shadcn CLI 生成的组件（MIT，© shadcn）。Wevir 用 shadcn CLI 自己生成，不从 OpenWork 拷贝。
    - `apps/app/src/components/ui/{message,chain-of-thought,source,tool,image}.tsx`：导出 API 与 prompt-kit（MIT）一致，文件里没写来源；`apps/app/components.json` 还配置了 `@ai-elements` registry（Apache-2.0）。出处无法从文件本身确认，**一律只参考、不移植**。
    - `apps/app/src/components/markdown/markdown-math.ts:6`：注释称数学公式分隔规则与上游 opencode web（MIT）相同，移植时保留这条注释。
@@ -202,16 +202,17 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 | Wevir 文件 | 来源 | 许可证与版权 | 说明 |
 |---|---|---|---|
-| `apps/desktop/src/renderer/src/components/ui/{button,dialog,input,scroll-area,sheet,textarea,tooltip}.tsx` | shadcn CLI 4.21.4 从官方 registry 生成（`components.json`：`base-nova`、Base UI、lucide） | MIT，`Copyright (c) 2023 shadcn` | T5.2 生成；button、dialog、scroll-area、sheet 有 Wevir 的改动，写在各自的文件头。OpenWork 的 `apps/app/src/components/ui/*` 也是 shadcn 生成的，两边相近属于同源（§9），不从 OpenWork 拷贝（§2.2 T0.5 复核第 1 点） |
+| `apps/desktop/src/renderer/src/components/ui/{button,dialog,dropdown-menu,input,popover,scroll-area,sheet,textarea,tooltip}.tsx` | shadcn CLI 4.21.4 从官方 registry 生成（`components.json`：`base-nova`、Base UI、lucide） | MIT，`Copyright (c) 2023 shadcn` | T5.2 生成，dropdown-menu、popover 是 R12（`906fa63`）补生成的（U1 补登记）；button、dialog、dropdown-menu、popover、scroll-area、sheet、tooltip 有 Wevir 的改动，写在各自的文件头。OpenWork 的 `apps/app/src/components/ui/*` 也是 shadcn 生成的，两边相近属于同源（§9），不从 OpenWork 拷贝（§2.2 T0.5 复核第 1 点） |
 | `apps/desktop/src/renderer/src/styles/shadcn-variants.css` | shadcn 4.21.4 包内 `dist/tailwind.css` 的摘录 | MIT，`Copyright (c) 2023 shadcn` | 只取原语用到的 `@custom-variant` |
-| `apps/desktop/src/renderer/src/styles/palette.css` | `apps/desktop/scripts/generate-palette.ts` 从依赖 `@radix-ui/colors` 3.0.0 生成 | MIT，`Copyright (c) 2021 Radix` | 色值数据，文件头带声明。与 OpenWork `colors.css` 的色值相同是因为同源，不从那里拷贝 |
 | `packages/model-gateway/src/test-fixtures/codex-requests/**`、`packages/model-gateway/src/__snapshots__/codex-requests/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 发出的请求的录制（R1，`spikes/codex-app-server/src/record-requests.ts`），及其经网关转换后的快照 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 Codex 发给模型服务的请求体，不是源码。含 Codex 内置工具的定义与描述（apply_patch 的 Lark 语法等）与 Codex 注入的权限、skills、环境说明文字；基础提示词已换成长度说明，本机路径与 ID 换成占位符 |
 | `packages/adapter-codex/src/test-fixtures/app-server/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 运行输出的录制（R2 起，`record-app-server.test.ts`）：通知序列、审批对话、回合与恢复的错误 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 app-server 发给客户端的消息，不是源码。含 Codex 的 item 结构、内置工具名、错误措辞（如 500 时的“We’re currently experiencing high demand…”）；本机路径换成占位符，审批对话里的 ID 换成占位符 |
 | `spikes/dsh-acp/fixtures/**`、`packages/adapter-dsh/src/test-fixtures/acp/**` | dsh 0.2.1-alpha.2 运行时输出的录制（T0.3 起） | MIT，`Copyright (c) 2026 DeepSeek` | 录的是 dsh 发出的协议消息与事件，不是源码。`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` 含 dsh 内置工具的 schema 与描述文本，与上游 `snapshots/sdk/bash-tool/tool-schemas.expected.json` 相同 |
 
-### 4.2 图标字体
+### 4.2 字体
 
 图标字体补充登记（2026-10-14）：`assets/icons/source/fonts/MonaSans-Bold.ttf` 与 `OFL.txt` 来自 [github/mona-sans](https://github.com/github/mona-sans/tree/4bc6ba8b354c36b4fb66d32cd67b4c1f2beb0a06) 的 `fonts/static/ttf/MonaSans-Bold.ttf` 与 `OFL.txt`，固定提交 `4bc6ba8b354c36b4fb66d32cd67b4c1f2beb0a06`，SIL OFL-1.1；版权为 `Copyright 2022 The Mona Sans Project Authors`，保留字体名 `Mona`。仅用来提取 Wevir 字标轮廓，派生数据为 `assets/icons/source/wordmark-paths.json`、各主题的 `wordmark.svg` 与组合标识 SVG。字体来源说明在 `assets/icons/source/fonts/SOURCE.md`，派生 SVG 与转曲脚本带来源注释。主标与八个功能图标由 Wevir 自行设计，未从上游图标库移植。
+
+桌面端随应用打包的字体（U1，2026-10-14）：`apps/desktop/src/renderer/src/assets/fonts/*.woff2` 由 `apps/desktop/scripts/build-fonts.py` 从固定版本生成（来源的 sha256 写在脚本里），来源说明在同目录的 `SOURCE.md`，各字体的 OFL 原文在 `apps/desktop/licenses/fonts/`，都是 SIL OFL-1.1：Mona Sans 2.0.27（[github/mona-sans](https://github.com/github/mona-sans) 发布包 `mona-sans-variable-v2.0.27.zip`，`Copyright 2022 The Mona Sans Project Authors`，保留字体名 `Mona`，只转 WOFF2、不改字形与名称）、JetBrains Mono 2.304（[JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono) 发布包，`Copyright 2020 The JetBrains Mono Project Authors`，只转 WOFF2）、Noto Serif SC 2.003 Medium（[notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) 提交 `9b0f1436e455d902de067a2501422e5dc71ad16b`，`© 2017-2024 Adobe`，没有保留字体名，按固定文案子集化）。
 
 ## 5. 移植文件的文件头
 

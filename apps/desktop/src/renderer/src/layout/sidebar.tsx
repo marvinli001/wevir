@@ -2,6 +2,7 @@ import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight, PanelLeftClose, Plus, Settings, SquarePen } from 'lucide-react';
 import { Link, NavLink, useLocation, useParams } from 'react-router';
+import { BrandMark } from '@/components/brand-mark';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -13,7 +14,7 @@ import { paths } from '@/routes/paths';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
 
 const ROW =
-  'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm outline-none ' +
+  'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-lg px-1.5 text-sm outline-none ' +
   'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50';
 
 /**
@@ -25,7 +26,10 @@ export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="app-drag flex h-11 shrink-0 items-center justify-between pr-2 pl-[max(0.875rem,var(--traffic-lights-inset))]">
-        <span className="text-sm font-semibold tracking-wide">{t('app.name')}</span>
+        <span className="flex items-center gap-2">
+          <BrandMark className="size-4 text-brand" />
+          <span className="text-base font-semibold tracking-tight">{t('app.name')}</span>
+        </span>
         <IconButton label={t('layout.collapseSidebar')} onClick={onCollapse} tooltipSide="bottom">
           <PanelLeftClose />
         </IconButton>
@@ -89,7 +93,7 @@ function WorkspaceTree() {
   const seen = useSeenSessions();
 
   if (data.status === 'loading') {
-    return <p className="px-1.5 py-1 text-sm text-faint-foreground">{t('common.loading')}</p>;
+    return <p className="px-1.5 py-1 text-sm text-muted-foreground">{t('common.loading')}</p>;
   }
   if (data.status === 'error') {
     return (
@@ -99,7 +103,7 @@ function WorkspaceTree() {
     );
   }
   if (data.workspaces.length === 0) {
-    return <p className="px-1.5 py-1 text-sm text-faint-foreground">{t('sidebar.noWorkspaces')}</p>;
+    return <p className="px-1.5 py-1 text-sm text-muted-foreground">{t('sidebar.noWorkspaces')}</p>;
   }
   return (
     <ul className="space-y-0.5">
@@ -128,7 +132,7 @@ function WorkspaceItem({
   const listId = `workspace-sessions-${workspace.id}`;
   return (
     <li>
-      <div className="group/workspace flex items-center rounded-md hover:bg-sidebar-accent/60">
+      <div className="group/workspace flex items-center rounded-lg hover:bg-sidebar-accent/60">
         <button
           type="button"
           className={cn(ROW, 'flex-1 hover:bg-transparent')}
@@ -164,7 +168,7 @@ function WorkspaceItem({
       {expanded && (
         <ul id={listId} className="space-y-0.5">
           {sessions.length === 0 ? (
-            <li className="flex h-8 items-center pl-7 text-sm text-faint-foreground">
+            <li className="flex h-8 items-center pl-7 text-sm text-muted-foreground">
               {t('sidebar.noSessions')}
             </li>
           ) : (
@@ -190,7 +194,10 @@ const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string; pulse?: 
   error: { tone: 'danger', label: t('session.marker.error') },
 };
 
-/** 会话行：左侧状态点（运行中 / 待审批 / 出错），标题，右侧“待审批”标签或未读点。 */
+/**
+ * 会话行：左侧状态点（运行中 / 待审批 / 出错），标题，右侧“待审批”标签或未读点。标题用次正文色，当前会话是表面色加一圈
+ * 分隔线（方向稿 A 的左栏）。
+ */
 function SessionRow({
   workspaceId,
   session,
@@ -206,7 +213,12 @@ function SessionRow({
     <NavLink
       to={paths.session(workspaceId, session.id)}
       className={({ isActive }) =>
-        cn(ROW, 'pl-6', isActive && 'bg-sidebar-accent text-sidebar-accent-foreground')
+        cn(
+          ROW,
+          'pl-6 text-soft-foreground',
+          isActive &&
+            'bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border ring-inset',
+        )
       }
     >
       <span className="flex w-4 shrink-0 justify-center">

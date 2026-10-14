@@ -146,7 +146,7 @@ export function Composer({
       />
       <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
         <div className="min-w-0 flex-1 text-xs">{status}</div>
-        <span className="hidden shrink-0 text-xs text-faint-foreground sm:inline">
+        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
           {!busy
             ? t('session.composerHint')
             : busyDelivery === undefined

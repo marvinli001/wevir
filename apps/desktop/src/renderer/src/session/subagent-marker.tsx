@@ -16,7 +16,7 @@ export function SubagentMarker({ part }: { part: ChatPartOf<'subagent'> }) {
   const running = ended === undefined && subagent.status === 'running';
   const waiting = running && subagent.pendingApprovals.length > 0;
   const className =
-    'my-1.5 flex w-fit max-w-full items-center gap-2 rounded-md text-sm text-muted-foreground';
+    'my-1.5 flex w-fit max-w-full items-center gap-2 rounded-lg text-sm text-muted-foreground';
   const content = (
     <>
       <SubagentAvatar

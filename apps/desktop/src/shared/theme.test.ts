@@ -1,21 +1,22 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { describe, expect, it } from 'vitest';
-import { isThemeMode, THEME_STORAGE_KEY } from './theme.js';
+import { isThemeMode, THEME_BACKGROUND, THEME_STORAGE_KEY } from './theme.js';
 
 const THEME_INIT = readFileSync(
   new URL('../renderer/public/theme-init.js', import.meta.url),
   'utf8',
 );
 
-/** 在只有 localStorage、matchMedia、document 的沙箱里执行首帧前脚本，返回它写进 data-theme 的值。 */
+/** 在只有 localStorage、matchMedia、document 的沙箱里执行首帧前脚本，返回它写进 data-theme 的值与 <html> 的底色。 */
 function runThemeInit(options: {
   stored?: Record<string, string>;
   systemDark: boolean;
   storageThrows?: boolean;
-}): { theme: string | undefined; readKeys: string[] } {
+}): { theme: string | undefined; background: string | undefined; readKeys: string[] } {
   const readKeys: string[] = [];
   const dataset: Record<string, string> = {};
+  const style: { backgroundColor?: string } = {};
   runInNewContext(THEME_INIT, {
     localStorage: {
       getItem(key: string) {
@@ -27,9 +28,9 @@ function runThemeInit(options: {
     matchMedia: (query: string) => ({
       matches: query === '(prefers-color-scheme: dark)' && options.systemDark,
     }),
-    document: { documentElement: { dataset } },
+    document: { documentElement: { dataset, style } },
   });
-  return { theme: dataset.theme, readKeys };
+  return { theme: dataset.theme, background: style.backgroundColor, readKeys };
 }
 
 describe('首帧前脚本 theme-init.js', () => {
@@ -51,5 +52,13 @@ describe('首帧前脚本 theme-init.js', () => {
 
   it('localStorage 不可用时按亮色渲染', () => {
     expect(runThemeInit({ systemDark: true, storageThrows: true }).theme).toBe('light');
+  });
+
+  it('首帧的底色是解析出的主题的 THEME_BACKGROUND', () => {
+    expect(runThemeInit({ systemDark: true }).background).toBe(THEME_BACKGROUND.dark);
+    expect(runThemeInit({ systemDark: false }).background).toBe(THEME_BACKGROUND.light);
+    expect(runThemeInit({ systemDark: true, storageThrows: true }).background).toBe(
+      THEME_BACKGROUND.light,
+    );
   });
 });

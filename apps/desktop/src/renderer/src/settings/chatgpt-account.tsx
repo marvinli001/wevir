@@ -86,7 +86,7 @@ export function ChatgptAccountSection({
   const phase = accountPhase(account);
   return (
     <section
-      className="space-y-3 rounded-lg border border-border p-4"
+      className="space-y-3 rounded-xl border border-border p-4"
       data-section="chatgpt-account"
       data-phase={phase.kind}
     >
@@ -125,7 +125,7 @@ export function ChatgptAccountSection({
       </div>
 
       {phase.kind === 'signed_out' && (
-        <p className="text-xs text-faint-foreground" data-terms>
+        <p className="text-xs text-muted-foreground" data-terms>
           {t('account.chatgpt.terms')}
         </p>
       )}
@@ -377,7 +377,7 @@ function SignedIn({
           {t('provider.defaultModel')}
         </label>
         {provider === undefined || provider.models.length === 0 ? (
-          <span className="text-faint-foreground">{t('account.chatgpt.modelsLoading')}</span>
+          <span className="text-muted-foreground">{t('account.chatgpt.modelsLoading')}</span>
         ) : (
           <select
             id={modelSelect}
@@ -416,16 +416,12 @@ function UsageBar({ window: usage }: { window: AccountRateLimitWindow }) {
         <div
           className={cn(
             'h-full rounded-full',
-            tone === 'danger'
-              ? 'bg-destructive-solid'
-              : tone === 'warning'
-                ? 'bg-warning-solid'
-                : 'bg-primary',
+            tone === 'danger' ? 'bg-destructive' : tone === 'warning' ? 'bg-warning' : 'bg-primary',
           )}
           style={{ width: `${percent}%` }}
         />
       </div>
-      {resets !== undefined && <p className="text-xs text-faint-foreground">{resets}</p>}
+      {resets !== undefined && <p className="text-xs text-muted-foreground">{resets}</p>}
     </div>
   );
 }

@@ -41,8 +41,9 @@ Wevir 不包含 OpenWork ee/ 目录（OpenWork Enterprise Edition License）的�
   apps/desktop/src/renderer/src/session/approval-card.tsx
       <- apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx
 
-上面的来源文件里没有第三方作品的署名。OpenWork 里由 Radix Colors 生成的色值与 shadcn 生成的组件
-没有从 OpenWork 拷贝，Wevir 直接从原始来源获取，见第 2、3 节。
+上面的来源文件里没有第三方作品的署名。OpenWork 里 shadcn 生成的组件没有从 OpenWork 拷贝，Wevir
+直接从原始来源获取，见第 2 节；OpenWork 里由 Radix Colors 生成的色值 Wevir 没有拷贝，U1 起也不再使用
+Radix Colors。
 
 许可证全文见文末“MIT License”。
 
@@ -57,7 +58,9 @@ Wevir 不包含 OpenWork ee/ 目录（OpenWork Enterprise Edition License）的�
 
   apps/desktop/src/renderer/src/components/ui/button.tsx
   apps/desktop/src/renderer/src/components/ui/dialog.tsx
+  apps/desktop/src/renderer/src/components/ui/dropdown-menu.tsx
   apps/desktop/src/renderer/src/components/ui/input.tsx
+  apps/desktop/src/renderer/src/components/ui/popover.tsx
   apps/desktop/src/renderer/src/components/ui/scroll-area.tsx
   apps/desktop/src/renderer/src/components/ui/sheet.tsx
   apps/desktop/src/renderer/src/components/ui/textarea.tsx
@@ -70,20 +73,7 @@ Wevir 不包含 OpenWork ee/ 目录（OpenWork Enterprise Edition License）的�
 许可证全文见文末“MIT License”。
 
 
-3. Radix Colors
-------------------------------------------------------------------------------------------------
-仓库：https://github.com/radix-ui/colors
-许可证：MIT
-版权：Copyright (c) 2021 Radix
-
-由 apps/desktop/scripts/generate-palette.ts 从 npm 包 @radix-ui/colors 3.0.0 生成的色值：
-
-  apps/desktop/src/renderer/src/styles/palette.css
-
-许可证全文见文末“MIT License”。
-
-
-4. DeepSeek Harness（dsh）
+3. DeepSeek Harness（dsh）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/deepseek-ai/deepseek-harness
 来源提交：d743267388641bc76f17c45ce8b4c231aed1d32c（tag dsh-v0.2.1-alpha.2）
@@ -99,7 +89,7 @@ Wevir 不移植 dsh 的源码，而是把 npm 包 @deepseek-ai/dsh 0.2.1-alpha.2
 许可证全文见文末“MIT License”。
 
 
-5. Paseo
+4. Paseo
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/getpaseo/paseo
 来源提交：dc7bc8db124e837ba909ffd3b4b20e16adaebe24
@@ -112,7 +102,7 @@ Wevir 目前没有移植 Paseo 的代码，只参考了它的架构设计，所�
 把其中的署名内容一并收进这里。
 
 
-6. OpenAI Codex
+5. OpenAI Codex
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/openai/codex
 来源提交：092d3acd6bec3e3a14bdc7e7a2810ab628ab759d（rust-v0.162.1）
@@ -152,7 +142,7 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
   packages/adapter-codex/src/test-fixtures/app-server/
 
 
-7. Mona Sans
+6. Mona Sans（字标）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/github/mona-sans
 来源提交：4bc6ba8b354c36b4fb66d32cd67b4c1f2beb0a06
@@ -164,11 +154,38 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
 字体与许可证全文位于 assets/icons/source/fonts/。Wevir 的字标与组合标识使用该字体的轮廓，
 轮廓数据位于 assets/icons/source/wordmark-paths.json；派生 SVG 带来源注释。没有修改或重命名字体。
 Wevir 主标及八个功能图标为自有设计。
+许可证全文见文末“SIL Open Font License 1.1”。
+
+
+7. 桌面端随应用打包的字体
+------------------------------------------------------------------------------------------------
+桌面端渲染进程的字体（U1）由 apps/desktop/scripts/build-fonts.py 从下列固定版本生成，放在
+apps/desktop/src/renderer/src/assets/fonts/，来源说明在同目录的 SOURCE.md；各字体的 OFL 原文随附在
+apps/desktop/licenses/fonts/。许可证都是 SIL Open Font License 1.1，全文见文末。
+
+  Mona Sans 2.0.27
+    仓库：https://github.com/github/mona-sans（发布包 mona-sans-variable-v2.0.27.zip）
+    版权：Copyright 2022 The Mona Sans Project Authors (https://github.com/github/mona-sans),
+          with Reserved Font Name "Mona"
+    文件：mona-sans.woff2、mona-sans-italic.woff2（由 fonts/variable/MonaSansVF[opsz,wght].ttf 与
+          MonaSansVF-Italic[opsz,wght].ttf 转为 WOFF2，字形与名称不变，没有修改或重命名字体）
+
+  JetBrains Mono 2.304
+    仓库：https://github.com/JetBrains/JetBrainsMono（发布包 JetBrainsMono-2.304.zip）
+    版权：Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+    文件：jetbrains-mono.woff2、jetbrains-mono-italic.woff2（由 fonts/variable/JetBrainsMono[wght].ttf 与
+          JetBrainsMono-Italic[wght].ttf 转为 WOFF2，字形与名称不变）
+
+  Noto Serif SC 2.003
+    仓库：https://github.com/notofonts/noto-cjk（标签 Serif2.003，提交 9b0f1436e455d902de067a2501422e5dc71ad16b）
+    版权：© 2017-2024 Adobe (http://www.adobe.com/)，没有保留字体名
+    文件：noto-serif-sc-display.woff2（由 Serif/SubsetOTF/SC/NotoSerifSC-Medium.otf 按界面里的几句固定文案
+          子集化后转为 WOFF2，是修改过的版本；名称记录原样保留）
 
 
 MIT License
 ------------------------------------------------------------------------------------------------
-第 1–4 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+第 1–3 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -191,7 +208,7 @@ SOFTWARE.
 
 Apache License 2.0
 ------------------------------------------------------------------------------------------------
-第 5、6 节的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 6 节）：
+第 4、5 节的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 5 节）：
 
                                  Apache License
                            Version 2.0, January 2004
@@ -394,3 +411,95 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+
+SIL Open Font License 1.1
+------------------------------------------------------------------------------------------------
+第 6、7 节的许可证是下面这份 SIL Open Font License 1.1（取自 Mona Sans 2.0.27 的 OFL.txt，去掉开头的版权行；
+各字体的版权行见第 6、7 节，各自的原文在 assets/icons/source/fonts/OFL.txt 与 apps/desktop/licenses/fonts/）：
+
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded, 
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.

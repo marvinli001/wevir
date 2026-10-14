@@ -114,7 +114,7 @@ export function SessionView({ session }: { session: Session }) {
           onReady={onReady}
         />
       ) : (
-        <p className="min-h-0 flex-1 py-16 text-center text-sm text-faint-foreground">
+        <p className="min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">
           {t('transcript.loading')}
         </p>
       )}
@@ -237,7 +237,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
   const selectClass =
-    'h-7 max-w-56 truncate rounded-md border border-input bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
+    'h-7 max-w-56 truncate rounded-lg border border-input bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -247,7 +247,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
           <p className="mt-2 text-muted-foreground">
             {t('session.draftBody', { workspace: entry.workspace.displayName })}
           </p>
-          <p className="mt-1 font-mono text-sm break-all text-faint-foreground">
+          <p className="mt-1 font-mono text-sm break-all text-muted-foreground">
             {entry.workspace.rootPath}
           </p>
         </div>

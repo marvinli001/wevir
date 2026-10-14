@@ -1,20 +1,14 @@
-/* 设计 Token 的第三层：把语义变量映射成 Tailwind v4 的主题（T5.2）。
+/* 设计 Token 的第三层：把语义变量映射成 Tailwind v4 的主题（T5.2 建立，U1 换成「A 静器」）。
  *
- * - 颜色：先清空 Tailwind 自带的调色板，只留语义色，`bg-red-500`、`text-white` 这类类名不再生成 CSS，
- *   界面里的颜色只能经语义变量取（避开 OpenWork 那样 Radix 色系名与 Tailwind 调色板同名、两套都能用）。
+ * - 颜色、阴影：先清空 Tailwind 自带的调色板与阴影，只留语义的，`bg-red-500`、`text-white`、`shadow-xl` 这类类名不再
+ *   生成 CSS，界面里的颜色与阴影只能经语义变量取。
  * - `@theme inline`：工具类直接写 `var(--background)` 这类引用，切换主题只改变量，不需要重新生成 CSS。
- * - 字号按中文调过：正文 14px / 行高 1.6，代码与控件 13px；不引入网络字体，用系统字体栈。 */
+ * - 字体与字号：字体栈在 tokens.css（--font-ui / --font-code / --font-display）；正文 14px / 行高 1.55，代码与控件
+ *   13px。 */
 
 @theme {
   --color-*: initial;
-
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
-    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Source Han Sans SC",
-    "WenQuanYi Micro Hei", system-ui, sans-serif;
-  --font-mono:
-    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Cascadia Mono",
-    "Liberation Mono", "PingFang SC", "Microsoft YaHei", monospace;
+  --shadow-*: initial;
 
   /* 字号阶梯：沿用 Tailwind 的名字、改掉数值（根字号仍是 16px，间距的 4px 网格不变）。 */
   --text-xs: 0.75rem;
@@ -22,7 +16,7 @@
   --text-sm: 0.8125rem;
   --text-sm--line-height: 1.5;
   --text-base: 0.875rem;
-  --text-base--line-height: 1.6;
+  --text-base--line-height: 1.55;
   --text-lg: 1rem;
   --text-lg--line-height: 1.5;
   --text-xl: 1.125rem;
@@ -39,8 +33,14 @@
 }
 
 @theme inline {
+  /* font-sans / font-mono 与 Tailwind 预检的默认字体都取 tokens.css 的字体栈。标题宋体的 font-display 见下面的
+   * @utility：tokens.css 的变量与 Tailwind 的主题变量同名会互相引用。 */
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-soft-foreground: var(--soft-foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -51,18 +51,17 @@
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
-  --color-faint-foreground: var(--faint-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-brand: var(--brand);
+  --color-running: var(--running);
   --color-success: var(--success);
-  --color-success-solid: var(--success-solid);
   --color-warning: var(--warning);
-  --color-warning-solid: var(--warning-solid);
   --color-destructive: var(--destructive);
-  --color-destructive-solid: var(--destructive-solid);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-border: var(--sidebar-border);
@@ -71,19 +70,25 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-overlay: var(--overlay);
 
-  /* 圆角阶梯，全部由 --radius（8px）推导：2 / 4 / 6 / 8 / 12 / 16。 */
-  --radius-xs: calc(var(--radius) * 0.25);
-  --radius-sm: calc(var(--radius) * 0.5);
-  --radius-md: calc(var(--radius) * 0.75);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.5);
-  --radius-2xl: calc(var(--radius) * 2);
+  /* 圆角阶梯：rounded-lg 是按钮与列表项（8px），rounded-xl 是卡片（12px）；其余按 2px 递减或递增：
+   * 2 / 4 / 6 / 8 / 12 / 16。 */
+  --radius-xs: calc(var(--radius-control) - 6px);
+  --radius-sm: calc(var(--radius-control) - 4px);
+  --radius-md: calc(var(--radius-control) - 2px);
+  --radius-lg: var(--radius-control);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: calc(var(--radius-card) + 4px);
 
-  /* 阴影：颜色取 --shadow-color，暗色下更深。 */
-  --shadow-xs: 0 1px 2px 0 var(--shadow-color);
-  --shadow-sm: 0 1px 3px 0 var(--shadow-color), 0 1px 2px -1px var(--shadow-color);
-  --shadow-md: 0 4px 8px -2px var(--shadow-color), 0 2px 4px -2px var(--shadow-color);
-  --shadow-lg: 0 12px 24px -6px var(--shadow-color), 0 4px 8px -4px var(--shadow-color);
+  /* 阴影：只有一档（tokens.css 的 --elevation），原语里的 shadow-xs … shadow-lg 都是它。 */
+  --shadow-xs: var(--elevation);
+  --shadow-sm: var(--elevation);
+  --shadow-md: var(--elevation);
+  --shadow-lg: var(--elevation);
+}
+
+/* 标题宋体（U4 的首页标题等固定文案）：子集里只有那些文案的字，见 styles/fonts.css。 */
+@utility font-display {
+  font-family: var(--font-display);
 }
 
 /* 暗色只认 <html data-theme="dark">，不认 .dark 类，也不直接跟 prefers-color-scheme（跟随系统由

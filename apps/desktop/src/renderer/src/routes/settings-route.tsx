@@ -58,7 +58,7 @@ export function SettingsRoute() {
                 replace
                 className={({ isActive }) =>
                   cn(
-                    'flex h-8 items-center rounded-md px-2.5 text-sm outline-none hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50',
+                    'flex h-8 items-center rounded-lg px-2.5 text-sm outline-none hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50',
                     isActive && 'bg-sidebar-accent font-medium',
                   )
                 }

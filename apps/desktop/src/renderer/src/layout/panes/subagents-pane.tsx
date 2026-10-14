@@ -158,7 +158,7 @@ function SubagentItems({
                   {statusLabel(summary.status)}
                 </span>
               )}
-              <span className="shrink-0 text-xs text-faint-foreground">
+              <span className="shrink-0 text-xs text-muted-foreground">
                 {formatRelativeTime(lastActivity(summary), now)}
               </span>
             </Link>
@@ -173,7 +173,7 @@ function PaneNote({ icon, children }: { icon?: ReactNode; children: ReactNode })
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
       {icon && (
-        <span className="text-faint-foreground [&_svg]:size-6 [&_svg]:stroke-[1.5]" aria-hidden>
+        <span className="text-muted-foreground [&_svg]:size-6 [&_svg]:stroke-[1.5]" aria-hidden>
           {icon}
         </span>
       )}
@@ -205,7 +205,7 @@ function useSubagentsSummary(sessionId: string): ReactNode | null {
         type="button"
         aria-label={t('subagent.summary.open')}
         onClick={() => panes?.open({ kind: 'subagents' })}
-        className="mt-1 flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="mt-1 flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <span className="flex shrink-0 items-center gap-1">
           {subagents.slice(-SUMMARY_AVATARS).map((summary) => (

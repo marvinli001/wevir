@@ -43,6 +43,9 @@ export default defineConfig(({ command }) => {
         headers: { 'Content-Security-Policy': developmentCsp(nonce) },
       },
       ...(command === 'serve' && { html: { cspNonce: nonce } }),
+      // 字体总是单独成文件：Vite 默认把小于 4 KiB 的资源内联成 data: URI（标题宋体的子集只有几 KiB），而 CSP 的
+      // font-src 只放行 'self'（src/shared/csp.ts）。其他资源仍按默认规则。
+      build: { assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined) },
       plugins: [react(), tailwindcss()],
     },
   };

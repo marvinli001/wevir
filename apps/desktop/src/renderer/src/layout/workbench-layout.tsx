@@ -208,7 +208,7 @@ export function WorkbenchLayout() {
                 {header.title}
               </h1>
               {header.subtitle && (
-                <span className="max-w-[40%] shrink-0 truncate text-xs text-faint-foreground">
+                <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
                   {header.subtitle}
                 </span>
               )}
@@ -306,7 +306,7 @@ export function WorkbenchLayout() {
             <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
               <SheetTitle className="shrink-0 text-sm">{t('layout.auxOverlay')}</SheetTitle>
               {sidebarPlan.sidebar === 'docked' && (
-                <span className="min-w-0 truncate text-xs text-faint-foreground">
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
                   {t('layout.auxOverlayHint')}
                 </span>
               )}

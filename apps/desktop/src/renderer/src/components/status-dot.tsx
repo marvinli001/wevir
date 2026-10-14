@@ -2,12 +2,13 @@ import { cn } from 'cn';
 
 export type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger';
 
+/** accent 是进行中（运行中、登录中、未读），用运行色；neutral 是空闲，用强分隔线（方向稿 A 的空闲圆点）。 */
 const TONES: Record<StatusTone, string> = {
-  neutral: 'bg-faint-foreground',
-  accent: 'bg-primary',
-  success: 'bg-success-solid',
-  warning: 'bg-warning-solid',
-  danger: 'bg-destructive-solid',
+  neutral: 'bg-border-strong',
+  accent: 'bg-running',
+  success: 'bg-success',
+  warning: 'bg-warning',
+  danger: 'bg-destructive',
 };
 
 export interface StatusDotProps {

@@ -127,7 +127,7 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 | `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat、Anthropic Messages 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §9 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
-| `apps/desktop` | Electron 桌面端 | `pnpm dev`；`pnpm --filter @wevir/desktop palette` 重新生成色阶 |
+| `apps/desktop` | Electron 桌面端 | `pnpm dev`；改了设计变量跑 `pnpm vitest run --project desktop`（含对比度校验，[desktop-tokens.md](./design/desktop-tokens.md) §7）；字体用 `apps/desktop/scripts/build-fonts.py` 重新生成（用法在脚本开头，平时不需要） |
 
 全仓命令：`pnpm lint`（Biome + 引擎边界检查）、`pnpm typecheck`、`pnpm build`、`pnpm test`。全新克隆上依次 2 s、2 s、3 s、14 s（1000 条测试，结果见验收存档）。
 

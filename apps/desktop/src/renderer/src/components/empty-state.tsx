@@ -14,7 +14,7 @@ export function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center gap-3 px-6 py-16 text-center">
-      <div className="text-faint-foreground [&_svg]:size-8 [&_svg]:stroke-[1.5]" aria-hidden>
+      <div className="text-muted-foreground [&_svg]:size-8 [&_svg]:stroke-[1.5]" aria-hidden>
         {icon}
       </div>
       <h2 className="text-lg font-medium">{title}</h2>

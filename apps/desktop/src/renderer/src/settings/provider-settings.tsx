@@ -142,7 +142,7 @@ export function ProviderSettings() {
       )}
       {notice && <NoticeBanner notice={notice} />}
       {providers.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-muted-foreground">
+        <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-muted-foreground">
           {client?.supports('chatgpt_account') ? t('provider.emptyKeyed') : t('provider.empty')}
         </p>
       ) : (
@@ -200,7 +200,7 @@ function ProviderCard({
 }) {
   const running = test?.status === 'running';
   return (
-    <li className="rounded-lg border border-border p-4" data-provider-id={provider.id}>
+    <li className="rounded-xl border border-border p-4" data-provider-id={provider.id}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -216,7 +216,7 @@ function ProviderCard({
             <Detail label={t('provider.defaultModel')}>
               <span className="font-mono">{provider.defaultModelId}</span>
               {provider.models.length > 1 && (
-                <span className="text-faint-foreground">
+                <span className="text-muted-foreground">
                   {' · '}
                   {t('provider.modelCount', { count: provider.models.length })}
                 </span>
@@ -374,7 +374,7 @@ function PickOption({
         {detail && <p className="truncate font-mono text-xs text-muted-foreground">{detail}</p>}
         {note && <p className="text-sm text-muted-foreground">{note}</p>}
       </div>
-      {!disabled && <ChevronRight className="size-4 shrink-0 text-faint-foreground" aria-hidden />}
+      {!disabled && <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
     </button>
   );
 }

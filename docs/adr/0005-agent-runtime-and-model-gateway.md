@@ -198,7 +198,7 @@
    - **“已完成”在子 agent 真正结束的位置**：client-sdk 的投影在子会话离开 `running` 时，于父会话当时的回合（父会话空闲时是一条系统消息）加一个“结束”部件，所以“开始工作”与“已完成”之间可以夹着父 agent 的其他活动（截图 01）。完成之后被父 agent 关闭不再多一行；运行中被关闭、取消或失败各有说法（“已关闭”“已取消”“运行失败”）。
    - **藏起 collab 工具卡片的规则不认引擎的工具名**：派出了某个子会话的那次调用总是藏起来；会话有子会话时，其余 `sub_agent` 展示类型的调用（等待、关闭、发消息等）也藏起来，失败的除外（它没有对应的子会话，卡片是唯一的线索）。没有子会话的会话（dsh 等 ACP 引擎）照常显示子 agent 的工具卡片。
    - **子会话的审批**（补记 1、9）：父会话输入框上方的审批区把自己的与子会话的审批按请求先后排在一起，来自子会话的标出“来自子智能体 〈标题〉”与头像，并能跳到它的视图；子 agent 视图里同样能处理（只读指的是没有输入框）。子会话的审批被另一端处理后，父会话这边不提示由谁处理（父会话的流里只有摘要）。
-   - **头像**：由会话 ID 确定地选出 Wevir 调色板里的七种颜色之一与八种几何形状之一（`session/avatar.ts`），不用 Codex 的图标；为此调色板加了青、紫、湖蓝、粉四个 Radix 色系，只给头像用（tokens.css 的 `--avatar-N`）。
+   - **头像**：由会话 ID 确定地选出 Wevir 调色板里的七种颜色之一与八种几何形状之一（`session/avatar.ts`），不用 Codex 的图标；为此调色板加了青、紫、湖蓝、粉四个 Radix 色系，只给头像用（tokens.css 的 `--avatar-N`）。U1（2026-10-14）起改为方向稿「A 静器」的头像配色，不再用 Radix（docs/design/desktop-tokens.md §2）。
    - **没做**：子会话单独的停止按钮（补记 9，仍待维护者定）；Codex 详情里的复制、朗读、反馈按钮与“用时 ›”的展开（Wevir 的消息流还没有这些）。
    - **验证**：纯逻辑的单元测试（标题与状态的说法、分组与排序、相对时间与用时、要藏的工具卡片、审批合并、头像选择、路由）；投影的“结束”部件；`pnpm dev` 连真实 Host（Codex 引擎 + mock 模型的 spawn → wait）经 CDP 截图，亮暗两套。
 10. **2026-10-14，ChatGPT 订阅登录（R6，[codex-event-mapping.md](../architecture/codex-event-mapping.md) §8，[host-api.md](../architecture/host-api.md) 0.7.0，[domain-model.md](../architecture/domain-model.md) §3.6）。** 决策 4 第 ① 行照做（app-server 自己的 `account/login/start`，浏览器与设备码两种；`clientInfo.name` 是 `wevir`；Wevir 不读、不转交令牌；模型流量由 Codex 直连 OpenAI），以下是决策没写到或与字面不同的地方：

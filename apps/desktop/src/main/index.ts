@@ -3,7 +3,6 @@
 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { sand, sandDark } from '@radix-ui/colors';
 import { HOME_LAYOUT, LOG_FILE, resolveHome } from '@wevir/host/runtime';
 import {
   app,
@@ -30,7 +29,7 @@ import {
   DEV_SERVER_ORIGIN,
   rendererOriginOf,
 } from '../shared/renderer-origin.js';
-import { isThemeMode } from '../shared/theme.js';
+import { isThemeMode, THEME_BACKGROUND } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
 import {
   HostLifecycle,
@@ -234,11 +233,11 @@ function run(): void {
 }
 
 /**
- * 窗口底色，与渲染进程的 --background（tokens.css：sand 第 1 阶）一致，窗口缩放露出未绘制区域时不闪色。
+ * 窗口底色，与渲染进程的 --background（tokens.css）一致，窗口缩放露出未绘制区域时不闪色。
  * 启动时 themeSource 是 'system'，渲染进程按存储的主题模式调用 setThemeSource 后再更新。
  */
 function windowBackground(): string {
-  return nativeTheme.shouldUseDarkColors ? sandDark.sand1 : sand.sand1;
+  return THEME_BACKGROUND[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
 }
 
 /**

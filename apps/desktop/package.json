@@ -12,7 +12,6 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer && tsc --noEmit -p src/renderer/tsconfig.test.json",
-    "palette": "node scripts/generate-palette.ts",
     "resources": "node scripts/stage-resources.ts",
     "test": "vitest run"
   },
@@ -23,7 +22,6 @@
   },
   "devDependencies": {
     "@base-ui/react": "^1.9.0",
-    "@radix-ui/colors": "^3.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

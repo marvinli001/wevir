@@ -50,7 +50,7 @@ export function RecoveryPanel({
       data-kind={readOnly ? 'read-only' : 'error'}
       aria-labelledby="recovery-title"
       className={cn(
-        'mb-2 rounded-lg border px-3.5 py-3 text-sm',
+        'mb-2 rounded-xl border px-3.5 py-3 text-sm',
         readOnly ? 'border-destructive/30 bg-destructive/5' : 'border-warning/30 bg-warning/5',
       )}
     >

@@ -50,7 +50,7 @@ const KIND_ICONS: Record<ToolDisplayKind, LucideIcon> = {
 };
 
 const STATUS_STYLE: Record<ToolLifecycle, { icon: LucideIcon; className: string }> = {
-  running: { icon: LoaderCircle, className: 'text-primary [&_svg]:animate-spin' },
+  running: { icon: LoaderCircle, className: 'text-running [&_svg]:animate-spin' },
   awaiting_approval: { icon: ShieldAlert, className: 'text-warning' },
   completed: { icon: Check, className: 'text-success' },
   failed: { icon: X, className: 'text-destructive' },
@@ -93,7 +93,7 @@ export const ToolCard = memo(function ToolCard({
       data-tool-status={lifecycle}
       className={cn(
         'text-sm',
-        compact ? 'py-0.5' : 'my-2 rounded-lg border border-border bg-card px-2.5 py-1.5',
+        compact ? 'py-0.5' : 'my-2 rounded-xl border border-border bg-card px-2.5 py-1.5',
       )}
     >
       <Disclosure
@@ -109,7 +109,7 @@ export const ToolCard = memo(function ToolCard({
             )}
             <span className="ml-auto flex shrink-0 items-center gap-2">
               {duration !== undefined && duration >= MIN_SHOWN_DURATION_MS && (
-                <span className="text-xs text-faint-foreground">{formatDuration(duration)}</span>
+                <span className="text-xs text-muted-foreground">{formatDuration(duration)}</span>
               )}
               <StatusChip lifecycle={lifecycle} />
             </span>
@@ -118,16 +118,7 @@ export const ToolCard = memo(function ToolCard({
       >
         <ToolDetails part={part} />
       </Disclosure>
-      {result && (
-        <p
-          className={cn(
-            'ml-5.5 truncate text-xs',
-            lifecycle === 'completed' ? 'text-faint-foreground' : 'text-muted-foreground',
-          )}
-        >
-          {result}
-        </p>
-      )}
+      {result && <p className="ml-5.5 truncate text-xs text-muted-foreground">{result}</p>}
     </div>
   );
 });
@@ -143,7 +134,7 @@ function ToolDetails({ part }: { part: ToolPart }) {
           <>
             <Pre>{part.output.text || t('tool.noOutput')}</Pre>
             {part.output.truncated && (
-              <p className="mt-1 text-xs text-faint-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {t('tool.outputTruncated', {
                   length: part.output.originalLength ?? part.output.text.length,
                 })}
@@ -151,7 +142,7 @@ function ToolDetails({ part }: { part: ToolPart }) {
             )}
           </>
         ) : (
-          <p className="text-xs text-faint-foreground">{t('tool.noOutput')}</p>
+          <p className="text-xs text-muted-foreground">{t('tool.noOutput')}</p>
         )}
       </Section>
     </div>
@@ -192,7 +183,7 @@ function ToolInput({ part }: { part: ToolPart }) {
     <>
       <Pre>{text}</Pre>
       {truncatedFrom !== undefined && (
-        <p className="mt-1 text-xs text-faint-foreground">
+        <p className="mt-1 text-xs text-muted-foreground">
           {t('tool.inputTruncated', { length: truncatedFrom })}
         </p>
       )}
@@ -265,7 +256,7 @@ export const AggregateToolCard = memo(function AggregateToolCard({
   return (
     <div
       data-tool-status={lifecycle}
-      className="my-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm"
+      className="my-2 rounded-xl border border-border bg-card px-2.5 py-1.5 text-sm"
     >
       <Disclosure
         summaryClassName="gap-2 py-0.5"

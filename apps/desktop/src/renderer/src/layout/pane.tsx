@@ -124,7 +124,7 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
             )}
             <div
               className={cn(
-                'group/tab flex h-7 items-center rounded-md',
+                'group/tab flex h-7 items-center rounded-lg',
                 selected ? 'bg-accent text-foreground' : 'hover:bg-accent/60',
               )}
             >
@@ -134,7 +134,7 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
                 aria-selected={selected}
                 onClick={() => panes.activate(tab.id)}
                 onKeyDown={(event) => onTabKeyDown(event, tab)}
-                className="flex h-full max-w-48 items-center gap-1.5 rounded-md pr-1 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="flex h-full max-w-48 items-center gap-1.5 rounded-lg pr-1 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
               >
                 <Icon className="size-3.5 shrink-0" aria-hidden />
                 <span className="truncate">{title}</span>

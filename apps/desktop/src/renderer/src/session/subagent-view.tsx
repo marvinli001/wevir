@@ -53,7 +53,7 @@ export function SubagentView({
         <h3 className="min-w-0 flex-1 truncate text-sm font-medium" title={title}>
           {title}
         </h3>
-        <span className="max-w-[45%] shrink-0 truncate text-xs text-faint-foreground">
+        <span className="max-w-[45%] shrink-0 truncate text-xs text-muted-foreground">
           {modelLine(summary)}
         </span>
       </header>
@@ -77,13 +77,13 @@ export function SubagentView({
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
         <TranscriptView sessionId={summary.sessionId} transcript={transcript} self={identity} />
       ) : (
-        <p className="min-h-0 flex-1 py-16 text-center text-sm text-faint-foreground">
+        <p className="min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">
           {t('subagent.detail.loading')}
         </p>
       )}
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-4">
         {transcript && <ApprovalDock transcript={transcript} client={client} self={identity} />}
-        <p className="pt-1 text-center text-xs text-faint-foreground">
+        <p className="pt-1 text-center text-xs text-muted-foreground">
           {t('subagent.detail.readOnly')}
         </p>
       </div>
