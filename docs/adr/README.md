@@ -10,7 +10,7 @@
 | [0002](./0002-host-transport-and-process-model.md) | Host 传输与进程模型 | Accepted | 2026-10-12 |
 | [0003](./0003-storage.md) | 本地存储：`node:sqlite` 与骨架阶段的密钥文件 | Accepted | 2026-10-12 |
 | [0004](./0004-repo-tooling.md) | 仓库工具链 | Accepted | 2026-10-12 |
-| [0005](./0005-agent-runtime-and-model-gateway.md) | Agent 运行时以 Codex app-server 为主，Host 内置模型协议网关 | Proposed | 2026-10-14 |
+| [0005](./0005-agent-runtime-and-model-gateway.md) | Agent 运行时以 Codex app-server 为主，Host 内置模型协议网关 | Accepted | 2026-10-14 |
 
 ## 文件格式
 

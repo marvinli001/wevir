@@ -2,7 +2,7 @@
 
 本文件是 Wevir 仓库对所有贡献者（包括 AI 编程助手）的规则。`CLAUDE.md` 只是指向这里。
 
-Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨设备接续的 Agent 工作台：以 DeepSeek Harness（dsh）为 Agent 执行内核，以 OpenWork 为桌面交互参考，以 Paseo 为多端与远程架构参考，Wevir 自己拥有 Local Agent Host、会话协议和客户端。
+Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨设备接续的 Agent 工作台：以 OpenAI Codex 的 app-server 为默认 Agent 执行内核、经 Host 内置的模型协议网关接各家模型服务（[ADR-0005](docs/adr/0005-agent-runtime-and-model-gateway.md)，迁移中；目前代码里的引擎仍是 DeepSeek Harness（dsh），它以后保留为可选引擎），以 OpenWork 为桌面交互参考，以 Paseo 为多端与远程架构参考，Wevir 自己拥有 Local Agent Host、会话协议和客户端。
 
 **工作方式：** 开发方向、范围与优先级由维护者在对话中直接决定，AI 助手负责辅助思考、补充遗漏和实现。骨架阶段的计划与任务 prompt、骨架复盘时起草的 Phase 1 规划已归档在 [docs/archive/](docs/archive/)，只作历史参考，不作为任务来源。仍然有效的设计依据是 [ADR](docs/adr/README.md) 与 [架构文档](docs/architecture/overview.md)。
 

@@ -1,8 +1,8 @@
 # ADR-0005：Agent 运行时以 Codex app-server 为主，Host 内置模型协议网关
 
-- 状态：Proposed（2026-10-14，待维护者确认）
+- 状态：Accepted（2026-10-14，维护者在对话中确认；基础提示词一项仍未决，见末尾）
 - 日期：2026-10-14
-- 任务：Codex 运行时调研（本草案）；确认后影响：新包 `packages/adapter-codex`、`packages/model-gateway`，从 `adapter-dsh` 抽出通用 ACP 适配器，`AgentEvent` 与协议的子会话扩展，打包
+- 任务：Codex 运行时调研；影响：新包 `packages/adapter-codex`、`packages/model-gateway`，从 `adapter-dsh` 抽出通用 ACP 适配器，`AgentEvent` 与 Host 协议的子会话扩展，桌面端的子智能体界面，打包
 - 依据：[Codex 研读与 Spike](../research/codex-notes.md)（`spikes/codex-app-server/`，codex `rust-v0.162.1` = 上游 `092d3ac`）；[ADR-0001](./0001-runtime-integration.md)；[dsh 接入 Spike](../research/dsh-integration-spike.md)；[ACP → Wevir 事件映射](../architecture/acp-event-mapping.md)
 
 ## 背景
@@ -26,6 +26,7 @@
 2. 锁定**精确版本**，与 `docs/upstream/upstream.lock` 的 codex 行一致（目前 `rust-v0.162.1`）。使用 OpenAI 发布的独立 `codex-app-server` 二进制，按 sha256 校验；`@openai/codex*` npm 包若要用，只能由 adapter-codex 声明（AGENTS.md 规则 2，已写进两道 lint 检查）。
 3. 从 `adapter-dsh` 抽出**通用 ACP 适配器**（进程与连接、ACP → `AgentEvent` 映射、每会话事件队列、会话与审批记账，codex-notes §8 最后一行），用来接 dsh、Grok Build、Gemini CLI 与其他 ACP agent。dsh 专属的部分（stream-tap、`DeltaMerger`、`DSH_HOME` 布局、providers overlay、resume 的错误文案）留在 adapter-dsh，作为通用适配器的一份配置。抽取是单独的任务，**不改变 adapter-dsh 现有的行为**，以它现有的三层契约测试为准。
 4. 会话在创建时绑定引擎，之后不换；跨引擎只有“基于历史新建会话”这一条路（已有的 `history-digest`）。
+5. **dsh 保留为可选引擎，不再加新能力**：只做安全修复、隐私修复与跟进上游所需的升级（ADR-0001 的接入方式继续有效）；不随安装包分发，用户选用时再下载（决策 8）。
 
 ### 2. Host 内置模型协议网关
 
@@ -38,6 +39,7 @@
    - Gemini：先走 Gemini 的 OpenAI Chat 兼容端点（按 `openai-completions` 处理），原生协议以后再说。
 4. 上游的非 2xx 原样转给 Codex，由 Codex 的重试策略处理；Codex 断开时网关中断上游请求。
 5. `provider.test` 改由网关实现：用与正式请求相同的转换发一次最小请求。
+6. 实现顺序：先做 Responses 透传（含元数据剥离与方言修正的框架）与 Chat Completions 转换，再做 Anthropic Messages；Gemini 先按 Chat 走它的兼容端点。
 
 ### 3. 不 fork Codex
 
@@ -50,8 +52,8 @@
 | 优先级 | 来源 | 做法 | 模型流量 |
 |---|---|---|---|
 | ① | ChatGPT 订阅 | app-server 的 `account/login/start`（浏览器或设备码），凭据由 Codex 存在 Wevir 专属的 `CODEX_HOME`，Wevir 不读。`clientInfo.name` 写 `wevir`。只用于本地开源形态（OpenAI 不允许商业或托管服务用 app-server 认证） | Codex 直连 OpenAI，不经网关 |
-| ② | Grok 订阅 | 通用 ACP 适配器驱动 Grok Build（`grok agent stdio`），登录用 Grok Build 自己的 `grok login`，`GROK_HOME` 指向 Wevir 专属目录 | Grok Build 直连 xAI |
-| ②′ | xAI API Key | Codex + 网关（Responses 透传 + 方言修正） | 经网关 |
+| ② | Grok 订阅 | 通用 ACP 适配器驱动 Grok Build（`grok agent stdio`），登录用 Grok Build 自己的 `grok login`，`GROK_HOME` 指向 Wevir 专属目录。xAI 的条款对第三方编排订阅额度没有明文，维护者知悉这一风险后决定照做；界面上要说明它走的是用户自己的 Grok 账号 | Grok Build 直连 xAI |
+| ②′ | xAI API Key | 同样要做：Codex + 网关（Responses 透传 + 方言修正） | 经网关 |
 | ③ | Gemini | **个人订阅登录已不存在**（2026-06-18 起）。只做 API Key：Codex + 网关（Gemini 的 Chat 兼容端点），或通用 ACP 适配器驱动 `gemini --acp` | 经网关，或 Gemini CLI 直连 |
 | ④ | 自定义服务 | Responses / Chat Completions / Anthropic Messages，Codex + 网关 | 经网关 |
 | — | DeepSeek | DeepSeek 原生支持 Responses，走 ④ 的 Responses 透传；dsh（通用 ACP 适配器）保留为可选引擎 | 经网关，或 dsh 直连 |
@@ -65,14 +67,29 @@
   - `tools.update_plan.enabled = true`（计划默认关）；
   - `approval_policy = "on-request"`、`sandbox_mode = "workspace-write"`；不开 `memories` 与 `approvals_reviewer = "auto_review"`（它们会用写死的 OpenAI 模型名）；
   - `model_catalog_json` 指向由 Provider 的模型列表生成的目录（`apply_patch_tool_type:"freeform"`、上下文大小、推理档位、基础提示词）。
-- 先用稳定面：`initialize` 时 `experimentalApi:false`；需要实验面的功能逐项评估后再开。
+- **只用稳定面**：`initialize` 时 `experimentalApi:false`。子智能体界面（决策 6.1）用稳定面就能做：子 thread 的事件自动推到连接上，父子关系来自 `collabAgentToolCall.receiverThreadIds` 与 `thread/read` 的 `parentThreadId`。以后某项功能确实需要实验面，单独评估并在补记里写明。
 - 首次启动后核对外连为零（Spike 的 `network-audit.ts` 做法），作为升级检查的一项。
 
 ### 6. 事件映射
 
-按 codex-notes §10 的表实现。`AgentEvent` 与 Host 协议需要的扩展各开任务，先改 domain-model 与 host-api 文档再改代码：
+按 codex-notes §10 的表实现。`AgentEvent` 与 Host 协议需要的扩展各开任务，先改 domain-model 与 host-api 文档再改代码。
 
-- 子 agent：子 thread 的事件归到哪个会话（先折叠成父会话里的工具卡片，或协议新增子会话，见未决事项）。
+#### 6.1 子 agent：协议里是子会话，界面照 Codex 桌面端
+
+子 agent 在协议里是**父会话下的子会话**，不折叠成工具卡片。界面参照 Codex 桌面端（维护者 2026-10-14 给的截图）：
+
+- **父会话的消息流**里，每个子 agent 有两条行内标记：“〈标题〉开始工作”与“〈标题〉已完成”（失败、被关闭同理），点开进入该子 agent。
+- **右栏新增“子智能体”标签**（`right-panel-tabs.ts` 的每会话标签之一），按“已开启 · N”“完成 · N”分组列出，每项有图标、标题、相对时间；没有时显示“没有已开启的子智能体”。会话顶部的摘要卡片显示“子智能体 · N 完成”与头像。
+- **子 agent 视图**：返回箭头、标题、模型与推理强度、用时，下面是它自己的消息流（逐字流式、工具卡片、审批与父会话相同）。只读，没有输入框；与它交互只经父 agent（`send_input` 等由模型发起），取消父回合即取消它。
+- 标题：优先用 Codex 给的 thread 名称；没有时取 `spawn_agent` 的任务描述首行，再没有就用 `agentNickname`。
+
+需要的改动（各自成任务）：
+- `AgentEvent`：子会话的出现（父会话、触发它的工具调用、标题、模型、推理强度）与状态变化；子会话自己的事件照常按它的 `engineSessionId` 上报。adapter-codex 从 `collabAgentToolCall`（`receiverThreadIds`、`agentsStates`）与子 thread 的 `turn/started`（`rootTurnId`）识别子会话。
+- Host 协议与存储：会话加 `parentSessionId`；子会话不出现在左栏的会话列表，`session.get` / 订阅照常可用，父会话快照带子会话摘要（数量、各自状态）。
+- 通用 ACP 引擎没有子会话（dsh、Gemini CLI 的子 agent 不产生更新），这一块只对 Codex 生效。
+
+#### 6.2 其他扩展
+
 - 工具被拒绝：`tool.finished` 只有 completed / failed，Codex 有 `declined`。
 - 计划：`turn/plan/updated` 没有工具调用 id，`todo.updated.toolCallId` 要放宽。
 - 审批选项：accept / acceptForSession / decline / cancel 映射为 `approval.requested` 的选项；`serverRequest/resolved` 在回合结束之后才到，映射为 `approval.cancelled`。
@@ -81,6 +98,12 @@
 
 - 升级只改 adapter-codex、lock 与本 ADR 的补记。步骤：读 release 说明 → 用新版本的协议 schema（`codex-rs/app-server-protocol/schema/`）与旧版本 diff → 跑契约测试 → 外连审计 → 更新 UPSTREAM.md。
 - 契约测试照 adapter-dsh 分三层：录制回放；真实 `codex-app-server` + 本地 mock 模型（Spike 的 harness 产品化）；真实模型（要 Key，不进 CI）。网关另有自己的转换测试（mock 上游）。
+
+### 8. 分发
+
+- 每个平台的安装包**内置**对应的 `codex-app-server`（压缩约 72–82 MiB、解压 181–243 MiB，codex-notes §1），随 Wevir 版本一起升级；不在运行时从网上下载 Codex。
+- dsh **不随安装包分发**，改为用户在设置里选用时下载（需要国内镜像与完整性校验；具体做法由打包任务定，见未决事项）。
+- 随包附 Codex 的 `LICENSE` 与 `NOTICE`；Linux 包若带 `bwrap`，按 LGPL-2.0 提供源码获取方式（UPSTREAM.md §2.4）。
 
 ## 备选方案
 
@@ -99,25 +122,19 @@
 收益：
 - 逐字流式、推理、计划、子 agent、细粒度审批、跨平台沙箱（含网络限制）都由引擎原生提供，不再需要 stream-tap 这类旁路。
 - 一个网关覆盖 Responses、Chat、Messages 三类上游；Key 只在 Host；发给第三方的元数据由 Wevir 控制。
-- 订阅登录全部走厂商官方客户端，条款风险最低。
+- 订阅登录全部走厂商官方客户端，不碰令牌；Grok 订阅仍属条款上的灰色地带（决策 4）。
 
 代价与风险：
-- **体积**：每个平台的 `codex-app-server` 压缩约 72–82 MiB、解压 181–243 MiB；dsh 若继续随包，还要加上它的依赖闭包。对策见未决事项 4。
+- **体积**：每个平台的安装包多出 `codex-app-server` 的压缩约 72–82 MiB（解压 181–243 MiB）；dsh 移出安装包，抵掉它的依赖闭包（决策 8）。
 - **上游节奏**：约每月 10 个小版本，app-server 仍标 experimental，2026 年已有三次删除。对策：锁版本、只用稳定面、三层契约测试、schema diff。
 - **转换的正确性归 Wevir**：DeepSeek 上已验证（codex-notes §7.3：三种接法、两个模型），其他服务的推理带回与工具细节要逐家用真实模型验证。
 - **OpenAI 专属残留**：写死的 OpenAI 模型名、ChatGPT 相关的通知与功能，靠配置关掉并在升级时复查。
 - **ChatGPT 订阅的使用范围**：只限本地开源形态；Wevir 以后若有商业或托管形态，这条路要下线或改走 SIWC 的合规要求。
 - **Windows 与 Linux 沙箱**：只在 macOS 上验证过；Windows 的旧沙箱要提权安装，MXC 依赖系统版本；Linux 随包的 `bwrap` 是 LGPL。
 
-## 未决事项（请维护者拍板）
+## 未决事项
 
-1. **默认引擎**：Codex（本草案）还是保持 dsh。建议 Codex。
-2. **是否 fork Codex**：建议不 fork（决策 3）。
-3. **Responses 原生的上游是否也经网关**：建议是（决策 2.2）；代价是多一跳本机 HTTP 与网关的透传代码。
-4. **安装包与体积**：A. 每个平台安装包内置 `codex-app-server`（+72–82 MiB 压缩）；B. 首次使用时下载（需要国内镜像与 sha256 校验，离线首启不可用）；C. 两者兼有（安装包内置，升级时增量下载）。dsh 是否继续随包也一起定。建议 A，dsh 改为可选下载。
-5. **dsh 的去留**：保留为可选引擎（经通用 ACP 适配器）还是停止维护 adapter-dsh。建议保留但不再加新能力；先处理 dsh 默认上传会话日志的问题（已另开任务）。
-6. **各家登录**：ChatGPT 走 app-server 登录并接受“仅限本地开源形态”；Grok 订阅走 Grok Build + ACP（xAI 条款对第三方编排没有明文，属于灰色地带），还是只做 xAI API Key；Gemini 只做 API Key。
-7. **子 agent 在产品里的形态**：折叠成父会话里的工具卡片（改动小），还是协议新增子会话（能单独查看、取消）。
-8. **基础提示词**：沿用 Codex 自带的 `prompt.md`（其中自称 “Codex CLI”），还是 Wevir 写自己的。
-9. **实验面**：是否声明 `experimentalApi:true`（换来 `thread/list.parentThreadId`、`dynamicTools` 等，代价是没有稳定性保证）。建议先不开。
-10. **第一批网关协议**：建议 Responses 透传 + Chat 转换先做，Anthropic Messages 与 Gemini 原生随后。
+1. **基础提示词**（维护者尚未决定）。在决定之前的默认做法：ChatGPT 登录用 OpenAI 模型时，沿用 Codex 内置模型目录里按模型调好的提示词；经网关的第三方模型，在生成的模型目录里用 Codex 的 `prompt.md` 原文。建议：第三方模型改用 Wevir 自己的提示词，以 `prompt.md` 为底本改写（Apache-2.0，按 UPSTREAM.md §4、§5 登记与写文件头），去掉“你是 OpenAI 主导的 Codex CLI”这类自我介绍，免得模型对用户自称 Codex；OpenAI 模型仍用 Codex 的。
+2. **dsh 的可选下载**：从哪里下载（npm 镜像还是 Wevir 自己的发布物）、怎样校验与升级，由打包任务决定。在那之前开发环境照旧经 pnpm 安装 dsh。
+3. **Sign in with ChatGPT（应用自己注册 client ID）**：先不做，只用 app-server 自带的登录；Wevir 有了需要它的形态时再评估。
+4. **Windows 与 Linux 沙箱**：由 adapter-codex 任务在两个平台上实测后补记（Windows 选 MXC 还是旧沙箱、Linux 是否随包带 `bwrap`）。
