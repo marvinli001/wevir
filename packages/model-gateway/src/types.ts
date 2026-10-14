@@ -1,0 +1,90 @@
+import type { ProviderCompatConfig, ProviderConfig } from '@wevir/runtime-adapter';
+
+// 线上格式的子集：只写网关读写到的字段，其余字段按 `[key: string]: unknown` 原样保留。
+// Responses 的形状以 Codex 的 ResponseItem（upstream/codex/codex-rs/protocol/src/models.rs）与
+// 它解析流事件的规则（codex-api/src/sse/responses.rs）为准，Chat Completions 以 OpenAI 的公开 API 为准。
+
+export type JsonObject = Record<string, unknown>;
+
+/** Codex 发来的 `POST /responses` 请求体。 */
+export interface ResponsesRequest {
+  model: string;
+  input: ResponsesItem[] | string;
+  instructions?: string;
+  tools?: ResponsesTool[];
+  tool_choice?: unknown;
+  [key: string]: unknown;
+}
+
+/** `input` 与输出里的一项（message、reasoning、function_call 等），按 `type` 区分。 */
+export interface ResponsesItem {
+  type: string;
+  [key: string]: unknown;
+}
+
+/** `tools` 里的一项：function、custom（apply_patch）、namespace（multi_agent_v1）或托管工具。 */
+export interface ResponsesTool {
+  type: string;
+  name?: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
+/** 一条 Responses 流事件（SSE 的 `data:`）。 */
+export interface ResponsesEvent {
+  type: string;
+  [key: string]: unknown;
+}
+
+export interface ChatToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+export type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: string } };
+
+export interface ChatMessage {
+  role: 'system' | 'developer' | 'user' | 'assistant' | 'tool';
+  content: string | ChatContentPart[] | null;
+  reasoning_content?: string;
+  tool_calls?: ChatToolCall[];
+  tool_call_id?: string;
+}
+
+export interface ChatTool {
+  type: 'function';
+  function: { name: string; description?: string; parameters: unknown };
+}
+
+/** 发给 Chat 上游的请求体。 */
+export interface ChatRequest {
+  model: string;
+  messages: ChatMessage[];
+  stream: true;
+  stream_options: { include_usage: true };
+  tools?: ChatTool[];
+  tool_choice?: unknown;
+  [key: string]: unknown;
+}
+
+/**
+ * 网关读的 compat 开关。前四个与 Host 协议的 `ProviderCompat` 同形；后两个只有网关用（model-gateway.md §6），
+ * Host 协议与 `@wevir/runtime-adapter` 的类型还没有它们，接进 Host 时（R2）再加（ADR-0005 补记 3）。
+ */
+export interface GatewayCompat extends ProviderCompatConfig {
+  /** Responses 上游不支持自定义工具（`custom`）时设 false：网关把它们摊平成函数，响应里再还原。默认 true。 */
+  supportsCustomTools?: boolean;
+  /**
+   * Chat 上游怎样收对话中间的 developer / system 消息：`inline`（默认）原位转 system；`merge` 全部并进开头的
+   * 一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。
+   */
+  systemMessageMode?: 'inline' | 'merge' | 'user';
+}
+
+/** 网关接收的 Provider：Host 组装的 `ProviderConfig`（含 Key），compat 可以带网关自己的开关。 */
+export interface GatewayProvider extends ProviderConfig {
+  compat?: GatewayCompat;
+}

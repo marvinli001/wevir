@@ -336,6 +336,12 @@ importers:
         specifier: ^8.18.2
         version: 8.18.2
 
+  packages/model-gateway:
+    dependencies:
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/protocol:
     dependencies:
       zod:

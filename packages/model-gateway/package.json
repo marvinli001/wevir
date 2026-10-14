@@ -1,0 +1,28 @@
+{
+  "name": "@wevir/model-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir model protocol gateway: serves OpenAI Responses to Codex and forwards to Responses or Chat Completions upstreams.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

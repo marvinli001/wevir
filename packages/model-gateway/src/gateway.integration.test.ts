@@ -1,0 +1,650 @@
+import { gzipSync } from 'node:zlib';
+import { afterEach, describe, expect, it } from 'vitest';
+import { type GatewayLogger, startModelGateway } from './gateway.js';
+import {
+  CODEX_METADATA_HEADERS,
+  codexProblems,
+  codexRequest,
+  doneItems,
+  parseEvents,
+  postResponses,
+  readEvents,
+} from './test-fixtures/codex.js';
+import { startMockChat } from './test-fixtures/mock-chat.js';
+import { startMockResponses } from './test-fixtures/mock-responses.js';
+import { closedPort, type MockServer } from './test-fixtures/mock-server.js';
+import type { Script } from './test-fixtures/model-script.js';
+import type { ChatRequest, GatewayProvider, ResponsesItem, ResponsesRequest } from './types.js';
+import { GATEWAY_VERSION } from './upstream.js';
+
+const UPSTREAM_KEY = 'sk-upstream-key-for-tests';
+
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+interface LogLine {
+  level: 'info' | 'warn';
+  msg: string;
+  fields?: Record<string, unknown>;
+}
+
+async function gateway(options: { deepseekBaseURL?: string } = {}) {
+  const lines: LogLine[] = [];
+  const logger: GatewayLogger = {
+    info: (msg, fields) => lines.push({ level: 'info', msg, fields }),
+    warn: (msg, fields) => lines.push({ level: 'warn', msg, fields }),
+  };
+  const gw = await startModelGateway({ logger, ...options });
+  cleanups.push(() => gw.close());
+  return { gw, lines };
+}
+
+async function responsesUpstream(script: Script): Promise<MockServer<ResponsesRequest>> {
+  const mock = await startMockResponses(script);
+  cleanups.push(() => mock.close());
+  return mock;
+}
+
+async function chatUpstream(script: Script): Promise<MockServer<ChatRequest>> {
+  const mock = await startMockChat(script);
+  cleanups.push(() => mock.close());
+  return mock;
+}
+
+const responsesProvider = (
+  baseURL: string,
+  patch: Partial<GatewayProvider> = {},
+): GatewayProvider => ({
+  id: 'resp',
+  kind: 'openai-compatible',
+  displayName: 'Responses',
+  api: 'openai-responses',
+  baseURL,
+  models: [{ id: 'wevir-mock' }],
+  defaultModelId: 'wevir-mock',
+  apiKey: UPSTREAM_KEY,
+  ...patch,
+});
+
+const chatProvider = (baseURL: string, patch: Partial<GatewayProvider> = {}): GatewayProvider => ({
+  ...responsesProvider(baseURL),
+  id: 'chat',
+  api: 'openai-completions',
+  ...patch,
+});
+
+/** 等到某个条件成立（日志在响应结束之后才写）。 */
+async function until(condition: () => boolean, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('等待超时');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+const requestLogs = (lines: LogLine[]) => lines.filter((l) => l.msg === 'gateway request');
+
+describe('令牌与路由', () => {
+  it('令牌错误或缺失 → 401，不碰上游；令牌对 → 正常', async () => {
+    const mock = await responsesUpstream(() => ({ text: ['好'] }));
+    const { gw, lines } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL)]);
+    const body = codexRequest('1-first-turn').body;
+    for (const token of ['wrong', '', `${gw.token}x`]) {
+      const res = await postResponses(gw.baseURL('resp'), token, body);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({
+        error: { message: 'wevir gateway: 令牌不对', code: 'invalid_api_key' },
+      });
+    }
+    const missing = await fetch(`${gw.baseURL('resp')}/responses`, { method: 'POST', body: '{}' });
+    expect(missing.status).toBe(401);
+    expect(mock.requests).toHaveLength(0);
+    expect(lines.filter((l) => l.level === 'warn')).toHaveLength(4);
+    const ok = await postResponses(gw.baseURL('resp'), gw.token, body);
+    expect(ok.status).toBe(200);
+    expect(codexProblems(await readEvents(ok))).toEqual([]);
+    expect(gw.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  });
+
+  it('两个网关实例的令牌不同', async () => {
+    const a = await gateway();
+    const b = await gateway();
+    expect(a.gw.token).not.toBe(b.gw.token);
+  });
+
+  it('不认识的路径 404、非 POST 405、没有的 Provider 404、anthropic-messages 400、没有 Key 401、坏 JSON 400', async () => {
+    const { gw } = await gateway();
+    gw.setProviders([
+      chatProvider('http://127.0.0.1:9/v1', { id: 'claude', api: 'anthropic-messages' }),
+      chatProvider('http://127.0.0.1:9/v1', { id: 'nokey', apiKey: undefined }),
+      chatProvider('http://127.0.0.1:9/v1'),
+    ]);
+    const auth = { authorization: `Bearer ${gw.token}` };
+    const root = gw.baseURL('chat').replace(/\/v1\/p\/chat$/, '');
+    expect((await fetch(`${root}/v1/responses`, { method: 'POST', headers: auth })).status).toBe(
+      404,
+    );
+    expect((await fetch(`${gw.baseURL('chat')}/responses`, { headers: auth })).status).toBe(405);
+    const body = { model: 'm', input: 'hi' };
+    expect((await postResponses(gw.baseURL('nope'), gw.token, body)).status).toBe(404);
+    const anthropic = await postResponses(gw.baseURL('claude'), gw.token, body);
+    expect(anthropic.status).toBe(400);
+    expect(((await anthropic.json()) as { error: { message: string } }).error.message).toContain(
+      'R10 之后支持',
+    );
+    expect((await postResponses(gw.baseURL('nokey'), gw.token, body)).status).toBe(401);
+    expect((await postResponses(gw.baseURL('chat'), gw.token, '{oops')).status).toBe(400);
+    expect((await postResponses(gw.baseURL('chat'), gw.token, { input: 'no model' })).status).toBe(
+      400,
+    );
+  });
+
+  it('baseURL 里的 Provider ID 编码后可以还原', async () => {
+    const { gw } = await gateway();
+    expect(gw.baseURL('deepseek-official')).toMatch(
+      /^http:\/\/127\.0\.0\.1:\d+\/v1\/p\/deepseek-official$/,
+    );
+  });
+});
+
+describe('Responses 透传', () => {
+  it('请求体只去掉 client_metadata；请求头只有网关自己的；Key 换成上游的；响应流原样转回', async () => {
+    const mock = await responsesUpstream(() => ({ reasoning: ['想'], text: ['你', '好'] }));
+    const { gw } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL)]);
+    const body = codexRequest('1-first-turn').body;
+    const res = await postResponses(gw.baseURL('resp'), gw.token, body);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/event-stream');
+    const events = await readEvents(res);
+    expect(codexProblems(events)).toEqual([]);
+    expect(doneItems(events).map((i) => i.type)).toEqual(['reasoning', 'message']);
+
+    const upstream = mock.requests[0];
+    const { client_metadata: _drop, ...rest } = body;
+    expect(upstream?.body).toEqual(rest);
+    expect(upstream?.path).toBe('/v1/responses');
+    // 网关自己设的四个头，加上 fetch（undici）与 HTTP 本身的头；Codex 的一个都不在。
+    const allowed = new Set([
+      ...['accept', 'authorization', 'content-type', 'user-agent'],
+      ...[
+        'accept-encoding',
+        'accept-language',
+        'sec-fetch-mode',
+        'connection',
+        'content-length',
+        'host',
+      ],
+    ]);
+    expect(Object.keys(upstream?.headers ?? {}).filter((h) => !allowed.has(h))).toEqual([]);
+    for (const name of Object.keys(CODEX_METADATA_HEADERS).filter((h) => h !== 'user-agent')) {
+      expect(upstream?.headers).not.toHaveProperty(name);
+    }
+    expect(upstream?.headers['user-agent']).toBe(`wevir-gateway/${GATEWAY_VERSION}`);
+    expect(upstream?.authorization).toBe(`Bearer ${UPSTREAM_KEY}`);
+    expect(JSON.stringify(upstream?.body)).not.toContain(gw.token);
+  });
+
+  it('deepseek-official 透传到 DeepSeek 的 Responses 地址', async () => {
+    const mock = await responsesUpstream(() => ({ text: ['ok'] }));
+    const { gw } = await gateway({ deepseekBaseURL: mock.baseURL.replace(/\/v1$/, '') });
+    gw.setProviders([
+      {
+        id: 'deepseek-official',
+        kind: 'deepseek-official',
+        displayName: 'DeepSeek',
+        models: [],
+        defaultModelId: 'deepseek-flash',
+        apiKey: UPSTREAM_KEY,
+      },
+    ]);
+    const res = await postResponses(
+      gw.baseURL('deepseek-official'),
+      gw.token,
+      codexRequest('2-tool-results').body,
+    );
+    expect(codexProblems(await readEvents(res))).toEqual([]);
+    expect(mock.requests[0]?.path).toBe('/responses');
+    expect(mock.requests[0]?.authorization).toBe(`Bearer ${UPSTREAM_KEY}`);
+  });
+
+  it('方言修正：压缩请求的 tool_choice 去掉', async () => {
+    const mock = await responsesUpstream(() => ({ text: ['摘要'] }));
+    const { gw } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL)]);
+    await (
+      await postResponses(gw.baseURL('resp'), gw.token, codexRequest('4-compact').body)
+    ).text();
+    expect(mock.requests[0]?.body.tools).toEqual([]);
+    expect(mock.requests[0]?.body).not.toHaveProperty('tool_choice');
+  });
+
+  it('方言修正：不支持自定义工具的上游看到函数，Codex 收到 custom_tool_call', async () => {
+    const patch = '*** Begin Patch\n*** Add File: a.txt\n+a\n*** End Patch';
+    const mock = await responsesUpstream(() => ({
+      toolCalls: [
+        { kind: 'custom', name: 'apply_patch', input: patch },
+        {
+          kind: 'function',
+          name: 'spawn_agent',
+          namespace: 'multi_agent_v1',
+          args: { message: 'hi' },
+        },
+      ],
+    }));
+    const { gw } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL, { compat: { supportsCustomTools: false } })]);
+    const res = await postResponses(
+      gw.baseURL('resp'),
+      gw.token,
+      codexRequest('2-tool-results').body,
+    );
+    const events = await readEvents(res);
+    expect(codexProblems(events)).toEqual([]);
+    const upstream = mock.requests[0]?.body;
+    expect(upstream?.tools?.find((t) => t.name === 'apply_patch')?.type).toBe('function');
+    expect(
+      (upstream?.input as ResponsesItem[] | undefined)?.some((i) => i.type === 'custom_tool_call'),
+    ).toBe(false);
+    expect(doneItems(events)).toEqual([
+      expect.objectContaining({ type: 'custom_tool_call', name: 'apply_patch', input: patch }),
+      expect.objectContaining({
+        type: 'function_call',
+        name: 'spawn_agent',
+        namespace: 'multi_agent_v1',
+      }),
+    ]);
+    const added = events.filter((e) => e.type === 'response.output_item.added').map((e) => e.item);
+    expect(added[0]).toMatchObject({ type: 'custom_tool_call' });
+  });
+
+  it('gzip 压缩的请求体', async () => {
+    const mock = await responsesUpstream(() => ({ text: ['ok'] }));
+    const { gw } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL)]);
+    const body = codexRequest('1-first-turn').body;
+    const res = await fetch(`${gw.baseURL('resp')}/responses`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${gw.token}`,
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+      },
+      body: gzipSync(JSON.stringify(body)),
+    });
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(mock.requests[0]?.body.model).toBe(body.model);
+    const bad = await fetch(`${gw.baseURL('resp')}/responses`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${gw.token}`, 'content-encoding': 'compress' },
+      body: '{}',
+    });
+    expect(bad.status).toBe(415);
+  });
+});
+
+describe('Chat 转换', () => {
+  it('录制的请求转换后到达上游；推理、文本与 usage 映射回 Responses', async () => {
+    const mock = await chatUpstream(() => ({ reasoning: ['先', '想'], text: ['已', '完成'] }));
+    const { gw } = await gateway();
+    gw.setProviders([chatProvider(mock.baseURL)]);
+    const res = await postResponses(
+      gw.baseURL('chat'),
+      gw.token,
+      codexRequest('2-tool-results').body,
+    );
+    const events = await readEvents(res);
+    expect(codexProblems(events)).toEqual([]);
+    expect(doneItems(events)).toEqual([
+      expect.objectContaining({
+        type: 'reasoning',
+        content: [{ type: 'reasoning_text', text: '先想' }],
+      }),
+      expect.objectContaining({
+        type: 'message',
+        content: [{ type: 'output_text', text: '已完成' }],
+      }),
+    ]);
+    expect(events.at(-1)).toMatchObject({
+      type: 'response.completed',
+      response: {
+        usage: {
+          input_tokens: 100,
+          input_tokens_details: { cached_tokens: 64 },
+          total_tokens: 120,
+        },
+      },
+    });
+    const upstream = mock.requests[0];
+    expect(upstream?.path).toBe('/v1/chat/completions');
+    expect(upstream?.authorization).toBe(`Bearer ${UPSTREAM_KEY}`);
+    expect(upstream?.body.messages.map((m) => m.role)).toEqual([
+      'system',
+      'system',
+      'user',
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+    ]);
+    expect(upstream?.body.messages[4]?.reasoning_content).toBe('先建文件，再看目录。');
+    for (const name of Object.keys(CODEX_METADATA_HEADERS).filter((h) => h !== 'user-agent')) {
+      expect(upstream?.headers).not.toHaveProperty(name);
+    }
+  });
+
+  it('apply_patch 与 namespace 工具往返：上游回摊平的函数，Codex 收到 custom_tool_call 与带 namespace 的 function_call', async () => {
+    const patch = '*** Begin Patch\n*** Add File: b.txt\n+b\n*** End Patch';
+    const mock = await chatUpstream(() => ({
+      reasoning: ['要改文件'],
+      toolCalls: [
+        { kind: 'custom', name: 'apply_patch', input: patch },
+        {
+          kind: 'function',
+          name: 'wait_agent',
+          namespace: 'multi_agent_v1',
+          args: { targets: ['x'] },
+        },
+      ],
+    }));
+    const { gw } = await gateway();
+    gw.setProviders([chatProvider(mock.baseURL)]);
+    const events = await readEvents(
+      await postResponses(gw.baseURL('chat'), gw.token, codexRequest('1-first-turn').body),
+    );
+    expect(codexProblems(events)).toEqual([]);
+    expect(doneItems(events).slice(1)).toEqual([
+      { type: 'custom_tool_call', call_id: expect.any(String), name: 'apply_patch', input: patch },
+      {
+        type: 'function_call',
+        call_id: expect.any(String),
+        name: 'wait_agent',
+        namespace: 'multi_agent_v1',
+        arguments: '{"targets":["x"]}',
+      },
+    ]);
+  });
+
+  it('并行调用的分片交错到达', async () => {
+    const piece = (index: number, args: string, id?: string) => ({
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              id === undefined
+                ? { index, function: { arguments: args } }
+                : {
+                    index,
+                    id,
+                    type: 'function',
+                    function: { name: 'exec_command', arguments: args },
+                  },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+    const mock = await chatUpstream(() => ({
+      rawChunks: [
+        piece(0, '{"cmd":', 'a'),
+        piece(1, '{"cmd":', 'b'),
+        piece(1, '"ls"}'),
+        piece(0, '"pwd"}'),
+        { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+        '[DONE]',
+      ],
+    }));
+    const { gw } = await gateway();
+    gw.setProviders([chatProvider(mock.baseURL)]);
+    const events = await readEvents(
+      await postResponses(gw.baseURL('chat'), gw.token, codexRequest('1-first-turn').body),
+    );
+    expect(doneItems(events).map((i) => [i.call_id, i.arguments])).toEqual([
+      ['a', '{"cmd":"pwd"}'],
+      ['b', '{"cmd":"ls"}'],
+    ]);
+  });
+
+  it('finish_reason=length → response.incomplete；流里的错误与提前断开 → response.failed（带原文）', async () => {
+    const replies = [
+      { text: ['截'], finishReason: 'length' },
+      { text: ['半'], failed: { code: 'server_error', message: 'upstream exploded: 原文' } },
+      { text: ['断'], disconnect: true },
+    ];
+    let i = 0;
+    const mock = await chatUpstream(() => replies[i++] ?? {});
+    const { gw } = await gateway();
+    gw.setProviders([chatProvider(mock.baseURL)]);
+    const body = codexRequest('1-first-turn').body;
+    const length = await readEvents(await postResponses(gw.baseURL('chat'), gw.token, body));
+    expect(codexProblems(length)).toEqual([]);
+    expect(length.at(-1)).toMatchObject({
+      type: 'response.incomplete',
+      response: { incomplete_details: { reason: 'max_output_tokens' } },
+    });
+    const failed = await readEvents(await postResponses(gw.baseURL('chat'), gw.token, body));
+    expect(failed.at(-1)).toMatchObject({
+      type: 'response.failed',
+      response: { error: { code: 'server_error', message: 'upstream exploded: 原文' } },
+    });
+    const cut = await readEvents(await postResponses(gw.baseURL('chat'), gw.token, body));
+    expect(codexProblems(cut)).toEqual([]);
+    expect(cut.at(-1)).toMatchObject({
+      type: 'response.failed',
+      response: { error: { message: expect.any(String) } },
+    });
+  });
+});
+
+describe('上游错误', () => {
+  it('非 2xx：状态码原样，正文整理成 {"error":{"message"}}，保留 code，回显的 Key 遮掉', async () => {
+    const errors = [
+      { status: 429, message: 'Too many requests', code: 'rate_limit_exceeded' },
+      { status: 500, body: '<html>Internal Server Error</html>' },
+      { status: 401, message: `Incorrect API key provided: ${UPSTREAM_KEY}` },
+    ];
+    let i = 0;
+    const chat = await chatUpstream(() => ({ httpError: errors[i++] }));
+    let j = 0;
+    const resp = await responsesUpstream(() => ({ httpError: errors[j++] }));
+    const { gw, lines } = await gateway();
+    gw.setProviders([chatProvider(chat.baseURL), responsesProvider(resp.baseURL)]);
+    for (const id of ['chat', 'resp']) {
+      const body = codexRequest('1-first-turn').body;
+      const r429 = await postResponses(gw.baseURL(id), gw.token, body);
+      expect(r429.status).toBe(429);
+      expect(await r429.json()).toEqual({
+        error: {
+          message: 'Too many requests',
+          type: 'invalid_request_error',
+          code: 'rate_limit_exceeded',
+        },
+      });
+      const r500 = await postResponses(gw.baseURL(id), gw.token, body);
+      expect(r500.status).toBe(500);
+      expect(await r500.json()).toEqual({
+        error: { message: '<html>Internal Server Error</html>' },
+      });
+      const r401 = await postResponses(gw.baseURL(id), gw.token, body);
+      expect(r401.status).toBe(401);
+      expect(JSON.stringify(await r401.json())).not.toContain(UPSTREAM_KEY);
+    }
+    await until(() => requestLogs(lines).length === 6);
+    expect(requestLogs(lines).map((l) => l.fields?.upstreamStatus)).toEqual([
+      429, 500, 401, 429, 500, 401,
+    ]);
+  });
+
+  it('Responses 上游流里的 response.failed 原样转回', async () => {
+    const mock = await responsesUpstream(() => ({
+      failed: { code: 'context_length_exceeded', message: '太长' },
+    }));
+    const { gw } = await gateway();
+    gw.setProviders([responsesProvider(mock.baseURL)]);
+    const events = await readEvents(
+      await postResponses(gw.baseURL('resp'), gw.token, codexRequest('1-first-turn').body),
+    );
+    expect(events.at(-1)).toMatchObject({
+      type: 'response.failed',
+      response: { error: { code: 'context_length_exceeded', message: '太长' } },
+    });
+  });
+
+  it('连不上上游 → 502', async () => {
+    const { gw, lines } = await gateway();
+    gw.setProviders([chatProvider(`http://127.0.0.1:${await closedPort()}/v1`)]);
+    const res = await postResponses(gw.baseURL('chat'), gw.token, { model: 'm', input: 'hi' });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: { message: string } }).error.message).toContain(
+      '连不上上游',
+    );
+    await until(() => requestLogs(lines).length === 1);
+    expect(requestLogs(lines)[0]?.fields).toMatchObject({
+      outcome: 'network_error',
+      error: 'ECONNREFUSED',
+    });
+  });
+});
+
+describe('取消与配置更新', () => {
+  for (const mode of ['chat', 'resp'] as const) {
+    it(`${mode}：Codex 断开时中断上游，记为 client_closed`, async () => {
+      const script: Script = () => ({
+        text: Array.from({ length: 200 }, (_, n) => `${n} `),
+        delayMs: 20,
+      });
+      const mock = mode === 'chat' ? await chatUpstream(script) : await responsesUpstream(script);
+      const { gw, lines } = await gateway();
+      gw.setProviders([
+        mode === 'chat' ? chatProvider(mock.baseURL) : responsesProvider(mock.baseURL),
+      ]);
+      const abort = new AbortController();
+      const res = await postResponses(
+        gw.baseURL(mode),
+        gw.token,
+        codexRequest('1-first-turn').body,
+        {
+          signal: abort.signal,
+        },
+      );
+      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
+      let text = '';
+      while (!text.includes('output_text.delta')) {
+        const { value } = await reader.read();
+        text += new TextDecoder().decode(value);
+      }
+      abort.abort();
+      await mock.waitAborted(0);
+      await until(() => requestLogs(lines).length === 1);
+      expect(requestLogs(lines)[0]?.fields).toMatchObject({
+        outcome: 'client_closed',
+        upstreamStatus: 200,
+      });
+    });
+  }
+
+  it('setProviders 之后的请求按新配置走，进行中的请求不受影响', async () => {
+    const slow = await chatUpstream(() => ({ text: ['慢', '慢', '来'], delayMs: 60 }));
+    const other = await chatUpstream(() => ({ text: ['新地址'] }));
+    const { gw } = await gateway();
+    gw.setProviders([chatProvider(slow.baseURL)]);
+    const pending = postResponses(gw.baseURL('chat'), gw.token, { model: 'm', input: 'hi' });
+    await until(() => slow.requests.length === 1);
+    gw.setProviders([chatProvider(other.baseURL, { apiKey: 'sk-new' })]);
+    const first = await readEvents(await pending);
+    expect(doneItems(first)[0]).toMatchObject({
+      content: [{ type: 'output_text', text: '慢慢来' }],
+    });
+    const second = await readEvents(
+      await postResponses(gw.baseURL('chat'), gw.token, { model: 'm', input: 'hi' }),
+    );
+    expect(doneItems(second)[0]).toMatchObject({
+      content: [{ type: 'output_text', text: '新地址' }],
+    });
+    expect(other.requests[0]?.authorization).toBe('Bearer sk-new');
+    gw.setProviders([]);
+    expect(
+      (await postResponses(gw.baseURL('chat'), gw.token, { model: 'm', input: 'hi' })).status,
+    ).toBe(404);
+  });
+
+  it('改 setProviders 传入的对象不影响网关', async () => {
+    const mock = await chatUpstream(() => ({ text: ['x'] }));
+    const { gw } = await gateway();
+    const provider = chatProvider(mock.baseURL);
+    gw.setProviders([provider]);
+    provider.apiKey = 'sk-mutated';
+    await (await postResponses(gw.baseURL('chat'), gw.token, { model: 'm', input: 'hi' })).text();
+    expect(mock.requests[0]?.authorization).toBe(`Bearer ${UPSTREAM_KEY}`);
+  });
+
+  it('close() 中断进行中的上游请求', async () => {
+    const mock = await chatUpstream(() => ({
+      text: Array.from({ length: 100 }, () => 'x'),
+      delayMs: 20,
+    }));
+    const { gw } = await gateway();
+    gw.setProviders([chatProvider(mock.baseURL)]);
+    const res = await postResponses(gw.baseURL('chat'), gw.token, { model: 'm', input: 'hi' });
+    await until(() => mock.requests.length === 1);
+    await gw.close();
+    await mock.waitAborted(0);
+    await res.text().catch(() => '');
+  });
+});
+
+describe('日志口径', () => {
+  it('只记方法、Provider ID、结果、上游状态码与耗时；不记请求体、响应体、Key 与令牌', async () => {
+    const mock = await chatUpstream(() => ({ reasoning: ['秘密推理'], text: ['秘密回答'] }));
+    const { gw, lines } = await gateway();
+    gw.setProviders([chatProvider(mock.baseURL)]);
+    const body = codexRequest('2-tool-results').body;
+    await (await postResponses(gw.baseURL('chat'), gw.token, body)).text();
+    await (await postResponses(gw.baseURL('chat'), 'bad-token', body)).text();
+    await until(() => requestLogs(lines).length === 1);
+    expect(requestLogs(lines)[0]?.fields).toEqual({
+      method: 'POST',
+      providerId: 'chat',
+      outcome: 'completed',
+      upstreamStatus: 200,
+      durationMs: expect.any(Number),
+    });
+    const all = JSON.stringify(lines);
+    for (const secret of [UPSTREAM_KEY, gw.token, 'bad-token', '秘密', '先建文件', 'notes.md']) {
+      expect(all).not.toContain(secret);
+    }
+  });
+});
+
+describe('事件流的编码', () => {
+  it('网关发出的每条 SSE 都能被解析，Codex 不认识的事件不会出现', async () => {
+    const mock = await chatUpstream(() => ({
+      reasoning: ['r'],
+      text: ['t'],
+      toolCalls: [{ kind: 'function', name: 'exec_command', args: {} }],
+    }));
+    const { gw } = await gateway();
+    gw.setProviders([chatProvider(mock.baseURL)]);
+    const text = await (
+      await postResponses(gw.baseURL('chat'), gw.token, codexRequest('1-first-turn').body)
+    ).text();
+    const events = parseEvents(text);
+    expect(new Set(events.map((e) => e.type))).toEqual(
+      new Set([
+        'response.created',
+        'response.output_item.added',
+        'response.reasoning_text.delta',
+        'response.output_item.done',
+        'response.output_text.delta',
+        'response.completed',
+      ]),
+    );
+    expect(text.split('\n\n').filter(Boolean)).toHaveLength(events.length);
+  });
+});

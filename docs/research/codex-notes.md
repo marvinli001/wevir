@@ -202,6 +202,7 @@ OpenAI 不推荐任何桥接（discussion #7782 只建议网关自己支持 `res
 - 已验证：逐字流式、推理增量、apply_patch 往返（模型回 `{"input": 补丁}` → Codex 收到 `custom_tool_call`）、两类审批、推理在同一回合与跨回合都回到 `reasoning_content`、namespace 工具（子 agent）往返、取消时网关跟着断开上游、resume、`update_plan`、上游 400 → 回合 failed 且之后可用。
 - 真实模型验证过（§7.3）：DeepSeek 的 Chat 接口按函数描述里的 Lark 语法写出了合法补丁，`reasoning_content` 回传后多轮不报错。
 - 没验证：图片输入；`response.incomplete`（`max_tokens` 截断）；上游流中途出错；并行工具调用的多个 `index` 交错到达；Anthropic Messages 与 Gemini 原生协议（没写）。
+- 补记（R1，2026-10-14）：产品网关 `packages/model-gateway` 补上了上一条里除 Anthropic Messages、Gemini 之外的各项，用 mock 上游与录制的真实 Codex 请求测试；真实 `codex-app-server` 经产品网关跑本 Spike 的场景，gateway / passthrough 104 项检查全部通过（[model-gateway.md](../architecture/model-gateway.md) §8）。
 
 ### 5.3 Responses 原生上游也经网关
 

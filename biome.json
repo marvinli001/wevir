@@ -7,7 +7,13 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!spikes/**/fixtures", "!packages/adapter-dsh/src/test-fixtures/acp"]
+    "includes": [
+      "**",
+      "!spikes/**/fixtures",
+      "!packages/adapter-dsh/src/test-fixtures/acp",
+      "!packages/model-gateway/src/test-fixtures/codex-requests",
+      "!packages/model-gateway/src/__snapshots__"
+    ]
   },
   "formatter": {
     "enabled": true,

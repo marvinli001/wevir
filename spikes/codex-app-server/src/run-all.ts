@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerRequest } from './app-server.ts';
 import { SPIKE_ROOT } from './codex-home.ts';
-import { Harness, type Transport } from './harness.ts';
+import { Harness, MOCK_UPSTREAM_KEY, PRODUCT_GATEWAY, type Transport } from './harness.ts';
 import type { ChatRequest } from './mock-chat.ts';
 import type { RecordedRequest } from './mock-responses.ts';
 import type { ModelView, Reply } from './model-script.ts';
@@ -148,9 +148,13 @@ scenario(
         { leaked, headers: Object.keys(req.headers) },
       );
       // mock 上游没有 Key，所以上游请求里应当完全没有 authorization：Codex 的一次性令牌止于网关。
+      // 产品网关总带上游 Key（假的），这时核对上游收到的是它，不是令牌（mock 只记方案与长度）。
       check(
         r,
-        req.headers.authorization === undefined,
+        PRODUCT_GATEWAY
+          ? req.headers.authorization ===
+              `<Bearer …${'Bearer '.length + MOCK_UPSTREAM_KEY.length} chars>`
+          : req.headers.authorization === undefined,
         '透传：Codex 的令牌不转发给上游',
         req.headers.authorization,
       );
@@ -897,7 +901,7 @@ for (const r of results) {
   }
 }
 console.log(`\n共 ${total} 项检查，${bad} 项不通过或出错。`);
-if (!only && transports.length === 3) {
+if (!only && transports.length === 3 && !PRODUCT_GATEWAY) {
   // 本机路径换成占位符；耗时与 id 每次都不同，不进 fixture。
   const scrub = (text: string) =>
     text

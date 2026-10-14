@@ -35,6 +35,54 @@ export interface RealUpstream {
 }
 
 export const MOCK_MODEL = 'wevir-mock';
+
+/**
+ * WEVIR_SPIKE_GATEWAY=product：gateway / passthrough 两种接法改用产品网关（packages/model-gateway 的 dist），
+ * 同一组场景验证它（R1）。产品网关总要一个上游 Key，mock 上游用假的。
+ */
+export const PRODUCT_GATEWAY = process.env.WEVIR_SPIKE_GATEWAY === 'product';
+export const MOCK_UPSTREAM_KEY = 'mock-upstream-key';
+
+async function startProductGateway(
+  chat: boolean,
+  upstreamBaseURL: string,
+  real: RealUpstream | undefined,
+): Promise<{ token: string; gateway: Gateway }> {
+  const { startModelGateway } = (await import(
+    join(SPIKE_ROOT, '../../packages/model-gateway/dist/index.js')
+  )) as {
+    startModelGateway: (options?: unknown) => Promise<{
+      token: string;
+      baseURL(id: string): string;
+      setProviders(providers: unknown[]): void;
+      close(): Promise<void>;
+    }>;
+  };
+  const gw = await startModelGateway();
+  const model = real ? (chat ? real.chatModel : real.model) : MOCK_MODEL;
+  gw.setProviders([
+    {
+      id: 'spike',
+      kind: 'openai-compatible',
+      displayName: 'Wevir spike',
+      api: chat ? 'openai-completions' : 'openai-responses',
+      baseURL: upstreamBaseURL,
+      models: [{ id: model }],
+      defaultModelId: model,
+      apiKey: real?.key ?? MOCK_UPSTREAM_KEY,
+    },
+  ]);
+  return {
+    token: gw.token,
+    gateway: {
+      baseURL: gw.baseURL('spike'),
+      translated: [],
+      forwardedHeaders: [],
+      dropped: [],
+      close: () => gw.close(),
+    },
+  };
+}
 export const KEY_ENV = 'WEVIR_PROVIDER_SPIKE_KEY';
 
 /** Codex 给未知模型用的基础提示词（models-manager/prompt.md）；目录里的模型必须带 base_instructions。 */
@@ -124,18 +172,26 @@ export class Harness {
         h.responses = await startMockResponses(options.script);
         upstreamBaseURL = h.responses.baseURL;
       }
-      // 一次性令牌：只有 Codex 与网关知道；上游 Key 只在网关里。
-      h.#token = randomBytes(24).toString('base64url');
-      h.gateway = await startGateway({
-        upstreamProtocol: chat ? 'chat' : 'responses',
-        upstreamBaseURL,
-        upstreamKey: real?.key,
-        upstreamModel: real ? (chat ? real.chatModel : real.model) : undefined,
-        extraBody: chat ? real?.chatExtraBody : undefined,
-        sessionToken: h.#token,
-        log: options.trace || real ? (l) => console.error(`  [gw] ${l}`) : undefined,
-      });
-      baseURL = h.gateway.baseURL;
+      if (PRODUCT_GATEWAY) {
+        // 产品网关（packages/model-gateway，先 pnpm --filter @wevir/model-gateway build）：令牌由网关生成。
+        const product = await startProductGateway(chat, upstreamBaseURL, real);
+        h.#token = product.token;
+        h.gateway = product.gateway;
+        baseURL = product.gateway.baseURL;
+      } else {
+        // 一次性令牌：只有 Codex 与网关知道；上游 Key 只在网关里。
+        h.#token = randomBytes(24).toString('base64url');
+        h.gateway = await startGateway({
+          upstreamProtocol: chat ? 'chat' : 'responses',
+          upstreamBaseURL,
+          upstreamKey: real?.key,
+          upstreamModel: real ? (chat ? real.chatModel : real.model) : undefined,
+          extraBody: chat ? real?.chatExtraBody : undefined,
+          sessionToken: h.#token,
+          log: options.trace || real ? (l) => console.error(`  [gw] ${l}`) : undefined,
+        });
+        baseURL = h.gateway.baseURL;
+      }
     }
     writeConfig(
       h.sandbox.codexHome,

@@ -9,6 +9,8 @@ bash scripts/fetch-binary.sh   # 下载 codex-app-server rust-v0.162.1（与 ups
 node src/run-all.ts            # 全部场景 × 三种接法，模型是本地 mock，不需要 Key（约 15 秒）
 node src/network-audit.ts      # 外连审计：默认配置与各加固项各跑一个回合（约 1 分钟）
 WEVIR_SPIKE_KEY=… node src/real.ts   # 真实模型（默认 DeepSeek），没有 Key 时打印“跳过”后退出
+node src/record-requests.ts    # 录 Codex 的请求样本给 packages/model-gateway 的测试（R1）
+WEVIR_SPIKE_GATEWAY=product node src/run-all.ts --transport=gateway,passthrough   # 改用产品网关（先 pnpm --filter @wevir/model-gateway build）
 ```
 
 `run-all.ts` 的参数：`--only=<场景,...>`、`--transport=direct,gateway,passthrough`、`--trace`（打印每一行收发）、`--keep`（保留临时目录）。三种接法都跑完时把每项检查的结果写进 `fixtures/results.json`（本机路径与 uuid 已换成占位符）。
@@ -47,4 +49,5 @@ WEVIR_SPIKE_KEY=… node src/real.ts   # 真实模型（默认 DeepSeek），没
 | `src/run-all.ts` | 场景：流式、apply_patch 与文件审批、命令审批、跨回合推理、子 agent、取消、resume、计划、上游报错、密钥 |
 | `src/network-audit.ts` | 外连审计（只记录目标主机、一律拒绝的代理 + lsof 抓 TCP 对端） |
 | `src/real.ts` | 真实模型：补丁、跨回合、子 agent、取消 |
+| `src/record-requests.ts` | 录 Codex 的请求样本（第一回合、带工具结果、带图片与中间 developer 消息的下一回合、压缩），脱敏后写进 `packages/model-gateway/src/test-fixtures/codex-requests/`（R1） |
 | `fixtures/results.json` | 最近一次全量运行的每项检查与备注 |

@@ -88,6 +88,7 @@ node packages/host/dist/main.js --home ./.wevir-dev --adapter dsh --log-level de
 | `packages/runtime-adapter` | 引擎适配接口、契约测试套件、echo 假引擎 | `pnpm vitest run --project runtime-adapter` |
 | `packages/storage` | SQLite、迁移、仓储、SecretStore | `pnpm vitest run --project storage` |
 | `packages/adapter-dsh` | dsh 进程、ACP 映射、增量旁路、Provider 桥接 | `pnpm vitest run --project adapter-dsh`（含真实 dsh + 本地 mock Provider，不需要 Key） |
+| `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §8 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
 | `apps/desktop` | Electron 桌面端 | `pnpm dev`；`pnpm --filter @wevir/desktop palette` 重新生成色阶 |
@@ -188,11 +189,11 @@ pnpm vitest run --project adapter-dsh dsh-adapter.contract
 | 变量 | 含义 |
 |---|---|
 | `WEVIR_TEST_API_KEY` | 模型 Key。设了它，下面几组测试才跑真实模型的用例 |
-| `WEVIR_TEST_PROVIDER` | 只有契约第 3 层要：`deepseek-official` 或 `openai-compatible` |
+| `WEVIR_TEST_PROVIDER` | dsh 契约第 3 层要：`deepseek-official` 或 `openai-compatible`；模型网关的真实模型测试只认 `deepseek`（或 `deepseek-official`） |
 | `WEVIR_TEST_BASE_URL` | 走 OpenAI 兼容服务时的地址，例如 `https://dashscope.aliyuncs.com/compatible-mode/v1`。不设则用 DeepSeek 官方 |
 | `WEVIR_TEST_MODEL` | 模型 ID。设了 `WEVIR_TEST_BASE_URL` 时必填；用 DeepSeek 官方时可省略，各测试有自己的默认值 |
 
-用到 Key 的测试：`packages/adapter-dsh` 的 `dsh-adapter.approval.integration`、`dsh-adapter.resume.integration`、`provider-test.integration`、`dsh-adapter.contract.real.integration`，以及 `packages/host` 的 `host-process.dsh.integration`。Key 只经环境变量传给测试，再只进 dsh 子进程的环境，不写进 overlay、快照或日志；不要把 Key 写进仓库里的任何文件。
+用到 Key 的测试：`packages/adapter-dsh` 的 `dsh-adapter.approval.integration`、`dsh-adapter.resume.integration`、`provider-test.integration`、`dsh-adapter.contract.real.integration`，`packages/host` 的 `host-process.dsh.integration`，以及 `packages/model-gateway` 的 `gateway.real.integration`（Key 只进网关的内存，经 DeepSeek 的透传与 Chat 转换各跑一次）。Key 只经环境变量传给测试，再只进 dsh 子进程的环境，不写进 overlay、快照或日志；不要把 Key 写进仓库里的任何文件。
 
 DeepSeek 官方的例子：
 

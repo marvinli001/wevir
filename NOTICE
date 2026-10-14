@@ -140,6 +140,12 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
 
 这四个文件按 Apache License 2.0 发布，许可证全文见文末“Apache License 2.0”。
 
+下面两处测试样本是 codex-app-server 发给模型服务的请求的录制（及其经 Wevir 模型网关转换后的快照），
+其中含 Codex 内置工具的定义与描述文本，以及 Codex 注入的权限、skills 与环境说明文字：
+
+  packages/model-gateway/src/test-fixtures/codex-requests/
+  packages/model-gateway/src/__snapshots__/codex-requests/
+
 
 MIT License
 ------------------------------------------------------------------------------------------------

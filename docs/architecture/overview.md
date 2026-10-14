@@ -67,6 +67,7 @@ flowchart TB
 | `packages/runtime-adapter` | 引擎适配接口 `AgentRuntimeAdapter` 与引擎事件 `AgentEvent`；`./contract` 契约测试套件；`./echo` 假引擎 | 无 |
 | `packages/storage` | `node:sqlite` 驱动（只在 `driver.ts`）、事务、手写 SQL 迁移、各表仓储、`FileSecretStore` | 无 |
 | `packages/adapter-dsh` | dsh 进程管理（独立 `DSH_HOME`、白名单环境、启动与回收）、ACP → `AgentEvent` 映射、stream-tap 增量旁路、增量对齐、审批桥接、Provider overlay 与 `provider.test`、会话恢复 | dsh、ACP SDK、runtime-adapter |
+| `packages/model-gateway` | Codex 用的模型协议网关（ADR-0005 决策 2，[model-gateway.md](./model-gateway.md)）：`127.0.0.1` 上的 `POST /v1/p/<providerId>/responses`，一次性令牌；Responses 上游透传（剥掉 Codex 的元数据、按服务挂方言修正），Chat Completions 上游转换；`testProvider`。R2 接进 Host 之前还没有调用方 | runtime-adapter（只用类型） |
 | `packages/host` | `EventStore`（`seq`、增量合并、截断）、`SessionManager`、`HostRpcServer`、`createHostMethods`、进程入口 `wevir-host` 与运行时文件；子路径 `./runtime` 给拉起 Host 的客户端用 | protocol、runtime-adapter、storage、adapter-dsh、ws |
 | `packages/client-sdk` | `WevirClient`（hello、类型安全的请求、断线排队、心跳、重连状态机）、`subscribe()` 异步迭代器（按 `seq` 去重补缺口）、`TranscriptProjection`（事件 → 消息与部件）；`./node` 读 `host.json`。浏览器入口不碰 Node 内置模块 | protocol |
 | `apps/desktop` | Electron 桌面端：主进程（窗口安全基线、`HostLifecycle`）、preload、渲染进程（三栏布局、会话视图、设置） | client-sdk、host（只用 `./runtime`）、protocol |

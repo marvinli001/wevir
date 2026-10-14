@@ -1,0 +1,433 @@
+import { describe, expect, it } from 'vitest';
+import { CODEX_SAMPLES, codexRequest } from '../test-fixtures/codex.js';
+import type { ChatMessage, GatewayProvider, ResponsesRequest } from '../types.js';
+import {
+  decodeReasoning,
+  encodeReasoning,
+  SYSTEM_AS_USER_NOTE,
+  TOOL_IMAGE_NOTE,
+  toChatRequest,
+} from './request.js';
+
+const provider = (patch: Partial<GatewayProvider> = {}): GatewayProvider => ({
+  id: 'chat',
+  kind: 'openai-compatible',
+  displayName: 'Chat',
+  api: 'openai-completions',
+  baseURL: 'https://chat.example.com/v1',
+  models: [{ id: 'm' }],
+  defaultModelId: 'm',
+  apiKey: 'k',
+  ...patch,
+});
+
+const request = (input: ResponsesRequest['input'], extra: Partial<ResponsesRequest> = {}) =>
+  ({ model: 'm', input, ...extra }) as ResponsesRequest;
+
+const user = (text: string) => ({
+  type: 'message',
+  role: 'user',
+  content: [{ type: 'input_text', text }],
+});
+const developer = (text: string) => ({
+  type: 'message',
+  role: 'developer',
+  content: [{ type: 'input_text', text }],
+});
+const roles = (messages: ChatMessage[]) => messages.map((m) => m.role);
+
+describe('录制的 Codex 请求 → Chat 请求', () => {
+  for (const name of CODEX_SAMPLES) {
+    it(`${name} 的转换结果与快照一致`, async () => {
+      const { request: chat, dropped } = toChatRequest(codexRequest(name).body, provider());
+      await expect(`${JSON.stringify({ request: chat, dropped }, null, 2)}\n`).toMatchFileSnapshot(
+        `../__snapshots__/codex-requests/${name}.chat.json`,
+      );
+    });
+  }
+
+  it('第一回合：developer → system，工具全部摊平成函数，Responses 专有字段丢掉', () => {
+    const { request: chat, dropped } = toChatRequest(codexRequest('1-first-turn').body, provider());
+    expect(roles(chat.messages)).toEqual(['system', 'system', 'user', 'user']);
+    expect(chat.tools?.map((t) => t.function.name)).toEqual([
+      'exec_command',
+      'write_stdin',
+      'request_user_input',
+      'apply_patch',
+      'view_image',
+      'multi_agent_v1__close_agent',
+      'multi_agent_v1__resume_agent',
+      'multi_agent_v1__send_input',
+      'multi_agent_v1__spawn_agent',
+      'multi_agent_v1__wait_agent',
+    ]);
+    const applyPatch = chat.tools?.find((t) => t.function.name === 'apply_patch');
+    expect(applyPatch?.function.parameters).toMatchObject({ required: ['input'] });
+    expect(applyPatch?.function.description).toContain('begin_patch');
+    expect(chat.tool_choice).toBe('auto');
+    expect(chat.reasoning_effort).toBe('high');
+    expect(chat.stream).toBe(true);
+    expect(chat.stream_options).toEqual({ include_usage: true });
+    for (const field of [
+      'client_metadata',
+      'prompt_cache_key',
+      'store',
+      'include',
+      'parallel_tool_calls',
+    ]) {
+      expect(dropped).toContain(`field:${field}`);
+      expect(chat).not.toHaveProperty(field);
+    }
+    expect(JSON.stringify(chat)).not.toContain('x-codex-installation-id');
+  });
+
+  it('带工具结果的请求：推理挂到 assistant，两个工具调用合成一条，输出是 tool 消息', () => {
+    const { request: chat, dropped } = toChatRequest(
+      codexRequest('2-tool-results').body,
+      provider(),
+    );
+    expect(roles(chat.messages)).toEqual([
+      'system',
+      'system',
+      'user',
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+    ]);
+    const assistant = chat.messages[4];
+    expect(assistant?.reasoning_content).toBe('先建文件，再看目录。');
+    expect(assistant?.content).toBeNull();
+    expect(assistant?.tool_calls?.map((c) => [c.id, c.function.name])).toEqual([
+      ['call_1', 'apply_patch'],
+      ['call_2', 'exec_command'],
+    ]);
+    expect(JSON.parse(assistant?.tool_calls?.[0]?.function.arguments ?? '')).toEqual({
+      input: '*** Begin Patch\n*** Add File: notes.md\n+# 笔记\n*** End Patch',
+    });
+    expect(chat.messages[5]).toMatchObject({ role: 'tool', tool_call_id: 'call_1' });
+    expect(chat.messages[5]?.content).toContain('Success. Updated the following files');
+    expect(chat.messages[6]).toMatchObject({ role: 'tool', tool_call_id: 'call_2' });
+    expect(dropped.filter((d) => !d.startsWith('field:'))).toEqual([]);
+  });
+
+  it('跨回合：上一回合的推理仍回传；对话中间的 developer 消息原位转 system；图片转 image_url', () => {
+    const { request: chat } = toChatRequest(codexRequest('3-next-turn').body, provider());
+    expect(roles(chat.messages)).toEqual([
+      'system',
+      'system',
+      'user',
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'assistant',
+      'system',
+      'user',
+    ]);
+    expect(chat.messages[7]).toMatchObject({
+      role: 'assistant',
+      content: '已新建 notes.md。',
+      reasoning_content: '文件建好了。',
+    });
+    expect(String(chat.messages[8]?.content)).toContain('<permissions instructions>');
+    const parts = chat.messages[9]?.content;
+    expect(Array.isArray(parts)).toBe(true);
+    expect(parts).toEqual([
+      { type: 'text', text: '[rec-2] 这张图里是什么？' },
+      {
+        type: 'image_url',
+        image_url: { url: expect.stringMatching(/^data:image\/png;base64,/), detail: 'high' },
+      },
+    ]);
+  });
+
+  it('压缩请求：tools 为空时不发 tools 与 tool_choice', () => {
+    const { request: chat } = toChatRequest(codexRequest('4-compact').body, provider());
+    expect(chat).not.toHaveProperty('tools');
+    expect(chat).not.toHaveProperty('tool_choice');
+    expect(chat.messages.at(-1)?.role).toBe('user');
+  });
+});
+
+describe('对话中间的 developer 消息（compat.systemMessageMode）', () => {
+  const body = codexRequest('3-next-turn').body;
+
+  it('merge：全部并进开头的一条 system，之后没有 system', () => {
+    const { request: chat } = toChatRequest(
+      body,
+      provider({ compat: { systemMessageMode: 'merge' } }),
+    );
+    expect(roles(chat.messages).filter((r) => r === 'system')).toHaveLength(1);
+    expect(chat.messages[0]?.role).toBe('system');
+    const text = String(chat.messages[0]?.content);
+    expect(text.indexOf('<BASE_INSTRUCTIONS')).toBeLessThan(text.indexOf('<skills_instructions>'));
+    expect(text.indexOf('<skills_instructions>')).toBeLessThan(
+      text.lastIndexOf('<permissions instructions>'),
+    );
+  });
+
+  it('user：开头连续的并成一条 system，之后的转成注明来源的 user', () => {
+    const { request: chat } = toChatRequest(
+      body,
+      provider({ compat: { systemMessageMode: 'user' } }),
+    );
+    expect(roles(chat.messages)).toEqual([
+      'system',
+      'user',
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'assistant',
+      'user',
+      'user',
+    ]);
+    expect(String(chat.messages[0]?.content)).toContain('<skills_instructions>');
+    const converted = String(chat.messages[7]?.content);
+    expect(converted.startsWith(`${SYSTEM_AS_USER_NOTE}\n<permissions instructions>`)).toBe(true);
+  });
+
+  it('inline 且 supportsDeveloperRole：developer 保持 developer 角色', () => {
+    const { request: chat } = toChatRequest(
+      request([developer('d'), user('u')], { instructions: 'i' }),
+      provider({ compat: { supportsDeveloperRole: true } }),
+    );
+    expect(chat.messages).toEqual([
+      { role: 'system', content: 'i' },
+      { role: 'developer', content: 'd' },
+      { role: 'user', content: 'u' },
+    ]);
+  });
+});
+
+describe('工具名', () => {
+  it('namespace 摊平后超过 64 个字符或含非法字符：改成截断加哈希，历史调用与工具定义得到同一个名字', () => {
+    const namespace = 'mcp__a_really_long_server_name_for_testing.example';
+    const name = 'list_all_the_things_in_the_workspace';
+    const { request: chat, names } = toChatRequest(
+      request(
+        [
+          user('u'),
+          { type: 'function_call', call_id: 'c1', name, namespace, arguments: '{}' },
+          { type: 'function_call_output', call_id: 'c1', output: 'ok' },
+        ],
+        {
+          tools: [
+            {
+              type: 'namespace',
+              name: namespace,
+              tools: [{ type: 'function', name, parameters: { type: 'object' } }],
+            },
+          ],
+        },
+      ),
+      provider(),
+    );
+    const flat = chat.tools?.[0]?.function.name ?? '';
+    expect(flat).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+    expect(flat.startsWith('mcp__a_really_long_server_name_for_testing_example__')).toBe(true);
+    expect(chat.messages[1]?.tool_calls?.[0]?.function.name).toBe(flat);
+    expect(names.origin(flat)).toEqual({ kind: 'function', name, namespace });
+  });
+
+  it('摊平后撞名的两个工具得到不同的名字', () => {
+    const { request: chat, names } = toChatRequest(
+      request([user('u')], {
+        tools: [
+          { type: 'function', name: 'a__b' },
+          { type: 'namespace', name: 'a', tools: [{ type: 'function', name: 'b' }] },
+        ],
+      }),
+      provider(),
+    );
+    const [first, second] = chat.tools?.map((t) => t.function.name) ?? [];
+    expect(first).toBe('a__b');
+    expect(second).not.toBe('a__b');
+    expect(names.origin(second ?? '')).toEqual({ kind: 'function', name: 'b', namespace: 'a' });
+  });
+
+  it('托管工具丢掉；tool_choice 指定的函数按摊平后的名字发', () => {
+    const { request: chat, dropped } = toChatRequest(
+      request([user('u')], {
+        tools: [
+          { type: 'web_search' },
+          { type: 'custom', name: 'apply_patch', format: { type: 'text' } },
+        ],
+        tool_choice: { type: 'custom', name: 'apply_patch' },
+      }),
+      provider(),
+    );
+    expect(dropped).toContain('tool:web_search');
+    expect(chat.tools?.map((t) => t.function.name)).toEqual(['apply_patch']);
+    expect(chat.tools?.[0]?.function.description).toBe(
+      'Put the raw tool input in the `input` string.',
+    );
+    expect(chat.tool_choice).toEqual({ type: 'function', function: { name: 'apply_patch' } });
+  });
+});
+
+describe('输入项', () => {
+  it('input 是字符串时当作一条 user 消息', () => {
+    expect(toChatRequest(request('hi'), provider()).request.messages).toEqual([
+      { role: 'user', content: 'hi' },
+    ]);
+  });
+
+  it('图片：detail 保留，file_id 引用的图片没法转，丢掉', () => {
+    const { request: chat, dropped } = toChatRequest(
+      request([
+        {
+          type: 'message',
+          role: 'user',
+          content: [
+            { type: 'input_text', text: '看图' },
+            { type: 'input_image', image_url: 'https://example.com/a.png', detail: 'low' },
+            { type: 'input_image', file_id: 'file_1' },
+          ],
+        },
+      ]),
+      provider(),
+    );
+    expect(chat.messages[0]?.content).toEqual([
+      { type: 'text', text: '看图' },
+      { type: 'image_url', image_url: { url: 'https://example.com/a.png', detail: 'low' } },
+    ]);
+    expect(dropped).toContain('input_image:file_id');
+  });
+
+  it('工具输出带图片（view_image）：tool 消息只放文本，图片在这批 tool 消息之后补一条 user', () => {
+    const { request: chat } = toChatRequest(
+      request([
+        user('u'),
+        { type: 'function_call', call_id: 'a', name: 'view_image', arguments: '{}' },
+        { type: 'function_call', call_id: 'b', name: 'exec_command', arguments: '{}' },
+        {
+          type: 'function_call_output',
+          call_id: 'a',
+          output: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }],
+        },
+        {
+          type: 'function_call_output',
+          call_id: 'b',
+          output: [{ type: 'input_text', text: 'done' }],
+        },
+        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '看完了' }] },
+      ]),
+      provider(),
+    );
+    expect(roles(chat.messages)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'user',
+      'assistant',
+    ]);
+    expect(chat.messages[2]).toEqual({ role: 'tool', tool_call_id: 'a', content: TOOL_IMAGE_NOTE });
+    expect(chat.messages[3]).toEqual({ role: 'tool', tool_call_id: 'b', content: 'done' });
+    expect(chat.messages[4]?.content).toEqual([
+      { type: 'text', text: TOOL_IMAGE_NOTE },
+      { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+    ]);
+  });
+
+  it('推理之后没有输出就换了说话人（回合被中断）：推理丢掉，不挂到下一条 assistant', () => {
+    const { request: chat, dropped } = toChatRequest(
+      request([
+        user('u1'),
+        { type: 'reasoning', summary: [], content: [{ type: 'reasoning_text', text: '想到一半' }] },
+        user('u2'),
+        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'a' }] },
+      ]),
+      provider(),
+    );
+    expect(chat.messages[2]).toEqual({ role: 'assistant', content: 'a' });
+    expect(dropped).toContain('reasoning:orphan');
+  });
+
+  it('推理只剩网关写的 encrypted_content 时解出来', () => {
+    const { request: chat } = toChatRequest(
+      request([
+        user('u'),
+        { type: 'reasoning', summary: [], encrypted_content: encodeReasoning('密文里的推理') },
+        { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'a' }] },
+      ]),
+      provider(),
+    );
+    expect(chat.messages[1]?.reasoning_content).toBe('密文里的推理');
+    expect(decodeReasoning({ type: 'reasoning', encrypted_content: 'gAAAA-openai' })).toBe('');
+  });
+
+  it('DeepSeek 的地址（或 compat 打开）：没有推理的 assistant 也带空的 reasoning_content', () => {
+    const body = request([
+      user('u'),
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'a' }] },
+    ]);
+    const deepseek = toChatRequest(body, provider({ baseURL: 'https://api.deepseek.com' })).request;
+    expect(deepseek.messages[1]).toEqual({
+      role: 'assistant',
+      content: 'a',
+      reasoning_content: '',
+    });
+    const other = toChatRequest(body, provider()).request;
+    expect(other.messages[1]).toEqual({ role: 'assistant', content: 'a' });
+    const forced = toChatRequest(
+      body,
+      provider({ compat: { requiresReasoningContentOnAssistantMessages: true } }),
+    ).request;
+    expect(forced.messages[1]?.reasoning_content).toBe('');
+  });
+
+  it('不认识的输入项丢掉并记下', () => {
+    const { dropped } = toChatRequest(
+      request([
+        user('u'),
+        { type: 'web_search_call', id: 'ws' },
+        { type: 'compaction', encrypted_content: 'x' },
+      ]),
+      provider(),
+    );
+    expect(dropped).toEqual(expect.arrayContaining(['web_search_call', 'compaction']));
+  });
+});
+
+describe('请求参数', () => {
+  it('max_output_tokens 按 compat.maxTokensField 写；默认 max_tokens，OpenAI 官方是 max_completion_tokens', () => {
+    const body = request('hi', { max_output_tokens: 16 });
+    expect(toChatRequest(body, provider()).request.max_tokens).toBe(16);
+    expect(
+      toChatRequest(body, provider({ baseURL: 'https://api.openai.com/v1' })).request
+        .max_completion_tokens,
+    ).toBe(16);
+    expect(
+      toChatRequest(body, provider({ compat: { maxTokensField: 'max_completion_tokens' } })).request
+        .max_completion_tokens,
+    ).toBe(16);
+  });
+
+  it('reasoning.effort → reasoning_effort；none 不发', () => {
+    expect(
+      toChatRequest(request('hi', { reasoning: { effort: 'low' } }), provider()).request
+        .reasoning_effort,
+    ).toBe('low');
+    expect(
+      toChatRequest(request('hi', { reasoning: { effort: 'none' } }), provider()).request,
+    ).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('text.format 的 json_schema → response_format', () => {
+    const { request: chat } = toChatRequest(
+      request('hi', {
+        text: {
+          format: { type: 'json_schema', name: 'out', schema: { type: 'object' }, strict: true },
+        },
+      }),
+      provider(),
+    );
+    expect(chat.response_format).toEqual({
+      type: 'json_schema',
+      json_schema: { name: 'out', schema: { type: 'object' }, strict: true },
+    });
+  });
+});
