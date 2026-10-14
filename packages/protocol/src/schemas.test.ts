@@ -231,8 +231,17 @@ const standaloneCases: Case[] = [
   {
     name: 'ProviderCompat',
     schema: ProviderCompatSchema,
-    valid: [{}, { maxTokensField: 'max_completion_tokens' }],
-    invalid: [{ maxTokensField: 'tokens' }],
+    valid: [
+      {},
+      { maxTokensField: 'max_completion_tokens' },
+      // 0.4.0：只有模型网关用的两个开关。
+      { supportsCustomTools: false, systemMessageMode: 'merge' },
+    ],
+    invalid: [
+      { maxTokensField: 'tokens' },
+      { systemMessageMode: 'top' },
+      { supportsCustomTools: 'no' },
+    ],
   },
   {
     name: 'HttpUrl',

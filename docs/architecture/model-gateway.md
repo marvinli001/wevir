@@ -154,7 +154,7 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 
 ### 4.4 网关的 compat 开关
 
-`ProviderConfig.compat` 里网关读的开关。前四个是已有的（providers.md §2.3），后两个是网关新加的（ADR-0005 补记 3），取值由 `validateProvider` 检查。
+`ProviderConfig.compat` 里网关读的开关。前四个是已有的（providers.md §2.3），后两个是网关新加的（ADR-0005 补记 3），协议 0.4.0 起是 Host 协议 `ProviderCompat` 的字段，可以经 `provider.upsert` 设置（ADR-0005 补记 7；dsh 忽略它们）。取值由 `validateProvider` 检查。
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|

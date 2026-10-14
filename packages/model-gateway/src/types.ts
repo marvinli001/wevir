@@ -102,8 +102,8 @@ export interface MessagesRequest {
 }
 
 /**
- * 网关读的 compat 开关。前四个与 Host 协议的 `ProviderCompat` 同形；后两个只有网关用（model-gateway.md §4.4），
- * Host 协议与 `@wevir/runtime-adapter` 的类型还没有它们，接进 Host 时（R2）再加（ADR-0005 补记 3）。
+ * 网关读的 compat 开关，与 Host 协议的 `ProviderCompat`（0.4.0 起含后两个只有网关用的开关，ADR-0005 补记 7）、
+ * `@wevir/runtime-adapter` 的 `ProviderCompatConfig` 同形。这里只补网关对各字段的读法（model-gateway.md §4.4）。
  */
 export interface GatewayCompat extends ProviderCompatConfig {
   /** Responses 上游不支持自定义工具（`custom`）时设 false：网关把它们摊平成函数，响应里再还原。默认 true。 */

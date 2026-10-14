@@ -207,6 +207,13 @@ describe('effectiveCompat', () => {
     ).toEqual({ supportsDeveloperRole: true, maxTokensField: 'max_completion_tokens' });
   });
 
+  it('只有模型网关用的开关（supportsCustomTools、systemMessageMode）不写进 overlay', () => {
+    expect(compat({ compat: { supportsCustomTools: false, systemMessageMode: 'merge' } })).toEqual({
+      supportsDeveloperRole: false,
+      maxTokensField: 'max_tokens',
+    });
+  });
+
   it('openai-responses 只保留它认的开关（否则 dsh 拒绝整份配置）', () => {
     expect(compat({ api: 'openai-responses', baseURL: 'https://api.deepseek.com' })).toEqual({
       supportsDeveloperRole: false,
@@ -248,6 +255,15 @@ describe('validateProviderConfig', () => {
     expect(
       paths({ ...kimi, models: [{ id: 'a', reasoningEfforts: ['turbo'] }], defaultModelId: 'a' }),
     ).toEqual(['models.0.reasoningEfforts']);
+  });
+
+  it('只有模型网关用的 compat 开关不报错（同一个 Provider 在 Codex 与 dsh 之间共用）', () => {
+    expect(
+      validateProviderConfig({
+        ...kimi,
+        compat: { supportsCustomTools: false, systemMessageMode: 'user' },
+      }),
+    ).toEqual([]);
   });
 
   it('compat 开关与协议不匹配', () => {

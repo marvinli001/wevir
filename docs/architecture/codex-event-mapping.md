@@ -127,7 +127,7 @@ R2 实测（真实二进制）：
 
 - `validateProvider`：网关的检查（`@wevir/model-gateway` 的 `validateProvider`：协议、地址、网关自己的 compat 开关），加上模型列表不能为空。Host 在 `provider.upsert` 写库之前调用。
 - `testProvider`：网关的 `testProvider`，用与正式请求相同的处理方式发一次最小请求（决策 2.5）。不需要 Codex 进程在运行。
-- 还没做：网关的两个 compat 开关（`supportsCustomTools`、`systemMessageMode`）还没进 Host 协议（ADR-0005 补记 3、补记 5）。
+- 网关的两个 compat 开关（`supportsCustomTools`、`systemMessageMode`）协议 0.4.0 起是 `ProviderCompat` 的字段（ADR-0005 补记 7），随 Provider 原样交给网关；集成测试里 `supportsCustomTools: false` 时 Codex 的 apply_patch 摊平成函数，补丁照常生效。
 
 ## 6. 事件逐条映射（`mapping.ts`）
 

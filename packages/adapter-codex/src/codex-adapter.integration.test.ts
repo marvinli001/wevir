@@ -218,6 +218,28 @@ describe.skipIf(binary === undefined)(
       await waitFor(() => a.process.state === 'ready' && a.process.pid !== pid, '新进程');
     });
 
+    it('Provider 的 compat 交给网关：supportsCustomTools false 时 apply_patch 摊平成函数，补丁照常生效', async () => {
+      const { adapter: a, workspace } = adapter({
+        providers: [mockProvider(mock, { compat: { supportsCustomTools: false } })],
+      });
+      const session = await a.createSession({
+        cwd: workspace,
+        providerId: 'mock',
+        modelId: MOCK_MODEL,
+      });
+      const events = collect(a, session.engineSessionId);
+      const result = await turn(a, session.engineSessionId, '写个补丁', events);
+      const tools = mock.requests.at(-1)?.body.tools ?? [];
+      expect(tools.some((tool) => tool.type === 'custom')).toBe(false);
+      expect(tools.some((tool) => tool.type === 'function' && tool.name === 'apply_patch')).toBe(
+        true,
+      );
+      expect(result.find((e) => e.type === 'tool.finished')).toMatchObject({ status: 'completed' });
+      expect(readFileSync(join(workspace, 'wevir-mock.txt'), 'utf8')).toContain(
+        'hello from the Wevir mock model',
+      );
+    });
+
     it('R2 还没有审批：Codex 请求审批时回复 decline，工具失败，会话里留一条 engine.raw', async () => {
       const logger = collectingLogger();
       const { adapter: a, workspace } = adapter({ logger });

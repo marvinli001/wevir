@@ -32,6 +32,7 @@ export {
   DEEPSEEK_OFFICIAL,
   DSH_DEEPSEEK_MODELS,
   effectiveCompat,
+  GATEWAY_ONLY_COMPAT,
   isDeepSeekHost,
   isOpenAIOfficial,
   type OverlayEntry,

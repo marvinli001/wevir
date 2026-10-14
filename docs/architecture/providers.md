@@ -72,7 +72,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 | 地址不是 `api.openai.com` | `supportsDeveloperRole: false`、`maxTokensField: max_tokens` |
 | 地址是 `deepseek.com` 及其子域（DeepSeek 的 OpenAI 兼容端点走 pi-ai 时） | 另加 `thinkingFormat: deepseek`、`requiresReasoningContentOnAssistantMessages: true`（T0.3 §6.2，取自 pi-ai 自带的 deepseek 目录） |
 
-每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
+每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
 ### 2.4 生成的 overlay 示例
 

@@ -69,12 +69,27 @@ export const ProviderModelSchema = z.object({
 });
 export type ProviderModel = z.infer<typeof ProviderModelSchema>;
 
-/** 只对 `openai-compatible` 有意义，原样写进 dsh overlay 的 `compat`。 */
+/**
+ * 请求格式的修正，只对 `openai-compatible` 有意义。前四个原样写进 dsh overlay 的 `compat`，Codex 引擎的模型网关
+ * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；后两个只有模型网关用（0.4.0，model-gateway.md §4.4），
+ * dsh 忽略。
+ */
 export const ProviderCompatSchema = z.object({
   supportsDeveloperRole: z.boolean().optional(),
   maxTokensField: z.enum(['max_tokens', 'max_completion_tokens']).optional(),
   thinkingFormat: z.string().optional(),
   requiresReasoningContentOnAssistantMessages: z.boolean().optional(),
+  /**
+   * `openai-responses` 上游不支持自定义工具（Codex 的 `apply_patch`）时设 false（0.4.0）：网关把它们摊平成只有一个
+   * 字符串参数的函数，响应里再还原。省略即支持。
+   */
+  supportsCustomTools: z.boolean().optional(),
+  /**
+   * `openai-completions` 上游怎样收对话中间的 developer / system 消息（0.4.0）：`inline`（默认）原位转 system；
+   * `merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。
+   * `anthropic-messages` 上默认 `user`，`merge` 并进顶层 `system`。
+   */
+  systemMessageMode: z.enum(['inline', 'merge', 'user']).optional(),
 });
 export type ProviderCompat = z.infer<typeof ProviderCompatSchema>;
 

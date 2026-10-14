@@ -146,11 +146,13 @@ interface ProviderModel {
   reasoningEfforts?: ProviderReasoningLevel[] // 推理档位（0.2.0，只对 openai-compatible）；[] 表示不推理
 }
 
-interface ProviderCompat { // 只对 openai-compatible 有意义，原样写进 overlay 的 compat
+interface ProviderCompat { // 只对 openai-compatible 有意义；前四个原样写进 dsh overlay 的 compat
   supportsDeveloperRole?: boolean
   maxTokensField?: 'max_tokens' | 'max_completion_tokens'
   thinkingFormat?: string
   requiresReasoningContentOnAssistantMessages?: boolean
+  supportsCustomTools?: boolean // 0.4.0，只有 Codex 引擎的模型网关读（model-gateway.md §4.4），dsh 忽略
+  systemMessageMode?: 'inline' | 'merge' | 'user' // 0.4.0，同上
 }
 
 interface ProviderProfile {

@@ -124,6 +124,20 @@ describe('Provider 桥接（Host 侧）', () => {
     expect(bridge.applied).toHaveLength(3);
   });
 
+  it('compat 原样保存并交给引擎，含只有模型网关用的开关（0.4.0）', async () => {
+    const bridge = fakeBridge();
+    const { methods } = setup(bridge);
+    const compat = {
+      supportsDeveloperRole: false,
+      supportsCustomTools: false,
+      systemMessageMode: 'merge' as const,
+    };
+    await methods['provider.upsert']({ ...qwen, compat }, context);
+    expect(bridge.applied.at(-1)?.[0]?.compat).toEqual(compat);
+    const { providers } = await methods['provider.list']({}, context);
+    expect(providers[0]?.compat).toEqual(compat);
+  });
+
   it('引擎不接受的配置：INVALID_PARAMS（issues 原样），不写库、不动 Key', async () => {
     const bridge = fakeBridge();
     bridge.issues = [{ path: ['api'], message: 'anthropic-messages 协议只预留了类型，暂不支持' }];

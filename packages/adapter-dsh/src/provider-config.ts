@@ -42,10 +42,22 @@ export const REASONING_LEVELS: readonly string[] = [
 export const SUPPORTED_APIS: readonly string[] = ['openai-completions', 'openai-responses'];
 
 /**
- * 每个 compat 开关能用在哪些协议上（`PiAiCompatProfile` 的注释）。路由上写了一个所有模型都读不了的开关，
- * dsh 会拒绝整份配置、启动失败，所以这里先挡住。
+ * 只有 Codex 引擎的模型网关用的 compat 开关（protocol 0.4.0，ADR-0005 补记 7）。dsh 不认识它们，写进 overlay 会让
+ * dsh 拒绝整份配置，所以既不报错也不写进 overlay：同一个 Provider 在两个引擎之间可以共用。
  */
-export const COMPAT_APIS: Readonly<Record<keyof ProviderCompatConfig, readonly string[]>> = {
+export const GATEWAY_ONLY_COMPAT = Object.freeze([
+  'supportsCustomTools',
+  'systemMessageMode',
+] as const);
+type GatewayOnlyCompat = (typeof GATEWAY_ONLY_COMPAT)[number];
+
+/**
+ * 每个 compat 开关能用在哪些协议上（`PiAiCompatProfile` 的注释）。路由上写了一个所有模型都读不了的开关，
+ * dsh 会拒绝整份配置、启动失败，所以这里先挡住。只有网关用的开关不在表里（`GATEWAY_ONLY_COMPAT`）。
+ */
+export const COMPAT_APIS: Readonly<
+  Record<Exclude<keyof ProviderCompatConfig, GatewayOnlyCompat>, readonly string[]>
+> = {
   supportsDeveloperRole: ['openai-completions', 'openai-responses'],
   maxTokensField: ['openai-completions'],
   thinkingFormat: ['openai-completions'],
@@ -89,7 +101,7 @@ export function effectiveCompat(provider: ProviderConfig): ProviderCompatConfig 
   const merged: ProviderCompatConfig = { ...defaults, ...definedOnly(provider.compat ?? {}) };
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(merged)) {
-    if (COMPAT_APIS[key as keyof ProviderCompatConfig]?.includes(api)) result[key] = value;
+    if (COMPAT_APIS[key as keyof typeof COMPAT_APIS]?.includes(api)) result[key] = value;
   }
   return result as ProviderCompatConfig;
 }
@@ -157,7 +169,8 @@ export function validateProviderConfig(provider: ProviderConfig): ProviderIssue[
     issue(['defaultModelId'], 'defaultModelId 必须是 models 之一');
   for (const [key, value] of Object.entries(provider.compat ?? {})) {
     if (value === undefined) continue;
-    const apis = COMPAT_APIS[key as keyof ProviderCompatConfig];
+    if ((GATEWAY_ONLY_COMPAT as readonly string[]).includes(key)) continue;
+    const apis = COMPAT_APIS[key as keyof typeof COMPAT_APIS];
     if (apis === undefined) {
       issue(['compat', key], `不认识的 compat 开关 ${key}`);
     } else if (provider.api !== undefined && !apis.includes(provider.api)) {

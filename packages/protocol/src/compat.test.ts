@@ -3,6 +3,7 @@ import { z } from 'zod';
 import frozen010 from './compat/0.1.0.json' with { type: 'json' };
 import frozen020 from './compat/0.2.0.json' with { type: 'json' };
 import frozen030 from './compat/0.3.0.json' with { type: 'json' };
+import frozen040 from './compat/0.4.0.json' with { type: 'json' };
 import {
   ErrorCode,
   type ErrorCodeName,
@@ -27,7 +28,7 @@ interface FrozenSamples {
   errors: { name: string; response: { error: { code: number; data?: unknown } } }[];
 }
 
-const frozenVersions: FrozenSamples[] = [frozen010, frozen020, frozen030];
+const frozenVersions: FrozenSamples[] = [frozen010, frozen020, frozen030, frozen040];
 
 function issuesOf(schema: z.ZodType, value: unknown) {
   return schema.safeParse(value).error?.issues;
