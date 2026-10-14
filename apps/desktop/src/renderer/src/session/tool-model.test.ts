@@ -4,6 +4,7 @@ import {
   currentAction,
   editStats,
   groupWork,
+  isLiveEntry,
   outputSummary,
   type ReasoningPart,
   relativeToRoot,
@@ -16,6 +17,7 @@ import {
   type WorkEntry,
   workIssues,
   workSummary,
+  workSummaryParts,
 } from './tool-model';
 
 const TS = '2026-10-13T08:00:00.000Z';
@@ -256,6 +258,72 @@ describe('工作组的摘要', () => {
       { kind: 'denied', text: '1 个被拒绝' },
       { kind: 'unknown', text: '1 个状态未知' },
     ]);
+  });
+});
+
+describe('工作组的摘要：文件名与思考（U16）', () => {
+  it('只涉及一个文件时写出文件名；Codex 补丁里新建的文件单独算“创建了”', () => {
+    const one = tallyWork(
+      [
+        tool('1', 'read', { display: { kind: 'read', paths: ['/w/README.md'] } }),
+        tool('2', 'edit', { display: { kind: 'edit', paths: ['/w/src/index.ts'] } }),
+        tool('3', 'shell'),
+      ],
+      false,
+    );
+    expect(workSummary(one)).toBe('读取了 README.md，修改了 index.ts，运行了 1 条命令');
+    expect(workSummaryParts(one).map((part) => part.file)).toEqual([
+      'README.md',
+      'index.ts',
+      undefined,
+    ]);
+
+    const patch = tallyWork(
+      [
+        tool('1', 'edit', {
+          display: { kind: 'edit', paths: ['/w/src/index.ts', '/w/src/index.test.ts'] },
+          input: {
+            changes: [
+              { path: '/w/src/index.ts', kind: { type: 'update' }, diff: '@@\n-a\n+b' },
+              { path: '/w/src/index.test.ts', kind: { type: 'add' }, diff: 'x\ny\n' },
+            ],
+          },
+        }),
+        tool('2', 'edit', {
+          display: { kind: 'edit', paths: ['/w/src/index.test.ts'] },
+          input: {
+            changes: [{ path: '/w/src/index.test.ts', kind: { type: 'update' }, diff: '' }],
+          },
+        }),
+      ],
+      false,
+    );
+    // 先建后改的只算新建。
+    expect(workSummary(patch)).toBe('修改了 index.ts，创建了 index.test.ts');
+    expect(patch.lines).toEqual({ added: 3, removed: 1 });
+  });
+
+  it('有工具调用时不到 1 秒的思考不写；只有思考时照写，没有用时写“思考过”', () => {
+    expect(workSummary(tallyWork([thought('r', 0, 0.4), tool('1', 'shell')], false))).toBe(
+      '运行了 1 条命令',
+    );
+    expect(workSummary(tallyWork([thought('r', 0, 2), tool('1', 'shell')], false))).toBe(
+      '思考了 2 秒，运行了 1 条命令',
+    );
+    expect(workSummary(tallyWork([thought('r', 0, 0.4)], false))).toBe('思考了 0.4 秒');
+    expect(workSummary(tallyWork([thought('r', 0, 0)], false))).toBe('思考过');
+    expect(thoughtLine(thought('r', 0, 0), true).label).toBe('思考过');
+    expect(thoughtLine(thought('r', 0, 0.03), true).label).toBe('思考过');
+  });
+
+  it('进行中的那一组里还没结束的：在运行或等审批的工具、还在流出的最后一条思考', () => {
+    expect(isLiveEntry(tool('1', 'shell', { status: 'running' }), false, true)).toBe(true);
+    expect(isLiveEntry(tool('1', 'shell', { status: 'awaiting_approval' }), true, true)).toBe(true);
+    expect(isLiveEntry(tool('1', 'shell'), true, true)).toBe(false);
+    const streaming = thought('r', 0, 1, { state: 'streaming' });
+    expect(isLiveEntry(streaming, true, true)).toBe(true);
+    expect(isLiveEntry(streaming, false, true)).toBe(false);
+    expect(isLiveEntry(streaming, true, false)).toBe(false);
   });
 });
 

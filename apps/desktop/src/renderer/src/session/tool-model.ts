@@ -213,11 +213,15 @@ export function thoughtDuration(part: ReasoningPart): number | undefined {
   return ms === undefined ? undefined : Math.max(0, ms);
 }
 
-/** 摘要里分别计数的工具种类，按显示的先后。`edit` 含写文件。 */
+/**
+ * 摘要里分别计数的工具种类，按显示的先后。`edit` 含写文件；`create` 是 Codex 补丁里新建的文件（U16，同 Claude Code 的
+ * “created …”），从修改里分出来。
+ */
 const COUNTED_KINDS = [
   'read',
   'search',
   'edit',
+  'create',
   'shell',
   'fetch',
   'plan',
@@ -229,8 +233,10 @@ type CountedKind = (typeof COUNTED_KINDS)[number];
 export interface WorkTally {
   /** 有思考时为总用时（毫秒）。 */
   thinkingMs?: number;
-  /** 读取与修改按不同路径计文件数（没有路径时按调用次数），其余按调用次数。 */
+  /** 读取、修改与新建按不同路径计文件数（没有路径时按调用次数），其余按调用次数。 */
   counts: Record<CountedKind, number>;
+  /** 读取、修改与新建涉及的路径（U16）：只涉及一个文件时摘要写出文件名。 */
+  files: Record<FileKind, string[]>;
   /** 成功的修改的增删行数；没有成功的修改时为 undefined。 */
   lines?: LineStats;
   /** 不能被折叠吞掉的调用。 */
@@ -240,6 +246,9 @@ export interface WorkTally {
 }
 
 export type IssueKind = 'failed' | 'denied' | 'unknown';
+
+/** 摘要里按文件计数、只有一个时写出文件名的三种。 */
+type FileKind = 'read' | 'edit' | 'create';
 const ISSUE_KINDS: readonly IssueKind[] = ['failed', 'denied', 'unknown'];
 
 function countedKind(kind: ToolDisplayKind): CountedKind {
@@ -250,7 +259,11 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
   let thinkingMs: number | undefined;
   const counts = Object.fromEntries(COUNTED_KINDS.map((kind) => [kind, 0])) as WorkTally['counts'];
   const issues: WorkTally['issues'] = { failed: 0, denied: 0, unknown: 0 };
-  const paths: Partial<Record<CountedKind, Set<string>>> = {};
+  const paths: Record<FileKind, Set<string>> = {
+    read: new Set(),
+    edit: new Set(),
+    create: new Set(),
+  };
   let lines: LineStats | undefined;
   let debug = 0;
   for (const entry of entries) {
@@ -267,10 +280,13 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
     if (lifecycle === 'failed' || lifecycle === 'denied' || lifecycle === 'unknown') {
       issues[lifecycle] += 1;
     }
-    if ((kind === 'read' || kind === 'edit') && entry.display.paths?.length) {
-      const set = paths[kind] ?? new Set<string>();
-      for (const path of entry.display.paths) set.add(path);
-      paths[kind] = set;
+    if (kind === 'edit') {
+      const changed = changedPaths(entry);
+      if (changed.edit.length + changed.create.length === 0) counts.edit += 1;
+      for (const path of changed.edit) paths.edit.add(path);
+      for (const path of changed.create) paths.create.add(path);
+    } else if (kind === 'read' && entry.display.paths?.length) {
+      for (const path of entry.display.paths) paths.read.add(path);
     } else {
       counts[kind] += 1;
     }
@@ -283,33 +299,94 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
       }
     }
   }
-  counts.read += paths.read?.size ?? 0;
-  counts.edit += paths.edit?.size ?? 0;
+  // 同一个文件先建后改只算新建。
+  for (const path of paths.create) paths.edit.delete(path);
+  counts.read += paths.read.size;
+  counts.edit += paths.edit.size;
+  counts.create += paths.create.size;
   return {
     ...(thinkingMs !== undefined && { thinkingMs }),
     counts,
+    files: { read: [...paths.read], edit: [...paths.edit], create: [...paths.create] },
     ...(lines && { lines }),
     issues,
     debug,
   };
 }
 
-/** 收起时的一行摘要：“思考了 17 秒，读取了 6 个文件，运行了 2 条命令”。 */
-export function workSummary(tally: WorkTally): string {
-  const pieces: string[] = [];
-  if (tally.thinkingMs !== undefined) {
-    pieces.push(t('work.thought', { duration: formatDuration(tally.thinkingMs) }));
-  }
+/** 摘要的一段：说明文字色的 `text`，只涉及一个文件时后面跟着正文色的文件名（U16，照 Claude Code）。 */
+export interface SummaryPart {
+  text: string;
+  file?: string;
+}
+
+/** 思考不到这么久时不单独写进有工具调用的摘要（“思考了 0.2 秒”只是噪音）。 */
+const THINKING_WORTH_MENTIONING_MS = 1000;
+
+/** 不到这么久的思考显示不出时长（四舍五入成“0 秒”），写“思考过”。 */
+const THINKING_TOO_SHORT_MS = 50;
+
+/**
+ * 收起时的一行摘要：“思考了 17 秒，读取了 6 个文件，修改了 index.ts，运行了 2 条命令”。读取、修改、新建只涉及一个文件时写出
+ * 文件名（不含目录）；不到 1 秒的思考只在组里没有工具调用时才写。
+ */
+export function workSummaryParts(tally: WorkTally): SummaryPart[] {
+  const parts: SummaryPart[] = [];
   for (const kind of COUNTED_KINDS) {
     const count = tally.counts[kind];
     if (count === 0) continue;
-    pieces.push(kind === 'plan' ? t('work.count.plan') : t(`work.count.${kind}`, { count }));
+    const only = kind === 'read' || kind === 'edit' || kind === 'create' ? tally.files[kind] : [];
+    if (count === 1 && only.length === 1 && only[0] !== undefined) {
+      parts.push({ text: t(`work.did.${kind as FileKind}`), file: basename(only[0]) });
+    } else {
+      parts.push({
+        text: kind === 'plan' ? t('work.count.plan') : t(`work.count.${kind}`, { count }),
+      });
+    }
+  }
+  const thinking = tally.thinkingMs;
+  if (thinking !== undefined && (thinking >= THINKING_WORTH_MENTIONING_MS || parts.length === 0)) {
+    parts.unshift({
+      text:
+        thinking >= THINKING_TOO_SHORT_MS
+          ? t('work.thought', { duration: formatDuration(thinking) })
+          : t('work.thoughtPlain'),
+    });
   }
   // 只有调试信息的组（开发模式）。
-  if (pieces.length === 0 && tally.debug > 0) {
-    pieces.push(t('work.count.raw', { count: tally.debug }));
+  if (parts.length === 0 && tally.debug > 0) {
+    parts.push({ text: t('work.count.raw', { count: tally.debug }) });
   }
-  return pieces.join(t('work.separator'));
+  return parts;
+}
+
+/** 摘要的纯文本（无障碍名称、测试）。 */
+export function workSummary(tally: WorkTally): string {
+  return workSummaryParts(tally)
+    .map((part) => (part.file ? `${part.text} ${part.file}` : part.text))
+    .join(t('work.separator'));
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+/**
+ * 一次修改涉及的路径：Codex 的 `fileChange` 按 `changes[].kind` 分出新建的（`add`）与修改的（含删除、移动），其余（dsh 的
+ * edit / write）都算修改，用展示里的路径。
+ */
+function changedPaths(entry: ToolPart): { edit: string[]; create: string[] } {
+  const input = entry.input;
+  if (isRecord(input) && Array.isArray(input.changes)) {
+    const out = { edit: [] as string[], create: [] as string[] };
+    for (const change of input.changes) {
+      if (!isRecord(change) || typeof change.path !== 'string') continue;
+      const created = isRecord(change.kind) && change.kind.type === 'add';
+      (created ? out.create : out.edit).push(change.path);
+    }
+    if (out.edit.length + out.create.length > 0) return out;
+  }
+  return { edit: [...(entry.display.paths ?? [])], create: [] };
 }
 
 /** 摘要后面标出的失败、被拒绝、状态未知（各自的颜色由界面决定）；工作组与收起的回合共用。 */
@@ -328,6 +405,15 @@ export interface WorkLineView {
   /** 等宽显示的目标：路径、命令、查询词、URL。 */
   target?: string;
   tone: 'done' | 'running' | 'awaiting' | 'failed' | 'muted' | 'unknown';
+}
+
+/**
+ * 进行中的这一组里还没结束的一条（U16）：在运行或等审批的工具、还在流出的最后一条思考。它由组头的当前动作代表，展开的
+ * 逐条里先不列，结束后再列进来（照 Codex 的进行中列表）。
+ */
+export function isLiveEntry(entry: WorkEntry, last: boolean, tail: boolean): boolean {
+  if (entry.type === 'tool') return isInFlight(toolLifecycle(entry, true));
+  return entry.type === 'reasoning' && entry.state === 'streaming' && last && tail;
 }
 
 const LINE_TONES: Record<ToolLifecycle, WorkLineView['tone']> = {
@@ -349,7 +435,7 @@ export function thoughtLine(part: ReasoningPart, settled: boolean): WorkLineView
   const duration = thoughtDuration(part);
   return {
     label:
-      duration === undefined
+      duration === undefined || duration < THINKING_TOO_SHORT_MS
         ? t('work.thoughtPlain')
         : t('work.thought', { duration: formatDuration(duration) }),
     tone: 'done',

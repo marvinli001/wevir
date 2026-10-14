@@ -14,7 +14,7 @@ import {
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
-import { createContext, useContext, useId } from 'react';
+import { createContext, Fragment, useContext, useId } from 'react';
 import { Collapse } from '@/components/collapse';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
@@ -26,6 +26,7 @@ import {
   currentAction,
   editStats,
   type IssueKind,
+  isLiveEntry,
   type LineStats,
   outputSummary,
   rawLine,
@@ -35,7 +36,7 @@ import {
   type WorkEntry,
   type WorkLineView,
   workIssues,
-  workSummary,
+  workSummaryParts,
 } from './tool-model';
 
 const KIND_ICONS: Record<ToolDisplayKind, LucideIcon> = {
@@ -90,8 +91,10 @@ export function IssueFlags({ issues }: { issues: Readonly<Record<IssueKind, numb
 
 /**
  * 一串连续的思考与工具调用（U2，照 Claude Code 桌面端与 Codex，design-refs/09、12）：收起时一行摘要（“思考了 17 秒，
- * 读取了 6 个文件，运行了 2 条命令”加改动行数，失败、被拒绝、状态未知另外标出）；展开是逐条的一行，有详情的那条可以再
- * 单独展开。进行中的回合里，排在最后的那一组显示当前动作（闪光文字、已用时间，前面是状态图标位）。
+ * 读取了 6 个文件，修改了 index.ts，运行了 2 条命令”加改动行数，只涉及一个文件时写出文件名，失败、被拒绝、状态未知另外
+ * 标出）；展开是逐条的一行，有详情的那条可以再单独展开。进行中的回合里，排在最后的那一组显示当前动作（闪光文字、已用
+ * 时间，前面是状态图标位）。U16 起进行中的那一组默认展开，下面列出已经做完的步骤（照 Codex 的进行中列表），正在做的那条
+ * 由组头代表；这一组做完（后面有了正文或回合结束）就收回成摘要，用户点过的照用户的。
  */
 export function WorkGroup({
   foldKey,
@@ -112,13 +115,16 @@ export function WorkGroup({
   /** 回合开始的时刻（当前动作后面的已用时间）。 */
   startedAt?: string;
 }) {
-  const [open, setOpen] = useFold(foldKey, false);
+  const [open, setOpen] = useFold(foldKey, live !== undefined);
   const id = useId();
   const tally = tallyWork(entries, turnActive);
   const root = useContext(WorkspaceRoot);
   const action = live ? currentAction(entries, root) : undefined;
   const indicator: LiveState | undefined =
     live === 'stopping' ? 'stopping' : action?.tone === 'awaiting' ? 'awaiting' : live;
+  const shown = live
+    ? entries.filter((entry, index) => !isLiveEntry(entry, index === entries.length - 1, tail))
+    : entries;
   return (
     <div className="my-1.5" data-work-group={live ? 'live' : 'done'}>
       <button
@@ -146,7 +152,7 @@ export function WorkGroup({
           </>
         ) : (
           <>
-            <span className="min-w-0 truncate">{workSummary(tally)}</span>
+            <SummaryText tally={tally} />
             {tally.lines && <DiffStat stats={tally.lines} />}
             <IssueFlags issues={tally.issues} />
           </>
@@ -158,17 +164,40 @@ export function WorkGroup({
       </button>
       <Collapse open={open} id={id}>
         <ul className="mt-0.5 flex flex-col">
-          {entries.map((entry, index) => (
+          {shown.map((entry) => (
             <WorkLine
               key={entry.key}
               entry={entry}
               turnActive={turnActive}
-              settled={index < entries.length - 1 || !tail}
+              settled={entry !== entries.at(-1) || !tail}
             />
           ))}
         </ul>
       </Collapse>
     </div>
+  );
+}
+
+/** 摘要：说明文字色，只涉及一个文件时文件名用正文色（照 Claude Code 的“created style-nonce.ts”）。 */
+function SummaryText({ tally }: { tally: ReturnType<typeof tallyWork> }) {
+  return (
+    <span className="min-w-0 truncate">
+      {workSummaryParts(tally).map((part, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: 摘要的几段只按位置区分，内容变了整行重画。
+        <Fragment key={index}>
+          {index > 0 && t('work.separator')}
+          {part.text}
+          {part.file && (
+            <>
+              {' '}
+              <span className="text-foreground" data-summary-file>
+                {part.file}
+              </span>
+            </>
+          )}
+        </Fragment>
+      ))}
+    </span>
   );
 }
 
