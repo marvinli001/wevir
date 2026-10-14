@@ -78,6 +78,8 @@ export interface CodexEnvOptions {
   platform?: NodeJS.Platform;
   /** 子进程的 `RUST_LOG`，默认 `warn`（stderr 只用于诊断）。 */
   rustLog?: string;
+  /** 固定注入的其他变量（测试把 ChatGPT 的登录服务指向本机 mock，`chatgptEndpoints`）。 */
+  extra?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -103,5 +105,5 @@ export function buildCodexEnv(options: CodexEnvOptions): NodeJS.ProcessEnv {
     NO_COLOR: '1',
   };
   if (options.gatewayToken !== undefined) fixed[GATEWAY_TOKEN_ENV] = options.gatewayToken;
-  return Object.assign(env, fixed);
+  return Object.assign(env, options.extra, fixed);
 }

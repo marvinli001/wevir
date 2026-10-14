@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import * as protocol from './index.js';
 import {
+  AccountKindSchema,
+  AccountLoginMethodSchema,
+  AccountLoginSchema,
+  AccountRateLimitWindowSchema,
+  AccountStateSchema,
   ActiveTurnSchema,
   ApprovalDetailSchema,
   ApprovalIdSchema,
@@ -93,6 +98,8 @@ import {
   pendingApproval,
   readOnlySession,
   session,
+  signedInAccount,
+  signingInAccount,
   snapshot,
   subagentSummary,
   TS,
@@ -425,6 +432,32 @@ const standaloneCases: Case[] = [
     valid: [subagentSummary],
     invalid: [{ ...subagentSummary, modelId: '' }],
   },
+  // 账号（0.7.0）
+  { name: 'AccountKind', schema: AccountKindSchema, valid: ['chatgpt'], invalid: ['ChatGPT'] },
+  {
+    name: 'AccountLoginMethod',
+    schema: AccountLoginMethodSchema,
+    valid: ['browser', 'device_code'],
+    invalid: ['deviceCode'],
+  },
+  {
+    name: 'AccountLogin',
+    schema: AccountLoginSchema,
+    valid: [signingInAccount.login],
+    invalid: [{ ...signingInAccount.login, startedAt: 'yesterday' }],
+  },
+  {
+    name: 'AccountRateLimitWindow',
+    schema: AccountRateLimitWindowSchema,
+    valid: [{ usedPercent: 0 }, { usedPercent: 99.5, windowMinutes: 300, resetsAt: TS }],
+    invalid: [{ usedPercent: 10, windowMinutes: 0 }],
+  },
+  {
+    name: 'AccountState',
+    schema: AccountStateSchema,
+    valid: [signedInAccount, signingInAccount, { kind: 'chatgpt', status: 'signed_out' }],
+    invalid: [{ kind: 'chatgpt', status: 'signed_in', rateLimits: { primary: {} } }],
+  },
   {
     name: 'SessionSnapshot',
     schema: SessionSnapshotSchema,
@@ -596,7 +629,7 @@ describe('每个 schema 的合法与非法样例', () => {
 
   it('覆盖了包导出的全部 schema 和注册表里的全部 schema', () => {
     const covered = new Set<z.ZodType>(allCases.map((c) => c.schema));
-    const exported = Object.entries(protocol).filter(
+    const exported = Object.entries(protocol as Record<string, unknown>).filter(
       (entry): entry is [string, z.ZodType] => entry[1] instanceof z.ZodType,
     );
     const registries: [string, z.ZodType][] = [

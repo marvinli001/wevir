@@ -25,6 +25,8 @@ export type AdapterErrorCode =
   | 'invalid_input'
   /** 已请求取消，但在时限内无法确认回合已停止。 */
   | 'cancel_unconfirmed'
+  /** 会话用的账号没有登录（R6：ChatGPT 订阅），登录之后再试。Host 归为 `missing_credentials`。 */
+  | 'missing_credentials'
   /** 引擎进程启动失败或调用途中不可用。 */
   | 'engine_unavailable';
 

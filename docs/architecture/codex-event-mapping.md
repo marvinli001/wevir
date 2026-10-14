@@ -1,8 +1,8 @@
 # Codex app-server → Wevir 事件映射
 
-> 状态：v0.3（R2：进程、握手、配置、会话、回合与流式事件；R3：审批、取消的兜底、关闭与恢复、计划、错误归类、会话标题、三层契约测试；R4：子会话）· 日期：2026-10-14
-> 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 1、2、5、6、7 与补记（R2 的偏离见补记 5，R3 的见补记 8）；[Codex 研读与 Spike](../research/codex-notes.md) §2、§3.1、§3.3、§6、§10；[领域模型](./domain-model.md) §4.4、§5、§6、§7；[ACP 映射](./acp-event-mapping.md) §1.3、§1.4（Host 一侧的审批与恢复约定，Codex 照用）；[模型协议网关](./model-gateway.md)
-> 代码：`packages/adapter-codex/src/`（`paths.ts`、`env.ts`、`config.ts`、`prompts.ts`、`protocol.ts`、`codex-process.ts`、`mapping.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`title.ts`、`subagents.ts`、`codex-adapter.ts`）
+> 状态：v0.4（R2：进程、握手、配置、会话、回合与流式事件；R3：审批、取消的兜底、关闭与恢复、计划、错误归类、会话标题、三层契约测试；R4：子会话；R6：ChatGPT 进程与账号，§8）· 日期：2026-10-14
+> 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 1、2、4、5、6、7 与补记（R2 的偏离见补记 5，R3 的见补记 8，R6 的两个进程见补记 10）；[Codex 研读与 Spike](../research/codex-notes.md) §2、§3.1、§3.3、§6、§10；[领域模型](./domain-model.md) §4.4、§5、§6、§7；[ACP 映射](./acp-event-mapping.md) §1.3、§1.4（Host 一侧的审批与恢复约定，Codex 照用）；[模型协议网关](./model-gateway.md)
+> 代码：`packages/adapter-codex/src/`（`paths.ts`、`env.ts`、`config.ts`、`prompts.ts`、`protocol.ts`、`codex-process.ts`、`mapping.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`title.ts`、`subagents.ts`、`codex-adapter.ts`、`account.ts`、`codex-runtime.ts`）
 > 样本：`packages/adapter-codex/src/test-fixtures/app-server/`，真实 `codex-app-server`（`rust-v0.162.1`）+ 网关 + mock 模型录的通知序列、审批对话与错误，录制方法见同目录的 README.md
 
 本文件写 Codex 引擎（`codex-app-server`）怎样被 Wevir 驱动，以及它的通知怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。协议类型以锁定提交下的 `upstream/codex/codex-rs/app-server-protocol/schema/typescript/`（及 `v2/`）为准，本包用到的子集手写在 `protocol.ts`，每个类型注明对应的 schema 文件。只用稳定面（`experimentalApi: false`）。
@@ -28,6 +28,8 @@ codex-app-server stdout（逐行 JSON，不带 "jsonrpc"）
 通知在响应之前交付：同一条流里 `turn/start` 的结果兑现时，它之前的通知都已映射。Host 在调用 `send` 之前就建好回合（session-manager.ts），所以 `turn/start` 的结果到达之前的通知也能归到这个回合，适配器不缓存。
 
 ## 1. 进程
+
+R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-server 进程，各是一个 `CodexAdapter`——**网关进程**（本节到 §7 说的都是它）承载经网关的 Provider，**ChatGPT 进程**承载 ChatGPT 登录（§8）。两者用同一个二进制，各有自己的 `CODEX_HOME`，都在第一次用到时才启动。
 
 ### 1.1 二进制与版本
 
@@ -347,14 +349,87 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 | 恢复与取消 | `codex-adapter.resume.integration.test.ts` | 关闭后恢复、换进程后恢复且下一回合带完整历史、`not_found` 与 `corrupted`、没对话过的会话、`cancel_unconfirmed` 时重启并能恢复 |
 | 计划、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`、缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
 | 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
+| ChatGPT 进程（R6） | `account.test.ts`（假的 app-server，状态机与 `model/list` 的换算）、`codex-runtime.chatgpt.integration.test.ts`（真实二进制 + `test-fixtures/mock-chatgpt.ts` 的登录服务与后端） | §8：没登录时 ChatGPT 会话建不起来；设备码登录 → 邮箱、套餐与用量 → `model/list` → ChatGPT 会话落在 ChatGPT 进程、网关会话照旧在网关进程 → 登出（凭据删除、令牌吊销）；浏览器登录（回调打到本机 1455）与取消；`auth.json` 0600 只在 ChatGPT 进程的目录；外连经拒绝的代理只剩 chatgpt.com |
 | Host | `packages/host/src/cli.codex.integration.test.ts`、`cli.codex.subagent.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收；子会话（派出、子会话的审批经父会话处理、取消父会话时级联取消） |
 
 二进制不在时第 2、3 层与集成测试跳过并打印下载命令；CI 下载并缓存二进制，macOS 与 Windows 都跑。录样本：`WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`（升级 Codex 后重录，再看映射、归类测试与第 1 层；`-t` 可以只录其中一组）。Codex 升级的完整步骤见 docs/upstream/UPSTREAM.md「Codex 升级检查清单」。
 
-## 8. 留给后续任务
+## 8. ChatGPT 进程与账号（R6，`account.ts`、`codex-runtime.ts`）
+
+ADR-0005 决策 4 第 ① 行：ChatGPT 订阅经 app-server 自己的 `account/*` 登录，模型流量由 Codex 直连 OpenAI，不经网关。
+
+### 8.1 为什么是第二个进程
+
+网关进程写了 `model_catalog_json`（apply_patch、上下文、base.md 都靠它，§3），而 Codex 只要有这个键就整体换成静态目录（`model-provider/src/provider.rs` 的 `create_models_manager` 直接建 `StaticModelsManager`）：`model/list` 只剩 Wevir 的模型，OpenAI 模型拿不到 Codex 按模型调好的元数据与提示词。目录只在进程启动时读一次（§5.2），按会话覆盖无效。R6 在真实二进制上核实了这一点，维护者定了两个进程（ADR-0005 补记 10）。
+
+| | 网关进程 | ChatGPT 进程 |
+|---|---|---|
+| `CODEX_HOME` | `<数据目录>/engines/codex` | `<数据目录>/engines/codex-chatgpt` |
+| Provider | 每个 Wevir Provider 一个 `wevir_<id>`，`base_url` 指向网关 | Codex 内置的 `openai`（`model_provider = "openai"`） |
+| 模型目录 | Wevir 生成的 `wevir-models.json` | Codex 自己的：没登录时是二进制里打包的，登录后从 `<chatgpt_base_url>/codex/models` 按账号取 |
+| 基础提示词 | `prompts/base.md`（`baseInstructions`） | Codex 内置的（不覆盖） |
+| 环境 | 白名单 + `WEVIR_GATEWAY_TOKEN` | 白名单，没有网关令牌 |
+| 凭据 | 没有 | `auth.json`（0600，§8.2） |
+| 会话标题 | 经网关直接请求 | 临时 thread（§4.4） |
+
+`CodexRuntime` 按 Provider 的种类把会话交给其中一个进程（`kind: 'chatgpt'` → ChatGPT 进程），之后的调用按引擎会话 ID 找回它（子会话由派出它的进程认出，`hasSession`）；`configureProviders` 把 `chatgpt` 类 Provider 交给 ChatGPT 进程、其余交给网关进程，`validateProvider` 与 `testProvider` 同理。两个进程都在第一次用到时才启动：只用 ChatGPT 的用户不起网关进程，反之亦然。
+
+### 8.2 ChatGPT 进程的配置（`renderChatgptConfigToml`）
+
+§3 的加固项照写，另外：
+
+- `cli_auth_credentials_store = "file"`：凭据存在 `CODEX_HOME/auth.json`（Codex 以 0600 写入），与 Wevir 的 `secrets.json` 同一个保护级别，不碰系统钥匙串（docs/security.md §3）。Codex 另有 `keyring`、`auto`、`ephemeral`；Wevir 迁到系统钥匙串时（ADR-0003 未决事项）再一起换。
+- `forced_login_method = "chatgpt"`：只允许 ChatGPT 登录。
+- `mcp_oauth_credentials_store = "file"`：MCP 的 OAuth 凭据默认 `auto`，会先试钥匙串（R6 在日志里看到它尝试），同样改成文件。
+- `[features] apps = false`（两个进程都写）：ChatGPT 登录后 Codex 会连 ChatGPT 的应用（connectors）MCP（`POST <chatgpt_base_url>/ps/mcp`），把连接器的工具给模型。Wevir 不支持，关掉（R6 用 mock 后端实测关掉后不再请求）。
+- 不写 Wevir 的 Provider、模型目录与网关令牌。
+
+测试用的 `chatgptEndpoints`（`{issuer, backend}`）把登录服务与后端指向本机 mock：`issuer` 经 app-server 的环境变量 `CODEX_APP_SERVER_LOGIN_ISSUER` 与 `CODEX_REFRESH_TOKEN_URL_OVERRIDE`，`backend` 写进 `chatgpt_base_url` 与 `openai_base_url`。产品代码不设它。
+
+### 8.3 账号：`account/*` → `AccountState`
+
+全部在稳定面（`common.rs` 里没有 `#[experimental]`，只有 `chatgptAuthTokens` 与 Bedrock 两种登录是实验的，Wevir 不用）。R6 在真实二进制上核实（没登录的部分直连 OpenAI；登录成功之后的部分用 `test-fixtures/mock-chatgpt.ts` 扮演登录服务与后端）：
+
+| app-server | 行为（实测） | Wevir |
+|---|---|---|
+| `account/read {}` | 没登录：`{account: null, requiresOpenaiAuth: true}`（网关进程里是 `false`，它的 Provider 不要 OpenAI 认证）；登录后 `{account: {type: "chatgpt", email, planType}}`，要先请求 `<backend>/wham/accounts/check`（工作区路由，只接受 https 的源，连不上时报 `workspace routing discovery failed`） | `signed_out` / `signed_in`（`email`、`plan`）；读失败时用上次的状态 |
+| `account/rateLimits/read` | 没登录：`-32600 codex account authentication required to read rate limits`；登录后 `rateLimits.primary`（5 小时）与 `secondary`（每周）：`usedPercent`、`windowDurationMins`、`resetsAt`（Unix 秒），请求 `<backend>/wham/usage` 与 `/wham/rate-limit-reset-credits` | `rateLimits`（尽力而为，读不到就不带；`resetsAt` 换成 ISO 时间）；`account/rateLimits/updated` 是稀疏更新，合进去 |
+| `account/login/start {type: "chatgpt"}` | 立即返回 `{loginId, authUrl}`，app-server 在 `127.0.0.1:1455` 起回调服务；`authUrl` 是 `https://auth.openai.com/oauth/authorize?…&redirect_uri=http://127.0.0.1:1455/auth/callback&…&originator=wevir`。浏览器回调后它用授权码换令牌，再用 token-exchange 换一个 API Key，把浏览器带到本机的 `/success`，加载了才算完成；超时由 app-server 定 | `signing_in`，`login.authUrl`；桌面端交给系统浏览器（`openExternal`），浏览器要在 Host 这台机器上 |
+| `account/login/start {type: "chatgptDeviceCode"}` | 先请求 `<issuer>/api/accounts/deviceauth/usercode`（连不上就是 JSON-RPC 错误），返回 `{loginId, verificationUrl: "https://auth.openai.com/codex/device", userCode}`；之后按 `interval` 轮询 `…/deviceauth/token`（15 分钟内） | `signing_in`，`login.verificationUrl` 与 `userCode`；CLI 只用这种 |
+| `account/login/cancel {loginId}` | `{status: "canceled"}`，随后 `account/login/completed {success: false, error: "Login server error: Login was not completed"}`（设备码是 `"Login was not completed"`），1455 端口随即关闭；ID 对不上是 `notFound`，不是 UUID 是 `-32600 invalid login id` | 先回到原来的状态，随后的失败通知不记错误 |
+| 再次 `account/login/start` | 新的替换旧的：旧的以 `success: false` 结束 | 同上，旧的不记错误 |
+| `account/login/completed {loginId, success, error}` | 成功后紧跟 `account/updated {authMode: "chatgpt", planType}` | 成功就重读账号；失败把原文记进 `lastError` |
+| `account/logout` | `{}`，随后 `account/updated {authMode: null, planType: null}`；删除 `auth.json`，并向 `<issuer>/oauth/revoke` 吊销刷新令牌（失败也照样删）；没登录时同样成功 | `signed_out` |
+| `model/list {}` | 没登录：二进制里打包的列表（不联网）；登录后从 `<backend>/codex/models?client_version=…` 按账号取，取不到退回打包的。`supportedReasoningEfforts` 里可能有 Wevir 没有的档位（`ultra`） | `accountModels`：`model` 作 ID、显示名、`inputModalities` 含 image 时 `supportsImages`、只留 Wevir 认得的推理档位（`none` → `off`），默认取 `isDefault` |
+
+进程退出时进行中的登录随之没了（登录任务在 app-server 里），`lastError` 记一条“登录没有完成”。
+
+### 8.4 会话
+
+- ChatGPT 会话（`providerId` 的 Provider 是 `chatgpt` 类）：`thread/start` / `thread/resume` 带 `model`、`modelProvider: "openai"`、审批与沙箱，`config` 只有推理档位（`chatgptThreadConfig`），不覆盖 `baseInstructions`。模型不在 Provider 存的列表里时照样交给 Codex（列表随账号变化，可能过期）。
+- **没登录时不建 thread、不开回合**：`createSession`、`resumeSession`、`send` 之前看账号状态（缓存，没读过就读一次），不是已登录就报 `missing_credentials`（Host 归为 `missing_credentials`）。实测没登录的 ChatGPT 进程会拿着空凭据向 `api.openai.com/v1/responses` 预连 websocket 并重试五次，这样也就不发生。
+- 登录后的 `thread/start` 会按工作区路由预连 `wss://chatgpt.com/backend-api/codex/responses`（R6 实测，测试里被代理拒绝），回合走同一个地址。
+- 标题：临时 thread（§4.4），用会话的模型。
+
+### 8.5 外连
+
+网关进程不变（§3，外连为零；没有 ChatGPT 凭据，`account/*` 与 `model/list` 都不联网）。ChatGPT 进程：
+
+| 时机 | 目标（实测或由 mock 核实的路径） |
+|---|---|
+| 启动（已登录） | `chatgpt.com`：`/backend-api/codex/models`（这一次的 `originator` 与 User-Agent 是 Codex 默认的 `codex_cli_rs`：它在 `initialize` 之前发出，Wevir 改不了），`/backend-api/wham/accounts/check` |
+| 设备码登录 | `auth.openai.com`：`/api/accounts/deviceauth/usercode`、`/deviceauth/token`（轮询）、`/oauth/token` |
+| 浏览器登录 | 用户的浏览器访问 `auth.openai.com`；app-server 访问 `auth.openai.com/oauth/token`（换令牌与 token-exchange） |
+| 读账号、用量 | `chatgpt.com`：`/backend-api/wham/accounts/check`、`/wham/usage`、`/wham/rate-limit-reset-credits` |
+| 会话与回合 | `chatgpt.com`：`wss://…/backend-api/codex/responses`（不行时 https） |
+| 刷新与吊销令牌 | `auth.openai.com`：`/oauth/token`、`/oauth/revoke` |
+
+除了启动时那一次模型列表，发往 ChatGPT 后端的请求 User-Agent 都以 `wevir/<版本>` 开头、`originator: wevir`（`clientInfo.name`，codex-notes §4.1）。用真实账号登录后的外连审计（代理放行并记录主机）结果写在 codex-notes §4.1。
+
+## 9. 留给后续任务
 
 - ~~R4：子 thread 改为子会话（§6.5），子 agent 的审批在父会话里处理（§6.6）~~ 已做。子会话要不要单独的停止按钮（Codex 终端界面允许直接中断子 agent）留给维护者；`send_input`、`resume_agent` 让子会话再开始回合已按 C2 / C5 处理，但没有录到样本。
-- R6：ChatGPT 登录的会话不经网关，标题走临时 thread（§4.4 的 `titleVia`）。
+- ~~R6：ChatGPT 登录的会话不经网关，标题走临时 thread（§4.4 的 `titleVia`）~~ 已做（§8）。ChatGPT 会话的回合没有自动化测试（工作区路由要求 https 的后端，mock 不了），靠维护者用真实账号验收。
 - R9：打包后二进制与提示词的位置（`binary`、`promptsDir` 选项；Host 的 `promptsDir`）。
 - “以后以这个前缀开头的命令不再问”（execpolicy 修订）与网络策略修订：要 Host 记规则（§6.6）。
 - `turn/steer`（回合进行中追加输入）：Wevir 目前回合中拒绝新消息（R11）。

@@ -111,6 +111,9 @@ export function effectiveCompat(provider: ProviderConfig): ProviderCompatConfig 
  * （所有会话都受影响），所以 Host 在写库之前调用它（`AgentRuntimeAdapter.validateProvider`）。
  */
 export function validateProviderConfig(provider: ProviderConfig): ProviderIssue[] {
+  if (provider.kind === 'chatgpt') {
+    return [{ path: ['kind'], message: 'dsh 引擎没有 ChatGPT 账号，要用 Codex 引擎' }];
+  }
   const issues: ProviderIssue[] = [];
   const issue = (path: Array<string | number>, message: string) => issues.push({ path, message });
 

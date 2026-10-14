@@ -4,7 +4,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CodexAdapter } from '@wevir/adapter-codex';
+import { CodexRuntime } from '@wevir/adapter-codex';
 import { DshAdapter } from '@wevir/adapter-dsh';
 import { CloseCode } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -134,7 +134,7 @@ describe('runHostCli', () => {
     // 真实 dsh 上的端到端见 cli.dsh.integration.test.ts。
   });
 
-  it('--adapter codex：CodexAdapter 用数据目录下的 engines/codex，进程等到第一个会话才启动', () => {
+  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动', () => {
     const home = join(tempDir(), 'home');
     // 二进制只解析路径（WEVIR_CODEX_BIN），版本在第一次启动前才核对，这里不会运行它。
     const fakeBinary = join(tempDir(), 'codex-app-server');
@@ -142,10 +142,13 @@ describe('runHostCli', () => {
     vi.stubEnv('WEVIR_CODEX_BIN', fakeBinary);
     try {
       const adapter = createAdapter('codex', { home, logger: createLogger({ mirror: () => {} }) });
-      expect(adapter).toBeInstanceOf(CodexAdapter);
-      const codex = adapter as CodexAdapter;
-      expect(codex.paths.codexHome).toBe(join(home, 'engines', 'codex'));
-      expect(codex.process.state).toBe('stopped');
+      expect(adapter).toBeInstanceOf(CodexRuntime);
+      const codex = adapter as CodexRuntime;
+      expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
+      expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
+      expect(codex.gateway.process.state).toBe('stopped');
+      expect(codex.chatgpt.process.state).toBe('stopped');
+      expect(codex.accounts.kinds).toEqual(['chatgpt']);
       expect(existsSync(home)).toBe(false);
     } finally {
       vi.unstubAllEnvs();

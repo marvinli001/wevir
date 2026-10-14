@@ -32,8 +32,16 @@ export interface ModelRow {
   base?: ProviderModel;
 }
 
+/** 表单管的 Provider：DeepSeek 官方与 OpenAI 兼容。ChatGPT（R6）在“ChatGPT 账号”一节里，没有表单。 */
+export type FormKind = Exclude<ProviderKind, 'chatgpt'>;
+export type EditableProvider = ProviderProfile & { kind: FormKind };
+
+export function isEditableProvider(provider: ProviderProfile): provider is EditableProvider {
+  return provider.kind !== 'chatgpt';
+}
+
 export interface ProviderForm {
-  kind: ProviderKind;
+  kind: FormKind;
   /** 编辑已有的 Provider：ID 与类型不可改（providers.md §2.1）。 */
   editing: boolean;
   /** 已存了 Key（编辑时）。 */
@@ -105,7 +113,7 @@ export function newOpenAIForm(preset: OpenAIPreset | undefined, takenIds: string
   };
 }
 
-export function editForm(provider: ProviderProfile): ProviderForm {
+export function editForm(provider: EditableProvider): ProviderForm {
   const models = provider.models.map(modelRow);
   const api = (FORM_APIS as readonly string[]).includes(provider.api ?? '')
     ? (provider.api as FormApi)
@@ -223,7 +231,9 @@ function defaultModelOf(form: ProviderForm): string {
 }
 
 /** 表单 → provider.upsert 的参数（先过 validateForm）。Key 留空时不带 `apiKey`，Host 保留已存的 Key。 */
-export function toUpsertParams(form: ProviderForm): MethodParams<'provider.upsert'> {
+export function toUpsertParams(
+  form: ProviderForm,
+): Exclude<MethodParams<'provider.upsert'>, { kind: 'chatgpt' }> {
   const apiKey = form.apiKey.trim();
   const common = {
     displayName: form.displayName.trim(),

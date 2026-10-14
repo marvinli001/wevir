@@ -3,6 +3,7 @@
 
 import type { ClientIdentity } from './common.js';
 import type {
+  AccountState,
   ApprovalRequest,
   ApprovalResolution,
   ProviderProfile,
@@ -86,6 +87,48 @@ export const compatibleProvider: ProviderProfile = {
   hasSecret: false,
   createdAt: TS,
   updatedAt: TS,
+};
+
+/** ChatGPT 订阅（0.7.0）：没有 Key、地址与 compat，模型来自引擎。 */
+export const chatgptProvider: ProviderProfile = {
+  id: 'chatgpt',
+  kind: 'chatgpt',
+  displayName: 'ChatGPT',
+  models: [
+    {
+      id: 'gpt-6.1-sol',
+      displayName: 'GPT-6.1-Sol',
+      supportsImages: true,
+      reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+    },
+  ],
+  defaultModelId: 'gpt-6.1-sol',
+  hasSecret: false,
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+export const signedInAccount: AccountState = {
+  kind: 'chatgpt',
+  status: 'signed_in',
+  email: 'me@example.com',
+  plan: 'plus',
+  rateLimits: {
+    primary: { usedPercent: 23, windowMinutes: 300, resetsAt: TS2 },
+    secondary: { usedPercent: 40.5, windowMinutes: 10080 },
+  },
+};
+
+export const signingInAccount: AccountState = {
+  kind: 'chatgpt',
+  status: 'signing_in',
+  login: {
+    loginId: '27c40a56-caa5-4314-9ca0-f2606104ac35',
+    method: 'device_code',
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    startedAt: TS,
+  },
 };
 
 export const session: Session = {
@@ -465,6 +508,14 @@ export const methodSamples: MethodSamples = {
           features: {},
           permissions: ['host.manage', 'session.read', 'session.write'],
         },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.7.0',
+          minProtocolVersion: '0.1.0',
+          features: { chatgpt_account: true },
+          permissions: ['host.manage', 'provider.read', 'provider.write'],
+        },
       ],
       invalid: [
         {
@@ -501,8 +552,11 @@ export const methodSamples: MethodSamples = {
   'provider.list': {
     params: empty,
     result: {
-      valid: [{ providers: [deepseekProvider, compatibleProvider] }],
-      invalid: [{ providers: [{ ...compatibleProvider, hasSecret: undefined }] }],
+      valid: [{ providers: [deepseekProvider, compatibleProvider, chatgptProvider] }],
+      invalid: [
+        { providers: [{ ...compatibleProvider, hasSecret: undefined }] },
+        { providers: [{ ...chatgptProvider, kind: 'chatgpt-plus' }] },
+      ],
     },
   },
   'provider.upsert': {
@@ -526,8 +580,16 @@ export const methodSamples: MethodSamples = {
           defaultModelId: 'qwen3:8b',
           apiKey: null,
         },
+        { id: 'chatgpt', kind: 'chatgpt', displayName: 'ChatGPT', defaultModelId: 'gpt-6.1-sol' },
       ],
       invalid: [
+        // chatgpt 的 id 固定
+        {
+          id: 'my-chatgpt',
+          kind: 'chatgpt',
+          displayName: 'ChatGPT',
+          defaultModelId: 'gpt-6.1-sol',
+        },
         // deepseek-official 的 id 固定
         {
           id: 'my-deepseek',
@@ -588,6 +650,78 @@ export const methodSamples: MethodSamples = {
         },
       ],
       invalid: [{ ok: 'yes' }, { ok: false, reason: 'teapot' }, { ok: false, httpStatus: 42 }],
+    },
+  },
+  'account.get': {
+    params: { valid: [{ kind: 'chatgpt' }], invalid: [{}, { kind: 'grok' }] },
+    result: {
+      valid: [
+        { account: signedInAccount },
+        { account: signingInAccount },
+        { account: { kind: 'chatgpt', status: 'signed_out', lastError: 'Login timed out' } },
+      ],
+      invalid: [{ account: { kind: 'chatgpt', status: 'expired' } }, {}],
+    },
+  },
+  'account.login': {
+    params: {
+      valid: [
+        { kind: 'chatgpt', method: 'browser' },
+        { kind: 'chatgpt', method: 'device_code' },
+      ],
+      invalid: [{ kind: 'chatgpt' }, { kind: 'chatgpt', method: 'api_key' }],
+    },
+    result: {
+      valid: [
+        {
+          account: {
+            kind: 'chatgpt',
+            status: 'signing_in',
+            login: {
+              loginId: '7af8e3cc-12e5-47a9-95f2-444009ba644f',
+              method: 'browser',
+              authUrl: 'https://auth.openai.com/oauth/authorize?response_type=code&client_id=x',
+              startedAt: TS,
+            },
+          },
+        },
+        { account: signingInAccount },
+      ],
+      invalid: [
+        {
+          account: {
+            ...signingInAccount,
+            login: { ...signingInAccount.login, verificationUrl: 'auth.openai.com/codex/device' },
+          },
+        },
+      ],
+    },
+  },
+  'account.cancelLogin': {
+    params: {
+      valid: [
+        { kind: 'chatgpt' },
+        { kind: 'chatgpt', loginId: '27c40a56-caa5-4314-9ca0-f2606104ac35' },
+      ],
+      invalid: [{ kind: 'chatgpt', loginId: '' }],
+    },
+    result: {
+      valid: [{ account: { kind: 'chatgpt', status: 'signed_out' } }],
+      invalid: [{ account: { status: 'signed_out' } }],
+    },
+  },
+  'account.logout': {
+    params: { valid: [{ kind: 'chatgpt' }], invalid: [{ kind: 1 }] },
+    result: {
+      valid: [{ account: { kind: 'chatgpt', status: 'signed_out' } }],
+      invalid: [
+        {
+          account: {
+            ...signedInAccount,
+            rateLimits: { primary: { usedPercent: -1 } },
+          },
+        },
+      ],
     },
   },
   'session.create': {
@@ -701,6 +835,10 @@ export const notificationSamples: NotificationSamples = {
       { event: eventOf('assistant.delta', 13) },
       { subscriptionId: ids.subscription, event: { ...eventOf('turn.started'), seq: 0 } },
     ],
+  },
+  'account.updated': {
+    valid: [{ account: signedInAccount }, { account: signingInAccount }],
+    invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },
 };
 

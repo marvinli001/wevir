@@ -376,7 +376,9 @@ R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），�
 
 8. **网关与提示词。** Codex 发的 Responses 请求变了（新字段、新的输入项类型、`tool_choice` 等）：用 `spikes/codex-app-server/src/record-requests.ts` 重录 `packages/model-gateway/src/test-fixtures/codex-requests/`，跑网关的转换测试与快照（model-gateway.md）。`prompts/base.md` 的工具说明按新版本的工具清单核对（prompts/README.md「Codex 一回合里模型看到的说明」）；`prompts/` 下改写自 Codex 的文件按 §4 核对来源提交。
 
-9. **收尾。** ADR-0005 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试、外连与密钥检查的结果。`CODEX_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，是预期的；rollout 格式不兼容时旧会话恢复会报 `session_lost`（会话只读），发版说明里要告诉用户。
+9. **ChatGPT 进程（R6）。** `account/*`、`model/list` 与 `v2/Account*.ts`、`LoginAccount*.ts`、`RateLimit*.ts`、`Model.ts` 的 schema 对照 `protocol.ts` 的“账号”一节；`cli_auth_credentials_store`、`forced_login_method`、`mcp_oauth_credentials_store`、`features.apps` 还在不在；登录服务与后端的地址与环境变量（`CODEX_APP_SERVER_LOGIN_ISSUER`、`CODEX_REFRESH_TOKEN_URL_OVERRIDE`、`chatgpt_base_url`、`openai_base_url`）、`/wham/accounts/check` 的形状变了没有。跑 `codex-runtime.chatgpt.integration.test.ts`（真实二进制 + mock 登录服务）；mock 的端点要跟着改。有真实 ChatGPT 账号时在桌面端登录一次、问一句，看外连（codex-event-mapping.md §8.5）。
+
+10. **收尾。** ADR-0005 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试、外连与密钥检查的结果。`CODEX_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，是预期的；rollout 格式不兼容时旧会话恢复会报 `session_lost`（会话只读），发版说明里要告诉用户。
 
 ## 9. 来源核查
 

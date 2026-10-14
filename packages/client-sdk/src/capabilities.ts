@@ -8,9 +8,12 @@ import type { ClientCapability, HostFeature, HostFeatures } from '@wevir/protoco
  * 失败。新能力位意味着客户端要能处理它放开的新形状，所以加进来之前先把处理写好。
  * - `title_source_generated`（0.5.0）：`TitleSource` 的 `generated` 只是一个新的来源值，会话列表与消息投影
  *   不按来源分支，照常显示标题。
+ * - `provider_kind_chatgpt`（0.7.0）：`ProviderKind` 的 `chatgpt`。CLI 的 `provider list` 与桌面端的 Provider 列表
+ *   按 kind 分支的地方都处理了它（没有 Key、没有地址，桌面端在“ChatGPT 账号”一节里显示）。
  */
 export const DEFAULT_CLIENT_CAPABILITIES = {
   title_source_generated: true,
+  provider_kind_chatgpt: true,
 } as const satisfies Record<ClientCapability, true>;
 
 /** Host 是否声明了这项功能（host-api.md §10：客户端只在一处判断，功能内部不写降级路径）。 */

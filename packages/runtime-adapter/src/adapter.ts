@@ -1,5 +1,9 @@
 import type { AgentEvent } from './events.js';
 import type {
+  AccountKind,
+  AccountLoginMethod,
+  AccountModels,
+  AccountState,
   AgentInput,
   ApprovalDecision,
   EngineSession,
@@ -139,9 +143,39 @@ export interface AgentRuntimeAdapter {
   generateTitle?(engineSessionId: string, request: TitleRequest): Promise<string>;
 
   /**
+   * 引擎自己的订阅登录（R6，ADR-0005 决策 4）。不实现表示引擎没有账号（dsh、echo）；Host 据此决定是否声明
+   * `chatgpt_account` 功能。
+   */
+  readonly accounts?: EngineAccounts;
+
+  /**
    * 释放全部资源（dsh：关 stdin，超时再 SIGTERM、SIGKILL）。进行中的回合被放弃，未决审批以
    * `approval.cancelled`（`disposed`）结束，所有订阅结束，不发 `engine.exited`。返回时引擎进程、
    * 计时器等已释放。幂等。
    */
   dispose(): Promise<void>;
+}
+
+/**
+ * 引擎的账号（R6，domain-model §3.6）。凭据由引擎自己保存，适配器与 Host 都不读、不转交令牌；这里只有状态。
+ * 方法都可能抛 `AdapterError`：`invalid_input`（种类不支持）、`engine_unavailable`（引擎起不来、请求失败）、`disposed`。
+ */
+export interface EngineAccounts {
+  /** 支持的账号种类。 */
+  readonly kinds: readonly AccountKind[];
+  /** 读状态；已登录时尽力附带用量。 */
+  read(kind: AccountKind): Promise<AccountState>;
+  /** 开始登录，返回 `signing_in` 的状态（带 `login`）；已有进行中的登录时替换它。 */
+  login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState>;
+  /** 取消进行中的登录；`loginId` 不是当前的时什么都不做。返回取消之后的状态。 */
+  cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState>;
+  /** 登出，没登录时同样成功。 */
+  logout(kind: AccountKind): Promise<AccountState>;
+  /** 账号能用的模型（Host 用它填 `chatgpt` Provider 的模型列表）。 */
+  models(kind: AccountKind): Promise<AccountModels>;
+  /**
+   * 状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化）时调用，带完整的状态。返回退订函数。监听器里抛错不影响别的
+   * 监听器。
+   */
+  onChange(listener: (state: AccountState) => void): () => void;
 }

@@ -110,7 +110,7 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 
 ### 3.3 命令行客户端
 
-`apps/cli`（T4.2）合入后，`pnpm build` 再运行 `pnpm --silent wevir --help`。`wevir host start [--adapter codex|dsh|echo]`（默认 codex）以分离方式启动 Host，桌面端随后附着它；`wevir session attach <id>` 与桌面看同一事件流、可以在终端里审批。数据目录与 Host 相同（`WEVIR_HOME` 或 `--home`）。
+`apps/cli`（T4.2）合入后，`pnpm build` 再运行 `pnpm --silent wevir --help`。`wevir host start [--adapter codex|dsh|echo]`（默认 codex）以分离方式启动 Host，桌面端随后附着它；`wevir session attach <id>` 与桌面看同一事件流、可以在终端里审批。`wevir provider login` / `status` / `logout` 管 ChatGPT 账号（R6，设备码方式，只有 Codex 引擎有）。数据目录与 Host 相同（`WEVIR_HOME` 或 `--home`）。
 
 ### 3.4 各包单独开发
 
@@ -188,6 +188,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `engines/dsh/` | dsh 的 `DSH_HOME`，也是 dsh 进程的 cwd：`profiles/acp/`、会话日志、Wevir 生成的 Provider overlay `wevir/providers.yml`（只有 Key 的变量名） |
 | `engines/dsh-agents/` | dsh 的 `DSH_AGENTS_HOME`，空目录（安全说明 §4） |
 | `engines/codex/` | Codex 的 `CODEX_HOME`，也是 `codex-app-server` 的 cwd：Wevir 每次启动它之前重写的 `config.toml` 与模型目录 `wevir-models.json`（只有网关令牌的变量名，没有 Key），以及 Codex 自己的 rollout（`sessions/`）、SQLite 库、`shell_snapshots/` 等 |
+| `engines/codex-chatgpt/` | ChatGPT 进程的 `CODEX_HOME`（R6）：Wevir 重写的 `config.toml`（没有 Provider 与模型目录），登录后 Codex 写的 `auth.json`（0600，ChatGPT 的令牌，见[安全说明](./security.md) §3），以及它自己的 rollout 与 SQLite 库。第一次用到 ChatGPT 账号时才出现 |
 | `desktop/` | Electron 的 userData（Chromium 配置、localStorage） |
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。
@@ -248,8 +249,11 @@ pnpm vitest run --project adapter-codex codex-adapter.contract
 | `codex-adapter.integration.test.ts` | 握手、Provider 变更、版本核对 | 二进制；约 5 s |
 | `codex-adapter.subagent.test.ts`、`codex-adapter.subagent.integration.test.ts` | 子会话（R4）：回放录制的子 agent 样本（含子 thread 先于 spawn 完成到达、按 rootTurnId 认出的顺序）；真实二进制上的 spawn → wait、不等子 agent、`close_agent`、取消父回合时子 agent 不受影响、notFound 不当作子会话 | 回放无；真实二进制约 3 s |
 | `codex-adapter.isolation.integration.test.ts` | 外连为零（代理 + lsof）、令牌与 Key 不落盘不进日志、命令看不到 `WEVIR_*` | 二进制；约 10 s |
+| `account.test.ts`、`codex-runtime.chatgpt.integration.test.ts` | ChatGPT 进程（R6）：账号状态机与 `model/list` 的换算；真实二进制 + 本机 mock 登录服务与后端（`test-fixtures/mock-chatgpt.ts`）走设备码与浏览器登录、取消、登出、模型列表、会话分到哪个进程，外连经拒绝的代理 | 单元无；真实二进制约 10 s，不需要账号 |
 
 没有二进制时集成测试跳过并打印下载命令。审批用例写 `packages/adapter-codex/.test-outside/`（工作区外、且不在系统临时目录，gitignore），同 §6.4 的第一条。升级 Codex 按 [UPSTREAM.md](./upstream/UPSTREAM.md)「Codex 升级检查清单」，其中重录样本是 `WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`。Host 一侧的端到端是 `packages/host/src/cli.codex.integration.test.ts` 与子会话的 `cli.codex.subagent.integration.test.ts`（派出子会话、子会话的审批经父会话处理、取消父会话时级联取消；写 `packages/host/.test-outside/`）。mock 模型的默认脚本里“子智能体”（或 `subagent`）让父 agent 派一个子 agent 并等它（与 Spike 的 subagent 场景相同的 spawn → wait），再加“工作区外”让子 agent 请求审批、加“长”让它慢慢回答；echo 引擎的 `subagent` 关键词是同样的流程（`packages/runtime-adapter/src/echo.ts`）。
+
+ChatGPT 登录在桌面端的验收不需要真实账号：在 scratch 目录写一个小脚本，用 `@wevir/adapter-codex` 的 `CodexRuntime`（`chatgptEndpoints` 指向 `@wevir/adapter-codex/testing` 的 `startMockChatgpt()`）与 `@wevir/host` 的 `startHost` 起一个 Host，再 `WEVIR_HOME=<那个目录> WEVIR_DESKTOP_DEBUG_PORT=9349 pnpm --filter @wevir/desktop dev` 附着它；设备码登录由 mock 的 `approveDeviceCode()` 放行（浏览器登录会打开系统浏览器，验收时少用）。真实账号的登录与对话要维护者自己操作。
 
 ### 6.3 真实模型测试的环境变量
 
@@ -343,6 +347,8 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 1. **DeepSeek 官方（首选）。** 类型 `deepseek-official`，走 dsh 原生的 DeepSeek 适配器，只要填 Key。
 2. **国内的 OpenAI 兼容服务：** 通义千问（阿里云百炼）、Kimi、智谱 GLM。地址按 Key 所在的站点和套餐选：Kimi 国内站的 Key 只能配 `api.moonshot.cn`；百炼的国际站、Coding Plan，智谱的 GLM Coding 套餐都有各自的地址，不能混用。细节见 providers.md §7。
 3. **本机模型（Ollama、vLLM 等）。** 地址 `http://127.0.0.1:11434/v1` 一类，Key 随便填。本机没有装，未验证。
+
+**ChatGPT 订阅**（R6）：设置 → 模型 Provider 顶部的“ChatGPT 账号”，或 `wevir provider login`。登录与对话直连 `auth.openai.com` 与 `chatgpt.com`，需要能访问 OpenAI 的网络；`codex-app-server` 继承 Host 的 `HTTPS_PROXY` 等代理变量（从访达启动的桌面端拿不到 shell 里的代理变量，要在启动 Host 的环境里设）。只供个人在本机使用。
 
 海外服务（OpenAI 官方等）只要是 OpenAI 兼容协议也能配，但需要能访问对方的网络，未验证；`anthropic-messages` 协议骨架阶段不支持。
 

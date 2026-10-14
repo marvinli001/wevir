@@ -1,6 +1,12 @@
 import { type ParseArgsOptionsConfig, parseArgs } from 'node:util';
 import { resolveHome } from '@wevir/host/runtime';
 import packageJson from '../package.json' with { type: 'json' };
+import {
+  accountLogin,
+  accountLogout,
+  accountStatus,
+  parseAccountKind,
+} from './commands/account.js';
 import { hostStart, hostStatus, hostStop } from './commands/host.js';
 import { providerAdd, providerList, providerTest } from './commands/provider.js';
 import { sessionAttach, sessionList, sessionNew } from './commands/session.js';
@@ -167,6 +173,34 @@ stdin 不是终端时从 stdin 读一行作为 Key。同一个 ID 再次添加�
         const model = str(v.model);
         return providerTest(ctx, id, model === undefined ? {} : { model });
       },
+    },
+    login: {
+      summary: '用设备码登录 ChatGPT 账号（只限个人在本机使用）',
+      help: `用法：wevir provider login [chatgpt]
+
+用 ChatGPT 订阅登录 Host 的 Codex 引擎：打印一个网址与一次性码，在任意设备的浏览器里打开网址、登录
+ChatGPT 并输入这个码。登录走 OpenAI 自己的 Codex 登录流程，凭据只存在本机的 Codex 目录里，Wevir 不读取、
+不转交；按 OpenAI 的条款只供个人在本机使用 Wevir 时登录。登录成功后多出一个 ID 为 chatgpt 的 Provider。
+Ctrl-C 取消登录。`,
+      options: {},
+      positionals: { min: 0, max: 1 },
+      run: (ctx, _v, [kind]) => accountLogin(ctx, parseAccountKind(kind)),
+    },
+    status: {
+      summary: '查看 ChatGPT 账号：是否登录、账号、套餐与用量',
+      help: '用法：wevir provider status [chatgpt]',
+      options: {},
+      positionals: { min: 0, max: 1 },
+      run: (ctx, _v, [kind]) => accountStatus(ctx, parseAccountKind(kind)),
+    },
+    logout: {
+      summary: '登出 ChatGPT 账号（删除本机凭据）',
+      help: `用法：wevir provider logout [chatgpt]
+
+删除本机的 ChatGPT 凭据并尽力吊销令牌。chatgpt Provider 与用它的会话保留，重新登录后可以继续。`,
+      options: {},
+      positionals: { min: 0, max: 1 },
+      run: (ctx, _v, [kind]) => accountLogout(ctx, parseAccountKind(kind)),
     },
   },
   session: {

@@ -15,6 +15,7 @@ import type {
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
 import type { ProviderProfileRecord, SecretStore, Storage, WorkspaceRecord } from '@wevir/storage';
+import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { newId } from './ids.js';
@@ -55,6 +56,22 @@ export interface HostMethodsOptions {
    * `provider.test` 回 `ok: false`。
    */
   providers?: ProviderBridge;
+  /** 引擎的账号（R6，`account.*`）；引擎没有账号时省略，`account.*` 回 `ENGINE_ERROR`。 */
+  accounts?: HostAccounts;
+  /** Provider 写操作的串行锁；与 `HostAccounts` 共用，默认新建一个。 */
+  providerLock?: ProviderLock;
+}
+
+/** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
+export type ProviderLock = <T>(op: () => Promise<T>) => Promise<T>;
+
+export function createProviderLock(): ProviderLock {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(op: () => Promise<T>): Promise<T> => {
+    const result = tail.then(op);
+    tail = result.catch(() => {});
+    return result;
+  };
 }
 
 export type ProviderBridge = Pick<
@@ -85,7 +102,7 @@ export async function syncProviders(
  * 读写存储。参数已经过方法注册表校验；返回值由 RPC 层按注册表校验后再发出。
  */
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
-  const { storage, events, sessions, secrets, providers: bridge } = options;
+  const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   // 写库成功之后才调用；引擎没能用上新配置时 Profile 仍已保存，报 ENGINE_ERROR 说明这一点。
   const applyProviders = async () => {
     try {
@@ -95,12 +112,50 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
     }
   };
-  // Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次 upsert 交错。
-  let providerTail: Promise<unknown> = Promise.resolve();
-  const serialProvider = <T>(op: () => Promise<T>): Promise<T> => {
-    const result = providerTail.then(op);
-    providerTail = result.catch(() => {});
-    return result;
+  const serialProvider = options.providerLock ?? createProviderLock();
+  const requireAccounts = (): HostAccounts => {
+    if (accounts === undefined) {
+      const message = 'this host engine has no ChatGPT account (use the Codex engine)';
+      throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
+    }
+    return accounts;
+  };
+
+  /**
+   * `provider.upsert` 的 `chatgpt`（R6）：模型列表向引擎要，客户端只改显示名与默认模型。引擎没有账号时与引擎不接受的配置
+   * 一样回 `INVALID_PARAMS`。
+   */
+  const upsertChatgpt = async (
+    params: Extract<MethodParams<'provider.upsert'>, { kind: 'chatgpt' }>,
+  ): Promise<MethodResult<'provider.upsert'>> => {
+    if (accounts === undefined) {
+      const message = 'the engine does not accept this provider: no ChatGPT account in this host';
+      throw new HostError('INVALID_PARAMS', message, { issues: [{ path: ['kind'], message }] });
+    }
+    const { models } = await accounts.models('chatgpt');
+    if (!models.some((model) => model.id === params.defaultModelId)) {
+      throw invalidParams(['defaultModelId'], 'defaultModelId must be one of the account models');
+    }
+    return serialProvider(async () => {
+      const existing = storage.providers.get(CHATGPT_PROVIDER_ID);
+      if (existing && existing.kind !== 'chatgpt') {
+        throw invalidParams(['kind'], `kind of provider ${CHATGPT_PROVIDER_ID} cannot be changed`);
+      }
+      const now = isoNow();
+      const record: ProviderProfileRecord = {
+        id: CHATGPT_PROVIDER_ID,
+        kind: 'chatgpt',
+        displayName: params.displayName,
+        models,
+        defaultModelId: params.defaultModelId,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
+      };
+      if (existing) storage.providers.update(record);
+      else storage.providers.insert(record);
+      await applyProviders();
+      return { provider: toProviderProfile(record), created: !existing };
+    });
   };
 
   return {
@@ -145,8 +200,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'provider.list': () => ({ providers: storage.providers.list().map(toProviderProfile) }),
 
-    'provider.upsert': (params) =>
-      serialProvider(async () => {
+    'provider.upsert': async (params) => {
+      if (params.kind === 'chatgpt') return upsertChatgpt(params);
+      return serialProvider(async () => {
         const existing = storage.providers.get(params.id);
         if (existing && existing.kind !== params.kind) {
           throw invalidParams(['kind'], `kind of provider ${params.id} cannot be changed`);
@@ -213,7 +269,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         else storage.providers.insert(record);
         await applyProviders();
         return { provider: toProviderProfile(record), created: !existing };
-      }),
+      });
+    },
 
     'provider.remove': ({ providerId }) =>
       serialProvider(async () => {
@@ -254,6 +311,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const config = toProviderConfig(provider, await secretOf(secrets, provider));
       return bridge.testProvider(config, modelId ?? provider.defaultModelId);
     },
+
+    'account.get': async ({ kind }) => ({ account: await requireAccounts().read(kind) }),
+
+    'account.login': async ({ kind, method }) => ({
+      account: await requireAccounts().login(kind, method),
+    }),
+
+    'account.cancelLogin': async ({ kind, loginId }) => ({
+      account: await requireAccounts().cancelLogin(kind, loginId),
+    }),
+
+    'account.logout': async ({ kind }) => ({ account: await requireAccounts().logout(kind) }),
 
     'session.create': async (params) => ({ session: await sessions.create(params) }),
 

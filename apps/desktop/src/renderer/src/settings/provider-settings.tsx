@@ -19,8 +19,16 @@ import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { ChatgptAccountSection } from './chatgpt-account';
 import { ProviderEditor, type SaveOutcome } from './provider-editor';
-import { editForm, newDeepSeekForm, newOpenAIForm, type ProviderForm } from './provider-form';
+import {
+  type EditableProvider,
+  editForm,
+  isEditableProvider,
+  newDeepSeekForm,
+  newOpenAIForm,
+  type ProviderForm,
+} from './provider-form';
 import { DEEPSEEK_OFFICIAL_ID, OPENAI_PRESETS, type OpenAIPreset } from './provider-presets';
 import { presentTestError, presentTestResult, type TestPresentation } from './provider-test-result';
 import { openSessions, removeClosingSessions } from './remove';
@@ -33,6 +41,7 @@ type TestState = { status: 'running' } | { status: 'done'; result: TestPresentat
 /**
  * 设置 → 模型 Provider（T5.4）：列表、新增（先选 DeepSeek 官方或 OpenAI 兼容模板）、编辑、删除、测试连接。
  * Key 只在表单里输入一次，之后只显示“已设置”。有 Key、且新建或改了影响连接的字段时，保存后自动测一次连接。
+ * Host 有 ChatGPT 账号（`chatgpt_account`，R6）时列表上方是“ChatGPT 账号”一节，`chatgpt` Provider 只在那里显示。
  */
 export function ProviderSettings() {
   const data = useWorkbenchData();
@@ -59,8 +68,9 @@ export function ProviderSettings() {
   );
 
   if (data.status !== 'ready') return <SettingsLoading data={data} />;
-  const { providers } = data;
-  const takenIds = providers.map((provider) => provider.id);
+  const chatgpt = data.providers.find((provider) => provider.kind === 'chatgpt');
+  const providers = data.providers.filter(isEditableProvider);
+  const takenIds = data.providers.map((provider) => provider.id);
   const sessions = data.workspaces.flatMap((entry) => entry.sessions);
 
   const saved = async (outcome: SaveOutcome) => {
@@ -127,10 +137,13 @@ export function ProviderSettings() {
         </Button>
       </div>
       {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
+      {client?.supports('chatgpt_account') && (
+        <ChatgptAccountSection client={client} provider={chatgpt} />
+      )}
       {notice && <NoticeBanner notice={notice} />}
       {providers.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-muted-foreground">
-          {t('provider.empty')}
+          {client?.supports('chatgpt_account') ? t('provider.emptyKeyed') : t('provider.empty')}
         </p>
       ) : (
         <ul className="space-y-3">
@@ -178,7 +191,7 @@ function ProviderCard({
   onEdit,
   onRemove,
 }: {
-  provider: ProviderProfile;
+  provider: EditableProvider;
   test: TestState | undefined;
   disabled: boolean;
   onTest: () => void;

@@ -561,3 +561,37 @@ describe('订阅', () => {
     await expect(client.subscribe(SES).next()).rejects.toBeInstanceOf(ClientClosedError);
   });
 });
+
+describe('账号（R6）', () => {
+  const signedOut = { kind: 'chatgpt', status: 'signed_out' };
+  const signedIn = { kind: 'chatgpt', status: 'signed_in', email: 'me@example.com', plan: 'plus' };
+
+  it('watchAccount：先 account.get，之后的 account.updated 照收；重连后再 account.get；Host 没有功能时不调', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { chatgpt_account: true } } }));
+    let current: unknown = signedOut;
+    host.on('account.get', () => ({ result: { account: current } }));
+    const { client, warnings } = await connect(host);
+    const seen: unknown[] = [];
+    const stop = client.watchAccount('chatgpt', (account) => seen.push(account));
+    await vi.waitFor(() => expect(seen).toEqual([signedOut]));
+    host.last.notify('account.updated', { account: signedIn });
+    host.last.notify('account.updated', { account: { kind: 'chatgpt', status: 'gone' } });
+    expect(seen).toEqual([signedOut, signedIn]);
+    expect(warnings).toContain('ignored a malformed account.updated notification');
+    current = signedIn;
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(seen).toEqual([signedOut, signedIn, signedIn]));
+    expect(host.last.requests('account.get')).toHaveLength(1);
+    stop();
+    host.last.notify('account.updated', { account: signedOut });
+    expect(seen).toHaveLength(3);
+
+    const plain = new FakeHost();
+    const { client: old } = await connect(plain);
+    old.watchAccount('chatgpt', (account) => seen.push(account));
+    await tick();
+    expect(plain.last.requests('account.get')).toEqual([]);
+  });
+});

@@ -514,3 +514,96 @@ export type ApprovalDecisionValue = 'accept' | 'acceptForSession' | 'decline' | 
 export interface ApprovalResponse {
   decision: ApprovalDecisionValue;
 }
+
+// ── 账号（R6，ChatGPT 进程） ──────────────────────────────────────────────────────────────
+
+/** v2/LoginAccountParams.ts 里 Wevir 用的两种：浏览器（`chatgpt`）与设备码（`chatgptDeviceCode`）。 */
+export type LoginAccountParams = { type: 'chatgpt' } | { type: 'chatgptDeviceCode' };
+
+/** v2/LoginAccountResponse.ts 里对应的两种。 */
+export type LoginAccountResponse =
+  | { type: 'chatgpt'; loginId: string; authUrl: string }
+  | { type: 'chatgptDeviceCode'; loginId: string; verificationUrl: string; userCode: string }
+  | { type: string; [key: string]: unknown };
+
+/** v2/CancelLoginAccountParams.ts / v2/CancelLoginAccountResponse.ts。 */
+export interface CancelLoginAccountParams {
+  loginId: string;
+}
+export interface CancelLoginAccountResponse {
+  status: 'canceled' | 'notFound';
+}
+
+/** v2/AccountLoginCompletedNotification.ts（`account/login/completed`）。 */
+export interface AccountLoginCompletedNotification {
+  loginId: string | null;
+  success: boolean;
+  error: string | null;
+}
+
+/** v2/AccountUpdatedNotification.ts（`account/updated`）：`authMode` 是 AuthMode.ts，`planType` 是 PlanType.ts。 */
+export interface AccountUpdatedNotification {
+  authMode: string | null;
+  planType: string | null;
+}
+
+/** v2/Account.ts：Wevir 只认 `chatgpt`，其余（`apiKey`、`amazonBedrock`）按没有 ChatGPT 登录处理。 */
+export type CodexAccount =
+  | { type: 'chatgpt'; email: string | null; planType: string }
+  | { type: string; [key: string]: unknown };
+
+/** v2/GetAccountParams.ts / v2/GetAccountResponse.ts（`account/read`）。 */
+export interface GetAccountParams {
+  refreshToken?: boolean;
+}
+export interface GetAccountResponse {
+  account: CodexAccount | null;
+  requiresOpenaiAuth: boolean;
+}
+
+/** v2/RateLimitWindow.ts：`resetsAt` 是 Unix 秒。 */
+export interface RateLimitWindow {
+  usedPercent: number;
+  windowDurationMins: number | null;
+  resetsAt: number | null;
+}
+
+/** v2/RateLimitSnapshot.ts 里本包读的。 */
+export interface RateLimitSnapshot {
+  primary: RateLimitWindow | null;
+  secondary: RateLimitWindow | null;
+  planType: string | null;
+}
+
+/** v2/GetAccountRateLimitsResponse.ts（`account/rateLimits/read`）里本包读的。 */
+export interface GetAccountRateLimitsResponse {
+  rateLimits: RateLimitSnapshot;
+}
+
+/** v2/AccountRateLimitsUpdatedNotification.ts（`account/rateLimits/updated`，稀疏更新）。 */
+export interface AccountRateLimitsUpdatedNotification {
+  rateLimits: Partial<RateLimitSnapshot>;
+}
+
+/** v2/ModelListParams.ts / v2/ModelListResponse.ts（`model/list`）。 */
+export interface ModelListParams {
+  cursor?: string | null;
+  limit?: number | null;
+  includeHidden?: boolean | null;
+}
+export interface ModelListResponse {
+  data: CodexModel[];
+  nextCursor: string | null;
+}
+
+/** v2/Model.ts 里本包读的；`supportedReasoningEfforts` 是 v2/ReasoningEffortOption.ts。 */
+export interface CodexModel {
+  id: string;
+  model: string;
+  displayName: string;
+  hidden: boolean;
+  supportedReasoningEfforts: Array<{ reasoningEffort: string; description: string }>;
+  defaultReasoningEffort: string;
+  inputModalities: string[];
+  isDefault: boolean;
+}

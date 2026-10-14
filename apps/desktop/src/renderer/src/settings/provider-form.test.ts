@@ -1,6 +1,5 @@
 import {
   MethodSchemas,
-  type ProviderProfile,
   type ProviderTestFailure,
   ProviderTestFailureSchema,
 } from '@wevir/protocol';
@@ -8,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   connectionChanged,
   deepseekModelChoices,
+  type EditableProvider,
   editForm,
   modelRow,
   newDeepSeekForm,
@@ -25,7 +25,7 @@ if (!kimi || !deepseekOpenAI || !ollama) throw new Error('缺少模板');
 
 const upsertSchema = MethodSchemas['provider.upsert'].params;
 
-function profile(overrides: Partial<ProviderProfile>): ProviderProfile {
+function profile(overrides: Partial<EditableProvider>): EditableProvider {
   return {
     id: 'kimi',
     kind: 'openai-compatible',

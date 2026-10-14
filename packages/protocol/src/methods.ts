@@ -19,6 +19,9 @@ import {
   WorkspaceIdSchema,
 } from './common.js';
 import {
+  AccountKindSchema,
+  AccountLoginMethodSchema,
+  AccountStateSchema,
   ApprovalResolutionSchema,
   EngineErrorInfoSchema,
   HttpUrlSchema,
@@ -122,6 +125,17 @@ export const ProviderUpsertParamsSchema = z.discriminatedUnion('kind', [
     compat: ProviderCompatSchema.optional(),
     models: z.array(ProviderModelSchema).min(1),
   }),
+  /**
+   * ChatGPT 订阅（0.7.0）：没有 Key、地址与 compat；`models` 由 Host 从引擎取（ChatGPT 登录成功时 Host 会自己建这个
+   * Provider，客户端用 upsert 改显示名与默认模型）。`defaultModelId` 要在引擎给的模型列表里。只在 Host 声明了
+   * `chatgpt_account` 功能时可用，否则 `INVALID_PARAMS`。
+   */
+  z.object({
+    id: z.literal('chatgpt'),
+    kind: z.literal('chatgpt'),
+    displayName: z.string().min(1),
+    defaultModelId: z.string().min(1),
+  }),
 ]);
 
 export const ProviderUpsertResultSchema = z.object({
@@ -167,6 +181,32 @@ export const ProviderTestResultSchema = z.object({
   reason: ProviderTestFailureSchema.optional(),
   /** 服务端返回的 HTTP 状态码（0.2.0）；没有收到响应时省略。 */
   httpStatus: z.int().min(100).max(599).optional(),
+});
+
+// ── account.*（0.7.0，R6） ─────────────────────────────────────────────
+
+export const AccountKindParamsSchema = z.object({
+  kind: AccountKindSchema,
+});
+
+export const AccountLoginParamsSchema = z.object({
+  kind: AccountKindSchema,
+  method: AccountLoginMethodSchema,
+});
+
+export const AccountCancelLoginParamsSchema = z.object({
+  kind: AccountKindSchema,
+  /** 省略时取消当前的登录；与当前的不符时什么都不做。 */
+  loginId: z.string().min(1).optional(),
+});
+
+export const AccountResultSchema = z.object({
+  account: AccountStateSchema,
+});
+
+/** `account.updated` 通知：账号状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化），带完整的状态。 */
+export const AccountUpdatedParamsSchema = z.object({
+  account: AccountStateSchema,
 });
 
 // ── session.* ─────────────────────────────────────────────────────────
@@ -311,6 +351,27 @@ export const MethodSchemas = {
     permission: 'provider.write',
   },
 
+  'account.get': {
+    params: AccountKindParamsSchema,
+    result: AccountResultSchema,
+    permission: 'provider.read',
+  },
+  'account.login': {
+    params: AccountLoginParamsSchema,
+    result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+  'account.cancelLogin': {
+    params: AccountCancelLoginParamsSchema,
+    result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+  'account.logout': {
+    params: AccountKindParamsSchema,
+    result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+
   'session.create': {
     params: SessionCreateParamsSchema,
     result: SessionResultSchema,
@@ -378,6 +439,8 @@ export function isMethodName(method: string): method is MethodName {
 /** Host → 客户端的通知注册表。 */
 export const NotificationSchemas = {
   'events.event': { params: EventsEventParamsSchema },
+  /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
+  'account.updated': { params: AccountUpdatedParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;
 
 export type NotificationName = keyof typeof NotificationSchemas;

@@ -1,6 +1,6 @@
 # Wevir 安全说明（骨架阶段）
 
-> 状态：T6.1 · 日期：2026-10-14
+> 状态：T6.1；R6 补 ChatGPT 账号（§3、§5）· 日期：2026-10-14
 > 依据：[ADR-0001](./adr/0001-runtime-integration.md)（dsh 进程环境、沙箱与审批）、[ADR-0002](./adr/0002-host-transport-and-process-model.md)（传输、令牌、运行时文件）、[ADR-0003](./adr/0003-storage.md)（存储与密钥）、[ADR-0005](./adr/0005-agent-runtime-and-model-gateway.md)（Codex 引擎与模型网关）
 
 本文件写清骨架阶段 Wevir 防什么、不防什么。一句话：**信任边界是操作系统用户**。以同一用户身份运行的任何进程都能拿到 Host 的全部权限和全部模型 Key；Wevir 防的是其他用户、网络上的其他机器和浏览器里的网页。
@@ -21,6 +21,7 @@
 ## 3. 密钥
 
 - 模型 API Key 存在 `<数据目录>/secrets.json`：明文 JSON，0600；写入时先以 0600 创建临时文件再 rename，任何时刻都没有宽权限的中间文件（ADR-0003 §3）。Windows 上 0600 不生效，依赖 `%APPDATA%` 的按用户 ACL（同 §1）。迁移到系统钥匙串是 ADR-0003 的未决事项。
+- **ChatGPT 账号的凭据**（R6）：登录由 Codex 自己完成，令牌（id / access / refresh token，浏览器登录还有一个经 token-exchange 换来的 API Key）存在 `<数据目录>/engines/codex-chatgpt/auth.json`：明文 JSON，Codex 以 0600 写入（`cli_auth_credentials_store = "file"`），与 `secrets.json` 同一个保护级别。选文件而不是系统钥匙串：未签名的 `codex-app-server` 访问钥匙串会弹系统提示，Wevir 自己的 Key 也还没进钥匙串（ADR-0003 未决事项），以后一起迁（Codex 的 `keyring` / `auto` 模式）。Host、客户端与日志都不读、不转交这些令牌；Host 只经 app-server 读账号状态（邮箱、套餐、用量）。登出时 Codex 删除这个文件并向 OpenAI 吊销刷新令牌。网关进程（`engines/codex`）里没有它。同一用户的进程能读这个文件拿到你的 ChatGPT 会话，与 §1 的边界相同。
 - `wevir.db` 只存 Provider 的配置与 Key 的引用，不存 Key；但会话历史（提示、模型回答、工具的参数与输出）都在里面，没有加密，靠数据目录的权限保护。
 - Key 交给 dsh 的唯一途径是 dsh 子进程的环境变量 `WEVIR_PROVIDER_<ID>_KEY`；Wevir 写给 dsh 的 Provider overlay（`engines/dsh/wevir/providers.yml`）里只有变量名（`apiKeyEnv`），不写进 `DSH_HOME`（AGENTS.md 规则 5）。同一用户的进程能读另一个进程的环境变量，这仍在 §1 的边界之内。
 - Codex 引擎（默认引擎，§5）拿不到 Key：Key 只在 Host 进程里的模型网关，Codex 的环境与 `CODEX_HOME` 里只有网关令牌（每次启动 `codex-app-server` 随机生成，只在内存，只能访问本机网关），生成的 `config.toml` 里只有令牌的变量名。
@@ -53,7 +54,10 @@
 细节见 [codex-event-mapping.md](./architecture/codex-event-mapping.md) §1–§4、§6.6。
 
 - **独立的 `CODEX_HOME`**：`<数据目录>/engines/codex`，不与用户自己装的 Codex（`~/.codex`）混用，进程的 cwd 也是它。白名单环境同 dsh，另外不继承 `OPENAI_API_KEY`、`CODEX_API_KEY`、`CODEX_ACCESS_TOKEN` 等会改变 Codex 认证与配置的变量。
-- **外连为零**：生成的配置关掉插件（唯一产生外连的开关：启动时同步插件市场，连 github.com、api.github.com、chatgpt.com）、联网搜索、遥测，模型请求只发往本机网关；adapter-codex 的集成测试用只记录目标的代理与 lsof 核对。
+- **两个进程**（R6，ADR-0005 补记 10）：网关进程（`engines/codex`）承载用 API Key 的 Provider；ChatGPT 进程（`engines/codex-chatgpt`）承载 ChatGPT 登录，没有网关令牌。都在第一次用到时才启动。
+- **网关进程外连为零**：生成的配置关掉插件（唯一产生外连的开关：启动时同步插件市场，连 github.com、api.github.com、chatgpt.com）、联网搜索、遥测、ChatGPT 应用（`features.apps`），模型请求只发往本机网关；adapter-codex 的集成测试用只记录目标的代理与 lsof 核对。
+- **ChatGPT 进程的外连**：登录了才有，目标只有 OpenAI 的两个域名——`auth.openai.com`（设备码、换令牌、刷新与吊销）与 `chatgpt.com`（账号与工作区路由、用量、模型列表、对话）；没登录时它不联网（模型列表用二进制里打包的），也不建会话、不发消息（否则 Codex 会拿着空凭据去连 api.openai.com）。路径与时机见 codex-event-mapping.md §8.5，真实账号的审计结果见 codex-notes §4.1。请求带 `originator: wevir` 与 `wevir/<版本>` 的 User-Agent（OpenAI 要求写应用自己的名字），只有进程启动时第一次拉模型列表用的是 Codex 默认的 `codex_cli_rs`（在握手之前发出，改不了）。用 ChatGPT 的会话，提示、代码与工具输出都发给 OpenAI，按你的 ChatGPT 账号与 OpenAI 的条款处理。
+- **ChatGPT 登录的范围**：OpenAI 只允许本地或开源应用用 Codex 的 app-server 登录，商业或托管服务不行；界面与 CLI 都写明“仅供个人在本机使用 Wevir 时登录”。浏览器登录的回调落在本机 `127.0.0.1:1455`（登录期间由 codex-app-server 监听，完成或取消即关闭），浏览器要在这台机器上；设备码方式在任意设备上输入码即可，码只该输入你自己刚发起的登录。
 - **命令看不到令牌**：`[shell_environment_policy]` 套用 Codex 内置的 *KEY* / *SECRET* / *TOKEN* 排除并排除 `WEVIR_*`。副作用：你 shell 配置里导出的名字含 KEY、SECRET、TOKEN 的变量（例如 `GITHUB_TOKEN`）在模型跑的命令里也看不到。
 - **用户级 skills 不进会话**：`HOME` 是你真实的家目录（命令要用 git 等配置），Codex 会读 `~/.agents/skills`；Wevir 关掉了 skills 列表，那里的 skills 不会列给模型。你在消息里显式写 `$<skill 名>` 时，Codex 会把那个 skill 放进上下文：这是有意保留的，算你主动使用自己的 skill（取舍见 codex-event-mapping.md §1.3）。工作区里的 `AGENTS.md`、`.codex/config.toml`、`.agents/skills` 照常生效，打开不可信仓库时与 §4 的提醒相同。
 - **沙箱与审批**：`workspace-write`，macOS 上是 Seatbelt，默认禁网；工作区、`$TMPDIR` 与 `/tmp` 可写。写工作区外的补丁、模型申请越出沙箱的命令要审批，卡片上是命令原文（或补丁的 diff）、工作目录与模型给的理由。“本会话内这个命令不再问”只在这个会话、这个 Codex 进程里有效（Host 或引擎重启后重新问）；没有“总是允许”。子 agent 的审批在子会话（R4）之前一律拒绝。Windows 与 Linux 的沙箱还没有在 Wevir 里实测（ADR-0005 未决事项 4）。
@@ -61,4 +65,4 @@
 
 ## 6. 骨架阶段不做的
 
-远程访问与设备配对、多用户、代码签名与公证、自动更新、OAuth 类 Provider、系统钥匙串、会话数据加密，都不在骨架范围（SKELETON_PLAN §7）。`pnpm dev` 默认用平台默认的数据目录；试验不可信的提示词或文件时，用 `WEVIR_HOME` 指向一个单独的目录，并只把专门准备的文件夹添加为工作区。
+远程访问与设备配对、多用户、代码签名与公证、自动更新、OAuth 类 Provider（R6 的 ChatGPT 登录除外：由 Codex 自己完成，见 §3、§5）、系统钥匙串、会话数据加密，都不在骨架范围（SKELETON_PLAN §7）。`pnpm dev` 默认用平台默认的数据目录；试验不可信的提示词或文件时，用 `WEVIR_HOME` 指向一个单独的目录，并只把专门准备的文件夹添加为工作区。

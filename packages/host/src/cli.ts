@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { CodexAdapter, resolveCodexBinary } from '@wevir/adapter-codex';
+import { CodexRuntime, resolveCodexBinary } from '@wevir/adapter-codex';
 import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -128,10 +128,10 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         logger: context.logger,
       });
     case 'codex':
-      // codex-app-server 在第一个会话时才启动（Provider 只交给网关与下一次启动的配置）。二进制在这里就解析：没下载时
-      // Host 直接启动失败并给出下载命令，而不是等到建会话才报错；版本在第一次启动前核对。网关令牌经 logger.addSecret
-      // 从日志里抹掉。
-      return new CodexAdapter({
+      // 两个 codex-app-server 进程（网关进程与 ChatGPT 进程，ADR-0005 补记 10）都在第一次用到时才启动（Provider 只交给
+      // 网关与下一次启动的配置）。二进制在这里就解析：没下载时 Host 直接启动失败并给出下载命令，而不是等到建会话才报错；
+      // 版本在第一次启动前核对。网关令牌经 logger.addSecret 从日志里抹掉。
+      return new CodexRuntime({
         home: context.home,
         binary: resolveCodexBinary(),
         clientInfo: { name: 'wevir', version: HOST_VERSION },

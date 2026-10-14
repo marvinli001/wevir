@@ -2,8 +2,11 @@ import type { ProviderConfig } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
 import {
   catalogEntry,
+  chatgptEndpointEnv,
+  chatgptThreadConfig,
   codexProviderId,
   fromCodexEffort,
+  renderChatgptConfigToml,
   renderConfigToml,
   renderModelCatalog,
   threadConfig,
@@ -59,7 +62,7 @@ describe('renderConfigToml', () => {
       'check_for_update_on_startup = false',
       'web_search = "disabled"',
       '[analytics]\nenabled = false',
-      '[features]\nplugins = false\ngoals = false\nmemories = false',
+      '[features]\nplugins = false\napps = false\ngoals = false\nmemories = false',
       '[tools.update_plan]\nenabled = true',
       '[skills]\ninclude_instructions = false',
       '[skills.bundled]\nenabled = false',
@@ -193,5 +196,53 @@ describe('threadConfig 与其他', () => {
 
   it('TOML 字符串转义（Windows 路径、引号、换行）', () => {
     expect(tomlString('C:\\Users\\a "b"\nc')).toBe('"C:\\\\Users\\\\a \\"b\\"\\nc"');
+  });
+});
+
+describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
+  const toml = renderChatgptConfigToml();
+
+  it('加固项照旧，另有 openai Provider、文件存凭据、只许 ChatGPT 登录；没有 Wevir 的 Provider 与模型目录', () => {
+    for (const line of [
+      'approval_policy = "on-request"',
+      'web_search = "disabled"',
+      'model_provider = "openai"',
+      'cli_auth_credentials_store = "file"',
+      'forced_login_method = "chatgpt"',
+      'mcp_oauth_credentials_store = "file"',
+      '[features]\nplugins = false\napps = false\ngoals = false\nmemories = false',
+      '[shell_environment_policy]\nignore_default_excludes = false\nexclude = ["WEVIR_*"]',
+    ]) {
+      expect(toml).toContain(line);
+    }
+    expect(toml).not.toContain('model_catalog_json');
+    expect(toml).not.toContain('[model_providers');
+    expect(toml).not.toContain('WEVIR_GATEWAY_TOKEN');
+    expect(toml).not.toContain('chatgpt_base_url');
+  });
+
+  it('顶层键都在第一张表之前', () => {
+    const firstTable = toml.indexOf('\n[');
+    for (const key of ['model_provider =', 'cli_auth_credentials_store', 'forced_login_method']) {
+      expect(toml.indexOf(key)).toBeLessThan(firstTable);
+    }
+  });
+
+  it('测试用的 mock 地址：后端写进 chatgpt_base_url 与 openai_base_url，登录服务走环境变量', () => {
+    const endpoints = { issuer: 'http://127.0.0.1:9/', backend: 'http://127.0.0.1:9' };
+    const withMock = renderChatgptConfigToml(endpoints);
+    expect(withMock).toContain('chatgpt_base_url = "http://127.0.0.1:9/backend-api/"');
+    expect(withMock).toContain('openai_base_url = "http://127.0.0.1:9/backend-api/codex"');
+    expect(withMock.indexOf('openai_base_url')).toBeLessThan(withMock.indexOf('\n['));
+    expect(chatgptEndpointEnv(endpoints)).toEqual({
+      CODEX_APP_SERVER_LOGIN_ISSUER: 'http://127.0.0.1:9',
+      CODEX_REFRESH_TOKEN_URL_OVERRIDE: 'http://127.0.0.1:9/oauth/token',
+    });
+  });
+
+  it('会话只覆盖推理档位', () => {
+    expect(chatgptThreadConfig(undefined)).toEqual({});
+    expect(chatgptThreadConfig('off')).toEqual({ model_reasoning_effort: 'none' });
+    expect(chatgptThreadConfig('high')).toEqual({ model_reasoning_effort: 'high' });
   });
 });

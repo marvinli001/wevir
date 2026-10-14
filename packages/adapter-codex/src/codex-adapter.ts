@@ -6,6 +6,7 @@ import {
   validateProvider,
 } from '@wevir/model-gateway';
 import {
+  type AccountKind,
   AdapterError,
   type AgentEvent,
   type AgentInput,
@@ -13,6 +14,7 @@ import {
   type ApprovalCancelledEvent,
   type ApprovalDecision,
   type ApprovalOption,
+  type EngineAccounts,
   type EngineExitedEvent,
   type EngineSession,
   EventHub,
@@ -25,6 +27,7 @@ import {
   type SessionConfig,
   type TitleRequest,
 } from '@wevir/runtime-adapter';
+import { ChatgptAccount } from './account.js';
 import {
   type CodexExit,
   type CodexLauncher,
@@ -40,8 +43,12 @@ import {
 } from './codex-process.js';
 import {
   basePromptVars,
+  type ChatgptEndpoints,
+  chatgptEndpointEnv,
+  chatgptThreadConfig,
   codexProviderId,
   fromCodexEffort,
+  renderChatgptConfigToml,
   renderConfigToml,
   renderModelCatalog,
   threadConfig,
@@ -51,6 +58,7 @@ import { buildCodexEnv } from './env.js';
 import { CodexEventMapper, IGNORED_NOTIFICATIONS, isRecord } from './mapping.js';
 import {
   CODEX_VERSION,
+  type CodexFlavor,
   type CodexPaths,
   checkCodexVersion,
   codexPaths,
@@ -120,8 +128,15 @@ export interface CodexAdapterLogger {
 }
 
 export interface CodexAdapterOptions {
-  /** Wevir 数据目录（绝对路径）；Codex 用其中的 `engines/codex`（`CODEX_HOME`）。 */
+  /** Wevir 数据目录（绝对路径）；Codex 用其中的 `engines/codex`（ChatGPT 进程是 `engines/codex-chatgpt`）。 */
   home: string;
+  /**
+   * 进程的种类（ADR-0005 补记 10）：`gateway`（默认）承载经网关的 Provider；`chatgpt` 承载 ChatGPT 登录——Codex 内置的
+   * openai Provider 与它自己的模型目录，没有网关，`accounts` 可用。Host 用的 `CodexRuntime` 两种各建一个。
+   */
+  mode?: CodexFlavor;
+  /** 测试用：ChatGPT 进程的登录服务与后端指向本机 mock（`ChatgptEndpoints`）。 */
+  chatgptEndpoints?: ChatgptEndpoints;
   /** codex-app-server 可执行文件，默认 `resolveCodexBinary()`（`WEVIR_CODEX_BIN` → 开发缓存）。 */
   binary?: string;
   /**
@@ -244,13 +259,19 @@ class Launcher implements CodexLauncher {
   #versionChecked = false;
 
   constructor(options: CodexAdapterOptions, logger: CodexAdapterLogger, prompt: BasePrompt) {
-    this.paths = codexPaths(options.home);
+    this.paths = codexPaths(options.home, options.mode);
     this.#options = options;
     this.#logger = logger;
     this.#prompt = prompt;
   }
 
+  get chatgpt(): boolean {
+    return this.#options.mode === 'chatgpt';
+  }
+
+  /** 模型目录；ChatGPT 进程没有（用 Codex 自己的）。 */
   catalog(): string | undefined {
+    if (this.chatgpt) return undefined;
     return renderModelCatalog(this.providers, (vars) => this.#prompt.render(vars));
   }
 
@@ -260,10 +281,22 @@ class Launcher implements CodexLauncher {
     this.#binary ??= this.#options.binary ?? resolveCodexBinary({ env: parent });
     const binary = this.#binary;
     const binaryArgs = this.#options.binaryArgs ?? [];
-    const baseEnv = { codexHome: this.paths.codexHome, parent, rustLog: this.#options.rustLog };
+    const endpoints = this.#options.chatgptEndpoints;
+    const baseEnv = {
+      codexHome: this.paths.codexHome,
+      parent,
+      rustLog: this.#options.rustLog,
+      ...(this.chatgpt && endpoints !== undefined && { extra: chatgptEndpointEnv(endpoints) }),
+    };
     if (!this.#versionChecked) {
       await checkCodexVersion(binary, buildCodexEnv(baseEnv), binaryArgs);
       this.#versionChecked = true;
+    }
+    if (this.chatgpt) {
+      // ChatGPT 进程：没有网关与令牌，没有 Wevir 的 Provider 与模型目录。
+      writeCodexConfig(this.paths, renderChatgptConfigToml(endpoints), undefined);
+      this.launchedCatalog = undefined;
+      return this.#spawnSpec(binary, binaryArgs, buildCodexEnv(baseEnv));
     }
     // 旧进程此时已经停了（重启先回收再启动），它的网关一起关掉。
     await this.closeGateway();
@@ -286,6 +319,18 @@ class Launcher implements CodexLauncher {
       catalog,
     );
     this.launchedCatalog = catalog;
+    return this.#spawnSpec(
+      binary,
+      binaryArgs,
+      buildCodexEnv({ ...baseEnv, gatewayToken: gateway.token }),
+    );
+  }
+
+  #spawnSpec(
+    binary: string,
+    binaryArgs: readonly string[],
+    env: NodeJS.ProcessEnv,
+  ): CodexSpawnSpec {
     const windows = process.platform === 'win32';
     return {
       command: binary,
@@ -294,7 +339,7 @@ class Launcher implements CodexLauncher {
       options: {
         // cwd 是 CODEX_HOME，不是用户工作区（决策 5）。
         cwd: this.paths.codexHome,
-        env: buildCodexEnv({ ...baseEnv, gatewayToken: gateway.token }),
+        env,
         stdio: ['pipe', 'pipe', 'pipe'],
         // POSIX 上自成进程组：终端的 Ctrl-C 只到 Host；回收时信号发给整个组。Windows 上不分离（会开新控制台）。
         detached: !windows,
@@ -334,6 +379,9 @@ class Launcher implements CodexLauncher {
 export class CodexAdapter implements AgentRuntimeAdapter {
   readonly process: CodexProcess;
   readonly paths: CodexPaths;
+  /** ChatGPT 进程的账号（`mode: 'chatgpt'` 时才有）。 */
+  readonly accounts?: EngineAccounts;
+  readonly #account: ChatgptAccount | undefined;
   readonly #launcher: Launcher;
   readonly #prompt: BasePrompt;
   readonly #options: CodexAdapterOptions;
@@ -382,7 +430,29 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.process.on('failed', ({ restarts }) =>
       this.#logger.warn(`codex-app-server 连续重启 ${restarts} 次仍失败，停止重启`),
     );
+    if (options.mode === 'chatgpt') {
+      const account = new ChatgptAccount({
+        rpc: async () => {
+          this.#assertUsable();
+          await this.process.start();
+          return this.process;
+        },
+        warn: (message, fields) => this.#logger.warn(message, fields),
+      });
+      this.#account = account;
+      this.accounts = chatgptAccounts(account);
+    }
     if (options.providers !== undefined) this.#setProviders(options.providers);
+  }
+
+  /** ChatGPT 进程（`mode: 'chatgpt'`）。 */
+  get #chatgpt(): boolean {
+    return this.#account !== undefined;
+  }
+
+  /** 适配器是否认识这个引擎会话（含子会话与已关闭、脱开的）；`CodexRuntime` 按它把调用交给对应的进程。 */
+  hasSession(engineSessionId: string): boolean {
+    return this.#sessions.has(engineSessionId);
   }
 
   /** 当前网关（进程运行时才有）。 */
@@ -403,6 +473,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const { provider, model } = this.#route(config);
     await this.process.start();
     await this.#applyConfigIfIdle();
+    // ChatGPT 会话：没登录时不建 thread（Codex 会拿着空的凭据去连 api.openai.com）。
+    await this.#account?.assertSignedIn();
     this.#assertUsable();
     this.#activating += 1;
     try {
@@ -439,6 +511,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const { provider, model } = this.#route(config);
     await this.process.start();
     await this.#applyConfigIfIdle();
+    await this.#account?.assertSignedIn();
     this.#assertUsable();
     this.#activating += 1;
     try {
@@ -498,6 +571,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
+    await this.#account?.assertSignedIn();
+    if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     let settle!: () => void;
     const turn: Turn = {
       cancelRequested: false,
@@ -666,7 +741,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   async generateTitle(engineSessionId: string, request: TitleRequest): Promise<string> {
     this.#assertUsable();
     const session = this.#openSession(engineSessionId);
-    if (this.#options.titleVia === 'thread') return this.#titleViaThread(session, request);
+    if (this.#options.titleVia === 'thread' || this.#chatgpt) {
+      return this.#titleViaThread(session, request);
+    }
     const gateway = this.#launcher.gateway;
     if (gateway === undefined) throw new AdapterError('engine_unavailable', '网关没有启动');
     return titleViaGateway(gateway, session.providerId, session.model, request);
@@ -676,7 +753,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   async #titleViaThread(session: CodexSession, request: TitleRequest): Promise<string> {
     const provider = this.#providers.get(session.providerId);
     const gateway = this.#launcher.gateway;
-    if (provider === undefined || gateway === undefined) {
+    if (provider === undefined || (gateway === undefined && !this.#chatgpt)) {
       throw new AdapterError(
         'engine_unavailable',
         `生成标题：Provider ${session.providerId} 不可用`,
@@ -689,19 +766,21 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         started = await this.process.request<ThreadStartResponse>('thread/start', {
           cwd: session.cwd,
           model: session.model.id,
-          modelProvider: codexProviderId(provider.id),
+          modelProvider: this.#chatgpt ? OPENAI_PROVIDER : codexProviderId(provider.id),
           approvalPolicy: 'never',
           sandbox: 'read-only',
           baseInstructions: request.instructions,
           ephemeral: true,
           config: {
-            ...threadConfig(
-              provider,
-              session.model,
-              gateway.baseURL(provider.id),
-              undefined,
-              this.#options.providerExtra,
-            ),
+            ...(gateway === undefined
+              ? {}
+              : threadConfig(
+                  provider,
+                  session.model,
+                  gateway.baseURL(provider.id),
+                  undefined,
+                  this.#options.providerExtra,
+                )),
             ...TITLE_THREAD_CONFIG,
           },
         } satisfies ThreadStartParams);
@@ -738,8 +817,19 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   // ── Provider ──────────────────────────────────────────────────────────────────────────
 
-  /** 网关处理不了的配置（协议、地址、compat 开关）；模型列表不能为空。 */
+  /**
+   * 网关处理不了的配置（协议、地址、compat 开关）；模型列表不能为空。ChatGPT 进程只接受 `chatgpt` 这一个 Provider（模型来自
+   * Codex，可以为空）。
+   */
   validateProvider(provider: ProviderConfig): ProviderIssue[] {
+    if (this.#chatgpt) {
+      if (provider.kind !== 'chatgpt') {
+        return [{ path: ['kind'], message: 'ChatGPT 进程只承载 chatgpt 类的 Provider' }];
+      }
+      return provider.id === CHATGPT_PROVIDER_ID
+        ? []
+        : [{ path: ['id'], message: `ChatGPT Provider 的 ID 只能是 ${CHATGPT_PROVIDER_ID}` }];
+    }
     const issues = validateProvider(provider);
     if (provider.models.length === 0)
       issues.push({ path: ['models'], message: '至少要有一个模型' });
@@ -757,8 +847,23 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     await this.#applyConfigIfIdle();
   }
 
-  /** provider.test：网关的 `testProvider`，与正式请求同样的处理方式（决策 2.5）。 */
-  testProvider(provider: ProviderConfig, modelId: string): Promise<ProviderTestResult> {
+  /**
+   * provider.test：网关的 `testProvider`，与正式请求同样的处理方式（决策 2.5）。ChatGPT 进程不发模型请求，只看账号有没有
+   * 登录。
+   */
+  async testProvider(provider: ProviderConfig, modelId: string): Promise<ProviderTestResult> {
+    if (this.#account !== undefined) {
+      const startedAt = performance.now();
+      const state = await this.#account.read().catch(() => this.#account?.state);
+      if (state?.status === 'signed_in') {
+        return { ok: true, latencyMs: Math.round(performance.now() - startedAt) };
+      }
+      return {
+        ok: false,
+        reason: 'auth',
+        error: { category: 'missing_credentials', message: '没有登录 ChatGPT' },
+      };
+    }
     return testProvider(provider, modelId, {
       ...(this.#options.gateway?.deepseekBaseURL !== undefined && {
         deepseekBaseURL: this.#options.gateway.deepseekBaseURL,
@@ -779,7 +884,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     // 先渲染一次目录：base.md 渲染失败（变量缺失等）在这里就报出来。
     const next = [...providers];
-    renderModelCatalog(next, (vars) => this.#prompt.render(vars));
+    if (!this.#chatgpt) renderModelCatalog(next, (vars) => this.#prompt.render(vars));
     this.#providers = new Map(next.map((provider) => [provider.id, provider]));
     this.#launcher.providers = next;
     this.#launcher.gateway?.setProviders(next);
@@ -863,6 +968,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   /** 不属于任何 thread 的通知：告警类写日志，其余（账号、限额、远程控制等）忽略（codex-notes §6.4）。 */
   #onGlobalNotification(method: string, params: unknown): void {
+    if (this.#account?.onNotification(method, params)) return;
     if (method === 'warning' || method === 'configWarning' || method === 'deprecationNotice') {
       const text = isRecord(params) && typeof params.message === 'string' ? params.message : '';
       this.#warnOnce(`${method}:${text}`, `codex-app-server ${method}`, {
@@ -1252,6 +1358,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   #onExit(exit: CodexExit): void {
+    this.#account?.onExit();
     this.#detachAll({
       exitCode: exit.exitCode,
       signal: exit.signal,
@@ -1292,7 +1399,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         `Codex 没有 Provider ${config.providerId}（Provider 配置里有没有它？）`,
       );
     }
-    const model = provider.models.find((candidate) => candidate.id === config.modelId);
+    const model =
+      provider.models.find((candidate) => candidate.id === config.modelId) ??
+      // ChatGPT 的模型列表随账号变化，Host 存的可能过期：不在列表里的照样交给 Codex，由它判断。
+      (this.#chatgpt ? { id: config.modelId } : undefined);
     if (model === undefined) {
       throw new AdapterError(
         'invalid_input',
@@ -1308,6 +1418,16 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     model: ProviderModelConfig,
     reasoningEffort: string | undefined,
   ): Omit<ThreadStartParams, 'cwd'> {
+    if (this.#chatgpt) {
+      // ChatGPT 登录的 OpenAI 模型用 Codex 内置的、按模型调好的提示词（补记 2），不覆盖 baseInstructions。
+      return {
+        model: model.id,
+        modelProvider: OPENAI_PROVIDER,
+        approvalPolicy: 'on-request',
+        sandbox: 'workspace-write',
+        config: chatgptThreadConfig(reasoningEffort),
+      };
+    }
     const gateway = this.#launcher.gateway;
     if (gateway === undefined) throw new AdapterError('engine_unavailable', '网关没有启动');
     return {
@@ -1372,6 +1492,43 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#warned.add(key);
     this.#logger.warn(message, fields);
   }
+}
+
+/** ChatGPT 会话用的 Codex Provider：内置的 openai（config.ts 的 `CHATGPT_TOP`）。 */
+const OPENAI_PROVIDER = 'openai';
+
+/** `chatgpt` 类 Provider 的固定 ID（protocol 的 `provider.upsert`）。 */
+export const CHATGPT_PROVIDER_ID = 'chatgpt';
+
+/** `EngineAccounts` 的实现：只有 `chatgpt` 一种，交给 ChatGPT 进程的 `ChatgptAccount`。 */
+function chatgptAccounts(account: ChatgptAccount): EngineAccounts {
+  const check = (kind: AccountKind) => {
+    if (kind !== 'chatgpt') throw new AdapterError('invalid_input', `不支持的账号种类：${kind}`);
+  };
+  return {
+    kinds: ['chatgpt'],
+    read: async (kind) => {
+      check(kind);
+      return account.read();
+    },
+    login: async (kind, method) => {
+      check(kind);
+      return account.login(method);
+    },
+    cancelLogin: async (kind, loginId) => {
+      check(kind);
+      return account.cancelLogin(loginId);
+    },
+    logout: async (kind) => {
+      check(kind);
+      return account.logout();
+    },
+    models: async (kind) => {
+      check(kind);
+      return account.models();
+    },
+    onChange: (listener) => account.onChange(listener),
+  };
 }
 
 /** `thread/start` / `thread/resume` 的结果 → EngineSession。 */

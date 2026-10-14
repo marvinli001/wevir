@@ -1790,6 +1790,8 @@ function engineErrorInfo(
         return { category: 'session_unavailable', message };
       case 'cancel_unconfirmed':
         return { category: 'cancel_unconfirmed', message };
+      case 'missing_credentials':
+        return { category: 'missing_credentials', message };
     }
   }
   return { category: fallback, message };

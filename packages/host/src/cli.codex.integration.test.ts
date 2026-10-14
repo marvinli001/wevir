@@ -1,11 +1,11 @@
 // R2：wevir-host --adapter codex 接通。runHostCli 在进程内运行（信号与 stdout 是假的），适配器由默认的 createAdapter
-// 建：真实 CodexAdapter（codex-app-server + Host 进程里的模型网关）。Provider 是 @wevir/adapter-codex/testing 的本地
+// 建：真实 CodexRuntime（网关进程：codex-app-server + Host 进程里的模型网关；ChatGPT 进程不用到就不启动）。Provider 是 @wevir/adapter-codex/testing 的本地
 // Responses mock，经 provider.upsert 登记，不需要 Key。客户端只走 Host API：建会话 → 一问一答 → 一次工具调用 →
 // SIGTERM 优雅退出，codex-app-server 随适配器回收。没有 codex-app-server 时跳过并打印下载命令。
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { CODEX_VERSION, type CodexAdapter, resolveCodexBinary } from '@wevir/adapter-codex';
+import { CODEX_VERSION, type CodexRuntime, resolveCodexBinary } from '@wevir/adapter-codex';
 import { MOCK_MODEL, startMockModel } from '@wevir/adapter-codex/testing';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -40,11 +40,11 @@ describe.skipIf(!binaryAvailable())(
       const workspace = join(tempDir(), 'workspace');
       mkdirSync(workspace);
 
-      let adapter: CodexAdapter | undefined;
+      let adapter: CodexRuntime | undefined;
       const fake = fakeProcess(['--home', home, '--adapter', 'codex']);
       const exit = runHostCli(fake.proc, {
         createAdapter: (kind, context) => {
-          adapter = createAdapter(kind, context) as CodexAdapter;
+          adapter = createAdapter(kind, context) as CodexRuntime;
           return adapter;
         },
       });
@@ -167,9 +167,12 @@ describe.skipIf(!binaryAvailable())(
       stopped = true;
       fake.emit('SIGTERM', 'SIGTERM');
       expect(await exit).toBe(EXIT_CODE.ok);
-      expect(adapter?.process.state).toBe('disposed');
-      expect(adapter?.process.pid).toBeUndefined();
-      expect(adapter?.gateway).toBeUndefined();
+      expect(adapter?.gateway.process.state).toBe('disposed');
+      expect(adapter?.gateway.process.pid).toBeUndefined();
+      expect(adapter?.gateway.gateway).toBeUndefined();
+      // ChatGPT 进程没有用到，也就从没启动。
+      expect(adapter?.chatgpt.process.pid).toBeUndefined();
+      expect(existsSync(join(home, 'engines', 'codex-chatgpt'))).toBe(false);
       expect(existsSync(join(home, 'run', 'host.json'))).toBe(false);
       expect(existsSync(join(home, 'engines', 'codex', 'config.toml'))).toBe(true);
       const logText = readFileSync(join(home, 'logs', LOG_FILE), 'utf8');

@@ -334,6 +334,12 @@ export class TestRpcClient {
     });
   }
 
+  /** 收到的某种通知的 params（不含 `events.event` 以外的帧时为空）。 */
+  // biome-ignore lint/suspicious/noExplicitAny: 测试只读通知的字段。
+  notifications(method: string): any[] {
+    return this.#frames.flatMap((frame) => (frame.method === method ? [frame.params] : []));
+  }
+
   events(subscriptionId: string): WevirEvent[] {
     return this.#frames.flatMap((frame) =>
       frame.method === 'events.event' && frame.params?.subscriptionId === subscriptionId

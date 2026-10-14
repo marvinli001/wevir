@@ -1,4 +1,7 @@
 import {
+  type AccountKind,
+  type AccountState,
+  AccountUpdatedParamsSchema,
   type ClientCapabilities,
   type ClientIdentity,
   EventsSubscribeResultSchema,
@@ -38,6 +41,15 @@ import { type EventSubscription, SessionFeed, type SubscribeOptions } from './su
 import type { TransportFactory } from './transport.js';
 
 /** Host 的端点：`run/host.json` 里的 `url` 与 `token`（host-api.md §1），照用，不自己拼地址。 */
+/** `watchAccount` 的一个监听器。 */
+interface AccountWatcher {
+  readonly kind: AccountKind;
+  readonly listener: (account: AccountState) => void;
+  readonly onError?: (error: unknown) => void;
+  /** 收到的 `account.updated` 数：`account.get` 的结果晚于其间到达的通知时，它是旧的，丢掉。 */
+  updates: number;
+}
+
 export interface HostEndpoint {
   url: string;
   token: string;
@@ -174,6 +186,8 @@ export class WevirClient {
   readonly #timeouts: ClientTimeouts;
   readonly #lifecycle: ConnectionLifecycle<Connection>;
   readonly #listeners = new Set<(state: ConnectionState) => void>();
+  /** `watchAccount` 的监听器（R6）。 */
+  readonly #accountWatchers = new Set<AccountWatcher>();
   #state: ConnectionState = { status: 'connecting' };
   #connection: Connection | undefined;
   #hello: HostHello | undefined;
@@ -216,6 +230,50 @@ export class WevirClient {
   onStateChange(listener: (state: ConnectionState) => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
+  }
+
+  /**
+   * 跟着一个账号的状态（R6，host-api.md §3.1）：现在与每次（重）连上之后各调一次 `account.get`，结果与之后的每条
+   * `account.updated` 都交给 `listener`（Host 只给调过 `account.*` 的连接发通知，所以重连后要再调）。Host 没有
+   * `chatgpt_account` 功能时什么都不做。`account.get` 失败交给 `onError`。返回取消函数。
+   */
+  watchAccount(
+    kind: AccountKind,
+    listener: (account: AccountState) => void,
+    onError?: (error: unknown) => void,
+  ): () => void {
+    const watcher: AccountWatcher = {
+      kind,
+      listener,
+      updates: 0,
+      ...(onError !== undefined && { onError }),
+    };
+    this.#accountWatchers.add(watcher);
+    if (this.#connection !== undefined) this.#readAccount(watcher);
+    return () => this.#accountWatchers.delete(watcher);
+  }
+
+  #readAccount(watcher: AccountWatcher): void {
+    if (!this.supports('chatgpt_account')) return;
+    const before = watcher.updates;
+    this.request('account.get', { kind: watcher.kind }).then(
+      ({ account }) => {
+        if (this.#accountWatchers.has(watcher) && watcher.updates === before) {
+          this.#deliverAccount(watcher, account);
+        }
+      },
+      (error: unknown) => {
+        if (this.#accountWatchers.has(watcher)) watcher.onError?.(error);
+      },
+    );
+  }
+
+  #deliverAccount(watcher: AccountWatcher, account: AccountState): void {
+    try {
+      watcher.listener(account);
+    } catch (error) {
+      this.#warn('an account listener threw', { error });
+    }
   }
 
   /** Host 是否声明了这项功能（host-api.md §10）。功能是否可用只在这里判断。 */
@@ -407,6 +465,7 @@ export class WevirClient {
           this.#dispatch(request, connection);
         }
         this.#emit({ status: 'connected', hello: connection.hello });
+        for (const watcher of this.#accountWatchers) this.#readAccount(watcher);
         return;
       }
       case 'reconnecting':
@@ -600,6 +659,20 @@ export class WevirClient {
   #onNotification(channel: RpcChannel, method: string, params: unknown): void {
     const connection = this.#connection;
     if (!connection || connection.channel !== channel) return;
+    if (method === 'account.updated') {
+      const parsed = AccountUpdatedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed account.updated notification');
+        return;
+      }
+      const { account } = parsed.data;
+      for (const watcher of [...this.#accountWatchers]) {
+        if (watcher.kind !== account.kind) continue;
+        watcher.updates += 1;
+        this.#deliverAccount(watcher, account);
+      }
+      return;
+    }
     if (method !== 'events.event') {
       this.#warn('ignored an unknown notification', { method });
       return;

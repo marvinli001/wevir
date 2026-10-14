@@ -16,23 +16,35 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   /** 认得 `TitleSource` 的 `generated`；没有时 Host 把它降级成 `first_prompt`。 */
   titleSourceGenerated: 'title_source_generated',
+  // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
+  /** 认得 `ProviderKind` 的 `chatgpt`；没有时 Host 从 `provider.list` 的结果里去掉这类 Provider。 */
+  providerKindChatgpt: 'provider_kind_chatgpt',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
 /** 已知能力位写成 `z.boolean().optional()`；未知键原样保留。 */
 export const ClientCapabilitiesSchema = z.looseObject({
   title_source_generated: z.boolean().optional(),
+  provider_kind_chatgpt: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
 /**
  * Host 功能：Host 在 `host.hello` 结果里声明，客户端在一处判断是启用功能还是提示升级 Host。
- * v0 是基线，没有功能项；新增方式同 `CLIENT_CAPABILITIES`。
+ * 新增方式同 `CLIENT_CAPABILITIES`。功能可能取决于 Host 用的引擎，所以只列名字，值由 Host 每次握手时给出。
  */
-export const HOST_FEATURES = {} as const;
+export const HOST_FEATURES = {
+  /**
+   * ChatGPT 账号（0.7.0，R6）：`account.*` 方法、`account.updated` 通知与 `chatgpt` 类 Provider 可用。只有 Codex 引擎有，
+   * dsh 与 echo 引擎的 Host 不声明它。
+   */
+  chatgptAccount: 'chatgpt_account',
+} as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
-export const HostFeaturesSchema = z.looseObject({});
+export const HostFeaturesSchema = z.looseObject({
+  chatgpt_account: z.boolean().optional(),
+});
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
 /**

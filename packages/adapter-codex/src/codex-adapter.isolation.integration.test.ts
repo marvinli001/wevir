@@ -1,8 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -11,6 +9,7 @@ import {
   codexBinaryOrSkip,
   collectingLogger,
   newAdapter,
+  startLoggingProxy,
   TempDirs,
 } from './test-fixtures/harness.js';
 import {
@@ -37,30 +36,6 @@ afterAll(async () => {
   await mock?.close();
   dirs.cleanup();
 });
-
-/** 只记录目标主机、一律拒绝的代理：审计不产生真实外连。 */
-async function startLoggingProxy() {
-  const hosts = new Set<string>();
-  const server = createServer((req, res) => {
-    hosts.add(`http ${new URL(req.url ?? '', 'http://x').host}`);
-    res.writeHead(502).end();
-  });
-  server.on('connect', (req, socket) => {
-    hosts.add(`connect ${req.url}`);
-    socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  return {
-    url,
-    hosts,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections();
-        server.close(() => resolve());
-      }),
-  };
-}
 
 /** 一个进程当前的 TCP 对端（lsof；没有 lsof 或 Windows 上返回 undefined）。 */
 function tcpPeers(pid: number): string[] | undefined {

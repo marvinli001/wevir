@@ -7,7 +7,6 @@ import { join } from 'node:path';
 import { createLogger, type RunningHost, startHost } from '@wevir/host';
 import {
   type ClientIdentity,
-  HOST_FEATURES,
   PERMISSIONS,
   PROTOCOL_VERSION,
   type SessionId,
@@ -28,7 +27,7 @@ export const HELLO: HostHello = {
   hostVersion: '0.0.0',
   protocolVersion: PROTOCOL_VERSION,
   minProtocolVersion: '0.1.0',
-  features: { ...HOST_FEATURES },
+  features: {},
   permissions: [...PERMISSIONS],
 };
 

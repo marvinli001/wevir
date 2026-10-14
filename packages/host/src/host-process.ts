@@ -10,9 +10,10 @@ import {
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
+import { HostAccounts } from './accounts.js';
 import { EventStore } from './event-store.js';
 import { homePath } from './home.js';
-import { createHostMethods, syncProviders } from './host-methods.js';
+import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
 import type { Logger } from './logger.js';
 import { HostRpcServer } from './rpc-server.js';
@@ -110,6 +111,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let events: EventStore | undefined;
   let sessions: SessionManager | undefined;
   let rpc: HostRpcServer | undefined;
+  let accounts: HostAccounts | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -152,6 +154,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.error('failed to apply providers to the engine', { error }),
     );
 
+    // ChatGPT 账号（R6）：引擎有账号时才有（Codex），Host 据此声明 chatgpt_account 功能。
+    const providerLock = createProviderLock();
+    const db = storage;
+    accounts =
+      adapter.accounts === undefined
+        ? undefined
+        : new HostAccounts({
+            accounts: adapter.accounts,
+            storage: db,
+            providerLock,
+            applyProviders: () => syncProviders(db, secrets, adapter),
+            onWarning: (message, fields) => logger.warn(message, fields),
+          });
+
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
     let requestShutdown: (trigger: ShutdownTrigger) => void = () => {};
@@ -167,7 +183,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sessions: manager,
         secrets,
         providers: adapter,
+        providerLock,
+        ...(accounts !== undefined && { accounts }),
       }),
+      features: accounts === undefined ? {} : { chatgpt_account: true },
+      ...(accounts !== undefined && { accounts }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,
@@ -178,7 +198,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const url = await server.listen();
     await runtimeFile.publish(url, token);
 
-    const db = storage;
     let stopping: Promise<void> | undefined;
     const host: RunningHost = {
       home,
@@ -193,6 +212,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           rpc: server,
           sessions: manager,
           adapter,
+          accounts,
           events: store,
           storage: db,
           runtimeFile,
@@ -214,6 +234,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   } catch (error) {
     // 回收已建好的部分；这里的失败不掩盖原始错误。
     await rpc?.close().catch(() => {});
+    accounts?.dispose();
     await sessions?.dispose().catch(() => {});
     await adapter.dispose().catch(() => {});
     try {
@@ -234,6 +255,7 @@ interface ShutdownParts {
   rpc: HostRpcServer;
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
+  accounts: HostAccounts | undefined;
   events: EventStore;
   storage: Storage;
   runtimeFile: RuntimeFile;
@@ -270,6 +292,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
       logger.error('session manager dispose failed', { error });
     });
   }
+  parts.accounts?.dispose();
   // 超时的话引擎进程留给适配器自己回收（dsh 读到 stdin EOF 即退出，T3.1）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
   await step('flush_storage', () => {

@@ -1,6 +1,8 @@
 // 真实 codex-app-server 的测试共用部分：二进制在不在、临时目录、安静的日志、建适配器。
 
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
@@ -118,4 +120,43 @@ export function ofType<T extends AgentEvent['type']>(
   type: T,
 ): (event: AgentEvent) => event is Extract<AgentEvent, { type: T }> {
   return (event): event is Extract<AgentEvent, { type: T }> => event.type === type;
+}
+
+/** 只记录目标主机、一律拒绝的代理：审计不产生真实外连。 */
+export async function startLoggingProxy() {
+  const hosts = new Set<string>();
+  const server = createServer((req, res) => {
+    hosts.add(`http ${new URL(req.url ?? '', 'http://x').host}`);
+    res.writeHead(502).end();
+  });
+  server.on('connect', (req, socket) => {
+    hosts.add(`connect ${req.url}`);
+    socket.end('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  return {
+    url,
+    hosts,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+/** 把子进程的代理变量都指向 `proxyUrl`（本机地址不走代理）。 */
+export function proxyEnv(proxyUrl: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    ALL_PROXY: proxyUrl,
+    http_proxy: proxyUrl,
+    https_proxy: proxyUrl,
+    all_proxy: proxyUrl,
+    NO_PROXY: '127.0.0.1,localhost,::1',
+    no_proxy: '127.0.0.1,localhost,::1',
+  };
 }

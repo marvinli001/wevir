@@ -10,6 +10,8 @@ import type { BasePromptVars } from './prompts.js';
 /**
  * 加固项（ADR-0005 决策 5 与补记 1，codex-notes §6）。顶层键必须写在任何表之前，所以分成两段。
  * - `features.plugins = false`：唯一产生外连的开关（启动时同步插件市场：github.com、api.github.com、chatgpt.com）；
+ * - `features.apps = false`：ChatGPT 登录时 Codex 会连 ChatGPT 的应用（connectors）MCP（`<chatgpt_base_url>/ps/mcp`），
+ *   把连接器的工具给模型；Wevir 不支持（R6 实测，codex-event-mapping.md §8.2）。没有 ChatGPT 登录时它本来就不起；
  * - `web_search = "disabled"`：否则把托管搜索工具发给模型服务；`analytics.enabled = false`；
  *   `check_for_update_on_startup = false`（只影响 TUI，设上无害）；
  * - `features.goals = false`：Wevir 暂不支持目标（补记 1）；`features.memories = false`、`approvals_reviewer = "user"`：
@@ -35,6 +37,7 @@ export const HARDENING_TABLES: readonly string[] = [
   '',
   '[features]',
   'plugins = false',
+  'apps = false',
   'goals = false',
   'memories = false',
   '',
@@ -216,6 +219,66 @@ export function renderConfigToml(input: RenderConfigInput): string {
     ).map(([key, value]) => `${key} = ${tomlValue(value)}`),
   ]);
   return `${[...top, ...HARDENING_TABLES, ...providers].join('\n')}\n`;
+}
+
+/**
+ * ChatGPT 进程（R6，ADR-0005 补记 10）多出的顶层键：
+ * - `model_provider = "openai"`：Codex 内置的 openai Provider，登录后流量直连 OpenAI（chatgpt.com），不经网关；
+ * - `cli_auth_credentials_store = "file"`：登录凭据存在本进程 CODEX_HOME 的 `auth.json`（0600），与 Wevir 的
+ *   `secrets.json` 同一个保护级别（docs/security.md §3），不碰系统钥匙串；
+ * - `forced_login_method = "chatgpt"`：只允许 ChatGPT 登录（不接受 API Key 登录）；
+ * - `mcp_oauth_credentials_store = "file"`：MCP 的 OAuth 凭据同样不进钥匙串（默认 `auto` 会先试钥匙串）。
+ */
+export const CHATGPT_TOP: readonly string[] = [
+  'model_provider = "openai"',
+  'cli_auth_credentials_store = "file"',
+  'forced_login_method = "chatgpt"',
+  'mcp_oauth_credentials_store = "file"',
+];
+
+/**
+ * 测试用：把 ChatGPT 的登录服务与后端指向本机 mock。`issuer` 经 app-server 的环境变量
+ * `CODEX_APP_SERVER_LOGIN_ISSUER`（account_processor.rs）与 `CODEX_REFRESH_TOKEN_URL_OVERRIDE`（刷新与吊销令牌，
+ * login/src/auth/revoke.rs）生效；`backend` 是 ChatGPT 后端的根（`<backend>/backend-api/...`），写进
+ * `chatgpt_base_url` 与 `openai_base_url`。注意工作区路由要求 https，账号读取时 mock 要报 `https://chatgpt.com`。
+ */
+export interface ChatgptEndpoints {
+  issuer: string;
+  backend: string;
+}
+
+export function chatgptEndpointEnv(endpoints: ChatgptEndpoints): Record<string, string> {
+  const issuer = endpoints.issuer.replace(/\/+$/, '');
+  return {
+    CODEX_APP_SERVER_LOGIN_ISSUER: issuer,
+    CODEX_REFRESH_TOKEN_URL_OVERRIDE: `${issuer}/oauth/token`,
+  };
+}
+
+/** ChatGPT 进程的 config.toml：加固项 + `CHATGPT_TOP`，没有 Wevir 的 Provider，也没有模型目录（用 Codex 自己的）。 */
+export function renderChatgptConfigToml(endpoints?: ChatgptEndpoints): string {
+  const backend = endpoints?.backend.replace(/\/+$/, '');
+  const top = [
+    '# 由 Wevir 生成（packages/adapter-codex/src/config.ts），每次启动 codex-app-server 之前重写，不要手改。',
+    '# ChatGPT 进程：Codex 内置的 openai Provider，登录凭据在本目录的 auth.json。',
+    ...HARDENING_TOP,
+    ...CHATGPT_TOP,
+    ...(backend === undefined
+      ? []
+      : [
+          `chatgpt_base_url = ${tomlString(`${backend}/backend-api/`)}`,
+          `openai_base_url = ${tomlString(`${backend}/backend-api/codex`)}`,
+        ]),
+    '',
+  ];
+  return `${[...top, ...HARDENING_TABLES].join('\n')}\n`;
+}
+
+/** ChatGPT 会话的 `thread/start` 的 `config` 覆盖：只有推理档位（模型的元数据来自 Codex 自己的目录）。 */
+export function chatgptThreadConfig(reasoningEffort: string | undefined): Record<string, unknown> {
+  return reasoningEffort === undefined
+    ? {}
+    : { model_reasoning_effort: toCodexEffort(reasoningEffort) };
 }
 
 /** 写配置文件（0600，覆盖）。 */

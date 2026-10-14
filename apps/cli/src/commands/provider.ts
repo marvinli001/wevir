@@ -27,7 +27,8 @@ const DEEPSEEK_ID = 'deepseek-official';
 const RESERVED_IDS = new Set([DEEPSEEK_ID, 'deepseek-account']);
 const APIS: readonly ProviderApi[] = ['openai-completions', 'openai-responses'];
 
-type Kind = ProviderProfile['kind'];
+/** `provider add` 管的两种；ChatGPT 用 `provider login`。 */
+type Kind = Exclude<ProviderProfile['kind'], 'chatgpt'>;
 
 function parseKind(value: string): Kind | undefined {
   if (value === 'deepseek-official' || value === 'deepseek') return 'deepseek-official';
@@ -71,6 +72,9 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
         }
       };
 
+      if (flags.kind === 'chatgpt') {
+        throw new UsageError('ChatGPT 账号不用 provider add', '运行 wevir provider login');
+      }
       let kind = flags.kind === undefined ? undefined : parseKind(flags.kind);
       if (flags.kind !== undefined && !kind) {
         throw new UsageError(`--kind 只能是 deepseek-official 或 openai-compatible：${flags.kind}`);
@@ -87,7 +91,7 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
             : 'openai-compatible';
       }
 
-      let params: MethodParams<'provider.upsert'>;
+      let params: Exclude<MethodParams<'provider.upsert'>, { kind: 'chatgpt' }>;
       let existing: ProviderProfile | undefined;
       if (kind === 'deepseek-official') {
         existing = providers.find((p) => p.id === DEEPSEEK_ID);
@@ -248,14 +252,18 @@ export async function providerList(ctx: Context): Promise<number> {
   ctx.print(
     table(
       ['ID', '名称', '类型', '默认模型', 'Key', '地址'],
-      providers.map((p) => [
-        p.id,
-        p.displayName,
-        p.kind,
-        p.defaultModelId,
-        p.hasSecret ? '已设置' : '未设置',
-        p.baseURL ?? '（官方默认）',
-      ]),
+      providers.map((p) =>
+        p.kind === 'chatgpt'
+          ? [p.id, p.displayName, p.kind, p.defaultModelId, 'ChatGPT 登录', '（ChatGPT）']
+          : [
+              p.id,
+              p.displayName,
+              p.kind,
+              p.defaultModelId,
+              p.hasSecret ? '已设置' : '未设置',
+              p.baseURL ?? '（官方默认）',
+            ],
+      ),
     ),
   );
   return EXIT.ok;

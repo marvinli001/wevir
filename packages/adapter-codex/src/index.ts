@@ -1,12 +1,15 @@
 // Codex 适配器（ADR-0005 决策 1.1，docs/architecture/codex-event-mapping.md）：codex-app-server 的进程与握手
 // （codex-process.ts）、CODEX_HOME 与生成的配置（paths.ts、env.ts、config.ts、prompts.ts）、通知 → AgentEvent
 // （mapping.ts、tool-display.ts，回合失败的归类 turn-error.ts）、恢复失败的归类（resume-error.ts）、会话标题
-// （title.ts）与 AgentRuntimeAdapter 的实现（codex-adapter.ts）。所有 Provider 经 Host 进程里的模型协议网关
-// （@wevir/model-gateway）。
+// （title.ts）与 AgentRuntimeAdapter 的实现（codex-adapter.ts，一个进程）。Host 用 CodexRuntime（codex-runtime.ts）：
+// 网关进程承载经 Host 进程里的模型协议网关（@wevir/model-gateway）的 Provider，ChatGPT 进程承载 ChatGPT 登录与它的
+// 账号（account.ts，R6）。
 
+export { type AccountRpc, accountModels, ChatgptAccount } from './account.js';
 export { codexAdapterCapabilities } from './capabilities.js';
 export {
   CANCEL_TIMEOUT_MS,
+  CHATGPT_PROVIDER_ID,
   COMMAND_APPROVAL_OPTIONS,
   CodexAdapter,
   type CodexAdapterLogger,
@@ -35,13 +38,19 @@ export {
   RESTART_POLICY,
   type RestartPolicy,
 } from './codex-process.js';
+export { CodexRuntime, type CodexRuntimeOptions } from './codex-runtime.js';
 export {
+  CHATGPT_TOP,
+  type ChatgptEndpoints,
   catalogEntry,
+  chatgptEndpointEnv,
+  chatgptThreadConfig,
   codexProviderId,
   fromCodexEffort,
   HARDENING_TABLES,
   HARDENING_TOP,
   modelProviderEntry,
+  renderChatgptConfigToml,
   renderConfigToml,
   renderModelCatalog,
   threadConfig,
@@ -58,6 +67,7 @@ export {
 export {
   CODEX_BIN_ENV,
   CODEX_VERSION,
+  type CodexFlavor,
   type CodexPaths,
   checkCodexVersion,
   codexBinaryName,

@@ -27,7 +27,12 @@ export type Workspace = z.infer<typeof WorkspaceSchema>;
 
 // ── ProviderProfile ────────────────────────────────────────────────────
 
-export const ProviderKindSchema = z.enum(['deepseek-official', 'openai-compatible']);
+/**
+ * `chatgpt`（0.7.0，R6）：用 ChatGPT 订阅登录的 Codex，没有 Key、没有地址，模型列表来自引擎（Codex 的 `model/list`）。
+ * 给已有枚举加的值，按能力位 `provider_kind_chatgpt` 门控：没有声明它的连接在 `provider.list` 里看不到这类 Provider
+ * （host-api.md §10）。
+ */
+export const ProviderKindSchema = z.enum(['deepseek-official', 'openai-compatible', 'chatgpt']);
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
 export const ProviderApiSchema = z.enum([
@@ -106,7 +111,10 @@ export const ProviderProfileSchema = z.object({
   /** `openai-compatible` 必有；`deepseek-official` 可选（覆盖官方地址）。 */
   baseURL: HttpUrlSchema.optional(),
   compat: ProviderCompatSchema.optional(),
-  /** `deepseek-official` 可为空，用 dsh 自带目录。 */
+  /**
+   * `deepseek-official` 可为空，用 dsh 自带目录。`chatgpt`（0.7.0）由 Host 按账号从引擎取（登录成功时与读账号时刷新），
+   * 客户端不写。
+   */
   models: z.array(ProviderModelSchema),
   defaultModelId: z.string().min(1),
   hasSecret: z.boolean(),
@@ -114,6 +122,69 @@ export const ProviderProfileSchema = z.object({
   updatedAt: IsoTimeSchema,
 });
 export type ProviderProfile = z.infer<typeof ProviderProfileSchema>;
+
+// ── 账号（0.7.0，R6） ──────────────────────────────────────────────────
+
+/**
+ * 引擎自己的订阅登录（ADR-0005 决策 4）。目前只有 ChatGPT：Codex 的 `account/*`，凭据由 Codex 存在 Wevir 专属的
+ * 目录里，Host 与客户端都拿不到令牌（domain-model §3.6）。以后加别的种类要按能力位门控。
+ */
+export const AccountKindSchema = z.enum(['chatgpt']);
+export type AccountKind = z.infer<typeof AccountKindSchema>;
+
+/** `browser`：在浏览器里打开 `authUrl`，回调落在本机；`device_code`：在任意设备上打开 `verificationUrl` 输入 `userCode`。 */
+export const AccountLoginMethodSchema = z.enum(['browser', 'device_code']);
+export type AccountLoginMethod = z.infer<typeof AccountLoginMethodSchema>;
+
+/** 进行中的一次登录。同一时刻最多一个，新的登录替换旧的。 */
+export const AccountLoginSchema = z.object({
+  /** 引擎给的登录 ID，`account.cancelLogin` 用它。 */
+  loginId: z.string().min(1),
+  method: AccountLoginMethodSchema,
+  /** `browser`：要在浏览器里打开的地址（回调是本机 `127.0.0.1` 上引擎临时监听的端口，浏览器要在这台机器上）。 */
+  authUrl: HttpUrlSchema.optional(),
+  /** `device_code`：去这个网址登录并输入 `userCode`。 */
+  verificationUrl: HttpUrlSchema.optional(),
+  /** `device_code`：一次性的码，15 分钟内有效。 */
+  userCode: z.string().min(1).optional(),
+  startedAt: IsoTimeSchema,
+});
+export type AccountLogin = z.infer<typeof AccountLoginSchema>;
+
+/** 一个用量窗口（Codex 的 `RateLimitWindow`）。 */
+export const AccountRateLimitWindowSchema = z.object({
+  /** 已用的百分比，0–100。 */
+  usedPercent: z.number().min(0),
+  /** 窗口长度（分钟），例如 300（5 小时）、10080（一周）。 */
+  windowMinutes: z.int().min(1).optional(),
+  /** 窗口重置的时间。 */
+  resetsAt: IsoTimeSchema.optional(),
+});
+export type AccountRateLimitWindow = z.infer<typeof AccountRateLimitWindowSchema>;
+
+/**
+ * 账号的状态。`signed_out`：没有登录（`lastError` 是最近一次登录失败的原因，取消的不算）；`signing_in`：有一次进行中的
+ * 登录（`login`）；`signed_in`：已登录（`email`、`plan`，用量尽力而为，读不到时省略）。
+ */
+export const AccountStateSchema = z.object({
+  kind: AccountKindSchema,
+  status: z.enum(['signed_out', 'signing_in', 'signed_in']),
+  /** 已登录的账号邮箱；登录中时是之前登录的账号（换号登录）。 */
+  email: z.string().optional(),
+  /** 套餐，Codex 的 `PlanType` 原值（`free`、`plus`、`pro`、`team`、`business`…），界面认不出就原样显示。 */
+  plan: z.string().optional(),
+  login: AccountLoginSchema.optional(),
+  /** 引擎原文。 */
+  lastError: z.string().optional(),
+  /** 主窗口（ChatGPT：5 小时）与次窗口（每周）的用量。 */
+  rateLimits: z
+    .object({
+      primary: AccountRateLimitWindowSchema.optional(),
+      secondary: AccountRateLimitWindowSchema.optional(),
+    })
+    .optional(),
+});
+export type AccountState = z.infer<typeof AccountStateSchema>;
 
 // ── 错误分类 ───────────────────────────────────────────────────────────
 

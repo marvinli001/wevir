@@ -2,9 +2,11 @@ import { createServer, type IncomingMessage, type Server, STATUS_CODES } from 'n
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import {
+  type AccountState,
   type ClientIdentity,
   CONNECTION_LEASE_MS,
   HELLO_TIMEOUT_MS,
+  type HostFeatures,
   type HostId,
   SEND_BUFFER_LIMIT_BYTES,
 } from '@wevir/protocol';
@@ -41,6 +43,10 @@ export interface HostRpcServerOptions {
   events: EventStore;
   /** 业务方法的实现，通常由 `createHostMethods` 构造。 */
   methods: HostMethods;
+  /** `host.hello` 结果里的功能（host-api.md §10），默认没有。 */
+  features?: HostFeatures;
+  /** 引擎的账号（R6）：调过 `account.*` 的连接经它收 `account.updated`。 */
+  accounts?: { watch(listener: (state: AccountState) => void): () => void };
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
   port?: number;
   /**
@@ -118,6 +124,8 @@ export class HostRpcServer {
       storage: options.storage,
       events: options.events,
       methods: options.methods,
+      features: options.features ?? {},
+      ...(options.accounts !== undefined && { accounts: options.accounts }),
       limits,
       resultValidation:
         options.resultValidation ?? (process.env.NODE_ENV === 'production' ? 'warn' : 'strict'),

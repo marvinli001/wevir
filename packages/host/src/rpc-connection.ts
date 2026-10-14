@@ -1,13 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import {
+  type AccountState,
   type ClientCapabilities,
   type ClientIdentity,
   CloseCode,
   type CloseCodeName,
   ErrorCode,
   type ErrorCodeName,
-  HOST_FEATURES,
+  type HostFeatures,
   HostHelloParamsSchema,
   type HostId,
   isMethodName,
@@ -20,6 +21,7 @@ import {
   type MethodResult,
   MethodSchemas,
   MIN_PROTOCOL_VERSION,
+  NotificationSchemas,
   negotiateProtocolVersion,
   PERMISSIONS,
   PROTOCOL_VERSION,
@@ -56,6 +58,10 @@ export interface ConnectionHost {
   readonly storage: Storage;
   readonly events: EventStore;
   readonly methods: HostMethods;
+  /** `host.hello` 结果里的功能（按引擎决定，host-api.md §10）。 */
+  readonly features: HostFeatures;
+  /** 引擎的账号（R6）：调过 `account.*` 的连接用它收 `account.updated`。引擎没有账号时省略。 */
+  readonly accounts?: { watch(listener: (state: AccountState) => void): () => void };
   readonly limits: ConnectionLimits;
   readonly resultValidation: 'strict' | 'warn';
   /** 服务正在优雅退出：新请求一律 `HOST_SHUTTING_DOWN`。 */
@@ -119,6 +125,8 @@ export class RpcConnection {
   #capabilities: ClientCapabilities = {};
   readonly #subscriptions = new Map<SubscriptionId, Subscription>();
   readonly #inflight = new Set<Promise<void>>();
+  /** 调过 `account.*` 之后：退订 `account.updated`。 */
+  #unwatchAccounts: (() => void) | undefined;
   /** 所有订阅排队的字节数之和。 */
   #queuedBytes = 0;
   #lastActivity = performance.now();
@@ -264,7 +272,7 @@ export class RpcConnection {
       hostVersion: this.#host.hostVersion,
       protocolVersion: negotiation.protocolVersion,
       minProtocolVersion: MIN_PROTOCOL_VERSION,
-      features: { ...HOST_FEATURES },
+      features: { ...this.#host.features },
       permissions: [...PERMISSIONS],
     });
   }
@@ -359,6 +367,7 @@ export class RpcConnection {
         ) => unknown;
         const result = await handler(params, { client, capabilities: this.#capabilities });
         this.#respond(id, method, adaptResultForClient(method, result, this.#capabilities));
+        if (method.startsWith('account.')) this.#watchAccounts();
       }
     }
   }
@@ -497,6 +506,23 @@ export class RpcConnection {
     });
   }
 
+  /**
+   * 调过 `account.*` 的连接之后收 `account.updated`（host-api.md §3.1），连接关闭即止。通知在发出前按注册表校验，
+   * 不合 schema 的交给 `onError`、不发。
+   */
+  #watchAccounts(): void {
+    if (this.#unwatchAccounts !== undefined || this.#host.accounts === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchAccounts = this.#host.accounts.watch((account) => {
+      const parsed = NotificationSchemas['account.updated'].params.safeParse({ account });
+      if (!parsed.success) {
+        this.#host.onError(new Error(`account.updated does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'account.updated', params: parsed.data });
+    });
+  }
+
   #drop(subscription: Subscription): void {
     if (!subscription.active) return;
     subscription.active = false;
@@ -583,6 +609,8 @@ export class RpcConnection {
     clearTimeout(this.#helloTimer);
     clearTimeout(this.#leaseTimer);
     for (const subscription of [...this.#subscriptions.values()]) this.#drop(subscription);
+    this.#unwatchAccounts?.();
+    this.#unwatchAccounts = undefined;
   }
 }
 
@@ -606,12 +634,20 @@ export function adaptEventForClient(
   return event;
 }
 
-/** 按连接的能力位调整方法的结果，规则同 `adaptEventForClient`：结果里的会话降级 `titleSource`。 */
+/**
+ * 按连接的能力位调整方法的结果，规则同 `adaptEventForClient`：结果里的会话降级 `titleSource`；`provider.list` 去掉
+ * 连接认不出的 `chatgpt` 类 Provider（0.7.0）。
+ */
 export function adaptResultForClient(
   method: MethodName,
   result: unknown,
   capabilities: ClientCapabilities,
 ): unknown {
+  // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
+  if (method === 'provider.list' && capabilities.provider_kind_chatgpt !== true) {
+    const value = result as MethodResult<'provider.list'>;
+    return { ...value, providers: value.providers.filter((p) => p.kind !== 'chatgpt') };
+  }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (capabilities.title_source_generated === true) return result;
   switch (method) {

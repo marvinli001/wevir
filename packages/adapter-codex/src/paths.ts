@@ -105,9 +105,18 @@ export function checkCodexVersion(
   });
 }
 
+/**
+ * 一个 codex-app-server 进程的种类（ADR-0005 补记 10）：`gateway` 承载经网关的 Provider，`chatgpt` 承载 ChatGPT 登录
+ * （Codex 内置的 openai Provider 与它自己的模型目录）。两者各有自己的 `CODEX_HOME`。
+ */
+export type CodexFlavor = 'gateway' | 'chatgpt';
+
 /** Wevir 数据目录里 Codex 用到的目录（ADR-0005 决策 5）。 */
 export interface CodexPaths {
-  /** `CODEX_HOME`，也是 codex-app-server 进程的 cwd：`<数据目录>/engines/codex`。 */
+  /**
+   * `CODEX_HOME`，也是 codex-app-server 进程的 cwd：网关进程是 `<数据目录>/engines/codex`，ChatGPT 进程是
+   * `<数据目录>/engines/codex-chatgpt`（登录凭据 `auth.json` 只在这里）。
+   */
   codexHome: string;
   /** 生成的配置：`<CODEX_HOME>/config.toml`。 */
   configFile: string;
@@ -116,9 +125,13 @@ export interface CodexPaths {
 }
 
 /** 由 Wevir 数据目录得出 Codex 的目录。数据目录必须是绝对路径。 */
-export function codexPaths(wevirHome: string): CodexPaths {
+export function codexPaths(wevirHome: string, flavor: CodexFlavor = 'gateway'): CodexPaths {
   if (!isAbsolute(wevirHome)) throw new Error(`数据目录必须是绝对路径：${wevirHome}`);
-  const codexHome = join(resolve(wevirHome), 'engines', 'codex');
+  const codexHome = join(
+    resolve(wevirHome),
+    'engines',
+    flavor === 'chatgpt' ? 'codex-chatgpt' : 'codex',
+  );
   return {
     codexHome,
     configFile: join(codexHome, 'config.toml'),

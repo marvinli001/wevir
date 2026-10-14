@@ -145,7 +145,11 @@ export interface ProviderModelConfig {
 export interface ProviderConfig {
   /** Provider ID，也是引擎的路由名（dsh：provider 路由，写进会话日志，创建后不可改名）。 */
   id: string;
-  kind: 'deepseek-official' | 'openai-compatible';
+  /**
+   * `chatgpt`（R6）：用 ChatGPT 订阅登录的 Codex，没有 Key 与地址，模型来自 `EngineAccounts.models`。不支持账号的引擎
+   * 在 `validateProvider` 里拒绝它、在 `configureProviders` 里跳过它（Host 可能带着库里已有的这类 Provider 换引擎启动）。
+   */
+  kind: 'deepseek-official' | 'openai-compatible' | 'chatgpt';
   displayName: string;
   /** `openai-compatible` 必有：openai-completions / openai-responses / anthropic-messages。 */
   api?: string;
@@ -183,4 +187,46 @@ export interface ProviderTestResult {
   error?: { category: 'missing_credentials' | 'provider' | 'unknown'; message: string };
   reason?: ProviderTestFailure;
   httpStatus?: number;
+}
+
+// ── 账号（R6）──────────────────────────────────────────────────────────────
+
+/** 与 @wevir/protocol 的 `AccountKind` 同形。 */
+export type AccountKind = 'chatgpt';
+
+/** 与 @wevir/protocol 的 `AccountLoginMethod` 同形。 */
+export type AccountLoginMethod = 'browser' | 'device_code';
+
+/** 与 @wevir/protocol 的 `AccountState` 同形（domain-model §3.6）。 */
+export interface AccountState {
+  kind: AccountKind;
+  status: 'signed_out' | 'signing_in' | 'signed_in';
+  email?: string;
+  plan?: string;
+  login?: {
+    loginId: string;
+    method: AccountLoginMethod;
+    authUrl?: string;
+    verificationUrl?: string;
+    userCode?: string;
+    startedAt: string;
+  };
+  lastError?: string;
+  rateLimits?: {
+    primary?: AccountRateLimitWindow;
+    secondary?: AccountRateLimitWindow;
+  };
+}
+
+export interface AccountRateLimitWindow {
+  usedPercent: number;
+  windowMinutes?: number;
+  resetsAt?: string;
+}
+
+/** 账号能用的模型（ChatGPT：Codex 的 `model/list`）。 */
+export interface AccountModels {
+  models: ProviderModelConfig[];
+  /** 引擎标为默认的模型；没有时取第一个。列表为空时省略。 */
+  defaultModelId?: string;
 }

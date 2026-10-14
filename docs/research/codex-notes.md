@@ -153,6 +153,15 @@ OpenAI 不推荐任何桥接（discussion #7782 只建议网关自己支持 `res
 - 另一条路是 Sign in with ChatGPT（SIWC）：应用注册自己的 client ID，把令牌交给 app-server（实验性的 `chatgptAuthTokens` 模式）。2026-09-29 DevDay 起对开源应用开放；条款要求令牌只存在用户本地、不得冒充其他应用、不得把用户的套餐用量收费转卖、不得当作通用 API 代理。预览期限制：必须 `store:false` 与 `stream:true`，令牌由应用刷新、刷新后重启 app-server 再 `thread/resume`。
 - 使用条款禁止共享账号凭据、禁止程序化抽取输出。没找到因第三方客户端使用 Codex 登录而封号的先例（**未核实**）；6 月有用户反映 Codex / Pro 账号被无故停用，官方称至少一例是误封。
 - 对 Wevir：走 app-server 自己的登录流程即可，**不提取、不转用令牌**。注意 Wevir 若将来有商业或托管形态，这条路不能用。ChatGPT 登录时模型流量由 Codex 直连 OpenAI，不经网关。
+- **R6 在真实二进制上核实（2026-10-14，`rust-v0.162.1`）**，细节见 codex-event-mapping.md §8：
+  - `account/*` 与 `model/list` 都在稳定面。没登录时 `account/read` 是 `{account: null, requiresOpenaiAuth: true}`（Provider 是网关的进程里为 `false`），`account/rateLimits/read` 报 `-32600`，`model/list` 给二进制里打包的列表、不联网。
+  - 浏览器登录：`{loginId, authUrl}`，`authUrl` 带 `originator=wevir`，回调是 app-server 在 `127.0.0.1:1455` 临时监听的端口，取消即关闭。设备码：先请求 `auth.openai.com/api/accounts/deviceauth/usercode`，返回 `{loginId, verificationUrl: "https://auth.openai.com/codex/device", userCode}`，再按 interval 轮询 15 分钟。取消、被新登录替换都以 `account/login/completed {success: false}` 结束；成功后跟一条 `account/updated {authMode: "chatgpt", planType}`。登出删 `auth.json` 并吊销刷新令牌。
+  - 凭据：默认 `cli_auth_credentials_store = "file"` 写 `CODEX_HOME/auth.json`（0600）；还有 `keyring`、`auto`、`ephemeral`。Wevir 显式写 `file`（docs/security.md §3）。
+  - **`model_catalog_json` 会整体替换 Codex 的模型目录**（`model/list` 只剩它的模型），所以 ChatGPT 登录要单独一个不设它的进程（ADR-0005 补记 10）。
+  - 登录后 Codex 默认还会连 ChatGPT 的应用（connectors）MCP（`<chatgpt_base_url>/ps/mcp`），`features.apps = false` 关掉。
+  - 没登录时在 openai Provider 上开回合，Codex 拿着空凭据去连 `api.openai.com` 并重试五次（另有 websocket 预连），Wevir 因此在没登录时不建 ChatGPT 会话。
+  - 登录服务与后端可以经 `CODEX_APP_SERVER_LOGIN_ISSUER`、`CODEX_REFRESH_TOKEN_URL_OVERRIDE` 与 `chatgpt_base_url`、`openai_base_url` 换成本机 mock，测试用它走完设备码与浏览器登录（`test-fixtures/mock-chatgpt.ts`）。工作区路由（`/wham/accounts/check`）只接受 https 的源，所以登录后的回合仍发往 chatgpt.com，mock 不了。
+  - **外连**（mock 登录服务 + 只记录、一律拒绝的代理）：没登录时零；登录后发往登录服务的是 `/api/accounts/deviceauth/*`、`/oauth/token`、`/oauth/revoke`，发往后端的是 `/backend-api/wham/accounts/check`、`/wham/usage`、`/wham/rate-limit-reset-credits`、`/codex/models`，建会话时预连 `wss://chatgpt.com/backend-api/codex/responses`。即只有 `auth.openai.com` 与 `chatgpt.com` 两个域名。进程启动时第一次拉模型列表的 `originator` 是 Codex 默认的 `codex_cli_rs`（在 `initialize` 之前），其余请求都是 `wevir`。**真实账号的外连审计**（代理放行并记录主机，维护者登录、一问一答）：待补。
 
 ### 4.2 Google：Gemini CLI / Code Assist
 

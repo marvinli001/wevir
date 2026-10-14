@@ -26,6 +26,8 @@ provider.test  ──► 适配器直接向 Provider 发一次最小流式请求
 
 ### 2.1 两种 kind
 
+（R6 起协议另有 `chatgpt`：ChatGPT 订阅登录的 Codex，没有 Key、地址与 overlay，只有 Codex 引擎有，见 [domain-model.md](./domain-model.md) §3.6 与 [codex-event-mapping.md](./codex-event-mapping.md) §8。dsh 适配器在 `validateProvider` 里拒绝它，写 overlay 时跳过它。下表只说 dsh。）
+
 | `kind` | dsh 适配器 | 路由名 | Key 引用 |
 |---|---|---|---|
 | `deepseek-official` | `llm-deepseek`（`dsh-llm-deepseek-api-key`，Anthropic Messages） | 固定 `deepseek-official`，所以这类 Profile 最多一个，ID 只能是它 | `llm-deepseek.apiKeyEnv` 与 `web-search-deepseek.apiKeyEnv` 都改成 `WEVIR_PROVIDER_DEEPSEEK_OFFICIAL_KEY` |
