@@ -280,7 +280,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
           draftKey={newSessionDraftKey(workspaceId)}
           state="idle"
           disabled={!client || !providerId}
-          onSend={send}
+          onSend={(text) => send(text)}
           onStop={() => {}}
           autoFocus
           toolbar={

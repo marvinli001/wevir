@@ -58,7 +58,9 @@ export function useStartSession(
   const [error, setError] = useState<string>();
 
   const start = useCallback(
-    async (text: string): Promise<boolean> => {
+    /** `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）。 */
+    async (text: string, target: WorkspaceId | undefined = workspaceId): Promise<boolean> => {
+      const workspaceId = target;
       if (!client || !workspaceId || !providerId) return false;
       setError(undefined);
       let session: Session;

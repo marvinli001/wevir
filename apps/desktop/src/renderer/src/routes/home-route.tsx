@@ -1,11 +1,10 @@
 import type { ProviderProfile, Session } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Check, ChevronDown, Cpu, FolderPlus } from 'lucide-react';
+import { ChevronDown, Cpu, FolderPlus, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Link, useLocation } from 'react-router';
+import { Link, Navigate, useLocation } from 'react-router';
 import { BrandMark } from '@/components/brand-mark';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,8 +19,9 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { sessionMarker, type WorkspaceEntry } from '@/data/workbench-model';
 import { MetalWordmark } from '@/fx/metal';
 import { type PlainMessageKey, t } from '@/i18n';
+import { onboardingDone } from '@/onboarding/onboarding-state';
 import { openCreateProject } from '@/projects/create-project';
-import { Composer } from '@/session/composer';
+import { Composer, setDraft } from '@/session/composer';
 import { useProviderChoice, useStartSession } from '@/session/start-session';
 import { formatRelativeTime } from '@/session/subagent-model';
 import { useNow } from '@/session/subagent-view';
@@ -36,25 +36,23 @@ const HOME_DRAFT = 'home';
 const RECENT_COUNT = 3;
 
 /**
- * `/`：首页（U4，方向稿 A 静器的 HomeA）。一列居中、内容左对齐：品牌行、宋体标题“今天在 [工作区 ▾] 里做什么？”、大输入框、
- * “接着做”（所选工作区最近的会话）。发送后在所选工作区新建会话并跳过去，和新会话草稿页是同一套流程
- * （session/start-session.ts）。新开窗口停在这里，不跳回上次的会话（维护者 2026-10-14 定）；默认的工作区是上次所在的那个
- * （last-location.ts）。还没有 Provider 或工作区时显示首次使用的三步引导（T5.4）。
+ * `/`：首页（U4，方向稿 A 静器的 HomeA）。一列居中、内容左对齐：品牌行、宋体标题“今天在 [项目 ▾] 里做什么？”、大输入框、
+ * “接着做”（所选项目最近的会话）。发送后在所选项目新建会话并跳过去，和新会话草稿页是同一套流程
+ * （session/start-session.ts）。新开窗口停在这里，不跳回上次的会话（维护者 2026-10-14 定）；默认的项目是上次所在的那个
+ * （last-location.ts）。U6 起：没有 Provider 又没走过引导时转到整窗的分步引导（onboarding/welcome-route.tsx）；跳过引导
+ * 后没有 Provider 时输入框不能发、左下角是“添加模型服务”；没有项目时照常能输入，发送时先打开“创建项目”，建好后接着发。
  */
 export function HomeRoute() {
   const data = useWorkbenchData();
   const last = useLastLocation();
+  const welcomed = onboardingDone.use();
   if (data.status === 'loading') return <PendingPage />;
   if (data.status === 'error') return <PendingPage error={data.error} />;
-  const entry = homeWorkspace(data, last);
-  const hasProvider = data.providers.length > 0;
+  // 还没有 Provider、也没走过引导：先去分步引导（U6）。
+  if (data.providers.length === 0 && !welcomed) return <Navigate to={paths.welcome()} replace />;
   return (
     <HomeColumn>
-      {hasProvider && entry ? (
-        <Home entry={entry} workspaces={data.workspaces} />
-      ) : (
-        <Onboarding hasProvider={hasProvider} hasWorkspace={entry !== undefined} />
-      )}
+      <Home entry={homeWorkspace(data, last)} workspaces={data.workspaces} />
     </HomeColumn>
   );
 }
@@ -78,12 +76,24 @@ function Home({
   entry,
   workspaces,
 }: {
-  entry: WorkspaceEntry;
+  entry: WorkspaceEntry | undefined;
   workspaces: readonly WorkspaceEntry[];
 }) {
-  const { workspace } = entry;
+  const workspace = entry?.workspace;
   const { providers, providerId, choose } = useProviderChoice();
-  const { start, error, ready } = useStartSession(workspace.id, providerId);
+  const { start, error, ready } = useStartSession(workspace?.id, providerId);
+  const noProvider = providers !== undefined && providers.length === 0;
+
+  // 还没有项目：先建项目（维护者 2026-10-14 定），建好后在它里面接着发。
+  const send = async (text: string): Promise<boolean> => {
+    if (workspace) return start(text);
+    openCreateProject({
+      onCreated: async (created) => {
+        if (await start(text, created.id)) setDraft(HOME_DRAFT, '');
+      },
+    });
+    return false;
+  };
 
   return (
     <>
@@ -105,18 +115,44 @@ function Home({
           variant="home"
           draftKey={HOME_DRAFT}
           state="idle"
-          disabled={!ready}
-          placeholder={t('home.placeholder', { workspace: workspace.displayName })}
-          status={
-            providers && <ProviderChip providers={providers} value={providerId} onChange={choose} />
+          disabled={!ready && !noProvider}
+          {...(noProvider && { disabledReason: t('home.noProvider') })}
+          placeholder={
+            workspace
+              ? t('home.placeholder', { workspace: workspace.displayName })
+              : t('session.composerPlaceholder')
           }
-          onSend={start}
+          status={
+            noProvider ? (
+              <AddProviderChip />
+            ) : (
+              providers && (
+                <ProviderChip providers={providers} value={providerId} onChange={choose} />
+              )
+            )
+          }
+          onSend={send}
           onStop={() => {}}
           autoFocus
         />
       </div>
-      <RecentSessions entry={entry} />
+      {entry && <RecentSessions entry={entry} />}
     </>
+  );
+}
+
+/** 没有 Provider 时输入框左下角的入口：去设置里添加。 */
+function AddProviderChip() {
+  const location = useLocation();
+  return (
+    <Link
+      to={paths.settings('providers')}
+      state={{ from: location }}
+      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed border-border-strong px-2.5 text-xs text-soft-foreground outline-none transition-colors hover:border-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
+      <Plus aria-hidden className="size-3.5" />
+      {t('home.addProvider')}
+    </Link>
   );
 }
 
@@ -125,22 +161,24 @@ function WorkspacePicker({
   current,
   workspaces,
 }: {
-  current: WorkspaceEntry;
+  current: WorkspaceEntry | undefined;
   workspaces: readonly WorkspaceEntry[];
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         data-testid="home-workspace"
-        title={current.workspace.rootPath}
+        title={current?.workspace.rootPath}
         className="inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-xs border-b-[1.5px] border-dashed border-border-strong px-0.5 font-sans text-[0.86em] font-semibold text-foreground outline-none hover:border-foreground focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:border-foreground"
       >
-        <span className="truncate">{current.workspace.displayName}</span>
+        <span className={cn('truncate', !current && 'text-muted-foreground')}>
+          {current?.workspace.displayName ?? t('home.chooseProject')}
+        </span>
         <ChevronDown aria-hidden className="size-4 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-auto max-w-80 min-w-56">
         <DropdownMenuRadioGroup
-          value={current.workspace.id}
+          value={current?.workspace.id ?? ''}
           onValueChange={(id: string) => rememberWorkspace(id)}
         >
           {workspaces.map(({ workspace }) => (
@@ -163,7 +201,7 @@ function WorkspacePicker({
             </DropdownMenuRadioItem>
           ))}
         </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
+        {workspaces.length > 0 && <DropdownMenuSeparator />}
         <DropdownMenuItem onClick={() => openCreateProject()}>
           <FolderPlus className="text-muted-foreground" />
           {t('home.createProject')}
@@ -291,112 +329,5 @@ function RecentRow({
         {formatRelativeTime(session.updatedAt, now)}
       </span>
     </Link>
-  );
-}
-
-/**
- * 首次使用的三步：配置 Provider → 添加工作区 → 开始第一个会话。前两步指向设置页，做完的打勾；两步都做完首页就换成输入框，
- * 第三步只是说明。
- */
-function Onboarding({
-  hasProvider,
-  hasWorkspace,
-}: {
-  hasProvider: boolean;
-  hasWorkspace: boolean;
-}) {
-  const location = useLocation();
-  const steps = [
-    {
-      id: 'provider',
-      title: t('onboarding.provider'),
-      body: t('onboarding.providerBody'),
-      done: hasProvider,
-      action: t('onboarding.providerAction'),
-      to: paths.settings('providers'),
-    },
-    {
-      id: 'workspace',
-      title: t('onboarding.workspace'),
-      body: t('onboarding.workspaceBody'),
-      done: hasWorkspace,
-      action: t('onboarding.workspaceAction'),
-      to: paths.settings('workspaces'),
-    },
-    {
-      id: 'session',
-      title: t('onboarding.session'),
-      body: t('onboarding.sessionBody'),
-      done: false,
-    },
-  ];
-  // 当前该做的一步：第一个没做完的。
-  const current = steps.findIndex((step) => !step.done);
-
-  return (
-    <section aria-labelledby="onboarding-title" className="flex flex-col gap-5.5">
-      <div>
-        <h1 id="onboarding-title" className="text-2xl font-semibold tracking-tight">
-          {t('onboarding.title')}
-        </h1>
-        <p className="mt-1.5 text-muted-foreground">{t('onboarding.body')}</p>
-      </div>
-      <ol className="divide-y divide-border rounded-xl border border-border bg-card">
-        {steps.map((step, index) => {
-          const active = index === current;
-          return (
-            <li
-              key={step.id}
-              data-step={step.id}
-              data-done={step.done || undefined}
-              data-active={active || undefined}
-              className="flex items-center gap-3.5 px-4 py-3.5"
-            >
-              <span
-                className={cn(
-                  'flex size-6 shrink-0 items-center justify-center rounded-full border text-xs font-medium tabular-nums',
-                  step.done
-                    ? 'border-success/40 bg-success/10 text-success'
-                    : active
-                      ? 'border-foreground text-foreground'
-                      : 'border-border-strong text-muted-foreground',
-                )}
-              >
-                {step.done ? (
-                  <Check className="size-3.5" aria-label={t('onboarding.done')} />
-                ) : (
-                  index + 1
-                )}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p
-                  className={cn(
-                    'font-medium',
-                    step.done || !active ? 'text-soft-foreground' : 'text-foreground',
-                  )}
-                >
-                  {step.title}
-                </p>
-                <p className="mt-0.5 text-sm text-muted-foreground">{step.body}</p>
-              </div>
-              {step.done ? (
-                <span className="shrink-0 text-sm text-success">{t('onboarding.done')}</span>
-              ) : (
-                step.to && (
-                  <Button
-                    className="shrink-0"
-                    variant={active ? 'default' : 'outline'}
-                    nativeButton={false}
-                    render={<Link to={step.to} state={{ from: location }} />}
-                  >
-                    {step.action}
-                  </Button>
-                )
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </section>
   );
 }

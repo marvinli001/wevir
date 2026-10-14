@@ -8,6 +8,7 @@ import { t } from '@/i18n';
 import { WorkbenchLayout } from '@/layout/workbench-layout';
 import { useHistoryNav, useTrackHistory } from '@/lib/history-nav';
 import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { WelcomeRoute } from '@/onboarding/welcome-route';
 import { CreateProjectDialog } from '@/projects/create-project';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
@@ -21,7 +22,7 @@ import { SettingsRoute } from './settings-route';
  */
 const FX_GALLERY = import.meta.env.DEV || import.meta.env.VITE_WEVIR_FX_GALLERY === '1';
 
-/** 路由表（见 paths.ts）。工作台页面共用三栏布局；设置是整窗页面。 */
+/** 路由表（见 paths.ts）。工作台页面共用三栏布局；设置与首次引导是整窗页面。 */
 export const router = createHashRouter([
   {
     Component: AppRoot,
@@ -54,6 +55,7 @@ export const router = createHashRouter([
         element: <Navigate to={DEFAULT_SETTINGS_TAB} replace />,
       },
       { path: ROUTE_PATTERNS.settingsTab, Component: SettingsRoute },
+      { path: ROUTE_PATTERNS.welcome, Component: WelcomeRoute },
     ],
   },
 ]);

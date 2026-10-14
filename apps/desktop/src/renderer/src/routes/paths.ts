@@ -15,6 +15,8 @@ export const ROUTE_PATTERNS = {
   draft: '/workspace/:workspaceId/session',
   settings: '/settings',
   settingsTab: '/settings/:tab',
+  /** 首次使用的分步引导（U6），整窗页面。 */
+  welcome: '/welcome',
 } as const;
 
 /** `agent` 相对于会话路由的那一段（路由表里的子路由）。 */
@@ -38,4 +40,5 @@ export const paths = {
     `${paths.session(workspaceId, sessionId)}/agent/${segment(childId)}`,
   draft: (workspaceId: string): string => `/workspace/${segment(workspaceId)}/session`,
   settings: (tab: SettingsTab = DEFAULT_SETTINGS_TAB): string => `/settings/${tab}`,
+  welcome: (): string => ROUTE_PATTERNS.welcome,
 };

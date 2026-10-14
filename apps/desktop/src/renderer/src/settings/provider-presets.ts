@@ -16,10 +16,14 @@ export const DSH_DEEPSEEK_MODELS: readonly string[] = ['deepseek-flash', 'deepse
 /** `openai-compatible` 不能用的 ID：已被 dsh 的其他适配器占用（providers.md §2.1）。 */
 export const RESERVED_PROVIDER_IDS: readonly string[] = [DEEPSEEK_OFFICIAL_ID, 'deepseek-account'];
 
-/** 界面上能选的协议；`anthropic-messages` 只预留了类型，适配器拒绝（providers.md §4）。 */
+/**
+ * 界面上能选的协议。`anthropic-messages` 只有 Codex 引擎（经模型网关，R10）支持，dsh 引擎拒绝（providers.md §4）；
+ * U6 起 Codex 是默认引擎，表单里也能选。
+ */
 export const FORM_APIS = [
   'openai-completions',
   'openai-responses',
+  'anthropic-messages',
 ] as const satisfies ProviderApi[];
 export type FormApi = (typeof FORM_APIS)[number];
 
@@ -41,7 +45,83 @@ export interface OpenAIPreset {
   docsURL?: string;
 }
 
+/** OpenAI 与 Anthropic 当前模型的五档推理，取自两家的模型文档（2026-10-14 核对）。 */
+const FIVE_EFFORTS: ProviderModel['reasoningEfforts'] = ['low', 'medium', 'high', 'xhigh', 'max'];
+
 export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
+  {
+    // Responses 是 OpenAI 的主接口（Chat Completions 上这几个模型不能调工具），网关透传。
+    id: 'openai',
+    name: 'provider.preset.openai',
+    note: 'provider.preset.openai.note',
+    api: 'openai-responses',
+    baseURL: 'https://api.openai.com/v1',
+    models: [
+      {
+        id: 'gpt-6.1-sol',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'gpt-6-astra',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'gpt-6-luna',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+    ],
+    defaultModelId: 'gpt-6.1-sol',
+    docsURL: 'https://developers.openai.com/api/docs/models',
+  },
+  {
+    // Messages 由网关转换（R10，model-gateway.md §5）；claude- 开头的模型按 adaptive 思考、档位进 output_config.effort。
+    id: 'anthropic',
+    name: 'provider.preset.anthropic',
+    note: 'provider.preset.anthropic.note',
+    api: 'anthropic-messages',
+    baseURL: 'https://api.anthropic.com',
+    models: [
+      {
+        id: 'claude-opus-5-5',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'claude-sonnet-5-5',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'claude-haiku-5-5',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'claude-fable-5-1',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+    ],
+    defaultModelId: 'claude-opus-5-5',
+    docsURL: 'https://platform.claude.com/docs/en/about-claude/models/overview',
+  },
   {
     id: 'dashscope',
     name: 'provider.preset.dashscope',

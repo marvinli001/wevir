@@ -187,7 +187,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 - Host 进程里的 `fetch` 不读 `HTTPS_PROXY` 等代理变量（dsh 子进程的代理行为由 dsh 决定）。需要代理才能访问的服务，`provider.test` 可能报 `network` / `timeout` 而对话正常。
 - 模型不存在的判断依赖错误原文，服务改措辞会落到 `protocol` 或 `unknown`。
 
-## 7. 国内服务示例（`openai-compatible`）
+## 7. 服务示例（`openai-compatible`）
 
 以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出是示意值，按服务文档填写。所有地址都不是 `api.openai.com`，§2.3 的默认 compat 会自动补上，一般不需要写 `compat`。
 
@@ -323,7 +323,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 
 来源：docs.x.ai 的 models 页与各模型页（2026-10-14）。`supportsCustomTools: false` 让网关把 apply_patch 摊平成函数（xAI 的地址不写也会默认摊平，写明是为了经代理改地址后仍然生效）。
 
-### 7.7 Google Gemini（API Key，R8）
+### 7.7 Google AI Studio（Gemini API Key，R8）
 
 Codex 引擎经网关的 Chat 转换走 Gemini 的 OpenAI 兼容端点（model-gateway.md §4.5）；dsh 不适用。个人 Google 账号登录已停（codex-notes §4.2），只有 API Key。大陆无法直连。经 Gemini CLI 的另一条路（ADR-0005 决策 4 第 ③ 行）还没做。
 
@@ -331,7 +331,7 @@ Codex 引擎经网关的 Chat 转换走 Gemini 的 OpenAI 兼容端点（model-g
 {
   "id": "gemini",
   "kind": "openai-compatible",
-  "displayName": "Google Gemini（API Key）",
+  "displayName": "Google AI Studio",
   "api": "openai-completions",
   "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai/",
   "models": [
@@ -344,3 +344,52 @@ Codex 引擎经网关的 Chat 转换走 Gemini 的 OpenAI 兼容端点（model-g
 ```
 
 来源：ai.google.dev 的 openai、models、thought-signatures 页（2026-10-13）。3.8 Flash 与 4 Argon 不认 `minimal`，模型目录里不列。
+
+### 7.8 OpenAI（U6）
+
+Codex 引擎经网关透传 Responses（这几个模型在 Chat Completions 上不能调工具）；dsh 不适用。大陆无法直连。
+
+```json
+{
+  "id": "openai",
+  "kind": "openai-compatible",
+  "displayName": "OpenAI",
+  "api": "openai-responses",
+  "baseURL": "https://api.openai.com/v1",
+  "models": [
+    { "id": "gpt-6.1-sol", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "gpt-6-astra", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "gpt-6-luna", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] }
+  ],
+  "defaultModelId": "gpt-6.1-sol",
+  "apiKey": "<OpenAI API Key>"
+}
+```
+
+来源：developers.openai.com 的 models 页（2026-10-14）。Luna 还接受 `none`，Wevir 的推理档位没有这一档，不列。
+
+### 7.9 Anthropic（U6）
+
+Codex 引擎经网关转 Messages（R10，[model-gateway.md](./model-gateway.md) §5；`claude-` 开头的模型用 adaptive 思考，档位放进 `output_config.effort`）；dsh 不适用。大陆无法直连。
+
+```json
+{
+  "id": "anthropic",
+  "kind": "openai-compatible",
+  "displayName": "Anthropic",
+  "api": "anthropic-messages",
+  "baseURL": "https://api.anthropic.com",
+  "models": [
+    { "id": "claude-opus-5-5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-sonnet-5-5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-haiku-5-5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-fable-5-1", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] }
+  ],
+  "defaultModelId": "claude-opus-5-5",
+  "apiKey": "<Anthropic API Key>"
+}
+```
+
+来源：platform.claude.com 的 models overview 与 effort 页（2026-10-14）。四个模型都支持五档 effort；Opus 5.5 的思考不能关（`none` 会 400），所以不列 `off`。
+
+桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 要 Google Cloud 的 OAuth 令牌，模型网关还没有，先标“即将支持”。

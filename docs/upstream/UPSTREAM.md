@@ -214,6 +214,8 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 桌面端随应用打包的字体（U1，2026-10-14）：`apps/desktop/src/renderer/src/assets/fonts/*.woff2` 由 `apps/desktop/scripts/build-fonts.py` 从固定版本生成（来源的 sha256 写在脚本里），来源说明在同目录的 `SOURCE.md`，各字体的 OFL 原文在 `apps/desktop/licenses/fonts/`，都是 SIL OFL-1.1：Mona Sans 2.0.27（[github/mona-sans](https://github.com/github/mona-sans) 发布包 `mona-sans-variable-v2.0.27.zip`，`Copyright 2022 The Mona Sans Project Authors`，保留字体名 `Mona`，只转 WOFF2、不改字形与名称）、JetBrains Mono 2.304（[JetBrains/JetBrainsMono](https://github.com/JetBrains/JetBrainsMono) 发布包，`Copyright 2020 The JetBrains Mono Project Authors`，只转 WOFF2）、Noto Serif SC 2.003 Medium（[notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) 提交 `9b0f1436e455d902de067a2501422e5dc71ad16b`，`© 2017-2024 Adobe`，没有保留字体名，按固定文案子集化）。
 
+模型服务的标志（U6，2026-10-14）：`apps/desktop/src/renderer/src/assets/provider-logos/*.svg` 共 10 个，原样取自 npm 包 `@lobehub/icons-static-svg@1.95.1`（[lobehub/lobe-icons](https://github.com/lobehub/lobe-icons)）的 `icons/` 目录，MIT，`Copyright (c) 2023 LobeHub`；文件与 sha256 在同目录的 `SOURCE.md`，署名在 `NOTICE` 第 9 节。标志是各公司的商标，只用来指认服务。
+
 ## 5. 移植文件的文件头
 
 MIT 来源（dsh、OpenWork 的 MIT 区域）：
