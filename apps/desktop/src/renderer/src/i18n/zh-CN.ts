@@ -313,7 +313,7 @@ export const zhCN = {
   'engineError.hint.unknown': '详情见 Host 日志（数据目录下的 logs/host.log）。',
 
   'notice.resumed': '引擎会话已恢复',
-  'notice.resumedVersion': '引擎会话已恢复（dsh {version}）',
+  'notice.resumedVersion': '引擎会话已恢复（{version}）',
   'notice.readOnly': '会话只读：{reason}',
   'notice.closed': '会话已关闭',
   'readOnly.engine_session_not_found': '引擎找不到这个会话（引擎数据目录可能被清理过）',

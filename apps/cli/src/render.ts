@@ -121,7 +121,7 @@ export class EventRenderer {
         return;
       case 'session.resumed': {
         const version = event.payload.engineVersion;
-        this.#sink.line(this.#s.dim(`（引擎会话已恢复${version ? `，dsh ${version}` : ''}）`));
+        this.#sink.line(this.#s.dim(`（引擎会话已恢复${version ? `，${version}` : ''}）`));
         return;
       }
       case 'session.read_only':
