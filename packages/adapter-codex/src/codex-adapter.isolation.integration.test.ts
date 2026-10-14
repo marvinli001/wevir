@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -248,4 +248,42 @@ describe.skipIf(binary === undefined)('外连与密钥', { timeout: 90_000 }, ()
     // 令牌登记给了 Host 的日志去抹掉。
     expect(logger.secrets).toContain(token);
   });
+
+  // Windows 上 Codex 找家目录不读环境变量（dirs::home_dir），换不了测试用的 HOME。
+  it.skipIf(process.platform === 'win32')(
+    '用户 ~/.agents/skills 里的 skills 不列给模型；显式写 $<名字> 时才放进上下文（codex-event-mapping.md §1.3）',
+    async () => {
+      const { root, home, workspace } = dirs.make('skills');
+      // 测试用的 HOME：不碰本机用户真实的 ~/.agents/skills。
+      const userHome = join(root, 'user-home');
+      const skillDir = join(userHome, '.agents', 'skills', 'wevir-canary');
+      mkdirSync(skillDir, { recursive: true });
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        '---\nname: wevir-canary\ndescription: Canary skill for the Wevir isolation test.\n---\nCANARY-BODY-7f3a\n',
+      );
+      const a = newAdapter({
+        home,
+        parentEnv: { ...process.env, HOME: userHome },
+        providers: [mockProvider(mock)],
+      });
+      script = () => ({ text: ['ok'] });
+      const requestText = () => JSON.stringify(mock.requests.at(-1)?.body.input ?? []);
+      try {
+        const session = await a.createSession({
+          cwd: workspace,
+          providerId: 'mock',
+          modelId: MOCK_MODEL,
+        });
+        await runTurn(a, session.engineSessionId, 'hello');
+        expect(requestText()).not.toContain('wevir-canary');
+        expect(requestText()).not.toContain('CANARY-BODY-7f3a');
+        // 用户显式点名时照 Codex 的语义放进上下文（决定见 ADR-0005 补记 5）。
+        await runTurn(a, session.engineSessionId, 'please use $wevir-canary');
+        expect(requestText()).toContain('CANARY-BODY-7f3a');
+      } finally {
+        await a.dispose();
+      }
+    },
+  );
 });

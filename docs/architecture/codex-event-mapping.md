@@ -47,7 +47,14 @@ codex-app-server stdout（逐行 JSON，不带 "jsonrpc"）
 | `/etc/codex/`（config、skills、requirements） | 系统级配置层 | 管理员级配置，不是用户级；Wevir 不覆盖，写在这里备查 |
 | `~/.codex` | Codex 的默认 CODEX_HOME | 设了 `CODEX_HOME` 就不用 |
 
-没有像 dsh 的 `DSH_AGENTS_HOME` 那样的变量能把 `~/.agents` 指到别处。另一个办法是只给 app-server 换一个 Wevir 专属的 HOME、再用 `[shell_environment_policy] set = { HOME = "<真实家目录>" }` 把命令的 HOME 改回来：R2 实测这样 skills 不再被扫描、命令里 `$HOME` 与 git 配置也对，但 shell 快照是用 app-server 的 HOME 跑的登录 shell，读不到用户的 rc，命令的 PATH 少了 rc 里加的条目（本机 20 条变 18 条）。所以没有采用。剩下的缺口：skills 扩展仍会扫描 `~/.agents/skills`，用户在消息里显式写 `$<skill 名>` 时（`collect_explicit_skill_mentions`）会把那个 skill 放进上下文。Wevir 建自己的 skills 时要重新处理这一块（打开 `include_instructions` 就会把用户的 skills 一起列出来）。Windows 上 `dirs::home_dir()` 不读环境变量，换 HOME 的办法本来也不成立。
+没有像 dsh 的 `DSH_AGENTS_HOME` 那样的变量能把 `~/.agents` 指到别处。取舍（维护者交给实现方定，ADR-0005 补记 6）：
+
+- **静默进入的路径关掉**：skills 列表不进上下文，这是用户没有察觉就会发生的那条路。Codex 的 skill 检索实验（`features.skill_search`，默认开）只在本机给 skills 打分、记指标，不进上下文、不联网（`ext/skills/src/shadow_selection_experiment/`），不另外关。
+- **显式点名照 Codex 的语义生效**：用户在消息里写 `$<skill 名>`（或 `[$名字](路径)`）时，Codex 把那个 skill 放进上下文（`collect_explicit_skill_mentions`，只选启用的 skill；`$PATH` 这类常见环境变量名不算）。这是用户有意的动作，用的是 Codex 公开的写法；`~/.agents/skills` 又是多个 Agent 共用的标准位置，用户点名时多半就是想用它。挡住它要 Wevir 自己照 Codex 的发现规则枚举 skills 再逐个写禁用规则，规则一变就漏，运行中新装的 skill 也挡不住，代价大于收益。
+- **不换 HOME**：只给 app-server 换一个 Wevir 专属的 HOME、再用 `[shell_environment_policy] set = { HOME = "<真实家目录>" }` 把命令的 HOME 改回来，能让 skills 不被扫描，但 Codex 的 shell 快照用 app-server 自己的环境跑登录 shell（`core/src/shell_snapshot.rs` 的 `run_script_with_timeout`），读不到用户的 rc，命令的 PATH 少了 rc 里加的条目（R2 实测本机 20 条变 18 条）。Windows 上 Codex 找家目录不读环境变量（`dirs::home_dir`），这个办法本来也不成立。
+- **以后**：Wevir 做 skills 管理时，用 `[[skills.config]]`（按路径或名字启用 / 禁用，Codex 的 `SkillConfig`）把用户在设置里的选择交给 Codex，再打开 `include_instructions`；`~/.agents/skills` 里的 skills 是否默认可见在那时定。
+
+回归测试：`codex-adapter.isolation.integration.test.ts` 用测试专用的 HOME 放一个 canary skill，断言普通回合的请求里没有它、显式写 `$wevir-canary` 的回合里有它的正文（反例：打开 `include_instructions` 时第一条断言失败）。
 
 ### 1.4 回收与重启
 
@@ -201,7 +208,7 @@ Codex 的增量与已提交项共用 itemId，对齐是直接的，不需要 ada
 | 其他单元测试 | `tool-display.test.ts`、`config.test.ts`、`prompts.test.ts`、`env.test.ts`、`paths.test.ts` | 展示类型、生成的配置与模型目录、base.md 渲染、白名单环境、二进制解析与版本核对 |
 | 契约测试第 2 层 | `codex-adapter.contract.integration.test.ts` | 真实 `codex-app-server` + 网关（Responses 透传）+ mock 模型跑 `runAdapterContract`，能力开关 `incrementalStream`、`toolCalls`、`concurrentSessions` 开，`approvals`、`resume` 留给 R3 |
 | 集成测试 | `codex-adapter.integration.test.ts` | 握手、会话与基础提示词、新增 Provider 不重启、模型目录变了空闲时重启 / 等回合结束、R2 的审批回复、子 thread 的事件、版本核对 |
-| 外连与密钥 | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
+| 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
 | Host | `packages/host/src/cli.codex.integration.test.ts` | `wevir-host --adapter codex`：provider.upsert、一问一答、一次工具调用、SIGTERM 回收 |
 
 二进制不在时这些集成测试跳过并打印下载命令；CI 下载并缓存二进制，macOS 与 Windows 都跑。录样本：`WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`（升级 Codex 后重录，再看映射测试）。
