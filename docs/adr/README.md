@@ -10,6 +10,7 @@
 | [0002](./0002-host-transport-and-process-model.md) | Host 传输与进程模型 | Accepted | 2026-10-12 |
 | [0003](./0003-storage.md) | 本地存储：`node:sqlite` 与骨架阶段的密钥文件 | Accepted | 2026-10-12 |
 | [0004](./0004-repo-tooling.md) | 仓库工具链 | Accepted | 2026-10-12 |
+| [0005](./0005-agent-runtime-and-model-gateway.md) | Agent 运行时以 Codex app-server 为主，Host 内置模型协议网关 | Proposed | 2026-10-14 |
 
 ## 文件格式
 
@@ -53,5 +54,5 @@ Accepted 之后不推翻决策的补充，一条一行：日期、任务 ID、�
 
 ## 引用约定
 
-- “计划 §x.y”指 SKELETON_PLAN.md；“T0.3 §x”“Paseo Ax”“OpenWork #x”分别指 [dsh 接入 Spike](../research/dsh-integration-spike.md)、[Paseo 研读](../research/paseo-notes.md) §9 的条目编号、[OpenWork 研读](../research/openwork-notes.md) §8 的候选编号。
+- “计划 §x.y”指 SKELETON_PLAN.md；“T0.3 §x”“Paseo Ax”“OpenWork #x”分别指 [dsh 接入 Spike](../research/dsh-integration-spike.md)、[Paseo 研读](../research/paseo-notes.md) §9 的条目编号、[OpenWork 研读](../research/openwork-notes.md) §8 的候选编号；“codex-notes §x”指 [Codex 研读与 Spike](../research/codex-notes.md)。
 - 依赖上游代码或文档的结论，写明锁定提交下的路径（见 [UPSTREAM.md](../upstream/UPSTREAM.md)）。
