@@ -48,7 +48,9 @@ for (const transport of transports) {
     script: () => ({}),
     // 真实模型不自动放行越权：一律拒绝并记下来（场景本身都不需要越出工作区）。
     decide: (req) => {
-      log(`  审批：${req.method} ${String(req.params.command ?? req.params.reason ?? '').slice(0, 80)} → decline`);
+      log(
+        `  审批：${req.method} ${String(req.params.command ?? req.params.reason ?? '').slice(0, 80)} → decline`,
+      );
       return { decision: 'decline' };
     },
     extraTop: ['tools.update_plan.enabled = true'],
