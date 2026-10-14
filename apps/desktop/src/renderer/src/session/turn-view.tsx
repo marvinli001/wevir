@@ -7,7 +7,7 @@ import type { OrbState } from 'thinking-orbs';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
 import { useFold, useFoldSetter } from './fold-state';
-import { LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
+import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
 import { PartsView, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
@@ -181,7 +181,7 @@ function LiveLine({ live, startedAt }: { live: LiveState; startedAt: string | un
       data-live-line={live}
     >
       <LiveIndicator state={live} />
-      <span className={live === 'awaiting' || live === 'input' ? 'text-warning' : 'shimmer'}>
+      <span className={live === 'awaiting' || live === 'input' ? AWAITING_PILL : 'shimmer'}>
         {text}
       </span>
       <Elapsed since={startedAt} className="tabular-nums" />

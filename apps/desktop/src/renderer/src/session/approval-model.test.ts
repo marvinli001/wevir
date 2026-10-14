@@ -1,6 +1,7 @@
 import type { ApprovalRequest, ClientIdentity } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  approvalLayout,
   clientLabel,
   decidedHere,
   optionLabel,
@@ -45,7 +46,7 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
       }),
     );
     expect(presentation).toEqual({
-      title: '修改项目目录之外的文件',
+      title: '允许修改项目目录之外的文件？',
       target: '/out/summary.md',
       permission: '完全访问（不受项目目录限制）',
       justification: '用户要求写到共享目录。',
@@ -53,7 +54,7 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
     });
   });
 
-  it('命令取第一行，其余权限原样显示；没有详情时用通用标题', () => {
+  it('命令显示全文，其余权限原样显示；没有详情时用通用标题', () => {
     expect(
       presentApproval(
         approval({
@@ -62,8 +63,42 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
           sandboxPermissions: 'network',
         }),
       ),
-    ).toEqual({ title: '在沙箱之外运行命令', target: 'rm -rf build', permission: 'network' });
-    expect(presentApproval(approval(null))).toEqual({ title: '请求越过项目目录限制' });
+    ).toEqual({
+      title: '允许在沙箱之外运行命令？',
+      target: 'rm -rf build\necho ok',
+      permission: 'network',
+    });
+    expect(presentApproval(approval(null))).toEqual({ title: '允许越过项目目录限制？' });
+  });
+});
+
+describe('approvalLayout（U13）', () => {
+  const codex = [
+    { optionId: 'accept', label: '允许', kind: 'allow_accept', category: 'allow' },
+    {
+      optionId: 'acceptForSession',
+      label: '允许，本会话不再询问此命令',
+      kind: 'allow_accept_for_session',
+      category: 'allow',
+    },
+    { optionId: 'decline', label: '拒绝并继续', kind: 'reject_decline', category: 'reject' },
+    { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel', category: 'reject' },
+  ] as const;
+
+  it('拒绝在左、允许在右，第一个允许是主按钮排最右；数字键从左到右；拒绝并停止接 Esc', () => {
+    const layout = approvalLayout(codex);
+    const ids = (options: readonly { optionId: string }[]) => options.map((o) => o.optionId);
+    expect(ids(layout.start)).toEqual(['decline', 'cancel']);
+    expect(ids(layout.end)).toEqual(['acceptForSession', 'accept']);
+    expect(layout.primary?.optionId).toBe('accept');
+    expect(layout.escape?.optionId).toBe('cancel');
+    expect(ids(layout.numbered)).toEqual(['decline', 'cancel', 'acceptForSession', 'accept']);
+  });
+
+  it('ACP 的选项没有接 Esc 的一项', () => {
+    const layout = approvalLayout(approval(null).options);
+    expect(layout.escape).toBeUndefined();
+    expect(layout.numbered.map((o) => o.kind)).toEqual(['reject_once', 'allow_once']);
   });
 });
 

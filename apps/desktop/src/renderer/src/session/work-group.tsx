@@ -20,7 +20,7 @@ import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
 import { useFold } from './fold-state';
 import { formatJson } from './format';
-import { LiveIndicator, type LiveState } from './live-indicator';
+import { AWAITING_PILL, LiveIndicator, type LiveState } from './live-indicator';
 import { ToolDetails } from './tool-details';
 import {
   currentAction,
@@ -137,7 +137,7 @@ export function WorkGroup({
             <span
               className={cn(
                 'min-w-0 truncate',
-                action.tone === 'awaiting' ? 'text-warning' : 'shimmer',
+                action.tone === 'awaiting' ? AWAITING_PILL : 'shimmer',
               )}
             >
               {live === 'stopping' ? t('work.stopping') : action.text}

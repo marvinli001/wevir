@@ -6,19 +6,33 @@
 // 完整参数”。按钮不再是固定的 reject / once / always，而是按审批请求携带的选项渲染（approval-model.ts）；
 // 内容取同一 toolCallId 的 rawInput（Host 放在 ApprovalRequest.detail：目标、所需权限、理由、写文件的内容
 // 预览）；标出“还有 N 个待审批”；另一端先处理时按 approval.resolved 收起并提示由谁处理。R5：父会话里也显示子会话的
-// 审批（父会话快照里的副本），标出来自哪个子智能体，并能跳到它的视图。
+// 审批（父会话快照里的副本），标出来自哪个子智能体，并能跳到它的视图。U13：版式与快捷键照 Claude Code 的权限提示。
 
 import { isRpcError, type Transcript, type WevirClient } from '@wevir/client-sdk';
-import type { ApprovalId, ApprovalRequest, ClientIdentity, SubagentSummary } from '@wevir/protocol';
+import type {
+  ApprovalId,
+  ApprovalOption,
+  ApprovalRequest,
+  ClientIdentity,
+  SubagentSummary,
+} from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight, ShieldAlert } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { ChevronRight } from 'lucide-react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Beam } from '@/fx/beam';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
-import { decidedHere, optionLabel, presentApproval, resolutionText } from './approval-model';
+import { IS_MAC } from '@/lib/shortcuts';
+import {
+  type ApprovalLayout,
+  approvalLayout,
+  decidedHere,
+  optionLabel,
+  presentApproval,
+  resolutionText,
+} from './approval-model';
 import { Disclosure } from './disclosure';
 import { formatJson } from './format';
 import { SubagentAvatar } from './subagent-avatar';
@@ -127,6 +141,12 @@ export function ApprovalDock({
   );
 }
 
+/**
+ * 一个审批（U13 起照 Claude Code 的权限提示）：一句问话做标题，下面是 Agent 给的理由、所需权限（警示色）与放在代码块里的
+ * 目标（命令全文或路径），写文件再附内容预览；底部拒绝类在左、允许类在右，主按钮（第一个允许类）在最右。键盘：数字键按
+ * 从左到右选，⌘↵ 是主按钮，Esc 是“拒绝并停止”（有这一项时）。焦点在卡片里、或不在任何输入框里时生效；卡片出现时把焦点
+ * 拿过来，除非用户正在输入框里打字。
+ */
 function ApprovalCard({
   approval,
   origin,
@@ -144,83 +164,162 @@ function ApprovalCard({
   onRespond: (optionId: string) => void;
 }) {
   const presentation = presentApproval(approval);
+  const layout = useMemo(() => approvalLayout(approval.options), [approval.options]);
   const titleId = `approval-${approval.id}`;
+  const cardRef = useRef<HTMLElement>(null);
+  const respond = useRef(onRespond);
+  respond.current = onRespond;
+
+  useEffect(() => {
+    const active = document.activeElement;
+    const typing =
+      active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement
+        ? active.value.trim() !== ''
+        : isEditable(active);
+    if (typing) return;
+    cardRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // 捕获阶段：先于输入框的 Esc 停止（它见到 defaultPrevented 就不再处理）。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (busy || event.defaultPrevented || event.isComposing) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const card = cardRef.current;
+      const scope = target?.closest('[data-keyboard-scope]');
+      if (scope && scope !== card) return;
+      if (!scope && isEditable(target)) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      const option = shortcutOption(event, layout);
+      if (!option) return;
+      event.preventDefault();
+      respond.current(option.optionId);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [busy, layout]);
+
+  const button = (option: ApprovalOption) => {
+    const primary = option === layout.primary;
+    return (
+      <Button
+        key={option.optionId}
+        size="sm"
+        variant={primary ? 'default' : 'secondary'}
+        disabled={busy}
+        data-option-kind={option.kind}
+        onClick={() => onRespond(option.optionId)}
+        className="h-8 gap-1.5 pr-1.5 pl-3"
+      >
+        {optionLabel(option)}
+        <span className="flex gap-0.5">
+          <Kbd primary={primary}>{layout.numbered.indexOf(option) + 1}</Kbd>
+          {option === layout.escape && <Kbd primary={primary}>Esc</Kbd>}
+          {primary && <Kbd primary>{IS_MAC ? '⌘↵' : 'Ctrl ↵'}</Kbd>}
+        </span>
+      </Button>
+    );
+  };
+
   return (
     <section
+      ref={cardRef}
+      tabIndex={-1}
+      data-keyboard-scope
       aria-labelledby={titleId}
       data-testid="approval-card"
-      className="rounded-xl border border-warning/40 bg-card shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
+      className="rounded-2xl border border-border bg-card shadow-sm outline-none animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
     >
       {origin && <ApprovalOrigin {...origin} />}
-      <div className="flex items-start gap-2.5 px-3.5 pt-3">
-        <ShieldAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-warning" />
-        <div className="min-w-0 flex-1">
-          <h3 id={titleId} className="font-medium">
+      <div className="px-4 pt-3.5">
+        <div className="flex items-start gap-3">
+          <h3 id={titleId} className="min-w-0 flex-1 text-base leading-snug font-semibold">
             {presentation.title}
           </h3>
-          {approval.detail && (
-            <p className="text-xs text-muted-foreground">{approval.detail.toolName}</p>
+          {remaining > 0 && (
+            <span className="shrink-0 rounded-md bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+              {t('approval.more', { count: remaining })}
+            </span>
           )}
         </div>
-        {remaining > 0 && (
-          <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
-            {t('approval.more', { count: remaining })}
-          </span>
-        )}
-      </div>
-
-      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 px-3.5 pl-10 text-sm">
-        {presentation.target && (
-          <Row label={t('approval.target')}>
-            <span className="font-mono text-xs break-all">{presentation.target}</span>
-          </Row>
+        {presentation.justification && (
+          <p className="mt-1.5 text-soft-foreground">{presentation.justification}</p>
         )}
         {presentation.permission && (
-          <Row label={t('approval.permission')}>{presentation.permission}</Row>
+          <p className="mt-1.5 text-sm text-warning">
+            {t('approval.permission', { permission: presentation.permission })}
+          </p>
         )}
-        {presentation.justification && (
-          <Row label={t('approval.justification')}>{presentation.justification}</Row>
-        )}
-      </dl>
-
-      {presentation.preview && (
-        <div className="mt-2 px-3.5 pl-10">
-          <p className="mb-1 text-xs text-muted-foreground">{t('approval.preview')}</p>
-          <pre className="max-h-32 overflow-auto rounded-md border border-border bg-muted/40 px-2 py-1.5 font-mono text-xs whitespace-pre-wrap">
-            {presentation.preview.text}
-            {presentation.preview.more && `\n${t('approval.previewMore')}`}
-          </pre>
-        </div>
-      )}
-
-      {approval.detail?.input !== undefined && (
-        <Disclosure
-          className="mt-2 px-3.5 pl-9"
-          summaryClassName="text-xs text-muted-foreground hover:text-foreground"
-          summary={t('approval.details')}
-        >
-          <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-border bg-muted/40 px-2 py-1.5 font-mono text-xs whitespace-pre-wrap break-words">
-            {formatJson(approval.detail.input).text}
-          </pre>
-        </Disclosure>
-      )}
-
-      {error && <p className="mt-2 px-3.5 pl-10 text-sm text-destructive">{error}</p>}
-
-      <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-border px-3.5 py-2.5">
-        {approval.options.map((option) => (
-          <Button
-            key={option.optionId}
-            size="sm"
-            variant={option.category === 'allow' ? 'default' : 'outline'}
-            disabled={busy}
-            onClick={() => onRespond(option.optionId)}
+        {presentation.target && (
+          <pre
+            data-approval-target
+            className="mt-3 max-h-44 overflow-auto rounded-lg bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-soft-foreground"
           >
-            {optionLabel(option)}
-          </Button>
-        ))}
+            {presentation.target}
+          </pre>
+        )}
+        {presentation.preview && (
+          <div className="mt-2">
+            <p className="mb-1 text-xs text-muted-foreground">{t('approval.preview')}</p>
+            <pre className="max-h-32 overflow-auto rounded-lg bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap text-soft-foreground">
+              {presentation.preview.text}
+              {presentation.preview.more && `\n${t('approval.previewMore')}`}
+            </pre>
+          </div>
+        )}
+        {approval.detail?.input !== undefined && (
+          <Disclosure
+            className="mt-2 -ml-1"
+            summaryClassName="text-xs text-muted-foreground hover:text-foreground"
+            summary={t('approval.details', { tool: approval.detail.toolName })}
+          >
+            <pre className="mt-1 max-h-40 overflow-auto rounded-lg border border-border px-3 py-2 font-mono text-xs whitespace-pre-wrap break-words">
+              {formatJson(approval.detail.input).text}
+            </pre>
+          </Disclosure>
+        )}
+        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
       </div>
+      <footer className="mt-3.5 flex flex-wrap items-center gap-2 px-3 pb-3">
+        {layout.start.map(button)}
+        <span className="ml-auto flex flex-wrap justify-end gap-2">{layout.end.map(button)}</span>
+      </footer>
     </section>
+  );
+}
+
+/** 按钮里的快捷键提示：一个个小方框（Claude Code）。主按钮上用它的字色。 */
+function Kbd({ primary = false, children }: { primary?: boolean; children: ReactNode }) {
+  return (
+    <kbd
+      aria-hidden
+      className={cn(
+        'flex h-4.5 min-w-4.5 items-center justify-center rounded-[5px] border px-1 font-sans text-[0.6875rem] leading-none font-normal',
+        primary
+          ? 'border-primary-foreground/25 text-primary-foreground/80'
+          : 'border-border-strong text-muted-foreground',
+      )}
+    >
+      {children}
+    </kbd>
+  );
+}
+
+/** 这次按键选哪个选项：数字键、⌘↵（主按钮）、Esc（拒绝并停止）。 */
+function shortcutOption(event: KeyboardEvent, layout: ApprovalLayout): ApprovalOption | undefined {
+  const modified = event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) return layout.primary;
+  if (modified) return undefined;
+  if (event.key === 'Escape') return layout.escape;
+  const digit = Number.parseInt(event.key, 10);
+  return digit >= 1 ? layout.numbered[digit - 1] : undefined;
+}
+
+function isEditable(element: Element | null | undefined): boolean {
+  return (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    (element instanceof HTMLElement && element.isContentEditable)
   );
 }
 
@@ -255,14 +354,5 @@ function ApprovalOrigin({
         </Link>
       )}
     </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 break-words">{children}</dd>
-    </>
   );
 }

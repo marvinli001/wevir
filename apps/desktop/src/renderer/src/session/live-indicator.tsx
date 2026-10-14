@@ -24,3 +24,8 @@ export function LiveIndicator({ state }: { state: LiveState }) {
     </span>
   );
 }
+
+/**
+ * 等用户处理时（等待审批、等待回答）当前动作的样子（U13，照 Claude Code 的“Needs your input”）：警示色的淡底小标签。
+ */
+export const AWAITING_PILL = 'rounded-md bg-warning/10 px-1.5 leading-6 text-warning';

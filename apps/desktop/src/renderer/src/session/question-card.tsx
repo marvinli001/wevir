@@ -127,7 +127,8 @@ function QuestionCard({
       onKeyDown={onKeyDown}
       aria-label={t('question.label')}
       data-testid="question-card"
-      className="mb-2 rounded-xl border border-border bg-card shadow-sm outline-none animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
+      data-keyboard-scope
+      className="mb-2 rounded-2xl border border-border bg-card shadow-sm outline-none animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
     >
       <header className="flex items-start gap-2.5 px-3.5 pt-3">
         <span className="mt-px shrink-0 rounded-md bg-brand/15 px-1.5 text-xs leading-5 font-medium text-brand tabular-nums">
