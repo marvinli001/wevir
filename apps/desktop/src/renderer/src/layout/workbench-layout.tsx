@@ -1,6 +1,13 @@
 import { cn } from 'cn';
-import { PanelLeftOpen, PanelRightClose, PanelRightOpen } from 'lucide-react';
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { PanelRightClose, PanelRightOpen } from 'lucide-react';
+import {
+  type CSSProperties,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import { Outlet, useLocation, useNavigate, useParams } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
@@ -10,7 +17,14 @@ import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { useRememberLocation } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
-import { type AuxPlan, arrangePanes, auxRatioAfterDrag, focusOrder, PANE_LAYOUT } from './arrange';
+import {
+  type AuxPlan,
+  arrangePanes,
+  auxRatioAfterDrag,
+  focusOrder,
+  type LayoutNode,
+  PANE_LAYOUT,
+} from './arrange';
 import { clampSidebarWidth, LAYOUT, planSidebar, type SidebarPlan } from './layout-rules';
 import { layoutPrefs, transientLayout, useViewportHeight, useViewportWidth } from './layout-state';
 import { OpenTabsMenu } from './open-tabs-menu';
@@ -32,15 +46,20 @@ import { prunePaneScopes, updateScope, useScopePanes } from './pane-store';
 import { Sidebar } from './sidebar';
 import { Splitter } from './splitter';
 import { SummaryCard, SummaryToggle } from './summary-card';
+import { WindowControls } from './window-controls';
 
 /** 浮层顶上一行（标题与关闭按钮）的高，与顶栏一样是 44。 */
 const OVERLAY_HEADER = 44;
 const NO_PANES = emptyScope();
 
 /**
- * 工作台（R12，docs/architecture/desktop-layout.md）：侧栏（工作区 → 会话）、顶栏、主窗格（路由内容）与窗格区。
+ * 工作台（R12，docs/architecture/desktop-layout.md）：侧栏（项目 → 会话）、顶栏、主窗格（路由内容）与窗格区。
  * 侧栏停靠还是浮层由 layout-rules.ts 按视口宽度决定；窗格区停靠、浮层还是最大化，以及里面的排布，由 arrange.ts
  * 按内容区的尺寸与当前会话的窗格状态算出来。
+ *
+ * U5 起照 Codex 桌面端：红绿灯后面固定是后退、前进与侧栏开关（window-controls.tsx），侧栏开合时它们不动；停靠的
+ * 侧栏与窗格区开合都有宽度过渡（index.css 的 .layout-transition），侧栏露出的宽是根节点上的 `--sidebar-shown`，
+ * 顶栏按它让出窗口按钮的位置。
  */
 export function WorkbenchLayout() {
   const viewportWidth = useViewportWidth();
@@ -64,6 +83,7 @@ export function WorkbenchLayout() {
   const location = useLocation();
   useRememberLocation(workspaceId);
   usePrunePanes();
+  useWindowResizing();
 
   // 当前会话的窗格：拖动分隔条时尺寸先用草稿，松开再写回本机。
   const scopeKey = header.panes ? paneScopeKey(workspaceId, sessionId) : undefined;
@@ -144,32 +164,53 @@ export function WorkbenchLayout() {
     <PaneTree node={node} context={paneContext} resize={splitResize} />
   );
 
+  const docked = sidebarPlan.sidebar === 'docked';
+  const auxDocked = plan.mode === 'docked' && plan.tree !== undefined;
+  const retainedAux = useRetainedAux(
+    auxDocked ? plan : undefined,
+    scopeKey,
+    plan.mode === 'maximized',
+  );
+
   return (
     <PaneControllerProvider value={panes}>
-      <div className="flex h-full overflow-hidden" data-layout-sidebar={sidebarPlan.sidebar}>
-        {sidebarPlan.sidebar === 'docked' && (
-          <aside
-            className="relative flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+      <div
+        className="layout-transition relative flex h-full overflow-hidden"
+        data-layout-sidebar={sidebarPlan.sidebar}
+        data-resizing={dragWidth !== undefined || undefined}
+        style={{ '--sidebar-shown': `${docked ? sidebarPlan.sidebarWidth : 0}px` } as CSSProperties}
+      >
+        {/* 收起时侧栏不卸载，宽度过渡到 0；里面一列始终是侧栏的宽，开合时不重新排版。 */}
+        <aside
+          aria-hidden={!docked}
+          inert={!docked}
+          aria-label={t('sidebar.label')}
+          className="relative shrink-0 overflow-hidden bg-sidebar text-sidebar-foreground"
+          style={{ width: 'var(--sidebar-shown)' }}
+        >
+          <div
+            className="flex h-full flex-col border-r border-sidebar-border"
             style={{ width: sidebarPlan.sidebarWidth }}
           >
-            <Sidebar onCollapse={() => toggleSidebar(sidebarPlan)} />
-            <Splitter
-              orientation="vertical"
-              label={t('layout.resizeSidebar')}
-              valueNow={sidebarPlan.sidebarWidth}
-              valueMin={LAYOUT.sidebarMin}
-              valueMax={LAYOUT.sidebarMax}
-              onResizeStart={() => {
-                sidebarDragStart.current = sidebarPlan.sidebarWidth;
-              }}
-              onResize={(delta) =>
-                setDragWidth(clampSidebarWidth(sidebarDragStart.current + delta))
-              }
-              onResizeEnd={(delta) => commitSidebarWidth(sidebarDragStart.current + delta)}
-              onReset={() => commitSidebarWidth(LAYOUT.sidebarDefault)}
-              className="absolute inset-y-0 -right-1"
-            />
-          </aside>
+            <Sidebar />
+          </div>
+        </aside>
+        {docked && (
+          <Splitter
+            orientation="vertical"
+            label={t('layout.resizeSidebar')}
+            valueNow={sidebarPlan.sidebarWidth}
+            valueMin={LAYOUT.sidebarMin}
+            valueMax={LAYOUT.sidebarMax}
+            onResizeStart={() => {
+              sidebarDragStart.current = sidebarPlan.sidebarWidth;
+            }}
+            onResize={(delta) => setDragWidth(clampSidebarWidth(sidebarDragStart.current + delta))}
+            onResizeEnd={(delta) => commitSidebarWidth(sidebarDragStart.current + delta)}
+            onReset={() => commitSidebarWidth(LAYOUT.sidebarDefault)}
+            className="absolute inset-y-0 z-20 -ml-1"
+            style={{ left: sidebarPlan.sidebarWidth }}
+          />
         )}
         <Sheet open={sidebarPlan.sidebar === 'overlay'} onOpenChange={setSidebarOverlayOpen}>
           <SheetContent
@@ -179,32 +220,30 @@ export function WorkbenchLayout() {
             className="gap-0 bg-sidebar text-sidebar-foreground data-[side=left]:w-(--overlay-width)"
             style={{ '--overlay-width': `${sidebarPlan.sidebarWidth}px` } as CSSProperties}
           >
-            <SheetTitle className="sr-only">{t('sidebar.workspaces')}</SheetTitle>
-            <Sidebar onCollapse={() => setSidebarOverlayOpen(false)} />
+            <SheetTitle className="sr-only">{t('sidebar.label')}</SheetTitle>
+            <Sidebar
+              controls={
+                <WindowControls
+                  sidebar={{ open: true, onToggle: () => setSidebarOverlayOpen(false) }}
+                />
+              }
+            />
           </SheetContent>
         </Sheet>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <header
             className={cn(
-              'app-drag flex h-11 shrink-0 items-center gap-2 px-3',
+              'app-drag flex h-11 shrink-0 items-center gap-2 pr-3',
               // 首页（U4，方向稿 A）没有标题，顶栏只是拖动区，不画分隔线。
               location.pathname !== paths.home() && 'border-b border-border',
-              // 侧栏没有停靠时，这条顶栏在窗口最左边，要给红绿灯让位。
-              sidebarPlan.sidebar !== 'docked' && 'pl-[max(0.75rem,var(--traffic-lights-inset))]',
             )}
+            // 窗口按钮在窗口左上角不动：侧栏露出得越少，顶栏越要让出它们的位置。
+            style={{
+              paddingLeft:
+                'max(0.75rem, calc(max(0.5rem, var(--traffic-lights-inset)) + var(--window-controls-width) + 0.5rem - var(--sidebar-shown)))',
+            }}
           >
-            {sidebarPlan.sidebar !== 'docked' && (
-              <IconButton
-                ref={sidebarToggleRef}
-                label={t('layout.expandSidebar')}
-                shortcut={formatShortcut(SHORTCUTS.toggleSidebar)}
-                onClick={() => toggleSidebar(sidebarPlan)}
-                tooltipSide="bottom"
-              >
-                <PanelLeftOpen />
-              </IconButton>
-            )}
             <div className="flex min-w-0 flex-1 items-baseline gap-2">
               <h1 className="truncate text-sm font-medium" data-testid="header-title">
                 {header.title}
@@ -246,12 +285,10 @@ export function WorkbenchLayout() {
               inert={plan.mode === 'maximized'}
               onPointerDownCapture={() => panes?.focus(PRIMARY)}
               className={cn(
-                'relative min-h-0 min-w-0 outline-none',
-                plan.mode === 'docked' ? 'shrink-0' : 'flex-1',
+                'relative min-h-0 min-w-0 flex-1 outline-none',
                 // 最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。
                 plan.mode === 'maximized' && 'invisible absolute inset-0',
               )}
-              style={plan.mode === 'docked' ? { width: plan.primaryWidth } : undefined}
             >
               <Outlet />
               {panes && header.entry && (
@@ -262,30 +299,48 @@ export function WorkbenchLayout() {
                 />
               )}
             </main>
-            {plan.mode === 'docked' && plan.tree && (
-              <div className="flex shrink-0 bg-sidebar">
-                <Splitter
-                  orientation="vertical"
-                  label={t('layout.resizeAux')}
-                  valueNow={plan.auxWidth}
-                  valueMin={plan.auxMinWidth}
-                  valueMax={plan.auxMaxWidth}
-                  onResizeStart={() => {
-                    auxDragStart.current = plan.auxWidth;
-                  }}
-                  onResize={(delta) =>
-                    storedScope &&
-                    setDraftSizes(setAuxRatio(storedScope, plan.columns, auxRatio(delta)).sizes)
-                  }
-                  onResizeEnd={(delta) => {
-                    const ratio = auxRatio(delta);
-                    commitScope((current) => setAuxRatio(current, plan.columns, ratio));
-                  }}
-                  onReset={() => commitScope((current) => resetAuxRatio(current, plan.columns))}
-                />
-                <div className="flex py-2 pr-2" style={{ width: plan.auxWidth + PANE_LAYOUT.gap }}>
-                  {tree(plan.tree)}
-                </div>
+            {/* 停靠的窗格区：外层过渡宽度，里面一列始终是窗格区的宽；收起时留着最后的内容滑出去。 */}
+            {plan.mode !== 'maximized' && (
+              <div
+                className="layout-transition flex shrink-0 overflow-hidden bg-sidebar"
+                data-resizing={draftSizes !== undefined || undefined}
+                inert={!auxDocked}
+                style={{
+                  width: auxDocked ? SPLITTER_WIDTH + plan.auxWidth + PANE_LAYOUT.gap : 0,
+                }}
+                onTransitionEnd={(event) => {
+                  if (event.target === event.currentTarget && !auxDocked) retainedAux.clear();
+                }}
+              >
+                {retainedAux.plan && (
+                  <>
+                    <Splitter
+                      orientation="vertical"
+                      label={t('layout.resizeAux')}
+                      valueNow={retainedAux.plan.auxWidth}
+                      valueMin={retainedAux.plan.auxMinWidth}
+                      valueMax={retainedAux.plan.auxMaxWidth}
+                      onResizeStart={() => {
+                        auxDragStart.current = plan.auxWidth;
+                      }}
+                      onResize={(delta) =>
+                        storedScope &&
+                        setDraftSizes(setAuxRatio(storedScope, plan.columns, auxRatio(delta)).sizes)
+                      }
+                      onResizeEnd={(delta) => {
+                        const ratio = auxRatio(delta);
+                        commitScope((current) => setAuxRatio(current, plan.columns, ratio));
+                      }}
+                      onReset={() => commitScope((current) => resetAuxRatio(current, plan.columns))}
+                    />
+                    <div
+                      className="flex shrink-0 py-2 pr-2"
+                      style={{ width: retainedAux.plan.auxWidth + PANE_LAYOUT.gap }}
+                    >
+                      {tree(retainedAux.plan.tree)}
+                    </div>
+                  </>
+                )}
               </div>
             )}
             {plan.mode === 'maximized' && plan.tree && (
@@ -307,11 +362,6 @@ export function WorkbenchLayout() {
           >
             <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
               <SheetTitle className="shrink-0 text-sm">{t('layout.auxOverlay')}</SheetTitle>
-              {sidebarPlan.sidebar === 'docked' && (
-                <span className="min-w-0 truncate text-xs text-muted-foreground">
-                  {t('layout.auxOverlayHint')}
-                </span>
-              )}
               <IconButton
                 label={t('layout.hideAux')}
                 className="ml-auto"
@@ -324,9 +374,71 @@ export function WorkbenchLayout() {
             <div className="flex min-h-0 flex-1 p-2">{plan.tree && tree(plan.tree)}</div>
           </SheetContent>
         </Sheet>
+
+        {/* 放在最后：盖在侧栏与顶栏的拖动区上面，按钮才点得到（拖动区按文档顺序计算）。 */}
+        <WindowControls
+          className="app-drag absolute top-0 left-0 z-30 h-11 pl-[max(0.5rem,var(--traffic-lights-inset))]"
+          sidebar={{
+            open: sidebarPlan.sidebar !== 'hidden',
+            onToggle: () => toggleSidebar(sidebarPlan),
+            ref: sidebarToggleRef,
+          }}
+        />
       </div>
     </PaneControllerProvider>
   );
+}
+
+/** 停靠窗格区里分隔条的宽（splitter.tsx 的 w-2）。 */
+const SPLITTER_WIDTH = 8;
+
+/**
+ * 停靠的窗格区收起时还要画一会儿（宽度过渡到 0 的那段）：记住最后一次停靠的排布，过渡结束再清掉。换会话时不用
+ * 它，不把上一个会话的窗格滑出去。
+ */
+function useRetainedAux(
+  current: AuxPlan | undefined,
+  scopeKey: string | undefined,
+  /** 最大化时窗格区不在原处，不用滑出去。 */
+  reset: boolean,
+) {
+  const retained = useRef<{ plan: DockedAux; scope?: string }>(undefined);
+  const [, rerender] = useReducer((count: number) => count + 1, 0);
+  if (reset) retained.current = undefined;
+  if (current?.tree) retained.current = { plan: current as DockedAux, scope: scopeKey };
+  const plan = current?.tree
+    ? (current as DockedAux)
+    : retained.current?.scope === scopeKey
+      ? retained.current?.plan
+      : undefined;
+  return {
+    plan,
+    clear: () => {
+      retained.current = undefined;
+      rerender();
+    },
+  };
+}
+
+type DockedAux = AuxPlan & { tree: LayoutNode };
+
+/** 拖窗口改尺寸时给 <html> 加 data-window-resizing，布局的宽度过渡暂时关掉（index.css）。 */
+function useWindowResizing() {
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const root = document.documentElement;
+    const onResize = () => {
+      root.setAttribute('data-window-resizing', '');
+      clearTimeout(timer);
+      timer = setTimeout(() => root.removeAttribute('data-window-resizing'), 150);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      clearTimeout(timer);
+      root.removeAttribute('data-window-resizing');
+    };
+  }, []);
 }
 
 /** 侧栏能停靠时切换“收起”偏好（记住）；放不下时切换浮层（不记住）。 */

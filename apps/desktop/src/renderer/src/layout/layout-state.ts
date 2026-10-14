@@ -1,4 +1,4 @@
-// 布局的界面状态（T5.2，R12 改）。侧栏宽度、是否收起、收起的工作区、置顶摘要开关记在本机（全局）；
+// 布局的界面状态（T5.2，R12 改）。侧栏宽度、是否收起、收起的项目与整个“项目”一节、置顶摘要开关记在本机（全局）；
 // 每个会话的窗格在 pane-store.ts；侧栏与窗格区的浮层、最大化只在本次运行内。
 
 import { useSyncExternalStore } from 'react';
@@ -8,8 +8,10 @@ import { clampSidebarWidth, LAYOUT } from './layout-rules';
 export interface LayoutPrefs {
   sidebarWidth: number;
   sidebarCollapsed: boolean;
-  /** 侧栏树里收起的工作区。默认全部展开。 */
+  /** 侧栏树里收起的项目（工作区）。默认全部展开。 */
   collapsedWorkspaces: readonly string[];
+  /** 侧栏的整个“项目”一节收起了（U5）。 */
+  projectsCollapsed: boolean;
   /** 置顶摘要卡片（desktop-layout.md §3.8），默认开。 */
   summaryPinned: boolean;
 }
@@ -18,6 +20,7 @@ const DEFAULT_PREFS: LayoutPrefs = {
   sidebarWidth: LAYOUT.sidebarDefault,
   sidebarCollapsed: false,
   collapsedWorkspaces: [],
+  projectsCollapsed: false,
   summaryPinned: true,
 };
 
@@ -34,6 +37,7 @@ export function parseLayoutPrefs(raw: unknown): LayoutPrefs | undefined {
     collapsedWorkspaces: Array.isArray(value.collapsedWorkspaces)
       ? value.collapsedWorkspaces.filter((id): id is string => typeof id === 'string')
       : [],
+    projectsCollapsed: value.projectsCollapsed === true,
     summaryPinned: value.summaryPinned !== false,
   };
 }
@@ -65,6 +69,19 @@ export function toggleWorkspace(workspaceId: string): void {
       ? prefs.collapsedWorkspaces.filter((id) => id !== workspaceId)
       : [...prefs.collapsedWorkspaces, workspaceId],
   }));
+}
+
+/** 展开某个项目（新建项目后在侧栏里展开它）。 */
+export function expandWorkspace(workspaceId: string): void {
+  layoutPrefs.set((prefs) =>
+    prefs.collapsedWorkspaces.includes(workspaceId) || prefs.projectsCollapsed
+      ? {
+          ...prefs,
+          projectsCollapsed: false,
+          collapsedWorkspaces: prefs.collapsedWorkspaces.filter((id) => id !== workspaceId),
+        }
+      : prefs,
+  );
 }
 
 function subscribeResize(listener: () => void): () => void {

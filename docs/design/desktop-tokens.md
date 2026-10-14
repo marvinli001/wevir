@@ -73,8 +73,8 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 ## 5. 品牌
 
-- `--brand`：浅色金、深色铂金，只用于品牌主标与品牌时刻（`assets/icons/README.md`）。左栏顶部与首页品牌行（U4）的主标是 `components/brand-mark.tsx`（几何取自 `assets/icons/source/mark.svg`，`text-brand`）。
-- 字标（左栏的 “Wevir”）与线性功能图标（lucide）用文字色，不用品牌色；首页品牌行的字标例外：是金属字（`fx/metal.tsx` 的 `MetalWordmark`，金属预设 gold，字色浅色金棕、深色铂金），算品牌时刻（U4）。
+- `--brand`：浅色金、深色铂金，只用于品牌主标与品牌时刻（`assets/icons/README.md`）。界面里的主标组件是 `components/brand-mark.tsx`（几何取自 `assets/icons/source/mark.svg`，`text-brand`）；左栏不放主标与产品名，界面上只有首页品牌行（U4）用它。
+- 字标与线性功能图标（lucide）用文字色，不用品牌色；首页品牌行的字标例外：是金属字（`fx/metal.tsx` 的 `MetalWordmark`，金属预设 gold，字色浅色金棕、深色铂金），算品牌时刻（U4）。
 - 主标在浅色画布上约 3.4:1，够图形的 3:1，不能当文字色用。
 
 ## 6. 窗口与首帧的底色
@@ -106,3 +106,10 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 - **首页**（`routes/home-route.tsx`，方向稿的 `.home-col`）：一列最宽 700px（`max-w-175`）、水平居中、内容左对齐，上方留白 `clamp(2.5rem, 14vh, 8.75rem)`，块之间 22px；品牌行是 `BrandMark`（`text-brand`）加 `fx/metal.tsx` 的 `MetalWordmark`；标题 `font-display`、500、`clamp(1.75rem, 4vw, 2.5rem)`，工作区名是界面字体 600、0.86em、强分隔线色的虚线下划线；大输入框是 `Composer variant="home"`（焦点只用 border-beam 的 focus 预设表示，不换边框色）；“接着做”每行底部一条分隔线，7px 状态点（运行中 `--running`、待审批 `--warning`、出错 `--destructive`、空闲 `--border-strong`），右侧相对时间用说明文字色。顶栏在首页不画分隔线。
 - **设置页**（`routes/settings-route.tsx`、`settings/settings-ui.tsx`）：标签列表是侧栏色，选中的一行与左栏的当前会话一样（表面色加一圈分隔线）；内容一列最宽 720px（`max-w-180`），标题 20px，按节排（`SettingsSection`：14px 半粗的节标题、说明文字、右侧操作），节与节之间一条分隔线；列表在表面色卡片里（`LIST_CARD`），行之间是分隔线；空列表是强分隔线色的虚线框。
 - **表单控件**：输入框、多行输入框、原生下拉框（`settings-ui.tsx` 的 `SELECT`）与 outline 按钮在浅色、深色都是表面色底（`bg-card`）、强分隔线的边框（`border-input`），焦点环是运行色；禁用时是次表面色。shadcn 原语里 `dark:bg-input/30` 这类按主题另算的底色已去掉（文件头写明了改动）。单选是墨色圆环，分段切换的选中段是 `bg-switch-thumb` 加一圈分隔线。
+
+## 11. 窗口框架与侧栏（U5）
+
+- 侧栏的行（`layout/sidebar.tsx`）：悬停 `bg-sidebar-accent/70`，当前项 `bg-sidebar-accent`（表面色），颜色过渡 150 ms，不加描边（照 Codex 桌面端）。项目名用正文色，会话标题用次正文色，当前会话与未读的用正文色。
+- 窗口按钮（后退、前进、侧栏开关）是 `icon-sm` 的 ghost 按钮，图标用说明文字色；`--window-controls-width` = 88 px。
+- 布局过渡：侧栏、窗格区的开合与它们的浮层都是 260 ms、`cubic-bezier(0.32, 0.72, 0, 1)`（`index.css` 的 `.layout-transition`，[desktop-layout.md](../architecture/desktop-layout.md) §11）。减弱动效时照全局规则缩成瞬时。
+- “创建项目”对话框：卡片圆角、内边距 20 px；名称框 40 px 高、左边是文件夹图标；没选文件夹时是虚线框加一个胶囊形的“添加”按钮，选了之后是一行路径（等宽、截掉开头）与“更换”、移除。

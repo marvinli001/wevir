@@ -1,6 +1,5 @@
 import { cn } from 'cn';
 import {
-  ArrowLeft,
   Cpu,
   Folder,
   Info,
@@ -13,11 +12,11 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { type Location, NavLink, useLocation, useNavigate, useParams } from 'react-router';
-import { IconButton } from '@/components/icon-button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useHostConnection } from '@/host/host-connection';
 import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
+import { WindowControls } from '@/layout/window-controls';
 import { ChatSettings } from '@/settings/chat-settings';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { LIST_CARD, SettingsSection } from '@/settings/settings-ui';
@@ -58,12 +57,12 @@ export function SettingsRoute() {
         aria-label={t('settings.title')}
         className="flex w-52 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground max-md:w-44"
       >
-        <div className="app-drag flex h-11 shrink-0 items-center gap-1.5 pr-2 pl-[max(0.5rem,var(--traffic-lights-inset))]">
-          <IconButton label={t('settings.back')} onClick={back} tooltipSide="bottom">
-            <ArrowLeft />
-          </IconButton>
-          <span className="text-sm font-semibold">{t('settings.title')}</span>
+        <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
+          <WindowControls onBack={back} />
         </div>
+        <h2 className="px-4 pt-1 pb-3 text-xl font-semibold tracking-tight">
+          {t('settings.title')}
+        </h2>
         <ul className="space-y-0.5 px-2 pt-1">
           {SETTINGS_TABS.map((id) => {
             const { label, icon: Icon } = TABS[id];

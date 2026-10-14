@@ -2,7 +2,7 @@ import type { ProviderProfile, Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Check, ChevronDown, Cpu, FolderPlus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { BrandMark } from '@/components/brand-mark';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { sessionMarker, type WorkspaceEntry } from '@/data/workbench-model';
 import { MetalWordmark } from '@/fx/metal';
 import { type PlainMessageKey, t } from '@/i18n';
+import { openCreateProject } from '@/projects/create-project';
 import { Composer } from '@/session/composer';
 import { useProviderChoice, useStartSession } from '@/session/start-session';
 import { formatRelativeTime } from '@/session/subagent-model';
@@ -127,8 +128,6 @@ function WorkspacePicker({
   current: WorkspaceEntry;
   workspaces: readonly WorkspaceEntry[];
 }) {
-  const navigate = useNavigate();
-  const location = useLocation();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -165,11 +164,9 @@ function WorkspacePicker({
           ))}
         </DropdownMenuRadioGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onClick={() => navigate(paths.settings('workspaces'), { state: { from: location } })}
-        >
+        <DropdownMenuItem onClick={() => openCreateProject()}>
           <FolderPlus className="text-muted-foreground" />
-          {t('home.addWorkspace')}
+          {t('home.createProject')}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

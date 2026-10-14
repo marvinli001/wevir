@@ -45,9 +45,9 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
       }),
     );
     expect(presentation).toEqual({
-      title: '在工作区之外修改文件',
+      title: '修改项目目录之外的文件',
       target: '/out/summary.md',
-      permission: '完全访问，不受工作区限制',
+      permission: '完全访问（不受项目目录限制）',
       justification: '用户要求写到共享目录。',
       preview: { text: content.split('\n').slice(0, 6).join('\n'), more: true },
     });
@@ -62,8 +62,8 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
           sandboxPermissions: 'network',
         }),
       ),
-    ).toEqual({ title: '不受工作区限制地运行命令', target: 'rm -rf build', permission: 'network' });
-    expect(presentApproval(approval(null))).toEqual({ title: 'Agent 请求越过工作区限制' });
+    ).toEqual({ title: '在沙箱之外运行命令', target: 'rm -rf build', permission: 'network' });
+    expect(presentApproval(approval(null))).toEqual({ title: '请求越过项目目录限制' });
   });
 });
 

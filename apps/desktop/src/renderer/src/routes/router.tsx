@@ -1,10 +1,14 @@
 import { TriangleAlert } from 'lucide-react';
-import { createHashRouter, Navigate, useRouteError } from 'react-router';
+import { useEffect } from 'react';
+import { createHashRouter, Navigate, Outlet, useRouteError } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { WorkbenchLayout } from '@/layout/workbench-layout';
+import { useHistoryNav, useTrackHistory } from '@/lib/history-nav';
+import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { CreateProjectDialog } from '@/projects/create-project';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
 import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, ROUTE_PATTERNS } from './paths';
@@ -20,6 +24,7 @@ const FX_GALLERY = import.meta.env.DEV || import.meta.env.VITE_WEVIR_FX_GALLERY 
 /** 路由表（见 paths.ts）。工作台页面共用三栏布局；设置是整窗页面。 */
 export const router = createHashRouter([
   {
+    Component: AppRoot,
     ErrorBoundary: RouteError,
     children: [
       {
@@ -52,6 +57,32 @@ export const router = createHashRouter([
     ],
   },
 ]);
+
+/** 路由根：记历史序号（窗口左上角的后退 / 前进）、全局的后退 / 前进快捷键、全局对话框。 */
+function AppRoot() {
+  useTrackHistory();
+  const history = useHistoryNav();
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.isComposing || event.defaultPrevented) return;
+      if (matchesShortcut(event, SHORTCUTS.back) && history.canBack) {
+        event.preventDefault();
+        history.back();
+      } else if (matchesShortcut(event, SHORTCUTS.forward) && history.canForward) {
+        event.preventDefault();
+        history.forward();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [history]);
+  return (
+    <>
+      <Outlet />
+      <CreateProjectDialog />
+    </>
+  );
+}
 
 function RouteError() {
   const error = useRouteError();

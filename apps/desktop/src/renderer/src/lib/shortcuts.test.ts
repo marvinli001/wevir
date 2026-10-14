@@ -38,6 +38,8 @@ describe('formatShortcut', () => {
   it('macOS 用符号，其他平台用 Ctrl+…', () => {
     expect(formatShortcut(SHORTCUTS.toggleAux, true)).toBe('⌥⌘B');
     expect(formatShortcut(SHORTCUTS.toggleAux, false)).toBe('Ctrl+Alt+B');
+    expect(formatShortcut(SHORTCUTS.back, true)).toBe('⌘[');
+    expect(formatShortcut(SHORTCUTS.forward, false)).toBe('Ctrl+]');
     expect(formatShortcut(SHORTCUTS.previousTab, true)).toBe('⌃⇧⇥');
     expect(formatShortcut(SHORTCUTS.splitRight, false)).toBe('Ctrl+\\');
   });

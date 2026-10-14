@@ -1,4 +1,3 @@
-import { isRpcError } from '@wevir/client-sdk';
 import type { Workspace } from '@wevir/protocol';
 import { Folder, FolderPlus, SquarePen, Trash2 } from 'lucide-react';
 import { useState } from 'react';
@@ -8,56 +7,30 @@ import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
-import { describe, useHostConnection } from '@/host/host-connection';
+import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { openCreateProject } from '@/projects/create-project';
 import { paths } from '@/routes/paths';
 import { openSessions, removeClosingSessions } from './remove';
 import {
   EmptyList,
   LIST_CARD,
-  type Notice,
   NoticeBanner,
   SettingsLoading,
   SettingsSection,
 } from './settings-ui';
 
 /**
- * 设置 → 工作区（T5.4）：经系统文件夹选择器添加（Host 按 realpath 去重，已有的返回原工作区），列出路径，
- * 移除只注销、不删文件。
+ * 设置 → 项目（T5.4 的工作区，U5 改叫项目）：“创建项目”打开与侧栏相同的对话框（projects/create-project.tsx），
+ * 列出路径，移除只注销、不删文件。
  */
 export function WorkspaceSettings() {
   const data = useWorkbenchData();
   const store = useWorkbenchStore();
   const { client } = useHostConnection();
-  const [adding, setAdding] = useState(false);
-  const [notice, setNotice] = useState<Notice>();
   const [removing, setRemoving] = useState<WorkspaceEntry>();
 
   if (data.status !== 'ready') return <SettingsLoading data={data} />;
-
-  const add = async () => {
-    if (!client) return;
-    setNotice(undefined);
-    let rootPath: string | null;
-    try {
-      rootPath = await window.wevir.selectFolder();
-    } catch (error) {
-      setNotice({ tone: 'error', text: t('workspace.selectFailed', { error: describe(error) }) });
-      return;
-    }
-    if (rootPath === null) return;
-    const listed = new Set(data.workspaces.map((entry) => entry.workspace.id));
-    setAdding(true);
-    try {
-      const { workspace, created } = await client.request('workspace.add', { rootPath });
-      await store?.refresh();
-      setNotice({ tone: 'success', text: addedText(workspace, created, listed) });
-    } catch (error) {
-      setNotice({ tone: 'error', text: addError(error) });
-    } finally {
-      setAdding(false);
-    }
-  };
 
   const remove = async (workspace: Workspace) => {
     if (!client) return;
@@ -69,19 +42,21 @@ export function WorkspaceSettings() {
 
   return (
     <SettingsSection
-      description={t('workspace.intro')}
       action={
-        <Button onClick={add} disabled={!client || adding} data-action="add-workspace">
+        <Button
+          onClick={() => openCreateProject({ onCreated: () => {} })}
+          disabled={!client}
+          data-action="add-workspace"
+        >
           <FolderPlus />
-          {adding ? t('workspace.adding') : t('workspace.add')}
+          {t('project.create.title')}
         </Button>
       }
     >
       <div className="space-y-3">
         {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
-        {notice && <NoticeBanner notice={notice} />}
         {data.workspaces.length === 0 ? (
-          <EmptyList>{t('workspace.empty')}</EmptyList>
+          <EmptyList>{t('project.empty')}</EmptyList>
         ) : (
           <ul className={LIST_CARD}>
             {data.workspaces.map((entry) => (
@@ -168,21 +143,4 @@ function RemoveWorkspaceDialog({
       {open > 0 && <p>{t('workspace.remove.openSessions', { count: open })}</p>}
     </ConfirmDialog>
   );
-}
-
-function addedText(workspace: Workspace, created: boolean, listed: Set<string>): string {
-  const name = workspace.displayName;
-  if (created) return t('workspace.added', { name });
-  // created: false 时可能是列表里已有的，也可能是曾被移除、Host 恢复了的（host-api.md §3.1）。
-  return listed.has(workspace.id)
-    ? t('workspace.exists', { name })
-    : t('workspace.restored', { name });
-}
-
-function addError(error: unknown): string {
-  if (isRpcError(error, 'WORKSPACE_PATH_INVALID') && error.data) {
-    const { reason, path } = error.data;
-    return t(`workspace.pathInvalid.${reason}`, { path });
-  }
-  return t('workspace.addFailed', { error: describe(error) });
 }

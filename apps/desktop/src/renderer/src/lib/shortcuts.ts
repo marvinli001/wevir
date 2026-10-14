@@ -14,6 +14,8 @@ export interface Shortcut {
 
 export const SHORTCUTS = {
   toggleSidebar: { code: 'KeyB', mod: true },
+  back: { code: 'BracketLeft', mod: true },
+  forward: { code: 'BracketRight', mod: true },
   toggleAux: { code: 'KeyB', mod: true, alt: true },
   openTabs: { code: 'KeyA', mod: true, shift: true },
   maximize: { code: 'KeyM', mod: true, shift: true },
@@ -44,6 +46,8 @@ export function matchesShortcut(event: KeyState, shortcut: Shortcut, mac = IS_MA
 
 const KEY_LABELS: Record<string, [mac: string, other: string]> = {
   Backslash: ['\\', '\\'],
+  BracketLeft: ['[', '['],
+  BracketRight: [']', ']'],
   Tab: ['⇥', 'Tab'],
   ArrowRight: ['→', '→'],
   ArrowLeft: ['←', '←'],

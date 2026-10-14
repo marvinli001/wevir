@@ -35,10 +35,32 @@
  * 这么宽（红绿灯在 x = 16 起，约 52 px 宽，见主进程 createWindow）。 */
 :root {
   --traffic-lights-inset: 0px;
+  /* 紧跟红绿灯的后退、前进与侧栏开关（layout/window-controls.tsx）：三个 28 px 的按钮，间距 2 px。 */
+  --window-controls-width: 88px;
 }
 
 :root[data-traffic-lights] {
   --traffic-lights-inset: 78px;
+}
+
+/* 停靠的侧栏现在露出多宽（U5）：注册成长度，才能由工作台的根节点过渡，侧栏的宽与顶栏让出的位置一起动。 */
+@property --sidebar-shown {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+/* 侧栏与窗格区开合的过渡（U5，照 Codex 桌面端）：只过渡这几个布局量。拖动分隔条（data-resizing）与拖窗口改尺寸
+ * （<html data-window-resizing>，layout/workbench-layout.tsx）时关掉，免得跟手变慢。 */
+.layout-transition {
+  transition-property: --sidebar-shown, width;
+  transition-duration: 260ms;
+  transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+:root[data-window-resizing] .layout-transition,
+.layout-transition[data-resizing] {
+  transition: none;
 }
 
 /* 顶栏充当标题栏：按住可以拖动窗口，双击按系统设置缩放。拖动区域收不到鼠标事件，所以其中的控件要排除；

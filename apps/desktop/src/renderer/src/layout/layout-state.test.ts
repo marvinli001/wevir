@@ -9,6 +9,7 @@ describe('parseLayoutPrefs', () => {
       sidebarWidth: 300,
       sidebarCollapsed: true,
       collapsedWorkspaces: ['w1'],
+      projectsCollapsed: false,
       summaryPinned: true,
     });
   });

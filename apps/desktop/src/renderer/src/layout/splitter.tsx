@@ -1,5 +1,5 @@
 import { cn } from 'cn';
-import type { KeyboardEvent, PointerEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
 
 const KEY_STEP = 16;
 
@@ -19,6 +19,7 @@ export function Splitter({
   onResizeEnd,
   onReset,
   className,
+  style,
 }: {
   /** vertical：竖线，分开左右两侧；horizontal：横线，分开上下。 */
   orientation: 'vertical' | 'horizontal';
@@ -31,6 +32,7 @@ export function Splitter({
   onResizeEnd: (delta: number) => void;
   onReset: () => void;
   className?: string;
+  style?: CSSProperties;
 }) {
   const vertical = orientation === 'vertical';
 
@@ -86,6 +88,7 @@ export function Splitter({
           : 'h-2 cursor-row-resize after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2',
         className,
       )}
+      style={style}
     />
   );
 }
