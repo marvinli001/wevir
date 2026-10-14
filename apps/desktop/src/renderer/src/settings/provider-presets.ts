@@ -1,7 +1,7 @@
 // 新增 Provider 时的预设模板（T5.4），取自 docs/architecture/providers.md §7（2026-10 核对）。选了模板，地址、
 // 协议、模型都已填好，用户只需填 Key；地址与模型 ID 以各服务当前的官方文档为准，改了文档这里一起改。
 
-import type { ProviderApi, ProviderModel } from '@wevir/protocol';
+import type { ProviderApi, ProviderCompat, ProviderModel } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
 
 /** `deepseek-official` 的路由名与 Profile ID 固定（providers.md §2.1）。 */
@@ -35,6 +35,8 @@ export interface OpenAIPreset {
   defaultModelId: string;
   /** 本机服务不校验 Key（providers.md §3），预先填一个任意值。 */
   placeholderKey?: string;
+  /** 这家服务的方言开关（网关读，model-gateway.md §3.2），新建时原样带进 Provider。 */
+  compat?: ProviderCompat;
   /** 官方文档（providers.md §7 的来源），经系统浏览器打开。 */
   docsURL?: string;
 }
@@ -86,6 +88,52 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
       { id: 'deepseek-v4-pro', contextWindow: 1000000, reasoningEfforts: ['off', 'high', 'max'] },
     ],
     defaultModelId: 'deepseek-flash',
+  },
+  {
+    // xAI 的 Responses 是主接口（Chat 已标 Legacy），网关透传；不支持自定义工具，apply_patch 由网关摊平成函数
+    // （按地址也会默认摊平，这里写明，经代理改了地址时仍然生效）。大陆不可达，要用户自己的网络环境。
+    id: 'xai',
+    name: 'provider.preset.xai',
+    note: 'provider.preset.xai.note',
+    api: 'openai-responses',
+    baseURL: 'https://api.x.ai/v1',
+    models: [
+      {
+        id: 'grok-4.7',
+        contextWindow: 500000,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+      },
+      { id: 'grok-build-0.1', contextWindow: 256000 },
+    ],
+    defaultModelId: 'grok-4.7',
+    compat: { supportsCustomTools: false },
+    docsURL: 'https://docs.x.ai/developers/models',
+  },
+  {
+    // Gemini API 没有 Responses，网关转 Chat，走它的 OpenAI 兼容端点（ADR-0005 决策 2.3）；Gemini 3 起函数调用要带回
+    // thought signature，网关按地址处理（model-gateway.md §4.5）。只用 API Key，个人订阅登录已停（codex-notes §4.2）。
+    id: 'gemini',
+    name: 'provider.preset.gemini',
+    note: 'provider.preset.gemini.note',
+    api: 'openai-completions',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    models: [
+      {
+        id: 'gemini-3.8-flash',
+        contextWindow: 1048576,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+      {
+        id: 'gemini-4-argon',
+        contextWindow: 1048576,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+    ],
+    defaultModelId: 'gemini-3.8-flash',
+    docsURL: 'https://ai.google.dev/gemini-api/docs/openai',
   },
   {
     id: 'local-ollama',

@@ -1,7 +1,7 @@
 # 模型协议网关
 
-> 状态：v0.1（R1，R10 加 Anthropic Messages）· 日期：2026-10-14 · Codex `rust-v0.162.1`（`092d3ac`）
-> 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）
+> 状态：v0.2（R1，R10 加 Anthropic Messages，R8 加 xAI 与 Gemini 的方言）· 日期：2026-10-14 · Codex `rust-v0.162.1`（`092d3ac`）
+> 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
 
@@ -84,9 +84,11 @@ await gateway.close();                                   // 停止监听，中�
 | ID | 对谁生效 | 请求 | 响应 | 依据 |
 |---|---|---|---|---|
 | `drop-tool-choice-without-tools` | 所有 Provider | `tools` 是空数组或没有时去掉 `tool_choice` | — | Codex 的压缩请求发 `tools: []` + `tool_choice: "auto"`（样本 `4-compact`），xAI 报 400（codex-notes §3.4）。没有工具时 `tool_choice` 本来就没有意义，所以不设开关 |
-| `flatten-custom-tools` | `compat.supportsCustomTools === false` | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现（xAI 大概率如此，R8 核实）。规则与 Chat 转换的摊平相同（§4.3） |
+| `strip-null-reasoning-content` | 所有 Provider | 历史里 reasoning 项的 `content: null` 去掉这个键 | — | Codex 回放上游没给 `content` 的推理项（xAI 只给 `encrypted_content`）时写 `"content": null`，xAI 回 422 `expected a sequence`，去掉就是 200（openai/codex#47733，2026-09）。schema 里 `content` 是数组，null 对谁都不合法 |
+| `flatten-custom-tools` | `compat.supportsCustomTools === false`；没写这个开关时 xAI 的地址（`isXaiHost`：`x.ai` 及其子域）也算 | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现。xAI（R8 核实）：OpenAPI（docs.x.ai/openapi.json）的 `tools` 只有 function 与托管工具，没有 `custom`；第三方 2026-08 的现网对照也是 custom 被拒、摊平后通过。国内服务模板里 xAI 显式写了 `false`（经代理改了地址也生效）。规则与 Chat 转换的摊平相同（§4.3） |
+| `flatten-namespace-tools` | xAI 的地址 | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | xAI 的 OpenAPI 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段，而 Codex 的子 agent 工具在 `multi_agent_v1` 里（样本 `1-first-turn`）。没找到直接的 400 报告（R8 没有 xAI 的 Key），但摊平对认命名空间的上游同样可用，所以按地址默认打开、不设开关 |
 
-还没做、留给以后按服务加的：MiniMax 的 `effort: none` 报 400；各家思考开关与 `reasoning.effort` 取值不同（codex-notes §5.3）；DeepSeek 的 namespace 工具已实测支持（§7.3），不用摊平。
+还没做、留给以后按服务加的：MiniMax 的 `effort: none` 报 400；各家思考开关与 `reasoning.effort` 取值不同（codex-notes §5.3；xAI 的模型目录只列它认的档位，见国内服务模板）；DeepSeek 的 namespace 工具已实测支持（§7.3），不用摊平；Chat / Messages 转换写的推理信封（`wevir-gw:` 开头的 `encrypted_content`）在会话中途换成 Responses 上游时原样透传（Wevir 的会话不换 Provider，没有处理）；xAI 错误体顶层的 `code`（`{"code","error":"…"}`）经 §6 的整理会丢掉。
 
 ## 4. Chat Completions 转换
 
@@ -158,12 +160,22 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
-| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true` |
+| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI 的地址为 `false`（R8） |
 | `systemMessageMode` | Chat 转换 | 对话中间的 developer / system 消息：`inline` 原位转 system；`merge` 全部并进开头的一条 system（用空行分隔，保持顺序；代价是开头的内容一变，上游的提示词缓存就失效）；`user` 开头连续的并成一条 system，之后的转成 user 消息，开头一行注明 `[Developer instruction from the application, not written by the user]`。给只接受开头一条 system 的上游用 | `inline` |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
 | `requiresReasoningContentOnAssistantMessages` | Chat 转换 | 每条 assistant 都带 `reasoning_content` | `deepseek.com` 为 true |
 | `thinkingFormat` | Messages 转换 | 只在 `anthropic-messages` 上读：`adaptive` / `enabled`（§5.4）。Chat 转换不读（各家思考开关的写法，以后按服务加） | 见 §5.4 |
+
+### 4.5 Gemini 的 thought signature（R8）
+
+Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端点（`https://generativelanguage.googleapis.com/v1beta/openai/`，`api: openai-completions`）。Gemini 3 起，函数调用的多轮对话**必须**带回模型给的 thought signature：当前回合（从最近一条带文本的用户消息算起）里每一步的第一个函数调用缺签名就是 400（`Function call is missing a thought_signature in functionCall parts…`），并行调用只有第一个带签名（ai.google.dev 的 thought-signatures 页，2026-10-13）。兼容端点上签名在 `tool_calls[i].extra_content.google.thought_signature`，回传时放回同一个位置。网关按地址（`isGeminiHost`：主机名是 `generativelanguage.googleapis.com`）处理，做法与 §5.3 的思考信封相同：
+
+- **响应**（`ChatStreamTranslator` 的 `signatures` 选项）：工具调用分片里的签名记在调用上；流结束提交调用时，在这些调用之前先提交一个 reasoning 项（只有 `output_item.done`，没有 `content` 与 `summary`），`encrypted_content` 是 `wevir-gw:gemini:v1:` 加 `{provider, model, signatures: {<call_id>: <签名>}}` 的 base64。没有签名就不加这一项。Gemini 的流式工具调用一个 chunk 给全、没有 `index`，带工具调用时 `finish_reason` 是 `stop`（python-genai#2868），§4.2 的规则本来就能处理。
+- **请求**：历史里的这种 reasoning 项不变成 `reasoning_content`（Gemini 不认这个字段），只把签名挂回同一 `call_id` 的工具调用；Provider 或模型与信封里的不同（换过模型）就不带（`dropped` 记 `reasoning:foreign_signature`）。最后每条带工具调用的 assistant 消息，第一个调用还没有签名的（换过模型、网关之外来的历史、上游当时没给）填文档给的占位值 `skip_thought_signature_validator`（`dropped` 记 `signature:placeholder`）；文档说它会降低效果，只是让请求不被拒。
+- **思考**：网关照 §4.1 发 `reasoning_effort`（兼容端点把它映射成 Gemini 3 的 `thinking_level`、2.5 的 `thinking_budget`），不发 `extra_body.google.thinking_config.include_thoughts`，所以 Gemini 不返回思考内容，界面上没有推理（兼容端点把思考包在 content 的 `<thought>` 标签里返回，要拆开才能用，没做）。模型目录里的档位只列它认的（3.8 Flash、4 Argon 不认 `minimal`），见国内服务模板。
+
+没有真实 Key 验证的（R8）：AI Studio 的 Key（`AQ.` 开头的 auth key）加 `Authorization: Bearer` 能否通过；兼容端点收不收占位值；工具参数里的 `additionalProperties`（原生 Schema 不认它）会不会 400；对话中间的 system 消息怎样处理（默认 `inline`，兼容层大概会并进 systemInstruction）。
 
 ## 5. Anthropic Messages 转换
 
@@ -304,7 +316,7 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 
 | 层 | 文件 | 内容 |
 |---|---|---|
-| 单元 | `chat/request.test.ts`、`chat/response.test.ts`、`messages/request.test.ts`、`messages/response.test.ts`、`tools.test.ts`、`dialects.test.ts`、`sse.test.ts`、`errors.test.ts`、`providers.test.ts` | §3、§4、§5 的每一项：录制样本的转换（快照在 `src/__snapshots__/codex-requests/*.chat.json` 与 `*.messages.json`）、对话中间的 developer 消息各模式、图片、工具输出里的图片、孤立的推理、长名字与撞名、length / content_filter、流中的错误与提前断开、交错的并行调用、没有 index 的上游、整段 JSON；Messages 另有思考信封的往返与不带回的各种情况、不合规则的 call_id、占位工具、思考开关与 `max_tokens` 的取值、redacted_thinking、相邻 text 块合并、各 stop_reason、usage 的缓存读写；每个事件序列都过一遍 `codexProblems`（按 Codex 的解析规则检查） |
+| 单元 | `chat/request.test.ts`、`chat/response.test.ts`、`messages/request.test.ts`、`messages/response.test.ts`、`tools.test.ts`、`dialects.test.ts`、`sse.test.ts`、`errors.test.ts`、`providers.test.ts` | §3、§4、§5 的每一项（R8 加：`content: null` 的推理项、xAI 地址的两条摊平与相反顺序的还原、Gemini 签名信封的往返、换模型与缺签名时的占位值）：录制样本的转换（快照在 `src/__snapshots__/codex-requests/*.chat.json` 与 `*.messages.json`）、对话中间的 developer 消息各模式、图片、工具输出里的图片、孤立的推理、长名字与撞名、length / content_filter、流中的错误与提前断开、交错的并行调用、没有 index 的上游、整段 JSON；Messages 另有思考信封的往返与不带回的各种情况、不合规则的 call_id、占位工具、思考开关与 `max_tokens` 的取值、redacted_thinking、相邻 text 块合并、各 stop_reason、usage 的缓存读写；每个事件序列都过一遍 `codexProblems`（按 Codex 的解析规则检查） |
 | 集成 | `gateway.integration.test.ts`、`provider-test.integration.test.ts` | 真实 HTTP：令牌、路由、透传（请求体只少 `client_metadata`、请求头白名单、Key 替换）、deepseek-official、两条方言修正、gzip、Chat 转换（apply_patch 与 namespace 往返、交错的并行调用、incomplete、failed）、Messages 转换（请求头、工具调用与跨回合思考的三步往返、不给签名的上游、压缩请求、incomplete、failed、Anthropic 风格的错误正文）、上游错误（状态码与正文、Key 遮掉）、502、Codex 断开时中断上游（三种处理方式）、`setProviders` 不影响进行中的请求、`close()`、日志口径；testProvider 的成功与每种失败（三种处理方式）。Messages 的 mock（`test-fixtures/mock-messages.ts`）按 Anthropic 的结构规则检查请求，不合规则就回 400：`max_tokens`、`budget_tokens`、角色交替、空文本、思考块的签名（对原文哈希，改了就对不上）、`tool_result` 紧跟且排在最前、有工具调用就必须定义工具、名字与 id 的字符 |
 | 真实模型（可选） | `gateway.real.integration.test.ts` | `WEVIR_TEST_API_KEY` + `WEVIR_TEST_PROVIDER=deepseek`（或 `deepseek-official`）时，DeepSeek 的透传、Chat 转换与 Messages 转换（`https://api.deepseek.com/anthropic`）各一次最小对话与 testProvider；Messages 另跑一次带工具调用与跨回合思考的对话（三个请求，打印推理项与带签名的数量）。模型默认 `deepseek-flash`，`WEVIR_TEST_MODEL` 可改。否则跳过并打印原因 |
 | 端到端（手动） | `spikes/codex-app-server`：`WEVIR_SPIKE_GATEWAY=product node src/run-all.ts --transport=gateway,passthrough`（先 `pnpm --filter @wevir/model-gateway build`） | 真实 `codex-app-server` 经产品网关跑 Spike 的 12 个场景（流式、apply_patch 与审批、跨回合推理、子 agent、取消、resume、计划、上游错误、密钥）。2026-10-14：104 项检查全部通过。R2 的契约测试第 2 层建成后由它替代 |
@@ -324,8 +336,8 @@ Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试
 
 ## 10. 局限与没做的
 
-- Gemini 原生协议；接进 Host 与 adapter-codex、Codex 侧的配置（R2）。
-- 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证（R8 起）。
+- Gemini 原生协议（经兼容端点够用，§4.5）；Gemini 的思考内容不返回、不显示。
+- 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
 - Messages：缺签名的思考不带回（§5.3）；`thinkingFormat` 只有 `adaptive` / `enabled` 两种，Sonnet 4.5、Haiku 4.5 不认 `output_config.effort` 却没有开关去掉；`max_tokens` 的默认值 32000 对上限更低的服务要在 Provider 里写明；Anthropic 的 HTTP 400 “prompt is too long”原样转回，Codex 不会把它认成上下文超长（只有流里的 `context_length_exceeded` 才会）；不发 `metadata.user_id`、`stop_sequences`、服务端工具；`custom_tool_call_input.delta` 同 Chat，不生成。
 - Chat 转换不传 `parallel_tool_calls`、`strict`（为兼容性），不处理各家的思考开关；`reasoning.summary` 没有对应。
 - 图片只支持 data URL 与网址，`file_id` 引用丢掉。

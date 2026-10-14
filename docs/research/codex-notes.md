@@ -128,8 +128,8 @@ Codex 桌面端与 IDE 插件不开源；`codex-rs/tui` 是开源的，它和桌
 | 火山方舟、百度千帆 | 有 `/responses` | 方舟只在 Coding Plan 工具列表里提到（**未核实**）；千帆没有 | — | — | — | |
 | 硅基流动 | **没有** Responses | 指南让用 CC Switch 转接 | — | — | — | |
 | OpenRouter | 有，只支持无状态 | 有 | 非 OpenAI 模型的透传**未核实** | — | — | `store:true` 报 400 |
-| xAI | `https://api.x.ai/v1/responses`（主接口，Chat 已标 Legacy） | 没有；社区 issue #46773 报告可用 | 文档没提（大概率不支持） | — | 支持 `encrypted_content` | Codex 自动压缩发 `tools:[]` + `tool_choice:"auto"`，xAI 报 400（0.162.1 上确认） |
-| Gemini API | **没有** Responses（只有 Chat 兼容端点，beta） | — | — | — | — | 大陆不可达 |
+| xAI | `https://api.x.ai/v1/responses`（主接口，Chat 已标 Legacy） | 没有；社区 issue #46773 报告可用 | **不支持**（R8 核实：OpenAPI 的 `tools` 只有 function 与托管工具；第三方 2026-08 现网对照 custom 被拒、摊平后通过） | OpenAPI 里没有（R8，没有 Key 实测；网关按地址摊平） | 支持 `encrypted_content`；回放时 Codex 写的 `content: null` 报 422（openai/codex#47733） | Codex 自动压缩发 `tools:[]` + `tool_choice:"auto"`，xAI 报 400（0.162.1 上确认）；`store` 默认 true（Codex 发 false） |
+| Gemini API | **没有** Responses（只有 Chat 兼容端点） | — | — | — | Gemini 3 起函数调用必须带回 thought signature（兼容端点的 `extra_content.google.thought_signature`），否则 400（R8 核实文档） | 大陆不可达；网关的处理见 model-gateway.md §4.5 |
 | Anthropic | **没有** Responses（OpenAI 兼容层只有 Chat，且官方说不适合生产） | — | — | — | — | |
 
 小结：DeepSeek、Kimi、GLM、通义、MiniMax、阶跃都在 2026 年给 Codex 出了接入文档，主流国内服务已能直连；差异集中在自定义工具、namespace 工具、推理带回和少数参数上。这些差异正好可以由网关按服务修正（§5.3）。

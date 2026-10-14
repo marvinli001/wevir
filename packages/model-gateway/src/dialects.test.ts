@@ -3,17 +3,22 @@ import { applyDialects } from './dialects.js';
 import { codexRequest } from './test-fixtures/codex.js';
 import type { GatewayProvider, ResponsesEvent, ResponsesItem, ResponsesRequest } from './types.js';
 
-const provider = (compat?: GatewayProvider['compat']): GatewayProvider => ({
-  id: 'xai',
+// 地址认不出是哪家服务的 Responses 上游：只有对所有 Provider 生效的修正与 compat 开关起作用。xAI 的地址另有默认值（下面）。
+const provider = (
+  compat?: GatewayProvider['compat'],
+  baseURL = 'https://responses.example.com/v1',
+): GatewayProvider => ({
+  id: 'generic',
   kind: 'openai-compatible',
-  displayName: 'xAI',
+  displayName: 'Generic',
   api: 'openai-responses',
-  baseURL: 'https://api.x.ai/v1',
-  models: [{ id: 'grok' }],
-  defaultModelId: 'grok',
+  baseURL,
+  models: [{ id: 'm' }],
+  defaultModelId: 'm',
   apiKey: 'k',
   ...(compat === undefined ? {} : { compat }),
 });
+const xai = (compat?: GatewayProvider['compat']) => provider(compat, 'https://api.x.ai/v1');
 
 describe('drop-tool-choice-without-tools', () => {
   it('压缩请求的 tools: [] + tool_choice → 去掉 tool_choice（xAI 会 400），其余不动', () => {
@@ -162,5 +167,140 @@ describe('flatten-custom-tools（compat.supportsCustomTools: false）', () => {
     // 同名但不在这个命名空间里的函数不还原。
     const other = { ...item, namespace: undefined };
     expect(rewrite?.({ type: 'response.output_item.done', item: other })?.item).toEqual(other);
+  });
+});
+
+describe('strip-null-reasoning-content', () => {
+  it('reasoning 项的 content: null 去掉（openai/codex#47733），别的项与有内容的推理不动', () => {
+    const request: ResponsesRequest = {
+      model: 'm',
+      input: [
+        { type: 'reasoning', id: 'rs_1', summary: [], content: null, encrypted_content: 'blob' },
+        { type: 'reasoning', id: 'rs_2', summary: [], content: [{ type: 'reasoning_text' }] },
+        { type: 'message', role: 'user', content: null },
+      ],
+    };
+    const { body, applied } = applyDialects(provider(), request);
+    expect(applied).toEqual(['strip-null-reasoning-content']);
+    const items = body.input as ResponsesItem[];
+    expect(items[0]).toEqual({
+      type: 'reasoning',
+      id: 'rs_1',
+      summary: [],
+      encrypted_content: 'blob',
+    });
+    expect(items[1]).toBe((request.input as ResponsesItem[])[1]);
+    expect(items[2]).toBe((request.input as ResponsesItem[])[2]);
+    expect((request.input as ResponsesItem[])[0]).toHaveProperty('content', null);
+  });
+});
+
+describe('xAI 的地址（api.x.ai）', () => {
+  const body = codexRequest('2-tool-results').body;
+
+  it('默认摊平 custom 与 namespace 工具；compat.supportsCustomTools: true 时只摊平 namespace；别的地址不摊平 namespace', () => {
+    expect(applyDialects(xai(), body).applied).toEqual([
+      'flatten-custom-tools',
+      'flatten-namespace-tools',
+    ]);
+    expect(applyDialects(provider(undefined, 'https://us.api.x.ai/v1'), body).applied).toEqual([
+      'flatten-custom-tools',
+      'flatten-namespace-tools',
+    ]);
+    expect(applyDialects(xai({ supportsCustomTools: true }), body).applied).toEqual([
+      'flatten-namespace-tools',
+    ]);
+    expect(applyDialects(provider({ supportsCustomTools: false }), body).applied).toEqual([
+      'flatten-custom-tools',
+    ]);
+  });
+
+  it('请求：namespace 里的工具摊平成 <ns>__<name> 函数，历史里带 namespace 的调用换成摊平的名字', () => {
+    const { body: fixed } = applyDialects(xai(), body);
+    expect(fixed.tools?.some((t) => t.type === 'namespace' || t.type === 'custom')).toBe(false);
+    const names = fixed.tools?.map((t) => t.name) ?? [];
+    expect(names).toContain('multi_agent_v1__spawn_agent');
+    expect(names).toContain('apply_patch');
+    const request: ResponsesRequest = {
+      model: 'grok',
+      input: [
+        {
+          type: 'function_call',
+          call_id: 'c1',
+          name: 'spawn_agent',
+          namespace: 'multi_agent_v1',
+          arguments: '{}',
+        },
+        { type: 'function_call_output', call_id: 'c1', output: 'ok' },
+      ],
+      tools: [
+        {
+          type: 'namespace',
+          name: 'multi_agent_v1',
+          tools: [{ type: 'function', name: 'spawn_agent', parameters: { type: 'object' } }],
+        },
+      ],
+    };
+    const { body: flat } = applyDialects(xai(), request);
+    expect(flat.tools).toEqual([
+      {
+        type: 'function',
+        name: 'multi_agent_v1__spawn_agent',
+        parameters: { type: 'object' },
+      },
+    ]);
+    expect((flat.input as ResponsesItem[])[0]).toEqual({
+      type: 'function_call',
+      call_id: 'c1',
+      name: 'multi_agent_v1__spawn_agent',
+      arguments: '{}',
+    });
+  });
+
+  it('响应：先还原命名空间，再还原 namespace 里的 custom 工具', () => {
+    const request: ResponsesRequest = {
+      model: 'grok',
+      input: [],
+      tools: [
+        {
+          type: 'namespace',
+          name: 'ns',
+          tools: [
+            { type: 'custom', name: 'free' },
+            { type: 'function', name: 'fn' },
+          ],
+        },
+      ],
+    };
+    const { body: fixed, rewrite } = applyDialects(xai(), request);
+    expect(fixed.tools?.map((t) => [t.type, t.name])).toEqual([
+      ['function', 'ns__free'],
+      ['function', 'ns__fn'],
+    ]);
+    const done = (item: Record<string, unknown>) =>
+      rewrite?.({ type: 'response.output_item.done', output_index: 0, item })?.item;
+    expect(
+      done({ type: 'function_call', call_id: 'c', name: 'ns__free', arguments: '{"input":"x"}' }),
+    ).toEqual({
+      type: 'custom_tool_call',
+      call_id: 'c',
+      name: 'free',
+      namespace: 'ns',
+      input: 'x',
+    });
+    expect(done({ type: 'function_call', call_id: 'd', name: 'ns__fn', arguments: '{}' })).toEqual({
+      type: 'function_call',
+      call_id: 'd',
+      name: 'fn',
+      namespace: 'ns',
+      arguments: '{}',
+    });
+    // 模型编的名字原样交给 Codex。
+    expect(done({ type: 'function_call', call_id: 'e', name: 'nope', arguments: '{}' })).toEqual({
+      type: 'function_call',
+      call_id: 'e',
+      name: 'nope',
+      arguments: '{}',
+    });
   });
 });

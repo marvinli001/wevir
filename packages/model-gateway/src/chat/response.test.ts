@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { codexProblems, doneItems } from '../test-fixtures/codex.js';
 import { flatToolName, ToolNames } from '../tools.js';
 import type { ResponsesEvent } from '../types.js';
-import { decodeReasoning } from './request.js';
+import { decodeGeminiSignatures, decodeReasoning } from './request.js';
 import { ChatStreamTranslator, toResponsesUsage } from './response.js';
 
 const chunk = (delta: Record<string, unknown>, finish: string | null = null) => ({
@@ -12,7 +12,7 @@ const chunk = (delta: Record<string, unknown>, finish: string | null = null) => 
 
 /** 把一串 chunk（对象或原样的 data 字符串）喂给翻译器，最后按流正常结束收尾。 */
 function run(chunks: unknown[], names = new ToolNames(), { finish = true } = {}): ResponsesEvent[] {
-  const t = new ChatStreamTranslator(names, 'resp_test');
+  const t = new ChatStreamTranslator(names, { responseId: 'resp_test' });
   const events = [...t.start()];
   for (const c of chunks) {
     events.push(...(typeof c === 'string' ? t.data(c) : t.chunk(c)));
@@ -266,7 +266,7 @@ describe('结束与出错', () => {
   });
 
   it('流里的 error → response.failed，带上游原文与 code；之后的 chunk 不再处理', () => {
-    const t = new ChatStreamTranslator(new ToolNames(), 'resp_test');
+    const t = new ChatStreamTranslator(new ToolNames(), { responseId: 'resp_test' });
     const events = [
       ...t.chunk(chunk({ content: 'x' })),
       ...t.chunk({
@@ -323,5 +323,62 @@ describe('结束与出错', () => {
     expect(codexProblems(events)).toEqual([]);
     expect(doneItems(events).map((i) => i.type)).toEqual(['reasoning', 'message']);
     expect(terminal(events).type).toBe('response.completed');
+  });
+});
+
+describe('Gemini 的 thought signature', () => {
+  // Gemini 的流式工具调用一个 chunk 给全（没有 index），签名在 extra_content 里，finish_reason 是 stop（python-genai#2868）。
+  const geminiCall = (id: string, signature?: string) =>
+    chunk({
+      tool_calls: [
+        {
+          id,
+          type: 'function',
+          function: { name: 'exec_command', arguments: '{"cmd":"ls"}' },
+          ...(signature === undefined
+            ? {}
+            : { extra_content: { google: { thought_signature: signature } } }),
+        },
+      ],
+    });
+
+  it('带签名的调用之前提交一个 reasoning 项，信封里按 call_id 记签名、Provider 与模型', () => {
+    const t = new ChatStreamTranslator(new ToolNames(), {
+      responseId: 'resp_test',
+      signatures: { provider: 'gemini', model: 'gemini-3.8-flash' },
+    });
+    const events = [
+      ...t.start(),
+      ...t.chunk(geminiCall('call_1', 'sig-1')),
+      ...t.chunk(geminiCall('call_2')),
+      ...t.chunk(chunk({}, 'stop')),
+      ...t.finish(),
+    ];
+    const items = doneItems(events);
+    expect(items.map((i) => i.type)).toEqual(['reasoning', 'function_call', 'function_call']);
+    expect(items[0]).not.toHaveProperty('content');
+    expect(decodeReasoning(items[0] as never)).toBe('');
+    expect(decodeGeminiSignatures(items[0]?.encrypted_content)).toEqual({
+      provider: 'gemini',
+      model: 'gemini-3.8-flash',
+      signatures: { call_1: 'sig-1' },
+    });
+    expect(items.slice(1).map((i) => i.call_id)).toEqual(['call_1', 'call_2']);
+    expect(codexProblems(events)).toEqual([]);
+  });
+
+  it('没有签名、或不是 Gemini 时不加 reasoning 项', () => {
+    const plain = run([geminiCall('call_1', 'sig-1'), chunk({}, 'stop')]);
+    expect(doneItems(plain).map((i) => i.type)).toEqual(['function_call']);
+    const t = new ChatStreamTranslator(new ToolNames(), {
+      signatures: { provider: 'gemini', model: 'm' },
+    });
+    const unsigned = [
+      ...t.start(),
+      ...t.chunk(geminiCall('call_1')),
+      ...t.chunk(chunk({}, 'stop')),
+      ...t.finish(),
+    ];
+    expect(doneItems(unsigned).map((i) => i.type)).toEqual(['function_call']);
   });
 });

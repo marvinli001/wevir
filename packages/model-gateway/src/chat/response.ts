@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { isObject, restoreToolCall, type ToolNames } from '../tools.js';
 import type { JsonObject, ResponsesEvent, ResponsesItem } from '../types.js';
-import { encodeReasoning } from './request.js';
+import { encodeGeminiSignatures, encodeReasoning } from './request.js';
 
 interface OpenItem {
   id: string;
@@ -21,6 +21,17 @@ interface PendingCall {
   id: string;
   name: string;
   arguments: string;
+  /** Gemini 的 thought signature（`extra_content.google.thought_signature`）。 */
+  signature?: string;
+}
+
+export interface ChatStreamOptions {
+  responseId?: string;
+  /**
+   * Gemini：工具调用带的 thought signature 收进一个 reasoning 项的信封（在这些调用之前提交），Codex 带回时请求方向把它
+   * 挂回原来的调用（request.ts，model-gateway.md §4.5）。信封记下 Provider 与模型。
+   */
+  signatures?: { provider: string; model: string };
 }
 
 /** 上游的错误：流里的 `error` 对象，或读流时的异常。 */
@@ -32,6 +43,7 @@ export interface UpstreamFailure {
 export class ChatStreamTranslator {
   readonly responseId: string;
   readonly #names: ToolNames;
+  readonly #signatures: ChatStreamOptions['signatures'];
   #outputIndex = 0;
   #reasoning: OpenItem | undefined;
   #message: OpenItem | undefined;
@@ -45,9 +57,10 @@ export class ChatStreamTranslator {
   #started = false;
   #ended = false;
 
-  constructor(names: ToolNames, responseId = `resp_wevir_${randomBytes(12).toString('hex')}`) {
+  constructor(names: ToolNames, options: ChatStreamOptions = {}) {
     this.#names = names;
-    this.responseId = responseId;
+    this.#signatures = options.signatures;
+    this.responseId = options.responseId ?? `resp_wevir_${randomBytes(12).toString('hex')}`;
   }
 
   /** 上游回了 2xx：先发 response.created。 */
@@ -150,9 +163,29 @@ export class ChatStreamTranslator {
       });
       return events;
     }
-    for (const [, call] of [...this.#calls].sort(([a], [b]) => a - b)) {
+    const calls = [...this.#calls]
+      .sort(([a], [b]) => a - b)
+      .map(([, call]) => ({
+        ...call,
+        id: call.id === '' ? `call_${randomBytes(8).toString('hex')}` : call.id,
+      }));
+    const signed = calls.filter((call) => call.signature !== undefined);
+    if (this.#signatures !== undefined && signed.length > 0) {
+      events.push(
+        this.#itemDone({
+          type: 'reasoning',
+          id: `rs_${this.responseId}_${this.#outputIndex}`,
+          summary: [],
+          encrypted_content: encodeGeminiSignatures({
+            ...this.#signatures,
+            signatures: Object.fromEntries(signed.map((call) => [call.id, call.signature ?? ''])),
+          }),
+        }),
+      );
+    }
+    for (const call of calls) {
       const item = restoreToolCall(this.#names, {
-        callId: call.id === '' ? `call_${randomBytes(8).toString('hex')}` : call.id,
+        callId: call.id,
         name: call.name,
         arguments: call.arguments,
       });
@@ -247,6 +280,10 @@ export class ChatStreamTranslator {
       call.name += fn.name;
     if (typeof fn.arguments === 'string') call.arguments += fn.arguments;
     else if (isObject(fn.arguments)) call.arguments += JSON.stringify(fn.arguments);
+    const google = isObject(part.extra_content) ? part.extra_content.google : undefined;
+    if (isObject(google) && typeof google.thought_signature === 'string') {
+      call.signature = google.thought_signature;
+    }
     this.#calls.set(index, call);
     this.#lastCallIndex = index;
   }

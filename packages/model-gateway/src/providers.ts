@@ -120,6 +120,22 @@ export function isDeepSeekHost(baseURL: string): boolean {
   return /(^|\.)deepseek\.com$/.test(hostnameOf(baseURL));
 }
 
+/**
+ * xAI 的 API（`api.x.ai`，以及 `us.api.x.ai` 这类地域端点）。Responses 透传按它补 xAI 的方言（model-gateway.md
+ * §3.2）：不支持自定义工具与 namespace 工具。经代理或自建网关接 xAI 时地址认不出，自定义工具用 compat 开关。
+ */
+export function isXaiHost(baseURL: string): boolean {
+  return /(^|\.)x\.ai$/.test(hostnameOf(baseURL));
+}
+
+/**
+ * Google 的 Gemini API（OpenAI 兼容端点 `generativelanguage.googleapis.com/v1beta/openai/`）。Chat 转换按它带回
+ * thought signature（model-gateway.md §4.5）。
+ */
+export function isGeminiHost(baseURL: string): boolean {
+  return hostnameOf(baseURL) === 'generativelanguage.googleapis.com';
+}
+
 function hostnameOf(baseURL: string): string {
   try {
     return new URL(baseURL).hostname.toLowerCase();

@@ -273,6 +273,16 @@ DeepSeek 官方的例子：
 WEVIR_TEST_API_KEY=<Key> WEVIR_TEST_PROVIDER=deepseek-official pnpm vitest run --project adapter-dsh dsh-adapter.contract.real
 ```
 
+xAI 与 Gemini 的 API Key 经 Codex 的契约第 3 层验证（网关按地址套用它们的方言，model-gateway.md §3.2、§4.5；模型 ID 以 providers.md §7.6、§7.7 为准）：
+
+```bash
+WEVIR_TEST_API_KEY=<xAI Key> WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://api.x.ai/v1 WEVIR_TEST_MODEL=grok-4.7 pnpm vitest run --project adapter-codex codex-adapter.contract.real
+```
+
+```bash
+WEVIR_TEST_API_KEY=<Gemini Key> WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ WEVIR_TEST_MODEL=gemini-3.8-flash pnpm vitest run --project adapter-codex codex-adapter.contract.real
+```
+
 截至 2026-10-14 本机没有 Key，第 3 层与各真实模型用例都还没有跑过（Gate M3 的待办）。
 
 ### 6.4 其他

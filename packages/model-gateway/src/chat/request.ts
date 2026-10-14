@@ -1,7 +1,7 @@
 // Responses 请求 → Chat Completions 请求。改写自 spikes/codex-app-server/src/gateway.ts（mapInput 等），
 // 映射表见 docs/architecture/model-gateway.md §4.1（codex-notes §5.1 的表加上 Spike 没做的部分）。
 
-import { isDeepSeekHost, isOpenAIOfficial } from '../providers.js';
+import { isDeepSeekHost, isGeminiHost, isOpenAIOfficial } from '../providers.js';
 import { customCallArguments, isObject, ToolNames, toChatTools } from '../tools.js';
 import type {
   ChatContentPart,
@@ -16,6 +16,52 @@ import type {
 /** 网关自己写进 reasoning 项 `encrypted_content` 的前缀：后面是推理全文的 base64（§4.2）。 */
 export const ENCRYPTED_REASONING_PREFIX = 'wevir-gw:v1:';
 
+/**
+ * Gemini 的 thought signature 信封（model-gateway.md §4.5）：网关在工具调用之前提交的 reasoning 项的
+ * `encrypted_content`，后面是 `{provider, model, signatures: {<call_id>: <签名>}}` 的 base64。
+ */
+export const GEMINI_SIGNATURE_PREFIX = 'wevir-gw:gemini:v1:';
+
+/**
+ * 缺签名时填的占位值：Gemini 文档给的“跳过校验”值（ai.google.dev 的 thought-signatures 页，2026-10-13）。当前回合里
+ * 每一步的第一个函数调用必须带签名，否则 400；签名来自别的 Provider、模型或网关之外的历史时只能用它。
+ */
+export const SKIP_THOUGHT_SIGNATURE = 'skip_thought_signature_validator';
+
+export interface GeminiSignatureEnvelope {
+  provider: string;
+  model: string;
+  signatures: Record<string, string>;
+}
+
+export function encodeGeminiSignatures(envelope: GeminiSignatureEnvelope): string {
+  return GEMINI_SIGNATURE_PREFIX + Buffer.from(JSON.stringify(envelope), 'utf8').toString('base64');
+}
+
+export function decodeGeminiSignatures(encrypted: unknown): GeminiSignatureEnvelope | undefined {
+  if (typeof encrypted !== 'string' || !encrypted.startsWith(GEMINI_SIGNATURE_PREFIX)) return;
+  try {
+    const value = JSON.parse(
+      Buffer.from(encrypted.slice(GEMINI_SIGNATURE_PREFIX.length), 'base64').toString('utf8'),
+    ) as unknown;
+    if (
+      !isObject(value) ||
+      typeof value.provider !== 'string' ||
+      typeof value.model !== 'string' ||
+      !isObject(value.signatures)
+    ) {
+      return;
+    }
+    const signatures: Record<string, string> = {};
+    for (const [id, signature] of Object.entries(value.signatures)) {
+      if (typeof signature === 'string') signatures[id] = signature;
+    }
+    return { provider: value.provider, model: value.model, signatures };
+  } catch {
+    return;
+  }
+}
+
 /** `systemMessageMode: 'user'` 时，对话中间的 developer 消息转成 user 消息的开头一行。 */
 export const SYSTEM_AS_USER_NOTE =
   '[Developer instruction from the application, not written by the user]';
@@ -29,6 +75,8 @@ export interface ChatTranslation {
   names: ToolNames;
   /** 没有映射、丢掉的输入项与工具（`<item type>`、`tool:<type>`、`input_image:file_id` 等），测试与排查用。 */
   dropped: string[];
+  /** Gemini 上游：响应方向把 thought signature 收进信封（Provider 与本次的模型）。 */
+  signatures?: { provider: string; model: string };
 }
 
 /** 请求体里网关不转给 Chat 上游的字段（Responses 专有，或 Chat 没有对应）。 */
@@ -52,12 +100,16 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
   const names = new ToolNames();
   const dropped: string[] = [];
   const tools = toChatTools(body.tools, names, dropped);
+  const signatures = isGeminiHost(baseURL)
+    ? { provider: provider.id, model: body.model }
+    : undefined;
   const messages = toChatMessages(body, {
     names,
     dropped,
     mode: compat.systemMessageMode ?? 'inline',
     developerRole: compat.supportsDeveloperRole === true,
     requireReasoning: compat.requiresReasoningContentOnAssistantMessages ?? isDeepSeekHost(baseURL),
+    ...(signatures !== undefined && { signatures }),
   });
   const request: ChatRequest = {
     model: body.model,
@@ -91,7 +143,7 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
     };
   }
   for (const key of DROPPED_FIELDS) if (body[key] !== undefined) dropped.push(`field:${key}`);
-  return { request, names, dropped };
+  return { request, names, dropped, ...(signatures !== undefined && { signatures }) };
 }
 
 interface MessageContext {
@@ -100,12 +152,16 @@ interface MessageContext {
   mode: 'inline' | 'merge' | 'user';
   developerRole: boolean;
   requireReasoning: boolean;
+  /** Gemini：带回 thought signature，只认同一个 Provider 与模型的信封。 */
+  signatures?: { provider: string; model: string };
 }
 
 function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessage[] {
   const messages: ChatMessage[] = [];
   const merged: string[] = [];
   let pendingReasoning = '';
+  /** 信封里还没挂到工具调用上的签名，按 call_id。 */
+  const signatures = new Map<string, string>();
   let toolImages: ChatContentPart[] = [];
   // 当前可以继续追加内容与工具调用的 assistant 消息：直到出现工具输出、用户或系统消息为止。
   let open: ChatMessage | undefined;
@@ -177,9 +233,26 @@ function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessag
         }
         break;
       }
-      case 'reasoning':
+      case 'reasoning': {
+        const envelope =
+          ctx.signatures === undefined ? undefined : decodeGeminiSignatures(item.encrypted_content);
+        if (envelope !== undefined) {
+          // 签名只对产生它的模型有效；别的 Provider 或模型的信封不带回，由下面的占位值兜底。
+          if (
+            envelope.provider === ctx.signatures?.provider &&
+            envelope.model === ctx.signatures.model
+          ) {
+            for (const [id, signature] of Object.entries(envelope.signatures)) {
+              signatures.set(id, signature);
+            }
+          } else {
+            ctx.dropped.push('reasoning:foreign_signature');
+          }
+          break;
+        }
         pendingReasoning += decodeReasoning(item);
         break;
+      }
       case 'function_call':
       case 'custom_tool_call': {
         const msg = assistant();
@@ -189,15 +262,20 @@ function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessag
           name: String(item.name ?? ''),
           namespace: typeof item.namespace === 'string' ? item.namespace : undefined,
         });
+        const id = String(item.call_id ?? '');
+        const signature = signatures.get(id);
         msg.tool_calls = [
           ...(msg.tool_calls ?? []),
           {
-            id: String(item.call_id ?? ''),
+            id,
             type: 'function',
             function: {
               name,
               arguments: custom ? customCallArguments(item.input) : String(item.arguments ?? ''),
             },
+            ...(signature !== undefined && {
+              extra_content: { google: { thought_signature: signature } },
+            }),
           },
         ];
         break;
@@ -224,6 +302,16 @@ function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessag
   if (merged.length > 0) messages.unshift({ role: 'system', content: merged.join('\n\n') });
   if (ctx.requireReasoning) {
     for (const m of messages) if (m.role === 'assistant') m.reasoning_content ??= '';
+  }
+  if (ctx.signatures !== undefined) {
+    // 每一步（一条带工具调用的 assistant 消息）的第一个调用必须带签名；并行调用只有第一个带（Gemini 的规则）。
+    for (const m of messages) {
+      const first = m.tool_calls?.[0];
+      if (first !== undefined && first.extra_content === undefined) {
+        first.extra_content = { google: { thought_signature: SKIP_THOUGHT_SIGNATURE } };
+        ctx.dropped.push('signature:placeholder');
+      }
+    }
   }
   return messages;
 }

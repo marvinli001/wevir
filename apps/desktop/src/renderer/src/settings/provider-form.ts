@@ -109,6 +109,7 @@ export function newOpenAIForm(preset: OpenAIPreset | undefined, takenIds: string
     defaultIndex: Math.max(0, preset?.models.findIndex((m) => m.id === preset.defaultModelId) ?? 0),
     defaultModelId: '',
     apiKey: preset?.placeholderKey ?? '',
+    ...(preset?.compat && { compat: { ...preset.compat } }),
     ...(preset && { preset }),
   };
 }

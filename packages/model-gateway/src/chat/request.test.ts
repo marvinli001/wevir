@@ -3,7 +3,9 @@ import { CODEX_SAMPLES, codexRequest } from '../test-fixtures/codex.js';
 import type { ChatMessage, GatewayProvider, ResponsesRequest } from '../types.js';
 import {
   decodeReasoning,
+  encodeGeminiSignatures,
   encodeReasoning,
+  SKIP_THOUGHT_SIGNATURE,
   SYSTEM_AS_USER_NOTE,
   TOOL_IMAGE_NOTE,
   toChatRequest,
@@ -429,5 +431,85 @@ describe('请求参数', () => {
       type: 'json_schema',
       json_schema: { name: 'out', schema: { type: 'object' }, strict: true },
     });
+  });
+});
+
+describe('Gemini 的 thought signature（model-gateway.md §4.5）', () => {
+  const gemini = provider({
+    id: 'gemini',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+  });
+  const call = (callId: string, name = 'exec_command') => ({
+    type: 'function_call',
+    call_id: callId,
+    name,
+    arguments: '{}',
+  });
+  const output = (callId: string) => ({
+    type: 'function_call_output',
+    call_id: callId,
+    output: 'ok',
+  });
+  const envelope = (signatures: Record<string, string>, model = 'm', id = 'gemini') => ({
+    type: 'reasoning',
+    id: 'rs_x',
+    summary: [],
+    encrypted_content: encodeGeminiSignatures({ provider: id, model, signatures }),
+  });
+  const toolCalls = (messages: ChatMessage[]) =>
+    messages.filter((m) => m.tool_calls !== undefined).map((m) => m.tool_calls ?? []);
+
+  it('信封里的签名挂回同一个调用；并行调用只有带签名的那个有；不加 reasoning_content', () => {
+    const { request: chat, signatures } = toChatRequest(
+      request([
+        user('看看目录'),
+        envelope({ c1: 'sig-1' }),
+        call('c1'),
+        call('c2'),
+        output('c1'),
+        output('c2'),
+      ]),
+      gemini,
+    );
+    expect(signatures).toEqual({ provider: 'gemini', model: 'm' });
+    const [first] = toolCalls(chat.messages);
+    expect(first?.[0]?.extra_content).toEqual({ google: { thought_signature: 'sig-1' } });
+    expect(first?.[1]).not.toHaveProperty('extra_content');
+    expect(chat.messages.some((m) => 'reasoning_content' in m)).toBe(false);
+  });
+
+  it('缺签名的一步（没有信封、别的模型或 Provider 的信封）给第一个调用填占位值', () => {
+    const { request: chat, dropped } = toChatRequest(
+      request([
+        user('a'),
+        call('c1'),
+        output('c1'),
+        envelope({ c2: 'sig-2' }, 'other-model'),
+        call('c2'),
+        output('c2'),
+        envelope({ c3: 'sig-3' }, 'm', 'other-provider'),
+        call('c3'),
+        call('c4'),
+        output('c3'),
+        output('c4'),
+      ]),
+      gemini,
+    );
+    const steps = toolCalls(chat.messages);
+    expect(steps.map((step) => step.map((c) => c.extra_content))).toEqual([
+      [{ google: { thought_signature: SKIP_THOUGHT_SIGNATURE } }],
+      [{ google: { thought_signature: SKIP_THOUGHT_SIGNATURE } }],
+      [{ google: { thought_signature: SKIP_THOUGHT_SIGNATURE } }, undefined],
+    ]);
+    expect(dropped.filter((d) => d === 'reasoning:foreign_signature')).toHaveLength(2);
+  });
+
+  it('别的上游不处理信封与签名', () => {
+    const { request: chat, signatures } = toChatRequest(
+      request([user('a'), envelope({ c1: 'sig' }), call('c1'), output('c1')]),
+      provider(),
+    );
+    expect(signatures).toBeUndefined();
+    expect(toolCalls(chat.messages)[0]?.[0]).not.toHaveProperty('extra_content');
   });
 });

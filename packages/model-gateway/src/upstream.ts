@@ -88,7 +88,13 @@ export function prepareUpstream(
       chat,
       contentType: () => 'text/event-stream',
       translate: (response, signal) =>
-        toResponsesEvents(response, new ChatStreamTranslator(chat.names), signal),
+        toResponsesEvents(
+          response,
+          new ChatStreamTranslator(chat.names, {
+            ...(chat.signatures !== undefined && { signatures: chat.signatures }),
+          }),
+          signal,
+        ),
     };
   }
   const stripped: ResponsesRequest = { ...body };

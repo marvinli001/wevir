@@ -40,6 +40,8 @@ export interface ChatToolCall {
   id: string;
   type: 'function';
   function: { name: string; arguments: string };
+  /** 上游的扩展字段；Gemini 的 thought signature 在 `extra_content.google.thought_signature`（model-gateway.md §4.5）。 */
+  extra_content?: JsonObject;
 }
 
 export type ChatContentPart =

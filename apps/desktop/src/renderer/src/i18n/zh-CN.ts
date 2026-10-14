@@ -425,6 +425,12 @@ export const zhCN = {
   'provider.preset.deepseekOpenai': 'DeepSeek（OpenAI 兼容）',
   'provider.preset.deepseekOpenai.note':
     '经 OpenAI 兼容端点使用 DeepSeek；一般选“DeepSeek 官方”即可。',
+  'provider.preset.xai': 'xAI（Grok API）',
+  'provider.preset.xai.note':
+    '用 xAI 控制台的 API Key（xai- 开头）；大陆无法直连，需要自己的网络环境。',
+  'provider.preset.gemini': 'Google Gemini（API Key）',
+  'provider.preset.gemini.note':
+    '用 Google AI Studio 的 API Key，经 OpenAI 兼容端点使用；个人 Google 账号的登录已停用，只支持 API Key。大陆无法直连，需要自己的网络环境。',
   'provider.preset.ollama': '本机 Ollama',
   'provider.preset.ollama.note':
     '本机的模型服务不校验 Key，已填好一个任意值；模型 ID 换成你已经拉取的模型。',

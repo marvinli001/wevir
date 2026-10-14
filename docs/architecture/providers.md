@@ -299,3 +299,48 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 ```
 
 `apiKey` 填任意值（§3）。
+
+### 7.6 xAI（Grok API Key，R8）
+
+只经 Codex 引擎（网关的 Responses 透传，model-gateway.md §3.2）；dsh 不适用。大陆无法直连。这是 ADR-0005 决策 4 第 ②′ 行；Grok 订阅经 Grok Build 的第 ② 行还没做。
+
+```json
+{
+  "id": "xai",
+  "kind": "openai-compatible",
+  "displayName": "xAI（Grok API）",
+  "api": "openai-responses",
+  "baseURL": "https://api.x.ai/v1",
+  "compat": { "supportsCustomTools": false },
+  "models": [
+    { "id": "grok-4.7", "contextWindow": 500000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh"] },
+    { "id": "grok-build-0.1", "contextWindow": 256000 }
+  ],
+  "defaultModelId": "grok-4.7",
+  "apiKey": "<xAI API Key，xai- 开头>"
+}
+```
+
+来源：docs.x.ai 的 models 页与各模型页（2026-10-14）。`supportsCustomTools: false` 让网关把 apply_patch 摊平成函数（xAI 的地址不写也会默认摊平，写明是为了经代理改地址后仍然生效）。
+
+### 7.7 Google Gemini（API Key，R8）
+
+Codex 引擎经网关的 Chat 转换走 Gemini 的 OpenAI 兼容端点（model-gateway.md §4.5）；dsh 不适用。个人 Google 账号登录已停（codex-notes §4.2），只有 API Key。大陆无法直连。经 Gemini CLI 的另一条路（ADR-0005 决策 4 第 ③ 行）还没做。
+
+```json
+{
+  "id": "gemini",
+  "kind": "openai-compatible",
+  "displayName": "Google Gemini（API Key）",
+  "api": "openai-completions",
+  "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai/",
+  "models": [
+    { "id": "gemini-3.8-flash", "contextWindow": 1048576, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] },
+    { "id": "gemini-4-argon", "contextWindow": 1048576, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] }
+  ],
+  "defaultModelId": "gemini-3.8-flash",
+  "apiKey": "<Gemini API Key>"
+}
+```
+
+来源：ai.google.dev 的 openai、models、thought-signatures 页（2026-10-13）。3.8 Flash 与 4 Argon 不认 `minimal`，模型目录里不列。

@@ -73,6 +73,15 @@ describe('预设模板（providers.md §7）', () => {
     expect(newOpenAIForm(ollama, []).apiKey).toBe('ollama');
     expect(newOpenAIForm(kimi, []).apiKey).toBe('');
   });
+
+  it('模板的 compat 带进 Provider：xAI 不支持自定义工具；没写 compat 的模板不带', () => {
+    const xai = OPENAI_PRESETS.find((preset) => preset.id === 'xai');
+    expect(toUpsertParams(newOpenAIForm(xai, []))).toMatchObject({
+      compat: { supportsCustomTools: false },
+    });
+    const gemini = OPENAI_PRESETS.find((preset) => preset.id === 'gemini');
+    expect(toUpsertParams(newOpenAIForm(gemini, []))).not.toHaveProperty('compat');
+  });
 });
 
 describe('DeepSeek 官方', () => {
