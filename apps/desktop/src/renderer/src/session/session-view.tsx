@@ -111,7 +111,7 @@ export function SessionView({ session }: { session: Session }) {
   }, [transcript, session.workspaceId, session.providerId, session.title, navigate]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth">
       {state?.error ? (
         <div className="min-h-0 flex-1">
           <EmptyState

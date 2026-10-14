@@ -92,7 +92,7 @@ export function PendingArea({
   return (
     <section
       aria-label={t('pending.label')}
-      className="mb-2 space-y-2 rounded-xl border border-border bg-muted/40 px-3 py-2"
+      className="mb-2 space-y-2 rounded-xl border border-border bg-muted/40 px-3 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
       data-testid="pending-area"
     >
       {groups.steer.length > 0 && (
@@ -169,7 +169,7 @@ function PendingRow({ message, actions }: { message: PendingMessage; actions: Re
   const note = fallbackNote(message);
   return (
     <li
-      className="group flex items-start gap-2 rounded-lg bg-background/70 px-2.5 py-1.5"
+      className="group flex items-start gap-2 rounded-lg bg-background/70 px-2.5 py-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
       data-pending-id={message.id}
     >
       <div className="min-w-0 flex-1">

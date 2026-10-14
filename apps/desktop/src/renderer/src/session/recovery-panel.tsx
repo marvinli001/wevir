@@ -73,16 +73,14 @@ export function RecoveryPanel({
             </p>
           </>
         ) : (
-          <>
-            {lastError && (
-              <>
-                <p className="line-clamp-3 break-words text-foreground" title={lastError.message}>
-                  {t(`engineError.category.${lastError.category}`)}：{lastError.message}
-                </p>
-                <p>{t(`engineError.hint.${lastError.category}`)}</p>
-              </>
-            )}
-          </>
+          lastError && (
+            <>
+              <p className="line-clamp-3 break-words text-foreground" title={lastError.message}>
+                {t(`engineError.category.${lastError.category}`)}：{lastError.message}
+              </p>
+              <p>{t(`engineError.hint.${lastError.category}`)}</p>
+            </>
+          )
         )}
       </div>
       {failure && (

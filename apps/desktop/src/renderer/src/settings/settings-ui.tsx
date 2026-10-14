@@ -24,7 +24,7 @@ export function NoticeBanner({ notice }: { notice: Notice }) {
     <p
       role={notice.tone === 'error' ? 'alert' : 'status'}
       className={cn(
-        'flex items-start gap-2 rounded-lg px-3 py-2 text-sm break-words',
+        'flex items-start gap-2 rounded-lg px-3 py-2 text-sm break-words animate-in fade-in slide-in-from-top-1 duration-200 ease-smooth',
         NOTICE_STYLE[notice.tone],
       )}
     >

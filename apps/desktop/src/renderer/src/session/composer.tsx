@@ -231,7 +231,7 @@ function ComposerButton({
 }) {
   const label = t(ACTION_LABELS[action]);
   return (
-    <span className="shrink-0 rounded-full has-focus-visible:ring-2 has-focus-visible:ring-ring/50">
+    <span className="shrink-0 rounded-full transition-transform duration-150 ease-smooth has-focus-visible:ring-2 has-focus-visible:ring-ring/50 has-[button:active:not(:disabled)]:scale-95">
       <MetalCircle strength={action === 'stop' ? 0.55 : 1} flowing={flowing}>
         <Tooltip>
           <TooltipTrigger

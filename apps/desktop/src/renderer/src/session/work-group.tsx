@@ -15,6 +15,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { createContext, useContext, useId } from 'react';
+import { Collapse } from '@/components/collapse';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
 import { useFold } from './fold-state';
@@ -155,8 +156,8 @@ export function WorkGroup({
           className={cn('size-3.5 shrink-0 opacity-75 transition-transform', open && 'rotate-90')}
         />
       </button>
-      {open && (
-        <ul id={id} className="mt-0.5 flex flex-col">
+      <Collapse open={open} id={id}>
+        <ul className="mt-0.5 flex flex-col">
           {entries.map((entry, index) => (
             <WorkLine
               key={entry.key}
@@ -166,7 +167,7 @@ export function WorkGroup({
             />
           ))}
         </ul>
-      )}
+      </Collapse>
     </div>
   );
 }
@@ -229,8 +230,8 @@ function WorkLine({
       {problem && !open && (
         <p className="ml-5.5 truncate font-mono text-xs text-destructive">{problem}</p>
       )}
-      {open && hasDetail && (
-        <div id={id} className="mt-1 mb-2 ml-5.5">
+      <Collapse open={open && hasDetail} id={id}>
+        <div className="mt-1 mb-2 ml-5.5">
           {entry.type === 'reasoning' ? (
             <p className="border-l-2 border-border pl-3 text-sm whitespace-pre-wrap text-muted-foreground">
               {entry.text}
@@ -243,7 +244,7 @@ function WorkLine({
             <ToolDetails part={entry} root={root} />
           )}
         </div>
-      )}
+      </Collapse>
     </li>
   );
 }

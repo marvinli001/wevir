@@ -27,9 +27,12 @@
   /* 中栏内容的最大宽度（max-w-content）。 */
   --container-content: 47.5rem;
 
-  /* 动效：120–200 ms、ease-out；减少动效的设置见 index.css。 */
+  /* 动效：120–200 ms、ease-out；减少动效的设置见 index.css。U10 起两条曲线：`ease-smooth`（弹层、展开收起、元素出现，
+   * 先快后慢、没有回弹）与 `ease-emphasized`（侧栏与窗格区开合、整幅滑入，同 .layout-transition）。 */
   --default-transition-duration: 150ms;
   --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 @theme inline {

@@ -1,5 +1,6 @@
 import type { Transcript } from '@wevir/client-sdk';
 import type { ClientIdentity } from '@wevir/protocol';
+import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -63,6 +64,11 @@ export function TranscriptView({
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在切换模式与换会话时固定或放开。
   useEffect(() => setPinnedStart(sticky ? undefined : firstRendered), [sticky, sessionId]);
   useEffect(() => onReady?.({ jumpToLatest }), [onReady, jumpToLatest]);
+  // 新到的块（U10）：贴底时末尾新出现的块淡入上移；首次渲染、向前展开的旧消息不动。在渲染时记下已见过的块。
+  const seen = useRef<{ sessionId: string; keys: Set<string> }>(undefined);
+  const firstRender = seen.current?.sessionId !== sessionId;
+  if (firstRender) seen.current = { sessionId, keys: new Set() };
+  const seenKeys = (seen.current as { keys: Set<string> }).keys;
   const showEarlier = () => setPinnedStart(messages[Math.max(0, start - RENDER_WINDOW)]?.id);
   const showEarlierRef = useRef(showEarlier);
   showEarlierRef.current = showEarlier;
@@ -102,29 +108,36 @@ export function TranscriptView({
           )}
           <FoldScopeProvider sessionId={sessionId} onToggle={holdPosition}>
             <WorkspaceRoot value={cwd}>
-              {groupTurns(messages.slice(start)).map((block) => (
-                <div
-                  key={block.key}
-                  className="transcript-item pt-6 first:pt-0"
-                  data-message-id={block.key}
-                >
-                  {block.kind === 'turn' ? (
-                    <TurnView
-                      turnId={block.turnId}
-                      messages={block.messages}
-                      turnActive={isActiveTurn(block.turnId, transcript)}
-                      {...(isActiveTurn(block.turnId, transcript) && {
-                        live: liveState(transcript.state),
-                        orb: turnOrb(sessionId, block.turnId),
-                      })}
-                      hasSubagents={transcript.subagents.length > 0}
-                      self={self}
-                    />
-                  ) : (
-                    block.message.role === 'system' && <SystemMessage message={block.message} />
-                  )}
-                </div>
-              ))}
+              {groupTurns(messages.slice(start)).map((block) => {
+                const fresh = !firstRender && sticky && !seenKeys.has(block.key);
+                seenKeys.add(block.key);
+                return (
+                  <div
+                    key={block.key}
+                    className={cn(
+                      'transcript-item pt-6 first:pt-0',
+                      fresh && 'animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth',
+                    )}
+                    data-message-id={block.key}
+                  >
+                    {block.kind === 'turn' ? (
+                      <TurnView
+                        turnId={block.turnId}
+                        messages={block.messages}
+                        turnActive={isActiveTurn(block.turnId, transcript)}
+                        {...(isActiveTurn(block.turnId, transcript) && {
+                          live: liveState(transcript.state),
+                          orb: turnOrb(sessionId, block.turnId),
+                        })}
+                        hasSubagents={transcript.subagents.length > 0}
+                        self={self}
+                      />
+                    ) : (
+                      block.message.role === 'system' && <SystemMessage message={block.message} />
+                    )}
+                  </div>
+                );
+              })}
             </WorkspaceRoot>
           </FoldScopeProvider>
         </div>

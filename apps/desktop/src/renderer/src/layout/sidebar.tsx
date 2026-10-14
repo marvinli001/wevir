@@ -3,6 +3,7 @@ import { cn } from 'cn';
 import { ChevronDown, Folder, FolderOpen, Plus, Settings, SquarePen } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
+import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -189,8 +190,8 @@ function ProjectItem({
           <SquarePen />
         </IconButton>
       </div>
-      {expanded && sessions.length > 0 && (
-        <ul id={listId} className="space-y-px">
+      <Collapse open={expanded && sessions.length > 0} id={listId}>
+        <ul className="space-y-px">
           {shown.map((session) => (
             <li key={session.id}>
               <SessionRow workspaceId={workspace.id} session={session} unread={isUnread(session)} />
@@ -208,7 +209,7 @@ function ProjectItem({
             </li>
           )}
         </ul>
-      )}
+      </Collapse>
     </li>
   );
 }

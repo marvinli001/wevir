@@ -149,7 +149,7 @@ function ApprovalCard({
     <section
       aria-labelledby={titleId}
       data-testid="approval-card"
-      className="rounded-xl border border-warning/40 bg-card shadow-sm"
+      className="rounded-xl border border-warning/40 bg-card shadow-sm animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
     >
       {origin && <ApprovalOrigin {...origin} />}
       <div className="flex items-start gap-2.5 px-3.5 pt-3">

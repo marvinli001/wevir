@@ -1,7 +1,7 @@
 import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronDown, FolderPlus, Plus } from 'lucide-react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { BrandMark } from '@/components/brand-mark';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
@@ -33,6 +33,13 @@ import { PendingPage } from './route-states';
 /** 首页大输入框的草稿归属：换工作区时输入的字不丢（建会话时才用到所选的工作区）。 */
 const HOME_DRAFT = 'home';
 
+/** 首页各块依次淡入上移（U10）：品牌行、标题、输入框、最近会话，相隔 60 ms。 */
+const ENTER = 'animate-in fade-in slide-in-from-bottom-2 fill-mode-both duration-500 ease-smooth';
+
+function stagger(index: number): CSSProperties {
+  return { animationDelay: `${index * 60}ms` };
+}
+
 /** “接着做”列几个会话。 */
 const RECENT_COUNT = 3;
 
@@ -63,7 +70,7 @@ function HomeColumn({ children }: { children: ReactNode }) {
   return (
     <ScrollArea className="h-full">
       <div className="mx-auto flex w-full max-w-175 flex-col gap-5.5 px-4 pt-[clamp(2.5rem,14vh,8.75rem)] pb-12 sm:px-7">
-        <div className="flex items-center gap-2.5" data-testid="home-brand">
+        <div className={cn('flex items-center gap-2.5', ENTER)} data-testid="home-brand">
           <BrandMark className="size-5.5 text-brand" />
           <MetalWordmark>{t('app.name')}</MetalWordmark>
         </div>
@@ -98,12 +105,18 @@ function Home({
 
   return (
     <>
-      <h1 className="flex flex-wrap items-baseline gap-x-[0.25em] font-display text-[clamp(1.75rem,4vw,2.5rem)] leading-tight font-medium tracking-[0.01em] text-balance">
+      <h1
+        className={cn(
+          'flex flex-wrap items-baseline gap-x-[0.25em] font-display text-[clamp(1.75rem,4vw,2.5rem)] leading-tight font-medium tracking-[0.01em] text-balance',
+          ENTER,
+        )}
+        style={stagger(1)}
+      >
         {t('home.title.before')}
         <WorkspacePicker current={entry} workspaces={workspaces} />
         {t('home.title.after')}
       </h1>
-      <div>
+      <div className={ENTER} style={stagger(2)}>
         {error && (
           <p
             role="alert"
@@ -220,7 +233,12 @@ function RecentSessions({ entry }: { entry: WorkspaceEntry }) {
   const sessions = entry.sessions.slice(0, RECENT_COUNT);
   if (sessions.length === 0) return null;
   return (
-    <section aria-labelledby="home-recent" className="mt-4.5" data-testid="home-recent">
+    <section
+      aria-labelledby="home-recent"
+      className={cn('mt-4.5', ENTER)}
+      style={stagger(3)}
+      data-testid="home-recent"
+    >
       <h2 id="home-recent" className="mb-1 text-xs text-muted-foreground">
         {t('home.recent')}
       </h2>

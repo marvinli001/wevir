@@ -25,6 +25,7 @@ export function SessionRoute() {
     case 'draft':
       return <DraftView entry={target.entry} />;
     case 'session':
-      return <SessionView session={target.session} />;
+      // 换会话时重新挂载，整页淡入（U10）。
+      return <SessionView key={target.session.id} session={target.session} />;
   }
 }
