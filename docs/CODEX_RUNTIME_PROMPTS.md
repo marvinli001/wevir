@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | R1 | 模型协议网关 `packages/model-gateway`：Responses 透传 + Chat Completions 转换 | — | 与 R7 并行 | [x] `06e2894` |
 | R2 | `packages/adapter-codex`（上）：进程、配置、会话、回合与流式事件，Host 接 `--adapter codex` | R1 | 与 R7 并行 | [x] `4c7fbed` |
-| R3 | `packages/adapter-codex`（下）：审批、取消、恢复、计划、错误归类、三层契约测试，默认引擎改为 Codex | R2 | 与 R7 并行 | [ ] |
+| R3 | `packages/adapter-codex`（下）：审批、取消、恢复、计划、错误归类、三层契约测试，默认引擎改为 Codex | R2 | 与 R7 并行 | [x] `e9365b8` |
 | R4 | 子会话：领域模型、Host 协议与存储、`AgentEvent`，adapter-codex 上报 | R3 | — | [ ] |
 | R5 | 桌面端：子智能体界面（照 Codex 桌面端） | R4、R12 | 与 R6 并行 | [ ] |
 | R6 | ChatGPT 订阅登录与设置页 | R3；界面风格随 R12 | 与 R5 并行 | [ ] |
