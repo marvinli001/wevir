@@ -1,0 +1,261 @@
+import { chmodSync, writeFileSync } from 'node:fs';
+import type { ProviderConfig, ProviderModelConfig } from '@wevir/runtime-adapter';
+import { GATEWAY_TOKEN_ENV } from './env.js';
+import type { CodexPaths } from './paths.js';
+import type { BasePromptVars } from './prompts.js';
+
+// 生成 CODEX_HOME/config.toml 与模型目录（ADR-0005 决策 5，docs/architecture/codex-event-mapping.md §3）。
+// 每次启动 codex-app-server 之前重写；配置键以 rust-v0.162.1 为准，进程带 --strict-config 启动，写错就启动失败。
+
+/**
+ * 加固项（ADR-0005 决策 5 与补记 1，codex-notes §6）。顶层键必须写在任何表之前，所以分成两段。
+ * - `features.plugins = false`：唯一产生外连的开关（启动时同步插件市场：github.com、api.github.com、chatgpt.com）；
+ * - `web_search = "disabled"`：否则把托管搜索工具发给模型服务；`analytics.enabled = false`；
+ *   `check_for_update_on_startup = false`（只影响 TUI，设上无害）；
+ * - `features.goals = false`：Wevir 暂不支持目标（补记 1）；`features.memories = false`、`approvals_reviewer = "user"`：
+ *   两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI 模型名）；
+ * - `tools.update_plan.enabled = true`：计划默认关；
+ * - `skills.include_instructions = false`、`skills.bundled.enabled = false`：不把 skills 列表放进上下文，也不往
+ *   CODEX_HOME 装内置 skills。Codex 读用户的 `~/.agents/skills`（HOME 是用户真实的家目录），不关就会把用户给别的
+ *   工具装的 skills 列给模型（R2 实测，codex-event-mapping.md §1.3）；
+ * - `shell_environment_policy`：套用内置的 *KEY* / *SECRET* / *TOKEN* 排除并排除 `WEVIR_*`，模型跑的命令看不到
+ *   网关令牌（默认 `ignore_default_excludes = true`，codex-notes §6.3）。
+ */
+export const HARDENING_TOP: readonly string[] = [
+  'approval_policy = "on-request"',
+  'sandbox_mode = "workspace-write"',
+  'approvals_reviewer = "user"',
+  'check_for_update_on_startup = false',
+  'web_search = "disabled"',
+];
+
+export const HARDENING_TABLES: readonly string[] = [
+  '[analytics]',
+  'enabled = false',
+  '',
+  '[features]',
+  'plugins = false',
+  'goals = false',
+  'memories = false',
+  '',
+  '[tools.update_plan]',
+  'enabled = true',
+  '',
+  '[skills]',
+  'include_instructions = false',
+  '',
+  '[skills.bundled]',
+  'enabled = false',
+  '',
+  '[shell_environment_policy]',
+  'ignore_default_excludes = false',
+  `exclude = ["WEVIR_*"]`,
+];
+
+/** 一个 Wevir Provider 在 Codex 里的 Provider ID：`wevir_<id>`。 */
+export function codexProviderId(providerId: string): string {
+  return `wevir_${providerId}`;
+}
+
+/**
+ * `[model_providers.wevir_<id>]` 的内容（决策 2.2）：`base_url` 是网关给这个 Provider 的地址，令牌在
+ * `WEVIR_GATEWAY_TOKEN`，上游 Key 不出 Host。`name` 带上 `Wevir/` 前缀：Codex 把名字恰好是 `OpenAI` 的 Provider
+ * 当作 OpenAI 自己的（`is_openai()`，codex-notes §6.4），Provider 的显示名可能就叫这个。
+ */
+export function modelProviderEntry(
+  provider: Pick<ProviderConfig, 'displayName'>,
+  baseURL: string,
+  extra: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    name: `Wevir/${provider.displayName}`,
+    base_url: baseURL,
+    wire_api: 'responses',
+    env_key: GATEWAY_TOKEN_ENV,
+    ...extra,
+  };
+}
+
+/** Wevir 的推理档位（protocol `ProviderReasoningLevel`）→ Codex 的 `ReasoningEffort`：只有 off 改名为 none。 */
+export function toCodexEffort(level: string): string {
+  return level === 'off' ? 'none' : level;
+}
+
+/** Codex 的 `ReasoningEffort` → Wevir 的推理档位。 */
+export function fromCodexEffort(effort: string): string {
+  return effort === 'none' ? 'off' : effort;
+}
+
+const EFFORT_DESCRIPTIONS: Readonly<Record<string, string>> = {
+  none: '不推理',
+  minimal: '最少推理',
+  low: '轻度推理',
+  medium: '中等推理',
+  high: '深度推理',
+  xhigh: '更深推理',
+  max: '最深推理',
+};
+
+/**
+ * 模型目录里的一个模型（`model_catalog_json` 的 `models[]`，字段见
+ * upstream/codex/codex-rs/protocol/src/openai_models.rs 的 `ModelInfo`，codex-notes §3.3）。没写的字段与 Codex 给
+ * 未知模型的默认元数据一致（models-manager/src/model_info.rs `model_info_from_slug`），区别是：声明
+ * `apply_patch_tool_type: "freeform"`（否则没有 apply_patch 工具）、带上下文大小与推理档位、`base_instructions` 用
+ * Wevir 的 base.md、列出（`visibility: "list"`）。
+ */
+export function catalogEntry(
+  model: ProviderModelConfig,
+  baseInstructions: string,
+  priority: number,
+): Record<string, unknown> {
+  const efforts = (model.reasoningEfforts ?? []).map(toCodexEffort);
+  return {
+    slug: model.id,
+    display_name: model.displayName ?? model.id,
+    description: null,
+    base_instructions: baseInstructions,
+    supported_reasoning_levels: efforts.map((effort) => ({
+      effort,
+      description: EFFORT_DESCRIPTIONS[effort] ?? effort,
+    })),
+    shell_type: 'unified_exec',
+    visibility: 'list',
+    supported_in_api: true,
+    priority,
+    availability_nux: null,
+    upgrade: null,
+    support_verbosity: false,
+    default_verbosity: null,
+    apply_patch_tool_type: 'freeform',
+    truncation_policy: { mode: 'bytes', limit: 10_000 },
+    experimental_supported_tools: [],
+    include_apps_usage_instructions: false,
+    input_modalities: model.supportsImages === true ? ['text', 'image'] : ['text'],
+    ...(model.contextWindow !== undefined && { context_window: model.contextWindow }),
+  };
+}
+
+/** 一个会话的模型对应的 base.md 变量。 */
+export function basePromptVars(
+  provider: ProviderConfig,
+  model: ProviderModelConfig,
+): BasePromptVars {
+  return {
+    model_display_name: model.displayName ?? model.id,
+    provider_display_name: provider.displayName,
+  };
+}
+
+/**
+ * 由全部 Provider 生成模型目录：每个模型一条，按 slug 去重（Codex 按 slug 精确查找，同名模型以先出现的 Provider 为准；
+ * 会话自己的上下文大小与基础提示词由 `thread/start` 覆盖，见 `threadConfig`）。没有模型时返回 undefined：Codex 拒绝
+ * 空目录（`model_catalog_json path … must contain at least one model`）。
+ */
+export function renderModelCatalog(
+  providers: readonly ProviderConfig[],
+  render: (vars: BasePromptVars) => string,
+): string | undefined {
+  const seen = new Set<string>();
+  const models: Record<string, unknown>[] = [];
+  for (const provider of providers) {
+    for (const model of provider.models) {
+      if (seen.has(model.id)) continue;
+      seen.add(model.id);
+      models.push(catalogEntry(model, render(basePromptVars(provider, model)), models.length + 1));
+    }
+  }
+  return models.length === 0 ? undefined : `${JSON.stringify({ models }, null, 2)}\n`;
+}
+
+/** TOML 基本字符串：JSON 的字符串转义是它的子集（`\"`、`\\`、`\n`、`\uXXXX`）。 */
+export function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function tomlValue(value: unknown): string {
+  if (typeof value === 'string') return tomlString(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  throw new TypeError(`config.toml 里不支持这种值：${JSON.stringify(value)}`);
+}
+
+export interface RenderConfigInput {
+  providers: readonly ProviderConfig[];
+  /** 网关给某个 Provider 的 `base_url`（`ModelGateway.baseURL`）。 */
+  gatewayBaseURL: (providerId: string) => string;
+  /** 模型目录文件；没有模型时省略（不写 `model_catalog_json`）。 */
+  catalogFile?: string;
+  /** 每个 `[model_providers.*]` 额外的键（测试把重试次数设成 0）。 */
+  providerExtra?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * config.toml 的全文。默认的 `model` / `model_provider` 取第一个 Provider 的默认模型（会话总在 `thread/start`
+ * 里指定自己的，这只是让进程不落到 OpenAI 的默认 Provider 上）。不含任何 Key 与令牌，只有令牌的变量名。
+ */
+export function renderConfigToml(input: RenderConfigInput): string {
+  const first = input.providers[0];
+  const top = [
+    '# 由 Wevir 生成（packages/adapter-codex/src/config.ts），每次启动 codex-app-server 之前重写，不要手改。',
+    ...HARDENING_TOP,
+    ...(first === undefined
+      ? []
+      : [
+          `model = ${tomlString(first.defaultModelId)}`,
+          `model_provider = ${tomlString(codexProviderId(first.id))}`,
+        ]),
+    ...(input.catalogFile === undefined
+      ? []
+      : [`model_catalog_json = ${tomlString(input.catalogFile)}`]),
+    '',
+  ];
+  const providers = input.providers.flatMap((provider) => [
+    '',
+    `[model_providers.${tomlString(codexProviderId(provider.id))}]`,
+    ...Object.entries(
+      modelProviderEntry(provider, input.gatewayBaseURL(provider.id), input.providerExtra),
+    ).map(([key, value]) => `${key} = ${tomlValue(value)}`),
+  ]);
+  return `${[...top, ...HARDENING_TABLES, ...providers].join('\n')}\n`;
+}
+
+/** 写配置文件（0600，覆盖）。 */
+export function writeCodexConfig(
+  paths: CodexPaths,
+  toml: string,
+  catalog: string | undefined,
+): void {
+  if (catalog !== undefined) writeSecretFile(paths.catalogFile, catalog);
+  writeSecretFile(paths.configFile, toml);
+}
+
+function writeSecretFile(file: string, content: string): void {
+  writeFileSync(file, content, { mode: 0o600 });
+  // writeFileSync 的 mode 只对新文件生效。
+  chmodSync(file, 0o600);
+}
+
+/**
+ * `thread/start` 的 `config` 覆盖（按点分路径，值是 JSON）：会话自己的 Provider 条目、上下文大小与推理档位。
+ * Provider 条目总是带上：进程启动之后新增的 Provider 不在它的 config.toml 里，R2 实测这样就能用上，不必重启
+ * （codex-event-mapping.md §5）。模型目录则只在进程启动时读一次（`model_catalog_json` 的覆盖实测无效），
+ * 上下文大小因此另经 `model_context_window` 按会话给出。
+ */
+export function threadConfig(
+  provider: ProviderConfig,
+  model: ProviderModelConfig,
+  gatewayBaseURL: string,
+  reasoningEffort: string | undefined,
+  providerExtra: Readonly<Record<string, unknown>> = {},
+): Record<string, unknown> {
+  return {
+    [`model_providers.${codexProviderId(provider.id)}`]: modelProviderEntry(
+      provider,
+      gatewayBaseURL,
+      providerExtra,
+    ),
+    ...(model.contextWindow !== undefined && { model_context_window: model.contextWindow }),
+    ...(reasoningEffort !== undefined && {
+      model_reasoning_effort: toCodexEffort(reasoningEffort),
+    }),
+  };
+}

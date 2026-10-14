@@ -1,0 +1,10 @@
+import { defineConfig } from 'tsdown';
+
+export default defineConfig({
+  // testing 单独成入口：给 Host 等依赖本包做集成测试的包用（mock 模型），产品代码不引用。
+  entry: ['src/index.ts', 'src/testing.ts'],
+  platform: 'node',
+  // platform 为 node 时 tsdown 默认输出 .mjs；与其他包一致按 "type": "module" 输出 .js。
+  fixedExtension: false,
+  dts: true,
+});

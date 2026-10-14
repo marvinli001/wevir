@@ -292,6 +292,15 @@ importers:
         specifier: workspace:*
         version: link:../runtime-adapter
 
+  packages/adapter-codex:
+    dependencies:
+      '@wevir/model-gateway':
+        specifier: workspace:*
+        version: link:../model-gateway
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/adapter-dsh:
     dependencies:
       '@deepseek-ai/dsh':
@@ -325,6 +334,9 @@ importers:
 
   packages/host:
     dependencies:
+      '@wevir/adapter-codex':
+        specifier: workspace:*
+        version: link:../adapter-codex
       '@wevir/adapter-dsh':
         specifier: workspace:*
         version: link:../adapter-dsh

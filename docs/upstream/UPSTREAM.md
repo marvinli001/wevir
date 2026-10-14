@@ -35,11 +35,13 @@ bash scripts/upstream-sync.sh
 
 ### 1.2 作为二进制运行的上游程序
 
-目前只有 Spike 用到，产品还没有依赖。
+R2（2026-10-14）起产品开始用它：`packages/adapter-codex` 以子进程运行 `codex-app-server`（ADR-0005 决策 1，[codex-event-mapping.md](../architecture/codex-event-mapping.md)）。开发环境用 `scripts/fetch-codex.sh` 下载到仓库的开发缓存，或用 `WEVIR_CODEX_BIN` 指定；安装包内置由 R9 做（决策 8）。版本必须与 adapter-codex 的 `CODEX_VERSION` 一致，启动前用 `--version` 核对。
 
 | 程序 | 版本 | 来源 | 校验 | 用处 |
 |---|---|---|---|---|
-| `codex-app-server`（独立二进制） | `rust-v0.162.1` | GitHub Release 资产 `codex-app-server-<target>.tar.gz` | sha256 写在 `spikes/codex-app-server/scripts/fetch-binary.sh`，取自 GitHub API 的 `digest` | `spikes/codex-app-server`；下载到 gitignore 的 `.bin/` |
+| `codex-app-server`（独立二进制） | `rust-v0.162.1` | GitHub Release 资产 `codex-app-server-<target>.tar.gz`（Windows 是 `codex-app-server-<target>.exe.tar.gz`） | 6 个平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64）的 sha256 写在 `scripts/fetch-codex.sh`，取自 GitHub API 的 `digest` | `packages/adapter-codex`：下载到 gitignore 的 `.wevir-dev/bin/`，CI 按脚本内容缓存；`spikes/codex-app-server` 仍用它自己的 `scripts/fetch-binary.sh`（下载到 `.bin/`，只有 4 个平台） |
+
+同一个 release 还有 `codex-app-server-package-<target>.tar.gz`（压缩后大 20–40 MiB），R2 没有用；随包需要哪些附带程序（例如 Linux 的 `bwrap`）由 R9 定（§2.4）。
 
 两者在 `pnpm-lock.yaml` 里的完整依赖闭包、构建脚本放行（`pnpm-workspace.yaml` 的 `allowBuilds`）与许可证见 §2.1。
 - OpenWork 锁定提交比最新 release `v0.18.57` 超前 121 个提交；Paseo `main` 与 tag `v0.11.2` 已分叉（领先 51、落后 3，release 在单独的分支上打）。两者只作参考，不追 release。

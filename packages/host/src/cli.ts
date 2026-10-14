@@ -1,4 +1,5 @@
 import { parseArgs } from 'node:util';
+import { CodexAdapter, resolveCodexBinary } from '@wevir/adapter-codex';
 import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -14,7 +15,7 @@ import {
 import { createLogger, isLogLevel, type Logger, type LogLevel } from './logger.js';
 import { HostAlreadyRunningError } from './runtime-file.js';
 
-export const ADAPTER_KINDS = ['echo', 'dsh'] as const;
+export const ADAPTER_KINDS = ['echo', 'dsh', 'codex'] as const;
 export type AdapterKind = (typeof ADAPTER_KINDS)[number];
 
 export { EXIT_CODE } from './exit-code.js';
@@ -24,7 +25,9 @@ export const USAGE = `用法：wevir-host [选项]
   --home <目录>          数据目录。环境变量 WEVIR_HOME 优先于它；都没有时用平台默认
                          （macOS ~/Library/Application Support/Wevir，Windows %APPDATA%\\Wevir，
                          Linux $XDG_DATA_HOME/wevir）
-  --adapter <echo|dsh>   引擎适配器，默认 dsh；echo 是开发用的假引擎
+  --adapter <echo|dsh|codex>
+                         引擎适配器，默认 dsh；codex 是 codex-app-server（ADR-0005，二进制见
+                         WEVIR_CODEX_BIN 或 bash scripts/fetch-codex.sh）；echo 是开发用的假引擎
   --port <端口>          仅调试用，默认 0（系统分配）；客户端一律以 run/host.json 里的 url 为准
   --log-level <级别>     debug | info | warn | error，默认 info；日志写到 <数据目录>/logs/host.log
   --exit-on-stdin-eof    由桌面拉起时使用：拉起方持有 stdin 管道，读到 EOF 即优雅退出
@@ -104,9 +107,9 @@ function parse(argv: readonly string[]) {
 
 /** 构造适配器时可用的东西。 */
 export interface AdapterContext {
-  /** 数据目录（绝对路径）；dsh 适配器用其中的 `engines/`（ADR-0001 §4）。 */
+  /** 数据目录（绝对路径）；dsh 与 Codex 适配器用其中的 `engines/`（ADR-0001 §4、ADR-0005 决策 5）。 */
   home: string;
-  /** Host 的日志；dsh 适配器的告警（旁路失效、映射不了的更新等）写进来。 */
+  /** Host 的日志；适配器的告警（旁路失效、映射不了的更新等）与网关的请求日志写进来。 */
   logger: Logger;
 }
 
@@ -120,6 +123,16 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
       return new DshAdapter({
         home: context.home,
         entry: resolveDshEntry().entry,
+        clientInfo: { name: 'wevir', version: HOST_VERSION },
+        logger: context.logger,
+      });
+    case 'codex':
+      // codex-app-server 在第一个会话时才启动（Provider 只交给网关与下一次启动的配置）。二进制在这里就解析：没下载时
+      // Host 直接启动失败并给出下载命令，而不是等到建会话才报错；版本在第一次启动前核对。网关令牌经 logger.addSecret
+      // 从日志里抹掉。
+      return new CodexAdapter({
+        home: context.home,
+        binary: resolveCodexBinary(),
         clientInfo: { name: 'wevir', version: HOST_VERSION },
         logger: context.logger,
       });

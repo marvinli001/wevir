@@ -1,0 +1,34 @@
+{
+  "name": "@wevir/adapter-codex",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir engine adapter for OpenAI Codex's codex-app-server: process, CODEX_HOME and config, sessions, turns and streamed events; custom Providers go through the model gateway.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "@wevir/source": "./src/testing.ts",
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/model-gateway": "workspace:*",
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

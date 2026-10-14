@@ -29,6 +29,14 @@ cd wevir && pnpm install
 
 在大陆网络下先按 §7 切换 registry。全新克隆、全新 pnpm store、经 npmmirror 的实测：`pnpm install` 24 s。
 
+要用 Codex 引擎（`--adapter codex`，ADR-0005）时再下载锁定版本的 `codex-app-server`（每个平台压缩 72–82 MiB，解压 181–243 MiB，不在 npm 依赖里）：
+
+```bash
+bash scripts/fetch-codex.sh
+```
+
+它按平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64，Windows 在 Git Bash 里运行）下载 GitHub Release 的压缩包，按脚本里的 sha256 校验后解到 `.wevir-dev/bin/codex-app-server[.exe]`（gitignore），已是同一版本就直接退出。大陆网络设 `WEVIR_GITHUB_MIRROR`（§7.4）。也可以不下载、用 `WEVIR_CODEX_BIN=<绝对路径>` 指向别处的同版本二进制；版本不对时 Host 在第一次启动它之前报错。
+
 安装时会跑 5 个依赖的构建脚本（`pnpm-workspace.yaml` 的 `allowBuilds` 逐个登记：dsh 的 `dsh-subprocess-local`、`node-pty`、`koffi`、两个版本的 `esbuild`），其他构建脚本一律不跑。`strictDepBuilds` 保持开启，依赖升级后冒出没登记的构建脚本时安装直接失败（`ERR_PNPM_IGNORED_BUILDS`），审查后再登记，见 ADR-0004 §2。
 
 ## 3. 运行
@@ -41,7 +49,7 @@ pnpm dev
 
 它依次做三件事（`apps/desktop` 的 `dev` 脚本）：
 
-1. 用 tsdown 构建 `@wevir/host` 及其依赖（protocol、storage、runtime-adapter、adapter-acp、adapter-dsh），因为 Host 是以 `packages/host/dist/main.js` 跑在本机 Node 上的子进程。
+1. 用 tsdown 构建 `@wevir/host` 及其依赖（protocol、storage、runtime-adapter、adapter-acp、adapter-dsh、model-gateway、adapter-codex），因为 Host 是以 `packages/host/dist/main.js` 跑在本机 Node 上的子进程。
 2. `install-electron`：Electron 44 没有 postinstall，二进制要单独下载。第一次运行时下载并按 npm 包里的 `checksums.json` 校验，之后检查到已安装就立即退出。大陆网络先设 `ELECTRON_MIRROR`（§7.3）。
 3. `electron-vite dev`：构建主进程与 preload，渲染进程的开发服务器固定在 `http://localhost:5199`（`strictPort`，因为这个 origin 在 Host 的白名单里），然后打开窗口。
 
@@ -58,6 +66,22 @@ pnpm dev
 
 **调试。** 渲染进程：Chrome 打开 `chrome://inspect`，在 Configure 里加 `localhost:9339`，或直接用 `http://127.0.0.1:9339/json` 走 DevTools 协议。主进程的日志带 `[wevir-desktop]` 前缀，打在运行 `pnpm dev` 的终端里。Host 的日志在数据目录的 `logs/host.log`（§5.2）。
 
+**用 Codex 引擎跑桌面端。** 桌面端拉起的 Host 用默认的 dsh；要用 Codex，先在同一个数据目录里以 `--adapter codex` 启动 Host，桌面端会附着到它（R2 的验收就是这样做的；默认引擎改为 codex 是 R3）：
+
+```bash
+bash scripts/fetch-codex.sh && pnpm build
+```
+
+```bash
+pnpm --silent wevir --home "$PWD/.wevir-dev" host start --adapter codex
+```
+
+```bash
+WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
+```
+
+Codex 引擎的模型请求都经 Host 里的模型网关（[model-gateway.md](./architecture/model-gateway.md)），Provider 的配置与 dsh 相同（设置页或 `wevir provider add`）；`openai-completions`、`openai-responses`、`anthropic-messages` 三种协议和 DeepSeek 官方都能用。没有 Key 时可以用 `@wevir/adapter-codex/testing` 的本地 mock 模型（`startMockModel()`，Responses 协议，`openai-compatible` + `openai-responses`，Key 填任意值）。
+
 改渲染进程的代码由 Vite 热更新；改了主进程、preload 或 `packages/host`，关掉窗口重新 `pnpm dev`。主进程与渲染进程按 `@wevir/source` 条件直接打包 client-sdk、protocol 等工作区包的源码，改了这些包不用先构建；Host 子进程跑的是 `dist/`，dev 脚本每次都会重新构建它。
 
 ### 3.2 单独运行 Host
@@ -66,17 +90,23 @@ pnpm dev
 pnpm dev:host
 ```
 
-构建 `@wevir/host` 及其依赖，以 echo 假引擎在仓库下的 `.wevir-dev/` 启动 Host（gitignore），Ctrl-C 优雅退出。就绪后 stdout 打印一行 `{"event":"ready","url":…}`，连接信息在 `.wevir-dev/run/host.json`。要用真实 dsh 或调整日志级别时直接运行入口：
+构建 `@wevir/host` 及其依赖，以 echo 假引擎在仓库下的 `.wevir-dev/` 启动 Host（gitignore），Ctrl-C 优雅退出。就绪后 stdout 打印一行 `{"event":"ready","url":…}`，连接信息在 `.wevir-dev/run/host.json`。要用真实 dsh 或 Codex、调整日志级别时直接运行入口：
 
 ```bash
 node packages/host/dist/main.js --home ./.wevir-dev --adapter dsh --log-level debug
 ```
 
+```bash
+node packages/host/dist/main.js --home ./.wevir-dev --adapter codex
+```
+
+`--adapter codex` 要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_CODEX_BIN`），找不到时 Host 直接启动失败并给出下载命令。`codex-app-server` 在第一个会话时才启动。
+
 参数见 `node packages/host/dist/main.js --help`。退出码：0 正常，1 运行失败，2 参数错误，3 该数据目录已有 Host 在运行（读 `host.json` 附着即可）。
 
 ### 3.3 命令行客户端
 
-`apps/cli`（T4.2）合入后，`pnpm build` 再运行 `pnpm --silent wevir --help`。`wevir host start` 以分离方式启动 Host，桌面端随后附着它；`wevir session attach <id>` 与桌面看同一事件流、可以在终端里审批。数据目录与 Host 相同（`WEVIR_HOME` 或 `--home`）。
+`apps/cli`（T4.2）合入后，`pnpm build` 再运行 `pnpm --silent wevir --help`。`wevir host start [--adapter dsh|codex|echo]` 以分离方式启动 Host，桌面端随后附着它；`wevir session attach <id>` 与桌面看同一事件流、可以在终端里审批。数据目录与 Host 相同（`WEVIR_HOME` 或 `--home`）。
 
 ### 3.4 各包单独开发
 
@@ -89,6 +119,7 @@ node packages/host/dist/main.js --home ./.wevir-dev --adapter dsh --log-level de
 | `packages/storage` | SQLite、迁移、仓储、SecretStore | `pnpm vitest run --project storage` |
 | `packages/adapter-acp` | 通用 ACP 适配器：引擎描述、ACP 进程、映射、事件队列、会话与审批记账 | `pnpm vitest run --project adapter-acp`；它的大部分行为由 adapter-dsh 的测试经 dsh 覆盖 |
 | `packages/adapter-dsh` | dsh 的引擎描述与启动器、增量旁路、Provider 桥接 | `pnpm vitest run --project adapter-dsh`（含真实 dsh + 本地 mock Provider，不需要 Key） |
+| `packages/adapter-codex` | Codex 引擎：`codex-app-server` 进程与握手、CODEX_HOME 与生成的配置、会话与回合、通知 → AgentEvent（[codex-event-mapping.md](./architecture/codex-event-mapping.md)） | `pnpm vitest run --project adapter-codex`（真实二进制 + 网关 + mock 模型，不需要 Key；没有二进制时集成测试跳过并打印下载命令） |
 | `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat、Anthropic Messages 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §9 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
@@ -152,6 +183,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `logs/host-stdio.log` | `wevir host start` 分离启动的 Host 的 stdout / stderr（T4.2） |
 | `engines/dsh/` | dsh 的 `DSH_HOME`，也是 dsh 进程的 cwd：`profiles/acp/`、会话日志、Wevir 生成的 Provider overlay `wevir/providers.yml`（只有 Key 的变量名） |
 | `engines/dsh-agents/` | dsh 的 `DSH_AGENTS_HOME`，空目录（安全说明 §4） |
+| `engines/codex/` | Codex 的 `CODEX_HOME`，也是 `codex-app-server` 的 cwd：Wevir 每次启动它之前重写的 `config.toml` 与模型目录 `wevir-models.json`（只有网关令牌的变量名，没有 Key），以及 Codex 自己的 rollout（`sessions/`）、SQLite 库、`shell_snapshots/` 等 |
 | `desktop/` | Electron 的 userData（Chromium 配置、localStorage） |
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。
@@ -159,7 +191,8 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 ### 5.3 日志
 
 - **Host**：`logs/host.log`，字段 `{ts, level, msg, …}`。`--log-level debug|info|warn|error`，默认 info。字段名像令牌、密钥、密码、API Key 的值替换为 `[REDACTED]`，本次启动的令牌在任何字符串里出现都替换。stderr 是终端时同时镜像一份。
-- **dsh**：stderr 只保留尾部；dsh 意外退出时，尾部随 `engine.exited` 写进会话的 `engine.error` 事件，桌面与 CLI 都能看到。
+- **模型网关**（Codex 引擎）：每个请求一行 `gateway request`（方法、Provider ID、结果、上游状态码、耗时），写在 `logs/host.log`。网关令牌每次启动 `codex-app-server` 换一个，出现在日志里会被抹掉。
+- **dsh、codex-app-server**：stderr 只保留尾部（codex-app-server 的 `RUST_LOG=warn`）；dsh 意外退出时，尾部随 `engine.exited` 写进会话的 `engine.error` 事件，桌面与 CLI 都能看到。
 - **桌面主进程**：运行 `pnpm dev` 的终端，前缀 `[wevir-desktop]`。Host 起不来时界面顶部给出原因和 `logs/host.log` 的路径。
 - **渲染进程**：DevTools 控制台（§3.1）。
 
@@ -185,7 +218,26 @@ pnpm vitest run --project adapter-dsh dsh-adapter.contract
 | 2. 真实 dsh + mock Provider | `dsh-adapter.contract.integration.test.ts` | 无，约 20 s |
 | 3. 真实 dsh + 真实模型 | `dsh-adapter.contract.real.integration.test.ts` | `WEVIR_TEST_API_KEY`、`WEVIR_TEST_PROVIDER`；缺了跳过并打印原因 |
 
-### 6.2 真实模型测试的环境变量
+### 6.2 Codex 适配器的测试
+
+```bash
+bash scripts/fetch-codex.sh
+```
+
+```bash
+pnpm vitest run --project adapter-codex --maxWorkers=2
+```
+
+| 文件 | 内容 | 需要 |
+|---|---|---|
+| `mapping.test.ts` 等单元测试 | 回放真实二进制录的通知样本（`src/test-fixtures/app-server/`）、配置与提示词的生成、展示类型 | 无 |
+| `codex-adapter.contract.integration.test.ts` | 契约第 2 层：真实 `codex-app-server` + 网关 + 本地 mock 模型（审批与恢复在 R3 打开） | 二进制；约 3 s |
+| `codex-adapter.integration.test.ts` | 握手、Provider 变更、R2 的审批回复、子 thread、版本核对 | 二进制；约 5 s |
+| `codex-adapter.isolation.integration.test.ts` | 外连为零（代理 + lsof）、令牌与 Key 不落盘不进日志、命令看不到 `WEVIR_*` | 二进制；约 10 s |
+
+没有二进制时集成测试跳过并打印下载命令。升级 Codex 后重录样本：`WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`。Host 一侧的端到端是 `packages/host/src/cli.codex.integration.test.ts`。
+
+### 6.3 真实模型测试的环境变量
 
 | 变量 | 含义 |
 |---|---|
@@ -204,7 +256,7 @@ WEVIR_TEST_API_KEY=<Key> WEVIR_TEST_PROVIDER=deepseek-official pnpm vitest run -
 
 截至 2026-10-14 本机没有 Key，第 3 层与各真实模型用例都还没有跑过（Gate M3 的待办）。
 
-### 6.3 其他
+### 6.4 其他
 
 - **审批用例要求仓库不在系统临时目录下。** dsh 的 `workspace-write` 允许不经审批写 `/tmp` 与 `$TMPDIR`，审批用例的写入目标是 `packages/adapter-dsh/.test-outside/`；仓库克隆在 `/tmp` 下时，这些用例直接报“在系统临时目录 … 下，写入不会触发审批”。
 - `WEVIR_RECORD_FIXTURES=1`：重新录制 adapter-dsh 的 resume 错误样本，见 `packages/adapter-dsh/src/test-fixtures/README.md`。
@@ -265,6 +317,8 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 
 脚本按 SHA 浅拉取 `docs/upstream/upstream.lock` 里的锁定提交，最后检查 `HEAD` 与锁定的 SHA 一致才算完成，所以经第三方镜像拿到的内容与 GitHub 上的同一提交逐字节相同。
 
+`scripts/fetch-codex.sh`（下载 `codex-app-server`，§2）同样认这个变量：Release 资产走 `<镜像>/openai/codex/releases/download/…`，下载后照样按脚本里的 sha256 校验（2026-10-14 经 `https://ghfast.top/https://github.com` 实测：72 MiB 约 8 s，校验通过）。
+
 2026-10-14 的结果：`https://ghfast.top/https://github.com`、`https://gh-proxy.com/https://github.com` 都能同步三个仓库（`ghproxy.net` 的同类前缀 `git ls-remote` 也能通）；`kkgithub.com`、`bgithub.xyz`、`githubfast.com` 不可用；`gitclone.com/github.com` 是缓存型镜像，分支头落后于 GitHub，缺锁定提交时脚本会沿分支加深查找，找不到就报错。
 
 ### 7.5 模型服务
@@ -299,6 +353,6 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 
 **`ERR_PNPM_PACKAGE_MANAGER_NO_IMPORTER`（CI 的 `--frozen-lockfile`）。** 新包没有依赖时 pnpm 12.6 不写它的 lockfile 条目，运行 `pnpm install --fix-lockfile`（AGENTS.md）。
 
-**审批相关的 dsh 测试失败，说目标“在系统临时目录下”。** 把仓库克隆到系统临时目录以外（§6.3）。
+**审批相关的 dsh 测试失败，说目标“在系统临时目录下”。** 把仓库克隆到系统临时目录以外（§6.4）。
 
 **设了 `NODE_USE_ENV_PROXY=1` 和 `HTTPS_PROXY` 之后连本机服务也走了代理。** 这个开关让 Node 内置的 HTTP 客户端（含 `fetch`）按代理变量走，到 Host（127.0.0.1）的连接、`provider.test` 到本机 Ollama 都可能经过代理。同时设 `NO_PROXY=localhost,127.0.0.1`。pnpm 与 git 本来就认 `HTTPS_PROXY`，不需要这个开关。

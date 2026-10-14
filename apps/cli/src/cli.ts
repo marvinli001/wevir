@@ -36,7 +36,9 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
 已有 Host 在运行时只报告它的状态。
 
 选项：
-  --adapter <dsh|echo>   引擎适配器，默认 dsh；echo 是开发用的假引擎
+  --adapter <dsh|codex|echo>
+                         引擎适配器，默认 dsh；codex 是 codex-app-server（先在仓库根目录运行
+                         bash scripts/fetch-codex.sh，或用 WEVIR_CODEX_BIN 指定）；echo 是开发用的假引擎
   --log-level <级别>     debug | info | warn | error，默认 info（日志在 <数据目录>/logs/host.log）`,
       options: { adapter: { type: 'string' }, 'log-level': { type: 'string' } },
       positionals: { min: 0, max: 0 },

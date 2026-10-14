@@ -8,6 +8,11 @@
 #   3 分钟。而 dsh 进程的启动与回收、路径与沙箱只有这一层在 Windows 上真正跑到，正是 Windows CI 要覆盖的东西
 #   （T6.2 首跑在 Windows 上发现的问题多数出在这一层）。
 # - 真实模型：不跑。下面把 WEVIR_TEST_API_KEY 显式置空，相关用例按设计跳过并打印原因；仓库 secret 也不传进来。
+#
+# codex-app-server（R2，packages/adapter-codex 与 packages/host 的 *codex*.integration.test.ts）：按
+# scripts/fetch-codex.sh 下载锁定版本并校验 sha256，以脚本内容为键缓存在 .wevir-dev/bin（每个平台约 72–82 MiB 的
+# 压缩包，解压 181–243 MiB）。真实二进制 + 网关 + mock 模型的契约测试与外连、密钥检查都进 CI，macOS 与 Windows 都跑；
+# 二进制不在时这些用例跳过并打印下载命令。
 
 name: CI
 
@@ -77,6 +82,15 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: 缓存 codex-app-server
+        uses: actions/cache@v6
+        with:
+          path: .wevir-dev/bin
+          key: codex-app-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-codex.sh') }}
+
+      - name: 下载 codex-app-server
+        run: bash scripts/fetch-codex.sh
+
       - name: Test
         run: pnpm test
 
@@ -110,6 +124,15 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: 缓存 codex-app-server
+        uses: actions/cache@v6
+        with:
+          path: .wevir-dev/bin
+          key: codex-app-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-codex.sh') }}
+
+      - name: 下载 codex-app-server
+        run: bash scripts/fetch-codex.sh
 
       - name: Test
         run: pnpm test

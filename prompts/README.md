@@ -2,13 +2,13 @@
 
 这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-现在只是文本，还没有代码加载它们。谁来加载、什么时候加载，见下面的表；MCP、插件、skills 这些还没开始建设的部分在文件里留了占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），其余还只是文本。谁来加载、什么时候加载，见下面的表；MCP、插件、skills 这些还没开始建设的部分在文件里留了占位。
 
 ## 文件
 
 | 文件 | 用途 | 由谁加载 | 状态 |
 |---|---|---|---|
-| [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex 写进生成的模型目录的 `base_instructions`（或 `thread/start` 的 `baseInstructions`，两者都是稳定面） | 可用；联网搜索、skills、插件、MCP 是占位 |
+| [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；联网搜索、skills、插件、MCP 是占位 |
 | [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | 下发方式未定，见“未决” | 可用 |
 | [`auto-review.md`](auto-review.md) | 审批自动复核员 | Host（新功能），与引擎无关 | 可用；只读工具是占位 |
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host，与引擎无关 | 可用 |
@@ -33,7 +33,7 @@
 2. Codex 生成的权限说明：沙箱模式与审批策略（`codex-rs/prompts/templates/permissions/`），Wevir 不改。
 3. 用户自定义指令：经 `thread/start` 的 `developerInstructions` 下发（占位，未做）。
 4. 协作模式说明：默认模式用 Codex 内置的；计划模式用 `plan-mode.md`。
-5. Codex 生成的 skills 列表（Wevir 的 skills 未做，现在为空）。
+5. Codex 生成的 skills 列表：adapter-codex 用 `skills.include_instructions = false` 关掉了（否则会把用户 `~/.agents/skills` 里给别的工具装的 skills 列出来，codex-event-mapping.md §1.3），Wevir 的 skills 建好后再开。
 6. AGENTS.md 内容与 `<environment_context>`（Codex 生成）。
 7. 用户消息。
 
