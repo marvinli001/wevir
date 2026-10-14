@@ -73,8 +73,8 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 ## 5. 品牌
 
-- `--brand`：浅色金、深色铂金，只用于品牌主标与品牌时刻（`assets/icons/README.md`）。左栏顶部的主标是 `components/brand-mark.tsx`（几何取自 `assets/icons/source/mark.svg`，`text-brand`）。
-- 字标（左栏的 “Wevir”）与线性功能图标（lucide）用文字色，不用品牌色。
+- `--brand`：浅色金、深色铂金，只用于品牌主标与品牌时刻（`assets/icons/README.md`）。左栏顶部与首页品牌行（U4）的主标是 `components/brand-mark.tsx`（几何取自 `assets/icons/source/mark.svg`，`text-brand`）。
+- 字标（左栏的 “Wevir”）与线性功能图标（lucide）用文字色，不用品牌色；首页品牌行的字标例外：是金属字（`fx/metal.tsx` 的 `MetalWordmark`，金属预设 gold，字色浅色金棕、深色铂金），算品牌时刻（U4）。
 - 主标在浅色画布上约 3.4:1，够图形的 3:1，不能当文字色用。
 
 ## 6. 窗口与首帧的底色

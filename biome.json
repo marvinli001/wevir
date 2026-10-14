@@ -12,7 +12,8 @@
       "!spikes/**/fixtures",
       "!packages/adapter-dsh/src/test-fixtures/acp",
       "!packages/model-gateway/src/test-fixtures/codex-requests",
-      "!packages/model-gateway/src/__snapshots__"
+      "!packages/model-gateway/src/__snapshots__",
+      "!assets/icons/source/Wevir.icon"
     ]
   },
   "formatter": {

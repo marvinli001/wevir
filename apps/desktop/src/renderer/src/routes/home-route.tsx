@@ -145,11 +145,20 @@ function WorkspacePicker({
           onValueChange={(id: string) => rememberWorkspace(id)}
         >
           {workspaces.map(({ workspace }) => (
-            <DropdownMenuRadioItem key={workspace.id} value={workspace.id} closeOnClick>
+            <DropdownMenuRadioItem
+              key={workspace.id}
+              value={workspace.id}
+              title={workspace.rootPath}
+              closeOnClick
+            >
               <span className="min-w-0">
                 <span className="block truncate">{workspace.displayName}</span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">
-                  {workspace.rootPath}
+                {/* 长路径截掉开头、留住最后的目录名：容器从右往左排，省略号就落在左边；路径本身用 bdi 保持从左往右。 */}
+                <span
+                  dir="rtl"
+                  className="block truncate text-left font-mono text-xs text-muted-foreground"
+                >
+                  <bdi dir="ltr">{workspace.rootPath}</bdi>
                 </span>
               </span>
             </DropdownMenuRadioItem>

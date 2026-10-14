@@ -34,7 +34,7 @@
 
 - 主标在 16/18px 下去掉金属反光，32px 减少材质细节，大尺寸保留亮面和切边。macOS 应用图标的 Retina 表示按逻辑点数选细节；菜单栏模板只保留黑色与透明度。
 - 功能图标为 24 单位网格、2 单位线宽，统一软方角与端点。品牌主标保留实心结构以便区分；功能图标不添加金属纹理。`current-color/` 与 sprite 由调用方设置 `color`。
-- 桌面端界面里的主标（左栏顶部，`apps/desktop/src/renderer/src/components/brand-mark.tsx`）用 `source/mark.svg` 的几何、颜色取 `currentColor`，由设计变量 `--brand` 给出浅色金 `#9B7840`、深色铂金 `#DFDED8`；旁边的字标与界面里的功能图标用文字色（[desktop-tokens.md](../../docs/design/desktop-tokens.md) §5）。
+- 桌面端界面里的主标（左栏顶部与首页的品牌行，`apps/desktop/src/renderer/src/components/brand-mark.tsx`）用 `source/mark.svg` 的几何、颜色取 `currentColor`，由设计变量 `--brand` 给出浅色金 `#9B7840`、深色铂金 `#DFDED8`；旁边的字标与界面里的功能图标用文字色，首页品牌行的金属字标除外（[desktop-tokens.md](../../docs/design/desktop-tokens.md) §5）。
 - macOS 正式模板始终是黑色透明图，系统负责显示深浅色；白色稿仅位于 `previews/`，不要作为正式模板使用。原生调用需设置 `isTemplate`，Electron 使用 `setTemplateImage(true)`。
 - ICNS 与 ICO 本身不根据系统主题自动切换。由客户端或打包配置选择浅/深文件。桌面端（Electron，还没有打包配置）在主进程运行时选择：macOS 用 `macos/{light,dark}/AppIcon.appiconset/icon_512x512@2x.png` 设程序坞图标，跟随应用的深浅色；Windows 用 `windows/{light,dark}/Wevir.ico` 设窗口与任务栏图标，跟随系统的 Windows 模式（`apps/desktop/src/main/app-icon.ts`）。iOS / Android 还没有客户端，签名配置与安装包也未涉及。
 - iOS/iPadOS 的默认主图与 tinted 主图为完整方形；系统施加圆角。Xcode 的深色槽使用透明前景，保留完整石墨底色的稿在 `ios/dark/`。两个额外 tinted 主图用于比较，资源目录中的 tinted 槽只指向一个中性灰度稿。Apple 当前推荐 Icon Composer 的分层工作流；这里同时保留按需求交付的传统资源和可导入的基础图层，系统实时材质需在项目接入时检查。
@@ -53,6 +53,7 @@
 - `Assets/mark.svg` 与 `svg/apple-layers/light/foreground.svg` 逐字节相同（1024 画布，主标 560px 居中、平涂无高光）；工程里的图层缩放为 125%。背景直接用 Fill 纯色，不导入 `background.svg`。
 - Liquid Glass 在 Group 上：Mode Individual，Specular 开，Blur 50%，Translucency 30%，Shadow Neutral 30%。Tinted / Clear 外观由系统从这些图层生成，没有单独覆盖。
 - 主标几何或配色改动后，先 `pnpm icons:build`，再把新的 `light/foreground.svg` 复制成 `Assets/mark.svg`，在 Icon Composer 里检查后保存。`icons:check` 会核对这份副本、两个背景色和深色主标色与 `manifest.json` 的调色板一致。
+- `icon.json` 保持 Icon Composer 保存时的原样（它的写法是 `"key" : value`），所以 `biome.json` 把整个 `Wevir.icon` 排除在格式检查之外；别用 `pnpm lint:fix` 或手工改它，改参数回 Icon Composer。
 - Xcode 工程把 `Wevir.icon` 加入目标、App Icon 名称填 `Wevir` 即可；`actool` 会同时输出 `Assets.car` 和给旧系统用的 ICNS / PNG。桌面端还没有打包配置，接入时由打包步骤用 `actool` 编译并在 Info.plist 写入 `CFBundleIconName`。
 
 ## 重建与检查
