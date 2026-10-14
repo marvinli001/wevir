@@ -1,7 +1,8 @@
 // 桌面主进程里 Host 的发现、拉起、重新拉起与停止（ADR-0002 §6、补记 3，Paseo A17）。不依赖 Electron，单独可测。
 //
 // - 先读 run/host.json 并探活（连接 + hello）：Host 在运行就附着，退出时不停它。
-// - 否则用开发者本机的 Node 以子进程启动 wevir-host，带归属管道参数 --exit-on-stdin-eof 并持有其 stdin，
+// - 否则以子进程启动 wevir-host（默认用 Electron 自带的 Node，见 hostRuntime），带归属管道参数
+//   --exit-on-stdin-eof 并持有其 stdin，
 //   等 stdout 的就绪行或 host.json 出现 url，记下 {pid, startedAt}，视为拥有。退出码 3 说明有别的 Host
 //   抢先占住了数据目录，改为等它就绪后附着。
 // - 拥有的 Host 意外退出（T5.5）：按 host.json 的 {pid, startedAt} 确认旧进程已退出后重新拉起，最多 3 次；
@@ -10,10 +11,10 @@
 // - 退出时只停自己拉起的 Host：先关归属管道，超时再 host.shutdown，仍不退出才强制结束。
 
 import { type ChildProcess, spawn } from 'node:child_process';
-import { accessSync, constants, existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { delimiter, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 import {
@@ -87,7 +88,10 @@ export interface HostLifecycleOptions {
   home: string;
   /** 探活与 `host.shutdown` 时 hello 用的身份。 */
   identity: ClientIdentity;
-  /** 启动 Host 的 Node 可执行文件：开发者本机的 Node，不是 Electron（ADR-0002 §6“运行时”）。 */
+  /**
+   * 启动 Host 的可执行文件。桌面端默认是 Electron 自己，环境里要有 `ELECTRON_RUN_AS_NODE=1`（`hostRuntime`）；
+   * 测试里是运行测试的 Node。
+   */
   nodePath: string;
   /** wevir-host 的入口（`@wevir/host` 的 `bin['wevir-host']`，见 `resolveHostEntry`）。 */
   hostEntry: string;
@@ -677,8 +681,8 @@ function describe(error: unknown): string {
 
 /**
  * Host 子进程的环境：继承桌面的环境，去掉 Electron 与 electron-vite 的变量（例如
- * `ELECTRON_RUN_AS_NODE`、`ELECTRON_RENDERER_URL`），它们对 Node 上的 Host 没有意义。Host 给 dsh 的环境
- * 另有白名单（ADR-0001）。
+ * `ELECTRON_RUN_AS_NODE`、`ELECTRON_RENDERER_URL`），继承来的这些对 Host 没有意义；用 Electron 跑 Host 要的
+ * `ELECTRON_RUN_AS_NODE=1` 由 `hostRuntime` 另加。Host 给引擎的环境另有白名单（ADR-0001、ADR-0005 决策 5）。
  *
  * `resourcesDir` 是安装包随附的运行时所在的目录（打包后的 `process.resourcesPath`，ADR-0007 决策 5），作为
  * `WEVIR_RESOURCES_DIR` 交给 Host，adapter-codex 先在这里找 codex-app-server；环境里已经有这个变量时不覆盖（测试与
@@ -699,43 +703,26 @@ export function hostEnvironment(env: NodeJS.ProcessEnv, resourcesDir?: string): 
 /** 资源目录的环境变量，与 adapter-codex 的 `RESOURCES_DIR_ENV` 相同（桌面端不依赖引擎包）。 */
 export const RESOURCES_DIR_ENV = 'WEVIR_RESOURCES_DIR';
 
-/**
- * 开发者本机的 Node：`WEVIR_NODE` 优先，否则在 `PATH` 里找 `node`（Windows 按 `PATHEXT`）。Electron 的
- * `process.execPath` 是 Electron 本身，不能直接用；打包后用哪个 Node 是 ADR-0002 未决事项 1。
- */
-export function resolveNodeExecutable(
-  env: NodeJS.ProcessEnv = process.env,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  const override = env.WEVIR_NODE;
-  if (override !== undefined && override !== '') return override;
-  const names =
-    platform === 'win32'
-      ? (env.PATHEXT ?? '.EXE;.CMD;.BAT;.COM')
-          .split(';')
-          .filter(Boolean)
-          .map((ext) => `node${ext.toLowerCase()}`)
-      : ['node'];
-  for (const dir of (env.PATH ?? env.Path ?? '').split(delimiter)) {
-    if (dir === '') continue;
-    for (const name of names) {
-      const candidate = join(dir, name);
-      if (isExecutableFile(candidate, platform)) return candidate;
-    }
-  }
-  throw new HostStartError(
-    '在 PATH 里找不到 node。安装 Node ≥ 22.19，或用 WEVIR_NODE 指定它的路径',
-  );
+/** 拉起 Host 用什么运行它。 */
+export interface HostRuntime {
+  /** 可执行文件。 */
+  nodePath: string;
+  /** 要加进 Host 环境的变量（在 `hostEnvironment` 去掉 `ELECTRON_*` 之后加）。 */
+  env: Readonly<Record<string, string>>;
 }
 
-function isExecutableFile(path: string, platform: NodeJS.Platform): boolean {
-  try {
-    if (!statSync(path).isFile()) return false;
-    if (platform !== 'win32') accessSync(path, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
+/**
+ * 默认用 Electron 自带的 Node 跑 Host：`process.execPath`（开发时是 Electron，打包后是 Wevir 主程序）加
+ * `ELECTRON_RUN_AS_NODE=1`，用户不用另装 Node（ADR-0007 决策 4）。Host 给引擎的环境按白名单构造，这个变量不会
+ * 传到 codex-app-server 和它跑的命令里。`WEVIR_NODE` 指定别的 Node 时改用它，排查问题时用。
+ */
+export function hostRuntime(
+  env: NodeJS.ProcessEnv = process.env,
+  execPath: string = process.execPath,
+): HostRuntime {
+  const override = env.WEVIR_NODE;
+  if (override !== undefined && override !== '') return { nodePath: override, env: {} };
+  return { nodePath: execPath, env: { ELECTRON_RUN_AS_NODE: '1' } };
 }
 
 /** wevir-host 的入口：`@wevir/host` 的 `bin['wevir-host']`（指向 `dist/`，要先 `pnpm build`）。 */

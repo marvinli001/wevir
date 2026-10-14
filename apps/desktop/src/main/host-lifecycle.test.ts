@@ -2,18 +2,11 @@
 // pnpm build。Electron 本身不参与：HostLifecycle 不依赖 Electron。T5.5：拥有的 Host 意外退出后重新拉起、
 // 附着的 Host 不在了等它回来，以及客户端照渲染进程的做法重连后按 seq 补齐。
 
-import { type ChildProcess, spawn } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
@@ -36,8 +29,8 @@ import {
   type HostProcessStatus,
   HostStartError,
   hostEnvironment,
+  hostRuntime,
   resolveHostEntry,
-  resolveNodeExecutable,
 } from './host-lifecycle.js';
 
 const identity: ClientIdentity = {
@@ -48,6 +41,20 @@ const identity: ClientIdentity = {
 const hostEntry = resolveHostEntry();
 const stubbornHost = fileURLToPath(new URL('./test-fixtures/stubborn-host.mjs', import.meta.url));
 const flakyHost = fileURLToPath(new URL('./test-fixtures/flaky-host.mjs', import.meta.url));
+
+/**
+ * 本机已下载的 Electron 二进制（`install-electron`，`pnpm dev` 会先做）。没下载时跳过用它的用例：不经
+ * `require('electron')`，那样会触发下载。
+ */
+const electronBinary = ((): string | undefined => {
+  try {
+    const dir = dirname(createRequire(import.meta.url).resolve('electron/package.json'));
+    const binary = join(dir, 'dist', readFileSync(join(dir, 'path.txt'), 'utf8').trim());
+    return existsSync(binary) ? binary : undefined;
+  } catch {
+    return undefined;
+  }
+})();
 
 let tempDir: string;
 const lifecycles: HostLifecycle[] = [];
@@ -187,6 +194,32 @@ describe('HostLifecycle', () => {
       'host did not exit after the pipe closed; requesting host.shutdown',
     );
   });
+
+  it.skipIf(electronBinary === undefined)(
+    '用 Electron 自带的 Node 拉起 Host（桌面端的默认做法，ADR-0007 决策 4）：就绪，stop 后退出',
+    async () => {
+      const home = join(tempDir, 'home');
+      const runtime = hostRuntime({}, electronBinary);
+      const { lifecycle: host } = lifecycle(home, {
+        nodePath: runtime.nodePath,
+        env: { ...hostEnvironment(process.env), ...runtime.env },
+      });
+
+      const ready = await host.start();
+      expect(ready.ownership.kind).toBe('owned');
+      expect(ready.hello.protocolVersion).toBe(PROTOCOL_VERSION);
+      if (process.platform !== 'win32') {
+        const command = execFileSync('ps', ['-o', 'command=', '-p', String(ready.ownership.pid)], {
+          encoding: 'utf8',
+        });
+        expect(command.startsWith(electronBinary as string)).toBe(true);
+      }
+
+      await host.stop();
+      expect(isProcessAlive(ready.ownership.pid)).toBe(false);
+      expect(existsSync(runtimeFile(home))).toBe(false);
+    },
+  );
 
   it('拉起方被强制杀掉：归属管道由操作系统关闭，Host 读到 EOF 自行退出', async () => {
     const home = join(tempDir, 'home');
@@ -366,23 +399,17 @@ describe('hostEnvironment', () => {
   });
 });
 
-describe('resolveNodeExecutable', () => {
-  it('WEVIR_NODE 优先；否则在 PATH 里找可执行的 node', () => {
-    expect(resolveNodeExecutable({ WEVIR_NODE: '/opt/node/bin/node', PATH: '' })).toBe(
-      '/opt/node/bin/node',
-    );
-    if (process.platform !== 'win32') {
-      const bin = join(tempDir, 'bin');
-      mkdirSync(bin);
-      writeFileSync(join(bin, 'node'), '');
-      // 没有执行权限的不算。
-      expect(() => resolveNodeExecutable({ PATH: bin }, 'linux')).toThrow(HostStartError);
-      chmodSync(join(bin, 'node'), 0o755);
-      expect(resolveNodeExecutable({ PATH: `/nonexistent:${bin}` }, 'linux')).toBe(
-        join(bin, 'node'),
-      );
-    }
-    expect(() => resolveNodeExecutable({ PATH: '' })).toThrow(/WEVIR_NODE/);
+describe('hostRuntime', () => {
+  it('默认用 Electron 自己当 Node 跑 Host；WEVIR_NODE 指定时改用它', () => {
+    expect(hostRuntime({ PATH: '' }, '/Applications/Wevir.app/Contents/MacOS/Wevir')).toEqual({
+      nodePath: '/Applications/Wevir.app/Contents/MacOS/Wevir',
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    });
+    expect(hostRuntime({ WEVIR_NODE: '/opt/node/bin/node' }, '/App/Wevir')).toEqual({
+      nodePath: '/opt/node/bin/node',
+      env: {},
+    });
+    expect(hostRuntime({ WEVIR_NODE: '' }, '/App/Wevir').nodePath).toBe('/App/Wevir');
   });
 });
 

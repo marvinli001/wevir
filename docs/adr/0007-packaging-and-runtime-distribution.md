@@ -1,6 +1,6 @@
 # ADR-0007：第一个安装包与运行时分发
 
-- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 留给打包任务。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）
+- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）
 - 日期：2026-10-14
 - 任务：R9；影响：`apps/desktop` 的打包与资源目录、adapter-codex 的二进制解析；推迟的部分影响 adapter-dsh、Host 的组件管理、设置页的引擎列表、R8 的 Grok Build 与 Gemini CLI
 - 依据：[ADR-0005](./0005-agent-runtime-and-model-gateway.md) 决策 8、未决事项 2 与 4；[ADR-0002](./0002-host-transport-and-process-model.md) 未决事项 1；[ADR-0004](./0004-repo-tooling.md)（打包工具留到打包阶段）；[UPSTREAM.md](../upstream/UPSTREAM.md) §1.2、§2.1、§2.4；[third-party-notices.md](../upstream/third-party-notices.md)；本文“背景”里的本机实测
@@ -8,7 +8,7 @@
 ## 背景
 
 1. **仓库没有打包配置**：没有 electron-builder、Electron Forge 的依赖与配置文件，`apps/desktop` 只有 electron-vite 的 `build`（产物在 `out/`）。
-2. **Host 现在跑在开发者本机的 Node 上**（`WEVIR_NODE` 或 `PATH`，`host-lifecycle.ts`），dsh 跑在 Host 的 `process.execPath` 上（ADR-0002 未决事项 1）。本机实测：Electron 44.7.0 以 `ELECTRON_RUN_AS_NODE=1` 运行时是 Node 24.21.0（`process.versions.modules` 149），`node:sqlite` 可用（SQLite 3.53.4）。ADR-0002 未决事项 1 担心的“Electron 内置的 Node 有没有 `node:sqlite`”不成问题。
+2. **Host 现在跑在开发者本机的 Node 上**（`WEVIR_NODE` 或 `PATH`，`host-lifecycle.ts`），dsh 跑在 Host 的 `process.execPath` 上（ADR-0002 未决事项 1）。本机实测：Electron 44.7.0 以 `ELECTRON_RUN_AS_NODE=1` 运行时是 Node 24.21.0（`process.versions.modules` 149），`node:sqlite` 可用（SQLite 3.53.4）。ADR-0002 未决事项 1 担心的“Electron 内置的 Node 有没有 `node:sqlite`”不成问题。决策 4 起，桌面端改用 Electron 自带的 Node 拉起 Host。
 3. **Codex 的发布物**（`rust-v0.162.1`，GitHub Release API，2026-10-14）：
 
    | 平台 | 独立二进制（`.tar.gz`） | 解压后 | 另需 |
@@ -65,7 +65,13 @@
 
 ### 4. Host 与引擎跑在哪个 Node（ADR-0002 未决事项 1）
 
-没有拿出来确认，留给打包任务实测后定（未决事项 3）。建议用 **Electron 自带的 Node**（`ELECTRON_RUN_AS_NODE=1` 运行安装包里的主程序）：背景 2 已实测 `node:sqlite` 可用，安装包不再多带一份 Node（压缩约 30–40 MiB）。dsh 同样跑在它上面；背景 5 的原生模块逐个核实，有不兼容的再改为随包带 Node。
+**Electron 自带的 Node（维护者 2026-10-14 定，同日实现）。** 桌面主进程用自己的可执行文件 `process.execPath`（开发时是 Electron，打包后是 Wevir 主程序）加环境变量 `ELECTRON_RUN_AS_NODE=1` 拉起 Host（`host-lifecycle.ts` 的 `hostRuntime`）。用户不用另装 Node，从访达或开始菜单启动也不依赖 `PATH`；安装包不多带一份 Node（压缩约 30–40 MiB）。T3 Code 的桌面端也这样拉起它的本机服务；Codex 桌面端没有这一层，界面经 stdio 直接连 app-server。
+
+- `WEVIR_NODE` 仍可改用别的 Node（排查用）；不再在 `PATH` 里找 `node`。
+- 这个变量只留在 Host 进程里：Host 给 codex-app-server 与 dsh 的环境按白名单构造（ADR-0005 决策 5、ADR-0001 §4），传不到 Agent 跑的命令里。传过去的话，用户在会话里启动的 Electron 应用会被当成 Node 运行。
+- 打包时不能用 `@electron/fuses` 关掉 `RunAsNode`，否则 Host 起不来。
+- dsh 还不能跑在这样的 Host 里：adapter-dsh 默认用 Host 的 `process.execPath` 运行 dsh，而白名单环境里没有 `ELECTRON_RUN_AS_NODE`，dsh 会以 Electron 应用的方式启动；原生模块的 ABI 也要逐个核实（背景 5）。桌面端拉起的 Host 不传 `--adapter`，只用 Codex，现在不受影响；做可选组件（决策 6）时一并处理（未决事项 2）。
+- 实测（2026-10-14，macOS arm64，开发构建 `pnpm dev`）：Host 进程是 Electron 二进制，环境里有 `ELECTRON_RUN_AS_NODE=1`，程序坞里没有多出图标；它拉起的 codex-app-server 环境里没有 `ELECTRON_*`；经 mock 模型完成一个回合（含一次命令执行），桌面端照常显示；关窗口后 Host 退出。`host-lifecycle.test.ts` 有一条用例用本机已下载的 Electron 二进制拉起真实的 Host（没下载时跳过）。Windows、Linux 与安装包里的主程序没有实测。
 
 ### 5. Codex 随包（与打包工具无关，R9 已做）
 
@@ -104,12 +110,12 @@
 ## 后果
 
 - R9 只做了决策 5。仓库里仍然没有 electron-builder 的配置，所以“从安装包启动”还验证不了：R9 的验收是在开发构建上模拟安装后的布局（做法见 [development.md](../development.md) §3.5）。2026-10-14 在 macOS arm64 上：`pnpm --filter @wevir/desktop resources` 取到 `rust-v0.162.1` 并校验通过；全新的数据目录与 `HOME`、`env -i`、开发缓存里没有二进制、`WEVIR_RESOURCES_DIR` 指向 `apps/desktop/resources`，Host、mock 模型与 CLI 都在 `sandbox-exec` 里运行（只放行本机地址，沙箱里访问外网报 `EPERM`）。Host 以默认的 Codex 引擎启动，`codex-app-server` 从资源目录拉起；经 CLI 建 Provider（mock，Responses）、新建会话、一问一答完成（回合 `completed`，标题由模型生成）。没有验证的：工具调用（Codex 在 macOS 上用 `sandbox-exec` 跑命令，套在验收用的沙箱里会失败，与分发无关）、桌面端从安装包拉起 Host（打包任务）、Windows 与 Linux（只在 macOS 上跑过；Linux 的 `bwrap` 与 Windows 的资源目录都没有实测）。
-- **第一个安装包另开任务**，要做：electron-builder 26 的配置（`extraResources` 收 `apps/desktop/resources/`）；Host 由安装包里的程序拉起（决策 4，Host 的 `dist` 与生产依赖怎样进安装包）；`@deepseek-ai/dsh` 及其闭包不进安装包（它现在是 adapter-dsh 的生产依赖，组件管理推迟期间，安装包里的 Host 不提供 dsh）；macOS 的 Developer ID 签名与公证（Hardened Runtime，随包的 `codex-app-server` 重签；以后下载 dsh 原生模块时主程序要加 `com.apple.security.cs.disable-library-validation`）；“关于”里检查 GitHub Releases 的新版本；按安装包的实际内容生成第三方声明（third-party-notices.md §4）。
+- **第一个安装包另开任务**，要做：electron-builder 26 的配置（`extraResources` 收 `apps/desktop/resources/`）；Host 由安装包里的主程序拉起（决策 4 已在开发构建上实现；Host 的 `dist` 与生产依赖怎样进安装包，`RunAsNode` fuse 保持打开）；`@deepseek-ai/dsh` 及其闭包不进安装包（它现在是 adapter-dsh 的生产依赖，组件管理推迟期间，安装包里的 Host 不提供 dsh）；macOS 的 Developer ID 签名与公证（Hardened Runtime，随包的 `codex-app-server` 重签；以后下载 dsh 原生模块时主程序要加 `com.apple.security.cs.disable-library-validation`）；“关于”里检查 GitHub Releases 的新版本；按安装包的实际内容生成第三方声明（third-party-notices.md §4）。
 - 安装包变大：每个平台多出 `codex-app-server` 的压缩约 72–82 MiB（解压 181–243 MiB），与 ADR-0005 的“后果”一致。
 
 ## 未决事项
 
 1. Windows 的 Codex 沙箱附带程序是否要随包、Linux 是否保留随包的 `bwrap`（ADR-0005 未决事项 4，两个平台实测后定）。
-2. dsh 的原生模块在 Electron 的 Node 上逐个能否加载（决策 4）。
-3. Host 与引擎跑在哪个 Node（决策 4）：打包任务实测后定。
+2. dsh 的原生模块在 Electron 的 Node 上逐个能否加载，以及 dsh 进程怎样拿到 `ELECTRON_RUN_AS_NODE`（决策 4）。
+3. Host 与引擎跑在哪个 Node：已定，Electron 自带的 Node（决策 4，2026-10-14）。
 4. 可选组件（决策 6）：什么时候做、是否仍用下载来源 A，由维护者定；接着做时以分支 `r9-components` 为起点，协议换成那时的下一个次版本。同时要做的还有 dsh 离开 pnpm 的两件事（背景 5）。

@@ -34,9 +34,9 @@ import { applyAppIcon, windowIcon } from './app-icon.js';
 import {
   HostLifecycle,
   hostEnvironment,
+  hostRuntime,
   type Log,
   resolveHostEntry,
-  resolveNodeExecutable,
 } from './host-lifecycle.js';
 import { loadDesktopIdentity } from './identity.js';
 import { serveRendererFile } from './renderer-files.js';
@@ -93,13 +93,18 @@ function run(): void {
   // 意外退出由 HostLifecycle 重新拉起，状态经 hostStatus 推给渲染进程（T5.5）。
   const host = (async () => {
     const identity = await loadDesktopIdentity(home);
+    // Host 跑在 Electron 自带的 Node 上，用户不用装 Node（ADR-0007 决策 4）。
+    const runtime = hostRuntime();
     const lifecycle = new HostLifecycle({
       home,
       identity,
-      nodePath: resolveNodeExecutable(),
+      nodePath: runtime.nodePath,
       hostEntry: resolveHostEntry(),
-      // 打包后随附的 codex-app-server 在资源目录里（ADR-0007 决策 5）。
-      env: hostEnvironment(process.env, app.isPackaged ? process.resourcesPath : undefined),
+      env: {
+        // 打包后随附的 codex-app-server 在资源目录里（ADR-0007 决策 5）。
+        ...hostEnvironment(process.env, app.isPackaged ? process.resourcesPath : undefined),
+        ...runtime.env,
+      },
       log,
     });
     lifecycle.onStatus((status) => {

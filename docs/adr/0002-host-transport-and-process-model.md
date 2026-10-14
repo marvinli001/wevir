@@ -63,7 +63,7 @@
   - CLI：`wevir host start` 以分离方式启动 Host，不带归属管道，一直运行到 `wevir host stop`。桌面之后启动会附着到它，退出时不停止它。
 - **停止**：`host.shutdown` RPC（需已完成 hello），各平台一致；POSIX 上 SIGINT / SIGTERM 同样触发优雅退出。Windows 上对其他进程 `process.kill(pid, 'SIGTERM')` 会直接终止目标进程（Node 文档 `process.kill` 与“Signal events”一节），来不及执行退出流程，所以 CLI 的 `wevir host stop` 走 RPC。
 - **优雅退出顺序**（Paseo A18）：停止接受新连接 → 取消运行中的回合、未决审批结为 `cancelled` → 回收 dsh 进程树 → 刷写 SQLite → 关闭 WebSocket 连接 → 删除 `host.json`；整体超过 10 s 强制退出。
-- **运行时**：骨架阶段只做开发模式，Host 与 dsh 都跑在开发者本机的 Node 上（≥ 22.19，`.node-version` 为 24），桌面主进程用这个 Node 启动工作区里的 Host。
+- **运行时**：骨架阶段只做开发模式，Host 与 dsh 都跑在开发者本机的 Node 上（≥ 22.19，`.node-version` 为 24），桌面主进程用这个 Node 启动工作区里的 Host（2026-10-14 起改用 Electron 自带的 Node，见补记 9）。
 - **为常驻 daemon 留路**：Host 不假设自己有父进程，所有“随桌面退出”的行为都只由归属管道触发；将来改为常驻时，只需让桌面不再持有管道并把“退出时停止 Host”做成设置项（Paseo D9 的 `keepRunningAfterQuit`）。
 
 ### 7. 客户端侧
@@ -95,7 +95,7 @@
 
 ## 未决事项
 
-1. **打包后 Host 与 dsh 跑在哪个 Node 上**：可选 (a) Electron 自带的 Node（`ELECTRON_RUN_AS_NODE=1`，Paseo 的做法；dsh 的原生模块 `node-pty`、`koffi` 要按 Electron 的 ABI 处理），(b) 随安装包附带一个独立 Node（没有 ABI 问题，安装包变大），(c) Electron `utilityProcess`（同样是 Electron 的 Node，且把 Host 的生命周期绑到 Electron 上）。骨架只做开发模式，留给打包阶段决定。ADR-0003 选的 `node:sqlite` 在 (b) 下没有问题；(a)(c) 取决于 Electron 内置的 Node 是否提供 `node:sqlite`（Electron 40 起内置 Node 24.x，见 ADR-0003 未决事项）。R9 实测：Electron 44.7.0 以 `ELECTRON_RUN_AS_NODE=1` 运行时是 Node 24.21.0，`node:sqlite` 可用（[ADR-0007](./0007-packaging-and-runtime-distribution.md) 背景 2，决策 4 留给打包任务）。
+1. **打包后 Host 与 dsh 跑在哪个 Node 上**：可选 (a) Electron 自带的 Node（`ELECTRON_RUN_AS_NODE=1`，Paseo 的做法；dsh 的原生模块 `node-pty`、`koffi` 要按 Electron 的 ABI 处理），(b) 随安装包附带一个独立 Node（没有 ABI 问题，安装包变大），(c) Electron `utilityProcess`（同样是 Electron 的 Node，且把 Host 的生命周期绑到 Electron 上）。骨架只做开发模式，留给打包阶段决定。**已定（2026-10-14）**：选 (a)，见 [ADR-0007](./0007-packaging-and-runtime-distribution.md) 决策 4 与补记 9。ADR-0003 选的 `node:sqlite` 在 (b) 下没有问题；(a)(c) 取决于 Electron 内置的 Node 是否提供 `node:sqlite`（Electron 40 起内置 Node 24.x，见 ADR-0003 未决事项）。R9 实测：Electron 44.7.0 以 `ELECTRON_RUN_AS_NODE=1` 运行时是 Node 24.21.0，`node:sqlite` 可用（[ADR-0007](./0007-packaging-and-runtime-distribution.md) 背景 2，决策 4 留给打包任务）。
 2. **常驻 daemon**（桌面关闭后继续运行、开机自启）：移动端阶段决定（Paseo D9）。
 3. **设备凭据与配对**：骨架只预留 `deviceId`、`clientId` 与 `permissions`；一次性邀请、按设备凭据、设备撤销在移动端阶段另写 ADR（Paseo D2、D3）。
 
@@ -143,3 +143,4 @@
    - 运行时文件：Windows 上 rename 覆盖一个正被别的进程打开的 `host.json`（客户端重连时会反复重读它）会以 EPERM 暂时失败，Host 启动随之失败。`RuntimeFile.publish` 改为在 Windows 上遇到 EPERM / EACCES / EBUSY 时短暂重试（共约 1 s），其他平台不变。
 
 8. **2026-10-14，R11：回合进行中的消息由 Host 排队与插话。** 决策 4 原定“会话不是 `idle` 时 `session.send` 直接返回 `session_busy`，不排队、不打断；排队留给客户端”。维护者 2026-10-14 定：回合进行中也能发消息，可以插话（不打断回合，等这一步结束插进同一个回合）或排队（回合结束后作为下一个回合发出），默认方式是 Host 的设置。排队与插话放在 Host 而不是客户端：多端看到同一个待发区、Host 重启后仍在、插话要经适配器用上引擎的能力（Codex `turn/steer`）。线缆上保持兼容：只有带 `delivery` 的 `session.send` 才会成为待发消息，不带的照旧 `SESSION_BUSY`；待发消息经事件进事件库（`pending.added` / `pending.updated`，插话进了回合是 `user.steered`），首个决定生效、命令串行等其余规则不变。细则见 [领域模型](../architecture/domain-model.md) §3.3.2、§3.7、§4.6 与 [host-api.md](../architecture/host-api.md) §3.1、§10。默认方式是 Host 的设置，存在数据目录新增的 `settings.json`（补记 3 的布局之外，`settings.get` / `settings.update`）。
+9. **2026-10-14：桌面端用 Electron 自带的 Node 拉起 Host。** 未决事项 1 选 (a)（[ADR-0007](./0007-packaging-and-runtime-distribution.md) 决策 4）。补记 5 的“拉起用开发者本机的 Node（`WEVIR_NODE`，否则 `PATH` 里的 `node`）”改为：默认用桌面主进程自己的 `process.execPath` 加 `ELECTRON_RUN_AS_NODE=1`（`hostRuntime`），`WEVIR_NODE` 只在指定时用，不再查 `PATH`。`hostEnvironment` 照旧去掉继承来的 `ELECTRON_*`，`ELECTRON_RUN_AS_NODE=1` 由 `hostRuntime` 另加；Host 给引擎的环境是白名单，这个变量到不了引擎和 Agent 跑的命令。`HostLifecycle` 本身不变，仍不依赖 Electron。

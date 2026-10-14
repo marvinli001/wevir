@@ -49,18 +49,18 @@ pnpm dev
 
 它依次做三件事（`apps/desktop` 的 `dev` 脚本）：
 
-1. 用 tsdown 构建 `@wevir/host` 及其依赖（protocol、storage、runtime-adapter、adapter-acp、adapter-dsh、model-gateway、adapter-codex），因为 Host 是以 `packages/host/dist/main.js` 跑在本机 Node 上的子进程。
+1. 用 tsdown 构建 `@wevir/host` 及其依赖（protocol、storage、runtime-adapter、adapter-acp、adapter-dsh、model-gateway、adapter-codex），因为 Host 是运行 `packages/host/dist/main.js` 的子进程。
 2. `install-electron`：Electron 44 没有 postinstall，二进制要单独下载。第一次运行时下载并按 npm 包里的 `checksums.json` 校验，之后检查到已安装就立即退出。大陆网络先设 `ELECTRON_MIRROR`（§7.3）。
 3. `electron-vite dev`：构建主进程与 preload，渲染进程的开发服务器固定在 `http://localhost:5199`（`strictPort`，因为这个 origin 在 Host 的白名单里），然后打开窗口。
 
-窗口打开后，主进程读数据目录里的 `run/host.json`：有活着的 Host 就附着；没有就用本机 Node 拉起 `wevir-host --home <数据目录> --exit-on-stdin-eof`（默认的 Codex 引擎，要先 `bash scripts/fetch-codex.sh`），并持有它的 stdin 作为归属管道。关窗口即退出，同时停掉自己拉起的 Host；附着的 Host 不受影响。左栏列出工作区即就绪（全新数据目录显示三步引导）；连上时界面上不显示连接状态，连不上或断线时窗口顶部才出提示，设置 → 关于里能看到连接状态与 Host 进程、版本。
+窗口打开后，主进程读数据目录里的 `run/host.json`：有活着的 Host 就附着；没有就用 Electron 自带的 Node（Electron 本身加 `ELECTRON_RUN_AS_NODE=1`，不用另装 Node，ADR-0007 决策 4）拉起 `wevir-host --home <数据目录> --exit-on-stdin-eof`（默认的 Codex 引擎，要先 `bash scripts/fetch-codex.sh`），并持有它的 stdin 作为归属管道。关窗口即退出，同时停掉自己拉起的 Host；附着的 Host 不受影响。左栏列出工作区即就绪（全新数据目录显示三步引导）；连上时界面上不显示连接状态，连不上或断线时窗口顶部才出提示，设置 → 关于里能看到连接状态与 Host 进程、版本。
 
 实测（全新克隆，Node 24.21.0）：第一次 `pnpm dev` 26 s 连上 Host，其中从 npmmirror 下载 Electron 约 19 s；第二次 4 s。
 
 | 环境变量 | 作用 |
 |---|---|
 | `WEVIR_HOME` | 数据目录（§5），桌面、Host、CLI 的解析规则相同。用相对路径时请写成绝对路径，例如 `WEVIR_HOME="$PWD/.wevir-dev"` |
-| `WEVIR_NODE` | 拉起 Host 用的 Node 可执行文件。默认在 `PATH` 里找 `node` |
+| `WEVIR_NODE` | 改用这个 Node 可执行文件拉起 Host（排查用）。默认用 Electron 自带的 Node |
 | `WEVIR_DESKTOP_DEBUG_PORT` | 渲染进程的 Chrome 远程调试端口，默认 9339，只在开发模式打开、只监听 127.0.0.1 |
 | `ELECTRON_MIRROR` | Electron 二进制的下载地址（§7.3） |
 
@@ -396,8 +396,6 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 **`Port 5199 is already in use`。** 另一个 `pnpm dev` 还开着。渲染进程的端口不能换（它的 origin 在 Host 的白名单里），关掉另一个。
 
 **窗口一闪就退出，终端里没有报错。** 同一个数据目录已经有一个桌面端在运行，新开的把焦点交给它后退出。要同时开两个，给第二个设不同的 `WEVIR_HOME`。远程调试端口 9339 被占时用 `WEVIR_DESKTOP_DEBUG_PORT` 换一个。
-
-**“在 PATH 里找不到 node”。** 主进程用本机 Node 拉起 Host，从图形界面启动或 `PATH` 不含 Node 时会这样。用 `WEVIR_NODE` 指定 Node 的绝对路径。
 
 **Host 起不来 / 桌面端顶部“后台服务无法启动”。** 看界面给出的原因与 `logs/host.log`（桌面端的提示与状态不提 Host，说“后台服务”）。`wevir-host` 退出码 3 表示该数据目录已有 Host 在运行；Host 被强杀后留下的 `run/host.json` 会按 `pid` 与启动时刻判定为陈旧，下次启动自动清掉。
 
