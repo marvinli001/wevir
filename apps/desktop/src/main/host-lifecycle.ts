@@ -208,7 +208,7 @@ export class HostLifecycle {
         throw new HostStartError(status.error);
       case 'starting':
       case 'restarting':
-        throw new HostStartError('Host 正在重新启动');
+        throw new HostStartError('后台服务正在重新启动');
       case 'running':
       case 'waiting':
         // waiting 时 host.json 可能已经回来、只是还没轮到检查，照读；没有就 reject。
@@ -287,7 +287,7 @@ export class HostLifecycle {
     });
     this.#ready = undefined;
     if (performance.now() - this.#readyAt >= this.#timeouts.stableMs) this.#restarts = 0;
-    void this.#runRecovery(() => this.#restartLoop(ownership, `Host 意外退出（${reason}）`));
+    void this.#runRecovery(() => this.#restartLoop(ownership, `后台服务意外退出（${reason}）`));
   }
 
   async #restartLoop(previous: HostOwnership, firstReason: string): Promise<void> {
@@ -328,7 +328,7 @@ export class HostLifecycle {
       const deadline = performance.now() + this.#timeouts.exitConfirmMs;
       while (isProcessAlive(info.pid)) {
         if (performance.now() >= deadline) {
-          throw new HostStartError(`旧的 Host 进程（pid ${info.pid}）还没有退出`);
+          throw new HostStartError(`旧的后台服务进程（pid ${info.pid}）还没有退出`);
         }
         await sleep(POLL_INTERVAL_MS, undefined, { signal: this.#shutdown.signal });
       }
@@ -437,7 +437,7 @@ export class HostLifecycle {
         return this.#waitAttach(deadline);
       }
       throw new HostStartError(
-        `Host 启动失败（${code === null ? `信号 ${signal}` : `退出码 ${code}`}）` +
+        `后台服务启动失败（${code === null ? `信号 ${signal}` : `退出码 ${code}`}）` +
           (child.stderrTail() ? `：${child.stderrTail()}` : ''),
       );
     }
@@ -446,7 +446,7 @@ export class HostLifecycle {
         timeoutMs: this.#timeouts.startMs,
       });
       await this.#terminate(child);
-      throw new HostStartError(`Host 在 ${this.#timeouts.startMs / 1000} 秒内没有就绪`);
+      throw new HostStartError(`后台服务在 ${this.#timeouts.startMs / 1000} 秒内没有就绪`);
     }
     const hello = await this.#probe();
     return {
@@ -565,7 +565,7 @@ export class HostLifecycle {
       await sleep(POLL_INTERVAL_MS);
     }
     throw new HostStartError(
-      '数据目录已有 Host 在运行，但它没有就绪' +
+      '数据目录里已有后台服务在运行，但它没有就绪' +
         (lastError === undefined ? '' : `：${describe(lastError)}`),
     );
   }

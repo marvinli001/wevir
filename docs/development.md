@@ -53,7 +53,7 @@ pnpm dev
 2. `install-electron`：Electron 44 没有 postinstall，二进制要单独下载。第一次运行时下载并按 npm 包里的 `checksums.json` 校验，之后检查到已安装就立即退出。大陆网络先设 `ELECTRON_MIRROR`（§7.3）。
 3. `electron-vite dev`：构建主进程与 preload，渲染进程的开发服务器固定在 `http://localhost:5199`（`strictPort`，因为这个 origin 在 Host 的白名单里），然后打开窗口。
 
-窗口打开后，主进程读数据目录里的 `run/host.json`：有活着的 Host 就附着；没有就用本机 Node 拉起 `wevir-host --home <数据目录> --exit-on-stdin-eof`（默认的 Codex 引擎，要先 `bash scripts/fetch-codex.sh`），并持有它的 stdin 作为归属管道。关窗口即退出，同时停掉自己拉起的 Host；附着的 Host 不受影响。左栏底部显示“Host 已连接”即就绪，全新数据目录会显示三步引导。
+窗口打开后，主进程读数据目录里的 `run/host.json`：有活着的 Host 就附着；没有就用本机 Node 拉起 `wevir-host --home <数据目录> --exit-on-stdin-eof`（默认的 Codex 引擎，要先 `bash scripts/fetch-codex.sh`），并持有它的 stdin 作为归属管道。关窗口即退出，同时停掉自己拉起的 Host；附着的 Host 不受影响。左栏列出工作区即就绪（全新数据目录显示三步引导）；连上时界面上不显示连接状态，连不上或断线时窗口顶部才出提示，设置 → 关于里能看到连接状态与 Host 进程、版本。
 
 实测（全新克隆，Node 24.21.0）：第一次 `pnpm dev` 26 s 连上 Host，其中从 npmmirror 下载 Electron 约 19 s；第二次 4 s。
 
@@ -399,7 +399,7 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 
 **“在 PATH 里找不到 node”。** 主进程用本机 Node 拉起 Host，从图形界面启动或 `PATH` 不含 Node 时会这样。用 `WEVIR_NODE` 指定 Node 的绝对路径。
 
-**Host 起不来 / “Host 无法启动”。** 看界面给出的原因与 `logs/host.log`。`wevir-host` 退出码 3 表示该数据目录已有 Host 在运行；Host 被强杀后留下的 `run/host.json` 会按 `pid` 与启动时刻判定为陈旧，下次启动自动清掉。
+**Host 起不来 / 桌面端顶部“后台服务无法启动”。** 看界面给出的原因与 `logs/host.log`（桌面端的提示与状态不提 Host，说“后台服务”）。`wevir-host` 退出码 3 表示该数据目录已有 Host 在运行；Host 被强杀后留下的 `run/host.json` 会按 `pid` 与启动时刻判定为陈旧，下次启动自动清掉。
 
 **`pnpm lint` 报命令 shim 导出了 `NODE_PATH`。** 在 `extendNodePath: false` 加入之前装过依赖的 checkout 要 `pnpm install --force` 一次（AGENTS.md 规则 2）。
 

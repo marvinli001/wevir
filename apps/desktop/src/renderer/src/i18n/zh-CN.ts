@@ -4,7 +4,7 @@
 // - key 是扁平的点分格式 `<区域>.<名称>`，值是纯字符串，可以直接导出给翻译工具；
 // - 插值写 `{name}`（ICU 的简单参数），t() 的类型从这里推出每条文案需要哪些参数；
 // - 新增语言时另建一个满足 `Messages` 类型的目录，key 以本文件为准。
-// 产品名（Wevir）、Host、Provider、MCP 等术语保留英文。
+// 产品名（Wevir）、Host、Provider、MCP 等术语保留英文。连接状态与连接提示不提 Host，说“后台服务”（维护者 2026-10-14：Host 对用户不可见）。
 
 export const zhCN = {
   'app.name': 'Wevir',
@@ -14,27 +14,27 @@ export const zhCN = {
   'common.loading': '正在加载…',
   'common.comingSoon': '即将推出',
 
-  'host.connecting': 'Host 连接中…',
-  'host.connected': 'Host 已连接',
-  'host.reconnecting': 'Host 重连中（第 {attempt} 次）',
-  'host.closed': 'Host 已断开',
-  'host.failed': '无法连接 Host',
-  'host.hostFailed': 'Host 无法启动',
-  'host.restarting': 'Host 重新启动中（第 {attempt}/{max} 次）',
-  'host.waiting': 'Host 已停止，等待中',
+  'host.connecting': '连接中…',
+  'host.connected': '已连接',
+  'host.reconnecting': '重连中（第 {attempt} 次）',
+  'host.closed': '已断开',
+  'host.failed': '无法连接',
+  'host.hostFailed': '后台服务无法启动',
+  'host.restarting': '后台服务重新启动中（第 {attempt}/{max} 次）',
+  'host.waiting': '后台服务已停止，等待中',
 
-  'connection.reconnecting': '与 Host 的连接断开了，正在重连（第 {attempt} 次）…',
+  'connection.reconnecting': '连接断开了，正在重连（第 {attempt} 次）…',
   'connection.reconnectingHint': '断线期间的消息会在重连后补齐。',
-  'connection.restarting': 'Host 意外退出，正在重新启动（第 {attempt}/{max} 次）…',
-  'connection.starting': '正在启动 Host…',
-  'connection.waiting': 'Host 已停止，等待它重新运行…',
+  'connection.restarting': '后台服务意外退出，正在重新启动（第 {attempt}/{max} 次）…',
+  'connection.starting': '正在启动后台服务…',
+  'connection.waiting': '后台服务已停止，等待它重新运行…',
   'connection.waitingHint':
-    '这个 Host 不是桌面端启动的（例如 wevir host start），桌面端不会替它启动；重新启动它之后会自动连上。',
-  'connection.hostFailed': 'Host 无法启动：{error}',
-  'connection.failed': '无法连接 Host：{error}',
-  'connection.closed': '与 Host 的连接已关闭：{error}',
-  'connection.closedNoReason': '与 Host 的连接已关闭。',
-  'connection.reconnected': '已重新连接 Host。',
+    '它不是桌面端启动的（例如用 wevir host start 启动），桌面端不会替它启动；重新启动它之后会自动连上。',
+  'connection.hostFailed': '后台服务无法启动：{error}',
+  'connection.failed': '无法连接后台服务：{error}',
+  'connection.closed': '与后台服务的连接已关闭：{error}',
+  'connection.closedNoReason': '与后台服务的连接已关闭。',
+  'connection.reconnected': '已重新连接。',
   'connection.logPath': '日志：{path}',
   'connection.copyLogPath': '复制日志路径',
   'connection.logPathCopied': '已复制',
@@ -350,7 +350,7 @@ export const zhCN = {
   'notFound.settingsTab': '没有这个设置页：{tab}',
   'notFound.goHome': '回到首页',
 
-  'connection.failedTitle': '无法连接 Host',
+  'connection.failedTitle': '无法连接后台服务',
 
   'settings.title': '设置',
   'settings.back': '返回',

@@ -8,8 +8,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { type SessionMarker, sessionMarker, type WorkspaceEntry } from '@/data/workbench-model';
-import { useHostConnection } from '@/host/host-connection';
-import { hostIndicator } from '@/host/host-status';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
@@ -18,7 +16,10 @@ const ROW =
   'flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm outline-none ' +
   'hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50';
 
-/** 左栏：标题与收起按钮、“工作区 → 会话”两级树、底部的设置入口与 Host 连接状态。 */
+/**
+ * 左栏：标题与收起按钮、“工作区 → 会话”两级树、底部的设置入口。不显示与 Host 的连接状态：连上时什么都不显示，
+ * 断线时只有窗口顶部的连接提示（host/connection-banner.tsx）。
+ */
 export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
   const location = useLocation();
   return (
@@ -61,7 +62,6 @@ export function Sidebar({ onCollapse }: { onCollapse: () => void }) {
           <Settings className="size-4 text-muted-foreground" aria-hidden />
           {t('sidebar.settings')}
         </NavLink>
-        <HostStatus />
       </div>
     </div>
   );
@@ -227,27 +227,5 @@ function SessionRow({
         )
       )}
     </NavLink>
-  );
-}
-
-function HostStatus() {
-  const { view, hostStatus } = useHostConnection();
-  const { tone, pulse, text } = hostIndicator(view, hostStatus);
-  const error =
-    hostStatus?.phase === 'failed'
-      ? hostStatus.error
-      : view.status === 'failed' || view.status === 'closed'
-        ? view.error
-        : undefined;
-  return (
-    <p
-      role="status"
-      data-testid="connection-status"
-      title={error}
-      className="flex h-7 items-center gap-2 px-2 text-xs text-muted-foreground"
-    >
-      <StatusDot tone={tone} pulse={pulse} />
-      <span className="truncate">{text}</span>
-    </p>
   );
 }

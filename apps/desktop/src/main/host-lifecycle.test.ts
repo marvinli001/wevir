@@ -273,7 +273,9 @@ describe('HostLifecycle', () => {
     const { lifecycle: host } = lifecycle(home, { hostArgs: ['--adapter', 'bogus'] });
     const error = await host.start().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(HostStartError);
-    expect((error as Error).message).toMatch(/^Host 启动失败（退出码 2）：wevir-host: --adapter/);
+    expect((error as Error).message).toMatch(
+      /^后台服务启动失败（退出码 2）：wevir-host: --adapter/,
+    );
     // 只尝试一次。
     expect(await host.start().catch((e: unknown) => e)).toBe(error);
     await expect(host.endpoint()).rejects.toThrow((error as Error).message);
@@ -481,7 +483,7 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     expect(phases(statuses)).toEqual(['running', 'restarting:1', 'running']);
     expect(statuses[1]).toMatchObject({
       maxAttempts: 3,
-      reason: expect.stringMatching(/^Host 意外退出/),
+      reason: expect.stringMatching(/^后台服务意外退出/),
     });
     // host.json 还记着旧进程：确认它已退出才拉起。
     expect(logs).toContainEqual(
@@ -536,7 +538,7 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     expect(host.status).toEqual({
       phase: 'failed',
       error: expect.stringMatching(
-        /^Host 意外退出（.+），重新拉起 3 次都没有成功：Host 启动失败（退出码 1）：simulated startup crash$/,
+        /^后台服务意外退出（.+），重新拉起 3 次都没有成功：后台服务启动失败（退出码 1）：simulated startup crash$/,
       ),
       logPath: join(home, 'logs', 'host.log'),
     });

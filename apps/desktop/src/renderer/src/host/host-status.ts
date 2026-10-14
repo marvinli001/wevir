@@ -3,7 +3,7 @@ import { t } from '@/i18n';
 import type { HostProcessStatus } from '../../../shared/desktop-api.js';
 import type { HostConnectionView } from './host-connection';
 
-/** 左栏底部、设置的“关于”里的 Host 状态：圆点与一句话。 */
+/** 设置的“关于”里的连接状态：圆点与一句话。左栏不显示连接状态，断线时只有顶部提示。 */
 export interface HostIndicator {
   tone: StatusTone;
   pulse?: boolean;
