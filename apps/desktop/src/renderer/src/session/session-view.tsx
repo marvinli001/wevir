@@ -17,10 +17,11 @@ import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
 import { Composer, setDraft } from './composer';
 import { historyDigest } from './history-digest';
+import { type ModelChoice, ModelPicker } from './model-picker';
 import { PendingArea } from './pending-area';
 import { RecoveryPanel } from './recovery-panel';
 import { SessionStatus } from './session-status';
-import { sendError, sendText, useProviderChoice, useStartSession } from './start-session';
+import { sendError, sendText, useModelChoice, useStartSession } from './start-session';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 
 /**
@@ -174,6 +175,7 @@ export function SessionView({ session }: { session: Session }) {
           disabled={!client || readOnly !== undefined}
           disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
           status={transcript && <SessionStatus transcript={transcript} />}
+          model={<SessionModelPicker session={session} onError={setNotice} />}
           {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
           {...(pendingEnabled &&
             hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
@@ -183,6 +185,50 @@ export function SessionView({ session }: { session: Session }) {
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * 已有会话的模型与思考力度（U8）：只在会话的 Provider 里换，经 `session.configure`（0.9.0）从下一个回合起生效；Host 不支持
+ * （没有 `session_configure`）或会话只读、是子会话时只显示。会话的新值经 `session.configured` 回到列表（workbench-store）。
+ */
+function SessionModelPicker({
+  session,
+  onError,
+}: {
+  session: Session;
+  onError: (message: string) => void;
+}) {
+  const { client, view } = useHostConnection();
+  const data = useWorkbenchData();
+  const providers = data.status === 'ready' ? data.providers : [];
+  const supported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'session_configure');
+  const value: ModelChoice = {
+    providerId: session.providerId,
+    modelId: session.modelId,
+    ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+  };
+  const configure = async (next: ModelChoice) => {
+    if (!client) return;
+    try {
+      await client.request('session.configure', {
+        sessionId: session.id,
+        modelId: next.modelId,
+        reasoningEffort: next.reasoningEffort ?? null,
+      });
+    } catch (error) {
+      onError(t('model.configureFailed', { error: describe(error) }));
+    }
+  };
+  return (
+    <ModelPicker
+      providers={providers}
+      value={value}
+      lockProvider
+      readOnly={!supported || !client || session.readOnly !== undefined}
+      onChange={(next) => void configure(next)}
+    />
   );
 }
 
@@ -214,7 +260,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const navigate = useNavigate();
   const location = useLocation();
   const origin = draftOrigin(location.state);
-  const { providers, providerId, choose: setProviderId } = useProviderChoice(origin?.providerId);
+  const { providers, choice, choose } = useModelChoice(origin?.providerId);
 
   const workspaceId = entry.workspace.id;
   // 草稿页打开的窗格跟着搬到新会话（desktop-layout.md §2.2）。
@@ -222,7 +268,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     (session: Session) => movePaneScope(draftScopeKey(workspaceId), session.id),
     [workspaceId],
   );
-  const { start: send, error } = useStartSession(workspaceId, providerId, movePanes);
+  const { start: send, error } = useStartSession(workspaceId, choice, movePanes);
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
@@ -279,43 +325,29 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
           key={workspaceId}
           draftKey={newSessionDraftKey(workspaceId)}
           state="idle"
-          disabled={!client || !providerId}
+          disabled={!client || !choice}
           onSend={(text) => send(text)}
+          model={
+            providers &&
+            choice && <ModelPicker providers={providers} value={choice} onChange={choose} />
+          }
           onStop={() => {}}
           autoFocus
           toolbar={
-            <>
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                {t('session.workspace')}
-                <select
-                  className={selectClass}
-                  value={workspaceId}
-                  onChange={(event) => navigate(paths.draft(event.target.value))}
-                >
-                  {workspaces.map(({ workspace }) => (
-                    <option key={workspace.id} value={workspace.id}>
-                      {workspace.displayName}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {providers && providers.length > 0 && (
-                <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {t('session.provider')}
-                  <select
-                    className={selectClass}
-                    value={providerId}
-                    onChange={(event) => setProviderId(event.target.value)}
-                  >
-                    {providers.map((provider) => (
-                      <option key={provider.id} value={provider.id}>
-                        {provider.displayName} · {provider.defaultModelId}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              {t('session.workspace')}
+              <select
+                className={selectClass}
+                value={workspaceId}
+                onChange={(event) => navigate(paths.draft(event.target.value))}
+              >
+                {workspaces.map(({ workspace }) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
           }
         />
       </div>

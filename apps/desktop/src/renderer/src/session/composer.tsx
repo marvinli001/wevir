@@ -42,6 +42,7 @@ export function Composer({
   disabledReason,
   status,
   toolbar,
+  model,
   busyDelivery,
   onBusyDeliveryChange,
   onSend,
@@ -58,8 +59,10 @@ export function Composer({
   disabledReason?: string;
   /** 底栏左侧：会话状态。 */
   status?: ReactNode;
-  /** 输入框上方一行：新会话的工作区与模型选择。 */
+  /** 输入框上方一行：新会话的项目选择。 */
   toolbar?: ReactNode;
+  /** 底栏右侧、发送按钮左边：模型与思考力度（U8，session/model-picker.tsx）。 */
+  model?: ReactNode;
   /** 回合进行中按发送的方式（R11）；省略表示回合进行中不能发送。 */
   busyDelivery?: PendingDelivery;
   /** 改“回合进行中按回车”（Host 设置）；给了才显示切换。 */
@@ -181,13 +184,6 @@ export function Composer({
         />
         <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
           <div className="min-w-0 flex-1 text-xs">{status}</div>
-          <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-            {!busy
-              ? t('session.composerHint')
-              : busyDelivery === undefined
-                ? t('session.stopHint')
-                : t(`session.busyHint.${busyDelivery}`)}
-          </span>
           {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
             <DeliverySwitch
               value={busyDelivery}
@@ -195,6 +191,7 @@ export function Composer({
               onChange={onBusyDeliveryChange}
             />
           )}
+          {model}
           <ComposerButton
             action={action}
             // 金属只在“能做点什么”时流动：有字可发、或回合进行中（停止）。空着的输入框停在静帧。

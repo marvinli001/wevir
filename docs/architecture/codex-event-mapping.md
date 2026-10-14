@@ -164,6 +164,15 @@ Host 在第一个回合开始后调用（规则与提示词在 prompts/README.md
 - **送达。** Codex 在下一次采样之前把待处理输入记进对话：发 `item/started` 与 `item/completed` 的 userMessage，`clientId` 就是 `clientUserMessageId`。适配器在 `item/completed` 时报 `turn.steered {steerId}`（终端界面同样以它确认，`tui/src/app/app_server_events.rs`）；回合的第一条 userMessage（`turn/start` 的输入）没有我们给的 `clientId`，照旧不上报（`mapping.ts` 的 `SILENT_ITEMS`）。一次采样结束、还有待处理输入时，回合接着再采样（`core/src/tasks/regular.rs`），所以插话总在当前这一步（模型这一段输出，或这批工具调用与结果）之后。
 - **回合结束时没用上的。** 回合以错误结束时，Codex 在任务结束时把剩下的待处理输入照样记进对话（`core/src/tasks/mod.rs`，`take_pending_input_for_turn_state` 之后 `run_hooks_and_record_inputs`），适配器照样报 `turn.steered`；被中断（`turn/interrupt`）的回合丢掉它们，不报，Host 按“回合结束时还没插进去”处理。
 
+### 4.6 换模型与推理档位（0.9.0，U8）
+
+`configureSession(engineSessionId, {modelId, reasoningEffort?})`（host-api.md §3.1 的 `session.configure`）：
+
+- **记在会话上，下一个 `turn/start` 带上。** 锁定版本的 `TurnStartParams` 有稳定字段 `model` 与 `effort`，含义是“这个回合及之后”（`app-server-protocol/src/protocol/v2/turn.rs`）。适配器按会话的 Provider 找到模型（`#route`，Provider 没有这个模型报 `invalid_input`），之后每个 `turn/start` 都带 `model` 与 `effort`：进程重启、`thread/resume` 之后 thread 的设置回到 `thread/start` 时的值，所以每次都带，不只带一次。没给档位时 `effort` 是 `null`（不覆盖，沿用 thread 的设置）。
+- **不重渲染基础提示词。** `baseInstructions` 是 `thread/start` 时按原模型渲染的（§3），换模型不改它；模型目录里每个 Provider 的模型都有条目，Codex 按新模型的条目取上下文大小、推理档位与工具类型。事件映射的上下文大小跟着换（`CodexEventMapper` 的 `contextSize`）。
+- **子会话** 由父 agent 驱动，报 `invalid_input`。
+- 验证：`codex-adapter.configure.test.ts`（假 app-server 记下的 `turn/start`）与 `codex-adapter.turn.integration.test.ts`（真实二进制 + 网关 + mock 模型：换了之后的请求是新模型与新档位）。
+
 ## 5. Provider
 
 ### 5.1 网关实例与令牌

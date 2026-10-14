@@ -44,6 +44,8 @@ export const HOST_FEATURES = {
   pendingMessages: 'pending_messages',
   /** Host 设置（0.8.0）：`settings.get` / `settings.update` 与 `settings.updated` 通知。 */
   hostSettings: 'host_settings',
+  /** 换会话的模型与推理档位（0.9.0）：`session.configure` 与 `session.configured` 事件。取决于引擎（Codex 有）。 */
+  sessionConfigure: 'session_configure',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -51,6 +53,7 @@ export const HostFeaturesSchema = z.looseObject({
   chatgpt_account: z.boolean().optional(),
   pending_messages: z.boolean().optional(),
   host_settings: z.boolean().optional(),
+  session_configure: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

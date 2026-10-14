@@ -80,6 +80,18 @@ describe('sessions', () => {
     expect(() => s.sessions.update('ses_01', {})).toThrow(TypeError);
   });
 
+  it('换模型与推理档位（0.9.0）：null 清掉推理档位', () => {
+    const s = storage();
+    seedSession(s);
+    s.sessions.update('ses_01', { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' });
+    expect(s.sessions.get('ses_01')).toMatchObject({
+      modelId: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+    });
+    s.sessions.update('ses_01', { reasoningEffort: null });
+    expect(s.sessions.get('ses_01')?.reasoningEffort).toBeUndefined();
+  });
+
   it('列表按更新时间倒序，默认隐藏已移除工作区的会话，可按工作区过滤', () => {
     const s = storage();
     s.workspaces.insert(workspace({ id: 'ws_a', rootPath: '/a' }));

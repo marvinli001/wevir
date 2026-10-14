@@ -131,15 +131,16 @@ export function TranscriptView({
       </section>
       {!sticky && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
-          <Button
-            variant="outline"
-            size="sm"
-            className="pointer-events-auto rounded-full shadow-md"
+          <button
+            type="button"
+            aria-label={t('transcript.jumpToLatest')}
+            title={t('transcript.jumpToLatest')}
             onClick={() => jumpToLatest('smooth')}
+            data-action="jump-to-latest"
+            className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none transition-[color,background-color,transform] duration-150 animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-95"
           >
-            <ArrowDown data-icon="inline-start" />
-            {t('transcript.jumpToLatest')}
-          </Button>
+            <ArrowDown aria-hidden className="size-4" />
+          </button>
         </div>
       )}
     </div>

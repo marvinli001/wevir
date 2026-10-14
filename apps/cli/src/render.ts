@@ -114,6 +114,7 @@ export class EventRenderer {
     switch (event.type) {
       case 'session.created':
       case 'session.title_changed':
+      case 'session.configured':
       case 'turn.started':
       case 'tool.updated':
       case 'usage.updated':

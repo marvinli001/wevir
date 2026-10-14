@@ -2141,3 +2141,93 @@ async function* withCodexRaw(source: AsyncIterable<AgentEvent>, engineSessionId:
     yield event;
   }
 }
+
+describe('SessionManager：换模型与推理档位（0.9.0）', () => {
+  it('交给引擎再写 session.configured；快照与 sessions 表跟着变；值没变不写', async () => {
+    const h = setup();
+    const id = await create(h);
+    const spy = vi.spyOn(h.adapter, 'configureSession');
+
+    const session = await h.manager.configure({
+      sessionId: id,
+      modelId: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+    });
+    expect(session).toMatchObject({ modelId: 'deepseek-v4-pro', reasoningEffort: 'high' });
+    expect(spy).toHaveBeenCalledWith(session.engine.sessionId, {
+      modelId: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+    });
+    expect(ofType(h, id, 'session.configured').map((e) => e.payload)).toEqual([
+      { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' },
+    ]);
+    expect(h.storage.sessions.get(id)).toMatchObject({
+      modelId: 'deepseek-v4-pro',
+      reasoningEffort: 'high',
+    });
+
+    await h.manager.configure({ sessionId: id, reasoningEffort: 'high' });
+    expect(ofType(h, id, 'session.configured')).toHaveLength(1);
+
+    // 只给档位：模型不变；null 清掉档位。
+    await h.manager.configure({ sessionId: id, reasoningEffort: 'max' });
+    const cleared = await h.manager.configure({ sessionId: id, reasoningEffort: null });
+    expect(cleared.modelId).toBe('deepseek-v4-pro');
+    expect(cleared.reasoningEffort).toBeUndefined();
+    expect(h.storage.sessions.get(id)?.reasoningEffort).toBeUndefined();
+  });
+
+  it('换了模型而没给档位时清掉档位；回合进行中也能换，下一个回合起生效', async () => {
+    const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 30 }) });
+    const { id } = await h.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'deepseek-official',
+      reasoningEffort: 'high',
+    });
+    await send(h, id, 'slow');
+    expect(state(h, id)).toBe('running');
+    const session = await h.manager.configure({ sessionId: id, modelId: 'deepseek-flash' });
+    expect(session).toMatchObject({ modelId: 'deepseek-flash', state: 'running' });
+    expect(session.reasoningEffort).toBeUndefined();
+    await waitForState(h, id, 'idle');
+  });
+
+  it('Host 重启后引擎会话没挂上：只记下新值，resume 时交给引擎', async () => {
+    const first = setup();
+    const id = await create(first);
+    const { h } = restart(first);
+    const spy = vi.spyOn(h.adapter, 'configureSession');
+    const session = await h.manager.configure({ sessionId: id, modelId: 'deepseek-v4-pro' });
+    expect(session.modelId).toBe('deepseek-v4-pro');
+    expect(spy).not.toHaveBeenCalled();
+    expect(h.storage.sessions.get(id)?.modelId).toBe('deepseek-v4-pro');
+  });
+
+  it('Provider 列了模型时只能在其中换；引擎不支持时回 ENGINE_ERROR', async () => {
+    const h = setup();
+    h.storage.providers.insert({
+      id: 'local',
+      kind: 'openai-compatible',
+      displayName: 'Local',
+      api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:11434/v1',
+      models: [{ id: 'a' }, { id: 'b' }],
+      defaultModelId: 'a',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const { id } = await h.manager.create({ workspaceId: 'ws_1', providerId: 'local' });
+    await expect(h.manager.configure({ sessionId: id, modelId: 'c' })).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+    });
+    expect((await h.manager.configure({ sessionId: id, modelId: 'b' })).modelId).toBe('b');
+
+    const adapter = new EchoAdapter({ stepDelayMs: 1 });
+    Object.defineProperty(adapter, 'configureSession', { value: undefined });
+    const other = setup({ adapter });
+    const otherId = await create(other);
+    await expect(
+      other.manager.configure({ sessionId: otherId, modelId: 'x' }),
+    ).rejects.toMatchObject({ code: 'ENGINE_ERROR' });
+  });
+});

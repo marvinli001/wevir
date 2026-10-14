@@ -358,6 +358,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return snapshot;
     },
 
+    'session.configure': async (params) => ({ session: await sessions.configure(params) }),
+
     'session.send': (params, { client }) => sessions.send(params, client),
 
     'session.cancel': async ({ sessionId }) => {

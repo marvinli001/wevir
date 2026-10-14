@@ -15,6 +15,8 @@ function describeEvent(event: WevirEvent): string {
   switch (event.type) {
     case 'session.created':
       return event.payload.cwd;
+    case 'session.configured':
+      return event.payload.modelId;
     case 'session.title_changed':
       return event.payload.title;
     case 'session.resumed':

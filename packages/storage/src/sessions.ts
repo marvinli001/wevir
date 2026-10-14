@@ -15,8 +15,9 @@ export interface SessionErrorRecord {
 }
 
 /**
- * `sessions` 表的一行。身份字段（`id` 到 `parentToolCallId`）创建后不变；`title` 之后是由事件推导的
- * 缓存，与事件不一致时以事件为准（domain-model §3.3）。
+ * `sessions` 表的一行。身份字段（`id` 到 `parentToolCallId`）创建后不变，`modelId` 与 `reasoningEffort` 除外：0.9.0 起
+ * 可由 `session.configured` 事件改，同 `title` 之后的列一样是由事件推导的缓存，与事件不一致时以事件为准
+ * （domain-model §3.3）。
  */
 export interface SessionRecord {
   id: string;
@@ -44,8 +45,10 @@ export interface SessionRecord {
   updatedAt: string;
 }
 
-/** 可更新的缓存字段。`activeTurn`、`lastError` 传 `null` 表示清空。 */
+/** 可更新的缓存字段。`activeTurn`、`lastError`、`reasoningEffort` 传 `null` 表示清空。 */
 export interface SessionCachePatch {
+  modelId?: string;
+  reasoningEffort?: string | null;
   title?: string;
   titleSource?: string;
   state?: string;
@@ -81,6 +84,8 @@ export interface SessionRepository {
 
 // SessionCachePatch 字段 → 列名。update() 只拼接这里列出的列，不接受任意键。
 const PATCH_COLUMNS = {
+  modelId: 'model_id',
+  reasoningEffort: 'reasoning_effort',
   title: 'title',
   titleSource: 'title_source',
   state: 'state',
@@ -173,7 +178,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         params[key] =
           key === 'activeTurn' || key === 'lastError'
             ? toNullableJson(value)
-            : (value as string | number);
+            : (value as string | number | null);
       }
       if (sets.length === 0) throw new TypeError('SessionCachePatch 至少要有一个字段');
       return changed(

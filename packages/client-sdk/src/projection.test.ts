@@ -498,6 +498,17 @@ describe('applySessionEvent', () => {
     expect(base.state).toBe('idle');
   });
 
+  it('换模型与推理档位（0.9.0）：没给档位时清掉', () => {
+    const { list, add } = events();
+    add('session.configured', { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' });
+    const configured = list.reduce(applySessionEvent, base);
+    expect(configured).toMatchObject({ modelId: 'deepseek-v4-pro', reasoningEffort: 'high' });
+    add('session.configured', { modelId: 'deepseek-chat' });
+    const cleared = list.reduce(applySessionEvent, base);
+    expect(cleared.modelId).toBe('deepseek-chat');
+    expect(cleared.reasoningEffort).toBeUndefined();
+  });
+
   it('已应用的 seq 与别的会话的事件原样返回', () => {
     const { list } = events();
     expect(applySessionEvent(base, list[0] as WevirEvent)).toBe(base);

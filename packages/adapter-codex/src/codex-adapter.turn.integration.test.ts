@@ -127,6 +127,25 @@ describe.skipIf(binary === undefined)(
       expect(turn.at(-1)).toMatchObject({ type: 'turn.failed', category: 'provider' });
     });
 
+    it('会话中换模型与推理档位（0.9.0）：之后的请求用新模型与新档位', async () => {
+      const { adapter, id, events } = await open({
+        models: [
+          { id: MOCK_MODEL, contextWindow: 128_000, reasoningEfforts: ['low', 'high'] },
+          { id: 'mock-large', contextWindow: 256_000, reasoningEfforts: ['low', 'high'] },
+        ],
+      });
+      script = () => ({ text: ['ok'] });
+      await runTurn(adapter, id, 'one', events);
+      expect(mock.requests.at(-1)?.body).toMatchObject({ model: MOCK_MODEL });
+      await adapter.configureSession(id, { modelId: 'mock-large', reasoningEffort: 'high' });
+      const turn = await runTurn(adapter, id, 'two', events);
+      expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      expect(mock.requests.at(-1)?.body).toMatchObject({
+        model: 'mock-large',
+        reasoning: { effort: 'high' },
+      });
+    });
+
     it('标题（经网关）：一次不带工具的请求，说明在 instructions，推理档位取最低，返回模型的文本', async () => {
       const { adapter, id } = await open({
         models: [

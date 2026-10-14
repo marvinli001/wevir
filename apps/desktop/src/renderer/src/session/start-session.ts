@@ -1,13 +1,15 @@
 // 发消息与新建会话（U4 从 session-view.tsx 抽出）：新会话草稿页与首页的大输入框共用同一套建会话的流程。
 
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
-import type { PendingDelivery, Session, WorkspaceId } from '@wevir/protocol';
+import type { PendingDelivery, ProviderProfile, Session, WorkspaceId } from '@wevir/protocol';
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { createPersistedStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
+import { type ModelChoice, modelsOf } from './model-picker';
 
 export async function sendText(
   client: WevirClient,
@@ -31,16 +33,64 @@ export function sendError(error: unknown): string {
   return t('session.sendFailed', { error: describe(error) });
 }
 
+/** 上次新建会话用的模型（U8）：本机记住，下次首页与草稿页默认用它。 */
+const lastChoice = createPersistedStore<ModelChoice | null>(
+  'wevir.model-choice.v1',
+  null,
+  (raw) => {
+    if (raw === null) return null;
+    if (typeof raw !== 'object') return undefined;
+    const { providerId, modelId, reasoningEffort } = raw as Record<string, unknown>;
+    if (typeof providerId !== 'string' || typeof modelId !== 'string') return undefined;
+    return {
+      providerId,
+      modelId,
+      ...(typeof reasoningEffort === 'string' && { reasoningEffort }),
+    };
+  },
+);
+
 /**
- * 新会话用哪个 Provider：选过的还在列表里就用它，否则用第一个。Provider 列表随工作区列表一起读（workbench-store.ts），
- * 设置页改了之后跟着变；还没读到时 `providers` 是 undefined。
+ * 记下的选择还能用就用它（Provider 还在、模型还在它的列表里，档位不在模型的档位里时去掉），否则用第一个（或 `preferred`
+ * 指定的）Provider 的默认模型。
  */
-export function useProviderChoice(initial?: string) {
+export function resolveChoice(
+  providers: readonly ProviderProfile[],
+  candidate: ModelChoice | null,
+  preferred?: string,
+): ModelChoice | undefined {
+  const provider =
+    providers.find((p) => p.id === (preferred ?? candidate?.providerId)) ?? providers[0];
+  if (!provider) return undefined;
+  const models = modelsOf(provider);
+  const model =
+    candidate?.providerId === provider.id
+      ? models.find((m) => m.id === candidate.modelId)
+      : undefined;
+  if (!model || !candidate) {
+    return { providerId: provider.id, modelId: provider.defaultModelId };
+  }
+  const effort = candidate.reasoningEffort;
+  return {
+    providerId: provider.id,
+    modelId: model.id,
+    ...(effort !== undefined &&
+      model.reasoningEfforts?.includes(effort as never) && {
+        reasoningEffort: effort,
+      }),
+  };
+}
+
+/**
+ * 新会话用哪个模型（U8 起替代只选 Provider）：Provider 列表随工作区列表一起读（workbench-store.ts），设置页改了之后跟着变；
+ * 还没读到时 `providers` 是 undefined。`preferred`：优先用这个 Provider（基于历史新建时沿用原会话的）。
+ */
+export function useModelChoice(preferred?: string) {
   const data = useWorkbenchData();
-  const [chosen, choose] = useState<string | undefined>(initial);
+  const stored = lastChoice.use();
   const providers = data.status === 'ready' ? data.providers : undefined;
-  const providerId = providers?.some((p) => p.id === chosen) ? chosen : providers?.[0]?.id;
-  return { providers, providerId, choose };
+  const choice = providers && resolveChoice(providers, stored, preferred);
+  return { providers, choice, choose: (next: ModelChoice) => lastChoice.set(next) };
 }
 
 /**
@@ -49,7 +99,7 @@ export function useProviderChoice(initial?: string) {
  */
 export function useStartSession(
   workspaceId: WorkspaceId | undefined,
-  providerId: string | undefined,
+  choice: ModelChoice | undefined,
   onCreated?: (session: Session) => void,
 ) {
   const { client } = useHostConnection();
@@ -61,11 +111,16 @@ export function useStartSession(
     /** `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）。 */
     async (text: string, target: WorkspaceId | undefined = workspaceId): Promise<boolean> => {
       const workspaceId = target;
-      if (!client || !workspaceId || !providerId) return false;
+      if (!client || !workspaceId || !choice) return false;
       setError(undefined);
       let session: Session;
       try {
-        ({ session } = await client.request('session.create', { workspaceId, providerId }));
+        ({ session } = await client.request('session.create', {
+          workspaceId,
+          providerId: choice.providerId,
+          modelId: choice.modelId,
+          ...(choice.reasoningEffort !== undefined && { reasoningEffort: choice.reasoningEffort }),
+        }));
       } catch (reason) {
         setError(t('session.createFailed', { error: describe(reason) }));
         return false;
@@ -81,8 +136,8 @@ export function useStartSession(
       navigate(paths.session(workspaceId, session.id));
       return true;
     },
-    [client, workspaceId, providerId, store, navigate, onCreated],
+    [client, workspaceId, choice, store, navigate, onCreated],
   );
 
-  return { start, error, ready: client !== undefined && providerId !== undefined };
+  return { start, error, ready: client !== undefined && choice !== undefined };
 }

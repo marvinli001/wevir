@@ -1,6 +1,6 @@
-import type { ProviderProfile, Session } from '@wevir/protocol';
+import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronDown, Cpu, FolderPlus, Plus } from 'lucide-react';
+import { ChevronDown, FolderPlus, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { BrandMark } from '@/components/brand-mark';
@@ -22,7 +22,8 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { onboardingDone } from '@/onboarding/onboarding-state';
 import { openCreateProject } from '@/projects/create-project';
 import { Composer, setDraft } from '@/session/composer';
-import { useProviderChoice, useStartSession } from '@/session/start-session';
+import { ModelPicker } from '@/session/model-picker';
+import { useModelChoice, useStartSession } from '@/session/start-session';
 import { formatRelativeTime } from '@/session/subagent-model';
 import { useNow } from '@/session/subagent-view';
 import { homeWorkspace, rememberWorkspace, useLastLocation } from './last-location';
@@ -80,8 +81,8 @@ function Home({
   workspaces: readonly WorkspaceEntry[];
 }) {
   const workspace = entry?.workspace;
-  const { providers, providerId, choose } = useProviderChoice();
-  const { start, error, ready } = useStartSession(workspace?.id, providerId);
+  const { providers, choice, choose } = useModelChoice();
+  const { start, error, ready } = useStartSession(workspace?.id, choice);
   const noProvider = providers !== undefined && providers.length === 0;
 
   // 还没有项目：先建项目（维护者 2026-10-14 定），建好后在它里面接着发。
@@ -122,14 +123,10 @@ function Home({
               ? t('home.placeholder', { workspace: workspace.displayName })
               : t('session.composerPlaceholder')
           }
-          status={
-            noProvider ? (
-              <AddProviderChip />
-            ) : (
-              providers && (
-                <ProviderChip providers={providers} value={providerId} onChange={choose} />
-              )
-            )
+          status={noProvider && <AddProviderChip />}
+          model={
+            providers &&
+            choice && <ModelPicker providers={providers} value={choice} onChange={choose} />
           }
           onSend={send}
           onStop={() => {}}
@@ -209,68 +206,6 @@ function WorkspacePicker({
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-/** 输入框左下角的模型芯片（方向稿 .chip）：新会话用哪个 Provider；只有一个时只显示、不能点。 */
-function ProviderChip({
-  providers,
-  value,
-  onChange,
-}: {
-  providers: readonly ProviderProfile[];
-  value: string | undefined;
-  onChange: (providerId: string) => void;
-}) {
-  const current = providers.find((provider) => provider.id === value);
-  if (!current) return null;
-  const chip =
-    'inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full border border-border px-2.5 text-xs text-soft-foreground';
-  const label = (
-    <>
-      <Cpu aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="truncate">{providerLabel(current)}</span>
-    </>
-  );
-  if (providers.length < 2) {
-    return (
-      <span className={chip} data-testid="home-provider" title={t('session.provider')}>
-        {label}
-      </span>
-    );
-  }
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        data-testid="home-provider"
-        aria-label={t('home.provider', { provider: providerLabel(current) })}
-        className={cn(
-          chip,
-          'outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:bg-muted',
-        )}
-      >
-        {label}
-        <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" className="w-auto max-w-80 min-w-56">
-        <DropdownMenuRadioGroup value={current.id} onValueChange={(id: string) => onChange(id)}>
-          {providers.map((provider) => (
-            <DropdownMenuRadioItem key={provider.id} value={provider.id} closeOnClick>
-              <span className="min-w-0">
-                <span className="block truncate">{provider.displayName}</span>
-                <span className="block truncate font-mono text-xs text-muted-foreground">
-                  {provider.defaultModelId}
-                </span>
-              </span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function providerLabel(provider: ProviderProfile): string {
-  return `${provider.displayName} · ${provider.defaultModelId}`;
 }
 
 /** “接着做”的状态点：出错与左栏一致，其余是运行中 / 待审批 / 空闲。 */

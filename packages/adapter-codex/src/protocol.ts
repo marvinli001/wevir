@@ -154,6 +154,8 @@ export interface TextUserInput {
 export interface TurnStartParams {
   threadId: string;
   input: TextUserInput[];
+  /** 这个回合及之后的模型（会话中换模型，0.9.0）。 */
+  model?: string | null;
   /** 这个回合及之后的推理强度（ReasoningEffort.ts）。 */
   effort?: string | null;
   /** 约束最终助手消息的 JSON Schema（生成标题用）。 */

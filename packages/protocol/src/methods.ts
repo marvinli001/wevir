@@ -241,6 +241,18 @@ export const SessionResultSchema = z.object({
   session: SessionSchema,
 });
 
+/**
+ * 换会话的模型或推理档位（0.9.0，Host 功能 `session_configure`）：从下一个回合起生效，进行中的回合不受影响。只能在会话
+ * 所用 Provider 的模型里换（Provider 列了模型时）；不换 Provider。
+ */
+export const SessionConfigureParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  /** 省略：不改。 */
+  modelId: z.string().min(1).optional(),
+  /** 省略：不改；null：清掉，用模型的默认档位。换了模型而没给它时也清掉。 */
+  reasoningEffort: z.string().min(1).nullable().optional(),
+});
+
 export const SessionListParamsSchema = z.object({
   /** 省略时列出所有未移除工作区的会话。 */
   workspaceId: WorkspaceIdSchema.optional(),
@@ -447,6 +459,11 @@ export const MethodSchemas = {
     params: SessionIdParamsSchema,
     result: SessionSnapshotSchema,
     permission: 'session.read',
+  },
+  'session.configure': {
+    params: SessionConfigureParamsSchema,
+    result: SessionResultSchema,
+    permission: 'session.write',
   },
   'session.send': {
     params: SessionSendParamsSchema,

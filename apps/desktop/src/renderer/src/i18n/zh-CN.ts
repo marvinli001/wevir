@@ -156,12 +156,8 @@ export const zhCN = {
   'session.composerPlaceholder': '描述你要完成的任务…',
   'session.send': '发送',
   'session.stop': '停止',
-  'session.composerHint': 'Enter 发送 · Shift+Enter 换行',
-  'session.stopHint': 'Esc 停止',
   'session.sendSteer': '插话',
   'session.sendQueue': '排队',
-  'session.busyHint.steer': 'Enter 插话 · Tab 排队 · Esc 停止',
-  'session.busyHint.queue': 'Enter 排队 · Tab 插话 · Esc 停止',
 
   'pending.label': '待发消息',
   'pending.group.steer': '插话 · 等这一步结束',
@@ -187,6 +183,15 @@ export const zhCN = {
   'session.createFailed': '创建会话失败：{error}',
   'session.noProvider': '还没有可用的 Provider：先在设置里添加一个模型服务。',
   'session.goProviders': '去设置',
+
+  'model.picker.label': '模型：{model}',
+  'model.picker.select': '选择模型',
+  'model.picker.back': '返回',
+  'model.effort.label': '思考力度',
+  'model.effort.default': '默认',
+  'model.effort.fixed': '固定力度',
+  'model.effort.reset': '恢复默认力度',
+  'model.configureFailed': '切换模型失败：{error}',
 
   'status.idle': '空闲',
   'status.running': '运行中 · {elapsed}',

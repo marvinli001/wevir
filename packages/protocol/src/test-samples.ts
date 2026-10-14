@@ -329,6 +329,10 @@ export const eventPayloads: PayloadSamples = {
     },
     invalid: { reason: 'engine_session_missing', message: 'x' },
   },
+  'session.configured': {
+    valid: { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' },
+    invalid: { modelId: '' },
+  },
   'session.title_changed': {
     valid: { title: '整理本周周报', source: 'first_prompt' },
     invalid: { title: '整理本周周报', source: 'engine' },
@@ -822,6 +826,16 @@ export const methodSamples: MethodSamples = {
       ],
       invalid: [{ session }, { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] }],
     },
+  },
+  'session.configure': {
+    params: {
+      valid: [
+        { sessionId: ids.session, modelId: 'deepseek-v4-pro', reasoningEffort: 'high' },
+        { sessionId: ids.session, reasoningEffort: null },
+      ],
+      invalid: [{ modelId: 'deepseek-v4-pro' }, { sessionId: ids.session, modelId: '' }],
+    },
+    result: { valid: [{ session }], invalid: [{}] },
   },
   'session.send': {
     params: {

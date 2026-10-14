@@ -247,7 +247,7 @@ interface SessionSnapshot {
 | 字段 | 含义 | 创建 | 修改 |
 |---|---|---|---|
 | `id`、`workspaceId`、`cwd`、`engine` | 身份与映射（§1.1） | 会话管理器（T2.3），`session.create` | 不可改 |
-| `providerId`、`modelId`、`reasoningEffort` | 创建时选定；v0 没有中途切换模型的方法（预留 `session.config_changed`，§6.6） | `session.create` | v0 不可改 |
+| `providerId`、`modelId`、`reasoningEffort` | 创建时选定；0.9.0 起 `modelId` 与 `reasoningEffort` 可在会话中换（`session.configure`，引擎支持时，Host 功能 `session_configure`），从下一个回合起生效 | `session.create`；`session.configured`（0.9.0） | `providerId` 不可改；模型只能在同一个 Provider 的模型里换 |
 | `title`、`titleSource` | 首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3）。适配器实现了 `generateTitle` 时（Codex），引擎接受第一个回合后 Host 再用会话的模型生成一次（prompts/thread-title.md，R3）：成功、且那时标题仍是截断的那个才写 `session.title_changed`（`generated`，带 `description` 检索摘要），失败只记告警 | 首个 `user.message` 时 Host 写 `session.title_changed`（`first_prompt`），之后可能再写一条（`generated`） | 用户改名（方法在 T1.2 之后按需加；改过名的会话不再自动生成） |
 | `state`、`activeTurn`、`lastError` | 状态机（§4） | Host | 只由状态机修改 |
 | `readOnly` | 引擎会话恢复不了（§4.4），状态是 `error` 或 `closed` | `session.read_only` | 之后的 `session.resumed` 清除 |
@@ -255,7 +255,7 @@ interface SessionSnapshot {
 
 除身份字段外，`Session` 的其余字段都可以由事件序列推导出来。`sessions` 表存一份缓存供会话列表使用，与事件推导结果不一致时以事件为准（T2.2 的“Host 重启后状态一致”）。
 
-T2.2 定下的推导规则（`packages/host/src/snapshot.ts` 的 `applyEvent`）：`title` / `titleSource` 取最近一条 `session.title_changed`，没有时为空串与 `first_prompt`；`activeTurn` 由 `turn.started` 设置（`startedAt` 是该事件的 `ts`，`clientMessageId` 取同一 `turnId` 的 `user.message`），`turn.finished` 清空；`lastError` 由每条 `engine.error` 覆盖（含回合失败这类不改变状态的错误，界面据此在 `idle` 下显示上次失败原因），状态以 `turn_started` 或 `resumed` 转换时清空；`readOnly` 由 `session.read_only` 设置（`since` 是该事件的 `ts`），`session.resumed` 清空（T3.5）；`subagent` 与 `subagents` 见 §3.3.1（R4）。`sessions` 表的缓存列与 `approvals` 表都是事件的投影，由事件库在写事件的同一事务里更新。
+T2.2 定下的推导规则（`packages/host/src/snapshot.ts` 的 `applyEvent`）：`title` / `titleSource` 取最近一条 `session.title_changed`，没有时为空串与 `first_prompt`；`activeTurn` 由 `turn.started` 设置（`startedAt` 是该事件的 `ts`，`clientMessageId` 取同一 `turnId` 的 `user.message`），`turn.finished` 清空；`lastError` 由每条 `engine.error` 覆盖（含回合失败这类不改变状态的错误，界面据此在 `idle` 下显示上次失败原因），状态以 `turn_started` 或 `resumed` 转换时清空；`readOnly` 由 `session.read_only` 设置（`since` 是该事件的 `ts`），`session.resumed` 清空（T3.5）；`modelId` / `reasoningEffort` 取最近一条 `session.configured`（0.9.0），没有时是建会话时的值，`sessions` 表的同名列跟着更新；`subagent` 与 `subagents` 见 §3.3.1（R4）。`sessions` 表的缓存列与 `approvals` 表都是事件的投影，由事件库在写事件的同一事务里更新。
 
 ### 3.3.1 子会话（0.6.0，R4）
 
@@ -729,6 +729,7 @@ stateDiagram-v2
 | `session.resumed` | host | 引擎会话重新挂上，带引擎版本（0.3.0） | `session.resume`、send 前的自动 resume（§4.4） |
 | `session.read_only` | host | 引擎会话恢复不了，会话只读（0.3.0） | 适配器的 `session_lost`（§4.4） |
 | `session.title_changed` | host | 标题变化 | 首个 `user.message`；用户改名 |
+| `session.configured` | host | 模型或推理档位变了（0.9.0），带改后的全部值，下一个回合起生效 | `session.configure` |
 | `session.state_changed` | host | 状态机转换（§4.1） | Host |
 | `user.message` | host | 用户发出的消息 | `session.send`（ACP 不回发用户消息） |
 | `turn.started` | host | 回合开始 | `session.send` 被接受，Host 发出 `session/prompt` |

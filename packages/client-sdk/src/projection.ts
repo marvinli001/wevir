@@ -317,6 +317,8 @@ export class TranscriptProjection {
       case 'session.title_changed':
         this.#title = event.payload.title;
         return;
+      case 'session.configured':
+        return;
       case 'session.state_changed': {
         const { to, reason } = event.payload;
         this.#state = to;

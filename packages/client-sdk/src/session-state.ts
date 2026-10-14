@@ -41,6 +41,11 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
       break;
+    case 'session.configured':
+      next.modelId = event.payload.modelId;
+      if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;
+      else next.reasoningEffort = event.payload.reasoningEffort;
+      break;
     case 'session.state_changed': {
       next.state = event.payload.to;
       if (event.payload.reason === 'turn_started' || event.payload.reason === 'resumed') {

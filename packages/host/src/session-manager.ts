@@ -780,6 +780,79 @@ export class SessionManager {
   }
 
   /**
+   * `session.configure`（0.9.0）：换模型或推理档位，从下一个回合起生效，进行中的回合不受影响。`modelId` 要在会话所用
+   * Provider 的模型列表里（Provider 列了模型时）；`reasoningEffort` 为 null、或换了模型而没给时清掉。值变了时先交给引擎
+   * （引擎会话没挂着时不交，之后 resume 的配置里就是新的值），再写 `session.configured`。子会话与只读会话回
+   * `INVALID_STATE`；引擎不支持时回 `ENGINE_ERROR`。
+   */
+  async configure(params: MethodParams<'session.configure'>): Promise<Session> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    const configureSession = this.#adapter.configureSession?.bind(this.#adapter);
+    if (configureSession === undefined) {
+      const message =
+        'this host engine cannot change the model of a session (use the Codex engine)';
+      throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
+    }
+    return this.#serial(runtime, async () => {
+      const { session } = this.#snapshot(runtime);
+      if (session.readOnly !== undefined) {
+        throw new HostError('INVALID_STATE', 'session is read-only', {
+          state: session.state,
+          readOnly: session.readOnly,
+        });
+      }
+      const modelId = params.modelId ?? session.modelId;
+      const models = (this.#storage.providers.get(session.providerId)?.models ?? []) as {
+        id: string;
+      }[];
+      if (models.length > 0 && !models.some((model) => model.id === modelId)) {
+        throw new HostError('INVALID_PARAMS', `provider has no model ${modelId}`, {
+          issues: [
+            {
+              path: ['modelId'],
+              message: `provider ${session.providerId} has no model ${modelId}`,
+            },
+          ],
+        });
+      }
+      const reasoningEffort =
+        params.reasoningEffort === null
+          ? undefined
+          : (params.reasoningEffort ??
+            (modelId === session.modelId ? session.reasoningEffort : undefined));
+      if (modelId === session.modelId && reasoningEffort === session.reasoningEffort) {
+        return session;
+      }
+      if (runtime.attachment) {
+        try {
+          await configureSession(runtime.engineSessionId, {
+            modelId,
+            ...(reasoningEffort !== undefined && { reasoningEffort }),
+          });
+        } catch (error) {
+          if (isAdapterError(error, 'invalid_input')) {
+            throw new HostError('INVALID_PARAMS', errorText(error), {
+              issues: [{ path: ['modelId'], message: errorText(error) }],
+            });
+          }
+          const info = engineErrorInfo(error, 'unknown');
+          throw new HostError('ENGINE_ERROR', info.message, info);
+        }
+      }
+      this.#write(runtime, [
+        {
+          type: 'session.configured',
+          source: 'host',
+          payload: { modelId, ...(reasoningEffort !== undefined && { reasoningEffort }) },
+        },
+      ]);
+      return this.#snapshot(runtime).session;
+    });
+  }
+
+  /**
    * `session.close`。活动中先按 #5 取消（审批原因 `session_closed`）并等结算（#8 / #9），然后关闭引擎
    * 会话、转 `closed`（#13、#14）。引擎关闭失败不阻止关闭，记一条 `engine.error`。已关闭时成功、
    * 无操作。

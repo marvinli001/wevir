@@ -52,6 +52,7 @@ import {
   renderConfigToml,
   renderModelCatalog,
   threadConfig,
+  toCodexEffort,
   writeCodexConfig,
 } from './config.js';
 import { buildCodexEnv } from './env.js';
@@ -203,7 +204,13 @@ interface CodexSession {
   readonly id: string;
   readonly cwd: string;
   readonly providerId: string;
-  readonly model: ProviderModelConfig;
+  /** `configureSession`（0.9.0）可以换。 */
+  model: ProviderModelConfig;
+  /**
+   * 会话中换过模型或推理档位（0.9.0）：之后每个 `turn/start` 都带上（Codex 对这个回合及之后生效，进程重启、resume 后
+   * 照样要带）。
+   */
+  override?: { model: string; effort: string | null };
   /** 子会话（子 agent 的 thread）的父会话（R4）。 */
   readonly parentId?: string;
   /** open：挂在当前进程上；closed：已 close；detached：进程退出或重启后脱开（`resumeSession` 接回）。 */
@@ -593,6 +600,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const params: TurnStartParams = {
       threadId: engineSessionId,
       input: input.content.map((part) => ({ type: 'text', text: part.text, text_elements: [] })),
+      ...(session.override && { model: session.override.model, effort: session.override.effort }),
     };
     let response: TurnStartResponse;
     try {
@@ -607,6 +615,32 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     turn.turnId = response.turn.id;
     if (turn.cancelRequested && session.turn === turn) this.#interrupt(session, turn);
+  }
+
+  /**
+   * 换模型或推理档位（0.9.0，codex-event-mapping.md §4.6）：记在会话上，之后每个 `turn/start` 带 `model` 与 `effort`
+   * （Codex 的这两个字段对这个回合及之后都生效）。基础提示词是 `thread/start` 时按原来的模型渲染的，不重渲染。没给档位时
+   * `effort` 是 null（不覆盖，沿用 thread 的设置）。
+   */
+  async configureSession(
+    engineSessionId: string,
+    config: { modelId: string; reasoningEffort?: string },
+  ): Promise<void> {
+    this.#assertUsable();
+    const session = this.#session(engineSessionId);
+    if (session.parentId !== undefined) {
+      throw new AdapterError('invalid_input', '子会话由父 agent 驱动，不能换模型');
+    }
+    const { model } = this.#route({
+      cwd: session.cwd,
+      providerId: session.providerId,
+      modelId: config.modelId,
+    });
+    session.model = model;
+    session.override = {
+      model: model.id,
+      effort: config.reasoningEffort === undefined ? null : toCodexEffort(config.reasoningEffort),
+    };
   }
 
   /**
@@ -1507,7 +1541,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       model,
       status: 'open',
       hub: new EventHub<AgentEvent>(),
-      mapper: new CodexEventMapper(id, { contextSize: () => model.contextWindow }),
+      // 换了模型（0.9.0）后用新模型的上下文大小。
+      mapper: new CodexEventMapper(id, {
+        contextSize: () => this.#sessions.get(id)?.model.contextWindow ?? model.contextWindow,
+      }),
       approvals: new Map(),
       collab: new Map(),
     });

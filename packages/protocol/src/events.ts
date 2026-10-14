@@ -95,6 +95,14 @@ export const EventPayloadSchemas = {
     /** 模型生成标题时一并给出的检索摘要（0.5.0）；留给以后的会话搜索。 */
     description: z.string().optional(),
   }),
+  /**
+   * 会话的模型或推理档位改了（0.9.0，`session.configure`），带改后的全部值；从下一个回合起生效。没有 `reasoningEffort`
+   * 表示用模型的默认档位。
+   */
+  'session.configured': z.object({
+    modelId: z.string().min(1),
+    reasoningEffort: z.string().optional(),
+  }),
   'session.state_changed': z.object({
     from: SessionStateSchema,
     to: SessionStateSchema,
@@ -276,6 +284,7 @@ export const SessionCreatedEventSchema = eventSchema('session.created');
 export const SessionResumedEventSchema = eventSchema('session.resumed');
 export const SessionReadOnlyEventSchema = eventSchema('session.read_only');
 export const SessionTitleChangedEventSchema = eventSchema('session.title_changed');
+export const SessionConfiguredEventSchema = eventSchema('session.configured');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
 export const UserMessageEventSchema = eventSchema('user.message');
 export const TurnStartedEventSchema = eventSchema('turn.started');
@@ -305,6 +314,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionResumedEventSchema,
   SessionReadOnlyEventSchema,
   SessionTitleChangedEventSchema,
+  SessionConfiguredEventSchema,
   SessionStateChangedEventSchema,
   UserMessageEventSchema,
   TurnStartedEventSchema,

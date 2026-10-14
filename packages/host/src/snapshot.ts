@@ -37,6 +37,10 @@ export interface SessionProjection {
   readonly state: SessionState;
   readonly title: string;
   readonly titleSource: TitleSource;
+  /**
+   * 最近一次 `session.configured`（0.9.0）带来的模型与推理档位；没有时用 `sessions` 表里建会话时的值。
+   */
+  readonly model?: { readonly modelId: string; readonly reasoningEffort?: string };
   readonly activeTurn?: ActiveTurn;
   readonly lastError?: EngineErrorInfo;
   /** 引擎会话恢复不了（T3.5）：`session.read_only` 设置，`session.resumed` 清除。 */
@@ -154,6 +158,14 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     case 'session.title_changed':
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
+      break;
+    case 'session.configured':
+      next.model = {
+        modelId: event.payload.modelId,
+        ...(event.payload.reasoningEffort !== undefined && {
+          reasoningEffort: event.payload.reasoningEffort,
+        }),
+      };
       break;
     case 'session.state_changed': {
       next.state = event.payload.to;
@@ -373,7 +385,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     cwd: record.cwd,
     engine: { kind: record.engine, sessionId: record.engineSessionId },
     providerId: record.providerId,
-    modelId: record.modelId,
+    modelId: projection.model?.modelId ?? record.modelId,
     title: projection.title,
     titleSource: projection.titleSource,
     state: projection.state,
@@ -381,7 +393,10 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     updatedAt: projection.updatedAt ?? record.updatedAt,
     lastSeq: projection.lastSeq,
   };
-  if (record.reasoningEffort !== undefined) session.reasoningEffort = record.reasoningEffort;
+  const reasoningEffort = projection.model
+    ? projection.model.reasoningEffort
+    : record.reasoningEffort;
+  if (reasoningEffort !== undefined) session.reasoningEffort = reasoningEffort;
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
@@ -412,5 +427,9 @@ export function toCachePatch(projection: SessionProjection): SessionCachePatch {
     lastSeq: projection.lastSeq,
   };
   if (projection.updatedAt !== undefined) patch.updatedAt = projection.updatedAt;
+  if (projection.model) {
+    patch.modelId = projection.model.modelId;
+    patch.reasoningEffort = projection.model.reasoningEffort ?? null;
+  }
   return patch;
 }

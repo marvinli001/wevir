@@ -76,7 +76,8 @@ interface EchoTurn {
 
 interface EchoSession {
   readonly id: string;
-  readonly config: SessionConfig;
+  /** 模型与推理档位可由 `configureSession` 改（0.9.0），下一个回合起生效。 */
+  config: SessionConfig;
   /** 子会话的父会话（`subagent` 关键词派出的）。 */
   readonly parentId?: string;
   status: 'open' | 'closed' | 'detached';
@@ -214,6 +215,23 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('steer_rejected', 'no active turn to steer');
     }
     turn.steers.push({ steerId, text: input.content.map((part) => part.text).join('\n') });
+  }
+
+  async configureSession(
+    engineSessionId: string,
+    config: { modelId: string; reasoningEffort?: string },
+  ): Promise<void> {
+    this.#assertUsable();
+    const session = this.#session(engineSessionId);
+    if (session.parentId !== undefined) {
+      throw new AdapterError('invalid_input', 'a sub-agent session is driven by its parent agent');
+    }
+    const { reasoningEffort: _previous, ...rest } = session.config;
+    session.config = {
+      ...rest,
+      modelId: config.modelId,
+      ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
+    };
   }
 
   async respondToApproval(
