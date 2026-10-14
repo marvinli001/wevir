@@ -4,22 +4,22 @@
 
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
-import { describe, expect, it } from 'vitest';
 import {
   type AcpSessionNotification,
   type AcpSessionUpdate,
   isAcpSessionNotification,
-  mapAcpUpdate,
-  sessionConfigInfo,
-} from './acp-mapping.js';
+  type TurnErrorCategory,
+} from '@wevir/adapter-acp';
+import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
+import { describe, expect, it } from 'vitest';
 import {
   fixtureFiles,
   readFixture,
   readTranscript,
   replayTranscript,
 } from './test-fixtures/acp-fixtures.js';
-import { classifyTurnError, type TurnErrorCategory } from './turn-error.js';
+import { mapAcpUpdate, sessionConfigInfo } from './test-fixtures/dsh-mapping.js';
+import { classifyTurnError } from './turn-error.js';
 
 const FILES = fixtureFiles();
 const UPDATES = FILES.filter((f) => f.startsWith('mock/updates/'));

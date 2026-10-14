@@ -8,12 +8,12 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { TurnErrorCategory } from '@wevir/adapter-acp';
 import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DshAdapter } from './dsh-adapter.js';
 import { readFixture } from './test-fixtures/acp-fixtures.js';
 import { MOCK_KEY, MOCK_KEY_ENV, MOCK_MODEL } from './test-fixtures/mock-model.js';
-import type { TurnErrorCategory } from './turn-error.js';
 
 const cleanups: Array<() => unknown> = [];
 afterEach(async () => {

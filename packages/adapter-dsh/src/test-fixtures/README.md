@@ -11,6 +11,7 @@
 | `acp/` | ACP 样本，见下 |
 | `stream-tap/frames.sample.json` | stream-tap 旁路帧的抽样（`spikes/dsh-acp/fixtures/stream-tap/mock/`，T0.3） |
 | `acp-fixtures.ts` | 读样本、按 DshAdapter 的路径回放录制的工具 |
+| `dsh-mapping.ts` | 绑上 `DSH_ENGINE` 的通用映射（`mapAcpUpdate`、`sessionConfigInfo`）与会话队列（`SessionEventQueue`，`streamTap` 是通用队列的 `incremental`）：DshAdapter 经 `@wevir/adapter-acp` 的 `AcpAdapter` 用的是同一份配置，这里给直接回放样本的测试用（R7） |
 
 ## `acp/`
 

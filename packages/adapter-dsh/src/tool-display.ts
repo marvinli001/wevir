@@ -3,7 +3,7 @@ import type { TodoItem, ToolDisplay, ToolDisplayKind } from '@wevir/runtime-adap
 // dsh 工具名 → 展示类型（domain-model.md §7）。dsh 的 ACP `tool_call.kind` 恒为 `other`，没有 `locations`
 // 与 `diff`（T0.3 §3.3），界面要的类型与路径只能按工具名（`tool_call.title`）从 `rawInput` 里取。
 // 字段名对照上游 `d743267` 的工具定义；本表与 docs/architecture/acp-event-mapping.md 的「工具名 → 展示类型」
-// 一致，由 acp-event-mapping.test.ts 检查。
+// 一致，由 acp-event-mapping.test.ts 检查。它是 dsh 引擎描述的工具展示（engine.ts 的 `DSH_ENGINE.tools`）。
 
 type Fields = Omit<ToolDisplay, 'kind'>;
 type Extract = (input: Record<string, unknown>) => Fields;
@@ -146,6 +146,6 @@ function nonEmptyString(value: unknown): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

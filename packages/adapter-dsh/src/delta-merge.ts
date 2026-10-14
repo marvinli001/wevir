@@ -1,3 +1,4 @@
+import type { IncrementalMerger } from '@wevir/adapter-acp';
 import type {
   AssistantDeltaEvent,
   AssistantStreamEndedEvent,
@@ -48,7 +49,7 @@ interface Orphan {
   text: string;
 }
 
-export class DeltaMerger {
+export class DeltaMerger implements IncrementalMerger {
   #attempts = new Map<string, Attempt>();
   #waiting: Attempt[] = [];
   #orphans: Orphan[] = [];

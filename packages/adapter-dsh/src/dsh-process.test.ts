@@ -12,10 +12,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DISPOSE_TIMEOUTS } from '@wevir/adapter-acp';
 import { isAdapterError } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  DISPOSE_TIMEOUTS,
   type DshExit,
   DshProcess,
   type DshProcessEventMap,

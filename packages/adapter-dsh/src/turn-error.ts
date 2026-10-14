@@ -1,4 +1,4 @@
-import type { TurnFailedEvent } from '@wevir/runtime-adapter';
+import type { ClassifiedTurnError, TurnErrorCategory } from '@wevir/adapter-acp';
 
 // 回合失败的归类（T3.2，ADR-0001 §5 第 9 条）。dsh 的轮次失败让 `session/prompt` 以 JSON-RPC `-32603`
 // 结束，消息是自由文本，没有结构化错误码（T0.3 §3.4）：ACP SDK 的 `RequestError.internalError` 加前缀
@@ -6,8 +6,7 @@ import type { TurnFailedEvent } from '@wevir/runtime-adapter';
 // 内部失败的原文。这里只看去掉这两层之后的开头，归不了类就是 unknown；原文始终保留。
 //
 // 规则表与 docs/architecture/acp-event-mapping.md 的「错误归类」一致（acp-event-mapping.test.ts 检查）。
-
-export type TurnErrorCategory = TurnFailedEvent['category'];
+// `classifyTurnError` 是 dsh 引擎描述的回合失败归类（engine.ts）。
 
 export interface TurnErrorRule {
   category: Exclude<TurnErrorCategory, 'unknown'>;
@@ -34,13 +33,6 @@ export const TURN_ERROR_RULES: readonly TurnErrorRule[] = Object.freeze([
 export const INTERNAL_ERROR_CODE = -32603;
 
 const WRAPPER = /^Internal error: turn failed: /;
-
-export interface ClassifiedTurnError {
-  category: TurnErrorCategory;
-  /** 引擎原文（ACP 错误的 `message`），不截断、不改写。 */
-  message: string;
-  code?: number;
-}
 
 /** 把 `session/prompt` 的失败归类。只有 `-32603` 且带 `turn failed: ` 包装的才按规则表归类。 */
 export function classifyTurnError(error: unknown): ClassifiedTurnError {

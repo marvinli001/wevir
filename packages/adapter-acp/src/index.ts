@@ -1,0 +1,62 @@
+export {
+  AcpAdapter,
+  type AcpAdapterOptions,
+  type AcpProcessHooks,
+  CANCEL_TIMEOUT_MS,
+} from './acp-adapter.js';
+export {
+  type AcpRawReason,
+  type AcpSessionNotification,
+  type AcpSessionUpdate,
+  isAcpSessionNotification,
+  MAPPED_ACP_UPDATES,
+  mapAcpUpdate,
+  type OnRawUpdate,
+  RAW_BY_DESIGN_ACP_UPDATES,
+  rawEvent,
+  sessionConfigInfo,
+} from './acp-mapping.js';
+export {
+  type AcpExit,
+  type AcpFailed,
+  type AcpIncrementalOptions,
+  type AcpLauncher,
+  type AcpPreparedLaunch,
+  AcpProcess,
+  type AcpProcessEventMap,
+  type AcpProcessOptions,
+  type AcpProcessState,
+  type AcpReady,
+  type AcpRestarting,
+  type AcpSpawnSpec,
+  DISPOSE_TIMEOUTS,
+  type DisposeTimeouts,
+  INITIALIZE_TIMEOUT_MS,
+  type IncrementalState,
+  RESTART_POLICY,
+  type RestartPolicy,
+  STDERR_TAIL_CHARS,
+} from './acp-process.js';
+export { acpAdapterCapabilities } from './capabilities.js';
+export type {
+  AcpEngine,
+  AcpEngineCapabilities,
+  AcpIncrementalChannel,
+  AcpRouteCodec,
+  AcpToolPresentation,
+  ClassifiedResumeError,
+  ClassifiedTurnError,
+  IncrementalDecoder,
+  IncrementalDecoderHandlers,
+  IncrementalEvent,
+  IncrementalMerger,
+  IncrementalWarning,
+  ResumeFailure,
+  TurnErrorCategory,
+} from './engine.js';
+export {
+  type AdapterLogger,
+  SessionEventQueue,
+  type WarnOnce,
+  warnOnceVia,
+} from './session-events.js';

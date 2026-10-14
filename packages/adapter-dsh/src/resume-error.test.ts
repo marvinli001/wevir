@@ -1,7 +1,8 @@
 // session/resume 失败的归类（resume-error.ts）：真实 dsh 的样本逐个归到对应的类别。
 
+import type { ResumeFailure } from '@wevir/adapter-acp';
 import { describe, expect, it } from 'vitest';
-import { classifyResumeError, type ResumeFailure } from './resume-error.js';
+import { classifyResumeError } from './resume-error.js';
 import { readFixture } from './test-fixtures/acp-fixtures.js';
 
 const fixture = (name: string) => readFixture<{ error: unknown }>(`errors/${name}`).error;

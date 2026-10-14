@@ -2,12 +2,18 @@ import { spawn } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AssistantDeltaEvent, AssistantStreamEndedEvent } from '@wevir/runtime-adapter';
+import type {
+  IncrementalDecoder,
+  IncrementalDecoderHandlers,
+  IncrementalEvent,
+  IncrementalWarning,
+} from '@wevir/adapter-acp';
 import { buildDshEnv } from './env.js';
 import { DSH_PROFILE, type DshPaths, dshProfileDir } from './paths.js';
 
 // 增量流式旁路（T3.2a，ADR-0001 §3）的 Host 一侧：把本包的 stream-tap 插件装进 Wevir 专属 DSH_HOME 的
-// acp profile，并解码插件写到 fd 3 的 NDJSON。插件本身在 ../stream-tap/index.js，由 dsh 加载。
+// acp profile，并解码插件写到 fd 3 的 NDJSON。插件本身在 ../stream-tap/index.js，由 dsh 加载。在通用 ACP 适配器
+// 看来，这就是 dsh 引擎描述里的增量旁路（engine.ts 的 `DSH_ENGINE.incremental`）。
 //
 // 旁路是增强而不是依赖：插件装不上、没加载、fd 3 没有数据或行解析失败，都只是少了增量，ACP 的已提交
 // 消息与其余功能不受影响。增量与已提交消息的合并在 T3.2。
@@ -20,6 +26,12 @@ export const STREAM_TAP_MAX_LINE_BYTES = 8 * 1024 * 1024;
 
 /** `dsh plugin add` 的时限。本机实测约 0.2 s（link: 不走网络）；dsh 自己等 profile 锁最多 120 s。 */
 export const STREAM_TAP_INSTALL_TIMEOUT_MS = 60_000;
+
+/**
+ * initialize 完成后等插件报到的时间。插件在 dsh 启动挂载插件时写 ready，实测比 initialize 的响应早几毫秒
+ * 到达（两条管道之间没有顺序保证）。
+ */
+export const STREAM_TAP_READY_GRACE_MS = 2000;
 
 /**
  * 开发模式下的插件目录：本包的 `stream-tap/`（从 `src/` 与 `dist/` 都是上一级）。打包后的应用由调用方经
@@ -137,7 +149,7 @@ export async function ensureStreamTapInstalled(input: StreamTapInstallInput): Pr
 // ── fd 3 解码 ──────────────────────────────────────────────────────────────────────
 
 /** 旁路产出的 AgentEvent：文本与推理的增量（分开），以及一个 attempt 的增量流结束。 */
-export type StreamTapEvent = AssistantDeltaEvent | AssistantStreamEndedEvent;
+export type StreamTapEvent = IncrementalEvent;
 
 /**
  * dsh `AssistantStreamFrame` 中适配器读取的字段（上游 `packages/core/agent/src/runtime-types.ts`，
@@ -248,24 +260,13 @@ export function streamTapEvents(record: StreamTapRecord): StreamTapEvent[] {
   ];
 }
 
-export interface StreamTapWarning {
-  /**
-   * malformed：不是合法的记录；too_long：单行超过 `STREAM_TAP_MAX_LINE_BYTES`；truncated：fd 关闭时
-   * 最后一行没有换行；install_failed：插件装不上，本次启动没有旁路；not_loaded：启动后插件没有报到
-   * （最后两种由 `DshProcess` 报）。
-   */
-  kind: 'malformed' | 'too_long' | 'truncated' | 'install_failed' | 'not_loaded';
-  message: string;
-  /** 出问题的行的开头（最多 200 个字符），供诊断。 */
-  line?: string;
-}
+/**
+ * 旁路的告警（通用的 `IncrementalWarning`）：malformed、too_long、truncated 由 `StreamTapDecoder` 报；
+ * install_failed 由 `DshProcess` 的启动器报，not_loaded 由通用的 `AcpProcess` 报。`line` 最多 200 个字符。
+ */
+export type StreamTapWarning = IncrementalWarning;
 
-export interface StreamTapDecoderHandlers {
-  onEvent: (event: StreamTapEvent) => void;
-  /** 插件报到（`{"type":"ready"}`）。 */
-  onReady?: () => void;
-  onWarning: (warning: StreamTapWarning) => void;
-}
+export type StreamTapDecoderHandlers = IncrementalDecoderHandlers;
 
 const LINE_SAMPLE_CHARS = 200;
 
@@ -274,7 +275,7 @@ const LINE_SAMPLE_CHARS = 200;
  * 解码），逐行解析并交出 AgentEvent。畸形行告警后跳过，不影响后面的行。一个 dsh 进程一个解码器。
  * 回调同步调用，不得抛错。
  */
-export class StreamTapDecoder {
+export class StreamTapDecoder implements IncrementalDecoder {
   readonly #handlers: StreamTapDecoderHandlers;
   readonly #utf8 = new TextDecoder('utf-8', { fatal: true });
   #pending: Buffer[] = [];

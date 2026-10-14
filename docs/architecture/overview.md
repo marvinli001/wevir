@@ -24,9 +24,9 @@ flowchart TB
   end
   port["AgentRuntimeAdapter 接口<br/>@wevir/runtime-adapter"]
   echo["EchoAdapter<br/>开发用假引擎"]
-  subgraph adapter["@wevir/adapter-dsh"]
-    da["DshAdapter"]
-    dp["DshProcess"]
+  subgraph adapter["@wevir/adapter-dsh：通用 ACP 适配器（@wevir/adapter-acp）的 dsh 配置"]
+    da["DshAdapter<br/>AcpAdapter + DSH_ENGINE"]
+    dp["DshProcess<br/>AcpProcess + dsh 启动器"]
   end
   subgraph dsh["dsh --profile acp"]
     loop["Agent Loop · 工具 · 沙箱 · 会话日志"]
@@ -59,14 +59,15 @@ flowchart TB
 
 ## 2. 包与职责
 
-依赖只朝一个方向：客户端 → client-sdk → protocol；Host → runtime-adapter、storage、protocol、adapter-dsh；只有 `adapter-dsh` 依赖 `@deepseek-ai/*`（AGENTS.md 规则 2，`pnpm lint` 强制）。
+依赖只朝一个方向：客户端 → client-sdk → protocol；Host → runtime-adapter、storage、protocol、adapter-dsh；adapter-dsh → adapter-acp → runtime-adapter。只有 `adapter-dsh` 依赖 `@deepseek-ai/*`（AGENTS.md 规则 2，`pnpm lint` 强制），ACP SDK 只由 `adapter-acp` 声明。
 
 | 包 | 职责 | 主要依赖 |
 |---|---|---|
 | `packages/protocol` | Host API 的契约：zod schema、20 个方法与 `events.event` 通知的注册表、事件的判别联合、错误码与关闭码、协议版本与兼容规则 | zod |
 | `packages/runtime-adapter` | 引擎适配接口 `AgentRuntimeAdapter` 与引擎事件 `AgentEvent`；`./contract` 契约测试套件；`./echo` 假引擎 | 无 |
 | `packages/storage` | `node:sqlite` 驱动（只在 `driver.ts`）、事务、手写 SQL 迁移、各表仓储、`FileSecretStore` | 无 |
-| `packages/adapter-dsh` | dsh 进程管理（独立 `DSH_HOME`、白名单环境、启动与回收）、ACP → `AgentEvent` 映射、stream-tap 增量旁路、增量对齐、审批桥接、Provider overlay 与 `provider.test`、会话恢复 | dsh、ACP SDK、runtime-adapter |
+| `packages/adapter-acp` | 通用 ACP 适配器（ADR-0005 决策 1.3）：引擎描述、ACP 进程与连接（启动、`initialize`、有限重启、回收、在 SDK 之前截下 `session/update`）、ACP → `AgentEvent` 映射、每会话事件队列、会话与审批记账、resume 与取消的兜底（acp-event-mapping.md 第一部分） | ACP SDK、runtime-adapter |
+| `packages/adapter-dsh` | dsh 的那份引擎描述与启动器（独立 `DSH_HOME`、白名单环境）、工具名表与错误归类、stream-tap 增量旁路与增量对齐、Provider overlay 与 `provider.test`、配置变更时重启（acp-event-mapping.md 第二部分） | dsh、adapter-acp、runtime-adapter |
 | `packages/model-gateway` | Codex 用的模型协议网关（ADR-0005 决策 2，[model-gateway.md](./model-gateway.md)）：`127.0.0.1` 上的 `POST /v1/p/<providerId>/responses`，一次性令牌；Responses 上游透传（剥掉 Codex 的元数据、按服务挂方言修正），Chat Completions 上游转换；`testProvider`。R2 接进 Host 之前还没有调用方 | runtime-adapter（只用类型） |
 | `packages/host` | `EventStore`（`seq`、增量合并、截断）、`SessionManager`、`HostRpcServer`、`createHostMethods`、进程入口 `wevir-host` 与运行时文件；子路径 `./runtime` 给拉起 Host 的客户端用 | protocol、runtime-adapter、storage、adapter-dsh、ws |
 | `packages/client-sdk` | `WevirClient`（hello、类型安全的请求、断线排队、心跳、重连状态机）、`subscribe()` 异步迭代器（按 `seq` 去重补缺口）、`TranscriptProjection`（事件 → 消息与部件）；`./node` 读 `host.json`。浏览器入口不碰 Node 内置模块 | protocol |
@@ -114,17 +115,17 @@ sequenceDiagram
 
 - **`session.send` 的响应不等回合结束。** 响应只说明消息已落库、回合已开始；之后的一切都通过事件流到达，客户端靠订阅而不是靠响应更新界面。
 - **落库先于推送。** 事件先在 SQLite 事务里拿到 `seq`，再交给进程内的 `EventBus` 推给订阅者；Host 崩溃后从库里回放出来的事件与崩溃前推送过的逐条一致（Gate M2）。
-- **审批是同一条路上的一个分叉。** dsh 只在沙箱升级时发 `session/request_permission`（只带 `toolCallId`），`DshAdapter` 转成 `approval.requested`，Host 从同一 `toolCallId` 的 `tool.started` 取出路径、内容与理由写进事件并记入 `approvals` 表；任一客户端 `approval.respond`，首个决定生效，Host 写 `approval.resolved`（带 `decidedBy`），`DshAdapter` 只回复 dsh 一次。规则见 acp-event-mapping.md §5、domain-model.md §5。
-- **取消**：`session.cancel` → ACP `session/cancel`，dsh 结束正在跑的子进程并补发已生成的部分；5 s 内得不到确认时适配器重启 dsh（acp-event-mapping.md §6）。
+- **审批是同一条路上的一个分叉。** dsh 只在沙箱升级时发 `session/request_permission`（只带 `toolCallId`），`DshAdapter`（通用的 `AcpAdapter`）转成 `approval.requested`，Host 从同一 `toolCallId` 的 `tool.started` 取出路径、内容与理由写进事件并记入 `approvals` 表；任一客户端 `approval.respond`，首个决定生效，Host 写 `approval.resolved`（带 `decidedBy`），适配器只回复 dsh 一次。规则见 acp-event-mapping.md §1.3 与 §5、domain-model.md §5。
+- **取消**：`session.cancel` → ACP `session/cancel`，dsh 结束正在跑的子进程并补发已生成的部分；5 s 内得不到确认时适配器重启 dsh（acp-event-mapping.md §1.4）。
 - **Provider**：`provider.upsert` 时 Key 进 `secrets.json`，配置进 `wevir.db`；适配器把全部 Provider 写成 `<DSH_HOME>/wevir/providers.yml`（只有 Key 的变量名），没有回合时重启 dsh 生效，每个会话的 Provider 与模型由 `session/set_config_option` 选定（providers.md）。
 
 ## 4. 事件从引擎到界面
 
 ```text
-dsh 进程内                                  adapter-dsh（Host 进程内）
-──────────                                  ───────────────────────────
+dsh 进程内                                  adapter-dsh + adapter-acp（Host 进程内）
+──────────                                  ─────────────────────────────────────────
 agent/assistant-stream ─▶ stream-tap 插件 ─fd 3 NDJSON─▶ StreamTapDecoder ─┐
-ACP session/update  ──────────────stdout──▶ DshProcess（在 ACP SDK 之前截下）─┤
+ACP session/update  ──────────────stdout──▶ AcpProcess（在 ACP SDK 之前截下）─┤
 session/prompt 结果、request_permission ──▶ ACP SDK ─────────────────────────┤
                                                                            ▼
                         SessionEventQueue（每个引擎会话一个，按调用顺序产出）

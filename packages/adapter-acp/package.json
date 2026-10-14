@@ -1,0 +1,34 @@
+{
+  "name": "@wevir/adapter-acp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir's generic engine adapter for Agent Client Protocol agents: process and connection, ACP → AgentEvent mapping, per-session event queues, session and approval bookkeeping. Engines plug in through an engine description.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./sdk": {
+      "@wevir/source": "./src/sdk.ts",
+      "types": "./dist/sdk.d.ts",
+      "default": "./dist/sdk.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

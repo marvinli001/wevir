@@ -4,7 +4,7 @@
 import { cpSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { methods, type SessionNotification } from '@agentclientprotocol/sdk';
+import { methods, type SessionNotification } from '@wevir/adapter-acp/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DshProcess, type DshProcessOptions } from './dsh-process.js';
 import { dshProfileDir } from './paths.js';

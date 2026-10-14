@@ -41,7 +41,7 @@ pnpm dev
 
 它依次做三件事（`apps/desktop` 的 `dev` 脚本）：
 
-1. 用 tsdown 构建 `@wevir/host` 及其依赖（protocol、storage、runtime-adapter、adapter-dsh），因为 Host 是以 `packages/host/dist/main.js` 跑在本机 Node 上的子进程。
+1. 用 tsdown 构建 `@wevir/host` 及其依赖（protocol、storage、runtime-adapter、adapter-acp、adapter-dsh），因为 Host 是以 `packages/host/dist/main.js` 跑在本机 Node 上的子进程。
 2. `install-electron`：Electron 44 没有 postinstall，二进制要单独下载。第一次运行时下载并按 npm 包里的 `checksums.json` 校验，之后检查到已安装就立即退出。大陆网络先设 `ELECTRON_MIRROR`（§7.3）。
 3. `electron-vite dev`：构建主进程与 preload，渲染进程的开发服务器固定在 `http://localhost:5199`（`strictPort`，因为这个 origin 在 Host 的白名单里），然后打开窗口。
 
@@ -87,7 +87,8 @@ node packages/host/dist/main.js --home ./.wevir-dev --adapter dsh --log-level de
 | `packages/protocol` | Host API 的 schema、方法表、事件、错误码 | `pnpm --filter @wevir/protocol test`；改了协议同步 `docs/architecture/host-api.md`（表格由测试比对） |
 | `packages/runtime-adapter` | 引擎适配接口、契约测试套件、echo 假引擎 | `pnpm vitest run --project runtime-adapter` |
 | `packages/storage` | SQLite、迁移、仓储、SecretStore | `pnpm vitest run --project storage` |
-| `packages/adapter-dsh` | dsh 进程、ACP 映射、增量旁路、Provider 桥接 | `pnpm vitest run --project adapter-dsh`（含真实 dsh + 本地 mock Provider，不需要 Key） |
+| `packages/adapter-acp` | 通用 ACP 适配器：引擎描述、ACP 进程、映射、事件队列、会话与审批记账 | `pnpm vitest run --project adapter-acp`；它的大部分行为由 adapter-dsh 的测试经 dsh 覆盖 |
+| `packages/adapter-dsh` | dsh 的引擎描述与启动器、增量旁路、Provider 桥接 | `pnpm vitest run --project adapter-dsh`（含真实 dsh + 本地 mock Provider，不需要 Key） |
 | `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §8 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |

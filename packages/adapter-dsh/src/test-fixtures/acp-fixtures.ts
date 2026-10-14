@@ -3,10 +3,10 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isAcpSessionNotification, type WarnOnce } from '@wevir/adapter-acp';
 import type { AgentEvent } from '@wevir/runtime-adapter';
-import { isAcpSessionNotification } from '../acp-mapping.js';
-import { SessionEventQueue, type WarnOnce } from '../session-events.js';
 import { classifyTurnError } from '../turn-error.js';
+import { SessionEventQueue } from './dsh-mapping.js';
 
 export const ACP_FIXTURES = fileURLToPath(new URL('./acp/', import.meta.url));
 

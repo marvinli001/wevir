@@ -1,10 +1,10 @@
 import type { AgentEvent, EngineRawEvent } from '@wevir/runtime-adapter';
-import { isRecord, parseTodoItems, TODO_TOOL, toolDisplay } from './tool-display.js';
+import type { AcpRouteCodec, AcpToolPresentation } from './engine.js';
 
-// ACP `session/update` → AgentEvent（T3.2，docs/architecture/acp-event-mapping.md）。输入是 dsh 写出的原始
-// 通知参数：DshProcess 在 ACP SDK 之前截下 `session/update`（dsh-process.ts），因为 SDK 的 zod 校验会丢掉
+// ACP `session/update` → AgentEvent（docs/architecture/acp-event-mapping.md 第一部分 §1）。输入是引擎写出的原始
+// 通知参数：AcpProcess 在 ACP SDK 之前截下 `session/update`（acp-process.ts），因为 SDK 的 zod 校验会丢掉
 // 不认识的 `sessionUpdate` 类型、删掉不认识的字段，而不认识的内容要以 `engine.raw` 原样保留。所以这里自己
-// 检查要读的字段，其余字段不管。
+// 检查要读的字段，其余字段不管。工具的展示类型与待办由引擎描述给出（engine.ts 的 `AcpToolPresentation`）。
 //
 // 本文件只做单条通知的翻译；增量与已提交消息的对齐（`replaces`）、回合边界由 session-events.ts 处理。
 
@@ -31,8 +31,8 @@ export function isAcpSessionNotification(params: unknown): params is AcpSessionN
 
 /**
  * 映射为 `engine.raw` 的原因。by_design：认识的类型，v0 没有对应的 Wevir 事件（`config_option_update`）；
- * 其余都是不认识的内容：unknown_type（dsh 0.2.1-alpha.2 不发的类型）、unexpected_fields（认识的类型但字段
- * 不合预期，例如非文本内容）。调用方对后两种记一次告警。
+ * 其余都是不认识的内容：unknown_type（映射不认识的类型）、unexpected_fields（认识的类型但字段不合预期，
+ * 例如非文本内容）。调用方对后两种记一次告警。
  */
 export type AcpRawReason = 'by_design' | 'unknown_type' | 'unexpected_fields';
 
@@ -57,6 +57,7 @@ export const RAW_BY_DESIGN_ACP_UPDATES = Object.freeze(['config_option_update'] 
  */
 export function mapAcpUpdate(
   notification: AcpSessionNotification,
+  tools: AcpToolPresentation,
   onRaw?: OnRawUpdate,
 ): AgentEvent[] {
   const engineSessionId = notification.sessionId;
@@ -104,17 +105,15 @@ export function mapAcpUpdate(
           engineSessionId,
           toolCallId,
           toolName,
-          display: toolDisplay(toolName, update.rawInput),
+          display: tools.display(toolName, update.rawInput, update),
           ...('rawInput' in update && { input: update.rawInput }),
         },
       ];
-      if (toolName === TODO_TOOL) {
-        const items = parseTodoItems(update.rawInput);
-        if (items !== undefined) {
-          events.push({ type: 'todo.updated', engineSessionId, toolCallId, items });
-        }
+      const items = tools.todos?.(toolName, update.rawInput);
+      if (items !== undefined) {
+        events.push({ type: 'todo.updated', engineSessionId, toolCallId, items });
       }
-      // ACP 允许 tool_call 直接带终态；dsh 只发 in_progress。
+      // ACP 允许 tool_call 直接带终态（dsh 只发 in_progress）。
       if (status === 'completed' || status === 'failed') {
         events.push({
           type: 'tool.finished',
@@ -154,7 +153,7 @@ export function mapAcpUpdate(
               toolCallId,
               // 只有带了 title 才知道工具名；rawInput 单独变化时 display 留给 Host 沿用 tool.started 的。
               ...(typeof update.title === 'string' && {
-                display: toolDisplay(update.title, update.rawInput),
+                display: tools.display(update.title, update.rawInput, update),
               }),
               ...('rawInput' in update && { input: update.rawInput }),
               ...(output.text !== undefined && { output: output.text }),
@@ -180,10 +179,13 @@ export function mapAcpUpdate(
 }
 
 /**
- * `session/new` / `session/resume` 结果的 `configOptions` 里引擎当前采用的模型与推理强度。dsh 的 `model`
- * 选项值是 JSON 编码的 `["<provider>","<model>"]`（T0.3 §3.2）；解析不了的项省略。
+ * `session/new` / `session/resume` 结果的 `configOptions` 里引擎当前采用的模型与推理强度。模型选项的值按引擎的
+ * 路由编码解出模型（dsh 是 JSON 编码的 `["<provider>","<model>"]`）；解析不了的项省略。
  */
-export function sessionConfigInfo(configOptions: unknown): {
+export function sessionConfigInfo(
+  configOptions: unknown,
+  route: AcpRouteCodec,
+): {
   modelId?: string;
   reasoningEffort?: string;
 } {
@@ -195,16 +197,11 @@ export function sessionConfigInfo(configOptions: unknown): {
       : undefined;
   };
   const info: { modelId?: string; reasoningEffort?: string } = {};
-  const model = current('model');
-  if (model !== undefined) {
-    try {
-      const route: unknown = JSON.parse(model);
-      if (Array.isArray(route) && typeof route[1] === 'string') info.modelId = route[1];
-    } catch {
-      // 不是 dsh 的路由编码：不报模型，Host 用请求值。
-    }
-  }
-  const effort = current('reasoning_effort');
+  const model = current(route.modelOption);
+  const modelId = model === undefined ? undefined : route.decodeModel(model);
+  if (modelId !== undefined) info.modelId = modelId;
+  const effort =
+    route.reasoningEffortOption === undefined ? undefined : current(route.reasoningEffortOption);
   if (effort !== undefined) info.reasoningEffort = effort;
   return info;
 }
@@ -257,4 +254,8 @@ function toolOutput(content: unknown): { text?: string; complete: boolean } | un
 
 function isCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable, Writable } from 'node:stream';
-import { client, methods, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk';
+import { client, methods, ndJsonStream, PROTOCOL_VERSION } from '@wevir/adapter-acp/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DshProcess, dshSpawnSpec } from './dsh-process.js';
 import { dshPaths, prepareDshHome, resolveDshEntry } from './paths.js';

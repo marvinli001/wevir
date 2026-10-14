@@ -7,7 +7,7 @@
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { methods } from '@agentclientprotocol/sdk';
+import { methods } from '@wevir/adapter-acp/sdk';
 import { type AgentEvent, isTurnTerminal, type ProviderConfig } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DshAdapter } from './dsh-adapter.js';

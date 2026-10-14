@@ -2,7 +2,7 @@
   "name": "@wevir/adapter-dsh",
   "version": "0.0.0",
   "private": true,
-  "description": "Wevir engine adapter for DeepSeek Harness (dsh): process management over ACP and the stream-tap incremental-output plugin.",
+  "description": "Wevir engine adapter for DeepSeek Harness (dsh): the dsh configuration of the generic ACP adapter, plus dsh's own parts (DSH_HOME, environment, stream-tap incremental output, Provider overlay).",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -29,8 +29,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.4.0",
     "@deepseek-ai/dsh": "0.2.1-alpha.2",
+    "@wevir/adapter-acp": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*"
   }
 }

@@ -3,12 +3,16 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+  type AcpSessionNotification,
+  isAcpSessionNotification,
+  warnOnceVia,
+} from '@wevir/adapter-acp';
 import type { AgentEvent, AssistantMessageEvent } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
-import { type AcpSessionNotification, isAcpSessionNotification } from './acp-mapping.js';
-import { SessionEventQueue, warnOnceVia } from './session-events.js';
 import { parseStreamTapLine, type StreamTapEvent, streamTapEvents } from './stream-tap.js';
 import { readTranscript, type TranscriptLine } from './test-fixtures/acp-fixtures.js';
+import { SessionEventQueue } from './test-fixtures/dsh-mapping.js';
 
 const SID = 'a96a4101-fee3-411e-b638-d9e25710d351';
 

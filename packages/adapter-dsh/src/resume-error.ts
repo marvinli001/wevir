@@ -1,4 +1,4 @@
-import type { SessionLostReason } from '@wevir/runtime-adapter';
+import type { ClassifiedResumeError, ResumeFailure } from '@wevir/adapter-acp';
 
 // ACP `session/resume` 失败的归类（T3.5）。dsh-acp 的 resumeSession（上游 `packages/acp/acp/src/index.ts`）自己拒绝的
 // 三种情况是 `-32602`，消息是固定措辞：持久化里没有可恢复的会话（日志被删除，或日志头读不出来，子 agent 会话也是
@@ -8,16 +8,8 @@ import type { SessionLostReason } from '@wevir/runtime-adapter';
 // `data.details`。这些措辞都由 resume-error.integration.test.ts 用真实 dsh 复现，与 test-fixtures/acp/errors/
 // 里的 resume-*.json 逐字比对；dsh 升级改了措辞时先在那里失败，规则表随样本一起改。
 //
-// 规则表与 docs/architecture/acp-event-mapping.md §6 一致（acp-event-mapping.test.ts 检查）。
-
-export type ResumeFailure =
-  /** 再试也恢复不了：Host 把会话标为只读。 */
-  | { kind: 'lost'; reason: SessionLostReason }
-  /** cwd 与创建时不一致：工作区目录被移走、删除或换成了别处的链接。 */
-  | { kind: 'cwd_mismatch' }
-  /** 会话仍挂在本进程上（适配器以为它已关闭：之前的 `session/close` 失败过）。 */
-  | { kind: 'already_active' }
-  | { kind: 'unknown' };
+// 规则表与 docs/architecture/acp-event-mapping.md §6 一致（acp-event-mapping.test.ts 检查）。`classifyResumeError`
+// 是 dsh 引擎描述的 resume 失败归类（engine.ts），通用 ACP 适配器按 `failure.kind` 转成 AdapterError。
 
 export interface ResumeErrorRule {
   failure: Exclude<ResumeFailure, { kind: 'unknown' }>;
@@ -59,14 +51,10 @@ export const RESUME_ERROR_RULES: readonly ResumeErrorRule[] = Object.freeze([
   },
 ]);
 
-export interface ClassifiedResumeError {
-  failure: ResumeFailure;
-  /** 引擎原文：`message`，有 `data.details` 时接在后面（`Internal error: <details>`），不截断、不改写。 */
-  message: string;
-  code?: number;
-}
-
-/** 把 `session/resume` 的失败归类。不是 ACP 错误（连接断开等）的一律 unknown。 */
+/**
+ * 把 `session/resume` 的失败归类。不是 ACP 错误（连接断开等）的一律 unknown。结果的 `message` 是引擎原文：
+ * `message`，有 `data.details` 时接在后面（`Internal error: <details>`），不截断、不改写。
+ */
 export function classifyResumeError(error: unknown): ClassifiedResumeError {
   const { message, code } = describeError(error);
   const base = code === undefined ? { message } : { message, code };

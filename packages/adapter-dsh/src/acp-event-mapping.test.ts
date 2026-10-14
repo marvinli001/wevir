@@ -4,16 +4,17 @@
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
 import {
   type AcpSessionNotification,
   isAcpSessionNotification,
   MAPPED_ACP_UPDATES,
-  mapAcpUpdate,
   RAW_BY_DESIGN_ACP_UPDATES,
-} from './acp-mapping.js';
-import { classifyResumeError, RESUME_ERROR_RULES, type ResumeFailure } from './resume-error.js';
+  type ResumeFailure,
+} from '@wevir/adapter-acp';
+import { describe, expect, it } from 'vitest';
+import { classifyResumeError, RESUME_ERROR_RULES } from './resume-error.js';
 import { readFixture, readTranscript } from './test-fixtures/acp-fixtures.js';
+import { mapAcpUpdate } from './test-fixtures/dsh-mapping.js';
 import { DSH_TOOLS, toolDisplay } from './tool-display.js';
 import { classifyTurnError, TURN_ERROR_RULES } from './turn-error.js';
 

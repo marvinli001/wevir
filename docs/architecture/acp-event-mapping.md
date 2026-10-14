@@ -1,66 +1,153 @@
 # ACP → Wevir 事件映射
 
-> 状态：v0.1（T3.2；§5 审批由 T3.3 补）· 日期：2026-10-13
-> 依据：[dsh 接入 Spike](../research/dsh-integration-spike.md) §3、§4、§5、§11.2；[ADR-0001](../adr/0001-runtime-integration.md) §3、§5、§6 与补记 3、4；[领域模型](./domain-model.md) §3.4、§5、§6、§7、§9
-> 代码：`packages/adapter-dsh/src/`（`acp-mapping.ts`、`tool-display.ts`、`turn-error.ts`、`delta-merge.ts`、`session-events.ts`、`dsh-adapter.ts`）
+> 状态：v0.2（R7 拆成通用 ACP 映射与 dsh 专属补充两部分；v0.1 是 T3.2，§5 审批由 T3.3 补）· 日期：2026-10-14
+> 依据：[dsh 接入 Spike](../research/dsh-integration-spike.md) §3、§4、§5、§11.2；[ADR-0001](../adr/0001-runtime-integration.md) §3、§5、§6 与补记 3、4；[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 1.3；[领域模型](./domain-model.md) §3.4、§5、§6、§7、§9
+> 代码：第一部分在 `packages/adapter-acp/src/`（`acp-process.ts`、`acp-mapping.ts`、`session-events.ts`、`acp-adapter.ts`，引擎描述的类型在 `engine.ts`）；第二部分在 `packages/adapter-dsh/src/`（引擎描述 `engine.ts`，以及 `dsh-process.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`stream-tap.ts`、`delta-merge.ts`、`dsh-adapter.ts`）
 > 样本：`packages/adapter-dsh/src/test-fixtures/acp/`，是 `spikes/dsh-acp/fixtures/acp/`（T0.3，`2ce30c0`）的副本，另加 T3.2 录的 5 个 Provider 错误；下文的样本路径都相对这个目录
 
-本文件写 dsh 的 ACP 消息怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`；审批的请求、回复与结束见 §5。三张表（§1 类型、§2 工具名、§3 错误归类）与代码的一致性由 `acp-event-mapping.test.ts` 检查；改映射时两边一起改。每个样本都有对应的测试，或在 `acp-mapping.test.ts` 里写明由别处覆盖、为什么不属于 T3.2。
+本文件写 ACP 引擎的消息怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。分两部分：
 
-## 0. 事件路径
+- **第一部分：通用 ACP 映射**（§0、§1），`@wevir/adapter-acp` 对任何 ACP 引擎都一样的部分：进程与事件路径、`session/update` 与其他 ACP 消息的映射、审批桥接、会话恢复与取消的兜底。引擎之间的差异只经引擎描述注入（§0.2）。
+- **第二部分：dsh 专属补充**（§2–§6），`@wevir/adapter-dsh` 给出的那份引擎描述与 dsh 自己的行为：工具名表、回合失败的归类、增量与已提交消息的对齐（stream-tap）、什么时候会有审批、resume 失败的归类。
+
+样本都是 dsh 的。§1 的类型表、§2 的工具名表、§3 的错误归类表与 §6 的 resume 归类表和代码的一致性由 `packages/adapter-dsh/src/acp-event-mapping.test.ts` 检查（它按节号找表，节号与每节的第一张表不要动）；改映射时两边一起改。每个样本都有对应的测试，或在 `acp-mapping.test.ts` 里写明由别处覆盖、为什么不属于 T3.2。
+
+# 第一部分：通用 ACP 映射（`@wevir/adapter-acp`）
+
+## 0. 事件路径与引擎描述
+
+### 0.1 事件路径
 
 ```text
-dsh stdout ──ndJsonStream──▶ DshProcess 截下 session/update（原样，按写出顺序）──┐
+引擎 stdout ──ndJsonStream──▶ AcpProcess 截下 session/update（原样，按写出顺序）──┐
                               其余消息 ──▶ ACP SDK（请求、响应、request_permission）│
-dsh fd 3 ──StreamTapDecoder──▶ assistant.delta / assistant.stream_ended ──────────┤
+增量旁路的 fd（可选）──引擎的解码器──▶ assistant.delta / assistant.stream_ended ────┤
                                                                                   ▼
-                                     DshAdapter 按 sessionId 路由 ──▶ SessionEventQueue（每个引擎会话一个）
-                                                                     映射（mapAcpUpdate）→ 对齐增量（DeltaMerger）
+                                     AcpAdapter 按 sessionId 路由 ──▶ SessionEventQueue（每个引擎会话一个）
+                                                                     映射（mapAcpUpdate）→ 对齐增量（引擎的对齐器）
                                                                      → EventHub ──▶ subscribe()
-DshAdapter.send：session/prompt 的结果 / 错误 ──▶ turn.settled / turn.failed（同一个队列）
-ACP SDK 交来的 session/request_permission ──▶ approval.requested；结束未决审批 ──▶ approval.cancelled（同一个队列，§5）
-DshProcess 的 exit 事件 ──▶ 每个挂着的会话一条 engine.exited，订阅结束
+AcpAdapter.send：session/prompt 的结果 / 错误 ──▶ turn.settled / turn.failed（同一个队列）
+ACP SDK 交来的 session/request_permission ──▶ approval.requested；结束未决审批 ──▶ approval.cancelled（同一个队列，§1.3）
+AcpProcess 的 exit 事件 ──▶ 每个挂着的会话一条 engine.exited，订阅结束
 ```
 
-- **在 SDK 之前截下 `session/update`。** ACP SDK 收到通知先用 zod 校验：不认识的 `sessionUpdate` 类型校验失败，通知不交给处理器（SDK 只打印一行错误）；认识的类型里不认识的字段被删掉，不认识的枚举值（例如 `kind`）被丢掉（T3.2 用 SDK 1.4.0 实测）。而不认识的内容要以 `engine.raw` 原样保留。所以 `DshProcess` 在 `ndJsonStream` 与 SDK 之间插了一个 `TransformStream`：`session/update` 不往下传，原样同步交给 `onSessionUpdate`，其余消息照常给 SDK。
-- **顺序。** 截取发生在 SDK 读到消息之前，同一条流里排在后面的 `session/prompt` 响应兑现时，它前面的通知都已入队，所以每个回合的终结事件都在该回合其他事件之后，这一点由构造保证，不依赖 SDK 内部的微任务次序。每个引擎会话一个 `SessionEventQueue`，三路输入（ACP 更新、旁路增量、回合边界）都是同步调用，按调用顺序产出。
-- **旁路增量**走另一条管道，与 stdout 之间没有顺序保证，对齐规则见 §4。旁路里不属于任何 ACP 会话的帧（子 agent 的会话，ACP 看不到）直接丢弃。
-- **回合之外**只发 `engine.raw`、`usage.updated` 与 `engine.exited`（events.ts 的顺序约定，Host 也只在回合外接受这几种）：回合外到达的其他 ACP 更新改发 `engine.raw` 并告警；增量与 `stream_ended` 丢弃，committed 的 end 帧可能晚于 `session/prompt` 的结果（T3.2a 实测）。
+- **在 SDK 之前截下 `session/update`。** ACP SDK 收到通知先用 zod 校验：不认识的 `sessionUpdate` 类型校验失败，通知不交给处理器（SDK 只打印一行错误）；认识的类型里不认识的字段被删掉，不认识的枚举值（例如 `kind`）被丢掉（T3.2 用 SDK 1.4.0 实测）。而不认识的内容要以 `engine.raw` 原样保留。所以 `AcpProcess` 在 `ndJsonStream` 与 SDK 之间插了一个 `TransformStream`：`session/update` 不往下传，原样同步交给 `onSessionUpdate`，其余消息照常给 SDK。
+- **顺序。** 截取发生在 SDK 读到消息之前，同一条流里排在后面的 `session/prompt` 响应兑现时，它前面的通知都已入队，所以每个回合的终结事件都在该回合其他事件之后，这一点由构造保证，不依赖 SDK 内部的微任务次序。每个引擎会话一个 `SessionEventQueue`，几路输入（ACP 更新、旁路增量、审批、回合边界）都是同步调用，按调用顺序产出。
+- **增量旁路**是可选的（引擎描述的 `incremental`）：ACP 只有已提交消息的引擎另开一个 fd 送逐字增量。它走另一条管道，与 stdout 之间没有顺序保证，对齐交给引擎给的对齐器（dsh 见 §4）。旁路里不属于任何挂着的会话的帧直接丢弃（dsh 子 agent 的会话，ACP 看不到）。没有旁路的引擎只有已提交消息，`replaces` 恒为空。
+- **回合之外**只发 `engine.raw`、`usage.updated` 与 `engine.exited`（events.ts 的顺序约定，Host 也只在回合外接受这几种）：回合外到达的其他 ACP 更新改发 `engine.raw` 并告警；增量与 `stream_ended` 丢弃（dsh 的 committed end 帧可能晚于 `session/prompt` 的结果，T3.2a 实测）。
 
-## 1. `session/update` 类型
+### 0.2 引擎描述
 
-dsh 0.2.1-alpha.2 实际发送的是前 5 种（T0.3 §3.3），`config_option_update` 只在源码里出现（Provider 拓扑变化时，上游 `packages/acp/acp/src/session.ts` 的 `topologyChanged`）。
+通用适配器对一个引擎要知道的差异都在引擎描述里：与进程实例无关的 `AcpEngine`（`engine.ts`），加上每个进程一份的启动器 `AcpLauncher`（`acp-process.ts`；入口、参数与环境随数据目录和 Provider 配置变化）。dsh 的那份是 `DSH_ENGINE`（`packages/adapter-dsh/src/engine.ts`）与 `DshProcess` 的启动器。
+
+| 项 | 用途 | dsh（第二部分） |
+|---|---|---|
+| `name`、`version` | 错误与告警里的引擎名（“dsh 进程已退出…”，默认告警前缀 `[adapter-<name>]`）；`EngineSession.engineVersion` | `dsh`；锁定的 `0.2.1-alpha.2`（ACP 的 `agentInfo.version` 恒为 0.0.1，T0.3 §3.1） |
+| 启动器 `AcpLauncher` | 可执行入口与参数、cwd、环境。每次启动、自动重启、计划重启之前先准备（建目录、解析入口、准备旁路），再按当时的启动配置给出 spawn 参数 | `<Node> <dsh 入口> --profile acp [--patch <overlay>]…`，cwd 是 `DSH_HOME`，白名单环境（ADR-0001 §4 与补记 1） |
+| `capabilities` | 契约测试的能力表；`incrementalStream` 不在表里，由旁路的状态决定（`acpAdapterCapabilities`） | 工具调用、审批、resume、多会话并发都为 true（`dshAdapterCapabilities`） |
+| `tools` | 工具的展示类型（`display`，拿到整条 `tool_call`，要看 `kind`、`locations` 的引擎从这里取）与待办（`todos`） | 按工具名取（§2）；待办工具是 `todo_write` |
+| `route` | 选模型与推理强度的 config option，模型选项值的编码与解码 | `model` 的值是 `JSON.stringify([provider, model])`，推理强度是 `reasoning_effort` |
+| `classifyTurnError` | `session/prompt` 的错误 → `turn.failed.category`，原文保留 | §3 |
+| `classifyResumeError` | `session/resume` 的错误 → `lost`（带原因）/ `cwd_mismatch` / `already_active` / `unknown` | §6 |
+| `incremental`（可选） | 增量旁路：fd、每个进程的解码器、initialize 之后等它报到的时间、每个会话的对齐器 | stream-tap 插件，fd 3，2 s，`DeltaMerger`（§4） |
+
+进程（`AcpProcess`）对所有引擎都一样，数值是在 dsh 上实测定下的（ADR-0001 补记 1）：`initialize` 的 `clientCapabilities` 为 `{}`（不声明 `fs` 与 `terminal`，工具在引擎自己的沙箱里执行），时限 15 s，协议版本不是 1 算启动失败；启动失败报 `engine_unavailable`，带退出码与 stderr 尾部（只留最后 16 KiB）。就绪的进程意外退出时发 `exit`，自动重启最多连续 3 次（等 0.5 s、1 s、2 s），连续运行满 60 s 后重新计数。回收是关连接 → 关 stdin 等 2 s → SIGTERM 等 1.5 s → SIGKILL 等 1 s，启动器以 detached 启动时信号发给整个进程组。引擎不热加载配置时，换了启动配置（`launchConfigStale`）的进程要重启才生效，什么时候重启由引擎的适配器决定（dsh 见第二部分开头）。
+
+Grok Build、Gemini CLI（R8，codex-notes §9）各给一份描述。它们与 dsh 的差别（工具带 `kind`、会话方法不全等）先落在这几项里；第一部分的映射要不要随之扩展（例如 Gemini 的消息 chunk 是不是增量，尚未核实）由 R8 定。
+
+## 1. ACP 消息 → AgentEvent
+
+### 1.1 `session/update` 类型
 
 | ACP `sessionUpdate` | Wevir 事件 | 说明 | 样本 |
 |---|---|---|---|
-| `agent_message_chunk` | `assistant.message` | dsh 每个已提交 attempt 的每个非空文本块发一条，同一 attempt 的块 `messageId` 相同；取消时一次补发已生成的部分，同样映射为 `assistant.message`。`replaces` 由会话队列对齐增量后填写（§4）。内容不是文本（图片）或缺 `messageId` 时改为 `engine.raw` | `mock/updates/agent_message_chunk.json`、`mock/transcripts/E2-cancel-during-generation.jsonl` |
-| `agent_thought_chunk` | `assistant.thought` | 推理块，规则同上，`messageId` 与同一 attempt 的消息相同 | `mock/updates/agent_thought_chunk.json`、`mock/transcripts/F-stream-granularity.jsonl` |
-| `tool_call` | `tool.started`、`todo.updated`、`tool.finished` | `title` 是工具名，`kind` 恒为 `other`，`status` 直接是 `in_progress`，没有 `locations`：展示类型按工具名取（§2），`rawInput` 原样作 `input`。工具是 `todo_write` 且 `rawInput.todos` 每项都有 `content` / `status` 时，紧跟一条 `todo.updated`（完整列表）。ACP 允许 `tool_call` 直接带终态，那时再跟一条 `tool.finished`（dsh 不发） | `mock/updates/tool_call.json`、`mock/transcripts/todo-subagent.jsonl` |
-| `tool_call_update` | `tool.finished`、`tool.updated` | `status` 为 `completed` / `failed` 时是 `tool.finished`，`output` 是 `content` 里各文本块按顺序直接拼接的原文（模型看到的同一段文本），截断由 Host 做；取消期间的 `failed` 由 Host 记为 `cancelled`（domain-model.md §6.4）。其余状态（`pending`、`in_progress`、缺省）是 `tool.updated`，带 `title` 时重新计算展示类型（dsh 不发）。`content` 里有非文本项（`diff`、`terminal`、图片）时文本照常进 `output`，整条另发一条 `engine.raw` | `mock/updates/tool_call_update.completed.json`、`mock/updates/tool_call_update.failed.json` |
-| `usage_update` | `usage.updated` | `used` → `contextUsed`，`size` → `contextSize`（模型未声明 `contextWindow` 时是 pi-ai 的猜测值 262144）；没有 `cost` | `mock/updates/usage_update.json` |
+| `agent_message_chunk` | `assistant.message` | 一条已提交的文本块，`messageId` 原样（同一条消息的各块相同）；引擎取消时补发的已生成部分同样映射为 `assistant.message`。`replaces` 由会话队列用引擎的对齐器填写（§0.1，没有旁路时为空）。内容不是文本（图片）或缺 `messageId` 时改为 `engine.raw` | `mock/updates/agent_message_chunk.json`、`mock/transcripts/E2-cancel-during-generation.jsonl` |
+| `agent_thought_chunk` | `assistant.thought` | 推理块，规则同上 | `mock/updates/agent_thought_chunk.json`、`mock/transcripts/F-stream-granularity.jsonl` |
+| `tool_call` | `tool.started`、`todo.updated`、`tool.finished` | `title` 是工具名，`rawInput` 原样作 `input`，展示类型由引擎描述的 `tools.display` 给出。引擎的 `tools.todos` 认出写待办的工具（完整列表）时，紧跟一条 `todo.updated`。ACP 允许 `tool_call` 直接带终态，那时再跟一条 `tool.finished` | `mock/updates/tool_call.json`、`mock/transcripts/todo-subagent.jsonl` |
+| `tool_call_update` | `tool.finished`、`tool.updated` | `status` 为 `completed` / `failed` 时是 `tool.finished`，`output` 是 `content` 里各文本块按顺序直接拼接的原文（模型看到的同一段文本），截断由 Host 做；取消期间的 `failed` 由 Host 记为 `cancelled`（domain-model.md §6.4）。其余状态（`pending`、`in_progress`、缺省）是 `tool.updated`，带 `title` 时重新计算展示类型。`content` 里有非文本项（`diff`、`terminal`、图片）时文本照常进 `output`，整条另发一条 `engine.raw` | `mock/updates/tool_call_update.completed.json`、`mock/updates/tool_call_update.failed.json` |
+| `usage_update` | `usage.updated` | `used` → `contextUsed`，`size` → `contextSize`；`cost` 不映射 | `mock/updates/usage_update.json` |
 | `config_option_update` | `engine.raw` | 认识的类型，v0 没有中途改模型的事件（预留 `session.config_changed`，domain-model.md §6.6），有意保留为 `engine.raw`，不告警 | — |
 
 其余情况一律映射为一条 `engine.raw`（`protocol: 'acp'`、`method: 'session/update'`、`kind` 为 `sessionUpdate` 的值、`params` 是整条通知的原样参数），不丢弃，并按“原因 + 类型”在一个适配器实例内只告警一次：
 
-- dsh 不发的类型：`user_message_chunk`、`plan`、`plan_update`、`plan_removed`、`available_commands_update`、`current_mode_update`、`session_info_update`、`compaction_update`、`compaction_summary_chunk`（ACP SDK 1.4.0 的全部类型），以及将来的新类型；
+- 映射还不认识的类型：`user_message_chunk`、`plan`、`plan_update`、`plan_removed`、`available_commands_update`、`current_mode_update`、`session_info_update`、`compaction_update`、`compaction_summary_chunk`（ACP SDK 1.4.0 的其余类型，dsh 都不发），以及将来的新类型；
 - 认识的类型但字段不合预期：缺必需字段、`status` 或 `content` 的值不认识、`usage_update` 的数值不是非负数。
 
 `session/update` 本身缺 `sessionId` 或 `update.sessionUpdate` 时无法路由到会话，告警后丢弃；属于没有挂着的会话的更新同样告警后丢弃。
 
-ACP 的其他消息不经过 `mapAcpUpdate`：
+### 1.2 其他 ACP 消息
+
+不经过 `mapAcpUpdate`：
 
 | ACP 消息 | Wevir 事件 | 说明 | 样本 |
 |---|---|---|---|
 | `session/prompt` 结果 | `turn.settled` | `stopReason` 原样；`cancelled` 时 `outcome: 'cancelled'`，其余（`end_turn`、`max_tokens`…）为 `completed` | 全部 `mock/transcripts/*.jsonl` |
-| `session/prompt` 错误 | `turn.failed` | 按 §3 归类，原文与错误码保留 | `errors/prompt-*.json` |
-| dsh 进程退出 | `engine.exited` | 每个挂着的会话一条，是订阅的最后一个事件；进行中的回合不再有 `turn.*` | — |
-| `session/request_permission` | `approval.requested`；结束时 `approval.cancelled` | 经 ACP SDK 应答（不截下）：适配器分配 `requestId`，选项原样，挂起到 `respondToApproval`，或以 `cancelled` 回复（§5） | `mock/permission/request.json`、`mock/transcripts/B-permission-allow.jsonl` |
-| `session/new` 结果 | 无 | `configOptions` 里引擎当前的模型（`model` 的值是 JSON 编码的 `["<provider>","<model>"]`）与推理强度作为 `createSession` 的返回值；与 `SessionConfig` 不同时先 `session/set_config_option`（`model`、`reasoning_effort`），返回设置之后的值（T3.4，providers.md §2.2） | `session-new.response.json`、`session-new.openai-compatible.response.json` |
-| 适配器为应用新 Provider 配置重启 dsh | `engine.exited`（`reason: config_changed`） | 只在没有回合时发生，`exitCode` / `signal` 为 null（T3.4，providers.md §5） | — |
+| `session/prompt` 错误 | `turn.failed` | 按引擎描述的 `classifyTurnError` 归类（dsh 见 §3），原文与错误码保留 | `errors/prompt-*.json` |
+| 引擎进程退出 | `engine.exited` | 每个挂着的会话一条，是订阅的最后一个事件；进行中的回合不再有 `turn.*` | — |
+| `session/request_permission` | `approval.requested`；结束时 `approval.cancelled` | 经 ACP SDK 应答（不截下）：适配器分配 `requestId`，选项原样，挂起到 `respondToApproval`，或以 `cancelled` 回复（§1.3） | `mock/permission/request.json`、`mock/transcripts/B-permission-allow.jsonl` |
+| `session/new` 结果 | 无 | `configOptions` 里引擎当前的模型与推理强度（按引擎描述的 `route` 解码）作为 `createSession` 的返回值；与 `SessionConfig` 不同时先 `session/set_config_option`，返回设置之后的值；选不上报 `invalid_input`，刚建的会话在引擎侧关掉（dsh：T3.4，providers.md §2.2） | `session-new.response.json`、`session-new.openai-compatible.response.json` |
+| 适配器有计划地重启引擎 | `engine.exited`（带 `reason`） | `exitCode` / `signal` 为 null。`cancel_unconfirmed`：取消得不到确认（§1.4）；`config_changed`：dsh 为应用新的 Provider 配置，只在没有回合时发生（第二部分开头，providers.md §5） | — |
+
+### 1.3 审批桥接
+
+代码在 `acp-adapter.ts`（`#onRequestPermission`、`respondToApproval`、`#cancelApprovals`）；Host 一侧的审批状态机见 domain-model.md §5 与 §4.3。dsh 什么时候请求审批、给哪些选项、怎样解读回复见 §5。
+
+| ACP | AgentEvent 或适配器方法 | 说明 | 样本 |
+|---|---|---|---|
+| `session/request_permission` `{sessionId, toolCall: {toolCallId}, options}` | `approval.requested` | `requestId` 由适配器分配（`perm-<n>`，在适配器实例内唯一；不用 JSON-RPC id，它在引擎重启后会重复）；`toolCallId` 原样；`options` 原样（`optionId`、`name` → `label`、`kind`） | `mock/permission/request.json` |
+| 回复 `{"outcome":{"outcome":"selected","optionId":…}}` | `respondToApproval(engineSessionId, requestId, {optionId})` | `optionId` 不在 `options` 里报 `invalid_option`，审批保持未决、什么都不写；回复之后同一 `requestId` 报 `approval_not_found` | `mock/permission/responses.json` 的 `allow`、`deny` |
+| 回复 `{"outcome":{"outcome":"cancelled"}}` | `approval.cancelled` | 下面的“挂起审批的结束” | `mock/permission/responses.json` 的 `cancelled` |
+
+- **详情不在适配器里拼。** 请求只带 `toolCallId`。审批详情由 Host 从同一会话、同一 `toolCallId` 的 `tool.started`（即 `tool_call` 的 `rawInput`）生成 `ApprovalRequest.detail`（domain-model.md §3.4）：`toolName`、`display`（§1.1 的展示类型；dsh 的 `write` 的 `summary` 与 `paths` 是目标路径）、`input`（截断规则同工具输出）、`justification`、`sandboxPermissions`（后两个是 dsh 升级请求带的字段，§5.1）。找不到对应的 `tool.started` 时 `detail` 为 null，界面用通用文案。
+- **顺序。** 引擎先把积压的 `session/update` 写完才发审批请求时（dsh 是这样，§5.2），该工具的 `tool.started` 一定在 `approval.requested` 之前：`AcpProcess` 在 SDK 读到消息之前就同步截下更新（§0.1），SDK 把审批请求交给处理器时，前面的更新都已入队。审批请求本身不截下，由 SDK 校验并经它的写队列回复。
+
+**挂起审批的结束。** 适配器不给审批设时限，等用户决定（dsh 自己也不设，§5.4）；下表的情况由适配器以 `cancelled` 回复并发 `approval.cancelled`，之后对该 `requestId` 的 `respondToApproval` 报 `approval_not_found`。
+
+| 触发 | 适配器 | `approval.cancelled.reason` | Host 的结算（domain-model.md §4.1、§5） |
+|---|---|---|---|
+| `session.cancel` → `cancel` | 先写 `session/cancel`，再以 `cancelled` 回复（T0.3 场景 D 的顺序；SDK 在 `notify` 调用时就把通知排进写队列） | `turn_cancelled` | 调适配器之前已写 `cancelled`（`turn_cancelled`），适配器的事件被忽略 |
+| `session.close` → `close` | 先按 `cancel` 取消 | `turn_cancelled` | `cancelled`（`session_closed`） |
+| 取消开始之后才到的审批请求 | 照常上报 `approval.requested`，随即以 `cancelled` 回复 | `turn_cancelled` | 同一事务里记下并结为 `cancelled`（domain-model.md §4.3） |
+| 回合在审批未决时结算；引擎撤回请求（dsh 两者都不会，防御） | 以 `cancelled` 回复 | `turn_ended` | `cancelled`（`turn_cancelled`） |
+| 引擎进程退出 | 已无从回复；`approval.cancelled` 在 `engine.exited` 之前 | `engine_exited` | 随 `engine.exited` 一并结为 `cancelled`（`engine_exited`，#10） |
+| Host 优雅退出 | `SessionManager.shutdown()` 先按会话取消（同第一行）；之后 `dispose` 兜底：以 `cancelled` 回复，等回复写进引擎的 stdin 再关连接 | `turn_cancelled`；兜底时 `disposed` | `cancelled`（`host_shutdown`） |
+| Host 非正常退出后重启 | 不涉及：引擎已因 stdin EOF 随之退出（dsh 实测，ADR-0001 补记 1），没有可回复的请求 | — | 启动对账把残留的未决审批结为 `expired`（`host_restarted`） |
+| 请求不属于进行中的回合（会话不认识、已关闭或已脱开、回合已结束） | 直接以 `cancelled` 回复并告警，不发事件 | — | — |
+
+**重复决定不重复发给引擎。** Host 按会话串行处理 `approval.respond`，首个决定生效，之后返回 `ALREADY_DECIDED`，不再调适配器（domain-model.md §5）。适配器自己也保证一个 `requestId` 只回复引擎一次：先移出未决表再回复，两个决定同时到达时只有一个写给引擎，另一个报 `approval_not_found`。适配器报 `approval_not_found` 而 Host 那边仍未决，只会是引擎侧刚结束了这个审批：对应的 `approval.cancelled` 已在 Host 暂扣的事件里，Host 处理后返回 `ALREADY_DECIDED`（domain-model.md §4.3）。
+
+### 1.4 会话恢复与取消的兜底
+
+`AcpAdapter.resumeSession`。已挂在本进程上的会话直接成功，不发 ACP（dsh 拒绝 resume 同一进程里仍活跃的会话）。其余的会话（已 `close`、引擎退出或重启后脱开、适配器根本不认识它，Host 重启后就是这样）发 `session/resume`（`{sessionId, cwd, mcpServers: []}`，`cwd` 是会话创建时的工作区），成功后像建会话一样用 `session/set_config_option` 选定 Host 记录的 Provider、模型与推理强度：引擎恢复的路由可能是会话日志里最后的那个，Provider 配置换过之后已经不是它。结果带引擎描述的 `version`。引擎不回放历史（dsh 不回放任何 `session/update`），历史由 Host 的事件库负责。
+
+失败按引擎描述的 `classifyResumeError` 归类（dsh 的规则表见 §6），适配器据此报错；`AdapterError.message` 是 `session/resume 失败：` 加引擎原文：
+
+| 归类 | 适配器 | Host（domain-model.md §4.4） |
+|---|---|---|
+| `lost`（原因 `not_found` / `incompatible` / `corrupted`） | `session_lost`，原因在 `AdapterError.lostReason` | 写 `session.read_only`（原因对应 `engine_session_not_found` / `engine_session_incompatible` / `engine_session_corrupted`），会话只读 |
+| `cwd_mismatch` | `session_unavailable` | 只是 `engine.error`，不标只读 |
+| `already_active` | 告警后沿用，照常选定路由 | — |
+| `unknown`（连接断开、引擎的其他内部错误） | `engine_unavailable` | 只是 `engine.error` |
+
+- 路由选不上（Provider 配置里没有这个模型了）报 `invalid_input`，刚恢复的会话在引擎侧关掉。
+- Host 在调适配器之前先检查工作区目录还在，不在就回 `WORKSPACE_PATH_INVALID`。
+
+**取消得不到确认时重启引擎。** `cancel` 发出 `session/cancel` 后 4 s 内（`CANCEL_TIMEOUT_MS`，先于 Host 的 5 s）回合没有结算，适配器报 `cancel_unconfirmed`，同时重启引擎进程：卡住的回合随旧进程结束，挂在这个进程上的会话都以 `engine.exited`（`reason: cancel_unconfirmed`，`exitCode` 与 `signal` 为 null）脱开，Host 按引擎退出处理（domain-model.md §4.1 #10，取消的那个会话已按 #9 转 `error`）。之后 resume 到新进程上；不重启的话，引擎里那个会话仍是活跃的，resume 会被拒（dsh 报 `already active`），回合也一直占着它。dsh 实测取消在 3–64 ms 内结算（T0.3），这条路径只为引擎卡住时兜底。
+
+# 第二部分：dsh 专属补充（`@wevir/adapter-dsh`）
+
+dsh 的引擎描述是 `DSH_ENGINE`（`engine.ts`），启动器在 `DshProcess`（`dsh-process.ts`）；`DshAdapter` 在 `AcpAdapter` 之上只多出 Provider 桥接与配置变更时的重启（providers.md）。dsh 0.2.1-alpha.2 的 ACP 面（T0.3 §3.3，上游 `packages/acp/acp/src/`）：
+
+- `session/update` 实际只发 §1.1 表里的前 5 种；`config_option_update` 只在源码里出现（Provider 拓扑变化时，上游 `session.ts` 的 `topologyChanged`）。
+- 已提交消息：每个已提交 attempt 的每个非空文本块发一条 `agent_message_chunk`、推理块一条 `agent_thought_chunk`，同一 attempt 的块 `messageId` 相同；取消时一次补发已生成的部分（§4）。
+- `tool_call` 的 `kind` 恒为 `other`，`status` 直接是 `in_progress`，没有 `locations` / `diff`，所以展示类型按工具名取（§2）；`tool_call` 不带终态，`tool_call_update` 不带 `title`。工具是 `todo_write` 且 `rawInput.todos` 每项都有 `content` / `status` 时发 `todo.updated`（完整列表）。
+- `usage_update` 的 `size` 在模型未声明 `contextWindow` 时是 pi-ai 的猜测值 262144；没有 `cost`。
+- 会话的路由（`DSH_ROUTE`）：模型选项 `model` 的值是 JSON 编码的 `["<provider>","<model>"]`（上游 `model-control.ts`），推理强度是 `reasoning_effort`（T3.4，providers.md §2.2）。
+- **配置变更时重启。** dsh 不热加载 Provider 配置（ADR-0001 补记 5）。`DshAdapter.configureProviders` 换掉下一次 spawn 的 overlay 与 Key（`DshProcess.setLaunchConfig`）；dsh 在运行且没有回合时立即重启，有回合时等最后一个回合结束再重启。挂着的会话以 `engine.exited`（`reason: config_changed`）脱开，resume 后用新配置（providers.md §5）。
 
 ## 2. 工具名 → 展示类型
 
-ACP `kind` 恒为 `other`、没有 `locations` / `diff`，展示类型按工具名（`tool_call.title`）取，字段从 `rawInput` 提取，原值保留（路径可能是相对路径）。字段缺失或类型不对只少字段；`rawInput` 不是对象（dsh 解析模型给的 JSON 失败时是原始字符串）时只有展示类型。分类参考 Paseo `ToolCallDetail`（domain-model.md §7）。“观测”列：✅ 在 T0.3 样本中出现过；源码 = 字段名取自上游 `d743267` 的工具定义。
+dsh 的 `tools.display`（`tool-display.ts` 的 `DSH_TOOLS`）。dsh 的 `kind` 恒为 `other`、没有 `locations` / `diff`，展示类型按工具名（`tool_call.title`）取，字段从 `rawInput` 提取，原值保留（路径可能是相对路径）。字段缺失或类型不对只少字段；`rawInput` 不是对象（dsh 解析模型给的 JSON 失败时是原始字符串）时只有展示类型。分类参考 Paseo `ToolCallDetail`（domain-model.md §7）。“观测”列：✅ 在 T0.3 样本中出现过；源码 = 字段名取自上游 `d743267` 的工具定义。
 
 | dsh 工具名 | 展示类型 | 提取字段（`rawInput` → `ToolDisplay`） | 观测 |
 |---|---|---|---|
@@ -85,7 +172,7 @@ ACP `kind` 恒为 `other`、没有 `locations` / `diff`，展示类型按工具�
 
 ## 3. 回合失败的错误归类
 
-dsh 的轮次失败让 `session/prompt` 以 JSON-RPC `-32603` 结束，消息是自由文本：ACP SDK 的 `RequestError.internalError` 加 `Internal error: `，dsh-acp 再加 `turn failed: `，后面是 dsh 内部失败的原文（T0.3 §3.4）。只有 `-32603` 且带这两层包装的才按下表归类（看去掉包装之后的开头，自上而下第一条匹配的生效），其余一律 `unknown`，包括 dsh 的其他 `-32603`（`prompt was not queued: …`、`assistant output delivery failed: …`）。`turn.failed` 的 `message` 始终是完整原文，`code` 是错误码。
+dsh 的 `classifyTurnError`（`turn-error.ts`）。dsh 的轮次失败让 `session/prompt` 以 JSON-RPC `-32603` 结束，消息是自由文本：ACP SDK 的 `RequestError.internalError` 加 `Internal error: `，dsh-acp 再加 `turn failed: `，后面是 dsh 内部失败的原文（T0.3 §3.4）。只有 `-32603` 且带这两层包装的才按下表归类（看去掉包装之后的开头，自上而下第一条匹配的生效），其余一律 `unknown`，包括 dsh 的其他 `-32603`（`prompt was not queued: …`、`assistant output delivery failed: …`）。`turn.failed` 的 `message` 始终是完整原文，`code` 是错误码。
 
 | 类别 | 去掉包装后的开头（正则） | 来源 | 样本 |
 |---|---|---|---|
@@ -102,9 +189,9 @@ dsh 的轮次失败让 `session/prompt` 以 JSON-RPC `-32603` 结束，消息是
 - Provider 的可重试错误（429、5xx、连接错误）dsh 默认重试 5 次（`llm-retry`，最长约 16 s），最终的错误文本与第一次相同；回合失败到达时重试已经结束。
 - `errors/prompt-provider-*.json` 由 `turn-error.integration.test.ts` 用真实 dsh + 本地 mock Provider 复现并逐字比对（关掉重试）；响应体由 mock 给出，DeepSeek 401 的那句措辞是仿照的，不是官方原文。dsh 改措辞时这个测试先失败，样本与规则表一起更新；归不了类只影响类别，不影响会话状态转换（ADR-0001“后果”）。
 
-## 4. 增量与已提交消息的对齐
+## 4. 增量与已提交消息的对齐（stream-tap 与 `DeltaMerger`）
 
-规则的产品语义见 domain-model.md §6.3，这里是适配器的实现（`delta-merge.ts`，每个会话一个、按回合重置）。依据的 dsh 行为（上游 `dsh-acp/src/updates.ts`、`dsh-llm/src/assembler.ts`、`agent-loop/src/agent.ts`）：一个 attempt 的增量全部写到 fd 3 之后才提交 `assistant/message`；ACP 按块顺序为每个长度非零的文本块、推理块各发一条 chunk（同一 `messageId`）；取消时只保留含非空白字符的块，一个都没有就不提交消息，记为 `assistant/attempt`。旁路帧在 fd 3 上有序，但 fd 3 与 stdout 之间没有顺序。
+dsh 的增量旁路（`DSH_ENGINE.incremental`）：stream-tap 插件把 dsh 进程内的 `agent/assistant-stream` 帧写到 fd 3（ADR-0001 §3 与补记 2），`StreamTapDecoder` 解码，对齐器是 `DeltaMerger`（`delta-merge.ts`，每个会话一个、按回合重置）。规则的产品语义见 domain-model.md §6.3。依据的 dsh 行为（上游 `dsh-acp/src/updates.ts`、`dsh-llm/src/assembler.ts`、`agent-loop/src/agent.ts`）：一个 attempt 的增量全部写到 fd 3 之后才提交 `assistant/message`；ACP 按块顺序为每个长度非零的文本块、推理块各发一条 chunk（同一 `messageId`）；取消时只保留含非空白字符的块，一个都没有就不提交消息，记为 `assistant/attempt`。旁路帧在 fd 3 上有序，但 fd 3 与 stdout 之间没有顺序。
 
 1. attempt 按第一个增量的到达顺序排队等已提交消息。ACP 出现新的 `messageId` 时，取队列里第一个内容对得上的 attempt：它有一个未被替换的同类块，块的文本是已提交文本的前缀（前缀而不是相等，因为尾部增量可能还在 fd 3 里）。排在它前面的 attempt 不会再有已提交消息，一并出队。同一 `messageId` 的后续 chunk 在该 attempt 里按块顺序找下一个对得上的块。
 2. 配对之后该 attempt 再到的增量丢弃：已提交内容已经替换了它。
@@ -115,9 +202,9 @@ dsh 的轮次失败让 `session/prompt` 以 JSON-RPC `-32603` 结束，消息是
 
 测试：`delta-merge.test.ts` 用 F（思考 + 消息）、E2（取消时的半段消息，含前置空白块与迟到的尾部增量）、todo-subagent（一个回合多个 attempt）的已提交消息配旁路帧形状（`stream-tap/frames.sample.json`）构造的增量；`dsh-adapter.integration.test.ts` 用真实 dsh + mock Provider 覆盖正常回合与生成中取消。
 
-## 5. 审批
+## 5. 审批：dsh 的部分
 
-代码在 `dsh-adapter.ts`（`#onRequestPermission`、`respondToApproval`、`#cancelApprovals`）；Host 一侧的审批状态机见 domain-model.md §5 与 §4.3。
+通用的桥接（请求与回复、挂起审批的结束、重复决定）见 §1.3。这里是 dsh 什么时候请求审批、给哪些选项、怎样解读回复，以及界面与测试据此的设计。
 
 ### 5.1 什么时候会有审批：只来自沙箱升级
 
@@ -143,17 +230,12 @@ approval.requested  toolCallId = 第二次的 id；options = allow-once / reject
 tool.finished  completed / failed（§5.3）
 ```
 
-### 5.2 请求与回复
+### 5.2 选项与回复的解读
 
-| ACP | AgentEvent 或适配器方法 | 说明 | 样本 |
-|---|---|---|---|
-| `session/request_permission` `{sessionId, toolCall: {toolCallId}, options}` | `approval.requested` | `requestId` 由适配器分配（`perm-<n>`，在适配器实例内唯一；不用 JSON-RPC id，它在 dsh 重启后会重复）；`toolCallId` 原样；`options` 原样（`optionId`、`name` → `label`、`kind`）。dsh 只给 `allow-once`（`allow_once`）与 `reject-once`（`reject_once`），没有 always 类选项 | `mock/permission/request.json` |
-| 回复 `{"outcome":{"outcome":"selected","optionId":…}}` | `respondToApproval(engineSessionId, requestId, {optionId})` | `optionId` 不在 `options` 里报 `invalid_option`，审批保持未决、什么都不写；回复之后同一 `requestId` 报 `approval_not_found` | `mock/permission/responses.json` 的 `allow`、`deny` |
-| 回复 `{"outcome":{"outcome":"cancelled"}}` | `approval.cancelled` | §5.4 | `mock/permission/responses.json` 的 `cancelled` |
-
-- **详情不在适配器里拼。** 请求只带 `toolCallId`。审批详情（路径、内容、`sandbox_permissions`、模型写的 `justification`）由 Host 从同一会话、同一 `toolCallId` 的 `tool.started`（即 dsh `tool_call` 的 `rawInput`）生成 `ApprovalRequest.detail`（domain-model.md §3.4）：`toolName`、`display`（§2；`write` 的 `summary` 与 `paths` 是目标路径）、`input`（截断规则同工具输出）、`justification`、`sandboxPermissions`。找不到对应的 `tool.started` 时 `detail` 为 null，界面用通用文案。
-- **顺序。** 该工具的 `tool.started` 一定在 `approval.requested` 之前：dsh 先把积压的 `session/update` 写完才发审批请求（上游 `packages/acp/acp/src/index.ts` 的 `drainUpdates`），而 `DshProcess` 在 SDK 读到消息之前就同步截下更新（§0），SDK 把审批请求交给处理器时，前面的更新都已入队。dsh 收到回复之前不会写出这个工具的结果，所以 `approval.requested` 也在该工具的 `tool.finished` 之前。审批请求本身不截下，由 SDK 校验并经它的写队列回复。
-- **dsh 怎么解读回复。** 只有 `optionId` 为 `allow-once` 算批准，其他 `optionId` 一律按拒绝（上游 `index.ts`）；`cancelled` 单独处理（§5.3）。
+- **选项。** dsh 只给 `allow-once`（`allow_once`）与 `reject-once`（`reject_once`），没有 always 类选项（`mock/permission/request.json`）；适配器原样转出（§1.3）。回给 dsh 的三种回复见 `mock/permission/responses.json`。
+- **dsh 怎么解读回复。** 只有 `optionId` 为 `allow-once` 算批准，其他 `optionId` 一律按拒绝（上游 `packages/acp/acp/src/index.ts`）；`cancelled` 单独处理（§5.3）。
+- **§1.3 的顺序前提成立。** dsh 先把积压的 `session/update` 写完才发审批请求（上游 `index.ts` 的 `drainUpdates`），所以该工具的 `tool.started` 一定在 `approval.requested` 之前；dsh 收到回复之前不会写出这个工具的结果，所以 `approval.requested` 也在该工具的 `tool.finished` 之前。
+- **详情的字段。** 升级请求对应的 `tool_call.rawInput` 里有路径、内容、`sandbox_permissions` 与模型写的 `justification`（§5.1），Host 用它生成审批详情（§1.3）。
 
 ### 5.3 决定之后的工具结果
 
@@ -163,22 +245,9 @@ tool.finished  completed / failed（§5.3）
 | 拒绝 | `selected` `reject-once` | `failed`：`Error: the user rejected escalating this operation to "danger-full-access"; it stays denied, so stop and explain instead of working around it` | 继续，模型说明 | `C-permission-deny.jsonl`、`mock/permission/after-deny.tool-lifecycle.json` |
 | 取消 | `cancelled` | `failed`：`Error: approval for escalating to "danger-full-access" was cancelled`；在取消期间到达，Host 记为 `cancelled`（domain-model.md §6.4） | 以 `cancelled` 结算，没有助手回复 | `D-permission-cancel.jsonl`、`mock/permission/after-cancel.tool-lifecycle.json` |
 
-### 5.4 挂起审批的结束
+### 5.4 挂起的审批：dsh 不超时
 
-dsh 不给审批请求设时限，也不撤回（0.2.1-alpha.2 不发 `$/cancel_request`）：客户端不回复，dsh 就一直等，回合也一直不结算。所以审批**默认不超时**，等用户决定；下表的情况由适配器以 `cancelled` 回复并发 `approval.cancelled`，之后对该 `requestId` 的 `respondToApproval` 报 `approval_not_found`。
-
-| 触发 | 适配器 | `approval.cancelled.reason` | Host 的结算（domain-model.md §4.1、§5） |
-|---|---|---|---|
-| `session.cancel` → `cancel` | 先写 `session/cancel`，再以 `cancelled` 回复（T0.3 场景 D 的顺序；SDK 在 `notify` 调用时就把通知排进写队列） | `turn_cancelled` | 调适配器之前已写 `cancelled`（`turn_cancelled`），适配器的事件被忽略 |
-| `session.close` → `close` | 先按 `cancel` 取消 | `turn_cancelled` | `cancelled`（`session_closed`） |
-| 取消开始之后才到的审批请求 | 照常上报 `approval.requested`，随即以 `cancelled` 回复 | `turn_cancelled` | 同一事务里记下并结为 `cancelled`（domain-model.md §4.3） |
-| 回合在审批未决时结算；dsh 撤回请求（两者 dsh 都不会，防御） | 以 `cancelled` 回复 | `turn_ended` | `cancelled`（`turn_cancelled`） |
-| dsh 进程退出 | 已无从回复；`approval.cancelled` 在 `engine.exited` 之前 | `engine_exited` | 随 `engine.exited` 一并结为 `cancelled`（`engine_exited`，#10） |
-| Host 优雅退出 | `SessionManager.shutdown()` 先按会话取消（同第一行）；之后 `dispose` 兜底：以 `cancelled` 回复，等回复写进 dsh 的 stdin 再关连接 | `turn_cancelled`；兜底时 `disposed` | `cancelled`（`host_shutdown`） |
-| Host 非正常退出后重启 | 不涉及：dsh 已因 stdin EOF 随之退出（ADR-0001 补记 1），没有可回复的请求 | — | 启动对账把残留的未决审批结为 `expired`（`host_restarted`） |
-| 请求不属于进行中的回合（会话不认识、已关闭或已脱开、回合已结束） | 直接以 `cancelled` 回复并告警，不发事件 | — | — |
-
-**重复决定不重复发给 dsh。** Host 按会话串行处理 `approval.respond`，首个决定生效，之后返回 `ALREADY_DECIDED`，不再调适配器（domain-model.md §5）。适配器自己也保证一个 `requestId` 只回复 dsh 一次：先移出未决表再回复，两个决定同时到达时只有一个写给 dsh，另一个报 `approval_not_found`。适配器报 `approval_not_found` 而 Host 那边仍未决，只会是引擎侧刚结束了这个审批：对应的 `approval.cancelled` 已在 Host 暂扣的事件里，Host 处理后返回 `ALREADY_DECIDED`（domain-model.md §4.3）。
+dsh 不给审批请求设时限，也不撤回（0.2.1-alpha.2 不发 `$/cancel_request`）：客户端不回复，dsh 就一直等，回合也一直不结算。所以审批默认不超时，等用户决定；取消、关闭、引擎退出、`dispose` 时由适配器以 `cancelled` 结束（§1.3 的表）。表里“回合在审批未决时结算”“引擎撤回请求”两种情况 dsh 都不会发生，是防御。
 
 ### 5.5 界面文案与测试用例
 
@@ -191,11 +260,11 @@ dsh 不给审批请求设时限，也不撤回（0.2.1-alpha.2 不发 `$/cancel_
 
 测试：`dsh-adapter.approval.test.ts` 用 `fake-dsh.mjs` 回放 B / C / D 三份录制（真实子进程、真实 ACP 帧），覆盖批准、拒绝、两个决定同时到达与重复决定、审批挂起时取消、关闭、引擎退出、`dispose`，以及不属于回合的请求；回给 dsh 的响应与 `mock/permission/responses.json` 逐个相等。`dsh-adapter.approval.integration.test.ts` 用真实 dsh：mock Provider 下一次批准、一次拒绝，以及工作区内与系统临时目录的写入没有审批；真实模型用例需要 `WEVIR_TEST_API_KEY`。
 
-## 6. 会话恢复（`session/resume`）
+## 6. 会话恢复：dsh 的部分
 
-`DshAdapter.resumeSession`（T3.5）。已挂在本进程上的会话直接成功，不发 ACP：dsh 拒绝 resume 同一进程里仍活跃的会话。其余的会话（已 `close`、引擎退出或重启后脱开、适配器根本不认识它，Host 重启后就是这样）发 `session/resume`（`{sessionId, cwd, mcpServers: []}`，`cwd` 是会话创建时工作区的 realpath，dsh 按 realpath 比较），成功后像建会话一样用 `session/set_config_option` 选定 Host 记录的 Provider、模型与推理强度：dsh 恢复的是会话日志里最后的路由，Provider 配置换过之后可能已经不是它。结果带 `engineVersion`（适配器锁定的 dsh 版本，ACP 的 `agentInfo.version` 恒为 0.0.1）。dsh 不回放任何 `session/update`（T0.3 §3.2），历史由 Host 的事件库负责；模型可见的上下文由 dsh 的会话日志恢复，新进程 resume 后的第一个模型请求带着之前的全部消息（T0.3 §8，`dsh-adapter.resume.integration.test.ts` 用真实 dsh 复现）。
+通用的流程与归类之后的处理见 §1.4。dsh 的 `session/resume`：`cwd` 用会话创建时工作区的 realpath（dsh 按 realpath 比较）；dsh 拒绝 resume 同一进程里仍活跃的会话；恢复的路由是会话日志里最后的那个；不回放任何 `session/update`（T0.3 §3.2）。模型可见的上下文由 dsh 的会话日志恢复，新进程 resume 后的第一个模型请求带着之前的全部消息（T0.3 §8，`dsh-adapter.resume.integration.test.ts` 用真实 dsh 复现）。`engineVersion` 是适配器锁定的 dsh 版本（ACP 的 `agentInfo.version` 恒为 0.0.1）。
 
-失败按下表归类（`resume-error.ts` 的 `RESUME_ERROR_RULES`，自上而下第一条匹配的生效）。dsh-acp 自己拒绝的是 `-32602`；读会话日志时抛出的错误不是 RequestError，ACP SDK 把它包成 `-32603 Internal error`，原文在 `data.details`。规则匹配 `message`，`-32603` 匹配 `message` 与 `data.details` 拼成的 `Internal error: <details>`，`AdapterError.message` 保留这段全文。
+失败按下表归类（`resume-error.ts` 的 `RESUME_ERROR_RULES`，即 dsh 的 `classifyResumeError`，自上而下第一条匹配的生效；适配器与 Host 据归类怎么做见 §1.4）。dsh-acp 自己拒绝的是 `-32602`；读会话日志时抛出的错误不是 RequestError，ACP SDK 把它包成 `-32603 Internal error`，原文在 `data.details`。规则匹配 `message`，`-32603` 匹配 `message` 与 `data.details` 拼成的 `Internal error: <details>`，`AdapterError.message` 保留这段全文。
 
 | 归类 | 错误码 | 原文（正则） | 来源 | 适配器 | 样本 |
 |---|---|---|---|---|---|
@@ -209,7 +278,3 @@ dsh 不给审批请求设时限，也不撤回（0.2.1-alpha.2 不发 `$/cancel_
 说明：
 
 - `errors/resume-not-resumable.json`、`resume-format-newer.json`、`resume-log-corrupt.json` 由 `dsh-adapter.resume.integration.test.ts` 用真实 dsh 复现并逐字比对（会话 ID、`DSH_HOME`、会话日志的 cwd 编码目录换成占位符）：关闭会话后删掉日志目录、把日志头改成格式 v5、在日志末尾追加半条记录。dsh 改措辞时这个测试先失败，设 `WEVIR_RECORD_FIXTURES=1` 重跑改写样本，再按新措辞改规则表。`fake-dsh.mjs` 回放的也是这三份样本。
-- 路由选不上（Provider 配置里没有这个模型了）报 `invalid_input`，刚恢复的会话在 dsh 侧关掉。
-- Host 一侧（domain-model.md §4.4）：`session_lost` 写 `session.read_only`（`not_found` / `incompatible` / `corrupted` 对应 `engine_session_not_found` / `engine_session_incompatible` / `engine_session_corrupted`），会话只读；其余失败只是 `engine.error`（`session_unavailable`）。Host 在调适配器之前先检查工作区目录还在，不在就回 `WORKSPACE_PATH_INVALID`。
-
-**取消得不到确认时重启 dsh。** `cancel` 发出 `session/cancel` 后 4 s 内回合没有结算，适配器报 `cancel_unconfirmed`，同时重启 dsh：卡住的回合随旧进程结束，挂在这个进程上的会话都以 `engine.exited`（`reason: cancel_unconfirmed`，`exitCode` 与 `signal` 为 null）脱开，Host 按引擎退出处理（domain-model.md §4.1 #10，取消的那个会话已按 #9 转 `error`）。之后 resume 到新进程上；不重启的话，dsh 里那个会话仍是活跃的，resume 会被 `already active` 拒绝，回合也一直占着它。T0.3 实测取消在 3–64 ms 内结算，这条路径只为 dsh 卡住时兜底。

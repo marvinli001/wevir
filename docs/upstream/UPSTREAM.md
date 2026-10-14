@@ -26,7 +26,7 @@ bash scripts/upstream-sync.sh
 
 ### 1.1 作为依赖运行的 npm 包
 
-只在 `packages/adapter-dsh/package.json` 声明，写精确版本（ADR-0001 §1、ADR-0004 §2）。
+写精确版本（ADR-0001 §1、ADR-0004 §2）。dsh 只在 `packages/adapter-dsh/package.json` 声明；ACP SDK 从 R7 起只在 `packages/adapter-acp/package.json` 声明（通用 ACP 适配器），adapter-dsh 与它的测试经 `@wevir/adapter-acp` 及其子路径 `./sdk` 使用。
 
 | npm 包 | 锁定版本 | npm `latest`（2026-10-12） | 许可证 | 说明 |
 |---|---|---|---|---|
@@ -287,7 +287,7 @@ T3.6 建立。dsh 是 developer preview，会有不兼容变更（SKELETON_PLAN 
    ```
 
 2. **更新锁定版本，dsh 与 `@agentclientprotocol/sdk` 一起核对。** ACP SDK 取新 dsh 的 `packages/acp/acp/package.json` 锁定的版本（当前两者是 `0.2.1-alpha.2` 与 `1.4.0`），不单独追 npm 的 `latest`。npm 上 dsh 的 `latest` 标签可能落后于要用的版本（§1.1），一律写精确版本。要改的地方：
-   - `packages/adapter-dsh/package.json`（两个依赖都写精确版本）与 `src/paths.ts` 的 `DSH_VERSION`；
+   - `packages/adapter-dsh/package.json`（dsh）与 `packages/adapter-acp/package.json`（ACP SDK），都写精确版本；`packages/adapter-dsh/src/paths.ts` 的 `DSH_VERSION`；
    - `docs/upstream/upstream.lock` 与本文件 §1、§1.1 的表；
    - SKELETON_PLAN §1.4 与 §3.1 里的版本号。
 
@@ -318,7 +318,7 @@ T3.6 建立。dsh 是 developer preview，会有不兼容变更（SKELETON_PLAN 
    - 审批：选项仍是 `allow_once` / `reject_once`、审批仍只来自沙箱升级（ADR-0001 §6），第 2 层的审批条款与 `dsh-adapter.approval.integration.test.ts` 覆盖。`DSH_PERMISSION_MODE` 等进程环境变量的名字按 dsh-base 的 `cordis.patch.yml` 再核对一次（ADR-0001 补记 1）。
 
 6. **重新核对依赖闭包的许可证与 `allowBuilds`。**
-   - 许可证：按 §2.1“pnpm 安装后的复核”的方法，从 `pnpm-lock.yaml` 的 importer `packages/adapter-dsh` 沿 `dependencies` 与 `optionalDependencies` 走出生产依赖闭包（含各平台的可选包），已安装的读 `package.json`，其他平台的用 `npm view <包>@<版本> license`。与 §2.1 的计数对比，新出现的非宽松许可证（MPL、LGPL、GPL、专有条款）写进 §2.1 的结论。`pnpm licenses list --prod` 不列可选的平台包，不能代替。
+   - 许可证：按 §2.1“pnpm 安装后的复核”的方法，从 `pnpm-lock.yaml` 的 importer `packages/adapter-dsh` 与 `packages/adapter-acp`（R7 起 ACP SDK 在后者，两者合起来才与 §2.1 的计数可比）沿 `dependencies` 与 `optionalDependencies` 走出生产依赖闭包（含各平台的可选包），已安装的读 `package.json`，其他平台的用 `npm view <包>@<版本> license`。与 §2.1 的计数对比，新出现的非宽松许可证（MPL、LGPL、GPL、专有条款）写进 §2.1 的结论。`pnpm licenses list --prod` 不列可选的平台包，不能代替。
    - `allowBuilds`：第 2 步报出的每个构建脚本，读过脚本内容再决定放行还是拒绝；键带新版本，取舍与理由记在 §2.1“构建脚本”。旧版本的键删掉。
 
 7. **收尾。** ADR-0001 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试的结果。`DSH_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，这是预期的，正好用来排查跨版本问题（ADR-0001 补记 6）。

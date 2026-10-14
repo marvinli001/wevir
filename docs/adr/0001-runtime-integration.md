@@ -182,3 +182,8 @@ ACP 给不了、或给得不完整的信息，由 Host / 适配器自己补，�
    - dsh 的升级检查清单写在 [UPSTREAM.md §7](../upstream/UPSTREAM.md#7-dsh-升级检查清单)。
 
 8. **2026-10-14，ADR-0005：默认引擎换成 Codex。** 维护者决定以 `codex-app-server` 为默认引擎、Host 内置模型协议网关；dsh 保留为可选引擎，只做安全与隐私修复和跟进上游所需的升级，不再加新能力，也不再随安装包分发（用户选用时下载）。本 ADR 对 dsh 接入方式（ACP 子进程、stream-tap 旁路、进程环境与回收）的决定继续有效；通用的 ACP 部分将抽成通用 ACP 适配器（ADR-0005 决策 1.3），抽取不改变 dsh 的行为。
+9. **2026-10-14，R7：通用的 ACP 部分抽成 `packages/adapter-acp`（ADR-0005 决策 1.3）。** dsh 的行为不变：adapter-dsh 的全部测试（三层契约的前两层与其余单元、集成测试）在抽取前后结果相同，测试代码只改了 import 路径。补记 1–7 写到的代码位置随之变化：
+   - 进程（补记 1 的启动、initialize、退出上报与重启、回收，补记 3 的“在 SDK 之前截下 `session/update`”，补记 2 里 fd 3 的解码与报到时限）在 `adapter-acp/src/acp-process.ts` 的 `AcpProcess`，经启动器 `AcpLauncher` 启动引擎。`DshProcess` 是它的子类，只带 dsh 的启动器（`paths.ts`、`env.ts`、`dshSpawnSpec`、stream-tap 的安装）与 `setLaunchConfig`。错误与告警里的“dsh”取自引擎描述的名字，原文不变。
+   - 映射、每会话事件队列、会话与审批记账、恢复与取消得不到确认时的重启（补记 3、4、6）在 `adapter-acp/src/{acp-mapping,session-events,acp-adapter}.ts`；`DshAdapter` 是 `AcpAdapter` 的子类，只多出 Provider 桥接与配置变更时的重启（补记 5）。
+   - dsh 的差异经引擎描述 `DSH_ENGINE`（`adapter-dsh/src/engine.ts`）注入：能力表、工具展示表、路由编码、回合与 resume 失败的归类、增量旁路（fd 3、`StreamTapDecoder`、2 s 的报到时限、`DeltaMerger`）。映射文档拆成通用与 dsh 两部分（[acp-event-mapping.md](../architecture/acp-event-mapping.md)）。
+   - `@agentclientprotocol/sdk` 改由 adapter-acp 声明，版本仍是 `1.4.0`（决策 1）；adapter-dsh 的测试经 `@wevir/adapter-acp/sdk` 用它。

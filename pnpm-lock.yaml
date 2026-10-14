@@ -283,14 +283,23 @@ importers:
         specifier: ^7.3.7
         version: 7.3.7(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1)
 
-  packages/adapter-dsh:
+  packages/adapter-acp:
     dependencies:
       '@agentclientprotocol/sdk':
         specifier: 1.4.0
         version: 1.4.0(zod@4.6.5)
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
+  packages/adapter-dsh:
+    dependencies:
       '@deepseek-ai/dsh':
         specifier: 0.2.1-alpha.2
         version: 0.2.1-alpha.2(071b89453838c85991d3b85fddc938fc)
+      '@wevir/adapter-acp':
+        specifier: workspace:*
+        version: link:../adapter-acp
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../runtime-adapter
