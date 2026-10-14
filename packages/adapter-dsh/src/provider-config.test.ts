@@ -80,16 +80,23 @@ describe('overlay', () => {
     ).toEqual({});
   });
 
-  it('DeepSeek 官方：llm-deepseek 与 web-search-deepseek 的 Key 引用都换成 Wevir 的变量；不列模型时用 dsh 自带目录', () => {
+  it('DeepSeek 官方：llm-deepseek 与 web-search-deepseek 的 Key 引用都换成 Wevir 的变量；不列模型时用 dsh 自带目录；会话日志与插件清单不上传', () => {
     expect(providerOverlayEntries([deepseek])).toEqual([
       { id: 'llm-deepseek', config: { apiKeyEnv: 'WEVIR_PROVIDER_DEEPSEEK_OFFICIAL_KEY' } },
       { id: 'web-search-deepseek', config: { apiKeyEnv: 'WEVIR_PROVIDER_DEEPSEEK_OFFICIAL_KEY' } },
+      { id: 'session-log-deepseek', config: { enabled: false } },
+      { id: 'plugin-package-inventory-deepseek', config: { enabled: false } },
     ]);
   });
 
-  it('没有任何 Provider 时也改掉 DEEPSEEK_API_KEY 的引用，不写 llm-pi-ai', () => {
+  it('没有任何 Provider 时也改掉 DEEPSEEK_API_KEY 的引用、关掉会话日志与插件清单，不写 llm-pi-ai', () => {
     const entries = providerOverlayEntries([]);
-    expect(entries.map((e) => e.id)).toEqual(['llm-deepseek', 'web-search-deepseek']);
+    expect(entries.map((e) => e.id)).toEqual([
+      'llm-deepseek',
+      'web-search-deepseek',
+      'session-log-deepseek',
+      'plugin-package-inventory-deepseek',
+    ]);
     expect(JSON.stringify(entries)).not.toContain('DEEPSEEK_API_KEY');
   });
 

@@ -58,6 +58,7 @@ provider.test  ──► 适配器直接向 Provider 发一次最小流式请求
 
 - overlay 不写 `acp` 条目。每个会话的 Provider 与模型由适配器在 `session/new` 之后用 `session/set_config_option`（`configId: model`，值是 dsh 的路由编码 `JSON.stringify([provider, model])`，上游 `dsh-acp/src/model-control.ts`）选定；给了 `reasoningEffort` 时再设 `reasoning_effort`。dsh 选不上（`-32602 unknown model option`）时 `session.create` 回 `ENGINE_ERROR`，引擎侧的会话随即关闭。
 - 没有任何 Provider 时也写 `llm-deepseek` 与 `web-search-deepseek` 两条，把 Key 引用从默认的 `DEEPSEEK_API_KEY` 改成 Wevir 的变量；没有 `openai-compatible` 时不写 `llm-pi-ai`。
+- 总是写 `session-log-deepseek` 与 `plugin-package-inventory-deepseek` 两条 `enabled: false`：dsh 默认给 `llm-deepseek` 的每个请求附带会话日志与插件清单，Wevir 不上传（发了什么、关掉的取舍见 [security.md §4](../security.md)）。
 - 列出 `deepseek-official` 的模型会替换 dsh 自带目录，连同目录里为 `deepseek-flash` 声明的图片输入与提示词缓存相关设置（`systemPromptUpdate`、`toolUpdate`）。一般不需要列，用默认目录即可。
 - 文件用 JSON 写（YAML 1.2 是 JSON 的超集），显示名、地址这些用户输入不需要 YAML 转义。dsh 启动时校验整份配置，任何一处不合法都会让 dsh 起不来、所有会话都受影响，所以 Host 在写库之前就调用 `validateProvider`，规则在 `validateProviderConfig`。
 - `baseURL` 不能带用户名、密码、查询参数或片段：地址会原样写进 overlay，落到 `DSH_HOME`。
@@ -83,6 +84,8 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 [
   { "id": "llm-deepseek", "config": { "apiKeyEnv": "WEVIR_PROVIDER_DEEPSEEK_OFFICIAL_KEY" } },
   { "id": "web-search-deepseek", "config": { "apiKeyEnv": "WEVIR_PROVIDER_DEEPSEEK_OFFICIAL_KEY" } },
+  { "id": "session-log-deepseek", "config": { "enabled": false } },
+  { "id": "plugin-package-inventory-deepseek", "config": { "enabled": false } },
   {
     "id": "llm-pi-ai",
     "config": {

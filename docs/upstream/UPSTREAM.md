@@ -297,6 +297,7 @@ T3.6 建立。dsh 是 developer preview，会有不兼容变更（SKELETON_PLAN 
    - [acp-event-mapping.md](../architecture/acp-event-mapping.md) 的三张表与代码由 `acp-event-mapping.test.ts` 核对。新出现或改了形状的 `sessionUpdate` 落成 `engine.raw`，每种告警一次（“ACP session/update 无法映射，保留为 engine.raw”，字段带 `sessionUpdate` 与 `reason`），逐个决定要不要映射。
    - 工具名表 `DSH_TOOLS`（`tool-display.ts`）与新 dsh 的内置工具对照，没登记的工具展示类型是 `unknown`。
    - 错误文本：`turn-error.ts` 的 `TURN_ERROR_RULES`（`-32603` 的前缀）与 `resume-error.ts`（acp-event-mapping.md §6）按第 3 步的新样本核对。dsh 改了措辞时原文仍然保留，但会归到 `unknown` 或 `engine_unavailable`，`session_lost` 也可能认不出来。
+   - 发给 Provider 的附加数据：`git -C upstream/deepseek-harness grep -n "deepseekLlmApiExtensions.register\|x-deepseek-harness-" <新SHA> -- packages ':!**/tests/**'` 列出 `llm-deepseek` 请求体的扩展字段与请求头，与 [security.md §4](../security.md) 的清单对照：新字段先决定关不关（关的话写进 `provider-config.ts` 的 overlay），再更新清单；`session-log-deepseek`、`plugin-package-inventory-deepseek` 的 `enabled` 开关改名或去掉时，overlay 会被 dsh 拒绝或悄悄失效，`dsh-adapter.providers.integration.test.ts` 的 DeepSeek 用例会失败。
    - 审批：选项仍是 `allow_once` / `reject_once`、审批仍只来自沙箱升级（ADR-0001 §6），第 2 层的审批条款与 `dsh-adapter.approval.integration.test.ts` 覆盖。`DSH_PERMISSION_MODE` 等进程环境变量的名字按 dsh-base 的 `cordis.patch.yml` 再核对一次（ADR-0001 补记 1）。
 
 6. **重新核对依赖闭包的许可证与 `allowBuilds`。**

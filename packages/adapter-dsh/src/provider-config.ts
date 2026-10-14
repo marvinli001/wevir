@@ -185,6 +185,8 @@ export interface OverlayEntry {
  *
  * - `llm-deepseek` 与 `web-search-deepseek` 的 `apiKeyEnv` 总是改成 Wevir 的变量（默认是 `DEEPSEEK_API_KEY`），
  *   没有 DeepSeek 官方 Provider 时也改：dsh 不会再去找 `DEEPSEEK_API_KEY`。
+ * - `session-log-deepseek` 与 `plugin-package-inventory-deepseek` 总是关掉：dsh 默认给经 `llm-deepseek` 的每个请求
+ *   附带会话日志 `dsh_session_log` 与插件清单 `dsh_plugin_packages`，两者都不是模型输入（docs/security.md §4）。
  * - `openai-compatible` 都进 `llm-pi-ai` 的 `providers`；一个都没有时不写这一条（保持 dsh 的默认）。
  * - 不写 `acp` 条目：每个会话的路由由适配器在 `session/new` 之后用 `session/set_config_option` 选定。
  */
@@ -207,6 +209,8 @@ export function providerOverlayEntries(providers: readonly ProviderConfig[]): Ov
   const entries: OverlayEntry[] = [
     { id: 'llm-deepseek', config: deepseekConfig },
     { id: 'web-search-deepseek', config: { apiKeyEnv: keyEnv } },
+    { id: 'session-log-deepseek', config: { enabled: false } },
+    { id: 'plugin-package-inventory-deepseek', config: { enabled: false } },
   ];
 
   const routes: Record<string, unknown> = {};

@@ -33,6 +33,13 @@
   - **打开不可信的仓库作为工作区，这些文件就是提示词注入面。** 仓库作者写进去的内容会和你的提示一起交给模型，而按下文沙箱一条，模型在工作区内写文件不需要审批，读工作区外的文件、访问网络也不触发审批。指令文件是符号链接时 dsh 会跟随，仓库可以借此把工作区外的文件内容带进会话。骨架阶段 Wevir 不关闭、不过滤这些文件，也不提示它们被加载；添加工作区之前，先看过仓库里的这些文件。
   - 来源：dsh `docs/subsystems/skills.md`（Local discovery priority）与 `packages/context/agent-instructions/README.md`；acp profile 从 `packages/bundle/base/cordis.patch.yml` 继承这两个插件，没有关掉（锁定提交 `d743267`，即 tag `dsh-v0.2.1-alpha.2`）。
 - **白名单环境。** dsh 子进程只继承 `PATH`、`HOME`、用户名、shell、区域与时区、临时目录、代理变量、`NODE_EXTRA_CA_CERTS` 和 Windows 的系统变量；你 shell 里的 `DEEPSEEK_API_KEY`、`OPENAI_*`、`ANTHROPIC_*`、自己的 `DSH_*`、`NODE_OPTIONS` 都不会传进去。固定注入 `DSH_TELEMETRY_DISABLED=1`，关掉 dsh 的遥测。
+- **发给 DeepSeek 官方路由的附加数据。** 走 `deepseek-official`（dsh 的 `llm-deepseek`，Messages 协议）的每个模型请求，dsh 默认在模型输入之外再带两个请求体字段，发往该 Provider 配置的 `baseURL`（填了第三方网关就是网关）：
+  - `dsh_session_log`：dsh 的完整会话日志，增量上传（服务端回 2xx 后记下水位，下一个请求从水位之后接着发，单个请求最多 8 MiB）。内容大部分是模型本来就能看到的（系统提示、工具定义、提示、回答、工具结果），另外还有每个事件的毫秒时间戳、流式输出的分片时间、权限 / 沙箱 / 审批模式、会话标题、工具结果的附加元数据（`read` 的 `meta` 里是绝对路径加整份文件内容的第二份拷贝），以及只记日志、不进模型的事件类型（例如 `approval/asked`、`approval/decided`、`llm/retry`）。
+  - `dsh_plugin_packages`：dsh 进程里所有已加载插件包的名字与版本（约 90 个，6 KB，每个请求都带全量），开了增量旁路时其中有 `@wevir/dsh-stream-tap`。
+  - **Wevir 在 Provider overlay 里把两者都关掉**（`session-log-deepseek` 与 `plugin-package-inventory-deepseek` 的 `enabled: false`，`provider-config.ts`）。按两个包的 README，它们不改变模型看到的内容、token 数与 KV Cache；DeepSeek 拿它们做什么上游没有写明，关掉之后服务端依赖它们的功能（如果有）就用不上。以后要打开，注意 `dsh_session_log` 会把关闭期间记下的全部历史补传。
+  - **关不掉的两个请求头**：`x-deepseek-harness-user-id`（`<DSH_HOME>/.anonymous-user-id` 里的随机 UUID，每个 Wevir 数据目录一个，长期不变）与 `x-deepseek-harness-session-id`（dsh 会话 ID）。dsh 0.2.1-alpha.2 没有配置项；它们只发往同一个 `baseURL`，而该服务本来就凭 API Key 认得出你。
+  - `openai-compatible`（dsh 的 `llm-pi-ai`）不带上面任何一项，只有 `user-agent: deepseek-harness/<版本>`。
+  - 来源：dsh `packages/session/session-log-deepseek`、`packages/llm/plugin-package-inventory-deepseek`、`packages/llm/llm-deepseek/src/adapter.ts`（锁定提交 `d743267`），以及真实 dsh + 本地 Messages mock 的实测（`dsh-adapter.providers.integration.test.ts` 断言关掉之后请求体里没有这两个字段）。
 - **`workspace-write` 沙箱与审批。** Wevir 固定 `DSH_PERMISSION_MODE=workspace-write`：
   - 工作区内的读写**不需要审批**；
   - **系统临时目录（`/tmp`、`$TMPDIR`）也可以不经审批写入**（T0.3 场景 B0，T3.3 用真实 dsh 复核）。在 macOS 上 `$TMPDIR` 是每个用户自己的，`/tmp` 是所有用户共享的；

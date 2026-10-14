@@ -52,6 +52,7 @@
 | `DSH_HOME` | `<Wevir 数据目录>/engines/dsh`，不与用户自己的 dsh 混用 | §2 |
 | `DSH_AGENTS_HOME` | 指向 Wevir 专属的空目录（骨架默认隔离） | 默认 `~/.agents` 的 skills 与 AGENTS.md 会进入每个会话的首个请求（本机约 15 KB，§10） |
 | 遥测 | `DSH_TELEMETRY_DISABLED=1` | `dsh-base` 带 OTel 遥测（§10） |
+| DeepSeek 请求的附加字段 | Provider overlay 写 `session-log-deepseek` 与 `plugin-package-inventory-deepseek` 的 `enabled: false` | `dsh-base` 默认给 `llm-deepseek` 的每个请求附带会话日志 `dsh_session_log` 与插件清单 `dsh_plugin_packages`，不受 `DSH_TELEMETRY_DISABLED` 控制（docs/security.md §4） |
 | 权限模式 | `DSH_PERMISSION_MODE` 显式设为 `workspace-write`（进程级，与 dsh 当前默认相同），不依赖默认值 | §5.1 |
 | 模型 Key | 只经子进程环境变量 `WEVIR_PROVIDER_<ID>_KEY` 传入；overlay 里只写 `apiKeyEnv` 变量名 | §6.1、计划 §2.8 |
 | Provider 配置 | 由 Host 生成 `--patch` overlay（格式见 T0.3 §6.2，含 `compat`、`contextWindow` 与 `web-search-deepseek` 的 Key 引用） | §6.2 |

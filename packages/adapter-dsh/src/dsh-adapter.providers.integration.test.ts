@@ -28,15 +28,17 @@ function tempDir(label: string): string {
   return dir;
 }
 
-/** 一个本地 Provider：记下每个请求的头，回一句带自己名字的话。 */
+/** 一个本地 Provider：记下每个请求的头与请求体的顶层字段，回一句带自己名字的话。 */
 async function mockProvider(name: string) {
   const requests: MockRequestMeta[] = [];
-  const model = await startMockModel((_, meta) => {
+  const fields: string[][] = [];
+  const model = await startMockModel((request, meta) => {
     requests.push(meta);
+    fields.push(Object.keys(request));
     return { text: [`来自 ${name}`] };
   });
   cleanups.push(() => model.close());
-  return { ...model, requests };
+  return { ...model, requests, fields };
 }
 
 const compatible = (id: string, baseURL: string, apiKey: string): ProviderConfig => ({
@@ -105,7 +107,7 @@ describe('DshAdapter Provider 桥接（真实 dsh + mock Provider）', () => {
     );
   });
 
-  it('DeepSeek 官方路由：Key 经 x-api-key 到达 llm-deepseek 的 Messages 端点', {
+  it('DeepSeek 官方路由：Key 经 x-api-key 到达 llm-deepseek 的 Messages 端点；请求不带会话日志与插件清单', {
     timeout: 60_000,
   }, async () => {
     const mock = await mockProvider('DeepSeek');
@@ -130,6 +132,10 @@ describe('DshAdapter Provider 桥接（真实 dsh + mock Provider）', () => {
     await turn(adapter, session.engineSessionId, '你好');
     expect(mock.requests[0]?.url).toBe('/anthropic/v1/messages');
     expect(mock.requests[0]?.headers['x-api-key']).toBe(KEY_A);
+    // dsh 默认附带的两个扩展字段，overlay 关掉了（docs/security.md §4）。
+    expect(mock.fields[0]).toContain('messages');
+    expect(mock.fields[0]).not.toContain('dsh_session_log');
+    expect(mock.fields[0]).not.toContain('dsh_plugin_packages');
   });
 
   it('Provider 变更：运行中的 dsh 不读改过的 overlay；重启之后新会话与 resume 的旧会话都用新配置', {
