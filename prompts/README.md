@@ -72,7 +72,7 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 - 第一个回合开始后，Host 用会话第一条用户消息生成标题；生成出来之前先用现有的截断规则（`session-manager.ts` 的 `makeTitle`）兜底，用户手动改过标题（`titleSource: 'user'`）就不再自动生成。协议的 `TitleSource` 要加一个表示“模型生成”的值，随 Host 的实现任务改。
 - 输入：`<user_prompt>` 或 `<conversation>`（最近几条 user 与 assistant 消息，`<`、`>`、`&` 转义）。总长度建议限制在 1 KB 左右，与 Codex 的做法一致。
 - 输出：`{"title", "description"}`。Host 去掉首尾引号与结尾标点，按长度截断；`description` 先存下，等有会话搜索时用。
-- 用哪个模型未定：建议用当前 Provider 的模型、最低推理档。
+- 模型：用当前会话的模型（维护者 2026-10-14 定），推理档位取最低。
 
 ## 来源与许可
 
@@ -96,5 +96,5 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 ## 未决
 
 1. **计划模式怎样下发**（ADR-0005 未决事项 5）。Codex 的协作模式是实验面，而 ADR-0005 决策 5 只用稳定面。开这一项实验面，就能用上只在计划模式提供的 `request_user_input` 和 Codex 对 `<proposed_plan>` 的解析；不开就由 Wevir 自己做：计划回合把稳定面的 `sandboxPolicy` 设为只读、把 `plan-mode.md` 放在用户消息前面，提问退回纯文本，计划由 Wevir 从消息里解析。
-2. **自动复核与标题用哪个模型、是否经网关、自动复核默认开不开。** 随 Host 的实现任务决定。
+2. **自动复核用哪个模型、是否经网关、默认开不开。** 随 Host 的实现任务决定。
 3. **三个插件的形态。** 浏览器放在桌面端哪里、用什么驱动、Chrome 用扩展还是 CDP、电脑操作先做哪个平台、工具怎样暴露给 Codex（MCP 还是动态工具），建插件时决定，再补各 SKILL.md 的占位。

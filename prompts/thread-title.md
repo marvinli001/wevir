@@ -1,5 +1,5 @@
 <!--
-Wevir 会话标题：Host 在会话的第一个回合开始后（或用户要求重新生成时）调一次模型生成标题与检索摘要。
+Wevir 会话标题：Host 在会话的第一个回合开始后（或用户要求重新生成时）用当前会话的模型调一次，生成标题与检索摘要。
 Codex app-server 不生成标题（ADR-0005 补记），dsh 也不生成，这份说明与引擎无关。输入、输出处理见 prompts/README.md。
 
 SPDX-License-Identifier: Apache-2.0

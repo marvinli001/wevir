@@ -148,5 +148,5 @@
    - 子 agent 的审批要能在父会话里处理（决策 6.1 的子 agent 视图是只读的）；服务端不生成会话标题，标题由 Wevir 自己生成。
 2. **2026-10-14，基础提示词定下（未决事项 1）。** 维护者决定 Wevir 写自己的提示词，放在仓库根目录的 [`prompts/`](../../prompts/README.md)：
    - 经网关的第三方模型用 `prompts/base.md`，由 adapter-codex 写进生成的模型目录的 `base_instructions`。它自称 Wevir 并如实报出底层模型与 Provider；工具说明按决策 5 与补记 1 的配置写（联网搜索、目标、插件关闭，`update_plan` 打开，子智能体用 `multi_agent_v1`），配置变了要同步改。ChatGPT 登录的 OpenAI 模型仍用 Codex 内置的、按模型调好的提示词。
-   - 同时写了计划模式（`plan-mode.md`，下发方式见未决事项 5）、审批自动复核（`auto-review.md`，由 Host 调模型，替代决策 5 不开的 `approvals_reviewer = "auto_review"`；结论只映射为“本次允许”或“拒绝并说明理由”）、会话标题（`thread-title.md`，由 Host 生成，见补记 1），以及内置浏览器、Chrome、电脑操作三个插件的技能说明草稿（`prompts/plugins/`，插件未建，工具清单留占位）。MCP、skills、插件与联网搜索在 `base.md` 里留了占位。
+   - 同时写了计划模式（`plan-mode.md`，下发方式见未决事项 5）、审批自动复核（`auto-review.md`，由 Host 调模型，替代决策 5 不开的 `approvals_reviewer = "auto_review"`；结论只映射为“本次允许”或“拒绝并说明理由”）、会话标题（`thread-title.md`，由 Host 用当前会话的模型生成，见补记 1），以及内置浏览器、Chrome、电脑操作三个插件的技能说明草稿（`prompts/plugins/`，插件未建，工具清单留占位）。MCP、skills、插件与联网搜索在 `base.md` 里留了占位。
    - `base.md`、`plan-mode.md`、`auto-review.md`、`thread-title.md` 改写自 Codex 开源仓库的模板（Apache-2.0），按 UPSTREAM.md §4、§5 登记并写文件头，`NOTICE` 收录 Codex 的署名与 Apache License 2.0 全文。
