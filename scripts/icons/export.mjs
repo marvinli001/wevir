@@ -412,7 +412,7 @@ await write(
   'manifest.json',
   json({
     version: 1,
-    material: 'black-gold-ivory / platinum-graphite',
+    material: 'champagne-gold-ivory / platinum-graphite',
     geometry,
     uiGrid: 24,
     uiStroke: 2,

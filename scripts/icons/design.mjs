@@ -27,7 +27,7 @@ export function defs() {
 export function logoBody(mode, { carrier = false, detail = true, tiny = false } = {}) {
   const m = modes[mode];
   if (tiny) return `<path d="${geometry}" fill="${m.flat}"/>`;
-  const metal = mode === 'dark' ? 'platinum' : 'obsidian';
+  const metal = mode === 'dark' ? 'platinum' : 'gold';
   const rim = mode === 'dark' ? 'platinum-rim' : 'gold-rim';
   return `${detail && carrier && mode === 'dark' ? `<path d="${geometry}" fill="#000" opacity=".52" transform="translate(0 .62)" filter="url(#mark-shadow)"/>` : ''}
   <path d="${geometry}" fill="url(#${metal})"/>

@@ -1,17 +1,17 @@
 {
   "version": 1,
-  "material": "black-gold-ivory / platinum-graphite",
+  "material": "champagne-gold-ivory / platinum-graphite",
   "geometry": "M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z",
   "uiGrid": 24,
   "uiStroke": 2,
   "palette": {
     "light": {
-      "name": "黑金 / 象牙白",
+      "name": "金色 / 象牙白",
       "bg": "#F4F3ED",
       "ink": "#171714",
       "muted": "#726E64",
       "accent": "#9B7840",
-      "flat": "#171714"
+      "flat": "#9B7840"
     },
     "dark": {
       "name": "铂金 / 石墨黑",
@@ -38,7 +38,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 16,
-      "sha256": "f3747b8ddc0d229969024ee8a7939f43d1d8337b3c29e3a6aac12cbe0f920c00"
+      "sha256": "cb43e7dcae73e1014eb03416883d1a18abc62444f3e7ae543dd89f8f96064aea"
     },
     {
       "path": "exports/brand/light/mark-18.png",
@@ -49,7 +49,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 18,
-      "sha256": "6f1724a125ab78fa468de153dc55e0634801b264e93b8ca427e68eaec5c242e8"
+      "sha256": "2e950887525ddf5fedfb57ee08a17e11cf6c2f7906f65354a39a15e985f12ece"
     },
     {
       "path": "exports/brand/light/mark-20.png",
@@ -60,7 +60,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 20,
-      "sha256": "b825f821d267b5fbc63df5414f85051dedb1dd3801a8ddcb167edf02147313a8"
+      "sha256": "3e783e19506771964afcb5cbb82bc0ec36a9b15d8537a883d3e17885f92afbc9"
     },
     {
       "path": "exports/brand/light/mark-24.png",
@@ -71,7 +71,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 24,
-      "sha256": "c458f33075dc8001a2c97fbe1b41899ed2aee9d4dad0b8e91fd47dfbc61afca3"
+      "sha256": "f3534fd03a09230c3fce78e942d81e194d99b9f3c6e4f4f544e76d772d4516c1"
     },
     {
       "path": "exports/brand/light/mark-32.png",
@@ -82,7 +82,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 32,
-      "sha256": "1bbdcd0c70cb33e6df4ff30ab70db5ab19ed10c059175de81c595ee52decce39"
+      "sha256": "3de40641aaec6285717d26f04670a99cd676d6385a205f87dfedbf5a3e6504f1"
     },
     {
       "path": "exports/brand/light/mark-48.png",
@@ -93,7 +93,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 48,
-      "sha256": "261efd40c043e25853e9df4b68655440f64dd34d2882fbbefcbabcfc27f38afe"
+      "sha256": "f7eaa08fcd1cda49be327936968b369ad6360f1375d14976fb41af7861c8a9a4"
     },
     {
       "path": "exports/brand/light/mark-64.png",
@@ -104,7 +104,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 64,
-      "sha256": "e9dcda7291b9aaccb8e297fe2e2bc67ff95df81626d1523f08d217444091bcbb"
+      "sha256": "9baf143a2d565b1f250dd095b37a21c7717bf4b0f46ae26d945f0d800119dc50"
     },
     {
       "path": "exports/brand/light/mark-128.png",
@@ -115,7 +115,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 128,
-      "sha256": "543b918d6ec038bebc126351d121a5aa94c37406b92d690b1e388ed6f850e67c"
+      "sha256": "ca066fdbee770625062a48629eeaea530bd83bde76f290ce2b2fcc6e835f6621"
     },
     {
       "path": "exports/brand/light/mark-256.png",
@@ -126,7 +126,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 256,
-      "sha256": "ae393a703c6907882e2cc50d82de60e6056b12b644140a03b86b5e9f7ab1616a"
+      "sha256": "c584f52d97d165dafbd10de973f65fdf957141331a93a2d47ebc450510381aed"
     },
     {
       "path": "exports/brand/light/mark-512.png",
@@ -137,7 +137,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 512,
-      "sha256": "e860348d199bacc1746ece1adea844db5d9f362b1de0a12f74b7b8cb13d658ad"
+      "sha256": "07dde82f6ff2bd1dcbd24e086ca5bb0d7d56dc77a250af1e6051c0a2fd8d91df"
     },
     {
       "path": "exports/brand/light/mark-1024.png",
@@ -148,7 +148,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 1024,
-      "sha256": "b02e12b94ae7295d039879d9416c627386da92f91e0a48779d2bd8fb315fb88c"
+      "sha256": "62fcf4c61b9f3fd7f1ed62fbb7b32dd6459ea963410d3ecd15a79f0c87f967d1"
     },
     {
       "path": "exports/brand/light/lockup.png",
@@ -159,7 +159,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 359,
-      "sha256": "ec63254df13959bc66a6c5dc68b72c8eb1f4490b7e561df55a9da436f7b3540f"
+      "sha256": "ce1b1925f91ffb78632b264219cd9abd41756ca51c3c4b294b27b277a5dec11a"
     },
     {
       "path": "exports/brand/light/lockup-stacked.png",
@@ -170,7 +170,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 320,
-      "sha256": "91b89e4e5992a0d0a9f2ede0662b6b9922c066f3bdb58da216352306f80e04ee"
+      "sha256": "7f899dab47bd08c1dd40280b52b37163ec6f954721229884839ef5d9d7004a4f"
     },
     {
       "path": "exports/brand/dark/mark-16.png",
@@ -346,7 +346,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 16,
-      "sha256": "2debb191ce344efe10e58fbd74880e16333be9a410cfd69107cf1c062938ffef"
+      "sha256": "4a4b2ba1fdcee76f1c795116467a89b0d5591cb4f5eb130e9d0b42b905381073"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_16x16@2x.png",
@@ -357,7 +357,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 16,
-      "sha256": "41b2076caba731dbc5bbb81d487392295a0dfdfc185bb36af03837386b7ecc2d"
+      "sha256": "ecb376706af91645c3400c20b76aba84540b359a2e76a5ad5c0912f05ddc9060"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_32x32.png",
@@ -368,7 +368,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 32,
-      "sha256": "41b2076caba731dbc5bbb81d487392295a0dfdfc185bb36af03837386b7ecc2d"
+      "sha256": "ecb376706af91645c3400c20b76aba84540b359a2e76a5ad5c0912f05ddc9060"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_32x32@2x.png",
@@ -379,7 +379,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 32,
-      "sha256": "92f82c0b170ac06bf56eb5fdce1669ffd44dbeeae10dc623a6afeaedececea47"
+      "sha256": "254b13d16a32192bf056ae34340376c30b306f5124f32cfc169174d479836259"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_128x128.png",
@@ -390,7 +390,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 128,
-      "sha256": "0f1b3227ec9395538acbed030dc2254b5209d098ae33fe2b6009dfbc8a652339"
+      "sha256": "406b2d7a389dca659942b9e930ab9e1df2e35da2d34707639519d5cb999cb13f"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_128x128@2x.png",
@@ -401,7 +401,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 128,
-      "sha256": "5cefdacc4cfd7c431c0428383103d3c7298fb2815743e8a0595584de4efc0dd4"
+      "sha256": "90d74daa223aad2b3e25339a967acdb6c4800681dbfad1b7a90fec38d88f6722"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_256x256.png",
@@ -412,7 +412,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 256,
-      "sha256": "5cefdacc4cfd7c431c0428383103d3c7298fb2815743e8a0595584de4efc0dd4"
+      "sha256": "90d74daa223aad2b3e25339a967acdb6c4800681dbfad1b7a90fec38d88f6722"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_256x256@2x.png",
@@ -423,7 +423,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 256,
-      "sha256": "55cab2b3861b2a6f65bf9bd88baf356cd5dfdf0f022ace4a6e0a4d7bf258b4b3"
+      "sha256": "251bb80a9411d678086fae302818827cce12cd0780c8f48ebb6cc21526c96915"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_512x512.png",
@@ -434,7 +434,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 512,
-      "sha256": "55cab2b3861b2a6f65bf9bd88baf356cd5dfdf0f022ace4a6e0a4d7bf258b4b3"
+      "sha256": "251bb80a9411d678086fae302818827cce12cd0780c8f48ebb6cc21526c96915"
     },
     {
       "path": "exports/macos/light/Wevir.iconset/icon_512x512@2x.png",
@@ -445,7 +445,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 512,
-      "sha256": "bc91ded56f138dfdaf595dceb51fd286141c317210f1a6427cd97a0ce54315bd"
+      "sha256": "35ff8f7eb52d1d61a6376841bb55216ea200dcf652920c4c50ead4685b8f5cef"
     },
     {
       "path": "exports/macos/dark/Wevir.iconset/icon_16x16.png",
@@ -698,7 +698,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 16,
-      "sha256": "2f98b8c50c6246dd7d8ebf5040e74147b5389c63c2f290fd3237152eea572a8c"
+      "sha256": "13979232b1735b615f1b4ff04c5775720dc1d4f6eb6ed07153aaf3b1296f621d"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-16_altform-lightunplated.png",
@@ -709,7 +709,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 16,
-      "sha256": "f3747b8ddc0d229969024ee8a7939f43d1d8337b3c29e3a6aac12cbe0f920c00"
+      "sha256": "cb43e7dcae73e1014eb03416883d1a18abc62444f3e7ae543dd89f8f96064aea"
     },
     {
       "path": "exports/windows/light/tray-16.png",
@@ -731,7 +731,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 20,
-      "sha256": "dbe7a24bb41df82df96d065d6416e802e38ff42258d23278d72db9fabe5523b8"
+      "sha256": "d03616343a5cb972f42a196ddb7bff516abcf569eb88ab5677d53f284420a703"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-20_altform-lightunplated.png",
@@ -742,7 +742,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 20,
-      "sha256": "b825f821d267b5fbc63df5414f85051dedb1dd3801a8ddcb167edf02147313a8"
+      "sha256": "3e783e19506771964afcb5cbb82bc0ec36a9b15d8537a883d3e17885f92afbc9"
     },
     {
       "path": "exports/windows/light/tray-20.png",
@@ -764,7 +764,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 24,
-      "sha256": "6fd6982cf022a5bcd07fc87190d60f0cc0568b33970ef315a2af7e9654666554"
+      "sha256": "a53078fa8c36a93e9b7b3e9b4d3bfe116fafb6454c48f04ee5c815fd92f9de50"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-24_altform-lightunplated.png",
@@ -775,7 +775,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 24,
-      "sha256": "c458f33075dc8001a2c97fbe1b41899ed2aee9d4dad0b8e91fd47dfbc61afca3"
+      "sha256": "f3534fd03a09230c3fce78e942d81e194d99b9f3c6e4f4f544e76d772d4516c1"
     },
     {
       "path": "exports/windows/light/tray-24.png",
@@ -797,7 +797,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 30,
-      "sha256": "b631f527424c35ec9d9b3e95f26ec43e5583f828ef34dad7f5b456acddb71148"
+      "sha256": "47f6058e617b3b9f5697872c27fc7d301ff15ac6a67b11bb18082b50aea36030"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-30_altform-lightunplated.png",
@@ -808,7 +808,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 30,
-      "sha256": "8be474de88bd68c03ac111b2e047aeee35e019af8127d4b7f1c01a0959bf0d1e"
+      "sha256": "38d062e5c78d287e2209231037950ffda2fe1fc25c48e419c705034496d87037"
     },
     {
       "path": "exports/windows/light/app-32.png",
@@ -819,7 +819,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 32,
-      "sha256": "627c9211f4fc8aa1498094ca1104116f911da1d2cbbfc6408ff74ca5a46bce6f"
+      "sha256": "7ba1b52e8e379ed1ab8008a5c3fd29e52612c11e175514ba53ef48cf72ffb3e2"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-32_altform-lightunplated.png",
@@ -830,7 +830,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 32,
-      "sha256": "1bbdcd0c70cb33e6df4ff30ab70db5ab19ed10c059175de81c595ee52decce39"
+      "sha256": "3de40641aaec6285717d26f04670a99cd676d6385a205f87dfedbf5a3e6504f1"
     },
     {
       "path": "exports/windows/light/tray-32.png",
@@ -852,7 +852,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 36,
-      "sha256": "a5344b9ba268e21a4885bb1b14e21bec8cef0c50ad4d0ef0b83a2319c86be665"
+      "sha256": "bdc8af901bbdb5003e3c00f54184e3dcc13954d502cf93a641ebdd647e50b1be"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-36_altform-lightunplated.png",
@@ -863,7 +863,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 36,
-      "sha256": "fc2e852121aab6ee0406f3acdebfdad221fa765ce7036d1828ab01240e270d60"
+      "sha256": "be2887daf27d34a1f909f35506a7d022799469b16944cf210490860dd00fa035"
     },
     {
       "path": "exports/windows/light/app-40.png",
@@ -874,7 +874,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 40,
-      "sha256": "9069f5e8bb8b976068209c2e754316c0fb3bcbfc730f6a34b44b52afe2738335"
+      "sha256": "a3fb20c36642008632bbf834be23b33c821ee8afe523862d79580e72b311dbc0"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-40_altform-lightunplated.png",
@@ -885,7 +885,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 40,
-      "sha256": "779d50327a156983e264a669eb85e6f1e2f7109ee249a3d7782748cbe1f08230"
+      "sha256": "5302a931cfb271d5590a298f254a8cc44d4f02605016ec0a916a457870359e1b"
     },
     {
       "path": "exports/windows/light/tray-40.png",
@@ -907,7 +907,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 48,
-      "sha256": "a95b34591ad8ee4e7b5d5e69784d56fbccb294c1c7e7513857e40a67eddc15c6"
+      "sha256": "c325cd1645b6a29c57045a633fbb40600d8981983e36c0590e4d704382193fad"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-48_altform-lightunplated.png",
@@ -918,7 +918,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 48,
-      "sha256": "261efd40c043e25853e9df4b68655440f64dd34d2882fbbefcbabcfc27f38afe"
+      "sha256": "f7eaa08fcd1cda49be327936968b369ad6360f1375d14976fb41af7861c8a9a4"
     },
     {
       "path": "exports/windows/light/tray-48.png",
@@ -940,7 +940,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 60,
-      "sha256": "19951b508024994b94f80581c31685045b5bc89b4a615042aa53f17b4d91cb44"
+      "sha256": "c4b67a90fe3526512b491676ee67036fd9659c70d83ab0197d32573eb06c2d57"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-60_altform-lightunplated.png",
@@ -951,7 +951,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 60,
-      "sha256": "463d09468bd5175fe065c42ab11157c138828939b1421f93cfbb08fa49c3a613"
+      "sha256": "f4190365d71831b706de672fc73d0a82fe0ab57132eddfbf63201c30500d3a4c"
     },
     {
       "path": "exports/windows/light/app-64.png",
@@ -962,7 +962,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 64,
-      "sha256": "a75eeeb13284730a5cc7f9eabb7a9a69d5f833c739eb45bf845fe429cb9f2d20"
+      "sha256": "bfa918290e477e947252924fd76f2172ee1ef592152660b0708f76ce80aa8e69"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-64_altform-lightunplated.png",
@@ -973,7 +973,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 64,
-      "sha256": "e9dcda7291b9aaccb8e297fe2e2bc67ff95df81626d1523f08d217444091bcbb"
+      "sha256": "9baf143a2d565b1f250dd095b37a21c7717bf4b0f46ae26d945f0d800119dc50"
     },
     {
       "path": "exports/windows/light/tray-64.png",
@@ -995,7 +995,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 72,
-      "sha256": "83e3f7f9ce3b3a6e85acd8e77566bc376860bbf13e441f254e7d7d9d755a16e2"
+      "sha256": "a9fc163a0c268d343578efe28786c65a8ae360329a9d1f1dac797a99a6bd8212"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-72_altform-lightunplated.png",
@@ -1006,7 +1006,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 72,
-      "sha256": "be2703db1a941f3b7adce7726d24c7a4758721327f95aac3c00d7494b01e2b59"
+      "sha256": "7e10f67f4a83b9d41744e89aa7aab2c6be5e671bf4b0699f4a808e12fd1a3821"
     },
     {
       "path": "exports/windows/light/app-80.png",
@@ -1017,7 +1017,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 80,
-      "sha256": "2ecdd510dc85662eae53c59e4fec74bb9dccd1e85ce1bce2c8170aba5f65bb02"
+      "sha256": "3012a98b70f9e0be4d359b5bba58bd631222b8dc46b80a36b0fd36de266bdae2"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-80_altform-lightunplated.png",
@@ -1028,7 +1028,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 80,
-      "sha256": "7b3f85800f1b98147785824750d93337e1a9f3465cc09e3887459a6fb3f65c66"
+      "sha256": "a8acf809cfffe9e8c4705205edc14aa6be8377cfe434c622c5f3ae1be31772e1"
     },
     {
       "path": "exports/windows/light/app-96.png",
@@ -1039,7 +1039,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 96,
-      "sha256": "9221973bc67ed47d84a5391ea51fa10f2ae7f237d1b2c6fe6813efac408bb214"
+      "sha256": "ea8cc6bea44434f04fb2022b3ec40f77e4cfc132454db612baada04779c2f3ed"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-96_altform-lightunplated.png",
@@ -1050,7 +1050,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 96,
-      "sha256": "eff7d4b8686d1dedbffd50f18a2d04b13b1aaea1a1b3c8ddcd9d504e4e1a48c0"
+      "sha256": "8ad54739aed8d068dd3a9bee70f3828b83ee3bae65db5def011047bc5080016a"
     },
     {
       "path": "exports/windows/light/app-128.png",
@@ -1061,7 +1061,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 128,
-      "sha256": "acc17c6f6203ab8bbf492f2f6897c111dc1e7ab7df7f09b65e6ff2a199d7df07"
+      "sha256": "ef145355097c7a1d70b4220db2763c2fa3923e085c0bd147f7ed742f9883004a"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-128_altform-lightunplated.png",
@@ -1072,7 +1072,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 128,
-      "sha256": "543b918d6ec038bebc126351d121a5aa94c37406b92d690b1e388ed6f850e67c"
+      "sha256": "ca066fdbee770625062a48629eeaea530bd83bde76f290ce2b2fcc6e835f6621"
     },
     {
       "path": "exports/windows/light/app-256.png",
@@ -1083,7 +1083,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 256,
-      "sha256": "c33f441afeede061363039ade73713bffa741944e3e55d130a230e8316ca0024"
+      "sha256": "8f0789d6921e9c4ec1510683efbc4d89a5f8cd4c210292f13f0aaecc02f5a746"
     },
     {
       "path": "exports/windows/light/AppList.targetsize-256_altform-lightunplated.png",
@@ -1094,7 +1094,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 256,
-      "sha256": "ae393a703c6907882e2cc50d82de60e6056b12b644140a03b86b5e9f7ab1616a"
+      "sha256": "c584f52d97d165dafbd10de973f65fdf957141331a93a2d47ebc450510381aed"
     },
     {
       "path": "exports/windows/dark/app-16.png",
@@ -1512,7 +1512,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 1024,
-      "sha256": "dd26ba71f68e289789622a08bf6b8c7a6f743eb08fcd19d26da9c31031b8d454"
+      "sha256": "ae54b8ae2bd8d97879611eef05fe582de7d401a24f3fa1021dee626dca8c393f"
     },
     {
       "path": "exports/ios/Assets.xcassets/AppIcon.appiconset/AppIconDark.png",
@@ -1545,7 +1545,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 1024,
-      "sha256": "dd26ba71f68e289789622a08bf6b8c7a6f743eb08fcd19d26da9c31031b8d454"
+      "sha256": "ae54b8ae2bd8d97879611eef05fe582de7d401a24f3fa1021dee626dca8c393f"
     },
     {
       "path": "exports/ios/light/AppIconTinted-1024.png",
@@ -1567,7 +1567,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 20,
-      "sha256": "55a6f2ff061f7d114ff70be62426404f21a9f51247e8462bf72c76f2b51021fd"
+      "sha256": "d775a5b2447942456041243da56739a810d6857ac1f23051630eb02b4669b1a7"
     },
     {
       "path": "exports/ios/light/icon-29.png",
@@ -1578,7 +1578,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 29,
-      "sha256": "2920d73d0202c3eb17407043515ac038b2fbaa3176443ddb09d4e49ce508e8c4"
+      "sha256": "79f4fed0bb782bc09dcefad6e2cfd995f67e371f0620c67b03e2257c8760d8fa"
     },
     {
       "path": "exports/ios/light/icon-40.png",
@@ -1589,7 +1589,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 40,
-      "sha256": "2f02c7ed11873521240c85ccb8667dae823506e6a9474d55caba86d3e25242ea"
+      "sha256": "d540381d40dc08413c1308628f046889a6bcc87057dec9bae1575809ca134a82"
     },
     {
       "path": "exports/ios/light/icon-58.png",
@@ -1600,7 +1600,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 58,
-      "sha256": "e9e83ae95e390f4b032cef1d177d62782d4df05f4d68b0e0f9b0bd4d94743f4e"
+      "sha256": "c79c44b86815f9295b0e6275ad8b8f3a0b4317390211574a4cf8831aedb2ef9b"
     },
     {
       "path": "exports/ios/light/icon-60.png",
@@ -1611,7 +1611,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 60,
-      "sha256": "f8134c00ecc2cc46e92058edc8687ea5bc93edf061287ead0b6487601eaa364c"
+      "sha256": "07403e0838a5203efd52452c7657a64d4d754e117a2594a48fdd4833c2d6d960"
     },
     {
       "path": "exports/ios/light/icon-76.png",
@@ -1622,7 +1622,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 76,
-      "sha256": "c027d5e1b1a3d01c5a155867434f8deb03e0d79e8c05724b83e4b5b88f36257b"
+      "sha256": "c411a38a8cbd6c44d7c6654629fcaef34884c5746bed04764de62188442f89bd"
     },
     {
       "path": "exports/ios/light/icon-80.png",
@@ -1633,7 +1633,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 80,
-      "sha256": "2c1a7a3b08a11f2aaf89788bc725f77e6a408b8070fc58fed277a750aaa1fda9"
+      "sha256": "6824959cddd79cdff7400fa33b1b773fcb2213b6b692dd6540f2961b2255ef80"
     },
     {
       "path": "exports/ios/light/icon-87.png",
@@ -1644,7 +1644,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 87,
-      "sha256": "cef2809d7af7c96f9a0f78c1698d35df0d7eda47709cafb24502ae75d6067795"
+      "sha256": "c1ed9d1030c909ca482a3a46722d5307116e869ddd8a0cb8f1d2ef5eb88e8750"
     },
     {
       "path": "exports/ios/light/icon-120.png",
@@ -1655,7 +1655,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 120,
-      "sha256": "6ba886a0edc0a27601e7cbb6e901eaf2f509b5c0b5a5e2ed0c43f522b314f69f"
+      "sha256": "83109c501f98b4ed2c7ac2fc79c6153cfd5a6bb1561bc3aeb29bb600c445db20"
     },
     {
       "path": "exports/ios/light/icon-152.png",
@@ -1666,7 +1666,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 152,
-      "sha256": "d6a4614891dc2a92a771637710184bcf637998a85b668d332eb72dfe1d182b46"
+      "sha256": "fee861ddc9ab8c7a71bea4d734ff2eda33a911eea09feb0ea9056881bf1e590c"
     },
     {
       "path": "exports/ios/light/icon-167.png",
@@ -1677,7 +1677,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 167,
-      "sha256": "68be365594ad2b0c169806a24e2abdea18a182609e6396f90cd51c92c0670b74"
+      "sha256": "71daa3e4e318b4420c0034c07a4414a7bdd605d74187a755f885c221aa541694"
     },
     {
       "path": "exports/ios/light/icon-180.png",
@@ -1688,7 +1688,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 180,
-      "sha256": "3e89ba7aa3280cf21e76e403d62a56506ba833121011d3cd43d0c7d04ba7232a"
+      "sha256": "2f001d24262ac22fcf4bc08007b75b31ee864d34122bd2e85e5276bdb332e055"
     },
     {
       "path": "exports/apple-layers/light/foreground.png",
@@ -1699,7 +1699,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 1024,
-      "sha256": "f15b6c43802fca5483a365a5b5b950ef8e2e39a07dd13a06c32d334ac764cf2f"
+      "sha256": "5da4b795aafe0b1b8dd751be6cd4f94dd37acb0efd1c00742ff2e07aaa9aebc1"
     },
     {
       "path": "exports/apple-layers/light/background.png",
@@ -1897,7 +1897,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 108,
-      "sha256": "8b83f5f7afc29a9871b36282f69f84f6b222b6ab26b20ed275e50e388059536b"
+      "sha256": "42851cec1a352871c45e6b39fbf05e4ea9fa1c46152649ab132e92195c8817fc"
     },
     {
       "path": "exports/android/res/drawable-mdpi/wevir_background.png",
@@ -1930,7 +1930,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 48,
-      "sha256": "a95b34591ad8ee4e7b5d5e69784d56fbccb294c1c7e7513857e40a67eddc15c6"
+      "sha256": "c325cd1645b6a29c57045a633fbb40600d8981983e36c0590e4d704382193fad"
     },
     {
       "path": "exports/android/res/drawable-hdpi/wevir_foreground.png",
@@ -1941,7 +1941,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 162,
-      "sha256": "95d80742ed3b8e7da5555425b39ee3526b79d27f1ca5f6b4f2083173dff7cb2a"
+      "sha256": "6ad0a90261d5e9b83edeed3f9a2f1015ccc3ee9249bc7f9cb7e0ccb27129dbc5"
     },
     {
       "path": "exports/android/res/drawable-hdpi/wevir_background.png",
@@ -1974,7 +1974,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 72,
-      "sha256": "83e3f7f9ce3b3a6e85acd8e77566bc376860bbf13e441f254e7d7d9d755a16e2"
+      "sha256": "a9fc163a0c268d343578efe28786c65a8ae360329a9d1f1dac797a99a6bd8212"
     },
     {
       "path": "exports/android/res/drawable-xhdpi/wevir_foreground.png",
@@ -1985,7 +1985,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 216,
-      "sha256": "370ef3617fc8445d2208bf4aef062cf7762abc977b475911e8616d2a74bebd78"
+      "sha256": "378a5404cf1af1f10c32e15f2a4b8ae68cf3e872ea2a350a7bd5cd05c2e92d73"
     },
     {
       "path": "exports/android/res/drawable-xhdpi/wevir_background.png",
@@ -2018,7 +2018,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 96,
-      "sha256": "9221973bc67ed47d84a5391ea51fa10f2ae7f237d1b2c6fe6813efac408bb214"
+      "sha256": "ea8cc6bea44434f04fb2022b3ec40f77e4cfc132454db612baada04779c2f3ed"
     },
     {
       "path": "exports/android/res/drawable-xxhdpi/wevir_foreground.png",
@@ -2029,7 +2029,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 324,
-      "sha256": "0ff5802c87bbc1ace728ca79e61aca09e726ac46046c76d5748bc310cc96452a"
+      "sha256": "f41d8ac88af8a1bd9065ae227b5cb9f037b4fe0b90173d9b90447e1344eb591b"
     },
     {
       "path": "exports/android/res/drawable-xxhdpi/wevir_background.png",
@@ -2062,7 +2062,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 144,
-      "sha256": "c1d26d76ffa300574cf2fdb9e8f961a71304fe4c961566e55be119adfc26c8dc"
+      "sha256": "30efe8f0b9512366a6fff0cb0f3d8c16a5e13b6bd3b8d53b5e7e29b20f19c63c"
     },
     {
       "path": "exports/android/res/drawable-xxxhdpi/wevir_foreground.png",
@@ -2073,7 +2073,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 432,
-      "sha256": "e767511ca0458446d24ec12d02acba39db7f176648fcbab07fde2db463f1b3fa"
+      "sha256": "0c522a67200f0105293b63940264c6ca3bf8a2239f06a59ef5569abb697faf3a"
     },
     {
       "path": "exports/android/res/drawable-xxxhdpi/wevir_background.png",
@@ -2106,7 +2106,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 192,
-      "sha256": "2e1ce7ec7c5382f8bf8be95d73bb6d930ee7d12854419184bb82936b66ac134b"
+      "sha256": "fd58d0c4d46e82b57b592e0e861a9324222e84307ac168e7228347f82e7f7364"
     },
     {
       "path": "exports/android/light/play-store-512.png",
@@ -2117,7 +2117,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 512,
-      "sha256": "385ba8bd702e567d3fa86c9101757c4a3efeea747e8d5c40221acbd3813aeb33"
+      "sha256": "c841fd6263d83ade08f1ef8206574b5f6f85e4d22ddae50af77e309e8ca6915d"
     },
     {
       "path": "exports/android/light/preview-circle.png",
@@ -2128,7 +2128,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 432,
-      "sha256": "0651b452529bf6c542d0a542c23ff97b97841617ab521f53f561aedebed91cfd"
+      "sha256": "b8e49928af8faf982ec987671029184bc9cd086dd435a256be395f4c83ba6dba"
     },
     {
       "path": "exports/android/light/preview-rounded-square.png",
@@ -2139,7 +2139,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 432,
-      "sha256": "0f3226b3e2adddfa1e9944479840ff99b20728bc80639236827fe2240431faa6"
+      "sha256": "054aeb21528e71da15ada77dc3f064591a9e4c42528aea086131a3e0d2562b9e"
     },
     {
       "path": "exports/android/light/preview-squircle.png",
@@ -2150,7 +2150,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 432,
-      "sha256": "f1a964a25a0d15d5f0250a97d901877b44381e36465c346785751d252727c6e8"
+      "sha256": "842145a8fe9516f4e572dc1732261526a9928db5b173909cc51ab7510706e70b"
     },
     {
       "path": "exports/android/res/drawable-night-mdpi/wevir_foreground.png",
@@ -2425,7 +2425,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 16,
-      "sha256": "2f98b8c50c6246dd7d8ebf5040e74147b5389c63c2f290fd3237152eea572a8c"
+      "sha256": "13979232b1735b615f1b4ff04c5775720dc1d4f6eb6ed07153aaf3b1296f621d"
     },
     {
       "path": "exports/linux/light/hicolor/24x24/apps/wevir.png",
@@ -2436,7 +2436,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 24,
-      "sha256": "6fd6982cf022a5bcd07fc87190d60f0cc0568b33970ef315a2af7e9654666554"
+      "sha256": "a53078fa8c36a93e9b7b3e9b4d3bfe116fafb6454c48f04ee5c815fd92f9de50"
     },
     {
       "path": "exports/linux/light/hicolor/32x32/apps/wevir.png",
@@ -2447,7 +2447,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 32,
-      "sha256": "627c9211f4fc8aa1498094ca1104116f911da1d2cbbfc6408ff74ca5a46bce6f"
+      "sha256": "7ba1b52e8e379ed1ab8008a5c3fd29e52612c11e175514ba53ef48cf72ffb3e2"
     },
     {
       "path": "exports/linux/light/hicolor/48x48/apps/wevir.png",
@@ -2458,7 +2458,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 48,
-      "sha256": "a95b34591ad8ee4e7b5d5e69784d56fbccb294c1c7e7513857e40a67eddc15c6"
+      "sha256": "c325cd1645b6a29c57045a633fbb40600d8981983e36c0590e4d704382193fad"
     },
     {
       "path": "exports/linux/light/hicolor/64x64/apps/wevir.png",
@@ -2469,7 +2469,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 64,
-      "sha256": "a75eeeb13284730a5cc7f9eabb7a9a69d5f833c739eb45bf845fe429cb9f2d20"
+      "sha256": "bfa918290e477e947252924fd76f2172ee1ef592152660b0708f76ce80aa8e69"
     },
     {
       "path": "exports/linux/light/hicolor/128x128/apps/wevir.png",
@@ -2480,7 +2480,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 128,
-      "sha256": "acc17c6f6203ab8bbf492f2f6897c111dc1e7ab7df7f09b65e6ff2a199d7df07"
+      "sha256": "ef145355097c7a1d70b4220db2763c2fa3923e085c0bd147f7ed742f9883004a"
     },
     {
       "path": "exports/linux/light/hicolor/256x256/apps/wevir.png",
@@ -2491,7 +2491,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 256,
-      "sha256": "c33f441afeede061363039ade73713bffa741944e3e55d130a230e8316ca0024"
+      "sha256": "8f0789d6921e9c4ec1510683efbc4d89a5f8cd4c210292f13f0aaecc02f5a746"
     },
     {
       "path": "exports/linux/light/hicolor/512x512/apps/wevir.png",
@@ -2502,7 +2502,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 512,
-      "sha256": "a9db9e878fb704ca179a511e2400291241e6b6e0c1ee7cfa784ac77c91c20550"
+      "sha256": "24a9c82bc6487cbbe1e2f4c3ef23f6c85947089388a2fd2c97e0d826df9fff79"
     },
     {
       "path": "exports/linux/light/hicolor/1024x1024/apps/wevir.png",
@@ -2513,7 +2513,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 1024,
-      "sha256": "fd755b73052d89c62ee6e8c32ad259cbbe5eaa8aa7af6da852ffc6d5f7598459"
+      "sha256": "fb692fa73b28d0bb28eed58f7b49e4ba3e42e53a6e0f76e81c04a700150ef4ba"
     },
     {
       "path": "exports/web/light/favicon-16.png",
@@ -2524,7 +2524,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 16,
-      "sha256": "2f98b8c50c6246dd7d8ebf5040e74147b5389c63c2f290fd3237152eea572a8c"
+      "sha256": "13979232b1735b615f1b4ff04c5775720dc1d4f6eb6ed07153aaf3b1296f621d"
     },
     {
       "path": "exports/web/light/favicon-32.png",
@@ -2535,7 +2535,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 32,
-      "sha256": "627c9211f4fc8aa1498094ca1104116f911da1d2cbbfc6408ff74ca5a46bce6f"
+      "sha256": "7ba1b52e8e379ed1ab8008a5c3fd29e52612c11e175514ba53ef48cf72ffb3e2"
     },
     {
       "path": "exports/web/light/favicon-48.png",
@@ -2546,7 +2546,7 @@
       "opaque": false,
       "grayscale": false,
       "logicalSize": 48,
-      "sha256": "a95b34591ad8ee4e7b5d5e69784d56fbccb294c1c7e7513857e40a67eddc15c6"
+      "sha256": "c325cd1645b6a29c57045a633fbb40600d8981983e36c0590e4d704382193fad"
     },
     {
       "path": "exports/web/light/pwa-192.png",
@@ -2557,7 +2557,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 192,
-      "sha256": "d19a126146414ab5630e52e9a22d447910dfd50117834f8a0f316b834875046f"
+      "sha256": "3b3986a15d1690ee5ad32e37778ebd3d0a2fc0ca1883f3f7d2e2d5b796bcee56"
     },
     {
       "path": "exports/web/light/pwa-512.png",
@@ -2568,7 +2568,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 512,
-      "sha256": "385ba8bd702e567d3fa86c9101757c4a3efeea747e8d5c40221acbd3813aeb33"
+      "sha256": "c841fd6263d83ade08f1ef8206574b5f6f85e4d22ddae50af77e309e8ca6915d"
     },
     {
       "path": "exports/web/light/apple-touch-icon.png",
@@ -2579,7 +2579,7 @@
       "opaque": true,
       "grayscale": false,
       "logicalSize": 180,
-      "sha256": "3e89ba7aa3280cf21e76e403d62a56506ba833121011d3cd43d0c7d04ba7232a"
+      "sha256": "2f001d24262ac22fcf4bc08007b75b31ee864d34122bd2e85e5276bdb332e055"
     },
     {
       "path": "exports/linux/dark/hicolor/16x16/apps/wevir.png",

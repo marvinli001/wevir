@@ -14,4 +14,4 @@
   </defs>
   
   <rect x="40" y="40" width="944" height="944" rx="188" fill="url(#tile-warm)" stroke="#D1CFC5" stroke-width="0"/>
-  <g transform="translate(112 112) scale(25)"><path d="M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z" fill="#171714"/></g></svg>
+  <g transform="translate(112 112) scale(25)"><path d="M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z" fill="#9B7840"/></g></svg>
