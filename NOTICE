@@ -147,6 +147,20 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
   packages/model-gateway/src/__snapshots__/codex-requests/
 
 
+7. Mona Sans
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/github/mona-sans
+来源提交：4bc6ba8b354c36b4fb66d32cd67b4c1f2beb0a06
+来源路径：fonts/static/ttf/MonaSans-Bold.ttf、OFL.txt
+许可证：SIL Open Font License 1.1
+版权：Copyright 2022 The Mona Sans Project Authors (https://github.com/github/mona-sans),
+      with Reserved Font Name "Mona"
+
+字体与许可证全文位于 assets/icons/source/fonts/。Wevir 的字标与组合标识使用该字体的轮廓，
+轮廓数据位于 assets/icons/source/wordmark-paths.json；派生 SVG 带来源注释。没有修改或重命名字体。
+Wevir 主标及八个功能图标为自有设计。
+
+
 MIT License
 ------------------------------------------------------------------------------------------------
 第 1–4 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：

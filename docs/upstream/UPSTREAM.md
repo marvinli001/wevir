@@ -207,6 +207,10 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 | `packages/model-gateway/src/test-fixtures/codex-requests/**`、`packages/model-gateway/src/__snapshots__/codex-requests/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 发出的请求的录制（R1，`spikes/codex-app-server/src/record-requests.ts`），及其经网关转换后的快照 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 Codex 发给模型服务的请求体，不是源码。含 Codex 内置工具的定义与描述（apply_patch 的 Lark 语法等）与 Codex 注入的权限、skills、环境说明文字；基础提示词已换成长度说明，本机路径与 ID 换成占位符 |
 | `spikes/dsh-acp/fixtures/**`、`packages/adapter-dsh/src/test-fixtures/acp/**` | dsh 0.2.1-alpha.2 运行时输出的录制（T0.3 起） | MIT，`Copyright (c) 2026 DeepSeek` | 录的是 dsh 发出的协议消息与事件，不是源码。`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` 含 dsh 内置工具的 schema 与描述文本，与上游 `snapshots/sdk/bash-tool/tool-schemas.expected.json` 相同 |
 
+### 4.2 图标字体
+
+图标字体补充登记（2026-10-14）：`assets/icons/source/fonts/MonaSans-Bold.ttf` 与 `OFL.txt` 来自 [github/mona-sans](https://github.com/github/mona-sans/tree/4bc6ba8b354c36b4fb66d32cd67b4c1f2beb0a06) 的 `fonts/static/ttf/MonaSans-Bold.ttf` 与 `OFL.txt`，固定提交 `4bc6ba8b354c36b4fb66d32cd67b4c1f2beb0a06`，SIL OFL-1.1；版权为 `Copyright 2022 The Mona Sans Project Authors`，保留字体名 `Mona`。仅用来提取 Wevir 字标轮廓，派生数据为 `assets/icons/source/wordmark-paths.json`、各主题的 `wordmark.svg` 与组合标识 SVG。字体来源说明在 `assets/icons/source/fonts/SOURCE.md`，派生 SVG 与转曲脚本带来源注释。主标与八个功能图标由 Wevir 自行设计，未从上游图标库移植。
+
 ## 5. 移植文件的文件头
 
 MIT 来源（dsh、OpenWork 的 MIT 区域）：

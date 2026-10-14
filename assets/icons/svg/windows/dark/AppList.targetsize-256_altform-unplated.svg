@@ -1,0 +1,20 @@
+<svg role="img" aria-label="Wevir AppList.targetsize-256_altform-unplated" xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 32 32"><defs>
+  <linearGradient id="platinum" x1="0" y1="0" x2="1" y2=".85"><stop stop-color="#FFFFF9"/><stop offset=".18" stop-color="#D8DCDE"/><stop offset=".32" stop-color="#FAFBF8"/><stop offset=".48" stop-color="#A5AAAE"/><stop offset=".61" stop-color="#D1D5D7"/><stop offset=".77" stop-color="#FFFFFF"/><stop offset="1" stop-color="#C5C7C6"/></linearGradient>
+  <linearGradient id="platinum-rim" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#FFFFFF"/><stop offset=".4" stop-color="#CED1D2"/><stop offset=".62" stop-color="#858A90"/><stop offset="1" stop-color="#F0F1EB"/></linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="1" y2=".85"><stop stop-color="#F7E8BC"/><stop offset=".18" stop-color="#E1C694"/><stop offset=".36" stop-color="#FFF0C9"/><stop offset=".51" stop-color="#A78752"/><stop offset=".66" stop-color="#CBAA73"/><stop offset=".82" stop-color="#F0DBAC"/><stop offset="1" stop-color="#B4935C"/></linearGradient>
+  <linearGradient id="gold-rim" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#FAEBC5"/><stop offset=".45" stop-color="#B08C50"/><stop offset=".7" stop-color="#EFDCB0"/><stop offset="1" stop-color="#8F703E"/></linearGradient>
+  <linearGradient id="obsidian" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#343533"/><stop offset=".24" stop-color="#101210"/><stop offset=".4" stop-color="#282A27"/><stop offset=".62" stop-color="#090B09"/><stop offset=".8" stop-color="#242521"/><stop offset="1" stop-color="#10120F"/></linearGradient>
+  <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#303238"/><stop offset=".35" stop-color="#202228"/><stop offset=".7" stop-color="#14161A"/><stop offset="1" stop-color="#22242A"/></linearGradient>
+  <linearGradient id="tile-warm" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F9F8F3"/><stop offset=".35" stop-color="#F4F3ED"/><stop offset=".72" stop-color="#E7E5DC"/><stop offset="1" stop-color="#F1F0E9"/></linearGradient>
+  <linearGradient id="tile-rim" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="#6E706F"/><stop offset=".24" stop-color="#41423F"/><stop offset=".58" stop-color="#101110"/><stop offset="1" stop-color="#565651"/></linearGradient>
+  <pattern id="brushed" width="1" height=".11" patternUnits="userSpaceOnUse"><path d="M0 .018H1" fill="none" stroke="#FFFFFF" stroke-width=".018" opacity=".24"/><path d="M0 .075H1" fill="none" stroke="#1C2022" stroke-width=".013" opacity=".18"/></pattern>
+  <clipPath id="mark-clip"><path d="M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z"/></clipPath>
+  <filter id="mark-shadow" x="-20%" y="-20%" width="150%" height="160%"><feGaussianBlur stdDeviation=".52"/></filter>
+  <filter id="tile-shadow" x="-20%" y="-20%" width="140%" height="160%"><feGaussianBlur stdDeviation="2.2"/></filter>
+  </defs>
+  <path d="M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z" fill="url(#platinum)"/>
+  <g clip-path="url(#mark-clip)">
+  <rect width="32" height="32" fill="url(#brushed)" opacity=".3"/>
+  <path d="M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z" fill="none" stroke="url(#platinum-rim)" stroke-width=".42"/>
+  <path d="M8.1 2.55H22M2.55 8V19.5M28.65 9.4V21.8" stroke="#FFFFFF" stroke-opacity=".22" stroke-width=".14" fill="none" stroke-linecap="round"/>
+  </g></svg>

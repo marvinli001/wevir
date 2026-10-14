@@ -1,0 +1,18 @@
+{
+  "light": {
+    "name": "黑金 / 象牙白",
+    "bg": "#F4F3ED",
+    "ink": "#171714",
+    "muted": "#726E64",
+    "accent": "#9B7840",
+    "flat": "#171714"
+  },
+  "dark": {
+    "name": "铂金 / 石墨黑",
+    "bg": "#101114",
+    "ink": "#EEEDE8",
+    "muted": "#A2A3A2",
+    "accent": "#DFDED8",
+    "flat": "#E9E8E2"
+  }
+}

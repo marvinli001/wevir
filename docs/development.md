@@ -358,3 +358,17 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 **审批相关的 dsh 测试失败，说目标“在系统临时目录下”。** 把仓库克隆到系统临时目录以外（§6.4）。
 
 **设了 `NODE_USE_ENV_PROXY=1` 和 `HTTPS_PROXY` 之后连本机服务也走了代理。** 这个开关让 Node 内置的 HTTP 客户端（含 `fetch`）按代理变量走，到 Host（127.0.0.1）的连接、`provider.test` 到本机 Ollama 都可能经过代理。同时设 `NO_PROXY=localhost,127.0.0.1`。pnpm 与 git 本来就认 `HTTPS_PROXY`，不需要这个开关。
+
+## 9. 品牌与跨平台图标
+
+图标资源在 [`assets/icons/`](../assets/icons/README.md)：浅色为黑金与灰调象牙白（`#F4F3ED`），深色为铂金与石墨黑。包括主标/转曲字标、八个线性功能图标、macOS ICNS 与菜单模板、Windows ICO 与托盘、iOS 资源目录、Android 分层、Linux 与 Web 资源。当前只交付资源文件，客户端加载与主题切换尚未接入。
+
+```bash
+pnpm icons:build
+pnpm icons:check
+pnpm icons:pack
+```
+
+`icons:build` 经根目录开发依赖 Sharp 0.35.5 从 SVG 导出 PNG，再生成预览与格式化资源元数据，不启动 Host，不需要模型 Key，也不需要先构建产品包。`icons:check` 检查尺寸、透明度、模板、tinted 灰度、ICNS/ICO 帧、SVG 来源和 Android 安全区域。`icons:pack` 输出可独立重建的 `assets/icons/release/wevir-icons-v1.zip`（gitignore）。字标轮廓已提交；只有重新从源字体提取字形时才需要可选 Python 工具 fonttools。
+
+平台接入方法、完整规格与官方规范链接见资源目录 README。当前的静态导出校验与 Apple 资源编译通过，不代表已经在真实设备、Windows 托盘或各 Android 启动器上验收。

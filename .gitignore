@@ -5,6 +5,8 @@ dist/
 out/
 coverage/
 *.tsbuildinfo
+# 图标交付 ZIP 可从已跟踪的源文件与导出脚本重建。
+/assets/icons/release/
 
 # 上游只读克隆（scripts/upstream-sync.sh 生成）
 /upstream/

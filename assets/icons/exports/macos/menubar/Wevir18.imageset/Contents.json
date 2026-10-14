@@ -1,0 +1,21 @@
+{
+  "images": [
+    {
+      "filename": "Wevir18Template.png",
+      "idiom": "universal",
+      "scale": "1x"
+    },
+    {
+      "filename": "Wevir18Template@2x.png",
+      "idiom": "universal",
+      "scale": "2x"
+    }
+  ],
+  "info": {
+    "author": "wevir",
+    "version": 1
+  },
+  "properties": {
+    "template-rendering-intent": "template"
+  }
+}

@@ -1,0 +1,1 @@
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/wevir_background"/><foreground android:drawable="@drawable/wevir_foreground"/></adaptive-icon>
