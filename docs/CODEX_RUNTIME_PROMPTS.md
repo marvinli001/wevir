@@ -14,7 +14,7 @@
 | R4 | 子会话：领域模型、Host 协议与存储、`AgentEvent`，adapter-codex 上报 | R3 | — | [ ] |
 | R5 | 桌面端：子智能体界面（照 Codex 桌面端） | R4、R12 | 与 R6 并行 | [ ] |
 | R6 | ChatGPT 订阅登录与设置页 | R3；界面风格随 R12 | 与 R5 并行 | [ ] |
-| R7 | 从 adapter-dsh 抽出通用 ACP 适配器（行为不变） | — | 与 R1–R3 并行 | [ ] |
+| R7 | 从 adapter-dsh 抽出通用 ACP 适配器（行为不变） | — | 与 R1–R3 并行 | [x] `1f5e918` |
 | R8 | 经通用 ACP 适配器接 Grok Build 与 Gemini CLI；xAI 与 Gemini 的 API Key 经网关 | R3、R7 | — | [ ] |
 | R9 | 运行时分发：`codex-app-server` 随应用，dsh 改为可选下载 | R3、R7 | — | [ ] |
 | R10 | 网关加 Anthropic Messages | R1 | 任意时间 | [ ] |
