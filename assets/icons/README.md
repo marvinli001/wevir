@@ -9,6 +9,7 @@
 | 路径（相对于本目录） | 交付 |
 | --- | --- |
 | `source/` | 32 单位主标几何、材质配色、八个线性图标路径、已转曲字标及字体来源 |
+| `source/Wevir.icon` | Icon Composer 工程，iOS / iPadOS / macOS 26 起的 Liquid Glass 应用图标（见下文「Icon Composer 工程」） |
 | `svg/` | 每张位图对应的独立 SVG；材质、渐变、线条均保留为矢量，未嵌入位图或依赖系统字体 |
 | `exports/brand/` | 浅深色主标（16–1024px）、转曲 Wevir 字标、横向/上下组合标识、黑白单色版本 |
 | `exports/macos/{light,dark}/` | Big Sur 风格圆角矩形应用图标、ICNS、iconset、AppIcon.appiconset；16/32/128/256/512pt，各 @1x/@2x |
@@ -16,7 +17,7 @@
 | `exports/windows/{light,dark}/` | 应用 ICO（含 16/20/24/30/32/36/40/48/60/64/72/80/96/128/256px）、托盘 ICO（16/20/24/32/40/48/64px）与单独 PNG；另有 AppList targetsize 资源 |
 | `exports/ios/Assets.xcassets/` | 可导入的单尺寸 AppIcon：默认、深色、tinted 各 1024px；深色为透明前景，tinted 为中性灰度 |
 | `exports/ios/{light,dark}/` | 完整底色的 1024 主图、浅深灰度 tinted 补充稿、20–180px 的 iPhone/iPad 尺寸位图 |
-| `exports/apple-layers/{light,dark}/` | 给当前 Icon Composer 使用的无预烘焙高光前景和完整方形背景；SVG 与 PNG 分层；不是 `.icon` 工程 |
+| `exports/apple-layers/{light,dark}/` | 给当前 Icon Composer 使用的无预烘焙高光前景和完整方形背景；SVG 与 PNG 分层；`source/Wevir.icon` 用的是 `light/foreground.svg` |
 | `exports/android/res/` | v26 双层、v33 含单色层的 adaptive-icon XML；108dp 前景/背景的 mdpi–xxxhdpi 位图；默认/夜间资源、legacy launcher 图标与单色 VectorDrawable |
 | `exports/android/{light,dark}/` | 单色主题图标、512px Play 主图、三种系统遮罩预览；遮罩没有写入前景/背景源层 |
 | `exports/linux/` | 浅深色 hicolor 16–1024px、scalable SVG |
@@ -40,6 +41,20 @@
 - Android 前景层保持在中心直径 66dp 的安全圆内，背景完整覆盖 108dp，不预先写入系统遮罩。`res/` 可复制进 Android 项目，Manifest 选择 `@mipmap/ic_launcher`；需要 roundIcon 时使用 `@mipmap/ic_launcher_round`。颜色随默认/`night` 资源变化，单色主题颜色由启动器控制。
 - Linux hicolor 的两个主题目录择一安装，文件名都为 `wevir`。Web 两个 manifest 是资源片段；接入网站时补充网站的 `start_url`、`id` 与 `scope`。
 
+## Icon Composer 工程
+
+`source/Wevir.icon` 在 Icon Composer（Xcode 26 自带）里手工组装，不由 `icons:build` 生成。它只有一个图层，参数如下：
+
+| 项 | 默认 | 深色 |
+| --- | --- | --- |
+| 背景 Fill（Solid） | `#F4F3ED` | `#101114` |
+| 图层 `mark`（`Assets/mark.svg`） | SVG 自带的香槟金 `#9B7840` | Fill 覆盖为铂金白 `#E9E8E2` |
+
+- `Assets/mark.svg` 与 `svg/apple-layers/light/foreground.svg` 逐字节相同（1024 画布，主标 560px 居中、平涂无高光）；工程里的图层缩放为 125%。背景直接用 Fill 纯色，不导入 `background.svg`。
+- Liquid Glass 在 Group 上：Mode Individual，Specular 开，Blur 50%，Translucency 30%，Shadow Neutral 30%。Tinted / Clear 外观由系统从这些图层生成，没有单独覆盖。
+- 主标几何或配色改动后，先 `pnpm icons:build`，再把新的 `light/foreground.svg` 复制成 `Assets/mark.svg`，在 Icon Composer 里检查后保存。`icons:check` 会核对这份副本、两个背景色和深色主标色与 `manifest.json` 的调色板一致。
+- Xcode 工程把 `Wevir.icon` 加入目标、App Icon 名称填 `Wevir` 即可；`actool` 会同时输出 `Assets.car` 和给旧系统用的 ICNS / PNG。桌面端还没有打包配置，接入时由打包步骤用 `actool` 编译并在 Info.plist 写入 `CFBundleIconName`。
+
 ## 重建与检查
 
 在 Wevir 仓库根目录执行（Node ≥22.19、pnpm 12.6）：
@@ -51,7 +66,7 @@ pnpm icons:check
 pnpm icons:pack
 ```
 
-`icons:build` 使用根目录开发依赖 Sharp 0.35.5，不启动 Host、不读取密钥、不调用模型、不需要先构建产品包。`icons:check` 校验 SVG 是否为真实矢量、PNG 宽高/透明度/灰度/摘要、ICNS/ICO 帧、菜单模板颜色、iOS 槽位、Android 安全区域。`icons:pack` 生成包含源文件、导出资源、预览、导出脚本和独立 package.json 的交付 ZIP；不打包 node_modules 或应用源码。
+`icons:build` 使用根目录开发依赖 Sharp 0.35.5，不启动 Host、不读取密钥、不调用模型、不需要先构建产品包。`icons:check` 校验 SVG 是否为真实矢量、PNG 宽高/透明度/灰度/摘要、ICNS/ICO 帧、菜单模板颜色、iOS 槽位、Android 安全区域，以及 `Wevir.icon` 的图层与颜色；在装有 Xcode 的 macOS 上还会用 `actool` 把它分别编译成 macOS 和 iOS 资源，有警告或错误即失败，其他系统跳过这一步并在输出里注明。`icons:pack` 生成包含源文件、导出资源、预览、导出脚本和独立 package.json 的交付 ZIP；不打包 node_modules 或应用源码。
 
 字标转曲只在字体或字样变化时需要重跑：安装可选工具 `fonttools==4.60.1` 后运行 `python3 scripts/icons/outline-wordmark.py`，再执行 `pnpm icons:build`。正常导出不需要 Python，直接使用已提交的转曲路径。
 

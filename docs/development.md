@@ -433,6 +433,6 @@ pnpm icons:check
 pnpm icons:pack
 ```
 
-`icons:build` 经根目录开发依赖 Sharp 0.35.5 从 SVG 导出 PNG，再生成预览与格式化资源元数据，不启动 Host，不需要模型 Key，也不需要先构建产品包。`icons:check` 检查尺寸、透明度、模板、tinted 灰度、ICNS/ICO 帧、SVG 来源和 Android 安全区域。`icons:pack` 输出可独立重建的 `assets/icons/release/wevir-icons-v1.zip`（gitignore）。字标轮廓已提交；只有重新从源字体提取字形时才需要可选 Python 工具 fonttools。
+`icons:build` 经根目录开发依赖 Sharp 0.35.5 从 SVG 导出 PNG，再生成预览与格式化资源元数据，不启动 Host，不需要模型 Key，也不需要先构建产品包。`icons:check` 检查尺寸、透明度、模板、tinted 灰度、ICNS/ICO 帧、SVG 来源、Android 安全区域和 Icon Composer 工程 `source/Wevir.icon`（macOS 上有 Xcode 时另用 `actool` 编译，否则跳过）。`icons:pack` 输出可独立重建的 `assets/icons/release/wevir-icons-v1.zip`（gitignore）。字标轮廓已提交；只有重新从源字体提取字形时才需要可选 Python 工具 fonttools。
 
 平台接入方法、完整规格与官方规范链接见资源目录 README。当前的静态导出校验与 Apple 资源编译通过，不代表已经在真实设备、Windows 托盘或各 Android 启动器上验收。

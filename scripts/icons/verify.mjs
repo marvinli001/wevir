@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
@@ -166,10 +168,83 @@ await check('gallery image references', async () => {
     await fs.access(file);
   }
 });
+const iconDocument = path.join(root, 'source/Wevir.icon');
+const srgb = (hex) =>
+  `srgb:${[1, 3, 5].map((i) => (Number.parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(5)).join(',')},1.00000`;
+const solid = (specs, appearance) =>
+  specs?.find((spec) => spec.appearance === appearance)?.value?.solid;
+await check('Icon Composer document', async () => {
+  const doc = JSON.parse(await fs.readFile(path.join(iconDocument, 'icon.json'), 'utf8'));
+  assert.equal(solid(doc['fill-specializations'], undefined), srgb(manifest.palette.light.bg));
+  assert.equal(solid(doc['fill-specializations'], 'dark'), srgb(manifest.palette.dark.bg));
+  const layers = doc.groups.flatMap((group) => group.layers);
+  assert.deepEqual(
+    layers.map((layer) => layer['image-name']),
+    ['mark.svg'],
+  );
+  assert.equal(solid(layers[0]['fill-specializations'], 'dark'), srgb(manifest.palette.dark.flat));
+  const assets = (await fs.readdir(path.join(iconDocument, 'Assets'))).filter(
+    (name) => !name.startsWith('.'),
+  );
+  assert.deepEqual(assets, ['mark.svg']);
+  assert.equal(
+    await fs.readFile(path.join(iconDocument, 'Assets/mark.svg'), 'utf8'),
+    await fs.readFile(path.join(root, 'svg/apple-layers/light/foreground.svg'), 'utf8'),
+    'Wevir.icon must use the exported light foreground layer unchanged',
+  );
+});
+// actool ships with Xcode, so the compile check only runs on macOS with Xcode 26 or later.
+let actool = false;
+if (process.platform === 'darwin') {
+  try {
+    execFileSync('xcrun', ['--find', 'actool'], { stdio: 'ignore' });
+    actool = true;
+  } catch {}
+}
+if (actool)
+  for (const [platform, devices, target] of [
+    ['macosx', ['mac'], '12.0'],
+    ['iphoneos', ['iphone', 'ipad'], '17.0'],
+  ])
+    await check(`Wevir.icon actool ${platform}`, async () => {
+      const out = await fs.mkdtemp(path.join(os.tmpdir(), 'wevir-icon-'));
+      try {
+        const plist = path.join(out, 'partial.plist');
+        const log = execFileSync(
+          'xcrun',
+          [
+            'actool',
+            iconDocument,
+            '--compile',
+            out,
+            '--app-icon',
+            'Wevir',
+            '--platform',
+            platform,
+            ...devices.flatMap((device) => ['--target-device', device]),
+            '--minimum-deployment-target',
+            target,
+            '--output-partial-info-plist',
+            plist,
+            '--output-format',
+            'human-readable-text',
+          ],
+          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+        );
+        assert(!/\.(?:warnings|errors) \*\//.test(log), log.trim());
+        await fs.access(path.join(out, 'Assets.car'));
+        assert.match(
+          await fs.readFile(plist, 'utf8'),
+          /<key>CFBundleIconName<\/key>\s*<string>Wevir<\/string>/,
+        );
+      } finally {
+        await fs.rm(out, { recursive: true, force: true });
+      }
+    });
 if (failures.length) {
   console.error(failures.join('\n'));
   process.exitCode = 1;
 } else
   console.log(
-    `Verified ${manifest.rasters.length} SVG/PNG pairs, ICNS/ICO containers, menu templates, iOS slots, grayscale tinted assets and Android safe zones.`,
+    `Verified ${manifest.rasters.length} SVG/PNG pairs, ICNS/ICO containers, menu templates, iOS slots, grayscale tinted assets, Android safe zones and the Icon Composer document${actool ? ' (compiled with actool)' : ' (actool not available, compile skipped)'}.`,
   );
