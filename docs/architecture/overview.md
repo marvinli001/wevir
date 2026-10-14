@@ -1,7 +1,7 @@
 # Wevir 架构总览
 
 > 状态：骨架阶段（T6.1）· 日期：2026-10-14 · 协议版本 0.3.0
-> 细节在各自的文档里：[Host API](./host-api.md) · [领域模型](./domain-model.md) · [ACP → Wevir 事件映射](./acp-event-mapping.md) · [Codex → Wevir 事件映射](./codex-event-mapping.md) · [模型协议网关](./model-gateway.md) · [Provider 桥接](./providers.md) · [ADR](../adr/README.md) · [安全说明](../security.md)
+> 细节在各自的文档里：[Host API](./host-api.md) · [领域模型](./domain-model.md) · [ACP → Wevir 事件映射](./acp-event-mapping.md) · [Codex → Wevir 事件映射](./codex-event-mapping.md) · [模型协议网关](./model-gateway.md) · [Provider 桥接](./providers.md) · [桌面工作台布局](./desktop-layout.md) · [ADR](../adr/README.md) · [安全说明](../security.md)
 
 本文件给第一次读代码的人一张地图：进程与包怎样分层、一次请求怎样走完、事件怎样从引擎到界面。具体规则以上面链接的文档和代码为准，这里不重复。
 
