@@ -16,12 +16,12 @@ import { movePaneScope } from '@/layout/pane-store';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
 import { Composer, setDraft } from './composer';
+import { EnvironmentBar } from './environment-bar';
 import { historyDigest } from './history-digest';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { PendingArea } from './pending-area';
 import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
-import { SessionStatus } from './session-status';
 import { sendError, sendText, useModelChoice, useStartSession } from './start-session';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 
@@ -176,7 +176,6 @@ export function SessionView({ session }: { session: Session }) {
           state={sessionState}
           disabled={!client || readOnly !== undefined}
           disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
-          status={transcript && <SessionStatus transcript={transcript} />}
           model={<SessionModelPicker session={session} onError={setNotice} />}
           {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
           {...(pendingEnabled &&
@@ -274,8 +273,6 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
-  const selectClass =
-    'h-7 max-w-56 truncate rounded-lg border border-input bg-background px-1.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -335,21 +332,12 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
           }
           onStop={() => {}}
           autoFocus
-          toolbar={
-            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              {t('session.workspace')}
-              <select
-                className={selectClass}
-                value={workspaceId}
-                onChange={(event) => navigate(paths.draft(event.target.value))}
-              >
-                {workspaces.map(({ workspace }) => (
-                  <option key={workspace.id} value={workspace.id}>
-                    {workspace.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
+          tray={
+            <EnvironmentBar
+              current={entry}
+              workspaces={workspaces}
+              onSelect={(id) => navigate(paths.draft(id))}
+            />
           }
         />
       </div>

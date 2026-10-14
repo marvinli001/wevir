@@ -16,12 +16,6 @@ export function between(from: string | undefined, to: string | undefined): numbe
   return Number.isFinite(ms) ? ms : undefined;
 }
 
-/** 按码点截断，超出时加省略号。 */
-export function truncate(text: string, max: number): string {
-  const chars = [...text];
-  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : text;
-}
-
 /** 工具参数等 unknown 值的展示文本：截断替身显示开头，其余 JSON 缩进两格。 */
 export function formatJson(value: unknown): { text: string; truncatedFrom?: number } {
   if (isTruncatedJson(value)) return { text: value.preview, truncatedFrom: value.originalLength };

@@ -34,14 +34,18 @@ export function setDraft(draftKey: string, text: string): void {
  * 进行中、没有在等审批时，输入框底边有一道转动的光（border-beam）。
  *
  * `variant="home"` 是首页的大输入框（U4，方向稿的 composer-big）：更高、字更大，获得焦点时底边有同样的光（focus 预设）。
+ *
+ * U12 起外形照 Codex 桌面端：20 px 圆角（`rounded-3xl`）、细分隔线描边；底栏左边是“插话 | 排队”与 `leading`，右边是模型
+ * 与发送键；不再显示会话状态（进行中的状态与用时在消息流末尾）。`tray` 是贴在输入框上方、被它压住下沿的环境栏（新会话的
+ * 项目与本地环境，session/environment-bar.tsx）。
  */
 export function Composer({
   draftKey,
   state,
   disabled = false,
   disabledReason,
-  status,
-  toolbar,
+  leading,
+  tray,
   model,
   busyDelivery,
   onBusyDeliveryChange,
@@ -57,10 +61,10 @@ export function Composer({
   /** 不能发送也不能停止（只读、还没连上 Host、正在建会话）。 */
   disabled?: boolean;
   disabledReason?: string;
-  /** 底栏左侧：会话状态。 */
-  status?: ReactNode;
-  /** 输入框上方一行：新会话的项目选择。 */
-  toolbar?: ReactNode;
+  /** 底栏左侧（“插话 | 排队”之后）：例如首页没有模型服务时的“添加模型服务”。 */
+  leading?: ReactNode;
+  /** 输入框上方的环境栏（U12）：新会话的项目与本地环境。 */
+  tray?: ReactNode;
   /** 底栏右侧、发送按钮左边：模型与思考力度（U8，session/model-picker.tsx）。 */
   model?: ReactNode;
   /** 回合进行中按发送的方式（R11）；省略表示回合进行中不能发送。 */
@@ -151,57 +155,69 @@ export function Composer({
       : busyDelivery;
 
   return (
-    <Beam
-      preset={home ? 'focus' : 'composer'}
-      active={home ? focused && !disabled : busy && state !== 'awaiting_approval' && !disabled}
-      className="block w-full"
-    >
-      <div
-        className={cn(
-          'rounded-xl border border-input bg-card shadow-xs transition-colors',
-          // 首页的焦点只用光束表示（方向稿），会话里的输入框照旧换边框色。
-          !home && 'focus-within:border-ring',
-          disabled && 'opacity-70',
-        )}
-      >
-        {toolbar && <div className="flex flex-wrap items-center gap-2 px-3 pt-2.5">{toolbar}</div>}
-        <Textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={onKeyDown}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          disabled={disabled}
-          autoFocus={autoFocus}
-          aria-label={t('session.composerPlaceholder')}
-          placeholder={disabledReason ?? placeholder ?? t('session.composerPlaceholder')}
-          className={cn(
-            'max-h-60 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent',
-            // 原语在 md 以上是 text-sm；首页大一档（方向稿 composer-big 比会话的输入框大 1px）。
-            home ? 'min-h-21 px-4 pt-4 text-base md:text-base' : 'min-h-16 px-3 pt-3 text-base',
-          )}
-        />
-        <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
-          <div className="min-w-0 flex-1 text-xs">{status}</div>
-          {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
-            <DeliverySwitch
-              value={busyDelivery}
-              disabled={disabled}
-              onChange={onBusyDeliveryChange}
-            />
-          )}
-          {model}
-          <ComposerButton
-            action={action}
-            // 金属只在“能做点什么”时流动：有字可发、或回合进行中（停止）。空着的输入框停在静帧。
-            flowing={action === 'stop' ? !disabled : canSend}
-            disabled={action === 'stop' ? disabled : !canSend}
-            onClick={() => (action === 'stop' ? onStop() : void send())}
-          />
+    <div>
+      {tray && (
+        // 环境栏比输入框各窄 12 px，下沿垫在输入框下面（-mb-4 与 pb-5），看上去是从输入框背后伸出来的一条（Codex）。
+        <div
+          data-testid="composer-tray"
+          className="mx-3 -mb-4 flex min-w-0 items-center gap-0.5 rounded-t-2xl border border-b-0 border-border bg-card/55 px-1.5 pt-1 pb-5"
+        >
+          {tray}
         </div>
-      </div>
-    </Beam>
+      )}
+      <Beam
+        preset={home ? 'focus' : 'composer'}
+        active={home ? focused && !disabled : busy && state !== 'awaiting_approval' && !disabled}
+        className="relative block w-full"
+      >
+        <div
+          className={cn(
+            'rounded-3xl border border-border bg-card shadow-xs transition-colors',
+            // 首页的焦点只用光束表示（方向稿），会话里的输入框聚焦时描边加深一档。
+            !home && 'focus-within:border-input',
+            disabled && 'opacity-70',
+          )}
+        >
+          <Textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onKeyDown}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            disabled={disabled}
+            autoFocus={autoFocus}
+            aria-label={t('session.composerPlaceholder')}
+            placeholder={disabledReason ?? placeholder ?? t('session.composerPlaceholder')}
+            className={cn(
+              'max-h-60 resize-none rounded-none border-0 bg-transparent px-4 pb-1 shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent',
+              // 原语在 md 以上是 text-sm；首页大一档（方向稿 composer-big 比会话的输入框大 1px）。
+              home ? 'min-h-19 pt-4 text-base md:text-base' : 'min-h-13 pt-3.5 text-base',
+            )}
+          />
+          <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
+              {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
+                <DeliverySwitch
+                  value={busyDelivery}
+                  disabled={disabled}
+                  onChange={onBusyDeliveryChange}
+                />
+              )}
+              {leading}
+            </div>
+            {model}
+            <ComposerButton
+              action={action}
+              // 金属只在“能做点什么”时流动：有字可发、或回合进行中（停止）。空着的输入框停在静帧。
+              flowing={action === 'stop' ? !disabled : canSend}
+              disabled={action === 'stop' ? disabled : !canSend}
+              onClick={() => (action === 'stop' ? onStop() : void send())}
+            />
+          </div>
+        </div>
+      </Beam>
+    </div>
   );
 }
 

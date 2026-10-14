@@ -75,13 +75,14 @@
   --color-switch-thumb: var(--switch-thumb);
 
   /* 圆角阶梯：rounded-lg 是按钮与列表项（8px），rounded-xl 是卡片（12px）；其余按 2px 递减或递增：
-   * 2 / 4 / 6 / 8 / 12 / 16。 */
+   * 2 / 4 / 6 / 8 / 12 / 16 / 20。rounded-3xl（20px）只给消息输入框（U12，照 Codex）。 */
   --radius-xs: calc(var(--radius-control) - 6px);
   --radius-sm: calc(var(--radius-control) - 4px);
   --radius-md: calc(var(--radius-control) - 2px);
   --radius-lg: var(--radius-control);
   --radius-xl: var(--radius-card);
   --radius-2xl: calc(var(--radius-card) + 4px);
+  --radius-3xl: calc(var(--radius-card) + 8px);
 
   /* 阴影：只有一档（tokens.css 的 --elevation），原语里的 shadow-xs … shadow-lg 都是它。 */
   --shadow-xs: var(--elevation);

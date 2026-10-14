@@ -1,19 +1,11 @@
 import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronDown, FolderPlus, Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { BrandMark } from '@/components/brand-mark';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { sessionMarker, type WorkspaceEntry } from '@/data/workbench-model';
@@ -21,7 +13,9 @@ import { MetalWordmark } from '@/fx/metal';
 import { type PlainMessageKey, t } from '@/i18n';
 import { onboardingDone } from '@/onboarding/onboarding-state';
 import { openCreateProject } from '@/projects/create-project';
+import { ProjectMenuContent } from '@/projects/project-menu';
 import { Composer, setDraft } from '@/session/composer';
+import { EnvironmentBar } from '@/session/environment-bar';
 import { ModelPicker } from '@/session/model-picker';
 import { useModelChoice, useStartSession } from '@/session/start-session';
 import { formatRelativeTime } from '@/session/subagent-model';
@@ -131,7 +125,10 @@ function Home({
           state="idle"
           disabled={!ready && !noProvider}
           {...(noProvider && { disabledReason: t('home.noProvider') })}
-          status={noProvider && <AddProviderChip />}
+          leading={noProvider && <AddProviderChip />}
+          tray={
+            <EnvironmentBar current={entry} workspaces={workspaces} onSelect={rememberWorkspace} />
+          }
           model={
             providers &&
             choice && <ModelPicker providers={providers} value={choice} onChange={choose} />
@@ -181,37 +178,11 @@ function WorkspacePicker({
         </span>
         <ChevronDown aria-hidden className="size-4 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-auto max-w-80 min-w-56">
-        <DropdownMenuRadioGroup
-          value={current?.workspace.id ?? ''}
-          onValueChange={(id: string) => rememberWorkspace(id)}
-        >
-          {workspaces.map(({ workspace }) => (
-            <DropdownMenuRadioItem
-              key={workspace.id}
-              value={workspace.id}
-              title={workspace.rootPath}
-              closeOnClick
-            >
-              <span className="min-w-0">
-                <span className="block truncate">{workspace.displayName}</span>
-                {/* 长路径截掉开头、留住最后的目录名：容器从右往左排，省略号就落在左边；路径本身用 bdi 保持从左往右。 */}
-                <span
-                  dir="rtl"
-                  className="block truncate text-left font-mono text-xs text-muted-foreground"
-                >
-                  <bdi dir="ltr">{workspace.rootPath}</bdi>
-                </span>
-              </span>
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
-        {workspaces.length > 0 && <DropdownMenuSeparator />}
-        <DropdownMenuItem onClick={() => openCreateProject()}>
-          <FolderPlus className="text-muted-foreground" />
-          {t('home.createProject')}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
+      <ProjectMenuContent
+        currentId={current?.workspace.id}
+        workspaces={workspaces}
+        onSelect={rememberWorkspace}
+      />
     </DropdownMenu>
   );
 }
