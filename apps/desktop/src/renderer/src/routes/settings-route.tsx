@@ -4,98 +4,135 @@ import {
   Folder,
   Info,
   type LucideIcon,
-  MessageSquare,
   Monitor,
   Moon,
   Palette,
+  Search,
+  Settings2,
   Sun,
+  X,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useState } from 'react';
 import { type Location, NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useHostConnection } from '@/host/host-connection';
 import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
 import { WindowControls } from '@/layout/window-controls';
-import { ChatSettings } from '@/settings/chat-settings';
+import { GeneralSettings } from '@/settings/general-settings';
 import { ProviderSettings } from '@/settings/provider-settings';
-import { LIST_CARD, SettingsSection } from '@/settings/settings-ui';
+import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
 import { setThemeMode, useTheme } from '@/theme/theme';
 import type { ThemeMode } from '../../../shared/theme.js';
 import { NotFound } from './not-found';
-import { isSettingsTab, paths, SETTINGS_TABS, type SettingsTab } from './paths';
+import { isSettingsTab, paths, type SettingsTab } from './paths';
 
-const TABS: Record<SettingsTab, { label: PlainMessageKey; icon: LucideIcon }> = {
-  providers: { label: 'settings.tab.providers', icon: Cpu },
-  workspaces: { label: 'settings.tab.workspaces', icon: Folder },
-  chat: { label: 'settings.tab.chat', icon: MessageSquare },
-  appearance: { label: 'settings.tab.appearance', icon: Palette },
-  about: { label: 'settings.tab.about', icon: Info },
+interface TabInfo {
+  label: PlainMessageKey;
+  icon: LucideIcon;
+  /** 搜索时除了名字还认这些词（这一页里各项设置的名字）。 */
+  keywords: PlainMessageKey[];
+}
+
+const TABS: Record<SettingsTab, TabInfo> = {
+  general: {
+    label: 'settings.tab.general',
+    icon: Settings2,
+    keywords: ['settings.appearance.language', 'settings.chat.sendWhileBusy'],
+  },
+  appearance: {
+    label: 'settings.tab.appearance',
+    icon: Palette,
+    keywords: ['settings.appearance.theme'],
+  },
+  providers: {
+    label: 'settings.tab.providers',
+    icon: Cpu,
+    keywords: ['provider.section.accounts', 'provider.section.keyed', 'account.chatgpt.title'],
+  },
+  workspaces: {
+    label: 'settings.tab.workspaces',
+    icon: Folder,
+    keywords: ['project.create.title'],
+  },
+  about: {
+    label: 'settings.tab.about',
+    icon: Info,
+    keywords: ['settings.about.host', 'settings.about.hostVersion'],
+  },
 };
 
-/** 打开设置前所在的位置（左栏“设置”链接带上），关闭设置时回到那里。 */
+const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
+  { label: 'settings.group.app', tabs: ['general', 'appearance', 'about'] },
+  { label: 'settings.group.work', tabs: ['providers', 'workspaces'] },
+];
+
+/** 打开设置前所在的位置（左栏“设置”链接带上），历史里退无可退时后退回到那里。 */
 interface SettingsState {
   from?: Location;
 }
 
 /**
- * `/settings/:tab`：整窗的设置页，左侧标签列表，右侧内容；返回时回到打开设置前的页面。U4 起照方向稿「A 静器」：标签列表
- * 是侧栏色、选中的一行和左栏的当前会话一样（表面色加一圈分隔线），内容一列最宽 720px，按节排、节之间是细分隔线
- * （settings/settings-ui.tsx）。
+ * `/settings/:tab`：整窗的设置页（U7 照 Codex 桌面端）。左边是设置自己的侧栏：后退 / 前进、“设置”标题、搜索框、分组的
+ * 页面列表；右边一列最宽 720px，页面标题下面是一组组卡片（settings/settings-ui.tsx）。
  */
 export function SettingsRoute() {
   const { tab } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const from = (location.state as SettingsState | null)?.from;
-  const back = () => navigate(from ?? paths.home());
+  const [query, setQuery] = useState('');
 
   return (
     <div className="flex h-full">
       <nav
         aria-label={t('settings.title')}
-        className="flex w-52 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground max-md:w-44"
+        className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground max-md:w-48"
       >
         <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
-          <WindowControls onBack={back} />
+          <WindowControls onBack={() => navigate(from ?? paths.home())} />
         </div>
-        <h2 className="px-4 pt-1 pb-3 text-xl font-semibold tracking-tight">
+        <h1 className="px-4 pt-1 pb-3 text-xl font-semibold tracking-tight">
           {t('settings.title')}
-        </h2>
-        <ul className="space-y-0.5 px-2 pt-1">
-          {SETTINGS_TABS.map((id) => {
-            const { label, icon: Icon } = TABS[id];
-            return (
-              <li key={id}>
-                <NavLink
-                  to={paths.settings(id)}
-                  state={location.state}
-                  replace
-                  data-settings-tab={id}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex h-8 items-center gap-2 rounded-lg px-2.5 text-base text-soft-foreground outline-none hover:bg-sidebar-accent/60 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50',
-                      isActive &&
-                        'bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-sidebar-border ring-inset hover:bg-sidebar-accent',
-                    )
-                  }
-                >
-                  <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{t(label)}</span>
-                </NavLink>
-              </li>
-            );
-          })}
-        </ul>
+        </h1>
+        <div className="px-2.5 pb-2">
+          <label className="flex h-8 items-center gap-2 rounded-full bg-sidebar-accent/70 px-3 text-muted-foreground transition-colors focus-within:bg-sidebar-accent focus-within:ring-2 focus-within:ring-ring/40">
+            <Search aria-hidden className="size-3.5 shrink-0" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => event.key === 'Escape' && setQuery('')}
+              placeholder={t('settings.search')}
+              aria-label={t('settings.search')}
+              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {query && (
+              <button
+                type="button"
+                aria-label={t('settings.searchClear')}
+                onClick={() => setQuery('')}
+                className="-mr-1 flex size-5 items-center justify-center rounded-full outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              >
+                <X className="size-3" />
+              </button>
+            )}
+          </label>
+        </div>
+        <ScrollArea className="min-h-0 flex-1">
+          <TabList query={query} state={location.state} />
+        </ScrollArea>
       </nav>
       <main className="flex min-w-0 flex-1 flex-col">
         {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动。 */}
         <div className="app-drag h-11 shrink-0" />
         {isSettingsTab(tab) ? (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="mx-auto w-full max-w-180 px-5 pt-3 pb-12 sm:px-8">
-              <h1 className="mb-6 text-2xl font-semibold tracking-tight">{t(TABS[tab].label)}</h1>
+            <div
+              key={tab}
+              className="mx-auto w-full max-w-180 px-5 pt-6 pb-16 animate-in duration-300 fade-in slide-in-from-bottom-1 sm:px-10"
+            >
+              <h2 className="mb-7 text-2xl font-semibold tracking-tight">{t(TABS[tab].label)}</h2>
               <SettingsTabContent tab={tab} />
             </div>
           </ScrollArea>
@@ -107,8 +144,61 @@ export function SettingsRoute() {
   );
 }
 
+function matches(tab: SettingsTab, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return true;
+  const info = TABS[tab];
+  return [info.label, ...info.keywords].some((key) => t(key).toLowerCase().includes(needle));
+}
+
+function TabList({ query, state }: { query: string; state: unknown }) {
+  const groups = GROUPS.map((group) => ({
+    ...group,
+    tabs: group.tabs.filter((tab) => matches(tab, query)),
+  })).filter((group) => group.tabs.length > 0);
+  if (groups.length === 0) {
+    return <p className="px-4 py-2 text-sm text-muted-foreground">{t('settings.searchEmpty')}</p>;
+  }
+  return (
+    <div className="px-2.5 pb-4">
+      {groups.map((group) => (
+        <section key={group.label} className="pt-3 first:pt-1">
+          <h3 className="px-2 pb-1 text-xs text-muted-foreground">{t(group.label)}</h3>
+          <ul className="space-y-px">
+            {group.tabs.map((id) => {
+              const { label, icon: Icon } = TABS[id];
+              return (
+                <li key={id}>
+                  <NavLink
+                    to={paths.settings(id)}
+                    state={state}
+                    replace
+                    data-settings-tab={id}
+                    className={({ isActive }) =>
+                      cn(
+                        'flex h-8 items-center gap-2.5 rounded-lg px-2 text-base text-soft-foreground outline-none transition-colors duration-150 hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50',
+                        isActive &&
+                          'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent',
+                      )
+                    }
+                  >
+                    <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{t(label)}</span>
+                  </NavLink>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function SettingsTabContent({ tab }: { tab: SettingsTab }) {
   switch (tab) {
+    case 'general':
+      return <GeneralSettings />;
     case 'appearance':
       return <AppearanceSettings />;
     case 'about':
@@ -117,55 +207,36 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <ProviderSettings />;
     case 'workspaces':
       return <WorkspaceSettings />;
-    case 'chat':
-      return <ChatSettings />;
   }
 }
-
-const THEME_OPTIONS: { mode: ThemeMode; label: PlainMessageKey; icon: ReactNode }[] = [
-  { mode: 'system', label: 'settings.appearance.theme.system', icon: <Monitor /> },
-  { mode: 'light', label: 'settings.appearance.theme.light', icon: <Sun /> },
-  { mode: 'dark', label: 'settings.appearance.theme.dark', icon: <Moon /> },
-];
 
 function AppearanceSettings() {
   const { mode } = useTheme();
   return (
-    <>
-      <SettingsSection
-        title={t('settings.appearance.theme')}
-        description={t('settings.appearance.themeHint')}
-      >
-        {/* 分段切换（与输入框里的“插话 | 排队”同一套：轨道是次表面色，选中的一段是滑块色）。 */}
-        <fieldset className="inline-flex flex-wrap gap-0.5 rounded-lg bg-muted p-0.5">
-          <legend className="sr-only">{t('settings.appearance.theme')}</legend>
-          {THEME_OPTIONS.map((option) => {
-            const checked = option.mode === mode;
-            return (
-              <button
-                key={option.mode}
-                type="button"
-                aria-pressed={checked}
-                data-theme-option={option.mode}
-                onClick={() => setThemeMode(option.mode)}
-                className={cn(
-                  'inline-flex h-7 items-center gap-1.5 rounded-md px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 [&_svg]:size-3.5',
-                  checked
-                    ? 'bg-switch-thumb font-medium text-foreground ring-1 ring-border'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {option.icon}
-                {t(option.label)}
-              </button>
-            );
-          })}
-        </fieldset>
-      </SettingsSection>
-      <SettingsSection title={t('settings.appearance.language')}>
-        <p className="text-base">{t('settings.appearance.languageValue')}</p>
-      </SettingsSection>
-    </>
+    <SettingsSection title={t('settings.section.theme')}>
+      <div className={LIST_CARD}>
+        <SettingsRow
+          title={t('settings.appearance.theme')}
+          description={t('settings.appearance.themeHint')}
+          control={
+            <Segmented<ThemeMode>
+              label={t('settings.appearance.theme')}
+              value={mode}
+              onChange={setThemeMode}
+              options={[
+                {
+                  value: 'system',
+                  label: t('settings.appearance.theme.system'),
+                  icon: <Monitor />,
+                },
+                { value: 'light', label: t('settings.appearance.theme.light'), icon: <Sun /> },
+                { value: 'dark', label: t('settings.appearance.theme.dark'), icon: <Moon /> },
+              ]}
+            />
+          }
+        />
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -189,11 +260,14 @@ function AboutSettings() {
   ];
   return (
     <SettingsSection title={t('settings.about.host')}>
-      <dl className={cn(LIST_CARD, 'text-sm')}>
+      <dl className={LIST_CARD}>
         {rows.map(([label, value, testId]) => (
-          <div key={label} className="flex items-baseline gap-6 px-4 py-2.5">
-            <dt className="w-28 shrink-0 text-muted-foreground">{label}</dt>
-            <dd className="min-w-0 flex-1 truncate font-mono" data-testid={testId}>
+          <div key={label} className="flex min-h-11 items-center gap-6 px-4 py-2.5 text-sm">
+            <dt className="shrink-0 font-medium">{label}</dt>
+            <dd
+              className="min-w-0 flex-1 truncate text-right font-mono text-xs text-muted-foreground"
+              data-testid={testId}
+            >
               {value ?? '—'}
             </dd>
           </div>

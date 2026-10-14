@@ -22,9 +22,10 @@ export const ROUTE_PATTERNS = {
 /** `agent` 相对于会话路由的那一段（路由表里的子路由）。 */
 export const AGENT_SEGMENT = 'agent/:childId';
 
-export const SETTINGS_TABS = ['providers', 'workspaces', 'chat', 'appearance', 'about'] as const;
+/** 设置的各页（U7 起“对话”并进“常规”）。 */
+export const SETTINGS_TABS = ['general', 'appearance', 'providers', 'workspaces', 'about'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
-export const DEFAULT_SETTINGS_TAB: SettingsTab = 'providers';
+export const DEFAULT_SETTINGS_TAB: SettingsTab = 'general';
 
 export function isSettingsTab(value: string | undefined): value is SettingsTab {
   return (SETTINGS_TABS as readonly (string | undefined)[]).includes(value);

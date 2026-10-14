@@ -115,3 +115,33 @@ export const CATALOG_GROUPS: readonly { id: CatalogGroup; label: PlainMessageKey
 export function catalogEntry(id: string): CatalogEntry | undefined {
   return PROVIDER_CATALOG.find((entry) => entry.id === id);
 }
+
+const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
+  [/(^|\.)openai\.com$/, 'openai'],
+  [/(^|\.)anthropic\.com$/, 'anthropic'],
+  [/(^|\.)generativelanguage\.googleapis\.com$/, 'gemini'],
+  [/(^|\.)aiplatform\.googleapis\.com$/, 'vertex'],
+  [/(^|\.)x\.ai$/, 'xai'],
+  [/(^|\.)deepseek\.com$/, 'deepseek'],
+  [/(^|\.)(dashscope|aliyuncs)\./, 'qwen'],
+  [/(^|\.)moonshot\.(cn|ai)$/, 'kimi'],
+  [/(^|\.)bigmodel\.cn$/, 'zhipu'],
+];
+
+/** 已有 Provider 的标志：DeepSeek 官方与 ChatGPT 按种类，其余按地址的主机名，本机 11434 端口当作 Ollama。 */
+export function providerLogo(provider: {
+  kind: string;
+  baseURL?: string | undefined;
+}): ProviderLogoId | undefined {
+  if (provider.kind === 'deepseek-official') return 'deepseek';
+  if (provider.kind === 'chatgpt') return 'openai';
+  if (!provider.baseURL) return undefined;
+  let url: URL;
+  try {
+    url = new URL(provider.baseURL);
+  } catch {
+    return undefined;
+  }
+  if (url.port === '11434') return 'ollama';
+  return HOST_LOGOS.find(([pattern]) => pattern.test(url.hostname))?.[1];
+}

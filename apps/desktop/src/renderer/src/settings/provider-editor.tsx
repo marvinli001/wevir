@@ -58,7 +58,7 @@ export function ProviderEditor({
       ? t(form.preset.name)
       : openAI
         ? t('provider.form.customName')
-        : t('provider.pick.deepseek');
+        : t('provider.catalog.deepseek');
 
   // 按模板新建（含 DeepSeek 官方）时其余字段都已填好，Key 放在最前并聚焦：用户只需填 Key。
   const keyFirst = !form.editing && (form.preset !== undefined || !openAI);

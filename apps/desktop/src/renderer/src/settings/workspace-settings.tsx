@@ -42,13 +42,16 @@ export function WorkspaceSettings() {
 
   return (
     <SettingsSection
+      title={t('settings.section.projects')}
       action={
         <Button
+          variant="outline"
+          size="sm"
           onClick={() => openCreateProject({ onCreated: () => {} })}
           disabled={!client}
           data-action="add-workspace"
         >
-          <FolderPlus />
+          <FolderPlus data-icon="inline-start" />
           {t('project.create.title')}
         </Button>
       }
@@ -92,25 +95,37 @@ function WorkspaceRow({
 }) {
   const { workspace, sessions } = entry;
   return (
-    <li className="flex items-center gap-3 px-4 py-3.5" data-workspace-id={workspace.id}>
-      <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{workspace.displayName}</p>
-        <p className="font-mono text-sm break-all text-muted-foreground">{workspace.rootPath}</p>
-      </div>
-      <span className="shrink-0 text-sm text-muted-foreground">
-        {t('workspace.sessions', { count: sessions.length })}
+    <li className="flex items-center gap-3.5 px-4 py-3" data-workspace-id={workspace.id}>
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
+        <Folder className="size-4 text-muted-foreground" aria-hidden />
       </span>
-      <IconButton
-        label={t('workspace.newSession')}
-        nativeButton={false}
-        render={<Link to={paths.draft(workspace.id)} />}
-      >
-        <SquarePen />
-      </IconButton>
-      <IconButton label={t('workspace.remove')} disabled={disabled} onClick={onRemove}>
-        <Trash2 />
-      </IconButton>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-baseline gap-2">
+          <span className="truncate text-sm font-medium">{workspace.displayName}</span>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {t('workspace.sessions', { count: sessions.length })}
+          </span>
+        </p>
+        <p
+          dir="rtl"
+          title={workspace.rootPath}
+          className="mt-0.5 truncate text-left font-mono text-xs text-muted-foreground"
+        >
+          <bdi dir="ltr">{workspace.rootPath}</bdi>
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <IconButton
+          label={t('workspace.newSession')}
+          nativeButton={false}
+          render={<Link to={paths.draft(workspace.id)} />}
+        >
+          <SquarePen />
+        </IconButton>
+        <IconButton label={t('workspace.remove')} disabled={disabled} onClick={onRemove}>
+          <Trash2 />
+        </IconButton>
+      </div>
     </li>
   );
 }

@@ -1,25 +1,19 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { ProviderProfile, Session } from '@wevir/protocol';
 import { cn } from 'cn';
-import {
-  ArrowLeft,
-  ChevronRight,
-  CircleCheck,
-  CircleX,
-  LoaderCircle,
-  Pencil,
-  Plus,
-  Trash2,
-} from 'lucide-react';
-import { type ReactNode, useCallback, useState } from 'react';
+import { CircleCheck, CircleX, LoaderCircle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useCallback, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
+import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { ProviderCatalogDialog } from '@/onboarding/provider-catalog-dialog';
 import { ChatgptAccountSection } from './chatgpt-account';
+import { type CatalogEntry, providerLogo } from './provider-catalog';
 import { ProviderEditor, type SaveOutcome } from './provider-editor';
 import {
   type EditableProvider,
@@ -29,7 +23,7 @@ import {
   newOpenAIForm,
   type ProviderForm,
 } from './provider-form';
-import { DEEPSEEK_OFFICIAL_ID, OPENAI_PRESETS, type OpenAIPreset } from './provider-presets';
+import { DEEPSEEK_OFFICIAL_ID } from './provider-presets';
 import { presentTestError, presentTestResult, type TestPresentation } from './provider-test-result';
 import { openSessions, removeClosingSessions } from './remove';
 import {
@@ -41,12 +35,12 @@ import {
   SettingsSection,
 } from './settings-ui';
 
-type View = { kind: 'list' } | { kind: 'pick' } | { kind: 'form'; form: ProviderForm };
+type View = { kind: 'list' } | { kind: 'form'; form: ProviderForm };
 
 type TestState = { status: 'running' } | { status: 'done'; result: TestPresentation };
 
 /**
- * 设置 → 模型 Provider（T5.4）：列表、新增（先选 DeepSeek 官方或 OpenAI 兼容模板）、编辑、删除、测试连接。
+ * 设置 → 模型服务（T5.4，U7 改样式）：列表、新增（在与首次引导相同的“模型服务”对话框里选，再填表单）、编辑、删除、测试连接。
  * Key 只在表单里输入一次，之后只显示“已设置”。有 Key、且新建或改了影响连接的字段时，保存后自动测一次连接。
  * Host 有 ChatGPT 账号（`chatgpt_account`，R6）时列表上方是“ChatGPT 账号”一节，`chatgpt` Provider 只在那里显示。
  */
@@ -58,6 +52,7 @@ export function ProviderSettings() {
   const [notice, setNotice] = useState<Notice>();
   const [tests, setTests] = useState<Record<string, TestState>>({});
   const [removing, setRemoving] = useState<ProviderProfile>();
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   const runTest = useCallback(
     async (providerId: string) => {
@@ -108,24 +103,26 @@ export function ProviderSettings() {
         initial={view.form}
         takenIds={takenIds}
         onSaved={saved}
-        onCancel={() => setView({ kind: view.form.editing ? 'list' : 'pick' })}
+        onCancel={() => setView({ kind: 'list' })}
       />
     );
   }
-  if (view.kind === 'pick') {
-    return (
-      <ProviderPicker
-        deepseekExists={takenIds.includes(DEEPSEEK_OFFICIAL_ID)}
-        onBack={() => setView({ kind: 'list' })}
-        onPick={(preset) =>
-          setView({
-            kind: 'form',
-            form: preset === 'deepseek' ? newDeepSeekForm() : newOpenAIForm(preset, takenIds),
-          })
-        }
-      />
-    );
-  }
+
+  /** 在“模型服务”对话框里选了一项：DeepSeek 官方只能有一个，已有就编辑它。 */
+  const pick = (entry: CatalogEntry) => {
+    setCatalogOpen(false);
+    const source = entry.source;
+    if (!source) return;
+    if (source.kind === 'deepseek-official') {
+      const existing = providers.find((provider) => provider.id === DEEPSEEK_OFFICIAL_ID);
+      setView({ kind: 'form', form: existing ? editForm(existing) : newDeepSeekForm() });
+      return;
+    }
+    setView({
+      kind: 'form',
+      form: newOpenAIForm(source.kind === 'preset' ? source.preset : undefined, takenIds),
+    });
+  };
 
   return (
     <div>
@@ -141,17 +138,18 @@ export function ProviderSettings() {
       )}
       <SettingsSection
         title={t('provider.section.keyed')}
-        description={t('provider.intro')}
         action={
           <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setNotice(undefined);
-              setView({ kind: 'pick' });
+              setCatalogOpen(true);
             }}
             disabled={!client}
             data-action="add-provider"
           >
-            <Plus />
+            <Plus data-icon="inline-start" />
             {t('provider.add')}
           </Button>
         }
@@ -184,6 +182,7 @@ export function ProviderSettings() {
           </ul>
         )}
       </SettingsSection>
+      <ProviderCatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} onSelect={pick} />
       {removing && client && (
         <RemoveProviderDialog
           provider={removing}
@@ -220,49 +219,40 @@ function ProviderCard({
   onRemove: () => void;
 }) {
   const running = test?.status === 'running';
+  const host = provider.baseURL ? safeHost(provider.baseURL) : t('provider.baseURLOfficial');
   return (
-    <li className="px-4 py-3.5" data-provider-id={provider.id}>
-      <div className="flex items-start gap-3">
+    <li className="group/provider px-4 py-3" data-provider-id={provider.id}>
+      <div className="flex items-center gap-3.5">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
+          <ProviderLogo logo={providerLogo(provider)} fallback={provider.displayName} />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="truncate font-medium">{provider.displayName}</h2>
-            <span className="shrink-0 rounded-sm bg-muted px-1.5 text-xs leading-5 text-muted-foreground">
-              {t(`provider.kind.${provider.kind}`)}
+            <h3 className="truncate text-sm font-medium">{provider.displayName}</h3>
+            <span
+              className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+              data-key-status
+            >
+              <StatusDot tone={provider.hasSecret ? 'success' : 'warning'} className="size-1.5" />
+              {provider.hasSecret ? t('provider.key.set') : t('provider.key.unset')}
             </span>
           </div>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-5 gap-y-1 text-sm">
-            <Detail label="ID" mono>
-              {provider.id}
-            </Detail>
-            <Detail label={t('provider.defaultModel')}>
-              <span className="font-mono">{provider.defaultModelId}</span>
-              {provider.models.length > 1 && (
-                <span className="text-muted-foreground">
-                  {' · '}
-                  {t('provider.modelCount', { count: provider.models.length })}
-                </span>
-              )}
-            </Detail>
-            <Detail label={t('provider.baseURL')} mono={!!provider.baseURL}>
-              {provider.baseURL ?? t('provider.baseURLOfficial')}
-            </Detail>
-            <Detail label={t('provider.key')}>
-              <span className="inline-flex items-center gap-1.5" data-key-status>
-                <StatusDot tone={provider.hasSecret ? 'success' : 'warning'} />
-                {provider.hasSecret ? t('provider.key.set') : t('provider.key.unset')}
-              </span>
-            </Detail>
-          </dl>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+            <span className="font-mono">{provider.defaultModelId}</span>
+            {provider.models.length > 1 &&
+              ` · ${t('provider.modelCount', { count: provider.models.length })}`}
+            {` · ${host}`}
+          </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-0.5">
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
             onClick={onTest}
             disabled={disabled || running}
             data-action="test-provider"
           >
-            {running && <LoaderCircle className="animate-spin" />}
+            {running && <LoaderCircle className="animate-spin" data-icon="inline-start" />}
             {running ? t('provider.testing') : t('provider.test')}
           </Button>
           <IconButton label={t('provider.edit')} onClick={onEdit} disabled={disabled}>
@@ -278,13 +268,12 @@ function ProviderCard({
   );
 }
 
-function Detail({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className={cn('min-w-0 truncate', mono && 'font-mono')}>{children}</dd>
-    </>
-  );
+function safeHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
 }
 
 function TestResultView({ result }: { result: TestPresentation }) {
@@ -294,7 +283,7 @@ function TestResultView({ result }: { result: TestPresentation }) {
       role="status"
       data-test-result={result.ok ? 'ok' : 'failed'}
       className={cn(
-        'mt-3 flex gap-2 rounded-md px-3 py-2 text-sm',
+        'mt-3 ml-12.5 flex gap-2 rounded-lg px-3 py-2 text-sm animate-in fade-in slide-in-from-top-1',
         result.ok ? 'bg-success/10' : 'bg-destructive/10',
       )}
     >
@@ -312,91 +301,6 @@ function TestResultView({ result }: { result: TestPresentation }) {
         )}
       </div>
     </div>
-  );
-}
-
-function ProviderPicker({
-  deepseekExists,
-  onBack,
-  onPick,
-}: {
-  deepseekExists: boolean;
-  onBack: () => void;
-  onPick: (preset: 'deepseek' | OpenAIPreset | undefined) => void;
-}) {
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-1.5">
-        <IconButton label={t('provider.form.back')} onClick={onBack}>
-          <ArrowLeft />
-        </IconButton>
-        <h2 className="text-base font-semibold">{t('provider.pick.title')}</h2>
-      </div>
-      <p className="text-muted-foreground">{t('provider.pick.body')}</p>
-      <PickOption
-        title={t('provider.pick.deepseek')}
-        note={
-          deepseekExists ? t('provider.pick.deepseek.exists') : t('provider.pick.deepseek.note')
-        }
-        detail="api.deepseek.com"
-        disabled={deepseekExists}
-        onClick={() => onPick('deepseek')}
-        id="deepseek-official"
-      />
-      <section className="space-y-2">
-        <h3 className="text-sm font-medium text-muted-foreground">{t('provider.pick.openai')}</h3>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {OPENAI_PRESETS.map((preset) => (
-            <PickOption
-              key={preset.id}
-              title={t(preset.name)}
-              detail={new URL(preset.baseURL).host}
-              onClick={() => onPick(preset)}
-              id={preset.id}
-            />
-          ))}
-          <PickOption
-            title={t('provider.pick.custom')}
-            note={t('provider.pick.custom.note')}
-            onClick={() => onPick(undefined)}
-            id="custom"
-          />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function PickOption({
-  title,
-  note,
-  detail,
-  disabled,
-  onClick,
-  id,
-}: {
-  title: string;
-  note?: string;
-  detail?: string;
-  disabled?: boolean;
-  onClick: () => void;
-  id: string;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      data-preset={id}
-      className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left outline-none transition-colors hover:border-border-strong hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60"
-    >
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <p className="font-medium">{title}</p>
-        {detail && <p className="truncate font-mono text-xs text-muted-foreground">{detail}</p>}
-        {note && <p className="text-sm text-muted-foreground">{note}</p>}
-      </div>
-      {!disabled && <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
-    </button>
   );
 }
 

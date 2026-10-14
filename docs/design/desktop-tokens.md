@@ -101,10 +101,10 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 方向稿 `src/styles.css` 的 `.app`（A 的浅色）与 `.app[data-dir='a'][data-mode='dark']` 里的变量与这里的对应：`--bg` → `--background`、`--side` → `--sidebar`、`--surface` → `--card` / `--popover`、`--surface-2` → `--muted` / `--accent` / `--secondary`、`--line` → `--border`、`--line-2` → `--border-strong`、`--ink` → `--foreground`、`--ink-2` → `--soft-foreground`、`--muted` → `--muted-foreground`、`--accent` / `--accent-ink` → `--primary` / `--primary-foreground`、`--brand` → `--brand`、`--run` / `--await` / `--ok` / `--bad` → `--running` / `--warning` / `--success` / `--destructive`、`--code-bg` → `--code-background`、`--shadow` → `--elevation`、`--radius` / `--radius-sm` → `--radius-card` / `--radius-control`、`--font-ui` / `--font-display` / `--font-mono` → `--font-ui` / `--font-display` / `--font-code`。方向稿里只有 B、C 用到的变量（`--glass`、`--grid`、`--f1`…）与加号按钮的专用色没有搬过来，U4 用到时再加；开关的 `--switch-thumb` U3 搬了（A 的浅色 `#ffffff`、深色 `#3a3c43`，取了最接近的原始色），`--switch-track` 用 `--muted`。
 
-## 10. 首页与设置页（U4）
+## 10. 首页与设置页（U4，设置页 U7 改）
 
 - **首页**（`routes/home-route.tsx`，方向稿的 `.home-col`）：一列最宽 700px（`max-w-175`）、水平居中、内容左对齐，上方留白 `clamp(2.5rem, 14vh, 8.75rem)`，块之间 22px；品牌行是 `BrandMark`（`text-brand`）加 `fx/metal.tsx` 的 `MetalWordmark`；标题 `font-display`、500、`clamp(1.75rem, 4vw, 2.5rem)`，工作区名是界面字体 600、0.86em、强分隔线色的虚线下划线；大输入框是 `Composer variant="home"`（焦点只用 border-beam 的 focus 预设表示，不换边框色）；“接着做”每行底部一条分隔线，7px 状态点（运行中 `--running`、待审批 `--warning`、出错 `--destructive`、空闲 `--border-strong`），右侧相对时间用说明文字色。顶栏在首页不画分隔线。
-- **设置页**（`routes/settings-route.tsx`、`settings/settings-ui.tsx`）：标签列表是侧栏色，选中的一行与左栏的当前会话一样（表面色加一圈分隔线）；内容一列最宽 720px（`max-w-180`），标题 20px，按节排（`SettingsSection`：14px 半粗的节标题、说明文字、右侧操作），节与节之间一条分隔线；列表在表面色卡片里（`LIST_CARD`），行之间是分隔线；空列表是强分隔线色的虚线框。
+- **设置页**（`routes/settings-route.tsx`、`settings/settings-ui.tsx`；U7 起照 Codex 桌面端）：设置自己的侧栏 240 px、侧栏色，顶上是窗口按钮，下面 20 px 半粗的“设置”、胶囊形的搜索框（`bg-sidebar-accent/70`，聚焦时实色加焦点环），再下面是带 12 px 组名的页面列表，行的悬停与当前项同 §11 的左栏。内容一列最宽 720 px（`max-w-180`），页面标题 20 px 半粗，换页时淡入上移；下面是一组组卡片（`SettingsSection`：13 px 半粗的组名、可选的一行说明与右侧操作，组间 36 px）；卡片是 `LIST_CARD`，行（`SettingsRow`）至少 56 px 高，左边 13 px 中粗的名称与 12 px 说明文字色的说明，右边是控件。分段切换（`Segmented`）的轨道是次表面色，选中段是 `bg-switch-thumb` 加一圈分隔线，滑块在段间滑动 200 ms。模型服务与项目的列表行左边是 36 px 的图标框（画布底色、分隔线描边），服务用各自的标志（§12）。空列表是强分隔线色的虚线框。
 - **表单控件**：输入框、多行输入框、原生下拉框（`settings-ui.tsx` 的 `SELECT`）与 outline 按钮在浅色、深色都是表面色底（`bg-card`）、强分隔线的边框（`border-input`），焦点环是运行色；禁用时是次表面色。shadcn 原语里 `dark:bg-input/30` 这类按主题另算的底色已去掉（文件头写明了改动）。单选是墨色圆环，分段切换的选中段是 `bg-switch-thumb` 加一圈分隔线。
 
 ## 11. 窗口框架与侧栏（U5）
