@@ -1,25 +1,25 @@
 # Codex 运行时任务 Prompt（R1–R10）
 
 > 建立日期：2026-10-14 · 依据：[ADR-0005](adr/0005-agent-runtime-and-model-gateway.md)（Accepted）、[Codex 研读与 Spike](research/codex-notes.md)
-> 用法：每个任务开一个新会话，先粘贴下面的「通用前缀」，再粘贴任务 prompt。顺序与依赖见任务表；做完一项，在任务表里把它改成 [x]，备注写提交号。
+> 用法：每个任务开一个新会话，先粘贴下面的「通用前缀」，再粘贴任务 prompt。顺序与依赖见任务表；做完一项，在任务表里把它改成 ☑️，备注写提交号。
 > 维护者 2026-10-14 给出的实现顺序是 8 项，这里把其中两项各拆成两个任务（adapter-codex 拆成 R2、R3；通用 ACP 适配器与接 Grok / Gemini 拆成 R7、R8），保证一个会话做得完、一次提交只做一件事。同日维护者又定了两件事，各加一个任务：回合进行中可以插话或排队（R11），整体界面混合 Codex 与 Claude Code 桌面端、窗格可调尺寸并随数量动态布局（R12）。
 
 ## 任务表
 
 | ID | 任务 | 依赖 | 可并行 | 状态 |
 |---|---|---|---|---|
-| R1 | 模型协议网关 `packages/model-gateway`：Responses 透传 + Chat Completions 转换 | — | 与 R7 并行 | [x] `06e2894` |
-| R2 | `packages/adapter-codex`（上）：进程、配置、会话、回合与流式事件，Host 接 `--adapter codex` | R1 | 与 R7 并行 | [x] `4c7fbed` |
-| R3 | `packages/adapter-codex`（下）：审批、取消、恢复、计划、错误归类、三层契约测试，默认引擎改为 Codex | R2 | 与 R7 并行 | [x] `e9365b8` |
+| R1 | 模型协议网关 `packages/model-gateway`：Responses 透传 + Chat Completions 转换 | — | 与 R7 并行 | ☑️ `06e2894` |
+| R2 | `packages/adapter-codex`（上）：进程、配置、会话、回合与流式事件，Host 接 `--adapter codex` | R1 | 与 R7 并行 | ☑️ `4c7fbed` |
+| R3 | `packages/adapter-codex`（下）：审批、取消、恢复、计划、错误归类、三层契约测试，默认引擎改为 Codex | R2 | 与 R7 并行 | ☑️ `e9365b8` |
 | R4 | 子会话：领域模型、Host 协议与存储、`AgentEvent`，adapter-codex 上报 | R3 | — | [ ] |
 | R5 | 桌面端：子智能体界面（照 Codex 桌面端） | R4、R12 | 与 R6 并行 | [ ] |
 | R6 | ChatGPT 订阅登录与设置页 | R3；界面风格随 R12 | 与 R5 并行 | [ ] |
-| R7 | 从 adapter-dsh 抽出通用 ACP 适配器（行为不变） | — | 与 R1–R3 并行 | [x] `1f5e918` |
+| R7 | 从 adapter-dsh 抽出通用 ACP 适配器（行为不变） | — | 与 R1–R3 并行 | ☑️ `1f5e918` |
 | R8 | 经通用 ACP 适配器接 Grok Build 与 Gemini CLI；xAI 与 Gemini 的 API Key 经网关 | R3、R7 | — | [ ] |
 | R9 | 运行时分发：`codex-app-server` 随应用，dsh 改为可选下载 | R3、R7 | — | [ ] |
-| R10 | 网关加 Anthropic Messages | R1 | 任意时间 | [x] `5f2b3eb` |
+| R10 | 网关加 Anthropic Messages | R1 | 任意时间 | ☑️ `5f2b3eb` |
 | R11 | 回合进行中发消息：插话与排队，设置里选默认行为 | R3 | 与 R4–R6 并行 | [ ] |
-| R12 | 工作台布局：混合 Codex 与 Claude Code 桌面端，窗格可调尺寸、按数量与种类动态布局 | — | 与 R1–R4 并行；R5 之前做完 | [x] 设计 `c5ce1a9`，实现 `906fa63` |
+| R12 | 工作台布局：混合 Codex 与 Claude Code 桌面端，窗格可调尺寸、按数量与种类动态布局 | — | 与 R1–R4 并行；R5 之前做完 | ☑️ 设计 `c5ce1a9`，实现 `906fa63` |
 
 基础提示词已定（ADR-0005 补记 2）：经网关的第三方模型用 [`prompts/base.md`](../prompts/README.md)，由 R2 加载。还没定的：计划模式怎样下发（ADR-0005 未决事项 5），不在 R1–R10 里。
 
@@ -70,7 +70,7 @@
 完成后：
 - 运行本任务的验收步骤，贴出命令和结果（失败就如实说明）。需要外部条件（真实模型 Key、Windows 机器、截图）而没有执行的，写明缺什么，不算通过。
 - 影响到的 ADR 补记、架构文档、docs/development.md、AGENTS.md 的目录说明一并更新。
-- 在 docs/CODEX_RUNTIME_PROMPTS.md 的任务表里把本任务改为 [x]，备注写提交号。
+- 在 docs/CODEX_RUNTIME_PROMPTS.md 的任务表里把本任务改为 ☑️，备注写提交号。
 - 提交 commit，message 以任务 ID 开头，例如 "R1: add the model gateway with Responses passthrough and Chat translation"。
 - 最后用中文汇报：做了什么；验收结果；与 ADR 的偏离及原因；给下一个任务的注意事项。
 ````
