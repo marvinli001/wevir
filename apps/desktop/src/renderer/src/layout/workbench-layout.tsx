@@ -62,7 +62,7 @@ export function WorkbenchLayout() {
   const { workspaceId, sessionId, childId } = useParams();
   const header = useHeader(workspaceId, sessionId);
   const location = useLocation();
-  useRememberLocation(workspaceId, sessionId);
+  useRememberLocation(workspaceId);
   usePrunePanes();
 
   // 当前会话的窗格：拖动分隔条时尺寸先用草稿，松开再写回本机。
@@ -187,7 +187,9 @@ export function WorkbenchLayout() {
         <div className="flex min-w-0 flex-1 flex-col">
           <header
             className={cn(
-              'app-drag flex h-11 shrink-0 items-center gap-2 border-b border-border px-3',
+              'app-drag flex h-11 shrink-0 items-center gap-2 px-3',
+              // 首页（U4，方向稿 A）没有标题，顶栏只是拖动区，不画分隔线。
+              location.pathname !== paths.home() && 'border-b border-border',
               // 侧栏没有停靠时，这条顶栏在窗口最左边，要给红绿灯让位。
               sidebarPlan.sidebar !== 'docked' && 'pl-[max(0.75rem,var(--traffic-lights-inset))]',
             )}

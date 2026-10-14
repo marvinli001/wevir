@@ -32,6 +32,8 @@ export function setDraft(draftKey: string, text: string): void {
  * U3 起照方向稿 A 静器（维护者 2026-10-14 定）：右下角是圆形的金属按钮，有字时发送，回合进行中没有字（或不能再发）时
  * 变成停止（金属淡到 0.55），Esc 也可以停止；回合进行中按钮左边是“插话 | 排队”切换（改的就是那项 Host 设置）。回合
  * 进行中、没有在等审批时，输入框底边有一道转动的光（border-beam）。
+ *
+ * `variant="home"` 是首页的大输入框（U4，方向稿的 composer-big）：更高、字更大，获得焦点时底边有同样的光（focus 预设）。
  */
 export function Composer({
   draftKey,
@@ -45,6 +47,8 @@ export function Composer({
   onSend,
   onStop,
   autoFocus = false,
+  variant = 'session',
+  placeholder,
 }: {
   /** 草稿归属（会话 ID，或新会话草稿的工作区）。 */
   draftKey: string;
@@ -64,9 +68,14 @@ export function Composer({
   onSend: (text: string, delivery?: PendingDelivery) => Promise<boolean>;
   onStop: () => void;
   autoFocus?: boolean;
+  variant?: 'session' | 'home';
+  /** 默认是“描述你要完成的任务…”；不能发送时显示 `disabledReason`。 */
+  placeholder?: string;
 }) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const home = variant === 'home';
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = isBusy(state);
   const pendingEnabled = busyDelivery !== undefined;
@@ -140,13 +149,15 @@ export function Composer({
 
   return (
     <Beam
-      preset="composer"
-      active={busy && state !== 'awaiting_approval' && !disabled}
+      preset={home ? 'focus' : 'composer'}
+      active={home ? focused && !disabled : busy && state !== 'awaiting_approval' && !disabled}
       className="block w-full"
     >
       <div
         className={cn(
-          'rounded-xl border border-input bg-card shadow-xs transition-colors focus-within:border-ring',
+          'rounded-xl border border-input bg-card shadow-xs transition-colors',
+          // 首页的焦点只用光束表示（方向稿），会话里的输入框照旧换边框色。
+          !home && 'focus-within:border-ring',
           disabled && 'opacity-70',
         )}
       >
@@ -156,11 +167,17 @@ export function Composer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           disabled={disabled}
           autoFocus={autoFocus}
           aria-label={t('session.composerPlaceholder')}
-          placeholder={disabledReason ?? t('session.composerPlaceholder')}
-          className="max-h-60 min-h-16 resize-none border-0 bg-transparent px-3 pt-3 text-base shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+          placeholder={disabledReason ?? placeholder ?? t('session.composerPlaceholder')}
+          className={cn(
+            'max-h-60 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent',
+            // 原语在 md 以上是 text-sm；首页大一档（方向稿 composer-big 比会话的输入框大 1px）。
+            home ? 'min-h-21 px-4 pt-4 text-base md:text-base' : 'min-h-16 px-3 pt-3 text-base',
+          )}
         />
         <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
           <div className="min-w-0 flex-1 text-xs">{status}</div>

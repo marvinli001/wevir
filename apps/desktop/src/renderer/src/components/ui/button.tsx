@@ -1,7 +1,8 @@
 // 由 shadcn CLI 4.21.4 从官方 registry 生成（components.json：base-nova，Base UI，lucide）。
 // MIT License，Copyright (c) 2023 shadcn。
 // Wevir 的改动：transition-all 改为只过渡颜色、边框与阴影（不用 transition: all）；U1 起各尺寸的圆角都是
-// rounded-lg（按钮 8px），去掉 xs / sm 尺寸写死的 min(var(--radius-md), 10px | 12px)。
+// rounded-lg（按钮 8px），去掉 xs / sm 尺寸写死的 min(var(--radius-md), 10px | 12px)；U4 起 outline 照方向稿 A 的 .btn：
+// 浅色、深色都是表面色底、强分隔线的边框（不再按主题另算 dark:bg-input/30）。
 
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
@@ -14,7 +15,7 @@ const buttonVariants = cva(
       variant: {
         default: 'bg-primary text-primary-foreground hover:bg-primary/80',
         outline:
-          'border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50',
+          'border-input bg-card hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground',
         secondary:
           'bg-secondary text-secondary-foreground hover:bg-[color-mix(in_oklch,var(--secondary),var(--foreground)_5%)] aria-expanded:bg-secondary aria-expanded:text-secondary-foreground',
         ghost:

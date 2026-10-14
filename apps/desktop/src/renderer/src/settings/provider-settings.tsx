@@ -32,7 +32,14 @@ import {
 import { DEEPSEEK_OFFICIAL_ID, OPENAI_PRESETS, type OpenAIPreset } from './provider-presets';
 import { presentTestError, presentTestResult, type TestPresentation } from './provider-test-result';
 import { openSessions, removeClosingSessions } from './remove';
-import { type Notice, NoticeBanner, SettingsLoading } from './settings-ui';
+import {
+  EmptyList,
+  LIST_CARD,
+  type Notice,
+  NoticeBanner,
+  SettingsLoading,
+  SettingsSection,
+} from './settings-ui';
 
 type View = { kind: 'list' } | { kind: 'pick' } | { kind: 'form'; form: ProviderForm };
 
@@ -121,48 +128,62 @@ export function ProviderSettings() {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-muted-foreground">{t('provider.intro')}</p>
-        <Button
-          onClick={() => {
-            setNotice(undefined);
-            setView({ kind: 'pick' });
-          }}
-          disabled={!client}
-          data-action="add-provider"
-        >
-          <Plus />
-          {t('provider.add')}
-        </Button>
-      </div>
-      {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
+    <div>
+      {!client && (
+        <div className="mb-6">
+          <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />
+        </div>
+      )}
       {client?.supports('chatgpt_account') && (
-        <ChatgptAccountSection client={client} provider={chatgpt} />
+        <SettingsSection title={t('provider.section.accounts')}>
+          <ChatgptAccountSection client={client} provider={chatgpt} />
+        </SettingsSection>
       )}
-      {notice && <NoticeBanner notice={notice} />}
-      {providers.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-muted-foreground">
-          {client?.supports('chatgpt_account') ? t('provider.emptyKeyed') : t('provider.empty')}
-        </p>
-      ) : (
-        <ul className="space-y-3">
-          {providers.map((provider) => (
-            <ProviderCard
-              key={provider.id}
-              provider={provider}
-              test={tests[provider.id]}
-              disabled={!client}
-              onTest={() => void runTest(provider.id)}
-              onEdit={() => {
-                setNotice(undefined);
-                setView({ kind: 'form', form: editForm(provider) });
-              }}
-              onRemove={() => setRemoving(provider)}
-            />
-          ))}
-        </ul>
-      )}
+      <SettingsSection
+        title={t('provider.section.keyed')}
+        description={t('provider.intro')}
+        action={
+          <Button
+            onClick={() => {
+              setNotice(undefined);
+              setView({ kind: 'pick' });
+            }}
+            disabled={!client}
+            data-action="add-provider"
+          >
+            <Plus />
+            {t('provider.add')}
+          </Button>
+        }
+      >
+        {notice && (
+          <div className="mb-3">
+            <NoticeBanner notice={notice} />
+          </div>
+        )}
+        {providers.length === 0 ? (
+          <EmptyList>
+            {client?.supports('chatgpt_account') ? t('provider.emptyKeyed') : t('provider.empty')}
+          </EmptyList>
+        ) : (
+          <ul className={LIST_CARD}>
+            {providers.map((provider) => (
+              <ProviderCard
+                key={provider.id}
+                provider={provider}
+                test={tests[provider.id]}
+                disabled={!client}
+                onTest={() => void runTest(provider.id)}
+                onEdit={() => {
+                  setNotice(undefined);
+                  setView({ kind: 'form', form: editForm(provider) });
+                }}
+                onRemove={() => setRemoving(provider)}
+              />
+            ))}
+          </ul>
+        )}
+      </SettingsSection>
       {removing && client && (
         <RemoveProviderDialog
           provider={removing}
@@ -200,7 +221,7 @@ function ProviderCard({
 }) {
   const running = test?.status === 'running';
   return (
-    <li className="rounded-xl border border-border p-4" data-provider-id={provider.id}>
+    <li className="px-4 py-3.5" data-provider-id={provider.id}>
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -209,7 +230,7 @@ function ProviderCard({
               {t(`provider.kind.${provider.kind}`)}
             </span>
           </div>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-5 gap-y-1 text-sm">
             <Detail label="ID" mono>
               {provider.id}
             </Detail>
@@ -309,7 +330,7 @@ function ProviderPicker({
         <IconButton label={t('provider.form.back')} onClick={onBack}>
           <ArrowLeft />
         </IconButton>
-        <h2 className="text-base font-medium">{t('provider.pick.title')}</h2>
+        <h2 className="text-base font-semibold">{t('provider.pick.title')}</h2>
       </div>
       <p className="text-muted-foreground">{t('provider.pick.body')}</p>
       <PickOption
@@ -324,7 +345,7 @@ function ProviderPicker({
       />
       <section className="space-y-2">
         <h3 className="text-sm font-medium text-muted-foreground">{t('provider.pick.openai')}</h3>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           {OPENAI_PRESETS.map((preset) => (
             <PickOption
               key={preset.id}
@@ -367,7 +388,7 @@ function PickOption({
       disabled={disabled}
       onClick={onClick}
       data-preset={id}
-      className="flex w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60"
+      className="flex w-full items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 text-left outline-none transition-colors hover:border-border-strong hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60"
     >
       <div className="min-w-0 flex-1 space-y-0.5">
         <p className="font-medium">{title}</p>

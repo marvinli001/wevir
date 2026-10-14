@@ -12,7 +12,14 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { openSessions, removeClosingSessions } from './remove';
-import { type Notice, NoticeBanner, SettingsLoading } from './settings-ui';
+import {
+  EmptyList,
+  LIST_CARD,
+  type Notice,
+  NoticeBanner,
+  SettingsLoading,
+  SettingsSection,
+} from './settings-ui';
 
 /**
  * 设置 → 工作区（T5.4）：经系统文件夹选择器添加（Host 按 realpath 去重，已有的返回原工作区），列出路径，
@@ -61,32 +68,33 @@ export function WorkspaceSettings() {
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-muted-foreground">{t('workspace.intro')}</p>
+    <SettingsSection
+      description={t('workspace.intro')}
+      action={
         <Button onClick={add} disabled={!client || adding} data-action="add-workspace">
           <FolderPlus />
           {adding ? t('workspace.adding') : t('workspace.add')}
         </Button>
+      }
+    >
+      <div className="space-y-3">
+        {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
+        {notice && <NoticeBanner notice={notice} />}
+        {data.workspaces.length === 0 ? (
+          <EmptyList>{t('workspace.empty')}</EmptyList>
+        ) : (
+          <ul className={LIST_CARD}>
+            {data.workspaces.map((entry) => (
+              <WorkspaceRow
+                key={entry.workspace.id}
+                entry={entry}
+                disabled={!client}
+                onRemove={() => setRemoving(entry)}
+              />
+            ))}
+          </ul>
+        )}
       </div>
-      {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
-      {notice && <NoticeBanner notice={notice} />}
-      {data.workspaces.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-muted-foreground">
-          {t('workspace.empty')}
-        </p>
-      ) : (
-        <ul className="divide-y divide-border rounded-xl border border-border">
-          {data.workspaces.map((entry) => (
-            <WorkspaceRow
-              key={entry.workspace.id}
-              entry={entry}
-              disabled={!client}
-              onRemove={() => setRemoving(entry)}
-            />
-          ))}
-        </ul>
-      )}
       {removing && (
         <RemoveWorkspaceDialog
           entry={removing}
@@ -94,7 +102,7 @@ export function WorkspaceSettings() {
           onConfirm={() => remove(removing.workspace)}
         />
       )}
-    </div>
+    </SettingsSection>
   );
 }
 
@@ -109,7 +117,7 @@ function WorkspaceRow({
 }) {
   const { workspace, sessions } = entry;
   return (
-    <li className="flex items-center gap-3 px-4 py-3" data-workspace-id={workspace.id}>
+    <li className="flex items-center gap-3 px-4 py-3.5" data-workspace-id={workspace.id}>
       <Folder className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <div className="min-w-0 flex-1">
         <p className="truncate font-medium">{workspace.displayName}</p>

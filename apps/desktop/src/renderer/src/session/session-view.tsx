@@ -1,4 +1,4 @@
-import { hostSupports, isRpcError, type WevirClient } from '@wevir/client-sdk';
+import { hostSupports } from '@wevir/client-sdk';
 import type { PendingDelivery, Session, SubagentSummary } from '@wevir/protocol';
 import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
-import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { useTranscript, useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -20,6 +20,7 @@ import { historyDigest } from './history-digest';
 import { PendingArea } from './pending-area';
 import { RecoveryPanel } from './recovery-panel';
 import { SessionStatus } from './session-status';
+import { sendError, sendText, useProviderChoice, useStartSession } from './start-session';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 
 /**
@@ -210,43 +211,18 @@ function draftOrigin(state: unknown): DraftOrigin | undefined {
 export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const { client } = useHostConnection();
   const data = useWorkbenchData();
-  const store = useWorkbenchStore();
   const navigate = useNavigate();
   const location = useLocation();
   const origin = draftOrigin(location.state);
-  const [chosen, setProviderId] = useState<string | undefined>(origin?.providerId);
-  const [error, setError] = useState<string>();
-
-  // Provider 列表随工作区列表一起读（workbench-store.ts），设置页改了之后这里跟着变。
-  const providers = data.status === 'ready' ? data.providers : undefined;
-  const providerId = providers?.some((p) => p.id === chosen) ? chosen : providers?.[0]?.id;
+  const { providers, providerId, choose: setProviderId } = useProviderChoice(origin?.providerId);
 
   const workspaceId = entry.workspace.id;
-  const send = useCallback(
-    async (text: string): Promise<boolean> => {
-      if (!client || !providerId) return false;
-      setError(undefined);
-      let session: Session;
-      try {
-        ({ session } = await client.request('session.create', { workspaceId, providerId }));
-      } catch (reason) {
-        setError(t('session.createFailed', { error: describe(reason) }));
-        return false;
-      }
-      store?.upsertSession(session);
-      try {
-        await sendText(client, session.id, text);
-      } catch (reason) {
-        setError(sendError(reason));
-        return false;
-      }
-      // 草稿页打开的窗格跟着搬到新会话（desktop-layout.md §2.2）。
-      movePaneScope(draftScopeKey(workspaceId), session.id);
-      navigate(paths.session(workspaceId, session.id));
-      return true;
-    },
-    [client, providerId, workspaceId, store, navigate],
+  // 草稿页打开的窗格跟着搬到新会话（desktop-layout.md §2.2）。
+  const movePanes = useCallback(
+    (session: Session) => movePaneScope(draftScopeKey(workspaceId), session.id),
+    [workspaceId],
   );
+  const { start: send, error } = useStartSession(workspaceId, providerId, movePanes);
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
@@ -345,26 +321,4 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
       </div>
     </div>
   );
-}
-
-async function sendText(
-  client: WevirClient,
-  sessionId: Session['id'],
-  text: string,
-  delivery?: PendingDelivery,
-) {
-  await client.request('session.send', {
-    sessionId,
-    content: [{ type: 'text', text }],
-    clientMessageId: crypto.randomUUID(),
-    ...(delivery !== undefined && { delivery }),
-  });
-}
-
-function sendError(error: unknown): string {
-  if (isRpcError(error, 'SESSION_BUSY')) return t('session.busy');
-  if (isRpcError(error, 'INVALID_STATE') && error.data?.readOnly) {
-    return t('session.readOnlyComposer');
-  }
-  return t('session.sendFailed', { error: describe(error) });
 }

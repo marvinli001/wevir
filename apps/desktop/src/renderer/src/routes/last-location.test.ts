@@ -1,7 +1,7 @@
 import type { Session, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import type { WorkbenchData } from '@/data/workbench-model';
-import { parseLastLocation, restorePath } from './last-location';
+import { homeWorkspace, parseLastLocation } from './last-location';
 
 const NOW = '2026-10-14T00:00:00.000Z';
 const workspace: Workspace = {
@@ -25,44 +25,56 @@ const session = {
   updatedAt: NOW,
   lastSeq: 1,
 } satisfies Session;
-const data: WorkbenchData = {
-  status: 'ready',
-  workspaces: [{ workspace, sessions: [session] }],
-  providers: [],
-};
+const other: Workspace = { ...workspace, id: 'ws_b', rootPath: '/tmp/b', displayName: 'b' };
+const empty: Workspace = { ...workspace, id: 'ws_c', rootPath: '/tmp/c', displayName: 'c' };
+const ready = (
+  workspaces: { workspace: Workspace; sessions: Session[] }[],
+): Extract<WorkbenchData, { status: 'ready' }> => ({ status: 'ready', workspaces, providers: [] });
 
-describe('restorePath', () => {
-  it('会话还在：回到它', () => {
-    expect(restorePath(data, { workspaceId: 'ws_a', sessionId: 'ses_1' })).toBe(
-      '/workspace/ws_a/session/ses_1',
-    );
+describe('homeWorkspace', () => {
+  const data = ready([
+    { workspace: empty, sessions: [] },
+    { workspace, sessions: [session] },
+    {
+      workspace: other,
+      sessions: [
+        { ...session, id: 'ses_2', workspaceId: 'ws_b', updatedAt: '2026-10-14T01:00:00.000Z' },
+      ],
+    },
+  ]);
+
+  it('上次所在的工作区还在：用它', () => {
+    expect(homeWorkspace(data, { workspaceId: 'ws_a' })?.workspace.id).toBe('ws_a');
+    expect(homeWorkspace(data, { workspaceId: 'ws_c' })?.workspace.id).toBe('ws_c');
   });
 
-  it('会话不在了、或上次在草稿页：进这个工作区的新会话草稿', () => {
-    expect(restorePath(data, { workspaceId: 'ws_a', sessionId: 'ses_gone' })).toBe(
-      '/workspace/ws_a/session',
-    );
-    expect(restorePath(data, { workspaceId: 'ws_a' })).toBe('/workspace/ws_a/session');
+  it('没有记录或已经不在了：用最近有活动的会话所在的工作区', () => {
+    expect(homeWorkspace(data, null)?.workspace.id).toBe('ws_b');
+    expect(homeWorkspace(data, { workspaceId: 'ws_gone' })?.workspace.id).toBe('ws_b');
   });
 
-  it('工作区不在了、没有记录、读列表失败：不恢复；还在读：等', () => {
-    expect(restorePath(data, { workspaceId: 'ws_gone', sessionId: 'ses_1' })).toBeUndefined();
-    expect(restorePath(data, null)).toBeUndefined();
-    expect(restorePath({ status: 'error', error: 'x' }, { workspaceId: 'ws_a' })).toBeUndefined();
-    expect(restorePath({ status: 'loading' }, { workspaceId: 'ws_a' })).toBe('pending');
+  it('都没有会话时用第一个；没有工作区时没有', () => {
+    expect(
+      homeWorkspace(
+        ready([
+          { workspace: empty, sessions: [] },
+          { workspace, sessions: [] },
+        ]),
+        null,
+      )?.workspace.id,
+    ).toBe('ws_c');
+    expect(homeWorkspace(ready([]), { workspaceId: 'ws_a' })).toBeUndefined();
   });
 });
 
 describe('parseLastLocation', () => {
-  it('只认 {workspaceId, sessionId?}，其余当作没有记录', () => {
+  it('只认 {workspaceId}；T5.5 存的 sessionId 不再用', () => {
     expect(parseLastLocation({ workspaceId: 'ws_a', sessionId: 'ses_1' })).toEqual({
       workspaceId: 'ws_a',
-      sessionId: 'ses_1',
     });
     expect(parseLastLocation({ workspaceId: 'ws_a' })).toEqual({ workspaceId: 'ws_a' });
     expect(parseLastLocation(null)).toBeNull();
     expect(parseLastLocation({ workspaceId: '' })).toBeUndefined();
-    expect(parseLastLocation({ workspaceId: 'ws_a', sessionId: 3 })).toBeUndefined();
     expect(parseLastLocation(['ws_a'])).toBeUndefined();
   });
 });

@@ -5,7 +5,7 @@ import { type ReactNode, useState } from 'react';
 import { useHostSettings } from '@/data/host-settings';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
-import { NoticeBanner } from './settings-ui';
+import { LIST_CARD, NoticeBanner, SettingsSection } from './settings-ui';
 
 const OPTIONS: { delivery: PendingDelivery; icon: ReactNode }[] = [
   { delivery: 'steer', icon: <CornerDownRight /> },
@@ -35,43 +35,51 @@ export function ChatSettings() {
   };
 
   return (
-    <section className="space-y-3">
-      <h2 className="text-sm font-medium">{t('settings.chat.sendWhileBusy')}</h2>
-      {!supported && (
-        <NoticeBanner notice={{ tone: 'warning', text: t('settings.chat.unsupported') }} />
-      )}
-      {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
-      <fieldset className="grid gap-2">
-        <legend className="sr-only">{t('settings.chat.sendWhileBusy')}</legend>
-        {OPTIONS.map(({ delivery, icon }) => {
-          const checked = settings.sendWhileBusy === delivery;
-          return (
-            <button
-              key={delivery}
-              type="button"
-              aria-pressed={checked}
-              disabled={!supported || saving}
-              data-send-while-busy={delivery}
-              onClick={() => void choose(delivery)}
-              className={cn(
-                'flex items-start gap-3 rounded-lg border px-3 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60 [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0',
-                checked ? 'border-primary/50 bg-primary/5' : 'border-border hover:bg-muted/60',
-              )}
-            >
-              {icon}
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">
-                  {t(`settings.chat.sendWhileBusy.${delivery}`)}
+    <SettingsSection
+      title={t('settings.chat.sendWhileBusy')}
+      description={t('settings.chat.sendWhileBusyHint')}
+    >
+      <div className="space-y-3">
+        {!supported && (
+          <NoticeBanner notice={{ tone: 'warning', text: t('settings.chat.unsupported') }} />
+        )}
+        {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
+        <fieldset className={cn(LIST_CARD, 'overflow-hidden')}>
+          <legend className="sr-only">{t('settings.chat.sendWhileBusy')}</legend>
+          {OPTIONS.map(({ delivery, icon }) => {
+            const checked = settings.sendWhileBusy === delivery;
+            return (
+              <button
+                key={delivery}
+                type="button"
+                aria-pressed={checked}
+                disabled={!supported || saving}
+                data-send-while-busy={delivery}
+                onClick={() => void choose(delivery)}
+                className="flex w-full items-start gap-3 px-4 py-3 text-left outline-none transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset disabled:opacity-60 [&_svg]:mt-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground"
+              >
+                {icon}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-medium">
+                    {t(`settings.chat.sendWhileBusy.${delivery}`)}
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    {t(`settings.chat.sendWhileBusy.${delivery}Hint`)}
+                  </span>
                 </span>
-                <span className="block text-sm text-muted-foreground">
-                  {t(`settings.chat.sendWhileBusy.${delivery}Hint`)}
-                </span>
-              </span>
-            </button>
-          );
-        })}
-      </fieldset>
-      <p className="text-sm text-muted-foreground">{t('settings.chat.sendWhileBusyHint')}</p>
-    </section>
+                {/* 单选的圆点：选中是墨色的实心圆环（静器没有彩色的强调色）。 */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    'mt-0.5 size-4 shrink-0 rounded-full border',
+                    checked ? 'border-[5px] border-primary' : 'border-input',
+                  )}
+                />
+              </button>
+            );
+          })}
+        </fieldset>
+      </div>
+    </SettingsSection>
   );
 }

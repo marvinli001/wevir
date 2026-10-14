@@ -24,7 +24,7 @@
 | `--background` | `bg-background` | 画布 | `#f4f3ed` | `#101114` |
 | `--sidebar` | `bg-sidebar` | 侧栏（左栏、设置页导航、右侧浮层） | `#ecebe4` | `#0c0d10` |
 | `--card`、`--popover` | `bg-card`、`bg-popover` | 表面：卡片、浮层、菜单、输入框；侧栏里选中的行（`--sidebar-accent`） | `#fbfaf7` | `#17181c` |
-| `--switch-thumb` | — | 分段切换的滑块（输入框里的“插话 \| 排队”，U3 的 liquid-gooey 液面颜色），轨道是 `--muted` | `#fbfaf7` | `#36383e` |
+| `--switch-thumb` | `bg-switch-thumb` | 分段切换的滑块（输入框里的“插话 \| 排队”，U3 的 liquid-gooey 液面颜色；U4 起设置 → 外观的主题切换），轨道是 `--muted` | `#fbfaf7` | `#36383e` |
 | `--muted`、`--accent`、`--secondary` | `bg-muted` 等 | 次表面：弱填充、悬停与选中、次要按钮 | `#efede6` | `#1d1e23` |
 | `--border` | `border-border` | 分隔线 | `#dedbd1` | `#26282d` |
 | `--border-strong`（`--input`） | `border-input`、`bg-border-strong` | 强分隔线：控件边框、空闲的状态点 | `#ccc8bc` | `#36383e` |
@@ -66,7 +66,7 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 - **中文正文不打包**：用系统字体（维护者 2026-10-14 定）。
 - **Mona Sans 不负责中文语境的标点**：`fonts.css` 的 `unicode-range` 把“”‘’——…（U+201C/D、U+2018/9、U+2014、U+2026）排除在外，交给中文字体，免得中文句子里出现窄的西文引号与破折号。
-- **标题宋体的子集**：文字在 `apps/desktop/scripts/build-fonts.py` 的 `DISPLAY_TEXT`，现在是方向稿 A 首页标题的固定部分“今天在 … 里做什么？”（工作区名用界面字体）。U4 定首页文案时改这里并重新生成；文案里出现子集外的字会回落到系统宋体，样子不一致。
+- **标题宋体的子集**：文字在 `apps/desktop/scripts/build-fonts.py` 的 `DISPLAY_TEXT`，是方向稿 A 首页标题的固定部分“今天在 … 里做什么？”（工作区名用界面字体）；U4 的首页标题就用这两段（`zh-CN.ts` 的 `home.title.before` / `home.title.after`），子集没有改。改这两条文案要同时改 `DISPLAY_TEXT` 并重新生成；文案里出现子集外的字会回落到系统宋体，样子不一致。首次使用的引导标题“开始使用 Wevir”不在子集里，用界面字体。
 - **重新生成**：`build-fonts.py` 从固定版本的来源（发布包或固定提交，按 sha256 校验）生成全部 woff2 与 `apps/desktop/licenses/fonts/*/OFL.txt`，输出可复现；用法写在脚本开头（可选工具 `fonttools==4.60.1`、`brotli==1.1.0`，与图标的 `outline-wordmark.py` 同一套）。Mona Sans 与 JetBrains Mono 只把 TTF 转成 WOFF2，不做别的改动：Mona Sans 的版权行保留了字体名 “Mona”，按 OFL 第 3 条，改动过的版本不能再叫这个名字，所以不能子集化。Noto Serif SC 的版权行没有保留字体名，可以子集化。
 - **构建**：Vite 默认把小于 4 KiB 的资源内联成 `data:` URI，宋体子集会被 CSP 拦下；`electron.vite.config.ts` 让 `.woff2` 总是单独成文件。
 - 来源、版本与许可证见 `assets/fonts/SOURCE.md` 与仓库根目录的 [`NOTICE`](../../NOTICE)。
@@ -100,3 +100,9 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 ## 9. 与方向稿的对应
 
 方向稿 `src/styles.css` 的 `.app`（A 的浅色）与 `.app[data-dir='a'][data-mode='dark']` 里的变量与这里的对应：`--bg` → `--background`、`--side` → `--sidebar`、`--surface` → `--card` / `--popover`、`--surface-2` → `--muted` / `--accent` / `--secondary`、`--line` → `--border`、`--line-2` → `--border-strong`、`--ink` → `--foreground`、`--ink-2` → `--soft-foreground`、`--muted` → `--muted-foreground`、`--accent` / `--accent-ink` → `--primary` / `--primary-foreground`、`--brand` → `--brand`、`--run` / `--await` / `--ok` / `--bad` → `--running` / `--warning` / `--success` / `--destructive`、`--code-bg` → `--code-background`、`--shadow` → `--elevation`、`--radius` / `--radius-sm` → `--radius-card` / `--radius-control`、`--font-ui` / `--font-display` / `--font-mono` → `--font-ui` / `--font-display` / `--font-code`。方向稿里只有 B、C 用到的变量（`--glass`、`--grid`、`--f1`…）与加号按钮的专用色没有搬过来，U4 用到时再加；开关的 `--switch-thumb` U3 搬了（A 的浅色 `#ffffff`、深色 `#3a3c43`，取了最接近的原始色），`--switch-track` 用 `--muted`。
+
+## 10. 首页与设置页（U4）
+
+- **首页**（`routes/home-route.tsx`，方向稿的 `.home-col`）：一列最宽 700px（`max-w-175`）、水平居中、内容左对齐，上方留白 `clamp(2.5rem, 14vh, 8.75rem)`，块之间 22px；品牌行是 `BrandMark`（`text-brand`）加 `fx/metal.tsx` 的 `MetalWordmark`；标题 `font-display`、500、`clamp(1.75rem, 4vw, 2.5rem)`，工作区名是界面字体 600、0.86em、强分隔线色的虚线下划线；大输入框是 `Composer variant="home"`（焦点只用 border-beam 的 focus 预设表示，不换边框色）；“接着做”每行底部一条分隔线，7px 状态点（运行中 `--running`、待审批 `--warning`、出错 `--destructive`、空闲 `--border-strong`），右侧相对时间用说明文字色。顶栏在首页不画分隔线。
+- **设置页**（`routes/settings-route.tsx`、`settings/settings-ui.tsx`）：标签列表是侧栏色，选中的一行与左栏的当前会话一样（表面色加一圈分隔线）；内容一列最宽 720px（`max-w-180`），标题 20px，按节排（`SettingsSection`：14px 半粗的节标题、说明文字、右侧操作），节与节之间一条分隔线；列表在表面色卡片里（`LIST_CARD`），行之间是分隔线；空列表是强分隔线色的虚线框。
+- **表单控件**：输入框、多行输入框、原生下拉框（`settings-ui.tsx` 的 `SELECT`）与 outline 按钮在浅色、深色都是表面色底（`bg-card`）、强分隔线的边框（`border-input`），焦点环是运行色；禁用时是次表面色。shadcn 原语里 `dark:bg-input/30` 这类按主题另算的底色已去掉（文件头写明了改动）。单选是墨色圆环，分段切换的选中段是 `bg-switch-thumb` 加一圈分隔线。

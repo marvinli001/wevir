@@ -17,6 +17,7 @@ import {
   validateForm,
 } from './provider-form';
 import { FORM_APIS } from './provider-presets';
+import { SELECT } from './settings-ui';
 
 export interface SaveOutcome {
   id: string;
@@ -27,9 +28,6 @@ export interface SaveOutcome {
   /** Profile 已保存，但引擎没能用上新配置（ENGINE_ERROR，host-api.md §3.1）。 */
   engineError?: string;
 }
-
-const SELECT =
-  'h-8 w-full rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
 
 /** 新增或编辑一个 Provider 的表单（字段与检查在 provider-form.ts）。 */
 export function ProviderEditor({
@@ -136,7 +134,7 @@ export function ProviderEditor({
         <IconButton label={t('provider.form.back')} onClick={onCancel} disabled={saving}>
           <ArrowLeft />
         </IconButton>
-        <h2 className="text-base font-medium">
+        <h2 className="text-base font-semibold">
           {form.editing
             ? t('provider.form.titleEdit', { name })
             : t('provider.form.titleNew', { name })}

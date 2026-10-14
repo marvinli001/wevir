@@ -17,10 +17,7 @@ import {
   usageTone,
   windowName,
 } from './chatgpt-account-model';
-import { NoticeBanner } from './settings-ui';
-
-const SELECT =
-  'h-8 w-full max-w-72 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30';
+import { NoticeBanner, SELECT } from './settings-ui';
 
 /**
  * 设置 → 模型 Provider 顶部的“ChatGPT 账号”（R6，ADR-0005 决策 4 第 ① 行）：未登录时登录按钮与条款说明，登录中显示进度
@@ -86,14 +83,14 @@ export function ChatgptAccountSection({
   const phase = accountPhase(account);
   return (
     <section
-      className="space-y-3 rounded-xl border border-border p-4"
+      className="space-y-3 rounded-xl border border-border bg-card p-4"
       data-section="chatgpt-account"
       data-phase={phase.kind}
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex items-center gap-2">
-            <h2 className="font-medium">{t('account.chatgpt.title')}</h2>
+            <h3 className="font-medium">{t('account.chatgpt.title')}</h3>
             <PhaseBadge phase={phase} />
           </div>
           {phase.kind === 'signed_out' || phase.kind === 'loading' ? (
@@ -381,7 +378,7 @@ function SignedIn({
         ) : (
           <select
             id={modelSelect}
-            className={SELECT}
+            className={cn(SELECT, 'max-w-72')}
             value={provider.defaultModelId}
             disabled={saving}
             onChange={(event) => void setDefaultModel(event.target.value)}

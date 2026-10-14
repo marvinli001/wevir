@@ -346,9 +346,15 @@ export const zhCN = {
   'history.next': '接下来：',
   'history.draftNotice': '已把会话“{title}”的对话记录放进输入框，可以先修改再发送。',
 
-  'home.title': '选择一个会话',
-  'home.body': '从左侧选择会话，或在工作区下新建会话。',
-  'home.newSession': '新建会话',
+  // 首页标题“今天在 [工作区 ▾] 里做什么？”拆成前后两段，中间是工作区下拉。两段的字都要在标题宋体的子集里
+  // （apps/desktop/scripts/build-fonts.py 的 DISPLAY_TEXT），改了要重新生成字体。
+  'home.title.before': '今天在',
+  'home.title.after': '里做什么？',
+  'home.placeholder': '描述你要完成的任务，Agent 会在 {workspace} 里读写文件、运行命令…',
+  'home.addWorkspace': '添加工作区…',
+  'home.provider': '模型：{provider}',
+  'home.recent': '接着做',
+  'home.recent.idle': '空闲',
 
   'onboarding.title': '开始使用 Wevir',
   'onboarding.body': '配置好模型 Provider、添加一个工作区，就可以开始会话。',
@@ -360,9 +366,8 @@ export const zhCN = {
   'onboarding.workspace': '添加工作区',
   'onboarding.workspaceBody': '选择一个本地文件夹，Agent 在里面读写文件。',
   'onboarding.workspaceAction': '去添加',
-  'onboarding.session': '新建会话',
-  'onboarding.sessionBody': '描述你要完成的任务，Agent 开始工作。',
-  'onboarding.sessionAction': '新建会话',
+  'onboarding.session': '开始第一个会话',
+  'onboarding.sessionBody': '前两步做完，这里会换成输入框：描述你要完成的任务，Agent 开始工作。',
 
   'notFound.title': '未找到',
   'notFound.workspace': '工作区“{id}”不存在，可能已被移除。',
@@ -401,6 +406,8 @@ export const zhCN = {
 
   'provider.intro':
     'Provider 是 Agent 调用的模型服务。Key 只交给本机的 Host 保存，界面上不再显示。',
+  'provider.section.accounts': '订阅账号',
+  'provider.section.keyed': 'API Key',
   'provider.add': '添加 Provider',
   'provider.empty': '还没有 Provider。添加一个模型服务后才能新建会话。',
   'provider.emptyKeyed':

@@ -69,6 +69,7 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-overlay: var(--overlay);
+  --color-switch-thumb: var(--switch-thumb);
 
   /* 圆角阶梯：rounded-lg 是按钮与列表项（8px），rounded-xl 是卡片（12px）；其余按 2px 递减或递增：
    * 2 / 4 / 6 / 8 / 12 / 16。 */
