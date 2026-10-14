@@ -5,18 +5,24 @@ import { z } from 'zod';
 
 /**
  * 客户端能力位：客户端在 `host.hello` 里声明自己能理解的新线缆形状，Host 据此决定发新形状还是降级。
- * v0 是基线，没有能力位。以后新增时按下面的格式写，并在 host-api.md 的能力表里登记：
+ * 新增时按下面的格式写，并在 host-api.md 的能力表里登记：
  *
  * ```ts
  * // COMPAT(fooEnum): added in 0.2.0, remove gate after 2027-06-01
  * fooEnum: 'foo_enum',
  * ```
  */
-export const CLIENT_CAPABILITIES = {} as const;
+export const CLIENT_CAPABILITIES = {
+  // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
+  /** 认得 `TitleSource` 的 `generated`；没有时 Host 把它降级成 `first_prompt`。 */
+  titleSourceGenerated: 'title_source_generated',
+} as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
 /** 已知能力位写成 `z.boolean().optional()`；未知键原样保留。 */
-export const ClientCapabilitiesSchema = z.looseObject({});
+export const ClientCapabilitiesSchema = z.looseObject({
+  title_source_generated: z.boolean().optional(),
+});
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
 /**

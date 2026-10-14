@@ -71,11 +71,16 @@ export const VERSION_CHECK_TIMEOUT_MS = 15_000;
  * 跑 `<binary> --version`，与 `CODEX_VERSION` 不一致时报错（换了二进制或忘了重新下载）。返回核对过的版本。
  * `env` 是子进程环境（白名单构造，不带网关令牌）。
  */
-export function checkCodexVersion(binary: string, env: NodeJS.ProcessEnv): Promise<string> {
+export function checkCodexVersion(
+  binary: string,
+  env: NodeJS.ProcessEnv,
+  /** 放在 `--version` 之前的参数（测试用 node 跑假的 app-server 时是脚本路径）。 */
+  binaryArgs: readonly string[] = [],
+): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     execFile(
       binary,
-      ['--version'],
+      [...binaryArgs, '--version'],
       { env, timeout: VERSION_CHECK_TIMEOUT_MS, windowsHide: true },
       (error, stdout) => {
         if (error) {

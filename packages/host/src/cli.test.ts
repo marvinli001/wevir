@@ -26,10 +26,10 @@ import { fakeProcess, TestRpcClient, useTempDir, waitReady } from './test-utils.
 const tempDir = useTempDir();
 
 describe('parseHostArgs', () => {
-  it('默认值：dsh 适配器、系统分配端口、info 级别、不监听 stdin', () => {
+  it('默认值：codex 适配器、系统分配端口、info 级别、不监听 stdin', () => {
     expect(parseHostArgs([])).toEqual({
       kind: 'run',
-      options: { adapter: 'dsh', port: 0, logLevel: 'info', exitOnStdinEof: false },
+      options: { adapter: 'codex', port: 0, logLevel: 'info', exitOnStdinEof: false },
     });
   });
 

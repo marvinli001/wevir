@@ -145,17 +145,26 @@ export interface CodexProcessOptions {
 export class CodexRpcError extends Error {
   override readonly name = 'CodexRpcError';
   readonly code: number;
+  /** app-server 的原文（`message` 前面加了方法名与错误码）。 */
+  readonly rpcMessage: string;
   readonly data: unknown;
 
   constructor(method: string, body: RpcErrorBody) {
     super(`${method} 失败：${body.code} ${body.message}`);
     this.code = body.code;
+    this.rpcMessage = body.message;
     this.data = body.data;
   }
 }
 
 /** 不支持的服务端请求的回复码（JSON-RPC Method not found）。 */
 export const METHOD_NOT_FOUND = -32601;
+
+/**
+ * 服务端请求的处理结果是它时不回复：请求已经由 app-server 自己结束了（`serverRequest/resolved`，回合被中断），
+ * 或者进程已经不在了。
+ */
+export const NO_REPLY: unique symbol = Symbol('codex-app-server: no reply');
 
 interface Pending {
   method: string;
@@ -519,6 +528,7 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
         : handler(request);
     answer.then(
       (result) => {
+        if (result === NO_REPLY) return;
         if (launch.exit === undefined)
           this.#write(launch, { id: request.id, result: result ?? {} });
       },

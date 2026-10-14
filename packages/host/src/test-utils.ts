@@ -321,12 +321,16 @@ export class TestRpcClient {
     return frame.result;
   }
 
-  hello(token: string, who: ClientIdentity = identity): Promise<RpcFrame> {
+  hello(
+    token: string,
+    who: ClientIdentity = identity,
+    capabilities: Record<string, boolean> = {},
+  ): Promise<RpcFrame> {
     return this.call('host.hello', {
       token,
       protocolVersion: PROTOCOL_VERSION,
       ...who,
-      capabilities: {},
+      capabilities,
     });
   }
 

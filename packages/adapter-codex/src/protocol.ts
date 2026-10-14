@@ -85,7 +85,28 @@ export interface ThreadStartParams {
   config?: Record<string, unknown> | null;
   baseInstructions?: string | null;
   developerInstructions?: string | null;
+  /** 不写 rollout、不进 `thread/list`：生成标题的临时 thread 用（终端界面 app/thread_title.rs 的做法）。 */
+  ephemeral?: boolean | null;
 }
+
+/**
+ * v2/ThreadResumeParams.ts 的稳定字段里本包用到的。按 `threadId` 从磁盘上的 rollout 恢复；thread 仍加载在进程里
+ * 时重新订阅它（覆盖与当前设置不同的只在它空闲、没有订阅者时生效）。`excludeTurns`：不回放历史（Host 自己有）。
+ */
+export interface ThreadResumeParams {
+  threadId: string;
+  model?: string | null;
+  modelProvider?: string | null;
+  cwd?: string | null;
+  approvalPolicy?: AskForApproval | null;
+  sandbox?: SandboxMode | null;
+  config?: Record<string, unknown> | null;
+  baseInstructions?: string | null;
+  excludeTurns?: boolean;
+}
+
+/** v2/ThreadResumeResponse.ts（与 ThreadStartResponse 同样只读这几项）。 */
+export type ThreadResumeResponse = ThreadStartResponse;
 
 /** v2/Thread.ts（只读 id）。 */
 export interface Thread {
@@ -111,10 +132,14 @@ export interface TextUserInput {
   text_elements: never[];
 }
 
-/** v2/TurnStartParams.ts（只发必填字段）。 */
+/** v2/TurnStartParams.ts 的稳定字段里本包用到的。 */
 export interface TurnStartParams {
   threadId: string;
   input: TextUserInput[];
+  /** 这个回合及之后的推理强度（ReasoningEffort.ts）。 */
+  effort?: string | null;
+  /** 约束最终助手消息的 JSON Schema（生成标题用）。 */
+  outputSchema?: unknown;
 }
 
 /** v2/TurnStatus.ts */
@@ -362,18 +387,82 @@ export interface ErrorNotification {
   turnId: string;
 }
 
+/** v2/TurnPlanStepStatus.ts */
+export type TurnPlanStepStatus = 'pending' | 'inProgress' | 'completed';
+
+/** v2/TurnPlanStep.ts */
+export interface TurnPlanStep {
+  step: string;
+  status: TurnPlanStepStatus;
+}
+
+/** v2/TurnPlanUpdatedNotification.ts：模型调 `update_plan` 时发，没有对应的 item。 */
+export interface TurnPlanUpdatedNotification {
+  threadId: string;
+  turnId: string;
+  explanation: string | null;
+  plan: TurnPlanStep[];
+}
+
+/**
+ * v2/ServerRequestResolvedNotification.ts：一个服务端请求结束了。客户端回复之后紧接着到；回合在审批未决时被中断，
+ * 它在 `turn/completed` 之后才到（codex-notes §2.3）。
+ */
+export interface ServerRequestResolvedNotification {
+  threadId: string;
+  requestId: RequestId;
+}
+
 // ── 服务端请求（ServerRequest.ts）──────────────────────────────────────────────────────
 
-/** 审批类服务端请求（R3 处理；R2 一律拒绝，codex-adapter.ts）。 */
+/**
+ * 审批类服务端请求（codex-event-mapping.md §6.6）。`item/permissions/requestApproval` 只来自 `request_permissions`
+ * 工具（`features.request_permissions_tool`，UnderDevelopment、默认关，Wevir 不开），不在这里。
+ */
 export const APPROVAL_REQUESTS = Object.freeze([
   'item/commandExecution/requestApproval',
   'item/fileChange/requestApproval',
 ] as const);
 
+export type ApprovalRequestMethod = (typeof APPROVAL_REQUESTS)[number];
+
+/** v2/CommandExecutionApprovalKind.ts：执行命令，或往已有终端写 stdin。 */
+export type CommandExecutionApprovalKind = 'command' | 'writeStdin';
+
+/**
+ * v2/CommandExecutionRequestApprovalParams.ts 的稳定字段里本包读的。`approvalId` 只在 zsh 子命令与 stdin 的审批
+ * 里有（同一个 item 可能有多次审批）；`availableDecisions` 是实验字段，拿不到（codex-notes §2.7）。
+ */
+export interface CommandExecutionRequestApprovalParams {
+  kind?: CommandExecutionApprovalKind;
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  approvalId?: string | null;
+  reason?: string | null;
+  command?: string | null;
+  cwd?: string | null;
+  commandActions?: CommandAction[] | null;
+  /** “以后以这个前缀开头的命令不再问”的提议（R3 不做，codex-event-mapping.md §6.6）。 */
+  proposedExecpolicyAmendment?: unknown;
+}
+
+/** v2/FileChangeRequestApprovalParams.ts。补丁内容不在请求里，在同一 itemId 的 fileChange item。 */
+export interface FileChangeRequestApprovalParams {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  reason?: string | null;
+  grantRoot?: string | null;
+}
+
 /**
  * 审批的回复：v2/CommandExecutionRequestApprovalResponse.ts 与 v2/FileChangeRequestApprovalResponse.ts 的
- * 字符串决定（v2/CommandExecutionApprovalDecision.ts、v2/FileChangeApprovalDecision.ts 的公共部分）。
+ * 字符串决定（v2/CommandExecutionApprovalDecision.ts、v2/FileChangeApprovalDecision.ts 的公共部分；带 execpolicy
+ * 或网络策略修订的对象形式不用）。
  */
+export type ApprovalDecisionValue = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
+
 export interface ApprovalResponse {
-  decision: 'accept' | 'acceptForSession' | 'decline' | 'cancel';
+  decision: ApprovalDecisionValue;
 }

@@ -21,5 +21,6 @@ export {
   MESSAGES_THINKING_FORMATS,
   validateProvider,
 } from './providers.js';
+export { type SseMessage, SseParser } from './sse.js';
 export type { GatewayCompat, GatewayProvider } from './types.js';
 export { GATEWAY_VERSION } from './upstream.js';

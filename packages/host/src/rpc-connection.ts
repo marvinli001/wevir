@@ -17,12 +17,14 @@ import {
   JsonRpcRequestSchema,
   type MethodName,
   type MethodParams,
+  type MethodResult,
   MethodSchemas,
   MIN_PROTOCOL_VERSION,
   negotiateProtocolVersion,
   PERMISSIONS,
   PROTOCOL_VERSION,
   parseProtocolVersion,
+  type Session,
   type SessionId,
   type SubscriptionId,
   type WevirEvent,
@@ -356,7 +358,7 @@ export class RpcConnection {
           context: RequestContext,
         ) => unknown;
         const result = await handler(params, { client, capabilities: this.#capabilities });
-        this.#respond(id, method, result);
+        this.#respond(id, method, adaptResultForClient(method, result, this.#capabilities));
       }
     }
   }
@@ -587,14 +589,51 @@ export class RpcConnection {
 /**
  * 按连接的能力位调整发给它的事件（host-api.md §10）：只把已知事件类型里的新枚举值或新形状降级成该
  * 连接认得的形状，从不扣下事件，订阅内 `seq` 保持连续（ADR-0002 补记 1）。全新的事件类型照常发送，
- * 客户端忽略不认识的 `type`。v0 是基线，没有需要门控的形状，原样返回；以后新增能力位时在这里加
- * 分支，并带 `COMPAT` 标签。
+ * 客户端忽略不认识的 `type`。新增能力位时在这里加分支，并带 `COMPAT` 标签。
  */
 export function adaptEventForClient(
   event: WevirEvent,
-  _capabilities: ClientCapabilities,
+  capabilities: ClientCapabilities,
 ): WevirEvent {
+  // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
+  if (
+    event.type === 'session.title_changed' &&
+    event.payload.source === 'generated' &&
+    capabilities.title_source_generated !== true
+  ) {
+    return { ...event, payload: { ...event.payload, source: 'first_prompt' } };
+  }
   return event;
+}
+
+/** 按连接的能力位调整方法的结果，规则同 `adaptEventForClient`：结果里的会话降级 `titleSource`。 */
+export function adaptResultForClient(
+  method: MethodName,
+  result: unknown,
+  capabilities: ClientCapabilities,
+): unknown {
+  // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
+  if (capabilities.title_source_generated === true) return result;
+  switch (method) {
+    case 'session.create':
+    case 'session.get':
+    case 'session.resume': {
+      const value = result as MethodResult<'session.get'>;
+      return { ...value, session: adaptSession(value.session) };
+    }
+    case 'session.list': {
+      const value = result as MethodResult<'session.list'>;
+      return { ...value, sessions: value.sessions.map(adaptSession) };
+    }
+    default:
+      return result;
+  }
+}
+
+function adaptSession(session: Session): Session {
+  return session.titleSource === 'generated'
+    ? { ...session, titleSource: 'first_prompt' }
+    : session;
 }
 
 function sha256(value: string): Buffer {

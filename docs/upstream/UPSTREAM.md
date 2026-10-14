@@ -201,10 +201,11 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 | Wevir 文件 | 来源 | 许可证与版权 | 说明 |
 |---|---|---|---|
-| `apps/desktop/src/renderer/src/components/ui/{button,dialog,input,scroll-area,sheet,textarea,tooltip}.tsx` | shadcn CLI 4.21.4 从官方 registry 生成（`components.json`：`base-nova`、Base UI、lucide） | MIT，`Copyright (c) 2023 shadcn` | T5.2 生成；button、dialog、scroll-area、sheet 有 Wevir 的改动，写在各自的文件头。OpenWork 的 `apps/app/src/components/ui/*` 也是 shadcn 生成的，两边相近属于同源（§8），不从 OpenWork 拷贝（§2.2 T0.5 复核第 1 点） |
+| `apps/desktop/src/renderer/src/components/ui/{button,dialog,input,scroll-area,sheet,textarea,tooltip}.tsx` | shadcn CLI 4.21.4 从官方 registry 生成（`components.json`：`base-nova`、Base UI、lucide） | MIT，`Copyright (c) 2023 shadcn` | T5.2 生成；button、dialog、scroll-area、sheet 有 Wevir 的改动，写在各自的文件头。OpenWork 的 `apps/app/src/components/ui/*` 也是 shadcn 生成的，两边相近属于同源（§9），不从 OpenWork 拷贝（§2.2 T0.5 复核第 1 点） |
 | `apps/desktop/src/renderer/src/styles/shadcn-variants.css` | shadcn 4.21.4 包内 `dist/tailwind.css` 的摘录 | MIT，`Copyright (c) 2023 shadcn` | 只取原语用到的 `@custom-variant` |
 | `apps/desktop/src/renderer/src/styles/palette.css` | `apps/desktop/scripts/generate-palette.ts` 从依赖 `@radix-ui/colors` 3.0.0 生成 | MIT，`Copyright (c) 2021 Radix` | 色值数据，文件头带声明。与 OpenWork `colors.css` 的色值相同是因为同源，不从那里拷贝 |
 | `packages/model-gateway/src/test-fixtures/codex-requests/**`、`packages/model-gateway/src/__snapshots__/codex-requests/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 发出的请求的录制（R1，`spikes/codex-app-server/src/record-requests.ts`），及其经网关转换后的快照 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 Codex 发给模型服务的请求体，不是源码。含 Codex 内置工具的定义与描述（apply_patch 的 Lark 语法等）与 Codex 注入的权限、skills、环境说明文字；基础提示词已换成长度说明，本机路径与 ID 换成占位符 |
+| `packages/adapter-codex/src/test-fixtures/app-server/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 运行输出的录制（R2 起，`record-app-server.test.ts`）：通知序列、审批对话、回合与恢复的错误 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 app-server 发给客户端的消息，不是源码。含 Codex 的 item 结构、内置工具名、错误措辞（如 500 时的“We’re currently experiencing high demand…”）；本机路径换成占位符，审批对话里的 ID 换成占位符 |
 | `spikes/dsh-acp/fixtures/**`、`packages/adapter-dsh/src/test-fixtures/acp/**` | dsh 0.2.1-alpha.2 运行时输出的录制（T0.3 起） | MIT，`Copyright (c) 2026 DeepSeek` | 录的是 dsh 发出的协议消息与事件，不是源码。`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` 含 dsh 内置工具的 schema 与描述文本，与上游 `snapshots/sdk/bash-tool/tool-schemas.expected.json` 相同 |
 
 ### 4.2 图标字体
@@ -273,7 +274,7 @@ Copyright 2025 OpenAI
    git -C upstream/<名称> diff <旧SHA> HEAD --stat -- LICENSE LICENSES NOTICE THIRD_PARTY_NOTICES.md ee/LICENSE
    ```
    许可证有变化，先更新本文件 §2 的结论。
-4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”（文件头与 `NOTICE` 一起改）。然后按 §8 再做一次来源核查。
+4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”（文件头与 `NOTICE` 一起改）。然后按 §9 再做一次来源核查。
 5. **跑契约测试**：`pnpm test`（M1 起包含 AgentRuntimeAdapter 契约测试，M3 起包含 dsh 适配器的回放与真实 dsh 两层契约测试）。升级 dsh 时按 §7 的检查清单逐项做。
 6. **更新本文件 §1 仓库表**（提交、日期、结论），与 lock 改动放在同一个 commit 里。
 
@@ -329,7 +330,55 @@ T3.6 建立。dsh 是 developer preview，会有不兼容变更（SKELETON_PLAN 
 
 7. **收尾。** ADR-0001 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试的结果。`DSH_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，这是预期的，正好用来排查跨版本问题（ADR-0001 补记 6）。
 
-## 8. 来源核查
+## 8. Codex 升级检查清单
+
+R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），每个版本都可能改协议、通知与措辞。Wevir 碰 Codex 的代码都在 `packages/adapter-codex`（网关在 `packages/model-gateway`，与 Codex 版本无关，但它解析的是 Codex 发的请求），升级只改这两个包、§1 的表、`upstream.lock`、`scripts/fetch-codex.sh` 与下面列到的文档（ADR-0005 决策 7）。按顺序做，每一步的结论写进提交说明；哪一步发现不兼容，先在 ADR-0005 补记与 [codex-event-mapping.md](../architecture/codex-event-mapping.md) 写清楚，再改代码。下文的“旧 SHA / 新 SHA”是 `upstream.lock` 里 codex 行的旧锁定提交与新 tag `rust-v<版本>` 指向的提交，先按 §6 第 1、2 步把 `upstream/codex` 同步到新 SHA（tag 不在任何分支上，同步脚本按 tag 浅拉取）。
+
+1. **读 release 说明。** GitHub Releases 里 `rust-v*` 的发布说明（Bug Fixes / Features），重点看 app-server、审批、沙箱、rollout 格式、模型 Provider 与配置键的变化。`codex-rs/app-server/README.md` 与 `codex-rs/docs/` 的改动一并看：
+
+   ```bash
+   git -C upstream/codex diff <旧SHA> <新SHA> --stat -- codex-rs/app-server codex-rs/app-server-protocol codex-rs/core/src/config codex-rs/features
+   ```
+
+2. **diff 协议 schema。** 稳定面以 `codex-rs/app-server-protocol/schema/typescript/`（及 `v2/`）为准，`packages/adapter-codex/src/protocol.ts` 的每个类型都注明了对应的 schema 文件，逐个对照：
+
+   ```bash
+   git -C upstream/codex diff <旧SHA> <新SHA> -- codex-rs/app-server-protocol/schema/typescript
+   git -C upstream/codex diff <旧SHA> <新SHA> -- codex-rs/app-server-protocol/src/protocol/common.rs | grep -n "experimental"
+   ```
+
+   - 本包读写的字段改名、改类型、从稳定变成实验（`#[experimental]`）：改 `protocol.ts` 与用到的地方。Wevir 只用稳定面（`experimentalApi: false`），新出现的稳定字段不必用。
+   - `CodexErrorInfo` 加了变体：对照 `turn-error.ts` 的归类（codex-event-mapping.md §6.7）。
+   - 审批请求与回复（`CommandExecutionRequestApprovalParams`、`*ApprovalDecision`）变了：对照 §6.6 的选项表与终端界面 `tui/src/bottom_pane/approval_overlay.rs` 的 `exec_options` / `patch_options`。
+   - 新的服务端请求：默认回复“不支持”，逐个决定要不要处理。
+   - 配置键：`config.ts` 的加固项与 `title.ts` 的 `TITLE_THREAD_CONFIG` 在新版本里还在不在（进程带 `--strict-config`，写错的键启动就失败；`thread/start` 的覆盖不一定严格，要自己看 `core/src/config` 与 `features/src/lib.rs`）。`features` 的默认值变了（尤其新增的默认开启、会联网或进上下文的功能）要先决定关不关。
+
+3. **更新锁定版本与校验和。**
+   - `packages/adapter-codex/src/paths.ts` 的 `CODEX_VERSION`；`scripts/fetch-codex.sh` 的 `version` 与 6 个平台的 sha256（取 GitHub Release API 的资产 `digest`，命令写在脚本开头）；`upstream.lock` 的 codex 行；本文件 §1 与 §1.2 的表；`spikes/codex-app-server` 不随产品升级。
+   - CI 的二进制缓存键是 `fetch-codex.sh` 的内容，改了自动失效。
+   - `bash scripts/fetch-codex.sh` 下载新二进制，`--version` 输出要与 `CODEX_VERSION` 一致。
+
+4. **重新录制样本。** `WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server` 重录 `test-fixtures/app-server/` 下的通知样本、审批对话与错误样本（README.md 写了每类的格式），再看映射、归类测试与第 1 层：`git diff` 里样本的变化就是 Codex 行为的变化，逐条确认。审批对话的分支要对得上（同一场景几遍的 item 顺序一样），错误样本的措辞变了就同步改 `turn-error.ts` / `resume-error.ts` 的规则表与 codex-event-mapping.md §4.2、§6.7。
+
+5. **跑三层契约测试与集成测试。**
+
+   ```bash
+   pnpm vitest run --project adapter-codex
+   ```
+
+   - 第 1 层回放（`codex-adapter.contract.test.ts`，用第 4 步新录的样本）与第 2 层真实二进制 + 网关 + mock 模型（`codex-adapter.contract.integration.test.ts`）：全部通过，能力开关全开，没有跳过的条款。
+   - 第 3 层真实模型（`codex-adapter.contract.real.integration.test.ts`）：设 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER` 在本机跑一次，结果贴进提交说明。
+   - 审批、恢复与取消、计划、错误、标题与外连的集成测试（`codex-adapter.*.integration.test.ts`）一起跑；之后跑全仓 `pnpm test`（含 Host + 真实 Codex 的 `*.codex.integration.test.ts`）。
+
+6. **外连审计。** `codex-adapter.isolation.integration.test.ts` 的外连用例经只记录目标的代理与 lsof 看进程的外连，必须仍为零（反例：打开 `features.plugins` 时抓到 chatgpt.com、github.com、api.github.com）。新版本新增的默认开启的功能（遥测、插件同步、更新检查、远程控制）要在这一步暴露出来；需要关的写进 `config.ts` 的加固项与 ADR-0005 决策 5 的补记。
+
+7. **密钥检查。** 同一个测试文件的密钥用例：网关令牌与上游 Key 不出现在数据目录（含 CODEX_HOME 的 rollout、SQLite 库、`shell_snapshots/`）的任何文件、stderr 与日志里，模型跑的命令看不到 `WEVIR_*`。`env.ts` 的白名单与 `shell_environment_policy` 的排除规则按新版本核对一次（新版本可能读新的环境变量，例如别的 `*_API_KEY`）。
+
+8. **网关与提示词。** Codex 发的 Responses 请求变了（新字段、新的输入项类型、`tool_choice` 等）：用 `spikes/codex-app-server/src/record-requests.ts` 重录 `packages/model-gateway/src/test-fixtures/codex-requests/`，跑网关的转换测试与快照（model-gateway.md）。`prompts/base.md` 的工具说明按新版本的工具清单核对（prompts/README.md「Codex 一回合里模型看到的说明」）；`prompts/` 下改写自 Codex 的文件按 §4 核对来源提交。
+
+9. **收尾。** ADR-0005 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试、外连与密钥检查的结果。`CODEX_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，是预期的；rollout 格式不兼容时旧会话恢复会报 `session_lost`（会话只读），发版说明里要告诉用户。
+
+## 9. 来源核查
 
 T6.3 建立。登记表（§4、§4.1）、文件头与根目录 `NOTICE` 三处要一致。升级上游锁定提交（§6 第 4 步）、移植新文件的任务收尾、打包前各做一次：
 

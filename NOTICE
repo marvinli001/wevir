@@ -146,6 +146,11 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
   packages/model-gateway/src/test-fixtures/codex-requests/
   packages/model-gateway/src/__snapshots__/codex-requests/
 
+下面的测试样本是 codex-app-server 发给客户端的消息的录制（通知、审批请求、错误），其中含 Codex 的 item
+结构、内置工具名与错误说明文字：
+
+  packages/adapter-codex/src/test-fixtures/app-server/
+
 
 7. Mona Sans
 ------------------------------------------------------------------------------------------------

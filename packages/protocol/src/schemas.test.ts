@@ -172,8 +172,8 @@ const standaloneCases: Case[] = [
   {
     name: 'ClientCapabilities',
     schema: ClientCapabilitiesSchema,
-    valid: [{}, { futureCap: true }],
-    invalid: [null, ['a']],
+    valid: [{}, { futureCap: true }, { title_source_generated: true }],
+    invalid: [null, ['a'], { title_source_generated: 'yes' }],
   },
   {
     name: 'HostFeatures',
@@ -370,7 +370,12 @@ const standaloneCases: Case[] = [
     valid: [{ turnId: ids.turn, startedAt: TS }],
     invalid: [{ turnId: ids.turn }],
   },
-  { name: 'TitleSource', schema: TitleSourceSchema, valid: ['user'], invalid: ['engine'] },
+  {
+    name: 'TitleSource',
+    schema: TitleSourceSchema,
+    valid: ['user', 'generated'],
+    invalid: ['engine'],
+  },
   {
     name: 'SessionReadOnlyReason',
     schema: SessionReadOnlyReasonSchema,

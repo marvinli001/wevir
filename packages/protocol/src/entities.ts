@@ -301,7 +301,12 @@ export const ActiveTurnSchema = z.object({
 });
 export type ActiveTurn = z.infer<typeof ActiveTurnSchema>;
 
-export const TitleSourceSchema = z.enum(['first_prompt', 'user']);
+/**
+ * 标题从哪来：`first_prompt` 首条用户消息截断；`user` 用户改的；`generated` 用会话的模型生成（0.5.0，R3，
+ * prompts/thread-title.md）。Host 只把 `generated` 发给声明了 `title_source_generated` 能力位的连接，其余连接
+ * 看到的是 `first_prompt`（host-api.md §10）。
+ */
+export const TitleSourceSchema = z.enum(['first_prompt', 'user', 'generated']);
 export type TitleSource = z.infer<typeof TitleSourceSchema>;
 
 /**
@@ -331,7 +336,7 @@ export const SessionSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   /** 创建时工作区 `rootPath` 的 realpath，不可变。 */
   cwd: z.string().min(1),
-  /** 仅诊断用，客户端不得据此做任何操作。v0 的 `kind` 恒为 `dsh`。 */
+  /** 仅诊断用，客户端不得据此做任何操作。`kind` 是 Host 的引擎（`codex`、`dsh`、`echo`）。 */
   engine: z.object({ kind: z.string(), sessionId: z.string() }),
   providerId: ProviderIdSchema,
   modelId: z.string().min(1),

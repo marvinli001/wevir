@@ -3,6 +3,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
 import { CodexAdapter, type CodexAdapterOptions } from '../codex-adapter.js';
 import { CODEX_BIN_ENV, FETCH_CODEX_COMMAND, resolveCodexBinary } from '../paths.js';
 
@@ -65,4 +66,56 @@ export function collectingLogger(): Required<NonNullable<CodexAdapterOptions['lo
 
 export function newAdapter(options: CodexAdapterOptions): CodexAdapter {
   return new CodexAdapter({ providerExtra: NO_RETRIES, logger: collectingLogger(), ...options });
+}
+
+/** 订阅一个会话，把事件收进数组（订阅结束时停止）。 */
+export function collectEvents(adapter: CodexAdapter, engineSessionId: string): AgentEvent[] {
+  const events: AgentEvent[] = [];
+  void (async () => {
+    for await (const event of adapter.subscribe(engineSessionId)) events.push(event);
+  })();
+  return events;
+}
+
+/** 等 `events` 里第 `from` 条之后出现满足条件的事件，返回它。 */
+export async function waitForEvent<T extends AgentEvent>(
+  events: readonly AgentEvent[],
+  match: (event: AgentEvent) => event is T,
+  what: string,
+  from = 0,
+  ms = 30_000,
+): Promise<T> {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const found = events.slice(from).find(match);
+    if (found !== undefined) return found;
+    if (Date.now() > deadline) {
+      throw new Error(`等待超时：${what}（已有 ${events.slice(from).map((e) => e.type)}）`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+/** 发一条消息，等这个回合的终结事件；返回回合内的全部事件。 */
+export async function runTurn(
+  adapter: CodexAdapter,
+  engineSessionId: string,
+  text: string,
+  events: AgentEvent[],
+): Promise<AgentEvent[]> {
+  const from = events.length;
+  await adapter.send(engineSessionId, { content: [{ type: 'text', text }] });
+  return finishTurn(events, from);
+}
+
+/** 等第 `from` 条之后的第一个终结事件，返回从 `from` 到它为止的事件。 */
+export async function finishTurn(events: AgentEvent[], from: number): Promise<AgentEvent[]> {
+  const terminal = await waitForEvent(events, isTurnTerminal, '回合终结事件', from);
+  return events.slice(from, events.indexOf(terminal, from) + 1);
+}
+
+export function ofType<T extends AgentEvent['type']>(
+  type: T,
+): (event: AgentEvent) => event is Extract<AgentEvent, { type: T }> {
+  return (event): event is Extract<AgentEvent, { type: T }> => event.type === type;
 }

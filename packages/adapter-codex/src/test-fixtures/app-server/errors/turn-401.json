@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "codex": "rust-v0.162.1",
+    "case": "turn-401",
+    "description": "上游 401：httpConnectionFailed（401）"
+  },
+  "params": {
+    "threadId": "<thread>",
+    "turn": {
+      "id": "<turn>",
+      "rootTurnId": "<turn>",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "unexpected status 401 Unauthorized: mock: invalid api key, url: http://127.0.0.1:<port>/v1/p/mock/responses",
+        "codexErrorInfo": {
+          "httpConnectionFailed": {
+            "httpStatusCode": 401
+          }
+        },
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "startedAt": 1791949270,
+      "completedAt": 1791949270,
+      "durationMs": 20
+    }
+  }
+}

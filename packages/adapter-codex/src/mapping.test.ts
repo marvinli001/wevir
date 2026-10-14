@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { checkDeltaReplacement, checkTurnEvents } from '@wevir/runtime-adapter/contract';
 import { describe, expect, it } from 'vitest';
-import { CodexEventMapper, ENGINE_RAW_PROTOCOL } from './mapping.js';
+import { CodexEventMapper, ENGINE_RAW_PROTOCOL, PLAN_TOOL_CALL_PREFIX } from './mapping.js';
+import type { ApprovalRequestMethod } from './protocol.js';
 
 // 回放真实 codex-app-server（rust-v0.162.1）录下的通知序列（src/test-fixtures/app-server/，录制方法见
 // record-app-server.test.ts），检查映射成的 AgentEvent（docs/architecture/codex-event-mapping.md §6）。
@@ -38,6 +39,44 @@ function replay(
     .filter((n) => n.params.threadId === threadId)
     .flatMap((n) => mapper.map(n.method, n.params));
   return { threadId, events };
+}
+
+interface ConversationLine {
+  method?: string;
+  params?: Record<string, unknown>;
+  serverRequest?: { id: string; method: ApprovalRequestMethod; params: Record<string, unknown> };
+}
+
+/**
+ * 回放审批对话：前缀（到审批请求为止）接上一个分支。审批请求按适配器的做法先取 `approvalPrelude`，再记一个占位的
+ * `approval.requested`（请求本身由适配器上报，这里只为看清顺序）；`serverRequest/resolved` 由适配器处理，跳过。
+ */
+function replayConversation(name: string, branch: string) {
+  const read = (file: string) =>
+    readFileSync(join(import.meta.dirname, 'test-fixtures', 'app-server', `${file}.jsonl`), 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as ConversationLine & { _meta?: unknown })
+      .filter((line) => line._meta === undefined);
+  const lines = [...read(name), ...read(`${name}.${branch}`)];
+  const mapper = new CodexEventMapper('<thread>', { contextSize: () => 128_000 });
+  const events: AgentEvent[] = [];
+  for (const line of lines) {
+    if (line.serverRequest !== undefined) {
+      const { method, params } = line.serverRequest;
+      events.push(...mapper.approvalPrelude(method, params as never));
+      events.push({
+        type: 'approval.requested',
+        engineSessionId: '<thread>',
+        requestId: 'r1',
+        toolCallId: String(params.itemId),
+        options: [],
+      });
+    } else if (line.method !== undefined && line.method !== 'serverRequest/resolved') {
+      events.push(...mapper.map(line.method, line.params));
+    }
+  }
+  return events;
 }
 
 const types = (events: readonly AgentEvent[]) => events.map((event) => event.type);
@@ -192,10 +231,88 @@ describe('回放 codex-app-server 的通知', () => {
     expect(checkTurnEvents(events, threadId)).toEqual([]);
     expect(types(events)).toEqual(['engine.raw', 'turn.failed']);
     expect(events[0]).toMatchObject({ method: 'error', params: { willRetry: false } });
-    expect(events[1]).toMatchObject({ type: 'turn.failed', category: 'unknown' });
+    // codexErrorInfo 是 other，原文是上游的错误体（turn-error.ts）。
+    expect(events[1]).toMatchObject({ type: 'turn.failed', category: 'provider' });
     expect((events[1] as { message: string }).message).toContain(
       'mock upstream rejected the request',
     );
+  });
+
+  it('plan：turn/plan/updated → todo.updated，toolCallId 是 plan:<回合 ID>，inProgress 换成 in_progress', () => {
+    const { threadId, events } = replay('plan');
+    expect(checkTurnEvents(events, threadId)).toEqual([]);
+    const [todo] = of(events, 'todo.updated');
+    const { notifications } = fixture('plan');
+    const turnId = notifications.find((n) => n.method === 'turn/plan/updated')?.params.turnId;
+    expect(todo).toEqual({
+      type: 'todo.updated',
+      engineSessionId: threadId,
+      toolCallId: `${PLAN_TOOL_CALL_PREFIX}${turnId}`,
+      items: [
+        { content: 'Read the code', status: 'completed' },
+        { content: 'Write the fix', status: 'in_progress' },
+        { content: 'Run the tests', status: 'pending' },
+      ],
+    });
+    // update_plan 不产生工具调用。
+    expect(of(events, 'tool.started')).toEqual([]);
+  });
+
+  it('approval-exec：item/started 在请求之前，请求前补一条带理由的 tool.updated；同意后工具完成', () => {
+    const events = replayConversation('approval-exec', 'accept');
+    expect(
+      checkTurnEvents(
+        events.filter((e) => e.type !== 'approval.requested'),
+        '<thread>',
+      ),
+    ).toEqual([]);
+    const requested = events.findIndex((e) => e.type === 'approval.requested');
+    const before = types(events.slice(0, requested)).filter((t) => t !== 'engine.raw');
+    expect(before.slice(-2)).toEqual(['tool.started', 'tool.updated']);
+    expect(events[requested - 1]).toMatchObject({
+      type: 'tool.updated',
+      input: {
+        type: 'commandExecution',
+        command: expect.stringContaining('touch <outside>/approval.txt'),
+        cwd: '<workspace>',
+        justification: '需要在工作区之外写文件',
+      },
+    });
+    expect(of(events, 'tool.finished')).toMatchObject([{ status: 'completed' }]);
+    expect(events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+  });
+
+  it('approval-exec：decline → 工具 failed、回合完成；cancel → 工具 failed、回合以 cancelled 结算', () => {
+    const declined = replayConversation('approval-exec', 'decline');
+    expect(of(declined, 'tool.finished')).toMatchObject([{ status: 'failed' }]);
+    expect(declined.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    const cancelled = replayConversation('approval-exec', 'cancel');
+    expect(of(cancelled, 'tool.finished')).toMatchObject([{ status: 'failed' }]);
+    expect(cancelled.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
+  });
+
+  it('approval-exec：审批挂起时中断，命令没有 item/completed，回合结算前按失败收尾', () => {
+    const events = replayConversation('approval-exec', 'interrupt');
+    const finished = events.findIndex((e) => e.type === 'tool.finished');
+    expect(events[finished]).toMatchObject({ status: 'failed' });
+    expect(events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
+    expect(finished).toBe(events.length - 2);
+  });
+
+  it('approval-patch：补丁的 changes 在 tool.started 里，请求没有理由就不补；“告诉它换个做法”时按失败收尾', () => {
+    const accepted = replayConversation('approval-patch', 'accept');
+    const requested = accepted.findIndex((e) => e.type === 'approval.requested');
+    const started = of(accepted, 'tool.started')[0];
+    expect(started).toMatchObject({
+      toolName: 'fileChange',
+      display: { kind: 'write', paths: ['<outside>/approval.txt'] },
+      input: { changes: [expect.objectContaining({ diff: expect.stringContaining('outside') })] },
+    });
+    expect(accepted[requested - 1]?.type).not.toBe('tool.updated');
+    expect(of(accepted, 'tool.finished')).toMatchObject([{ status: 'completed' }]);
+    const cancelled = replayConversation('approval-patch', 'cancel');
+    expect(of(cancelled, 'tool.finished')).toMatchObject([{ status: 'failed' }]);
+    expect(cancelled.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'cancelled' });
   });
 
   it('cancel：中断时没提交的增量按已提交消息补发，回合以 cancelled 结算', () => {
@@ -231,6 +348,7 @@ describe('回放 codex-app-server 的通知', () => {
       'tool-shell',
       'apply-patch',
       'cancel',
+      'plan',
     ]) {
       const { events } = replay(name);
       // 没有未预期的 engine.raw：只有 turn/diff/updated。

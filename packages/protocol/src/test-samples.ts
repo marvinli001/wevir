@@ -331,7 +331,7 @@ export const eventPayloads: PayloadSamples = {
       kind: 'config_option_update',
       params: { sessionUpdate: 'config_option_update' },
     },
-    invalid: { protocol: 'mcp', method: 'session/update' },
+    invalid: { protocol: '', method: 'session/update' },
   },
 };
 

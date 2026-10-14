@@ -5,6 +5,8 @@
 
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { ProviderConfig } from '@wevir/runtime-adapter';
 
 export const MOCK_MODEL = 'wevir-mock';
@@ -287,14 +289,31 @@ export const MOCK_PATCH = [
   '*** End Patch',
 ].join('\n');
 
+/** 生成会话标题的请求（prompts/thread-title.md 的第一句在说明里）。 */
+const TITLE_PROMPT = '你为 Wevir 的会话起标题';
+
 /**
  * 默认脚本，按最后一条用户输入里的关键词决定（契约测试的默认提示词与桌面验收都用它）：
+ * - 生成会话标题的请求：回 `{"title", "description"}`，标题是“Mock：”加用户消息的开头；
  * - 含 `tool` 或“工具”：先调一次 `exec_command`（`ls`，在工作区里，沙箱内不需要审批），拿到输出后再回一句话；
  * - 含 `patch` 或“补丁”：用 apply_patch 新建 `wevir-mock.txt`，再回一句话；
+ * - 含 `outside` 或“工作区外”：越出沙箱 `touch` 工作区外的文件（要审批），再回一句话。文件名取提示词里第一个
+ *   `*.txt`，没有时是 `wevir-mock-outside.txt`；目录是 `WEVIR_MOCK_OUTSIDE_DIR`，没设时是家目录；
+ * - 含 `long` 或“长”：慢慢流出一段长回答（约 6 秒），给流式中途取消用；
  * - 其余：先逐片发推理，再逐片发文本。
  */
 export const defaultMockScript: MockScript = (view) => {
   const prompt = view.lastUserText;
+  if (JSON.stringify(view.body).includes(TITLE_PROMPT)) {
+    const asked = view.body.input
+      .map((item) => /<user_prompt>\n([\s\S]*?)\n<\/user_prompt>/.exec(textOf(item.content))?.[1])
+      .find((text) => text !== undefined)
+      ?.trim();
+    const title = `Mock：${Array.from(asked ?? '')
+      .slice(0, 10)
+      .join('')}`;
+    return { text: [JSON.stringify({ title, description: `mock 生成的标题：${asked ?? ''}` })] };
+  }
   if (view.toolOutputs.length > 0) {
     return { text: ['工具已经运行完了', '，结果在上面。'], delayMs: 5 };
   }
@@ -311,6 +330,31 @@ export const defaultMockScript: MockScript = (view) => {
       text: ['我来新建一个文件。'],
       toolCalls: [{ kind: 'custom', name: 'apply_patch', input: MOCK_PATCH }],
       delayMs: 5,
+    };
+  }
+  if (/outside|工作区外/i.test(prompt)) {
+    const name = /[\w.-]+\.txt/.exec(prompt)?.[0] ?? 'wevir-mock-outside.txt';
+    const target = join(process.env.WEVIR_MOCK_OUTSIDE_DIR || homedir(), name);
+    return {
+      text: ['这个文件在工作区之外，我申请一下权限。'],
+      toolCalls: [
+        {
+          kind: 'function',
+          name: 'exec_command',
+          args: {
+            cmd: `touch ${JSON.stringify(target)}`,
+            sandbox_permissions: 'require_escalated',
+            justification: `要在工作区之外新建 ${name}`,
+          },
+        },
+      ],
+      delayMs: 5,
+    };
+  }
+  if (/long|长/i.test(prompt)) {
+    return {
+      text: Array.from({ length: 40 }, (_, i) => `这是长回答的第 ${i + 1} 段。`),
+      delayMs: 150,
     };
   }
   return {

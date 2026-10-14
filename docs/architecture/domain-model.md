@@ -204,12 +204,12 @@ interface Session {
   id: SessionId
   workspaceId: WorkspaceId
   cwd: string                      // 创建时的 rootPath（realpath），resume 用
-  engine: { kind: 'dsh'; sessionId: string } // 仅诊断用
+  engine: { kind: string; sessionId: string } // 仅诊断用；kind 是 codex（默认）、dsh 或 echo
   providerId: ProviderId
   modelId: string
   reasoningEffort?: string         // dsh 的 reasoning_effort 选项值，原样（off / low / high / max）
   title: string
-  titleSource: 'first_prompt' | 'user'
+  titleSource: 'first_prompt' | 'user' | 'generated' // generated：0.5.0，会话的模型生成（R3）
   state: SessionState
   activeTurn?: ActiveTurn
   lastError?: { category: EngineErrorCategory; message: string }
@@ -243,7 +243,7 @@ interface SessionSnapshot {
 |---|---|---|---|
 | `id`、`workspaceId`、`cwd`、`engine` | 身份与映射（§1.1） | 会话管理器（T2.3），`session.create` | 不可改 |
 | `providerId`、`modelId`、`reasoningEffort` | 创建时选定；v0 没有中途切换模型的方法（预留 `session.config_changed`，§6.6） | `session.create` | v0 不可改 |
-| `title`、`titleSource` | 首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3） | 首个 `user.message` 时 Host 写 `session.title_changed` | 用户改名（方法在 T1.2 之后按需加） |
+| `title`、`titleSource` | 首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3）。适配器实现了 `generateTitle` 时（Codex），引擎接受第一个回合后 Host 再用会话的模型生成一次（prompts/thread-title.md，R3）：成功、且那时标题仍是截断的那个才写 `session.title_changed`（`generated`，带 `description` 检索摘要），失败只记告警 | 首个 `user.message` 时 Host 写 `session.title_changed`（`first_prompt`），之后可能再写一条（`generated`） | 用户改名（方法在 T1.2 之后按需加；改过名的会话不再自动生成） |
 | `state`、`activeTurn`、`lastError` | 状态机（§4） | Host | 只由状态机修改 |
 | `readOnly` | 引擎会话恢复不了（§4.4），状态是 `error` 或 `closed` | `session.read_only` | 之后的 `session.resumed` 清除 |
 | `createdAt`、`updatedAt`、`lastSeq` | | 事件库（T2.2） | 每次追加事件 |
@@ -263,11 +263,11 @@ type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'cancelled' | 'expired
 interface ApprovalOption {
   optionId: string            // 引擎原样，approval.respond 回传它
   label: string               // 引擎原样（dsh 给英文 "Allow once" / "Reject"），界面按 kind 本地化，未知 kind 才显示 label
-  kind: string                // 引擎原样（ACP: allow_once / allow_always / reject_once / reject_always）
+  kind: string                // 引擎原样（ACP: allow_once / allow_always / reject_once / reject_always）；Codex 由适配器定（allow_accept 等，codex-event-mapping.md §6.6）
   category: 'allow' | 'reject'
 }
 
-interface ApprovalDetail {     // 取自同一 toolCallId 的 tool.started
+interface ApprovalDetail {     // 取自同一 toolCallId 的工具：tool.started，及之后 tool.updated 更新的展示与输入
   toolName: string
   display: ToolDisplay        // §7
   input: unknown              // rawInput 原样（截断规则同工具输出）
@@ -307,12 +307,12 @@ interface ApprovalRequest {
 |---|---|---|---|
 | `id` | Host 分配 | 适配器上报审批请求时，会话管理器写 `approval.requested` | 不可改 |
 | `toolCallId`、`options` | 引擎原样。`category` 由 `kind` 前缀推导：`allow_` 开头为 `allow`，其余一律 `reject`（保守，未知 kind 不会被当作批准） | 同上 | 不可改 |
-| `detail` | Host 在同一会话里找 `toolCallId` 相同的 `tool.started`，取其 `toolName`、`display` 与 `input` | 同上 | 不可改 |
+| `detail` | Host 在同一会话里找 `toolCallId` 相同的工具，取其 `toolName`、`display` 与 `input`（`tool.started` 的，之后的 `tool.updated` 带了新的展示或输入时用新的；Codex 在审批请求之前用它补上理由，codex-event-mapping.md §6.6）；`justification` 与 `sandboxPermissions` 取输入里的同名字段 | 同上 | 不可改 |
 | `status`、`resolvedAt`、`resolution` | §5 | 同上（`pending`） | 只由审批状态机修改，写 `approval.resolved` |
 
 `approval.respond` 的参数是 `{ approvalId, optionId }`，`optionId` 必须是该请求 `options` 里的一个。适配器内部保留回复 ACP 请求所需的句柄（dsh 适配器：ACP SDK 交给审批处理器、等它兑现的 Promise），它不属于领域模型；适配器给 Host 的 `requestId` 是它自己分配的（acp-event-mapping.md §5.2）。
 
-“总是允许”：dsh 只给 `allow_once` / `reject_once`（T0.3 §5.2），v0 不做；将来由 Host 记规则自动应答，届时 `ApprovalResolutionReason` 增加 `'rule'`，`decidedBy` 为空。
+“总是允许”：dsh 只给 `allow_once` / `reject_once`（T0.3 §5.2），v0 不做；将来由 Host 记规则自动应答，届时 `ApprovalResolutionReason` 增加 `'rule'`，`decidedBy` 为空。Codex 的“本会话内不再问”（`acceptForSession`）由 Codex 自己在进程内记住，Host 只把它当一次批准（R3）。
 
 ### 3.5 WevirEvent
 
@@ -463,11 +463,11 @@ stateDiagram-v2
     expired --> [*]
 ```
 
-1. **创建**：适配器上报 `request_permission` 时，会话管理器分配 `ApprovalId`，从同一会话里 `toolCallId` 相同的 `tool.started` 取详情，写 `approval.requested`，会话转 `awaiting_approval`。
+1. **创建**：适配器上报审批请求时（dsh：`request_permission`；Codex：命令与补丁的 `requestApproval`），会话管理器分配 `ApprovalId`，从同一会话里 `toolCallId` 相同的工具（`tool.started`，及之后 `tool.updated` 的更新）取详情，写 `approval.requested`，会话转 `awaiting_approval`。
 2. **首个决定生效**：`approval.respond` 按会话串行处理。第一个到达的请求把审批锁定为“提交中”，经适配器回复引擎（ACP `{"outcome":{"outcome":"selected","optionId":…}}`）；成功后写 `approval.resolved`，`status` 按所选选项的 `category` 取 `approved` 或 `denied`，`decidedBy` 取该连接的 `ClientIdentity`。
 3. **后到者**：审批已不是 `pending` 时，`approval.respond` 返回 `ALREADY_DECIDED`，`data` 带既有的 `status` 与 `resolution`。因为命令串行，“提交中”期间到达的请求会排在后面，拿到的同样是 `ALREADY_DECIDED`。`optionId` 不在选项里返回 `INVALID_PARAMS`，不改变审批。
 4. **暂扣引擎事件**：提交期间，同一会话里适配器上报的引擎事件先缓冲，等 `approval.resolved` 写入后再追加。dsh 回复后几毫秒就发出该工具的 `tool_call_update`（`B-permission-allow.jsonl`：回复 901 ms，更新 906 ms），不暂扣会出现“工具已完成、审批还未决定”的顺序（ADR-0002 §4）。
-5. **由 Host 结算为 `cancelled`**：`session.cancel`（`turn_cancelled`）、`session.close`（`session_closed`）、dsh 进程退出（`engine_exited`）、Host 优雅退出（`host_shutdown`）。前两种情况适配器必须以 `{"outcome":{"outcome":"cancelled"}}` 回复 ACP，否则 dsh 侧悬挂（ADR-0001 §6）；`decidedBy` 为空。
+5. **由 Host 结算为 `cancelled`**：`session.cancel`（`turn_cancelled`）、`session.close`（`session_closed`）、dsh 进程退出（`engine_exited`）、Host 优雅退出（`host_shutdown`）。前两种情况适配器必须让引擎知道：dsh 以 `{"outcome":{"outcome":"cancelled"}}` 回复 ACP，否则 dsh 侧悬挂（ADR-0001 §6）；Codex 由 `turn/interrupt` 中断回合，app-server 自己收回请求（codex-event-mapping.md §6.6）。`decidedBy` 为空。
 6. **由 Host 结算为 `expired`**：Host 非正常退出后重启，启动对账时把残留的 `pending` 审批结为 `expired`（`host_restarted`）。此时 dsh 进程已随 Host 消失，没有可回复的请求。
 7. 审批结算后，引擎随后的 `tool_call_update` 照常映射为 `tool.finished`：批准后通常 `completed`；拒绝后 `failed`，结果文本是 dsh 的拒绝说明；取消后 `cancelled`（§6.4）。
 
@@ -494,7 +494,7 @@ stateDiagram-v2
 | `tool.started` | engine | 工具调用开始 | ACP `tool_call` |
 | `tool.updated` | engine | 工具调用的中间更新 | ACP `tool_call_update`（非终态） |
 | `tool.finished` | engine / host | 工具调用结束 | ACP `tool_call_update`（`completed` / `failed`）；Host 收尾时补写（`source: host`） |
-| `todo.updated` | host | 待办列表（完整列表） | 从 `todo_write` 的 `tool_call.rawInput` 推导 |
+| `todo.updated` | host | 待办列表（完整列表） | dsh：从 `todo_write` 的 `tool_call.rawInput` 推导；Codex：`turn/plan/updated`，`toolCallId` 是合成的 `plan:<回合 ID>`（codex-event-mapping.md §6.1） |
 | `approval.requested` | engine | 新的审批请求 | ACP `session/request_permission` |
 | `approval.resolved` | host | 审批结算，带 `decidedBy` | `approval.respond` 或 Host 结算 |
 | `usage.updated` | engine | 上下文用量 | ACP `usage_update` |
@@ -555,7 +555,11 @@ type WevirEvent =
     }>
   | WevirEventEnvelope<'session.resumed', { engineVersion?: string }> // 0.3.0
   | WevirEventEnvelope<'session.read_only', { reason: SessionReadOnlyReason; message: string }> // 0.3.0
-  | WevirEventEnvelope<'session.title_changed', { title: string; source: 'first_prompt' | 'user' }>
+  | WevirEventEnvelope<'session.title_changed', {
+      title: string
+      source: 'first_prompt' | 'user' | 'generated' // generated：0.5.0
+      description?: string      // 0.5.0：模型生成标题时的检索摘要，留给会话搜索
+    }>
   | WevirEventEnvelope<'session.state_changed', {
       from: SessionState
       to: SessionState
@@ -641,9 +645,9 @@ type WevirEvent =
       fatal: boolean            // true：会话因此进入 error
     }>
   | WevirEventEnvelope<'engine.raw', {
-      protocol: 'acp'
-      method: string            // 如 'session/update'
-      kind?: string             // session/update 的 sessionUpdate 值
+      protocol: string          // 'acp'，或 'codex-app-server'（0.5.0 起放开为字符串）
+      method: string            // 如 'session/update'、'turn/diff/updated'
+      kind?: string             // ACP：session/update 的 sessionUpdate 值；Codex：item 类型等
       params: unknown           // 原样（截断后）
     }>
 ```

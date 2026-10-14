@@ -1,0 +1,8 @@
+{"_meta":{"recordedBy":"packages/adapter-codex/src/test-fixtures/record-app-server.test.ts（WEVIR_RECORD_CODEX=1）","codex":"rust-v0.162.1","scenario":"approval-patch","part":"到审批请求为止","description":"补丁审批：apply_patch 新建工作区外的文件，fileChange 的 item/started 之后是审批请求（不带补丁内容）；分支是同意与“告诉它换个做法”","branches":["accept","cancel"]}}
+{"method":"thread/status/changed","params":{"threadId":"<thread>","status":{"type":"active","activeFlags":[]}}}
+{"method":"turn/started","params":{"threadId":"<thread>","turn":{"id":"<turn>","rootTurnId":"<turn>","items":[],"itemsView":"notLoaded","status":"inProgress","error":null,"startedAt":1791949269,"completedAt":null,"durationMs":null}}}
+{"method":"item/started","params":{"item":{"type":"userMessage","id":"<item:1>","clientId":null,"content":[{"type":"text","text":"[wevir:PATCH] <outside>","text_elements":[]}]},"threadId":"<thread>","turnId":"<turn>","startedAtMs":1791949269385}}
+{"method":"item/completed","params":{"item":{"type":"userMessage","id":"<item:1>","clientId":null,"content":[{"type":"text","text":"[wevir:PATCH] <outside>","text_elements":[]}]},"threadId":"<thread>","turnId":"<turn>","completedAtMs":1791949269385}}
+{"method":"item/started","params":{"item":{"type":"fileChange","id":"<item:2>","changes":[{"path":"<outside>/approval.txt","kind":{"type":"add"},"diff":"outside\n"}],"status":"inProgress"},"threadId":"<thread>","turnId":"<turn>","startedAtMs":1791949269398}}
+{"method":"thread/status/changed","params":{"threadId":"<thread>","status":{"type":"active","activeFlags":["waitingOnApproval"]}}}
+{"serverRequest":{"id":"<request>","method":"item/fileChange/requestApproval","params":{"threadId":"<thread>","turnId":"<turn>","itemId":"<item:2>","startedAtMs":1791949269399,"reason":null,"grantRoot":null}}}

@@ -3,15 +3,20 @@ import type {
   AssistantStreamEndedEvent,
   DeltaBlockRef,
   EngineRawEvent,
+  TodoItem,
   ToolDisplay,
   TurnFailedEvent,
   TurnSettledEvent,
 } from '@wevir/runtime-adapter';
 import type {
   AgentMessageItem,
+  ApprovalRequestMethod,
+  CommandExecutionItem,
+  CommandExecutionRequestApprovalParams,
   DeltaNotification,
   ErrorNotification,
   FileChangeItem,
+  FileChangeRequestApprovalParams,
   ItemNotification,
   McpProgressNotification,
   PatchUpdatedNotification,
@@ -19,6 +24,8 @@ import type {
   TokenUsageNotification,
   ToolItem,
   TurnNotification,
+  TurnPlanStepStatus,
+  TurnPlanUpdatedNotification,
 } from './protocol.js';
 import {
   fileChangeDisplay,
@@ -27,6 +34,7 @@ import {
   toolName,
   toolOutput,
 } from './tool-display.js';
+import { classifyTurnError } from './turn-error.js';
 
 // codex-app-server 的通知 → AgentEvent（docs/architecture/codex-event-mapping.md §6，codex-notes §10）。一个会话
 // （一个 thread）一个映射器，按通知到达的顺序调用 `map`；回合开始时 `reset`。输入是 app-server 写出的原始参数，
@@ -50,9 +58,23 @@ export const MAPPED_NOTIFICATIONS = Object.freeze([
   'item/fileChange/patchUpdated',
   'item/mcpToolCall/progress',
   'thread/tokenUsage/updated',
+  'turn/plan/updated',
   'turn/completed',
   'error',
 ] as const);
+
+/**
+ * `turn/plan/updated` 没有对应的工具调用（`update_plan` 不产生 item），`todo.updated.toolCallId` 用这个前缀加回合 ID
+ * 合成（codex-event-mapping.md §6.1）。客户端只按回合取最新的计划，不按 toolCallId 找工具。
+ */
+export const PLAN_TOOL_CALL_PREFIX = 'plan:';
+
+/** Codex 的计划步骤状态 → Wevir 的待办状态（与 dsh 的 `todo_write` 同一套：pending / in_progress / completed）。 */
+const PLAN_STATUS: Record<TurnPlanStepStatus, string> = {
+  pending: 'pending',
+  inProgress: 'in_progress',
+  completed: 'completed',
+};
 
 /**
  * 认识、但没有对应 Wevir 事件、也不值得保留的通知：回合开始（Host 自己写 `turn.started`）、推理摘要分段的
@@ -157,6 +179,8 @@ export class CodexEventMapper {
         return isPatchUpdated(params) ? this.#patchUpdated(params) : [this.raw(method, params)];
       case 'thread/tokenUsage/updated':
         return isTokenUsage(params) ? this.#usage(params) : [this.raw(method, params)];
+      case 'turn/plan/updated':
+        return isPlanUpdated(params) ? [this.#plan(params)] : [this.raw(method, params)];
       case 'error':
         return this.#error(params as Partial<ErrorNotification>, method);
       case 'turn/completed':
@@ -177,6 +201,56 @@ export class CodexEventMapper {
       ...(kind !== undefined && { kind }),
       ...(params !== undefined && { params }),
     };
+  }
+
+  /**
+   * 审批请求之前要发的事件（codex-event-mapping.md §6.6）。Host 从同一 toolCallId 的工具取审批详情：app-server 在
+   * 请求之前已经发了这个 item 的 `item/started`（命令原文、cwd、commandActions，补丁的 changes），这里只补上请求里的
+   * 理由（`reason` → 输入的 `justification`，与模型调 `exec_command` 时的参数同名），发一条 `tool.updated`；没见过
+   * 这个 item 时按请求合成一条 `tool.started`。
+   */
+  approvalPrelude(
+    method: ApprovalRequestMethod,
+    params: CommandExecutionRequestApprovalParams | FileChangeRequestApprovalParams,
+  ): AgentEvent[] {
+    const reason = typeof params.reason === 'string' && params.reason !== '' ? params.reason : '';
+    const state = this.#items.get(params.itemId);
+    if (state?.tool !== undefined) {
+      if (reason === '' || state.completed) return [];
+      return [
+        {
+          type: 'tool.updated',
+          engineSessionId: this.engineSessionId,
+          toolCallId: params.itemId,
+          input: { ...state.tool, justification: reason },
+        },
+      ];
+    }
+    const item: ToolItem =
+      method === 'item/commandExecution/requestApproval'
+        ? ({
+            type: 'commandExecution',
+            id: params.itemId,
+            command: (params as CommandExecutionRequestApprovalParams).command ?? '',
+            cwd: (params as CommandExecutionRequestApprovalParams).cwd ?? '',
+            status: 'inProgress',
+            commandActions: (params as CommandExecutionRequestApprovalParams).commandActions ?? [],
+            aggregatedOutput: null,
+            exitCode: null,
+            durationMs: null,
+          } satisfies CommandExecutionItem)
+        : ({
+            type: 'fileChange',
+            id: params.itemId,
+            changes: [],
+            status: 'inProgress',
+          } satisfies FileChangeItem);
+    const events = this.#toolStarted(item);
+    const started = events[0];
+    if (reason !== '' && started?.type === 'tool.started') {
+      started.input = { ...item, justification: reason };
+    }
+    return events;
   }
 
   // ── item ────────────────────────────────────────────────────────────────────────────
@@ -402,7 +476,20 @@ export class CodexEventMapper {
     return events;
   }
 
-  // ── 用量、错误、回合结束 ───────────────────────────────────────────────────────────────
+  // ── 用量、计划、错误、回合结束 ─────────────────────────────────────────────────────────
+
+  #plan(params: TurnPlanUpdatedNotification): AgentEvent {
+    const items: TodoItem[] = params.plan.map((step) => ({
+      content: step.step,
+      status: PLAN_STATUS[step.status] ?? step.status,
+    }));
+    return {
+      type: 'todo.updated',
+      engineSessionId: this.engineSessionId,
+      toolCallId: `${PLAN_TOOL_CALL_PREFIX}${params.turnId}`,
+      items,
+    };
+  }
 
   /** 已用量取最近一次请求的 `last.totalTokens`（codex-notes §2.7 的口径），上下文大小优先取模型目录。 */
   #usage(params: TokenUsageNotification): AgentEvent[] {
@@ -444,22 +531,46 @@ export class CodexEventMapper {
       case 'failed': {
         const error = turn.error;
         const details = error?.additionalDetails;
+        const { category, httpStatus } = classifyTurnError(error);
         terminal = {
           type: 'turn.failed',
           engineSessionId: this.engineSessionId,
-          // 归类（missing_credentials、provider）由 R3 按 codexErrorInfo 与上游状态码做。
-          category: 'unknown',
+          category,
           message:
             (error?.message ?? 'Codex 报告回合失败') +
             (details !== null && details !== undefined && details !== '' ? `\n${details}` : ''),
+          ...(httpStatus !== undefined && { code: httpStatus }),
         };
         break;
       }
       default:
         return [this.raw('turn/completed', params)];
     }
-    const events = [...this.#flushOpenStreams(), terminal];
+    const events = [
+      ...this.#flushOpenStreams(),
+      ...(turn.status === 'interrupted' ? this.#failOpenTools() : []),
+      terminal,
+    ];
     this.reset();
+    return events;
+  }
+
+  /**
+   * 回合被中断时还没结束的工具：Codex 不会再发它们的 `item/completed`（审批挂起时取消、审批选了“告诉它换个做法”
+   * 的补丁），按失败结束；取消期间 Host 把它记为 cancelled（domain-model.md §6.4）。
+   */
+  #failOpenTools(): AgentEvent[] {
+    const events: AgentEvent[] = [];
+    for (const [itemId, item] of this.#items) {
+      if (item.tool === undefined || item.completed) continue;
+      item.completed = true;
+      events.push({
+        type: 'tool.finished',
+        engineSessionId: this.engineSessionId,
+        toolCallId: itemId,
+        status: 'failed',
+      });
+    }
     return events;
   }
 }
@@ -514,6 +625,18 @@ function isTokenUsage(
 ): params is TokenUsageNotification & Record<string, unknown> {
   const usage = params.tokenUsage;
   return isRecord(usage) && isRecord(usage.last) && typeof usage.last.totalTokens === 'number';
+}
+
+function isPlanUpdated(
+  params: Record<string, unknown>,
+): params is TurnPlanUpdatedNotification & Record<string, unknown> {
+  return (
+    typeof params.turnId === 'string' &&
+    Array.isArray(params.plan) &&
+    params.plan.every(
+      (step) => isRecord(step) && typeof step.step === 'string' && typeof step.status === 'string',
+    )
+  );
 }
 
 function isTurnNotification(

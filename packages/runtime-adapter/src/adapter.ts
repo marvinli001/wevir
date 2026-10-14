@@ -8,6 +8,7 @@ import type {
   ProviderIssue,
   ProviderTestResult,
   SessionConfig,
+  TitleRequest,
 } from './types.js';
 
 /**
@@ -122,6 +123,14 @@ export interface AgentRuntimeAdapter {
    * 不实现时 Host 回“不可用”。
    */
   testProvider?(provider: ProviderConfig, modelId: string): Promise<ProviderTestResult>;
+
+  /**
+   * 用会话当前的 Provider 与模型发一次不带工具的请求，生成会话标题（prompts/thread-title.md，R3）。Host 组好
+   * 说明与输入、解析与整理输出；适配器只负责发请求，推理档位取这个模型最低的一档，返回模型的最终文本。不实现时
+   * Host 只用首条消息截断的标题（dsh）。
+   * 错误：`session_not_found`、`session_closed`（会话没挂着）、`engine_unavailable`（请求失败）、`disposed`。
+   */
+  generateTitle?(engineSessionId: string, request: TitleRequest): Promise<string>;
 
   /**
    * 释放全部资源（dsh：关 stdin，超时再 SIGTERM、SIGKILL）。进行中的回合被放弃，未决审批以

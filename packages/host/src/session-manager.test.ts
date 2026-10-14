@@ -1277,6 +1277,134 @@ describe('SessionManager：Host 启动对账（#15、#11）', () => {
   });
 });
 
+describe('SessionManager：会话标题（R3）', () => {
+  const TITLE = '{"title": "“打个招呼。”", "description": "第一条消息是问候"}';
+
+  function withTitles(output: () => Promise<string>) {
+    const warnings: string[] = [];
+    const h = setup({
+      manager: {
+        titleInstructions: '起标题',
+        onWarning: (message) => warnings.push(message),
+      },
+    });
+    const calls: Array<{ engineSessionId: string; input: string; instructions: string }> = [];
+    Object.assign(h.adapter, {
+      generateTitle: (
+        engineSessionId: string,
+        request: { input: string; instructions: string },
+      ) => {
+        calls.push({ engineSessionId, input: request.input, instructions: request.instructions });
+        return output();
+      },
+    });
+    return { h, calls, warnings };
+  }
+
+  it('第一个回合开始后用会话的模型生成标题：先写截断的，再写 generated（去掉引号与结尾标点，带检索摘要）', async () => {
+    const { h, calls, warnings } = withTitles(async () => TITLE);
+    const id = await create(h);
+    await send(h, id, '  你好 <b>&\n 世界 ');
+    await waitForState(h, id, 'idle');
+    await vi.waitFor(() => expect(snapshot(h, id).session.titleSource).toBe('generated'));
+    expect(ofType(h, id, 'session.title_changed').map((e) => e.payload)).toEqual([
+      { title: '你好 <b>& 世界', source: 'first_prompt' },
+      { title: '打个招呼', source: 'generated', description: '第一条消息是问候' },
+    ]);
+    expect(snapshot(h, id).session.title).toBe('打个招呼');
+    expect(calls).toEqual([
+      {
+        engineSessionId: snapshot(h, id).session.engine.sessionId,
+        instructions: '起标题',
+        input: '<user_prompt>\n你好 &lt;b&gt;&amp;\n 世界\n</user_prompt>',
+      },
+    ]);
+    // 之后的回合不再生成。
+    await send(h, id, 'again');
+    await waitForState(h, id, 'idle');
+    expect(calls).toHaveLength(1);
+    expect(warnings).toEqual([]);
+  });
+
+  it('输出解析不了或请求失败：保留截断的标题，记一条告警', async () => {
+    const { h, warnings } = withTitles(async () => '我觉得标题应该是……');
+    const id = await create(h);
+    await send(h, id, 'hello');
+    await vi.waitFor(() => expect(warnings).toHaveLength(1));
+    expect(warnings[0]).toContain('无法解析');
+    expect(snapshot(h, id).session).toMatchObject({ title: 'hello', titleSource: 'first_prompt' });
+
+    const failing = withTitles(() => Promise.reject(new AdapterError('engine_unavailable', '502')));
+    const id2 = await create(failing.h);
+    await send(failing.h, id2, 'hello');
+    await vi.waitFor(() => expect(failing.warnings).toHaveLength(1));
+    expect(failing.warnings[0]).toContain('生成会话标题失败');
+    await waitForState(failing.h, id2, 'idle');
+    expect(snapshot(failing.h, id2).session.titleSource).toBe('first_prompt');
+  });
+
+  it('等结果期间标题已经不是截断的那个（用户改过名）：不覆盖', async () => {
+    let resolve!: (text: string) => void;
+    const { h } = withTitles(() => new Promise<string>((r) => (resolve = r)));
+    const id = await create(h);
+    await send(h, id, 'hello');
+    await waitForState(h, id, 'idle');
+    h.events.append(id, {
+      type: 'session.title_changed',
+      source: 'host',
+      payload: { title: '我的名字', source: 'user' },
+    });
+    resolve(TITLE);
+    await delay(20);
+    expect(snapshot(h, id).session).toMatchObject({ title: '我的名字', titleSource: 'user' });
+    expect(ofType(h, id, 'session.title_changed')).toHaveLength(2);
+  });
+
+  it('没有提示词或适配器不实现 generateTitle：只有截断的标题', async () => {
+    const h = setup();
+    const spy = vi.fn(async () => TITLE);
+    Object.assign(h.adapter, { generateTitle: spy });
+    const id = await create(h);
+    await send(h, id, 'hello');
+    await waitForState(h, id, 'idle');
+    expect(spy).not.toHaveBeenCalled();
+    expect(snapshot(h, id).session.titleSource).toBe('first_prompt');
+  });
+});
+
+describe('SessionManager：Codex 引擎的事件（R3）', () => {
+  it('审批详情取工具最新的输入：请求之前的 tool.updated（带理由）覆盖 tool.started 的输入', async () => {
+    const h = setup();
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      justifyBeforeApproval(subscribe(engineSessionId)),
+    );
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
+    expect(approval.detail).toMatchObject({
+      toolName: 'echo_write',
+      input: { file_path: '/outside-workspace/echo.txt', justification: '要写工作区外的文件' },
+      justification: '要写工作区外的文件',
+    });
+    await h.manager.cancel(id);
+  });
+
+  it('engine.raw 原样写下引擎的协议（codex-app-server）', async () => {
+    const h = setup();
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      withCodexRaw(subscribe(engineSessionId), engineSessionId),
+    );
+    const id = await create(h);
+    await send(h, id, 'hello');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'engine.raw').map((e) => e.payload)).toEqual([
+      { protocol: 'codex-app-server', method: 'turn/diff/updated', params: { diff: '' } },
+    ]);
+  });
+});
+
 describe('SessionManager：其他', () => {
   it('dispose 之后的调用返回 HOST_SHUTTING_DOWN', async () => {
     const h = setup();
@@ -1313,5 +1441,41 @@ function endImmediately(): AsyncIterable<AgentEvent> {
 async function* dropToolFinished(source: AsyncIterable<AgentEvent>) {
   for await (const event of source) {
     if (event.type !== 'tool.finished') yield event;
+  }
+}
+
+/** 审批请求之前插一条 tool.updated，输入带上理由（adapter-codex 的做法，codex-event-mapping.md §6.6）。 */
+async function* justifyBeforeApproval(source: AsyncIterable<AgentEvent>) {
+  const inputs = new Map<string, unknown>();
+  for await (const event of source) {
+    if (event.type === 'tool.started') inputs.set(event.toolCallId, event.input);
+    if (event.type === 'approval.requested') {
+      yield {
+        type: 'tool.updated',
+        engineSessionId: event.engineSessionId,
+        toolCallId: event.toolCallId,
+        input: {
+          ...(inputs.get(event.toolCallId) as Record<string, unknown>),
+          justification: '要写工作区外的文件',
+        },
+      } satisfies AgentEvent;
+    }
+    yield event;
+  }
+}
+
+/** 回合结束之前插一条 Codex 的 engine.raw。 */
+async function* withCodexRaw(source: AsyncIterable<AgentEvent>, engineSessionId: string) {
+  for await (const event of source) {
+    if (event.type === 'turn.settled') {
+      yield {
+        type: 'engine.raw',
+        engineSessionId,
+        protocol: 'codex-app-server',
+        method: 'turn/diff/updated',
+        params: { diff: '' },
+      } satisfies AgentEvent;
+    }
+    yield event;
   }
 }

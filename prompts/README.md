@@ -2,7 +2,7 @@
 
 这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），其余还只是文本。谁来加载、什么时候加载，见下面的表；MCP、插件、skills 这些还没开始建设的部分在文件里留了占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），其余还只是文本。谁来加载、什么时候加载，见下面的表；MCP、插件、skills 这些还没开始建设的部分在文件里留了占位。
 
 ## 文件
 
@@ -11,7 +11,7 @@
 | [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；联网搜索、skills、插件、MCP 是占位 |
 | [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | 下发方式未定，见“未决” | 可用 |
 | [`auto-review.md`](auto-review.md) | 审批自动复核员 | Host（新功能），与引擎无关 | 可用；只读工具是占位 |
-| [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host，与引擎无关 | 可用 |
+| [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
@@ -69,10 +69,10 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 
 ## 会话标题
 
-- 第一个回合开始后，Host 用会话第一条用户消息生成标题；生成出来之前先用现有的截断规则（`session-manager.ts` 的 `makeTitle`）兜底，用户手动改过标题（`titleSource: 'user'`）就不再自动生成。协议的 `TitleSource` 要加一个表示“模型生成”的值，随 Host 的实现任务改。
+- 第一个回合开始后（引擎接受了第一条消息），Host 用会话第一条用户消息生成标题；生成出来之前先用现有的截断规则（`session-manager.ts` 的 `makeTitle`）兜底，用户手动改过标题（`titleSource: 'user'`）就不再自动生成，生成失败或超时（60 s）只记告警、保留截断的标题。协议 0.5.0 的 `TitleSource` 加了 `generated`（旧客户端看到 `first_prompt`，host-api.md §10）。适配器不实现 `generateTitle` 的引擎（dsh）只有截断的标题。
 - 输入：`<user_prompt>` 或 `<conversation>`（最近几条 user 与 assistant 消息，`<`、`>`、`&` 转义）。总长度建议限制在 1 KB 左右，与 Codex 的做法一致。
-- 输出：`{"title", "description"}`。Host 去掉首尾引号与结尾标点，按长度截断；`description` 先存下，等有会话搜索时用。
-- 模型：用当前会话的模型（维护者 2026-10-14 定），推理档位取最低。
+- 输出：`{"title", "description"}`（支持结构化输出的路径用 JSON Schema 约束）。Host 取第一个 `{` 到最后一个 `}` 之间的 JSON，去掉首尾引号与结尾标点、折叠空白，标题截到 36 个字符、摘要截到 100 个字符；`description` 存在 `session.title_changed` 事件里，等有会话搜索时用。
+- 模型：用当前会话的模型（维护者 2026-10-14 定），推理档位取最低。经网关的会话由适配器经网关直接发一次不带工具的请求；ChatGPT 登录的会话（R6）用 Codex 的临时 thread（`ephemeral` + `outputSchema`）。
 
 ## 来源与许可
 

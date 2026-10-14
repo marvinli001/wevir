@@ -23,7 +23,7 @@
 - 模型 API Key 存在 `<数据目录>/secrets.json`：明文 JSON，0600；写入时先以 0600 创建临时文件再 rename，任何时刻都没有宽权限的中间文件（ADR-0003 §3）。Windows 上 0600 不生效，依赖 `%APPDATA%` 的按用户 ACL（同 §1）。迁移到系统钥匙串是 ADR-0003 的未决事项。
 - `wevir.db` 只存 Provider 的配置与 Key 的引用，不存 Key；但会话历史（提示、模型回答、工具的参数与输出）都在里面，没有加密，靠数据目录的权限保护。
 - Key 交给 dsh 的唯一途径是 dsh 子进程的环境变量 `WEVIR_PROVIDER_<ID>_KEY`；Wevir 写给 dsh 的 Provider overlay（`engines/dsh/wevir/providers.yml`）里只有变量名（`apiKeyEnv`），不写进 `DSH_HOME`（AGENTS.md 规则 5）。同一用户的进程能读另一个进程的环境变量，这仍在 §1 的边界之内。
-- Codex 引擎（`--adapter codex`，§5）拿不到 Key：Key 只在 Host 进程里的模型网关，Codex 的环境与 `CODEX_HOME` 里只有网关令牌（每次启动 `codex-app-server` 随机生成，只在内存，只能访问本机网关），生成的 `config.toml` 里只有令牌的变量名。
+- Codex 引擎（默认引擎，§5）拿不到 Key：Key 只在 Host 进程里的模型网关，Codex 的环境与 `CODEX_HOME` 里只有网关令牌（每次启动 `codex-app-server` 随机生成，只在内存，只能访问本机网关），生成的 `config.toml` 里只有令牌的变量名。
 - Host 日志按字段名把令牌、密钥、密码、API Key、凭据、Authorization、Cookie 一类的值替换为 `[REDACTED]`，本次启动的令牌在任何字符串里出现都替换。`provider.test` 的错误原文来自服务端，服务端回显的 Key 片段（例如 `****-key`）照原样保留。
 
 ## 4. dsh 引擎
@@ -48,15 +48,16 @@
   - 按 dsh 自己的文档，沙箱模式**只约束文件写入**：读取工作区外的文件、网络访问与进程可见性都不在它的范围内，也不触发审批。Windows 上的沙箱是部分强制（NTFS 硬链接可以绕过写入限制）。来源：dsh `docs/subsystems/sandbox.zh.md` 与 `packages/sandbox/sandbox-local/README.zh.md`（锁定提交 `d743267`）。Wevir 没有另外验证读取与网络的行为。
 - 骨架阶段没有“总是允许”一类的审批规则，每次升级都要逐个决定。
 
-## 5. Codex 引擎（`--adapter codex`，R2）
+## 5. Codex 引擎（R2 起可用，R3 起是默认引擎）
 
-细节见 [codex-event-mapping.md](./architecture/codex-event-mapping.md) §1–§3。
+细节见 [codex-event-mapping.md](./architecture/codex-event-mapping.md) §1–§4、§6.6。
 
 - **独立的 `CODEX_HOME`**：`<数据目录>/engines/codex`，不与用户自己装的 Codex（`~/.codex`）混用，进程的 cwd 也是它。白名单环境同 dsh，另外不继承 `OPENAI_API_KEY`、`CODEX_API_KEY`、`CODEX_ACCESS_TOKEN` 等会改变 Codex 认证与配置的变量。
 - **外连为零**：生成的配置关掉插件（唯一产生外连的开关：启动时同步插件市场，连 github.com、api.github.com、chatgpt.com）、联网搜索、遥测，模型请求只发往本机网关；adapter-codex 的集成测试用只记录目标的代理与 lsof 核对。
 - **命令看不到令牌**：`[shell_environment_policy]` 套用 Codex 内置的 *KEY* / *SECRET* / *TOKEN* 排除并排除 `WEVIR_*`。副作用：你 shell 配置里导出的名字含 KEY、SECRET、TOKEN 的变量（例如 `GITHUB_TOKEN`）在模型跑的命令里也看不到。
 - **用户级 skills 不进会话**：`HOME` 是你真实的家目录（命令要用 git 等配置），Codex 会读 `~/.agents/skills`；Wevir 关掉了 skills 列表，那里的 skills 不会列给模型。你在消息里显式写 `$<skill 名>` 时，Codex 会把那个 skill 放进上下文：这是有意保留的，算你主动使用自己的 skill（取舍见 codex-event-mapping.md §1.3）。工作区里的 `AGENTS.md`、`.codex/config.toml`、`.agents/skills` 照常生效，打开不可信仓库时与 §4 的提醒相同。
-- **沙箱**：`workspace-write`，macOS 上是 Seatbelt，默认禁网；写工作区外或要求提权的命令需要审批。R2 还没有审批，这类请求一律拒绝（R3 实现）。Windows 与 Linux 的沙箱还没有在 Wevir 里实测（ADR-0005 未决事项 4）。
+- **沙箱与审批**：`workspace-write`，macOS 上是 Seatbelt，默认禁网；工作区、`$TMPDIR` 与 `/tmp` 可写。写工作区外的补丁、模型申请越出沙箱的命令要审批，卡片上是命令原文（或补丁的 diff）、工作目录与模型给的理由。“本会话内这个命令不再问”只在这个会话、这个 Codex 进程里有效（Host 或引擎重启后重新问）；没有“总是允许”。子 agent 的审批在子会话（R4）之前一律拒绝。Windows 与 Linux 的沙箱还没有在 Wevir 里实测（ADR-0005 未决事项 4）。
+- **会话标题**：第一个回合开始后，Host 把第一条消息（转义、截到约 1 KB）经同一个 Provider 的同一个模型再发一次，请它起标题（不带工具、只经本机网关），所以每个新会话多一次模型请求；不想要时用 dsh 引擎（只有截断的标题）。
 
 ## 6. 骨架阶段不做的
 

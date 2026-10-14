@@ -1,0 +1,9 @@
+{
+  "_meta": {
+    "codex": "rust-v0.162.1",
+    "case": "resume-not-found",
+    "description": "CODEX_HOME 里没有这个 thread 的 rollout"
+  },
+  "code": -32600,
+  "message": "no rollout found for thread id 019a0000-0000-7000-8000-000000000000"
+}

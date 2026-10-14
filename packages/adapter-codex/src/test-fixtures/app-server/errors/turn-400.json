@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "codex": "rust-v0.162.1",
+    "case": "turn-400",
+    "description": "上游 400：other，原文是上游的错误体"
+  },
+  "params": {
+    "threadId": "<thread>",
+    "turn": {
+      "id": "<turn>",
+      "rootTurnId": "<turn>",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "{\"error\":{\"message\":\"mock: bad request\",\"type\":\"invalid_request_error\"}}",
+        "codexErrorInfo": "other",
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "startedAt": 1791949271,
+      "completedAt": 1791949271,
+      "durationMs": 18
+    }
+  }
+}

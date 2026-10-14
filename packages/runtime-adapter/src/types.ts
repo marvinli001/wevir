@@ -39,6 +39,18 @@ export interface AgentInput {
   content: Array<{ type: 'text'; text: string }>;
 }
 
+/** `generateTitle` 的请求（prompts/README.md「会话标题」）。 */
+export interface TitleRequest {
+  /** 说明：prompts/thread-title.md 去掉注释后的全文。 */
+  instructions: string;
+  /** 用户消息：`<user_prompt>…</user_prompt>` 或 `<conversation>…</conversation>`，已转义、已限长。 */
+  input: string;
+  /** 输出的 JSON Schema（`{title, description}`）；引擎支持结构化输出时用它约束。 */
+  outputSchema: Record<string, unknown>;
+  /** Host 不再需要结果时（超时、会话被改名）中止。 */
+  signal?: AbortSignal;
+}
+
 /** 引擎给的一个审批选项，全部字段原样。 */
 export interface ApprovalOption {
   /** `respondToApproval` 回传它，如 dsh 的 `allow-once`。 */

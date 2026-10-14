@@ -79,6 +79,8 @@ export const EventPayloadSchemas = {
   'session.title_changed': z.object({
     title: z.string(),
     source: TitleSourceSchema,
+    /** 模型生成标题时一并给出的检索摘要（0.5.0）；留给以后的会话搜索。 */
+    description: z.string().optional(),
   }),
   'session.state_changed': z.object({
     from: SessionStateSchema,
@@ -183,10 +185,14 @@ export const EventPayloadSchemas = {
     fatal: z.boolean(),
   }),
   'engine.raw': z.object({
-    protocol: z.literal('acp'),
-    /** 如 `session/update`。 */
+    /**
+     * 引擎协议：`acp`（dsh 等），`codex-app-server`（0.5.0 起；之前只有 `acp`）。只是调试信息，开放的字符串，
+     * 旧客户端的 schema 只认 `acp`，按 host-api.md §4 跳过它认不出的那几条。
+     */
+    protocol: z.string().min(1),
+    /** 如 `session/update`、`turn/diff/updated`。 */
     method: z.string(),
-    /** `session/update` 的 `sessionUpdate` 值。 */
+    /** ACP：`session/update` 的 `sessionUpdate` 值；Codex：item 的类型等。 */
     kind: z.string().optional(),
     /** 原样（截断后）。 */
     params: z.unknown().optional(),

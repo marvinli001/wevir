@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "codex": "rust-v0.162.1",
+    "case": "turn-429",
+    "description": "上游 429：重试用完，responseTooManyFailedAttempts（429）"
+  },
+  "params": {
+    "threadId": "<thread>",
+    "turn": {
+      "id": "<turn>",
+      "rootTurnId": "<turn>",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "exceeded retry limit, last status: 429 Too Many Requests",
+        "codexErrorInfo": {
+          "responseTooManyFailedAttempts": {
+            "httpStatusCode": 429
+          }
+        },
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "startedAt": 1791949270,
+      "completedAt": 1791949270,
+      "durationMs": 19
+    }
+  }
+}

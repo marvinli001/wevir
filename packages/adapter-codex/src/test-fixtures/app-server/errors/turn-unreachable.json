@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "codex": "rust-v0.162.1",
+    "case": "turn-unreachable",
+    "description": "连不上上游：网关回 502（wevir gateway: 连不上上游）"
+  },
+  "params": {
+    "threadId": "<thread>",
+    "turn": {
+      "id": "<turn>",
+      "rootTurnId": "<turn>",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "unexpected status 502 Bad Gateway: wevir gateway: 连不上上游：fetch failed（bad port）, url: http://127.0.0.1:<port>/v1/p/mock/responses",
+        "codexErrorInfo": {
+          "httpConnectionFailed": {
+            "httpStatusCode": 502
+          }
+        },
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "startedAt": 1791949271,
+      "completedAt": 1791949271,
+      "durationMs": 20
+    }
+  }
+}

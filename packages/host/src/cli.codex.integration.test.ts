@@ -135,6 +135,35 @@ describe.skipIf(!binaryAvailable())(
       const { session: snapshot } = await client.request('session.get', { sessionId });
       expect(snapshot.engine).toMatchObject({ kind: 'codex' });
 
+      // 会话标题：先是首条消息截断的，第一个回合开始后用会话的模型生成（mock 回 JSON）。这个连接没有声明
+      // title_source_generated，来源降级成 first_prompt；声明了的连接看到 generated（host-api.md §10）。
+      const titles = await client.until(
+        () => {
+          const changed = client
+            .events(subscriptionId)
+            .filter((e) => e.type === 'session.title_changed');
+          return changed.length >= 2 ? changed : undefined;
+        },
+        '模型生成的标题',
+        30_000,
+      );
+      expect(titles.map((e) => e.payload)).toEqual([
+        { title: '打个招呼', source: 'first_prompt' },
+        {
+          title: 'Mock：打个招呼',
+          source: 'first_prompt',
+          description: 'mock 生成的标题：打个招呼',
+        },
+      ]);
+      const modern = await TestRpcClient.connect(ready.url);
+      cleanups.push(() => modern.ws.close());
+      expect(
+        (await modern.hello(info.token as string, undefined, { title_source_generated: true }))
+          .error,
+      ).toBeUndefined();
+      const { session: current } = await modern.request('session.get', { sessionId });
+      expect(current).toMatchObject({ title: 'Mock：打个招呼', titleSource: 'generated' });
+
       stopped = true;
       fake.emit('SIGTERM', 'SIGTERM');
       expect(await exit).toBe(EXIT_CODE.ok);

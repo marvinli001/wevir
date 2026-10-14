@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "codex": "rust-v0.162.1",
+    "case": "turn-missing-key",
+    "description": "Provider 没有 Key：网关回 401（wevir gateway: Provider … 没有 API Key）"
+  },
+  "params": {
+    "threadId": "<thread>",
+    "turn": {
+      "id": "<turn>",
+      "rootTurnId": "<turn>",
+      "items": [],
+      "itemsView": "notLoaded",
+      "status": "failed",
+      "error": {
+        "message": "unexpected status 401 Unauthorized: wevir gateway: Provider mock 没有 API Key, url: http://127.0.0.1:<port>/v1/p/mock/responses",
+        "codexErrorInfo": {
+          "httpConnectionFailed": {
+            "httpStatusCode": 401
+          }
+        },
+        "additionalDetails": null,
+        "misalignment": null
+      },
+      "startedAt": 1791949271,
+      "completedAt": 1791949271,
+      "durationMs": 18
+    }
+  }
+}

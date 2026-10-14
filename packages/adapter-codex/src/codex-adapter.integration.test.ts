@@ -4,12 +4,7 @@ import { type AgentEvent, isAdapterError, isTurnTerminal } from '@wevir/runtime-
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { CodexAdapter } from './codex-adapter.js';
 import { CODEX_VERSION } from './paths.js';
-import {
-  codexBinaryOrSkip,
-  collectingLogger,
-  newAdapter,
-  TempDirs,
-} from './test-fixtures/harness.js';
+import { codexBinaryOrSkip, newAdapter, TempDirs } from './test-fixtures/harness.js';
 import {
   defaultMockScript,
   MOCK_MODEL,
@@ -19,8 +14,9 @@ import {
   startMockModel,
 } from './test-fixtures/mock-model.js';
 
-// 真实 codex-app-server + 网关 + mock 模型：握手、Provider 变更（不重启 / 空闲时重启 / 等回合结束）、R2 的审批回复、
-// 子 thread 的事件、版本核对。契约条款在 codex-adapter.contract.integration.test.ts。
+// 真实 codex-app-server + 网关 + mock 模型：握手、Provider 变更（不重启 / 空闲时重启 / 等回合结束）、子 thread 的事件、
+// 版本核对。契约条款在 codex-adapter.contract.integration.test.ts；审批、恢复与取消、计划与错误、标题在
+// codex-adapter.{approval,resume,turn}.integration.test.ts。
 
 const binary = codexBinaryOrSkip('adapter-codex 集成测试');
 const dirs = new TempDirs();
@@ -124,10 +120,11 @@ describe.skipIf(binary === undefined)(
         const error = await a.createSession(config).catch((e: unknown) => e);
         expect(isAdapterError(error, 'invalid_input')).toBe(true);
       }
+      // 不是 Codex 的 thread ID：引擎里不可能有这个会话（resume-error.ts）。
       const resumed = await a
         .resumeSession('not-open', { cwd: workspace, providerId: 'mock', modelId: MOCK_MODEL })
         .catch((e: unknown) => e);
-      expect(isAdapterError(resumed, 'session_unavailable')).toBe(true);
+      expect(isAdapterError(resumed, 'session_lost')).toBe(true);
     });
 
     it('新增 Provider（模型目录不变）：不重启进程，新会话经 thread/start 的覆盖用上它', async () => {
@@ -238,45 +235,6 @@ describe.skipIf(binary === undefined)(
       expect(readFileSync(join(workspace, 'wevir-mock.txt'), 'utf8')).toContain(
         'hello from the Wevir mock model',
       );
-    });
-
-    it('R2 还没有审批：Codex 请求审批时回复 decline，工具失败，会话里留一条 engine.raw', async () => {
-      const logger = collectingLogger();
-      const { adapter: a, workspace } = adapter({ logger });
-      const session = await a.createSession({
-        cwd: workspace,
-        providerId: 'mock',
-        modelId: MOCK_MODEL,
-      });
-      const events = collect(a, session.engineSessionId);
-      script = (view) =>
-        view.toolOutputs.length > 0
-          ? { text: ['ok'] }
-          : {
-              toolCalls: [
-                {
-                  kind: 'function',
-                  name: 'exec_command',
-                  args: {
-                    cmd: 'echo escalated',
-                    sandbox_permissions: 'require_escalated',
-                    justification: '测试',
-                  },
-                },
-              ],
-            };
-      const result = await turn(a, session.engineSessionId, 'escalate', events);
-      expect(result.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-      expect(result).toContainEqual(
-        expect.objectContaining({
-          type: 'engine.raw',
-          method: 'item/commandExecution/requestApproval',
-          kind: 'server_request',
-        }),
-      );
-      expect(result.find((e) => e.type === 'tool.finished')).toMatchObject({ status: 'failed' });
-      expect(await a.listPendingApprovals()).toEqual([]);
-      expect(logger.warnings.some((w) => w.includes('一律拒绝'))).toBe(true);
     });
 
     it('子 agent：子 thread 的通知按 engine.raw（kind child_thread）挂在父会话上，增量不保留', async () => {

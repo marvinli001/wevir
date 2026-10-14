@@ -18,6 +18,7 @@ import type { Logger } from './logger.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
+import { loadTitleInstructions } from './title.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
 export const HOST_VERSION: string = packageJson.version;
@@ -57,6 +58,8 @@ export interface StartHostOptions {
   onShutdownRequest?: (trigger: ShutdownTrigger) => void;
   /** 默认 `SHUTDOWN_BUDGET_MS`。 */
   shutdownBudgetMs?: number;
+  /** Wevir 提示词目录（会话标题用 `thread-title.md`），默认仓库的 `prompts/`；打包后的位置由 R9 定。 */
+  promptsDir?: string;
 }
 
 export interface RunningHost {
@@ -115,12 +118,23 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.error('event store error', { error }),
     });
     events = store;
+    // 适配器能生成标题时才读提示词；读不到只是没有模型生成的标题，不阻止 Host 启动。
+    let titleInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        titleInstructions = loadTitleInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the session title prompt; titles stay truncated', { error });
+      }
+    }
     const manager = new SessionManager({
       storage,
       events: store,
       adapter,
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
+      onWarning: (message, fields) => logger.warn(message, fields),
+      ...(titleInstructions !== undefined && { titleInstructions }),
     });
     sessions = manager;
     const recovery = manager.recover();

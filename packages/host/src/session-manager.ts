@@ -45,6 +45,7 @@ import {
 import { HostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
 import { newId } from './ids.js';
+import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
 
 /**
  * 取消后等回合结算的时限（domain-model §4.1 #9）。T0.3 实测 dsh 3–64 ms 结算；超过它仍没有终结
@@ -61,12 +62,19 @@ export interface SessionManagerOptions {
   events: EventStore;
   /** 由 Host 独占的引擎适配器。SessionManager 不 `dispose` 它。 */
   adapter: AgentRuntimeAdapter;
-  /** `sessions.engine` 列的值，v0 恒为 `dsh`。 */
+  /** `sessions.engine` 列的值（`codex`、`dsh`、`echo`），默认 `dsh`（测试沿用）。 */
   engine?: string;
   /** 默认 `CANCEL_TIMEOUT_MS`。 */
   cancelTimeoutMs?: number;
   /** 后台错误：处理引擎事件失败、丢弃的引擎事件等。默认打到 stderr。 */
   onError?: (error: unknown) => void;
+  /**
+   * 生成会话标题用的说明（prompts/thread-title.md，`loadTitleInstructions`）。给了、并且适配器实现了
+   * `generateTitle` 时，第一个回合开始后用会话的模型生成标题；否则只有首条消息截断的标题。
+   */
+  titleInstructions?: string;
+  /** 不影响状态的告警（生成标题失败等）。默认打到 stderr。 */
+  onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
 /** `recover()` 的结果：启动对账修正了什么。 */
@@ -181,6 +189,8 @@ export class SessionManager {
   readonly #engine: string;
   readonly #cancelTimeoutMs: number;
   readonly #onError: (error: unknown) => void;
+  readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
+  readonly #titleInstructions: string | undefined;
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
   readonly #whenDisposed = deferred();
@@ -197,6 +207,10 @@ export class SessionManager {
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] session manager:', error));
+    this.#onWarning =
+      options.onWarning ??
+      ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
+    this.#titleInstructions = options.titleInstructions;
   }
 
   /**
@@ -371,11 +385,11 @@ export class SessionManager {
         { type: 'turn.started', source: 'host', payload: { turnId } },
       ];
       const title = makeTitle(params.content);
-      if (
+      const firstTitle =
         title !== '' &&
         snapshot.session.title === '' &&
-        snapshot.session.titleSource === 'first_prompt'
-      ) {
+        snapshot.session.titleSource === 'first_prompt';
+      if (firstTitle) {
         inputs.push({
           type: 'session.title_changed',
           source: 'host',
@@ -418,6 +432,8 @@ export class SessionManager {
       if (clientMessageId !== undefined) {
         this.#storage.sendReceipts.setStatus(runtime.id, clientMessageId, 'confirmed', isoNow());
       }
+      // 截断的标题已经写下；引擎接受了第一个回合，再用会话的模型生成标题（不等它）。
+      if (firstTitle) this.#generateTitle(runtime, params.content);
       return { turnId, seq: message.seq };
     });
   }
@@ -602,6 +618,61 @@ export class SessionManager {
     await Promise.all([...this.#runtimes.values()].map((runtime) => runtime.tail));
   }
 
+  /**
+   * 用会话的模型生成标题（prompts/README.md「会话标题」）：适配器发一次不带工具的请求，Host 解析并整理输出。成功、
+   * 且这时标题仍是首条消息截断的那个（用户没有改过名）才写 `session.title_changed`（`generated`，带检索摘要）；
+   * 失败或超时只记告警，保留截断的标题。不排进会话的命令队列，也不影响状态机。
+   */
+  #generateTitle(runtime: SessionRuntime, content: readonly UserContentPart[]): void {
+    const instructions = this.#titleInstructions;
+    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
+    if (instructions === undefined || generate === undefined) return;
+    const prompt = content.map((part) => part.text).join('\n');
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), TITLE_TIMEOUT_MS);
+    const stop = () => abort.abort();
+    void this.#whenDisposed.promise.then(stop);
+    generate(runtime.engineSessionId, {
+      instructions,
+      input: titleInput(prompt),
+      outputSchema: { ...TITLE_OUTPUT_SCHEMA },
+      signal: abort.signal,
+    })
+      .then((output) => {
+        if (this.#disposed || abort.signal.aborted) return;
+        const generated = parseGeneratedTitle(output);
+        if (generated === undefined) {
+          this.#onWarning('生成的会话标题无法解析，保留截断的标题', {
+            sessionId: runtime.id,
+            output: output.slice(0, 500),
+          });
+          return;
+        }
+        // 等待期间用户可能改了名，或者标题已经不是这次截断的那个。
+        const { session } = this.#snapshot(runtime);
+        if (session.titleSource !== 'first_prompt') return;
+        this.#write(runtime, [
+          {
+            type: 'session.title_changed',
+            source: 'host',
+            payload: {
+              title: generated.title,
+              source: 'generated',
+              ...(generated.description !== undefined && { description: generated.description }),
+            },
+          },
+        ]);
+      })
+      .catch((error: unknown) => {
+        if (this.#disposed) return;
+        this.#onWarning('生成会话标题失败，保留截断的标题', {
+          sessionId: runtime.id,
+          error: abort.signal.aborted ? `${TITLE_TIMEOUT_MS} ms 内没有结果` : errorText(error),
+        });
+      })
+      .finally(() => clearTimeout(timer));
+  }
+
   // ── 命令的组成部分 ──────────────────────────────────────────────────
 
   /** `clientMessageId` 已有回执时：内容相同返回原结果，不同抛 `CLIENT_MESSAGE_CONFLICT`。 */
@@ -781,16 +852,12 @@ export class SessionManager {
         this.#engineFailed(runtime, exitInfo(event), { exited: true });
         return;
       case 'engine.raw':
-        if (event.protocol !== 'acp') {
-          this.#onError(new Error(`会话 ${sessionId}：不认识的引擎协议 ${event.protocol}，丢弃`));
-          return;
-        }
         this.#write(runtime, [
           {
             type: 'engine.raw',
             source: 'engine',
             payload: {
-              protocol: 'acp',
+              protocol: event.protocol,
               method: event.method,
               ...(event.kind !== undefined && { kind: event.kind }),
               ...(event.params !== undefined && { params: event.params }),
@@ -868,7 +935,13 @@ export class SessionManager {
         ]);
         return;
       }
-      case 'tool.updated':
+      case 'tool.updated': {
+        // 审批详情取工具最新的展示与输入（Codex 在请求审批前补上命令的理由，codex-event-mapping.md §6.6）。
+        const info = turn.tools.get(event.toolCallId);
+        if (info) {
+          if (event.display !== undefined) info.display = event.display;
+          if (event.input !== undefined) info.input = event.input;
+        }
         this.#write(runtime, [
           {
             type: 'tool.updated',
@@ -885,6 +958,7 @@ export class SessionManager {
           },
         ]);
         return;
+      }
       case 'tool.finished': {
         // 取消期间的 failed 记为 cancelled，原文保留（domain-model §6.4）。
         const cancelling = this.#snapshot(runtime).session.state === 'cancelling';

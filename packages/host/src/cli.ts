@@ -25,9 +25,10 @@ export const USAGE = `用法：wevir-host [选项]
   --home <目录>          数据目录。环境变量 WEVIR_HOME 优先于它；都没有时用平台默认
                          （macOS ~/Library/Application Support/Wevir，Windows %APPDATA%\\Wevir，
                          Linux $XDG_DATA_HOME/wevir）
-  --adapter <echo|dsh|codex>
-                         引擎适配器，默认 dsh；codex 是 codex-app-server（ADR-0005，二进制见
-                         WEVIR_CODEX_BIN 或 bash scripts/fetch-codex.sh）；echo 是开发用的假引擎
+  --adapter <codex|dsh|echo>
+                         引擎适配器，默认 codex：codex-app-server（ADR-0005，二进制见 WEVIR_CODEX_BIN
+                         或 bash scripts/fetch-codex.sh）；dsh 是 DeepSeek Harness（可选引擎）；echo 是开发用
+                         的假引擎
   --port <端口>          仅调试用，默认 0（系统分配）；客户端一律以 run/host.json 里的 url 为准
   --log-level <级别>     debug | info | warn | error，默认 info；日志写到 <数据目录>/logs/host.log
   --exit-on-stdin-eof    由桌面拉起时使用：拉起方持有 stdin 管道，读到 EOF 即优雅退出
@@ -61,7 +62,7 @@ export function parseHostArgs(argv: readonly string[]): ParsedHostArgs {
   if (values.help) return { kind: 'help' };
   if (values.version) return { kind: 'version' };
 
-  const adapter = values.adapter ?? 'dsh';
+  const adapter = values.adapter ?? 'codex';
   if (!(ADAPTER_KINDS as readonly string[]).includes(adapter)) {
     return { kind: 'error', message: `--adapter 只能是 ${ADAPTER_KINDS.join(' | ')}：${adapter}` };
   }
