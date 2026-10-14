@@ -209,6 +209,9 @@ export async function startGateway(options: GatewayOptions): Promise<Gateway> {
   const log = options.log ?? (() => {});
   const server = createServer((req, res) => {
     void handle(req, res).catch((error: Error) => {
+      // Codex 读到 response.completed 就断开连接（codex-api/src/sse/responses.rs:655-660），取消时也断开；
+      // 网关随之中断上游，这是正常结束，不算错误。
+      if (error.name === 'AbortError') return;
       log(`gateway error: ${error.message}`);
       if (!res.headersSent) {
         res.writeHead(502, { 'content-type': 'application/json' });
