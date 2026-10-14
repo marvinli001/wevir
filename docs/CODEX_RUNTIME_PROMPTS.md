@@ -17,7 +17,7 @@
 | R7 | 从 adapter-dsh 抽出通用 ACP 适配器（行为不变） | — | 与 R1–R3 并行 | [x] `1f5e918` |
 | R8 | 经通用 ACP 适配器接 Grok Build 与 Gemini CLI；xAI 与 Gemini 的 API Key 经网关 | R3、R7 | — | [ ] |
 | R9 | 运行时分发：`codex-app-server` 随应用，dsh 改为可选下载 | R3、R7 | — | [ ] |
-| R10 | 网关加 Anthropic Messages | R1 | 任意时间 | [ ] |
+| R10 | 网关加 Anthropic Messages | R1 | 任意时间 | [x] `5f2b3eb` |
 | R11 | 回合进行中发消息：插话与排队，设置里选默认行为 | R3 | 与 R4–R6 并行 | [ ] |
 | R12 | 工作台布局：混合 Codex 与 Claude Code 桌面端，窗格可调尺寸、按数量与种类动态布局 | — | 与 R1–R4 并行；R5 之前做完 | [ ] |
 
