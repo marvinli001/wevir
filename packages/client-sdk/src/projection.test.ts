@@ -460,6 +460,62 @@ describe('TranscriptProjection：快照', () => {
   });
 });
 
+describe('提问（0.10.0）', () => {
+  it('提问是回合里的一个部件，等回答时在 pendingQuestions；结束后原位换成带结局的', () => {
+    const { list, add, turn } = events();
+    turn();
+    const question = {
+      id: 'qst_01JA2B3C4D5E6F7G8H9JKMNPQR' as const,
+      sessionId: SES,
+      turnId: TURN,
+      questions: [{ id: 'scope', question: '做到哪一步？', options: [{ label: '全链路' }] }],
+      status: 'pending' as const,
+      createdAt: '2026-10-13T08:00:00.000Z',
+    };
+    add('question.requested', { question });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    let snapshot = projection.snapshot();
+    expect(snapshot.pendingQuestions.map((q) => q.id)).toEqual([question.id]);
+    expect(snapshot.messages.at(-1)?.parts.at(-1)).toMatchObject({
+      type: 'question',
+      question: { id: question.id, status: 'pending' },
+    });
+    const resolved = add('question.resolved', {
+      questionId: question.id,
+      status: 'answered',
+      resolution: {
+        reason: 'user',
+        answers: { scope: { answers: ['全链路'] } },
+        answeredBy: identity,
+      },
+    });
+    projection.apply(resolved);
+    snapshot = projection.snapshot();
+    expect(snapshot.pendingQuestions).toEqual([]);
+    expect(snapshot.messages.at(-1)?.parts.at(-1)).toMatchObject({
+      type: 'question',
+      question: { status: 'answered', resolution: { answers: { scope: { answers: ['全链路'] } } } },
+    });
+    const base: Session = {
+      id: SES,
+      workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+      cwd: '/tmp/w',
+      engine: { kind: 'echo', sessionId: 'e1' },
+      providerId: 'p',
+      modelId: 'm',
+      title: '',
+      titleSource: 'first_prompt',
+      state: 'idle',
+      createdAt: '2026-10-13T08:00:00.000Z',
+      updatedAt: '2026-10-13T08:00:00.000Z',
+      lastSeq: 1,
+    };
+    expect(list.slice(0, -1).reduce(applySessionEvent, base).awaitingInput).toBe(true);
+    expect(list.reduce(applySessionEvent, base).awaitingInput).toBeUndefined();
+  });
+});
+
 describe('applySessionEvent', () => {
   const base: Session = {
     id: SES,

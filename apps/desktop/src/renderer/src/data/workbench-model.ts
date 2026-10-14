@@ -49,12 +49,16 @@ export function mergeSessions(
   return merged;
 }
 
-/** 会话行左侧的状态标记。`cancelling` 仍算运行中；只读会话与上一回合失败（idle 下有 lastError）算出错。 */
-export type SessionMarker = 'running' | 'awaiting_approval' | 'error';
+/**
+ * 会话行左侧的状态标记。`cancelling` 仍算运行中；运行中有问题等用户回答（0.10.0 的 `awaitingInput`）是等回答；只读会话与
+ * 上一回合失败（idle 下有 lastError）算出错。
+ */
+export type SessionMarker = 'running' | 'awaiting_approval' | 'awaiting_input' | 'error';
 
 export function sessionMarker(session: Session): SessionMarker | undefined {
   switch (session.state) {
     case 'running':
+      return session.awaitingInput ? 'awaiting_input' : 'running';
     case 'cancelling':
       return 'running';
     case 'awaiting_approval':

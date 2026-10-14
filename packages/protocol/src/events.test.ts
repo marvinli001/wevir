@@ -51,6 +51,10 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.approval.status;
     case 'approval.resolved':
       return event.payload.resolution.decidedBy?.clientKind ?? event.payload.resolution.reason;
+    case 'question.requested':
+      return event.payload.question.questions[0]?.question ?? '';
+    case 'question.resolved':
+      return event.payload.resolution.answeredBy?.clientKind ?? event.payload.resolution.reason;
     case 'usage.updated':
       return String(event.payload.contextUsed);
     case 'engine.error':

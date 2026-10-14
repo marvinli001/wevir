@@ -12,6 +12,7 @@ import {
   HostIdSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
+  QuestionIdSchema,
   SeqCursorSchema,
   SeqSchema,
   SessionIdSchema,
@@ -33,6 +34,8 @@ import {
   ProviderCompatSchema,
   ProviderModelSchema,
   ProviderProfileSchema,
+  QuestionAnswerSchema,
+  QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
   SessionSchema,
   SessionSnapshotSchema,
@@ -319,6 +322,20 @@ export const PendingListResultSchema = z.object({
 
 // ── approval.* ────────────────────────────────────────────────────────
 
+// ── question.*（0.10.0） ─────────────────────────────────────────────
+
+export const QuestionRespondParamsSchema = z.object({
+  questionId: QuestionIdSchema,
+  /** 按问题 ID 的回答；没回答的问题可以省略（当作跳过）。 */
+  answers: z.record(z.string(), QuestionAnswerSchema),
+});
+
+export const QuestionRespondResultSchema = z.object({
+  questionId: QuestionIdSchema,
+  status: z.enum(['answered', 'cancelled']),
+  resolution: QuestionResolutionSchema,
+});
+
 export const ApprovalRespondParamsSchema = z.object({
   approvalId: ApprovalIdSchema,
   /** 必须是该审批 `options` 里的一个，否则 `INVALID_PARAMS`。 */
@@ -501,6 +518,11 @@ export const MethodSchemas = {
     permission: 'session.write',
   },
 
+  'question.respond': {
+    params: QuestionRespondParamsSchema,
+    result: QuestionRespondResultSchema,
+    permission: 'session.write',
+  },
   'approval.respond': {
     params: ApprovalRespondParamsSchema,
     result: ApprovalRespondResultSchema,

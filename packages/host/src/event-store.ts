@@ -5,6 +5,8 @@ import {
   isKnownEventType,
   type PendingMessage,
   type PendingMessageId,
+  type QuestionId,
+  type QuestionRequest,
   SeqCursorSchema,
   type SessionId,
   SessionIdSchema,
@@ -232,6 +234,12 @@ export class EventStore {
   pending(sessionId: SessionId, pendingId: PendingMessageId): PendingMessage | undefined {
     if (!this.#storage.sessions.get(sessionId)) return undefined;
     return this.#projection(sessionId).pendings.get(pendingId);
+  }
+
+  /** 一组问题（0.10.0），含已结束的；会话或问题不存在时为 `undefined`。 */
+  question(sessionId: SessionId, questionId: QuestionId): QuestionRequest | undefined {
+    if (!this.#storage.sessions.get(sessionId)) return undefined;
+    return structuredClone(this.#projection(sessionId).questions.get(questionId));
   }
 
   /** 写入缓冲的增量与 `inputs`，返回 `inputs` 对应的事件。 */

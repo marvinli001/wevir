@@ -6,6 +6,8 @@ import type {
   PendingMessage,
   PendingMessageId,
   PendingStatus,
+  QuestionId,
+  QuestionRequest,
   Session,
   SessionId,
   SessionReadOnly,
@@ -62,6 +64,16 @@ export interface SessionProjection {
    * 报 `PENDING_NOT_EDITABLE` 要用到），按加入的先后。快照只给未到终态的。
    */
   readonly pendings: ReadonlyMap<PendingMessageId, PendingMessage>;
+  /**
+   * 引擎向用户提的问题（0.10.0）：`question.requested` 加入，`question.resolved` 写上结局，含已结束的（再回答要返回它的
+   * 结局），按提出的先后。快照只给未结束的。
+   */
+  readonly questions: ReadonlyMap<QuestionId, QuestionRequest>;
+}
+
+/** 未结束（等回答）的问题，按提出的先后。 */
+export function openQuestions(projection: SessionProjection): QuestionRequest[] {
+  return [...projection.questions.values()].filter((question) => question.status === 'pending');
 }
 
 /** 待发消息的终态：插入、发出、取消之后不再变化。 */
@@ -87,6 +99,7 @@ export const INITIAL_PROJECTION: SessionProjection = {
   pendingApprovals: [],
   subagents: [],
   pendings: new Map(),
+  questions: new Map(),
 };
 
 /** 子会话的回合结果 → 子会话的状态（domain-model §3.3.1）。 */
@@ -219,6 +232,26 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
         (approval) => approval.id !== event.payload.approvalId,
       );
       break;
+    case 'question.requested': {
+      const questions = new Map(projection.questions);
+      questions.set(event.payload.question.id, event.payload.question);
+      next.questions = questions;
+      break;
+    }
+    case 'question.resolved': {
+      const previous = projection.questions.get(event.payload.questionId);
+      if (previous) {
+        const questions = new Map(projection.questions);
+        questions.set(previous.id, {
+          ...previous,
+          status: event.payload.status,
+          resolvedAt: event.ts,
+          resolution: event.payload.resolution,
+        });
+        next.questions = questions;
+      }
+      break;
+    }
     case 'todo.updated':
       next.todos = event.payload.items;
       break;
@@ -346,6 +379,20 @@ export function checkEvent(
         reject(`审批 ${e.payload.approvalId} 不是未决审批`);
       }
       break;
+    case 'question.requested': {
+      const { question } = e.payload;
+      if (question.sessionId !== sessionId) {
+        reject(`问题 ${question.id} 属于会话 ${question.sessionId}`);
+      }
+      if (question.status !== 'pending') reject(`新问题 ${question.id} 的状态必须是 pending`);
+      if (projection.questions.has(question.id)) reject(`问题 ${question.id} 已经提过`);
+      break;
+    }
+    case 'question.resolved':
+      if (projection.questions.get(e.payload.questionId)?.status !== 'pending') {
+        reject(`问题 ${e.payload.questionId} 不在等回答`);
+      }
+      break;
     case 'pending.added':
       if (projection.pendings.has(e.payload.pending.id)) {
         reject(`待发消息 ${e.payload.pending.id} 已经加入过`);
@@ -413,6 +460,11 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.subagents.length > 0) snapshot.subagents = [...projection.subagents];
   const pendingMessages = openPendings(projection);
   if (pendingMessages.length > 0) snapshot.pendingMessages = pendingMessages;
+  const pendingQuestions = openQuestions(projection);
+  if (pendingQuestions.length > 0) {
+    snapshot.pendingQuestions = pendingQuestions;
+    session.awaitingInput = true;
+  }
   return structuredClone(snapshot);
 }
 

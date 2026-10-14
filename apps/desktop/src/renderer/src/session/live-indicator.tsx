@@ -2,7 +2,8 @@ import { createContext, useContext } from 'react';
 import type { OrbState } from 'thinking-orbs';
 import { Orb } from '@/fx/orb';
 
-export type LiveState = 'running' | 'awaiting' | 'stopping';
+/** `input`：有问题等用户回答（0.10.0），orb 同等审批一样停住。 */
+export type LiveState = 'running' | 'awaiting' | 'input' | 'stopping';
 
 /** 进行中的回合用哪种 orb：TurnView 按回合 ID 定下（fx/orb-state.ts），给它里面的工作组与“正在思考”那一行。 */
 export const TurnOrb = createContext<OrbState>('working');
@@ -19,7 +20,7 @@ export function LiveIndicator({ state }: { state: LiveState }) {
       data-live-indicator={state}
       className="flex size-5 shrink-0 items-center justify-center"
     >
-      <Orb state={orb} paused={state === 'awaiting'} />
+      <Orb state={orb} paused={state === 'awaiting' || state === 'input'} />
     </span>
   );
 }

@@ -16,6 +16,9 @@ import type { BasePromptVars } from './prompts.js';
  *   `check_for_update_on_startup = false`（只影响 TUI，设上无害）；
  * - `features.instant_interrupt = false`：插话（`turn/steer`，R11）等模型这一段输出结束再进回合，而不是立刻掐断正在
  *   流式输出的这一步（这个开关默认开，codex-event-mapping.md §4.5；维护者定的插话是“这一步结束后插进本回合”）；
+ * - `features.default_mode_request_user_input = true`：模型在普通回合也能用 `request_user_input` 向用户提问（默认只在
+ *   计划模式提供；Stage::UnderDevelopment，U11，codex-event-mapping.md §6.6）；`suppress_unstable_features_warning = true`
+ *   免得每个 thread 开头一条“开了开发中的功能”的 warning 通知；
  * - `features.goals = false`：Wevir 暂不支持目标（补记 1）；`features.memories = false`、`approvals_reviewer = "user"`：
  *   两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI 模型名）；
  * - `tools.update_plan.enabled = true`：计划默认关；
@@ -31,6 +34,7 @@ export const HARDENING_TOP: readonly string[] = [
   'approvals_reviewer = "user"',
   'check_for_update_on_startup = false',
   'web_search = "disabled"',
+  'suppress_unstable_features_warning = true',
 ];
 
 export const HARDENING_TABLES: readonly string[] = [
@@ -43,6 +47,7 @@ export const HARDENING_TABLES: readonly string[] = [
   'goals = false',
   'memories = false',
   'instant_interrupt = false',
+  'default_mode_request_user_input = true',
   '',
   '[tools.update_plan]',
   'enabled = true',

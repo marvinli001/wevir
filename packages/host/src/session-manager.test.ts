@@ -2231,3 +2231,82 @@ describe('SessionManager：换模型与推理档位（0.9.0）', () => {
     ).rejects.toMatchObject({ code: 'ENGINE_ERROR' });
   });
 });
+
+describe('SessionManager：向用户提问（0.10.0）', () => {
+  async function ask(h: Harness, id: SessionId) {
+    await send(h, id, 'ask me');
+    for (let i = 0; i < 200; i += 1) {
+      const pending = snapshot(h, id).pendingQuestions ?? [];
+      if (pending[0]) return pending[0];
+      await delay(5);
+    }
+    throw new Error('没有等到提问');
+  }
+
+  it('写 question.requested，会话 awaitingInput；回答后写 question.resolved 并交给引擎，回合接着做', async () => {
+    const h = setup();
+    const id = await create(h);
+    const question = await ask(h, id);
+    expect(question).toMatchObject({ sessionId: id, status: 'pending' });
+    expect(question.questions.map((q) => q.id)).toEqual(['scope', 'targets']);
+    expect(snapshot(h, id).session).toMatchObject({ state: 'running', awaitingInput: true });
+
+    await expect(
+      h.manager.respondToQuestion(
+        { questionId: question.id, answers: { scope: { answers: ['a', 'b'] } } },
+        desktop,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
+      h.manager.respondToQuestion(
+        { questionId: question.id, answers: { targets: { answers: ['BeOS'] } } },
+        desktop,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+
+    const result = await h.manager.respondToQuestion(
+      { questionId: question.id, answers: { scope: { answers: ['Full stack'] } } },
+      desktop,
+    );
+    expect(result).toMatchObject({
+      status: 'answered',
+      resolution: {
+        reason: 'user',
+        answers: { scope: { answers: ['Full stack'] }, targets: { answers: [] } },
+        answeredBy: desktop,
+      },
+    });
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).session.awaitingInput).toBeUndefined();
+    const reply = ofType(h, id, 'assistant.message').at(-1)?.payload.text ?? '';
+    expect(reply).toContain('Answers: scope=Full stack; targets=');
+
+    // 再回答：返回已有的结局，不报错。
+    const again = await h.manager.respondToQuestion({ questionId: question.id, answers: {} }, cli);
+    expect(again).toEqual(result);
+    await expect(
+      h.manager.respondToQuestion({ questionId: 'qst_missing' as never, answers: {} }, cli),
+    ).rejects.toMatchObject({ code: 'QUESTION_NOT_FOUND' });
+  });
+
+  it('取消回合时未答的问题以 cancelled（turn_cancelled）结束', async () => {
+    const h = setup();
+    const id = await create(h);
+    const question = await ask(h, id);
+    await h.manager.cancel(id);
+    expect(ofType(h, id, 'question.resolved').map((e) => e.payload)).toEqual([
+      { questionId: question.id, status: 'cancelled', resolution: { reason: 'turn_cancelled' } },
+    ]);
+    expect(snapshot(h, id).pendingQuestions).toBeUndefined();
+  });
+
+  it('Host 重启：未答的问题以 cancelled（host_restarted）结束', async () => {
+    const first = setup();
+    const id = await create(first);
+    const question = await ask(first, id);
+    const { h } = restart(first);
+    expect(ofType(h, id, 'question.resolved').map((e) => e.payload)).toEqual([
+      { questionId: question.id, status: 'cancelled', resolution: { reason: 'host_restarted' } },
+    ]);
+  });
+});

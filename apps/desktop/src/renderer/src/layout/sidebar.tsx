@@ -217,6 +217,7 @@ function ProjectItem({
 const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string }> = {
   running: { tone: 'accent', label: t('session.marker.running') },
   awaiting_approval: { tone: 'warning', label: t('session.marker.awaitingApproval') },
+  awaiting_input: { tone: 'warning', label: t('session.marker.awaitingInput') },
   error: { tone: 'danger', label: t('session.marker.error') },
 };
 
@@ -241,11 +242,12 @@ function SessionRow({
       className={({ isActive }) => cn(ROW, 'text-soft-foreground', isActive && ROW_ACTIVE)}
     >
       <span className="flex w-4 shrink-0 justify-center">
-        {(marker === 'running' || marker === 'awaiting_approval') && markerInfo ? (
+        {(marker === 'running' || marker === 'awaiting_approval' || marker === 'awaiting_input') &&
+        markerInfo ? (
           <span role="img" aria-label={markerInfo.label} className="flex">
             <Orb
               state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
-              paused={marker === 'awaiting_approval'}
+              paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
             />
           </span>
         ) : (
@@ -255,9 +257,9 @@ function SessionRow({
       <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold text-foreground')}>
         {session.title || t('session.untitled')}
       </span>
-      {marker === 'awaiting_approval' ? (
+      {marker === 'awaiting_approval' || marker === 'awaiting_input' ? (
         <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
-          {t('session.marker.awaitingApproval')}
+          {markerInfo?.label}
         </span>
       ) : (
         unread && (

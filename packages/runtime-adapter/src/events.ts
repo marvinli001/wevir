@@ -1,4 +1,4 @@
-import type { AgentInput, PendingApproval, TodoItem, ToolDisplay } from './types.js';
+import type { AgentInput, PendingApproval, TodoItem, ToolDisplay, UserQuestion } from './types.js';
 
 // AgentEvent：适配器上报给 Host 的引擎无关中间表示。Host 给它配上 Wevir 会话 ID、turnId、seq，
 // 写成 WevirEvent（domain-model.md §6）。与那份事件目录相比：
@@ -134,6 +134,24 @@ export interface ApprovalCancelledEvent {
    * engine_exited：引擎进程退出；disposed：适配器 `dispose`。
    */
   reason: 'turn_cancelled' | 'turn_ended' | 'engine_exited' | 'disposed';
+}
+
+/** 引擎向用户提问（0.10.0，Codex：`request_user_input`）。等 `respondToQuestion`，或以 `question.cancelled` 结束。 */
+export interface QuestionRequestedEvent {
+  type: 'question.requested';
+  engineSessionId: string;
+  requestId: string;
+  /** 提问的工具调用；没有时省略。 */
+  toolCallId?: string;
+  questions: UserQuestion[];
+}
+
+/** 没有经过 `respondToQuestion` 就结束的提问，原因同 `approval.cancelled`。 */
+export interface QuestionCancelledEvent {
+  type: 'question.cancelled';
+  engineSessionId: string;
+  requestId: string;
+  reason: ApprovalCancelledEvent['reason'];
 }
 
 /** 上下文用量（dsh：ACP `usage_update`）。字段名与 WevirEvent `usage.updated` 相同。 */
@@ -275,6 +293,8 @@ export type AgentEvent =
   | TodoUpdatedEvent
   | ApprovalRequestedEvent
   | ApprovalCancelledEvent
+  | QuestionRequestedEvent
+  | QuestionCancelledEvent
   | UsageUpdatedEvent
   | TurnSettledEvent
   | TurnFailedEvent

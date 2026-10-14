@@ -14,6 +14,9 @@ import type {
   PendingMessage,
   PendingMessageId,
   ProviderId,
+  QuestionId,
+  QuestionRequest,
+  QuestionResolution,
   ResolvedApprovalStatus,
   Session,
   SessionId,
@@ -38,6 +41,8 @@ import {
   type DeltaBlockRef,
   type EngineSession,
   isAdapterError,
+  type QuestionCancelledEvent,
+  type QuestionRequestedEvent,
   type SessionConfig,
   type SessionLostReason,
   type SubagentStartedEvent,
@@ -149,6 +154,9 @@ interface SessionRuntime {
   /** 引擎的审批 requestId ↔ Host 的 ApprovalId，只保留未决的。 */
   readonly approvalIds: Map<string, ApprovalId>;
   readonly requestIds: Map<ApprovalId, string>;
+  /** 引擎的提问 requestId ↔ Host 的 QuestionId（0.10.0），只保留未结束的。 */
+  readonly questionIds: Map<string, QuestionId>;
+  readonly questionRequests: Map<QuestionId, string>;
 }
 
 const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
@@ -213,6 +221,8 @@ export class SessionManager {
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
+  /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
+  readonly #questionSessions = new Map<QuestionId, SessionId>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
   readonly #whenDisposed = deferred();
   /** `shutdown()` 开始后为 true：新命令一律 `HOST_SHUTTING_DOWN`，已排队的照常执行。 */
@@ -274,12 +284,19 @@ export class SessionManager {
       }
       // 等待中的待发消息（含回合刚完成、下一条还没来得及发出的）一律暂停，等用户继续（domain-model §4.6）。
       const holds = settlePendings(snapshot, () => 'held');
-      if (!active && snapshot.pendingApprovals.length === 0) {
+      if (
+        !active &&
+        snapshot.pendingApprovals.length === 0 &&
+        (snapshot.pendingQuestions ?? []).length === 0
+      ) {
         if (holds.length > 0) this.#events.appendMany(sessionId, holds);
         continue;
       }
 
-      const inputs = resolveAll(snapshot.pendingApprovals, 'expired', { reason: 'host_restarted' });
+      const inputs = [
+        ...resolveAll(snapshot.pendingApprovals, 'expired', { reason: 'host_restarted' }),
+        ...cancelQuestions(snapshot, 'host_restarted'),
+      ];
       if (active) {
         if (activeTurn) {
           inputs.push(
@@ -1148,6 +1165,7 @@ export class SessionManager {
     if (state === 'running' || state === 'awaiting_approval') {
       this.#write(runtime, [
         ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason }),
+        ...cancelQuestions(snapshot, reason),
         stateChanged(state, 'cancelling', 'cancel_requested'),
       ]);
     } else if (state !== 'cancelling') {
@@ -1419,6 +1437,12 @@ export class SessionManager {
       case 'approval.cancelled':
         this.#approvalCancelled(runtime, event);
         return;
+      case 'question.requested':
+        this.#questionRequested(runtime, turn, event);
+        return;
+      case 'question.cancelled':
+        this.#questionCancelled(runtime, event);
+        return;
       case 'turn.steered':
         this.#steered(runtime, turn, event);
         return;
@@ -1490,6 +1514,111 @@ export class SessionManager {
       inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
     }
     this.#write(runtime, inputs);
+  }
+
+  /** 引擎向用户提问（0.10.0）：分配 QuestionId，写 `question.requested`；取消已开始时随即结掉。 */
+  #questionRequested(
+    runtime: SessionRuntime,
+    turn: TurnRuntime,
+    event: QuestionRequestedEvent,
+  ): void {
+    const { state } = this.#snapshot(runtime).session;
+    const questionId = newId('qst');
+    const question: QuestionRequest = {
+      id: questionId,
+      sessionId: runtime.id,
+      turnId: turn.turnId,
+      ...(event.toolCallId !== undefined && { toolCallId: event.toolCallId }),
+      questions: event.questions.map((item) => ({
+        ...item,
+        options: item.options.map((option) => ({ ...option })),
+      })),
+      status: 'pending',
+      createdAt: isoNow(),
+    };
+    runtime.questionIds.set(event.requestId, questionId);
+    runtime.questionRequests.set(questionId, event.requestId);
+    this.#questionSessions.set(questionId, runtime.id);
+    const inputs: AppendInput[] = [
+      { type: 'question.requested', source: 'engine', payload: { question } },
+    ];
+    if (state === 'cancelling') {
+      inputs.push(questionResolved(questionId, 'cancelled', { reason: 'turn_cancelled' }));
+    }
+    this.#write(runtime, inputs);
+  }
+
+  /** 引擎侧结掉的提问；引擎退出时不在这里结算，随后的 `engine.exited` 一并处理。 */
+  #questionCancelled(runtime: SessionRuntime, event: QuestionCancelledEvent): void {
+    if (event.reason === 'engine_exited') return;
+    const questionId = runtime.questionIds.get(event.requestId);
+    if (questionId === undefined) return;
+    const pending = this.#snapshot(runtime).pendingQuestions ?? [];
+    if (!pending.some((question) => question.id === questionId)) return;
+    this.#write(runtime, [
+      questionResolved(questionId, 'cancelled', { reason: ENGINE_CANCEL_REASONS[event.reason] }),
+    ]);
+  }
+
+  /**
+   * `question.respond`（0.10.0）：按会话串行，首个回答生效。回答按问题核对（问题要在这一组里，单选的最多一个回答，不允许
+   * “其他”的只能选选项），交给引擎后写 `question.resolved`（`answered`）。已经结束的问题返回它的结局，不报错；引擎侧已经
+   * 结束（`question_not_found`）时它的 `question.cancelled` 在暂扣的事件里，处理完返回那个结局。
+   */
+  async respondToQuestion(
+    params: MethodParams<'question.respond'>,
+    answeredBy: ClientIdentity,
+  ): Promise<MethodResult<'question.respond'>> {
+    this.#assertOpen();
+    const { questionId } = params;
+    const sessionId = this.#questionSessions.get(questionId);
+    if (sessionId === undefined) {
+      throw new HostError('QUESTION_NOT_FOUND', `question ${questionId} not found`);
+    }
+    const runtime = this.#runtime(sessionId);
+    return this.#serial(runtime, async () => {
+      const outcome = () => {
+        const question = this.#events.question(runtime.id, questionId);
+        if (!question || question.status === 'pending' || !question.resolution) return undefined;
+        return { questionId, status: question.status, resolution: question.resolution };
+      };
+      const done = outcome();
+      if (done) return done;
+      const question = this.#events.question(runtime.id, questionId);
+      if (!question) throw new HostError('QUESTION_NOT_FOUND', `question ${questionId} not found`);
+      const answers = checkAnswers(question, params.answers);
+      const requestId = runtime.questionRequests.get(questionId);
+      if (requestId === undefined) throw new Error(`问题 ${questionId} 没有对应的引擎请求`);
+      const respond = this.#adapter.respondToQuestion?.bind(this.#adapter);
+      if (respond === undefined) throw new Error('引擎不支持提问，却提了问题');
+      const resolution: QuestionResolution = {
+        reason: 'user',
+        answers: Object.fromEntries(
+          Object.entries(answers).map(([id, list]) => [id, { answers: list }]),
+        ),
+        answeredBy,
+      };
+      let failure: { error: unknown } | undefined;
+      runtime.holds += 1;
+      try {
+        try {
+          await respond(runtime.engineSessionId, requestId, answers);
+        } catch (error) {
+          failure = { error };
+        }
+        if (!failure) {
+          this.#write(runtime, [questionResolved(questionId, 'answered', resolution)]);
+        } else if (!isAdapterError(failure.error, 'question_not_found')) {
+          this.#engineFailed(runtime, engineErrorInfo(failure.error));
+        }
+      } finally {
+        this.#release(runtime);
+      }
+      if (!failure) return { questionId, status: 'answered' as const, resolution };
+      const after = outcome();
+      if (after) return after;
+      throw new Error(`引擎报告问题 ${questionId} 已结束，但没有上报结束事件`);
+    });
   }
 
   // ── 子会话（R4，domain-model §3.3.1、§4.5） ─────────────────────────────
@@ -1661,6 +1790,7 @@ export class SessionManager {
     if (activeTurn) {
       inputs.push(
         ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'session_closed' }),
+        ...cancelQuestions(snapshot, 'session_closed'),
       );
       if (state === 'awaiting_approval') {
         inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
@@ -1829,6 +1959,7 @@ export class SessionManager {
     // 适配器本应先发 approval.cancelled（turn_ended）；没发的话由 Host 结掉。
     inputs.push(
       ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'turn_cancelled' }),
+      ...cancelQuestions(snapshot, 'turn_cancelled'),
     );
     if (state === 'awaiting_approval') {
       inputs.push(stateChanged('awaiting_approval', 'running', 'approvals_settled'));
@@ -1873,7 +2004,10 @@ export class SessionManager {
     const snapshot = this.#snapshot(runtime);
     const { state, activeTurn } = snapshot.session;
     if (state === 'error' || state === 'closed') return;
-    const inputs = resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'engine_exited' });
+    const inputs = [
+      ...resolveAll(snapshot.pendingApprovals, 'cancelled', { reason: 'engine_exited' }),
+      ...cancelQuestions(snapshot, 'engine_exited'),
+    ];
     if (activeTurn) {
       inputs.push(
         ...finishTurn(
@@ -1920,6 +2054,12 @@ export class SessionManager {
           runtime.requestIds.delete(event.payload.approvalId);
           runtime.approvalIds.delete(requestId);
         }
+      } else if (event.type === 'question.resolved') {
+        const requestId = runtime.questionRequests.get(event.payload.questionId);
+        if (requestId !== undefined) {
+          runtime.questionRequests.delete(event.payload.questionId);
+          runtime.questionIds.delete(requestId);
+        }
       }
     }
     // 子会话的标题、状态、审批变了：父会话的摘要跟着变。
@@ -1962,6 +2102,8 @@ export class SessionManager {
         held: [],
         approvalIds: new Map(),
         requestIds: new Map(),
+        questionIds: new Map(),
+        questionRequests: new Map(),
       };
       this.#runtimes.set(sessionId, runtime);
     }
@@ -2035,6 +2177,60 @@ function resolveAll(
   resolution: ApprovalResolution,
 ): AppendInput[] {
   return pending.map((approval) => resolved(approval.id, status, resolution));
+}
+
+function questionResolved(
+  questionId: QuestionId,
+  status: 'answered' | 'cancelled',
+  resolution: QuestionResolution,
+): AppendInput {
+  return { type: 'question.resolved', source: 'host', payload: { questionId, status, resolution } };
+}
+
+/** 未答的问题随回合、会话、引擎或 Host 一起取消（原因同审批）。 */
+function cancelQuestions(
+  snapshot: SessionSnapshot,
+  reason: QuestionResolution['reason'],
+): AppendInput[] {
+  return (snapshot.pendingQuestions ?? []).map((question) =>
+    questionResolved(question.id, 'cancelled', { reason }),
+  );
+}
+
+/**
+ * 核对回答：问题要在这一组里；单选的最多一个回答；不允许“其他”的回答只能是选项的 `label`。没回答的问题当作跳过（空数组）。
+ */
+function checkAnswers(
+  question: QuestionRequest,
+  answers: Record<string, { answers: string[] }>,
+): Record<string, string[]> {
+  const issues: { path: (string | number)[]; message: string }[] = [];
+  const result: Record<string, string[]> = {};
+  for (const [id, answer] of Object.entries(answers)) {
+    const item = question.questions.find((candidate) => candidate.id === id);
+    if (!item) {
+      issues.push({ path: ['answers', id], message: `question ${id} is not in this request` });
+      continue;
+    }
+    if (!item.multiSelect && answer.answers.length > 1) {
+      issues.push({ path: ['answers', id, 'answers'], message: 'single-select question' });
+    }
+    if (!item.allowOther) {
+      const labels = new Set(item.options.map((option) => option.label));
+      answer.answers.forEach((value, index) => {
+        if (!labels.has(value)) {
+          issues.push({
+            path: ['answers', id, 'answers', index],
+            message: 'not one of the options',
+          });
+        }
+      });
+    }
+    result[id] = answer.answers;
+  }
+  if (issues.length > 0) throw new HostError('INVALID_PARAMS', 'invalid answers', { issues });
+  for (const item of question.questions) result[item.id] ??= [];
+  return result;
 }
 
 function engineError(

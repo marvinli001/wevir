@@ -15,9 +15,10 @@ codex-app-server stdout（逐行 JSON，不带 "jsonrpc"）
   ├─ 服务端请求 ──▶ CodexAdapter（§6.6）
   │     ├─ 命令 / 补丁的审批，属于挂着的会话（含子会话）进行中的回合 ──▶ tool.updated（理由）+ approval.requested，等 respondToApproval
   │     ├─ 没有挂着的 thread、不属于进行中回合的 ──▶ 回复 decline
-  │     └─ 其余（request_user_input、MCP 等）──▶ 回复“不支持”
+  │     ├─ request_user_input，属于进行中的回合 ──▶ question.requested，等 respondToQuestion（不属于的回空回答）
+  │     └─ 其余（MCP 等）──▶ 回复“不支持”
   └─ 通知（按写出顺序同步交付）──▶ CodexAdapter 按 threadId 路由
-        ├─ serverRequest/resolved ──▶ 仍未决的审批以 approval.cancelled 结束（§6.6）
+        ├─ serverRequest/resolved ──▶ 仍未决的审批以 approval.cancelled、未答的提问以 question.cancelled 结束（§6.6）
         ├─ 生成标题的临时 thread ──▶ TitleCollector（§4.4）
         ├─ 挂着的会话（含子会话）──▶ collab item 认出子 agent（§6.5）+ 会话的 CodexEventMapper（mapping.ts）──▶ EventHub ──▶ subscribe()
         ├─ 没认出来的 thread（多半是子 agent）──▶ 先存着，认出后按子会话补上；按 rootTurnId 当场认出（§6.5）
@@ -90,6 +91,8 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 | `[analytics] enabled` | `false` | 决策 5 |
 | `[features] plugins / goals / memories` | `false` / `false` / `false` | 决策 5（plugins 是唯一产生外连的开关）、补记 1（goals）、决策 5（memories 默认就关） |
 | `[features] instant_interrupt` | `false` | R11：插话等这一步结束再进回合（§4.5；这个开关默认开，开着时插话立刻掐断正在流式输出的采样） |
+| `[features] default_mode_request_user_input` | `true` | U11：普通回合也给模型 `request_user_input` 工具（默认只在计划模式给），模型可以向用户提问（§6.6）。功能阶段是 UnderDevelopment |
+| `suppress_unstable_features_warning` | `true` | U11：开了开发中的功能时，app-server 每个 thread 开头发一条 warning 通知（会成为 `engine.raw`），关掉它 |
 | `[tools.update_plan] enabled` | `true` | 决策 5（计划默认关） |
 | `[skills] include_instructions`、`[skills.bundled] enabled` | `false`、`false` | §1.3 |
 | `[shell_environment_policy]` | `ignore_default_excludes = false`，`exclude = ["WEVIR_*"]` | 决策 5：命令看不到令牌 |
@@ -305,7 +308,9 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 | 同上，属于子会话（子 agent 的 thread） | 与普通会话相同，`approval.requested` 在子会话的流里，按子会话的 ID 回复（R4）。Host 把它放进父会话摘要的 `pendingApprovals`，客户端在父会话里显示并回复（domain-model §5 第 8 条） |
 | 同上，不属于进行中的回合、或 thread 没挂着（含还没认出来的子 thread） | 回复 `decline` 并告警 |
 | `item/permissions/requestApproval` | 回复“不支持”（`-32601`）。核实（锁定提交）：只来自 `request_permissions` 工具，要 `features.request_permissions_tool`（UnderDevelopment，默认关），Wevir 不开，不会出现 |
-| 其余（`item/tool/requestUserInput`、`mcpServer/elicitation/request` 等） | 回复“不支持”（`-32601`） |
+| `item/tool/requestUserInput`，属于会话进行中的回合（0.10.0，U11） | `question.requested`（下面），等 `respondToQuestion` |
+| 同上，回合已开始取消、不属于进行中的回合、或 thread 没挂着 | 回复空的回答 `{ answers: {} }`（Codex 当作用户没答，模型自己往下做）并告警 |
+| 其余（`mcpServer/elicitation/request` 等） | 回复“不支持”（`-32601`） |
 
 **`approval.requested`。** `requestId` 由适配器分配（`codex-<n>`，实例内唯一；不用 app-server 的请求 id，它每个进程从 0 起），`toolCallId` 是请求的 `itemId`（与工具调用同一个 ID）。`availableDecisions` 是实验字段拿不到（codex-notes §2.7），选项照 Codex 终端界面（`tui/src/bottom_pane/approval_overlay.rs` 的 `exec_options`、`patch_options`）固定；`optionId` 就是回给 app-server 的决定，`kind` 以 `allow_` / `reject_` 开头决定 Host 记为批准还是拒绝，客户端不认识这些 kind，按 `label` 显示：
 
@@ -334,6 +339,8 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 | app-server 回合中途收回（`serverRequest/resolved` 先到） | 结掉 | `turn_ended` |
 | 进程退出、有计划的重启（`config_changed`、`cancel_unconfirmed`） | 在 `engine.exited` 之前结掉 | `engine_exited` |
 | `dispose` | 结掉，不再回复（进程随之回收） | `disposed` |
+
+**提问（0.10.0，U11，`#onUserInputRequest`、`respondToQuestion`、`#endQuestion`）。** 模型调 `request_user_input` 时 app-server 发 `item/tool/requestUserInput`（`threadId`、`turnId`、`itemId`、`questions`）。这个工具默认只在计划模式提供，Wevir 打开 `default_mode_request_user_input`（§3）让普通回合也有；请求与回复的字段属于实验 API，但握手不必声明 `experimentalApi`（`rust-v0.162.1` 实测）。适配器分配 `requestId`（`codex-q-<n>`），上报 `question.requested`：`toolCallId` 是 `itemId`；每个问题的 `id`、`header`、`question` 原样，`options` 取 `label` 与 `description`，`isOther` → `allowOther`，`isSecret` → `secret`；Codex 的问题都是单选（没有 `multiSelect`，多选只在协议里，留给以后的引擎）。`respondToQuestion` 以 `{ answers: { <问题 id>: { answers: [...] } } }` 回复（选中的选项 `label` 或用户填的文字，跳过的题为空数组），同一请求只回复一次；已不在未决表里时报 `question_not_found`。结束方式与审批相同（上表）：`cancel` / `close` 结为 `turn_cancelled`，回合先结束或 app-server 收回（`serverRequest/resolved`）结为 `turn_ended`，进程退出结为 `engine_exited`，`dispose` 结为 `disposed`，都不再回复；对应的事件是 `question.cancelled`，Host 据此写 `question.resolved`（`cancelled`，domain-model §3.8）。
 
 **中断时还没结束的工具。** 回合以 `interrupted` 结束时，`turn/completed` 之前还没 `item/completed` 的工具（审批挂起时取消的命令、选了“告诉它换个做法”的补丁）不会再有结果，`#failOpenTools` 在终结事件之前给它们发 `tool.finished`（`failed`）；取消期间 Host 把它记为 `cancelled`（domain-model.md §6.4），选了“告诉它换个做法”时界面显示为被拒绝。
 
@@ -367,7 +374,7 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 | 子会话 | `codex-adapter.subagent.test.ts`（回放）、`codex-adapter.subagent.integration.test.ts`（真实二进制） | §6.5：回放三个子 agent 样本（含按 rootTurnId 认出），`thread/read` 不可用时降级；spawn → wait、不等子 agent、`close_agent`、取消父回合时子 agent 不受影响、notFound 不认 |
 | 审批 | `codex-adapter.approval.integration.test.ts` | 详情与理由、四个决定、本会话同意后不再问、补丁的“告诉它换个做法”、审批挂起时取消（之后到的 `serverRequest/resolved` 没有多余事件与告警）、工作区内不需要审批 |
 | 恢复与取消 | `codex-adapter.resume.integration.test.ts` | 关闭后恢复、换进程后恢复且下一回合带完整历史、`not_found` 与 `corrupted`、没对话过的会话、`cancel_unconfirmed` 时重启并能恢复 |
-| 计划、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`、缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
+| 计划、提问、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`；提问（U11：mock 模型调 `request_user_input`，回答回到模型、回合接着做，开发中功能的 warning 不出现）；缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
 | 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
 | ChatGPT 进程（R6） | `account.test.ts`（假的 app-server，状态机与 `model/list` 的换算）、`codex-runtime.chatgpt.integration.test.ts`（真实二进制 + `test-fixtures/mock-chatgpt.ts` 的登录服务与后端） | §8：没登录时 ChatGPT 会话建不起来；设备码登录 → 邮箱、套餐与用量 → `model/list` → ChatGPT 会话落在 ChatGPT 进程、网关会话照旧在网关进程 → 登出（凭据删除、令牌吊销）；浏览器登录（回调打到本机 1455）与取消；`auth.json` 0600 只在 ChatGPT 进程的目录；外连经拒绝的代理只剩 chatgpt.com |
 | Host | `packages/host/src/cli.codex.integration.test.ts`、`cli.codex.subagent.integration.test.ts`、`cli.codex.pending.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收；子会话（派出、子会话的审批经父会话处理、取消父会话时级联取消）；插话与排队（R11：慢回合里插话一次，等慢回答流完再进同一回合；排队一次，回合结束后作为下一回合发出） |

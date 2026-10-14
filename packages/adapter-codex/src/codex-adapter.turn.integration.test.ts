@@ -8,10 +8,12 @@ import {
   codexBinaryOrSkip,
   collectEvents,
   collectingLogger,
+  finishTurn,
   newAdapter,
   ofType,
   runTurn,
   TempDirs,
+  waitForEvent,
 } from './test-fixtures/harness.js';
 import {
   MOCK_MODEL,
@@ -125,6 +127,57 @@ describe.skipIf(binary === undefined)(
       script = () => ({ httpError: { status: 400, message: 'bad request' } });
       turn = await runTurn(adapter, id, 'hi', events);
       expect(turn.at(-1)).toMatchObject({ type: 'turn.failed', category: 'provider' });
+    });
+
+    it('向用户提问（0.10.0）：request_user_input → question.requested，回答回到模型，回合接着做', async () => {
+      const { adapter, id, events } = await open();
+      script = (view) =>
+        view.toolOutputs.length === 0
+          ? {
+              toolCalls: [
+                {
+                  kind: 'function',
+                  name: 'request_user_input',
+                  args: {
+                    questions: [
+                      {
+                        id: 'scope',
+                        header: 'Scope',
+                        question: 'How far should this go?',
+                        options: [
+                          { label: 'UI only', description: 'Just the interface' },
+                          { label: 'Full stack', description: 'Protocol and UI' },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            }
+          : { text: [`got ${view.toolOutputs[0]}`] };
+      const from = events.length;
+      await adapter.send(id, { content: [{ type: 'text', text: 'ask me' }] });
+      const asked = await waitForEvent(events, ofType('question.requested'), '提问', from);
+      expect(asked.questions).toEqual([
+        {
+          id: 'scope',
+          header: 'Scope',
+          question: 'How far should this go?',
+          options: [
+            { label: 'UI only', description: 'Just the interface' },
+            { label: 'Full stack', description: 'Protocol and UI' },
+          ],
+          allowOther: true,
+        },
+      ]);
+      await adapter.respondToQuestion(id, asked.requestId, { scope: ['Full stack'] });
+      const turn = await finishTurn(events, from);
+      expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      expect(JSON.stringify(mock.requests.at(-1)?.body.input)).toContain('Full stack');
+      // suppress_unstable_features_warning：开了开发中的功能也没有 warning 通知。
+      expect(
+        events.filter((event) => event.type === 'engine.raw' && event.method === 'warning'),
+      ).toEqual([]);
     });
 
     it('会话中换模型与推理档位（0.9.0）：之后的请求用新模型与新档位', async () => {

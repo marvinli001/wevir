@@ -23,6 +23,8 @@ import type {
   IsoTime,
   PendingMessage,
   PendingMessageId,
+  QuestionId,
+  QuestionRequest,
   SessionId,
   SessionReadOnly,
   SessionReadOnlyReason,
@@ -83,6 +85,8 @@ export type ChatPart =
       finishedAt?: IsoTime;
     }
   | { type: 'todo'; key: string; items: readonly TodoItem[] }
+  /** 引擎向用户提的一组问题（0.10.0），在提问时所在的位置；结束后原位换成带结局的。 */
+  | { type: 'question'; key: string; question: QuestionRequest }
   | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
   /** 适配器不认识的引擎消息（`engine.raw`），只在 `includeRaw` 时投影。 */
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown }
@@ -180,6 +184,8 @@ export interface Transcript {
   parent: ParentRef | undefined;
   /** R11：等待中与暂停的待发消息，按加入的先后；规则同 Host 快照的 `pendingMessages`。 */
   pendingMessages: readonly PendingMessage[];
+  /** 0.10.0：等用户回答的问题，按提出的先后；规则同 Host 快照的 `pendingQuestions`。 */
+  pendingQuestions: readonly QuestionRequest[];
   lastSeq: number;
 }
 
@@ -247,6 +253,8 @@ export class TranscriptProjection {
   /** toolCallId → 所在消息。 */
   #tools = new Map<string, MutableMessage>();
   #approvals = new Map<ApprovalId, ApprovalRequest>();
+  /** 全部问题（0.10.0），含已结束的。 */
+  #questions = new Map<QuestionId, QuestionRequest>();
   #approvalsDirty = false;
   #sessionId: SessionId | undefined;
   #state: SessionState | undefined;
@@ -277,6 +285,7 @@ export class TranscriptProjection {
     this.#turns.clear();
     this.#tools.clear();
     this.#approvals.clear();
+    this.#questions.clear();
     this.#approvalsDirty = true;
     this.#sessionId = undefined;
     this.#state = undefined;
@@ -372,6 +381,12 @@ export class TranscriptProjection {
       case 'approval.resolved':
         this.#approvalResolved(event);
         return;
+      case 'question.requested':
+        this.#questionRequested(event);
+        return;
+      case 'question.resolved':
+        this.#questionResolved(event);
+        return;
       case 'usage.updated':
         this.#usage = {
           contextUsed: event.payload.contextUsed,
@@ -429,6 +444,9 @@ export class TranscriptProjection {
       subagents: this.#subagents,
       parent: this.#parent,
       pendingMessages: this.#pending,
+      pendingQuestions: [...this.#questions.values()].filter(
+        (question) => question.status === 'pending',
+      ),
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -796,6 +814,35 @@ export class TranscriptProjection {
       status: part.status === 'awaiting_approval' ? 'running' : part.status,
       approval: part.approval && { ...part.approval, status, resolution },
     }));
+  }
+
+  // ── 提问（0.10.0） ───────────────────────────────────────────────────
+
+  #questionRequested(event: WevirEventOf<'question.requested'>): void {
+    const { question } = event.payload;
+    this.#questions.set(question.id, question);
+    const message = this.#assistant(question.turnId, event.seq);
+    this.#touch(message, event.seq);
+    message.parts.push({ type: 'question', key: `q:${question.id}`, question });
+  }
+
+  #questionResolved(event: WevirEventOf<'question.resolved'>): void {
+    const { questionId, status, resolution } = event.payload;
+    const previous = this.#questions.get(questionId);
+    if (!previous) return;
+    // 等回答的时间不算思考。
+    this.#activity(previous.turnId, event.ts);
+    const question: QuestionRequest = { ...previous, status, resolution, resolvedAt: event.ts };
+    this.#questions.set(questionId, question);
+    for (const segment of this.#segments(previous.turnId, event.seq)) {
+      const index = segment.parts.findIndex(
+        (part) => part.type === 'question' && part.question.id === questionId,
+      );
+      if (index < 0) continue;
+      this.#touch(segment, event.seq);
+      segment.parts[index] = { type: 'question', key: `q:${questionId}`, question };
+    }
+    this.#dirty = true;
   }
 
   // ── 子会话 ───────────────────────────────────────────────────────────

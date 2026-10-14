@@ -56,6 +56,11 @@ import {
   ProviderProfileSchema,
   ProviderReasoningLevelSchema,
   ProviderTestFailureSchema,
+  QuestionAnswerSchema,
+  QuestionIdSchema,
+  QuestionRequestSchema,
+  QuestionResolutionSchema,
+  QuestionStatusSchema,
   ResolvedApprovalStatusSchema,
   SeqCursorSchema,
   SeqSchema,
@@ -83,6 +88,8 @@ import {
   TurnOutcomeSchema,
   UsageSchema,
   UserContentPartSchema,
+  UserQuestionOptionSchema,
+  UserQuestionSchema,
   WEVIR_EVENT_TYPES,
   WevirEventEnvelopeSchema,
   WevirEventSchema,
@@ -103,6 +110,7 @@ import {
   notificationSamples,
   pendingApproval,
   pendingHeld,
+  pendingQuestion,
   pendingSteer,
   readOnlySession,
   session,
@@ -161,6 +169,12 @@ const standaloneCases: Case[] = [
     schema: PendingMessageIdSchema,
     valid: [ids.pending],
     invalid: ['pnd_', ids.turn],
+  },
+  {
+    name: 'QuestionId',
+    schema: QuestionIdSchema,
+    valid: [ids.question],
+    invalid: ['qst_', ids.approval],
   },
   {
     name: 'ProviderId',
@@ -487,6 +501,51 @@ const standaloneCases: Case[] = [
     invalid: [
       { ...pendingSteer, content: [] },
       { ...pendingHeld, fallback: {} },
+    ],
+  },
+  {
+    name: 'UserQuestionOption',
+    schema: UserQuestionOptionSchema,
+    valid: [{ label: '全链路' }, { label: '全链路', description: '协议、Host 与界面' }],
+    invalid: [{ label: '' }, { description: 'x' }],
+  },
+  {
+    name: 'UserQuestion',
+    schema: UserQuestionSchema,
+    valid: pendingQuestion.questions,
+    invalid: [
+      { id: 'a', question: '', options: [] },
+      { question: 'q', options: [] },
+    ],
+  },
+  {
+    name: 'QuestionAnswer',
+    schema: QuestionAnswerSchema,
+    valid: [{ answers: [] }, { answers: ['macOS', 'Linux'] }],
+    invalid: [{}, { answers: 'x' }],
+  },
+  {
+    name: 'QuestionStatus',
+    schema: QuestionStatusSchema,
+    valid: ['pending', 'answered', 'cancelled'],
+    invalid: ['skipped'],
+  },
+  {
+    name: 'QuestionResolution',
+    schema: QuestionResolutionSchema,
+    valid: [
+      { reason: 'user', answers: { scope: { answers: ['全链路'] } }, answeredBy: identity },
+      { reason: 'turn_cancelled' },
+    ],
+    invalid: [{}, { reason: 'timeout' }],
+  },
+  {
+    name: 'QuestionRequest',
+    schema: QuestionRequestSchema,
+    valid: [pendingQuestion],
+    invalid: [
+      { ...pendingQuestion, questions: [] },
+      { ...pendingQuestion, id: ids.approval },
     ],
   },
   {

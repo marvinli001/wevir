@@ -119,6 +119,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <ErrorPart part={part} />;
     case 'notice':
       return <NoticePart part={part} />;
+    case 'question':
+      return <QuestionPart part={part} />;
     // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
     case 'reasoning':
     case 'tool':
@@ -127,6 +129,38 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return null;
   }
 });
+
+/**
+ * 消息流里的一组提问（0.10.0）：等回答时不显示（卡片在输入框上方），回答后每题一行“题目 → 回答”，取消时一行说明。
+ */
+function QuestionPart({ part }: { part: ChatPartOf<'question'> }) {
+  const { question } = part;
+  if (question.status === 'pending') return null;
+  if (question.status === 'cancelled') {
+    return <p className="text-sm text-muted-foreground">{t('question.cancelled')}</p>;
+  }
+  const answers = question.resolution?.answers ?? {};
+  return (
+    <ul className="space-y-1 border-l-2 border-border pl-3 text-sm" data-question={question.id}>
+      {question.questions.map((item) => {
+        const answer = answers[item.id]?.answers ?? [];
+        return (
+          <li key={item.id} className="min-w-0">
+            <span className="text-muted-foreground">{item.header ?? item.question}</span>
+            <span className="mx-1.5 text-muted-foreground">→</span>
+            <span className={cn(answer.length === 0 && 'text-muted-foreground')}>
+              {answer.length === 0
+                ? t('question.skipped')
+                : item.secret
+                  ? '••••'
+                  : answer.join('、')}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
 
 const TODO_MARKS: Record<string, string> = { completed: '☑', in_progress: '◐' };
 

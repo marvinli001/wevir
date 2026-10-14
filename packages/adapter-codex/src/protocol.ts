@@ -526,6 +526,32 @@ export interface FileChangeRequestApprovalParams {
   grantRoot?: string | null;
 }
 
+/** v2/ToolRequestUserInputQuestion.ts（实验字段，0.10.0 的提问）。Codex 的问题都要有选项，`isOther` 恒为 true。 */
+export interface ToolRequestUserInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  isOther?: boolean;
+  isSecret?: boolean;
+  options: Array<{ label: string; description: string }> | null;
+}
+
+/** v2/ToolRequestUserInputParams.ts：`item/tool/requestUserInput` 的参数。 */
+export interface ToolRequestUserInputParams {
+  threadId: string;
+  turnId: string;
+  itemId: string;
+  questions: ToolRequestUserInputQuestion[];
+  isBlocking?: boolean;
+}
+
+/** v2/ToolRequestUserInputResponse.ts：按问题 ID 的回答。 */
+export interface ToolRequestUserInputResponse {
+  answers: Record<string, { answers: string[] }>;
+}
+
+export const REQUEST_USER_INPUT = 'item/tool/requestUserInput';
+
 /**
  * 审批的回复：v2/CommandExecutionRequestApprovalResponse.ts 与 v2/FileChangeRequestApprovalResponse.ts 的
  * 字符串决定（v2/CommandExecutionApprovalDecision.ts、v2/FileChangeApprovalDecision.ts 的公共部分；带 execpolicy

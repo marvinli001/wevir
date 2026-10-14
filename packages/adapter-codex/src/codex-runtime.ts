@@ -76,6 +76,14 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return this.#forSession(engineSessionId).send(engineSessionId, input);
   }
 
+  respondToQuestion(
+    engineSessionId: string,
+    requestId: string,
+    answers: Record<string, string[]>,
+  ): Promise<void> {
+    return this.#forSession(engineSessionId).respondToQuestion(engineSessionId, requestId, answers);
+  }
+
   configureSession(
     engineSessionId: string,
     config: { modelId: string; reasoningEffort?: string },

@@ -223,6 +223,7 @@ const RECENT_TONES: Record<
 > = {
   running: { tone: 'accent', label: 'session.marker.running' },
   awaiting_approval: { tone: 'warning', label: 'session.marker.awaitingApproval' },
+  awaiting_input: { tone: 'warning', label: 'session.marker.awaitingInput' },
   error: { tone: 'danger', label: 'session.marker.error' },
   idle: { tone: 'neutral', label: 'home.recent.idle' },
 };

@@ -126,7 +126,7 @@ export function TranscriptView({
                         messages={block.messages}
                         turnActive={isActiveTurn(block.turnId, transcript)}
                         {...(isActiveTurn(block.turnId, transcript) && {
-                          live: liveState(transcript.state),
+                          live: liveState(transcript),
                           orb: turnOrb(sessionId, block.turnId),
                         })}
                         hasSubagents={transcript.subagents.length > 0}
@@ -160,7 +160,9 @@ export function TranscriptView({
   );
 }
 
-function liveState(state: Transcript['state']): LiveState {
+function liveState(transcript: Transcript): LiveState {
+  const { state } = transcript;
+  if (state === 'running' && transcript.pendingQuestions.length > 0) return 'input';
   return state === 'awaiting_approval'
     ? 'awaiting'
     : state === 'cancelling'

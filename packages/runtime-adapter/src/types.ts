@@ -105,6 +105,17 @@ export interface ToolDisplay {
   mcpServer?: string;
 }
 
+/** 与 @wevir/protocol 的 `UserQuestion` 同形（0.10.0）：引擎向用户提的一个问题。 */
+export interface UserQuestion {
+  id: string;
+  header?: string;
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  multiSelect?: boolean;
+  allowOther?: boolean;
+  secret?: boolean;
+}
+
 /** 与 @wevir/protocol 的 `TodoItem` 同形。 */
 export interface TodoItem {
   content: string;

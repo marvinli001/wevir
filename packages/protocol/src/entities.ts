@@ -5,6 +5,7 @@ import {
   IsoTimeSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
+  QuestionIdSchema,
   SeqCursorSchema,
   SessionIdSchema,
   StreamIdSchema,
@@ -339,6 +340,67 @@ export type ApprovalResolution = z.infer<typeof ApprovalResolutionSchema>;
 export const ResolvedApprovalStatusSchema = ApprovalStatusSchema.exclude(['pending']);
 export type ResolvedApprovalStatus = z.infer<typeof ResolvedApprovalStatusSchema>;
 
+// ── 提问（0.10.0） ─────────────────────────────────────────────────────
+
+/** 问题的一个选项。 */
+export const UserQuestionOptionSchema = z.object({
+  label: z.string().min(1),
+  /** 选项的补充说明。 */
+  description: z.string().optional(),
+});
+export type UserQuestionOption = z.infer<typeof UserQuestionOptionSchema>;
+
+/** 引擎（Agent）向用户提的一个问题（Codex：`request_user_input`，domain-model §3.8）。 */
+export const UserQuestionSchema = z.object({
+  /** 这一组里的问题 ID（引擎给的），回答按它对应。 */
+  id: z.string().min(1),
+  /** 短标题（卡片上的小标签）。 */
+  header: z.string().optional(),
+  question: z.string().min(1),
+  options: z.array(UserQuestionOptionSchema),
+  /** 可以选多个（Codex 的问题都是单选）。 */
+  multiSelect: z.boolean().optional(),
+  /** 可以自己填写“其他”（Codex 恒为 true）。 */
+  allowOther: z.boolean().optional(),
+  /** 回答不回显（密码类）。 */
+  secret: z.boolean().optional(),
+});
+export type UserQuestion = z.infer<typeof UserQuestionSchema>;
+
+/** 一个问题的回答：选中的选项 `label`，或用户填写的文本；跳过时为空数组。 */
+export const QuestionAnswerSchema = z.object({ answers: z.array(z.string()) });
+export type QuestionAnswer = z.infer<typeof QuestionAnswerSchema>;
+
+export const QuestionStatusSchema = z.enum(['pending', 'answered', 'cancelled']);
+export type QuestionStatus = z.infer<typeof QuestionStatusSchema>;
+
+/** 结束一组问题的原因：用户回答了，或同审批一样随回合、会话、引擎、Host 一起取消。 */
+export const QuestionResolutionReasonSchema = ApprovalResolutionReasonSchema;
+
+export const QuestionResolutionSchema = z.object({
+  reason: QuestionResolutionReasonSchema,
+  /** `reason` 为 `user` 时必有：按问题 ID。 */
+  answers: z.record(z.string(), QuestionAnswerSchema).optional(),
+  /** `reason` 为 `user` 时必有。 */
+  answeredBy: ClientIdentitySchema.optional(),
+});
+export type QuestionResolution = z.infer<typeof QuestionResolutionSchema>;
+
+/** 一组问题（0.10.0）：回合进行中引擎要用户回答，回答后回合接着做。 */
+export const QuestionRequestSchema = z.object({
+  id: QuestionIdSchema,
+  sessionId: SessionIdSchema,
+  turnId: TurnIdSchema,
+  /** 提问的工具调用（Codex 的 item ID）；没有时省略。 */
+  toolCallId: z.string().optional(),
+  questions: z.array(UserQuestionSchema).min(1),
+  status: QuestionStatusSchema,
+  createdAt: IsoTimeSchema,
+  resolvedAt: IsoTimeSchema.optional(),
+  resolution: QuestionResolutionSchema.optional(),
+});
+export type QuestionRequest = z.infer<typeof QuestionRequestSchema>;
+
 export const ApprovalRequestSchema = z.object({
   id: ApprovalIdSchema,
   sessionId: SessionIdSchema,
@@ -537,6 +599,8 @@ export const SessionSchema = z.object({
   parentSessionId: SessionIdSchema.optional(),
   /** 只有子会话有（0.6.0）。 */
   subagent: SubagentInfoSchema.optional(),
+  /** 有问题等用户回答（0.10.0）：回合仍是 `running`，只是在等用户。 */
+  awaitingInput: z.boolean().optional(),
   createdAt: IsoTimeSchema,
   /** 最后一个事件的 `ts`。 */
   updatedAt: IsoTimeSchema,
@@ -557,5 +621,7 @@ export const SessionSnapshotSchema = z.object({
   subagents: z.array(SubagentSummarySchema).optional(),
   /** 等待中与暂停的待发消息（0.8.0），按加入的先后；没有时省略。 */
   pendingMessages: z.array(PendingMessageSchema).optional(),
+  /** 等用户回答的问题（0.10.0），按提出的先后；没有时省略。 */
+  pendingQuestions: z.array(QuestionRequestSchema).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

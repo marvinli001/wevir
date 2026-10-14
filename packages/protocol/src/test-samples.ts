@@ -8,6 +8,7 @@ import type {
   ApprovalResolution,
   PendingMessage,
   ProviderProfile,
+  QuestionRequest,
   Session,
   SessionSnapshot,
   SubagentSummary,
@@ -43,6 +44,8 @@ export const ids = {
   /** 待发消息（R11）。 */
   pending: `pnd_${ULID}`,
   pending2: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  /** 提问（0.10.0）。 */
+  question: `qst_${ULID}`,
 } as const;
 
 export const identity: ClientIdentity = {
@@ -292,6 +295,34 @@ export const pendingHeld: PendingMessage = {
   updatedAt: TS2,
 };
 
+/** 一组问题（0.10.0）：一个单选、一个多选。 */
+export const pendingQuestion: QuestionRequest = {
+  id: ids.question,
+  sessionId: ids.session,
+  turnId: ids.turn,
+  toolCallId: 'call_ask_1',
+  questions: [
+    {
+      id: 'scope',
+      header: '范围',
+      question: '这次改动做到哪一步？',
+      options: [
+        { label: '只做界面', description: '协议另开任务' },
+        { label: '全链路', description: '协议、Host 与界面一起' },
+      ],
+      allowOther: true,
+    },
+    {
+      id: 'targets',
+      question: '要覆盖哪些平台？',
+      options: [{ label: 'macOS' }, { label: 'Windows' }, { label: 'Linux' }],
+      multiSelect: true,
+    },
+  ],
+  status: 'pending',
+  createdAt: TS,
+};
+
 export const snapshot: SessionSnapshot = {
   session,
   pendingApprovals: [pendingApproval],
@@ -442,6 +473,22 @@ export const eventPayloads: PayloadSamples = {
   'approval.resolved': {
     valid: { approvalId: ids.approval, status: 'approved', resolution: userResolution },
     invalid: { approvalId: ids.approval, status: 'pending', resolution: userResolution },
+  },
+  'question.requested': {
+    valid: { question: pendingQuestion },
+    invalid: { question: { ...pendingQuestion, questions: [] } },
+  },
+  'question.resolved': {
+    valid: {
+      questionId: ids.question,
+      status: 'answered',
+      resolution: {
+        reason: 'user',
+        answers: { scope: { answers: ['全链路'] }, targets: { answers: ['macOS', 'Linux'] } },
+        answeredBy: identity,
+      },
+    },
+    invalid: { questionId: ids.question, status: 'pending', resolution: { reason: 'user' } },
   },
   'usage.updated': {
     valid: { contextUsed: 5120, contextSize: 262144 },
@@ -915,6 +962,25 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ pendingMessages: [] }, { pendingMessages: [pendingSteer, pendingHeld] }],
       invalid: [{}],
+    },
+  },
+  'question.respond': {
+    params: {
+      valid: [
+        { questionId: ids.question, answers: { scope: { answers: ['全链路'] } } },
+        { questionId: ids.question, answers: {} },
+      ],
+      invalid: [{ answers: {} }, { questionId: ids.question, answers: { scope: ['x'] } }],
+    },
+    result: {
+      valid: [
+        {
+          questionId: ids.question,
+          status: 'answered',
+          resolution: { reason: 'user', answers: {}, answeredBy: identity },
+        },
+      ],
+      invalid: [{ questionId: ids.question, status: 'pending' }],
     },
   },
   'approval.respond': {

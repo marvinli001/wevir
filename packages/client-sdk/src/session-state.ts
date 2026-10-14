@@ -41,6 +41,12 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
       break;
+    case 'question.requested':
+      next.awaitingInput = true;
+      break;
+    case 'question.resolved':
+      delete next.awaitingInput;
+      break;
     case 'session.configured':
       next.modelId = event.payload.modelId;
       if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;

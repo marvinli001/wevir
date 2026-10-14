@@ -172,14 +172,18 @@ function LiveLine({ live, startedAt }: { live: LiveState; startedAt: string | un
       ? t('work.stopping')
       : live === 'awaiting'
         ? t('work.awaiting')
-        : t('work.thinking');
+        : live === 'input'
+          ? t('work.awaitingInput')
+          : t('work.thinking');
   return (
     <div
       className="mt-3 flex min-h-6 items-center gap-2 text-sm text-muted-foreground"
       data-live-line={live}
     >
       <LiveIndicator state={live} />
-      <span className={live === 'awaiting' ? 'text-warning' : 'shimmer'}>{text}</span>
+      <span className={live === 'awaiting' || live === 'input' ? 'text-warning' : 'shimmer'}>
+        {text}
+      </span>
       <Elapsed since={startedAt} className="tabular-nums" />
     </div>
   );

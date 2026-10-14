@@ -46,6 +46,8 @@ export const HOST_FEATURES = {
   hostSettings: 'host_settings',
   /** 换会话的模型与推理档位（0.9.0）：`session.configure` 与 `session.configured` 事件。取决于引擎（Codex 有）。 */
   sessionConfigure: 'session_configure',
+  /** 引擎向用户提问（0.10.0）：`question.*` 事件与 `question.respond`。取决于引擎（Codex 有）。 */
+  userQuestions: 'user_questions',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -54,6 +56,7 @@ export const HostFeaturesSchema = z.looseObject({
   pending_messages: z.boolean().optional(),
   host_settings: z.boolean().optional(),
   session_configure: z.boolean().optional(),
+  user_questions: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

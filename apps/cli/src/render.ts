@@ -188,6 +188,31 @@ export class EventRenderer {
       case 'approval.resolved':
         this.#approvalResolved(event);
         return;
+      case 'question.requested': {
+        // 0.10.0：命令行只显示问题，回答在桌面端（见 TODO.md）。
+        const { questions } = event.payload.question;
+        this.#sink.line(this.#s.yellow('? Agent 提问（请在桌面端回答）'));
+        for (const item of questions) {
+          this.#sink.line(`  ${item.header ? `${item.header}：` : ''}${item.question}`);
+          item.options.forEach((option, index) => {
+            const note = option.description ? this.#s.dim(` — ${option.description}`) : '';
+            this.#sink.line(`    ${index + 1}) ${option.label}${note}`);
+          });
+        }
+        return;
+      }
+      case 'question.resolved': {
+        const { status, resolution } = event.payload;
+        if (status === 'cancelled') {
+          this.#sink.line(this.#s.dim('提问已取消'));
+          return;
+        }
+        const answers = Object.entries(resolution.answers ?? {})
+          .map(([id, answer]) => `${id}=${answer.answers.join('、') || '（跳过）'}`)
+          .join('；');
+        this.#sink.line(this.#s.dim(`✓ 已回答：${answers}`));
+        return;
+      }
       case 'engine.error': {
         const { category, message } = event.payload;
         this.#sink.line(this.#s.red(`引擎错误（${ENGINE_ERROR_LABEL[category]}）：${message}`));

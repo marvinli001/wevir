@@ -5,6 +5,7 @@ import {
   IsoTimeSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
+  QuestionIdSchema,
   SeqSchema,
   SessionIdSchema,
   StreamIdSchema,
@@ -16,6 +17,8 @@ import {
   ApprovalResolutionSchema,
   EngineErrorCategorySchema,
   PendingMessageSchema,
+  QuestionRequestSchema,
+  QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
   SessionReadOnlyReasonSchema,
   SessionStateSchema,
@@ -196,6 +199,16 @@ export const EventPayloadSchemas = {
     status: ResolvedApprovalStatusSchema,
     resolution: ApprovalResolutionSchema,
   }),
+  /** 引擎向用户提了一组问题（0.10.0），回合等回答。`status` 恒为 `pending`。 */
+  'question.requested': z.object({
+    question: QuestionRequestSchema,
+  }),
+  /** 这组问题结束了（0.10.0）：用户回答了，或随回合、会话等取消。 */
+  'question.resolved': z.object({
+    questionId: QuestionIdSchema,
+    status: z.enum(['answered', 'cancelled']),
+    resolution: QuestionResolutionSchema,
+  }),
   'usage.updated': z.object({
     /** ACP `usage_update.used`。 */
     contextUsed: z.int().min(0),
@@ -299,6 +312,8 @@ export const ToolFinishedEventSchema = eventSchema('tool.finished');
 export const TodoUpdatedEventSchema = eventSchema('todo.updated');
 export const ApprovalRequestedEventSchema = eventSchema('approval.requested');
 export const ApprovalResolvedEventSchema = eventSchema('approval.resolved');
+export const QuestionRequestedEventSchema = eventSchema('question.requested');
+export const QuestionResolvedEventSchema = eventSchema('question.resolved');
 export const UsageUpdatedEventSchema = eventSchema('usage.updated');
 export const EngineErrorEventSchema = eventSchema('engine.error');
 export const EngineRawEventSchema = eventSchema('engine.raw');
@@ -329,6 +344,8 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   TodoUpdatedEventSchema,
   ApprovalRequestedEventSchema,
   ApprovalResolvedEventSchema,
+  QuestionRequestedEventSchema,
+  QuestionResolvedEventSchema,
   UsageUpdatedEventSchema,
   EngineErrorEventSchema,
   EngineRawEventSchema,

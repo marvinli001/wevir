@@ -19,6 +19,7 @@ import { Composer, setDraft } from './composer';
 import { historyDigest } from './history-digest';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { PendingArea } from './pending-area';
+import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
 import { SessionStatus } from './session-status';
 import { sendError, sendText, useModelChoice, useStartSession } from './start-session';
@@ -133,6 +134,7 @@ export function SessionView({ session }: { session: Session }) {
         </p>
       )}
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
+        {transcript && <QuestionDock transcript={transcript} client={client} />}
         {transcript && (
           <ApprovalDock
             transcript={transcript}

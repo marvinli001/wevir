@@ -386,6 +386,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'settings.update': async (params) => ({ settings: await settings.update(params.settings) }),
 
+    'question.respond': (params, { client }) => sessions.respondToQuestion(params, client),
+
     'approval.respond': (params, { client }) => sessions.respondToApproval(params, client),
   };
 }

@@ -134,6 +134,33 @@ describe('EchoAdapter', () => {
     expect(after.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
   });
 
+  it('ask：提两个问题，回答后写进回复；取消时提问以 question.cancelled 结束', async () => {
+    const session = await open();
+    await session.send('ask me');
+    const before = await session.readUntil((event) => event.type === 'question.requested');
+    const request = before.at(-1);
+    if (request?.type !== 'question.requested') throw new Error('no question');
+    expect(request.questions.map((q) => [q.id, q.multiSelect ?? false])).toEqual([
+      ['scope', false],
+      ['targets', true],
+    ]);
+    await expect(
+      session.adapter.respondToQuestion(session.id, 'qst_missing', {}),
+    ).rejects.toMatchObject({ code: 'question_not_found' });
+    await session.adapter.respondToQuestion(session.id, request.requestId, {
+      scope: ['Full stack'],
+      targets: ['macOS', 'Linux'],
+    });
+    const after = await session.readUntil(settled);
+    expect(textOf(after, 'text')).toContain('Answers: scope=Full stack; targets=macOS, Linux');
+
+    await session.send('ask again');
+    await session.readUntil((event) => event.type === 'question.requested');
+    await session.adapter.cancel(session.id);
+    const cancelled = await session.readUntil(settled);
+    expect(cancelled[0]).toMatchObject({ type: 'question.cancelled', reason: 'turn_cancelled' });
+  });
+
   it('fail：回合以 turn.failed 结束，会话仍可用', async () => {
     const session = await open();
     await session.send('please fail');

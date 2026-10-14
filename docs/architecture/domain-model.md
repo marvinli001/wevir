@@ -53,6 +53,7 @@ Host 生成的 ID 都是带类型前缀的不透明字符串，客户端不得�
 | `SessionId` | Host | `ses_…` | Host |
 | `TurnId` | Host | `trn_…` | Host |
 | `ApprovalId` | Host | `apr_…` | Host |
+| `QuestionId` | Host | `qst_…`（0.10.0） | Host |
 | `StreamId` | Host | `stm_…`（每个 LLM attempt 一个） | 会话 |
 | `ProviderId` | 用户（或 Host 按显示名生成建议值） | `^[a-z][a-z0-9-]{0,31}$` | Host |
 | 引擎会话 ID | dsh | ACP `sessionId`（UUID） | dsh 的 `DSH_HOME` |
@@ -78,6 +79,7 @@ type WorkspaceId = `ws_${string}`
 type SessionId = `ses_${string}`
 type TurnId = `trn_${string}`
 type ApprovalId = `apr_${string}`
+type QuestionId = `qst_${string}` // 0.10.0
 type StreamId = `stm_${string}`
 type ProviderId = string // ^[a-z][a-z0-9-]{0,31}$，创建后不可改
 
@@ -217,6 +219,7 @@ interface Session {
   readOnly?: SessionReadOnly       // 0.3.0：引擎会话恢复不了（§4.4）
   parentSessionId?: SessionId      // 0.6.0：子会话的父会话（§3.3.1）
   subagent?: SubagentInfo          // 0.6.0：只有子会话有（§3.3.1）
+  awaitingInput?: boolean          // 0.10.0：有问题等用户回答（§3.8），状态仍是 running
   createdAt: IsoTime
   updatedAt: IsoTime               // 最后一个事件的 ts
   lastSeq: number
@@ -241,6 +244,7 @@ interface SessionSnapshot {
   usage?: { contextUsed: number; contextSize: number } // 最近一次 usage.updated
   subagents?: SubagentSummary[]    // 0.6.0：这个会话派出的子会话，按 startedAt（§3.3.1）；没有时省略
   pendingMessages?: PendingMessage[] // 0.8.0：等待中与暂停的待发消息，按加入的先后（§3.3.2）；没有时省略
+  pendingQuestions?: QuestionRequest[] // 0.10.0：等用户回答的问题，按提出的先后（§3.8）；没有时省略
 }
 ```
 
@@ -251,11 +255,12 @@ interface SessionSnapshot {
 | `title`、`titleSource` | 首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3）。适配器实现了 `generateTitle` 时（Codex），引擎接受第一个回合后 Host 再用会话的模型生成一次（prompts/thread-title.md，R3）：成功、且那时标题仍是截断的那个才写 `session.title_changed`（`generated`，带 `description` 检索摘要），失败只记告警 | 首个 `user.message` 时 Host 写 `session.title_changed`（`first_prompt`），之后可能再写一条（`generated`） | 用户改名（方法在 T1.2 之后按需加；改过名的会话不再自动生成） |
 | `state`、`activeTurn`、`lastError` | 状态机（§4） | Host | 只由状态机修改 |
 | `readOnly` | 引擎会话恢复不了（§4.4），状态是 `error` 或 `closed` | `session.read_only` | 之后的 `session.resumed` 清除 |
+| `awaitingInput` | 有未答的问题（§3.8），会话在等用户 | `question.requested` | 最后一个未答的问题结束（`question.resolved`）时省略 |
 | `createdAt`、`updatedAt`、`lastSeq` | | 事件库（T2.2） | 每次追加事件 |
 
 除身份字段外，`Session` 的其余字段都可以由事件序列推导出来。`sessions` 表存一份缓存供会话列表使用，与事件推导结果不一致时以事件为准（T2.2 的“Host 重启后状态一致”）。
 
-T2.2 定下的推导规则（`packages/host/src/snapshot.ts` 的 `applyEvent`）：`title` / `titleSource` 取最近一条 `session.title_changed`，没有时为空串与 `first_prompt`；`activeTurn` 由 `turn.started` 设置（`startedAt` 是该事件的 `ts`，`clientMessageId` 取同一 `turnId` 的 `user.message`），`turn.finished` 清空；`lastError` 由每条 `engine.error` 覆盖（含回合失败这类不改变状态的错误，界面据此在 `idle` 下显示上次失败原因），状态以 `turn_started` 或 `resumed` 转换时清空；`readOnly` 由 `session.read_only` 设置（`since` 是该事件的 `ts`），`session.resumed` 清空（T3.5）；`modelId` / `reasoningEffort` 取最近一条 `session.configured`（0.9.0），没有时是建会话时的值，`sessions` 表的同名列跟着更新；`subagent` 与 `subagents` 见 §3.3.1（R4）。`sessions` 表的缓存列与 `approvals` 表都是事件的投影，由事件库在写事件的同一事务里更新。
+T2.2 定下的推导规则（`packages/host/src/snapshot.ts` 的 `applyEvent`）：`title` / `titleSource` 取最近一条 `session.title_changed`，没有时为空串与 `first_prompt`；`activeTurn` 由 `turn.started` 设置（`startedAt` 是该事件的 `ts`，`clientMessageId` 取同一 `turnId` 的 `user.message`），`turn.finished` 清空；`lastError` 由每条 `engine.error` 覆盖（含回合失败这类不改变状态的错误，界面据此在 `idle` 下显示上次失败原因），状态以 `turn_started` 或 `resumed` 转换时清空；`readOnly` 由 `session.read_only` 设置（`since` 是该事件的 `ts`），`session.resumed` 清空（T3.5）；`modelId` / `reasoningEffort` 取最近一条 `session.configured`（0.9.0），没有时是建会话时的值，`sessions` 表的同名列跟着更新；`subagent` 与 `subagents` 见 §3.3.1（R4）；`pendingQuestions` 是 `question.requested` 加入、`question.resolved` 结掉之后还在等回答的问题，不为空时 `awaitingInput` 为 true（0.10.0，§3.8）。`sessions` 表的缓存列与 `approvals` 表都是事件的投影，由事件库在写事件的同一事务里更新。
 
 ### 3.3.1 子会话（0.6.0，R4）
 
@@ -456,7 +461,7 @@ type WevirEvent = /* §6.2 的判别联合，按 type 区分 payload */
 规则：
 
 - 只有事件库（T2.2）分配 `seq`，在会话锁内原子追加。增量文本先按短窗口合并（60 ms，ADR-0002 §3）再分配 `seq`：静默超过一个窗口后的第一个增量立即写入（窗口首），其余等到窗口尾一起写入，相邻的同一块（同 `turnId`、`streamId`、`blockIndex`、`kind`）合并成一条 `assistant.delta`；不能合并的事件到达时先 flush 已缓冲的增量，保证顺序。
-- 事件库写入前校验（T2.2）：payload 合 schema；第一条事件是 `session.created` 且只有一条；`session.state_changed` 的 `from` 是当前状态、`(from, to, reason)` 在 §4.1 的表里；回合不重叠、`turn.finished` 结束的是当前回合；`approval.requested` 是本会话的 `pending` 审批，`approval.resolved` 只结算未决审批。违反时整批不写。
+- 事件库写入前校验（T2.2）：payload 合 schema；第一条事件是 `session.created` 且只有一条；`session.state_changed` 的 `from` 是当前状态、`(from, to, reason)` 在 §4.1 的表里；回合不重叠、`turn.finished` 结束的是当前回合；`approval.requested` 是本会话的 `pending` 审批，`approval.resolved` 只结算未决审批；`question.requested` / `question.resolved` 同理（0.10.0）。违反时整批不写。
 - 事件不修改、不删除。“替换”（已提交消息替换增量）是投影层的语义，事件本身都保留。
 - 客户端遇到不认识的 `type` 必须忽略内容、照常推进 `lastSeq`（向前兼容）。Host 不扣下任何事件（订阅内 `seq` 连续），能力位只用来降级已知事件里的新枚举值或新形状（host-api.md §4、§10；ADR-0002 补记 1）。
 - 工具输出、`input` 等大字段入库前按统一上限截断，上限写进 `host-api.md`（ADR-0002 §3）。
@@ -520,6 +525,59 @@ interface HostSettings {
 ```
 
 规则：所有字段都有默认值，`settings.json` 不存在或缺字段时用默认值；`settings.update` 只改给出的字段。这里只放 Host 与各个客户端都要遵守的偏好，单个客户端自己的（主题、窗格布局）仍存在客户端。
+
+### 3.8 提问（0.10.0，U11）
+
+回合进行中，引擎（Agent）向用户提一组问题，等回答后接着做（Codex：模型调 `request_user_input`，codex-event-mapping.md §6.6）。和审批一样属于会话、由 Host 记账，但不是一种审批：不对应要批准的操作，也不改变会话状态——等回答时会话仍是 `running`，`Session.awaitingInput` 为 true，界面据此显示“待回答”。
+
+```ts
+// → protocol
+interface UserQuestionOption {
+  label: string                  // 回答里传回的就是它
+  description?: string
+}
+
+interface UserQuestion {
+  id: string                     // 引擎给的，回答按它对应
+  header?: string                // 短标题
+  question: string
+  options: UserQuestionOption[]
+  multiSelect?: boolean          // 可以选多个（Codex 的问题都是单选）
+  allowOther?: boolean           // 可以自己填写（Codex 恒为 true）
+  secret?: boolean               // 回答不回显
+}
+
+interface QuestionAnswer { answers: string[] } // 选中的 label 或填写的文字；跳过时为空数组
+
+type QuestionStatus = 'pending' | 'answered' | 'cancelled'
+
+interface QuestionResolution {
+  reason: ApprovalResolutionReason          // 同审批：user，或随回合、会话、引擎、Host 取消
+  answers?: Record<string, QuestionAnswer>  // reason 为 'user' 时必有，按问题 ID
+  answeredBy?: ClientIdentity               // reason 为 'user' 时必有
+}
+
+interface QuestionRequest {
+  id: QuestionId
+  sessionId: SessionId
+  turnId: TurnId
+  toolCallId?: string            // 提问的工具调用（Codex 的 itemId）
+  questions: UserQuestion[]      // 至少一个
+  status: QuestionStatus
+  createdAt: IsoTime
+  resolvedAt?: IsoTime
+  resolution?: QuestionResolution
+}
+```
+
+生命周期（`packages/host` 的 `SessionManager`）：
+
+1. **提出**：适配器上报 `question.requested`（`requestId` 由适配器分配），会话管理器分配 `QuestionId`，写 `question.requested`（`source: engine`）。取消已开始时同一事务里结为 `cancelled`（`turn_cancelled`）。
+2. **回答**：`question.respond { questionId, answers }` 按会话串行，首个回答生效。Host 先核对：问题要在这一组里，单选的最多一个回答，不允许“其他”的只能是选项的 `label`，否则 `INVALID_PARAMS`、问题不变；没给的题当作跳过。经适配器回复引擎（期间同一会话的引擎事件暂扣，同审批 §5 第 4 条），成功后写 `question.resolved`（`answered`，`resolution` 带回答与 `answeredBy`）。
+3. **后到者**：问题已结束时 `question.respond` 返回它的结局，不报错（与审批的 `ALREADY_DECIDED` 不同：回答不是“决定”，重复提交不必让客户端处理错误）；没有这组问题回 `QUESTION_NOT_FOUND`。适配器报 `question_not_found`（引擎侧已结束）时先处理暂扣的事件，再返回那个结局；回复失败按 §4.1 #10 处理，问题随之结为 `cancelled`（`engine_exited`）。
+4. **取消**：`session.cancel`（`turn_cancelled`）、`session.close`（`session_closed`）、回合结束时仍未答（`turn_cancelled`）、引擎退出（`engine_exited`）、Host 优雅退出（`host_shutdown`）、Host 重启后对账（`host_restarted`）都把未答的问题结为 `cancelled`，原因同审批（§5 第 5、6 条）；引擎侧结掉的（`question.cancelled`）按 §4.3 审批的同一张表换算原因。Host 重启后不恢复未答的问题（引擎的请求已随进程消失）。
+
+子会话的提问目前不冒到父会话（Codex 的子 agent 不提供 `request_user_input`）；协议里的 `multiSelect` 也还没有引擎会发，桌面端照样支持，留给以后的引擎。
 
 ---
 
@@ -744,6 +802,8 @@ stateDiagram-v2
 | `todo.updated` | host | 待办列表（完整列表） | dsh：从 `todo_write` 的 `tool_call.rawInput` 推导；Codex：`turn/plan/updated`，`toolCallId` 是合成的 `plan:<回合 ID>`（codex-event-mapping.md §6.1） |
 | `approval.requested` | engine | 新的审批请求 | ACP `session/request_permission` |
 | `approval.resolved` | host | 审批结算，带 `decidedBy` | `approval.respond` 或 Host 结算 |
+| `question.requested` | engine | 引擎向用户提一组问题（0.10.0，§3.8） | Codex `item/tool/requestUserInput` |
+| `question.resolved` | host | 问题结束：`answered` 带回答与 `answeredBy`，或 `cancelled` | `question.respond` 或 Host 结算 |
 | `usage.updated` | engine | 上下文用量 | ACP `usage_update` |
 | `engine.error` | engine / host | 引擎错误，已归类并保留原文 | `-32603` 回合失败、进程退出、resume 失败、取消超时 |
 | `engine.raw` | engine | 适配器不认识的引擎消息，原样保留 | 未识别的 `sessionUpdate` 或通知 |

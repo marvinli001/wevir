@@ -21,6 +21,8 @@ export type AdapterErrorCode =
   | 'steer_rejected'
   /** 该会话没有这个 `requestId` 的未决审批：不存在、已决定或已结束。 */
   | 'approval_not_found'
+  /** 该会话没有这个 `requestId` 的未决提问（0.10.0）：不存在、已回答或已结束。 */
+  | 'question_not_found'
   /** `optionId` 不在该审批请求的选项里；审批保持未决。 */
   | 'invalid_option'
   /** 参数不合法，如 `content` 为空、`cwd` 为空。 */

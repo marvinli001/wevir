@@ -134,6 +134,7 @@ describe('ChatGPT 账号（account.*）', () => {
       host_settings: true,
       chatgpt_account: true,
       session_configure: true,
+      user_questions: true,
     });
 
     const plain = await start(new EchoAdapter());
@@ -142,6 +143,7 @@ describe('ChatGPT 账号（account.*）', () => {
       pending_messages: true,
       host_settings: true,
       session_configure: true,
+      user_questions: true,
     });
     const frame = await client.call('account.get', { kind: 'chatgpt' });
     expect(frame.error).toMatchObject({ code: -32041, data: { category: 'unknown' } });

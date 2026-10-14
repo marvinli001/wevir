@@ -113,6 +113,17 @@ export interface AgentRuntimeAdapter {
   ): Promise<void>;
 
   /**
+   * 回答一组提问（0.10.0，Codex：`item/tool/requestUserInput` 的回复）：按问题 ID 给回答（选中的选项 `label` 或用户填写
+   * 的文本），没给的当作跳过。提问随即结束，回合接着做。不实现表示引擎不会提问，Host 不声明 `user_questions`。
+   * 错误：`session_not_found`、`question_not_found`、`disposed`。
+   */
+  respondToQuestion?(
+    engineSessionId: string,
+    requestId: string,
+    answers: Record<string, string[]>,
+  ): Promise<void>;
+
+  /**
    * 列出未决审批；不传 `engineSessionId` 时列出全部会话的。不认识的会话返回空列表。
    * 错误：`disposed`。
    */

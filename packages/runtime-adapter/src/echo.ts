@@ -10,6 +10,7 @@ import type {
   EngineSession,
   PendingApproval,
   SessionConfig,
+  UserQuestion,
 } from './types.js';
 
 export interface EchoAdapterOptions {
@@ -62,8 +63,16 @@ interface PendingDecision {
   decide(optionId: string): void;
 }
 
+interface PendingQuestionReply {
+  requestId: string;
+  engineSessionId: string;
+  answer(answers: Record<string, string[]>): void;
+}
+
 interface EchoTurn {
   readonly abort: AbortController;
+  /** `ask` 关键词提的问题（0.10.0），等 `respondToQuestion`。 */
+  question?: PendingQuestionReply;
   /** 回合开始时会话的事件扇出。会话 resume 后换了新的，旧回合的残余事件不会串进去。 */
   readonly hub: EventHub<AgentEvent>;
   approval?: PendingDecision;
@@ -101,6 +110,7 @@ interface ReplyBlock {
  * |---|---|
  * | `tool` | 回复前模拟一次工具调用（`echo`，不需要审批） |
  * | `approve` | 模拟一次需要审批的写文件（`echo_write`）：先发审批请求，等决定后继续；允许则工具完成，拒绝则工具失败，回合照常结束 |
+ * | `ask` | 向用户提两个问题（0.10.0：一个单选可填其他、一个多选），等 `respondToQuestion` 后在回复末尾写出回答 |
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
  * | `slow` | 回复的每个分片前多等九步，回合持续得久一些，测试插话与排队用（R11） |
@@ -234,6 +244,21 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     };
   }
 
+  async respondToQuestion(
+    engineSessionId: string,
+    requestId: string,
+    answers: Record<string, string[]>,
+  ): Promise<void> {
+    this.#assertUsable();
+    const turn = this.#session(engineSessionId).turn;
+    const question = turn?.question;
+    if (!turn || !question || question.requestId !== requestId) {
+      throw new AdapterError('question_not_found', `no pending question ${requestId}`);
+    }
+    turn.question = undefined;
+    question.answer(answers);
+  }
+
   async respondToApproval(
     engineSessionId: string,
     requestId: string,
@@ -269,6 +294,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     if (!turn.cancelRequested) {
       turn.cancelRequested = true;
       cancelPendingApproval(turn, 'turn_cancelled');
+      cancelPendingQuestion(turn, 'turn_cancelled');
       turn.abort.abort(new TurnAbort('cancel'));
     }
     await turn.done;
@@ -301,6 +327,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       const turn = session.turn;
       if (turn) {
         cancelPendingApproval(turn, 'engine_exited');
+        cancelPendingQuestion(turn, 'engine_exited');
         turn.abort.abort(new TurnAbort('exit'));
         turns.push(turn.done);
       }
@@ -334,6 +361,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       const turn = session.turn;
       if (turn) {
         cancelPendingApproval(turn, 'disposed');
+        cancelPendingQuestion(turn, 'disposed');
         turn.abort.abort(new TurnAbort('dispose'));
         turns.push(turn.done);
       }
@@ -427,10 +455,16 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         );
       }
 
+      let answered = '';
+      if (!subagent && /\bask\b/i.test(text)) {
+        const answers = await this.#askUser(turn, engineSessionId);
+        answered = `\n\nAnswers: ${ECHO_QUESTIONS.map((q) => `${q.id}=${(answers[q.id] ?? []).join(', ')}`).join('; ')}`;
+      }
+
       if (!subagent && /think/i.test(text)) {
         blocks.push({ kind: 'reasoning', full: `Thinking about: ${text}`, generated: '' });
       }
-      blocks.push({ kind: 'text', full: `Echo: ${text}`, generated: '' });
+      blocks.push({ kind: 'text', full: `Echo: ${text}${answered}`, generated: '' });
       await this.#reply(signal, emit, engineSessionId, attemptId, blocks, slowSteps);
       this.#commit(emit, engineSessionId, attemptId, blocks);
       blocks = [];
@@ -661,6 +695,36 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     });
   }
 
+  #askUser(turn: EchoTurn, engineSessionId: string): Promise<Record<string, string[]>> {
+    const signal = turn.abort.signal;
+    const requestId = this.#nextId('qst_echo');
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(signal.reason);
+        return;
+      }
+      const onAbort = () => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      turn.question = {
+        requestId,
+        engineSessionId,
+        answer: (answers) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(answers);
+        },
+      };
+      turn.hub.emit({
+        type: 'question.requested',
+        engineSessionId,
+        requestId,
+        questions: ECHO_QUESTIONS.map((question) => ({
+          ...question,
+          options: question.options.map((option) => ({ ...option })),
+        })),
+      });
+    });
+  }
+
   /** 等一步；回合被打断时以 TurnAbort reject，并清掉计时器。 */
   #step(signal: AbortSignal): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -725,6 +789,39 @@ function untilAborted(promise: Promise<void>, signal: AbortSignal): Promise<void
 
 function copyApproval(info: PendingApproval): PendingApproval {
   return { ...info, options: info.options.map((option) => ({ ...option })) };
+}
+
+/** `ask` 关键词提的两个问题。 */
+const ECHO_QUESTIONS: readonly UserQuestion[] = [
+  {
+    id: 'scope',
+    header: 'Scope',
+    question: 'How far should this change go?',
+    options: [
+      { label: 'UI only', description: 'Protocol work in a separate task' },
+      { label: 'Full stack', description: 'Protocol, Host and UI together' },
+    ],
+    allowOther: true,
+  },
+  {
+    id: 'targets',
+    header: 'Targets',
+    question: 'Which platforms should it cover?',
+    options: [{ label: 'macOS' }, { label: 'Windows' }, { label: 'Linux' }],
+    multiSelect: true,
+  },
+];
+
+function cancelPendingQuestion(turn: EchoTurn, reason: ApprovalCancelledEvent['reason']): void {
+  const question = turn.question;
+  if (!question) return;
+  turn.question = undefined;
+  turn.hub.emit({
+    type: 'question.cancelled',
+    engineSessionId: question.engineSessionId,
+    requestId: question.requestId,
+    reason,
+  });
 }
 
 function cancelPendingApproval(turn: EchoTurn, reason: ApprovalCancelledEvent['reason']): void {

@@ -75,6 +75,7 @@ import {
   type CollabAgentToolCallItem,
   type CommandExecutionRequestApprovalParams,
   type FileChangeRequestApprovalParams,
+  REQUEST_USER_INPUT,
   type RequestId,
   type ThreadReadParams,
   type ThreadReadResponse,
@@ -83,6 +84,8 @@ import {
   type ThreadStartParams,
   type ThreadStartResponse,
   type ThreadUnsubscribeResponse,
+  type ToolRequestUserInputParams,
+  type ToolRequestUserInputResponse,
   type TurnInterruptParams,
   type TurnStartParams,
   type TurnStartResponse,
@@ -220,6 +223,8 @@ interface CodexSession {
   turn?: Turn;
   /** Wevir 的 requestId → 未决审批。 */
   readonly approvals: Map<string, PendingCodexApproval>;
+  /** Wevir 的 requestId → 未答的提问（0.10.0）。 */
+  readonly questions: Map<string, { rpcId: RequestId; reply: (result: unknown) => void }>;
   /** 进行中的 collabAgentToolCall（item ID → item），按 rootTurnId 认出子 thread 时用。 */
   readonly collab: Map<string, CollabAgentToolCallItem>;
   /** 子会话：回合已开始（`turn/started`），`turn.started` 等它的 userMessage 带上输入再发。 */
@@ -409,6 +414,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   >();
   /** app-server 的请求 id → 未决审批所在的会话与 Wevir 的 requestId（当前进程的；进程退出时清空）。 */
   readonly #approvalsByRpc = new Map<RequestId, { session: CodexSession; requestId: string }>();
+  /** 未答提问的 app-server 请求 id（0.10.0），`serverRequest/resolved` 用。 */
+  readonly #questionsByRpc = new Map<RequestId, { session: CodexSession; requestId: string }>();
+  #nextQuestion = 0;
   /** 生成标题的临时 thread → 收它的通知。 */
   readonly #titleThreads = new Map<string, TitleCollector>();
   #providers = new Map<string, ProviderConfig>();
@@ -739,6 +747,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     if (!turn.cancelRequested) {
       turn.cancelRequested = true;
       this.#endApprovals(session, 'turn_cancelled');
+      this.#endQuestions(session, 'turn_cancelled');
+      this.#endQuestions(session, 'turn_cancelled');
       // turn/start 的结果还没到时，等它到了再发（send 里）。
       if (turn.turnId !== undefined) this.#interrupt(session, turn);
     }
@@ -783,6 +793,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     session.status = 'closed';
     this.#endApprovals(session, 'turn_cancelled');
+    this.#endQuestions(session, 'turn_cancelled');
     session.turn?.settle();
     session.turn = undefined;
     session.hub.end();
@@ -791,7 +802,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   dispose(): Promise<void> {
     this.#disposed ??= (async () => {
       for (const session of this.#sessions.values()) {
-        if (session.status === 'open') this.#endApprovals(session, 'disposed');
+        if (session.status === 'open') {
+          this.#endApprovals(session, 'disposed');
+          this.#endQuestions(session, 'disposed');
+        }
         session.turn?.settle();
         session.turn = undefined;
         session.hub.end();
@@ -799,6 +813,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#sessions.clear();
       this.#unknownThreads.clear();
       this.#approvalsByRpc.clear();
+      this.#questionsByRpc.clear();
       for (const collector of this.#titleThreads.values()) {
         collector.fail(new AdapterError('disposed', 'Codex 适配器已释放'));
       }
@@ -1060,6 +1075,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    */
   #onRequestResolved(rpcId: unknown): void {
     if (typeof rpcId !== 'string' && typeof rpcId !== 'number') return;
+    const question = this.#questionsByRpc.get(rpcId);
+    if (question !== undefined) {
+      this.#endQuestion(question.session, question.requestId, 'turn_ended');
+      return;
+    }
     const entry = this.#approvalsByRpc.get(rpcId);
     if (entry === undefined) return;
     this.#endApproval(entry.session, entry.requestId, 'turn_ended');
@@ -1100,6 +1120,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       if (event.type === 'turn.settled' || event.type === 'turn.failed') {
         // 回合结束时仍未决的审批：app-server 之后才发 serverRequest/resolved，先在终结事件之前结掉。
         this.#endApprovals(session, 'turn_ended');
+        this.#endQuestions(session, 'turn_ended');
         session.hub.emit(event);
         session.turn = undefined;
         turn.settle();
@@ -1173,6 +1194,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       hub: new EventHub<AgentEvent>({ bufferUntilSubscribed: true }),
       mapper: new CodexEventMapper(childId, { contextSize: () => model.contextWindow }),
       approvals: new Map(),
+      questions: new Map(),
       collab: new Map(),
     });
     const prompt = item.tool === 'spawnAgent' ? nonEmpty(item.prompt) : undefined;
@@ -1335,10 +1357,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   /**
    * 服务端请求（codex-event-mapping.md §6.6）。命令与补丁的审批属于进行中的回合时上报为 `approval.requested`，
    * 等 `respondToApproval`；回合已开始取消时随即结掉。子会话的审批同样处理。没有挂着的 thread、不属于进行中回合的
-   * 审批回复 `decline`；其余请求（`request_user_input`、MCP 等）回复“不支持”。
+   * 审批回复 `decline`；`request_user_input`（U11）另见 `#onUserInputRequest`；其余请求（MCP 等）回复“不支持”。
    */
   #onServerRequest(request: CodexServerRequest): Promise<unknown> {
     this.#options.onRawServerRequest?.(request);
+    if (request.method === REQUEST_USER_INPUT) return this.#onUserInputRequest(request);
     if (!(APPROVAL_REQUESTS as readonly string[]).includes(request.method)) {
       return Promise.reject(
         Object.assign(new Error(`Wevir 不支持 ${request.method}`), { code: METHOD_NOT_FOUND }),
@@ -1392,6 +1415,98 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       // 取消开始之后才到的请求：照常上报，随即结掉；app-server 中断回合时自己收回它。
       if (turn.cancelRequested) this.#endApproval(session, info.requestId, 'turn_cancelled');
     });
+  }
+
+  /**
+   * 模型用 `request_user_input` 向用户提问（0.10.0，codex-event-mapping.md §6.6）：属于挂着的会话进行中的回合时上报为
+   * `question.requested`，等 `respondToQuestion`；否则回复空的回答（Codex 当作没有回答，模型自己往下做）。
+   */
+  #onUserInputRequest(request: CodexServerRequest): Promise<unknown> {
+    const params = request.params as ToolRequestUserInputParams;
+    const empty = Promise.resolve({ answers: {} } satisfies ToolRequestUserInputResponse);
+    if (
+      !isRecord(params) ||
+      typeof params.threadId !== 'string' ||
+      !Array.isArray(params.questions)
+    ) {
+      this.#warnOnce('question_shape', 'Codex 的提问缺少字段，回空回答', {});
+      return empty;
+    }
+    const session = this.#sessions.get(params.threadId);
+    const turn = session?.turn;
+    if (session?.status !== 'open' || turn === undefined || turn.cancelRequested) {
+      this.#logger.warn('提问不属于进行中的回合，回空回答', { threadId: params.threadId });
+      return empty;
+    }
+    this.#nextQuestion += 1;
+    const requestId = `codex-q-${this.#nextQuestion}`;
+    return new Promise<unknown>((reply) => {
+      session.questions.set(requestId, { rpcId: request.id, reply });
+      this.#questionsByRpc.set(request.id, { session, requestId });
+      session.hub.emit({
+        type: 'question.requested',
+        engineSessionId: session.id,
+        requestId,
+        ...(typeof params.itemId === 'string' && { toolCallId: params.itemId }),
+        questions: params.questions.map((question) => ({
+          id: question.id,
+          ...(question.header && { header: question.header }),
+          question: question.question,
+          options: (question.options ?? []).map((option) => ({
+            label: option.label,
+            ...(option.description && { description: option.description }),
+          })),
+          ...(question.isOther && { allowOther: true }),
+          ...(question.isSecret && { secret: true }),
+        })),
+      });
+    });
+  }
+
+  /** 回答一组提问（0.10.0）：回 app-server `{answers}`，回合接着做。 */
+  async respondToQuestion(
+    engineSessionId: string,
+    requestId: string,
+    answers: Record<string, string[]>,
+  ): Promise<void> {
+    this.#assertUsable();
+    const session = this.#session(engineSessionId);
+    const pending = session.questions.get(requestId);
+    if (pending === undefined) {
+      throw new AdapterError('question_not_found', `没有未答的提问 ${requestId}`);
+    }
+    session.questions.delete(requestId);
+    this.#questionsByRpc.delete(pending.rpcId);
+    pending.reply({
+      answers: Object.fromEntries(
+        Object.entries(answers).map(([id, list]) => [id, { answers: list }]),
+      ),
+    } satisfies ToolRequestUserInputResponse);
+  }
+
+  /** 结掉一个未答的提问：不再回复 app-server，发 `question.cancelled`。 */
+  #endQuestion(
+    session: CodexSession,
+    requestId: string,
+    reason: ApprovalCancelledEvent['reason'],
+  ): void {
+    const pending = session.questions.get(requestId);
+    if (pending === undefined) return;
+    session.questions.delete(requestId);
+    this.#questionsByRpc.delete(pending.rpcId);
+    pending.reply(NO_REPLY);
+    session.hub.emit({
+      type: 'question.cancelled',
+      engineSessionId: session.id,
+      requestId,
+      reason,
+    });
+  }
+
+  #endQuestions(session: CodexSession, reason: ApprovalCancelledEvent['reason']): void {
+    for (const requestId of [...session.questions.keys()]) {
+      this.#endQuestion(session, requestId, reason);
+    }
   }
 
   /** 结掉一个未决审批：不再回复 app-server（它已收回，或回合已中断、进程已退出），发 `approval.cancelled`。 */
@@ -1457,6 +1572,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     for (const session of this.#sessions.values()) {
       if (session.status !== 'open') continue;
       this.#endApprovals(session, 'engine_exited');
+      this.#endQuestions(session, 'engine_exited');
       session.status = 'detached';
       session.turn?.settle();
       session.turn = undefined;
@@ -1465,6 +1581,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     this.#unknownThreads.clear();
     this.#approvalsByRpc.clear();
+    this.#questionsByRpc.clear();
     for (const collector of this.#titleThreads.values()) {
       collector.fail(new AdapterError('engine_unavailable', 'codex-app-server 已退出或正在重启'));
     }
@@ -1546,6 +1663,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         contextSize: () => this.#sessions.get(id)?.model.contextWindow ?? model.contextWindow,
       }),
       approvals: new Map(),
+      questions: new Map(),
       collab: new Map(),
     });
   }

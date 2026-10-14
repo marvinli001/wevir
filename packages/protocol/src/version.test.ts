@@ -8,8 +8,8 @@ import {
 } from './index.js';
 
 describe('PROTOCOL_VERSION', () => {
-  it('是 0.9.0，最低支持版本与它主版本相同且不更高', () => {
-    expect(PROTOCOL_VERSION).toBe('0.9.0');
+  it('是 0.10.0，最低支持版本与它主版本相同且不更高', () => {
+    expect(PROTOCOL_VERSION).toBe('0.10.0');
     expect(parseProtocolVersion(MIN_PROTOCOL_VERSION)?.major).toBe(
       parseProtocolVersion(PROTOCOL_VERSION)?.major,
     );
