@@ -1,6 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
-import { productionCsp } from '../shared/csp.js';
+import { CSP_NONCE_PLACEHOLDER, productionCsp } from '../shared/csp.js';
 import { APP_HOST } from '../shared/renderer-origin.js';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -17,7 +18,8 @@ const CONTENT_TYPES: Record<string, string> = {
 
 /**
  * `wevir://app/<路径>` 的处理器：从构建产物目录 `root`（out/renderer）读文件，每个响应都带
- * `productionCsp()`。只接受 GET / HEAD 与主机 `app`；路径解码后必须仍在 `root` 之内。
+ * `productionCsp()`。只接受 GET / HEAD 与主机 `app`；路径解码后必须仍在 `root` 之内。页面本身（index.html）每次
+ * 都生成新的样式 nonce：换掉 Vite 写进去的占位符，并写进这次响应的 CSP（src/shared/csp.ts）。
  */
 export async function serveRendererFile(request: Request, root: string): Promise<Response> {
   if (request.method !== 'GET' && request.method !== 'HEAD') return status(405);
@@ -40,10 +42,15 @@ export async function serveRendererFile(request: Request, root: string): Promise
     if (code === 'ENOENT' || code === 'EISDIR' || code === 'ENOTDIR') return status(404);
     throw error;
   }
+  let nonce: string | undefined;
+  if (target === resolve(base, 'index.html')) {
+    nonce = randomBytes(16).toString('base64');
+    body = Buffer.from(body.toString('utf8').replaceAll(CSP_NONCE_PLACEHOLDER, nonce));
+  }
   return new Response(request.method === 'HEAD' ? null : new Uint8Array(body), {
     headers: {
       'Content-Type': CONTENT_TYPES[extname(target)] ?? 'application/octet-stream',
-      'Content-Security-Policy': productionCsp(),
+      'Content-Security-Policy': productionCsp(nonce),
       'X-Content-Type-Options': 'nosniff',
     },
   });

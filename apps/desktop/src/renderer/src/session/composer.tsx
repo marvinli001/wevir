@@ -1,14 +1,16 @@
 import type { PendingDelivery, SessionState } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowUp, CornerDownRight, ListPlus, Square } from 'lucide-react';
+import { ArrowUp, Square } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Beam } from '@/fx/beam';
+import { MetalCircle } from '@/fx/metal';
 import { t } from '@/i18n';
+import { DeliverySwitch } from './delivery-switch';
 import { composerKeyAction, otherDelivery } from './pending-model';
 
-/** 有回合在进行（含正在取消）：旁边多一个“停止”；Host 不支持待发消息时不能再发送。 */
+/** 有回合在进行（含正在取消）：没有字时按钮是“停止”；Host 不支持待发消息时不能再发送。 */
 export function isBusy(state: SessionState | undefined): boolean {
   return state === 'running' || state === 'awaiting_approval' || state === 'cancelling';
 }
@@ -24,9 +26,12 @@ export function setDraft(draftKey: string, text: string): void {
 
 /**
  * 输入框：Enter 发送、Shift+Enter 换行、输入法合成期间不发送（openwork-notes §3.7）。回合进行中（R11）：给了
- * `busyDelivery`（Host 支持待发消息）时照常可以发，Enter 与发送键按 `busyDelivery`（“回合进行中按回车”的设置），Tab 与
- * 旁边的小按钮用另一种；没给时不允许再发送（旧 Host 会回 SESSION_BUSY）。回合进行中多一个“停止”，Esc 也可以停止。
- * `onSend` 返回 true 表示已发出，清空输入框；失败时保留文字。
+ * `busyDelivery`（Host 支持待发消息）时照常可以发，Enter 与发送键按 `busyDelivery`（“回合进行中按回车”的设置），Tab 用
+ * 另一种；没给时不允许再发送（旧 Host 会回 SESSION_BUSY）。`onSend` 返回 true 表示已发出，清空输入框；失败时保留文字。
+ *
+ * U3 起照方向稿 A 静器（维护者 2026-10-14 定）：右下角是圆形的金属按钮，有字时发送，回合进行中没有字（或不能再发）时
+ * 变成停止（金属淡到 0.55），Esc 也可以停止；回合进行中按钮左边是“插话 | 排队”切换（改的就是那项 Host 设置）。回合
+ * 进行中、没有在等审批时，输入框底边有一道转动的光（border-beam）。
  */
 export function Composer({
   draftKey,
@@ -36,6 +41,7 @@ export function Composer({
   status,
   toolbar,
   busyDelivery,
+  onBusyDeliveryChange,
   onSend,
   onStop,
   autoFocus = false,
@@ -52,6 +58,8 @@ export function Composer({
   toolbar?: ReactNode;
   /** 回合进行中按发送的方式（R11）；省略表示回合进行中不能发送。 */
   busyDelivery?: PendingDelivery;
+  /** 改“回合进行中按回车”（Host 设置）；给了才显示切换。 */
+  onBusyDeliveryChange?: (delivery: PendingDelivery) => void;
   /** 回合进行中发出时带上方式；空闲时不带。 */
   onSend: (text: string, delivery?: PendingDelivery) => Promise<boolean>;
   onStop: () => void;
@@ -123,92 +131,119 @@ export function Composer({
     else if (busyDelivery !== undefined) void send(otherDelivery(busyDelivery));
   };
 
-  const other = busyDelivery === undefined ? undefined : otherDelivery(busyDelivery);
+  /** 右下角按钮现在做什么：回合进行中、没有字或不能再发时是停止。 */
+  const action: ComposerAction = !busy
+    ? 'send'
+    : busyDelivery === undefined || text.trim() === ''
+      ? 'stop'
+      : busyDelivery;
 
   return (
-    <div
-      className={cn(
-        'rounded-xl border border-input bg-card shadow-xs transition-colors focus-within:border-ring',
-        disabled && 'opacity-70',
-      )}
+    <Beam
+      preset="composer"
+      active={busy && state !== 'awaiting_approval' && !disabled}
+      className="block w-full"
     >
-      {toolbar && <div className="flex flex-wrap items-center gap-2 px-3 pt-2.5">{toolbar}</div>}
-      <Textarea
-        ref={textareaRef}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={onKeyDown}
-        disabled={disabled}
-        autoFocus={autoFocus}
-        aria-label={t('session.composerPlaceholder')}
-        placeholder={disabledReason ?? t('session.composerPlaceholder')}
-        className="max-h-60 min-h-16 resize-none border-0 bg-transparent px-3 pt-3 text-base shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
-      />
-      <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
-        <div className="min-w-0 flex-1 text-xs">{status}</div>
-        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
-          {!busy
-            ? t('session.composerHint')
-            : busyDelivery === undefined
-              ? t('session.stopHint')
-              : t(`session.busyHint.${busyDelivery}`)}
-        </span>
-        {busy && (
-          <Button size="sm" variant="outline" disabled={disabled} onClick={onStop}>
-            <Square data-icon="inline-start" className="fill-current" />
-            {t('session.stop')}
-          </Button>
+      <div
+        className={cn(
+          'rounded-xl border border-input bg-card shadow-xs transition-colors focus-within:border-ring',
+          disabled && 'opacity-70',
         )}
-        {busy && busyDelivery !== undefined && other !== undefined && (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={!canSend}
-                  data-delivery={other}
-                  onClick={() => void send(other)}
-                />
-              }
-            >
-              <DeliveryIcon delivery={other} />
-              {t(other === 'steer' ? 'session.sendSteer' : 'session.sendQueue')}
-            </TooltipTrigger>
-            <TooltipContent>
-              {t(other === 'steer' ? 'session.sendOtherSteer' : 'session.sendOtherQueue')}
-            </TooltipContent>
-          </Tooltip>
-        )}
-        {(!busy || busyDelivery !== undefined) && (
-          <Button
-            size="sm"
-            disabled={!canSend}
-            data-delivery={busy ? busyDelivery : undefined}
-            onClick={() => void send()}
-          >
-            {busy && busyDelivery !== undefined ? (
-              <>
-                <DeliveryIcon delivery={busyDelivery} />
-                {t(busyDelivery === 'steer' ? 'session.sendSteer' : 'session.sendQueue')}
-              </>
-            ) : (
-              <>
-                <ArrowUp data-icon="inline-start" />
-                {t('session.send')}
-              </>
-            )}
-          </Button>
-        )}
+      >
+        {toolbar && <div className="flex flex-wrap items-center gap-2 px-3 pt-2.5">{toolbar}</div>}
+        <Textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={onKeyDown}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          aria-label={t('session.composerPlaceholder')}
+          placeholder={disabledReason ?? t('session.composerPlaceholder')}
+          className="max-h-60 min-h-16 resize-none border-0 bg-transparent px-3 pt-3 text-base shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent"
+        />
+        <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
+          <div className="min-w-0 flex-1 text-xs">{status}</div>
+          <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+            {!busy
+              ? t('session.composerHint')
+              : busyDelivery === undefined
+                ? t('session.stopHint')
+                : t(`session.busyHint.${busyDelivery}`)}
+          </span>
+          {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
+            <DeliverySwitch
+              value={busyDelivery}
+              disabled={disabled}
+              onChange={onBusyDeliveryChange}
+            />
+          )}
+          <ComposerButton
+            action={action}
+            // 金属只在“能做点什么”时流动：有字可发、或回合进行中（停止）。空着的输入框停在静帧。
+            flowing={action === 'stop' ? !disabled : canSend}
+            disabled={action === 'stop' ? disabled : !canSend}
+            onClick={() => (action === 'stop' ? onStop() : void send())}
+          />
+        </div>
       </div>
-    </div>
+    </Beam>
   );
 }
 
-function DeliveryIcon({ delivery }: { delivery: PendingDelivery }) {
-  return delivery === 'steer' ? (
-    <CornerDownRight data-icon="inline-start" />
-  ) : (
-    <ListPlus data-icon="inline-start" />
+type ComposerAction = 'send' | 'stop' | PendingDelivery;
+
+const ACTION_LABELS = {
+  send: 'session.send',
+  stop: 'session.stop',
+  steer: 'session.sendSteer',
+  queue: 'session.sendQueue',
+} as const;
+
+/**
+ * 圆形的金属按钮（metal-fx 的 circle、gold）。metal-fx 把按钮的背景清成透明、内圈是它自己的底色并设好对比色，图标的颜色
+ * 继承它，所以按钮不设颜色。库会抹掉子元素的 outline 与阴影（normalizeHostStyles），焦点环由外层的 focus-within 画。
+ */
+function ComposerButton({
+  action,
+  flowing,
+  disabled,
+  onClick,
+}: {
+  action: ComposerAction;
+  flowing: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const label = t(ACTION_LABELS[action]);
+  return (
+    <span className="shrink-0 rounded-full has-focus-visible:ring-2 has-focus-visible:ring-ring/50">
+      <MetalCircle strength={action === 'stop' ? 0.55 : 1} flowing={flowing}>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-label={label}
+                disabled={disabled}
+                data-composer-action={action}
+                onClick={onClick}
+                className="flex size-8 items-center justify-center rounded-full outline-none disabled:opacity-40"
+              />
+            }
+          >
+            {action === 'stop' ? (
+              <Square aria-hidden className="size-3 fill-current" />
+            ) : (
+              <ArrowUp aria-hidden className="size-4" strokeWidth={2.25} />
+            )}
+          </TooltipTrigger>
+          <TooltipContent>
+            {label}
+            <kbd className="ml-1.5 font-sans opacity-70">{action === 'stop' ? 'Esc' : 'Enter'}</kbd>
+          </TooltipContent>
+        </Tooltip>
+      </MetalCircle>
+    </span>
   );
 }

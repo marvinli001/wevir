@@ -505,7 +505,7 @@ export type PendingMessage = z.infer<typeof PendingMessageSchema>;
 
 /** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
 export const HostSettingsSchema = z.object({
-  /** 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab 或输入框旁的按钮。 */
+  /** 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab（桌面端输入框里的切换改的就是它）。 */
   sendWhileBusy: PendingDeliverySchema,
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;

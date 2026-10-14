@@ -35,3 +35,10 @@ allowBuilds:
   # 的 JS 转发脚本；可选包缺失时才从 npm registry 下载同版本的二进制。与上游 dsh、OpenWork 的取舍一致。
   esbuild@0.25.12: true
   esbuild@0.28.2: true
+
+# 依赖补丁（pnpm patch，键带精确版本，升级时重新核对还需不需要）。
+patchedDependencies:
+  # 桌面端（U3，ADR-0004 补记 9）：最后一个 MetalFx 卸载时库调 loseContext()，那次异步的 webglcontextlost 回调写的是
+  # 模块级的共享状态，同一次提交里新建的实例（切换会话时输入框重挂）拿到的新状态被标成“上下文丢失”，永远
+  # visibility:hidden，发送按钮整个不见。补丁让两个回调只认自己那块画布。只改 ESM 产物（渲染进程只用它）。
+  metal-fx@2.0.11: patches/metal-fx@2.0.11.patch

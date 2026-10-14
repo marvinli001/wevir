@@ -8,7 +8,8 @@ Wevir 以 MIT 许可证发布，见 LICENSE。
 逐文件的登记在 docs/upstream/UPSTREAM.md §4。
 
 npm 依赖不在本文件里：它们的许可证随各自的包分发，安装包的第三方声明见
-docs/upstream/third-party-notices.md。
+docs/upstream/third-party-notices.md。例外是第 8 节：Wevir 打了补丁的依赖，以及依赖里要求随分发附带的
+声明（Apache-2.0 的 NOTICE）。
 
 本文件、UPSTREAM.md §4 与各文件头三处一致，改动其中一处时另外两处一起改。
 
@@ -183,9 +184,54 @@ apps/desktop/licenses/fonts/。许可证都是 SIL Open Font License 1.1，全�
           子集化后转为 WOFF2，是修改过的版本；名称记录原样保留）
 
 
+8. 桌面端的动效库（libraries.dev）
+------------------------------------------------------------------------------------------------
+桌面端渲染进程（U3）打包了下列 npm 包（apps/desktop 的 devDependencies，由 Vite 打进产物；img-fx 与 three
+只在显现图片时动态加载）。许可证都是 MIT，全文见文末“MIT License”，各包的 LICENSE 随包分发：
+
+  border-beam 1.4.1、thinking-orbs 0.3.2、bot-avatars 0.1.2、metal-fx 2.0.11、img-fx 0.5.1
+    仓库：https://github.com/Jakubantalik/Libraries.dev（metal-fx：https://github.com/Jakubantalik/metal-fx）
+    版权：Copyright (c) 2026 Jakub Antalik
+  liquid-gooey 0.2.2
+    版权：Copyright (c) 2026 Jakub
+  three 0.186.1
+    仓库：https://github.com/mrdoob/three.js
+    版权：Copyright © 2010-2026 three.js authors
+
+Wevir 修改的部分：patches/metal-fx@2.0.11.patch（pnpm patch，安装时应用到 metal-fx 的 dist/index.es.js）
+改了共享 WebGL 状态的两个上下文丢失回调，只认自己那块画布，原因见 pnpm-workspace.yaml 与 ADR-0004 补记 9。
+
+metal-fx 包内的 NOTICE（原文）：
+
+  metal-fx
+  Copyright (c) Jakub Antalik
+
+  This product includes software developed by Paper Design, Inc.
+
+    Paper Shaders (https://github.com/paper-design/shaders)
+    Copyright (c) Paper Design, Inc.
+    Licensed under the Apache License, Version 2.0
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Specifically:
+
+    * The `liquidMetal` fragment shader is consumed unmodified at build time
+      from the `@paper-design/shaders` npm package and inlined into the
+      distributed bundle. See src/engine/shaders.ts.
+
+    * The sizing vertex shader in src/engine/shaders.ts (`VERT_SHADER_SRC`) is
+      copied verbatim from `packages/shaders/src/vertex-shader.ts` @ 0.0.80.
+      It is vendored rather than imported because the package exposes it only
+      through `ShaderMount`, which owns its own canvas and animation loop.
+
+  No changes were made to either shader's source.
+
+Paper Shaders 的许可证是 Apache License 2.0，全文见文末。Wevir 的补丁不涉及这两段着色器。
+
+
 MIT License
 ------------------------------------------------------------------------------------------------
-第 1–3 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+第 1–3 节与第 8 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -208,7 +254,7 @@ SOFTWARE.
 
 Apache License 2.0
 ------------------------------------------------------------------------------------------------
-第 4、5 节的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 5 节）：
+第 4、5 节与第 8 节的 Paper Shaders 的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 5 节）：
 
                                  Apache License
                            Version 2.0, January 2004

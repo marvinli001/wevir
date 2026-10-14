@@ -34,7 +34,7 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 ### 2.2 打进桌面端产物的库
 
-从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
+从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
 
 | 包 | 版本 | 许可证 | 版权 |
 |---|---|---|---|
@@ -55,8 +55,11 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 | `reselect` | 5.3.0 | MIT | Copyright (c) 2015-2018 Reselect Contributors |
 | `tailwindcss` | 4.3.3 | MIT | Copyright (c) Tailwind Labs, Inc.（生成的 CSS 含它的 preflight） |
 | `tw-animate-css` | 1.4.0 | MIT | Copyright (c) 2025 Wombosvideo |
+| `border-beam`、`thinking-orbs`、`bot-avatars`、`liquid-gooey`、`img-fx` | 1.4.1、0.3.2、0.1.2、0.2.2、0.5.1 | MIT | Copyright (c) 2026 Jakub Antalik（`liquid-gooey` 写作 Copyright (c) 2026 Jakub）；U3，零运行时依赖 |
+| `metal-fx` | 2.0.11 | MIT；内含 Paper Shaders 的 `liquidMetal` 着色器（Apache-2.0，包内 `NOTICE`） | Copyright (c) 2026 Jakub Antalik；Copyright (c) Paper Design, Inc.。Wevir 打了补丁（`patches/metal-fx@2.0.11.patch`，根目录 `NOTICE` §8） |
+| `three` | 0.186.1 | MIT | Copyright © 2010-2026 three.js authors（`img-fx` 的 peer，只在显现图片时动态加载） |
 
-非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）、BSD-3-Clause 一个（`highlight.js`）、ISC 一个（`lucide-react`）。与 ADR-0004 补记 5、6 记下的一致。
+非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）、BSD-3-Clause 一个（`highlight.js`）、ISC 一个（`lucide-react`）。与 ADR-0004 补记 5、6 记下的一致。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。
 
 ### 2.3 Electron
 
@@ -120,7 +123,7 @@ Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁�
 - [ ] Wevir 的 `LICENSE` 与 `NOTICE` 放进安装包的资源目录，设置 → 关于里有“开源许可”入口能看到它们和第三方声明。
 - [ ] 第三方声明文件按**实际打进安装包的文件**生成：每个包的名称、版本、许可证、版权行与许可证全文（MIT、ISC、BSD 的条件就是保留版权与许可声明）。不能用 `pnpm licenses list --prod` 代替，它不列可选的平台包（UPSTREAM.md §2.1）。
 - [ ] 打包后的 JS 是否保留了 `/*! @license … */` 横幅（例如 DOMPurify 的）不影响上一条：声明文件本身要覆盖所有打进去的库。
-- [ ] Apache-2.0 的包：声明里附一次 Apache-2.0 全文；包里带 `NOTICE` 的，把其内容收进声明（第 4(d) 条）。目前已安装的 Apache-2.0 包都没有 `NOTICE`，构建机上没装的平台包要在打包环境里再看一次。
+- [ ] Apache-2.0 的包：声明里附一次 Apache-2.0 全文；包里带 `NOTICE` 的，把其内容收进声明（第 4(d) 条）。目前已安装的 Apache-2.0 包都没有 `NOTICE`，构建机上没装的平台包要在打包环境里再看一次。例外是 `metal-fx` 里的 Paper Shaders（U3）：`metal-fx` 自己是 MIT，包内 `NOTICE` 记着它打包了 Paper Shaders 的 Apache-2.0 代码，这份内容要进声明。
 - [ ] DOMPurify 在声明里写明按 Apache-2.0 使用。
 - [ ] Electron 的 `LICENSE` 与 `LICENSES.chromium.html` 在产物里（electron-builder 默认会复制，以产物为准）。
 - [ ] 每个平台的安装包只带本平台的可选包（`@img/sharp-*`、`libreoffice-kit-*`、`sherpa-onnx-*`、`node-addon-system-*` 等），声明按实际带的写。

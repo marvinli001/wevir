@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { productionCsp } from '../shared/csp.js';
+import { CSP_NONCE_PLACEHOLDER, productionCsp } from '../shared/csp.js';
 import { serveRendererFile } from './renderer-files.js';
 
 let root: string;
@@ -11,7 +11,10 @@ beforeEach(() => {
   outside = mkdtempSync(join(tmpdir(), 'wevir-renderer-'));
   root = join(outside, 'renderer');
   mkdirSync(join(root, 'assets'), { recursive: true });
-  writeFileSync(join(root, 'index.html'), '<!doctype html>');
+  writeFileSync(
+    join(root, 'index.html'),
+    `<!doctype html><meta property="csp-nonce" nonce="${CSP_NONCE_PLACEHOLDER}" />`,
+  );
   writeFileSync(join(root, 'assets', 'app.js'), 'console.log(1)');
   writeFileSync(join(outside, 'secret.txt'), 'secret');
 });
@@ -24,15 +27,29 @@ describe('serveRendererFile（wevir:// 协议）', () => {
     const page = await get('wevir://app/index.html');
     expect(page.status).toBe(200);
     expect(page.headers.get('content-type')).toBe('text/html; charset=utf-8');
-    expect(page.headers.get('content-security-policy')).toBe(productionCsp());
     expect(page.headers.get('x-content-type-options')).toBe('nosniff');
-    expect(await page.text()).toBe('<!doctype html>');
     expect((await get('wevir://app/')).status).toBe(200);
     const script = await get('wevir://app/assets/app.js');
     expect(script.headers.get('content-type')).toBe('text/javascript; charset=utf-8');
+    expect(script.headers.get('content-security-policy')).toBe(productionCsp());
+    expect(await script.text()).toBe('console.log(1)');
     const head = await get('wevir://app/assets/app.js', 'HEAD');
     expect(head.status).toBe(200);
     expect(await head.text()).toBe('');
+  });
+
+  it('页面每次加载换一个样式 nonce：替换占位符，并写进这次的 CSP', async () => {
+    const nonceOf = async (response: Response) => {
+      const html = await response.text();
+      const nonce = /nonce="([^"]+)"/.exec(html)?.[1];
+      expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}==$/);
+      expect(html).not.toContain(CSP_NONCE_PLACEHOLDER);
+      expect(response.headers.get('content-security-policy')).toBe(productionCsp(nonce));
+      return nonce;
+    };
+    const first = await nonceOf(await get('wevir://app/index.html'));
+    const second = await nonceOf(await get('wevir://app/'));
+    expect(first).not.toBe(second);
   });
 
   it('不出构建产物目录，只认主机 app 与 GET / HEAD', async () => {
@@ -49,12 +66,13 @@ describe('serveRendererFile（wevir:// 协议）', () => {
 });
 
 describe('CSP', () => {
-  it('生产：没有内联脚本与样式，只连 127.0.0.1 上的 Host', () => {
-    const csp = productionCsp();
+  it('生产：没有内联脚本，样式只放行自己的文件与这次的 nonce，只连 127.0.0.1 上的 Host', () => {
+    const csp = productionCsp('abc');
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("script-src 'self';");
-    expect(csp).toContain("style-src 'self';");
+    expect(csp).toContain("style-src 'self' 'nonce-abc';");
     expect(csp).toContain('connect-src ws://127.0.0.1:*;');
     expect(csp).not.toContain('unsafe');
+    expect(productionCsp()).toContain("style-src 'self';");
   });
 });

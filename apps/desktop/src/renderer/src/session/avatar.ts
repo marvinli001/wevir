@@ -1,27 +1,31 @@
-// 子会话的头像（R5）：由会话 ID 确定地选出一种颜色与一种形状，同一个子会话在消息流、列表、详情、审批与置顶摘要里
-// 总是同一个样子。颜色是 tokens.css 的 --avatar-1 … --avatar-7（Wevir 调色板），形状是 subagent-avatar.tsx 画的
-// 几何图形。不用 Codex 的图标。
+// 子会话的头像（R5；U3 起是 bot-avatars 的小机器人）：由会话 ID 确定地选出一种形状与一种颜色，同一个子会话在消息流、
+// 列表、详情、审批与置顶摘要里总是同一个样子。形状与颜色取自方向稿 A 静器（src/fx.jsx）；画在 canvas 上，颜色是字面值，
+// 浅色、深色各一组，同一个序号是同一种颜色的两档。不用 Codex 的图标。
 
-/** 头像颜色的个数（tokens.css 的 --avatar-N）。 */
-export const AVATAR_COLORS = 7;
+import type { SubagentStatus } from '@wevir/protocol';
+import type { BotAvatarState, BotAvatarType } from 'bot-avatars';
 
-export const AVATAR_SHAPES = [
-  'ring',
-  'diamond',
-  'triad',
-  'hexagon',
-  'halves',
-  'bars',
-  'badge',
-  'venn',
-] as const;
+export const AVATAR_TYPES = [
+  'pebble',
+  'clover',
+  'drop',
+  'pill',
+  'circle',
+  'cloud',
+] as const satisfies readonly BotAvatarType[];
 
-export type AvatarShape = (typeof AVATAR_SHAPES)[number];
+/** 浅色：褐、灰蓝、灰绿、灰粉、灰紫、麦黄；深色是各自亮一档。 */
+export const AVATAR_COLORS = {
+  light: ['#b59a6b', '#8e9fa3', '#a2ad95', '#bf9f98', '#9b98b0', '#c4b48e'],
+  dark: ['#c9b083', '#9fb2b6', '#b2bda6', '#d2b0a8', '#aeabc4', '#d4c49e'],
+} as const;
 
 export interface Avatar {
-  /** 1 … AVATAR_COLORS。 */
+  type: (typeof AVATAR_TYPES)[number];
+  /** AVATAR_COLORS 里的序号，0 … 5。 */
   color: number;
-  shape: AvatarShape;
+  /** bot-avatars 的 seed（0–1）：错开眨眼与张望，一排头像不同步。 */
+  seed: number;
 }
 
 /** 32 位 FNV-1a。ID 的随机部分（ULID）在末尾，按 UTF-16 码元逐个混进去，每一位都影响结果。 */
@@ -36,8 +40,17 @@ function hash(text: string): number {
 
 export function avatarFor(sessionId: string): Avatar {
   const value = hash(sessionId);
+  const colors = AVATAR_COLORS.light.length;
   return {
-    color: (value % AVATAR_COLORS) + 1,
-    shape: AVATAR_SHAPES[Math.floor(value / AVATAR_COLORS) % AVATAR_SHAPES.length] ?? 'ring',
+    type: AVATAR_TYPES[value % AVATAR_TYPES.length] ?? 'pebble',
+    color: Math.floor(value / AVATAR_TYPES.length) % colors,
+    seed: (Math.floor(value / (AVATAR_TYPES.length * colors)) % 1000) / 1000,
   };
+}
+
+/** 子会话的状态对应头像的动作：运行中蹦跳，关闭或取消了睡着，其余（完成、失败、不知道）闲着。 */
+export function avatarState(status: SubagentStatus | undefined): BotAvatarState {
+  if (status === 'running') return 'working';
+  if (status === 'closed' || status === 'cancelled') return 'sleeping';
+  return 'default';
 }

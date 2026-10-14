@@ -18,6 +18,8 @@
   --secondary: var(--ivory-3);
   --card: var(--ivory-1);
   --popover: var(--ivory-1);
+  /* 分段切换的滑块（输入框里的“插话 | 排队”，session/delivery-switch.tsx），轨道是 --muted。 */
+  --switch-thumb: var(--ivory-1);
 
   /* 文字层级：正文 → 次正文 → 说明文字（标签、时间、快捷键提示、图标）。 */
   --foreground: var(--ivory-9);
@@ -47,15 +49,6 @@
   --code-number: var(--ochre-deep);
   --code-title: var(--red-deep);
 
-  /* 子会话头像（R5，session/avatar.ts 按会话 ID 选一种颜色与形状）。 */
-  --avatar-1: var(--tan);
-  --avatar-2: var(--slate);
-  --avatar-3: var(--sage);
-  --avatar-4: var(--rose);
-  --avatar-5: var(--lavender);
-  --avatar-6: var(--straw);
-  --avatar-7: var(--teal);
-
   /* 遮罩与阴影。静器只有一档阴影，卡片默认不带，浮起的东西（输入框、浮层、菜单）才带。 */
   --overlay: color-mix(in oklab, var(--ivory-9) 25%, transparent);
   --elevation: 0 1px 2px rgba(26, 26, 23, 0.05), 0 10px 30px -16px rgba(26, 26, 23, 0.18);
@@ -71,6 +64,7 @@
   --secondary: var(--graphite-5);
   --card: var(--graphite-4);
   --popover: var(--graphite-4);
+  --switch-thumb: var(--graphite-7);
 
   --foreground: var(--graphite-10);
   --soft-foreground: var(--graphite-9);
@@ -94,14 +88,6 @@
   --code-string: var(--green-pale);
   --code-number: var(--ochre-pale);
   --code-title: var(--red-pale);
-
-  --avatar-1: var(--tan-pale);
-  --avatar-2: var(--slate-pale);
-  --avatar-3: var(--sage-pale);
-  --avatar-4: var(--rose-pale);
-  --avatar-5: var(--lavender-pale);
-  --avatar-6: var(--straw-pale);
-  --avatar-7: var(--teal-pale);
 
   --overlay: color-mix(in oklab, var(--graphite-1) 60%, transparent);
   --elevation: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
@@ -129,15 +115,6 @@
 
   --code-comment: var(--muted-foreground);
   --code-meta: var(--soft-foreground);
-
-  /* 头像的辅色：主色与画布混合，亮暗自动跟着变。 */
-  --avatar-1-soft: color-mix(in oklab, var(--avatar-1) 45%, var(--background));
-  --avatar-2-soft: color-mix(in oklab, var(--avatar-2) 45%, var(--background));
-  --avatar-3-soft: color-mix(in oklab, var(--avatar-3) 45%, var(--background));
-  --avatar-4-soft: color-mix(in oklab, var(--avatar-4) 45%, var(--background));
-  --avatar-5-soft: color-mix(in oklab, var(--avatar-5) 45%, var(--background));
-  --avatar-6-soft: color-mix(in oklab, var(--avatar-6) 45%, var(--background));
-  --avatar-7-soft: color-mix(in oklab, var(--avatar-7) 45%, var(--background));
 
   /* 圆角：卡片（含窗格、对话框、浮层与菜单、消息输入框）12px，按钮、输入控件与列表项 8px；theme.css 的
    * --radius-* 阶梯由这两个推导，嵌套时外层比内层大一阶。 */

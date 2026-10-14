@@ -1,6 +1,6 @@
 import { DESKTOP_RENDERER_ORIGINS } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { developmentCsp } from './csp.js';
+import { CSP_NONCE_PLACEHOLDER, developmentCsp, productionCsp } from './csp.js';
 import {
   APP_ENTRY_URL,
   APP_ORIGIN,
@@ -31,5 +31,16 @@ describe('渲染进程的 origin', () => {
     expect(csp).toContain("style-src 'self' 'nonce-abc';");
     expect(csp).toContain(`connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ws://127.0.0.1:*;`);
     expect(csp).not.toContain('unsafe');
+  });
+
+  it('生产 CSP：样式 nonce 只进 style-src，脚本仍只有 self；不用 unsafe-inline，不放开 worker / blob', () => {
+    const csp = productionCsp('abc');
+    expect(csp).toContain("style-src 'self' 'nonce-abc';");
+    expect(csp).toContain("script-src 'self';");
+    expect(csp).toContain("default-src 'none';");
+    expect(csp).not.toMatch(/unsafe|blob:|worker-src|child-src/);
+    expect(productionCsp()).toContain("style-src 'self';");
+    // 占位符原样写进 index.html 的 nonce 属性，主进程整串替换：必须是合法的 nonce 字符、不会与页面里别的文字相撞。
+    expect(CSP_NONCE_PLACEHOLDER).toMatch(/^[A-Z_]{8,}$/);
   });
 });

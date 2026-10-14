@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
 import { defaultClientConditions, defaultServerConditions } from 'vite';
-import { developmentCsp } from './src/shared/csp.js';
+import { CSP_NONCE_PLACEHOLDER, developmentCsp } from './src/shared/csp.js';
 import { DEV_SERVER_PORT } from './src/shared/renderer-origin.js';
 
 // 工作区包按 exports 的 "@wevir/source" 条件直接用源码打进 main 与 renderer（ADR-0004 补记 1），改了
@@ -42,7 +42,9 @@ export default defineConfig(({ command }) => {
         strictPort: true,
         headers: { 'Content-Security-Policy': developmentCsp(nonce) },
       },
-      ...(command === 'serve' && { html: { cspNonce: nonce } }),
+      // 构建时写占位符，主进程每次提供 index.html 时换成新的 nonce（src/shared/csp.ts）。Vite 同时生成
+      // <meta property="csp-nonce">，渲染进程从它读 nonce（lib/style-nonce.ts）。
+      html: { cspNonce: command === 'serve' ? nonce : CSP_NONCE_PLACEHOLDER },
       // 字体总是单独成文件：Vite 默认把小于 4 KiB 的资源内联成 data: URI（标题宋体的子集只有几 KiB），而 CSP 的
       // font-src 只放行 'self'（src/shared/csp.ts）。其他资源仍按默认规则。
       build: { assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined) },

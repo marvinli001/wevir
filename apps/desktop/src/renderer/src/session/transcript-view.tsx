@@ -3,6 +3,7 @@ import type { ClientIdentity } from '@wevir/protocol';
 import { ArrowDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { turnOrb } from '@/fx/orb-state';
 import { t } from '@/i18n';
 import { FoldScopeProvider } from './fold-state';
 import type { LiveState } from './live-indicator';
@@ -114,6 +115,7 @@ export function TranscriptView({
                       turnActive={isActiveTurn(block.turnId, transcript)}
                       {...(isActiveTurn(block.turnId, transcript) && {
                         live: liveState(transcript.state),
+                        orb: turnOrb(sessionId, block.turnId),
                       })}
                       hasSubagents={transcript.subagents.length > 0}
                       self={self}

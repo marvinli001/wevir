@@ -11,6 +11,12 @@ import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, ROUTE_PATTERNS } from './paths';
 import { SessionRoute } from './session-route';
 import { SettingsRoute } from './settings-route';
 
+/**
+ * 动效样张（U3，fx/fx-gallery.tsx）：开发模式下有；正式构建只有 `VITE_WEVIR_FX_GALLERY=1` 时才带（在生产 CSP 下核对
+ * 效果用），否则连同它的 chunk 一起被摇掉。
+ */
+const FX_GALLERY = import.meta.env.DEV || import.meta.env.VITE_WEVIR_FX_GALLERY === '1';
+
 /** 路由表（见 paths.ts）。工作台页面共用三栏布局；设置是整窗页面。 */
 export const router = createHashRouter([
   {
@@ -27,6 +33,14 @@ export const router = createHashRouter([
             // 子智能体详情（R5）：主窗格不变，详情画在“子智能体”窗格里（workbench-layout.tsx），这里不渲染东西。
             children: [{ path: AGENT_SEGMENT, element: null }],
           },
+          ...(FX_GALLERY
+            ? [
+                {
+                  path: 'dev/fx',
+                  lazy: async () => ({ Component: (await import('@/fx/fx-gallery')).FxGallery }),
+                },
+              ]
+            : []),
           { path: '*', Component: NotFoundRoute },
         ],
       },

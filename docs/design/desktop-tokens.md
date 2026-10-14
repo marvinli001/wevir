@@ -24,6 +24,7 @@
 | `--background` | `bg-background` | 画布 | `#f4f3ed` | `#101114` |
 | `--sidebar` | `bg-sidebar` | 侧栏（左栏、设置页导航、右侧浮层） | `#ecebe4` | `#0c0d10` |
 | `--card`、`--popover` | `bg-card`、`bg-popover` | 表面：卡片、浮层、菜单、输入框；侧栏里选中的行（`--sidebar-accent`） | `#fbfaf7` | `#17181c` |
+| `--switch-thumb` | — | 分段切换的滑块（输入框里的“插话 \| 排队”，U3 的 liquid-gooey 液面颜色），轨道是 `--muted` | `#fbfaf7` | `#36383e` |
 | `--muted`、`--accent`、`--secondary` | `bg-muted` 等 | 次表面：弱填充、悬停与选中、次要按钮 | `#efede6` | `#1d1e23` |
 | `--border` | `border-border` | 分隔线 | `#dedbd1` | `#26282d` |
 | `--border-strong`（`--input`） | `border-input`、`bg-border-strong` | 强分隔线：控件边框、空闲的状态点 | `#ccc8bc` | `#36383e` |
@@ -39,10 +40,11 @@
 | `--code-background` | — | 代码块底色（`markdown.css`） | `#efede6` | `#141519` |
 | `--code-keyword` / `string` / `number` / `title` | — | 语法高亮：运行蓝、成功绿、待审批赭、失败红 | deep 档 | pale 档 |
 | `--code-comment` / `--code-meta` | — | 注释用说明文字色，元信息用次正文色 | | |
-| `--avatar-1` … `--avatar-7` | — | 子会话头像（`session/avatar.ts`）；`-soft` 是它与画布的 45% 混合 | 方向稿 A 的六种头像色加一种青 | 各自浅一档 |
 | `--overlay` | `bg-overlay` | 对话框与浮层的遮罩 | 正文色 25% | 侧栏色 60% |
 
 静器没有彩色的强调色：主按钮、选中项、链接都是墨色，彩色只表示状态。状态色每种只有一档，文字、图标、圆点、描边与 `bg-warning/10` 这类淡底都用它（T5.2 的 `*-solid` 实色档已去掉）。
+
+U3 起子会话头像是 bot-avatars 的小机器人（canvas 绘制），颜色要字面值，浅色、深色各六种写在 `session/avatar.ts`（方向稿 A 的头像配色）；thinking orb 的墨色（浅色 `#2b2a26`、深色 `#e9e8e2`）写在 `fx/orb.tsx`，金属与光束的颜色是库的 gold、mono 预设。原来的 `--avatar-1` … `--avatar-7` 与它们的原始色已删掉。
 
 T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去掉，原来用它的地方改用说明文字：方向稿里时间、提示这类文字也是说明文字色，而且它对背景不到 4.5:1。
 
@@ -97,4 +99,4 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 ## 9. 与方向稿的对应
 
-方向稿 `src/styles.css` 的 `.app`（A 的浅色）与 `.app[data-dir='a'][data-mode='dark']` 里的变量与这里的对应：`--bg` → `--background`、`--side` → `--sidebar`、`--surface` → `--card` / `--popover`、`--surface-2` → `--muted` / `--accent` / `--secondary`、`--line` → `--border`、`--line-2` → `--border-strong`、`--ink` → `--foreground`、`--ink-2` → `--soft-foreground`、`--muted` → `--muted-foreground`、`--accent` / `--accent-ink` → `--primary` / `--primary-foreground`、`--brand` → `--brand`、`--run` / `--await` / `--ok` / `--bad` → `--running` / `--warning` / `--success` / `--destructive`、`--code-bg` → `--code-background`、`--shadow` → `--elevation`、`--radius` / `--radius-sm` → `--radius-card` / `--radius-control`、`--font-ui` / `--font-display` / `--font-mono` → `--font-ui` / `--font-display` / `--font-code`。方向稿里只有 B、C 用到的变量（`--glass`、`--grid`、`--f1`…）与开关、加号按钮的专用色没有搬过来，U3、U4 用到时再加。
+方向稿 `src/styles.css` 的 `.app`（A 的浅色）与 `.app[data-dir='a'][data-mode='dark']` 里的变量与这里的对应：`--bg` → `--background`、`--side` → `--sidebar`、`--surface` → `--card` / `--popover`、`--surface-2` → `--muted` / `--accent` / `--secondary`、`--line` → `--border`、`--line-2` → `--border-strong`、`--ink` → `--foreground`、`--ink-2` → `--soft-foreground`、`--muted` → `--muted-foreground`、`--accent` / `--accent-ink` → `--primary` / `--primary-foreground`、`--brand` → `--brand`、`--run` / `--await` / `--ok` / `--bad` → `--running` / `--warning` / `--success` / `--destructive`、`--code-bg` → `--code-background`、`--shadow` → `--elevation`、`--radius` / `--radius-sm` → `--radius-card` / `--radius-control`、`--font-ui` / `--font-display` / `--font-mono` → `--font-ui` / `--font-display` / `--font-code`。方向稿里只有 B、C 用到的变量（`--glass`、`--grid`、`--f1`…）与加号按钮的专用色没有搬过来，U4 用到时再加；开关的 `--switch-thumb` U3 搬了（A 的浅色 `#ffffff`、深色 `#3a3c43`，取了最接近的原始色），`--switch-track` 用 `--muted`。

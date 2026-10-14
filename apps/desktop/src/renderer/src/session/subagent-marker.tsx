@@ -34,7 +34,9 @@ export function SubagentMarker({ part }: { part: ChatPartOf<'subagent'> }) {
     <>
       <SubagentAvatar
         sessionId={subagent.sessionId}
-        className={cn(running && 'motion-safe:animate-pulse')}
+        status={subagent.status}
+        size={20}
+        className="shrink-0"
       />
       <span className="truncate">{markerText(subagent, ended)}</span>
       {waiting && (

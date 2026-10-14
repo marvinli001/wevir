@@ -49,7 +49,12 @@ export function SubagentView({
         <IconButton label={t('subagent.detail.back')} onClick={onBack} tooltipSide="bottom">
           <ArrowLeft />
         </IconButton>
-        <SubagentAvatar sessionId={summary.sessionId} className="size-5" />
+        <SubagentAvatar
+          sessionId={summary.sessionId}
+          status={summary.status}
+          size={20}
+          className="shrink-0"
+        />
         <h3 className="min-w-0 flex-1 truncate text-sm font-medium" title={title}>
           {title}
         </h3>

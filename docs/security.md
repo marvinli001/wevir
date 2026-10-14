@@ -15,7 +15,7 @@
 
 ## 2. 桌面端
 
-- 渲染进程持有令牌，渲染进程被攻破就等于拿到 Host 的全部权限。对策（T5.1）：所有渲染进程开 `sandbox` 与 `contextIsolation`，`nodeIntegration` 关闭；preload 只暴露 `window.wevir` 上的少数方法，主进程校验 IPC 的发送方；严格的 CSP（没有 `unsafe-inline`、`unsafe-eval`）；拒绝新窗口与跨 origin 导航，外部链接交给系统浏览器；网页权限请求一律拒绝。模型输出的 Markdown 经 DOMPurify 清洗后才渲染。
+- 渲染进程持有令牌，渲染进程被攻破就等于拿到 Host 的全部权限。对策（T5.1）：所有渲染进程开 `sandbox` 与 `contextIsolation`，`nodeIntegration` 关闭；preload 只暴露 `window.wevir` 上的少数方法，主进程校验 IPC 的发送方；严格的 CSP（没有 `unsafe-inline`、`unsafe-eval`；U3 起样式另放行每次加载随机的 nonce，给动效库运行时插入的 `<style>`，渲染进程经 `document.createElement('style')` 建的样式元素都会带上它，注入的标记与 `style` 属性仍被拦下，取舍见 `apps/desktop/src/shared/csp.ts` 与 ADR-0004 补记 9）；拒绝新窗口与跨 origin 导航，外部链接交给系统浏览器；网页权限请求一律拒绝。模型输出的 Markdown 经 DOMPurify 清洗后才渲染。
 - **开发模式**会打开渲染进程的 Chrome 远程调试端口（默认 9339，只监听 127.0.0.1）。同一用户的进程连上它就能在渲染进程里执行任意脚本、读到令牌，和读 `host.json` 是同一个边界；正式构建不开。
 
 ## 3. 密钥

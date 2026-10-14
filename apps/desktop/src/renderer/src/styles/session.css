@@ -49,3 +49,15 @@
     color: var(--muted-foreground);
   }
 }
+
+/* 图片显现（U3，fx/image-reveal.tsx）：img-fx 的根节点是 inline-block，子元素按百分比算宽会塌成 0；强制撑满外框
+ * （外框按图片比例定了宽高）。img-fx 的样式在运行时插入、不在层里，这里也写在层外，靠更高的优先级盖过它。 */
+.image-reveal.image-gen-root {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.image-reveal.image-gen-root > .image-gen-child {
+  width: 100%;
+  height: 100%;
+}

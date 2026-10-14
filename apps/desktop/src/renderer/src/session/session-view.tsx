@@ -28,7 +28,8 @@ import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
  */
 export function SessionView({ session }: { session: Session }) {
   const { client, identity, view } = useHostConnection();
-  const { settings } = useHostSettings();
+  const hostSettings = useHostSettings();
+  const { settings } = hostSettings;
   // 回合进行中也能发（R11）：Host 有待发消息时，回车按“回合进行中按回车”的设置。
   const pendingEnabled =
     view.status === 'connected' && hostSupports(view.hello.features, 'pending_messages');
@@ -70,6 +71,16 @@ export function SessionView({ session }: { session: Session }) {
       setNotice(t('session.cancelFailed', { error: describe(error) }));
     });
   }, [client, session.id]);
+
+  // 输入框里的“插话 | 排队”切换改的是 Host 设置（U3），和设置页是同一个值。
+  const changeBusyDelivery = useCallback(
+    (delivery: PendingDelivery) => {
+      hostSettings.update({ sendWhileBusy: delivery }).catch((error: unknown) => {
+        setNotice(t('settings.chat.saveFailed', { error: describe(error) }));
+      });
+    },
+    [hostSettings.update],
+  );
 
   const onReady = useCallback((handle: TranscriptViewHandle) => {
     transcriptRef.current = handle;
@@ -163,6 +174,8 @@ export function SessionView({ session }: { session: Session }) {
           disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
           status={transcript && <SessionStatus transcript={transcript} />}
           {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
+          {...(pendingEnabled &&
+            hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
           onSend={send}
           onStop={stop}
           autoFocus

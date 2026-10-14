@@ -31,7 +31,7 @@
 - **布局原则**：窗格（会话、子智能体、文件、后台任务、清单等）都能拖动调尺寸、最大化、关闭；整体布局随打开的窗格种类与数量动态变化（截图 05–07）。细节见 R12 的 [desktop-layout.md](architecture/desktop-layout.md) 与 [ADR-0006](adr/0006-desktop-workbench-panes.md)。
 - **交互语义**（子 agent 怎样出现、审批有哪些选项、计划怎样更新、中断、插话与排队）：先读 codex-notes §2.7 的摘要，细节再看 `upstream/codex/codex-rs/tui/` 的源码，它和桌面端一样是 app-server 的客户端。注意它打开了实验面，Wevir 不开（ADR-0005 决策 5、补记 1）。
 - **不拷贝任何闭源代码与素材**（包括从安装包里解出来的脚本、图标、字体），也不把截图提交进仓库；只照着截图用 Wevir 自己的设计 token 与组件实现。
-- **视觉方向**：维护者 2026-10-14 选定方向稿的「A 静器」（`design-refs/wevir-directions/`），工具操作像 Claude Code 与 Codex 桌面端那样默认折叠（截图 09–12）。改造分四步：U1 设计变量与字体（落地的变量见 [desktop-tokens.md](design/desktop-tokens.md)）→ U2 消息流折叠 → U3 libraries.dev 动效 → U4 首页与设置页。
+- **视觉方向**：维护者 2026-10-14 选定方向稿的「A 静器」（`design-refs/wevir-directions/`），工具操作像 Claude Code 与 Codex 桌面端那样默认折叠（截图 09–12）。改造分四步：U1 设计变量与字体（落地的变量见 [desktop-tokens.md](design/desktop-tokens.md)）→ U2 消息流折叠 → U3 libraries.dev 动效（库、参数、CSP 与性能取舍见 [ADR-0004](adr/0004-repo-tooling.md) 补记 9）→ U4 首页与设置页。
 
 | `design-refs/` 下的文件 | 内容 |
 |---|---|

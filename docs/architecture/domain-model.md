@@ -515,7 +515,7 @@ interface AccountRateLimitWindow {
 ```ts
 // → protocol
 interface HostSettings {
-  sendWhileBusy: 'steer' | 'queue' // 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab 或输入框旁的按钮。默认 steer
+  sendWhileBusy: 'steer' | 'queue' // 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab（桌面端输入框里的“插话 | 排队”切换改的就是这一项，U3）。默认 steer
 }
 ```
 

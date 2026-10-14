@@ -141,7 +141,13 @@ function SubagentItems({
               data-subagent-item={summary.sessionId}
               className="flex h-10 items-center gap-3 rounded-lg px-2 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
             >
-              <SubagentAvatar sessionId={summary.sessionId} className="size-5" />
+              <SubagentAvatar
+                sessionId={summary.sessionId}
+                status={summary.status}
+                size={28}
+                interactive
+                className="shrink-0"
+              />
               <span className="min-w-0 flex-1 truncate">{subagentTitle(summary)}</span>
               {waiting && (
                 <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
@@ -209,7 +215,12 @@ function useSubagentsSummary(sessionId: string): ReactNode | null {
       >
         <span className="flex shrink-0 items-center gap-1">
           {subagents.slice(-SUMMARY_AVATARS).map((summary) => (
-            <SubagentAvatar key={summary.sessionId} sessionId={summary.sessionId} />
+            <SubagentAvatar
+              key={summary.sessionId}
+              sessionId={summary.sessionId}
+              status={summary.status}
+              size={20}
+            />
           ))}
         </span>
         <span className="truncate">{counts.join(' · ')}</span>

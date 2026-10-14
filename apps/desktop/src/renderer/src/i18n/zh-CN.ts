@@ -77,6 +77,11 @@ export const zhCN = {
   'pane.kind.plan': '计划',
   'pane.kind.terminal': '终端',
   'pane.kind.session': '会话',
+  'fx.gallery.title': '动效样张',
+  'fx.gallery.toggleTheme': '切换深浅色',
+  'fx.gallery.new': '新',
+  'fx.gallery.shot': '示例截图',
+  'fx.gallery.replay': '换一张再显现',
   'pane.placeholder.title': '“{kind}”还没有实现',
   'pane.placeholder.body': '这是开发模式下的占位，用来检查窗格的排布；内容由以后的任务实现。',
   'pane.overview.workspacePath': '工作区目录',
@@ -154,8 +159,6 @@ export const zhCN = {
   'session.stopHint': 'Esc 停止',
   'session.sendSteer': '插话',
   'session.sendQueue': '排队',
-  'session.sendOtherSteer': '改为插话发送（Tab）：不打断，这一步结束后插进本回合',
-  'session.sendOtherQueue': '改为排队发送（Tab）：本回合结束后再发',
   'session.busyHint.steer': 'Enter 插话 · Tab 排队 · Esc 停止',
   'session.busyHint.queue': 'Enter 排队 · Tab 插话 · Esc 停止',
 
@@ -379,7 +382,7 @@ export const zhCN = {
   'settings.tab.chat': '对话',
   'settings.chat.sendWhileBusy': '回合进行中按回车',
   'settings.chat.sendWhileBusyHint':
-    '另一种方式用 Tab 键或输入框旁的按钮。这项设置存在 Wevir Host 里，桌面端与命令行共用。',
+    '另一种方式用 Tab 键；回合进行中输入框里的“插话 | 排队”切换改的也是这一项。这项设置存在 Wevir Host 里，桌面端与命令行共用。',
   'settings.chat.sendWhileBusy.steer': '插话',
   'settings.chat.sendWhileBusy.steerHint':
     '不打断模型，等这一步（这段输出或这次工具调用）结束后插进本回合',

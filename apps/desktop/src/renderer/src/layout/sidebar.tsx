@@ -9,6 +9,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { type SessionMarker, sessionMarker, type WorkspaceEntry } from '@/data/workbench-model';
+import { Orb } from '@/fx/orb';
+import { turnOrb } from '@/fx/orb-state';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
@@ -188,15 +190,16 @@ function WorkspaceItem({
   );
 }
 
-const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string; pulse?: boolean }> = {
-  running: { tone: 'accent', label: t('session.marker.running'), pulse: true },
+const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string }> = {
+  running: { tone: 'accent', label: t('session.marker.running') },
   awaiting_approval: { tone: 'warning', label: t('session.marker.awaitingApproval') },
   error: { tone: 'danger', label: t('session.marker.error') },
 };
 
 /**
- * 会话行：左侧状态点（运行中 / 待审批 / 出错），标题，右侧“待审批”标签或未读点。标题用次正文色，当前会话是表面色加一圈
- * 分隔线（方向稿 A 的左栏）。
+ * 会话行：左侧状态（运行中是这个回合的 thinking orb，待审批时 orb 停住；出错是状态点），标题，右侧“待审批”标签或未读点。
+ * orb 与消息流里的是同一种（fx/orb-state.ts 按会话与回合 ID 定）。标题用次正文色，当前会话是表面色加一圈分隔线（方向稿 A
+ * 的左栏）。
  */
 function SessionRow({
   workspaceId,
@@ -221,9 +224,16 @@ function SessionRow({
         )
       }
     >
-      <span className="flex w-4 shrink-0 justify-center">
-        {markerInfo && (
-          <StatusDot tone={markerInfo.tone} label={markerInfo.label} pulse={markerInfo.pulse} />
+      <span className="flex w-5 shrink-0 justify-center">
+        {(marker === 'running' || marker === 'awaiting_approval') && markerInfo ? (
+          <span role="img" aria-label={markerInfo.label} className="flex">
+            <Orb
+              state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
+              paused={marker === 'awaiting_approval'}
+            />
+          </span>
+        ) : (
+          markerInfo && <StatusDot tone={markerInfo.tone} label={markerInfo.label} />
         )}
       </span>
       <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold')}>

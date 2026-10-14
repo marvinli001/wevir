@@ -15,6 +15,7 @@ import { ChevronRight, ShieldAlert } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
+import { Beam } from '@/fx/beam';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { decidedHere, optionLabel, presentApproval, resolutionText } from './approval-model';
@@ -109,15 +110,18 @@ export function ApprovalDock({
         </p>
       )}
       {current && (
-        <ApprovalCard
-          key={current.id}
-          approval={current}
-          origin={origin && { subagent: origin, href: subagentHref?.(origin) }}
-          remaining={remaining}
-          busy={submitting === current.id}
-          error={notice?.tone === 'error' ? notice.text : undefined}
-          onRespond={(optionId) => void respond(current, optionId)}
-        />
+        // 金色的内侧呼吸光（U3，border-beam 的 pulse-inner）：等待审批时注意力在这里。
+        <Beam preset="approval" className="mb-2 block">
+          <ApprovalCard
+            key={current.id}
+            approval={current}
+            origin={origin && { subagent: origin, href: subagentHref?.(origin) }}
+            remaining={remaining}
+            busy={submitting === current.id}
+            error={notice?.tone === 'error' ? notice.text : undefined}
+            onRespond={(optionId) => void respond(current, optionId)}
+          />
+        </Beam>
       )}
     </>
   );
@@ -145,7 +149,7 @@ function ApprovalCard({
     <section
       aria-labelledby={titleId}
       data-testid="approval-card"
-      className="mb-2 rounded-xl border border-warning/40 bg-card shadow-sm"
+      className="rounded-xl border border-warning/40 bg-card shadow-sm"
     >
       {origin && <ApprovalOrigin {...origin} />}
       <div className="flex items-start gap-2.5 px-3.5 pt-3">
@@ -234,7 +238,12 @@ function ApprovalOrigin({
       data-testid="approval-origin"
       className="flex items-center gap-2 border-b border-border px-3.5 py-1.5 text-xs text-muted-foreground"
     >
-      <SubagentAvatar sessionId={subagent.sessionId} className="size-3.5" />
+      <SubagentAvatar
+        sessionId={subagent.sessionId}
+        status={subagent.status}
+        size={16}
+        className="shrink-0"
+      />
       <span className="min-w-0 flex-1 truncate">{t('approval.fromSubagent', { title })}</span>
       {href && (
         <Link

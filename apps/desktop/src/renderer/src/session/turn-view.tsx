@@ -3,10 +3,11 @@ import type { ClientIdentity, TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight } from 'lucide-react';
 import { memo, useId } from 'react';
+import type { OrbState } from 'thinking-orbs';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
 import { useFold, useFoldSetter } from './fold-state';
-import { LiveIndicator, type LiveState } from './live-indicator';
+import { LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
 import { PartsView, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
@@ -32,6 +33,7 @@ export const TurnView = memo(
     messages,
     turnActive,
     live,
+    orb = 'working',
     hasSubagents,
     self,
   }: {
@@ -40,6 +42,8 @@ export const TurnView = memo(
     turnActive: boolean;
     /** 会话正在进行这个回合时的状态。 */
     live?: LiveState;
+    /** 进行中的回合的 thinking orb（fx/orb-state.ts 的 turnOrb）。 */
+    orb?: OrbState;
     /** 会话派出过子会话：collab 工具调用不显示（subagent-model.ts 的 visibleParts）。 */
     hasSubagents: boolean;
     self: ClientIdentity | undefined;
@@ -56,66 +60,69 @@ export const TurnView = memo(
       last?.role === 'assistant' &&
       groupWork(visibleParts(last.parts, hasSubagents)).at(-1)?.kind === 'work';
     return (
-      <div data-turn={turnId} data-turn-folded={folded || undefined}>
-        {messages
-          .slice(0, lead)
-          .map((message) =>
-            message.role === 'user' ? (
-              <UserMessage key={message.id} message={message} self={self} />
-            ) : null,
+      <TurnOrb value={orb}>
+        <div data-turn={turnId} data-turn-folded={folded || undefined}>
+          {messages
+            .slice(0, lead)
+            .map((message) =>
+              message.role === 'user' ? (
+                <UserMessage key={message.id} message={message} self={self} />
+              ) : null,
+            )}
+          {fold.showHeader && fold.finished && (
+            <TurnHeader
+              controls={id}
+              outcome={fold.finished.outcome}
+              text={turnHeaderText(fold.finished)}
+              open={open}
+              issues={folded ? fold.issues : undefined}
+              onToggle={() => setOpen(!open)}
+            />
           )}
-        {fold.showHeader && fold.finished && (
-          <TurnHeader
-            controls={id}
-            outcome={fold.finished.outcome}
-            text={turnHeaderText(fold.finished)}
-            open={open}
-            issues={folded ? fold.issues : undefined}
-            onToggle={() => setOpen(!open)}
-          />
-        )}
-        <div id={id}>
-          {messages.slice(lead).map((message) => {
-            if (message.role === 'user') {
+          <div id={id}>
+            {messages.slice(lead).map((message) => {
+              if (message.role === 'user') {
+                return (
+                  <div key={message.id} className="mt-3">
+                    <UserMessage message={message} self={self} />
+                  </div>
+                );
+              }
+              if (message.role !== 'assistant') return null;
+              const parts = folded
+                ? foldedParts(message, fold)
+                : visibleParts(message.parts, hasSubagents);
+              if (parts.length === 0) return null;
               return (
-                <div key={message.id} className="mt-3">
-                  <UserMessage message={message} self={self} />
+                <div key={message.id} className="mt-3" data-message-role="assistant">
+                  <PartsView
+                    parts={parts}
+                    turnActive={turnActive}
+                    {...(message === last && live && { live })}
+                    {...(fold.startedAt !== undefined && { startedAt: fold.startedAt })}
+                  />
                 </div>
               );
-            }
-            if (message.role !== 'assistant') return null;
-            const parts = folded
-              ? foldedParts(message, fold)
-              : visibleParts(message.parts, hasSubagents);
-            if (parts.length === 0) return null;
-            return (
-              <div key={message.id} className="mt-3" data-message-role="assistant">
-                <PartsView
-                  parts={parts}
-                  turnActive={turnActive}
-                  {...(message === last && live && { live })}
-                  {...(fold.startedAt !== undefined && { startedAt: fold.startedAt })}
-                />
-              </div>
-            );
-          })}
+            })}
+          </div>
+          {live && !liveTail && <LiveLine live={live} startedAt={fold.startedAt} />}
+          {fold.finished && fold.changes.files > 0 && (
+            <ChangesChip
+              turnId={turnId}
+              messages={messages}
+              hasSubagents={hasSubagents}
+              fold={fold}
+            />
+          )}
         </div>
-        {live && !liveTail && <LiveLine live={live} startedAt={fold.startedAt} />}
-        {fold.finished && fold.changes.files > 0 && (
-          <ChangesChip
-            turnId={turnId}
-            messages={messages}
-            hasSubagents={hasSubagents}
-            fold={fold}
-          />
-        )}
-      </div>
+      </TurnOrb>
     );
   },
   (prev, next) =>
     prev.turnId === next.turnId &&
     prev.turnActive === next.turnActive &&
     prev.live === next.live &&
+    prev.orb === next.orb &&
     prev.hasSubagents === next.hasSubagents &&
     prev.self === next.self &&
     prev.messages.length === next.messages.length &&

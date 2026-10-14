@@ -68,6 +68,20 @@ pnpm dev
 
 **窗格布局。** 开发模式下顶栏“已打开的标签页”菜单的“打开窗格”里还列着以后的窗格种类（变更、文件预览等）的占位，用来检查多个窗格的排布（[desktop-layout.md](./architecture/desktop-layout.md) §2.1）；正式构建里只有已经实现的种类。每个会话的窗格与尺寸存在渲染进程的 localStorage（`wevir.panes.v1`），想从头来过可以在 DevTools 里删掉它。
 
+**动效（U3）。** libraries.dev 的动效封装在 `apps/desktop/src/renderer/src/fx/`（ADR-0004 补记 9）。开发模式下打开 `#/dev/fx` 是动效样张：九种 thinking orb、两种光束、子智能体头像、“插话 | 排队”切换、金属按钮 / 字标 / “新”徽标、图片显现，右上角能切深浅色。动效库在运行时插 `<style>`，开发服务器与构建产物的 CSP 都只放行带 nonce 的（`src/shared/csp.ts`），所以**要在正式构建里核对**：
+
+```bash
+VITE_WEVIR_FX_GALLERY=1 pnpm --filter @wevir/desktop build
+```
+
+带这个变量构建才有 `#/dev/fx`（默认的构建连同它的 chunk 一起摇掉）。然后在 `apps/desktop` 里用构建产物启动（`wevir://` 协议与生产 CSP），附着到自己起的 Host，用 9359 之类的端口走 DevTools 协议看控制台有没有 CSP 报告：
+
+```bash
+WEVIR_HOME="$PWD/../../.wevir-dev" ./node_modules/.bin/electron . --remote-debugging-port=9359
+```
+
+echo 引擎（§4）的回合很短，看不清进行中的效果；可以用 `approve`（停在审批上）或 `slow` 拉长。减弱动效用 DevTools 协议的 `Emulation.setEmulatedMedia`（`prefers-reduced-motion: reduce`）模拟。窗口被别的窗口挡住时 rAF 会停，所有效果都不动，测性能要让窗口露在外面。
+
 **子智能体（R5）。** 不用 Key 就能看到：用 `@wevir/adapter-codex/testing` 的 mock 模型登记一个 Provider（见下面 Codex 一段），在会话里发含“子智能体”的消息，父 agent 会派一个子 agent 并等它（spawn → wait）；再加“工具”让子 agent 跑一次 `ls`，加“长”让它慢慢回答，加“工作区外”让它请求审批（父会话的输入框上方会出现标着来自哪个子智能体的审批卡片；审批要写到工作区与系统临时目录之外，`WEVIR_MOCK_OUTSIDE_DIR` 指定目录）。消息流里点“〈标题〉开始工作 / 已完成”、置顶摘要的“子智能体”或列表里的一项进入子 agent 视图，地址是 `#/workspace/<工作区>/session/<父会话>/agent/<子会话>`（[desktop-layout.md](./architecture/desktop-layout.md) §10）。
 
 **引擎。** 桌面端拉起的 Host 用默认的 Codex。要用 dsh（可选引擎），或想让 Host 在关窗口之后继续运行，先在同一个数据目录里自己启动 Host，桌面端会附着到它（关窗口不停它）：
