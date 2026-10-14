@@ -6,7 +6,7 @@
 > - **`codex app-server` 可以作为 Wevir 的默认引擎。** 锁定版本的独立二进制配合本地 mock，流式、apply_patch、两类审批、跨回合推理、子 agent、取消、resume、计划、报错恢复、密钥隔离全部跑通（12 个场景 × 3 种接法，155 项检查，全部通过）。
 > - **Host 里的模型网关可行，不用 fork Codex。** 最小网关（约 490 行）把 Codex 的 Responses 请求转成 Chat Completions，同一组场景全部通过；Responses 原生的上游也经网关透传，Key 留在 Host，Codex 只拿到一次性令牌。
 > - **订阅登录：** ChatGPT 订阅可以走 app-server 自己的登录，但限于本地开源应用。Google 已在 2026-06-18 停掉 Gemini CLI 面向个人、AI Pro 与 Ultra 的“Login with Google”，第 3 优先级按原设想做不了。xAI 有官方 CLI（Grok Build），支持 ACP，也能用订阅登录。
-> - **真实模型这一层没有运行**：本机没有 Key。补跑命令见 §7.3。
+> - **真实 DeepSeek 上三种接法都跑通**（2026-10-14，§7.3）：apply_patch、跨回合推理、子 agent、取消在直连 Responses、经网关透传、经网关转 Chat 三条路上全部正常；`deepseek-flash` 与 `deepseek-v4-pro` 都能用。
 
 ## 0. 怎么读
 
@@ -105,7 +105,7 @@
 
 | 服务 | Responses 端点（大陆可用） | 官方 Codex 指南 | 自定义工具（apply_patch） | namespace 工具 | 推理带回 | 备注 |
 |---|---|---|---|---|---|---|
-| DeepSeek | `https://api.deepseek.com`（只有这一个） | 有：`deepseek-flash`、`deepseek-v4-pro`，自带模型目录（`apply_patch_tool_type:"freeform"`） | 只接受 `apply_patch`，其他名字 400 | 未写明（**未核实**） | 输入推理项的 `content` 并入相邻 assistant；不支持 `encrypted_content`、`include`、summary | `store` 恒 false；托管工具被忽略；两份文档对 v4-pro 的支持说法不一 |
+| DeepSeek | `https://api.deepseek.com`（只有这一个） | 有：`deepseek-flash`、`deepseek-v4-pro`，自带模型目录（`apply_patch_tool_type:"freeform"`） | 只接受 `apply_patch`，其他名字 400 | 文档未写明，**实测支持**（子 agent 正常） | 输入推理项的 `content` 并入相邻 assistant；不支持 `encrypted_content`、`include`、summary | `store` 恒 false；托管工具被忽略；两份文档对 v4-pro 的支持说法不一，**实测 v4-pro 的 Responses 可用** |
 | Kimi | `https://api.moonshot.cn/v1` | 有：`kimi-k3` | 只有 `apply_patch`（Lark 语法） | 支持 | 接受推理项回放；`encrypted_content` 恒为 null | `tool_choice` 只能 `auto` |
 | GLM（智谱） | `https://open.bigmodel.cn/api/v1` | 有，但只写了 Coding Plan | OpenAPI 里有 `custom` 工具，没有 `custom_tool_call` 输出与对应流事件（**未核实**） | 未写明 | 推理是纯文本 | 按量付费的 Key 能否用于 Codex **未核实** |
 | 通义千问（百炼） | `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | 有：qwen3.8-max、qwen3.7-max 等 | 文档没写 `custom` 工具（**未核实**） | 未写明 | 推理项可回放 | Coding Plan 不支持 Responses |
@@ -187,7 +187,8 @@ OpenAI 不推荐任何桥接（discussion #7782 只建议网关自己支持 `res
 ### 5.2 已验证（mock 上游）与没验证的
 
 - 已验证：逐字流式、推理增量、apply_patch 往返（模型回 `{"input": 补丁}` → Codex 收到 `custom_tool_call`）、两类审批、推理在同一回合与跨回合都回到 `reasoning_content`、namespace 工具（子 agent）往返、取消时网关跟着断开上游、resume、`update_plan`、上游 400 → 回合 failed 且之后可用。
-- 没验证：真实模型能否按描述里的 Lark 语法写出合法补丁（LiteLLM、CC Switch 的经验是可以）；图片输入；`response.incomplete`（`max_tokens` 截断）；上游流中途出错；并行工具调用的多个 `index` 交错到达；Anthropic Messages 与 Gemini 原生协议（没写）。
+- 真实模型验证过（§7.3）：DeepSeek 的 Chat 接口按函数描述里的 Lark 语法写出了合法补丁，`reasoning_content` 回传后多轮不报错。
+- 没验证：图片输入；`response.incomplete`（`max_tokens` 截断）；上游流中途出错；并行工具调用的多个 `index` 交错到达；Anthropic Messages 与 Gemini 原生协议（没写）。
 
 ### 5.3 Responses 原生上游也经网关
 
@@ -270,14 +271,27 @@ macOS 用 Seatbelt（`/usr/bin/sandbox-exec` + `.sbpl`），Linux 默认 bubblew
 
 `thread/fork`、`turn/steer`、`thread/compact/start` 与自动压缩、MCP、skills、hooks、`request_user_input`、图片输入、Windows 与 Linux 沙箱、长时间运行与并发多会话的资源占用、Codex 自己的重试与退避（Spike 关掉了重试）。
 
-### 7.3 真实模型（未运行）
+### 7.3 真实模型（DeepSeek，2026-10-14）
 
 ```bash
 cd spikes/codex-app-server
-WEVIR_SPIKE_KEY=<DeepSeek Key> node src/real.ts
+WEVIR_SPIKE_KEY=<DeepSeek Key> node src/real.ts [--transport=direct,passthrough,gateway]
 ```
 
-三种接法各做四件事：用 apply_patch 新建文件、下一回合改文件并复述上一轮（跨回合推理）、派子 agent（DeepSeek 对 namespace 工具的支持未核实，这一步就是验它）、长回答中途取消。DeepSeek 的 Chat 接口走网关时，模型名与思考开关用 `WEVIR_SPIKE_CHAT_MODEL`、`WEVIR_SPIKE_CHAT_EXTRA` 指定（Chat 侧的模型名本次没查）。
+三种接法各做四件事：用 apply_patch 新建文件、下一回合改文件并复述上一轮（跨回合推理）、派子 agent、长回答中途取消。审批一律拒绝并记录（本轮没有出现审批请求）。这个 Key 的 `GET /models` 只列出 `deepseek-flash` 与 `deepseek-v4-pro`；Chat 接口用同样的模型名，没有加任何思考开关（`WEVIR_SPIKE_CHAT_EXTRA` 未设）。
+
+| 接法 | 模型 | 回合 1：新建文件 | 回合 2：改文件、复述上一轮 | 回合 3：子 agent | 回合 4：取消 |
+|---|---|---|---|---|---|
+| `direct`（Codex → `api.deepseek.com/responses`） | `deepseek-flash` | completed，1 个 fileChange，内容正确；文本增量 18 条、推理增量 37 条 | completed，内容正确，复述准确 | completed：spawnAgent → wait → closeAgent | interrupted，6 ms |
+| `passthrough`（经网关透传） | `deepseek-flash` | 同上（推理增量 28 条） | 同上 | 同上 | interrupted，6 ms |
+| `passthrough` | `deepseek-v4-pro` | 同上（文本 25、推理 32 条） | 同上 | spawnAgent → wait | interrupted，6 ms |
+| `gateway`（经网关转 `api.deepseek.com/chat/completions`） | `deepseek-flash` | 同上（文本 54、推理 70 条：Chat 的分片更细） | 同上（模型还自己 `cat` 了一次做只读校验） | spawnAgent → wait → closeAgent | interrupted，5 ms |
+
+结论：
+
+- DeepSeek 的 Responses 接口支持 Codex 的 namespace 工具（`multi_agent_v1`），文档没写的这一项实测可用。
+- 网关的 Chat 转换在真实模型上成立：apply_patch 摊平成函数后，模型按描述里的 Lark 语法写出了合法补丁；推理以 `reasoning_content` 带回上游，同一回合的工具调用之后与跨回合都没有触发 DeepSeek 的 “reasoning_content is missing” 一类错误；网关没有丢弃任何输入项。
+- Codex 读到 `response.completed` 就断开连接（`codex-api/src/sse/responses.rs:655-660`），网关透传时会看到上游流被中断；这是正常结束，网关已按正常处理。
 
 ## 8. dsh 的长处，逐条核实
 
@@ -339,7 +353,7 @@ WEVIR_SPIKE_KEY=<DeepSeek Key> node src/real.ts
 
 ## 11. 尚未核实
 
-- 真实模型（§7.3）：DeepSeek 的 namespace 工具、apply_patch 的成功率、跨回合推理不报错；Chat 接口经网关时的模型名与思考开关。
+- 真实模型只跑了 DeepSeek，每种接法一轮：apply_patch 的成功率要多跑才有数；DeepSeek Chat 接口的思考开关与推理强度参数没试；其他服务（Kimi、GLM、通义、xAI）都没跑。
 - GLM、通义对自定义工具的实际支持；GLM 按量付费 Key 能否用于 Codex。
 - Grok Build 的 ACP 细节（流式、工具 kind、审批选项）与订阅档位。
 - Windows（MXC）与 Linux（bwrap）沙箱在 Wevir 的分发方式下能否工作；macOS 上 Seatbelt 嵌在 Electron 应用里的签名与权限问题。

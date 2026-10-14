@@ -14,7 +14,7 @@
   - `codex app-server` 是 stdio 上逐行 JSON 的单进程服务，一个进程承载多个 thread；锁定版本的独立二进制在 macOS arm64 上压缩包 72 MiB、解压 181 MiB，冷启动中位 49 ms，常驻 50–93 MB。
   - 流式、apply_patch、命令与文件两类审批、跨回合推理、子 agent、取消、resume、计划、报错恢复都能通过稳定面（`experimentalApi:false`）完成；155 项检查在三种接法下全部通过。
   - Codex 只会说 OpenAI Responses（Chat 接口 2026-02-03 删除）。国内主流服务都在 2026 年出了 Codex 接入文档，但各家对自定义工具、namespace 工具、推理带回的支持不一；只有 Chat 或 Anthropic Messages 的上游要转换。
-  - 一个约 490 行的最小网关把 Responses 转成 Chat，同一组场景全部通过；Responses 上游经网关透传也全部通过。
+  - 一个约 490 行的最小网关把 Responses 转成 Chat，同一组场景全部通过；Responses 上游经网关透传也全部通过。真实 DeepSeek（`deepseek-flash`、`deepseek-v4-pro`）上，直连、透传、转 Chat 三条路的补丁、跨回合推理、子 agent、取消都正常（codex-notes §7.3）。
   - 默认配置下 Codex 会连 `github.com`、`api.github.com`、`chatgpt.com`（都来自插件功能），模型跑的命令能读到 Key 的环境变量；加固配置后外连为零、命令读不到。
 - 条款（codex-notes §4）：ChatGPT 订阅经 app-server 自己的登录，OpenAI 只允许本地或开源应用；Google 已停掉 Gemini CLI 面向个人订阅的登录，并禁止第三方复用其 OAuth；xAI 的官方 CLI Grok Build 支持 ACP 与订阅登录；四家都不允许把令牌取出来给别的程序用。
 
@@ -104,7 +104,7 @@
 代价与风险：
 - **体积**：每个平台的 `codex-app-server` 压缩约 72–82 MiB、解压 181–243 MiB；dsh 若继续随包，还要加上它的依赖闭包。对策见未决事项 4。
 - **上游节奏**：约每月 10 个小版本，app-server 仍标 experimental，2026 年已有三次删除。对策：锁版本、只用稳定面、三层契约测试、schema diff。
-- **转换的正确性归 Wevir**：模型能否按函数描述里的 Lark 语法写出合法补丁、各家推理带回的细节，要真实模型验证（Spike 未跑，codex-notes §7.3）。
+- **转换的正确性归 Wevir**：DeepSeek 上已验证（codex-notes §7.3：三种接法、两个模型），其他服务的推理带回与工具细节要逐家用真实模型验证。
 - **OpenAI 专属残留**：写死的 OpenAI 模型名、ChatGPT 相关的通知与功能，靠配置关掉并在升级时复查。
 - **ChatGPT 订阅的使用范围**：只限本地开源形态；Wevir 以后若有商业或托管形态，这条路要下线或改走 SIWC 的合规要求。
 - **Windows 与 Linux 沙箱**：只在 macOS 上验证过；Windows 的旧沙箱要提权安装，MXC 依赖系统版本；Linux 随包的 `bwrap` 是 LGPL。
