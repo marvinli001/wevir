@@ -63,11 +63,7 @@ export function ProviderEditor({
   // 按模板新建（含 DeepSeek 官方）时其余字段都已填好，Key 放在最前并聚焦：用户只需填 Key。
   const keyFirst = !form.editing && (form.preset !== undefined || !openAI);
   const keyField = (
-    <FormField
-      id={`${ids}-key`}
-      label={t('provider.form.apiKey')}
-      hint={t('provider.form.apiKeyHint')}
-    >
+    <FormField id={`${ids}-key`} label={t('provider.form.apiKey')}>
       <Input
         id={`${ids}-key`}
         type="password"
@@ -172,12 +168,7 @@ export function ProviderEditor({
         />
       </FormField>
 
-      <FormField
-        id={`${ids}-id`}
-        label={t('provider.form.id')}
-        error={errors.id}
-        hint={openAI && !form.editing ? t('provider.form.idHint') : t('provider.form.idLocked')}
-      >
+      <FormField id={`${ids}-id`} label={t('provider.form.id')} error={errors.id}>
         <Input
           id={`${ids}-id`}
           className="font-mono"
@@ -206,12 +197,7 @@ export function ProviderEditor({
               ))}
             </select>
           </FormField>
-          <FormField
-            id={`${ids}-url`}
-            label={t('provider.form.baseURL')}
-            hint={t('provider.form.baseURLHint')}
-            error={errors.baseURL}
-          >
+          <FormField id={`${ids}-url`} label={t('provider.form.baseURL')} error={errors.baseURL}>
             <Input
               id={`${ids}-url`}
               className="font-mono"
@@ -229,7 +215,6 @@ export function ProviderEditor({
           <FormField
             id={`${ids}-model`}
             label={t('provider.form.defaultModel')}
-            hint={t('provider.form.defaultModelHint')}
             error={errors.defaultModelId}
           >
             <select
@@ -248,7 +233,6 @@ export function ProviderEditor({
           <FormField
             id={`${ids}-url`}
             label={t('provider.form.baseURLOptional')}
-            hint={t('provider.form.baseURLOptionalHint')}
             error={errors.baseURL}
           >
             <Input
@@ -416,11 +400,7 @@ function ModelsField({
         <Plus />
         {t('provider.form.addModel')}
       </Button>
-      {general ? (
-        <p className="text-sm text-destructive">{general}</p>
-      ) : (
-        <p className="text-sm text-muted-foreground">{t('provider.form.modelsHint')}</p>
-      )}
+      {general && <p className="text-sm text-destructive">{general}</p>}
     </fieldset>
   );
 }

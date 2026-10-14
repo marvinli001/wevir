@@ -54,9 +54,9 @@ describe('historyDigest', () => {
     });
     expect(digest).toBe(
       [
-        '下面是之前的会话“季度汇总”的对话记录。那个会话已经无法继续，请在这些内容的基础上接着做。',
+        '以下是会话“季度汇总”的对话记录。该会话已无法继续，请在此基础上继续完成任务。',
         '【用户】\n汇总 data/ 下的 CSV',
-        '【助手】\n已写入 summary.md。\n（用到的工具：glob data/*.csv）',
+        '【助手】\n已写入 summary.md。\n（使用的工具：glob data/*.csv）',
         '接下来：',
       ].join('\n\n'),
     );

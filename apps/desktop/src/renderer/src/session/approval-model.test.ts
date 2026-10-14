@@ -88,7 +88,7 @@ describe('选项与处理者', () => {
       resolutionText(request, { reason: 'user', optionId: 'allow-once', decidedBy: cliHere }, self),
     ).toBe('已由本机的命令行处理：允许一次');
     expect(resolutionText(request, { reason: 'turn_cancelled' }, self)).toBe(
-      '审批已取消（回合被取消）',
+      '审批已取消：回合已停止',
     );
     expect(decidedHere({ reason: 'user', optionId: 'allow-once', decidedBy: self }, self)).toBe(
       true,

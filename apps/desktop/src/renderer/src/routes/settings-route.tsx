@@ -217,7 +217,6 @@ function AppearanceSettings() {
       <div className={LIST_CARD}>
         <SettingsRow
           title={t('settings.appearance.theme')}
-          description={t('settings.appearance.themeHint')}
           control={
             <Segmented<ThemeMode>
               label={t('settings.appearance.theme')}

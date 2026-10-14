@@ -35,13 +35,13 @@ describe('connectionBanner', () => {
       }),
     ).toEqual({
       tone: 'warning',
-      message: '后台服务意外退出，正在重新启动（第 2/3 次）…',
+      message: '后台服务异常退出，正在重启（第 2/3 次）…',
       detail: '后台服务意外退出（信号 SIGKILL）',
     });
     expect(connectionBanner(view, { phase: 'waiting', pid: 42 })).toMatchObject({
       tone: 'warning',
-      message: '后台服务已停止，等待它重新运行…',
-      detail: expect.stringContaining('桌面端不会替它启动'),
+      message: '后台服务已停止，等待重新运行…',
+      detail: expect.stringContaining('需手动重新启动'),
     });
     expect(
       connectionBanner(view, {
@@ -60,8 +60,7 @@ describe('connectionBanner', () => {
   it('Host 进程在运行而连接断了：显示重连次数与“立即重连”；首次失败、连接关闭给“重试”', () => {
     expect(connectionBanner({ status: 'reconnecting', attempt: 3 }, running)).toEqual({
       tone: 'warning',
-      message: '连接断开了，正在重连（第 3 次）…',
-      detail: '断线期间的消息会在重连后补齐。',
+      message: '连接已断开，正在重连（第 3 次）…',
       action: 'reconnect',
     });
     expect(connectionBanner({ status: 'failed', error: '超时' }, running)).toEqual({

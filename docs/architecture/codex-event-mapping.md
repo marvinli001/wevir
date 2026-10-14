@@ -311,15 +311,15 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 
 | 请求 | `optionId` | `label` | `kind` | Codex 的结果 |
 |---|---|---|---|---|
-| 命令 | `accept` | 是，继续 | `allow_accept` | 执行，回合继续 |
-| 命令 | `acceptForSession` | 是，本会话内这个命令不再问 | `allow_accept_for_session` | 执行；同一个命令之后不再问（进程内有效，进程重启后重新问） |
-| 命令 | `decline` | 否，不运行并继续 | `reject_decline` | item `declined`（→ `tool.finished` failed），模型拿到“rejected by user”继续 |
-| 命令 | `cancel` | 否，告诉它换个做法 | `reject_cancel` | item `declined`，回合中断（→ `turn.settled` cancelled），用户接着说该怎么做 |
-| 补丁 | `accept` | 是 | `allow_accept` | 应用补丁 |
-| 补丁 | `acceptForSession` | 是，这些文件本会话不再问 | `allow_accept_for_session` | 应用；这些文件之后不再问 |
-| 补丁 | `cancel` | 否，告诉它换个做法 | `reject_cancel` | 回合中断；补丁的 item **没有** `item/completed`，回合结算前按 `failed` 收尾 |
+| 命令 | `accept` | 允许 | `allow_accept` | 执行，回合继续 |
+| 命令 | `acceptForSession` | 允许，本会话不再询问此命令 | `allow_accept_for_session` | 执行；同一个命令之后不再问（进程内有效，进程重启后重新问） |
+| 命令 | `decline` | 拒绝并继续 | `reject_decline` | item `declined`（→ `tool.finished` failed），模型拿到“rejected by user”继续 |
+| 命令 | `cancel` | 拒绝并停止 | `reject_cancel` | item `declined`，回合中断（→ `turn.settled` cancelled），用户接着说该怎么做 |
+| 补丁 | `accept` | 允许 | `allow_accept` | 应用补丁 |
+| 补丁 | `acceptForSession` | 允许，本会话不再询问这些文件 | `allow_accept_for_session` | 应用；这些文件之后不再问 |
+| 补丁 | `cancel` | 拒绝并停止 | `reject_cancel` | 回合中断；补丁的 item **没有** `item/completed`，回合结算前按 `failed` 收尾 |
 
-补丁没有“不运行并继续”，与终端界面相同。“以后以这个前缀开头的命令不再问”（`acceptWithExecpolicyAmendment`，请求带 `proposedExecpolicyAmendment` 时终端界面才给）与网络策略修订先不做：它们改的是 Codex 的执行策略文件，属于“总是允许”一类，要 Host 记规则（domain-model.md §3.4），以后单独做。
+补丁没有“拒绝并继续”，与终端界面相同。“以后以这个前缀开头的命令不再问”（`acceptWithExecpolicyAmendment`，请求带 `proposedExecpolicyAmendment` 时终端界面才给）与网络策略修订先不做：它们改的是 Codex 的执行策略文件，属于“总是允许”一类，要 Host 记规则（domain-model.md §3.4），以后单独做。
 
 **详情。** Host 从同一 `toolCallId` 的工具取审批详情（domain-model.md §3.4、§5 第 1 条）。实测（`approval-exec.jsonl`、`approval-patch.jsonl`）app-server 在请求之前已发了这个 item 的 `item/started`：命令的 item 有命令原文（带 shell 外壳）、`cwd`、`commandActions`；补丁的 item 有 `changes`（每个文件的 `diff`），请求本身不带补丁内容。请求里另有模型给的理由（`reason`，即模型调 `exec_command` 时的 `justification`），所以 `approvalPrelude` 在 `approval.requested` 之前发一条 `tool.updated`，`input` 是原样的 item 加上 `justification: <reason>`；Host 收到 `tool.updated` 时更新它记的工具输入，审批详情因此带上理由（桌面端显示为“Agent 给出的理由”）。请求没有理由（补丁通常如此）时不发。没见过这个 item 时（防御）按请求合成一条 `tool.started`。
 

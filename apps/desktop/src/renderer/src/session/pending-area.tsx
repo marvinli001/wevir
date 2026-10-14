@@ -228,7 +228,6 @@ function PendingEditor({
         className="max-h-40 min-h-12 resize-none text-sm"
       />
       <div className="mt-1 flex items-center justify-end gap-2">
-        <span className="mr-auto text-xs text-muted-foreground">{t('pending.editHint')}</span>
         <Button size="xs" variant="ghost" onClick={onCancel}>
           {t('pending.cancelEdit')}
         </Button>

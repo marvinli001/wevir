@@ -67,7 +67,7 @@ describe('标题与状态的说法', () => {
 
   it('开始与结束两行，结束按当时的状态', () => {
     const summary = { title: 'Text boundary investigation' };
-    expect(markerText(summary)).toBe('Text boundary investigation开始工作');
+    expect(markerText(summary)).toBe('Text boundary investigation已启动');
     expect(markerText(summary, 'completed')).toBe('Text boundary investigation已完成');
     expect(markerText(summary, 'failed')).toBe('Text boundary investigation运行失败');
     expect(markerText(summary, 'closed')).toBe('Text boundary investigation已关闭');
@@ -77,11 +77,11 @@ describe('标题与状态的说法', () => {
 
   it('模型 · 推理强度：认识的级别本地化，不认识的原样，没有就只有模型', () => {
     expect(modelLine({ modelId: 'deepseek-v4-pro', reasoningEffort: 'high' })).toBe(
-      'deepseek-v4-pro · 推理强度 高',
+      'deepseek-v4-pro · 推理力度 高',
     );
-    expect(modelLine({ modelId: 'm', reasoningEffort: 'medium' })).toBe('m · 推理强度 中');
+    expect(modelLine({ modelId: 'm', reasoningEffort: 'medium' })).toBe('m · 推理力度 中');
     expect(modelLine({ modelId: 'm', reasoningEffort: 'off' })).toBe('m · 不推理');
-    expect(modelLine({ modelId: 'm', reasoningEffort: 'turbo' })).toBe('m · 推理强度 turbo');
+    expect(modelLine({ modelId: 'm', reasoningEffort: 'turbo' })).toBe('m · 推理力度 turbo');
     expect(modelLine({ modelId: 'm' })).toBe('m');
   });
 });

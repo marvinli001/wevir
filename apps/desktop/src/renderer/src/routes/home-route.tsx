@@ -118,11 +118,6 @@ function Home({
           state="idle"
           disabled={!ready && !noProvider}
           {...(noProvider && { disabledReason: t('home.noProvider') })}
-          placeholder={
-            workspace
-              ? t('home.placeholder', { workspace: workspace.displayName })
-              : t('session.composerPlaceholder')
-          }
           status={noProvider && <AddProviderChip />}
           model={
             providers &&

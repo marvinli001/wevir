@@ -100,7 +100,6 @@ export function connectionBanner(
       return {
         tone: 'warning',
         message: t('connection.reconnecting', { attempt: view.attempt }),
-        detail: t('connection.reconnectingHint'),
         action: 'reconnect',
       };
     case 'failed':

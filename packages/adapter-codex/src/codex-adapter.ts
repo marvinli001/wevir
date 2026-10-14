@@ -232,25 +232,25 @@ interface CodexSession {
  * 决定；`kind` 以 `allow_` / `reject_` 开头决定批准与否，客户端不认识这些 kind，显示这里的中文 `label`。
  */
 export const COMMAND_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
-  { optionId: 'accept', label: '是，继续', kind: 'allow_accept' },
+  { optionId: 'accept', label: '允许', kind: 'allow_accept' },
   {
     optionId: 'acceptForSession',
-    label: '是，本会话内这个命令不再问',
+    label: '允许，本会话不再询问此命令',
     kind: 'allow_accept_for_session',
   },
-  { optionId: 'decline', label: '否，不运行并继续', kind: 'reject_decline' },
+  { optionId: 'decline', label: '拒绝并继续', kind: 'reject_decline' },
   // 中断回合：用户接着说该怎么做。
-  { optionId: 'cancel', label: '否，告诉它换个做法', kind: 'reject_cancel' },
+  { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel' },
 ]);
 
 export const FILE_CHANGE_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
-  { optionId: 'accept', label: '是', kind: 'allow_accept' },
+  { optionId: 'accept', label: '允许', kind: 'allow_accept' },
   {
     optionId: 'acceptForSession',
-    label: '是，这些文件本会话不再问',
+    label: '允许，本会话不再询问这些文件',
     kind: 'allow_accept_for_session',
   },
-  { optionId: 'cancel', label: '否，告诉它换个做法', kind: 'reject_cancel' },
+  { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel' },
 ]);
 
 /**

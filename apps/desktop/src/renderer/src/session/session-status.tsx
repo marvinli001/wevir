@@ -44,7 +44,7 @@ export function SessionStatus({ transcript }: { transcript: Transcript }) {
         tone = 'danger';
         text = `${t('status.error', {
           message: truncate(lastError?.message ?? t('session.state.error'), ERROR_SUMMARY_LENGTH),
-        })} · ${t('status.errorHint')}`;
+        })}`;
         title = lastError?.message;
         break;
       case 'closed':

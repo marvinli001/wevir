@@ -26,7 +26,7 @@ const REASON_TITLE: Record<ProviderTestFailure, PlainMessageKey> = {
   unknown: 'provider.test.reason.unknown',
 };
 
-const REASON_HINT: Record<ProviderTestFailure, PlainMessageKey> = {
+const REASON_HINT: Partial<Record<ProviderTestFailure, PlainMessageKey>> = {
   missing_key: 'provider.test.hint.missing_key',
   network: 'provider.test.hint.network',
   timeout: 'provider.test.hint.timeout',
@@ -35,7 +35,6 @@ const REASON_HINT: Record<ProviderTestFailure, PlainMessageKey> = {
   protocol: 'provider.test.hint.protocol',
   rate_limited: 'provider.test.hint.rate_limited',
   server: 'provider.test.hint.server',
-  unknown: 'provider.test.hint.unknown',
 };
 
 export function presentTestResult(result: MethodResult<'provider.test'>): TestPresentation {
@@ -49,11 +48,9 @@ export function presentTestResult(result: MethodResult<'provider.test'>): TestPr
     };
   }
   const reason = result.reason ?? 'unknown';
-  const presentation: TestPresentation = {
-    ok: false,
-    title: t(REASON_TITLE[reason]),
-    hint: t(REASON_HINT[reason]),
-  };
+  const hint = REASON_HINT[reason];
+  const presentation: TestPresentation = { ok: false, title: t(REASON_TITLE[reason]) };
+  if (hint) presentation.hint = t(hint);
   if (result.error?.message) presentation.detail = result.error.message;
   return presentation;
 }

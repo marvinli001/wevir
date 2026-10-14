@@ -71,7 +71,6 @@ export function RecoveryPanel({
             <p className="line-clamp-3 font-mono text-xs break-all" title={readOnly.message}>
               {t('recovery.engineMessage', { message: readOnly.message })}
             </p>
-            <p>{t('recovery.readOnlyHint')}</p>
           </>
         ) : (
           <>
@@ -83,7 +82,6 @@ export function RecoveryPanel({
                 <p>{t(`engineError.hint.${lastError.category}`)}</p>
               </>
             )}
-            <p>{t('recovery.errorHint')}</p>
           </>
         )}
       </div>

@@ -264,7 +264,7 @@ describe('测试连接的结果', () => {
       });
       expect(presentation.ok).toBe(false);
       expect(presentation.title).toMatch(/[一-龥]/);
-      expect(presentation.hint).toMatch(/[一-龥]/);
+      if (reason !== 'unknown') expect(presentation.hint).toMatch(/[一-龥]/);
       expect(presentation.detail).toBe(`原文 ${reason}`);
       titles.add(presentation.title);
     }
@@ -280,7 +280,7 @@ describe('测试连接的结果', () => {
   it('测试没能完成时如实说明', () => {
     expect(presentTestError(new Error('connection lost'))).toEqual({
       ok: false,
-      title: '测试没有完成',
+      title: '测试未完成',
       detail: 'connection lost',
     });
   });

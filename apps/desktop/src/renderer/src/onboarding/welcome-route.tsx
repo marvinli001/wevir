@@ -233,7 +233,7 @@ function ProviderStep({
 
   return (
     <section className="animate-in duration-500 fade-in slide-in-from-bottom-2">
-      <StepHeader title={t('welcome.provider.title')} body={t('welcome.provider.body')} />
+      <StepHeader title={t('welcome.provider.title')} />
 
       <fieldset className="grid grid-cols-3 gap-2.5 sm:grid-cols-5">
         <legend className="sr-only">{t('welcome.provider.title')}</legend>

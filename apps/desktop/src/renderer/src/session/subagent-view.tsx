@@ -88,9 +88,6 @@ export function SubagentView({
       )}
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-4">
         {transcript && <ApprovalDock transcript={transcript} client={client} self={identity} />}
-        <p className="pt-1 text-center text-xs text-muted-foreground">
-          {t('subagent.detail.readOnly')}
-        </p>
       </div>
     </div>
   );
