@@ -2,7 +2,7 @@
 
 > 建立日期：2026-10-14 · 依据：[ADR-0005](adr/0005-agent-runtime-and-model-gateway.md)（Accepted）、[Codex 研读与 Spike](research/codex-notes.md)
 > 用法：每个任务开一个新会话，先粘贴下面的「通用前缀」，再粘贴任务 prompt。顺序与依赖见任务表；做完一项，在任务表里把它改成 [x]，备注写提交号。
-> 维护者 2026-10-14 给出的实现顺序是 8 项，这里把其中两项各拆成两个任务（adapter-codex 拆成 R2、R3；通用 ACP 适配器与接 Grok / Gemini 拆成 R7、R8），保证一个会话做得完、一次提交只做一件事。
+> 维护者 2026-10-14 给出的实现顺序是 8 项，这里把其中两项各拆成两个任务（adapter-codex 拆成 R2、R3；通用 ACP 适配器与接 Grok / Gemini 拆成 R7、R8），保证一个会话做得完、一次提交只做一件事。同日维护者又定了两件事，各加一个任务：回合进行中可以插话或排队（R11），整体界面混合 Codex 与 Claude Code 桌面端、窗格可调尺寸并随数量动态布局（R12）。
 
 ## 任务表
 
@@ -12,22 +12,35 @@
 | R2 | `packages/adapter-codex`（上）：进程、配置、会话、回合与流式事件，Host 接 `--adapter codex` | R1 | 与 R7 并行 | [ ] |
 | R3 | `packages/adapter-codex`（下）：审批、取消、恢复、计划、错误归类、三层契约测试，默认引擎改为 Codex | R2 | 与 R7 并行 | [ ] |
 | R4 | 子会话：领域模型、Host 协议与存储、`AgentEvent`，adapter-codex 上报 | R3 | — | [ ] |
-| R5 | 桌面端：子智能体界面（照 Codex 桌面端） | R4 | 与 R6 并行 | [ ] |
-| R6 | ChatGPT 订阅登录与设置页 | R3 | 与 R5 并行 | [ ] |
+| R5 | 桌面端：子智能体界面（照 Codex 桌面端） | R4、R12 | 与 R6 并行 | [ ] |
+| R6 | ChatGPT 订阅登录与设置页 | R3；界面风格随 R12 | 与 R5 并行 | [ ] |
 | R7 | 从 adapter-dsh 抽出通用 ACP 适配器（行为不变） | — | 与 R1–R3 并行 | [ ] |
 | R8 | 经通用 ACP 适配器接 Grok Build 与 Gemini CLI；xAI 与 Gemini 的 API Key 经网关 | R3、R7 | — | [ ] |
 | R9 | 运行时分发：`codex-app-server` 随应用，dsh 改为可选下载 | R3、R7 | — | [ ] |
 | R10 | 网关加 Anthropic Messages | R1 | 任意时间 | [ ] |
+| R11 | 回合进行中发消息：插话与排队，设置里选默认行为 | R3 | 与 R4–R6 并行 | [ ] |
+| R12 | 工作台布局：混合 Codex 与 Claude Code 桌面端，窗格可调尺寸、按数量与种类动态布局 | — | 与 R1–R4 并行；R5 之前做完 | [ ] |
 
 基础提示词已定（ADR-0005 补记 2）：经网关的第三方模型用 [`prompts/base.md`](../prompts/README.md)，由 R2 加载。还没定的：计划模式怎样下发（ADR-0005 未决事项 5），不在 R1–R10 里。
 
 ### 界面参考
 
-整体界面以 **Codex 桌面端**为参考（维护者 2026-10-14）。Codex 桌面端与 IDE 插件**不开源**：`openai/codex` 里只有终端界面（`codex-rs/tui`，Rust），没有桌面前端代码，所以：
+整体界面**混合参考 Codex 桌面端与 Claude Code 桌面端**（维护者 2026-10-14）。两者都不开源：`openai/codex` 里只有终端界面（`codex-rs/tui`，Rust），没有桌面前端代码；Claude Code 桌面端也没有公开的前端源码。所以：
 
-- 视觉与布局：以维护者在会话里附上的 Codex 桌面端截图为准；做界面的任务开始前先向维护者要截图，没有就先问。
-- 交互语义（子 agent 怎样出现、审批有哪些选项、计划怎样更新、中断与排队）：先读 codex-notes §2.7 的摘要，细节再看 `upstream/codex/codex-rs/tui/` 的源码，它和桌面端一样是 app-server 的客户端。注意它打开了实验面，Wevir 不开（ADR-0005 决策 5、补记 1）。
-- 不拷贝任何闭源代码与素材（包括从安装包里解出来的脚本、图标、字体），只照着截图用 Wevir 自己的设计 token 与组件实现。
+- **视觉与布局**：以维护者的截图为准。维护者 2026-10-14 给的截图存在本机仓库根目录的 `design-refs/`（gitignore，不进仓库，见下表）；不够就向维护者要，没有就先问。
+- **布局原则**：窗格（会话、子智能体、文件、后台任务、清单等）都能拖动调尺寸、最大化、关闭；整体布局随打开的窗格种类与数量动态变化（截图 05–07）。细节由 R12 定。
+- **交互语义**（子 agent 怎样出现、审批有哪些选项、计划怎样更新、中断、插话与排队）：先读 codex-notes §2.7 的摘要，细节再看 `upstream/codex/codex-rs/tui/` 的源码，它和桌面端一样是 app-server 的客户端。注意它打开了实验面，Wevir 不开（ADR-0005 决策 5、补记 1）。
+- **不拷贝任何闭源代码与素材**（包括从安装包里解出来的脚本、图标、字体），也不把截图提交进仓库；只照着截图用 Wevir 自己的设计 token 与组件实现。
+
+| `design-refs/` 下的文件 | 内容 |
+|---|---|
+| `01-codex-parent-subagent-markers.png` | Codex 父会话消息流：子 agent 的“〈标题〉开始工作”“〈标题〉已完成”两行 |
+| `02-codex-pinned-summary.png` | 左上角的置顶摘要卡片：项目名、“变更 +N −M”、“子智能体 · 2 完成”与头像 |
+| `03-codex-subagents-tab.png` | “子智能体”标签：“已开启 · 0 / 没有已开启的子代理”“完成 · 2”，每项头像、标题、相对时间 |
+| `04-codex-subagent-detail.png`、`06-codex-subagent-detail-with-summary.png` | 子 agent 详情：返回箭头、头像、标题、右上“模型 · 推理强度”、“用时 3m 14s ›”、回答正文（带代码块的语言标签、换行与复制按钮）、复制 / 朗读 / 反馈按钮；没有输入框 |
+| `05-claude-code-desktop-panes.png` | Claude Code 桌面端的多窗格：后台任务列表（分组“Finished 17”、每项状态 / 用时 / token / 工具次数 / “View transcript”）、文件预览（大纲、搜索、菜单、最大化、关闭，滚动时顶部有“Continued from …”）、清单窗格；每个窗格可最大化、关闭，按数量排布 |
+| `07-codex-open-tabs-menu.png` | 右上角的计数按钮展开“已打开的标签页”列表 |
+| `08-codex-toggle-pinned-summary.png` | “切换置顶摘要”按钮的提示 |
 
 ---
 
@@ -157,7 +170,7 @@
 3. 关闭与恢复：resumeSession → thread/resume；“no rollout found” 一类错误 → session_lost（原因写清楚），cwd 不一致等 → session_unavailable；恢复后下一回合带完整历史。
 4. 计划：turn/plan/updated → todo.updated。toolCallId 没有来源，用一个可识别的合成 ID（例如 plan:<turnId>），在 codex-event-mapping.md 写明；如果你认为必须改 AgentEvent，先停下来问。
 5. 错误归类：turn/completed(failed) 与 error 通知（willRetry 为 true 的只记日志或 engine.raw，Codex 自己也只在状态栏短暂显示）→ turn.failed，category 按 codexErrorInfo 与上游状态码归类（missing_credentials、provider、unknown）。
-6. 会话标题：服务端不生成（codex-notes §2.7）。先看 Wevir 现在的标题从哪来（domain-model 与 SessionManager），是从第一条消息截取就保持；要做成 Codex 那样用模型生成，先问维护者。
+6. 会话标题：维护者定为用当前会话的模型自动生成（Codex 服务端不生成，codex-notes §2.7）。规则与提示词照 prompts/README.md「会话标题」与 prompts/thread-title.md：第一个回合开始后由 Host 生成，推理档位取最低；生成出来之前用 session-manager.ts 的 makeTitle 截断兜底；输出 {"title","description"}，去掉首尾引号与结尾标点后截断，description 先存下；用户改过名（titleSource 'user'）就不再自动生成；协议的 TitleSource 加一个“模型生成”的值（升版本、加冻结样本）。调用路径：经网关的会话由 Host 经网关直接发一次不带工具的请求；ChatGPT 登录的会话不经网关，用 Codex 的临时 thread（thread/start 的 ephemeral 加 turn/start 的 outputSchema，照终端界面 app/thread_title.rs 的做法）。这一块用一个可选的适配器方法（例如 generateTitle）暴露给 Host，dsh 等不实现的引擎继续用截断标题。
 7. 三层契约测试（照 adapter-dsh）：第 1 层回放录制的 JSONL（写一个假的 app-server 进程，像 fake-dsh.mjs）；第 2 层真实二进制 + 网关 + mock 模型，能力开关全开；第 3 层真实模型（WEVIR_TEST_API_KEY + WEVIR_TEST_PROVIDER，没有就跳过并打印原因）。
 8. Host 默认引擎改为 codex（cli.ts、docs/development.md、README 的现状描述）；dsh 仍可 --adapter dsh。
 9. 升级检查清单：在 docs/upstream/UPSTREAM.md 加「Codex 升级检查清单」一节（照 §7 dsh 的写法：读 release 说明、schema diff、三层契约测试、外连审计、密钥检查、更新 lock 与 fetch-codex.sh 的校验和）。
@@ -177,7 +190,7 @@
 要做：
 1. 文档先行：domain-model 加子会话（parentSessionId、触发它的父会话工具调用、标题、模型与推理强度、状态：运行中 / 完成 / 失败 / 已关闭 / 已取消、开始与结束时间），写清它的状态机与父会话的关系（父回合取消时子会话怎样，先在真实二进制上实测）；host-api 写清：session.list 默认不含子会话、怎样列出某会话的子会话、子会话能订阅与 session.get、不能 send（只读）、父会话快照里的子会话摘要；协议版本升一个次版本并加冻结样本。
 2. runtime-adapter：加子会话事件（例如 subagent.started / subagent.updated，名字在文档里定），带父 engineSessionId、子 engineSessionId、父工具调用 ID、标题、模型、推理强度、状态。子会话自己的事件照常按子 engineSessionId 上报。echo 假引擎加一个能产生子会话的提示词，契约测试加对应条款（能力开关 subagents，dsh 为 false）。
-3. adapter-codex：从 collabAgentToolCall（receiverThreadIds、agentsStates、tool）与子 thread 的 turn/started（rootTurnId）识别子会话，不用实验面（Codex 的终端界面用 thread/list.parentThreadId，那是实验字段，codex-notes §2.7）；agentsStates 里 notFound 的跳过；标题按 ADR-0005 决策 6.1 的顺序取；子 thread 的通知改为按子会话上报（R2 里先进了 engine.raw）。
+3. adapter-codex：从 collabAgentToolCall（receiverThreadIds、agentsStates、tool）与子 thread 的 turn/started（rootTurnId）识别子会话，不用实验面（Codex 的终端界面用 thread/list.parentThreadId，那是实验字段，codex-notes §2.7）；agentsStates 里 notFound 的跳过；标题同样用模型生成（输入是 spawn_agent 的任务描述，走 R3 的生成路径），生成出来之前按 ADR-0005 决策 6.1 的顺序兜底（thread 名称 → 任务描述首行 → 昵称），在 ADR-0005 补记里写明；子 thread 的通知改为按子会话上报（R2 里先进了 engine.raw）。
 4. 子会话的审批：子 thread 发来的审批要在父会话里也能看到并处理（ADR-0005 补记 1；Codex 的终端界面把它冒到当前视图并标出来自哪个子 agent）。协议上审批仍属于子会话，父会话的快照与订阅能知道“有子会话在等审批”；写清楚它在哪个会话的事件流里出现、谁能 approval.respond。
 5. 子会话的中断：Codex 的终端界面允许直接中断子 agent 的当前回合，ADR 定的是子 agent 视图只读。本任务先实测父回合取消时子回合会怎样，把结果和“要不要给子会话单独的停止按钮”一起交给维护者，不自行加。
 6. storage 与 host：sessions 表加 parent_session_id 等列（新迁移）；SessionManager 在收到子会话事件时建子会话记录并把它的事件写进它自己的事件流；Host 重启后子会话按只读历史可读。
@@ -191,15 +204,15 @@
 依赖：R4 · 可并行：与 R6
 
 ````text
-任务 R5：在桌面端实现子智能体的界面，整体照 Codex 桌面端（ADR-0005 决策 6.1，本文件「界面参考」）。
+任务 R5：在桌面端实现子智能体的界面，整体照 Codex 桌面端（ADR-0005 决策 6.1，本文件「界面参考」），放进 R12 定下的窗格布局里。
 
-开始前：向维护者要 Codex 桌面端子智能体相关的截图（父会话消息流里的“开始工作 / 已完成”两行、右栏“子智能体”列表、子 agent 详情页、会话顶部的摘要卡片），拿到后再动手。Codex 桌面端不开源，不拷贝它的代码与素材。
+开始前：看 design-refs/ 的 01–04、06–08（父会话消息流里的“开始工作 / 已完成”两行、“子智能体”标签、子 agent 详情、置顶摘要卡片），不够再向维护者要。Codex 桌面端不开源，不拷贝它的代码与素材。
 
-先读：R4 的协议与 client-sdk 改动；apps/desktop/src/renderer/src 下 layout/（right-panel-tabs.ts、right-panel.tsx、workbench-layout.tsx）、routes/、session/（transcript-view.tsx、tool-card.tsx、tool-model.ts、message-view.tsx、session-status.tsx）、data/transcript-store.ts、i18n、styles/tokens.css；upstream/codex/codex-rs/tui/src/multi_agents.rs 与 src/app/agents_overview_*、agent_picker.rs、agent_navigation.rs（状态的说法、排序、导航）；docs/development.md 里桌面端的调试说明（开发模式的远程调试端口 WEVIR_DESKTOP_DEBUG_PORT，默认 9339，可以用 CDP 驱动渲染进程、截图）。
+先读：R4 的协议与 client-sdk 改动；R12 的布局文档与代码；apps/desktop/src/renderer/src 下 layout/（right-panel-tabs.ts、right-panel.tsx、workbench-layout.tsx）、routes/、session/（transcript-view.tsx、tool-card.tsx、tool-model.ts、message-view.tsx、session-status.tsx）、data/transcript-store.ts、i18n、styles/tokens.css；upstream/codex/codex-rs/tui/src/multi_agents.rs 与 src/app/agents_overview_*、agent_picker.rs、agent_navigation.rs（状态的说法、排序、导航）；docs/development.md 里桌面端的调试说明（开发模式的远程调试端口 WEVIR_DESKTOP_DEBUG_PORT，默认 9339，可以用 CDP 驱动渲染进程、截图）。
 
 要做：
 1. 父会话消息流：每个子会话两条行内标记“〈标题〉开始工作”“〈标题〉已完成”（失败、已关闭、已取消各有说法），带子会话的图标，点击进入子 agent 视图。spawn / wait / close 这几个 collab 工具调用不再显示成普通工具卡片（终端界面的措辞见 codex-notes §2.7，可以参考，界面以截图为准）。子会话的审批在父会话的输入框上方照常出现，标出来自哪个子 agent，并能跳到子 agent 视图（R4 的协议）。
-2. 右栏新增“子智能体”标签（RightPanelTab 加成员）：按“已开启 · N”“完成 · N”分组，每项图标、标题、相对时间；没有时显示“没有已开启的子智能体”。会话顶部加摘要卡片“子智能体 · N 完成”与头像，点开定位到这个标签。
+2. 新增“子智能体”窗格（按 R12 的窗格模型注册一种窗格）：按“已开启 · N”“完成 · N”分组，每项图标、标题、相对时间；没有时显示“没有已开启的子智能体”。置顶摘要卡片（R12 的框架）加一节“子智能体 · N 完成”与头像，点开打开这个窗格。
 3. 子 agent 视图：路由挂在父会话下（例如 /workspace/:wid/session/:sid/agent/:childId，URL 是唯一事实）；顶部返回箭头、标题、模型 · 推理强度、用时；下面复用父会话的消息流组件（逐字流式、工具卡片、审批卡片），只读、没有输入框。
 4. 图标：每个子会话一个确定性的头像（由会话 ID 选 Wevir 调色板里的颜色与形状），不用 Codex 的图标。
 5. 文案全部经 t()，源语言 zh-CN；暗色与亮色都要对。
@@ -220,7 +233,7 @@
 1. 先在真实二进制上核实（mock 不了的部分如实记录）：account/login/start 的浏览器方式（{type:"chatgpt"} → {loginId, authUrl}）与设备码方式（{type:"chatgptDeviceCode"} → {loginId, verificationUrl, userCode}）、account/login/cancel、account/login/completed {loginId, success, error}、account/read（requiresOpenaiAuth）、account/updated、account/logout（codex-notes §2.7）；凭据存在哪里（CODEX_HOME 下的文件还是系统钥匙串，cli_auth_credentials_store 一类配置），选一种写进 security.md；登录后外连会多出哪些域名（再跑一次外连审计）。
 2. 领域模型与协议：ChatGPT 订阅作为一种 Provider（例如 kind: 'chatgpt'，没有 Key、没有 baseURL），会话用 Codex 内置的 openai Provider 与它自己的模型列表（model/list），不经网关。Host 加账号相关的方法（开始登录、取消、状态、登出）与状态事件，协议升版本、加冻结样本。
 3. adapter-codex：转发登录流程；浏览器方式把 URL 交给桌面端经 openExternal 打开，设备码方式把码与网址交给界面显示；登录状态变化上报；登出。
-4. 设置页：Provider 列表里加“ChatGPT 账号”入口：未登录时显示登录按钮与“仅供个人在本机使用 Wevir 时登录”的说明，登录中显示进度与取消，已登录显示账号与套餐、登出；模型选择用 model/list 的结果。界面风格照 Codex 桌面端（向维护者要设置页截图）。
+4. 设置页：Provider 列表里加“ChatGPT 账号”入口：未登录时显示登录按钮与“仅供个人在本机使用 Wevir 时登录”的说明，登录中显示进度与取消，已登录显示账号与套餐、登出；模型选择用 model/list 的结果。界面风格照 Codex 与 Claude Code 桌面端（向维护者要设置页截图；R12 先做完的话沿用它的样式）。
 5. CLI：wevir provider 下加最小的登录 / 状态 / 登出命令（设备码方式）。
 
 验收：协议与 Host、adapter-codex、设置页的测试通过；维护者用自己的 ChatGPT 账号在桌面端登录一次并完成一问一答（需要维护者在场，你不要输入任何账号密码）；外连审计结果写进 codex-notes 或 security.md；typecheck、lint 通过。
@@ -298,3 +311,58 @@
 
 验收：单元与集成测试（mock Messages 上游）、typecheck、lint 通过；有 Key 时跑一次带工具调用与跨回合思考的对话；model-gateway.md 补上完整映射表。
 ````
+
+## R11：回合进行中发消息：插话与排队
+
+依赖：R3 · 可并行：与 R4–R6
+
+````text
+任务 R11：让用户在回合进行中也能发消息（维护者 2026-10-14 定）。两种方式：
+- 插话：像 Claude Code 那样不打断当前回合，等正在进行的这一步（模型这一段输出或这次工具调用）结束后，把消息插进同一个回合，模型接着往下做。Codex 上对应 turn/steer；引擎做不到时退化为排队。
+- 排队：当前回合结束后，作为下一个回合发出。
+设置里选“回合进行中按发送”的默认行为（插话或排队），另一种用快捷键或按钮。现在的 Host 在回合进行中拒收新消息（SESSION_BUSY），本任务把它改掉。
+
+开工前先向维护者确认一句：“插话”是指“当前这一步结束后插进本回合”（Claude Code 与 Codex 的 steer 都是这样），而不是“整轮结束后再发”（那就是排队）。按回答写文档。
+
+先读：codex-notes §2.7（运行中再输入）；upstream/codex/codex-rs/tui/src/app_server_session.rs（turn/steer {threadId, input, expectedTurnId}，以及 clientUserMessageId）、app/thread_routing.rs（不能插话时转到回合结束后）、app/app_server_events.rs（带同一 clientId 的 userMessage 完成即算插话已送达）、bottom_pane/pending_input_preview.rs（“下次工具调用后提交”“回合结束时提交”“排队的后续输入”三段预览）、chatwidget/interaction.rs（有待插话时按 Esc 会中断回合并立刻发出）；app-server-protocol/schema/typescript/v2/TurnSteerParams.ts 与响应；docs/architecture/domain-model.md §4（状态机与各状态下的命令）、host-api.md（session.send、错误码、§10 兼容规则）；packages/host/src/session-manager.ts；apps/desktop/src/renderer/src/session/composer.tsx；apps/cli/src/attach.ts。
+
+要做：
+1. 文档先行：domain-model 写清待发消息（id、内容、方式 steer / queue、状态：等待 / 已插入 / 已转为排队 / 已发送 / 已取消、顺序）、在状态机里的位置、回合以完成 / 失败 / 取消结束时排队消息怎么处理（建议：完成后自动发下一条；失败与取消后暂停，等用户确认或编辑，与 Codex 的做法对照后写定）、Host 重启后是否保留；host-api 写清 session.send 的新参数（例如 delivery: 'steer' | 'queue'，旧客户端不带时按旧行为报 SESSION_BUSY，保证兼容）、列出 / 修改 / 取消待发消息的方法与事件、默认行为设置放在哪（Host 的设置，CLI 与桌面共用）。协议升版本、加冻结样本。
+2. runtime-adapter：加可选的 steer(engineSessionId, input) 与能力位；adapter-codex 用 turn/steer（带 expectedTurnId），以同一 clientId 的 userMessage 完成作为送达确认，被拒（回合不能插话）时报一个可识别的错误，由 Host 转为排队；通用 ACP 引擎与 dsh 不实现，Host 一律排队。
+3. Host：每会话的待发队列与持久化；回合结束时按第 1 点的规则发下一条；待发消息的增删改事件；契约测试与 Host 测试覆盖插话成功、插话被拒转排队、排队自动发送、取消回合时的处理。
+4. 桌面端：回合进行中输入框照常可用；输入框上方的待发区按“插话（等这一步结束）”“排队（回合结束后）”分组显示，可以编辑、删除、改方式；发送按钮与快捷键按设置决定默认行为（参考 Codex：回车插话、Tab 排队；以维护者确认的为准）；设置页加这一项；文案经 t()。
+5. CLI：attach 里回合进行中也能输入，默认行为同设置。
+
+验收：协议冻结样本、契约测试（codex 第 2 层用 mock 脚本做一个慢回合，中途插话与排队各一次）、Host、client-sdk、桌面端相关测试、typecheck、lint 通过；用桌面端在真实 Host 上各走一遍插话与排队，贴结果。
+````
+
+## R12：工作台布局：混合 Codex 与 Claude Code 桌面端
+
+依赖：无 · 可并行：与 R1–R4；R5 之前做完
+
+````text
+任务 R12：把桌面端的工作台改成维护者定的样子（2026-10-14）：整体界面混合参考 Codex 桌面端与 Claude Code 桌面端；各个窗格都能调尺寸，布局随打开的窗格种类与数量动态变化。本任务先出设计、经维护者确认后再实现，两步各提交一次。
+
+先读：本文件「界面参考」与 design-refs/ 全部截图（不够就向维护者要：Claude Code 桌面端与 Codex 桌面端的主会话视图、左栏、设置页、窄窗口下的样子）；AGENTS.md 中 apps/desktop 的目录说明；apps/desktop/src/renderer/src 下 layout/（workbench-layout.tsx、layout-rules.ts、layout-state.ts、right-panel.tsx、right-panel-tabs.ts、sidebar.tsx、sidebar-resizer.tsx、window-chrome.ts）、routes/、styles/（palette、tokens、theme）、components/ui；docs/architecture/overview.md；docs/development.md 的桌面端调试说明（远程调试端口，可用 CDP 截图）。
+
+第一步：设计（提交一次，然后停下来等维护者确认）
+1. 写 docs/architecture/desktop-layout.md：
+   - 窗格模型：有哪些窗格种类（会话消息流、子智能体、文件预览、变更 / Diff、后台任务、计划与清单、设置……现在没有的写成以后的种类），每种窗格的最小尺寸、能否多开、属于哪个会话。
+   - 操作：打开、关闭、拖动分隔条调尺寸、最大化与还原、拆分、窗格内标签、“已打开的标签页”列表（截图 07）、置顶摘要卡片与它的开关（截图 02、08）、键盘快捷键。
+   - 动态布局规则：按打开的窗格种类与数量、窗口宽高决定排布（单窗格、左右、上下、网格、折叠到标签），给出断点与例子；窄窗口下怎样退化。
+   - 状态的保存：每个工作区 / 会话记住哪些窗格与尺寸；URL 与窗格状态的关系（现在“URL 是唯一事实”的约定怎样延续）。
+   - 与现有三栏布局、layout-rules.ts 的对应和迁移；macOS 红绿灯与顶栏拖动区的处理。
+   - 每种布局一张线框图（ASCII 或 SVG 都行，放在文档里）。
+2. 如果这改变了已有的设计依据（AGENTS.md 原来写的“以 OpenWork 为桌面交互参考”、T5.2 的三栏布局），写一份 ADR（新编号）说明。
+3. 把文档与线框图交给维护者确认，确认之前不写实现代码。
+
+第二步：实现（确认后，提交一次）
+4. 布局的纯逻辑（窗格树、尺寸约束、按数量与种类排布、保存与恢复）写成不依赖 React 的模块并有单元测试，替换 layout-rules.ts 的对应部分。
+5. 组件：可拖动的分隔条、窗格头（标题、标签、最大化、关闭、更多菜单）、已打开的标签页列表、置顶摘要卡片框架（内容由各功能填：变更、子智能体等）。把现有的会话视图、概览、设置放进新框架，现有功能一个不少。
+6. 文案经 t()，暗色与亮色都对；用 Wevir 自己的设计 token，不拷贝截图里的素材。
+
+不做：子智能体窗格的内容（R5）；文件预览、Diff、后台任务、终端等新窗格的内容（只留种类与占位，以后的任务做）。
+
+验收：布局逻辑的单元测试、桌面端已有测试、typecheck、lint 通过；用 pnpm dev 在三种窗口宽度、一 / 二 / 三个窗格下各截一张图（经 CDP），与 design-refs/ 并排放进汇报。
+````
+

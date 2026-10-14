@@ -15,6 +15,9 @@ spikes/**/.dsh-home/
 # codex-app-server spike：下载的二进制与审批用例的工作区外目录
 spikes/**/.bin/
 spikes/**/.run/
+
+# 维护者给的界面参考截图（Codex、Claude Code 桌面端，第三方产品的界面，只在本机）
+/design-refs/
 packages/adapter-dsh/.test-outside/
 
 # 密钥与本地环境

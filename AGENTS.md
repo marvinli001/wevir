@@ -2,7 +2,7 @@
 
 本文件是 Wevir 仓库对所有贡献者（包括 AI 编程助手）的规则。`CLAUDE.md` 只是指向这里。
 
-Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨设备接续的 Agent 工作台：以 OpenAI Codex 的 app-server 为默认 Agent 执行内核、经 Host 内置的模型协议网关接各家模型服务（[ADR-0005](docs/adr/0005-agent-runtime-and-model-gateway.md)，迁移中；目前代码里的引擎仍是 DeepSeek Harness（dsh），它以后保留为可选引擎），以 OpenWork 为桌面交互参考，以 Paseo 为多端与远程架构参考，Wevir 自己拥有 Local Agent Host、会话协议和客户端。
+Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨设备接续的 Agent 工作台：以 OpenAI Codex 的 app-server 为默认 Agent 执行内核、经 Host 内置的模型协议网关接各家模型服务（[ADR-0005](docs/adr/0005-agent-runtime-and-model-gateway.md)，迁移中；目前代码里的引擎仍是 DeepSeek Harness（dsh），它以后保留为可选引擎），桌面交互混合参考 Codex 桌面端与 Claude Code 桌面端（维护者 2026-10-14 定，见 docs/CODEX_RUNTIME_PROMPTS.md「界面参考」；已移植的 OpenWork 代码保留），以 Paseo 为多端与远程架构参考，Wevir 自己拥有 Local Agent Host、会话协议和客户端。
 
 **工作方式：** 开发方向、范围与优先级由维护者在对话中直接决定，AI 助手负责辅助思考、补充遗漏和实现。骨架阶段的计划与任务 prompt、骨架复盘时起草的 Phase 1 规划已归档在 [docs/archive/](docs/archive/)，只作历史参考，不作为任务来源。仍然有效的设计依据是 [ADR](docs/adr/README.md) 与 [架构文档](docs/architecture/overview.md)。迁到 Codex 运行时的任务（R1–R10，维护者 2026-10-14 定的顺序）各有一个 prompt，在 [docs/CODEX_RUNTIME_PROMPTS.md](docs/CODEX_RUNTIME_PROMPTS.md)。
 
@@ -48,7 +48,7 @@ wevir/
 └─ vitest.config.ts    根测试配置，每个包是一个 project
 ```
 
-gitignore 掉的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`spikes/**/.dsh-home/`（Spike 用的独立 DSH_HOME）、`spikes/**/.bin/`（Spike 下载的引擎二进制，如 codex-app-server）、`spikes/**/.run/`（Spike 运行时的临时目标目录）。
+gitignore 掉的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（开发期运行时数据）、`spikes/**/.dsh-home/`（Spike 用的独立 DSH_HOME）、`spikes/**/.bin/`（Spike 下载的引擎二进制，如 codex-app-server）、`spikes/**/.run/`（Spike 运行时的临时目标目录）、`design-refs/`（维护者给的界面参考截图，第三方产品的界面，不进仓库）。
 
 ## 常用命令
 
