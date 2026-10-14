@@ -2157,9 +2157,10 @@ describe('SessionManager：换模型与推理档位（0.9.0）', () => {
     expect(spy).toHaveBeenCalledWith(session.engine.sessionId, {
       modelId: 'deepseek-v4-pro',
       reasoningEffort: 'high',
+      permissionMode: 'on_request',
     });
     expect(ofType(h, id, 'session.configured').map((e) => e.payload)).toEqual([
-      { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' },
+      { modelId: 'deepseek-v4-pro', reasoningEffort: 'high', permissionMode: 'on_request' },
     ]);
     expect(h.storage.sessions.get(id)).toMatchObject({
       modelId: 'deepseek-v4-pro',
@@ -2229,6 +2230,89 @@ describe('SessionManager：换模型与推理档位（0.9.0）', () => {
     await expect(
       other.manager.configure({ sessionId: otherId, modelId: 'x' }),
     ).rejects.toMatchObject({ code: 'ENGINE_ERROR' });
+  });
+});
+
+describe('SessionManager：权限模式（0.11.0）', () => {
+  it('建会话时交给引擎、写进 session.created 与 sessions 表；省略时是 on_request', async () => {
+    const h = setup();
+    const spy = vi.spyOn(h.adapter, 'createSession');
+    const { id } = await h.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'deepseek-official',
+      permissionMode: 'full_access',
+    });
+    expect(spy.mock.calls[0]?.[0]).toMatchObject({ permissionMode: 'full_access' });
+    expect(ofType(h, id, 'session.created')[0]?.payload).toMatchObject({
+      permissionMode: 'full_access',
+    });
+    expect(h.storage.sessions.get(id)?.permissionMode).toBe('full_access');
+    expect(snapshot(h, id).session.permissionMode).toBe('full_access');
+
+    const plain = await create(h);
+    expect(snapshot(h, plain).session.permissionMode).toBe('on_request');
+  });
+
+  it('完全访问下不再请求审批；换回请求批准后下一个回合照常请求', async () => {
+    const h = setup();
+    const { id } = await h.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'deepseek-official',
+      permissionMode: 'full_access',
+    });
+    await send(h, id, 'please approve');
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'approval.requested')).toHaveLength(0);
+
+    const session = await h.manager.configure({ sessionId: id, permissionMode: 'on_request' });
+    expect(session.permissionMode).toBe('on_request');
+    expect(ofType(h, id, 'session.configured').map((e) => e.payload)).toEqual([
+      { modelId: session.modelId, permissionMode: 'on_request' },
+    ]);
+    expect(h.storage.sessions.get(id)?.permissionMode).toBe('on_request');
+    await send(h, id, 'please approve again');
+    await waitForApproval(h, id);
+  });
+
+  it('只给权限模式时模型与档位不变；值没变不写；重启后 resume 带上记下的模式', async () => {
+    const first = setup();
+    const { id } = await first.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'deepseek-official',
+      reasoningEffort: 'high',
+    });
+    const session = await first.manager.configure({ sessionId: id, permissionMode: 'auto_review' });
+    expect(session).toMatchObject({ reasoningEffort: 'high', permissionMode: 'auto_review' });
+    await first.manager.configure({ sessionId: id, permissionMode: 'auto_review' });
+    expect(ofType(first, id, 'session.configured')).toHaveLength(1);
+
+    const { h } = restart(first);
+    const spy = vi.spyOn(h.adapter, 'resumeSession');
+    // 新的 echo 不认识这个引擎会话（恢复失败），这里只看 Host 交给它的配置。
+    await send(h, id, 'hello').catch(() => {});
+    expect(spy.mock.calls[0]?.[1]).toMatchObject({ permissionMode: 'auto_review' });
+  });
+
+  it('引擎不支持权限模式时只接受 on_request，会话不带这个字段', async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 1 });
+    Object.defineProperty(adapter, 'permissionModes', { value: undefined });
+    const h = setup({ adapter });
+    const { id } = await h.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'deepseek-official',
+      permissionMode: 'on_request',
+    });
+    expect(snapshot(h, id).session.permissionMode).toBeUndefined();
+    await expect(
+      h.manager.create({
+        workspaceId: 'ws_1',
+        providerId: 'deepseek-official',
+        permissionMode: 'full_access',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
+      h.manager.configure({ sessionId: id, permissionMode: 'auto_review' }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
   });
 });
 

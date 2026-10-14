@@ -202,6 +202,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(accounts !== undefined && { chatgpt_account: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),
+        ...(adapter.permissionModes !== undefined && { permission_modes: true }),
       },
       ...(accounts !== undefined && { accounts }),
       settings,

@@ -14,7 +14,8 @@
 // - 恢复：有过回合的 thread 记在 cwd（CODEX_HOME）下的 fake-threads.json，进程被杀、重启之后照样能 thread/resume；没
 //   见过的 ID 回 errors/resume-not-found.json 的措辞，不是 UUID 的回 errors/resume-invalid-id.json 的措辞。
 // - 流式中途的 `turn/interrupt` 停止回放，发 `turn/completed`（interrupted）。
-// - `turn/start` 的 `model` 与 `effort`（会话中换模型，0.9.0）逐行记在 cwd 下的 fake-turn-starts.jsonl，测试读它核对。
+// - `turn/start` 的 `model` 与 `effort`（会话中换模型，0.9.0）、审批策略、审查方与沙箱（权限模式，0.11.0）逐行记在 cwd
+//   下的 fake-turn-starts.jsonl，测试读它核对。
 // - 子 agent（R4）：样本里第一个出现的 thread 是当前 thread，别的 thread（子 thread）换成每次回放新生成的 ID，回合 ID
 //   同理（`rootTurnId` 照样指向当前回合）；当前 thread 的 `turn/completed` 之后接着回放子 thread 的行。只是回放，
 //   子 thread 本身不能 turn/start 或 interrupt。
@@ -227,7 +228,14 @@ const handlers = {
       throw { code: -32600, message: `thread not found: ${params.threadId}` };
     appendFileSync(
       join(process.cwd(), 'fake-turn-starts.jsonl'),
-      `${JSON.stringify({ threadId: params.threadId, model: params.model, effort: params.effort })}\n`,
+      `${JSON.stringify({
+        threadId: params.threadId,
+        model: params.model,
+        effort: params.effort,
+        approvalPolicy: params.approvalPolicy,
+        approvalsReviewer: params.approvalsReviewer,
+        sandboxPolicy: params.sandboxPolicy,
+      })}\n`,
     );
     const text = params.input?.[0]?.text ?? '';
     const name = text.startsWith('replay:') ? text.slice('replay:'.length).trim() : 'stream';

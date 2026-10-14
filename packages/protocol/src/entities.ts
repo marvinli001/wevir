@@ -574,6 +574,22 @@ export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
 export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({ sendWhileBusy: 'steer' });
 
+// ── 权限模式（0.11.0，U15） ──────────────────────────────────────────────
+
+/**
+ * 会话的权限模式（0.11.0，Host 功能 `permission_modes`，domain-model §3.9）：Agent 要越过工作区的限制（写工作区外的文件、
+ * 联网、在沙箱外运行命令）时怎么批准。从下一个回合起生效。
+ * - `on_request`（请求批准，默认）：沙箱限在工作区，越界的操作逐个问用户；
+ * - `auto_review`（自动批准）：同样的沙箱，越界的操作先由会话所用的模型按审查规则判断，判断为低风险的直接允许，有风险的
+ *   拒绝并把理由告诉 Agent（Codex 的 auto review）；
+ * - `full_access`（完全访问）：不用沙箱、也不问，可以访问互联网与电脑上的任何文件。
+ */
+export const PermissionModeSchema = z.enum(['on_request', 'auto_review', 'full_access']);
+export type PermissionMode = z.infer<typeof PermissionModeSchema>;
+
+/** 没有指定权限模式的会话（含 0.11.0 之前建的）按它算。 */
+export const DEFAULT_PERMISSION_MODE: PermissionMode = 'on_request';
+
 export const SessionSchema = z.object({
   id: SessionIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -585,6 +601,8 @@ export const SessionSchema = z.object({
   modelId: z.string().min(1),
   /** dsh 的 reasoning_effort 选项值，原样。 */
   reasoningEffort: z.string().optional(),
+  /** 权限模式（0.11.0）；省略表示 `on_request`。 */
+  permissionMode: PermissionModeSchema.optional(),
   title: z.string(),
   titleSource: TitleSourceSchema,
   state: SessionStateSchema,

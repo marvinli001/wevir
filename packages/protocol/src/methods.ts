@@ -30,6 +30,7 @@ import {
   HttpUrlSchema,
   PendingDeliverySchema,
   PendingMessageSchema,
+  PermissionModeSchema,
   ProviderApiSchema,
   ProviderCompatSchema,
   ProviderModelSchema,
@@ -238,6 +239,8 @@ export const SessionCreateParamsSchema = z.object({
   /** 省略时用 Provider 的 `defaultModelId`。 */
   modelId: z.string().min(1).optional(),
   reasoningEffort: z.string().min(1).optional(),
+  /** 权限模式（0.11.0，Host 功能 `permission_modes`）；省略时是 `on_request`。 */
+  permissionMode: PermissionModeSchema.optional(),
 });
 
 export const SessionResultSchema = z.object({
@@ -245,8 +248,8 @@ export const SessionResultSchema = z.object({
 });
 
 /**
- * 换会话的模型或推理档位（0.9.0，Host 功能 `session_configure`）：从下一个回合起生效，进行中的回合不受影响。只能在会话
- * 所用 Provider 的模型里换（Provider 列了模型时）；不换 Provider。
+ * 换会话的模型、推理档位（0.9.0，Host 功能 `session_configure`）或权限模式（0.11.0，Host 功能 `permission_modes`）：从下一个
+ * 回合起生效，进行中的回合不受影响。只能在会话所用 Provider 的模型里换（Provider 列了模型时）；不换 Provider。
  */
 export const SessionConfigureParamsSchema = z.object({
   sessionId: SessionIdSchema,
@@ -254,6 +257,8 @@ export const SessionConfigureParamsSchema = z.object({
   modelId: z.string().min(1).optional(),
   /** 省略：不改；null：清掉，用模型的默认档位。换了模型而没给它时也清掉。 */
   reasoningEffort: z.string().min(1).nullable().optional(),
+  /** 省略：不改。 */
+  permissionMode: PermissionModeSchema.optional(),
 });
 
 export const SessionListParamsSchema = z.object({

@@ -9,6 +9,7 @@ import type {
   ApprovalOption,
   EngineSession,
   PendingApproval,
+  PermissionMode,
   SessionConfig,
   UserQuestion,
 } from './types.js';
@@ -127,6 +128,12 @@ interface ReplyBlock {
  * `simulateEngineExit()` 模拟引擎进程退出，供 Host 测试 `engine.exited` 的处理。
  */
 export class EchoAdapter implements AgentRuntimeAdapter {
+  /** 三种权限模式都认（0.11.0）：`approve` 关键词在 `on_request` 下请求审批，另外两种直接写（auto_review 当作审查通过）。 */
+  readonly permissionModes: readonly PermissionMode[] = [
+    'on_request',
+    'auto_review',
+    'full_access',
+  ];
   readonly #chunkSize: number;
   readonly #stepDelayMs: number;
   readonly #incremental: boolean;
@@ -185,6 +192,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     }
     session.status = 'open';
     session.hub = new EventHub();
+    const { permissionMode: _previous, ...rest } = session.config;
+    session.config = {
+      ...rest,
+      ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
+    };
     return this.#describe(session);
   }
 
@@ -229,18 +241,19 @@ export class EchoAdapter implements AgentRuntimeAdapter {
 
   async configureSession(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string },
+    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
   ): Promise<void> {
     this.#assertUsable();
     const session = this.#session(engineSessionId);
     if (session.parentId !== undefined) {
       throw new AdapterError('invalid_input', 'a sub-agent session is driven by its parent agent');
     }
-    const { reasoningEffort: _previous, ...rest } = session.config;
+    const { reasoningEffort: _effort, permissionMode: _mode, ...rest } = session.config;
     session.config = {
       ...rest,
       modelId: config.modelId,
       ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
+      ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
     };
   }
 
@@ -431,11 +444,16 @@ export class EchoAdapter implements AgentRuntimeAdapter {
           input: { file_path: path, content: text },
         });
         openTools.set(toolCallId, 'Error: approval for echo_write was cancelled');
-        const optionId = await this.#requestApproval(turn, engineSessionId, toolCallId);
+        // 只有 on_request 问用户；auto_review 当作审查通过，full_access 不问。
+        let allowed = true;
+        if ((session.config.permissionMode ?? 'on_request') === 'on_request') {
+          const optionId = await this.#requestApproval(turn, engineSessionId, toolCallId);
+          allowed =
+            ECHO_APPROVAL_OPTIONS.find((option) => option.optionId === optionId)?.kind.startsWith(
+              'allow',
+            ) ?? false;
+        }
         openTools.delete(toolCallId);
-        const allowed = ECHO_APPROVAL_OPTIONS.find(
-          (option) => option.optionId === optionId,
-        )?.kind.startsWith('allow');
         emit(
           allowed
             ? {

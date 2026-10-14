@@ -9,7 +9,8 @@ import { Composer, setDraft } from '@/session/composer';
 import { EnvironmentBar } from '@/session/environment-bar';
 import { ModelPicker } from '@/session/model-picker';
 import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
-import { useModelChoice, useStartSession } from '@/session/start-session';
+import { PermissionPicker, usePermissionChoice } from '@/session/permission-picker';
+import { useModelChoice, usePermissionModes, useStartSession } from '@/session/start-session';
 import { homeWorkspace, rememberWorkspace, useLastLocation } from './last-location';
 import { paths } from './paths';
 import { PendingPage } from './route-states';
@@ -44,7 +45,14 @@ function Home({
 }) {
   const workspace = entry?.workspace;
   const { providers, choice, choose } = useModelChoice();
-  const { start, error, ready } = useStartSession(workspace?.id, choice);
+  const permission = usePermissionChoice();
+  const permissions = usePermissionModes();
+  const { start, error, ready } = useStartSession(
+    workspace?.id,
+    choice,
+    undefined,
+    permission.mode,
+  );
   const noProvider = providers !== undefined && providers.length === 0;
 
   // 还没有项目：先建项目（维护者 2026-10-14 定），建好后在它里面接着发。
@@ -77,7 +85,14 @@ function Home({
             state="idle"
             disabled={!ready && !noProvider}
             {...(noProvider && { disabledReason: t('home.noProvider') })}
-            leading={noProvider && <AddProviderChip />}
+            leading={
+              <>
+                {permissions && (
+                  <PermissionPicker value={permission.mode} onChange={permission.choose} />
+                )}
+                {noProvider && <AddProviderChip />}
+              </>
+            }
             tray={
               <EnvironmentBar
                 current={entry}

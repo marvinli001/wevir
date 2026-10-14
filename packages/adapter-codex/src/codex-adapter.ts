@@ -20,6 +20,7 @@ import {
   EventHub,
   isAdapterError,
   type PendingApproval,
+  type PermissionMode,
   type ProviderConfig,
   type ProviderIssue,
   type ProviderModelConfig,
@@ -214,6 +215,8 @@ interface CodexSession {
    * 照样要带）。
    */
   override?: { model: string; effort: string | null };
+  /** 权限模式（0.11.0）：每个 `turn/start` 按它带审批策略、审查方与沙箱，`configureSession` 可以换。 */
+  permission: PermissionMode;
   /** 子会话（子 agent 的 thread）的父会话（R4）。 */
   readonly parentId?: string;
   /** open：挂在当前进程上；closed：已 close；detached：进程退出或重启后脱开（`resumeSession` 接回）。 */
@@ -395,6 +398,8 @@ class Launcher implements CodexLauncher {
  * 有回合时等最后一个回合结束，挂着的会话以 `engine.exited`（`config_changed`）脱开。
  */
 export class CodexAdapter implements AgentRuntimeAdapter {
+  /** 三种权限模式都支持（0.11.0，codex-event-mapping.md §4.7）。 */
+  readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   readonly process: CodexProcess;
   readonly paths: CodexPaths;
   /** ChatGPT 进程的账号（`mode: 'chatgpt'` 时才有）。 */
@@ -510,7 +515,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         throw engineError(error, 'thread/start');
       }
       const id = response.thread.id;
-      this.#register(id, config.cwd, provider, model);
+      this.#register(id, config.cwd, provider, model, config.permissionMode);
       return engineSession(id, response);
     } finally {
       this.#activating -= 1;
@@ -543,7 +548,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         excludeTurns: true,
       };
       const response = await this.#resumeThread(params);
-      this.#register(engineSessionId, config.cwd, provider, model);
+      this.#register(engineSessionId, config.cwd, provider, model, config.permissionMode);
       return engineSession(engineSessionId, response);
     } finally {
       this.#activating -= 1;
@@ -609,6 +614,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       threadId: engineSessionId,
       input: input.content.map((part) => ({ type: 'text', text: part.text, text_elements: [] })),
       ...(session.override && { model: session.override.model, effort: session.override.effort }),
+      ...permissionSettings(session.permission),
     };
     let response: TurnStartResponse;
     try {
@@ -628,11 +634,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   /**
    * 换模型或推理档位（0.9.0，codex-event-mapping.md §4.6）：记在会话上，之后每个 `turn/start` 带 `model` 与 `effort`
    * （Codex 的这两个字段对这个回合及之后都生效）。基础提示词是 `thread/start` 时按原来的模型渲染的，不重渲染。没给档位时
-   * `effort` 是 null（不覆盖，沿用 thread 的设置）。
+   * `effort` 是 null（不覆盖，沿用 thread 的设置）。权限模式（0.11.0，§4.7）同样记下，下一个 `turn/start` 起按它带。
    */
   async configureSession(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string },
+    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
   ): Promise<void> {
     this.#assertUsable();
     const session = this.#session(engineSessionId);
@@ -649,6 +655,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       model: model.id,
       effort: config.reasoningEffort === undefined ? null : toCodexEffort(config.reasoningEffort),
     };
+    session.permission = config.permissionMode ?? 'on_request';
   }
 
   /**
@@ -1188,6 +1195,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       cwd: parent.cwd,
       providerId: parent.providerId,
       model,
+      // 子 thread 由 Codex 驱动，不经 turn/start；记下父会话的模式只为完整。
+      permission: parent.permission,
       parentId: parent.id,
       status: 'open',
       // Host 收到 subagent.started 才订阅：之前的事件先存着。
@@ -1648,7 +1657,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     };
   }
 
-  #register(id: string, cwd: string, provider: ProviderConfig, model: ProviderModelConfig): void {
+  #register(
+    id: string,
+    cwd: string,
+    provider: ProviderConfig,
+    model: ProviderModelConfig,
+    permission: PermissionMode = 'on_request',
+  ): void {
     // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
     this.#unknownThreads.delete(id);
     this.#sessions.set(id, {
@@ -1656,6 +1671,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       cwd,
       providerId: provider.id,
       model,
+      permission,
       status: 'open',
       hub: new EventHub<AgentEvent>(),
       // 换了模型（0.9.0）后用新模型的上下文大小。
@@ -1736,6 +1752,44 @@ function chatgptAccounts(account: ChatgptAccount): EngineAccounts {
 }
 
 /** `thread/start` / `thread/resume` 的结果 → EngineSession。 */
+/** CodexAdapter 与 CodexRuntime 声明的权限模式。 */
+export const PERMISSION_MODES: readonly PermissionMode[] = [
+  'on_request',
+  'auto_review',
+  'full_access',
+];
+
+/**
+ * 权限模式 → `turn/start` 的审批策略、审查方与沙箱（codex-event-mapping.md §4.7，对照 Codex 内置的三档 approval preset：
+ * Default 是 on-request + workspace-write，Full Access 是 never + 不用沙箱）。每个回合都带全，换回 `on_request` 时把之前的
+ * 覆盖改回来。`auto_review` 的审查子 agent 用 Codex 偏好的审查模型；模型目录里没有它时（经网关的 Provider 都没有）回落到
+ * 会话自己的模型。
+ */
+export function permissionSettings(
+  mode: PermissionMode,
+): Pick<TurnStartParams, 'approvalPolicy' | 'approvalsReviewer' | 'sandboxPolicy'> {
+  switch (mode) {
+    case 'full_access':
+      return {
+        approvalPolicy: 'never',
+        approvalsReviewer: 'user',
+        sandboxPolicy: { type: 'dangerFullAccess' },
+      };
+    case 'auto_review':
+      return {
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'auto_review',
+        sandboxPolicy: { type: 'workspaceWrite' },
+      };
+    case 'on_request':
+      return {
+        approvalPolicy: 'on-request',
+        approvalsReviewer: 'user',
+        sandboxPolicy: { type: 'workspaceWrite' },
+      };
+  }
+}
+
 function engineSession(id: string, response: ThreadStartResponse): EngineSession {
   return {
     engineSessionId: id,

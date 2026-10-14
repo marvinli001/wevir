@@ -46,6 +46,7 @@ import {
   PendingMessageIdSchema,
   PendingMessageSchema,
   PendingStatusSchema,
+  PermissionModeSchema,
   PermissionsSchema,
   ProtocolVersionSchema,
   ProviderApiSchema,
@@ -487,6 +488,12 @@ const standaloneCases: Case[] = [
     invalid: [{ kind: 'chatgpt', status: 'signed_in', rateLimits: { primary: {} } }],
   },
   { name: 'PendingDelivery', schema: PendingDeliverySchema, valid: ['queue'], invalid: ['now'] },
+  {
+    name: 'PermissionMode',
+    schema: PermissionModeSchema,
+    valid: ['on_request', 'auto_review', 'full_access'],
+    invalid: ['never', ''],
+  },
   { name: 'PendingStatus', schema: PendingStatusSchema, valid: ['held'], invalid: ['paused'] },
   {
     name: 'PendingFallbackReason',

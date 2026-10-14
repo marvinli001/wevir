@@ -48,6 +48,11 @@ export const HOST_FEATURES = {
   sessionConfigure: 'session_configure',
   /** 引擎向用户提问（0.10.0）：`question.*` 事件与 `question.respond`。取决于引擎（Codex 有）。 */
   userQuestions: 'user_questions',
+  /**
+   * 权限模式（0.11.0）：`session.create` 与 `session.configure` 的 `permissionMode`，会话与 `session.created` /
+   * `session.configured` 带它。取决于引擎（Codex 有，dsh 没有）。
+   */
+  permissionModes: 'permission_modes',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -57,6 +62,7 @@ export const HostFeaturesSchema = z.looseObject({
   host_settings: z.boolean().optional(),
   session_configure: z.boolean().optional(),
   user_questions: z.boolean().optional(),
+  permission_modes: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

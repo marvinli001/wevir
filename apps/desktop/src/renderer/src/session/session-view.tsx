@@ -1,5 +1,5 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { PendingDelivery, Session, SubagentSummary } from '@wevir/protocol';
+import type { PendingDelivery, PermissionMode, Session, SubagentSummary } from '@wevir/protocol';
 import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
@@ -21,9 +21,16 @@ import { historyDigest } from './history-digest';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { NewSessionHero, NewSessionLayout } from './new-session';
 import { PendingArea } from './pending-area';
+import { PermissionPicker, usePermissionChoice } from './permission-picker';
 import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
-import { sendError, sendText, useModelChoice, useStartSession } from './start-session';
+import {
+  sendError,
+  sendText,
+  useModelChoice,
+  usePermissionModes,
+  useStartSession,
+} from './start-session';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 
 /**
@@ -181,6 +188,7 @@ export function SessionView({ session }: { session: Session }) {
           disabled={!client || readOnly !== undefined}
           disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
           model={<SessionModelPicker session={session} onError={setNotice} />}
+          leading={<SessionPermissionPicker session={session} onError={setNotice} />}
           {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
           {...(pendingEnabled &&
             hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
@@ -237,6 +245,37 @@ function SessionModelPicker({
   );
 }
 
+/**
+ * 已有会话的权限模式（U15）：经 `session.configure` 的 `permissionMode`（0.11.0）从下一个回合起生效，新值经
+ * `session.configured` 回到列表。Host 不支持（没有 `permission_modes`）时不显示；会话只读、是子会话时只显示。
+ */
+function SessionPermissionPicker({
+  session,
+  onError,
+}: {
+  session: Session;
+  onError: (message: string) => void;
+}) {
+  const { client } = useHostConnection();
+  const supported = usePermissionModes();
+  if (!supported) return null;
+  const configure = async (permissionMode: PermissionMode) => {
+    if (!client) return;
+    try {
+      await client.request('session.configure', { sessionId: session.id, permissionMode });
+    } catch (error) {
+      onError(t('permission.configureFailed', { error: describe(error) }));
+    }
+  };
+  return (
+    <PermissionPicker
+      value={session.permissionMode ?? 'on_request'}
+      readOnly={!client || session.readOnly !== undefined || session.parentSessionId !== undefined}
+      onChange={(next) => void configure(next)}
+    />
+  );
+}
+
 /** 新会话草稿页输入框的草稿归属。 */
 function newSessionDraftKey(workspaceId: string): string {
   return `draft:${workspaceId}`;
@@ -274,7 +313,9 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     (session: Session) => movePaneScope(draftScopeKey(workspaceId), session.id),
     [workspaceId],
   );
-  const { start: send, error } = useStartSession(workspaceId, choice, movePanes);
+  const permission = usePermissionChoice();
+  const permissions = usePermissionModes();
+  const { start: send, error } = useStartSession(workspaceId, choice, movePanes, permission.mode);
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
@@ -324,6 +365,11 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             state="idle"
             disabled={!client || !choice}
             onSend={(text) => send(text)}
+            leading={
+              permissions && (
+                <PermissionPicker value={permission.mode} onChange={permission.choose} />
+              )
+            }
             model={
               providers &&
               choice && <ModelPicker providers={providers} value={choice} onChange={choose} />

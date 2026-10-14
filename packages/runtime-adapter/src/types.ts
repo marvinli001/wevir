@@ -5,6 +5,12 @@
 // zod，也不必等 protocol 构建出 dist 才能做类型检查。Host 在两者之间直接赋值，形状一旦分叉，
 // Host 的类型检查会报错。
 
+/**
+ * 会话的权限模式（0.11.0，protocol 的 `PermissionMode`，domain-model §3.9）：`on_request` 越界的操作问用户；`auto_review`
+ * 先由会话的模型审查；`full_access` 不用沙箱、不问。
+ */
+export type PermissionMode = 'on_request' | 'auto_review' | 'full_access';
+
 /** 建会话与恢复会话的参数。 */
 export interface SessionConfig {
   /**
@@ -17,6 +23,11 @@ export interface SessionConfig {
   modelId: string;
   /** 引擎原值，如 dsh 的 off / low / high / max。 */
   reasoningEffort?: string;
+  /**
+   * 权限模式（0.11.0）；省略表示 `on_request`。只有声明了 `permissionModes` 的适配器会收到别的值，从这个会话的下一个回合
+   * 起生效。
+   */
+  permissionMode?: PermissionMode;
 }
 
 /** `createSession` / `resumeSession` 的结果。 */

@@ -1,7 +1,13 @@
 // 发消息与新建会话（U4 从 session-view.tsx 抽出）：新会话草稿页与首页的大输入框共用同一套建会话的流程。
 
-import { isRpcError, type WevirClient } from '@wevir/client-sdk';
-import type { PendingDelivery, ProviderProfile, Session, WorkspaceId } from '@wevir/protocol';
+import { hostSupports, isRpcError, type WevirClient } from '@wevir/client-sdk';
+import type {
+  PendingDelivery,
+  PermissionMode,
+  ProviderProfile,
+  Session,
+  WorkspaceId,
+} from '@wevir/protocol';
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
@@ -93,16 +99,25 @@ export function useModelChoice(preferred?: string) {
   return { providers, choice, choose: (next: ModelChoice) => lastChoice.set(next) };
 }
 
+/** Host 支持权限模式（0.11.0 的 `permission_modes`）：新会话与已有会话的输入框才显示可选的权限芯片。 */
+export function usePermissionModes(): boolean {
+  const { view } = useHostConnection();
+  return view.status === 'connected' && hostSupports(view.hello.features, 'permission_modes');
+}
+
 /**
  * 新建会话：发出第一条消息时才建（`session.create` 再 `session.send`），建好后放进列表、跳到会话页。返回 true 表示已发出
  * （输入框清空）；失败时 `error` 是给界面的说明，输入框保留文字。`onCreated` 在跳转之前调用（草稿页把窗格搬到新会话）。
+ * `permissionMode`（U15）只在 Host 支持权限模式时带上。
  */
 export function useStartSession(
   workspaceId: WorkspaceId | undefined,
   choice: ModelChoice | undefined,
   onCreated?: (session: Session) => void,
+  permissionMode?: PermissionMode,
 ) {
   const { client } = useHostConnection();
+  const permissions = usePermissionModes();
   const store = useWorkbenchStore();
   const navigate = useNavigate();
   const [error, setError] = useState<string>();
@@ -120,6 +135,7 @@ export function useStartSession(
           providerId: choice.providerId,
           modelId: choice.modelId,
           ...(choice.reasoningEffort !== undefined && { reasoningEffort: choice.reasoningEffort }),
+          ...(permissions && permissionMode !== undefined && { permissionMode }),
         }));
       } catch (reason) {
         setError(t('session.createFailed', { error: describe(reason) }));
@@ -136,7 +152,7 @@ export function useStartSession(
       navigate(paths.session(workspaceId, session.id));
       return true;
     },
-    [client, workspaceId, choice, store, navigate, onCreated],
+    [client, workspaceId, choice, store, navigate, onCreated, permissions, permissionMode],
   );
 
   return { start, error, ready: client !== undefined && choice !== undefined };

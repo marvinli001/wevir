@@ -6,6 +6,7 @@ import type {
   PendingMessage,
   PendingMessageId,
   PendingStatus,
+  PermissionMode,
   QuestionId,
   QuestionRequest,
   Session,
@@ -40,9 +41,13 @@ export interface SessionProjection {
   readonly title: string;
   readonly titleSource: TitleSource;
   /**
-   * 最近一次 `session.configured`（0.9.0）带来的模型与推理档位；没有时用 `sessions` 表里建会话时的值。
+   * 最近一次 `session.configured`（0.9.0）带来的模型、推理档位与权限模式（0.11.0）；没有时用 `sessions` 表里建会话时的值。
    */
-  readonly model?: { readonly modelId: string; readonly reasoningEffort?: string };
+  readonly model?: {
+    readonly modelId: string;
+    readonly reasoningEffort?: string;
+    readonly permissionMode?: PermissionMode;
+  };
   readonly activeTurn?: ActiveTurn;
   readonly lastError?: EngineErrorInfo;
   /** 引擎会话恢复不了（T3.5）：`session.read_only` 设置，`session.resumed` 清除。 */
@@ -177,6 +182,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
         modelId: event.payload.modelId,
         ...(event.payload.reasoningEffort !== undefined && {
           reasoningEffort: event.payload.reasoningEffort,
+        }),
+        ...(event.payload.permissionMode !== undefined && {
+          permissionMode: event.payload.permissionMode,
         }),
       };
       break;
@@ -444,6 +452,10 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     ? projection.model.reasoningEffort
     : record.reasoningEffort;
   if (reasoningEffort !== undefined) session.reasoningEffort = reasoningEffort;
+  const permissionMode = projection.model
+    ? projection.model.permissionMode
+    : (record.permissionMode as PermissionMode | undefined);
+  if (permissionMode !== undefined) session.permissionMode = permissionMode;
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
@@ -482,6 +494,9 @@ export function toCachePatch(projection: SessionProjection): SessionCachePatch {
   if (projection.model) {
     patch.modelId = projection.model.modelId;
     patch.reasoningEffort = projection.model.reasoningEffort ?? null;
+    if (projection.model.permissionMode !== undefined) {
+      patch.permissionMode = projection.model.permissionMode;
+    }
   }
   return patch;
 }

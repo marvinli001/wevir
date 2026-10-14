@@ -61,7 +61,7 @@ export function Composer({
   /** 不能发送也不能停止（只读、还没连上 Host、正在建会话）。 */
   disabled?: boolean;
   disabledReason?: string;
-  /** 底栏左侧（“插话 | 排队”之后）：例如首页没有模型服务时的“添加模型服务”。 */
+  /** 底栏左侧（“插话 | 排队”之前）：权限模式（U15）、首页没有模型服务时的“添加模型服务”。 */
   leading?: ReactNode;
   /** 输入框上方的环境栏（U12）：新会话的项目与本地环境。 */
   tray?: ReactNode;
@@ -197,6 +197,7 @@ export function Composer({
           />
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
+              {leading}
               {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
                 <DeliverySwitch
                   value={busyDelivery}
@@ -204,7 +205,6 @@ export function Composer({
                   onChange={onBusyDeliveryChange}
                 />
               )}
-              {leading}
             </div>
             {model}
             <ComposerButton

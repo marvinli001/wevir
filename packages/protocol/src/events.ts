@@ -17,6 +17,7 @@ import {
   ApprovalResolutionSchema,
   EngineErrorCategorySchema,
   PendingMessageSchema,
+  PermissionModeSchema,
   QuestionRequestSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
@@ -65,6 +66,8 @@ export const EventPayloadSchemas = {
     providerId: ProviderIdSchema,
     modelId: z.string().min(1),
     reasoningEffort: z.string().optional(),
+    /** 权限模式（0.11.0）；省略表示 `on_request`。 */
+    permissionMode: PermissionModeSchema.optional(),
     /** 建立引擎会话的引擎版本（0.3.0；dsh：`@deepseek-ai/dsh` 的包版本）。适配器不报时省略。 */
     engineVersion: z.string().optional(),
     /** 只有子会话有（0.6.0，domain-model §3.3.1）：父会话与派出它的工具调用。 */
@@ -99,12 +102,13 @@ export const EventPayloadSchemas = {
     description: z.string().optional(),
   }),
   /**
-   * 会话的模型或推理档位改了（0.9.0，`session.configure`），带改后的全部值；从下一个回合起生效。没有 `reasoningEffort`
-   * 表示用模型的默认档位。
+   * 会话的模型、推理档位或权限模式改了（0.9.0，`session.configure`），带改后的全部值；从下一个回合起生效。没有
+   * `reasoningEffort` 表示用模型的默认档位；没有 `permissionMode`（0.11.0 之前的 Host）表示 `on_request`。
    */
   'session.configured': z.object({
     modelId: z.string().min(1),
     reasoningEffort: z.string().optional(),
+    permissionMode: PermissionModeSchema.optional(),
   }),
   'session.state_changed': z.object({
     from: SessionStateSchema,

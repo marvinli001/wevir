@@ -176,6 +176,23 @@ Host 在第一个回合开始后调用（规则与提示词在 prompts/README.md
 - **子会话** 由父 agent 驱动，报 `invalid_input`。
 - 验证：`codex-adapter.configure.test.ts`（假 app-server 记下的 `turn/start`）与 `codex-adapter.turn.integration.test.ts`（真实二进制 + 网关 + mock 模型：换了之后的请求是新模型与新档位）。
 
+### 4.7 权限模式（0.11.0，U15）
+
+会话的 `permissionMode`（domain-model §3.9）在 `createSession` / `resumeSession` 的配置与 `configureSession` 里给出，记在会话上，之后每个 `turn/start` 都带全三项（换回 `on_request` 时把之前的覆盖改回来；锁定版本里这三个字段的含义都是“这个回合及之后”，`app-server-protocol/src/protocol/v2/turn.rs`）：
+
+| 模式 | `approvalPolicy` | `approvalsReviewer` | `sandboxPolicy` |
+|---|---|---|---|
+| `on_request` | `on-request` | `user` | `{type: workspaceWrite}`（其余字段取默认，与 config.toml 的 `sandbox_mode = "workspace-write"` 相同） |
+| `auto_review` | `on-request` | `auto_review` | `{type: workspaceWrite}` |
+| `full_access` | `never` | `user` | `{type: dangerFullAccess}` |
+
+对照 Codex 内置的 approval preset（`utils/approval-presets`：Default 是 on-request + workspace，Full Access 是 never + 不用沙箱）。`approvalPolicy` 字段标的是 `experimental(nested)`，只有 granular 一种要 experimentalApi，字符串值不用；`approvalsReviewer`、`sandboxPolicy` 是稳定字段。config.toml 仍写 `approval_policy = "on-request"`、`sandbox_mode = "workspace-write"`、`approvals_reviewer = "user"`，是 thread 的起点。
+
+- **模型知道当前的模式。** 换了之后 Codex 在请求里放新的权限说明（`<permissions instructions>`：`sandbox_mode` is `danger-full-access`…、Approval policy is currently never…），经网关的模型也有（Wevir 的 base.md 在它之前，§3）。完全访问下 Codex 拒绝模型申请提权（“approval policy is Never; reject command”），模型照说明直接运行。
+- **自动批准用会话自己的模型。** Codex 的审查子 agent 优先用它偏好的审查模型；模型目录里没有时回落到父 thread 的模型（`ext/guardian-reviewer` 的 `select_review_model`）。经网关的 Provider 的目录里都没有，所以审查请求经网关发给会话所用的模型，带 Codex 的审查说明（`prompts/templates/guardian/policy_template.md`），模型回 `{"outcome":"allow"|"deny", "risk_level", "rationale"…}`。允许的照常执行；拒绝的不产生审批请求，命令以失败结束，输出里是“This action was rejected due to unacceptable risk. Reason: …”。ChatGPT 进程的目录里有偏好的审查模型，用的是它。审查过程的通知 `item/autoApprovalReview/started` / `completed` 与 `guardianWarning` 在 `IGNORED_NOTIFICATIONS` 里（§9 留了投影审查结论）。Wevir 自己的 `prompts/auto-review.md`（Host 侧复核员）仍未接入。
+- **子会话** 由 Codex 驱动、不经 `turn/start`，沿用父回合的设置；`configureSession` 对子会话报 `invalid_input`。
+- 验证：`codex-adapter.configure.test.ts`（假 app-server 记下的三项）与 `codex-adapter.permissions.integration.test.ts`（真实二进制 + 网关 + mock 模型：完全访问下越界命令不审批直接执行、权限说明随之更新；自动批准下审查请求发给会话的模型，允许的执行、拒绝的失败，都不问用户；换回请求批准后照常审批）。
+
 ## 5. Provider
 
 ### 5.1 网关实例与令牌
@@ -458,5 +475,6 @@ ADR-0005 决策 4 第 ① 行：ChatGPT 订阅经 app-server 自己的 `account/
 - ~~R4：子 thread 改为子会话（§6.5），子 agent 的审批在父会话里处理（§6.6）~~ 已做。子会话要不要单独的停止按钮（Codex 终端界面允许直接中断子 agent）留给维护者；`send_input`、`resume_agent` 让子会话再开始回合已按 C2 / C5 处理，但没有录到样本。
 - ~~R6：ChatGPT 登录的会话不经网关，标题走临时 thread（§4.4 的 `titleVia`）~~ 已做（§8）。ChatGPT 会话的回合没有自动化测试（工作区路由要求 https 的后端，mock 不了），靠维护者用真实账号验收。
 - 打包任务：安装包里提示词的位置（`promptsDir` 选项；Host 的 `promptsDir`）。二进制的位置 R9 已定（资源目录，§1）。
-- “以后以这个前缀开头的命令不再问”（execpolicy 修订）与网络策略修订：要 Host 记规则（§6.6）。
+- “以后以这个前缀开头的命令不再问”（execpolicy 修订）与网络策略修订：要 Host 记规则（§6.6）。U15 起审批卡片只给“拒绝 / 允许”，长期放开改用权限模式（§4.7）。
+- 自动批准的审查结论（`item/autoApprovalReview/completed` 的 `riskLevel`、`rationale`）投影到对应工具的那一行，以及审查拒绝后用户再批准（`thread/approveGuardianDeniedAction`）：U15 没做（§4.7）。
 - ~~`turn/steer`（回合进行中追加输入）~~ R11 已接上（§4.5）。

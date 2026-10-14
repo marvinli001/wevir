@@ -252,6 +252,7 @@ interface SessionSnapshot {
 |---|---|---|---|
 | `id`、`workspaceId`、`cwd`、`engine` | 身份与映射（§1.1） | 会话管理器（T2.3），`session.create` | 不可改 |
 | `providerId`、`modelId`、`reasoningEffort` | 创建时选定；0.9.0 起 `modelId` 与 `reasoningEffort` 可在会话中换（`session.configure`，引擎支持时，Host 功能 `session_configure`），从下一个回合起生效 | `session.create`；`session.configured`（0.9.0） | `providerId` 不可改；模型只能在同一个 Provider 的模型里换 |
+| `permissionMode` | 0.11.0：创建时选定、可在会话中换（`session.configure`），从下一个回合起生效；省略即 `on_request`（§3.9） | `session.create`；`session.configured` | 引擎不支持权限模式时只有 `on_request`（不带这个字段） |
 | `title`、`titleSource` | 首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3）。适配器实现了 `generateTitle` 时（Codex），引擎接受第一个回合后 Host 再用会话的模型生成一次（prompts/thread-title.md，R3）：成功、且那时标题仍是截断的那个才写 `session.title_changed`（`generated`，带 `description` 检索摘要），失败只记告警 | 首个 `user.message` 时 Host 写 `session.title_changed`（`first_prompt`），之后可能再写一条（`generated`） | 用户改名（方法在 T1.2 之后按需加；改过名的会话不再自动生成） |
 | `state`、`activeTurn`、`lastError` | 状态机（§4） | Host | 只由状态机修改 |
 | `readOnly` | 引擎会话恢复不了（§4.4），状态是 `error` 或 `closed` | `session.read_only` | 之后的 `session.resumed` 清除 |
@@ -581,6 +582,26 @@ interface QuestionRequest {
 
 ---
 
+### 3.9 权限模式（0.11.0，U15）
+
+Agent 要越过工作区的限制（写工作区外的文件、联网、在沙箱外运行命令）时怎么批准，按会话选。维护者 2026-10-15 定为三种，照 Codex 桌面端与 Claude Code：
+
+```ts
+// → protocol
+type PermissionMode = 'on_request' | 'auto_review' | 'full_access'
+```
+
+| 模式 | 界面上叫 | 含义 | Codex 的做法（codex-event-mapping.md §4.7） |
+|---|---|---|---|
+| `on_request` | 请求批准（默认） | 沙箱限在工作区，越界的操作逐个问用户（§5 的审批） | `approvalPolicy: on-request`、`sandboxPolicy: workspaceWrite` |
+| `auto_review` | 自动批准 | 同样的沙箱；越界的操作先由会话所用的模型按审查规则判断，低风险的允许，有风险的拒绝并把理由告诉 Agent，不问用户 | 同上，加 `approvalsReviewer: auto_review`（Codex 的审查子 agent） |
+| `full_access` | 完全访问 | 不用沙箱、不审批，可以访问互联网与电脑上的任何文件 | `approvalPolicy: never`、`sandboxPolicy: dangerFullAccess` |
+
+- 建会话时定（`session.create` 的 `permissionMode`，省略是 `on_request`），可在会话中换（`session.configure`），从下一个回合起生效，进行中的回合不受影响。值记在 `session.created` / `session.configured` 里，`sessions` 表的 `permission_mode` 列是推导的缓存（迁移 `0003_permission_mode`）。
+- 引擎在适配器上声明支持的模式（`permissionModes`），Host 据此声明 `permission_modes`；不支持的引擎（dsh）只有 `on_request`，会话不带这个字段。
+- 子 agent 的子会话沿用父会话当时的模式（Codex 的子 thread 继承父回合的审批与沙箱设置）。
+- 自动批准不产生审批请求，也不另出事件：允许的操作照常执行，拒绝的以工具失败结束、拒绝理由在工具输出里（审查过程的通知暂不投影，codex-event-mapping.md §9）。
+
 ## 4. 会话状态机
 
 ```mermaid
@@ -787,7 +808,7 @@ stateDiagram-v2
 | `session.resumed` | host | 引擎会话重新挂上，带引擎版本（0.3.0） | `session.resume`、send 前的自动 resume（§4.4） |
 | `session.read_only` | host | 引擎会话恢复不了，会话只读（0.3.0） | 适配器的 `session_lost`（§4.4） |
 | `session.title_changed` | host | 标题变化 | 首个 `user.message`；用户改名 |
-| `session.configured` | host | 模型或推理档位变了（0.9.0），带改后的全部值，下一个回合起生效 | `session.configure` |
+| `session.configured` | host | 模型、推理档位（0.9.0）或权限模式（0.11.0）变了，带改后的全部值，下一个回合起生效 | `session.configure` |
 | `session.state_changed` | host | 状态机转换（§4.1） | Host |
 | `user.message` | host | 用户发出的消息 | `session.send`（ACP 不回发用户消息） |
 | `turn.started` | host | 回合开始 | `session.send` 被接受，Host 发出 `session/prompt` |

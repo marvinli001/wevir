@@ -85,19 +85,15 @@ describe('approvalLayout（U13）', () => {
     { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel', category: 'reject' },
   ] as const;
 
-  it('拒绝在左、允许在右，第一个允许是主按钮排最右；数字键从左到右；拒绝并停止接 Esc', () => {
+  it('只有拒绝与允许：Codex 的拒绝取“拒绝并停止”，允许取只允许这一次', () => {
     const layout = approvalLayout(codex);
-    const ids = (options: readonly { optionId: string }[]) => options.map((o) => o.optionId);
-    expect(ids(layout.start)).toEqual(['decline', 'cancel']);
-    expect(ids(layout.end)).toEqual(['acceptForSession', 'accept']);
-    expect(layout.primary?.optionId).toBe('accept');
-    expect(layout.escape?.optionId).toBe('cancel');
-    expect(ids(layout.numbered)).toEqual(['decline', 'cancel', 'acceptForSession', 'accept']);
+    expect(layout.reject?.optionId).toBe('cancel');
+    expect(layout.allow?.optionId).toBe('accept');
+    expect(layout.numbered.map((o) => o.optionId)).toEqual(['cancel', 'accept']);
   });
 
-  it('ACP 的选项没有接 Esc 的一项', () => {
+  it('ACP 的选项：第一个拒绝类与第一个允许类', () => {
     const layout = approvalLayout(approval(null).options);
-    expect(layout.escape).toBeUndefined();
     expect(layout.numbered.map((o) => o.kind)).toEqual(['reject_once', 'allow_once']);
   });
 });

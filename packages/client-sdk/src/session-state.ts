@@ -51,6 +51,9 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       next.modelId = event.payload.modelId;
       if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;
       else next.reasoningEffort = event.payload.reasoningEffort;
+      // 0.11.0 之前的 Host 不带权限模式：那时只有 on_request，省略即是。
+      if (event.payload.permissionMode === undefined) delete next.permissionMode;
+      else next.permissionMode = event.payload.permissionMode;
       break;
     case 'session.state_changed': {
       next.state = event.payload.to;

@@ -86,6 +86,10 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'item/reasoning/summaryPartAdded',
   'thread/status/changed',
   'thread/started',
+  // 自动批准（0.11.0，§4.7）的审查过程与结论：允许的照常执行，拒绝的以工具失败结束、理由在输出里，不另出事件。
+  'item/autoApprovalReview/started',
+  'item/autoApprovalReview/completed',
+  'guardianWarning',
 ] as const);
 
 /** 这些 item 不产生事件：用户消息由 Host 自己记（`user.message`）。 */

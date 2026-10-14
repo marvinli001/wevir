@@ -6,13 +6,14 @@ import type {
   EngineAccounts,
   EngineSession,
   PendingApproval,
+  PermissionMode,
   ProviderConfig,
   ProviderIssue,
   ProviderTestResult,
   SessionConfig,
   TitleRequest,
 } from '@wevir/runtime-adapter';
-import { CodexAdapter, type CodexAdapterOptions } from './codex-adapter.js';
+import { CodexAdapter, type CodexAdapterOptions, PERMISSION_MODES } from './codex-adapter.js';
 
 export type CodexRuntimeOptions = Omit<CodexAdapterOptions, 'mode'>;
 
@@ -29,6 +30,8 @@ export type CodexRuntimeOptions = Omit<CodexAdapterOptions, 'mode'>;
  * 引擎会话 ID 找回它（子会话由派出它的那个进程认出）。
  */
 export class CodexRuntime implements AgentRuntimeAdapter {
+  /** 两个进程都是 CodexAdapter，权限模式相同（0.11.0）。 */
+  readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   readonly gateway: CodexAdapter;
   readonly chatgpt: CodexAdapter;
   readonly accounts: EngineAccounts;
@@ -86,7 +89,7 @@ export class CodexRuntime implements AgentRuntimeAdapter {
 
   configureSession(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string },
+    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
   ): Promise<void> {
     return this.#forSession(engineSessionId).configureSession(engineSessionId, config);
   }

@@ -150,6 +150,12 @@ export interface TextUserInput {
   text_elements: never[];
 }
 
+/** v2/ApprovalsReviewer.ts：`auto_review` 由 Codex 的审查子 agent 用会话的模型判断（旧名 `guardian_subagent`）。 */
+export type ApprovalsReviewer = 'user' | 'auto_review';
+
+/** v2/SandboxPolicy.ts 里本包用到的两种（`type` 是判别字段；workspaceWrite 的其余字段取默认值）。 */
+export type SandboxPolicy = { type: 'dangerFullAccess' } | { type: 'workspaceWrite' };
+
 /** v2/TurnStartParams.ts 的稳定字段里本包用到的。 */
 export interface TurnStartParams {
   threadId: string;
@@ -158,6 +164,15 @@ export interface TurnStartParams {
   model?: string | null;
   /** 这个回合及之后的推理强度（ReasoningEffort.ts）。 */
   effort?: string | null;
+  /**
+   * 这个回合及之后的审批策略（v2/AskForApproval.ts；字段是 `experimental(nested)`，只有 granular 一种要 experimentalApi，
+   * 本包只用 `on-request` 与 `never`，权限模式 0.11.0）。
+   */
+  approvalPolicy?: AskForApproval | null;
+  /** 这个回合及之后审批请求交给谁审（v2/ApprovalsReviewer.ts，稳定字段）。 */
+  approvalsReviewer?: ApprovalsReviewer | null;
+  /** 这个回合及之后的沙箱（v2/SandboxPolicy.ts，稳定字段）。 */
+  sandboxPolicy?: SandboxPolicy | null;
   /** 约束最终助手消息的 JSON Schema（生成标题用）。 */
   outputSchema?: unknown;
 }

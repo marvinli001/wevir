@@ -15,8 +15,8 @@ export interface SessionErrorRecord {
 }
 
 /**
- * `sessions` 表的一行。身份字段（`id` 到 `parentToolCallId`）创建后不变，`modelId` 与 `reasoningEffort` 除外：0.9.0 起
- * 可由 `session.configured` 事件改，同 `title` 之后的列一样是由事件推导的缓存，与事件不一致时以事件为准
+ * `sessions` 表的一行。身份字段（`id` 到 `parentToolCallId`）创建后不变，`modelId`、`reasoningEffort` 与 `permissionMode`
+ * 除外：0.9.0 起（权限模式 0.11.0 起）可由 `session.configured` 事件改，同 `title` 之后的列一样是由事件推导的缓存，与事件不一致时以事件为准
  * （domain-model §3.3）。
  */
 export interface SessionRecord {
@@ -31,6 +31,8 @@ export interface SessionRecord {
   providerId: string;
   modelId: string;
   reasoningEffort?: string;
+  /** 权限模式（U15，0003_permission_mode）：省略表示 `on_request`。 */
+  permissionMode?: string;
   /** 子会话的父会话（R4，0002_subagents）；普通会话没有。 */
   parentSessionId?: string;
   /** 子会话：父会话里派出它的工具调用。 */
@@ -49,6 +51,7 @@ export interface SessionRecord {
 export interface SessionCachePatch {
   modelId?: string;
   reasoningEffort?: string | null;
+  permissionMode?: string;
   title?: string;
   titleSource?: string;
   state?: string;
@@ -86,6 +89,7 @@ export interface SessionRepository {
 const PATCH_COLUMNS = {
   modelId: 'model_id',
   reasoningEffort: 'reasoning_effort',
+  permissionMode: 'permission_mode',
   title: 'title',
   titleSource: 'title_source',
   state: 'state',
@@ -99,11 +103,11 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const insert = db.prepare(`
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
-      parent_session_id, parent_tool_call_id,
+      permission_mode, parent_session_id, parent_tool_call_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
-      :parentSessionId, :parentToolCallId,
+      :permissionMode, :parentSessionId, :parentToolCallId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM sessions WHERE id = ?');
@@ -138,6 +142,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         providerId: record.providerId,
         modelId: record.modelId,
         reasoningEffort: record.reasoningEffort ?? null,
+        permissionMode: record.permissionMode ?? null,
         parentSessionId: record.parentSessionId ?? null,
         parentToolCallId: record.parentToolCallId ?? null,
         title: record.title,
@@ -209,6 +214,8 @@ function fromRow(row: SqlRow): SessionRecord {
   };
   const reasoningEffort = optionalText(row, 'reasoning_effort');
   if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+  const permissionMode = optionalText(row, 'permission_mode');
+  if (permissionMode !== undefined) record.permissionMode = permissionMode;
   const parentSessionId = optionalText(row, 'parent_session_id');
   if (parentSessionId !== undefined) record.parentSessionId = parentSessionId;
   const parentToolCallId = optionalText(row, 'parent_tool_call_id');

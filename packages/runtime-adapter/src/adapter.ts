@@ -8,6 +8,7 @@ import type {
   ApprovalDecision,
   EngineSession,
   PendingApproval,
+  PermissionMode,
   ProviderConfig,
   ProviderIssue,
   ProviderTestResult,
@@ -90,16 +91,23 @@ export interface AgentRuntimeAdapter {
   steer?(engineSessionId: string, steerId: string, input: AgentInput): Promise<void>;
 
   /**
-   * 换会话的模型或推理档位（0.9.0，`session.configure`）：从下一个回合起用新的值，进行中的回合不受影响（Codex：下一个
-   * `turn/start` 带 `model` 与 `effort`）。`reasoningEffort` 省略表示不指定，用模型的默认档位。会话没挂着（关闭、脱开）
-   * 时 Host 不调它，之后 `resumeSession` 的配置里就是新的值。不实现表示引擎不能在会话中换（dsh），Host 不声明
-   * `session_configure`。
+   * 换会话的模型、推理档位（0.9.0，`session.configure`）或权限模式（0.11.0）：Host 每次给全部当前值，从下一个回合起用新的
+   * 值，进行中的回合不受影响（Codex：下一个 `turn/start` 带 `model`、`effort` 与审批、沙箱设置）。`reasoningEffort` 省略
+   * 表示不指定，用模型的默认档位；`permissionMode` 省略表示 `on_request`。会话没挂着（关闭、脱开）时 Host 不调它，之后
+   * `resumeSession` 的配置里就是新的值。不实现表示引擎不能在会话中换（dsh），Host 不声明 `session_configure`。
    * 错误：`session_not_found`、`invalid_input`（Provider 没有这个模型、子会话）、`disposed`。
    */
   configureSession?(
     engineSessionId: string,
-    config: { modelId: string; reasoningEffort?: string },
+    config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
   ): Promise<void>;
+
+  /**
+   * 引擎支持的权限模式（0.11.0）。有它 Host 才声明 `permission_modes`，接受 `session.create` / `session.configure` 的
+   * `permissionMode`，并在建会话、恢复、`configureSession` 时交给引擎；没有表示引擎只有自己的审批方式（dsh：ACP 的审批），
+   * Host 只接受 `on_request`。
+   */
+  readonly permissionModes?: readonly PermissionMode[];
 
   /**
    * 回复一个未决审批（dsh：ACP `{"outcome":{"outcome":"selected","optionId":…}}`）。审批随即不再未决，

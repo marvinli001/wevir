@@ -29,7 +29,6 @@ import {
   type ApprovalLayout,
   approvalLayout,
   decidedHere,
-  optionLabel,
   presentApproval,
   resolutionText,
 } from './approval-model';
@@ -143,8 +142,8 @@ export function ApprovalDock({
 
 /**
  * 一个审批（U13 起照 Claude Code 的权限提示）：一句问话做标题，下面是 Agent 给的理由、所需权限（警示色）与放在代码块里的
- * 目标（命令全文或路径），写文件再附内容预览；底部拒绝类在左、允许类在右，主按钮（第一个允许类）在最右。键盘：数字键按
- * 从左到右选，⌘↵ 是主按钮，Esc 是“拒绝并停止”（有这一项时）。焦点在卡片里、或不在任何输入框里时生效；卡片出现时把焦点
+ * 目标（命令全文或路径），写文件再附内容预览；底部只有两个按钮（U15）：左边“拒绝”（1、Esc），右边“允许”（2、⌘↵，主按钮），
+ * 取哪个选项见 approval-model.ts 的 `approvalLayout`。快捷键在焦点在卡片里、或不在任何输入框里时生效；卡片出现时把焦点
  * 拿过来，除非用户正在输入框里打字。
  */
 function ApprovalCard({
@@ -199,8 +198,9 @@ function ApprovalCard({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [busy, layout]);
 
-  const button = (option: ApprovalOption) => {
-    const primary = option === layout.primary;
+  const button = (option: ApprovalOption | undefined) => {
+    if (option === undefined) return null;
+    const primary = option === layout.allow;
     return (
       <Button
         key={option.optionId}
@@ -211,11 +211,10 @@ function ApprovalCard({
         onClick={() => onRespond(option.optionId)}
         className="h-8 gap-1.5 pr-1.5 pl-3"
       >
-        {optionLabel(option)}
+        {t(primary ? 'approval.allow' : 'approval.reject')}
         <span className="flex gap-0.5">
           <Kbd primary={primary}>{layout.numbered.indexOf(option) + 1}</Kbd>
-          {option === layout.escape && <Kbd primary={primary}>Esc</Kbd>}
-          {primary && <Kbd primary>{IS_MAC ? '⌘↵' : 'Ctrl ↵'}</Kbd>}
+          {primary ? <Kbd primary>{IS_MAC ? '⌘↵' : 'Ctrl ↵'}</Kbd> : <Kbd>Esc</Kbd>}
         </span>
       </Button>
     );
@@ -281,8 +280,8 @@ function ApprovalCard({
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
       </div>
       <footer className="mt-3.5 flex flex-wrap items-center gap-2 px-3 pb-3">
-        {layout.start.map(button)}
-        <span className="ml-auto flex flex-wrap justify-end gap-2">{layout.end.map(button)}</span>
+        {button(layout.reject)}
+        <span className="ml-auto">{button(layout.allow)}</span>
       </footer>
     </section>
   );
@@ -305,12 +304,12 @@ function Kbd({ primary = false, children }: { primary?: boolean; children: React
   );
 }
 
-/** 这次按键选哪个选项：数字键、⌘↵（主按钮）、Esc（拒绝并停止）。 */
+/** 这次按键选哪个选项：数字键、⌘↵（允许）、Esc（拒绝）。 */
 function shortcutOption(event: KeyboardEvent, layout: ApprovalLayout): ApprovalOption | undefined {
   const modified = event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
-  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) return layout.primary;
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) return layout.allow;
   if (modified) return undefined;
-  if (event.key === 'Escape') return layout.escape;
+  if (event.key === 'Escape') return layout.reject;
   const digit = Number.parseInt(event.key, 10);
   return digit >= 1 ? layout.numbered[digit - 1] : undefined;
 }

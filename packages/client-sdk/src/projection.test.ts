@@ -563,6 +563,12 @@ describe('applySessionEvent', () => {
     const cleared = list.reduce(applySessionEvent, base);
     expect(cleared.modelId).toBe('deepseek-chat');
     expect(cleared.reasoningEffort).toBeUndefined();
+
+    // 权限模式（0.11.0）：带了就跟着变；不带（旧 Host）即 on_request。
+    add('session.configured', { modelId: 'deepseek-chat', permissionMode: 'full_access' });
+    expect(list.reduce(applySessionEvent, base).permissionMode).toBe('full_access');
+    add('session.configured', { modelId: 'deepseek-chat' });
+    expect(list.reduce(applySessionEvent, base).permissionMode).toBeUndefined();
   });
 
   it('已应用的 seq 与别的会话的事件原样返回', () => {

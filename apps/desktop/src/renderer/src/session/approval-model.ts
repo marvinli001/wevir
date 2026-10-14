@@ -60,30 +60,25 @@ export function presentApproval(approval: ApprovalRequest): ApprovalPresentation
 }
 
 /**
- * 选项按钮怎么排（照 Claude Code）：拒绝类在左，允许类在右，第一个允许类是主按钮、排在最右（⌘↵）；数字键按从左到右的
- * 顺序。Codex 的“拒绝并停止”（`reject_cancel`）还接 Esc，同输入框里 Esc 停止回合的意思一致；别的引擎没有这一项，Esc
- * 照旧停止回合。
+ * 审批只给两个按钮（照 Claude Code 与 Codex，维护者 2026-10-15 定）：左边“拒绝”（1、Esc），右边“允许”（2、⌘↵，主按钮）。
+ * 拒绝取 Codex 的“拒绝并停止”（`reject_cancel`：停下回合等用户说怎么做，同两者的 No / Deny），没有时取第一个拒绝类；允许取
+ * 第一个允许类（只允许这一次）。“本会话不再询问”这类选项不再出现，长期放开改用权限模式（自动批准、完全访问，0.11.0）。
  */
 export interface ApprovalLayout {
-  start: ApprovalOption[];
-  end: ApprovalOption[];
-  primary: ApprovalOption | undefined;
-  escape: ApprovalOption | undefined;
+  reject: ApprovalOption | undefined;
+  allow: ApprovalOption | undefined;
   /** 从左到右，第 i 个对应数字键 i + 1。 */
   numbered: ApprovalOption[];
 }
 
 export function approvalLayout(options: readonly ApprovalOption[]): ApprovalLayout {
-  const start = options.filter((option) => option.category === 'reject');
-  const allows = options.filter((option) => option.category === 'allow');
-  const primary = allows[0];
-  const end = primary ? [...allows.slice(1), primary] : allows;
+  const rejects = options.filter((option) => option.category === 'reject');
+  const reject = rejects.find((option) => option.kind === 'reject_cancel') ?? rejects[0];
+  const allow = options.find((option) => option.category === 'allow');
   return {
-    start,
-    end,
-    primary,
-    escape: start.find((option) => option.kind === 'reject_cancel'),
-    numbered: [...start, ...end],
+    reject,
+    allow,
+    numbered: [reject, allow].filter((option) => option !== undefined),
   };
 }
 

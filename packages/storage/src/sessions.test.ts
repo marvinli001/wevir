@@ -92,6 +92,14 @@ describe('sessions', () => {
     expect(s.sessions.get('ses_01')?.reasoningEffort).toBeUndefined();
   });
 
+  it('权限模式（0.11.0）：没写时省略，表示 on_request；可由 session.configured 改', () => {
+    const s = storage();
+    seedSession(s);
+    expect(s.sessions.get('ses_01')?.permissionMode).toBeUndefined();
+    s.sessions.update('ses_01', { permissionMode: 'full_access' });
+    expect(s.sessions.get('ses_01')?.permissionMode).toBe('full_access');
+  });
+
   it('列表按更新时间倒序，默认隐藏已移除工作区的会话，可按工作区过滤', () => {
     const s = storage();
     s.workspaces.insert(workspace({ id: 'ws_a', rootPath: '/a' }));

@@ -1,37 +1,39 @@
 import { stat } from 'node:fs/promises';
 import { isDeepStrictEqual } from 'node:util';
-import type {
-  ApprovalDetail,
-  ApprovalId,
-  ApprovalOption,
-  ApprovalRequest,
-  ApprovalResolution,
-  ClientIdentity,
-  EngineErrorCategory,
-  EngineErrorInfo,
-  MethodParams,
-  MethodResult,
-  PendingMessage,
-  PendingMessageId,
-  ProviderId,
-  QuestionId,
-  QuestionRequest,
-  QuestionResolution,
-  ResolvedApprovalStatus,
-  Session,
-  SessionId,
-  SessionReadOnlyReason,
-  SessionSnapshot,
-  SessionState,
-  StateChangeReason,
-  StreamBlockRef,
-  StreamId,
-  SubagentSummary,
-  ToolDisplay,
-  TurnId,
-  TurnOutcome,
-  UserContentPart,
-  WorkspaceId,
+import {
+  type ApprovalDetail,
+  type ApprovalId,
+  type ApprovalOption,
+  type ApprovalRequest,
+  type ApprovalResolution,
+  type ClientIdentity,
+  DEFAULT_PERMISSION_MODE,
+  type EngineErrorCategory,
+  type EngineErrorInfo,
+  type MethodParams,
+  type MethodResult,
+  type PendingMessage,
+  type PendingMessageId,
+  type PermissionMode,
+  type ProviderId,
+  type QuestionId,
+  type QuestionRequest,
+  type QuestionResolution,
+  type ResolvedApprovalStatus,
+  type Session,
+  type SessionId,
+  type SessionReadOnlyReason,
+  type SessionSnapshot,
+  type SessionState,
+  type StateChangeReason,
+  type StreamBlockRef,
+  type StreamId,
+  type SubagentSummary,
+  type ToolDisplay,
+  type TurnId,
+  type TurnOutcome,
+  type UserContentPart,
+  type WorkspaceId,
 } from '@wevir/protocol';
 import {
   type AgentEvent,
@@ -344,6 +346,8 @@ export class SessionManager {
       modelId: params.modelId ?? provider.defaultModelId,
     };
     if (params.reasoningEffort !== undefined) config.reasoningEffort = params.reasoningEffort;
+    const permissionMode = this.#permissionMode(params.permissionMode);
+    if (permissionMode !== undefined) config.permissionMode = permissionMode;
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     try {
       engineSession = await this.#adapter.createSession(config);
@@ -373,6 +377,7 @@ export class SessionManager {
         updatedAt: now,
       };
       if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+      if (permissionMode !== undefined) record.permissionMode = permissionMode;
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',
@@ -383,6 +388,7 @@ export class SessionManager {
           providerId: provider.id,
           modelId,
           ...(reasoningEffort !== undefined && { reasoningEffort }),
+          ...(permissionMode !== undefined && { permissionMode }),
           ...(engineSession.engineVersion !== undefined && {
             engineVersion: engineSession.engineVersion,
           }),
@@ -797,10 +803,11 @@ export class SessionManager {
   }
 
   /**
-   * `session.configure`（0.9.0）：换模型或推理档位，从下一个回合起生效，进行中的回合不受影响。`modelId` 要在会话所用
-   * Provider 的模型列表里（Provider 列了模型时）；`reasoningEffort` 为 null、或换了模型而没给时清掉。值变了时先交给引擎
-   * （引擎会话没挂着时不交，之后 resume 的配置里就是新的值），再写 `session.configured`。子会话与只读会话回
-   * `INVALID_STATE`；引擎不支持时回 `ENGINE_ERROR`。
+   * `session.configure`（0.9.0）：换模型或推理档位（0.11.0 起还有权限模式），从下一个回合起生效，进行中的回合不受影响。
+   * `modelId` 要在会话所用 Provider 的模型列表里（Provider 列了模型时）；`reasoningEffort` 为 null、或换了模型而没给时
+   * 清掉；引擎不支持权限模式时 `permissionMode` 只能是 `on_request`。值变了时先把全部当前值交给引擎（引擎会话没挂着时
+   * 不交，之后 resume 的配置里就是新的值），再写 `session.configured`。子会话与只读会话回 `INVALID_STATE`；引擎不支持
+   * 时回 `ENGINE_ERROR`。
    */
   async configure(params: MethodParams<'session.configure'>): Promise<Session> {
     this.#assertOpen();
@@ -839,7 +846,13 @@ export class SessionManager {
           ? undefined
           : (params.reasoningEffort ??
             (modelId === session.modelId ? session.reasoningEffort : undefined));
-      if (modelId === session.modelId && reasoningEffort === session.reasoningEffort) {
+      const permissionMode = this.#permissionMode(params.permissionMode ?? session.permissionMode);
+      if (
+        modelId === session.modelId &&
+        reasoningEffort === session.reasoningEffort &&
+        (permissionMode ?? DEFAULT_PERMISSION_MODE) ===
+          (session.permissionMode ?? DEFAULT_PERMISSION_MODE)
+      ) {
         return session;
       }
       if (runtime.attachment) {
@@ -847,6 +860,7 @@ export class SessionManager {
           await configureSession(runtime.engineSessionId, {
             modelId,
             ...(reasoningEffort !== undefined && { reasoningEffort }),
+            ...(permissionMode !== undefined && { permissionMode }),
           });
         } catch (error) {
           if (isAdapterError(error, 'invalid_input')) {
@@ -862,7 +876,11 @@ export class SessionManager {
         {
           type: 'session.configured',
           source: 'host',
-          payload: { modelId, ...(reasoningEffort !== undefined && { reasoningEffort }) },
+          payload: {
+            modelId,
+            ...(reasoningEffort !== undefined && { reasoningEffort }),
+            ...(permissionMode !== undefined && { permissionMode }),
+          },
         },
       ]);
       return this.#snapshot(runtime).session;
@@ -1671,6 +1689,9 @@ export class SessionManager {
       updatedAt: now,
     };
     if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
+    // 子 agent 沿用父会话当时的权限模式（Codex 的子 thread 继承父回合的审批与沙箱设置）。
+    const permissionMode = this.#snapshot(parent).session.permissionMode;
+    if (permissionMode !== undefined) record.permissionMode = permissionMode;
     this.#storage.sessions.insert(record);
     const child = this.#runtime(childId);
     const title = makeTitle([{ type: 'text', text: event.title }]);
@@ -1684,6 +1705,7 @@ export class SessionManager {
           providerId: parentRecord.providerId,
           modelId,
           ...(reasoningEffort !== undefined && { reasoningEffort }),
+          ...(permissionMode !== undefined && { permissionMode }),
           parent: {
             sessionId: parent.id,
             toolCallId: event.parentToolCallId,
@@ -1925,6 +1947,21 @@ export class SessionManager {
   }
 
   /** 子会话由父 agent 驱动，客户端的 send、cancel、close、resume 都不接受（domain-model §3.3.1）。 */
+  /**
+   * 请求里的权限模式（0.11.0）：引擎声明了 `permissionModes` 时返回它（省略时是 `on_request`，写进会话）；引擎不支持时只
+   * 接受省略或 `on_request`，返回 undefined（会话不带这个字段）。引擎不支持的值回 `INVALID_PARAMS`。
+   */
+  #permissionMode(requested: PermissionMode | undefined): PermissionMode | undefined {
+    const supported = this.#adapter.permissionModes;
+    const mode = requested ?? DEFAULT_PERMISSION_MODE;
+    if (supported === undefined && mode === DEFAULT_PERMISSION_MODE) return undefined;
+    if (supported?.includes(mode)) return mode;
+    const message = `this host engine does not support permission mode ${mode}`;
+    throw new HostError('INVALID_PARAMS', message, {
+      issues: [{ path: ['permissionMode'], message }],
+    });
+  }
+
   #assertNotChild(runtime: SessionRuntime): void {
     if (runtime.parentId === undefined) return;
     throw new HostError(
@@ -2395,6 +2432,9 @@ function sessionConfig(record: SessionRecord): SessionConfig {
     modelId: record.modelId,
   };
   if (record.reasoningEffort !== undefined) config.reasoningEffort = record.reasoningEffort;
+  if (record.permissionMode !== undefined) {
+    config.permissionMode = record.permissionMode as PermissionMode;
+  }
   return config;
 }
 
