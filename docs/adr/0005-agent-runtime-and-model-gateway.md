@@ -1,6 +1,6 @@
 # ADR-0005：Agent 运行时以 Codex app-server 为主，Host 内置模型协议网关
 
-- 状态：Accepted（2026-10-14，维护者在对话中确认；基础提示词一项仍未决，见末尾）
+- 状态：Accepted（2026-10-14，维护者在对话中确认；基础提示词同日定下，见补记 2）
 - 日期：2026-10-14
 - 任务：Codex 运行时调研；影响：新包 `packages/adapter-codex`、`packages/model-gateway`，从 `adapter-dsh` 抽出通用 ACP 适配器，`AgentEvent` 与 Host 协议的子会话扩展，桌面端的子智能体界面，打包
 - 依据：[Codex 研读与 Spike](../research/codex-notes.md)（`spikes/codex-app-server/`，codex `rust-v0.162.1` = 上游 `092d3ac`）；[ADR-0001](./0001-runtime-integration.md)；[dsh 接入 Spike](../research/dsh-integration-spike.md)；[ACP → Wevir 事件映射](../architecture/acp-event-mapping.md)
@@ -134,10 +134,11 @@
 
 ## 未决事项
 
-1. **基础提示词**（维护者尚未决定）。在决定之前的默认做法：ChatGPT 登录用 OpenAI 模型时，沿用 Codex 内置模型目录里按模型调好的提示词；经网关的第三方模型，在生成的模型目录里用 Codex 的 `prompt.md` 原文。建议：第三方模型改用 Wevir 自己的提示词，以 `prompt.md` 为底本改写（Apache-2.0，按 UPSTREAM.md §4、§5 登记与写文件头），去掉“你是 OpenAI 主导的 Codex CLI”这类自我介绍，免得模型对用户自称 Codex；OpenAI 模型仍用 Codex 的。
+1. ~~**基础提示词**~~：已定，经网关的第三方模型用 Wevir 自己的提示词，见补记 2。
 2. **dsh 的可选下载**：从哪里下载（npm 镜像还是 Wevir 自己的发布物）、怎样校验与升级，由打包任务决定。在那之前开发环境照旧经 pnpm 安装 dsh。
 3. **Sign in with ChatGPT（应用自己注册 client ID）**：先不做，只用 app-server 自带的登录；Wevir 有了需要它的形态时再评估。
 4. **Windows 与 Linux 沙箱**：由 adapter-codex 任务在两个平台上实测后补记（Windows 选 MXC 还是旧沙箱、Linux 是否随包带 `bwrap`）。
+5. **计划模式怎样下发**：Codex 的协作模式（`turn/start.collaborationMode`、`thread/settings/update.collaborationMode`）是实验面。开这一项实验面（写补记）就能用上 Codex 原生的计划模式：只在计划模式提供的 `request_user_input`，以及把 `<proposed_plan>` 解析成计划条目；不开就由 Wevir 自己做，计划回合用稳定面的 `sandboxPolicy` 设为只读、把 `prompts/plan-mode.md` 放在用户消息前面，提问退回纯文本、计划要 Wevir 自己从消息里解析。做计划模式的任务决定。
 
 ## 补记
 
@@ -145,3 +146,7 @@
    - Codex 自己的客户端打开了实验面（子 agent 选择器、`canAcceptDirectInput`、审批的 `availableDecisions` 都是实验字段）。Wevir 仍只用稳定面：子会话从 `collabAgentToolCall` 与子 thread 的事件识别，重启后靠 Host 自己的记录；审批用默认的四个选项。
    - `features.goals` 默认开启，模型会拿到三个目标工具。Wevir 暂不支持目标，配置里加 `[features] goals = false`（决策 5 的加固项之外新增一项，R2 核实）。
    - 子 agent 的审批要能在父会话里处理（决策 6.1 的子 agent 视图是只读的）；服务端不生成会话标题，标题由 Wevir 自己生成。
+2. **2026-10-14，基础提示词定下（未决事项 1）。** 维护者决定 Wevir 写自己的提示词，放在仓库根目录的 [`prompts/`](../../prompts/README.md)：
+   - 经网关的第三方模型用 `prompts/base.md`，由 adapter-codex 写进生成的模型目录的 `base_instructions`。它自称 Wevir 并如实报出底层模型与 Provider；工具说明按决策 5 与补记 1 的配置写（联网搜索、目标、插件关闭，`update_plan` 打开，子智能体用 `multi_agent_v1`），配置变了要同步改。ChatGPT 登录的 OpenAI 模型仍用 Codex 内置的、按模型调好的提示词。
+   - 同时写了计划模式（`plan-mode.md`，下发方式见未决事项 5）、审批自动复核（`auto-review.md`，由 Host 调模型，替代决策 5 不开的 `approvals_reviewer = "auto_review"`；结论只映射为“本次允许”或“拒绝并说明理由”）、会话标题（`thread-title.md`，由 Host 生成，见补记 1），以及内置浏览器、Chrome、电脑操作三个插件的技能说明草稿（`prompts/plugins/`，插件未建，工具清单留占位）。MCP、skills、插件与联网搜索在 `base.md` 里留了占位。
+   - `base.md`、`plan-mode.md`、`auto-review.md`、`thread-title.md` 改写自 Codex 开源仓库的模板（Apache-2.0），按 UPSTREAM.md §4、§5 登记并写文件头，`NOTICE` 收录 Codex 的署名与 Apache License 2.0 全文。

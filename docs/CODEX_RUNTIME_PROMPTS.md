@@ -19,7 +19,7 @@
 | R9 | 运行时分发：`codex-app-server` 随应用，dsh 改为可选下载 | R3、R7 | — | [ ] |
 | R10 | 网关加 Anthropic Messages | R1 | 任意时间 | [ ] |
 
-还没定的：基础提示词（ADR-0005 未决事项 1）。定之前 R2 按 ADR 写的默认做法实现。
+基础提示词已定（ADR-0005 补记 2）：经网关的第三方模型用 [`prompts/base.md`](../prompts/README.md)，由 R2 加载。还没定的：计划模式怎样下发（ADR-0005 未决事项 5），不在 R1–R10 里。
 
 ### 界面参考
 
@@ -116,7 +116,7 @@
 ````text
 任务 R2：新建 packages/adapter-codex，实现 AgentRuntimeAdapter 的基础部分：codex-app-server 进程管理、CODEX_HOME 与配置、会话、回合与流式事件；Host 支持 --adapter codex。审批、取消、恢复与完整的契约测试留给 R3。
 
-先读：ADR-0005 决策 1、2、5、6、7；codex-notes §2（app-server 接入面）、§3.1、§3.3（模型目录）、§6（隔离、外连、密钥）、§10（事件映射草案）；spikes/codex-app-server/src/app-server.ts、codex-home.ts、harness.ts；packages/runtime-adapter/src/{adapter,events,types,contract}.ts；packages/adapter-dsh/src/{paths,env,dsh-process,dsh-adapter,capabilities}.ts（同类问题的现有做法）；packages/host/src/cli.ts 的 createAdapter；upstream/codex/codex-rs/app-server-protocol/schema/typescript/（以及 v2/）中用到的类型。
+先读：ADR-0005 决策 1、2、5、6、7；codex-notes §2（app-server 接入面）、§3.1、§3.3（模型目录）、§6（隔离、外连、密钥）、§10（事件映射草案）；spikes/codex-app-server/src/app-server.ts、codex-home.ts、harness.ts；packages/runtime-adapter/src/{adapter,events,types,contract}.ts；packages/adapter-dsh/src/{paths,env,dsh-process,dsh-adapter,capabilities}.ts（同类问题的现有做法）；packages/host/src/cli.ts 的 createAdapter；prompts/README.md 与 prompts/base.md；upstream/codex/codex-rs/app-server-protocol/schema/typescript/（以及 v2/）中用到的类型。
 
 要做：
 1. 二进制：
@@ -124,7 +124,7 @@
    - 解析顺序：环境变量 WEVIR_CODEX_BIN → 开发缓存目录。把 spikes/codex-app-server/scripts/fetch-binary.sh 改写成 scripts/fetch-codex.sh，写全 6 个平台（含 Windows 的 .exe）的资产名与 sha256（从 GitHub API 的 digest 取），下载到开发缓存（例如 .wevir-dev/bin/，gitignore），支持 WEVIR_GITHUB_MIRROR。打包后的位置留给 R9。
 2. 进程（参照 DshProcess）：每个 Host 一个 codex-app-server，第一个会话时启动；CODEX_HOME=<数据目录>/engines/codex 事先建好，进程 cwd 也是它；环境按白名单构造，Key 不进环境，只有网关令牌（WEVIR_GATEWAY_TOKEN）。HOME 用用户真实的家目录（模型跑的命令要用到 git 等配置），但要核实 Codex 在 CODEX_HOME 之外还读哪些用户级目录（例如 ~/.agents/skills），读到就像 dsh 的 DSH_AGENTS_HOME 那样隔离，并写进文档。回收：关 stdin → SIGTERM → SIGKILL；意外退出给每个会话报 engine.exited，有限次重启。
 3. 握手：initialize 的 clientInfo.name 写 'wevir'、version 写 Host 版本，experimentalApi:false；再发 initialized。协议类型手写本包用到的子集，每个类型注明对应的 schema 文件；不整批拷贝生成的类型。
-4. 配置：生成 CODEX_HOME/config.toml 与模型目录（ADR-0005 决策 5 列出的全部加固项，外加补记 1 的 features.goals = false；update_plan 打开；approval_policy on-request、sandbox_mode workspace-write）。每个 Wevir Provider 一个 [model_providers.wevir_<id>]，base_url 是 R1 网关的 baseURL(providerId)，env_key=WEVIR_GATEWAY_TOKEN，名字不能是 "OpenAI"（codex-notes §6.4）。模型目录由 ProviderConfig.models 生成：apply_patch_tool_type "freeform"、上下文大小、推理档位；基础提示词按 ADR-0005 未决事项 1 的默认做法（Codex 的 prompt.md 原文，文件头与 UPSTREAM.md 登记）。启动时带 --strict-config，配置写错就失败。
+4. 配置：生成 CODEX_HOME/config.toml 与模型目录（ADR-0005 决策 5 列出的全部加固项，外加补记 1 的 features.goals = false；update_plan 打开；approval_policy on-request、sandbox_mode workspace-write）。每个 Wevir Provider 一个 [model_providers.wevir_<id>]，base_url 是 R1 网关的 baseURL(providerId)，env_key=WEVIR_GATEWAY_TOKEN，名字不能是 "OpenAI"（codex-notes §6.4）。模型目录由 ProviderConfig.models 生成：apply_patch_tool_type "freeform"、上下文大小、推理档位；基础提示词用 prompts/base.md（ADR-0005 补记 2）：按 prompts/README.md 的模板语法渲染（先删 HTML 注释，再替换 model_display_name、provider_display_name，渲染结果不得残留 {{），写进每个模型条目的 base_instructions；ChatGPT 登录的 OpenAI 模型不覆盖。启动时带 --strict-config，配置写错就失败。
 5. Provider 变更（configureProviders）：先核实 thread/start 的 config 覆盖能不能带上新增的 model_providers 条目；能就不重启进程，不能就照 dsh 的做法空闲时重启、会话以 engine.exited(config_changed) 脱开。网关实例由 adapter-codex 创建并持有（在 Host 进程里），configureProviders 时同步给网关；testProvider 转给网关；validateProvider 报出网关不支持的协议。
 6. 会话与回合：createSession → thread/start {cwd, model, modelProvider, approvalPolicy, sandbox}，threadId 即 engineSessionId；send → turn/start，引擎接受就返回；close 先用 thread/unsubscribe（核实语义）。
 7. 事件：按 codex-notes §10 映射 assistant.delta / assistant.message / assistant.stream_ended / assistant.thought、tool.started / tool.updated / tool.finished（declined 先映射为 failed，拒绝的语义由审批事件承担）、usage.updated（上下文大小取模型目录）、turn.settled / turn.failed、engine.exited；不认识的进 engine.raw。工具的 display 直接由 item 类型与 commandActions 得出（不需要 dsh 那样按工具名猜，docs/architecture/domain-model.md §7；只读、列目录、搜索的命令归为读取 / 搜索类，与桌面端已有的聚合规则对上）。usage.updated 的已用量取 thread/tokenUsage/updated 的 last.totalTokens（codex-notes §2.7 的口径）。error 通知里 willRetry 为 true 的不当作回合失败。子 thread 的事件本任务先按 engine.raw 上报，R4 再处理。

@@ -162,7 +162,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 结论与义务：
 
-- 目前只作参考和 Spike 里运行，**不移植源码**。将来随安装包分发 `codex-app-server` 二进制时，按 Apache-2.0 第 4 条随附 `LICENSE` 全文与 `NOTICE` 的署名内容（4(a)、4(d)），由打包任务汇总进第三方声明；Linux 包若带上 `bwrap`，另按 LGPL-2.0 提供其源码获取方式。
+- 移植了四份提示词文本（§4 的 `prompts/*.md`，ADR-0005 补记 2），没有移植代码。它们按 Apache-2.0 第 4 条处理：文件头写明来源、版权与修改（4(b)、4(c)），根目录 `NOTICE` 收录 Codex `NOTICE` 中与之相关的署名（`OpenAI Codex`、`Copyright 2025 OpenAI`）与 Apache License 2.0 全文（4(a)、4(d)）；Ratatui 那一条只涉及 TUI 代码，与这些文件无关，不收录。将来随安装包分发 `codex-app-server` 二进制时，按 Apache-2.0 第 4 条随附 `LICENSE` 全文与 `NOTICE` 的署名内容（4(a)、4(d)），由打包任务汇总进第三方声明；Linux 包若带上 `bwrap`，另按 LGPL-2.0 提供其源码获取方式。
 - 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证在打包前另做一次核对，方法同 §2.1 对 npm 闭包的做法。
 - 不得使用 OpenAI 或 Codex 的名称与商标，说明来源的用途除外（Apache-2.0 第 6 条）。
 
@@ -188,6 +188,10 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 | `apps/desktop/src/renderer/src/session/scroll-controller.ts` | OpenWork `apps/app/src/react-app/domains/session/surface/scroll-controller.ts`（另参照同目录 `scroll-store.ts`、`scroll-overlay.tsx`） | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T5.3，OpenWork 候选 #3）：保留贴底 / 手动两种模式的状态机（只有真实输入手势能切换模式、ResizeObserver 对账、`overflow-anchor` 随模式切换、键盘焦点把旧内容滚进视野时转手动、发送即回到贴底）；去掉移动端轮次留白、滚动位置与几何信息的持久化、历史分页、“跳到消息开头”，状态不进全局 store，只交出“是否贴底”给“跳到最新”按钮 |
 | `apps/desktop/src/renderer/src/session/tool-model.ts` | OpenWork `apps/app/src/lib/tool-aggregate.ts`、`apps/app/src/lib/current-tool-lifecycle.ts` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T5.3，OpenWork 候选 #6）：分类从 OpenCode 工具名换成 Wevir 的展示类型（`ToolDisplay.kind`），只聚合读取与搜索；标题改为中文计数；聚合内的思考按原顺序保留；“回合停止后未收尾的工具显示状态未知”照搬，另加“被拒绝” |
 | `apps/desktop/src/renderer/src/session/approval-card.tsx` | OpenWork `apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | MIT | 改写（T5.3，OpenWork 候选 #9）：保留输入框上方的内联面板、一次只显示第一个、可折叠的完整参数；按钮按审批请求携带的选项渲染，内容取同一 `toolCallId` 的 `rawInput`（`ApprovalRequest.detail`），标出“还有 N 个待审批”，另一端先处理时按 `approval.resolved` 收起并提示处理者 |
+| `prompts/base.md` | Codex `codex-rs/protocol/src/prompts/base_instructions/default.md` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 改写（ADR-0005 补记 2）：用中文重写并重排；自我介绍改为 Wevir 与实际的底层模型；保留 AGENTS.md 规则、编辑与 git 约束、验证、审查、`update_plan` 的用法；按 Wevir 的 Codex 配置重写工具说明并补上子智能体；新增授权与确认、不可信内容、过程说明与最终回答、中文写作要求；skills、插件、MCP、联网搜索留占位 |
+| `prompts/plan-mode.md` | Codex `codex-rs/collaboration-mode-templates/templates/plan.md` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 改写（ADR-0005 补记 2）：用中文重写，结构与规则不变；补充只读阶段能做与不能做的例子，最终计划的小节名改为中文，`<proposed_plan>` 标签保持原样 |
+| `prompts/auto-review.md` | Codex `codex-rs/prompts/templates/guardian/policy_template.md`、`policy.md`、`node_repl_policy.md` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 改写（ADR-0005 补记 2）：用中文重写并合并三份模板，默认策略写进正文，组织策略改为用户配置的可信目的地与补充规则；输入改为 Host 拼装的 `<transcript>` 与 `<planned_action>`；第一版不给复核员工具，“先做只读检查”改为“信息不足时从严”；补充国内常见的外发目的地；`rationale` 用用户的语言 |
+| `prompts/thread-title.md` | Codex `codex-rs/tui/src/app/thread_title.rs`（`thread_title_instructions` 等函数里的说明文字） | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 改写（ADR-0005 补记 2）：用中文重写标题规则；中文与其他语言分别给长度上限；增加检索摘要字段；补充只有链接或编号、寒暄、按最近对话重新生成三种情况；示例改为中文为主 |
 
 ### 4.1 其他第三方来源的文件
 
@@ -220,6 +224,18 @@ Apache-2.0 来源（Paseo）：
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra
 // 由 Wevir 修改：<改了什么>
+```
+
+Apache-2.0 来源的 Markdown（Codex 的提示词模板，`prompts/*.md`）写在文件开头的 HTML 注释里，加载方渲染时删掉（prompts/README.md）：
+
+```md
+<!--
+SPDX-License-Identifier: Apache-2.0
+改写自 openai/codex codex-rs/<path>.md
+来源提交 092d3acd6bec3e3a14bdc7e7a2810ab628ab759d
+Copyright 2025 OpenAI
+由 Wevir 修改：<改了什么>
+-->
 ```
 
 由工具生成或从依赖包摘录的第三方文件（§4.1）写生成工具与版本、许可证与版权，再写 Wevir 的改动：
