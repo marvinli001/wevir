@@ -138,3 +138,10 @@
 2. **dsh 的可选下载**：从哪里下载（npm 镜像还是 Wevir 自己的发布物）、怎样校验与升级，由打包任务决定。在那之前开发环境照旧经 pnpm 安装 dsh。
 3. **Sign in with ChatGPT（应用自己注册 client ID）**：先不做，只用 app-server 自带的登录；Wevir 有了需要它的形态时再评估。
 4. **Windows 与 Linux 沙箱**：由 adapter-codex 任务在两个平台上实测后补记（Windows 选 MXC 还是旧沙箱、Linux 是否随包带 `bwrap`）。
+
+## 补记
+
+1. **2026-10-14，起草 R1–R10 的任务 prompt 时读了 Codex 的终端界面（codex-notes §2.7）。** 不改变决策，补三点：
+   - Codex 自己的客户端打开了实验面（子 agent 选择器、`canAcceptDirectInput`、审批的 `availableDecisions` 都是实验字段）。Wevir 仍只用稳定面：子会话从 `collabAgentToolCall` 与子 thread 的事件识别，重启后靠 Host 自己的记录；审批用默认的四个选项。
+   - `features.goals` 默认开启，模型会拿到三个目标工具。Wevir 暂不支持目标，配置里加 `[features] goals = false`（决策 5 的加固项之外新增一项，R2 核实）。
+   - 子 agent 的审批要能在父会话里处理（决策 6.1 的子 agent 视图是只读的）；服务端不生成会话标题，标题由 Wevir 自己生成。

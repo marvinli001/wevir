@@ -73,6 +73,19 @@
 - 锁定版本的客户端请求约 173 个，其中约 69 处标 `#[experimental]`（`app-server-protocol/src/protocol/common.rs`；上次报告在 `main` 上数的是 175 / 67），要 `initialize` 时声明 `experimentalApi:true` 才能用；CLI 帮助里 app-server 本身仍标 `[experimental]`。Spike 全程用 `experimentalApi:false`，§7 的功能都不依赖实验面；需要实验面的有 `thread/list.parentThreadId`、`dynamicTools`、`multiAgentMode` 等。
 - 升级时要做的：用新版本的 schema 与旧版本 diff、重跑 Spike 式的契约测试（真实二进制 + mock 模型），见 ADR-0005 §7。
 
+### 2.7 Codex 自己的客户端怎么做（终端界面）
+
+Codex 桌面端与 IDE 插件不开源；`codex-rs/tui` 是开源的，它和桌面端一样是 app-server 的客户端，交互语义可以照着看（路径相对于 `codex-rs/tui/src/`）：
+
+- **它打开了实验面**：每条连接都发 `experimentalApi:true`（`lib.rs:501-508`）。它的子 agent 选择器靠 `thread/list` 的 `parentThreadId` / `ancestorThreadId` 与 `Thread.canAcceptDirectInput`，都是实验字段。Wevir 只用稳定面（ADR-0005 决策 5），子会话从 `collabAgentToolCall` 与子 thread 的事件识别，重启后靠 Host 自己的记录，不需要这几个字段。审批请求里的 `availableDecisions` 也是实验字段，Wevir 拿不到，用默认的四个选项。
+- **子 agent**：父消息流里是一行行的“Spawned 〈昵称〉[角色]（模型 强度）└ 任务”“Waiting for …”“Finished waiting └ 〈昵称〉: Completed - 〈结果〉”“Closed …”（`multi_agents.rs:204-285,335-458`）；标签用昵称与角色，不用 thread 名称。子 thread 只能看：输入框提示“由父 agent 控制，不能直接输入”，但 Esc 可以直接中断它当前的回合（`app/thread_routing.rs:665-735`）。子 agent 的审批会冒到当前视图里，带“Thread: 〈名字〉”和“o 打开该 thread”（`bottom_pane/approval_overlay.rs:651-705`）。
+- **审批选项与说法**：命令是“是，继续”（accept）、“是，本会话内这个命令不再问”（acceptForSession）、“否，不运行并继续”（decline）、“否，告诉 Codex 换个做法”（cancel，会中断回合）；文件改动是“是”“是，这些文件不再问”“否，告诉 Codex 换个做法”。收到 `serverRequest/resolved` 就把对应的审批从可见、排队、延后的各处删掉，不回任何决定（`chatwidget.rs:1003-1020`）。
+- **计划**：`turn/plan/updated` 显示为“更新了计划”，完成的打勾划掉、进行中的高亮，紧凑形式是“n/m 完成”（`history_cell/plans.rs:230-336`）。**目标**（goals）功能默认开启，模型会拿到 `get_goal` / `create_goal` / `update_goal` 三个工具，界面上是页脚的目标状态（`bottom_pane/footer.rs:580-610`）；`features.goals` 是 Stable、默认 true（`features/src/lib.rs:1823-1827`），Wevir 不支持就要关掉。
+- **命令与文件改动**：只读 / 列目录 / 搜索的命令合并成“探索”单元，其余显示“运行中 / 已运行”加命令与输出（输出缓冲 1 MiB，截断后保留首尾各 50 行）；文件改动在 `item/started` 时就显示 diff（`exec_cell/`、`diff_render.rs`）。
+- **运行中再输入**：回车是 `turn/steer`（插进当前回合），Tab 是排队到回合结束后（`app_server_session.rs:1497-1517`）。Wevir 目前回合进行中拒绝新消息（`SESSION_BUSY`）。
+- **标题**：服务端不生成标题；终端界面在第一条用户消息后开一个隐藏的临时 thread、用 `gpt-5.6-luna`（没有就用当前模型）生成不超过 36 个字符的标题，再 `thread/name/set`（`app/thread_title.rs:29-131`）。
+- **其他**：`error` 带 `willRetry:true` 时只在状态栏短暂显示，不进消息流；“剩余上下文”按 `last.totalTokens` 与模型上下文窗口、扣掉 12k 基线计算（`chatwidget.rs:1132-1145`）；登录是 `account/login/start`（`chatgpt` 返回 `authUrl`，`chatgptDeviceCode` 返回 `verificationUrl` 与 `userCode`）、`account/login/completed`、`account/read`、`account/updated`、`account/logout`（`onboarding/auth.rs:936-1117`）。
+
 ## 3. 模型接口：只剩 Responses
 
 ### 3.1 Codex 发出的请求（Spike 实测 + 源码）
