@@ -34,7 +34,7 @@
 - 主标在 16/18px 下去掉金属反光，32px 减少材质细节，大尺寸保留亮面和切边。macOS 应用图标的 Retina 表示按逻辑点数选细节；菜单栏模板只保留黑色与透明度。
 - 功能图标为 24 单位网格、2 单位线宽，统一软方角与端点。品牌主标保留实心结构以便区分；功能图标不添加金属纹理。`current-color/` 与 sprite 由调用方设置 `color`。
 - macOS 正式模板始终是黑色透明图，系统负责显示深浅色；白色稿仅位于 `previews/`，不要作为正式模板使用。原生调用需设置 `isTemplate`，Electron 使用 `setTemplateImage(true)`。
-- ICNS 与 ICO 本身不根据系统主题自动切换。由客户端或打包配置选择浅/深文件；本任务没有修改运行中的 Wevir 客户端、签名配置或安装包。
+- ICNS 与 ICO 本身不根据系统主题自动切换。由客户端或打包配置选择浅/深文件。桌面端（Electron，还没有打包配置）在主进程运行时选择：macOS 用 `macos/{light,dark}/AppIcon.appiconset/icon_512x512@2x.png` 设程序坞图标，跟随应用的深浅色；Windows 用 `windows/{light,dark}/Wevir.ico` 设窗口与任务栏图标，跟随系统的 Windows 模式（`apps/desktop/src/main/app-icon.ts`）。iOS / Android 还没有客户端，签名配置与安装包也未涉及。
 - iOS/iPadOS 的默认主图与 tinted 主图为完整方形；系统施加圆角。Xcode 的深色槽使用透明前景，保留完整石墨底色的稿在 `ios/dark/`。两个额外 tinted 主图用于比较，资源目录中的 tinted 槽只指向一个中性灰度稿。Apple 当前推荐 Icon Composer 的分层工作流；这里同时保留按需求交付的传统资源和可导入的基础图层，系统实时材质需在项目接入时检查。
 - Android 前景层保持在中心直径 66dp 的安全圆内，背景完整覆盖 108dp，不预先写入系统遮罩。`res/` 可复制进 Android 项目，Manifest 选择 `@mipmap/ic_launcher`；需要 roundIcon 时使用 `@mipmap/ic_launcher_round`。颜色随默认/`night` 资源变化，单色主题颜色由启动器控制。
 - Linux hicolor 的两个主题目录择一安装，文件名都为 `wevir`。Web 两个 manifest 是资源片段；接入网站时补充网站的 `start_url`、`id` 与 `scope`。

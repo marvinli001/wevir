@@ -371,7 +371,7 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 
 ## 9. 品牌与跨平台图标
 
-图标资源在 [`assets/icons/`](../assets/icons/README.md)：浅色为香槟金主标与灰调象牙白（`#F4F3ED`），字标与线性功能图标保留深色；深色为铂金与石墨黑。包括主标/转曲字标、八个线性功能图标、macOS ICNS 与菜单模板、Windows ICO 与托盘、iOS 资源目录、Android 分层、Linux 与 Web 资源。当前只交付资源文件，客户端加载与主题切换尚未接入。
+图标资源在 [`assets/icons/`](../assets/icons/README.md)：浅色为香槟金主标与灰调象牙白（`#F4F3ED`），字标与线性功能图标保留深色；深色为铂金与石墨黑。包括主标/转曲字标、八个线性功能图标、macOS ICNS 与菜单模板、Windows ICO 与托盘、iOS 资源目录、Android 分层、Linux 与 Web 资源。桌面端在主进程运行时按主题设置图标：macOS 的程序坞图标跟随应用的深浅色，Windows 的窗口与任务栏图标跟随系统的 Windows 模式（`apps/desktop/src/main/app-icon.ts`）；桌面端还没有打包配置，ICNS 与安装包图标留到打包时接入。iOS / Android 还没有客户端。
 
 ```bash
 pnpm icons:build

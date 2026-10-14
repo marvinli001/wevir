@@ -31,6 +31,7 @@ import {
   rendererOriginOf,
 } from '../shared/renderer-origin.js';
 import { isThemeMode } from '../shared/theme.js';
+import { applyAppIcon, windowIcon } from './app-icon.js';
 import {
   HostLifecycle,
   type Log,
@@ -224,6 +225,7 @@ function run(): void {
     session.defaultSession.setPermissionCheckHandler(() => false);
     const rendererDir = fileURLToPath(new URL('../renderer/', import.meta.url));
     protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir));
+    applyAppIcon();
     mainWindow = createWindow();
   });
 }
@@ -249,6 +251,7 @@ function windowChrome(window: BrowserWindow): WindowChrome {
 }
 
 function createWindow(): BrowserWindow {
+  const icon = windowIcon();
   const window = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -257,6 +260,7 @@ function createWindow(): BrowserWindow {
     minWidth: 960,
     minHeight: 600,
     title: 'Wevir',
+    ...(icon !== undefined && { icon }),
     ...(HIDDEN_TITLE_BAR && {
       titleBarStyle: 'hidden',
       trafficLightPosition: TRAFFIC_LIGHT_POSITION,

@@ -2,7 +2,8 @@
   // 主进程、preload、共用模块、配置、脚本与测试。渲染进程另有 src/renderer/tsconfig.json。
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["node"],
+    // electron-vite/node 声明 ?asset 等导入后缀（主进程的应用图标，src/main/app-icon.ts）。
+    "types": ["node", "electron-vite/node"],
     "noEmit": true,
     // 只给 shadcn CLI 解析 components.json 的 @/ 别名用（它只读本目录的 tsconfig.json）；渲染进程的
     // 同名别名在 src/renderer/tsconfig.json 与 electron.vite.config.ts。
