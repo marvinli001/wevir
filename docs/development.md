@@ -35,7 +35,7 @@ Host 的默认引擎是 Codex（ADR-0005，R3 起），要先下载锁定版本�
 bash scripts/fetch-codex.sh
 ```
 
-它按平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64，Windows 在 Git Bash 里运行）下载 GitHub Release 的压缩包，按脚本里的 sha256 校验后解到 `.wevir-dev/bin/codex-app-server[.exe]`（gitignore），已是同一版本就直接退出。大陆网络设 `WEVIR_GITHUB_MIRROR`（§7.4）。也可以不下载、用 `WEVIR_CODEX_BIN=<绝对路径>` 指向别处的同版本二进制；版本不对时 Host 在第一次启动它之前报错。
+它按平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64，Windows 在 Git Bash 里运行）下载 GitHub Release 的压缩包，按脚本里的 sha256 校验后解到 `.wevir-dev/bin/codex-app-server[.exe]`（gitignore），Linux 另带 `codex-resources/bwrap`，已是同一版本就直接退出。大陆网络设 `WEVIR_GITHUB_MIRROR`（§7.4）。也可以不下载、用 `WEVIR_CODEX_BIN=<绝对路径>` 指向别处的同版本二进制；版本不对时 Host 在第一次启动它之前报错。准备安装包用的资源目录见 §3.5。
 
 安装时会跑 5 个依赖的构建脚本（`pnpm-workspace.yaml` 的 `allowBuilds` 逐个登记：dsh 的 `dsh-subprocess-local`、`node-pty`、`koffi`、两个版本的 `esbuild`），其他构建脚本一律不跑。`strictDepBuilds` 保持开启，依赖升级后冒出没登记的构建脚本时安装直接失败（`ERR_PNPM_IGNORED_BUILDS`），审查后再登记，见 ADR-0004 §2。
 
@@ -130,6 +130,28 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 | `apps/desktop` | Electron 桌面端 | `pnpm dev`；`pnpm --filter @wevir/desktop palette` 重新生成色阶 |
 
 全仓命令：`pnpm lint`（Biome + 引擎边界检查）、`pnpm typecheck`、`pnpm build`、`pnpm test`。全新克隆上依次 2 s、2 s、3 s、14 s（1000 条测试，结果见验收存档）。
+
+### 3.5 随安装包的运行时：资源目录
+
+安装包内置锁定版本的 `codex-app-server`，运行时不从网上下载（ADR-0005 决策 8、[ADR-0007](./adr/0007-packaging-and-runtime-distribution.md) 决策 5）。打包工具（electron-builder）的配置还没加，下面这一步是它的前置：
+
+```bash
+pnpm --filter @wevir/desktop resources
+```
+
+它运行 `apps/desktop/scripts/stage-resources.ts`：用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 取本机平台（或 `-- --target <三元组>` 指定的平台，三元组见脚本）的二进制并按 sha256 校验，连同 `apps/desktop/licenses/codex/` 里 Codex 的 `LICENSE` 与 `NOTICE` 放进 `apps/desktop/resources/engines/codex/`（gitignore）；Linux 另带 `codex-resources/bwrap`。打包时这个目录原样进入安装包的资源目录（`process.resourcesPath`）。
+
+打包后的桌面端拉起 Host 时设 `WEVIR_RESOURCES_DIR=<资源目录>`（环境里已有时不覆盖）。adapter-codex 找二进制的顺序是 `WEVIR_CODEX_BIN` → `<WEVIR_RESOURCES_DIR>/engines/codex/` → 开发缓存 `.wevir-dev/bin/`。开发时桌面端不设这个变量；要在开发构建上模拟安装后的布局，自己设上它并让开发缓存里没有二进制，例如：
+
+```bash
+WEVIR_HOME="$(mktemp -d)" WEVIR_RESOURCES_DIR="$PWD/apps/desktop/resources" node packages/host/dist/main.js
+```
+
+macOS 上要连“不联网也能用 Codex”一起验证时，用 `sandbox-exec` 只放行本机地址，再按 §3.1 的 mock 模型做法建 Provider 与会话（R9 的验收记录见 ADR-0007 的“后果”）：
+
+```bash
+sandbox-exec -p '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip "localhost:*"))(allow network-outbound (remote unix-socket))' <命令>
+```
 
 ## 4. 离线开发：echo 假引擎
 

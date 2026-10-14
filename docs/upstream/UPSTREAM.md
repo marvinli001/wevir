@@ -35,13 +35,14 @@ bash scripts/upstream-sync.sh
 
 ### 1.2 作为二进制运行的上游程序
 
-R2（2026-10-14）起产品开始用它：`packages/adapter-codex` 以子进程运行 `codex-app-server`（ADR-0005 决策 1，[codex-event-mapping.md](../architecture/codex-event-mapping.md)）。开发环境用 `scripts/fetch-codex.sh` 下载到仓库的开发缓存，或用 `WEVIR_CODEX_BIN` 指定；安装包内置由 R9 做（决策 8）。版本必须与 adapter-codex 的 `CODEX_VERSION` 一致，启动前用 `--version` 核对。
+R2（2026-10-14）起产品开始用它：`packages/adapter-codex` 以子进程运行 `codex-app-server`（ADR-0005 决策 1，[codex-event-mapping.md](../architecture/codex-event-mapping.md)）。开发环境用 `scripts/fetch-codex.sh` 下载到仓库的开发缓存，或用 `WEVIR_CODEX_BIN` 指定；安装包内置的那份由 `pnpm --filter @wevir/desktop resources` 用同一个脚本（`--target`、`--out`）放进 `apps/desktop/resources/engines/codex/`，运行时经 `WEVIR_RESOURCES_DIR` 找到（R9，ADR-0007 决策 5）。版本必须与 adapter-codex 的 `CODEX_VERSION` 一致，启动前用 `--version` 核对。
 
 | 程序 | 版本 | 来源 | 校验 | 用处 |
 |---|---|---|---|---|
-| `codex-app-server`（独立二进制） | `rust-v0.162.1` | GitHub Release 资产 `codex-app-server-<target>.tar.gz`（Windows 是 `codex-app-server-<target>.exe.tar.gz`） | 6 个平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64）的 sha256 写在 `scripts/fetch-codex.sh`，取自 GitHub API 的 `digest` | `packages/adapter-codex`：下载到 gitignore 的 `.wevir-dev/bin/`，CI 按脚本内容缓存；`spikes/codex-app-server` 仍用它自己的 `scripts/fetch-binary.sh`（下载到 `.bin/`，只有 4 个平台） |
+| `codex-app-server`（独立二进制） | `rust-v0.162.1` | GitHub Release 资产 `codex-app-server-<target>.tar.gz`（Windows 是 `codex-app-server-<target>.exe.tar.gz`） | 6 个平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64）的 sha256 写在 `scripts/fetch-codex.sh`，取自 GitHub API 的 `digest` | `packages/adapter-codex`：下载到 gitignore 的 `.wevir-dev/bin/`，CI 按脚本内容缓存；安装包的资源目录 `apps/desktop/resources/engines/codex/`；`spikes/codex-app-server` 仍用它自己的 `scripts/fetch-binary.sh`（下载到 `.bin/`，只有 4 个平台） |
+| `bwrap`（Linux） | `rust-v0.162.1` | 同一 release 的 `bwrap-<target>.tar.gz`（只有两个 Linux musl 目标，0.2 MiB） | 两个 sha256 同样写在 `scripts/fetch-codex.sh` | Linux 上放在二进制旁边的 `codex-resources/bwrap`：`PATH` 上没有 `bwrap` 时 Codex 用它（§2.4）；Linux 还没实测，是否保留由 ADR-0005 未决事项 4 定 |
 
-同一个 release 还有 `codex-app-server-package-<target>.tar.gz`（压缩后大 20–40 MiB），R2 没有用；随包需要哪些附带程序（例如 Linux 的 `bwrap`）由 R9 定（§2.4）。
+同一个 release 还有 `codex-app-server-package-<target>.tar.gz`（压缩后大 20–40 MiB），没有用；Linux 的 `bwrap` 单独取（上表），Windows 的沙箱附带程序（`codex-windows-sandbox-setup` / `-service`）是否要随包等 Windows 实测后定（ADR-0007 未决事项 1）。
 
 两者在 `pnpm-lock.yaml` 里的完整依赖闭包、构建脚本放行（`pnpm-workspace.yaml` 的 `allowBuilds`）与许可证见 §2.1。
 - OpenWork 锁定提交比最新 release `v0.18.57` 超前 121 个提交；Paseo `main` 与 tag `v0.11.2` 已分叉（领先 51、落后 3，release 在单独的分支上打）。两者只作参考，不追 release。
@@ -164,7 +165,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 结论与义务：
 
-- 移植了四份提示词文本（§4 的 `prompts/*.md`，ADR-0005 补记 2），没有移植代码。它们按 Apache-2.0 第 4 条处理：文件头写明来源、版权与修改（4(b)、4(c)），根目录 `NOTICE` 收录 Codex `NOTICE` 中与之相关的署名（`OpenAI Codex`、`Copyright 2025 OpenAI`）与 Apache License 2.0 全文（4(a)、4(d)）；Ratatui 那一条只涉及 TUI 代码，与这些文件无关，不收录。将来随安装包分发 `codex-app-server` 二进制时，按 Apache-2.0 第 4 条随附 `LICENSE` 全文与 `NOTICE` 的署名内容（4(a)、4(d)），由打包任务汇总进第三方声明；Linux 包若带上 `bwrap`，另按 LGPL-2.0 提供其源码获取方式。
+- 移植了四份提示词文本（§4 的 `prompts/*.md`，ADR-0005 补记 2），没有移植代码。它们按 Apache-2.0 第 4 条处理：文件头写明来源、版权与修改（4(b)、4(c)），根目录 `NOTICE` 收录 Codex `NOTICE` 中与之相关的署名（`OpenAI Codex`、`Copyright 2025 OpenAI`）与 Apache License 2.0 全文（4(a)、4(d)）；Ratatui 那一条只涉及 TUI 代码，与这些文件无关，不收录。随安装包分发 `codex-app-server` 二进制时，按 Apache-2.0 第 4 条随附 `LICENSE` 全文与 `NOTICE` 的署名内容（4(a)、4(d)）：R9 起两份文件取自锁定提交、放在 `apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边，第三方声明见 [third-party-notices.md](./third-party-notices.md) §2.5。Linux 包带上 `bwrap`（R9 的默认做法，§1.2），另按 LGPL-2.0 提供其源码获取方式（锁定提交的 `codex-rs/vendor/bubblewrap/`）。
 - 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证在打包前另做一次核对，方法同 §2.1 对 npm 闭包的做法。
 - 不得使用 OpenAI 或 Codex 的名称与商标，说明来源的用途除外（Apache-2.0 第 6 条）。
 

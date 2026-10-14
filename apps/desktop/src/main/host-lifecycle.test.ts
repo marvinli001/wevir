@@ -351,6 +351,17 @@ describe('hostEnvironment', () => {
       }),
     ).toEqual({ PATH: '/bin', WEVIR_HOME: '/data' });
   });
+
+  it('打包后把资源目录交给 Host；环境里已有 WEVIR_RESOURCES_DIR 时不覆盖', () => {
+    expect(hostEnvironment({ PATH: '/bin' }, '/App/Resources')).toEqual({
+      PATH: '/bin',
+      WEVIR_RESOURCES_DIR: '/App/Resources',
+    });
+    expect(hostEnvironment({ WEVIR_RESOURCES_DIR: '/other' }, '/App/Resources')).toEqual({
+      WEVIR_RESOURCES_DIR: '/other',
+    });
+    expect(hostEnvironment({ PATH: '/bin' })).toEqual({ PATH: '/bin' });
+  });
 });
 
 describe('resolveNodeExecutable', () => {

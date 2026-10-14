@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -9,7 +9,9 @@ import {
   codexPaths,
   parseCodexVersion,
   prepareCodexHome,
+  RESOURCES_DIR_ENV,
   resolveCodexBinary,
+  resourcesCodexDir,
 } from './paths.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'wevir-codex-paths-'));
@@ -37,6 +39,39 @@ describe('resolveCodexBinary', () => {
     expect(() =>
       resolveCodexBinary({ env: {}, devDir: join(dir, 'empty'), platform: 'linux' }),
     ).toThrow('bash scripts/fetch-codex.sh');
+  });
+
+  it('应用资源目录（安装包随附的）排在开发缓存之前，WEVIR_CODEX_BIN 之后', () => {
+    const resources = join(dir, 'resources');
+    const bundled = join(resourcesCodexDir(resources), 'codex-app-server');
+    mkdirSync(resourcesCodexDir(resources), { recursive: true });
+    writeFileSync(bundled, '');
+    const env = { [RESOURCES_DIR_ENV]: resources };
+    expect(resolveCodexBinary({ env, devDir: dir, platform: 'linux' })).toBe(bundled);
+    const override = join(dir, 'override-codex');
+    writeFileSync(override, '');
+    expect(
+      resolveCodexBinary({
+        env: { ...env, WEVIR_CODEX_BIN: override },
+        devDir: dir,
+        platform: 'linux',
+      }),
+    ).toBe(override);
+    // 资源目录里没有（开发时设了这个变量但没准备资源）：退回开发缓存。
+    expect(
+      resolveCodexBinary({
+        env: { [RESOURCES_DIR_ENV]: join(dir, 'no-resources') },
+        devDir: dir,
+        platform: 'linux',
+      }),
+    ).toBe(join(dir, 'codex-app-server'));
+    expect(() =>
+      resolveCodexBinary({
+        env: { [RESOURCES_DIR_ENV]: 'relative' },
+        devDir: dir,
+        platform: 'linux',
+      }),
+    ).toThrow('绝对路径');
   });
 });
 

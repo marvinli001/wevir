@@ -34,6 +34,7 @@ import { isThemeMode } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
 import {
   HostLifecycle,
+  hostEnvironment,
   type Log,
   resolveHostEntry,
   resolveNodeExecutable,
@@ -98,6 +99,8 @@ function run(): void {
       identity,
       nodePath: resolveNodeExecutable(),
       hostEntry: resolveHostEntry(),
+      // 打包后随附的 codex-app-server 在资源目录里（ADR-0007 决策 5）。
+      env: hostEnvironment(process.env, app.isPackaged ? process.resourcesPath : undefined),
       log,
     });
     lifecycle.onStatus((status) => {

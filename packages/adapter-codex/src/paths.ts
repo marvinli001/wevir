@@ -9,8 +9,19 @@ import { fileURLToPath } from 'node:url';
  */
 export const CODEX_VERSION = 'rust-v0.162.1';
 
-/** 指定 codex-app-server 可执行文件的环境变量，优先于开发缓存。 */
+/** 指定 codex-app-server 可执行文件的环境变量，优先于资源目录与开发缓存。 */
 export const CODEX_BIN_ENV = 'WEVIR_CODEX_BIN';
+
+/**
+ * 应用资源目录的环境变量（ADR-0007 决策 5）：安装包随附的运行时所在的目录，桌面端拉起 Host 时设置（打包后是
+ * Electron 的 `process.resourcesPath`）。codex-app-server 在它的 `engines/codex/` 下。
+ */
+export const RESOURCES_DIR_ENV = 'WEVIR_RESOURCES_DIR';
+
+/** 资源目录里放 codex-app-server（以及 Linux 的 `codex-resources/bwrap`、LICENSE、NOTICE）的子目录。 */
+export function resourcesCodexDir(resourcesDir: string): string {
+  return join(resourcesDir, 'engines', 'codex');
+}
 
 /** 下载开发缓存里的二进制的命令（在仓库根目录运行）。 */
 export const FETCH_CODEX_COMMAND = 'bash scripts/fetch-codex.sh';
@@ -22,7 +33,7 @@ export function codexBinaryName(platform: NodeJS.Platform = process.platform): s
 
 /**
  * 开发缓存目录：仓库根的 `.wevir-dev/bin/`（gitignore），`scripts/fetch-codex.sh` 下载到这里。`src/` 与 `dist/`
- * 都在包目录下一层，所以同一个相对路径对两者都成立。打包后的位置由 R9 定。
+ * 都在包目录下一层，所以同一个相对路径对两者都成立。安装包里的位置是资源目录（`RESOURCES_DIR_ENV`）。
  */
 export function devBinDir(): string {
   return fileURLToPath(new URL('../../../.wevir-dev/bin/', import.meta.url));
@@ -37,8 +48,9 @@ export interface ResolveCodexBinaryOptions {
 }
 
 /**
- * 找 codex-app-server：`WEVIR_CODEX_BIN`（必须是存在的绝对路径）→ 开发缓存。不查 PATH，也不碰用户自己装的
- * Codex。找不到时报错并给出下载命令。版本在启动前另行核对（`checkCodexVersion`）。
+ * 找 codex-app-server：`WEVIR_CODEX_BIN`（必须是存在的绝对路径）→ 应用资源目录（`WEVIR_RESOURCES_DIR` 的
+ * `engines/codex/`，安装包随附的那份）→ 开发缓存。不查 PATH，也不碰用户自己装的 Codex。找不到时报错并给出下载命令。
+ * 版本在启动前另行核对（`checkCodexVersion`）。
  */
 export function resolveCodexBinary(options: ResolveCodexBinaryOptions = {}): string {
   const env = options.env ?? process.env;
@@ -48,14 +60,24 @@ export function resolveCodexBinary(options: ResolveCodexBinaryOptions = {}): str
     if (!existsSync(fromEnv)) throw new Error(`${CODEX_BIN_ENV} 指向的文件不存在：${fromEnv}`);
     return fromEnv;
   }
-  const candidate = join(options.devDir ?? devBinDir(), codexBinaryName(options.platform));
-  if (!existsSync(candidate)) {
+  const name = codexBinaryName(options.platform);
+  const candidates: string[] = [];
+  const resourcesDir = env[RESOURCES_DIR_ENV];
+  if (resourcesDir !== undefined && resourcesDir !== '') {
+    if (!isAbsolute(resourcesDir)) {
+      throw new Error(`${RESOURCES_DIR_ENV} 必须是绝对路径：${resourcesDir}`);
+    }
+    candidates.push(join(resourcesCodexDir(resourcesDir), name));
+  }
+  candidates.push(join(options.devDir ?? devBinDir(), name));
+  const found = candidates.find((candidate) => existsSync(candidate));
+  if (found === undefined) {
     throw new Error(
       `找不到 codex-app-server（${CODEX_VERSION}）：先在仓库根目录运行 ${FETCH_CODEX_COMMAND}，` +
-        `或用 ${CODEX_BIN_ENV} 指定可执行文件（查找了 ${candidate}）`,
+        `或用 ${CODEX_BIN_ENV} 指定可执行文件（查找了 ${candidates.join('、')}）`,
     );
   }
-  return candidate;
+  return found;
 }
 
 /** `codex-app-server --version` 的输出（`codex-app-server 0.162.1`）里的版本号，带上 tag 的 `rust-v` 前缀。 */

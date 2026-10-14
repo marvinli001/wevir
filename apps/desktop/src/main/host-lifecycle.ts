@@ -679,15 +679,25 @@ function describe(error: unknown): string {
  * Host 子进程的环境：继承桌面的环境，去掉 Electron 与 electron-vite 的变量（例如
  * `ELECTRON_RUN_AS_NODE`、`ELECTRON_RENDERER_URL`），它们对 Node 上的 Host 没有意义。Host 给 dsh 的环境
  * 另有白名单（ADR-0001）。
+ *
+ * `resourcesDir` 是安装包随附的运行时所在的目录（打包后的 `process.resourcesPath`，ADR-0007 决策 5），作为
+ * `WEVIR_RESOURCES_DIR` 交给 Host，adapter-codex 先在这里找 codex-app-server；环境里已经有这个变量时不覆盖（测试与
+ * 排查时用别的资源目录）。开发时不传，用开发缓存。
  */
-export function hostEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function hostEnvironment(env: NodeJS.ProcessEnv, resourcesDir?: string): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(env)) {
     if (key.startsWith('ELECTRON_') || key === 'NODE_ENV_ELECTRON_VITE') continue;
     result[key] = value;
   }
+  if (resourcesDir !== undefined && !result[RESOURCES_DIR_ENV]) {
+    result[RESOURCES_DIR_ENV] = resourcesDir;
+  }
   return result;
 }
+
+/** 资源目录的环境变量，与 adapter-codex 的 `RESOURCES_DIR_ENV` 相同（桌面端不依赖引擎包）。 */
+export const RESOURCES_DIR_ENV = 'WEVIR_RESOURCES_DIR';
 
 /**
  * 开发者本机的 Node：`WEVIR_NODE` 优先，否则在 `PATH` 里找 `node`（Windows 按 `PATHEXT`）。Electron 的

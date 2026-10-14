@@ -95,7 +95,7 @@
 
 ## 未决事项
 
-1. **打包后 Host 与 dsh 跑在哪个 Node 上**：可选 (a) Electron 自带的 Node（`ELECTRON_RUN_AS_NODE=1`，Paseo 的做法；dsh 的原生模块 `node-pty`、`koffi` 要按 Electron 的 ABI 处理），(b) 随安装包附带一个独立 Node（没有 ABI 问题，安装包变大），(c) Electron `utilityProcess`（同样是 Electron 的 Node，且把 Host 的生命周期绑到 Electron 上）。骨架只做开发模式，留给打包阶段决定。ADR-0003 选的 `node:sqlite` 在 (b) 下没有问题；(a)(c) 取决于 Electron 内置的 Node 是否提供 `node:sqlite`（Electron 40 起内置 Node 24.x，尚未实测，见 ADR-0003 未决事项）。
+1. **打包后 Host 与 dsh 跑在哪个 Node 上**：可选 (a) Electron 自带的 Node（`ELECTRON_RUN_AS_NODE=1`，Paseo 的做法；dsh 的原生模块 `node-pty`、`koffi` 要按 Electron 的 ABI 处理），(b) 随安装包附带一个独立 Node（没有 ABI 问题，安装包变大），(c) Electron `utilityProcess`（同样是 Electron 的 Node，且把 Host 的生命周期绑到 Electron 上）。骨架只做开发模式，留给打包阶段决定。ADR-0003 选的 `node:sqlite` 在 (b) 下没有问题；(a)(c) 取决于 Electron 内置的 Node 是否提供 `node:sqlite`（Electron 40 起内置 Node 24.x，见 ADR-0003 未决事项）。R9 实测：Electron 44.7.0 以 `ELECTRON_RUN_AS_NODE=1` 运行时是 Node 24.21.0，`node:sqlite` 可用（[ADR-0007](./0007-packaging-and-runtime-distribution.md) 背景 2，决策 4 留给打包任务）。
 2. **常驻 daemon**（桌面关闭后继续运行、开机自启）：移动端阶段决定（Paseo D9）。
 3. **设备凭据与配对**：骨架只预留 `deviceId`、`clientId` 与 `permissions`；一次性邀请、按设备凭据、设备撤销在移动端阶段另写 ADR（Paseo D2、D3）。
 

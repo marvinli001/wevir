@@ -76,7 +76,9 @@ export {
   FETCH_CODEX_COMMAND,
   parseCodexVersion,
   prepareCodexHome,
+  RESOURCES_DIR_ENV,
   resolveCodexBinary,
+  resourcesCodexDir,
 } from './paths.js';
 export { BasePrompt, defaultPromptsDir, renderPromptTemplate } from './prompts.js';
 export {

@@ -13,6 +13,7 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer && tsc --noEmit -p src/renderer/tsconfig.test.json",
     "palette": "node scripts/generate-palette.ts",
+    "resources": "node scripts/stage-resources.ts",
     "test": "vitest run"
   },
   "dependencies": {

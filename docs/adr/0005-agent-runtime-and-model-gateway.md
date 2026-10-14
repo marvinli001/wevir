@@ -135,7 +135,7 @@
 ## 未决事项
 
 1. ~~**基础提示词**~~：已定，经网关的第三方模型用 Wevir 自己的提示词，见补记 2。
-2. **dsh 的可选下载**：从哪里下载（npm 镜像还是 Wevir 自己的发布物）、怎样校验与升级，由打包任务决定。在那之前开发环境照旧经 pnpm 安装 dsh。
+2. **dsh 的可选下载**：从哪里下载（npm 镜像还是 Wevir 自己的发布物）、怎样校验与升级，由打包任务决定。在那之前开发环境照旧经 pnpm 安装 dsh。R9 起草时维护者选了 npm registry 逐包下载，随后决定推迟（[ADR-0007](./0007-packaging-and-runtime-distribution.md) 决策 6、未决事项 4）。
 3. **Sign in with ChatGPT（应用自己注册 client ID）**：先不做，只用 app-server 自带的登录；Wevir 有了需要它的形态时再评估。
 4. **Windows 与 Linux 沙箱**：由 adapter-codex 任务在两个平台上实测后补记（Windows 选 MXC 还是旧沙箱、Linux 是否随包带 `bwrap`）。
 5. **计划模式怎样下发**：Codex 的协作模式（`turn/start.collaborationMode`、`thread/settings/update.collaborationMode`）是实验面。开这一项实验面（写补记）就能用上 Codex 原生的计划模式：只在计划模式提供的 `request_user_input`，以及把 `<proposed_plan>` 解析成计划条目；不开就由 Wevir 自己做，计划回合用稳定面的 `sandboxPolicy` 设为只读、把 `prompts/plan-mode.md` 放在用户消息前面，提问退回纯文本、计划要 Wevir 自己从消息里解析。做计划模式的任务决定。
@@ -214,3 +214,4 @@
    - **推理项的 `content: null` 对所有 Provider 去掉**：Codex 回放只有 `encrypted_content` 的推理项时写 `content: null`，xAI 报 422（openai/codex#47733）。
    - **Gemini 的 thought signature**：Gemini 3 起函数调用必须带回签名，否则 400。网关按地址（`generativelanguage.googleapis.com`）把签名收进一个 reasoning 项的 `encrypted_content`（`wevir-gw:gemini:v1:` 信封，记下 Provider 与模型），Codex 带回时挂回原来的工具调用；换过模型或缺签名时填文档给的占位值 `skip_thought_signature_validator`。思考内容不要求返回（只发 `reasoning_effort`），界面上没有 Gemini 的推理。
    - **验证**：网关的单元测试（xAI 地址的两条摊平与相反顺序的还原、`content: null`、Gemini 签名信封的往返与占位值）、桌面端模板的 compat；没有 xAI 与 Gemini 的 Key，真实服务没有跑过，命令见 docs/development.md §6.3。
+12. **2026-10-14，运行时分发（R9，[ADR-0007](./0007-packaging-and-runtime-distribution.md)）。** 决策 8 的前半照做：安装包内置锁定版本的 `codex-app-server`，构建时由 `pnpm --filter @wevir/desktop resources` 按目标平台取（与开发缓存同一张 sha256 表），连同 Codex 的 `LICENSE`、`NOTICE` 放进资源目录；adapter-codex 的解析顺序是 `WEVIR_CODEX_BIN` → 资源目录（`WEVIR_RESOURCES_DIR`）→ 开发缓存。Linux 随包带 `bwrap`（未决事项 4 没有结论之前的默认做法）。决策 8 的后半（dsh 改为用户选用时下载）维护者决定推迟，未决事项 2 照旧（ADR-0007 决策 6）。打包工具、签名公证与更新渠道的选型记在 ADR-0007，配置另开任务。

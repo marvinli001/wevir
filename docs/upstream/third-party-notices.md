@@ -14,8 +14,11 @@
 | 渲染进程与主进程的产物 | Vite 打包的 `apps/desktop/out/` | 打进包里的 `devDependencies`（§2.2）与工作区包的源码 |
 | Host | `packages/host/dist` 与它的生产依赖 | `ws`、`zod`（§2.1）与 `@wevir/adapter-dsh` 带进来的 dsh 闭包（§2.4） |
 | CLI（T4.2） | `apps/cli/dist` | `mute-stream`（§2.1） |
+| Codex 引擎（R9） | 资源目录的 `engines/codex/`：`codex-app-server` 独立二进制，Linux 另有 `codex-resources/bwrap`（`pnpm --filter @wevir/desktop resources` 准备，ADR-0007 决策 5） | OpenAI Codex 与它静态链接的 Rust crate、bubblewrap（§2.5） |
 
 不分发、不进声明的：构建与测试工具（TypeScript、Biome、Vitest、Vite、electron-vite、tsdown、`@tailwindcss/vite` 等）。其中 `lightningcss`（MPL-2.0，Tailwind 构建时用）、`caniuse-lite`（CC-BY-4.0）、`source-map-js`（BSD-3-Clause）只在构建时运行，产物里没有它们的代码。`electron` 这个 npm 包的依赖（`@electron/get` 等）只负责下载二进制，也不进安装包。
+
+dsh 的闭包（§2.4）随 `@wevir/adapter-dsh` 的生产依赖带进来；ADR-0005 决策 8 要求它不随安装包分发、改为用户选用时下载，这一块推迟了（ADR-0007 决策 6），打包任务要先把它排除在安装包之外。
 
 Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定）。打包阶段如果改为随安装包带一份 Node，要加上 Node.js 的 `LICENSE`（其中已含它捆绑的 OpenSSL、ICU 等的许可证）。
 
@@ -86,6 +89,17 @@ importer `packages/adapter-dsh` 的生产依赖闭包，含所有平台的可选
 
 `@anthropic-ai/claude-agent-sdk`（专有条款）不在闭包里，`@anthropic-ai/sdk` 0.129.0 为 MIT。
 
+### 2.5 OpenAI Codex（`codex-app-server`）
+
+`rust-v0.162.1`（锁定提交 `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`），Apache-2.0，`Copyright 2025 OpenAI`。随包的文件（`apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边）：
+
+- `LICENSE`：Apache License 2.0 全文。
+- `NOTICE`：`OpenAI Codex`、`Copyright 2025 OpenAI`，以及派生自 Ratatui 的代码（MIT，`Copyright (c) 2016-2022 Florian Dehau`、`Copyright (c) 2023-2025 The Ratatui Developers`）。没有核实 `codex-app-server` 里是否链接了这部分代码，整份照附。
+
+Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁定提交的 `codex-rs/vendor/bubblewrap/`（https://github.com/openai/codex/tree/092d3acd6bec3e3a14bdc7e7a2810ab628ab759d/codex-rs/vendor/bubblewrap ）。
+
+二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证还没有核对，打包前做（UPSTREAM.md §2.4）。
+
 ## 3. 分发义务清单
 
 打包时逐项勾掉。条款编号指各许可证的原文。
@@ -107,6 +121,13 @@ importer `packages/adapter-dsh` 的生产依赖闭包，含所有平台的可选
 - [ ] 随附 dsh 的 `LICENSE` 和上游锁定提交的 `THIRD_PARTY_NOTICES.md`。
 - [ ] 每次升级 dsh（UPSTREAM.md §7 第 6 步）都重查闭包。出现 `@anthropic-ai/claude-agent-sdk` 或别的专有条款、GPL 类许可证时，先停下来决定，再打包。
 - [ ] Windows：ConPTY 二进制的来源与 MIT 声明（§2.4）。
+
+### 3.2a Codex
+
+- [ ] 资源目录的 `engines/codex/` 里有 `LICENSE` 与 `NOTICE`（`pnpm resources` 复制，打包时随 `extraResources` 进安装包），“开源许可”页列出 Codex 并能看到这两份文件。
+- [ ] 第三方声明收录 `codex-rs/Cargo.lock` 里静态链接进 `codex-app-server` 的 crate（按实际打进去的平台）。
+- [ ] Linux 包：`codex-resources/bwrap` 在声明里写明 LGPL-2.0-or-later 与源码位置（§2.5），随附 LGPL-2.0 全文；ADR-0005 未决事项 4 决定 Linux 不带它时，这一条不适用。
+- [ ] 不使用 OpenAI 或 Codex 的名称与商标，说明来源的署名除外（Apache-2.0 第 6 条）。
 
 ### 3.3 MPL-2.0：`@deepseek-ai/libreoffice-kit*`
 
