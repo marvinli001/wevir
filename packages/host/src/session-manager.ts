@@ -11,6 +11,8 @@ import type {
   EngineErrorInfo,
   MethodParams,
   MethodResult,
+  PendingMessage,
+  PendingMessageId,
   ProviderId,
   ResolvedApprovalStatus,
   Session,
@@ -41,6 +43,7 @@ import {
   type SubagentStartedEvent,
   type SubagentUpdatedEvent,
   type TurnStartedEvent,
+  type TurnSteeredEvent,
 } from '@wevir/runtime-adapter';
 import {
   type ApprovalRecord,
@@ -48,9 +51,10 @@ import {
   type SessionRecord,
   type Storage,
 } from '@wevir/storage';
-import { HostError } from './errors.js';
+import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
 import { newId } from './ids.js';
+import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
 
 /**
@@ -115,6 +119,11 @@ interface TurnRuntime {
   readonly tools: Map<string, ToolInfo>;
   /** `turn.finished` 写入时完成。 */
   readonly finished: Deferred;
+  /**
+   * 回合在 `cancelling` 时加入的待发消息（R11，domain-model §4.6）：用户按了停止之后又发的，取消结算后不暂停、照常发出。
+   * 只在内存里：Host 重启后一律暂停。
+   */
+  readonly addedWhileCancelling: Set<PendingMessageId>;
 }
 
 /** 一次对引擎事件流的订阅。 */
@@ -263,7 +272,12 @@ export class SessionManager {
         this.#mirror(sessionId, record.parentSessionId as SessionId);
         continue;
       }
-      if (!active && snapshot.pendingApprovals.length === 0) continue;
+      // 等待中的待发消息（含回合刚完成、下一条还没来得及发出的）一律暂停，等用户继续（domain-model §4.6）。
+      const holds = settlePendings(snapshot, () => 'held');
+      if (!active && snapshot.pendingApprovals.length === 0) {
+        if (holds.length > 0) this.#events.appendMany(sessionId, holds);
+        continue;
+      }
 
       const inputs = resolveAll(snapshot.pendingApprovals, 'expired', { reason: 'host_restarted' });
       if (active) {
@@ -280,6 +294,7 @@ export class SessionManager {
         inputs.push(stateChanged(state, 'idle', 'host_restarted'));
         report.interruptedSessions.push(sessionId);
       }
+      inputs.push(...holds);
       this.#events.appendMany(sessionId, inputs);
       report.expiredApprovals += snapshot.pendingApprovals.length;
       if (record.parentSessionId !== undefined) {
@@ -373,8 +388,8 @@ export class SessionManager {
 
   /**
    * `session.send`。`clientMessageId` 的幂等检查排在状态检查之前（domain-model §4.2）：同一 ID、同样
-   * 的内容返回原结果，不再发给引擎；内容不同返回 `CLIENT_MESSAGE_CONFLICT`。会话不是 `idle` 时返回
-   * `SESSION_BUSY`（活动中）或 `INVALID_STATE`（`error` / `closed`），不排队、不打断。
+   * 的内容返回原结果，不再发给引擎；内容不同返回 `CLIENT_MESSAGE_CONFLICT`。会话活动中时，带 `delivery` 的成为待发消息
+   * （R11，domain-model §4.6，不排进命令队列），不带的返回 `SESSION_BUSY`；`error` / `closed` 返回 `INVALID_STATE`。
    *
    * 接受后先写 `user.message`、`turn.started`、（首个回合的）`session.title_changed` 和
    * idle→running，同一事务里记回执 `accepted`，再交给引擎；引擎确认收到后回执改为 `confirmed`。
@@ -393,84 +408,360 @@ export class SessionManager {
     const replayed = this.#replay(runtime, clientMessageId, fingerprint);
     if (replayed) return replayed;
     this.#assertNotChild(runtime);
-    assertSendable(this.#snapshot(runtime));
+    const snapshot = this.#snapshot(runtime);
+    if (params.delivery !== undefined && ACTIVE_STATES.includes(snapshot.session.state)) {
+      return this.#addPending(runtime, params, sentBy, fingerprint);
+    }
+    assertSendable(snapshot);
     return this.#serial(runtime, async () => {
       const replayed = this.#replay(runtime, clientMessageId, fingerprint);
       if (replayed) return replayed;
-      assertSendable(this.#snapshot(runtime));
-      if (!runtime.attachment) {
-        await this.#autoResume(runtime);
-        // 等待期间引擎可能已经报了退出。
-        assertSendable(this.#snapshot(runtime));
-      }
-
       const snapshot = this.#snapshot(runtime);
-      const turnId = newId('trn');
-      const inputs: AppendInput[] = [
-        {
-          type: 'user.message',
-          source: 'host',
-          payload: {
-            turnId,
-            content: params.content,
-            sentBy,
-            ...(clientMessageId !== undefined && { clientMessageId }),
-          },
-        },
-        { type: 'turn.started', source: 'host', payload: { turnId } },
-      ];
-      const title = makeTitle(params.content);
-      const firstTitle =
-        title !== '' &&
-        snapshot.session.title === '' &&
-        snapshot.session.titleSource === 'first_prompt';
-      if (firstTitle) {
-        inputs.push({
-          type: 'session.title_changed',
-          source: 'host',
-          payload: { title, source: 'first_prompt' },
-        });
+      if (params.delivery !== undefined && ACTIVE_STATES.includes(snapshot.session.state)) {
+        return this.#addPending(runtime, params, sentBy, fingerprint);
       }
-      inputs.push(stateChanged('idle', 'running', 'turn_started'));
-      const [message] = this.#write(runtime, inputs, {
+      assertSendable(snapshot);
+      return this.#startTurn(runtime, {
+        content: params.content,
+        sentBy,
+        ...(clientMessageId !== undefined && { clientMessageId, fingerprint }),
+      });
+    });
+  }
+
+  /**
+   * 开始一个回合（#2）：普通的 `send`，或发出一条排队的待发消息（R11，`pending`）。必要时先自动 resume（#11）；写
+   * `user.message`、`turn.started`、（首个回合的）标题与 idle→running，普通发送在同一事务里记回执，发出待发消息时同一
+   * 事务里把它标为 `sent`；再交给引擎。引擎拒收时会话转 `error`（#10），仍返回已接受的 `turnId` 与 `seq`。
+   */
+  async #startTurn(
+    runtime: SessionRuntime,
+    input: {
+      content: UserContentPart[];
+      sentBy: ClientIdentity;
+      clientMessageId?: string;
+      /** 普通发送带 `clientMessageId` 时记回执用。 */
+      fingerprint?: string;
+      pending?: PendingMessage;
+    },
+  ): Promise<{ turnId: TurnId; seq: number }> {
+    const { content, sentBy, clientMessageId, fingerprint, pending } = input;
+    if (!runtime.attachment) {
+      await this.#autoResume(runtime);
+      // 等待期间引擎可能已经报了退出。
+      assertSendable(this.#snapshot(runtime));
+    }
+
+    const snapshot = this.#snapshot(runtime);
+    const turnId = newId('trn');
+    const inputs: AppendInput[] = [
+      {
+        type: 'user.message',
+        source: 'host',
+        payload: {
+          turnId,
+          content,
+          sentBy,
+          ...(clientMessageId !== undefined && { clientMessageId }),
+          ...(pending !== undefined && { pendingId: pending.id }),
+        },
+      },
+      { type: 'turn.started', source: 'host', payload: { turnId } },
+    ];
+    if (pending !== undefined) {
+      inputs.push(pendingUpdated({ ...pending, status: 'sent', turnId, updatedAt: isoNow() }));
+    }
+    const title = makeTitle(content);
+    const firstTitle =
+      title !== '' &&
+      snapshot.session.title === '' &&
+      snapshot.session.titleSource === 'first_prompt';
+    if (firstTitle) {
+      inputs.push({
+        type: 'session.title_changed',
+        source: 'host',
+        payload: { title, source: 'first_prompt' },
+      });
+    }
+    inputs.push(stateChanged('idle', 'running', 'turn_started'));
+    const receipt =
+      pending === undefined && fingerprint !== undefined ? clientMessageId : undefined;
+    const [message] = this.#write(runtime, inputs, {
+      inTransaction: (events) => {
+        const event = events[0];
+        if (receipt === undefined || fingerprint === undefined || !event) return;
+        this.#storage.sendReceipts.insert({
+          sessionId: runtime.id,
+          clientMessageId: receipt,
+          fingerprint,
+          status: 'accepted',
+          turnId,
+          seq: event.seq,
+          createdAt: event.ts,
+          updatedAt: event.ts,
+        });
+      },
+    });
+    if (!message) throw new Error('user.message 未写入');
+    runtime.turn = {
+      turnId,
+      streams: new Map(),
+      openTools: new Set(),
+      tools: new Map(),
+      finished: deferred(),
+      addedWhileCancelling: new Set(),
+    };
+
+    try {
+      await this.#adapter.send(runtime.engineSessionId, { content });
+    } catch (error) {
+      // 引擎没有接受这个回合。等待期间回合可能已经以别的方式结束（例如引擎退出）。
+      if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
+      return { turnId, seq: message.seq };
+    }
+    if (receipt !== undefined) {
+      this.#storage.sendReceipts.setStatus(runtime.id, receipt, 'confirmed', isoNow());
+    }
+    // 截断的标题已经写下；引擎接受了第一个回合，再用会话的模型生成标题（不等它）。
+    if (firstTitle) this.#generateTitle(runtime, content);
+    return { turnId, seq: message.seq };
+  }
+
+  // ── 待发消息（R11，domain-model §3.3.2、§4.6） ──────────────────────────────────
+
+  /**
+   * 回合进行中带 `delivery` 的 `send`：写 `pending.added`（同一事务里记回执，回执的 `turnId` 列放待发消息 ID），插话且
+   * 引擎能插话时再交给引擎。引擎不能插话、或回合正在取消时直接以排队加入并记下原因。不排进命令队列。
+   */
+  async #addPending(
+    runtime: SessionRuntime,
+    params: MethodParams<'session.send'>,
+    sentBy: ClientIdentity,
+    fingerprint: string,
+  ): Promise<MethodResult<'session.send'>> {
+    const { state } = this.#snapshot(runtime).session;
+    const wantsSteer = params.delivery === 'steer';
+    const steerable = wantsSteer && state !== 'cancelling' && this.#adapter.steer !== undefined;
+    const now = isoNow();
+    const pending: PendingMessage = {
+      id: newId('pnd'),
+      content: params.content,
+      delivery: steerable ? 'steer' : 'queue',
+      status: 'waiting',
+      sentBy,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (params.clientMessageId !== undefined) pending.clientMessageId = params.clientMessageId;
+    if (wantsSteer && !steerable) {
+      pending.fallback = { reason: state === 'cancelling' ? 'turn_ended' : 'unsupported' };
+    }
+    const { clientMessageId } = params;
+    const [event] = this.#write(
+      runtime,
+      [{ type: 'pending.added', source: 'host', payload: { pending } }],
+      {
         inTransaction: (events) => {
-          const event = events[0];
-          if (clientMessageId === undefined || !event) return;
+          const added = events[0];
+          if (clientMessageId === undefined || !added) return;
           this.#storage.sendReceipts.insert({
             sessionId: runtime.id,
             clientMessageId,
             fingerprint,
-            status: 'accepted',
-            turnId,
-            seq: event.seq,
-            createdAt: event.ts,
-            updatedAt: event.ts,
+            status: 'confirmed',
+            turnId: pending.id,
+            seq: added.seq,
+            createdAt: added.ts,
+            updatedAt: added.ts,
           });
         },
-      });
-      if (!message) throw new Error('user.message 未写入');
-      runtime.turn = {
-        turnId,
-        streams: new Map(),
-        openTools: new Set(),
-        tools: new Map(),
-        finished: deferred(),
-      };
+      },
+    );
+    if (!event) throw new Error('pending.added 未写入');
+    if (state === 'cancelling') runtime.turn?.addedWhileCancelling.add(pending.id);
+    if (steerable) await this.#handOver(runtime, pending);
+    return { pendingId: pending.id, seq: event.seq };
+  }
 
-      try {
-        await this.#adapter.send(runtime.engineSessionId, { content: params.content });
-      } catch (error) {
-        // 引擎没有接受这个回合。等待期间回合可能已经以别的方式结束（例如引擎退出）。
-        if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
-        return { turnId, seq: message.seq };
+  /**
+   * 把插话交给引擎（`steer`）。引擎拒绝（或调用失败）时，它若仍是等待中的插话，就改为排队并记下原因；等待期间回合
+   * 可能已经结束、它已被改为排队或已插入，那时什么都不做。
+   */
+  async #handOver(runtime: SessionRuntime, pending: PendingMessage): Promise<void> {
+    const steer = this.#adapter.steer?.bind(this.#adapter);
+    if (steer === undefined) return;
+    try {
+      await steer(runtime.engineSessionId, pending.id, { content: pending.content });
+    } catch (error) {
+      if (this.#disposed) return;
+      const current = this.#events.pending(runtime.id, pending.id);
+      if (current?.status !== 'waiting' || current.delivery !== 'steer') return;
+      this.#write(runtime, [
+        pendingUpdated({
+          ...current,
+          delivery: 'queue',
+          fallback: { reason: 'rejected', message: errorText(error) },
+          updatedAt: isoNow(),
+        }),
+      ]);
+    }
+  }
+
+  /** `pending.update`：改内容或方式（domain-model §4.6 的表）。 */
+  async updatePending(params: MethodParams<'pending.update'>): Promise<PendingMessage> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    const pending = this.#requirePending(runtime, params.pendingId);
+    if (isTerminalPending(pending)) throw notEditable(pending);
+    const handedOver = pending.status === 'waiting' && pending.delivery === 'steer';
+    if (handedOver) {
+      // 插话已交给引擎，没有撤回的办法；只有“改成插话”是无操作。
+      if (params.content !== undefined || params.delivery === 'queue') throw notEditable(pending);
+      return pending;
+    }
+    const next: PendingMessage = { ...pending };
+    let changed = false;
+    if (params.content !== undefined && !isDeepStrictEqual(params.content, pending.content)) {
+      next.content = params.content;
+      changed = true;
+    }
+    let handOver = false;
+    if (params.delivery === 'steer') {
+      if (pending.status === 'held') throw notEditable(pending);
+      const { state } = this.#snapshot(runtime).session;
+      if (state === 'running' || state === 'awaiting_approval') {
+        if (this.#adapter.steer !== undefined) {
+          next.delivery = 'steer';
+          delete next.fallback;
+          handOver = true;
+        } else {
+          next.fallback = { reason: 'unsupported' };
+        }
+      } else {
+        next.fallback = { reason: 'turn_ended' };
       }
-      if (clientMessageId !== undefined) {
-        this.#storage.sendReceipts.setStatus(runtime.id, clientMessageId, 'confirmed', isoNow());
+      changed ||= !isDeepStrictEqual(next, pending);
+    }
+    if (!changed) return pending;
+    next.updatedAt = isoNow();
+    this.#write(runtime, [pendingUpdated(next)]);
+    if (handOver) await this.#handOver(runtime, next);
+    return this.#events.pending(runtime.id, next.id) ?? next;
+  }
+
+  /** `pending.cancel`：删掉排队的或暂停的；已取消的无操作，交出去的插话与已到终态的不行。 */
+  cancelPending(params: MethodParams<'pending.cancel'>): PendingMessage {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    const pending = this.#requirePending(runtime, params.pendingId);
+    if (pending.status === 'cancelled') return pending;
+    if (
+      isTerminalPending(pending) ||
+      (pending.status === 'waiting' && pending.delivery === 'steer')
+    ) {
+      throw notEditable(pending);
+    }
+    const cancelled: PendingMessage = { ...pending, status: 'cancelled', updatedAt: isoNow() };
+    this.#write(runtime, [pendingUpdated(cancelled)]);
+    return cancelled;
+  }
+
+  /**
+   * `pending.resume`：暂停的全部转为等待；会话空闲时随后发出第一条（排进命令队列，等它开始再返回），活动中时等回合
+   * 结束。`error` / `closed` 回 `INVALID_STATE`。返回未到终态的待发消息。
+   */
+  async resumePending(sessionId: SessionId): Promise<PendingMessage[]> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
+    const snapshot = this.#snapshot(runtime);
+    const { state } = snapshot.session;
+    if (state === 'error' || state === 'closed') {
+      throw new HostError('INVALID_STATE', `session is ${state}; resume it first`, { state });
+    }
+    const now = isoNow();
+    const held = (snapshot.pendingMessages ?? []).filter((pending) => pending.status === 'held');
+    if (held.length > 0) {
+      this.#write(
+        runtime,
+        held.map((pending) => pendingUpdated({ ...pending, status: 'waiting', updatedAt: now })),
+      );
+      // 停止过程中让它们继续的：与停止过程中发的一样，取消结算后照常发出。
+      if (state === 'cancelling') {
+        for (const pending of held) runtime.turn?.addedWhileCancelling.add(pending.id);
       }
-      // 截断的标题已经写下；引擎接受了第一个回合，再用会话的模型生成标题（不等它）。
-      if (firstTitle) this.#generateTitle(runtime, params.content);
-      return { turnId, seq: message.seq };
+    }
+    if (state === 'idle') await this.#scheduleDispatch(runtime);
+    return this.#snapshot(runtime).pendingMessages ?? [];
+  }
+
+  /** 排进命令队列：会话空闲、有等待中的排队消息时发出第一条。失败经事件体现，这里只记下。 */
+  #scheduleDispatch(runtime: SessionRuntime): Promise<void> {
+    return this.#serial(runtime, () => this.#dispatchNext(runtime)).catch((error: unknown) => {
+      if (!isHostError(error)) this.#onError(error);
     });
+  }
+
+  async #dispatchNext(runtime: SessionRuntime): Promise<void> {
+    if (this.#shuttingDown || this.#disposed) return;
+    const before = this.#snapshot(runtime);
+    if (before.session.state !== 'idle') return;
+    if (!before.pendingMessages?.some((pending) => pending.status === 'waiting')) return;
+    // 先把引擎会话挂上（失败时 #11 会把等待中的暂停），之后到写事件之间没有等待，取的就是此刻的第一条。
+    if (!runtime.attachment) await this.#autoResume(runtime);
+    const snapshot = this.#snapshot(runtime);
+    if (snapshot.session.state !== 'idle') return;
+    const next = snapshot.pendingMessages?.find((pending) => pending.status === 'waiting');
+    if (next === undefined) return;
+    await this.#startTurn(runtime, {
+      content: next.content,
+      sentBy: next.sentBy,
+      ...(next.clientMessageId !== undefined && { clientMessageId: next.clientMessageId }),
+      pending: next,
+    });
+  }
+
+  /** 插话进了回合（适配器的 `turn.steered`）：写 `user.steered` 并把它标为已插入。 */
+  #steered(runtime: SessionRuntime, turn: TurnRuntime, event: TurnSteeredEvent): void {
+    const pending = this.#events.pending(runtime.id, event.steerId as PendingMessageId);
+    if (pending === undefined || isTerminalPending(pending)) {
+      this.#onWarning('引擎报告插话进了回合，但没有对应的待发消息', {
+        sessionId: runtime.id,
+        steerId: event.steerId,
+      });
+      return;
+    }
+    const { fallback: _fallback, ...rest } = pending;
+    this.#write(runtime, [
+      {
+        type: 'user.steered',
+        source: 'host',
+        payload: {
+          turnId: turn.turnId,
+          pendingId: pending.id,
+          content: pending.content,
+          sentBy: pending.sentBy,
+          ...(pending.clientMessageId !== undefined && {
+            clientMessageId: pending.clientMessageId,
+          }),
+        },
+      },
+      pendingUpdated({
+        ...rest,
+        delivery: 'steer',
+        status: 'inserted',
+        turnId: turn.turnId,
+        updatedAt: isoNow(),
+      }),
+    ]);
+  }
+
+  #requirePending(runtime: SessionRuntime, pendingId: PendingMessageId): PendingMessage {
+    const pending = this.#events.pending(runtime.id, pendingId);
+    if (pending === undefined) {
+      throw new HostError('PENDING_NOT_FOUND', `pending message ${pendingId} not found`);
+    }
+    return pending;
   }
 
   /**
@@ -522,7 +813,10 @@ export class SessionManager {
         }
         this.#detach(runtime);
       }
-      inputs.push(stateChanged(state, 'closed', 'closed'));
+      inputs.push(
+        stateChanged(state, 'closed', 'closed'),
+        ...settlePendings(this.#snapshot(runtime), () => 'held'),
+      );
       this.#write(runtime, inputs);
     });
   }
@@ -734,6 +1028,10 @@ export class SessionManager {
         { clientMessageId },
       );
     }
+    // 成为待发消息的发送（R11）：回执的 turnId 列放的是待发消息 ID。
+    if (receipt.turnId.startsWith('pnd_')) {
+      return { pendingId: receipt.turnId as PendingMessageId, seq: receipt.seq };
+    }
     return { turnId: receipt.turnId as TurnId, seq: receipt.seq };
   }
 
@@ -757,6 +1055,7 @@ export class SessionManager {
           engineError(info, true),
           stateChanged('idle', 'error', 'resume_failed'),
           ...readOnlyInputs(snapshot, error),
+          ...settlePendings(snapshot, () => 'held'),
         ]);
       }
       throw new HostError('ENGINE_ERROR', info.message, info);
@@ -815,6 +1114,7 @@ export class SessionManager {
         ? finishTurn(turnId, turn?.openTools ?? [], 'interrupted', this.#turnDuration(runtime))
         : []),
       stateChanged('cancelling', 'error', 'cancel_unconfirmed'),
+      ...settlePendings(this.#snapshot(runtime), () => 'held'),
     ]);
   }
 
@@ -1045,6 +1345,9 @@ export class SessionManager {
         return;
       case 'approval.cancelled':
         this.#approvalCancelled(runtime, event);
+        return;
+      case 'turn.steered':
+        this.#steered(runtime, turn, event);
         return;
       case 'turn.settled':
         this.#turnEnded(runtime, turn, event.outcome, event.stopReason);
@@ -1345,6 +1648,7 @@ export class SessionManager {
       openTools: new Set(),
       tools: new Map(),
       finished: deferred(),
+      addedWhileCancelling: new Set(),
     };
   }
 
@@ -1467,8 +1771,18 @@ export class SessionManager {
         engineStopReason,
       ),
       stateChanged(state, 'idle', 'turn_finished'),
+      // 待发消息（domain-model §4.6）：没插进去的插话改为排队；回合没完成就暂停（取消过程中加入的除外）。
+      ...settlePendings(snapshot, (pending) =>
+        finalOutcome === 'completed' || turn.addedWhileCancelling.has(pending.id)
+          ? 'waiting'
+          : 'held',
+      ),
     );
     this.#write(runtime, inputs);
+    // 还有等待中的排队消息：随后发出第一条，排在命令队列里。
+    if (this.#snapshot(runtime).pendingMessages?.some((pending) => pending.status === 'waiting')) {
+      void this.#scheduleDispatch(runtime);
+    }
   }
 
   /**
@@ -1500,6 +1814,7 @@ export class SessionManager {
     inputs.push(
       engineError(info, true, activeTurn?.turnId),
       stateChanged(state, 'error', 'engine_exited'),
+      ...settlePendings(snapshot, () => 'held'),
     );
     this.#write(runtime, inputs);
     if (!options.exited) this.#adapter.cancel(runtime.engineSessionId).catch(() => {});
@@ -1684,6 +1999,45 @@ function readOnlyInputs(snapshot: SessionSnapshot, error: unknown): AppendInput[
       payload: { reason, message: error.message },
     },
   ];
+}
+
+function pendingUpdated(pending: PendingMessage): AppendInput {
+  return { type: 'pending.updated', source: 'host', payload: { pending } };
+}
+
+/**
+ * 回合结束或会话出错、关闭、Host 重启时的待发消息（domain-model §4.6）：等待中的插话（交出去还没插进去）改为排队
+ * （`turn_ended`）；每条等待中的按 `status` 留在等待或暂停。没有变化的不写。
+ */
+function settlePendings(
+  snapshot: SessionSnapshot,
+  status: (pending: PendingMessage) => 'waiting' | 'held',
+): AppendInput[] {
+  const now = isoNow();
+  return (snapshot.pendingMessages ?? []).flatMap((pending) => {
+    if (pending.status !== 'waiting') return [];
+    const next: PendingMessage = { ...pending, status: status(pending) };
+    if (pending.delivery === 'steer') {
+      next.delivery = 'queue';
+      next.fallback = { reason: 'turn_ended' };
+    }
+    if (isDeepStrictEqual(next, pending)) return [];
+    return [pendingUpdated({ ...next, updatedAt: now })];
+  });
+}
+
+function isTerminalPending(pending: PendingMessage): boolean {
+  return TERMINAL_PENDING_STATUSES.includes(pending.status);
+}
+
+function notEditable(pending: PendingMessage): HostError<'PENDING_NOT_EDITABLE'> {
+  return new HostError(
+    'PENDING_NOT_EDITABLE',
+    pending.status === 'waiting' && pending.delivery === 'steer'
+      ? 'the steer has been handed to the engine and cannot be changed'
+      : `pending message is ${pending.status}`,
+    { pendingId: pending.id, status: pending.status, delivery: pending.delivery },
+  );
 }
 
 /** 结束回合：未收尾的工具补 `tool.finished`（`unknown`，domain-model §6.4），再 `turn.finished`。 */

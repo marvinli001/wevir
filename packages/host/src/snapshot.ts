@@ -3,6 +3,9 @@ import type {
   ApprovalRequest,
   EngineErrorInfo,
   IsoTime,
+  PendingMessage,
+  PendingMessageId,
+  PendingStatus,
   Session,
   SessionId,
   SessionReadOnly,
@@ -50,6 +53,25 @@ export interface SessionProjection {
   readonly subagent?: SubagentInfo;
   /** 这个会话派出的子会话的摘要（`subagent.started` 追加，`subagent.updated` 替换），按派出的先后。 */
   readonly subagents: readonly SubagentSummary[];
+  /**
+   * 待发消息（R11，domain-model §3.3.2）：`pending.added` 加入、`pending.updated` 替换，含已到终态的（再取消是无操作、再编辑
+   * 报 `PENDING_NOT_EDITABLE` 要用到），按加入的先后。快照只给未到终态的。
+   */
+  readonly pendings: ReadonlyMap<PendingMessageId, PendingMessage>;
+}
+
+/** 待发消息的终态：插入、发出、取消之后不再变化。 */
+export const TERMINAL_PENDING_STATUSES: readonly PendingStatus[] = [
+  'inserted',
+  'sent',
+  'cancelled',
+];
+
+/** 未到终态（等待、暂停）的待发消息，按加入的先后。 */
+export function openPendings(projection: SessionProjection): PendingMessage[] {
+  return [...projection.pendings.values()].filter(
+    (pending) => !TERMINAL_PENDING_STATUSES.includes(pending.status),
+  );
 }
 
 /** 还没有任何事件时的状态。`session.created` 不改变它（建会话后的初始状态隐含为 `idle`）。 */
@@ -60,6 +82,7 @@ export const INITIAL_PROJECTION: SessionProjection = {
   titleSource: 'first_prompt',
   pendingApprovals: [],
   subagents: [],
+  pendings: new Map(),
 };
 
 /** 子会话的回合结果 → 子会话的状态（domain-model §3.3.1）。 */
@@ -81,6 +104,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  * - `subagent`（子会话，domain-model §3.3.1）：`session.created` 的 `parent` 设置（`running`）；`turn.started` →
  *   `running`；`turn.finished` 按结果；转 `closed` → `closed`；还在 `running` 时转 `error` → `failed`。
  * - `subagents`（父会话）：`subagent.started` 追加，`subagent.updated` 按 `sessionId` 替换。
+ * - `pendings`（R11）：`pending.added` 加入，`pending.updated` 按 `id` 替换。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -109,6 +133,12 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
         index < 0
           ? [...projection.subagents, summary]
           : projection.subagents.map((item, i) => (i === index ? summary : item));
+      break;
+    }
+    case 'pending.added':
+    case 'pending.updated': {
+      const { pending } = event.payload;
+      next.pendings = new Map(projection.pendings).set(pending.id, pending);
       break;
     }
     case 'session.read_only':
@@ -304,6 +334,27 @@ export function checkEvent(
         reject(`审批 ${e.payload.approvalId} 不是未决审批`);
       }
       break;
+    case 'pending.added':
+      if (projection.pendings.has(e.payload.pending.id)) {
+        reject(`待发消息 ${e.payload.pending.id} 已经加入过`);
+      }
+      if (e.payload.pending.status !== 'waiting') {
+        reject(`新的待发消息 ${e.payload.pending.id} 的状态必须是 waiting`);
+      }
+      break;
+    case 'pending.updated': {
+      const previous = projection.pendings.get(e.payload.pending.id);
+      if (!previous) reject(`待发消息 ${e.payload.pending.id} 不存在`);
+      if (TERMINAL_PENDING_STATUSES.includes(previous.status)) {
+        reject(`待发消息 ${e.payload.pending.id} 已是 ${previous.status}，不再变化`);
+      }
+      break;
+    }
+    case 'user.steered':
+      if (projection.activeTurn?.turnId !== e.payload.turnId) {
+        reject(`插话的回合 ${e.payload.turnId} 不是当前回合`);
+      }
+      break;
   }
 }
 
@@ -345,6 +396,8 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.todos) snapshot.todos = [...projection.todos];
   if (projection.usage) snapshot.usage = projection.usage;
   if (projection.subagents.length > 0) snapshot.subagents = [...projection.subagents];
+  const pendingMessages = openPendings(projection);
+  if (pendingMessages.length > 0) snapshot.pendingMessages = pendingMessages;
   return structuredClone(snapshot);
 }
 

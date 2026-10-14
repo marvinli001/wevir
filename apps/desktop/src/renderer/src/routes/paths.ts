@@ -20,7 +20,7 @@ export const ROUTE_PATTERNS = {
 /** `agent` 相对于会话路由的那一段（路由表里的子路由）。 */
 export const AGENT_SEGMENT = 'agent/:childId';
 
-export const SETTINGS_TABS = ['providers', 'workspaces', 'appearance', 'about'] as const;
+export const SETTINGS_TABS = ['providers', 'workspaces', 'chat', 'appearance', 'about'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 export const DEFAULT_SETTINGS_TAB: SettingsTab = 'providers';
 

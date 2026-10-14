@@ -6,6 +6,7 @@ import type {
   AccountState,
   ApprovalRequest,
   ApprovalResolution,
+  PendingMessage,
   ProviderProfile,
   Session,
   SessionSnapshot,
@@ -39,6 +40,9 @@ export const ids = {
   stream: `stm_${ULID}`,
   subscription: `sub_${ULID}`,
   host: `hst_${ULID}`,
+  /** 待发消息（R11）。 */
+  pending: `pnd_${ULID}`,
+  pending2: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPR1',
 } as const;
 
 export const identity: ClientIdentity = {
@@ -264,6 +268,30 @@ export const subagentSummary: SubagentSummary = {
 
 const { nickname: _nickname, ...startedSummary } = { ...subagentSummary, pendingApprovals: [] };
 
+/** 等待中的插话（R11）。 */
+export const pendingSteer: PendingMessage = {
+  id: ids.pending,
+  content: [{ type: 'text', text: '顺便把测试也跑一下' }],
+  delivery: 'steer',
+  status: 'waiting',
+  clientMessageId: 'msg-3',
+  sentBy: identity,
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 插话没插成、转为排队后暂停（R11）。 */
+export const pendingHeld: PendingMessage = {
+  id: ids.pending2,
+  content: [{ type: 'text', text: '然后提交' }],
+  delivery: 'queue',
+  status: 'held',
+  fallback: { reason: 'rejected', message: 'cannot steer a review turn' },
+  sentBy: identity,
+  createdAt: TS,
+  updatedAt: TS2,
+};
+
 export const snapshot: SessionSnapshot = {
   session,
   pendingApprovals: [pendingApproval],
@@ -315,6 +343,7 @@ export const eventPayloads: PayloadSamples = {
       clientMessageId: 'msg-1',
       content: [{ type: 'text', text: '帮我整理本周周报' }],
       sentBy: identity,
+      pendingId: ids.pending2,
     },
     invalid: { turnId: ids.turn, content: [], sentBy: identity },
   },
@@ -441,6 +470,24 @@ export const eventPayloads: PayloadSamples = {
     valid: { subagent: subagentSummary },
     invalid: { subagent: { ...subagentSummary, pendingApprovals: undefined } },
   },
+  'pending.added': {
+    valid: { pending: pendingSteer },
+    invalid: { pending: { ...pendingSteer, delivery: 'interrupt' } },
+  },
+  'pending.updated': {
+    valid: { pending: pendingHeld },
+    invalid: { pending: { ...pendingHeld, fallback: { reason: 'timeout' } } },
+  },
+  'user.steered': {
+    valid: {
+      turnId: ids.turn,
+      pendingId: ids.pending,
+      clientMessageId: 'msg-3',
+      content: [{ type: 'text', text: '顺便把测试也跑一下' }],
+      sentBy: identity,
+    },
+    invalid: { turnId: ids.turn, content: [{ type: 'text', text: 'x' }], sentBy: identity },
+  },
 };
 
 export function eventOf<T extends WevirEventType>(type: T, seq = 7): WevirEventOf<T> {
@@ -531,6 +578,20 @@ export const methodSamples: MethodSamples = {
   },
   'host.ping': { params: empty, result: empty },
   'host.shutdown': { params: empty, result: empty },
+  'settings.get': {
+    params: empty,
+    result: {
+      valid: [{ settings: { sendWhileBusy: 'steer' } }],
+      invalid: [{ settings: { sendWhileBusy: 'interrupt' } }, {}],
+    },
+  },
+  'settings.update': {
+    params: {
+      valid: [{ settings: { sendWhileBusy: 'queue' } }, { settings: {} }],
+      invalid: [{ settings: { sendWhileBusy: 'later' } }, {}],
+    },
+    result: { valid: [{ settings: { sendWhileBusy: 'queue' } }], invalid: [{ settings: {} }] },
+  },
   'workspace.list': {
     params: empty,
     result: { valid: [{ workspaces: [workspace] }], invalid: [{ workspaces: [{ id: 'x' }] }] },
@@ -771,14 +832,30 @@ export const methodSamples: MethodSamples = {
           content: [{ type: 'text', text: '继续' }],
           clientMessageId: 'msg-2',
         },
+        {
+          sessionId: ids.session,
+          content: [{ type: 'text', text: '顺便把测试也跑一下' }],
+          clientMessageId: 'msg-3',
+          delivery: 'steer',
+        },
       ],
       invalid: [
         { sessionId: ids.session, content: [] },
         { sessionId: ids.session, content: [{ type: 'image', data: 'xx' }] },
         { sessionId: ids.session, content: [{ type: 'text', text: 'x' }], clientMessageId: '' },
+        { sessionId: ids.session, content: [{ type: 'text', text: 'x' }], delivery: 'now' },
       ],
     },
-    result: { valid: [{ turnId: ids.turn, seq: 13 }], invalid: [{ turnId: ids.turn, seq: 0 }] },
+    result: {
+      valid: [
+        { turnId: ids.turn, seq: 13 },
+        { pendingId: ids.pending, seq: 14 },
+      ],
+      invalid: [
+        { turnId: ids.turn, seq: 0 },
+        { pendingId: ids.turn, seq: 14 },
+      ],
+    },
   },
   'session.cancel': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{ sessionId: 'ses-1' }] },
@@ -791,6 +868,40 @@ export const methodSamples: MethodSamples = {
   'session.resume': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
     result: { valid: [{ session }], invalid: [{}] },
+  },
+  'pending.update': {
+    params: {
+      valid: [
+        {
+          sessionId: ids.session,
+          pendingId: ids.pending2,
+          content: [{ type: 'text', text: '改' }],
+        },
+        { sessionId: ids.session, pendingId: ids.pending2, delivery: 'steer' },
+      ],
+      invalid: [
+        { sessionId: ids.session, pendingId: ids.pending2, content: [] },
+        { sessionId: ids.session, pendingId: ids.turn },
+      ],
+    },
+    result: { valid: [{ pending: pendingHeld }], invalid: [{ pending: { id: ids.pending } }] },
+  },
+  'pending.cancel': {
+    params: {
+      valid: [{ sessionId: ids.session, pendingId: ids.pending2 }],
+      invalid: [{ sessionId: ids.session }],
+    },
+    result: {
+      valid: [{ pending: { ...pendingHeld, status: 'cancelled' } }],
+      invalid: [{ pending: { ...pendingHeld, status: 'deleted' } }],
+    },
+  },
+  'pending.resume': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{ pendingId: ids.pending }] },
+    result: {
+      valid: [{ pendingMessages: [] }, { pendingMessages: [pendingSteer, pendingHeld] }],
+      invalid: [{}],
+    },
   },
   'approval.respond': {
     params: {
@@ -840,6 +951,10 @@ export const notificationSamples: NotificationSamples = {
     valid: [{ account: signedInAccount }, { account: signingInAccount }],
     invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },
+  'settings.updated': {
+    valid: [{ settings: { sendWhileBusy: 'queue' } }],
+    invalid: [{ settings: {} }],
+  },
 };
 
 // ── 错误 data ─────────────────────────────────────────────────────────
@@ -879,6 +994,10 @@ export const errorDataSamples: ErrorDataSamples = {
   },
   CLIENT_MESSAGE_CONFLICT: { valid: { clientMessageId: 'msg-1' }, invalid: { clientMessageId: 1 } },
   RESOURCE_IN_USE: { valid: { sessionIds: [ids.session] }, invalid: { sessionIds: ['s1'] } },
+  PENDING_NOT_EDITABLE: {
+    valid: { pendingId: ids.pending, status: 'waiting', delivery: 'steer' },
+    invalid: { pendingId: ids.pending, status: 'waiting' },
+  },
   WORKSPACE_PATH_INVALID: {
     valid: { path: '/Users/me/gone', reason: 'not_found' },
     invalid: { path: '/Users/me/gone', reason: 'missing' },

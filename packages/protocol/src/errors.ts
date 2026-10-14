@@ -1,9 +1,11 @@
 import { z } from 'zod';
-import { ApprovalIdSchema, SessionIdSchema } from './common.js';
+import { ApprovalIdSchema, PendingMessageIdSchema, SessionIdSchema } from './common.js';
 import {
   ActiveTurnSchema,
   ApprovalResolutionSchema,
   EngineErrorInfoSchema,
+  PendingDeliverySchema,
+  PendingStatusSchema,
   ResolvedApprovalStatusSchema,
   SessionReadOnlySchema,
   SessionStateSchema,
@@ -32,12 +34,14 @@ export const ErrorCode = {
   PROVIDER_NOT_FOUND: -32011,
   SESSION_NOT_FOUND: -32012,
   APPROVAL_NOT_FOUND: -32013,
+  PENDING_NOT_FOUND: -32014,
 
   INVALID_STATE: -32020,
   SESSION_BUSY: -32021,
   ALREADY_DECIDED: -32022,
   CLIENT_MESSAGE_CONFLICT: -32023,
   RESOURCE_IN_USE: -32024,
+  PENDING_NOT_EDITABLE: -32025,
 
   WORKSPACE_PATH_INVALID: -32040,
   ENGINE_ERROR: -32041,
@@ -94,6 +98,12 @@ export const ErrorDataSchemas = {
   RESOURCE_IN_USE: z.object({
     /** 阻止操作的未关闭会话。 */
     sessionIds: z.array(SessionIdSchema),
+  }),
+  /** 待发消息现在不能这样改（0.8.0）：插话已交给引擎、暂停的不能改成插话、已到终态。 */
+  PENDING_NOT_EDITABLE: z.object({
+    pendingId: PendingMessageIdSchema,
+    status: PendingStatusSchema,
+    delivery: PendingDeliverySchema,
   }),
   WORKSPACE_PATH_INVALID: z.object({
     path: z.string(),

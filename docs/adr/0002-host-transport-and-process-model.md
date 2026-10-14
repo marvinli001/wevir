@@ -141,3 +141,5 @@
    - 若要 Windows 与 POSIX 一致（拉起方崩溃后仍走优雅退出），可在 Windows 上以 `detached: true` 拉起 Host（不进 job object，读到 EOF 后自行退出）；代价是 EOF 处理一旦失效就会留下孤儿进程。骨架不改，留给 Windows 打包阶段（未决事项 1）一并决定。
    - 同一批 Windows 测试还确认了决策 6 的另一条：对其他进程发 SIGTERM 就是 TerminateProcess，测试里要让 Host 优雅退出都改走 `host.shutdown`（与 `wevir host stop` 相同）。
    - 运行时文件：Windows 上 rename 覆盖一个正被别的进程打开的 `host.json`（客户端重连时会反复重读它）会以 EPERM 暂时失败，Host 启动随之失败。`RuntimeFile.publish` 改为在 Windows 上遇到 EPERM / EACCES / EBUSY 时短暂重试（共约 1 s），其他平台不变。
+
+8. **2026-10-14，R11：回合进行中的消息由 Host 排队与插话。** 决策 4 原定“会话不是 `idle` 时 `session.send` 直接返回 `session_busy`，不排队、不打断；排队留给客户端”。维护者 2026-10-14 定：回合进行中也能发消息，可以插话（不打断回合，等这一步结束插进同一个回合）或排队（回合结束后作为下一个回合发出），默认方式是 Host 的设置。排队与插话放在 Host 而不是客户端：多端看到同一个待发区、Host 重启后仍在、插话要经适配器用上引擎的能力（Codex `turn/steer`）。线缆上保持兼容：只有带 `delivery` 的 `session.send` 才会成为待发消息，不带的照旧 `SESSION_BUSY`；待发消息经事件进事件库（`pending.added` / `pending.updated`，插话进了回合是 `user.steered`），首个决定生效、命令串行等其余规则不变。细则见 [领域模型](../architecture/domain-model.md) §3.3.2、§3.7、§4.6 与 [host-api.md](../architecture/host-api.md) §3.1、§10。默认方式是 Host 的设置，存在数据目录新增的 `settings.json`（补记 3 的布局之外，`settings.get` / `settings.update`）。

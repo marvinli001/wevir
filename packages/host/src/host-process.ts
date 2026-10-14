@@ -19,6 +19,7 @@ import type { Logger } from './logger.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
+import { HostSettingsStore } from './settings.js';
 import { loadTitleInstructions } from './title.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
@@ -168,6 +169,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             onWarning: (message, fields) => logger.warn(message, fields),
           });
 
+    // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
+    const settings = new HostSettingsStore({
+      path: homePath(home, 'settingsFile'),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    await settings.load();
+
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
     let requestShutdown: (trigger: ShutdownTrigger) => void = () => {};
@@ -185,9 +193,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         providers: adapter,
         providerLock,
         ...(accounts !== undefined && { accounts }),
+        settings,
       }),
-      features: accounts === undefined ? {} : { chatgpt_account: true },
+      // 待发消息与设置（R11）不依赖引擎：引擎不能插话时 Host 一律排队。
+      features: {
+        pending_messages: true,
+        host_settings: true,
+        ...(accounts !== undefined && { chatgpt_account: true }),
+      },
       ...(accounts !== undefined && { accounts }),
+      settings,
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,

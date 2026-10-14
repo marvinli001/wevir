@@ -85,6 +85,8 @@ import {
   type TurnInterruptParams,
   type TurnStartParams,
   type TurnStartResponse,
+  type TurnSteerParams,
+  type TurnSteerResponse,
 } from './protocol.js';
 import { classifyResumeError } from './resume-error.js';
 import {
@@ -181,6 +183,8 @@ interface Turn {
   /** `turn/start` 的结果到了才有。 */
   turnId?: string;
   cancelRequested: boolean;
+  /** 交给 `turn/steer`、还没进回合的插话（R11）：`clientUserMessageId`，见到同一 `clientId` 的 userMessage 完成就报出。 */
+  readonly steers: Set<string>;
   /** 回合结算（终结事件已发出，或会话脱开）时兑现，永不 reject。 */
   done: Promise<void>;
   settle: () => void;
@@ -365,6 +369,8 @@ class Launcher implements CodexLauncher {
  * - **取消**（§4.1）：`turn/interrupt`，时限内回合没有结算就重启进程，挂着的会话以 `engine.exited`
  *   （`cancel_unconfirmed`）脱开，之后 `thread/resume` 到新进程上。
  * - **恢复**（§4.2）：`thread/resume`，失败按 `resume-error.ts` 归类（`session_lost` / `session_unavailable`）。
+ * - **插话**（§4.5，R11）：`turn/steer` 带 `expectedTurnId` 与 `clientUserMessageId`；带同一 `clientId` 的 userMessage
+ *   完成时报 `turn.steered`。被拒（没有进行中的回合、回合不能插话）报 `steer_rejected`，Host 改为排队。
  * - **标题**（§4.4）：`generateTitle` 经网关（或临时 thread）用会话的模型发一次不带工具的请求。
  * - **子会话**（§6.5，R4）：子 agent 的 thread 从父会话 `collabAgentToolCall` 的 `receiverThreadIds`（或子 thread
  *   `turn/started` 的 `rootTurnId`）认出，在父会话的流里报 `subagent.started`，之后它的通知按子会话上报，回合由引擎
@@ -576,6 +582,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     let settle!: () => void;
     const turn: Turn = {
       cancelRequested: false,
+      steers: new Set(),
       done: new Promise<void>((resolve) => {
         settle = resolve;
       }),
@@ -600,6 +607,42 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     turn.turnId = response.turn.id;
     if (turn.cancelRequested && session.turn === turn) this.#interrupt(session, turn);
+  }
+
+  /**
+   * 插话（codex-event-mapping.md §4.5）：`turn/steer`，app-server 接受即返回。插话的 ID 先记下再发请求：它进回合的
+   * userMessage 可能早于响应到达。`turn/start` 的结果还没到（没有回合 ID）、取消已开始时不发请求，直接拒绝。
+   */
+  async steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) {
+      throw new AdapterError('invalid_input', '子会话由父 agent 驱动，不能插话');
+    }
+    if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
+    const turn = session.turn;
+    if (turn?.turnId === undefined || turn.cancelRequested) {
+      throw new AdapterError('steer_rejected', '没有能插话的回合');
+    }
+    const params: TurnSteerParams = {
+      threadId: engineSessionId,
+      input: input.content.map((part) => ({ type: 'text', text: part.text, text_elements: [] })),
+      expectedTurnId: turn.turnId,
+      clientUserMessageId: steerId,
+    };
+    turn.steers.add(steerId);
+    try {
+      await this.process.request<TurnSteerResponse>('turn/steer', params);
+    } catch (error) {
+      turn.steers.delete(steerId);
+      // app-server 的拒绝（没有进行中的回合、回合 ID 不符、review / compact 回合不能插话、输入过大）：Host 改为排队。
+      if (error instanceof CodexRpcError) {
+        throw new AdapterError('steer_rejected', `turn/steer 被拒：${error.message}`, {
+          cause: error,
+        });
+      }
+      throw engineError(error, 'turn/steer');
+    }
   }
 
   /**
@@ -1014,6 +1057,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       for (const event of events) session.hub.emit(event);
       return;
     }
+    // 插话进了回合：带我们给的 clientId 的 userMessage 完成（codex-event-mapping.md §4.5）。
+    const steerId = steeredId(method, params);
+    if (steerId !== undefined && turn.steers.delete(steerId)) {
+      session.hub.emit({ type: 'turn.steered', engineSessionId: session.id, steerId });
+    }
     for (const event of session.mapper.map(method, params)) {
       if (event.type === 'turn.settled' || event.type === 'turn.failed') {
         // 回合结束时仍未决的审批：app-server 之后才发 serverRequest/resolved，先在终结事件之前结掉。
@@ -1162,6 +1210,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       session.turn = {
         turnId,
         cancelRequested: false,
+        steers: new Set(),
         done: new Promise<void>((resolve) => {
           settle = resolve;
         }),
@@ -1593,4 +1642,12 @@ function stderrLogger(): CodexAdapterLogger {
         `[adapter-codex] ${message}${fields === undefined ? '' : ` ${JSON.stringify(fields)}`}\n`,
       ),
   };
+}
+
+/** `item/completed` 的 userMessage 带的 `clientId`（插话的 ID，R11）。 */
+function steeredId(method: string, params: unknown): string | undefined {
+  if (method !== 'item/completed' || !isRecord(params)) return undefined;
+  const item = params.item;
+  if (!isRecord(item) || item.type !== 'userMessage') return undefined;
+  return typeof item.clientId === 'string' ? item.clientId : undefined;
 }

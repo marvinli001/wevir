@@ -632,3 +632,120 @@ describe('子会话（R4）', () => {
     ).toBe(list2);
   });
 });
+
+describe('待发消息与插话（R11）', () => {
+  const PENDING = 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
+  const PENDING2 = 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQS' as const;
+  const base = {
+    content: [{ type: 'text' as const, text: '顺便跑一下测试' }],
+    sentBy: identity,
+    createdAt: '2026-10-13T08:00:00.000Z',
+    updatedAt: '2026-10-13T08:00:00.000Z',
+  };
+
+  it('pendingMessages 按加入的先后，到了终态就去掉', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('pending.added', {
+      pending: { ...base, id: PENDING, delivery: 'steer', status: 'waiting' },
+    });
+    add('pending.added', {
+      pending: { ...base, id: PENDING2, delivery: 'queue', status: 'waiting' },
+    });
+    let transcript = projectTranscript(list);
+    expect(transcript.pendingMessages.map((p) => [p.id, p.delivery])).toEqual([
+      [PENDING, 'steer'],
+      [PENDING2, 'queue'],
+    ]);
+    add('pending.updated', {
+      pending: { ...base, id: PENDING2, delivery: 'queue', status: 'held' },
+    });
+    add('pending.updated', {
+      pending: { ...base, id: PENDING, delivery: 'steer', status: 'inserted', turnId: TURN },
+    });
+    transcript = projectTranscript(list);
+    expect(transcript.pendingMessages.map((p) => [p.id, p.status])).toEqual([[PENDING2, 'held']]);
+  });
+
+  it('插话：回合中间一条用户消息，之后的输出另起一条助手消息；finished 在最后一条，增量与工具在各自的消息里收尾', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 0,
+      kind: 'text',
+      text: '先',
+    });
+    add('tool.started', {
+      turnId: TURN,
+      toolCallId: 'call_1',
+      toolName: 'shell',
+      display: { kind: 'shell' },
+      input: {},
+    });
+    add('user.steered', {
+      turnId: TURN,
+      pendingId: PENDING,
+      clientMessageId: 'msg-3',
+      content: [{ type: 'text', text: '顺便跑一下测试' }],
+      sentBy: identity,
+    });
+    // 插话之前的增量，已提交消息晚到：仍在它所在的那条助手消息里原位替换。
+    add('assistant.message', {
+      turnId: TURN,
+      messageId: 'm1',
+      text: '先回答第一部分',
+      replaces: [{ streamId: STREAM, blockIndex: 0 }],
+    });
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM2,
+      blockIndex: 0,
+      kind: 'text',
+      text: '好',
+    });
+    add('assistant.message', {
+      turnId: TURN,
+      messageId: 'm2',
+      text: '好的，测试也跑了',
+      replaces: [{ streamId: STREAM2, blockIndex: 0 }],
+    });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 10 });
+    const { messages } = projectTranscript(list);
+    expect(
+      messages.map((m) => [
+        m.role,
+        m.id,
+        m.parts.map((p) => (p.type === 'text' ? p.text : p.type)),
+      ]),
+    ).toEqual([
+      ['user', TURN, ['你好']],
+      ['assistant', `${TURN}:assistant`, ['先回答第一部分', 'tool']],
+      ['user', `${TURN}:steer:${PENDING}`, ['顺便跑一下测试']],
+      ['assistant', `${TURN}:assistant:7`, ['好的，测试也跑了']],
+    ]);
+    const [, first, steer, second] = messages;
+    expect(steer).toMatchObject({ steered: true, pendingId: PENDING, clientMessageId: 'msg-3' });
+    expect(first?.role === 'assistant' && first.finished).toBeFalsy();
+    expect(second?.role === 'assistant' && second.finished).toEqual({
+      outcome: 'completed',
+      durationMs: 10,
+    });
+    // 回合结束时第一条助手消息里没收尾的工具也显示为 unknown。
+    expect(first?.parts.find((p) => p.type === 'tool')).toMatchObject({ status: 'unknown' });
+  });
+
+  it('排队发出的回合：用户消息带 pendingId', () => {
+    const { list, add } = events();
+    add('user.message', {
+      turnId: TURN2,
+      content: [{ type: 'text', text: '然后提交' }],
+      sentBy: identity,
+      pendingId: PENDING2,
+    });
+    const [message] = projectTranscript(list).messages;
+    expect(message).toMatchObject({ role: 'user', pendingId: PENDING2 });
+    expect(message).not.toHaveProperty('steered');
+  });
+});

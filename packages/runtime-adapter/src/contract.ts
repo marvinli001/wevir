@@ -36,6 +36,11 @@ export interface AdapterCapabilities {
    * 的事件按它自己的引擎会话 ID 上报。Codex 有，dsh 与其他 ACP 引擎没有。
    */
   subagents: boolean;
+  /**
+   * 插话（R11，domain-model §4.6）：实现了 `steer`，回合进行中交出去的输入在当前这一步之后进了同一个回合（`turn.steered`），
+   * 没有回合时报 `steer_rejected`。Codex 与 echo 有；dsh 与其他 ACP 引擎没有，也不实现 `steer`（Host 据此一律排队）。
+   */
+  steer: boolean;
 }
 
 /** 驱动引擎做出特定行为的提示词。真实模型或 mock Provider 按自己的脚本替换。 */
@@ -50,6 +55,10 @@ export interface ContractPrompts {
   subagent?: string;
   /** 同上，但子 agent 先请求一次审批（`subagents` 且 `approvals`）。 */
   subagentApproval?: string;
+  /** 一个慢回合：流式输出持续足够久，中途插话来得及（`steer`；不能插话的引擎不用给）。 */
+  slow?: string;
+  /** 插话的内容，模型据此接着回答（`steer`）。 */
+  steer?: string;
 }
 
 /** 默认提示词，按 EchoAdapter 的关键词写（echo.ts）。 */
@@ -59,6 +68,8 @@ export const DEFAULT_CONTRACT_PROMPTS: Readonly<Required<ContractPrompts>> = Obj
   approval: 'Please approve writing a file outside the workspace',
   subagent: 'Please start a subagent',
   subagentApproval: 'Please start a subagent that needs to approve a write',
+  slow: 'Please answer slowly',
+  steer: 'Also mention the weather',
 });
 
 export interface ContractOptions<A extends AgentRuntimeAdapter = AgentRuntimeAdapter> {
@@ -450,6 +461,69 @@ export function runAdapterContract<A extends AgentRuntimeAdapter>(
       expect(a.log.events.every((event) => event.engineSessionId === a.id)).toBe(true);
       expect(b.log.events.every((event) => event.engineSessionId === b.id)).toBe(true);
     });
+
+    /** `steer` 能力声明了就必须实现。 */
+    function steerOf(adapter: A): NonNullable<AgentRuntimeAdapter['steer']> {
+      if (!adapter.steer) throw new Error('声明了 steer 能力，却没有实现 steer');
+      return adapter.steer.bind(adapter);
+    }
+
+    it.skipIf(!caps.steer)(
+      '插话：回合进行中 steer 被接受，turn.steered 在终结事件之前，之后模型接着输出',
+      async () => {
+        const adapter = await newAdapter();
+        const session = await openSession(adapter);
+        const steer = steerOf(adapter);
+        const from = session.log.events.length;
+        await adapter.send(session.id, text(prompts.slow));
+        // 看到这一步已经在输出再插话，插话应当在这一步之后进回合。没有增量时看不到“正在输出”，send 返回（引擎已接受
+        // 回合）就插话：引擎可能在第一步之前就用上它（Codex 在第一次采样开始之前收到的插话会并进第一次请求）。
+        if (caps.incrementalStream) {
+          await session.log.waitFor(ofType('assistant.delta'), '慢回合开始输出', from);
+        }
+        await steer(session.id, 'contract-steer-1', text(prompts.steer));
+        const turn = await finishTurn(session, from);
+        expect(turn.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+        const steeredAt = turn.events.findIndex(
+          (event) => event.type === 'turn.steered' && event.steerId === 'contract-steer-1',
+        );
+        expect(steeredAt).toBeGreaterThanOrEqual(0);
+        // 插话之前是这一步的输出，之后模型接着输出（同一个回合）。
+        const before = turn.events.slice(0, steeredAt);
+        const after = turn.events.slice(steeredAt + 1);
+        if (caps.incrementalStream) {
+          expect(before.some((event) => event.type === 'assistant.message')).toBe(true);
+        }
+        expect(after.some((event) => event.type === 'assistant.message')).toBe(true);
+        expect(turn.events.filter(ofType('turn.steered'))).toHaveLength(1);
+      },
+    );
+
+    it.skipIf(!caps.steer)(
+      '插话：没有进行中的回合时报 steer_rejected，之后照常 send（Host 据此改为排队）',
+      async () => {
+        const adapter = await newAdapter();
+        const session = await openSession(adapter);
+        const steer = steerOf(adapter);
+        await expectAdapterError(
+          () => steer(session.id, 'contract-steer-2', text(prompts.steer)),
+          'steer_rejected',
+        );
+        await runTurn(adapter, session, prompts.plain);
+        // 回合结束之后同样被拒；排队的消息作为下一个回合发出。
+        await expectAdapterError(
+          () => steer(session.id, 'contract-steer-3', text(prompts.steer)),
+          'steer_rejected',
+        );
+        const queued = await runTurn(adapter, session, prompts.steer);
+        expect(queued.terminal).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+        expect(queued.events.some((event) => event.type === 'turn.steered')).toBe(false);
+        await expectAdapterError(
+          () => steer(UNKNOWN_SESSION, 'contract-steer-4', text(prompts.steer)),
+          'session_not_found',
+        );
+      },
+    );
 
     /** 父会话发 `prompt`，等到父会话流里的 `subagent.started`，订阅子会话。 */
     async function startSubagent(

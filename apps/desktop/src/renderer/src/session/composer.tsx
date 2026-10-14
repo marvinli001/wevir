@@ -1,12 +1,14 @@
-import type { SessionState } from '@wevir/protocol';
+import type { PendingDelivery, SessionState } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowUp, CornerDownRight, ListPlus, Square } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { t } from '@/i18n';
+import { composerKeyAction, otherDelivery } from './pending-model';
 
-/** 有回合在进行（含正在取消）：不能再发送，发送键变为“停止”。 */
+/** 有回合在进行（含正在取消）：旁边多一个“停止”；Host 不支持待发消息时不能再发送。 */
 export function isBusy(state: SessionState | undefined): boolean {
   return state === 'running' || state === 'awaiting_approval' || state === 'cancelling';
 }
@@ -21,9 +23,10 @@ export function setDraft(draftKey: string, text: string): void {
 }
 
 /**
- * 输入框：Enter 发送、Shift+Enter 换行、输入法合成期间不发送（openwork-notes §3.7）；运行中不允许再发送
- * （Host 会回 SESSION_BUSY，ADR-0002 §4），发送键变为“停止”，Esc 也可以停止。`onSend` 返回 true 表示已
- * 发出，清空输入框；失败时保留文字。
+ * 输入框：Enter 发送、Shift+Enter 换行、输入法合成期间不发送（openwork-notes §3.7）。回合进行中（R11）：给了
+ * `busyDelivery`（Host 支持待发消息）时照常可以发，Enter 与发送键按 `busyDelivery`（“回合进行中按回车”的设置），Tab 与
+ * 旁边的小按钮用另一种；没给时不允许再发送（旧 Host 会回 SESSION_BUSY）。回合进行中多一个“停止”，Esc 也可以停止。
+ * `onSend` 返回 true 表示已发出，清空输入框；失败时保留文字。
  */
 export function Composer({
   draftKey,
@@ -32,6 +35,7 @@ export function Composer({
   disabledReason,
   status,
   toolbar,
+  busyDelivery,
   onSend,
   onStop,
   autoFocus = false,
@@ -46,7 +50,10 @@ export function Composer({
   status?: ReactNode;
   /** 输入框上方一行：新会话的工作区与模型选择。 */
   toolbar?: ReactNode;
-  onSend: (text: string) => Promise<boolean>;
+  /** 回合进行中按发送的方式（R11）；省略表示回合进行中不能发送。 */
+  busyDelivery?: PendingDelivery;
+  /** 回合进行中发出时带上方式；空闲时不带。 */
+  onSend: (text: string, delivery?: PendingDelivery) => Promise<boolean>;
   onStop: () => void;
   autoFocus?: boolean;
 }) {
@@ -54,7 +61,8 @@ export function Composer({
   const [sending, setSending] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = isBusy(state);
-  const canSend = !busy && !disabled && !sending && text.trim() !== '';
+  const pendingEnabled = busyDelivery !== undefined;
+  const canSend = (!busy || pendingEnabled) && !disabled && !sending && text.trim() !== '';
 
   useEffect(() => setDraft(draftKey, text), [draftKey, text]);
 
@@ -80,11 +88,16 @@ export function Composer({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [busy, disabled, onStop]);
 
-  const send = async () => {
+  /** 发送；回合进行中带上方式，默认按设置。 */
+  const send = async (delivery = busyDelivery) => {
     if (!canSend) return;
     setSending(true);
+    const sent = text.trim();
     try {
-      if (await onSend(text.trim())) setText('');
+      // 等待期间可能已经输入了下一条（回合进行中接着发是常事）：只清掉发出去的那条。
+      if (await onSend(sent, busy ? delivery : undefined)) {
+        setText((current) => (current.trim() === sent ? '' : current));
+      }
     } finally {
       setSending(false);
       textareaRef.current?.focus();
@@ -92,12 +105,25 @@ export function Composer({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key !== 'Enter' || event.shiftKey) return;
-    // 输入法合成中按的回车是选词，不发送（Safari 等合成结束时 keyCode 为 229）。
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+    const action = composerKeyAction(
+      {
+        key: event.key,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        // 输入法合成中按的回车是选词，不发送（Safari 等合成结束时 keyCode 为 229）。
+        composing: event.nativeEvent.isComposing || event.keyCode === 229,
+      },
+      { busy, pendingEnabled, hasText: text.trim() !== '' },
+    );
+    if (action === 'none') return;
     event.preventDefault();
-    void send();
+    if (action === 'send') void send();
+    else if (busyDelivery !== undefined) void send(otherDelivery(busyDelivery));
   };
+
+  const other = busyDelivery === undefined ? undefined : otherDelivery(busyDelivery);
 
   return (
     <div
@@ -121,20 +147,68 @@ export function Composer({
       <div className="flex items-center justify-between gap-3 px-3 pb-2.5">
         <div className="min-w-0 flex-1 text-xs">{status}</div>
         <span className="hidden shrink-0 text-xs text-faint-foreground sm:inline">
-          {busy ? t('session.stopHint') : t('session.composerHint')}
+          {!busy
+            ? t('session.composerHint')
+            : busyDelivery === undefined
+              ? t('session.stopHint')
+              : t(`session.busyHint.${busyDelivery}`)}
         </span>
-        {busy ? (
+        {busy && (
           <Button size="sm" variant="outline" disabled={disabled} onClick={onStop}>
             <Square data-icon="inline-start" className="fill-current" />
             {t('session.stop')}
           </Button>
-        ) : (
-          <Button size="sm" disabled={!canSend} onClick={() => void send()}>
-            <ArrowUp data-icon="inline-start" />
-            {t('session.send')}
+        )}
+        {busy && busyDelivery !== undefined && other !== undefined && (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!canSend}
+                  data-delivery={other}
+                  onClick={() => void send(other)}
+                />
+              }
+            >
+              <DeliveryIcon delivery={other} />
+              {t(other === 'steer' ? 'session.sendSteer' : 'session.sendQueue')}
+            </TooltipTrigger>
+            <TooltipContent>
+              {t(other === 'steer' ? 'session.sendOtherSteer' : 'session.sendOtherQueue')}
+            </TooltipContent>
+          </Tooltip>
+        )}
+        {(!busy || busyDelivery !== undefined) && (
+          <Button
+            size="sm"
+            disabled={!canSend}
+            data-delivery={busy ? busyDelivery : undefined}
+            onClick={() => void send()}
+          >
+            {busy && busyDelivery !== undefined ? (
+              <>
+                <DeliveryIcon delivery={busyDelivery} />
+                {t(busyDelivery === 'steer' ? 'session.sendSteer' : 'session.sendQueue')}
+              </>
+            ) : (
+              <>
+                <ArrowUp data-icon="inline-start" />
+                {t('session.send')}
+              </>
+            )}
           </Button>
         )}
       </div>
     </div>
+  );
+}
+
+function DeliveryIcon({ delivery }: { delivery: PendingDelivery }) {
+  return delivery === 'steer' ? (
+    <CornerDownRight data-icon="inline-start" />
+  ) : (
+    <ListPlus data-icon="inline-start" />
   );
 }

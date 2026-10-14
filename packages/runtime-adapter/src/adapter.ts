@@ -80,6 +80,16 @@ export interface AgentRuntimeAdapter {
   send(engineSessionId: string, input: AgentInput): Promise<void>;
 
   /**
+   * 插话（R11，domain-model §4.6）：把输入交给进行中的回合，不打断它；引擎在当前这一步（模型这一段输出，或这次工具
+   * 调用）结束后把它放进同一个回合，模型接着往下做（Codex：`turn/steer`）。引擎接受即返回；放进去时在这个回合的流里
+   * 报 `turn.steered`（带 `steerId`），在终结事件之前。回合被中断时引擎丢掉没用上的插话，不报。不实现表示引擎不能
+   * 插话（dsh 与其他 ACP 引擎），Host 一律排队。契约能力 `steer`。
+   * 错误：`steer_rejected`（没有能插话的回合：没有进行中的回合、回合正在取消、引擎不肯，例如 Codex 的 review 回合；
+   * Host 转为排队）、`session_not_found`、`session_closed`、`invalid_input`（含子会话）、`disposed`。
+   */
+  steer?(engineSessionId: string, steerId: string, input: AgentInput): Promise<void>;
+
+  /**
    * 回复一个未决审批（dsh：ACP `{"outcome":{"outcome":"selected","optionId":…}}`）。审批随即不再未决，
    * 引擎随后的事件（通常是该工具的 `tool.finished`）照常上报。同一请求只能决定一次。
    * 错误：`session_not_found`、`approval_not_found`、`invalid_option`（审批保持未决）、`disposed`。

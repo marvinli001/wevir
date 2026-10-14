@@ -77,6 +77,11 @@ function UserMessage({
           {t('transcript.fromParentAgent')}
         </span>
       )}
+      {message.steered && (
+        <span className="mt-1 text-xs text-faint-foreground" data-steered>
+          {t('transcript.steered')}
+        </span>
+      )}
     </div>
   );
 }

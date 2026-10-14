@@ -68,6 +68,8 @@ interface EchoTurn {
   readonly hub: EventHub<AgentEvent>;
   approval?: PendingDecision;
   cancelRequested: boolean;
+  /** 交出来、还没放进回合的插话（R11），每次回复之后一并放进去。 */
+  readonly steers: Array<{ steerId: string; text: string }>;
   /** 回合循环；永不 reject。 */
   done: Promise<void>;
 }
@@ -100,10 +102,14 @@ interface ReplyBlock {
  * | `approve` | 模拟一次需要审批的写文件（`echo_write`）：先发审批请求，等决定后继续；允许则工具完成，拒绝则工具失败，回合照常结束 |
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
+ * | `slow` | 回复的每个分片前多等九步，回合持续得久一些，测试插话与排队用（R11） |
  * | `subagent` | 模拟 Codex 的子 agent（R4）：调 `spawn_agent` 派出一个子会话（父会话的流里 `subagent.started`），子会话以
  *   `turn.started` 开始一个回合，输入是 `Helper task: <输入，subagent 换成 helper>`，所以输入里的其他关键词由子会话执行
  *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
  *   （`subagent.updated` 的 `closed`）。父回合被取消时子会话照常跑完（与 Codex 相同，Host 自己级联取消） |
+ *
+ * 插话（R11，`steer`）：回合进行中交来的输入在当前这次回复之后放进回合（`turn.steered`），再回复一次
+ * `Echo: <插话>`（新的 attempt），像 Codex 在一次采样之后用上待处理的输入；回合被取消或引擎退出时丢掉没用上的。
  *
  * 取消时：未决审批以 `approval.cancelled` 结束，未完成的工具以 failed 结束，已生成的半段回复作为
  * 已提交消息补发（与 dsh 相同，T0.3 E2），回合以 `turn.settled`（`cancelled`）结束。
@@ -189,10 +195,25 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       abort: new AbortController(),
       hub: session.hub,
       cancelRequested: false,
+      steers: [],
       done: Promise.resolve(),
     };
     session.turn = turn;
     turn.done = this.#runTurn(session, turn, input.content.map((part) => part.text).join('\n'));
+  }
+
+  async steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) {
+      throw new AdapterError('invalid_input', 'a sub-agent session is driven by its parent agent');
+    }
+    if (input.content.length === 0) throw new AdapterError('invalid_input', 'content is empty');
+    const turn = session.turn;
+    if (!turn || turn.cancelRequested) {
+      throw new AdapterError('steer_rejected', 'no active turn to steer');
+    }
+    turn.steers.push({ steerId, text: input.content.map((part) => part.text).join('\n') });
   }
 
   async respondToApproval(
@@ -308,8 +329,9 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     const engineSessionId = session.id;
     const signal = turn.abort.signal;
     const emit = (event: AgentEvent) => turn.hub.emit(event);
-    const attemptId = `${engineSessionId}:${session.turnCount}`;
-    const blocks: ReplyBlock[] = [];
+    let attemptId = `${engineSessionId}:${session.turnCount}`;
+    let blocks: ReplyBlock[] = [];
+    const slowSteps = /slow/i.test(text) ? 10 : 1;
     /** 进行中的工具调用 → 被取消时的失败文本（措辞取 dsh，T0.3 E1、D）。 */
     const openTools = new Map<string, string>();
 
@@ -391,24 +413,25 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         blocks.push({ kind: 'reasoning', full: `Thinking about: ${text}`, generated: '' });
       }
       blocks.push({ kind: 'text', full: `Echo: ${text}`, generated: '' });
-      for (const [blockIndex, block] of blocks.entries()) {
-        for (let start = 0; start < block.full.length; start += this.#chunkSize) {
-          await this.#step(signal);
-          const piece = block.full.slice(start, start + this.#chunkSize);
-          block.generated += piece;
-          if (this.#incremental) {
-            emit({
-              type: 'assistant.delta',
-              engineSessionId,
-              attemptId,
-              blockIndex,
-              kind: block.kind,
-              text: piece,
-            });
-          }
-        }
-      }
+      await this.#reply(signal, emit, engineSessionId, attemptId, blocks, slowSteps);
       this.#commit(emit, engineSessionId, attemptId, blocks);
+      blocks = [];
+      // 插话：这次回复之后放进回合，再回复一次（像 Codex 在一次采样之后用上待处理的输入）。
+      for (let round = 1; turn.steers.length > 0; round += 1) {
+        const steers = turn.steers.splice(0);
+        for (const { steerId } of steers) emit({ type: 'turn.steered', engineSessionId, steerId });
+        attemptId = `${engineSessionId}:${session.turnCount}:${round}`;
+        blocks = [
+          {
+            kind: 'text',
+            full: `Echo: ${steers.map((steer) => steer.text).join('\n')}`,
+            generated: '',
+          },
+        ];
+        await this.#reply(signal, emit, engineSessionId, attemptId, blocks, 1);
+        this.#commit(emit, engineSessionId, attemptId, blocks);
+        blocks = [];
+      }
       emit({
         type: 'usage.updated',
         engineSessionId,
@@ -527,6 +550,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       abort: new AbortController(),
       hub: child.hub,
       cancelRequested: false,
+      steers: [],
       done: Promise.resolve(),
     };
     child.turn = turn;
@@ -540,6 +564,34 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   }
 
   /** 发出已提交的思考与消息（同一 messageId），替换已发的增量块。 */
+  /** 按分片“生成”回复：每片前等 `stepsPerChunk` 步，发增量。 */
+  async #reply(
+    signal: AbortSignal,
+    emit: (event: AgentEvent) => void,
+    engineSessionId: string,
+    attemptId: string,
+    blocks: ReplyBlock[],
+    stepsPerChunk: number,
+  ): Promise<void> {
+    for (const [blockIndex, block] of blocks.entries()) {
+      for (let start = 0; start < block.full.length; start += this.#chunkSize) {
+        for (let step = 0; step < stepsPerChunk; step += 1) await this.#step(signal);
+        const piece = block.full.slice(start, start + this.#chunkSize);
+        block.generated += piece;
+        if (this.#incremental) {
+          emit({
+            type: 'assistant.delta',
+            engineSessionId,
+            attemptId,
+            blockIndex,
+            kind: block.kind,
+            text: piece,
+          });
+        }
+      }
+    }
+  }
+
   #commit(
     emit: (event: AgentEvent) => void,
     engineSessionId: string,

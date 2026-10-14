@@ -20,6 +20,7 @@ import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { newId } from './ids.js';
 import type { SessionManager } from './session-manager.js';
+import { HostSettingsStore } from './settings.js';
 
 /** 一次请求的上下文：发起请求的连接在 `host.hello` 里给出的身份与能力位。 */
 export interface RequestContext {
@@ -60,6 +61,8 @@ export interface HostMethodsOptions {
   accounts?: HostAccounts;
   /** Provider 写操作的串行锁；与 `HostAccounts` 共用，默认新建一个。 */
   providerLock?: ProviderLock;
+  /** Host 设置（R11，`settings.*`）；省略时只在内存里（测试）。 */
+  settings?: HostSettingsStore;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -103,6 +106,7 @@ export async function syncProviders(
  */
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
+  const settings = options.settings ?? new HostSettingsStore();
   // 写库成功之后才调用；引擎没能用上新配置时 Profile 仍已保存，报 ENGINE_ERROR 说明这一点。
   const applyProviders = async () => {
     try {
@@ -367,6 +371,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     'session.resume': async ({ sessionId }) => ({ session: await sessions.resume(sessionId) }),
+
+    'pending.update': async (params) => ({ pending: await sessions.updatePending(params) }),
+
+    'pending.cancel': (params) => ({ pending: sessions.cancelPending(params) }),
+
+    'pending.resume': async ({ sessionId }) => ({
+      pendingMessages: await sessions.resumePending(sessionId),
+    }),
+
+    'settings.get': () => ({ settings: settings.get() }),
+
+    'settings.update': async (params) => ({ settings: await settings.update(params.settings) }),
 
     'approval.respond': (params, { client }) => sessions.respondToApproval(params, client),
   };

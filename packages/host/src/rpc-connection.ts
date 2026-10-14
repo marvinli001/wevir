@@ -11,6 +11,7 @@ import {
   type HostFeatures,
   HostHelloParamsSchema,
   type HostId,
+  type HostSettings,
   isMethodName,
   JSONRPC_VERSION,
   type JsonRpcId,
@@ -62,6 +63,8 @@ export interface ConnectionHost {
   readonly features: HostFeatures;
   /** 引擎的账号（R6）：调过 `account.*` 的连接用它收 `account.updated`。引擎没有账号时省略。 */
   readonly accounts?: { watch(listener: (state: AccountState) => void): () => void };
+  /** Host 设置（R11）：调过 `settings.*` 的连接用它收 `settings.updated`。 */
+  readonly settings?: { watch(listener: (settings: HostSettings) => void): () => void };
   readonly limits: ConnectionLimits;
   readonly resultValidation: 'strict' | 'warn';
   /** 服务正在优雅退出：新请求一律 `HOST_SHUTTING_DOWN`。 */
@@ -127,6 +130,8 @@ export class RpcConnection {
   readonly #inflight = new Set<Promise<void>>();
   /** 调过 `account.*` 之后：退订 `account.updated`。 */
   #unwatchAccounts: (() => void) | undefined;
+  /** 调过 `settings.*` 之后：退订 `settings.updated`。 */
+  #unwatchSettings: (() => void) | undefined;
   /** 所有订阅排队的字节数之和。 */
   #queuedBytes = 0;
   #lastActivity = performance.now();
@@ -368,6 +373,7 @@ export class RpcConnection {
         const result = await handler(params, { client, capabilities: this.#capabilities });
         this.#respond(id, method, adaptResultForClient(method, result, this.#capabilities));
         if (method.startsWith('account.')) this.#watchAccounts();
+        if (method.startsWith('settings.')) this.#watchSettings();
       }
     }
   }
@@ -523,6 +529,22 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `settings.*` 的连接之后收 `settings.updated`（R11，host-api.md §3.1），连接关闭即止。 */
+  #watchSettings(): void {
+    if (this.#unwatchSettings !== undefined || this.#host.settings === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchSettings = this.#host.settings.watch((settings) => {
+      const parsed = NotificationSchemas['settings.updated'].params.safeParse({ settings });
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`settings.updated does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'settings.updated', params: parsed.data });
+    });
+  }
+
   #drop(subscription: Subscription): void {
     if (!subscription.active) return;
     subscription.active = false;
@@ -611,6 +633,8 @@ export class RpcConnection {
     for (const subscription of [...this.#subscriptions.values()]) this.#drop(subscription);
     this.#unwatchAccounts?.();
     this.#unwatchAccounts = undefined;
+    this.#unwatchSettings?.();
+    this.#unwatchSettings = undefined;
   }
 }
 

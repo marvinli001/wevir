@@ -11,6 +11,12 @@ export function acpAdapterCapabilities(
   engine: Pick<AcpEngine, 'capabilities'>,
   incremental: IncrementalState,
 ): AdapterCapabilities {
-  // ACP 引擎没有子会话（ADR-0005 决策 6.1：dsh、Gemini CLI 的子 agent 不产生更新）。
-  return { incrementalStream: incremental === 'active', subagents: false, ...engine.capabilities };
+  // ACP 引擎没有子会话（ADR-0005 决策 6.1：dsh、Gemini CLI 的子 agent 不产生更新），也不能插话（ACP 没有往进行中的
+  // prompt 里追加输入的办法，R11：适配器不实现 steer，Host 一律排队）。
+  return {
+    incrementalStream: incremental === 'active',
+    subagents: false,
+    steer: false,
+    ...engine.capabilities,
+  };
 }

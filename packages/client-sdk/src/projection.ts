@@ -4,7 +4,8 @@
 // 增量与已提交消息按 domain-model §6.3 合并；工具收尾按 §6.4，回合结束而工具未收尾时投影为 `unknown`
 // （Host 正常会补写，这里兜底，回放旧数据也不会一直转圈）。子会话（R4）：父会话里每个子会话一个“开始”的 `subagent`
 // 部件（R5 起结束时再加一个“结束”部件）与 `subagents` 摘要；子会话自己的回合输入（`turn.started.input`）投影成来自
-// 父 agent 的用户消息。
+// 父 agent 的用户消息。R11：待发消息（`pending.*`）投影成 `pendingMessages`；插话（`user.steered`）是回合中间的一条用户
+// 消息，之后的助手输出放进这个回合的下一条助手消息（domain-model §8）。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -19,6 +20,8 @@ import type {
   EngineErrorCategory,
   EngineErrorInfo,
   IsoTime,
+  PendingMessage,
+  PendingMessageId,
   SessionId,
   SessionReadOnly,
   SessionReadOnlyReason,
@@ -122,6 +125,10 @@ export interface UserChatMessage extends MessageBase {
   /** 子会话（R4）：这一回合的输入来自父 agent（`turn.started.input`），不是客户端发的。 */
   fromParentAgent?: true;
   clientMessageId?: string;
+  /** R11：插话（`user.steered`），在回合中间；`id` 是 `<turnId>:steer:<pendingId>`。 */
+  steered?: true;
+  /** R11：来自一条待发消息（插话，或排队后作为这个回合发出的）。 */
+  pendingId?: PendingMessageId;
   ts: IsoTime;
 }
 
@@ -160,6 +167,8 @@ export interface Transcript {
   subagents: readonly SubagentSummary[];
   /** 子会话（R4）：父会话与派出它的工具调用（`session.created.parent`）。 */
   parent: ParentRef | undefined;
+  /** R11：等待中与暂停的待发消息，按加入的先后；规则同 Host 快照的 `pendingMessages`。 */
+  pendingMessages: readonly PendingMessage[];
   lastSeq: number;
 }
 
@@ -185,6 +194,8 @@ interface MutableMessage {
   sentBy?: ClientIdentity;
   fromParentAgent?: true;
   clientMessageId?: string;
+  steered?: true;
+  pendingId?: PendingMessageId;
   ts?: IsoTime;
   startedAt?: IsoTime;
   finished?: { outcome: TurnOutcome; durationMs: number };
@@ -194,11 +205,30 @@ interface MutableMessage {
 
 const EMPTY_APPROVALS: ReadonlyMap<ApprovalId, ApprovalRequest> = new Map();
 
+/** 一个回合在投影里的消息：用户消息，与按插话分开的几条助手消息（最后一条是当前的）。 */
+interface TurnMessages {
+  user?: MutableMessage;
+  /** 当前的助手消息：之后的输出放进它；插话之后清空，下一条输出另起一条。 */
+  assistant?: MutableMessage;
+  /** 这个回合的全部助手消息，按先后。 */
+  readonly segments: MutableMessage[];
+  /** 插话之后下一条助手消息的 `id`。 */
+  nextAssistantId?: string;
+}
+
+const PENDING_DONE: ReadonlySet<PendingMessage['status']> = new Set([
+  'inserted',
+  'sent',
+  'cancelled',
+]);
+
 /** 按 seq 应用事件、产出 `Transcript` 快照。事件必须按 seq 连续送入（client-sdk 的订阅保证这一点）。 */
 export class TranscriptProjection {
   readonly #includeRaw: boolean;
   #messages: MutableMessage[] = [];
-  #turns = new Map<TurnId, { user?: MutableMessage; assistant?: MutableMessage }>();
+  #turns = new Map<TurnId, TurnMessages>();
+  /** 未到终态的待发消息（R11）。 */
+  #pending: PendingMessage[] = [];
   /** toolCallId → 所在消息。 */
   #tools = new Map<string, MutableMessage>();
   #approvals = new Map<ApprovalId, ApprovalRequest>();
@@ -243,6 +273,7 @@ export class TranscriptProjection {
     this.#subagents = [];
     this.#subagentParts.clear();
     this.#parent = undefined;
+    this.#pending = [];
     this.#lastSeq = 0;
     this.#dirty = true;
   }
@@ -336,6 +367,13 @@ export class TranscriptProjection {
       case 'subagent.updated':
         this.#subagent(event);
         return;
+      case 'pending.added':
+      case 'pending.updated':
+        this.#pendingChanged(event.payload.pending);
+        return;
+      case 'user.steered':
+        this.#steered(event);
+        return;
     }
   }
 
@@ -369,6 +407,7 @@ export class TranscriptProjection {
       usage: this.#usage,
       subagents: this.#subagents,
       parent: this.#parent,
+      pendingMessages: this.#pending,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -389,7 +428,7 @@ export class TranscriptProjection {
   }
 
   #userMessage(event: WevirEventOf<'user.message'>): void {
-    const { turnId, content, sentBy, clientMessageId } = event.payload;
+    const { turnId, content, sentBy, clientMessageId, pendingId } = event.payload;
     const turn = this.#turn(turnId);
     if (turn.user) return;
     const text = content.map((part) => part.text).join('\n');
@@ -402,9 +441,54 @@ export class TranscriptProjection {
       lastSeq: event.seq,
       sentBy,
       clientMessageId,
+      ...(pendingId !== undefined && { pendingId }),
       ts: event.ts,
       snapshot: undefined,
     });
+  }
+
+  /**
+   * 插话进了回合（R11）：在当前位置加一条用户消息，这个回合之后的助手输出另起一条助手消息（`<turnId>:assistant:<seq>`）。
+   */
+  #steered(event: WevirEventOf<'user.steered'>): void {
+    const { turnId, pendingId, content, sentBy, clientMessageId } = event.payload;
+    const turn = this.#turn(turnId);
+    this.#push({
+      role: 'user',
+      id: `${turnId}:steer:${pendingId}`,
+      turnId,
+      parts: [
+        {
+          type: 'text',
+          key: 'text',
+          text: content.map((part) => part.text).join('\n'),
+          state: 'done',
+        },
+      ],
+      firstSeq: event.seq,
+      lastSeq: event.seq,
+      sentBy,
+      ...(clientMessageId !== undefined && { clientMessageId }),
+      steered: true,
+      pendingId,
+      ts: event.ts,
+      snapshot: undefined,
+    });
+    turn.assistant = undefined;
+    turn.nextAssistantId = `${turnId}:assistant:${event.seq}`;
+  }
+
+  /** `pending.added` / `pending.updated`（R11）：替换同一 `id` 的，到了终态就去掉。 */
+  #pendingChanged(pending: PendingMessage): void {
+    const index = this.#pending.findIndex((item) => item.id === pending.id);
+    const done = PENDING_DONE.has(pending.status);
+    if (index < 0) {
+      if (!done) this.#pending = [...this.#pending, pending];
+      return;
+    }
+    this.#pending = done
+      ? this.#pending.filter((item) => item.id !== pending.id)
+      : this.#pending.map((item, i) => (i === index ? pending : item));
   }
 
   /** 子会话的回合输入（`turn.started.input`）：父 agent 发来的，没有 `sentBy`。 */
@@ -432,30 +516,37 @@ export class TranscriptProjection {
     });
   }
 
-  #turn(turnId: TurnId): { user?: MutableMessage; assistant?: MutableMessage } {
+  #turn(turnId: TurnId): TurnMessages {
     let turn = this.#turns.get(turnId);
     if (!turn) {
-      turn = {};
+      turn = { segments: [] };
       this.#turns.set(turnId, turn);
     }
     return turn;
   }
 
-  /** 回合的助手消息，没有就建（紧跟在本回合的用户消息之后追加）。 */
+  /** 回合当前的助手消息，没有就建（追加在末尾：紧跟本回合的用户消息，或插话之后）。 */
   #assistant(turnId: TurnId, seq: number): MutableMessage {
     const turn = this.#turn(turnId);
     if (!turn.assistant) {
       turn.assistant = this.#push({
         role: 'assistant',
-        id: `${turnId}:assistant`,
+        id: turn.nextAssistantId ?? `${turnId}:assistant`,
         turnId,
         parts: [],
         firstSeq: seq,
         lastSeq: seq,
         snapshot: undefined,
       });
+      turn.segments.push(turn.assistant);
     }
     return this.#touch(turn.assistant, seq);
+  }
+
+  /** 回合的全部助手消息（插话把一个回合分成几条），没有时建一条当前的。 */
+  #segments(turnId: TurnId, seq: number): MutableMessage[] {
+    this.#assistant(turnId, seq);
+    return this.#turn(turnId).segments;
   }
 
   /** 事件属于回合时放进回合的助手消息，否则成为一条系统消息。 */
@@ -486,14 +577,22 @@ export class TranscriptProjection {
     const message = this.#assistant(turnId, event.seq);
     message.finished = { outcome, durationMs };
     // domain-model §6.3 规则 4：本回合没被替换的增量丢弃，以已提交消息为准；回合被中断（Host 或引擎退出）时已提交
-    // 消息不会再来，保留中断前已生成的部分（T5.5）。§6.4：未收尾的工具不再转圈。
+    // 消息不会再来，保留中断前已生成的部分（T5.5）。§6.4：未收尾的工具不再转圈。插话把回合分成几条助手消息，每条都收尾。
     const keepPartial = outcome === 'interrupted';
-    message.parts = message.parts.flatMap((part): ChatPart[] => {
-      if (isStreamPart(part) && part.state === 'streaming') {
-        return keepPartial && part.text.trim() !== '' ? [{ ...part, state: 'done' }] : [];
+    for (const segment of this.#turn(turnId).segments) {
+      const parts = segment.parts.flatMap((part): ChatPart[] => {
+        if (isStreamPart(part) && part.state === 'streaming') {
+          return keepPartial && part.text.trim() !== '' ? [{ ...part, state: 'done' }] : [];
+        }
+        return [
+          part.type === 'tool' && isOpen(part.status) ? { ...part, status: 'unknown' } : part,
+        ];
+      });
+      if (parts.length !== segment.parts.length || parts.some((p, i) => p !== segment.parts[i])) {
+        this.#touch(segment, event.seq);
+        segment.parts = parts;
       }
-      return [part.type === 'tool' && isOpen(part.status) ? { ...part, status: 'unknown' } : part];
-    });
+    }
     if (this.#activeTurnId === turnId) this.#activeTurnId = undefined;
   }
 
@@ -517,18 +616,26 @@ export class TranscriptProjection {
   }
 
   #dropStream(event: WevirEventOf<'assistant.stream_ended'>): void {
-    const message = this.#assistant(event.payload.turnId, event.seq);
     const prefix = `s:${event.payload.streamId}:`;
-    message.parts = message.parts.filter(
-      (part) => !(part.key.startsWith(prefix) && isStreamPart(part) && part.state === 'streaming'),
-    );
+    const dropped = (part: ChatPart) =>
+      part.key.startsWith(prefix) && isStreamPart(part) && part.state === 'streaming';
+    for (const segment of this.#segments(event.payload.turnId, event.seq)) {
+      if (!segment.parts.some(dropped)) continue;
+      this.#touch(segment, event.seq);
+      segment.parts = segment.parts.filter((part) => !dropped(part));
+    }
   }
 
   #committed(event: WevirEventOf<'assistant.message'> | WevirEventOf<'assistant.thought'>): void {
     const { turnId, text, replaces } = event.payload;
     const type = event.type === 'assistant.message' ? 'text' : 'reasoning';
-    const message = this.#assistant(turnId, event.seq);
     const replacedKeys = new Set(replaces.map(streamKey));
+    // 增量可能在插话之前的那条助手消息里：在这个回合的全部助手消息里找，找不到就放进当前的。
+    const message =
+      this.#segments(turnId, event.seq).findLast((segment) =>
+        segment.parts.some((part) => replacedKeys.has(part.key)),
+      ) ?? this.#assistant(turnId, event.seq);
+    this.#touch(message, event.seq);
     const at = message.parts.findIndex((part) => replacedKeys.has(part.key));
     const blank = text.trim() === '';
     if (at < 0) {
@@ -603,9 +710,13 @@ export class TranscriptProjection {
   }
 
   #todo(event: WevirEventOf<'todo.updated'>): void {
-    const message = this.#assistant(event.payload.turnId, event.seq);
     const items = event.payload.items;
-    // 每个回合只留一份最新的待办列表，位置在第一次出现的地方。
+    // 每个回合只留一份最新的待办列表，位置在第一次出现的地方（插话之前的那条助手消息里也算）。
+    const message =
+      this.#segments(event.payload.turnId, event.seq).find((segment) =>
+        segment.parts.some((part) => part.type === 'todo'),
+      ) ?? this.#assistant(event.payload.turnId, event.seq);
+    this.#touch(message, event.seq);
     const index = message.parts.findIndex((part) => part.type === 'todo');
     if (index >= 0) message.parts[index] = { type: 'todo', key: 'todo', items };
     else message.parts.push({ type: 'todo', key: 'todo', items });
@@ -742,6 +853,8 @@ function freeze(message: MutableMessage): ChatMessage {
         ...(message.sentBy !== undefined && { sentBy: message.sentBy }),
         ...(message.fromParentAgent && { fromParentAgent: true }),
         ...(message.clientMessageId !== undefined && { clientMessageId: message.clientMessageId }),
+        ...(message.steered && { steered: true }),
+        ...(message.pendingId !== undefined && { pendingId: message.pendingId }),
         ts: message.ts as IsoTime,
       };
     case 'assistant':

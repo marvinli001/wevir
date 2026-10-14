@@ -76,13 +76,14 @@ describe('sessionConfigInfo：按引擎的路由编码读回模型', () => {
 });
 
 describe('acpAdapterCapabilities', () => {
-  it('引擎的能力表原样，incrementalStream 只在旁路 active 时为 true，没有子会话', () => {
+  it('引擎的能力表原样，incrementalStream 只在旁路 active 时为 true，没有子会话与插话', () => {
     const engine: Pick<AcpEngine, 'capabilities'> = {
       capabilities: { toolCalls: true, approvals: true, resume: false, concurrentSessions: true },
     };
     expect(acpAdapterCapabilities(engine, 'off')).toEqual({
       incrementalStream: false,
       subagents: false,
+      steer: false,
       toolCalls: true,
       approvals: true,
       resume: false,

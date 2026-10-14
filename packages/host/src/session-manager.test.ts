@@ -1375,6 +1375,380 @@ describe('SessionManager：会话标题（R3）', () => {
   });
 });
 
+describe('SessionManager：回合进行中发消息（R11）', () => {
+  function deliver(
+    h: Harness,
+    sessionId: SessionId,
+    value: string,
+    delivery: 'steer' | 'queue',
+    clientMessageId?: string,
+  ) {
+    return h.manager.send(
+      {
+        sessionId,
+        content: text(value),
+        delivery,
+        ...(clientMessageId !== undefined && { clientMessageId }),
+      },
+      desktop,
+    );
+  }
+
+  async function approve(h: Harness, sessionId: SessionId) {
+    const approval = await waitForApproval(h, sessionId);
+    await h.manager.respondToApproval({ approvalId: approval.id, optionId: 'allow-once' }, cli);
+  }
+
+  /** 回合 `turnId` 里的 user.steered 与助手消息，按顺序。 */
+  function turnStory(h: Harness, sessionId: SessionId, turnId: string | undefined): string[] {
+    return all(h, sessionId).flatMap((e) => {
+      if (e.type === 'user.steered' && e.payload.turnId === turnId) {
+        return [`steer:${e.payload.content[0]?.text}`];
+      }
+      if (e.type === 'assistant.message' && e.payload.turnId === turnId) return [e.payload.text];
+      return [];
+    });
+  }
+
+  function userMessages(h: Harness, sessionId: SessionId): string[] {
+    return ofType(h, sessionId, 'user.message').map((e) => e.payload.content[0]?.text ?? '');
+  }
+
+  it('空闲时带 delivery 照常开始回合', async () => {
+    const h = setup();
+    const id = await create(h);
+    const result = await deliver(h, id, 'hello', 'steer');
+    expect(result).toEqual({ turnId: expect.stringMatching(/^trn_/), seq: expect.any(Number) });
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'pending.added')).toEqual([]);
+  });
+
+  it('插话：交给引擎，这一步之后进了同一个回合（user.steered），模型接着回答', async () => {
+    const h = setup();
+    const id = await create(h);
+    const steer = vi.spyOn(h.adapter, 'steer');
+    const { turnId } = await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+
+    const result = await deliver(h, id, 'also check tests', 'steer', 'msg-steer');
+    expect(result).toEqual({ pendingId: expect.stringMatching(/^pnd_/), seq: expect.any(Number) });
+    const pendingId = result.pendingId as NonNullable<typeof result.pendingId>;
+    expect(steer).toHaveBeenCalledWith(expect.any(String), pendingId, {
+      content: text('also check tests'),
+    });
+    expect(snapshot(h, id).pendingMessages).toEqual([
+      expect.objectContaining({ id: pendingId, delivery: 'steer', status: 'waiting' }),
+    ]);
+    // 交出去的插话不能再改、不能删。
+    await expect(
+      h.manager.updatePending({ sessionId: id, pendingId, content: text('x') }),
+    ).rejects.toMatchObject({
+      code: 'PENDING_NOT_EDITABLE',
+      data: { pendingId, status: 'waiting', delivery: 'steer' },
+    });
+    expect(() => h.manager.cancelPending({ sessionId: id, pendingId })).toThrow(
+      expect.objectContaining({ code: 'PENDING_NOT_EDITABLE' }),
+    );
+    // 同一 clientMessageId 重发返回原结果。
+    expect(await deliver(h, id, 'also check tests', 'steer', 'msg-steer')).toEqual(result);
+
+    await approve(h, id);
+    await waitForState(h, id, 'idle');
+    expect(turnStory(h, id, turnId)).toEqual([
+      'Echo: please approve',
+      'steer:also check tests',
+      'Echo: also check tests',
+    ]);
+    const [steered] = ofType(h, id, 'user.steered');
+    expect(steered?.payload).toEqual({
+      turnId,
+      pendingId,
+      clientMessageId: 'msg-steer',
+      content: text('also check tests'),
+      sentBy: desktop,
+    });
+    expect(h.events.pending(id, pendingId)).toMatchObject({ status: 'inserted', turnId });
+    expect(snapshot(h, id).pendingMessages).toBeUndefined();
+    expect(ofType(h, id, 'turn.started')).toHaveLength(1);
+  });
+
+  it('插话被引擎拒绝：改为排队（rejected），回合完成后作为下一个回合发出', async () => {
+    const h = setup();
+    const id = await create(h);
+    vi.spyOn(h.adapter, 'steer').mockRejectedValueOnce(
+      new AdapterError('steer_rejected', 'cannot steer a review turn'),
+    );
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const { pendingId } = await deliver(h, id, 'then commit', 'steer');
+    expect(snapshot(h, id).pendingMessages).toEqual([
+      expect.objectContaining({
+        id: pendingId,
+        delivery: 'queue',
+        status: 'waiting',
+        fallback: { reason: 'rejected', message: 'cannot steer a review turn' },
+      }),
+    ]);
+
+    await approve(h, id);
+    await vi.waitFor(() => expect(ofType(h, id, 'turn.finished')).toHaveLength(2), {
+      timeout: 2000,
+      interval: 5,
+    });
+    await waitForState(h, id, 'idle');
+    expect(userMessages(h, id)).toEqual(['please approve', 'then commit']);
+    const [, queued] = ofType(h, id, 'user.message');
+    expect(queued?.payload).toMatchObject({ pendingId, sentBy: desktop });
+    expect(h.events.pending(id, pendingId as NonNullable<typeof pendingId>)).toMatchObject({
+      status: 'sent',
+      turnId: queued?.payload.turnId,
+    });
+    expect(ofType(h, id, 'user.steered')).toEqual([]);
+  });
+
+  it('引擎不能插话（不实现 steer）：一律排队（unsupported）', async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 1 });
+    Object.defineProperty(adapter, 'steer', { value: undefined });
+    const h = setup({ adapter });
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const { pendingId } = await deliver(h, id, 'later', 'steer');
+    expect(h.events.pending(id, pendingId as NonNullable<typeof pendingId>)).toMatchObject({
+      delivery: 'queue',
+      status: 'waiting',
+      fallback: { reason: 'unsupported' },
+    });
+    // 改成插话同样做不到，保持排队。
+    const updated = await h.manager.updatePending({
+      sessionId: id,
+      pendingId: pendingId as NonNullable<typeof pendingId>,
+      delivery: 'steer',
+    });
+    expect(updated).toMatchObject({ delivery: 'queue', fallback: { reason: 'unsupported' } });
+    await approve(h, id);
+    await vi.waitFor(() => expect(userMessages(h, id)).toEqual(['please approve', 'later']), {
+      timeout: 2000,
+      interval: 5,
+    });
+  });
+
+  it('排队：回合完成后按加入的先后逐条发出；不带 delivery 的旧客户端仍是 SESSION_BUSY', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const first = await deliver(h, id, 'first', 'queue');
+    const second = await deliver(h, id, 'second', 'queue');
+    await expect(send(h, id, 'old client')).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    // 排队的可以改内容。
+    await h.manager.updatePending({
+      sessionId: id,
+      pendingId: second.pendingId as NonNullable<typeof second.pendingId>,
+      content: text('second, edited'),
+    });
+    expect(snapshot(h, id).pendingMessages?.map((p) => p.content[0]?.text)).toEqual([
+      'first',
+      'second, edited',
+    ]);
+
+    await approve(h, id);
+    await vi.waitFor(() => expect(ofType(h, id, 'turn.finished')).toHaveLength(3), {
+      timeout: 3000,
+      interval: 5,
+    });
+    await waitForState(h, id, 'idle');
+    expect(userMessages(h, id)).toEqual(['please approve', 'first', 'second, edited']);
+    expect(ofType(h, id, 'user.message').map((e) => e.payload.pendingId)).toEqual([
+      undefined,
+      first.pendingId,
+      second.pendingId,
+    ]);
+    expect(snapshot(h, id).pendingMessages).toBeUndefined();
+  });
+
+  it('取消回合：等待中的暂停，没插进去的插话改为排队并暂停；继续发送后逐条发出', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const queued = await deliver(h, id, 'queued', 'queue');
+    const steered = await deliver(h, id, 'steered', 'steer');
+    await h.manager.cancel(id);
+    expect(state(h, id)).toBe('idle');
+    expect(snapshot(h, id).pendingMessages).toEqual([
+      expect.objectContaining({ id: queued.pendingId, delivery: 'queue', status: 'held' }),
+      expect.objectContaining({
+        id: steered.pendingId,
+        delivery: 'queue',
+        status: 'held',
+        fallback: { reason: 'turn_ended' },
+      }),
+    ]);
+    // 暂停的不会自己发出；暂停的可以改内容、不能改成插话、可以删。
+    await delay(20);
+    expect(userMessages(h, id)).toEqual(['please approve']);
+    const steeredId = steered.pendingId as NonNullable<typeof steered.pendingId>;
+    await expect(
+      h.manager.updatePending({ sessionId: id, pendingId: steeredId, delivery: 'steer' }),
+    ).rejects.toMatchObject({ code: 'PENDING_NOT_EDITABLE', data: { status: 'held' } });
+    await h.manager.updatePending({
+      sessionId: id,
+      pendingId: steeredId,
+      content: text('steered, edited'),
+    });
+
+    const resumed = await h.manager.resumePending(id);
+    expect(resumed.map((p) => p.status)).toEqual(['waiting']);
+    await vi.waitFor(() => expect(ofType(h, id, 'turn.finished')).toHaveLength(3), {
+      timeout: 3000,
+      interval: 5,
+    });
+    await waitForState(h, id, 'idle');
+    expect(userMessages(h, id)).toEqual(['please approve', 'queued', 'steered, edited']);
+  });
+
+  it('停止过程中发的消息不暂停：取消结算后发出；之前排队的暂停', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const before = await deliver(h, id, 'before stop', 'queue');
+    const cancel = h.adapter.cancel.bind(h.adapter);
+    vi.spyOn(h.adapter, 'cancel').mockImplementationOnce(async (engineSessionId) => {
+      await delay(40);
+      await cancel(engineSessionId);
+    });
+    const cancelling = h.manager.cancel(id);
+    await waitForState(h, id, 'cancelling');
+    const during = await deliver(h, id, 'after stop', 'steer');
+    expect(
+      h.events.pending(id, during.pendingId as NonNullable<typeof during.pendingId>),
+    ).toMatchObject({ delivery: 'queue', status: 'waiting', fallback: { reason: 'turn_ended' } });
+    await cancelling;
+    await vi.waitFor(() => expect(userMessages(h, id)).toEqual(['please approve', 'after stop']), {
+      timeout: 2000,
+      interval: 5,
+    });
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).pendingMessages).toEqual([
+      expect.objectContaining({ id: before.pendingId, status: 'held' }),
+    ]);
+  });
+
+  it('停止过程中继续发送暂停的消息：取消结算后照常发出，不再暂停', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    await deliver(h, id, 'held one', 'queue');
+    await h.manager.cancel(id);
+    expect(snapshot(h, id).pendingMessages?.map((p) => p.status)).toEqual(['held']);
+
+    await send(h, id, 'please approve again');
+    await waitForApproval(h, id);
+    const cancel = h.adapter.cancel.bind(h.adapter);
+    vi.spyOn(h.adapter, 'cancel').mockImplementationOnce(async (engineSessionId) => {
+      await delay(40);
+      await cancel(engineSessionId);
+    });
+    const cancelling = h.manager.cancel(id);
+    await waitForState(h, id, 'cancelling');
+    await h.manager.resumePending(id);
+    await cancelling;
+    await vi.waitFor(
+      () =>
+        expect(userMessages(h, id)).toEqual(['please approve', 'please approve again', 'held one']),
+      { timeout: 2000, interval: 5 },
+    );
+    await waitForState(h, id, 'idle');
+    expect(snapshot(h, id).pendingMessages).toBeUndefined();
+  });
+
+  it('引擎退出：等待中的暂停；会话 error 时不能继续发送，resume 之后继续发送', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    await deliver(h, id, 'after crash', 'queue');
+    await h.adapter.simulateEngineExit();
+    await waitForState(h, id, 'error');
+    expect(snapshot(h, id).pendingMessages?.map((p) => p.status)).toEqual(['held']);
+    await expect(h.manager.resumePending(id)).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+      data: { state: 'error' },
+    });
+    await h.manager.resume(id);
+    await h.manager.resumePending(id);
+    await waitForState(h, id, 'idle');
+    expect(userMessages(h, id)).toEqual(['please approve', 'after crash']);
+  });
+
+  it('取消待发消息；已取消的再取消无操作、再编辑报错；不存在的报 PENDING_NOT_FOUND', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const { pendingId } = await deliver(h, id, 'never mind', 'queue');
+    const pid = pendingId as NonNullable<typeof pendingId>;
+    expect(h.manager.cancelPending({ sessionId: id, pendingId: pid })).toMatchObject({
+      status: 'cancelled',
+    });
+    expect(h.manager.cancelPending({ sessionId: id, pendingId: pid })).toMatchObject({
+      status: 'cancelled',
+    });
+    expect(ofType(h, id, 'pending.updated')).toHaveLength(1);
+    await expect(
+      h.manager.updatePending({ sessionId: id, pendingId: pid, content: text('x') }),
+    ).rejects.toMatchObject({ code: 'PENDING_NOT_EDITABLE', data: { status: 'cancelled' } });
+    expect(() =>
+      h.manager.cancelPending({ sessionId: id, pendingId: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR' }),
+    ).toThrow(expect.objectContaining({ code: 'PENDING_NOT_FOUND' }));
+    await approve(h, id);
+    await waitForState(h, id, 'idle');
+    await delay(20);
+    expect(userMessages(h, id)).toEqual(['please approve']);
+  });
+
+  it('排队的改成插话：回合进行中交给引擎，之后进了回合', async () => {
+    const h = setup();
+    const id = await create(h);
+    const { turnId } = await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    const { pendingId } = await deliver(h, id, 'switch me', 'queue');
+    const pid = pendingId as NonNullable<typeof pendingId>;
+    expect(
+      await h.manager.updatePending({ sessionId: id, pendingId: pid, delivery: 'steer' }),
+    ).toMatchObject({ delivery: 'steer', status: 'waiting' });
+    await approve(h, id);
+    await waitForState(h, id, 'idle');
+    expect(turnStory(h, id, turnId)).toEqual([
+      'Echo: please approve',
+      'steer:switch me',
+      'Echo: switch me',
+    ]);
+  });
+
+  it('Host 重启：待发消息还在，一律暂停', async () => {
+    const h = setup();
+    const id = await create(h);
+    await send(h, id, 'please approve');
+    await waitForApproval(h, id);
+    await deliver(h, id, 'survive restart', 'queue');
+    // 引擎还是同一个（会话仍在），继续发送时自动 resume。
+    const { h: h2 } = restart(h, h.adapter);
+    expect(state(h2, id)).toBe('idle');
+    expect(snapshot(h2, id).pendingMessages).toEqual([
+      expect.objectContaining({ status: 'held', content: text('survive restart') }),
+    ]);
+    // 真实的引擎随 Host 一起没了；这里的引擎还挂着那个等审批的回合，先停掉它。
+    await h2.adapter.cancel(snapshot(h2, id).session.engine.sessionId);
+    await h2.manager.resumePending(id);
+    await waitForState(h2, id, 'idle');
+    expect(userMessages(h2, id)).toEqual(['please approve', 'survive restart']);
+  });
+});
+
 describe('SessionManager：Codex 引擎的事件（R3）', () => {
   it('审批详情取工具最新的输入：请求之前的 tool.updated（带理由）覆盖 tool.started 的输入', async () => {
     const h = setup();

@@ -4,6 +4,8 @@ import type {
   ApprovalId,
   ApprovalOption,
   ApprovalRequest,
+  PendingDelivery,
+  PendingMessageId,
   SessionId,
   SessionSnapshot,
   SessionState,
@@ -13,7 +15,7 @@ import type {
 import type { Context } from './context.js';
 import { describeError } from './errors.js';
 import { optionLabel, STATE_LABEL } from './format.js';
-import { EventRenderer } from './render.js';
+import { EventRenderer, pendingPreview } from './render.js';
 import { LineConsole } from './terminal.js';
 
 export interface AttachOptions {
@@ -22,6 +24,9 @@ export interface AttachOptions {
 }
 
 const MESSAGE_PROMPT = '› ';
+/** 回合进行中的输入框（R11）：回车按设置插话或排队。 */
+const BUSY_PROMPT: Record<PendingDelivery, string> = { steer: '插话 › ', queue: '排队 › ' };
+const DELIVERY_LABEL: Record<PendingDelivery, string> = { steer: '插话', queue: '排队' };
 const BUSY_STATES: ReadonlySet<SessionState> = new Set([
   'running',
   'awaiting_approval',
@@ -34,6 +39,9 @@ const BUSY_STATES: ReadonlySet<SessionState> = new Set([
  *
  * Ctrl-C：回合运行中第一次取消当前运行，第二次退出；空闲时输入框有内容就清空，否则第一次提示、第二次退出。
  * 新回合开始后重新计数。Ctrl-D（或管道读到 EOF 且会话空闲）退出。
+ *
+ * 回合进行中也能输入（R11，Host 有 pending_messages 时）：回车按 Host 设置“回合进行中按回车”插话或排队，Tab 用另一种；
+ * 回合没正常结束而暂停的待发消息，输入 /resume 继续发送。管道输入照旧等会话空闲再发。
  */
 export async function attachSession(
   ctx: Context,
@@ -78,6 +86,12 @@ class AttachView {
   /** 还没处理的输入行：追平之前到达的，以及非 TTY 时等到需要输入（审批或空闲）才取用的。 */
   readonly #queued: string[] = [];
   #disconnected = false;
+  /** Host 支持回合进行中发消息（R11）。 */
+  readonly #pendingSupported: boolean;
+  /** 回合进行中按回车的方式（Host 设置，R11）。 */
+  #busyDelivery: PendingDelivery = 'steer';
+  /** 暂停的待发消息（R11）：追平时提示一次，/resume 继续。 */
+  readonly #held = new Map<PendingMessageId, string>();
   #done = false;
   #resolve: (code: number) => void = () => {};
 
@@ -95,6 +109,7 @@ class AttachView {
     this.#state = snapshot.session.state;
     this.#readOnly = snapshot.session.readOnly !== undefined;
     this.#firstMessage = options.firstMessage;
+    this.#pendingSupported = client.supports('pending_messages');
     this.#renderer = new EventRenderer({
       sink: term,
       styles: ctx.styles,
@@ -149,7 +164,12 @@ class AttachView {
       }
     })();
 
+    const offSettings = this.#client.watchSettings((settings) => {
+      this.#busyDelivery = settings.sendWhileBusy;
+      this.#refresh();
+    });
     this.#term.onLine((line) => this.#onLine(line));
+    this.#term.onTab((line) => this.#onTab(line));
     this.#term.onInterrupt(() => this.#onInterrupt());
     this.#term.onClose(() => {
       if (this.#term.interactive) {
@@ -163,6 +183,7 @@ class AttachView {
 
     return result.finally(() => {
       offState();
+      offSettings();
       subscription.close();
       this.#term.setPrompt(null);
       const s = this.#ctx.styles;
@@ -185,6 +206,14 @@ class AttachView {
       this.#term.line(
         s.dim('Enter 发送 · Ctrl-C 取消当前运行（连按两次退出 attach） · Ctrl-D 退出 attach'),
       );
+      if (this.#pendingSupported) {
+        this.#term.line(
+          s.dim('回合进行中：Enter 按设置插话或排队、Tab 用另一种 · /resume 继续发送暂停的消息'),
+        );
+      }
+    }
+    for (const pending of snapshot.pendingMessages ?? []) {
+      if (pending.status === 'held') this.#held.set(pending.id, pendingPreview(pending));
     }
   }
 
@@ -229,6 +258,13 @@ class AttachView {
       case 'session.resumed':
         this.#readOnly = false;
         break;
+      case 'pending.added':
+      case 'pending.updated': {
+        const { pending } = event.payload;
+        if (pending.status === 'held') this.#held.set(pending.id, pendingPreview(pending));
+        else this.#held.delete(pending.id);
+        break;
+      }
     }
     this.#renderer.render(event);
   }
@@ -239,6 +275,14 @@ class AttachView {
       this.#term.line(s.yellow('这个会话是只读的：可以查看历史，不能再发送消息。'));
     } else if (this.#state === 'error') {
       this.#term.line(s.dim('会话处于出错状态；发送消息时会先尝试恢复。'));
+    }
+    if (this.#held.size > 0) {
+      this.#term.line(
+        s.yellow(
+          `有 ${this.#held.size} 条暂停的待发消息（上一轮没有正常结束）；输入 /resume 继续发送。`,
+        ),
+      );
+      for (const text of this.#held.values()) this.#term.line(s.dim(`  ⋯ ${text}`));
     }
     const first = this.#firstMessage;
     this.#firstMessage = undefined;
@@ -267,6 +311,9 @@ class AttachView {
       this.#term.setPrompt(null);
     } else if (approval) {
       this.#term.setPrompt(approvalPrompt(approval.options));
+    } else if (this.#busy() && this.#pendingSupported && this.#term.interactive) {
+      // 回合进行中也能输入（R11）：输入框说明回车用哪种方式；流式输出的半行期间照旧不显示。
+      this.#term.setPrompt(BUSY_PROMPT[this.#busyDelivery]);
     } else if (this.#busy() || this.#firstMessage !== undefined) {
       this.#term.setPrompt(null);
     } else {
@@ -326,26 +373,61 @@ class AttachView {
       this.#finish(0);
       return;
     }
-    if (this.#term.interactive && this.#busy()) {
-      // 回合运行中输入框是隐藏的，补一行让用户看到自己发了什么。
-      this.#term.line(`${this.#ctx.styles.dim(MESSAGE_PROMPT)}${text}`);
+    if (text === '/resume') {
+      this.#resumePending();
+      return;
     }
-    void this.#send(text, this.#term.interactive);
+    this.#sendTyped(text, this.#busyDelivery);
   }
 
-  async #send(text: string, echoed: boolean): Promise<void> {
+  /** Tab（R11）：回合进行中、有内容时用另一种方式发出；返回 true 表示接下了这一行。 */
+  #onTab(line: string): boolean {
+    const text = line.trim();
+    if (this.#done || !this.#caughtUp || !this.#pendingSupported || !this.#busy()) return false;
+    if (text === '' || this.#nextApproval() !== undefined) return false;
+    this.#sendTyped(text, this.#busyDelivery === 'steer' ? 'queue' : 'steer');
+    return true;
+  }
+
+  #sendTyped(text: string, delivery: PendingDelivery): void {
+    if (this.#term.interactive && this.#busy()) {
+      // 回合运行中输入框常被流式输出盖住，补一行让用户看到自己发了什么、用的哪种方式。
+      const how = this.#pendingSupported
+        ? this.#ctx.styles.dim(`（${DELIVERY_LABEL[delivery]}）`)
+        : '';
+      this.#term.line(`${this.#ctx.styles.dim(MESSAGE_PROMPT)}${text}${how}`);
+    }
+    void this.#send(text, this.#term.interactive, delivery);
+  }
+
+  #resumePending(): void {
+    if (this.#held.size === 0) {
+      this.#term.line(this.#ctx.styles.dim('没有暂停的待发消息。'));
+      this.#refresh();
+      return;
+    }
+    this.#client
+      .request('pending.resume', { sessionId: this.#sessionId })
+      .then(() => this.#term.line(this.#ctx.styles.dim('继续发送暂停的消息。')))
+      .catch((error: unknown) => this.#report(error))
+      .finally(() => this.#refresh());
+  }
+
+  async #send(text: string, echoed: boolean, delivery?: PendingDelivery): Promise<void> {
     const clientMessageId = `cli-${randomUUID()}`;
     if (echoed) this.#echoed.add(clientMessageId);
     const params = {
       sessionId: this.#sessionId,
       content: [{ type: 'text' as const, text }],
       clientMessageId,
+      // 会话空闲时 Host 不看它；回合进行中成为待发消息（R11）。旧 Host 没有这项功能时不带，照旧 SESSION_BUSY。
+      ...(this.#pendingSupported && delivery !== undefined && { delivery }),
     };
     this.#exitArmed = false;
     this.#sending = true;
     this.#refresh();
     try {
-      let result: { turnId: TurnId };
+      let result: { turnId?: TurnId };
       try {
         result = await this.#client.request('session.send', params);
       } catch (error) {
@@ -357,7 +439,10 @@ class AttachView {
         await this.#client.request('session.resume', { sessionId: this.#sessionId });
         result = await this.#client.request('session.send', params);
       }
-      if (!this.#finishedTurns.has(result.turnId)) this.#awaitingTurn = result.turnId;
+      // 成为待发消息时没有回合（R11）：它的去向看 pending.* 事件。
+      if (result.turnId !== undefined && !this.#finishedTurns.has(result.turnId)) {
+        this.#awaitingTurn = result.turnId;
+      }
     } catch (error) {
       this.#report(error);
       if (isRpcError(error, 'SESSION_BUSY')) this.#draft = text;

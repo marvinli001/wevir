@@ -43,8 +43,8 @@ runAdapterContract(
         ],
       }),
     ),
-  // 子会话的条款要真实二进制（第 2 层）：回放层的假 app-server 不模拟子 thread。
-  { ...codexAdapterCapabilities, subagents: false },
+  // 子会话与插话的条款要真实二进制（第 2 层）：回放层的假 app-server 不模拟子 thread，也没有录 turn/steer。
+  { ...codexAdapterCapabilities, subagents: false, steer: false },
   {
     name: 'CodexAdapter 契约（第 1 层：录制回放）',
     sessionConfig: () => ({ cwd: workspace, providerId: 'mock', modelId: MOCK_MODEL }),

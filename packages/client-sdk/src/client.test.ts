@@ -595,3 +595,34 @@ describe('账号（R6）', () => {
     expect(plain.last.requests('account.get')).toEqual([]);
   });
 });
+
+describe('Host 设置（R11）', () => {
+  it('watchSettings：先 settings.get，之后的 settings.updated 照收；重连后再 settings.get；Host 没有功能时不调', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { host_settings: true } } }));
+    let current = { sendWhileBusy: 'steer' };
+    host.on('settings.get', () => ({ result: { settings: current } }));
+    const { client, warnings } = await connect(host);
+    const seen: unknown[] = [];
+    const stop = client.watchSettings((settings) => seen.push(settings));
+    await vi.waitFor(() => expect(seen).toEqual([{ sendWhileBusy: 'steer' }]));
+    host.last.notify('settings.updated', { settings: { sendWhileBusy: 'queue' } });
+    host.last.notify('settings.updated', { settings: { sendWhileBusy: 'later' } });
+    expect(seen).toEqual([{ sendWhileBusy: 'steer' }, { sendWhileBusy: 'queue' }]);
+    expect(warnings).toContain('ignored a malformed settings.updated notification');
+    current = { sendWhileBusy: 'queue' };
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(seen).toHaveLength(3));
+    expect(seen[2]).toEqual({ sendWhileBusy: 'queue' });
+    stop();
+    host.last.notify('settings.updated', { settings: { sendWhileBusy: 'steer' } });
+    expect(seen).toHaveLength(3);
+
+    const plain = new FakeHost();
+    const { client: old } = await connect(plain);
+    old.watchSettings((settings) => seen.push(settings));
+    await tick();
+    expect(plain.last.requests('settings.get')).toEqual([]);
+  });
+});

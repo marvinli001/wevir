@@ -58,6 +58,11 @@ function describeEvent(event: WevirEvent): string {
     case 'subagent.started':
     case 'subagent.updated':
       return event.payload.subagent.status;
+    case 'pending.added':
+    case 'pending.updated':
+      return event.payload.pending.status;
+    case 'user.steered':
+      return event.payload.pendingId;
     default: {
       const unhandled: never = event;
       return unhandled;

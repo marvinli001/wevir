@@ -346,6 +346,8 @@ function subagentParent(view: MockView): MockReply {
  * - 含 `outside` 或“工作区外”：越出沙箱 `touch` 工作区外的文件（要审批），再回一句话。文件名取提示词里第一个
  *   `*.txt`，没有时是 `wevir-mock-outside.txt`；目录是 `WEVIR_MOCK_OUTSIDE_DIR`，没设时是家目录；
  * - 含 `long` 或“长”：慢慢流出一段长回答（约 6 秒），给流式中途取消用；
+ * - 含 `slow` 或“慢”：流出一段约 1.5 秒的回答，给回合进行中插话与排队用（R11）；插话进回合后，下一次请求的最后一条
+ *   用户输入就是插话，照这些规则回答；
  * - 含 `subagent` 或“子智能体”：派一个子 agent 并等它结束（spawn → wait，`subagentParent`）；子 agent 的请求（用户消息以
  *   `Helper task:` 开头）照上面的规则回答，所以“子智能体 + 工作区外”让子 agent 请求审批，“子智能体 + 长”让它慢慢回答；
  *   子 agent 的普通回答是“子 agent 完成了。”；
@@ -405,6 +407,12 @@ export const defaultMockScript: MockScript = (view) => {
   if (/long|长/i.test(prompt)) {
     return {
       text: Array.from({ length: 40 }, (_, i) => `这是长回答的第 ${i + 1} 段。`),
+      delayMs: 150,
+    };
+  }
+  if (/slow|慢/i.test(prompt)) {
+    return {
+      text: Array.from({ length: 10 }, (_, i) => `慢慢说第 ${i + 1} 句。`),
       delayMs: 150,
     };
   }

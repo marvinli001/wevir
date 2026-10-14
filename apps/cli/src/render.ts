@@ -1,6 +1,8 @@
 import type {
   ApprovalId,
   ApprovalRequest,
+  PendingFallbackReason,
+  PendingMessage,
   SessionId,
   SubagentSummary,
   ToolDisplay,
@@ -145,6 +147,14 @@ export class EventRenderer {
       case 'user.message':
         this.#userMessage(event);
         return;
+      case 'user.steered':
+        this.#steered(event);
+        return;
+      case 'pending.added':
+      case 'pending.updated':
+        // 待发消息（R11）只在实时时提示；回放时看最后的状态（attach 追平后单独说暂停的）。
+        if (this.#live) this.#pending(event.type, event.payload.pending);
+        return;
       case 'assistant.delta':
         this.#delta(event);
         return;
@@ -206,6 +216,39 @@ export class EventRenderer {
     const from = sentBy.clientKind === 'cli' ? '' : this.#s.dim(`（来自 ${clientLabel(sentBy)}）`);
     this.#sink.line();
     this.#sink.line(`${this.#s.bold(this.#s.cyan('›'))} ${text}${from}`);
+  }
+
+  /** 插话进了回合（R11）：像用户消息一样显示，标上“插话”。 */
+  #steered(event: WevirEventOf<'user.steered'>): void {
+    const { clientMessageId, content, sentBy } = event.payload;
+    if (this.#live && clientMessageId && this.#options.isEchoed?.(clientMessageId)) {
+      this.#sink.line(this.#s.dim('（插话已插进本回合）'));
+      return;
+    }
+    const text = content.map((part) => part.text).join('\n');
+    const from = sentBy.clientKind === 'cli' ? '' : `，来自 ${clientLabel(sentBy)}`;
+    this.#sink.line();
+    this.#sink.line(`${this.#s.bold(this.#s.cyan('›'))} ${text}${this.#s.dim(`（插话${from}）`)}`);
+  }
+
+  #pending(type: 'pending.added' | 'pending.updated', pending: PendingMessage): void {
+    const text = pendingPreview(pending);
+    const fallback = pending.fallback ? PENDING_FALLBACK_LABEL[pending.fallback.reason] : undefined;
+    if (type === 'pending.added') {
+      const how =
+        pending.delivery === 'steer'
+          ? '插话：等这一步结束后插进本回合'
+          : (fallback ?? '已排队：本回合结束后发出');
+      this.#sink.line(this.#s.dim(`⋯ ${how} · ${text}`));
+      return;
+    }
+    if (pending.status === 'held') {
+      this.#sink.line(this.#s.yellow(`⋯ 已暂停 · ${text}（输入 /resume 继续发送）`));
+    } else if (pending.status === 'cancelled') {
+      this.#sink.line(this.#s.dim(`⋯ 已删除待发消息 · ${text}`));
+    } else if (pending.status === 'waiting' && fallback !== undefined) {
+      this.#sink.line(this.#s.dim(`⋯ ${fallback} · ${text}`));
+    }
   }
 
   #delta(event: WevirEventOf<'assistant.delta'>): void {
@@ -377,4 +420,21 @@ function firstLines(text: string): string {
     .map((line) => line.trim())
     .filter(Boolean);
   return truncate(lines.slice(0, 2).join(' '), 160);
+}
+
+/** 插话没成、转为排队的原因（R11，domain-model §3.3.2）。 */
+const PENDING_FALLBACK_LABEL: Record<PendingFallbackReason, string> = {
+  unsupported: '这个引擎不能插话，已转为排队',
+  rejected: '模型这一轮不能插话，已转为排队',
+  turn_ended: '这一轮结束时还没插进去，已转为排队',
+};
+
+/** 待发消息的一行预览：首行，过长截断。 */
+export function pendingPreview(pending: PendingMessage): string {
+  const text = pending.content
+    .map((part) => part.text)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }

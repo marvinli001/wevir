@@ -9,6 +9,8 @@ export const HOME_LAYOUT = {
   logsDir: 'logs',
   /** `hostId`：每个数据目录一个，跨 Host 重启不变（host-api.md §2）。 */
   hostIdFile: 'host-id',
+  /** Host 设置（R11，domain-model §3.7）：CLI 与桌面共用的偏好。 */
+  settingsFile: 'settings.json',
 } as const;
 
 export interface ResolveHomeOptions {

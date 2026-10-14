@@ -89,6 +89,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 | `web_search` | `disabled` | 决策 5 |
 | `[analytics] enabled` | `false` | 决策 5 |
 | `[features] plugins / goals / memories` | `false` / `false` / `false` | 决策 5（plugins 是唯一产生外连的开关）、补记 1（goals）、决策 5（memories 默认就关） |
+| `[features] instant_interrupt` | `false` | R11：插话等这一步结束再进回合（§4.5；这个开关默认开，开着时插话立刻掐断正在流式输出的采样） |
 | `[tools.update_plan] enabled` | `true` | 决策 5（计划默认关） |
 | `[skills] include_instructions`、`[skills.bundled] enabled` | `false`、`false` | §1.3 |
 | `[shell_environment_policy]` | `ignore_default_excludes = false`，`exclude = ["WEVIR_*"]` | 决策 5：命令看不到令牌 |
@@ -152,6 +153,16 @@ Host 在第一个回合开始后调用（规则与提示词在 prompts/README.md
 | 不经网关（ChatGPT 登录，R6） | 照终端界面（`tui/src/app/thread_title.rs`、`temporary_structured_request.rs`）开临时 thread：`thread/start { ephemeral: true, cwd, model, modelProvider, approvalPolicy: 'never', sandbox: 'read-only', baseInstructions: <说明>, config: <Provider 条目> + TITLE_THREAD_CONFIG }`，再 `turn/start { input, outputSchema, effort }`，取最后一条已提交的 agentMessage，最后 `thread/unsubscribe` | `ephemeral` 不写 rollout、不进 thread 列表；`TITLE_THREAD_CONFIG` 关掉命令、子 agent、计划、图片等工具与联网搜索（取自终端界面的同名键），标题输入是不可信的对话内容。这个 thread 的通知只交给 `TitleCollector`，不进会话、不告警。用 `CodexAdapterOptions.titleVia: 'thread'` 选这条路；R6 之前只有测试用它 |
 
 都只用稳定面（`ephemeral`、`outputSchema`、`effort` 不是实验字段）。适配器不实现 `generateTitle` 的引擎（dsh、echo）只有首条消息截断的标题。
+
+### 4.5 插话：`turn/steer`（R11）
+
+`steer(engineSessionId, steerId, input)`（领域模型 §4.6）：
+
+- **请求。** `turn/steer {threadId, input, expectedTurnId, clientUserMessageId: steerId}`。`expectedTurnId` 是 `turn/start` 结果里的回合 ID；`turn/start` 的结果还没到、或会话没有进行中的回合时不发请求，直接报 `steer_rejected`。`turn/steer` 与 `clientUserMessageId` 都是稳定面（`app-server-protocol/src/protocol/common.rs`、`v2/turn.rs` 的 `TurnSteerParams`；实验的只有 `responsesapiClientMetadata`、`additionalContext`，不用）。子会话由父 agent 驱动，报 `invalid_input`。
+- **接受与拒绝。** 成功的响应是 `{turnId}`：输入进了这个回合的待处理输入，`steer` 返回。错误（`app-server/src/request_processors/turn_processor.rs` 的 `turn_steer_inner`）：`no active turn to steer`、`expected active turn id … but found …`（回合恰好结束或换了）、`cannot steer a review turn` / `cannot steer a compact turn`（`codexErrorInfo.activeTurnNotSteerable`），以及输入过大等，一律报 `steer_rejected`，原文放进 `message`，Host 转为排队。Codex 终端界面遇到“回合不能插话”同样放到回合结束后（`tui/src/app/thread_routing.rs`），遇到“没有进行中的回合”直接开始新回合；Wevir 的 Host 在回合结束时发出排队的消息，效果相同。
+- **等这一步结束：关掉 `instant_interrupt`。** 锁定版本里 `features.instant_interrupt` 默认开（`features/src/lib.rs`，Stage::UnderDevelopment）：插话一到就掐断正在流式输出的这次采样（`core/src/session/turn.rs` 的 `preempt`），已输出的半段留在对话里，立刻带着插话重新采样。R11 实测：慢回答流出第一片就被打断，半段回答在回合末尾才提交。维护者定的插话是“这一步结束后插进本回合”，所以 config.toml 写 `instant_interrupt = false`（§3 的加固项）：这次采样照常流完，插话在下一次采样之前进对话。工具调用不受这个开关影响，等这批工具结束。回合刚开始、第一次采样还没发出时到达的插话，会和回合的输入一起进第一次请求（实测），这时它在模型的第一段输出之前。
+- **送达。** Codex 在下一次采样之前把待处理输入记进对话：发 `item/started` 与 `item/completed` 的 userMessage，`clientId` 就是 `clientUserMessageId`。适配器在 `item/completed` 时报 `turn.steered {steerId}`（终端界面同样以它确认，`tui/src/app/app_server_events.rs`）；回合的第一条 userMessage（`turn/start` 的输入）没有我们给的 `clientId`，照旧不上报（`mapping.ts` 的 `SILENT_ITEMS`）。一次采样结束、还有待处理输入时，回合接着再采样（`core/src/tasks/regular.rs`），所以插话总在当前这一步（模型这一段输出，或这批工具调用与结果）之后。
+- **回合结束时没用上的。** 回合以错误结束时，Codex 在任务结束时把剩下的待处理输入照样记进对话（`core/src/tasks/mod.rs`，`take_pending_input_for_turn_state` 之后 `run_hooks_and_record_inputs`），适配器照样报 `turn.steered`；被中断（`turn/interrupt`）的回合丢掉它们，不报，Host 按“回合结束时还没插进去”处理。
 
 ## 5. Provider
 
@@ -337,8 +348,8 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 
 | 层 | 文件 | 内容 |
 |---|---|---|
-| 契约第 1 层：录制回放 | `codex-adapter.contract.test.ts` | 适配器用 node 跑 `test-fixtures/fake-app-server.mjs`（`binaryArgs`），它回放真实二进制录的样本：plain 是 `stream`，toolCall 是 `tool-shell`，approval 是 `approval-exec` 到审批请求为止、再按回复接 accept / decline / cancel 分支，审批挂起时取消接 interrupt 分支；有过回合的 thread 记在 CODEX_HOME，进程被杀后能恢复，没见过的回放真实的 `no rollout found`。子会话的条款跳过（`subagents: false`：假的 app-server 只回放子 thread 的通知，不模拟子 thread 的审批与中断）。不需要二进制、模型或 Key，CI 默认跑 |
-| 契约第 2 层 | `codex-adapter.contract.integration.test.ts` | 真实 `codex-app-server` + 网关（Responses 透传）+ mock 模型；审批用例让 mock 调一次越出沙箱的 `touch`（工作区外、且不在系统临时目录）；子会话用例让父 agent spawn → wait，子 agent 一问一答或请求审批 |
+| 契约第 1 层：录制回放 | `codex-adapter.contract.test.ts` | 适配器用 node 跑 `test-fixtures/fake-app-server.mjs`（`binaryArgs`），它回放真实二进制录的样本：plain 是 `stream`，toolCall 是 `tool-shell`，approval 是 `approval-exec` 到审批请求为止、再按回复接 accept / decline / cancel 分支，审批挂起时取消接 interrupt 分支；有过回合的 thread 记在 CODEX_HOME，进程被杀后能恢复，没见过的回放真实的 `no rollout found`。子会话与插话的条款跳过（`subagents: false`：假的 app-server 只回放子 thread 的通知，不模拟子 thread 的审批与中断；`steer: false`：没有录 `turn/steer`）。不需要二进制、模型或 Key，CI 默认跑 |
+| 契约第 2 层 | `codex-adapter.contract.integration.test.ts` | 真实 `codex-app-server` + 网关（Responses 透传）+ mock 模型；审批用例让 mock 调一次越出沙箱的 `touch`（工作区外、且不在系统临时目录）；子会话用例让父 agent spawn → wait，子 agent 一问一答或请求审批；插话用例（R11）在 mock 的慢回答（“慢”）流出时 `steer`，等它流完再进同一回合，回合之外 `steer` 报 `steer_rejected` 后照常 `send`（Host 据此排队） |
 | 契约第 3 层 | `codex-adapter.contract.real.integration.test.ts` | 真实二进制 + 网关 + 真实模型：`WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`（`deepseek-official`，或 `openai-compatible` 另加 `WEVIR_TEST_BASE_URL`、`WEVIR_TEST_MODEL`、`WEVIR_TEST_API`），没有就跳过并打印原因；保留 Codex 自己的重试；不进 CI |
 | 映射单元测试 | `mapping.test.ts` | 回放 `test-fixtures/app-server/` 的通知样本（一问一答、只读 / 搜索 / 普通命令、补丁、上游 400、流式中途取消、子 agent、计划）与审批对话（命令的四个分支、补丁的两个分支），另有边界情况 |
 | 归类单元测试 | `turn-error.test.ts`、`resume-error.test.ts`、`title.test.ts` | 回合失败与恢复失败的样本逐条归类；最低推理档位、临时 thread 的结果 |
@@ -350,7 +361,7 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 | 计划、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`、缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
 | 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
 | ChatGPT 进程（R6） | `account.test.ts`（假的 app-server，状态机与 `model/list` 的换算）、`codex-runtime.chatgpt.integration.test.ts`（真实二进制 + `test-fixtures/mock-chatgpt.ts` 的登录服务与后端） | §8：没登录时 ChatGPT 会话建不起来；设备码登录 → 邮箱、套餐与用量 → `model/list` → ChatGPT 会话落在 ChatGPT 进程、网关会话照旧在网关进程 → 登出（凭据删除、令牌吊销）；浏览器登录（回调打到本机 1455）与取消；`auth.json` 0600 只在 ChatGPT 进程的目录；外连经拒绝的代理只剩 chatgpt.com |
-| Host | `packages/host/src/cli.codex.integration.test.ts`、`cli.codex.subagent.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收；子会话（派出、子会话的审批经父会话处理、取消父会话时级联取消） |
+| Host | `packages/host/src/cli.codex.integration.test.ts`、`cli.codex.subagent.integration.test.ts`、`cli.codex.pending.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收；子会话（派出、子会话的审批经父会话处理、取消父会话时级联取消）；插话与排队（R11：慢回合里插话一次，等慢回答流完再进同一回合；排队一次，回合结束后作为下一回合发出） |
 
 二进制不在时第 2、3 层与集成测试跳过并打印下载命令；CI 下载并缓存二进制，macOS 与 Windows 都跑。录样本：`WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`（升级 Codex 后重录，再看映射、归类测试与第 1 层；`-t` 可以只录其中一组）。Codex 升级的完整步骤见 docs/upstream/UPSTREAM.md「Codex 升级检查清单」。
 
@@ -432,4 +443,4 @@ ADR-0005 决策 4 第 ① 行：ChatGPT 订阅经 app-server 自己的 `account/
 - ~~R6：ChatGPT 登录的会话不经网关，标题走临时 thread（§4.4 的 `titleVia`）~~ 已做（§8）。ChatGPT 会话的回合没有自动化测试（工作区路由要求 https 的后端，mock 不了），靠维护者用真实账号验收。
 - R9：打包后二进制与提示词的位置（`binary`、`promptsDir` 选项；Host 的 `promptsDir`）。
 - “以后以这个前缀开头的命令不再问”（execpolicy 修订）与网络策略修订：要 Host 记规则（§6.6）。
-- `turn/steer`（回合进行中追加输入）：Wevir 目前回合中拒绝新消息（R11）。
+- ~~`turn/steer`（回合进行中追加输入）~~ R11 已接上（§4.5）。

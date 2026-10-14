@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.7.0`（R6：ChatGPT 账号——`ProviderKind` 加 `chatgpt`（能力位 `provider_kind_chatgpt`），新方法 `account.get` / `account.login` / `account.cancelLogin` / `account.logout`，新通知 `account.updated`，Host 功能 `chatgpt_account`；0.6.0 的子会话见 §10；最低兼容 `0.1.0`）· 日期：2026-10-14
+> 状态：v0（T1.2）· 协议版本 `0.8.0`（R11：回合进行中发消息——`session.send` 加 `delivery`，待发消息 `PendingMessage` 与方法 `pending.update` / `pending.cancel` / `pending.resume`，事件 `pending.added` / `pending.updated` / `user.steered`，快照加 `pendingMessages`，Host 设置 `settings.get` / `settings.update` 与通知 `settings.updated`；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-14
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -77,6 +77,8 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `host.hello` | null | `token, protocolVersion, clientKind, deviceId, clientId, capabilities` | `hostId, hostVersion, protocolVersion, minProtocolVersion, features, permissions` | §2 |
 | `host.ping` | null | `{}` | `{}` | |
 | `host.shutdown` | `host.manage` | `{}` | `{}` | |
+| `settings.get` | `session.read` | `{}` | `settings: HostSettings` | |
+| `settings.update` | `host.manage` | `settings`（部分字段） | `settings: HostSettings` | |
 | `workspace.list` | `workspace.read` | `{}` | `workspaces: Workspace[]` | |
 | `workspace.add` | `workspace.write` | `rootPath, displayName?` | `workspace, created` | `WORKSPACE_PATH_INVALID` |
 | `workspace.remove` | `workspace.write` | `workspaceId` | `{}` | `WORKSPACE_NOT_FOUND`、`RESOURCE_IN_USE` |
@@ -91,10 +93,13 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `session.create` | `session.write` | `workspaceId, providerId, modelId?, reasoningEffort?` | `session` | `WORKSPACE_NOT_FOUND`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.list` | `session.read` | `workspaceId?, parentSessionId?` | `sessions: Session[]` | `WORKSPACE_NOT_FOUND`、`SESSION_NOT_FOUND` |
 | `session.get` | `session.read` | `sessionId` | `SessionSnapshot` | `SESSION_NOT_FOUND` |
-| `session.send` | `session.write` | `sessionId, content, clientMessageId?` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`CLIENT_MESSAGE_CONFLICT`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.send` | `session.write` | `sessionId, content, clientMessageId?, delivery?` | `turnId?, pendingId?, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`CLIENT_MESSAGE_CONFLICT`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.cancel` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
 | `session.close` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
 | `session.resume` | `session.write` | `sessionId` | `session` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `pending.update` | `session.write` | `sessionId, pendingId, content?, delivery?` | `pending` | `SESSION_NOT_FOUND`、`PENDING_NOT_FOUND`、`PENDING_NOT_EDITABLE` |
+| `pending.cancel` | `session.write` | `sessionId, pendingId` | `pending` | `SESSION_NOT_FOUND`、`PENDING_NOT_FOUND`、`PENDING_NOT_EDITABLE` |
+| `pending.resume` | `session.write` | `sessionId` | `pendingMessages` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
 | `approval.respond` | `session.write` | `approvalId, optionId` | `approvalId, status, resolution` | `APPROVAL_NOT_FOUND`、`ALREADY_DECIDED` |
 | `events.subscribe` | `session.read` | `sessionId, sinceSeq` | `subscriptionId, replayedThroughSeq` | `SESSION_NOT_FOUND` |
 | `events.unsubscribe` | `session.read` | `subscriptionId` | `{}` | |
@@ -106,6 +111,7 @@ Host → 客户端的通知：
 |---|---|
 | `events.event` | `subscriptionId, event: WevirEvent` |
 | `account.updated` | `account: AccountState`（0.7.0；只发给调用过 `account.*` 方法的连接） |
+| `settings.updated` | `settings: HostSettings`（发给调用过 `settings.*` 的连接） |
 
 ### 3.1 各方法要点
 
@@ -124,7 +130,11 @@ Host → 客户端的通知：
 - **`session.create`**：`modelId` 省略时用 Provider 的 `defaultModelId`。Host 先建引擎会话，成功后才写 `session.created`（`seq = 1`），返回的 `session.state` 为 `idle`、`lastSeq` 为 1。引擎失败回 `ENGINE_ERROR`，不建会话。
 - **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。默认**不含子会话**（0.6.0，领域模型 §3.3.1）：子会话由引擎派出、只读，跟着父会话显示，不进左栏的会话列表。带 `parentSessionId` 时只列出这个会话的子会话（不论 `workspaceId`；会话不存在或所属工作区已移除时回 `SESSION_NOT_FOUND`）；一个会话的子会话也在它的快照 `subagents` 里（摘要）。
 - **`session.get`**：返回由事件推导的快照 `{session: {state, activeTurn, lastSeq, …}, pendingApprovals, todos?, usage?, subagents?}`（ADR-0002 §3）。中途加入的客户端先取快照，再以 `sinceSeq = session.lastSeq` 订阅。0.6.0：子会话照常可以 `session.get`，`session` 带 `parentSessionId` 与 `subagent`（父工具调用、状态、起止时间）；派出过子会话的会话带 `subagents`，每个子会话一份摘要（标题、模型与推理强度、昵称、状态、起止时间，以及它的未决审批的副本），按 `startedAt` 排列（领域模型 §3.3.1）。
-- **`session.send`**：会话是 `running` / `awaiting_approval` / `cancelling` 时回 `SESSION_BUSY`（`data` 带 `state` 与 `activeTurn`），不排队、不打断；`error` / `closed` 时回 `INVALID_STATE`（`data.state`），先 `session.resume`。`idle` 时接受，结果是新回合的 `turnId` 和这次 `user.message` 的 `seq`。`clientMessageId` 是幂等键，检查排在状态检查之前：同一会话里同一 ID、同样的 `content` 重发，返回原结果，不再发给引擎（不论会话现在处于什么状态，也不论那个回合后来怎样）；同一 ID、不同 `content` 回 `CLIENT_MESSAGE_CONFLICT`。send 前的自动 resume 失败回 `ENGINE_ERROR`（`category: session_unavailable`），工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不调引擎、状态不变）。会话只读（0.3.0，`session.readOnly`，引擎会话恢复不了）时回 `INVALID_STATE`，`data.readOnly` 给出原因与引擎原文，客户端据此提示“基于历史新建会话”，不要再提示 resume。Host 接受之后引擎拒收（适配器调用失败）时仍返回本回合的 `turnId` 与 `seq`：消息已被 Host 接受，失败经 `engine.error` 与 `session.state_changed`（→ `error`）送达，重发同一 `clientMessageId` 也返回这个结果（领域模型 §4.3）。子会话（0.6.0）是只读的，由父 agent 驱动：回 `INVALID_STATE`，`data.parentSessionId` 是父会话（幂等检查照样在前）。
+- **`session.send`**：会话是 `running` / `awaiting_approval` / `cancelling` 时，带 `delivery`（0.8.0）就成为待发消息（领域模型 §3.3.2、§4.6）：`'steer'` 插话，等当前这一步结束插进本回合，引擎不支持或拒绝时转为排队；`'queue'` 排队，回合结束后作为下一个回合发出。这时结果是 `{pendingId, seq}`（`pending.added` 的 `seq`），没有 `turnId`。不带 `delivery` 时回 `SESSION_BUSY`（`data` 带 `state` 与 `activeTurn`），不排队、不打断（旧客户端的行为不变）；`error` / `closed` 时回 `INVALID_STATE`（`data.state`），先 `session.resume`。`idle` 时接受（`delivery` 不起作用），结果是新回合的 `turnId` 和这次 `user.message` 的 `seq`。`clientMessageId` 是幂等键，检查排在状态检查之前：同一会话里同一 ID、同样的 `content` 重发，返回原结果，不再发给引擎（不论会话现在处于什么状态，也不论那个回合后来怎样）；同一 ID、不同 `content` 回 `CLIENT_MESSAGE_CONFLICT`。send 前的自动 resume 失败回 `ENGINE_ERROR`（`category: session_unavailable`），工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不调引擎、状态不变）。会话只读（0.3.0，`session.readOnly`，引擎会话恢复不了）时回 `INVALID_STATE`，`data.readOnly` 给出原因与引擎原文，客户端据此提示“基于历史新建会话”，不要再提示 resume。Host 接受之后引擎拒收（适配器调用失败）时仍返回本回合的 `turnId` 与 `seq`：消息已被 Host 接受，失败经 `engine.error` 与 `session.state_changed`（→ `error`）送达，重发同一 `clientMessageId` 也返回这个结果（领域模型 §4.3）。子会话（0.6.0）是只读的，由父 agent 驱动：回 `INVALID_STATE`，`data.parentSessionId` 是父会话（幂等检查照样在前）。
+- **`pending.update`**（0.8.0）：改一条待发消息的内容（`content`）或方式（`delivery`），返回改后的 `pending`，同时写 `pending.updated`。排队的与暂停的可以改内容；排队的改成插话时，回合进行中且引擎支持就交给引擎，否则保持排队并在 `fallback` 里说明原因。已交给引擎的插话、暂停的改成插话、已到终态的回 `PENDING_NOT_EDITABLE`（`data` 带 `pendingId`、`status`、`delivery`）。规则全表见领域模型 §4.6。
+- **`pending.cancel`**（0.8.0）：删掉一条排队的或暂停的待发消息（`cancelled`），返回它；已取消的成功、无操作；已交给引擎的插话、已插入或已发出的回 `PENDING_NOT_EDITABLE`。
+- **`pending.resume`**（0.8.0）：让这个会话所有暂停的待发消息继续（转为等待），返回会话当前全部未到终态的待发消息。会话 `idle` 时随后立即发出第一条，活动中时等这个回合结束；`error` / `closed` 回 `INVALID_STATE`，先 `session.resume`。没有暂停的消息时成功、无操作。
+- **`settings.get` / `settings.update`**（0.8.0）：Host 设置（领域模型 §3.7），CLI 与桌面共用。`settings.update` 只改给出的字段，返回改后的全部设置；值变了时 Host 给每个调用过 `settings.*` 的连接（含发起者）发 `settings.updated`。目前只有 `sendWhileBusy`：回合进行中按发送的默认方式（`steer` / `queue`，默认 `steer`），客户端据此给 `session.send` 填 `delivery`。
 - **`session.cancel`**：幂等，非活动状态下成功、无操作（领域模型 §4.2）。Host 等到回合结算（`turn.finished` 已写入），或判定无法确认（会话转 `error`，取消时限 5 s）才返回；结算细节以事件为准。0.6.0：同时取消这个会话所有活动中的子会话（递归，父会话空闲时也是），等它们一并结算（领域模型 §4.5：Codex 取消父回合时不动子 agent，由 Host 级联）。对子会话本身回 `INVALID_STATE`（`data.parentSessionId`）：子会话不能单独停止。
 - **`session.close`**：活动中的会话先取消再关闭（领域模型 §4.1 #14）；已关闭时成功、无操作。0.6.0：活动中的子会话同 `session.cancel` 一并取消，但不关闭（历史照常可读）；对子会话本身回 `INVALID_STATE`（子会话由父 agent 关闭）。
 - **`session.resume`**：`error` / `closed` 时恢复为 `idle`，其余状态成功、无操作；返回最新的 `session`。成功时先写 `session.resumed`（0.3.0，带引擎版本），引擎不回放历史，历史以事件库为准。Provider 已被删除回 `PROVIDER_NOT_FOUND`；工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不写事件）；引擎拒绝回 `ENGINE_ERROR`（同时追加一条 `engine.error` 事件，状态不变）。引擎会话恢复不了（会话日志被删除、格式不兼容或损坏）时另写 `session.read_only`，会话带上 `readOnly`；只读会话仍可以 resume，引擎找回会话时成功并解除只读（领域模型 §4.4）。对子会话回 `INVALID_STATE`（0.6.0）：子会话在父 agent 又用到它时由 Host 重新挂上（领域模型 §4.5 C5）。
@@ -236,6 +246,9 @@ Host → 客户端的通知：
 | `engine.raw` | engine |
 | `subagent.started` | host |
 | `subagent.updated` | host |
+| `pending.added` | host |
+| `pending.updated` | host |
+| `user.steered` | host |
 
 `engine.raw` 不按能力位门控，所有订阅者都收到（门控意味着扣下事件，会打断 `seq` 的连续性，§4 第 4 条）；客户端默认不投影它，开发者模式下作为调试信息显示。它的 `params` 按 §11 截断。
 
@@ -252,6 +265,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `ApprovalId` | `apr_` | Host |
 | `StreamId` | `stm_` | Host |
 | `SubscriptionId` | `sub_` | Host（只在建立它的连接上有效） |
+| `PendingMessageId` | `pnd_` | Host |
 
 `ProviderId` 由用户给出，`^[a-z][a-z0-9-]{0,31}$`。`deviceId`、`clientId`、`clientMessageId` 由客户端生成，1–128 个字符。时间字段是 `Date.prototype.toISOString()` 的输出（UTC、毫秒精度）。
 
@@ -275,11 +289,13 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `PROVIDER_NOT_FOUND` | -32011 | Provider 不存在 | |
 | `SESSION_NOT_FOUND` | -32012 | 会话不存在（含所属工作区已移除） | |
 | `APPROVAL_NOT_FOUND` | -32013 | 审批不存在 | |
+| `PENDING_NOT_FOUND` | -32014 | 待发消息不存在，或不属于这个会话（0.8.0） | |
 | `INVALID_STATE` | -32020 | 会话当前状态不允许该操作（`error` / `closed` 时 send；子会话不接受客户端的 send、cancel、close、resume） | `state, readOnly?, parentSessionId?` |
 | `SESSION_BUSY` | -32021 | 会话有进行中的回合 | `state, activeTurn?` |
 | `ALREADY_DECIDED` | -32022 | 审批已结算 | `approvalId, status, resolution` |
 | `CLIENT_MESSAGE_CONFLICT` | -32023 | 同一 `clientMessageId` 的请求体不同 | `clientMessageId` |
 | `RESOURCE_IN_USE` | -32024 | 被未关闭的会话引用，不能移除 | `sessionIds` |
+| `PENDING_NOT_EDITABLE` | -32025 | 待发消息现在不能这样改：插话已交给引擎、暂停的不能改成插话、已到终态（0.8.0） | `pendingId, status, delivery` |
 | `WORKSPACE_PATH_INVALID` | -32040 | 工作区路径不可用 | `path, reason` |
 | `ENGINE_ERROR` | -32041 | 引擎拒绝或失败（建会话、resume、send 前的自动 resume） | `category, message` |
 
@@ -322,7 +338,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 **版本**
 
 - `PROTOCOL_VERSION` 是 `主.次.修订` 三段的 semver，不带预发布标签。主版本不同即不兼容，Host 拒绝 hello；同一主版本内次版本只增不减、向后兼容；修订号只用于不改变线缆形状的修正。
-- 版本历史：`0.1.0`（T1.2，基线）；`0.2.0`（T3.4）：`ProviderModel` 加 `maxTokens`、`supportsImages`、`reasoningEfforts`，`provider.test` 结果加 `reason`、`httpStatus`，全部 optional，`MIN_PROTOCOL_VERSION` 仍是 `0.1.0`。新 Host 服务 0.1.0 客户端：多出的字段被旧 schema 忽略（规则 5）；0.2.0 客户端连旧 Host：旧 Host 不发这些字段，客户端按 optional 处理。`0.3.0`（T3.5）：新事件类型 `session.resumed`、`session.read_only`，`session.created` 加 `engineVersion`，`Session` 加 `readOnly`，`INVALID_STATE` 的 `data` 加 `readOnly`，全部是新类型或 optional 字段，没有给已有类型加枚举值，不需要能力位；`session.send` 与 `session.resume` 可能多回 `WORKSPACE_PATH_INVALID`（已有错误码）。新 Host 服务旧客户端：旧客户端忽略两种新事件（规则 5，照常推进 `lastSeq`）与新字段，只读会话在它看来是普通的 `error`，send 回 `INVALID_STATE`、resume 回 `ENGINE_ERROR`；0.3.0 客户端连旧 Host：收不到这些事件与字段，按 optional 处理。`0.4.0`（ADR-0005 补记 7）：`ProviderCompat` 加 `supportsCustomTools`（布尔）与 `systemMessageMode`（`inline` / `merge` / `user`），只有 Codex 引擎的模型网关读它们，dsh 适配器接受但忽略；都是 optional 的新字段，不需要能力位。新 Host 服务旧客户端：旧客户端的 schema 丢掉这两个字段（规则 5），它编辑 Provider 时不会带回，按 `provider.upsert` 整体替换的语义，这两个开关会被清掉；0.4.0 客户端连旧 Host：旧 Host 丢掉它们，网关按默认处理。`0.5.0`（R3，ADR-0005 补记 8）：`TitleSource` 加 `generated`（会话的模型生成的标题，prompts/thread-title.md）——给已有类型加枚举值，按下面的规则用能力位 `title_source_generated` 门控：没有声明它的连接，`session.title_changed` 事件与 `session.create` / `session.get` / `session.list` / `session.resume` 结果里的 `generated` 换成 `first_prompt`（`rpc-connection.ts` 的 `adaptEventForClient` / `adaptResultForClient`），标题本身照发；`session.title_changed` 加 optional 的 `description`（检索摘要）；`engine.raw` 的 `protocol` 从字面量 `acp` 放开为非空字符串（Codex 引擎是 `codex-app-server`）。`engine.raw` 只是调试信息、不按能力位门控（§5），旧客户端的 schema 只认 `acp`，按 T4.1 的做法跳过不合 schema 的那几条（告警、照常推进 `lastSeq`），不影响别的事件。新 Host 服务旧客户端：标题来源降级，看到的仍是“自动标题”；0.5.0 客户端连旧 Host：收不到 `generated` 与 `description`，按 optional 处理。`0.6.0`（R4，ADR-0005 补记 9）：子会话。新类型 `SubagentStatus`、`SubagentInfo`、`SubagentSummary`；`Session` 加 optional 的 `parentSessionId` 与 `subagent`，`SessionSnapshot` 加 `subagents`；新事件类型 `subagent.started` / `subagent.updated`；`session.created` 加 `parent`、`turn.started` 加 `input`；`session.list` 的参数加 `parentSessionId`，并且默认不再列出子会话；`INVALID_STATE` 的 `data` 加 `parentSessionId`，`session.cancel` / `session.close` / `session.resume` 可能回它（已有错误码，只对子会话）。都是新类型、新事件或 optional 字段，没有给已有类型加枚举值，不需要能力位。新 Host 服务旧客户端：`session.list` 不给它子会话，它也就不会订阅子会话；它忽略父会话流里的两种新事件（规则 5），快照里的 `subagents` 被它的 schema 丢掉，看到的父会话与 0.5.0 相同（子 agent 的派出、等待仍是工具调用），只是看不到、也回不了子会话的审批（审批挂到父会话被取消为止，取消会级联到子会话）。0.6.0 客户端连旧 Host：旧 Host 不认 `parentSessionId`（schema 丢掉它）而返回全部会话，旧 Host 上本来没有子会话，结果相同；收不到新事件与字段，按 optional 处理。 `0.7.0`（R6，ADR-0005 补记 10）：ChatGPT 账号。`ProviderKind` 加 `chatgpt`——给已有类型加枚举值，用能力位 `provider_kind_chatgpt` 门控：没有声明它的连接，`provider.list` 的结果里去掉 `chatgpt` 类 Provider（`adaptResultForClient`），它也就选不到、改不了这个 Provider；会话里的 `providerId` 只是字符串，用它的会话照常列出。`provider.upsert` 的参数加 `chatgpt` 一支；新类型 `AccountKind`、`AccountLoginMethod`、`AccountLogin`、`AccountRateLimitWindow`、`AccountState`；新方法 `account.get` / `account.login` / `account.cancelLogin` / `account.logout`；新通知 `account.updated`，只发给调用过 `account.*` 的连接，旧客户端不会调，也就收不到（client-sdk 本来就忽略不认识的通知并告警）；Host 功能 `chatgpt_account`（`HOST_FEATURES` 从此不再为空，只列名字，值由 Host 按引擎在每次握手时给出）。新 Host 服务旧客户端：看不到 ChatGPT 的 Provider 与账号，用 ChatGPT 的会话在它那里照常显示与对话（Provider 名字认不出）；0.7.0 客户端连旧 Host：hello 结果没有 `chatgpt_account`，客户端不显示账号入口，不调这些方法。
+- 版本历史：`0.1.0`（T1.2，基线）；`0.2.0`（T3.4）：`ProviderModel` 加 `maxTokens`、`supportsImages`、`reasoningEfforts`，`provider.test` 结果加 `reason`、`httpStatus`，全部 optional，`MIN_PROTOCOL_VERSION` 仍是 `0.1.0`。新 Host 服务 0.1.0 客户端：多出的字段被旧 schema 忽略（规则 5）；0.2.0 客户端连旧 Host：旧 Host 不发这些字段，客户端按 optional 处理。`0.3.0`（T3.5）：新事件类型 `session.resumed`、`session.read_only`，`session.created` 加 `engineVersion`，`Session` 加 `readOnly`，`INVALID_STATE` 的 `data` 加 `readOnly`，全部是新类型或 optional 字段，没有给已有类型加枚举值，不需要能力位；`session.send` 与 `session.resume` 可能多回 `WORKSPACE_PATH_INVALID`（已有错误码）。新 Host 服务旧客户端：旧客户端忽略两种新事件（规则 5，照常推进 `lastSeq`）与新字段，只读会话在它看来是普通的 `error`，send 回 `INVALID_STATE`、resume 回 `ENGINE_ERROR`；0.3.0 客户端连旧 Host：收不到这些事件与字段，按 optional 处理。`0.4.0`（ADR-0005 补记 7）：`ProviderCompat` 加 `supportsCustomTools`（布尔）与 `systemMessageMode`（`inline` / `merge` / `user`），只有 Codex 引擎的模型网关读它们，dsh 适配器接受但忽略；都是 optional 的新字段，不需要能力位。新 Host 服务旧客户端：旧客户端的 schema 丢掉这两个字段（规则 5），它编辑 Provider 时不会带回，按 `provider.upsert` 整体替换的语义，这两个开关会被清掉；0.4.0 客户端连旧 Host：旧 Host 丢掉它们，网关按默认处理。`0.5.0`（R3，ADR-0005 补记 8）：`TitleSource` 加 `generated`（会话的模型生成的标题，prompts/thread-title.md）——给已有类型加枚举值，按下面的规则用能力位 `title_source_generated` 门控：没有声明它的连接，`session.title_changed` 事件与 `session.create` / `session.get` / `session.list` / `session.resume` 结果里的 `generated` 换成 `first_prompt`（`rpc-connection.ts` 的 `adaptEventForClient` / `adaptResultForClient`），标题本身照发；`session.title_changed` 加 optional 的 `description`（检索摘要）；`engine.raw` 的 `protocol` 从字面量 `acp` 放开为非空字符串（Codex 引擎是 `codex-app-server`）。`engine.raw` 只是调试信息、不按能力位门控（§5），旧客户端的 schema 只认 `acp`，按 T4.1 的做法跳过不合 schema 的那几条（告警、照常推进 `lastSeq`），不影响别的事件。新 Host 服务旧客户端：标题来源降级，看到的仍是“自动标题”；0.5.0 客户端连旧 Host：收不到 `generated` 与 `description`，按 optional 处理。`0.6.0`（R4，ADR-0005 补记 9）：子会话。新类型 `SubagentStatus`、`SubagentInfo`、`SubagentSummary`；`Session` 加 optional 的 `parentSessionId` 与 `subagent`，`SessionSnapshot` 加 `subagents`；新事件类型 `subagent.started` / `subagent.updated`；`session.created` 加 `parent`、`turn.started` 加 `input`；`session.list` 的参数加 `parentSessionId`，并且默认不再列出子会话；`INVALID_STATE` 的 `data` 加 `parentSessionId`，`session.cancel` / `session.close` / `session.resume` 可能回它（已有错误码，只对子会话）。都是新类型、新事件或 optional 字段，没有给已有类型加枚举值，不需要能力位。新 Host 服务旧客户端：`session.list` 不给它子会话，它也就不会订阅子会话；它忽略父会话流里的两种新事件（规则 5），快照里的 `subagents` 被它的 schema 丢掉，看到的父会话与 0.5.0 相同（子 agent 的派出、等待仍是工具调用），只是看不到、也回不了子会话的审批（审批挂到父会话被取消为止，取消会级联到子会话）。0.6.0 客户端连旧 Host：旧 Host 不认 `parentSessionId`（schema 丢掉它）而返回全部会话，旧 Host 上本来没有子会话，结果相同；收不到新事件与字段，按 optional 处理。 `0.7.0`（R6，ADR-0005 补记 10）：ChatGPT 账号。`ProviderKind` 加 `chatgpt`——给已有类型加枚举值，用能力位 `provider_kind_chatgpt` 门控：没有声明它的连接，`provider.list` 的结果里去掉 `chatgpt` 类 Provider（`adaptResultForClient`），它也就选不到、改不了这个 Provider；会话里的 `providerId` 只是字符串，用它的会话照常列出。`provider.upsert` 的参数加 `chatgpt` 一支；新类型 `AccountKind`、`AccountLoginMethod`、`AccountLogin`、`AccountRateLimitWindow`、`AccountState`；新方法 `account.get` / `account.login` / `account.cancelLogin` / `account.logout`；新通知 `account.updated`，只发给调用过 `account.*` 的连接，旧客户端不会调，也就收不到（client-sdk 本来就忽略不认识的通知并告警）；Host 功能 `chatgpt_account`（`HOST_FEATURES` 从此不再为空，只列名字，值由 Host 按引擎在每次握手时给出）。新 Host 服务旧客户端：看不到 ChatGPT 的 Provider 与账号，用 ChatGPT 的会话在它那里照常显示与对话（Provider 名字认不出）；0.7.0 客户端连旧 Host：hello 结果没有 `chatgpt_account`，客户端不显示账号入口，不调这些方法。`0.8.0`（R11，ADR-0002 补记 8）：回合进行中发消息。新类型 `PendingMessage`（`PendingDelivery`、`PendingStatus`、`PendingFallbackReason`）与 `HostSettings`；`session.send` 的参数加 optional 的 `delivery`，结果的 `turnId` 改为 optional、加 `pendingId`（只有带 `delivery` 的请求才可能拿到没有 `turnId` 的结果）；新方法 `pending.update` / `pending.cancel` / `pending.resume`、`settings.get` / `settings.update`，新通知 `settings.updated`（只发给调用过 `settings.*` 的连接）；新事件 `pending.added` / `pending.updated` / `user.steered`，`user.message` 加 optional 的 `pendingId`，快照加 `pendingMessages`；新错误码 `PENDING_NOT_FOUND`、`PENDING_NOT_EDITABLE`；Host 功能加 `pending_messages`、`host_settings`。都是新类型、新方法、新事件或 optional 字段，没有给已有类型加枚举值，不需要能力位。新 Host 服务旧客户端：旧客户端不带 `delivery`，回合进行中照旧拿到 `SESSION_BUSY`；别的客户端加入的待发消息与插话的事件被它忽略（规则 5），它的消息流里看不到插话（模型看到了），排队发出的回合照常显示，快照的 `pendingMessages` 被它的 schema 丢掉。新客户端连旧 Host：hello 结果里没有 `pending_messages`，客户端回合进行中不提供插话与排队（仍是忙，旧 Host 也会丢掉 `delivery` 回 `SESSION_BUSY`）；没有 `host_settings` 时不读设置，按默认的插话。
 - 协商（`negotiateProtocolVersion`）：主版本相同且客户端不低于 `minProtocolVersion` 才接受，协商结果取双方中较低的版本。Host 提高 `minProtocolVersion` 等于放弃更老的客户端，要在变更说明里写明。
 
 **线缆契约（永远遵守）**
@@ -352,6 +368,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | 功能 | 加入版本 | 声明了它的 Host 提供 |
 |---|---|---|
 | `chatgpt_account` | 0.7.0 | `account.*` 方法、`account.updated` 通知与 `chatgpt` 类 Provider（Codex 引擎） |
+| `pending_messages` | 0.8.0 | `session.send` 的 `delivery`、`pending.*` 方法、`pending.*` 与 `user.steered` 事件、快照的 `pendingMessages` |
+| `host_settings` | 0.8.0 | `settings.get` / `settings.update` 与 `settings.updated` 通知 |
 
 **`COMPAT` 标签**
 

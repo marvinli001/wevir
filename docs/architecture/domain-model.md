@@ -240,6 +240,7 @@ interface SessionSnapshot {
   todos?: TodoItem[]               // 最近一次 todo.updated
   usage?: { contextUsed: number; contextSize: number } // 最近一次 usage.updated
   subagents?: SubagentSummary[]    // 0.6.0：这个会话派出的子会话，按 startedAt（§3.3.1）；没有时省略
+  pendingMessages?: PendingMessage[] // 0.8.0：等待中与暂停的待发消息，按加入的先后（§3.3.2）；没有时省略
 }
 ```
 
@@ -313,6 +314,64 @@ interface SubagentSummary {           // 父会话快照的 subagents 与 subage
 - **父会话的摘要。** 子会话的标题、状态、未决审批，以及适配器晚报的昵称、角色，每变一次 Host 就在父会话的事件流写一条 `subagent.updated`（完整摘要，替换同一 `sessionId` 的上一份）。父会话快照的 `subagents` 由 `subagent.started` / `subagent.updated` 推导，父会话的订阅因此知道每个子会话的状态，以及有没有子会话在等审批。昵称与角色只在摘要里。
 - **列表。** `session.list` 默认不含子会话，带 `parentSessionId` 列出某个会话的子会话（host-api.md §3.1）。子会话不算“未关闭会话”：不挡工作区移除与 Provider 删除，它们跟着父会话走。
 - **嵌套。** 适配器可以在子会话的事件流里再报 `subagent.started`（子会话的子会话），规则相同。Codex 的默认深度 `agents.max_depth = 1`，Wevir 不改，实际不会出现。
+
+### 3.3.2 待发消息（0.8.0，R11）
+
+回合进行中用户也能发消息（维护者 2026-10-14 定），有两种方式：
+
+- **插话**（`steer`）：不打断当前回合。等正在进行的这一步（模型这一段输出，或这次工具调用）结束，把消息插进**同一个回合**，模型接着往下做。Claude Code 与 Codex 的 `turn/steer` 都是这样。引擎做不到时退化为排队。
+- **排队**（`queue`）：当前回合结束后，作为下一个回合发出。
+
+还没送到引擎、或者送到了还没被模型看到的消息叫**待发消息**。它是 Host 的产品层事实：经事件写进会话的事件流（§6），所以多端共享、回放可得、Host 重启后仍在。
+
+```ts
+// → protocol
+type PendingMessageId = `pnd_${string}`
+type PendingDelivery = 'steer' | 'queue'
+type PendingStatus =
+  | 'waiting'    // 等待：插话等这一步结束，排队等回合结束
+  | 'held'       // 暂停：回合以失败或取消结束（或会话出错、关闭、Host 重启），等用户继续发送、编辑或删除
+  | 'inserted'   // 已插入（终态）：插话进了回合，见同一回合的 user.steered
+  | 'sent'       // 已发送（终态）：作为新回合发出，见那个回合的 user.message
+  | 'cancelled'  // 已取消（终态）：用户删掉了它
+
+type PendingFallbackReason =
+  | 'unsupported' // 引擎不支持插话（dsh 与其他 ACP 引擎）
+  | 'rejected'    // 引擎拒绝了这次插话（Codex：回合不能插话，如 review / compact，或回合恰好结束了）
+  | 'turn_ended'  // 回合结束时还没插进去（被取消、失败、Host 重启；Codex 丢掉未用上的插话），或回合正在取消
+
+interface PendingMessage {
+  id: PendingMessageId
+  content: UserContentPart[]       // 同 user.message
+  delivery: PendingDelivery        // 当前的方式
+  status: PendingStatus
+  fallback?: {                     // “已转为排队”：要插话、没插成，delivery 已是 queue
+    reason: PendingFallbackReason
+    message?: string               // 引擎原文
+  }
+  clientMessageId?: string         // session.send 的幂等键，原样带到 user.message / user.steered
+  sentBy: ClientIdentity
+  createdAt: IsoTime
+  updatedAt: IsoTime
+  turnId?: TurnId                  // inserted：插进的回合；sent：它开始的回合
+}
+```
+
+| 字段 | 创建 | 修改 |
+|---|---|---|
+| `id`、`sentBy`、`clientMessageId`、`createdAt` | `session.send` 带 `delivery`、会话忙时（§4.6），Host 写 `pending.added` | 不可改 |
+| `content` | 同上 | `pending.update`，只在 `waiting` 的排队与 `held` 时 |
+| `delivery`、`fallback` | 同上；插话做不到时直接以排队加入，带 `fallback` | `pending.update` 改方式（规则见 §4.6）；插话被引擎拒绝或回合结束时没插进去，Host 改成排队并记 `fallback` |
+| `status`、`turnId` | `waiting` | 只由 §4.6 的规则修改，每次写一条 `pending.updated`（带完整的消息） |
+
+规则：
+
+- **顺序。** 待发消息按加入的先后（`pending.added` 的 `seq`）排成一列，R11 不提供调整顺序。回合完成时 Host 发出的是这一列里第一条 `waiting` 的排队消息；暂停的不参与，直到用户让它们继续。
+- **快照。** `SessionSnapshot.pendingMessages` 是未到终态（`waiting`、`held`）的待发消息，按上面的顺序；没有时省略。到了终态就从快照里消失：插入与发送的内容在消息流里（`user.steered` / `user.message`），取消的不再显示。
+- **插话交出去之后不能再改。** 插话一旦交给引擎（Codex 的 `turn/steer` 被接受），引擎没有撤回的办法：它在 `waiting` 里等这一步结束，不能编辑、删除或改成排队（`PENDING_NOT_EDITABLE`）。排队的与暂停的可以编辑与删除。这与 Codex 终端界面一致：待插话只能看，按 Esc 中断回合、立刻发出（Wevir 的做法是先停止，再“继续发送”，§4.6）。
+- **暂停的一律是排队。** 回合没完成就结束时，没插进去的插话转为排队（`fallback.reason` 为 `turn_ended`）再暂停。暂停的消息不能改成插话，先“继续发送”。
+- **只有普通会话有。** 子会话由父 agent 驱动，不接受客户端的发送（§3.3.1），没有待发消息。
+- **与 Codex 对照。** Codex 终端界面在客户端排队（`tui/src/chatwidget/input_queue.rs`），回合完成后发下一条；回合被中断时把所有待发内容并回输入框、不自动发（`input_restore.rs` 的 `on_interrupted_turn`）；被拒的插话（回合不能插话）放到回合结束后发（`app/thread_routing.rs`）。Wevir 放在 Host：多端共享、要持久化，所以中断后的待发消息留在待发区暂停，而不是并回某一个客户端的输入框。
 
 ### 3.4 ApprovalRequest
 
@@ -449,6 +508,19 @@ interface AccountRateLimitWindow {
 | `Artifact` | Agent 交付给用户的文件成果（文档、表格、代码文件），可预览、可在访达中显示 | 由某个 Session 的某次工具调用产生（`write` / `edit` 的路径、dsh `present` 工具的文件列表），以 `(sessionId, toolCallId, path)` 关联；路径必须在所属 Workspace 内。骨架只在工具卡片上显示路径 chip（OpenWork §3.9），成果面板放 Phase 1 |
 | `Device` | 一台配对过的设备（桌面、手机），带设备凭据和权限，可撤销 | `host.hello` 的 `deviceId`、`ApprovalResolution.decidedBy.deviceId`、`user.message.sentBy.deviceId` 都指向它；骨架只有 ID，没有实体（ADR-0002 未决事项 3） |
 
+### 3.7 Host 设置（0.8.0，R11）
+
+整个 Host 共用、CLI 与桌面一致的用户偏好。不属于会话，不经事件；存在数据目录的 `settings.json`（Host 原子写入），经 `settings.get` / `settings.update` 读写，变了 Host 通知读过它的连接（host-api.md §3.1）。
+
+```ts
+// → protocol
+interface HostSettings {
+  sendWhileBusy: 'steer' | 'queue' // 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab 或输入框旁的按钮。默认 steer
+}
+```
+
+规则：所有字段都有默认值，`settings.json` 不存在或缺字段时用默认值；`settings.update` 只改给出的字段。这里只放 Host 与各个客户端都要遵守的偏好，单个客户端自己的（主题、窗格布局）仍存在客户端。
+
 ---
 
 ## 4. 会话状态机
@@ -518,7 +590,9 @@ resume 失败（#12 的反面）不改变状态：`error` 仍是 `error`，`clos
 
 | 命令 | `idle` | `running` / `awaiting_approval` | `cancelling` | `error` | `closed` |
 |---|---|---|---|---|---|
-| `session.send` | 接受（#2） | `SESSION_BUSY`，`data` 带当前状态；不排队、不打断（ADR-0002 §4） | `SESSION_BUSY` | `INVALID_STATE`（`data.state`；只读时另有 `data.readOnly`），需先 resume | `INVALID_STATE` |
+| `session.send` | 接受（#2），不论带不带 `delivery` | 带 `delivery`：成为待发消息（§4.6）；不带：`SESSION_BUSY`，`data` 带当前状态（旧客户端的行为，ADR-0002 §4 与补记 8） | 同左；插话改为排队 | `INVALID_STATE`（`data.state`；只读时另有 `data.readOnly`），需先 resume | `INVALID_STATE` |
+| `pending.update` / `pending.cancel` | 暂停的可以（§4.6） | 排队的、暂停的可以；交出去的插话 `PENDING_NOT_EDITABLE` | 同左 | 暂停的可以 | 暂停的可以 |
+| `pending.resume` | 暂停的继续，并立即发出第一条 | 暂停的继续，回合结束后发出 | 同左 | `INVALID_STATE`，先 resume | `INVALID_STATE` |
 | `session.cancel` | 成功，无操作（幂等） | 接受（#5） | 成功，无操作 | 成功，无操作 | 成功，无操作 |
 | `approval.respond` | `ALREADY_DECIDED` 或 `APPROVAL_NOT_FOUND` | 对 `pending` 审批接受（§5） | `ALREADY_DECIDED`（已结为 `cancelled`） | `ALREADY_DECIDED` | `ALREADY_DECIDED` |
 | `session.close` | 接受（#13） | 接受（#14） | 接受（#14） | 接受（#13） | 成功，无操作 |
@@ -530,7 +604,7 @@ resume 失败（#12 的反面）不改变状态：`error` 仍是 `error`，`clos
 
 `packages/host` 的 `SessionManager` 落地本节与 §5，以下是表里没写明、由实现定下的细节：
 
-- **命令队列与 `send` 的到达检查。** 命令按会话排队；`session.send` 到达时先在队列外查一遍回执与状态，会话不是 `idle` 就立即返回 `SESSION_BUSY` / `INVALID_STATE`，不排在进行中的命令（例如等结算的取消）后面，进入队列后再查一遍。`approval.respond` 照 §5 第 3 条排队。
+- **命令队列与 `send` 的到达检查。** 命令按会话排队；`session.send` 到达时先在队列外查一遍回执与状态，会话不是 `idle` 就立即返回 `SESSION_BUSY` / `INVALID_STATE`，不排在进行中的命令（例如等结算的取消）后面，进入队列后再查一遍。`approval.respond` 照 §5 第 3 条排队。R11：带 `delivery` 的 `send` 在活动状态下不排进命令队列，立即加入待发消息（插话交给引擎也不等前面的命令），所以停止过程中发的消息不会卡在取消后面；回合完成后发出下一条待发消息是排进命令队列的一个命令，排在它之后到达的 `send` 看到的已是新回合（§4.6）。
 - **`session.cancel` 等到结算才返回。** 写完 #5 的事件后等到 `turn.finished` 写入（#8，或经引擎退出等别的路径），适配器报 `cancel_unconfirmed` 或超过 5 s 则走 #9。
 - **`send` 先写事件再交给引擎。** `user.message`、`turn.started`、标题与 idle→running 在一个事务里写入，同一事务记回执 `accepted`；适配器 `send` 成功后回执改为 `confirmed`。适配器拒收时走 #10，`session.send` 仍返回已接受的 `turnId` 与 `seq`（与重发时的原结果一致），回执保持 `accepted`。
 - **引擎侧结掉的审批（`approval.cancelled`）。** `turn_cancelled` 与 `turn_ended` 结为 `cancelled`（`turn_cancelled`），`disposed` 结为 `cancelled`（`host_shutdown`），已被 Host 结算的忽略；`engine_exited` 不单独结算，由随后的 `engine.exited` 按 #10 一并处理，会话从 `awaiting_approval` 直接转 `error`。回合结算时仍未决的审批同样结为 `cancelled`（`turn_cancelled`），并先 awaiting_approval→running（`approvals_settled`）再按 #6–#8 回到 `idle`。
@@ -570,6 +644,52 @@ resume 失败（#12 的反面）不改变状态：`error` 仍是 `error`，`clos
 - **Host 级联取消。** ADR-0005 决策 6.1 定的是“取消父回合即取消它”，Codex 自己做不到，由 Host 补上：对父会话的 `session.cancel`、`session.close` 与 Host 优雅退出，Host 同时对它每个活动中的子会话（递归）按 #5 取消（引擎侧是对子 thread 的 `turn/interrupt`），子会话审批的结算原因是 `turn_cancelled`（Host 退出时 `host_shutdown`），父子都结算之后命令才返回。父会话空闲而子会话还在跑时（父回合没等子 agent 就结束了），`session.cancel` 同样取消这些子会话。子会话不随父会话关闭，历史照常可读。
 - **子会话不能单独停止。** 子会话只读，`session.cancel` 对它是 `INVALID_STATE`。Codex 的终端界面允许在子 agent 视图里按 Esc 直接中断它的回合；要不要给子会话单独的停止按钮由维护者定，R4 不加。
 - **Host 重启之后**子会话按只读历史可读（`session.get`、订阅），引擎侧的子 agent 随旧进程没了；父 agent 恢复后再用到它（Codex 从 rollout 恢复子 thread）时按 C5 重新挂上。
+
+### 4.6 待发消息与状态机（R11）
+
+待发消息（§3.3.2）不增加会话状态，§4.1 的转换不变；它们挂在转换上：哪些转换会让待发消息加入、插入、发出或暂停。下表的事件与触发它的转换在同一个事务里写入，另起的命令注明“随后”。
+
+**加入。** `session.send` 带 `delivery`（客户端按“回合进行中按发送”的设置填，§3.7）：
+
+| 会话状态 | `delivery: 'steer'` | `delivery: 'queue'` |
+|---|---|---|
+| `idle` | 照常开始回合（#2），`delivery` 不起作用 | 同左 |
+| `running` / `awaiting_approval` | 引擎支持插话（适配器实现了 `steer`）：写 `pending.added`（`steer`、`waiting`），再交给引擎；引擎拒绝时写 `pending.updated`：改为排队，`fallback.reason` 为 `rejected`。引擎不支持：直接以排队加入，`fallback.reason` 为 `unsupported` | `pending.added`（`queue`、`waiting`） |
+| `cancelling` | 以排队加入，`fallback.reason` 为 `turn_ended` | `pending.added`（`queue`、`waiting`） |
+| `error` / `closed` | `INVALID_STATE`，不加入 | 同左 |
+
+不带 `delivery` 的 `session.send` 在活动状态下照旧回 `SESSION_BUSY`（旧客户端不认识待发消息，host-api.md §10）。`clientMessageId` 的幂等照旧在状态检查之前：重发返回原结果（加入时的 `pendingId` 与 `pending.added` 的 `seq`）。
+
+**插入。** 适配器报 `turn.steered`（引擎把插话放进了回合；Codex：带同一 `clientId` 的 userMessage 完成，§6.2）：写 `user.steered`（回合是当前回合）与 `pending.updated`（`inserted`，`turnId`）。`user.steered` 在事件流里的位置就是模型看到它的位置：前一步的输出与工具结果在它之前，模型接着的输出在它之后。
+
+**回合结束（#6–#9、#10、#14、#15）。** 在回合结束的同一批事件里，按结果处理还没到终态的待发消息：
+
+| 回合怎样结束 | 交出去还没插进去的插话 | 等待中的排队 |
+|---|---|---|
+| `completed`（#6） | 改为排队（`turn_ended`），位置不变 | 不变。随后 Host 发出这一列里第一条等待中的排队消息：同 #2，`user.message` 带 `pendingId`，`pending.updated`（`sent`，`turnId`）；其余等这个新回合结束 |
+| `failed`（#7）、`cancelled`（#8） | 改为排队（`turn_ended`）并暂停 | 暂停（`held`）。例外：会话在 `cancelling` 时加入的不暂停（用户按了停止之后又发的，就是要在停止之后发），随后照 #6 发出其中第一条 |
+| `interrupted`（#9 取消得不到确认、#10 引擎退出、#15 Host 重启） | 改为排队（`turn_ended`）并暂停 | 暂停 |
+| 会话转 `error` 或 `closed`，不在回合中（#10、#11、#13） | — | 暂停 |
+
+Codex 在回合以错误结束时，把还没用上的插话照样记进对话（`core/src/tasks/mod.rs`：任务结束时 `take_pending_input` 再记录），适配器会报 `turn.steered`，所以这类插话是“已插入”而不是“暂停”；被中断的回合则丢掉未用上的插话（`tui/src/chatwidget/input_restore.rs` 的注释），对应上表的“改为排队并暂停”。
+
+**用户操作。**
+
+| 操作 | 交出去的插话（`waiting`、`steer`） | 等待中的排队 | 暂停的 |
+|---|---|---|---|
+| `pending.update` 改内容 | `PENDING_NOT_EDITABLE` | 可以 | 可以 |
+| `pending.update` 改为插话 | 无操作 | 回合进行中（`running` / `awaiting_approval`）且引擎支持时交给引擎，规则同加入（被拒则保持排队、记 `fallback`）；`cancelling` 时保持排队、记 `turn_ended`；引擎不支持时保持排队、记 `unsupported` | `PENDING_NOT_EDITABLE`，先继续发送 |
+| `pending.update` 改为排队 | `PENDING_NOT_EDITABLE` | 无操作 | 无操作 |
+| `pending.cancel` | `PENDING_NOT_EDITABLE` | `cancelled` | `cancelled` |
+| `pending.resume`（整个会话） | — | — | 全部转 `waiting`；会话 `idle` 时随后发出第一条（同 #6 之后的发出），活动中时等回合结束（`cancelling` 时让它们继续的，与停止过程中发的一样，取消结算后照常发出） |
+
+改内容或方式后写一条 `pending.updated`（完整的消息）；已到终态的再取消是成功、无操作，再编辑是 `PENDING_NOT_EDITABLE`。
+
+**发出时的失败。** 发出与普通 `send` 一样，必要时先自动 resume（#11），失败就转 `error`，其余等待中的暂停；引擎拒收按 #10，已发出的那条是 `sent`（它的 `user.message` 已写入，同普通 `send`）。
+
+**Host 重启。** 待发消息在事件流里，重启后仍在。启动对账（#15）把所有等待中的待发消息暂停（插话先改为排队，`turn_ended`），包括回合刚完成、下一条还没来得及发出的会话；用户在界面上“继续发送”。
+
+**与旧规则的关系。** ADR-0002 决策 4 原定“会话忙时 `session.send` 不排队、不打断，排队留给客户端”。R11 改为排队与插话都由 Host 承担（多端共享、能持久化、能用上引擎的插话），旧客户端不带 `delivery` 时行为不变（ADR-0002 补记 8）。
 
 ---
 
@@ -628,6 +748,9 @@ stateDiagram-v2
 | `engine.raw` | engine | 适配器不认识的引擎消息，原样保留 | 未识别的 `sessionUpdate` 或通知 |
 | `subagent.started` | host | 父会话派出了一个子 agent，带子会话的摘要（0.6.0，R4，§3.3.1） | 适配器的 `subagent.started`；写在父会话的事件流 |
 | `subagent.updated` | host | 子会话的摘要变了：标题、状态、未决审批、昵称或角色（0.6.0） | 子会话的事件、适配器的 `subagent.updated`；写在父会话的事件流 |
+| `pending.added` | host | 一条待发消息加入（0.8.0，§3.3.2） | 回合进行中带 `delivery` 的 `session.send` |
+| `pending.updated` | host | 待发消息变了：内容、方式、状态（含到终态），带完整的消息（0.8.0） | `pending.*` 方法；插话被拒、插入；回合结束时的暂停与发出（§4.6） |
+| `user.steered` | host | 一条插话进了当前回合（0.8.0） | 适配器的 `turn.steered`（Codex：带同一 `clientId` 的 userMessage 完成） |
 
 和计划草稿相比的调整，都来自 Spike 样本：
 
@@ -702,6 +825,14 @@ type WevirEvent =
       turnId: TurnId
       clientMessageId?: string
       content: Array<{ type: 'text'; text: string }> // v0 只有文本；dsh promptCapabilities 不支持图片、音频
+      sentBy: ClientIdentity
+      pendingId?: PendingMessageId  // 0.8.0：这个回合由一条排队的待发消息开始（§4.6）
+    }>
+  | WevirEventEnvelope<'user.steered', {    // 0.8.0：插话进了回合 turnId（§4.6）
+      turnId: TurnId
+      pendingId: PendingMessageId
+      clientMessageId?: string
+      content: Array<{ type: 'text'; text: string }>
       sentBy: ClientIdentity
     }>
   | WevirEventEnvelope<'turn.started', {
@@ -788,6 +919,8 @@ type WevirEvent =
     }>
   | WevirEventEnvelope<'subagent.started', { subagent: SubagentSummary }> // 0.6.0，父会话的事件流
   | WevirEventEnvelope<'subagent.updated', { subagent: SubagentSummary }> // 0.6.0，完整摘要，替换同一 sessionId 的上一份
+  | WevirEventEnvelope<'pending.added', { pending: PendingMessage }>   // 0.8.0，status 恒为 waiting
+  | WevirEventEnvelope<'pending.updated', { pending: PendingMessage }> // 0.8.0，完整的消息，替换同一 id 的上一份
 ```
 
 适配器向 Host 上报的 `AgentEvent` 是这份目录去掉 Host 自己的事实（`session.*`、`user.message`、`turn.started`、`approval.resolved`）、换成引擎 ID 的版本。T1.3 已定稿，以 `packages/runtime-adapter/src/events.ts` 为准（接口与类型见同目录 `adapter.ts`、`types.ts`），这里只记与原草案的差异：
@@ -807,6 +940,7 @@ type WevirEvent =
 | `subagent.started` | 新增（R4）：在**父**会话的流里报出一个子 agent：`childEngineSessionId`、`parentToolCallId`、`title`（适配器按 §3.3.1 的顺序算出的兜底标题，可以为空）、`prompt?`（任务描述）、`modelId?`、`reasoningEffort?`、`nickname?`、`role?`。子会话的流在第一个订阅者到来之前缓冲，Host 收到它再订阅不会漏掉子会话的事件 |
 | `subagent.updated` | 新增（R4）：父会话的流里，子 agent 晚到的信息：`title?`（新的兜底标题，例如引擎给的名称）、`nickname?`、`role?`，或 `closed: true`（父 agent 关掉了它）。子会话的回合与状态以子会话自己的流为准 |
 | `turn.started` | 新增（R4）：只出现在子会话的流里，引擎开始的回合，带 `input?`（父 agent 给的输入）。之后到终结事件为止的事件属于这个回合；子会话不接受 `send`（`invalid_input`） |
+| `turn.steered` | 新增（R11）：适配器可选的 `steer(engineSessionId, steerId, input)` 交出去的插话进了回合（`steerId` 是 Host 给的待发消息 ID）。在终结事件之前、模型看到它的位置报出；回合被中断时引擎丢掉没用上的插话，不报。`steer` 在引擎接受时返回，引擎不肯（没有能插话的回合）时报 `steer_rejected`；契约能力 `steer`，Codex 与 echo 有，dsh 与其他 ACP 引擎没有（不实现 `steer`） |
 
 `subagent.started` / `subagent.updated` 可以出现在父会话的回合之内或之间（父回合不等子 agent 就结束时，昵称等信息在回合之后才到）。
 
@@ -961,6 +1095,18 @@ interface Transcript {                // TranscriptProjection.snapshot()
 - **父会话。** `Transcript.subagents` 是子会话的摘要（`subagent.started` 追加、`subagent.updated` 按 `sessionId` 替换，与 Host 的 `SessionSnapshot.subagents` 同一套推导）；另外每个子会话在派出它的回合的助手消息里有一个“开始”部件 `{ type: 'subagent'; key: 'a:<子会话 ID>'; subagent: SubagentSummary }`，位置在 `subagent.started` 到达时，之后随 `subagent.updated` 原位更新；不属于回合的（父回合之外认出的）放在一条系统消息里。子会话离开 `running`（`subagent.updated` 的状态从 `running` 变成别的）时，再在父会话**当时**的位置加一个“结束”部件 `{ …, key: 'a:<子会话 ID>:end:<seq>', ended: <当时的状态> }`：父会话有进行中的回合就放在这个回合的助手消息里，否则是一条系统消息（R5）。所以“〈标题〉已完成”出现在子 agent 真正结束的地方，而不是紧贴着“开始工作”（Codex 桌面端的样子，`design-refs/01`）。之后的摘要更新（例如晚到的生成标题、`completed` → `closed`）原位换掉两种部件的 `subagent`，“结束”部件的 `ended` 不变；只有离开 `running` 才加，所以完成后被父 agent 关闭不会再多一行，关掉又用到（C5）再结束会再加一行。会话列表的推导另有 `applySubagentEvent(subagents, event)`（`session-state.ts`）。
 - **子会话。** `Transcript.parent` 取自 `session.created.parent`。`turn.started` 带 `input` 时投影出一条用户消息，`fromParentAgent: true`、没有 `sentBy`（`UserChatMessage.sentBy` 因此改为可选，只有 `user.message` 投影出的消息有）；其余部件与普通会话相同。`applySessionEvent` 对子会话另外推进 `subagent` 的状态与 `endedAt`（规则同 §3.3.1 的表）。
 
+待发消息与插话（R11，§3.3.2、§4.6）在投影里的样子：
+
+- **待发区。** `Transcript.pendingMessages` 由 `pending.added` 追加、`pending.updated` 按 `id` 替换，到了终态就去掉，规则同 Host 快照的 `pendingMessages`。界面在输入框上方按方式分组显示（插话“等这一步结束”、排队“回合结束后”、暂停的“已暂停”）。
+- **插话。** `user.steered` 投影成一条用户消息：`id` 是 `<turnId>:steer:<pendingId>`，`steered: true`，带 `sentBy`、`clientMessageId`，位置是事件到达时的末尾。这个回合之后的助手输出放进一条新的助手消息（`id` 是 `<turnId>:assistant:<seq>`，`seq` 是那条 `user.steered` 的），所以一个回合可以是“用户消息、助手消息、插话、助手消息……”。`turn.finished` 的 `finished` 只放在回合最后一条助手消息上；增量的替换、回合结束时丢掉未替换的增量、工具收尾与待办列表都在这个回合的全部助手消息里找。
+- **排队发出。** 排队的消息发出时就是一个普通回合（`user.message`），`UserChatMessage.pendingId` 指回那条待发消息。
+
+```ts
+// → client-sdk（R11 新增的字段）
+interface UserChatMessage { /* … */ steered?: true; pendingId?: PendingMessageId }
+interface Transcript { /* … */ pendingMessages: readonly PendingMessage[] }
+```
+
 ---
 
 ## 9. ACP 样本对照（验收）
@@ -1076,4 +1222,6 @@ interface Transcript {                // TranscriptProjection.snapshot()
 | 基于只读会话的历史新建会话：历史怎样交给新引擎会话、Host API 方法与 `HOST_FEATURES` 项（接口 `SessionFromHistory` 已定） | 待排期 |
 | ~~子会话：领域模型、状态机、Host 协议与存储、`AgentEvent`、Codex 的上报~~ 已落地，见 §3.3.1、§4.5、§5 第 8 条与 host-api.md（0.6.0） | R4 ✅ |
 | 子会话要不要单独的停止按钮（§4.5 末尾）；子智能体界面 | 维护者定；R5 |
+| ~~回合进行中发消息：插话与排队、待发消息的持久化、默认方式的设置~~ 已落地，见 §3.3.2、§3.7、§4.6 与 host-api.md（0.8.0） | R11 ✅ |
+| 有待插话时按 Esc 中断回合并立刻发出（Codex 终端界面的做法）；调整待发消息的顺序 | 维护者定 |
 | 真实模型下 `agent_thought_chunk` 的频率、`usage_update` 数值（ADR-0001 未决事项 3） | 有 Key 后补跑 Spike |

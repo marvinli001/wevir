@@ -17,6 +17,8 @@ export type AdapterErrorCode =
   | 'session_lost'
   /** 会话有回合在进行，不排队、不打断。 */
   | 'session_busy'
+  /** `steer`：没有能插话的回合（没有进行中的回合、正在取消，或引擎不肯），R11。 */
+  | 'steer_rejected'
   /** 该会话没有这个 `requestId` 的未决审批：不存在、已决定或已结束。 */
   | 'approval_not_found'
   /** `optionId` 不在该审批请求的选项里；审批保持未决。 */

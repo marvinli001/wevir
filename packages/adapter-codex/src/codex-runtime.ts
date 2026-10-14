@@ -76,6 +76,10 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return this.#forSession(engineSessionId).send(engineSessionId, input);
   }
 
+  steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {
+    return this.#forSession(engineSessionId).steer(engineSessionId, steerId, input);
+  }
+
   respondToApproval(
     engineSessionId: string,
     requestId: string,

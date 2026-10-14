@@ -1,10 +1,11 @@
-import { isRpcError, type WevirClient } from '@wevir/client-sdk';
-import type { Session, SubagentSummary } from '@wevir/protocol';
+import { hostSupports, isRpcError, type WevirClient } from '@wevir/client-sdk';
+import type { PendingDelivery, Session, SubagentSummary } from '@wevir/protocol';
 import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
+import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
 import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
@@ -16,6 +17,7 @@ import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
 import { Composer, setDraft } from './composer';
 import { historyDigest } from './history-digest';
+import { PendingArea } from './pending-area';
 import { RecoveryPanel } from './recovery-panel';
 import { SessionStatus } from './session-status';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
@@ -25,7 +27,11 @@ import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
  * 状态与审批都以这条事件流为准。
  */
 export function SessionView({ session }: { session: Session }) {
-  const { client, identity } = useHostConnection();
+  const { client, identity, view } = useHostConnection();
+  const { settings } = useHostSettings();
+  // 回合进行中也能发（R11）：Host 有待发消息时，回车按“回合进行中按回车”的设置。
+  const pendingEnabled =
+    view.status === 'connected' && hostSupports(view.hello.features, 'pending_messages');
   const state = useTranscript(session.id);
   const transcriptRef = useRef<TranscriptViewHandle>(undefined);
   const [notice, setNotice] = useState<string>();
@@ -39,7 +45,7 @@ export function SessionView({ session }: { session: Session }) {
   const readOnly = transcript?.readOnly ?? session.readOnly;
 
   const send = useCallback(
-    async (text: string): Promise<boolean> => {
+    async (text: string, delivery?: PendingDelivery): Promise<boolean> => {
       if (!client) return false;
       setNotice(undefined);
       try {
@@ -47,7 +53,7 @@ export function SessionView({ session }: { session: Session }) {
         if (sessionState === 'error' || sessionState === 'closed') {
           await client.request('session.resume', { sessionId: session.id });
         }
-        await sendText(client, session.id, text);
+        await sendText(client, session.id, text, delivery);
         transcriptRef.current?.jumpToLatest('auto');
         return true;
       } catch (error) {
@@ -139,6 +145,15 @@ export function SessionView({ session }: { session: Session }) {
             {notice}
           </p>
         )}
+        {transcript && (
+          <PendingArea
+            sessionId={session.id}
+            pending={transcript.pendingMessages}
+            state={sessionState}
+            client={client}
+            onError={setNotice}
+          />
+        )}
         <Composer
           key={session.id}
           draftKey={session.id}
@@ -146,6 +161,7 @@ export function SessionView({ session }: { session: Session }) {
           disabled={!client || readOnly !== undefined}
           disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
           status={transcript && <SessionStatus transcript={transcript} />}
+          {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
           onSend={send}
           onStop={stop}
           autoFocus
@@ -317,11 +333,17 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   );
 }
 
-async function sendText(client: WevirClient, sessionId: Session['id'], text: string) {
+async function sendText(
+  client: WevirClient,
+  sessionId: Session['id'],
+  text: string,
+  delivery?: PendingDelivery,
+) {
   await client.request('session.send', {
     sessionId,
     content: [{ type: 'text', text }],
     clientMessageId: crypto.randomUUID(),
+    ...(delivery !== undefined && { delivery }),
   });
 }
 

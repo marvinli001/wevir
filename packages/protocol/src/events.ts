@@ -3,6 +3,7 @@ import {
   ApprovalIdSchema,
   ClientIdentitySchema,
   IsoTimeSchema,
+  PendingMessageIdSchema,
   ProviderIdSchema,
   SeqSchema,
   SessionIdSchema,
@@ -14,6 +15,7 @@ import {
   ApprovalRequestSchema,
   ApprovalResolutionSchema,
   EngineErrorCategorySchema,
+  PendingMessageSchema,
   ResolvedApprovalStatusSchema,
   SessionReadOnlyReasonSchema,
   SessionStateSchema,
@@ -103,6 +105,8 @@ export const EventPayloadSchemas = {
     clientMessageId: z.string().optional(),
     content: z.array(UserContentPartSchema).min(1),
     sentBy: ClientIdentitySchema,
+    /** 这个回合由一条排队的待发消息开始（0.8.0，domain-model §4.6）。 */
+    pendingId: PendingMessageIdSchema.optional(),
   }),
   'turn.started': z.object({
     turnId: TurnIdSchema,
@@ -221,6 +225,22 @@ export const EventPayloadSchemas = {
   'subagent.updated': z.object({
     subagent: SubagentSummarySchema,
   }),
+  /** 一条待发消息加入（0.8.0，domain-model §3.3.2）；`status` 恒为 `waiting`。 */
+  'pending.added': z.object({
+    pending: PendingMessageSchema,
+  }),
+  /** 待发消息变了（内容、方式、状态，含到终态），完整的消息，替换同一 `id` 的上一份。 */
+  'pending.updated': z.object({
+    pending: PendingMessageSchema,
+  }),
+  /** 一条插话进了回合 `turnId`（0.8.0）；事件的位置就是模型看到它的位置。 */
+  'user.steered': z.object({
+    turnId: TurnIdSchema,
+    pendingId: PendingMessageIdSchema,
+    clientMessageId: z.string().optional(),
+    content: z.array(UserContentPartSchema).min(1),
+    sentBy: ClientIdentitySchema,
+  }),
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -275,6 +295,9 @@ export const EngineErrorEventSchema = eventSchema('engine.error');
 export const EngineRawEventSchema = eventSchema('engine.raw');
 export const SubagentStartedEventSchema = eventSchema('subagent.started');
 export const SubagentUpdatedEventSchema = eventSchema('subagent.updated');
+export const PendingAddedEventSchema = eventSchema('pending.added');
+export const PendingUpdatedEventSchema = eventSchema('pending.updated');
+export const UserSteeredEventSchema = eventSchema('user.steered');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -301,6 +324,9 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   EngineRawEventSchema,
   SubagentStartedEventSchema,
   SubagentUpdatedEventSchema,
+  PendingAddedEventSchema,
+  PendingUpdatedEventSchema,
+  UserSteeredEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

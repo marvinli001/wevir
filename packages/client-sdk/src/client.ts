@@ -7,6 +7,7 @@ import {
   EventsSubscribeResultSchema,
   type HostFeature,
   HostHelloResultSchema,
+  type HostSettings,
   type MethodName,
   type MethodParams,
   type MethodResult,
@@ -14,6 +15,7 @@ import {
   PING_INTERVAL_MS,
   PROTOCOL_VERSION,
   type SessionId,
+  SettingsUpdatedParamsSchema,
   WevirEventEnvelopeSchema,
 } from '@wevir/protocol';
 import { DEFAULT_CLIENT_CAPABILITIES, hostSupports } from './capabilities.js';
@@ -47,6 +49,14 @@ interface AccountWatcher {
   readonly listener: (account: AccountState) => void;
   readonly onError?: (error: unknown) => void;
   /** 收到的 `account.updated` 数：`account.get` 的结果晚于其间到达的通知时，它是旧的，丢掉。 */
+  updates: number;
+}
+
+/** `watchSettings` 的一个监听器。 */
+interface SettingsWatcher {
+  readonly listener: (settings: HostSettings) => void;
+  readonly onError?: (error: unknown) => void;
+  /** 收到的 `settings.updated` 数：`settings.get` 的结果晚于其间到达的通知时，它是旧的，丢掉。 */
   updates: number;
 }
 
@@ -188,6 +198,7 @@ export class WevirClient {
   readonly #listeners = new Set<(state: ConnectionState) => void>();
   /** `watchAccount` 的监听器（R6）。 */
   readonly #accountWatchers = new Set<AccountWatcher>();
+  readonly #settingsWatchers = new Set<SettingsWatcher>();
   #state: ConnectionState = { status: 'connecting' };
   #connection: Connection | undefined;
   #hello: HostHello | undefined;
@@ -273,6 +284,48 @@ export class WevirClient {
       watcher.listener(account);
     } catch (error) {
       this.#warn('an account listener threw', { error });
+    }
+  }
+
+  /**
+   * 跟着 Host 设置（R11，host-api.md §3.1）：现在与每次（重）连上之后各调一次 `settings.get`，结果与之后的每条
+   * `settings.updated` 都交给 `listener`（Host 只给调过 `settings.*` 的连接发通知）。Host 没有 `host_settings` 功能时
+   * 什么都不做（调用方用默认值）。`settings.get` 失败交给 `onError`。返回取消函数。
+   */
+  watchSettings(
+    listener: (settings: HostSettings) => void,
+    onError?: (error: unknown) => void,
+  ): () => void {
+    const watcher: SettingsWatcher = {
+      listener,
+      updates: 0,
+      ...(onError !== undefined && { onError }),
+    };
+    this.#settingsWatchers.add(watcher);
+    if (this.#connection !== undefined) this.#readSettings(watcher);
+    return () => this.#settingsWatchers.delete(watcher);
+  }
+
+  #readSettings(watcher: SettingsWatcher): void {
+    if (!this.supports('host_settings')) return;
+    const before = watcher.updates;
+    this.request('settings.get').then(
+      ({ settings }) => {
+        if (this.#settingsWatchers.has(watcher) && watcher.updates === before) {
+          this.#deliverSettings(watcher, settings);
+        }
+      },
+      (error: unknown) => {
+        if (this.#settingsWatchers.has(watcher)) watcher.onError?.(error);
+      },
+    );
+  }
+
+  #deliverSettings(watcher: SettingsWatcher, settings: HostSettings): void {
+    try {
+      watcher.listener(settings);
+    } catch (error) {
+      this.#warn('a settings listener threw', { error });
     }
   }
 
@@ -466,6 +519,7 @@ export class WevirClient {
         }
         this.#emit({ status: 'connected', hello: connection.hello });
         for (const watcher of this.#accountWatchers) this.#readAccount(watcher);
+        for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
         return;
       }
       case 'reconnecting':
@@ -670,6 +724,18 @@ export class WevirClient {
         if (watcher.kind !== account.kind) continue;
         watcher.updates += 1;
         this.#deliverAccount(watcher, account);
+      }
+      return;
+    }
+    if (method === 'settings.updated') {
+      const parsed = SettingsUpdatedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed settings.updated notification');
+        return;
+      }
+      for (const watcher of [...this.#settingsWatchers]) {
+        watcher.updates += 1;
+        this.#deliverSettings(watcher, parsed.data.settings);
       }
       return;
     }

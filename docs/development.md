@@ -181,6 +181,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `wevir.db` | SQLite：工作区、Provider（不含 Key）、会话、事件、审批、发送回执。会话历史以这里的事件为准 |
 | `secrets.json` | 模型 API Key，明文 JSON，0600（见[安全说明](./security.md) §3） |
 | `host-id` | `hostId`，客户端据此认出同一个 Host |
+| `settings.json` | Host 设置（R11，domain-model §3.7）：目前只有“回合进行中按回车”插话还是排队（`sendWhileBusy`），桌面端与 CLI 共用；没有这个文件时用默认值 |
 | `device-id`、`desktop-client-id`、`cli-client-id` | 客户端身份，写进 `user.message.sentBy` 与审批的 `decidedBy`（CLI 的由 T4.2 写入） |
 | `run/host.json` | 运行中 Host 的 `pid`、`startedAt`、`url`、令牌、版本。0600，Host 退出时删除 |
 | `logs/host.log` | Host 的结构化日志，一行一个 JSON，只追加、不轮转 |

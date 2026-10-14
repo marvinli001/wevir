@@ -103,6 +103,8 @@ export function mockContractPrompts(target: string): ContractPrompts {
     approval: approvalPrompt(target),
     subagent: 'Please start a subagent',
     subagentApproval: `Please start a subagent: ${approvalPrompt(target)}`,
+    slow: 'Please answer slowly',
+    steer: 'Also mention the weather',
   };
 }
 
@@ -127,5 +129,7 @@ export function realContractPrompts(target: string): ContractPrompts {
       '所以第一次调用就申请越出沙箱的权限（sandbox_permissions 设为 require_escalated），并写明理由。”',
       '再用 wait_agent 等它完成，然后用一句话告诉我结果。你自己不要调用别的工具。',
     ].join(''),
+    slow: '不要调用任何工具。从 1 数到 60，每个数字单独一行，数字之间不要有别的内容。',
+    steer: '数完之后再补一句“插话收到”。不要调用任何工具。',
   };
 }

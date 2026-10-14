@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useHostConnection } from '@/host/host-connection';
 import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
+import { ChatSettings } from '@/settings/chat-settings';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
 import { setThemeMode, useTheme } from '@/theme/theme';
@@ -18,6 +19,7 @@ import { isSettingsTab, paths, SETTINGS_TABS, type SettingsTab } from './paths';
 const TAB_LABELS: Record<SettingsTab, PlainMessageKey> = {
   providers: 'settings.tab.providers',
   workspaces: 'settings.tab.workspaces',
+  chat: 'settings.tab.chat',
   appearance: 'settings.tab.appearance',
   about: 'settings.tab.about',
 };
@@ -95,6 +97,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <ProviderSettings />;
     case 'workspaces':
       return <WorkspaceSettings />;
+    case 'chat':
+      return <ChatSettings />;
   }
 }
 

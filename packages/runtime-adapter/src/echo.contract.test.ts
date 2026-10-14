@@ -8,6 +8,7 @@ const ALL_CAPABILITIES: AdapterCapabilities = {
   resume: true,
   concurrentSessions: true,
   subagents: true,
+  steer: true,
 };
 
 const hooks = {

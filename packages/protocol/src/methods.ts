@@ -10,6 +10,7 @@ import {
   ClientKindSchema,
   ClientTokenSchema,
   HostIdSchema,
+  PendingMessageIdSchema,
   ProviderIdSchema,
   SeqCursorSchema,
   SeqSchema,
@@ -24,7 +25,10 @@ import {
   AccountStateSchema,
   ApprovalResolutionSchema,
   EngineErrorInfoSchema,
+  HostSettingsSchema,
   HttpUrlSchema,
+  PendingDeliverySchema,
+  PendingMessageSchema,
   ProviderApiSchema,
   ProviderCompatSchema,
   ProviderModelSchema,
@@ -66,6 +70,20 @@ export const HostHelloResultSchema = z.object({
   /** 本连接拿到的权限；骨架阶段恒为 `PERMISSIONS` 全部。 */
   permissions: PermissionsSchema,
 });
+
+// ── settings.*（0.8.0） ────────────────────────────────────────────
+
+export const SettingsResultSchema = z.object({
+  settings: HostSettingsSchema,
+});
+
+export const SettingsUpdateParamsSchema = z.object({
+  /** 只改给出的字段。 */
+  settings: HostSettingsSchema.partial(),
+});
+
+/** `settings.updated` 通知：设置变了，带全部设置。发给调用过 `settings.*` 的连接。 */
+export const SettingsUpdatedParamsSchema = SettingsResultSchema;
 
 // ── workspace.* ───────────────────────────────────────────────────────
 
@@ -246,12 +264,45 @@ export const SessionSendParamsSchema = z.object({
   content: z.array(UserContentPartSchema).min(1),
   /** 幂等键：同一会话里同一 ID 重发返回原结果，不再发给引擎；请求体不同则 `CLIENT_MESSAGE_CONFLICT`。 */
   clientMessageId: ClientTokenSchema.optional(),
+  /**
+   * 回合进行中怎样送达（0.8.0，domain-model §4.6）：`steer` 插话、`queue` 排队，成为待发消息。省略时
+   * 回合进行中回 `SESSION_BUSY`（旧客户端的行为）。会话空闲时不起作用。
+   */
+  delivery: PendingDeliverySchema.optional(),
 });
 
 export const SessionSendResultSchema = z.object({
-  turnId: TurnIdSchema,
-  /** 本次 `user.message` 事件的 `seq`。 */
+  /** 开始的回合；成为待发消息时没有（0.8.0）。 */
+  turnId: TurnIdSchema.optional(),
+  /** 成为待发消息时有（0.8.0）。 */
+  pendingId: PendingMessageIdSchema.optional(),
+  /** 本次 `user.message`（成为待发消息时是 `pending.added`）事件的 `seq`。 */
   seq: SeqSchema,
+});
+
+// ── pending.*（0.8.0） ─────────────────────────────────────────────
+
+export const PendingUpdateParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  pendingId: PendingMessageIdSchema,
+  /** 新的内容；只有排队的与暂停的能改。 */
+  content: z.array(UserContentPartSchema).min(1).optional(),
+  /** 新的方式（domain-model §4.6）。 */
+  delivery: PendingDeliverySchema.optional(),
+});
+
+export const PendingIdParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  pendingId: PendingMessageIdSchema,
+});
+
+export const PendingResultSchema = z.object({
+  pending: PendingMessageSchema,
+});
+
+export const PendingListResultSchema = z.object({
+  /** 未到终态的待发消息，按加入的先后。 */
+  pendingMessages: z.array(PendingMessageSchema),
 });
 
 // ── approval.* ────────────────────────────────────────────────────────
@@ -313,6 +364,16 @@ export const MethodSchemas = {
   },
   'host.ping': { params: EmptySchema, result: EmptySchema, permission: null },
   'host.shutdown': { params: EmptySchema, result: EmptySchema, permission: 'host.manage' },
+  'settings.get': {
+    params: EmptySchema,
+    result: SettingsResultSchema,
+    permission: 'session.read',
+  },
+  'settings.update': {
+    params: SettingsUpdateParamsSchema,
+    result: SettingsResultSchema,
+    permission: 'host.manage',
+  },
 
   'workspace.list': {
     params: EmptySchema,
@@ -407,6 +468,21 @@ export const MethodSchemas = {
     result: SessionResultSchema,
     permission: 'session.write',
   },
+  'pending.update': {
+    params: PendingUpdateParamsSchema,
+    result: PendingResultSchema,
+    permission: 'session.write',
+  },
+  'pending.cancel': {
+    params: PendingIdParamsSchema,
+    result: PendingResultSchema,
+    permission: 'session.write',
+  },
+  'pending.resume': {
+    params: SessionIdParamsSchema,
+    result: PendingListResultSchema,
+    permission: 'session.write',
+  },
 
   'approval.respond': {
     params: ApprovalRespondParamsSchema,
@@ -441,6 +517,8 @@ export const NotificationSchemas = {
   'events.event': { params: EventsEventParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },
+  /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
+  'settings.updated': { params: SettingsUpdatedParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;
 
 export type NotificationName = keyof typeof NotificationSchemas;

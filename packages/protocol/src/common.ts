@@ -11,6 +11,8 @@ export const TurnIdSchema = z.templateLiteral(['trn_', IdBodySchema]);
 export const ApprovalIdSchema = z.templateLiteral(['apr_', IdBodySchema]);
 export const StreamIdSchema = z.templateLiteral(['stm_', IdBodySchema]);
 export const SubscriptionIdSchema = z.templateLiteral(['sub_', IdBodySchema]);
+/** 待发消息（0.8.0，R11）。 */
+export const PendingMessageIdSchema = z.templateLiteral(['pnd_', IdBodySchema]);
 /** Host 实例 ID：每个数据目录一个，跨重启不变。 */
 export const HostIdSchema = z.templateLiteral(['hst_', IdBodySchema]);
 
@@ -20,6 +22,7 @@ export type TurnId = z.infer<typeof TurnIdSchema>;
 export type ApprovalId = z.infer<typeof ApprovalIdSchema>;
 export type StreamId = z.infer<typeof StreamIdSchema>;
 export type SubscriptionId = z.infer<typeof SubscriptionIdSchema>;
+export type PendingMessageId = z.infer<typeof PendingMessageIdSchema>;
 export type HostId = z.infer<typeof HostIdSchema>;
 
 /** Provider ID 同时是 dsh 的 provider 路由名，会写进 dsh 会话日志，创建后不可改。 */

@@ -3,6 +3,8 @@ import {
   type EventSource,
   EventSourceSchema,
   isKnownEventType,
+  type PendingMessage,
+  type PendingMessageId,
   SeqCursorSchema,
   type SessionId,
   SessionIdSchema,
@@ -224,6 +226,12 @@ export class EventStore {
     const record = this.#storage.sessions.get(sessionId);
     if (!record) return undefined;
     return toSnapshot(record, this.#projection(sessionId));
+  }
+
+  /** 一条待发消息（R11），含已到终态的；会话或消息不存在时为 `undefined`。 */
+  pending(sessionId: SessionId, pendingId: PendingMessageId): PendingMessage | undefined {
+    if (!this.#storage.sessions.get(sessionId)) return undefined;
+    return this.#projection(sessionId).pendings.get(pendingId);
   }
 
   /** 写入缓冲的增量与 `inputs`，返回 `inputs` 对应的事件。 */

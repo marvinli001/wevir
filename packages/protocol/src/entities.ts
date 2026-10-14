@@ -3,6 +3,7 @@ import {
   ApprovalIdSchema,
   ClientIdentitySchema,
   IsoTimeSchema,
+  PendingMessageIdSchema,
   ProviderIdSchema,
   SeqCursorSchema,
   SessionIdSchema,
@@ -453,6 +454,64 @@ export const SubagentSummarySchema = z.object({
 });
 export type SubagentSummary = z.infer<typeof SubagentSummarySchema>;
 
+// ── 待发消息（0.8.0，R11） ──────────────────────────────────────────────
+
+/**
+ * 回合进行中发的消息怎样送达（domain-model §3.3.2）：`steer` 插话，不打断回合，等当前这一步（模型这一段输出或这次
+ * 工具调用）结束插进同一个回合；`queue` 排队，回合结束后作为下一个回合发出。
+ */
+export const PendingDeliverySchema = z.enum(['steer', 'queue']);
+export type PendingDelivery = z.infer<typeof PendingDeliverySchema>;
+
+/**
+ * 待发消息的状态：`waiting` 等待（插话等这一步结束，排队等回合结束）；`held` 暂停（回合以失败或取消结束、会话出错或
+ * 关闭、Host 重启，等用户继续发送、编辑或删除）；终态 `inserted` 已插入、`sent` 已发送、`cancelled` 已取消。
+ */
+export const PendingStatusSchema = z.enum(['waiting', 'held', 'inserted', 'sent', 'cancelled']);
+export type PendingStatus = z.infer<typeof PendingStatusSchema>;
+
+/**
+ * 要插话却转为排队的原因：`unsupported` 引擎不支持插话；`rejected` 引擎拒绝（回合不能插话，或恰好结束）；
+ * `turn_ended` 回合结束（取消、失败、Host 重启）时还没插进去，或回合正在取消。
+ */
+export const PendingFallbackReasonSchema = z.enum(['unsupported', 'rejected', 'turn_ended']);
+export type PendingFallbackReason = z.infer<typeof PendingFallbackReasonSchema>;
+
+export const PendingMessageSchema = z.object({
+  id: PendingMessageIdSchema,
+  content: z.array(UserContentPartSchema).min(1),
+  /** 当前的方式。 */
+  delivery: PendingDeliverySchema,
+  status: PendingStatusSchema,
+  /** “已转为排队”：要插话、没插成，`delivery` 已是 `queue`。 */
+  fallback: z
+    .object({
+      reason: PendingFallbackReasonSchema,
+      /** 引擎原文。 */
+      message: z.string().optional(),
+    })
+    .optional(),
+  /** `session.send` 的幂等键，原样带到 `user.message` / `user.steered`。 */
+  clientMessageId: z.string().optional(),
+  sentBy: ClientIdentitySchema,
+  createdAt: IsoTimeSchema,
+  updatedAt: IsoTimeSchema,
+  /** `inserted`：插进的回合；`sent`：它开始的回合。 */
+  turnId: TurnIdSchema.optional(),
+});
+export type PendingMessage = z.infer<typeof PendingMessageSchema>;
+
+// ── Host 设置（0.8.0，R11） ──────────────────────────────────────────────
+
+/** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
+export const HostSettingsSchema = z.object({
+  /** 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab 或输入框旁的按钮。 */
+  sendWhileBusy: PendingDeliverySchema,
+});
+export type HostSettings = z.infer<typeof HostSettingsSchema>;
+
+export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({ sendWhileBusy: 'steer' });
+
 export const SessionSchema = z.object({
   id: SessionIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -496,5 +555,7 @@ export const SessionSnapshotSchema = z.object({
   usage: UsageSchema.optional(),
   /** 这个会话派出的子会话（0.6.0），按 `startedAt`；没有时省略。 */
   subagents: z.array(SubagentSummarySchema).optional(),
+  /** 等待中与暂停的待发消息（0.8.0），按加入的先后；没有时省略。 */
+  pendingMessages: z.array(PendingMessageSchema).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

@@ -129,11 +129,15 @@ async function start(adapter: EchoAdapter = new AccountAdapter()) {
 describe('ChatGPT 账号（account.*）', () => {
   it('引擎有账号时 hello 声明 chatgpt_account；echo 引擎不声明，account.* 回 ENGINE_ERROR', async () => {
     const withAccounts = await start();
-    expect((await withAccounts.connect()).hello.features).toEqual({ chatgpt_account: true });
+    expect((await withAccounts.connect()).hello.features).toEqual({
+      pending_messages: true,
+      host_settings: true,
+      chatgpt_account: true,
+    });
 
     const plain = await start(new EchoAdapter());
     const { client, hello } = await plain.connect();
-    expect(hello.features).toEqual({});
+    expect(hello.features).toEqual({ pending_messages: true, host_settings: true });
     const frame = await client.call('account.get', { kind: 'chatgpt' });
     expect(frame.error).toMatchObject({ code: -32041, data: { category: 'unknown' } });
     const upsert = await client.call('provider.upsert', {

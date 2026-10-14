@@ -211,21 +211,44 @@ describe('会话', () => {
     await a.waitFor('Echo: second question');
   });
 
-  it('运行中发送得到 SESSION_BUSY 的提示；Ctrl-C 第一次取消当前运行，第二次退出 attach', async () => {
+  it('运行中回车插话（默认）：这一步结束后插进本回合，模型接着回答（R11）', async () => {
+    const { home, workspace } = await setup({ stepDelayMs: 20 });
+    const a = fake(['session', 'new', '-w', workspace, 'please answer slowly'], {
+      home,
+      tty: true,
+    });
+    let at = await a.waitFor('回合进行中：Enter 按设置插话或排队、Tab 用另一种');
+    at = await a.waitFor('Echo: pl', at);
+    a.stdin.write('are you there?\r');
+    at = await a.waitFor('› are you there?（插话）', at);
+    at = await a.waitFor('⋯ 插话：等这一步结束后插进本回合 · are you there?', at);
+    at = await a.waitFor('（插话已插进本回合）', at);
+    at = await a.waitFor('Echo: are you there?', at);
+    at = await a.waitFor('── 本轮完成', at);
+    a.stdin.write('\x04');
+    expect(await a.exit).toBe(0);
+  });
+
+  it('运行中 Tab 排队；Ctrl-C 取消后排队的暂停，/resume 继续发送；再按 Ctrl-C 退出 attach', async () => {
     const { home, workspace } = await setup({ stepDelayMs: 40 });
     const a = fake(
       ['session', 'new', '-w', workspace, 'a long answer that keeps streaming for a while'],
       { home, tty: true },
     );
     let at = await a.waitFor('Echo: a lo');
-    a.stdin.write('are you there?\r');
-    at = await a.waitFor('会话正忙（运行中），这条消息没有发出。', at);
-    await a.waitFor('下一步：等本轮结束再发送，或在 attach 中按 Ctrl-C 取消当前运行', at);
+    a.stdin.write('later please\t');
+    at = await a.waitFor('› later please（排队）', at);
+    at = await a.waitFor('⋯ 已排队：本回合结束后发出 · later please', at);
     a.stdin.write('\x03');
     at = await a.waitFor('正在取消当前运行…（再按一次 Ctrl-C 退出 attach）', at);
     at = await a.waitFor('── 本轮已取消', at);
-    // 没发出去的消息放回了输入框。
-    await a.waitFor('› are you there?', at);
+    at = await a.waitFor('⋯ 已暂停 · later please（输入 /resume 继续发送）', at);
+    a.stdin.write('/resume\r');
+    at = await a.waitFor('继续发送暂停的消息。', at);
+    at = await a.waitFor('Echo: later please', at);
+    at = await a.waitFor('── 本轮完成', at);
+    a.stdin.write('\x03');
+    at = await a.waitFor('再按一次 Ctrl-C 退出 attach', at);
     a.stdin.write('\x03');
     expect(await a.exit).toBe(0);
     expect(a.out()).toContain('已退出 attach。会话保留在 Host 中');

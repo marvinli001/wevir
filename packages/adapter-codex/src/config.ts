@@ -14,6 +14,8 @@ import type { BasePromptVars } from './prompts.js';
  *   把连接器的工具给模型；Wevir 不支持（R6 实测，codex-event-mapping.md §8.2）。没有 ChatGPT 登录时它本来就不起；
  * - `web_search = "disabled"`：否则把托管搜索工具发给模型服务；`analytics.enabled = false`；
  *   `check_for_update_on_startup = false`（只影响 TUI，设上无害）；
+ * - `features.instant_interrupt = false`：插话（`turn/steer`，R11）等模型这一段输出结束再进回合，而不是立刻掐断正在
+ *   流式输出的这一步（这个开关默认开，codex-event-mapping.md §4.5；维护者定的插话是“这一步结束后插进本回合”）；
  * - `features.goals = false`：Wevir 暂不支持目标（补记 1）；`features.memories = false`、`approvals_reviewer = "user"`：
  *   两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI 模型名）；
  * - `tools.update_plan.enabled = true`：计划默认关；
@@ -40,6 +42,7 @@ export const HARDENING_TABLES: readonly string[] = [
   'apps = false',
   'goals = false',
   'memories = false',
+  'instant_interrupt = false',
   '',
   '[tools.update_plan]',
   'enabled = true',

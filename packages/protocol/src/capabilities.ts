@@ -31,7 +31,8 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
 /**
  * Host 功能：Host 在 `host.hello` 结果里声明，客户端在一处判断是启用功能还是提示升级 Host。
- * 新增方式同 `CLIENT_CAPABILITIES`。功能可能取决于 Host 用的引擎，所以只列名字，值由 Host 每次握手时给出。
+ * 新增方式同 `CLIENT_CAPABILITIES`，并在 host-api.md 的功能表里登记。功能可能取决于 Host 用的引擎，所以只列名字，值由 Host
+ * 每次握手时给出。
  */
 export const HOST_FEATURES = {
   /**
@@ -39,11 +40,17 @@ export const HOST_FEATURES = {
    * dsh 与 echo 引擎的 Host 不声明它。
    */
   chatgptAccount: 'chatgpt_account',
+  /** 回合进行中发消息（0.8.0）：`session.send` 的 `delivery`、`pending.*` 方法与事件、`user.steered`。 */
+  pendingMessages: 'pending_messages',
+  /** Host 设置（0.8.0）：`settings.get` / `settings.update` 与 `settings.updated` 通知。 */
+  hostSettings: 'host_settings',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
   chatgpt_account: z.boolean().optional(),
+  pending_messages: z.boolean().optional(),
+  host_settings: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

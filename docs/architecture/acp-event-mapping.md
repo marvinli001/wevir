@@ -132,6 +132,8 @@ Grok Build、Gemini CLI（R8，codex-notes §9）各给一份描述。它们与 
 - 路由选不上（Provider 配置里没有这个模型了）报 `invalid_input`，刚恢复的会话在引擎侧关掉。
 - Host 在调适配器之前先检查工作区目录还在，不在就回 `WORKSPACE_PATH_INVALID`。
 
+**不能插话（R11）。** ACP 没有往进行中的 `session/prompt` 追加输入的办法，`AcpAdapter` 不实现 `steer`（契约能力 `steer: false`），回合进行中带 `delivery` 的发送由 Host 一律排队，回合结束后作为下一个 `session/prompt` 发出（domain-model §4.6）。
+
 **取消得不到确认时重启引擎。** `cancel` 发出 `session/cancel` 后 4 s 内（`CANCEL_TIMEOUT_MS`，先于 Host 的 5 s）回合没有结算，适配器报 `cancel_unconfirmed`，同时重启引擎进程：卡住的回合随旧进程结束，挂在这个进程上的会话都以 `engine.exited`（`reason: cancel_unconfirmed`，`exitCode` 与 `signal` 为 null）脱开，Host 按引擎退出处理（domain-model.md §4.1 #10，取消的那个会话已按 #9 转 `error`）。之后 resume 到新进程上；不重启的话，引擎里那个会话仍是活跃的，resume 会被拒（dsh 报 `already active`），回合也一直占着它。dsh 实测取消在 3–64 ms 内结算（T0.3），这条路径只为引擎卡住时兜底。
 
 # 第二部分：dsh 专属补充（`@wevir/adapter-dsh`）

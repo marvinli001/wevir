@@ -186,6 +186,24 @@ export interface TurnStartResponse {
   turn: Turn;
 }
 
+/**
+ * v2/TurnSteerParams.ts 的稳定字段（R11，codex-event-mapping.md §4.5）。`responsesapiClientMetadata`、`additionalContext`
+ * 是实验字段，不用。
+ */
+export interface TurnSteerParams {
+  threadId: string;
+  input: TextUserInput[];
+  /** 必须是进行中的回合，否则 app-server 拒绝。 */
+  expectedTurnId: string;
+  /** 回填到这次输入的 userMessage item 的 `clientId`，据此认出插话进了回合。 */
+  clientUserMessageId?: string | null;
+}
+
+/** v2/TurnSteerResponse.ts */
+export interface TurnSteerResponse {
+  turnId: string;
+}
+
 /** v2/TurnInterruptParams.ts（响应 v2/TurnInterruptResponse.ts 是空对象）。 */
 export interface TurnInterruptParams {
   threadId: string;
@@ -323,6 +341,8 @@ export interface CollabAgentToolCallItem {
 export interface UserMessageItem {
   type: 'userMessage';
   id: string;
+  /** `turn/start` / `turn/steer` 的 `clientUserMessageId`（R11 用插话的）；没给时为 null。 */
+  clientId?: string | null;
   content: Array<{ type: string; text?: string; [key: string]: unknown }>;
 }
 

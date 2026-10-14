@@ -8,6 +8,7 @@ import {
   HELLO_TIMEOUT_MS,
   type HostFeatures,
   type HostId,
+  type HostSettings,
   SEND_BUFFER_LIMIT_BYTES,
 } from '@wevir/protocol';
 import type { Storage } from '@wevir/storage';
@@ -47,6 +48,8 @@ export interface HostRpcServerOptions {
   features?: HostFeatures;
   /** 引擎的账号（R6）：调过 `account.*` 的连接经它收 `account.updated`。 */
   accounts?: { watch(listener: (state: AccountState) => void): () => void };
+  /** Host 设置（R11）：调过 `settings.*` 的连接经它收 `settings.updated`。 */
+  settings?: { watch(listener: (settings: HostSettings) => void): () => void };
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
   port?: number;
   /**
@@ -126,6 +129,7 @@ export class HostRpcServer {
       methods: options.methods,
       features: options.features ?? {},
       ...(options.accounts !== undefined && { accounts: options.accounts }),
+      ...(options.settings !== undefined && { settings: options.settings }),
       limits,
       resultValidation:
         options.resultValidation ?? (process.env.NODE_ENV === 'production' ? 'warn' : 'strict'),

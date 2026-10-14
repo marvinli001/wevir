@@ -16,6 +16,9 @@ import type { CliIO } from './context.js';
  * 输出总是直接写 stdout，写之前先擦掉输入框，写完一整行再重画（`rl.prompt(true)` 保留已输入的内容）。
  *
  * 非 TTY（管道、测试）时没有输入框与回显，按行读 stdin，Ctrl-C 来自 SIGINT。
+ *
+ * Tab（R11）：借 readline 的补全钩子拿到按下 Tab 时输入框里的内容，交给 `onTab`；它接下这一行时清空输入框（当作发出），
+ * 不接时 Tab 什么都不做。
  */
 export class LineConsole {
   readonly interactive: boolean;
@@ -25,6 +28,7 @@ export class LineConsole {
   readonly #lineHandlers: Array<(line: string) => void> = [];
   readonly #interruptHandlers: Array<() => void> = [];
   readonly #closeHandlers: Array<() => void> = [];
+  #tabHandler: ((line: string) => boolean) | undefined;
   readonly #offSignal: () => void;
   /** 想显示的输入框；null 表示隐藏。 */
   #prompt: string | null = null;
@@ -40,7 +44,16 @@ export class LineConsole {
       mute.pipe(io.stdout, { end: false });
       mute.mute();
       this.#mute = mute;
-      this.#rl = createInterface({ input: io.stdin, output: mute, terminal: true });
+      this.#rl = createInterface({
+        input: io.stdin,
+        output: mute,
+        terminal: true,
+        completer: (line: string, callback: (error: null, result: [string[], string]) => void) => {
+          callback(null, [[], line]);
+          // 等 readline 处理完这次 Tab 再清空，免得在它的补全流程里改输入框。
+          if (this.#tabHandler?.(line)) queueMicrotask(() => this.clearInput());
+        },
+      });
       // raw 模式下 Ctrl-C 不产生信号，由 readline 报告。
       this.#rl.on('SIGINT', () => this.#emitInterrupt());
     } else {
@@ -64,6 +77,11 @@ export class LineConsole {
 
   onLine(handler: (line: string) => void): void {
     this.#lineHandlers.push(handler);
+  }
+
+  /** Tab：`handler` 返回 true 表示接下了这一行（输入框随之清空）。只有一个，后设的替换先设的。 */
+  onTab(handler: (line: string) => boolean): void {
+    this.#tabHandler = handler;
   }
 
   /** Ctrl-C。 */

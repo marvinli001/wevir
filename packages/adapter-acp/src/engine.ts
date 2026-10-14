@@ -35,7 +35,10 @@ export interface AcpEngine {
   readonly incremental?: AcpIncrementalChannel;
 }
 
-export type AcpEngineCapabilities = Omit<AdapterCapabilities, 'incrementalStream' | 'subagents'>;
+export type AcpEngineCapabilities = Omit<
+  AdapterCapabilities,
+  'incrementalStream' | 'subagents' | 'steer'
+>;
 
 /**
  * 工具展示（domain-model.md §7）。ACP 的 `kind`、`locations` 各引擎给得不一样（dsh 的 `kind` 恒为 `other`），

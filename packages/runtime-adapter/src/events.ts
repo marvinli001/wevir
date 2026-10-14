@@ -240,6 +240,17 @@ export interface SubagentUpdatedEvent {
   closed?: true;
 }
 
+/**
+ * 插话进了回合（R11）：`steer` 交出去的输入被引擎放进了进行中的回合（Codex：带同一 `clientId` 的 userMessage 完成）。
+ * 在模型看到它的位置报出：之前的输出与工具结果属于前一步，之后的是模型接着做的。
+ */
+export interface TurnSteeredEvent {
+  type: 'turn.steered';
+  engineSessionId: string;
+  /** `steer` 的 `steerId`。 */
+  steerId: string;
+}
+
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */
 export interface EngineRawEvent {
   type: 'engine.raw';
@@ -270,6 +281,7 @@ export type AgentEvent =
   | EngineExitedEvent
   | EngineRawEvent
   | TurnStartedEvent
+  | TurnSteeredEvent
   | SubagentStartedEvent
   | SubagentUpdatedEvent;
 
