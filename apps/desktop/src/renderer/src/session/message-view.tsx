@@ -1,56 +1,20 @@
-import type {
-  AssistantChatMessage,
-  ChatMessage,
-  ChatPart,
-  ChatPartOf,
-  SystemChatMessage,
-  UserChatMessage,
-} from '@wevir/client-sdk';
+import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
 import type { ClientIdentity } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Bug, CircleAlert, Info } from 'lucide-react';
+import { CircleAlert, Info } from 'lucide-react';
 import { memo } from 'react';
 import { t } from '@/i18n';
 import { clientLabel } from './approval-model';
-import { Disclosure } from './disclosure';
-import { formatDuration, formatJson } from './format';
+import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
-import { SubagentMarker } from './subagent-marker';
-import { visibleParts } from './subagent-model';
-import { Thought } from './thought';
-import { AggregateToolCard, ToolCard } from './tool-card';
-import { groupParts } from './tool-model';
+import { SubagentRow } from './subagent-marker';
+import { groupWork } from './tool-model';
+import { WorkGroup } from './work-group';
 
-/**
- * 消息流里的一条消息。按对象身份 memo：投影只为改动过的消息生成新对象（client-sdk projection.ts），其余
- * 消息在流式输出时不重新渲染。
- */
-export const MessageView = memo(function MessageView({
-  message,
-  turnActive,
-  hasSubagents,
-  self,
-}: {
-  message: ChatMessage;
-  /** 这条消息所属的回合是否仍在进行（决定未收尾的工具算运行中还是状态未知）。 */
-  turnActive: boolean;
-  /** 会话派出过子会话：collab 工具调用不再显示成卡片（subagent-model.ts 的 visibleParts）。 */
-  hasSubagents: boolean;
-  self: ClientIdentity | undefined;
-}) {
-  switch (message.role) {
-    case 'user':
-      return <UserMessage message={message} self={self} />;
-    case 'assistant':
-      return (
-        <AssistantMessage message={message} turnActive={turnActive} hasSubagents={hasSubagents} />
-      );
-    case 'system':
-      return <SystemMessage message={message} />;
-  }
-});
+// 消息流里的一条消息（T5.3；U2 起由回合 turn-view.tsx 组织：助手消息里连续的思考与工具调用合成工作组，子智能体标记
+// 并成一行，回合结束后的折叠也在那里决定）。
 
-function UserMessage({
+export function UserMessage({
   message,
   self,
 }: {
@@ -63,7 +27,7 @@ function UserMessage({
   const { sentBy } = message;
   const fromElsewhere = sentBy !== undefined && (!self || sentBy.clientId !== self.clientId);
   return (
-    <div className="mt-6 flex flex-col items-end first:mt-0" data-message-role="user">
+    <div className="flex flex-col items-end" data-message-role="user">
       <div className="max-w-[85%] rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
         {text}
       </div>
@@ -86,94 +50,81 @@ function UserMessage({
   );
 }
 
-function AssistantMessage({
+/**
+ * 一条助手消息（或系统消息）的部件：连续的思考与工具调用是一个工作组，连续的子智能体标记是一行小标签，其余照常。
+ * `live` 时最后一项若是工作组，它显示当前动作（否则回合在末尾另起“正在思考”那一行，turn-view.tsx）。
+ */
+export function PartsView({
+  parts,
+  turnActive,
+  live,
+  startedAt,
+}: {
+  parts: readonly ChatPart[];
+  /** 所属回合是否仍在进行（决定未收尾的工具算运行中还是状态未知）。 */
+  turnActive: boolean;
+  /** 这是进行中回合的最后一条消息。 */
+  live?: LiveState;
+  startedAt?: string;
+}) {
+  const items = groupWork(parts);
+  return (
+    <>
+      {items.map((item, index) => {
+        const tail = index === items.length - 1;
+        switch (item.kind) {
+          case 'work':
+            return (
+              <WorkGroup
+                key={item.key}
+                foldKey={item.key}
+                entries={item.entries}
+                turnActive={turnActive}
+                tail={tail}
+                {...(tail && live && { live })}
+                {...(startedAt !== undefined && { startedAt })}
+              />
+            );
+          case 'subagents':
+            return <SubagentRow key={item.key} parts={item.parts} />;
+          default:
+            return <PartView key={item.part.key} part={item.part} />;
+        }
+      })}
+    </>
+  );
+}
+
+/** 不属于回合的提示与错误（恢复、只读、关闭；父会话空闲时才结束的子智能体）。 */
+export const SystemMessage = memo(function SystemMessage({
   message,
-  turnActive,
-  hasSubagents,
 }: {
-  message: AssistantChatMessage;
-  turnActive: boolean;
-  hasSubagents: boolean;
+  message: SystemChatMessage;
 }) {
-  const items = groupParts(visibleParts(message.parts, hasSubagents));
-  const { finished } = message;
   return (
-    <div className="mt-4" data-message-role="assistant">
-      {items.map((item, index) =>
-        item.kind === 'aggregate' ? (
-          <AggregateToolCard
-            key={item.key}
-            tools={item.tools}
-            entries={item.entries}
-            turnActive={turnActive}
-          />
-        ) : (
-          <PartView
-            key={item.part.key}
-            part={item.part}
-            turnActive={turnActive}
-            // 后面已经有内容时，增量里的思考其实已经结束（已提交的思考稍后才替换它）。
-            settled={index < items.length - 1}
-          />
-        ),
-      )}
-      {turnActive && items.length === 0 && (
-        <p className="animate-pulse text-sm text-muted-foreground">{t('transcript.waiting')}</p>
-      )}
-      {finished && (
-        <p
-          className={cn(
-            'mt-2 text-xs',
-            finished.outcome === 'completed' ? 'text-muted-foreground' : 'text-warning',
-          )}
-        >
-          {t('transcript.turnFooter', {
-            outcome: t(`turn.outcome.${finished.outcome}`),
-            duration: formatDuration(finished.durationMs),
-          })}
-        </p>
-      )}
+    <div data-message-role="system">
+      <PartsView parts={message.parts} turnActive={false} />
     </div>
   );
-}
+});
 
-function SystemMessage({ message }: { message: SystemChatMessage }) {
-  return (
-    <div className="mt-4" data-message-role="system">
-      {message.parts.map((part) => (
-        <PartView key={part.key} part={part} turnActive={false} />
-      ))}
-    </div>
-  );
-}
-
-const PartView = memo(function PartView({
-  part,
-  turnActive,
-  settled = false,
-}: {
-  part: ChatPart;
-  turnActive: boolean;
-  /** 后面已有别的部件：思考不再显示“正在思考”。 */
-  settled?: boolean;
-}) {
+/** 工作组与子智能体行之外的部件。 */
+const PartView = memo(function PartView({ part }: { part: ChatPart }) {
   switch (part.type) {
     case 'text':
       return <MarkdownView text={part.text} streaming={part.state === 'streaming'} />;
-    case 'reasoning':
-      return <Thought part={part} settled={settled} />;
-    case 'tool':
-      return <ToolCard part={part} turnActive={turnActive} />;
     case 'todo':
       return <TodoList part={part} />;
     case 'error':
       return <ErrorPart part={part} />;
     case 'notice':
       return <NoticePart part={part} />;
+    // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
+    case 'reasoning':
+    case 'tool':
     case 'raw':
-      return <RawPart part={part} />;
     case 'subagent':
-      return <SubagentMarker part={part} />;
+      return null;
   }
 });
 
@@ -235,28 +186,5 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
       <Info aria-hidden className="size-3.5" />
       {text}
     </p>
-  );
-}
-
-/** 未识别的引擎消息：低调的调试样式，只在开发模式投影（transcript-store.ts 的 INCLUDE_RAW）。 */
-function RawPart({ part }: { part: ChatPartOf<'raw'> }) {
-  return (
-    <Disclosure
-      className="my-1 rounded-md border border-dashed border-border px-2 py-1"
-      summaryClassName="gap-1.5 font-mono text-xs text-muted-foreground"
-      summary={
-        <>
-          <Bug aria-hidden className="size-3.5 shrink-0" />
-          <span className="truncate">
-            {t('raw.label')} · {part.method}
-            {part.kind ? ` · ${part.kind}` : ''}
-          </span>
-        </>
-      }
-    >
-      <pre className="mt-1 max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
-        {formatJson(part.params).text}
-      </pre>
-    </Disclosure>
   );
 }

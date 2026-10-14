@@ -1,7 +1,7 @@
 import type { Transcript } from '@wevir/client-sdk';
-import { useEffect, useState } from 'react';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { t } from '@/i18n';
+import { useElapsed } from './elapsed';
 import { formatDuration, truncate } from './format';
 
 /** 错误摘要在状态栏里最多显示的字数（完整原文在提示与消息流的错误卡片里）。 */
@@ -84,16 +84,4 @@ function useActiveTurnStart(transcript: Transcript): string | undefined {
     if (message?.role === 'assistant' && message.turnId === activeTurnId) return message.startedAt;
   }
   return undefined;
-}
-
-/** 从 `since` 起的毫秒数，每秒更新一次。 */
-function useElapsed(since: string | undefined): number | undefined {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!since) return;
-    setNow(Date.now());
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [since]);
-  return since ? Math.max(0, now - Date.parse(since)) : undefined;
 }

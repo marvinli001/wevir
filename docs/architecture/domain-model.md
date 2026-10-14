@@ -1048,7 +1048,7 @@ interface UserChatMessage extends MessageBase {       // id = turnId
 }                                                     // 子会话里父 agent 给的输入没有 sentBy、有 fromParentAgent（R4）
 interface AssistantChatMessage extends MessageBase {  // id = `${turnId}:assistant`
   role: 'assistant'; turnId: TurnId
-  startedAt?: IsoTime                                 // turn.started 的时刻
+  startedAt?: IsoTime                                 // turn.started 的时刻；插话分出的每条助手消息都有（U2）
   finished?: { outcome: TurnOutcome; durationMs: number }
 }
 interface SystemChatMessage extends MessageBase { role: 'system' } // id = `system:${seq}`，不属于回合的提示与错误
@@ -1057,7 +1057,7 @@ type ChatMessage = UserChatMessage | AssistantChatMessage | SystemChatMessage
 interface StreamPartFields { key: string; text: string; state: 'streaming' | 'done'; stream?: StreamBlockRef }
 type ChatPart =
   | ({ type: 'text' } & StreamPartFields)
-  | ({ type: 'reasoning' } & StreamPartFields)
+  | ({ type: 'reasoning' } & StreamPartFields & { startedAt?: IsoTime; endedAt?: IsoTime }) // U2：思考的起止
   | {
       type: 'tool'; key: string; toolCallId: string; toolName: string; display: ToolDisplay
       status: 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled' | 'unknown'
@@ -1085,6 +1085,8 @@ interface Transcript {                // TranscriptProjection.snapshot()
 ```
 
 一个回合投影成一条 `user` 消息加一条 `assistant` 消息，回合内多个 attempt 的文本、思考与工具按事件顺序排成部件；`state: 'streaming'` 的部件来自增量，被已提交消息替换后变为 `'done'`，并沿用增量块的 `key`（渲染层据此复用 DOM，§6.3 规则 3）。`turn.finished` 时丢掉本回合仍未替换的增量（规则 4；回合被中断时保留），仍在运行的工具投影为 `unknown`（§6.4 的客户端兜底）。审批按同一 `toolCallId` 挂到工具部件上，未决时工具为 `awaiting_approval`。`engine.raw` 默认不投影（`includeRaw`），桌面端只在开发模式打开。
+
+思考部件的起止（U2，桌面端工作组的“思考了 17 秒”）：协议里思考没有开始事件，开始取这个回合上一次有输出的时刻——回合开始、插话、上一段文字或思考的增量与已提交消息、工具的开始 / 更新 / 收尾、审批的结算（等审批的时间不算思考；`usage.updated`、`engine.raw` 不算输出）——模型从那一刻起在想，引擎只发推理摘要、或只发已提交思考（dsh 没有旁路时）也算得出来；结束取最后一段思考增量的时刻，替换增量的已提交思考沿用增量的起止，没有增量的结束于已提交思考的时刻。回合的用时仍是 `finished.durationMs`（Host 从 `turn.started` 算到 `turn.finished`），进行中的计时从助手消息的 `startedAt` 算起，插话之后的那条也有。
 
 与草案相比：加了 `system` 角色（引擎在空闲时退出、resume 失败这类没有回合的错误，以及恢复、只读、关闭提示）、部件的 `key`、工具的起止时刻、`notice` 与 `raw` 部件；`Transcript` 带着会话状态与审批，界面的状态指示与审批卡片与消息流出自同一条事件流。性能约定：`snapshot()` 只为改动过的消息生成新对象，没有新事件时返回同一个快照，调用方可以攒一批事件再取（桌面按帧）。
 

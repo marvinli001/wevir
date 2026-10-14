@@ -2,16 +2,23 @@
 // 移植自 different-ai/openwork apps/app/src/lib/tool-aggregate.ts、apps/app/src/lib/current-tool-lifecycle.ts
 // 来源提交 ad22cdc2217370f28f24f0f8758016c2921e3c73
 // Copyright (c) 2026-present Different AI, Inc.
-// 修改：改写（T5.3，OpenWork 候选 #6）。工具分类从 OpenCode 的工具名换成 Wevir 的展示类型（ToolDisplay.kind，
-// domain-model §7），只聚合读取与搜索两类；聚合标题改为中文的“读取 N 个文件、搜索 N 次”（进行时 / 完成时）；
-// 聚合内的思考按原顺序保留（同 AggregateThought 的做法）。“状态未知”规则照搬 current-tool-lifecycle：只有
-// 回合仍在进行时未收尾的工具才算运行中，否则显示状态未知；另加“被拒绝”（同一 toolCallId 的审批被拒）。
+// 修改：改写（T5.3，OpenWork 候选 #6；U2 再改）。工具分类从 OpenCode 的工具名换成 Wevir 的展示类型（ToolDisplay.kind，
+// domain-model §7）。U2 起照 Claude Code 桌面端与 Codex（design-refs/09–12）把一串连续的思考与工具调用（全部种类，
+// 同 OpenWork 的聚合）合成一个“工作组”：摘要是中文计数（“思考了 17 秒，读取了 6 个文件，运行了 2 条命令”）加改动行数，
+// 进行中显示当前动作（同 OpenWork 的当前动作行）；失败、被拒绝、状态未知单独计数，不被折叠吞掉。“状态未知”规则照搬
+// current-tool-lifecycle：只有回合仍在进行时未收尾的工具才算运行中，否则显示状态未知；另加“被拒绝”（同一 toolCallId
+// 的审批被拒）。
 
 import type { ChatPart, ChatPartOf } from '@wevir/client-sdk';
+import type { ToolDisplayKind } from '@wevir/protocol';
+import { t } from '@/i18n';
+import { between, formatDuration } from './format';
 
 export type ToolPart = ChatPartOf<'tool'>;
+export type ReasoningPart = ChatPartOf<'reasoning'>;
+export type RawPart = ChatPartOf<'raw'>;
 
-/** 卡片上显示的状态。 */
+/** 工具调用显示的状态。 */
 export type ToolLifecycle =
   | 'running'
   | 'awaiting_approval'
@@ -22,8 +29,8 @@ export type ToolLifecycle =
   | 'unknown';
 
 /**
- * 工具卡片的状态。未收尾的工具只在所属回合仍在进行时算运行中 / 等待审批，否则是“状态未知”——不让一个
- * 停掉的回合留下一直转圈的卡片。审批被拒的工具显示“被拒绝”。
+ * 工具调用的状态。未收尾的工具只在所属回合仍在进行时算运行中 / 等待审批，否则是“状态未知”——不让一个
+ * 停掉的回合留下一直转圈的一行。审批被拒的工具显示“被拒绝”。
  */
 export function toolLifecycle(part: ToolPart, turnActive: boolean): ToolLifecycle {
   if (part.status === 'running' || part.status === 'awaiting_approval') {
@@ -35,11 +42,6 @@ export function toolLifecycle(part: ToolPart, turnActive: boolean): ToolLifecycl
 
 export function isInFlight(lifecycle: ToolLifecycle): boolean {
   return lifecycle === 'running' || lifecycle === 'awaiting_approval';
-}
-
-/** 能聚合的工具：读取与搜索（连续多次时合成一张卡片）。 */
-export function isAggregatable(part: ToolPart): boolean {
-  return part.display.kind === 'read' || part.display.kind === 'search';
 }
 
 /** 一行参数摘要：路径、命令、查询词或 URL；都没有时取输入里的第一个字符串字段。 */
@@ -78,68 +80,345 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// ── 聚合 ──────────────────────────────────────────────────────────────
+// ── 改动行数 ─────────────────────────────────────────────────────────
 
-/** 助手消息渲染时的一项：单个部件，或一串连续的读取 / 搜索。 */
-export type PartItem =
-  | { kind: 'part'; part: ChatPart }
-  | {
-      kind: 'aggregate';
-      key: string;
-      tools: ToolPart[];
-      /** 按原顺序穿插在工具之间的思考。 */
-      entries: Array<ToolPart | ChatPartOf<'reasoning'>>;
-    };
+export interface LineStats {
+  added: number;
+  removed: number;
+}
 
 /**
- * 把连续的读取 / 搜索（中间可以夹着思考）聚合成一项；少于 2 个工具的串原样展开。正文、其他工具、错误等
- * 一律打断聚合（同 OpenWork：模型的正文总是断开一组）。
+ * 一次修改 / 写文件的增删行数，算不出时为 undefined。认两种输入：Codex 的 `fileChange`（`changes[].diff`：新建与删除是
+ * 文件全文，修改是统一 diff，codex-rs `convert_patch_changes`）；dsh 的 edit（`old_string` / `new_string`，去掉首尾相同的
+ * 行再计）与 write（`content` 全算新增）。
  */
-export function groupParts(parts: readonly ChatPart[]): PartItem[] {
-  const items: PartItem[] = [];
-  let run: Array<ToolPart | ChatPartOf<'reasoning'>> = [];
-
-  const flush = () => {
-    const tools = run.filter((entry): entry is ToolPart => entry.type === 'tool');
-    // 串尾的思考不属于这一组（它在下一个动作之前）。
-    let end = run.length;
-    while (end > 0 && run[end - 1]?.type === 'reasoning') end -= 1;
-    if (tools.length >= 2) {
-      const entries = run.slice(0, end);
-      items.push({ kind: 'aggregate', key: `g:${tools[0]?.key}`, tools, entries });
-      for (const entry of run.slice(end)) items.push({ kind: 'part', part: entry });
-    } else {
-      for (const entry of run) items.push({ kind: 'part', part: entry });
+export function editStats(part: ToolPart): LineStats | undefined {
+  if (part.display.kind !== 'edit' && part.display.kind !== 'write') return undefined;
+  const input = part.input;
+  if (!isRecord(input)) return undefined;
+  if (Array.isArray(input.changes)) {
+    const stats = { added: 0, removed: 0 };
+    for (const change of input.changes) {
+      if (!isRecord(change) || typeof change.diff !== 'string' || !isRecord(change.kind)) continue;
+      if (change.kind.type === 'add') stats.added += lineCount(change.diff);
+      else if (change.kind.type === 'delete') stats.removed += lineCount(change.diff);
+      else addUnifiedDiff(stats, change.diff);
     }
-    run = [];
-  };
+    return stats;
+  }
+  if (typeof input.old_string === 'string' && typeof input.new_string === 'string') {
+    return replaceStats(input.old_string, input.new_string);
+  }
+  if (typeof input.content === 'string') return { added: lineCount(input.content), removed: 0 };
+  return undefined;
+}
 
+function lineCount(text: string): number {
+  if (text === '') return 0;
+  return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+}
+
+function addUnifiedDiff(stats: LineStats, diff: string): void {
+  let inHunk = false;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('@@')) inHunk = true;
+    // 第一个 @@ 之前的 `---` / `+++` 是文件头。
+    else if (!inHunk && (line.startsWith('--- ') || line.startsWith('+++ '))) continue;
+    else if (line.startsWith('+')) stats.added += 1;
+    else if (line.startsWith('-')) stats.removed += 1;
+  }
+}
+
+function replaceStats(before: string, after: string): LineStats {
+  const a = before.split('\n');
+  const b = after.split('\n');
+  let head = 0;
+  while (head < a.length && head < b.length && a[head] === b[head]) head += 1;
+  let tail = 0;
+  while (
+    tail < a.length - head &&
+    tail < b.length - head &&
+    a[a.length - 1 - tail] === b[b.length - 1 - tail]
+  ) {
+    tail += 1;
+  }
+  return { added: b.length - head - tail, removed: a.length - head - tail };
+}
+
+// ── 工作组 ──────────────────────────────────────────────────────────
+
+/** 工作组里的一条：一次思考、一次工具调用，或（只在开发模式投影的）未识别的引擎消息。 */
+export type WorkEntry = ToolPart | ReasoningPart | RawPart;
+
+/** 助手消息渲染时的一项。 */
+export type StreamItem =
+  /** 一串连续的思考与工具调用，折成一行摘要。`key` 取第一条的 key，流式增长时不变。 */
+  | { kind: 'work'; key: string; entries: WorkEntry[] }
+  /** 一串连续的子智能体“开始工作 / 已完成”，并成一行小标签。 */
+  | { kind: 'subagents'; key: string; parts: ChatPartOf<'subagent'>[] }
+  | { kind: 'part'; part: ChatPart };
+
+/**
+ * 把一条助手消息的部件分成工作组、子智能体行与其余部件。连续的思考与工具调用（全部种类）合成一组，子智能体的标记
+ * 连成一行；正文、错误、待办断开（模型的正文总是断开一组，同 OpenWork）。开发模式的调试信息（`raw`）不断开：在工作组
+ * 里是一条，夹在子智能体标记之间的挪到那一行后面。回合边界由调用方保证：每条助手消息只属于一个回合，插话把回合分成
+ * 几条消息，也就断开了。
+ */
+export function groupWork(parts: readonly ChatPart[]): StreamItem[] {
+  const items: StreamItem[] = [];
+  let work: WorkEntry[] | undefined;
+  let agents: ChatPartOf<'subagent'>[] | undefined;
+  let deferred: RawPart[] = [];
+  const flush = () => {
+    if (work?.[0]) items.push({ kind: 'work', key: `w:${work[0].key}`, entries: work });
+    if (agents?.[0]) items.push({ kind: 'subagents', key: `a:${agents[0].key}`, parts: agents });
+    work = undefined;
+    agents = undefined;
+    if (deferred[0]) {
+      const raws = deferred;
+      deferred = [];
+      work = raws;
+    }
+  };
   for (const part of parts) {
-    if (part.type === 'tool' && isAggregatable(part) && part.status !== 'awaiting_approval') {
-      run.push(part);
-    } else if (part.type === 'reasoning' && run.length > 0) {
-      run.push(part);
+    if (part.type === 'raw' && agents) {
+      deferred.push(part);
+    } else if (part.type === 'tool' || part.type === 'reasoning' || part.type === 'raw') {
+      if (agents) flush();
+      work ??= [];
+      work.push(part);
+    } else if (part.type === 'subagent') {
+      // 只有调试信息的组让给子智能体行：并进去之后再挪到它后面。
+      if (work?.every((entry) => entry.type === 'raw')) {
+        deferred.push(...(work as RawPart[]));
+        work = undefined;
+      }
+      if (work) flush();
+      agents ??= [];
+      agents.push(part);
     } else {
       flush();
+      if (work) flush();
       items.push({ kind: 'part', part });
     }
   }
   flush();
+  if (work) flush();
   return items;
 }
 
-/** 聚合卡片的计数：读取按不同路径计文件数（没有路径时按调用次数），搜索按调用次数。 */
-export function aggregateCounts(tools: readonly ToolPart[]): { files: number; searches: number } {
-  const paths = new Set<string>();
-  let reads = 0;
-  let searches = 0;
-  for (const tool of tools) {
-    if (tool.display.kind === 'read') {
-      reads += 1;
-      for (const path of tool.display.paths ?? []) paths.add(path);
+/** 思考用了多久（`ReasoningTiming`）；起止不全时为 undefined。 */
+export function thoughtDuration(part: ReasoningPart): number | undefined {
+  const ms = between(part.startedAt, part.endedAt);
+  return ms === undefined ? undefined : Math.max(0, ms);
+}
+
+/** 摘要里分别计数的工具种类，按显示的先后。`edit` 含写文件。 */
+const COUNTED_KINDS = [
+  'read',
+  'search',
+  'edit',
+  'shell',
+  'fetch',
+  'plan',
+  'sub_agent',
+  'unknown',
+] as const;
+type CountedKind = (typeof COUNTED_KINDS)[number];
+
+export interface WorkTally {
+  /** 有思考时为总用时（毫秒）。 */
+  thinkingMs?: number;
+  /** 读取与修改按不同路径计文件数（没有路径时按调用次数），其余按调用次数。 */
+  counts: Record<CountedKind, number>;
+  /** 成功的修改的增删行数；没有成功的修改时为 undefined。 */
+  lines?: LineStats;
+  /** 不能被折叠吞掉的调用。 */
+  issues: Record<IssueKind, number>;
+  /** 开发模式的调试信息条数。 */
+  debug: number;
+}
+
+export type IssueKind = 'failed' | 'denied' | 'unknown';
+const ISSUE_KINDS: readonly IssueKind[] = ['failed', 'denied', 'unknown'];
+
+function countedKind(kind: ToolDisplayKind): CountedKind {
+  return kind === 'write' ? 'edit' : kind;
+}
+
+export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): WorkTally {
+  let thinkingMs: number | undefined;
+  const counts = Object.fromEntries(COUNTED_KINDS.map((kind) => [kind, 0])) as WorkTally['counts'];
+  const issues: WorkTally['issues'] = { failed: 0, denied: 0, unknown: 0 };
+  const paths: Partial<Record<CountedKind, Set<string>>> = {};
+  let lines: LineStats | undefined;
+  let debug = 0;
+  for (const entry of entries) {
+    if (entry.type === 'raw') {
+      debug += 1;
+      continue;
+    }
+    if (entry.type === 'reasoning') {
+      thinkingMs = (thinkingMs ?? 0) + (thoughtDuration(entry) ?? 0);
+      continue;
+    }
+    const kind = countedKind(entry.display.kind);
+    const lifecycle = toolLifecycle(entry, turnActive);
+    if (lifecycle === 'failed' || lifecycle === 'denied' || lifecycle === 'unknown') {
+      issues[lifecycle] += 1;
+    }
+    if ((kind === 'read' || kind === 'edit') && entry.display.paths?.length) {
+      const set = paths[kind] ?? new Set<string>();
+      for (const path of entry.display.paths) set.add(path);
+      paths[kind] = set;
     } else {
-      searches += 1;
+      counts[kind] += 1;
+    }
+    if (kind === 'edit' && lifecycle === 'completed') {
+      const stats = editStats(entry);
+      if (stats) {
+        lines ??= { added: 0, removed: 0 };
+        lines.added += stats.added;
+        lines.removed += stats.removed;
+      }
     }
   }
-  return { files: paths.size > 0 ? paths.size : reads, searches };
+  counts.read += paths.read?.size ?? 0;
+  counts.edit += paths.edit?.size ?? 0;
+  return {
+    ...(thinkingMs !== undefined && { thinkingMs }),
+    counts,
+    ...(lines && { lines }),
+    issues,
+    debug,
+  };
+}
+
+/** 收起时的一行摘要：“思考了 17 秒，读取了 6 个文件，运行了 2 条命令”。 */
+export function workSummary(tally: WorkTally): string {
+  const pieces: string[] = [];
+  if (tally.thinkingMs !== undefined) {
+    pieces.push(t('work.thought', { duration: formatDuration(tally.thinkingMs) }));
+  }
+  for (const kind of COUNTED_KINDS) {
+    const count = tally.counts[kind];
+    if (count === 0) continue;
+    pieces.push(kind === 'plan' ? t('work.count.plan') : t(`work.count.${kind}`, { count }));
+  }
+  // 只有调试信息的组（开发模式）。
+  if (pieces.length === 0 && tally.debug > 0) {
+    pieces.push(t('work.count.raw', { count: tally.debug }));
+  }
+  return pieces.join(t('work.separator'));
+}
+
+/** 摘要后面标出的失败、被拒绝、状态未知（各自的颜色由界面决定）；工作组与收起的回合共用。 */
+export function workIssues(
+  issues: Readonly<Record<IssueKind, number>>,
+): Array<{ kind: IssueKind; text: string }> {
+  return ISSUE_KINDS.filter((kind) => issues[kind] > 0).map((kind) => ({
+    kind,
+    text: t(`work.issue.${kind}`, { count: issues[kind] }),
+  }));
+}
+
+/** 展开后的一行。`tone` 决定颜色：进行中闪光、待审批用待审批色、失败与被拒绝用失败色、状态未知用警示色。 */
+export interface WorkLineView {
+  label: string;
+  /** 等宽显示的目标：路径、命令、查询词、URL。 */
+  target?: string;
+  tone: 'done' | 'running' | 'awaiting' | 'failed' | 'muted' | 'unknown';
+}
+
+const LINE_TONES: Record<ToolLifecycle, WorkLineView['tone']> = {
+  running: 'running',
+  awaiting_approval: 'awaiting',
+  completed: 'done',
+  failed: 'failed',
+  denied: 'failed',
+  cancelled: 'muted',
+  unknown: 'unknown',
+};
+
+/**
+ * 思考：“思考了 3 秒”，还在想时“正在思考”；`settled` 是后面已经有别的输出（增量里的思考其实已经结束，已提交的版本
+ * 还没到）。
+ */
+export function thoughtLine(part: ReasoningPart, settled: boolean): WorkLineView {
+  if (part.state === 'streaming' && !settled) return { label: t('work.thinking'), tone: 'running' };
+  const duration = thoughtDuration(part);
+  return {
+    label:
+      duration === undefined
+        ? t('work.thoughtPlain')
+        : t('work.thought', { duration: formatDuration(duration) }),
+    tone: 'done',
+  };
+}
+
+/** 开发模式的调试信息：“未识别的引擎消息 turn/diff/updated”。 */
+export function rawLine(part: RawPart): WorkLineView {
+  return {
+    label: t('raw.label'),
+    target: part.kind ? `${part.method} · ${part.kind}` : part.method,
+    tone: 'muted',
+  };
+}
+
+/**
+ * 文件路径写成相对工作区的（Codex 给的是绝对路径）：去掉 `root/` 前缀，正好是根目录时写 `.`。只用于读取与修改的
+ * 路径，命令原样显示。
+ */
+export function relativeToRoot(target: string, root: string | undefined): string {
+  if (!root) return target;
+  const base = root.replace(/[\\/]+$/, '');
+  if (target === base) return '.';
+  return target.split(`${base}/`).join('');
+}
+
+/**
+ * 工具调用：“已运行 pnpm test”“正在读取 a.ts”“等待审批：运行 touch …”“运行失败 pnpm test”。`root` 是会话的工作目录，
+ * 读取与修改的路径相对它显示。
+ */
+export function toolLine(part: ToolPart, turnActive: boolean, root?: string): WorkLineView {
+  const lifecycle = toolLifecycle(part, turnActive);
+  const verb = t(`work.verb.${part.display.kind}`);
+  const summary =
+    part.display.kind === 'unknown'
+      ? (part.display.summary ?? part.toolName)
+      : part.display.kind === 'plan'
+        ? undefined
+        : toolSummary(part);
+  const kind = part.display.kind;
+  const target =
+    summary && (kind === 'read' || kind === 'edit' || kind === 'write')
+      ? relativeToRoot(summary, root)
+      : summary;
+  return {
+    label: t(`work.line.${lifecycle}`, { verb }),
+    ...(target && { target }),
+    tone: LINE_TONES[lifecycle],
+  };
+}
+
+/**
+ * 进行中的那一组的当前动作：等审批的工具优先（“等待审批：运行 touch …”），否则是最后一个还在运行的工具（“正在运行
+ * pnpm test”），都没有时“正在思考”（模型拿到工具结果在想下一步，或者正在流出思考）。
+ */
+export function currentAction(
+  entries: readonly WorkEntry[],
+  root?: string,
+): {
+  text: string;
+  tone: 'running' | 'awaiting';
+} {
+  const tools = entries.filter((entry): entry is ToolPart => entry.type === 'tool');
+  const waiting = tools.find((tool) => tool.status === 'awaiting_approval');
+  const running = waiting ?? tools.findLast((tool) => tool.status === 'running');
+  if (!running) return { text: t('work.thinking'), tone: 'running' };
+  const { label, target } = toolLine(running, true, root);
+  return {
+    text: target ? `${label} ${target}` : label,
+    tone: waiting ? 'awaiting' : 'running',
+  };
 }

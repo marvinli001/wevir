@@ -6,7 +6,8 @@
 // 修改：改写（T5.3，OpenWork 候选 #3）。保留两种模式的状态机：贴底（stickyBottom）时内容或视口尺寸一变就
 // 滚到底，手动（manual）时不动；只有真实的输入手势（滚轮、触摸、导航键、拖滚动条）才能切换模式，布局钳位与
 // 程序滚动触发的 scroll 事件不算；手势滚到底部回到贴底；贴底时键盘焦点等把旧内容滚进视野也转为手动；
-// overflow-anchor 贴底时为 none、手动时为 auto（手动阅读时由浏览器锚定位置）；发送消息即回到贴底。去掉
+// overflow-anchor 贴底时为 none、手动时为 auto（手动阅读时由浏览器锚定位置）；发送消息即回到贴底。U2：用户在消息流里
+// 点开或收起一处（工作组、回合）时转为手动、保持位置，不被拉回底部（holdPosition）。去掉
 // 移动端轮次留白、滚动位置与几何信息的持久化、历史分页、“跳到消息开头”，状态不进全局 store，只交出
 // “是否贴底”给“跳到最新”按钮。
 
@@ -20,6 +21,7 @@ const NAVIGATION_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', '
 
 interface Controller {
   jumpToLatest(behavior: ScrollBehavior): void;
+  holdPosition(): void;
 }
 
 export interface StickToBottom {
@@ -27,6 +29,11 @@ export interface StickToBottom {
   sticky: boolean;
   /** 回到贴底并滚到最新（“跳到最新”、发送消息）。 */
   jumpToLatest(behavior?: ScrollBehavior): void;
+  /**
+   * 用户点开或收起了消息流里的一处：贴底时转为手动，展开的内容不会在下一个片段到达时被拉回底部；布局之后仍在
+   * 底部（内容不满一屏、收起了一处）就回到贴底。
+   */
+  holdPosition(): void;
 }
 
 /**
@@ -51,6 +58,9 @@ export function useStickToBottom(
     let pointerDown = false;
     let smoothJump = false;
     let lastKnownTop = container.scrollTop;
+    /** holdPosition 之后、布局之前：布局完仍在底部就回到贴底。 */
+    let held = false;
+    let heldTimer: number | undefined;
 
     const setMode = (next: 'sticky' | 'manual') => {
       if (mode === next) return;
@@ -66,7 +76,15 @@ export function useStickToBottom(
       lastKnownTop = container.scrollTop;
     };
 
+    const settleHold = () => {
+      if (!held) return;
+      held = false;
+      window.clearTimeout(heldTimer);
+      if (mode === 'manual' && atBottom()) setMode('sticky');
+    };
+
     const reconcile = () => {
+      settleHold();
       if (mode === 'sticky' && !hasGesture() && !atBottom()) {
         smoothJump = false;
         toBottom();
@@ -143,9 +161,19 @@ export function useStickToBottom(
         container.scrollTo({ top: container.scrollHeight, behavior });
         if (!smoothJump) lastKnownTop = container.scrollTop;
       },
+      holdPosition() {
+        if (mode !== 'sticky') return;
+        smoothJump = false;
+        setMode('manual');
+        held = true;
+        // 尺寸没变时 ResizeObserver 不回调，稍后自己核对一次。
+        window.clearTimeout(heldTimer);
+        heldTimer = window.setTimeout(settleHold, 200);
+      },
     };
 
     return () => {
+      window.clearTimeout(heldTimer);
       observer.disconnect();
       container.removeEventListener('scroll', onScroll);
       container.removeEventListener('wheel', markGesture);
@@ -163,5 +191,7 @@ export function useStickToBottom(
     controller.current?.jumpToLatest(reduced ? 'auto' : behavior);
   }, []);
 
-  return { sticky, jumpToLatest };
+  const holdPosition = useCallback(() => controller.current?.holdPosition(), []);
+
+  return { sticky, jumpToLatest, holdPosition };
 }

@@ -5,7 +5,8 @@
 // （Host 正常会补写，这里兜底，回放旧数据也不会一直转圈）。子会话（R4）：父会话里每个子会话一个“开始”的 `subagent`
 // 部件（R5 起结束时再加一个“结束”部件）与 `subagents` 摘要；子会话自己的回合输入（`turn.started.input`）投影成来自
 // 父 agent 的用户消息。R11：待发消息（`pending.*`）投影成 `pendingMessages`；插话（`user.steered`）是回合中间的一条用户
-// 消息，之后的助手输出放进这个回合的下一条助手消息（domain-model §8）。
+// 消息，之后的助手输出放进这个回合的下一条助手消息（domain-model §8）。U2：思考部件带起止时刻（桌面端的“思考了 17 秒”），
+// 插话分出的每条助手消息都带回合的开始时刻。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -67,7 +68,7 @@ export type SessionNotice =
  */
 export type ChatPart =
   | ({ type: 'text' } & StreamPartFields)
-  | ({ type: 'reasoning' } & StreamPartFields)
+  | ({ type: 'reasoning' } & StreamPartFields & ReasoningTiming)
   | {
       type: 'tool';
       key: string;
@@ -108,6 +109,16 @@ export interface StreamPartFields {
   stream?: StreamBlockRef;
 }
 
+/**
+ * 思考部件的起止时刻（U2）。协议里思考没有开始事件，开始取这个回合上一次有输出的时刻（回合开始、上一段文字或思考、
+ * 工具的开始与收尾、审批的结算）——模型从那一刻起在想，引擎只发摘要或只发已提交思考时也算得出来；结束取最后一段
+ * 增量的时刻，没有增量时取已提交思考的时刻。
+ */
+export interface ReasoningTiming {
+  startedAt?: IsoTime;
+  endedAt?: IsoTime;
+}
+
 export type ChatPartOf<T extends ChatPart['type']> = Extract<ChatPart, { type: T }>;
 
 interface MessageBase {
@@ -135,7 +146,7 @@ export interface UserChatMessage extends MessageBase {
 export interface AssistantChatMessage extends MessageBase {
   role: 'assistant';
   turnId: TurnId;
-  /** `turn.started` 的时刻。 */
+  /** 回合开始（`turn.started`）的时刻；插话分出的每条助手消息都有。 */
   startedAt?: IsoTime;
   /** 回合结束后有。 */
   finished?: { outcome: TurnOutcome; durationMs: number };
@@ -214,6 +225,10 @@ interface TurnMessages {
   readonly segments: MutableMessage[];
   /** 插话之后下一条助手消息的 `id`。 */
   nextAssistantId?: string;
+  /** `turn.started` 的时刻。 */
+  startedAt?: IsoTime;
+  /** 这个回合上一次有输出的时刻（思考部件的开始，`ReasoningTiming`）。 */
+  activityAt?: IsoTime;
 }
 
 const PENDING_DONE: ReadonlySet<PendingMessage['status']> = new Set([
@@ -315,8 +330,12 @@ export class TranscriptProjection {
       case 'turn.started': {
         // 子会话：这一回合的输入来自父 agent（R4），投影成一条用户消息。
         if (event.payload.input !== undefined) this.#agentInput(event);
-        const message = this.#assistant(event.payload.turnId, event.seq);
-        message.startedAt = event.ts;
+        const turn = this.#turn(event.payload.turnId);
+        turn.startedAt = event.ts;
+        turn.activityAt = event.ts;
+        for (const segment of this.#segments(event.payload.turnId, event.seq)) {
+          this.#touch(segment, event.seq).startedAt = event.ts;
+        }
         this.#activeTurnId = event.payload.turnId;
         return;
       }
@@ -476,6 +495,7 @@ export class TranscriptProjection {
     });
     turn.assistant = undefined;
     turn.nextAssistantId = `${turnId}:assistant:${event.seq}`;
+    turn.activityAt = event.ts;
   }
 
   /** `pending.added` / `pending.updated`（R11）：替换同一 `id` 的，到了终态就去掉。 */
@@ -536,6 +556,7 @@ export class TranscriptProjection {
         parts: [],
         firstSeq: seq,
         lastSeq: seq,
+        ...(turn.startedAt !== undefined && { startedAt: turn.startedAt }),
         snapshot: undefined,
       });
       turn.segments.push(turn.assistant);
@@ -599,20 +620,23 @@ export class TranscriptProjection {
   #delta(event: WevirEventOf<'assistant.delta'>): void {
     const { turnId, streamId, blockIndex, kind, text } = event.payload;
     const message = this.#assistant(turnId, event.seq);
+    const since = this.#activity(turnId, event.ts);
     const key = streamKey({ streamId, blockIndex });
     const index = message.parts.findIndex((part) => part.key === key);
     const part = message.parts[index];
     if (part && isStreamPart(part)) {
-      message.parts[index] = { ...part, text: part.text + text };
+      message.parts[index] =
+        part.type === 'reasoning'
+          ? { ...part, text: part.text + text, endedAt: event.ts }
+          : { ...part, text: part.text + text };
       return;
     }
-    message.parts.push({
-      type: kind,
-      key,
-      text,
-      state: 'streaming',
-      stream: { streamId, blockIndex },
-    });
+    const stream = { key, text, state: 'streaming', stream: { streamId, blockIndex } } as const;
+    message.parts.push(
+      kind === 'reasoning'
+        ? { type: kind, ...stream, startedAt: since ?? event.ts, endedAt: event.ts }
+        : { type: kind, ...stream },
+    );
   }
 
   #dropStream(event: WevirEventOf<'assistant.stream_ended'>): void {
@@ -636,21 +660,40 @@ export class TranscriptProjection {
         segment.parts.some((part) => replacedKeys.has(part.key)),
       ) ?? this.#assistant(turnId, event.seq);
     this.#touch(message, event.seq);
+    const since = this.#activity(turnId, event.ts);
     const at = message.parts.findIndex((part) => replacedKeys.has(part.key));
     const blank = text.trim() === '';
+    // 替换增量的思考沿用增量的起止时刻；没有增量的从回合上一次有输出算到现在。
+    const replaced = message.parts[at];
+    const timing: ReasoningTiming =
+      replaced?.type === 'reasoning' && replaced.startedAt !== undefined
+        ? { startedAt: replaced.startedAt, endedAt: replaced.endedAt ?? event.ts }
+        : { startedAt: since ?? event.ts, endedAt: event.ts };
+    const part = (key: string): ChatPart =>
+      type === 'reasoning'
+        ? { type, key, text, state: 'done', ...timing }
+        : { type, key, text, state: 'done' };
     if (at < 0) {
       // 规则 3：没有可替换的增量时追加在回合末尾。只含空白的已提交块不显示。
-      if (!blank) message.parts.push({ type, key: `m:${event.seq}`, text, state: 'done' });
+      if (!blank) message.parts.push(part(`m:${event.seq}`));
       return;
     }
-    const key = message.parts[at]?.key ?? `m:${event.seq}`;
+    const key = replaced?.key ?? `m:${event.seq}`;
     const parts = message.parts.filter(
       (part, index) => index === at || !replacedKeys.has(part.key),
     );
     const index = parts.findIndex((part) => part.key === key);
     if (blank) parts.splice(index, 1);
-    else parts[index] = { type, key, text, state: 'done' };
+    else parts[index] = part(key);
     message.parts = parts;
+  }
+
+  /** 记下回合这一刻有输出，返回上一次有输出的时刻（思考部件的开始，`ReasoningTiming`）。 */
+  #activity(turnId: TurnId, ts: IsoTime): IsoTime | undefined {
+    const turn = this.#turn(turnId);
+    const since = turn.activityAt;
+    turn.activityAt = ts;
+    return since;
   }
 
   // ── 工具 ─────────────────────────────────────────────────────────────
@@ -659,6 +702,7 @@ export class TranscriptProjection {
     const { turnId, toolCallId, toolName, display, input } = event.payload;
     if (this.#tools.has(toolCallId)) return;
     const message = this.#assistant(turnId, event.seq);
+    this.#activity(turnId, event.ts);
     message.parts.push({
       type: 'tool',
       key: `t:${toolCallId}`,
@@ -690,7 +734,8 @@ export class TranscriptProjection {
   }
 
   #toolUpdated(event: WevirEventOf<'tool.updated'>): void {
-    const { toolCallId, display, input, output } = event.payload;
+    const { turnId, toolCallId, display, input, output } = event.payload;
+    this.#activity(turnId, event.ts);
     this.#updateTool(toolCallId, event.seq, (part) => ({
       ...part,
       ...(display && { display }),
@@ -700,7 +745,8 @@ export class TranscriptProjection {
   }
 
   #toolFinished(event: WevirEventOf<'tool.finished'>): void {
-    const { toolCallId, status, output } = event.payload;
+    const { turnId, toolCallId, status, output } = event.payload;
+    this.#activity(turnId, event.ts);
     this.#updateTool(toolCallId, event.seq, (part) => ({
       ...part,
       status,
@@ -739,6 +785,8 @@ export class TranscriptProjection {
     const { approvalId, status, resolution } = event.payload;
     const approval = this.#approvals.get(approvalId);
     if (!approval) return;
+    // 等审批的时间不算思考：模型从审批结算之后才接着想。
+    this.#activity(approval.turnId, event.ts);
     this.#approvals.set(approvalId, { ...approval, status, resolution, resolvedAt: event.ts });
     this.#approvalsDirty = true;
     this.#updateTool(approval.toolCallId, event.seq, (part) => ({

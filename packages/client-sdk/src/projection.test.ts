@@ -118,9 +118,66 @@ describe('TranscriptProjection：增量与已提交消息（domain-model §6.3�
     });
     const done = assistantParts(list);
     expect(done).toEqual([
-      { type: 'reasoning', key: streaming[0]?.key, text: '想一想', state: 'done' },
+      {
+        type: 'reasoning',
+        key: streaming[0]?.key,
+        text: '想一想',
+        state: 'done',
+        // 起止沿用增量：从回合开始（seq 3）到最后一段思考增量（seq 5）。
+        startedAt: '2026-10-13T08:00:00.003Z',
+        endedAt: '2026-10-13T08:00:00.005Z',
+      },
       { type: 'text', key: streaming[1]?.key, text: '你好！', state: 'done' },
     ]);
+  });
+
+  it('思考的起止：从回合上一次有输出算起，等审批的时间不算；没有增量时结束于已提交思考', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('tool.started', {
+      turnId: TURN,
+      toolCallId: 'call_1',
+      toolName: 'shell',
+      display: { kind: 'shell' },
+      input: {},
+    });
+    add('approval.requested', { approval: approval('call_1') });
+    add('approval.resolved', {
+      approvalId: APPROVAL,
+      status: 'approved',
+      resolution: { optionId: 'allow', decidedBy: identity, reason: 'user' },
+    });
+    add('tool.finished', { turnId: TURN, toolCallId: 'call_1', status: 'completed' });
+    add('usage.updated', { contextUsed: 1, contextSize: 2 });
+    add('assistant.thought', { turnId: TURN, messageId: 'm1', text: '再想想', replaces: [] });
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 0,
+      kind: 'reasoning',
+      text: '还',
+    });
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 0,
+      kind: 'reasoning',
+      text: '有',
+    });
+    const [, committed, streaming] = assistantParts(list);
+    // 已提交的思考（seq 10）从工具收尾（seq 8）算起，usage 不算输出。
+    expect(committed).toMatchObject({
+      type: 'reasoning',
+      startedAt: '2026-10-13T08:00:00.008Z',
+      endedAt: '2026-10-13T08:00:00.010Z',
+    });
+    // 增量里的思考从上一段思考（seq 10）算到最后一段增量（seq 12）。
+    expect(streaming).toMatchObject({
+      type: 'reasoning',
+      state: 'streaming',
+      startedAt: '2026-10-13T08:00:00.010Z',
+      endedAt: '2026-10-13T08:00:00.012Z',
+    });
   });
 
   it('没有可替换的增量时追加在末尾；只含空白的已提交块不显示', () => {
@@ -732,6 +789,10 @@ describe('待发消息与插话（R11）', () => {
       outcome: 'completed',
       durationMs: 10,
     });
+    // 两条助手消息都带回合开始的时刻（U2：进行中的计时与“已处理”的用时）。
+    for (const message of [first, second]) {
+      expect(message?.role === 'assistant' && message.startedAt).toBe('2026-10-13T08:00:00.003Z');
+    }
     // 回合结束时第一条助手消息里没收尾的工具也显示为 unknown。
     expect(first?.parts.find((p) => p.type === 'tool')).toMatchObject({ status: 'unknown' });
   });

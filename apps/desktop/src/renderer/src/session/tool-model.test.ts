@@ -1,12 +1,21 @@
 import type { ChatPart } from '@wevir/client-sdk';
 import { describe, expect, it } from 'vitest';
 import {
-  aggregateCounts,
-  groupParts,
+  currentAction,
+  editStats,
+  groupWork,
   outputSummary,
+  type ReasoningPart,
+  relativeToRoot,
   type ToolPart,
+  tallyWork,
+  thoughtLine,
   toolLifecycle,
+  toolLine,
   toolSummary,
+  type WorkEntry,
+  workIssues,
+  workSummary,
 } from './tool-model';
 
 const TS = '2026-10-13T08:00:00.000Z';
@@ -29,8 +38,22 @@ function tool(
   };
 }
 
+const at = (seconds: number) => new Date(Date.parse(TS) + seconds * 1000).toISOString();
+
+function thought(key: string, from = 0, to = 3, extra: Partial<ReasoningPart> = {}): ReasoningPart {
+  return {
+    type: 'reasoning',
+    key,
+    text: key,
+    state: 'done',
+    startedAt: at(from),
+    endedAt: at(to),
+    ...extra,
+  };
+}
+
 const text = (key: string): ChatPart => ({ type: 'text', key, text: key, state: 'done' });
-const thought = (key: string): ChatPart => ({ type: 'reasoning', key, text: key, state: 'done' });
+const denied = { approvalId: 'apr_x' as const, status: 'denied' as const, options: [] };
 
 describe('toolLifecycle', () => {
   it('未收尾的工具只在回合进行中算运行中 / 等待审批，否则状态未知', () => {
@@ -45,8 +68,9 @@ describe('toolLifecycle', () => {
   });
 
   it('审批被拒的工具显示被拒绝；其余收尾状态原样', () => {
-    const approval = { approvalId: 'apr_x' as const, status: 'denied' as const, options: [] };
-    expect(toolLifecycle(tool('a', 'write', { status: 'failed', approval }), true)).toBe('denied');
+    expect(toolLifecycle(tool('a', 'write', { status: 'failed', approval: denied }), true)).toBe(
+      'denied',
+    );
     expect(toolLifecycle(tool('a', 'write', { status: 'failed' }), true)).toBe('failed');
     expect(toolLifecycle(tool('a', 'write', { status: 'cancelled' }), false)).toBe('cancelled');
     expect(toolLifecycle(tool('a', 'write', { status: 'unknown' }), true)).toBe('unknown');
@@ -74,61 +98,238 @@ describe('toolSummary / outputSummary', () => {
   });
 });
 
-describe('groupParts', () => {
-  it('连续的读取 / 搜索（中间夹思考）聚合成一项，串尾的思考不进组', () => {
-    const parts = [
-      thought('r0'),
-      tool('1', 'read'),
-      thought('r1'),
-      tool('2', 'search'),
-      tool('3', 'read'),
-      thought('r2'),
-      text('answer'),
-    ];
-    const items = groupParts(parts);
-    expect(items.map((item) => (item.kind === 'part' ? item.part.key : item.key))).toEqual([
-      'r0',
-      'g:t:1',
-      'r2',
-      'answer',
-    ]);
-    const group = items[1];
-    expect(group?.kind === 'aggregate' && group.entries.map((entry) => entry.key)).toEqual([
-      't:1',
-      'r1',
-      't:2',
-      't:3',
-    ]);
+describe('editStats', () => {
+  it('Codex 的 fileChange：新建与删除按全文计，修改按统一 diff 计（不算文件头）', () => {
+    const input = {
+      type: 'fileChange',
+      changes: [
+        { path: 'new.ts', kind: { type: 'add' }, diff: 'a\nb\nc\n' },
+        { path: 'old.ts', kind: { type: 'delete' }, diff: 'x\ny\n' },
+        {
+          path: 'mod.ts',
+          kind: { type: 'update', move_path: null },
+          diff: '--- a/mod.ts\n+++ b/mod.ts\n@@ -1,3 +1,3 @@\n keep\n-old\n+new\n+more\n',
+        },
+      ],
+    };
+    expect(editStats(tool('a', 'edit', { input }))).toEqual({ added: 5, removed: 3 });
   });
 
-  it('只有一个读取、被其他工具或正文打断、等待审批中的工具都不聚合', () => {
-    const items = groupParts([
-      tool('1', 'read'),
-      thought('r'),
-      tool('2', 'shell'),
-      tool('3', 'read'),
-      text('x'),
-      tool('4', 'read'),
-      tool('5', 'read', { status: 'awaiting_approval' }),
-    ]);
-    expect(items.every((item) => item.kind === 'part')).toBe(true);
-    expect(items).toHaveLength(7);
+  it('dsh 的 edit 去掉首尾相同的行再计，write 全算新增；读不出时为 undefined', () => {
+    expect(
+      editStats(tool('a', 'edit', { input: { old_string: 'a\nb\nc', new_string: 'a\nB\nB2\nc' } })),
+    ).toEqual({ added: 2, removed: 1 });
+    expect(editStats(tool('a', 'write', { input: { content: 'one\ntwo' } }))).toEqual({
+      added: 2,
+      removed: 0,
+    });
+    expect(
+      editStats(tool('a', 'edit', { input: { $truncated: true, originalLength: 9, preview: '' } })),
+    ).toBeUndefined();
+    expect(editStats(tool('a', 'shell', { input: { content: 'x' } }))).toBeUndefined();
   });
 });
 
-describe('aggregateCounts', () => {
-  it('读取按不同路径计文件数，没有路径时按次数；搜索按次数', () => {
+describe('groupWork', () => {
+  it('连续的思考与各种工具合成一组；正文、错误、待办断开；子智能体标记并成一行', () => {
+    const subagent = (key: string): ChatPart => ({
+      type: 'subagent',
+      key,
+      subagent: {} as never,
+    });
+    const items = groupWork([
+      thought('r0'),
+      tool('1', 'read'),
+      thought('r1'),
+      tool('2', 'shell'),
+      tool('3', 'edit'),
+      text('say'),
+      tool('4', 'search'),
+      subagent('a:1'),
+      subagent('a:2'),
+      { type: 'error', key: 'e', category: 'unknown', message: 'x', fatal: false },
+      thought('r2'),
+      text('answer'),
+    ]);
     expect(
-      aggregateCounts([
-        tool('1', 'read', { display: { kind: 'read', paths: ['a.csv'] } }),
-        tool('2', 'read', { display: { kind: 'read', paths: ['a.csv'] } }),
-        tool('3', 'read', { display: { kind: 'read', paths: ['b.csv'] } }),
-        tool('4', 'search'),
-      ]),
-    ).toEqual({ files: 2, searches: 1 });
-    expect(aggregateCounts([tool('1', 'read'), tool('2', 'read')])).toEqual({
-      files: 2,
-      searches: 0,
+      items.map((item) =>
+        item.kind === 'work'
+          ? [item.key, item.entries.map((entry) => entry.key)]
+          : item.kind === 'subagents'
+            ? [item.key, item.parts.map((part) => part.key)]
+            : item.part.key,
+      ),
+    ).toEqual([
+      ['w:r0', ['r0', 't:1', 'r1', 't:2', 't:3']],
+      'say',
+      ['w:t:4', ['t:4']],
+      ['a:a:1', ['a:1', 'a:2']],
+      'e',
+      ['w:r2', ['r2']],
+      'answer',
+    ]);
+  });
+});
+
+describe('groupWork：开发模式的调试信息', () => {
+  it('不断开工作组；夹在子智能体标记之间的挪到那一行后面；只有调试信息时摘要写条数', () => {
+    const raw = (key: string): ChatPart => ({
+      type: 'raw',
+      key,
+      method: 'turn/diff/updated',
+      params: {},
+    });
+    const subagent = (key: string): ChatPart => ({ type: 'subagent', key, subagent: {} as never });
+    const items = groupWork([
+      tool('1', 'shell'),
+      raw('x1'),
+      tool('2', 'shell'),
+      subagent('a:1'),
+      raw('x2'),
+      subagent('a:2'),
+      text('answer'),
+    ]);
+    expect(
+      items.map((item) =>
+        item.kind === 'work'
+          ? item.entries.map((entry) => entry.key)
+          : item.kind === 'subagents'
+            ? item.parts.map((part) => part.key)
+            : item.part.key,
+      ),
+    ).toEqual([['t:1', 'x1', 't:2'], ['a:1', 'a:2'], ['x2'], 'answer']);
+    const debugOnly = items[2];
+    expect(debugOnly?.kind === 'work' && workSummary(tallyWork(debugOnly.entries, false))).toBe(
+      '1 条调试信息',
+    );
+  });
+});
+
+describe('工作组的摘要', () => {
+  it('各种工具混排、思考夹在中间：思考用时相加，读取与修改按不同路径计文件，增删行只算成功的修改', () => {
+    const entries: WorkEntry[] = [
+      thought('r0', 0, 12),
+      tool('1', 'read', { display: { kind: 'read', paths: ['a.ts'] } }),
+      tool('2', 'read', { display: { kind: 'read', paths: ['a.ts', 'b.ts'] } }),
+      thought('r1', 20, 25),
+      tool('3', 'search'),
+      tool('4', 'search'),
+      tool('5', 'edit', {
+        display: { kind: 'edit', paths: ['a.ts'] },
+        input: { old_string: 'x', new_string: 'y\nz' },
+      }),
+      tool('6', 'write', {
+        display: { kind: 'write', paths: ['c.ts'] },
+        input: { content: '1\n2\n3' },
+      }),
+      tool('7', 'shell'),
+      tool('8', 'fetch'),
+      tool('9', 'unknown'),
+      tool('10', 'plan'),
+    ];
+    const tally = tallyWork(entries, false);
+    expect(tally.thinkingMs).toBe(17_000);
+    expect(tally.lines).toEqual({ added: 5, removed: 1 });
+    expect(workSummary(tally)).toBe(
+      '思考了 17 秒，读取了 2 个文件，搜索了 2 次，修改了 2 个文件，运行了 1 条命令，获取了 1 个网页，更新了计划，调用了 1 个工具',
+    );
+    expect(workIssues(tally.issues)).toEqual([]);
+  });
+
+  it('失败、被拒绝、状态未知单独计数；失败的修改不算行数；没有思考时不写思考', () => {
+    const tally = tallyWork(
+      [
+        tool('1', 'shell', { status: 'failed' }),
+        tool('2', 'edit', {
+          status: 'failed',
+          approval: denied,
+          input: { old_string: 'a', new_string: 'b' },
+        }),
+        tool('3', 'shell', { status: 'running' }),
+      ],
+      false,
+    );
+    expect(tally.lines).toBeUndefined();
+    expect(workSummary(tally)).toBe('修改了 1 个文件，运行了 2 条命令');
+    expect(workIssues(tally.issues)).toEqual([
+      { kind: 'failed', text: '1 个失败' },
+      { kind: 'denied', text: '1 个被拒绝' },
+      { kind: 'unknown', text: '1 个状态未知' },
+    ]);
+  });
+});
+
+describe('逐条的一行', () => {
+  it('按状态写成“已运行 / 正在运行 / 等待审批：运行 / 运行失败 / 运行被拒绝 / 已取消运行 / 运行状态未知”', () => {
+    const shell = (extra: Partial<ToolPart>) =>
+      toolLine(
+        tool('a', 'shell', { display: { kind: 'shell', command: 'pnpm test' }, ...extra }),
+        true,
+      );
+    expect(shell({})).toEqual({ label: '已运行', target: 'pnpm test', tone: 'done' });
+    expect(shell({ status: 'running' })).toMatchObject({ label: '正在运行', tone: 'running' });
+    expect(shell({ status: 'awaiting_approval' })).toMatchObject({
+      label: '等待审批：运行',
+      tone: 'awaiting',
+    });
+    expect(shell({ status: 'failed' })).toMatchObject({ label: '运行失败', tone: 'failed' });
+    expect(shell({ status: 'failed', approval: denied })).toMatchObject({
+      label: '运行被拒绝',
+      tone: 'failed',
+    });
+    expect(shell({ status: 'cancelled' })).toMatchObject({ label: '已取消运行', tone: 'muted' });
+    expect(shell({ status: 'unknown' })).toMatchObject({ label: '运行状态未知', tone: 'unknown' });
+  });
+
+  it('各种类的动词与目标；未知工具显示工具名，计划不带目标', () => {
+    const read = tool('a', 'read', { display: { kind: 'read', paths: ['src/a.ts'] } });
+    expect(toolLine(read, true)).toMatchObject({ label: '已读取', target: 'src/a.ts' });
+    expect(toolLine(tool('a', 'write'), true).label).toBe('已写入');
+    expect(toolLine(tool('a', 'unknown', { toolName: 'mcp__x__y' }), true)).toMatchObject({
+      label: '已调用',
+      target: 'mcp__x__y',
+    });
+    expect(toolLine(tool('a', 'plan', { input: { todos: 'x' } }), true)).toEqual({
+      label: '已更新计划',
+      tone: 'done',
+    });
+  });
+
+  it('读取与修改的路径相对工作目录显示，命令原样', () => {
+    const root = '/Users/me/proj/';
+    const read = tool('a', 'read', {
+      display: { kind: 'read', summary: '/Users/me/proj/src/a.ts, /Users/me/other.ts' },
+    });
+    expect(toolLine(read, true, root).target).toBe('src/a.ts, /Users/me/other.ts');
+    const shell = tool('a', 'shell', {
+      display: { kind: 'shell', command: 'cat /Users/me/proj/src/a.ts' },
+    });
+    expect(toolLine(shell, true, root).target).toBe('cat /Users/me/proj/src/a.ts');
+    expect(relativeToRoot('/Users/me/proj', root)).toBe('.');
+    expect(relativeToRoot('/x/a.ts', undefined)).toBe('/x/a.ts');
+  });
+
+  it('思考：流式进行到一半时“正在思考”，后面已有输出或已提交后写用时', () => {
+    const streaming = thought('r', 0, 2.5, { state: 'streaming' });
+    expect(thoughtLine(streaming, false)).toEqual({ label: '正在思考', tone: 'running' });
+    expect(thoughtLine(streaming, true)).toEqual({ label: '思考了 2.5 秒', tone: 'done' });
+    expect(thoughtLine(thought('r', 0, 75), false).label).toBe('思考了 1 分 15 秒');
+  });
+});
+
+describe('currentAction', () => {
+  it('审批中的工具优先，其次最后一个在运行的，都没有时正在思考', () => {
+    const command = (id: string, status: ToolPart['status'], cmd: string) =>
+      tool(id, 'shell', { status, display: { kind: 'shell', command: cmd } });
+    expect(
+      currentAction([command('1', 'awaiting_approval', 'touch /x'), command('2', 'running', 'ls')]),
+    ).toEqual({ text: '等待审批：运行 touch /x', tone: 'awaiting' });
+    expect(
+      currentAction([command('1', 'running', 'pnpm lint'), command('2', 'running', 'pnpm test')]),
+    ).toEqual({ text: '正在运行 pnpm test', tone: 'running' });
+    expect(currentAction([command('1', 'completed', 'ls'), thought('r')])).toEqual({
+      text: '正在思考',
+      tone: 'running',
     });
   });
 });

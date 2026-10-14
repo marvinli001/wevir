@@ -48,7 +48,7 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 ## 3. 圆角、阴影、字号
 
-- **圆角**：`--radius-card`（12px）与 `--radius-control`（8px）。Tailwind 的阶梯由它们推导：`rounded-xs` 2、`sm` 4、`md` 6、`lg` 8、`xl` 12、`2xl` 16。卡片（工具卡片、审批卡片、设置里的列表卡片、窗格、对话框、浮层与菜单、消息输入框）用 `rounded-xl`，按钮、输入控件与列表项（左栏的行、菜单项、窗格标签）用 `rounded-lg`；嵌在卡片里的代码块、徽标用 `md` / `sm`。外层比内层大一阶。
+- **圆角**：`--radius-card`（12px）与 `--radius-control`（8px）。Tailwind 的阶梯由它们推导：`rounded-xs` 2、`sm` 4、`md` 6、`lg` 8、`xl` 12、`2xl` 16。卡片（审批卡片、设置里的列表卡片、窗格、对话框、浮层与菜单、消息输入框）用 `rounded-xl`，按钮、输入控件与列表项（左栏的行、菜单项、窗格标签）用 `rounded-lg`；嵌在卡片里的代码块、徽标用 `md` / `sm`。外层比内层大一阶。消息流里的执行过程不用卡片（U2：工作组与回合都是一行文字），子智能体标记与“N 个文件已更改”是 `rounded-full` 的小标签。
 - **阴影**：只有一档 `--elevation`，Tailwind 的 `shadow-xs` … `shadow-lg` 都是它。卡片默认不带阴影，浮起的东西（消息输入框、浮层、菜单、审批卡片）才带。浅色 `0 1px 2px rgba(26,26,23,.05), 0 10px 30px -16px rgba(26,26,23,.18)`，深色 `0 1px 2px rgba(0,0,0,.4), 0 12px 32px -16px rgba(0,0,0,.6)`。
 - **字号**：正文 `text-base` 14px / 行高 1.55；代码与控件 `text-sm` 13px；`text-xs` 12px。根字号仍是 16px，间距的 4px 网格不变。
 

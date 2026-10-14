@@ -1,11 +1,16 @@
-import type { ChatMessage, Transcript } from '@wevir/client-sdk';
+import type { Transcript } from '@wevir/client-sdk';
 import type { ClientIdentity } from '@wevir/protocol';
 import { ArrowDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
-import { MessageView } from './message-view';
+import { FoldScopeProvider } from './fold-state';
+import type { LiveState } from './live-indicator';
+import { SystemMessage } from './message-view';
 import { useStickToBottom } from './scroll-controller';
+import { groupTurns, isActiveTurn, turnStart } from './turn-model';
+import { TurnView } from './turn-view';
+import { WorkspaceRoot } from './work-group';
 
 /** 一次渲染的消息条数；往上滚到顶时再多渲染这么多（分段渲染，长会话不一次铺满 DOM）。 */
 export const RENDER_WINDOW = 60;
@@ -15,31 +20,42 @@ export interface TranscriptViewHandle {
 }
 
 /**
- * 消息流：分段渲染（最后 `RENDER_WINDOW` 条起的一段，滚到顶部附近时向前扩展），每条消息用
- * `content-visibility: auto` 跳过视口外的排版与绘制。贴底 / 手动两种滚动模式，离开底部时显示“跳到最新”。
+ * 消息流：分段渲染（最后 `RENDER_WINDOW` 条起的一段，滚到顶部附近时向前扩展；起点挪到所在回合的开头），按回合成块
+ * （turn-view.tsx：工作组与回合的折叠，U2），每块用 `content-visibility: auto` 跳过视口外的排版与绘制。贴底 / 手动
+ * 两种滚动模式，离开底部时显示“跳到最新”；点开或收起一处时保持位置（fold-state.tsx）。
  */
 export function TranscriptView({
   sessionId,
   transcript,
   self,
+  cwd,
   onReady,
 }: {
   sessionId: string;
   transcript: Transcript;
   self: ClientIdentity | undefined;
+  /** 会话的工作目录：工具的路径相对它显示。 */
+  cwd?: string;
   /** 交出滚动控制（发送消息时回到贴底）。 */
   onReady?: (handle: TranscriptViewHandle) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const { sticky, jumpToLatest } = useStickToBottom(containerRef, contentRef, sessionId);
+  const { sticky, jumpToLatest, holdPosition } = useStickToBottom(
+    containerRef,
+    contentRef,
+    sessionId,
+  );
   const { messages } = transcript;
   // 渲染从哪条消息开始。贴底时不固定：只渲染最后 RENDER_WINDOW 条，新消息进来时窗口随之后移，DOM 不随会话
   // 增长；手动阅读时固定在当前第一条，新消息只追加，正在读的内容不会被挪走。向前扩展同样固定。
   const [pinnedStart, setPinnedStart] = useState<string>();
   const pinnedIndex = pinnedStart ? messages.findIndex((m) => m.id === pinnedStart) : -1;
-  const start = pinnedIndex >= 0 ? pinnedIndex : Math.max(0, messages.length - RENDER_WINDOW);
+  const start = turnStart(
+    messages,
+    pinnedIndex >= 0 ? pinnedIndex : Math.max(0, messages.length - RENDER_WINDOW),
+  );
   const hidden = start;
   const firstRendered = messages[start]?.id;
 
@@ -83,16 +99,32 @@ export function TranscriptView({
               </Button>
             </div>
           )}
-          {messages.slice(start).map((message) => (
-            <div key={message.id} className="transcript-item" data-message-id={message.id}>
-              <MessageView
-                message={message}
-                turnActive={isTurnActive(message, transcript)}
-                hasSubagents={transcript.subagents.length > 0}
-                self={self}
-              />
-            </div>
-          ))}
+          <FoldScopeProvider sessionId={sessionId} onToggle={holdPosition}>
+            <WorkspaceRoot value={cwd}>
+              {groupTurns(messages.slice(start)).map((block) => (
+                <div
+                  key={block.key}
+                  className="transcript-item pt-6 first:pt-0"
+                  data-message-id={block.key}
+                >
+                  {block.kind === 'turn' ? (
+                    <TurnView
+                      turnId={block.turnId}
+                      messages={block.messages}
+                      turnActive={isActiveTurn(block.turnId, transcript)}
+                      {...(isActiveTurn(block.turnId, transcript) && {
+                        live: liveState(transcript.state),
+                      })}
+                      hasSubagents={transcript.subagents.length > 0}
+                      self={self}
+                    />
+                  ) : (
+                    block.message.role === 'system' && <SystemMessage message={block.message} />
+                  )}
+                </div>
+              ))}
+            </WorkspaceRoot>
+          </FoldScopeProvider>
         </div>
       </section>
       {!sticky && (
@@ -112,13 +144,10 @@ export function TranscriptView({
   );
 }
 
-/** 消息所属的回合是不是会话正在进行的那一个。 */
-function isTurnActive(message: ChatMessage, transcript: Transcript): boolean {
-  return (
-    message.role === 'assistant' &&
-    message.turnId === transcript.activeTurnId &&
-    (transcript.state === 'running' ||
-      transcript.state === 'awaiting_approval' ||
-      transcript.state === 'cancelling')
-  );
+function liveState(state: Transcript['state']): LiveState {
+  return state === 'awaiting_approval'
+    ? 'awaiting'
+    : state === 'cancelling'
+      ? 'stopping'
+      : 'running';
 }

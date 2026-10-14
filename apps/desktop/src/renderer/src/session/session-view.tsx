@@ -111,6 +111,7 @@ export function SessionView({ session }: { session: Session }) {
           sessionId={session.id}
           transcript={transcript}
           self={identity}
+          cwd={session.cwd}
           onReady={onReady}
         />
       ) : (
