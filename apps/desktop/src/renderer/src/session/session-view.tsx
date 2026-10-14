@@ -19,6 +19,7 @@ import { Composer, setDraft } from './composer';
 import { EnvironmentBar } from './environment-bar';
 import { historyDigest } from './history-digest';
 import { type ModelChoice, ModelPicker } from './model-picker';
+import { NewSessionHero, NewSessionLayout } from './new-session';
 import { PendingArea } from './pending-area';
 import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
@@ -134,42 +135,45 @@ export function SessionView({ session }: { session: Session }) {
         </p>
       )}
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
-        {transcript && <QuestionDock transcript={transcript} client={client} />}
-        {transcript && (
-          <ApprovalDock
-            transcript={transcript}
-            client={client}
-            self={identity}
-            subagentHref={subagentHref}
-          />
-        )}
-        <RecoveryPanel
-          // 换会话、或从出错变为只读（恢复失败的原因已经写在只读说明里）时重建，清掉上一次的失败提示。
-          key={`${session.id}:${readOnly ? 'read-only' : 'error'}`}
-          state={sessionState}
-          readOnly={readOnly}
-          lastError={transcript?.lastError ?? session.lastError}
-          disabled={!client || !transcript}
-          onResume={resume}
-          onFromHistory={startFromHistory}
-        />
-        {notice && (
-          <p
-            role="alert"
-            className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {notice}
-          </p>
-        )}
-        {transcript && (
-          <PendingArea
-            sessionId={session.id}
-            pending={transcript.pendingMessages}
+        {/* 输入框上方的提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
+        <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
+          {transcript && <QuestionDock transcript={transcript} client={client} />}
+          {transcript && (
+            <ApprovalDock
+              transcript={transcript}
+              client={client}
+              self={identity}
+              subagentHref={subagentHref}
+            />
+          )}
+          <RecoveryPanel
+            // 换会话、或从出错变为只读（恢复失败的原因已经写在只读说明里）时重建，清掉上一次的失败提示。
+            key={`${session.id}:${readOnly ? 'read-only' : 'error'}`}
             state={sessionState}
-            client={client}
-            onError={setNotice}
+            readOnly={readOnly}
+            lastError={transcript?.lastError ?? session.lastError}
+            disabled={!client || !transcript}
+            onResume={resume}
+            onFromHistory={startFromHistory}
           />
-        )}
+          {notice && (
+            <p
+              role="alert"
+              className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+            >
+              {notice}
+            </p>
+          )}
+          {transcript && (
+            <PendingArea
+              sessionId={session.id}
+              pending={transcript.pendingMessages}
+              state={sessionState}
+              client={client}
+              onError={setNotice}
+            />
+          )}
+        </div>
         <Composer
           key={session.id}
           draftKey={session.id}
@@ -253,7 +257,8 @@ function draftOrigin(state: unknown): DraftOrigin | undefined {
 }
 
 /**
- * 新会话草稿（`/workspace/:wid/session`）：选工作区与模型，发出第一条消息时才建会话，建好后跳到会话页。
+ * 新会话草稿（`/workspace/:wid/session`）：选工作区与模型，发出第一条消息时才建会话，建好后跳到会话页。U14 起与首页同一个
+ * 版式（session/new-session.tsx：标题居中、输入框贴底），换项目即换到那个项目的草稿页。
  */
 export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const { client } = useHostConnection();
@@ -273,74 +278,64 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
+  const selectProject = (id: string) => navigate(paths.draft(id));
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-content px-6 py-16 text-center">
-          <h2 className="text-lg font-medium">{t('session.draftTitle')}</h2>
-          <p className="mt-2 text-muted-foreground">
-            {t('session.draftBody', { workspace: entry.workspace.displayName })}
-          </p>
-          <p className="mt-1 font-mono text-sm break-all text-muted-foreground">
-            {entry.workspace.rootPath}
-          </p>
-        </div>
-      </div>
-      <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
-        {error && (
-          <p
-            role="alert"
-            className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          >
-            {error}
-          </p>
-        )}
-        {origin && (
-          <p
-            data-testid="draft-from-history"
-            className="mb-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
-          >
-            {t('history.draftNotice', { title: origin.fromTitle })}
-          </p>
-        )}
-        {noProvider && (
-          <div
-            role="alert"
-            className="mb-2 flex items-center gap-3 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
-          >
-            <span className="min-w-0 flex-1">{t('session.noProvider')}</span>
-            <Button
-              size="sm"
-              variant="outline"
-              nativeButton={false}
-              render={<Link to={paths.settings('providers')} state={{ from: location }} />}
+    <NewSessionLayout
+      hero={<NewSessionHero current={entry} workspaces={workspaces} onSelect={selectProject} />}
+      footer={
+        <>
+          {error && (
+            <p
+              role="alert"
+              className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
             >
-              {t('session.goProviders')}
-            </Button>
-          </div>
-        )}
-        <Composer
-          key={workspaceId}
-          draftKey={newSessionDraftKey(workspaceId)}
-          state="idle"
-          disabled={!client || !choice}
-          onSend={(text) => send(text)}
-          model={
-            providers &&
-            choice && <ModelPicker providers={providers} value={choice} onChange={choose} />
-          }
-          onStop={() => {}}
-          autoFocus
-          tray={
-            <EnvironmentBar
-              current={entry}
-              workspaces={workspaces}
-              onSelect={(id) => navigate(paths.draft(id))}
-            />
-          }
-        />
-      </div>
-    </div>
+              {error}
+            </p>
+          )}
+          {origin && (
+            <p
+              data-testid="draft-from-history"
+              className="mb-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
+            >
+              {t('history.draftNotice', { title: origin.fromTitle })}
+            </p>
+          )}
+          {noProvider && (
+            <div
+              role="alert"
+              className="mb-2 flex items-center gap-3 rounded-lg bg-warning/10 px-3 py-2 text-sm text-warning"
+            >
+              <span className="min-w-0 flex-1">{t('session.noProvider')}</span>
+              <Button
+                size="sm"
+                variant="outline"
+                nativeButton={false}
+                render={<Link to={paths.settings('providers')} state={{ from: location }} />}
+              >
+                {t('session.goProviders')}
+              </Button>
+            </div>
+          )}
+          <Composer
+            key={workspaceId}
+            variant="home"
+            draftKey={newSessionDraftKey(workspaceId)}
+            state="idle"
+            disabled={!client || !choice}
+            onSend={(text) => send(text)}
+            model={
+              providers &&
+              choice && <ModelPicker providers={providers} value={choice} onChange={choose} />
+            }
+            onStop={() => {}}
+            autoFocus
+            tray={
+              <EnvironmentBar current={entry} workspaces={workspaces} onSelect={selectProject} />
+            }
+          />
+        </>
+      }
+    />
   );
 }

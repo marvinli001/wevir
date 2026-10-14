@@ -253,7 +253,7 @@ function ApprovalCard({
         {presentation.target && (
           <pre
             data-approval-target
-            className="mt-3 max-h-44 overflow-auto rounded-lg bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-soft-foreground"
+            className="mt-3 max-h-[min(11rem,22vh)] overflow-auto rounded-lg bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-all text-soft-foreground"
           >
             {presentation.target}
           </pre>
