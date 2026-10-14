@@ -1,0 +1,83 @@
+// 窗格种类（R12，docs/architecture/desktop-layout.md §2.1）。纯数据：最小尺寸、形状、能否多开、是否已经实现；
+// 图标、名称与内容在 pane-registry.tsx。
+
+export const PANE_KINDS = [
+  'overview',
+  'subagents',
+  'changes',
+  'file',
+  'tasks',
+  'plan',
+  'terminal',
+  'session',
+] as const;
+
+export type PaneKind = (typeof PANE_KINDS)[number];
+
+/** 标签的参数，例如文件的相对路径。只放 ID 与路径这类短字符串，不放内容。 */
+export type PaneParams = Readonly<Record<string, string>>;
+
+export interface PaneKindSpec {
+  /** 整个窗格（含 36 px 的窗格头）的最小宽与高。 */
+  minWidth: number;
+  minHeight: number;
+  /** “高”的窗格优先占整列；上下叠放时“矮”的分得少一些（§4.3）。 */
+  shape: 'tall' | 'compact';
+  /** 能否多开。能多开的按 `identityParam` 判断是不是同一个；没有这个参数时每次都新开。 */
+  multiple: boolean;
+  identityParam?: string;
+  /** false：以后的任务才实现，只在开发模式里能打开占位，用来检查排布。 */
+  available: boolean;
+}
+
+export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
+  overview: { minWidth: 280, minHeight: 160, shape: 'compact', multiple: false, available: true },
+  subagents: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: false },
+  changes: { minWidth: 360, minHeight: 240, shape: 'tall', multiple: false, available: false },
+  file: {
+    minWidth: 360,
+    minHeight: 240,
+    shape: 'tall',
+    multiple: true,
+    identityParam: 'path',
+    available: false,
+  },
+  tasks: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: false },
+  plan: { minWidth: 280, minHeight: 160, shape: 'compact', multiple: false, available: false },
+  terminal: {
+    minWidth: 360,
+    minHeight: 160,
+    shape: 'compact',
+    multiple: true,
+    identityParam: 'id',
+    available: false,
+  },
+  session: {
+    minWidth: 400,
+    minHeight: 280,
+    shape: 'tall',
+    multiple: true,
+    identityParam: 'sessionId',
+    available: false,
+  },
+};
+
+export function isPaneKind(value: unknown): value is PaneKind {
+  return (PANE_KINDS as readonly unknown[]).includes(value);
+}
+
+/**
+ * 判断两个标签是不是“同一个”：单开的种类按种类；能多开的按 identityParam 的值，没有这个值就是独一份（返回
+ * undefined，打开时总是新开）。
+ */
+export function paneIdentity(kind: PaneKind, params: PaneParams | undefined): string | undefined {
+  const spec = PANE_KIND_SPECS[kind];
+  if (!spec.multiple) return kind;
+  const value = spec.identityParam === undefined ? undefined : params?.[spec.identityParam];
+  return value === undefined ? undefined : `${kind}:${value}`;
+}
+
+/** “打开窗格”菜单里能打开的种类：正式构建只有已经实现的，开发模式下还有以后的种类的占位。 */
+export function openableKinds(dev: boolean): PaneKind[] {
+  return PANE_KINDS.filter((kind) => dev || PANE_KIND_SPECS[kind].available);
+}

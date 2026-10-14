@@ -66,6 +66,8 @@ pnpm dev
 
 **调试。** 渲染进程：Chrome 打开 `chrome://inspect`，在 Configure 里加 `localhost:9339`，或直接用 `http://127.0.0.1:9339/json` 走 DevTools 协议。主进程的日志带 `[wevir-desktop]` 前缀，打在运行 `pnpm dev` 的终端里。Host 的日志在数据目录的 `logs/host.log`（§5.2）。
 
+**窗格布局。** 开发模式下顶栏“已打开的标签页”菜单的“打开窗格”里还列着以后的窗格种类（子智能体、变更、文件预览等）的占位，用来检查多个窗格的排布（[desktop-layout.md](./architecture/desktop-layout.md) §2.1）；正式构建里只有已经实现的种类。每个会话的窗格与尺寸存在渲染进程的 localStorage（`wevir.panes.v1`），想从头来过可以在 DevTools 里删掉它。
+
 **用 Codex 引擎跑桌面端。** 桌面端拉起的 Host 用默认的 dsh；要用 Codex，先在同一个数据目录里以 `--adapter codex` 启动 Host，桌面端会附着到它（R2 的验收就是这样做的；默认引擎改为 codex 是 R3）：
 
 ```bash

@@ -10,6 +10,8 @@ import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workb
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { draftScopeKey } from '@/layout/pane-state';
+import { movePaneScope } from '@/layout/pane-store';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
 import { Composer, setDraft } from './composer';
@@ -196,6 +198,8 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
         setError(sendError(reason));
         return false;
       }
+      // 草稿页打开的窗格跟着搬到新会话（desktop-layout.md §2.2）。
+      movePaneScope(draftScopeKey(workspaceId), session.id);
       navigate(paths.session(workspaceId, session.id));
       return true;
     },

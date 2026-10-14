@@ -11,7 +11,7 @@
 | [0003](./0003-storage.md) | 本地存储：`node:sqlite` 与骨架阶段的密钥文件 | Accepted | 2026-10-12 |
 | [0004](./0004-repo-tooling.md) | 仓库工具链 | Accepted | 2026-10-12 |
 | [0005](./0005-agent-runtime-and-model-gateway.md) | Agent 运行时以 Codex app-server 为主，Host 内置模型协议网关 | Accepted | 2026-10-14 |
-| [0006](./0006-desktop-workbench-panes.md) | 桌面工作台改为窗格模型，界面参考 Codex 与 Claude Code 桌面端 | Proposed | 2026-10-14 |
+| [0006](./0006-desktop-workbench-panes.md) | 桌面工作台改为窗格模型，界面参考 Codex 与 Claude Code 桌面端 | Accepted | 2026-10-14 |
 
 ## 文件格式
 
