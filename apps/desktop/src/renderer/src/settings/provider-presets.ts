@@ -45,12 +45,13 @@ export interface OpenAIPreset {
   docsURL?: string;
 }
 
-/** OpenAI 与 Anthropic 当前模型的五档推理，取自两家的模型文档（2026-10-14 核对）。 */
+/** OpenAI 与 Anthropic 模板共用的五档推理；支持关闭的模型另加 off。 */
 const FIVE_EFFORTS: ProviderModel['reasoningEfforts'] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
   {
-    // Responses 是 OpenAI 的主接口（Chat Completions 上这几个模型不能调工具），网关透传。
+    // Sol / Astra 调工具要求 Responses，Luna 在 Chat 上只有 none 支持函数调用，统一由网关透传 Responses
+    // （2026-10-15 核对，providers.md §7.8）。
     id: 'openai',
     name: 'provider.preset.openai',
     note: 'provider.preset.openai.note',
@@ -76,7 +77,7 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
         contextWindow: 1050000,
         maxTokens: 128000,
         supportsImages: true,
-        reasoningEfforts: FIVE_EFFORTS,
+        reasoningEfforts: ['off', ...FIVE_EFFORTS],
       },
     ],
     defaultModelId: 'gpt-6.1-sol',

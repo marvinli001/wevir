@@ -75,7 +75,7 @@ await gateway.close();                                   // 停止监听，中�
 
 - **请求体**：去掉 `client_metadata`（含 `x-codex-installation-id`、thread / turn ID、`x-codex-turn-metadata` 整段 JSON，codex-notes §3.1）。其余字段原样，包括 `prompt_cache_key`（值是 thread ID，上游用它做提示词缓存）、`include`、`store: false`、`reasoning`（§3.2 的通用修正除外）。
 - **请求头**：Codex 的请求头一个都不转发，因为上游请求头由网关重新组装（§2）。录制样本里 Codex 发的是 `originator`、`user-agent`、`session-id`、`thread-id`、`x-client-request-id`、`x-codex-window-id`、`x-codex-turn-metadata`、`x-codex-beta-features`，子 agent 另有 `x-openai-subagent`、`x-codex-parent-thread-id`；`authorization` 里的网关令牌换成上游 Key。
-- **响应**：状态码与正文原样转回；没有响应方向的方言修正时连字节都不动（`content-type` 用上游的），有时逐条解析 SSE、改写后重新编码（`text/event-stream`）。Codex 读到 `response.completed` 就断开（§6），这时上游的剩余字节不再转发。
+- **响应**：2xx 的正文原样转回；没有响应方向的方言修正时连字节都不动（`content-type` 用上游的），有时逐条解析 SSE、改写后重新编码（`text/event-stream`）。非 2xx 的状态码保留、错误正文按 §6 整理。Codex 读到 `response.completed` 就断开（§6），这时上游的剩余字节不再转发。
 
 ### 3.2 方言修正
 
@@ -91,6 +91,22 @@ await gateway.close();                                   // 停止监听，中�
 | `flatten-namespace-tools` | 生效的 `compat.supportsNamespaceTools === false`（§4.4） | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；具名 `tool_choice` 同样改名并去掉 `namespace`；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | xAI 的 OpenAPI 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段，而 Codex 的子 agent 工具在 `multi_agent_v1` 里（样本 `1-first-turn`）。没找到直接的 400 报告（R8 没有 xAI 的 Key），但摊平对认命名空间的上游同样可用，所以地址默认仍是 false；P0a 加了显式开关，经代理换地址也能生效，true 可覆盖地址默认 |
 
 还没做、留给以后按服务加的：MiniMax 的 `effort: none` 报 400；各家思考开关与 `reasoning.effort` 取值不同（codex-notes §5.3；xAI 的模型目录只列它认的档位，见国内服务模板）；DeepSeek 的 namespace 工具已实测支持（§7.3），不用摊平；Chat / Messages 转换写的推理信封（`wevir-gw:` 开头的 `encrypted_content`）在会话中途换成 Responses 上游时原样透传（Wevir 的会话不换 Provider，没有处理）；xAI 错误体顶层的 `code`（`{"code","error":"…"}`）经 §6 的整理会丢掉。
+
+### 3.3 OpenAI 官方 API 核对
+
+**2026-10-15 已核对**当前官方 Responses 文档与锁定 Codex 的请求，`https://api.openai.com/v1` 继续走透传，无需新增方言或 compat 字段：
+
+- 只剥离 `client_metadata`，不把它混进公开的 `metadata`。Codex 的内部请求头（包括 `X-OpenAI-Internal-Codex-Responses-Lite`）仍不转发，使用普通 Responses 端点；Wevir 自定义模型目录不会开启 Responses Lite 或新的输入项，触发条件见 §10。
+- `prompt_cache_key` 原样保留。官方缓存指南说明：GPT-5.6 起由服务自动路由缓存，该键仍可用于区分用量；不改成网关或 Provider ID。`prompt_cache_options`（包括 `ttl: "30m"`）原样透传；旧的 `prompt_cache_retention` 已标为弃用，但两者表达不同的保留策略，网关不自行互换、注入或删掉它。
+- `store: false` 时 reasoning 输出默认包含 `encrypted_content`，旧的 `include: ["reasoning.encrypted_content"]` 仍接受。两种请求写法都保留；响应字节不变，加密字符串不解码、不改写为网关信封。后续工具结果与下一回合的完整历史照常带回，仅清理 Codex 序列化的两个 null 键（§3.2）。
+- `reasoning.context`（auto / current_turn / all_turns）与 `reasoning.mode`（standard / pro）出现时原样透传，不主动补值。GPT-5.6 系列默认 all_turns，Sol 也支持；`store: false` 时依赖完整历史才能复用之前的推理，不能只带最后一条 reasoning。模型实际选用的 context 以上游响应为准。
+- `max_output_tokens` 的最小值 **16 已在官方参考中声明**，现有 `testProvider` 的 16 不变。连接探测只证明最小请求可达，不能证明工具调用与加密推理的跨回合往返。
+
+来源：[Responses create](https://developers.openai.com/api/reference/resources/responses/methods/create)、[推理与无状态历史](https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-without-stored-responses)、[提示词缓存](https://developers.openai.com/api/docs/guides/prompt-caching)。模型与地域说明见 [providers.md §7.8](./providers.md#78-openairesponses)。
+
+本地测试用四份录制请求确认只发生已有的字段清理，用 HTTP mock 确认加密推理在工具结果与下一回合都完整带回、响应 SSE 字节不变。新参数是按文档补入测试请求的，不声称锁定 Codex 已发送它们。真实 Key 的 Sol / Luna 契约第 3 层与桌面端工具对话尚未执行（§10）。
+
+对应测试：`upstream.test.ts`（四份录制请求与新旧缓存参数），`openai.integration.test.ts`（有 / 无 include 的三步历史、null 清理、原始 SSE 与请求头隔离）。
 
 ## 4. Chat Completions 转换
 
@@ -373,6 +389,7 @@ Codex 升级时重查上述字段默认值、Provider 判定与触发条件；�
 
 - Gemini 原生协议（经兼容端点够用，§4.5）；Gemini 的思考内容不返回、不显示。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
+- OpenAI 官方 API：2026-10-15 只完成文档与本地 mock 核对（§3.3）。缺 `WEVIR_TEST_API_KEY`，Sol / Luna 的契约第 3 层、桌面端 `apply_patch` 与 Luna 的关闭推理选项仍待真实服务验证，命令见 docs/development.md §6.3。
 - Messages：缺签名的思考不带回（§5.3）；`thinkingFormat` 只有 `adaptive` / `enabled` 两种，Sonnet 4.5、Haiku 4.5 不认 `output_config.effort` 却没有开关去掉；`max_tokens` 的默认值 32000 对上限更低的服务要在 Provider 里写明；Anthropic 的 HTTP 400 “prompt is too long”原样转回，Codex 不会把它认成上下文超长（只有流里的 `context_length_exceeded` 才会）；不发 `metadata.user_id`、`stop_sequences`、服务端工具；`custom_tool_call_input.delta` 同 Chat，不生成。
 - Chat 转换不传 `parallel_tool_calls`、`strict`（为兼容性）；`reasoning.summary` 没有对应。§4.4 的思考格式以官方文档与 mock 验证，缺真实 Key 时不能算各服务的验收；minimax / tencent 扩展目前不能用于 dsh；Qwen 新 reasoning.effort 的替代接口留给服务接入时核对，目前沿用仍有官方文档的 enable_thinking。模型别名不能据名称认出强制思考能力时，须在模型目录准确声明 reasoningEfforts。
 - 图片只支持 data URL 与网址，`file_id` 引用丢掉。

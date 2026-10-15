@@ -545,7 +545,8 @@ export const zhCN = {
   'account.chatgpt.usage.resetsOn': '{month} 月 {day} 日 {time} 重置',
 
   'provider.preset.openai': 'OpenAI',
-  'provider.preset.openai.note': 'OpenAI 官方 API（Responses）；中国内地无法直连。',
+  'provider.preset.openai.note':
+    'OpenAI 官方 API（Responses）；中国大陆无法直连，且大陆、香港、澳门不在支持地区，使用可能导致账号被封禁或暂停。',
   'provider.preset.anthropic': 'Anthropic',
   'provider.preset.anthropic.note': 'Anthropic 官方 API（Messages）；中国内地无法直连。',
   'provider.catalog.openai': 'OpenAI',

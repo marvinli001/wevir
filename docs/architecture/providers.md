@@ -193,7 +193,7 @@ Codex 的 Chat 转换也读取 `thinkingFormat`（2026-10-15）：`openai` / `de
 
 ## 7. 服务示例（`openai-compatible`）
 
-以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出是示意值，按服务文档填写。所有地址都不是 `api.openai.com`，§2.3 的默认 compat 会自动补上，一般不需要写 `compat`。
+以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
 
 ### 7.1 DeepSeek
 
@@ -349,9 +349,11 @@ Codex 引擎经网关的 Chat 转换走 Gemini 的 OpenAI 兼容端点（model-g
 
 来源：ai.google.dev 的 openai、models、thought-signatures 页（2026-10-13）。3.8 Flash 与 4 Argon 不认 `minimal`，模型目录里不列。
 
-### 7.8 OpenAI（U6）
+### 7.8 OpenAI（Responses）
 
-Codex 引擎经网关透传 Responses（这几个模型在 Chat Completions 上不能调工具）；dsh 不适用。大陆无法直连。
+Codex 引擎经网关透传到官方按量 API `https://api.openai.com/v1/responses`，不需要额外 compat。Sol 与 Astra 的工具调用要求 Responses；Luna 在 Chat Completions 上只有关闭推理时支持函数调用，因此模板统一使用 Responses。三款模型都支持图片输入、1,050,000 token 上下文与最多 128,000 token 输出；默认模型仍是 `gpt-6.1-sol`，不加入旧一代模型。dsh 不适用。
+
+中国大陆无法直连；中国大陆、香港、澳门都不在 OpenAI 的支持地区内，在不支持地区访问或提供访问可能导致账号被封禁或暂停。使用前应查看[官方支持地区](https://developers.openai.com/api/docs/supported-countries)。Key 在 [OpenAI Platform](https://platform.openai.com/api-keys) 创建。
 
 ```json
 {
@@ -363,14 +365,18 @@ Codex 引擎经网关透传 Responses（这几个模型在 Chat Completions 上�
   "models": [
     { "id": "gpt-6.1-sol", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
     { "id": "gpt-6-astra", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
-    { "id": "gpt-6-luna", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] }
+    { "id": "gpt-6-luna", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["off", "low", "medium", "high", "xhigh", "max"] }
   ],
   "defaultModelId": "gpt-6.1-sol",
   "apiKey": "<OpenAI API Key>"
 }
 ```
 
-来源：developers.openai.com 的 models 页（2026-10-14）。Luna 还接受 `none`，Wevir 的推理档位没有这一档，不列。
+Luna 的 `off` 经 adapter-codex 的 `toCodexEffort` 映射为 `none`：模型目录、建会话与会话内改档位都走这个映射，网关原样透传 `reasoning.effort: none`。Sol 与 Astra 不列 `off` 或 `minimal`，只列 low–max。
+
+**已有 Provider 不自动迁移。** 用旧模板建的 OpenAI Provider 仍保留原来的档位。需要给 Luna 加“关闭”时，经 `provider.upsert` 提交原 Profile 的配置，仅把它的 `models` 中 Luna 的 `reasoningEfforts` 改成上例的六档；保留其他模型、地址、协议和默认模型，省略 `apiKey` 以保留已存 Key。桌面表单目前不编辑推理档位，编辑已有 Provider 不会自动套新模板。
+
+来源与核对日期：**2026-10-15 已核对** [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、[GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)、[GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna)、[GPT-6 接口说明](https://developers.openai.com/api/docs/guides/latest-model#gpt-6-astra-update-api-and-model-parameters)。Responses 字段与加密推理的核对见 [model-gateway.md §3.3](./model-gateway.md#33-openai-官方-api-核对)。没有提供真实 Key，契约第 3 层（Sol、Luna）与桌面端 `apply_patch` 对话仍未验证，不能用本地 mock 结果代替。
 
 ### 7.9 Anthropic（U6）
 

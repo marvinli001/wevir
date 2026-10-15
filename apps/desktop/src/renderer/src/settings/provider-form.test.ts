@@ -4,6 +4,7 @@ import {
   ProviderTestFailureSchema,
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
+import { catalogEntry } from './provider-catalog';
 import {
   connectionChanged,
   deepseekModelChoices,
@@ -75,6 +76,42 @@ describe('预设模板（providers.md §7）', () => {
   it('模板里模型的图片、推理档位原样保留', () => {
     const params = toUpsertParams(newOpenAIForm(deepseekOpenAI, []));
     expect(params.models).toEqual(deepseekOpenAI.models);
+  });
+
+  it('OpenAI 目录使用 Responses 模板，只有 Luna 提供关闭推理，保存后仍保留各模型的档位', () => {
+    const entry = catalogEntry('openai');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 OpenAI 模板');
+    const params = upsertSchema.parse(toUpsertParams(newOpenAIForm(entry.source.preset, [])));
+    if (params.kind !== 'openai-compatible') throw new Error('OpenAI 模板的 Provider 类型不对');
+    expect(params).toMatchObject({
+      api: 'openai-responses',
+      baseURL: 'https://api.openai.com/v1',
+      defaultModelId: 'gpt-6.1-sol',
+    });
+    const five = ['low', 'medium', 'high', 'xhigh', 'max'];
+    expect(params.models.map(({ id, reasoningEfforts }) => ({ id, reasoningEfforts }))).toEqual([
+      { id: 'gpt-6.1-sol', reasoningEfforts: five },
+      { id: 'gpt-6-astra', reasoningEfforts: five },
+      { id: 'gpt-6-luna', reasoningEfforts: ['off', ...five] },
+    ]);
+  });
+
+  it('编辑旧 OpenAI Provider 不自动把 Luna 的档位换成新模板', () => {
+    const models: EditableProvider['models'] = [
+      { id: 'gpt-6-luna', reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    ];
+    const form = editForm(
+      profile({
+        id: 'openai',
+        api: 'openai-responses',
+        baseURL: 'https://api.openai.com/v1',
+        models,
+        defaultModelId: 'gpt-6-luna',
+      }),
+    );
+    const params = upsertSchema.parse(toUpsertParams(form));
+    expect(params).toMatchObject({ models });
+    expect(params).not.toHaveProperty('apiKey');
   });
 
   it('建议的 ID 已被占用时加序号', () => {
