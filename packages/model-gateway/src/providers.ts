@@ -148,6 +148,11 @@ export function isOpenAIOfficial(baseURL: string): boolean {
   return hostnameOf(baseURL) === 'api.openai.com';
 }
 
+/** Anthropic 按量 API；其他 Messages 兼容服务不套用 Claude 的模型限制。 */
+export function isAnthropicHost(baseURL: string): boolean {
+  return hostnameOf(baseURL) === 'api.anthropic.com';
+}
+
 export function isDeepSeekHost(baseURL: string): boolean {
   return /(^|\.)deepseek\.com$/.test(hostnameOf(baseURL));
 }

@@ -80,6 +80,8 @@ Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 
 
 Codex 的 Chat 转换也读取 `thinkingFormat`（2026-10-15）：`openai` / `deepseek` / `qwen` / `zai` 使用与 pi-ai 同名格式相同的参数位置与开关语义；力度、none、强制思考模型与预算的映射见 [model-gateway.md §4.4](./model-gateway.md#44-网关的-compat-开关)。`minimax` / `tencent` 是网关扩展，当前只用于 Codex，dsh 上游的配置枚举不认这两个值。通过代理接入时必须显式写格式；DeepSeek 地址仍默认 deepseek。推理必填的默认值按格式补，显式 `requiresReasoningContentOnAssistantMessages: false` 可以停止补空串；模型已返回的推理不删除。只收 auto 的服务另设 `toolChoice: auto_only`。这些规则不更新模板、不自动改已有 Provider，桌面表单仍原样保存 compat。
 
+Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice、默认 effort 与 none，4.7 起去掉采样参数；代理地址可显式 `thinkingFormat: adaptive` 开启同样的 Claude 方言。中途 system 的模式另由 `systemMessageMode` 决定：当前四款模型在官方地址默认 inline，代理要显式 inline；旧模型仍按 user。toolChoice 的显式声明优先于模型默认。详见 [model-gateway.md §5](./model-gateway.md#5-anthropic-messages-转换)。
+
 ### 2.4 生成的 overlay 示例
 
 `deepseek-official`（有 Key）加一个 Kimi：
@@ -378,9 +380,11 @@ Luna 的 `off` 经 adapter-codex 的 `toCodexEffort` 映射为 `none`：模型�
 
 来源与核对日期：**2026-10-15 已核对** [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)、[GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)、[GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna)、[GPT-6 接口说明](https://developers.openai.com/api/docs/guides/latest-model#gpt-6-astra-update-api-and-model-parameters)。Responses 字段与加密推理的核对见 [model-gateway.md §3.3](./model-gateway.md#33-openai-官方-api-核对)。没有提供真实 Key，契约第 3 层（Sol、Luna）与桌面端 `apply_patch` 对话仍未验证，不能用本地 mock 结果代替。
 
-### 7.9 Anthropic（U6）
+### 7.9 Anthropic（官方按量 API）
 
-Codex 引擎经网关转 Messages（R10，[model-gateway.md](./model-gateway.md) §5；`claude-` 开头的模型用 adaptive 思考，档位放进 `output_config.effort`）；dsh 不适用。大陆无法直连。
+Codex 引擎经网关转 Messages（[model-gateway.md §5](./model-gateway.md#5-anthropic-messages-转换)）；官方原生接口是 Messages，因此用转换路由。四款当前主力模型均支持图片输入、1M 上下文、128K 输出和五档 effort；默认模型仍是 Opus 5.5。模板显式声明 adaptive 与 inline，保证使用代理地址时仍按 Claude 的模型限制处理；dsh 不适用。
+
+中国内地无法直连；中国内地、香港、澳门均不在[官方支持地区](https://www.anthropic.com/legal/supported-regions)内。Key 在 [Claude Console](https://platform.claude.com/settings/keys) 创建。当前只支持绑定单个 workspace 的 Key：未绑定的个人 / 服务账号 Key 要额外发送 `anthropic-workspace-id`，Wevir 暂未提供该字段。网关继续使用官方仍支持的 legacy `x-api-key`，不同时发送 Authorization；不接订阅套餐。
 
 ```json
 {
@@ -389,6 +393,7 @@ Codex 引擎经网关转 Messages（R10，[model-gateway.md](./model-gateway.md)
   "displayName": "Anthropic",
   "api": "anthropic-messages",
   "baseURL": "https://api.anthropic.com",
+  "compat": { "thinkingFormat": "adaptive", "systemMessageMode": "inline" },
   "models": [
     { "id": "claude-opus-5-5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
     { "id": "claude-sonnet-5-5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
@@ -400,7 +405,11 @@ Codex 引擎经网关转 Messages（R10，[model-gateway.md](./model-gateway.md)
 }
 ```
 
-来源：platform.claude.com 的 models overview 与 effort 页（2026-10-14）。四个模型都支持五档 effort；Opus 5.5 的思考不能关（`none` 会 400），所以不列 `off`。
+Opus 5.5 / Haiku 5.5 的默认 effort 为 medium，Sonnet 5.5 / Fable 5.1 为 high，网关总是显式发送。Opus / Fable 不能关闭思考；Sonnet 的最低模式 between_tools 仍在工具间思考。模板保持五档、不列 off。旧配置或外部请求传入 none 时，网关按型号用 adaptive / between_tools / disabled 并显式 low，避免发送不合法的 disabled。Opus / Sonnet / Fable 的 forced tool_choice 改 auto，Haiku 保留；采样与 system 的位置规则见 model-gateway.md §5。
+
+**已有 Provider 不自动迁移。** 原来的官方地址、协议、四款模型与默认模型不用改，网关会按地址识别限制。通过代理使用旧 Provider 时，经 `provider.upsert` 提交原配置并把 `compat` 与上例的两个字段合并；保留自己的其他 compat、模型与地址，省略 apiKey 以保留已存 Key。原来显式配置了 `systemMessageMode: user` 的继续按 user 工作；要使用 system 角色请手动改 inline。若用的是 Claude 4.5 及更早型号，保持 `thinkingFormat: enabled` 与旧的 user 模式，不照抄当前模板；这些旧型号的 effort 支持局限见 model-gateway.md §10。
+
+来源与核对日期：**2026-10-15 已核对** [模型目录](https://platform.claude.com/docs/en/models/overview)、[effort](https://platform.claude.com/docs/en/build-with-claude/effort)、[认证](https://platform.claude.com/docs/en/manage-claude/authentication)、[思考模式与限制](https://platform.claude.com/docs/en/build-with-claude/thinking)、[手动思考的兼容性](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)、[中途 system](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)、[思考前缀](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)。当前没有提供 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面端 apply_patch 对话未验收；本地录制请求与严格 HTTP mock 通过不代表真实服务通过。
 
 桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 要 Google Cloud 的 OAuth 令牌，模型网关还没有，先标“即将支持”。
 

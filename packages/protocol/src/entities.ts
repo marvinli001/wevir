@@ -107,12 +107,12 @@ export const ProviderCompatSchema = z.object({
   supportsCustomTools: z.boolean().optional(),
   /** Responses 的 namespace 工具支持（0.12.0）：false 时摊平；省略时 xAI 地址为 false，其余为 true。 */
   supportsNamespaceTools: z.boolean().optional(),
-  /** Responses / Chat 的工具选择（0.12.0）：auto_only 改 required / 具名为 auto，none 只去掉 tool_choice。 */
+  /** 网关三条路的工具选择（0.12.0）：auto_only 改 required / 具名为 auto，none 只去掉 tool_choice。 */
   toolChoice: z.enum(['any', 'auto_only']).optional(),
   /**
    * `openai-completions` 上游怎样收对话中间的 developer / system 消息（0.4.0）：`inline`（默认）原位转 system；
    * `merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。
-   * `anthropic-messages` 上默认 `user`，`merge` 并进顶层 `system`。
+   * `anthropic-messages` 的当前 Claude 支持 inline（user 之后追加 system），旧模型按 user；merge 并进顶层 system。
    */
   systemMessageMode: z.enum(['inline', 'merge', 'user']).optional(),
 });

@@ -736,7 +736,8 @@ export const messages: Messages = {
   'provider.preset.openai.note':
     'Нет прямого доступа из материкового Китая; материковый Китай, Гонконг и Макао не входят в поддерживаемые регионы, использование может привести к ограничению аккаунта.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': 'Нет прямого доступа из материкового Китая.',
+  'provider.preset.anthropic.note':
+    'Официальный API с оплатой по использованию. Прямой доступ из материкового Китая недоступен; материковый Китай, Гонконг и Макао не поддерживаются. Используйте Key, привязанный к одному workspace.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',

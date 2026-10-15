@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { SYSTEM_AS_USER_NOTE } from '../chat/request.js';
 import { CODEX_SAMPLES, codexRequest } from '../test-fixtures/codex.js';
+import { messagesProblem } from '../test-fixtures/mock-messages.js';
 import { flatToolName } from '../tools.js';
 import type {
   GatewayProvider,
@@ -576,5 +577,185 @@ describe('请求参数', () => {
       top_p: 0.9,
       output_config: { effort: 'low', format: { type: 'json_schema', schema: { type: 'object' } } },
     });
+  });
+});
+
+describe('Anthropic 当前模型限制', () => {
+  const models = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'];
+  const official = (compat?: GatewayProvider['compat']) =>
+    provider({ baseURL: 'https://api.anthropic.com', compat });
+
+  it.each(models)('%s 的四份录制请求都通过严格 Messages 校验，不改原始样本', (model) => {
+    for (const name of CODEX_SAMPLES) {
+      const body = { ...codexRequest(name).body, model };
+      const original = structuredClone(body);
+      const { request: r } = toMessagesRequest(body, official());
+      expect(messagesProblem(r), name).toBeUndefined();
+      expect(r.thinking?.type, name).not.toBe('enabled');
+      expect(r.output_config?.effort, name).toBe('high');
+      expect(body).toEqual(original);
+    }
+  });
+
+  it.each([
+    ['claude-opus-5-5', 'adaptive', 'medium'],
+    ['claude-sonnet-5-5', 'between_tools', 'high'],
+    ['claude-haiku-5-5', 'disabled', 'medium'],
+    ['claude-fable-5-1', 'adaptive', 'high'],
+  ])('%s 的 none 用 %s + low，未指定 effort 时显式发 %s', (model, mode, defaultEffort) => {
+    const r = toMessagesRequest(
+      request('x', { model, reasoning: { effort: 'none' } }),
+      official(),
+    ).request;
+    expect(r.thinking).toEqual({ type: mode });
+    expect(r.output_config).toEqual({ effort: 'low' });
+    expect(messagesProblem(r)).toBeUndefined();
+    const defaults = toMessagesRequest(request('x', { model }), official()).request;
+    expect(defaults.thinking).toBeUndefined();
+    expect(defaults.output_config).toEqual({ effort: defaultEffort });
+  });
+
+  it('Opus / Sonnet / Fable 不发 forced choice，Haiku 与旧模型保留；显式开关优先', () => {
+    const body = codexRequest('1-first-turn').body;
+    const choice = (model: string, tool_choice: unknown, compat?: GatewayProvider['compat']) =>
+      toMessagesRequest(
+        { ...body, model, tool_choice, parallel_tool_calls: false },
+        official(compat),
+      ).request.tool_choice;
+    for (const model of models.filter((m) => m !== 'claude-haiku-5-5')) {
+      for (const tool of ['required', { type: 'custom', name: 'apply_patch' }]) {
+        expect(choice(model, tool)).toEqual({ type: 'auto', disable_parallel_tool_use: true });
+      }
+      expect(choice(model, 'none')).toEqual({ type: 'none' });
+      expect(choice(model, 'required', { toolChoice: 'any' })).toMatchObject({ type: 'any' });
+    }
+    for (const model of ['claude-haiku-5-5', 'claude-opus-4-8', 'deepseek-flash']) {
+      expect(choice(model, 'required')).toMatchObject({ type: 'any' });
+    }
+    expect(
+      choice('claude-haiku-5-5', {
+        type: 'function',
+        name: 'wait_agent',
+        namespace: 'multi_agent_v1',
+      }),
+    ).toEqual({
+      type: 'tool',
+      name: 'multi_agent_v1__wait_agent',
+      disable_parallel_tool_use: true,
+    });
+    expect(choice('deepseek-flash', 'required', { toolChoice: 'auto_only' })).toMatchObject({
+      type: 'auto',
+    });
+    expect(choice('deepseek-flash', 'none', { toolChoice: 'auto_only' })).toMatchObject({
+      type: 'auto',
+    });
+  });
+
+  it('采样只在官方地址或显式 adaptive 上按 Claude 版本去掉，不波及其他兼容服务', () => {
+    const convert = (model: string, p = official()) =>
+      toMessagesRequest(request('x', { model, temperature: 1, top_p: 1 }), p);
+    for (const model of [
+      ...models,
+      'claude-opus-4-7',
+      'claude-opus-4-8',
+      'claude-sonnet-5',
+      'claude-opus-5-5-20261001',
+    ]) {
+      expect(convert(model).request).not.toHaveProperty('temperature');
+      expect(convert(model).request).not.toHaveProperty('top_p');
+      expect(convert(model).dropped).toEqual(['field:temperature', 'field:top_p']);
+    }
+    for (const model of ['claude-opus-4-6', 'claude-haiku-4-5', 'deepseek-flash', 'm']) {
+      expect(convert(model).request).toMatchObject({ temperature: 1, top_p: 1 });
+    }
+    expect(convert('claude-opus-5-5', provider()).request).toMatchObject({
+      temperature: 1,
+      top_p: 1,
+    });
+    expect(
+      convert('claude-opus-5-5', provider({ baseURL: 'https://api.anthropic.com.example.com' }))
+        .request,
+    ).toHaveProperty('top_p', 1);
+    expect(
+      convert('claude-opus-5-5', provider({ compat: { thinkingFormat: 'adaptive' } })).request,
+    ).not.toHaveProperty('top_p');
+  });
+
+  it('中途 system 在 user 输入之后、assistant 之前或末尾；显式 user / merge 与旧模型保持原规则', () => {
+    const input = [
+      developer('基础'),
+      user('问'),
+      assistant('答'),
+      developer('权限改变'),
+      user('继续'),
+    ];
+    for (const model of models) {
+      const r = toMessagesRequest(request(input, { model }), official()).request;
+      expect(roles(r.messages)).toEqual(['user', 'assistant', 'user', 'system']);
+      expect(r.messages.at(-1)?.content[0]?.text).toBe('权限改变');
+      expect(r.system?.map((b) => b.text)).toEqual(['基础']);
+      expect(messagesProblem(r)).toBeUndefined();
+      const replay = toMessagesRequest(
+        request([...input, assistant('好'), user('下一轮')], { model }),
+        official(),
+      ).request;
+      expect(roles(replay.messages)).toEqual([
+        'user',
+        'assistant',
+        'user',
+        'system',
+        'assistant',
+        'user',
+      ]);
+      expect(messagesProblem(replay)).toBeUndefined();
+    }
+    const body = request(input, { model: 'claude-sonnet-5-5' });
+    expect(
+      roles(toMessagesRequest(body, official({ systemMessageMode: 'user' })).request.messages),
+    ).toEqual(['user', 'assistant', 'user']);
+    expect(
+      toMessagesRequest(body, official({ systemMessageMode: 'merge' })).request.system?.map(
+        (b) => b.text,
+      ),
+    ).toEqual(['基础', '权限改变']);
+    expect(
+      roles(
+        toMessagesRequest(
+          { ...body, model: 'claude-opus-4-6' },
+          official({ systemMessageMode: 'inline' }),
+        ).request.messages,
+      ),
+    ).toEqual(['user', 'assistant', 'user']);
+    const proxy = provider({ compat: { systemMessageMode: 'inline' } });
+    expect(roles(toMessagesRequest(body, proxy).request.messages)).toEqual([
+      'user',
+      'assistant',
+      'user',
+      'system',
+    ]);
+  });
+
+  it('中途指令不拆开工具调用与全部结果；没有后续 user 时用注明来源的 user', () => {
+    const body = request(
+      [
+        user('问'),
+        { type: 'function_call', name: 'exec_command', call_id: 'a', arguments: '{}' },
+        { type: 'function_call', name: 'exec_command', call_id: 'b', arguments: '{}' },
+        { type: 'function_call_output', call_id: 'a', output: 'a' },
+        developer('权限改变'),
+        { type: 'function_call_output', call_id: 'b', output: 'b' },
+      ],
+      { model: 'claude-sonnet-5-5' },
+    );
+    const r = toMessagesRequest(body, official()).request;
+    expect(roles(r.messages)).toEqual(['user', 'assistant', 'user', 'system']);
+    expect(types(r.messages[2])).toEqual(['tool_result', 'tool_result']);
+    expect(messagesProblem(r)).toBeUndefined();
+    const fallback = toMessagesRequest(
+      request([user('问'), assistant('答'), developer('新指令')], { model: body.model }),
+      official(),
+    ).request;
+    expect(fallback.messages.at(-1)?.content[0]?.text).toBe(`${SYSTEM_AS_USER_NOTE}\n新指令`);
+    expect(messagesProblem(fallback)).toBeUndefined();
   });
 });

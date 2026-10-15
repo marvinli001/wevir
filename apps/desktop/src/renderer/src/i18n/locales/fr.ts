@@ -729,7 +729,8 @@ export const messages: Messages = {
   'provider.preset.openai.note':
     'Pas d’accès direct depuis la Chine continentale ; la Chine continentale, Hong Kong et Macao ne font pas partie des régions prises en charge, et l’utilisation peut entraîner une restriction du compte.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': 'Pas d’accès direct depuis la Chine continentale.',
+  'provider.preset.anthropic.note':
+    'API officielle facturée à l’usage. Pas d’accès direct depuis la Chine continentale ; la Chine continentale, Hong Kong et Macao ne sont pas pris en charge. Utilisez une Key liée à un seul workspace.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',

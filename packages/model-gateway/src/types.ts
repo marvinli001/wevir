@@ -81,7 +81,7 @@ export interface MessagesBlock {
 }
 
 export interface MessagesMessage {
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: MessagesBlock[];
 }
 
@@ -114,12 +114,13 @@ export interface GatewayCompat extends ProviderCompatConfig {
   supportsCustomTools?: boolean;
   /** Responses 上游不支持 namespace 时设 false；省略时 xAI 地址默认 false，其余 true。 */
   supportsNamespaceTools?: boolean;
-  /** Responses / Chat 的工具选择限制；auto_only 的 none 只去掉 tool_choice、保留 tools。默认 any。 */
+  /** 三种处理方式的工具选择限制；auto_only 的 none 只去掉 tool_choice、保留 tools。 */
   toolChoice?: 'any' | 'auto_only';
   /**
    * Chat 上游怎样收对话中间的 developer / system 消息：`inline`（默认）原位转 system；`merge` 全部并进开头的
    * 一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。
-   * Messages 上游没有 `inline`：默认与 `inline` 都按 `user` 处理，`merge` 并进顶层 system。
+   * Messages 的当前四款 Claude 支持 `inline`：放在这一段 user 输入之后，官方地址默认开启；旧模型按 user。
+   * 显式 `user` 保持注明来源的 user 消息，`merge` 并进顶层 system（model-gateway.md §5.1）。
    */
   systemMessageMode?: 'inline' | 'merge' | 'user';
   /**

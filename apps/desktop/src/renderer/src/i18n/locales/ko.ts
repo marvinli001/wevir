@@ -710,7 +710,8 @@ export const messages: Messages = {
   'provider.preset.openai.note':
     '중국 본토에서 직접 연결 불가. 중국 본토, 홍콩, 마카오는 지원 지역이 아니며 사용 시 계정이 제한될 수 있습니다.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': '중국 본토에서 직접 연결 불가.',
+  'provider.preset.anthropic.note':
+    '공식 종량제 API. 중국 본토에서 직접 연결할 수 없으며 중국 본토·홍콩·마카오는 지원 지역이 아닙니다. 단일 workspace에 연결된 Key를 사용하세요.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',

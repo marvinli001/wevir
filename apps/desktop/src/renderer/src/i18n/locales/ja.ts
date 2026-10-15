@@ -720,7 +720,8 @@ export const messages: Messages = {
   'provider.preset.openai.note':
     '中国本土からは直接接続できません。中国本土、香港、マカオはサポート対象地域外のため、利用するとアカウントが制限される可能性があります。',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': '中国本土からは直接接続できません。',
+  'provider.preset.anthropic.note':
+    '公式の従量課金 API。中国本土からは直接接続できず、中国本土・香港・マカオはサポート対象外です。単一の workspace に紐づく Key を使用してください。',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',

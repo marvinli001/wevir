@@ -6,7 +6,8 @@
 
 import { createHash } from 'node:crypto';
 import { SYSTEM_AS_USER_NOTE, textOf } from '../chat/request.js';
-import { isObject, ToolNames, toChatTools } from '../tools.js';
+import { isAnthropicHost } from '../providers.js';
+import { compatibleToolChoice, isObject, ToolNames, toChatTools } from '../tools.js';
 import type {
   GatewayProvider,
   JsonObject,
@@ -104,11 +105,31 @@ export const PLACEHOLDER_TOOL_DESCRIPTION =
 /** 开启缓存的块：Anthropic 官方要显式标注才缓存；兼容服务多半忽略这个字段。 */
 const CACHE_CONTROL = { type: 'ephemeral' } as const;
 
+/** 只认已核对的当前四款模型（可带日期后缀），不推测新型号的关闭思考与 forced choice 规则。 */
+function currentClaude(model: string): 'opus' | 'sonnet' | 'haiku' | 'fable' | undefined {
+  const match = /^claude-(opus|sonnet|haiku)-5-5(?:$|-)/i.exec(model);
+  if (match !== null) return match[1]?.toLowerCase() as 'opus' | 'sonnet' | 'haiku';
+  if (/^claude-fable-5-1(?:$|-)/i.test(model)) return 'fable';
+  return undefined;
+}
+
+/** Claude 4.7 起拒收采样参数；非 Claude 模型与旧版本不改。 */
+function fixedSampling(model: string): boolean {
+  const version = /^claude-[a-z]+-(\d+)(?:-(\d{1,2})(?=$|-))?(?:$|-)/i.exec(model);
+  const major = Number(version?.[1] ?? 0);
+  const minor = Number(version?.[2] ?? 0);
+  return major > 4 || (major === 4 && minor >= 7);
+}
+
 export function toMessagesRequest(
   body: ResponsesRequest,
   provider: GatewayProvider,
 ): MessagesTranslation {
   const compat = provider.compat ?? {};
+  const official = isAnthropicHost(provider.baseURL ?? '');
+  // 代理用显式 adaptive 开启 Claude 方言；不把其他 Messages 服务当作 Anthropic。
+  const claudeDialect = official || compat.thinkingFormat === 'adaptive';
+  const model = currentClaude(body.model);
   const names = new ToolNames();
   const dropped: string[] = [];
   const tools: MessagesTool[] = toChatTools(body.tools, names, dropped).map(({ function: fn }) => ({
@@ -119,7 +140,8 @@ export function toMessagesRequest(
   const { system, messages, toolNamesInHistory } = toMessages(body, {
     names,
     dropped,
-    merge: compat.systemMessageMode === 'merge',
+    systemMode: compat.systemMessageMode ?? (official && model !== undefined ? 'inline' : 'user'),
+    inlineSystem: model !== undefined,
     provider: provider.id,
     model: body.model,
   });
@@ -139,7 +161,13 @@ export function toMessagesRequest(
   }
   if (tools.length > 0) {
     request.tools = tools;
-    const choice = toMessagesToolChoice(body.tool_choice, body.parallel_tool_calls, names);
+    let toolChoice = body.tool_choice;
+    if (compat.toolChoice !== undefined) {
+      toolChoice = compatibleToolChoice(toolChoice, compat.toolChoice);
+    } else if (claudeDialect && model !== undefined && model !== 'haiku') {
+      if (toolChoice === 'required' || isObject(toolChoice)) toolChoice = 'auto';
+    }
+    const choice = toMessagesToolChoice(toolChoice, body.parallel_tool_calls, names);
     if (choice !== undefined) request.tool_choice = choice;
   } else if (toolNamesInHistory.size > 0) {
     // Anthropic 要求历史里有 tool_use / tool_result 时请求必须定义工具：补上同名的占位工具，并禁止调用。
@@ -152,9 +180,11 @@ export function toMessagesRequest(
   }
   const last = messages.at(-1);
   if (last !== undefined) markCache(last.content);
-  Object.assign(request, thinkingParams(body, compat.thinkingFormat, maxTokens));
+  Object.assign(request, thinkingParams(body, compat.thinkingFormat, maxTokens, claudeDialect));
   for (const key of ['temperature', 'top_p'] as const) {
-    if (typeof body[key] === 'number') request[key] = body[key];
+    if (typeof body[key] !== 'number') continue;
+    if (claudeDialect && fixedSampling(body.model)) dropped.push(`field:${key}`);
+    else request[key] = body[key];
   }
   const format = isObject(body.text) ? body.text.format : undefined;
   if (isObject(format) && format.type === 'json_schema') {
@@ -168,7 +198,8 @@ export function toMessagesRequest(
 }
 
 /**
- * `reasoning.effort` → 思考开关：没有档位不发（上游默认）；`none` → `disabled`；其余按 `thinkingFormat` 发
+ * `reasoning.effort` → 思考开关：当前 Claude 的默认与 none 按型号处理（§5.4）；其他模型没有档位不发、none 关思考。
+ * 其余按 `thinkingFormat` 发
  * `adaptive`（Claude 4.6 起）或 `enabled` + `budget_tokens`（更早的 Claude、DeepSeek 等兼容服务；`max_tokens` 不够
  * 1025 时不开），档位放进 `output_config.effort`（`minimal` 写成 `low`）。
  */
@@ -176,11 +207,23 @@ function thinkingParams(
   body: ResponsesRequest,
   thinkingFormat: string | undefined,
   maxTokens: number,
+  claudeDialect: boolean,
 ): Pick<MessagesRequest, 'thinking' | 'output_config'> {
   const reasoning = isObject(body.reasoning) ? body.reasoning : {};
-  const effort = reasoning.effort;
-  if (typeof effort !== 'string' || effort === '') return {};
-  if (effort === 'none') return { thinking: { type: 'disabled' } };
+  const model = claudeDialect ? currentClaude(body.model) : undefined;
+  const requested = reasoning.effort;
+  if (typeof requested !== 'string' || requested === '') {
+    if (model === undefined) return {};
+    return { output_config: { effort: model === 'opus' || model === 'haiku' ? 'medium' : 'high' } };
+  }
+  let effort = requested;
+  if (effort === 'none') {
+    if (model === undefined) return { thinking: { type: 'disabled' } };
+    const output_config = { effort: 'low' };
+    if (model === 'sonnet') return { thinking: { type: 'between_tools' }, output_config };
+    if (model === 'haiku') return { thinking: { type: 'disabled' }, output_config };
+    effort = 'low';
+  }
   const output_config = { effort: effort === 'minimal' ? 'low' : effort };
   const format = thinkingFormat ?? (/^claude-/i.test(body.model) ? 'adaptive' : 'enabled');
   if (format === 'adaptive') {
@@ -206,7 +249,11 @@ function toMessagesToolChoice(
   if (choice === 'none') return { type: 'none' };
   if (choice === 'required') return { type: 'any', ...single };
   if (isObject(choice) && (choice.type === 'function' || choice.type === 'custom')) {
-    const name = names.flat({ kind: choice.type, name: String(choice.name ?? '') });
+    const name = names.flat({
+      kind: choice.type,
+      name: String(choice.name ?? ''),
+      namespace: typeof choice.namespace === 'string' ? choice.namespace : undefined,
+    });
     return { type: 'tool', name, ...single };
   }
   return parallel === false ? { type: 'auto', ...single } : undefined;
@@ -222,7 +269,8 @@ function markCache(blocks: MessagesBlock[]): void {
 interface MessageContext {
   names: ToolNames;
   dropped: string[];
-  merge: boolean;
+  systemMode: 'inline' | 'merge' | 'user';
+  inlineSystem: boolean;
   provider: string;
   model: string;
 }
@@ -236,8 +284,9 @@ function toMessages(
   const toolNamesInHistory = new Set<string>();
   // 推理之后、assistant 输出之前的思考块：等到有文本或工具调用时挂到同一条 assistant 消息的开头。
   let pendingThinking: MessagesBlock[] = [];
+  let pendingSystem: MessagesBlock[] = [];
 
-  const push = (role: 'user' | 'assistant', blocks: MessagesBlock[]) => {
+  const push = (role: MessagesMessage['role'], blocks: MessagesBlock[]) => {
     if (blocks.length === 0) return;
     const last = messages.at(-1);
     // 相邻的同角色消息合并成一条（不是每家兼容服务都会自己合并）。
@@ -254,15 +303,26 @@ function toMessages(
   };
   const assistant = (blocks: MessagesBlock[]) => {
     if (blocks.length === 0) return;
+    flushSystem();
     push('assistant', [...pendingThinking, ...blocks]);
     pendingThinking = [];
   };
   const developer = (text: string) => {
     if (text === '') return;
-    // 开头的 developer / system 进顶层 system；对话中间的默认转成注明来源的 user 消息（只追加，提示词缓存与
-    // Anthropic 对思考块的前缀校验都不受影响），`merge` 时并进顶层 system。
-    if (ctx.merge || messages.length === 0) system.push(text);
+    // inline 要等这一段 user 输入（包括全部 tool_result）到齐，避免夹在 tool_use 与结果之间或紧邻下一个 user。
+    if (ctx.systemMode === 'merge' || messages.length === 0) system.push(text);
+    else if (ctx.systemMode === 'inline' && ctx.inlineSystem)
+      pendingSystem.push({ type: 'text', text });
     else user([{ type: 'text', text: `${SYSTEM_AS_USER_NOTE}\n${text}` }]);
+  };
+  const flushSystem = () => {
+    if (pendingSystem.length === 0) return;
+    if (messages.at(-1)?.role === 'user') push('system', pendingSystem);
+    else {
+      // 没有后续 user 输入时不能追加 system；用原有的注明来源的 user 形式。
+      user(pendingSystem.map((b) => ({ type: 'text', text: `${SYSTEM_AS_USER_NOTE}\n${b.text}` })));
+    }
+    pendingSystem = [];
   };
 
   if (typeof body.instructions === 'string') developer(body.instructions);
@@ -324,6 +384,7 @@ function toMessages(
         ctx.dropped.push(item.type);
     }
   }
+  flushSystem();
   if (pendingThinking.length > 0) ctx.dropped.push('reasoning:orphan');
   // 同一条 user 消息里 tool_result 必须在最前面（Anthropic 的规则；文本只能跟在后面）。
   for (const message of messages) {

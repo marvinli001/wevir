@@ -723,7 +723,8 @@ export const messages: Messages = {
   'provider.preset.openai.note':
     'In Festlandchina kein direkter Zugriff; Festlandchina, Hongkong und Macau sind keine unterstützten Regionen, die Nutzung kann zu Kontoeinschränkungen führen.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': 'In Festlandchina kein direkter Zugriff.',
+  'provider.preset.anthropic.note':
+    'Offizielle API mit nutzungsabhängiger Abrechnung. Kein direkter Zugriff aus Festlandchina; Festlandchina, Hongkong und Macau werden nicht unterstützt. Einen auf einen Workspace beschränkten Key verwenden.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',

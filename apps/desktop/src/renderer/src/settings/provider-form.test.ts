@@ -114,6 +114,49 @@ describe('预设模板（providers.md §7）', () => {
     expect(params).not.toHaveProperty('apiKey');
   });
 
+  it('Anthropic 目录的按量模板保存四款模型、五档思考与代理所需 compat，编辑旧 Profile 不套模板', () => {
+    const entry = catalogEntry('anthropic');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 Anthropic 模板');
+    expect(entry).toMatchObject({
+      group: 'global',
+      logo: 'anthropic',
+      keyURL: 'https://platform.claude.com/settings/keys',
+    });
+    const created = upsertSchema.parse(toUpsertParams(newOpenAIForm(entry.source.preset, [])));
+    if (created.kind !== 'openai-compatible') throw new Error('Anthropic 模板的 Provider 类型不对');
+    expect(created).toMatchObject({
+      api: 'anthropic-messages',
+      baseURL: 'https://api.anthropic.com',
+      defaultModelId: 'claude-opus-5-5',
+      compat: { thinkingFormat: 'adaptive', systemMessageMode: 'inline' },
+    });
+    expect(created.models.map(({ id }) => id)).toEqual([
+      'claude-opus-5-5',
+      'claude-sonnet-5-5',
+      'claude-haiku-5-5',
+      'claude-fable-5-1',
+    ]);
+    for (const model of created.models) {
+      expect(model).toMatchObject({
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      });
+    }
+    const old = profile({
+      id: 'anthropic',
+      api: 'anthropic-messages',
+      baseURL: 'https://proxy.example.com',
+      models: [{ id: 'claude-opus-5-5' }],
+      defaultModelId: 'claude-opus-5-5',
+      compat: { systemMessageMode: 'user' },
+    });
+    const edited = upsertSchema.parse(toUpsertParams(editForm(old)));
+    expect(edited).toMatchObject({ baseURL: old.baseURL, models: old.models, compat: old.compat });
+    expect(edited).not.toHaveProperty('apiKey');
+  });
+
   it('建议的 ID 已被占用时加序号', () => {
     expect(newOpenAIForm(kimi, ['kimi']).id).toBe('kimi-2');
     expect(newOpenAIForm(kimi, ['kimi', 'kimi-2']).id).toBe('kimi-3');

@@ -720,7 +720,8 @@ export const zhCN = {
   'provider.preset.openai.note':
     '中国内地无法直连；中国内地、香港、澳门不在支持地区，使用可能导致账号受限。',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': '中国内地无法直连。',
+  'provider.preset.anthropic.note':
+    '官方按量 API，中国内地无法直连；中国内地、香港和澳门均不在支持地区。请使用绑定单个 workspace 的 Key。',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',

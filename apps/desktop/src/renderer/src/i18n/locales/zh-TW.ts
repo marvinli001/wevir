@@ -707,7 +707,8 @@ export const messages: Messages = {
   'provider.preset.openai.note':
     '中國大陸無法直接連線；中國大陸、香港、澳門不在支援地區，使用可能導致帳號受限。',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': '中國大陸無法直接連線。',
+  'provider.preset.anthropic.note':
+    '官方按量 API，中國大陸無法直接連線；中國大陸、香港和澳門均不在支援地區。請使用綁定單一 workspace 的 Key。',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',

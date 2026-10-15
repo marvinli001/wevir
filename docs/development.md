@@ -356,6 +356,18 @@ WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST
 
 2026-10-15 的 OpenAI 核对没有可用 Key，上面两次真实契约与 `pnpm dev` 中使用 OpenAI 模板、经 `apply_patch` 改文件的桌面对话均未验收。本地加密推理往返的 mock 测试不能替代它们。Luna 的模板提供 `off`（交给 Codex 时是 `none`）；上述契约测试未显式指定档位，验证该选项还需在桌面对话中选择“关闭”。
 
+Anthropic 官方 API 经 Messages 转换。先通过进程环境提供绑定单个 workspace 的 `WEVIR_TEST_API_KEY`（当前没有 Workspace ID 配置字段），再分别跑 Sonnet 与 Opus：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=anthropic-messages WEVIR_TEST_BASE_URL=https://api.anthropic.com WEVIR_TEST_MODEL=claude-sonnet-5-5 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=anthropic-messages WEVIR_TEST_BASE_URL=https://api.anthropic.com WEVIR_TEST_MODEL=claude-opus-5-5 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+2026-10-15 的 Messages 兼容核对未提供 Key，上述两次契约与 `pnpm dev` 中用 Anthropic 模板、经 apply_patch 改文件的对话仍未验收。本地用四份录制请求和会拒收 forced choice、非法思考模式、采样参数及历史前缀变化的 mock，覆盖工具结果、中途 system 与下一回合往返（`pnpm vitest run --project model-gateway --maxWorkers=2`）；这些不代表真实服务通过。模板声明 adaptive / inline，官方地址不需要手填 compat；代理地址的旧 Provider 需按 providers.md §7.9 手动补齐。Opus / Fable 的 none 降到 low 并保留思考，Sonnet 的 none 用 between_tools；模板均不提供 off。
+
 截至 2026-10-14 本机没有 Key，第 3 层与各真实模型用例都还没有跑过（Gate M3 的待办）。Responses 通用开关的核对（2026-10-15）同样没有 `WEVIR_TEST_API_KEY`；本地验收用录制 Codex 请求 + 拒收非 auto、namespace 与 null 加密推理的 mock（`pnpm vitest run --project model-gateway --maxWorkers=2`），不能替代逐家的契约第 3 层与桌面端带工具对话。Codex 升级前按 model-gateway.md §10 复查新输入项的触发条件。
 
 Chat 思考格式的本地验收（2026-10-15）：同一份 `2-tool-results` 录制请求覆盖六种思考格式，HTTP mock 拒收缺 reasoning_content 的历史，MiniMax 的正文标签与 reasoning_details 经 Responses 历史再完整带回；运行 `pnpm vitest run --project model-gateway --maxWorkers=2`。真实 Key 未提供时不启动桌面真实模型验收，也不把 mock 结果视为契约第 3 层通过。需要代理地址上指定 thinkingFormat 时，当前第 3 层的环境变量还没有 compat 入口；逐服务接入时应补测试配置入口或使用按地址可识别的配置，不能把协议名称当成思考格式。minimax / tencent 的新格式目前只适用于 Codex 网关，dsh 共用格式为 openai / deepseek / qwen / zai（model-gateway.md §4.4）。

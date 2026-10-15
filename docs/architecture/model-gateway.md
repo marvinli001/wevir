@@ -183,8 +183,8 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 |---|---|---|---|
 | `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI 的地址为 `false`（R8） |
 | `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI 的地址为 `false` |
-| `toolChoice` | Responses 透传、Chat 转换 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证；Messages 本次不读 | `any` |
-| `systemMessageMode` | Chat 转换 | 对话中间的 developer / system 消息：`inline` 原位转 system；`merge` 全部并进开头的一条 system（用空行分隔，保持顺序；代价是开头的内容一变，上游的提示词缓存就失效）；`user` 开头连续的并成一条 system，之后的转成 user 消息，开头一行注明 `[Developer instruction from the application, not written by the user]`。给只接受开头一条 system 的上游用 | `inline` |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；Messages 的模型默认见 §5.1 |
+| `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
 | `requiresReasoningContentOnAssistantMessages` | Chat 转换 | 每条 assistant 都带 `reasoning_content`，没有推理时补空串；false 只停止补空串，已有推理仍带回 | `deepseek` / `zai` / `minimax` / `tencent` 格式、Kimi 模型或 DeepSeek 地址为 true，其他 false；显式值优先 |
@@ -221,6 +221,10 @@ Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端
 
 `api: anthropic-messages` 的 Provider（ADR-0005 决策 2.3）。请求与流的形状以 Anthropic Messages API 的当前文档为准（流式事件、工具使用、思考与签名、错误）；做法参考 LiteLLM 的 Responses → Anthropic 转换（思考块签名放进 `encrypted_content` 带回，codex-notes §3.5），代码是自己写的。工具摊平与 Chat 转换是同一套规则（§4.3）。DeepSeek 的 Anthropic 端点（`https://api.deepseek.com/anthropic`）是真实模型测试的上游之一（§9）。
 
+**2026-10-15 官方限制核对。** 模型限制只用于 Anthropic 官方地址 `api.anthropic.com`，或显式设置 `compat.thinkingFormat: adaptive` 的 Claude 模型（代理可用；不为其他兼容服务套用 Claude 限制）。采样参数按 `claude-<系列>-<版本>` 的 4.7 及以后版本去掉；forced choice 与关闭思考按下文列出的四个当前模型判断，不推测未来模型。显式 `toolChoice`、`systemMessageMode`、`thinkingFormat` 优先于默认值。模板声明 adaptive 与 inline，已有 Provider 不自动改写。
+
+来源：[模型目录](https://platform.claude.com/docs/en/models/overview)、[思考与兼容限制](https://platform.claude.com/docs/en/build-with-claude/thinking)、[effort](https://platform.claude.com/docs/en/build-with-claude/effort)、[中途 system 的位置规则](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)、[思考前缀校验](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)。认证仍用官方支持的 legacy `x-api-key`，不影响其他 Messages 兼容服务；未实现 `anthropic-workspace-id`，只能使用绑定单个 workspace 的 Key（[认证文档](https://platform.claude.com/docs/en/manage-claude/authentication)）。
+
 ### 5.1 请求：Responses → Messages
 
 | Responses（Codex 发的） | Messages（发给上游的） |
@@ -229,7 +233,7 @@ Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端
 | `input` 是字符串 | 一条 user 消息 |
 | `instructions`（Codex 不发） | 顶层 `system` 的第一段 |
 | 开头连续的 `message` role `developer` / `system`（基础提示词、skills） | 顶层 `system`：每条一个 text 块，最后一块带 `cache_control`（§5.5） |
-| 对话中间的 `developer` / `system`（权限变化等，样本 `3-next-turn`） | 默认转成 user 的 text 块，开头一行 `[Developer instruction from the application, not written by the user]`（与 Chat 的 `user` 模式同一句）。只追加，不改顶层 `system`：提示词缓存不失效，Anthropic 对思考块的前缀校验（preserved thinking：`system`、`tools` 或之前的消息一变，之后的思考块就失效）也不受影响。`compat.systemMessageMode: merge` 时并进顶层 `system`（代价就是上面两条）；`inline` 没有对应（Messages 的 `role: system` 消息只有最新的 Claude 支持，而且后面必须紧跟 assistant），按 `user` 处理 |
+| 对话中间的 `developer` / `system`（权限变化等，样本 `3-next-turn`） | 官方地址的 Opus 5.5、Sonnet 5.5、Haiku 5.5、Fable 5.1 默认 inline：在这一段 user 输入（含全部 tool_result）之后、下一条 assistant 之前追加 `role: system`；也可以是末条消息。不插在 tool_use 与 tool_result 之间。代理需显式 `compat.systemMessageMode: inline`；旧模型仍转成注明应用来源的 user text。显式 user 保持原有转换，merge 并进顶层 system。若中途指令后没有可接的 user 输入，回退为注明来源的 user 消息，避免非法 system 位置。顶层 system 与已有历史保持不变 |
 | `message` role `user`：`input_text` | user 的 text 块；空文本不发（Anthropic 拒收空 text 块） |
 | `message` role `user`：`input_image` | image 块：base64 的 data URL → `source: {type: base64, media_type, data}`；http(s) 网址 → `source: {type: url, url}`；`detail` 丢掉；`file_id` 与非 base64 的 data URL 没法转，丢掉 |
 | `message` role `assistant`（`output_text`） | assistant 的 text 块 |
@@ -244,11 +248,11 @@ Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端
 | 工具 `namespace` | 摊平成 `<ns>__<name>`（与 Chat 相同，名字规则同 §4.3，64 个字符以内也满足 Anthropic 的限制） |
 | 托管工具 | 丢掉 |
 | `tools` 为空、但历史里有工具调用（压缩请求，样本 `4-compact`） | Anthropic 要求历史里有 `tool_use` / `tool_result` 的请求必须定义工具：按历史里用过的名字补占位工具（`input_schema: {type: object, properties: {}}`，描述写明本次不可用），`tool_choice: {type: none}` |
-| `tool_choice`：`auto` / `none` / `required` / `{type: function \| custom, name}` | `auto` 是默认，不发；`none` → `{type: none}`；`required` → `{type: any}`；指定工具 → `{type: tool, name: 摊平后的名字}`。注意最新的 Claude（Opus 5.5、Sonnet 5.5、Fable 5.1）拒收 `any` / `tool`，Codex 只发 `auto` |
+| `tool_choice`：`auto` / `none` / `required` / `{type: function \| custom, name}` | `auto` 是默认，不发；`none` → `{type: none}`；`required` → `{type: any}`；指定工具 → `{type: tool, name: 摊平后的名字}`。Opus 5.5、Sonnet 5.5、Fable 5.1 的 required / 具名改 auto（不改变 none）；Haiku 5.5 与旧模型保持原映射。显式 compat.toolChoice 优先（auto_only 的 none 规则同 §3.2），仅有历史工具的占位工具仍禁止调用 |
 | `parallel_tool_calls: false` | `tool_choice` 带 `disable_parallel_tool_use: true`；`true`（Codex 的默认）不发 |
 | `max_output_tokens`（Codex 不发，testProvider 发） | `max_tokens`（Messages 必填）；没有时取 Provider 里这个模型的 `models[].maxTokens`，再没有用 32000（§5.4） |
 | `reasoning.effort` / `reasoning.summary` | `thinking` 与 `output_config.effort`（§5.4） |
-| `temperature`、`top_p` | 原样（Codex 不发；较新的 Claude 拒收非默认值） |
+| `temperature`、`top_p` | 符合上述地址或格式条件、版本 4.7 及以后的 Claude 一律不发（默认 top_p 是 0.99，1 也会 400，同时发两个默认值也会 400）；旧模型与其他 Messages 服务仍原样 |
 | `text.format` 是 `json_schema` | `output_config.format: {type: json_schema, schema}` |
 | `store`、`include`、`prompt_cache_key`、`client_metadata`、`service_tier`、`parallel_tool_calls`、`stream_options`、`truncation`、`previous_response_id`、`metadata`、`user` | 丢掉 |
 | 其他输入项（`web_search_call`、`compaction` 等） | 丢掉 |
@@ -311,8 +315,8 @@ JSON = {provider: <Provider ID>, model: <请求的模型>, type: "thinking", thi
 
 | `reasoning.effort` | 发给上游的 |
 |---|---|
-| 没有 | 不发 `thinking` 与 `output_config`（上游默认） |
-| `none` | `thinking: {type: disabled}`（Opus 5.5 等拒收 `disabled`，这类模型的目录不该提供 `none`） |
+| 没有 | 当前四款 Claude 显式发 `output_config.effort`：Opus 5.5 / Haiku 5.5 为 medium，Sonnet 5.5 / Fable 5.1 为 high；thinking 保持上游默认。其他模型不发思考参数 |
+| `none` | 当前四款显式 low：Opus 5.5 / Fable 5.1 保留 adaptive（不能关），Sonnet 5.5 用 `thinking: {type: between_tools}`（仅关前置思考），Haiku 5.5 用 disabled。between_tools / Haiku disabled 配 low 保证在 high 及以下；模板仍只列五档思考，不列 off。旧模型与其他兼容服务仍发 disabled |
 | 其他 | `output_config: {effort}`（`minimal` 写成 `low`，其余原样，Anthropic 认 `low` / `medium` / `high` / `xhigh` / `max`），加上按 `thinkingFormat`：`adaptive` → `thinking: {type: adaptive}`，`reasoning.summary` 不是 `none` 时加 `display: summarized`（4.7 起默认 `omitted`，思考文本是空的）；`enabled` → `thinking: {type: enabled, budget_tokens}`，`budget_tokens` 按档位取 `minimal` 1024、`low` 4000、`medium` 10000、`high` 16000、`xhigh` / `max` 31999，不超过 `max_tokens - 1`；`max_tokens` 不到 1025 时不开思考（Anthropic 要求 `budget_tokens` ≥ 1024 且小于 `max_tokens`） |
 
 `thinkingFormat` 没设时：模型 ID 以 `claude-` 开头用 `adaptive`，其余用 `enabled`（兼容服务多是照 Claude Code 对非 Claude 模型名的发法做的，DeepSeek 实际就是 dsh 发的 `enabled`）。Claude 4.5 及更早的模型要设 `thinkingFormat: enabled`；它们中的 Sonnet 4.5、Haiku 4.5 不认 `output_config.effort`，目前没有开关去掉它（§10）。
@@ -322,6 +326,8 @@ JSON = {provider: <Provider ID>, model: <请求的模型>, type: "thinking", thi
 ### 5.5 提示词缓存
 
 Anthropic 官方只缓存显式标注的前缀。网关放两个断点：顶层 `system` 的最后一块（`tools` 在 `system` 之前，一起缓存），与最后一条消息的最后一块（整段历史；下一个请求在 20 个块的回看范围内找到上一次的断点）。DeepSeek 的文档写明忽略 `cache_control`。缓存读写的 token 按 §5.2 映射给 Codex。
+
+官方最多允许四个显式断点，网关仍只放两个；中途 system 可以带断点。思考文本、签名与 redacted data 仍原样带回。新账号会检查思考块之前的 system / tools / messages 前缀：请求只能追加；缓存标记不在校验范围。Codex 手动压缩、工具目录变化或会话内换模型可能重写前缀，当前没有服务端压缩或工具变更机制兜底，仍须真实服务验证（§10）。
 
 ## 6. 错误与取消
 
@@ -340,7 +346,7 @@ Anthropic 官方只缓存显式标注的前缀。网关放两个断点：顶层 
  "stream": true, "store": false, "max_output_tokens": 16}
 ```
 
-Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream: true, stream_options: {include_usage: true}, max_tokens: 16}`（字段名按 compat）；Messages 上游收到的是 `{model, max_tokens: 16, messages: [{role: user, content: [{type: text, text: ping, cache_control}]}], stream: true}`，不开思考（没有 `reasoning`）。读处理后的 Responses 事件，跳过 `response.created` / `response.in_progress`（Chat 转换时它是网关自己发的；透传时上游也是先发它，之后才可能是 `response.failed`），第一条别的 `response.*` 事件就算成功，`latencyMs` 是从发出请求到这一刻；然后断开，不让模型继续生成。时限 20 s，不跟随重定向。
+Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream: true, stream_options: {include_usage: true}, max_tokens: 16}`（字段名按 compat）；Messages 上游收到的是 `{model, max_tokens: 16, messages: [{role: user, content: [{type: text, text: ping, cache_control}]}], stream: true}`，没有 `reasoning` 时不显式设置 thinking；当前 Claude 另发各型号默认的 `output_config.effort`（§5.4），上游可能仍默认开启思考。读处理后的 Responses 事件，跳过 `response.created` / `response.in_progress`（Chat 转换时它是网关自己发的；透传时上游也是先发它，之后才可能是 `response.failed`），第一条别的 `response.*` 事件就算成功，`latencyMs` 是从发出请求到这一刻；然后断开，不让模型继续生成。时限 20 s，不跟随重定向。
 
 失败归类与 adapter-dsh 的口径相同（providers.md §6.2，代码是复制的：网关不能依赖 adapter-dsh）：没有 Key → `missing_key`（不发请求）；配置不完整 → `unknown`；401 / 403 → `auth`；429 → `rate_limited`；5xx → `server`；原文提到模型不存在 → `model_not_found`；其余 404 / 405、400 / 422 → `protocol`；连不上 → `network`；超时 → `timeout`；200 但是网页、或不是 Responses 事件、或 Messages 转换发现流不是 Messages 格式（`upstream_protocol_error`）→ `protocol`；200 但第一条是 `response.failed` / `error` 事件（Chat 转换时就是上游流里的错误）→ 按原文归为 `model_not_found` / `auth` / `unknown`。消息里的 Key 换成 `***`。
 
@@ -390,6 +396,7 @@ Codex 升级时重查上述字段默认值、Provider 判定与触发条件；�
 - Gemini 原生协议（经兼容端点够用，§4.5）；Gemini 的思考内容不返回、不显示。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
 - OpenAI 官方 API：2026-10-15 只完成文档与本地 mock 核对（§3.3）。缺 `WEVIR_TEST_API_KEY`，Sol / Luna 的契约第 3 层、桌面端 `apply_patch` 与 Luna 的关闭推理选项仍待真实服务验证，命令见 docs/development.md §6.3。
+- Anthropic 官方 API：2026-10-15 完成文档、录制请求与严格 HTTP mock 核对；缺 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面 apply_patch 未验收。未实现 Workspace ID，只支持绑定单个 workspace 的 Key；Codex 的手动压缩、动态工具目录与换模型可能改变思考前缀，尚无服务端压缩或工具变更机制兜底。
 - Messages：缺签名的思考不带回（§5.3）；`thinkingFormat` 只有 `adaptive` / `enabled` 两种，Sonnet 4.5、Haiku 4.5 不认 `output_config.effort` 却没有开关去掉；`max_tokens` 的默认值 32000 对上限更低的服务要在 Provider 里写明；Anthropic 的 HTTP 400 “prompt is too long”原样转回，Codex 不会把它认成上下文超长（只有流里的 `context_length_exceeded` 才会）；不发 `metadata.user_id`、`stop_sequences`、服务端工具；`custom_tool_call_input.delta` 同 Chat，不生成。
 - Chat 转换不传 `parallel_tool_calls`、`strict`（为兼容性）；`reasoning.summary` 没有对应。§4.4 的思考格式以官方文档与 mock 验证，缺真实 Key 时不能算各服务的验收；minimax / tencent 扩展目前不能用于 dsh；Qwen 新 reasoning.effort 的替代接口留给服务接入时核对，目前沿用仍有官方文档的 enable_thinking。模型别名不能据名称认出强制思考能力时，须在模型目录准确声明 reasoningEfforts。
 - 图片只支持 data URL 与网址，`file_id` 引用丢掉。

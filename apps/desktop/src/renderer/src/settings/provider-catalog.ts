@@ -42,6 +42,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     logo: 'anthropic',
     group: 'global',
     source: preset('anthropic'),
+    // 按量 API Key；当前只接收绑定单个 workspace 的 Key（providers.md §7.9）。
     keyURL: 'https://platform.claude.com/settings/keys',
   },
   {

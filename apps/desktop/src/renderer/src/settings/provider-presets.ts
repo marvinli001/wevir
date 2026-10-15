@@ -84,12 +84,13 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://developers.openai.com/api/docs/models',
   },
   {
-    // Messages 由网关转换（R10，model-gateway.md §5）；claude- 开头的模型按 adaptive 思考、档位进 output_config.effort。
+    // 官方按量 Messages API（2026-10-15 核对，providers.md §7.9）。显式声明格式与中途 system 的模式，代理同样生效。
     id: 'anthropic',
     name: 'provider.preset.anthropic',
     note: 'provider.preset.anthropic.note',
     api: 'anthropic-messages',
     baseURL: 'https://api.anthropic.com',
+    compat: { thinkingFormat: 'adaptive', systemMessageMode: 'inline' },
     models: [
       {
         id: 'claude-opus-5-5',
@@ -121,7 +122,7 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
       },
     ],
     defaultModelId: 'claude-opus-5-5',
-    docsURL: 'https://platform.claude.com/docs/en/about-claude/models/overview',
+    docsURL: 'https://platform.claude.com/docs/en/models/overview',
   },
   {
     id: 'dashscope',

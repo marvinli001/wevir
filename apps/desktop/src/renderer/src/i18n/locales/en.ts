@@ -717,7 +717,8 @@ export const messages: Messages = {
   'provider.preset.openai.note':
     'Not directly reachable from mainland China; mainland China, Hong Kong and Macao are unsupported regions, and use there may restrict the account.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note': 'Not directly reachable from mainland China.',
+  'provider.preset.anthropic.note':
+    'Official pay-as-you-go API. Not directly reachable from mainland China; mainland China, Hong Kong and Macao are unsupported. Use a key scoped to one workspace.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
