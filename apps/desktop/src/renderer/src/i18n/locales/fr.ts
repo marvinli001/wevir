@@ -790,7 +790,6 @@ export const messages: Messages = {
   'source.models': '{count, plural, one {# modèle} other {# modèles}}',
   'source.logout': 'Se déconnecter',
   'source.logout.command': 'Se déconnecter dans le terminal',
-  'source.terms.command': 'Utilise la connexion et le quota de {name} sur cet ordinateur',
   'provider.add': 'Ajouter',
   'provider.empty': 'Aucun fournisseur de modèles',
   'provider.emptyKeyed': 'Aucun fournisseur de modèles',
@@ -808,8 +807,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '« {name} » enregistré, non appliqué au moteur : {error}',
 
   'account.chatgpt.title': 'Compte ChatGPT',
-  'account.chatgpt.terms':
-    'Usage personnel sur cet ordinateur uniquement. Les identifiants sont enregistrés localement par la procédure de connexion officielle Codex d’OpenAI ; Wevir ne les lit ni ne les transmet.',
   'account.chatgpt.status.signedOut': 'Non connecté',
   'account.chatgpt.status.signingIn': 'Connexion',
   'account.chatgpt.status.signedIn': 'Connecté',

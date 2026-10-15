@@ -780,7 +780,6 @@ export const messages: Messages = {
   'source.models': '{count, plural, one {# model} other {# models}}',
   'source.logout': 'Sign out',
   'source.logout.command': 'Sign out in terminal',
-  'source.terms.command': 'Uses the local {name} sign-in and quota',
   'provider.add': 'Add',
   'provider.empty': 'No model providers',
   'provider.emptyKeyed': 'No model providers',
@@ -798,8 +797,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': 'Saved “{name}”; not applied to the engine: {error}',
 
   'account.chatgpt.title': 'ChatGPT account',
-  'account.chatgpt.terms':
-    'Personal use on this computer only. Credentials are stored locally through OpenAI’s official Codex sign-in flow; Wevir never reads or forwards them.',
   'account.chatgpt.status.signedOut': 'Signed out',
   'account.chatgpt.status.signingIn': 'Signing in',
   'account.chatgpt.status.signedIn': 'Signed in',

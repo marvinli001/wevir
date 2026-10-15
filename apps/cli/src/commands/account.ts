@@ -13,9 +13,6 @@ export function parseAccountKind(value: string | undefined): AccountKind {
   throw new UsageError(t('account.unknownKind', { kind: value }), t('account.unknownKind.hint'));
 }
 
-/** 条款的提醒（ADR-0005 决策 4，codex-notes §4.1）：OpenAI 只允许本地或开源应用用 app-server 的登录。 */
-export const chatgptTermsNote = (): string => t('account.terms');
-
 export async function accountLogin(ctx: Context, kind: AccountKind): Promise<number> {
   return withClient(ctx, async (client) => {
     requireAccounts(client);
@@ -25,7 +22,6 @@ export async function accountLogin(ctx: Context, kind: AccountKind): Promise<num
       ctx.print(ctx.styles.dim(t('account.alreadySignedIn.hint')));
       return EXIT.ok;
     }
-    ctx.print(ctx.styles.dim(chatgptTermsNote()));
     const updates: AccountState[] = [];
     let wake: (() => void) | undefined;
     const stop = client.watchAccount(kind, (account) => {

@@ -451,11 +451,6 @@ function SubscriptionBody({
       {(error ?? account.lastError) !== undefined && (
         <NoticeBanner notice={{ tone: 'error', text: error ?? account.lastError ?? '' }} />
       )}
-      {account.signIn === 'command' && (
-        <p className="text-xs text-muted-foreground" data-terms>
-          {t('source.terms.command', { name })}
-        </p>
-      )}
     </div>
   );
 }

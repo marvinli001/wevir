@@ -774,7 +774,6 @@ export const messages: Messages = {
   'source.models': '모델 {count}개',
   'source.logout': '로그아웃',
   'source.logout.command': '터미널에서 로그아웃',
-  'source.terms.command': '이 컴퓨터의 {name} 로그인 및 한도 사용',
   'provider.add': '추가',
   'provider.empty': '모델 제공자 없음',
   'provider.emptyKeyed': '모델 제공자 없음',
@@ -792,8 +791,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '“{name}” 저장됨, 엔진에 적용 안 됨: {error}',
 
   'account.chatgpt.title': 'ChatGPT 계정',
-  'account.chatgpt.terms':
-    '이 컴퓨터에서 개인 용도로만 사용. 자격 증명은 OpenAI 공식 Codex 로그인 절차를 통해 이 컴퓨터에 저장되며, Wevir는 읽거나 전달하지 않습니다.',
   'account.chatgpt.status.signedOut': '로그인 안 됨',
   'account.chatgpt.status.signingIn': '로그인 중',
   'account.chatgpt.status.signedIn': '로그인됨',

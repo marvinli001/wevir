@@ -794,7 +794,6 @@ export const messages: Messages = {
   'source.models': '{count, plural, one {# modelo} other {# modelos}}',
   'source.logout': 'Cerrar sesión',
   'source.logout.command': 'Cerrar sesión desde la terminal',
-  'source.terms.command': 'Inicio de sesión y cuota de {name} en este equipo',
   'provider.add': 'Añadir',
   'provider.empty': 'Sin proveedores de modelos',
   'provider.emptyKeyed': 'Sin proveedores de modelos',
@@ -812,8 +811,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '«{name}» guardado; el motor no lo aplicó: {error}',
 
   'account.chatgpt.title': 'Cuenta de ChatGPT',
-  'account.chatgpt.terms':
-    'Solo para uso personal en este equipo. Las credenciales se guardan localmente mediante el inicio de sesión oficial de Codex de OpenAI; Wevir no las lee ni las transmite.',
   'account.chatgpt.status.signedOut': 'Sesión no iniciada',
   'account.chatgpt.status.signingIn': 'Iniciando sesión',
   'account.chatgpt.status.signedIn': 'Sesión iniciada',

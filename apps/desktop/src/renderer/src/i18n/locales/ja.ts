@@ -784,7 +784,6 @@ export const messages: Messages = {
   'source.models': '{count} 個のモデル',
   'source.logout': 'ログアウト',
   'source.logout.command': 'ターミナルでログアウト',
-  'source.terms.command': 'このマシンの {name} のログインと利用枠を使用',
   'provider.add': '追加',
   'provider.empty': 'モデルプロバイダーなし',
   'provider.emptyKeyed': 'モデルプロバイダーなし',
@@ -802,8 +801,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '「{name}」を保存しましたが、エンジンに適用されていません: {error}',
 
   'account.chatgpt.title': 'ChatGPT アカウント',
-  'account.chatgpt.terms':
-    '個人によるこのマシンでの利用に限ります。認証情報は OpenAI 公式の Codex ログインフローを通じてこのマシンに保存され、Wevir が読み取ったり転送したりすることはありません。',
   'account.chatgpt.status.signedOut': '未ログイン',
   'account.chatgpt.status.signingIn': 'ログイン中',
   'account.chatgpt.status.signedIn': 'ログイン済み',

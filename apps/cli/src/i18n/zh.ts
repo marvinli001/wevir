@@ -460,8 +460,6 @@ export const zh = {
   // commands/account.ts
   'account.unknownKind': '未知账号类型：{kind}',
   'account.unknownKind.hint': '仅支持 chatgpt',
-  'account.terms':
-    '仅限个人在本机使用。凭据经 OpenAI 官方 Codex 登录流程保存在本机，Wevir 不读取、不转交。',
   'account.alreadySignedIn': '已登录 ChatGPT：{account}',
   'account.alreadySignedIn.hint': '切换账号需先运行 wevir provider logout',
   'account.noDeviceCode': 'Host 未返回设备码',

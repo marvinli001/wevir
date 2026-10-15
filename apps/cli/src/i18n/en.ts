@@ -466,8 +466,6 @@ Keys:
 
   'account.unknownKind': 'Unknown account type: {kind}',
   'account.unknownKind.hint': 'Only chatgpt is supported',
-  'account.terms':
-    "Personal use on this machine only. Credentials are stored locally by OpenAI's own Codex sign-in flow; Wevir neither reads nor forwards them.",
   'account.alreadySignedIn': 'Already signed in to ChatGPT: {account}',
   'account.alreadySignedIn.hint': 'To switch accounts, run wevir provider logout first',
   'account.noDeviceCode': 'No device code from the Host',

@@ -789,7 +789,6 @@ export const messages: Messages = {
   'source.models': '{count, plural, one {# modello} other {# modelli}}',
   'source.logout': 'Esci',
   'source.logout.command': 'Esci dal terminale',
-  'source.terms.command': 'Usa accesso e limiti di {name} su questo computer',
   'provider.add': 'Aggiungi',
   'provider.empty': 'Nessun fornitore di modelli',
   'provider.emptyKeyed': 'Nessun fornitore di modelli',
@@ -807,8 +806,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '“{name}” salvato, non applicato dal motore: {error}',
 
   'account.chatgpt.title': 'Account ChatGPT',
-  'account.chatgpt.terms':
-    'Solo per uso personale su questo computer. Le credenziali sono salvate localmente tramite l’accesso ufficiale Codex di OpenAI; Wevir non le legge né le inoltra.',
   'account.chatgpt.status.signedOut': 'Accesso non effettuato',
   'account.chatgpt.status.signingIn': 'Accesso in corso',
   'account.chatgpt.status.signedIn': 'Accesso effettuato',

@@ -785,7 +785,6 @@ export const zhCN = {
   'source.models': '{count} 个模型',
   'source.logout': '登出',
   'source.logout.command': '在终端登出',
-  'source.terms.command': '使用本机 {name} 的登录与额度',
   'provider.add': '添加',
   'provider.empty': '暂无模型服务',
   'provider.emptyKeyed': '暂无模型服务',
@@ -803,8 +802,6 @@ export const zhCN = {
   'provider.engineNotApplied': '已保存“{name}”，引擎未应用：{error}',
 
   'account.chatgpt.title': 'ChatGPT 账号',
-  'account.chatgpt.terms':
-    '仅限个人在本机使用。凭据经 OpenAI 官方 Codex 登录流程保存在本机，Wevir 不读取、不转交。',
   'account.chatgpt.status.signedOut': '未登录',
   'account.chatgpt.status.signingIn': '登录中',
   'account.chatgpt.status.signedIn': '已登录',

@@ -772,7 +772,6 @@ export const messages: Messages = {
   'source.models': '{count} 個模型',
   'source.logout': '登出',
   'source.logout.command': '在終端機登出',
-  'source.terms.command': '使用本機 {name} 的登入與額度',
   'provider.add': '新增',
   'provider.empty': '尚無模型服務',
   'provider.emptyKeyed': '尚無模型服務',
@@ -790,8 +789,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '已儲存「{name}」，引擎未套用：{error}',
 
   'account.chatgpt.title': 'ChatGPT 帳號',
-  'account.chatgpt.terms':
-    '僅限個人在本機使用。憑證經 OpenAI 官方 Codex 登入流程儲存在本機，Wevir 不讀取、不轉交。',
   'account.chatgpt.status.signedOut': '未登入',
   'account.chatgpt.status.signingIn': '登入中',
   'account.chatgpt.status.signedIn': '已登入',

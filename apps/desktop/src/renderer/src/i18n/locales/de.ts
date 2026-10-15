@@ -787,7 +787,6 @@ export const messages: Messages = {
   'source.models': '{count, plural, one {# Modell} other {# Modelle}}',
   'source.logout': 'Abmelden',
   'source.logout.command': 'Im Terminal abmelden',
-  'source.terms.command': 'Nutzt Anmeldung und Kontingent des lokalen {name}',
   'provider.add': 'Hinzufügen',
   'provider.empty': 'Keine Modellanbieter',
   'provider.emptyKeyed': 'Keine Modellanbieter',
@@ -805,8 +804,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '„{name}“ gespeichert, von der Engine nicht übernommen: {error}',
 
   'account.chatgpt.title': 'ChatGPT-Konto',
-  'account.chatgpt.terms':
-    'Nur für die persönliche Nutzung auf diesem Computer. Die Anmeldedaten werden über den offiziellen Codex-Login von OpenAI lokal gespeichert; Wevir liest sie nicht und gibt sie nicht weiter.',
   'account.chatgpt.status.signedOut': 'Nicht angemeldet',
   'account.chatgpt.status.signingIn': 'Anmeldung läuft',
   'account.chatgpt.status.signedIn': 'Angemeldet',

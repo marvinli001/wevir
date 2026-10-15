@@ -109,7 +109,7 @@ describe('wevir provider login / status / logout（ChatGPT 账号）', () => {
 
     const login = start(['provider', 'login'], home);
     await login.waitFor('ABCD-EFGH');
-    expect(login.out()).toContain('仅限个人在本机使用');
+    expect(login.out()).not.toContain('仅限个人在本机使用');
     expect(login.out()).toContain('https://auth.openai.com/codex/device');
     expect(accounts.calls).toEqual(['login:device_code']);
     accounts.set({

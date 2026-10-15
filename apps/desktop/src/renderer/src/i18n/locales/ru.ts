@@ -797,7 +797,6 @@ export const messages: Messages = {
     '{count, plural, one {# модель} few {# модели} many {# моделей} other {# модели}}',
   'source.logout': 'Выйти',
   'source.logout.command': 'Выйти в терминале',
-  'source.terms.command': 'Используются вход и лимиты {name} на этом компьютере',
   'provider.add': 'Добавить',
   'provider.empty': 'Нет поставщиков моделей',
   'provider.emptyKeyed': 'Нет поставщиков моделей',
@@ -816,8 +815,6 @@ export const messages: Messages = {
   'provider.engineNotApplied': '«{name}» сохранён, движок не применил изменения: {error}',
 
   'account.chatgpt.title': 'Аккаунт ChatGPT',
-  'account.chatgpt.terms':
-    'Только для личного использования на этом компьютере. Учётные данные сохраняются локально через официальный вход Codex от OpenAI; Wevir их не читает и не передаёт.',
   'account.chatgpt.status.signedOut': 'Вход не выполнен',
   'account.chatgpt.status.signingIn': 'Вход',
   'account.chatgpt.status.signedIn': 'Вход выполнен',

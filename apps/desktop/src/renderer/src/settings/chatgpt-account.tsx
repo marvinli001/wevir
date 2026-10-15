@@ -123,11 +123,6 @@ export function ChatgptAccountSection({
         )}
       </div>
 
-      {phase.kind === 'signed_out' && (
-        <p className="text-xs text-muted-foreground" data-terms>
-          {t('account.chatgpt.terms')}
-        </p>
-      )}
       {phase.kind === 'signed_out' && phase.error !== undefined && (
         <NoticeBanner
           notice={{ tone: 'error', text: t('account.chatgpt.loginFailed', { error: phase.error }) }}
