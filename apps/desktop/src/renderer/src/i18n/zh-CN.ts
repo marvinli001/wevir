@@ -483,10 +483,25 @@ export const zhCN = {
   'history.next': '接下来：',
   'history.draftNotice': '已载入“{title}”的对话记录',
 
-  // 首页标题“今天在 [项目 ▾] 里做什么？”拆成前后两段，中间是项目下拉。两段的字都要在标题宋体的子集里
-  // （apps/desktop/scripts/build-fonts.py 的 DISPLAY_TEXT），改了要重新生成字体。
-  'home.title.before': '今天在',
-  'home.title.after': '里做什么？',
+  // 首页标题有几种句式，打开首页时随机取一种（session/new-session.tsx 的 TITLE_VARIANTS）。每种拆成前后两段，中间是
+  // 项目下拉，前半段可以为空。字都要在标题宋体的子集里（apps/desktop/scripts/build-fonts.py 的 DISPLAY_TEXT），
+  // 改了要重新生成字体。
+  'home.title.1.before': '今天在',
+  'home.title.1.after': '里做什么？',
+  'home.title.2.before': '你想让我们在',
+  'home.title.2.after': '中构建什么？',
+  'home.title.3.before': '想在',
+  'home.title.3.after': '里实现什么？',
+  'home.title.4.before': '接下来要在',
+  'home.title.4.after': '里做什么？',
+  'home.title.5.before': '在',
+  'home.title.5.after': '里有什么要改的？',
+  'home.title.6.before': '今天想为',
+  'home.title.6.after': '写点什么？',
+  'home.title.7.before': '在',
+  'home.title.7.after': '里，想先解决什么？',
+  'home.title.8.before': '有什么想在',
+  'home.title.8.after': '里试试的？',
   'home.createProject': '创建项目…',
   'home.recentFolders': '最近的文件夹',
   'home.addFolder': '添加文件夹…',

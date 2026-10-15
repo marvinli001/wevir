@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import { format, loadCatalog, type Messages, setLocale, t } from './index';
 import { LOCALES, matchLocale, resolveLocale } from './locales';
@@ -20,6 +21,26 @@ describe('文案模块', () => {
     for (const [key, value] of Object.entries(zhCN)) {
       expect(value, key).not.toBe('');
       expect(value.replace(/\{\w+\}/g, ''), key).not.toMatch(/[{}]/);
+    }
+  });
+
+  it('首页标题各句式的字都在标题宋体的子集里', () => {
+    const script = readFileSync(
+      new URL('../../../../scripts/build-fonts.py', import.meta.url),
+      'utf8',
+    );
+    const subset = new Set(
+      [...(script.match(/^DISPLAY_TEXT = \[([\s\S]*?)\]/m)?.[1] ?? '').matchAll(/"([^"]*)"/g)]
+        .map((match) => match[1])
+        .join(''),
+    );
+    const titles = Object.entries(zhCN).filter(([key]) => key.startsWith('home.title.'));
+    expect(titles.length).toBeGreaterThan(0);
+    for (const [key, value] of titles) {
+      expect(
+        [...value].filter((ch) => !subset.has(ch)),
+        key,
+      ).toEqual([]);
     }
   });
 

@@ -20,7 +20,7 @@ import { PendingPage } from './route-states';
 const HOME_DRAFT = 'home';
 
 /**
- * `/`：首页（U4，方向稿 A 静器的 HomeA；U14 起照 Codex 桌面端排：品牌与标题“今天在 [项目 ▾] 里做什么？”、最近会话在内容区
+ * `/`：首页（U4，方向稿 A 静器的 HomeA；U14 起照 Codex 桌面端排：品牌与随机句式的标题（如“今天在 [项目 ▾] 里做什么？”）、最近会话在内容区
  * 正中，输入框贴底，session/new-session.tsx）。发送后在所选项目新建会话并跳过去，和新会话草稿页是同一套流程
  * （session/start-session.ts）。新开窗口停在这里，不跳回上次的会话（维护者 2026-10-14 定）；默认的项目是上次所在的那个
  * （last-location.ts）。U6 起：没有 Provider 又没走过引导时转到整窗的分步引导（onboarding/welcome-route.tsx）；跳过引导

@@ -28,9 +28,26 @@ from pathlib import Path
 from fontTools import subset
 from fontTools.ttLib import TTFont
 
-# The fixed copy of the home title in direction A (design-refs/wevir-directions/src/scenes.jsx, HomeA):
-# 今天在 <workspace> 里做什么？ — the workspace name is in the UI font. U4 changes this with the copy.
-DISPLAY_TEXT = ["今天在", "里做什么？"]
+# The fixed copy of the home title, one of its variants picked at random (zh-CN.ts, home.title.N.before / after;
+# direction A's HomeA had only 今天在 <workspace> 里做什么？). The workspace name is in the UI font. Change this with the copy.
+DISPLAY_TEXT = [
+    "今天在",
+    "里做什么？",
+    "你想让我们在",
+    "中构建什么？",
+    "想在",
+    "里实现什么？",
+    "接下来要在",
+    "里做什么？",
+    "在",
+    "里有什么要改的？",
+    "今天想为",
+    "写点什么？",
+    "在",
+    "里，想先解决什么？",
+    "有什么想在",
+    "里试试的？",
+]
 
 MONA = {
     "url": "https://github.com/github/mona-sans/releases/download/v2.0.27/mona-sans-variable-v2.0.27.zip",

@@ -62,11 +62,11 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 |---|---|---|---|
 | `--font-ui`（`font-sans`） | 界面与正文 | 拉丁字母 Mona Sans 2.0.27（可变字体，字重 200–900，带光学尺寸轴），中文用系统字体：PingFang SC / Hiragino Sans GB / Microsoft YaHei UI / Noto Sans CJK SC | `mona-sans.woff2` 134 KiB、`mona-sans-italic.woff2` 123 KiB |
 | `--font-code`（`font-mono`） | 代码、路径、命令 | JetBrains Mono 2.304（可变字体，100–800），中文回落到系统字体 | `jetbrains-mono.woff2` 111 KiB、`jetbrains-mono-italic.woff2` 120 KiB |
-| `--font-display`（`font-display`） | 标题宋体，只用在固定文案上（U4 的首页标题） | Noto Serif SC 2.003 Medium，按文案做的子集，CSS 里叫 `"Wevir Display"`；子集里没有的字回落到系统宋体 | `noto-serif-sc-display.woff2` 3.6 KiB |
+| `--font-display`（`font-display`） | 标题宋体，只用在固定文案上（U4 的首页标题） | Noto Serif SC 2.003 Medium，按文案做的子集，CSS 里叫 `"Wevir Display"`；子集里没有的字回落到系统宋体 | `noto-serif-sc-display.woff2` 10.6 KiB |
 
 - **中文正文不打包**：用系统字体（维护者 2026-10-14 定）。
 - **Mona Sans 不负责中文语境的标点**：`fonts.css` 的 `unicode-range` 把“”‘’——…（U+201C/D、U+2018/9、U+2014、U+2026）排除在外，交给中文字体，免得中文句子里出现窄的西文引号与破折号。
-- **标题宋体的子集**：文字在 `apps/desktop/scripts/build-fonts.py` 的 `DISPLAY_TEXT`，是方向稿 A 首页标题的固定部分“今天在 … 里做什么？”（工作区名用界面字体）；U4 的首页标题就用这两段（`zh-CN.ts` 的 `home.title.before` / `home.title.after`），子集没有改。改这两条文案要同时改 `DISPLAY_TEXT` 并重新生成；文案里出现子集外的字会回落到系统宋体，样子不一致。首次使用的引导标题“开始使用 Wevir”不在子集里，用界面字体。
+- **标题宋体的子集**：文字在 `apps/desktop/scripts/build-fonts.py` 的 `DISPLAY_TEXT`，是首页标题各句式的固定部分（`zh-CN.ts` 的 `home.title.N.before` / `.after`，方向稿 A 原本只有“今天在 … 里做什么？”；工作区名用界面字体）。改这些文案要同时改 `DISPLAY_TEXT` 并重新生成，`i18n.test.ts` 会查出子集外的字；文案里出现子集外的字会回落到系统宋体，样子不一致。首次使用的引导标题“开始使用 Wevir”不在子集里，用界面字体。
 - **重新生成**：`build-fonts.py` 从固定版本的来源（发布包或固定提交，按 sha256 校验）生成全部 woff2 与 `apps/desktop/licenses/fonts/*/OFL.txt`，输出可复现；用法写在脚本开头（可选工具 `fonttools==4.60.1`、`brotli==1.1.0`，与图标的 `outline-wordmark.py` 同一套）。Mona Sans 与 JetBrains Mono 只把 TTF 转成 WOFF2，不做别的改动：Mona Sans 的版权行保留了字体名 “Mona”，按 OFL 第 3 条，改动过的版本不能再叫这个名字，所以不能子集化。Noto Serif SC 的版权行没有保留字体名，可以子集化。
 - **构建**：Vite 默认把小于 4 KiB 的资源内联成 `data:` URI，宋体子集会被 CSP 拦下；`electron.vite.config.ts` 让 `.woff2` 总是单独成文件。
 - 来源、版本与许可证见 `assets/fonts/SOURCE.md` 与仓库根目录的 [`NOTICE`](../../NOTICE)。
@@ -103,7 +103,7 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 ## 10. 首页与设置页（U4，设置页 U7 改）
 
-- **首页**（`routes/home-route.tsx`，版式在 `session/new-session.tsx`；U14 起照 Codex 桌面端，新会话草稿页同一个版式）：品牌行（`BrandMark` 用 `text-brand`，加 `fx/metal.tsx` 的 `MetalWordmark`）与标题在内容区里输入框以上的部分上下左右居中、文字居中，块之间 20 px；标题 `font-display`、500、`clamp(1.625rem, 3.4vw, 2.5rem)`，项目名是界面字体 600、0.86em、强分隔线色的虚线下划线，点开的项目菜单居中对齐。输入框（`Composer variant="home"`，焦点只用 border-beam 的 focus 预设表示，不换边框色；上面是环境栏，§16）贴底，宽度与位置同会话页（`max-w-content`、左右 24 px、下 20 px），发出第一条消息跳到会话页时不挪地方；窗口矮到放不下时上面那块滚动，输入框不动。U4 的“接着做”已去掉（维护者 2026-10-15 定）。顶栏在首页不画分隔线。
+- **首页**（`routes/home-route.tsx`，版式在 `session/new-session.tsx`；U14 起照 Codex 桌面端，新会话草稿页同一个版式）：品牌行（`BrandMark` 用 `text-brand`，加 `fx/metal.tsx` 的 `MetalWordmark`）与标题在内容区里输入框以上的部分上下左右居中、文字居中，块之间 20 px；标题有 8 种句式（“今天在 [项目] 里做什么？”“你想让我们在 [项目] 中构建什么？”等，`home.title.N.*`），首页挂载时随机取一种，换项目不变；`font-display`、500、`clamp(1.625rem, 3.4vw, 2.5rem)`，项目名是界面字体 600、0.86em、强分隔线色的虚线下划线，点开的项目菜单居中对齐。输入框（`Composer variant="home"`，焦点只用 border-beam 的 focus 预设表示，不换边框色；上面是环境栏，§16）贴底，宽度与位置同会话页（`max-w-content`、左右 24 px、下 20 px），发出第一条消息跳到会话页时不挪地方；窗口矮到放不下时上面那块滚动，输入框不动。U4 的“接着做”已去掉（维护者 2026-10-15 定）。顶栏在首页不画分隔线。
 - **设置页**（`routes/settings-route.tsx`、`settings/settings-ui.tsx`；U7 起照 Codex 桌面端）：设置自己的侧栏 240 px、侧栏色，顶上是窗口按钮，下面 20 px 半粗的“设置”、胶囊形的搜索框（`bg-sidebar-accent/70`，聚焦时实色加焦点环），再下面是带 12 px 组名的页面列表，行的悬停与当前项同 §11 的左栏。内容一列最宽 720 px（`max-w-180`），页面标题 20 px 半粗，换页时淡入上移；下面是一组组卡片（`SettingsSection`：13 px 半粗的组名、可选的一行说明与右侧操作，组间 36 px）；卡片是 `LIST_CARD`，行（`SettingsRow`）至少 56 px 高，左边 13 px 中粗的名称与 12 px 说明文字色的说明，右边是控件。分段切换（`Segmented`）的轨道是次表面色，选中段是 `bg-switch-thumb` 加一圈分隔线，滑块在段间滑动 200 ms。模型服务与项目的列表行左边是 36 px 的图标框（画布底色、分隔线描边），服务用各自的标志（§12）。空列表是强分隔线色的虚线框。
 - **表单控件**：输入框、多行输入框、原生下拉框（`settings-ui.tsx` 的 `SELECT`）与 outline 按钮在浅色、深色都是表面色底（`bg-card`）、强分隔线的边框（`border-input`），焦点环是运行色；禁用时是次表面色。shadcn 原语里 `dark:bg-input/30` 这类按主题另算的底色已去掉（文件头写明了改动）。单选是墨色圆环，分段切换的选中段是 `bg-switch-thumb` 加一圈分隔线。
 

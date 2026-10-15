@@ -1,6 +1,6 @@
 import { cn } from 'cn';
 import { Check, ChevronDown, Folder, Plus } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
+import { type CSSProperties, type ReactNode, useState } from 'react';
 import { BrandMark } from '@/components/brand-mark';
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -43,9 +43,18 @@ export function NewSessionLayout({ hero, footer }: { hero: ReactNode; footer: Re
   );
 }
 
+/** 首页标题的句式编号（`home.title.N.before` / `.after`），打开首页时随机取一种。 */
+const TITLE_VARIANTS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
+type TitleVariant = (typeof TITLE_VARIANTS)[number];
+
+function randomTitleVariant(): TitleVariant {
+  return TITLE_VARIANTS[Math.floor(Math.random() * TITLE_VARIANTS.length)] ?? 1;
+}
+
 /**
  * 居中的那一块（方向稿 A 静器的 HomeA，U14 起居中排）：品牌主标与金属字标、宋体标题“今天在 [项目 ▾] 里做什么？”（项目是
- * 内联的下拉，与环境栏是同一个菜单）。U4 的“最近会话”已去掉（维护者 2026-10-15 定），会话都在左栏。
+ * 内联的下拉，与环境栏是同一个菜单；句式在 TITLE_VARIANTS 里随机取，挂载时定下，换项目不变）。U4 的“最近会话”已去掉
+ * （维护者 2026-10-15 定），会话都在左栏。
  */
 export function NewSessionHero({
   current,
@@ -56,6 +65,8 @@ export function NewSessionHero({
   workspaces: readonly WorkspaceEntry[];
   onSelect: (workspaceId: string) => void;
 }) {
+  const [variant] = useState(randomTitleVariant);
+  const after = t(`home.title.${variant}.after`);
   return (
     <div className="flex w-full max-w-content flex-col items-center gap-5 text-center">
       <div className={cn('flex items-center gap-2.5', ENTER)} data-testid="home-brand">
@@ -69,9 +80,9 @@ export function NewSessionHero({
         )}
         style={stagger(1)}
       >
-        {t('home.title.before')}
+        {t(`home.title.${variant}.before`)}
         <ProjectPicker current={current} workspaces={workspaces} onSelect={onSelect} />
-        <span className={cn(attachesToProject() && '-ml-[0.25em]')}>{t('home.title.after')}</span>
+        <span className={cn(attachesToProject(after) && '-ml-[0.25em]')}>{after}</span>
       </h1>
       {workspaces.length > 0 && (
         <div className="flex flex-col items-center gap-2">
@@ -179,8 +190,8 @@ function ProjectPicker({
  * 标题后半句紧贴项目名、不留间距：韩文的助词（“…에서”），以及句末标点直接跟在名字后面的语言（英文的“?”）；法文的
  * “?” 前本来就有空格，照常留间距。
  */
-function attachesToProject(): boolean {
+function attachesToProject(after: string): boolean {
   const locale = currentLocale();
   if (locale === 'ko') return true;
-  return locale !== 'fr' && /^[?!.,;:]/.test(t('home.title.after'));
+  return locale !== 'fr' && /^[?!.,;:]/.test(after);
 }
