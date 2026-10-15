@@ -89,9 +89,7 @@ export function ModelPicker({
         <ProviderLogo logo={source.logo} fallback={t(source.name)} className="size-3.5 shrink-0" />
       )}
       <span className="truncate">{name}</span>
-      {efforts.length > 0 && (
-        <span className="shrink-0 text-muted-foreground">{effortLabel(value.reasoningEffort)}</span>
-      )}
+      {efforts.length > 0 && <EffortChipLabel efforts={efforts} value={value.reasoningEffort} />}
     </>
   );
   const chipClass =
@@ -130,7 +128,7 @@ export function ModelPicker({
         {chip}
         <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
       </PopoverTrigger>
-      <PopoverContent side="top" align="end" sideOffset={8} className="w-72 gap-0 p-0">
+      <PopoverContent side="top" align="center" sideOffset={8} className="w-72 gap-0 p-0">
         {view === 'effort' ? (
           <div className="flex flex-col gap-3 p-3 animate-in duration-150 fade-in">
             <div className="flex items-start gap-2">
@@ -314,6 +312,34 @@ function ModelList({
         })}
       </ScrollFade>
     </div>
+  );
+}
+
+/**
+ * 模型胶囊里的思考力度：所有档位（含默认）叠在同一格里、只显示当前那档，宽度按最长的一档留，
+ * 换档时胶囊不变宽窄，以它为锚的浮窗也就不跟着挪。
+ */
+function EffortChipLabel({
+  efforts,
+  value,
+}: {
+  efforts: readonly string[];
+  value: string | undefined;
+}) {
+  const options: (string | undefined)[] = [undefined, ...efforts];
+  if (value !== undefined && !efforts.includes(value)) options.push(value);
+  return (
+    <span className="grid shrink-0 text-muted-foreground">
+      {options.map((effort) => (
+        <span
+          key={effort ?? ''}
+          aria-hidden={effort !== value || undefined}
+          className={cn('col-start-1 row-start-1', effort !== value && 'invisible')}
+        >
+          {effortLabel(effort)}
+        </span>
+      ))}
+    </span>
   );
 }
 
