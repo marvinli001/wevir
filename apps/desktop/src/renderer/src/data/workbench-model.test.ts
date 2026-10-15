@@ -1,6 +1,7 @@
 import type { Session, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  groupByStatus,
   groupSessions,
   mergeSessions,
   resolveRoute,
@@ -85,6 +86,44 @@ describe('sessionMarker', () => {
     expect(sessionMarker(session('ses_1', 'ws_a', { readOnly }))).toBe('error');
     expect(sessionMarker(session('ses_1', 'ws_a'))).toBeUndefined();
     expect(sessionMarker(session('ses_1', 'ws_a', { state: 'closed' }))).toBeUndefined();
+  });
+});
+
+describe('groupByStatus', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const at = (daysAgo: number) => new Date(Date.parse(NOW) - daysAgo * day).toISOString();
+  const ids = (rows: { session: Session }[]) => rows.map((row) => row.session.id);
+
+  it('需要你、进行中、最近 7 天的已完成；关闭了的不出现；组内按最近活动，跨工作区', () => {
+    const groups = groupByStatus(
+      groupSessions(
+        [workspace('ws_a'), workspace('ws_b')],
+        [
+          session('ses_approve', 'ws_a', { state: 'awaiting_approval', updatedAt: at(0.2) }),
+          session('ses_ask', 'ws_b', { state: 'running', awaitingInput: true, updatedAt: at(0.1) }),
+          session('ses_failed', 'ws_a', {
+            lastError: { category: 'unknown', message: 'x' },
+            updatedAt: at(3),
+          }),
+          session('ses_run', 'ws_b', { state: 'running', updatedAt: at(0.3) }),
+          session('ses_stop', 'ws_a', { state: 'cancelling', updatedAt: at(0.4) }),
+          session('ses_done', 'ws_b', { updatedAt: at(1) }),
+          session('ses_done2', 'ws_a', { updatedAt: at(6.9) }),
+          session('ses_old', 'ws_a', { updatedAt: at(8) }),
+          session('ses_closed', 'ws_b', { state: 'closed', updatedAt: at(0) }),
+          session('ses_closed_ro', 'ws_b', {
+            state: 'closed',
+            readOnly: { reason: 'engine_session_not_found', message: 'x', since: NOW },
+            updatedAt: at(0),
+          }),
+        ],
+      ),
+      Date.parse(NOW),
+    );
+    expect(ids(groups.needsYou)).toEqual(['ses_ask', 'ses_approve', 'ses_failed']);
+    expect(ids(groups.running)).toEqual(['ses_run', 'ses_stop']);
+    expect(ids(groups.completed)).toEqual(['ses_done', 'ses_done2']);
+    expect(groups.needsYou[0]?.workspace.id).toBe('ws_b');
   });
 });
 

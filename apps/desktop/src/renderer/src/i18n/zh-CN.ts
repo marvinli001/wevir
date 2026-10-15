@@ -54,6 +54,13 @@ export const zhCN = {
   'layout.openPane': '打开窗格',
   'layout.auxOverlay': '窗格区',
 
+  'sidebar.sessions': '会话',
+  'sidebar.view.status': '按状态分组',
+  'sidebar.view.project': '按项目分组',
+  'sidebar.group.needsYou': '需要你',
+  'sidebar.group.running': '进行中',
+  'sidebar.group.completed': '已完成',
+  'sidebar.noSessions': '还没有会话',
   'rail.label': '会话侧栏',
   'rail.show': '显示会话侧栏',
   'rail.hide': '隐藏会话侧栏',

@@ -12,6 +12,8 @@ export interface LayoutPrefs {
   collapsedWorkspaces: readonly string[];
   /** 侧栏的整个“项目”一节收起了（U5）。 */
   projectsCollapsed: boolean;
+  /** 左栏的会话按状态还是按项目分组（U19，desktop-layout.md §13），默认按状态。 */
+  sidebarView: 'status' | 'project';
   /** 会话侧栏开着（U18，desktop-layout.md §12），默认开。 */
   railShown: boolean;
   /** 会话侧栏里展开着的卡片（`registerRailCard` 的 id），默认只有“环境”。 */
@@ -23,6 +25,7 @@ const DEFAULT_PREFS: LayoutPrefs = {
   sidebarCollapsed: false,
   collapsedWorkspaces: [],
   projectsCollapsed: false,
+  sidebarView: 'status',
   railShown: true,
   railOpen: ['environment'],
 };
@@ -41,6 +44,7 @@ export function parseLayoutPrefs(raw: unknown): LayoutPrefs | undefined {
       ? value.collapsedWorkspaces.filter((id): id is string => typeof id === 'string')
       : [],
     projectsCollapsed: value.projectsCollapsed === true,
+    sidebarView: value.sidebarView === 'project' ? 'project' : 'status',
     railShown: value.railShown !== false,
     railOpen: Array.isArray(value.railOpen)
       ? value.railOpen.filter((id): id is string => typeof id === 'string')

@@ -10,6 +10,7 @@ describe('parseLayoutPrefs', () => {
       sidebarCollapsed: true,
       collapsedWorkspaces: ['w1'],
       projectsCollapsed: false,
+      sidebarView: 'status',
       railShown: true,
       railOpen: ['environment'],
     });
@@ -21,10 +22,16 @@ describe('parseLayoutPrefs', () => {
       sidebarCollapsed: false,
       collapsedWorkspaces: [],
       projectsCollapsed: false,
+      sidebarView: 'status',
       railShown: true,
       railOpen: ['environment'],
     });
     expect(parseLayoutPrefs(null)).toBeUndefined();
+  });
+
+  it('记住按项目分组', () => {
+    expect(parseLayoutPrefs({ sidebarView: 'project' })?.sidebarView).toBe('project');
+    expect(parseLayoutPrefs({ sidebarView: 'tree' })?.sidebarView).toBe('status');
   });
 
   it('记住关掉的会话侧栏与展开的卡片', () => {
