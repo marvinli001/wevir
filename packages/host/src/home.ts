@@ -13,6 +13,10 @@ export const HOME_LAYOUT = {
   settingsFile: 'settings.json',
   /** 订阅来源的引擎用的可执行文件（0.19.0，`account.setPath`）。 */
   enginesFile: 'engines.json',
+  /** 读历史的工具读的会话历史（0.25.0，接力），每个接力过的会话一个 `<会话 ID>.json`（0700）。 */
+  historyDir: 'history',
+  /** Host 写给引擎挂的本机 MCP 服务的脚本（0.25.0 的读历史工具，0700）。 */
+  mcpDir: 'mcp',
 } as const;
 
 export interface ResolveHomeOptions {

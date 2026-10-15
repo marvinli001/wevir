@@ -240,7 +240,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 
-10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单与 Claude Agent、Cursor、OpenCode、Grok、Antigravity 引擎）
+10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单、接力与 Claude Agent、Cursor、OpenCode、Grok、Antigravity 引擎）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
 来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
@@ -292,6 +292,11 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   apps/desktop/src/renderer/src/notifications/notification-model.ts、notification-coordinator.tsx（规则）
       <- apps/web/src/components/ThreadNotificationCoordinator.tsx
          apps/web/src/threadNotifications.ts
+  packages/host/src/handoff.ts
+      <- apps/server/src/orchestration-v2/ContextHandoffService.ts
+         apps/server/src/orchestration-v2/ContextHandoffDelivery.ts
+         packages/provider-core/src/server/handoffBudget.ts
+         docs/internals/context-handoffs.md
 
 Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），均由 Wevir
 改写，修改说明在各文件头：

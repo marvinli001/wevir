@@ -3,6 +3,7 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { HistoryToolServer } from '@wevir/runtime-adapter/history-tool';
 import { ClaudeAccounts } from '../account.js';
 import { ClaudeAdapter } from '../claude-adapter.js';
 import { FakeClaudeSdk, type FakeSdkOptions } from './fake-sdk.js';
@@ -28,7 +29,7 @@ export interface FakeHarness {
 
 /** 新建一个跑在假 SDK 上的适配器；`cleanup` 删掉临时数据目录。 */
 export function newFakeAdapter(
-  options: FakeSdkOptions & { cancelTimeoutMs?: number } = {},
+  options: FakeSdkOptions & { cancelTimeoutMs?: number; historyTool?: HistoryToolServer } = {},
 ): FakeHarness {
   const home = mkdtempSync(join(tmpdir(), 'wevir-claude-test-'));
   const sdk = new FakeClaudeSdk(options);
@@ -38,6 +39,7 @@ export function newFakeAdapter(
     accounts: fakeAccounts(sdk, join(home, 'engines', 'claude')),
     env: { PATH: '/usr/bin', HOME: '/home/test' },
     ...(options.cancelTimeoutMs !== undefined && { cancelTimeoutMs: options.cancelTimeoutMs }),
+    ...(options.historyTool !== undefined && { historyTool: options.historyTool }),
   });
   return { sdk, adapter, home };
 }

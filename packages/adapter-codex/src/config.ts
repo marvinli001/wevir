@@ -1,5 +1,11 @@
 import { chmodSync, writeFileSync } from 'node:fs';
 import type { ProviderConfig, ProviderModelConfig } from '@wevir/runtime-adapter';
+import {
+  HISTORY_TOOL_NAME,
+  HISTORY_TOOL_SERVER,
+  type HistoryToolServer,
+  historyToolCommand,
+} from '@wevir/runtime-adapter/history-tool';
 import { GATEWAY_TOKEN_ENV } from './env.js';
 import type { CodexPaths } from './paths.js';
 import type { BasePromptVars } from './prompts.js';
@@ -200,6 +206,8 @@ export interface RenderConfigInput {
   providerExtra?: Readonly<Record<string, unknown>>;
   /** 建议后续任务的本机 MCP 服务（U23，suggest-tasks.ts）；省略时不登记。 */
   suggestTasks?: SuggestTasksServer;
+  /** 读历史的本机 MCP 服务（0.25.0，接力，`@wevir/runtime-adapter/history-tool`）；省略时不登记。 */
+  historyTool?: HistoryToolServer;
 }
 
 /**
@@ -229,7 +237,10 @@ export function renderConfigToml(input: RenderConfigInput): string {
       modelProviderEntry(provider, input.gatewayBaseURL(provider.id), input.providerExtra),
     ).map(([key, value]) => `${key} = ${tomlValue(value)}`),
   ]);
-  const mcp = input.suggestTasks === undefined ? [] : suggestTasksToml(input.suggestTasks);
+  const mcp = [
+    ...(input.suggestTasks === undefined ? [] : suggestTasksToml(input.suggestTasks)),
+    ...(input.historyTool === undefined ? [] : historyToolToml(input.historyTool)),
+  ];
   return `${[...top, ...HARDENING_TABLES, ...providers, ...mcp].join('\n')}\n`;
 }
 
@@ -271,6 +282,7 @@ export function chatgptEndpointEnv(endpoints: ChatgptEndpoints): Record<string, 
 export function renderChatgptConfigToml(
   endpoints?: ChatgptEndpoints,
   suggestTasks?: SuggestTasksServer,
+  historyTool?: HistoryToolServer,
 ): string {
   const backend = endpoints?.backend.replace(/\/+$/, '');
   const top = [
@@ -286,7 +298,10 @@ export function renderChatgptConfigToml(
         ]),
     '',
   ];
-  const mcp = suggestTasks === undefined ? [] : suggestTasksToml(suggestTasks);
+  const mcp = [
+    ...(suggestTasks === undefined ? [] : suggestTasksToml(suggestTasks)),
+    ...(historyTool === undefined ? [] : historyToolToml(historyTool)),
+  ];
   return `${[...top, ...HARDENING_TABLES, ...mcp].join('\n')}\n`;
 }
 
@@ -337,4 +352,22 @@ export function threadConfig(
       model_reasoning_effort: toCodexEffort(reasoningEffort),
     }),
   };
+}
+
+/**
+ * config.toml 里的 `[mcp_servers.wevir_history]`（0.25.0，codex-event-mapping.md §6.10）：接力过来的会话读之前的历史，只开
+ * `read_session_history` 一个只读工具，不需要批准。模型看到命名空间 `mcp__wevir_history` 里的它。
+ */
+export function historyToolToml(server: HistoryToolServer): string[] {
+  const { command, args } = historyToolCommand(server);
+  return [
+    '',
+    `[mcp_servers.${HISTORY_TOOL_SERVER}]`,
+    `command = ${tomlString(command)}`,
+    `args = [${args.map(tomlString).join(', ')}]`,
+    'env = { ELECTRON_RUN_AS_NODE = "1" }',
+    'default_tools_approval_mode = "approve"',
+    `enabled_tools = [${tomlString(HISTORY_TOOL_NAME)}]`,
+    'startup_timeout_sec = 10',
+  ];
 }

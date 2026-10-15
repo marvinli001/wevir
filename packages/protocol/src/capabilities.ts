@@ -105,6 +105,11 @@ export const HOST_FEATURES = {
   sessionCompact: 'session_compact',
   /** 代码审查（0.24.0）：`session.review`。取决于引擎（Codex 有）；会话所在的引擎不能审查时 `INVALID_STATE`。 */
   sessionReview: 'session_review',
+  /**
+   * 接力（0.25.0，domain-model §3.14）：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与
+   * `host.hello` 的 `engineFeatures`。已有会话能换到别的来源的模型。与引擎无关。
+   */
+  sessionHandoff: 'session_handoff',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -130,6 +135,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_archive: z.boolean().optional(),
   session_compact: z.boolean().optional(),
   session_review: z.boolean().optional(),
+  session_handoff: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

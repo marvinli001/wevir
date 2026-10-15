@@ -405,6 +405,40 @@ describe('TranscriptProjection：会话级事件', () => {
     expect(transcript.lastError).toBeUndefined();
   });
 
+  it('接力（0.25.0）在切换处成为一条系统消息，带新旧两头；摘要不进消息', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 3 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    add('session.handoff', {
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'e1' },
+      to: { providerId: 'claude', modelId: 'claude-opus-5-5', engineSessionId: 'e2' },
+      permissionMode: 'on_request',
+      resumed: false,
+      strategy: 'full_thread_summary',
+      covered: { fromSeq: 1, toSeq: 6 },
+      items: 2,
+      omittedItems: 0,
+      context: 'Context handoff (full_thread_summary):\n…',
+    });
+    const transcript = projectTranscript(list);
+    expect(transcript.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'system']);
+    expect(transcript.messages[2]?.parts).toEqual([
+      {
+        type: 'notice',
+        key: `n:${list.length}`,
+        notice: {
+          kind: 'handoff',
+          providerId: 'claude',
+          modelId: 'claude-opus-5-5',
+          fromProviderId: 'deepseek-official',
+          fromModelId: 'deepseek-chat',
+          resumed: false,
+        },
+      },
+    ]);
+  });
+
   it('engine.raw 只在 includeRaw 时投影，放进进行中的回合', () => {
     const { list, add, turn } = events();
     turn();
@@ -569,6 +603,34 @@ describe('applySessionEvent', () => {
     expect(list.reduce(applySessionEvent, base).permissionMode).toBe('full_access');
     add('session.configured', { modelId: 'deepseek-chat' });
     expect(list.reduce(applySessionEvent, base).permissionMode).toBeUndefined();
+  });
+
+  it('接力（0.25.0）：Provider、模型、引擎会话与权限模式换成新的，档位没给时清掉，只读解除', () => {
+    const { list, add } = events();
+    add('session.configured', { modelId: 'deepseek-v4-pro', reasoningEffort: 'high' });
+    add('session.handoff', {
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'e1' },
+      to: { providerId: 'claude', modelId: 'claude-opus-5-5', engineSessionId: 'e2' },
+      permissionMode: 'on_request',
+      resumed: false,
+      strategy: 'full_thread_summary',
+      covered: { fromSeq: 1, toSeq: 6 },
+      items: 2,
+      omittedItems: 0,
+      context: 'Context handoff (full_thread_summary):\n…',
+    });
+    const session = list.reduce(applySessionEvent, {
+      ...base,
+      readOnly: { reason: 'engine_session_not_found', message: 'gone', since: base.createdAt },
+    });
+    expect(session).toMatchObject({
+      providerId: 'claude',
+      modelId: 'claude-opus-5-5',
+      engine: { kind: base.engine.kind, sessionId: 'e2' },
+      permissionMode: 'on_request',
+    });
+    expect(session.reasoningEffort).toBeUndefined();
+    expect(session.readOnly).toBeUndefined();
   });
 
   it('已应用的 seq 与别的会话的事件原样返回', () => {

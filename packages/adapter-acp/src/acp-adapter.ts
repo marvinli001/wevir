@@ -1,4 +1,5 @@
 import {
+  type McpServer,
   methods,
   type PromptResponse,
   type RequestPermissionRequest,
@@ -53,6 +54,10 @@ export interface AcpAdapterOptions<P extends AcpProcess> {
   /** 告警日志（Host 的 Logger 满足这个接口），默认写 stderr。 */
   logger?: AdapterLogger;
   cancelTimeoutMs?: number;
+  /**
+   * 交给每个 `session/new` 与 `session/resume` 的本机 MCP 服务（0.25.0：读历史的工具，Grok 用）。默认没有（dsh、Antigravity）。
+   */
+  mcpServers?: readonly McpServer[];
 }
 
 export interface AcpProcessHooks {
@@ -146,6 +151,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   readonly #logger: AdapterLogger;
   readonly #warnOnce: WarnOnce;
   readonly #cancelTimeoutMs: number;
+  readonly #mcpServers: McpServer[];
   #nextRequestId = 0;
   #nextQuestionId = 0;
   #disposed: Promise<void> | undefined;
@@ -163,6 +169,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.#logger = options.logger ?? stderrLogger(engine.name);
     this.#warnOnce = warnOnceVia(this.#logger);
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#mcpServers = [...(options.mcpServers ?? [])];
     this.process = options.createProcess({
       onSessionUpdate: (params) => this.#onSessionUpdate(params),
       onRequestPermission: (params, signal) => this.#onRequestPermission(params, signal),
@@ -207,7 +214,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         response = await this.#withAuth(() =>
           connection.agent.request(methods.agent.session.new, {
             cwd: config.cwd,
-            mcpServers: [],
+            mcpServers: this.#mcpServers,
           }),
         );
       } catch (error) {
@@ -261,7 +268,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           connection.agent.request(methods.agent.session.resume, {
             sessionId: engineSessionId,
             cwd: config.cwd,
-            mcpServers: [],
+            mcpServers: this.#mcpServers,
           }),
         ));
       } catch (error) {

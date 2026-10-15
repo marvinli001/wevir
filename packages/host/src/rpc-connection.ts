@@ -6,6 +6,7 @@ import {
   type ClientIdentity,
   CloseCode,
   type CloseCodeName,
+  type EngineFeatures,
   ErrorCode,
   type ErrorCodeName,
   type HostFeatures,
@@ -62,6 +63,8 @@ export interface ConnectionHost {
   readonly methods: HostMethods;
   /** `host.hello` 结果里的功能（按引擎决定，host-api.md §10）。 */
   readonly features: HostFeatures;
+  /** `host.hello` 结果里每种 Provider 的引擎能做什么（0.25.0）。 */
+  readonly engineFeatures?: Readonly<Record<string, EngineFeatures>>;
   /** 引擎的账号（R6）：调过 `account.*` 的连接用它收 `account.updated`。引擎没有账号时省略。 */
   readonly accounts?: { watch(listener: (state: AccountState) => void): () => void };
   /** Host 设置（R11）：调过 `settings.*` 的连接用它收 `settings.updated`。 */
@@ -279,6 +282,12 @@ export class RpcConnection {
       protocolVersion: negotiation.protocolVersion,
       minProtocolVersion: MIN_PROTOCOL_VERSION,
       features: { ...this.#host.features },
+      ...(this.#host.engineFeatures !== undefined && {
+        engineFeatures: structuredClone(this.#host.engineFeatures) as Record<
+          string,
+          EngineFeatures
+        >,
+      }),
       permissions: [...PERMISSIONS],
     });
   }

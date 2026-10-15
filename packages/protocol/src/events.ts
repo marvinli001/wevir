@@ -18,6 +18,7 @@ import {
   ApprovalResolutionSchema,
   CompactionTriggerSchema,
   EngineErrorCategorySchema,
+  HandoffStrategySchema,
   PendingMessageSchema,
   PermissionModeSchema,
   QuestionRequestSchema,
@@ -117,6 +118,36 @@ export const EventPayloadSchemas = {
     modelId: z.string().min(1),
     reasoningEffort: z.string().optional(),
     permissionMode: PermissionModeSchema.optional(),
+  }),
+  /**
+   * 会话换到了别的来源（0.25.0，`session.configure` 带别的 `providerId`，domain-model §3.14）：之后的回合交给 `to` 的引擎会话，
+   * `providerId`、模型、推理档位与权限模式都换成这里的值。`context` 是交给新引擎的历史摘要，随下一条消息的开头交过去；没有要补的
+   * 历史时省略。会话原来是 `error` 或 `closed` 时，同一事务里接着写转 `idle`（`resumed`），只读随之解除。
+   */
+  'session.handoff': z.object({
+    from: z.object({
+      providerId: ProviderIdSchema,
+      modelId: z.string().min(1),
+      engineSessionId: z.string().min(1),
+    }),
+    to: z.object({
+      providerId: ProviderIdSchema,
+      modelId: z.string().min(1),
+      engineSessionId: z.string().min(1),
+    }),
+    reasoningEffort: z.string().optional(),
+    permissionMode: PermissionModeSchema.optional(),
+    /** true：接着用这个来源以前的引擎会话（只补它错过的）；false：新建的引擎会话。 */
+    resumed: z.boolean(),
+    strategy: HandoffStrategySchema,
+    /** 摘要覆盖的事件（含两端）；没有要补的时省略。 */
+    covered: z.object({ fromSeq: SeqSchema, toSeq: SeqSchema }).optional(),
+    /** 摘要里的条目数，与因长度预算省掉的条目数。 */
+    items: z.int().min(0),
+    omittedItems: z.int().min(0),
+    context: z.string().min(1).optional(),
+    /** 建立或恢复 `to` 的引擎版本。适配器不报时省略。 */
+    engineVersion: z.string().optional(),
   }),
   'session.state_changed': z.object({
     from: SessionStateSchema,
@@ -349,6 +380,7 @@ export const SessionResumedEventSchema = eventSchema('session.resumed');
 export const SessionReadOnlyEventSchema = eventSchema('session.read_only');
 export const SessionTitleChangedEventSchema = eventSchema('session.title_changed');
 export const SessionConfiguredEventSchema = eventSchema('session.configured');
+export const SessionHandoffEventSchema = eventSchema('session.handoff');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
 export const UserMessageEventSchema = eventSchema('user.message');
 export const TurnStartedEventSchema = eventSchema('turn.started');
@@ -386,6 +418,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionReadOnlyEventSchema,
   SessionTitleChangedEventSchema,
   SessionConfiguredEventSchema,
+  SessionHandoffEventSchema,
   SessionStateChangedEventSchema,
   UserMessageEventSchema,
   TurnStartedEventSchema,

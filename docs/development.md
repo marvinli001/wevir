@@ -233,6 +233,8 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `engines/codex-chatgpt/` | ChatGPT 进程的 `CODEX_HOME`（R6）：Wevir 重写的 `config.toml`（没有 Provider 与模型目录），登录后 Codex 写的 `auth.json`（0600，ChatGPT 的令牌，见[安全说明](./security.md) §3），以及它自己的 rollout 与 SQLite 库。第一次用到 ChatGPT 账号时才出现 |
 | `engines/claude/` | Claude Agent 引擎（2026-10-15）探测登录与生成标题时的工作目录，里面没有 Wevir 的文件。会话记录与登录都在用户自己的 `~/.claude`（`claude` 写，Wevir 不读不改），见 [claude-event-mapping.md](./architecture/claude-event-mapping.md) §2 |
 | `engines.json` | `account.setPath` 指定的订阅引擎可执行文件（0.19.0） |
+| `history/` | 接力过的会话的完整历史（0.25.0，domain-model §3.14）：`<会话 ID>.json`（0600），会话换到挂了读历史工具的引擎时由 Host 写，读历史的 MCP 服务只读这里 |
+| `mcp/` | Host 给引擎挂的本机 MCP 服务的脚本（0.25.0 的 `wevir-history.mjs`），引擎第一次启动前写，每次覆盖 |
 | `engines/cursor/` | Cursor 引擎：应用内登录铸出的 API Key `auth.json`（0600，见[安全说明](./security.md) §3）。第一次登录 Cursor 时才出现；agent 的对话由 Cursor 的 SDK 存在它自己的位置（`~/.cursor/projects/`） |
 | `engines/opencode/` | OpenCode 引擎：读账号时 `opencode serve` 的工作目录，`servers/` 是本机服务器的台账（0600，进程身份与端口）。登录、配置与会话都在用户自己的 opencode 目录（`~/.config/opencode`、`~/.local/share/opencode`），Wevir 不读不改，见 [opencode-event-mapping.md](./architecture/opencode-event-mapping.md) §1 |
 | `engines/antigravity/` | Antigravity 引擎：`runtime/<平台>-<架构>/`（设置里下载的运行体，`active.json` 指向装好的版本，没下完的在 `downloads/`）、`profile/`（运行体的 `GEMINI_HOME`：Google 登录 `antigravity-acp/acp_token.json` 与对话，Wevir 不读登录的内容）、`tmp/`（每个进程的解包目录，约 1 GB，进程退出后删掉）、`models.json`（模型列表）。第一次下载或登录时才出现 |

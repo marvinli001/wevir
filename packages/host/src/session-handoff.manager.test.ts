@@ -1,0 +1,240 @@
+// 接力（0.25.0）在 SessionManager 上的细节：出错与只读的会话、没交出去的摘要、读历史工具的文件、权限模式、支线。
+
+import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
+import type { SessionId, WevirEvent } from '@wevir/protocol';
+import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import type { HistoryFile } from '@wevir/runtime-adapter/history-tool';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EngineRouter } from './engine-router.js';
+import { EventStore } from './event-store.js';
+import { SessionManager } from './session-manager.js';
+import { identity, useStorages, useTempDir } from './test-utils.js';
+
+const tempDir = useTempDir();
+const storages = useStorages();
+const T0 = '2026-10-15T00:00:00.000Z';
+
+describe('接力（SessionManager）', () => {
+  const managers: SessionManager[] = [];
+  afterEach(async () => {
+    await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
+  });
+
+  function setup(options: { claudeModes?: boolean } = {}) {
+    const root = join(realpathSync(tempDir()), `h${managers.length}`);
+    mkdirSync(root);
+    const storage = storages.open(join(root, 'data'));
+    const workspaceDir = join(root, 'ws');
+    mkdirSync(workspaceDir);
+    storage.workspaces.insert({
+      id: 'ws_1',
+      rootPath: workspaceDir,
+      displayName: 'ws',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    storage.providers.insert({
+      id: 'mock',
+      kind: 'openai-compatible',
+      displayName: 'Mock API',
+      api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:9/v1',
+      models: [{ id: 'm' }],
+      defaultModelId: 'm',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    storage.providers.insert({
+      id: 'claude',
+      kind: 'claude',
+      displayName: 'Claude Agent',
+      models: [{ id: 'claude-opus-5-5', displayName: 'Claude Opus 5.5' }],
+      defaultModelId: 'claude-opus-5-5',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const api = new EchoAdapter({ stepDelayMs: 0 });
+    const claude = new EchoAdapter({ stepDelayMs: 0 });
+    const router = new EngineRouter([
+      { name: 'echo', adapter: api, kinds: ['openai-compatible'] },
+      { name: 'echo-claude', adapter: claude, kinds: ['claude'] },
+    ]);
+    void router.configureProviders([
+      { id: 'mock', kind: 'openai-compatible' } as never,
+      { id: 'claude', kind: 'claude' } as never,
+    ]);
+    const features = router.engineFeatures();
+    // 假装 Claude 的引擎挂了读历史的工具；`claudeModes: false` 时它不认权限模式。
+    const { permissionModes, ...claudeFeatures } = features.claude ?? { engine: 'echo-claude' };
+    const engineFeatures = {
+      ...features,
+      claude: {
+        ...claudeFeatures,
+        historyTool: true,
+        ...(options.claudeModes !== false && permissionModes !== undefined && { permissionModes }),
+      },
+    };
+    const events = new EventStore({ storage, deltaWindowMs: 5 });
+    const historyDir = join(root, 'data', 'history');
+    const manager = new SessionManager({
+      storage,
+      events,
+      adapter: router,
+      engine: 'echo',
+      engineFeatures,
+      historyDir,
+    });
+    managers.push(manager);
+    return { storage, events, manager, api, claude, historyDir };
+  }
+
+  async function turn(env: ReturnType<typeof setup>, sessionId: SessionId, text: string) {
+    await env.manager.send({ sessionId, content: [{ type: 'text', text }] }, identity);
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('idle'), {
+      timeout: 5000,
+    });
+  }
+
+  function handoffs(env: ReturnType<typeof setup>, sessionId: SessionId) {
+    return env.events
+      .readSince(sessionId, 0)
+      .filter(
+        (event): event is Extract<WevirEvent, { type: 'session.handoff' }> =>
+          event.type === 'session.handoff',
+      );
+  }
+
+  function lastAnswer(env: ReturnType<typeof setup>, sessionId: SessionId): string {
+    const answer = env.events
+      .readSince(sessionId, 0)
+      .findLast((event) => event.type === 'assistant.message');
+    return answer?.type === 'assistant.message' ? answer.payload.text : '';
+  }
+
+  it('写读历史工具的文件，摘要里提这个工具；文件里是全文', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    const long = `很长的说明 ${'x'.repeat(600)}`;
+    await turn(env, sessionId, long);
+    await env.manager.configure({ sessionId, providerId: 'claude' });
+    const [handoff] = handoffs(env, sessionId);
+    expect(handoff?.payload.context).toContain('read_session_history');
+    const file = JSON.parse(
+      readFileSync(join(env.historyDir, `${sessionId}.json`), 'utf8'),
+    ) as HistoryFile;
+    expect(file).toMatchObject({ sessionId, throughSeq: (handoff?.seq ?? 0) - 1 });
+    expect(file.items[0]).toMatchObject({ position: 1, kind: 'user_message', text: long });
+    // 摘要里只是截短的。
+    expect(handoff?.payload.context).not.toContain(long);
+  });
+
+  it('引擎退出、回合以 interrupted 结束时摘要没交出去，下一条消息接着带', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, '第一句');
+    await env.manager.configure({ sessionId, providerId: 'claude' });
+    await env.manager.send(
+      { sessionId, content: [{ type: 'text', text: 'slow 慢慢说' }] },
+      identity,
+    );
+    await env.claude.simulateEngineExit();
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('error'));
+    expect(env.events.handoffState(sessionId)?.context).toContain('Context handoff');
+
+    await env.manager.resume(sessionId);
+    await turn(env, sessionId, '再来一次');
+    expect(lastAnswer(env, sessionId)).toContain('Context handoff (full_thread_summary)');
+    expect(env.events.handoffState(sessionId)?.context).toBeUndefined();
+    await turn(env, sessionId, '第三句');
+    expect(lastAnswer(env, sessionId)).not.toContain('Context handoff');
+  });
+
+  it('出错的会话可以接力：转回 idle；原来的引擎会话关掉', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, 'hello');
+    await env.api.simulateEngineExit();
+    await vi.waitFor(() => expect(env.events.snapshot(sessionId)?.session.state).toBe('error'));
+    const session = await env.manager.configure({ sessionId, providerId: 'claude' });
+    expect(session).toMatchObject({ state: 'idle', providerId: 'claude' });
+    const types = env.events.readSince(sessionId, 0).map((event) => event.type);
+    expect(types.slice(-2)).toEqual(['session.handoff', 'session.state_changed']);
+    await turn(env, sessionId, '接着来');
+    expect(lastAnswer(env, sessionId)).toContain('User message:\n接着来');
+  });
+
+  it('新引擎建不起来时不写事件，会话还是原来的 Provider，下次发消息恢复原来的引擎会话', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, 'hello');
+    await env.claude.dispose();
+    await expect(env.manager.configure({ sessionId, providerId: 'claude' })).rejects.toMatchObject({
+      code: 'ENGINE_ERROR',
+    });
+    expect(handoffs(env, sessionId)).toHaveLength(0);
+    expect(env.events.snapshot(sessionId)?.session.providerId).toBe('mock');
+    await turn(env, sessionId, '还在');
+    expect(lastAnswer(env, sessionId)).toBe('Echo: 还在');
+  });
+
+  it('沿用的权限模式新引擎不支持时退回 on_request；明说的不支持时拒绝', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'mock',
+      permissionMode: 'full_access',
+    });
+    const sessionId = id as SessionId;
+    const kept = await env.manager.configure({ sessionId, providerId: 'claude' });
+    expect(kept.permissionMode).toBe('full_access');
+
+    const narrow = setup({ claudeModes: false });
+    const other = await narrow.manager.create({
+      workspaceId: 'ws_1',
+      providerId: 'mock',
+      permissionMode: 'auto_review',
+    });
+    await expect(
+      narrow.manager.configure({
+        sessionId: other.id as SessionId,
+        providerId: 'claude',
+        permissionMode: 'full_access',
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    const fallback = await narrow.manager.configure({
+      sessionId: other.id as SessionId,
+      providerId: 'claude',
+    });
+    expect(fallback.permissionMode).toBeUndefined();
+  });
+
+  it('刚接力、新引擎还没跑过回合时不能分支线；跑过一个回合就可以', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, 'hello');
+    await env.manager.configure({ sessionId, providerId: 'claude' });
+    await expect(env.manager.fork({ sessionId, side: true })).rejects.toMatchObject({
+      code: 'INVALID_STATE',
+    });
+    await turn(env, sessionId, '在 Claude 上说一句');
+    const side = await env.manager.fork({ sessionId, side: true });
+    expect(side).toMatchObject({ providerId: 'claude', side: true });
+  });
+
+  it('支线会话不能接力', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, 'hello');
+    const side = await env.manager.fork({ sessionId, side: true });
+    await expect(
+      env.manager.configure({ sessionId: side.id as SessionId, providerId: 'claude' }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+});

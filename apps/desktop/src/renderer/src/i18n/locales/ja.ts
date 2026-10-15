@@ -564,6 +564,7 @@ export const messages: Messages = {
   'notice.resumedVersion': 'エンジンセッションを再開しました ({version})',
   'notice.readOnly': 'セッションは読み取り専用: {reason}',
   'notice.closed': 'セッションは終了しました',
+  'notice.handoff': '{model} に切り替えました',
   'readOnly.engine_session_not_found': 'エンジンセッションが存在しません',
   'readOnly.engine_session_incompatible':
     'エンジンのバージョンがこのセッションと互換性がありません',

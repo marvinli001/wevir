@@ -47,6 +47,19 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
     case 'question.resolved':
       delete next.awaitingInput;
       break;
+    case 'session.handoff': {
+      // 0.25.0：之后的回合由新来源的引擎会话跑；`engines` 的 seenSeq 要读会话才知道，这里不推导。
+      const { to } = event.payload;
+      next.providerId = to.providerId;
+      next.modelId = to.modelId;
+      next.engine = { ...session.engine, sessionId: to.engineSessionId };
+      if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;
+      else next.reasoningEffort = event.payload.reasoningEffort;
+      if (event.payload.permissionMode === undefined) delete next.permissionMode;
+      else next.permissionMode = event.payload.permissionMode;
+      delete next.readOnly;
+      break;
+    }
     case 'session.configured':
       next.modelId = event.payload.modelId;
       if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;

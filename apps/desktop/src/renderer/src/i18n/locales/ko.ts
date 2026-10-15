@@ -555,6 +555,7 @@ export const messages: Messages = {
   'notice.resumedVersion': '엔진 세션 복원됨 ({version})',
   'notice.readOnly': '읽기 전용 세션: {reason}',
   'notice.closed': '세션 닫힘',
+  'notice.handoff': '{model}(으)로 전환됨',
   'readOnly.engine_session_not_found': '엔진 세션 없음',
   'readOnly.engine_session_incompatible': '엔진 버전이 이 세션과 호환되지 않음',
   'readOnly.engine_session_corrupted': '엔진 세션 로그 손상됨',

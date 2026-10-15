@@ -16,6 +16,7 @@ import {
   type AcpProcessOptions,
   type AdapterLogger,
 } from '@wevir/adapter-acp';
+import type { McpServer } from '@wevir/adapter-acp/sdk';
 import {
   AdapterError,
   type AgentEvent,
@@ -28,6 +29,12 @@ import {
   type PermissionMode,
   type SessionConfig,
 } from '@wevir/runtime-adapter';
+import {
+  HISTORY_TOOL_SERVER,
+  type HistoryToolServer,
+  historyToolCommand,
+  writeHistoryToolScript,
+} from '@wevir/runtime-adapter/history-tool';
 import { GrokAccounts, type GrokAccountsOptions } from './accounts.js';
 import { agentVersionOf, GROK_ENGINE, isAuthRequired } from './engine.js';
 import { GROK_LOGIN_COMMAND, GrokLauncher, XAI_API_KEY_ENV } from './launch.js';
@@ -64,6 +71,7 @@ export interface GrokModeAdapterOptions {
   logger?: AdapterLogger;
   cancelTimeoutMs?: number;
   process?: GrokProcessOptions;
+  mcpServers?: readonly McpServer[];
 }
 
 /**
@@ -84,6 +92,7 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
       engine: GROK_ENGINE,
       ...(options.logger !== undefined && { logger: options.logger }),
       ...(options.cancelTimeoutMs !== undefined && { cancelTimeoutMs: options.cancelTimeoutMs }),
+      ...(options.mcpServers !== undefined && { mcpServers: options.mcpServers }),
       createProcess: (hooks) =>
         new AcpProcess({
           ...options.process,
@@ -231,6 +240,8 @@ export interface GrokAdapterOptions {
   accounts?: Pick<GrokAccountsOptions, 'findExecutable' | 'probeInitialize' | 'now'>;
   /** 测试用：进程的时限与重启策略。 */
   process?: GrokProcessOptions;
+  /** 读历史的本机 MCP 服务（0.25.0，接力）：经 ACP 的 `session/new` / `session/resume` 交给 `grok`。 */
+  historyTool?: HistoryToolServer;
 }
 
 /** 一个会话在路由里的记录。 */
@@ -255,6 +266,8 @@ interface GrokSession {
  */
 export class GrokAdapter implements AgentRuntimeAdapter {
   readonly permissionModes: readonly PermissionMode[] = GROK_PERMISSION_MODES;
+  /** 读历史的工具（0.25.0）：给了 `historyTool` 时经 ACP 挂上。 */
+  readonly historyTool: boolean;
   readonly accounts: GrokAccounts;
   readonly #options: GrokAdapterOptions;
   readonly #workDir: string;
@@ -264,6 +277,7 @@ export class GrokAdapter implements AgentRuntimeAdapter {
 
   constructor(options: GrokAdapterOptions) {
     this.#options = options;
+    this.historyTool = options.historyTool !== undefined;
     this.#workDir = `${options.home}/engines/grok`;
     this.accounts = new GrokAccounts({
       workDir: this.#workDir,
@@ -433,6 +447,9 @@ export class GrokAdapter implements AgentRuntimeAdapter {
           cancelTimeoutMs: this.#options.cancelTimeoutMs,
         }),
         ...(this.#options.process !== undefined && { process: this.#options.process }),
+        ...(this.#options.historyTool !== undefined && {
+          mcpServers: [acpHistoryServer(this.#options.historyTool)],
+        }),
       });
       this.#modes.set(mode, host);
     }
@@ -513,4 +530,16 @@ export class GrokAdapter implements AgentRuntimeAdapter {
   #assertUsable(): void {
     if (this.#disposed !== undefined) throw new AdapterError('disposed', 'grok 适配器已释放');
   }
+}
+
+/** 读历史的 MCP 服务写成 ACP 的 stdio 形状（0.25.0）。 */
+function acpHistoryServer(server: HistoryToolServer): McpServer {
+  writeHistoryToolScript(server);
+  const { command, args, env } = historyToolCommand(server);
+  return {
+    name: HISTORY_TOOL_SERVER,
+    command,
+    args,
+    env: Object.entries(env).map(([name, value]) => ({ name, value })),
+  };
 }

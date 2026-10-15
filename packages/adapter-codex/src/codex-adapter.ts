@@ -31,6 +31,10 @@ import {
   type SessionConfig,
   type TitleRequest,
 } from '@wevir/runtime-adapter';
+import {
+  type HistoryToolServer,
+  writeHistoryToolScript,
+} from '@wevir/runtime-adapter/history-tool';
 import { ChatgptAccount } from './account.js';
 import {
   type CodexExit,
@@ -181,6 +185,11 @@ export interface CodexAdapterOptions {
   rustLog?: string;
   /** 运行建议后续任务的 MCP 服务的 Node（U23，suggest-tasks.ts），默认 `process.execPath`。 */
   mcpNode?: string;
+  /**
+   * 读历史的本机 MCP 服务（0.25.0，接力）：Host 写好的脚本与历史目录，登记进两种进程的 config.toml。省略时不登记，也不声明
+   * `historyTool`。
+   */
+  historyTool?: HistoryToolServer;
   /** 旁听 app-server 的每一条原始通知（在映射之前，按到达顺序同步调用）；录制测试样本用。 */
   onRawNotification?: (method: string, params: unknown) => void;
   /** 旁听 app-server 的每一个服务端请求（到达时、处理之前同步调用）；录制测试样本用。 */
@@ -338,9 +347,14 @@ class Launcher implements CodexLauncher {
       this.#versionChecked = true;
     }
     const suggestTasks = writeSuggestTasksServer(this.paths.codexHome, this.#options.mcpNode);
+    if (this.#options.historyTool !== undefined) writeHistoryToolScript(this.#options.historyTool);
     if (this.chatgpt) {
       // ChatGPT 进程：没有网关与令牌，没有 Wevir 的 Provider 与模型目录。
-      writeCodexConfig(this.paths, renderChatgptConfigToml(endpoints, suggestTasks), undefined);
+      writeCodexConfig(
+        this.paths,
+        renderChatgptConfigToml(endpoints, suggestTasks, this.#options.historyTool),
+        undefined,
+      );
       this.launchedCatalog = undefined;
       return this.#spawnSpec(binary, binaryArgs, buildCodexEnv(baseEnv));
     }
@@ -363,6 +377,7 @@ class Launcher implements CodexLauncher {
         ...(catalog !== undefined && { catalogFile: this.paths.catalogFile }),
         providerExtra: this.#options.providerExtra,
         suggestTasks,
+        ...(this.#options.historyTool !== undefined && { historyTool: this.#options.historyTool }),
       }),
       catalog,
     );
@@ -433,6 +448,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly additionalRoots = true;
   /** 建议后续任务（0.16.0，codex-event-mapping.md §6.8）：Wevir 的本机 MCP 工具 `wevir_tasks.suggest_tasks`。 */
   readonly suggestedTasks = true;
+  /** 读历史的工具（0.25.0，codex-event-mapping.md §6.10）：给了 `historyTool` 时登记。 */
+  get historyTool(): boolean {
+    return this.#options.historyTool !== undefined;
+  }
   get googleVertex(): boolean {
     return !this.#chatgpt;
   }

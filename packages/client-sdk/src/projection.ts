@@ -67,7 +67,17 @@ export interface ToolPartApproval {
 export type SessionNotice =
   | { kind: 'resumed'; engineVersion?: string }
   | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string }
-  | { kind: 'closed' };
+  | { kind: 'closed' }
+  /** 换到了别的来源（0.25.0，`session.handoff`）：之后的回合由 `providerId` 的引擎跑。 */
+  | {
+      kind: 'handoff';
+      providerId: string;
+      modelId: string;
+      fromProviderId: string;
+      fromModelId: string;
+      /** 接着用这个来源以前的引擎会话。 */
+      resumed: boolean;
+    };
 
 /**
  * 消息的部件。`key` 在部件的一生中不变（增量块被已提交消息替换时沿用增量块的 key），渲染层拿它做 React key。
@@ -362,6 +372,19 @@ export class TranscriptProjection {
         return;
       case 'session.configured':
         return;
+      case 'session.handoff': {
+        const { from, to, resumed } = event.payload;
+        this.#readOnly = undefined;
+        this.#notice(event, {
+          kind: 'handoff',
+          providerId: to.providerId,
+          modelId: to.modelId,
+          fromProviderId: from.providerId,
+          fromModelId: from.modelId,
+          resumed,
+        });
+        return;
+      }
       case 'session.state_changed': {
         const { to, reason } = event.payload;
         this.#state = to;

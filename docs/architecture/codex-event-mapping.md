@@ -393,6 +393,12 @@ rust-v0.162.1 实测（`codex-adapter.side.integration.test.ts`）：支线的�
 
 主 thread 还没有完成的回合时 Host 不调 `fork`（Codex 在没有第一条用户消息时 fork 失败）。临时 thread 在 app-server 进程退出后就没了：Host 重启或进程重启后恢复报 `no rollout found`（§6.3 的 `session_lost`），支线变只读。
 
+### 6.10 读历史的工具（0.25.0，接力）
+
+会话从别的来源接力过来时（domain-model §3.14），摘要每条只有 240 字，模型要原文时用 Wevir 的读历史服务 `wevir_history`（`@wevir/runtime-adapter/history-tool`，stdio、只用 Node 内置模块，读 Host 写的 `<数据目录>/history/<会话 ID>.json`）。Host 给 `CodexRuntime` 一个 `historyTool`（脚本位置、历史目录、运行它的 Node），每次启动 codex-app-server 之前把脚本写进 `<数据目录>/mcp/wevir-history.mjs`，两种进程的 config.toml 都登记 `[mcp_servers.wevir_history]`：`command` 是 Host 自己的 Node，`args` 是脚本与历史目录，`env = { ELECTRON_RUN_AS_NODE = "1" }`，`default_tools_approval_mode = "approve"`，`enabled_tools = ["read_session_history"]`。每个会话都看得到这个工具（没接力过的会话调它只得到“没有历史”）。
+
+实测（rust-v0.162.1，经网关的 mock 模型，2026-10-15）：模型看到命名空间 `mcp__wevir_history` 里的 `read_session_history`；调用不出审批，`mcpToolCall` 完成后输出是历史的 JSON（`total`、`items`、`nextPosition`）。接力回来的 thread 是 `thread/resume` 恢复的原来那个，下一条用户消息开头是 `Context handoff (delta_since_target_last_seen)` 的摘要。
+
 ### 6.7 回合失败的归类（`turn-error.ts`）
 
 `turn/completed` 的 `turn.error` 带 `codexErrorInfo`（v2/CodexErrorInfo.ts：字符串，或带上游 `httpStatusCode` 的对象）。所有 Provider 都经网关：网关把上游的状态码原样转给 Codex，自己拒绝的请求带 `wevir gateway:` 前缀的原文。自上而下第一条匹配的生效；`message` 始终是完整原文，`code` 是上游的 HTTP 状态码（有时）。

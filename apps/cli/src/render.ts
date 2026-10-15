@@ -128,6 +128,17 @@ export class EventRenderer {
         );
         return;
       }
+      case 'session.handoff':
+        // 0.25.0：换到了别的来源（接力）；交给新模型的摘要不显示。
+        this.#sink.line(
+          this.#s.dim(
+            t('render.handoff', {
+              provider: event.payload.to.providerId,
+              model: event.payload.to.modelId,
+            }),
+          ),
+        );
+        return;
       case 'session.read_only':
         this.#sink.line(
           this.#s.yellow(

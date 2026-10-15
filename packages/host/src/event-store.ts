@@ -25,6 +25,7 @@ import {
   checkEvent,
   EventRejectedError,
   INITIAL_PROJECTION,
+  type ProjectedEngine,
   type SessionProjection,
   toCachePatch,
   toSnapshot,
@@ -43,6 +44,13 @@ export type EventInput = {
 export type AppendInput = Exclude<EventInput, { type: 'assistant.delta' }>;
 
 export type DeltaInput = WevirEventPayload<'assistant.delta'>;
+
+/** `handoffState` 的结果（0.25.0）。 */
+export interface HandoffState {
+  engines?: ProjectedEngine[];
+  currentSeen: number;
+  context?: string;
+}
 
 export interface EventStoreOptions {
   storage: Storage;
@@ -248,6 +256,20 @@ export class EventStore {
   suggestedTask(sessionId: SessionId, taskId: TaskId): SuggestedTask | undefined {
     if (!this.#storage.sessions.get(sessionId)) return undefined;
     return structuredClone(this.#projection(sessionId).suggestedTasks.get(taskId));
+  }
+
+  /**
+   * 接力的状态（0.25.0，domain-model §3.14）：挂过的引擎会话（第一次接力之前是 `undefined`）、当前的引擎会话看到了哪儿、还没
+   * 交出去的接力摘要。会话不存在时为 `undefined`。
+   */
+  handoffState(sessionId: SessionId): HandoffState | undefined {
+    if (!this.#storage.sessions.get(sessionId)) return undefined;
+    const { engines, currentSeen, handoffContext } = this.#projection(sessionId);
+    return {
+      ...(engines !== undefined && { engines: [...engines] }),
+      currentSeen,
+      ...(handoffContext !== undefined && { context: handoffContext }),
+    };
   }
 
   /** 写入缓冲的增量与 `inputs`，返回 `inputs` 对应的事件。 */

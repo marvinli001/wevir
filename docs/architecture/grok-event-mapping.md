@@ -95,7 +95,8 @@ Grok 有时给 `Tool` 这样不说明问题的标题（T3 的 `isGenericAcpToolT
 
 - **会话中换权限模式**：Grok 的权限模式只能在启动时给（T3 不允许会话中途换）。`configureSession` 记下新的模式，下一次 `send` 之前把会话挪到新模式的进程：旧进程里 `session/close`，新进程里 `session/resume`（创建时的 cwd），再按 Host 的配置选定模型。Host 的订阅不断；挪失败时会话留在没有进程的状态、`send` 报错，下一次 `send` 再试。依赖 Grok 把会话记在 `~/.grok/sessions`、别的进程能 resume（待维护者验证，§8）。
 - **会话中换模型与推理档位**：记下，下一次 `send` 之前用 ACP 的 `session/set_model`（`{sessionId, modelId, _meta: {reasoningEffort}}`，T3 的 `applyGrokAcpModelSelection`；Grok 的 `initialize` 回协议版本 1，T3 对它不用 `set_config_option`）。没给档位时不带 `_meta`，不当作清掉 Grok 的默认档位；选 `grok-build` 不换模型，只换档位时对当前模型发。结果 `_meta.model.Err` 报 `invalid_input`。Grok 随后发 `config_option_update`，适配器据此更新当前值。建会话时同样：与 `session/new` 结果的 `configOptions`（`model`、`reasoning_effort`）不同才发。
-- **恢复**：`session/resume`（`{sessionId, cwd, mcpServers: []}`）。T3 在 `loadSession` 为 true 时用 `session/load`（会回放历史，T3 要等回放结束）；Wevir 的历史在 Host 的事件库里，用不回放的 `resume`，Grok 两者都支持。失败的归类（`classifyResumeError`）：Grok 的措辞还没有录到，只把明说会话不存在的（`session … not found` 等）归为 `lost`（Host 标只读），说已在活动的归为 `already_active`，其余 `unknown`（不标只读，下次还能重试）。
+- **读历史的工具（0.25.0）**：Host 给了 `historyTool` 时，`session/new` 与 `session/resume` 的 `mcpServers` 带上 Wevir 的读历史服务（ACP 的 stdio 形状：`name: wevir_history`、`command`、`args`、`env`；通用 ACP 适配器的 `mcpServers` 选项，dsh 与 Antigravity 不给）。Grok 调它时要不要审批由 Grok 决定，要就照常问用户。真实 `grok` 待维护者验证（§8）。
+- **恢复**：`session/resume`（`{sessionId, cwd, mcpServers}`）。T3 在 `loadSession` 为 true 时用 `session/load`（会回放历史，T3 要等回放结束）；Wevir 的历史在 Host 的事件库里，用不回放的 `resume`，Grok 两者都支持。失败的归类（`classifyResumeError`）：Grok 的措辞还没有录到，只把明说会话不存在的（`session … not found` 等）归为 `lost`（Host 标只读），说已在活动的归为 `already_active`，其余 `unknown`（不标只读，下次还能重试）。
 
 ## 7. 与 T3 的差别与缺口
 

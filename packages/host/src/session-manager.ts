@@ -11,6 +11,7 @@ import {
   DEFAULT_PERMISSION_MODE,
   type EngineErrorCategory,
   type EngineErrorInfo,
+  type EngineFeatures,
   type EnvironmentId,
   type MethodParams,
   type MethodResult,
@@ -61,6 +62,7 @@ import {
   type TurnStartedEvent,
   type TurnSteeredEvent,
 } from '@wevir/runtime-adapter';
+import { writeHistoryFile } from '@wevir/runtime-adapter/history-tool';
 import {
   type ApprovalRecord,
   requestFingerprint,
@@ -77,6 +79,13 @@ import {
   removeWorktree,
   WorktreeError,
 } from './git-worktree.js';
+import {
+  DELTA_SINCE_TARGET_LAST_SEEN,
+  FULL_THREAD_SUMMARY,
+  handoffSummary,
+  historyItems,
+  withHandoffContext,
+} from './handoff.js';
 import { newId } from './ids.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
@@ -119,6 +128,16 @@ export interface SessionManagerOptions {
    * 会话关闭时删掉它的快照。没给时不打。
    */
   checkpoints?: TurnCheckpoints;
+  /**
+   * 每种 Provider 的会话由哪个引擎跑、能做什么（0.25.0，接力，`host.hello` 的 `engineFeatures`）。接力时按它决定沿用的权限模式、
+   * 有额外目录的会话能不能交过去、摘要里提不提读历史的工具。没给时只看适配器自己声明的。
+   */
+  engineFeatures?: Readonly<Record<string, EngineFeatures>>;
+  /**
+   * 读历史的工具读的目录（0.25.0，`<数据目录>/history`）：接力到挂了这个工具的引擎时，把会话到那时为止的完整历史写进
+   * `<会话 ID>.json`。没给时不写，摘要里也不提这个工具。
+   */
+  historyDir?: string;
 }
 
 /** `recover()` 的结果：启动对账修正了什么。 */
@@ -171,7 +190,8 @@ interface Attachment {
 
 interface SessionRuntime {
   readonly id: SessionId;
-  readonly engineSessionId: string;
+  /** 当前的引擎会话；接力（0.25.0）时换成新来源的。 */
+  engineSessionId: string;
   /** 子会话的父会话（R4，domain-model §3.3.1）。 */
   readonly parentId?: SessionId;
   /** 命令串行：每个命令排在上一个之后（ADR-0002 §4）。永不 reject。 */
@@ -256,6 +276,8 @@ export class SessionManager {
   readonly #titleInstructions: string | undefined;
   readonly #worktreesDir: string | undefined;
   readonly #checkpoints: TurnCheckpoints | undefined;
+  readonly #engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined;
+  readonly #historyDir: string | undefined;
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
@@ -282,6 +304,8 @@ export class SessionManager {
     this.#titleInstructions = options.titleInstructions;
     this.#worktreesDir = options.worktreesDir;
     this.#checkpoints = options.checkpoints;
+    this.#engineFeatures = options.engineFeatures;
+    this.#historyDir = options.historyDir;
   }
 
   /**
@@ -860,8 +884,12 @@ export class SessionManager {
       await this.#checkpoints?.beforeTurn(runtime.id, checkpointCwd, turnId);
     }
 
+    // 接力（0.25.0）：还没交出去的历史摘要放在这条消息的开头交给新引擎；消息记录里只有用户写的。
+    const handoff = this.#events.handoffState(runtime.id)?.context;
     try {
-      await this.#adapter.send(runtime.engineSessionId, { content });
+      await this.#adapter.send(runtime.engineSessionId, {
+        content: handoff === undefined ? content : withHandoffContext(handoff, content),
+      });
     } catch (error) {
       // 引擎没有接受这个回合。等待期间回合可能已经以别的方式结束（例如引擎退出）。
       if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
@@ -1150,6 +1178,12 @@ export class SessionManager {
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     this.#assertNotChild(runtime);
+    if (
+      params.providerId !== undefined &&
+      params.providerId !== this.#snapshot(runtime).session.providerId
+    ) {
+      return this.#handoff(runtime, params, params.providerId);
+    }
     const configureSession = this.#adapter.configureSession?.bind(this.#adapter);
     if (configureSession === undefined) {
       const message =
@@ -1222,6 +1256,231 @@ export class SessionManager {
       ]);
       return this.#snapshot(runtime).session;
     });
+  }
+
+  /**
+   * 接力（0.25.0，`session.configure` 带别的 `providerId`，domain-model §3.14，照 T3 Code 的 `create_with_handoff`）：会话要是
+   * `idle`、`error` 或 `closed`，不是支线。先取消活动中的子会话，再断开并关闭当前的引擎会话，为新 Provider 挂上引擎会话（以前用过
+   * 这个来源时恢复它以前的，恢复不了就新建），从事件库整理它没看到的那段历史的摘要，写 `session.handoff`（原来是 `error` /
+   * `closed` 时接着转 `idle`），最后订阅新的引擎会话。新引擎挂不上时回 `ENGINE_ERROR`、不写事件：会话还是原来的 Provider，原来
+   * 的引擎会话下次发消息时自动恢复。
+   */
+  async #handoff(
+    runtime: SessionRuntime,
+    params: MethodParams<'session.configure'>,
+    providerId: ProviderId,
+  ): Promise<Session> {
+    const target = this.#storage.providers.get(providerId);
+    if (!target) throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
+    return this.#serial(runtime, async () => {
+      const record = this.#record(runtime);
+      const { session } = this.#snapshot(runtime);
+      if (session.providerId === target.id) return session;
+      if (record.side) {
+        throw new HostError('INVALID_STATE', 'a side session cannot switch to another provider', {
+          state: session.state,
+        });
+      }
+      if (ACTIVE_STATES.includes(session.state)) {
+        throw new HostError('SESSION_BUSY', 'wait for the turn to finish before switching models', {
+          state: session.state,
+          ...(session.activeTurn !== undefined && { activeTurn: session.activeTurn }),
+        });
+      }
+      const invalid = (path: string, message: string) =>
+        new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
+      const modelId = params.modelId ?? target.defaultModelId;
+      const models = target.models as { id: string }[];
+      if (models.length > 0 && !models.some((model) => model.id === modelId)) {
+        throw invalid('modelId', `provider ${target.id} has no model ${modelId}`);
+      }
+      const features = this.#featuresOf(target.kind);
+      const reasoningEffort = params.reasoningEffort ?? undefined;
+      const permissionMode = this.#handoffPermissionMode(
+        params.permissionMode,
+        session.permissionMode,
+        features,
+      );
+      if ((record.extraRoots?.length ?? 0) > 0 && features?.additionalRoots !== true) {
+        throw invalid('providerId', `the engine of ${target.id} has no additional folders`);
+      }
+      await assertDirectory(record.cwd);
+      // 子会话跟着原来的引擎：还在跑的先停下（父会话空闲时一般没有）。
+      await this.#cancelChildren(runtime, 'turn_cancelled');
+
+      const config: SessionConfig = { cwd: record.cwd, providerId: target.id, modelId };
+      if (reasoningEffort !== undefined) config.reasoningEffort = reasoningEffort;
+      if (permissionMode !== undefined) config.permissionMode = permissionMode;
+      if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
+
+      // 当前的引擎会话先放下：之后换回这个来源时再恢复它。
+      const from = {
+        providerId: session.providerId,
+        modelId: session.modelId,
+        engineSessionId: runtime.engineSessionId,
+      };
+      const attachment = runtime.attachment;
+      if (attachment) {
+        attachment.detached = true;
+        await this.#adapter.close(runtime.engineSessionId).catch((error: unknown) => {
+          this.#onWarning('接力时关闭原来的引擎会话失败', {
+            sessionId: runtime.id,
+            error: errorText(error),
+          });
+        });
+        this.#detach(runtime);
+      }
+
+      const state = this.#events.handoffState(runtime.id);
+      const previous = state?.engines?.find((engine) => engine.providerId === target.id);
+      let engine: EngineSession | undefined;
+      if (previous !== undefined) {
+        try {
+          engine = await this.#adapter.resumeSession(previous.engineSessionId, config);
+        } catch (error) {
+          // 以前的引擎会话恢复不了：新建一个，交给它整段对话。
+          this.#onWarning('接力时恢复以前的引擎会话失败，改为新建', {
+            sessionId: runtime.id,
+            providerId: target.id,
+            error: errorText(error),
+          });
+        }
+      }
+      const resumed = engine !== undefined;
+      if (engine === undefined) {
+        try {
+          engine = await this.#adapter.createSession(config);
+        } catch (error) {
+          if (isAdapterError(error, 'invalid_input')) throw invalid('providerId', errorText(error));
+          const info = engineErrorInfo(error);
+          throw new HostError('ENGINE_ERROR', info.message, info);
+        }
+      }
+
+      // 摘要：新引擎没看到的那段（第一次用这个来源时是整段对话）。
+      const seen = resumed ? (previous?.seenSeq ?? 0) : 0;
+      const toSeq = this.#snapshot(runtime).session.lastSeq;
+      const describe = (provider: string, model: string) => this.#describeModel(provider, model);
+      const items = historyItems(this.#events.readSince(runtime.id, seen), describe);
+      const historyTool = features?.historyTool === true && this.#historyDir !== undefined;
+      const summary = handoffSummary({
+        sessionId: runtime.id,
+        strategy: seen === 0 ? FULL_THREAD_SUMMARY : DELTA_SINCE_TARGET_LAST_SEEN,
+        fromModel: describe(from.providerId, from.modelId),
+        covered: { fromSeq: seen + 1, toSeq },
+        items,
+        historyTool,
+      });
+      if (historyTool && summary !== undefined) this.#writeHistory(runtime.id, toSeq, describe);
+
+      runtime.engineSessionId = engine.engineSessionId;
+      const inputs: AppendInput[] = [
+        {
+          type: 'session.handoff',
+          source: 'host',
+          payload: {
+            from,
+            to: {
+              providerId: target.id,
+              modelId: engine.modelId ?? modelId,
+              engineSessionId: engine.engineSessionId,
+            },
+            ...((engine.reasoningEffort ?? reasoningEffort) !== undefined && {
+              reasoningEffort: engine.reasoningEffort ?? reasoningEffort,
+            }),
+            ...(permissionMode !== undefined && { permissionMode }),
+            resumed,
+            strategy: seen === 0 ? FULL_THREAD_SUMMARY : DELTA_SINCE_TARGET_LAST_SEEN,
+            ...(summary !== undefined && {
+              covered: { fromSeq: seen + 1, toSeq },
+              context: summary.context,
+            }),
+            items: summary?.items ?? 0,
+            omittedItems: summary?.omittedItems ?? 0,
+            ...(engine.engineVersion !== undefined && { engineVersion: engine.engineVersion }),
+          },
+        },
+      ];
+      const { state: sessionState } = this.#snapshot(runtime).session;
+      if (sessionState !== 'idle') inputs.push(stateChanged(sessionState, 'idle', 'resumed'));
+      this.#write(runtime, inputs);
+      try {
+        this.#attach(runtime);
+      } catch (error) {
+        this.#engineFailed(runtime, engineErrorInfo(error));
+      }
+      return this.#snapshot(runtime).session;
+    });
+  }
+
+  /** 一种 Provider 的引擎能做什么（0.25.0）；没给 `engineFeatures` 时只看适配器自己的。 */
+  #featuresOf(kind: string): EngineFeatures | undefined {
+    if (this.#engineFeatures !== undefined) return this.#engineFeatures[kind];
+    return {
+      engine: this.#engine,
+      ...(this.#adapter.permissionModes !== undefined && {
+        permissionModes: [...this.#adapter.permissionModes],
+      }),
+      ...(this.#adapter.additionalRoots === true && { additionalRoots: true }),
+      ...(this.#adapter.historyTool === true && { historyTool: true }),
+    };
+  }
+
+  /**
+   * 接力后的权限模式：请求里给了就要新引擎支持（否则 `INVALID_PARAMS`）；沿用会话原来的，新引擎不支持时退回 `on_request`
+   * （最严的那个）。新引擎不认权限模式时返回 undefined。
+   */
+  #handoffPermissionMode(
+    requested: PermissionMode | undefined,
+    current: PermissionMode | undefined,
+    features: EngineFeatures | undefined,
+  ): PermissionMode | undefined {
+    const supported = features?.permissionModes;
+    if (requested !== undefined) {
+      if (
+        supported?.includes(requested) ||
+        (supported === undefined && requested === DEFAULT_PERMISSION_MODE)
+      ) {
+        return supported === undefined ? undefined : requested;
+      }
+      const message = `the target engine does not support permission mode ${requested}`;
+      throw new HostError('INVALID_PARAMS', message, {
+        issues: [{ path: ['permissionMode'], message }],
+      });
+    }
+    if (supported === undefined) return undefined;
+    const mode = current ?? DEFAULT_PERMISSION_MODE;
+    return supported.includes(mode) ? mode : DEFAULT_PERMISSION_MODE;
+  }
+
+  /** 给模型看的“服务 · 模型”名字（接力的摘要与之前的换模型记录）。 */
+  #describeModel(providerId: string, modelId: string): string {
+    const provider = this.#storage.providers.get(providerId);
+    const model = (provider?.models as { id: string; displayName?: string }[] | undefined)?.find(
+      (candidate) => candidate.id === modelId,
+    );
+    return `${provider?.displayName ?? providerId} · ${model?.displayName ?? modelId}`;
+  }
+
+  /** 读历史的工具读的文件（0.25.0）：会话到 `throughSeq` 为止的完整历史。写不了只记告警。 */
+  #writeHistory(
+    sessionId: SessionId,
+    throughSeq: number,
+    describe: (providerId: string, modelId: string) => string,
+  ): void {
+    const dir = this.#historyDir;
+    if (dir === undefined) return;
+    try {
+      const items = historyItems(this.#events.readSince(sessionId, 0), describe);
+      writeHistoryFile(dir, {
+        sessionId,
+        throughSeq,
+        writtenAt: isoNow(),
+        items: items.map((item, index) => ({ position: index + 1, ...item })),
+      });
+    } catch (error) {
+      this.#onWarning('写读历史工具的历史文件失败', { sessionId, error: errorText(error) });
+    }
   }
 
   /**
@@ -1352,6 +1611,10 @@ export class SessionManager {
       }
       const turnId = this.#lastFinishedTurn(source.id);
       if (turnId === undefined) throw refuse('session has no finished turn to fork from');
+      // 刚接力（0.25.0）、新引擎还没跑过回合时，它的会话里没有可分的内容。
+      if (this.#events.handoffState(source.id)?.context !== undefined) {
+        throw refuse('the session just switched models; send a message before forking');
+      }
       if (!source.attachment) await this.#autoResume(source);
       const config = sessionConfig(record);
       let engineSession: EngineSession;

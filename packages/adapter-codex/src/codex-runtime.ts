@@ -38,6 +38,8 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   readonly additionalRoots = true;
   readonly suggestedTasks = true;
   readonly googleVertex = true;
+  /** 读历史的工具（0.25.0）：给了 `historyTool` 时两个进程都登记。 */
+  readonly historyTool: boolean;
   readonly gateway: CodexAdapter;
   readonly chatgpt: CodexAdapter;
   readonly accounts: EngineAccounts;
@@ -59,6 +61,7 @@ export class CodexRuntime implements AgentRuntimeAdapter {
       providers: providers.filter((provider) => provider.kind === 'chatgpt'),
     });
     if (this.chatgpt.accounts === undefined) throw new Error('ChatGPT 进程没有账号');
+    this.historyTool = options.historyTool !== undefined;
     this.accounts = this.chatgpt.accounts;
     this.#rememberKinds(providers);
   }

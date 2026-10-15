@@ -566,6 +566,7 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Engine-Sitzung wiederhergestellt ({version})',
   'notice.readOnly': 'Sitzung schreibgeschützt: {reason}',
   'notice.closed': 'Sitzung geschlossen',
+  'notice.handoff': 'Gewechselt zu {model}',
   'readOnly.engine_session_not_found': 'Engine-Sitzung nicht vorhanden',
   'readOnly.engine_session_incompatible': 'Engine-Version mit dieser Sitzung nicht kompatibel',
   'readOnly.engine_session_corrupted': 'Engine-Sitzungsprotokoll beschädigt',

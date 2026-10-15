@@ -236,6 +236,24 @@ export const session: Session = {
   lastSeq: 12,
 };
 
+/** 接力过的会话（0.25.0）：先用 DeepSeek，再换到 Claude Agent。 */
+export const handedOffSession: Session = {
+  ...session,
+  engine: { kind: 'codex', sessionId: 'claude-6a1e0c2f' },
+  providerId: 'claude',
+  modelId: 'claude-opus-5-5',
+  state: 'idle',
+  engines: [
+    {
+      providerId: 'deepseek-official',
+      modelId: 'deepseek-chat',
+      sessionId: '6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14',
+      seenSeq: 11,
+    },
+    { providerId: 'claude', modelId: 'claude-opus-5-5', sessionId: 'claude-6a1e0c2f', seenSeq: 0 },
+  ],
+};
+
 /** 支线会话（0.17.0）。 */
 const { activeTurn: _activeTurn, ...idleSession } = session;
 export const sideSession: Session = {
@@ -466,6 +484,32 @@ export const eventPayloads: PayloadSamples = {
   'session.configured': {
     valid: { modelId: 'deepseek-v4-pro', reasoningEffort: 'high', permissionMode: 'auto_review' },
     invalid: { modelId: 'deepseek-v4-pro', permissionMode: 'yolo' },
+  },
+  'session.handoff': {
+    valid: {
+      from: {
+        providerId: 'deepseek-official',
+        modelId: 'deepseek-chat',
+        engineSessionId: '6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14',
+      },
+      to: { providerId: 'claude', modelId: 'claude-opus-5-5', engineSessionId: 'claude-6a1e0c2f' },
+      permissionMode: 'on_request',
+      resumed: false,
+      strategy: 'full_thread_summary',
+      covered: { fromSeq: 1, toSeq: 11 },
+      items: 2,
+      omittedItems: 0,
+      context: 'Context handoff (full_thread_summary):\n…',
+      engineVersion: '2.1.0',
+    },
+    invalid: {
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'e1' },
+      to: { providerId: 'Claude', modelId: 'claude-opus-5-5', engineSessionId: 'e2' },
+      resumed: false,
+      strategy: 'full_thread_summary',
+      items: 0,
+      omittedItems: 0,
+    },
   },
   'session.title_changed': {
     valid: { title: '整理本周周报', source: 'first_prompt' },
@@ -750,6 +794,26 @@ export const methodSamples: MethodSamples = {
           features: { environments: true, session_worktree: true },
           permissions: ['host.manage', 'session.read', 'session.write'],
         },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.25.0',
+          minProtocolVersion: '0.1.0',
+          features: { session_handoff: true },
+          engineFeatures: {
+            'deepseek-official': {
+              engine: 'codex',
+              steer: true,
+              configure: true,
+              fork: true,
+              permissionModes: ['on_request', 'auto_review', 'full_access'],
+              additionalRoots: true,
+              historyTool: true,
+            },
+            claude: { engine: 'claude', configure: true, permissionModes: ['on_request'] },
+          },
+          permissions: ['host.manage', 'session.read', 'session.write'],
+        },
       ],
       invalid: [
         {
@@ -758,6 +822,15 @@ export const methodSamples: MethodSamples = {
           protocolVersion: '0.1.0',
           minProtocolVersion: '0.1.0',
           features: {},
+          permissions: [],
+        },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.25.0',
+          minProtocolVersion: '0.1.0',
+          features: {},
+          engineFeatures: { claude: { steer: true } },
           permissions: [],
         },
       ],
@@ -1391,14 +1464,28 @@ export const methodSamples: MethodSamples = {
         { sessionId: ids.session, modelId: 'deepseek-v4-pro', reasoningEffort: 'high' },
         { sessionId: ids.session, reasoningEffort: null },
         { sessionId: ids.session, permissionMode: 'auto_review' },
+        { sessionId: ids.session, providerId: 'claude', modelId: 'claude-opus-5-5' },
+        { sessionId: ids.session, providerId: 'claude' },
       ],
       invalid: [
         { modelId: 'deepseek-v4-pro' },
         { sessionId: ids.session, modelId: '' },
         { sessionId: ids.session, permissionMode: 'ask' },
+        { sessionId: ids.session, providerId: 'Claude' },
       ],
     },
-    result: { valid: [{ session }], invalid: [{}] },
+    result: {
+      valid: [{ session }, { session: handedOffSession }],
+      invalid: [
+        {},
+        {
+          session: {
+            ...handedOffSession,
+            engines: [{ providerId: 'claude', modelId: 'm', sessionId: 'e', seenSeq: -1 }],
+          },
+        },
+      ],
+    },
   },
   'session.send': {
     params: {

@@ -569,6 +569,7 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Session du moteur reprise ({version})',
   'notice.readOnly': 'Session en lecture seule : {reason}',
   'notice.closed': 'Session fermée',
+  'notice.handoff': 'Passé à {model}',
   'readOnly.engine_session_not_found': 'Session du moteur introuvable',
   'readOnly.engine_session_incompatible': 'Version du moteur incompatible avec cette session',
   'readOnly.engine_session_corrupted': 'Journal de session du moteur corrompu',

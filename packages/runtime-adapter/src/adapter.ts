@@ -162,6 +162,12 @@ export interface AgentRuntimeAdapter {
   readonly suggestedTasks?: boolean;
 
   /**
+   * 引擎的会话挂上了读历史的本机 MCP 服务（0.25.0，接力，`@wevir/runtime-adapter/history-tool`）：会话从别的来源接力过来后，
+   * 模型能用 `read_session_history` 读换来源之前的完整历史。Host 据此在交给它的摘要里提这个工具。
+   */
+  readonly historyTool?: boolean;
+
+  /**
    * 往会话的引擎上下文补一条说明，不开回合（0.16.0，U23：用户开出的任务会话回报结果，domain-model §3.11）。模型从下一次
    * 请求起看得到；回合进行中也可以调用。不实现时 Host 只写事件（Codex：`thread/inject_items`）。
    * 错误：`session_not_found`、`session_closed`（会话没挂着）、`disposed`。

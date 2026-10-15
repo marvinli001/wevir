@@ -45,6 +45,7 @@
 - `hostId`：每个数据目录一个，跨 Host 重启不变，客户端据此认出“同一个 Host”。
 - `permissions`：骨架阶段恒为权限词表全部（`PERMISSIONS`），为设备权限预留；每个方法需要的权限见 §3。
 - `capabilities` / `features`：见 §10。0.7.0 起 Host 按自己的引擎声明 `features.chatgpt_account`（Codex 引擎有，dsh、echo 没有）。
+- `engineFeatures`（0.25.0）：键是 Provider 种类，值是跑这种 Provider 的引擎的名字与它能做什么（插话、换模型、支线、提问、权限模式、额外目录、读历史的工具，`EngineFeatures`）。会话接力到别的来源后，客户端按会话当前的 `providerId` 的种类查它，决定输入框上的功能（domain-model §3.14）。
 
 **Host 的检查顺序与失败处理**：每种失败都先回 JSON-RPC 错误（`id` 取该请求的 `id`，取不到时为 `null`），再以对应关闭码关闭连接（§8）。
 
@@ -173,6 +174,7 @@ Host → 客户端的通知：
 - **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。不含支线会话（0.17.0）。默认**不含子会话**（0.6.0，领域模型 §3.3.1）：子会话由引擎派出、只读，跟着父会话显示，不进左栏的会话列表。带 `parentSessionId` 时只列出这个会话的子会话（不论 `workspaceId`；会话不存在或所属工作区已移除时回 `SESSION_NOT_FOUND`）；一个会话的子会话也在它的快照 `subagents` 里（摘要）。0.23.0 起默认不含已归档的会话，`archived: true` 时只列已归档的（按 `updatedAt` 从新到旧）。
 - **`session.get`**：返回由事件推导的快照 `{session: {state, activeTurn, lastSeq, …}, pendingApprovals, todos?, usage?, subagents?}`（ADR-0002 §3）。中途加入的客户端先取快照，再以 `sinceSeq = session.lastSeq` 订阅。0.6.0：子会话照常可以 `session.get`，`session` 带 `parentSessionId` 与 `subagent`（父工具调用、状态、起止时间）；派出过子会话的会话带 `subagents`，每个子会话一份摘要（标题、模型与推理强度、昵称、状态、起止时间，以及它的未决审批的副本），按 `startedAt` 排列（领域模型 §3.3.1）。
 - **`session.configure`**（0.9.0，Host 功能 `session_configure`）：换会话的模型或推理档位，从下一个回合起生效，进行中的回合不受影响，会话处于什么状态都可以调。`modelId` 必须在会话所用 Provider 的模型列表里（Provider 列了模型时，否则 `INVALID_PARAMS`）；不换 Provider。`reasoningEffort` 为 `null` 时清掉、用模型的默认档位，换了模型而没给它时也清掉；给了就原样交给引擎（不按 Provider 的 `reasoningEfforts` 校验，客户端从中选）。值真的变了时追加 `session.configured`（带改后的全部值），结果是改后的会话。子会话回 `INVALID_STATE`（`data.parentSessionId`），只读会话回 `INVALID_STATE`（`data.readOnly`）；Host 的引擎不支持（没有声明 `session_configure`）时回 `ENGINE_ERROR`（`category: unknown`，同 `account.*`）；引擎拒绝这个模型时回 `INVALID_PARAMS`。引擎会话没挂着（Host 重启后、关闭后）时只记下新的值，下次 resume 时交给引擎。0.11.0 起还可以换 `permissionMode`（Host 功能 `permission_modes`，见下一条），交给引擎的总是全部当前值，`session.configured` 也带上它。
+- **接力：`session.configure` 的 `providerId`**（0.25.0，Host 功能 `session_handoff`，domain-model §3.14，ADR-0005 补记 14）：换到别的 Provider（别的来源）。`modelId` 省略时用新 Provider 的默认模型，给了就要在它的模型列表里（列了模型时）；`reasoningEffort` 没给时清掉；`permissionMode` 没给时沿用，新引擎不支持时回 `INVALID_PARAMS`。会话要是 `idle`、`error` 或 `closed`，活动中回 `SESSION_BUSY`；子会话、支线与只读以外的检查同上；Provider 不在回 `PROVIDER_NOT_FOUND`。Host 先取消活动中的子会话、断开并关闭当前的引擎会话，再为新 Provider 挂上引擎会话：这个来源以前用过时恢复它以前的引擎会话（恢复不了就新建），否则新建；然后从事件库整理交给它的历史摘要：第一次用的来源拿整段对话（`full_thread_summary`），用过的只拿它错过的那段（`delta_since_target_last_seen`），没有要补的就不给。写 `session.handoff`（新旧两头、摘要与它覆盖的 `seq` 范围），会话原来是 `error` / `closed` 时同一事务里转 `idle`（`resumed`），只读随之解除；只读的会话因此可以换个来源接着用。摘要不进消息记录，随下一条消息的开头交给新引擎，那条消息的回合以 `interrupted` 以外的结局结束才算交付（否则再下一条接着带）。新引擎挂不上时回 `ENGINE_ERROR`、不写事件，会话还是原来的 Provider（原来的引擎会话已经关了，下次发消息时自动恢复）。`providerId` 与当前的相同时就是普通的换模型。刚接力、摘要还没交出去时 `session.fork` 回 `INVALID_STATE`。
 - **权限模式 `permissionMode`**（0.11.0，Host 功能 `permission_modes`，domain-model §3.9）：`on_request`（请求批准，默认）、`auto_review`（自动批准：越界的操作由会话的模型审查）、`full_access`（完全访问：不用沙箱、不审批）。`session.create` 省略时是 `on_request`；`session.configure` 省略时不改，从下一个回合起生效。Host 的引擎声明了支持的模式时（Codex）会话与 `session.created` / `session.configured` 都带它；引擎不支持时（dsh）只接受省略或 `on_request`，会话不带这个字段，别的值回 `INVALID_PARAMS`（`data.issues` 的 path 是 `permissionMode`）。子 agent 的子会话沿用父会话当时的模式。
 - **`question.respond`**（0.10.0，Host 功能 `user_questions`）：回答引擎提的一组问题（`question.requested`）。`answers` 按问题 ID，每题是选中的选项 `label` 或自己填的文本（问题 `allowOther` 时），可多个（问题 `multiSelect` 时）；省略或空数组的题当作跳过。Host 交给引擎后写 `question.resolved`（`answered`，`resolution` 带回答与回答者），结果同它。已经结束的问题（别的客户端答过、随回合取消）照样返回它的结局，不报错；没有这组问题回 `QUESTION_NOT_FOUND`。问题等回答期间会话仍是 `running`，`Session.awaitingInput` 为 true；回合被取消、会话关闭、引擎退出、Host 退出或重启时，未答的问题以 `cancelled` 结束（原因同审批）。
 - **`session.send`**：会话是 `running` / `awaiting_approval` / `cancelling` 时，带 `delivery`（0.8.0）就成为待发消息（领域模型 §3.3.2、§4.6）：`'steer'` 插话，等当前这一步结束插进本回合，引擎不支持或拒绝时转为排队；`'queue'` 排队，回合结束后作为下一个回合发出。这时结果是 `{pendingId, seq}`（`pending.added` 的 `seq`），没有 `turnId`。不带 `delivery` 时回 `SESSION_BUSY`（`data` 带 `state` 与 `activeTurn`），不排队、不打断（旧客户端的行为不变）；`error` / `closed` 时回 `INVALID_STATE`（`data.state`），先 `session.resume`。`idle` 时接受（`delivery` 不起作用），结果是新回合的 `turnId` 和这次 `user.message` 的 `seq`。`clientMessageId` 是幂等键，检查排在状态检查之前：同一会话里同一 ID、同样的 `content` 重发，返回原结果，不再发给引擎（不论会话现在处于什么状态，也不论那个回合后来怎样）；同一 ID、不同 `content` 回 `CLIENT_MESSAGE_CONFLICT`。send 前的自动 resume 失败回 `ENGINE_ERROR`（`category: session_unavailable`），工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不调引擎、状态不变）。会话只读（0.3.0，`session.readOnly`，引擎会话恢复不了）时回 `INVALID_STATE`，`data.readOnly` 给出原因与引擎原文，客户端据此提示“基于历史新建会话”，不要再提示 resume。Host 接受之后引擎拒收（适配器调用失败）时仍返回本回合的 `turnId` 与 `seq`：消息已被 Host 接受，失败经 `engine.error` 与 `session.state_changed`（→ `error`）送达，重发同一 `clientMessageId` 也返回这个结果（领域模型 §4.3）。子会话（0.6.0）是只读的，由父 agent 驱动：回 `INVALID_STATE`，`data.parentSessionId` 是父会话（幂等检查照样在前）。
@@ -273,6 +275,7 @@ Host → 客户端的通知：
 | `session.read_only` | host |
 | `session.title_changed` | host |
 | `session.configured` | host |
+| `session.handoff` | host |
 | `session.state_changed` | host |
 | `user.message` | host |
 | `turn.started` | host |
@@ -396,6 +399,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 `0.24.0`：压缩上下文与代码审查（domain-model §4.7）。新方法 `session.compact`、`session.review`；新类型 `ReviewTarget`、`TurnCommand`、`CompactionTrigger`；`turn.started` 加 optional 的 `command`；新事件 `context.compacting`、`context.compacted`；Host 功能 `session_compact`、`session_review`。行为变化：普通会话里也会有不带 `user.message` 的回合（之前只有子会话）。新方法、新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法；别的客户端开的命令回合在它那里是没有用户消息的回合（只有回答），两种新事件按规则 5 跳过。新客户端连旧 Host：hello 结果里没有这两个功能，桌面端不列 `/compact` 与 `/review`。冻结样本 `compat/0.24.0.json`。
 
+`0.25.0`：接力（domain-model §3.14，ADR-0005 补记 14）。`session.configure` 加 optional 的 `providerId`；新事件 `session.handoff`；`Session` 加 optional 的 `engines`（新类型 `SessionEngine`）；`host.hello` 的结果加 optional 的 `engineFeatures`（新类型 `EngineFeatures`、`HandoffStrategy`，后者是开放字符串）；Host 功能 `session_handoff`。新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端忽略 `session.handoff`（规则 5），会话的 `providerId`、`modelId` 在它下次读会话时更新；它不带 `providerId`，换模型照旧只在同一个 Provider 里。新客户端连旧 Host：hello 结果里没有 `session_handoff`，桌面端的模型选择里别的来源照旧不能选（旧 Host 会丢掉 `providerId`、按当前 Provider 校验模型，所以不能不看功能位就发）。冻结样本 `compat/0.25.0.json`。
+
 依据 Paseo 的兼容纪律（Paseo 研读 §2.3、§2.4；ADR-0002 §2）。目标：半年前的客户端能连新 Host，半年前的 Host 能服务新客户端（同一主版本内）。改 `packages/protocol` 的提交要在说明里回答这两个问题。
 
 **版本**
@@ -453,6 +458,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `session_archive` | 0.23.0 | `session.archive`、`session.list` 的 `archived`、`Session.archivedAt`（与引擎无关） |
 | `session_compact` | 0.24.0 | `session.compact`、`turn.started` 的 `command`、`context.compacting` / `context.compacted` 事件（Codex、Claude、echo 引擎；会话所在的引擎不能压缩时 `INVALID_STATE`） |
 | `session_review` | 0.24.0 | `session.review`（Codex、echo 引擎；同上） |
+| `session_handoff` | 0.25.0 | 接力：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与 `host.hello` 的 `engineFeatures`（与引擎无关） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

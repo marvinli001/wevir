@@ -3,6 +3,7 @@
 // 引擎会话 ID 找回它（子会话与支线跟着派出它的引擎）；账号按种类合并。照 adapter-codex 的 CodexRuntime（两个进程按种类分会话）
 // 推广到任意个引擎。
 
+import type { EngineFeatures } from '@wevir/protocol';
 import type {
   AccountKind,
   AccountState,
@@ -44,6 +45,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly additionalRoots?: boolean;
   readonly googleVertex?: boolean;
   readonly suggestedTasks?: boolean;
+  readonly historyTool?: boolean;
   readonly accounts?: EngineAccounts;
 
   // 可选方法：至少一个引擎有时才有，Host 据此声明功能；会话所在的引擎没有时报 `invalid_input`。
@@ -84,6 +86,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
     )
       this.googleVertex = true;
     if (adapters.some((adapter) => adapter.suggestedTasks === true)) this.suggestedTasks = true;
+    if (adapters.some((adapter) => adapter.historyTool === true)) this.historyTool = true;
     const accounts = routes.flatMap((route) =>
       route.adapter.accounts === undefined ? [] : [route.adapter.accounts],
     );
@@ -231,6 +234,16 @@ export class EngineRouter implements AgentRuntimeAdapter {
     await Promise.all(this.routes.map((route) => route.adapter.dispose()));
   }
 
+  /** 每种 Provider 的会话由哪个引擎跑、能做什么（0.25.0，`host.hello` 的 `engineFeatures`）。 */
+  engineFeatures(): Record<string, EngineFeatures> {
+    const features: Record<string, EngineFeatures> = {};
+    for (const route of this.routes) {
+      const value = engineFeaturesOf(route.name, route.adapter);
+      for (const kind of route.kinds) features[kind] = value;
+    }
+    return features;
+  }
+
   /** 交给引擎的配置：引擎不支持额外目录时，有额外目录的会话建不了。 */
   #configFor(route: EngineRoute, config: SessionConfig): SessionConfig {
     if (config.additionalRoots === undefined || route.adapter.additionalRoots === true)
@@ -269,6 +282,20 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (route.adapter[method] === undefined) throw unsupported(route, method);
     return route.adapter as unknown as Required<Pick<AgentRuntimeAdapter, M>>;
   }
+}
+
+/** 一个引擎能做什么（0.25.0）：按适配器实现了哪些可选方法、声明了哪些能力。 */
+export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): EngineFeatures {
+  return {
+    engine: name,
+    ...(adapter.steer !== undefined && { steer: true }),
+    ...(adapter.configureSession !== undefined && { configure: true }),
+    ...(adapter.fork !== undefined && { fork: true }),
+    ...(adapter.respondToQuestion !== undefined && { questions: true }),
+    ...(adapter.permissionModes !== undefined && { permissionModes: [...adapter.permissionModes] }),
+    ...(adapter.additionalRoots === true && { additionalRoots: true }),
+    ...(adapter.historyTool === true && { historyTool: true }),
+  };
 }
 
 type OptionalMethod =

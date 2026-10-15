@@ -559,6 +559,7 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Engine session resumed ({version})',
   'notice.readOnly': 'Read-only session: {reason}',
   'notice.closed': 'Session closed',
+  'notice.handoff': 'Switched to {model}',
   'readOnly.engine_session_not_found': 'Engine session not found',
   'readOnly.engine_session_incompatible': 'Engine version incompatible with this session',
   'readOnly.engine_session_corrupted': 'Engine session log corrupted',

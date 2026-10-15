@@ -1,10 +1,15 @@
 import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
 import type { TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
-import { CircleAlert, FoldVertical, Info, ScanSearch } from 'lucide-react';
+import { ArrowLeftRight, CircleAlert, FoldVertical, Info, ScanSearch } from 'lucide-react';
 import { memo } from 'react';
+import { ProviderLogo } from '@/components/provider-logo';
+import { sourceOf } from '@/data/sources';
+import { useWorkbenchData } from '@/data/workbench-data';
 import { t } from '@/i18n';
+import { providerLogo } from '@/settings/provider-catalog';
 import { CopyButton } from './copy-button';
+import { modelLabel } from './handoff-model';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SubagentRow } from './subagent-marker';
@@ -254,6 +259,7 @@ function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
 
 function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   const { notice } = part;
+  if (notice.kind === 'handoff') return <HandoffNotice notice={notice} />;
   const text =
     notice.kind === 'resumed'
       ? notice.engineVersion
@@ -266,6 +272,37 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
     <p className="my-2 flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
       <Info aria-hidden className="size-3.5" />
       {text}
+    </p>
+  );
+}
+
+/** 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”。 */
+function HandoffNotice({
+  notice,
+}: {
+  notice: Extract<ChatPartOf<'notice'>['notice'], { kind: 'handoff' }>;
+}) {
+  const data = useWorkbenchData();
+  const providers = data.status === 'ready' ? data.providers : [];
+  const provider = providers.find((candidate) => candidate.id === notice.providerId);
+  const source = provider && sourceOf(provider);
+  const label = modelLabel(providers, notice.providerId, notice.modelId);
+  return (
+    <p
+      className="my-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
+      data-testid="handoff-notice"
+      data-provider={notice.providerId}
+    >
+      {provider ? (
+        <ProviderLogo
+          logo={source?.logo ?? providerLogo(provider)}
+          fallback={label}
+          className="size-3.5"
+        />
+      ) : (
+        <ArrowLeftRight aria-hidden className="size-3.5" />
+      )}
+      {t('notice.handoff', { model: label })}
     </p>
   );
 }

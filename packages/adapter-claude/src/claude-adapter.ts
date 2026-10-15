@@ -30,6 +30,13 @@ import {
   type TurnFailedEvent,
   type TurnSettledEvent,
 } from '@wevir/runtime-adapter';
+import {
+  HISTORY_TOOL_NAME,
+  HISTORY_TOOL_SERVER,
+  type HistoryToolServer,
+  historyToolCommand,
+  writeHistoryToolScript,
+} from '@wevir/runtime-adapter/history-tool';
 import { ClaudeAccounts, type ClaudeInstallation } from './account.js';
 import { claudeEnv } from './env.js';
 import {
@@ -117,6 +124,10 @@ export interface ClaudeAdapterOptions {
   /** 测试用：替换账号（默认按 `sdk` 与 `env` 新建）。 */
   accounts?: ClaudeAccounts;
   cancelTimeoutMs?: number;
+  /**
+   * 读历史的本机 MCP 服务（0.25.0，接力）：挂进每个会话的 `mcpServers`，它的工具不用审批（`allowedTools`）。省略时不挂。
+   */
+  historyTool?: HistoryToolServer;
 }
 
 /** 推给 `query()` 的输入：异步迭代的队列。 */
@@ -343,8 +354,12 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   readonly accounts: ClaudeAccounts;
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   readonly additionalRoots = true;
+  /** 读历史的工具（0.25.0）：给了 `historyTool` 时挂上。 */
+  readonly historyTool: boolean;
 
   readonly #sdk: ClaudeSdk;
+  readonly #historyTool: HistoryToolServer | undefined;
+  #historyScriptWritten = false;
   readonly #env: NodeJS.ProcessEnv;
   readonly #logger: ClaudeAdapterLogger | undefined;
   readonly #workDir: string;
@@ -358,6 +373,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     this.#logger = options.logger;
     this.#workDir = path.join(options.home, 'engines', 'claude');
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#historyTool = options.historyTool;
+    this.historyTool = options.historyTool !== undefined;
     this.accounts =
       options.accounts ??
       new ClaudeAccounts({ sdk: this.#sdk, workDir: this.#workDir, env: this.#env });
@@ -872,6 +889,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   }
 
   #openLive(session: RootSession, installation: ClaudeInstallation, desired: Applied): LiveQuery {
+    if (this.#historyTool !== undefined && !this.#historyScriptWritten) {
+      writeHistoryToolScript(this.#historyTool);
+      this.#historyScriptWritten = true;
+    }
     const input = new PushQueue<SDKUserMessage>();
     const options: Options = {
       pathToClaudeCodeExecutable: installation.executablePath,
@@ -886,6 +907,12 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       permissionMode: desired.mode,
       ...(desired.dangerous && { allowDangerouslySkipPermissions: true }),
       canUseTool: this.#canUseTool(session),
+      ...(this.#historyTool !== undefined && {
+        mcpServers: {
+          [HISTORY_TOOL_SERVER]: { type: 'stdio', ...historyToolCommand(this.#historyTool) },
+        },
+        allowedTools: [`mcp__${HISTORY_TOOL_SERVER}__${HISTORY_TOOL_NAME}`],
+      }),
       includePartialMessages: true,
       forwardSubagentText: true,
       // T3：要思考的摘要（新模型默认不显示思考内容）。

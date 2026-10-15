@@ -200,7 +200,7 @@ interface ProviderProfile {
 
 ### 3.3 Session
 
-一次与 Agent 的对话，恰属一个工作区，对应恰好一个引擎会话。
+一次与 Agent 的对话，恰属一个工作区，同一时刻对应一个引擎会话（0.25.0 起换到别的来源时换成那个来源的引擎会话，§3.14）。
 
 ```ts
 // → protocol
@@ -232,6 +232,7 @@ interface Session {
   createdAt: IsoTime
   updatedAt: IsoTime               // 最后一个事件的 ts
   lastSeq: number
+  engines?: SessionEngine[]        // 0.25.0：接力过的会话挂过的引擎会话（§3.14）
   archivedAt?: IsoTime             // 0.23.0：归档的时刻，存储里的，不由事件推导
 }
 
@@ -261,7 +262,7 @@ interface SessionSnapshot {
 | 字段 | 含义 | 创建 | 修改 |
 |---|---|---|---|
 | `id`、`workspaceId`、`cwd`、`engine` | 身份与映射（§1.1） | 会话管理器（T2.3），`session.create` | 不可改 |
-| `providerId`、`modelId`、`reasoningEffort` | 创建时选定；0.9.0 起 `modelId` 与 `reasoningEffort` 可在会话中换（`session.configure`，引擎支持时，Host 功能 `session_configure`），从下一个回合起生效 | `session.create`；`session.configured`（0.9.0） | `providerId` 不可改；模型只能在同一个 Provider 的模型里换 |
+| `providerId`、`modelId`、`reasoningEffort` | 创建时选定；0.9.0 起 `modelId` 与 `reasoningEffort` 可在会话中换（`session.configure`，引擎支持时，Host 功能 `session_configure`），从下一个回合起生效；0.25.0 起 `providerId` 也能换，是接力（§3.14） | `session.create`；`session.configured`（0.9.0）；`session.handoff`（0.25.0） | 换 Provider 只能在会话不在跑回合时 |
 | `permissionMode` | 0.11.0：创建时选定、可在会话中换（`session.configure`），从下一个回合起生效；省略即 `on_request`（§3.9） | `session.create`；`session.configured` | 引擎不支持权限模式时只有 `on_request`（不带这个字段） |
 | `title`、`titleSource` | 0.23.0 起用户能改名（`session.rename`，`titleSource: 'user'`，之后生成的标题不再覆盖）。首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3）。适配器实现了 `generateTitle` 时（Codex），引擎接受第一个回合后 Host 再用会话的模型生成一次（prompts/thread-title.md，R3）：成功、且那时标题仍是截断的那个才写 `session.title_changed`（`generated`，带 `description` 检索摘要），失败只记告警 | 首个 `user.message` 时 Host 写 `session.title_changed`（`first_prompt`），之后可能再写一条（`generated`） | 用户改名（方法在 T1.2 之后按需加；改过名的会话不再自动生成） |
 | `state`、`activeTurn`、`lastError` | 状态机（§4） | Host | 只由状态机修改 |
@@ -717,6 +718,30 @@ side?: true                                              // 支线会话
 - **回合的 diff**：“前”到“后”两个提交之间的 diff。回合里 HEAD 动过时，git 带进来、回合本身没写过的文件不算（T3 的 listAuthoredPaths：两头没提交的改动、退掉的提交与回合开始之后才提交的提交里的文件算回合写的，pull 带来的早先的提交不算；合并提交不展开，合并时手改的冲突文件只在两头的改动里出现时才算）。两次快照之间用户在编辑器里的改动落在下一个回合的“前”快照之前，不算进任何回合。同一目录里同时跑的别的会话、子会话的改动会算进这个回合（只按文件内容比较，不知道是谁写的）。
 - **清理**：会话关闭（`session.close`）时删掉它的全部快照 ref——关闭的会话还能 resume，resume 之后的新回合重新打快照，之前的回合不再有 diff（“变更”窗格显示“此回合无快照”）。每个会话最多留最近 100 个回合（回合 ID 是 ULID，删最早的）。Host 每次运行第一次在一个仓库里打快照时，删掉已关闭、已不在库里的会话留下的 ref（关闭时目录已不在、Host 中途退出时会留下）。工作区移除时会话都已关闭，ref 已经删了。ref 删掉之后快照的提交成了不可达的对象，由 git 自己的 gc 回收。ref 在 `refs/wevir/` 下，`git log --all` 与图形化的 git 工具看得到它们，`git push --mirror` 会推出去；普通的 `git push` 不会。
 
+### 3.14 接力：会话换到别的来源（0.25.0）
+
+维护者 2026-10-15 定：已有会话在模型选择里换到**另一个来源**（另一个 Provider，常常也是另一个引擎）的模型时，照 T3 Code 做**接力**（handoff）；同一个 Provider 里照常直接换（`session.configured`，§3.3）。做法移植自 T3 的 `ProviderSessionTransitionPolicy` 的 `create_with_handoff`、`ContextHandoffService` 与 `handoffBudget`（MIT，`packages/host/src/handoff.ts`），ADR-0005 补记 14。
+
+```ts
+// → protocol
+interface SessionEngine {          // Session.engines 的一项：会话挂过的一个引擎会话
+  providerId: ProviderId
+  modelId: string                  // 这个引擎会话最近用的模型
+  sessionId: string                // 引擎会话 ID，只作诊断
+  seenSeq: number                  // 它的上下文里有会话到这个 seq 为止的内容
+}
+// Session.engines?: SessionEngine[]   接力过的会话才有，按第一次用的先后；当前的是 engine.sessionId 那个
+```
+
+- **一个 Wevir 会话，几个引擎会话。** 每个用过的 Provider 一个引擎会话。`Session.providerId`、`modelId`、`engine.sessionId` 是当前那个；换回用过的来源时**接着用它的引擎会话**（`resumeSession`，按新的模型与档位重新选定），只补它错过的那段；它恢复不了（`session_lost` 等）就新建，交给它整段对话。同一个引擎的两个 Provider（例如两个 API Provider 都经 Codex 的网关）也按两个来源接力，不做 T3 的 `restart_and_resume`：Codex 的网关进程与 ChatGPT 进程各有自己的 CODEX_HOME，rollout 互相读不到；同一个 rollout 里混着两家上游的推理项回放给另一家，网关只验证过同一家的。
+- **谁看到了什么。** 每个引擎会话记一个 `seenSeq`：它是当前的那个时，每个回合结束（`turn.finished`）推到那条事件——引擎自己跑了这个回合；接力的摘要还没交出去时，只有以 `interrupted` 以外的结局结束的回合才算（那时摘要随这个回合的消息交给了它；`interrupted` 是引擎没开始这个回合，例如进程退出，摘要由下一条消息再带）。换走时它的 `seenSeq` 停在那里。这些都由事件推导（`snapshot.ts`：第一次接力前只有 `currentSeen`，`session.handoff` 记下新旧两头），`sessions` 表的 `provider_id`、`engine_session_id` 是当前那个的缓存（0.25.0 起由事件改）。
+- **摘要。** 接力时 Host 读事件库里新引擎没看到的那段（`seenSeq` 之后到此刻；新建的引擎会话从 1 开始），整理成条目：用户消息与插话、助手已提交的回答（不含思考、增量）、命令（没成功的带上状态）、改了哪些文件、回合里的错误、每个回合最后的清单、之前的换模型记录（`Model switch: 甲 → 乙`，交出去的摘要本身不再转述）。每条折叠空白、截到 240 个字符（T3 文档的 `compactText`）；按 T3 的 `selectHistory` 在 16 000 字节（`DEFAULT_HANDOFF_TOKEN_CAP`，按一字节一个 token 的保守估计）里挑：先扣开头说明，再按最近的用户消息、最近的回答、第一条用户消息、然后从新到旧，放不下的整条省掉，挑中的按原来的先后排。开头说明写方式（`full_thread_summary`：第一次用这个来源；`delta_since_target_last_seen`：换回来，只补错过的）、之前用的模型、覆盖的事件范围、选了几条省了几条，并说明历史只是参考、不是新的要求，文件、工具状态与审批不重放。没有条目时（例如换走后对方什么都没做就换回来）不给摘要。与 T3 代码的差异：T3 的接力保留整条文本、超预算的整条省掉，只在分支合并时截 240 字；Wevir 照 T3 的文档与维护者的要求每条都截，全文经读历史的工具拿。
+- **交付。** 摘要记在 `session.handoff` 的 `context` 里，**不进消息记录**：下一条消息交给引擎时放在开头（`Context handoff (…):` 摘要，空一行，`User message:` 用户写的；T3 的 `providerMessageWithContextHandoffs`），`user.message` 里只有用户写的。交付以上一条说的回合结局为准；没交出去之前再接力，就按新的情况重算（没交出去的那个引擎会话 `seenSeq` 不动）。
+- **读历史的工具。** 摘要里的每条只有 240 字，模型要原文时用本机 MCP 服务 `wevir_history` 的 `read_session_history`（`@wevir/runtime-adapter/history-tool`，作用同 T3 的 `t3_thread_read`，形状是 Wevir 的）：`{ sessionId, afterPosition?, limit?, itemId?, textOffset?, maxCharsPerItem? }`，按页给条目（默认 20 条、每条最多 4000 字），长的一条用 `itemId` 与 `textOffset` 接着读。Host 在接力到挂了这个工具的引擎时，把会话到那一刻为止的完整历史写进 `<数据目录>/history/<会话 ID>.json`（0600），服务只读那里、只认 `ses_` 开头的 ID；摘要里只在新引擎挂了它时才提它（`EngineFeatures.historyTool`）。挂上的：Codex（两种进程的 config.toml `[mcp_servers.wevir_history]`，不需要批准，codex-event-mapping.md §6.10）、Claude Agent（每个会话 `query()` 的 `mcpServers`，`allowedTools` 放行，claude-event-mapping.md）、Grok（ACP `session/new` / `session/resume` 的 `mcpServers`，Grok 要审批时照常问用户）。没挂的：Cursor（T3 经 SDK 的 HTTP MCP 挂它自己的服务，SDK 的 stdio MCP 没核对过）、OpenCode（要改共用的 `opencode serve` 的配置并重启它，没验证）、Antigravity（T3 也不给它挂，运行体的 MCP 支持没核对）、dsh 与 echo——这些引擎只有截短的摘要。
+- **条件。** `session.configure` 带别的 `providerId`（Host 功能 `session_handoff`）。会话要是 `idle`、`error` 或 `closed`（回合进行中 `SESSION_BUSY`）；子会话、支线不能接力；新 Provider 要在、模型要在它的列表里（省略时用它的默认模型）；推理档位没给时清掉；权限模式没给时沿用，新引擎不支持时退回 `on_request`，明说的不支持时 `INVALID_PARAMS`；有额外目录的环境会话（§3.10）只能换到支持额外目录的引擎。先取消活动中的子会话，断开并关闭当前的引擎会话，再挂新的；新的挂不上时回 `ENGINE_ERROR`、不写事件，会话还是原来的 Provider（原来的引擎会话已经关了，下次发消息时自动恢复）。会话原来是 `error` / `closed` 时，`session.handoff` 之后同一事务里转 `idle`（`resumed`），只读随之解除——只读的会话可以换个来源接着用。刚接力、摘要还没交出去时不能分支线（`session.fork` 回 `INVALID_STATE`）：新的引擎会话里还没有可分的内容。
+- **随当前引擎变的功能。** `host.hello` 的 `engineFeatures` 按 Provider 种类给出跑它的引擎能做什么（插话、换模型、支线、提问、权限模式、额外目录、读历史的工具）。客户端按会话当前的 `providerId` 查：桌面端的 `/btw` 只在当前引擎能分支时认，权限模式只列当前引擎支持的。子会话、审批、提问、建议任务本来就是引擎报的事件，换到不支持的引擎后自然不再出现；之前的子会话留在原来的引擎上，历史照常显示。
+- **事件。** `session.handoff`（§6）：`from` / `to` 两头的 Provider、模型与引擎会话，沿用或新给的推理档位与权限模式，`resumed`、`strategy`、`covered`（摘要覆盖的 seq 范围）、`items`、`omittedItems`、`context`、`engineVersion`。桌面端在切换处画一行“已切换到 来源 · 模型”（`TranscriptProjection` 的 `handoff` 提示）。
+
 ## 4. 会话状态机
 
 ```mermaid
@@ -933,6 +958,7 @@ stateDiagram-v2
 | `session.read_only` | host | 引擎会话恢复不了，会话只读（0.3.0） | 适配器的 `session_lost`（§4.4） |
 | `session.title_changed` | host | 标题变化 | 首个 `user.message`；用户改名 |
 | `session.configured` | host | 模型、推理档位（0.9.0）或权限模式（0.11.0）变了，带改后的全部值，下一个回合起生效 | `session.configure` |
+| `session.handoff` | host | 换到了别的来源（0.25.0，§3.14）：之后的回合交给新的引擎会话，带新旧两头与交给它的历史摘要 | `session.configure` 带别的 `providerId` |
 | `session.state_changed` | host | 状态机转换（§4.1） | Host |
 | `user.message` | host | 用户发出的消息 | `session.send`（ACP 不回发用户消息） |
 | `turn.started` | host | 回合开始；由命令开始的回合带 `command`、没有 `user.message`（0.24.0，§4.7） | `session.send` 被接受，Host 发出 `session/prompt`；`session.compact`、`session.review` |

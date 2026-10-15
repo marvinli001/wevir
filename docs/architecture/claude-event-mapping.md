@@ -151,6 +151,10 @@ CLI 自己生成的错误消息（模型是 `<synthetic>` 且带 `error`，如 �
 
 `compact` 照 T3 的 `compactThread`（`ClaudeAdapterV2.ts`）把 `/compact` 当一条消息发给会话的进程，`claude` 在本地执行这条斜杠命令（支线的边界说明不加在它前面，留给下一条消息）。回合里 `system/status` 的 `status: 'compacting'` → `context.compacting`（`compactionId` 是这条消息的 uuid，`compact` 开的回合是 `manual`，其余是 Claude 自己压缩的 `auto`），`compact_boundary` → `context.compacted`（同一 `compactionId`，`trigger` 取 `compact_metadata.trigger`）；`compact_metadata.post_tokens` 是压缩后的上下文用量，另报一条 `usage.updated`（T3 同样拿它更新用量）。`status` 带 `compact_result: 'failed'` 时压缩没成，不报完成，回合照常结算。`/compact` 的结果不一定带这条消息的 uuid，这种回合不按 uuid 对结果（§4.2）。代码审查（`review`）Claude 没有对应的命令，不实现。
 
+### 4.10 读历史的工具（0.25.0，接力）
+
+Host 给了 `historyTool` 时，每个会话的 `query()` 选项带 `mcpServers: { wevir_history: { type: 'stdio', command, args, env } }`（`@wevir/runtime-adapter/history-tool` 的命令，脚本在第一次起进程前写好）与 `allowedTools: ['mcp__wevir_history__read_session_history']`：这个只读工具不经 `canUseTool`、不出审批。会话从别的来源接力过来时（domain-model §3.14），模型用它读换来源之前的全文。实测（`claude` 2.1.287、Claude Haiku 4.5，2026-10-15）：模型先用 ToolSearch 取到 `mcp__wevir_history__read_session_history` 再调用，拿到第一条用户消息的原文；交给它的接力摘要随第一条消息的开头进上下文，它据此答出之前的对话内容。
+
 ## 5. 权限与审批（`permissions.ts`）
 
 ### 5.1 三种模式

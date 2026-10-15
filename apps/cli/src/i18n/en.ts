@@ -263,6 +263,7 @@ Keys:
   'render.reset': 'Session history differs from the Host; replaying',
   'render.resumed': '(engine session resumed)',
   'render.resumedVersion': '(engine session resumed, {version})',
+  'render.handoff': '(switched to {provider} · {model})',
   'render.readOnly': 'Read-only session: {reason} ({message})',
   'render.sessionError': 'Session error; sending a message tries to recover it',
   'render.sessionErrorWhy': 'Session error: {why}; sending a message tries to recover it',

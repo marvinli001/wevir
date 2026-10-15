@@ -274,3 +274,32 @@ describe('Vertex 凭据边界', () => {
     expect(rendered).not.toContain('aiplatform.googleapis.com');
   });
 });
+
+describe('读历史的工具（0.25.0）', () => {
+  const server = {
+    script: '/data/mcp/wevir-history.mjs',
+    node: '/usr/bin/node',
+    historyDir: '/data/history',
+  };
+
+  it('两种进程的 config.toml 都登记 [mcp_servers.wevir_history]：只开 read_session_history、不需要批准', () => {
+    const table = [
+      '[mcp_servers.wevir_history]',
+      'command = "/usr/bin/node"',
+      'args = ["/data/mcp/wevir-history.mjs", "/data/history"]',
+      'env = { ELECTRON_RUN_AS_NODE = "1" }',
+      'default_tools_approval_mode = "approve"',
+      'enabled_tools = ["read_session_history"]',
+    ].join('\n');
+    const gateway = renderConfigToml({
+      providers: [deepseek],
+      gatewayBaseURL: () => 'http://127.0.0.1:1/v1/p/deepseek',
+      historyTool: server,
+    });
+    expect(gateway).toContain(table);
+    expect(renderChatgptConfigToml(undefined, undefined, server)).toContain(table);
+    expect(
+      renderConfigToml({ providers: [deepseek], gatewayBaseURL: () => 'http://x' }),
+    ).not.toContain('wevir_history');
+  });
+});

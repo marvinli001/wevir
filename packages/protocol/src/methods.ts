@@ -27,6 +27,7 @@ import {
   AccountStateSchema,
   ApprovalResolutionSchema,
   EngineErrorInfoSchema,
+  EngineFeaturesSchema,
   EnvironmentFolderSchema,
   EnvironmentSchema,
   HostSettingsSchema,
@@ -78,6 +79,10 @@ export const HostHelloResultSchema = z.object({
   protocolVersion: ProtocolVersionSchema,
   minProtocolVersion: ProtocolVersionSchema,
   features: HostFeaturesSchema,
+  /**
+   * 每种 Provider 的会话由哪个引擎跑、能做什么（0.25.0），键是 Provider 种类。会话接力之后按当前的 `providerId` 查。旧 Host 没有。
+   */
+  engineFeatures: z.record(z.string(), EngineFeaturesSchema).optional(),
   /** 本连接拿到的权限；骨架阶段恒为 `PERMISSIONS` 全部。 */
   permissions: PermissionsSchema,
 });
@@ -633,6 +638,11 @@ export const SessionResultSchema = z.object({
  */
 export const SessionConfigureParamsSchema = z.object({
   sessionId: SessionIdSchema,
+  /**
+   * 换到别的 Provider（0.25.0，Host 功能 `session_handoff`）：接力，`modelId` 省略时用它的默认模型（domain-model §3.14）。省略或
+   * 与会话当前的相同：不换。
+   */
+  providerId: ProviderIdSchema.optional(),
   /** 省略：不改。 */
   modelId: z.string().min(1).optional(),
   /** 省略：不改；null：清掉，用模型的默认档位。换了模型而没给它时也清掉。 */

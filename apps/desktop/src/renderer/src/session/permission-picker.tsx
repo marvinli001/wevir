@@ -59,10 +59,13 @@ export function usePermissionChoice() {
  */
 export function PermissionPicker({
   value,
+  modes = MODES,
   readOnly = false,
   onChange,
 }: {
   value: PermissionMode;
+  /** 能选的模式（0.25.0：接力后跟着当前的引擎）；默认三种都有。 */
+  modes?: readonly PermissionMode[];
   readOnly?: boolean;
   onChange: (next: PermissionMode) => void;
 }) {
@@ -114,7 +117,7 @@ export function PermissionPicker({
           value={value}
           onValueChange={(next: PermissionMode) => onChange(next)}
         >
-          {MODES.map((mode) => {
+          {MODES.filter((mode) => mode === value || modes.includes(mode)).map((mode) => {
             const meta = PERMISSION_META[mode];
             const ModeIcon = meta.icon;
             return (

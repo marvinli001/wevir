@@ -553,6 +553,7 @@ export const messages: Messages = {
   'notice.resumedVersion': '引擎工作階段已恢復（{version}）',
   'notice.readOnly': '工作階段唯讀：{reason}',
   'notice.closed': '工作階段已關閉',
+  'notice.handoff': '已切換到 {model}',
   'readOnly.engine_session_not_found': '引擎工作階段不存在',
   'readOnly.engine_session_incompatible': '引擎版本與此工作階段不相容',
   'readOnly.engine_session_corrupted': '引擎工作階段記錄已損毀',

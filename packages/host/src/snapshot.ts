@@ -11,6 +11,7 @@ import type {
   QuestionId,
   QuestionRequest,
   Session,
+  SessionEngine,
   SessionId,
   SessionReadOnly,
   SessionSnapshot,
@@ -53,8 +54,22 @@ export interface SessionProjection {
   };
   readonly activeTurn?: ActiveTurn;
   readonly lastError?: EngineErrorInfo;
-  /** 引擎会话恢复不了（T3.5）：`session.read_only` 设置，`session.resumed` 清除。 */
+  /** 引擎会话恢复不了（T3.5）：`session.read_only` 设置，`session.resumed` 与 `session.handoff` 清除。 */
   readonly readOnly?: SessionReadOnly;
+  /**
+   * 接力（0.25.0，domain-model §3.14）：挂过的引擎会话，按第一次用的先后，每个 Provider 一个。第一次 `session.handoff`
+   * 之前没有（那时只有 `sessions` 表里建会话时的那个）。当前那个的 `seenSeq` 不在这里更新，看 `currentSeen`。
+   */
+  readonly engines?: readonly ProjectedEngine[];
+  /** 最近一次 `session.handoff` 的 `to`：当前的 Provider 与引擎会话；没有时用 `sessions` 表的。 */
+  readonly current?: { readonly providerId: string; readonly engineSessionId: string };
+  /**
+   * 当前的引擎会话的上下文里有会话到哪个 `seq` 为止的内容：每个回合结束（`turn.finished`）推到那条事件，接力摘要还没交出去
+   * 时只有以 `interrupted` 以外的结局结束的回合才算（那时摘要随回合交出去了）。
+   */
+  readonly currentSeen: number;
+  /** 还没随消息交给当前引擎的接力摘要（最近一次 `session.handoff` 的 `context`）。 */
+  readonly handoffContext?: string;
   /** 仍是 `pending` 的审批，按请求先后排列。 */
   readonly pendingApprovals: readonly ApprovalRequest[];
   /** 最近一次 `todo.updated`。 */
@@ -84,6 +99,14 @@ export interface SessionProjection {
   readonly suggestedTasks: ReadonlyMap<TaskId, SuggestedTask>;
 }
 
+/** 会话挂过的一个引擎会话（0.25.0）。 */
+export interface ProjectedEngine {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly engineSessionId: string;
+  readonly seenSeq: number;
+}
+
 /** 未结束（等回答）的问题，按提出的先后。 */
 export function openQuestions(projection: SessionProjection): QuestionRequest[] {
   return [...projection.questions.values()].filter((question) => question.status === 'pending');
@@ -110,6 +133,7 @@ export const INITIAL_PROJECTION: SessionProjection = {
   title: '',
   titleSource: 'first_prompt',
   pendingApprovals: [],
+  currentSeen: 0,
   subagents: [],
   pendings: new Map(),
   questions: new Map(),
@@ -211,6 +235,52 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
       break;
+    case 'session.handoff': {
+      const { from, to, resumed } = event.payload;
+      const engines = [
+        ...(projection.engines ?? [
+          {
+            providerId: from.providerId,
+            modelId: from.modelId,
+            engineSessionId: from.engineSessionId,
+            seenSeq: projection.currentSeen,
+          },
+        ]),
+      ].map((engine) =>
+        engine.engineSessionId === from.engineSessionId
+          ? { ...engine, modelId: from.modelId, seenSeq: projection.currentSeen }
+          : engine,
+      );
+      // 每个 Provider 一个引擎会话：接着用的更新模型；新建的替换这个 Provider 以前的（恢复不了的那个）。
+      const index = engines.findIndex((engine) => engine.providerId === to.providerId);
+      const previous = index < 0 ? undefined : engines[index];
+      const target: ProjectedEngine =
+        resumed && previous?.engineSessionId === to.engineSessionId
+          ? { ...previous, modelId: to.modelId }
+          : {
+              providerId: to.providerId,
+              modelId: to.modelId,
+              engineSessionId: to.engineSessionId,
+              seenSeq: 0,
+            };
+      if (index < 0) engines.push(target);
+      else engines[index] = target;
+      next.engines = engines;
+      next.current = { providerId: to.providerId, engineSessionId: to.engineSessionId };
+      next.currentSeen = target.seenSeq;
+      next.handoffContext = event.payload.context;
+      next.readOnly = undefined;
+      next.model = {
+        modelId: to.modelId,
+        ...(event.payload.reasoningEffort !== undefined && {
+          reasoningEffort: event.payload.reasoningEffort,
+        }),
+        ...(event.payload.permissionMode !== undefined && {
+          permissionMode: event.payload.permissionMode,
+        }),
+      };
+      break;
+    }
     case 'session.configured':
       next.model = {
         modelId: event.payload.modelId,
@@ -258,6 +328,11 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'turn.finished':
       if (projection.activeTurn?.turnId === event.payload.turnId) next.activeTurn = undefined;
+      // 接力摘要随这个回合的消息交出去了；回合在引擎那边没开始（`interrupted`）时下一条消息再带。
+      if (projection.handoffContext === undefined || event.payload.outcome !== 'interrupted') {
+        next.currentSeen = event.seq;
+        next.handoffContext = undefined;
+      }
       if (projection.subagent !== undefined) {
         next.subagent = {
           ...projection.subagent,
@@ -404,6 +479,18 @@ export function checkEvent(
         reject(`会话是 ${projection.state}，引擎会话不会在此时恢复`);
       }
       break;
+    case 'session.handoff':
+      if (
+        projection.state !== 'idle' &&
+        projection.state !== 'error' &&
+        projection.state !== 'closed'
+      ) {
+        reject(`会话是 ${projection.state}，回合进行中不能接力`);
+      }
+      if (e.payload.from.providerId === e.payload.to.providerId) {
+        reject('接力要换到别的 Provider');
+      }
+      break;
     case 'session.read_only':
       if (projection.state !== 'error' && projection.state !== 'closed') {
         reject(`只读只出现在 error / closed 状态，会话是 ${projection.state}`);
@@ -491,8 +578,11 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     id: record.id as SessionId,
     workspaceId: record.workspaceId as WorkspaceId,
     cwd: record.cwd,
-    engine: { kind: record.engine, sessionId: record.engineSessionId },
-    providerId: record.providerId,
+    engine: {
+      kind: record.engine,
+      sessionId: projection.current?.engineSessionId ?? record.engineSessionId,
+    },
+    providerId: projection.current?.providerId ?? record.providerId,
     modelId: projection.model?.modelId ?? record.modelId,
     title: projection.title,
     titleSource: projection.titleSource,
@@ -542,6 +632,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     session.parentSessionId = record.parentSessionId as SessionId;
   }
   if (projection.subagent) session.subagent = projection.subagent;
+  if (projection.engines !== undefined) session.engines = sessionEngines(projection);
   const snapshot: SessionSnapshot = {
     session,
     pendingApprovals: [...projection.pendingApprovals],
@@ -562,6 +653,22 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   return structuredClone(snapshot);
 }
 
+/** `Session.engines`（0.25.0）：当前那个的 `seenSeq` 取 `currentSeen`。 */
+function sessionEngines(projection: SessionProjection): SessionEngine[] {
+  return (projection.engines ?? []).map((engine) => ({
+    providerId: engine.providerId,
+    modelId:
+      engine.engineSessionId === projection.current?.engineSessionId && projection.model
+        ? projection.model.modelId
+        : engine.modelId,
+    sessionId: engine.engineSessionId,
+    seenSeq:
+      engine.engineSessionId === projection.current?.engineSessionId
+        ? projection.currentSeen
+        : engine.seenSeq,
+  }));
+}
+
 /** `sessions` 表里由事件推导的缓存列，与 `toSnapshot` 的同名字段一致。 */
 export function toCachePatch(projection: SessionProjection): SessionCachePatch {
   const patch: SessionCachePatch = {
@@ -573,6 +680,10 @@ export function toCachePatch(projection: SessionProjection): SessionCachePatch {
     lastSeq: projection.lastSeq,
   };
   if (projection.updatedAt !== undefined) patch.updatedAt = projection.updatedAt;
+  if (projection.current) {
+    patch.providerId = projection.current.providerId;
+    patch.engineSessionId = projection.current.engineSessionId;
+  }
   if (projection.model) {
     patch.modelId = projection.model.modelId;
     patch.reasoningEffort = projection.model.reasoningEffort ?? null;

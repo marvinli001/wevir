@@ -574,6 +574,7 @@ export const messages: Messages = {
   'notice.resumedVersion': 'Сессия движка восстановлена ({version})',
   'notice.readOnly': 'Сессия только для чтения: {reason}',
   'notice.closed': 'Сессия закрыта',
+  'notice.handoff': 'Переключено на {model}',
   'readOnly.engine_session_not_found': 'Сессия движка не найдена',
   'readOnly.engine_session_incompatible': 'Версия движка несовместима с этой сессией',
   'readOnly.engine_session_corrupted': 'Журнал сессии движка повреждён',

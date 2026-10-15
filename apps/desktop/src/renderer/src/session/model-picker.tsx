@@ -46,20 +46,24 @@ export function effortLabel(effort: string | undefined): string {
 
 /**
  * 输入框右下角的模型选择（U8，照 Codex 桌面端）：芯片写着模型与思考力度；点开是思考力度的滑块，点模型名换到模型列表。
- * 新会话（首页、草稿页）能在全部 Provider 的模型里选；已有会话 `lockProvider`，只在它的 Provider 里换（协议 0.9.0 的
- * `session.configure`，Host 不支持时 `readOnly`，只显示）。0.19.0 起来自订阅的模型在芯片与列表里带软件标志（data/sources.ts），
- * 停用的 Provider 与没登录的订阅不列出。
+ * 新会话（首页、草稿页）能在全部 Provider 的模型里选；已有会话 `lockProvider`，在它的 Provider 里换（协议 0.9.0 的
+ * `session.configure`，Host 不支持时 `readOnly`，只显示），0.25.0 起 `switchable` 认可的别的来源也能选（接力，Host 新开或接着
+ * 用那个来源的引擎会话），其余置灰。0.19.0 起来自订阅的模型在芯片与列表里带软件标志（data/sources.ts），停用的 Provider 与没
+ * 登录的订阅不列出。
  */
 export function ModelPicker({
   providers,
   value,
   lockProvider = false,
+  switchable,
   readOnly = false,
   onChange,
 }: {
   providers: readonly ProviderProfile[];
   value: ModelChoice;
   lockProvider?: boolean;
+  /** 已有会话（`lockProvider`）能接力过去的别的 Provider（0.25.0）；省略时都不能。 */
+  switchable?: (provider: ProviderProfile) => boolean;
   readOnly?: boolean;
   onChange: (next: ModelChoice) => void;
 }) {
@@ -169,7 +173,11 @@ export function ModelPicker({
         ) : (
           <ModelList
             providers={listed}
-            lockedTo={lockProvider ? provider : undefined}
+            locked={(candidate) =>
+              lockProvider &&
+              candidate.id !== value.providerId &&
+              !(switchable?.(candidate) ?? false)
+            }
             value={value}
             onBack={() => setView('effort')}
             onChoose={(providerId, next) =>
@@ -188,17 +196,17 @@ export function ModelPicker({
 
 /**
  * 模型列表（0.19.0 起混合全部来源）：顶上是搜索；按 Provider 分组，订阅来源在前、组头写软件名与“订阅”，每行左边是软件标志；
- * API 的组头是服务的标志与“API”，行里不带标志。已有会话（`lockedTo`）里别的来源的模型置灰（接力切换以后做）。
+ * API 的组头是服务的标志与“API”，行里不带标志。已有会话里不能接力过去的来源（`locked`）置灰。
  */
 function ModelList({
   providers,
-  lockedTo,
+  locked: isLocked,
   value,
   onBack,
   onChoose,
 }: {
   providers: readonly ProviderProfile[];
-  lockedTo: ProviderProfile | undefined;
+  locked: (provider: ProviderProfile) => boolean;
   value: ModelChoice;
   onBack: () => void;
   onChoose: (providerId: string, model: ProviderModel) => void;
@@ -246,7 +254,7 @@ function ModelList({
           </p>
         )}
         {groups.map(({ provider, source, label, models }) => {
-          const locked = lockedTo !== undefined && provider.id !== lockedTo.id;
+          const locked = isLocked(provider);
           return (
             <section
               key={provider.id}

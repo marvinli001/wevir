@@ -17,7 +17,8 @@ export interface SessionErrorRecord {
 /**
  * `sessions` 表的一行。身份字段（`id` 到 `parentToolCallId`）创建后不变，`modelId`、`reasoningEffort` 与 `permissionMode`
  * 除外：0.9.0 起（权限模式 0.11.0 起）可由 `session.configured` 事件改，同 `title` 之后的列一样是由事件推导的缓存，与事件不一致时以事件为准
- * （domain-model §3.3）。
+ * （domain-model §3.3）。0.25.0 起 `providerId` 与 `engineSessionId` 也是：接力（`session.handoff`）换成当前的那个，挂过的别的
+ * 引擎会话只在事件里。
  */
 export interface SessionRecord {
   id: string;
@@ -60,6 +61,9 @@ export interface SessionRecord {
 
 /** 可更新的缓存字段。`activeTurn`、`lastError`、`reasoningEffort` 传 `null` 表示清空。 */
 export interface SessionCachePatch {
+  /** 接力（0.25.0）后当前的 Provider 与引擎会话。 */
+  providerId?: string;
+  engineSessionId?: string;
   modelId?: string;
   reasoningEffort?: string | null;
   permissionMode?: string;
@@ -104,6 +108,8 @@ export interface SessionRepository {
 
 // SessionCachePatch 字段 → 列名。update() 只拼接这里列出的列，不接受任意键。
 const PATCH_COLUMNS = {
+  providerId: 'provider_id',
+  engineSessionId: 'engine_session_id',
   modelId: 'model_id',
   reasoningEffort: 'reasoning_effort',
   permissionMode: 'permission_mode',

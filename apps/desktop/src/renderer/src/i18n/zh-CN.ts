@@ -564,6 +564,7 @@ export const zhCN = {
   'notice.resumedVersion': '引擎会话已恢复（{version}）',
   'notice.readOnly': '会话只读：{reason}',
   'notice.closed': '会话已关闭',
+  'notice.handoff': '已切换到 {model}',
   'readOnly.engine_session_not_found': '引擎会话不存在',
   'readOnly.engine_session_incompatible': '引擎版本不兼容此会话',
   'readOnly.engine_session_corrupted': '引擎会话日志已损坏',

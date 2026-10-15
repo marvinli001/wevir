@@ -4,6 +4,7 @@ import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
+import { type HistoryToolServer, historyToolServer } from '@wevir/runtime-adapter/history-tool';
 import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
 import { EngineRouter } from './engine-router.js';
 import { isIgnorableEngineRejection, subscriptionEngines } from './engines.js';
@@ -108,6 +109,8 @@ export interface AdapterContext {
   logger: Logger;
   /** Host 进程的环境变量（`WEVIR_ECHO_SUBSCRIPTIONS` 等）；省略时当作空。 */
   env?: NodeJS.ProcessEnv;
+  /** 读历史的本机 MCP 服务（0.25.0，接力）；`createAdapter` 为 Codex 与订阅引擎写好脚本后填上。 */
+  historyTool?: HistoryToolServer;
 }
 
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex、dsh 或 echo）。 */
@@ -163,14 +166,20 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
       // 两个 codex-app-server 进程（网关进程与 ChatGPT 进程，ADR-0005 补记 10）都在第一次用到时才启动（Provider 只交给
       // 网关与下一次启动的配置）。二进制在这里就解析：没下载时 Host 直接启动失败并给出下载命令，而不是等到建会话才报错；
       // 版本在第一次启动前核对。网关令牌经 logger.addSecret 从日志里抹掉。
+      // 读历史的工具（0.25.0）：接力过来的会话经它读之前的历史，引擎各自挂上；脚本由引擎第一次启动前写进数据目录。
+      const historyTool = historyToolServer(
+        homePath(context.home, 'mcpDir'),
+        homePath(context.home, 'historyDir'),
+      );
       const codex = new CodexRuntime({
         home: context.home,
         binary: resolveCodexBinary(),
         clientInfo: { name: 'wevir', version: HOST_VERSION },
         logger: context.logger,
+        historyTool,
       });
       // 订阅来源各自的引擎（ADR-0005 补记 14）；没有时 Host 只有 Codex。
-      const subscriptions = subscriptionEngines(context);
+      const subscriptions = subscriptionEngines({ ...context, historyTool });
       if (subscriptions.length === 0) return codex;
       return new EngineRouter([
         { name: 'codex', adapter: codex, kinds: GATEWAY_KINDS },

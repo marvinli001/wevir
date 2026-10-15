@@ -17,6 +17,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.cwd;
     case 'session.configured':
       return event.payload.modelId;
+    case 'session.handoff':
+      return event.payload.to.providerId;
     case 'session.title_changed':
       return event.payload.title;
     case 'session.resumed':

@@ -659,6 +659,39 @@ export type PermissionMode = z.infer<typeof PermissionModeSchema>;
 /** 没有指定权限模式的会话（含 0.11.0 之前建的）按它算。 */
 export const DEFAULT_PERMISSION_MODE: PermissionMode = 'on_request';
 
+// ── 接力（0.25.0） ──────────────────────────────────────────────────────
+
+/**
+ * 一种 Provider 的会话由哪个引擎跑、那个引擎能做什么（0.25.0，`host.hello` 的 `engineFeatures`，按 Provider 种类）。会话接力到
+ * 别的来源之后，能用的功能跟着当前的引擎变（domain-model §3.14）。省略的项表示不支持。
+ */
+export const EngineFeaturesSchema = z.object({
+  /** 引擎的名字（`codex`、`claude`、`echo` 等），只作诊断。 */
+  engine: z.string().min(1),
+  /** 回合进行中插话；没有时插话一律排队。 */
+  steer: z.boolean().optional(),
+  /** 同一 Provider 里换模型与推理档位（`session.configure`）。 */
+  configure: z.boolean().optional(),
+  /** 支线会话（`session.fork`）。 */
+  fork: z.boolean().optional(),
+  /** 向用户提问（`question.*`）。 */
+  questions: z.boolean().optional(),
+  /** 支持的权限模式；省略表示只有 `on_request`。 */
+  permissionModes: z.array(PermissionModeSchema).optional(),
+  /** 额外的可写目录：多文件夹的环境会话只能接力给有它的引擎。 */
+  additionalRoots: z.boolean().optional(),
+  /** 接力过来的引擎会话能用 `read_session_history` 读之前的完整历史。 */
+  historyTool: z.boolean().optional(),
+});
+export type EngineFeatures = z.infer<typeof EngineFeaturesSchema>;
+
+/**
+ * 接力的方式（0.25.0，开放字符串）：`full_thread_summary`：第一次用这个来源，交给它整段对话的摘要；
+ * `delta_since_target_last_seen`：换回用过的来源，只补它错过的那段。
+ */
+export const HandoffStrategySchema = z.string().min(1);
+export type HandoffStrategy = z.infer<typeof HandoffStrategySchema>;
+
 // ── 环境（0.15.0，U22.1） ──────────────────────────────────────────────
 
 /**
@@ -778,6 +811,23 @@ export const SessionOriginSchema = z.object({
 });
 export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
 
+/**
+ * 会话挂过的一个引擎会话（0.25.0，接力，domain-model §3.14）。一个 Wevir 会话可以先后用几个来源，每个来源一个引擎会话；
+ * 换回用过的来源时接着用它的引擎会话，只补它错过的那段。
+ */
+export const SessionEngineSchema = z.object({
+  providerId: ProviderIdSchema,
+  /** 这个引擎会话最近用的模型。 */
+  modelId: z.string().min(1),
+  /** 引擎会话 ID，只作诊断。 */
+  sessionId: z.string().min(1),
+  /**
+   * 这个引擎会话的上下文里有会话到这个 `seq` 为止的内容：它自己跑完的回合，或已经随一条消息交给它的接力摘要。
+   */
+  seenSeq: SeqCursorSchema,
+});
+export type SessionEngine = z.infer<typeof SessionEngineSchema>;
+
 export const SessionSchema = z.object({
   id: SessionIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -817,6 +867,11 @@ export const SessionSchema = z.object({
   updatedAt: IsoTimeSchema,
   /** 会话里最后一个事件的 `seq`；新建会话为 1（`session.created`）。 */
   lastSeq: SeqCursorSchema,
+  /**
+   * 接力过的会话（0.25.0，`session.handoff`）：挂过的引擎会话，按第一次用的先后；当前的是 `engine.sessionId` 那个，`providerId`、
+   * `modelId` 也跟着它。没接力过时省略。
+   */
+  engines: z.array(SessionEngineSchema).optional(),
   /**
    * 归档的时刻（0.23.0）：归档的会话已关闭，`session.list` 默认不列。不是事件推导的，只出现在 `session.list`、`session.get`
    * 与 `session.*` 方法的结果里；订阅的事件不带它。

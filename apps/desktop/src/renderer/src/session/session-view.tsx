@@ -33,6 +33,7 @@ import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
 import { Composer, setDraft } from './composer';
 import { EnvironmentBar } from './environment-bar';
+import { canHandoffTo, engineFeaturesOf } from './handoff-model';
 import { historyDigest } from './history-digest';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { NewSessionHero, NewSessionLayout } from './new-session';
@@ -102,10 +103,19 @@ export function SessionView({
   const sessionState = transcript?.state ?? session.state;
   const readOnly = transcript?.readOnly ?? session.readOnly;
 
+  // 当前的引擎能做什么（0.25.0）：接力到别的来源后跟着变；旧 Host 没有时只看 Host 的功能。
+  const workbench = useWorkbenchData();
+  const providers = workbench.status === 'ready' ? workbench.providers : NO_PROVIDERS;
+  const engine =
+    view.status === 'connected'
+      ? engineFeaturesOf(view.hello.engineFeatures, providers, session.providerId)
+      : undefined;
+
   // `/btw 〈问题〉`（U23.1）：Host 能分支、会话是顶层会话、不只读、已有结束的回合时，分出支线在窗格里问。
   const sideEnabled =
     view.status === 'connected' &&
     hostSupports(view.hello.features, 'side_sessions') &&
+    (engine === undefined || engine.fork === true) &&
     !session.side &&
     session.subagent === undefined &&
     readOnly === undefined &&
@@ -160,23 +170,18 @@ export function SessionView({
   );
 
   // 输入框的斜杠命令与 @ 提及（U33）。
-  const workbench = useWorkbenchData();
-  const providers = workbench.status === 'ready' ? workbench.providers : NO_PROVIDERS;
   const writable = client !== undefined && readOnly === undefined;
   const configureModel = useCallback(
     (next: ModelChoice) => {
       client
-        ?.request('session.configure', {
-          sessionId: session.id,
-          modelId: next.modelId,
-          reasoningEffort: next.reasoningEffort ?? null,
-        })
+        ?.request('session.configure', configureParams(session, next))
         .catch((error: unknown) =>
           setNotice(t('model.configureFailed', { error: describe(error) })),
         );
     },
-    [client, session.id],
+    [client, session],
   );
+  const switchable = useHandoffTargets(session);
   const permissionModes = usePermissionModes();
   const permission = useMemo(
     () =>
@@ -273,6 +278,7 @@ export function SessionView({
       view.status === 'connected' &&
       hostSupports(view.hello.features, 'session_configure'),
     onModelChange: configureModel,
+    ...(switchable && { switchable }),
     ...(permission && { permission }),
     sideEnabled,
     filesEnabled,
@@ -440,6 +446,7 @@ function SessionModelPicker({
   const providers = data.status === 'ready' ? data.providers : [];
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'session_configure');
+  const switchable = useHandoffTargets(session);
   const value: ModelChoice = {
     providerId: session.providerId,
     modelId: session.modelId,
@@ -448,11 +455,7 @@ function SessionModelPicker({
   const configure = async (next: ModelChoice) => {
     if (!client) return;
     try {
-      await client.request('session.configure', {
-        sessionId: session.id,
-        modelId: next.modelId,
-        reasoningEffort: next.reasoningEffort ?? null,
-      });
+      await client.request('session.configure', configureParams(session, next));
     } catch (error) {
       onError(t('model.configureFailed', { error: describe(error) }));
     }
@@ -462,9 +465,40 @@ function SessionModelPicker({
       providers={providers}
       value={value}
       lockProvider
+      {...(switchable && { switchable })}
       readOnly={!supported || !client || session.readOnly !== undefined}
       onChange={(next) => void configure(next)}
     />
+  );
+}
+
+/**
+ * 换模型的请求：别的 Provider 的模型带 `providerId`（0.25.0 的接力），同一个 Provider 里照常只换模型与档位。
+ */
+function configureParams(session: Session, next: ModelChoice) {
+  return {
+    sessionId: session.id,
+    ...(next.providerId !== session.providerId && { providerId: next.providerId }),
+    modelId: next.modelId,
+    reasoningEffort: next.reasoningEffort ?? null,
+  };
+}
+
+/**
+ * 已有会话能接力过去的别的来源（0.25.0）：Host 有 `session_handoff` 时按 `canHandoffTo` 判断；旧 Host 返回 undefined（只在
+ * 当前 Provider 里换）。
+ */
+function useHandoffTargets(session: Session): ((provider: ProviderProfile) => boolean) | undefined {
+  const { view } = useHostConnection();
+  const supported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'session_handoff');
+  const engineFeatures = view.status === 'connected' ? view.hello.engineFeatures : undefined;
+  return useMemo(
+    () =>
+      supported
+        ? (provider: ProviderProfile) => canHandoffTo(provider, session, engineFeatures)
+        : undefined,
+    [supported, session, engineFeatures],
   );
 }
 
@@ -479,9 +513,19 @@ function SessionPermissionPicker({
   session: Session;
   onError: (message: string) => void;
 }) {
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
+  const data = useWorkbenchData();
   const supported = usePermissionModes();
   if (!supported) return null;
+  // 当前的引擎支持的模式（0.25.0）：接力到别的来源后跟着变。
+  const engine =
+    view.status === 'connected'
+      ? engineFeaturesOf(
+          view.hello.engineFeatures,
+          data.status === 'ready' ? data.providers : NO_PROVIDERS,
+          session.providerId,
+        )
+      : undefined;
   const configure = async (permissionMode: PermissionMode) => {
     if (!client) return;
     try {
@@ -493,6 +537,7 @@ function SessionPermissionPicker({
   return (
     <PermissionPicker
       value={session.permissionMode ?? 'on_request'}
+      {...(engine?.permissionModes && { modes: engine.permissionModes })}
       readOnly={!client || session.readOnly !== undefined || session.parentSessionId !== undefined}
       onChange={(next) => void configure(next)}
     />

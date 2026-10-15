@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent, ApprovalRequestedEvent } from '@wevir/runtime-adapter';
 import { isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
@@ -758,5 +759,39 @@ describe('失败与登录', () => {
     await adapter.send(engineSessionId, text('hi'));
     expect(await log.until(isTurnTerminal, from)).toMatchObject({ outcome: 'completed' });
     expect(sessionQueries(sdk)[1]?.options).toMatchObject({ resume: engineSessionId });
+  });
+});
+
+describe('读历史的工具（0.25.0）', () => {
+  it('给了 historyTool 时每个会话的 query 挂上 wevir_history，工具不用审批；脚本写进数据目录', async () => {
+    const plain = harness();
+    await plain.adapter.createSession(CONFIG);
+    expect(plain.adapter.historyTool).toBe(false);
+
+    const probe = harness();
+    const server = {
+      script: join(probe.home, 'mcp', 'wevir-history.mjs'),
+      node: '/usr/bin/node',
+      historyDir: join(probe.home, 'history'),
+    };
+    const { adapter, sdk } = harness({ historyTool: server });
+    expect(adapter.historyTool).toBe(true);
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    const options = sessionQueries(sdk)[0]?.options;
+    expect(options?.mcpServers).toEqual({
+      wevir_history: {
+        type: 'stdio',
+        command: '/usr/bin/node',
+        args: [server.script, server.historyDir],
+        env: { ELECTRON_RUN_AS_NODE: '1' },
+      },
+    });
+    expect(options?.allowedTools).toEqual(['mcp__wevir_history__read_session_history']);
+    expect(existsSync(server.script)).toBe(true);
+    const plainOptions = sessionQueries(plain.sdk)[0]?.options;
+    expect(plainOptions?.mcpServers).toBeUndefined();
   });
 });

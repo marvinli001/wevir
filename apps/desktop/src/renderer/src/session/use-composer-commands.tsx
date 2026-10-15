@@ -42,6 +42,8 @@ function modelCommand(
   lockProvider: boolean,
   accounts: ReturnType<typeof useAccounts>,
   onChange: (next: ModelChoice) => void,
+  /** 已有会话能接力过去的别的 Provider（0.25.0）。 */
+  switchable?: (provider: ProviderProfile) => boolean,
 ): ComposerCommand {
   const provider = providers.find((candidate) => candidate.id === value.providerId);
   const current = provider && modelsOf(provider).find((model) => model.id === value.modelId);
@@ -52,15 +54,14 @@ function modelCommand(
     detail: current?.displayName ?? value.modelId,
     plus: true,
     items: () => {
-      const listed = lockProvider
-        ? provider
-          ? [provider]
-          : []
-        : pickerOrder(
-            providers.filter(
-              (candidate) => candidate.id === value.providerId || isPickable(candidate, accounts),
-            ),
-          );
+      const listed = pickerOrder(
+        providers.filter(
+          (candidate) =>
+            candidate.id === value.providerId ||
+            (isPickable(candidate, accounts) &&
+              (!lockProvider || (switchable?.(candidate) ?? false))),
+        ),
+      );
       return listed.flatMap((candidate) => {
         const source = sourceOf(candidate);
         const group = source ? t(source.name) : candidate.displayName;
@@ -170,6 +171,8 @@ export interface SessionCommandOptions {
   /** Host 能在会话中换模型（`session_configure`）且会话可写。 */
   canConfigure: boolean;
   onModelChange: (next: ModelChoice) => void;
+  /** 能接力过去的别的 Provider（0.25.0）；省略时只在当前 Provider 里换。 */
+  switchable?: (provider: ProviderProfile) => boolean;
   /** 有权限模式可选时给。 */
   permission?: { mode: PermissionMode; onChange: (next: PermissionMode) => void };
   /** Host 能分出支线（/btw）。 */
@@ -197,6 +200,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     model,
     canConfigure,
     onModelChange,
+    switchable,
     permission,
     sideEnabled,
     filesEnabled,
@@ -211,7 +215,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
     if (canConfigure) {
-      commands.push(modelCommand(providers, model, true, accounts, onModelChange));
+      commands.push(modelCommand(providers, model, true, accounts, onModelChange, switchable));
       const effort = effortCommand(providers, model, onModelChange);
       if (effort) commands.push(effort);
     }
@@ -268,6 +272,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     model,
     canConfigure,
     onModelChange,
+    switchable,
     permission,
     sideEnabled,
     filesEnabled,

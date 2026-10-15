@@ -17,6 +17,11 @@
       "types": "./dist/echo.d.ts",
       "default": "./dist/echo.js"
     },
+    "./history-tool": {
+      "@wevir/source": "./src/history-tool.ts",
+      "types": "./dist/history-tool.d.ts",
+      "default": "./dist/history-tool.js"
+    },
     "./contract": {
       "@wevir/source": "./src/contract.ts",
       "types": "./dist/contract.d.ts",

@@ -4,9 +4,11 @@ import { join } from 'node:path';
 import {
   type ClientIdentity,
   DESKTOP_RENDERER_ORIGINS,
+  type EngineFeatures,
   type HostId,
   HostIdSchema,
   PROTOCOL_VERSION,
+  ProviderKindSchema,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
@@ -14,6 +16,7 @@ import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
+import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { EventStore } from './event-store.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
@@ -144,6 +147,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     turnCheckpoints = checkpoints;
+    // 每种 Provider 的引擎能做什么（0.25.0，接力）：hello 里告诉客户端，接力时按它挑权限模式、提不提读历史的工具。
+    const engineFeatures = hostEngineFeatures(adapter, options.engine);
     const manager = new SessionManager({
       storage,
       events: store,
@@ -155,6 +160,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // 环境会话新开的 worktree（0.15.0，domain-model §3.10）。
       worktreesDir: join(home, 'worktrees'),
       checkpoints,
+      engineFeatures,
+      historyDir: homePath(home, 'historyDir'),
     });
     sessions = manager;
     const recovery = manager.recover();
@@ -237,6 +244,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_files: true,
         session_rename: true,
         session_archive: true,
+        session_handoff: true,
         subagent_cancel: true,
         environments: true,
         session_worktree: true,
@@ -252,6 +260,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.compact !== undefined && { session_compact: true }),
         ...(adapter.review !== undefined && { session_review: true }),
       },
+      engineFeatures,
       ...(accounts !== undefined && { accounts }),
       settings,
       ...(options.port !== undefined && { port: options.port }),
@@ -444,4 +453,16 @@ async function loadHostId(home: string, logger: Logger): Promise<HostId> {
     throw error;
   }
   return hostId;
+}
+
+/**
+ * 每种 Provider 的引擎能做什么（0.25.0）：多引擎的路由按各自的引擎给；只有一个引擎（dsh、没挂假订阅的 echo）时每种都是它。
+ */
+export function hostEngineFeatures(
+  adapter: AgentRuntimeAdapter,
+  engine: string,
+): Record<string, EngineFeatures> {
+  if (adapter instanceof EngineRouter) return adapter.engineFeatures();
+  const features = engineFeaturesOf(engine, adapter);
+  return Object.fromEntries(ProviderKindSchema.options.map((kind) => [kind, features]));
 }
