@@ -38,7 +38,7 @@ const COMPLETED_SHOWN = 10;
 /**
  * 左栏（U5 照 Codex 桌面端）：顶上一条拖动区（后退、前进与侧栏开关浮在它上面，见 window-controls.tsx；浮层里的侧栏把
  * 它们放进 `controls`）、“新建会话”、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的设置入口。不显示与 Host 的连接状态：连上时什么都不
- * 显示，断线时只有窗口顶部的连接提示（host/connection-banner.tsx）。
+ * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
 export function Sidebar({ controls }: { controls?: ReactNode }) {
   const location = useLocation();

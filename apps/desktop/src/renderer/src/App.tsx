@@ -1,8 +1,9 @@
 import { CSPProvider } from '@base-ui/react/csp-provider';
 import { RouterProvider } from 'react-router/dom';
+import { ToastViewport } from '@/components/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { WorkbenchDataProvider } from '@/data/workbench-data';
-import { ConnectionBanner } from '@/host/connection-banner';
+import { ConnectionToast } from '@/host/connection-toast';
 import { HostConnectionProvider } from '@/host/host-connection';
 import { router } from '@/routes/router';
 
@@ -13,13 +14,11 @@ export function App() {
       <HostConnectionProvider>
         <WorkbenchDataProvider>
           <TooltipProvider delay={500}>
-            {/* 连接提示在最上方，工作台与设置页都看得到（T5.5）。 */}
-            <div className="flex h-full flex-col">
-              <ConnectionBanner />
-              <div className="min-h-0 flex-1">
-                <RouterProvider router={router} />
-              </div>
-            </div>
+            <RouterProvider router={router} />
+            {/* 连接通知在窗口右下角，工作台与设置页都看得到（T5.5，U25）。 */}
+            <ToastViewport>
+              <ConnectionToast />
+            </ToastViewport>
           </TooltipProvider>
         </WorkbenchDataProvider>
       </HostConnectionProvider>

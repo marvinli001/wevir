@@ -3,7 +3,7 @@ import { t } from '@/i18n';
 import type { HostProcessStatus } from '../../../shared/desktop-api.js';
 import type { HostConnectionView } from './host-connection';
 
-/** 设置的“关于”里的连接状态：圆点与一句话。左栏不显示连接状态，断线时只有顶部提示。 */
+/** 设置的“关于”里的连接状态：圆点与一句话。左栏不显示连接状态，断线时只有右下角的连接通知。 */
 export interface HostIndicator {
   tone: StatusTone;
   pulse?: boolean;
@@ -11,7 +11,7 @@ export interface HostIndicator {
 }
 
 /**
- * 连上了就是“已连接”；断线时优先说明 Host 进程的情况（T5.5），与顶部提示一致：重新启动中、在等外部的 Host、
+ * 连上了就是“已连接”；断线时优先说明 Host 进程的情况（T5.5），与连接通知一致：重新启动中、在等外部的 Host、
  * 起不来；否则是连接本身的状态。
  */
 export function hostIndicator(
@@ -47,8 +47,10 @@ export function hostIndicator(
   }
 }
 
-/** 顶部连接提示（T5.5）的内容：断线、Host 重新启动、等外部 Host、起不来。连接正常时没有。 */
-export interface ConnectionBanner {
+/** 连接通知（T5.5，U25 起在窗口右下角）的内容：断线、Host 重新启动、等外部 Host、起不来。连接正常时没有。 */
+export interface ConnectionNotice {
+  /** 哪种情况。用户关掉通知后，同一种情况不再弹出，换了情况或连上之后才会。 */
+  kind: 'hostFailed' | 'restarting' | 'waiting' | 'starting' | 'reconnecting' | 'failed' | 'closed';
   tone: 'warning' | 'danger';
   message: string;
   detail?: string;
@@ -59,18 +61,19 @@ export interface ConnectionBanner {
 }
 
 /**
- * 按渲染进程到 Host 的连接状态与主进程看到的 Host 进程状态，决定顶部显示什么。连上了就不显示；首次连接中
+ * 按渲染进程到 Host 的连接状态与主进程看到的 Host 进程状态，决定连接通知说什么。连上了就不显示；首次连接中
  * 由页面自己显示“加载中”，只有 Host 起不来或正在重新启动时才提示。连接断了时优先说明 Host 进程的情况：在重新
  * 启动、在等外部的 Host 回来、还是已经放弃。
  */
-export function connectionBanner(
+export function connectionNotice(
   view: HostConnectionView,
   host: HostProcessStatus | undefined,
-): ConnectionBanner | undefined {
+): ConnectionNotice | undefined {
   if (view.status === 'connected') return undefined;
   switch (host?.phase) {
     case 'failed':
       return {
+        kind: 'hostFailed',
         tone: 'danger',
         message: t('connection.hostFailed', { error: host.error }),
         logPath: host.logPath,
@@ -78,12 +81,14 @@ export function connectionBanner(
       };
     case 'restarting':
       return {
+        kind: 'restarting',
         tone: 'warning',
         message: t('connection.restarting', { attempt: host.attempt, max: host.maxAttempts }),
         detail: host.reason,
       };
     case 'waiting':
       return {
+        kind: 'waiting',
         tone: 'warning',
         message: t('connection.waiting'),
         detail: t('connection.waitingHint'),
@@ -91,25 +96,28 @@ export function connectionBanner(
     case 'starting':
       return view.status === 'connecting'
         ? undefined
-        : { tone: 'warning', message: t('connection.starting') };
+        : { kind: 'starting', tone: 'warning', message: t('connection.starting') };
   }
   switch (view.status) {
     case 'connecting':
       return undefined;
     case 'reconnecting':
       return {
+        kind: 'reconnecting',
         tone: 'warning',
         message: t('connection.reconnecting', { attempt: view.attempt }),
         action: 'reconnect',
       };
     case 'failed':
       return {
+        kind: 'failed',
         tone: 'danger',
         message: t('connection.failed', { error: view.error }),
         action: 'retry',
       };
     case 'closed':
       return {
+        kind: 'closed',
         tone: 'danger',
         message:
           view.error === undefined

@@ -15,6 +15,8 @@ export const zhCN = {
   'common.cancel': '取消',
   'common.loading': '正在加载…',
 
+  'toast.region': '通知',
+
   'host.connecting': '连接中…',
   'host.connected': '已连接',
   'host.reconnecting': '重连中（第 {attempt} 次）',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HostConnectionView } from './host-connection';
-import { connectionBanner, hostIndicator } from './host-status';
+import { connectionNotice, hostIndicator } from './host-status';
 
 const hello = {} as Extract<HostConnectionView, { status: 'connected' }>['hello'];
 const running = {
@@ -8,16 +8,16 @@ const running = {
   ownership: { kind: 'owned', pid: 1, startedAt: '2026-10-14T00:00:00.000Z' },
 } as const;
 
-describe('connectionBanner', () => {
+describe('connectionNotice', () => {
   it('连上了不显示；首次连接中交给页面，只有 Host 起不来或在重新启动时才提示', () => {
-    expect(connectionBanner({ status: 'connected', hello }, running)).toBeUndefined();
+    expect(connectionNotice({ status: 'connected', hello }, running)).toBeUndefined();
     expect(
-      connectionBanner({ status: 'connected', hello }, { phase: 'waiting', pid: 1 }),
+      connectionNotice({ status: 'connected', hello }, { phase: 'waiting', pid: 1 }),
     ).toBeUndefined();
-    expect(connectionBanner({ status: 'connecting' }, undefined)).toBeUndefined();
-    expect(connectionBanner({ status: 'connecting' }, { phase: 'starting' })).toBeUndefined();
+    expect(connectionNotice({ status: 'connecting' }, undefined)).toBeUndefined();
+    expect(connectionNotice({ status: 'connecting' }, { phase: 'starting' })).toBeUndefined();
     expect(
-      connectionBanner(
+      connectionNotice(
         { status: 'connecting' },
         { phase: 'restarting', attempt: 1, maxAttempts: 3, reason: 'x' },
       ),
@@ -27,29 +27,32 @@ describe('connectionBanner', () => {
   it('断线时先说明 Host 进程的情况', () => {
     const view: HostConnectionView = { status: 'reconnecting', attempt: 2 };
     expect(
-      connectionBanner(view, {
+      connectionNotice(view, {
         phase: 'restarting',
         attempt: 2,
         maxAttempts: 3,
         reason: '后台服务意外退出（信号 SIGKILL）',
       }),
     ).toEqual({
+      kind: 'restarting',
       tone: 'warning',
       message: '后台服务异常退出，正在重启（第 2/3 次）…',
       detail: '后台服务意外退出（信号 SIGKILL）',
     });
-    expect(connectionBanner(view, { phase: 'waiting', pid: 42 })).toMatchObject({
+    expect(connectionNotice(view, { phase: 'waiting', pid: 42 })).toMatchObject({
+      kind: 'waiting',
       tone: 'warning',
       message: '后台服务已停止，等待重新运行…',
       detail: expect.stringContaining('需手动重新启动'),
     });
     expect(
-      connectionBanner(view, {
+      connectionNotice(view, {
         phase: 'failed',
         error: '重新拉起 3 次都没有成功',
         logPath: '/data/logs/host.log',
       }),
     ).toEqual({
+      kind: 'hostFailed',
       tone: 'danger',
       message: '后台服务无法启动：重新拉起 3 次都没有成功',
       logPath: '/data/logs/host.log',
@@ -58,17 +61,20 @@ describe('connectionBanner', () => {
   });
 
   it('Host 进程在运行而连接断了：显示重连次数与“立即重连”；首次失败、连接关闭给“重试”', () => {
-    expect(connectionBanner({ status: 'reconnecting', attempt: 3 }, running)).toEqual({
+    expect(connectionNotice({ status: 'reconnecting', attempt: 3 }, running)).toEqual({
+      kind: 'reconnecting',
       tone: 'warning',
       message: '连接已断开，正在重连（第 3 次）…',
       action: 'reconnect',
     });
-    expect(connectionBanner({ status: 'failed', error: '超时' }, running)).toEqual({
+    expect(connectionNotice({ status: 'failed', error: '超时' }, running)).toEqual({
+      kind: 'failed',
       tone: 'danger',
       message: '无法连接后台服务：超时',
       action: 'retry',
     });
-    expect(connectionBanner({ status: 'closed', error: '协议不兼容' }, undefined)).toEqual({
+    expect(connectionNotice({ status: 'closed', error: '协议不兼容' }, undefined)).toEqual({
+      kind: 'closed',
       tone: 'danger',
       message: '与后台服务的连接已关闭：协议不兼容',
       action: 'retry',
@@ -77,7 +83,7 @@ describe('connectionBanner', () => {
 });
 
 describe('hostIndicator', () => {
-  it('与顶部提示一致：断线时先看 Host 进程的情况', () => {
+  it('与连接通知一致：断线时先看 Host 进程的情况', () => {
     expect(hostIndicator({ status: 'connected', hello }, undefined)).toEqual({
       tone: 'success',
       text: '已连接',
