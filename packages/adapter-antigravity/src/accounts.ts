@@ -94,6 +94,12 @@ export class AntigravityAccounts implements EngineAccounts {
   #customPath: string | null = null;
   #models: AccountModels | undefined;
   #disposed = false;
+  /**
+   * 状态的先后：每次取快照或直接设置状态前取一个号，只采用号比已采用的大的。快照要读磁盘、是异步的，先开始的可能后完成，
+   * 不这样的话旧快照（例如下载失败前开始的、还带着 installing 的）会盖掉已经发布的新状态。
+   */
+  #stateSeq = 0;
+  #appliedSeq = 0;
 
   constructor(options: AntigravityAccountsOptions) {
     this.#options = options;
@@ -108,12 +114,13 @@ export class AntigravityAccounts implements EngineAccounts {
   async read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
     this.#check(kind);
     if (this.#flow !== undefined) return this.#state;
+    const seq = ++this.#stateSeq;
     const state = await this.#snapshot();
     if (options?.refresh === true && state.installed === true && state.status === 'signed_in') {
       await this.#refresh();
-      return this.#set(await this.#snapshot());
+      return this.#update();
     }
-    return this.#set(state);
+    return this.#set(state, seq);
   }
 
   async login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState> {
@@ -205,7 +212,7 @@ export class AntigravityAccounts implements EngineAccounts {
       return this.#state;
     }
     await this.#endFlow();
-    return this.#set(await this.#snapshot());
+    return this.#update();
   }
 
   async logout(kind: AccountKind): Promise<AccountState> {
@@ -234,7 +241,7 @@ export class AntigravityAccounts implements EngineAccounts {
     } finally {
       this.#stopping = false;
     }
-    return this.#set(await this.#snapshot());
+    return this.#update();
   }
 
   async models(kind: AccountKind): Promise<AccountModels> {
@@ -262,6 +269,8 @@ export class AntigravityAccounts implements EngineAccounts {
     }
     this.#installing = { phase: 'downloading', completedBytes: 0, totalBytes: asset.archiveBytes };
     this.#lastError = undefined;
+    // 先发布“开始安装”再开始下载：下载很快就失败或完成时，那个状态排在它后面（#stateSeq）。
+    const started = await this.#update();
     installation
       .install((progress) => {
         if (this.#installing === undefined) return;
@@ -289,7 +298,7 @@ export class AntigravityAccounts implements EngineAccounts {
         },
       )
       .catch(() => {});
-    return this.#set(await this.#snapshot());
+    return started;
   }
 
   /** 取消进行中的下载安装（协议里没有这个方法；dispose 时用，也给测试）。没下完的部分留着，下次接着下。 */
@@ -568,7 +577,7 @@ export class AntigravityAccounts implements EngineAccounts {
 
   async #publish(): Promise<void> {
     if (this.#disposed) return;
-    this.#set(await this.#snapshot());
+    await this.#update();
   }
 
   #check(kind: AccountKind): void {
@@ -578,7 +587,17 @@ export class AntigravityAccounts implements EngineAccounts {
     }
   }
 
-  #set(state: AccountState): AccountState {
+  /** 取快照并发布（按开始的先后，见 #stateSeq）。 */
+  async #update(): Promise<AccountState> {
+    const seq = ++this.#stateSeq;
+    const state = await this.#snapshot();
+    return this.#set(state, seq);
+  }
+
+  /** `seq` 是这个状态开始计算时取的号；直接给出的状态取新号。比已采用的旧时不发布，返回现有状态。 */
+  #set(state: AccountState, seq: number = ++this.#stateSeq): AccountState {
+    if (seq < this.#appliedSeq) return this.#state;
+    this.#appliedSeq = seq;
     const changed = JSON.stringify(state) !== JSON.stringify(this.#state);
     this.#state = state;
     if (changed && !this.#disposed) {

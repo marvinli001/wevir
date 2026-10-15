@@ -2,7 +2,7 @@
 // 服务器不支持 Range、卡住、取消、HTTP 错误、不安全的压缩包、校验失败、连不上 dl.google.com 时的说明。
 
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
@@ -99,7 +99,9 @@ async function serve(body: Buffer, options: ServeOptions = {}): Promise<string> 
     const pump = () => {
       while (sent < slice.length) {
         if (first && options.dropAfter !== undefined && start + sent >= options.dropAfter) {
-          res.socket?.destroy();
+          // 半关（FIN）而不是 destroy：destroy 会丢掉还在发送缓冲里的数据，机器忙时客户端可能一个字节都没收到，
+          // 也就没有可以接着下的部分。半关时已写出的数据都送到，响应在 content-length 之前断掉。
+          res.socket?.end();
           return;
         }
         if (options.stallAfter !== undefined && start + sent >= options.stallAfter) return;
@@ -232,11 +234,15 @@ describe.skipIf(!posix)('AntigravityInstallation', () => {
   });
 
   it('服务器不支持 Range：从头重新下载，sha256 照样对', async () => {
-    const asset = assetFor(await serve(ZIP, { dropAfter: 64 * 1024, range: false }));
+    const asset = assetFor(await serve(ZIP, { range: false }));
     const target = installation(asset);
-    await expect(target.install(() => {})).rejects.toThrow(/partial download is kept/);
+    // 直接放一段没下完的部分（内容故意不对），不靠断线留下：连接提前断开时 fetch 会丢掉已收到、还没读走的数据，
+    // 机器忙时可能一个字节都留不下。从头下才能通过 sha256。
+    mkdirSync(path.dirname(partialPath(asset)), { recursive: true });
+    writeFileSync(partialPath(asset), Buffer.alloc(64 * 1024, 1));
     await target.install(() => {});
-    expect(requests[1]?.range).toBeDefined();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.range).toBe(`bytes=${64 * 1024}-`);
     await expect(target.resolve()).resolves.toMatchObject({ source: 'managed' });
   });
 

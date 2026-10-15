@@ -255,7 +255,11 @@ describe('Cursor 应用内登录（真实 SDK + 本机 mock 后端）', () => {
       const after = polls();
       await realFetch(signingIn.login?.authUrl ?? '');
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      expect(polls()).toBe(after);
+      // 取消时可能已有一个轮询请求在路上（mock 收到时才记），之后不再有新的：浏览器里登录完成了也不再轮询。
+      const settled = polls();
+      expect(settled).toBeLessThanOrEqual(after + 1);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      expect(polls()).toBe(settled);
       expect(
         await new CursorCredentialFile(cursorCredentialsPath(cancelHome)).load(),
       ).toBeUndefined();
