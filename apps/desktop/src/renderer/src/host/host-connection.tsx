@@ -15,6 +15,7 @@ import {
   useState,
 } from 'react';
 import type { HostProcessStatus } from '../../../shared/desktop-api.js';
+import { describeError } from './error-text';
 
 export type HostConnectionView =
   | { status: 'connecting' }
@@ -172,8 +173,5 @@ function toView(state: ConnectionState): HostConnectionView {
   }
 }
 
-/** 去掉 Electron 给 IPC 错误加的前缀（“Error invoking remote method '…': HostStartError: ”）。 */
-export function describe(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, '');
-}
+/** 错误的说法，按界面语言（host/error-text.ts）。 */
+export const describe = describeError;

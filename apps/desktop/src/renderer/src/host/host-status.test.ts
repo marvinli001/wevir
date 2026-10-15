@@ -19,7 +19,7 @@ describe('connectionNotice', () => {
     expect(
       connectionNotice(
         { status: 'connecting' },
-        { phase: 'restarting', attempt: 1, maxAttempts: 3, reason: 'x' },
+        { phase: 'restarting', attempt: 1, maxAttempts: 3, reason: { code: 'restarting' } },
       ),
     ).toMatchObject({ tone: 'warning' });
   });
@@ -31,7 +31,7 @@ describe('connectionNotice', () => {
         phase: 'restarting',
         attempt: 2,
         maxAttempts: 3,
-        reason: '后台服务异常退出（信号 SIGKILL）',
+        reason: { code: 'crashed', exit: { signal: 'SIGKILL' } },
       }),
     ).toEqual({
       kind: 'restarting',
@@ -48,13 +48,19 @@ describe('connectionNotice', () => {
     expect(
       connectionNotice(view, {
         phase: 'failed',
-        error: '重启 3 次均失败',
+        error: {
+          code: 'restartsFailed',
+          attempts: 3,
+          first: { code: 'crashed', exit: { exitCode: 1 } },
+          last: { code: 'startFailed', exit: { exitCode: 1 }, detail: 'boom' },
+        },
         logPath: '/data/logs/host.log',
       }),
     ).toEqual({
       kind: 'hostFailed',
       tone: 'danger',
-      message: '后台服务无法启动：重启 3 次均失败',
+      message:
+        '后台服务无法启动：后台服务异常退出（退出码 1），重启 3 次均失败：后台服务启动失败（退出码 1）：boom',
       logPath: '/data/logs/host.log',
       action: 'retry',
     });
@@ -89,12 +95,19 @@ describe('hostIndicator', () => {
       text: '已连接',
     });
     const view: HostConnectionView = { status: 'reconnecting', attempt: 4 };
-    expect(hostIndicator(view, { phase: 'failed', error: 'x', logPath: '/l' })).toEqual({
+    expect(
+      hostIndicator(view, { phase: 'failed', error: { code: 'internal' }, logPath: '/l' }),
+    ).toEqual({
       tone: 'danger',
       text: '后台服务无法启动',
     });
     expect(
-      hostIndicator(view, { phase: 'restarting', attempt: 2, maxAttempts: 3, reason: 'x' }),
+      hostIndicator(view, {
+        phase: 'restarting',
+        attempt: 2,
+        maxAttempts: 3,
+        reason: { code: 'restarting' },
+      }),
     ).toMatchObject({ text: '后台服务重新启动中（第 2/3 次）', pulse: true });
     expect(hostIndicator(view, { phase: 'waiting', pid: 1 }).text).toBe('后台服务已停止，等待中');
     expect(hostIndicator(view, running)).toMatchObject({ text: '重连中（第 4 次）' });

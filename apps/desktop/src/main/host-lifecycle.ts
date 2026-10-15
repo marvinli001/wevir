@@ -35,12 +35,14 @@ import {
 } from '@wevir/host/runtime';
 import type { ClientIdentity } from '@wevir/protocol';
 import {
+  type HostExit,
+  type HostFailure,
   type HostOwnership,
   type HostProcessStatus,
   MAX_HOST_RESTARTS,
 } from '../shared/desktop-api.js';
 
-export type { HostOwnership, HostProcessStatus } from '../shared/desktop-api.js';
+export type { HostFailure, HostOwnership, HostProcessStatus } from '../shared/desktop-api.js';
 
 export interface HostReady {
   ownership: HostOwnership;
@@ -103,9 +105,65 @@ export interface HostLifecycleOptions {
   log?: Log;
 }
 
-/** 拉起的子进程在就绪前退出、超时，或 Host 不可用。`message` 是给人看的中文说明。 */
+/**
+ * 拉起的子进程在就绪前退出、超时，或 Host 不可用。`failure` 是原因码与参数，由渲染进程按界面语言显示；`message`
+ * 是它的英文说法，只进日志与 IPC 的 reject。
+ */
 export class HostStartError extends Error {
   override readonly name = 'HostStartError';
+  constructor(readonly failure: HostFailure) {
+    super(describeFailure(failure));
+  }
+}
+
+/** 任意错误对应的原因：HostStartError 带着；其他异常是 `internal`，原文放进 `detail`。 */
+export function failureOf(error: unknown): HostFailure {
+  return error instanceof HostStartError
+    ? error.failure
+    : { code: 'internal', detail: describe(error) };
+}
+
+/** 原因的英文说法（日志、IPC reject 的 message）；界面上的说法在渲染进程的 host/host-failure.ts。 */
+export function describeFailure(failure: HostFailure): string {
+  const text = failureSummary(failure);
+  return failure.detail ? `${text}: ${failure.detail}` : text;
+}
+
+function failureSummary(failure: HostFailure): string {
+  switch (failure.code) {
+    case 'quitting':
+      return 'the desktop app is quitting';
+    case 'restarting':
+      return 'the host is restarting';
+    case 'startFailed':
+      return `the host exited before it was ready (${exitText(failure.exit)})`;
+    case 'crashed':
+      return `the host exited unexpectedly (${exitText(failure.exit)})`;
+    case 'spawnFailed':
+      return `cannot launch ${failure.path}`;
+    case 'notReady':
+      return `the host was not ready within ${failure.seconds} s`;
+    case 'otherNotReady':
+      return 'another host owns the data directory but is not ready';
+    case 'staleProcess':
+      return `the previous host process (pid ${failure.pid}) did not exit`;
+    case 'restartsFailed':
+      return `${describeFailure(failure.first)}; ${failure.attempts} restarts failed: ${describeFailure(failure.last)}`;
+    case 'manifestInvalid':
+      return `${failure.path} has no bin.wevir-host`;
+    case 'entryMissing':
+      return `host entry ${failure.path} not found; run pnpm build at the repository root`;
+    case 'internal':
+      return 'internal error';
+  }
+}
+
+function exitText(exit: HostExit): string {
+  return 'signal' in exit ? `signal ${exit.signal}` : `exit code ${exit.exitCode}`;
+}
+
+function toExit(exit: { code: number | null; signal: NodeJS.Signals | null }): HostExit {
+  return exit.code === null ? { signal: exit.signal ?? 'unknown' } : { exitCode: exit.code };
 }
 
 const STDERR_TAIL_LIMIT = 4096;
@@ -116,6 +174,8 @@ interface OwnedChild {
   exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>;
   hasExited: () => boolean;
   stderrTail: () => string;
+  /** 进程没能启动（spawn 的 `error` 事件）时的错误。 */
+  spawnError: () => Error | undefined;
 }
 
 export class HostLifecycle {
@@ -169,7 +229,7 @@ export class HostLifecycle {
    * 退出、附着的 Host 不在了由生命周期自己处理，失败后的重试走 `retry()`。
    */
   start(): Promise<HostReady> {
-    if (this.#stopping) return Promise.reject(new HostStartError('桌面端正在退出'));
+    if (this.#stopping) return Promise.reject(new HostStartError({ code: 'quitting' }));
     if (!this.#initial) {
       this.#initial = this.#start();
       this.#initial.then(
@@ -212,7 +272,7 @@ export class HostLifecycle {
         throw new HostStartError(status.error);
       case 'starting':
       case 'restarting':
-        throw new HostStartError('后台服务正在重新启动');
+        throw new HostStartError({ code: 'restarting' });
       case 'running':
       case 'waiting':
         // waiting 时 host.json 可能已经回来、只是还没轮到检查，照读；没有就 reject。
@@ -261,9 +321,12 @@ export class HostLifecycle {
   #fail(error: unknown): void {
     this.#ready = undefined;
     if (this.#stopping) return;
-    const message = describe(error);
-    this.#log('error', 'host unavailable', { error: message, logPath: this.logPath });
-    this.#setStatus({ phase: 'failed', error: message, logPath: this.logPath });
+    const failure = failureOf(error);
+    this.#log('error', 'host unavailable', {
+      error: describeFailure(failure),
+      logPath: this.logPath,
+    });
+    this.#setStatus({ phase: 'failed', error: failure, logPath: this.logPath });
   }
 
   #runRecovery(task: () => Promise<void>): Promise<void> {
@@ -282,7 +345,6 @@ export class HostLifecycle {
     child: OwnedChild,
     exit: { code: number | null; signal: NodeJS.Signals | null },
   ): void {
-    const reason = exit.code === null ? `信号 ${exit.signal}` : `退出码 ${exit.code}`;
     this.#log('error', 'owned host exited unexpectedly', {
       pid: ownership.pid,
       code: exit.code,
@@ -291,13 +353,15 @@ export class HostLifecycle {
     });
     this.#ready = undefined;
     if (performance.now() - this.#readyAt >= this.#timeouts.stableMs) this.#restarts = 0;
-    void this.#runRecovery(() => this.#restartLoop(ownership, `后台服务异常退出（${reason}）`));
+    void this.#runRecovery(() =>
+      this.#restartLoop(ownership, { code: 'crashed', exit: toExit(exit) }),
+    );
   }
 
-  async #restartLoop(previous: HostOwnership, firstReason: string): Promise<void> {
+  async #restartLoop(previous: HostOwnership, first: HostFailure): Promise<void> {
     const delays = this.#timeouts.restartDelaysMs;
     const maxAttempts = Math.min(delays.length, MAX_HOST_RESTARTS);
-    let reason = firstReason;
+    let reason = first;
     while (this.#restarts < maxAttempts) {
       const attempt = ++this.#restarts;
       this.#setStatus({ phase: 'restarting', attempt, maxAttempts, reason });
@@ -312,11 +376,13 @@ export class HostLifecycle {
         return;
       } catch (error) {
         if (this.#stopping) return;
-        reason = describe(error);
-        this.#log('warn', 'host restart failed', { attempt, error: reason });
+        reason = failureOf(error);
+        this.#log('warn', 'host restart failed', { attempt, error: describeFailure(reason) });
       }
     }
-    this.#fail(new HostStartError(`${firstReason}，重启 ${maxAttempts} 次均失败：${reason}`));
+    this.#fail(
+      new HostStartError({ code: 'restartsFailed', attempts: maxAttempts, first, last: reason }),
+    );
   }
 
   /**
@@ -330,7 +396,7 @@ export class HostLifecycle {
       const deadline = performance.now() + this.#timeouts.exitConfirmMs;
       while (isProcessAlive(info.pid)) {
         if (performance.now() >= deadline) {
-          throw new HostStartError(`旧的后台服务进程（pid ${info.pid}）未退出`);
+          throw new HostStartError({ code: 'staleProcess', pid: info.pid });
         }
         await sleep(POLL_INTERVAL_MS, undefined, { signal: this.#shutdown.signal });
       }
@@ -438,17 +504,27 @@ export class HostLifecycle {
         this.#log('info', 'another host owns the data directory; waiting to attach');
         return this.#waitAttach(deadline);
       }
-      throw new HostStartError(
-        `后台服务启动失败（${code === null ? `信号 ${signal}` : `退出码 ${code}`}）` +
-          (child.stderrTail() ? `：${child.stderrTail()}` : ''),
-      );
+      const spawnError = child.spawnError();
+      if (spawnError) {
+        throw new HostStartError({
+          code: 'spawnFailed',
+          path: nodePath,
+          detail: spawnError.message,
+        });
+      }
+      const stderr = child.stderrTail();
+      throw new HostStartError({
+        code: 'startFailed',
+        exit: toExit({ code, signal }),
+        ...(stderr && { detail: stderr }),
+      });
     }
     if (outcome.info === undefined) {
       this.#log('error', 'host did not become ready in time; stopping it', {
         timeoutMs: this.#timeouts.startMs,
       });
       await this.#terminate(child);
-      throw new HostStartError(`后台服务 ${this.#timeouts.startMs / 1000} 秒内未就绪`);
+      throw new HostStartError({ code: 'notReady', seconds: this.#timeouts.startMs / 1000 });
     }
     const hello = await this.#probe();
     return {
@@ -471,6 +547,7 @@ export class HostLifecycle {
     });
     let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | undefined;
     let stderr = '';
+    let spawnError: Error | undefined;
     const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
       (resolveExit) => {
         proc.once('exit', (code, signal) => {
@@ -479,7 +556,7 @@ export class HostLifecycle {
         });
         proc.once('error', (error) => {
           // 多半是 Node 可执行文件不存在（ENOENT）；不会再有 exit 事件。
-          stderr = `无法启动 ${nodePath}：${error.message}`;
+          spawnError = error;
           exitInfo = { code: null, signal: null };
           resolveExit(exitInfo);
         });
@@ -496,6 +573,7 @@ export class HostLifecycle {
       exited,
       hasExited: () => exitInfo !== undefined,
       stderrTail: () => stderr.trim(),
+      spawnError: () => spawnError,
     };
     void exited.then((exit) => {
       // 就绪之前的退出由 #launch 处理；这里只管已经就绪、视为拥有的那个子进程。
@@ -566,10 +644,10 @@ export class HostLifecycle {
       }
       await sleep(POLL_INTERVAL_MS);
     }
-    throw new HostStartError(
-      '数据目录中已有后台服务运行，但未就绪' +
-        (lastError === undefined ? '' : `：${describe(lastError)}`),
-    );
+    throw new HostStartError({
+      code: 'otherNotReady',
+      ...(lastError !== undefined && { detail: describe(lastError) }),
+    });
   }
 
   /** 连接 + hello 后立即断开。 */
@@ -729,10 +807,12 @@ export function resolveHostEntry(from: string | URL = import.meta.url): string {
   const manifestPath = require.resolve('@wevir/host/package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { bin?: unknown };
   const bin = (manifest.bin as Record<string, unknown> | undefined)?.['wevir-host'];
-  if (typeof bin !== 'string') throw new HostStartError(`${manifestPath} 里没有 bin.wevir-host`);
+  if (typeof bin !== 'string') {
+    throw new HostStartError({ code: 'manifestInvalid', path: manifestPath });
+  }
   const entry = resolve(dirname(manifestPath), bin);
   if (!existsSync(entry)) {
-    throw new HostStartError(`找不到 Host 的可执行入口 ${entry}，需先在仓库根目录运行 pnpm build`);
+    throw new HostStartError({ code: 'entryMissing', path: entry });
   }
   return entry;
 }

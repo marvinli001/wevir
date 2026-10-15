@@ -36,6 +36,62 @@ export const messages: Messages = {
   'connection.reconnectNow': 'Reconectar ahora',
   'connection.retry': 'Reintentar',
 
+  'hostFailure.withDetail': '{message}: {detail}',
+  'hostFailure.quitting': 'La aplicación de escritorio se está cerrando',
+  'hostFailure.restarting': 'Reiniciando el servicio en segundo plano',
+  'hostFailure.startFailedCode':
+    'No se pudo iniciar el servicio en segundo plano (código de salida {code})',
+  'hostFailure.startFailedSignal':
+    'No se pudo iniciar el servicio en segundo plano (señal {signal})',
+  'hostFailure.crashedCode':
+    'El servicio en segundo plano se cerró inesperadamente (código de salida {code})',
+  'hostFailure.crashedSignal':
+    'El servicio en segundo plano se cerró inesperadamente (señal {signal})',
+  'hostFailure.spawnFailed': 'No se puede iniciar {path}',
+  'hostFailure.notReady': 'El servicio en segundo plano no estuvo listo en {seconds} s',
+  'hostFailure.otherNotReady':
+    'Ya hay un servicio en segundo plano en el directorio de datos, pero no está listo',
+  'hostFailure.staleProcess':
+    'El proceso anterior del servicio en segundo plano (pid {pid}) no terminó',
+  'hostFailure.restartsFailed':
+    '{first}; {attempts, plural, one {# reinicio fallido} other {# reinicios fallidos}}: {last}',
+  'hostFailure.manifestInvalid': 'Falta bin.wevir-host en {path}',
+  'hostFailure.entryMissing':
+    'No se encontró el punto de entrada del servicio en segundo plano {path}; ejecuta pnpm build en la raíz del repositorio',
+  'hostFailure.internal': 'Error interno',
+
+  'rpcError.PARSE_ERROR': 'Error de protocolo',
+  'rpcError.INVALID_REQUEST': 'Solicitud no válida',
+  'rpcError.METHOD_NOT_FOUND': 'Servicio en segundo plano obsoleto: acción no compatible',
+  'rpcError.INVALID_PARAMS': 'Parámetros no válidos',
+  'rpcError.INTERNAL_ERROR': 'Error interno del servicio en segundo plano',
+  'rpcError.UNAUTHORIZED': 'Token de conexión no válido',
+  'rpcError.INCOMPATIBLE_PROTOCOL': 'Versión del servicio en segundo plano incompatible',
+  'rpcError.HELLO_REQUIRED': 'Negociación de conexión sin completar',
+  'rpcError.HOST_SHUTTING_DOWN': 'El servicio en segundo plano se está cerrando',
+  'rpcError.WORKSPACE_NOT_FOUND': 'Proyecto no encontrado',
+  'rpcError.PROVIDER_NOT_FOUND': 'Provider no encontrado',
+  'rpcError.SESSION_NOT_FOUND': 'Sesión no encontrada',
+  'rpcError.APPROVAL_NOT_FOUND': 'Aprobación no encontrada',
+  'rpcError.PENDING_NOT_FOUND': 'Mensaje pendiente no encontrado',
+  'rpcError.QUESTION_NOT_FOUND': 'Pregunta no encontrada',
+  'rpcError.ENVIRONMENT_NOT_FOUND': 'Entorno no encontrado',
+  'rpcError.INVALID_STATE': 'No disponible en el estado actual de la sesión',
+  'rpcError.SESSION_BUSY': 'Sesión ocupada',
+  'rpcError.ALREADY_DECIDED': 'Aprobación ya resuelta',
+  'rpcError.CLIENT_MESSAGE_CONFLICT': 'Conflicto de ID de mensaje',
+  'rpcError.RESOURCE_IN_USE': 'Aún hay sesiones abiertas',
+  'rpcError.PENDING_NOT_EDITABLE': 'El mensaje pendiente ya no se puede editar',
+  'rpcError.WORKSPACE_PATH_INVALID': 'Ruta del proyecto no utilizable',
+
+  'clientError.request_timeout': 'Tiempo de espera de la solicitud agotado',
+  'clientError.connect_timeout': 'Tiempo de espera de la conexión agotado',
+  'clientError.connection_lost': 'Se perdió la conexión con el servicio en segundo plano',
+  'clientError.client_closed': 'Conexión cerrada',
+  'clientError.protocol': 'Error de protocolo',
+  'clientError.feature_unavailable': 'Servicio en segundo plano obsoleto: función no compatible',
+  'clientError.host_unavailable': 'El servicio en segundo plano no se está ejecutando',
+
   'layout.expandSidebar': 'Mostrar barra lateral',
   'layout.collapseSidebar': 'Ocultar barra lateral',
   'layout.back': 'Atrás',

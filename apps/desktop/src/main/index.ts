@@ -32,6 +32,7 @@ import {
 import { isThemeMode, THEME_BACKGROUND } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
 import {
+  failureOf,
   HostLifecycle,
   hostEnvironment,
   hostRuntime,
@@ -120,7 +121,7 @@ function run(): void {
   /** 连 HostLifecycle 都建不起来（找不到 Node、Host 没有构建）时，界面看到的状态。 */
   const setupFailure = (error: unknown): HostProcessStatus => ({
     phase: 'failed',
-    error: error instanceof Error ? error.message : String(error),
+    error: failureOf(error),
     logPath: join(home, HOME_LAYOUT.logsDir, LOG_FILE),
   });
 
@@ -135,7 +136,7 @@ function run(): void {
       frame !== mainWindow.webContents.mainFrame ||
       rendererOriginOf(frame.url) !== rendererOrigin
     ) {
-      throw new Error('拒绝来自未知页面的调用');
+      throw new Error('rejected an IPC call from an unknown page');
     }
     return mainWindow;
   };
@@ -164,20 +165,20 @@ function run(): void {
   ipcMain.handle(IPC_CHANNELS.openExternal, async (event, url: unknown): Promise<void> => {
     assertSender(event);
     if (typeof url !== 'string' || !isExternalUrl(url)) {
-      throw new Error('只能打开 http、https 或 mailto 链接');
+      throw new Error('only http, https and mailto links can be opened');
     }
     await shell.openExternal(url);
   });
   ipcMain.handle(IPC_CHANNELS.copyText, async (event, text: unknown): Promise<void> => {
     assertSender(event);
     if (typeof text !== 'string' || text.length > MAX_COPY_LENGTH) {
-      throw new Error('只能复制字符串，且不超过 8M 个字符');
+      throw new Error('only strings of at most 8M characters can be copied');
     }
     clipboard.writeText(text);
   });
   ipcMain.handle(IPC_CHANNELS.setThemeSource, async (event, mode: unknown): Promise<void> => {
     const window = assertSender(event);
-    if (!isThemeMode(mode)) throw new Error('主题模式只能是 system、light 或 dark');
+    if (!isThemeMode(mode)) throw new Error('theme mode must be system, light or dark');
     nativeTheme.themeSource = mode;
     window.setBackgroundColor(windowBackground());
   });

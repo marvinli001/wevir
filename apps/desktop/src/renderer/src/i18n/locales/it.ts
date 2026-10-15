@@ -36,6 +36,62 @@ export const messages: Messages = {
   'connection.reconnectNow': 'Riconnetti ora',
   'connection.retry': 'Riprova',
 
+  'hostFailure.withDetail': '{message}: {detail}',
+  'hostFailure.quitting': 'L’app desktop si sta chiudendo',
+  'hostFailure.restarting': 'Riavvio del servizio in background',
+  'hostFailure.startFailedCode':
+    'Avvio del servizio in background non riuscito (codice di uscita {code})',
+  'hostFailure.startFailedSignal':
+    'Avvio del servizio in background non riuscito (segnale {signal})',
+  'hostFailure.crashedCode':
+    'Il servizio in background si è chiuso in modo imprevisto (codice di uscita {code})',
+  'hostFailure.crashedSignal':
+    'Il servizio in background si è chiuso in modo imprevisto (segnale {signal})',
+  'hostFailure.spawnFailed': 'Impossibile avviare {path}',
+  'hostFailure.notReady': 'Servizio in background non pronto entro {seconds} s',
+  'hostFailure.otherNotReady':
+    'Un servizio in background occupa già la cartella dei dati, ma non è pronto',
+  'hostFailure.staleProcess':
+    'Il vecchio processo del servizio in background (pid {pid}) non è terminato',
+  'hostFailure.restartsFailed':
+    '{first}; {attempts, plural, one {# riavvio non riuscito} other {# riavvii non riusciti}}: {last}',
+  'hostFailure.manifestInvalid': 'bin.wevir-host mancante in {path}',
+  'hostFailure.entryMissing':
+    'Punto di ingresso del servizio in background {path} non trovato; eseguire prima pnpm build nella radice del repository',
+  'hostFailure.internal': 'Errore interno',
+
+  'rpcError.PARSE_ERROR': 'Errore di protocollo',
+  'rpcError.INVALID_REQUEST': 'Richiesta non valida',
+  'rpcError.METHOD_NOT_FOUND': 'Servizio in background obsoleto: operazione non supportata',
+  'rpcError.INVALID_PARAMS': 'Parametri non validi',
+  'rpcError.INTERNAL_ERROR': 'Errore interno del servizio in background',
+  'rpcError.UNAUTHORIZED': 'Token di connessione non valido',
+  'rpcError.INCOMPATIBLE_PROTOCOL': 'Versione del servizio in background incompatibile',
+  'rpcError.HELLO_REQUIRED': 'Handshake di connessione non completato',
+  'rpcError.HOST_SHUTTING_DOWN': 'Il servizio in background si sta chiudendo',
+  'rpcError.WORKSPACE_NOT_FOUND': 'Progetto non trovato',
+  'rpcError.PROVIDER_NOT_FOUND': 'Provider non trovato',
+  'rpcError.SESSION_NOT_FOUND': 'Sessione non trovata',
+  'rpcError.APPROVAL_NOT_FOUND': 'Approvazione non trovata',
+  'rpcError.PENDING_NOT_FOUND': 'Messaggio in attesa non trovato',
+  'rpcError.QUESTION_NOT_FOUND': 'Domanda non trovata',
+  'rpcError.ENVIRONMENT_NOT_FOUND': 'Ambiente non trovato',
+  'rpcError.INVALID_STATE': 'Operazione non disponibile nello stato attuale della sessione',
+  'rpcError.SESSION_BUSY': 'Sessione occupata',
+  'rpcError.ALREADY_DECIDED': 'Approvazione già gestita',
+  'rpcError.CLIENT_MESSAGE_CONFLICT': 'Conflitto di ID messaggio',
+  'rpcError.RESOURCE_IN_USE': 'Ci sono ancora sessioni aperte',
+  'rpcError.PENDING_NOT_EDITABLE': 'Il messaggio in attesa non è più modificabile',
+  'rpcError.WORKSPACE_PATH_INVALID': 'Percorso del progetto non utilizzabile',
+
+  'clientError.request_timeout': 'Richiesta scaduta',
+  'clientError.connect_timeout': 'Connessione scaduta',
+  'clientError.connection_lost': 'Connessione al servizio in background persa',
+  'clientError.client_closed': 'Connessione chiusa',
+  'clientError.protocol': 'Errore di protocollo',
+  'clientError.feature_unavailable': 'Servizio in background obsoleto: funzione non supportata',
+  'clientError.host_unavailable': 'Servizio in background non in esecuzione',
+
   'layout.expandSidebar': 'Mostra barra laterale',
   'layout.collapseSidebar': 'Nascondi barra laterale',
   'layout.back': 'Indietro',

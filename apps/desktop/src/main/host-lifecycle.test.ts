@@ -306,15 +306,21 @@ describe('HostLifecycle', () => {
     const { lifecycle: host } = lifecycle(home, { hostArgs: ['--adapter', 'bogus'] });
     const error = await host.start().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(HostStartError);
+    const failure = (error as HostStartError).failure;
+    expect(failure).toEqual({
+      code: 'startFailed',
+      exit: { exitCode: 2 },
+      detail: expect.stringMatching(/^wevir-host: --adapter/),
+    });
     expect((error as Error).message).toMatch(
-      /^后台服务启动失败（退出码 2）：wevir-host: --adapter/,
+      /^the host exited before it was ready \(exit code 2\): wevir-host: --adapter/,
     );
     // 只尝试一次。
     expect(await host.start().catch((e: unknown) => e)).toBe(error);
     await expect(host.endpoint()).rejects.toThrow((error as Error).message);
     expect(host.status).toEqual({
       phase: 'failed',
-      error: (error as Error).message,
+      error: failure,
       logPath: join(home, 'logs', 'host.log'),
     });
   });
@@ -322,7 +328,12 @@ describe('HostLifecycle', () => {
   it('Node 可执行文件不存在：报出路径', async () => {
     const home = join(tempDir, 'home');
     const { lifecycle: host } = lifecycle(home, { nodePath: join(tempDir, 'no-such-node') });
-    await expect(host.start()).rejects.toThrow(/无法启动 .*no-such-node/);
+    const error = await host.start().catch((e: unknown) => e);
+    expect((error as HostStartError).failure).toEqual({
+      code: 'spawnFailed',
+      path: join(tempDir, 'no-such-node'),
+      detail: expect.stringContaining('ENOENT'),
+    });
   });
 
   it('关闭归属管道后 Host 不退出：确认 host.json 仍是它，再发 host.shutdown', async () => {
@@ -510,7 +521,7 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     expect(phases(statuses)).toEqual(['running', 'restarting:1', 'running']);
     expect(statuses[1]).toMatchObject({
       maxAttempts: 3,
-      reason: expect.stringMatching(/^后台服务异常退出/),
+      reason: { code: 'crashed' },
     });
     // host.json 还记着旧进程：确认它已退出才拉起。
     expect(logs).toContainEqual(
@@ -564,12 +575,15 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     ]);
     expect(host.status).toEqual({
       phase: 'failed',
-      error: expect.stringMatching(
-        /^后台服务异常退出（.+），重启 3 次均失败：后台服务启动失败（退出码 1）：simulated startup crash$/,
-      ),
+      error: {
+        code: 'restartsFailed',
+        attempts: 3,
+        first: { code: 'crashed', exit: expect.anything() },
+        last: { code: 'startFailed', exit: { exitCode: 1 }, detail: 'simulated startup crash' },
+      },
       logPath: join(home, 'logs', 'host.log'),
     });
-    await expect(host.endpoint()).rejects.toThrow(/重启 3 次均失败/);
+    await expect(host.endpoint()).rejects.toThrow(/; 3 restarts failed: /);
 
     rmSync(marker);
     await host.retry();

@@ -36,11 +36,46 @@ export type HostProcessStatus =
   | { phase: 'starting' }
   | { phase: 'running'; ownership: HostOwnership }
   /** 自己拉起的 Host 意外退出，正在重新拉起：第 `attempt` 次，最多 `maxAttempts` 次。 */
-  | { phase: 'restarting'; attempt: number; maxAttempts: number; reason: string }
+  | { phase: 'restarting'; attempt: number; maxAttempts: number; reason: HostFailure }
   /** 附着的 Host 不在了：桌面端不替它拉起，等它（或别人重新启动的 Host）写出 `run/host.json`。 */
   | { phase: 'waiting'; pid: number }
-  /** Host 起不来（首次启动失败，或重新拉起都失败了）：`error` 是给人看的中文说明。 */
-  | { phase: 'failed'; error: string; logPath: string };
+  /** Host 起不来（首次启动失败，或重新拉起都失败了）。 */
+  | { phase: 'failed'; error: HostFailure; logPath: string };
+
+/** 进程怎么结束的：退出码，或结束它的信号。 */
+export type HostExit = { exitCode: number } | { signal: string };
+
+/**
+ * Host 起不来或意外退出的原因（多语言 2026-10-15）：主进程只给原因码与参数，由渲染进程按界面语言说成话
+ * （host/host-failure.ts）。`detail` 是原文（Host 的 stderr 尾部、底层错误），不翻译，原样附在后面。
+ */
+export type HostFailure =
+  /** 桌面端正在退出。 */
+  (
+    | { code: 'quitting' }
+    /** 正在重新拉起，端点暂时没有。 */
+    | { code: 'restarting' }
+    /** 拉起的 Host 在就绪之前结束了。 */
+    | { code: 'startFailed'; exit: HostExit }
+    /** 拥有的 Host 在就绪之后意外结束了。 */
+    | { code: 'crashed'; exit: HostExit }
+    /** 运行 Host 的可执行文件起不来（多半不存在）。 */
+    | { code: 'spawnFailed'; path: string }
+    /** 拉起的 Host 在限时内没有就绪。 */
+    | { code: 'notReady'; seconds: number }
+    /** 数据目录已被别的 Host 占住，但它在限时内没有就绪。 */
+    | { code: 'otherNotReady' }
+    /** 重新拉起之前，旧的 Host 进程没有退出。 */
+    | { code: 'staleProcess'; pid: number }
+    /** `first` 之后重新拉起 `attempts` 次都失败了，最后一次是 `last`。 */
+    | { code: 'restartsFailed'; attempts: number; first: HostFailure; last: HostFailure }
+    /** `@wevir/host` 的 package.json 里没有 `bin.wevir-host`。 */
+    | { code: 'manifestInvalid'; path: string }
+    /** Host 的入口不存在（开发时没有 `pnpm build`）。 */
+    | { code: 'entryMissing'; path: string }
+    /** 其他异常，原文在 `detail`。 */
+    | { code: 'internal' }
+  ) & { detail?: string };
 
 /** 窗口标题栏的形态。macOS 隐藏了系统标题栏，红绿灯浮在页面左上角，由页面的顶栏充当标题栏。 */
 export interface WindowChrome {
