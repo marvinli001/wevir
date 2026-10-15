@@ -188,8 +188,7 @@ export function ModelPicker({
 
 /**
  * 模型列表（0.19.0 起混合全部来源）：顶上是搜索；按 Provider 分组，订阅来源在前、组头写软件名与“订阅”，每行左边是软件标志；
- * API 的组头是服务的标志与“API”，行里不带标志。已有会话（`lockedTo`）里别的来源的模型置灰，底下说明要新开会话（接力切换
- * 以后做）。
+ * API 的组头是服务的标志与“API”，行里不带标志。已有会话（`lockedTo`）里别的来源的模型置灰（接力切换以后做）。
  */
 function ModelList({
   providers,
@@ -305,11 +304,6 @@ function ModelList({
           );
         })}
       </div>
-      {lockedTo !== undefined && providers.length > 1 && (
-        <p className="shrink-0 border-t border-border px-3 py-2 text-xs leading-5 text-muted-foreground">
-          {t('model.picker.locked')}
-        </p>
-      )}
     </div>
   );
 }

@@ -395,21 +395,6 @@ function SessionChanges({
           <WrapText />
         </IconButton>
       </div>
-      {result?.repo &&
-        hasFiles &&
-        [
-          defaults.all && collapsedState.scopeKey !== scopeKey && t('changes.collapsedLarge'),
-          result.truncated && t('changes.truncated'),
-        ]
-          .filter((notice): notice is string => typeof notice === 'string')
-          .map((notice) => (
-            <p
-              key={notice}
-              className="shrink-0 border-b border-border px-3 py-1.5 text-xs text-muted-foreground"
-            >
-              {notice}
-            </p>
-          ))}
       <div className="relative min-h-0 flex-1">{body}</div>
     </div>
   );
