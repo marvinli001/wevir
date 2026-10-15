@@ -128,6 +128,23 @@ describe('sessions', () => {
     expect(s.sessions.get('ses_02')?.origin).toEqual(origin);
   });
 
+  it('支线会话（0006）：来源与支线存取一致；默认不列出，也不算进挡移除的计数', () => {
+    const s = storage();
+    seedSession(s);
+    const forkedFrom = { sessionId: 'ses_01', turnId: 'trn_01' };
+    seedSession(s, { id: 'ses_02', engineSessionId: 'e2', forkedFrom, side: true });
+    expect(s.sessions.get('ses_02')).toMatchObject({ forkedFrom, side: true });
+    expect(s.sessions.get('ses_01')).not.toHaveProperty('side');
+    expect(s.sessions.list().map((r) => r.id)).toEqual(['ses_01']);
+    expect(
+      s.sessions
+        .list({ includeSide: true })
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['ses_01', 'ses_02']);
+    expect(s.sessions.countOpenByWorkspace('ws_01')).toBe(1);
+  });
+
   it('环境（0004）：增删改查，按创建时间', () => {
     const s = storage();
     const record = {

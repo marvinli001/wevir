@@ -698,6 +698,11 @@ export const zhCN = {
   'suggest.report.failed': '“{title}”出错',
   'suggest.report.cancelled': '“{title}”已停止',
 
+  'side.tab': '支线 · {title}',
+  'side.failed': '没能开支线：{error}',
+  'side.loading': '正在打开支线…',
+  'side.missing': '打不开这个支线：{error}',
+
   'error.title': '界面出错',
   'error.reload': '重新加载',
 } as const;

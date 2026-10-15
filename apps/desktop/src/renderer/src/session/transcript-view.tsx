@@ -31,6 +31,7 @@ export function TranscriptView({
   transcript,
   cwd,
   onReady,
+  compact = false,
 }: {
   sessionId: string;
   transcript: Transcript;
@@ -38,6 +39,8 @@ export function TranscriptView({
   cwd?: string;
   /** 交出滚动控制（发送消息时回到贴底）。 */
   onReady?: (handle: TranscriptViewHandle) => void;
+  /** 窗格里（U23.1 的支线）：左右内边距收成 16 px。 */
+  compact?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -98,7 +101,10 @@ export function TranscriptView({
         tabIndex={0}
         className="transcript-scroll h-full overflow-y-auto outline-none"
       >
-        <div ref={contentRef} className="mx-auto w-full max-w-content px-6 pt-6 pb-4">
+        <div
+          ref={contentRef}
+          className={cn('mx-auto w-full max-w-content pt-6 pb-4', compact ? 'px-4' : 'px-6')}
+        >
           {hidden > 0 && (
             <div ref={sentinelRef} className="flex justify-center pb-2">
               <Button variant="ghost" size="xs" onClick={showEarlier}>

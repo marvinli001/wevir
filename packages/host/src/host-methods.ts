@@ -441,6 +441,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.resume': async ({ sessionId }) => ({ session: await sessions.resume(sessionId) }),
 
+    'session.fork': async (params) => ({ session: await sessions.fork(params) }),
+
     'pending.update': async (params) => ({ pending: await sessions.updatePending(params) }),
 
     'pending.cancel': (params) => ({ pending: sessions.cancelPending(params) }),

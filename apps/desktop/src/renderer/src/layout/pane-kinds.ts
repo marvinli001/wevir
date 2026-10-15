@@ -28,6 +28,8 @@ export interface PaneKindSpec {
   identityParam?: string;
   /** false：以后的任务才实现，只在开发模式里能打开占位，用来检查排布。 */
   available: boolean;
+  /** 只由功能打开（要参数，例如 U23.1 的支线窗格），不进“打开窗格”菜单。 */
+  internal?: boolean;
 }
 
 export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
@@ -59,7 +61,8 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
     shape: 'tall',
     multiple: true,
     identityParam: 'sessionId',
-    available: false,
+    available: true,
+    internal: true,
   },
 };
 
@@ -78,7 +81,11 @@ export function paneIdentity(kind: PaneKind, params: PaneParams | undefined): st
   return value === undefined ? undefined : `${kind}:${value}`;
 }
 
-/** “打开窗格”菜单里能打开的种类：正式构建只有已经实现的，开发模式下还有以后的种类的占位。 */
+/**
+ * “打开窗格”菜单里能打开的种类：正式构建只有已经实现的，开发模式下还有以后的种类的占位；只由功能打开的（支线）不在里面。
+ */
 export function openableKinds(dev: boolean): PaneKind[] {
-  return PANE_KINDS.filter((kind) => dev || PANE_KIND_SPECS[kind].available);
+  return PANE_KINDS.filter(
+    (kind) => !PANE_KIND_SPECS[kind].internal && (dev || PANE_KIND_SPECS[kind].available),
+  );
 }

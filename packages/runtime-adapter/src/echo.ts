@@ -113,6 +113,8 @@ interface EchoSession {
   turnCount: number;
   /** `injectNote` 补进来、还没用上的说明（U23），下一个回合的回复末尾写出来。 */
   notes: string[];
+  /** `fork` 分出的支线（U23.1）。 */
+  readonly side?: true;
 }
 
 interface ReplyBlock {
@@ -141,7 +143,7 @@ interface ReplyBlock {
  *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
  *   （`subagent.updated` 的 `closed`）。父回合被取消时子会话照常跑完（与 Codex 相同，Host 自己级联取消） |
  *
- * `injectNote`（U23）补进来的说明在下一个回合的回复末尾写成 `Notes: <每条的第一行>`，像模型在上下文里看到了它。
+ * `fork`（U23.1）分出的支线回复 `Echo (side): <输入>`。`injectNote`（U23）补进来的说明在下一个回合的回复末尾写成 `Notes: <每条的第一行>`，像模型在上下文里看到了它。
  *
  * 插话（R11，`steer`）：回合进行中交来的输入在当前这次回复之后放进回合（`turn.steered`），再回复一次
  * `Echo: <插话>`（新的 attempt），像 Codex 在一次采样之后用上待处理的输入；回合被取消或引擎退出时丢掉没用上的。
@@ -330,6 +332,30 @@ export class EchoAdapter implements AgentRuntimeAdapter {
 
   /** `suggest` 关键词（U23）。 */
   readonly suggestedTasks = true;
+
+  /**
+   * 支线（U23.1）：新会话沿用 `config`，假引擎没有历史可带；原会话还没开始过回合时报 `invalid_input`（同 Codex 没有第一条
+   * 用户消息时 fork 失败）。支线的回复写成 `Echo (side): <输入>`。
+   */
+  async fork(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
+    this.#assertUsable();
+    const source = this.#openSession(engineSessionId);
+    if (source.parentId !== undefined) {
+      throw new AdapterError('invalid_input', 'a sub-agent session cannot be forked');
+    }
+    if (source.turnCount === 0) throw new AdapterError('invalid_input', 'nothing to fork yet');
+    const session: EchoSession = {
+      id: `echo-${randomUUID()}`,
+      config: { ...config },
+      status: 'open',
+      hub: new EventHub(),
+      turnCount: 0,
+      notes: [],
+      side: true,
+    };
+    this.#sessions.set(session.id, session);
+    return this.#describe(session);
+  }
 
   async injectNote(engineSessionId: string, text: string): Promise<void> {
     this.#assertUsable();
@@ -567,7 +593,8 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         notes.length > 0
           ? `\n\nNotes: ${notes.map((note) => note.split('\n')[0]).join(' | ')}`
           : '';
-      blocks.push({ kind: 'text', full: `Echo: ${text}${answered}${noted}`, generated: '' });
+      const echo = session.side ? 'Echo (side)' : 'Echo';
+      blocks.push({ kind: 'text', full: `${echo}: ${text}${answered}${noted}`, generated: '' });
       plan(2);
       await this.#reply(signal, emit, engineSessionId, attemptId, blocks, slowSteps);
       this.#commit(emit, engineSessionId, attemptId, blocks);

@@ -309,6 +309,12 @@ export const AccountUpdatedParamsSchema = z.object({
 
 // ── session.* ─────────────────────────────────────────────────────────
 
+/** `session.fork`（0.17.0，Host 功能 `side_sessions`）：从会话分出一个支线会话。`side` 现在只能是 `true`。 */
+export const SessionForkParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  side: z.literal(true),
+});
+
 export const SessionCreateParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   providerId: ProviderIdSchema,
@@ -609,6 +615,11 @@ export const MethodSchemas = {
   },
   'session.resume': {
     params: SessionIdParamsSchema,
+    result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.fork': {
+    params: SessionForkParamsSchema,
     result: SessionResultSchema,
     permission: 'session.write',
   },

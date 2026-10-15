@@ -282,6 +282,7 @@ export class SessionManager {
     const records = this.#storage.sessions.list({
       includeRemovedWorkspaces: true,
       includeChildren: true,
+      includeSide: true,
     });
     for (const record of records) {
       const sessionId = record.id as SessionId;
@@ -1125,6 +1126,114 @@ export class SessionManager {
       this.#write(runtime, [resumedEvent(engine), stateChanged(session.state, 'idle', 'resumed')]);
       return this.#snapshot(runtime).session;
     });
+  }
+
+  /**
+   * `session.fork`（0.17.0，domain-model §3.12）：从顶层会话分出一个支线会话。被分的会话不能是子会话、支线、只读、出错或
+   * 已关闭，要有完成的回合；引擎会话没挂上时先自动恢复。排在被分会话的命令队列里；它的回合进行中也可以（引擎只分到最近一个
+   * 完成的回合）。支线沿用它的项目、目录、Provider、模型、推理档位、权限模式与环境字段（不含 worktree），自己的事件流从
+   * `session.created`（带 `forkedFrom`、`side`）开始。
+   */
+  async fork(params: MethodParams<'session.fork'>): Promise<Session> {
+    this.#assertOpen();
+    const source = this.#runtime(params.sessionId);
+    this.#assertNotChild(source);
+    const fork = this.#adapter.fork?.bind(this.#adapter);
+    return this.#serial(source, async () => {
+      const record = this.#record(source);
+      const { session } = this.#snapshot(source);
+      const refuse = (message: string) =>
+        new HostError('INVALID_STATE', message, { state: session.state });
+      if (fork === undefined) throw refuse('this host engine cannot fork sessions');
+      if (record.side) throw refuse('a side session cannot be forked again');
+      if (session.readOnly !== undefined) throw refuse('session is read-only');
+      if (session.state === 'error' || session.state === 'closed') {
+        throw refuse(`session is ${session.state}; resume it first`);
+      }
+      const turnId = this.#lastFinishedTurn(source.id);
+      if (turnId === undefined) throw refuse('session has no finished turn to fork from');
+      if (!source.attachment) await this.#autoResume(source);
+      const config = sessionConfig(record);
+      let engineSession: EngineSession;
+      try {
+        engineSession = await fork(source.engineSessionId, config);
+      } catch (error) {
+        const info = engineErrorInfo(error);
+        throw new HostError('ENGINE_ERROR', info.message, info);
+      }
+
+      const sessionId = newId('ses');
+      const now = isoNow();
+      const modelId = engineSession.modelId ?? config.modelId;
+      const reasoningEffort = engineSession.reasoningEffort ?? config.reasoningEffort;
+      const forkedFrom = { sessionId: source.id, turnId };
+      try {
+        const side: SessionRecord = {
+          id: sessionId,
+          workspaceId: record.workspaceId,
+          cwd: record.cwd,
+          engine: this.#engine,
+          engineSessionId: engineSession.engineSessionId,
+          providerId: record.providerId,
+          modelId,
+          forkedFrom,
+          side: true,
+          title: '',
+          titleSource: 'first_prompt',
+          state: 'idle',
+          lastSeq: 0,
+          createdAt: now,
+          updatedAt: now,
+        };
+        if (reasoningEffort !== undefined) side.reasoningEffort = reasoningEffort;
+        if (record.permissionMode !== undefined) side.permissionMode = record.permissionMode;
+        if (record.environmentId !== undefined) side.environmentId = record.environmentId;
+        if (record.extraRoots !== undefined) side.extraRoots = record.extraRoots;
+        this.#storage.sessions.insert(side);
+        this.#events.append(sessionId, {
+          type: 'session.created',
+          source: 'host',
+          payload: {
+            workspaceId: record.workspaceId as WorkspaceId,
+            cwd: record.cwd,
+            providerId: record.providerId,
+            modelId,
+            ...(reasoningEffort !== undefined && { reasoningEffort }),
+            ...(record.permissionMode !== undefined && {
+              permissionMode: record.permissionMode as PermissionMode,
+            }),
+            ...(record.environmentId !== undefined && {
+              environmentId: record.environmentId as EnvironmentId,
+            }),
+            ...(record.extraRoots !== undefined && { extraRoots: record.extraRoots }),
+            forkedFrom,
+            side: true,
+            ...(engineSession.engineVersion !== undefined && {
+              engineVersion: engineSession.engineVersion,
+            }),
+          },
+        });
+      } catch (error) {
+        await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
+        throw error;
+      }
+      const runtime = this.#runtime(sessionId);
+      try {
+        this.#attach(runtime);
+      } catch (error) {
+        this.#engineFailed(runtime, engineErrorInfo(error));
+      }
+      return this.#snapshot(runtime).session;
+    });
+  }
+
+  /** 会话最近一个结束的回合（`turn.finished`）；还没有时 `undefined`。 */
+  #lastFinishedTurn(sessionId: SessionId): TurnId | undefined {
+    let turnId: TurnId | undefined;
+    for (const event of this.#events.readSince(sessionId, 0)) {
+      if (event.type === 'turn.finished') turnId = event.payload.turnId;
+    }
+    return turnId;
   }
 
   /**

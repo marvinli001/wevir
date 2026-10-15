@@ -98,6 +98,13 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return this.#forSession(engineSessionId).configureSession(engineSessionId, config);
   }
 
+  async fork(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
+    const adapter = this.#forSession(engineSessionId);
+    const session = await adapter.fork(engineSessionId, config);
+    this.#owners.set(session.engineSessionId, adapter);
+    return session;
+  }
+
   injectNote(engineSessionId: string, text: string): Promise<void> {
     return this.#forSession(engineSessionId).injectNote(engineSessionId, text);
   }

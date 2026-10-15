@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from 'react';
 import type { AuxPlan } from './arrange';
 import { transientLayout } from './layout-state';
+import { emitPanesClosed } from './pane-events';
 import {
   activateTab,
   closeGroup,
@@ -100,12 +101,18 @@ export function usePaneController(
         showOverlay();
       },
       closeTab(tabId) {
+        const found = findTab(scope, tabId);
         update((current) => closeTab(current, tabId));
+        if (found) emitPanesClosed([found.tab]);
       },
       closeGroups(groupIds) {
         if (maximized !== undefined && groupIds.includes(maximized))
           setMaximized(scopeKey, undefined);
+        const tabs = scope.groups
+          .filter((group) => groupIds.includes(group.id))
+          .flatMap((group) => group.tabs);
         update((current) => groupIds.reduce(closeGroup, current));
+        emitPanesClosed(tabs);
       },
       focus(id) {
         update((current) => focusPane(current, id));

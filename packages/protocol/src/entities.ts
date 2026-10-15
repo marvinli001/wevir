@@ -642,6 +642,21 @@ export const SessionEnvironmentFields = {
 export const TurnOutcomeSchema = z.enum(['completed', 'cancelled', 'failed', 'interrupted']);
 export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
 
+/** 支线会话从哪儿分出来（0.17.0，domain-model §3.12）。 */
+export const SessionForkedFromSchema = z.object({
+  sessionId: SessionIdSchema,
+  /** 被分的会话当时最近一个完成的回合。 */
+  turnId: TurnIdSchema.optional(),
+});
+export type SessionForkedFrom = z.infer<typeof SessionForkedFromSchema>;
+
+/** 支线会话的字段（0.17.0）：`Session` 与 `session.created` 共用。 */
+export const SessionSideFields = {
+  forkedFrom: SessionForkedFromSchema.optional(),
+  /** 支线会话；不进 `session.list`。 */
+  side: z.literal(true).optional(),
+};
+
 // ── 建议的后续任务（0.16.0，U23） ─────────────────────────────────────
 
 /** Agent 建议的一项后续任务（domain-model §3.11）。 */
@@ -703,6 +718,8 @@ export const SessionSchema = z.object({
   ...SessionEnvironmentFields,
   /** 从一项建议开出来的会话（0.16.0）。 */
   origin: SessionOriginSchema.optional(),
+  /** 支线会话（0.17.0，domain-model §3.12）。 */
+  ...SessionSideFields,
   createdAt: IsoTimeSchema,
   /** 最后一个事件的 `ts`。 */
   updatedAt: IsoTimeSchema,

@@ -373,6 +373,14 @@ rust-v0.162.1 实测（`codex-adapter.tasks.integration.test.ts`）：模型看�
 
 回报（`injectNote`）：用户开出的任务会话第一个回合结束时，Host 让适配器往提出建议的会话的 thread 补一条 user 消息（`thread/inject_items`，同 §6.5 停止子 agent 的说明），写明任务、结局与回答摘要；实测不开回合，下一次请求里就有它。
 
+### 6.9 支线会话（0.17.0，U23.1）
+
+照 Codex 终端界面的 `/side`、`/btw`（`codex-rs/tui/src/app/side.rs`）：`fork` 用稳定的 `thread/fork`——`threadId` 是被分的 thread，`ephemeral: true`（不落盘），模型、Provider、`cwd`、审批与沙箱和 `thread/start` 一样按会话的配置给（经网关的会话带上 Provider 条目的 `config` 覆盖，§5）；被分的 thread 有回合在进行时带 `lastTurnId`（适配器记下的最近一个结束的回合），只分到那里。返回的 thread 是新的引擎会话，适配器像 `thread/start` 一样订阅它，再用 `thread/inject_items` 补一条 user 消息作“支线边界”：之前的历史只作参考，不要接着做主线的事，只答边界之后的问题，不派子 agent，不改文件，除非用户在支线里明确要求（措辞是 Wevir 自己的，`side.ts`）。主 thread 不受影响。
+
+rust-v0.162.1 实测（`codex-adapter.side.integration.test.ts`）：支线的请求里依次是主线的说明（base.md、权限、环境，环境会话的额外目录说明也在其中）、继承的对话、边界消息、支线的问题；fork 时给的 `developerInstructions` 不进继承的上下文（终端界面也给，同样无效），所以支线说明全靠边界消息。主线回合进行中分出的支线不含进行中的那个回合；之后主线的请求里没有支线的内容。
+
+主 thread 还没有完成的回合时 Host 不调 `fork`（Codex 在没有第一条用户消息时 fork 失败）。临时 thread 在 app-server 进程退出后就没了：Host 重启或进程重启后恢复报 `no rollout found`（§6.3 的 `session_lost`），支线变只读。
+
 ### 6.7 回合失败的归类（`turn-error.ts`）
 
 `turn/completed` 的 `turn.error` 带 `codexErrorInfo`（v2/CodexErrorInfo.ts：字符串，或带上游 `httpStatusCode` 的对象）。所有 Provider 都经网关：网关把上游的状态码原样转给 Codex，自己拒绝的请求带 `wevir gateway:` 前缀的原文。自上而下第一条匹配的生效；`message` 始终是完整原文，`code` 是上游的 HTTP 状态码（有时）。
@@ -405,6 +413,7 @@ rust-v0.162.1 实测（`codex-adapter.tasks.integration.test.ts`）：模型看�
 | 恢复与取消 | `codex-adapter.resume.integration.test.ts` | 关闭后恢复、换进程后恢复且下一回合带完整历史、`not_found` 与 `corrupted`、没对话过的会话、`cancel_unconfirmed` 时重启并能恢复 |
 | 计划、提问、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`；提问（U11：mock 模型调 `request_user_input`，回答回到模型、回合接着做，开发中功能的 warning 不出现）；缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
 | 建议的后续任务 | `suggest-tasks.test.ts`、`codex-adapter.tasks.integration.test.ts` | §6.8：MCP 脚本的 initialize / tools/list / tools/call、两种 config.toml 的登记、参数的整理与映射；真实二进制下模型看到 `mcp__wevir_tasks` 里的 `suggest_tasks`、调用不问用户、完成后紧跟 `tasks.suggested`、MCP 服务正常启动不出 `engine.raw`；`injectNote` 不开回合、下一次请求里有它 |
+| 支线会话 | `codex-adapter.side.integration.test.ts` | §6.9：支线的请求里有主线的历史、边界消息在它们之后、问题在最后，主线的请求里没有支线的内容；主线回合进行中分出的支线不含进行中的回合；换进程后支线恢复报 `session_lost`、主线照常恢复 |
 | 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
 | ChatGPT 进程（R6） | `account.test.ts`（假的 app-server，状态机与 `model/list` 的换算）、`codex-runtime.chatgpt.integration.test.ts`（真实二进制 + `test-fixtures/mock-chatgpt.ts` 的登录服务与后端） | §8：没登录时 ChatGPT 会话建不起来；设备码登录 → 邮箱、套餐与用量 → `model/list` → ChatGPT 会话落在 ChatGPT 进程、网关会话照旧在网关进程 → 登出（凭据删除、令牌吊销）；浏览器登录（回调打到本机 1455）与取消；`auth.json` 0600 只在 ChatGPT 进程的目录；外连经拒绝的代理只剩 chatgpt.com |
 | Host | `packages/host/src/cli.codex.integration.test.ts`、`cli.codex.subagent.integration.test.ts`、`cli.codex.pending.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收；子会话（派出、子会话的审批经父会话处理、取消父会话时级联取消）；插话与排队（R11：慢回合里插话一次，等慢回答流完再进同一回合；排队一次，回合结束后作为下一回合发出） |

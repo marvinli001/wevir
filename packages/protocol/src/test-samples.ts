@@ -195,6 +195,18 @@ export const session: Session = {
   lastSeq: 12,
 };
 
+/** 支线会话（0.17.0）。 */
+const { activeTurn: _activeTurn, ...idleSession } = session;
+export const sideSession: Session = {
+  ...idleSession,
+  id: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR3',
+  title: '',
+  state: 'idle',
+  forkedFrom: { sessionId: ids.session, turnId: ids.turn },
+  side: true,
+  lastSeq: 1,
+};
+
 export const toolDisplay: ToolDisplay = {
   kind: 'write',
   summary: '/tmp/wevir-outside.txt',
@@ -1090,6 +1102,16 @@ export const methodSamples: MethodSamples = {
   'session.resume': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
     result: { valid: [{ session }], invalid: [{}] },
+  },
+  'session.fork': {
+    params: {
+      valid: [{ sessionId: ids.session, side: true }],
+      invalid: [{ sessionId: ids.session }, { sessionId: ids.session, side: false }],
+    },
+    result: {
+      valid: [{ session: sideSession }],
+      invalid: [{ session: { ...sideSession, side: false } }],
+    },
   },
   'pending.update': {
     params: {

@@ -79,6 +79,8 @@ import {
   type FileChangeRequestApprovalParams,
   REQUEST_USER_INPUT,
   type RequestId,
+  type ThreadForkParams,
+  type ThreadForkResponse,
   type ThreadInjectItemsParams,
   type ThreadReadParams,
   type ThreadReadResponse,
@@ -96,6 +98,7 @@ import {
   type TurnSteerResponse,
 } from './protocol.js';
 import { classifyResumeError } from './resume-error.js';
+import { SIDE_BOUNDARY_NOTE } from './side.js';
 import {
   collabReceivers,
   isCollabItem,
@@ -239,6 +242,8 @@ interface CodexSession {
   readonly collab: Map<string, CollabAgentToolCallItem>;
   /** 子会话：回合已开始（`turn/started`），`turn.started` 等它的 userMessage 带上输入再发。 */
   pendingTurnStart?: boolean;
+  /** 最近一个结束的回合（Codex 的 turn ID）：回合进行中分支时只分到这里（0.17.0，§6.9）。 */
+  lastTurnId?: string;
 }
 
 /**
@@ -691,6 +696,68 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * 插话（codex-event-mapping.md §4.5）：`turn/steer`，app-server 接受即返回。插话的 ID 先记下再发请求：它进回合的
    * userMessage 可能早于响应到达。`turn/start` 的结果还没到（没有回合 ID）、取消已开始时不发请求，直接拒绝。
    */
+  /**
+   * 分出支线（0.17.0，§6.9）：`thread/fork` 带 `ephemeral`，设置同 `thread/start`（继承的历史里已有主线的说明与额外目录）；
+   * 回合进行中时带 `lastTurnId` 只分到最近一个结束的回合。新 thread 登记成会话，再注入边界消息；注入失败时关掉它。
+   */
+  async fork(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
+    this.#assertUsable();
+    const source = this.#openSession(engineSessionId);
+    if (source.parentId !== undefined) throw new AdapterError('invalid_input', '子会话不能分支');
+    const running = source.turn !== undefined;
+    if (running && source.lastTurnId === undefined) {
+      throw new AdapterError('invalid_input', '还没有结束的回合可以分');
+    }
+    const { provider, model } = this.#route(config);
+    await this.#account?.assertSignedIn();
+    this.#assertUsable();
+    this.#activating += 1;
+    try {
+      const params: ThreadForkParams = {
+        threadId: engineSessionId,
+        ...(running && { lastTurnId: source.lastTurnId }),
+        cwd: config.cwd,
+        ...this.#threadSettings(provider, model, config.reasoningEffort),
+        ephemeral: true,
+        excludeTurns: true,
+      };
+      let response: ThreadForkResponse;
+      try {
+        response = await this.process.request<ThreadForkResponse>('thread/fork', params);
+      } catch (error) {
+        throw engineError(error, 'thread/fork');
+      }
+      const id = response.thread.id;
+      this.#register(
+        id,
+        config.cwd,
+        provider,
+        model,
+        config.permissionMode,
+        config.additionalRoots,
+      );
+      const inject: ThreadInjectItemsParams = {
+        threadId: id,
+        items: [
+          {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: SIDE_BOUNDARY_NOTE }],
+          },
+        ],
+      };
+      try {
+        await this.process.request('thread/inject_items', inject);
+      } catch (error) {
+        await this.close(id).catch(() => {});
+        throw engineError(error, 'thread/inject_items');
+      }
+      return engineSession(id, response);
+    } finally {
+      this.#activating -= 1;
+    }
+  }
+
   /** 补一条说明进 thread（0.16.0，§6.8）：`thread/inject_items` 的一条 user 消息，不开回合。 */
   async injectNote(engineSessionId: string, text: string): Promise<void> {
     this.#assertUsable();
@@ -1186,6 +1253,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         this.#endQuestions(session, 'turn_ended');
         session.hub.emit(event);
         session.turn = undefined;
+        if (turn.turnId !== undefined) session.lastTurnId = turn.turnId;
         turn.settle();
         this.#afterTurn();
       } else {

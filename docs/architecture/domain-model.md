@@ -666,6 +666,21 @@ interface SessionOrigin {          // Session.origin：这个会话是怎么来�
 - **回报**：新会话的**第一个**回合结束（完成、失败、取消都算）时，Host 在提出建议的会话里写 `task.reported`（`taskId`、`sessionId`、`outcome`，以及那个回合最后一段回答的前 2000 字 `summary`），并让适配器把同样的内容作为一条不开新回合的说明补进提出建议的会话的引擎上下文（`injectNote`；Codex 是 `thread/inject_items`），主会话之后的回合就知道结果。提出建议的会话的引擎会话没挂着（关闭了、Host 重启后还没 resume）时只写事件，不补说明。
 - 功能位 `suggested_tasks`：适配器声明 `suggestedTasks`（Codex、echo 有）时 Host 才声明。
 
+### 3.12 支线会话（0.17.0，U23.1）
+
+用户在会话里用 `/btw 〈问题〉` 问一个岔开的问题：从会话当前的上下文分出一个**支线会话**，问题在支线里答，主会话照常跑，支线的内容不并回主会话（设计提案 D14，维护者 2026-10-15 确认；照 Codex 终端界面的 `/side`、`/btw`）。
+
+```ts
+// → protocol（Session 的字段）
+forkedFrom?: { sessionId: SessionId, turnId?: TurnId }   // 从哪个会话、到它哪个完成的回合为止分出来
+side?: true                                              // 支线会话
+```
+
+- **分出**：`session.fork { sessionId, side: true }`。被分的会话要是顶层会话（不是子会话、也不是支线）、不是只读、至少有一个完成的回合；回合进行中也可以，支线带着到最近一个完成的回合为止的上下文。引擎会话没挂着时先自动恢复。支线是普通会话：同一项目、同一 `cwd`、Provider、模型、推理档位、权限模式与环境字段沿用被分的会话，自己的事件流从 `session.created`（带 `forkedFrom`、`side`）开始，用户照常对话、停止、关闭。
+- **引擎**：适配器的 `fork`（Codex：`thread/fork` 带 `ephemeral: true`，再用 `thread/inject_items` 补一条“支线边界”说明，codex-event-mapping.md §6.9）。临时 thread 不落盘：Host 重启后支线恢复不了，按 §4.3 变只读，Wevir 事件库里的历史还在。引擎不能分支（dsh 与其他 ACP 引擎）时 Host 不声明 `side_sessions`。
+- **列出**：支线不进 `session.list`（左栏不显示），客户端自己记着它的 ID（桌面端在窗格的参数里），`session.get` 与订阅照常。存储 0006_side_sessions。
+- 功能位 `side_sessions`：适配器实现了 `fork` 时 Host 才声明。
+
 ## 4. 会话状态机
 
 ```mermaid

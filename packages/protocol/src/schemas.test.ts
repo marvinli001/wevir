@@ -69,6 +69,7 @@ import {
   ResolvedApprovalStatusSchema,
   SeqCursorSchema,
   SeqSchema,
+  SessionForkedFromSchema,
   SessionIdSchema,
   SessionOriginSchema,
   SessionReadOnlyReasonSchema,
@@ -550,6 +551,12 @@ const standaloneCases: Case[] = [
       { ...suggestedTask, prompt: 'x'.repeat(8001) },
       { ...suggestedTask, status: 'done' },
     ],
+  },
+  {
+    name: 'SessionForkedFrom',
+    schema: SessionForkedFromSchema,
+    valid: [{ sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR' }],
+    invalid: [{ turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR' }],
   },
   {
     name: 'SessionOrigin',

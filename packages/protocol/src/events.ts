@@ -24,6 +24,7 @@ import {
   ResolvedApprovalStatusSchema,
   SessionEnvironmentFields,
   SessionReadOnlyReasonSchema,
+  SessionSideFields,
   SessionStateSchema,
   StreamBlockRefSchema,
   SubagentSummarySchema,
@@ -73,6 +74,8 @@ export const EventPayloadSchemas = {
     engineVersion: z.string().optional(),
     /** 环境会话（0.15.0，domain-model §3.10）。 */
     ...SessionEnvironmentFields,
+    /** 支线会话（0.17.0，domain-model §3.12）。 */
+    ...SessionSideFields,
     /** 只有子会话有（0.6.0，domain-model §3.3.1）：父会话与派出它的工具调用。 */
     parent: z
       .object({

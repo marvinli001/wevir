@@ -209,6 +209,28 @@ describe('EchoAdapter', () => {
     expect(textOf(await session.readUntil(settled), 'text')).toBe('Echo: again');
   });
 
+  it('fork：原会话有过回合才能分；支线是新会话，回复带 (side)，原会话不受影响', async () => {
+    const session = await open();
+    await expect(session.adapter.fork(session.id, config)).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    await session.send('hello');
+    await session.readUntil(settled);
+    const side = await session.adapter.fork(session.id, config);
+    expect(side.engineSessionId).not.toBe(session.id);
+    const events = session.adapter.subscribe(side.engineSessionId)[Symbol.asyncIterator]();
+    await session.adapter.send(side.engineSessionId, { content: [{ type: 'text', text: 'btw' }] });
+    const read: AgentEvent[] = [];
+    for (;;) {
+      const next = await events.next();
+      read.push(next.value as AgentEvent);
+      if (settled(next.value as AgentEvent)) break;
+    }
+    expect(textOf(read, 'text')).toBe('Echo (side): btw');
+    await session.send('again');
+    expect(textOf(await session.readUntil(settled), 'text')).toBe('Echo: again');
+  });
+
   it('fail：回合以 turn.failed 结束，会话仍可用', async () => {
     const session = await open();
     await session.send('please fail');

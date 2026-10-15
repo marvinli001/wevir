@@ -522,6 +522,15 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
       workspaceId: worktree.workspaceId as WorkspaceId,
     }));
   }
+  if (record.forkedFrom !== undefined) {
+    session.forkedFrom = {
+      sessionId: record.forkedFrom.sessionId as SessionId,
+      ...(record.forkedFrom.turnId !== undefined && {
+        turnId: record.forkedFrom.turnId as TurnId,
+      }),
+    };
+  }
+  if (record.side) session.side = true;
   if (record.origin !== undefined) {
     session.origin = {
       kind: 'suggested_task',

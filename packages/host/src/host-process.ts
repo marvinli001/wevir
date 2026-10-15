@@ -210,6 +210,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),
         ...(adapter.permissionModes !== undefined && { permission_modes: true }),
         ...(adapter.suggestedTasks === true && { suggested_tasks: true }),
+        ...(adapter.fork !== undefined && { side_sessions: true }),
       },
       ...(accounts !== undefined && { accounts }),
       settings,

@@ -39,6 +39,9 @@ export interface SessionRecord {
   worktrees?: { workspaceId: string; path: string; branch: string }[];
   /** 从一项建议开出来的会话（U23，0005_session_origin）：提出建议的会话与建议的 ID。建会话后不变。 */
   origin?: { kind: string; sessionId: string; taskId: string };
+  /** 支线会话（U23.1，0006_side_sessions）：从哪个会话、到它哪个完成的回合为止分出来。建会话后不变。 */
+  forkedFrom?: { sessionId: string; turnId?: string };
+  side?: true;
   /** 子会话的父会话（R4，0002_subagents）；普通会话没有。 */
   parentSessionId?: string;
   /** 子会话：父会话里派出它的工具调用。 */
@@ -82,6 +85,8 @@ export interface SessionRepository {
     includeRemovedWorkspaces?: boolean;
     parentSessionId?: string;
     includeChildren?: boolean;
+    /** 也列支线会话（0006）；默认不列。 */
+    includeSide?: boolean;
   }): SessionRecord[];
   /** 更新缓存字段；会话不存在时返回 false。 */
   update(id: string, patch: SessionCachePatch): boolean;
@@ -109,11 +114,13 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const insert = db.prepare(`
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
-      permission_mode, environment_id, extra_roots, worktrees, origin, parent_session_id, parent_tool_call_id,
+      permission_mode, environment_id, extra_roots, worktrees, origin, forked_from, side, parent_session_id,
+      parent_tool_call_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
-      :permissionMode, :environmentId, :extraRoots, :worktrees, :origin, :parentSessionId, :parentToolCallId,
+      :permissionMode, :environmentId, :extraRoots, :worktrees, :origin, :forkedFrom, :side, :parentSessionId,
+      :parentToolCallId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM sessions WHERE id = ?');
@@ -129,12 +136,13 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         WHEN :includeChildren = 1 THEN 1
         ELSE s.parent_session_id IS NULL
       END
+      AND (:includeSide = 1 OR s.side IS NULL)
     ORDER BY s.updated_at DESC, s.id DESC`);
   const countOpenByWorkspace = db.prepare(
-    "SELECT COUNT(*) AS n FROM sessions WHERE workspace_id = ? AND state <> 'closed' AND parent_session_id IS NULL",
+    "SELECT COUNT(*) AS n FROM sessions WHERE workspace_id = ? AND state <> 'closed' AND parent_session_id IS NULL AND side IS NULL",
   );
   const countOpenByProvider = db.prepare(
-    "SELECT COUNT(*) AS n FROM sessions WHERE provider_id = ? AND state <> 'closed' AND parent_session_id IS NULL",
+    "SELECT COUNT(*) AS n FROM sessions WHERE provider_id = ? AND state <> 'closed' AND parent_session_id IS NULL AND side IS NULL",
   );
 
   return {
@@ -153,6 +161,8 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         extraRoots: record.extraRoots ? JSON.stringify(record.extraRoots) : null,
         worktrees: record.worktrees ? JSON.stringify(record.worktrees) : null,
         origin: toNullableJson(record.origin),
+        forkedFrom: toNullableJson(record.forkedFrom),
+        side: record.side ? 1 : null,
         parentSessionId: record.parentSessionId ?? null,
         parentToolCallId: record.parentToolCallId ?? null,
         title: record.title,
@@ -180,6 +190,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
           includeRemoved: options?.includeRemovedWorkspaces ? 1 : 0,
           parentSessionId: options?.parentSessionId ?? null,
           includeChildren: options?.includeChildren ? 1 : 0,
+          includeSide: options?.includeSide ? 1 : 0,
         })
         .map(fromRow);
     },
@@ -233,6 +244,11 @@ function fromRow(row: SqlRow): SessionRecord {
   const worktrees = optionalJson(row, 'worktrees');
   if (worktrees !== undefined)
     record.worktrees = worktrees as NonNullable<SessionRecord['worktrees']>;
+  const forkedFrom = optionalJson(row, 'forked_from');
+  if (forkedFrom !== undefined) {
+    record.forkedFrom = forkedFrom as NonNullable<SessionRecord['forkedFrom']>;
+  }
+  if (row.side === 1) record.side = true;
   const origin = optionalJson(row, 'origin');
   if (origin !== undefined) record.origin = origin as NonNullable<SessionRecord['origin']>;
   const parentSessionId = optionalText(row, 'parent_session_id');

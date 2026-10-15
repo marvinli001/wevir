@@ -61,6 +61,8 @@ export const HOST_FEATURES = {
   environments: 'environments',
   /** 建议的后续任务（0.16.0，U23）：`tasks.suggested` / `task.*` 事件与 `session.create` 的 `origin`。取决于引擎。 */
   suggestedTasks: 'suggested_tasks',
+  /** 支线会话（0.17.0，U23.1）：`session.fork` 与 `Session` 的 `forkedFrom`、`side`。取决于引擎。 */
+  sideSessions: 'side_sessions',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -75,6 +77,7 @@ export const HostFeaturesSchema = z.looseObject({
   subagent_cancel: z.boolean().optional(),
   environments: z.boolean().optional(),
   suggested_tasks: z.boolean().optional(),
+  side_sessions: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

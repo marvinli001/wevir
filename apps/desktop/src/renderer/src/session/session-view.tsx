@@ -1,5 +1,6 @@
 import { hostSupports } from '@wevir/client-sdk';
 import type { PendingDelivery, PermissionMode, Session, SubagentSummary } from '@wevir/protocol';
+import { cn } from 'cn';
 import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
@@ -12,6 +13,7 @@ import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment } from '@/environments/environments';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { usePanes } from '@/layout/pane-controller';
 import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
 import { paths } from '@/routes/paths';
@@ -25,6 +27,7 @@ import { PendingArea } from './pending-area';
 import { PermissionPicker, usePermissionChoice } from './permission-picker';
 import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
+import { btwQuestion, hasFinishedTurn, startSide } from './side-session';
 import {
   sendError,
   sendText,
@@ -39,7 +42,15 @@ import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
  * 一个会话：消息流、审批区、输入框与状态指示（T5.3）。消息流来自从 seq 0 开始的订阅（transcript-store.ts），
  * 状态与审批都以这条事件流为准。
  */
-export function SessionView({ session }: { session: Session }) {
+export function SessionView({
+  session,
+  variant = 'main',
+}: {
+  session: Session;
+  /** `pane`：在窗格里（U23.1 的支线，desktop-tokens.md §30）：内边距收窄，输入框不自动获得焦点。 */
+  variant?: 'main' | 'pane';
+}) {
+  const panes = usePanes();
   const { client, identity, view } = useHostConnection();
   const hostSettings = useHostSettings();
   const { settings } = hostSettings;
@@ -58,10 +69,30 @@ export function SessionView({ session }: { session: Session }) {
   const sessionState = transcript?.state ?? session.state;
   const readOnly = transcript?.readOnly ?? session.readOnly;
 
+  // `/btw 〈问题〉`（U23.1）：Host 能分支、会话是顶层会话、不只读、已有结束的回合时，分出支线在窗格里问。
+  const sideEnabled =
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'side_sessions') &&
+    !session.side &&
+    session.subagent === undefined &&
+    readOnly === undefined &&
+    transcript !== undefined &&
+    hasFinishedTurn(transcript);
+
   const send = useCallback(
     async (text: string, delivery?: PendingDelivery): Promise<boolean> => {
       if (!client) return false;
       setNotice(undefined);
+      const question = sideEnabled ? btwQuestion(text) : undefined;
+      if (question !== undefined) {
+        try {
+          await startSide(client, session.id, question, panes);
+          return true;
+        } catch (error) {
+          setNotice(t('side.failed', { error: describe(error) }));
+          return false;
+        }
+      }
       try {
         // 出错或已关闭的会话先恢复（领域模型 §4.2：send 在这两个状态下回 INVALID_STATE）。
         if (sessionState === 'error' || sessionState === 'closed') {
@@ -75,7 +106,7 @@ export function SessionView({ session }: { session: Session }) {
         return false;
       }
     },
-    [client, session.id, sessionState],
+    [client, session.id, sessionState, sideEnabled, panes],
   );
 
   const stop = useCallback(() => {
@@ -136,13 +167,19 @@ export function SessionView({ session }: { session: Session }) {
           transcript={transcript}
           cwd={session.cwd}
           onReady={onReady}
+          compact={variant === 'pane'}
         />
       ) : (
         <p className="min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">
           {t('transcript.loading')}
         </p>
       )}
-      <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
+      <div
+        className={cn(
+          'mx-auto w-full max-w-content shrink-0',
+          variant === 'pane' ? 'px-4 pb-4' : 'px-6 pb-5',
+        )}
+      >
         {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
         <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
           {transcript && <TodoDock transcript={transcript} />}
@@ -203,7 +240,7 @@ export function SessionView({ session }: { session: Session }) {
             hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
           onSend={send}
           onStop={stop}
-          autoFocus
+          autoFocus={variant === 'main'}
         />
       </div>
     </div>

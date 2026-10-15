@@ -16,6 +16,7 @@ import type { PaneKind } from './pane-kinds';
 import type { PaneTab } from './pane-state';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
+import { SessionPane } from './panes/session-pane';
 import { SubagentsPane } from './panes/subagents-pane';
 import { TasksPane } from './panes/tasks-pane';
 
@@ -62,7 +63,13 @@ const VIEWS: Record<PaneKind, PaneView> = {
   },
   plan: { icon: ListChecks, name: 'pane.kind.plan', render: placeholder('plan') },
   terminal: { icon: SquareTerminal, name: 'pane.kind.terminal', render: placeholder('terminal') },
-  session: { icon: MessagesSquare, name: 'pane.kind.session', render: placeholder('session') },
+  // 支线会话（U23.1）：参数是支线会话 ID 与问题的开头。
+  session: {
+    icon: MessagesSquare,
+    name: 'pane.kind.session',
+    title: (tab) => (tab.params?.title ? t('side.tab', { title: tab.params.title }) : undefined),
+    render: (tab) => <SessionPane key={tab.params?.sessionId} tab={tab} />,
+  },
 };
 
 export function paneIcon(kind: PaneKind): LucideIcon {

@@ -109,6 +109,28 @@ export interface ThreadResumeParams {
 export type ThreadResumeResponse = ThreadStartResponse;
 
 /**
+ * v2/ThreadForkParams.ts 的稳定字段里本包用到的（支线会话，0.17.0）：按 `threadId` 分出新 thread，`lastTurnId` 只分到那个
+ * 回合为止（不能是进行中的），`ephemeral` 不落盘，`excludeTurns` 不回放历史。
+ */
+export interface ThreadForkParams {
+  threadId: string;
+  lastTurnId?: string | null;
+  model?: string | null;
+  modelProvider?: string | null;
+  cwd?: string | null;
+  approvalPolicy?: AskForApproval | null;
+  sandbox?: SandboxMode | null;
+  config?: Record<string, unknown> | null;
+  baseInstructions?: string | null;
+  developerInstructions?: string | null;
+  ephemeral?: boolean;
+  excludeTurns?: boolean;
+}
+
+/** v2/ThreadForkResponse.ts（与 ThreadStartResponse 同样只读这几项）。 */
+export type ThreadForkResponse = ThreadStartResponse;
+
+/**
  * v2/Thread.ts（只读这几项；都是稳定字段，`canAcceptDirectInput` 等实验字段不读）。子 agent 的 thread 有
  * `parentThreadId`、`agentNickname`、`agentRole`（R4，codex-notes §2.4）。
  */
