@@ -117,13 +117,10 @@ function ProjectsSection() {
         </div>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <nav
-          id="sidebar-projects"
-          aria-label={title}
-          hidden={projectsCollapsed}
-          className="px-2 pb-2"
-        >
-          {sidebarView === 'status' ? <StatusTree /> : <ProjectTree />}
+        <nav id="sidebar-projects" aria-label={title} className="px-2 pb-2">
+          <Collapse open={!projectsCollapsed}>
+            {sidebarView === 'status' ? <StatusTree /> : <ProjectTree />}
+          </Collapse>
         </nav>
       </ScrollArea>
     </>
@@ -157,7 +154,6 @@ function StatusTree() {
   const data = useWorkbenchData();
   const seen = useSeenSessions();
   const { sessionId } = useParams();
-  const [showAll, setShowAll] = useState(false);
 
   if (data.status === 'loading') return null;
   if (data.status === 'error') {
@@ -176,10 +172,6 @@ function StatusTree() {
       </p>
     );
   }
-  // 当前会话排在后面时也要看得到。
-  const activeIndex = completed.findIndex((row) => row.session.id === sessionId);
-  const all = showAll || activeIndex >= COMPLETED_SHOWN;
-  const shownCompleted = all ? completed : completed.slice(0, COMPLETED_SHOWN);
   const row = ({ session, workspace }: StatusRow) => (
     <li key={session.id}>
       <SessionRow
@@ -194,28 +186,22 @@ function StatusTree() {
     <div className="space-y-2 pt-1" data-testid="sidebar-status">
       {needsYou.length > 0 && (
         <StatusGroup title={t('sidebar.group.needsYou')} id="needs-you">
-          {needsYou.map(row)}
+          <ul className="space-y-px">{needsYou.map(row)}</ul>
         </StatusGroup>
       )}
       {running.length > 0 && (
         <StatusGroup title={t('sidebar.group.running')} id="running">
-          {running.map(row)}
+          <ul className="space-y-px">{running.map(row)}</ul>
         </StatusGroup>
       )}
       {completed.length > 0 && (
         <StatusGroup title={t('sidebar.group.completed')} id="completed">
-          {shownCompleted.map(row)}
-          {completed.length > COMPLETED_SHOWN && activeIndex < COMPLETED_SHOWN && (
-            <li>
-              <button
-                type="button"
-                onClick={() => setShowAll((value) => !value)}
-                className={cn(ROW, 'pl-8 text-muted-foreground hover:text-foreground')}
-              >
-                {t(showAll ? 'sidebar.showLess' : 'sidebar.showMore')}
-              </button>
-            </li>
-          )}
+          <MoreList
+            items={completed}
+            limit={COMPLETED_SHOWN}
+            activeIndex={completed.findIndex((entry) => entry.session.id === sessionId)}
+            render={row}
+          />
         </StatusGroup>
       )}
     </div>
@@ -232,7 +218,7 @@ function StatusGroup({ title, id, children }: { title: string; id: string; child
       >
         {title}
       </h3>
-      <ul className="space-y-px">{children}</ul>
+      {children}
     </section>
   );
 }
@@ -279,12 +265,7 @@ function ProjectItem({
   const { workspace, sessions } = entry;
   const { sessionId } = useParams();
   const navigate = useNavigate();
-  const [showAll, setShowAll] = useState(false);
   const listId = `project-sessions-${workspace.id}`;
-  // 当前会话排在后面时也要看得到。
-  const activeIndex = sessions.findIndex((session) => session.id === sessionId);
-  const all = showAll || activeIndex >= SESSIONS_SHOWN;
-  const shown = all ? sessions : sessions.slice(0, SESSIONS_SHOWN);
   const FolderIcon = expanded ? FolderOpen : Folder;
 
   return (
@@ -314,26 +295,58 @@ function ProjectItem({
         </IconButton>
       </div>
       <Collapse open={expanded && sessions.length > 0} id={listId}>
-        <ul className="space-y-px">
-          {shown.map((session) => (
+        <MoreList
+          items={sessions}
+          limit={SESSIONS_SHOWN}
+          activeIndex={sessions.findIndex((session) => session.id === sessionId)}
+          render={(session) => (
             <li key={session.id}>
               <SessionRow workspaceId={workspace.id} session={session} unread={isUnread(session)} />
             </li>
-          ))}
-          {sessions.length > SESSIONS_SHOWN && activeIndex < SESSIONS_SHOWN && (
-            <li>
-              <button
-                type="button"
-                onClick={() => setShowAll((value) => !value)}
-                className={cn(ROW, 'pl-8 text-muted-foreground hover:text-foreground')}
-              >
-                {t(showAll ? 'sidebar.showLess' : 'sidebar.showMore')}
-              </button>
-            </li>
           )}
-        </ul>
+        />
       </Collapse>
     </li>
+  );
+}
+
+/**
+ * 先列 `limit` 项，其余的收在“显示更多”后面，展开与收起是同一种高度过渡（U24，desktop-tokens.md §14）。当前会话排在
+ * 后面时全部列出、不显示按钮，免得当前项被收起来。
+ */
+function MoreList<T>({
+  items,
+  limit,
+  activeIndex,
+  render,
+}: {
+  items: readonly T[];
+  limit: number;
+  activeIndex: number;
+  render: (item: T) => ReactNode;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const pinned = activeIndex >= limit;
+  const rest = items.slice(limit);
+  return (
+    <>
+      <ul className="space-y-px">{items.slice(0, limit).map(render)}</ul>
+      {rest.length > 0 && (
+        <Collapse open={showAll || pinned}>
+          <ul className="space-y-px pt-px">{rest.map(render)}</ul>
+        </Collapse>
+      )}
+      {rest.length > 0 && !pinned && (
+        <button
+          type="button"
+          aria-expanded={showAll}
+          onClick={() => setShowAll((value) => !value)}
+          className={cn(ROW, 'mt-px pl-8 text-muted-foreground hover:text-foreground')}
+        >
+          {t(showAll ? 'sidebar.showLess' : 'sidebar.showMore')}
+        </button>
+      )}
+    </>
   );
 }
 

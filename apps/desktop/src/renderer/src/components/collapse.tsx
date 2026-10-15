@@ -5,8 +5,8 @@ import { type ReactNode, useEffect, useLayoutEffect, useState } from 'react';
 const COLLAPSE_MS = 200;
 
 /**
- * 展开收起时高度过渡（U10）：外层 grid 的行高在 0fr 与 1fr 之间过渡，同时淡入淡出；收起结束后卸载内容，长列表里收起的
- * 部分不占 DOM。减弱动效时照全局规则瞬时完成。
+ * 展开收起时高度过渡（U10）：外层 grid 的行高在 0fr 与 1fr 之间过渡，同时淡入淡出，内容从上方 4 px 落下（U24）；收起
+ * 结束后卸载内容，长列表里收起的部分不占 DOM。减弱动效时照全局规则瞬时完成。
  */
 export function Collapse({
   open,
@@ -52,7 +52,14 @@ export function Collapse({
         if (event.target === event.currentTarget && !open) setMounted(false);
       }}
     >
-      <div className="min-h-0 overflow-hidden">{children}</div>
+      <div
+        className={cn(
+          'min-h-0 overflow-hidden transition-transform duration-200 ease-smooth',
+          !expanded && '-translate-y-1',
+        )}
+      >
+        {children}
+      </div>
     </div>
   );
 }
