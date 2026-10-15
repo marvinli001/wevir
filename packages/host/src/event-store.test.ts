@@ -370,6 +370,56 @@ describe('EventStore 增量合并', () => {
     expect(store.readSince(SES, 0).at(-1)).toMatchObject({ seq: 7, payload: { text: '关闭前' } });
   });
 
+  it('计划增量（0.37.0）与助手增量同一个窗口：同一份计划合并，restart 作废缓冲里紧挨着的同一份，顺序不变', () => {
+    const { store, live } = setup();
+    const plan = (text: string, extra: { planId?: string; restart?: true } = {}) =>
+      store.appendPlanDelta(SES, { turnId: TURN, planId: extra.planId ?? 'p1', text, ...extra });
+    plan('# 计'); // 窗口首，立即写入（seq 5）
+    plan('划');
+    plan('\n- 一');
+    store.appendDelta(SES, delta('答'));
+    plan('\n- 二');
+    plan(''); // 空文本忽略
+    plan('# 另一份', { planId: 'p2' });
+    vi.advanceTimersByTime(60);
+    const rows = () =>
+      live.map((e) =>
+        e.type === 'plan.delta'
+          ? [e.seq, e.payload.planId, e.payload.text, e.payload.restart ?? false]
+          : [e.seq, e.type],
+      );
+    expect(rows()).toEqual([
+      [5, 'p1', '# 计', false],
+      [6, 'p1', '划\n- 一', false],
+      [7, 'assistant.delta'],
+      [8, 'p1', '\n- 二', false],
+      [9, 'p2', '# 另一份', false],
+    ]);
+
+    vi.advanceTimersByTime(10);
+    plan('旧的尾巴');
+    plan('# 重', { restart: true });
+    plan('写');
+    const proposed = store.append(SES, {
+      type: 'plan.proposed',
+      source: 'engine',
+      payload: { turnId: TURN, planId: 'p1', text: '# 重写' },
+    });
+    // 写计划之前先写掉缓冲的增量：“旧的尾巴”被 restart 作废，没有写出去。
+    expect(rows().slice(5)).toEqual([
+      [10, 'p1', '# 重写', true],
+      [11, 'plan.proposed'],
+    ]);
+    expect(proposed.seq).toBe(11);
+    expect(() =>
+      store.append(SES, {
+        type: 'plan.delta',
+        source: 'engine',
+        payload: { turnId: TURN, planId: 'p1', text: 'x' },
+      } as unknown as AppendInput),
+    ).toThrow(EventRejectedError);
+  });
+
   it('定时 flush 失败时交给 onError 并丢弃这批增量，之后照常写入', () => {
     const errors: unknown[] = [];
     const { storage, store } = setup({ onError: (error) => errors.push(error) });

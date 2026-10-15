@@ -849,10 +849,10 @@ type CollaborationMode = 'default' | 'plan'
 ```
 
 - **按消息给，不是会话的设置。** 模式是这条消息开始的回合的，记在 `user.message` 上；下一条消息没给就回到默认模式。`Session.collaborationMode` 由事件推导（最近一条 `user.message` 的），客户端拿它作输入框开关的初值。排队的待发消息带着发送时的模式，作为回合发出时用它；插话插进进行中的回合，沿用回合的模式。由命令开始的回合（§4.7）没有模式。
-- **计划**是 `plan.proposed`（§6）：给出它的回合、引擎给的 `planId`、整份 Markdown。同一 `planId` 再来一次是替换；之后的计划替换之前的。计划不会自己执行，“实施”是用户另发一条默认模式的消息，带上计划全文。它与 `todo.updated`（执行时的清单，Codex 的 `update_plan`）是两回事。接力（§3.14）的摘要把计划记成一条 `Proposed plan: …`。
+- **计划**是 `plan.proposed`（§6）：给出它的回合、引擎给的 `planId`、整份 Markdown。同一 `planId` 再来一次是替换；之后的计划替换之前的。写的时候是 `plan.delta`（0.37.0，照 T3 Code；只有 Codex，Claude 与 Grok 一次给全文）：Host 像助手增量一样按 60 ms 合并的预览，同一 `planId` 的 `plan.proposed` 以全文替换它；`restart` 表示引擎从头重写这份计划，丢掉此前的预览（给出过的也作废）；回合结束时还没等到 `plan.proposed` 的预览是没写完的计划，留下已写出的部分，不能实施。计划不会自己执行，“实施”是用户另发一条默认模式的消息，带上计划全文。它与 `todo.updated`（执行时的清单，Codex 的 `update_plan`）是两回事。接力（§3.14）的摘要把计划记成一条 `Proposed plan: …`。
 - **各引擎**（ADR-0005 补记 21）：Codex 用协作模式（每个 `turn/start` 带 `collaborationMode`，计划是 `plan` item）；Claude Agent 用 Claude Code 的权限模式 `plan`，计划是 ExitPlanMode 的输入（拦下并拒掉这次调用，回合停下等用户）；echo 回复之后报一份计划。Grok 没有计划模式的开关，它自己进入计划模式时给出的计划（`exit_plan_mode`）照样报成 `plan.proposed`。Cursor、OpenCode、Antigravity、dsh 没有；`session.send` 带 `plan` 时 `INVALID_PARAMS`。
 - **只读靠谁**：Codex 的计划模式靠说明约束（不改沙箱，同 Codex），Claude Code 的 `plan` 模式由它自己拦下改文件的工具。提问（§3.8）在计划模式里照常可用，Codex 的 `request_user_input` 在计划模式里是阻塞的。
-- **客户端**：桌面端的开关按会话或新会话草稿留在内存里，在输入框的“+”菜单、Shift+Tab 与 `/plan`（`/default` 退出），开着时底栏有“计划”芯片；计划是消息流里的计划卡片（折叠、复制、下载 Markdown），会话空闲、计划是最近一条消息的回合给出的、开关还开着时，空输入框的主按钮是“实施”（下拉“在新会话中实施”），有字时发送是“继续完善”（desktop-tokens §49）。投影（client-sdk）：`ChatPart` 的 `plan`、`UserChatMessage.collaborationMode`、`Transcript.collaborationMode` 与 `latestPlan`（最近一条用户消息开始的回合里最后的计划，之后又有用户消息时清空）。CLI 把计划回合的消息标成“（计划模式）”，计划原样缩进打印。
+- **客户端**：桌面端的开关按会话或新会话草稿留在内存里，在输入框的“+”菜单、Shift+Tab 与 `/plan`（`/default` 退出），开着时底栏有“计划”芯片；计划是消息流里的计划卡片（折叠、复制、下载 Markdown；写的时候随增量长出来，没有复制与下载，回合末尾那一行写“正在写计划”；没写完就结束的标“未完成”），会话空闲、计划是最近一条消息的回合给出的、开关还开着时，空输入框的主按钮是“实施”（下拉“在新会话中实施”），有字时发送是“继续完善”（desktop-tokens §49）。投影（client-sdk）：`ChatPart` 的 `plan`（0.37.0 起带 `state`：写的时候 `streaming`、给出后 `done`、没写完 `incomplete`）、`UserChatMessage.collaborationMode`、`Transcript.collaborationMode` 与 `latestPlan`（最近一条用户消息开始的回合里最后的计划，之后又有用户消息时清空）。CLI 把计划回合的消息标成“（计划模式）”，计划原样缩进打印。
 
 ## 4. 会话状态机
 
@@ -1085,6 +1085,7 @@ stateDiagram-v2
 | `tool.finished` | engine / host | 工具调用结束 | ACP `tool_call_update`（`completed` / `failed`）；Host 收尾时补写（`source: host`） |
 | `todo.updated` | host | 待办列表（完整列表） | dsh：从 `todo_write` 的 `tool_call.rawInput` 推导；Codex：`turn/plan/updated`，`toolCallId` 是合成的 `plan:<回合 ID>`（codex-event-mapping.md §6.1） |
 | `plan.proposed` | engine | Agent 给出的计划（0.36.0，§3.17） | Codex 的 `plan` item（`item/completed`）；Claude 的 ExitPlanMode；Grok 的 `exit_plan_mode` |
+| `plan.delta` | engine | 计划的流式预览（0.37.0，§3.17），Host 按 60 ms 合并；同一 `planId` 的 `plan.proposed` 替换它 | Codex 的 `item/plan/delta` |
 | `approval.requested` | engine | 新的审批请求 | ACP `session/request_permission` |
 | `approval.resolved` | host | 审批结算，带 `decidedBy` | `approval.respond` 或 Host 结算 |
 | `question.requested` | engine | 引擎向用户提一组问题（0.10.0，§3.8） | Codex `item/tool/requestUserInput` |
@@ -1251,6 +1252,12 @@ type WevirEvent =
       turnId: TurnId
       planId: string            // 引擎给的 ID，会话内唯一
       text: string              // Markdown
+    }>
+  | WevirEventEnvelope<'plan.delta', {      // 0.37.0，§3.17
+      turnId: TurnId
+      planId: string            // 同 plan.proposed
+      text: string              // Host 按 60 ms 合并后的片段
+      restart?: true            // 从头重写：丢掉此前的预览
     }>
   | WevirEventEnvelope<'approval.requested', { approval: ApprovalRequest }> // status 恒为 pending
   | WevirEventEnvelope<'approval.resolved', {

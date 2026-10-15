@@ -570,6 +570,8 @@ export const messages: Messages = {
   'plan.download': 'Markdown 다운로드',
   'plan.expand': '계획 펼치기',
   'plan.collapse': '계획 접기',
+  'plan.writing': '계획 작성 중',
+  'plan.incomplete': '미완료',
   'plan.ready': '계획 준비됨',
   'plan.implement': '구현',
   'plan.refine': '다듬기',

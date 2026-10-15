@@ -260,6 +260,7 @@ R2 实测（真实二进制）：
 | `item/agentMessage/delta` | `assistant.delta`（`kind: 'text'`） | `attemptId` = itemId，`blockIndex` 0 |
 | `item/reasoning/textDelta` | `assistant.delta`（`kind: 'reasoning'`） | `attemptId` = itemId，`blockIndex` = `contentIndex`。原始推理默认就透出（codex-notes §2.2） |
 | `item/reasoning/summaryTextDelta` | `assistant.delta`（`kind: 'reasoning'`） | `attemptId` = `<itemId>/summary`，`blockIndex` = `summaryIndex` |
+| `item/plan/delta`（0.37.0，计划模式） | `plan.delta` | `planId` = itemId（`<turnId>-plan`）；`plan` item 完成之后到的忽略；同一个 item 再次 `item/started` 之后的第一段带 `restart`（§6.14） |
 | `item/started` / `item/completed` | 见 §6.2 | |
 | `item/commandExecution/outputDelta`、`item/mcpToolCall/progress` | `tool.updated`（`output` 是到目前为止的累积） | 短命令可能一条都没有，输出只在 `item/completed` 的 `aggregatedOutput` |
 | `item/fileChange/patchUpdated` | `tool.updated`（新的 `display` 与 `input`） | |
@@ -268,7 +269,7 @@ R2 实测（真实二进制）：
 | `turn/completed` | `turn.settled` / `turn.failed` | `completed` → settled（`completed`），`interrupted` → settled（`cancelled`），`stopReason` 是 Codex 的状态原文；`failed` → `turn.failed`，`message` = `turn.error.message` + `additionalDetails`，`category` 与 `code` 见 §6.7。之前先收尾没提交的增量（§6.4）；`interrupted` 时还没结束的工具按 `failed` 收尾（§6.6） |
 | `error` | `engine.raw` | `willRetry: true` 不算回合失败（Codex 自己也只在状态栏短暂显示），只留 engine.raw，已经流出的增量以 `abandoned` 结束；`willRetry: false` 随后有 `turn/completed`（failed），以它为准 |
 | `serverRequest/resolved` | （无）或 `approval.cancelled` | 由适配器处理，不进映射器（§6.6） |
-| `item/plan/delta`、`thread/settings/updated`、`thread/queue/changed`、`turn/moderationMetadata`（0.36.0 开实验面之后才有） | （无） | 按设计忽略：计划的增量只是预览，以 `plan` item 完成时的为准（§6.14）；thread 设置的回执、Wevir 不用的 thread 队列、内容审核的元数据没有对应的 Wevir 事件。其余实验通知（`autoApprovalReview/strictReviewRequired`、`process/*`、`thread/environment/*` 等）照下面的规则留 `engine.raw` |
+| `thread/settings/updated`、`thread/queue/changed`、`turn/moderationMetadata`（0.36.0 开实验面之后才有） | （无） | 按设计忽略：thread 设置的回执、Wevir 不用的 thread 队列、内容审核的元数据没有对应的 Wevir 事件。其余实验通知（`autoApprovalReview/strictReviewRequired`、`process/*`、`thread/environment/*` 等）照下面的规则留 `engine.raw` |
 | `turn/started`、`item/reasoning/summaryPartAdded`、`thread/status/changed`、`thread/started`、`thread/compacted` | （无） | 按设计忽略：Host 自己写 `turn.started`、维护会话状态；块号已在增量里；`thread/compacted` 已弃用，压缩照 item 报（§4.9）。回合之外到达时同样忽略（R4 起，子会话在两个回合之间的状态变化很多）。子会话的 `turn/started` 例外，见 §6.5；`compact` 开的回合从它拿回合 ID（§4.9） |
 | `thread/name/updated`（子会话） | 父会话流里的 `subagent.updated`（`title`） | §6.5 |
 | `turn/diff/updated`、`thread/name/updated`（普通会话）等其余带 threadId 的 | `engine.raw` | |
@@ -286,7 +287,7 @@ R2 实测（真实二进制）：
 | `userMessage` | （无） | （无）：Host 自己记 `user.message` |
 | `contextCompaction`（0.24.0） | `context.compacting`（`compactionId` = itemId） | `context.compacted`；`trigger` 见 §4.9 |
 | `enteredReviewMode`、`exitedReviewMode`（0.24.0） | （无） | （无）：Host 的 `turn.started.command` 表示审查，结果是随后的 agentMessage（§4.9） |
-| `plan`（0.36.0，计划模式） | （无）：开始时还是空的 | `plan.proposed`（`planId` = itemId，即 `<turnId>-plan`；`text` 去掉首尾空白）。文本为空时 `engine.raw`（§6.14） |
+| `plan`（0.36.0，计划模式） | （无）：开始时还是空的。这个回合里已经报过它（增量或全文）时，下一段增量带 `restart`（0.37.0） | `plan.proposed`（`planId` = itemId，即 `<turnId>-plan`；`text` 去掉首尾空白）。文本为空时 `engine.raw`（§6.14） |
 | 其余（`hookPrompt`、`subAgentActivity` 等） | `engine.raw` | `engine.raw` |
 
 `tool.finished.output`：命令是 `aggregatedOutput`（没有时用累积的增量）；文件改动是各个 diff 相连；MCP 是结果或错误的 JSON；动态工具是文本内容；子 agent 是 `agentsStates` 的 JSON。
@@ -474,7 +475,7 @@ rust-v0.162.1 实测（`codex-adapter.goal.integration.test.ts`，经网关的 m
 
 ### 6.14 计划（0.36.0）
 
-计划模式的回合里，Codex 把模型回答中的 `<proposed_plan>` 块拆出来（`core/src/session/turn.rs` 的 `PlanModeStreamState`、`stream_events_utils.rs` 的 `strip_proposed_plan_blocks`）：回答的 `agentMessage` 里不再有这一块，块里的 Markdown 成为一个 `plan` item（`item/started` 时为空，`item/plan/delta` 是流式预览，`item/completed` 时是从定稿的回答里重新解析的全文）。适配器只在 `item/completed` 时报 `plan.proposed`。默认模式的回合里 `<proposed_plan>` 不拆，照原文留在回答里。`turn/plan/updated`（`update_plan`）是另一回事，映射成 `todo.updated`（§6.1）；Codex 在计划模式里拒绝 `update_plan`。实测（rust-v0.162.1，经网关的 mock 模型，`codex-adapter.plan.integration.test.ts`）：计划回合的请求带 Wevir 的 `plan-mode.md`、会话的档位与 `request_user_input` 工具，之后的默认回合带内置的 `default.md`；额外目录的说明两种回合都在。
+计划模式的回合里，Codex 把模型回答中的 `<proposed_plan>` 块拆出来（`core/src/session/turn.rs` 的 `PlanModeStreamState`、`stream_events_utils.rs` 的 `strip_proposed_plan_blocks`）：回答的 `agentMessage` 里不再有这一块，块里的 Markdown 成为一个 `plan` item（`item/started` 时为空，`item/plan/delta` 是流式预览，`item/completed` 时是从定稿的回答里重新解析的全文）。写的时候的增量映射成 `plan.delta`（0.37.0，照 T3 Code 的 CodexAdapterV2：增量合并后推给界面，完成时以全文为准），`item/completed` 时报 `plan.proposed`；全文以它为准（Codex 从定稿的回答重新解析，例如去掉引用，可能与增量拼起来的不完全一样）。Codex 每个采样请求都新建 `PlanModeStreamState`，计划 item 的 ID 却固定是 `<turnId>-plan`：请求重试（流断了，`error` 带 `willRetry`）或同一回合里再写一次计划时，同一个 item 再次 `item/started`、增量从头来，适配器给那之后的第一段带 `restart`，Host 与客户端丢掉此前的预览。回合结束时还没完成的计划（停止、失败、中断）没有 `plan.proposed`，客户端把已写出的部分留作没写完的计划。默认模式的回合里 `<proposed_plan>` 不拆，照原文留在回答里。`turn/plan/updated`（`update_plan`）是另一回事，映射成 `todo.updated`（§6.1）；Codex 在计划模式里拒绝 `update_plan`。实测（rust-v0.162.1，经网关的 mock 模型，`codex-adapter.plan.integration.test.ts`）：计划回合的请求带 Wevir 的 `plan-mode.md`、会话的档位与 `request_user_input` 工具，之后的默认回合带内置的 `default.md`；额外目录的说明两种回合都在。慢慢流出的计划是一串 `plan.delta`，都在 `plan.proposed` 之前，拼起来去掉首尾空白就是全文；mock 在计划正文中间断流、`stream_max_retries = 1` 时 Codex 重试，同一个 item 从头写，增量里恰好有一段带 `restart`，按它重放得到全文。
 
 ### 6.7 回合失败的归类（`turn-error.ts`）
 

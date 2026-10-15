@@ -32,7 +32,7 @@ import {
 } from './snapshot.js';
 import { truncateJson, truncateToolOutput } from './truncate.js';
 
-/** 助手文本增量的合并窗口（Paseo 取 60 ms，ADR-0002 §3）。 */
+/** 助手文本与计划增量的合并窗口（Paseo 取 60 ms，ADR-0002 §3）。 */
 export const DELTA_WINDOW_MS = 60;
 
 /** 待写入的事件：信封里由事件库决定的 `seq`、`sessionId`、`ts` 之外的部分。 */
@@ -40,10 +40,18 @@ export type EventInput = {
   [T in WevirEventType]: { type: T; source: EventSource; payload: WevirEventPayload<T> };
 }[WevirEventType];
 
-/** `append` 接受的事件。助手文本增量走 `appendDelta`，先合并再落库。 */
-export type AppendInput = Exclude<EventInput, { type: 'assistant.delta' }>;
+/** `append` 接受的事件。助手文本增量走 `appendDelta`、计划增量走 `appendPlanDelta`，先合并再落库。 */
+export type AppendInput = Exclude<EventInput, { type: 'assistant.delta' | 'plan.delta' }>;
 
 export type DeltaInput = WevirEventPayload<'assistant.delta'>;
+
+/** `appendPlanDelta` 的输入（0.37.0）。 */
+export type PlanDeltaInput = WevirEventPayload<'plan.delta'>;
+
+/** 缓冲里的一段增量。 */
+type BufferedDelta =
+  | { type: 'assistant.delta'; payload: DeltaInput }
+  | { type: 'plan.delta'; payload: PlanDeltaInput };
 
 /** `handoffState` 的结果（0.25.0）。 */
 export interface HandoffState {
@@ -71,8 +79,8 @@ export class SessionNotFoundError extends Error {
 }
 
 interface DeltaBuffer {
-  /** 待写入的增量，相邻的同一块已合并。 */
-  parts: DeltaInput[];
+  /** 待写入的增量，相邻的同一块（同一份计划）已合并。 */
+  parts: BufferedDelta[];
   timer?: ReturnType<typeof setTimeout>;
   /** 上次写入增量的时间（`Date.now()`）。 */
   lastFlushAt?: number;
@@ -84,9 +92,10 @@ interface DeltaBuffer {
  * - **`seq` 在事务里分配。** 每次写入在一个 `BEGIN IMMEDIATE` 事务里读出库里的最大 `seq` 再顺延，
  *   同一会话的事件 `seq` 从 1 开始连续、无重复。同一事务里还更新 `sessions` 表的缓存列和 `approvals`
  *   表（二者都是事件的投影），提交后才通知订阅者。
- * - **增量先合并再分配 `seq`。** `appendDelta` 把增量放进会话的缓冲：距上次写入增量已过一个窗口就
+ * - **增量先合并再分配 `seq`。** `appendDelta` 与 `appendPlanDelta` 把增量放进会话的缓冲：距上次写入增量已过一个窗口就
  *   立即写入（窗口首），否则等到窗口尾一起写入；相邻的同一块（同回合、同 `streamId`、同
- *   `blockIndex`、同 `kind`）合并成一条 `assistant.delta`。写其他事件前先写掉缓冲的增量，保证顺序。
+ *   `blockIndex`、同 `kind`）合并成一条 `assistant.delta`，相邻的同一份计划（同回合、同 `planId`）合并成一条
+ *   `plan.delta`。写其他事件前先写掉缓冲的增量，保证顺序。
  * - **大字段入库前截断**（host-api.md §11），回放与实时推送是同一份数据。
  * - **快照由事件推导**（`snapshot`），并在内存里随写入增量推进；Host 重启后从事件重放得到同样的结果。
  *
@@ -132,8 +141,10 @@ export class EventStore {
     this.#assertOpen();
     SessionIdSchema.parse(sessionId);
     const prepared = inputs.map((input) => {
-      if (input.type === ('assistant.delta' as string)) {
-        throw new EventRejectedError('assistant.delta 要经 appendDelta 合并后再写入');
+      if (input.type === ('assistant.delta' as string) || input.type === ('plan.delta' as string)) {
+        throw new EventRejectedError(
+          `${input.type} 要经 appendDelta / appendPlanDelta 合并后再写入`,
+        );
       }
       return prepare(input);
     });
@@ -147,21 +158,36 @@ export class EventStore {
   appendDelta(sessionId: SessionId, delta: DeltaInput): void {
     this.#assertOpen();
     SessionIdSchema.parse(sessionId);
-    const part = EventPayloadSchemas['assistant.delta'].parse(delta);
-    if (part.text === '') return;
-    this.#projection(sessionId); // 会话不存在时现在就报错，而不是在定时器里。
+    const payload = EventPayloadSchemas['assistant.delta'].parse(delta);
+    if (payload.text === '') return;
+    this.#buffer(sessionId, { type: 'assistant.delta', payload });
+  }
 
+  /**
+   * 缓冲一段计划的增量（0.37.0），与助手增量同一个缓冲、同一个窗口，写成 `plan.delta`。空文本忽略；带 `restart` 的作废缓冲里
+   * 紧挨着的同一份计划。
+   */
+  appendPlanDelta(sessionId: SessionId, delta: PlanDeltaInput): void {
+    this.#assertOpen();
+    SessionIdSchema.parse(sessionId);
+    if (delta.text === '') return;
+    this.#buffer(sessionId, {
+      type: 'plan.delta',
+      payload: EventPayloadSchemas['plan.delta'].parse(delta),
+    });
+  }
+
+  #buffer(sessionId: SessionId, part: BufferedDelta): void {
+    this.#projection(sessionId); // 会话不存在时现在就报错，而不是在定时器里。
     let buffer = this.#buffers.get(sessionId);
     if (!buffer) {
       buffer = { parts: [] };
       this.#buffers.set(sessionId, buffer);
     }
     const last = buffer.parts.at(-1);
-    if (last && isSameBlock(last, part)) {
-      buffer.parts[buffer.parts.length - 1] = { ...last, text: last.text + part.text };
-    } else {
-      buffer.parts.push(part);
-    }
+    const merged = last && mergeDelta(last, part);
+    if (merged) buffer.parts[buffer.parts.length - 1] = merged;
+    else buffer.parts.push(part);
     if (buffer.timer) return;
 
     const sinceFlush =
@@ -282,9 +308,7 @@ export class EventStore {
     const deltas = buffer?.parts ?? [];
     if (deltas.length === 0 && inputs.length === 0) return [];
     const all: EventInput[] = [
-      ...deltas.map(
-        (payload): EventInput => ({ type: 'assistant.delta', source: 'engine', payload }),
-      ),
+      ...deltas.map((delta) => ({ ...delta, source: 'engine' }) as EventInput),
       ...inputs,
     ];
     const ts = new Date().toISOString();
@@ -419,13 +443,25 @@ function withInput<T extends { input?: unknown }>(value: T): T {
   return value.input === undefined ? value : { ...value, input: truncateJson(value.input) };
 }
 
-function isSameBlock(a: DeltaInput, b: DeltaInput): boolean {
-  return (
-    a.turnId === b.turnId &&
-    a.streamId === b.streamId &&
-    a.blockIndex === b.blockIndex &&
-    a.kind === b.kind
-  );
+/** 相邻两段增量合并的结果；不是同一块（同一份计划）时是 `undefined`。 */
+function mergeDelta(last: BufferedDelta, next: BufferedDelta): BufferedDelta | undefined {
+  if (last.type === 'assistant.delta' && next.type === 'assistant.delta') {
+    const [a, b] = [last.payload, next.payload];
+    const same =
+      a.turnId === b.turnId &&
+      a.streamId === b.streamId &&
+      a.blockIndex === b.blockIndex &&
+      a.kind === b.kind;
+    return same ? { type: last.type, payload: { ...a, text: a.text + b.text } } : undefined;
+  }
+  if (last.type === 'plan.delta' && next.type === 'plan.delta') {
+    const [a, b] = [last.payload, next.payload];
+    if (a.turnId !== b.turnId || a.planId !== b.planId) return undefined;
+    // 从头重写：缓冲里这份计划之前的增量作废（写出去的那些由 `restart` 告诉客户端丢掉）。
+    if (b.restart) return next;
+    return { type: last.type, payload: { ...a, text: a.text + b.text } };
+  }
+  return undefined;
 }
 
 /** 库里的事件都在写入时校验过，读出时不再解析 payload。 */

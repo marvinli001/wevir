@@ -574,6 +574,8 @@ export const messages: Messages = {
   'plan.download': 'Download Markdown',
   'plan.expand': 'Expand plan',
   'plan.collapse': 'Collapse plan',
+  'plan.writing': 'Writing plan',
+  'plan.incomplete': 'Incomplete',
   'plan.ready': 'Plan ready',
   'plan.implement': 'Implement',
   'plan.refine': 'Refine',

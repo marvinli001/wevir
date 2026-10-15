@@ -671,6 +671,10 @@ export const eventPayloads: PayloadSamples = {
     },
     invalid: { turnId: ids.turn, planId: '', text: '# 计划' },
   },
+  'plan.delta': {
+    valid: { turnId: ids.turn, planId: 'item_plan_1', text: '# 周报自动化\n\n## 概' },
+    invalid: { turnId: ids.turn, planId: 'item_plan_1', text: '', restart: true },
+  },
   'approval.requested': {
     valid: { approval: pendingApproval },
     invalid: { approval: { ...pendingApproval, options: [] } },

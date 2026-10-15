@@ -53,6 +53,8 @@ function describeEvent(event: WevirEvent): string {
       return String(event.payload.items.length);
     case 'plan.proposed':
       return event.payload.text;
+    case 'plan.delta':
+      return event.payload.text;
     case 'approval.requested':
       return event.payload.approval.status;
     case 'approval.resolved':

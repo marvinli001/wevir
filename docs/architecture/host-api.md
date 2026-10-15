@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.36.0`（计划模式；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
+> 状态：v0（T1.2）· 协议版本 `0.37.0`（计划的流式预览；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -313,6 +313,7 @@ Host → 客户端的通知：
 | `tool.finished` | engine / host |
 | `todo.updated` | host |
 | `plan.proposed` | engine |
+| `plan.delta` | engine |
 | `approval.requested` | engine |
 | `approval.resolved` | host |
 | `question.requested` | engine |
@@ -465,6 +466,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.36.0`：计划模式（domain-model §3.17，ADR-0005 补记 21）。新类型 `CollaborationMode`（`default`、`plan`）；`session.send` 加 optional 的 `collaborationMode`；`user.message`、`PendingMessage` 与 `Session` 加 optional 的 `collaborationMode`；新事件 `plan.proposed`（`turnId`、`planId`、`text`）；`EngineFeatures` 加 optional 的 `planMode`；Host 功能 `plan_mode`。新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不发 `collaborationMode`，回合照旧是默认模式；别的客户端开的计划回合在旧客户端里是普通的回合，计划（`plan.proposed`）按规则 5 被忽略，看不到计划卡片（Codex 的回答里已拆掉计划块）。新客户端连旧 Host：hello 结果里没有 `plan_mode`，桌面端不显示计划模式的入口（旧 Host 会丢掉 `collaborationMode`，所以不能不看功能位就发）。冻结样本 `compat/0.36.0.json`。
 
+`0.37.0`：计划的流式预览（domain-model §3.17）。新事件 `plan.delta`（`turnId`、`planId`、`text`、optional 的 `restart`）：Codex 写计划时的增量，Host 与 `assistant.delta` 同一个缓冲、同一个 60 ms 窗口合并，同一 `planId` 的 `plan.proposed` 以全文替换。新事件，不需要能力位与 Host 功能，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端按规则 5 忽略 `plan.delta`，计划照旧在 `plan.proposed` 时整份出现。新客户端连旧 Host：没有 `plan.delta`，同上。冻结样本 `compat/0.37.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -522,7 +525,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `browser_tools` | 0.33.0 | 内置浏览器（domain-model §3.15.1）：`browser.*` 方法与 `browser.request` 通知，应用级工具里的 `browser_*` 与 `wevir_show` 的 `browser`（有应用级工具时，同 `app_tools`） |
 | `web_tools` | 0.34.0 | `web.get`、`web.update`、`web.test`；Host 带着联网服务启动时声明（`wevir-host` 总是带，与引擎无关；联网工具只挂在 Codex 上，web-tools.md §5） |
 | `session_goals` | 0.35.0 | `session.setGoal`、`session.updateGoal`、`session.clearGoal`，`session.goal_changed` 事件，`Session.goal`，`turn.started` 的 `trigger`（Codex、echo 引擎；会话所在的引擎没有目标时 `INVALID_STATE`，看 `engineFeatures` 的 `goals`） |
-| `plan_mode` | 0.36.0 | 计划模式：`session.send` 的 `collaborationMode`、`user.message` / 待发消息 / `Session` 的 `collaborationMode` 与 `plan.proposed` 事件（Codex、Claude、echo 引擎；`engineFeatures` 的 `planMode` 说哪种 Provider 的引擎有，没有时 `session.send` 回 `INVALID_PARAMS`） |
+| `plan_mode` | 0.36.0 | 计划模式：`session.send` 的 `collaborationMode`、`user.message` / 待发消息 / `Session` 的 `collaborationMode` 与 `plan.proposed` 事件（0.37.0 起写的时候还有 `plan.delta`；Codex、Claude、echo 引擎；`engineFeatures` 的 `planMode` 说哪种 Provider 的引擎有，没有时 `session.send` 回 `INVALID_PARAMS`） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**
@@ -547,7 +550,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 |---|---|---|
 | 工具输出 | `tool.updated.output.text`、`tool.finished.output.text` | 超过 `TOOL_OUTPUT_MAX_LENGTH`（65536）时保留开头 32768 与结尾 32768，中间插入一行 `[… N chars truncated …]`；`truncated: true`，`originalLength` 为截断前长度 |
 | JSON 值 | `tool.started.input`、`tool.updated.input`、`approval.requested` 的 `detail.input`、`engine.raw.params` | 先把其中每个超过 `JSON_STRING_MAX_LENGTH`（16384）的字符串截成开头 16384，并追加 `…[+N chars]`；之后整个值 `JSON.stringify` 仍超过 `JSON_VALUE_MAX_LENGTH`（131072）时，整体换成 `TruncatedJson`：`{"$truncated": true, "originalLength": N, "preview": "<原 JSON 文本开头 JSON_PREVIEW_LENGTH（4096）>"}` |
-| 不截断 | `assistant.*`、`user.message`、`todo.updated`、`plan.proposed` | 这些是对话内容本身；单条事件可能较大，不影响连接健康的判断（图片在事件里只是引用，0.28.0） |
+| 不截断 | `assistant.*`、`user.message`、`todo.updated`、`plan.proposed`、`plan.delta` | 这些是对话内容本身；单条事件可能较大，不影响连接健康的判断（图片在事件里只是引用，0.28.0） |
 
 先截字符串再判断整体，是为了让 `write` 一类工具的 `file_path` 等短字段在大段 `content` 被截断后仍然可用。客户端看到 `$truncated: true` 时按截断显示，不要把它当作工具的真实输入。
 

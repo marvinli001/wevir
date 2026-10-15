@@ -2521,6 +2521,16 @@ export class SessionManager {
           },
         ]);
         return;
+      case 'plan.delta':
+        // 计划的流式预览（0.37.0）：同助手增量，按窗口合并后写入。
+        if (event.planId === '') return;
+        this.#events.appendPlanDelta(sessionId, {
+          turnId,
+          planId: event.planId,
+          text: event.text,
+          ...(event.restart && { restart: true }),
+        });
+        return;
       case 'plan.proposed':
         if (event.text.trim() === '' || event.planId === '') {
           this.#onWarning('引擎的计划是空的，丢弃', { sessionId });

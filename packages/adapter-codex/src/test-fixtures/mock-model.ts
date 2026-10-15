@@ -52,6 +52,8 @@ export interface MockReply {
   httpError?: { status: number; message: string };
   /** 报的输入 token 数（默认 1000；输出总是 20）。 */
   inputTokens?: number;
+  /** 发出这么多个文本分片之后结束响应，不发 `response.completed`：流中途断开，Codex 按 `stream_max_retries` 重试。 */
+  endAfterText?: number;
 }
 
 export type MockScript = (view: MockView) => MockReply;
@@ -275,10 +277,13 @@ async function respond(
     closed = !res.writableFinished;
   });
   res.writeHead(200, { 'content-type': 'text/event-stream' });
+  let texts = 0;
   for (const event of render(reply, id, body)) {
     if (closed) return;
     if (event === null) await new Promise((resolve) => setTimeout(resolve, reply.delayMs ?? 0));
     else res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+    if (event?.type === 'response.output_text.delta') texts += 1;
+    if (reply.endAfterText !== undefined && texts >= reply.endAfterText) break;
   }
   res.end();
 }

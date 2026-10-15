@@ -3,6 +3,7 @@
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EngineFeatures, SessionId, WevirEvent } from '@wevir/protocol';
+import type { AgentEvent } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -113,6 +114,66 @@ describe('计划模式', () => {
     expect(after.some((event) => event.type === 'plan.proposed')).toBe(false);
     expect(env.send.mock.calls.at(-1)?.[1]).not.toHaveProperty('collaborationMode');
     expect(env.events.snapshot(sessionId)?.session).not.toHaveProperty('collaborationMode');
+  });
+
+  it('计划的增量（0.37.0）：引擎的 plan.delta 带上回合写入（合并、restart 原样），在 plan.proposed 之前', async () => {
+    const env = setup();
+    // 在 echo 的计划之前插一段预览：先写一半，再从头重写，最后是全文。
+    const original = EchoAdapter.prototype.subscribe;
+    const spy = vi.spyOn(EchoAdapter.prototype, 'subscribe').mockImplementation(function (
+      this: EchoAdapter,
+      id: string,
+    ) {
+      const source = original.call(this, id);
+      return (async function* (): AsyncGenerator<AgentEvent> {
+        for await (const event of source) {
+          if (event.type === 'plan.proposed') {
+            const base = { type: 'plan.delta' as const, engineSessionId: event.engineSessionId };
+            const planId = event.planId;
+            yield { ...base, planId, text: '# 旧' };
+            yield { ...base, planId: '', text: '丢掉' };
+            yield { ...base, planId, text: event.text.slice(0, 4), restart: true };
+            yield { ...base, planId, text: event.text.slice(4) };
+          }
+          yield event;
+        }
+      })();
+    });
+    try {
+      const sessionId = await newSession(env);
+      const { turnId } = await env.methods['session.send'](
+        { sessionId, content: text('add export'), collaborationMode: 'plan' },
+        context,
+      );
+      await idle(env, sessionId);
+      const events = turnEvents(env, sessionId, turnId as string).filter(
+        (event) => event.type === 'plan.delta' || event.type === 'plan.proposed',
+      );
+      const proposed = events.at(-1);
+      expect(proposed?.type).toBe('plan.proposed');
+      if (proposed?.type !== 'plan.proposed') return;
+      const { planId, text: full } = proposed.payload;
+      const deltas = events.slice(0, -1);
+      expect(deltas.length).toBeGreaterThan(0);
+      // 合并与否看窗口（“# 旧”可能在窗口首单独写出），按 restart 重放得到的总是全文；planId 为空的丢掉。
+      let preview = '';
+      for (const event of deltas) {
+        expect(event).toMatchObject({
+          type: 'plan.delta',
+          source: 'engine',
+          payload: { turnId, planId },
+        });
+        if (event.type !== 'plan.delta') continue;
+        preview = event.payload.restart ? event.payload.text : preview + event.payload.text;
+      }
+      expect(preview).toBe(full);
+      expect(deltas.some((event) => event.type === 'plan.delta' && event.payload.restart)).toBe(
+        true,
+      );
+      expect(JSON.stringify(deltas)).not.toContain('丢掉');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('引擎没有计划模式：INVALID_PARAMS（collaborationMode），不写事件；default 照常', async () => {

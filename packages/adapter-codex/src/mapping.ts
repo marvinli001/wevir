@@ -70,6 +70,7 @@ export const MAPPED_NOTIFICATIONS = Object.freeze([
   'item/mcpToolCall/progress',
   'thread/tokenUsage/updated',
   'turn/plan/updated',
+  'item/plan/delta',
   'turn/completed',
   'error',
   // 会话目标（0.35.0，goals.ts，适配器在回合之外也处理）。
@@ -106,9 +107,8 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'guardianWarning',
   // 已弃用、由 `contextCompaction` item 取代的压缩通知（0.24.0，§4.9）：压缩照 item 报。
   'thread/compacted',
-  // 0.36.0 开了实验面之后多出来的（ADR-0005 补记 16）：计划的增量只是预览，以 `plan` item 完成时的为准（§6.14）；thread 设置的
-  // 回执（`turn/start` 带的协作模式等）、Wevir 不用的 thread 队列、内容审核的元数据都没有对应的 Wevir 事件。
-  'item/plan/delta',
+  // 0.36.0 开了实验面之后多出来的（ADR-0005 补记 16）：thread 设置的回执（`turn/start` 带的协作模式等）、Wevir 不用的 thread
+  // 队列、内容审核的元数据都没有对应的 Wevir 事件。
   'thread/settings/updated',
   'thread/queue/changed',
   'turn/moderationMetadata',
@@ -145,6 +145,10 @@ interface ItemState {
   /** 工具：累积的输出（命令输出增量、MCP 进度）。 */
   output: string;
   completed: boolean;
+  /** 计划（0.37.0）：这个回合里已经报过它的预览或全文。 */
+  planSeen?: boolean;
+  /** 计划：Codex 又开始了这个 item（每个请求都从头写同一个 `<turnId>-plan`），下一段增量带 `restart`。 */
+  planRestart?: boolean;
 }
 
 export interface CodexEventMapperOptions {
@@ -188,6 +192,10 @@ export class CodexEventMapper {
       case 'item/agentMessage/delta':
         return isDelta(params)
           ? this.#delta(params.itemId, params.itemId, 0, 'text', params.delta)
+          : [this.raw(method, params)];
+      case 'item/plan/delta':
+        return isDelta(params)
+          ? this.#planDelta(params.itemId, params.delta)
           : [this.raw(method, params)];
       case 'item/reasoning/textDelta':
         return isDelta(params)
@@ -335,8 +343,16 @@ export class CodexEventMapper {
       this.#state(item.id, item.type);
       return [this.#compactionEvent('context.compacting', item.id)];
     }
-    // 计划在完成时才报：开始时还是空的。
-    if (item.type === PLAN_ITEM) return [];
+    // 计划开始时还是空的，内容来自增量与完成时的全文。Codex 每个请求都重新开始同一个计划 item：重试请求、同一回合再写一次
+    // 计划时，这次从头重写。
+    if (item.type === PLAN_ITEM) {
+      const state = this.#state(item.id, item.type);
+      if (state.planSeen) {
+        state.planRestart = true;
+        state.completed = false;
+      }
+      return [];
+    }
     if (SILENT_ITEMS.has(item.type)) return [];
     if (!isToolItem(item)) return [this.raw('item/started', params, item.type)];
     return this.#toolStarted(item);
@@ -391,6 +407,9 @@ export class CodexEventMapper {
       return [this.#compactionEvent('context.compacted', item.id)];
     }
     if (item.type === PLAN_ITEM) {
+      const state = this.#state(item.id, item.type);
+      state.completed = true;
+      state.planSeen = true;
       const text = typeof item.text === 'string' ? item.text.trim() : '';
       if (text === '') return [this.raw('item/completed', params, item.type)];
       return [
@@ -475,6 +494,24 @@ export class CodexEventMapper {
   }
 
   // ── 增量与已提交消息 ─────────────────────────────────────────────────────────────────
+
+  /** 计划的增量（0.37.0，§6.14）：流式预览，以 `item/completed` 的全文为准；完成之后的忽略。 */
+  #planDelta(itemId: string, text: string): AgentEvent[] {
+    const state = this.#state(itemId, PLAN_ITEM);
+    if (state.completed || text === '') return [];
+    const restart = state.planRestart === true;
+    state.planSeen = true;
+    state.planRestart = false;
+    return [
+      {
+        type: 'plan.delta',
+        engineSessionId: this.engineSessionId,
+        planId: itemId,
+        text,
+        ...(restart && { restart: true as const }),
+      },
+    ];
+  }
 
   #delta(
     itemId: string,

@@ -1,9 +1,9 @@
 // 计划模式（0.36.0，codex-event-mapping.md §4.10、§6.14）：真实 codex-app-server + 网关 + mock 模型。turn/start 带的协作模式
-// 经模型请求里的 `<collaboration_mode>` 开发者消息核对；计划是 `plan` item。
+// 经模型请求里的 `<collaboration_mode>` 开发者消息核对；计划是 `plan` item，写的时候是 `item/plan/delta`（0.37.0）。
 
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import type { CodexAdapter } from './codex-adapter.js';
+import type { CodexAdapter, CodexAdapterOptions } from './codex-adapter.js';
 import {
   codexBinaryOrSkip,
   collectEvents,
@@ -45,9 +45,13 @@ const PLAN_REPLY = [
   '</proposed_plan>',
 ].join('\n');
 
-async function open(roots?: string[]) {
+/** `PLAN_REPLY` 切成 6 个字符一片，慢慢流出。 */
+const PLAN_CHUNKS = PLAN_REPLY.match(/[\s\S]{1,6}/g) ?? [];
+
+async function open(roots?: string[], extra: Partial<CodexAdapterOptions> = {}) {
   const { home, workspace } = dirs.make('plan');
   const adapter = newAdapter({
+    ...extra,
     home,
     providers: [
       mockProvider(mock, {
@@ -146,10 +150,62 @@ describe.skipIf(binary === undefined)(
       const answer = result.filter(ofType('assistant.message')).map((m) => m.text);
       expect(answer.join('')).toContain('看过了 README 与入口。');
       expect(answer.join('')).not.toContain('<proposed_plan>');
-      // 开了实验面之后多出来的通知（计划的增量、thread 设置的回执）不留成 engine.raw。
+      // 开了实验面之后多出来的通知（计划的增量、thread 设置的回执）不留成 engine.raw。增量是 plan.delta（0.37.0）。
       const raws = result.filter(ofType('engine.raw')).map((event) => event.method);
       expect(raws).not.toContain('item/plan/delta');
       expect(raws).not.toContain('thread/settings/updated');
+    });
+
+    it('计划的增量（0.37.0）：慢慢流出的 <proposed_plan> → 一串 plan.delta，都在 plan.proposed 之前，拼起来就是全文', async () => {
+      const { adapter, id, events } = await open();
+      script = () => ({ text: PLAN_CHUNKS, delayMs: 20 });
+      const result = await turn(adapter, id, '加个导出按钮，先出计划', events, 'plan');
+      expect(result.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      const plan = result.find(ofType('plan.proposed'));
+      const deltas = result.filter(ofType('plan.delta'));
+      expect(plan).toBeDefined();
+      expect(deltas.length).toBeGreaterThan(3);
+      for (const delta of deltas) {
+        expect(delta).toMatchObject({ engineSessionId: id, planId: plan?.planId });
+        expect(delta).not.toHaveProperty('restart');
+      }
+      expect(result.findLastIndex((event) => event.type === 'plan.delta')).toBeLessThan(
+        result.findIndex((event) => event.type === 'plan.proposed'),
+      );
+      expect(
+        deltas
+          .map((delta) => delta.text)
+          .join('')
+          .trim(),
+      ).toBe(plan?.text);
+      // 回答的增量里也没有计划块。
+      const answer = result.filter(ofType('assistant.delta')).map((delta) => delta.text);
+      expect(answer.join('')).not.toContain('导出按钮');
+    });
+
+    it('计划写到一半流断了（0.37.0）：Codex 重试时同一个 plan item 从头写，下一段增量带 restart', async () => {
+      const { adapter, id, events } = await open(undefined, {
+        providerExtra: { request_max_retries: 0, stream_max_retries: 1 },
+      });
+      let attempts = 0;
+      script = () => {
+        attempts += 1;
+        // 第一次在计划正文中间断开（第 8 片已经过了 `<proposed_plan>` 与标题）。
+        return attempts === 1
+          ? { text: PLAN_CHUNKS, delayMs: 10, endAfterText: 8 }
+          : { text: PLAN_CHUNKS, delayMs: 5 };
+      };
+      const result = await turn(adapter, id, '加个导出按钮，先出计划', events, 'plan');
+      expect(result.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      expect(attempts).toBe(2);
+      const plan = result.find(ofType('plan.proposed'));
+      const deltas = result.filter(ofType('plan.delta'));
+      const restarts = deltas.flatMap((delta, index) => (delta.restart ? [index] : []));
+      expect(restarts).toHaveLength(1);
+      expect(restarts[0]).toBeGreaterThan(0);
+      let preview = '';
+      for (const delta of deltas) preview = delta.restart ? delta.text : preview + delta.text;
+      expect(preview.trim()).toBe(plan?.text);
     });
 
     it('计划之后的默认回合：换回 Codex 内置的默认模式说明，不再出计划', async () => {

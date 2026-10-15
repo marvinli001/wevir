@@ -568,6 +568,8 @@ export const messages: Messages = {
   'plan.download': '下載 Markdown',
   'plan.expand': '展開計畫',
   'plan.collapse': '收合計畫',
+  'plan.writing': '正在撰寫計畫',
+  'plan.incomplete': '未完成',
   'plan.ready': '計畫已就緒',
   'plan.implement': '實施',
   'plan.refine': '繼續完善',

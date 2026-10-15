@@ -515,7 +515,7 @@ describe('计划模式（0.36.0）', () => {
     expect(transcript.collaborationMode).toBe('plan');
     expect(transcript.messages[0]).toMatchObject({ role: 'user', collaborationMode: 'plan' });
     expect(transcript.messages[1]?.parts).toEqual([
-      { type: 'plan', key: 'p:p1', planId: 'p1', text: '# B' },
+      { type: 'plan', key: 'p:p1', planId: 'p1', text: '# B', state: 'done' },
     ]);
     expect(transcript.latestPlan).toMatchObject({ turnId: TURN, planId: 'p1', text: '# B' });
 
@@ -531,6 +531,82 @@ describe('计划模式（0.36.0）', () => {
     expect(transcript.messages.at(-1)).not.toHaveProperty('collaborationMode');
     // 计划部件留在给出它的回合里。
     expect(transcript.messages[1]?.parts[0]).toMatchObject({ type: 'plan', text: '# B' });
+  });
+
+  it('计划的增量（0.37.0）：写的时候就是 streaming 的 plan 部件，plan.proposed 以全文替换；预览不算 latestPlan', () => {
+    const { list, add } = events();
+    add('user.message', {
+      turnId: TURN,
+      content: [{ type: 'text', text: '先出计划' }],
+      sentBy: identity,
+      collaborationMode: 'plan',
+    });
+    add('turn.started', { turnId: TURN });
+    add('assistant.delta', {
+      turnId: TURN,
+      streamId: STREAM,
+      blockIndex: 0,
+      kind: 'text',
+      text: '看过了。',
+    });
+    add('plan.delta', { turnId: TURN, planId: 'p1', text: '\n# 导' });
+    add('plan.delta', { turnId: TURN, planId: 'p1', text: '出\n\n- 一' });
+    let transcript = projectTranscript(list);
+    expect(transcript.messages[1]?.parts.at(-1)).toEqual({
+      type: 'plan',
+      key: 'p:p1',
+      planId: 'p1',
+      text: '\n# 导出\n\n- 一',
+      state: 'streaming',
+    });
+    expect(transcript.latestPlan).toBeUndefined();
+
+    add('plan.proposed', { turnId: TURN, planId: 'p1', text: '# 导出\n\n- 一\n- 二' });
+    // 给出之后迟到的增量（没有 restart）不再追加。
+    add('plan.delta', { turnId: TURN, planId: 'p1', text: '迟到' });
+    transcript = projectTranscript(list);
+    const parts = transcript.messages[1]?.parts ?? [];
+    expect(parts.filter((part) => part.type === 'plan')).toEqual([
+      { type: 'plan', key: 'p:p1', planId: 'p1', text: '# 导出\n\n- 一\n- 二', state: 'done' },
+    ]);
+    expect(parts.findIndex((part) => part.type === 'plan')).toBe(1);
+    expect(transcript.latestPlan).toMatchObject({ planId: 'p1', text: '# 导出\n\n- 一\n- 二' });
+
+    // 从头重写：给出过的计划也作废，latestPlan 清空，等新的全文。
+    add('plan.delta', { turnId: TURN, planId: 'p1', text: '# 第二版', restart: true });
+    transcript = projectTranscript(list);
+    expect(transcript.messages[1]?.parts[1]).toMatchObject({
+      text: '# 第二版',
+      state: 'streaming',
+    });
+    expect(transcript.latestPlan).toBeUndefined();
+    add('plan.proposed', { turnId: TURN, planId: 'p1', text: '# 第二版' });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    transcript = projectTranscript(list);
+    // 没被替换的文本增量在回合结束时去掉（§6.3），计划留下。
+    expect(transcript.messages[1]?.parts).toMatchObject([{ text: '# 第二版', state: 'done' }]);
+    expect(transcript.latestPlan).toMatchObject({ text: '# 第二版' });
+  });
+
+  it('回合结束时没写完的计划（0.37.0）：留下已写出的部分（incomplete），只有空白的去掉；都不是 latestPlan', () => {
+    for (const outcome of ['cancelled', 'failed', 'interrupted', 'completed'] as const) {
+      const { list, add } = events();
+      add('user.message', {
+        turnId: TURN,
+        content: [{ type: 'text', text: '先出计划' }],
+        sentBy: identity,
+        collaborationMode: 'plan',
+      });
+      add('turn.started', { turnId: TURN });
+      add('plan.delta', { turnId: TURN, planId: 'p1', text: '# 写到一半' });
+      add('plan.delta', { turnId: TURN, planId: 'p2', text: ' \n' });
+      add('turn.finished', { turnId: TURN, outcome, durationMs: 5 });
+      const transcript = projectTranscript(list);
+      expect(transcript.messages[1]?.parts, outcome).toEqual([
+        { type: 'plan', key: 'p:p1', planId: 'p1', text: '# 写到一半', state: 'incomplete' },
+      ]);
+      expect(transcript.latestPlan).toBeUndefined();
+    }
   });
 
   it('applySessionEvent：会话的 collaborationMode 跟着 user.message', () => {

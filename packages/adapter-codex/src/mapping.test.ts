@@ -558,19 +558,70 @@ describe('映射的边界情况', () => {
     expect(mapper.map('thread/compacted', { threadId: id, turnId })).toEqual([]);
   });
 
-  it('计划模式（0.36.0）：plan item 完成时 → plan.proposed（去掉首尾空白），开始与增量不出事件；空的计划留 engine.raw', () => {
+  it('计划模式（0.36.0）：增量 → plan.delta（0.37.0），完成时 → plan.proposed（去掉首尾空白）；空的计划留 engine.raw', () => {
     const mapper = new CodexEventMapper(id);
     const started = { type: 'plan', id: `${turnId}-plan`, text: '' };
+    const delta = (text: string) =>
+      mapper.map('item/plan/delta', { threadId: id, turnId, itemId: started.id, delta: text });
     expect(mapper.map('item/started', { threadId: id, turnId, item: started })).toEqual([]);
-    expect(
-      mapper.map('item/plan/delta', { threadId: id, turnId, itemId: started.id, delta: '# 计' }),
-    ).toEqual([]);
+    expect(delta('\n# 计')).toEqual([
+      { type: 'plan.delta', engineSessionId: id, planId: started.id, text: '\n# 计' },
+    ]);
+    expect(delta('')).toEqual([]);
+    expect(delta('划\n')).toEqual([
+      { type: 'plan.delta', engineSessionId: id, planId: started.id, text: '划\n' },
+    ]);
     const item = { ...started, text: '\n# 计划\n\n- 改 A\n' };
     expect(mapper.map('item/completed', { threadId: id, turnId, item })).toEqual([
       { type: 'plan.proposed', engineSessionId: id, planId: started.id, text: '# 计划\n\n- 改 A' },
     ]);
+    // 完成之后到的增量不再报。
+    expect(delta('迟到的')).toEqual([]);
     expect(mapper.map('item/completed', { threadId: id, turnId, item: started })).toMatchObject([
       { type: 'engine.raw', method: 'item/completed', kind: 'plan' },
+    ]);
+    // 增量不是 engine.raw，也不再被忽略。
+    expect(
+      mapper.map('item/plan/delta', { threadId: id, turnId, itemId: started.id }),
+    ).toMatchObject([{ type: 'engine.raw', method: 'item/plan/delta' }]);
+  });
+
+  it('计划从头重写（0.37.0）：同一个 plan item 再开始时，下一段增量带 restart；新回合不带', () => {
+    const mapper = new CodexEventMapper(id);
+    const started = { type: 'plan', id: `${turnId}-plan`, text: '' };
+    const delta = (text: string) =>
+      mapper.map('item/plan/delta', { threadId: id, turnId, itemId: started.id, delta: text });
+    mapper.map('item/started', { threadId: id, turnId, item: started });
+    delta('# 第一');
+    // Codex 重试请求（error willRetry）：同一个 item 又从空开始。
+    mapper.map('error', {
+      threadId: id,
+      turnId,
+      willRetry: true,
+      error: { message: 'stream disconnected', codexErrorInfo: 'other', additionalDetails: null },
+    });
+    expect(mapper.map('item/started', { threadId: id, turnId, item: started })).toEqual([]);
+    expect(delta('# 第二')).toEqual([
+      {
+        type: 'plan.delta',
+        engineSessionId: id,
+        planId: started.id,
+        text: '# 第二',
+        restart: true,
+      },
+    ]);
+    expect(delta('版')).toEqual([
+      { type: 'plan.delta', engineSessionId: id, planId: started.id, text: '版' },
+    ]);
+    // 完成之后同一回合又写一次：照样从头来。
+    mapper.map('item/completed', { threadId: id, turnId, item: { ...started, text: '# 第二版' } });
+    mapper.map('item/started', { threadId: id, turnId, item: started });
+    expect(delta('# 第三')).toMatchObject([{ type: 'plan.delta', restart: true }]);
+    // 新回合（reset）的计划是新的。
+    mapper.reset();
+    mapper.map('item/started', { threadId: id, turnId, item: started });
+    expect(delta('# 新')).toEqual([
+      { type: 'plan.delta', engineSessionId: id, planId: started.id, text: '# 新' },
     ]);
   });
 

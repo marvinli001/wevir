@@ -268,6 +268,21 @@ export const EventPayloadSchemas = {
     /** Markdown。 */
     text: z.string().min(1),
   }),
+  /**
+   * 计划的流式预览（0.37.0，domain-model §3.17）：引擎写计划时的增量，Host 按 60 ms 合并。只是预览，同一 `planId` 的
+   * `plan.proposed` 以全文替换它；回合结束时还没等到 `plan.proposed` 的是没写完的计划。只有 Codex 有（Claude 与 Grok 一次给全文）。
+   */
+  'plan.delta': z.object({
+    turnId: TurnIdSchema,
+    /** 同 `plan.proposed` 的 `planId`。 */
+    planId: z.string().min(1),
+    /** Host 按 60 ms 合并后的片段。 */
+    text: z.string().min(1),
+    /**
+     * 引擎从头重写这份计划（Codex 重试请求、同一回合再写一次）：丢掉同一 `planId` 此前的预览与计划，从这一段重新开始。
+     */
+    restart: z.literal(true).optional(),
+  }),
   'approval.requested': z.object({
     /** `status` 恒为 `pending`。 */
     approval: ApprovalRequestSchema,
@@ -443,6 +458,7 @@ export const ToolUpdatedEventSchema = eventSchema('tool.updated');
 export const ToolFinishedEventSchema = eventSchema('tool.finished');
 export const TodoUpdatedEventSchema = eventSchema('todo.updated');
 export const PlanProposedEventSchema = eventSchema('plan.proposed');
+export const PlanDeltaEventSchema = eventSchema('plan.delta');
 export const ApprovalRequestedEventSchema = eventSchema('approval.requested');
 export const ApprovalResolvedEventSchema = eventSchema('approval.resolved');
 export const QuestionRequestedEventSchema = eventSchema('question.requested');
@@ -484,6 +500,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   ToolFinishedEventSchema,
   TodoUpdatedEventSchema,
   PlanProposedEventSchema,
+  PlanDeltaEventSchema,
   ApprovalRequestedEventSchema,
   ApprovalResolvedEventSchema,
   QuestionRequestedEventSchema,

@@ -113,8 +113,19 @@ export type ChatPart =
   | { type: 'todo'; key: string; items: readonly TodoItem[] }
   /**
    * Agent 给出的计划（0.36.0，`plan.proposed`）：在给出它的回合里（`key` 是 `p:<planId>`），同一 `planId` 再来一次原位替换。
+   * 0.37.0 起计划写的时候就出现（`plan.delta`）。
    */
-  | { type: 'plan'; key: string; planId: string; text: string }
+  | {
+      type: 'plan';
+      key: string;
+      planId: string;
+      text: string;
+      /**
+       * `streaming`：还在写的预览（`plan.delta`）；`done`：给出的计划（`plan.proposed`）；`incomplete`：回合结束时还没写完的预览
+       * （没等到 `plan.proposed`，例如回合被停止）。只有 `done` 的计划会成为 `latestPlan`。
+       */
+      state: 'streaming' | 'done' | 'incomplete';
+    }
   /** 引擎向用户提的一组问题（0.10.0），在提问时所在的位置；结束后原位换成带结局的。 */
   | { type: 'question'; key: string; question: QuestionRequest }
   | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
@@ -254,8 +265,8 @@ export interface Transcript {
   /** 0.36.0：最近一条用户消息（`user.message`）的协作模式；还没有消息时是 `default`。规则同 Host 快照的 `collaborationMode`。 */
   collaborationMode: CollaborationMode;
   /**
-   * 0.36.0：最近一条用户消息开始的回合里最后给出的计划（`plan.proposed`）；之后又有用户消息时清空。界面据此在输入框上方提供
-   * “实施”。
+   * 0.36.0：最近一条用户消息开始的回合里最后给出的计划（`plan.proposed`）；之后又有用户消息时清空，这份计划被从头重写
+   * （`plan.delta` 的 `restart`，0.37.0）时也清空。写的时候的预览不算。界面据此在输入框上方提供“实施”。
    */
   latestPlan: LatestPlan | undefined;
   lastSeq: number;
@@ -494,6 +505,9 @@ export class TranscriptProjection {
         return;
       case 'plan.proposed':
         this.#plan(event);
+        return;
+      case 'plan.delta':
+        this.#planDelta(event);
         return;
       case 'approval.requested':
         this.#approvalRequested(event);
@@ -822,6 +836,10 @@ export class TranscriptProjection {
         }
         // 0.24.0：没压缩成的压缩不再转圈。
         if (part.type === 'compaction' && part.status === 'running') return [];
+        // 0.37.0：没写完的计划留下已写出的部分，不能实施。
+        if (part.type === 'plan' && part.state === 'streaming') {
+          return part.text.trim() === '' ? [] : [{ ...part, state: 'incomplete' }];
+        }
         return [
           part.type === 'tool' && isOpen(part.status) ? { ...part, status: 'unknown' } : part,
         ];
@@ -985,21 +1003,57 @@ export class TranscriptProjection {
     else message.parts.push({ type: 'todo', key: 'todo', items });
   }
 
-  /** `plan.proposed`（0.36.0）：回合里的 `plan` 部件，同一 `planId` 原位替换；记为最近的计划。 */
+  /**
+   * `plan.proposed`（0.36.0）：回合里的 `plan` 部件，同一 `planId` 原位替换（写的时候的预览也是）；记为最近的计划。
+   */
   #plan(event: WevirEventOf<'plan.proposed'>): void {
     const { turnId, planId, text } = event.payload;
-    const key = `p:${planId}`;
     this.#activity(turnId, event.ts);
     this.#latestPlan = { turnId, planId, text, seq: event.seq };
-    const part = { type: 'plan', key, planId, text } as const;
+    this.#putPlan(turnId, event.seq, {
+      type: 'plan',
+      key: `p:${planId}`,
+      planId,
+      text,
+      state: 'done',
+    });
+  }
+
+  /**
+   * `plan.delta`（0.37.0）：计划的预览，追加到同一 `planId` 的 `plan` 部件（`streaming`）。`restart` 时从这一段重来（给出过的
+   * 计划也作废）；没有 `restart` 时已经给出的计划不再追加。
+   */
+  #planDelta(event: WevirEventOf<'plan.delta'>): void {
+    const { turnId, planId, text, restart } = event.payload;
+    const key = `p:${planId}`;
+    this.#activity(turnId, event.ts);
+    const current = this.#turn(turnId)
+      .segments.flatMap((segment) => segment.parts)
+      .find((part): part is ChatPartOf<'plan'> => part.key === key && part.type === 'plan');
+    if (current && !restart && current.state !== 'streaming') return;
+    const latest = this.#latestPlan;
+    if (restart && latest?.turnId === turnId && latest.planId === planId) {
+      this.#latestPlan = undefined;
+    }
+    this.#putPlan(turnId, event.seq, {
+      type: 'plan',
+      key,
+      planId,
+      text: current && !restart ? current.text + text : text,
+      state: 'streaming',
+    });
+  }
+
+  /** 回合里同一 `key` 的计划部件原位换成 `part`，没有就加在当前的助手消息里。 */
+  #putPlan(turnId: TurnId, seq: number, part: ChatPartOf<'plan'>): void {
     for (const segment of this.#turn(turnId).segments) {
-      const index = segment.parts.findIndex((candidate) => candidate.key === key);
+      const index = segment.parts.findIndex((candidate) => candidate.key === part.key);
       if (index < 0) continue;
-      this.#touch(segment, event.seq);
+      this.#touch(segment, seq);
       segment.parts = segment.parts.map((candidate, i) => (i === index ? part : candidate));
       return;
     }
-    this.#assistant(turnId, event.seq).parts.push(part);
+    this.#assistant(turnId, seq).parts.push(part);
   }
 
   // ── 审批 ─────────────────────────────────────────────────────────────

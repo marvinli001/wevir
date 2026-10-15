@@ -135,6 +135,18 @@ export interface PlanProposedEvent {
   text: string;
 }
 
+/**
+ * 计划的流式预览（0.37.0，Codex 的 `item/plan/delta`）：一段增量，Host 合并后写成 `plan.delta`。只是预览，以随后同一 `planId`
+ * 的 `plan.proposed` 为准。`restart`：引擎从头重写这份计划，丢掉此前的预览。回合里的事件，在终结事件之前。
+ */
+export interface PlanDeltaEvent {
+  type: 'plan.delta';
+  engineSessionId: string;
+  planId: string;
+  text: string;
+  restart?: true;
+}
+
 /** 引擎请求审批，携带引擎给的选项列表。等 `respondToApproval`，或以 `approval.cancelled` 结束。 */
 export interface ApprovalRequestedEvent extends PendingApproval {
   type: 'approval.requested';
@@ -359,6 +371,7 @@ export type AgentEvent =
   | ToolFinishedEvent
   | TodoUpdatedEvent
   | PlanProposedEvent
+  | PlanDeltaEvent
   | ApprovalRequestedEvent
   | ApprovalCancelledEvent
   | QuestionRequestedEvent

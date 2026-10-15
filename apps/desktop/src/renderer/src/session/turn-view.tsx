@@ -58,7 +58,7 @@ export const TurnView = memo(
     const lead = messages[0]?.role === 'user' && !messages[0].steered ? 1 : 0;
     const last = messages.at(-1);
     // 进行中：最后一项是工作组（或进行中的压缩，0.24.0）时它显示当前动作，否则末尾另起“正在思考”一行；压缩上下文的回合
-    // 在压缩开始之前那一行就写“正在压缩上下文”。
+    // 在压缩开始之前那一行就写“正在压缩上下文”，计划写到一半时写“正在写计划”。
     const tail =
       last?.role === 'assistant'
         ? groupWork(visibleParts(last.parts, hasSubagents)).at(-1)
@@ -72,6 +72,9 @@ export const TurnView = memo(
           tail.part.status === 'running'));
     const first = messages[0];
     const compacting = first?.role === 'user' && first.command?.kind === 'compact';
+    // 计划写到一半（0.37.0）：那一行写“正在写计划”。
+    const writingPlan =
+      tail?.kind === 'part' && tail.part.type === 'plan' && tail.part.state === 'streaming';
     // 回合结束后的回答（最后一条助手消息的正文），悬停时下面出现“复制”（U36）。
     const answer =
       fold.finished && last?.role === 'assistant'
@@ -130,6 +133,7 @@ export const TurnView = memo(
               live={live}
               startedAt={fold.startedAt}
               {...(compacting && { label: t('compaction.running') })}
+              {...(writingPlan && { label: t('plan.writing') })}
             />
           )}
           {fold.finished && fold.changes.files > 0 && (

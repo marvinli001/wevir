@@ -576,6 +576,8 @@ export const messages: Messages = {
   'plan.download': 'Markdown をダウンロード',
   'plan.expand': 'プランを展開',
   'plan.collapse': 'プランを折りたたむ',
+  'plan.writing': 'プランを作成中',
+  'plan.incomplete': '未完了',
   'plan.ready': 'プランの準備完了',
   'plan.implement': '実装',
   'plan.refine': 'さらに検討',

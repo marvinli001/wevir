@@ -579,6 +579,8 @@ export const zhCN = {
   'plan.download': '下载 Markdown',
   'plan.expand': '展开计划',
   'plan.collapse': '收起计划',
+  'plan.writing': '正在写计划',
+  'plan.incomplete': '未完成',
   'plan.ready': '计划已就绪',
   'plan.implement': '实施',
   'plan.refine': '继续完善',

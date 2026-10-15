@@ -583,6 +583,8 @@ export const messages: Messages = {
   'plan.download': 'Scarica Markdown',
   'plan.expand': 'Espandi piano',
   'plan.collapse': 'Comprimi piano',
+  'plan.writing': 'Stesura del piano',
+  'plan.incomplete': 'Incompleto',
   'plan.ready': 'Piano pronto',
   'plan.implement': 'Implementa',
   'plan.refine': 'Perfeziona',
