@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.8（含 Azure Responses 与 Foundry Claude）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.9（含 DeepSeek 官方文档复核）· 日期：2026-10-16 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -154,6 +154,18 @@ Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 c
 
 来源、部署要求与手动配置见 [providers.md §7.12](./providers.md#712-azure-openai--microsoft-foundry)。`azure.test.ts` 使用四份录制请求，`azure.integration.test.ts` 用本机 HTTP mock 检查命名空间限制、认证、加密推理与工具往返、content_filters、内容过滤错误和 provider.test。mock 不证明真实 Azure 的认证或工具支持。
 
+### 3.6 DeepSeek Responses 与 Chat
+
+2026-10-16 按[官方 Codex 指南](https://api-docs.deepseek.com/quick_start/agent_integrations/codex)继续使用 `https://api.deepseek.com/responses` 透传，`deepseek-official` 与同地址的 openai-responses 均不摊平 apply_patch / namespace。custom 只认 apply_patch，其他 custom 名字会 400；锁定 Codex 的 freeform 工具范围见 §10。namespace 的历史 Spike 与本轮两个模型的子智能体契约均通过；官方指南未单列，当前配置保留 multi_agent_v1，不切到官方目录示例的 V2。
+
+[Responses 参数](https://api-docs.deepseek.com/api/create-response)列出 none / auto / required / 具名选择，没有写思考时的例外；[Chat 参数](https://api-docs.deepseek.com/api/create-chat-completion)则明确思考时 required / 具名会 400。**2026-10-16 真实 Key 复现：Flash 与 V4 Pro 的 Responses 在 high 下，两种 forced choice 均回 HTTP 400、invalid_request_error，原因为 Thinking mode does not support this tool_choice；同请求 auto 均为 200 并调用工具。** 据此给 DeepSeek 的 Responses 与 Chat 路由补 `toolChoice: auto_only` 地址默认（§4.4），Chat 模板也显式声明；deepseek-official 按其固定 Responses 地址取默认，不读取供 dsh 使用的 baseURL。Messages 的工具选择保持原规则。显式 compat 优先，代理地址可手动 auto_only；none 的退化语义同 §3.2。
+
+Responses 不存历史：store / include / previous_response_id 等静默忽略，每次仍带完整 input。明文 reasoning content 与原生 custom 调用、结果原样保留，只清理通用 null 字段；encrypted_content / summary 不受支持，不伪造加密信封。Chat 沿用 §4.4 的思考开关和所有 assistant 推理的回传。Messages 仍使用 `/anthropic/v1/messages`，预算忽略、模型映射与无签名局限见 §5 和 [官方兼容表](https://api-docs.deepseek.com/guides/anthropic_api)。
+
+官方 models.json 为两个模型都列 low / high / max、context_window 1048576；模板另按 API 支持提供 off。`adapter-codex` 已生成 freeform apply_patch 与相应输入模态，新建官方 Provider 现在明确保存非空模型目录；旧 Profile 不迁移，手动更新见 providers.md §7.1。maxTokens 不填：Codex 不发 max_output_tokens，Responses / Chat 路由也不从模型目录补它；填 384K 不会解除服务默认的截断。Chat 默认的 8K / 64K / 128K 不能视为 Responses 的实测值，Responses 的实际默认与长回答仍未实测。
+
+`deepseek.test.ts` 使用四份录制请求，`deepseek.integration.test.ts` 的 HTTP mock 检查 Responses 原生工具和推理往返、非 auto 拒绝与修正、显式 any / 代理覆盖、provider.test。`gateway.real.integration.test.ts` 提供三条路的工具与跨回合验证，以及 Responses 在显式 any 时 forced choice 的 400 与默认修正后的 200 对照；缺 Key 时明确跳过，不把 mock 结果当成服务能力证明。
+
 ## 4. Chat Completions 转换
 
 ### 4.1 请求：Responses → Chat
@@ -229,12 +241,13 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 |---|---|---|
 | `isXaiHost`：`x.ai` 及子域 | `supportsCustomTools: false`、`supportsNamespaceTools: false` | §3.2 |
 | `isBailianHost`：`dashscope.aliyuncs.com`、`dashscope-intl.aliyuncs.com`、`*.maas.aliyuncs.com`（排除 coding / token-plan 套餐域名） | `supportsCustomTools: false`、`supportsNamespaceTools: false`、`toolChoice: auto_only` | §3.4；未有真实 Key，保守默认 |
+| `isDeepSeekHost`：`deepseek.com` 及子域的 Responses / Chat，含固定地址的 deepseek-official | `toolChoice: auto_only` | §3.6；Responses 两模型已实测思考时 required / 具名 400；Messages 保持原选择 |
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
 | `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量地址为 `false` |
 | `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量地址为 `false` |
-| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量地址为 `auto_only`；Messages 的模型默认见 §5.1 |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量地址与 DeepSeek Responses / Chat 为 `auto_only`；Messages 的模型默认见 §5.1 |
 | `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -424,7 +437,7 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 |---|---|---|
 | 单元 | `chat/request.test.ts`、`chat/response.test.ts`、`messages/request.test.ts`、`messages/response.test.ts`、`tools.test.ts`、`dialects.test.ts`、`sse.test.ts`、`errors.test.ts`、`providers.test.ts` | §3、§4、§5 的每一项（Chat 思考格式另在 `chat/thinking.test.ts` 覆盖六种格式、none、模型限制、推理别名、标签的全部分片边界与回传信封；通用方言加：录制样本下 toolChoice / namespace 开关、声明覆盖地址默认与 null 加密推理；R8 加：`content: null` 的推理项、xAI 地址的两条摊平与相反顺序的还原、Gemini 签名信封的往返、换模型与缺签名时的占位值）：录制样本的转换（快照在 `src/__snapshots__/codex-requests/*.chat.json` 与 `*.messages.json`）、对话中间的 developer 消息各模式、图片、工具输出里的图片、孤立的推理、长名字与撞名、length / content_filter、流中的错误与提前断开、交错的并行调用、没有 index 的上游、整段 JSON；Messages 另有思考信封的往返与不带回的各种情况、不合规则的 call_id、占位工具、思考开关与 `max_tokens` 的取值、redacted_thinking、相邻 text 块合并、各 stop_reason、usage 的缓存读写；每个事件序列都过一遍 `codexProblems`（按 Codex 的解析规则检查） |
 | 集成 | `gateway.integration.test.ts`、`compat.integration.test.ts`、`chat-thinking.integration.test.ts`、`provider-test.integration.test.ts`、`gemini.integration.test.ts` | Gemini：拒收 minimal、错误签名与交错结果的 mock，同回合两步工具调用保留各步签名；Schema 默认拒收与显式清洗后通过，Key 前缀不拦截；Chat 思考格式：拒收缺 reasoning_content 的 mock、MiniMax 原始正文与 reasoning_details 的两步回传；通用方言：拒收非 auto / namespace / null 加密推理的 mock，原始请求 400、开关改写后 200，与响应的工具类型 / 命名空间还原；真实 HTTP：令牌、路由、透传（请求体只少 `client_metadata`、请求头白名单、Key 替换）、deepseek-official、两条方言修正、gzip、Chat 转换（apply_patch 与 namespace 往返、交错的并行调用、incomplete、failed）、Messages 转换（请求头、工具调用与跨回合思考的三步往返、不给签名的上游、压缩请求、incomplete、failed、Anthropic 风格的错误正文）、上游错误（状态码与正文、Key 遮掉）、502、Codex 断开时中断上游（三种处理方式）、`setProviders` 不影响进行中的请求、`close()`、日志口径；testProvider 的成功与每种失败（三种处理方式）。Messages 的 mock（`test-fixtures/mock-messages.ts`）按 Anthropic 的结构规则检查请求，不合规则就回 400：`max_tokens`、`budget_tokens`、角色交替、空文本、思考块的签名（对原文哈希，改了就对不上）、`tool_result` 紧跟且排在最前、有工具调用就必须定义工具、名字与 id 的字符 |
-| 真实模型（可选） | `gateway.real.integration.test.ts` | `WEVIR_TEST_API_KEY` + `WEVIR_TEST_PROVIDER=deepseek`（或 `deepseek-official`）时，DeepSeek 的透传、Chat 转换与 Messages 转换（`https://api.deepseek.com/anthropic`）各一次最小对话与 testProvider；Messages 另跑一次带工具调用与跨回合思考的对话（三个请求，打印推理项与带签名的数量）。模型默认 `deepseek-flash`，`WEVIR_TEST_MODEL` 可改。否则跳过并打印原因 |
+| 真实模型（可选） | `gateway.real.integration.test.ts` | `WEVIR_TEST_API_KEY` + `WEVIR_TEST_PROVIDER=deepseek`（或 `deepseek-official`）时，DeepSeek 的透传、Chat 转换与 Messages 转换（`https://api.deepseek.com/anthropic`）各一次最小对话、testProvider、工具与跨回合思考（三个请求，打印推理项与 Messages 签名数量）；另对 Responses 的 required / 具名选择做显式 any 的 400 与默认修正后的 200 对照。模型默认 `deepseek-flash`，`WEVIR_TEST_MODEL` 可改。2026-10-16 两个模型各 11 项通过。没有 Key 时跳过并打印原因 |
 | 端到端（手动） | `spikes/codex-app-server`：`WEVIR_SPIKE_GATEWAY=product node src/run-all.ts --transport=gateway,passthrough`（先 `pnpm --filter @wevir/model-gateway build`） | 真实 `codex-app-server` 经产品网关跑 Spike 的 12 个场景（流式、apply_patch 与审批、跨回合推理、子 agent、取消、resume、计划、上游错误、密钥）。2026-10-14：104 项检查全部通过。R2 的契约测试第 2 层建成后由它替代 |
 
 运行：`pnpm --filter @wevir/model-gateway test`（或 `pnpm vitest run --project model-gateway --maxWorkers=2`）。
@@ -455,9 +468,10 @@ Codex 升级时重查上述字段默认值、Provider 判定与触发条件；�
 
 - Google Cloud Vertex：本地实现服务账号、Gemini Chat 与 Claude Messages 变体，尚缺 GCP 项目与真实服务账号，两个模型的契约第 3 层与桌面工具对话未验收。不读取 ADC / gcloud，不接 express Key、Gemini 原生 API 或其他发布方。Claude 的 URL 图片、30 MB、地域可用性限制见 §2 与 providers.md §7.11。
 - Azure：缺 WEVIR_TEST_API_KEY、资源端点与部署名，Bearer Key 认证、Responses / Claude 的契约第 3 层和桌面 apply_patch 均未验收。大陆直连情况未确认；不接 Entra ID、Azure 中国、旧 deployments + api-version 路径或 /api/projects 路由。自定义 Claude 部署别名的型号识别局限见 §3.5。
+- DeepSeek：2026-10-16 两个模型的三条网关路由各 11 项、Codex 契约第 3 层各 23 项通过；桌面官方 Flash / high 与 Chat V4 Pro / low 均完成 apply_patch，详见 providers.md §7.1。Responses 的默认输出上限与长回答截断仍未实测，目录 maxTokens 不会解除它；auto_only 不能保证禁止调用。旧 Profile 不迁移，手动更新见同节。
 - Gemini：未提供 WEVIR_TEST_API_KEY，3.8 Flash / 3.1 Pro Preview / 4 Argon 的真实契约与桌面工具对话未验收；Schema 清洗默认关闭，占位签名、Schema 与中途 system 仍待实测（§4.5）。不接 Interactions 或原生 generateContent；思考内容不返回、不显示。
 - 阿里云百炼：缺 WEVIR_TEST_API_KEY，Qwen3.8 Max / Flash 的契约第 3 层与桌面 apply_patch 未验收；custom、namespace 与非 auto 选择的真实支持待探测，当前为保守默认（§3.4）。Responses 文档说明输入约限窗口的 80% 且会自动截断；未从官方确认最大输出，模板不填 maxTokens。旧 Provider 不迁移，手动修改见 providers.md §7.2。只接按量 Responses，不接订阅套餐、托管第三方模型模板或 Anthropic 端点。
-- 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
+- DeepSeek 的历史 Spike 见 codex-notes §7.3；2026-10-16 本包已用两个当前模型跑通三条路，替代原来仅有 mock 的验收状态。其他服务的推理带回、自定义工具与 namespace 仍须逐家真实验证。xAI、Gemini 的方言依据与验收边界见 §3.2、§4.5，不能从 DeepSeek 的通过结果推断它们也可用；命令见 docs/development.md §6.3。
 - OpenAI 官方 API：2026-10-15 只完成文档与本地 mock 核对（§3.3）。缺 `WEVIR_TEST_API_KEY`，Sol / Luna 的契约第 3 层、桌面端 `apply_patch` 与 Luna 的关闭推理选项仍待真实服务验证，命令见 docs/development.md §6.3。
 - Anthropic 官方 API：2026-10-15 完成文档、录制请求与严格 HTTP mock 核对；缺 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面 apply_patch 未验收。未实现 Workspace ID，只支持绑定单个 workspace 的 Key；Codex 的手动压缩、动态工具目录与换模型可能改变思考前缀，尚无服务端压缩或工具变更机制兜底。
 - Messages：缺签名的思考不带回（§5.3）；`thinkingFormat` 只有 `adaptive` / `enabled` 两种，Sonnet 4.5、Haiku 4.5 不认 `output_config.effort` 却没有开关去掉；`max_tokens` 的默认值 32000 对上限更低的服务要在 Provider 里写明；Anthropic 的 HTTP 400 “prompt is too long”原样转回，Codex 不会把它认成上下文超长（只有流里的 `context_length_exceeded` 才会）；不发 `metadata.user_id`、`stop_sequences`、服务端工具；`custom_tool_call_input.delta` 同 Chat，不生成。

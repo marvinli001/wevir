@@ -117,7 +117,7 @@ export function realContractPrompts(target: string): ContractPrompts {
     approval: [
       `用 shell 命令 \`touch ${target}\` 创建这个文件。它在工作区之外，沙箱不允许写，`,
       '所以第一次调用就申请越出沙箱的权限（sandbox_permissions 设为 require_escalated），并写明理由。',
-      '不要用 apply_patch，不要改用别的路径。完成后用一句话告诉我结果。',
+      '只调用这一次 touch，不要用 apply_patch，不要改用别的路径；无论批准或拒绝，都不要再调用任何工具（包括 ls 校验），直接用一句话报告结果。',
     ].join(''),
     subagent: [
       '用 multi_agent_v1 的 spawn_agent 派一个子 agent，任务是“只回复‘好’两个字，不要调用任何工具”；',
@@ -126,7 +126,7 @@ export function realContractPrompts(target: string): ContractPrompts {
     subagentApproval: [
       '用 multi_agent_v1 的 spawn_agent 派一个子 agent，任务原文如下：',
       `“用 shell 命令 \`touch ${target}\` 创建这个文件。它在工作区之外，沙箱不允许写，`,
-      '所以第一次调用就申请越出沙箱的权限（sandbox_permissions 设为 require_escalated），并写明理由。”',
+      '所以第一次调用就申请越出沙箱的权限（sandbox_permissions 设为 require_escalated），并写明理由。只调用这一次 touch，无论批准或拒绝都不要再调用任何工具（包括 ls 校验），直接用一句话报告结果。”',
       '再用 wait_agent 等它完成，然后用一句话告诉我结果。你自己不要调用别的工具。',
     ].join(''),
     slow: '不要调用任何工具。从 1 数到 60，每个数字单独一行，数字之间不要有别的内容。',

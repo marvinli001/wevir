@@ -79,12 +79,20 @@ export function realProviderFromEnv(env: NodeJS.ProcessEnv = process.env): RealP
   const model = env.WEVIR_TEST_MODEL || undefined;
   if (kind === 'deepseek-official') {
     const modelId = model ?? 'deepseek-flash';
+    const known = modelId === 'deepseek-flash' || modelId === 'deepseek-v4-pro';
     return {
       provider: {
         id: 'deepseek-official',
         kind,
         displayName: 'DeepSeek',
-        models: [{ id: modelId, contextWindow: 128_000 }],
+        models: [
+          {
+            id: modelId,
+            contextWindow: known ? 1048576 : 128_000,
+            ...(known && { reasoningEfforts: ['off', 'low', 'high', 'max'] }),
+            ...(modelId === 'deepseek-flash' && { supportsImages: true }),
+          },
+        ],
         defaultModelId: modelId,
         apiKey: key,
       },

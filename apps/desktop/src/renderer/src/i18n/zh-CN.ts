@@ -887,6 +887,9 @@ export const zhCN = {
   'provider.preset.zhipu.note':
     '按量计费地址；GLM Coding 套餐为 https://open.bigmodel.cn/api/coding/paas/v4。',
   'provider.preset.deepseekOpenai': 'DeepSeek（OpenAI 兼容）',
+  'provider.preset.deepseek.note': '按量计费，中国大陆可直连；默认 Flash 支持图片，也可选 V4 Pro。',
+  'provider.preset.deepseekOpenai.note':
+    '按量计费，中国大陆可直连；使用 Chat Completions，思考时由模型自动选择工具。',
   'provider.preset.xai': 'xAI（Grok API）',
   'provider.preset.xai.note': 'API Key 以 xai- 开头；中国内地无法直连。',
   'provider.preset.gemini': 'Google AI Studio',

@@ -18,6 +18,8 @@ export const MESSAGES_THINKING_FORMATS = ['adaptive', 'enabled'] as const;
 /** 地址 → 默认 compat（model-gateway.md §4.4）；各家只在此登记，显式开关仍优先。 */
 export const PROVIDER_COMPAT_DEFAULTS: readonly {
   matches(baseURL: string): boolean;
+  /** 未指定时用于所有路由；DeepSeek 仅给 Responses / Chat 降级工具选择。 */
+  api?: string;
   compat: GatewayCompat;
 }[] = [
   { matches: isXaiHost, compat: { supportsCustomTools: false, supportsNamespaceTools: false } },
@@ -29,12 +31,17 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
       toolChoice: 'auto_only',
     },
   },
+  { matches: isDeepSeekHost, api: 'openai-responses', compat: { toolChoice: 'auto_only' } },
+  { matches: isDeepSeekHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
 ];
 
 /** 每个字段按 Provider 声明 > 地址默认 > 全局默认取值，undefined 视为没写。 */
 export function effectiveCompat(provider: GatewayProvider): GatewayCompat {
-  const defaults = PROVIDER_COMPAT_DEFAULTS.find((entry) =>
-    entry.matches(provider.baseURL ?? ''),
+  const official = provider.kind === 'deepseek-official';
+  const api = official ? 'openai-responses' : provider.api;
+  const baseURL = official ? DEEPSEEK_RESPONSES_BASE_URL : (provider.baseURL ?? '');
+  const defaults = PROVIDER_COMPAT_DEFAULTS.find(
+    (entry) => (entry.api === undefined || entry.api === api) && entry.matches(baseURL),
   )?.compat;
   const declared = provider.compat;
   return {

@@ -885,6 +885,10 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     'Pay-as-you-go URL; the GLM Coding plan uses https://open.bigmodel.cn/api/coding/paas/v4.',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI-compatible)',
+  'provider.preset.deepseek.note':
+    'Pay as you go, accessible directly from mainland China. Flash supports images and is the default; V4 Pro is also available.',
+  'provider.preset.deepseekOpenai.note':
+    'Pay as you go, accessible directly from mainland China. Uses Chat Completions; the model chooses tools automatically while thinking.',
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.xai.note':
     'API Key starts with xai-; not directly reachable from mainland China.',

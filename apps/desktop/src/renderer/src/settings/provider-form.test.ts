@@ -20,7 +20,12 @@ import {
   toUpsertParams,
   validateForm,
 } from './provider-form';
-import { OPENAI_PRESETS, type OpenAIPreset, VERTEX_PRESETS } from './provider-presets';
+import {
+  DEEPSEEK_OFFICIAL_PRESET,
+  OPENAI_PRESETS,
+  type OpenAIPreset,
+  VERTEX_PRESETS,
+} from './provider-presets';
 import { presentTestError, presentTestResult } from './provider-test-result';
 
 const kimi = OPENAI_PRESETS.find((preset) => preset.id === 'kimi');
@@ -546,7 +551,7 @@ describe('预设模板（providers.md §7）', () => {
 });
 
 describe('DeepSeek 官方', () => {
-  it('ID 固定，模型不列（用 dsh 自带目录），地址留空时不带 baseURL', () => {
+  it('ID 固定，新建时显式列出 Codex 所需的模型能力，地址留空时不带 baseURL', () => {
     const form = { ...newDeepSeekForm(), apiKey: ' sk-ds ' };
     expect(deepseekModelChoices(form)).toEqual(['deepseek-flash', 'deepseek-v4-pro']);
     expect(validateForm(form, [])).toEqual({});
@@ -555,11 +560,74 @@ describe('DeepSeek 官方', () => {
       id: 'deepseek-official',
       kind: 'deepseek-official',
       displayName: 'DeepSeek',
-      models: [],
+      models: [
+        {
+          id: 'deepseek-flash',
+          contextWindow: 1048576,
+          supportsImages: true,
+          reasoningEfforts: ['off', 'low', 'high', 'max'],
+        },
+        {
+          id: 'deepseek-v4-pro',
+          contextWindow: 1048576,
+          reasoningEfforts: ['off', 'low', 'high', 'max'],
+        },
+      ],
       defaultModelId: 'deepseek-flash',
       apiKey: 'sk-ds',
     });
     expect(upsertSchema.safeParse(params).success).toBe(true);
+    expect(form.preset).toBe(DEEPSEEK_OFFICIAL_PRESET);
+    expect(form.preset?.note).toBe('provider.preset.deepseek.note');
+    expect(form.preset?.docsURL).toBe(
+      'https://api-docs.deepseek.com/quick_start/agent_integrations/codex',
+    );
+  });
+
+  it('官方与 Chat 目录共用模型能力、国内分组和现有标志，Chat 显式保留代理所需 compat', () => {
+    expect(catalogEntry('deepseek')).toMatchObject({
+      group: 'cn',
+      logo: 'deepseek',
+      keyURL: 'https://platform.deepseek.com/api_keys',
+      source: { kind: 'deepseek-official' },
+    });
+    const entry = catalogEntry('deepseek-openai');
+    expect(entry).toMatchObject({
+      group: 'cn',
+      logo: 'deepseek',
+      keyURL: 'https://platform.deepseek.com/api_keys',
+    });
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 DeepSeek Chat 模板');
+    const params = upsertSchema.parse(toUpsertParams(newOpenAIForm(entry.source.preset, [])));
+    if (params.kind !== 'openai-compatible') throw new Error('DeepSeek Chat 的 Provider 类型不对');
+    expect(params).toMatchObject({
+      api: 'openai-completions',
+      baseURL: 'https://api.deepseek.com',
+      compat: {
+        thinkingFormat: 'deepseek',
+        requiresReasoningContentOnAssistantMessages: true,
+        toolChoice: 'auto_only',
+      },
+      models: DEEPSEEK_OFFICIAL_PRESET.models,
+    });
+    expect(params.models.every((m) => m.maxTokens === undefined)).toBe(true);
+    expect(
+      providerLogo({ kind: 'openai-compatible', baseURL: 'https://api.deepseek.com/v1' }),
+    ).toBe('deepseek');
+  });
+
+  it('旧官方 Profile 的空模型列表不自动套新模板', () => {
+    const form = editForm(
+      profile({
+        id: 'deepseek-official',
+        kind: 'deepseek-official',
+        models: [],
+        defaultModelId: 'deepseek-flash',
+      }),
+    );
+    expect(toUpsertParams(form).models).toEqual([]);
+    expect(form.preset).toBeUndefined();
+    expect(deepseekModelChoices(form)).toEqual(['deepseek-flash', 'deepseek-v4-pro']);
   });
 
   it('编辑时保留已列出的自定义模型，默认模型只能从中选', () => {

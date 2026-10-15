@@ -95,6 +95,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://platform.deepseek.com/api_keys',
   },
   {
+    id: 'deepseek-openai',
+    name: 'provider.preset.deepseekOpenai',
+    logo: 'deepseek',
+    group: 'cn',
+    source: preset('deepseek-openai'),
+    keyURL: 'https://platform.deepseek.com/api_keys',
+  },
+  {
     id: 'dashscope',
     name: 'provider.catalog.dashscope',
     logo: 'qwen',

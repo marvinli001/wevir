@@ -874,6 +874,10 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     '按量計費網址；GLM Coding 方案為 https://open.bigmodel.cn/api/coding/paas/v4。',
   'provider.preset.deepseekOpenai': 'DeepSeek（OpenAI 相容）',
+  'provider.preset.deepseek.note':
+    '隨用隨付，中國大陸可直接連線；預設 Flash 支援圖片，也可選 V4 Pro。',
+  'provider.preset.deepseekOpenai.note':
+    '隨用隨付，中國大陸可直接連線；使用 Chat Completions，思考時由模型自動選擇工具。',
   'provider.preset.xai': 'xAI（Grok API）',
   'provider.preset.xai.note': 'API Key 以 xai- 開頭；中國大陸無法直接連線。',
   'provider.preset.gemini': 'Google AI Studio',

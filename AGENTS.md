@@ -64,6 +64,8 @@ Vertex 服务账号（0.21.0）：`packages/model-gateway/src/vertex-auth.ts` �
 
 Azure 全球资源（2026-10-15）：`model-gateway/src/providers.ts` 的 `isAzureHost` 识别三种资源域名，`dialects.ts` 只对 Azure Responses 补 namespace 空描述与无状态推理 include；Foundry Claude 用现有 Messages 转换。桌面目录有 Azure OpenAI / Azure Claude 两个模板，`settings/provider-form.ts` 的通用占位检查与 `provider-editor.tsx` 的模型行供设置和引导共用，填写部署名保留模板能力。来源、手动配置与真实验证缺口见 providers.md §7.12、model-gateway.md §3.5、development.md §6.3。
 
+DeepSeek 按量 API（2026-10-16）：桌面 `settings/provider-presets.ts` 的官方模板显式保存 Codex 所需的非空模型目录（1048576、两模型 off / low / high / max），Chat 模板共用能力并声明思考与工具 compat；目录两项复用现有标志。网关 `providers.ts` 给 DeepSeek Responses / Chat 补 auto_only，Responses 保留原生工具，依据和真实验证边界见 model-gateway.md §3.6、providers.md §7.1；已有 Profile 不迁移。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

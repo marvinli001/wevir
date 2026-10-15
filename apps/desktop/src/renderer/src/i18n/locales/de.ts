@@ -892,6 +892,10 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     'Adresse für nutzungsbasierte Abrechnung; GLM Coding Plan: https://open.bigmodel.cn/api/coding/paas/v4.',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI-kompatibel)',
+  'provider.preset.deepseek.note':
+    'Nutzungsabhängige Abrechnung, aus Festlandchina direkt erreichbar. Standard ist Flash mit Bildunterstützung; V4 Pro ist ebenfalls verfügbar.',
+  'provider.preset.deepseekOpenai.note':
+    'Nutzungsabhängige Abrechnung, aus Festlandchina direkt erreichbar. Verwendet Chat Completions; beim Nachdenken wählt das Modell die Werkzeuge automatisch.',
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.xai.note': 'API Key beginnt mit xai-; in Festlandchina kein direkter Zugriff.',
   'provider.preset.gemini': 'Google AI Studio',

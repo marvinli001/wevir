@@ -889,6 +889,10 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     '従量課金の URL。GLM Coding プランは https://open.bigmodel.cn/api/coding/paas/v4。',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 互換)',
+  'provider.preset.deepseek.note':
+    '従量課金で、中国本土から直接接続できます。既定の Flash は画像に対応し、V4 Pro も選べます。',
+  'provider.preset.deepseekOpenai.note':
+    '従量課金で、中国本土から直接接続できます。Chat Completions を使い、思考中はモデルがツールを自動で選択します。',
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.xai.note': 'API Key は xai- で始まります。中国本土からは直接接続できません。',
   'provider.preset.gemini': 'Google AI Studio',

@@ -898,6 +898,10 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     'Adresse facturée à l’usage ; forfait GLM Coding : https://open.bigmodel.cn/api/coding/paas/v4.',
   'provider.preset.deepseekOpenai': 'DeepSeek (compatible OpenAI)',
+  'provider.preset.deepseek.note':
+    'Facturation à l’usage, accès direct depuis la Chine continentale. Flash, par défaut, accepte les images ; V4 Pro est aussi disponible.',
+  'provider.preset.deepseekOpenai.note':
+    'Facturation à l’usage, accès direct depuis la Chine continentale. Utilise Chat Completions ; le modèle choisit automatiquement les outils pendant la réflexion.',
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.xai.note':
     'L’API Key commence par xai- ; pas d’accès direct depuis la Chine continentale.',

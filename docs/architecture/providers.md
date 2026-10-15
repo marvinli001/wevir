@@ -75,7 +75,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 | 地址不是 `api.openai.com` | `supportsDeveloperRole: false`、`maxTokensField: max_tokens` |
 | 地址是 `deepseek.com` 及其子域（DeepSeek 的 OpenAI 兼容端点走 pi-ai 时） | 另加 `thinkingFormat: deepseek`、`requiresReasoningContentOnAssistantMessages: true`（T0.3 §6.2，取自 pi-ai 自带的 deepseek 目录） |
 
-Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI 与百炼按量端点）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5，不改变这些工具开关。
+Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI、百炼按量端点与 DeepSeek 的 Responses / Chat 路由）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5，不改变这些工具开关。
 
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
@@ -196,24 +196,29 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 ## 7. 服务示例
 
-以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。每个模型都填 `contextWindow`：Codex 引擎按它自动压缩（窗口的九成）并显示上下文用量，没填按 128k 估算（codex-event-mapping.md §3“上下文大小”）。2026-10-15 对照各家官方模型页核对过桌面端全部预设（`provider-presets.ts`）的上下文长度，都与官方一致，只有本机 Ollama 例外（§7.5）。几处官方写法：OpenAI 与 Azure 的 GPT-6 系列 1,050,000 是输入加输出，输入上限 922,000、输出 128,000；百炼 qwen3.8 / 3.7 的 1,000,000 里输入上限 991,808（思考模式 983,616）；Kimi 写“256k”（按 262,144 填）；DeepSeek 写“1M”（按 1,000,000 填）；Anthropic 的 1M 是 Claude 5.5 系列的默认，不用 beta 头；gemini-4-argon 的 1,048,576 是输入输出共用。智谱文档标注 GLM-4.5 即将下线，换预设模型另行决定。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
+以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。每个模型都填 `contextWindow`：Codex 引擎按它自动压缩（窗口的九成）并显示上下文用量，没填按 128k 估算（codex-event-mapping.md §3“上下文大小”）。2026-10-15 对照各家官方模型页核对过桌面端全部预设（`provider-presets.ts`）的上下文长度，后续复核日期以各节为准；本机 Ollama 取决于自己的运行配置（§7.5）。几处官方写法：OpenAI 与 Azure 的 GPT-6 系列 1,050,000 是输入加输出，输入上限 922,000、输出 128,000；百炼 qwen3.8 / 3.7 的 1,000,000 里输入上限 991,808（思考模式 983,616）；Kimi 写“256k”（按 262,144 填）；DeepSeek 模型页写“1M”，2026-10-16 按官方 Codex 目录的明确数值 1,048,576 填（§7.1）；Anthropic 的 1M 是 Claude 5.5 系列的默认，不用 beta 头；gemini-4-argon 的 1,048,576 是输入输出共用。智谱文档标注 GLM-4.5 即将下线，换预设模型另行决定。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
 
 ### 7.1 DeepSeek
 
-首选 `deepseek-official`（dsh 原生的 Messages 适配器，支持 Files API 的图片与提示词缓存相关设置）：
+**2026-10-16 核对。** 首选 `deepseek-official`：Codex 按 DeepSeek 的官方 Codex 指南，经网关透传到 `https://api.deepseek.com/responses`，保留原生 apply_patch 与明文推理历史。这个 kind 的可选 baseURL 仍只供 dsh 的 Messages 路由使用，不能用它更改 Codex 的 Responses 地址；需要代理时另建 `openai-compatible` + `openai-responses`。本次不改 dsh 引擎。
+
+新建官方 Provider 显式填入模型目录（Codex 要求非空），默认 Flash；两个模型均可关闭思考、支持 low / high / max，未选档位时由 DeepSeek 默认 high。Flash 收图片，V4 Pro 只收文本。窗口按官方 Codex models.json 的 **1,048,576**，比模型页笼统写的 1M 更精确；不照抄其中的基础提示词、shell、multi-agent V2 或搜索开关，保留 Wevir 的执行与加固设置。
 
 ```json
 {
   "id": "deepseek-official",
   "kind": "deepseek-official",
   "displayName": "DeepSeek",
-  "models": [],
+  "models": [
+    { "id": "deepseek-flash", "contextWindow": 1048576, "supportsImages": true, "reasoningEfforts": ["off", "low", "high", "max"] },
+    { "id": "deepseek-v4-pro", "contextWindow": 1048576, "reasoningEfforts": ["off", "low", "high", "max"] }
+  ],
   "defaultModelId": "deepseek-flash",
   "apiKey": "<DeepSeek API Key>"
 }
 ```
 
-也可以走 OpenAI 兼容端点（pi-ai）。地址是 `deepseek.com` 时 §2.3 自动加 `thinkingFormat: deepseek` 与 `requiresReasoningContentOnAssistantMessages: true`：
+也可以选“DeepSeek（OpenAI 兼容）”，由 Codex 网关转 Chat。模板显式声明思考格式、历史推理与工具选择，经代理改地址也保留；官方地址的 Responses / Chat 路由默认使用 auto_only（显式 compat 优先），Messages 保持原规则。Chat 文档明确写出思考时 required / 具名选择会 400；Responses 文档只列支持，**2026-10-16 真实 Key 实测两个模型在 high 下也返回 400，错误为思考模式不支持该 tool_choice，同请求改 auto 后均为 200 并调用工具**，因此同样降级（model-gateway.md §3.6）。auto_only 也会去掉 none、保留工具，不能保证禁止调用。
 
 ```json
 {
@@ -222,16 +227,27 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
   "displayName": "DeepSeek（OpenAI 兼容）",
   "api": "openai-completions",
   "baseURL": "https://api.deepseek.com",
+  "compat": {
+    "thinkingFormat": "deepseek",
+    "requiresReasoningContentOnAssistantMessages": true,
+    "toolChoice": "auto_only"
+  },
   "models": [
-    { "id": "deepseek-flash", "contextWindow": 1000000, "supportsImages": true, "reasoningEfforts": ["off", "low", "high", "max"] },
-    { "id": "deepseek-v4-pro", "contextWindow": 1000000, "reasoningEfforts": ["off", "high", "max"] }
+    { "id": "deepseek-flash", "contextWindow": 1048576, "supportsImages": true, "reasoningEfforts": ["off", "low", "high", "max"] },
+    { "id": "deepseek-v4-pro", "contextWindow": 1048576, "reasoningEfforts": ["off", "low", "high", "max"] }
   ],
   "defaultModelId": "deepseek-flash",
   "apiKey": "<DeepSeek API Key>"
 }
 ```
 
-来源：dsh 自带的 pi-ai 目录（`@earendil-works/pi-ai` 1.1.0 的 `providers/data/deepseek.json`）与 llm-deepseek README。
+- **输出上限。** 两个模板均不填 maxTokens。模型页最大输出为 384K，Chat 参考明确为 393,216；Chat 未设置时非思考默认 8K、思考 64K、max 档 128K。Responses 参考只说 max_output_tokens 包含思考与正文，没有独立声明默认数值，不能把 Chat 默认当成 Responses 已验证的行为。锁定 Codex 不发送 max_output_tokens，模型目录的 maxTokens 也不会自动进入 Responses / Chat 请求；只填 384K 不能解除截断。保留服务默认，不主动提高每次请求的输出预算；长回答是否触及 Responses 默认上限仍待真实样本，不声称已经解决。
+- **历史与工具。** Responses 是无状态 API，store / include / previous_response_id 等不受支持的字段静默忽略；每次发送完整历史。reasoning 的明文 content 带回，summary / encrypted_content 不支持；只清理通用 null 键。custom 工具只认 apply_patch；namespace 的历史 Spike 与本轮两个模型的子智能体契约均通过，当前官方文档未声明它，不额外摊平。Chat 会完整带回所有 assistant 的 reasoning_content，不能只带最近一步。
+- **地域与目录。** 按量 API，中国大陆可直连；Key 从 [DeepSeek 开放平台](https://platform.deepseek.com/api_keys) 创建。两个入口均在“国内”，复用已有 LobeHub DeepSeek 标志。旧的 deepseek-v4-flash / deepseek-v4-flash-vision-exp 别名现由 Flash 服务，新模板只列 deepseek-flash 与 deepseek-v4-pro。
+- **旧 Provider 手动修改。** 不迁移已存 Profile。已有 Chat Provider 可在设置中更新模型窗口为 1048576，按上例补 low 与 compat（compat 经 provider.upsert 合并，Key 省略即可保留）；只改窗口不会自动增加档位。已有官方 Provider 若 models 为空，可经 provider.upsert 提交上例的非空目录并省略 apiKey；桌面官方表单保留旧 models，不会自动替换。改完重新测试连接并新建会话。
+- **真实验收（2026-10-16）。** Flash 与 V4 Pro 的网关测试各 11 项通过（Responses / Chat / Messages、testProvider、工具与跨回合历史、forced choice 的 400 → 200），Codex 契约第 3 层各 23 项通过。`pnpm dev` 中通过官方模板的 Flash / high、Chat 模板的 V4 Pro / low，各用 apply_patch 写出预期文件并正常完成；另核对了档位切换、目录与表单、1280px / 960px 视口。临时 Host 仅将 SecretStore 改为内存，使用真实 Codex 与 DeepSeek；检查临时数据无 Key、无 secrets.json。未生成长达输出上限的回答，Responses 的实际默认输出上限仍未验证。已存 Provider 不迁移。
+
+来源（2026-10-16）：[Codex 与 models.json](https://api-docs.deepseek.com/quick_start/agent_integrations/codex)、[Responses 指南](https://api-docs.deepseek.com/guides/responses_api)、[Responses 参数](https://api-docs.deepseek.com/api/create-response)、[思考模式](https://api-docs.deepseek.com/guides/thinking_mode)、[Chat 参数](https://api-docs.deepseek.com/api/create-chat-completion)、[Anthropic 兼容](https://api-docs.deepseek.com/guides/anthropic_api)、[模型与最大输出](https://api-docs.deepseek.com/quick_start/pricing)。
 
 ### 7.2 阿里云百炼（DashScope）
 

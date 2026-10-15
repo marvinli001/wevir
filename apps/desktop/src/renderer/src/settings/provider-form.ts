@@ -15,6 +15,7 @@ import {
 import { t } from '@/i18n';
 import {
   DEEPSEEK_OFFICIAL_ID,
+  DEEPSEEK_OFFICIAL_PRESET,
   DSH_DEEPSEEK_MODELS,
   FORM_APIS,
   type FormApi,
@@ -64,7 +65,7 @@ export interface ProviderForm {
   baseURL: string;
   /**
    * `openai-compatible`：表单编辑的模型列表，默认模型是 `defaultIndex` 那一行。`deepseek-official`：已列出的
-   * 自定义模型（通常为空，用 dsh 自带目录），原样保留、不在表单里编辑。
+   * 模型（新建时显式列出，旧 Profile 可能为空），原样保留、不在表单里编辑。
    */
   models: ModelRow[];
   defaultIndex: number;
@@ -101,10 +102,11 @@ export function newDeepSeekForm(): ProviderForm {
     displayName: 'DeepSeek',
     api: 'openai-completions',
     baseURL: '',
-    models: [],
+    models: DEEPSEEK_OFFICIAL_PRESET.models.map(modelRow),
     defaultIndex: 0,
-    defaultModelId: DSH_DEEPSEEK_MODELS[0] ?? '',
+    defaultModelId: DEEPSEEK_OFFICIAL_PRESET.defaultModelId,
     apiKey: '',
+    preset: DEEPSEEK_OFFICIAL_PRESET,
   };
 }
 

@@ -878,6 +878,10 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     '종량제 주소. GLM Coding 요금제는 https://open.bigmodel.cn/api/coding/paas/v4.',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 호환)',
+  'provider.preset.deepseek.note':
+    '사용량 기반 요금이며 중국 본토에서 직접 연결할 수 있습니다. 기본 모델인 Flash는 이미지를 지원하며 V4 Pro도 선택할 수 있습니다.',
+  'provider.preset.deepseekOpenai.note':
+    '사용량 기반 요금이며 중국 본토에서 직접 연결할 수 있습니다. Chat Completions를 사용하며 추론 중에는 모델이 도구를 자동으로 선택합니다.',
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.xai.note': 'API Key는 xai-로 시작. 중국 본토에서 직접 연결 불가.',
   'provider.preset.gemini': 'Google AI Studio',

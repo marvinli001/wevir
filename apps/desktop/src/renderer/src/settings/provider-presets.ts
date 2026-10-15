@@ -49,6 +49,30 @@ export interface OpenAIPreset {
 /** OpenAI 与 Anthropic 模板共用的五档推理；支持关闭的模型另加 off。 */
 const FIVE_EFFORTS: ProviderModel['reasoningEfforts'] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+/** Codex 官方接入指南的目录（2026-10-16）；新建时显式保存，已有 Profile 不套用。 */
+export const DEEPSEEK_OFFICIAL_PRESET: OpenAIPreset = {
+  id: DEEPSEEK_OFFICIAL_ID,
+  name: 'provider.catalog.deepseek',
+  note: 'provider.preset.deepseek.note',
+  api: 'openai-responses',
+  baseURL: 'https://api.deepseek.com',
+  models: [
+    {
+      id: 'deepseek-flash',
+      contextWindow: 1048576,
+      supportsImages: true,
+      reasoningEfforts: ['off', 'low', 'high', 'max'],
+    },
+    {
+      id: 'deepseek-v4-pro',
+      contextWindow: 1048576,
+      reasoningEfforts: ['off', 'low', 'high', 'max'],
+    },
+  ],
+  defaultModelId: 'deepseek-flash',
+  docsURL: 'https://api-docs.deepseek.com/quick_start/agent_integrations/codex',
+};
+
 export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
   {
     // Sol / Astra 调工具要求 Responses，Luna 在 Chat 上只有 none 支持函数调用，统一由网关透传 Responses
@@ -237,18 +261,17 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
   {
     id: 'deepseek-openai',
     name: 'provider.preset.deepseekOpenai',
+    note: 'provider.preset.deepseekOpenai.note',
     api: 'openai-completions',
     baseURL: 'https://api.deepseek.com',
-    models: [
-      {
-        id: 'deepseek-flash',
-        contextWindow: 1000000,
-        supportsImages: true,
-        reasoningEfforts: ['off', 'low', 'high', 'max'],
-      },
-      { id: 'deepseek-v4-pro', contextWindow: 1000000, reasoningEfforts: ['off', 'high', 'max'] },
-    ],
-    defaultModelId: 'deepseek-flash',
+    models: DEEPSEEK_OFFICIAL_PRESET.models,
+    defaultModelId: DEEPSEEK_OFFICIAL_PRESET.defaultModelId,
+    compat: {
+      thinkingFormat: 'deepseek',
+      requiresReasoningContentOnAssistantMessages: true,
+      toolChoice: 'auto_only',
+    },
+    docsURL: 'https://api-docs.deepseek.com/guides/thinking_mode',
   },
   {
     // xAI 的 Responses 是主接口（Chat 已标 Legacy），网关透传；不支持自定义工具，apply_patch 由网关摊平成函数

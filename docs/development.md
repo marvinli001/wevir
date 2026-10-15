@@ -403,9 +403,23 @@ WEVIR_TEST_PROVIDER=google-vertex WEVIR_TEST_VERTEX_PROJECT=your-project-id WEVI
 
 Vertex 不读 WEVIR_TEST_BASE_URL。未指定模型时，Chat 默认 google/gemini-3.8-flash，Messages 默认 claude-sonnet-5-5；不设置 API Key，凭据只在 Host 网关内存。缺 JSON / 文件路径时整层跳过并打印缺失的变量名。2026-10-15 未提供 Vertex 服务账号，两个模型的真实契约与 `pnpm dev` 中用 Vertex 模板经 apply_patch 改文件均未验收；本地 HTTP mock 不能替代真实服务。
 
-用到 Key 的测试：`packages/adapter-dsh` 的 `dsh-adapter.approval.integration`、`dsh-adapter.resume.integration`、`provider-test.integration`、`dsh-adapter.contract.real.integration`，`packages/host` 的 `host-process.dsh.integration`，`packages/adapter-codex` 的 `codex-adapter.contract.real.integration`（Key 只进网关的内存，不进 Codex 的环境），以及 `packages/model-gateway` 的 `gateway.real.integration`（经 DeepSeek 的透传与 Chat 转换各跑一次）。Key 只经环境变量传给测试，再只进 dsh 子进程的环境，不写进 overlay、快照或日志；不要把 Key 写进仓库里的任何文件。
+用到 Key 的测试：`packages/adapter-dsh` 的 `dsh-adapter.approval.integration`、`dsh-adapter.resume.integration`、`provider-test.integration`、`dsh-adapter.contract.real.integration`，`packages/host` 的 `host-process.dsh.integration`，`packages/adapter-codex` 的 `codex-adapter.contract.real.integration`，以及 `packages/model-gateway` 的 `gateway.real.integration`（DeepSeek 的 Responses、Chat、Messages 三条路）。Key 只经环境变量传给测试：Codex 路由只交给网关内存、不进 Codex 环境；dsh 路由只进 dsh 子进程环境。不写进 overlay、快照或日志；不要把 Key 写进仓库里的任何文件。
 
-DeepSeek 官方的例子：
+DeepSeek 经 Codex 的官方 Responses 路由与网关三条路分别验证。先在进程环境设置 WEVIR_TEST_API_KEY，命令中不写 Key；默认模型 deepseek-flash，再设 WEVIR_TEST_MODEL=deepseek-v4-pro 重跑：
+
+```bash
+WEVIR_TEST_PROVIDER=deepseek-official pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+```bash
+WEVIR_TEST_PROVIDER=deepseek pnpm vitest run --project model-gateway gateway.real --maxWorkers=2
+```
+
+网关真实测试包含 Responses / Chat / Messages 的最小对话、连接探测、工具调用及下一回合回忆，并单独检查 Responses 在 high 下的 required / 具名选择。2026-10-16 已用真实 Key 复现：两个模型均拒收 forced choice（400），默认 auto_only 改写后为 200；网关测试每模型 11 项通过。两个模板都不填 maxTokens，理由与旧 Provider 的手动更新见 providers.md §7.1；Responses 长回答的默认输出上限尚未实测。真实契约的审批提示词只要求一次 touch，完成或拒绝后不再调用工具，避免模型另做 ls 校验产生第二次审批、使单审批用例挂起。
+
+同日两个模型的 Codex 契约第 3 层各 23 项通过。`pnpm dev` 以独立数据目录附着真实 Codex Host，官方模板 Flash / high 与 Chat 模板 V4 Pro / low 都经 apply_patch 写出预期文件；只将临时 SecretStore 的持久化替换为内存，API Key 从进程环境填入界面，未落文件。目录、地域说明、默认模型、推理档位和 1280px / 960px 视口检查通过；临时进程、脚本、截图、工作区与数据目录在验收后删除。
+
+可选 dsh 引擎原有的例子：
 
 ```bash
 WEVIR_TEST_API_KEY=<Key> WEVIR_TEST_PROVIDER=deepseek-official pnpm vitest run --project adapter-dsh dsh-adapter.contract.real

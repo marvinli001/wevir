@@ -1,6 +1,7 @@
 // 真实模型（可选）：设了 WEVIR_TEST_API_KEY 与 WEVIR_TEST_PROVIDER=deepseek（或 deepseek-official）时，
 // 经网关对 DeepSeek 各跑一次 Responses 透传、Chat 转换与 Messages 转换（DeepSeek 的 Anthropic 端点）的最小对话，
-// 外加 testProvider；Messages 另跑一次带工具调用与跨回合思考的对话。否则跳过并打印原因。
+// 外加 testProvider；三条路都跑工具调用与跨回合思考，Responses 另探测 high 下的 required / 具名选择。
+// 否则跳过并打印原因。
 // 模型默认 deepseek-flash（codex-notes §7.3 实测前两条路都能用），WEVIR_TEST_MODEL 可改。Key 只从环境变量读，不打印。
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -18,7 +19,7 @@ const skip =
     : kind !== 'deepseek' && kind !== 'deepseek-official'
       ? `WEVIR_TEST_PROVIDER=${kind}：网关的真实模型测试只认 deepseek`
       : undefined;
-if (skip !== undefined) console.log(`跳过网关的真实模型测试：${skip}`);
+if (skip !== undefined) process.stderr.write(`跳过网关的真实模型测试：${skip}\n`);
 
 const providers: GatewayProvider[] = [
   {
@@ -61,7 +62,18 @@ describe.skipIf(skip !== undefined)('真实 DeepSeek 经网关', () => {
   let gw: ModelGateway;
   beforeAll(async () => {
     gw = await startModelGateway();
-    gw.setProviders(providers);
+    gw.setProviders([
+      ...providers,
+      {
+        id: 'deepseek-unrestricted',
+        kind: 'deepseek-official',
+        displayName: 'DeepSeek forced-choice probe',
+        models: [],
+        defaultModelId: model,
+        apiKey: key,
+        compat: { toolChoice: 'any' },
+      },
+    ]);
   });
   afterAll(() => gw?.close());
 
@@ -95,66 +107,109 @@ describe.skipIf(skip !== undefined)('真实 DeepSeek 经网关', () => {
     });
   }
 
-  it('deepseek-anthropic：工具调用与跨回合思考（思考块连同签名带回）', {
-    timeout: 300_000,
-  }, async () => {
-    const code = 'WV-4271';
-    const base: Omit<ResponsesRequest, 'input'> = {
-      model,
-      stream: true,
-      store: false,
-      reasoning: { effort: 'high', summary: 'auto' },
-      tool_choice: 'auto',
-      parallel_tool_calls: true,
-      tools: [
-        {
-          type: 'function',
-          name: 'read_note',
-          description: 'Read the note with the given name and return its content.',
-          strict: false,
-          parameters: {
-            type: 'object',
-            properties: { name: { type: 'string' } },
-            required: ['name'],
-            additionalProperties: false,
+  it.each(providers)(
+    '$id：工具调用与跨回合思考',
+    {
+      timeout: 300_000,
+    },
+    async (provider) => {
+      const code = 'WV-4271';
+      const base: Omit<ResponsesRequest, 'input'> = {
+        model,
+        stream: true,
+        store: false,
+        reasoning: { effort: 'high', summary: 'auto' },
+        tool_choice: 'auto',
+        parallel_tool_calls: true,
+        tools: [
+          {
+            type: 'function',
+            name: 'read_note',
+            description: 'Read the note with the given name and return its content.',
+            strict: false,
+            parameters: {
+              type: 'object',
+              properties: { name: { type: 'string' } },
+              required: ['name'],
+              additionalProperties: false,
+            },
           },
-        },
-      ],
-    };
-    const turn = async (input: ResponsesItem[]) => {
-      const res = await postResponses(gw.baseURL('deepseek-anthropic'), gw.token, {
-        ...base,
-        input,
+        ],
+      };
+      const turn = async (input: ResponsesItem[]) => {
+        const res = await postResponses(gw.baseURL(provider.id), gw.token, {
+          ...base,
+          input,
+        });
+        expect(res.status).toBe(200);
+        const events = await readEvents(res);
+        expect(codexProblems(events)).toEqual([]);
+        expect(events.at(-1)?.type).toBe('response.completed');
+        return doneItems(events) as ResponsesItem[];
+      };
+      const signed = (items: ResponsesItem[]) =>
+        items.filter(
+          (i) => i.type === 'reasoning' && decodeThinking(i.encrypted_content)?.signature,
+        ).length;
+
+      const history: ResponsesItem[] = [
+        userMessage('用 read_note 工具读取名为 deploy 的笔记，然后告诉我笔记里的编号。'),
+      ];
+      const first = await turn(history);
+      const call = first.find((i) => i.type === 'function_call');
+      expect(call?.name).toBe('read_note');
+      history.push(...first, {
+        type: 'function_call_output',
+        call_id: call?.call_id,
+        output: `deploy 笔记：发布编号 ${code}。`,
       });
+      const answer = await turn(history);
+      expect(JSON.stringify(answer)).toContain(code);
+      history.push(...answer, userMessage('上一轮你查到的编号是多少？只回答编号。'));
+      const recall = await turn(history);
+      expect(JSON.stringify(recall.filter((i) => i.type === 'message'))).toContain(code);
+      // 只打印数量：DeepSeek 是否给思考块签名决定了思考能不能带回（model-gateway.md §5.3）。
+      console.log(
+        `${provider.id}：推理项 ${[...first, ...answer, ...recall].filter((i) => i.type === 'reasoning').length} 个，Messages 签名 ${signed([...first, ...answer, ...recall])} 个`,
+      );
+    },
+  );
+
+  it.each(['required', { type: 'function', name: 'read_note' }])(
+    'DeepSeek Responses high 的工具选择 %j：显式 any 为 400，默认修正后完成',
+    { timeout: 120_000 },
+    async (tool_choice) => {
+      const body: ResponsesRequest = {
+        model,
+        input: [userMessage('用 read_note 工具读取 deploy 笔记。')],
+        stream: true,
+        store: false,
+        reasoning: { effort: 'high' },
+        tools: [
+          {
+            type: 'function',
+            name: 'read_note',
+            parameters: { type: 'object', properties: {}, additionalProperties: false },
+          },
+        ],
+        tool_choice,
+      };
+      const raw = await postResponses(gw.baseURL('deepseek-unrestricted'), gw.token, body);
+      const detail = (await raw.text()).replaceAll(key ?? '', '***');
+      expect(raw.status).toBe(400);
+      expect(detail).toContain('Thinking mode does not support this tool_choice');
+      const res = await postResponses(gw.baseURL('deepseek-official'), gw.token, body);
+      console.log(
+        `deepseek-official / ${model} / high / ${typeof tool_choice === 'string' ? tool_choice : 'named'}：原始 HTTP ${raw.status}，修正后 HTTP ${res.status}`,
+      );
+      if (!res.ok) await res.body?.cancel();
       expect(res.status).toBe(200);
       const events = await readEvents(res);
       expect(codexProblems(events)).toEqual([]);
       expect(events.at(-1)?.type).toBe('response.completed');
-      return doneItems(events) as ResponsesItem[];
-    };
-    const signed = (items: ResponsesItem[]) =>
-      items.filter((i) => i.type === 'reasoning' && decodeThinking(i.encrypted_content)?.signature)
-        .length;
-
-    const history: ResponsesItem[] = [
-      userMessage('用 read_note 工具读取名为 deploy 的笔记，然后告诉我笔记里的编号。'),
-    ];
-    const first = await turn(history);
-    const call = first.find((i) => i.type === 'function_call');
-    expect(call?.name).toBe('read_note');
-    history.push(...first, {
-      type: 'function_call_output',
-      call_id: call?.call_id,
-      output: `deploy 笔记：发布编号 ${code}。`,
-    });
-    const answer = await turn(history);
-    expect(JSON.stringify(answer)).toContain(code);
-    history.push(...answer, userMessage('上一轮你查到的编号是多少？只回答编号。'));
-    const recall = await turn(history);
-    expect(JSON.stringify(recall.filter((i) => i.type === 'message'))).toContain(code);
-    // 只打印数量：DeepSeek 是否给思考块签名决定了思考能不能带回（model-gateway.md §5.3）。
-    console.log(
-      `deepseek-anthropic：推理项 ${[...first, ...answer, ...recall].filter((i) => i.type === 'reasoning').length} 个，带签名 ${signed([...first, ...answer, ...recall])} 个`,
-    );
-  });
+      expect(
+        doneItems(events).some((i) => i.type === 'function_call' && i.name === 'read_note'),
+      ).toBe(true);
+    },
+  );
 });

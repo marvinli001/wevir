@@ -2,7 +2,37 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { renderModelCatalog } from './config.js';
 import { realProviderFromEnv } from './test-fixtures/real-model.js';
+
+describe('DeepSeek 契约第 3 层的 Codex 模型目录', () => {
+  it.each(['deepseek-flash', 'deepseek-v4-pro'])(
+    '%s 与官方目录的窗口、模态和 freeform apply_patch 对齐',
+    (model) => {
+      const real = realProviderFromEnv({
+        WEVIR_TEST_PROVIDER: 'deepseek-official',
+        WEVIR_TEST_API_KEY: 'mock-key',
+        WEVIR_TEST_MODEL: model,
+      });
+      if ('skip' in real) throw new Error(real.skip);
+      const catalog = renderModelCatalog([real.provider], () => 'Wevir base instructions');
+      expect(catalog).not.toContain('mock-key');
+      const entry = JSON.parse(catalog ?? '').models[0];
+      expect(entry).toMatchObject({
+        slug: model,
+        apply_patch_tool_type: 'freeform',
+        context_window: 1048576,
+        input_modalities: model === 'deepseek-flash' ? ['text', 'image'] : ['text'],
+      });
+      expect(
+        entry.supported_reasoning_levels.map((level: { effort: string }) => level.effort),
+      ).toEqual(['none', 'low', 'high', 'max']);
+      expect(entry).not.toHaveProperty('multi_agent_version');
+      expect(entry).not.toHaveProperty('use_responses_lite');
+      expect(real.provider.models[0]).not.toHaveProperty('maxTokens');
+    },
+  );
+});
 
 describe('Vertex 契约第 3 层配置', () => {
   const env = {
