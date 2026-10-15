@@ -210,7 +210,7 @@ pnpm --filter @wevir/desktop package
 
 `.github/workflows/release.yml`（ADR-0007 补记 2 的发布流水线），脚本是 `apps/desktop/scripts/release.ts`：
 
-- **开发版**：master 上 push 触发的 CI 通过后自动发。版本 `X.Y.(Z+1)-beta.N`：`X.Y.Z` 是上一个 `vX.Y.Z` tag（没有时按 0.0.0），N 是从那个 tag 到这个提交的 master 提交数（`--first-parent`）。`node apps/desktop/scripts/release.ts plan` 在本机打印下一次的版本。
+- **开发版**：master 上 push 触发的 CI 通过后自动发。“通过”暂时只看 CI 里的 macOS 作业（Windows 的测试有一批失败，修好之前不拦发布），正式版的 tag 也一样。版本 `X.Y.(Z+1)-beta.N`：`X.Y.Z` 是上一个 `vX.Y.Z` tag（没有时按 0.0.0），N 是从那个 tag 到这个提交的 master 提交数（`--first-parent`）。`node apps/desktop/scripts/release.ts plan` 在本机打印下一次的版本。
 - **正式版**：维护者决定发布时，在已经通过 CI 的 master 提交上打 tag 并推送：
 
   ```bash

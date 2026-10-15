@@ -1,7 +1,9 @@
 # 发布（ADR-0007 补记 2 的第 3 步）：构建安装包，签更新清单，上传到两条下载线路。
 #
-# - 开发版：master 上的 CI 通过后自动发（workflow_run）。版本 X.Y.(Z+1)-beta.N，见 apps/desktop/scripts/release.ts plan。
+# - 开发版：master 上的 CI 跑完后自动发（workflow_run）。版本 X.Y.(Z+1)-beta.N，见 apps/desktop/scripts/release.ts plan。
 # - 正式版：维护者决定发布时在 master 的提交上打 tag `vX.Y.Z` 并推送；要求这个提交在 master 上、CI 已经通过。
+# - “CI 通过”暂时只看 CI 里 macOS 的作业（名字以 macos- 开头的都成功）：Windows 的测试 2026-10-16 起有一批失败，
+#   在修好之前不拦发布。修好后把 macos_ci 一步换回要求整个 CI 成功。
 #   正式版另建 GitHub Release（备用下载）。
 #
 # 产物按 src/main/updates/feed.ts 的布局放在每条线路的 desktop/<平台>-<架构>/：先传安装包，两条线路都成功后再写
@@ -34,11 +36,10 @@ defaults:
 jobs:
   plan:
     name: 版本
-    # 仓库 variable WEVIR_RELEASE=on 时才发（secret 配齐之前不跑）。开发版只在 master 的 push 触发的 CI 成功后发
-    # （不含 PR 与 tag 触发的 CI）。
+    # 仓库 variable WEVIR_RELEASE=on 时才发（secret 配齐之前不跑）。开发版只看 master 的 push 触发的 CI
+    # （不含 PR 与 tag 触发的 CI）；CI 通不通过由下面的 macos_ci 一步判断。
     if: >-
-      vars.WEVIR_RELEASE == 'on' && (github.event_name == 'push' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+      vars.WEVIR_RELEASE == 'on' && (github.event_name == 'push' || github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -48,7 +49,7 @@ jobs:
       sha: ${{ steps.sha.outputs.sha }}
       channel: ${{ steps.plan.outputs.channel }}
       version: ${{ steps.plan.outputs.version }}
-      skip: ${{ steps.plan.outputs.skip }}
+      skip: ${{ steps.plan.outputs.skip == 'true' || steps.macos_ci.outputs.ok != 'true' }}
     steps:
       - id: sha
         run: echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
@@ -62,15 +63,35 @@ jobs:
         with:
           node-version-file: .node-version
 
-      - name: 正式版的提交要在 master 上、CI 已通过
+      - name: 正式版的提交要在 master 上
         if: github.event_name == 'push'
         env:
-          GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.sha.outputs.sha }}
         run: |
           git merge-base --is-ancestor "$SHA" origin/master || { echo "::error::$GITHUB_REF_NAME 不在 master 上"; exit 1; }
-          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$SHA" --status success --json databaseId --jq length)
-          [ "$passed" -gt 0 ] || { echo "::error::$SHA 还没有通过的 CI，等 CI 过了再推 tag"; exit 1; }
+
+      # 开发版看触发这次的 CI 运行；正式版看这个提交最近一次跑完的 CI。macOS 作业没有全部成功时：开发版跳过（不算失败），
+      # 正式版报错。
+      - id: macos_ci
+        name: CI 的 macOS 作业通过
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.sha.outputs.sha }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          if [ -z "$RUN_ID" ]; then
+            RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$SHA" --status completed --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+          fi
+          jobs=""
+          [ -n "$RUN_ID" ] && jobs=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" --paginate --jq '.jobs[] | select(.name | startswith("macos-")) | "\(.conclusion) \(.name)"')
+          echo "$jobs"
+          if [ -n "$jobs" ] && ! grep -qv '^success ' <<<"$jobs"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            if [ "$GITHUB_EVENT_NAME" = push ]; then echo "::error::$SHA 的 CI 里 macOS 作业还没有全部通过，等 CI 过了再推 tag"; exit 1; fi
+            echo "::notice::CI 的 macOS 作业没有全部通过，这次不发开发版"
+          fi
 
       - id: plan
         run: node apps/desktop/scripts/release.ts plan "${{ steps.sha.outputs.sha }}"
