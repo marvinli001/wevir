@@ -318,6 +318,8 @@ export function tallyWork(entries: readonly WorkEntry[], turnActive: boolean): W
 export interface SummaryPart {
   text: string;
   file?: string;
+  /** 文件名后面还有的文字（日文、韩文等动词在后的语言）。 */
+  after?: string;
 }
 
 /** 思考不到这么久时不单独写进有工具调用的摘要（“思考了 0.2 秒”只是噪音）。 */
@@ -337,7 +339,15 @@ export function workSummaryParts(tally: WorkTally): SummaryPart[] {
     if (count === 0) continue;
     const only = kind === 'read' || kind === 'edit' || kind === 'create' ? tally.files[kind] : [];
     if (count === 1 && only.length === 1 && only[0] !== undefined) {
-      parts.push({ text: t(`work.did.${kind as FileKind}`), file: basename(only[0]) });
+      // 文件名在句子里的位置随语言变（“读取了 a.ts”“a.ts を読み取り”），按 {file} 切开，前后两段是说明文字色。
+      const [before = '', after = ''] = t(`work.did.${kind as FileKind}`, { file: '\u0000' }).split(
+        '\u0000',
+      );
+      parts.push({
+        text: before.trimEnd(),
+        file: basename(only[0]),
+        ...(after.trim() && { after: after.trimStart() }),
+      });
     } else {
       parts.push({
         text: kind === 'plan' ? t('work.count.plan') : t(`work.count.${kind}`, { count }),
@@ -363,7 +373,11 @@ export function workSummaryParts(tally: WorkTally): SummaryPart[] {
 /** 摘要的纯文本（无障碍名称、测试）。 */
 export function workSummary(tally: WorkTally): string {
   return workSummaryParts(tally)
-    .map((part) => (part.file ? `${part.text} ${part.file}` : part.text))
+    .map((part) =>
+      [part.text, part.file, part.after]
+        .filter((text) => text !== undefined && text !== '')
+        .join(' '),
+    )
     .join(t('work.separator'));
 }
 
@@ -481,7 +495,12 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
       ? relativeToRoot(summary, root)
       : summary;
   return {
-    label: t(`work.line.${lifecycle}`, { verb }),
+    label:
+      lifecycle === 'running'
+        ? t(`work.running.${kind}`)
+        : lifecycle === 'completed'
+          ? t(`work.done.${kind}`)
+          : t(`work.line.${lifecycle}`, { verb }),
     ...(target && { target }),
     tone: LINE_TONES[lifecycle],
   };

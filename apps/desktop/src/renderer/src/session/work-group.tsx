@@ -189,10 +189,11 @@ function SummaryText({ tally }: { tally: ReturnType<typeof tallyWork> }) {
           {part.text}
           {part.file && (
             <>
-              {' '}
+              {part.text && ' '}
               <span className="text-foreground" data-summary-file>
                 {part.file}
               </span>
+              {part.after && ` ${part.after}`}
             </>
           )}
         </Fragment>

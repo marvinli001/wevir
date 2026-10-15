@@ -135,3 +135,47 @@
   --font-display:
     "Wevir Display", "Noto Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", "SimSun", serif;
 }
+
+/* 界面语言（<html lang>，i18n/index.ts 设置）换字体栈：汉字按语言用对应地区的字形（日文、韩文、繁体不落到简体字形），
+ * 西文与俄文的标题宋体用系统衬线体（"Wevir Display" 只有简体中文首页标题的字）；拉丁字母仍是 Mona Sans。 */
+:root:lang(zh-TW) {
+  --font-ui:
+    "Mona Sans", "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC",
+    "Source Han Sans TC", system-ui, sans-serif;
+  --font-code:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "PingFang TC",
+    "Microsoft JhengHei UI", "Noto Sans CJK TC", monospace;
+  --font-display: "Noto Serif TC", "Noto Serif CJK TC", "Songti TC", "PMingLiU", serif;
+}
+
+:root:lang(ja) {
+  --font-ui:
+    "Mona Sans", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI",
+    "Meiryo", "Noto Sans CJK JP", "Source Han Sans JP", system-ui, sans-serif;
+  --font-code:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Hiragino Sans", "Yu Gothic UI",
+    "Noto Sans CJK JP", monospace;
+  --font-display: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif;
+}
+
+:root:lang(ko) {
+  --font-ui:
+    "Mona Sans", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", "Source Han Sans KR",
+    system-ui, sans-serif;
+  --font-code:
+    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Apple SD Gothic Neo",
+    "Malgun Gothic", "Noto Sans CJK KR", monospace;
+  --font-display: "AppleMyungjo", "Noto Serif CJK KR", "Noto Serif KR", "Batang", serif;
+}
+
+:root:lang(en),
+:root:lang(fr),
+:root:lang(de),
+:root:lang(it),
+:root:lang(es),
+:root:lang(ru) {
+  --font-ui:
+    "Mona Sans", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI",
+    "Noto Sans CJK SC", sans-serif;
+  --font-display: ui-serif, "New York", Georgia, "Times New Roman", serif;
+}

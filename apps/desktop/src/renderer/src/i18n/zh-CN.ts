@@ -3,7 +3,8 @@
 // 约定（为以后接 i18n 库留口）：
 // - key 是扁平的点分格式 `<区域>.<名称>`，值是纯字符串，可以直接导出给翻译工具；
 // - 插值写 `{name}`（ICU 的简单参数），t() 的类型从这里推出每条文案需要哪些参数；
-// - 新增语言时另建一个满足 `Messages` 类型的目录，key 以本文件为准。
+// - 其他语言的目录在 locales/（满足 `Messages` 类型，key 与参数以本文件为准，可用 ICU 的复数写法）；新增或改一条文案时
+//   同时改全部目录。
 // 文案（U9，维护者 2026-10-14 定）：专业、简洁的书面语，不用口语；不写解释界面怎么用的说明句，说明只在需要用户采取
 // 行动或理解后果时出现（错误、确认、只读原因等）；快捷键写在按钮的提示里，不另起一行。
 // 维护者 2026-10-15 再收紧：不加说明行与副标题；空状态写“暂无…”；必要的原因、提示用名词短语或短句，不用“请”“这个…”“还没…”
@@ -321,9 +322,9 @@ export const zhCN = {
   'work.count.search': '搜索了 {count} 次',
   'work.count.edit': '修改了 {count} 个文件',
   'work.count.create': '创建了 {count} 个文件',
-  'work.did.read': '读取了',
-  'work.did.edit': '修改了',
-  'work.did.create': '创建了',
+  'work.did.read': '读取了 {file}',
+  'work.did.edit': '修改了 {file}',
+  'work.did.create': '创建了 {file}',
   'work.count.shell': '运行了 {count} 条命令',
   'work.count.fetch': '获取了 {count} 个网页',
   'work.count.plan': '更新了计划',
@@ -342,9 +343,25 @@ export const zhCN = {
   'work.verb.plan': '更新计划',
   'work.verb.sub_agent': '调用子智能体',
   'work.verb.unknown': '调用',
-  'work.line.running': '正在{verb}',
+  'work.running.read': '正在读取',
+  'work.running.search': '正在搜索',
+  'work.running.edit': '正在修改',
+  'work.running.write': '正在写入',
+  'work.running.shell': '正在运行',
+  'work.running.fetch': '正在获取',
+  'work.running.plan': '正在更新计划',
+  'work.running.sub_agent': '正在调用子智能体',
+  'work.running.unknown': '正在调用',
+  'work.done.read': '已读取',
+  'work.done.search': '已搜索',
+  'work.done.edit': '已修改',
+  'work.done.write': '已写入',
+  'work.done.shell': '已运行',
+  'work.done.fetch': '已获取',
+  'work.done.plan': '已更新计划',
+  'work.done.sub_agent': '已调用子智能体',
+  'work.done.unknown': '已调用',
   'work.line.awaiting_approval': '等待审批：{verb}',
-  'work.line.completed': '已{verb}',
   'work.line.failed': '{verb}失败',
   'work.line.denied': '{verb}被拒绝',
   'work.line.cancelled': '已取消{verb}',
@@ -533,7 +550,9 @@ export const zhCN = {
   'settings.appearance.theme.light': '浅色',
   'settings.appearance.theme.dark': '深色',
   'settings.appearance.language': '语言',
-  'settings.appearance.languageValue': '简体中文',
+  'settings.language.auto': '自动检测',
+  'settings.language.search': '搜索语言',
+  'settings.language.empty': '无匹配的语言',
   'settings.noHost': '未连接后台服务',
 
   'provider.section.accounts': '订阅账号',
@@ -632,7 +651,7 @@ export const zhCN = {
   'account.chatgpt.usage.hours': '{count} 小时用量',
   'account.chatgpt.usage.minutes': '{count} 分钟用量',
   'account.chatgpt.usage.resetsToday': '今天 {time} 重置',
-  'account.chatgpt.usage.resetsOn': '{month} 月 {day} 日 {time} 重置',
+  'account.chatgpt.usage.resetsOn': '{date} {time} 重置',
 
   'provider.preset.openai': 'OpenAI',
   'provider.preset.openai.note':

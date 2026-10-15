@@ -4,10 +4,11 @@ import { useState } from 'react';
 import { useHostSettings } from '@/data/host-settings';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { LanguagePicker } from './language-picker';
 import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from './settings-ui';
 
 /**
- * 设置 → 常规（U7，原来的“对话”并进来）：语言，回合进行中按回车的默认方式（R11：存在 Host，`settings.update`，
+ * 设置 → 常规（U7，原来的“对话”并进来）：界面语言（本机，language-picker.tsx），回合进行中按回车的默认方式（R11：存在 Host，`settings.update`，
  * domain-model §3.7，桌面与 CLI 共用；别的客户端改了，这里经 `settings.updated` 跟上）。
  */
 export function GeneralSettings() {
@@ -38,11 +39,8 @@ export function GeneralSettings() {
       <div className={LIST_CARD}>
         <SettingsRow
           title={t('settings.appearance.language')}
-          control={
-            <span className="text-sm text-muted-foreground">
-              {t('settings.appearance.languageValue')}
-            </span>
-          }
+          data-setting="language"
+          control={<LanguagePicker />}
         />
         <SettingsRow
           title={t('settings.chat.sendWhileBusy')}

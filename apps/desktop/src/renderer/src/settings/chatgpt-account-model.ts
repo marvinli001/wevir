@@ -2,7 +2,7 @@
 // 引擎里（host-api.md §3.1 account.*），这里只读状态。
 
 import type { AccountRateLimitWindow, AccountState } from '@wevir/protocol';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 
 /** 界面的几个阶段：没读到、未登录、浏览器登录中、设备码登录中、已登录。 */
 export type AccountPhase =
@@ -78,14 +78,11 @@ export function resetLabel(resetsAt: string | undefined, now = new Date()): stri
   if (resetsAt === undefined) return undefined;
   const at = new Date(resetsAt);
   if (Number.isNaN(at.getTime())) return undefined;
-  const time = at.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  const time = at.toLocaleTimeString(currentLocale(), { hour: '2-digit', minute: '2-digit' });
   if (at.toDateString() === now.toDateString())
     return t('account.chatgpt.usage.resetsToday', { time });
-  return t('account.chatgpt.usage.resetsOn', {
-    month: at.getMonth() + 1,
-    day: at.getDate(),
-    time,
-  });
+  const date = at.toLocaleDateString(currentLocale(), { month: 'short', day: 'numeric' });
+  return t('account.chatgpt.usage.resetsOn', { date, time });
 }
 
 /** 用量条的颜色：80% 起提醒，95% 起警告。 */

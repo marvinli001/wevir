@@ -7,7 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
 import { EnvironmentPicker } from '@/environments/environment-picker';
 import { MetalWordmark } from '@/fx/metal';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
 import { openCreateProject } from '@/projects/create-project';
 import { ProjectMenuContent } from '@/projects/project-menu';
@@ -71,7 +71,7 @@ export function NewSessionHero({
       >
         {t('home.title.before')}
         <ProjectPicker current={current} workspaces={workspaces} onSelect={onSelect} />
-        {t('home.title.after')}
+        <span className={cn(attachesToProject() && '-ml-[0.25em]')}>{t('home.title.after')}</span>
       </h1>
       {workspaces.length > 0 && (
         <div className="flex flex-col items-center gap-2">
@@ -173,4 +173,14 @@ function ProjectPicker({
       />
     </DropdownMenu>
   );
+}
+
+/**
+ * 标题后半句紧贴项目名、不留间距：韩文的助词（“…에서”），以及句末标点直接跟在名字后面的语言（英文的“?”）；法文的
+ * “?” 前本来就有空格，照常留间距。
+ */
+function attachesToProject(): boolean {
+  const locale = currentLocale();
+  if (locale === 'ko') return true;
+  return locale !== 'fr' && /^[?!.,;:]/.test(t('home.title.after'));
 }

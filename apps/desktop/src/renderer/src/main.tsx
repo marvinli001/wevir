@@ -3,6 +3,7 @@ import './lib/style-nonce.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
+import { initI18n } from './i18n/index.js';
 import { bootstrapWindowChrome } from './layout/window-chrome.js';
 import { bootstrapTheme } from './theme/theme.js';
 import './index.css';
@@ -12,8 +13,11 @@ bootstrapWindowChrome();
 
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html 里缺少 #root');
-createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+// 界面语言的目录在第一次渲染之前加载好，t() 始终是同步的。
+void initI18n().then(() =>
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  ),
 );
