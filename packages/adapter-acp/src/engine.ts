@@ -1,4 +1,5 @@
 import type {
+  ApprovalOption,
   AssistantDeltaEvent,
   AssistantStreamEndedEvent,
   DeltaBlockRef,
@@ -33,6 +34,30 @@ export interface AcpEngine {
   classifyResumeError(error: unknown): ClassifiedResumeError;
   /** 可选的增量旁路：ACP 只有已提交消息的引擎，另开一个 fd 送逐字增量（dsh 的 stream-tap）。 */
   readonly incremental?: AcpIncrementalChannel;
+  /**
+   * `agent_message_chunk` / `agent_thought_chunk` 的语义（acp-event-mapping.md §1.5）。`committed`（默认，dsh）：每条是
+   * 一块已提交的完整内容，必须带 `messageId`；`streamed`（Grok Build、Gemini CLI）：每条是一段逐字增量，适配器自己
+   * 把连续的增量合成一块再提交（chunk-stream.ts）。`streamed` 的引擎不能再配增量旁路。
+   */
+  readonly messageChunks?: 'committed' | 'streamed';
+  /** `initialize` 请求的 `_meta`（Grok：`clientType: extension`，自动模式拦下的操作才会问客户端）。 */
+  readonly initializeMeta?: Readonly<Record<string, unknown>>;
+  /**
+   * 引擎自己的 ACP 扩展方法（方法名以 `_` 开头，acp-event-mapping.md §1.7）。`notifications` 与 `session/update` 一样在
+   * SDK 之前按序截下，交给适配器的 `extNotification`；`requests` 登记给 SDK，交给适配器的 `extRequest`。没列出的扩展
+   * 通知由 SDK 丢弃，扩展请求回 `Method not found`。
+   */
+  readonly extensions?: AcpExtensions;
+  /**
+   * 交给用户的审批选项（`session/request_permission` 的 `options` 已转成 `ApprovalOption`）。不给时原样全部交出；
+   * Grok 去掉对整个项目长期有效的授权（grok-event-mapping.md §5）。返回空数组时按原样交出。
+   */
+  approvalOptions?(options: ApprovalOption[]): ApprovalOption[];
+}
+
+export interface AcpExtensions {
+  readonly requests?: readonly string[];
+  readonly notifications?: readonly string[];
 }
 
 export type AcpEngineCapabilities = Omit<
@@ -49,6 +74,12 @@ export interface AcpToolPresentation {
   display(toolName: string, rawInput: unknown, update: AcpSessionUpdate): ToolDisplay;
   /** 这次工具调用若是写待办（完整列表），返回条目；否则 undefined，不发 `todo.updated`。 */
   todos?(toolName: string, rawInput: unknown): TodoItem[] | undefined;
+  /**
+   * 引擎用 ACP `plan` 更新报完整的待办列表时（Grok：`todo_write` 可以只给改动的几项，合并后的列表随后以 `plan` 发出）：
+   * 这个工具调用是否写待办。`plan` 记在本回合最近一个这样的调用上，发 `todo.updated`；没有这一项的引擎 `plan` 保留为
+   * `engine.raw`（acp-event-mapping.md §1.6）。
+   */
+  isPlanTool?(toolName: string): boolean;
 }
 
 /**
@@ -56,12 +87,20 @@ export interface AcpToolPresentation {
  * `session/set_config_option` 选定自己的模型与推理强度。
  */
 export interface AcpRouteCodec {
+  /**
+   * 怎样换模型：`config_option`（默认，dsh）用 `session/set_config_option`；`set_model`（Grok）用 ACP 的
+   * `session/set_model`，推理强度放在同一请求的 `_meta.reasoningEffort` 里。两种都从 `configOptions` 读当前值。
+   */
+  readonly modelMethod?: 'config_option' | 'set_model';
   /** 选模型的 config option（dsh：`model`）。 */
   readonly modelOption: string;
   /** 选推理强度的 config option（dsh：`reasoning_effort`）；没有就不设、不读。 */
   readonly reasoningEffortOption?: string;
-  /** `SessionConfig` 的 Provider 与模型 → 模型选项的值。 */
-  encode(providerId: string, modelId: string): string;
+  /**
+   * `SessionConfig` 的 Provider 与模型 → 模型选项的值。undefined 表示用引擎会话当前的模型，不换（Grok 的 `grok-build`：
+   * CLI 的产品名，不是模型 ID）。
+   */
+  encode(providerId: string, modelId: string): string | undefined;
   /** 模型选项的值 → 模型 ID；解析不了返回 undefined（Host 用请求值）。 */
   decodeModel(value: string): string | undefined;
 }

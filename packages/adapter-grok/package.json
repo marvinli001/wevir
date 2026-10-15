@@ -1,0 +1,29 @@
+{
+  "name": "@wevir/adapter-grok",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir engine adapter for Grok Build (ported from T3 Code): drives the user's own `grok` CLI over ACP with their own login, one process per permission mode; account detection through `grok --version`, `grok models` and ACP initialize.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/adapter-acp": "workspace:*",
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

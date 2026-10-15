@@ -8,6 +8,7 @@
 
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CursorAdapter, isCursorShellSpawnFailure } from '@wevir/adapter-cursor';
+import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import type { AdapterContext } from './cli.js';
 import type { EngineRoute } from './engine-router.js';
@@ -45,6 +46,17 @@ export function subscriptionEngines(context: AdapterContext): EngineRoute[] {
         ...(context.env !== undefined && { env: context.env }),
       }),
       kinds: ['opencode'],
+    },
+    // Grok Build（grok-event-mapping.md）：用户自己装的 `grok` 与他的登录，经 ACP（`grok agent stdio`）驱动，每种权限模式一个
+    // 进程，第一次读账号或建会话时才起。
+    {
+      name: 'grok',
+      adapter: new GrokAdapter({
+        home: context.home,
+        logger: context.logger,
+        env: context.env ?? process.env,
+      }),
+      kinds: ['grok'],
     },
   ];
 }

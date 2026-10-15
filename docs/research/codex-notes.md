@@ -352,6 +352,21 @@ WEVIR_SPIKE_KEY=<DeepSeek Key> node src/real.ts [--transport=direct,passthrough,
 | 体积 | npm 98.6 MB | 约 48 MB | 依赖闭包 622 个 npm 包 |
 | 遥测 | 匿名用量统计默认开，`privacy.usageStatisticsEnabled:false` 关 | **未核实** | `DSH_TELEMETRY_DISABLED=1` |
 
+**R8 的部分核实（2026-10-14）。** 本机装了 Grok Build 1.0.52（stable；alpha 是 1.0.58）与 Gemini CLI 0.64.0，用隔离的 `GROK_HOME` / `GEMINI_CLI_HOME`、假 Key 与本机 mock 上游录了 ACP 往返（录音没有进仓库），从录到的记录里读出：
+
+| | Gemini CLI 0.64.0 | Grok Build 1.0.52 |
+|---|---|---|
+| 安装与体积 | npm `@google/gemini-cli`，`node_modules` 约 100 MB；入口 `bundle/gemini.js` | 官方脚本 `x.ai/cli/install.sh`（会改 shell rc，Wevir 不该跑它）；产物 `x.ai/cli/grok-<版本>-<os>-<arch>[.zst/.gz]`，macOS arm64 解压 172 MB、zst 51 MB；**不发布 sha256**；也有 npm 包 `@xai-official/grok`（T3 的更新检查用它） |
+| initialize | `loadSession: true`，图片 / 音频 / 嵌入上下文，MCP http / sse；`authMethods`：`oauth-personal`、`gemini-api-key`、`vertex-ai`、`gateway` | `loadSession: true`，`sessionCapabilities` 有 `list`、`resume`、`close`；不收图片；`authMethods`：`xai.api_key`、`grok.com`；`_meta.modelState` 列出可选模型（`grok-4.6`，50 万上下文） |
+| 会话方法 | 只有 new / load；`session/resume`、`session/close`、`session/list`、`session/set_config_option` 都是 `-32601 Method not found` | new / load / list / resume / close |
+| 流式 | `agent_message_chunk` / `agent_thought_chunk` 是逐字增量，**没有 `messageId`**（218 条全无） | 同样是增量、没有 `messageId`（368 条全无）。通用适配器按增量处理（acp-event-mapping.md §1.5） |
+| 工具 kind | `execute`、`edit`、`read`、`search`，待办（`Set N todo(s)`）是 `other`；title 是命令或路径 | **`tool_call` 不给 `kind`**，title 是工具名：`run_terminal_command`、`read_file`、`write`、`search_replace`、`todo_write`、`enter_plan_mode`、`exit_plan_mode`、`ask_user_question`、`spawn_subagent` |
+| 计划 | 不发 `plan` | 发 `plan` 与 `current_mode_update`（有计划模式） |
+| 审批选项 | `proceed_once`（allow_once）、`proceed_always`（allow_always）、`cancel`（reject_once） | `allow-once`、`reject-once`，另有 `always-allow` / `reject-always` 或 `allow-edits-session`（allow_always） |
+| 没有凭据时 | `-32000 Gemini API key is missing or not configured.` | `-32000 Authentication required` |
+
+**Grok 引擎落地时补的（2026-10-15，[grok-event-mapping.md](../architecture/grok-event-mapping.md)）。** 照 T3 Code 移植，另从 T3 录的真实 Grok 1.0.41 / 1.0.44 样本（`packages/adapter-grok/src/test-fixtures/acp/`）读出：`initialize` 回协议版本 1，`authMethods` 是 `cached_token`（说明是 Cached token from ~/.grok/auth.json）与 `grok.com`；`session/new` 的结果同时有 `models` 与 `configOptions`（`model`、`reasoning_effort`），换模型用 `session/set_model`（档位在 `_meta.reasoningEffort`）；`tool_call_update` 才带 ACP `kind` 与给人看的标题，两种更新都带 `_meta["x.ai/tool"]`；`todo_write` 可以只给改动的几项，完整列表在随后的 `plan` 里；回合结束先以扩展通知 `turn_completed` / `prompt_complete` 报出，再回 `session/prompt` 的结果，失败的原文在错误的 `data.message`；后台命令结束后 Grok 自己开一个回合（`task-completed-*`）。仍未核实（列在 grok-event-mapping.md §8，等维护者装好 `grok` 再看）：`GROK_HOME` 是否完全隔离、是否还写 `~/.grok` 之外的地方、遥测与更新检查的开关、`session/resume` 失败的措辞、跨进程 resume、退出计划模式的请求形状。Gemini CLI 一侧仍按上表，没有接。
+
 ## 10. Codex → `AgentEvent` 映射草案
 
 在上次报告的表上按 Spike 实测修订：

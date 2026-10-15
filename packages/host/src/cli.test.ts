@@ -8,6 +8,7 @@ import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CodexRuntime } from '@wevir/adapter-codex';
 import { CursorAdapter } from '@wevir/adapter-cursor';
 import { DshAdapter } from '@wevir/adapter-dsh';
+import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import { CloseCode } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -156,7 +157,7 @@ describe('runHostCli', () => {
     // 真实 dsh 上的端到端见 cli.dsh.integration.test.ts。
   });
 
-  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor、OpenCode）经 EngineRouter 挂在后面，同样不起进程', () => {
+  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor、OpenCode、Grok）经 EngineRouter 挂在后面，同样不起进程', () => {
     const home = join(tempDir(), 'home');
     // 二进制只解析路径（WEVIR_CODEX_BIN），版本在第一次启动前才核对，这里不会运行它。
     const fakeBinary = join(tempDir(), 'codex-app-server');
@@ -171,17 +172,20 @@ describe('runHostCli', () => {
         ['claude', ['claude']],
         ['cursor', ['cursor']],
         ['opencode', ['opencode']],
+        ['grok', ['grok']],
       ]);
       expect(router.routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
       expect(router.routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
       expect(router.routes[2]?.adapter).toBeInstanceOf(CursorAdapter);
       expect(router.routes[3]?.adapter).toBeInstanceOf(OpenCodeAdapter);
+      expect(router.routes[4]?.adapter).toBeInstanceOf(GrokAdapter);
+      expect((router.routes[4]?.adapter as GrokAdapter | undefined)?.engines).toEqual([]);
       const codex = router.routes[0]?.adapter as CodexRuntime;
       expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
       expect(codex.gateway.process.state).toBe('stopped');
       expect(codex.chatgpt.process.state).toBe('stopped');
-      expect(router.accounts?.kinds).toEqual(['chatgpt', 'claude', 'cursor', 'opencode']);
+      expect(router.accounts?.kinds).toEqual(['chatgpt', 'claude', 'cursor', 'opencode', 'grok']);
       expect(existsSync(home)).toBe(false);
     } finally {
       vi.unstubAllEnvs();

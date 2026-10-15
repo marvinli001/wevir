@@ -1,8 +1,8 @@
 # ACP → Wevir 事件映射
 
-> 状态：v0.2（R7 拆成通用 ACP 映射与 dsh 专属补充两部分；v0.1 是 T3.2，§5 审批由 T3.3 补）· 日期：2026-10-14
+> 状态：v0.3（Grok Build 接入：§1.5 逐字增量、§1.6 `plan` 待办、§1.7 扩展方法；v0.2 是 R7 拆成通用 ACP 映射与 dsh 专属补充两部分；v0.1 是 T3.2，§5 审批由 T3.3 补）· 日期：2026-10-15
 > 依据：[dsh 接入 Spike](../research/dsh-integration-spike.md) §3、§4、§5、§11.2；[ADR-0001](../adr/0001-runtime-integration.md) §3、§5、§6 与补记 3、4；[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 1.3；[领域模型](./domain-model.md) §3.4、§5、§6、§7、§9
-> 代码：第一部分在 `packages/adapter-acp/src/`（`acp-process.ts`、`acp-mapping.ts`、`session-events.ts`、`acp-adapter.ts`，引擎描述的类型在 `engine.ts`）；第二部分在 `packages/adapter-dsh/src/`（引擎描述 `engine.ts`，以及 `dsh-process.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`stream-tap.ts`、`delta-merge.ts`、`dsh-adapter.ts`）
+> 代码：第一部分在 `packages/adapter-acp/src/`（`acp-process.ts`、`acp-mapping.ts`、`session-events.ts`、`chunk-stream.ts`、`acp-adapter.ts`，引擎描述的类型在 `engine.ts`，用户自己装的引擎的查找在 `external.ts`）；第二部分在 `packages/adapter-dsh/src/`（引擎描述 `engine.ts`，以及 `dsh-process.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`stream-tap.ts`、`delta-merge.ts`、`dsh-adapter.ts`）
 > 样本：`packages/adapter-dsh/src/test-fixtures/acp/`，是 `spikes/dsh-acp/fixtures/acp/`（T0.3，`2ce30c0`）的副本，另加 T3.2 录的 5 个 Provider 错误；下文的样本路径都相对这个目录
 
 本文件写 ACP 引擎的消息怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。分两部分：
@@ -50,10 +50,14 @@ AcpProcess 的 exit 事件 ──▶ 每个挂着的会话一条 engine.exited�
 | `classifyTurnError` | `session/prompt` 的错误 → `turn.failed.category`，原文保留 | §3 |
 | `classifyResumeError` | `session/resume` 的错误 → `lost`（带原因）/ `cwd_mismatch` / `already_active` / `unknown` | §6 |
 | `incremental`（可选） | 增量旁路：fd、每个进程的解码器、initialize 之后等它报到的时间、每个会话的对齐器 | stream-tap 插件，fd 3，2 s，`DeltaMerger`（§4） |
+| `messageChunks`（可选） | 消息与思考的 chunk 是已提交的整块（`committed`，默认）还是逐字增量（`streamed`，§1.5） | `committed` |
+| `tools.isPlanTool`（可选） | 引擎用 ACP `plan` 报完整的待办列表时，哪些工具调用写待办（§1.6） | 不用（待办来自 `todo_write` 的输入） |
+| `route.modelMethod`（可选） | 换模型用 `session/set_config_option`（默认）还是 `session/set_model`（推理强度在 `_meta.reasoningEffort`）；`encode` 返回 undefined 表示不换模型 | `config_option` |
+| `initializeMeta`、`extensions`、`approvalOptions`（可选） | `initialize` 的 `_meta`；引擎的 ACP 扩展通知与扩展请求的方法名（§1.7）；交给用户之前过滤审批选项 | 不用 |
 
 进程（`AcpProcess`）对所有引擎都一样，数值是在 dsh 上实测定下的（ADR-0001 补记 1）：`initialize` 的 `clientCapabilities` 为 `{}`（不声明 `fs` 与 `terminal`，工具在引擎自己的沙箱里执行），时限 15 s，协议版本不是 1 算启动失败；启动失败报 `engine_unavailable`，带退出码与 stderr 尾部（只留最后 16 KiB）。就绪的进程意外退出时发 `exit`，自动重启最多连续 3 次（等 0.5 s、1 s、2 s），连续运行满 60 s 后重新计数。回收是关连接 → 关 stdin 等 2 s → SIGTERM 等 1.5 s → SIGKILL 等 1 s，启动器以 detached 启动时信号发给整个进程组。引擎不热加载配置时，换了启动配置（`launchConfigStale`）的进程要重启才生效，什么时候重启由引擎的适配器决定（dsh 见第二部分开头）。
 
-Grok Build、Gemini CLI（R8，codex-notes §9）各给一份描述。它们与 dsh 的差别（工具带 `kind`、会话方法不全等）先落在这几项里；第一部分的映射要不要随之扩展（例如 Gemini 的消息 chunk 是不是增量，尚未核实）由 R8 定。
+Grok Build 的那份是 `GROK_ENGINE`（`packages/adapter-grok/src/engine.ts`，[grok-event-mapping.md](./grok-event-mapping.md)）：逐字增量、`plan` 待办、`session/set_model`、xAI 扩展；它的适配器还用到 `AcpAdapter` 给子类的扩展点（`promptMeta` / `cancelMeta`、`extNotification` / `extRequest`、`completeTurn`、`requestApproval`、`requestAnswers` / `answerQuestion`、`applyRoute`、`authenticateAfter`，§1.7）。Gemini CLI（codex-notes §9）还没有接。
 
 ## 1. ACP 消息 → AgentEvent
 
@@ -66,11 +70,14 @@ Grok Build、Gemini CLI（R8，codex-notes §9）各给一份描述。它们与 
 | `tool_call` | `tool.started`、`todo.updated`、`tool.finished` | `title` 是工具名，`rawInput` 原样作 `input`，展示类型由引擎描述的 `tools.display` 给出。引擎的 `tools.todos` 认出写待办的工具（完整列表）时，紧跟一条 `todo.updated`。ACP 允许 `tool_call` 直接带终态，那时再跟一条 `tool.finished` | `mock/updates/tool_call.json`、`mock/transcripts/todo-subagent.jsonl` |
 | `tool_call_update` | `tool.finished`、`tool.updated` | `status` 为 `completed` / `failed` 时是 `tool.finished`，`output` 是 `content` 里各文本块按顺序直接拼接的原文（模型看到的同一段文本），截断由 Host 做；取消期间的 `failed` 由 Host 记为 `cancelled`（domain-model.md §6.4）。其余状态（`pending`、`in_progress`、缺省）是 `tool.updated`，带 `title` 时重新计算展示类型。`content` 里有非文本项（`diff`、`terminal`、图片）时文本照常进 `output`，整条另发一条 `engine.raw` | `mock/updates/tool_call_update.completed.json`、`mock/updates/tool_call_update.failed.json` |
 | `usage_update` | `usage.updated` | `used` → `contextUsed`，`size` → `contextSize`；`cost` 不映射 | `mock/updates/usage_update.json` |
-| `config_option_update` | `engine.raw` | 认识的类型，v0 没有中途改模型的事件（预留 `session.config_changed`，domain-model.md §6.6），有意保留为 `engine.raw`，不告警 | — |
+| `config_option_update` | `engine.raw` | 认识的类型，v0 没有中途改模型的事件（预留 `session.config_changed`，domain-model.md §6.6），有意保留为 `engine.raw`，不告警；适配器另记下其中的当前值（会话中换模型时比较用） | — |
+| `available_commands_update` | `engine.raw` | 引擎的斜杠命令（Grok 每个回合都发）：Wevir 不用引擎的命令，有意保留，不告警；不截断正在流式的一块内容（§1.5） | — |
+| `current_mode_update` | `engine.raw` | 引擎的模式（Grok 的计划模式）：Wevir 不用引擎的模式，有意保留，不告警 | — |
+| `session_info_update` | `engine.raw` | 引擎起的会话标题：标题由 Host 生成，有意保留，不告警 | — |
 
 其余情况一律映射为一条 `engine.raw`（`protocol: 'acp'`、`method: 'session/update'`、`kind` 为 `sessionUpdate` 的值、`params` 是整条通知的原样参数），不丢弃，并按“原因 + 类型”在一个适配器实例内只告警一次：
 
-- 映射还不认识的类型：`user_message_chunk`、`plan`、`plan_update`、`plan_removed`、`available_commands_update`、`current_mode_update`、`session_info_update`、`compaction_update`、`compaction_summary_chunk`（ACP SDK 1.4.0 的其余类型，dsh 都不发），以及将来的新类型；
+- 映射还不认识的类型：`user_message_chunk`、`plan`（引擎描述有 `tools.isPlanTool` 时另见 §1.6）、`plan_update`、`plan_removed`、`compaction_update`、`compaction_summary_chunk`（ACP SDK 1.4.0 的其余类型，dsh 都不发），以及将来的新类型；
 - 认识的类型但字段不合预期：缺必需字段、`status` 或 `content` 的值不认识、`usage_update` 的数值不是非负数。
 
 `session/update` 本身缺 `sessionId` 或 `update.sessionUpdate` 时无法路由到会话，告警后丢弃；属于没有挂着的会话的更新同样告警后丢弃。
@@ -90,7 +97,7 @@ Grok Build、Gemini CLI（R8，codex-notes §9）各给一份描述。它们与 
 
 ### 1.3 审批桥接
 
-代码在 `acp-adapter.ts`（`#onRequestPermission`、`respondToApproval`、`#cancelApprovals`）；Host 一侧的审批状态机见 domain-model.md §5 与 §4.3。dsh 什么时候请求审批、给哪些选项、怎样解读回复见 §5。
+代码在 `acp-adapter.ts`（`#onRequestPermission`、`requestApproval`、`respondToApproval`、`#cancelPending`）；Host 一侧的审批状态机见 domain-model.md §5 与 §4.3。dsh 什么时候请求审批、给哪些选项、怎样解读回复见 §5。
 
 | ACP | AgentEvent 或适配器方法 | 说明 | 样本 |
 |---|---|---|---|
@@ -135,6 +142,37 @@ Grok Build、Gemini CLI（R8，codex-notes §9）各给一份描述。它们与 
 **不能插话（R11）。** ACP 没有往进行中的 `session/prompt` 追加输入的办法，`AcpAdapter` 不实现 `steer`（契约能力 `steer: false`），回合进行中带 `delivery` 的发送由 Host 一律排队，回合结束后作为下一个 `session/prompt` 发出（domain-model §4.6）。
 
 **取消得不到确认时重启引擎。** `cancel` 发出 `session/cancel` 后 4 s 内（`CANCEL_TIMEOUT_MS`，先于 Host 的 5 s）回合没有结算，适配器报 `cancel_unconfirmed`，同时重启引擎进程：卡住的回合随旧进程结束，挂在这个进程上的会话都以 `engine.exited`（`reason: cancel_unconfirmed`，`exitCode` 与 `signal` 为 null）脱开，Host 按引擎退出处理（domain-model.md §4.1 #10，取消的那个会话已按 #9 转 `error`）。之后 resume 到新进程上；不重启的话，引擎里那个会话仍是活跃的，resume 会被拒（dsh 报 `already active`），回合也一直占着它。dsh 实测取消在 3–64 ms 内结算（T0.3），这条路径只为引擎卡住时兜底。
+
+### 1.5 逐字增量的引擎（`messageChunks: 'streamed'`）
+
+Grok Build 与 Gemini CLI 的 `agent_message_chunk` / `agent_thought_chunk` 是一段段逐字增量，没有 `messageId`（codex-notes §9）。引擎描述声明 `streamed` 时，会话队列不按 §1.1 的整块规则映射它们，而是交给 `ChunkStream`（`chunk-stream.ts`）：
+
+- 一块内容是同一种（文本或思考）、同一个 `messageId`（引擎给了的话）的连续增量。每段增量发一条 `assistant.delta`（`attemptId` 是 `acp-<n>`，进程内唯一，块序号 0）。
+- 换了种类、换了 `messageId`，或中间来了别的**可见**更新（工具调用、`plan`、审批或提问），这一块结束：发一条替换它的 `assistant.message` / `assistant.thought`（`messageId` 用引擎给的，没有时用 `attemptId`），再发 `assistant.stream_ended`（`committed`）。只映射成 `engine.raw` 或 `usage.updated` 的更新不截断（Grok 回合中途的 `session_info_update`）。
+- 回合结束、取消或出错时，停在半途的一块按已生成的部分提交；引擎退出时同样先提交再发 `engine.exited`。回合之外的增量（`session/load` 回放的历史、引擎自己开的回合）按 §0.1 保留为 `engine.raw`。
+- 内容不是文本（图片）时照 §1.1 的规则保留为 `engine.raw`。`streamed` 的引擎不能再配增量旁路。
+
+### 1.6 ACP `plan` 作为待办（`tools.isPlanTool`）
+
+引擎描述给了 `tools.isPlanTool` 时（Grok：`todo_write` 可以只给改动的几项，合并后的完整列表随后以 `plan` 发出），回合中的 `plan`（`entries` 的 `content`、`status`，`priority` 不用）变成一条 `todo.updated`，记在本回合最近一个 `isPlanTool` 认出的工具调用上；本回合还没有这样的调用时 `toolCallId` 是 `plan-<n>`。`entries` 形状不对时照 §1.1 保留为 `engine.raw`。没有 `isPlanTool` 的引擎（dsh）`plan` 仍是 `engine.raw`。
+
+### 1.7 扩展方法与给子类的扩展点
+
+ACP 的扩展方法名以 `_` 开头（Grok 的 `_x.ai/…`）。引擎描述的 `extensions` 列出要接的：
+
+- **扩展通知**（`extensions.notifications`）与 `session/update` 一样由 `AcpProcess` 在 SDK 之前按序截下，交给适配器的 `extNotification`（子类覆盖，默认什么都不做），所以它与同一条流里的 `session/update`、`session/prompt` 结果的先后不变。没列出的扩展通知由 SDK 丢弃。
+- **扩展请求**（`extensions.requests`）登记给 SDK，交给 `extRequest`（子类覆盖，默认回 `-32601`）；返回值作为响应写给引擎，抛错回 JSON-RPC 错误。
+
+`AcpAdapter` 给引擎子类的扩展点：
+
+| 扩展点 | 用途 | 用它的引擎 |
+|---|---|---|
+| `promptMeta(id)`、`cancelMeta(id)` | `session/prompt`、`session/cancel` 的 `_meta` | Grok：本回合的 `promptId`；`cancelTrigger: ctrl_c` |
+| `completeTurn(id, {stopReason} 或 {error})` | 引擎用扩展通知报了回合结束：按它结算进行中的回合（同 `session/prompt` 的结果或错误，错误照 `classifyTurnError` 归类），之后到的 `session/prompt` 结果不再上报；`cancel` 等的也是这次结算 | Grok 的 `prompt_complete` / `turn_completed` |
+| `requestApproval(id, toolCallId, options, signal?)` | 经扩展请求向用户要审批：与 `session/request_permission` 共用 §1.3 的记账（`perm-<n>`、`respondToApproval`、取消、回合结束、引擎退出、`dispose` 时结束），得到所选的 `optionId` 或 undefined | Grok 的退出计划模式 |
+| `requestAnswers(id, toolCallId, questions, signal?)`、`answerQuestion(id, requestId, answers)` | 向用户提问：发 `question.requested`（`q-<n>`），子类的 `respondToQuestion` 经 `answerQuestion` 给回答；结束规则同审批，结束时发 `question.cancelled` | Grok 的 `ask_user_question` |
+| `applyRoute(id, config)` | 给挂着、没有回合的会话重新选定模型与推理强度（会话中换模型） | Grok |
+| `authenticateAfter(error)` | `session/new` / `session/resume` 失败后：引擎要先认证时认证，返回 true 重试一次；也可以抛 `missing_credentials` | Grok 的 `-32000 Authentication required` |
 
 # 第二部分：dsh 专属补充（`@wevir/adapter-dsh`）
 

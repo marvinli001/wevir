@@ -11,6 +11,7 @@ import {
   type AgentRuntimeAdapter,
   type ApprovalCancelledEvent,
   type ApprovalDecision,
+  type ApprovalOption,
   type EngineExitedEvent,
   type EngineSession,
   isAdapterError,
@@ -18,6 +19,7 @@ import {
   type SessionConfig,
   type TurnFailedEvent,
   type TurnSettledEvent,
+  type UserQuestion,
 } from '@wevir/runtime-adapter';
 import { isAcpSessionNotification, sessionConfigInfo } from './acp-mapping.js';
 import { type AcpExit, type AcpProcess, settledWithin } from './acp-process.js';
@@ -43,9 +45,9 @@ const PERMISSION_CANCELLED: RequestPermissionResponse = { outcome: { outcome: 'c
 export interface AcpAdapterOptions<P extends AcpProcess> {
   engine: AcpEngine;
   /**
-   * 建引擎进程（构造时调用一次）。`hooks` 里的回调要接到进程上：`onSessionUpdate` 与 `onRequestPermission`
-   * 原样作 `AcpProcessOptions` 的同名项，`onIncrementalEvent` 作增量旁路的 `onEvent`。`logger` 是适配器
-   * 最终用的告警出口（旁路的告警写这里）。
+   * 建引擎进程（构造时调用一次）。`hooks` 里的回调要接到进程上：`onSessionUpdate`、`onRequestPermission`、
+   * `onExtNotification` 与 `onExtRequest` 原样作 `AcpProcessOptions` 的同名项，`onIncrementalEvent` 作增量旁路的
+   * `onEvent`。`logger` 是适配器最终用的告警出口（旁路的告警写这里）。
    */
   createProcess(hooks: AcpProcessHooks): P;
   /** 告警日志（Host 的 Logger 满足这个接口），默认写 stderr。 */
@@ -59,14 +61,20 @@ export interface AcpProcessHooks {
     params: RequestPermissionRequest,
     signal: AbortSignal,
   ) => Promise<RequestPermissionResponse>;
+  onExtNotification: (method: string, params: unknown) => void;
+  onExtRequest: (method: string, params: unknown, signal: AbortSignal) => Promise<unknown>;
   onIncrementalEvent: (event: IncrementalEvent) => void;
   logger: AdapterLogger;
 }
 
+/** 引擎自己报的回合结束（Grok 的 `prompt_complete`，`completeTurn`）：停止原因，或要归类的错误。 */
+export type TurnCompletion = { stopReason: string } | { error: unknown };
+
 interface Turn {
   cancelRequested: boolean;
-  /** `session/prompt` 结算（成功、失败或被引擎退出打断）后兑现，永不 reject。 */
+  /** 回合结算（`session/prompt` 成功、失败，引擎报了结束，或被引擎退出打断）后兑现，永不 reject。 */
   done: Promise<void>;
+  finish: () => void;
 }
 
 interface AcpSession {
@@ -78,13 +86,23 @@ interface AcpSession {
   turn?: Turn;
   /** 未决审批，按 requestId。只在回合中有；回合结束、取消、引擎退出、dispose 时清空。 */
   readonly approvals: Map<string, PendingPermission>;
+  /** 未决提问（`requestAnswers`），按 requestId；规则同审批。 */
+  readonly questions: Map<string, PendingQuestion>;
+  /** 引擎最近报的 `configOptions`（`session/new` / `session/resume`、选定路由、`config_option_update`）。 */
+  configOptions: unknown;
 }
 
-/** 一个挂起的 `session/request_permission`：引擎在等 `reply` 的结果。 */
+/** 一个挂起的审批：引擎在等 `reply` 的结果（所选的 `optionId`，undefined 表示取消）。 */
 interface PendingPermission {
   readonly info: PendingApproval;
-  /** 兑现 ACP SDK 交给处理器的那个 Promise，SDK 随即把它作为响应写给引擎。只调用一次。 */
-  readonly reply: (response: RequestPermissionResponse) => void;
+  /** 兑现交给引擎的那个回复（ACP SDK 随即把它写给引擎）。只调用一次。 */
+  readonly reply: (optionId: string | undefined) => void;
+}
+
+/** 一个挂起的提问：引擎在等 `reply` 的回答（按问题 ID，undefined 表示取消）。 */
+interface PendingQuestion {
+  readonly requestId: string;
+  readonly reply: (answers: Record<string, string[]> | undefined) => void;
 }
 
 /**
@@ -121,6 +139,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   readonly #warnOnce: WarnOnce;
   readonly #cancelTimeoutMs: number;
   #nextRequestId = 0;
+  #nextQuestionId = 0;
   #disposed: Promise<void> | undefined;
   /** 进行中的有计划重启（合并并发的请求）。 */
   #restart: Promise<void> | undefined;
@@ -139,6 +158,17 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.process = options.createProcess({
       onSessionUpdate: (params) => this.#onSessionUpdate(params),
       onRequestPermission: (params, signal) => this.#onRequestPermission(params, signal),
+      onExtNotification: (method, params) => {
+        try {
+          this.extNotification(method, params);
+        } catch (error) {
+          this.#logger.warn(`${engine.name} 的扩展通知处理失败`, {
+            method,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      },
+      onExtRequest: (method, params, signal) => this.extRequest(method, params, signal),
       onIncrementalEvent: (event) => this.#onIncremental(event),
       logger: this.#logger,
     });
@@ -166,10 +196,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     try {
       let response: { sessionId: string; configOptions?: unknown };
       try {
-        response = await connection.agent.request(methods.agent.session.new, {
-          cwd: config.cwd,
-          mcpServers: [],
-        });
+        response = await this.#withAuth(() =>
+          connection.agent.request(methods.agent.session.new, {
+            cwd: config.cwd,
+            mcpServers: [],
+          }),
+        );
       } catch (error) {
         throw engineError(error, 'session/new');
       }
@@ -184,7 +216,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           .catch(() => {});
         throw error;
       }
-      this.#register(id, config.cwd);
+      this.#register(id, config.cwd, configOptions);
       return {
         engineSessionId: id,
         engineVersion: this.engine.version,
@@ -212,11 +244,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     try {
       let configOptions: unknown;
       try {
-        ({ configOptions } = await connection.agent.request(methods.agent.session.resume, {
-          sessionId: engineSessionId,
-          cwd: config.cwd,
-          mcpServers: [],
-        }));
+        ({ configOptions } = await this.#withAuth(() =>
+          connection.agent.request(methods.agent.session.resume, {
+            sessionId: engineSessionId,
+            cwd: config.cwd,
+            mcpServers: [],
+          }),
+        ));
       } catch (error) {
         if (isAdapterError(error)) throw error;
         const classified = this.engine.classifyResumeError(error);
@@ -245,7 +279,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           .catch(() => {});
         throw error;
       }
-      this.#register(engineSessionId, config.cwd);
+      this.#register(engineSessionId, config.cwd, configOptions);
       return {
         engineSessionId,
         engineVersion: this.engine.version,
@@ -267,28 +301,33 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
     const connection = this.process.connection;
-    const turn: Turn = { cancelRequested: false, done: Promise.resolve() };
+    let finish!: () => void;
+    const done = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    const turn: Turn = { cancelRequested: false, done, finish };
     session.turn = turn;
     session.queue.beginTurn();
+    const meta = this.promptMeta(engineSessionId);
     // ACP 的 session/prompt 到回合结束才返回（适配器接口注释第 7 条），这里发出请求就返回。
     const prompt: Promise<PromptResponse> = connection.agent.request(methods.agent.session.prompt, {
       sessionId: engineSessionId,
       prompt: input.content.map((part) => ({ type: 'text' as const, text: part.text })),
+      ...(meta !== undefined && { _meta: meta }),
     });
-    turn.done = prompt.then(
-      ({ stopReason }) =>
-        this.#settle(session, turn, {
-          type: 'turn.settled',
-          engineSessionId,
-          outcome: stopReason === 'cancelled' ? 'cancelled' : 'completed',
-          stopReason,
-        }),
-      (error: unknown) =>
+    prompt.then(
+      ({ stopReason }) => {
+        this.#settle(session, turn, settledEvent(engineSessionId, stopReason));
+        turn.finish();
+      },
+      (error: unknown) => {
         this.#settle(session, turn, {
           type: 'turn.failed',
           engineSessionId,
           ...this.engine.classifyTurnError(error),
-        }),
+        });
+        turn.finish();
+      },
     );
   }
 
@@ -314,7 +353,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     }
     // 先移出再回复：同一请求只回复引擎一次，之后的决定报 approval_not_found。
     session.approvals.delete(requestId);
-    pending.reply({ outcome: { outcome: 'selected', optionId: decision.optionId } });
+    pending.reply(decision.optionId);
   }
 
   async listPendingApprovals(engineSessionId?: string): Promise<PendingApproval[]> {
@@ -335,9 +374,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     if (!turn.cancelRequested) {
       turn.cancelRequested = true;
       const notified = this.#notifyCancel(engineSessionId);
-      // 挂起的审批必须以 cancelled 回复，否则引擎一直等（ADR-0001 §6）。SDK 在 notify 调用时就把
+      // 挂起的审批与提问必须以 cancelled 回复，否则引擎一直等（ADR-0001 §6）。SDK 在 notify 调用时就把
       // session/cancel 排进写队列，这些回复排在它后面，与 T0.3 场景 D 的顺序相同。
-      this.#cancelApprovals(session, 'turn_cancelled');
+      this.#cancelPending(session, 'turn_cancelled');
       await notified;
     }
     if (!(await settledWithin(turn.done, this.#cancelTimeoutMs))) {
@@ -383,7 +422,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.#disposed ??= (async () => {
       let replied = false;
       for (const session of this.#sessions.values()) {
-        replied = this.#cancelApprovals(session, 'disposed') || replied;
+        replied = this.#cancelPending(session, 'disposed') || replied;
+        session.turn?.finish();
         session.turn = undefined;
         session.queue.end();
       }
@@ -434,6 +474,198 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   /** 进程就绪之后、建会话或恢复会话之前调用（dsh：配置换过且空闲时先重启）。默认什么都不做。 */
   protected async beforeActivation(): Promise<void> {}
 
+  /**
+   * `session/new` / `session/resume` 失败之后调用：引擎要先认证时（Grok：`-32000 Authentication required`）用它自己存的
+   * 凭据 `authenticate`，返回 true 则重试一次；不是这种错误返回 false。认证不了时可以抛 `missing_credentials`。默认 false。
+   */
+  protected async authenticateAfter(_error: unknown): Promise<boolean> {
+    return false;
+  }
+
+  /** `session/prompt` 的 `_meta`（Grok：本回合的 `promptId`，用来认出它的结束通知）。默认没有。 */
+  protected promptMeta(_engineSessionId: string): Record<string, unknown> | undefined {
+    return undefined;
+  }
+
+  /** `session/cancel` 的 `_meta`（Grok：`cancelTrigger: ctrl_c`）。默认没有。 */
+  protected cancelMeta(_engineSessionId: string): Record<string, unknown> | undefined {
+    return undefined;
+  }
+
+  /**
+   * 引擎描述 `extensions.notifications` 里的扩展通知，按引擎写出的顺序同步调用（在同一条流里后到的 `session/prompt`
+   * 结果之前）。默认什么都不做。抛错只告警。
+   */
+  protected extNotification(_method: string, _params: unknown): void {}
+
+  /** 引擎描述 `extensions.requests` 里的扩展请求；返回值作为响应写给引擎。默认回 `Method not found`。 */
+  protected extRequest(method: string, _params: unknown, _signal: AbortSignal): Promise<unknown> {
+    return Promise.reject(
+      Object.assign(new Error(`Method not found: ${method}`), { code: -32601 }),
+    );
+  }
+
+  /**
+   * 引擎报了这个会话的回合结束（不经 `session/prompt` 的结果，Grok 的 `prompt_complete`），按它结算进行中的回合；之后
+   * 到的 `session/prompt` 结果不再上报。之前的 `session/update` 都已入队（扩展通知与它们在同一条流里按序截下）。
+   * 没有进行中的回合时返回 false。
+   */
+  protected completeTurn(engineSessionId: string, completion: TurnCompletion): boolean {
+    const session = this.#sessions.get(engineSessionId);
+    const turn = session?.status === 'open' ? session.turn : undefined;
+    if (session === undefined || turn === undefined) return false;
+    this.#settle(
+      session,
+      turn,
+      'error' in completion
+        ? {
+            type: 'turn.failed',
+            engineSessionId,
+            ...this.engine.classifyTurnError(completion.error),
+          }
+        : settledEvent(engineSessionId, completion.stopReason),
+    );
+    return true;
+  }
+
+  /** 会话有进行中的回合。 */
+  protected inTurn(engineSessionId: string): boolean {
+    const session = this.#sessions.get(engineSessionId);
+    return session?.status === 'open' && session.turn !== undefined;
+  }
+
+  /**
+   * 向用户请求审批（`session/request_permission`，或引擎的扩展请求，例如 Grok 的退出计划模式）：发 `approval.requested`，
+   * 等 `respondToApproval` 给出的 `optionId`；审批被取消（取消、关闭、回合结束、引擎退出、`dispose`、`signal`）时得到
+   * undefined。选项经引擎描述的 `approvalOptions` 过滤。没有挂着的会话或进行中的回合时直接得到 undefined 并告警；回合
+   * 已在取消时照常上报，随即结束。
+   */
+  protected requestApproval(
+    engineSessionId: string,
+    toolCallId: string,
+    options: ApprovalOption[],
+    signal?: AbortSignal,
+  ): Promise<string | undefined> {
+    const session = this.#sessions.get(engineSessionId);
+    const turn = session?.status === 'open' ? session.turn : undefined;
+    if (session === undefined || turn === undefined) {
+      this.#logger.warn('审批请求不属于进行中的回合，回复 cancelled', {
+        engineSessionId,
+        toolCallId,
+      });
+      return Promise.resolve(undefined);
+    }
+    const filtered = this.engine.approvalOptions?.(options.map((option) => ({ ...option })));
+    const info: PendingApproval = {
+      engineSessionId: session.id,
+      requestId: `perm-${++this.#nextRequestId}`,
+      toolCallId,
+      options: filtered !== undefined && filtered.length > 0 ? filtered : options,
+    };
+    session.queue.approval({ type: 'approval.requested', ...copyApproval(info) });
+    if (turn.cancelRequested) {
+      session.queue.approval(cancelledEvent(info, 'turn_cancelled'));
+      return Promise.resolve(undefined);
+    }
+    return new Promise((resolve) => {
+      session.approvals.set(info.requestId, { info, reply: resolve });
+      // 引擎撤回请求（`$/cancel_request`；dsh 0.2.1-alpha.2 不发）。连接关闭也会触发，那时引擎退出或 dispose
+      // 的路径已经同步结束了这个审批，所以晚一个微任务再看。
+      signal?.addEventListener(
+        'abort',
+        () =>
+          queueMicrotask(() => {
+            if (!session.approvals.delete(info.requestId)) return;
+            session.queue.approval(cancelledEvent(info, 'turn_ended'));
+            resolve(undefined);
+          }),
+        { once: true },
+      );
+    });
+  }
+
+  /**
+   * 向用户提问（引擎的扩展请求，例如 Grok 的 `ask_user_question`）：发 `question.requested`，等 `answerQuestion` 给的
+   * 回答（按问题 ID，选中的选项 `label` 或用户填写的文本）；被取消时得到 undefined，规则同 `requestApproval`。
+   */
+  protected requestAnswers(
+    engineSessionId: string,
+    toolCallId: string | undefined,
+    questions: UserQuestion[],
+    signal?: AbortSignal,
+  ): Promise<Record<string, string[]> | undefined> {
+    const session = this.#sessions.get(engineSessionId);
+    const turn = session?.status === 'open' ? session.turn : undefined;
+    if (session === undefined || turn === undefined) {
+      this.#logger.warn('提问不属于进行中的回合，回复 cancelled', { engineSessionId, toolCallId });
+      return Promise.resolve(undefined);
+    }
+    const requestId = `q-${++this.#nextQuestionId}`;
+    session.queue.approval({
+      type: 'question.requested',
+      engineSessionId: session.id,
+      requestId,
+      ...(toolCallId !== undefined && { toolCallId }),
+      questions,
+    });
+    const cancelled = (reason: ApprovalCancelledEvent['reason']) =>
+      session.queue.approval({
+        type: 'question.cancelled',
+        engineSessionId: session.id,
+        requestId,
+        reason,
+      });
+    if (turn.cancelRequested) {
+      cancelled('turn_cancelled');
+      return Promise.resolve(undefined);
+    }
+    return new Promise((resolve) => {
+      session.questions.set(requestId, { requestId, reply: resolve });
+      signal?.addEventListener(
+        'abort',
+        () =>
+          queueMicrotask(() => {
+            if (!session.questions.delete(requestId)) return;
+            cancelled('turn_ended');
+            resolve(undefined);
+          }),
+        { once: true },
+      );
+    });
+  }
+
+  /**
+   * 回答一个未决提问（子类的 `respondToQuestion` 用）：提问随即结束，`requestAnswers` 得到回答。
+   * 错误：`session_not_found`、`question_not_found`。
+   */
+  protected answerQuestion(
+    engineSessionId: string,
+    requestId: string,
+    answers: Record<string, string[]>,
+  ): void {
+    const session = this.#session(engineSessionId);
+    const pending = session.questions.get(requestId);
+    if (pending === undefined) {
+      throw new AdapterError(
+        'question_not_found',
+        `引擎会话 ${engineSessionId} 没有未决提问 ${requestId}（不存在、已回答或已结束）`,
+      );
+    }
+    session.questions.delete(requestId);
+    pending.reply(answers);
+  }
+
+  /**
+   * 给挂着、没有回合的会话重新选定模型与推理强度（子类在会话中换模型时用，规则同建会话）。选不上报 `invalid_input`。
+   */
+  protected async applyRoute(
+    engineSessionId: string,
+    config: Pick<SessionConfig, 'providerId' | 'modelId' | 'reasoningEffort'>,
+  ): Promise<void> {
+    const session = this.#openSession(engineSessionId);
+    session.configOptions = await this.#selectRoute(engineSessionId, config, session.configOptions);
+  }
+
   /** 一个回合结算（`turn.settled` / `turn.failed` 已发出）之后调用（dsh：等回合结束的配置重启）。默认什么都不做。 */
   protected afterTurn(): void {}
 
@@ -465,69 +697,65 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       );
       return;
     }
+    if (
+      params.update.sessionUpdate === 'config_option_update' &&
+      Array.isArray(params.update.configOptions)
+    ) {
+      session.configOptions = params.update.configOptions;
+    }
     session.queue.acpUpdate(params);
   }
 
   /**
    * ACP `session/request_permission`（SDK 已校验参数）。返回的 Promise 兑现时 SDK 把它作为响应写给引擎。
-   * 没有挂着的会话或进行中的回合时直接回复 cancelled；回合已在取消时照常上报请求，随即以 cancelled 结束。
+   * 没有挂着的会话或进行中的回合时直接回复 cancelled；其余见 `requestApproval`。
    */
   #onRequestPermission(
     params: RequestPermissionRequest,
     signal: AbortSignal,
   ): Promise<RequestPermissionResponse> {
-    const session = this.#sessions.get(params.sessionId);
-    const turn = session?.status === 'open' ? session.turn : undefined;
-    if (session === undefined || turn === undefined) {
+    if (!this.inTurn(params.sessionId)) {
       this.#logger.warn('ACP session/request_permission 不属于进行中的回合，回复 cancelled', {
         engineSessionId: params.sessionId,
         toolCallId: params.toolCall.toolCallId,
       });
       return Promise.resolve(PERMISSION_CANCELLED);
     }
-    const info: PendingApproval = {
-      engineSessionId: session.id,
-      requestId: `perm-${++this.#nextRequestId}`,
-      toolCallId: params.toolCall.toolCallId,
-      options: params.options.map((option) => ({
-        optionId: option.optionId,
-        label: option.name,
-        kind: option.kind,
-      })),
-    };
-    session.queue.approval({ type: 'approval.requested', ...copyApproval(info) });
-    if (turn.cancelRequested) {
-      session.queue.approval(cancelledEvent(info, 'turn_cancelled'));
-      return Promise.resolve(PERMISSION_CANCELLED);
-    }
-    return new Promise((resolve) => {
-      session.approvals.set(info.requestId, { info, reply: resolve });
-      // 引擎撤回请求（`$/cancel_request`；dsh 0.2.1-alpha.2 不发）。连接关闭也会触发，那时引擎退出或 dispose
-      // 的路径已经同步结束了这个审批，所以晚一个微任务再看。
-      signal.addEventListener(
-        'abort',
-        () =>
-          queueMicrotask(() => {
-            if (!session.approvals.delete(info.requestId)) return;
-            session.queue.approval(cancelledEvent(info, 'turn_ended'));
-            resolve(PERMISSION_CANCELLED);
-          }),
-        { once: true },
-      );
-    });
+    const options: ApprovalOption[] = params.options.map((option) => ({
+      optionId: option.optionId,
+      label: option.name,
+      kind: option.kind,
+    }));
+    return this.requestApproval(params.sessionId, params.toolCall.toolCallId, options, signal).then(
+      (optionId) =>
+        optionId === undefined
+          ? PERMISSION_CANCELLED
+          : { outcome: { outcome: 'selected', optionId } },
+    );
   }
 
   /**
-   * 结束会话的全部未决审批：以 cancelled 回复引擎（引擎已退出时这个回复写不出去，无妨），发 `approval.cancelled`。
-   * 返回是否结束了至少一个。
+   * 结束会话的全部未决审批与提问：以 cancelled 回复引擎（引擎已退出时这个回复写不出去，无妨），发
+   * `approval.cancelled` / `question.cancelled`。返回是否结束了至少一个。
    */
-  #cancelApprovals(session: AcpSession, reason: ApprovalCancelledEvent['reason']): boolean {
-    if (session.approvals.size === 0) return false;
-    const pending = [...session.approvals.values()];
+  #cancelPending(session: AcpSession, reason: ApprovalCancelledEvent['reason']): boolean {
+    if (session.approvals.size === 0 && session.questions.size === 0) return false;
+    const approvals = [...session.approvals.values()];
+    const questions = [...session.questions.values()];
     session.approvals.clear();
-    for (const { info, reply } of pending) {
+    session.questions.clear();
+    for (const { info, reply } of approvals) {
       session.queue.approval(cancelledEvent(info, reason));
-      reply(PERMISSION_CANCELLED);
+      reply(undefined);
+    }
+    for (const { requestId, reply } of questions) {
+      session.queue.approval({
+        type: 'question.cancelled',
+        engineSessionId: session.id,
+        requestId,
+        reason,
+      });
+      reply(undefined);
     }
     return true;
   }
@@ -535,8 +763,12 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   /** 发 `session/cancel`，不抛错：连接已断时回合由引擎退出的路径结算（engine.exited）。 */
   #notifyCancel(engineSessionId: string): Promise<void> {
     try {
+      const meta = this.cancelMeta(engineSessionId);
       return this.process.connection.agent
-        .notify(methods.agent.session.cancel, { sessionId: engineSessionId })
+        .notify(methods.agent.session.cancel, {
+          sessionId: engineSessionId,
+          ...(meta !== undefined && { _meta: meta }),
+        })
         .catch(() => {});
     } catch {
       return Promise.resolve();
@@ -549,12 +781,13 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   #settle(session: AcpSession, turn: Turn, event: TurnSettledEvent | TurnFailedEvent): void {
-    // 引擎退出或 dispose 已经结束了这个回合。
+    // 引擎退出、dispose 或引擎报的结束（completeTurn）已经结束了这个回合。
     if (session.turn !== turn) return;
-    // 回合在审批未决时自己结束了（dsh 不会这样，防御）：审批随回合结束。
-    this.#cancelApprovals(session, 'turn_ended');
+    // 回合在审批未决时自己结束了（dsh 不会这样，防御）：审批与提问随回合结束。
+    this.#cancelPending(session, 'turn_ended');
     session.turn = undefined;
     session.queue.endTurn(event);
+    turn.finish();
     this.afterTurn();
   }
 
@@ -565,7 +798,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
    */
   async #selectRoute(
     engineSessionId: string,
-    config: SessionConfig,
+    config: Pick<SessionConfig, 'providerId' | 'modelId' | 'reasoningEffort'>,
     initial: unknown,
   ): Promise<unknown> {
     const connection = this.process.connection;
@@ -589,11 +822,54 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       }
     };
     const value = route.encode(config.providerId, config.modelId);
-    if (currentOption(configOptions, route.modelOption) !== value) {
-      await set(route.modelOption, value, ` ${config.providerId} 的模型 ${config.modelId}`);
-    }
     const effort = config.reasoningEffort;
     const effortOption = route.reasoningEffortOption;
+    if (route.modelMethod === 'set_model') {
+      // ACP 的 session/set_model（Grok）：推理强度跟着模型走，在同一请求的 _meta 里；没给推理强度时不带，不当作清掉
+      // 引擎的默认档位（T3 的 applyGrokAcpModelSelection）。
+      const effortChanged =
+        effort !== undefined &&
+        effortOption !== undefined &&
+        currentOption(configOptions, effortOption) !== effort;
+      const current = currentOption(configOptions, route.modelOption);
+      const target = value ?? current;
+      if ((value === undefined || value === current) && !effortChanged) return configOptions;
+      // 只换推理强度又不知道当前模型：没法发 set_model，用引擎的默认档位。
+      if (target === undefined) return configOptions;
+      let result: { _meta?: unknown } | undefined;
+      try {
+        result = await connection.agent.request<{ _meta?: unknown } | undefined>(
+          'session/set_model',
+          {
+            sessionId: engineSessionId,
+            modelId: target,
+            ...(effort !== undefined && { _meta: { reasoningEffort: effort } }),
+          },
+        );
+      } catch (error) {
+        const failed = engineError(error, 'session/set_model');
+        throw new AdapterError(
+          failed.code,
+          `${name} 选不上模型 ${config.modelId}：${failed.message}`,
+          { cause: error },
+        );
+      }
+      const rejected = (result?._meta as { model?: { Err?: unknown } } | undefined)?.model?.Err;
+      if (rejected !== undefined) {
+        throw new AdapterError(
+          'invalid_input',
+          `${name} 选不上模型 ${config.modelId}：${typeof rejected === 'string' ? rejected : JSON.stringify(rejected)}`,
+        );
+      }
+      configOptions = withCurrentOption(configOptions, route.modelOption, target);
+      if (effort !== undefined && effortOption !== undefined) {
+        configOptions = withCurrentOption(configOptions, effortOption, effort);
+      }
+      return configOptions;
+    }
+    if (value !== undefined && currentOption(configOptions, route.modelOption) !== value) {
+      await set(route.modelOption, value, ` ${config.providerId} 的模型 ${config.modelId}`);
+    }
     if (
       effort !== undefined &&
       effortOption !== undefined &&
@@ -602,6 +878,16 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       await set(effortOption, effort, `推理强度 ${effort}`);
     }
     return configOptions;
+  }
+
+  /** 引擎要求先认证时（`authenticateAfter`）认证后重试一次。 */
+  async #withAuth<T>(request: () => Promise<T>): Promise<T> {
+    try {
+      return await request();
+    } catch (error) {
+      if (isAdapterError(error) || !(await this.authenticateAfter(error))) throw error;
+      return request();
+    }
   }
 
   /** 启动或等进行中的重启完成，返回就绪的连接。 */
@@ -628,20 +914,23 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     for (const session of this.#sessions.values()) {
       if (session.status !== 'open') continue;
       session.status = 'detached';
-      this.#cancelApprovals(session, 'engine_exited');
+      this.#cancelPending(session, 'engine_exited');
+      session.turn?.finish();
       session.turn = undefined;
       session.queue.exited({ type: 'engine.exited', engineSessionId: session.id, ...exit });
     }
   }
 
   /** 登记一个刚挂到本进程上的会话；之前的记录（已关闭或已脱开，事件队列已结束）被替换。 */
-  #register(id: string, cwd: string): void {
+  #register(id: string, cwd: string, configOptions: unknown): void {
     this.#sessions.set(id, {
       id,
       cwd,
       status: 'open',
       queue: new SessionEventQueue(id, this.#warnOnce, this.engine),
       approvals: new Map(),
+      questions: new Map(),
+      configOptions,
     });
   }
 
@@ -679,6 +968,15 @@ function copyApproval(info: PendingApproval): PendingApproval {
   return { ...info, options: info.options.map((option) => ({ ...option })) };
 }
 
+function settledEvent(engineSessionId: string, stopReason: string): TurnSettledEvent {
+  return {
+    type: 'turn.settled',
+    engineSessionId,
+    outcome: stopReason === 'cancelled' ? 'cancelled' : 'completed',
+    stopReason,
+  };
+}
+
 function cancelledEvent(
   info: PendingApproval,
   reason: ApprovalCancelledEvent['reason'],
@@ -699,6 +997,20 @@ function currentOption(configOptions: unknown, id: string): string | undefined {
   );
   const value = (option as { currentValue?: unknown } | undefined)?.currentValue;
   return typeof value === 'string' ? value : undefined;
+}
+
+/** 改掉 `configOptions` 里某个选项的 `currentValue`（`session/set_model` 不回 `configOptions`）。 */
+function withCurrentOption(configOptions: unknown, id: string, value: string): unknown {
+  if (!Array.isArray(configOptions)) return [{ id, currentValue: value }];
+  let found = false;
+  const next = configOptions.map((option: unknown) => {
+    if (typeof option !== 'object' || option === null || (option as { id?: unknown }).id !== id) {
+      return option;
+    }
+    found = true;
+    return { ...option, currentValue: value };
+  });
+  return found ? next : [...next, { id, currentValue: value }];
 }
 
 /** ACP 调用失败 → AdapterError：参数错误是 `invalid_input`，其余是 `engine_unavailable`。 */

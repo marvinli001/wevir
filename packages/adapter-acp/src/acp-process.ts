@@ -152,8 +152,11 @@ export interface AcpPreparedLaunch {
 }
 
 export interface AcpProcessOptions {
-  /** 引擎描述：名字进错误与告警，增量旁路（fd、解码器、报到时限）也取自这里。 */
-  engine: Pick<AcpEngine, 'name' | 'incremental'>;
+  /**
+   * 引擎描述：名字进错误与告警，增量旁路（fd、解码器、报到时限）、`initialize` 的 `_meta` 与扩展方法的名单也取自
+   * 这里。
+   */
+  engine: Pick<AcpEngine, 'name' | 'incremental' | 'initializeMeta' | 'extensions'>;
   launcher: AcpLauncher;
   /**
    * 增量旁路的出口。引擎描述有旁路、且这次启动打开了它（`AcpPreparedLaunch.incremental` 为 waiting）时，
@@ -175,6 +178,16 @@ export interface AcpProcessOptions {
     params: RequestPermissionRequest,
     signal: AbortSignal,
   ) => Promise<RequestPermissionResponse>;
+  /**
+   * 引擎的扩展通知（引擎描述 `extensions.notifications` 里的方法），与 `onSessionUpdate` 一样在 SDK 之前按引擎写出的
+   * 顺序同步调用，不得抛错。
+   */
+  onExtNotification?: (method: string, params: unknown) => void;
+  /**
+   * 引擎的扩展请求（引擎描述 `extensions.requests` 里的方法）：返回值作为响应写给引擎，抛错时回 JSON-RPC 错误。不给时
+   * 这些方法回 `Method not found`。`signal` 在引擎取消请求或连接关闭时触发。
+   */
+  onExtRequest?: (method: string, params: unknown, signal: AbortSignal) => Promise<unknown>;
   /** `initialize` 的 `clientInfo`，默认 `{name: 'wevir', version: '0.0.0'}`。 */
   clientInfo?: { name: string; version: string };
   initializeTimeoutMs?: number;
@@ -264,6 +277,11 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
   /** 最近一次进程退出，含 `dispose` 引起的。 */
   get lastExit(): AcpExit | undefined {
     return this.#lastExit;
+  }
+
+  /** 当前进程的 `initialize` 结果；没有就绪的进程时为 undefined。 */
+  get initializeResponse(): InitializeResponse | undefined {
+    return this.#state === 'ready' ? this.#current?.initialize : undefined;
   }
 
   /** 当前（或最近一个）进程的增量旁路状态；还没启动过或没有配置旁路时为 `off`。 */
@@ -396,12 +414,14 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     try {
       const timeoutMs = this.#options.initializeTimeoutMs ?? INITIALIZE_TIMEOUT_MS;
       const clientInfo: Implementation = this.#options.clientInfo ?? DEFAULT_CLIENT_INFO;
+      const initializeMeta = this.#options.engine.initializeMeta;
       const initialize = launch.connection.agent.request(methods.agent.initialize, {
         protocolVersion: PROTOCOL_VERSION,
         // 不声明 fs 与 terminal：Host 不替引擎读写文件或执行命令，工具一律在引擎自己的沙箱里执行
         // （ADR-0001 §1）。
         clientCapabilities: {},
         clientInfo,
+        ...(initializeMeta !== undefined && { _meta: { ...initializeMeta } }),
       });
       const response = await Promise.race([
         initialize,
@@ -491,30 +511,46 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
         new TransformStream<Uint8Array, Uint8Array>({ flush: () => exited.then(() => {}) }),
       ),
     );
-    const connection = client({ name: 'wevir' })
-      .onRequest(methods.client.session.requestPermission, ({ params, signal }) =>
+    const app = client({ name: 'wevir' }).onRequest(
+      methods.client.session.requestPermission,
+      ({ params, signal }) =>
         this.#options.onRequestPermission !== undefined
           ? this.#options.onRequestPermission(params, signal)
           : { outcome: { outcome: 'cancelled' } },
-      )
-      .connect({
-        writable: wire.writable,
-        readable: wire.readable.pipeThrough(
-          new TransformStream<AnyMessage, AnyMessage>({
-            transform: (message, controller) => {
-              if (!isSessionUpdate(message)) {
-                controller.enqueue(message);
-                return;
+    );
+    const onExtRequest = this.#options.onExtRequest;
+    if (onExtRequest !== undefined) {
+      for (const method of this.#options.engine.extensions?.requests ?? []) {
+        app.onRequest(method, RAW_PARAMS, ({ params, signal }) =>
+          onExtRequest(method, params, signal),
+        );
+      }
+    }
+    const extNotifications = new Set(this.#options.engine.extensions?.notifications ?? []);
+    const connection = app.connect({
+      writable: wire.writable,
+      readable: wire.readable.pipeThrough(
+        new TransformStream<AnyMessage, AnyMessage>({
+          transform: (message, controller) => {
+            const method = notificationMethod(message);
+            if (method !== methods.client.session.update && !extNotifications.has(method ?? '')) {
+              controller.enqueue(message);
+              return;
+            }
+            const params = (message as { params?: unknown }).params;
+            try {
+              if (method === methods.client.session.update) {
+                this.#options.onSessionUpdate?.(params);
+              } else {
+                this.#options.onExtNotification?.(method as string, params);
               }
-              try {
-                this.#options.onSessionUpdate?.(message.params);
-              } catch {
-                // 回调约定不抛错；万一抛了也不能让 ACP 连接断开。
-              }
-            },
-          }),
-        ),
-      });
+            } catch {
+              // 回调约定不抛错；万一抛了也不能让 ACP 连接断开。
+            }
+          },
+        }),
+      ),
+    });
     const launch: Launch = {
       generation,
       child,
@@ -662,14 +698,15 @@ export async function settledWithin(promise: Promise<unknown>, ms: number): Prom
   }
 }
 
-/** 引擎写出的 `session/update` 通知（没有 id 的 JSON-RPC 消息）。 */
-function isSessionUpdate(message: AnyMessage): message is AnyMessage & { params?: unknown } {
-  return (
-    !Array.isArray(message) &&
-    (message as { method?: unknown }).method === methods.client.session.update &&
-    !('id' in message)
-  );
+/** 引擎写出的通知（没有 id 的 JSON-RPC 消息）的方法名；不是通知时 undefined。 */
+function notificationMethod(message: AnyMessage): string | undefined {
+  if (Array.isArray(message) || 'id' in message) return undefined;
+  const method = (message as { method?: unknown }).method;
+  return typeof method === 'string' ? method : undefined;
 }
+
+/** 扩展请求的参数原样交给处理器，由引擎的适配器自己检查。 */
+const RAW_PARAMS = { parse: (params: unknown) => params };
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

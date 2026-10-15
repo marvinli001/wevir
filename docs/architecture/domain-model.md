@@ -478,7 +478,7 @@ type WevirEvent = /* §6.2 的判别联合，按 type 区分 payload */
 
 ### 3.6 账号（0.7.0，R6；订阅来源 0.19.0）
 
-引擎自己的订阅登录（ADR-0005 决策 4）。ChatGPT 是 Codex 的 `account/*`（codex-event-mapping.md §8）；0.19.0 起还有订阅来源（ADR-0005 补记 14）：`claude`（Claude Agent）、`cursor`、`opencode`、`grok`、`antigravity`，各由自己的引擎读状态与登录。账号**不是存储里的实体**：状态与凭据都在引擎那边（Codex 的 ChatGPT 进程的 `CODEX_HOME/auth.json`；Cursor 的 SDK 在 Host 进程里运行，登录铸出的 API Key 由它的适配器存在 `engines/cursor/auth.json`，cursor-event-mapping.md §2；Claude Agent 与 OpenCode 用用户自己在终端里的登录，凭据在 `claude` / `opencode` 自己的目录里，Wevir 不读，opencode-event-mapping.md §2），Host 每次向引擎读，经 `account.*` 方法与 `account.updated` 通知转给客户端；Host 的其余部分与客户端都拿不到令牌。
+引擎自己的订阅登录（ADR-0005 决策 4）。ChatGPT 是 Codex 的 `account/*`（codex-event-mapping.md §8）；0.19.0 起还有订阅来源（ADR-0005 补记 14）：`claude`（Claude Agent）、`cursor`、`opencode`、`grok`、`antigravity`，各由自己的引擎读状态与登录。账号**不是存储里的实体**：状态与凭据都在引擎那边（Codex 的 ChatGPT 进程的 `CODEX_HOME/auth.json`；Cursor 的 SDK 在 Host 进程里运行，登录铸出的 API Key 由它的适配器存在 `engines/cursor/auth.json`，cursor-event-mapping.md §2；Claude Agent 与 OpenCode 用用户自己在终端里的登录，凭据在 `claude` / `opencode` 自己的目录里，Wevir 不读，opencode-event-mapping.md §2；Grok 的在用户自己的 `~/.grok`，Wevir 不读，grok-event-mapping.md §2），Host 每次向引擎读，经 `account.*` 方法与 `account.updated` 通知转给客户端；Host 的其余部分与客户端都拿不到令牌。
 
 ```ts
 // → protocol（AccountState 等）；→ adapter 接口（EngineAccounts，runtime-adapter 的 adapter.ts）

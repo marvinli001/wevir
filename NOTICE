@@ -341,6 +341,25 @@ OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.t
 packages/adapter-opencode/src/test-fixtures/events/ 是 opencode 1.18.34（MIT，Copyright (c) 2025 opencode，
 https://github.com/anomalyco/opencode）的服务器对着本机假模型交出的事件流的录制，见 docs/upstream/UPSTREAM.md §4.1。
 
+订阅来源 Grok 的引擎移植自 packages/provider-grok/src/server/（另有 packages/provider-acp/src/server/ 的两处），改写成不依赖
+Effect 的 TypeScript，建在 @wevir/adapter-acp 上：
+
+  packages/adapter-grok/src/xai.ts
+      <- acpSupport.ts、xaiAcpExtension.ts
+  packages/adapter-grok/src/tool-display.ts
+      <- xaiAcpExtension.ts
+  packages/adapter-grok/src/models.ts
+      <- status.ts、acpSupport.ts、packages/provider-acp/src/server/runtimeModel.ts
+  packages/adapter-grok/src/launch.ts
+      <- acpSupport.ts、status.ts、driver.ts
+  packages/adapter-grok/src/accounts.ts
+      <- status.ts
+  packages/adapter-grok/src/grok-adapter.ts
+      <- adapter.ts、xaiAcpExtension.ts、acpSupport.ts、packages/provider-acp/src/server/AcpSessionRuntime.ts
+
+packages/adapter-grok/src/test-fixtures/acp/ 是 T3 Code 的 apps/server/src/orchestration-v2/testkit/fixtures/ 里 7 个
+grok_transcript.ndjson 的原样副本：T3 录的 xAI Grok Build 1.0.41 / 1.0.44 的 ACP 往返，其中 Grok 的输出受 xAI 的条款约束。
+
 许可证全文见文末“MIT License”。
 
 

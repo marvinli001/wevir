@@ -3,6 +3,7 @@ export {
   type AcpAdapterOptions,
   type AcpProcessHooks,
   CANCEL_TIMEOUT_MS,
+  type TurnCompletion,
 } from './acp-adapter.js';
 export {
   type AcpRawReason,
@@ -38,9 +39,11 @@ export {
   STDERR_TAIL_CHARS,
 } from './acp-process.js';
 export { acpAdapterCapabilities } from './capabilities.js';
+export { ChunkStream } from './chunk-stream.js';
 export type {
   AcpEngine,
   AcpEngineCapabilities,
+  AcpExtensions,
   AcpIncrementalChannel,
   AcpRouteCodec,
   AcpToolPresentation,
@@ -54,6 +57,18 @@ export type {
   ResumeFailure,
   TurnErrorCategory,
 } from './engine.js';
+export {
+  type CheckedVersion,
+  checkExternalVersion,
+  compareVersions,
+  EXTERNAL_VERSION_TIMEOUT_MS,
+  type ExecutableSource,
+  type ExternalExecutableSpec,
+  type ResolvedExecutable,
+  type ResolveExecutableOptions,
+  resolveExternalExecutable,
+  type VersionPolicy,
+} from './external.js';
 export {
   type AdapterLogger,
   SessionEventQueue,

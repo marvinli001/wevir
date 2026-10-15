@@ -140,6 +140,7 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 | `packages/adapter-codex` | Codex 引擎（默认）：`codex-app-server` 进程与握手、CODEX_HOME 与生成的配置、会话与回合、通知 → AgentEvent、审批、取消与恢复、计划、错误归类、会话标题（[codex-event-mapping.md](./architecture/codex-event-mapping.md)） | `pnpm vitest run --project adapter-codex`（回放不需要二进制；真实二进制 + 网关 + mock 模型不需要 Key，没有二进制时跳过并打印下载命令） |
 | `packages/adapter-cursor` | Cursor 引擎（订阅来源）：`@cursor/sdk` 的应用内登录、模型、本地 agent、流式更新 → AgentEvent、取消与恢复（[cursor-event-mapping.md](./architecture/cursor-event-mapping.md)） | `pnpm vitest run --project adapter-cursor`（假 SDK 与本机 mock 后端，不需要 Cursor 账号、不联网；真实回合的手动步骤见映射文档 §8） |
 | `packages/adapter-opencode` | OpenCode 引擎（订阅来源）：用户的 `opencode`、本机服务器、账号与模型、规则集与审批、子 agent、流式事件 → AgentEvent、取消与恢复（[opencode-event-mapping.md](./architecture/opencode-event-mapping.md)） | `pnpm vitest run --project adapter-opencode`（假 opencode 回放真实录音，不需要 opencode）；装了 opencode 时 `WEVIR_TEST_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode contract.real`（真实 opencode + 本机假模型，不用订阅、不联网）；用订阅的手动步骤见映射文档 §9 |
+| `packages/adapter-grok` | Grok Build 引擎（订阅来源）：用户自己的 `grok` 的账号检测、按权限模式分进程的 ACP 会话、xAI 扩展（[grok-event-mapping.md](./architecture/grok-event-mapping.md)） | `pnpm vitest run --project adapter-grok`（假 grok 回放 T3 录的真实样本，不需要 Grok 账号、不联网；真实 `grok` 见 §6.2b） |
 | `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat、Anthropic Messages 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §9 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
@@ -317,6 +318,24 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_CLAUDE=1 pnpm vitest ru
 ```
 
 重录样本：`env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_RECORD_CLAUDE=1 pnpm vitest run --project adapter-claude record-sdk`。`WEVIR_CLAUDE_BIN` 可指定 `claude` 的路径（优先于自动查找，低于设置里指定的路径）。桌面端走一遍：`env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_CODEX_BIN=<codex-app-server> pnpm --silent wevir --home <目录> host start`（默认的 Codex Host 带着订阅引擎），再 `WEVIR_HOME=<目录> WEVIR_DESKTOP_DEBUG_PORT=9361 ./node_modules/.bin/electron-vite dev`（在 apps/desktop 里）；设置 → 模型服务里 Claude Agent 显示套餐与用量，模型选择里有它的模型。测完删掉 `~/.claude/projects` 下以临时工作目录命名的那个文件夹（`claude` 的会话记录）。
+
+### 6.2b Grok 适配器的测试
+
+```bash
+pnpm vitest run --project adapter-grok
+```
+
+| 文件 | 内容 | 需要 |
+|---|---|---|
+| `grok-adapter.contract.test.ts` | 契约：GrokAdapter 起假 grok（`src/test-fixtures/fake-grok.mjs`，真的子进程与 ACP），引擎写出的消息回放 T3 Code 录的真实 Grok Build 样本（`src/test-fixtures/acp/`） | 无；约 5 s |
+| `grok-adapter.test.ts`、`accounts.test.ts`、`units.test.ts` | 样本回放（增量、待办、审批、提问、取消、回合失败、唤醒回合）、按模式分进程、会话中换模式与模型、认证后重试、resume；账号检测；编解码与工具展示 | 无 |
+| `grok-adapter.contract.real.integration.test.ts` | 真实 `grok` 的账号检测与契约（用户自己的登录，会用掉订阅额度），`WEVIR_TEST_GROK=1` 才跑，`WEVIR_TEST_GROK_MODEL` 可换模型（默认 `grok-build`，即 Grok 自己的默认模型） | 装好并 `grok login` 的 `grok` |
+
+```bash
+env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_GROK=1 pnpm vitest run --project adapter-grok contract.real
+```
+
+`WEVIR_GROK_BIN` 可指定 `grok` 的路径（优先于设置里指定的路径与自动查找）。真实 `grok` 上的手工步骤与要顺手核对的几项见 [grok-event-mapping.md](./architecture/grok-event-mapping.md) §8。
 
 ### 6.3 真实模型测试的环境变量
 

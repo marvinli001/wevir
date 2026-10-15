@@ -30,7 +30,7 @@ export function isAcpSessionNotification(params: unknown): params is AcpSessionN
 }
 
 /**
- * 映射为 `engine.raw` 的原因。by_design：认识的类型，v0 没有对应的 Wevir 事件（`config_option_update`）；
+ * 映射为 `engine.raw` 的原因。by_design：认识的类型，v0 没有对应的 Wevir 事件（`RAW_BY_DESIGN_ACP_UPDATES`）；
  * 其余都是不认识的内容：unknown_type（映射不认识的类型）、unexpected_fields（认识的类型但字段不合预期，
  * 例如非文本内容）。调用方对后两种记一次告警。
  */
@@ -48,7 +48,12 @@ export const MAPPED_ACP_UPDATES = Object.freeze([
 ] as const);
 
 /** 认识但 v0 有意保留为 `engine.raw` 的类型。 */
-export const RAW_BY_DESIGN_ACP_UPDATES = Object.freeze(['config_option_update'] as const);
+export const RAW_BY_DESIGN_ACP_UPDATES = Object.freeze([
+  'config_option_update',
+  'available_commands_update',
+  'current_mode_update',
+  'session_info_update',
+] as const);
 
 /**
  * 一条 `session/update` 对应的 AgentEvent，按发出顺序。纯函数：`assistant.message` / `assistant.thought` 的
@@ -171,6 +176,12 @@ export function mapAcpUpdate(
 
     case 'config_option_update':
       // v0 没有中途改模型的事件（预留 session.config_changed，domain-model.md §6.6）。
+      return raw('by_design', kind);
+
+    case 'available_commands_update':
+    case 'current_mode_update':
+    case 'session_info_update':
+      // 引擎的斜杠命令、模式与会话标题（Grok 每个回合都发）：Wevir 不用引擎的命令与模式，标题由 Host 生成。
       return raw('by_design', kind);
 
     default:
