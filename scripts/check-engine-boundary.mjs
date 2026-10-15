@@ -4,6 +4,7 @@
 // @openai/codex（含 @openai/codex-sdk 等 @openai/codex-* 包）只在 packages/adapter-codex（ADR-0005 草案），
 // @anthropic-ai/claude-agent-sdk 与 @anthropic-ai/claude-code 只在 packages/adapter-claude（ADR-0005 补记 14）。
 // @cursor/sdk（含平台包 @cursor/sdk-*）只在 packages/adapter-cursor（ADR-0005 补记 14）。
+// @opencode-ai/*（`@opencode-ai/sdk` 等）与 @opencode/*（2.x 的包）只在 packages/adapter-opencode（ADR-0005 补记 14）。
 // Biome 的 noRestrictedImports（见 biome.json）负责拦截静态 import、动态 import() 等写法，
 // 但看不见 CommonJS require()、createRequire() 之类的加载方式。pnpm 的 node_modules 是隔离的：
 // 一个包只能解析到自己声明的依赖，以及根 package.json 的依赖。所以只要适配器包以外
@@ -44,6 +45,11 @@ const ENGINES = [
     label: '@cursor/sdk*',
     matches: (name, spec) =>
       /^@cursor\/sdk(-|$)/.test(name) || /^npm:@cursor\/sdk(-[^@]*)?(@|$)/.test(spec),
+  },
+  {
+    owner: 'packages/adapter-opencode',
+    label: '@opencode-ai/*、@opencode/*',
+    matches: (name, spec) => /^@opencode(-ai)?\//.test(name) || /^npm:@opencode(-ai)?\//.test(spec),
   },
 ];
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];

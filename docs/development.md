@@ -139,6 +139,7 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 | `packages/adapter-dsh` | dsh 的引擎描述与启动器、增量旁路、Provider 桥接 | `pnpm vitest run --project adapter-dsh`（含真实 dsh + 本地 mock Provider，不需要 Key） |
 | `packages/adapter-codex` | Codex 引擎（默认）：`codex-app-server` 进程与握手、CODEX_HOME 与生成的配置、会话与回合、通知 → AgentEvent、审批、取消与恢复、计划、错误归类、会话标题（[codex-event-mapping.md](./architecture/codex-event-mapping.md)） | `pnpm vitest run --project adapter-codex`（回放不需要二进制；真实二进制 + 网关 + mock 模型不需要 Key，没有二进制时跳过并打印下载命令） |
 | `packages/adapter-cursor` | Cursor 引擎（订阅来源）：`@cursor/sdk` 的应用内登录、模型、本地 agent、流式更新 → AgentEvent、取消与恢复（[cursor-event-mapping.md](./architecture/cursor-event-mapping.md)） | `pnpm vitest run --project adapter-cursor`（假 SDK 与本机 mock 后端，不需要 Cursor 账号、不联网；真实回合的手动步骤见映射文档 §8） |
+| `packages/adapter-opencode` | OpenCode 引擎（订阅来源）：用户的 `opencode`、本机服务器、账号与模型、规则集与审批、子 agent、流式事件 → AgentEvent、取消与恢复（[opencode-event-mapping.md](./architecture/opencode-event-mapping.md)） | `pnpm vitest run --project adapter-opencode`（假 opencode 回放真实录音，不需要 opencode）；装了 opencode 时 `WEVIR_TEST_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode contract.real`（真实 opencode + 本机假模型，不用订阅、不联网）；用订阅的手动步骤见映射文档 §9 |
 | `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat、Anthropic Messages 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §9 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
@@ -230,6 +231,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `engines/claude/` | Claude Agent 引擎（2026-10-15）探测登录与生成标题时的工作目录，里面没有 Wevir 的文件。会话记录与登录都在用户自己的 `~/.claude`（`claude` 写，Wevir 不读不改），见 [claude-event-mapping.md](./architecture/claude-event-mapping.md) §2 |
 | `engines.json` | `account.setPath` 指定的订阅引擎可执行文件（0.19.0） |
 | `engines/cursor/` | Cursor 引擎：应用内登录铸出的 API Key `auth.json`（0600，见[安全说明](./security.md) §3）。第一次登录 Cursor 时才出现；agent 的对话由 Cursor 的 SDK 存在它自己的位置（`~/.cursor/projects/`） |
+| `engines/opencode/` | OpenCode 引擎：读账号时 `opencode serve` 的工作目录，`servers/` 是本机服务器的台账（0600，进程身份与端口）。登录、配置与会话都在用户自己的 opencode 目录（`~/.config/opencode`、`~/.local/share/opencode`），Wevir 不读不改，见 [opencode-event-mapping.md](./architecture/opencode-event-mapping.md) §1 |
 | `desktop/` | Electron 的 userData（Chromium 配置、localStorage） |
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。

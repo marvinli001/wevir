@@ -8,6 +8,7 @@
 
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CursorAdapter, isCursorShellSpawnFailure } from '@wevir/adapter-cursor';
+import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import type { AdapterContext } from './cli.js';
 import type { EngineRoute } from './engine-router.js';
 
@@ -33,6 +34,17 @@ export function subscriptionEngines(context: AdapterContext): EngineRoute[] {
         ...(context.env !== undefined && { env: context.env }),
       }),
       kinds: ['cursor'],
+    },
+    // OpenCode（docs/architecture/opencode-event-mapping.md）：用户自己装的 `opencode` 与他接上的上游；本机的 `opencode serve`
+    // 第一次读账号或建会话时才起，只听 127.0.0.1，Host 退出时停掉。
+    {
+      name: 'opencode',
+      adapter: new OpenCodeAdapter({
+        home: context.home,
+        logger: context.logger,
+        ...(context.env !== undefined && { env: context.env }),
+      }),
+      kinds: ['opencode'],
     },
   ];
 }

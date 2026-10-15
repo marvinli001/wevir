@@ -1,0 +1,223 @@
+# OpenCode → Wevir 事件映射
+
+> 状态：v0.1（订阅来源 `opencode` 的引擎：检测与模型、本机服务器、会话、回合与流式事件、审批与提问、子 agent、取消、恢复）· 日期：2026-10-15
+> 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 补记 14；[host-api.md](./host-api.md) §3.1 的 `account.*`；[领域模型](./domain-model.md) §3.6
+> 代码：`packages/adapter-opencode/src/`（`sdk.ts`、`executable.ts`、`server.ts`、`runtime.ts`、`accounts.ts`、`models.ts`、`permissions.ts`、`message-id.ts`、`tool-display.ts`、`mapping.ts`、`opencode-adapter.ts`），登记在 `packages/host/src/engines.ts`
+> 来源：移植自 T3 Code（[pingdotgg/t3code](https://github.com/pingdotgg/t3code)，MIT，提交 `ec1313c8f8333292506f05a355bb72d308a455d8`）的 `packages/provider-opencode`（1.x 那一套：`OpenCodeRuntime.ts`、`OpenCodeServerOwner.ts`、`OpenCodeServerLedger.ts`、`status.ts`、`versionProbe.ts`、`toolItems.ts`、`adapter.ts`），逐文件的登记见 [UPSTREAM.md](../upstream/UPSTREAM.md) §4
+
+本文件写 OpenCode 引擎怎样被 Wevir 驱动，以及 opencode 服务器的事件怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。事件与接口的形状以锁定的 `@opencode-ai/sdk` 1.18.34 的 `dist/v2/gen/*.d.ts` 为准，行为以真实 `opencode` 1.18.34 录下的事件（`test-fixtures/events/*.jsonl`，§9）为准。
+
+## 1. 引擎的形态
+
+- **引擎是用户自己装的 `opencode`。** Wevir 不带 opencode、不替用户登录。适配器在本机起它的 HTTP 服务器（`opencode serve`，§3），经官方 SDK `@opencode-ai/sdk`（只由 `packages/adapter-opencode` 声明，AGENTS.md 规则 2；用 `v2` 入口，与 T3 相同）说话。SDK 只是 HTTP 客户端，钉 `1.18.34`，第一次用到时才 `import()`。
+- **只支持 1.x。** `opencode-ai` 的 `latest` 是 1.19.0（2026-10-11）；OpenCode 2.x（`@opencode/cli` 与 `@opencode/client`）是另一套协议，T3 另有一份适配器。`opencode --version` 读出 2.x 时账号报“还不支持”（§2.1），以后要接再另做。
+- **路由。** `engines.ts` 登记 `{ name: 'opencode', adapter: OpenCodeAdapter, kinds: ['opencode'] }`；`--adapter codex` 的 Host 是 Codex、Claude Agent、Cursor、OpenCode 的 `EngineRouter`。
+- **一个 Wevir 会话 = 一个 opencode 会话**，引擎会话 ID 是 opencode 的 `ses_…`；一个回合是一次 `session.promptAsync`（带 Wevir 生成的用户消息 ID，`message-id.ts`）到这个会话回到 idle。
+- **一个 Host 一个服务器，按目录分客户端。** opencode 1.x 的服务器按请求头 `x-opencode-directory` 为每个目录开一个实例，一个进程服务所有目录（`opencode serve` 自己就是 `instance: false`）。适配器给每个工作目录一个 SDK 客户端，各订阅一条事件流（`/event`），事件按 `sessionID` 分给会话；task 工具派出的子会话也在同一条流里。T3 每个会话另起一个绑在目录上的服务器，Wevir 不这样做（§8）。
+- **配置与数据复用用户自己的**（同 T3）：服务器读用户的 opencode 配置（`~/.config/opencode`、项目里的 `opencode.json`）、`opencode auth login` 存的凭据和它的会话库（`~/.local/share/opencode`），所以 Wevir 里的会话也出现在用户自己的 opencode 会话列表里，用户配的 Provider、模型、MCP、agent 照常生效。隔离数据目录就等于丢掉用户的登录，没有这样做。服务器的环境继承 Host 的（上游的 Key 环境变量照常生效），PATH 补上 `opencode` 所在的目录与常见的安装目录（`executable.ts`）。Wevir 自己只写 `<数据目录>/engines/opencode/`：账号检测用它当中立的工作目录，`servers/` 下是服务器台账（§3）。唯一加进去的配置是一层权限（§4.2）。
+- **外连。** 适配器只连本机的服务器。服务器自己连用户接上的上游、models.dev 等，与用户直接用 opencode 相同。
+
+## 2. 账号与模型（`executable.ts`、`runtime.ts`、`accounts.ts`、`models.ts`）
+
+### 2.1 检测
+
+`EngineAccounts.kinds` 只有 `opencode`，状态总带 `signIn: 'command'` 与 `loginCommand: 'opencode auth login'`。照 T3 的 `checkOpenCodeProviderStatus`：
+
+1. 找 `opencode`：`account.setPath` 指定的路径（不存在就不再自动找，`installed: false` 带 “… does not exist”）→ `WEVIR_OPENCODE_BIN` → PATH → 常见位置（官方安装脚本的 `~/.opencode/bin`、Homebrew、npm、bun、volta、pnpm、mise；Windows 是 `%APPDATA%\npm`、scoop、winget）。找不到是 `installed: false` 带 `installCommand: 'npm install -g opencode-ai'`（opencode README 的写法之一，另有 `curl -fsSL https://opencode.ai/install | bash`，装在 `~/.opencode/bin`）。
+2. `opencode --version`（10 s 时限）。跑不起来是 `installed: true` 带原因（macOS 隔离、签名损坏给出处理办法，T3 的 `formatOpenCodeProbeError`）；版本低于 1.14.19（T3 的 `MINIMUM_OPENCODE_VERSION`）或是 2.x 也是 `installed: true` 带原因、不往下走。
+3. 借本机服务器（§3），在 `<数据目录>/engines/opencode` 这个目录上读 `provider.list`。`connected` 里有上游就是 `signed_in`：`planLabel` 是这些上游的名字，按 `connected` 的顺序用 “, ” 连起来（例如 “Anthropic, OpenAI”，界面有十种语言，不用中文顿号），`plan` 是它们的 ID；没有就是 `signed_out`（不带 `lastError`，界面给登录命令）。读失败是 `signed_out` 带原因。
+
+结果缓存 5 分钟，`read` 带 `refresh` 时重新检测（用户在终端里登录之后桌面端点“重新检测”）。`login` / `logout` 报 `invalid_input`，提示在终端里做（`opencode auth login` / `opencode auth logout`）；没有 `install`。opencode 自己存的凭据 Wevir 不读（ADR-0005 补记 14）。
+
+### 2.2 模型
+
+`models` 来自最近一次的 `provider.list`（`accountModels`，T3 的 `flattenOpenCodeModels`）：
+
+- 只列 `connected` 的上游，ID 是 opencode 的 `<上游>/<模型>`（例如 `anthropic/claude-sonnet-4-5`；模型 ID 本身可以带 `/`，只按第一个 `/` 拆）。
+- `displayName` 是 “<上游的名字> · <模型的名字>”：一个 opencode 后面常接着好几家，目录还会重叠（T3 的 `subProviderLabelFor`）。按上游、再按模型名排。
+- `contextWindow` / `maxTokens` 取 `limit.context` / `limit.output`，`supportsImages` 取 `capabilities.input.image`。
+- 推理档位是模型的变体（`variants` 的键，opencode 的原值，例如 `low` / `high` / `max`），发消息时原样作 `variant`；模型不推理时是空数组。没有变体的推理模型也是空数组：T3 给它们补一组 `low…xhigh` 让界面一致，但 opencode 不认就忽略，Wevir 不补。
+- 默认模型是第一个上游在 opencode 里的默认模型（`provider.list` 的 `default`），没有时取第一个。
+
+Host 照补记 14 的规则在第一次读到已登录时建 `opencode` Provider，之后刷新模型。
+
+## 3. 服务器进程（`server.ts`、`runtime.ts`）
+
+照 T3 的 `startOpenCodeServerProcess` 与 `OpenCodeServerOwner`：
+
+- **懒启动。** 第一次读账号或建会话时才起；构造适配器不起进程、不联网。Host 启动时后台读一遍每种订阅的账号（补记 14），装了 opencode 的机器上这一步会起一次服务器，30 秒后自己停。
+- **只听本机、随机端口、随机密码。** `opencode serve --hostname=127.0.0.1 --port=<空闲端口>`；每次起都生成一个 32 字节的随机密码经 `OPENCODE_SERVER_PASSWORD` 交给它（HTTP Basic，用户名 `opencode`），SDK 的每个请求带上，只在内存里。T3 只在用户自己设了这个变量时带密码；没有密码的 opencode 服务器本机任何进程都能驱动（它启动时也这样警告）。stdout 打出 `opencode server listening on http://…` 即就绪（30 s 时限），再在 5 s 内读 `/global/health` 核对版本。
+- **一直读完输出。** 就绪后照样读 stdout / stderr（不读管道会写满、opencode 会卡住），stderr 留最后 8 KiB 作退出时的诊断。
+- **借用与空闲停止。** 会话挂着、正在读账号时借着服务器；都还回来 30 秒后停掉。服务器意外退出时，挂着的会话以 `engine.exited`（退出码、信号、stderr 尾部）脱开，下次建会话或恢复时重起。
+- **整组停掉。** 服务器自成进程组（npm 装的 `opencode` 是个 Node 启动器，真正的服务器是它的子进程）；停的时候整组 SIGTERM，1 秒后 SIGKILL。Wevir 退出时（适配器 `dispose`）停掉。Windows 上不分离，`child.kill`。
+- **Host 被强杀后的回收（台账，T3 的 `OpenCodeServerLedger`）。** 起服务器时把进程组 ID、一个组成员的 pid、启动时间（Linux 读 `/proc/<pid>/stat`，macOS 读 `ps -o lstart`）与命令行、端口、起它的 Host 进程的身份写进 `<数据目录>/engines/opencode/servers/<pgid>.json`（0600），优雅停止时删掉。下一个 Host 第一次起服务器前检查这些条目：主人还活着的不动；主人不在了，而且记下的成员 pid、启动时间、进程组与命令行都还对得上，才整组 SIGTERM（2 秒后还在就 SIGKILL），对不上（pid 被复用）的只删条目；跟着数据目录一起拷来的（目录对不上）只删。Windows 不记。
+
+## 4. 权限（`permissions.ts`）
+
+OpenCode 没有操作系统沙箱，会话的规则集（`session.create` / `session.update` 的 `permission`）就是边界。规则是 `{ permission, pattern, action: allow | ask | deny }`，最后一条命中的生效（opencode 的 `Permission.evaluate` 用 findLast）；`ask` 的经事件 `permission.asked` 问用户。
+
+### 4.1 三种模式
+
+| Wevir | 规则集 |
+|---|---|
+| `on_request` | `*` 问；`bash`、`edit`、`webfetch`、`websearch`、`codesearch`、`external_directory`、`doom_loop` 问；`read`、`glob`、`grep`、`list`、`lsp`、`todowrite`、`task`、`skill`、`question` 放行；读 `*.env`、`*.env.*` 问，`*.env.example` 放行（T3 的规则，多放行了只读的 `list`） |
+| `auto_review` | 同 `on_request`：OpenCode 没有替用户审查的模型（T3：没有 AI 审查的引擎在 auto 下退回到询问） |
+| `full_access` | 全部放行（`*` 与 `external_directory`） |
+
+环境会话的额外目录（`SessionConfig.additionalRoots`，适配器声明了 `additionalRoots`）各加一条 `external_directory` `<目录>/*` 放行：进入这些目录不问，改文件照样按模式问。建会话时给规则集；`configureSession` 换模式时立刻 `session.update`（规则没变就不发）；恢复时按现在的配置重装。
+
+### 4.2 子会话与服务器的权限配置
+
+task 工具派出的子会话是 opencode 自己建的，它的规则只继承父会话的 `deny` 与 `external_directory`，再加上子 agent 自己的限制（`task` 不许再派等，opencode 的 `deriveSubagentSessionPermission`）。适配器在 `session.created`（`parentID` 是自己的会话）时就给它装上父会话的完整规则加子 agent 特有的那几条（T3 的 `openCodeChildPermissionRules`；T3 等到 task 工具报出子会话 ID 才装）。
+
+装上之前有一段空档：opencode 在每一步开始时取会话规则，子会话的第一步往往在适配器的 `session.update` 到达之前就开始了，这一步按 agent 的默认权限走，而 opencode 的默认是全部放行。T3 的办法是在父会话的规则前面先写一串 `deny`（`*` 与上面那几种）让子会话继承；可是 opencode 把最后命中 `*` 规则是 `deny` 的工具整个从工具列表里拿掉（`session/llm.ts`），子会话第一步一个工具都看不到，在真实的 opencode 上子 agent 因此什么都不做就答完了（录事件时观察到）。Wevir 改为给自己起的服务器加一层配置：`OPENCODE_CONFIG_CONTENT` 里的 `permission` 把 `bash`、`edit`、`webfetch`、`websearch`、`codesearch` 设为 `ask`（`SERVER_PERMISSION_CONFIG`；`external_directory` 与 `doom_loop` 的默认本来就是 ask）。opencode 的 agent 权限是“默认 → agent 自己的 → 配置里的”依次合并，所以这层对所有 agent 生效：子会话第一步照样有工具，越界的照样问；会话规则排在它之后，顶层会话不受影响。用户自己设了 `OPENCODE_CONFIG_CONTENT` 的照留，只把这几项并进它的 `permission`（T3：不能盖掉用户的配置）。
+
+代价：`full_access` 会话的子 agent 在第一步里跑命令也会问一次；用户在 opencode 配置里给全局 `permission` 设的这几项在 Wevir 起的服务器上被这层盖过（顶层会话本来就按 Wevir 的规则集走）。MCP 工具在空档里按 opencode 的默认放行。
+
+### 4.3 审批选项与回复
+
+审批选项照 adapter-codex 的四个，回复是 `permission.reply`（T3 的 `toOpenCodePermissionReply`）：
+
+| 选项 | `reply` | opencode 的行为（`permission/index.ts`） |
+|---|---|---|
+| `accept`（允许） | `once` | 只放行这一次 |
+| `acceptForSession`（允许，本会话不再询问） | `always` | 把请求带的 `always` 模式（例如 `echo *`）记进这个目录实例的已批准列表，同一会话里匹配的未决请求一并放行；只在内存里，服务器停了就没了，不写用户的配置 |
+| `decline`（拒绝并继续） | `reject` 带 `message` | 记成 CorrectedError：工具失败，反馈交给模型，回合接着做 |
+| `cancel`（拒绝并停止） | `reject` | 记成 RejectedError：停下这个会话的循环（opencode 的 `continue_loop_on_deny` 关着时），同一会话里别的未决请求一并拒绝；回合以 opencode 的 idle 正常结束 |
+
+## 5. 事件 → AgentEvent（`mapping.ts`、`tool-display.ts`、`opencode-adapter.ts`）
+
+下面的事件都来自 `/event`（1.x 的事件流）。录下的真实事件顺序见 `test-fixtures/events/`。
+
+### 5.1 回合的开始与结束
+
+- `send`：生成 `msg_…` 用户消息 ID（opencode 的格式：12 位十六进制的时间与计数 + 28 位 base62，T3 的 `makeOpenCodeMessageId`），`promptAsync({ sessionID, messageID, model: { providerID, modelID }, variant?, parts: [{ type: 'text', text }] })`，204 即返回。返回之前收到的这个回合的事件先存着，返回后再交出（引擎接受输入之后才报这个回合的事件）。模型 ID 不是 `<上游>/<模型>` 报 `invalid_input`。不传 `agent`（opencode 默认的 build）与 `system`。
+- **结束看 idle，但只认这个回合的。** opencode 每个回合先报 `session.status` busy（之后每一步都再报），结束时报 `session.status` idle（有时再跟一条旧式的 `session.idle`）。顶层回合在见到这个会话的 busy（或回答这条用户消息、`parentID` 是它的 assistant 消息）之后，idle 才结束它：`turn.settled`（`completed`，`stopReason` 是最后一条 assistant 消息的 `finish`，如 `stop` / `tool-calls`）。之前的 idle 是上一个回合留下的，不管。接受输入 5 秒后还没见到 busy，就问一次 `session.status`：busy 当作已开始，idle 按完成结算（T3 的 `reconcileOpenCodePromptAdmissionStatus`）。T3 用 admission 状态机（`promptAsync` 返回、用户消息出现、中间见过 idle 就去问 status）；它在“旧 idle 赶上 opencode 的循环还没开始”时会读到 idle、提前结束回合，Wevir 改为以 busy 为准。
+- `session.error`（带 `sessionID`）：`MessageAbortedError` 或正在取消时是 `turn.settled`（`cancelled`）；其他是 `turn.failed`（§7）。之后的 idle 不再管。
+- 结算时先提交没提交的文字（§5.2），未决的审批与提问以 `approval.cancelled` / `question.cancelled` 结束（取消时 `turn_cancelled`，否则 `turn_ended`）。
+
+### 5.2 文字与思考
+
+opencode 每一步（一次模型调用）新开一条 assistant 消息，它就是一个 `attemptId`；其中的 text / reasoning part 各是一个增量块（`blockIndex` 按出现的顺序）。
+
+| opencode | AgentEvent |
+|---|---|
+| `message.part.updated`（text / reasoning，先来一条空文本的登记块） | 快照比已发的长时补出差的那一段作 `assistant.delta`（旧版本只发快照） |
+| `message.part.delta`（`field: 'text'`） | `assistant.delta`（`kind` 是块的类型） |
+| part 带上 `time.end` | `assistant.message` / `assistant.thought`（`messageId` 是 part ID，`replaces` 是这个块；没发过增量时为空） |
+| `message.updated`（assistant，`time.completed`） | 提交这条消息里还没提交的块，再 `assistant.stream_ended`（`committed`）；用量见 §5.8 |
+| 回合结束时还没提交的块（取消时 opencode 不再发 part 的最终快照） | 按已发的增量提交，结束流 |
+
+`synthetic` / `ignored` 的 text part 不报；用户消息的 part 不报（子会话的除外，§5.7）。
+
+### 5.3 工具
+
+按 tool part 的 `callID`（与 `permission.asked` 的 `tool.callID` 相同）：
+
+| tool part 的状态 | AgentEvent |
+|---|---|
+| `pending` 且没有输入 | 先不报（opencode 接着发带输入的 `running`） |
+| 第一次有输入（`running`，或带输入的 `pending`） | `tool.started`（`toolName` 是 opencode 的工具名，`display` 见下，`input` 原样） |
+| 输入变了 | `tool.updated`（`display`、`input`） |
+| `running` 的 `metadata.output` 变了（bash 的实时输出） | `tool.updated`（`output` 是到目前为止的全文） |
+| `completed` / `error` | `tool.finished`（`completed` 带 `output`；`failed` 带 `error` 的原文） |
+
+展示类型（`tool-display.ts`，T3 的 `openCodeToolProjectionKind`）：`bash` → shell（命令）；`read` / `list` → read；`write` → write；`edit` / `apply_patch` → edit（apply_patch 从补丁的 `*** Add|Update|Delete File:` 行取路径）；`glob` / `grep` / `websearch` / `codesearch` / `lsp` → search；`webfetch` → fetch；`todowrite` → plan；`task` → sub_agent（摘要是描述）；其余（MCP 工具是 `<server>_<tool>`）→ unknown 带输入的摘要。`question` 工具不报：提问由 `question.asked` 报（§5.6），再报一遍工具会在界面上重复（T3 同）。
+
+### 5.4 清单
+
+todowrite 工具的输入 `todos` 报成 `todo.updated`（紧跟它的 `tool.started`，状态原样：pending、in_progress、completed、cancelled）。opencode 另发的 `todo.updated` 事件不用（它不带工具调用 ID，`TodoUpdatedEvent` 要）。
+
+### 5.5 审批
+
+`permission.asked { id, sessionID, permission, patterns, metadata, always, tool? }`：
+
+- 有 `tool`：tool part 可能还是 pending（真实录音里 bash 的审批就在 running 之前），没报过 `tool.started` 时先报，输入用请求的 `metadata`（bash 是 `{ command }`），之后 tool part 的输入到了再 `tool.updated`。
+- 没有 `tool`（死循环检测等）：合成一个工具调用（`permission:<请求 ID>`，工具名是 `permission`，输入是 `metadata` 加 `patterns`），回复后报它的 `tool.finished`。
+- 报 `approval.requested`（`requestId` 是 opencode 的 `per_…`，选项 §4.3），等 `respondToApproval`。
+- `permission.replied` 到了而不是经 `respondToApproval` 回的（拒绝时 opencode 把同一会话的其他请求一并拒掉，或者在别的客户端里回了）：`approval.cancelled`（`turn_ended`）。
+- 没有回合时到的请求没人能回答：直接拒掉，不让 opencode 的会话一直等。
+
+### 5.6 提问
+
+`question.asked { id, sessionID, questions }` → `question.requested`：每个问题的 ID 是 `question-<序号>-<标题的 slug>`（T3 的 `openCodeQuestionId`），`header`、`question`、选项（`label`、`description`），`multiple` → `multiSelect`，`custom` 默认允许自己填（`allowOther`）。`respondToQuestion` 按问题的顺序交回 `question.reply`（没答的是空数组，T3 的 `toOpenCodeQuestionAnswers`）。`question.replied` / `question.rejected` 不是经 `respondToQuestion` 回的：`question.cancelled`（`turn_ended`）。
+
+### 5.7 子 agent
+
+- `session.created` 带的 `parentID` 是挂着的会话：登记成子会话（它的流在第一个订阅者之前缓冲），装上规则（§4.2）。
+- 父会话的 task tool part 的 `metadata.sessionId` 报出了子会话：在父会话的流里，紧跟这个工具的 `tool.started` 之后报 `subagent.started`（`parentToolCallId` 是 task 的 `callID`，`title` 是描述，`prompt` 是任务原文，`modelId` 取 `metadata.model` 拼成 `<上游>/<模型>`，`role` 是 `subagent_type`）。task 工具本身照常是工具事件，完成时的输出是 opencode 的 `<task …>` 结果。
+- 子会话的回合从 task 发来的用户消息开始：`turn.started`（`input` 是那条消息），之后同 §5.2–§5.6，idle 时 `turn.settled`。子会话的审批与提问在子会话自己的流里报，用子会话的 ID 回复（Host 交给父会话的界面）。T3 把它们挂到顶层会话上。
+- 子会话不接受 `send` 与 `configureSession`（`invalid_input`），`cancel` 中断它自己的回合，父会话关闭时一并脱开。
+
+### 5.8 用量
+
+assistant 消息完成时报 `usage.updated`：`contextUsed` 是这次的 `input + cache.read + cache.write + output`（下一次请求要带上的），`contextSize` 是模型的 `limit.context`（来自 `provider.list`，不知道时不报），`totalTokens` 是这个会话累计的（每条 assistant 消息的 `tokens.total`）。
+
+### 5.9 不映射的事件
+
+`session.updated` / `session.deleted` / `session.diff` / `session.compacted`、`message.removed` / `message.part.removed`、opencode 的 `todo.updated`、`file.*`、`lsp.*`、`vcs.*`、`command.executed`、`mcp.tools.changed`、`project.updated`，以及 step-start / step-finish / snapshot / patch / agent / retry / compaction / file / subtask 这些 part 不映射也不保留。其余带 `sessionID` 的事件保留为 `engine.raw`（`protocol: 'opencode-sdk'`，`kind` 是事件类型）。`server.connected` 第二次出现说明事件流重连过（SDK 最多重连 3 次），记告警：中间的事件可能丢了。
+
+## 6. 取消、关闭、恢复与退出
+
+- **`cancel`**：标记取消，中止还没返回的 `promptAsync`，`session.abort`，再沿 `session.children` 把子孙会话一个个 abort（顶层的 abort 停不下子会话，T3 的 `abortDescendants`，最多 15 秒）。opencode 报 `session.error`（`MessageAbortedError`）与 idle 时以 `turn.settled`（`cancelled`）结算。回合没停下之前每秒再发一次 abort（abort 赶在 opencode 的循环开始之前到达时是空操作）；10 秒还没停就自己按取消结算、记告警。未决审批以 `approval.cancelled`（`turn_cancelled`）结束。
+- **`close`**：有回合时先取消，然后脱开（子会话一并），这个目录没有会话了就停掉它的事件流。opencode 的会话不删，可以恢复。
+- **`resumeSession`**：`session.get` 找到就按现在的配置 `session.update` 规则、重新挂上（新的事件流订阅，不回放历史，opencode 记得之前的对话）；404 或 ID 不是 `ses_…`（opencode 回 400）报 `session_lost`（`not_found`）。服务器不在时重起。
+- **服务器退出 / 事件流断开**：挂着的会话（含子会话）以 `engine.exited` 脱开，进行中的回合在它之前提交已有的文字、结掉未决的审批（`engine_exited`），下次用到时重起服务器、恢复会话。
+- **`dispose`**：结束全部回合与订阅（未决审批 `disposed`），停掉事件流与服务器，不发 `engine.exited`。
+
+## 7. 错误归类
+
+| 来源 | 结果 |
+|---|---|
+| `session.error` 的 `ProviderAuthError`，或 `APIError` 带 401 / 403 | `turn.failed`（`missing_credentials`） |
+| `APIError`（其他状态码）、`ContextOverflowError`、`ContentFilterError`、`MessageOutputLengthError`、`StructuredOutputError` | `turn.failed`（`provider`；`code` 是 HTTP 状态码，`message` 是 `data.message` 原文） |
+| `UnknownError`、没有错误内容 | `turn.failed`（`unknown`） |
+| `MessageAbortedError` | `turn.settled`（`cancelled`，`stopReason: 'aborted'`；用户在别的客户端里停的也是这样） |
+| 没装、版本不能用（建会话、恢复时） | `engine_unavailable` |
+| 没接上游 | `missing_credentials`，提示 `opencode auth login` |
+| SDK 请求失败、服务器起不来 | `engine_unavailable`，原文保留 |
+
+## 8. 与 T3 Code 的差异
+
+- Effect 改写成普通 TS，没有引入 `effect`；SDK 动态 import。
+- 一个 Host 一个服务器、按目录分客户端（T3 每个会话一个服务器，账号检测另用一个共享的）；服务器总带随机密码；台账记在 Wevir 的数据目录。
+- 不支持 OpenCode 2.x、不支持连外部服务器的网址与密码（T3 的设置里有 `serverUrl` / `serverPassword`）。
+- 不搬：插话（T3 的 steerTurn，Host 改为排队）、会话标题生成、分支与回滚、`/compact` 与 slash 命令、skills、附件、agent 选择（build / plan）、T3 自己的 MCP 服务、OpenCode Go 的用量。
+- 权限：去掉给子会话继承的 deny 前缀，改由服务器的权限配置兜住子会话的第一步（§4.2）；子会话的规则在 `session.created` 时就装；放行 `list`；审批选项照 Codex 的四个，“拒绝并继续”带反馈。
+- 回合以见到 busy 为开始（§5.1），不用 T3 的 admission 状态机；取消在回合停下之前每秒重发 abort。
+- 子 agent 照 Wevir 的子会话报，子会话的审批与提问在子会话的流里（T3 挂到顶层会话上）；清单取 todowrite 的输入（T3 用 `todo.updated` 事件）；bash 的实时输出作工具的增量输出。
+
+## 9. 验证
+
+自动化（`pnpm vitest run --project adapter-opencode`，不需要 opencode，不联网）：
+
+- `mapping.test.ts`：把真实 opencode 1.18.34 录下的事件（`test-fixtures/events/*.jsonl`：一问一答、推理、工具、审批的允许 / 拒绝并继续 / 拒绝并停止、清单、提问、子 agent、子 agent 的审批、慢回合中途取消、模型报错）逐条喂给 `OpenCodeTurnMapper` 核对 §5.2–§5.4、§5.8。
+- `opencode-adapter.contract.test.ts`：runtime-adapter 的契约套件跑在假的 opencode 上（`test-fixtures/fake-opencode.ts` 按提示词回放同一批录音，审批按回复切换分支，ID 按出现顺序对齐）；只有插话的两条跳过。
+- `opencode-adapter.test.ts`：规则集与权限模式、消息 ID 与模型拆分、提问、审批的三种回复、子会话（`subagent.started`、子会话的回合、装上的规则、子会话的审批）、模型报错、接受输入之前的旧 idle、服务器崩溃后脱开与重起、恢复时重装规则与 `session_lost`、空闲停服务器、没接上游。
+- `accounts.test.ts`：已登录与套餐、模型、没接上游、没装、2.x 与太旧、跑不起来、缓存与 `refresh`、指定路径、登录登出报错、读完还回服务器。
+- `server.test.ts`：用一个假的 `opencode`（Node 脚本）核对就绪、随机密码与并进的权限配置、整组停掉（孙进程也退出）、启动前退出、超时、核对版本失败、台账清理主人不在的服务器而不动 pid 被复用的进程。
+- `units.test.ts`：找可执行文件、版本、规则集按 findLast 的求值、服务器配置的合并、审批回复、模型 ID、工具展示、消息 ID、`ps` 与就绪行的解析、提问与错误归类。
+- Host 的 `cli.test.ts`：`--adapter codex` 的路由里有 OpenCode，构造时不起进程。
+
+真实 opencode + 本机假模型（不用订阅、不联网；2026-10-15 在 macOS 上用 `opencode-ai` 1.18.34 跑过，22 条通过、插话的 2 条跳过）：
+
+```bash
+WEVIR_TEST_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode contract.real
+```
+
+它起真实的 `opencode serve`，数据、配置、缓存都在临时目录里（`isolatedOpenCodeEnv`，不碰用户的登录与会话），模型是 `test-fixtures/mock-model.ts` 的 OpenAI 兼容假服务（`OPENCODE_CONFIG_CONTENT` 里的 `mock` Provider），跑完整的契约套件（含审批、子 agent 的审批、取消、恢复、杀掉服务器进程后的 `engine.exited`、dispose 后进程退出）。重录事件：
+
+```bash
+WEVIR_RECORD_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode record-events
+```
+
+**待维护者验证**（需要装好 opencode 并接上一个订阅，自动化做不了）：
+
+1. 装 opencode（`npm install -g opencode-ai` 或 `curl -fsSL https://opencode.ai/install | bash`），在终端里 `opencode auth login` 接上一个上游（例如 Anthropic 或 OpenCode Zen），`opencode models` 能列出模型。
+2. `pnpm dev` 打开桌面端，设置 → 模型服务 → 订阅 → OpenCode：显示已安装、版本、路径，套餐是接上的上游名字；没接上游时显示登录命令，在终端里登录后点“重新检测”变成已登录。
+3. 模型选择里出现 OpenCode 一组，模型名是 “上游 · 模型”，带推理档位的模型能选档位。选一个模型建会话，发一条要读文件、跑命令、改文件的消息：消息流里有思考、回答与工具调用，命令与改文件弹出审批；分别试允许、本会话不再询问、拒绝并继续、拒绝并停止。
+4. 让它用 task 派一个子 agent 跑命令：子智能体出现在会话里，它的命令审批能回答，父回合等它结束再回答。
+5. 回合进行中点停止：回合以停止结束，之后能接着发；`ps` 里只有一个 `opencode serve`（`--hostname=127.0.0.1`）。
+6. 把权限模式换成完全访问再发一条：命令不再问。
+7. 退出桌面端：`opencode serve` 进程随之退出。重新打开后回到这个会话接着发：会话恢复，opencode 记得之前的对话；用户自己的 `opencode` TUI 的会话列表里也能看到这个会话。
+8. 用 `kill -9` 杀掉 Host 进程（模拟崩溃）后再打开桌面端：上一个 Host 留下的 `opencode serve` 在第一次用到 OpenCode 时被停掉。

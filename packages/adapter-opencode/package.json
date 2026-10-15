@@ -1,0 +1,29 @@
+{
+  "name": "@wevir/adapter-opencode",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir engine adapter for OpenCode through the official @opencode-ai/sdk (ported from T3 Code): the user's own opencode CLI and its connected providers, a lazily started local opencode serve, sessions with streamed text, tools, permission rules, questions, cancel and resume.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "1.18.34",
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

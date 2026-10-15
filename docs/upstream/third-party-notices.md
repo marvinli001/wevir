@@ -158,6 +158,10 @@ Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁�
 - [ ] `@anthropic-ai/claude-agent-sdk`（`@wevir/adapter-claude` 的依赖，2026-10-15）是 Anthropic 的商业条款（包内 `LICENSE.md`），不是开源许可证：打包前定能不能随安装包分发（T3 Code 随应用分发它），能分发时随附它的条款。只带 SDK 本身，不带各平台的 Claude Code 二进制（`ignoredOptionalDependencies`，Wevir 用用户自己装的 `claude`）。
 - [ ] 界面与安装包里不出现 “Claude Code” 的名字，只叫 “Claude Agent”（ADR-0005 补记 14）。
 
+### 3.2c OpenCode
+
+- [ ] `@opencode-ai/sdk` 1.18.34（`@wevir/adapter-opencode` 的依赖，2026-10-15）声明 MIT，包里没有 LICENSE 文件：第三方声明里用 opencode 仓库的许可证全文（`Copyright (c) 2025 opencode`）。不带 `opencode` 本身，用用户自己装的（opencode-event-mapping.md §1）。
+
 ### 3.3 MPL-2.0：`@deepseek-ai/libreoffice-kit*`
 
 MPL-2.0 第 3.2 条：以可执行形式分发时，要让接收者能以合理方式拿到源码，并告诉他们怎么拿；第 3.4 条：不得删改许可证声明。

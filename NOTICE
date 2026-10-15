@@ -238,7 +238,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 
-10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格与 Claude Agent、Cursor 引擎）
+10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格与 Claude Agent、Cursor、OpenCode 引擎）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
 来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
@@ -322,6 +322,24 @@ SDK 交出的消息的录制，见 docs/upstream/UPSTREAM.md §4.1。
   packages/adapter-cursor/src/tool-display.ts
   packages/adapter-cursor/src/mapping.ts
   packages/adapter-cursor/src/cursor-adapter.ts
+
+订阅来源 OpenCode 的引擎移植自 packages/provider-opencode/src/server/（1.x 的 OpenCodeRuntime.ts、OpenCodeServerOwner.ts、
+OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.ts），改写成不依赖 Effect 的 TypeScript：
+
+  packages/adapter-opencode/src/sdk.ts
+  packages/adapter-opencode/src/executable.ts
+  packages/adapter-opencode/src/server.ts
+  packages/adapter-opencode/src/runtime.ts
+  packages/adapter-opencode/src/accounts.ts
+  packages/adapter-opencode/src/models.ts
+  packages/adapter-opencode/src/permissions.ts
+  packages/adapter-opencode/src/message-id.ts
+  packages/adapter-opencode/src/tool-display.ts
+  packages/adapter-opencode/src/mapping.ts
+  packages/adapter-opencode/src/opencode-adapter.ts
+
+packages/adapter-opencode/src/test-fixtures/events/ 是 opencode 1.18.34（MIT，Copyright (c) 2025 opencode，
+https://github.com/anomalyco/opencode）的服务器对着本机假模型交出的事件流的录制，见 docs/upstream/UPSTREAM.md §4.1。
 
 许可证全文见文末“MIT License”。
 

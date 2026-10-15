@@ -367,6 +367,15 @@ importers:
         specifier: workspace:*
         version: link:../runtime-adapter
 
+  packages/adapter-opencode:
+    dependencies:
+      '@opencode-ai/sdk':
+        specifier: 1.18.34
+        version: 1.18.34
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/client-sdk:
     dependencies:
       '@wevir/protocol':
@@ -400,6 +409,9 @@ importers:
       '@wevir/adapter-dsh':
         specifier: workspace:*
         version: link:../adapter-dsh
+      '@wevir/adapter-opencode':
+        specifier: workspace:*
+        version: link:../adapter-opencode
       '@wevir/protocol':
         specifier: workspace:*
         version: link:../protocol
@@ -3884,6 +3896,9 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+
+  '@opencode-ai/sdk@1.18.34':
+    resolution: {integrity: sha512-R9QWUpcngtdQ6FCixz7NC6n1WsSho6CEuRUzYHz/CzZcp3miSklDzXkm0oDwXVCnuEu+ANoeM0f6RDp51kOMzQ==}
 
   '@opentelemetry/api-logs@0.222.0':
     resolution: {integrity: sha512-9mb1If+IF6u0ZVXkHQ6ogEae5HwA6ajIVUgpSDQyRASxft6BSXHvBvPooRle3yFN/fKnCdSOnuu0OC3PLcF6+g==}
@@ -10523,6 +10538,10 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@opencode-ai/sdk@1.18.34':
+    dependencies:
+      cross-spawn: 7.0.6
 
   '@opentelemetry/api-logs@0.222.0':
     dependencies:
