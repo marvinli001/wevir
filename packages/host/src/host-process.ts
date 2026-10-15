@@ -67,7 +67,10 @@ export interface StartHostOptions {
   onShutdownRequest?: (trigger: ShutdownTrigger) => void;
   /** 默认 `SHUTDOWN_BUDGET_MS`。 */
   shutdownBudgetMs?: number;
-  /** Wevir 提示词目录（会话标题用 `thread-title.md`），默认仓库的 `prompts/`；打包后的位置由 R9 定。 */
+  /**
+   * Wevir 提示词目录（会话标题用 `thread-title.md`），默认仓库的 `prompts/`。wevir-host 传 adapter-codex 的
+   * `resolvePromptsDir`（安装包里是资源目录的 `prompts/`）。
+   */
   promptsDir?: string;
 }
 

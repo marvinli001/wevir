@@ -35,6 +35,9 @@ allowBuilds:
   # 的 JS 转发脚本；可选包缺失时才从 npm registry 下载同版本的二进制。与上游 dsh、OpenWork 的取舍一致。
   esbuild@0.25.12: true
   esbuild@0.28.2: true
+  # 拒绝：electron-builder 26.17.0 经 electron-builder-squirrel-windows 带进来，install 只把本机架构的
+  # vendor/7z-<arch>.exe 复制成 7z.exe，只有 Squirrel.Windows 目标用得到；Wevir 的 Windows 安装包是 NSIS。
+  electron-winstaller@5.4.0: false
 
 # 不装的可选依赖。Claude Agent SDK 带各平台约 225 MB 的 Claude Code 原生二进制（@anthropic-ai/claude-agent-sdk-<平台>）；
 # Wevir 照 T3 Code 用用户自己装的 `claude`（适配器总是传 pathToClaudeCodeExecutable，AGENTS.md 规则 2，ADR-0005 补记 14），

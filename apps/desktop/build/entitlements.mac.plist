@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened Runtime 的例外（ADR-0007 决策 2），主程序与包内其余可执行文件共用（electron-builder.yml 的 entitlements
+  与 entitlementsInherit）。只开 V8 的 JIT：主程序既是 Electron，也以 ELECTRON_RUN_AS_NODE 跑 Host。
+  不开 disable-library-validation：包里的原生模块（Host 依赖里的 .node）随应用一起用 Wevir 的 Developer ID 重签，
+  同一个 Team ID 能通过库验证。以后加载下载来的 dsh 原生模块时才需要它（ADR-0007 决策 2）。
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { CodexRuntime, resolveCodexBinary } from '@wevir/adapter-codex';
+import { CodexRuntime, resolveCodexBinary, resolvePromptsDir } from '@wevir/adapter-codex';
 import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
@@ -175,6 +175,7 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
       const codex = new CodexRuntime({
         home: context.home,
         binary: resolveCodexBinary(),
+        promptsDir: resolvePromptsDir(context.env ?? {}),
         clientInfo: { name: 'wevir', version: HOST_VERSION },
         logger: context.logger,
         historyTool,
@@ -353,6 +354,8 @@ export async function runHostCli(
       adapter,
       engine: options.adapter,
       logger,
+      // 会话标题的提示词与 Codex 的基础提示词在同一个目录：安装包里是资源目录的 prompts/（ADR-0007）。
+      promptsDir: resolvePromptsDir(proc.env),
       ...(options.port !== 0 && { port: options.port }),
       onShutdownRequest: (trigger) => beginShutdown(trigger, EXIT_CODE.ok),
     }).then(

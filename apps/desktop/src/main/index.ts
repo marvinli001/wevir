@@ -40,6 +40,7 @@ import {
   hostEnvironment,
   hostRuntime,
   type Log,
+  packagedHostEntry,
   resolveHostEntry,
 } from './host-lifecycle.js';
 import { loadDesktopIdentity } from './identity.js';
@@ -104,9 +105,9 @@ function run(): void {
       home,
       identity,
       nodePath: runtime.nodePath,
-      hostEntry: resolveHostEntry(),
+      hostEntry: app.isPackaged ? packagedHostEntry(process.resourcesPath) : resolveHostEntry(),
       env: {
-        // 打包后随附的 codex-app-server 在资源目录里（ADR-0007 决策 5）。
+        // 打包后随附的 Host、codex-app-server 与提示词都在资源目录里（ADR-0007 决策 5）。
         ...hostEnvironment(process.env, app.isPackaged ? process.resourcesPath : undefined),
         ...runtime.env,
       },

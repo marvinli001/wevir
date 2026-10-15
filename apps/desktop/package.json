@@ -13,12 +13,8 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer && tsc --noEmit -p src/renderer/tsconfig.test.json",
     "resources": "node scripts/stage-resources.ts",
+    "package": "node scripts/package.ts",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@wevir/client-sdk": "workspace:*",
-    "@wevir/host": "workspace:*",
-    "@wevir/protocol": "workspace:*"
   },
   "devDependencies": {
     "@base-ui/react": "^1.9.0",
@@ -28,6 +24,9 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "@wevir/client-sdk": "workspace:*",
+    "@wevir/host": "workspace:*",
+    "@wevir/protocol": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",
     "border-beam": "1.4.1",
     "bot-avatars": "0.1.2",
@@ -35,6 +34,7 @@
     "cn": "^0.4.0",
     "dompurify": "^3.4.16",
     "electron": "^44.7.0",
+    "electron-builder": "26.17.0",
     "electron-vite": "^5.0.0",
     "highlight.js": "^11.12.0",
     "img-fx": "0.5.1",

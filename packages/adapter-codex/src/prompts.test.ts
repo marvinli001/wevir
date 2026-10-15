@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { BasePrompt, promptReader, renderPromptTemplate } from './prompts.js';
+import {
+  BasePrompt,
+  defaultPromptsDir,
+  promptReader,
+  renderPromptTemplate,
+  resolvePromptsDir,
+} from './prompts.js';
 
 const none = () => {
   throw new Error('不该引入');
@@ -46,6 +52,23 @@ describe('promptReader', () => {
     const read = promptReader(dir);
     expect(read('sub/x.md')).toBe('X');
     expect(() => read('../outside.md')).toThrow('越出');
+  });
+});
+
+describe('resolvePromptsDir', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'wevir-prompts-resources-'));
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('资源目录里有 prompts/base.md 时用它（安装包），否则用仓库的 prompts/', () => {
+    expect(resolvePromptsDir({})).toBe(defaultPromptsDir());
+    expect(resolvePromptsDir({ WEVIR_RESOURCES_DIR: '' })).toBe(defaultPromptsDir());
+    // 开发构建上模拟安装布局时资源目录可能只有二进制（development.md §3.5）。
+    expect(resolvePromptsDir({ WEVIR_RESOURCES_DIR: dir }, '/repo/prompts')).toBe('/repo/prompts');
+    mkdirSync(join(dir, 'prompts'));
+    writeFileSync(join(dir, 'prompts', 'base.md'), '');
+    expect(resolvePromptsDir({ WEVIR_RESOURCES_DIR: dir }, '/repo/prompts')).toBe(
+      join(dir, 'prompts'),
+    );
   });
 });
 

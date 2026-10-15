@@ -1,6 +1,6 @@
 # ADR-0007：第一个安装包与运行时分发
 
-- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）
+- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）
 - 日期：2026-10-14
 - 任务：R9；影响：`apps/desktop` 的打包与资源目录、adapter-codex 的二进制解析；推迟的部分影响 adapter-dsh、Host 的组件管理、设置页的引擎列表、R8 的 Grok Build 与 Gemini CLI
 - 依据：[ADR-0005](./0005-agent-runtime-and-model-gateway.md) 决策 8、未决事项 2 与 4；[ADR-0002](./0002-host-transport-and-process-model.md) 未决事项 1；[ADR-0004](./0004-repo-tooling.md)（打包工具留到打包阶段）；[UPSTREAM.md](../upstream/UPSTREAM.md) §1.2、§2.1、§2.4；[third-party-notices.md](../upstream/third-party-notices.md)；本文“背景”里的本机实测
@@ -60,7 +60,7 @@
 | 选项 | 说明 |
 |---|---|
 | (a) electron-updater + `generic` provider 指向国内对象存储 / CDN，GitHub Releases 作源与备用，更新清单签名 | 国内下载快；要有对象存储账号，国内 CDN 要已备案的域名 |
-| **(b) 第一个包不自动更新（选定）**：“关于”里检查 GitHub Releases 的最新版本并给下载链接；发布目录按 `generic` provider 的布局放好，有了国内镜像再打开 (a) | 不需要托管；macOS 未签名时也能用 |
+| **(b) 第一个包不自动更新（2026-10-14 选定，2026-10-16 改为 (a) 的做法，见补记 2）**：“关于”里检查 GitHub Releases 的最新版本并给下载链接；发布目录按 `generic` provider 的布局放好，有了国内镜像再打开 (a) | 不需要托管；macOS 未签名时也能用 |
 | (c) electron-updater + GitHub Releases | 国内下载慢、常失败 |
 
 ### 4. Host 与引擎跑在哪个 Node（ADR-0002 未决事项 1）
@@ -110,7 +110,7 @@
 ## 后果
 
 - R9 只做了决策 5。仓库里仍然没有 electron-builder 的配置，所以“从安装包启动”还验证不了：R9 的验收是在开发构建上模拟安装后的布局（做法见 [development.md](../development.md) §3.5）。2026-10-14 在 macOS arm64 上：`pnpm --filter @wevir/desktop resources` 取到 `rust-v0.162.1` 并校验通过；全新的数据目录与 `HOME`、`env -i`、开发缓存里没有二进制、`WEVIR_RESOURCES_DIR` 指向 `apps/desktop/resources`，Host、mock 模型与 CLI 都在 `sandbox-exec` 里运行（只放行本机地址，沙箱里访问外网报 `EPERM`）。Host 以默认的 Codex 引擎启动，`codex-app-server` 从资源目录拉起；经 CLI 建 Provider（mock，Responses）、新建会话、一问一答完成（回合 `completed`，标题由模型生成）。没有验证的：工具调用（Codex 在 macOS 上用 `sandbox-exec` 跑命令，套在验收用的沙箱里会失败，与分发无关）、桌面端从安装包拉起 Host（打包任务）、Windows 与 Linux（只在 macOS 上跑过；Linux 的 `bwrap` 与 Windows 的资源目录都没有实测）。
-- **第一个安装包另开任务**，要做：electron-builder 26 的配置（`extraResources` 收 `apps/desktop/resources/`）；Host 由安装包里的主程序拉起（决策 4 已在开发构建上实现；Host 的 `dist` 与生产依赖怎样进安装包，`RunAsNode` fuse 保持打开）；`@deepseek-ai/dsh` 及其闭包不进安装包（它现在是 adapter-dsh 的生产依赖，组件管理推迟期间，安装包里的 Host 不提供 dsh）；macOS 的 Developer ID 签名与公证（Hardened Runtime，随包的 `codex-app-server` 重签；以后下载 dsh 原生模块时主程序要加 `com.apple.security.cs.disable-library-validation`）；“关于”里检查 GitHub Releases 的新版本；按安装包的实际内容生成第三方声明（third-party-notices.md §4）。
+- **第一个安装包另开任务**（2026-10-16 做了，见补记 1），要做：electron-builder 26 的配置（`extraResources` 收 `apps/desktop/resources/`）；Host 由安装包里的主程序拉起（决策 4 已在开发构建上实现；Host 的 `dist` 与生产依赖怎样进安装包，`RunAsNode` fuse 保持打开）；`@deepseek-ai/dsh` 及其闭包不进安装包（它现在是 adapter-dsh 的生产依赖，组件管理推迟期间，安装包里的 Host 不提供 dsh）；macOS 的 Developer ID 签名与公证（Hardened Runtime，随包的 `codex-app-server` 重签；以后下载 dsh 原生模块时主程序要加 `com.apple.security.cs.disable-library-validation`）；“关于”里检查 GitHub Releases 的新版本；按安装包的实际内容生成第三方声明（third-party-notices.md §4）。
 - 安装包变大：每个平台多出 `codex-app-server` 的压缩约 72–82 MiB（解压 181–243 MiB），与 ADR-0005 的“后果”一致。
 
 ## 未决事项
@@ -119,3 +119,20 @@
 2. dsh 的原生模块在 Electron 的 Node 上逐个能否加载，以及 dsh 进程怎样拿到 `ELECTRON_RUN_AS_NODE`（决策 4）。
 3. Host 与引擎跑在哪个 Node：已定，Electron 自带的 Node（决策 4，2026-10-14）。
 4. 可选组件（决策 6）：什么时候做、是否仍用下载来源 A，由维护者定；接着做时以分支 `r9-components` 为起点，协议换成那时的下一个次版本。同时要做的还有 dsh 离开 pnpm 的两件事（背景 5）。
+
+## 补记
+
+1. **2026-10-16，第一个安装包。** 后果里列的第一个安装包的事，做法如下；命令与检查方法见 [development.md](../development.md) §3.5、§3.6。
+   - **打包工具**：electron-builder 26.17.0（`apps/desktop` 的 devDependency；27 还是 alpha），配置 `apps/desktop/electron-builder.yml`，`pnpm --filter @wevir/desktop package [--target <三元组>]`（`scripts/package.ts`：准备资源目录 → `electron-vite build` → electron-builder）。asar 里只有 `out/`：桌面端的工作区包改成 devDependencies（主进程与 preload 本来就把它们打进 `out/`），electron-builder 不收 node_modules。Chromium 的语言包只留界面支持的 10 种语言（`electronLanguages`）。`appId` 是 `si.wevir.desktop`（维护者的域名 wevir.si 倒过来；验收时打的包还是之前用的 `io.github.marvinli001.wevir`）；发第一个对外的版本之后不再改，macOS 的自动更新与 Windows 的通知都认它。
+   - **Host 进安装包**：放在资源目录的 `host/`。`stage-resources.ts` 用 `pnpm deploy`（`--prod`、`--ignore-scripts`、hoisted 布局、按目标平台的 `--os` / `--cpu`）复制 wevir-host 与生产依赖，再从 Host 的依赖出发剪掉 `vitest`（runtime-adapter 的可选 peer，pnpm 从工作区根的开发依赖解析到它）、`@deepseek-ai/dsh` 与只被它们用到的包，最后检查没有这两个包、没有符号链接、没有安装脚本。没有把 Host 打成单个文件：`@cursor/sdk` 的平台包带可执行文件与 `.node`，按包原样放与开发时的模块解析相同。安装包里的主程序以 `ELECTRON_RUN_AS_NODE` 拉起 `<资源目录>/host/dist/main.js`（`packagedHostEntry`），`RunAsNode` fuse 保持默认打开（配置里没有 `electronFuses`）。2026-10-16 在 macOS arm64 上是 24 个顶层包、85 MB。
+   - **dsh**：`@deepseek-ai/dsh` 从 adapter-dsh 的 dependencies 移到 devDependencies，安装包里的 Host 不带 dsh（决策 6：可选组件推迟期间 dsh 只在开发环境经 pnpm 安装）；开发环境的 `--adapter dsh` 照旧。
+   - **提示词**：资源目录的 `prompts/`（仓库的 `prompts/`，不含 README.md）。adapter-codex 的 `resolvePromptsDir`：`<WEVIR_RESOURCES_DIR>/prompts/`（有 `base.md` 时）→ 仓库的 `prompts/`，wevir-host 把结果交给 Codex 与会话标题（codex-event-mapping 未决事项里的“安装包里提示词的位置”）。
+   - **签名与公证**（决策 2）：Hardened Runtime，entitlements 只有 `com.apple.security.cs.allow-jit`，主程序与包里其余可执行文件共用；electron-builder 默认模板里的 `allow-unsigned-executable-memory` 与 `disable-library-validation` 不要（包里的 `.node` 一起用 Wevir 的证书重签，同一个 Team ID 能过库验证）。@electron/osx-sign 把包里的二进制（codex-app-server，`@cursor/sdk` 的 `rg`、`cursorsandbox` 与 tree-sitter 的 `.node`）都重签。公证在环境里有 notarytool 凭据（`APPLE_KEYCHAIN_PROFILE`，或 Apple ID 三件套，或 App Store Connect API 密钥三件套）时自动进行，没有就跳过并告警。
+   - **验收**（2026-10-16，macOS arm64，钥匙串里的 Developer ID 证书，没有公证凭据）：dmg 204 MB、zip 200 MB（带 blockmap；裁掉语言包之前是 214 / 209 MB）。`codesign --verify --deep --strict` 通过，包里的二进制与 `.node` 都是同一个 Team ID、带 Hardened Runtime 与时间戳；`spctl` 判定 `Unnotarized Developer ID`（还没公证）。用临时数据目录直接运行 `Wevir.app/Contents/MacOS/Wevir`：主程序拉起 `Contents/Resources/host/dist/main.js`，Host 的本机 MCP 脚本也由主程序以 Node 身份运行；经 CLI 登记 mock 模型（Responses）、新建会话发“工具”，模型请求经网关，安装包里的 codex-app-server 执行 `ls`，回合 `completed`，标题由模型生成，Codex 的模型目录里是 `base.md` 的内容（安装包里没有仓库的 `prompts/`，只能来自资源目录）。窗口经 `wevir://` 从 asar 加载、正常显示。退出应用时 Host 与 codex-app-server 都退出。裁掉语言包后重打的包又验了一遍启动、显示与退出。Windows x64 的 NSIS 安装程序（183 MB，未签名）在 macOS 上交叉打出来了，不用 Wine。
+   - **没有验证的**：公证，以及在另一台 Mac 上从下载的 dmg 安装（要维护者的公证凭据）；x64 的 Mac；Windows 包没有在 Windows 上安装运行过；按安装包的实际内容生成第三方声明（third-party-notices.md §4）；`@cursor/sdk` 与 `@anthropic-ai/claude-agent-sdk` 的许可证写的是“All rights reserved，按各自的服务条款使用”，能否随安装包再分发要维护者确认。
+2. **2026-10-16，维护者改决策 3：自动更新。** 不再是“第一个包不自动更新”，改成 (a) 的做法并扩展：
+   - electron-updater，自定义 provider（基于 `generic`）：客户端内置两个 Wevir 自己的下载域名，只认域名不认服务商：全球线路 `download.wevir.si`（Cloudflare R2 + CDN），优化线路 `download2.wevir.si`（三网优化的服务器）；维护者 2026-10-16 定，当时还没有解析；检查更新时同时向两条线路取更新清单，先到且校验通过的胜出，有新版本时再按两条线路下载安装包前一小段的速度选线路，失败换另一条，GitHub Releases 作备用。
+   - 正式版与开发版两个通道，只有 master 一条线：开发版是下一个正式版的预发布（`X.Y.Z-beta.N`），正式版在 master 上打 tag `vX.Y.Z`；开发版用户也收到正式版，从开发版切回正式版不降级。GitHub Actions 在 CI 通过后自动构建并上传到两条线路：先传安装包、都成功后再写清单，清单只许更高的版本覆盖。
+   - 更新清单要签名验证：electron-builder 26.17 没有签名更新清单（`updateManifest` 是 27 的功能，现在还是 alpha），在自定义 provider 里自己验签，或等 27 正式版。
+   - 界面照 Codex 桌面端：侧栏左下角显示新版本，点击后显示下载进度，下载完没有回合在跑就安装并重启，有回合在跑时等用户点“重启以更新”。
+   - 分几步做：更新模块与界面、发布流水线、服务器配置。每一步做完在这里补记。

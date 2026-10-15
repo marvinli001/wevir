@@ -1,0 +1,80 @@
+# 桌面端的安装包（ADR-0007 决策 1、2、4、5）：electron-builder 26。命令见 docs/development.md §3.6：
+#   pnpm build && pnpm --filter @wevir/desktop package [--target <三元组>]
+# package 先准备资源目录（scripts/stage-resources.ts）、再 electron-vite build，最后运行 electron-builder。
+
+# macOS 的 CFBundleIdentifier、Windows 的 AppUserModelID。发布第一个对外的版本之后不再改：自动更新与系统通知都认它。
+appId: si.wevir.desktop
+productName: Wevir
+copyright: Copyright © 2026 Wevir contributors
+
+directories:
+  output: release
+  buildResources: build
+
+# 主进程与 preload 已把依赖打进 out/（electron-vite），渲染进程是静态文件；asar 里只有 out/ 与 package.json，
+# 不收 node_modules（package.json 没有 dependencies）。
+files:
+  - out/**/*
+  - package.json
+asar: true
+# 主程序没有原生模块；Host 的依赖在资源目录里，原样放进去，不重新编译。
+npmRebuild: false
+# Chromium 自带的语言包（系统对话框、右键菜单等）只留界面支持的语言，连同它们的地区与语法性别变体
+# （electron-builder 按前缀匹配，de 留下 de_FEMININE 等）。Electron 44 在 macOS 上有 220 个 .lproj。
+electronLanguages:
+  - en
+  - zh-CN
+  - zh-TW
+  - de
+  - es
+  - fr
+  - it
+  - ja
+  - ko
+  - ru
+
+# 资源目录（运行时是 process.resourcesPath）：Host 与生产依赖、codex-app-server、提示词，由 stage-resources.ts 准备。
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - '**/*'
+  - from: ../../LICENSE
+    to: legal/LICENSE
+  - from: ../../NOTICE
+    to: legal/NOTICE
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+mac:
+  # 目标的架构由命令行给（--arm64 / --x64），资源目录要按同一个架构准备。zip 是以后自动更新（Squirrel.Mac）要用的。
+  target:
+    - dmg
+    - zip
+  category: public.app-category.developer-tools
+  icon: ../../assets/icons/exports/macos/light/Wevir.icns
+  # Developer ID 签名（钥匙串里的 “Developer ID Application” 证书，CI 用 CSC_LINK）+ Hardened Runtime。包里的其余
+  # 可执行文件（codex-app-server、Host 依赖里的原生模块与二进制）由 @electron/osx-sign 一起重签。
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # 公证：环境里有 APPLE_KEYCHAIN_PROFILE（xcrun notarytool store-credentials 存的），或 APPLE_ID +
+  # APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID，或 APPLE_API_KEY 三件套时自动进行；都没有时跳过并告警。
+  gatekeeperAssess: false
+
+dmg:
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+
+win:
+  target:
+    - nsis
+  icon: ../../assets/icons/exports/windows/light/Wevir.ico
+
+nsis:
+  # 一键安装到当前用户（不要管理员权限），以后自动更新也走这条路。Windows 先不签名（ADR-0007 决策 2）。
+  oneClick: true
+  perMachine: false
+  artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
+
+# 发布（更新清单与两条下载线路）是下一步的事，这里不上传任何东西。
+publish: null

@@ -83,7 +83,12 @@ export {
   resolveCodexBinary,
   resourcesCodexDir,
 } from './paths.js';
-export { BasePrompt, defaultPromptsDir, renderPromptTemplate } from './prompts.js';
+export {
+  BasePrompt,
+  defaultPromptsDir,
+  renderPromptTemplate,
+  resolvePromptsDir,
+} from './prompts.js';
 export {
   type ClassifiedResumeError,
   type CodexResumeFailure,

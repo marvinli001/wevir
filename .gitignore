@@ -5,6 +5,8 @@ dist/
 out/
 # 随安装包分发的运行时（apps/desktop 的 pnpm resources 准备，ADR-0007 决策 5）
 /apps/desktop/resources/
+# 安装包（apps/desktop 的 pnpm package，electron-builder 的输出目录）
+/apps/desktop/release/
 coverage/
 *.tsbuildinfo
 # 图标交付 ZIP 可从已跟踪的源文件与导出脚本重建。

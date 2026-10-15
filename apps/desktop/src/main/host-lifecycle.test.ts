@@ -30,6 +30,7 @@ import {
   HostStartError,
   hostEnvironment,
   hostRuntime,
+  packagedHostEntry,
   resolveHostEntry,
 } from './host-lifecycle.js';
 
@@ -421,6 +422,21 @@ describe('hostRuntime', () => {
       env: {},
     });
     expect(hostRuntime({ WEVIR_NODE: '' }, '/App/Wevir').nodePath).toBe('/App/Wevir');
+  });
+});
+
+describe('packagedHostEntry', () => {
+  it('安装包里是资源目录的 host/dist/main.js，不在时报 entryMissing', () => {
+    const resources = mkdtempSync(join(tmpdir(), 'wevir-resources-'));
+    try {
+      expect(() => packagedHostEntry(resources)).toThrow(HostStartError);
+      const entry = join(resources, 'host', 'dist', 'main.js');
+      mkdirSync(dirname(entry), { recursive: true });
+      writeFileSync(entry, '');
+      expect(packagedHostEntry(resources)).toBe(entry);
+    } finally {
+      rmSync(resources, { recursive: true, force: true });
+    }
   });
 });
 

@@ -34,8 +34,10 @@ describe('resolveDshEntry', () => {
     expect(existsSync(entry)).toBe(true);
     const manifest = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-    ) as { dependencies: Record<string, string> };
-    expect(manifest.dependencies['@deepseek-ai/dsh']).toBe(DSH_VERSION);
+    ) as { dependencies: Record<string, string>; devDependencies: Record<string, string> };
+    expect(manifest.devDependencies['@deepseek-ai/dsh']).toBe(DSH_VERSION);
+    // 不是生产依赖：安装包里的 Host 不带 dsh（ADR-0007 补记 1）。
+    expect(manifest.dependencies['@deepseek-ai/dsh']).toBeUndefined();
   });
 
   it('不依赖 PATH：空环境下用 Node 直接运行入口', () => {

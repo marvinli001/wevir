@@ -801,7 +801,19 @@ export function hostRuntime(
   return { nodePath: execPath, env: { ELECTRON_RUN_AS_NODE: '1' } };
 }
 
-/** wevir-host 的入口：`@wevir/host` 的 `bin['wevir-host']`（指向 `dist/`，要先 `pnpm build`）。 */
+/**
+ * 安装包里 wevir-host 的入口：资源目录的 `host/dist/main.js`（scripts/stage-resources.ts 用 pnpm deploy 准备，连同
+ * 生产依赖在 `host/node_modules/`，ADR-0007）。主进程打成单个文件，安装包里没有 `@wevir/host` 可解析。
+ */
+export function packagedHostEntry(resourcesDir: string): string {
+  const entry = join(resourcesDir, 'host', 'dist', 'main.js');
+  if (!existsSync(entry)) {
+    throw new HostStartError({ code: 'entryMissing', path: entry });
+  }
+  return entry;
+}
+
+/** 开发时 wevir-host 的入口：`@wevir/host` 的 `bin['wevir-host']`（指向 `dist/`，要先 `pnpm build`）。 */
 export function resolveHostEntry(from: string | URL = import.meta.url): string {
   const require = createRequire(from);
   const manifestPath = require.resolve('@wevir/host/package.json');

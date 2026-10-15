@@ -29,8 +29,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@deepseek-ai/dsh": "0.2.1-alpha.2",
     "@wevir/adapter-acp": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh": "0.2.1-alpha.2"
   }
 }

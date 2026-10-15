@@ -5,6 +5,8 @@
     // electron-vite/node 声明 ?asset 等导入后缀（主进程的应用图标，src/main/app-icon.ts）。
     "types": ["node", "electron-vite/node"],
     "noEmit": true,
+    // scripts/ 里的脚本由 node 直接运行（类型擦除），互相导入时要写 .ts 后缀（scripts/package.ts）。
+    "allowImportingTsExtensions": true,
     // 只给 shadcn CLI 解析 components.json 的 @/ 别名用（它只读本目录的 tsconfig.json）；渲染进程的
     // 同名别名在 src/renderer/tsconfig.json 与 electron.vite.config.ts。
     "paths": { "@/*": ["./src/renderer/src/*"] }

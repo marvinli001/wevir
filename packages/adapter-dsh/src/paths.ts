@@ -2,7 +2,10 @@ import { chmodSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 
-/** 本包锁定的 dsh 版本（package.json 的 `dependencies`，ADR-0001 §1）。 */
+/**
+ * 本包锁定的 dsh 版本（package.json 的 `devDependencies`，ADR-0001 §1）。是开发依赖：可选组件推迟期间 dsh 只在开发环境
+ * 经 pnpm 安装，不进安装包（ADR-0007 决策 6、补记 1）。
+ */
 export const DSH_VERSION = '0.2.1-alpha.2';
 
 const DSH_PACKAGE = '@deepseek-ai/dsh';

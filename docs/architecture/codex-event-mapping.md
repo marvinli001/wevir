@@ -104,7 +104,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 
 **上下文大小**：模型目录的 `context_window` 与 `thread/start` 的 `model_context_window` 总是写（`contextWindowOf`）：Provider 模型填了 `contextWindow` 用它，没填用 `DEFAULT_CONTEXT_WINDOW`（128k）。模型目录里的模型没有 `context_window` 时 Codex 既不自动压缩，也不报上下文大小（`auto_compact_token_limit()`、`usable_context_window()` 都是 None，`openai_models.rs` 516-540；272k 的兜底只给目录里没有的 slug），只能等上游报超长（`contextWindowExceeded`）。128k 是现在多数模型都有的大小，宁可早压缩；窗口更小的模型（例如默认 4096 的本机 Ollama）要在 Provider 里填真实值，桌面端的 Provider 表单在没填的模型下面提示“未填写，按 128k 估算”。不写 `model_auto_compact_token_limit`：阈值就是窗口的九成。
 
-**基础提示词**：`prompts/base.md`（补记 2），按 prompts/README.md 的模板语法渲染（先删 HTML 注释，再展开 `{{> }}` 与变量 `model_display_name`、`provider_display_name`，结果残留 `{{` 就报错）。写进模型目录的 `base_instructions`，并在 `thread/start` 的 `baseInstructions` 里按会话自己的 Provider 与模型再给一次（目录里同名模型只有一条，显示名可能是别的 Provider 的）。ChatGPT 登录的 OpenAI 模型（R6）不覆盖。提示词目录默认是仓库的 `prompts/`（`CodexAdapterOptions.promptsDir`，打包后的位置由 R9 定）。
+**基础提示词**：`prompts/base.md`（补记 2），按 prompts/README.md 的模板语法渲染（先删 HTML 注释，再展开 `{{> }}` 与变量 `model_display_name`、`provider_display_name`，结果残留 `{{` 就报错）。写进模型目录的 `base_instructions`，并在 `thread/start` 的 `baseInstructions` 里按会话自己的 Provider 与模型再给一次（目录里同名模型只有一条，显示名可能是别的 Provider 的）。ChatGPT 登录的 OpenAI 模型（R6）不覆盖。提示词目录默认是仓库的 `prompts/`（`CodexAdapterOptions.promptsDir`）；wevir-host 传 `resolvePromptsDir` 的结果：安装包里是资源目录的 `prompts/`（`<WEVIR_RESOURCES_DIR>/prompts/` 有 `base.md` 时，ADR-0007 补记 1），否则是仓库的。
 
 ## 4. 会话与回合
 
@@ -518,7 +518,6 @@ ADR-0005 决策 4 第 ① 行：ChatGPT 订阅经 app-server 自己的 `account/
 
 - ~~R4：子 thread 改为子会话（§6.5），子 agent 的审批在父会话里处理（§6.6）~~ 已做。子会话要不要单独的停止按钮（Codex 终端界面允许直接中断子 agent）留给维护者；`send_input`、`resume_agent` 让子会话再开始回合已按 C2 / C5 处理，但没有录到样本。
 - ~~R6：ChatGPT 登录的会话不经网关，标题走临时 thread（§4.4 的 `titleVia`）~~ 已做（§8）。ChatGPT 会话的回合没有自动化测试（工作区路由要求 https 的后端，mock 不了），靠维护者用真实账号验收。
-- 打包任务：安装包里提示词的位置（`promptsDir` 选项；Host 的 `promptsDir`）。二进制的位置 R9 已定（资源目录，§1）。
 - “以后以这个前缀开头的命令不再问”（execpolicy 修订）与网络策略修订：要 Host 记规则（§6.6）。U15 起审批卡片只给“拒绝 / 允许”，长期放开改用权限模式（§4.7）。
 - 自动批准的审查结论（`item/autoApprovalReview/completed` 的 `riskLevel`、`rationale`）投影到对应工具的那一行，以及审查拒绝后用户再批准（`thread/approveGuardianDeniedAction`）：U15 没做（§4.7）。
 - ~~`turn/steer`（回合进行中追加输入）~~ R11 已接上（§4.5）。

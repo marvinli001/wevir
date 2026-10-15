@@ -1,17 +1,35 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RESOURCES_DIR_ENV } from './paths.js';
 
 // Wevir 自己的提示词（prompts/，ADR-0005 补记 2）的加载与渲染。模板语法见 prompts/README.md「模板语法」：
 // 1. 先删除所有 HTML 注释；2. `{{> 路径 }}` 引入另一个文件（路径相对 prompts/，同样先删注释）；
 // 3. `{{ 变量 }}` 替换成变量的值，变量缺失时报错；4. 渲染结果里不得残留 `{{`（Codex 自己也用 `{{ }}` 作模板变量）。
 
 /**
- * 提示词目录：仓库根的 `prompts/`。`src/` 与 `dist/` 都在包目录下一层，所以同一个相对路径对两者都成立；
- * 打包后的位置由 R9 定（`CodexAdapterOptions.promptsDir`）。
+ * 提示词目录：仓库根的 `prompts/`。`src/` 与 `dist/` 都在包目录下一层，所以同一个相对路径对两者都成立。
+ * 安装包里的位置见 `resolvePromptsDir`。
  */
 export function defaultPromptsDir(): string {
   return fileURLToPath(new URL('../../../prompts/', import.meta.url));
+}
+
+/**
+ * 找提示词目录：应用资源目录（`WEVIR_RESOURCES_DIR` 的 `prompts/`，安装包随附的那份，
+ * apps/desktop/scripts/stage-resources.ts 准备）→ 仓库的 `prompts/`。与 `resolveCodexBinary` 的顺序相同；
+ * 资源目录里没有 prompts/ 时（开发构建上只放了二进制）用仓库的。
+ */
+export function resolvePromptsDir(
+  env: NodeJS.ProcessEnv = process.env,
+  fallback: string = defaultPromptsDir(),
+): string {
+  const resourcesDir = env[RESOURCES_DIR_ENV];
+  if (resourcesDir !== undefined && resourcesDir !== '') {
+    const dir = join(resourcesDir, 'prompts');
+    if (existsSync(join(dir, 'base.md'))) return dir;
+  }
+  return fallback;
 }
 
 /** `base.md` 的变量（prompts/README.md「变量」）。 */

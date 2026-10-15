@@ -1,6 +1,23 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
-import { hostTarget } from './stage-resources.js';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { builderArgs } from './package.js';
+import {
+  checkHostTree,
+  EXCLUDED_PACKAGES,
+  hostTarget,
+  nodePlatform,
+  pruneDependencies,
+} from './stage-resources.js';
 
 describe('hostTarget', () => {
   it('与 fetch-codex.sh 的三元组一致', () => {
@@ -19,7 +36,81 @@ describe('hostTarget', () => {
     for (const [platform, arch, target] of cases) {
       expect(hostTarget(platform, arch)).toBe(target);
       expect(script).toContain(`  ${target})`);
+      // 反过来得到 pnpm 的 --os / --cpu。
+      expect(nodePlatform(target)).toEqual({ os: platform, cpu: arch });
     }
     expect(() => hostTarget('freebsd', 'x64')).toThrow('不支持');
+    expect(() => nodePlatform('riscv64-unknown-linux-gnu')).toThrow('不认识');
+  });
+
+  it('electron-builder 的平台与架构参数', () => {
+    expect(builderArgs('aarch64-apple-darwin')).toEqual(['--mac', '--arm64']);
+    expect(builderArgs('x86_64-pc-windows-msvc')).toEqual(['--win', '--x64']);
+    expect(builderArgs('x86_64-unknown-linux-musl')).toEqual(['--linux', '--x64']);
+  });
+});
+
+/** 在 `root` 下写一个包（`name` 可带作用域）。 */
+function pkg(root: string, name: string, manifest: Record<string, unknown> = {}): string {
+  const dir = join(root, 'node_modules', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, ...manifest }));
+  return dir;
+}
+
+describe('pruneDependencies / checkHostTree', () => {
+  let root: string;
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function deployLike(): void {
+    root = mkdtempSync(join(tmpdir(), 'wevir-stage-'));
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        name: '@wevir/host',
+        dependencies: { '@wevir/runtime-adapter': '*', ws: '*' },
+      }),
+    );
+    pkg(root, '@wevir/runtime-adapter', {
+      dependencies: { shared: '*' },
+      peerDependencies: { vitest: '*' },
+    });
+    pkg(root, 'ws', { optionalDependencies: { bufferutil: '*' } });
+    pkg(root, 'shared');
+    // vitest 与只被它用到的包（Vite 那一串）。
+    pkg(root, 'vitest', { dependencies: { vite: '*', shared: '*' } });
+    pkg(root, 'vite', { scripts: { postinstall: 'node x.js' } });
+    // 嵌套的不同版本留在用到它的包里。
+    const nested = pkg(join(root, 'node_modules', 'ws'), 'shared', { version: '2.0.0' });
+    expect(existsSync(nested)).toBe(true);
+    // pnpm 自己的文件。
+    mkdirSync(join(root, 'node_modules', '.bin'));
+    symlinkSync('../ws/index.js', join(root, 'node_modules', '.bin', 'ws'));
+    writeFileSync(join(root, 'node_modules', '.modules.yaml'), '');
+  }
+
+  it('从 Host 的依赖出发只留走得到的包，排除的包与只被它用到的包、pnpm 的文件都删掉', () => {
+    deployLike();
+    const removed = pruneDependencies(root, EXCLUDED_PACKAGES);
+    expect(removed.sort()).toEqual(['vite', 'vitest']);
+    const left = (name: string) => existsSync(join(root, 'node_modules', name, 'package.json'));
+    expect(['@wevir/runtime-adapter', 'ws', 'shared'].every(left)).toBe(true);
+    expect(existsSync(join(root, 'node_modules', 'ws', 'node_modules', 'shared'))).toBe(true);
+    expect(existsSync(join(root, 'node_modules', '.bin'))).toBe(false);
+    expect(existsSync(join(root, 'node_modules', '.modules.yaml'))).toBe(false);
+    expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).not.toThrow();
+  });
+
+  it('必需的依赖没装上时报错', () => {
+    deployLike();
+    rmSync(join(root, 'node_modules', 'shared'), { recursive: true });
+    expect(() => pruneDependencies(root, EXCLUDED_PACKAGES)).toThrow('shared 没有装上');
+  });
+
+  it('不剪枝时 checkHostTree 指出排除的包、安装脚本与符号链接', () => {
+    deployLike();
+    expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).toThrow(
+      /符号链接[\s\S]*vite 有 postinstall 脚本[\s\S]*不该进安装包的包/,
+    );
   });
 });

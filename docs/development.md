@@ -152,15 +152,19 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 
 ### 3.5 随安装包的运行时：资源目录
 
-安装包内置锁定版本的 `codex-app-server`，运行时不从网上下载（ADR-0005 决策 8、[ADR-0007](./adr/0007-packaging-and-runtime-distribution.md) 决策 5）。打包工具（electron-builder）的配置还没加，下面这一步是它的前置：
+安装包内置锁定版本的 `codex-app-server`、Host 与提示词，运行时不从网上下载（ADR-0005 决策 8、[ADR-0007](./adr/0007-packaging-and-runtime-distribution.md) 决策 4、5）。打安装包（§3.6）的第一步就是准备这个目录，也可以单独运行（要先 `pnpm build`）：
 
 ```bash
 pnpm --filter @wevir/desktop resources
 ```
 
-它运行 `apps/desktop/scripts/stage-resources.ts`：用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 取本机平台（或 `-- --target <三元组>` 指定的平台，三元组见脚本）的二进制并按 sha256 校验，连同 `apps/desktop/licenses/codex/` 里 Codex 的 `LICENSE` 与 `NOTICE` 放进 `apps/desktop/resources/engines/codex/`（gitignore）；Linux 另带 `codex-resources/bwrap`。打包时这个目录原样进入安装包的资源目录（`process.resourcesPath`）。
+它运行 `apps/desktop/scripts/stage-resources.ts`，按本机平台（或 `-- --target <三元组>` 指定的平台，三元组见 `scripts/fetch-codex.sh`）准备 `apps/desktop/resources/`（gitignore）：
 
-打包后的桌面端拉起 Host 时设 `WEVIR_RESOURCES_DIR=<资源目录>`（环境里已有时不覆盖）。adapter-codex 找二进制的顺序是 `WEVIR_CODEX_BIN` → `<WEVIR_RESOURCES_DIR>/engines/codex/` → 开发缓存 `.wevir-dev/bin/`。开发时桌面端不设这个变量；要在开发构建上模拟安装后的布局，自己设上它并让开发缓存里没有二进制，例如：
+- `engines/codex/`：用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 取二进制并按 sha256 校验，连同 `apps/desktop/licenses/codex/` 里 Codex 的 `LICENSE` 与 `NOTICE`；Linux 另带 `codex-resources/bwrap`。
+- `prompts/`：仓库的 `prompts/`，不含 README.md。
+- `host/`：`pnpm --filter @wevir/host deploy --prod --ignore-scripts --config.node-linker=hoisted --os=<平台> --cpu=<架构>` 把 wevir-host 与它的生产依赖复制进来（工作区包按各自 `files` 复制，hoisted 布局没有符号链接；平台可选依赖如 `@cursor/sdk-<平台>` 按目标平台装）。然后从 Host 的依赖出发剪掉走不到的包：`vitest`（runtime-adapter 的可选 peer，pnpm 从工作区根的开发依赖解析到它）、`@deepseek-ai/dsh`（adapter-dsh 的开发依赖，ADR-0007 决策 6），以及只被它们用到的包；剪完检查没有这两个包、没有符号链接、留下的包没有安装脚本，不满足就报错。2026-10-16 在 macOS arm64 上是 24 个顶层包、85 MB，最大的是 `@cursor/sdk` 与它的平台包。
+
+打包时这个目录原样进入安装包的资源目录（`process.resourcesPath`）。安装包里的主进程用 Electron 自带的 Node 拉起 `<资源目录>/host/dist/main.js`（`host-lifecycle.ts` 的 `packagedHostEntry`），并设 `WEVIR_RESOURCES_DIR=<资源目录>`（环境里已有时不覆盖）。adapter-codex 找二进制的顺序是 `WEVIR_CODEX_BIN` → `<WEVIR_RESOURCES_DIR>/engines/codex/` → 开发缓存 `.wevir-dev/bin/`；提示词是 `<WEVIR_RESOURCES_DIR>/prompts/`（有 `base.md` 时）→ 仓库的 `prompts/`（`resolvePromptsDir`，wevir-host 交给 Codex 与会话标题）。开发时桌面端不设这个变量；要在开发构建上模拟安装后的布局，自己设上它并让开发缓存里没有二进制，例如：
 
 ```bash
 WEVIR_HOME="$(mktemp -d)" WEVIR_RESOURCES_DIR="$PWD/apps/desktop/resources" node packages/host/dist/main.js
@@ -171,6 +175,36 @@ macOS 上要连“不联网也能用 Codex”一起验证时，用 `sandbox-exec
 ```bash
 sandbox-exec -p '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip "localhost:*"))(allow network-outbound (remote unix-socket))' <命令>
 ```
+
+### 3.6 打安装包
+
+electron-builder 26（ADR-0007 决策 1），配置在 `apps/desktop/electron-builder.yml`。先在仓库根目录构建，再打包：
+
+```bash
+pnpm build
+```
+
+```bash
+pnpm --filter @wevir/desktop package
+```
+
+`apps/desktop/scripts/package.ts` 依次准备资源目录（§3.5）、`electron-vite build`、运行 `electron-builder --mac|--win|--linux --arm64|--x64`。`--target <三元组>` 指定别的平台（默认本机）；`--` 之后的参数原样交给 electron-builder，例如 `-- --dir` 只出 `.app` / 未打包的目录。产物在 `apps/desktop/release/`（gitignore）：macOS 是 `Wevir-<版本>-mac-<架构>.dmg` 与 `Wevir-<版本>-mac-<架构>.zip`（zip 留给以后的自动更新），Windows 是 `Wevir-<版本>-win-<架构>-setup.exe`（NSIS，一键装到当前用户，不要管理员权限）。
+
+安装包里：asar 只有 `out/` 与 `package.json`（主进程与 preload 已把依赖打进 `out/`；桌面端的工作区包都是 devDependencies，electron-builder 不往里放 node_modules）；资源目录是 §3.5 的 `host/`、`engines/codex/`、`prompts/`，加上 `legal/`（Wevir 的 `LICENSE` 与 `NOTICE`）。
+
+**macOS 签名与公证**（ADR-0007 决策 2）：
+
+- 钥匙串里有 “Developer ID Application” 证书时 electron-builder 自动用它签名，开 Hardened Runtime，entitlements 在 `apps/desktop/build/entitlements.mac.plist`（只开 JIT）。包里的 `codex-app-server`、Host 依赖里的二进制与 `.node` 一起重签。CI 用 `CSC_LINK`（.p12 的 base64 或路径）与 `CSC_KEY_PASSWORD` 给证书。不签名：`CSC_IDENTITY_AUTO_DISCOVERY=false`。
+- 公证：先把凭据存进钥匙串（一次即可，App 专用密码在 account.apple.com 生成，命令会提示输入）：
+
+  ```bash
+  xcrun notarytool store-credentials wevir-notary --apple-id <Apple ID> --team-id <Team ID>
+  ```
+
+  之后打包时设 `APPLE_KEYCHAIN_PROFILE=wevir-notary`。CI 用 App Store Connect API 密钥（`APPLE_API_KEY` 为 .p8 路径、`APPLE_API_KEY_ID`、`APPLE_API_ISSUER`）。都没有时 electron-builder 跳过公证并告警：这样的包在别的 Mac 上下载后打不开，要在“系统设置 → 隐私与安全性”放行。
+- 检查：`codesign --verify --deep --strict --verbose=2 release/mac-arm64/Wevir.app`；公证后 `spctl -a -vvv -t exec release/mac-arm64/Wevir.app` 显示 `source=Notarized Developer ID`，`xcrun stapler validate release/mac-arm64/Wevir.app` 通过。
+
+**Windows** 先不签名（ADR-0007 决策 2），安装时 SmartScreen 会提示。Windows 包要在 Windows 上打（资源目录里的 Host 依赖与 codex-app-server 按目标平台准备，NSIS 的图标与版本信息也在 Windows 上写最稳）。
 
 ## 4. 离线开发：echo 假引擎
 

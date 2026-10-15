@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url';
 // `generateTitle`（不实现的引擎只用首条消息截断的标题）。
 
 /**
- * Wevir 提示词目录：仓库根的 `prompts/`。`src/` 与 `dist/` 都在包目录下一层，同一个相对路径对两者都成立；打包后
- * 的位置由 R9 定（`StartHostOptions.promptsDir`）。
+ * Wevir 提示词目录：仓库根的 `prompts/`。`src/` 与 `dist/` 都在包目录下一层，同一个相对路径对两者都成立；安装包
+ * 里由 wevir-host 经 `StartHostOptions.promptsDir` 给出（资源目录的 `prompts/`）。
  */
 export function defaultPromptsDir(): string {
   return fileURLToPath(new URL('../../../prompts/', import.meta.url));
