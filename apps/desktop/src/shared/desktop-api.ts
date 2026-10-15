@@ -106,6 +106,47 @@ export interface WindowChrome {
   trafficLights: boolean;
 }
 
+/** 更新通道（ADR-0007 补记 2）：正式版只收正式版，开发版也收正式版。 */
+export type UpdateChannel = 'stable' | 'dev';
+
+/** 自动更新出错的原因码，由渲染进程说成话；`detail` 是原文。 */
+export type UpdateErrorCode =
+  /** 所有线路都连不上或没有清单。 */
+  | 'unreachable'
+  /** 有线路的清单签名对不上（可能被篡改），没有下载。 */
+  | 'signature'
+  /** 下载或校验安装包失败（两条线路都试过）。 */
+  | 'download'
+  /** 安装失败（macOS 的 Squirrel、Windows 的安装程序报错）。 */
+  | 'install'
+  | 'internal';
+
+/**
+ * 主进程的自动更新状态（ADR-0007 补记 4）。`disabled` 时界面不显示更新入口：开发构建（不是安装包）、这个安装包没带公钥，
+ * 或 macOS 上应用在只读的位置运行（从 dmg 直接打开、被系统转移到临时位置），后者可以移到“应用程序”。
+ */
+export type UpdatePhase =
+  | { phase: 'disabled'; reason: 'development' | 'unsigned' | 'location' }
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  /** 没有更新。 */
+  | { phase: 'latest' }
+  | { phase: 'available'; version: string }
+  | { phase: 'downloading'; version: string; percent: number; bytesPerSecond: number }
+  | { phase: 'downloaded'; version: string }
+  | { phase: 'installing'; version: string }
+  | { phase: 'error'; code: UpdateErrorCode; detail?: string; version?: string };
+
+export type UpdateState = UpdatePhase & {
+  /** 当前版本（`app.getVersion()`）。 */
+  currentVersion: string;
+  channel: UpdateChannel;
+  /** 上次检查完成的时间（ISO 8601）。 */
+  lastCheckedAt?: string;
+  /** 上次检查或下载用的线路（`global` / `optimized`）与取清单的用时。 */
+  mirror?: { id: string; latencyMs: number };
+};
+
 export interface DesktopApi {
   /**
    * 当前 Host 的连接信息。首次启动时等 Host 就绪（附着或拉起）；之后每次重读 `run/host.json`，所以 Host 换了
@@ -153,6 +194,20 @@ export interface DesktopApi {
   openInEditor(editorId: string, path: string, line?: number): Promise<void>;
   /** 在访达（资源管理器、文件管理器）中显示（绝对路径）。 */
   revealPath(path: string): Promise<void>;
+  /** 自动更新的状态（ADR-0007 补记 4）。 */
+  getUpdateState(): Promise<UpdateState>;
+  /** 订阅自动更新状态的变化，返回取消订阅的函数。 */
+  onUpdateState(listener: (state: UpdateState) => void): () => void;
+  /** 立即检查更新（设置 → 关于的“检查更新”）。 */
+  checkForUpdates(): Promise<void>;
+  /** 下载已发现的新版本。 */
+  downloadUpdate(): Promise<void>;
+  /** 退出、安装下载好的新版本并重新打开。没有回合在跑时由渲染进程在下载完后自动调用，否则等用户点。 */
+  installUpdate(): Promise<void>;
+  /** 换更新通道，换完立即检查一次。 */
+  setUpdateChannel(channel: UpdateChannel): Promise<void>;
+  /** 把应用移到“应用程序”文件夹并重新打开（macOS，`disabled` 的 `location`）。 */
+  moveToApplications(): Promise<void>;
 }
 
 export const IPC_CHANNELS = {
@@ -176,6 +231,14 @@ export const IPC_CHANNELS = {
   listEditors: 'wevir:list-editors',
   openInEditor: 'wevir:open-in-editor',
   revealPath: 'wevir:reveal-path',
+  getUpdateState: 'wevir:get-update-state',
+  /** 主进程 → 渲染进程的推送。 */
+  updateState: 'wevir:update-state',
+  checkForUpdates: 'wevir:check-for-updates',
+  downloadUpdate: 'wevir:download-update',
+  installUpdate: 'wevir:install-update',
+  setUpdateChannel: 'wevir:set-update-channel',
+  moveToApplications: 'wevir:move-to-applications',
 } as const;
 
 /** `DesktopNotification` 各字段的长度上限，主进程按它校验。 */

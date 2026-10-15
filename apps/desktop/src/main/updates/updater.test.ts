@@ -1,0 +1,207 @@
+import { EventEmitter } from 'node:events';
+import { describe, expect, it } from 'vitest';
+import type { UpdateState } from '../../shared/desktop-api.js';
+import { fakeServer, manifestText, signText, testKeyPair } from '../test-fixtures/update-feed.js';
+import { PROBE_BYTES } from './feed.js';
+import type { FeedSource } from './mirror-provider.js';
+import { defaultChannel, UpdateController, type UpdatePrefs } from './updater.js';
+
+const GLOBAL = { id: 'global', url: 'https://download.example' };
+const OPTIMIZED = { id: 'optimized', url: 'https://download2.example' };
+const { privateKey, publicKey } = testKeyPair();
+
+/** 照 electron-updater 的事件顺序：检查时向 provider 要清单，比当前版本新就 update-available。 */
+class FakeUpdater extends EventEmitter {
+  autoDownload = true;
+  autoInstallOnAppQuit = false;
+  allowDowngrade = true;
+  logger: unknown = null;
+  feed: FeedSource | undefined;
+  downloads: string[] = [];
+  failDownloadsFrom = new Set<string>();
+  installed: unknown[] = [];
+  constructor(readonly currentVersion: string) {
+    super();
+  }
+  setFeedURL(options: { feed: FeedSource }): void {
+    this.feed = options.feed;
+  }
+  async checkForUpdates(): Promise<unknown> {
+    const result = await this.feed?.latest();
+    if (result === undefined) return null;
+    this.lastBase = result.baseUrl;
+    if (result.info.version !== this.currentVersion) this.emit('update-available', result.info);
+    else this.emit('update-not-available');
+    return result;
+  }
+  lastBase = '';
+  async downloadUpdate(): Promise<unknown> {
+    this.downloads.push(this.lastBase);
+    if ([...this.failDownloadsFrom].some((host) => this.lastBase.startsWith(host))) {
+      throw new Error(`download failed from ${this.lastBase}`);
+    }
+    this.emit('download-progress', { percent: 50, bytesPerSecond: 1000 });
+    this.emit('update-downloaded', { version: '0.2.0' });
+    return [];
+  }
+  quitAndInstall(...args: unknown[]): void {
+    this.installed.push(args);
+  }
+}
+
+function serve(
+  version: string,
+  mirrors = [GLOBAL, OPTIMIZED],
+  delayMs: Record<string, number> = {},
+) {
+  const routes: Record<string, string | Uint8Array> = {};
+  for (const mirror of mirrors) {
+    const base = `${mirror.url}/desktop/darwin-arm64/`;
+    routes[`${base}latest-mac.yml`] = manifestText(version);
+    routes[`${base}latest-mac.yml.sig`] = signText(manifestText(version), privateKey);
+    routes[`${base}Wevir-${version}-mac-arm64.zip`] = new Uint8Array(PROBE_BYTES);
+  }
+  return fakeServer(routes, { delayMs });
+}
+
+function controller(options: {
+  updater: FakeUpdater;
+  fetcher: ReturnType<typeof serve>['fetcher'];
+  prefs?: UpdatePrefs;
+  packaged?: boolean;
+  keys?: string[];
+  readOnlyLocation?: boolean;
+}) {
+  let prefs: UpdatePrefs = options.prefs ?? {};
+  const states: UpdateState[] = [];
+  const ctl = new UpdateController({
+    updater: options.updater as never,
+    currentVersion: options.updater.currentVersion,
+    platform: 'darwin',
+    arch: 'arm64',
+    mirrors: [GLOBAL, OPTIMIZED],
+    publicKeys: options.keys ?? [publicKey],
+    fetcher: options.fetcher,
+    packaged: options.packaged ?? true,
+    readOnlyLocation: options.readOnlyLocation ?? false,
+    readPrefs: () => prefs,
+    writePrefs: (next) => {
+      prefs = next;
+    },
+    log: () => {},
+  });
+  ctl.onState((state) => states.push(state));
+  return { ctl, states, prefs: () => prefs };
+}
+
+describe('UpdateController', () => {
+  it('开发构建、没有公钥、只读位置时关闭；默认通道跟着当前版本', () => {
+    const { fetcher } = serve('0.2.0');
+    expect(
+      controller({ updater: new FakeUpdater('0.1.0'), fetcher, packaged: false }).ctl.state,
+    ).toMatchObject({
+      phase: 'disabled',
+      reason: 'development',
+    });
+    expect(
+      controller({ updater: new FakeUpdater('0.1.0'), fetcher, keys: [] }).ctl.state,
+    ).toMatchObject({
+      reason: 'unsigned',
+    });
+    expect(
+      controller({ updater: new FakeUpdater('0.1.0'), fetcher, readOnlyLocation: true }).ctl.state,
+    ).toMatchObject({ reason: 'location' });
+    expect(defaultChannel('0.2.0')).toBe('stable');
+    expect(defaultChannel('0.2.1-beta.3')).toBe('dev');
+  });
+
+  it('检查 → 有新版本（按速度选线路）→ 下载 → 下载好 → 安装', async () => {
+    const updater = new FakeUpdater('0.1.0');
+    // 全球线路取清单快，但下载慢：选优化线路下载。
+    const { fetcher } = serve('0.2.0', [GLOBAL, OPTIMIZED], { [OPTIMIZED.url]: 5 });
+    const slowZip: typeof fetcher = async (url, init) => {
+      if (url.startsWith(GLOBAL.url) && url.endsWith('.zip'))
+        await new Promise((r) => setTimeout(r, 60));
+      return fetcher(url, init);
+    };
+    const { ctl, states } = controller({ updater, fetcher: slowZip });
+    expect(updater.autoDownload).toBe(false);
+    expect(updater.allowDowngrade).toBe(false);
+    await ctl.check();
+    expect(ctl.state).toMatchObject({
+      phase: 'available',
+      version: '0.2.0',
+      mirror: { id: 'optimized' },
+    });
+    expect(ctl.state.lastCheckedAt).toBeDefined();
+    await ctl.download();
+    expect(states.map((s) => s.phase)).toEqual([
+      'checking',
+      'available',
+      'available',
+      'downloading',
+      'downloading',
+      'downloaded',
+    ]);
+    expect(updater.downloads[0]).toContain(OPTIMIZED.url);
+    ctl.install();
+    expect(ctl.state.phase).toBe('installing');
+    expect(updater.installed).toEqual([[true, true]]);
+  });
+
+  it('已是最新：latest', async () => {
+    const updater = new FakeUpdater('0.2.0');
+    const { ctl } = controller({ updater, fetcher: serve('0.2.0').fetcher });
+    await ctl.check();
+    expect(ctl.state.phase).toBe('latest');
+  });
+
+  it('下载失败时换另一条线路重试一次', async () => {
+    const updater = new FakeUpdater('0.1.0');
+    const { ctl } = controller({
+      updater,
+      fetcher: serve('0.2.0', [GLOBAL, OPTIMIZED], { [OPTIMIZED.url]: 40 }).fetcher,
+    });
+    await ctl.check();
+    const first = ctl.state.mirror?.id;
+    updater.failDownloadsFrom.add(first === 'global' ? GLOBAL.url : OPTIMIZED.url);
+    await ctl.download();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(updater.downloads).toHaveLength(2);
+    expect(ctl.state).toMatchObject({ phase: 'downloaded' });
+    expect(ctl.state.mirror?.id).not.toBe(first);
+  });
+
+  it('两条线路都下载失败：报 download', async () => {
+    const updater = new FakeUpdater('0.1.0');
+    updater.failDownloadsFrom.add(GLOBAL.url).add(OPTIMIZED.url);
+    const { ctl } = controller({ updater, fetcher: serve('0.2.0').fetcher });
+    await ctl.check();
+    await ctl.download();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(ctl.state).toMatchObject({ phase: 'error', code: 'download' });
+  });
+
+  it('清单被篡改：报 signature，不下载', async () => {
+    const updater = new FakeUpdater('0.1.0');
+    const other = testKeyPair();
+    const { ctl } = controller({
+      updater,
+      fetcher: serve('0.2.0').fetcher,
+      keys: [other.publicKey],
+    });
+    await ctl.check();
+    expect(ctl.state).toMatchObject({ phase: 'error', code: 'signature' });
+    expect(updater.downloads).toEqual([]);
+  });
+
+  it('换通道：记下并重新检查', async () => {
+    const updater = new FakeUpdater('0.2.0');
+    const { ctl, prefs } = controller({ updater, fetcher: serve('0.2.0').fetcher });
+    expect(ctl.state.channel).toBe('stable');
+    await ctl.setChannel('dev');
+    expect(prefs()).toEqual({ channel: 'dev' });
+    // 还没有 beta 的清单：只看正式版的，照样是最新。
+    expect(ctl.state).toMatchObject({ channel: 'dev', phase: 'latest' });
+  });
+});

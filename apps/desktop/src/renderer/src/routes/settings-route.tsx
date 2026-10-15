@@ -30,6 +30,7 @@ import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/s
 import { ShortcutsSettings } from '@/settings/shortcuts-settings';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
 import { setThemeMode, useTheme } from '@/theme/theme';
+import { AppUpdateSettings } from '@/updates/update-settings';
 import type { ThemeMode } from '../../../shared/theme.js';
 import { NotFound } from './not-found';
 import { isSettingsTab, paths, type SettingsTab } from './paths';
@@ -91,7 +92,13 @@ const TABS: Record<SettingsTab, TabInfo> = {
   about: {
     label: 'settings.tab.about',
     icon: Info,
-    keywords: ['settings.about.host', 'settings.about.hostVersion'],
+    keywords: [
+      'settings.about.host',
+      'settings.about.hostVersion',
+      'settings.about.version',
+      'settings.about.channel',
+      'settings.about.update',
+    ],
   },
 };
 
@@ -299,20 +306,23 @@ function AboutSettings() {
     [t('settings.about.hostId'), hello?.hostId],
   ];
   return (
-    <SettingsSection title={t('settings.about.host')}>
-      <dl className={LIST_CARD}>
-        {rows.map(([label, value, testId]) => (
-          <div key={label} className="flex min-h-11 items-center gap-6 px-4 py-2.5 text-sm">
-            <dt className="shrink-0 font-medium">{label}</dt>
-            <dd
-              className="min-w-0 flex-1 truncate text-right font-mono text-xs text-muted-foreground"
-              data-testid={testId}
-            >
-              {value ?? '—'}
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </SettingsSection>
+    <>
+      <AppUpdateSettings />
+      <SettingsSection title={t('settings.about.host')}>
+        <dl className={LIST_CARD}>
+          {rows.map(([label, value, testId]) => (
+            <div key={label} className="flex min-h-11 items-center gap-6 px-4 py-2.5 text-sm">
+              <dt className="shrink-0 font-medium">{label}</dt>
+              <dd
+                className="min-w-0 flex-1 truncate text-right font-mono text-xs text-muted-foreground"
+                data-testid={testId}
+              >
+                {value ?? '—'}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </SettingsSection>
+    </>
   );
 }

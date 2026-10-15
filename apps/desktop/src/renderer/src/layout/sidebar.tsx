@@ -42,6 +42,7 @@ import { t } from '@/i18n';
 import { openCreateProject } from '@/projects/create-project';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
+import { UpdateEntryButton } from '@/updates/update-entry';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
 import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-drag';
 
@@ -61,7 +62,8 @@ const COMPLETED_SHOWN = 10;
 
 /**
  * 左栏（U5 照 Codex 桌面端）：顶上一条拖动区（后退、前进与侧栏开关浮在它上面，见 window-controls.tsx；浮层里的侧栏把
- * 它们放进 `controls`）、“新建会话”、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的设置入口。不显示与 Host 的连接状态：连上时什么都不
+ * 它们放进 `controls`）、“新建会话”、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
+ * ADR-0007 补记 4）与设置入口。不显示与 Host 的连接状态：连上时什么都不
  * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
 export function Sidebar({ controls }: { controls?: ReactNode }) {
@@ -87,6 +89,7 @@ export function Sidebar({ controls }: { controls?: ReactNode }) {
       <PinDragGhost />
 
       <div className="shrink-0 p-2">
+        <UpdateEntryButton className="mb-0.5" />
         <NavLink
           to={paths.settings()}
           state={{ from: location }}

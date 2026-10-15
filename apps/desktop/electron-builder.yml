@@ -76,5 +76,11 @@ nsis:
   perMachine: false
   artifactName: ${productName}-${version}-win-${arch}-setup.${ext}
 
-# 发布（更新清单与两条下载线路）是下一步的事，这里不上传任何东西。
-publish: null
+# 只为了让 electron-builder 写更新清单（`latest-mac.yml` / `latest.yml`，版本带 `-beta.N` 时是 `beta-*`）与 blockmap；
+# 不经它上传（scripts/package.ts 传 --publish never）。应用里检查更新用自己的 provider 与两条线路（ADR-0007 补记 4），
+# 不读这里的地址。上传到两条线路由 scripts/release-dir.ts 整理的发布目录来做。
+publish:
+  - provider: generic
+    url: https://download.wevir.si/desktop
+    # electron-updater 的下载缓存目录（macOS 在 ~/Library/Caches/ 下）；默认按 npm 包名，会是 @wevirdesktop-updater。
+    updaterCacheDirName: wevir-updater

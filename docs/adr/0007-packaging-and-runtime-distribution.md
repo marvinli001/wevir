@@ -1,6 +1,6 @@
 # ADR-0007：第一个安装包与运行时分发
 
-- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）；补记 3：Claude 与 Cursor 的 SDK 不随安装包分发
+- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）；补记 3：Claude 与 Cursor 的 SDK 不随安装包分发；补记 4：自动更新的客户端
 - 日期：2026-10-14
 - 任务：R9；影响：`apps/desktop` 的打包与资源目录、adapter-codex 的二进制解析；推迟的部分影响 adapter-dsh、Host 的组件管理、设置页的引擎列表、R8 的 Grok Build 与 Gemini CLI
 - 依据：[ADR-0005](./0005-agent-runtime-and-model-gateway.md) 决策 8、未决事项 2 与 4；[ADR-0002](./0002-host-transport-and-process-model.md) 未决事项 1；[ADR-0004](./0004-repo-tooling.md)（打包工具留到打包阶段）；[UPSTREAM.md](../upstream/UPSTREAM.md) §1.2、§2.1、§2.4；[third-party-notices.md](../upstream/third-party-notices.md)；本文“背景”里的本机实测
@@ -142,4 +142,12 @@
    - 安装包里要用 Claude 或 Cursor，得在用户选用时再下载 SDK（与 dsh 一样属于可选组件，决策 6，还没做）；下载时由用户的机器直接从 npm registry 取，Wevir 不分发这两个包。`@cursor/sdk` 的平台包带 `.node` 与可执行文件，下载来的没有 Wevir 的签名，到时主程序要加 `com.apple.security.cs.disable-library-validation`（同决策 2 对 dsh 的说法）。
    - 验收（2026-10-16，macOS arm64）：资源目录里的 Host 以 `ELECTRON_RUN_AS_NODE` 在 `env -i` 的环境里启动，日志里两个引擎各记一条未启用，Host `ready`。
    - 公证（同日，维护者的 App Store Connect API 密钥存成 notarytool 的钥匙串 profile，`APPLE_KEYCHAIN_PROFILE`）：electron-builder 公证并装订了 `.app`；`spctl` 判定 `accepted, source=Notarized Developer ID`，`stapler validate` 通过，dmg 里的那份也一样；加上下载隔离属性的副本 `spctl` 同样通过，`syspolicy_check distribution` 报 ready for distribution。dmg 本身没有签名（electron-builder 的默认），只靠里面装订过的应用通过 Gatekeeper。这次的包：dmg 191 MB、zip 186 MB，`appId` 是 `si.wevir.desktop`。
+4. **2026-10-16，自动更新的客户端（补记 2 的第 2 步）。** electron-updater 6.8.10，主进程的 `src/main/updates/`，界面在渲染进程的 `updates/`；命令与本机验收方法见 [development.md](../development.md) §3.8，界面规格见 desktop-tokens.md §46。
+   - **线路与发布目录**：两条线路（`download.wevir.si`、`download2.wevir.si`）的布局相同：`<线路>/desktop/<平台>-<架构>/` 里是 electron-builder 写的清单、清单列出的文件与 blockmap，以及每份清单的签名 `<清单>.sig`。electron-builder.yml 配了 generic 的 `publish`，只为了写出清单（`--publish never`，不经它上传）；`scripts/release-dir.ts` 把一次打包的产物整理成这个目录并签名，发布流水线上传它。
+   - **取清单与选线路**（`feed.ts`，自定义 provider `mirror-provider.ts` 把结果交给 electron-updater）：同时问所有线路，第一条给出验过签的清单的胜出（整体 15 s 超时）；版本比当前新时等其他线路的结果，在给出同一版本的线路之间各取安装包开头 256 KB（Range，不认 Range 的线路不参加），按吞吐选下载线路。清单里的文件只能是发布目录里的相对路径，下载走的就是选中的线路。下载失败时那条线路记为失败，重新检查、换另一条再下一次；两条都失败报 `download`。
+   - **签名**：Ed25519，签清单的原始字节；公钥编进应用（`keys.ts` 的 `UPDATE_PUBLIC_KEYS`，任何一把验过即可，轮换时先加新公钥发一版）。私钥 2026-10-16 生成在维护者本机 `~/.wevir-release/update-signing-key.pem`，发布流水线用 secret `WEVIR_UPDATE_SIGNING_KEY`。没有公钥的构建不检查更新。清单验签不过报 `signature`、不下载；清单里每个文件的 sha512 由 electron-updater 下载后核对。没有等 electron-builder 27 的签名清单（还是 alpha）。
+   - **通道**：正式版只读 `latest`；开发版读 `latest` 与 `beta` 取版本高的（还没有 `beta` 的清单时只看 `latest`），正式版发布后开发版用户也收到它，发布时不必把正式版复制成 `beta`。`allowDowngrade` 关着，切回正式版不降级。默认通道按当前版本：带预发布标签是开发版，否则正式版；选择存在 `<userData>/updates.json`。
+   - **状态与时机**：启动 30 s 后检查一次，之后每 4 小时；不自动下载（`autoDownload` 关），点侧栏的入口才下载。下载完没有回合在跑（运行中、取消中、等审批）时渲染进程直接请求安装，有的话显示“重启以更新”等用户点；下载好了但用户直接退出时退出时安装（`autoInstallOnAppQuit`）。安装经 `quitAndInstall`，主进程原有的退出流程照常停掉自己拉起的 Host。开发构建、没有公钥、macOS 上从 dmg 直接打开或被系统转移位置时关闭；最后一种在设置里给“移到“应用程序””。
+   - **验收**（2026-10-16，macOS arm64，两个版本都用 Developer ID 签名、没有公证）：装 0.1.0，两条本机线路（支持 Range 的小服务器，全球线路限速 3 MB/s）发 0.1.1 的发布目录，`WEVIR_UPDATE_MIRRORS` 指过去。启动后两条线路都取了清单与签名、各取了安装包开头 256 KB，按吞吐选了优化线路（约 87 000 对 2 900 字节 / 毫秒）；侧栏左下角出现“新版本 0.1.1 · 更新”，点击后从优化线路下载整个 zip（第一次更新没有旧的 update.zip，不走差分），没有回合在跑，直接显示“正在安装更新”，应用退出并停掉 Host，Squirrel 换掉应用、重新打开：Info.plist 是 0.1.1，签名完整，新版本启动后又检查了一次。
+   - **没有验证的**：Windows（NSIS 的更新、未签名时 electron-updater 不做发布者校验，安全只靠清单签名与 sha512）；差分下载（要第二次更新才有旧包）；真实的两个域名与 CDN（还没解析）；下载中途断网、两条线路都坏时界面的表现只有单元测试。
 

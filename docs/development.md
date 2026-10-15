@@ -206,6 +206,26 @@ pnpm --filter @wevir/desktop package
 
 **Windows** 先不签名（ADR-0007 决策 2），安装时 SmartScreen 会提示。Windows 包要在 Windows 上打（资源目录里的 Host 依赖与 codex-app-server 按目标平台准备，NSIS 的图标与版本信息也在 Windows 上写最稳）。
 
+### 3.8 自动更新与发布目录
+
+安装包自己检查更新（[ADR-0007](./adr/0007-packaging-and-runtime-distribution.md) 补记 2、4）：主进程的 `src/main/updates/`，界面是侧栏左下角的更新入口与设置 → 关于。开发构建（`pnpm dev`）不检查。
+
+- **两条线路**：全球 `https://download.wevir.si`、优化 `https://download2.wevir.si`，发布目录是 `<线路>/desktop/<平台>-<架构>/`（例如 `darwin-arm64`、`win32-x64`）。每次检查同时向两条线路取更新清单（`latest-mac.yml` / `latest.yml`，开发版通道另取 `beta-*`），先给出验过签的那条胜出；有新版本时在给出同一版本的线路之间各取安装包开头 256 KB 测速，选快的下载，下载失败换另一条重试一次。
+- **签名**：每份清单旁边有 `<清单>.sig`（Ed25519，签清单的原始字节），应用只认 `src/main/updates/keys.ts` 里的公钥，验不过就不下载；清单里每个文件的 sha512 由 electron-updater 下载后核对。私钥在维护者本机 `~/.wevir-release/update-signing-key.pem`（`node apps/desktop/scripts/update-signing.ts keygen` 生成，不进仓库，CI 用 secret），别处另生成的私钥签出来的清单客户端不认。
+- **通道**：正式版只读 `latest`；开发版读 `latest` 与 `beta`、取版本高的，所以正式版发布后开发版用户也收到它。开发版的版本号写成 `X.Y.Z-beta.N`，electron-builder 据此写 `beta-*.yml`。切换通道不降级。
+- **发布目录**：打包时带上版本，再整理并签名：
+
+  ```bash
+  pnpm --filter @wevir/desktop package --app-version 0.2.0
+  ```
+
+  ```bash
+  node apps/desktop/scripts/release-dir.ts --out /tmp/wevir-release
+  ```
+
+  后者把 `apps/desktop/release/` 里的清单、它列出的文件与 blockmap 复制到 `<out>/desktop/<平台>-<架构>/`，写签名并用内置公钥核对。把 `<out>` 同步到每条线路的根即可：先传安装包，最后传清单与签名。
+- **本机验收**：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,optimized=http://127.0.0.1:8702` 换掉两条线路（照样验签），`WEVIR_UPDATE_FIRST_CHECK_MS` 改启动后第一次检查的延迟（默认 30 s，之后每 4 小时）。服务器要支持 Range（测速与差分下载）。
+
 ## 4. 离线开发：echo 假引擎
 
 不需要 dsh、模型或网络。echo 回复 `Echo: <输入>`，先按分片发增量、再发已提交消息；输入里的关键词（不分大小写）触发其他行为：

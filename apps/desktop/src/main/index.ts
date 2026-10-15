@@ -22,6 +22,7 @@ import {
   type HostConnection,
   type HostProcessStatus,
   IPC_CHANNELS,
+  type UpdateState,
   type WindowChrome,
 } from '../shared/desktop-api.js';
 import {
@@ -46,6 +47,7 @@ import {
 import { loadDesktopIdentity } from './identity.js';
 import { isBadgeCount, parseDesktopNotification } from './notification-input.js';
 import { serveRendererFile } from './renderer-files.js';
+import { createUpdateController } from './updates/electron-updates.js';
 
 const log: Log = (level, message, detail) => {
   const line = `[wevir-desktop] ${level} ${message}${detail ? ` ${JSON.stringify(detail)}` : ''}`;
@@ -272,6 +274,41 @@ function run(): void {
     shell.showItemInFolder(path);
   });
 
+  // 自动更新（ADR-0007 补记 4）：开发构建里是 disabled，界面不显示入口。
+  const updates = createUpdateController(log);
+  updates.onState((state: UpdateState) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.updateState, state);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.getUpdateState, async (event): Promise<UpdateState> => {
+    assertSender(event);
+    return updates.state;
+  });
+  ipcMain.handle(IPC_CHANNELS.checkForUpdates, async (event): Promise<void> => {
+    assertSender(event);
+    await updates.check();
+  });
+  ipcMain.handle(IPC_CHANNELS.downloadUpdate, async (event): Promise<void> => {
+    assertSender(event);
+    await updates.download();
+  });
+  ipcMain.handle(IPC_CHANNELS.installUpdate, async (event): Promise<void> => {
+    assertSender(event);
+    updates.install();
+  });
+  ipcMain.handle(IPC_CHANNELS.setUpdateChannel, async (event, channel: unknown): Promise<void> => {
+    assertSender(event);
+    if (channel !== 'stable' && channel !== 'dev') throw new Error('unknown update channel');
+    await updates.setChannel(channel);
+  });
+  ipcMain.handle(IPC_CHANNELS.moveToApplications, async (event): Promise<void> => {
+    assertSender(event);
+    if (process.platform !== 'darwin') return;
+    // 成功时 Electron 把应用移过去并重新打开，这个进程随之退出。
+    app.moveToApplicationsFolder();
+  });
+
   // 所有 webContents（含将来的）一律：新窗口拒绝，外部链接交给系统浏览器；只允许同 origin 的导航
   // （开发服务器的整页刷新）；不允许挂 <webview>（Electron 安全清单第 12、13 条）。
   app.on('web-contents-created', (_event, contents) => {
@@ -324,6 +361,7 @@ function run(): void {
     protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir));
     applyAppIcon();
     mainWindow = createWindow();
+    updates.start();
   });
 }
 

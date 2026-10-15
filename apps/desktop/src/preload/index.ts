@@ -7,6 +7,7 @@ import {
   type DesktopApi,
   type HostProcessStatus,
   IPC_CHANNELS,
+  type UpdateState,
   type WindowChrome,
 } from '../shared/desktop-api.js';
 
@@ -57,6 +58,19 @@ const api: DesktopApi = {
   openInEditor: (editorId, path, line) =>
     ipcRenderer.invoke(IPC_CHANNELS.openInEditor, editorId, path, line),
   revealPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.revealPath, path),
+  getUpdateState: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateState),
+  onUpdateState: (listener) => {
+    const handler = (_event: IpcRendererEvent, state: UpdateState) => listener(state);
+    ipcRenderer.on(IPC_CHANNELS.updateState, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.updateState, handler);
+    };
+  },
+  checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.checkForUpdates),
+  downloadUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate),
+  installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
+  setUpdateChannel: (channel) => ipcRenderer.invoke(IPC_CHANNELS.setUpdateChannel, channel),
+  moveToApplications: () => ipcRenderer.invoke(IPC_CHANNELS.moveToApplications),
 };
 
 contextBridge.exposeInMainWorld('wevir', api);
