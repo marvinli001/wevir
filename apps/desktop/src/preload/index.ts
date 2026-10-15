@@ -32,6 +32,7 @@ const api: DesktopApi = {
   },
   retryHost: () => ipcRenderer.invoke(IPC_CHANNELS.retryHost),
   selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.selectFolder),
+  selectPaths: (defaultPath) => ipcRenderer.invoke(IPC_CHANNELS.selectPaths, defaultPath),
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
   copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),
   setThemeSource: (mode) => ipcRenderer.invoke(IPC_CHANNELS.setThemeSource, mode),

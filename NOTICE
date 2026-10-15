@@ -128,8 +128,10 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
          codex-rs/prompts/templates/guardian/node_repl_policy.md
   prompts/thread-title.md
       <- codex-rs/tui/src/app/thread_title.rs（其中的说明文字）
+  apps/desktop/src/renderer/src/session/init-prompt.ts
+      <- codex-rs/tui/assets/prompt_for_init_command.md（英文照原文，另有中文改写）
 
-这四个文件按 Apache License 2.0 发布，许可证全文见文末“Apache License 2.0”。
+这五个文件按 Apache License 2.0 发布，许可证全文见文末“Apache License 2.0”。
 
 下面两处测试样本是 codex-app-server 发给模型服务的请求的录制（及其经 Wevir 模型网关转换后的快照），
 其中含 Codex 内置工具的定义与描述文本，以及 Codex 注入的权限、skills 与环境说明文字：
@@ -238,7 +240,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 
-10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格与 Claude Agent、Cursor、OpenCode 引擎）
+10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单与 Claude Agent、Cursor、OpenCode 引擎）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
 来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
@@ -282,6 +284,11 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   apps/desktop/src/main/editors.ts
       <- packages/contracts/src/editor.ts
          apps/server/src/process/externalLauncher.ts
+  apps/desktop/src/renderer/src/session/composer-trigger.ts
+      <- apps/web/src/composer-logic.ts（detectComposerTrigger、replaceTextRange）
+  apps/desktop/src/renderer/src/session/composer-commands.ts、composer-menu.tsx
+      <- apps/web/src/components/chat/ComposerCommandMenu.tsx
+         apps/web/src/components/chat/composerSlashCommandSearch.ts
   apps/desktop/src/renderer/src/notifications/notification-model.ts、notification-coordinator.tsx（规则）
       <- apps/web/src/components/ThreadNotificationCoordinator.tsx
          apps/web/src/threadNotifications.ts

@@ -166,6 +166,22 @@ function run(): void {
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
+  ipcMain.handle(
+    IPC_CHANNELS.selectPaths,
+    async (event, defaultPath: unknown): Promise<string[]> => {
+      const window = assertSender(event);
+      const result = await dialog.showOpenDialog(window, {
+        // macOS 能同时选文件与文件夹；其他平台的对话框只认其中一种，取文件。
+        properties: [
+          'openFile',
+          ...(process.platform === 'darwin' ? (['openDirectory'] as const) : []),
+          'multiSelections',
+        ],
+        ...(typeof defaultPath === 'string' && isAbsolute(defaultPath) && { defaultPath }),
+      });
+      return result.canceled ? [] : result.filePaths;
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.openExternal, async (event, url: unknown): Promise<void> => {
     assertSender(event);
     if (typeof url !== 'string' || !isExternalUrl(url)) {

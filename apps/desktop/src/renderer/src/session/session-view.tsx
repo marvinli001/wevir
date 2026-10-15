@@ -2,7 +2,9 @@ import { hostSupports } from '@wevir/client-sdk';
 import type {
   PendingDelivery,
   PermissionMode,
+  ProviderProfile,
   Session,
+  SessionId,
   SubagentSummary,
   TurnId,
 } from '@wevir/protocol';
@@ -19,6 +21,7 @@ import { useTranscript, useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import { OpenFileLink, openFileLink } from '@/files/file-links';
+import type { FileScope } from '@/files/files-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
@@ -46,6 +49,7 @@ import {
 import { TodoDock, TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
+import { useDraftCommands, useSessionCommands } from './use-composer-commands';
 
 /**
  * 一个会话：消息流、审批区、输入框与状态指示（T5.3）。消息流来自从 seq 0 开始的订阅（transcript-store.ts），
@@ -151,6 +155,83 @@ export function SessionView({
       });
     },
     [hostSettings.update],
+  );
+
+  // 输入框的斜杠命令与 @ 提及（U33）。
+  const workbench = useWorkbenchData();
+  const providers = workbench.status === 'ready' ? workbench.providers : NO_PROVIDERS;
+  const writable = client !== undefined && readOnly === undefined;
+  const configureModel = useCallback(
+    (next: ModelChoice) => {
+      client
+        ?.request('session.configure', {
+          sessionId: session.id,
+          modelId: next.modelId,
+          reasoningEffort: next.reasoningEffort ?? null,
+        })
+        .catch((error: unknown) =>
+          setNotice(t('model.configureFailed', { error: describe(error) })),
+        );
+    },
+    [client, session.id],
+  );
+  const permissionModes = usePermissionModes();
+  const permission = useMemo(
+    () =>
+      permissionModes && writable && session.parentSessionId === undefined
+        ? {
+            mode: session.permissionMode ?? ('on_request' as const),
+            onChange: (permissionMode: PermissionMode) => {
+              client
+                ?.request('session.configure', { sessionId: session.id, permissionMode })
+                .catch((error: unknown) =>
+                  setNotice(t('permission.configureFailed', { error: describe(error) })),
+                );
+            },
+          }
+        : undefined,
+    [
+      permissionModes,
+      writable,
+      session.parentSessionId,
+      session.permissionMode,
+      client,
+      session.id,
+    ],
+  );
+  const sendCommandText = useCallback((text: string) => void send(text), [send]);
+  const commands = useSessionCommands({
+    workspaceId: session.workspaceId,
+    sessionId: session.id as SessionId,
+    providers,
+    model: {
+      providerId: session.providerId,
+      modelId: session.modelId,
+      ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+    },
+    canConfigure:
+      writable &&
+      session.parentSessionId === undefined &&
+      view.status === 'connected' &&
+      hostSupports(view.hello.features, 'session_configure'),
+    onModelChange: configureModel,
+    ...(permission && { permission }),
+    sideEnabled,
+    filesEnabled,
+    diffEnabled: diffEnabled && !session.side,
+    panes,
+    send: sendCommandText,
+  });
+  const fileScope = useMemo<FileScope | undefined>(
+    () =>
+      filesEnabled
+        ? {
+            workspaceId: session.workspaceId as FileScope['workspaceId'],
+            sessionId: session.id as SessionId,
+            root: session.cwd,
+          }
+        : undefined,
+    [filesEnabled, session.workspaceId, session.id, session.cwd],
   );
 
   const onReady = useCallback((handle: TranscriptViewHandle) => {
@@ -273,6 +354,8 @@ export function SessionView({
           onSend={send}
           onStop={stop}
           autoFocus={variant === 'main'}
+          commands={readOnly === undefined ? commands : undefined}
+          {...(fileScope && { fileScope })}
         />
       </div>
     </div>
@@ -354,6 +437,8 @@ function SessionPermissionPicker({
   );
 }
 
+const NO_PROVIDERS: readonly ProviderProfile[] = [];
+
 /** 新会话草稿页输入框的草稿归属。 */
 function newSessionDraftKey(workspaceId: string): string {
   return `draft:${workspaceId}`;
@@ -407,6 +492,35 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
   const selectProject = (id: string) => navigate(paths.draft(id));
+  // 斜杠命令与 @ 提及（U33）：草稿页的目录是工作区的根目录。
+  const panes = usePanes();
+  const { view } = useHostConnection();
+  const filesEnabled =
+    view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
+  const sendCommandText = useCallback((text: string) => void send(text), [send]);
+  const permissionCommand = useMemo(
+    () => (permissions ? { mode: permission.mode, onChange: permission.choose } : undefined),
+    [permissions, permission.mode, permission.choose],
+  );
+  const commands = useDraftCommands({
+    providers,
+    model: choice,
+    onModelChange: choose,
+    ...(permissionCommand && { permission: permissionCommand }),
+    filesEnabled,
+    panes,
+    send: sendCommandText,
+  });
+  const fileScope = useMemo<FileScope | undefined>(
+    () =>
+      filesEnabled
+        ? {
+            workspaceId: entry.workspace.id as FileScope['workspaceId'],
+            root: entry.workspace.rootPath,
+          }
+        : undefined,
+    [filesEnabled, entry.workspace.id, entry.workspace.rootPath],
+  );
 
   return (
     <NewSessionLayout
@@ -463,6 +577,8 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             }
             onStop={() => {}}
             autoFocus
+            commands={commands}
+            {...(fileScope && { fileScope })}
             tray={
               <EnvironmentBar
                 current={entry}

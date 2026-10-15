@@ -13,9 +13,14 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
 
 /** 三种权限模式，按菜单里的先后（protocol 0.11.0 的 `PermissionMode`）。 */
-const MODES: readonly PermissionMode[] = ['on_request', 'auto_review', 'full_access'];
+export const PERMISSION_MODES: readonly PermissionMode[] = [
+  'on_request',
+  'auto_review',
+  'full_access',
+];
+const MODES = PERMISSION_MODES;
 
-const META: Record<
+export const PERMISSION_META: Record<
   PermissionMode,
   { icon: LucideIcon; label: PlainMessageKey; description: PlainMessageKey }
 > = {
@@ -61,7 +66,7 @@ export function PermissionPicker({
   readOnly?: boolean;
   onChange: (next: PermissionMode) => void;
 }) {
-  const { icon: Icon, label } = META[value];
+  const { icon: Icon, label } = PERMISSION_META[value];
   const warning = value === 'full_access';
   const chipClass = cn(
     'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-colors duration-150',
@@ -110,7 +115,7 @@ export function PermissionPicker({
           onValueChange={(next: PermissionMode) => onChange(next)}
         >
           {MODES.map((mode) => {
-            const meta = META[mode];
+            const meta = PERMISSION_META[mode];
             const ModeIcon = meta.icon;
             return (
               <DropdownMenuRadioItem

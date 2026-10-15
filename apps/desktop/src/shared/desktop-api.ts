@@ -121,6 +121,8 @@ export interface DesktopApi {
   retryHost(): Promise<void>;
   /** 系统的文件夹选择对话框；取消时为 null。 */
   selectFolder(): Promise<string | null>;
+  /** 选文件与文件夹（多选，U33 输入框的“文件和文件夹”），从 `defaultPath` 开始；取消时是空表。 */
+  selectPaths(defaultPath?: string): Promise<string[]>;
   /** 用系统浏览器打开链接；只接受 http、https、mailto。 */
   openExternal(url: string): Promise<void>;
   /**
@@ -160,6 +162,7 @@ export const IPC_CHANNELS = {
   hostStatus: 'wevir:host-status',
   retryHost: 'wevir:retry-host',
   selectFolder: 'wevir:select-folder',
+  selectPaths: 'wevir:select-paths',
   openExternal: 'wevir:open-external',
   copyText: 'wevir:copy-text',
   setThemeSource: 'wevir:set-theme-source',

@@ -1,8 +1,12 @@
+import { hostSupports } from '@wevir/client-sdk';
 import { Plus } from 'lucide-react';
+import { useMemo } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
+import type { FileScope } from '@/files/files-data';
+import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { onboardingDone } from '@/onboarding/onboarding-state';
 import { openCreateProject } from '@/projects/create-project';
@@ -12,6 +16,7 @@ import { ModelPicker } from '@/session/model-picker';
 import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
 import { PermissionPicker, usePermissionChoice } from '@/session/permission-picker';
 import { useModelChoice, usePermissionModes, useStartSession } from '@/session/start-session';
+import { useDraftCommands } from '@/session/use-composer-commands';
 import { homeWorkspace, rememberWorkspace, useLastLocation } from './last-location';
 import { paths } from './paths';
 import { PendingPage } from './route-states';
@@ -71,6 +76,32 @@ function Home({
     return false;
   };
 
+  // 斜杠命令与 @ 提及（U33）：首页没有窗格区，命令只有模型、思考力度、权限与初始化。
+  const { view } = useHostConnection();
+  const filesEnabled =
+    view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
+  const sendCommandText = (text: string) => void send(text);
+  const permissionCommand = useMemo(
+    () => (permissions ? { mode: permission.mode, onChange: permission.choose } : undefined),
+    [permissions, permission.mode, permission.choose],
+  );
+  const commands = useDraftCommands({
+    providers,
+    model: choice,
+    onModelChange: choose,
+    ...(permissionCommand && { permission: permissionCommand }),
+    filesEnabled: false,
+    panes: undefined,
+    ...(workspace && { send: sendCommandText }),
+  });
+  const fileScope = useMemo<FileScope | undefined>(
+    () =>
+      filesEnabled && workspace
+        ? { workspaceId: workspace.id as FileScope['workspaceId'], root: workspace.rootPath }
+        : undefined,
+    [filesEnabled, workspace],
+  );
+
   return (
     <NewSessionLayout
       hero={<NewSessionHero current={entry} workspaces={workspaces} onSelect={rememberWorkspace} />}
@@ -113,6 +144,8 @@ function Home({
             onSend={send}
             onStop={() => {}}
             autoFocus
+            commands={commands}
+            {...(fileScope && { fileScope })}
           />
         </>
       }

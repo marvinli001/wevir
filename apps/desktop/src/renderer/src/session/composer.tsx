@@ -1,12 +1,36 @@
 import type { PendingDelivery, SessionState } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowUp, Square } from 'lucide-react';
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react';
+import { ArrowUp, Folder, Square } from 'lucide-react';
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { splitPath } from '@/changes/changes-model';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { toRelativePath } from '@/files/file-path';
+import { type FileScope, useFileSearch, useFilesSupported } from '@/files/files-data';
 import { Beam } from '@/fx/beam';
 import { MetalCircle } from '@/fx/metal';
 import { t } from '@/i18n';
+import { fileIcon } from '@/layout/panes/files-pane';
+import {
+  type ComposerCommand,
+  type ComposerCommandItem,
+  nudge,
+  searchCommands,
+  searchItems,
+  slashMenuState,
+} from './composer-commands';
+import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
+import { ComposerPlusMenu } from './composer-plus-menu';
+import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
 import { DeliverySwitch } from './delivery-switch';
 import { composerKeyAction, otherDelivery } from './pending-model';
 
@@ -38,6 +62,10 @@ export function setDraft(draftKey: string, text: string): void {
  * U12 起外形照 Codex 桌面端：20 px 圆角（`rounded-3xl`）、细分隔线描边；底栏左边是“插话 | 排队”与 `leading`，右边是模型
  * 与发送键；不再显示会话状态（进行中的状态与用时在消息流末尾）。`tray` 是贴在输入框上方、被它压住下沿的环境栏（新会话的
  * 项目与本地环境，session/environment-bar.tsx）。
+ *
+ * U33 起照 T3 Code 与 Codex 桌面端：消息开头打 `/` 弹出斜杠命令（`commands`，由所在页面给出，有的带二级菜单），打 `@` 弹出
+ * 文件（`fileScope` 的目录里按名字找），上下键选、回车或 Tab 确定、Esc 收起；底栏最左边是“+”菜单（文件和文件夹、提及文件、
+ * 命令与页面标为 `plus` 的命令）。
  */
 export function Composer({
   draftKey,
@@ -54,6 +82,8 @@ export function Composer({
   autoFocus = false,
   variant = 'session',
   placeholder,
+  commands,
+  fileScope,
 }: {
   /** 草稿归属（会话 ID，或新会话草稿的工作区）。 */
   draftKey: string;
@@ -78,6 +108,10 @@ export function Composer({
   variant?: 'session' | 'home';
   /** 默认是“描述你要完成的任务…”；不能发送时显示 `disabledReason`。 */
   placeholder?: string;
+  /** 斜杠命令（U33）；省略时没有斜杠菜单。 */
+  commands?: readonly ComposerCommand[];
+  /** @ 提及与“文件和文件夹”的目录（U33）；省略时没有。 */
+  fileScope?: FileScope;
 }) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
@@ -89,6 +123,182 @@ export function Composer({
   const canSend = (!busy || pendingEnabled) && !disabled && !sending && text.trim() !== '';
 
   useEffect(() => setDraft(draftKey, text), [draftKey, text]);
+
+  // ── 斜杠命令与 @ 提及（U33） ────────────────────────────────────────
+  const listId = useId();
+  const [cursor, setCursor] = useState(() => text.length);
+  /** 下一次渲染后要放的光标（菜单替换了文字）。 */
+  const pendingCursor = useRef<number>(undefined);
+  /** 按 Esc 收起的菜单：同一个触发（种类与位置）不再弹出，换了才弹。 */
+  const [dismissed, setDismissed] = useState<string>();
+  const [active, setActive] = useState(0);
+  const filesSupported = useFilesSupported();
+  const canMention = fileScope !== undefined && filesSupported;
+  const slash =
+    commands && commands.length > 0 ? slashMenuState(text, cursor, commands) : undefined;
+  const mention = !slash && canMention ? detectMentionTrigger(text, cursor) : null;
+  const menuKey = slash
+    ? `slash:${slash.level}:${slash.command?.name ?? ''}:${slash.rangeStart}`
+    : mention
+      ? `mention:${mention.rangeStart}`
+      : undefined;
+  const menuOpen = menuKey !== undefined && menuKey !== dismissed && focused && !disabled;
+  // 触发没了（删掉了 `/` 或 `@`、发出去了）：下一次照常弹出。
+  useEffect(() => {
+    if (menuKey === undefined) setDismissed(undefined);
+  }, [menuKey]);
+  const mentionSearch = useFileSearch(
+    menuOpen && mention ? fileScope : undefined,
+    menuOpen && mention ? mention.query : undefined,
+    { limit: 30 },
+  );
+  const query = slash?.query ?? mention?.query ?? '';
+
+  const slashLevel = slash?.level;
+  const slashCommand = slash?.command;
+  const slashQuery = slash?.query;
+  const slashResults = useMemo<readonly (ComposerCommand | ComposerCommandItem)[]>(() => {
+    if (slashLevel === undefined || slashQuery === undefined || !commands) return [];
+    if (slashLevel === 'items') return searchItems(slashCommand?.items?.() ?? [], slashQuery);
+    return searchCommands(commands, slashQuery);
+  }, [slashLevel, slashCommand, slashQuery, commands]);
+
+  const entries = useMemo<MenuEntry[]>(() => {
+    if (slash?.level === 'commands') {
+      return (slashResults as ComposerCommand[]).map((command) => {
+        const Icon = command.icon;
+        return {
+          key: command.name,
+          icon: <Icon />,
+          label: command.label,
+          ...(command.detail !== undefined && { detail: command.detail }),
+          hint: `/${command.name}`,
+          nested: command.items !== undefined,
+        };
+      });
+    }
+    if (slash?.level === 'items') {
+      return (slashResults as ComposerCommandItem[]).map((item) => ({
+        key: item.id,
+        icon: item.icon,
+        label: item.label,
+        ...(item.detail !== undefined && { detail: item.detail }),
+        ...(item.checked && { checked: true }),
+        ...(item.disabled && { disabled: true }),
+      }));
+    }
+    if (mention) {
+      return mentionSearch.entries.map((entry) => {
+        const { name, dir } = splitPath(entry.path);
+        const Icon = entry.kind === 'directory' ? Folder : fileIcon(entry.path);
+        return { key: entry.path, icon: <Icon />, label: name, detail: dir };
+      });
+    }
+    return [];
+  }, [slash?.level, slashResults, mention, mentionSearch.entries]);
+
+  // 换了触发或查询：高亮回到第一项；二级菜单刚打开时停在当前选中的那项。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只跟着触发与查询。
+  useEffect(() => {
+    const checked = query === '' ? entries.findIndex((entry) => entry.checked) : -1;
+    setActive(Math.max(0, checked));
+  }, [menuKey, query]);
+
+  // 菜单替换文字之后放光标。
+  useLayoutEffect(() => {
+    const target = pendingCursor.current;
+    const textarea = textareaRef.current;
+    if (target === undefined || !textarea) return;
+    pendingCursor.current = undefined;
+    textarea.focus();
+    textarea.setSelectionRange(target, target);
+  });
+
+  const replaceRange = (start: number, end: number, replacement: string) => {
+    const next = replaceTextRange(text, start, end, replacement);
+    setText(next.text);
+    setCursor(next.cursor);
+    pendingCursor.current = next.cursor;
+  };
+
+  /** 在光标处插入（前面不是空白时先补一个空格）。 */
+  const insertAtCursor = (snippet: string) => {
+    const at = Math.min(cursor, text.length);
+    const needsSpace = at > 0 && !/\s/.test(text[at - 1] ?? '');
+    replaceRange(at, at, `${needsSpace ? ' ' : ''}${snippet}`);
+  };
+
+  /** 执行一条没有二级菜单的命令：`insert` 换成文字，`run` 先去掉 `/命令` 再执行。 */
+  const runCommand = (command: ComposerCommand, range?: { start: number; end: number }) => {
+    if (command.insert !== undefined) {
+      if (range) replaceRange(range.start, range.end, command.insert);
+      else if (text.trim() === '') replaceRange(0, text.length, command.insert);
+      else insertAtCursor(command.insert);
+      return;
+    }
+    if (range) replaceRange(range.start, range.end, '');
+    command.run?.();
+  };
+
+  const selectEntry = (index: number) => {
+    if (slash?.level === 'commands') {
+      const command = (slashResults as ComposerCommand[])[index];
+      if (!command) return;
+      const range = { start: slash.rangeStart, end: slash.rangeEnd };
+      if (command.items) replaceRange(range.start, range.end, `/${command.name} `);
+      else runCommand(command, range);
+      return;
+    }
+    if (slash?.level === 'items') {
+      const item = (slashResults as ComposerCommandItem[])[index];
+      if (!item || item.disabled) return;
+      replaceRange(slash.rangeStart, slash.rangeEnd, '');
+      item.run();
+      return;
+    }
+    if (mention) {
+      const entry = mentionSearch.entries[index];
+      if (!entry) return;
+      replaceRange(mention.rangeStart, mention.rangeEnd, `${mentionText(entry.path)} `);
+    }
+  };
+
+  /** “+”菜单的“文件和文件夹”：系统的选择框，选中的插入成 @ 提及（目录里的用相对路径）。 */
+  const attachPaths = async () => {
+    if (!fileScope) return;
+    const chosen = await window.wevir.selectPaths(fileScope.root).catch(() => []);
+    if (chosen.length === 0) {
+      textareaRef.current?.focus();
+      return;
+    }
+    const mentions = chosen.map((path) =>
+      mentionText(toRelativePath(path, fileScope.root) ?? path),
+    );
+    insertAtCursor(`${mentions.join(' ')} `);
+  };
+
+  /** 菜单开着时的按键：返回 true 表示已处理。 */
+  const onMenuKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (!menuOpen || menuKey === undefined) return false;
+    const composing = event.nativeEvent.isComposing || event.keyCode === 229;
+    if (composing) return false;
+    if (event.key === 'Escape') {
+      setDismissed(menuKey);
+      return true;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (entries.length === 0) return false;
+      setActive((current) => nudge(current, event.key === 'ArrowDown' ? 1 : -1, entries.length));
+      return true;
+    }
+    const plainEnter =
+      event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    if ((plainEnter || (event.key === 'Tab' && !event.shiftKey)) && entries.length > 0) {
+      selectEntry(Math.min(active, entries.length - 1));
+      return true;
+    }
+    return false;
+  };
 
   // 带着草稿打开时光标放到末尾、滚到底（基于历史新建的长草稿，接着写“接下来”）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在挂载时。
@@ -129,6 +339,10 @@ export function Composer({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (onMenuKey(event)) {
+      event.preventDefault();
+      return;
+    }
     const action = composerKeyAction(
       {
         key: event.key,
@@ -155,7 +369,24 @@ export function Composer({
       : busyDelivery;
 
   return (
-    <div>
+    // 菜单（U33）画在最外层：光束那一层裁掉溢出（overflow: hidden），放在里面会被裁掉。
+    <div className="relative">
+      {menuOpen && (entries.length > 0 || slash !== undefined || !mentionSearch.pending) && (
+        <ComposerMenu
+          listId={listId}
+          label={mention ? t('composer.mentionFile') : t('composer.commands')}
+          entries={entries}
+          active={active}
+          {...(slash?.level === 'items' &&
+            slash.command && {
+              title: slash.command.label,
+              onBack: () => replaceRange(slash.rangeStart, slash.rangeEnd, '/'),
+            })}
+          empty={mention ? t('files.noMatches') : t('composer.noCommands')}
+          onActive={setActive}
+          onSelect={selectEntry}
+        />
+      )}
       {tray && (
         // 环境栏比输入框各窄 12 px，下沿垫在输入框下面（-mb-4 与 pb-5），看上去是从输入框背后伸出来的一条（Codex）。
         <div
@@ -181,8 +412,18 @@ export function Composer({
           <Textarea
             ref={textareaRef}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              setCursor(event.target.selectionStart);
+            }}
+            onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
             onKeyDown={onKeyDown}
+            role={menuOpen ? 'combobox' : undefined}
+            aria-expanded={menuOpen || undefined}
+            aria-controls={menuOpen ? listId : undefined}
+            aria-activedescendant={
+              menuOpen && entries[active] ? menuOptionId(listId, entries[active].key) : undefined
+            }
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             disabled={disabled}
@@ -197,6 +438,19 @@ export function Composer({
           />
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
+              {(canMention || (commands?.length ?? 0) > 0) && (
+                <ComposerPlusMenu
+                  commands={commands ?? []}
+                  disabled={disabled}
+                  canMention={canMention}
+                  canCommand={(commands?.length ?? 0) > 0 && text.trim() === ''}
+                  onAttach={() => void attachPaths()}
+                  onMention={() => insertAtCursor('@')}
+                  onCommand={() => replaceRange(0, text.length, '/')}
+                  onRun={(command) => runCommand(command)}
+                  onClosed={() => window.setTimeout(() => textareaRef.current?.focus(), 0)}
+                />
+              )}
               {leading}
               {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
                 <DeliverySwitch
