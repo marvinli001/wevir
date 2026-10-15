@@ -5,6 +5,7 @@ import {
   editStats,
   groupWork,
   isLiveEntry,
+  isWebSearch,
   outputSummary,
   type ReasoningPart,
   relativeToRoot,
@@ -398,6 +399,40 @@ describe('currentAction', () => {
     expect(currentAction([command('1', 'completed', 'ls'), thought('r')])).toEqual({
       text: '正在思考',
       tone: 'running',
+    });
+  });
+});
+
+describe('isWebSearch', () => {
+  it('按工具名认出网页搜索；代码搜索与抓取不算', () => {
+    const search = (toolName: string) => tool('s', 'search', { toolName });
+    for (const name of [
+      'mcp__wevir_web__web_search',
+      'webSearch',
+      'web_search',
+      'WebSearch',
+      'websearch',
+    ]) {
+      expect(isWebSearch(search(name)), name).toBe(true);
+    }
+    expect(isWebSearch(search('grep'))).toBe(false);
+    expect(isWebSearch(search('commandExecution'))).toBe(false);
+    expect(isWebSearch(tool('f', 'fetch', { toolName: 'mcp__wevir_web__web_fetch' }))).toBe(false);
+  });
+
+  it('网页搜索与抓取的一行：已搜索 查询词、已获取 网址', () => {
+    const search = tool('s', 'search', {
+      toolName: 'mcp__wevir_web__web_search',
+      display: { kind: 'search', summary: 'Codex 最新版本', query: 'Codex 最新版本' },
+    });
+    const fetched = tool('f', 'fetch', {
+      toolName: 'mcp__wevir_web__web_fetch',
+      display: { kind: 'fetch', summary: 'https://example.com/', url: 'https://example.com/' },
+    });
+    expect(toolLine(search, false)).toMatchObject({ label: '已搜索', target: 'Codex 最新版本' });
+    expect(toolLine(fetched, false)).toMatchObject({
+      label: '已获取',
+      target: 'https://example.com/',
     });
   });
 });

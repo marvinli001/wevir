@@ -186,3 +186,9 @@
    - **框架里的内容**：PDF 用 Chromium 自带的查看器（不加沙箱的框架；实测 Electron 44 不需要 `webPreferences.plugins`），网页放进 `sandbox` 框架（不透明 origin），Host 的 HTML 响应另带沙箱与不能联网的 CSP（T3 + Paseo）。主进程的子框架规则：`will-frame-navigate` 与 `session.webRequest.onBeforeRequest` 只许子框架加载 Host 的文件地址与 PDF 查看器自己的框架（`chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai`；`chrome-extension:` 不是特殊协议，`URL.origin` 是 `'null'`，按协议与主机比）。沙箱里跨 origin 的框架自己发起的跳转不触发 `will-frame-navigate`，所以另用 `webRequest` 拦，实测脚本跳转与 meta refresh 都发不出请求。页面里点外部链接由 Host 插进页面的一段脚本请窗格打开（T3 的 htmlRender），框架有焦点、用户刚点过时才交给系统浏览器。
    - **内联样式**：KaTeX 的 HTML 与 Mermaid 的 SVG 都带 `style` 属性。照补记 10 的做法不放开 `style-src-attr`：KaTeX 的输出在清洗前把 `style` 挪到 `data-csp-style`，挂上后经 CSSOM 补回；Mermaid 的 SVG 在解析前从字符串里挪开 `style` 属性与 `<style>`（DOMParser 与 DOMPurify 解析出的文档继承页面的 CSP，每个属性报一次违规），挂上后经 CSSOM 与样式 nonce 补回，Mermaid 渲染期间同样处理（`setAttribute('style')` 改走 CSSOM、它新建的 `<style>` 盖 nonce、它自己的 DOMPurify 解析前改名；渲染排队、结束后还原）。实测每张图从约 300 条违规报告降到 2 条（Mermaid 自己清洗时解析它的 `<style>`，惰性文档里不生效）。
    - **体积**（Vite 产物，未压缩）：KaTeX、OpenWork 的 workbook 与新的预览组件只在文件窗格的块里（`React.lazy`，1.10 MB，另有 25 KB 的 CSS 与 KaTeX 字体），Mermaid 第一次渲染图时才加载（主体 1.16 MB，各种图各自成块）；启动时加载的主块里只多了 Mermaid 的挂载代码与预览的数据钩子。
+
+12. **2026-10-15，0.34.0：联网工具的网页转 Markdown。** Host 的 `web_fetch` 把 HTML 转成正文 Markdown（docs/architecture/web-tools.md §4）。版本（2026-10-15 查 npm registry，精确版本、发布满两周，都是 `@wevir/host` 的运行时依赖）：
+   - **turndown 7.2.4**（MIT，2026-04-03 发布）：Claude Code、OpenCode 的网页抓取也用它，维护中，API 稳定。没选的：`defuddle`（正文提取更好，但在 Node 里要 jsdom，依赖重）、`@mozilla/readability`（要另带 DOM，2025-03 之后没有新版）、`node-html-markdown`（不提取正文）、`mdream`（零依赖，但当时的 2.0.3 发布不到两周）。正文提取用 turndown 加几条规则代替：删掉导航、侧栏、页脚、表单、图片等，有足够文字的 `<main>` / `<article>` 时只转它。
+   - **@mixmark-io/domino 2.2.0**（BSD-2-Clause）：turndown 在 Node 里用的 DOM，Wevir 也直接用它选正文、补全链接，所以显式声明。它自带的类型声明写的是模块 `domino`、用浏览器的 DOM 类型，在 Node 的包里解析不了；`web/markdown.ts` 经 `createRequire` 取它，只声明用到的部分。
+   - **@types/turndown 5.0.6**（devDependency）。
+   - 两个运行时依赖由 T6.3 汇总进第三方声明。

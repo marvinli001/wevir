@@ -84,6 +84,9 @@ describe('仓库的 base.md', () => {
     expect(text).not.toContain('{{');
     // 工具说明与 adapter-codex 的配置一致（prompts/README.md：配置变了要同步改 base.md）。
     expect(text).toContain('## update_plan');
-    expect(text).toContain('本回合没有联网搜索工具');
+    // 联网用 Wevir 自己的 wevir_web（0.34.0），工具名与 web-tool.ts 的一致。
+    expect(text).toContain('wevir_web.web_search');
+    expect(text).toContain('`web_fetch`');
+    expect(text).not.toContain('本回合没有联网搜索工具');
   });
 });

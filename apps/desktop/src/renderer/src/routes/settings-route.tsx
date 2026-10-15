@@ -4,6 +4,7 @@ import {
   Bell,
   Cpu,
   Folder,
+  Globe,
   Info,
   Keyboard,
   type LucideIcon,
@@ -28,6 +29,7 @@ import { NotificationSettingsPage } from '@/settings/notification-settings-page'
 import { ProviderSettings } from '@/settings/provider-settings';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import { ShortcutsSettings } from '@/settings/shortcuts-settings';
+import { WebSettingsPage } from '@/settings/web-settings';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
 import { setThemeMode, useTheme } from '@/theme/theme';
 import { AppUpdateSettings } from '@/updates/update-settings';
@@ -79,6 +81,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Cpu,
     keywords: ['provider.section.accounts', 'provider.section.keyed', 'account.chatgpt.title'],
   },
+  web: {
+    label: 'settings.tab.web',
+    icon: Globe,
+    keywords: ['settings.web.enabled', 'settings.web.service'],
+  },
   workspaces: {
     label: 'settings.tab.workspaces',
     icon: Folder,
@@ -107,7 +114,7 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
     label: 'settings.group.app',
     tabs: ['general', 'appearance', 'notifications', 'shortcuts', 'about'],
   },
-  { label: 'settings.group.work', tabs: ['providers', 'workspaces', 'archived'] },
+  { label: 'settings.group.work', tabs: ['providers', 'web', 'workspaces', 'archived'] },
 ];
 
 /** 打开设置前所在的位置（左栏“设置”链接带上），历史里退无可退时后退回到那里。 */
@@ -251,6 +258,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <AboutSettings />;
     case 'providers':
       return <ProviderSettings />;
+    case 'web':
+      return <WebSettingsPage />;
     case 'workspaces':
       return <WorkspaceSettings />;
     case 'archived':

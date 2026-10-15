@@ -31,6 +31,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@mixmark-io/domino": "2.2.0",
     "@wevir/adapter-antigravity": "workspace:*",
     "@wevir/adapter-claude": "workspace:*",
     "@wevir/adapter-codex": "workspace:*",
@@ -41,9 +42,11 @@
     "@wevir/protocol": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",
     "@wevir/storage": "workspace:*",
+    "turndown": "7.2.4",
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@types/turndown": "5.0.6",
     "@types/ws": "^8.18.2"
   }
 }

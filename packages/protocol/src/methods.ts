@@ -52,6 +52,8 @@ import {
   UserImageMimeTypeSchema,
   UserImagePartSchema,
   VertexConfigSchema,
+  WebSearchServiceIdSchema,
+  WebSettingsSchema,
   WorkspaceSchema,
   WorktreeModeSchema,
 } from './entities.js';
@@ -816,6 +818,69 @@ export const PendingListResultSchema = z.object({
   pendingMessages: z.array(PendingMessageSchema),
 });
 
+// ── web.*（0.34.0） ─────────────────────────────────────────────────
+
+export const WebResultSchema = z.object({
+  web: WebSettingsSchema,
+});
+
+/** Key 的上限（字符）。 */
+export const WEB_API_KEY_MAX_LENGTH = 512;
+
+export const WebUpdateParamsSchema = z.object({
+  enabled: z.boolean().optional(),
+  /** 要是 `services` 里的一个，否则 `INVALID_PARAMS`。 */
+  searchService: WebSearchServiceIdSchema.optional(),
+  /** 存一个服务的 Key；`apiKey: null` 删掉。Key 去掉首尾空白后不能为空。 */
+  key: z
+    .object({
+      service: WebSearchServiceIdSchema,
+      apiKey: z.string().min(1).max(WEB_API_KEY_MAX_LENGTH).nullable(),
+    })
+    .optional(),
+});
+
+export const WebTestParamsSchema = z.object({
+  /** 省略时测当前选中的服务。 */
+  service: WebSearchServiceIdSchema.optional(),
+  /** 省略时用存着的 Key；给了就用它测（还没保存的 Key），不存。 */
+  apiKey: z.string().min(1).max(WEB_API_KEY_MAX_LENGTH).optional(),
+});
+
+/**
+ * `web.test` 失败的原因：missing_key 没有 Key、没发请求；auth Key 不对（401 / 403 里的鉴权失败）；quota 余额或额度用完；
+ * rate_limited 请求太频繁；network 连不上；timeout 时限内没有响应；server 服务端出错（5xx）；invalid_response 回的不是这家
+ * 服务的格式；unknown 其他。
+ */
+export const WebTestFailureSchema = z.enum([
+  'missing_key',
+  'auth',
+  'quota',
+  'rate_limited',
+  'network',
+  'timeout',
+  'server',
+  'invalid_response',
+  'unknown',
+]);
+export type WebTestFailure = z.infer<typeof WebTestFailureSchema>;
+
+/** 用一次真实的搜索测试服务与 Key。 */
+export const WebTestResultSchema = z.object({
+  ok: z.boolean(),
+  service: WebSearchServiceIdSchema,
+  latencyMs: z.int().min(0).optional(),
+  /** 成功时这次搜索返回了几条。 */
+  results: z.int().min(0).optional(),
+  /** `ok` 为 false 时有。 */
+  reason: WebTestFailureSchema.optional(),
+  /** 服务端返回的 HTTP 状态码；没有收到响应时省略。 */
+  httpStatus: z.int().min(100).max(599).optional(),
+  /** 服务端的原文（不含 Key），只作诊断。 */
+  message: z.string().optional(),
+});
+export type WebTestResult = z.infer<typeof WebTestResultSchema>;
+
 // ── image.*（0.28.0） ───────────────────────────────────────────────
 
 /** 一张图片的字节上限（同 T3 Code 的 `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES`）。 */
@@ -1196,6 +1261,22 @@ export const MethodSchemas = {
     params: ImageReadParamsSchema,
     result: ImageReadResultSchema,
     permission: 'session.read',
+  },
+
+  'web.get': {
+    params: EmptySchema,
+    result: WebResultSchema,
+    permission: 'session.read',
+  },
+  'web.update': {
+    params: WebUpdateParamsSchema,
+    result: WebResultSchema,
+    permission: 'host.manage',
+  },
+  'web.test': {
+    params: WebTestParamsSchema,
+    result: WebTestResultSchema,
+    permission: 'host.manage',
   },
 
   'question.respond': {

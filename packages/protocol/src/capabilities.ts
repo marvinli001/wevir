@@ -141,6 +141,11 @@ export const HOST_FEATURES = {
    * `browser.respond` 回答；应用级工具里有 `browser_*` 工具，`wevir_show` 能显示网页。只在有应用级工具时声明。
    */
   browserTools: 'browser_tools',
+  /**
+   * Agent 的联网工具（0.34.0，docs/architecture/web-tools.md）：`web.get` / `web.update` / `web.test`，经网关的 Codex 会话有
+   * `web_search` 与 `web_fetch`。Host 带着联网服务启动时声明（`wevir-host` 总是带）。
+   */
+  webTools: 'web_tools',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -172,6 +177,7 @@ export const HostFeaturesSchema = z.looseObject({
   app_tools: z.boolean().optional(),
   file_preview: z.boolean().optional(),
   browser_tools: z.boolean().optional(),
+  web_tools: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -15,6 +15,7 @@ import {
   threadConfig,
   toCodexEffort,
   tomlString,
+  webToolThreadConfig,
   windowsSandboxTable,
 } from './config.js';
 
@@ -321,5 +322,81 @@ describe('读历史的工具（0.25.0）', () => {
     expect(
       renderConfigToml({ providers: [deepseek], gatewayBaseURL: () => 'http://x' }),
     ).not.toContain('wevir_history');
+  });
+});
+
+describe('联网工具（0.34.0）', () => {
+  const webTool = {
+    server: {
+      script: '/data/mcp/wevir-web.mjs',
+      node: '/usr/bin/node',
+      endpoint: () => undefined,
+      state: () => ({ enabled: true, search: true }),
+    },
+    endpoint: { url: 'http://127.0.0.1:4567', token: 'secret-token-not-in-file' },
+  };
+
+  it('网关进程登记两个工具，ChatGPT 进程只有抓取；令牌经 env_vars 转、不写进文件', () => {
+    const gateway = renderConfigToml({
+      providers: [deepseek],
+      gatewayBaseURL: () => 'http://127.0.0.1:1/v1/p/deepseek',
+      webTool,
+    });
+    expect(gateway).toContain(
+      [
+        '[mcp_servers.wevir_web]',
+        'command = "/usr/bin/node"',
+        'args = ["/data/mcp/wevir-web.mjs", "http://127.0.0.1:4567"]',
+        'env = { ELECTRON_RUN_AS_NODE = "1" }',
+        'env_vars = ["WEVIR_WEB_TOKEN"]',
+        'default_tools_approval_mode = "approve"',
+        'enabled_tools = ["web_search", "web_fetch"]',
+        'startup_timeout_sec = 10',
+        'tool_timeout_sec = 60',
+        '',
+        '[mcp_servers.wevir_web.tools.web_search]',
+        'output_token_limit = 4000',
+        '',
+        '[mcp_servers.wevir_web.tools.web_fetch]',
+        'output_token_limit = 12000',
+      ].join('\n'),
+    );
+    // Codex 托管的搜索照旧关着。
+    expect(gateway).toContain('web_search = "disabled"');
+    expect(gateway).not.toContain('secret-token-not-in-file');
+    const chatgpt = renderChatgptConfigToml(undefined, undefined, undefined, webTool);
+    expect(chatgpt).toContain('enabled_tools = ["web_fetch"]');
+    expect(chatgpt).not.toContain('[mcp_servers.wevir_web.tools.web_search]');
+    expect(chatgpt).not.toContain('secret-token-not-in-file');
+  });
+
+  it('每个会话按设置收窄：关着不起，没有 Key 只有抓取', () => {
+    expect(webToolThreadConfig({ enabled: true, search: true })).toEqual({
+      'mcp_servers.wevir_web.enabled': true,
+      'mcp_servers.wevir_web.enabled_tools': ['web_search', 'web_fetch'],
+    });
+    expect(webToolThreadConfig({ enabled: true, search: false })).toEqual({
+      'mcp_servers.wevir_web.enabled': true,
+      'mcp_servers.wevir_web.enabled_tools': ['web_fetch'],
+    });
+    expect(webToolThreadConfig({ enabled: false, search: true })).toEqual({
+      'mcp_servers.wevir_web.enabled': false,
+    });
+  });
+
+  it('ChatGPT 会话：联网开着用 Codex 托管搜索的 cached，关着 disabled；登记了 wevir_web 时只开抓取', () => {
+    expect(chatgptThreadConfig('high', { enabled: true, search: true }, true)).toEqual({
+      model_reasoning_effort: 'high',
+      web_search: 'cached',
+      'mcp_servers.wevir_web.enabled': true,
+      'mcp_servers.wevir_web.enabled_tools': ['web_fetch'],
+    });
+    expect(chatgptThreadConfig(undefined, { enabled: false, search: false }, true)).toEqual({
+      web_search: 'disabled',
+      'mcp_servers.wevir_web.enabled': false,
+    });
+    expect(chatgptThreadConfig(undefined, { enabled: true, search: false })).toEqual({
+      web_search: 'cached',
+    });
   });
 });

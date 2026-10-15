@@ -477,6 +477,14 @@ export function relativeToRoot(target: string, root: string | undefined): string
 }
 
 /**
+ * 网页搜索（0.34.0）：展示类型同代码搜索（`search`），按工具名认出来换成地球图标。认的名字：Wevir 的 `mcp__wevir_web__web_search`、
+ * Codex 托管的 `webSearch`、dsh 的 `web_search`、Claude 的 `WebSearch`、OpenCode 的 `websearch`。
+ */
+export function isWebSearch(part: Pick<ToolPart, 'toolName' | 'display'>): boolean {
+  return part.display.kind === 'search' && /web_?search$/i.test(part.toolName);
+}
+
+/**
  * 工具调用：“已运行 pnpm test”“正在读取 a.ts”“等待审批：运行 touch …”“运行失败 pnpm test”。`root` 是会话的工作目录，
  * 读取与修改的路径相对它显示。
  */

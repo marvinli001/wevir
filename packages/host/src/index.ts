@@ -16,3 +16,4 @@ export * from './runtime-file.js';
 export * from './session-manager.js';
 export * from './snapshot.js';
 export * from './truncate.js';
+export { WebService, type WebServiceOptions } from './web/service.js';

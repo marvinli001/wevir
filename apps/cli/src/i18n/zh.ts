@@ -32,6 +32,7 @@ export const zh = {
   'group.host': 'Host',
   'group.workspace': '工作区',
   'group.provider': 'Provider（模型服务）',
+  'group.web': '联网搜索',
   'group.session': '会话',
 
   'usage.seeHelp': '运行 wevir --help',
@@ -501,6 +502,42 @@ export const zh = {
 
   // identity.ts
   'identity.unwritable': '无法读写 {path}',
+  'cmd.web.status.summary': '查看联网工具的设置',
+  'cmd.web.status.usage': 'wevir web status',
+  'cmd.web.on.summary': '开启 Agent 的联网工具',
+  'cmd.web.on.usage': 'wevir web on',
+  'cmd.web.off.summary': '关闭 Agent 的联网工具',
+  'cmd.web.off.usage': 'wevir web off',
+  'cmd.web.use.summary': '选择搜索服务',
+  'cmd.web.use.usage': 'wevir web use <bocha|tavily>',
+  'cmd.web.key.summary': '设置或移除搜索服务的 API Key',
+  'cmd.web.key.usage': 'wevir web key [<服务>] [--remove]',
+  'cmd.web.key.help': `Key 在终端里不回显地输入（或从管道读一行），保存在 Host 的密钥存储；省略服务时为当前选中的服务
+
+选项：
+  --remove   移除已保存的 Key`,
+  'cmd.web.test.summary': '用一次真实搜索测试搜索服务',
+  'cmd.web.test.usage': 'wevir web test [<服务>]',
+  'web.service.bocha': '博查',
+  'web.service.tavily': 'Tavily',
+  'web.status.on': '联网工具：开启',
+  'web.status.off': '联网工具：关闭',
+  'web.col.service': '搜索服务',
+  'web.col.key': 'Key',
+  'web.key.set': '已设置',
+  'web.key.missing': '未设置',
+  'web.current': '当前',
+  'web.unknownService': '不支持的搜索服务：{service}',
+  'web.unknownService.hint': '可选：{services}',
+  'web.noKeyYet': '尚未设置 Key：wevir web key {service}',
+  'web.keyPrompt': '{service} API Key（不回显）：',
+  'web.keyEmpty': 'Key 为空，未保存',
+  'web.keySaved': '✓ 已保存 {service} 的 Key',
+  'web.keySaved.hint': '测试：wevir web test {service}',
+  'web.keyRemoved': '已移除 {service} 的 Key',
+  'web.testing': '正在测试 {service}…',
+  'web.reason.quota': '余额或额度不足',
+  'web.reason.invalid_response': '响应格式不符',
   'identity.invalid': '{path} 中的 ID 无效',
 } as const;
 

@@ -37,6 +37,7 @@ import type { ImageStore } from './images.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
+import type { WebService } from './web/service.js';
 import {
   DEFAULT_FILES_LIMIT,
   FileIndex,
@@ -98,6 +99,8 @@ export interface HostMethodsOptions {
   images?: ImageStore;
   /** 文件预览的流式地址（0.32.0）；省略时 `workspace.fileUrl` 回 `unavailable: 'not_found'`（测试）。 */
   fileUrls?: FileUrls;
+  /** 联网服务（0.34.0，`web.*`）；省略时 `web.*` 回 `INVALID_PARAMS`，Host 也不声明 `web_tools`。 */
+  web?: WebService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -142,6 +145,10 @@ export async function syncProviders(
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
+  const webService = (): WebService => {
+    if (options.web === undefined) throw invalidParams([], 'this host has no web service');
+    return options.web;
+  };
   const imageStore = (): ImageStore => {
     if (options.images === undefined) throw invalidParams([], 'this host does not store images');
     return options.images;
@@ -694,6 +701,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'settings.get': () => ({ settings: settings.get() }),
 
     'settings.update': async (params) => ({ settings: await settings.update(params.settings) }),
+
+    'web.get': async () => ({ web: webService().settings() }),
+    'web.update': async (params) => ({ web: await webService().update(params) }),
+    'web.test': (params) => webService().test(params),
 
     'question.respond': (params, { client }) => sessions.respondToQuestion(params, client),
 

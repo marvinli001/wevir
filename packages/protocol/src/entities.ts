@@ -692,6 +692,32 @@ export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
 export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({ sendWhileBusy: 'steer' });
 
+// ── 联网工具（0.34.0） ──────────────────────────────────────────────────
+
+/**
+ * 搜索服务的 ID（0.34.0，`web.*`）：`bocha` 博查、`tavily` Tavily。开放的字符串：以后的 Host 多一家时旧客户端照常解析，按 ID
+ * 显示；Host 支持哪些看 `WebSettings.services`。
+ */
+export const WebSearchServiceIdSchema = z.string().regex(/^[a-z][a-z0-9_]{0,31}$/);
+export type WebSearchServiceId = z.infer<typeof WebSearchServiceIdSchema>;
+
+/** 现在的 Host 支持的搜索服务。 */
+export const WEB_SEARCH_SERVICES = ['bocha', 'tavily'] as const;
+
+/**
+ * Agent 的联网工具的设置（0.34.0，Host 功能 `web_tools`，docs/architecture/web-tools.md）：`web_search` 经所选的搜索服务，
+ * `web_fetch` 由 Host 自己抓网页、不需要 Key。Key 存在 Host 的密钥存储里，只说配没配。
+ */
+export const WebSettingsSchema = z.object({
+  /** 联网工具开着没有；关着时引擎不登记这两个工具，调用也被拒绝。 */
+  enabled: z.boolean(),
+  /** `web_search` 用哪个服务。 */
+  searchService: WebSearchServiceIdSchema,
+  /** Host 支持的搜索服务，按显示顺序；`hasKey` 说存没存 Key。 */
+  services: z.array(z.object({ id: WebSearchServiceIdSchema, hasKey: z.boolean() })),
+});
+export type WebSettings = z.infer<typeof WebSettingsSchema>;
+
 // ── 权限模式（0.11.0，U15） ──────────────────────────────────────────────
 
 /**

@@ -37,6 +37,11 @@ import {
   type HistoryToolServer,
   writeHistoryToolScript,
 } from '@wevir/runtime-adapter/history-tool';
+import {
+  WEB_TOOL_TOKEN_ENV,
+  type WebToolServer,
+  writeWebToolScript,
+} from '@wevir/runtime-adapter/web-tool';
 import { ChatgptAccount } from './account.js';
 import {
   type CodexExit,
@@ -66,6 +71,7 @@ import {
   renderModelCatalog,
   threadConfig,
   toCodexEffort,
+  webToolThreadConfig,
   writeCodexConfig,
 } from './config.js';
 import { buildCodexEnv } from './env.js';
@@ -205,6 +211,11 @@ export interface CodexAdapterOptions {
    * `historyTool`。
    */
   historyTool?: HistoryToolServer;
+  /**
+   * 联网工具（0.34.0，docs/architecture/web-tools.md）：Host 的联网服务。每次启动进程时按它的端点登记 `wevir_web`（网关进程两个
+   * 工具，ChatGPT 进程只有抓取），每个会话开始时按它的设置收窄。省略时不登记。
+   */
+  webTool?: WebToolServer;
   /** 旁听 app-server 的每一条原始通知（在映射之前，按到达顺序同步调用）；录制测试样本用。 */
   onRawNotification?: (method: string, params: unknown) => void;
   /** 旁听 app-server 的每一个服务端请求（到达时、处理之前同步调用）；录制测试样本用。 */
@@ -329,6 +340,8 @@ class Launcher implements CodexLauncher {
   readonly vertexAuth: VertexTokenCache;
   /** 当前进程启动时用的模型目录（判断目录是否过期）。 */
   launchedCatalog: string | undefined;
+  /** 当前进程的 config.toml 登记了 `wevir_web`（0.34.0）：会话的 `thread/start` 才能覆盖它的设置。 */
+  webRegistered = false;
   #binary: string | undefined;
   #versionChecked = false;
 
@@ -359,11 +372,21 @@ class Launcher implements CodexLauncher {
     const binary = this.#binary;
     const binaryArgs = this.#options.binaryArgs ?? [];
     const endpoints = this.#options.chatgptEndpoints;
+    // 联网工具（0.34.0）：Host 的端点此时已在监听；令牌只进 app-server 的环境，由 `env_vars` 转给桥脚本。
+    const webServer = this.#options.webTool;
+    const webEndpoint = webServer?.endpoint();
+    const webTool =
+      webServer === undefined || webEndpoint === undefined
+        ? undefined
+        : { server: webServer, endpoint: webEndpoint };
     const baseEnv = {
       codexHome: this.paths.codexHome,
       parent,
       rustLog: this.#options.rustLog,
-      ...(this.chatgpt && endpoints !== undefined && { extra: chatgptEndpointEnv(endpoints) }),
+      extra: {
+        ...(this.chatgpt && endpoints !== undefined && chatgptEndpointEnv(endpoints)),
+        ...(webTool !== undefined && { [WEB_TOOL_TOKEN_ENV]: webTool.endpoint.token }),
+      },
     };
     if (!this.#versionChecked) {
       await checkCodexVersion(binary, buildCodexEnv(baseEnv), binaryArgs);
@@ -371,11 +394,13 @@ class Launcher implements CodexLauncher {
     }
     const suggestTasks = writeSuggestTasksServer(this.paths.codexHome, this.#options.mcpNode);
     if (this.#options.historyTool !== undefined) writeHistoryToolScript(this.#options.historyTool);
+    if (webTool !== undefined) writeWebToolScript(webTool.server);
+    this.webRegistered = webTool !== undefined;
     if (this.chatgpt) {
       // ChatGPT 进程：没有网关与令牌，没有 Wevir 的 Provider 与模型目录。
       writeCodexConfig(
         this.paths,
-        renderChatgptConfigToml(endpoints, suggestTasks, this.#options.historyTool),
+        renderChatgptConfigToml(endpoints, suggestTasks, this.#options.historyTool, webTool),
         undefined,
       );
       this.launchedCatalog = undefined;
@@ -401,6 +426,7 @@ class Launcher implements CodexLauncher {
         providerExtra: this.#options.providerExtra,
         suggestTasks,
         ...(this.#options.historyTool !== undefined && { historyTool: this.#options.historyTool }),
+        ...(webTool !== undefined && { webTool }),
       }),
       catalog,
     );
@@ -1999,7 +2025,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         modelProvider: OPENAI_PROVIDER,
         approvalPolicy: 'on-request',
         sandbox: 'workspace-write',
-        config: { ...chatgptThreadConfig(reasoningEffort), ...tools },
+        config: {
+          ...chatgptThreadConfig(
+            reasoningEffort,
+            this.#options.webTool?.state(),
+            this.#launcher.webRegistered,
+          ),
+          ...tools,
+        },
       };
     }
     const gateway = this.#launcher.gateway;
@@ -2021,6 +2054,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           this.#options.providerExtra,
         ),
         ...tools,
+        // 联网工具（0.34.0）：按这一刻的设置登记（关着不起，没配搜索的 Key 只有抓取）。
+        ...(this.#launcher.webRegistered &&
+          this.#options.webTool !== undefined &&
+          webToolThreadConfig(this.#options.webTool.state())),
       },
     };
   }

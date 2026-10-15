@@ -32,6 +32,7 @@ import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import { loadTitleInstructions } from './title.js';
+import type { WebService } from './web/service.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
 export const HOST_VERSION: string = packageJson.version;
@@ -76,6 +77,11 @@ export interface StartHostOptions {
    * `resolvePromptsDir`（安装包里是资源目录的 `prompts/`）。
    */
   promptsDir?: string;
+  /**
+   * 联网服务（0.34.0，web/service.ts）：Host 用自己的密钥存储启动它、提供 `web.*` 并声明 `web_tools`，退出时关掉。省略时没有
+   * 联网工具。
+   */
+  web?: WebService;
 }
 
 export interface RunningHost {
@@ -198,6 +204,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await syncProviders(storage, secrets, adapter).catch((error: unknown) =>
       logger.error('failed to apply providers to the engine', { error }),
     );
+    // 联网服务（0.34.0）：引擎第一次启动时要它的端点，所以在开始服务之前就监听。
+    await options.web?.start(secrets);
 
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
     const providerLock = createProviderLock();
@@ -282,6 +290,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         settings,
         images,
         fileUrls,
+        ...(options.web !== undefined && { web: options.web }),
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -312,6 +321,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),
         ...(browsers !== undefined && { browser_tools: true }),
+        ...(options.web !== undefined && { web_tools: true }),
       },
       engineFeatures,
       ...(accounts !== undefined && { accounts }),
@@ -352,6 +362,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           events: store,
           storage: db,
           runtimeFile,
+          ...(options.web !== undefined && { web: options.web }),
         });
         return stopping;
       },
@@ -374,6 +385,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await turnCheckpoints?.dispose();
     await sessions?.dispose().catch(() => {});
     await adapter.dispose().catch(() => {});
+    await options.web?.close().catch(() => {});
     try {
       events?.close();
       storage?.close();
@@ -399,6 +411,7 @@ interface ShutdownParts {
   events: EventStore;
   storage: Storage;
   runtimeFile: RuntimeFile;
+  web?: WebService;
 }
 
 async function shutdownSequence(parts: ShutdownParts): Promise<void> {
@@ -439,6 +452,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   await beforeDeadline(parts.checkpoints.dispose(), deadline);
   // 超时的话引擎进程留给适配器自己回收（dsh 读到 stdin EOF 即退出，T3.1）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
+  // 引擎（和它挂着的桥脚本）停了之后再关联网服务的端点。
+  if (parts.web !== undefined) await step('close_web', () => parts.web?.close(), true);
   await step('flush_storage', () => {
     parts.events.close();
     parts.storage.close();

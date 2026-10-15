@@ -88,7 +88,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 | `approvals_reviewer` | `user`（默认值，写出来防默认变化） | 决策 5：不开 auto_review |
 | `[windows] sandbox` | `unelevated`（只在 Windows 上写） | ADR-0005 补记 17：没有它时 Codex 在 Windows 上认为没有沙箱，工作区内的命令与补丁也要审批 |
 | `check_for_update_on_startup` | `false` | 决策 5 |
-| `web_search` | `disabled` | 决策 5 |
+| `web_search` | `disabled` | 决策 5：托管搜索由 OpenAI 服务端执行，经网关的模型用不了，custom provider 默认又会把它发给上游；联网改用 `wevir_web`（§6.12）。ChatGPT 会话在 `thread/start` 里按 Wevir 的联网开关改成 `cached` |
 | `[analytics] enabled` | `false` | 决策 5 |
 | `[features] plugins / goals / memories` | `false` / `false` / `false` | 决策 5（plugins 是唯一产生外连的开关）、补记 1（goals）、决策 5（memories 默认就关） |
 | `[features] instant_interrupt` | `false` | R11：插话等这一步结束再进回合（§4.5；这个开关默认开，开着时插话立刻掐断正在流式输出的采样） |
@@ -288,10 +288,10 @@ Codex 的 item 自带类型，命令还有解析好的 `commandActions`，不必
 | `commandExecution`，其余（含 `unknown`、空列表） | `commandExecution` | `shell` | `command` |
 | `fileChange`，全是新建 | `fileChange` | `write` | `paths`（移动的取目标路径） |
 | `fileChange`，其余 | `fileChange` | `edit` | `paths` |
-| `mcpToolCall` | `mcp__<server>__<tool>` | `unknown` | `mcpServer` |
+| `mcpToolCall` | `mcp__<server>__<tool>` | `unknown`；Wevir 的 `wevir_web` 是 `search` / `fetch`（§6.12） | `mcpServer`；`wevir_web` 另有 `query` / `url`，输出是工具回的文字 |
 | `dynamicToolCall` | `<namespace>.<tool>` | `unknown` | |
 | `collabAgentToolCall` | `collabAgentToolCall.<tool>` | `sub_agent` | `summary` 取任务描述的第一行 |
-| `webSearch` | `webSearch` | `search` | `query`（Wevir 关了联网搜索，不会出现） |
+| `webSearch` | `webSearch` | `search` | `query`（只在 ChatGPT 会话里出现：经网关的会话关了托管搜索，§6.12） |
 | `imageView` | `imageView` | `read` | `paths` |
 
 `item.command` 是 Codex 实际执行的、带 shell 外壳的形式（样本里是 `/bin/zsh -lc 'cat README.md'`）。`display.command` 与 `summary` 去掉 `<sh|bash|zsh> -lc '…'` 外壳；认不出外壳（例如 Windows 的 PowerShell）时，只有一个解析出的动作就用它的命令，否则原样。`input` 里保留原样。
@@ -412,6 +412,34 @@ Host 的 `wevir` MCP 服务（domain-model §3.15）是 HTTP 的、每个会话�
 实测（rust-v0.162.1，经网关的 mock 模型，测试里的 HTTP MCP 服务扮演 Host，`codex-adapter.app-tools.integration.test.ts`，2026-10-16）：模型看到命名空间 `mcp__wevir` 里的工具，`tool.started` 的工具名是 `mcp__wevir__wevir_session_list`；请求带这个会话的令牌；请求批准时只读的工具不问，`wevir_session_create` 先出审批、允许后才调用、拒绝时不调用；完全访问时不问。
 
 0.33.0 的浏览器工具（domain-model §3.15.1）同在 `wevir` 服务里，只读的五个带 `readOnlyHint`，不问。Codex 把 MCP 工具结果交给模型时，有 `structuredContent` 就只把它序列化成文本、丢掉内容项（codex-rs protocol 的 `CallToolResult::as_function_call_output_payload`），所以浏览器工具的结果只给文本与图片，截图才能作为图片到达模型。
+
+### 6.12 联网工具（0.34.0）
+
+Wevir 自己的联网工具 `wevir_web`（docs/architecture/web-tools.md）：桥脚本 `<数据目录>/mcp/wevir-web.mjs`（`@wevir/runtime-adapter/web-tool`，stdio、只用 Node 内置模块）把 `tools/call` 转给 Host 进程里的端点，搜索与抓取都在 Host 里做。`CodexRuntime` 拿到 Host 给的 `webTool`（脚本位置、运行它的 Node、`endpoint()` 与 `state()`），每次启动 codex-app-server 之前写脚本，把端点的令牌放进进程环境的 `WEVIR_WEB_TOKEN`，config.toml 登记：
+
+```toml
+[mcp_servers.wevir_web]
+command = "<Host 的 Node>"
+args = ["<数据目录>/mcp/wevir-web.mjs", "http://127.0.0.1:<端口>"]
+env = { ELECTRON_RUN_AS_NODE = "1" }
+env_vars = ["WEVIR_WEB_TOKEN"]
+default_tools_approval_mode = "approve"
+enabled_tools = ["web_search", "web_fetch"]   # ChatGPT 进程只有 "web_fetch"
+startup_timeout_sec = 10
+tool_timeout_sec = 60
+
+[mcp_servers.wevir_web.tools.web_search]
+output_token_limit = 4000
+
+[mcp_servers.wevir_web.tools.web_fetch]
+output_token_limit = 12000
+```
+
+- `env_vars` 让 Codex 把自己环境里的这个变量转给 MCP 服务（rmcp-client `create_env_for_mcp_server`：默认只转 HOME、PATH 等几个），令牌不进文件；`shell_environment_policy` 排除 `WEVIR_*`，模型跑的命令看不到它。
+- 每个会话的 `thread/start` / `thread/resume` 按 `state()` 覆盖 `mcp_servers.wevir_web.enabled` 与 `enabled_tools`（`webToolThreadConfig`）：联网关着时 `enabled = false`，没配所选搜索服务的 Key 时只有 `web_fetch`。ChatGPT 会话另外覆盖 `web_search`：联网开着 `cached`、关着 `disabled`（web-tools.md §5.2）。进程启动时没拿到端点（Host 还没监听）就不登记，也不发覆盖（`--strict-config` 下给没登记的服务发覆盖会出错）。
+- 展示：`server` 是 `wevir_web` 的 `mcpToolCall`，`web_search` 报 `search`（摘要与 `query` 是查询词），`web_fetch` 报 `fetch`（摘要与 `url` 是网址）；输出取 MCP 结果里的文字段落，不是整个结果的 JSON。
+
+实测（rust-v0.162.1，经网关的 mock 模型与假端点，2026-10-15，`codex-adapter.web.integration.test.ts`）：`--strict-config` 接受上面的配置（含 `env_vars`、`tool_timeout_sec` 与每个工具的 `output_token_limit`）；模型看到命名空间 `mcp__wevir_web` 里的两个工具；调用不出审批，桥脚本带着 `Bearer <令牌>` 把 `{ name, arguments }` 发到端点，回答作为工具结果回到模型；`thread/start` 的覆盖只影响那个会话——没有 Key 时请求里只有 `web_fetch`，关着时两个都没有，托管的 `web_search` 也没有。
 
 ### 6.7 回合失败的归类（`turn-error.ts`）
 

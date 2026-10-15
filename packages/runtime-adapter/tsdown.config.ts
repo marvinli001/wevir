@@ -7,6 +7,7 @@ export default defineConfig({
     'src/echo.ts',
     'src/history-tool.ts',
     'src/app-tools-bridge.ts',
+    'src/web-tool.ts',
     'src/contract.ts',
   ],
   platform: 'node',

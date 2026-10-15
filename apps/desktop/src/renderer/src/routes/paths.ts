@@ -29,6 +29,7 @@ export const SETTINGS_TABS = [
   'notifications',
   'shortcuts',
   'providers',
+  'web',
   'workspaces',
   'archived',
   'about',

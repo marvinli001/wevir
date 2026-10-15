@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.33.0`（内置浏览器；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
+> 状态：v0（T1.2）· 协议版本 `0.34.0`（Agent 的联网工具；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -128,6 +128,9 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `pending.resume` | `session.write` | `sessionId` | `pendingMessages` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
 | `image.upload` | `session.write` | `mimeType, data, name?` | `image: UserImagePart` | `INVALID_PARAMS` |
 | `image.read` | `session.read` | `imageId, offset?` | `imageId, mimeType, size, offset, data` | `IMAGE_NOT_FOUND`、`INVALID_PARAMS` |
+| `web.get` | `session.read` | `{}` | `web: WebSettings` | `INVALID_PARAMS`（Host 没有联网服务） |
+| `web.update` | `host.manage` | `enabled?, searchService?, key?: {service, apiKey}`（`apiKey` 为 null 删掉） | `web: WebSettings` | `INVALID_PARAMS` |
+| `web.test` | `host.manage` | `service?, apiKey?` | `ok, service, latencyMs?, results?, reason?, httpStatus?, message?` | `INVALID_PARAMS` |
 | `question.respond` | `session.write` | `questionId, answers` | `questionId, status, resolution` | `QUESTION_NOT_FOUND`、`INVALID_PARAMS`、`ENGINE_ERROR` |
 | `approval.respond` | `session.write` | `approvalId, optionId` | `approvalId, status, resolution` | `APPROVAL_NOT_FOUND`、`ALREADY_DECIDED` |
 | `browser.register` | `host.manage` | `commands` | `{}` | |
@@ -194,6 +197,7 @@ Host → 客户端的通知：
 - **`pending.cancel`**（0.8.0）：删掉一条排队的或暂停的待发消息（`cancelled`），返回它；已取消的成功、无操作；已交给引擎的插话、已插入或已发出的回 `PENDING_NOT_EDITABLE`。
 - **`pending.resume`**（0.8.0）：让这个会话所有暂停的待发消息继续（转为等待），返回会话当前全部未到终态的待发消息。会话 `idle` 时随后立即发出第一条，活动中时等这个回合结束；`error` / `closed` 回 `INVALID_STATE`，先 `session.resume`。没有暂停的消息时成功、无操作。
 - **`image.upload` / `image.read`**（0.28.0，Host 功能 `user_images`，domain-model §3.3.3）：消息里的图片。`image.upload` 带 base64 的 `data`（解码后不超过 `IMAGE_MAX_BYTES`，10 MiB，同 T3 Code）、`mimeType` 与可选的原文件名 `name`；Host 按文件头认格式（png、jpeg、gif、webp，以文件头为准，认不出回 `INVALID_PARAMS`）、读出像素，写进数据目录的 `images/staged/`，返回 `image`（`UserImagePart`：`imageId`、`mimeType`、`size`、`width?`、`height?`、`name?`）。客户端把它原样放进 `session.send` 或 `pending.update` 的 `content`；消息被接受时 Host 以自己记下的为准（客户端给的元数据不作数），把图片挪到 `images/`，之后一直留着（事件里引用它）。没有发出去的过一天删掉。`image.read` 从 `offset`（默认 0）起最多读 `IMAGE_READ_CHUNK_BYTES`（4 MiB，base64 之后仍在发送缓冲之内）；`offset + 解码后的长度 < size` 时接着读，`offset` 不小于 `size` 回 `INVALID_PARAMS`。暂存的与已发出的图片都能读。
+- **`web.get` / `web.update` / `web.test`**（0.34.0，Host 功能 `web_tools`，[web-tools.md](./web-tools.md)）：Agent 联网工具的设置。`WebSettings` 是 `enabled`（联网工具开着没有）、`searchService`（`web_search` 用的服务 ID）与 `services`（Host 支持的搜索服务，按显示顺序，每个带 `hasKey`）；服务 ID 是开放字符串（`bocha`、`tavily`），客户端不认识的按 ID 显示。`web.update` 只改给出的字段：`searchService` 与 `key.service` 要是 `services` 里的一个；`key.apiKey` 是字符串时去掉首尾空白后存进 Host 的密钥存储（不能为空），`null` 删掉；Key 不出现在任何结果、事件与日志里。`web.test` 用一次真实的搜索测服务（省略时当前选中的）与 Key（给了 `apiKey` 就用它，不保存；没有 Key 时不发请求，回 `reason: 'missing_key'`），失败按 `WebTestFailure` 归类（`missing_key`、`auth`、`quota`、`rate_limited`、`network`、`timeout`、`server`、`invalid_response`、`unknown`），`message` 是服务端原文（Key 换成 `***`）。设置在工具调用时立即生效；Codex 的会话登记哪些工具在会话开始或恢复时按当时的设置定。Host 没有联网服务时三个方法回 `INVALID_PARAMS`，也不声明 `web_tools`。
 - **`settings.get` / `settings.update`**（0.8.0）：Host 设置（领域模型 §3.7），CLI 与桌面共用。`settings.update` 只改给出的字段，返回改后的全部设置；值变了时 Host 给每个调用过 `settings.*` 的连接（含发起者）发 `settings.updated`。目前只有 `sendWhileBusy`：回合进行中按发送的默认方式（`steer` / `queue`，默认 `steer`），客户端据此给 `session.send` 填 `delivery`。
 - **`session.cancel`**：幂等，非活动状态下成功、无操作（领域模型 §4.2）。Host 等到回合结算（`turn.finished` 已写入），或判定无法确认（会话转 `error`，取消时限 5 s）才返回；结算细节以事件为准。0.6.0：同时取消这个会话所有活动中的子会话（递归，父会话空闲时也是），等它们一并结算（领域模型 §4.5：Codex 取消父回合时不动子 agent，由 Host 级联）。对子会话本身：0.14.0 起（Host 功能 `subagent_cancel`，U21）照样取消它的回合（domain-model §4.5 C6），连同它自己的子会话，父会话不受影响，适配器能告诉父 agent 时告诉它；更早的 Host 回 `INVALID_STATE`（`data.parentSessionId`）。
 - **`session.close`**：活动中的会话先取消再关闭（领域模型 §4.1 #14）；已关闭时成功、无操作。0.6.0：活动中的子会话同 `session.cancel` 一并取消，但不关闭（历史照常可读）；对子会话本身回 `INVALID_STATE`（子会话由父 agent 关闭）。
@@ -448,6 +452,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.33.0`：内置浏览器（domain-model §3.15.1）。新方法 `browser.register`、`browser.unregister`、`browser.respond`，新通知 `browser.request`（Host 交给登记过的连接，线缆上仍没有 Host 发起的 JSON-RPC 请求，§1）；新类型 `BrowserCommand`、`BrowserResult`、`BrowserTabInfo`、`BrowserRequest`、`BrowserResponse` 等（`packages/protocol/src/browser.ts`，命令名、错误码、`controller`、对话框的类型与处理方式都是开放字符串）与 ID `brq_`；Host 功能 `browser_tools`。应用级工具里多了 `browser_*` 工具，`wevir_show` 的 `kind` 多了 `browser`（MCP 的工具参数，不是 Host API 的形状）。`UiShowTarget` 不变：显示网页经浏览器提供方（`show` 命令），不写 `ui.show`，所以不需要给判别联合加变体，也不需要能力位。新方法与新通知，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不登记，收不到 `browser.request`；agent 调浏览器工具得到“桌面端没开或太旧”。新客户端连旧 Host：hello 结果里没有 `browser_tools`，桌面端不登记（浏览器窗格照样能用，只是 agent 用不了）。冻结样本 `compat/0.33.0.json`。
 
+`0.34.0`：Agent 的联网工具（[web-tools.md](./web-tools.md)）。新方法 `web.get`、`web.update`、`web.test`；新类型 `WebSettings`、`WebSearchServiceId`（开放字符串）、`WebTestFailure`、`WebTestResult`；Host 功能 `web_tools`。新方法与新类型，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法，联网工具按 Host 里的设置照常工作（默认开着、搜索服务是博查、没有 Key 时只有网页抓取）。新客户端连旧 Host：hello 结果里没有 `web_tools`，桌面端的“设置 → 联网搜索”只显示后台服务不支持，CLI 的 `wevir web` 报方法不存在。冻结样本 `compat/0.34.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -503,6 +509,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `file_preview` | 0.32.0 | `workspace.fileUrl`（`GET /files/…` 的只读流式地址）、`workspace.writeFile` 与 `workspace.readFile` 的 `mtimeMs`（与引擎无关） |
 | `app_tools` | 0.30.0 | 应用级工具（domain-model §3.15）：引擎会话挂上 Host 的 `wevir` MCP 服务；`ui.show` 事件、`user.message` 与待发消息的 `from`、`Session.openedBy`（Codex、Claude、Cursor、OpenCode、Grok、Antigravity、dsh 引擎；echo 没有，`engineFeatures` 的 `appTools` 按 Provider 说） |
 | `browser_tools` | 0.33.0 | 内置浏览器（domain-model §3.15.1）：`browser.*` 方法与 `browser.request` 通知，应用级工具里的 `browser_*` 与 `wevir_show` 的 `browser`（有应用级工具时，同 `app_tools`） |
+| `web_tools` | 0.34.0 | `web.get`、`web.update`、`web.test`；Host 带着联网服务启动时声明（`wevir-host` 总是带，与引擎无关；联网工具只挂在 Codex 上，web-tools.md §5） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

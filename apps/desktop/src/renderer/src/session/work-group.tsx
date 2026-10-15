@@ -27,6 +27,7 @@ import {
   editStats,
   type IssueKind,
   isLiveEntry,
+  isWebSearch,
   type LineStats,
   outputSummary,
   rawLine,
@@ -226,7 +227,9 @@ function WorkLine({
       ? Lightbulb
       : entry.type === 'raw'
         ? Bug
-        : KIND_ICONS[entry.display.kind];
+        : isWebSearch(entry)
+          ? Globe
+          : KIND_ICONS[entry.display.kind];
   const stats = entry.type === 'tool' && view.tone === 'done' ? editStats(entry) : undefined;
   const hasDetail = entry.type !== 'reasoning' || entry.text.trim() !== '';
   // 失败与被拒绝的那条醒目标出：标签用失败色，下面带结果的第一行。

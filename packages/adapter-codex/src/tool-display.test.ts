@@ -7,6 +7,7 @@ import {
   isToolItem,
   toolDisplay,
   toolName,
+  toolOutput,
 } from './tool-display.js';
 
 describe('displayCommand', () => {
@@ -144,5 +145,47 @@ describe('工具名与其他 item', () => {
     ).toBe(true);
     expect(isToolItem({ type: 'fileChange', changes: [{ path: 'a' }] })).toBe(false);
     expect(isToolItem({ type: 'agentMessage', text: '' })).toBe(false);
+  });
+});
+
+describe('Wevir 的联网工具（0.34.0）', () => {
+  const call = (tool: string, args: unknown, result: unknown = null): ToolItem => ({
+    type: 'mcpToolCall',
+    id: '1',
+    server: 'wevir_web',
+    tool,
+    status: 'completed',
+    arguments: args,
+    result,
+    error: null,
+  });
+
+  it('web_search 展示成搜索、web_fetch 展示成获取网页；参数不全时按普通 MCP 工具', () => {
+    expect(toolDisplay(call('web_search', { query: ' Codex 版本 ' }))).toEqual({
+      kind: 'search',
+      summary: 'Codex 版本',
+      query: 'Codex 版本',
+      mcpServer: 'wevir_web',
+    });
+    expect(toolDisplay(call('web_fetch', '{"url":"https://example.com/a"}'))).toEqual({
+      kind: 'fetch',
+      summary: 'https://example.com/a',
+      url: 'https://example.com/a',
+      mcpServer: 'wevir_web',
+    });
+    expect(toolDisplay(call('web_fetch', {}))).toEqual({
+      kind: 'unknown',
+      summary: 'wevir_web/web_fetch',
+      mcpServer: 'wevir_web',
+    });
+  });
+
+  it('输出是工具回的文字，不是 JSON', () => {
+    const result = { content: [{ type: 'text', text: 'URL: https://example.com/a\n\n# A' }] };
+    expect(toolOutput(call('web_fetch', { url: 'https://example.com/a' }, result), '')).toBe(
+      'URL: https://example.com/a\n\n# A',
+    );
+    const other: ToolItem = { ...call('x', {}, result), server: 'fs' } as ToolItem;
+    expect(toolOutput(other, '')).toBe(JSON.stringify(result));
   });
 });

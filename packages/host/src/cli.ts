@@ -6,6 +6,7 @@ import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { type AppToolsBridge, appToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
 import { type HistoryToolServer, historyToolServer } from '@wevir/runtime-adapter/history-tool';
+import type { WebToolServer } from '@wevir/runtime-adapter/web-tool';
 import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
 import { EngineRouter } from './engine-router.js';
 import { isIgnorableEngineRejection, subscriptionEngines } from './engines.js';
@@ -20,6 +21,7 @@ import {
 } from './host-process.js';
 import { createLogger, isLogLevel, type Logger, type LogLevel } from './logger.js';
 import { HostAlreadyRunningError } from './runtime-file.js';
+import { WebService } from './web/service.js';
 
 export const ADAPTER_KINDS = ['echo', 'dsh', 'codex'] as const;
 export type AdapterKind = (typeof ADAPTER_KINDS)[number];
@@ -114,6 +116,8 @@ export interface AdapterContext {
   historyTool?: HistoryToolServer;
   /** 应用级工具的 stdio 桥（0.30.0）：ACP 的引擎（Grok、Antigravity、dsh）经它连 Host 的 `/mcp`。 */
   appToolsBridge?: AppToolsBridge;
+  /** 联网工具的本机 MCP 服务（0.34.0，web/service.ts）；`runHostCli` 建好 Host 的联网服务后填上。 */
+  webTool?: WebToolServer;
 }
 
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex、dsh 或 echo）。 */
@@ -176,6 +180,7 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         homePath(context.home, 'mcpDir'),
         homePath(context.home, 'historyDir'),
       );
+      // 联网工具（0.34.0）：只挂在 Codex 上，其余引擎有自己的联网工具（docs/architecture/web-tools.md §5）。
       const codex = new CodexRuntime({
         home: context.home,
         binary: resolveCodexBinary(),
@@ -183,6 +188,7 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         clientInfo: { name: 'wevir', version: HOST_VERSION },
         logger: context.logger,
         historyTool,
+        ...(context.webTool !== undefined && { webTool: context.webTool }),
       });
       // 订阅来源各自的引擎（ADR-0005 补记 14）；没有时 Host 只有 Codex。
       // 应用级工具（0.30.0）：Codex、Claude、Cursor 直接连 HTTP，ACP 的引擎经 stdio 桥。
@@ -271,12 +277,19 @@ export async function runHostCli(
     node: process.version,
   });
 
+  // 联网服务（0.34.0）：引擎构造时要它的描述，Host 启动时才监听。
+  const web = new WebService({
+    settingsFile: homePath(home, 'webFile'),
+    mcpDir: homePath(home, 'mcpDir'),
+    logger,
+  });
   let adapter: AgentRuntimeAdapter;
   try {
     adapter = (overrides.createAdapter ?? createAdapter)(options.adapter, {
       home,
       logger,
       env: proc.env,
+      webTool: web.tool,
     });
   } catch (error) {
     logger.error('failed to create adapter', { adapter: options.adapter, error });
@@ -365,6 +378,7 @@ export async function runHostCli(
       logger,
       // 会话标题的提示词与 Codex 的基础提示词在同一个目录：安装包里是资源目录的 prompts/（ADR-0007）。
       promptsDir: resolvePromptsDir(proc.env),
+      web,
       ...(options.port !== 0 && { port: options.port }),
       onShutdownRequest: (trigger) => beginShutdown(trigger, EXIT_CODE.ok),
     }).then(

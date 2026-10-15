@@ -1,9 +1,11 @@
 import type { ToolDisplay } from '@wevir/runtime-adapter';
+import { WEB_FETCH_TOOL, WEB_SEARCH_TOOL, WEB_TOOL_SERVER } from '@wevir/runtime-adapter/web-tool';
 import type {
   CollabAgentToolCallItem,
   CommandAction,
   CommandExecutionItem,
   FileUpdateChange,
+  McpToolCallItem,
   ToolItem,
 } from './protocol.js';
 
@@ -84,7 +86,13 @@ export function toolDisplay(item: ToolItem): ToolDisplay {
     case 'fileChange':
       return fileChangeDisplay(item.changes);
     case 'mcpToolCall':
-      return { kind: 'unknown', summary: `${item.server}/${item.tool}`, mcpServer: item.server };
+      return (
+        webToolDisplay(item) ?? {
+          kind: 'unknown',
+          summary: `${item.server}/${item.tool}`,
+          mcpServer: item.server,
+        }
+      );
     case 'dynamicToolCall':
       return { kind: 'unknown', summary: toolName(item) };
     case 'collabAgentToolCall':
@@ -173,9 +181,12 @@ export function toolOutput(item: ToolItem, streamed: string): string | undefined
         : item.changes.map((change) => change.diff).join('\n');
     case 'mcpToolCall':
       if (item.error !== null) return item.error.message ?? JSON.stringify(item.error);
-      return item.result === null || item.result === undefined
-        ? undefined
-        : JSON.stringify(item.result);
+      if (item.result === null || item.result === undefined) return undefined;
+      // Wevir 的联网工具回的是给模型看的文字，原样显示（0.34.0）。
+      return (
+        (item.server === WEB_TOOL_SERVER ? mcpText(item.result) : undefined) ??
+        JSON.stringify(item.result)
+      );
     case 'dynamicToolCall': {
       const text = (item.contentItems ?? [])
         .map((content) => content.text ?? '')
@@ -191,6 +202,51 @@ export function toolOutput(item: ToolItem, streamed: string): string | undefined
     case 'imageView':
       return undefined;
   }
+}
+
+/**
+ * Wevir 的联网工具（0.34.0，`wevir_web`，docs/architecture/web-tools.md §6）：搜索按 `search`、抓取按 `fetch` 展示，摘要是查询词
+ * 或网址（桌面端按工具名给网页搜索换地球图标）。参数不全时 undefined，按普通 MCP 工具展示。
+ */
+function webToolDisplay(item: McpToolCallItem): ToolDisplay | undefined {
+  if (item.server !== WEB_TOOL_SERVER) return undefined;
+  const args = parseArguments(item.arguments);
+  if (item.tool === WEB_SEARCH_TOOL && typeof args.query === 'string' && args.query.trim() !== '') {
+    const query = args.query.trim();
+    return { kind: 'search', summary: query, query, mcpServer: item.server };
+  }
+  if (item.tool === WEB_FETCH_TOOL && typeof args.url === 'string' && args.url.trim() !== '') {
+    const url = args.url.trim();
+    return { kind: 'fetch', summary: url, url, mcpServer: item.server };
+  }
+  return undefined;
+}
+
+function parseArguments(value: unknown): Record<string, unknown> {
+  if (typeof value === 'string') {
+    try {
+      return parseArguments(JSON.parse(value));
+    } catch {
+      return {};
+    }
+  }
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+/** MCP 结果里的文字段落；没有时 undefined。 */
+function mcpText(result: unknown): string | undefined {
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .flatMap((part: unknown) =>
+      typeof part === 'object' &&
+      part !== null &&
+      typeof (part as { text?: unknown }).text === 'string'
+        ? [(part as { text: string }).text]
+        : [],
+    )
+    .join('\n');
+  return text === '' ? undefined : text;
 }
 
 function unique(values: readonly string[]): string[] {

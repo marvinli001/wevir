@@ -8,7 +8,7 @@
 
 | 文件 | 用途 | 由谁加载 | 状态 |
 |---|---|---|---|
-| [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；联网搜索、skills、插件、MCP 是占位 |
+| [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；skills、插件、MCP 是占位（联网搜索 0.34.0 起是 Wevir 自己的 `wevir_web`） |
 | [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | 下发方式未定，见“未决” | 可用 |
 | [`auto-review.md`](auto-review.md) | 审批自动复核员 | Host（新功能），与引擎无关 | 可用；只读工具是占位 |
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
@@ -37,7 +37,7 @@
 6. AGENTS.md 内容与 `<environment_context>`（Codex 生成）。
 7. 用户消息。
 
-`base.md` 按 Wevir 给 Codex 的配置写：联网搜索、目标（goals）、插件都是关的（ADR-0005 决策 5 与补记），`update_plan` 是开的，子智能体用 `multi_agent_v1`。配置变了要同步改 `base.md` 的“工具”一节。
+`base.md` 按 Wevir 给 Codex 的配置写：Codex 托管的联网搜索、目标（goals）、插件都是关的（ADR-0005 决策 5 与补记），联网用 Wevir 自己的 `wevir_web`（0.34.0，docs/architecture/web-tools.md），`update_plan` 是开的，子智能体用 `multi_agent_v1`。配置变了要同步改 `base.md` 的“工具”一节。
 
 ## 模板语法
 
@@ -85,7 +85,7 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `auto-review.md` | `codex-rs/prompts/templates/guardian/{policy_template,policy,node_repl_policy}.md` |
 | `thread-title.md` | `codex-rs/tui/src/app/thread_title.rs` 里的说明文字 |
 
-`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的四个文件按 Apache-2.0。
+`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的四个文件按 Apache-2.0。
 
 ## 改提示词时
 

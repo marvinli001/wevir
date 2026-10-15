@@ -10,6 +10,7 @@ import {
 import { hostStart, hostStatus, hostStop } from './commands/host.js';
 import { providerAdd, providerList, providerTest } from './commands/provider.js';
 import { sessionAttach, sessionList, sessionNew } from './commands/session.js';
+import { webEnable, webKey, webStatus, webTest, webUse } from './commands/web.js';
 import { workspaceAdd, workspaceList } from './commands/workspace.js';
 import { type CliIO, type Context, createContext } from './context.js';
 import { EXIT, UsageError } from './errors.js';
@@ -166,6 +167,51 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       run: (ctx, _v, [kind]) => accountLogout(ctx, parseAccountKind(kind)),
     },
   },
+  web: {
+    status: {
+      summary: 'cmd.web.status.summary',
+      usage: 'cmd.web.status.usage',
+      options: {},
+      positionals: { min: 0, max: 0 },
+      run: (ctx) => webStatus(ctx),
+    },
+    on: {
+      summary: 'cmd.web.on.summary',
+      usage: 'cmd.web.on.usage',
+      options: {},
+      positionals: { min: 0, max: 0 },
+      run: (ctx) => webEnable(ctx, true),
+    },
+    off: {
+      summary: 'cmd.web.off.summary',
+      usage: 'cmd.web.off.usage',
+      options: {},
+      positionals: { min: 0, max: 0 },
+      run: (ctx) => webEnable(ctx, false),
+    },
+    use: {
+      summary: 'cmd.web.use.summary',
+      usage: 'cmd.web.use.usage',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [service]) => webUse(ctx, service as string),
+    },
+    key: {
+      summary: 'cmd.web.key.summary',
+      usage: 'cmd.web.key.usage',
+      help: 'cmd.web.key.help',
+      options: { remove: { type: 'boolean' } },
+      positionals: { min: 0, max: 1 },
+      run: (ctx, v, [service]) => webKey(ctx, service, { remove: v.remove === true }),
+    },
+    test: {
+      summary: 'cmd.web.test.summary',
+      usage: 'cmd.web.test.usage',
+      options: {},
+      positionals: { min: 0, max: 1 },
+      run: (ctx, _v, [service]) => webTest(ctx, service),
+    },
+  },
   session: {
     new: {
       summary: 'cmd.session.new.summary',
@@ -220,6 +266,7 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   host: 'group.host',
   workspace: 'group.workspace',
   provider: 'group.provider',
+  web: 'group.web',
   session: 'group.session',
 };
 

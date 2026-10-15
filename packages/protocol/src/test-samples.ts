@@ -1808,6 +1808,72 @@ export const methodSamples: MethodSamples = {
       invalid: [{ image: { ...imagePart, size: 0 } }],
     },
   },
+  'web.get': {
+    params: empty,
+    result: {
+      valid: [
+        {
+          web: {
+            enabled: true,
+            searchService: 'bocha',
+            services: [
+              { id: 'bocha', hasKey: true },
+              { id: 'tavily', hasKey: false },
+            ],
+          },
+        },
+      ],
+      invalid: [{ web: { enabled: true, searchService: 'Bocha!', services: [] } }, {}],
+    },
+  },
+  'web.update': {
+    params: {
+      valid: [
+        { enabled: false },
+        { searchService: 'tavily' },
+        { key: { service: 'bocha', apiKey: 'sk-test-not-a-secret' } },
+        { key: { service: 'tavily', apiKey: null } },
+        {},
+      ],
+      invalid: [{ key: { service: 'bocha', apiKey: '' } }, { enabled: 'yes' }],
+    },
+    result: {
+      valid: [
+        {
+          web: {
+            enabled: false,
+            searchService: 'tavily',
+            services: [
+              { id: 'bocha', hasKey: false },
+              { id: 'tavily', hasKey: true },
+            ],
+          },
+        },
+      ],
+      invalid: [{ web: { enabled: false } }],
+    },
+  },
+  'web.test': {
+    params: {
+      valid: [{}, { service: 'tavily' }, { service: 'bocha', apiKey: 'sk-test-not-a-secret' }],
+      invalid: [{ apiKey: '' }, { service: '' }],
+    },
+    result: {
+      valid: [
+        { ok: true, service: 'bocha', latencyMs: 812, results: 3 },
+        {
+          ok: false,
+          service: 'tavily',
+          latencyMs: 230,
+          reason: 'auth',
+          httpStatus: 401,
+          message: 'Unauthorized: missing or invalid API key.',
+        },
+        { ok: false, service: 'bocha', reason: 'missing_key' },
+      ],
+      invalid: [{ ok: true }, { ok: false, service: 'bocha', reason: 'expired' }],
+    },
+  },
   'image.read': {
     params: {
       valid: [{ imageId: ids.image }, { imageId: ids.image, offset: 4194304 }],

@@ -319,6 +319,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `secrets.json` | 模型 API Key，明文 JSON，0600（见[安全说明](./security.md) §3） |
 | `host-id` | `hostId`，客户端据此认出同一个 Host |
 | `settings.json` | Host 设置（R11，domain-model §3.7）：目前只有“回合进行中按回车”插话还是排队（`sendWhileBusy`），桌面端与 CLI 共用；没有这个文件时用默认值 |
+| `web.json` | 联网工具的设置（0.34.0，[web-tools.md](./architecture/web-tools.md)）：开关 `enabled` 与搜索服务 `searchService`，0600；搜索服务的 Key 在 `secrets.json`。没有这个文件时开着、用博查 |
 | `device-id`、`desktop-client-id`、`cli-client-id` | 客户端身份，写进 `user.message.sentBy` 与审批的 `decidedBy`（CLI 的由 T4.2 写入） |
 | `run/host.json` | 运行中 Host 的 `pid`、`startedAt`、`url`、令牌、版本。0600，Host 退出时删除 |
 | `logs/host.log` | Host 的结构化日志，一行一个 JSON，只追加、不轮转 |
@@ -330,7 +331,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `engines/claude/` | Claude Agent 引擎（2026-10-15）探测登录与生成标题时的工作目录，里面没有 Wevir 的文件。会话记录与登录都在用户自己的 `~/.claude`（`claude` 写，Wevir 不读不改），见 [claude-event-mapping.md](./architecture/claude-event-mapping.md) §2 |
 | `engines.json` | `account.setPath` 指定的订阅引擎可执行文件（0.19.0） |
 | `history/` | 接力过的会话的完整历史（0.25.0，domain-model §3.14）：`<会话 ID>.json`（0600），会话换到挂了读历史工具的引擎时由 Host 写，读历史的 MCP 服务只读这里 |
-| `mcp/` | Host 给引擎挂的本机 MCP 服务的脚本（0.25.0 的 `wevir-history.mjs`），引擎第一次启动前写，每次覆盖 |
+| `mcp/` | Host 给引擎挂的本机 MCP 服务的脚本（0.25.0 的 `wevir-history.mjs`、0.34.0 的联网工具 `wevir-web.mjs`），引擎第一次启动前写，每次覆盖 |
 | `images/` | 消息里的图片（0.28.0）：`<图片 ID>.<扩展名>` 与旁边的 `<图片 ID>.json`（Host 认定的格式、大小与像素），0600；`staged/` 里是上传了还没发出去的，过一天删掉 |
 | `engines/cursor/` | Cursor 引擎：应用内登录铸出的 API Key `auth.json`（0600，见[安全说明](./security.md) §3）。第一次登录 Cursor 时才出现；agent 的对话由 Cursor 的 SDK 存在它自己的位置（`~/.cursor/projects/`） |
 | `engines/opencode/` | OpenCode 引擎：读账号时 `opencode serve` 的工作目录，`servers/` 是本机服务器的台账（0600，进程身份与端口）。登录、配置与会话都在用户自己的 opencode 目录（`~/.config/opencode`、`~/.local/share/opencode`），Wevir 不读不改，见 [opencode-event-mapping.md](./architecture/opencode-event-mapping.md) §1 |
@@ -570,6 +571,20 @@ WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=anthropic-messages WEVIR_TE
 截至 2026-10-14 本机没有 Key，第 3 层与各真实模型用例都还没有跑过（Gate M3 的待办）。Responses 通用开关的核对（2026-10-15）同样没有 `WEVIR_TEST_API_KEY`；本地验收用录制 Codex 请求 + 拒收非 auto、namespace 与 null 加密推理的 mock（`pnpm vitest run --project model-gateway --maxWorkers=2`），不能替代逐家的契约第 3 层与桌面端带工具对话。Codex 升级前按 model-gateway.md §10 复查新输入项的触发条件。
 
 Chat 思考格式的本地验收（2026-10-15）：同一份 `2-tool-results` 录制请求覆盖六种思考格式，HTTP mock 拒收缺 reasoning_content 的历史，MiniMax 的正文标签与 reasoning_details 经 Responses 历史再完整带回；运行 `pnpm vitest run --project model-gateway --maxWorkers=2`。真实 Key 未提供时不启动桌面真实模型验收，也不把 mock 结果视为契约第 3 层通过。需要代理地址上指定 thinkingFormat 时，当前第 3 层的环境变量还没有 compat 入口；逐服务接入时应补测试配置入口或使用按地址可识别的配置，不能把协议名称当成思考格式。minimax / tencent 的新格式目前只适用于 Codex 网关，dsh 共用格式为 openai / deepseek / qwen / zai（model-gateway.md §4.4）。
+
+联网工具（0.34.0，[web-tools.md](./architecture/web-tools.md) §7）的第 3 层用真实的搜索服务与网页，Key 只从进程环境读，没有就跳过并打印原因：
+
+| 变量 | 含义 |
+|---|---|
+| `WEVIR_TEST_BOCHA_API_KEY` | 博查开放平台的 API Key：`web.test` 与一次真实的 `web_search` |
+| `WEVIR_TEST_TAVILY_API_KEY` | Tavily 的 API Key（`tvly-…`），同上 |
+| `WEVIR_TEST_WEB_FETCH=1` | 抓一个公开网页（`https://example.com/`），不需要 Key |
+
+```bash
+WEVIR_TEST_WEB_FETCH=1 pnpm vitest run --project host web.contract --maxWorkers=2
+```
+
+先在进程环境里提供 Key（不写进命令、文件或日志），再跑同一条命令。2026-10-15 没有博查与 Tavily 的 Key，两家的真实契约与桌面端配 Key 后经网关模型搜索、引用来源的对话都没有跑；`WEVIR_TEST_WEB_FETCH=1` 跑过（抓 example.com 通过），另外手动抓过 nodejs.org、docs.python.org、gov.cn、新浪新闻与 GitHub 的页面。mock HTTP 的单元测试（`pnpm vitest run --project host src/web`）与真实 `codex-app-server` 的第 2 层（`codex-adapter.web.integration`）不能替代它们。
 
 ### 6.4 其他
 

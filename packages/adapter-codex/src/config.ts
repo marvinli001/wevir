@@ -11,6 +11,17 @@ import {
   type HistoryToolServer,
   historyToolCommand,
 } from '@wevir/runtime-adapter/history-tool';
+import {
+  WEB_FETCH_TOOL,
+  WEB_SEARCH_TOOL,
+  WEB_TOOL_SERVER,
+  WEB_TOOL_TOKEN_ENV,
+  type WebToolEndpoint,
+  type WebToolServer,
+  type WebToolState,
+  webToolCommand,
+  webToolNames,
+} from '@wevir/runtime-adapter/web-tool';
 import { GATEWAY_TOKEN_ENV } from './env.js';
 import type { CodexPaths } from './paths.js';
 import type { BasePromptVars } from './prompts.js';
@@ -24,7 +35,10 @@ import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
  * - `features.plugins = false`：唯一产生外连的开关（启动时同步插件市场：github.com、api.github.com、chatgpt.com）；
  * - `features.apps = false`：ChatGPT 登录时 Codex 会连 ChatGPT 的应用（connectors）MCP（`<chatgpt_base_url>/ps/mcp`），
  *   把连接器的工具给模型；Wevir 不支持（R6 实测，codex-event-mapping.md §8.2）。没有 ChatGPT 登录时它本来就不起；
- * - `web_search = "disabled"`：否则把托管搜索工具发给模型服务；`analytics.enabled = false`；
+ * - `web_search = "disabled"`：Codex 的托管搜索由 OpenAI 的服务端执行，经网关的第三方模型用不了；custom provider 的
+ *   `ProviderCapabilities` 默认 `web_search: true`，不关就把它发给上游。联网改用 Wevir 自己的 `wevir_web`（0.34.0，
+ *   docs/architecture/web-tools.md）；ChatGPT 会话在 `thread/start` 里按 Wevir 的联网开关改成 `cached`（`chatgptThreadConfig`）；
+ *   `analytics.enabled = false`；
  *   `check_for_update_on_startup = false`（只影响 TUI，设上无害）；
  * - `features.instant_interrupt = false`：插话（`turn/steer`，R11）等模型这一段输出结束再进回合，而不是立刻掐断正在
  *   流式输出的这一步（这个开关默认开，codex-event-mapping.md §4.5；维护者定的插话是“这一步结束后插进本回合”）；
@@ -241,6 +255,8 @@ export interface RenderConfigInput {
   suggestTasks?: SuggestTasksServer;
   /** 读历史的本机 MCP 服务（0.25.0，接力，`@wevir/runtime-adapter/history-tool`）；省略时不登记。 */
   historyTool?: HistoryToolServer;
+  /** 联网工具的本机 MCP 服务（0.34.0，`@wevir/runtime-adapter/web-tool`）与 Host 的端点；省略时不登记。 */
+  webTool?: { server: WebToolServer; endpoint: WebToolEndpoint };
 }
 
 /**
@@ -273,6 +289,12 @@ export function renderConfigToml(input: RenderConfigInput): string {
   const mcp = [
     ...(input.suggestTasks === undefined ? [] : suggestTasksToml(input.suggestTasks)),
     ...(input.historyTool === undefined ? [] : historyToolToml(input.historyTool)),
+    ...(input.webTool === undefined
+      ? []
+      : webToolToml(input.webTool.server, input.webTool.endpoint, [
+          WEB_SEARCH_TOOL,
+          WEB_FETCH_TOOL,
+        ])),
   ];
   return `${[...top, ...HARDENING_TABLES, ...windowsSandboxTable(), ...providers, ...mcp].join('\n')}\n`;
 }
@@ -316,6 +338,7 @@ export function renderChatgptConfigToml(
   endpoints?: ChatgptEndpoints,
   suggestTasks?: SuggestTasksServer,
   historyTool?: HistoryToolServer,
+  webTool?: RenderConfigInput['webTool'],
 ): string {
   const backend = endpoints?.backend.replace(/\/+$/, '');
   const top = [
@@ -334,15 +357,46 @@ export function renderChatgptConfigToml(
   const mcp = [
     ...(suggestTasks === undefined ? [] : suggestTasksToml(suggestTasks)),
     ...(historyTool === undefined ? [] : historyToolToml(historyTool)),
+    // ChatGPT 会话用 OpenAI 的托管搜索，`wevir_web` 只给抓取。
+    ...(webTool === undefined
+      ? []
+      : webToolToml(webTool.server, webTool.endpoint, [WEB_FETCH_TOOL])),
   ];
   return `${[...top, ...HARDENING_TABLES, ...windowsSandboxTable(), ...mcp].join('\n')}\n`;
 }
 
-/** ChatGPT 会话的 `thread/start` 的 `config` 覆盖：只有推理档位（模型的元数据来自 Codex 自己的目录）。 */
-export function chatgptThreadConfig(reasoningEffort: string | undefined): Record<string, unknown> {
-  return reasoningEffort === undefined
-    ? {}
-    : { model_reasoning_effort: toCodexEffort(reasoningEffort) };
+/**
+ * ChatGPT 会话的 `thread/start` 的 `config` 覆盖：推理档位（模型的元数据来自 Codex 自己的目录），给了联网状态时还有托管搜索的
+ * 模式与 `wevir_web` 的抓取（0.34.0，docs/architecture/web-tools.md §5.2）：联网开着时 `web_search = "cached"`（Codex 自己的
+ * 默认：OpenAI 的缓存索引，完全访问时 Codex 自己升到 `live`），关着时 `disabled`；进程登记了 `wevir_web`（`webRegistered`）时
+ * 它只开 `web_fetch`。
+ */
+export function chatgptThreadConfig(
+  reasoningEffort: string | undefined,
+  web?: WebToolState,
+  webRegistered = false,
+): Record<string, unknown> {
+  return {
+    ...(reasoningEffort !== undefined && {
+      model_reasoning_effort: toCodexEffort(reasoningEffort),
+    }),
+    ...(web !== undefined && { web_search: web.enabled ? 'cached' : 'disabled' }),
+    ...(web !== undefined && webRegistered && webToolThreadConfig({ ...web, search: false })),
+  };
+}
+
+/**
+ * 一个会话的 `wevir_web` 登记哪些工具（0.34.0）：按 `thread/start` 那一刻的设置覆盖 config.toml 里的 `enabled` 与
+ * `enabled_tools`（MCP 连接是每个 thread 一份，覆盖只影响这个会话）。联网关着时整个服务不起；没配搜索的 Key 时只有抓取。
+ */
+export function webToolThreadConfig(state: WebToolState): Record<string, unknown> {
+  const tools = webToolNames(state);
+  return tools.length === 0
+    ? { [`mcp_servers.${WEB_TOOL_SERVER}.enabled`]: false }
+    : {
+        [`mcp_servers.${WEB_TOOL_SERVER}.enabled`]: true,
+        [`mcp_servers.${WEB_TOOL_SERVER}.enabled_tools`]: tools,
+      };
 }
 
 /** 写配置文件（0600，覆盖）。 */
@@ -422,5 +476,39 @@ export function historyToolToml(server: HistoryToolServer): string[] {
     'default_tools_approval_mode = "approve"',
     `enabled_tools = [${tomlString(HISTORY_TOOL_NAME)}]`,
     'startup_timeout_sec = 10',
+  ];
+}
+
+/** 联网工具的输出上限（token，Codex 另加 20% 的序列化余量）：搜索结果短，网页正文按 `max_chars` 分段，默认一段约 1 万字符。 */
+export const WEB_TOOL_OUTPUT_TOKENS = { [WEB_SEARCH_TOOL]: 4000, [WEB_FETCH_TOOL]: 12000 } as const;
+
+/**
+ * config.toml 里的 `[mcp_servers.wevir_web]`（0.34.0，codex-event-mapping.md §6.12）：桥脚本的参数是 Host 端点的地址，令牌经
+ * `env_vars` 从 app-server 的环境转给它（不写进文件；`shell_environment_policy` 排除 `WEVIR_*`，模型跑的命令看不到）。两个只读
+ * 工具不需要批准；`enabled_tools` 是这个进程最多登记的，每个会话再按设置收窄（`webToolThreadConfig`）。工具调用的时限放宽到
+ * 60 s（搜索 20 s、抓取 20 s 加上 Host 的处理）。
+ */
+export function webToolToml(
+  server: WebToolServer,
+  endpoint: WebToolEndpoint,
+  tools: readonly string[],
+): string[] {
+  const { command, args } = webToolCommand(server, endpoint);
+  return [
+    '',
+    `[mcp_servers.${WEB_TOOL_SERVER}]`,
+    `command = ${tomlString(command)}`,
+    `args = [${args.map(tomlString).join(', ')}]`,
+    'env = { ELECTRON_RUN_AS_NODE = "1" }',
+    `env_vars = [${tomlString(WEB_TOOL_TOKEN_ENV)}]`,
+    'default_tools_approval_mode = "approve"',
+    `enabled_tools = [${tools.map(tomlString).join(', ')}]`,
+    'startup_timeout_sec = 10',
+    'tool_timeout_sec = 60',
+    ...tools.flatMap((tool) => [
+      '',
+      `[mcp_servers.${WEB_TOOL_SERVER}.tools.${tool}]`,
+      `output_token_limit = ${WEB_TOOL_OUTPUT_TOKENS[tool as keyof typeof WEB_TOOL_OUTPUT_TOKENS] ?? 8000}`,
+    ]),
   ];
 }
