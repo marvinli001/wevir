@@ -345,7 +345,7 @@ export function SessionView({
   return (
     <div className="flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth">
       {state?.error ? (
-        <div className="min-h-0 flex-1 pr-(--rail-inset)">
+        <div className="rail-clear min-h-0 flex-1">
           <EmptyState
             icon={<TriangleAlert />}
             title={t('transcript.failed', { error: state.error })}
@@ -364,12 +364,12 @@ export function SessionView({
           </OpenFileLink>
         </OpenTurnChanges>
       ) : (
-        <p className="min-h-0 flex-1 py-16 pr-(--rail-inset) text-center text-sm text-muted-foreground">
+        <p className="rail-clear min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">
           {t('transcript.loading')}
         </p>
       )}
-      {/* 会话侧栏盖在主窗格上时（--rail-inset），输入框在侧栏左边剩下的地方居中。 */}
-      <div className="shrink-0 pr-(--rail-inset)">
+      {/* 会话侧栏盖在主窗格上时，输入框与消息同样让位（index.css 的 rail-clear）。 */}
+      <div className="rail-clear shrink-0">
         <div
           className={cn(
             'mx-auto w-full max-w-content',

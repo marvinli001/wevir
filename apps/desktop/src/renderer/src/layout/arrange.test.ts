@@ -27,7 +27,11 @@ function scope(kinds: PaneKind[], extra: Partial<ScopePanes> = {}): ScopePanes {
 function arrange(
   viewport: [number, number],
   panes: ScopePanes,
-  { sidebar = 260, maximized }: { sidebar?: number; maximized?: string } = {},
+  {
+    sidebar = 260,
+    maximized,
+    maxColumns,
+  }: { sidebar?: number; maximized?: string; maxColumns?: 1 | 2 } = {},
 ): AuxPlan {
   const [width, height] = viewport;
   return arrangePanes({
@@ -36,6 +40,7 @@ function arrange(
     overlayHeight: height,
     panes,
     maximized,
+    maxColumns,
   });
 }
 
@@ -226,6 +231,25 @@ describe('arrangePanes：其他规则', () => {
     const low = arrange([720, 420], scope(['tasks', 'file', 'plan']), { sidebar: 0 });
     expect(low).toMatchObject({ mode: 'overlay', template: 'one', folded: true });
     expect(displayPanes(low.tree)[0]?.tabs).toHaveLength(3);
+  });
+
+  it('会话侧栏停靠时只排一列：两个高窗格也上下叠放，四个折叠成三个上下', () => {
+    // 2000 × 900、左栏 300，扣掉侧栏 300 后排 1400 宽。
+    const options = { sidebar: 600, maxColumns: 1 } as const;
+    const two = arrange([2000, 900], scope(['tasks', 'files']), options);
+    expect(two).toMatchObject({
+      mode: 'docked',
+      template: 'rows2',
+      columns: 1,
+      auxWidth: 560,
+      primaryWidth: 824,
+    });
+    expect(arrange([2000, 900], scope(['tasks', 'files']), { sidebar: 600 })).toMatchObject({
+      template: 'cols2',
+    });
+    const four = arrange([2000, 900], scope(['subagents', 'changes', 'tasks', 'plan']), options);
+    expect(four).toMatchObject({ template: 'rows3', folded: true });
+    expect(shape(four.tree)).toBe('column(subagents, changes, plan)');
   });
 });
 

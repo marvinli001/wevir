@@ -101,6 +101,11 @@ export interface ArrangeInput {
   panes: ScopePanes;
   /** 最大化的窗格组（只在本次运行内，§3.4）。 */
   maximized?: string;
+  /**
+   * 停靠时最多排几列，默认 2。会话侧栏停靠在窗格区左边时是 1：窗格在侧栏右边上下叠放，多了折叠成标签（§12，照 Claude
+   * Code 桌面端）。
+   */
+  maxColumns?: 1 | 2;
 }
 
 const NONE = (width: number): AuxPlan => ({
@@ -132,7 +137,7 @@ export function arrangePanes(input: ArrangeInput): AuxPlan {
 
   const regionHeight = height - 2 * gap;
   const maxAux = width - PANE_LAYOUT.primaryMinWidth - 2 * gap;
-  const docked = choose(panes, maxAux, regionHeight, 2);
+  const docked = choose(panes, maxAux, regionHeight, input.maxColumns ?? 2);
   if (docked) {
     const columns = COLUMNS[docked.template];
     const ratio = panes.sizes.aux[columns] ?? PANE_LAYOUT.auxRatio[columns];

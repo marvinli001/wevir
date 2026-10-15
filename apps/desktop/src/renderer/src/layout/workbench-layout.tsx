@@ -105,24 +105,30 @@ export function WorkbenchLayout() {
     transient.maximized && transient.maximized.scope === scopeKey
       ? transient.maximized.groupId
       : undefined;
-  const arrange = (width: number) =>
+  // 侧栏停靠时窗格区在它右边只排一列（§12）。
+  const arrange = (width: number, maxColumns: 1 | 2 = 2) =>
     arrangePanes({
       width,
       height: content.height,
       overlayHeight: viewportHeight - OVERLAY_HEADER,
       panes: scope ?? NO_PANES,
       maximized,
+      maxColumns,
     });
   // 会话侧栏（U18，desktop-layout.md §12）：只有会话页有；停靠后主窗格与窗格区还排得下才停靠，否则让位改浮层。
   // 地方够时按偏好显示，地方紧时默认收起（rail-model.ts 的 railRoom）。
   const rail = header.session && sessionId !== undefined ? header.session : undefined;
   const room: RailRoom =
-    rail !== undefined && maximized === undefined ? railRoom(content.width, arrange) : 'none';
+    rail !== undefined && maximized === undefined
+      ? railRoom(content.width, (width) => arrange(width, 1))
+      : 'none';
   const railCanDock = room !== 'none';
   const railDocked =
     room === 'roomy' ? prefs.railShown : room === 'tight' && transient.railTightOpen;
   const railOverlay = rail !== undefined && !railCanDock && transient.railOverlayOpen;
-  const plan = arrange(content.width - (railDocked ? RAIL_DOCKED_WIDTH : 0));
+  // 窗格区与主窗格按扣掉停靠的侧栏后的宽排。
+  const arrangeWidth = content.width - (railDocked ? RAIL_DOCKED_WIDTH : 0);
+  const plan = arrange(arrangeWidth, railDocked ? 1 : 2);
   const panes = usePaneController(
     scopeKey,
     workspaceId,
@@ -212,7 +218,7 @@ export function WorkbenchLayout() {
   };
   const auxDragStart = useRef(0);
   const auxRatio = (delta: number) =>
-    auxRatioAfterDrag(plan, content.width, auxDragStart.current, delta);
+    auxRatioAfterDrag(plan, arrangeWidth, auxDragStart.current, delta);
   const splitResize: SplitResizeHandlers = {
     onDraft: (key, fractions) =>
       storedScope && setDraftSizes(setSplitRatios(storedScope, key, fractions).sizes),
@@ -229,9 +235,6 @@ export function WorkbenchLayout() {
   const sidebarShown = docked && !sidebarDrag?.collapsed;
   const auxDocked = plan.mode === 'docked' && plan.tree !== undefined;
   const auxShownWidth = auxDocked && !auxCollapsing;
-  // 停靠的会话侧栏浮在内容区最右边（§12）。窗格区没露出时侧栏盖在主窗格上：主窗格占到最右，滚动条贴着窗口右边，
-  // 消息与输入框让出侧栏的宽（--rail-inset）；窗格区露出时在它右边留出侧栏的位置。两者宽度相加始终是侧栏的宽。
-  const railOverMain = railDocked && !auxShownWidth;
   // 窗格区不再停靠（收起、改浮层、最大化）时丢掉拖动中的折叠草稿。
   useEffect(() => {
     if (!auxDocked) setAuxCollapsing(false);
@@ -375,22 +378,49 @@ export function WorkbenchLayout() {
           </header>
 
           <div ref={contentRef} className="relative flex min-h-0 flex-1">
-            <main
-              data-pane-id={PRIMARY}
-              tabIndex={-1}
-              inert={plan.mode === 'maximized'}
-              onPointerDownCapture={() => panes?.focus(PRIMARY)}
+            {/* 主窗格与盖在它右边的会话侧栏（§12）：`主窗格 | 侧栏 | 窗格区`，侧栏跟着主窗格的右边走，开关窗格区、拖分隔条时
+                一起移动。最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。 */}
+            <div
               className={cn(
-                'rail-inset relative min-h-0 min-w-0 flex-1 outline-none',
-                // 最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。
+                'relative flex min-h-0 min-w-0 flex-1',
                 plan.mode === 'maximized' && 'invisible absolute inset-0',
               )}
-              style={
-                { '--rail-inset': `${railOverMain ? RAIL_DOCKED_WIDTH : 0}px` } as CSSProperties
-              }
             >
-              <Outlet />
-            </main>
+              <main
+                data-pane-id={PRIMARY}
+                tabIndex={-1}
+                inert={plan.mode === 'maximized'}
+                onPointerDownCapture={() => panes?.focus(PRIMARY)}
+                className="rail-inset relative min-h-0 min-w-0 flex-1 outline-none"
+                // 侧栏盖在主窗格上：主窗格占到窗格区（或窗口）的边，消息流的滚动条贴着它；消息与输入框在整个主窗格里居中，
+                // 碰到侧栏才往左让（index.css 的 rail-clear 按 --rail-inset 算）。
+                style={
+                  { '--rail-inset': `${railDocked ? RAIL_DOCKED_WIDTH : 0}px` } as CSSProperties
+                }
+              >
+                <Outlet />
+              </main>
+              {/* 停靠的会话侧栏：开合过渡外层宽度，收起时不卸载。宽只有开与关两种，拖窗口时也过渡：跨过默认显示的宽度时
+                  滑进滑出，不是一下跳开（index.css）。卡片之外的地方不接鼠标：在空白处滚动、拖滚动条落到下面的消息流。 */}
+              {rail && header.entry && sessionId !== undefined && plan.mode !== 'maximized' && (
+                <div
+                  className="layout-transition pointer-events-none absolute inset-y-0 right-0 z-10 flex overflow-hidden"
+                  data-resize-transition
+                  inert={!railDocked}
+                  style={{ width: railDocked ? RAIL_DOCKED_WIDTH : 0 }}
+                >
+                  <div className="flex shrink-0 flex-col" style={{ width: RAIL_DOCKED_WIDTH }}>
+                    <SessionRail
+                      sessionId={sessionId as Session['id']}
+                      session={rail}
+                      entry={header.entry}
+                      visible={railDocked}
+                      floating
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
             {/* 停靠的窗格区：外层过渡宽度，里面一列始终是窗格区的宽；收起时留着最后的内容滑出去。与主窗格同是画布色
                 （U17，desktop-tokens.md §21），窗格只靠细边框与圆角分开。 */}
             {plan.mode !== 'maximized' && (
@@ -456,35 +486,6 @@ export function WorkbenchLayout() {
             )}
             {plan.mode === 'maximized' && plan.tree && (
               <div className="flex min-w-0 flex-1 p-2">{tree(plan.tree)}</div>
-            )}
-            {/* 停靠的会话侧栏：浮在内容区最右边，开合同样过渡外层宽度，收起时不卸载。宽只有开与关两种，拖窗口时也过渡：
-                跨过默认显示的宽度时滑进滑出，不是一下跳开（index.css）。 */}
-            {rail && header.entry && sessionId !== undefined && plan.mode !== 'maximized' && (
-              <>
-                <div
-                  aria-hidden
-                  className="layout-transition shrink-0"
-                  data-resize-transition
-                  style={{ width: railDocked && !railOverMain ? RAIL_DOCKED_WIDTH : 0 }}
-                />
-                {/* 卡片之外的地方不接鼠标：在空白处滚动、拖滚动条落到下面的消息流。 */}
-                <div
-                  className="layout-transition pointer-events-none absolute inset-y-0 right-0 z-10 flex overflow-hidden"
-                  data-resize-transition
-                  inert={!railDocked}
-                  style={{ width: railDocked ? RAIL_DOCKED_WIDTH : 0 }}
-                >
-                  <div className="flex shrink-0 flex-col" style={{ width: RAIL_DOCKED_WIDTH }}>
-                    <SessionRail
-                      sessionId={sessionId as Session['id']}
-                      session={rail}
-                      entry={header.entry}
-                      visible={railDocked}
-                      floating
-                    />
-                  </div>
-                </div>
-              </>
             )}
           </div>
         </div>

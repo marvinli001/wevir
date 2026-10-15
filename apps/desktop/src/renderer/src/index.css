@@ -63,6 +63,18 @@
   transition: --rail-inset 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* 中栏（消息、输入框）给会话侧栏让位的右内边距 P（§12）：中栏宽 C = --container-content，所在的块宽 W = 100%，侧栏宽 R =
+ * --rail-inset。P = clamp(0, 2R + C − W, R)：地方够时 P = 0，中栏在整个主窗格里居中、侧栏盖在右边空着的地方；居中会碰到
+ * 侧栏时 P 让中栏的右边刚好停在侧栏左边，往左挪；挪到左右余量一样时 P = R，中栏在侧栏左边剩下的地方居中、再窄就收窄。
+ * 侧栏收起时 R = 0，P = 0。 */
+.rail-clear {
+  padding-right: clamp(
+    0px,
+    calc(2 * var(--rail-inset) + var(--container-content) - 100%),
+    var(--rail-inset)
+  );
+}
+
 /* 侧栏与窗格区开合的过渡（U5，照 Codex 桌面端）：只过渡这几个布局量。拖动分隔条（data-resizing）与拖窗口改尺寸
  * （<html data-window-resizing>，layout/workbench-layout.tsx）时关掉，免得跟手变慢。 */
 .layout-transition {
