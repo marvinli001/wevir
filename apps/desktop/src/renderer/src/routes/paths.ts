@@ -27,6 +27,7 @@ export const SETTINGS_TABS = [
   'general',
   'appearance',
   'notifications',
+  'shortcuts',
   'providers',
   'workspaces',
   'archived',

@@ -5,6 +5,7 @@ import {
   Cpu,
   Folder,
   Info,
+  Keyboard,
   type LucideIcon,
   Monitor,
   Moon,
@@ -26,6 +27,7 @@ import { GeneralSettings } from '@/settings/general-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
+import { ShortcutsSettings } from '@/settings/shortcuts-settings';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
 import { setThemeMode, useTheme } from '@/theme/theme';
 import type { ThemeMode } from '../../../shared/theme.js';
@@ -43,7 +45,12 @@ const TABS: Record<SettingsTab, TabInfo> = {
   general: {
     label: 'settings.tab.general',
     icon: Settings2,
-    keywords: ['settings.appearance.language', 'settings.chat.sendWhileBusy'],
+    keywords: [
+      'settings.appearance.language',
+      'settings.chat.sendWhileBusy',
+      'settings.composer.send',
+      'settings.editor',
+    ],
   },
   appearance: {
     label: 'settings.tab.appearance',
@@ -60,6 +67,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
       'settings.notify.completed',
       'settings.notify.approval',
     ],
+  },
+  shortcuts: {
+    label: 'settings.tab.shortcuts',
+    icon: Keyboard,
+    keywords: ['shortcuts.newSession', 'shortcuts.send', 'shortcuts.toggleSidebar'],
   },
   providers: {
     label: 'settings.tab.providers',
@@ -84,7 +96,10 @@ const TABS: Record<SettingsTab, TabInfo> = {
 };
 
 const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
-  { label: 'settings.group.app', tabs: ['general', 'appearance', 'notifications', 'about'] },
+  {
+    label: 'settings.group.app',
+    tabs: ['general', 'appearance', 'notifications', 'shortcuts', 'about'],
+  },
   { label: 'settings.group.work', tabs: ['providers', 'workspaces', 'archived'] },
 ];
 
@@ -223,6 +238,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <AppearanceSettings />;
     case 'notifications':
       return <NotificationSettingsPage />;
+    case 'shortcuts':
+      return <ShortcutsSettings />;
     case 'about':
       return <AboutSettings />;
     case 'providers':

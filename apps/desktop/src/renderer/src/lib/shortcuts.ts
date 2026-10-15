@@ -13,6 +13,9 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS = {
+  /** U35：新建会话（当前项目的草稿页，没有项目时回首页）与打开设置。 */
+  newSession: { code: 'KeyN', mod: true },
+  settings: { code: 'Comma', mod: true },
   toggleSidebar: { code: 'KeyB', mod: true },
   back: { code: 'BracketLeft', mod: true },
   forward: { code: 'BracketRight', mod: true },
@@ -45,6 +48,7 @@ export function matchesShortcut(event: KeyState, shortcut: Shortcut, mac = IS_MA
 }
 
 const KEY_LABELS: Record<string, [mac: string, other: string]> = {
+  Comma: [',', ','],
   Backslash: ['\\', '\\'],
   BracketLeft: ['[', '['],
   BracketRight: [']', ']'],

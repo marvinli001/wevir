@@ -59,14 +59,23 @@ export interface ComposerKey {
 
 /**
  * Enter 按默认方式发送（空闲时就是发送，回合进行中按“回合进行中按回车”的设置），Shift+Enter 换行；回合进行中、有内容时
- * Tab 用另一种方式发送（照 Codex：回车插话、Tab 排队，维护者 2026-10-14 定），其余时候 Tab 照常移动焦点。
+ * Tab 用另一种方式发送（照 Codex：回车插话、Tab 排队，维护者 2026-10-14 定），其余时候 Tab 照常移动焦点。U35 起可以设成
+ * ⌘ / Ctrl + Enter 发送（`sendShortcut: 'mod-enter'`），这时单按 Enter 换行。
  */
 export function composerKeyAction(
   key: ComposerKey,
-  context: { busy: boolean; pendingEnabled: boolean; hasText: boolean },
+  context: {
+    busy: boolean;
+    pendingEnabled: boolean;
+    hasText: boolean;
+    sendShortcut?: 'enter' | 'mod-enter';
+  },
 ): ComposerKeyAction {
   if (key.composing) return 'none';
-  if (key.key === 'Enter' && !key.shiftKey) return 'send';
+  if (key.key === 'Enter' && !key.shiftKey) {
+    if (context.sendShortcut !== 'mod-enter') return 'send';
+    return key.metaKey || key.ctrlKey ? 'send' : 'none';
+  }
   const plain = !key.shiftKey && !key.altKey && !key.ctrlKey && !key.metaKey;
   if (key.key === 'Tab' && plain && context.busy && context.pendingEnabled && context.hasText) {
     return 'send-other';

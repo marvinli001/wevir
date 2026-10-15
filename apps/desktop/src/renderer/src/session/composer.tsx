@@ -30,6 +30,7 @@ import {
 } from './composer-commands';
 import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
 import { ComposerPlusMenu } from './composer-plus-menu';
+import { composerPrefs, sendKeyLabel } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
 import { DeliverySwitch } from './delivery-switch';
 import { composerKeyAction, otherDelivery } from './pending-model';
@@ -126,6 +127,7 @@ export function Composer({
 
   // ── 斜杠命令与 @ 提及（U33） ────────────────────────────────────────
   const listId = useId();
+  const { sendShortcut } = composerPrefs.use();
   const [cursor, setCursor] = useState(() => text.length);
   /** 下一次渲染后要放的光标（菜单替换了文字）。 */
   const pendingCursor = useRef<number>(undefined);
@@ -353,7 +355,7 @@ export function Composer({
         // 输入法合成中按的回车是选词，不发送（Safari 等合成结束时 keyCode 为 229）。
         composing: event.nativeEvent.isComposing || event.keyCode === 229,
       },
-      { busy, pendingEnabled, hasText: text.trim() !== '' },
+      { busy, pendingEnabled, hasText: text.trim() !== '', sendShortcut },
     );
     if (action === 'none') return;
     event.preventDefault();
@@ -524,7 +526,9 @@ function ComposerButton({
           </TooltipTrigger>
           <TooltipContent>
             {label}
-            <kbd className="ml-1.5 font-sans opacity-70">{action === 'stop' ? 'Esc' : 'Enter'}</kbd>
+            <kbd className="ml-1.5 font-sans opacity-70">
+              {action === 'stop' ? 'Esc' : sendKeyLabel(composerPrefs.get().sendShortcut)}
+            </kbd>
           </TooltipContent>
         </Tooltip>
       </MetalCircle>

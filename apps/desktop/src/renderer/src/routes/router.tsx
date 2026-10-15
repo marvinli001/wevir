@@ -1,6 +1,14 @@
 import { TriangleAlert } from 'lucide-react';
 import { useEffect } from 'react';
-import { createHashRouter, Navigate, Outlet, useRouteError } from 'react-router';
+import {
+  createHashRouter,
+  Navigate,
+  Outlet,
+  useLocation,
+  useMatches,
+  useNavigate,
+  useRouteError,
+} from 'react-router';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { EnvironmentDialog } from '@/environments/environment-dialog';
@@ -15,7 +23,7 @@ import { RenameDialog } from '@/session/rename-dialog';
 import { SideSessionCloser } from '@/session/side-session';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
-import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, ROUTE_PATTERNS } from './paths';
+import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, paths, ROUTE_PATTERNS } from './paths';
 import { SessionRoute } from './session-route';
 import { SettingsRoute } from './settings-route';
 
@@ -63,10 +71,14 @@ export const router = createHashRouter([
   },
 ]);
 
-/** 路由根：记历史序号（窗口左上角的后退 / 前进）、全局的后退 / 前进快捷键、全局对话框。 */
+/** 路由根：记历史序号（窗口左上角的后退 / 前进）、全局快捷键（后退 / 前进，U35 起新建会话与设置）、全局对话框。 */
 function AppRoot() {
   useTrackHistory();
   const history = useHistoryNav();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const matches = useMatches();
+  const workspaceId = matches.map((match) => match.params.workspaceId).find(Boolean);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.isComposing || event.defaultPrevented) return;
@@ -76,11 +88,20 @@ function AppRoot() {
       } else if (matchesShortcut(event, SHORTCUTS.forward) && history.canForward) {
         event.preventDefault();
         history.forward();
+      } else if (matchesShortcut(event, SHORTCUTS.newSession)) {
+        // U35：在项目里时开这个项目的草稿页，否则回首页。
+        event.preventDefault();
+        navigate(workspaceId ? paths.draft(workspaceId) : paths.home());
+      } else if (matchesShortcut(event, SHORTCUTS.settings)) {
+        event.preventDefault();
+        if (!location.pathname.startsWith(ROUTE_PATTERNS.settings)) {
+          navigate(paths.settings(), { state: { from: location } });
+        }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [history]);
+  }, [history, navigate, location, workspaceId]);
   return (
     <>
       <Outlet />

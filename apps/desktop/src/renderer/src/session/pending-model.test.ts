@@ -74,6 +74,11 @@ describe('输入框按键（R11）', () => {
   });
 
   it('Tab 只在回合进行中、Host 支持、有内容时用另一种方式发送，否则照常移动焦点', () => {
+    // U35：⌘ / Ctrl + Enter 发送时单按 Enter 换行。
+    const mod = { ...busy, sendShortcut: 'mod-enter' as const };
+    expect(composerKeyAction(key('Enter'), mod)).toBe('none');
+    expect(composerKeyAction(key('Enter', { metaKey: true }), mod)).toBe('send');
+    expect(composerKeyAction(key('Enter', { ctrlKey: true }), mod)).toBe('send');
     expect(composerKeyAction(key('Tab'), busy)).toBe('send-other');
     expect(composerKeyAction(key('Tab', { shiftKey: true }), busy)).toBe('none');
     expect(composerKeyAction(key('Tab'), { ...busy, busy: false })).toBe('none');
