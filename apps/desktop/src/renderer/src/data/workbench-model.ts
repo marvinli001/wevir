@@ -4,7 +4,7 @@ import type { ProviderProfile, Session, SessionId, Workspace } from '@wevir/prot
 
 export interface WorkspaceEntry {
   workspace: Workspace;
-  /** 属于这个工作区的会话，按最近活动（`updatedAt`，最后一个事件的时刻）从新到旧。 */
+  /** 属于这个工作区的会话，按最近活动从新到旧：回合进行中的按回合开始的时刻，其余按 `updatedAt`（最后一个事件的时刻）。 */
   sessions: Session[];
 }
 
@@ -28,8 +28,18 @@ export function groupSessions(
   return entries;
 }
 
+/**
+ * 排序用的“最近活动”：回合进行中时是这个回合开始的时刻，不是最后一个事件的时刻——否则几个会话同时流式输出时，每来一个
+ * 事件它们就互换位置，左栏的行来回跳（U19 发现）。回合结束后回到 `updatedAt`。
+ */
+function activityAt(session: Session): string {
+  return session.activeTurn?.startedAt ?? session.updatedAt;
+}
+
 function byRecentActivity(a: Session, b: Session): number {
-  if (a.updatedAt !== b.updatedAt) return a.updatedAt < b.updatedAt ? 1 : -1;
+  const at = activityAt(a);
+  const bt = activityAt(b);
+  if (at !== bt) return at < bt ? 1 : -1;
   return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
 }
 

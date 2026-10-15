@@ -89,6 +89,29 @@ describe('sessionMarker', () => {
   });
 });
 
+describe('最近活动的顺序', () => {
+  it('回合进行中按回合开始的时刻排，流式输出的事件不让它们互换位置', () => {
+    const turn = (turnId: `trn_${string}`, startedAt: string) => ({ turnId, startedAt });
+    const [entry] = groupSessions(
+      [workspace('ws_a')],
+      [
+        session('ses_early', 'ws_a', {
+          state: 'running',
+          activeTurn: turn('trn_1', '2026-10-13T00:00:01.000Z'),
+          updatedAt: '2026-10-13T00:00:09.000Z',
+        }),
+        session('ses_late', 'ws_a', {
+          state: 'running',
+          activeTurn: turn('trn_2', '2026-10-13T00:00:05.000Z'),
+          updatedAt: '2026-10-13T00:00:06.000Z',
+        }),
+        session('ses_idle', 'ws_a', { updatedAt: '2026-10-13T00:00:03.000Z' }),
+      ],
+    );
+    expect(entry?.sessions.map((s) => s.id)).toEqual(['ses_late', 'ses_idle', 'ses_early']);
+  });
+});
+
 describe('groupByStatus', () => {
   const day = 24 * 60 * 60 * 1000;
   const at = (daysAgo: number) => new Date(Date.parse(NOW) - daysAgo * day).toISOString();
