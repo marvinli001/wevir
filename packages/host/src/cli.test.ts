@@ -139,7 +139,9 @@ describe('runHostCli', () => {
     expect(version.out.stdout).toBe(`${HOST_VERSION}\n`);
     const bad = fakeProcess(['--port', 'x']);
     expect(await runHostCli(bad.proc)).toBe(EXIT_CODE.usage);
-    expect(bad.out.stderr).toContain('--port');
+    expect(bad.out.stderr).toBe(
+      'wevir-host: --port must be an integer from 0 to 65535: x\nRun wevir-host --help\n',
+    );
   });
 
   it('--adapter dsh：DshAdapter 用数据目录下的 engines/，dsh 进程等到第一个会话才启动', () => {
@@ -164,7 +166,7 @@ describe('runHostCli', () => {
       expect(adapter).toBeInstanceOf(EngineRouter);
       const router = adapter as EngineRouter;
       expect(router.routes.map((route) => [route.name, route.kinds])).toEqual([
-        ['codex', ['deepseek-official', 'openai-compatible', 'chatgpt']],
+        ['codex', ['deepseek-official', 'openai-compatible', 'google-vertex', 'chatgpt']],
         ['claude', ['claude']],
         ['cursor', ['cursor']],
       ]);
@@ -314,6 +316,7 @@ describe('runHostCli', () => {
     expect(await runHostCli(fake.proc)).toBe(EXIT_CODE.alreadyRunning);
     expect(fake.out.stderr).toContain('a Host is already running');
     expect(fake.out.stderr).toContain(`pid ${process.ppid}`);
+    expect(fake.out.stderr).toContain(`runtime file ${join(home, 'run', 'host.json')}`);
   });
 
   it('退出超时或退出期间再收到信号：删除自己的 host.json，以 1 强制结束', async () => {
