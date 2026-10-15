@@ -10,6 +10,14 @@ import { randomBytes } from 'node:crypto';
 import { isObject, restoreToolCall, type ToolNames } from '../tools.js';
 import type { JsonObject, ResponsesEvent, ResponsesItem } from '../types.js';
 import { encodeGeminiSignatures, encodeReasoning } from './request.js';
+import {
+  appendReasoningDetails,
+  type ChatThinkingOrigin,
+  encodeChatReplay,
+  reasoningText,
+  type ThinkingPart,
+  ThinkPrefixParser,
+} from './thinking.js';
 
 interface OpenItem {
   id: string;
@@ -27,6 +35,7 @@ interface PendingCall {
 
 export interface ChatStreamOptions {
   responseId?: string;
+  thinking?: ChatThinkingOrigin;
   /**
    * Gemini：工具调用带的 thought signature 收进一个 reasoning 项的信封（在这些调用之前提交），Codex 带回时请求方向把它
    * 挂回原来的调用（request.ts，model-gateway.md §4.5）。信封记下 Provider 与模型。
@@ -44,6 +53,9 @@ export class ChatStreamTranslator {
   readonly responseId: string;
   readonly #names: ToolNames;
   readonly #signatures: ChatStreamOptions['signatures'];
+  readonly #thinking: ChatStreamOptions['thinking'];
+  readonly #thinkPrefix: ThinkPrefixParser | undefined;
+  readonly #reasoningDetails: JsonObject[] = [];
   #outputIndex = 0;
   #reasoning: OpenItem | undefined;
   #message: OpenItem | undefined;
@@ -60,6 +72,9 @@ export class ChatStreamTranslator {
   constructor(names: ToolNames, options: ChatStreamOptions = {}) {
     this.#names = names;
     this.#signatures = options.signatures;
+    this.#thinking = options.thinking;
+    this.#thinkPrefix =
+      options.thinking?.format === 'minimax' ? new ThinkPrefixParser() : undefined;
     this.responseId = options.responseId ?? `resp_wevir_${randomBytes(12).toString('hex')}`;
   }
 
@@ -118,11 +133,20 @@ export class ChatStreamTranslator {
       : isObject(choice.message)
         ? choice.message
         : {};
-    const reasoning = textField(delta.reasoning_content) ?? textField(delta.reasoning);
-    if (reasoning !== undefined) events.push(...this.#reasoningDelta(reasoning));
+    appendReasoningDetails(this.#reasoningDetails, delta.reasoning_details);
+    const reasoning = reasoningText(delta);
+    if (reasoning !== '') events.push(...this.#reasoningDelta(reasoning));
     const content = textField(delta.content);
-    if (content !== undefined) events.push(...this.#textDelta(content));
+    if (content !== undefined) {
+      events.push(
+        ...(this.#thinkPrefix === undefined
+          ? this.#textDelta(content)
+          : this.#thinkingParts(this.#thinkPrefix.push(content))),
+      );
+    }
     if (Array.isArray(delta.tool_calls)) {
+      if (delta.tool_calls.length > 0 && this.#thinkPrefix !== undefined)
+        events.push(...this.#thinkingParts(this.#thinkPrefix.finish()));
       events.push(...this.#closeReasoning(), ...this.#closeMessage());
       for (const part of delta.tool_calls as unknown[])
         if (isObject(part)) this.#toolCallDelta(part);
@@ -147,7 +171,13 @@ export class ChatStreamTranslator {
     if (this.#finishReason === undefined && !this.#done) {
       return this.fail({ message: '上游的流在结束前断开（没有 finish_reason，也没有 [DONE]）' });
     }
-    const events = [...this.start(), ...this.#closeReasoning(), ...this.#closeMessage()];
+    const events = [
+      ...this.start(),
+      ...this.#thinkingParts(this.#thinkPrefix?.finish() ?? []),
+      ...this.#closeReasoning(),
+      ...this.#closeMessage(),
+      ...this.#replayDone(),
+    ];
     const reason = this.#finishReason;
     if (reason === 'length' || reason === 'content_filter') {
       // 截断的工具调用参数多半不完整，不交给 Codex 执行；已经出来的文本与推理照常提交。
@@ -239,6 +269,32 @@ export class ChatStreamTranslator {
       delta,
     });
     return events;
+  }
+
+  #thinkingParts(parts: ThinkingPart[]): ResponsesEvent[] {
+    return parts.flatMap((part) =>
+      part.kind === 'reasoning' ? this.#reasoningDelta(part.text) : this.#textDelta(part.text),
+    );
+  }
+
+  #replayDone(): ResponsesEvent[] {
+    if (
+      this.#thinking === undefined ||
+      (this.#reasoningDetails.length === 0 && this.#thinkPrefix?.tagged !== true)
+    )
+      return [];
+    return [
+      this.#itemDone({
+        type: 'reasoning',
+        id: `rs_${this.responseId}_${this.#outputIndex}`,
+        summary: [],
+        encrypted_content: encodeChatReplay({
+          ...this.#thinking,
+          ...(this.#reasoningDetails.length > 0 && { reasoning_details: this.#reasoningDetails }),
+          ...(this.#thinkPrefix?.tagged === true && { content: this.#thinkPrefix.raw }),
+        }),
+      }),
+    ];
   }
 
   #textDelta(delta: string): ResponsesEvent[] {

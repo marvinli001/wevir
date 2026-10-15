@@ -91,6 +91,7 @@ export function prepareUpstream(
         toResponsesEvents(
           response,
           new ChatStreamTranslator(chat.names, {
+            thinking: chat.thinking,
             ...(chat.signatures !== undefined && { signatures: chat.signatures }),
           }),
           signal,

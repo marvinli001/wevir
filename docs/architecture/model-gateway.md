@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.3（R1、R10、R8；P0a 通用工具方言与推理回放）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.4（Responses 方言、Chat 思考格式与 Messages 转换）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -114,14 +114,14 @@ await gateway.close();                                   // 停止监听，中�
 | 托管工具（web_search、image_generation 等） | 丢掉 |
 | `tools` 为空或全被丢掉 | 不发 `tools` 与 `tool_choice` |
 | `tool_choice`：`auto` / `none` / `required` / `{type: function \| custom, name}` | 同名；对象形式换成 `{type: function, function: {name: 摊平后的名字}}`；其他值按 `auto`；`compat.toolChoice: auto_only` 时 required / 具名改 auto，none 只去掉 tool_choice、保留 tools（与透传相同） |
-| `reasoning.effort` | `reasoning_effort`（`none` 不发）。`reasoning.summary` 丢掉。各家的思考开关（`compat.thinkingFormat`）本任务不处理 |
+| `reasoning.effort` | 按 `compat.thinkingFormat` 发思考开关、力度或预算（§4.4）；没有 effort 时保留上游默认。`reasoning.summary` 丢掉 |
 | `max_output_tokens`（Codex 不发，testProvider 发） | `compat.maxTokensField`；没设时 OpenAI 官方地址用 `max_completion_tokens`，其他用 `max_tokens`（与 providers.md §2.3 同一判断） |
 | `temperature`、`top_p` | 原样 |
 | `text.format` 是 `json_schema` | `response_format: {type: json_schema, json_schema: {name, schema, strict}}` |
 | `store`、`include`、`prompt_cache_key`、`client_metadata`、`service_tier`、`parallel_tool_calls`、`stream_options`、`truncation`、`previous_response_id`、`metadata`、`user` | 丢掉 |
 | 其他输入项（`web_search_call`、`local_shell_call`、`compaction`、`tool_search_*` 等） | 丢掉 |
 | — | 总是 `stream: true`、`stream_options: {include_usage: true}` |
-| — | `compat.requiresReasoningContentOnAssistantMessages`（没设时按地址：`deepseek.com` 及其子域为 true）：没有推理的 assistant 消息补 `reasoning_content: ""` |
+| — | `compat.requiresReasoningContentOnAssistantMessages`：没有推理的 assistant 补 `reasoning_content: ""`；显式值优先，其次按思考格式与 DeepSeek 地址补默认（§4.4） |
 
 丢掉的东西记在 `toChatRequest(...).dropped`（`field:<字段>`、`tool:<类型>`、`<输入项类型>`、`input_image:file_id`、`reasoning:orphan`），只给测试与排查，不进日志。
 
@@ -132,7 +132,8 @@ await gateway.close();                                   // 停止监听，中�
 | Chat（上游） | Responses（发给 Codex） |
 |---|---|
 | 收到 2xx | `response.created {response: {id: resp_wevir_<随机>, status: in_progress}}` |
-| `delta.reasoning_content`（DeepSeek、Kimi、通义）或 `delta.reasoning`（OpenRouter 等） | 第一片：`output_item.added {type: reasoning, id, summary: []}`；每片：`response.reasoning_text.delta {item_id, output_index, content_index: 0, delta}`；结束：`output_item.done {type: reasoning, summary: [], content: [{type: reasoning_text, text: 全文}], encrypted_content: wevir-gw:v1:<base64 全文>}`（Codex 带回时 content 与 encrypted_content 都可能只剩一个，两处都放全文） |
+| `delta.reasoning_content`、`delta.reasoning` 或 `delta.reasoning_details[]` 的 `text` / `summary` | 按这个顺序取第一种非空文本，同一个 chunk 不重复显示别名（阶跃同时给前两个字段）。第一片：`output_item.added {type: reasoning, id, summary: []}`；每片：`response.reasoning_text.delta {item_id, output_index, content_index: 0, delta}`；结束：`output_item.done {type: reasoning, summary: [], content: [{type: reasoning_text, text: 全文}], encrypted_content: wevir-gw:v1:<base64 全文>}`（Codex 带回时 content 与 encrypted_content 都可能只剩一个，两处都放全文） |
+| MiniMax 的 `content` 以 `<think>` 开头（允许前导空白，标签可跨 chunk） | 拆成推理与回答供 Codex 显示；保留完整原始 content，下一步原样回传。其他格式不解析正文里的标签，代码示例里的 `<think>` 原样显示。回传元数据见下文 |
 | `delta.content` | 推理项先提交；`output_item.added {type: message, role: assistant, content: []}` → `response.output_text.delta` → `output_item.done {content: [{type: output_text, text}]}` |
 | `delta.tool_calls[]` | 文本与推理先提交，分片按调用累积：按 `index` 归属（并行调用的分片可以交错）；带 `id` 的先按 `id` 找，同一个 `index` 来了另一个 `id` 时另开一个调用（有的上游每个调用都用 index 0）；既没有 `index` 也没有 `id` 的接到上一个调用；名字只在第一片或每片重复都行。流结束时**按 index 的顺序**提交：按 §4.3 的登记还原成 `custom_tool_call {call_id, name, namespace?, input}`（从 `{"input"}` 里取，取不到时原样）或 `function_call {call_id, name, namespace?, arguments}`；模型编的名字原样交给 Codex，由 Codex 报未知工具。上游没给 `id` 时网关补 `call_<随机>` |
 | `finish_reason: stop` / `tool_calls` / 其他，或只有 `[DONE]` | 提交还开着的项与工具调用，然后 `response.completed {response: {id, status: completed, output: [全部已提交的项], usage?}}` |
@@ -170,8 +171,25 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 | `systemMessageMode` | Chat 转换 | 对话中间的 developer / system 消息：`inline` 原位转 system；`merge` 全部并进开头的一条 system（用空行分隔，保持顺序；代价是开头的内容一变，上游的提示词缓存就失效）；`user` 开头连续的并成一条 system，之后的转成 user 消息，开头一行注明 `[Developer instruction from the application, not written by the user]`。给只接受开头一条 system 的上游用 | `inline` |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
-| `requiresReasoningContentOnAssistantMessages` | Chat 转换 | 每条 assistant 都带 `reasoning_content` | `deepseek.com` 为 true |
-| `thinkingFormat` | Messages 转换 | 只在 `anthropic-messages` 上读：`adaptive` / `enabled`（§5.4）。Chat 转换不读（各家思考开关的写法，以后按服务加） | 见 §5.4 |
+| `requiresReasoningContentOnAssistantMessages` | Chat 转换 | 每条 assistant 都带 `reasoning_content`，没有推理时补空串；false 只停止补空串，已有推理仍带回 | `deepseek` / `zai` / `minimax` / `tencent` 格式、Kimi 模型或 DeepSeek 地址为 true，其他 false；显式值优先 |
+| `thinkingFormat` | Chat、Messages 转换 | Chat 读下表的六种格式；Messages 读 `adaptive` / `enabled`（§5.4）。仍是 optional string，不收窄协议类型 | Chat 的 DeepSeek 地址默认 `deepseek`；其他未设时沿用旧规则（非 none 的 effort 发 reasoning_effort）。Messages 见 §5.4 |
+
+**Chat 的思考格式（2026-10-15 核对）。** 同名的 `openai` / `deepseek` / `qwen` / `zai` 沿用 dsh 所用 pi-ai 1.1.0 的参数位置与开关语义；网关另处理模型限制与推理回传。`minimax` / `tencent` 是网关扩展，当前只用于 Codex，不能直接写进 dsh 的 pi-ai overlay。未实现的 pi-ai 格式仍接受保存，Chat 按旧规则发送，不能当成已支持的方言。本次不更新任何服务模板，也不迁移已存 Provider。
+
+| thinkingFormat | 非 none 的 effort | none 与不能关闭的模型 |
+|---|---|---|
+| `openai` | 顶层 `reasoning_effort`；阶跃使用同一格式，`minimal`→low、`xhigh` / max→high；`step-3.5-flash-2603` 的 medium→high | 显式 openai 发 `reasoning_effort: none`（Ollama 的兼容端点认它）；阶跃改 low。未设格式的旧 Provider 仍省略 none |
+| `deepseek` | `thinking: {type: enabled}` + `reasoning_effort`；minimal→low，medium / xhigh→high，low / high / max 保持。Kimi K2.6 改发 `thinking: {type: enabled, keep: all}`，不发 effort；K2.7-code 按官方指南省略 thinking 与 effort；K3 只发 low / high / max 的 effort，不发 thinking（medium / xhigh→high） | DeepSeek / K2.6 发 `thinking: {type: disabled}`；K3 改 low；K2.7-code 省略开关与 effort，保留强制思考 |
+| `qwen` | `enable_thinking: true`、`preserve_thinking: true` 与 `thinking_budget`：minimal 1024、low 4096、medium 8192、high 16384、xhigh / max 32768。这是 Wevir 的预算映射，不是厂商的力度枚举。Kimi K3 只发 effort，不发预算 | `enable_thinking: false`；模型目录声明了非空档位且不含 off 时降到声明的最低档；Kimi K3 改 low |
+| `zai` | `thinking: {type: enabled, clear_thinking: false}` + 顶层 `reasoning_effort`。GLM-5.3 系列 minimal→low、medium / xhigh→high；其他模型 effort 原样（GLM-5.2 由上游按文档映射） | 发 `thinking: {type: disabled}`，不发 effort；GLM-5.3 系列强制思考，改 enabled + low |
+| `minimax` | 始终 `reasoning_split: true`；发 `thinking: {type: adaptive}`。M3.1 的 effort 原样（minimal→low）；M3 / M2.x 不发无效的 effort | M3 发 disabled；M3.1 改 adaptive + low；M2.x 省略关闭参数，保留强制思考 |
+| `tencent` | `thinking: {type: enabled}` + 顶层 `reasoning_effort`（minimal→low、xhigh / max→high）；不只给 budget_tokens，避免缺 type 的 400 | `thinking: {type: disabled}`；托管的 GLM-5.3 / Kimi K3 改 enabled + low，K2.7-code 省略关闭参数 |
+
+此外，Provider 的 `models[].reasoningEfforts` 非空且没有 off 时，none 取目录中最小的有效档；空数组与未声明不据此推断能力。没有 effort 时不发思考控制（MiniMax 仍发输出格式 reasoning_split）。只收 auto 的服务显式设 `toolChoice: auto_only`，复用已有规则；思考格式不擅自改工具选择，也不为订阅套餐的域名加默认值。
+
+**推理回传元数据。** `reasoning_details` 不只取文本：其 id、format、index、签名与未知字段也保留。流中同一文本 / summary 块的连续分片合并，其他块原样保留。流结束、工具调用提交前，另提交一个没有可显示文本的 reasoning 项，`encrypted_content = wevir-gw:chat:v1:<base64(JSON)>`，内容是 `{provider, model, format, reasoning_details?, content?}`；content 只在 MiniMax 实际给了前缀 `<think>` 时保存。请求方向只为同一个 Provider、模型与格式恢复这些字段，普通推理仍从明文或旧的 wevir-gw:v1 信封读出。不跨模型带回签名，也不把正文中的字面标签重新包装。
+
+来源：[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode)、[百炼深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[Z.ai 思考模式](https://docs.z.ai/guides/capabilities/thinking-mode)、[Z.ai Chat 参数](https://docs.z.ai/api-reference/llm/chat-completion)、[Kimi 思考模型](https://platform.kimi.com/docs/guide/use-thinking-models.md)、[MiniMax Chat 参数](https://platform.minimax.io/docs/api-reference/text-openai-api)、[MiniMax 工具指南](https://platform.minimax.cn/docs/guides/text-m3-function-call)、[阶跃工具调用](https://platform.stepfun.com/docs/zh/api-reference/tool-call.md)、[Ollama OpenAI 兼容](https://docs.ollama.com/api/openai-compatibility)、[TokenHub Chat 字段](https://intl.cloud.tencent.com/zh/document/product/1300/82345)。MiniMax 两页仍分别写 reasoning_content 与 reasoning_details，网关兼容两者，实际按量端点返回哪一种待真实 Key 验证；Ollama 当前已列 tool_choice 支持，不自动删除它。
 
 ### 4.5 Gemini 的 thought signature（R8）
 
@@ -273,7 +291,7 @@ JSON = {provider: <Provider ID>, model: <请求的模型>, type: "thinking", thi
 
 ### 5.4 思考开关与 `max_tokens`
 
-各家的思考开关写法不同（Anthropic 4.6 起是 `adaptive`，4.7 起拒收 `enabled`；更早的 Claude 只认 `enabled` + `budget_tokens`；DeepSeek 认 `enabled` / `disabled`、忽略 `budget_tokens`，档位放在 `output_config.effort`，见 dsh 的 llm-deepseek）。网关按 Codex 发的 `reasoning` 与 Provider 的 `compat.thinkingFormat`（协议里已有的字段，Chat 不读它；`anthropic-messages` 上只接受下面两个值，`validateProvider` 检查）：
+各家的思考开关写法不同（Anthropic 4.6 起是 `adaptive`，4.7 起拒收 `enabled`；更早的 Claude 只认 `enabled` + `budget_tokens`；DeepSeek 认 `enabled` / `disabled`、忽略 `budget_tokens`，档位放在 `output_config.effort`，见 dsh 的 llm-deepseek）。网关按 Codex 发的 `reasoning` 与 Provider 的 `compat.thinkingFormat`（协议里已有的字段；Chat 用法见 §4.4；`anthropic-messages` 上只接受下面两个值，`validateProvider` 检查）：
 
 | `reasoning.effort` | 发给上游的 |
 |---|---|
@@ -322,8 +340,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 
 | 层 | 文件 | 内容 |
 |---|---|---|
-| 单元 | `chat/request.test.ts`、`chat/response.test.ts`、`messages/request.test.ts`、`messages/response.test.ts`、`tools.test.ts`、`dialects.test.ts`、`sse.test.ts`、`errors.test.ts`、`providers.test.ts` | §3、§4、§5 的每一项（P0a 加：录制样本下 toolChoice / namespace 开关、声明覆盖地址默认与 null 加密推理；R8 加：`content: null` 的推理项、xAI 地址的两条摊平与相反顺序的还原、Gemini 签名信封的往返、换模型与缺签名时的占位值）：录制样本的转换（快照在 `src/__snapshots__/codex-requests/*.chat.json` 与 `*.messages.json`）、对话中间的 developer 消息各模式、图片、工具输出里的图片、孤立的推理、长名字与撞名、length / content_filter、流中的错误与提前断开、交错的并行调用、没有 index 的上游、整段 JSON；Messages 另有思考信封的往返与不带回的各种情况、不合规则的 call_id、占位工具、思考开关与 `max_tokens` 的取值、redacted_thinking、相邻 text 块合并、各 stop_reason、usage 的缓存读写；每个事件序列都过一遍 `codexProblems`（按 Codex 的解析规则检查） |
-| 集成 | `gateway.integration.test.ts`、`compat.integration.test.ts`、`provider-test.integration.test.ts` | P0a：拒收非 auto / namespace / null 加密推理的 mock，原始请求 400、开关改写后 200，与响应的工具类型 / 命名空间还原；真实 HTTP：令牌、路由、透传（请求体只少 `client_metadata`、请求头白名单、Key 替换）、deepseek-official、两条方言修正、gzip、Chat 转换（apply_patch 与 namespace 往返、交错的并行调用、incomplete、failed）、Messages 转换（请求头、工具调用与跨回合思考的三步往返、不给签名的上游、压缩请求、incomplete、failed、Anthropic 风格的错误正文）、上游错误（状态码与正文、Key 遮掉）、502、Codex 断开时中断上游（三种处理方式）、`setProviders` 不影响进行中的请求、`close()`、日志口径；testProvider 的成功与每种失败（三种处理方式）。Messages 的 mock（`test-fixtures/mock-messages.ts`）按 Anthropic 的结构规则检查请求，不合规则就回 400：`max_tokens`、`budget_tokens`、角色交替、空文本、思考块的签名（对原文哈希，改了就对不上）、`tool_result` 紧跟且排在最前、有工具调用就必须定义工具、名字与 id 的字符 |
+| 单元 | `chat/request.test.ts`、`chat/response.test.ts`、`messages/request.test.ts`、`messages/response.test.ts`、`tools.test.ts`、`dialects.test.ts`、`sse.test.ts`、`errors.test.ts`、`providers.test.ts` | §3、§4、§5 的每一项（Chat 思考格式另在 `chat/thinking.test.ts` 覆盖六种格式、none、模型限制、推理别名、标签的全部分片边界与回传信封；通用方言加：录制样本下 toolChoice / namespace 开关、声明覆盖地址默认与 null 加密推理；R8 加：`content: null` 的推理项、xAI 地址的两条摊平与相反顺序的还原、Gemini 签名信封的往返、换模型与缺签名时的占位值）：录制样本的转换（快照在 `src/__snapshots__/codex-requests/*.chat.json` 与 `*.messages.json`）、对话中间的 developer 消息各模式、图片、工具输出里的图片、孤立的推理、长名字与撞名、length / content_filter、流中的错误与提前断开、交错的并行调用、没有 index 的上游、整段 JSON；Messages 另有思考信封的往返与不带回的各种情况、不合规则的 call_id、占位工具、思考开关与 `max_tokens` 的取值、redacted_thinking、相邻 text 块合并、各 stop_reason、usage 的缓存读写；每个事件序列都过一遍 `codexProblems`（按 Codex 的解析规则检查） |
+| 集成 | `gateway.integration.test.ts`、`compat.integration.test.ts`、`chat-thinking.integration.test.ts`、`provider-test.integration.test.ts` | Chat 思考格式：拒收缺 reasoning_content 的 mock、MiniMax 原始正文与 reasoning_details 的两步回传；通用方言：拒收非 auto / namespace / null 加密推理的 mock，原始请求 400、开关改写后 200，与响应的工具类型 / 命名空间还原；真实 HTTP：令牌、路由、透传（请求体只少 `client_metadata`、请求头白名单、Key 替换）、deepseek-official、两条方言修正、gzip、Chat 转换（apply_patch 与 namespace 往返、交错的并行调用、incomplete、failed）、Messages 转换（请求头、工具调用与跨回合思考的三步往返、不给签名的上游、压缩请求、incomplete、failed、Anthropic 风格的错误正文）、上游错误（状态码与正文、Key 遮掉）、502、Codex 断开时中断上游（三种处理方式）、`setProviders` 不影响进行中的请求、`close()`、日志口径；testProvider 的成功与每种失败（三种处理方式）。Messages 的 mock（`test-fixtures/mock-messages.ts`）按 Anthropic 的结构规则检查请求，不合规则就回 400：`max_tokens`、`budget_tokens`、角色交替、空文本、思考块的签名（对原文哈希，改了就对不上）、`tool_result` 紧跟且排在最前、有工具调用就必须定义工具、名字与 id 的字符 |
 | 真实模型（可选） | `gateway.real.integration.test.ts` | `WEVIR_TEST_API_KEY` + `WEVIR_TEST_PROVIDER=deepseek`（或 `deepseek-official`）时，DeepSeek 的透传、Chat 转换与 Messages 转换（`https://api.deepseek.com/anthropic`）各一次最小对话与 testProvider；Messages 另跑一次带工具调用与跨回合思考的对话（三个请求，打印推理项与带签名的数量）。模型默认 `deepseek-flash`，`WEVIR_TEST_MODEL` 可改。否则跳过并打印原因 |
 | 端到端（手动） | `spikes/codex-app-server`：`WEVIR_SPIKE_GATEWAY=product node src/run-all.ts --transport=gateway,passthrough`（先 `pnpm --filter @wevir/model-gateway build`） | 真实 `codex-app-server` 经产品网关跑 Spike 的 12 个场景（流式、apply_patch 与审批、跨回合推理、子 agent、取消、resume、计划、上游错误、密钥）。2026-10-14：104 项检查全部通过。R2 的契约测试第 2 层建成后由它替代 |
 
@@ -356,7 +374,7 @@ Codex 升级时重查上述字段默认值、Provider 判定与触发条件；�
 - Gemini 原生协议（经兼容端点够用，§4.5）；Gemini 的思考内容不返回、不显示。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
 - Messages：缺签名的思考不带回（§5.3）；`thinkingFormat` 只有 `adaptive` / `enabled` 两种，Sonnet 4.5、Haiku 4.5 不认 `output_config.effort` 却没有开关去掉；`max_tokens` 的默认值 32000 对上限更低的服务要在 Provider 里写明；Anthropic 的 HTTP 400 “prompt is too long”原样转回，Codex 不会把它认成上下文超长（只有流里的 `context_length_exceeded` 才会）；不发 `metadata.user_id`、`stop_sequences`、服务端工具；`custom_tool_call_input.delta` 同 Chat，不生成。
-- Chat 转换不传 `parallel_tool_calls`、`strict`（为兼容性），不处理各家的思考开关；`reasoning.summary` 没有对应。
+- Chat 转换不传 `parallel_tool_calls`、`strict`（为兼容性）；`reasoning.summary` 没有对应。§4.4 的思考格式以官方文档与 mock 验证，缺真实 Key 时不能算各服务的验收；minimax / tencent 扩展目前不能用于 dsh；Qwen 新 reasoning.effort 的替代接口留给服务接入时核对，目前沿用仍有官方文档的 enable_thinking。模型别名不能据名称认出强制思考能力时，须在模型目录准确声明 reasoningEfforts。
 - 图片只支持 data URL 与网址，`file_id` 引用丢掉。
 - `custom_tool_call_input.delta` 增量不生成（Chat 转换在流结束时才提交工具调用），apply_patch 的补丁内容不会边生成边显示。
 - Host 进程里的 `fetch` 不读 `HTTPS_PROXY` 等代理变量（providers.md §6.3 的同一局限）。

@@ -1,7 +1,7 @@
 // Responses 请求 → Chat Completions 请求。改写自 spikes/codex-app-server/src/gateway.ts（mapInput 等），
 // 映射表见 docs/architecture/model-gateway.md §4.1（codex-notes §5.1 的表加上 Spike 没做的部分）。
 
-import { effectiveCompat, isDeepSeekHost, isGeminiHost, isOpenAIOfficial } from '../providers.js';
+import { effectiveCompat, isGeminiHost, isOpenAIOfficial } from '../providers.js';
 import {
   compatibleToolChoice,
   customCallArguments,
@@ -18,6 +18,14 @@ import type {
   ResponsesItem,
   ResponsesRequest,
 } from '../types.js';
+import {
+  type ChatReplay,
+  type ChatThinkingOrigin,
+  chatThinkingFormat,
+  chatThinkingParameters,
+  decodeChatReplay,
+  requiresReasoning,
+} from './thinking.js';
 
 /** 网关自己写进 reasoning 项 `encrypted_content` 的前缀：后面是推理全文的 base64（§4.2）。 */
 export const ENCRYPTED_REASONING_PREFIX = 'wevir-gw:v1:';
@@ -83,6 +91,8 @@ export interface ChatTranslation {
   dropped: string[];
   /** Gemini 上游：响应方向把 thought signature 收进信封（Provider 与本次的模型）。 */
   signatures?: { provider: string; model: string };
+  /** 响应方向的结构化推理与 MiniMax 原始正文回传信封。 */
+  thinking: ChatThinkingOrigin;
 }
 
 /** 请求体里网关不转给 Chat 上游的字段（Responses 专有，或 Chat 没有对应）。 */
@@ -105,6 +115,11 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
   const baseURL = provider.baseURL ?? '';
   const names = new ToolNames();
   const dropped: string[] = [];
+  const thinking: ChatThinkingOrigin = {
+    provider: provider.id,
+    model: body.model,
+    format: chatThinkingFormat(provider) ?? 'openai',
+  };
   const tools = toChatTools(body.tools, names, dropped);
   const signatures = isGeminiHost(baseURL)
     ? { provider: provider.id, model: body.model }
@@ -114,7 +129,8 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
     dropped,
     mode: compat.systemMessageMode ?? 'inline',
     developerRole: compat.supportsDeveloperRole === true,
-    requireReasoning: compat.requiresReasoningContentOnAssistantMessages ?? isDeepSeekHost(baseURL),
+    requireReasoning: requiresReasoning(provider, body.model),
+    thinking,
     ...(signatures !== undefined && { signatures }),
   });
   const request: ChatRequest = {
@@ -137,7 +153,7 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
     request[field] = body.max_output_tokens;
   }
   const effort = isObject(body.reasoning) ? body.reasoning.effort : undefined;
-  if (typeof effort === 'string' && effort !== 'none') request.reasoning_effort = effort;
+  Object.assign(request, chatThinkingParameters(provider, body.model, effort));
   for (const key of ['temperature', 'top_p'] as const) {
     if (typeof body[key] === 'number') request[key] = body[key];
   }
@@ -153,7 +169,7 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
     };
   }
   for (const key of DROPPED_FIELDS) if (body[key] !== undefined) dropped.push(`field:${key}`);
-  return { request, names, dropped, ...(signatures !== undefined && { signatures }) };
+  return { request, names, dropped, thinking, ...(signatures !== undefined && { signatures }) };
 }
 
 interface MessageContext {
@@ -162,6 +178,7 @@ interface MessageContext {
   mode: 'inline' | 'merge' | 'user';
   developerRole: boolean;
   requireReasoning: boolean;
+  thinking: ChatThinkingOrigin;
   /** Gemini：带回 thought signature，只认同一个 Provider 与模型的信封。 */
   signatures?: { provider: string; model: string };
 }
@@ -170,6 +187,8 @@ function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessag
   const messages: ChatMessage[] = [];
   const merged: string[] = [];
   let pendingReasoning = '';
+  let pendingReplay: ChatReplay | undefined;
+  const replays = new Map<ChatMessage, ChatReplay>();
   /** 信封里还没挂到工具调用上的签名，按 call_id。 */
   const signatures = new Map<string, string>();
   let toolImages: ChatContentPart[] = [];
@@ -194,14 +213,19 @@ function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessag
       open.reasoning_content = (open.reasoning_content ?? '') + pendingReasoning;
       pendingReasoning = '';
     }
+    if (pendingReplay !== undefined) {
+      replays.set(open, pendingReplay);
+      pendingReplay = undefined;
+    }
     return open;
   };
   const closeAssistant = () => {
     open = undefined;
     // 推理之后没有任何输出就换了说话人（回合被中断）：没有可挂的 assistant 消息，丢掉。
-    if (pendingReasoning !== '') {
+    if (pendingReasoning !== '' || pendingReplay !== undefined) {
       ctx.dropped.push('reasoning:orphan');
       pendingReasoning = '';
+      pendingReplay = undefined;
     }
   };
   const system = (text: string, role: 'system' | 'developer') => {
@@ -244,6 +268,18 @@ function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessag
         break;
       }
       case 'reasoning': {
+        const replay = decodeChatReplay(item.encrypted_content);
+        if (replay !== undefined) {
+          if (
+            replay.provider === ctx.thinking.provider &&
+            replay.model === ctx.thinking.model &&
+            replay.format === ctx.thinking.format
+          ) {
+            if (open !== undefined) replays.set(open, replay);
+            else pendingReplay = replay;
+          } else ctx.dropped.push('reasoning:foreign_replay');
+          break;
+        }
         const envelope =
           ctx.signatures === undefined ? undefined : decodeGeminiSignatures(item.encrypted_content);
         if (envelope !== undefined) {
@@ -309,6 +345,12 @@ function toChatMessages(body: ResponsesRequest, ctx: MessageContext): ChatMessag
   }
   flushToolImages();
   closeAssistant();
+  // 元数据可能在可显示的文本之后到达；最后恢复原始正文，避免把显示文本再追加一遍。
+  for (const [message, replay] of replays) {
+    if (replay.content !== undefined) message.content = replay.content;
+    if (replay.reasoning_details !== undefined)
+      message.reasoning_details = replay.reasoning_details;
+  }
   if (merged.length > 0) messages.unshift({ role: 'system', content: merged.join('\n\n') });
   if (ctx.requireReasoning) {
     for (const m of messages) if (m.role === 'assistant') m.reasoning_content ??= '';

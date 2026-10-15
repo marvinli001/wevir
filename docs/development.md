@@ -322,6 +322,8 @@ WEVIR_TEST_API_KEY=<Gemini Key> WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST
 
 截至 2026-10-14 本机没有 Key，第 3 层与各真实模型用例都还没有跑过（Gate M3 的待办）。P0a（2026-10-15）同样没有 `WEVIR_TEST_API_KEY`；通用开关的本地验收用录制 Codex 请求 + 拒收非 auto、namespace 与 null 加密推理的 mock（`pnpm vitest run --project model-gateway --maxWorkers=2`），不能替代逐家的契约第 3 层与桌面端带工具对话。Codex 升级前按 model-gateway.md §10 复查新输入项的触发条件。
 
+Chat 思考格式的本地验收（2026-10-15）：同一份 `2-tool-results` 录制请求覆盖六种思考格式，HTTP mock 拒收缺 reasoning_content 的历史，MiniMax 的正文标签与 reasoning_details 经 Responses 历史再完整带回；运行 `pnpm vitest run --project model-gateway --maxWorkers=2`。真实 Key 未提供时不启动桌面真实模型验收，也不把 mock 结果视为契约第 3 层通过。需要代理地址上指定 thinkingFormat 时，当前第 3 层的环境变量还没有 compat 入口；逐服务接入时应补测试配置入口或使用按地址可识别的配置，不能把协议名称当成思考格式。minimax / tencent 的新格式目前只适用于 Codex 网关，dsh 共用格式为 openai / deepseek / qwen / zai（model-gateway.md §4.4）。
+
 ### 6.4 其他
 
 - **审批用例要求仓库不在系统临时目录下。** dsh 的 `workspace-write` 允许不经审批写 `/tmp` 与 `$TMPDIR`，审批用例的写入目标是 `packages/adapter-dsh/.test-outside/`；仓库克隆在 `/tmp` 下时，这些用例直接报“在系统临时目录 … 下，写入不会触发审批”。

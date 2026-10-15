@@ -52,6 +52,8 @@ export interface ChatMessage {
   role: 'system' | 'developer' | 'user' | 'assistant' | 'tool';
   content: string | ChatContentPart[] | null;
   reasoning_content?: string;
+  /** 上游给出的结构化推理与签名，回传时保留（model-gateway.md §4.4）。 */
+  reasoning_details?: JsonObject[];
   tool_calls?: ChatToolCall[];
   tool_call_id?: string;
 }
@@ -121,7 +123,8 @@ export interface GatewayCompat extends ProviderCompatConfig {
    */
   systemMessageMode?: 'inline' | 'merge' | 'user';
   /**
-   * 协议共用的字段（各家思考开关的写法）。网关只在 `anthropic-messages` 上读它：`adaptive` 发
+   * 协议共用的字段（各家思考开关的写法）。Chat 读 openai / deepseek / qwen / zai / minimax / tencent
+   * （model-gateway.md §4.4）；`anthropic-messages` 上：`adaptive` 发
    * `thinking: {type: adaptive}`，`enabled` 发 `thinking: {type: enabled, budget_tokens}`；不设时模型 ID 以
    * `claude-` 开头用 `adaptive`，其余用 `enabled`（model-gateway.md §5.4）。
    */

@@ -78,6 +78,8 @@ Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 
 
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
+Codex 的 Chat 转换也读取 `thinkingFormat`（2026-10-15）：`openai` / `deepseek` / `qwen` / `zai` 使用与 pi-ai 同名格式相同的参数位置与开关语义；力度、none、强制思考模型与预算的映射见 [model-gateway.md §4.4](./model-gateway.md#44-网关的-compat-开关)。`minimax` / `tencent` 是网关扩展，当前只用于 Codex，dsh 上游的配置枚举不认这两个值。通过代理接入时必须显式写格式；DeepSeek 地址仍默认 deepseek。推理必填的默认值按格式补，显式 `requiresReasoningContentOnAssistantMessages: false` 可以停止补空串；模型已返回的推理不删除。只收 auto 的服务另设 `toolChoice: auto_only`。这些规则不更新模板、不自动改已有 Provider，桌面表单仍原样保存 compat。
+
 ### 2.4 生成的 overlay 示例
 
 `deepseek-official`（有 Key）加一个 Kimi：
@@ -395,3 +397,11 @@ Codex 引擎经网关转 Messages（R10，[model-gateway.md](./model-gateway.md)
 来源：platform.claude.com 的 models overview 与 effort 页（2026-10-14）。四个模型都支持五档 effort；Opus 5.5 的思考不能关（`none` 会 400），所以不列 `off`。
 
 桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 要 Google Cloud 的 OAuth 令牌，模型网关还没有，先标“即将支持”。
+
+### 7.10 已有 Chat Provider 的思考配置
+
+选择 Chat 是为了服务只提供 Chat 端点，或当前 API Key 不能使用它的 Responses 端点。已有 Provider 不自动迁移；通过 `provider.upsert` 编辑原有 Profile、保留地址与模型，按服务补 compat，例如智谱 / Z.ai 用 `{"thinkingFormat":"zai","toolChoice":"auto_only"}`，MiniMax 用 `{"thinkingFormat":"minimax"}`，TokenHub 用 `{"thinkingFormat":"tencent","toolChoice":"auto_only"}`。这些是按量端点的配置片段，不是订阅套餐模板；minimax / tencent 格式目前只适用于 Codex 引擎。
+
+模型目录只声明厂商支持的 reasoningEfforts，不能关闭思考的模型不列 off。Kimi K3 在 Chat 上用 openai 或 deepseek 格式（只发 reasoning_effort），K2.6 用 deepseek 格式（thinking.type 与 keep: all）；模型特例与 MiniMax 的原始思考回传见 model-gateway.md §4.4。provider.test 不带 reasoning.effort，仅验证最小连接，不能证明工具调用后的第二步、推理回传或强制思考模型的小输出上限可用。
+
+来源与核对日期：2026-10-15，[Z.ai Chat 参数](https://docs.z.ai/api-reference/llm/chat-completion)、[Kimi 思考模型](https://platform.kimi.com/docs/guide/use-thinking-models.md)、[MiniMax Chat 参数](https://platform.minimax.io/docs/api-reference/text-openai-api)、[MiniMax 工具指南](https://platform.minimax.cn/docs/guides/text-m3-function-call)、[TokenHub Chat 字段](https://intl.cloud.tencent.com/zh/document/product/1300/82345)。本次没有真实 API Key，仍需逐服务验证；大陆网络与地域说明沿用各服务节，在正式更新模板时再核对。
