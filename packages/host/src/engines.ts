@@ -7,6 +7,7 @@
 // 订阅的账号状态（host-process.ts）。
 
 import { ClaudeAdapter } from '@wevir/adapter-claude';
+import { CursorAdapter, isCursorShellSpawnFailure } from '@wevir/adapter-cursor';
 import type { AdapterContext } from './cli.js';
 import type { EngineRoute } from './engine-router.js';
 
@@ -23,5 +24,23 @@ export function subscriptionEngines(context: AdapterContext): EngineRoute[] {
       }),
       kinds: ['claude'],
     },
+    // Cursor（@cursor/sdk 在 Host 进程里跑，docs/architecture/cursor-event-mapping.md）：SDK 第一次读账号或建会话时才加载。
+    {
+      name: 'cursor',
+      adapter: new CursorAdapter({
+        home: context.home,
+        logger: context.logger,
+        ...(context.env !== undefined && { env: context.env }),
+      }),
+      kinds: ['cursor'],
+    },
   ];
+}
+
+/**
+ * 在 Host 进程里跑的引擎留下的、只记日志不退出的 unhandled rejection（cli.ts）：Cursor SDK 给工具调用起 shell 失败时 reject 一个
+ * 没人等的内部 promise（adapter-cursor 的 errors.ts）。
+ */
+export function isIgnorableEngineRejection(reason: unknown): boolean {
+  return isCursorShellSpawnFailure(reason);
 }

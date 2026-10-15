@@ -238,7 +238,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 
-10. T3 Code（“变更”窗格、回合快照与 Claude Agent 引擎）
+10. T3 Code（“变更”窗格、回合快照与 Claude Agent、Cursor 引擎）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
 来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
@@ -291,6 +291,19 @@ Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevi
 
 packages/adapter-claude/src/test-fixtures/sdk/ 是 Claude Code（Anthropic 的商业条款，© Anthropic PBC）经 Claude Agent
 SDK 交出的消息的录制，见 docs/upstream/UPSTREAM.md §4.1。
+
+订阅来源 Cursor 的引擎移植自 packages/provider-cursor/src/server/，改写成不依赖 Effect 的 TypeScript：
+
+  packages/adapter-cursor/src/sdk.ts
+  packages/adapter-cursor/src/errors.ts
+  packages/adapter-cursor/src/credentials.ts
+  packages/adapter-cursor/src/accounts.ts
+  packages/adapter-cursor/src/models.ts
+  packages/adapter-cursor/src/transport-failure.ts
+  packages/adapter-cursor/src/transport-failure.test.ts
+  packages/adapter-cursor/src/tool-display.ts
+  packages/adapter-cursor/src/mapping.ts
+  packages/adapter-cursor/src/cursor-adapter.ts
 
 许可证全文见文末“MIT License”。
 
@@ -352,6 +365,9 @@ pnpm-workspace.yaml。
 MIT License
 ------------------------------------------------------------------------------------------------
 第 1–3 节、第 8–10 节与第 11 节的 Shiki 的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+
+MIT License
+------------------------------------------------------------------------------------------------
 
 MIT License
 ------------------------------------------------------------------------------------------------

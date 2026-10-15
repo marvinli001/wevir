@@ -5,7 +5,7 @@ import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
 import { EngineRouter } from './engine-router.js';
-import { subscriptionEngines } from './engines.js';
+import { isIgnorableEngineRejection, subscriptionEngines } from './engines.js';
 import { EXIT_CODE } from './exit-code.js';
 import { homePath, resolveHome } from './home.js';
 import {
@@ -324,7 +324,13 @@ export async function runHostCli(
       else finish(EXIT_CODE.failure);
     };
     proc.on('uncaughtException', onFatal);
-    proc.on('unhandledRejection', onFatal);
+    proc.on('unhandledRejection', (reason: unknown) => {
+      if (isIgnorableEngineRejection(reason)) {
+        logger.warn('engine shell spawn failed; the host keeps running', { error: reason });
+        return;
+      }
+      onFatal(reason);
+    });
     if (options.exitOnStdinEof) {
       const onEof = () => beginShutdown({ kind: 'stdin_eof' }, EXIT_CODE.ok);
       // 内容丢弃；只关心管道何时结束（拉起方退出或崩溃）。

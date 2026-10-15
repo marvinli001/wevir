@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CodexRuntime } from '@wevir/adapter-codex';
+import { CursorAdapter } from '@wevir/adapter-cursor';
 import { DshAdapter } from '@wevir/adapter-dsh';
 import { CloseCode } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -136,7 +137,7 @@ describe('runHostCli', () => {
     // 真实 dsh 上的端到端见 cli.dsh.integration.test.ts。
   });
 
-  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent）经 EngineRouter 挂在后面，同样不起进程', () => {
+  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor）经 EngineRouter 挂在后面，同样不起进程', () => {
     const home = join(tempDir(), 'home');
     // 二进制只解析路径（WEVIR_CODEX_BIN），版本在第一次启动前才核对，这里不会运行它。
     const fakeBinary = join(tempDir(), 'codex-app-server');
@@ -145,20 +146,21 @@ describe('runHostCli', () => {
     try {
       const adapter = createAdapter('codex', { home, logger: createLogger({ mirror: () => {} }) });
       expect(adapter).toBeInstanceOf(EngineRouter);
-      const routes = (adapter as EngineRouter).routes;
-      expect(routes.map((route) => [route.name, route.kinds])).toEqual([
+      const router = adapter as EngineRouter;
+      expect(router.routes.map((route) => [route.name, route.kinds])).toEqual([
         ['codex', ['deepseek-official', 'openai-compatible', 'chatgpt']],
         ['claude', ['claude']],
+        ['cursor', ['cursor']],
       ]);
-      expect(routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
-      expect(routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
-      expect(adapter.accounts?.kinds).toEqual(['chatgpt', 'claude']);
-      const codex = routes[0]?.adapter as CodexRuntime;
+      expect(router.routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
+      expect(router.routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
+      expect(router.routes[2]?.adapter).toBeInstanceOf(CursorAdapter);
+      const codex = router.routes[0]?.adapter as CodexRuntime;
       expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
       expect(codex.gateway.process.state).toBe('stopped');
       expect(codex.chatgpt.process.state).toBe('stopped');
-      expect(codex.accounts.kinds).toEqual(['chatgpt']);
+      expect(router.accounts?.kinds).toEqual(['chatgpt', 'claude', 'cursor']);
       expect(existsSync(home)).toBe(false);
     } finally {
       vi.unstubAllEnvs();
@@ -221,6 +223,24 @@ describe('runHostCli', () => {
     const text = readFileSync(join(home, 'logs', LOG_FILE), 'utf8');
     expect(text).not.toContain(info.token);
     expect(out.stdout).not.toContain(info.token);
+  });
+
+  it('Cursor SDK 起 shell 失败留下的 unhandled rejection 只记日志，Host 照常运行；别的 unhandled rejection 仍然致命', async () => {
+    const { home, exit, emit } = await launch();
+    const spawnFailure = Object.assign(new Error('spawn /bin/zsh ENOENT'), {
+      syscall: 'spawn /bin/zsh',
+      code: 'ENOENT',
+      spawnargs: ['-c', 'dump_zsh_state >/tmp/x; ls'],
+    });
+    emit('unhandledRejection', spawnFailure);
+    expect(existsSync(join(home, 'run', 'host.json'))).toBe(true);
+    expect(
+      logLines(home).some((l) => l.msg === 'engine shell spawn failed; the host keeps running'),
+    ).toBe(true);
+
+    emit('unhandledRejection', new Error('boom'));
+    expect(await exit).toBe(EXIT_CODE.failure);
+    expect(logLines(home).some((l) => l.msg === 'fatal error')).toBe(true);
   });
 
   it('WEVIR_HOME 优先于 --home；SIGINT 同样优雅退出', async () => {

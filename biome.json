@@ -73,6 +73,10 @@
                 "message": "引擎边界：只有 packages/adapter-claude 可以 import @anthropic-ai/claude-agent-sdk 与 @anthropic-ai/claude-code（见 AGENTS.md）。"
               },
               {
+                "group": ["@cursor/sdk", "@cursor/sdk/**", "@cursor/sdk-*", "@cursor/sdk-*/**"],
+                "message": "引擎边界：只有 packages/adapter-cursor 可以 import @cursor/sdk*（见 AGENTS.md）。"
+              },
+              {
                 "group": ["**/spikes/**"],
                 "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
               }
@@ -112,6 +116,10 @@
                     "message": "引擎边界：只有 packages/adapter-claude 可以 import @anthropic-ai/claude-agent-sdk 与 @anthropic-ai/claude-code（见 AGENTS.md）。"
                   },
                   {
+                    "group": ["@cursor/sdk", "@cursor/sdk/**", "@cursor/sdk-*", "@cursor/sdk-*/**"],
+                    "message": "引擎边界：只有 packages/adapter-cursor 可以 import @cursor/sdk*（见 AGENTS.md）。"
+                  },
+                  {
                     "group": ["**/spikes/**"],
                     "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
                   }
@@ -146,6 +154,10 @@
                     "message": "引擎边界：只有 packages/adapter-claude 可以 import @anthropic-ai/claude-agent-sdk 与 @anthropic-ai/claude-code（见 AGENTS.md）。"
                   },
                   {
+                    "group": ["@cursor/sdk", "@cursor/sdk/**", "@cursor/sdk-*", "@cursor/sdk-*/**"],
+                    "message": "引擎边界：只有 packages/adapter-cursor 可以 import @cursor/sdk*（见 AGENTS.md）。"
+                  },
+                  {
                     "group": ["**/spikes/**"],
                     "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
                   }
@@ -177,6 +189,53 @@
                       "@openai/codex-*/**"
                     ],
                     "message": "引擎边界：只有 packages/adapter-codex 可以 import @openai/codex*（见 AGENTS.md）。"
+                  },
+                  {
+                    "group": ["@cursor/sdk", "@cursor/sdk/**", "@cursor/sdk-*", "@cursor/sdk-*/**"],
+                    "message": "引擎边界：只有 packages/adapter-cursor 可以 import @cursor/sdk*（见 AGENTS.md）。"
+                  },
+                  {
+                    "group": ["**/spikes/**"],
+                    "message": "spikes/ 是一次性验证代码，产品代码不得引用（见 AGENTS.md）。"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/adapter-cursor/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@deepseek-ai/**"],
+                    "message": "引擎边界：只有 packages/adapter-dsh 可以 import @deepseek-ai/*（见 AGENTS.md）。"
+                  },
+                  {
+                    "group": [
+                      "@openai/codex",
+                      "@openai/codex/**",
+                      "@openai/codex-*",
+                      "@openai/codex-*/**"
+                    ],
+                    "message": "引擎边界：只有 packages/adapter-codex 可以 import @openai/codex*（见 AGENTS.md）。"
+                  },
+                  {
+                    "group": [
+                      "@anthropic-ai/claude-agent-sdk",
+                      "@anthropic-ai/claude-agent-sdk/**",
+                      "@anthropic-ai/claude-agent-sdk-*",
+                      "@anthropic-ai/claude-code",
+                      "@anthropic-ai/claude-code/**"
+                    ],
+                    "message": "引擎边界：只有 packages/adapter-claude 可以 import @anthropic-ai/claude-agent-sdk 与 @anthropic-ai/claude-code（见 AGENTS.md）。"
                   },
                   {
                     "group": ["**/spikes/**"],
@@ -220,6 +279,10 @@
                       "@anthropic-ai/claude-code/**"
                     ],
                     "message": "引擎边界：只有 packages/adapter-claude 可以 import @anthropic-ai/claude-agent-sdk 与 @anthropic-ai/claude-code（见 AGENTS.md）。"
+                  },
+                  {
+                    "group": ["@cursor/sdk", "@cursor/sdk/**", "@cursor/sdk-*", "@cursor/sdk-*/**"],
+                    "message": "引擎边界：只有 packages/adapter-cursor 可以 import @cursor/sdk*（见 AGENTS.md）。"
                   },
                   {
                     "group": ["**/spikes/**"],

@@ -33,6 +33,7 @@
   "dependencies": {
     "@wevir/adapter-claude": "workspace:*",
     "@wevir/adapter-codex": "workspace:*",
+    "@wevir/adapter-cursor": "workspace:*",
     "@wevir/adapter-dsh": "workspace:*",
     "@wevir/protocol": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",

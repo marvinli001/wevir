@@ -1,0 +1,29 @@
+{
+  "name": "@wevir/adapter-cursor",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir engine adapter for Cursor through the official @cursor/sdk (ported from T3 Code): in-app sign-in that mints a Cursor API key, model list, local agents, streamed runs, tools, cancel and resume.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@cursor/sdk": "1.0.35",
+    "@wevir/runtime-adapter": "workspace:*"
+  }
+}

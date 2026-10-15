@@ -68,7 +68,7 @@ flowchart TB
 
 ## 2. 包与职责
 
-依赖只朝一个方向：客户端 → client-sdk → protocol；Host → runtime-adapter、storage、protocol、adapter-dsh、adapter-codex；adapter-dsh → adapter-acp → runtime-adapter；adapter-codex → model-gateway → runtime-adapter。只有 `adapter-dsh` 依赖 `@deepseek-ai/*`、只有 `adapter-codex` 可以依赖 `@openai/codex*`（AGENTS.md 规则 2，`pnpm lint` 强制；adapter-codex 目前运行官方的独立二进制，不依赖 npm 包），ACP SDK 只由 `adapter-acp` 声明。
+依赖只朝一个方向：客户端 → client-sdk → protocol；Host → runtime-adapter、storage、protocol、adapter-dsh、adapter-codex、adapter-cursor；adapter-dsh → adapter-acp → runtime-adapter；adapter-codex → model-gateway → runtime-adapter。只有 `adapter-dsh` 依赖 `@deepseek-ai/*`、只有 `adapter-codex` 可以依赖 `@openai/codex*`、只有 `adapter-cursor` 可以依赖 `@cursor/sdk*`（AGENTS.md 规则 2，`pnpm lint` 强制；adapter-codex 目前运行官方的独立二进制，不依赖 npm 包），ACP SDK 只由 `adapter-acp` 声明。
 
 | 包 | 职责 | 主要依赖 |
 |---|---|---|
@@ -79,7 +79,8 @@ flowchart TB
 | `packages/adapter-dsh` | dsh 的那份引擎描述与启动器（独立 `DSH_HOME`、白名单环境）、工具名表与错误归类、stream-tap 增量旁路与增量对齐、Provider overlay 与 `provider.test`、配置变更时重启（acp-event-mapping.md 第二部分） | dsh、adapter-acp、runtime-adapter |
 | `packages/model-gateway` | Codex 用的模型协议网关（ADR-0005 决策 2，[model-gateway.md](./model-gateway.md)）：`127.0.0.1` 上的 `POST /v1/p/<providerId>/responses`，一次性令牌；Responses 上游透传（剥掉 Codex 的元数据、按服务挂方言修正），Chat Completions 上游转换；`testProvider`。由 adapter-codex 在 Host 进程里创建并持有，每次启动 codex-app-server 新建一个实例 | runtime-adapter（只用类型） |
 | `packages/adapter-codex` | Codex 引擎（ADR-0005 决策 1.1，[codex-event-mapping.md](./codex-event-mapping.md)）。R6 起 Host 用 `CodexRuntime`：网关进程与 ChatGPT 进程（ChatGPT 订阅登录、`account/*`、Codex 自己的模型目录，§8）各一个 `codex-app-server`，按 Provider 的种类分配会话。每个进程：`codex-app-server` 的二进制解析与版本核对、`CODEX_HOME` 与白名单环境、生成的 config.toml 与模型目录（基础提示词用 `prompts/base.md`）、逐行 JSON 的进程与握手、`thread/start` · `turn/start` · `turn/interrupt` · `thread/unsubscribe`、通知 → `AgentEvent`、Provider 变更（只在模型目录变了时重启）；审批（固定选项、理由经 `tool.updated` 补进详情）、取消得不到确认时重启、`thread/resume`、计划、回合失败的归类、`generateTitle`（R3） | model-gateway、runtime-adapter；运行时要 `codex-app-server` 二进制 |
-| `packages/host` | `EventStore`（`seq`、增量合并、截断）、`SessionManager`、`HostRpcServer`、`createHostMethods`、进程入口 `wevir-host` 与运行时文件；子路径 `./runtime` 给拉起 Host 的客户端用 | protocol、runtime-adapter、storage、adapter-dsh、adapter-codex、ws |
+| `packages/adapter-cursor` | Cursor 引擎（订阅来源 `cursor`，ADR-0005 补记 14，[cursor-event-mapping.md](./cursor-event-mapping.md)）：`@cursor/sdk` 在 Host 进程里跑本地 agent；应用内登录（铸 API Key，存 `engines/cursor/auth.json`）、模型列表、会话与回合、流式更新 → `AgentEvent`、取消与恢复；没有审批，权限模式映射到 Cursor 的沙箱与 Auto-review。在 Host 的 `engines.ts` 登记，经 `EngineRouter` 与 Codex 并列 | runtime-adapter；`@cursor/sdk` 1.0.35 |
+| `packages/host` | `EventStore`（`seq`、增量合并、截断）、`SessionManager`、`HostRpcServer`、`createHostMethods`、进程入口 `wevir-host` 与运行时文件；子路径 `./runtime` 给拉起 Host 的客户端用 | protocol、runtime-adapter、storage、adapter-dsh、adapter-codex、adapter-cursor、ws |
 | `packages/client-sdk` | `WevirClient`（hello、类型安全的请求、断线排队、心跳、重连状态机）、`subscribe()` 异步迭代器（按 `seq` 去重补缺口）、`TranscriptProjection`（事件 → 消息与部件）；`./node` 读 `host.json`。浏览器入口不碰 Node 内置模块 | protocol |
 | `apps/desktop` | Electron 桌面端：主进程（窗口安全基线、`HostLifecycle`）、preload、渲染进程（侧栏 + 主窗格 + 窗格区的工作台布局，[desktop-layout.md](./desktop-layout.md)；会话视图、设置） | client-sdk、host（只用 `./runtime`）、protocol |
 | `apps/cli` | `wevir` 命令行：`host start\|status\|stop`、工作区、Provider、会话、`session attach`（T4.2，进行中） | client-sdk、host、protocol |

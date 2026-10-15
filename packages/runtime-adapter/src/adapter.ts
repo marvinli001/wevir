@@ -235,7 +235,8 @@ export interface AgentRuntimeAdapter {
 }
 
 /**
- * 引擎的账号（R6，domain-model §3.6）。凭据由引擎自己保存，适配器与 Host 都不读、不转交令牌；这里只有状态。
+ * 引擎的账号（R6，domain-model §3.6）。凭据由引擎自己保存，Host 不读、不转交令牌，这里只有状态；引擎就在适配器里运行时
+ * （Cursor 的 SDK），由适配器存在数据目录的引擎目录下交给它（adapter-cursor 的 credentials.ts）。
  * 方法都可能抛 `AdapterError`：`invalid_input`（种类不支持）、`engine_unavailable`（引擎起不来、请求失败）、`disposed`。
  */
 export interface EngineAccounts {

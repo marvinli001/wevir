@@ -34,6 +34,7 @@ bash scripts/upstream-sync.sh
 | `@deepseek-ai/dsh` | `0.2.1-alpha.2` | `0.2.0-rc.2` | MIT | 与上表 dsh 锁定提交同源；`packages/adapter-dsh/src/paths.ts` 的 `DSH_VERSION` 与之相同，解析到别的版本时启动报错 |
 | `@agentclientprotocol/sdk` | `1.4.0` | `1.8.0` | Apache-2.0（Zed Industries） | 与 dsh-acp 自己锁定的版本相同；peer `zod` 由 pnpm 自动安装为工作区里的 4.6.x |
 | `@anthropic-ai/claude-agent-sdk` | `0.3.286`（2026-09-30 发布） | `0.3.300`（2026-10-15） | Anthropic 商业条款（包内 `LICENSE.md`，`© Anthropic PBC`），不是开源许可证 | 只在 `packages/adapter-claude/package.json` 声明（2026-10-15，ADR-0005 补记 14）。驱动用户自己装的 `claude`，各平台带 Claude Code 原生二进制的可选包由 `pnpm-workspace.yaml` 的 `ignoredOptionalDependencies` 跳过；peer `@modelcontextprotocol/sdk` 由 `packageExtensions` 标成可选（只用到类型），`@anthropic-ai/sdk` 与 `zod` 由 pnpm 自动安装为工作区里已有的版本（claude-event-mapping.md §1）。随安装包分发前要定能不能分发（third-party-notices.md §3.2b） |
+| `@cursor/sdk` | `1.0.35`（2026-10-01 发布） | `1.0.37`（2026-10-15） | **非开源**：`SEE LICENSE IN LICENSE.md`，`© Anysphere Inc. All rights reserved. Use is subject to Cursor's Terms of Service.` | 订阅来源 Cursor 的引擎（ADR-0005 补记 14），只在 `packages/adapter-cursor` 声明，与 T3 Code 锁定的版本相同（§2.5）；`packages/adapter-cursor/src/sdk.ts` 的 `CURSOR_SDK_VERSION` 与之相同（测试核对）。依赖 `zod@3`、`@bufbuild/protobuf`、`@connectrpc/connect(-web)`、`@statsig/js-client`；平台包 `@cursor/sdk-<平台>`（`cursorsandbox`、`rg`、tree-sitter 的原生模块）没有安装脚本。Wevir 不复制它的代码，作为依赖安装运行；随安装包分发前要按它的条款核对能否再分发（[cursor-event-mapping.md](../architecture/cursor-event-mapping.md) §1） |
 
 ### 1.2 作为二进制运行的上游程序
 
@@ -177,7 +178,9 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 |---|---|
 | [`upstream/t3code/LICENSE`](https://github.com/pingdotgg/t3code/blob/ec1313c8f8333292506f05a355bb72d308a455d8/LICENSE) | 标准 MIT，`Copyright (c) 2026 T3 Tools Inc.` |
 
-结论与义务：移植了“变更”窗格与回合快照（0.20.0）和 Claude Agent 引擎的文件（§4）。按 MIT 在文件头保留版权与许可证（§5 的格式），根目录 `NOTICE` 第 10 节列出文件并收录许可证全文。“变更”窗格依赖的 `@pierre/diffs`（Apache-2.0）是 npm 包，不是从 T3 拷贝的，见 `NOTICE` 第 11 节与 ADR-0004 补记 10；T3 给它打的搜索补丁没有用。T3 Code 自己依赖的 `@anthropic-ai/claude-agent-sdk` 是 Anthropic 的商业条款，Wevir 作为 npm 依赖另行声明（§1.1），不从 T3 拷贝。T3 的仓库里还 vendored 了别的项目（`.repos/` 等），Wevir 没有参考。
+结论与义务：移植了“变更”窗格与回合快照（0.20.0）和 Claude Agent、Cursor 引擎的文件（§4）。按 MIT 在文件头保留版权与许可证（§5 的格式），根目录 `NOTICE` 第 10 节列出文件并收录许可证全文。“变更”窗格依赖的 `@pierre/diffs`（Apache-2.0）是 npm 包，不是从 T3 拷贝的，见 `NOTICE` 第 11 节与 ADR-0004 补记 10；T3 给它打的搜索补丁没有用。T3 Code 自己依赖的 `@anthropic-ai/claude-agent-sdk` 是 Anthropic 的商业条款，Wevir 作为 npm 依赖另行声明（§1.1），不从 T3 拷贝。T3 的仓库里还 vendored 了别的项目（`.repos/` 等），Wevir 没有参考。
+- 移植的是 `packages/provider-cursor/src/server/` 下的源码（§4），T3 用 Effect 写，Wevir 改写成普通 TS，不引入 `effect`。义务同 MIT：保留版权与许可声明（各文件头与根目录 `NOTICE` 第 10 节）。
+- T3 依赖的 `@cursor/sdk` 不是 T3 的代码，许可证另见 §1.1。
 
 ## 3. 各仓库的参考重点
 
@@ -224,6 +227,16 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 | `packages/adapter-claude/src/tool-display.ts` | T3 Code `ClaudeAdapterV2.ts`（`classifyClaudeNativeTool`、`summarizeClaudeToolRequest`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：输出 Wevir 的 `ToolDisplay` |
 | `packages/adapter-claude/src/todos.ts` | T3 Code `ClaudeAdapterV2.ts`（`claudeTodoSteps`、`applyClaudeTaskTool`、`claudeUserInputQuestions`、`claudeSdkUserInputAnswers`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：输出 `TodoItem` 与 `UserQuestion` |
 | `packages/adapter-claude/src/turn-result.ts` | T3 Code `ClaudeAdapterV2.ts`（`resultUserFacingError`、`terminalResultError`、`terminalStatusFromResult`、`providerFailureFromResult`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：输出 `turn.settled` / `turn.failed` 的归类 |
+| `packages/adapter-cursor/src/sdk.ts` | T3 Code `packages/provider-cursor/src/server/sdk.ts`（另参照 `CursorSdkCatalog.ts`、`CursorAgentSdk.ts` 用到的入口） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写（Cursor 引擎）：不用 `createRequire`，第一次用到时动态 import；Effect 的服务换成窄接口 `CursorSdk` |
+| `packages/adapter-cursor/src/errors.ts` | T3 Code `packages/provider-cursor/src/server/CursorSdk.ts`、`CursorAgentSdk.ts`、`CursorSdkCatalog.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 移植 `isCursorShellSpawnFailure`、取消与“already has active run”的判断、认证失败的判断；按 `name` 判断，不用 instanceof；守卫由 Host 的 `cli.ts` 调用，不自己注册 unhandledRejection 监听 |
+| `packages/adapter-cursor/src/credentials.ts` | T3 Code `packages/provider-cursor/src/server/credentialStore.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：凭据存 `<数据目录>/engines/cursor/auth.json`（0700 / 0600，临时文件加 rename），不进密钥库；去掉旧版文件的迁移；加登录用的内存存储 |
+| `packages/adapter-cursor/src/accounts.ts` | T3 Code `packages/provider-cursor/src/server/auth.ts`、`CursorSdkCatalog.ts`、`status.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写成 `EngineAccounts`：登录先写内存、确认后才落盘，5 分钟超时，取消、替换、登出时停掉会话，模型列表缓存 30 分钟，15 s 时限；不读 Cursor CLI 的登录，没有用量 |
+| `packages/adapter-cursor/src/models.ts` | T3 Code `packages/provider-cursor/src/server/status.ts`、`sdkModel.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：模型参数只取推理档位（`effort` / `reasoning`），列表第一个是 Auto（交给 SDK 时是 `default`） |
+| `packages/adapter-cursor/src/transport-failure.ts` | T3 Code `packages/provider-cursor/src/server/transportFailure.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 移植，逻辑未改 |
+| `packages/adapter-cursor/src/transport-failure.test.ts` | T3 Code `packages/provider-cursor/src/server/transportFailure.test.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 用例改写成 Vitest |
+| `packages/adapter-cursor/src/tool-display.ts` | T3 Code `packages/provider-cursor/src/server/adapter.ts`（工具的名称、输出、失败、待办与子 agent 回答的取法） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：产出 Wevir 的 `ToolDisplay` 与输出文本 |
+| `packages/adapter-cursor/src/mapping.ts` | T3 Code `packages/provider-cursor/src/server/adapter.ts`（`handleInteractionUpdate`、`handleToolUpdate`、`finalizeTurn`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：流式更新 → `AgentEvent`（增量、已提交消息、工具、待办），子 agent 只当工具 |
+| `packages/adapter-cursor/src/cursor-adapter.ts` | T3 Code `packages/provider-cursor/src/server/adapter.ts`、`CursorAgentSdk.ts`、`driver.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写成 `AgentRuntimeAdapter`：建与恢复 agent 的选项、run 开出前的更新、遗留 run 的恢复、取消；去掉 T3 的 MCP 服务、skills、附件与计划模式；权限模式按 Wevir 的三种映射 |
 
 ### 4.1 其他第三方来源的文件
 
