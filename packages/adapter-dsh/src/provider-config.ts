@@ -42,11 +42,13 @@ export const REASONING_LEVELS: readonly string[] = [
 export const SUPPORTED_APIS: readonly string[] = ['openai-completions', 'openai-responses'];
 
 /**
- * 只有 Codex 引擎的模型网关用的 compat 开关（protocol 0.4.0，ADR-0005 补记 7）。dsh 不认识它们，写进 overlay 会让
+ * 只有 Codex 引擎的模型网关用的 compat 开关（protocol 0.4.0、0.12.0，ADR-0005 补记 7、12）。dsh 不认识它们，写进 overlay 会让
  * dsh 拒绝整份配置，所以既不报错也不写进 overlay：同一个 Provider 在两个引擎之间可以共用。
  */
 export const GATEWAY_ONLY_COMPAT = Object.freeze([
   'supportsCustomTools',
+  'supportsNamespaceTools',
+  'toolChoice',
   'systemMessageMode',
 ] as const);
 type GatewayOnlyCompat = (typeof GATEWAY_ONLY_COMPAT)[number];

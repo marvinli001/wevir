@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEEPSEEK_RESPONSES_BASE_URL, routeOf, validateProvider } from './providers.js';
+import {
+  DEEPSEEK_RESPONSES_BASE_URL,
+  effectiveCompat,
+  isXaiHost,
+  routeOf,
+  validateProvider,
+} from './providers.js';
 import type { GatewayProvider } from './types.js';
 
 const compatible = (patch: Partial<GatewayProvider>): GatewayProvider => ({
@@ -66,6 +72,25 @@ describe('routeOf', () => {
 });
 
 describe('validateProvider', () => {
+  it('新的工具开关检查取值，不限制可用的协议', () => {
+    for (const api of ['openai-responses', 'openai-completions', 'anthropic-messages']) {
+      expect(
+        validateProvider(
+          compatible({ api, compat: { supportsNamespaceTools: false, toolChoice: 'auto_only' } }),
+        ),
+      ).toEqual([]);
+    }
+    expect(
+      validateProvider(
+        compatible({
+          compat: { supportsNamespaceTools: 'no' as never, toolChoice: 'required' as never },
+        }),
+      ).map((issue) => issue.path),
+    ).toEqual([
+      ['compat', 'supportsNamespaceTools'],
+      ['compat', 'toolChoice'],
+    ]);
+  });
   it('合法的配置没有问题', () => {
     expect(validateProvider(compatible({}))).toEqual([]);
     expect(
@@ -110,5 +135,54 @@ describe('validateProvider', () => {
       ['compat', 'systemMessageMode'],
       ['compat', 'supportsCustomTools'],
     ]);
+  });
+});
+
+describe('工具 compat：声明 > 地址默认 > 全局默认', () => {
+  it('只认 x.ai 本身及子域，大小写不影响；不把路径、前缀或后缀相似的地址当成 xAI', () => {
+    for (const baseURL of ['https://x.ai', 'https://US.API.X.AI/v1']) {
+      expect(isXaiHost(baseURL)).toBe(true);
+      expect(effectiveCompat(compatible({ baseURL }))).toMatchObject({
+        supportsCustomTools: false,
+        supportsNamespaceTools: false,
+        toolChoice: 'any',
+      });
+    }
+    for (const baseURL of [
+      'https://x.ai.example.com/v1',
+      'https://notx.ai/v1',
+      'https://example.com/api.x.ai',
+      'invalid',
+    ]) {
+      expect(isXaiHost(baseURL)).toBe(false);
+      expect(effectiveCompat(compatible({ baseURL }))).toMatchObject({
+        supportsCustomTools: true,
+        supportsNamespaceTools: true,
+        toolChoice: 'any',
+      });
+    }
+  });
+
+  it('true / any 可以覆盖地址默认，undefined 仍用地址默认；其他 compat 不丢失、不修改 Provider', () => {
+    const provider = compatible({
+      baseURL: 'https://api.x.ai/v1',
+      compat: {
+        supportsCustomTools: true,
+        supportsNamespaceTools: true,
+        toolChoice: 'any',
+        maxTokensField: 'max_tokens',
+      },
+    });
+    expect(effectiveCompat(provider)).toEqual(provider.compat);
+    const undeclared = compatible({
+      baseURL: provider.baseURL,
+      compat: { supportsCustomTools: undefined, supportsNamespaceTools: undefined },
+    });
+    expect(effectiveCompat(undeclared)).toEqual({
+      supportsCustomTools: false,
+      supportsNamespaceTools: false,
+      toolChoice: 'any',
+    });
+    expect(undeclared.compat?.supportsNamespaceTools).toBeUndefined();
   });
 });

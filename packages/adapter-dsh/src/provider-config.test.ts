@@ -214,6 +214,13 @@ describe('effectiveCompat', () => {
     });
   });
 
+  it('P0a 的 namespace 与 toolChoice 开关同样不写进 dsh overlay', () => {
+    expect(compat({ compat: { supportsNamespaceTools: false, toolChoice: 'auto_only' } })).toEqual({
+      supportsDeveloperRole: false,
+      maxTokensField: 'max_tokens',
+    });
+  });
+
   it('openai-responses 只保留它认的开关（否则 dsh 拒绝整份配置）', () => {
     expect(compat({ api: 'openai-responses', baseURL: 'https://api.deepseek.com' })).toEqual({
       supportsDeveloperRole: false,
@@ -262,6 +269,15 @@ describe('validateProviderConfig', () => {
       validateProviderConfig({
         ...kimi,
         compat: { supportsCustomTools: false, systemMessageMode: 'user' },
+      }),
+    ).toEqual([]);
+  });
+
+  it('P0a 的 namespace 与 toolChoice 开关不会让共享 Provider 被 dsh 拒绝', () => {
+    expect(
+      validateProviderConfig({
+        ...kimi,
+        compat: { supportsNamespaceTools: false, toolChoice: 'auto_only' },
       }),
     ).toEqual([]);
   });

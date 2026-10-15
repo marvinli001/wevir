@@ -1,7 +1,7 @@
 // 按 Provider 选处理方式（docs/architecture/model-gateway.md §2）与网关自己的配置检查。
 
 import type { ProviderIssue } from '@wevir/runtime-adapter';
-import type { GatewayProvider } from './types.js';
+import type { GatewayCompat, GatewayProvider } from './types.js';
 
 /** DeepSeek 的 Responses 端点（官方 Codex 接入文档：api-docs.deepseek.com/quick_start/agent_integrations/codex）。 */
 export const DEEPSEEK_RESPONSES_BASE_URL = 'https://api.deepseek.com';
@@ -14,6 +14,29 @@ export type Route =
 
 /** `anthropic-messages` 上 `compat.thinkingFormat` 的取值（model-gateway.md §5.4）。 */
 export const MESSAGES_THINKING_FORMATS = ['adaptive', 'enabled'] as const;
+
+/** 地址 → 默认 compat（model-gateway.md §4.4）；各家只在此登记，显式开关仍优先。 */
+export const PROVIDER_COMPAT_DEFAULTS: readonly {
+  matches(baseURL: string): boolean;
+  compat: GatewayCompat;
+}[] = [
+  { matches: isXaiHost, compat: { supportsCustomTools: false, supportsNamespaceTools: false } },
+];
+
+/** 每个字段按 Provider 声明 > 地址默认 > 全局默认取值，undefined 视为没写。 */
+export function effectiveCompat(provider: GatewayProvider): GatewayCompat {
+  const defaults = PROVIDER_COMPAT_DEFAULTS.find((entry) =>
+    entry.matches(provider.baseURL ?? ''),
+  )?.compat;
+  const declared = provider.compat;
+  return {
+    ...declared,
+    supportsCustomTools: declared?.supportsCustomTools ?? defaults?.supportsCustomTools ?? true,
+    supportsNamespaceTools:
+      declared?.supportsNamespaceTools ?? defaults?.supportsNamespaceTools ?? true,
+    toolChoice: declared?.toolChoice ?? defaults?.toolChoice ?? 'any',
+  };
+}
 
 /**
  * Provider → 上游地址与处理方式：
@@ -80,6 +103,15 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
   if (compat.supportsCustomTools !== undefined && typeof compat.supportsCustomTools !== 'boolean') {
     issue(['compat', 'supportsCustomTools'], 'supportsCustomTools 只能是 true 或 false');
   }
+  if (
+    compat.supportsNamespaceTools !== undefined &&
+    typeof compat.supportsNamespaceTools !== 'boolean'
+  ) {
+    issue(['compat', 'supportsNamespaceTools'], 'supportsNamespaceTools 只能是 true 或 false');
+  }
+  if (compat.toolChoice !== undefined && !['any', 'auto_only'].includes(compat.toolChoice)) {
+    issue(['compat', 'toolChoice'], 'toolChoice 只能是 any 或 auto_only');
+  }
   // 其他协议的 thinkingFormat 是 pi-ai 的写法（adapter-dsh 用），网关不读也不查。
   if (
     provider.api === 'anthropic-messages' &&
@@ -122,7 +154,7 @@ export function isDeepSeekHost(baseURL: string): boolean {
 
 /**
  * xAI 的 API（`api.x.ai`，以及 `us.api.x.ai` 这类地域端点）。Responses 透传按它补 xAI 的方言（model-gateway.md
- * §3.2）：不支持自定义工具与 namespace 工具。经代理或自建网关接 xAI 时地址认不出，自定义工具用 compat 开关。
+ * §3.2）：不支持自定义工具与 namespace 工具。经代理或自建网关接 xAI 时地址认不出，用 compat 开关。
  */
 export function isXaiHost(baseURL: string): boolean {
   return /(^|\.)x\.ai$/.test(hostnameOf(baseURL));

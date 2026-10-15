@@ -15,7 +15,7 @@ import {
   toUpsertParams,
   validateForm,
 } from './provider-form';
-import { OPENAI_PRESETS } from './provider-presets';
+import { OPENAI_PRESETS, type OpenAIPreset } from './provider-presets';
 import { presentTestError, presentTestResult } from './provider-test-result';
 
 const kimi = OPENAI_PRESETS.find((preset) => preset.id === 'kimi');
@@ -42,6 +42,19 @@ function profile(overrides: Partial<EditableProvider>): EditableProvider {
 }
 
 describe('预设模板（providers.md §7）', () => {
+  it('新建与编辑都保留 namespace / toolChoice，经过协议解析也不丢开关', () => {
+    const preset: OpenAIPreset = {
+      ...kimi,
+      compat: { supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    };
+    const created = upsertSchema.parse(toUpsertParams(newOpenAIForm(preset, [])));
+    expect(created).toMatchObject({ compat: preset.compat });
+    const form = editForm(profile({ compat: preset.compat }));
+    expect(upsertSchema.parse(toUpsertParams({ ...form, displayName: '改名' }))).toMatchObject({
+      displayName: '改名',
+      compat: preset.compat,
+    });
+  });
   it('每个模板只填 Key 就是合法的 provider.upsert 参数', () => {
     for (const preset of OPENAI_PRESETS) {
       const form = { ...newOpenAIForm(preset, []), apiKey: 'sk-test' };

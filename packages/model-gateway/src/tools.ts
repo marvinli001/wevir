@@ -11,6 +11,12 @@ import type { ChatTool, JsonObject, ResponsesItem, ResponsesTool } from './types
 
 export const NAMESPACE_SEPARATOR = '__';
 
+/** auto_only 的 none 只去掉 tool_choice、保留 tools（model-gateway.md §3.2、§4.4）；其余非空值改 auto。 */
+export function compatibleToolChoice(choice: unknown, mode: 'any' | 'auto_only' = 'any'): unknown {
+  if (mode === 'any') return choice;
+  return choice === undefined || choice === 'none' ? undefined : 'auto';
+}
+
 /** OpenAI 函数名的规则；多数 Chat 兼容服务沿用。 */
 const VALID_FUNCTION_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_FUNCTION_NAME = 64;

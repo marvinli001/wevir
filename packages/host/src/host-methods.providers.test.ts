@@ -1,7 +1,7 @@
 // Host 侧的 Provider 桥接（T3.4）：写库前经适配器检查、每次变更后把整套 Provider（含 Key）交给引擎、
 // provider.test 带上已存的 Key。引擎侧换成记录调用的假桥接；dsh 的实现见 packages/adapter-dsh。
 
-import type { MethodParams } from '@wevir/protocol';
+import { type MethodParams, MethodSchemas } from '@wevir/protocol';
 import type { ProviderConfig, ProviderIssue, ProviderTestResult } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
@@ -84,6 +84,18 @@ async function hostError(promise: Promise<unknown>): Promise<HostError> {
 }
 
 describe('Provider 桥接（Host 侧）', () => {
+  it('P0a 的 compat 经协议解析、保存、list 与引擎桥接后仍保留', async () => {
+    const bridge = fakeBridge();
+    const { methods, storage } = setup(bridge);
+    const compat = { supportsNamespaceTools: false, toolChoice: 'auto_only' } as const;
+    const params = MethodSchemas['provider.upsert'].params.parse({ ...qwen, compat });
+    const result = await methods['provider.upsert'](params, context);
+    expect(result.provider.compat).toEqual(compat);
+    expect(storage.providers.get('qwen')?.compat).toEqual(compat);
+    expect(bridge.applied.at(-1)?.[0]?.compat).toEqual(compat);
+    const listed = await methods['provider.list']({}, context);
+    expect(listed.providers[0]?.compat).toEqual(compat);
+  });
   it('upsert / remove 之后把全部 Provider（含 Key）交给引擎；没存 Key 的不带 apiKey', async () => {
     const bridge = fakeBridge();
     const { methods } = setup(bridge);

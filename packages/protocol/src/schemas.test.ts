@@ -799,3 +799,22 @@ describe('schema 只做结构声明', () => {
     expect(found).toContain('bad.b: default on object');
   });
 });
+
+describe('ProviderCompat 的通用工具方言（0.12.0）', () => {
+  it('新字段 optional；false 与 auto_only 原样保留，省略时不补默认值', () => {
+    expect(ProviderCompatSchema.parse({})).toEqual({});
+    for (const supportsNamespaceTools of [false, true]) {
+      for (const toolChoice of ['any', 'auto_only']) {
+        expect(ProviderCompatSchema.parse({ supportsNamespaceTools, toolChoice })).toEqual({
+          supportsNamespaceTools,
+          toolChoice,
+        });
+      }
+    }
+  });
+
+  it('不接受非布尔的 namespace 开关或不认识的工具选择策略', () => {
+    expect(ProviderCompatSchema.safeParse({ supportsNamespaceTools: 'false' }).success).toBe(false);
+    expect(ProviderCompatSchema.safeParse({ toolChoice: 'required' }).success).toBe(false);
+  });
+});

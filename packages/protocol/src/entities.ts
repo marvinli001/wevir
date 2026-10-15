@@ -78,8 +78,8 @@ export type ProviderModel = z.infer<typeof ProviderModelSchema>;
 
 /**
  * 请求格式的修正，只对 `openai-compatible` 有意义。前四个原样写进 dsh overlay 的 `compat`，Codex 引擎的模型网关
- * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；后两个只有模型网关用（0.4.0，model-gateway.md §4.4），
- * dsh 忽略。
+ * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；其余只有模型网关用（0.4.0、0.12.0，
+ * model-gateway.md §4.4），dsh 忽略。
  */
 export const ProviderCompatSchema = z.object({
   supportsDeveloperRole: z.boolean().optional(),
@@ -88,9 +88,13 @@ export const ProviderCompatSchema = z.object({
   requiresReasoningContentOnAssistantMessages: z.boolean().optional(),
   /**
    * `openai-responses` 上游不支持自定义工具（Codex 的 `apply_patch`）时设 false（0.4.0）：网关把它们摊平成只有一个
-   * 字符串参数的函数，响应里再还原。省略即支持。
+   * 字符串参数的函数，响应里再还原。省略时 xAI 地址默认不支持，其余支持。
    */
   supportsCustomTools: z.boolean().optional(),
+  /** Responses 的 namespace 工具支持（0.12.0）：false 时摊平；省略时 xAI 地址为 false，其余为 true。 */
+  supportsNamespaceTools: z.boolean().optional(),
+  /** Responses / Chat 的工具选择（0.12.0）：auto_only 改 required / 具名为 auto，none 只去掉 tool_choice。 */
+  toolChoice: z.enum(['any', 'auto_only']).optional(),
   /**
    * `openai-completions` 上游怎样收对话中间的 developer / system 消息（0.4.0）：`inline`（默认）原位转 system；
    * `merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。

@@ -1,9 +1,10 @@
 // Responses 透传的方言修正（docs/architecture/model-gateway.md §3.2）：各家 Responses 实现与 OpenAI 的差异，
 // 只在网关里改，不碰 Codex（codex-notes §5.3）。每条修正声明对哪些 Provider 生效，改请求体，必要时再改响应事件。
 
-import { isXaiHost } from './providers.js';
+import { effectiveCompat } from './providers.js';
 import {
   CUSTOM_TOOL_PARAMETERS,
+  compatibleToolChoice,
   customCallArguments,
   customCallInput,
   customToolDescription,
@@ -65,6 +66,41 @@ export const stripNullReasoningContent: DialectFix = {
   },
 };
 
+/** Codex 的 Option<String> 没有 skip-serialize：没有加密推理时会回放 null，所有 Provider 都去掉这个键。 */
+export const stripNullReasoningEncryptedContent: DialectFix = {
+  id: 'strip-null-reasoning-encrypted-content',
+  applies: () => true,
+  apply(body) {
+    if (
+      !Array.isArray(body.input) ||
+      !body.input.some((item) => item.type === 'reasoning' && item.encrypted_content === null)
+    ) {
+      return { body };
+    }
+    const input = body.input.map((item) => {
+      if (item.type !== 'reasoning' || item.encrypted_content !== null) return item;
+      const { encrypted_content: _drop, ...rest } = item;
+      return rest as ResponsesItem;
+    });
+    return { body: { ...body, input } };
+  },
+};
+
+/** 只收 auto 的上游：required / 具名改 auto，none 只去掉 tool_choice、保留 tools。 */
+export const autoOnlyToolChoice: DialectFix = {
+  id: 'auto-only-tool-choice',
+  applies: (provider) => effectiveCompat(provider).toolChoice === 'auto_only',
+  apply(body) {
+    const choice = compatibleToolChoice(body.tool_choice, 'auto_only');
+    if (choice === body.tool_choice) return { body };
+    if (choice === undefined) {
+      const { tool_choice: _drop, ...rest } = body;
+      return { body: rest as ResponsesRequest };
+    }
+    return { body: { ...body, tool_choice: choice } };
+  },
+};
+
 /**
  * Provider 不支持自定义工具时，把 custom 工具（apply_patch）按 Chat 转换的办法摊平成只有 `input` 参数的函数，历史里的
  * custom_tool_call / _output 也换成函数调用；响应里同名的 function_call 再还原成 custom_tool_call。namespace 不动，
@@ -73,10 +109,7 @@ export const stripNullReasoningContent: DialectFix = {
  */
 export const flattenCustomTools: DialectFix = {
   id: 'flatten-custom-tools',
-  applies: (provider) => {
-    const declared = provider.compat?.supportsCustomTools;
-    return declared === false || (declared === undefined && isXaiHost(provider.baseURL ?? ''));
-  },
+  applies: (provider) => effectiveCompat(provider).supportsCustomTools === false,
   apply(body) {
     const flattened = new Set<string>();
     const flatten = (tool: ResponsesTool, namespace?: string): ResponsesTool => {
@@ -123,13 +156,12 @@ export const flattenCustomTools: DialectFix = {
 };
 
 /**
- * xAI 的 namespace 工具摊平：xAI 的 Responses 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段（docs.x.ai 的
- * OpenAPI），而 Codex 的子 agent 工具在 `multi_agent_v1` 命名空间里。里面的工具摊平成 `<ns>__<name>`（与 Chat 转换同一
- * 套命名，tools.ts），历史里带 `namespace` 的调用换成摊平的名字；响应里再还原名字与命名空间。排在 custom 工具的摊平之后。
+ * 不支持 namespace 的上游（显式 false，没写时 xAI 地址默认 false）：里面的工具摊平成 `<ns>__<name>`（与 Chat
+ * 转换同一套命名，tools.ts），历史与具名 tool_choice 用同一份登记；响应里还原名字与命名空间。排在 custom 摊平之后。
  */
 export const flattenNamespaceTools: DialectFix = {
   id: 'flatten-namespace-tools',
-  applies: (provider) => isXaiHost(provider.baseURL ?? ''),
+  applies: (provider) => effectiveCompat(provider).supportsNamespaceTools === false,
   apply(body) {
     const input = Array.isArray(body.input) ? body.input : [];
     if (
@@ -139,36 +171,62 @@ export const flattenNamespaceTools: DialectFix = {
       return { body };
     }
     const names = new ToolNames();
-    const flat = (name: string, namespace: string) =>
-      names.flat({ kind: 'function', name, namespace });
+    const flat = (name: string, namespace?: string, kind: 'function' | 'custom' = 'function') =>
+      names.flat({ kind, name, namespace });
+    const flatten = (tool: ResponsesTool, namespace?: string): ResponsesTool => {
+      if (tool.type !== 'function' && tool.type !== 'custom') return tool;
+      return { ...tool, name: flat(tool.name ?? '', namespace, tool.type) };
+    };
     const tools = body.tools?.flatMap((tool): ResponsesTool[] =>
       tool.type === 'namespace' && Array.isArray(tool.tools)
-        ? (tool.tools as ResponsesTool[]).map((inner) => ({
-            ...inner,
-            name: flat(inner.name ?? '', tool.name ?? ''),
-          }))
-        : [tool],
+        ? (tool.tools as ResponsesTool[]).map((inner) => flatten(inner, tool.name ?? ''))
+        : [flatten(tool)],
     );
+    const choice = body.tool_choice;
+    let namedChoice = choice;
+    if (isObject(choice) && (choice.type === 'function' || choice.type === 'custom')) {
+      const { namespace, ...rest } = choice;
+      namedChoice = {
+        ...rest,
+        name: flat(
+          String(choice.name ?? ''),
+          typeof namespace === 'string' ? namespace : undefined,
+          choice.type,
+        ),
+      };
+    }
     const next: ResponsesRequest = {
       ...body,
       ...(Array.isArray(body.input)
         ? {
             input: body.input.map((item) => {
-              if (typeof item.namespace !== 'string') return item;
+              if (item.type !== 'function_call' && item.type !== 'custom_tool_call') return item;
               const { namespace, ...rest } = item;
-              return { ...rest, name: flat(String(item.name ?? ''), namespace) } as ResponsesItem;
+              return {
+                ...rest,
+                name: flat(
+                  String(item.name ?? ''),
+                  typeof namespace === 'string' ? namespace : undefined,
+                  item.type === 'custom_tool_call' ? 'custom' : 'function',
+                ),
+              } as ResponsesItem;
             }),
           }
         : {}),
       ...(tools === undefined ? {} : { tools }),
+      ...(namedChoice === undefined ? {} : { tool_choice: namedChoice }),
     };
     const restore = (item: unknown): unknown => {
       if (!isObject(item) || (item.type !== 'function_call' && item.type !== 'custom_tool_call')) {
         return item;
       }
       const origin = names.origin(String(item.name ?? ''));
-      if (origin?.namespace === undefined) return item;
-      return { ...item, name: origin.name, namespace: origin.namespace };
+      if (origin === undefined) return item;
+      return {
+        ...item,
+        name: origin.name,
+        ...(origin.namespace === undefined ? {} : { namespace: origin.namespace }),
+      };
     };
     return { body: next, rewrite: outputRewrite(restore) };
   },
@@ -178,6 +236,8 @@ export const flattenNamespaceTools: DialectFix = {
 export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   dropToolChoiceWithoutTools,
   stripNullReasoningContent,
+  stripNullReasoningEncryptedContent,
+  autoOnlyToolChoice,
   flattenCustomTools,
   flattenNamespaceTools,
 ];

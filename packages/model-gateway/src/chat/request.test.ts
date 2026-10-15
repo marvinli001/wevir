@@ -38,6 +38,37 @@ const developer = (text: string) => ({
 });
 const roles = (messages: ChatMessage[]) => messages.map((m) => m.role);
 
+describe('Chat 的 toolChoice 开关（录制请求）', () => {
+  it.each([
+    'required',
+    { type: 'function', name: 'exec_command' },
+    { type: 'custom', name: 'apply_patch' },
+  ])('auto_only 的 %j 改 auto，默认值保持原有选择', (tool_choice) => {
+    const body = { ...codexRequest('1-first-turn').body, tool_choice };
+    const fixed = toChatRequest(body, provider({ compat: { toolChoice: 'auto_only' } })).request;
+    const original = toChatRequest(body, provider()).request;
+    expect(fixed.tool_choice).toBe('auto');
+    expect(original.tool_choice).not.toBe('auto');
+    expect(fixed.tools).toEqual(original.tools);
+  });
+
+  it('none 只去掉 tool_choice、保留工具；没有可用工具时不补 auto', () => {
+    const body = { ...codexRequest('1-first-turn').body, tool_choice: 'none' };
+    const fixed = toChatRequest(body, provider({ compat: { toolChoice: 'auto_only' } })).request;
+    expect(fixed).not.toHaveProperty('tool_choice');
+    expect(fixed.tools).toEqual(toChatRequest(body, provider()).request.tools);
+    expect(
+      toChatRequest(body, provider({ compat: { toolChoice: 'any' } })).request.tool_choice,
+    ).toBe('none');
+    expect(
+      toChatRequest(
+        codexRequest('4-compact').body,
+        provider({ compat: { toolChoice: 'auto_only' } }),
+      ).request,
+    ).not.toHaveProperty('tool_choice');
+  });
+});
+
 describe('录制的 Codex 请求 → Chat 请求', () => {
   for (const name of CODEX_SAMPLES) {
     it(`${name} 的转换结果与快照一致`, async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyDialects } from './dialects.js';
+import { applyDialects, stripNullReasoningEncryptedContent } from './dialects.js';
 import { codexRequest } from './test-fixtures/codex.js';
 import type { GatewayProvider, ResponsesEvent, ResponsesItem, ResponsesRequest } from './types.js';
 
@@ -22,7 +22,8 @@ const xai = (compat?: GatewayProvider['compat']) => provider(compat, 'https://ap
 
 describe('drop-tool-choice-without-tools', () => {
   it('压缩请求的 tools: [] + tool_choice → 去掉 tool_choice（xAI 会 400），其余不动', () => {
-    const body = codexRequest('4-compact').body;
+    // 旧工具方言的断言保持原样；新增的通用 null 清理在下方用原始录制样本单独验证。
+    const body = stripNullReasoningEncryptedContent.apply(codexRequest('4-compact').body).body;
     expect(body.tools).toEqual([]);
     expect(body.tool_choice).toBe('auto');
     const { body: fixed, applied } = applyDialects(provider(), body);
@@ -46,7 +47,7 @@ describe('drop-tool-choice-without-tools', () => {
 });
 
 describe('flatten-custom-tools（compat.supportsCustomTools: false）', () => {
-  const body = codexRequest('2-tool-results').body;
+  const body = stripNullReasoningEncryptedContent.apply(codexRequest('2-tool-results').body).body;
 
   it('默认不生效', () => {
     expect(applyDialects(provider(), body).applied).toEqual([]);
@@ -196,7 +197,7 @@ describe('strip-null-reasoning-content', () => {
 });
 
 describe('xAI 的地址（api.x.ai）', () => {
-  const body = codexRequest('2-tool-results').body;
+  const body = stripNullReasoningEncryptedContent.apply(codexRequest('2-tool-results').body).body;
 
   it('默认摊平 custom 与 namespace 工具；compat.supportsCustomTools: true 时只摊平 namespace；别的地址不摊平 namespace', () => {
     expect(applyDialects(xai(), body).applied).toEqual([
@@ -302,5 +303,182 @@ describe('xAI 的地址（api.x.ai）', () => {
       name: 'nope',
       arguments: '{}',
     });
+  });
+});
+
+describe('auto-only-tool-choice（录制请求）', () => {
+  it.each([
+    'required',
+    { type: 'function', name: 'exec_command' },
+    { type: 'custom', name: 'apply_patch' },
+    { type: 'function', name: 'spawn_agent', namespace: 'multi_agent_v1' },
+  ])('显式 auto_only 把 %j 改 auto，any 与默认值仍保持原有选择', (tool_choice) => {
+    const body = { ...codexRequest('1-first-turn').body, tool_choice };
+    const fixed = applyDialects(provider({ toolChoice: 'auto_only' }), body);
+    expect(fixed.body.tool_choice).toBe('auto');
+    expect(fixed.body.tools).toBe(body.tools);
+    expect(fixed.applied).toEqual(['auto-only-tool-choice']);
+    expect(body.tool_choice).toEqual(tool_choice);
+    expect(applyDialects(provider(), body).body).toBe(body);
+    expect(applyDialects(provider({ toolChoice: 'any' }), body).body).toBe(body);
+  });
+
+  it('none 只去掉 tool_choice、保留 tools；auto 与没有选择不补写，压缩请求仍不发选择', () => {
+    const body = { ...codexRequest('1-first-turn').body, tool_choice: 'none' };
+    const fixed = applyDialects(provider({ toolChoice: 'auto_only' }), body).body;
+    expect(fixed).not.toHaveProperty('tool_choice');
+    expect(fixed.tools).toBe(body.tools);
+    expect(applyDialects(provider(), body).body.tool_choice).toBe('none');
+    const auto = { ...body, tool_choice: 'auto' };
+    expect(applyDialects(provider({ toolChoice: 'auto_only' }), auto).body).toBe(auto);
+    const { tool_choice: _drop, ...absent } = body;
+    expect(applyDialects(provider({ toolChoice: 'auto_only' }), absent).body).toBe(absent);
+    expect(
+      applyDialects(provider({ toolChoice: 'auto_only' }), codexRequest('4-compact').body).body,
+    ).not.toHaveProperty('tool_choice');
+  });
+});
+
+describe('通用 namespace 开关（录制请求）', () => {
+  it('任意地址显式 false 就摊平，custom 保持支持；xAI 显式 true 覆盖地址默认', () => {
+    const body = codexRequest('1-first-turn').body;
+    const fixed = applyDialects(provider({ supportsNamespaceTools: false }), body);
+    expect(fixed.applied).toEqual(['flatten-namespace-tools']);
+    expect(fixed.body.tools?.some((tool) => tool.type === 'namespace')).toBe(false);
+    expect(fixed.body.tools?.find((tool) => tool.name === 'apply_patch')?.type).toBe('custom');
+    expect(fixed.body.tools?.map((tool) => tool.name)).toContain('multi_agent_v1__spawn_agent');
+    const kept = applyDialects(
+      xai({ supportsNamespaceTools: true, supportsCustomTools: true }),
+      body,
+    );
+    expect(kept.body).toBe(body);
+    expect(kept.applied).toEqual([]);
+  });
+
+  it('与 custom 开关组合时仍按逆序还原 added、done、completed 的类型与命名空间', () => {
+    const body = codexRequest('1-first-turn').body;
+    const patch = body.tools?.find((tool) => tool.name === 'apply_patch');
+    const request: ResponsesRequest = {
+      ...body,
+      tools: [{ type: 'namespace', name: 'ns', tools: [patch] }],
+      tool_choice: { type: 'custom', name: 'apply_patch', namespace: 'ns' },
+    };
+    const { body: fixed, rewrite } = applyDialects(
+      provider({ supportsCustomTools: false, supportsNamespaceTools: false }),
+      request,
+    );
+    expect(fixed.tool_choice).toEqual({ type: 'function', name: 'ns__apply_patch' });
+    const item = {
+      type: 'function_call',
+      call_id: 'c',
+      name: 'ns__apply_patch',
+      arguments: '{"input":"patch"}',
+    };
+    const expected = {
+      type: 'custom_tool_call',
+      call_id: 'c',
+      name: 'apply_patch',
+      namespace: 'ns',
+      input: 'patch',
+    };
+    for (const type of ['response.output_item.added', 'response.output_item.done']) {
+      expect(rewrite?.({ type, item })?.item).toEqual(expected);
+    }
+    expect(
+      rewrite?.({ type: 'response.completed', response: { id: 'r', output: [item] } })?.response,
+    ).toEqual({ id: 'r', output: [expected] });
+  });
+
+  it('摊平 namespace 与顶层函数撞名时，定义、历史、具名选择与响应一致', () => {
+    const body: ResponsesRequest = {
+      ...codexRequest('1-first-turn').body,
+      tools: [
+        { type: 'function', name: 'ns__fn' },
+        { type: 'namespace', name: 'ns', tools: [{ type: 'function', name: 'fn' }] },
+      ],
+      input: [
+        { type: 'function_call', name: 'fn', namespace: 'ns', call_id: 'c', arguments: '{}' },
+      ],
+      tool_choice: { type: 'function', name: 'fn', namespace: 'ns' },
+    };
+    const { body: fixed, rewrite } = applyDialects(
+      provider({ supportsNamespaceTools: false }),
+      body,
+    );
+    const renamed = fixed.tools?.[1]?.name;
+    expect(renamed).toMatch(/^ns__fn_[a-f0-9]{8}$/);
+    expect(fixed.tools?.[0]?.name).toBe('ns__fn');
+    expect(fixed.tool_choice).toEqual({ type: 'function', name: renamed });
+    expect((fixed.input as ResponsesItem[])[0]).toMatchObject({ name: renamed });
+    expect((fixed.input as ResponsesItem[])[0]).not.toHaveProperty('namespace');
+    expect(
+      rewrite?.({
+        type: 'response.output_item.done',
+        item: { type: 'function_call', name: renamed },
+      })?.item,
+    ).toMatchObject({ name: 'fn', namespace: 'ns' });
+  });
+});
+
+describe('strip-null-reasoning-encrypted-content（录制回放）', () => {
+  it('null 去掉、明文与 summary 保留；缺失与非空字符串不改，其他输入项不改', () => {
+    const recorded = codexRequest('3-next-turn').body;
+    const input = recorded.input as ResponsesItem[];
+    const request: ResponsesRequest = {
+      ...recorded,
+      input: [
+        ...input.map((item) =>
+          item.type === 'reasoning' ? { ...item, encrypted_content: null } : item,
+        ),
+        {
+          type: 'reasoning',
+          summary: [{ type: 'summary_text', text: 'summary only' }],
+          content: null,
+        },
+        { type: 'message', role: 'assistant', content: [], encrypted_content: null },
+      ],
+    };
+    const { body, applied } = applyDialects(provider(), request);
+    expect(applied).toEqual([
+      'strip-null-reasoning-content',
+      'strip-null-reasoning-encrypted-content',
+    ]);
+    const fixed = body.input as ResponsesItem[];
+    for (const [index, item] of input.entries()) {
+      if (item.type !== 'reasoning') continue;
+      expect(fixed[index]).not.toHaveProperty('encrypted_content');
+      expect(fixed[index]?.content).toEqual(item.content);
+      expect(fixed[index]?.summary).toEqual(item.summary);
+    }
+    expect(fixed.at(-2)).toEqual({
+      type: 'reasoning',
+      summary: [{ type: 'summary_text', text: 'summary only' }],
+    });
+    expect(fixed.at(-1)).toBe((request.input as ResponsesItem[]).at(-1));
+    const encrypted: ResponsesRequest = {
+      ...recorded,
+      input: input.map((item) =>
+        item.type === 'reasoning' ? { ...item, encrypted_content: 'opaque-non-null' } : item,
+      ),
+    };
+    expect(applyDialects(provider(), encrypted).body).toBe(encrypted);
+    expect((request.input as ResponsesItem[]).some((item) => item.encrypted_content === null)).toBe(
+      true,
+    );
+  });
+
+  it('原始 xAI 录制回放同时经过通用清理与原有两条工具方言', () => {
+    const { body, applied } = applyDialects(xai(), codexRequest('2-tool-results').body);
+    expect(applied).toEqual([
+      'strip-null-reasoning-encrypted-content',
+      'flatten-custom-tools',
+      'flatten-namespace-tools',
+    ]);
+    expect(body.tools?.some((tool) => tool.type === 'custom' || tool.type === 'namespace')).toBe(
+      false,
+    );
+    for (const item of body.input as ResponsesItem[]) {
+      if (item.type === 'reasoning') expect(item).not.toHaveProperty('encrypted_content');
+    }
   });
 });

@@ -104,12 +104,16 @@ export interface MessagesRequest {
 }
 
 /**
- * 网关读的 compat 开关，与 Host 协议的 `ProviderCompat`（0.4.0 起含后两个只有网关用的开关，ADR-0005 补记 7）、
+ * 网关读的 compat 开关，与 Host 协议的 `ProviderCompat`（0.4.0、0.12.0 的网关开关，ADR-0005 补记 7、12）、
  * `@wevir/runtime-adapter` 的 `ProviderCompatConfig` 同形。这里只补网关对各字段的读法（model-gateway.md §4.4）。
  */
 export interface GatewayCompat extends ProviderCompatConfig {
   /** Responses 上游不支持自定义工具（`custom`）时设 false：网关把它们摊平成函数，响应里再还原。默认 true。 */
   supportsCustomTools?: boolean;
+  /** Responses 上游不支持 namespace 时设 false；省略时 xAI 地址默认 false，其余 true。 */
+  supportsNamespaceTools?: boolean;
+  /** Responses / Chat 的工具选择限制；auto_only 的 none 只去掉 tool_choice、保留 tools。默认 any。 */
+  toolChoice?: 'any' | 'auto_only';
   /**
    * Chat 上游怎样收对话中间的 developer / system 消息：`inline`（默认）原位转 system；`merge` 全部并进开头的
    * 一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。

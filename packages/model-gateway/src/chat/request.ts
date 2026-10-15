@@ -1,8 +1,14 @@
 // Responses 请求 → Chat Completions 请求。改写自 spikes/codex-app-server/src/gateway.ts（mapInput 等），
 // 映射表见 docs/architecture/model-gateway.md §4.1（codex-notes §5.1 的表加上 Spike 没做的部分）。
 
-import { isDeepSeekHost, isGeminiHost, isOpenAIOfficial } from '../providers.js';
-import { customCallArguments, isObject, ToolNames, toChatTools } from '../tools.js';
+import { effectiveCompat, isDeepSeekHost, isGeminiHost, isOpenAIOfficial } from '../providers.js';
+import {
+  compatibleToolChoice,
+  customCallArguments,
+  isObject,
+  ToolNames,
+  toChatTools,
+} from '../tools.js';
 import type {
   ChatContentPart,
   ChatMessage,
@@ -95,7 +101,7 @@ const DROPPED_FIELDS = [
 ] as const;
 
 export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider): ChatTranslation {
-  const compat = provider.compat ?? {};
+  const compat = effectiveCompat(provider);
   const baseURL = provider.baseURL ?? '';
   const names = new ToolNames();
   const dropped: string[] = [];
@@ -119,7 +125,11 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
   };
   if (tools.length > 0) {
     request.tools = tools;
-    request.tool_choice = toChatToolChoice(body.tool_choice, names);
+    const choice = compatibleToolChoice(
+      toChatToolChoice(body.tool_choice, names),
+      compat.toolChoice,
+    );
+    if (choice !== undefined) request.tool_choice = choice;
   }
   if (typeof body.max_output_tokens === 'number') {
     const field =

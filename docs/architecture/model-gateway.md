@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.2（R1，R10 加 Anthropic Messages，R8 加 xAI 与 Gemini 的方言）· 日期：2026-10-14 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.3（R1、R10、R8；P0a 通用工具方言与推理回放）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -37,9 +37,9 @@ await gateway.close();                                   // 停止监听，中�
 | `setProviders(providers)` | 换上整套 Provider（深拷贝，之后改传入的对象不影响网关）。每个请求在开始时取一次配置，所以之后的请求按新配置走，进行中的请求不受影响 |
 | `testProvider(provider, modelId)` | provider.test（ADR-0005 决策 2.5），§7 |
 | `close()` | 中断进行中的上游请求、断开所有连接、停止监听；可重复调用 |
-| `validateProvider(provider)`（独立导出） | 网关处理不了的配置，返回 `ProviderIssue[]`：`openai-compatible` 缺 `api` / `baseURL` 或协议不认识、`baseURL` 带凭据或查询参数、§4.4 两个开关的取值、`anthropic-messages` 的 `thinkingFormat`（§5.4）。与 dsh 的检查（`adapter-dsh` 的 `validateProviderConfig`）无关，adapter-codex 用它；adapter-dsh 仍拒绝 `anthropic-messages`（dsh 不支持） |
+| `validateProvider(provider)`（独立导出） | 网关处理不了的配置，返回 `ProviderIssue[]`：`openai-compatible` 缺 `api` / `baseURL` 或协议不认识、`baseURL` 带凭据或查询参数、§4.4 网关开关的取值、`anthropic-messages` 的 `thinkingFormat`（§5.4）。与 dsh 的检查（`adapter-dsh` 的 `validateProviderConfig`）无关，adapter-codex 用它；adapter-dsh 仍拒绝 `anthropic-messages`（dsh 不支持） |
 
-`GatewayProvider` 就是 `@wevir/runtime-adapter` 的 `ProviderConfig`，只是 `compat` 可以多两个网关自己的开关（§4.4）。Host 协议与 `ProviderCompatConfig` 还没有这两个字段（ADR-0005 补记 3）。
+`GatewayProvider` 与 `@wevir/runtime-adapter` 的 `ProviderConfig` 同形；`GatewayCompat` 与 Host 协议的 `ProviderCompat` 同形。0.4.0 起含 `supportsCustomTools` / `systemMessageMode`，0.12.0 起另含 `supportsNamespaceTools` / `toolChoice`（§4.4；ADR-0005 补记 7、12）。
 
 ## 2. 路由与处理方式
 
@@ -73,7 +73,7 @@ await gateway.close();                                   // 停止监听，中�
 
 ### 3.1 剥离的字段
 
-- **请求体**：去掉 `client_metadata`（含 `x-codex-installation-id`、thread / turn ID、`x-codex-turn-metadata` 整段 JSON，codex-notes §3.1）。其余字段原样，包括 `prompt_cache_key`（值是 thread ID，上游用它做提示词缓存）、`include`、`store: false`、`reasoning`。
+- **请求体**：去掉 `client_metadata`（含 `x-codex-installation-id`、thread / turn ID、`x-codex-turn-metadata` 整段 JSON，codex-notes §3.1）。其余字段原样，包括 `prompt_cache_key`（值是 thread ID，上游用它做提示词缓存）、`include`、`store: false`、`reasoning`（§3.2 的通用修正除外）。
 - **请求头**：Codex 的请求头一个都不转发，因为上游请求头由网关重新组装（§2）。录制样本里 Codex 发的是 `originator`、`user-agent`、`session-id`、`thread-id`、`x-client-request-id`、`x-codex-window-id`、`x-codex-turn-metadata`、`x-codex-beta-features`，子 agent 另有 `x-openai-subagent`、`x-codex-parent-thread-id`；`authorization` 里的网关令牌换成上游 Key。
 - **响应**：状态码与正文原样转回；没有响应方向的方言修正时连字节都不动（`content-type` 用上游的），有时逐条解析 SSE、改写后重新编码（`text/event-stream`）。Codex 读到 `response.completed` 就断开（§6），这时上游的剩余字节不再转发。
 
@@ -85,8 +85,10 @@ await gateway.close();                                   // 停止监听，中�
 |---|---|---|---|---|
 | `drop-tool-choice-without-tools` | 所有 Provider | `tools` 是空数组或没有时去掉 `tool_choice` | — | Codex 的压缩请求发 `tools: []` + `tool_choice: "auto"`（样本 `4-compact`），xAI 报 400（codex-notes §3.4）。没有工具时 `tool_choice` 本来就没有意义，所以不设开关 |
 | `strip-null-reasoning-content` | 所有 Provider | 历史里 reasoning 项的 `content: null` 去掉这个键 | — | Codex 回放上游没给 `content` 的推理项（xAI 只给 `encrypted_content`）时写 `"content": null`，xAI 回 422 `expected a sequence`，去掉就是 200（openai/codex#47733，2026-09）。schema 里 `content` 是数组，null 对谁都不合法 |
-| `flatten-custom-tools` | `compat.supportsCustomTools === false`；没写这个开关时 xAI 的地址（`isXaiHost`：`x.ai` 及其子域）也算 | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现。xAI（R8 核实）：OpenAPI（docs.x.ai/openapi.json）的 `tools` 只有 function 与托管工具，没有 `custom`；第三方 2026-08 的现网对照也是 custom 被拒、摊平后通过。国内服务模板里 xAI 显式写了 `false`（经代理改了地址也生效）。规则与 Chat 转换的摊平相同（§4.3） |
-| `flatten-namespace-tools` | xAI 的地址 | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | xAI 的 OpenAPI 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段，而 Codex 的子 agent 工具在 `multi_agent_v1` 里（样本 `1-first-turn`）。没找到直接的 400 报告（R8 没有 xAI 的 Key），但摊平对认命名空间的上游同样可用，所以按地址默认打开、不设开关 |
+| `strip-null-reasoning-encrypted-content` | 所有 Provider | 历史里 reasoning 项的 `encrypted_content: null` 去掉这个键，明文 `content`、`summary` 保留 | — | 锁定 Codex 的 `ResponseItem::Reasoning.encrypted_content` 是 `Option<String>`，没有 skip-serialize：上游省略或给 null，下一步都写 null（`protocol/src/models.rs:1051–1063`）。不把它当成可带回的加密推理 |
+| `auto-only-tool-choice` | 生效的 `compat.toolChoice === auto_only`（§4.4） | 有工具时 `required`、具名与其他非 auto 值改为 `auto`；`none` 去掉 `tool_choice`，工具保留；没有 `tool_choice` 时不补 | — | [Kimi Responses](https://platform.kimi.com/docs/api/responses.md) 的枚举只有 auto；[MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create) 认 none / auto（2026-10-15 重核）。用共同的 auto_only 规则兼容两种；去掉 none 后允许模型自行调用工具 |
+| `flatten-custom-tools` | 生效的 `compat.supportsCustomTools === false`（§4.4：声明优先，其次地址默认） | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现。xAI（R8 核实）：OpenAPI（docs.x.ai/openapi.json）的 `tools` 只有 function 与托管工具，没有 `custom`；第三方 2026-08 的现网对照也是 custom 被拒、摊平后通过。国内服务模板里 xAI 显式写了 `false`（经代理改了地址也生效）。规则与 Chat 转换的摊平相同（§4.3） |
+| `flatten-namespace-tools` | 生效的 `compat.supportsNamespaceTools === false`（§4.4） | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；具名 `tool_choice` 同样改名并去掉 `namespace`；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | xAI 的 OpenAPI 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段，而 Codex 的子 agent 工具在 `multi_agent_v1` 里（样本 `1-first-turn`）。没找到直接的 400 报告（R8 没有 xAI 的 Key），但摊平对认命名空间的上游同样可用，所以地址默认仍是 false；P0a 加了显式开关，经代理换地址也能生效，true 可覆盖地址默认 |
 
 还没做、留给以后按服务加的：MiniMax 的 `effort: none` 报 400；各家思考开关与 `reasoning.effort` 取值不同（codex-notes §5.3；xAI 的模型目录只列它认的档位，见国内服务模板）；DeepSeek 的 namespace 工具已实测支持（§7.3），不用摊平；Chat / Messages 转换写的推理信封（`wevir-gw:` 开头的 `encrypted_content`）在会话中途换成 Responses 上游时原样透传（Wevir 的会话不换 Provider，没有处理）；xAI 错误体顶层的 `code`（`{"code","error":"…"}`）经 §6 的整理会丢掉。
 
@@ -111,7 +113,7 @@ await gateway.close();                                   // 停止监听，中�
 | 工具 `namespace`（multi_agent_v1） | 里面的工具摊平成 `<ns>__<name>` 的函数 |
 | 托管工具（web_search、image_generation 等） | 丢掉 |
 | `tools` 为空或全被丢掉 | 不发 `tools` 与 `tool_choice` |
-| `tool_choice`：`auto` / `none` / `required` / `{type: function \| custom, name}` | 同名；对象形式换成 `{type: function, function: {name: 摊平后的名字}}`；其他值按 `auto` |
+| `tool_choice`：`auto` / `none` / `required` / `{type: function \| custom, name}` | 同名；对象形式换成 `{type: function, function: {name: 摊平后的名字}}`；其他值按 `auto`；`compat.toolChoice: auto_only` 时 required / 具名改 auto，none 只去掉 tool_choice、保留 tools（与透传相同） |
 | `reasoning.effort` | `reasoning_effort`（`none` 不发）。`reasoning.summary` 丢掉。各家的思考开关（`compat.thinkingFormat`）本任务不处理 |
 | `max_output_tokens`（Codex 不发，testProvider 发） | `compat.maxTokensField`；没设时 OpenAI 官方地址用 `max_completion_tokens`，其他用 `max_tokens`（与 providers.md §2.3 同一判断） |
 | `temperature`、`top_p` | 原样 |
@@ -156,11 +158,15 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 
 ### 4.4 网关的 compat 开关
 
-`ProviderConfig.compat` 里网关读的开关。前四个是已有的（providers.md §2.3），后两个是网关新加的（ADR-0005 补记 3），协议 0.4.0 起是 Host 协议 `ProviderCompat` 的字段，可以经 `provider.upsert` 设置（ADR-0005 补记 7；dsh 忽略它们）。取值由 `validateProvider` 检查。
+`ProviderConfig.compat` 里网关读的开关，都属于 Host 协议 `ProviderCompat`，可经 `provider.upsert` 设置。`supportsCustomTools` / `systemMessageMode` 从 0.4.0 起，`supportsNamespaceTools` / `toolChoice` 从 0.12.0 起；四个网关专用开关 dsh 接受但不检查、不写进 overlay（ADR-0005 补记 7、12）。取值由协议 schema 与网关 `validateProvider` 检查。
+
+`providers.ts` 的 `effectiveCompat` 按每个字段取值：**Provider 显式 compat > 地址默认 > 全局默认**（undefined 视为没写）。`PROVIDER_COMPAT_DEFAULTS` 是地址识别表，本任务只有 `isXaiHost` 一行：`x.ai` 及其子域默认 `supportsCustomTools: false`、`supportsNamespaceTools: false`；全局分别是 true、true，`toolChoice` 全局为 any。以后各家在这里加 isXxxHost 与默认值，经代理地址认不出时必须显式设开关。现有 Chat 的 maxTokensField、DeepSeek reasoning_content 与 Gemini 签名判断保持原有规则。
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
 | `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI 的地址为 `false`（R8） |
+| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI 的地址为 `false` |
+| `toolChoice` | Responses 透传、Chat 转换 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证；Messages 本次不读 | `any` |
 | `systemMessageMode` | Chat 转换 | 对话中间的 developer / system 消息：`inline` 原位转 system；`merge` 全部并进开头的一条 system（用空行分隔，保持顺序；代价是开头的内容一变，上游的提示词缓存就失效）；`user` 开头连续的并成一条 system，之后的转成 user 消息，开头一行注明 `[Developer instruction from the application, not written by the user]`。给只接受开头一条 system 的上游用 | `inline` |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -316,8 +322,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 
 | 层 | 文件 | 内容 |
 |---|---|---|
-| 单元 | `chat/request.test.ts`、`chat/response.test.ts`、`messages/request.test.ts`、`messages/response.test.ts`、`tools.test.ts`、`dialects.test.ts`、`sse.test.ts`、`errors.test.ts`、`providers.test.ts` | §3、§4、§5 的每一项（R8 加：`content: null` 的推理项、xAI 地址的两条摊平与相反顺序的还原、Gemini 签名信封的往返、换模型与缺签名时的占位值）：录制样本的转换（快照在 `src/__snapshots__/codex-requests/*.chat.json` 与 `*.messages.json`）、对话中间的 developer 消息各模式、图片、工具输出里的图片、孤立的推理、长名字与撞名、length / content_filter、流中的错误与提前断开、交错的并行调用、没有 index 的上游、整段 JSON；Messages 另有思考信封的往返与不带回的各种情况、不合规则的 call_id、占位工具、思考开关与 `max_tokens` 的取值、redacted_thinking、相邻 text 块合并、各 stop_reason、usage 的缓存读写；每个事件序列都过一遍 `codexProblems`（按 Codex 的解析规则检查） |
-| 集成 | `gateway.integration.test.ts`、`provider-test.integration.test.ts` | 真实 HTTP：令牌、路由、透传（请求体只少 `client_metadata`、请求头白名单、Key 替换）、deepseek-official、两条方言修正、gzip、Chat 转换（apply_patch 与 namespace 往返、交错的并行调用、incomplete、failed）、Messages 转换（请求头、工具调用与跨回合思考的三步往返、不给签名的上游、压缩请求、incomplete、failed、Anthropic 风格的错误正文）、上游错误（状态码与正文、Key 遮掉）、502、Codex 断开时中断上游（三种处理方式）、`setProviders` 不影响进行中的请求、`close()`、日志口径；testProvider 的成功与每种失败（三种处理方式）。Messages 的 mock（`test-fixtures/mock-messages.ts`）按 Anthropic 的结构规则检查请求，不合规则就回 400：`max_tokens`、`budget_tokens`、角色交替、空文本、思考块的签名（对原文哈希，改了就对不上）、`tool_result` 紧跟且排在最前、有工具调用就必须定义工具、名字与 id 的字符 |
+| 单元 | `chat/request.test.ts`、`chat/response.test.ts`、`messages/request.test.ts`、`messages/response.test.ts`、`tools.test.ts`、`dialects.test.ts`、`sse.test.ts`、`errors.test.ts`、`providers.test.ts` | §3、§4、§5 的每一项（P0a 加：录制样本下 toolChoice / namespace 开关、声明覆盖地址默认与 null 加密推理；R8 加：`content: null` 的推理项、xAI 地址的两条摊平与相反顺序的还原、Gemini 签名信封的往返、换模型与缺签名时的占位值）：录制样本的转换（快照在 `src/__snapshots__/codex-requests/*.chat.json` 与 `*.messages.json`）、对话中间的 developer 消息各模式、图片、工具输出里的图片、孤立的推理、长名字与撞名、length / content_filter、流中的错误与提前断开、交错的并行调用、没有 index 的上游、整段 JSON；Messages 另有思考信封的往返与不带回的各种情况、不合规则的 call_id、占位工具、思考开关与 `max_tokens` 的取值、redacted_thinking、相邻 text 块合并、各 stop_reason、usage 的缓存读写；每个事件序列都过一遍 `codexProblems`（按 Codex 的解析规则检查） |
+| 集成 | `gateway.integration.test.ts`、`compat.integration.test.ts`、`provider-test.integration.test.ts` | P0a：拒收非 auto / namespace / null 加密推理的 mock，原始请求 400、开关改写后 200，与响应的工具类型 / 命名空间还原；真实 HTTP：令牌、路由、透传（请求体只少 `client_metadata`、请求头白名单、Key 替换）、deepseek-official、两条方言修正、gzip、Chat 转换（apply_patch 与 namespace 往返、交错的并行调用、incomplete、failed）、Messages 转换（请求头、工具调用与跨回合思考的三步往返、不给签名的上游、压缩请求、incomplete、failed、Anthropic 风格的错误正文）、上游错误（状态码与正文、Key 遮掉）、502、Codex 断开时中断上游（三种处理方式）、`setProviders` 不影响进行中的请求、`close()`、日志口径；testProvider 的成功与每种失败（三种处理方式）。Messages 的 mock（`test-fixtures/mock-messages.ts`）按 Anthropic 的结构规则检查请求，不合规则就回 400：`max_tokens`、`budget_tokens`、角色交替、空文本、思考块的签名（对原文哈希，改了就对不上）、`tool_result` 紧跟且排在最前、有工具调用就必须定义工具、名字与 id 的字符 |
 | 真实模型（可选） | `gateway.real.integration.test.ts` | `WEVIR_TEST_API_KEY` + `WEVIR_TEST_PROVIDER=deepseek`（或 `deepseek-official`）时，DeepSeek 的透传、Chat 转换与 Messages 转换（`https://api.deepseek.com/anthropic`）各一次最小对话与 testProvider；Messages 另跑一次带工具调用与跨回合思考的对话（三个请求，打印推理项与带签名的数量）。模型默认 `deepseek-flash`，`WEVIR_TEST_MODEL` 可改。否则跳过并打印原因 |
 | 端到端（手动） | `spikes/codex-app-server`：`WEVIR_SPIKE_GATEWAY=product node src/run-all.ts --transport=gateway,passthrough`（先 `pnpm --filter @wevir/model-gateway build`） | 真实 `codex-app-server` 经产品网关跑 Spike 的 12 个场景（流式、apply_patch 与审批、跨回合推理、子 agent、取消、resume、计划、上游错误、密钥）。2026-10-14：104 项检查全部通过。R2 的契约测试第 2 层建成后由它替代 |
 
@@ -335,6 +341,17 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试：`__snapshots__/codex-requests/` 的变化就是转换结果的变化。根 `biome.json` 排除了这两个目录，保持录制原样。
 
 ## 10. 局限与没做的
+
+**P0a 对锁定 Codex 的输入项核实（2026-10-15，rust-v0.162.1 / `092d3ac`）：** 下列 Codex 路径相对 `upstream/codex/codex-rs/`；Wevir 适配器路径相对 `packages/`。
+
+- `additional_tools` 只在模型元数据 `use_responses_lite = true` 时发：`core/src/client.rs:915–932` 把工具目录写进该输入项；增量工具的 `core/src/session/world_state.rs:44–55,143–147` / `context/world_state/top_level_tools.rs:135` 也受此门控。Wevir 的 `adapter-codex/src/config.ts::catalogEntry` 不设置这个字段，`protocol/src/openai_models.rs:482–489` 的 serde 默认是 false；模型目录按 slug 整条读取，不继承官方 GPT 的元数据（`models-manager/src/manager.rs:461–478`），因此 GPT-5.6+ 的名称也不会自动打开。三条网关路都不会遇到它，本次不加转换或伪造样本。
+- `configuration_update` 需要 `core/src/client.rs:556–559` 的三重条件：开 reasoning-effort override、Provider `is_openai()`、模型 `supports_reasoning_effort_updates`。Wevir Provider 名称是 `Wevir/<显示名>`，不属于 OpenAI，目录也不设置后者（serde 默认 false）。`client.rs:902–906` 还会从请求副本中过滤旧历史里的该项。实际推理档位仍由每次 `turn/start` 的 effort 与请求顶层 reasoning 传递，Chat / Messages 已有对应（§4.1、§5.4）。
+- `collaboration` 是 multi-agent V2 的默认 namespace（`core/src/config/mod.rs:262,1614–1632`、`tools/spec_plan.rs:1374–1390`），并非看模型名称前缀就开启。Wevir 目录不设置 `multi_agent_version`、配置不覆盖，按 Collab feature 取 V1，因此是已录制的 `multi_agent_v1`。ChatGPT 进程用官方目录，但不经模型网关；本任务不改变它。
+- 自定义模型目录声明 `apply_patch_tool_type: freeform`，只有 `tools/handlers/apply_patch_spec.rs` 的 apply_patch custom 工具。其他 freeform（`tools/code_mode/execute_spec.rs`）要求 CodeMode / CodeModeOnly；目录不设置 `tool_mode`，`tools/mod.rs:76–85` 回落到 feature，这两个在 `features/src/lib.rs` 默认 false。因此不用“只支持 apply_patch”的新开关。
+- `ResponseItem::Reasoning`（`protocol/src/models.rs:1051–1063,1626–1632`）会保留明文 reasoning_text 与 summary；缺失的 content 可能序列化成 null，缺失或 null 的 encrypted_content 一定序列化成 null（现有录制样本 2-tool-results、3-next-turn、4-compact 已包含它，无需另造样本）。§3.2 分别清理两个 null 键，保留明文与 summary，不改响应字节或非空加密内容。
+
+Codex 升级时重查上述字段默认值、Provider 判定与触发条件；一旦 Wevir 配置能发 additional_tools / configuration_update，就要先录真实样本，并把工具并入 tools、将最后的推理档位反映到 Chat / Messages，再启用相应元数据。
+
 
 - Gemini 原生协议（经兼容端点够用，§4.5）；Gemini 的思考内容不返回、不显示。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。

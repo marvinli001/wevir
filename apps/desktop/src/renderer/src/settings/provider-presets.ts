@@ -39,7 +39,7 @@ export interface OpenAIPreset {
   defaultModelId: string;
   /** 本机服务不校验 Key（providers.md §3），预先填一个任意值。 */
   placeholderKey?: string;
-  /** 这家服务的方言开关（网关读，model-gateway.md §3.2），新建时原样带进 Provider。 */
+  /** 协议 ProviderCompat 的方言开关（含 namespace / toolChoice，model-gateway.md §3.2），新建时原样带进 Provider。 */
   compat?: ProviderCompat;
   /** 官方文档（providers.md §7 的来源），经系统浏览器打开。 */
   docsURL?: string;

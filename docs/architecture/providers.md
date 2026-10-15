@@ -74,7 +74,9 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 | 地址不是 `api.openai.com` | `supportsDeveloperRole: false`、`maxTokensField: max_tokens` |
 | 地址是 `deepseek.com` 及其子域（DeepSeek 的 OpenAI 兼容端点走 pi-ai 时） | 另加 `thinkingFormat: deepseek`、`requiresReasoningContentOnAssistantMessages: true`（T0.3 §6.2，取自 pi-ai 自带的 deepseek 目录） |
 
-每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
+Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表当前只有 xAI）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。P0a 不改变任何服务模板、目录、模型或地址。
+
+每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
 ### 2.4 生成的 overlay 示例
 
