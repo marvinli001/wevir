@@ -100,6 +100,47 @@ describe('sessions', () => {
     expect(s.sessions.get('ses_01')?.permissionMode).toBe('full_access');
   });
 
+  it('环境会话（0004）：环境、额外目录与 worktree 存取一致，普通会话没有', () => {
+    const s = storage();
+    seedSession(s);
+    expect(s.sessions.get('ses_01')).not.toHaveProperty('environmentId');
+    const worktrees = [{ workspaceId: 'ws_01', path: '/w/1-app', branch: 'wevir/abc' }];
+    seedSession(s, {
+      id: 'ses_02',
+      engineSessionId: 'e2',
+      environmentId: 'env_01',
+      extraRoots: ['/home/u/api'],
+      worktrees,
+    });
+    expect(s.sessions.get('ses_02')).toMatchObject({
+      environmentId: 'env_01',
+      extraRoots: ['/home/u/api'],
+      worktrees,
+    });
+  });
+
+  it('环境（0004）：增删改查，按创建时间', () => {
+    const s = storage();
+    const record = {
+      id: 'env_01',
+      name: '前后端',
+      location: { kind: 'local' },
+      folders: [{ workspaceId: 'ws_01', worktree: 'new' }],
+      createdAt: T0,
+      updatedAt: T0,
+    };
+    s.environments.insert(record);
+    s.environments.insert({ ...record, id: 'env_02', createdAt: '2026-10-13T00:00:01.000Z' });
+    expect(s.environments.list().map((e) => e.id)).toEqual(['env_01', 'env_02']);
+    expect(
+      s.environments.update({ ...record, name: '改名', updatedAt: '2026-10-14T00:00:00.000Z' }),
+    ).toBe(true);
+    expect(s.environments.get('env_01')).toMatchObject({ name: '改名', createdAt: T0 });
+    expect(s.environments.remove('env_01')).toBe(true);
+    expect(s.environments.get('env_01')).toBeUndefined();
+    expect(s.environments.update(record)).toBe(false);
+  });
+
   it('列表按更新时间倒序，默认隐藏已移除工作区的会话，可按工作区过滤', () => {
     const s = storage();
     s.workspaces.insert(workspace({ id: 'ws_a', rootPath: '/a' }));

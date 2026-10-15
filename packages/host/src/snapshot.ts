@@ -2,6 +2,7 @@ import type {
   ActiveTurn,
   ApprovalRequest,
   EngineErrorInfo,
+  EnvironmentId,
   IsoTime,
   PendingMessage,
   PendingMessageId,
@@ -460,6 +461,16 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
+  if (record.environmentId !== undefined) {
+    session.environmentId = record.environmentId as EnvironmentId;
+  }
+  if (record.extraRoots !== undefined) session.extraRoots = record.extraRoots;
+  if (record.worktrees !== undefined) {
+    session.worktrees = record.worktrees.map((worktree) => ({
+      ...worktree,
+      workspaceId: worktree.workspaceId as WorkspaceId,
+    }));
+  }
   if (record.parentSessionId !== undefined) {
     session.parentSessionId = record.parentSessionId as SessionId;
   }

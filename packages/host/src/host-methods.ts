@@ -4,6 +4,9 @@ import { basename, isAbsolute } from 'node:path';
 import type {
   ClientCapabilities,
   ClientIdentity,
+  Environment,
+  EnvironmentFolder,
+  EnvironmentId,
   ErrorData,
   MethodName,
   MethodParams,
@@ -14,7 +17,13 @@ import type {
   WorkspaceId,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, ProviderConfig } from '@wevir/runtime-adapter';
-import type { ProviderProfileRecord, SecretStore, Storage, WorkspaceRecord } from '@wevir/storage';
+import type {
+  EnvironmentRecord,
+  ProviderProfileRecord,
+  SecretStore,
+  Storage,
+  WorkspaceRecord,
+} from '@wevir/storage';
 import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
@@ -203,13 +212,61 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
 
+    // 0.15.0（U22.1，domain-model §3.10）：保存的环境。
+    'environment.list': () => ({
+      environments: storage.environments.list().map(toEnvironment),
+    }),
+
+    'environment.create': ({ name, folders }) => {
+      const now = isoNow();
+      const record: EnvironmentRecord = {
+        id: newId('env'),
+        name: environmentName(name),
+        location: { kind: 'local' },
+        folders: checkEnvironmentFolders(storage, folders),
+        createdAt: now,
+        updatedAt: now,
+      };
+      storage.environments.insert(record);
+      return { environment: toEnvironment(record) };
+    },
+
+    'environment.update': ({ environmentId, name, folders }) => {
+      const current = storage.environments.get(environmentId);
+      if (!current) {
+        throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${environmentId} not found`);
+      }
+      const record: EnvironmentRecord = {
+        ...current,
+        ...(name !== undefined && { name: environmentName(name) }),
+        ...(folders !== undefined && { folders: checkEnvironmentFolders(storage, folders) }),
+        updatedAt: isoNow(),
+      };
+      storage.environments.update(record);
+      return { environment: toEnvironment(record) };
+    },
+
+    'environment.remove': ({ environmentId }) => {
+      if (!storage.environments.remove(environmentId)) {
+        throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${environmentId} not found`);
+      }
+      return {};
+    },
+
     // 0.13.0（U18）：每次现读，目录已不存在时同 workspace.add 回 WORKSPACE_PATH_INVALID。
-    'workspace.git': async ({ workspaceId }) => {
+    'workspace.git': async ({ workspaceId, sessionId }) => {
       const workspace = storage.workspaces.get(workspaceId);
       if (!workspace || workspace.removedAt !== undefined) {
         throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
       }
-      return readGitStatus(await resolveWorkspacePath(workspace.rootPath));
+      // 0.15.0：环境会话的 worktree。
+      let dir = workspace.rootPath;
+      if (sessionId !== undefined) {
+        const session = storage.sessions.get(sessionId);
+        if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
+        dir = session.cwd;
+      }
+      return readGitStatus(await resolveWorkspacePath(dir));
     },
 
     'provider.list': () => ({ providers: storage.providers.list().map(toProviderProfile) }),
@@ -502,6 +559,48 @@ async function secretOf(
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** 环境的名字：去掉首尾空白后 1–60 字。 */
+function environmentName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length === 0 || trimmed.length > 60) {
+    throw invalidParams(['name'], 'environment name must be 1–60 characters');
+  }
+  return trimmed;
+}
+
+/** 环境的文件夹：工作区都在、没被移除，不重复。 */
+function checkEnvironmentFolders(
+  storage: Storage,
+  folders: readonly EnvironmentFolder[],
+): EnvironmentRecord['folders'] {
+  const seen = new Set<string>();
+  for (const folder of folders) {
+    if (seen.has(folder.workspaceId)) {
+      throw invalidParams(['folders'], `workspace ${folder.workspaceId} is listed twice`);
+    }
+    seen.add(folder.workspaceId);
+    const workspace = storage.workspaces.get(folder.workspaceId);
+    if (!workspace || workspace.removedAt !== undefined) {
+      throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${folder.workspaceId} not found`);
+    }
+  }
+  return folders.map((folder) => ({ workspaceId: folder.workspaceId, worktree: folder.worktree }));
+}
+
+function toEnvironment(record: EnvironmentRecord): Environment {
+  return {
+    id: record.id as EnvironmentId,
+    name: record.name,
+    location: { kind: 'local' },
+    folders: record.folders.map((folder) => ({
+      workspaceId: folder.workspaceId as WorkspaceId,
+      worktree: folder.worktree === 'new' ? 'new' : 'none',
+    })),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
 }
 
 function invalidParams(path: string[], message: string): HostError<'INVALID_PARAMS'> {

@@ -6,6 +6,7 @@ import type {
   AccountState,
   ApprovalRequest,
   ApprovalResolution,
+  Environment,
   PendingMessage,
   ProviderProfile,
   QuestionRequest,
@@ -31,6 +32,8 @@ export const TS2 = '2026-10-12T08:00:05.250Z';
 
 export const ids = {
   workspace: `ws_${ULID}`,
+  /** 环境（0.15.0）。 */
+  environment: `env_${ULID}`,
   session: `ses_${ULID}`,
   /** 子会话（0.6.0）。 */
   childSession: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR1',
@@ -58,6 +61,19 @@ export const workspace: Workspace = {
   id: ids.workspace,
   rootPath: '/Users/me/projects/wevir',
   displayName: 'wevir',
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 环境（0.15.0）。 */
+export const environment: Environment = {
+  id: ids.environment,
+  name: '前后端一起改',
+  location: { kind: 'local' },
+  folders: [
+    { workspaceId: ids.workspace, worktree: 'new' },
+    { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPR2', worktree: 'none' },
+  ],
   createdAt: TS,
   updatedAt: TS,
 };
@@ -347,6 +363,15 @@ export const eventPayloads: PayloadSamples = {
       reasoningEffort: 'high',
       permissionMode: 'full_access',
       engineVersion: '0.2.1-alpha.2',
+      environmentId: ids.environment,
+      extraRoots: ['/Users/me/projects/wevir-api'],
+      worktrees: [
+        {
+          workspaceId: ids.workspace,
+          path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-wevir',
+          branch: 'wevir/jkmnpqr0',
+        },
+      ],
     },
     invalid: { workspaceId: ids.workspace, cwd: '/x', providerId: 'DeepSeek', modelId: 'm' },
   },
@@ -663,9 +688,43 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ workspaceId: ids.workspace }], invalid: [{ workspaceId: ids.session }] },
     result: empty,
   },
+  'environment.list': {
+    params: empty,
+    result: {
+      valid: [{ environments: [] }, { environments: [environment] }],
+      invalid: [{ environments: [{ ...environment, folders: [] }] }],
+    },
+  },
+  'environment.create': {
+    params: {
+      valid: [{ name: '前后端一起改', folders: environment.folders }],
+      invalid: [
+        { name: '', folders: environment.folders },
+        { name: 'x', folders: [{ workspaceId: ids.workspace, worktree: 'reuse' }] },
+      ],
+    },
+    result: { valid: [{ environment }], invalid: [{ environment: { ...environment, id: 'x' } }] },
+  },
+  'environment.update': {
+    params: {
+      valid: [
+        { environmentId: ids.environment },
+        { environmentId: ids.environment, name: '新名字' },
+      ],
+      invalid: [{ environmentId: ids.workspace }, { environmentId: ids.environment, folders: [] }],
+    },
+    result: { valid: [{ environment }], invalid: [{}] },
+  },
+  'environment.remove': {
+    params: { valid: [{ environmentId: ids.environment }], invalid: [{}] },
+    result: empty,
+  },
   'workspace.git': {
     params: {
-      valid: [{ workspaceId: ids.workspace }],
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session },
+      ],
       invalid: [{ workspaceId: ids.session }, {}],
     },
     result: {
@@ -886,11 +945,13 @@ export const methodSamples: MethodSamples = {
           modelId: 'deepseek-reasoner',
           reasoningEffort: 'max',
           permissionMode: 'full_access',
+          environmentId: ids.environment,
         },
       ],
       invalid: [
         { workspaceId: ids.workspace },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', permissionMode: 'never' },
+        { workspaceId: ids.workspace, providerId: 'deepseek-official', environmentId: 'e1' },
       ],
     },
     result: { valid: [{ session }], invalid: [{ session: { ...session, state: 'paused' } }] },

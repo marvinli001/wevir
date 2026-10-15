@@ -2,6 +2,7 @@ import { Plus } from 'lucide-react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
+import { useActiveEnvironment } from '@/environments/environments';
 import { t } from '@/i18n';
 import { onboardingDone } from '@/onboarding/onboarding-state';
 import { openCreateProject } from '@/projects/create-project';
@@ -47,11 +48,13 @@ function Home({
   const { providers, choice, choose } = useModelChoice();
   const permission = usePermissionChoice();
   const permissions = usePermissionModes();
+  const environment = useActiveEnvironment(workspace?.id);
   const { start, error, ready } = useStartSession(
     workspace?.id,
     choice,
     undefined,
     permission.mode,
+    environment?.id,
   );
   const noProvider = providers !== undefined && providers.length === 0;
 

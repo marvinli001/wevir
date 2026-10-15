@@ -66,7 +66,7 @@ Host 生成的 ID 都是带类型前缀的不透明字符串，客户端不得�
 - 一对一。`session.create` 时 Host 先调用适配器 `createSession`（ACP `session/new`），拿到引擎会话 ID 后才写 `session.created`；之后 `Session.engine.sessionId` 不再改变。子会话（§3.3.1）不经 `session.create`：引擎自己派出子 agent，适配器报出它的引擎会话 ID（Codex 的子 thread），Host 据此建会话，同样一对一。ACP 的 `session/resume` 沿用同一个 `sessionId`（T0.3 §3.2），所以 resume、Host 重启、dsh 进程重启都不改映射。
 - 映射只由 Host 保存（`sessions` 表，T2.1；对引擎会话 ID 建唯一索引）。适配器上报的事件以引擎会话 ID 为键，Host 据此路由到 Wevir 会话；Wevir 会话 ID 从不发给 dsh。
 - 客户端只用 Wevir 会话 ID。`session.get` 可以带出 `engine` 字段用于诊断，客户端不得据此做任何操作。
-- `Session.cwd` 是创建时工作区 `rootPath` 的 realpath，同样不可变：ACP resume 必须用同一个 cwd（按 realpath 比较，T0.3 §3.2）。
+- `Session.cwd` 是创建时工作区 `rootPath` 的 realpath，同样不可变：ACP resume 必须用同一个 cwd（按 realpath 比较，T0.3 §3.2）。（0.15.0 起环境会话例外：可以是 Host 为它新开的 worktree 里的目录，同样不可变，§3.10）
 - dsh 的 LLM attempt ID（形如 `<引擎会话 ID>:<n>`）只在适配器内部出现，Host 为每个 attempt 分配 `StreamId`。
 
 ---
@@ -209,7 +209,7 @@ interface ActiveTurn {
 interface Session {
   id: SessionId
   workspaceId: WorkspaceId
-  cwd: string                      // 创建时的 rootPath（realpath），resume 用
+  cwd: string                      // 创建时的 rootPath（realpath），resume 用；环境会话（0.15.0）可以是 worktree 里的目录（§3.10）
   engine: { kind: string; sessionId: string } // 仅诊断用；kind 是 codex（默认）、dsh 或 echo
   providerId: ProviderId
   modelId: string
@@ -604,6 +604,38 @@ type PermissionMode = 'on_request' | 'auto_review' | 'full_access'
 - 引擎在适配器上声明支持的模式（`permissionModes`），Host 据此声明 `permission_modes`；不支持的引擎（dsh）只有 `on_request`，会话不带这个字段。
 - 子 agent 的子会话沿用父会话当时的模式（Codex 的子 thread 继承父回合的审批与沙箱设置）。
 - 自动批准不产生审批请求，也不另出事件：允许的操作照常执行，拒绝的以工具失败结束、拒绝理由在工具输出里（审查过程的通知暂不投影，codex-event-mapping.md §9）。
+
+### 3.10 环境（0.15.0，U22.1）
+
+保存的一组会话设置（设计提案 D11 的 A、B，维护者 2026-10-15 确认；SSH 与云端推迟）：在哪儿跑、用哪几个文件夹、每个文件夹要不要单独开一个 git worktree。新建会话时选一个环境，Host 按它准备会话的目录。
+
+```ts
+// → protocol
+interface Environment {
+  id: EnvironmentId                    // env_<ULID>
+  name: string                         // 1–60 字
+  location: { kind: 'local' }          // 本机；以后加 SSH、云端
+  folders: EnvironmentFolder[]         // 1–8 个，不重复；第一个是主文件夹
+  createdAt: IsoTime
+  updatedAt: IsoTime
+}
+interface EnvironmentFolder {
+  workspaceId: WorkspaceId
+  worktree: 'none' | 'new'             // new：每个会话在这个文件夹的仓库里新开一个 worktree
+}
+interface SessionWorktree {            // Session.worktrees 的一项
+  workspaceId: WorkspaceId
+  path: string                         // worktree 里对应这个文件夹的目录（文件夹是仓库的子目录时是子目录）
+  branch: string                       // 新开的分支，wevir/<会话 ID 的后 8 位>，同一会话里第二个起加 -2、-3
+}
+```
+
+规则：
+
+- **方法**：`environment.list / create / update / remove`（host-api.md §3）。文件夹引用的工作区要在、没被移除；移除工作区时环境不跟着改，用到它的环境建会话时报 `WORKSPACE_NOT_FOUND`。删除环境不影响已经用它建的会话。
+- **建会话**：`session.create` 带 `environmentId` 时，`workspaceId` 必须是环境的主文件夹（否则 `INVALID_PARAMS`），会话属于这个工作区。Host 按顺序准备每个文件夹：`worktree: 'none'` 用工作区目录本身；`'new'` 在 `<数据目录>/worktrees/<会话 ID>/<序号>-<仓库目录名>` 用 `git worktree add -b <分支> <路径> HEAD` 新开一个，会话用 worktree 里对应的目录。主文件夹的目录是会话的 `cwd`——**环境会话的 `cwd` 可以是 worktree 里的目录，不再总等于工作区的 `rootPath`**（§3.3）；其余文件夹的目录是 `extraRoots`，交给引擎作额外的可写目录（Codex：`sandboxPolicy.workspaceWrite.writableRoots`，并在 developer instructions 里告诉模型，codex-event-mapping.md §4.8）。文件夹不是 git 仓库、建 worktree 失败、引擎不支持额外目录（适配器没声明 `additionalRoots`）时回 `INVALID_PARAMS`，已经建好的 worktree 删掉，不建会话。
+- **会话上的记录**：`Session.environmentId`、`extraRoots`、`worktrees`，写进 `session.created`，之后不变；resume 时照样把 `extraRoots` 交给引擎。
+- **worktree 不自动删**：可能有没合并的改动；会话关闭后留着，由用户自己 `git worktree remove`（以后在设置里列出可清理的）。
 
 ## 4. 会话状态机
 

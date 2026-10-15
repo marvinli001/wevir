@@ -305,6 +305,9 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     return pending;
   }
 
+  /** 额外的可写目录（0.15.0）只记下，假引擎不读写文件。 */
+  readonly additionalRoots = true;
+
   /** 子会话的回合跟父回合在同一个进程里，单独停掉时父 agent 自然在等它结束（`notifyParent` 不用另外处理）。 */
   async cancel(engineSessionId: string, _options?: CancelOptions): Promise<void> {
     const turn = this.#sessions.get(engineSessionId)?.turn;

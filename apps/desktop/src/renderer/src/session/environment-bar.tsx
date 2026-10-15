@@ -1,11 +1,21 @@
 import { cn } from 'cn';
-import { Check, ChevronRight, Copy, Folder, FolderCog, Laptop, Settings } from 'lucide-react';
+import {
+  Check,
+  ChevronRight,
+  Copy,
+  Folder,
+  FolderCog,
+  Laptop,
+  Layers,
+  Settings,
+} from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { WorkspaceEntry } from '@/data/workbench-model';
+import { environmentSummary, useActiveEnvironment } from '@/environments/environments';
 import { t } from '@/i18n';
 import { ProjectMenuContent, StartTruncated } from '@/projects/project-menu';
 import { paths } from '@/routes/paths';
@@ -30,6 +40,8 @@ export function EnvironmentBar({
   onSelect: (workspaceId: string) => void;
 }) {
   const workspace = current?.workspace;
+  // 新会话页选中的环境（U22.1）。
+  const environment = useActiveEnvironment(workspace?.id);
   return (
     <>
       <DropdownMenu>
@@ -54,6 +66,16 @@ export function EnvironmentBar({
           sideOffset={6}
         />
       </DropdownMenu>
+      {environment && (
+        <span
+          className={ITEM}
+          data-testid="environment-name"
+          title={environmentSummary(environment)}
+        >
+          <Layers aria-hidden />
+          <span className="truncate">{environment.name}</span>
+        </span>
+      )}
       <span className={ITEM} data-testid="environment-location">
         <Laptop aria-hidden />
         {t('environment.local')}

@@ -28,6 +28,11 @@ export interface SessionConfig {
    * 起生效。
    */
   permissionMode?: PermissionMode;
+  /**
+   * 环境会话（0.15.0，U22.1）：除 `cwd` 外这个会话还能读写的目录（其他文件夹或它们的 worktree）。只有声明了
+   * `additionalRoots` 的适配器会收到。
+   */
+  additionalRoots?: string[];
 }
 
 /** `createSession` / `resumeSession` 的结果。 */

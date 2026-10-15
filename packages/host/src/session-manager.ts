@@ -1,4 +1,5 @@
-import { stat } from 'node:fs/promises';
+import { rm, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
   type ApprovalDetail,
@@ -10,6 +11,7 @@ import {
   DEFAULT_PERMISSION_MODE,
   type EngineErrorCategory,
   type EngineErrorInfo,
+  type EnvironmentId,
   type MethodParams,
   type MethodResult,
   type PendingMessage,
@@ -25,6 +27,7 @@ import {
   type SessionReadOnlyReason,
   type SessionSnapshot,
   type SessionState,
+  type SessionWorktree,
   type StateChangeReason,
   type StreamBlockRef,
   type StreamId,
@@ -60,6 +63,12 @@ import {
 } from '@wevir/storage';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
+import {
+  type CreatedWorktree,
+  createWorktree,
+  removeWorktree,
+  WorktreeError,
+} from './git-worktree.js';
 import { newId } from './ids.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
@@ -92,6 +101,11 @@ export interface SessionManagerOptions {
   titleInstructions?: string;
   /** 不影响状态的告警（生成标题失败等）。默认打到 stderr。 */
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
+  /**
+   * 环境会话新开的 worktree 放在这里（0.15.0，`<数据目录>/worktrees`，每个会话一个子目录）。没给时环境里要新开 worktree 的
+   * 文件夹建不了会话（`INVALID_PARAMS`）。
+   */
+  worktreesDir?: string;
 }
 
 /** `recover()` 的结果：启动对账修正了什么。 */
@@ -222,6 +236,7 @@ export class SessionManager {
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
+  readonly #worktreesDir: string | undefined;
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
@@ -244,6 +259,7 @@ export class SessionManager {
       options.onWarning ??
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
     this.#titleInstructions = options.titleInstructions;
+    this.#worktreesDir = options.worktreesDir;
   }
 
   /**
@@ -339,24 +355,28 @@ export class SessionManager {
       throw new HostError('PROVIDER_NOT_FOUND', `provider ${params.providerId} not found`);
     }
     await assertDirectory(workspace.rootPath);
+    const permissionMode = this.#permissionMode(params.permissionMode);
 
+    const sessionId = newId('ses');
+    // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。
+    const prepared = await this.#prepareEnvironment(params, sessionId, workspace.rootPath);
     const config: SessionConfig = {
-      cwd: workspace.rootPath,
+      cwd: prepared.cwd,
       providerId: provider.id,
       modelId: params.modelId ?? provider.defaultModelId,
     };
     if (params.reasoningEffort !== undefined) config.reasoningEffort = params.reasoningEffort;
-    const permissionMode = this.#permissionMode(params.permissionMode);
     if (permissionMode !== undefined) config.permissionMode = permissionMode;
+    if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     try {
       engineSession = await this.#adapter.createSession(config);
     } catch (error) {
+      await prepared.undo();
       const info = engineErrorInfo(error);
       throw new HostError('ENGINE_ERROR', info.message, info);
     }
 
-    const sessionId = newId('ses');
     const now = isoNow();
     const modelId = engineSession.modelId ?? config.modelId;
     const reasoningEffort = engineSession.reasoningEffort ?? config.reasoningEffort;
@@ -378,6 +398,9 @@ export class SessionManager {
       };
       if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
       if (permissionMode !== undefined) record.permissionMode = permissionMode;
+      if (prepared.environmentId !== undefined) record.environmentId = prepared.environmentId;
+      if (prepared.extraRoots.length > 0) record.extraRoots = prepared.extraRoots;
+      if (prepared.worktrees.length > 0) record.worktrees = prepared.worktrees;
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',
@@ -389,14 +412,18 @@ export class SessionManager {
           modelId,
           ...(reasoningEffort !== undefined && { reasoningEffort }),
           ...(permissionMode !== undefined && { permissionMode }),
+          ...(prepared.environmentId !== undefined && { environmentId: prepared.environmentId }),
+          ...(prepared.extraRoots.length > 0 && { extraRoots: prepared.extraRoots }),
+          ...(prepared.worktrees.length > 0 && { worktrees: prepared.worktrees }),
           ...(engineSession.engineVersion !== undefined && {
             engineVersion: engineSession.engineVersion,
           }),
         },
       });
     } catch (error) {
-      // 会话没建成，尽力回收引擎会话。
+      // 会话没建成，尽力回收引擎会话与 worktree。
       await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
+      await prepared.undo();
       throw error;
     }
 
@@ -407,6 +434,95 @@ export class SessionManager {
       this.#engineFailed(runtime, engineErrorInfo(error));
     }
     return this.#snapshot(runtime).session;
+  }
+
+  /**
+   * 按环境准备会话的目录（0.15.0，domain-model §3.10）。不带环境时就是工作区目录。带环境时 `workspaceId` 要是主文件夹；
+   * 依次处理每个文件夹，要新开 worktree 的在 `<worktreesDir>/<会话 ID>/` 下开。任何一步失败都撤回已建的 worktree 并回
+   * `INVALID_PARAMS`（工作区不在时 `WORKSPACE_NOT_FOUND`）。
+   */
+  async #prepareEnvironment(
+    params: MethodParams<'session.create'>,
+    sessionId: SessionId,
+    rootPath: string,
+  ): Promise<PreparedEnvironment> {
+    const plain: PreparedEnvironment = {
+      cwd: rootPath,
+      extraRoots: [],
+      worktrees: [],
+      undo: async () => {},
+    };
+    if (params.environmentId === undefined) return plain;
+    const environment = this.#storage.environments.get(params.environmentId);
+    if (!environment) {
+      throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${params.environmentId} not found`);
+    }
+    const invalid = (path: string, message: string) =>
+      new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
+    if (environment.folders[0]?.workspaceId !== params.workspaceId) {
+      throw invalid('workspaceId', "workspaceId must be the environment's first folder");
+    }
+    if (environment.folders.length > 1 && !this.#adapter.additionalRoots) {
+      throw invalid('environmentId', 'this host engine cannot give a session more than one folder');
+    }
+    const created: CreatedWorktree[] = [];
+    const dir = this.#worktreesDir === undefined ? undefined : join(this.#worktreesDir, sessionId);
+    const undo = async () => {
+      for (const worktree of created.reverse()) {
+        if (dir !== undefined) await removeWorktree(worktree, dir).catch(this.#onError);
+      }
+      if (dir !== undefined) await rm(dir, { recursive: true, force: true }).catch(() => {});
+    };
+    try {
+      const paths: string[] = [];
+      const worktrees: SessionWorktree[] = [];
+      for (const [index, folder] of environment.folders.entries()) {
+        const workspace = this.#storage.workspaces.get(folder.workspaceId);
+        if (!workspace || workspace.removedAt !== undefined) {
+          throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${folder.workspaceId} not found`);
+        }
+        await assertDirectory(workspace.rootPath);
+        if (folder.worktree !== 'new') {
+          paths.push(workspace.rootPath);
+          continue;
+        }
+        if (dir === undefined) {
+          throw invalid('environmentId', 'this host has no place for worktrees');
+        }
+        const suffix = worktrees.length === 0 ? '' : `-${worktrees.length + 1}`;
+        try {
+          const worktree = await createWorktree({
+            workspaceRoot: workspace.rootPath,
+            dir,
+            index: index + 1,
+            branch: `wevir/${sessionId.slice(-8).toLowerCase()}${suffix}`,
+          });
+          created.push(worktree);
+          paths.push(worktree.path);
+          worktrees.push({
+            workspaceId: workspace.id as WorkspaceId,
+            path: worktree.path,
+            branch: worktree.branch,
+          });
+        } catch (error) {
+          if (!(error instanceof WorktreeError)) throw error;
+          throw invalid(
+            'environmentId',
+            `cannot create a worktree for ${workspace.displayName}: ${error.message}`,
+          );
+        }
+      }
+      return {
+        environmentId: environment.id as EnvironmentId,
+        cwd: paths[0] ?? rootPath,
+        extraRoots: paths.slice(1),
+        worktrees,
+        undo,
+      };
+    } catch (error) {
+      await undo();
+      throw error;
+    }
   }
 
   /**
@@ -2444,6 +2560,7 @@ function sessionConfig(record: SessionRecord): SessionConfig {
   if (record.permissionMode !== undefined) {
     config.permissionMode = record.permissionMode as PermissionMode;
   }
+  if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
   return config;
 }
 
@@ -2567,4 +2684,14 @@ function durationSince(startedAt: string): number {
 
 function isoNow(): string {
   return new Date().toISOString();
+}
+
+/** 环境会话准备好的目录（#prepareEnvironment）。 */
+interface PreparedEnvironment {
+  environmentId?: EnvironmentId;
+  cwd: string;
+  extraRoots: string[];
+  worktrees: SessionWorktree[];
+  /** 会话没建成时撤回已建的 worktree。 */
+  undo: () => Promise<void>;
 }

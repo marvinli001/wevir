@@ -3,9 +3,10 @@
 
 import type { GitFileChange } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Check, Folder, GitBranch, Laptop } from 'lucide-react';
+import { Check, Folder, GitBranch, Laptop, Layers } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { useTranscript } from '@/data/workbench-data';
+import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
 import { abbreviateHome, contextUsage, formatTokens, parentDirectory } from './rail-model';
 import { type RailContext, registerRailCard } from './session-rail';
@@ -16,8 +17,11 @@ const CHANGED_FILES_SHOWN = 8;
 
 // ── 环境 ────────────────────────────────────────────────────────────
 
-function useEnvironmentCard({ entry, git }: RailContext) {
+function useEnvironmentCard({ entry, git, session }: RailContext) {
   const { workspace } = entry;
+  // 环境会话（U22.1）：环境名、会话自己的目录（可能是 worktree 里的）与额外的文件夹。
+  const { environments } = useEnvironments();
+  const environment = environments.find((item) => item.id === session.environmentId);
   const status = git.status?.repo ? git.status : undefined;
   const branch =
     status?.branch ??
@@ -27,7 +31,17 @@ function useEnvironmentCard({ entry, git }: RailContext) {
     details: (
       <ul className="space-y-0.5">
         <Row icon={<Laptop />}>{t('environment.local')}</Row>
-        <PathRow name={workspace.displayName} path={workspace.rootPath} />
+        {environment && (
+          <Row icon={<Layers />}>
+            <span className="truncate" data-testid="rail-environment-name">
+              {environment.name}
+            </span>
+          </Row>
+        )}
+        <PathRow name={workspace.displayName} path={session.cwd} />
+        {(session.extraRoots ?? []).map((root) => (
+          <PathRow key={root} name={basename(root)} path={root} />
+        ))}
         {branch && (
           <Row icon={<GitBranch />}>
             <span className="truncate" data-testid="rail-branch">
@@ -225,3 +239,12 @@ registerRailCard({
   title: () => t('rail.changes'),
   useCard: useChangesCard,
 });
+
+function basename(path: string): string {
+  return (
+    path
+      .replace(/[/\\]+$/, '')
+      .split(/[/\\]/)
+      .at(-1) ?? path
+  );
+}

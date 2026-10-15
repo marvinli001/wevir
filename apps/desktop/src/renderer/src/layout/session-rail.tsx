@@ -69,7 +69,12 @@ export function SessionRail({
   const data = useWorkbenchData();
   const { railOpen } = layoutPrefs.use();
   // 回合结束（离开 running）时重读一次，改动多半刚发生。
-  const git = useWorkspaceGit(entry.workspace.id, { active: visible, refreshKey: session.state });
+  // 环境会话新开了 worktree 时读它（0.15.0），否则读工作区目录。
+  const git = useWorkspaceGit(entry.workspace.id, {
+    active: visible,
+    refreshKey: session.state,
+    ...(session.worktrees !== undefined && { sessionId }),
+  });
   const context: RailContext = {
     sessionId,
     session,

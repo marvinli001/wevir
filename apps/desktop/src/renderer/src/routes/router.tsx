@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { createHashRouter, Navigate, Outlet, useRouteError } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
+import { EnvironmentDialog } from '@/environments/environment-dialog';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { WorkbenchLayout } from '@/layout/workbench-layout';
@@ -82,6 +83,7 @@ function AppRoot() {
     <>
       <Outlet />
       <CreateProjectDialog />
+      <EnvironmentDialog />
     </>
   );
 }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   ApprovalIdSchema,
   ClientIdentitySchema,
+  EnvironmentIdSchema,
   IsoTimeSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
@@ -596,6 +597,47 @@ export type PermissionMode = z.infer<typeof PermissionModeSchema>;
 /** 没有指定权限模式的会话（含 0.11.0 之前建的）按它算。 */
 export const DEFAULT_PERMISSION_MODE: PermissionMode = 'on_request';
 
+// ── 环境（0.15.0，U22.1） ──────────────────────────────────────────────
+
+/** 环境里的一个文件夹（domain-model §3.10）。 */
+export const EnvironmentFolderSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  /** `new`：每个会话在这个文件夹的仓库里新开一个 git worktree；`none`：用工作区目录本身。 */
+  worktree: z.enum(['none', 'new']),
+});
+export type EnvironmentFolder = z.infer<typeof EnvironmentFolderSchema>;
+
+/** 保存的一组会话设置：在哪儿跑、用哪几个文件夹（第一个是主文件夹）、每个文件夹要不要新开 worktree。 */
+export const EnvironmentSchema = z.object({
+  id: EnvironmentIdSchema,
+  name: z.string().min(1).max(60),
+  /** 现在只有本机；SSH 与云端以后加。 */
+  location: z.object({ kind: z.literal('local') }),
+  folders: z.array(EnvironmentFolderSchema).min(1).max(8),
+  createdAt: IsoTimeSchema,
+  updatedAt: IsoTimeSchema,
+});
+export type Environment = z.infer<typeof EnvironmentSchema>;
+
+/** Host 为环境会话新开的 worktree（`Session.worktrees` 的一项）。 */
+export const SessionWorktreeSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  /** worktree 里对应这个文件夹的目录。 */
+  path: z.string().min(1),
+  branch: z.string().min(1),
+});
+export type SessionWorktree = z.infer<typeof SessionWorktreeSchema>;
+
+/** 环境会话的目录（0.15.0）：`session.created` 与 `Session` 共用的三个字段，建会话后不变。 */
+export const SessionEnvironmentFields = {
+  /** 用哪个环境建的。 */
+  environmentId: EnvironmentIdSchema.optional(),
+  /** 除主文件夹外的文件夹（或它们的 worktree），作为额外的可写目录交给引擎。 */
+  extraRoots: z.array(z.string().min(1)).optional(),
+  /** Host 为这个会话新开的 worktree。 */
+  worktrees: z.array(SessionWorktreeSchema).optional(),
+};
+
 export const SessionSchema = z.object({
   id: SessionIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -625,6 +667,7 @@ export const SessionSchema = z.object({
   subagent: SubagentInfoSchema.optional(),
   /** 有问题等用户回答（0.10.0）：回合仍是 `running`，只是在等用户。 */
   awaitingInput: z.boolean().optional(),
+  ...SessionEnvironmentFields,
   createdAt: IsoTimeSchema,
   /** 最后一个事件的 `ts`。 */
   updatedAt: IsoTimeSchema,

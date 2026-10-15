@@ -219,6 +219,8 @@ interface CodexSession {
   override?: { model: string; effort: string | null };
   /** 权限模式（0.11.0）：每个 `turn/start` 按它带审批策略、审查方与沙箱，`configureSession` 可以换。 */
   permission: PermissionMode;
+  /** 环境会话的额外目录（0.15.0）：沙箱的 writableRoots。 */
+  readonly roots: readonly string[];
   /** 子会话（子 agent 的 thread）的父会话（R4）。 */
   readonly parentId?: string;
   /** open：挂在当前进程上；closed：已 close；detached：进程退出或重启后脱开（`resumeSession` 接回）。 */
@@ -402,6 +404,8 @@ class Launcher implements CodexLauncher {
 export class CodexAdapter implements AgentRuntimeAdapter {
   /** 三种权限模式都支持（0.11.0，codex-event-mapping.md §4.7）。 */
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
+  /** 环境会话的额外目录（0.15.0，codex-event-mapping.md §4.8）：沙箱的 writableRoots 加 developer instructions。 */
+  readonly additionalRoots = true;
   readonly process: CodexProcess;
   readonly paths: CodexPaths;
   /** ChatGPT 进程的账号（`mode: 'chatgpt'` 时才有）。 */
@@ -509,6 +513,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       const params: ThreadStartParams = {
         cwd: config.cwd,
         ...this.#threadSettings(provider, model, config.reasoningEffort),
+        ...extraRootsInstructions(config.additionalRoots),
       };
       let response: ThreadStartResponse;
       try {
@@ -517,7 +522,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         throw engineError(error, 'thread/start');
       }
       const id = response.thread.id;
-      this.#register(id, config.cwd, provider, model, config.permissionMode);
+      this.#register(
+        id,
+        config.cwd,
+        provider,
+        model,
+        config.permissionMode,
+        config.additionalRoots,
+      );
       return engineSession(id, response);
     } finally {
       this.#activating -= 1;
@@ -547,10 +559,18 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         threadId: engineSessionId,
         cwd: config.cwd,
         ...this.#threadSettings(provider, model, config.reasoningEffort),
+        ...extraRootsInstructions(config.additionalRoots),
         excludeTurns: true,
       };
       const response = await this.#resumeThread(params);
-      this.#register(engineSessionId, config.cwd, provider, model, config.permissionMode);
+      this.#register(
+        engineSessionId,
+        config.cwd,
+        provider,
+        model,
+        config.permissionMode,
+        config.additionalRoots,
+      );
       return engineSession(engineSessionId, response);
     } finally {
       this.#activating -= 1;
@@ -616,7 +636,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       threadId: engineSessionId,
       input: input.content.map((part) => ({ type: 'text', text: part.text, text_elements: [] })),
       ...(session.override && { model: session.override.model, effort: session.override.effort }),
-      ...permissionSettings(session.permission),
+      ...permissionSettings(session.permission, session.roots),
     };
     let response: TurnStartResponse;
     try {
@@ -1204,6 +1224,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       model,
       // 子 thread 由 Codex 驱动，不经 turn/start；记下父会话的模式只为完整。
       permission: parent.permission,
+      roots: parent.roots,
       parentId: parent.id,
       status: 'open',
       // Host 收到 subagent.started 才订阅：之前的事件先存着。
@@ -1691,6 +1712,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     provider: ProviderConfig,
     model: ProviderModelConfig,
     permission: PermissionMode = 'on_request',
+    roots: readonly string[] = [],
   ): void {
     // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
     this.#unknownThreads.delete(id);
@@ -1700,6 +1722,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       providerId: provider.id,
       model,
       permission,
+      roots,
       status: 'open',
       hub: new EventHub<AgentEvent>(),
       // 换了模型（0.9.0）后用新模型的上下文大小。
@@ -1795,7 +1818,13 @@ export const PERMISSION_MODES: readonly PermissionMode[] = [
  */
 export function permissionSettings(
   mode: PermissionMode,
+  /** 环境会话的额外目录（0.15.0）：沙箱里同 cwd 一样可写。 */
+  roots: readonly string[] = [],
 ): Pick<TurnStartParams, 'approvalPolicy' | 'approvalsReviewer' | 'sandboxPolicy'> {
+  const workspaceWrite = {
+    type: 'workspaceWrite' as const,
+    ...(roots.length > 0 && { writableRoots: [...roots] }),
+  };
   switch (mode) {
     case 'full_access':
       return {
@@ -1807,15 +1836,28 @@ export function permissionSettings(
       return {
         approvalPolicy: 'on-request',
         approvalsReviewer: 'auto_review',
-        sandboxPolicy: { type: 'workspaceWrite' },
+        sandboxPolicy: workspaceWrite,
       };
     case 'on_request':
       return {
         approvalPolicy: 'on-request',
         approvalsReviewer: 'user',
-        sandboxPolicy: { type: 'workspaceWrite' },
+        sandboxPolicy: workspaceWrite,
       };
   }
+}
+
+/** 环境会话（0.15.0）：告诉模型 cwd 之外这个会话还能读写哪些文件夹（thread/start 与 thread/resume）。 */
+export function extraRootsInstructions(roots: readonly string[] | undefined): {
+  developerInstructions?: string;
+} {
+  if (roots === undefined || roots.length === 0) return {};
+  return {
+    developerInstructions: [
+      'Besides the working directory, this session also works with these folders; you can read and write them:',
+      ...roots.map((root) => `- ${root}`),
+    ].join('\n'),
+  };
 }
 
 function engineSession(id: string, response: ThreadStartResponse): EngineSession {

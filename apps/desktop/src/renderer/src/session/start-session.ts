@@ -2,6 +2,7 @@
 
 import { hostSupports, isRpcError, type WevirClient } from '@wevir/client-sdk';
 import type {
+  EnvironmentId,
   PendingDelivery,
   PermissionMode,
   ProviderProfile,
@@ -115,12 +116,15 @@ export function useStartSession(
   choice: ModelChoice | undefined,
   onCreated?: (session: Session) => void,
   permissionMode?: PermissionMode,
+  /** 新会话页选中的环境（U22.1，0.15.0）；它的主文件夹就是 `workspaceId`。 */
+  environmentId?: EnvironmentId,
 ) {
   const { client } = useHostConnection();
   const permissions = usePermissionModes();
   const store = useWorkbenchStore();
   const navigate = useNavigate();
   const [error, setError] = useState<string>();
+  const primary = workspaceId;
 
   const start = useCallback(
     /** `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）。 */
@@ -136,6 +140,8 @@ export function useStartSession(
           modelId: choice.modelId,
           ...(choice.reasoningEffort !== undefined && { reasoningEffort: choice.reasoningEffort }),
           ...(permissions && permissionMode !== undefined && { permissionMode }),
+          // 环境只对它的主文件夹生效（首页先建项目再接着发时 target 是新项目）。
+          ...(environmentId !== undefined && target === primary && { environmentId }),
         }));
       } catch (reason) {
         setError(t('session.createFailed', { error: describe(reason) }));
@@ -152,7 +158,18 @@ export function useStartSession(
       navigate(paths.session(workspaceId, session.id));
       return true;
     },
-    [client, workspaceId, choice, store, navigate, onCreated, permissions, permissionMode],
+    [
+      client,
+      workspaceId,
+      choice,
+      store,
+      navigate,
+      onCreated,
+      permissions,
+      permissionMode,
+      environmentId,
+      primary,
+    ],
   );
 
   return { start, error, ready: client !== undefined && choice !== undefined };

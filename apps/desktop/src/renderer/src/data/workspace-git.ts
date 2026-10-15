@@ -2,7 +2,7 @@
 // 这里在侧栏显示时读一次，之后每 10 s、窗口获得焦点、`refreshKey` 变了（会话的回合结束）时重读。
 
 import { hostSupports } from '@wevir/client-sdk';
-import type { WorkspaceGitResult, WorkspaceId } from '@wevir/protocol';
+import type { SessionId, WorkspaceGitResult, WorkspaceId } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
 
@@ -20,30 +20,32 @@ export interface WorkspaceGitState {
 
 export function useWorkspaceGit(
   workspaceId: WorkspaceId | undefined,
-  options: { active: boolean; refreshKey?: unknown },
+  options: { active: boolean; refreshKey?: unknown; sessionId?: SessionId },
 ): WorkspaceGitState {
   const { client, view } = useHostConnection();
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'workspace_git');
-  const [status, setStatus] = useState<WorkspaceGitResult | undefined>(() =>
-    workspaceId === undefined ? undefined : lastKnown.get(workspaceId),
-  );
-  const { active, refreshKey } = options;
+  const [status, setStatus] = useState<WorkspaceGitResult | undefined>(() => {
+    const initial = options.sessionId ?? workspaceId;
+    return initial === undefined ? undefined : lastKnown.get(initial);
+  });
+  const { active, refreshKey, sessionId } = options;
+  const key = sessionId ?? workspaceId;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: refreshKey 只用来触发重读。
   useEffect(() => {
-    setStatus(workspaceId === undefined ? undefined : lastKnown.get(workspaceId));
-    if (!client || !supported || !active || workspaceId === undefined) return;
+    setStatus(key === undefined ? undefined : lastKnown.get(key));
+    if (!client || !supported || !active || workspaceId === undefined || key === undefined) return;
     let stopped = false;
     const read = () => {
       client
-        .request('workspace.git', { workspaceId })
+        .request('workspace.git', { workspaceId, ...(sessionId && { sessionId }) })
         .then((result) => {
-          lastKnown.set(workspaceId, result);
+          lastKnown.set(key, result);
           if (!stopped) setStatus(result);
         })
         .catch(() => {
-          lastKnown.delete(workspaceId);
+          lastKnown.delete(key);
           if (!stopped) setStatus(undefined);
         });
     };
@@ -55,7 +57,7 @@ export function useWorkspaceGit(
       window.clearInterval(timer);
       window.removeEventListener('focus', read);
     };
-  }, [client, supported, active, workspaceId, refreshKey]);
+  }, [client, supported, active, workspaceId, sessionId, key, refreshKey]);
 
   return { supported, status: supported ? status : undefined };
 }

@@ -37,6 +37,8 @@ export const ErrorCode = {
   PENDING_NOT_FOUND: -32014,
   /** 没有这组问题（0.10.0），或它不属于这个 Host 上的会话。 */
   QUESTION_NOT_FOUND: -32015,
+  /** 没有这个环境（0.15.0）。 */
+  ENVIRONMENT_NOT_FOUND: -32016,
 
   INVALID_STATE: -32020,
   SESSION_BUSY: -32021,

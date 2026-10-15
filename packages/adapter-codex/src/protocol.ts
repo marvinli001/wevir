@@ -154,7 +154,10 @@ export interface TextUserInput {
 export type ApprovalsReviewer = 'user' | 'auto_review';
 
 /** v2/SandboxPolicy.ts 里本包用到的两种（`type` 是判别字段；workspaceWrite 的其余字段取默认值）。 */
-export type SandboxPolicy = { type: 'dangerFullAccess' } | { type: 'workspaceWrite' };
+export type SandboxPolicy =
+  | { type: 'dangerFullAccess' }
+  /** `writableRoots`：cwd 之外还能写的目录（0.15.0 的环境会话，codex-event-mapping.md §4.8）。 */
+  | { type: 'workspaceWrite'; writableRoots?: string[] };
 
 /** v2/TurnStartParams.ts 的稳定字段里本包用到的。 */
 export interface TurnStartParams {

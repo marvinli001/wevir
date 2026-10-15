@@ -33,6 +33,8 @@ export type CodexRuntimeOptions = Omit<CodexAdapterOptions, 'mode'>;
 export class CodexRuntime implements AgentRuntimeAdapter {
   /** 两个进程都是 CodexAdapter，权限模式相同（0.11.0）。 */
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
+  /** 环境会话的额外目录（0.15.0）。 */
+  readonly additionalRoots = true;
   readonly gateway: CodexAdapter;
   readonly chatgpt: CodexAdapter;
   readonly accounts: EngineAccounts;

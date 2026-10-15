@@ -22,7 +22,7 @@ export interface SessionErrorRecord {
 export interface SessionRecord {
   id: string;
   workspaceId: string;
-  /** 创建时工作区 `rootPath` 的 realpath，resume 用。 */
+  /** 创建时工作区 `rootPath` 的 realpath，resume 用；环境会话可以是 worktree 里的目录（0004_environments）。 */
   cwd: string;
   /** 引擎种类，v0 恒为 `dsh`。 */
   engine: string;
@@ -33,6 +33,10 @@ export interface SessionRecord {
   reasoningEffort?: string;
   /** 权限模式（U15，0003_permission_mode）：省略表示 `on_request`。 */
   permissionMode?: string;
+  /** 环境会话（U22.1，0004_environments）：用哪个环境建的、额外的可写目录、新开的 worktree。建会话后不变。 */
+  environmentId?: string;
+  extraRoots?: string[];
+  worktrees?: { workspaceId: string; path: string; branch: string }[];
   /** 子会话的父会话（R4，0002_subagents）；普通会话没有。 */
   parentSessionId?: string;
   /** 子会话：父会话里派出它的工具调用。 */
@@ -103,11 +107,11 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const insert = db.prepare(`
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
-      permission_mode, parent_session_id, parent_tool_call_id,
+      permission_mode, environment_id, extra_roots, worktrees, parent_session_id, parent_tool_call_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
-      :permissionMode, :parentSessionId, :parentToolCallId,
+      :permissionMode, :environmentId, :extraRoots, :worktrees, :parentSessionId, :parentToolCallId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM sessions WHERE id = ?');
@@ -143,6 +147,9 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         modelId: record.modelId,
         reasoningEffort: record.reasoningEffort ?? null,
         permissionMode: record.permissionMode ?? null,
+        environmentId: record.environmentId ?? null,
+        extraRoots: record.extraRoots ? JSON.stringify(record.extraRoots) : null,
+        worktrees: record.worktrees ? JSON.stringify(record.worktrees) : null,
         parentSessionId: record.parentSessionId ?? null,
         parentToolCallId: record.parentToolCallId ?? null,
         title: record.title,
@@ -216,6 +223,13 @@ function fromRow(row: SqlRow): SessionRecord {
   if (reasoningEffort !== undefined) record.reasoningEffort = reasoningEffort;
   const permissionMode = optionalText(row, 'permission_mode');
   if (permissionMode !== undefined) record.permissionMode = permissionMode;
+  const environmentId = optionalText(row, 'environment_id');
+  if (environmentId !== undefined) record.environmentId = environmentId;
+  const extraRoots = optionalJson(row, 'extra_roots');
+  if (extraRoots !== undefined) record.extraRoots = extraRoots as string[];
+  const worktrees = optionalJson(row, 'worktrees');
+  if (worktrees !== undefined)
+    record.worktrees = worktrees as NonNullable<SessionRecord['worktrees']>;
   const parentSessionId = optionalText(row, 'parent_session_id');
   if (parentSessionId !== undefined) record.parentSessionId = parentSessionId;
   const parentToolCallId = optionalText(row, 'parent_tool_call_id');

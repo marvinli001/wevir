@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   type ClientIdentity,
   DESKTOP_RENDERER_ORIGINS,
@@ -138,6 +139,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
       ...(titleInstructions !== undefined && { titleInstructions }),
+      // 环境会话新开的 worktree（0.15.0，domain-model §3.10）。
+      worktreesDir: join(home, 'worktrees'),
     });
     sessions = manager;
     const recovery = manager.recover();
@@ -201,6 +204,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         host_settings: true,
         workspace_git: true,
         subagent_cancel: true,
+        environments: true,
         ...(accounts !== undefined && { chatgpt_account: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),

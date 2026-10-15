@@ -21,6 +21,7 @@ import {
   QuestionRequestSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
+  SessionEnvironmentFields,
   SessionReadOnlyReasonSchema,
   SessionStateSchema,
   StreamBlockRefSchema,
@@ -70,6 +71,8 @@ export const EventPayloadSchemas = {
     permissionMode: PermissionModeSchema.optional(),
     /** 建立引擎会话的引擎版本（0.3.0；dsh：`@deepseek-ai/dsh` 的包版本）。适配器不报时省略。 */
     engineVersion: z.string().optional(),
+    /** 环境会话（0.15.0，domain-model §3.10）。 */
+    ...SessionEnvironmentFields,
     /** 只有子会话有（0.6.0，domain-model §3.3.1）：父会话与派出它的工具调用。 */
     parent: z
       .object({

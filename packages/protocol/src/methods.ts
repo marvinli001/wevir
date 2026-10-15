@@ -9,6 +9,7 @@ import {
   ApprovalIdSchema,
   ClientKindSchema,
   ClientTokenSchema,
+  EnvironmentIdSchema,
   HostIdSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
@@ -26,6 +27,8 @@ import {
   AccountStateSchema,
   ApprovalResolutionSchema,
   EngineErrorInfoSchema,
+  EnvironmentFolderSchema,
+  EnvironmentSchema,
   HostSettingsSchema,
   HttpUrlSchema,
   PendingDeliverySchema,
@@ -112,10 +115,40 @@ export const WorkspaceRemoveParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
 });
 
+// ── environment.*（0.15.0，U22.1） ────────────────────────────────────
+
+export const EnvironmentListResultSchema = z.object({
+  /** 按创建时间。 */
+  environments: z.array(EnvironmentSchema),
+});
+
+export const EnvironmentCreateParamsSchema = z.object({
+  name: z.string().min(1).max(60),
+  folders: z.array(EnvironmentFolderSchema).min(1).max(8),
+});
+
+export const EnvironmentUpdateParamsSchema = z.object({
+  environmentId: EnvironmentIdSchema,
+  /** 省略：不改。 */
+  name: z.string().min(1).max(60).optional(),
+  /** 省略：不改。 */
+  folders: z.array(EnvironmentFolderSchema).min(1).max(8).optional(),
+});
+
+export const EnvironmentResultSchema = z.object({
+  environment: EnvironmentSchema,
+});
+
+export const EnvironmentIdParamsSchema = z.object({
+  environmentId: EnvironmentIdSchema,
+});
+
 // ── workspace.git（0.13.0，U18） ──────────────────────────────────────
 
 export const WorkspaceGitParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
+  /** 0.15.0：读这个会话的目录（环境会话的 worktree）；会话要属于这个工作区。省略时读工作区目录。 */
+  sessionId: SessionIdSchema.optional(),
 });
 
 /** `workspace.git` 结果里的一个改动的文件。 */
@@ -283,6 +316,8 @@ export const SessionCreateParamsSchema = z.object({
   reasoningEffort: z.string().min(1).optional(),
   /** 权限模式（0.11.0，Host 功能 `permission_modes`）；省略时是 `on_request`。 */
   permissionMode: PermissionModeSchema.optional(),
+  /** 用这个环境建（0.15.0，Host 功能 `environments`）：`workspaceId` 必须是它的主文件夹。 */
+  environmentId: EnvironmentIdSchema.optional(),
 });
 
 export const SessionResultSchema = z.object({
@@ -463,6 +498,26 @@ export const MethodSchemas = {
   },
   'workspace.remove': {
     params: WorkspaceRemoveParamsSchema,
+    result: EmptySchema,
+    permission: 'workspace.write',
+  },
+  'environment.list': {
+    params: EmptySchema,
+    result: EnvironmentListResultSchema,
+    permission: 'workspace.read',
+  },
+  'environment.create': {
+    params: EnvironmentCreateParamsSchema,
+    result: EnvironmentResultSchema,
+    permission: 'workspace.write',
+  },
+  'environment.update': {
+    params: EnvironmentUpdateParamsSchema,
+    result: EnvironmentResultSchema,
+    permission: 'workspace.write',
+  },
+  'environment.remove': {
+    params: EnvironmentIdParamsSchema,
     result: EmptySchema,
     permission: 'workspace.write',
   },

@@ -16,6 +16,7 @@ export {
   type SqlRow,
   type SqlValue,
 } from './driver.js';
+export * from './environments.js';
 export * from './events.js';
 export * from './migrate.js';
 export * from './providers.js';

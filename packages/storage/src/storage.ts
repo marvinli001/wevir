@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { type ApprovalRepository, createApprovalRepository } from './approvals.js';
 import { openDatabase, type SqliteDatabase } from './driver.js';
+import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
 import { createEventRepository, type EventRepository } from './events.js';
 import { migrate } from './migrate.js';
 import { createProviderProfileRepository, type ProviderProfileRepository } from './providers.js';
@@ -20,6 +21,8 @@ export interface Storage {
   /** 见 `transaction()`：`fn` 必须同步，不支持嵌套。 */
   transaction<T>(fn: () => T): T;
   readonly workspaces: WorkspaceRepository;
+  /** 保存的环境（0004_environments）。 */
+  readonly environments: EnvironmentRepository;
   readonly providers: ProviderProfileRepository;
   readonly sessions: SessionRepository;
   readonly events: EventRepository;
@@ -43,6 +46,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       db,
       transaction: (fn) => transaction(db, fn),
       workspaces: createWorkspaceRepository(db),
+      environments: createEnvironmentRepository(db),
       providers: createProviderProfileRepository(db),
       sessions: createSessionRepository(db),
       events: createEventRepository(db),

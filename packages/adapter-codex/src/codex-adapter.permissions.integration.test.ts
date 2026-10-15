@@ -30,9 +30,14 @@ import { makeOutsideDir } from './test-fixtures/outside-dir.js';
 const binary = codexBinaryOrSkip('adapter-codex 权限模式');
 const dirs = new TempDirs();
 const outside = makeOutsideDir('permissions');
+/** 环境会话的额外目录（0.15.0，§4.8）。 */
+const extra = makeOutsideDir('extra-root');
 let mock: MockModel;
 const adapters: CodexAdapter[] = [];
-afterAll(() => outside.remove());
+afterAll(() => {
+  outside.remove();
+  extra.remove();
+});
 
 /** Codex 审查子 agent 的说明的第一句（codex-rs prompts/templates/guardian/policy_template.md）。 */
 const REVIEW_PROMPT = 'You are judging one planned coding-agent action';
@@ -77,6 +82,14 @@ const script: MockScript = (view) => {
       ],
     };
   }
+  const root = /\[extra:([\w-]+)\]/.exec(view.lastUserText)?.[1];
+  if (root !== undefined) {
+    return {
+      toolCalls: [
+        { kind: 'function', name: 'exec_command', args: { cmd: `touch ${join(extra.dir, root)}` } },
+      ],
+    };
+  }
   const cmd = /\[cmd:([\w-]+)\]/.exec(view.lastUserText)?.[1];
   if (cmd !== undefined) {
     return { toolCalls: [escalatedCommand(`touch ${join(outside.dir, cmd)}`, `要写 ${cmd}`)] };
@@ -89,7 +102,7 @@ function reviewRequests(): number {
     .length;
 }
 
-async function open(permissionMode: PermissionMode) {
+async function open(permissionMode: PermissionMode, additionalRoots?: string[]) {
   const { home, workspace } = dirs.make('permissions');
   const logger = collectingLogger();
   const adapter = newAdapter({ home, providers: [mockProvider(mock)], logger });
@@ -99,6 +112,7 @@ async function open(permissionMode: PermissionMode) {
     providerId: 'mock',
     modelId: MOCK_MODEL,
     permissionMode,
+    ...(additionalRoots && { additionalRoots }),
   });
   return { adapter, id: engineSessionId, events: collectEvents(adapter, engineSessionId), logger };
 }
@@ -135,6 +149,22 @@ describe.skipIf(binary === undefined)(
       const sent = JSON.stringify(mock.requests.at(-1)?.body.input);
       expect(sent).toContain('`sandbox_mode` is `danger-full-access`');
       expect(sent).toContain('Approval policy is currently never');
+    });
+
+    it('环境会话的额外目录（0.15.0）：沙箱里可写、不问用户，模型从 developer instructions 知道它；没有时写不了', async () => {
+      const plain = await open('on_request');
+      const denied = await run(plain.adapter, plain.id, plain.events, '[extra:without]');
+      expect(denied.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      // 沙箱拦下了：命令输出是 Operation not permitted，文件没写出来。
+      expect(JSON.stringify(mock.requests.at(-1)?.body.input)).toContain('Operation not permitted');
+      expect(existsSync(join(extra.dir, 'without'))).toBe(false);
+
+      const { adapter, id, events } = await open('on_request', [extra.dir]);
+      const turn = await run(adapter, id, events, '[extra:with]');
+      expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      expect(turn.some((e) => e.type === 'approval.requested')).toBe(false);
+      expect(existsSync(join(extra.dir, 'with'))).toBe(true);
+      expect(JSON.stringify(mock.requests.at(-1)?.body)).toContain(extra.dir);
     });
 
     it('自动批准：会话的模型审查，允许的执行、拒绝的失败，都不问用户', async () => {

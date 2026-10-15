@@ -5,6 +5,7 @@ import { BrandMark } from '@/components/brand-mark';
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
+import { EnvironmentPicker } from '@/environments/environment-picker';
 import { MetalWordmark } from '@/fx/metal';
 import { t } from '@/i18n';
 import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
@@ -73,7 +74,10 @@ export function NewSessionHero({
         {t('home.title.after')}
       </h1>
       {workspaces.length > 0 && (
-        <RecentFolders current={current} workspaces={workspaces} onSelect={onSelect} />
+        <div className="flex flex-col items-center gap-2">
+          <RecentFolders current={current} workspaces={workspaces} onSelect={onSelect} />
+          <EnvironmentPicker current={current} onSelect={onSelect} />
+        </div>
       )}
     </div>
   );

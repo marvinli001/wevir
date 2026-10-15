@@ -116,6 +116,12 @@ export interface AgentRuntimeAdapter {
   readonly permissionModes?: readonly PermissionMode[];
 
   /**
+   * 引擎能给一个会话 `cwd` 之外的可写目录（0.15.0，`SessionConfig.additionalRoots`，多文件夹的环境要它）。没有时 Host 不接受
+   * 多文件夹的环境会话。
+   */
+  readonly additionalRoots?: boolean;
+
+  /**
    * 回复一个未决审批（dsh：ACP `{"outcome":{"outcome":"selected","optionId":…}}`）。审批随即不再未决，
    * 引擎随后的事件（通常是该工具的 `tool.finished`）照常上报。同一请求只能决定一次。
    * 错误：`session_not_found`、`approval_not_found`、`invalid_option`（审批保持未决）、`disposed`。

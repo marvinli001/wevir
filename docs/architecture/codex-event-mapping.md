@@ -193,6 +193,10 @@ Host 在第一个回合开始后调用（规则与提示词在 prompts/README.md
 - **子会话** 由 Codex 驱动、不经 `turn/start`，沿用父回合的设置；`configureSession` 对子会话报 `invalid_input`。
 - 验证：`codex-adapter.configure.test.ts`（假 app-server 记下的三项）与 `codex-adapter.permissions.integration.test.ts`（真实二进制 + 网关 + mock 模型：完全访问下越界命令不审批直接执行、权限说明随之更新；自动批准下审查请求发给会话的模型，允许的执行、拒绝的失败，都不问用户；换回请求批准后照常审批）。
 
+
+### 4.8 环境的额外文件夹（0.15.0，U22.1）
+
+环境会话（domain-model §3.10）除主文件夹外的文件夹是 `SessionConfig.additionalRoots`（适配器声明 `additionalRoots: true`）。adapter-codex：请求批准、自动批准两种模式下每个 `turn/start` 的 `sandboxPolicy` 是 `{type: workspaceWrite, writableRoots: [...]}`（稳定字段，没有额外目录时照旧省略）；`thread/start` 与 `thread/resume` 的 `developerInstructions` 写一句“这个会话还可以读写这些文件夹：…”，让模型知道它们。完全访问不受影响（不用沙箱）。
 ## 5. Provider
 
 ### 5.1 网关实例与令牌

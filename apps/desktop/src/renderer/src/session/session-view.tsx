@@ -9,6 +9,7 @@ import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
 import { useTranscript, useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
+import { useActiveEnvironment } from '@/environments/environments';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { draftScopeKey } from '@/layout/pane-state';
@@ -324,7 +325,14 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   );
   const permission = usePermissionChoice();
   const permissions = usePermissionModes();
-  const { start: send, error } = useStartSession(workspaceId, choice, movePanes, permission.mode);
+  const environment = useActiveEnvironment(workspaceId);
+  const { start: send, error } = useStartSession(
+    workspaceId,
+    choice,
+    movePanes,
+    permission.mode,
+    environment?.id,
+  );
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
