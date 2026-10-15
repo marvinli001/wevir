@@ -861,6 +861,131 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'workspace.diff': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, source: { kind: 'uncommitted' } },
+        { workspaceId: ids.workspace, sessionId: ids.session, source: { kind: 'branch' } },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          source: { kind: 'turn', turnId: ids.turn },
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, source: { kind: 'staged' } },
+        { workspaceId: ids.workspace, source: { kind: 'turn' } },
+        { workspaceId: ids.session, source: { kind: 'uncommitted' } },
+      ],
+    },
+    result: {
+      valid: [
+        { repo: false },
+        { repo: true, unavailable: 'no_checkpoint' },
+        {
+          repo: true,
+          base: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+          branch: 'main',
+          patch:
+            'diff --git a/src/a.ts b/src/a.ts\nindex 1111111..2222222 100644\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1 +1 @@\n-old\n+new\n',
+          files: [
+            { path: 'src/a.ts', status: 'modified', added: 1, removed: 1 },
+            { path: 'logo.png', status: 'added', binary: true },
+            {
+              path: 'big.json',
+              status: 'modified',
+              added: 90000,
+              removed: 0,
+              omitted: 'too_large',
+            },
+            {
+              path: 'docs/new.md',
+              previousPath: 'docs/old.md',
+              status: 'renamed',
+              added: 0,
+              removed: 0,
+            },
+          ],
+          fileCount: 4,
+          added: 90001,
+          removed: 1,
+          truncated: true,
+        },
+        {
+          repo: true,
+          base: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+          baseRef: 'origin/main',
+          branch: 'feature',
+          patch: '',
+          files: [],
+          fileCount: 0,
+          added: 0,
+          removed: 0,
+        },
+        {
+          repo: true,
+          base: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+          head: '0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a',
+          patch: '',
+          files: [],
+          fileCount: 0,
+          added: 0,
+          removed: 0,
+        },
+        {
+          repo: true,
+          base: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+          live: true,
+          patch: '',
+          files: [{ path: 'notes.md', status: 'untracked', omitted: 'over_limit' }],
+          fileCount: 1,
+          added: 0,
+          removed: 0,
+          truncated: true,
+        },
+      ],
+      invalid: [
+        {},
+        { repo: true, base: 'HEAD' },
+        { repo: true, files: [{ path: '', status: 'modified' }] },
+        { repo: true, live: false },
+        { repo: true, added: -1 },
+      ],
+    },
+  },
+  'workspace.diffFile': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          oldRev: '1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b',
+          oldPath: 'src/a.ts',
+          newPath: 'src/a.ts',
+        },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          newRev: '0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a',
+          newPath: 'src/new.ts',
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, oldRev: 'HEAD', oldPath: 'a' },
+        { workspaceId: ids.workspace, newPath: '' },
+        { oldPath: 'a' },
+      ],
+    },
+    result: {
+      valid: [
+        { oldContents: 'old\n', newContents: 'new\n' },
+        { newContents: '' },
+        { unavailable: 'too_large' },
+        { unavailable: 'binary' },
+      ],
+      invalid: [{ oldContents: 1 }, { unavailable: '' }],
+    },
+  },
   'provider.list': {
     params: empty,
     result: {
@@ -1234,6 +1359,22 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ session: sideSession }],
       invalid: [{ session: { ...sideSession, side: false } }],
+    },
+  },
+  'session.checkpoints': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}, { sessionId: ids.workspace }] },
+    result: {
+      valid: [
+        { repo: false, turns: [] },
+        {
+          repo: true,
+          turns: [
+            { turnId: ids.turn, fileCount: 2, added: 10, removed: 3 },
+            { turnId: ids.childTurn },
+          ],
+        },
+      ],
+      invalid: [{ repo: true }, { repo: true, turns: [{ turnId: ids.session }] }],
     },
   },
   'pending.update': {

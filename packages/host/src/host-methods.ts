@@ -25,8 +25,10 @@ import type {
   WorkspaceRecord,
 } from '@wevir/storage';
 import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
+import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
+import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from './git-diff.js';
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { SessionManager } from './session-manager.js';
@@ -73,6 +75,8 @@ export interface HostMethodsOptions {
   providerLock?: ProviderLock;
   /** Host 设置（R11，`settings.*`）；省略时只在内存里（测试）。 */
   settings?: HostSettingsStore;
+  /** 回合快照（0.20.0）；省略时 `workspace.diff` 的 `turn` 回 `unavailable`，`session.checkpoints` 为空（测试）。 */
+  checkpoints?: TurnCheckpoints;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -117,6 +121,20 @@ export async function syncProviders(
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
+  /**
+   * `workspace.git` / `workspace.diff*` 读的目录：工作区目录，给了会话时是会话的目录（0.15.0 起环境会话的 worktree）。工作区
+   * 不在或已移除回 WORKSPACE_NOT_FOUND，会话不属于它回 SESSION_NOT_FOUND。
+   */
+  const diffDirectory = (workspaceId: string, sessionId: string | undefined): string => {
+    const workspace = storage.workspaces.get(workspaceId);
+    if (!workspace || workspace.removedAt !== undefined) {
+      throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+    }
+    if (sessionId === undefined) return workspace.rootPath;
+    const session = storage.sessions.get(sessionId);
+    if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
+    return session.cwd;
+  };
   // 写库成功之后才调用；引擎没能用上新配置时 Profile 仍已保存，报 ENGINE_ERROR 说明这一点。
   const applyProviders = async () => {
     try {
@@ -255,19 +273,51 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
 
     // 0.13.0（U18）：每次现读，目录已不存在时同 workspace.add 回 WORKSPACE_PATH_INVALID。
-    'workspace.git': async ({ workspaceId, sessionId }) => {
-      const workspace = storage.workspaces.get(workspaceId);
-      if (!workspace || workspace.removedAt !== undefined) {
-        throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+    'workspace.git': async ({ workspaceId, sessionId }) =>
+      readGitStatus(await resolveWorkspacePath(diffDirectory(workspaceId, sessionId))),
+
+    // 0.20.0：改动的 diff。`turn` 要给会话，读这个会话目录里的快照。
+    'workspace.diff': async ({ workspaceId, sessionId, source }) => {
+      if (source.kind === 'turn' && sessionId === undefined) {
+        throw invalidParams(['sessionId'], 'a turn diff needs sessionId');
       }
-      // 0.15.0：环境会话的 worktree。
-      let dir = workspace.rootPath;
-      if (sessionId !== undefined) {
-        const session = storage.sessions.get(sessionId);
-        if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
-        dir = session.cwd;
+      const dir = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      if (source.kind === 'uncommitted') return readUncommitted(dir);
+      if (source.kind === 'branch') return readBranch(dir);
+      if (!options.checkpoints || sessionId === undefined) {
+        return { repo: true, unavailable: 'no_checkpoint' };
       }
-      return readGitStatus(await resolveWorkspacePath(dir));
+      return options.checkpoints.diff(sessionId, dir, source.turnId);
+    },
+
+    'workspace.diffFile': async ({ workspaceId, sessionId, oldRev, oldPath, newRev, newPath }) => {
+      for (const [key, value] of [
+        ['oldPath', oldPath],
+        ['newPath', newPath],
+      ] as const) {
+        if (value !== undefined && !isSafeRelativePath(value)) {
+          throw invalidParams([key], `${key} must be a relative path inside the directory`);
+        }
+      }
+      if (oldPath !== undefined && oldRev === undefined) {
+        throw invalidParams(['oldRev'], 'oldPath needs oldRev');
+      }
+      const dir = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      return (
+        (await readDiffFile(dir, {
+          ...(oldRev !== undefined && { oldRev }),
+          ...(oldPath !== undefined && { oldPath }),
+          ...(newRev !== undefined && { newRev }),
+          ...(newPath !== undefined && { newPath }),
+        })) ?? { unavailable: 'not_found' }
+      );
+    },
+
+    'session.checkpoints': async ({ sessionId }) => {
+      const session = storage.sessions.get(sessionId);
+      if (!session) throw sessionNotFound(sessionId);
+      if (!options.checkpoints) return { repo: false, turns: [] };
+      return options.checkpoints.list(sessionId, await resolveWorkspacePath(session.cwd));
     },
 
     'provider.list': () => ({ providers: storage.providers.list().map(toProviderProfile) }),

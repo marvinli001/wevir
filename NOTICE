@@ -238,9 +238,96 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 
+10. T3 Code（“变更”窗格与回合快照）
+------------------------------------------------------------------------------------------------
+仓库：https://github.com/pingdotgg/t3code
+来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
+许可证：MIT
+版权：Copyright (c) 2026 T3 Tools Inc.
+
+移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），均由 Wevir 修改，修改说明在各文件头：
+
+  packages/host/src/git-diff.ts
+      <- apps/server/src/vcs/GitVcsDriverCore.ts
+         apps/server/src/checkpointing/Diffs.ts
+         apps/server/src/vcs/GitVcsDriver.ts
+  packages/host/src/checkpoints.ts
+      <- apps/server/src/vcs/GitVcsDriver.ts
+         apps/server/src/orchestration-v2/CheckpointService.ts
+         apps/server/src/checkpointing/Diffs.ts
+  apps/desktop/src/renderer/src/layout/panes/changes-pane.tsx
+      <- apps/web/src/components/DiffPanel.tsx
+  apps/desktop/src/renderer/src/changes/styled-code-view.tsx
+      <- apps/web/src/components/diffs/StyledDiffCodeView.tsx
+  apps/desktop/src/renderer/src/changes/diff-worker-pool.tsx
+      <- apps/web/src/components/DiffWorkerPoolProvider.tsx
+  apps/desktop/src/renderer/src/changes/diff-rendering.ts
+      <- apps/web/src/lib/diffRendering.ts
+  apps/desktop/src/renderer/src/changes/diff-file-contents.ts
+      <- apps/web/src/lib/diffFileContents.ts
+  apps/desktop/src/renderer/src/changes/changes-model.ts（areAllCollapsed、toggleAll）
+      <- apps/web/src/lib/diffCollapse.ts
+
+许可证全文见文末“MIT License”。
+
+
+11. 桌面端的 diff 渲染（@pierre/diffs 与 Shiki）
+------------------------------------------------------------------------------------------------
+桌面端渲染进程的“变更”窗格（0.20.0）打包了下列 npm 包（apps/desktop 的 devDependencies，由 Vite 打进产物，打开窗格时
+才加载）：
+
+  @pierre/diffs 1.5.1、@pierre/theming 1.0.1、@pierre/theme 2.0.0
+    仓库：https://github.com/pierrecomputer/pierre（取自 @pierre/theme 的 package.json，@pierre/diffs 没有写）
+    许可证：Apache License 2.0，全文见文末
+    版权：Copyright 2025 Pierre Computer Company
+  shiki 4.4.3、@shikijs/transformers 4.4.3（及其 @shikijs/* 依赖）
+    仓库：https://github.com/shikijs/shiki
+    许可证：MIT，全文见文末“MIT License”
+    版权：Copyright (c) 2021 Pine Wu；Copyright (c) 2023 Anthony Fu <https://github.com/antfu>
+
+Wevir 修改的部分：patches/@pierre__diffs@1.5.1.patch（pnpm patch，安装时应用到 @pierre/diffs 的 dist/）。
+dist/components/FileDiff.js 写 diff 的 HTML 之前把 Pierre 自己的 HAST 里的 style 挪到 data-csp-style、写完经 CSSOM 补上
+（渲染进程的 CSP 不放行 HTML 里的 style 属性）；新加 dist/utils/diffsText.js（与 .d.ts），dist/renderers/DiffHunksRenderer.js
+与 dist/utils/createSeparator.js 分隔条上的英文改由它提供，dist/index.js 与 index.d.ts 导出 setDiffsText。原因见
+pnpm-workspace.yaml。
+
+@pierre/theme 包内的 NOTICE（原文）：
+
+  This theme was built on top of
+  [GitHub's Visual Studio Code Theme](https://github.com/primer/github-vscode-theme),
+  reusing its technique and build tooling, which we have since iterated on for
+  more specific language tokens.
+
+  `@pierre/theme` is licensed under Apache-2.0 (see `LICENSE`). The original MIT
+  license for `primer/github-vscode-theme` is included below for attribution.
+
+  Original license for `primer/github-vscode-theme`:
+
+    MIT License
+
+    Copyright (c) 2020 Primer
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+    FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+    COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+    IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+    CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
 MIT License
 ------------------------------------------------------------------------------------------------
-第 1–3 节、第 8 节与第 9 节的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
+第 1–3 节、第 8–10 节与第 11 节的 Shiki 的许可证都是下面这份 MIT License，只有版权行不同（各节的“版权”一行）：
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -263,7 +350,7 @@ SOFTWARE.
 
 Apache License 2.0
 ------------------------------------------------------------------------------------------------
-第 4、5 节与第 8 节的 Paper Shaders 的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 5 节）：
+第 4、5 节、第 8 节的 Paper Shaders 与第 11 节的 @pierre/* 的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 5 节）：
 
                                  Apache License
                            Version 2.0, January 2004

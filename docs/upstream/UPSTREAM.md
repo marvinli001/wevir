@@ -2,7 +2,7 @@
 
 > 建立于 T0.2（2026-10-12）。锁定提交以 [`upstream.lock`](./upstream.lock) 为准，本文件记录对应的核实结论。
 
-`upstream/` 是四个上游仓库的只读浅克隆，已被 gitignore。不修改、不提交其中任何文件。复现或更新：
+`upstream/` 是五个上游仓库的只读浅克隆，已被 gitignore。不修改、不提交其中任何文件。复现或更新：
 
 ```bash
 bash scripts/upstream-sync.sh
@@ -18,6 +18,7 @@ bash scripts/upstream-sync.sh
 | `openwork` | https://github.com/different-ai/openwork | `dev` | `ad22cdc2217370f28f24f0f8758016c2921e3c73` | 2026-10-11 | 2026-10-12 | **`ee/` 之外 MIT；`ee/` 为 OpenWork EE License（非开源）** |
 | `paseo` | https://github.com/getpaseo/paseo | `main` | `dc7bc8db124e837ba909ffd3b4b20e16adaebe24` | 2026-10-12 | 2026-10-12 | **Apache-2.0**（少数第三方组件 MIT） |
 | `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.162.1` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | 2026-10-09 | 2026-10-14 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
+| `t3code`（T3 Code） | https://github.com/pingdotgg/t3code | `main` | `ec1313c8f8333292506f05a355bb72d308a455d8` | 2026-10-15 | 2026-10-15 | **MIT**（见 §2.5） |
 
 补充：
 
@@ -169,6 +170,14 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 - 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证在打包前另做一次核对，方法同 §2.1 对 npm 闭包的做法。
 - 不得使用 OpenAI 或 Codex 的名称与商标，说明来源的用途除外（Apache-2.0 第 6 条）。
 
+### 2.5 T3 Code：MIT
+
+| 原文 | 内容 |
+|---|---|
+| [`upstream/t3code/LICENSE`](https://github.com/pingdotgg/t3code/blob/ec1313c8f8333292506f05a355bb72d308a455d8/LICENSE) | 标准 MIT，`Copyright (c) 2026 T3 Tools Inc.` |
+
+结论与义务：移植了“变更”窗格与回合快照的几个文件（§4，0.20.0）。按 MIT 在文件头保留版权与许可证（§5 的格式），根目录 `NOTICE` 第 10 节列出文件并收录许可证全文。它依赖的 `@pierre/diffs`（Apache-2.0）是 npm 包，不是从 T3 拷贝的，见 `NOTICE` 第 11 节与 ADR-0004 补记 10；T3 给它打的搜索补丁没有用。
+
 ## 3. 各仓库的参考重点
 
 与 SKELETON_PLAN §3 保持一致，以下路径在锁定提交下均已确认存在。
@@ -177,6 +186,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 - **OpenWork**（桌面产品与交互参考，仅 MIT 区域）：`apps/app`（React + Vite + Tailwind v4 主界面）、`apps/desktop`（Electron 壳）、`apps/server`、`packages/ui`、`packages/sdk`、`packages/types`、`docs/architecture`。**`ee/` 排除**。
 - **Paseo**（多端与远程架构参考，骨架阶段不移植）：`packages/server`（daemon）、`packages/protocol`（`@getpaseo/protocol`）、`packages/client`、`packages/relay`、`packages/app`（Expo）、`packages/desktop`、`packages/cli`、`public-docs/sdk`。
 - **Codex**（Agent 运行时候选，作为二进制运行，读协议与源码，不移植）：`codex-rs/app-server/README.md` 与 `codex-rs/app-server-protocol/`（`schema/typescript/`、`schema/json/` 是这个版本生成的协议类型）、`codex-rs/model-provider-info/`（`[model_providers]` 配置）、`codex-rs/codex-api/src/sse/responses.rs`（解析模型流的事件）、`codex-rs/core/tests/common/responses.rs`（Responses SSE 的测试帮手）、`codex-rs/models-manager/`（模型目录）、`codex-rs/config/`（配置键）、`codex-rs/linux-sandbox/README.md`、`codex-rs/mxc-sandbox/README.md`。研读结论见 [docs/research/codex-notes.md](../research/codex-notes.md)。
+- **T3 Code**（diff 右栏与回合快照，维护者 2026-10-15 定照搬）：`apps/web/src/components/DiffPanel.tsx`、`apps/web/src/components/diffs/`、`apps/web/src/components/DiffWorkerPoolProvider.tsx`、`apps/web/src/lib/diffRendering.ts`、`apps/server/src/vcs/GitVcsDriver.ts`（captureCheckpoint 等）、`apps/server/src/vcs/GitVcsDriverCore.ts`（未提交与本分支的 diff）、`apps/server/src/orchestration-v2/CheckpointService.ts`。订阅来源的设计另见 ADR-0005 补记 14。
 
 ## 4. 移植登记表
 
@@ -195,10 +205,18 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 | `prompts/plan-mode.md` | Codex `codex-rs/collaboration-mode-templates/templates/plan.md` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 改写（ADR-0005 补记 2）：用中文重写，结构与规则不变；补充只读阶段能做与不能做的例子，最终计划的小节名改为中文，`<proposed_plan>` 标签保持原样 |
 | `prompts/auto-review.md` | Codex `codex-rs/prompts/templates/guardian/policy_template.md`、`policy.md`、`node_repl_policy.md` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 改写（ADR-0005 补记 2）：用中文重写并合并三份模板，默认策略写进正文，组织策略改为用户配置的可信目的地与补充规则；输入改为 Host 拼装的 `<transcript>` 与 `<planned_action>`；第一版不给复核员工具，“先做只读检查”改为“信息不足时从严”；补充国内常见的外发目的地；`rationale` 用用户的语言 |
 | `prompts/thread-title.md` | Codex `codex-rs/tui/src/app/thread_title.rs`（`thread_title_instructions` 等函数里的说明文字） | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 改写（ADR-0005 补记 2）：用中文重写标题规则；中文与其他语言分别给长度上限；增加检索摘要字段；补充只有链接或编号、寒暄、按最近对话重新生成三种情况；示例改为中文为主 |
+| `packages/host/src/git-diff.ts` | T3 Code `apps/server/src/vcs/GitVcsDriverCore.ts`、`apps/server/src/checkpointing/Diffs.ts`、`apps/server/src/vcs/GitVcsDriver.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写（0.20.0）：未提交与本分支的 diff（复制索引、intent-to-add 未跟踪文件、merge-base、新的一侧读磁盘并核对 realpath）、numstat 的解析与 `a/`、`b/` 前缀的写法照 T3；改用 Node 的 child_process；屏蔽仓库配置里会执行命令的设置（含仓库定义的过滤器）；补丁按文件切开、超过上限的只列出；旧的一侧用 `cat-file blob` |
+| `packages/host/src/checkpoints.ts` | T3 Code `apps/server/src/vcs/GitVcsDriver.ts`、`apps/server/src/orchestration-v2/CheckpointService.ts`、`apps/server/src/checkpointing/Diffs.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写（0.20.0）：打快照的做法（临时索引、复用用户索引的 stat、`add -A`、`write-tree`、`commit-tree -p HEAD`、`update-ref`，嵌套仓库的排除）、listAuthoredPaths、isGitImport 照 T3；ref 改成 `refs/wevir/checkpoints/<会话>/<回合>/before|after`，统计写进提交说明，sparse checkout 不打，`--diff-merges=off`，不签名，会话关闭时删除、每个会话最多 100 个回合 |
+| `apps/desktop/src/renderer/src/layout/panes/changes-pane.tsx` | T3 Code `apps/web/src/components/DiffPanel.tsx` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写（0.20.0）：数据换成 Wevir 的协议；文件头自己画；去掉比较对象选择、忽略空白、文件树、批注、在编辑器中打开与分批加载；加大 diff 默认折叠与省略文件的列表；Wevir 的组件与文案 |
+| `apps/desktop/src/renderer/src/changes/styled-code-view.tsx` | T3 Code `apps/web/src/components/diffs/StyledDiffCodeView.tsx` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：样式换成 Wevir 的变量，去掉行选择与批注的样式，文件头只管定位与底色；itemMetrics 照搬 |
+| `apps/desktop/src/renderer/src/changes/diff-worker-pool.tsx` | T3 Code `apps/web/src/components/DiffWorkerPoolProvider.tsx` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 移植：主题取自 Wevir 的 theme.ts，不用 effect，文案走 t() |
+| `apps/desktop/src/renderer/src/changes/diff-rendering.ts` | T3 Code `apps/web/src/lib/diffRendering.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 移植：去掉忽略空白，表面颜色换成 Wevir 的变量 |
+| `apps/desktop/src/renderer/src/changes/diff-file-contents.ts` | T3 Code `apps/web/src/lib/diffFileContents.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 移植 createDiffFileContentsLoader，请求换成 `workspace.diffFile` |
+| `apps/desktop/src/renderer/src/changes/changes-model.ts` | T3 Code `apps/web/src/lib/diffCollapse.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 只有 areAllCollapsed / toggleAll 来自 T3，其余是 Wevir 的 |
 
 ### 4.1 其他第三方来源的文件
 
-不来自上面四个上游仓库、但含第三方作品的文件：由工具生成、从依赖包摘录，或是录下来的上游运行输出。根目录 [`NOTICE`](../../NOTICE) 同样列出它们。
+不来自上面五个上游仓库、但含第三方作品的文件：由工具生成、从依赖包摘录，或是录下来的上游运行输出。根目录 [`NOTICE`](../../NOTICE) 同样列出它们。
 
 | Wevir 文件 | 来源 | 许可证与版权 | 说明 |
 |---|---|---|---|

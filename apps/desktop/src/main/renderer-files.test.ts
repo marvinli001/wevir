@@ -69,10 +69,10 @@ describe('CSP', () => {
   it('生产：没有内联脚本，样式只放行自己的文件与这次的 nonce，只连 127.0.0.1 上的 Host', () => {
     const csp = productionCsp('abc');
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("script-src 'self';");
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval';");
     expect(csp).toContain("style-src 'self' 'nonce-abc';");
     expect(csp).toContain('connect-src ws://127.0.0.1:*;');
-    expect(csp).not.toContain('unsafe');
+    expect(csp.replace("'wasm-unsafe-eval'", '')).not.toContain('unsafe');
     expect(productionCsp()).toContain("style-src 'self';");
   });
 });

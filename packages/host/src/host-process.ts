@@ -12,6 +12,7 @@ import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
+import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EventStore } from './event-store.js';
 import { homePath } from './home.js';
@@ -115,6 +116,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let sessions: SessionManager | undefined;
   let rpc: HostRpcServer | undefined;
   let accounts: HostAccounts | undefined;
+  let turnCheckpoints: TurnCheckpoints | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -132,6 +134,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         logger.warn('failed to load the session title prompt; titles stay truncated', { error });
       }
     }
+    // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
+    const sessionsDb = storage;
+    const checkpoints = new TurnCheckpoints({
+      isOpen: (sessionId) => {
+        const record = sessionsDb.sessions.get(sessionId);
+        return record !== undefined && record.state !== 'closed';
+      },
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    turnCheckpoints = checkpoints;
     const manager = new SessionManager({
       storage,
       events: store,
@@ -142,6 +154,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(titleInstructions !== undefined && { titleInstructions }),
       // 环境会话新开的 worktree（0.15.0，domain-model §3.10）。
       worktreesDir: join(home, 'worktrees'),
+      checkpoints,
     });
     sessions = manager;
     const recovery = manager.recover();
@@ -209,16 +222,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         events: store,
         sessions: manager,
         secrets,
+        checkpoints,
         providers: adapter,
         providerLock,
         ...(accounts !== undefined && { accounts }),
         settings,
       }),
-      // 待发消息与设置（R11）、工作区的 git 状态（U18）不依赖引擎：引擎不能插话时 Host 一律排队。
+      // 待发消息与设置（R11）、工作区的 git 状态（U18）与改动的 diff（0.20.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
         pending_messages: true,
         host_settings: true,
         workspace_git: true,
+        workspace_diff: true,
         subagent_cancel: true,
         environments: true,
         session_worktree: true,
@@ -258,6 +273,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           sessions: manager,
           adapter,
           accounts,
+          checkpoints,
           events: store,
           storage: db,
           runtimeFile,
@@ -280,6 +296,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 回收已建好的部分；这里的失败不掩盖原始错误。
     await rpc?.close().catch(() => {});
     accounts?.dispose();
+    turnCheckpoints?.dispose();
     await sessions?.dispose().catch(() => {});
     await adapter.dispose().catch(() => {});
     try {
@@ -301,6 +318,7 @@ interface ShutdownParts {
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
+  checkpoints: TurnCheckpoints;
   events: EventStore;
   storage: Storage;
   runtimeFile: RuntimeFile;
@@ -338,6 +356,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
     });
   }
   parts.accounts?.dispose();
+  // 回合结束后的快照不再等：没打完的回合，diff 对着工作树（live）。
+  parts.checkpoints.dispose();
   // 超时的话引擎进程留给适配器自己回收（dsh 读到 stdin EOF 即退出，T3.1）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
   await step('flush_storage', () => {

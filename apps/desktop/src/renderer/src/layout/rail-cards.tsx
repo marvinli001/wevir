@@ -3,11 +3,14 @@
 
 import type { GitFileChange } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Check, Folder, GitBranch, Laptop, Layers } from 'lucide-react';
+import { Check, ChevronRight, Folder, GitBranch, Laptop, Layers } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
+import { useDiffSupported } from '@/changes/changes-data';
+import { openChanges } from '@/changes/changes-store';
 import { useTranscript } from '@/data/workbench-data';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
+import { usePanes } from './pane-controller';
 import { abbreviateHome, contextUsage, formatTokens, parentDirectory } from './rail-model';
 import { type RailContext, registerRailCard } from './session-rail';
 
@@ -169,10 +172,11 @@ const STATUS_LETTERS: Record<string, string> = {
   untracked: 'U',
 };
 
-function FileRow({ file }: { file: GitFileChange }) {
+/** 一个改动的文件；Host 有 `workspace_diff`（0.20.0）时点它在“变更”窗格里打开到这个文件。 */
+function FileRow({ file, onOpen }: { file: GitFileChange; onOpen?: (path: string) => void }) {
   const known = file.status in STATUS_LETTERS;
-  return (
-    <li className="flex h-6 min-w-0 items-center gap-2 text-xs">
+  const content = (
+    <>
       <span
         title={
           known
@@ -193,13 +197,35 @@ function FileRow({ file }: { file: GitFileChange }) {
       {file.added !== undefined && file.removed !== undefined && (
         <LineCounts added={file.added} removed={file.removed} />
       )}
+    </>
+  );
+  return (
+    <li className="flex h-6 min-w-0 items-center text-xs">
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={() => onOpen(file.path)}
+          className="-mx-1.5 flex h-6 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {content}
+        </button>
+      ) : (
+        <span className="flex w-full min-w-0 items-center gap-2">{content}</span>
+      )}
     </li>
   );
 }
 
-function useChangesCard({ git }: RailContext) {
+function useChangesCard({ git, sessionId }: RailContext) {
+  const panes = usePanes();
+  const diffSupported = useDiffSupported();
   const status = git.status;
   if (!status?.repo) return null;
+  // 0.20.0：打开“变更”窗格（未提交），可带要滚到的文件。
+  const open =
+    diffSupported && panes
+      ? (path?: string) => openChanges(panes, sessionId, { kind: 'uncommitted' }, path)
+      : undefined;
   const { added = 0, removed = 0, fileCount = 0, files = [] } = status;
   const shown = files.slice(0, CHANGED_FILES_SHOWN);
   const more = fileCount - shown.length;
@@ -217,13 +243,24 @@ function useChangesCard({ git }: RailContext) {
           </div>
           <ul className="mt-1.5">
             {shown.map((file) => (
-              <FileRow key={file.path} file={file} />
+              <FileRow key={file.path} file={file} {...(open && { onOpen: open })} />
             ))}
           </ul>
           {more > 0 && (
             <p className="mt-1 text-xs text-muted-foreground">
               {t('rail.changes.more', { count: more })}
             </p>
+          )}
+          {open && (
+            <button
+              type="button"
+              onClick={() => open()}
+              data-testid="rail-changes-open"
+              className="-mx-1.5 mt-1.5 flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-soft-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              {t('rail.changes.open')}
+              <ChevronRight aria-hidden className="size-3.5 text-muted-foreground" />
+            </button>
           )}
         </div>
       ),

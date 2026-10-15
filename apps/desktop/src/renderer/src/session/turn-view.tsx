@@ -2,7 +2,7 @@ import type { ChatMessage } from '@wevir/client-sdk';
 import type { TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight } from 'lucide-react';
-import { memo, useId } from 'react';
+import { memo, useContext, useId } from 'react';
 import type { OrbState } from 'thinking-orbs';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
@@ -11,6 +11,7 @@ import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-in
 import { PartsView, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
+import { OpenTurnChanges } from './turn-changes';
 import { foldedParts, foldTurn, type TurnFold, turnHeaderText } from './turn-model';
 import { DiffStat, IssueFlags } from './work-group';
 
@@ -189,8 +190,8 @@ function LiveLine({ live, startedAt }: { live: LiveState; startedAt: string | un
 }
 
 /**
- * 回答下面的“N 个文件已更改 +a −d”。点它展开这个回合的过程，连同其中有修改的工作组：改动窗格（`changes`）还没有实现
- * （pane-kinds.ts 里 available: false，正式构建打不开），展开过程就能看到每个修改的 diff。
+ * 回答下面的“N 个文件已更改 +a −d”。0.20.0 起点它打开“变更”窗格到这个回合（turn-changes.ts）；没有这个入口时（子智能体、
+ * 支线、旧的 Host）展开这个回合的过程，连同其中有修改的工作组，展开过程就能看到每个修改的 diff。
  */
 function ChangesChip({
   turnId,
@@ -204,7 +205,12 @@ function ChangesChip({
   fold: TurnFold;
 }) {
   const setFolds = useFoldSetter();
+  const openTurn = useContext(OpenTurnChanges);
   const expand = () => {
+    if (openTurn) {
+      openTurn(turnId);
+      return;
+    }
     const keys = [`turn:${turnId}`];
     for (const message of messages) {
       if (message.role !== 'assistant') continue;

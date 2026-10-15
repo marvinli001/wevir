@@ -79,6 +79,11 @@ export const HOST_FEATURES = {
   subscriptionSources: 'subscription_sources',
   /** 启用与停用 Provider（0.19.0）：`provider.setEnabled` 与 `ProviderProfile.enabled`。与引擎无关。 */
   providerEnabled: 'provider_enabled',
+  /**
+   * 改动的 diff 与回合快照（0.20.0）：`workspace.diff`、`workspace.diffFile`、`session.checkpoints`，Host 在每个回合前后给
+   * 会话目录打快照。与引擎无关。
+   */
+  workspaceDiff: 'workspace_diff',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -97,6 +102,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_worktree: z.boolean().optional(),
   subscription_sources: z.boolean().optional(),
   provider_enabled: z.boolean().optional(),
+  workspace_diff: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -189,6 +189,123 @@ export const WorkspaceGitResultSchema = z.object({
 });
 export type WorkspaceGitResult = z.infer<typeof WorkspaceGitResultSchema>;
 
+// ── workspace.diff / workspace.diffFile / session.checkpoints（0.20.0） ─────────
+
+/**
+ * 读哪一段改动：`uncommitted` 是工作树加暂存区对 HEAD（含未跟踪文件），`branch` 是工作树对默认分支的 merge-base，`turn` 是
+ * 会话一个回合前后的快照（host-api.md §3.1）。
+ */
+export const DiffSourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('uncommitted') }),
+  z.object({ kind: z.literal('branch') }),
+  z.object({ kind: z.literal('turn'), turnId: TurnIdSchema }),
+]);
+export type DiffSource = z.infer<typeof DiffSourceSchema>;
+
+export const WorkspaceDiffParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  /** 读这个会话的目录（环境会话的 worktree）；`turn` 必须给。会话要属于这个工作区。 */
+  sessionId: SessionIdSchema.optional(),
+  source: DiffSourceSchema,
+});
+
+/** `workspace.diff` 结果里的一个改动的文件。 */
+export const DiffFileSchema = z.object({
+  /** 相对会话或工作区目录，`/` 分隔；删除的文件是原来的路径。 */
+  path: z.string().min(1),
+  /** 重命名、复制前的路径。 */
+  previousPath: z.string().min(1).optional(),
+  /** 已见 `added` / `deleted` / `modified` / `renamed` / `copied` / `type_changed` / `untracked`；开放字符串。 */
+  status: z.string().min(1),
+  /** 增删行数；二进制文件与没算出 diff 的未跟踪文件没有。 */
+  added: z.int().min(0).optional(),
+  removed: z.int().min(0).optional(),
+  binary: z.literal(true).optional(),
+  /**
+   * 这个文件的 diff 不在 `patch` 里：`too_large`（单个文件超过上限）、`over_limit`（整体超过上限，或未跟踪文件太多没算）；
+   * 开放字符串。
+   */
+  omitted: z.string().min(1).optional(),
+});
+export type DiffFile = z.infer<typeof DiffFileSchema>;
+
+/** `files` 最多这么多项，多了 `truncated`；`fileCount` 仍是总数。 */
+export const WORKSPACE_DIFF_MAX_FILES = 2000;
+
+/** 提交或树对象的完整 SHA（SHA-1 40 位、SHA-256 64 位，小写）。 */
+export const GitObjectIdSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
+
+/**
+ * 一段改动（host-api.md §3.1）。`repo: false`（不是仓库、没有 git、出错或超时）或 `unavailable` 时其余字段都省略。
+ */
+export const WorkspaceDiffResultSchema = z.object({
+  repo: z.boolean(),
+  /** `turn`：这个回合没有快照（`no_checkpoint`，回合早于这个功能、目录不是仓库、快照失败或会话关闭时已清理）；开放字符串。 */
+  unavailable: z.string().min(1).optional(),
+  /** 旧的一侧：HEAD、merge-base 或回合前快照的提交，还没有提交时是空树。给 `workspace.diffFile` 的 `oldRev`。 */
+  base: GitObjectIdSchema.optional(),
+  /** `branch`：比较的默认分支，例如 `origin/main`；找不到时省略，结果同 `uncommitted`。 */
+  baseRef: z.string().min(1).optional(),
+  /** 当前分支；分离头指针时省略。 */
+  branch: z.string().min(1).optional(),
+  /** 新的一侧是回合后快照的提交；省略时是磁盘上的工作树。 */
+  head: GitObjectIdSchema.optional(),
+  /** `turn`：回合还没有结束后的快照（进行中，或快照失败），新的一侧是现在的工作树。 */
+  live: z.literal(true).optional(),
+  /** `git diff` 的统一格式（`a/`、`b/` 前缀），只含 `files` 里没有 `omitted` 的文件。 */
+  patch: z.string().optional(),
+  files: z.array(DiffFileSchema).max(WORKSPACE_DIFF_MAX_FILES).optional(),
+  fileCount: z.int().min(0).optional(),
+  /** 全部文件的增删行数之和（含 `omitted` 的）。 */
+  added: z.int().min(0).optional(),
+  removed: z.int().min(0).optional(),
+  /** 有文件的 diff 没给（`omitted`），或 `files` 只列了前 `WORKSPACE_DIFF_MAX_FILES` 项。 */
+  truncated: z.literal(true).optional(),
+});
+export type WorkspaceDiffResult = z.infer<typeof WorkspaceDiffResultSchema>;
+
+/**
+ * 读一个文件两侧的全文，给“展开未修改的行”。旧的一侧是 `oldRev` 里的 `oldPath`；新的一侧是 `newRev` 里的 `newPath`，没有
+ * `newRev` 时读磁盘。只给要读的那一侧的路径。
+ */
+export const WorkspaceDiffFileParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  sessionId: SessionIdSchema.optional(),
+  oldRev: GitObjectIdSchema.optional(),
+  oldPath: z.string().min(1).optional(),
+  newRev: GitObjectIdSchema.optional(),
+  newPath: z.string().min(1).optional(),
+});
+
+export const WorkspaceDiffFileResultSchema = z.object({
+  oldContents: z.string().optional(),
+  newContents: z.string().optional(),
+  /** 读不了时：`too_large`（超过 1 MiB）、`binary`、`not_found`；开放字符串，两侧内容都省略。 */
+  unavailable: z.string().min(1).optional(),
+});
+export type WorkspaceDiffFileResult = z.infer<typeof WorkspaceDiffFileResultSchema>;
+
+export const SessionCheckpointsParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+});
+
+/** 一个有快照的回合；回合后的快照还没有时（进行中）没有统计。 */
+export const TurnCheckpointSchema = z.object({
+  turnId: TurnIdSchema,
+  fileCount: z.int().min(0).optional(),
+  added: z.int().min(0).optional(),
+  removed: z.int().min(0).optional(),
+});
+export type TurnCheckpoint = z.infer<typeof TurnCheckpointSchema>;
+
+export const SessionCheckpointsResultSchema = z.object({
+  /** 会话目录不是 git 仓库时 false，`turns` 为空。 */
+  repo: z.boolean(),
+  /** 从早到晚。 */
+  turns: z.array(TurnCheckpointSchema),
+});
+export type SessionCheckpointsResult = z.infer<typeof SessionCheckpointsResultSchema>;
+
 // ── provider.* ────────────────────────────────────────────────────────
 
 export const ProviderListResultSchema = z.object({
@@ -569,6 +686,16 @@ export const MethodSchemas = {
     result: WorkspaceGitResultSchema,
     permission: 'workspace.read',
   },
+  'workspace.diff': {
+    params: WorkspaceDiffParamsSchema,
+    result: WorkspaceDiffResultSchema,
+    permission: 'workspace.read',
+  },
+  'workspace.diffFile': {
+    params: WorkspaceDiffFileParamsSchema,
+    result: WorkspaceDiffFileResultSchema,
+    permission: 'workspace.read',
+  },
 
   'provider.list': {
     params: EmptySchema,
@@ -677,6 +804,11 @@ export const MethodSchemas = {
     params: SessionForkParamsSchema,
     result: SessionResultSchema,
     permission: 'session.write',
+  },
+  'session.checkpoints': {
+    params: SessionCheckpointsParamsSchema,
+    result: SessionCheckpointsResultSchema,
+    permission: 'session.read',
   },
   'pending.update': {
     params: PendingUpdateParamsSchema,

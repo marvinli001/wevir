@@ -17,6 +17,17 @@
 // 任何脚本都能读到 nonce、经 createElement 建的 `<style>` 一律放行，也就是“能在渲染进程执行脚本”的人能加样式，而这种人本来
 // 就拿到了渲染进程的全部权限（docs/security.md）。WebGL（metal-fx、img-fx 的 three）不受 CSP 管；这些库不建 Web Worker、
 // 不用 blob: 或 eval，`default-src 'none'` 不需要为它们放开别的；img-fx 用 `new Image()` 加载图片，受 `img-src` 管。
+//
+// “变更”窗格（0.20.0，@pierre/diffs + Shiki）放开两项，都只在 `script-src` 一侧：
+// - `'wasm-unsafe-eval'`：Shiki 的 oniguruma 高亮引擎是 WebAssembly（二进制以 base64 内嵌在 JS 里，不另外取 .wasm 文件），
+//   编译它要这一项。它只允许 WebAssembly 的编译与实例化，不放行 `eval` / `new Function` 这类 JS 的字符串执行（那要
+//   `'unsafe-eval'`，仍然没有）；能借它编译 WebAssembly 的前提是已经能在渲染进程执行脚本。换 Shiki 的 JS 正则引擎可以不放开，
+//   但 T3 Code 用的是 WASM，个别语法的正则 JS 引擎不支持，照 T3。worker 加载的脚本有自己的 CSP（取自它的响应头），构建产物里
+//   协议处理器给每个文件都带 productionCsp()，开发服务器的 server.headers 同样给每个响应都带，所以 worker 里也有这一项。
+// - `worker-src 'self'`：高亮在 Web Worker 里跑（Vite 打成同 origin 的单独文件，`new Worker(url, { type: 'module' })`）。不写
+//   时 worker 回落到 `script-src` 已经是 'self'，显式写出来，免得以后给 script-src 加别的来源时 worker 跟着放开；不放行 blob:。
+// Pierre 把 diff 的行写成带 style 属性的 HTML，style 属性仍不放行：pnpm 补丁在它写完后经 CSSOM 补上
+// （patches/@pierre__diffs@1.5.1.patch，pnpm-workspace.yaml 的说明）。
 
 import { DEV_SERVER_PORT } from './renderer-origin.js';
 
@@ -46,7 +57,8 @@ const COMMON = [
 export function productionCsp(nonce?: string): string {
   return [
     "default-src 'none'",
-    "script-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
+    "worker-src 'self'",
     nonce === undefined ? "style-src 'self'" : `style-src 'self' 'nonce-${nonce}'`,
     `connect-src ${HOST_CONNECT_SRC}`,
     ...COMMON,
@@ -61,7 +73,8 @@ export function productionCsp(nonce?: string): string {
 export function developmentCsp(nonce: string): string {
   return [
     "default-src 'none'",
-    `script-src 'self' 'nonce-${nonce}'`,
+    `script-src 'self' 'nonce-${nonce}' 'wasm-unsafe-eval'`,
+    "worker-src 'self'",
     `style-src 'self' 'nonce-${nonce}'`,
     `connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ${HOST_CONNECT_SRC}`,
     ...COMMON,

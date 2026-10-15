@@ -48,6 +48,9 @@ export default defineConfig(({ command }) => {
       // 字体总是单独成文件：Vite 默认把小于 4 KiB 的资源内联成 data: URI（标题宋体的子集只有几 KiB），而 CSP 的
       // font-src 只放行 'self'（src/shared/csp.ts）。其他资源仍按默认规则。
       build: { assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined) },
+      // “变更”窗格的高亮 worker（@pierre/diffs 的 worker.js）里有动态 import（Shiki 的语法与 WASM 引擎），默认的 iife 格式不能
+      // 分包，打成 ES 模块（`new Worker(url, { type: 'module' })`，同 origin 的单独文件，CSP 的 worker-src 'self'）。
+      worker: { format: 'es' },
       plugins: [react(), tailwindcss()],
     },
   };

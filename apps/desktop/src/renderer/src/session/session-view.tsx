@@ -1,9 +1,16 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { PendingDelivery, PermissionMode, Session, SubagentSummary } from '@wevir/protocol';
+import type {
+  PendingDelivery,
+  PermissionMode,
+  Session,
+  SubagentSummary,
+  TurnId,
+} from '@wevir/protocol';
 import { cn } from 'cn';
 import { TriangleAlert } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
+import { openChanges } from '@/changes/changes-store';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { useHostSettings } from '@/data/host-settings';
@@ -37,6 +44,7 @@ import {
 } from './start-session';
 import { TodoDock, TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
+import { OpenTurnChanges } from './turn-changes';
 
 /**
  * 一个会话：消息流、审批区、输入框与状态指示（T5.3）。消息流来自从 seq 0 开始的订阅（transcript-store.ts），
@@ -58,6 +66,16 @@ export function SessionView({
   const pendingEnabled =
     view.status === 'connected' && hostSupports(view.hello.features, 'pending_messages');
   const state = useTranscript(session.id);
+  // 回合的“N 个文件已更改”打开“变更”窗格（0.20.0）：只在主会话里，支线没有回合快照。
+  const diffEnabled =
+    view.status === 'connected' && hostSupports(view.hello.features, 'workspace_diff');
+  const openTurnChanges = useMemo(
+    () =>
+      variant === 'main' && diffEnabled && panes && !session.side
+        ? (turnId: TurnId) => openChanges(panes, session.id, { kind: 'turn', turnId })
+        : undefined,
+    [variant, diffEnabled, panes, session.side, session.id],
+  );
   const transcriptRef = useRef<TranscriptViewHandle>(undefined);
   const [notice, setNotice] = useState<string>();
 
@@ -162,13 +180,15 @@ export function SessionView({
           />
         </div>
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
-        <TranscriptView
-          sessionId={session.id}
-          transcript={transcript}
-          cwd={session.cwd}
-          onReady={onReady}
-          compact={variant === 'pane'}
-        />
+        <OpenTurnChanges value={openTurnChanges}>
+          <TranscriptView
+            sessionId={session.id}
+            transcript={transcript}
+            cwd={session.cwd}
+            onReady={onReady}
+            compact={variant === 'pane'}
+          />
+        </OpenTurnChanges>
       ) : (
         <p className="min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">
           {t('transcript.loading')}

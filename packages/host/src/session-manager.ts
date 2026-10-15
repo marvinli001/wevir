@@ -63,6 +63,7 @@ import {
   type SessionRecord,
   type Storage,
 } from '@wevir/storage';
+import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
 import {
@@ -108,6 +109,11 @@ export interface SessionManagerOptions {
    * 文件夹建不了会话（`INVALID_PARAMS`）。
    */
   worktreesDir?: string;
+  /**
+   * 回合快照（0.20.0，checkpoints.ts）：顶层、不是支线的会话在回合开始交给引擎之前打“前”快照，回合结束后打“后”快照，
+   * 会话关闭时删掉它的快照。没给时不打。
+   */
+  checkpoints?: TurnCheckpoints;
 }
 
 /** `recover()` 的结果：启动对账修正了什么。 */
@@ -239,6 +245,7 @@ export class SessionManager {
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
   readonly #worktreesDir: string | undefined;
+  readonly #checkpoints: TurnCheckpoints | undefined;
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
@@ -264,6 +271,7 @@ export class SessionManager {
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
     this.#titleInstructions = options.titleInstructions;
     this.#worktreesDir = options.worktreesDir;
+    this.#checkpoints = options.checkpoints;
   }
 
   /**
@@ -721,6 +729,12 @@ export class SessionManager {
       addedWhileCancelling: new Set(),
     };
 
+    // 回合前的快照（0.20.0）：打完再交给引擎，免得快照里混进这个回合的改动。不会抛错。
+    const checkpointCwd = this.#checkpointCwd(runtime);
+    if (checkpointCwd !== undefined) {
+      await this.#checkpoints?.beforeTurn(runtime.id, checkpointCwd, turnId);
+    }
+
     try {
       await this.#adapter.send(runtime.engineSessionId, { content });
     } catch (error) {
@@ -1113,7 +1127,17 @@ export class SessionManager {
         ...settlePendings(this.#snapshot(runtime), () => 'held'),
       );
       this.#write(runtime, inputs);
+      // 关闭的会话不留回合快照（0.20.0，domain-model §3.13）。
+      const checkpointCwd = this.#checkpointCwd(runtime);
+      if (checkpointCwd !== undefined) this.#checkpoints?.dropSession(runtime.id, checkpointCwd);
     });
+  }
+
+  /** 打回合快照的会话（0.20.0）：顶层、不是支线的会话，返回它的目录。子会话的改动算在父会话的回合里。 */
+  #checkpointCwd(runtime: SessionRuntime): string | undefined {
+    if (this.#checkpoints === undefined || runtime.parentId !== undefined) return undefined;
+    const record = this.#storage.sessions.get(runtime.id);
+    return record && !record.side ? record.cwd : undefined;
   }
 
   /**
@@ -2458,6 +2482,10 @@ export class SessionManager {
           turn.finished.resolve();
         }
         this.#reportTask(runtime, event.payload.turnId, event.payload.outcome);
+        const checkpointCwd = this.#checkpointCwd(runtime);
+        if (checkpointCwd !== undefined) {
+          this.#checkpoints?.afterTurn(runtime.id, checkpointCwd, event.payload.turnId);
+        }
       } else if (event.type === 'approval.resolved') {
         const requestId = runtime.requestIds.get(event.payload.approvalId);
         if (requestId !== undefined) {

@@ -34,7 +34,7 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 ### 2.2 打进桌面端产物的库
 
-从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
+从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`；0.20.0 加了 `@pierre/diffs`、`shiki`、`@shikijs/transformers`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
 
 | 包 | 版本 | 许可证 | 版权 |
 |---|---|---|---|
@@ -58,8 +58,17 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 | `border-beam`、`thinking-orbs`、`bot-avatars`、`liquid-gooey`、`img-fx` | 1.4.1、0.3.2、0.1.2、0.2.2、0.5.1 | MIT | Copyright (c) 2026 Jakub Antalik（`liquid-gooey` 写作 Copyright (c) 2026 Jakub）；U3，零运行时依赖 |
 | `metal-fx` | 2.0.11 | MIT；内含 Paper Shaders 的 `liquidMetal` 着色器（Apache-2.0，包内 `NOTICE`） | Copyright (c) 2026 Jakub Antalik；Copyright (c) Paper Design, Inc.。Wevir 打了补丁（`patches/metal-fx@2.0.11.patch`，根目录 `NOTICE` §8） |
 | `three` | 0.186.1 | MIT | Copyright © 2010-2026 three.js authors（`img-fx` 的 peer，只在显现图片时动态加载） |
+| `@pierre/diffs`、`@pierre/theming`、`@pierre/theme` | 1.5.1、1.0.1、2.0.0 | Apache-2.0 | Copyright 2025 Pierre Computer Company；`@pierre/theme` 带 `NOTICE`（派生自 primer/github-vscode-theme，MIT，Copyright (c) 2020 Primer），已抄在根目录 `NOTICE` §11。Wevir 给 `@pierre/diffs` 打了补丁（`patches/@pierre__diffs@1.5.1.patch`）；0.20.0 的“变更”窗格，打开时才加载 |
+| `shiki`、`@shikijs/core`、`engine-javascript`、`engine-oniguruma`、`langs`、`primitive`、`themes`、`types`、`transformers` | 4.4.3 | MIT | Copyright (c) 2021 Pine Wu；Copyright (c) 2023 Anthony Fu。`engine-oniguruma` 内嵌 Oniguruma 的 WebAssembly 构建 |
+| `@shikijs/vscode-textmate` | 10.0.2 | MIT | Copyright (c) Microsoft Corporation |
+| `oniguruma-to-es`、`oniguruma-parser`、`regex`、`regex-recursion`、`regex-utilities` | 4.3.6、0.12.2、6.1.0、6.0.2、2.3.0 | MIT | Copyright (c) 2024-2026 Steven Levithan |
+| `hast-util-to-html`、`hast-util-whitespace`、`mdast-util-to-hast`、`unist-util-*`（`is`、`position`、`stringify-position`、`visit`、`visit-parents`）、`vfile`、`vfile-message`、`micromark-util-*`（`character`、`encode`、`sanitize-uri`、`symbol`、`types`）、`property-information`、`stringify-entities`、`character-entities-html4`、`character-entities-legacy`、`ccount`、`comma-separated-tokens`、`space-separated-tokens`、`html-void-elements`、`trim-lines`、`zwitch`、`devlop` | 见 lockfile | MIT | Copyright (c) 2015-2023 Titus Wormer |
+| `dequal` | 2.0.3 | MIT | Copyright (c) Luke Edwards |
+| `lru_map` | 0.4.1 | MIT | Rasmus Andersson（包内 `LICENSE` 没有版权行，作者见 `package.json`） |
+| `diff` | 9.0.0 | BSD-3-Clause | Copyright (c) 2009-2015, Kevin Decker |
+| `@ungap/structured-clone` | 1.4.0 | ISC | Copyright (c) 2021, Andrea Giammarchi |
 
-非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）、BSD-3-Clause 一个（`highlight.js`）、ISC 一个（`lucide-react`）。与 ADR-0004 补记 5、6 记下的一致。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。
+非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）加 0.20.0 的 `@pierre/*` 三个、BSD-3-Clause 两个（`highlight.js`、0.20.0 的 `diff`）、ISC 两个（`lucide-react`、0.20.0 的 `@ungap/structured-clone`）。与 ADR-0004 补记 5、6、10 记下的一致。`@pierre/theme` 带 `NOTICE`，内容要收进声明（已抄在根目录 `NOTICE` §11）。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。
 
 ### 2.3 Electron
 

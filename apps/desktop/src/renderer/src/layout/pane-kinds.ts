@@ -36,7 +36,8 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
   // U18 起并进会话侧栏的“环境”卡片（desktop-layout.md §12）：种类留着读回旧的本机状态，不再出现在“打开窗格”里。
   overview: { minWidth: 280, minHeight: 160, shape: 'compact', multiple: false, available: false },
   subagents: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: true },
-  changes: { minWidth: 360, minHeight: 240, shape: 'tall', multiple: false, available: false },
+  // 0.20.0：当前会话目录的 diff（desktop-layout.md §18）。
+  changes: { minWidth: 360, minHeight: 240, shape: 'tall', multiple: false, available: true },
   file: {
     minWidth: 360,
     minHeight: 240,

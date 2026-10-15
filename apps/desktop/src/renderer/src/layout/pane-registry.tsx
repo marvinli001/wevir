@@ -9,7 +9,7 @@ import {
   MessagesSquare,
   SquareTerminal,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { lazy, type ReactNode, Suspense } from 'react';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { type PlainMessageKey, t } from '@/i18n';
 import type { PaneKind } from './pane-kinds';
@@ -37,6 +37,11 @@ interface PaneView {
 
 const placeholder = (kind: PaneKind) => () => <PlaceholderPane name={t(VIEWS[kind].name)} />;
 
+// “变更”窗格带着 @pierre/diffs 与 Shiki，第一次打开时才加载（0.20.0）。
+const ChangesPane = lazy(() =>
+  import('./panes/changes-pane').then((module) => ({ default: module.ChangesPane })),
+);
+
 /** 每种窗格的图标、名称与内容（desktop-layout.md §2.1）。以后的种类由各自的任务换掉占位。 */
 const VIEWS: Record<PaneKind, PaneView> = {
   overview: {
@@ -49,7 +54,15 @@ const VIEWS: Record<PaneKind, PaneView> = {
     name: 'pane.kind.subagents',
     render: (_, context) => <SubagentsPane context={context} />,
   },
-  changes: { icon: GitCompare, name: 'pane.kind.changes', render: placeholder('changes') },
+  changes: {
+    icon: GitCompare,
+    name: 'pane.kind.changes',
+    render: (_, context) => (
+      <Suspense fallback={null}>
+        <ChangesPane context={context} />
+      </Suspense>
+    ),
+  },
   file: {
     icon: FileText,
     name: 'pane.kind.file',
