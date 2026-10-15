@@ -134,6 +134,9 @@ export const messages: Messages = {
   'rail.context': 'Context',
   'rail.context.used': '{percent}% used',
   'rail.context.approx': '~{size}',
+  'rail.context.total': 'Total tokens',
+  'rail.context.autoCompact': 'Auto-compact at',
+  'rail.context.meter': 'Context {percent}% used',
   'rail.changes': 'Changes',
   'rail.changes.none': 'No changes',
   'rail.changes.files': '{count, plural, one {# file} other {# files}}',
@@ -889,7 +892,8 @@ export const messages: Messages = {
   'provider.preset.gemini.note':
     'Google global pay-as-you-go API. Mainland China, Hong Kong and Macao are unsupported; no direct access from mainland China.',
   'provider.preset.ollama': 'Local Ollama',
-  'provider.preset.ollama.note': 'No API Key needed; the model ID must be a pulled model.',
+  'provider.preset.ollama.note':
+    'No API Key needed; the model ID must be a pulled model. Start Ollama with OLLAMA_CONTEXT_LENGTH=32768; its default context may be only 4096.',
 
   'provider.form.titleNew': 'Add {name}',
   'provider.form.titleEdit': 'Edit {name}',
@@ -908,6 +912,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'Model ID',
   'provider.form.contextWindow': 'Context window (tokens)',
   'provider.form.contextWindowPlaceholder': 'Optional',
+  'provider.form.contextWindowMissing': 'Not set; treated as {size}',
   'provider.form.images': 'Image input',
   'provider.form.default': 'Default',
   'provider.form.addModel': 'Add model',

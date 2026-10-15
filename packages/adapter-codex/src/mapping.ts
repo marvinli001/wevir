@@ -128,18 +128,22 @@ interface ItemState {
 export interface CodexEventMapperOptions {
   /** 会话模型的上下文大小（模型目录的 `context_window`）；不知道时用 Codex 报的 `modelContextWindow`。 */
   contextSize?: () => number | undefined;
+  /** Codex 自动压缩的阈值（0.29.0，`autoCompactLimit`）；不知道时（ChatGPT 登录的模型）不报。 */
+  autoCompactAt?: () => number | undefined;
 }
 
 export class CodexEventMapper {
   readonly engineSessionId: string;
   readonly #items = new Map<string, ItemState>();
   readonly #contextSize: () => number | undefined;
+  readonly #autoCompactAt: () => number | undefined;
   /** 这个回合里的压缩怎么来的：`compact` 开的回合是 `manual`，其余是引擎自己压缩（0.24.0）。 */
   #compaction: 'manual' | 'auto' = 'auto';
 
   constructor(engineSessionId: string, options: CodexEventMapperOptions = {}) {
     this.engineSessionId = engineSessionId;
     this.#contextSize = options.contextSize ?? (() => undefined);
+    this.#autoCompactAt = options.autoCompactAt ?? (() => undefined);
   }
 
   /** 回合开始（或结束）：丢掉上一个回合的 item 状态。`compaction`：这个回合里的压缩记为哪种（0.24.0）。 */
@@ -556,6 +560,7 @@ export class CodexEventMapper {
   #usage(params: TokenUsageNotification): AgentEvent[] {
     const contextSize = this.#contextSize() ?? params.tokenUsage.modelContextWindow ?? undefined;
     if (contextSize === undefined) return [this.raw('thread/tokenUsage/updated', params)];
+    const autoCompactAt = this.#autoCompactAt();
     return [
       {
         type: 'usage.updated',
@@ -566,6 +571,7 @@ export class CodexEventMapper {
         ...(typeof params.tokenUsage.total?.totalTokens === 'number' && {
           totalTokens: params.tokenUsage.total.totalTokens,
         }),
+        ...(autoCompactAt !== undefined && { autoCompactAt }),
       },
     ];
   }

@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.28.0`（消息里的图片；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
+> 状态：v0（T1.2）· 协议版本 `0.29.0`（上下文用量的自动压缩线；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -411,6 +411,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 `0.27.0`：会话能用的命令。新类型 `SessionCommand`（`compact`、`review`）；`EngineFeatures` 加 optional 的 `commands`：这种 Provider 的引擎会的命令（还要 Host 声明 `session_compact` / `session_review`）。0.27.0 起的 Host 总是给，引擎一个都不会时是空数组。optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧 schema 忽略多出的字段，旧桌面端照旧按 Host 功能列 `/compact` 与 `/review`，引擎不会时发出去才被拒绝（`INVALID_STATE`）。新客户端连旧 Host：`engineFeatures` 或其中的 `commands` 没有时只看 Host 功能（同 0.24.0）。冻结样本 `compat/0.27.0.json`。
 
 `0.28.0`：消息里的图片（domain-model §3.3.3）。`UserContentPart` 加 `image` 变体（新类型 `UserImagePart`、`UserImageMimeType` 与 ID `img_`）；新方法 `image.upload`、`image.read`；新错误码 `IMAGE_NOT_FOUND`（-32017）；Host 功能 `user_images`；客户端能力位 `user_images`。给已有的判别联合加了变体，`user.message`、`user.steered`、`turn.started.input`、`pending.*` 与快照的待发消息都可能带它，所以用能力位门控：没有声明 `user_images` 的连接收到的事件与结果里，图片换成文本 `[image]`（段数不变）。最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端看到 `[image]`，照常解析；它发的消息没有图片。新客户端连旧 Host：hello 结果里没有 `user_images`，桌面端不显示“图片”、不接受粘贴与拖放的图片。冻结样本 `compat/0.28.0.json`。
+
+`0.29.0`：上下文用量的自动压缩线。`usage.updated` 与快照的 `usage` 加 optional 的 `autoCompactAt`：已用量（`contextUsed`）到这个数时引擎自己压缩上下文。Codex 引擎经网关的模型报上下文窗口的九成（Provider 模型没填 `contextWindow` 时按 128k，codex-event-mapping.md §3），ChatGPT 登录的模型与其他引擎不报。optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧 schema 忽略这个字段。新客户端连旧 Host：收不到它，桌面端的用量表不画自动压缩的线。冻结样本 `compat/0.29.0.json`。
 
 依据 Paseo 的兼容纪律（Paseo 研读 §2.3、§2.4；ADR-0002 §2）。目标：半年前的客户端能连新 Host，半年前的 Host 能服务新客户端（同一主版本内）。改 `packages/protocol` 的提交要在说明里回答这两个问题。
 

@@ -456,6 +456,9 @@ export class TranscriptProjection {
           ...(event.payload.totalTokens !== undefined && {
             totalTokens: event.payload.totalTokens,
           }),
+          ...(event.payload.autoCompactAt !== undefined && {
+            autoCompactAt: event.payload.autoCompactAt,
+          }),
         };
         return;
       case 'context.compacting':

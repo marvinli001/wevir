@@ -453,7 +453,7 @@ export const snapshot: SessionSnapshot = {
   session,
   pendingApprovals: [pendingApproval],
   todos: [{ content: '列出本周提交', status: 'in_progress' }],
-  usage: { contextUsed: 5120, contextSize: 262144, totalTokens: 182400 },
+  usage: { contextUsed: 5120, contextSize: 262144, totalTokens: 182400, autoCompactAt: 235929 },
 };
 
 // ── 事件 payload：键必须覆盖全部事件类型（编译期穷尽） ───────────────────
@@ -653,7 +653,7 @@ export const eventPayloads: PayloadSamples = {
     invalid: { questionId: ids.question, status: 'pending', resolution: { reason: 'user' } },
   },
   'usage.updated': {
-    valid: { contextUsed: 5120, contextSize: 262144, totalTokens: 182400 },
+    valid: { contextUsed: 5120, contextSize: 262144, totalTokens: 182400, autoCompactAt: 235929 },
     invalid: { contextUsed: 5120, contextSize: 262144, totalTokens: -1 },
   },
   'context.compacting': {

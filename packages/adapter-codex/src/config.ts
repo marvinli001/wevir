@@ -115,11 +115,31 @@ const EFFORT_DESCRIPTIONS: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Provider 模型没填 `contextWindow` 时按这个大小告诉 Codex（codex-event-mapping.md §3“上下文大小”）。模型目录里的模型没有
+ * `context_window` 时 Codex 既不自动压缩、也不报上下文大小（`auto_compact_token_limit()` 与 `usable_context_window()`
+ * 都是 None，upstream/codex/codex-rs/protocol/src/openai_models.rs 516-540），只能等上游报超长；给一个偏小的值，宁可早压缩。
+ */
+export const DEFAULT_CONTEXT_WINDOW = 128_000;
+
+/** 会话模型交给 Codex 的上下文大小：填了用填的，否则 `DEFAULT_CONTEXT_WINDOW`。 */
+export function contextWindowOf(model: ProviderModelConfig): number {
+  return model.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
+ * Codex 自动压缩的阈值：上下文大小的 90%（`ModelInfo::auto_compact_token_limit`，Wevir 不写
+ * `model_auto_compact_token_limit`）。已用量到了它，Codex 在下一次请求模型之前先压缩。
+ */
+export function autoCompactLimit(model: ProviderModelConfig): number {
+  return Math.floor((contextWindowOf(model) * 9) / 10);
+}
+
+/**
  * 模型目录里的一个模型（`model_catalog_json` 的 `models[]`，字段见
  * upstream/codex/codex-rs/protocol/src/openai_models.rs 的 `ModelInfo`，codex-notes §3.3）。没写的字段与 Codex 给
  * 未知模型的默认元数据一致（models-manager/src/model_info.rs `model_info_from_slug`），区别是：声明
- * `apply_patch_tool_type: "freeform"`（否则没有 apply_patch 工具）、带上下文大小与推理档位、`base_instructions` 用
- * Wevir 的 base.md、列出（`visibility: "list"`）。
+ * `apply_patch_tool_type: "freeform"`（否则没有 apply_patch 工具）、总是带上下文大小（没填用 `DEFAULT_CONTEXT_WINDOW`）
+ * 与推理档位、`base_instructions` 用 Wevir 的 base.md、列出（`visibility: "list"`）。
  */
 export function catalogEntry(
   model: ProviderModelConfig,
@@ -149,7 +169,7 @@ export function catalogEntry(
     experimental_supported_tools: [],
     include_apps_usage_instructions: false,
     input_modalities: model.supportsImages === true ? ['text', 'image'] : ['text'],
-    ...(model.contextWindow !== undefined && { context_window: model.contextWindow }),
+    context_window: contextWindowOf(model),
   };
 }
 
@@ -347,7 +367,7 @@ export function threadConfig(
       gatewayBaseURL,
       providerExtra,
     ),
-    ...(model.contextWindow !== undefined && { model_context_window: model.contextWindow }),
+    model_context_window: contextWindowOf(model),
     ...(reasoningEffort !== undefined && {
       model_reasoning_effort: toCodexEffort(reasoningEffort),
     }),

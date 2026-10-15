@@ -129,6 +129,9 @@ export const messages: Messages = {
   'rail.context': '上下文',
   'rail.context.used': '已用 {percent}%',
   'rail.context.approx': '約 {size}',
+  'rail.context.total': '累計用量',
+  'rail.context.autoCompact': '自動壓縮閾值',
+  'rail.context.meter': '上下文已用 {percent}%',
   'rail.changes': '變更',
   'rail.changes.none': '無變更',
   'rail.changes.files': '{count} 個檔案',
@@ -877,7 +880,8 @@ export const messages: Messages = {
   'provider.preset.gemini.note':
     'Google 國際按量 API；中國大陸、香港、澳門不在可用地區，大陸無法直接連線。',
   'provider.preset.ollama': '本機 Ollama',
-  'provider.preset.ollama.note': '無需 API Key；模型 ID 須為已拉取的模型。',
+  'provider.preset.ollama.note':
+    '無需 API Key；模型 ID 須為已拉取的模型；Ollama 須以 OLLAMA_CONTEXT_LENGTH=32768 啟動，預設上下文可能只有 4096。',
 
   'provider.form.titleNew': '新增 {name}',
   'provider.form.titleEdit': '編輯 {name}',
@@ -896,6 +900,7 @@ export const messages: Messages = {
   'provider.form.modelId': '模型 ID',
   'provider.form.contextWindow': '上下文長度（token）',
   'provider.form.contextWindowPlaceholder': '選填',
+  'provider.form.contextWindowMissing': '未填寫，按 {size} 估算',
   'provider.form.images': '圖片輸入',
   'provider.form.default': '預設',
   'provider.form.addModel': '新增模型',

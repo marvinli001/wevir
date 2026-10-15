@@ -196,7 +196,7 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 ## 7. 服务示例
 
-以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
+以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。每个模型都填 `contextWindow`：Codex 引擎按它自动压缩（窗口的九成）并显示上下文用量，没填按 128k 估算（codex-event-mapping.md §3“上下文大小”）。2026-10-15 对照各家官方模型页核对过桌面端全部预设（`provider-presets.ts`）的上下文长度，都与官方一致，只有本机 Ollama 例外（§7.5）。几处官方写法：OpenAI 与 Azure 的 GPT-6 系列 1,050,000 是输入加输出，输入上限 922,000、输出 128,000；百炼 qwen3.8 / 3.7 的 1,000,000 里输入上限 991,808（思考模式 983,616）；Kimi 写“256k”（按 262,144 填）；DeepSeek 写“1M”（按 1,000,000 填）；Anthropic 的 1M 是 Claude 5.5 系列的默认，不用 beta 头；gemini-4-argon 的 1,048,576 是输入输出共用。智谱文档标注 GLM-4.5 即将下线，换预设模型另行决定。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
 
 ### 7.1 DeepSeek
 
@@ -321,7 +321,7 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 }
 ```
 
-`apiKey` 填任意值（§3）。
+`apiKey` 填任意值（§3）。Ollama 的 OpenAI 兼容接口不能按请求设上下文长度，用的是服务端的默认值：官方 FAQ 写默认 4096（新版本按显存给 4k / 32k / 256k），可用 `OLLAMA_CONTEXT_LENGTH` 或 Modelfile 的 `num_ctx` 改（docs.ollama.com，2026-10-15 核对）。预设的 32768 要求以 `OLLAMA_CONTEXT_LENGTH=32768` 启动 Ollama（模板说明里写了）；用默认的 4096 时把 `contextWindow` 改成真实值，否则 Codex 按 32768 判断何时压缩，上下文早已被 Ollama 截断。
 
 ### 7.6 xAI（Grok API Key，R8）
 

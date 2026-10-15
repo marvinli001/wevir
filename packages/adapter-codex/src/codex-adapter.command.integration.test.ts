@@ -46,7 +46,7 @@ function git(cwd: string, ...args: string[]): void {
   });
 }
 
-async function open(models?: ProviderConfig['models']) {
+async function open(models?: ProviderConfig['models'], additionalRoots?: string[]) {
   const { home, workspace } = dirs.make('command');
   git(workspace, 'init', '-q', '-b', 'main');
   writeFileSync(join(workspace, 'a.txt'), 'a\n');
@@ -61,6 +61,7 @@ async function open(models?: ProviderConfig['models']) {
     cwd: workspace,
     providerId: 'mock',
     modelId: MOCK_MODEL,
+    ...(additionalRoots && { additionalRoots }),
   });
   return {
     adapter,
@@ -132,13 +133,68 @@ describe.skipIf(binary === undefined)(
         { id: MOCK_MODEL, displayName: 'Wevir Mock', contextWindow: 1100 },
       ]);
       script = () => ({ text: ['好'] });
-      await runTurn(adapter, id, 'hello', events);
+      const first = await runTurn(adapter, id, 'hello', events);
+      // 用量带上下文大小与自动压缩的线（0.29.0）：1100 的 90%。
+      expect(first.find(ofType('usage.updated'))).toMatchObject({
+        contextUsed: 1020,
+        contextSize: 1100,
+        autoCompactAt: 990,
+      });
       const turn = await runTurn(adapter, id, 'hello again', events);
       const types = turn.map((event) => event.type);
       expect(turn.find(ofType('context.compacting'))).toMatchObject({ trigger: 'auto' });
       expect(turn.find(ofType('context.compacted'))).toMatchObject({ trigger: 'auto' });
       expect(types.indexOf('context.compacted')).toBeLessThan(types.indexOf('assistant.message'));
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    });
+
+    it('模型没填上下文大小：按默认的 128k 告诉 Codex，过了 90% 照样自动压缩', async () => {
+      const { adapter, id, events } = await open([{ id: MOCK_MODEL, displayName: 'Wevir Mock' }]);
+      // 第一个回合报 120k（过了 115.2k 的线），第二个回合开始前压缩；摘要请求与之后的回合报回 1k。
+      let calls = 0;
+      script = (view) => {
+        calls += 1;
+        if (view.lastUserText.startsWith(COMPACT_PROMPT)) return { text: ['摘要：打过招呼。'] };
+        return calls === 1 ? { text: ['好'], inputTokens: 120_000 } : { text: ['好'] };
+      };
+      const first = await runTurn(adapter, id, 'hello', events);
+      expect(first.find(ofType('usage.updated'))).toMatchObject({
+        contextUsed: 120_020,
+        contextSize: 128_000,
+        autoCompactAt: 115_200,
+      });
+      const turn = await runTurn(adapter, id, 'hello again', events);
+      expect(turn.find(ofType('context.compacted'))).toMatchObject({ trigger: 'auto' });
+      expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+      expect(mock.requests.some((r) => JSON.stringify(r.body.input).includes(COMPACT_PROMPT))).toBe(
+        true,
+      );
+    });
+
+    it('压缩之后 base.md 与额外目录的说明仍在（§4.9）：压缩后 Codex 重建初始上下文', async () => {
+      const extra = dirs.make('command-extra').workspace;
+      const { adapter, id, events } = await open(undefined, [extra]);
+      script = (view) =>
+        view.lastUserText.startsWith(COMPACT_PROMPT)
+          ? { text: ['摘要：打过招呼。'] }
+          : { text: ['你好'] };
+      await runTurn(adapter, id, 'hello', events);
+      const from = events.length;
+      await adapter.compact(id);
+      await finishTurn(events, from);
+      const compactAt = mock.requests.length;
+      await runTurn(adapter, id, 'again', events);
+      const after = mock.requests.slice(compactAt).map((record) => record.body);
+      expect(after.length).toBeGreaterThan(0);
+      for (const body of after) {
+        const input = JSON.stringify(body.input);
+        // 摘要换掉了之前的对话；base.md（Codex 放成第一条 developer 消息）与额外目录的说明
+        // （developer_instructions，压缩后随初始上下文重建）都还在。
+        expect(input).toContain('摘要：打过招呼。');
+        expect(input).toContain('你是 Wevir 里的 Agent');
+        expect(input).toContain('Besides the working directory');
+        expect(input).toContain(extra);
+      }
     });
 
     it('review：review/start（inline）；审查结果是助手消息，进入与退出审查不出事件', async () => {

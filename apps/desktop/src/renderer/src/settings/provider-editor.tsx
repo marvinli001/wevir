@@ -7,8 +7,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { formatTokens } from '@/layout/rail-model';
 import {
+  ASSUMED_CONTEXT_WINDOW,
   connectionChanged,
+  contextWindowMissing,
   deepseekModelChoices,
   type FormErrors,
   hasProviderPlaceholder,
@@ -405,7 +408,17 @@ export function ModelsField({
                   aria-invalid={!!contextError}
                   onChange={(event) => setRow(index, { contextWindow: event.target.value })}
                 />
-                {contextError && <p className="mt-1 text-sm text-destructive">{contextError}</p>}
+                {contextError ? (
+                  <p className="mt-1 text-sm text-destructive">{contextError}</p>
+                ) : (
+                  contextWindowMissing(row) && (
+                    <p className="mt-1 text-xs text-muted-foreground" data-context-missing={index}>
+                      {t('provider.form.contextWindowMissing', {
+                        size: formatTokens(ASSUMED_CONTEXT_WINDOW),
+                      })}
+                    </p>
+                  )
+                )}
               </div>
               <input
                 type="checkbox"

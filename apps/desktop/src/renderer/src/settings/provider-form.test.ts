@@ -6,7 +6,9 @@ import {
 import { describe, expect, it } from 'vitest';
 import { catalogAvailable, catalogEntry, providerLogo } from './provider-catalog';
 import {
+  ASSUMED_CONTEXT_WINDOW,
   connectionChanged,
+  contextWindowMissing,
   deepseekModelChoices,
   type EditableProvider,
   editForm,
@@ -802,5 +804,19 @@ describe('测试连接的结果', () => {
       title: '测试未完成',
       detail: 'connection lost',
     });
+  });
+});
+
+describe('上下文长度没填', () => {
+  it('空着的模型行提示按 128k 估算；每个预设模型都填了上下文长度', () => {
+    expect(ASSUMED_CONTEXT_WINDOW).toBe(128_000);
+    expect(contextWindowMissing({ contextWindow: '' })).toBe(true);
+    expect(contextWindowMissing({ contextWindow: '  ' })).toBe(true);
+    expect(contextWindowMissing({ contextWindow: '262144' })).toBe(false);
+    for (const preset of [...OPENAI_PRESETS, ...VERTEX_PRESETS]) {
+      for (const model of preset.models) {
+        expect(model.contextWindow, `${preset.id} / ${model.id}`).toBeGreaterThan(0);
+      }
+    }
   });
 });

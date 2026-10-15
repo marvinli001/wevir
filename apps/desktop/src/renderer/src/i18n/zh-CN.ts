@@ -139,6 +139,9 @@ export const zhCN = {
   'rail.context': '上下文',
   'rail.context.used': '已用 {percent}%',
   'rail.context.approx': '约 {size}',
+  'rail.context.total': '累计用量',
+  'rail.context.autoCompact': '自动压缩阈值',
+  'rail.context.meter': '上下文已用 {percent}%',
   'rail.changes': '变更',
   'rail.changes.none': '无改动',
   'rail.changes.files': '{count} 个文件',
@@ -890,7 +893,8 @@ export const zhCN = {
   'provider.preset.gemini.note':
     'Google 国际按量 API；中国内地、香港、澳门不在可用地区，内地无法直连。',
   'provider.preset.ollama': '本机 Ollama',
-  'provider.preset.ollama.note': '无需 API Key；模型 ID 须为已拉取的模型。',
+  'provider.preset.ollama.note':
+    '无需 API Key；模型 ID 须为已拉取的模型；Ollama 须以 OLLAMA_CONTEXT_LENGTH=32768 启动，默认上下文可能只有 4096。',
 
   'provider.form.titleNew': '添加 {name}',
   'provider.form.titleEdit': '编辑 {name}',
@@ -909,6 +913,7 @@ export const zhCN = {
   'provider.form.modelId': '模型 ID',
   'provider.form.contextWindow': '上下文长度（token）',
   'provider.form.contextWindowPlaceholder': '可选',
+  'provider.form.contextWindowMissing': '未填写，按 {size} 估算',
   'provider.form.images': '图片输入',
   'provider.form.default': '默认',
   'provider.form.addModel': '添加模型',

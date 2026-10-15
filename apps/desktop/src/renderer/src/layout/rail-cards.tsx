@@ -10,6 +10,7 @@ import { openChanges } from '@/changes/changes-store';
 import { useTranscript } from '@/data/workbench-data';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
+import { ContextBar } from './context-bar';
 import { usePanes } from './pane-controller';
 import { abbreviateHome, contextUsage, formatTokens, parentDirectory } from './rail-model';
 import { type RailContext, registerRailCard } from './session-rail';
@@ -106,20 +107,6 @@ registerRailCard({
 
 // ── 上下文 ──────────────────────────────────────────────────────────
 
-function Meter({ percent, className }: { percent: number; className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn('block h-1.5 overflow-hidden rounded-full bg-muted', className)}
-    >
-      <span
-        className="block h-full rounded-full bg-running transition-[width] duration-300 ease-smooth"
-        style={{ width: `${Math.max(percent, 2)}%` }}
-      />
-    </span>
-  );
-}
-
 function useContextCard({ sessionId, session, providers }: RailContext) {
   const state = useTranscript(sessionId);
   const usage = contextUsage(state?.transcript.usage, session, providers);
@@ -129,7 +116,7 @@ function useContextCard({ sessionId, session, providers }: RailContext) {
     summary: (
       <>
         <span className="tabular-nums">{usage.percent}%</span>
-        <Meter percent={usage.percent} className="w-8" />
+        <ContextBar usage={usage} mark={false} className="w-8" />
       </>
     ),
     details: (
@@ -141,7 +128,13 @@ function useContextCard({ sessionId, session, providers }: RailContext) {
             {usage.estimated ? t('rail.context.approx', { size }) : size}
           </span>
         </div>
-        <Meter percent={usage.percent} className="mt-2 w-full" />
+        <ContextBar usage={usage} className="mt-2" />
+        {usage.autoCompactAt !== undefined && (
+          <div className="mt-2 flex justify-between gap-2 text-xs text-muted-foreground">
+            <span>{t('rail.context.autoCompact')}</span>
+            <span className="tabular-nums">{formatTokens(usage.autoCompactAt)}</span>
+          </div>
+        )}
       </div>
     ),
   };

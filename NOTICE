@@ -289,6 +289,8 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   apps/desktop/src/renderer/src/session/composer-commands.ts、composer-menu.tsx
       <- apps/web/src/components/chat/ComposerCommandMenu.tsx
          apps/web/src/components/chat/composerSlashCommandSearch.ts
+  apps/desktop/src/renderer/src/session/context-meter.tsx、layout/context-bar.tsx
+      <- apps/web/src/components/chat/ContextWindowMeter.tsx
   apps/desktop/src/renderer/src/session/composer-images.ts（规则）
       <- packages/contracts/src/chatAttachment.ts
          apps/web/src/components/chat/composerAttachmentFiles.ts

@@ -50,6 +50,8 @@ export interface MockReply {
   delayMs?: number;
   /** 不发流，直接回 HTTP 错误。 */
   httpError?: { status: number; message: string };
+  /** 报的输入 token 数（默认 1000；输出总是 20）。 */
+  inputTokens?: number;
 }
 
 export type MockScript = (view: MockView) => MockReply;
@@ -209,11 +211,11 @@ function* render(
       id: responseId,
       output,
       usage: {
-        input_tokens: 1000,
+        input_tokens: reply.inputTokens ?? 1000,
         input_tokens_details: { cached_tokens: 0 },
         output_tokens: 20,
         output_tokens_details: { reasoning_tokens: reply.reasoning?.length ?? 0 },
-        total_tokens: 1020,
+        total_tokens: (reply.inputTokens ?? 1000) + 20,
       },
     },
   };

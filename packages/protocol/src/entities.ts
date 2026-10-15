@@ -340,6 +340,8 @@ export const UsageSchema = z.object({
   contextSize: z.int().min(0),
   /** 这个会话累计用掉的 token（0.14.0）；引擎不报时省略。 */
   totalTokens: z.int().min(0).optional(),
+  /** 已用到这个数时引擎自己压缩上下文（0.29.0）；引擎不自动压缩或不说阈值时省略。 */
+  autoCompactAt: z.int().min(0).optional(),
 });
 export type Usage = z.infer<typeof UsageSchema>;
 

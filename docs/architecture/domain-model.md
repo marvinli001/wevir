@@ -145,7 +145,7 @@ type ProviderReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'x
 interface ProviderModel {
   id: string              // 发给服务端的模型 ID
   displayName?: string
-  contextWindow?: number  // 不填时 dsh 按 262144 猜，usage.updated 的 contextSize 会失真
+  contextWindow?: number  // 不填时 dsh 按 262144 猜、Codex 按 128k（并据此自动压缩），usage.updated 的 contextSize 会失真
   maxTokens?: number      // 最大输出（协议 0.2.0）
   supportsImages?: boolean // 是否接受图片（0.2.0）；省略沿用 dsh 目录
   reasoningEfforts?: ProviderReasoningLevel[] // 推理档位（0.2.0，openai-compatible 与 google-vertex）；[] 表示不推理
@@ -253,7 +253,7 @@ interface SessionSnapshot {
   session: Session
   pendingApprovals: ApprovalRequest[]
   todos?: TodoItem[]               // 最近一次 todo.updated
-  usage?: { contextUsed: number; contextSize: number; totalTokens?: number } // 最近一次 usage.updated
+  usage?: { contextUsed: number; contextSize: number; totalTokens?: number; autoCompactAt?: number } // 最近一次 usage.updated
   subagents?: SubagentSummary[]    // 0.6.0：这个会话派出的子会话，按 startedAt（§3.3.1）；没有时省略
   pendingMessages?: PendingMessage[] // 0.8.0：等待中与暂停的待发消息，按加入的先后（§3.3.2）；没有时省略
   pendingQuestions?: QuestionRequest[] // 0.10.0：等用户回答的问题，按提出的先后（§3.8）；没有时省略
@@ -1173,6 +1173,7 @@ type WevirEvent =
       contextUsed: number       // ACP usage_update.used
       contextSize: number       // ACP usage_update.size（模型未声明 contextWindow 时是猜测值）
       totalTokens?: number      // 0.14.0：这个会话累计用掉的 token（Codex 的 tokenUsage.total.totalTokens）；引擎不报时省略
+      autoCompactAt?: number    // 0.29.0：已用到这个数时引擎自己压缩上下文（Codex：窗口的九成）；不自动压缩或不说阈值时省略
     }>
   | WevirEventEnvelope<'context.compacting', { turnId: TurnId; compactionId: string; trigger: 'manual' | 'auto' }> // 0.24.0
   | WevirEventEnvelope<'context.compacted', { turnId: TurnId; compactionId: string; trigger: 'manual' | 'auto' }>  // 0.24.0

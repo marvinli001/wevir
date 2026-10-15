@@ -40,7 +40,7 @@ describe('contextUsage', () => {
         { providerId: 'p', modelId: 'declared' },
         providers,
       ),
-    ).toEqual({ used: 36_500, size: 200_000, percent: 18, estimated: false });
+    ).toEqual({ used: 36_500, size: 200_000, percent: 18, estimated: false, tone: 'normal' });
     expect(
       contextUsage(
         { contextUsed: 300, contextSize: 200 },
@@ -56,6 +56,30 @@ describe('contextUsage', () => {
       ),
     ).toBeUndefined();
     expect(contextUsage(undefined, { providerId: 'p', modelId: 'x' }, providers)).toBeUndefined();
+  });
+
+  it('累计用量与自动压缩的线（0.29.0）；颜色到 75% 提醒，到 90% 或过了线警示', () => {
+    const at = (contextUsed: number, autoCompactAt?: number) =>
+      contextUsage(
+        {
+          contextUsed,
+          contextSize: 200_000,
+          totalTokens: 500_000,
+          ...(autoCompactAt !== undefined && { autoCompactAt }),
+        },
+        { providerId: 'p', modelId: 'declared' },
+        providers,
+      );
+    expect(at(36_500, 180_000)).toMatchObject({
+      total: 500_000,
+      autoCompactAt: 180_000,
+      autoCompactPercent: 90,
+      tone: 'normal',
+    });
+    expect(at(36_500)).not.toHaveProperty('autoCompactAt');
+    expect(at(150_000)?.tone).toBe('warning');
+    expect(at(180_000)?.tone).toBe('danger');
+    expect(at(120_000, 110_000)?.tone).toBe('danger');
   });
 });
 

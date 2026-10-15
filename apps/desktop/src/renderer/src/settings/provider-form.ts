@@ -257,6 +257,17 @@ function baseURLProblem(value: string): string | undefined {
   return undefined;
 }
 
+/**
+ * 模型没填上下文长度时 Codex 引擎按这个大小处理（adapter-codex 的 `DEFAULT_CONTEXT_WINDOW`，桌面端不能依赖适配器包，
+ * 这里抄一份；那边改了一起改）。表单在没填的模型下面提示它。
+ */
+export const ASSUMED_CONTEXT_WINDOW = 128_000;
+
+/** 模型行的上下文长度空着：表单提示按 `ASSUMED_CONTEXT_WINDOW` 估算。 */
+export function contextWindowMissing(row: Pick<ModelRow, 'contextWindow'>): boolean {
+  return row.contextWindow.trim() === '';
+}
+
 function parseContextWindow(text: string): number | undefined {
   const value = Number(text.trim());
   return Number.isInteger(value) && value >= 1 ? value : undefined;

@@ -135,6 +135,9 @@ export const messages: Messages = {
   'rail.context': 'コンテキスト',
   'rail.context.used': '{percent}% 使用',
   'rail.context.approx': '約 {size}',
+  'rail.context.total': '累計使用量',
+  'rail.context.autoCompact': '自動圧縮のしきい値',
+  'rail.context.meter': 'コンテキスト {percent}% 使用',
   'rail.changes': '変更',
   'rail.changes.none': '変更なし',
   'rail.changes.files': '{count} 個のファイル',
@@ -892,7 +895,8 @@ export const messages: Messages = {
   'provider.preset.gemini.note':
     'Google のグローバル従量課金 API。中国本土・香港・マカオは対象地域外で、中国本土から直接接続できません。',
   'provider.preset.ollama': 'ローカルの Ollama',
-  'provider.preset.ollama.note': 'API Key は不要。モデル ID はプル済みのモデルに限ります。',
+  'provider.preset.ollama.note':
+    'API Key は不要。モデル ID はプル済みのモデルに限ります。Ollama は OLLAMA_CONTEXT_LENGTH=32768 で起動してください。既定のコンテキストは 4096 の場合があります。',
 
   'provider.form.titleNew': '{name} を追加',
   'provider.form.titleEdit': '{name} を編集',
@@ -911,6 +915,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'モデル ID',
   'provider.form.contextWindow': 'コンテキスト長 (トークン)',
   'provider.form.contextWindowPlaceholder': '任意',
+  'provider.form.contextWindowMissing': '未設定（{size} とみなす）',
   'provider.form.images': '画像入力',
   'provider.form.default': 'デフォルト',
   'provider.form.addModel': 'モデルを追加',

@@ -50,11 +50,13 @@ import {
   settledWithin,
 } from './codex-process.js';
 import {
+  autoCompactLimit,
   basePromptVars,
   type ChatgptEndpoints,
   chatgptEndpointEnv,
   chatgptThreadConfig,
   codexProviderId,
+  contextWindowOf,
   fromCodexEffort,
   renderChatgptConfigToml,
   renderConfigToml,
@@ -64,7 +66,12 @@ import {
   writeCodexConfig,
 } from './config.js';
 import { buildCodexEnv } from './env.js';
-import { CodexEventMapper, IGNORED_NOTIFICATIONS, isRecord } from './mapping.js';
+import {
+  CodexEventMapper,
+  type CodexEventMapperOptions,
+  IGNORED_NOTIFICATIONS,
+  isRecord,
+} from './mapping.js';
 import {
   CODEX_VERSION,
   type CodexFlavor,
@@ -1452,7 +1459,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       status: 'open',
       // Host 收到 subagent.started 才订阅：之前的事件先存着。
       hub: new EventHub<AgentEvent>({ bufferUntilSubscribed: true }),
-      mapper: new CodexEventMapper(childId, { contextSize: () => model.contextWindow }),
+      mapper: new CodexEventMapper(
+        childId,
+        this.#usageOptions(() => model),
+      ),
       approvals: new Map(),
       questions: new Map(),
       collab: new Map(),
@@ -1949,13 +1959,26 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       status: 'open',
       hub: new EventHub<AgentEvent>(),
       // 换了模型（0.9.0）后用新模型的上下文大小。
-      mapper: new CodexEventMapper(id, {
-        contextSize: () => this.#sessions.get(id)?.model.contextWindow ?? model.contextWindow,
-      }),
+      mapper: new CodexEventMapper(
+        id,
+        this.#usageOptions(() => this.#sessions.get(id)?.model ?? model),
+      ),
       approvals: new Map(),
       questions: new Map(),
       collab: new Map(),
     });
+  }
+
+  /**
+   * 用量的上下文大小与自动压缩阈值（0.29.0）：经网关的模型照交给 Codex 的（`contextWindowOf`，没填按默认值）；ChatGPT
+   * 登录的模型在 Codex 自己的目录里，大小取 Codex 报的，阈值不报。
+   */
+  #usageOptions(model: () => ProviderModelConfig): CodexEventMapperOptions {
+    if (this.#chatgpt) return { contextSize: () => model().contextWindow };
+    return {
+      contextSize: () => contextWindowOf(model()),
+      autoCompactAt: () => autoCompactLimit(model()),
+    };
   }
 
   #session(engineSessionId: string): CodexSession {

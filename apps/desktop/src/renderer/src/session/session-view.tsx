@@ -32,7 +32,8 @@ import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
-import { Composer, setDraft } from './composer';
+import { Composer, isBusy, setDraft } from './composer';
+import { ContextMeter } from './context-meter';
 import { EnvironmentBar } from './environment-bar';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
 import { historyDigest } from './history-digest';
@@ -430,7 +431,17 @@ export function SessionView({
             state={sessionState}
             disabled={!client || readOnly !== undefined}
             disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
-            model={<SessionModelPicker session={session} onError={setNotice} />}
+            model={
+              <>
+                <ContextMeter
+                  session={session}
+                  providers={providers}
+                  busy={isBusy(sessionState)}
+                  {...(onCompact && { onCompact })}
+                />
+                <SessionModelPicker session={session} onError={setNotice} />
+              </>
+            }
             leading={<SessionPermissionPicker session={session} onError={setNotice} />}
             {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
             {...(pendingEnabled &&

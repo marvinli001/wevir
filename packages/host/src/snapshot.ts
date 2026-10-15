@@ -377,6 +377,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
         contextUsed: event.payload.contextUsed,
         contextSize: event.payload.contextSize,
         ...(event.payload.totalTokens !== undefined && { totalTokens: event.payload.totalTokens }),
+        ...(event.payload.autoCompactAt !== undefined && {
+          autoCompactAt: event.payload.autoCompactAt,
+        }),
       };
       break;
     case 'engine.error':

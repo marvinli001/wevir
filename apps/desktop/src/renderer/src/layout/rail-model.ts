@@ -34,6 +34,13 @@ export interface ContextUsage {
   percent: number;
   /** 会话的模型没有声明上下文长度，总量是引擎的估计。 */
   estimated: boolean;
+  /** 会话累计用掉的 token（0.14.0）；引擎不报时没有。 */
+  total?: number;
+  /** 引擎自己压缩的线（0.29.0）与它在上下文里的位置（0–100）；引擎不报时没有。 */
+  autoCompactAt?: number;
+  autoCompactPercent?: number;
+  /** 用量表的颜色：到 75% 提醒，到 90% 或过了自动压缩的线是警示。 */
+  tone: 'normal' | 'warning' | 'danger';
 }
 
 export function contextUsage(
@@ -46,11 +53,19 @@ export function contextUsage(
     .find((provider) => provider.id === session.providerId)
     ?.models.find((candidate) => candidate.id === session.modelId);
   const percent = Math.min(100, Math.round((usage.contextUsed / usage.contextSize) * 100));
+  const { autoCompactAt } = usage;
+  const pastAutoCompact = autoCompactAt !== undefined && usage.contextUsed >= autoCompactAt;
   return {
     used: usage.contextUsed,
     size: usage.contextSize,
     percent,
     estimated: model?.contextWindow === undefined,
+    ...(usage.totalTokens !== undefined && { total: usage.totalTokens }),
+    ...(autoCompactAt !== undefined && {
+      autoCompactAt,
+      autoCompactPercent: Math.min(100, (autoCompactAt / usage.contextSize) * 100),
+    }),
+    tone: percent >= 90 || pastAutoCompact ? 'danger' : percent >= 75 ? 'warning' : 'normal',
   };
 }
 

@@ -131,6 +131,9 @@ export const messages: Messages = {
   'rail.context': '컨텍스트',
   'rail.context.used': '{percent}% 사용됨',
   'rail.context.approx': '약 {size}',
+  'rail.context.total': '누적 사용량',
+  'rail.context.autoCompact': '자동 압축 기준',
+  'rail.context.meter': '컨텍스트 {percent}% 사용됨',
   'rail.changes': '변경 사항',
   'rail.changes.none': '변경 없음',
   'rail.changes.files': '파일 {count}개',
@@ -881,7 +884,8 @@ export const messages: Messages = {
   'provider.preset.gemini.note':
     'Google 글로벌 종량제 API. 중국 본토·홍콩·마카오는 지원 지역이 아니며 중국 본토에서는 직접 연결할 수 없습니다.',
   'provider.preset.ollama': '로컬 Ollama',
-  'provider.preset.ollama.note': 'API Key 불필요. 모델 ID는 이미 pull한 모델이어야 함.',
+  'provider.preset.ollama.note':
+    'API Key 불필요. 모델 ID는 이미 pull한 모델이어야 함. Ollama는 OLLAMA_CONTEXT_LENGTH=32768로 실행해야 함(기본 컨텍스트는 4096일 수 있음).',
 
   'provider.form.titleNew': '{name} 추가',
   'provider.form.titleEdit': '{name} 편집',
@@ -900,6 +904,7 @@ export const messages: Messages = {
   'provider.form.modelId': '모델 ID',
   'provider.form.contextWindow': '컨텍스트 길이 (토큰)',
   'provider.form.contextWindowPlaceholder': '선택 사항',
+  'provider.form.contextWindowMissing': '미입력 시 {size}로 간주',
   'provider.form.images': '이미지 입력',
   'provider.form.default': '기본값',
   'provider.form.addModel': '모델 추가',

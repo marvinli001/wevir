@@ -261,6 +261,11 @@ export const EventPayloadSchemas = {
     contextSize: z.int().min(0),
     /** 这个会话累计用掉的 token（0.14.0，Codex 的 `tokenUsage.total.totalTokens`）；引擎不报时省略。 */
     totalTokens: z.int().min(0).optional(),
+    /**
+     * 已用量（`contextUsed`）到这个数时引擎自己压缩上下文（0.29.0；Codex 是模型上下文大小的 90%）；引擎不自动压缩或不说
+     * 阈值时省略。
+     */
+    autoCompactAt: z.int().min(0).optional(),
   }),
   /**
    * 引擎开始压缩上下文（0.24.0）：`session.compact` 的回合里，或引擎在上下文快满时自己压缩（`auto`，在普通回合中间）。之后同一

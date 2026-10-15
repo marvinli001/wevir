@@ -168,6 +168,8 @@ export interface UsageUpdatedEvent {
   contextSize: number;
   /** 这个会话累计用掉的 token（0.14.0，U21）；引擎不报时省略。 */
   totalTokens?: number;
+  /** 已用到这个数时引擎自己压缩上下文（0.29.0）；不自动压缩或不知道阈值时省略。 */
+  autoCompactAt?: number;
 }
 
 /**

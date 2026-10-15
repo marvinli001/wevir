@@ -201,7 +201,7 @@ Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 c
 | `finish_reason: stop` / `tool_calls` / 其他，或只有 `[DONE]` | 提交还开着的项与工具调用，然后 `response.completed {response: {id, status: completed, output: [全部已提交的项], usage?}}` |
 | `finish_reason: length` | 已出的文本与推理照常提交，**截断的工具调用不提交**（参数多半不完整），然后 `response.incomplete {response: {incomplete_details: {reason: max_output_tokens}}}` |
 | `finish_reason: content_filter` | 同上，`reason: content_filter` |
-| `usage`（最后一个 chunk，`choices: []`） | `input_tokens` = `prompt_tokens`；`input_tokens_details.cached_tokens` = `prompt_tokens_details.cached_tokens`，没有时取 DeepSeek 的 `prompt_cache_hit_tokens`；`output_tokens` = `completion_tokens`；`output_tokens_details.reasoning_tokens` = `completion_tokens_details.reasoning_tokens`；`total_tokens`，没有时相加。上游没给 usage 时不带 `usage`（不填 0，免得上下文用量失真） |
+| `usage`（最后一个 chunk，`choices: []`） | `input_tokens` = `prompt_tokens`；`input_tokens_details.cached_tokens` = `prompt_tokens_details.cached_tokens`，没有时取 DeepSeek 的 `prompt_cache_hit_tokens`；`output_tokens` = `completion_tokens`；`output_tokens_details.reasoning_tokens` = `completion_tokens_details.reasoning_tokens`；`total_tokens`，没有时相加。上游没给 usage 时不带 `usage`（不填 0，免得上下文用量失真）。Codex 用它算上下文用量与自动压缩（窗口取 Provider 模型的 `contextWindow`，没填按 128k，codex-event-mapping.md §3、§4.9） |
 | 流里的 `{"error": {...}}` 或 `{"error": "…"}` | `response.failed {response: {status: failed, error: {code: 上游的 code / type，没有时 upstream_error, message: 上游原文}}}`；开着的项不再提交，之后的 chunk 忽略 |
 | 读流时连接被重置等异常 | `response.failed`，`code: upstream_stream_error`，`message: 上游的流中断：<原因>`（带 undici 的底层原因） |
 | 流正常结束，但既没有 `finish_reason` 也没有 `[DONE]` | `response.failed`，`message: 上游的流在结束前断开…` |

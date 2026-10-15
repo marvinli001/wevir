@@ -132,6 +132,9 @@ export const messages: Messages = {
   'rail.context': 'Контекст',
   'rail.context.used': 'Использовано {percent}%',
   'rail.context.approx': '≈ {size}',
+  'rail.context.total': 'Всего использовано',
+  'rail.context.autoCompact': 'Автосжатие при',
+  'rail.context.meter': 'Контекст: использовано {percent}%',
   'rail.changes': 'Изменения',
   'rail.changes.none': 'Нет изменений',
   'rail.changes.files':
@@ -910,7 +913,8 @@ export const messages: Messages = {
   'provider.preset.gemini.note':
     'Глобальный API Google с оплатой по использованию. Материковый Китай, Гонконг и Макао не поддерживаются; прямого доступа из материкового Китая нет.',
   'provider.preset.ollama': 'Локальный Ollama',
-  'provider.preset.ollama.note': 'API Key не нужен; ID модели — уже загруженная модель.',
+  'provider.preset.ollama.note':
+    'API Key не нужен; ID модели — уже загруженная модель. Запускайте Ollama с OLLAMA_CONTEXT_LENGTH=32768: контекст по умолчанию может быть всего 4096.',
 
   'provider.form.titleNew': 'Добавить {name}',
   'provider.form.titleEdit': 'Изменить {name}',
@@ -929,6 +933,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'ID модели',
   'provider.form.contextWindow': 'Размер контекста (токены)',
   'provider.form.contextWindowPlaceholder': 'Необязательно',
+  'provider.form.contextWindowMissing': 'Не задано; принимается {size}',
   'provider.form.images': 'Ввод изображений',
   'provider.form.default': 'По умолчанию',
   'provider.form.addModel': 'Добавить модель',

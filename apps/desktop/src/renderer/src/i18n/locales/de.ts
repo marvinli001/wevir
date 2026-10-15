@@ -134,6 +134,9 @@ export const messages: Messages = {
   'rail.context': 'Kontext',
   'rail.context.used': '{percent} % belegt',
   'rail.context.approx': 'ca. {size}',
+  'rail.context.total': 'Gesamtverbrauch',
+  'rail.context.autoCompact': 'Automatisch komprimieren ab',
+  'rail.context.meter': 'Kontext zu {percent} % belegt',
   'rail.changes': 'Änderungen',
   'rail.changes.none': 'Keine Änderungen',
   'rail.changes.files': '{count, plural, one {# Datei} other {# Dateien}}',
@@ -896,7 +899,7 @@ export const messages: Messages = {
     'Globale Google-API mit nutzungsbasierter Abrechnung. Festlandchina, Hongkong und Macao werden nicht unterstützt; kein direkter Zugang aus Festlandchina.',
   'provider.preset.ollama': 'Lokales Ollama',
   'provider.preset.ollama.note':
-    'Kein API Key nötig; die Modell-ID muss ein bereits geladenes Modell sein.',
+    'Kein API Key nötig; die Modell-ID muss ein bereits geladenes Modell sein. Ollama mit OLLAMA_CONTEXT_LENGTH=32768 starten; der Standardkontext kann nur 4096 betragen.',
 
   'provider.form.titleNew': '{name} hinzufügen',
   'provider.form.titleEdit': '{name} bearbeiten',
@@ -915,6 +918,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'Modell-ID',
   'provider.form.contextWindow': 'Kontextlänge (Tokens)',
   'provider.form.contextWindowPlaceholder': 'Optional',
+  'provider.form.contextWindowMissing': 'Nicht gesetzt; als {size} angenommen',
   'provider.form.images': 'Bildeingabe',
   'provider.form.default': 'Standard',
   'provider.form.addModel': 'Modell hinzufügen',

@@ -1,10 +1,13 @@
 import type { ProviderConfig } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';
 import {
+  autoCompactLimit,
   catalogEntry,
   chatgptEndpointEnv,
   chatgptThreadConfig,
   codexProviderId,
+  contextWindowOf,
+  DEFAULT_CONTEXT_WINDOW,
   fromCodexEffort,
   renderChatgptConfigToml,
   renderConfigToml,
@@ -142,7 +145,8 @@ describe('模型目录', () => {
       visibility: 'list',
       priority: 1,
     });
-    expect(catalog.models[1]).not.toHaveProperty('context_window');
+    // 没填上下文大小的按默认值写，Codex 才会自动压缩（codex-event-mapping §3）。
+    expect(catalog.models[1]).toMatchObject({ context_window: DEFAULT_CONTEXT_WINDOW });
     expect(catalog.models[2]).toMatchObject({ input_modalities: ['text', 'image'], priority: 3 });
     expect(renderModelCatalog([], render)).toBeUndefined();
   });
@@ -183,7 +187,16 @@ describe('threadConfig 与其他', () => {
     });
     expect(threadConfig(deepseek, { id: 'x' }, 'u', undefined)).toEqual({
       'model_providers.wevir_deepseek': expect.any(Object),
+      model_context_window: DEFAULT_CONTEXT_WINDOW,
     });
+  });
+
+  it('上下文大小与自动压缩阈值：没填时按默认值，阈值是 90%', () => {
+    expect(DEFAULT_CONTEXT_WINDOW).toBe(128_000);
+    expect(contextWindowOf({ id: 'x' })).toBe(128_000);
+    expect(contextWindowOf({ id: 'x', contextWindow: 32_768 })).toBe(32_768);
+    expect(autoCompactLimit({ id: 'x' })).toBe(115_200);
+    expect(autoCompactLimit({ id: 'x', contextWindow: 262_144 })).toBe(235_929);
   });
 
   it('推理档位与 Provider ID 的换算', () => {

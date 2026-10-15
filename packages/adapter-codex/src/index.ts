@@ -40,12 +40,15 @@ export {
 } from './codex-process.js';
 export { CodexRuntime, type CodexRuntimeOptions } from './codex-runtime.js';
 export {
+  autoCompactLimit,
   CHATGPT_TOP,
   type ChatgptEndpoints,
   catalogEntry,
   chatgptEndpointEnv,
   chatgptThreadConfig,
   codexProviderId,
+  contextWindowOf,
+  DEFAULT_CONTEXT_WINDOW,
   fromCodexEffort,
   HARDENING_TABLES,
   HARDENING_TOP,

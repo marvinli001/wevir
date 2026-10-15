@@ -145,6 +145,22 @@ describe('回放 codex-app-server 的通知', () => {
     expect(of(events, 'usage.updated')[0]).toMatchObject({ contextSize: 121_600 });
   });
 
+  it('给了自动压缩阈值就带上（0.29.0），没给不带', () => {
+    const { threadId, notifications } = fixture('stream');
+    const mapper = new CodexEventMapper(threadId, {
+      contextSize: () => 128_000,
+      autoCompactAt: () => 115_200,
+    });
+    const events = notifications
+      .filter((n) => n.params.threadId === threadId)
+      .flatMap((n) => mapper.map(n.method, n.params));
+    expect(of(events, 'usage.updated')[0]).toMatchObject({
+      contextSize: 128_000,
+      autoCompactAt: 115_200,
+    });
+    expect(of(replay('stream').events, 'usage.updated')[0]).not.toHaveProperty('autoCompactAt');
+  });
+
   it('tool-read：只读命令显示为 read，带路径与原始命令', () => {
     const { threadId, events } = replay('tool-read');
     expect(checkTurnEvents(events, threadId)).toEqual([]);
