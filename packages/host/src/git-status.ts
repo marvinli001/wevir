@@ -7,23 +7,16 @@ import {
   WORKSPACE_GIT_MAX_FILES,
   type WorkspaceGitResult,
 } from '@wevir/protocol';
+import { safeConfig } from './git-diff.js';
 
 /** 每条 git 命令的时限；超时按“不是仓库”处理。 */
 const TIMEOUT_MS = 5_000;
 const MAX_BUFFER = 16 * 1024 * 1024;
 
 /**
- * 不在不受信任的仓库里执行仓库配置里的命令：关掉 fsmonitor 钩子与外部 diff（`--no-ext-diff`、`--no-textconv` 在
- * diff 的参数里），也不用 untracked cache（它会写索引）。
+ * 不在不受信任的仓库里执行仓库配置里的命令：每次读之前用 git-diff.ts 的 safeConfig 拿 `-c` 参数（关掉 fsmonitor 钩子、
+ * 外部 diff 与仓库自己定义的过滤器，不用 untracked cache），`--no-ext-diff`、`--no-textconv` 在 diff 的参数里。
  */
-const SAFE_CONFIG = [
-  '-c',
-  'core.fsmonitor=false',
-  '-c',
-  'core.untrackedCache=false',
-  '-c',
-  'diff.external=',
-];
 const DIFF_ARGS = ['--no-renames', '--no-ext-diff', '--no-textconv', '--relative'];
 
 const NOT_REPO: WorkspaceGitResult = { repo: false };
@@ -40,20 +33,23 @@ export function readGitStatus(root: string): Promise<WorkspaceGitResult> {
 }
 
 async function read(root: string): Promise<WorkspaceGitResult> {
-  const inside = await git(root, ['rev-parse', '--is-inside-work-tree']);
+  const config = await safeConfig(root, TIMEOUT_MS).catch(() => undefined);
+  if (config === undefined) return NOT_REPO;
+  const git = (args: string[]) => run(root, config, args);
+  const inside = await git(['rev-parse', '--is-inside-work-tree']);
   if (inside?.trim() !== 'true') return NOT_REPO;
 
   const [branch, head] = await Promise.all([
-    git(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
-    git(root, ['rev-parse', '--verify', '--quiet', '--short', 'HEAD']),
+    git(['symbolic-ref', '--quiet', '--short', 'HEAD']),
+    git(['rev-parse', '--verify', '--quiet', '--short', 'HEAD']),
   ]);
   const hasHead = head !== undefined && head.trim() !== '';
   // 还没有提交时（新仓库、孤立分支）只能比较暂存区。
   const base = hasHead ? ['HEAD', '--'] : ['--cached', '--'];
   const [numstat, nameStatus, untracked] = await Promise.all([
-    git(root, ['diff', '--numstat', '-z', ...DIFF_ARGS, ...base]),
-    git(root, ['diff', '--name-status', '-z', ...DIFF_ARGS, ...base]),
-    git(root, ['ls-files', '--others', '--exclude-standard', '-z']),
+    git(['diff', '--numstat', '-z', ...DIFF_ARGS, ...base]),
+    git(['diff', '--name-status', '-z', ...DIFF_ARGS, ...base]),
+    git(['ls-files', '--others', '--exclude-standard', '-z']),
   ]);
   if (numstat === undefined || nameStatus === undefined || untracked === undefined) return NOT_REPO;
 
@@ -80,11 +76,11 @@ async function read(root: string): Promise<WorkspaceGitResult> {
 }
 
 /** 跑一条 git 命令，成功时是 stdout，失败（退出码非 0、没有 git、超时）时是 undefined。 */
-function git(cwd: string, args: string[]): Promise<string | undefined> {
+function run(cwd: string, config: readonly string[], args: string[]): Promise<string | undefined> {
   return new Promise((resolve) => {
     execFile(
       'git',
-      [...SAFE_CONFIG, ...args],
+      [...config, ...args],
       {
         cwd,
         env: gitEnv(),

@@ -154,6 +154,31 @@ describe('readGitStatus', () => {
     expect(existsSync(marker)).toBe(false);
   });
 
+  it('不执行仓库定义的过滤器，结果照常', async () => {
+    const dir = repo();
+    const marker = join(dir, '.git', 'filter-ran');
+    const script = join(dir, '.git', 'evil.sh');
+    writeFileSync(script, `#!/bin/sh\ntouch '${marker}'\ncat\n`);
+    chmodSync(script, 0o755);
+    sh(dir, 'config', 'filter.evil.clean', script);
+    sh(dir, 'config', 'filter.evil.process', script);
+    sh(dir, 'config', 'filter.evil.required', 'true');
+    writeFileSync(join(dir, '.gitattributes'), '* filter=evil\n');
+    writeFileSync(join(dir, 'a.txt'), 'changed\n');
+    expect(await readGitStatus(dir)).toEqual({
+      repo: true,
+      branch: 'main',
+      added: 1,
+      removed: 3,
+      fileCount: 2,
+      files: [
+        { path: 'a.txt', status: 'modified', added: 1, removed: 3 },
+        { path: '.gitattributes', status: 'untracked' },
+      ],
+    });
+    expect(existsSync(marker)).toBe(false);
+  });
+
   it('并发的调用共用一次读取', async () => {
     const dir = repo();
     const [first, second] = [readGitStatus(dir), readGitStatus(dir)];

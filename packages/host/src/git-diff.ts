@@ -171,7 +171,7 @@ export function gitEnv(): Record<string, string> {
 }
 
 /**
- * 不在不受信任的仓库里执行仓库配置里的命令（git-status.ts 的做法再加几项）：fsmonitor 钩子、外部 diff（另在 diff 的参数里
+ * 不在不受信任的仓库里执行仓库配置里的命令：fsmonitor 钩子、外部 diff（另在 diff 的参数里
  * `--no-ext-diff`、`--no-textconv`）、钩子（`update-ref` 会跑 reference-transaction）、自动 gc 与维护、提交签名
  * （`commit-tree` 认 `commit.gpgSign`）；不用 untracked cache（它会写索引）；路径不转义非 ASCII 字符。
  */
@@ -197,13 +197,13 @@ const BASE_CONFIG = [
 /**
  * 加上仓库自己（local、worktree 两级）定义的过滤器的屏蔽：`git diff`、`git add` 读工作树文件时会跑 `filter.<名字>.clean`，
  * 仓库配置能借此执行任意命令。全局与系统配置里的（git-lfs 之类，用户自己装的）照常用；仓库改写了同名的也屏蔽。名字里有
- * `=` 或换行（`-c` 表达不了）时抛错，按读不了处理。
+ * `=` 或换行（`-c` 表达不了）时抛错，按读不了处理。git-status.ts 也用它（时限传它自己的）。
  */
-export async function safeConfig(cwd: string): Promise<string[]> {
+export async function safeConfig(cwd: string, timeoutMs = GIT_TIMEOUT_MS): Promise<string[]> {
   const { stdout } = await runGit(
     cwd,
     [...BASE_CONFIG, 'config', '--show-scope', '--name-only', '--get-regexp', '^filter\\.'],
-    { okCodes: [0, 1] },
+    { okCodes: [0, 1], timeoutMs },
   );
   const names = new Set<string>();
   for (const line of stdout.toString('utf8').split('\n')) {
