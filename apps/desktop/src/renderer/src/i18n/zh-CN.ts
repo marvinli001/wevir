@@ -85,7 +85,6 @@ export const zhCN = {
   'rail.context': '上下文',
   'rail.context.used': '已用 {percent}%',
   'rail.context.approx': '约 {size}',
-  'rail.context.estimated': '模型没有声明上下文长度，总量是引擎的估计。',
   'rail.changes': '变更',
   'rail.changes.none': '无改动',
   'rail.changes.files': '{count} 个文件',
@@ -251,7 +250,6 @@ export const zhCN = {
   'transcript.failed': '读取会话失败：{error}',
   'transcript.jumpToLatest': '回到底部',
   'transcript.showEarlier': '显示更早的 {count} 条消息',
-  'transcript.from': '来自{who}',
   'transcript.fromParentAgent': '来自父智能体的任务',
   'transcript.steered': '插话',
 

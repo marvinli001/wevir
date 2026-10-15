@@ -1,5 +1,4 @@
 import type { Transcript } from '@wevir/client-sdk';
-import type { ClientIdentity } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -30,13 +29,11 @@ export interface TranscriptViewHandle {
 export function TranscriptView({
   sessionId,
   transcript,
-  self,
   cwd,
   onReady,
 }: {
   sessionId: string;
   transcript: Transcript;
-  self: ClientIdentity | undefined;
   /** 会话的工作目录：工具的路径相对它显示。 */
   cwd?: string;
   /** 交出滚动控制（发送消息时回到贴底）。 */
@@ -134,7 +131,6 @@ export function TranscriptView({
                         })}
                         hasSubagents={transcript.subagents.length > 0}
                         hideTodos={block.turnId === dockedTodos}
-                        self={self}
                       />
                     ) : (
                       block.message.role === 'system' && <SystemMessage message={block.message} />

@@ -1,10 +1,8 @@
 import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
-import type { ClientIdentity } from '@wevir/protocol';
 import { cn } from 'cn';
 import { CircleAlert, Info } from 'lucide-react';
 import { memo } from 'react';
 import { t } from '@/i18n';
-import { clientLabel } from './approval-model';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SubagentRow } from './subagent-marker';
@@ -15,28 +13,14 @@ import { WorkGroup } from './work-group';
 // 消息流里的一条消息（T5.3；U2 起由回合 turn-view.tsx 组织：助手消息里连续的思考与工具调用合成工作组，子智能体标记
 // 并成一行，回合结束后的折叠也在那里决定）。
 
-export function UserMessage({
-  message,
-  self,
-}: {
-  message: UserChatMessage;
-  self: ClientIdentity | undefined;
-}) {
+export function UserMessage({ message }: { message: UserChatMessage }) {
   const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
-  // 本桌面端发的消息不标来源；别的客户端（CLI、另一台设备）发的标出来。子会话里父 agent 给的输入没有 sentBy
-  // （R4），标成“父 agent 派给它的任务”（R5）。
-  const { sentBy } = message;
-  const fromElsewhere = sentBy !== undefined && (!self || sentBy.clientId !== self.clientId);
+  // 子会话里父 agent 给的输入标成“父 agent 派给它的任务”（R5）。别的客户端发的不标来源。
   return (
     <div className="flex flex-col items-end" data-message-role="user">
       <div className="max-w-[85%] rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
         {text}
       </div>
-      {fromElsewhere && (
-        <span className="mt-1 text-xs text-muted-foreground">
-          {t('transcript.from', { who: clientLabel(sentBy, self) })}
-        </span>
-      )}
       {message.fromParentAgent && (
         <span className="mt-1 text-xs text-muted-foreground">
           {t('transcript.fromParentAgent')}

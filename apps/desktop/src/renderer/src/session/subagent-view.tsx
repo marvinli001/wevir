@@ -80,7 +80,7 @@ export function SubagentView({
           />
         </div>
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
-        <TranscriptView sessionId={summary.sessionId} transcript={transcript} self={identity} />
+        <TranscriptView sessionId={summary.sessionId} transcript={transcript} />
       ) : (
         <p className="min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">
           {t('subagent.detail.loading')}

@@ -1,5 +1,5 @@
 import type { ChatMessage } from '@wevir/client-sdk';
-import type { ClientIdentity, TurnId, TurnOutcome } from '@wevir/protocol';
+import type { TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight } from 'lucide-react';
 import { memo, useId } from 'react';
@@ -36,7 +36,6 @@ export const TurnView = memo(
     orb = 'working',
     hasSubagents,
     hideTodos = false,
-    self,
   }: {
     turnId: TurnId;
     messages: readonly ChatMessage[];
@@ -49,7 +48,6 @@ export const TurnView = memo(
     hasSubagents: boolean;
     /** 这个回合的清单停在输入框上方（U20，todo-card.tsx），消息里不再画。 */
     hideTodos?: boolean;
-    self: ClientIdentity | undefined;
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
     const [open, setOpen] = useFold(`turn:${turnId}`, !fold.defaultFolded);
@@ -68,9 +66,7 @@ export const TurnView = memo(
           {messages
             .slice(0, lead)
             .map((message) =>
-              message.role === 'user' ? (
-                <UserMessage key={message.id} message={message} self={self} />
-              ) : null,
+              message.role === 'user' ? <UserMessage key={message.id} message={message} /> : null,
             )}
           {fold.showHeader && fold.finished && (
             <TurnHeader
@@ -87,7 +83,7 @@ export const TurnView = memo(
               if (message.role === 'user') {
                 return (
                   <div key={message.id} className="mt-3">
-                    <UserMessage message={message} self={self} />
+                    <UserMessage message={message} />
                   </div>
                 );
               }
@@ -128,7 +124,6 @@ export const TurnView = memo(
     prev.live === next.live &&
     prev.orb === next.orb &&
     prev.hasSubagents === next.hasSubagents &&
-    prev.self === next.self &&
     prev.messages.length === next.messages.length &&
     prev.messages.every((message, index) => message === next.messages[index]),
 );

@@ -139,9 +139,6 @@ function useContextCard({ sessionId, session, providers }: RailContext) {
           </span>
         </div>
         <Meter percent={usage.percent} className="mt-2 w-full" />
-        {usage.estimated && (
-          <p className="mt-2 text-xs text-muted-foreground">{t('rail.context.estimated')}</p>
-        )}
       </div>
     ),
   };

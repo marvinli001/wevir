@@ -134,7 +134,6 @@ export function SessionView({ session }: { session: Session }) {
         <TranscriptView
           sessionId={session.id}
           transcript={transcript}
-          self={identity}
           cwd={session.cwd}
           onReady={onReady}
         />
