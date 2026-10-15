@@ -21,6 +21,14 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   compat: GatewayCompat;
 }[] = [
   { matches: isXaiHost, compat: { supportsCustomTools: false, supportsNamespaceTools: false } },
+  {
+    matches: isBailianHost,
+    compat: {
+      supportsCustomTools: false,
+      supportsNamespaceTools: false,
+      toolChoice: 'auto_only',
+    },
+  },
 ];
 
 /** 每个字段按 Provider 声明 > 地址默认 > 全局默认取值，undefined 视为没写。 */
@@ -202,6 +210,13 @@ export function isDeepSeekHost(baseURL: string): boolean {
  */
 export function isXaiHost(baseURL: string): boolean {
   return /(^|\.)x\.ai$/.test(hostnameOf(baseURL));
+}
+
+/** 百炼按量端点（model-gateway.md §3.4）；套餐域名不补默认值，显式 compat 仍优先。 */
+export function isBailianHost(baseURL: string): boolean {
+  const host = hostnameOf(baseURL);
+  if (host === 'dashscope.aliyuncs.com' || host === 'dashscope-intl.aliyuncs.com') return true;
+  return host.endsWith('.maas.aliyuncs.com') && !/(^|\.)(coding|token-plan)(\.|$)/.test(host);
 }
 
 /**

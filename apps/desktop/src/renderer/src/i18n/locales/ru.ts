@@ -877,7 +877,7 @@ export const messages: Messages = {
   'welcome.upgradeHost': 'Обновите фоновую службу',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
-  'provider.catalog.dashscope': 'Qwen',
+  'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
@@ -885,9 +885,9 @@ export const messages: Messages = {
   'provider.catalog.group.global': 'Международные',
   'provider.catalog.group.cn': 'Китай',
   'provider.catalog.group.local': 'Локальные и свои',
-  'provider.preset.dashscope': 'Qwen',
+  'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
   'provider.preset.dashscope.note':
-    'Адрес Alibaba Cloud Model Studio для материкового Китая; адрес международной версии или выделенный домен — в консоли.',
+    'Оплата по использованию, регион Пекин, прямой доступ из материкового Китая. Можно использовать домен рабочего пространства или международную конечную точку с ключом соответствующего региона.',
   'provider.preset.kimi': 'Kimi',
   'provider.preset.kimi.note':
     'Адрес китайской версии; международная — https://api.moonshot.ai/v1.',

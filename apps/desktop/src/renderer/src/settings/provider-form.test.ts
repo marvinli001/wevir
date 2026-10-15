@@ -134,6 +134,92 @@ function profile(overrides: Partial<EditableProvider>): EditableProvider {
 }
 
 describe('预设模板（providers.md §7）', () => {
+  it('百炼按量目录保存 Responses、三款 Qwen、明确档位与代理所需的工具 compat', () => {
+    const entry = catalogEntry('dashscope');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少百炼模板');
+    expect(entry).toMatchObject({
+      group: 'cn',
+      logo: 'qwen',
+      keyURL: 'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key',
+    });
+    const preset = entry.source.preset;
+    expect(preset.docsURL).toBe('https://help.aliyun.com/zh/model-studio/codex');
+    const form = { ...newOpenAIForm(preset, []), apiKey: 'placeholder-not-a-real-key' };
+    expect(validateForm(form, [])).toEqual({});
+    const created = upsertSchema.parse(toUpsertParams(form));
+    if (created.kind !== 'openai-compatible') throw new Error('百炼模板的 Provider 类型不对');
+    expect(created).toMatchObject({
+      api: 'openai-responses',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      defaultModelId: 'qwen3.8-max',
+      compat: {
+        supportsCustomTools: false,
+        supportsNamespaceTools: false,
+        toolChoice: 'auto_only',
+      },
+    });
+    expect(created.models).toEqual([
+      {
+        id: 'qwen3.8-max',
+        contextWindow: 1000000,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
+      },
+      {
+        id: 'qwen3.8-flash',
+        contextWindow: 1000000,
+        reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
+      },
+      {
+        id: 'qwen3.7-plus',
+        contextWindow: 1000000,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh'],
+      },
+    ]);
+    expect(toUpsertParams({ ...form, baseURL: 'https://proxy.example.com/v1' })).toHaveProperty(
+      'compat',
+      created.compat,
+    );
+  });
+
+  it('已有百炼 Chat Provider 经编辑仍保留旧模型、地址与显式 compat', () => {
+    const old = profile({
+      id: 'dashscope',
+      displayName: '通义千问',
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      models: [{ id: 'qwen-plus', contextWindow: 131072 }],
+      defaultModelId: 'qwen-plus',
+      compat: { thinkingFormat: 'qwen', supportsCustomTools: true },
+    });
+    const edited = upsertSchema.parse(toUpsertParams(editForm(old)));
+    expect(edited).toMatchObject({
+      api: 'openai-completions',
+      baseURL: old.baseURL,
+      models: old.models,
+      defaultModelId: old.defaultModelId,
+      compat: old.compat,
+    });
+    expect(edited).not.toHaveProperty('apiKey');
+  });
+
+  it('百炼标志认两个旧域名与 maas 专属域名，不认相似域名或其他阿里云服务', () => {
+    for (const host of [
+      'dashscope.aliyuncs.com',
+      'dashscope-intl.aliyuncs.com',
+      'workspace.cn-beijing.maas.aliyuncs.com',
+    ]) {
+      expect(providerLogo({ kind: 'openai-compatible', baseURL: `https://${host}/v1` })).toBe(
+        'qwen',
+      );
+    }
+    for (const host of ['maas.aliyuncs.com.example.com', 'ecs.aliyuncs.com']) {
+      expect(
+        providerLogo({ kind: 'openai-compatible', baseURL: `https://${host}/v1` }),
+      ).toBeUndefined();
+    }
+  });
+
   it('Gemini 按量目录用 Chat 与已有标志，模型不列 off / minimal，Schema 清洗默认关闭', () => {
     const entry = catalogEntry('google-ai-studio');
     if (entry?.source?.kind !== 'preset') throw new Error('缺少 Gemini 模板');

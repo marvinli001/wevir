@@ -75,7 +75,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 | 地址不是 `api.openai.com` | `supportsDeveloperRole: false`、`maxTokensField: max_tokens` |
 | 地址是 `deepseek.com` 及其子域（DeepSeek 的 OpenAI 兼容端点走 pi-ai 时） | 另加 `thinkingFormat: deepseek`、`requiresReasoningContentOnAssistantMessages: true`（T0.3 §6.2，取自 pi-ai 自带的 deepseek 目录） |
 
-Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表当前只有 xAI）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。P0a 不改变任何服务模板、目录、模型或地址。
+Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI 与百炼按量端点）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。
 
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
@@ -233,24 +233,40 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 来源：dsh 自带的 pi-ai 目录（`@earendil-works/pi-ai` 1.1.0 的 `providers/data/deepseek.json`）与 llm-deepseek README。
 
-### 7.2 通义千问（阿里云百炼 DashScope）
+### 7.2 阿里云百炼（DashScope）
+
+**2026-10-15 核对。** 按[官方 Codex 指南](https://help.aliyun.com/zh/model-studio/codex)使用按量 Responses，避免把原生 reasoning 历史转换成 Chat。模板保留无需 Workspace ID 的北京旧域名，官方仍支持它；新建默认模型为 Qwen3.8 Max。目录继续使用已有的 LobeHub Qwen 标志。
 
 ```json
 {
   "id": "dashscope",
   "kind": "openai-compatible",
-  "displayName": "通义千问",
-  "api": "openai-completions",
+  "displayName": "阿里云百炼",
+  "api": "openai-responses",
   "baseURL": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  "models": [{ "id": "qwen-plus", "contextWindow": 131072 }],
-  "defaultModelId": "qwen-plus",
+  "compat": {
+    "supportsCustomTools": false,
+    "supportsNamespaceTools": false,
+    "toolChoice": "auto_only"
+  },
+  "models": [
+    { "id": "qwen3.8-max", "contextWindow": 1000000, "supportsImages": true, "reasoningEfforts": ["off", "low", "medium", "xhigh"] },
+    { "id": "qwen3.8-flash", "contextWindow": 1000000, "reasoningEfforts": ["off", "low", "medium", "xhigh"] },
+    { "id": "qwen3.7-plus", "contextWindow": 1000000, "supportsImages": true, "reasoningEfforts": ["off", "low", "medium", "high", "xhigh"] }
+  ],
+  "defaultModelId": "qwen3.8-max",
   "apiKey": "<百炼 API Key>"
 }
 ```
 
-- 地址按地域与计费方式不同：国际站 `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`，较新的文档建议改用业务空间专属域名（如 `https://{WorkspaceId}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`）；Coding Plan、Token Plan 套餐有独立的地址，不要混用。
-- 要用思考模式的模型，按 pi-ai 目录里百炼条目的写法加 `"compat": {"thinkingFormat": "qwen"}` 并声明 `reasoningEfforts`。
-- 来源：[百炼 OpenAI Chat 接口兼容](https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope)、[在 LangChain 中使用百炼](https://help.aliyun.com/zh/model-studio/use-bailian-in-langchain)。
+- **地址与 Key。** 北京端点中国大陆可直连；国际站旧地址为 `https://dashscope-intl.aliyuncs.com/compatible-mode/v1`（新加坡）。官方推荐 `https://{WorkspaceId}.{region}.maas.aliyuncs.com/compatible-mode/v1`，region 可为 cn-beijing、ap-southeast-1、us-east-1、eu-central-1、ap-northeast-1、cn-hongkong，须填真实业务空间 ID，并使用对应地域的 Key 与可用模型。Key 入口是[北京 API Key 页面](https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key)，其他地域在控制台切换。Wevir 只接按量计费，套餐的地址、Key 与模型不提供模板。
+- **工具默认值。** 上述按量主机名自动补同样的三个 compat 字段；模板显式写明，经代理改地址也保留。官方只声明 function 与内置工具，未声明 custom / namespace；required 限单工具，Qwen 思考模式也不支持 required。没有真实 Key，采用保守摊平与 auto_only，显式 compat 逐字段优先。none 会被去掉、工具保留，不能保证禁止调用工具。未声称已证实服务拒收 custom / namespace。
+- **思考与上下文。** Responses 使用 reasoning.effort，不用 Chat 的 thinkingFormat: qwen 或 enable_thinking。off 交给 Codex 时为 none；Qwen3.8 的原生档位是 none / low / medium / xhigh（默认 xhigh）。Qwen3.7 Plus 的开启档位沿用官方 Codex 目录示例 low / medium / high / xhigh，并按混合思考能力提供 off；Responses 参数页未单列它的档位映射。模型窗口按官方模型列表记 1M；Codex 指南中 Qwen3.8 Max 的示例写 983616，不当成模型能力上限。Responses 文档另说明输入约限窗口的 80%，超限自动截断。没有官方最大输出依据，不填 maxTokens。
+- **历史与存储。** reasoning 项保留 id 与 summary；Codex 带回的 null content / encrypted_content 由通用方言去掉。store: false 原样保留，不启用默认七天的响应存储或 previous_response_id。连接测试只发最小请求，不能证明工具与跨回合推理可用。
+- **旧 Provider 手动修改。** 已存的 Chat + qwen-plus 配置不会套新模板。可在“设置 → 模型服务”编辑：协议改为 OpenAI Responses，地址用上述按量地址，模型列表与默认模型换成示例中的值，重新测试连接后新建会话。原有 thinkingFormat: qwen 仅供 Chat 使用，可经 provider.upsert 移除；其他显式工具 compat 也需自行核对，不能由地址默认覆盖。
+- **验收边界。** 录制请求与严格 HTTP mock 已覆盖工具摊平、响应还原、推理历史与 provider.test；缺 WEVIR_TEST_API_KEY，Qwen3.8 Max / Flash 的真实契约与桌面 apply_patch 尚未验收（命令见 development.md §6.3）。不接本服务的 Anthropic 端点，也不把托管第三方模型加入模板。
+
+来源（2026-10-15）：[Codex](https://help.aliyun.com/zh/model-studio/codex)、[Responses 兼容指南](https://help.aliyun.com/zh/model-studio/compatibility-with-openai-responses-api)、[Responses 参数](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)（旧的 /api/v2/apps/protocols/compatible-mode/v1/responses 已停止维护）、[深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[Function Calling](https://help.aliyun.com/zh/model-studio/qwen-function-calling)、[模型列表](https://www.alibabacloud.com/help/en/model-studio/text-generation-model)、[API Key](https://help.aliyun.com/zh/model-studio/get-api-key)。
 
 ### 7.3 Kimi（月之暗面）
 

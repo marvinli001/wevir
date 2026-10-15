@@ -377,6 +377,18 @@ DeepSeek 官方的例子：
 WEVIR_TEST_API_KEY=<Key> WEVIR_TEST_PROVIDER=deepseek-official pnpm vitest run --project adapter-dsh dsh-adapter.contract.real
 ```
 
+百炼按量 API 经 Responses 透传。先在进程环境提供北京地域的 WEVIR_TEST_API_KEY，再分别验证 Max 与 Flash；不把 Key 写进命令或文件：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 WEVIR_TEST_MODEL=qwen3.8-max pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 WEVIR_TEST_MODEL=qwen3.8-flash pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+2026-10-15 未提供百炼 Key，上述真实契约与 pnpm dev 中通过百炼模板、经 apply_patch 改文件的对话未验收。工具默认值来自保守兼容策略，拿到 Key 后先确认 custom / namespace / 非 auto 的 tool_choice，再判断是否覆盖 compat；同时验证工具结果与下一回合的 reasoning id / summary 回放。provider.test 的最小请求不能替代这些验收，地址与旧 Provider 的手动修改见 providers.md §7.2。
+
 xAI 与 Gemini 的 API Key 经 Codex 的契约第 3 层验证（网关按地址套用它们的方言，model-gateway.md §3.2、§4.5；模型 ID 以 providers.md §7.6、§7.7 为准）：
 
 ```bash

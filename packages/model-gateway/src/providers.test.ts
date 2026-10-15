@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEEPSEEK_RESPONSES_BASE_URL,
   effectiveCompat,
+  isBailianHost,
   isXaiHost,
   routeOf,
   validateProvider,
@@ -152,6 +153,64 @@ describe('validateProvider', () => {
 });
 
 describe('工具 compat：声明 > 地址默认 > 全局默认', () => {
+  it.each([
+    'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    'https://DASHSCOPE-INTL.ALIYUNCS.COM/compatible-mode/v1/',
+    ...[
+      'cn-beijing',
+      'ap-southeast-1',
+      'us-east-1',
+      'eu-central-1',
+      'ap-northeast-1',
+      'cn-hongkong',
+    ].map((region) => `https://workspace.${region}.maas.aliyuncs.com/compatible-mode/v1`),
+  ])('百炼按量地址 %s 自动使用保守工具默认值', (baseURL) => {
+    expect(isBailianHost(baseURL)).toBe(true);
+    expect(effectiveCompat(compatible({ baseURL }))).toEqual({
+      supportsCustomTools: false,
+      supportsNamespaceTools: false,
+      toolChoice: 'auto_only',
+    });
+  });
+
+  it.each([
+    'https://coding.dashscope.aliyuncs.com/v1',
+    'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    'https://coding.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+    'https://dashscope.aliyuncs.com.example.com/v1',
+    'https://notdashscope.aliyuncs.com/v1',
+    'https://notmaas.aliyuncs.com/v1',
+    'https://maas.aliyuncs.com.example.com/v1',
+    'https://example.com/dashscope.aliyuncs.com',
+    'invalid',
+  ])('套餐或相似地址 %s 不使用百炼默认值', (baseURL) => {
+    expect(isBailianHost(baseURL)).toBe(false);
+    expect(effectiveCompat(compatible({ baseURL }))).toEqual({
+      supportsCustomTools: true,
+      supportsNamespaceTools: true,
+      toolChoice: 'any',
+    });
+  });
+
+  it('百炼显式 compat 逐字段优先，undefined 不覆盖地址默认，其他字段保留', () => {
+    const provider = compatible({
+      baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      compat: {
+        supportsCustomTools: true,
+        supportsNamespaceTools: undefined,
+        toolChoice: 'any',
+        thinkingFormat: 'qwen',
+      },
+    });
+    expect(effectiveCompat(provider)).toEqual({
+      supportsCustomTools: true,
+      supportsNamespaceTools: false,
+      toolChoice: 'any',
+      thinkingFormat: 'qwen',
+    });
+    expect(provider.compat?.supportsNamespaceTools).toBeUndefined();
+  });
+
   it('只认 x.ai 本身及子域，大小写不影响；不把路径、前缀或后缀相似的地址当成 xAI', () => {
     for (const baseURL of ['https://x.ai', 'https://US.API.X.AI/v1']) {
       expect(isXaiHost(baseURL)).toBe(true);

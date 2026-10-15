@@ -84,7 +84,8 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     logo: 'qwen',
     group: 'cn',
     source: preset('dashscope'),
-    keyURL: 'https://bailian.console.aliyun.com/',
+    // 官方获取 API Key 指南的北京入口；其他地域需在控制台切换（2026-10-15 核对）。
+    keyURL: 'https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key',
   },
   {
     id: 'kimi',
@@ -132,7 +133,8 @@ const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/(^|\.|-)aiplatform\.googleapis\.com$/, 'vertex'],
   [/(^|\.)x\.ai$/, 'xai'],
   [/(^|\.)deepseek\.com$/, 'deepseek'],
-  [/(^|\.)(dashscope|aliyuncs)\./, 'qwen'],
+  [/^(dashscope|dashscope-intl)\.aliyuncs\.com$/, 'qwen'],
+  [/(^|\.)maas\.aliyuncs\.com$/, 'qwen'],
   [/(^|\.)moonshot\.(cn|ai)$/, 'kimi'],
   [/(^|\.)bigmodel\.cn$/, 'zhipu'],
 ];

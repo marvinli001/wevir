@@ -126,14 +126,38 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://platform.claude.com/docs/en/models/overview',
   },
   {
+    // 百炼按量 Responses（2026-10-15 核对，providers.md §7.2）；工具支持待真实 Key 验证，显式保留保守默认供代理使用。
     id: 'dashscope',
     name: 'provider.preset.dashscope',
     note: 'provider.preset.dashscope.note',
-    api: 'openai-completions',
+    api: 'openai-responses',
     baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    models: [{ id: 'qwen-plus', contextWindow: 131072 }],
-    defaultModelId: 'qwen-plus',
-    docsURL: 'https://help.aliyun.com/zh/model-studio/compatibility-of-openai-with-dashscope',
+    compat: {
+      supportsCustomTools: false,
+      supportsNamespaceTools: false,
+      toolChoice: 'auto_only',
+    },
+    models: [
+      {
+        id: 'qwen3.8-max',
+        contextWindow: 1000000,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
+      },
+      {
+        id: 'qwen3.8-flash',
+        contextWindow: 1000000,
+        reasoningEfforts: ['off', 'low', 'medium', 'xhigh'],
+      },
+      {
+        id: 'qwen3.7-plus',
+        contextWindow: 1000000,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh'],
+      },
+    ],
+    defaultModelId: 'qwen3.8-max',
+    docsURL: 'https://help.aliyun.com/zh/model-studio/codex',
   },
   {
     id: 'kimi',

@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.6（含 Gemini API Key 兼容复核与可选 Schema 清洗）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.7（含百炼 Responses 地址默认与工具兼容）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -130,6 +130,16 @@ Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 c
 
 对应测试：`upstream.test.ts`（四份录制请求与新旧缓存参数），`openai.integration.test.ts`（有 / 无 include 的三步历史、null 清理、原始 SSE 与请求头隔离）。
 
+### 3.4 阿里云百炼 Responses 核对
+
+2026-10-15 按[官方 Codex 指南](https://help.aliyun.com/zh/model-studio/codex)选择按量 Responses 透传。北京旧域名与国际站旧域名仍可用，业务空间专属域名和地域见 [providers.md §7.2](./providers.md#72-阿里云百炼dashscope)。只给按量地址补 §4.4 的默认 compat，不为 Coding Plan / Token Plan 的域名补值。
+
+[Responses 参数](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)只列 function 与内置工具，没有声明 custom / namespace；required 限单个工具，[Qwen 工具指南](https://help.aliyun.com/zh/model-studio/qwen-function-calling)另说明思考模式不支持 required。缺真实 Key，保守启用已有的 custom / namespace 摊平与 auto_only；显式 compat 可以逐字段覆盖。auto_only 会去掉 none 并保留工具，不能据此保证禁止调用工具。
+
+`reasoning.effort` 原样透传，优先于将淘汰的 enable_thinking；Qwen3.8 模板只列 off（Codex 发 none）、low、medium、xhigh。保留 Codex 的 store: false，不启用服务端默认的七天响应存储。历史中的 reasoning id / summary 原样保留，只清理已有的两个 null 键，不改成 Chat / Messages 信封。官方还说明 Responses 输入约限模型窗口的 80%，超限会自动截断；模型目录的 1M 是模型窗口，不保证可输入同样多的历史。
+
+`bailian.test.ts` 的录制请求与 `bailian.integration.test.ts` 的严格 HTTP mock 覆盖工具摊平、响应还原、工具结果和下一回合的推理回放，以及同路由的 testProvider；不能代替真实 custom / namespace / tool_choice 能力探测。真实契约与桌面 apply_patch 待验收（§10）。
+
 ## 4. Chat Completions 转换
 
 ### 4.1 请求：Responses → Chat
@@ -199,13 +209,18 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 
 `ProviderConfig.compat` 里网关读的开关，都属于 Host 协议 `ProviderCompat`，可经 `provider.upsert` 设置。`supportsCustomTools` / `systemMessageMode` 从 0.4.0 起，`supportsNamespaceTools` / `toolChoice` 从 0.12.0 起；这些网关专用开关 dsh 接受但不检查、不写进 overlay（ADR-0005 补记 7、12）。取值由协议 schema 与网关 `validateProvider` 检查。
 
-`providers.ts` 的 `effectiveCompat` 按每个字段取值：**Provider 显式 compat > 地址默认 > 全局默认**（undefined 视为没写）。`PROVIDER_COMPAT_DEFAULTS` 是地址识别表，本任务只有 `isXaiHost` 一行：`x.ai` 及其子域默认 `supportsCustomTools: false`、`supportsNamespaceTools: false`；全局分别是 true、true，`toolChoice` 全局为 any。以后各家在这里加 isXxxHost 与默认值，经代理地址认不出时必须显式设开关。现有 Chat 的 maxTokensField、DeepSeek reasoning_content 与 Gemini 签名判断保持原有规则。
+`providers.ts` 的 `effectiveCompat` 按每个字段取值：**Provider 显式 compat > 地址默认 > 全局默认**（undefined 视为没写）。`PROVIDER_COMPAT_DEFAULTS` 是地址识别表；经代理地址认不出时必须显式设开关。全局 supportsCustomTools / supportsNamespaceTools 为 true，toolChoice 为 any。现有 Chat 的 maxTokensField、DeepSeek reasoning_content 与 Gemini 签名判断保持原有规则。
+
+| 地址识别 | 默认 compat | 依据 |
+|---|---|---|
+| `isXaiHost`：`x.ai` 及子域 | `supportsCustomTools: false`、`supportsNamespaceTools: false` | §3.2 |
+| `isBailianHost`：`dashscope.aliyuncs.com`、`dashscope-intl.aliyuncs.com`、`*.maas.aliyuncs.com`（排除 coding / token-plan 套餐域名） | `supportsCustomTools: false`、`supportsNamespaceTools: false`、`toolChoice: auto_only` | §3.4；未有真实 Key，保守默认 |
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
-| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI 的地址为 `false`（R8） |
-| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI 的地址为 `false` |
-| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；Messages 的模型默认见 §5.1 |
+| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量地址为 `false` |
+| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量地址为 `false` |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量地址为 `auto_only`；Messages 的模型默认见 §5.1 |
 | `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -426,6 +441,7 @@ Codex 升级时重查上述字段默认值、Provider 判定与触发条件；�
 
 - Google Cloud Vertex：本地实现服务账号、Gemini Chat 与 Claude Messages 变体，尚缺 GCP 项目与真实服务账号，两个模型的契约第 3 层与桌面工具对话未验收。不读取 ADC / gcloud，不接 express Key、Gemini 原生 API 或其他发布方。Claude 的 URL 图片、30 MB、地域可用性限制见 §2 与 providers.md §7.11。
 - Gemini：未提供 WEVIR_TEST_API_KEY，3.8 Flash / 3.1 Pro Preview / 4 Argon 的真实契约与桌面工具对话未验收；Schema 清洗默认关闭，占位签名、Schema 与中途 system 仍待实测（§4.5）。不接 Interactions 或原生 generateContent；思考内容不返回、不显示。
+- 阿里云百炼：缺 WEVIR_TEST_API_KEY，Qwen3.8 Max / Flash 的契约第 3 层与桌面 apply_patch 未验收；custom、namespace 与非 auto 选择的真实支持待探测，当前为保守默认（§3.4）。Responses 文档说明输入约限窗口的 80% 且会自动截断；未从官方确认最大输出，模板不填 maxTokens。旧 Provider 不迁移，手动修改见 providers.md §7.2。只接按量 Responses，不接订阅套餐、托管第三方模型模板或 Anthropic 端点。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
 - OpenAI 官方 API：2026-10-15 只完成文档与本地 mock 核对（§3.3）。缺 `WEVIR_TEST_API_KEY`，Sol / Luna 的契约第 3 层、桌面端 `apply_patch` 与 Luna 的关闭推理选项仍待真实服务验证，命令见 docs/development.md §6.3。
 - Anthropic 官方 API：2026-10-15 完成文档、录制请求与严格 HTTP mock 核对；缺 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面 apply_patch 未验收。未实现 Workspace ID，只支持绑定单个 workspace 的 Key；Codex 的手动压缩、动态工具目录与换模型可能改变思考前缀，尚无服务端压缩或工具变更机制兜底。

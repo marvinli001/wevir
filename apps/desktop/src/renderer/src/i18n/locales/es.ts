@@ -873,7 +873,7 @@ export const messages: Messages = {
   'welcome.upgradeHost': 'Actualiza el servicio en segundo plano',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
-  'provider.catalog.dashscope': 'Qwen',
+  'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
@@ -881,9 +881,9 @@ export const messages: Messages = {
   'provider.catalog.group.global': 'Internacional',
   'provider.catalog.group.cn': 'China',
   'provider.catalog.group.local': 'Local y personalizado',
-  'provider.preset.dashscope': 'Qwen',
+  'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
   'provider.preset.dashscope.note':
-    'URL de Alibaba Cloud Model Studio para China continental; para el sitio internacional o dominios dedicados, consulta la consola.',
+    'Pago por uso en la región de Pekín, accesible directamente desde China continental. Puedes usar un dominio del espacio de trabajo o un endpoint internacional con la clave de la región correspondiente.',
   'provider.preset.kimi': 'Kimi',
   'provider.preset.kimi.note':
     'URL del sitio de China; sitio internacional: https://api.moonshot.ai/v1.',
