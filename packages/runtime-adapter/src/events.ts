@@ -164,6 +164,26 @@ export interface UsageUpdatedEvent {
   totalTokens?: number;
 }
 
+/**
+ * 引擎开始压缩上下文（0.24.0）：`compact` 开的回合里（`manual`），或引擎在上下文快满时自己压缩（`auto`，在普通回合中间；Codex：
+ * `contextCompaction` item 开始，Claude：`status` 是 `compacting`）。属于进行中的回合。
+ */
+export interface ContextCompactingEvent {
+  type: 'context.compacting';
+  engineSessionId: string;
+  /** 适配器内唯一；同一次压缩的 `context.compacted` 用同一个。 */
+  compactionId: string;
+  trigger: 'manual' | 'auto';
+}
+
+/** 上下文压缩完成（0.24.0；Codex：`contextCompaction` item 完成，Claude：`compact_boundary`）。 */
+export interface ContextCompactedEvent {
+  type: 'context.compacted';
+  engineSessionId: string;
+  compactionId: string;
+  trigger: 'manual' | 'auto';
+}
+
 /** 回合正常结算（dsh：`session/prompt` 的结果）。 */
 export interface TurnSettledEvent {
   type: 'turn.settled';
@@ -310,6 +330,8 @@ export type AgentEvent =
   | QuestionRequestedEvent
   | QuestionCancelledEvent
   | UsageUpdatedEvent
+  | ContextCompactingEvent
+  | ContextCompactedEvent
   | TurnSettledEvent
   | TurnFailedEvent
   | EngineExitedEvent

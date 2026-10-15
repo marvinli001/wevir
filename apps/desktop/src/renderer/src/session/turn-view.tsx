@@ -57,11 +57,21 @@ export const TurnView = memo(
     const id = useId();
     const lead = messages[0]?.role === 'user' && !messages[0].steered ? 1 : 0;
     const last = messages.at(-1);
-    // 进行中：最后一项是工作组时它显示当前动作，否则末尾另起“正在思考”一行。
+    // 进行中：最后一项是工作组（或进行中的压缩，0.24.0）时它显示当前动作，否则末尾另起“正在思考”一行；压缩上下文的回合
+    // 在压缩开始之前那一行就写“正在压缩上下文”。
+    const tail =
+      last?.role === 'assistant'
+        ? groupWork(visibleParts(last.parts, hasSubagents)).at(-1)
+        : undefined;
     const liveTail =
       live !== undefined &&
-      last?.role === 'assistant' &&
-      groupWork(visibleParts(last.parts, hasSubagents)).at(-1)?.kind === 'work';
+      (tail?.kind === 'work' ||
+        (live === 'running' &&
+          tail?.kind === 'part' &&
+          tail.part.type === 'compaction' &&
+          tail.part.status === 'running'));
+    const first = messages[0];
+    const compacting = first?.role === 'user' && first.command?.kind === 'compact';
     // 回合结束后的回答（最后一条助手消息的正文），悬停时下面出现“复制”（U36）。
     const answer =
       fold.finished && last?.role === 'assistant'
@@ -115,7 +125,13 @@ export const TurnView = memo(
               );
             })}
           </div>
-          {live && !liveTail && <LiveLine live={live} startedAt={fold.startedAt} />}
+          {live && !liveTail && (
+            <LiveLine
+              live={live}
+              startedAt={fold.startedAt}
+              {...(compacting && { label: t('compaction.running') })}
+            />
+          )}
           {fold.finished && fold.changes.files > 0 && (
             <ChangesChip
               turnId={turnId}
@@ -182,8 +198,16 @@ function TurnHeader({
   );
 }
 
-/** 进行中的回合末尾：状态图标位 +“正在思考 / 等待审批 / 正在停止” + 已用时间。 */
-function LiveLine({ live, startedAt }: { live: LiveState; startedAt: string | undefined }) {
+/** 进行中的回合末尾：状态图标位 +“正在思考 / 等待审批 / 正在停止” + 已用时间。`label` 换掉“正在思考”。 */
+function LiveLine({
+  live,
+  startedAt,
+  label,
+}: {
+  live: LiveState;
+  startedAt: string | undefined;
+  label?: string;
+}) {
   const text =
     live === 'stopping'
       ? t('work.stopping')
@@ -191,7 +215,7 @@ function LiveLine({ live, startedAt }: { live: LiveState; startedAt: string | un
         ? t('work.awaiting')
         : live === 'input'
           ? t('work.awaitingInput')
-          : t('work.thinking');
+          : (label ?? t('work.thinking'));
   return (
     <div
       className="mt-3 flex min-h-6 items-center gap-2 text-sm text-muted-foreground"

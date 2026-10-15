@@ -333,6 +333,22 @@ async function defaultBranch(repo: RepoInfo): Promise<string | undefined> {
   return undefined;
 }
 
+/**
+ * 代码审查（0.24.0，`session.review`）的仓库与基础分支：目录不是 git 仓库时 `undefined`；`baseBranch` 是 `branch` 比较的默认分支
+ * （同 `readBranch`），还没有提交或找不到时省略。
+ */
+export async function reviewRepo(dir: string): Promise<{ baseBranch?: string } | undefined> {
+  const repo = await repoInfo(dir);
+  if (!repo) return undefined;
+  if (repo.head === undefined) return {};
+  try {
+    const baseBranch = await defaultBranch(repo);
+    return baseBranch === undefined ? {} : { baseBranch };
+  } catch {
+    return {};
+  }
+}
+
 // ── 解析 ─────────────────────────────────────────────────────────────
 
 export interface NumstatEntry {

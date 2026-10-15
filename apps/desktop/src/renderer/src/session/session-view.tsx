@@ -3,6 +3,7 @@ import type {
   PendingDelivery,
   PermissionMode,
   ProviderProfile,
+  ReviewTarget,
   Session,
   SessionId,
   SubagentSummary,
@@ -220,6 +221,43 @@ export function SessionView({
         : undefined,
     [manage.archive, topLevel, client, store, session.id],
   );
+  // 压缩上下文与代码审查（0.24.0）：由命令开始的回合，前提同发送（出错或已关闭的会话先恢复）。会话所在的引擎做不到时 Host
+  // 拒绝，提示写在输入框上方。
+  const commandsEnabled =
+    writable && session.parentSessionId === undefined && view.status === 'connected';
+  const runCommand = useCallback(
+    async (start: () => Promise<unknown>) => {
+      if (!client) return;
+      setNotice(undefined);
+      try {
+        if (sessionState === 'error' || sessionState === 'closed') {
+          await client.request('session.resume', { sessionId: session.id });
+        }
+        await start();
+        transcriptRef.current?.jumpToLatest('auto');
+      } catch (error) {
+        setNotice(sendError(error));
+      }
+    },
+    [client, session.id, sessionState],
+  );
+  const onCompact = useMemo(
+    () =>
+      client && commandsEnabled && hostSupports(view.hello.features, 'session_compact')
+        ? () => void runCommand(() => client.request('session.compact', { sessionId: session.id }))
+        : undefined,
+    [commandsEnabled, view, runCommand, client, session.id],
+  );
+  const onReview = useMemo(
+    () =>
+      client && commandsEnabled && hostSupports(view.hello.features, 'session_review')
+        ? (target: ReviewTarget) =>
+            void runCommand(() =>
+              client.request('session.review', { sessionId: session.id, target }),
+            )
+        : undefined,
+    [commandsEnabled, view, runCommand, client, session.id],
+  );
   const commands = useSessionCommands({
     workspaceId: session.workspaceId,
     sessionId: session.id as SessionId,
@@ -243,6 +281,8 @@ export function SessionView({
     send: sendCommandText,
     ...(onRename && { onRename }),
     ...(onArchive && { onArchive }),
+    ...(onCompact && { onCompact }),
+    ...(onReview && { onReview }),
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>

@@ -147,6 +147,8 @@ describe('ChatGPT 账号（account.*）', () => {
       permission_modes: true,
       suggested_tasks: true,
       side_sessions: true,
+      session_compact: true,
+      session_review: true,
     });
 
     const plain = await start(new EchoAdapter());
@@ -168,6 +170,8 @@ describe('ChatGPT 账号（account.*）', () => {
       permission_modes: true,
       suggested_tasks: true,
       side_sessions: true,
+      session_compact: true,
+      session_review: true,
     });
     const frame = await client.call('account.get', { kind: 'chatgpt' });
     expect(frame.error).toMatchObject({ code: -32041, data: { category: 'unknown' } });

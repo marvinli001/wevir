@@ -116,6 +116,8 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 | `respondToApproval` | 服务端请求的回复 `{ decision }` | §6.6 |
 | `listPendingApprovals` | — | 适配器自己记的未决审批（§6.6） |
 | `generateTitle` | 经网关的一次 Responses 请求，或临时 thread | §4.4 |
+| `compact`（0.24.0） | `thread/compact/start { threadId }` | §4.9 |
+| `review`（0.24.0） | `review/start { threadId, target, delivery: 'inline' }` | §4.9 |
 
 ### 4.1 取消得不到确认：重启进程
 
@@ -197,6 +199,14 @@ Host 在第一个回合开始后调用（规则与提示词在 prompts/README.md
 ### 4.8 环境的额外文件夹（0.15.0，U22.1）
 
 环境会话（domain-model §3.10）除主文件夹外的文件夹是 `SessionConfig.additionalRoots`（适配器声明 `additionalRoots: true`）。adapter-codex：请求批准、自动批准两种模式下每个 `turn/start` 的 `sandboxPolicy` 是 `{type: workspaceWrite, writableRoots: [...]}`（稳定字段，没有额外目录时照旧省略）；`thread/start` 与 `thread/resume` 的 `developerInstructions` 写一句“这个会话还可以读写这些文件夹：…”，让模型知道它们。完全访问不受影响（不用沙箱）。
+### 4.9 压缩上下文与代码审查（0.24.0）
+
+两种回合都由 app-server 开始，没有 `turn/start`（domain-model §4.7）。
+
+- **`compact`**：`thread/compact/start { threadId }`（`thread_processor.rs` 的 `thread_compact_start_inner` 提交 `Op::Compact`），结果是空对象、不带回合 ID。适配器先登记回合（同 `send`），回合 ID 等这个 thread 的 `turn/started` 带来；之前就要取消的，等它到了才发 `turn/interrupt`。在那之前，`turnId` 等于上一个回合的通知不算这个回合的。回合里一个 `contextCompaction` item：`item/started` → `context.compacting`，`item/completed` → `context.compacted`，`compactionId` 是 itemId，`trigger: 'manual'`。经网关的 Provider 用 Codex 的本地压缩（`core/src/compact.rs`）：一次不带工具的 Responses 请求，最后一条用户消息是 `templates/compact/prompt.md`（“You are performing a CONTEXT CHECKPOINT COMPACTION …”），回答成为之后的上下文；压缩完 Codex 发一条带 threadId 的 `warning`（长 thread 与多次压缩会降低准确度），留作 `engine.raw`。
+- **自动压缩**：上下文用量过了模型的自动压缩线（默认上下文窗口的九成，Provider 的 `contextWindow` 决定），Codex 在回合开始前（或中间）照样做一次压缩，同样是 `contextCompaction` item，映射成 `trigger: 'auto'`（`compact` 开的回合之外的都是 `auto`，映射器的 `reset('manual' | 'auto')`）。弃用的 `thread/compacted` 通知按设计忽略。
+- **`review`**：`review/start { threadId, target, delivery: 'inline' }`，`target` 是 `{ type: 'uncommittedChanges' }` 或 `{ type: 'baseBranch', branch }`（Host 给的基础分支），结果带回合 ID（`turn.id`）。`detached` 已弃用，不用。Codex 在一个子对话里审查（`core/src/tasks/review.rs`：审查专用的基础提示词、审批固定 `never`、关掉 web search 与子 agent），子对话的工具调用转到这个 thread、照常映射；它的 agentMessage 不转（只有开始的 `item/started`，映射器不发事件）。回合里另有 `enteredReviewMode`（在 `turn/started` 之前就到）与 `exitedReviewMode` 两个 item，不出事件；审查结果是随后的 agentMessage（`render_review_output_text`：结构化的 findings 渲染成文字，模型没给 JSON 时就是原文）。审查回合同样拒绝 `turn/steer`（`ActiveTurnNotSteerable`），Host 本来就不对命令回合插话。
+
 ## 5. Provider
 
 ### 5.1 网关实例与令牌
@@ -242,7 +252,7 @@ R2 实测（真实二进制）：
 | `turn/completed` | `turn.settled` / `turn.failed` | `completed` → settled（`completed`），`interrupted` → settled（`cancelled`），`stopReason` 是 Codex 的状态原文；`failed` → `turn.failed`，`message` = `turn.error.message` + `additionalDetails`，`category` 与 `code` 见 §6.7。之前先收尾没提交的增量（§6.4）；`interrupted` 时还没结束的工具按 `failed` 收尾（§6.6） |
 | `error` | `engine.raw` | `willRetry: true` 不算回合失败（Codex 自己也只在状态栏短暂显示），只留 engine.raw，已经流出的增量以 `abandoned` 结束；`willRetry: false` 随后有 `turn/completed`（failed），以它为准 |
 | `serverRequest/resolved` | （无）或 `approval.cancelled` | 由适配器处理，不进映射器（§6.6） |
-| `turn/started`、`item/reasoning/summaryPartAdded`、`thread/status/changed`、`thread/started` | （无） | 按设计忽略：Host 自己写 `turn.started`、维护会话状态；块号已在增量里。回合之外到达时同样忽略（R4 起，子会话在两个回合之间的状态变化很多）。子会话的 `turn/started` 例外，见 §6.5 |
+| `turn/started`、`item/reasoning/summaryPartAdded`、`thread/status/changed`、`thread/started`、`thread/compacted` | （无） | 按设计忽略：Host 自己写 `turn.started`、维护会话状态；块号已在增量里；`thread/compacted` 已弃用，压缩照 item 报（§4.9）。回合之外到达时同样忽略（R4 起，子会话在两个回合之间的状态变化很多）。子会话的 `turn/started` 例外，见 §6.5；`compact` 开的回合从它拿回合 ID（§4.9） |
 | `thread/name/updated`（子会话） | 父会话流里的 `subagent.updated`（`title`） | §6.5 |
 | `turn/diff/updated`、`thread/name/updated`（普通会话）等其余带 threadId 的 | `engine.raw` | |
 | 不带 threadId 的（`account/*`、`remoteControl/*`、`mcpServer/*` 等） | （无） | `warning`、`configWarning`、`deprecationNotice` 写一次告警，其余忽略（codex-notes §6.4） |
@@ -257,7 +267,9 @@ R2 实测（真实二进制）：
 | `reasoning` | （无） | `assistant.thought`，文本是原始推理（`content`），没有时用摘要（`summary`）；`replaces` 与 `stream_ended` 同上 |
 | `commandExecution`、`fileChange`、`mcpToolCall`、`dynamicToolCall`、`collabAgentToolCall`、`webSearch`、`imageView` | `tool.started`（`toolCallId` = itemId，`input` 是原样的 item，`toolName` 与 `display` 见 §6.3） | 展示变了先发 `tool.updated`，再 `tool.finished`：`completed` → completed，`failed` / `declined` / `interrupted` → failed（`declined` 先映射为 failed，拒绝的语义由审批事件承担，决策 6.2）。没有 `item/started` 时先补一条 `tool.started` |
 | `userMessage` | （无） | （无）：Host 自己记 `user.message` |
-| 其余（`plan`、`contextCompaction`、`hookPrompt`、`subAgentActivity` 等） | `engine.raw` | `engine.raw` |
+| `contextCompaction`（0.24.0） | `context.compacting`（`compactionId` = itemId） | `context.compacted`；`trigger` 见 §4.9 |
+| `enteredReviewMode`、`exitedReviewMode`（0.24.0） | （无） | （无）：Host 的 `turn.started.command` 表示审查，结果是随后的 agentMessage（§4.9） |
+| 其余（`plan`、`hookPrompt`、`subAgentActivity` 等） | `engine.raw` | `engine.raw` |
 
 `tool.finished.output`：命令是 `aggregatedOutput`（没有时用累积的增量）；文件改动是各个 diff 相连；MCP 是结果或错误的 JSON；动态工具是文本内容；子 agent 是 `agentsStates` 的 JSON。
 
@@ -413,6 +425,7 @@ rust-v0.162.1 实测（`codex-adapter.side.integration.test.ts`）：支线的�
 | 恢复与取消 | `codex-adapter.resume.integration.test.ts` | 关闭后恢复、换进程后恢复且下一回合带完整历史、`not_found` 与 `corrupted`、没对话过的会话、`cancel_unconfirmed` 时重启并能恢复 |
 | 计划、提问、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`；提问（U11：mock 模型调 `request_user_input`，回答回到模型、回合接着做，开发中功能的 warning 不出现）；缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
 | 建议的后续任务 | `suggest-tasks.test.ts`、`codex-adapter.tasks.integration.test.ts` | §6.8：MCP 脚本的 initialize / tools/list / tools/call、两种 config.toml 的登记、参数的整理与映射；真实二进制下模型看到 `mcp__wevir_tasks` 里的 `suggest_tasks`、调用不问用户、完成后紧跟 `tasks.suggested`、MCP 服务正常启动不出 `engine.raw`；`injectNote` 不开回合、下一次请求里有它 |
+| 压缩与审查（0.24.0） | `codex-adapter.command.integration.test.ts` | §4.9：`compact` 的回合里 manual 的 compacting / compacted、压缩请求不带工具、之后照常；上下文窗口 1100 时第二个回合开始前自动压缩（auto）；`review` 的未提交改动与基础分支，结构化的 findings 渲染进助手消息、没有 `engine.raw`；`compact` 之后马上取消，回合 ID 到了才中断、以 cancelled 结算 |
 | 支线会话 | `codex-adapter.side.integration.test.ts` | §6.9：支线的请求里有主线的历史、边界消息在它们之后、问题在最后，主线的请求里没有支线的内容；主线回合进行中分出的支线不含进行中的回合；换进程后支线恢复报 `session_lost`、主线照常恢复 |
 | 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
 | ChatGPT 进程（R6） | `account.test.ts`（假的 app-server，状态机与 `model/list` 的换算）、`codex-runtime.chatgpt.integration.test.ts`（真实二进制 + `test-fixtures/mock-chatgpt.ts` 的登录服务与后端） | §8：没登录时 ChatGPT 会话建不起来；设备码登录 → 邮箱、套餐与用量 → `model/list` → ChatGPT 会话落在 ChatGPT 进程、网关会话照旧在网关进程 → 登出（凭据删除、令牌吊销）；浏览器登录（回调打到本机 1455）与取消；`auth.json` 0600 只在 ChatGPT 进程的目录；外连经拒绝的代理只剩 chatgpt.com |

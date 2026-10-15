@@ -259,6 +259,33 @@ describe('foldTurn', () => {
     expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual(['tasks', 'text']);
   });
 
+  it('压缩上下文（0.24.0）：命令回合没有那一行；自动压缩在收起的回合里照样显示，不算过程', () => {
+    const s = session();
+    s.add('turn.started', { turnId: TURN, command: { kind: 'compact' } });
+    s.add('session.state_changed', { from: 'idle', to: 'running', reason: 'turn_started' });
+    s.add('context.compacting', { turnId: TURN, compactionId: 'c1', trigger: 'manual' });
+    s.add('context.compacted', { turnId: TURN, compactionId: 'c1', trigger: 'manual' });
+    s.finish(TURN, 'completed');
+    let messages = s.project().messages;
+    expect(messages[0]).toMatchObject({ role: 'user', command: { kind: 'compact' } });
+    let fold = foldTurn(messages, false, false);
+    expect(fold).toMatchObject({ showHeader: false, hasProcess: false });
+
+    s.turn(TURN2);
+    s.run(TURN2, 'r1', { kind: 'read', paths: ['src/a.ts'] });
+    s.add('context.compacted', { turnId: TURN2, compactionId: 'c2', trigger: 'auto' });
+    s.say(TURN2, '好了。');
+    s.finish(TURN2, 'completed');
+    messages = s.project().messages.filter((m) => m.role !== 'system' && m.turnId === TURN2);
+    fold = foldTurn(messages, false, false);
+    expect(fold.defaultFolded).toBe(true);
+    const assistant = messages.find((m) => m.role === 'assistant');
+    expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual([
+      'compaction',
+      'text',
+    ]);
+  });
+
   it('流式进行到一半：没有那一行；正在运行的工具是当前动作，增量里的思考是“正在思考”', () => {
     const s = session();
     s.turn();

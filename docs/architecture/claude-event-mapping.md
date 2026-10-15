@@ -147,6 +147,10 @@ CLI 自己生成的错误消息（模型是 `<synthetic>` 且带 `error`，如 �
 
 一次性的 `query()`（字符串 prompt），同 T3 的标题生成（`claude -p --json-schema`）：会话的模型、它最低的档位，Host 给的说明作系统提示词，`tools: []`、`settingSources: []`、不跑 hooks、不连 MCP、`permissionMode: 'dontAsk'`、`persistSession: false`、`outputFormat` 是 Host 给的 JSON Schema，工作目录 `<数据目录>/engines/claude`；返回结构化输出的 JSON。会用掉用户一点额度。
 
+### 4.9 压缩上下文（0.24.0）
+
+`compact` 照 T3 的 `compactThread`（`ClaudeAdapterV2.ts`）把 `/compact` 当一条消息发给会话的进程，`claude` 在本地执行这条斜杠命令（支线的边界说明不加在它前面，留给下一条消息）。回合里 `system/status` 的 `status: 'compacting'` → `context.compacting`（`compactionId` 是这条消息的 uuid，`compact` 开的回合是 `manual`，其余是 Claude 自己压缩的 `auto`），`compact_boundary` → `context.compacted`（同一 `compactionId`，`trigger` 取 `compact_metadata.trigger`）；`compact_metadata.post_tokens` 是压缩后的上下文用量，另报一条 `usage.updated`（T3 同样拿它更新用量）。`status` 带 `compact_result: 'failed'` 时压缩没成，不报完成，回合照常结算。`/compact` 的结果不一定带这条消息的 uuid，这种回合不按 uuid 对结果（§4.2）。代码审查（`review`）Claude 没有对应的命令，不实现。
+
 ## 5. 权限与审批（`permissions.ts`）
 
 ### 5.1 三种模式
@@ -236,14 +240,14 @@ Claude 默认把 Agent 工具放到后台（工具立即返回 “Async agent la
 
 ### 6.6 不映射的消息
 
-丢弃：`command_lifecycle`（用于 §4.5 的取消）、`tool_progress`、`tool_use_summary`、`auth_status`、`prompt_suggestion`、`system/` 的 `status`、`session_state_changed`、`thinking_tokens`、`hook_*`、`task_progress`、`task_updated`、`background_tasks_changed`、`commands_changed`、`files_persisted`、`ui_status`。`system/init` 只用来核对权限模式。其余（`compact_boundary`、`model_refusal_fallback`、`local_command_output` 等）作 `engine.raw`（开发模式的界面才显示）。
+丢弃：`command_lifecycle`（用于 §4.5 的取消）、`tool_progress`、`tool_use_summary`、`auth_status`、`prompt_suggestion`、`system/` 的 `status`（`compacting` 除外，§4.9）、`session_state_changed`、`thinking_tokens`、`hook_*`、`task_progress`、`task_updated`、`background_tasks_changed`、`commands_changed`、`files_persisted`、`ui_status`。`system/init` 只用来核对权限模式。`compact_boundary` 见 §4.9（回合之外到的作 `engine.raw`）。其余（`model_refusal_fallback`、`local_command_output` 等）作 `engine.raw`（开发模式的界面才显示）。
 
 ## 7. 测试
 
 | 层 | 文件 | 内容 |
 |---|---|---|
 | 单元 | `account.test.ts`、`units.test.ts` | 套餐与登录状态、用量与 `rate_limit_event`（录音里的真实消息）、检测的缓存与刷新、没装 / 跑不起来 / 没登录；找 `claude`（GUI 的短 PATH、Windows 启动脚本）、环境、模型目录（版本过滤、档位换算、`[1m]`）、结果归类、工具展示、清单与提问 |
-| 映射回放 | `claude-adapter.test.ts` | 假的 SDK（`test-fixtures/fake-sdk.ts`）回放 `test-fixtures/sdk/` 的真实录音：增量与替换、工具、审批的四个选项、完全访问与自动批准、子 agent、换设置（进程里改与重起）、支线、补说明、标题、清单、提问、认证失败、进程中途退出 |
+| 映射回放 | `claude-adapter.test.ts` | 假的 SDK（`test-fixtures/fake-sdk.ts`）回放 `test-fixtures/sdk/` 的真实录音：增量与替换、工具、审批的四个选项、完全访问与自动批准、子 agent、换设置（进程里改与重起）、支线、补说明、标题、清单、提问、认证失败、进程中途退出；压缩上下文（0.24.0，照真实消息形状拼的 `status` 与 `compact_boundary`：manual、auto、压缩失败） |
 | 契约第 1 层 | `claude-adapter.contract.test.ts` | `runAdapterContract` 跑在假 SDK 上（审批按决定走对应录音的分支；中断、插话、子 agent 的审批与慢回合是照真实消息形状拼的脚本）：21 条通过，“引擎进程退出”两条跳过（§4.4） |
 | 契约真实层 | `claude-adapter.contract.real.integration.test.ts` | 本机真实的 `claude`（`WEVIR_TEST_CLAUDE=1`，`claude-haiku-4-5`，用掉订阅额度，命令见文件头）；2026-10-15 在 `claude` 2.1.287 上跑过 12 条：一问一答与多回合、增量替换、工具、审批允许 / 拒绝 / 挂起时取消、恢复、插话、子会话、子会话的审批、取消子会话 |
 | 录制 | `test-fixtures/record-sdk.test.ts` | `WEVIR_RECORD_CLAUDE=1` 时重录样本（`settingSources: []`，本机路径、用户的插件与命令清单抹掉） |

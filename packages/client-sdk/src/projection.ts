@@ -6,7 +6,8 @@
 // 部件（R5 起结束时再加一个“结束”部件）与 `subagents` 摘要；子会话自己的回合输入（`turn.started.input`）投影成来自
 // 父 agent 的用户消息。R11：待发消息（`pending.*`）投影成 `pendingMessages`；插话（`user.steered`）是回合中间的一条用户
 // 消息，之后的助手输出放进这个回合的下一条助手消息（domain-model §8）。U2：思考部件带起止时刻（桌面端的“思考了 17 秒”），
-// 插话分出的每条助手消息都带回合的开始时刻。
+// 插话分出的每条助手消息都带回合的开始时刻。0.24.0：由命令开始的回合（`turn.started.command`，压缩上下文、代码审查）投影成
+// 一条带 `command`、没有文字的用户消息；上下文压缩（`context.*`）是回合里的 `compaction` 部件。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -18,6 +19,7 @@ import type {
   ApprovalResolution,
   ApprovalStatus,
   ClientIdentity,
+  CompactionTrigger,
   EngineErrorCategory,
   EngineErrorInfo,
   IsoTime,
@@ -37,6 +39,7 @@ import type {
   TodoItem,
   ToolDisplay,
   ToolOutput,
+  TurnCommand,
   TurnId,
   TurnOutcome,
   Usage,
@@ -94,6 +97,17 @@ export type ChatPart =
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown }
   | { type: 'notice'; key: string; notice: SessionNotice }
   /**
+   * 上下文压缩（0.24.0）：`context.compacting` 时出现（`key` 是 `c:<compactionId>`），`context.compacted` 时原位换成
+   * `completed`；回合结束时还在 `running` 的（没压缩成）去掉。没有 `compacting` 的 `compacted` 直接是 `completed`。
+   */
+  | {
+      type: 'compaction';
+      key: string;
+      compactionId: string;
+      trigger: CompactionTrigger;
+      status: 'running' | 'completed';
+    }
+  /**
    * 这个会话派出的一个子会话（R4，domain-model §8）。“开始”部件在派出它的回合里，`subagent.started` 时出现（`key` 是
    * `a:<子会话 ID>`）；子会话离开 `running` 时，在父会话当时所在的位置再加一个“结束”部件（R5：`ended` 是当时的状态，
    * `key` 是 `a:<子会话 ID>:end:<seq>`）。两种部件的 `subagent` 都随 `subagent.updated` 原位换成最新的摘要。界面据此
@@ -148,6 +162,8 @@ export interface UserChatMessage extends MessageBase {
   sentBy?: ClientIdentity;
   /** 子会话（R4）：这一回合的输入来自父 agent（`turn.started.input`），不是客户端发的。 */
   fromParentAgent?: true;
+  /** 0.24.0：回合由命令开始（`turn.started.command`），没有文字部件。 */
+  command?: TurnCommand;
   clientMessageId?: string;
   /** R11：插话（`user.steered`），在回合中间；`id` 是 `<turnId>:steer:<pendingId>`。 */
   steered?: true;
@@ -221,6 +237,7 @@ interface MutableMessage {
   lastSeq: number;
   sentBy?: ClientIdentity;
   fromParentAgent?: true;
+  command?: TurnCommand;
   clientMessageId?: string;
   steered?: true;
   pendingId?: PendingMessageId;
@@ -356,8 +373,9 @@ export class TranscriptProjection {
         this.#userMessage(event);
         return;
       case 'turn.started': {
-        // 子会话：这一回合的输入来自父 agent（R4），投影成一条用户消息。
+        // 子会话：这一回合的输入来自父 agent（R4），投影成一条用户消息；命令开的回合（0.24.0）同样有一条，带 `command`。
         if (event.payload.input !== undefined) this.#agentInput(event);
+        if (event.payload.command !== undefined) this.#commandInput(event);
         const turn = this.#turn(event.payload.turnId);
         turn.startedAt = event.ts;
         turn.activityAt = event.ts;
@@ -412,6 +430,10 @@ export class TranscriptProjection {
             totalTokens: event.payload.totalTokens,
           }),
         };
+        return;
+      case 'context.compacting':
+      case 'context.compacted':
+        this.#compaction(event);
         return;
       case 'engine.error':
         this.#engineError(event);
@@ -582,6 +604,41 @@ export class TranscriptProjection {
     });
   }
 
+  /** 由命令开始的回合（0.24.0）：一条带 `command`、没有文字的用户消息。 */
+  #commandInput(event: WevirEventOf<'turn.started'>): void {
+    const { turnId, command } = event.payload;
+    const turn = this.#turn(turnId);
+    if (turn.user || command === undefined) return;
+    turn.user = this.#push({
+      role: 'user',
+      id: turnId,
+      turnId,
+      parts: [],
+      firstSeq: event.seq,
+      lastSeq: event.seq,
+      command,
+      ts: event.ts,
+      snapshot: undefined,
+    });
+  }
+
+  /** `context.compacting` / `context.compacted`（0.24.0）：回合里的 `compaction` 部件，完成时原位更新。 */
+  #compaction(event: WevirEventOf<'context.compacting'> | WevirEventOf<'context.compacted'>): void {
+    const { turnId, compactionId, trigger } = event.payload;
+    const key = `c:${compactionId}`;
+    const status = event.type === 'context.compacted' ? 'completed' : 'running';
+    this.#activity(turnId, event.ts);
+    const part = { type: 'compaction', key, compactionId, trigger, status } as const;
+    for (const segment of this.#turn(turnId).segments) {
+      const index = segment.parts.findIndex((candidate) => candidate.key === key);
+      if (index < 0) continue;
+      this.#touch(segment, event.seq);
+      segment.parts = segment.parts.map((candidate, i) => (i === index ? part : candidate));
+      return;
+    }
+    this.#assistant(turnId, event.seq).parts.push(part);
+  }
+
   #turn(turnId: TurnId): TurnMessages {
     let turn = this.#turns.get(turnId);
     if (!turn) {
@@ -651,6 +708,8 @@ export class TranscriptProjection {
         if (isStreamPart(part) && part.state === 'streaming') {
           return keepPartial && part.text.trim() !== '' ? [{ ...part, state: 'done' }] : [];
         }
+        // 0.24.0：没压缩成的压缩不再转圈。
+        if (part.type === 'compaction' && part.status === 'running') return [];
         return [
           part.type === 'tool' && isOpen(part.status) ? { ...part, status: 'unknown' } : part,
         ];
@@ -1025,6 +1084,7 @@ function freeze(message: MutableMessage): ChatMessage {
         turnId: message.turnId as TurnId,
         ...(message.sentBy !== undefined && { sentBy: message.sentBy }),
         ...(message.fromParentAgent && { fromParentAgent: true }),
+        ...(message.command !== undefined && { command: message.command }),
         ...(message.clientMessageId !== undefined && { clientMessageId: message.clientMessageId }),
         ...(message.steered && { steered: true }),
         ...(message.pendingId !== undefined && { pendingId: message.pendingId }),

@@ -55,6 +55,15 @@ export interface AgentInput {
   content: Array<{ type: 'text'; text: string }>;
 }
 
+/**
+ * `review` 的请求（0.24.0）：`uncommitted` 看工作树（暂存、未暂存与未跟踪的文件），`branch` 看当前分支对 `baseBranch` 的改动
+ * （Host 找的默认分支）。
+ */
+export type ReviewRequest = { target: 'uncommitted' } | { target: 'branch'; baseBranch: string };
+
+/** Host 在开始回合之前问引擎会不会的可选方法（`supports`）。 */
+export type SessionCommandMethod = 'compact' | 'review';
+
 /** `generateTitle` 的请求（prompts/README.md「会话标题」）。 */
 export interface TitleRequest {
   /** 说明：prompts/thread-title.md 去掉注释后的全文。 */

@@ -486,8 +486,8 @@ export const eventPayloads: PayloadSamples = {
     invalid: { turnId: ids.turn, content: [], sentBy: identity },
   },
   'turn.started': {
-    valid: { turnId: ids.turn },
-    invalid: { turnId: ids.session },
+    valid: { turnId: ids.turn, command: { kind: 'review', target: 'branch', baseBranch: 'main' } },
+    invalid: { turnId: ids.turn, command: { kind: 'review', target: 'commit' } },
   },
   'turn.finished': {
     valid: {
@@ -596,6 +596,14 @@ export const eventPayloads: PayloadSamples = {
   'usage.updated': {
     valid: { contextUsed: 5120, contextSize: 262144, totalTokens: 182400 },
     invalid: { contextUsed: 5120, contextSize: 262144, totalTokens: -1 },
+  },
+  'context.compacting': {
+    valid: { turnId: ids.turn, compactionId: 'cmp-1', trigger: 'auto' },
+    invalid: { turnId: ids.turn, compactionId: 'cmp-1', trigger: 'scheduled' },
+  },
+  'context.compacted': {
+    valid: { turnId: ids.turn, compactionId: 'cmp-1', trigger: 'manual' },
+    invalid: { turnId: ids.turn, compactionId: '', trigger: 'manual' },
   },
   'engine.error': {
     valid: {
@@ -1446,6 +1454,26 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ session: sideSession }],
       invalid: [{ session: { ...sideSession, side: false } }],
+    },
+  },
+  'session.compact': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}, { sessionId: ids.turn }] },
+    result: {
+      valid: [{ turnId: ids.turn, seq: 12 }],
+      invalid: [{ turnId: ids.turn }, { seq: 12 }],
+    },
+  },
+  'session.review': {
+    params: {
+      valid: [
+        { sessionId: ids.session, target: 'uncommitted' },
+        { sessionId: ids.session, target: 'branch' },
+      ],
+      invalid: [{ sessionId: ids.session }, { sessionId: ids.session, target: 'commit' }],
+    },
+    result: {
+      valid: [{ turnId: ids.turn, seq: 12 }],
+      invalid: [{ turnId: ids.session, seq: 12 }],
     },
   },
   'session.rename': {

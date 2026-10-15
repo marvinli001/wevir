@@ -709,6 +709,31 @@ export const SessionEnvironmentFields = {
 export const TurnOutcomeSchema = z.enum(['completed', 'cancelled', 'failed', 'interrupted']);
 export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
 
+/**
+ * 代码审查看哪些改动（0.24.0，`session.review`）：`uncommitted` 工作树（暂存、未暂存与未跟踪的文件）；`branch` 当前分支对基础分支
+ * （Host 找的默认分支，同 `workspace.diff` 的 `branch`）的改动。
+ */
+export const ReviewTargetSchema = z.enum(['uncommitted', 'branch']);
+export type ReviewTarget = z.infer<typeof ReviewTargetSchema>;
+
+/**
+ * 回合由命令开始、没有用户消息（0.24.0，domain-model §4.7）：`compact` 压缩上下文（`session.compact`），`review` 代码审查
+ * （`session.review`；`branch` 时 `baseBranch` 是比较的分支）。
+ */
+export const TurnCommandSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('compact') }),
+  z.object({
+    kind: z.literal('review'),
+    target: ReviewTargetSchema,
+    baseBranch: z.string().min(1).optional(),
+  }),
+]);
+export type TurnCommand = z.infer<typeof TurnCommandSchema>;
+
+/** 上下文压缩怎么来的（0.24.0）：`manual` 用户的 `session.compact`；`auto` 引擎在上下文快满时自己压缩。 */
+export const CompactionTriggerSchema = z.enum(['manual', 'auto']);
+export type CompactionTrigger = z.infer<typeof CompactionTriggerSchema>;
+
 /** 支线会话从哪儿分出来（0.17.0，domain-model §3.12）。 */
 export const SessionForkedFromSchema = z.object({
   sessionId: SessionIdSchema,

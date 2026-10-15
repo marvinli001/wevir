@@ -41,6 +41,7 @@ import {
   QuestionAnswerSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
+  ReviewTargetSchema,
   SessionOriginSchema,
   SessionSchema,
   SessionSnapshotSchema,
@@ -588,6 +589,21 @@ export const SessionArchiveParamsSchema = z.object({
   archived: z.boolean(),
 });
 
+/**
+ * 代码审查（0.24.0，Host 功能 `session_review`）：开始一个由命令开始的回合（`turn.started` 的 `command`），审查结果是这个回合的
+ * 回答。
+ */
+export const SessionReviewParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  target: ReviewTargetSchema,
+});
+
+/** `session.compact`（0.24.0）与 `session.review` 的结果：开始的回合与它的 `turn.started` 的 `seq`。 */
+export const SessionCommandResultSchema = z.object({
+  turnId: TurnIdSchema,
+  seq: SeqSchema,
+});
+
 export const SessionCreateParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   providerId: ProviderIdSchema,
@@ -947,6 +963,16 @@ export const MethodSchemas = {
   'session.fork': {
     params: SessionForkParamsSchema,
     result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.compact': {
+    params: SessionIdParamsSchema,
+    result: SessionCommandResultSchema,
+    permission: 'session.write',
+  },
+  'session.review': {
+    params: SessionReviewParamsSchema,
+    result: SessionCommandResultSchema,
     permission: 'session.write',
   },
   'session.rename': {

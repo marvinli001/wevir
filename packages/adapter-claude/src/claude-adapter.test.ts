@@ -430,6 +430,109 @@ describe('会话中换设置、支线、补说明、标题', () => {
   });
 });
 
+describe('压缩上下文（0.24.0）', () => {
+  const status = (value: 'compacting' | null, extra: Record<string, unknown> = {}) => ({
+    kind: 'message' as const,
+    message: {
+      type: 'system',
+      subtype: 'status',
+      status: value,
+      uuid: value === null ? 'status-done' : 'status-compacting',
+      session_id: '<session>',
+      ...extra,
+    },
+  });
+  const boundary = (trigger: 'manual' | 'auto') => ({
+    kind: 'message' as const,
+    message: {
+      type: 'system',
+      subtype: 'compact_boundary',
+      compact_metadata: { trigger, pre_tokens: 1500, post_tokens: 400 },
+      uuid: 'boundary-1',
+      session_id: '<session>',
+    },
+  });
+  // `/compact` 的结果不带这条消息的 uuid（T3 的录音同样没有）。
+  const compactResult = {
+    kind: 'message' as const,
+    message: {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: '',
+      num_turns: 0,
+      duration_ms: 1,
+      duration_api_ms: 1,
+      total_cost_usd: 0,
+      usage: { input_tokens: 0, output_tokens: 0 },
+      modelUsage: {},
+      permission_denials: [],
+      user_message_uuids: ['some-other-uuid'],
+      uuid: 'result-compact',
+      session_id: '<session>',
+    },
+  };
+
+  it('compact 发 /compact；status compacting 与 compact_boundary → manual 的压缩事件，用量换成 post_tokens', async () => {
+    const { adapter, sdk } = harness({
+      script: (prompt) =>
+        prompt === '/compact'
+          ? { steps: [status('compacting'), boundary('manual'), status(null), compactResult] }
+          : undefined,
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.compact(engineSessionId);
+    await log.until(isTurnTerminal);
+    expect(sessionQueries(sdk)[0]?.prompts[0]).toMatchObject({
+      message: { role: 'user', content: '/compact' },
+    });
+    expect(log.events.map((event) => event.type)).toEqual([
+      'context.compacting',
+      'context.compacted',
+      'usage.updated',
+      'turn.settled',
+    ]);
+    expect(log.events[0]).toMatchObject({ compactionId: 'status-compacting', trigger: 'manual' });
+    expect(log.events[1]).toMatchObject({ compactionId: 'status-compacting', trigger: 'manual' });
+    expect(log.events[2]).toMatchObject({ contextUsed: 400 });
+    expect(log.events[3]).toMatchObject({ outcome: 'completed' });
+  });
+
+  it('Claude 在回合中自己压缩：auto；压缩失败的不报完成', async () => {
+    const plain = loadRecording('plain').lines.flatMap((line) =>
+      line.message === undefined ? [] : [{ kind: 'message' as const, message: line.message }],
+    );
+    const { adapter } = harness({
+      script: (prompt) =>
+        prompt === 'auto'
+          ? { steps: [status('compacting'), boundary('auto'), status(null), ...plain] }
+          : prompt === 'failed'
+            ? {
+                steps: [status('compacting'), status(null, { compact_result: 'failed' }), ...plain],
+              }
+            : undefined,
+    });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('auto'));
+    await log.until(isTurnTerminal);
+    expect(log.events.find((event) => event.type === 'context.compacting')).toMatchObject({
+      trigger: 'auto',
+    });
+    expect(log.events.find((event) => event.type === 'context.compacted')).toMatchObject({
+      trigger: 'auto',
+    });
+    const from = log.events.length;
+    await adapter.send(engineSessionId, text('failed'));
+    await log.until(isTurnTerminal, from);
+    const second = log.events.slice(from).map((event) => event.type);
+    expect(second).toContain('context.compacting');
+    expect(second).not.toContain('context.compacted');
+    expect(log.events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+  });
+});
+
 describe('清单与提问', () => {
   const todoScript = (prompt: string) =>
     prompt === 'todo'

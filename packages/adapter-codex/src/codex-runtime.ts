@@ -11,6 +11,7 @@ import type {
   ProviderConfig,
   ProviderIssue,
   ProviderTestResult,
+  ReviewRequest,
   SessionConfig,
   TitleRequest,
 } from '@wevir/runtime-adapter';
@@ -82,6 +83,14 @@ export class CodexRuntime implements AgentRuntimeAdapter {
 
   send(engineSessionId: string, input: AgentInput): Promise<void> {
     return this.#forSession(engineSessionId).send(engineSessionId, input);
+  }
+
+  compact(engineSessionId: string): Promise<void> {
+    return this.#forSession(engineSessionId).compact(engineSessionId);
+  }
+
+  review(engineSessionId: string, request: ReviewRequest): Promise<void> {
+    return this.#forSession(engineSessionId).review(engineSessionId, request);
   }
 
   respondToQuestion(

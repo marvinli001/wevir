@@ -12,6 +12,8 @@ import type {
   ProviderConfig,
   ProviderIssue,
   ProviderTestResult,
+  ReviewRequest,
+  SessionCommandMethod,
   SessionConfig,
   TitleRequest,
 } from './types.js';
@@ -95,6 +97,27 @@ export interface AgentRuntimeAdapter {
    * Host 转为排队）、`session_not_found`、`session_closed`、`invalid_input`（含子会话）、`disposed`。
    */
   steer?(engineSessionId: string, steerId: string, input: AgentInput): Promise<void>;
+
+  /**
+   * 立即压缩会话的上下文（0.24.0，`session.compact`）：开始一个回合，同 `send` 在引擎接受后返回，回合以终结事件结束；回合里引擎
+   * 报 `context.compacting` 与 `context.compacted`（`manual`）。会话有进行中的回合时 `session_busy`。不实现表示引擎不能压缩，
+   * Host 不声明 `session_compact`（Codex：`thread/compact/start`，回合由 app-server 开始；Claude：发 `/compact`）。
+   * 错误：同 `send`。
+   */
+  compact?(engineSessionId: string): Promise<void>;
+
+  /**
+   * 代码审查（0.24.0，`session.review`）：开始一个回合，同 `send`；审查结果是这个回合的助手消息。不实现表示引擎不能审查，Host
+   * 不声明 `session_review`（Codex：`review/start`，`delivery: 'inline'`）。
+   * 错误：同 `send`。
+   */
+  review?(engineSessionId: string, request: ReviewRequest): Promise<void>;
+
+  /**
+   * 这个会话所在的引擎有没有某个可选方法（0.24.0）：多引擎的路由（host/engine-router.ts）实现它，Host 在开始命令回合之前问，
+   * 引擎没有时直接拒绝、不写事件。单个引擎的适配器不实现，看方法在不在。
+   */
+  supports?(engineSessionId: string, method: SessionCommandMethod): boolean;
 
   /**
    * 换会话的模型、推理档位（0.9.0，`session.configure`）或权限模式（0.11.0）：Host 每次给全部当前值，从下一个回合起用新的

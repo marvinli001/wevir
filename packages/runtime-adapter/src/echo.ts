@@ -10,6 +10,7 @@ import type {
   EngineSession,
   PendingApproval,
   PermissionMode,
+  ReviewRequest,
   SessionConfig,
   UserQuestion,
 } from './types.js';
@@ -136,6 +137,7 @@ interface ReplyBlock {
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
  * | `slow` | 回复的每个分片前多等九步，回合持续得久一些，测试插话与排队用（R11） |
+ * | `compact` | 回复前像引擎自己压缩一次上下文（`context.compacting` → `context.compacted`，`auto`，0.24.0） |
  * | `plan` | 回合里带一份三步的清单（`todo.updated`，像 Codex 的计划）：开始时第一步进行中，工具与审批之后第二步、回复前第三步，回复完全部完成（U20） |
  * | `suggest` | 回复前调一次 `suggest_tasks` 工具，建议两项后续任务（`tasks.suggested`，`ECHO_SUGGESTIONS`，U23） |
  * | `subagent` | 模拟 Codex 的子 agent（R4）：调 `spawn_agent` 派出一个子会话（父会话的流里 `subagent.started`），子会话以
@@ -232,13 +234,39 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   }
 
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
+    const { session, turn } = this.#beginTurn(engineSessionId, () => {
+      if (input.content.length === 0) throw new AdapterError('invalid_input', 'content is empty');
+    });
+    turn.done = this.#runTurn(session, turn, input.content.map((part) => part.text).join('\n'));
+  }
+
+  /** 压缩上下文（0.24.0）：一个回合，`context.compacting` → `context.compacted`（`manual`），用量随之降下来。 */
+  async compact(engineSessionId: string): Promise<void> {
+    const { session, turn } = this.#beginTurn(engineSessionId);
+    turn.done = this.#runCompact(session, turn);
+  }
+
+  /** 代码审查（0.24.0）：普通的回合，回复 `Echo: Review …`。 */
+  async review(engineSessionId: string, request: ReviewRequest): Promise<void> {
+    const { session, turn } = this.#beginTurn(engineSessionId);
+    const text =
+      request.target === 'branch'
+        ? `Review the changes against ${request.baseBranch}`
+        : 'Review the uncommitted changes';
+    turn.done = this.#runTurn(session, turn, text);
+  }
+
+  #beginTurn(
+    engineSessionId: string,
+    check?: () => void,
+  ): { session: EchoSession; turn: EchoTurn } {
     this.#assertUsable();
     const session = this.#openSession(engineSessionId);
     if (session.parentId !== undefined) {
       throw new AdapterError('invalid_input', 'a sub-agent session is driven by its parent agent');
     }
     if (session.turn) throw new AdapterError('session_busy', 'a turn is already running');
-    if (input.content.length === 0) throw new AdapterError('invalid_input', 'content is empty');
+    check?.();
     session.turnCount += 1;
     const turn: EchoTurn = {
       abort: new AbortController(),
@@ -248,7 +276,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       done: Promise.resolve(),
     };
     session.turn = turn;
-    turn.done = this.#runTurn(session, turn, input.content.map((part) => part.text).join('\n'));
+    return { session, turn };
   }
 
   async steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {
@@ -580,6 +608,9 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       }
 
       plan(1);
+      // 自动压缩（0.24.0）：像引擎在上下文快满时自己压缩，在回合中间。
+      if (!subagent && /compact/i.test(text))
+        await this.#compaction(signal, emit, engineSessionId, 'auto');
       let answered = '';
       if (!subagent && /\bask\b/i.test(text)) {
         const answers = await this.#askUser(turn, engineSessionId);
@@ -644,6 +675,57 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     } finally {
       if (session.turn === turn) session.turn = undefined;
     }
+  }
+
+  /** `compact`（0.24.0）开的回合：只压缩上下文，不回复。取消时同普通回合。 */
+  async #runCompact(session: EchoSession, turn: EchoTurn): Promise<void> {
+    const engineSessionId = session.id;
+    const signal = turn.abort.signal;
+    const emit = (event: AgentEvent) => turn.hub.emit(event);
+    try {
+      await this.#step(signal);
+      await this.#compaction(signal, emit, engineSessionId, 'manual');
+      emit({
+        type: 'usage.updated',
+        engineSessionId,
+        contextUsed: 50,
+        contextSize: ECHO_CONTEXT_SIZE,
+        totalTokens: 1200 * session.turnCount,
+      });
+      emit({
+        type: 'turn.settled',
+        engineSessionId,
+        outcome: 'completed',
+        stopReason: 'compacted',
+      });
+    } catch (error) {
+      if (!(error instanceof TurnAbort)) {
+        emit({ type: 'turn.failed', engineSessionId, category: 'unknown', message: String(error) });
+        return;
+      }
+      if (error.kind !== 'cancel') return;
+      emit({
+        type: 'turn.settled',
+        engineSessionId,
+        outcome: 'cancelled',
+        stopReason: 'cancelled',
+      });
+    } finally {
+      if (session.turn === turn) session.turn = undefined;
+    }
+  }
+
+  /** 一次上下文压缩：开始、过几步、完成。 */
+  async #compaction(
+    signal: AbortSignal,
+    emit: (event: AgentEvent) => void,
+    engineSessionId: string,
+    trigger: 'manual' | 'auto',
+  ): Promise<void> {
+    const compactionId = this.#nextId('compact_echo');
+    emit({ type: 'context.compacting', engineSessionId, compactionId, trigger });
+    for (let step = 0; step < 5; step += 1) await this.#step(signal);
+    emit({ type: 'context.compacted', engineSessionId, compactionId, trigger });
   }
 
   /**

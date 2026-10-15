@@ -19,11 +19,11 @@ class Recording extends EchoAdapter {
   }
 }
 
-/** 没有插话与分支的引擎：读这两个方法得到 undefined，其余照常。 */
+/** 没有插话、分支与代码审查的引擎（像 Claude）：读这几个方法得到 undefined，其余照常。 */
 function withoutSteer(inner: Recording): AgentRuntimeAdapter & { configured: ProviderConfig[] } {
   return new Proxy(inner, {
     get(target, property) {
-      if (property === 'steer' || property === 'fork') return undefined;
+      if (property === 'steer' || property === 'fork' || property === 'review') return undefined;
       const value = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
@@ -104,6 +104,24 @@ describe('EngineRouter', () => {
     ).rejects.toMatchObject({
       code: 'invalid_input',
     });
+  });
+
+  it('supports 按会话所在的引擎回答（0.24.0）', async () => {
+    const { router } = setup();
+    expect(router.compact).toBeDefined();
+    expect(router.review).toBeDefined();
+    await router.configureProviders([
+      provider('local', 'openai-compatible'),
+      provider('claude', 'claude'),
+    ]);
+    const local = await router.createSession({ cwd: '/w', providerId: 'local', modelId: 'm' });
+    const claude = await router.createSession({ cwd: '/w', providerId: 'claude', modelId: 'm' });
+    expect(router.supports(local.engineSessionId, 'review')).toBe(true);
+    expect(router.supports(claude.engineSessionId, 'review')).toBe(false);
+    expect(router.supports(claude.engineSessionId, 'compact')).toBe(true);
+    await expect(
+      router.review?.(claude.engineSessionId, { target: 'uncommitted' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
   });
 
   it('没有引擎的种类：validateProvider 给出问题，建会话报 invalid_input；额外目录只给支持它的引擎', async () => {

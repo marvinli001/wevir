@@ -76,9 +76,14 @@ export interface TurnFold {
   issues: Record<IssueKind, number>;
 }
 
-/** 插话（R11）、错误部件与建议的任务（U23：卡片与回报）始终显示，收起的回合里也在。 */
+/** 插话（R11）、错误部件、建议的任务（U23：卡片与回报）与上下文压缩（0.24.0）始终显示，收起的回合里也在。 */
 export function alwaysShown(part: ChatPart): boolean {
-  return part.type === 'error' || part.type === 'tasks' || part.type === 'task_report';
+  return (
+    part.type === 'error' ||
+    part.type === 'tasks' ||
+    part.type === 'task_report' ||
+    part.type === 'compaction'
+  );
 }
 
 /** `finalKey` 的格式。 */

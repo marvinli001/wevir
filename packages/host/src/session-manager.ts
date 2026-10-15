@@ -22,6 +22,7 @@ import {
   type QuestionRequest,
   type QuestionResolution,
   type ResolvedApprovalStatus,
+  type ReviewTarget,
   type Session,
   type SessionId,
   type SessionReadOnlyReason,
@@ -35,6 +36,7 @@ import {
   type SuggestedTask,
   type TaskId,
   type ToolDisplay,
+  type TurnCommand,
   type TurnId,
   type TurnOutcome,
   type UserContentPart,
@@ -50,6 +52,8 @@ import {
   isAdapterError,
   type QuestionCancelledEvent,
   type QuestionRequestedEvent,
+  type ReviewRequest,
+  type SessionCommandMethod,
   type SessionConfig,
   type SessionLostReason,
   type SubagentStartedEvent,
@@ -66,6 +70,7 @@ import {
 import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
+import { reviewRepo } from './git-diff.js';
 import {
   type CreatedWorktree,
   createWorktree,
@@ -153,6 +158,8 @@ interface TurnRuntime {
    * 只在内存里：Host 重启后一律暂停。
    */
   readonly addedWhileCancelling: Set<PendingMessageId>;
+  /** 由命令开始的回合（0.24.0，domain-model §4.7）：不能插话，插话一律排队。 */
+  readonly command?: TurnCommand;
 }
 
 /** 一次对引擎事件流的订阅。 */
@@ -184,6 +191,9 @@ interface SessionRuntime {
 }
 
 const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
+
+/** 命令开的回合（0.24.0）里的插话改为排队时记下的原因。 */
+const COMMAND_TURN_NOT_STEERABLE = 'a compact or review turn cannot be steered';
 
 /** 引擎会话恢复不了的原因（适配器的 `session_lost`）→ 会话只读的原因。 */
 const READ_ONLY_REASONS = {
@@ -647,6 +657,121 @@ export class SessionManager {
   }
 
   /**
+   * `session.compact`（0.24.0，domain-model §4.7）：开始一个由命令开始的回合，引擎压缩会话的上下文。前提同 `send`（没有排队）。
+   */
+  compact(sessionId: SessionId): Promise<MethodResult<'session.compact'>> {
+    return this.#command(sessionId, 'compact', async () => ({ kind: 'compact' }));
+  }
+
+  /**
+   * `session.review`（0.24.0）：开始一个由命令开始的回合，引擎审查改动。会话目录要是 git 仓库；`branch` 要找得到基础分支
+   * （同 `workspace.diff` 的 `branch`），否则 `INVALID_PARAMS`。
+   */
+  review(sessionId: SessionId, target: ReviewTarget): Promise<MethodResult<'session.review'>> {
+    return this.#command(sessionId, 'review', async (runtime) => {
+      const repo = await reviewRepo(this.#record(runtime).cwd);
+      if (repo === undefined) {
+        throw new HostError('INVALID_PARAMS', 'the session directory is not a git repository', {
+          issues: [{ path: ['sessionId'], message: 'not a git repository' }],
+        });
+      }
+      if (target === 'uncommitted') return { kind: 'review', target };
+      if (repo.baseBranch === undefined) {
+        throw new HostError('INVALID_PARAMS', 'no base branch to compare against', {
+          issues: [{ path: ['target'], message: 'no base branch' }],
+        });
+      }
+      return { kind: 'review', target, baseBranch: repo.baseBranch };
+    });
+  }
+
+  /**
+   * 命令回合的共同部分：会话空闲（否则 `SESSION_BUSY`）、可以发送（`assertSendable`）；引擎会话没挂着时先自动恢复（多引擎的路由
+   * 要它才知道会话在哪个引擎上）；会话所在的引擎没有这个方法时 `INVALID_STATE`，不写事件。
+   */
+  async #command(
+    sessionId: SessionId,
+    method: SessionCommandMethod,
+    prepare: (runtime: SessionRuntime) => Promise<TurnCommand>,
+  ): Promise<{ turnId: TurnId; seq: number }> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
+    assertSendable(this.#snapshot(runtime));
+    return this.#serial(runtime, async () => {
+      assertSendable(this.#snapshot(runtime));
+      if (!runtime.attachment) {
+        await this.#autoResume(runtime);
+        assertSendable(this.#snapshot(runtime));
+      }
+      const supported =
+        this.#adapter.supports?.(runtime.engineSessionId, method) ??
+        this.#adapter[method] !== undefined;
+      if (!supported) {
+        throw new HostError(
+          'INVALID_STATE',
+          method === 'compact'
+            ? "the session's engine cannot compact its context"
+            : "the session's engine cannot review code",
+          { state: this.#snapshot(runtime).session.state },
+        );
+      }
+      const command = await prepare(runtime);
+      // 准备期间（读 git）引擎可能已经报了退出。
+      assertSendable(this.#snapshot(runtime));
+      return this.#startCommandTurn(runtime, command);
+    });
+  }
+
+  /**
+   * 由命令开始的回合（0.24.0，domain-model §4.7）：同 `#startTurn`，但没有 `user.message`、不起标题，`turn.started` 带
+   * `command`，交给引擎的是 `compact` 或 `review`。引擎拒收时会话转 `error`（#10）。
+   */
+  async #startCommandTurn(
+    runtime: SessionRuntime,
+    command: TurnCommand,
+  ): Promise<{ turnId: TurnId; seq: number }> {
+    const turnId = newId('trn');
+    const [started] = this.#write(runtime, [
+      { type: 'turn.started', source: 'host', payload: { turnId, command } },
+      stateChanged('idle', 'running', 'turn_started'),
+    ]);
+    if (!started) throw new Error('turn.started 未写入');
+    runtime.turn = {
+      turnId,
+      streams: new Map(),
+      openTools: new Set(),
+      tools: new Map(),
+      finished: deferred(),
+      addedWhileCancelling: new Set(),
+      command,
+    };
+    const checkpointCwd = this.#checkpointCwd(runtime);
+    if (checkpointCwd !== undefined) {
+      await this.#checkpoints?.beforeTurn(runtime.id, checkpointCwd, turnId);
+    }
+    try {
+      await this.#runCommand(runtime.engineSessionId, command);
+    } catch (error) {
+      if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
+    }
+    return { turnId, seq: started.seq };
+  }
+
+  #runCommand(engineSessionId: string, command: TurnCommand): Promise<void> {
+    if (command.kind === 'compact') {
+      if (this.#adapter.compact === undefined) throw new Error('adapter has no compact');
+      return this.#adapter.compact(engineSessionId);
+    }
+    if (this.#adapter.review === undefined) throw new Error('adapter has no review');
+    const request: ReviewRequest =
+      command.target === 'branch' && command.baseBranch !== undefined
+        ? { target: 'branch', baseBranch: command.baseBranch }
+        : { target: 'uncommitted' };
+    return this.#adapter.review(engineSessionId, request);
+  }
+
+  /**
    * 开始一个回合（#2）：普通的 `send`，或发出一条排队的待发消息（R11，`pending`）。必要时先自动 resume（#11）；写
    * `user.message`、`turn.started`、（首个回合的）标题与 idle→running，普通发送在同一事务里记回执，发出待发消息时同一
    * 事务里把它标为 `sent`；再交给引擎。引擎拒收时会话转 `error`（#10），仍返回已接受的 `turnId` 与 `seq`。
@@ -764,7 +889,10 @@ export class SessionManager {
   ): Promise<MethodResult<'session.send'>> {
     const { state } = this.#snapshot(runtime).session;
     const wantsSteer = params.delivery === 'steer';
-    const steerable = wantsSteer && state !== 'cancelling' && this.#adapter.steer !== undefined;
+    // 命令开的回合（0.24.0）不能插话：Codex 的 review、compact 回合拒绝 `turn/steer`，Claude 的 `/compact` 是本地命令。
+    const commandTurn = runtime.turn?.command !== undefined;
+    const steerable =
+      wantsSteer && state !== 'cancelling' && !commandTurn && this.#adapter.steer !== undefined;
     const now = isoNow();
     const pending: PendingMessage = {
       id: newId('pnd'),
@@ -777,7 +905,12 @@ export class SessionManager {
     };
     if (params.clientMessageId !== undefined) pending.clientMessageId = params.clientMessageId;
     if (wantsSteer && !steerable) {
-      pending.fallback = { reason: state === 'cancelling' ? 'turn_ended' : 'unsupported' };
+      pending.fallback =
+        state === 'cancelling'
+          ? { reason: 'turn_ended' }
+          : commandTurn
+            ? { reason: 'rejected', message: COMMAND_TURN_NOT_STEERABLE }
+            : { reason: 'unsupported' };
     }
     const { clientMessageId } = params;
     const [event] = this.#write(
@@ -853,7 +986,10 @@ export class SessionManager {
       if (pending.status === 'held') throw notEditable(pending);
       const { state } = this.#snapshot(runtime).session;
       if (state === 'running' || state === 'awaiting_approval') {
-        if (this.#adapter.steer !== undefined) {
+        if (runtime.turn?.command !== undefined) {
+          // 命令开的回合不能插话（0.24.0），同 `#addPending`。
+          next.fallback = { reason: 'rejected', message: COMMAND_TURN_NOT_STEERABLE };
+        } else if (this.#adapter.steer !== undefined) {
           next.delivery = 'steer';
           delete next.fallback;
           handOver = true;
@@ -1786,6 +1922,16 @@ export class SessionManager {
         ]);
         return;
       }
+      case 'context.compacting':
+      case 'context.compacted':
+        this.#write(runtime, [
+          {
+            type: event.type,
+            source: 'engine',
+            payload: { turnId, compactionId: event.compactionId, trigger: event.trigger },
+          },
+        ]);
+        return;
       case 'todo.updated':
         this.#write(runtime, [
           {

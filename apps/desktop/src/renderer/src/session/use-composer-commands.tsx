@@ -1,18 +1,21 @@
 // 各页面的斜杠命令（U33）：会话页、草稿页与首页各自拼出能用的命令，交给输入框（composer.tsx）。照 Codex 桌面端的命令
-// 表取 Wevir 现在做得到的：模型、思考力度、权限（二级菜单），新建会话、支线提问、文件、变更、状态、初始化。
+// 表取 Wevir 现在做得到的：模型、思考力度、权限（二级菜单），新建会话、支线提问、文件、变更、状态、初始化；0.24.0 起还有
+// 压缩上下文与代码审查（Host 声明 `session_compact` / `session_review` 时）。
 
-import type { PermissionMode, ProviderProfile, SessionId } from '@wevir/protocol';
+import type { PermissionMode, ProviderProfile, ReviewTarget, SessionId } from '@wevir/protocol';
 import {
   Archive,
   Brain,
   Cpu,
   FileCode2,
   FolderTree,
+  FoldVertical,
   Gauge,
   GitCompare,
   type LucideIcon,
   MessagesSquare,
   Pencil,
+  ScanSearch,
   Shield,
   SquarePen,
 } from 'lucide-react';
@@ -178,6 +181,9 @@ export interface SessionCommandOptions {
   /** Host 能改名、归档（0.23.0）时给。 */
   onRename?: () => void;
   onArchive?: () => void;
+  /** Host 能压缩上下文、审查代码（0.24.0）且会话可写时给。 */
+  onCompact?: () => void;
+  onReview?: (target: ReviewTarget) => void;
 }
 
 /** 已有会话的命令。 */
@@ -199,6 +205,8 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     send,
     onRename,
     onArchive,
+    onCompact,
+    onReview,
   } = options;
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
@@ -230,6 +238,18 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
         ),
       );
     }
+    if (onCompact) commands.push(simple('compact', t('command.compact'), FoldVertical, onCompact));
+    if (onReview) {
+      commands.push({
+        name: 'review',
+        label: t('command.review'),
+        icon: ScanSearch,
+        items: () => [
+          { id: 'uncommitted', label: t('review.uncommitted'), run: () => onReview('uncommitted') },
+          { id: 'branch', label: t('review.baseBranch'), run: () => onReview('branch') },
+        ],
+      });
+    }
     commands.push(simple('status', t('command.status'), Gauge, showStatus));
     if (onRename) commands.push(simple('rename', t('command.rename'), Pencil, onRename));
     if (onArchive) commands.push(simple('archive', t('command.archive'), Archive, onArchive));
@@ -240,6 +260,8 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
   }, [
     onRename,
     onArchive,
+    onCompact,
+    onReview,
     workspaceId,
     sessionId,
     providers,

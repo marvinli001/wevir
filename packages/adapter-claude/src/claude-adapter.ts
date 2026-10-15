@@ -77,6 +77,8 @@ export const CANCEL_TIMEOUT_MS = 10_000;
 export const CLOSE_TIMEOUT_MS = 5_000;
 /** `engine.raw` 的协议名。 */
 export const ENGINE_RAW_PROTOCOL = 'claude-agent-sdk';
+/** 压缩上下文（0.24.0）：照 T3 的 `compactThread`，`claude` 在本地执行这条斜杠命令。 */
+export const COMPACT_COMMAND = '/compact';
 
 /** 不映射、也不保留为 `engine.raw` 的消息（高频的进度与状态）。 */
 const IGNORED_MESSAGES: ReadonlySet<string> = new Set([
@@ -194,6 +196,10 @@ interface Owner {
 
 interface Turn {
   promptUuid: string;
+  /** `compact` 开的回合（0.24.0）：它的压缩记为 `manual`，结果不按 uuid 对。 */
+  readonly kind?: 'compact';
+  /** 进行中的压缩（`status` 是 `compacting`，0.24.0），等 `compact_boundary`。 */
+  compaction?: { id: string; trigger: 'manual' | 'auto' };
   settled: boolean;
   cancelRequested: boolean;
   cancelPromise?: Promise<void>;
@@ -419,10 +425,24 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     const session = this.#root(engineSessionId, 'send');
     const text = textOf(input);
     if (text === '') throw new AdapterError('invalid_input', 'the message is empty');
+    await this.#startTurn(session, text);
+  }
+
+  /**
+   * 压缩上下文（0.24.0，claude-event-mapping.md）：照 T3 的 `compactThread` 把 `/compact` 当一条消息发出，`claude` 在本地压缩；
+   * `status` 的 `compacting` 与 `compact_boundary` 映射成 `context.compacting` / `context.compacted`。
+   */
+  async compact(engineSessionId: string): Promise<void> {
+    this.#ensureAlive();
+    await this.#startTurn(this.#root(engineSessionId, 'compact'), COMPACT_COMMAND, 'compact');
+  }
+
+  async #startTurn(session: RootSession, text: string, kind?: Turn['kind']): Promise<void> {
     if (session.turn !== undefined) {
-      throw new AdapterError('session_busy', `session ${engineSessionId} has a turn in progress`);
+      throw new AdapterError('session_busy', `session ${session.id} has a turn in progress`);
     }
     const turn: Turn = {
+      ...(kind !== undefined && { kind }),
       promptUuid: randomUUID(),
       settled: false,
       cancelRequested: false,
@@ -437,13 +457,15 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       const installation = await this.accounts.installation();
       this.#ensureAlive();
       if (!session.open)
-        throw new AdapterError('session_closed', `session ${engineSessionId} is closed`);
+        throw new AdapterError('session_closed', `session ${session.id} is closed`);
       const live = await this.#liveFor(session, installation);
       for (const note of session.pendingNotes.splice(0)) {
         live.input.push(this.#userMessage(note, { shouldQuery: false }));
       }
-      const prompt = session.sideNotePending ? `${SIDE_BOUNDARY_NOTE}\n\n${text}` : text;
-      session.sideNotePending = false;
+      // 斜杠命令前面不能有别的字：支线的边界说明留给下一条消息。
+      const boundary = session.sideNotePending && kind === undefined;
+      const prompt = boundary ? `${SIDE_BOUNDARY_NOTE}\n\n${text}` : text;
+      if (boundary) session.sideNotePending = false;
       live.input.push(this.#userMessage(prompt, { uuid: turn.promptUuid }));
       turn.live = live;
       session.persisted = true;
@@ -1321,6 +1343,14 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           }
           return;
         }
+        if (message.subtype === 'status') {
+          this.#compactionStatus(session, message);
+          return;
+        }
+        if (message.subtype === 'compact_boundary') {
+          this.#compacted(session, message);
+          return;
+        }
         if (message.subtype === 'api_retry' && session.stream !== undefined) {
           session.hub.emit({
             type: 'assistant.stream_ended',
@@ -1344,6 +1374,64 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       ...(message.type === 'system' && { kind: message.subtype }),
       params: message,
     });
+  }
+
+  /**
+   * `status`（0.24.0）：`compacting` 是压缩开始（`compact` 开的回合是 `manual`，其余是 Claude 自己压缩）；压缩失败
+   * （`compact_result: 'failed'`）时丢掉，回合照常结算。其余状态不出事件。
+   */
+  #compactionStatus(
+    session: RootSession,
+    message: Extract<SDKMessage, { type: 'system'; subtype: 'status' }>,
+  ): void {
+    const turn = session.turn;
+    if (turn === undefined || turn.settled) return;
+    if (message.status === 'compacting') {
+      if (turn.compaction !== undefined) return;
+      const compaction = {
+        id: message.uuid,
+        trigger: turn.kind === 'compact' ? ('manual' as const) : ('auto' as const),
+      };
+      turn.compaction = compaction;
+      session.hub.emit({
+        type: 'context.compacting',
+        engineSessionId: session.id,
+        compactionId: compaction.id,
+        trigger: compaction.trigger,
+      });
+      return;
+    }
+    if (message.compact_result === 'failed') turn.compaction = undefined;
+  }
+
+  /** `compact_boundary`（0.24.0）：压缩完成；`post_tokens` 是压缩后的上下文用量（T3 同样拿它更新用量）。 */
+  #compacted(
+    session: RootSession,
+    message: Extract<SDKMessage, { type: 'system'; subtype: 'compact_boundary' }>,
+  ): void {
+    const turn = session.turn;
+    if (turn === undefined || turn.settled) {
+      this.#raw(session, message);
+      return;
+    }
+    const compactionId = turn.compaction?.id ?? message.uuid;
+    turn.compaction = undefined;
+    session.hub.emit({
+      type: 'context.compacted',
+      engineSessionId: session.id,
+      compactionId,
+      trigger: message.compact_metadata.trigger,
+    });
+    const post = message.compact_metadata.post_tokens;
+    if (typeof post === 'number' && Number.isFinite(post) && post > 0) {
+      turn.lastContextUsed = Math.round(post);
+      session.hub.emit({
+        type: 'usage.updated',
+        engineSessionId: session.id,
+        contextUsed: turn.lastContextUsed,
+        contextSize: claudeContextWindow(session.config.modelId) ?? 200_000,
+      });
+    }
   }
 
   /** Claude 取消了排队的插话：不再等它，之前推迟的结果照常结算。 */
@@ -1614,7 +1702,9 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     const echoed =
       message.user_message_uuids ??
       (message.user_message_uuid === undefined ? [] : [message.user_message_uuid]);
+    // `/compact` 是本地命令（0.24.0），它的结果不一定带这条消息的 uuid。
     if (
+      turn.kind !== 'compact' &&
       echoed.length > 0 &&
       !echoed.includes(turn.promptUuid) &&
       !turn.steers.some((steer) => echoed.includes(steer.uuid))

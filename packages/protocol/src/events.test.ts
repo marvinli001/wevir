@@ -57,6 +57,9 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.resolution.answeredBy?.clientKind ?? event.payload.resolution.reason;
     case 'usage.updated':
       return String(event.payload.contextUsed);
+    case 'context.compacting':
+    case 'context.compacted':
+      return event.payload.trigger;
     case 'engine.error':
       return event.payload.category;
     case 'engine.raw':

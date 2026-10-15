@@ -1,6 +1,7 @@
 import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
+import type { TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
-import { CircleAlert, Info } from 'lucide-react';
+import { CircleAlert, FoldVertical, Info, ScanSearch } from 'lucide-react';
 import { memo } from 'react';
 import { t } from '@/i18n';
 import { CopyButton } from './copy-button';
@@ -15,6 +16,7 @@ import { WorkGroup } from './work-group';
 // 并成一行，回合结束后的折叠也在那里决定）。
 
 export function UserMessage({ message }: { message: UserChatMessage }) {
+  if (message.command) return <CommandMessage command={message.command} />;
   const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
   // 子会话里父 agent 给的输入标成“父 agent 派给它的任务”（R5）。别的客户端发的不标来源。
   return (
@@ -39,6 +41,27 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
           {t('transcript.steered')}
         </span>
       )}
+    </div>
+  );
+}
+
+/** 由命令开始的回合（0.24.0）：用户一侧是命令本身，“压缩上下文”“代码审查 · 未提交的改动”。 */
+function CommandMessage({ command }: { command: TurnCommand }) {
+  const Icon = command.kind === 'compact' ? FoldVertical : ScanSearch;
+  const label =
+    command.kind === 'compact'
+      ? t('command.compact')
+      : `${t('command.review')} · ${
+          command.target === 'branch' && command.baseBranch !== undefined
+            ? t('review.branch', { branch: command.baseBranch })
+            : t('review.uncommitted')
+        }`;
+  return (
+    <div className="flex flex-col items-end" data-message-role="user" data-command={command.kind}>
+      <div className="flex max-w-[85%] min-w-0 items-center gap-2 rounded-xl bg-muted px-3.5 py-2 text-base">
+        <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 truncate">{label}</span>
+      </div>
     </div>
   );
 }
@@ -118,6 +141,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <SuggestedTasksCard part={part} />;
     case 'task_report':
       return <TaskReportMarker part={part} />;
+    case 'compaction':
+      return <CompactionPart part={part} />;
     // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
     case 'reasoning':
     case 'tool':
@@ -156,6 +181,31 @@ function QuestionPart({ part }: { part: ChatPartOf<'question'> }) {
         );
       })}
     </ul>
+  );
+}
+
+/**
+ * 上下文压缩（0.24.0）：消息流里的一条分隔线，进行中时文字闪动。引擎自己压缩的写“自动”，收起的回合里也在。
+ */
+function CompactionPart({ part }: { part: ChatPartOf<'compaction'> }) {
+  const running = part.status === 'running';
+  const auto = part.trigger === 'auto';
+  const label = running
+    ? t(auto ? 'compaction.autoRunning' : 'compaction.running')
+    : t(auto ? 'compaction.autoDone' : 'compaction.done');
+  return (
+    <div
+      className="my-3 flex items-center gap-3 text-sm text-muted-foreground"
+      data-compaction={part.status}
+      data-compaction-trigger={part.trigger}
+    >
+      <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
+      <span className="flex shrink-0 items-center gap-1.5">
+        <FoldVertical aria-hidden className="size-3.5" />
+        <span className={cn(running && 'shimmer')}>{label}</span>
+      </span>
+      <span aria-hidden className="h-px min-w-6 flex-1 bg-border" />
+    </div>
   );
 }
 

@@ -18,6 +18,8 @@ import type {
   ProviderConfig,
   ProviderIssue,
   ProviderTestResult,
+  ReviewRequest,
+  SessionCommandMethod,
   SessionConfig,
   TitleRequest,
 } from '@wevir/runtime-adapter';
@@ -51,6 +53,8 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly injectNote?: AgentRuntimeAdapter['injectNote'];
   readonly respondToQuestion?: AgentRuntimeAdapter['respondToQuestion'];
   readonly generateTitle?: AgentRuntimeAdapter['generateTitle'];
+  readonly compact?: AgentRuntimeAdapter['compact'];
+  readonly review?: AgentRuntimeAdapter['review'];
 
   /** Provider 种类 → 引擎。 */
   readonly #byKind = new Map<ProviderKind, EngineRoute>();
@@ -113,6 +117,19 @@ export class EngineRouter implements AgentRuntimeAdapter {
       this.generateTitle = async (id: string, request: TitleRequest) =>
         this.#method(id, 'generateTitle').generateTitle(id, request);
     }
+    if (adapters.some((adapter) => adapter.compact !== undefined)) {
+      this.compact = async (id) => this.#method(id, 'compact').compact(id);
+    }
+    if (adapters.some((adapter) => adapter.review !== undefined)) {
+      this.review = async (id, request: ReviewRequest) =>
+        this.#method(id, 'review').review(id, request);
+    }
+  }
+
+  /** 会话所在的引擎有没有这个方法（0.24.0）：Host 在开始命令回合之前问。 */
+  supports(engineSessionId: string, method: SessionCommandMethod): boolean {
+    const adapter = this.#forSession(engineSessionId).adapter;
+    return adapter.supports?.(engineSessionId, method) ?? adapter[method] !== undefined;
   }
 
   async createSession(config: SessionConfig): Promise<EngineSession> {
@@ -259,7 +276,9 @@ type OptionalMethod =
   | 'configureSession'
   | 'injectNote'
   | 'respondToQuestion'
-  | 'generateTitle';
+  | 'generateTitle'
+  | 'compact'
+  | 'review';
 
 function unsupported(route: EngineRoute, method: string): AdapterError {
   return new AdapterError('invalid_input', `the ${route.name} engine does not support ${method}`);

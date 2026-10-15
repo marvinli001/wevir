@@ -27,6 +27,7 @@ import {
   type ProviderIssue,
   type ProviderModelConfig,
   type ProviderTestResult,
+  type ReviewRequest,
   type SessionConfig,
   type TitleRequest,
 } from '@wevir/runtime-adapter';
@@ -80,6 +81,9 @@ import {
   type FileChangeRequestApprovalParams,
   REQUEST_USER_INPUT,
   type RequestId,
+  type ReviewStartParams,
+  type ReviewStartResponse,
+  type ThreadCompactStartParams,
   type ThreadForkParams,
   type ThreadForkResponse,
   type ThreadInjectItemsParams,
@@ -194,8 +198,13 @@ export interface CodexAdapterOptions {
 }
 
 interface Turn {
-  /** `turn/start` 的结果到了才有。 */
+  /**
+   * `turn/start`（`review/start`）的结果到了才有；`thread/compact/start` 不给回合 ID，等 app-server 的 `turn/started`
+   * （0.24.0）。
+   */
   turnId?: string;
+  /** 命令开的回合（0.24.0，§4.9）：`compact` 的 `contextCompaction` 记为 `manual`。 */
+  readonly kind?: 'compact' | 'review';
   cancelRequested: boolean;
   /** 交给 `turn/steer`、还没进回合的插话（R11）：`clientUserMessageId`，见到同一 `clientId` 的 userMessage 完成就报出。 */
   readonly steers: Set<string>;
@@ -633,26 +642,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
-    this.#assertUsable();
-    const session = this.#openSession(engineSessionId);
-    if (session.parentId !== undefined) {
-      throw new AdapterError('invalid_input', '子会话由父 agent 驱动，不能直接发送');
-    }
-    if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
-    if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
-    await this.#account?.assertSignedIn();
-    if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
-    let settle!: () => void;
-    const turn: Turn = {
-      cancelRequested: false,
-      steers: new Set(),
-      done: new Promise<void>((resolve) => {
-        settle = resolve;
-      }),
-      settle: () => settle(),
-    };
-    session.turn = turn;
-    session.mapper.reset();
+    const session = await this.#turnSession(engineSessionId, () => {
+      if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
+    });
+    const turn = this.#beginTurn(session);
     const params: TurnStartParams = {
       threadId: engineSessionId,
       input: input.content.map((part) => ({ type: 'text', text: part.text, text_elements: [] })),
@@ -664,13 +657,97 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       // turn/start 立即返回（codex-notes §2.2），正好是 send 的语义：引擎接受输入就返回。
       response = await this.process.request<TurnStartResponse>('turn/start', params);
     } catch (error) {
-      if (session.turn === turn) {
-        session.turn = undefined;
-        turn.settle();
-      }
+      this.#dropTurn(session, turn);
       throw engineError(error, 'turn/start');
     }
-    turn.turnId = response.turn.id;
+    this.#learnTurnId(session, turn, response.turn.id);
+  }
+
+  /**
+   * 压缩上下文（0.24.0，codex-event-mapping.md §4.9）：`thread/compact/start`，app-server 接受即返回（空结果）。回合由它开始：
+   * 回合 ID 等 `turn/started` 带来（`#deliverMapped`），此前就要取消的等它到了再发 `turn/interrupt`。回合里的
+   * `contextCompaction` item 映射成 `context.compacting` / `context.compacted`（`manual`）。
+   */
+  async compact(engineSessionId: string): Promise<void> {
+    const session = await this.#turnSession(engineSessionId);
+    const turn = this.#beginTurn(session, 'compact');
+    const params: ThreadCompactStartParams = { threadId: engineSessionId };
+    try {
+      await this.process.request('thread/compact/start', params);
+    } catch (error) {
+      this.#dropTurn(session, turn);
+      throw engineError(error, 'thread/compact/start');
+    }
+  }
+
+  /**
+   * 代码审查（0.24.0，§4.9）：`review/start`，`delivery: 'inline'`（在会话自己的 thread 上，结果回到它的上下文里）。审查的子 agent
+   * 不请求审批（Codex 固定 `never`），它的工具调用照常上报；`enteredReviewMode` / `exitedReviewMode` 不出事件，结果是随后的
+   * agentMessage。
+   */
+  async review(engineSessionId: string, request: ReviewRequest): Promise<void> {
+    const session = await this.#turnSession(engineSessionId);
+    const turn = this.#beginTurn(session, 'review');
+    const params: ReviewStartParams = {
+      threadId: engineSessionId,
+      target:
+        request.target === 'branch'
+          ? { type: 'baseBranch', branch: request.baseBranch }
+          : { type: 'uncommittedChanges' },
+      delivery: 'inline',
+    };
+    let response: ReviewStartResponse;
+    try {
+      response = await this.process.request<ReviewStartResponse>('review/start', params);
+    } catch (error) {
+      this.#dropTurn(session, turn);
+      throw engineError(error, 'review/start');
+    }
+    this.#learnTurnId(session, turn, response.turn.id);
+  }
+
+  /** 开回合之前（`send`、`compact`、`review`）：会话挂着、不是子会话、没有进行中的回合、已登录。 */
+  async #turnSession(engineSessionId: string, check?: () => void): Promise<CodexSession> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) {
+      throw new AdapterError('invalid_input', '子会话由父 agent 驱动，不能直接发送');
+    }
+    if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
+    check?.();
+    await this.#account?.assertSignedIn();
+    if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
+    return session;
+  }
+
+  #beginTurn(session: CodexSession, kind?: Turn['kind']): Turn {
+    let settle!: () => void;
+    const turn: Turn = {
+      ...(kind !== undefined && { kind }),
+      cancelRequested: false,
+      steers: new Set(),
+      done: new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+      settle: () => settle(),
+    };
+    session.turn = turn;
+    session.mapper.reset(kind === 'compact' ? 'manual' : 'auto');
+    return turn;
+  }
+
+  /** app-server 没有接受这个回合。 */
+  #dropTurn(session: CodexSession, turn: Turn): void {
+    if (session.turn === turn) {
+      session.turn = undefined;
+      turn.settle();
+    }
+  }
+
+  /** 知道了回合 ID：之前就要取消的，这时才发 `turn/interrupt`。 */
+  #learnTurnId(session: CodexSession, turn: Turn, turnId: string): void {
+    if (turn.turnId !== undefined) return;
+    turn.turnId = turnId;
     if (turn.cancelRequested && session.turn === turn) this.#interrupt(session, turn);
   }
 
@@ -1238,9 +1315,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const turn = session.turn;
     // 不属于进行中回合的通知（上一个回合迟到的、或根本没有回合）：只保留 engine.raw 与用量（events.ts 的顺序约定）。
     const turnId = notificationTurnId(params);
+    // 压缩（0.24.0）的回合 ID 由 app-server 的 `turn/started` 带来；在那之前上一个回合迟到的通知不算它的。
+    if (turn?.kind === 'compact' && turn.turnId === undefined && turnId !== undefined) {
+      if (method === 'turn/started') this.#learnTurnId(session, turn, turnId);
+    }
     const stale =
       turn === undefined ||
-      (turn.turnId !== undefined && turnId !== undefined && turnId !== turn.turnId);
+      (turnId !== undefined &&
+        (turn.turnId !== undefined ? turnId !== turn.turnId : turnId === session.lastTurnId));
     if (stale) {
       // 用量与 MCP 服务启动（Wevir 自己的正常启动不出事件，§6.8）的映射不读回合状态；按设计忽略的（thread 状态等）照样
       // 忽略；其余一律原样保留。

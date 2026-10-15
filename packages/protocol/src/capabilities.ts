@@ -98,6 +98,13 @@ export const HOST_FEATURES = {
   sessionRename: 'session_rename',
   /** 会话归档（0.23.0）：`session.archive`、`session.list` 的 `archived`、`Session.archivedAt`。与引擎无关。 */
   sessionArchive: 'session_archive',
+  /**
+   * 立即压缩会话的上下文（0.24.0）：`session.compact`，`turn.started` 的 `command`，`context.compacting` / `context.compacted`
+   * 事件（引擎自己压缩时也有）。取决于引擎（Codex、Claude 有）；会话所在的引擎不能压缩时 `INVALID_STATE`。
+   */
+  sessionCompact: 'session_compact',
+  /** 代码审查（0.24.0）：`session.review`。取决于引擎（Codex 有）；会话所在的引擎不能审查时 `INVALID_STATE`。 */
+  sessionReview: 'session_review',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -121,6 +128,8 @@ export const HostFeaturesSchema = z.looseObject({
   workspace_files: z.boolean().optional(),
   session_rename: z.boolean().optional(),
   session_archive: z.boolean().optional(),
+  session_compact: z.boolean().optional(),
+  session_review: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

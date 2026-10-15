@@ -91,10 +91,18 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'item/autoApprovalReview/started',
   'item/autoApprovalReview/completed',
   'guardianWarning',
+  // 已弃用、由 `contextCompaction` item 取代的压缩通知（0.24.0，§4.9）：压缩照 item 报。
+  'thread/compacted',
 ] as const);
 
-/** 这些 item 不产生事件：用户消息由 Host 自己记（`user.message`）。 */
-const SILENT_ITEMS = new Set(['userMessage']);
+/**
+ * 这些 item 不产生事件：用户消息由 Host 自己记（`user.message`）；审查的进入与退出（0.24.0，§4.9）由 Host 的
+ * `turn.started.command` 表示，审查结果是随后的 agentMessage。
+ */
+const SILENT_ITEMS = new Set(['userMessage', 'enteredReviewMode', 'exitedReviewMode']);
+
+/** 上下文压缩的 item（0.24.0，§4.9）。 */
+const COMPACTION_ITEM = 'contextCompaction';
 
 const SUMMARY_SUFFIX = '/summary';
 
@@ -126,15 +134,18 @@ export class CodexEventMapper {
   readonly engineSessionId: string;
   readonly #items = new Map<string, ItemState>();
   readonly #contextSize: () => number | undefined;
+  /** 这个回合里的压缩怎么来的：`compact` 开的回合是 `manual`，其余是引擎自己压缩（0.24.0）。 */
+  #compaction: 'manual' | 'auto' = 'auto';
 
   constructor(engineSessionId: string, options: CodexEventMapperOptions = {}) {
     this.engineSessionId = engineSessionId;
     this.#contextSize = options.contextSize ?? (() => undefined);
   }
 
-  /** 回合开始（或结束）：丢掉上一个回合的 item 状态。 */
-  reset(): void {
+  /** 回合开始（或结束）：丢掉上一个回合的 item 状态。`compaction`：这个回合里的压缩记为哪种（0.24.0）。 */
+  reset(compaction: 'manual' | 'auto' = 'auto'): void {
     this.#items.clear();
+    this.#compaction = compaction;
   }
 
   /** 一条通知对应的 AgentEvent，按发出顺序。`turn/completed` 的最后一个事件是回合的终结事件。 */
@@ -281,9 +292,25 @@ export class CodexEventMapper {
       this.#state(item.id, item.type);
       return [];
     }
+    if (item.type === COMPACTION_ITEM) {
+      this.#state(item.id, item.type);
+      return [this.#compactionEvent('context.compacting', item.id)];
+    }
     if (SILENT_ITEMS.has(item.type)) return [];
     if (!isToolItem(item)) return [this.raw('item/started', params, item.type)];
     return this.#toolStarted(item);
+  }
+
+  #compactionEvent(
+    type: 'context.compacting' | 'context.compacted',
+    compactionId: string,
+  ): AgentEvent {
+    return {
+      type,
+      engineSessionId: this.engineSessionId,
+      compactionId,
+      trigger: this.#compaction,
+    };
   }
 
   #toolStarted(item: ToolItem): AgentEvent[] {
@@ -315,6 +342,12 @@ export class CodexEventMapper {
         return isReasoning(item)
           ? this.#commit(item.id, 'reasoning', reasoningText(item))
           : [this.raw('item/completed', params, item.type)];
+    }
+    if (item.type === COMPACTION_ITEM) {
+      const state = this.#state(item.id, item.type);
+      if (state.completed) return [];
+      state.completed = true;
+      return [this.#compactionEvent('context.compacted', item.id)];
     }
     if (SILENT_ITEMS.has(item.type)) return [];
     if (!isToolItem(item)) return [this.raw('item/completed', params, item.type)];

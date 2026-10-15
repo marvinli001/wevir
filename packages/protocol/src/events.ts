@@ -16,6 +16,7 @@ import {
 import {
   ApprovalRequestSchema,
   ApprovalResolutionSchema,
+  CompactionTriggerSchema,
   EngineErrorCategorySchema,
   PendingMessageSchema,
   PermissionModeSchema,
@@ -33,6 +34,7 @@ import {
   TodoItemSchema,
   ToolDisplaySchema,
   ToolOutputSchema,
+  TurnCommandSchema,
   TurnOutcomeSchema,
   UserContentPartSchema,
 } from './entities.js';
@@ -136,6 +138,8 @@ export const EventPayloadSchemas = {
      * 输入在同一回合的 `user.message`。
      */
     input: z.array(UserContentPartSchema).min(1).optional(),
+    /** 回合由命令开始（0.24.0，`session.compact` / `session.review`），没有 `user.message`。 */
+    command: TurnCommandSchema.optional(),
   }),
   'turn.finished': z.object({
     turnId: TurnIdSchema,
@@ -226,6 +230,21 @@ export const EventPayloadSchemas = {
     contextSize: z.int().min(0),
     /** 这个会话累计用掉的 token（0.14.0，Codex 的 `tokenUsage.total.totalTokens`）；引擎不报时省略。 */
     totalTokens: z.int().min(0).optional(),
+  }),
+  /**
+   * 引擎开始压缩上下文（0.24.0）：`session.compact` 的回合里，或引擎在上下文快满时自己压缩（`auto`，在普通回合中间）。之后同一
+   * `compactionId` 的 `context.compacted` 表示完成；回合结束时还没完成就是没压缩成。
+   */
+  'context.compacting': z.object({
+    turnId: TurnIdSchema,
+    compactionId: z.string().min(1),
+    trigger: CompactionTriggerSchema,
+  }),
+  /** 上下文压缩完成（0.24.0）：之后模型看到的是摘要，不是之前的完整历史。没有 `context.compacting` 在先时同样算一次压缩。 */
+  'context.compacted': z.object({
+    turnId: TurnIdSchema,
+    compactionId: z.string().min(1),
+    trigger: CompactionTriggerSchema,
   }),
   'engine.error': z.object({
     category: EngineErrorCategorySchema,
@@ -347,6 +366,8 @@ export const ApprovalResolvedEventSchema = eventSchema('approval.resolved');
 export const QuestionRequestedEventSchema = eventSchema('question.requested');
 export const QuestionResolvedEventSchema = eventSchema('question.resolved');
 export const UsageUpdatedEventSchema = eventSchema('usage.updated');
+export const ContextCompactingEventSchema = eventSchema('context.compacting');
+export const ContextCompactedEventSchema = eventSchema('context.compacted');
 export const EngineErrorEventSchema = eventSchema('engine.error');
 export const EngineRawEventSchema = eventSchema('engine.raw');
 export const SubagentStartedEventSchema = eventSchema('subagent.started');
@@ -382,6 +403,8 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   QuestionRequestedEventSchema,
   QuestionResolvedEventSchema,
   UsageUpdatedEventSchema,
+  ContextCompactingEventSchema,
+  ContextCompactedEventSchema,
   EngineErrorEventSchema,
   EngineRawEventSchema,
   SubagentStartedEventSchema,

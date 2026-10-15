@@ -255,6 +255,30 @@ export interface ThreadInjectItemsParams {
   items: unknown[];
 }
 
+/**
+ * v2/ThreadCompactStartParams.ts（0.24.0，codex-event-mapping.md §4.9；响应 v2/ThreadCompactStartResponse.ts 是空对象）：立即压缩
+ * thread 的上下文。app-server 自己开一个回合（`turn/started`），回合里一个 `contextCompaction` item。
+ */
+export interface ThreadCompactStartParams {
+  threadId: string;
+}
+
+/** v2/ReviewTarget.ts 里 Wevir 用到的两种（`commit`、`custom` 不用）。 */
+export type ReviewTarget = { type: 'uncommittedChanges' } | { type: 'baseBranch'; branch: string };
+
+/** v2/ReviewStartParams.ts（0.24.0，§4.9）：`delivery: 'inline'` 在 thread 自己身上审查（`detached` 已弃用）。 */
+export interface ReviewStartParams {
+  threadId: string;
+  target: ReviewTarget;
+  delivery?: 'inline' | 'detached' | null;
+}
+
+/** v2/ReviewStartResponse.ts */
+export interface ReviewStartResponse {
+  turn: Turn;
+  reviewThreadId: string;
+}
+
 /** v2/TurnInterruptParams.ts（响应 v2/TurnInterruptResponse.ts 是空对象）。 */
 export interface TurnInterruptParams {
   threadId: string;

@@ -944,3 +944,37 @@ describe('建议的后续任务（0.16.0）', () => {
     expect(projection.snapshot().suggestedTasks).toEqual([]);
   });
 });
+
+describe('命令回合与上下文压缩（0.24.0）', () => {
+  it('命令开的回合：一条带 command、没有文字的用户消息；压缩部件原位从 running 换成 completed', () => {
+    const { list, add } = events();
+    add('turn.started', { turnId: TURN, command: { kind: 'compact' } });
+    add('session.state_changed', { from: 'idle', to: 'running', reason: 'turn_started' });
+    add('context.compacting', { turnId: TURN, compactionId: 'c1', trigger: 'manual' });
+    const running = projectTranscript(list).messages;
+    expect(running[0]).toMatchObject({ role: 'user', command: { kind: 'compact' }, parts: [] });
+    expect(running[1]?.parts).toEqual([
+      { type: 'compaction', key: 'c:c1', compactionId: 'c1', trigger: 'manual', status: 'running' },
+    ]);
+    add('context.compacted', { turnId: TURN, compactionId: 'c1', trigger: 'manual' });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    const done = projectTranscript(list).messages;
+    expect(done).toHaveLength(2);
+    expect(done[1]?.parts).toMatchObject([{ type: 'compaction', status: 'completed' }]);
+  });
+
+  it('普通回合里的自动压缩；没压缩成的在回合结束时去掉', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('context.compacted', { turnId: TURN, compactionId: 'c1', trigger: 'auto' });
+    add('context.compacting', { turnId: TURN, compactionId: 'c2', trigger: 'auto' });
+    expect(assistantParts(list).map((part) => part.key)).toEqual(['c:c1', 'c:c2']);
+    add('turn.finished', { turnId: TURN, outcome: 'failed', durationMs: 5 });
+    expect(assistantParts(list)).toEqual([
+      { type: 'compaction', key: 'c:c1', compactionId: 'c1', trigger: 'auto', status: 'completed' },
+    ]);
+    const user = projectTranscript(list).messages[0];
+    expect(user).toMatchObject({ role: 'user' });
+    expect(user && 'command' in user).toBe(false);
+  });
+});

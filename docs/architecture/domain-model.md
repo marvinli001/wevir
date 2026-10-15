@@ -761,7 +761,7 @@ stateDiagram-v2
 | # | 从 | 到 | 触发 | 写入的事件（`reason`） |
 |---|---|---|---|---|
 | 1 | — | `idle` | `session.create`：适配器 `createSession` 成功 | `session.created`（初始状态隐含为 `idle`，不写 `state_changed`）。失败时不建会话，RPC 返回错误 |
-| 2 | `idle` | `running` | `session.send` 被接受（必要时先自动 resume） | `user.message`、`turn.started`、首个回合还有 `session.title_changed`（`turn_started`） |
+| 2 | `idle` | `running` | `session.send` 被接受（必要时先自动 resume）；0.24.0 起还有 `session.compact`、`session.review`（§4.7） | `user.message`、`turn.started`、首个回合还有 `session.title_changed`（`turn_started`）；命令开的回合只有带 `command` 的 `turn.started` |
 | 3 | `running` | `awaiting_approval` | 适配器上报审批请求 | `approval.requested`（`approval_requested`） |
 | 4 | `awaiting_approval` | `running` | 某个审批被决定后不再有 `pending` 审批 | `approval.resolved`（`approvals_settled`） |
 | 5 | `running` / `awaiting_approval` | `cancelling` | `session.cancel` | 每个未决审批一条 `approval.resolved`（`turn_cancelled`），适配器以 `cancelled` 回复 ACP；然后发 `session/cancel`（`cancel_requested`） |
@@ -886,6 +886,14 @@ Codex 在回合以错误结束时，把还没用上的插话照样记进对话�
 
 **与旧规则的关系。** ADR-0002 决策 4 原定“会话忙时 `session.send` 不排队、不打断，排队留给客户端”。R11 改为排队与插话都由 Host 承担（多端共享、能持久化、能用上引擎的插话），旧客户端不带 `delivery` 时行为不变（ADR-0002 补记 8）。
 
+### 4.7 由命令开始的回合（0.24.0）
+
+`session.compact`（立即压缩上下文）与 `session.review`（代码审查）开始的回合没有 `user.message`：转换同 #2，写入的是带 `command` 的 `turn.started`（`{ kind: 'compact' }` 或 `{ kind: 'review', target, baseBranch? }`）与 idle→running，不起标题，之后的事件、结算与回合快照（§3.13）同普通回合。前提同 `session.send`：会话空闲（活动中回 `SESSION_BUSY`，不排队），`error` / `closed` 先 resume（`INVALID_STATE`），只读与子会话 `INVALID_STATE`；引擎会话没挂着时先自动 resume（#11）。会话所在的引擎没有这个方法（适配器的 `compact` / `review`，多引擎时问路由的 `supports`）时回 `INVALID_STATE`，什么都不写。`review` 的目标在写事件之前定下：会话目录不是 git 仓库、`branch` 找不到基础分支（同 `workspace.diff` 的 `branch`）时 `INVALID_PARAMS`。
+
+- **压缩。** 回合里引擎报 `context.compacting` 与同一 `compactionId` 的 `context.compacted`（`trigger: 'manual'`），没有助手消息。引擎在上下文快满时自己压缩（Codex：普通回合开始前或中间的 `contextCompaction` item；Claude：`status` 是 `compacting`），同样报这两个事件，`trigger: 'auto'`。回合结束时还没有 `context.compacted` 的压缩就是没压缩成（失败、被停止）。
+- **审查。** 审查结果是这个回合的助手消息（Codex 把结构化的结论渲染成文字，codex-event-mapping.md §4.9），审查过程中的工具调用照常上报。
+- **插话。** 命令开的回合不能插话（Codex 的 review、compact 回合拒绝 `turn/steer`，Claude 的 `/compact` 是本地命令）：回合进行中带 `delivery: 'steer'` 的发送直接以排队加入、`pending.update` 改为插话时保持排队，`fallback.reason` 都是 `rejected`（§4.6）；回合结束后照常发出。
+
 ---
 
 ## 5. 审批生命周期
@@ -927,7 +935,7 @@ stateDiagram-v2
 | `session.configured` | host | 模型、推理档位（0.9.0）或权限模式（0.11.0）变了，带改后的全部值，下一个回合起生效 | `session.configure` |
 | `session.state_changed` | host | 状态机转换（§4.1） | Host |
 | `user.message` | host | 用户发出的消息 | `session.send`（ACP 不回发用户消息） |
-| `turn.started` | host | 回合开始 | `session.send` 被接受，Host 发出 `session/prompt` |
+| `turn.started` | host | 回合开始；由命令开始的回合带 `command`、没有 `user.message`（0.24.0，§4.7） | `session.send` 被接受，Host 发出 `session/prompt`；`session.compact`、`session.review` |
 | `turn.finished` | host | 回合结束 | `session/prompt` 的结果或失败；进程退出；Host 重启 |
 | `assistant.delta` | engine | 助手文本或思考的增量 | stream-tap 旁路的 `text-delta` / `reasoning-delta`（T3.2a） |
 | `assistant.stream_ended` | engine | 一个 LLM attempt 的增量流结束 | stream-tap 的 `end` 帧 |
@@ -942,6 +950,8 @@ stateDiagram-v2
 | `question.requested` | engine | 引擎向用户提一组问题（0.10.0，§3.8） | Codex `item/tool/requestUserInput` |
 | `question.resolved` | host | 问题结束：`answered` 带回答与 `answeredBy`，或 `cancelled` | `question.respond` 或 Host 结算 |
 | `usage.updated` | engine | 上下文用量 | ACP `usage_update` |
+| `context.compacting` | engine | 引擎开始压缩上下文，`trigger` 是 `manual`（`session.compact`）或 `auto`（引擎自己压缩）（0.24.0，§4.7） | Codex `contextCompaction` item 开始；Claude `status: 'compacting'` |
+| `context.compacted` | engine | 上下文压缩完成（0.24.0） | Codex `contextCompaction` item 完成；Claude `compact_boundary` |
 | `engine.error` | engine / host | 引擎错误，已归类并保留原文 | `-32603` 回合失败、进程退出、resume 失败、取消超时 |
 | `engine.raw` | engine | 适配器不认识的引擎消息，原样保留 | 未识别的 `sessionUpdate` 或通知 |
 | `subagent.started` | host | 父会话派出了一个子 agent，带子会话的摘要（0.6.0，R4，§3.3.1） | 适配器的 `subagent.started`；写在父会话的事件流 |
@@ -1036,6 +1046,7 @@ type WevirEvent =
   | WevirEventEnvelope<'turn.started', {
       turnId: TurnId
       input?: Array<{ type: 'text'; text: string }> // 0.6.0：子会话的回合由引擎开始，这是父 agent 给它的输入
+      command?: { kind: 'compact' } | { kind: 'review'; target: 'uncommitted' | 'branch'; baseBranch?: string } // 0.24.0
     }>
   | WevirEventEnvelope<'turn.finished', {
       turnId: TurnId
@@ -1103,6 +1114,8 @@ type WevirEvent =
       contextSize: number       // ACP usage_update.size（模型未声明 contextWindow 时是猜测值）
       totalTokens?: number      // 0.14.0：这个会话累计用掉的 token（Codex 的 tokenUsage.total.totalTokens）；引擎不报时省略
     }>
+  | WevirEventEnvelope<'context.compacting', { turnId: TurnId; compactionId: string; trigger: 'manual' | 'auto' }> // 0.24.0
+  | WevirEventEnvelope<'context.compacted', { turnId: TurnId; compactionId: string; trigger: 'manual' | 'auto' }>  // 0.24.0
   | WevirEventEnvelope<'engine.error', {
       category: EngineErrorCategory
       message: string           // 引擎原文，始终保留
@@ -1139,6 +1152,7 @@ type WevirEvent =
 | `subagent.started` | 新增（R4）：在**父**会话的流里报出一个子 agent：`childEngineSessionId`、`parentToolCallId`、`title`（适配器按 §3.3.1 的顺序算出的兜底标题，可以为空）、`prompt?`（任务描述）、`modelId?`、`reasoningEffort?`、`nickname?`、`role?`。子会话的流在第一个订阅者到来之前缓冲，Host 收到它再订阅不会漏掉子会话的事件 |
 | `subagent.updated` | 新增（R4）：父会话的流里，子 agent 晚到的信息：`title?`（新的兜底标题，例如引擎给的名称）、`nickname?`、`role?`，或 `closed: true`（父 agent 关掉了它）。子会话的回合与状态以子会话自己的流为准 |
 | `turn.started` | 新增（R4）：只出现在子会话的流里，引擎开始的回合，带 `input?`（父 agent 给的输入）。之后到终结事件为止的事件属于这个回合；子会话不接受 `send`（`invalid_input`） |
+| `context.compacting` / `context.compacted` | 新增（0.24.0）：适配器的可选方法 `compact(engineSessionId)` 开的回合里是 `manual`，引擎自己压缩的是 `auto`；`compactionId` 适配器内唯一。另一个可选方法 `review(engineSessionId, { target, baseBranch? })` 开审查回合；多引擎的路由另有 `supports(engineSessionId, 'compact' \| 'review')`，Host 开回合之前问 |
 | `turn.steered` | 新增（R11）：适配器可选的 `steer(engineSessionId, steerId, input)` 交出去的插话进了回合（`steerId` 是 Host 给的待发消息 ID）。在终结事件之前、模型看到它的位置报出；回合被中断时引擎丢掉没用上的插话，不报。`steer` 在引擎接受时返回，引擎不肯（没有能插话的回合）时报 `steer_rejected`；契约能力 `steer`，Codex 与 echo 有，dsh 与其他 ACP 引擎没有（不实现 `steer`） |
 
 `subagent.started` / `subagent.updated` 可以出现在父会话的回合之内或之间（父回合不等子 agent 就结束时，昵称等信息在回合之后才到）。
@@ -1243,7 +1257,7 @@ interface ToolDisplay {
 // → client-sdk
 interface MessageBase { id: string; parts: readonly ChatPart[]; seqRange: readonly [number, number] }
 interface UserChatMessage extends MessageBase {       // id = turnId
-  role: 'user'; turnId: TurnId; sentBy?: ClientIdentity; fromParentAgent?: true; clientMessageId?: string; ts: IsoTime
+  role: 'user'; turnId: TurnId; sentBy?: ClientIdentity; fromParentAgent?: true; command?: TurnCommand; clientMessageId?: string; ts: IsoTime // command：0.24.0
 }                                                     // 子会话里父 agent 给的输入没有 sentBy、有 fromParentAgent（R4）
 interface AssistantChatMessage extends MessageBase {  // id = `${turnId}:assistant`
   role: 'assistant'; turnId: TurnId
@@ -1269,6 +1283,7 @@ type ChatPart =
   | { type: 'raw'; key: string; method: string; kind?: string; params: unknown } // 只在 includeRaw 时投影
   | { type: 'notice'; key: string; notice: { kind: 'resumed'; engineVersion?: string } | { kind: 'read_only'; reason: SessionReadOnlyReason; message: string } | { kind: 'closed' } }
   | { type: 'subagent'; key: string; subagent: SubagentSummary; ended?: Exclude<SubagentStatus, 'running'> } // R4：父会话里的一个子会话（开始；R5 起另有结束），随 subagent.updated 原位更新
+  | { type: 'compaction'; key: string; compactionId: string; trigger: 'manual' | 'auto'; status: 'running' | 'completed' } // 0.24.0：key 是 c:<compactionId>，原位更新；回合结束时还在 running 的去掉
 
 interface Transcript {                // TranscriptProjection.snapshot()
   sessionId: SessionId | undefined
@@ -1294,6 +1309,7 @@ interface Transcript {                // TranscriptProjection.snapshot()
 子会话（R4，§3.3.1）在投影里的样子：
 
 - **父会话。** `Transcript.subagents` 是子会话的摘要（`subagent.started` 追加、`subagent.updated` 按 `sessionId` 替换，与 Host 的 `SessionSnapshot.subagents` 同一套推导）；另外每个子会话在派出它的回合的助手消息里有一个“开始”部件 `{ type: 'subagent'; key: 'a:<子会话 ID>'; subagent: SubagentSummary }`，位置在 `subagent.started` 到达时，之后随 `subagent.updated` 原位更新；不属于回合的（父回合之外认出的）放在一条系统消息里。子会话离开 `running`（`subagent.updated` 的状态从 `running` 变成别的）时，再在父会话**当时**的位置加一个“结束”部件 `{ …, key: 'a:<子会话 ID>:end:<seq>', ended: <当时的状态> }`：父会话有进行中的回合就放在这个回合的助手消息里，否则是一条系统消息（R5）。所以“〈标题〉已完成”出现在子 agent 真正结束的地方，而不是紧贴着“开始工作”（Codex 桌面端的样子，`design-refs/01`）。之后的摘要更新（例如晚到的生成标题、`completed` → `closed`）原位换掉两种部件的 `subagent`，“结束”部件的 `ended` 不变；只有离开 `running` 才加，所以完成后被父 agent 关闭不会再多一行，关掉又用到（C5）再结束会再加一行。会话列表的推导另有 `applySubagentEvent(subagents, event)`（`session-state.ts`）。
+- **命令开的回合（0.24.0，§4.7）。** `turn.started` 带 `command` 时投影出一条用户消息，带 `command`、没有文字部件、没有 `sentBy`；桌面端把它画成“压缩上下文”“代码审查 · 未提交的改动”。`context.*` 是回合助手消息里的 `compaction` 部件。
 - **子会话。** `Transcript.parent` 取自 `session.created.parent`。`turn.started` 带 `input` 时投影出一条用户消息，`fromParentAgent: true`、没有 `sentBy`（`UserChatMessage.sentBy` 因此改为可选，只有 `user.message` 投影出的消息有）；其余部件与普通会话相同。`applySessionEvent` 对子会话另外推进 `subagent` 的状态与 `endedAt`（规则同 §3.3.1 的表）。
 
 待发消息与插话（R11，§3.3.2、§4.6）在投影里的样子：

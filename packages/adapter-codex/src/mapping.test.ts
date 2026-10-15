@@ -521,6 +521,36 @@ describe('映射的边界情况', () => {
     ).toEqual([]);
   });
 
+  it('contextCompaction（0.24.0）：开始与完成各一个事件，compact 开的回合是 manual，其余是 auto', () => {
+    const mapper = new CodexEventMapper(id);
+    const item = { type: 'contextCompaction', id: 'c1' };
+    const compacting = { type: 'context.compacting', engineSessionId: id, compactionId: 'c1' };
+    const compacted = { ...compacting, type: 'context.compacted' };
+    mapper.reset('manual');
+    expect(mapper.map('item/started', { threadId: id, turnId, item })).toEqual([
+      { ...compacting, trigger: 'manual' },
+    ]);
+    expect(mapper.map('item/completed', { threadId: id, turnId, item })).toEqual([
+      { ...compacted, trigger: 'manual' },
+    ]);
+    expect(mapper.map('item/completed', { threadId: id, turnId, item })).toEqual([]);
+    mapper.reset();
+    expect(mapper.map('item/completed', { threadId: id, turnId, item })).toEqual([
+      { ...compacted, trigger: 'auto' },
+    ]);
+    // 弃用的压缩通知由 item 取代。
+    expect(mapper.map('thread/compacted', { threadId: id, turnId })).toEqual([]);
+  });
+
+  it('审查的进入与退出（0.24.0）不出事件', () => {
+    const mapper = new CodexEventMapper(id);
+    for (const type of ['enteredReviewMode', 'exitedReviewMode']) {
+      const item = { type, id: `r-${type}`, review: 'current changes' };
+      expect(mapper.map('item/started', { threadId: id, turnId, item })).toEqual([]);
+      expect(mapper.map('item/completed', { threadId: id, turnId, item })).toEqual([]);
+    }
+  });
+
   it('turn.failed 的说明带上 additionalDetails', () => {
     const mapper = new CodexEventMapper(id);
     const [event] = mapper.map('turn/completed', {
