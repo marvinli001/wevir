@@ -3,6 +3,7 @@ import type {
   AgentInput,
   AgentRuntimeAdapter,
   ApprovalDecision,
+  CancelOptions,
   EngineAccounts,
   EngineSession,
   PendingApproval,
@@ -121,8 +122,8 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return [...gateway, ...chatgpt];
   }
 
-  cancel(engineSessionId: string): Promise<void> {
-    return this.#forSession(engineSessionId).cancel(engineSessionId);
+  cancel(engineSessionId: string, options?: CancelOptions): Promise<void> {
+    return this.#forSession(engineSessionId).cancel(engineSessionId, options);
   }
 
   close(engineSessionId: string): Promise<void> {

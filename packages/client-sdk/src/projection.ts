@@ -391,6 +391,9 @@ export class TranscriptProjection {
         this.#usage = {
           contextUsed: event.payload.contextUsed,
           contextSize: event.payload.contextSize,
+          ...(event.payload.totalTokens !== undefined && {
+            totalTokens: event.payload.totalTokens,
+          }),
         };
         return;
       case 'engine.error':

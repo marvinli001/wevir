@@ -48,6 +48,12 @@ import type {
  * 父会话时级联用），`respondToApproval`、`listPendingApprovals`、`generateTitle` 照常。Host 不对子会话调用
  * `close` 与 `resumeSession`。
  */
+/** `cancel` 的选项（0.14.0）。 */
+export interface CancelOptions {
+  /** 用户单独停掉了这个子会话：引擎能告诉父 agent 时告诉它。 */
+  notifyParent?: boolean;
+}
+
 export interface AgentRuntimeAdapter {
   /**
    * 新建引擎会话（dsh：ACP `session/new`）。不发事件。
@@ -145,8 +151,11 @@ export interface AgentRuntimeAdapter {
    * 成功，一个回合只结算一次。
    * 错误：只有 `cancel_unconfirmed`（时限内无法确认已停止）。适配器随后要让这个会话可以 `resumeSession`
    * （dsh：重启引擎进程，同一进程上的会话都以 `engine.exited`（`cancel_unconfirmed`）脱开，T3.5）。
+   *
+   * `options.notifyParent`（0.14.0，U21）：用户单独停掉的是一个子会话（不是父会话取消时的级联），引擎能告诉父 agent
+   * 时在回合结算后告诉它（Codex：往父 thread 补一条说明，codex-event-mapping.md §6.5）；做不到就忽略。
    */
-  cancel(engineSessionId: string): Promise<void>;
+  cancel(engineSessionId: string, options?: CancelOptions): Promise<void>;
 
   /**
    * 关闭会话（dsh：ACP `session/close`）。有回合在进行时先按 `cancel` 取消。完成后该会话的订阅结束，

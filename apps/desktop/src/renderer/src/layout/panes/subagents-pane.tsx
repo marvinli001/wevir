@@ -1,11 +1,13 @@
 import type { SessionId, SubagentSummary } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Bot, ChevronRight, SearchX } from 'lucide-react';
+import { Bot, ChevronRight, SearchX, Square } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
+import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useSubagentStop } from '@/data/subagent-control';
 import { useTranscript } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
@@ -200,6 +202,7 @@ function useTasksCard({ sessionId, entry }: RailContext) {
   const subagents = state?.transcript.subagents ?? NO_SUBAGENTS;
   const { open, done } = groupSubagents(subagents);
   const now = useNow(open.length > 0 ? 1000 : undefined);
+  const stop = useSubagentStop();
   if (subagents.length === 0) return null;
   const counts = [
     open.length > 0 && t('rail.tasks.running', { count: open.length }),
@@ -210,7 +213,8 @@ function useTasksCard({ sessionId, entry }: RailContext) {
     details: (
       <ul data-testid="rail-tasks">
         {open.map((summary) => (
-          <li key={summary.sessionId}>
+          // 用时平时显示，悬停或聚焦这一行时换成停止按钮（U21，0.14.0 的 subagent_cancel）。
+          <li key={summary.sessionId} className="group/task relative">
             <button
               type="button"
               onClick={() =>
@@ -220,10 +224,26 @@ function useTasksCard({ sessionId, entry }: RailContext) {
             >
               <SubagentAvatar sessionId={summary.sessionId} status={summary.status} size={16} />
               <span className="min-w-0 flex-1 truncate">{subagentTitle(summary)}</span>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              <span
+                className={cn(
+                  'shrink-0 text-xs text-muted-foreground tabular-nums',
+                  stop.supported && 'group-focus-within/task:invisible group-hover/task:invisible',
+                )}
+              >
                 {formatDuration(now - Date.parse(summary.startedAt))}
               </span>
             </button>
+            {stop.supported && (
+              <IconButton
+                label={t('tasks.stop')}
+                size="icon-xs"
+                className="absolute top-0.5 -right-1 text-muted-foreground opacity-0 group-focus-within/task:opacity-100 group-hover/task:opacity-100 hover:text-destructive"
+                onClick={() => void stop.stop(summary.sessionId)}
+                data-testid="rail-task-stop"
+              >
+                <Square />
+              </IconButton>
+            )}
           </li>
         ))}
         {done.length > 0 && (

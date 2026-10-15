@@ -43,7 +43,7 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
     identityParam: 'path',
     available: false,
   },
-  tasks: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: false },
+  tasks: { minWidth: 300, minHeight: 200, shape: 'tall', multiple: false, available: true },
   plan: { minWidth: 280, minHeight: 160, shape: 'compact', multiple: false, available: false },
   terminal: {
     minWidth: 360,

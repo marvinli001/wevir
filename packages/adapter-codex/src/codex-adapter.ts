@@ -14,6 +14,7 @@ import {
   type ApprovalCancelledEvent,
   type ApprovalDecision,
   type ApprovalOption,
+  type CancelOptions,
   type EngineAccounts,
   type EngineExitedEvent,
   type EngineSession,
@@ -78,6 +79,7 @@ import {
   type FileChangeRequestApprovalParams,
   REQUEST_USER_INPUT,
   type RequestId,
+  type ThreadInjectItemsParams,
   type ThreadReadParams,
   type ThreadReadResponse,
   type ThreadResumeParams,
@@ -747,10 +749,15 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * 没有回合、会话已关闭或不认识都直接成功。时限内等不到结算时重启进程（卡住的回合随旧进程结束，挂着的会话都以
    * `engine.exited`（`cancel_unconfirmed`）脱开，之后 resume 到新进程上），并报 `cancel_unconfirmed`。
    */
-  async cancel(engineSessionId: string): Promise<void> {
+  async cancel(engineSessionId: string, options?: CancelOptions): Promise<void> {
     const session = this.#sessions.get(engineSessionId);
     const turn = session?.turn;
     if (session === undefined || turn === undefined) return;
+    if (options?.notifyParent && session.parentId !== undefined) {
+      // 0.14.0：用户单独停掉子 agent。Codex 把客户端中断的子 agent 记为 Interrupted、不算结束，父 agent 不会自己知道
+      // （codex-event-mapping.md §6.5），子回合结算后往父 thread 补一条说明。
+      void turn.done.then(() => this.#tellParentStopped(session));
+    }
     if (!turn.cancelRequested) {
       turn.cancelRequested = true;
       this.#endApprovals(session, 'turn_cancelled');
@@ -1543,6 +1550,27 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
   }
 
+  #tellParentStopped(child: CodexSession): void {
+    const parent = child.parentId === undefined ? undefined : this.#sessions.get(child.parentId);
+    if (parent === undefined || parent.status !== 'open' || this.#disposed !== undefined) return;
+    const params: ThreadInjectItemsParams = {
+      threadId: parent.id,
+      items: [
+        {
+          type: 'message',
+          role: 'user',
+          content: [{ type: 'input_text', text: subagentStoppedNote(child.id) }],
+        },
+      ],
+    };
+    this.process.request('thread/inject_items', params).catch((error: unknown) =>
+      this.#logger.warn('thread/inject_items 失败（告诉父 agent 子 agent 被停止）', {
+        engineSessionId: parent.id,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+  }
+
   #interrupt(session: CodexSession, turn: Turn): void {
     if (turn.turnId === undefined) return;
     const params: TurnInterruptParams = { threadId: session.id, turnId: turn.turnId };
@@ -1859,4 +1887,9 @@ function steeredId(method: string, params: unknown): string | undefined {
   const item = params.item;
   if (!isRecord(item) || item.type !== 'userMessage') return undefined;
   return typeof item.clientId === 'string' ? item.clientId : undefined;
+}
+
+/** 告诉父 agent 用户停止了一个子 agent（0.14.0）：补进父 thread 的一条 user 消息，模型下一次请求时看得到。 */
+export function subagentStoppedNote(childThreadId: string): string {
+  return `The user stopped the sub-agent running in thread ${childThreadId}. Do not wait for it or expect a result from it; continue without it, or ask the user how to proceed.`;
 }

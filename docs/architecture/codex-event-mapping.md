@@ -233,7 +233,7 @@ R2 实测（真实二进制）：
 | `item/started` / `item/completed` | 见 §6.2 | |
 | `item/commandExecution/outputDelta`、`item/mcpToolCall/progress` | `tool.updated`（`output` 是到目前为止的累积） | 短命令可能一条都没有，输出只在 `item/completed` 的 `aggregatedOutput` |
 | `item/fileChange/patchUpdated` | `tool.updated`（新的 `display` 与 `input`） | |
-| `thread/tokenUsage/updated` | `usage.updated` | `contextUsed` = `tokenUsage.last.totalTokens`（codex-notes §2.7 的口径）；`contextSize` = 模型目录的 `context_window`（Provider 的 `contextWindow`），没有时用 Codex 报的 `modelContextWindow`（那是扣掉 5% 余量的有效窗口），都没有就是 `engine.raw` |
+| `thread/tokenUsage/updated` | `usage.updated` | `totalTokens` = `tokenUsage.total.totalTokens`（0.14.0，这个 thread 累计的，子 thread 各算各的）；`contextUsed` = `tokenUsage.last.totalTokens`（codex-notes §2.7 的口径）；`contextSize` = 模型目录的 `context_window`（Provider 的 `contextWindow`），没有时用 Codex 报的 `modelContextWindow`（那是扣掉 5% 余量的有效窗口），都没有就是 `engine.raw` |
 | `turn/plan/updated` | `todo.updated` | `update_plan` 不产生 item，没有工具调用 ID：`toolCallId` 合成为 `plan:<turnId>`（`PLAN_TOOL_CALL_PREFIX`），可以一眼认出、在回合内唯一；客户端只按回合取最新的计划（`TranscriptProjection` 不按 toolCallId 找工具），没有对应的 `tool.started`。`items` 每步一条：`content` = `step`，`status` 的 `inProgress` 换成 `in_progress`（与 dsh 的 `todo_write` 同一套），`explanation` 不进事件 |
 | `turn/completed` | `turn.settled` / `turn.failed` | `completed` → settled（`completed`），`interrupted` → settled（`cancelled`），`stopReason` 是 Codex 的状态原文；`failed` → `turn.failed`，`message` = `turn.error.message` + `additionalDetails`，`category` 与 `code` 见 §6.7。之前先收尾没提交的增量（§6.4）；`interrupted` 时还没结束的工具按 `failed` 收尾（§6.6） |
 | `error` | `engine.raw` | `willRetry: true` 不算回合失败（Codex 自己也只在状态栏短暂显示），只留 engine.raw，已经流出的增量以 `abandoned` 结束；`willRetry: false` 随后有 `turn/completed`（failed），以它为准 |
@@ -297,7 +297,7 @@ Codex 的增量与已提交项共用 itemId，对齐是直接的，不需要 ada
 
 **`subagent.started` 的字段**：`childEngineSessionId`、`parentToolCallId`（collab item ID）、`title`（兜底标题，`subagentTitle`：thread 名称 → 任务描述首行 → 昵称；认出时只有任务描述，名称与昵称晚到）、`prompt`（`spawnAgent` 的任务描述，Host 用它生成标题）、`modelId`（item 的 `model`，`spawnAgent` 进行中时为空则用父会话的）、`reasoningEffort`（item 的，`none` 换成 `off`）。**`subagent.updated`**：`thread/read` 的 `agentNickname` / `agentRole`，以及名称（`name`，或子 thread 的 `thread/name/updated`）作为新的兜底标题；没有任务描述时昵称也作兜底标题；`closeAgent` 完成时 `closed: true`。
 
-**子会话自己的流。** 子 thread 的 `turn/started` 开始一个由引擎发起的回合：适配器记下回合，等这个回合的下一条通知——是 userMessage 的 `item/started` 就把它的文本作 `turn.started` 的 `input`（任务描述，或 `send_input` 发来的消息），否则不带输入——再发 `turn.started`；之后与普通会话相同（增量、工具、审批、计划、用量，`turn/completed` 是终结事件）。子会话不接受 `send`（`invalid_input`）；`cancel` 是对子 thread 的 `turn/interrupt`（Host 级联取消用）；`generateTitle` 用子会话的 Provider 与模型。子 thread 两个回合之间的 `thread/status/changed` 不再变成 engine.raw。
+**子会话自己的流。** 子 thread 的 `turn/started` 开始一个由引擎发起的回合：适配器记下回合，等这个回合的下一条通知——是 userMessage 的 `item/started` 就把它的文本作 `turn.started` 的 `input`（任务描述，或 `send_input` 发来的消息），否则不带输入——再发 `turn.started`；之后与普通会话相同（增量、工具、审批、计划、用量，`turn/completed` 是终结事件）。子会话不接受 `send`（`invalid_input`）；`cancel` 是对子 thread 的 `turn/interrupt`（Host 级联取消用；0.14.0 起用户也能单独停一个子会话，这时 `cancel` 带 `notifyParent`，适配器在子回合结算后用稳定的 `thread/inject_items` 往父 thread 补一条 user 消息，说明用户停止了这个子 agent、不要再等它——Codex 把客户端中断的子 agent 记为 `Interrupted`，不算结束，父 agent 不会自己知道，`wait_agent` 仍会等到它自己的超时；注入失败只记日志）；`generateTitle` 用子会话的 Provider 与模型。子 thread 两个回合之间的 `thread/status/changed` 不再变成 engine.raw。
 
 **实测（`rust-v0.162.1`，R4，脚本与 Spike 的 subagent 场景相同）。**
 

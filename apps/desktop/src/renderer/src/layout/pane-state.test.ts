@@ -49,7 +49,7 @@ describe('pane-kinds', () => {
   });
 
   it('正式构建只能打开已经实现的种类，开发模式下还有占位', () => {
-    expect(openableKinds(false)).toEqual(['subagents']);
+    expect(openableKinds(false)).toEqual(['subagents', 'tasks']);
     expect(openableKinds(true)).toContain('terminal');
   });
 });
@@ -172,9 +172,9 @@ describe('拆分、移动、切换', () => {
 });
 
 describe('窗格区开关与尺寸', () => {
-  it('没有窗格时打开子智能体，否则显示或收起（不关窗格）', () => {
+  it('没有窗格时打开后台任务，否则显示或收起（不关窗格）', () => {
     const opened1 = toggleAux(emptyScope(), ids());
-    expect(opened1.groups[0]?.tabs[0]?.kind).toBe('subagents');
+    expect(opened1.groups[0]?.tabs[0]?.kind).toBe('tasks');
     const hidden = toggleAux(opened1, ids());
     expect(hidden).toMatchObject({ auxVisible: false });
     expect(hidden.groups).toHaveLength(1);

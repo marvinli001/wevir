@@ -795,9 +795,10 @@ export class SessionManager {
   async cancel(sessionId: SessionId): Promise<void> {
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
-    this.#assertNotChild(runtime);
+    // 0.14.0（U21，domain-model §4.5 C6）：子会话也能单独停，父会话不受影响，引擎能告诉父 agent 时告诉它。
+    const notifyParent = runtime.parentId !== undefined;
     await Promise.all([
-      this.#serial(runtime, () => this.#cancelTurn(runtime, 'turn_cancelled')),
+      this.#serial(runtime, () => this.#cancelTurn(runtime, 'turn_cancelled', notifyParent)),
       this.#cancelChildren(runtime, 'turn_cancelled'),
     ]);
   }
@@ -1177,6 +1178,8 @@ export class SessionManager {
   async #cancelTurn(
     runtime: SessionRuntime,
     reason: 'turn_cancelled' | 'session_closed' | 'host_shutdown',
+    /** 用户单独停掉的子会话（0.14.0）：交给适配器，让它告诉父 agent。 */
+    notifyParent = false,
   ): Promise<void> {
     const snapshot = this.#snapshot(runtime);
     const { state } = snapshot.session;
@@ -1195,10 +1198,12 @@ export class SessionManager {
     const deadline = Date.now() + this.#cancelTimeoutMs;
     const finished = turn ? turn.finished.promise.then(() => 'finished' as const) : never();
     const disposed = this.#whenDisposed.promise.then(() => 'disposed' as const);
-    const engine = this.#adapter.cancel(runtime.engineSessionId).then(
-      () => (turn ? ('confirmed' as const) : ('failed' as const)),
-      () => 'failed' as const,
-    );
+    const engine = this.#adapter
+      .cancel(runtime.engineSessionId, notifyParent ? { notifyParent } : undefined)
+      .then(
+        () => (turn ? ('confirmed' as const) : ('failed' as const)),
+        () => 'failed' as const,
+      );
     let outcome = await settleBy(Promise.race([finished, engine, disposed]), deadline);
     // 适配器返回时终结事件已经发出，等 Host 处理完。
     if (outcome === 'confirmed')
@@ -1322,7 +1327,11 @@ export class SessionManager {
           {
             type: 'usage.updated',
             source: 'engine',
-            payload: { contextUsed: event.contextUsed, contextSize: event.contextSize },
+            payload: {
+              contextUsed: event.contextUsed,
+              contextSize: event.contextSize,
+              ...(event.totalTokens !== undefined && { totalTokens: event.totalTokens }),
+            },
           },
         ]);
         return;

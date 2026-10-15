@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentRuntimeAdapter } from './adapter.js';
+import type { AgentRuntimeAdapter, CancelOptions } from './adapter.js';
 import { AdapterError } from './errors.js';
 import { EventHub } from './event-hub.js';
 import type { AgentEvent, ApprovalCancelledEvent, EngineExitedEvent } from './events.js';
@@ -305,7 +305,8 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     return pending;
   }
 
-  async cancel(engineSessionId: string): Promise<void> {
+  /** 子会话的回合跟父回合在同一个进程里，单独停掉时父 agent 自然在等它结束（`notifyParent` 不用另外处理）。 */
+  async cancel(engineSessionId: string, _options?: CancelOptions): Promise<void> {
     const turn = this.#sessions.get(engineSessionId)?.turn;
     if (!turn) return;
     if (!turn.cancelRequested) {
@@ -529,6 +530,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         engineSessionId,
         contextUsed: 100 * session.turnCount,
         contextSize: ECHO_CONTEXT_SIZE,
+        totalTokens: 1200 * session.turnCount,
       });
       emit({ type: 'turn.settled', engineSessionId, outcome: 'completed', stopReason: 'end_turn' });
     } catch (error) {

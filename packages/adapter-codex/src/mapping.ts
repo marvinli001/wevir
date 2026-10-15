@@ -505,6 +505,10 @@ export class CodexEventMapper {
         engineSessionId: this.engineSessionId,
         contextUsed: params.tokenUsage.last.totalTokens,
         contextSize,
+        // 这个 thread 累计的（0.14.0），子 thread 各算各的。
+        ...(typeof params.tokenUsage.total?.totalTokens === 'number' && {
+          totalTokens: params.tokenUsage.total.totalTokens,
+        }),
       },
     ];
   }

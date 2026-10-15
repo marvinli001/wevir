@@ -121,9 +121,16 @@ describe('回放 codex-app-server 的通知', () => {
       'committed',
       'committed',
     ]);
-    // 已用量是最近一次请求的 last.totalTokens，上下文大小取模型目录（不是 Codex 报的 95% 有效窗口）。
+    // 已用量是最近一次请求的 last.totalTokens，上下文大小取模型目录（不是 Codex 报的 95% 有效窗口）；累计用量是
+    // total.totalTokens（0.14.0）。
     expect(of(events, 'usage.updated')).toEqual([
-      { type: 'usage.updated', engineSessionId: threadId, contextUsed: 1020, contextSize: 128_000 },
+      {
+        type: 'usage.updated',
+        engineSessionId: threadId,
+        contextUsed: 1020,
+        contextSize: 128_000,
+        totalTokens: 1020,
+      },
     ]);
     expect(events.at(-1)).toEqual({
       type: 'turn.settled',

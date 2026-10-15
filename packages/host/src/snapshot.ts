@@ -267,6 +267,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       next.usage = {
         contextUsed: event.payload.contextUsed,
         contextSize: event.payload.contextSize,
+        ...(event.payload.totalTokens !== undefined && { totalTokens: event.payload.totalTokens }),
       };
       break;
     case 'engine.error':

@@ -55,6 +55,8 @@ export const HOST_FEATURES = {
   permissionModes: 'permission_modes',
   /** 工作区的 git 状态（0.13.0，U18）：`workspace.git`。与引擎无关。 */
   workspaceGit: 'workspace_git',
+  /** 子会话本身可以 `session.cancel`（0.14.0，U21），父会话不受影响。与引擎无关。 */
+  subagentCancel: 'subagent_cancel',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -66,6 +68,7 @@ export const HostFeaturesSchema = z.looseObject({
   user_questions: z.boolean().optional(),
   permission_modes: z.boolean().optional(),
   workspace_git: z.boolean().optional(),
+  subagent_cancel: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

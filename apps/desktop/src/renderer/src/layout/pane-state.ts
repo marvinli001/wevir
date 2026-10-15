@@ -260,8 +260,8 @@ export function moveTab(state: ScopePanes, tabId: string, targetGroupId: string)
 
 /** 窗格区开关（§3.9）：没有窗格时打开“概览”，否则显示或收起（收起不关窗格）。 */
 export function toggleAux(state: ScopePanes, newId: IdFactory): ScopePanes {
-  // U18 起“概览”并进了会话侧栏；U21 的“后台任务”窗格做好后换成它（desktop-layout.md §3.1）。
-  if (state.groups.length === 0) return openPane(state, { kind: 'subagents' }, newId);
+  // U21 起是“后台任务”（desktop-layout.md §3.1）；“概览”U18 并进了会话侧栏。
+  if (state.groups.length === 0) return openPane(state, { kind: 'tasks' }, newId);
   return { ...state, auxVisible: !state.auxVisible };
 }
 

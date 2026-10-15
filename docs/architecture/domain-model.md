@@ -244,7 +244,7 @@ interface SessionSnapshot {
   session: Session
   pendingApprovals: ApprovalRequest[]
   todos?: TodoItem[]               // 最近一次 todo.updated
-  usage?: { contextUsed: number; contextSize: number } // 最近一次 usage.updated
+  usage?: { contextUsed: number; contextSize: number; totalTokens?: number } // 最近一次 usage.updated
   subagents?: SubagentSummary[]    // 0.6.0：这个会话派出的子会话，按 startedAt（§3.3.1）；没有时省略
   pendingMessages?: PendingMessage[] // 0.8.0：等待中与暂停的待发消息，按加入的先后（§3.3.2）；没有时省略
   pendingQuestions?: QuestionRequest[] // 0.10.0：等用户回答的问题，按提出的先后（§3.8）；没有时省略
@@ -319,7 +319,7 @@ interface SubagentSummary {           // 父会话快照的 subagents 与 subage
 
 - **建立。** 适配器在父会话的事件流里报 `subagent.started`（§6.2 的 AgentEvent 表）。Host 新建会话：写 `sessions` 表，在子会话的事件流写 `session.created`（带 `parent`）与兜底标题，再在父会话的事件流写 `subagent.started`（子会话的摘要），然后订阅子会话的引擎事件。同一个引擎会话再次被报出（引擎重启后父 agent 又用到它）时不新建，按 §4.5 C5 重新挂上。两个会话的写入不在同一个事务里：先写子会话，Host 在两者之间退出时子会话在、父会话的摘要里没有它。
 - **自己的事件流。** 子会话的事件写进它自己的事件流（`seq` 从 1 起），客户端照常 `session.get`、`events.subscribe`。回合由引擎开始：`turn.started` 带这一回合的输入（`input`：任务描述，或父 agent 用 `send_input` 发来的消息），没有 `user.message`。
-- **只读。** 子会话由父 agent 驱动（与它交互只经父 agent，`send_input` 等由模型发起）：`session.send`、`session.cancel`、`session.close`、`session.resume` 一律 `INVALID_STATE`（`data.parentSessionId`）。子会话的回合怎样停止见 §4.5。
+- **只读。** 子会话由父 agent 驱动（与它交互只经父 agent，`send_input` 等由模型发起）：`session.send`、`session.close`、`session.resume` 一律 `INVALID_STATE`（`data.parentSessionId`）。`session.cancel` 0.14.0 起可以（Host 功能 `subagent_cancel`，U21）：用户单独停掉一个子 agent，见 §4.5 C6。
 - **父会话的摘要。** 子会话的标题、状态、未决审批，以及适配器晚报的昵称、角色，每变一次 Host 就在父会话的事件流写一条 `subagent.updated`（完整摘要，替换同一 `sessionId` 的上一份）。父会话快照的 `subagents` 由 `subagent.started` / `subagent.updated` 推导，父会话的订阅因此知道每个子会话的状态，以及有没有子会话在等审批。昵称与角色只在摘要里。
 - **列表。** `session.list` 默认不含子会话，带 `parentSessionId` 列出某个会话的子会话（host-api.md §3.1）。子会话不算“未关闭会话”：不挡工作区移除与 Provider 删除，它们跟着父会话走。
 - **嵌套。** 适配器可以在子会话的事件流里再报 `subagent.started`（子会话的子会话），规则相同。Codex 的默认深度 `agents.max_depth = 1`，Wevir 不改，实际不会出现。
@@ -717,6 +717,7 @@ resume 失败（#12 的反面）不改变状态：`error` 仍是 `error`，`clos
 | C4 | `idle` / `running` / `awaiting_approval` / `cancelling` / `error` | `closed` | 父 agent 关掉它（适配器 `subagent.updated` 的 `closed`；Codex 的 `close_agent`） | 回合进行中时先结掉：未决审批 `cancelled`（`session_closed`）、`awaiting_approval` 先回 `running`（`approvals_settled`）、未收尾工具 `unknown`、`turn.finished`（`cancelled`）（`turn_finished`）；然后（`closed`） |
 | C5 | `closed` / `error` | `idle` | 父 agent 又用到它：关掉的子 agent 又开始回合（Codex 的 `resume_agent`），或引擎重启后它又被报出 | `session.resumed`（`resumed`），随后通常是 C2 |
 | #10 | | `error` | 引擎进程退出，同普通会话 | |
+| C6 | `running` / `awaiting_approval` | `cancelling` → `idle` | 客户端对子会话本身 `session.cancel`（0.14.0，U21） | 同 #5、#8：未决审批 `cancelled`（`turn_cancelled`），回合 `cancelled`，摘要状态 `cancelled`；它自己的子会话一并取消。父会话不受影响；适配器能告诉父 agent 时告诉它（Codex：往父 thread 补一条说明，codex-event-mapping.md §6.5） |
 | #15 | | | Host 重启，同普通会话。另外，从没开始过回合的子会话（状态停在 `running`）写 `engine.error`（`engine_exited`，`fatal`）并 `idle` → `error`（`engine_exited`），免得一直显示“运行中” | |
 
 与父会话的关系：
@@ -988,6 +989,7 @@ type WevirEvent =
   | WevirEventEnvelope<'usage.updated', {
       contextUsed: number       // ACP usage_update.used
       contextSize: number       // ACP usage_update.size（模型未声明 contextWindow 时是猜测值）
+      totalTokens?: number      // 0.14.0：这个会话累计用掉的 token（Codex 的 tokenUsage.total.totalTokens）；引擎不报时省略
     }>
   | WevirEventEnvelope<'engine.error', {
       category: EngineErrorCategory

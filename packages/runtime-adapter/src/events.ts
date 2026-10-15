@@ -160,6 +160,8 @@ export interface UsageUpdatedEvent {
   engineSessionId: string;
   contextUsed: number;
   contextSize: number;
+  /** 这个会话累计用掉的 token（0.14.0，U21）；引擎不报时省略。 */
+  totalTokens?: number;
 }
 
 /** 回合正常结算（dsh：`session/prompt` 的结果）。 */

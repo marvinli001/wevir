@@ -1873,7 +1873,7 @@ describe('SessionManager：子会话（R4）', () => {
     expect(h.storage.sessions.list().map((record) => record.id)).toEqual([parent]);
   });
 
-  it('子会话只读：send、cancel、close、resume 都是 INVALID_STATE，带上父会话', async () => {
+  it('子会话只读：send、close、resume 都是 INVALID_STATE，带上父会话；空闲时 cancel 是无操作', async () => {
     const h = setup();
     const parent = await create(h);
     await send(h, parent, 'subagent');
@@ -1881,9 +1881,38 @@ describe('SessionManager：子会话（R4）', () => {
     await waitForState(h, parent, 'idle');
     const invalid = { code: 'INVALID_STATE', data: { parentSessionId: parent } };
     await expect(send(h, child, 'hi')).rejects.toMatchObject(invalid);
-    await expect(h.manager.cancel(child)).rejects.toMatchObject(invalid);
+    await expect(h.manager.cancel(child)).resolves.toBeUndefined();
     await expect(h.manager.close(child)).rejects.toMatchObject(invalid);
     await expect(h.manager.resume(child)).rejects.toMatchObject(invalid);
+  });
+
+  it('单独停掉一个子会话（0.14.0）：子回合取消、摘要 cancelled，父会话照常结束，适配器带 notifyParent', async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    const cancel = vi.spyOn(adapter, 'cancel');
+    const h = setup({ adapter });
+    const parent = await create(h);
+    await send(h, parent, 'subagent approve');
+    const child = await childOf(h, parent);
+    await waitForApproval(h, child);
+    await h.manager.cancel(child);
+    expect(state(h, child)).toBe('idle');
+    expect(ofType(h, child, 'turn.finished').at(-1)?.payload).toMatchObject({
+      outcome: 'cancelled',
+    });
+    expect(ofType(h, child, 'approval.resolved')[0]?.payload).toMatchObject({
+      status: 'cancelled',
+    });
+    const childEngine = cancel.mock.calls.at(-1)?.[0];
+    expect(cancel.mock.calls.at(-1)?.[1]).toEqual({ notifyParent: true });
+    await waitForState(h, parent, 'idle');
+    expect(summaries(h, parent)[0]).toMatchObject({ sessionId: child, status: 'cancelled' });
+    expect(ofType(h, parent, 'turn.finished').at(-1)?.payload).toMatchObject({
+      outcome: 'completed',
+    });
+    // 父会话自己的取消不带 notifyParent。
+    expect(
+      cancel.mock.calls.filter(([id]) => id !== childEngine).every(([, o]) => o === undefined),
+    ).toBe(true);
   });
 
   it('子会话的审批：属于子会话，父会话的摘要带着它，任何连接都能回', async () => {

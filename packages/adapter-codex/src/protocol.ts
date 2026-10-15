@@ -221,6 +221,15 @@ export interface TurnSteerResponse {
   turnId: string;
 }
 
+/**
+ * v2/ThreadInjectItemsParams.ts（稳定；响应 v2/ThreadInjectItemsResponse.ts 是空对象）：往 thread 的历史里补 Responses API 的
+ * 原始 item，不开新回合。
+ */
+export interface ThreadInjectItemsParams {
+  threadId: string;
+  items: unknown[];
+}
+
 /** v2/TurnInterruptParams.ts（响应 v2/TurnInterruptResponse.ts 是空对象）。 */
 export interface TurnInterruptParams {
   threadId: string;

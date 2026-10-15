@@ -17,6 +17,7 @@ import type { PaneTab } from './pane-state';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
 import { SubagentsPane } from './panes/subagents-pane';
+import { TasksPane } from './panes/tasks-pane';
 
 /** 窗格内容拿得到的东西：当前路由所在的工作区与会话，以及路由里的子智能体（R5，desktop-layout.md §5.2）。 */
 export interface PaneContext {
@@ -54,7 +55,11 @@ const VIEWS: Record<PaneKind, PaneView> = {
     title: (tab) => tab.params?.path?.split('/').at(-1),
     render: placeholder('file'),
   },
-  tasks: { icon: Activity, name: 'pane.kind.tasks', render: placeholder('tasks') },
+  tasks: {
+    icon: Activity,
+    name: 'pane.kind.tasks',
+    render: (_, context) => <TasksPane context={context} />,
+  },
   plan: { icon: ListChecks, name: 'pane.kind.plan', render: placeholder('plan') },
   terminal: { icon: SquareTerminal, name: 'pane.kind.terminal', render: placeholder('terminal') },
   session: { icon: MessagesSquare, name: 'pane.kind.session', render: placeholder('session') },

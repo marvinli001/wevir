@@ -218,6 +218,8 @@ export const EventPayloadSchemas = {
     contextUsed: z.int().min(0),
     /** ACP `usage_update.size`（模型未声明 contextWindow 时是猜测值）。 */
     contextSize: z.int().min(0),
+    /** 这个会话累计用掉的 token（0.14.0，Codex 的 `tokenUsage.total.totalTokens`）；引擎不报时省略。 */
+    totalTokens: z.int().min(0).optional(),
   }),
   'engine.error': z.object({
     category: EngineErrorCategorySchema,

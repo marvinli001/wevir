@@ -213,6 +213,49 @@ describe.skipIf(binary === undefined)('子会话 + 真实 codex-app-server', { t
     expect(childEnd.outcome).toBe('completed');
   });
 
+  it('单独停掉子 agent（0.14.0）：子回合 cancelled，父 thread 补上说明，父 agent 下一次请求看得到', async () => {
+    const seen: { index: number; inTurn: 'first' | 'next' }[] = [];
+    let turn: 'first' | 'next' = 'first';
+    script = (view) => {
+      if (view.lastUserText.startsWith('Helper task')) return SLOW_CHILD;
+      if (JSON.stringify(view.body).includes('The user stopped the sub-agent')) {
+        seen.push({ index: view.index, inTurn: turn });
+        return { text: ['Noted.'] };
+      }
+      if (view.lastUserText === 'next') return { text: ['Next.'] };
+      if (view.toolOutputs.length === 0) return spawn('Helper task\nTake your time.');
+      if (view.toolOutputs.length === 1) {
+        return {
+          toolCalls: [
+            {
+              kind: 'function',
+              namespace: 'multi_agent_v1',
+              name: 'wait_agent',
+              args: { targets: [agentId(view)], timeout_ms: 3_000 },
+            },
+          ],
+        };
+      }
+      return { text: ['Waited.'] };
+    };
+    const { adapter, id, events } = await open();
+    await adapter.send(id, { content: [{ type: 'text', text: 'spawn and wait' }] });
+    const started = await waitForEvent(events, ofType('subagent.started'), 'subagent.started');
+    const child = collectEvents(adapter, started.childEngineSessionId);
+    await waitForEvent(child, ofType('assistant.delta'), '子 agent 开始回答');
+
+    await adapter.cancel(started.childEngineSessionId, { notifyParent: true });
+    const childEnd = await waitForEvent(child, ofType('turn.settled'), '子回合结束');
+    expect(childEnd.outcome).toBe('cancelled');
+    // 父回合不受影响：wait_agent 等到自己的超时，然后照常结束。
+    const parentEnd = await waitForEvent(events, ofType('turn.settled'), '父回合结束');
+    expect(parentEnd.outcome).toBe('completed');
+    turn = 'next';
+    await runTurn(adapter, id, 'next', events);
+    // 实测：wait_agent 超时之后，同一回合里父 agent 的下一次请求就带着这条说明，之后的回合也在历史里。
+    expect(seen.map((item) => item.inTurn)).toEqual(['first', 'next']);
+  });
+
   it('agentsStates 报 notFound 的 receiver 不当作子会话', async () => {
     const missing = '01a13896-0000-7000-8000-000000000001';
     script = (view) => {

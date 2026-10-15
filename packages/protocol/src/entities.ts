@@ -272,6 +272,8 @@ export type TodoItem = z.infer<typeof TodoItemSchema>;
 export const UsageSchema = z.object({
   contextUsed: z.int().min(0),
   contextSize: z.int().min(0),
+  /** 这个会话累计用掉的 token（0.14.0）；引擎不报时省略。 */
+  totalTokens: z.int().min(0).optional(),
 });
 export type Usage = z.infer<typeof UsageSchema>;
 
