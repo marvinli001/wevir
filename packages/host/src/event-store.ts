@@ -11,6 +11,8 @@ import {
   type SessionId,
   SessionIdSchema,
   type SessionSnapshot,
+  type SuggestedTask,
+  type TaskId,
   type WevirEvent,
   type WevirEventOf,
   type WevirEventPayload,
@@ -240,6 +242,12 @@ export class EventStore {
   question(sessionId: SessionId, questionId: QuestionId): QuestionRequest | undefined {
     if (!this.#storage.sessions.get(sessionId)) return undefined;
     return structuredClone(this.#projection(sessionId).questions.get(questionId));
+  }
+
+  /** 一项建议的后续任务（0.16.0）；会话或建议不存在时为 `undefined`。 */
+  suggestedTask(sessionId: SessionId, taskId: TaskId): SuggestedTask | undefined {
+    if (!this.#storage.sessions.get(sessionId)) return undefined;
+    return structuredClone(this.#projection(sessionId).suggestedTasks.get(taskId));
   }
 
   /** 写入缓冲的增量与 `inputs`，返回 `inputs` 对应的事件。 */

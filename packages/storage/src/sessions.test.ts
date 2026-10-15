@@ -119,6 +119,15 @@ describe('sessions', () => {
     });
   });
 
+  it('来源（0005）：从一项建议开出来的会话记下来源，普通会话没有', () => {
+    const s = storage();
+    seedSession(s);
+    expect(s.sessions.get('ses_01')).not.toHaveProperty('origin');
+    const origin = { kind: 'suggested_task', sessionId: 'ses_01', taskId: 'tsk_01' };
+    seedSession(s, { id: 'ses_02', engineSessionId: 'e2', origin });
+    expect(s.sessions.get('ses_02')?.origin).toEqual(origin);
+  });
+
   it('环境（0004）：增删改查，按创建时间', () => {
     const s = storage();
     const record = {

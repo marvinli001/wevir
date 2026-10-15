@@ -76,9 +76,9 @@ export interface TurnFold {
   issues: Record<IssueKind, number>;
 }
 
-/** 插话（R11）与错误部件始终显示。 */
+/** 插话（R11）、错误部件与建议的任务（U23：卡片与回报）始终显示，收起的回合里也在。 */
 export function alwaysShown(part: ChatPart): boolean {
-  return part.type === 'error';
+  return part.type === 'error' || part.type === 'tasks' || part.type === 'task_report';
 }
 
 /** `finalKey` 的格式。 */

@@ -712,3 +712,12 @@ interface StoredPanes {
 
 - **最近的文件夹**（只改桌面端）：首页与新会话草稿页的标题下面一列最近用过的项目（`session/new-session.tsx` 的 `RecentFolders`），按项目里最近的会话活动排（没有会话的按项目的更新时间），最多 5 个，当前项目右边打勾，点一下就换到它（与标题里的项目菜单相同）；最下面“添加文件夹…”打开“创建项目”。排序是 `data/workbench-model.ts` 的 `recentWorkspaces`。
 - **选择环境（U22.1，0.15.0）**：最近的文件夹下面一行“选择环境 ▾”（Host 有 `environments` 时才出现），点开是保存的环境（名字、文件夹数、有 worktree 的写“worktree”，当前的打勾）、“不用环境”与“新建环境…”。选了环境后标题里的项目换成环境的主文件夹，环境栏写环境名，发出第一条消息时 `session.create` 带上 `environmentId`；选择记在本机（`wevir.environment-choice.v1`，按主文件夹的工作区记）。“新建环境…”与每行的编辑按钮打开同一个对话框（`environments/environment-dialog.tsx`）：名称、文件夹（从项目里勾选，第一个是主文件夹，可调顺序）、每个文件夹的“新开 worktree”开关、删除。运行位置只有“此计算机”，SSH 与云端推迟（D11 的 C、D），界面上不放点不动的选项。会话侧栏的“环境”卡片在环境会话里多写环境名、每个 worktree 的分支与额外的文件夹。
+
+## 17. U23：建议的后续任务
+
+维护者 2026-10-15 确认（`design-refs/claude-code-parallel-sessions/` 02–03；设计提案 D12、D13）。代码在 `session/suggested-tasks.tsx`。
+
+- **卡片**：提出建议的地方（那次工具调用所在的回合）出现一张卡片，标题行“N 个建议的任务 · M 已开始”，每项一行：标题、说明文字色的理由；右边是“开始”按钮，开始之后换成那个会话的状态（进行中的 orb、“已完成 ›”“出错 ›”），点它打开那个会话。
+- **开始**：在同一个项目里新建会话（模型、权限模式沿用当前会话），`session.create` 带 `origin`，再把建议里的 `prompt` 作为第一条消息发出；不离开当前会话，新会话出现在左栏“进行中”。
+- **回报**：那个会话第一个回合结束时，当前会话的消息流里多一行““〈任务〉”已完成”（出错、已停止照写），点它打开那个会话，悬停看回答摘要；主 agent 下一个回合能看到结果（domain-model §3.11）。
+- **投影与折叠**：client-sdk 的投影把 `tasks.suggested` 变成提出建议的回合里的 `tasks` 部件（随 `task.started` / `task.reported` 原位更新），`task.reported` 另在当时的位置加一个 `task_report` 部件；两种部件同错误部件一样，回合收起时也照样显示（turn-model.ts 的 `alwaysShown`）。状态取自左栏的会话列表：进行中且有活动回合时带 orb。

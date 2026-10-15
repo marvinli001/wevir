@@ -3,6 +3,7 @@ import type { ProviderConfig, ProviderModelConfig } from '@wevir/runtime-adapter
 import { GATEWAY_TOKEN_ENV } from './env.js';
 import type { CodexPaths } from './paths.js';
 import type { BasePromptVars } from './prompts.js';
+import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
 
 // 生成 CODEX_HOME/config.toml 与模型目录（ADR-0005 决策 5，docs/architecture/codex-event-mapping.md §3）。
 // 每次启动 codex-app-server 之前重写；配置键以 rust-v0.162.1 为准，进程带 --strict-config 启动，写错就启动失败。
@@ -197,6 +198,8 @@ export interface RenderConfigInput {
   catalogFile?: string;
   /** 每个 `[model_providers.*]` 额外的键（测试把重试次数设成 0）。 */
   providerExtra?: Readonly<Record<string, unknown>>;
+  /** 建议后续任务的本机 MCP 服务（U23，suggest-tasks.ts）；省略时不登记。 */
+  suggestTasks?: SuggestTasksServer;
 }
 
 /**
@@ -226,7 +229,8 @@ export function renderConfigToml(input: RenderConfigInput): string {
       modelProviderEntry(provider, input.gatewayBaseURL(provider.id), input.providerExtra),
     ).map(([key, value]) => `${key} = ${tomlValue(value)}`),
   ]);
-  return `${[...top, ...HARDENING_TABLES, ...providers].join('\n')}\n`;
+  const mcp = input.suggestTasks === undefined ? [] : suggestTasksToml(input.suggestTasks);
+  return `${[...top, ...HARDENING_TABLES, ...providers, ...mcp].join('\n')}\n`;
 }
 
 /**
@@ -264,7 +268,10 @@ export function chatgptEndpointEnv(endpoints: ChatgptEndpoints): Record<string, 
 }
 
 /** ChatGPT 进程的 config.toml：加固项 + `CHATGPT_TOP`，没有 Wevir 的 Provider，也没有模型目录（用 Codex 自己的）。 */
-export function renderChatgptConfigToml(endpoints?: ChatgptEndpoints): string {
+export function renderChatgptConfigToml(
+  endpoints?: ChatgptEndpoints,
+  suggestTasks?: SuggestTasksServer,
+): string {
   const backend = endpoints?.backend.replace(/\/+$/, '');
   const top = [
     '# 由 Wevir 生成（packages/adapter-codex/src/config.ts），每次启动 codex-app-server 之前重写，不要手改。',
@@ -279,7 +286,8 @@ export function renderChatgptConfigToml(endpoints?: ChatgptEndpoints): string {
         ]),
     '',
   ];
-  return `${[...top, ...HARDENING_TABLES].join('\n')}\n`;
+  const mcp = suggestTasks === undefined ? [] : suggestTasksToml(suggestTasks);
+  return `${[...top, ...HARDENING_TABLES, ...mcp].join('\n')}\n`;
 }
 
 /** ChatGPT 会话的 `thread/start` 的 `config` 覆盖：只有推理档位（模型的元数据来自 Codex 自己的目录）。 */

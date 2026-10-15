@@ -32,6 +32,8 @@ import {
   type StreamBlockRef,
   type StreamId,
   type SubagentSummary,
+  type SuggestedTask,
+  type TaskId,
   type ToolDisplay,
   type TurnId,
   type TurnOutcome,
@@ -240,6 +242,8 @@ export class SessionManager {
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
+  /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
+  readonly #startingTasks = new Set<TaskId>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
   readonly #whenDisposed = deferred();
   /** `shutdown()` 开始后为 true：新命令一律 `HOST_SHUTTING_DOWN`，已排队的照常执行。 */
@@ -356,7 +360,43 @@ export class SessionManager {
     }
     await assertDirectory(workspace.rootPath);
     const permissionMode = this.#permissionMode(params.permissionMode);
+    const origin = this.#claimTask(params);
+    try {
+      return await this.#create(params, workspace, provider, permissionMode, origin);
+    } finally {
+      if (origin) this.#startingTasks.delete(origin.taskId);
+    }
+  }
 
+  /**
+   * `session.create` 的 `origin`（0.16.0，domain-model §3.11）：提出建议的会话要在、与新会话同一个工作区，这项建议要在、还是
+   * `suggested`，而且没有别的 `session.create` 正在开它；否则 `INVALID_PARAMS`。通过后占住它，直到建完或失败。
+   */
+  #claimTask(params: MethodParams<'session.create'>): MethodParams<'session.create'>['origin'] {
+    const origin = params.origin;
+    if (origin === undefined) return undefined;
+    const fail = (message: string) =>
+      new HostError('INVALID_PARAMS', message, { issues: [{ path: ['origin'], message }] });
+    if (!this.#adapter.suggestedTasks) throw fail('this host engine does not suggest tasks');
+    const parent = this.#storage.sessions.get(origin.sessionId);
+    if (!parent || parent.workspaceId !== params.workspaceId) {
+      throw fail(`session ${origin.sessionId} is not in workspace ${params.workspaceId}`);
+    }
+    const task = this.#events.suggestedTask(origin.sessionId, origin.taskId);
+    if (task?.status !== 'suggested' || this.#startingTasks.has(origin.taskId)) {
+      throw fail(`task ${origin.taskId} is not waiting to be started`);
+    }
+    this.#startingTasks.add(origin.taskId);
+    return origin;
+  }
+
+  async #create(
+    params: MethodParams<'session.create'>,
+    workspace: { id: string; rootPath: string },
+    provider: { id: string; defaultModelId: string },
+    permissionMode: PermissionMode | undefined,
+    origin: MethodParams<'session.create'>['origin'],
+  ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。
     const prepared = await this.#prepareEnvironment(params, sessionId, workspace.rootPath);
@@ -401,6 +441,7 @@ export class SessionManager {
       if (prepared.environmentId !== undefined) record.environmentId = prepared.environmentId;
       if (prepared.extraRoots.length > 0) record.extraRoots = prepared.extraRoots;
       if (prepared.worktrees.length > 0) record.worktrees = prepared.worktrees;
+      if (origin !== undefined) record.origin = origin;
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',
@@ -427,6 +468,13 @@ export class SessionManager {
       throw error;
     }
 
+    if (origin !== undefined) {
+      this.#events.append(origin.sessionId, {
+        type: 'task.started',
+        source: 'host',
+        payload: { taskId: origin.taskId, sessionId },
+      });
+    }
     const runtime = this.#runtime(sessionId);
     try {
       this.#attach(runtime);
@@ -1574,6 +1622,21 @@ export class SessionManager {
           },
         ]);
         return;
+      case 'tasks.suggested': {
+        const tasks = suggestedTasks(event.tasks, event.toolCallId, turnId);
+        if (tasks.length === 0) {
+          this.#onWarning('引擎的建议没有可用的任务（标题或说明为空），丢弃', { sessionId });
+          return;
+        }
+        this.#write(runtime, [
+          {
+            type: 'tasks.suggested',
+            source: 'host',
+            payload: { toolCallId: event.toolCallId, turnId, tasks },
+          },
+        ]);
+        return;
+      }
       case 'approval.requested':
         this.#approvalRequested(runtime, turn, event);
         return;
@@ -2023,6 +2086,60 @@ export class SessionManager {
     ]);
   }
 
+  /**
+   * 建议开出来的会话回合结束（0.16.0，domain-model §3.11）：建议还是 `started`（这是它开始之后第一个结束的回合）时，在提出
+   * 建议的会话里写 `task.reported`，并在那个会话的引擎会话挂着时补一条说明（`injectNote`）。失败只记下，不影响这个会话。
+   */
+  #reportTask(runtime: SessionRuntime, turnId: TurnId, outcome: TurnOutcome): void {
+    try {
+      const origin = this.#storage.sessions.get(runtime.id)?.origin;
+      if (origin === undefined) return;
+      const parentId = origin.sessionId as SessionId;
+      const taskId = origin.taskId as TaskId;
+      const task = this.#events.suggestedTask(parentId, taskId);
+      if (task?.status !== 'started' || task.sessionId !== runtime.id) return;
+      const summary = this.#lastAnswer(runtime.id, turnId);
+      this.#events.append(parentId, {
+        type: 'task.reported',
+        source: 'host',
+        payload: {
+          taskId,
+          sessionId: runtime.id,
+          outcome,
+          ...(summary !== undefined && { summary }),
+        },
+      });
+      const parent = this.#runtimes.get(parentId);
+      if (parent?.attachment && !parent.attachment.detached && this.#adapter.injectNote) {
+        this.#adapter
+          .injectNote(parent.engineSessionId, taskReportNote(task, runtime.id, outcome, summary))
+          .catch((error) =>
+            this.#onWarning('任务会话的结果没能补进提出建议的会话', {
+              sessionId: parentId,
+              error: errorText(error),
+            }),
+          );
+      }
+    } catch (error) {
+      this.#onError(error);
+    }
+  }
+
+  /** 一个回合最后一段回答的前 `TASK_SUMMARY_MAX_LENGTH` 字；没有回答时 `undefined`。 */
+  #lastAnswer(sessionId: SessionId, turnId: TurnId): string | undefined {
+    let text: string | undefined;
+    for (const event of this.#events.readSince(sessionId, 0)) {
+      if (event.type === 'assistant.message' && event.payload.turnId === turnId) {
+        text = event.payload.text;
+      }
+    }
+    const trimmed = text?.trim();
+    if (!trimmed) return undefined;
+    return trimmed.length > TASK_SUMMARY_MAX_LENGTH
+      ? `${trimmed.slice(0, TASK_SUMMARY_MAX_LENGTH)}…`
+      : trimmed;
+  }
+
   /** 子会话的摘要：标题、模型、状态、起止时间与未决审批取自子会话的快照，其余取 `base`。 */
   #summary(
     childId: SessionId,
@@ -2210,6 +2327,7 @@ export class SessionManager {
           runtime.turn = undefined;
           turn.finished.resolve();
         }
+        this.#reportTask(runtime, event.payload.turnId, event.payload.outcome);
       } else if (event.type === 'approval.resolved') {
         const requestId = runtime.requestIds.get(event.payload.approvalId);
         if (requestId !== undefined) {
@@ -2526,6 +2644,51 @@ function alreadyDecided(approval: ApprovalRecord): HostError<'ALREADY_DECIDED'> 
     status: approval.status as ResolvedApprovalStatus,
     resolution: approval.resolution as ApprovalResolution,
   });
+}
+
+/** `task.reported` 的 `summary` 最多多少字（domain-model §3.11）。 */
+const TASK_SUMMARY_MAX_LENGTH = 2000;
+const TASK_TITLE_MAX_LENGTH = 200;
+const TASK_PROMPT_MAX_LENGTH = 8000;
+
+/** 引擎报的建议 → `SuggestedTask`：分配 ID，去掉标题或说明为空的，超长的截断。 */
+function suggestedTasks(
+  tasks: ReadonlyArray<{ title: string; prompt: string; reason?: string }>,
+  toolCallId: string,
+  turnId: TurnId,
+): SuggestedTask[] {
+  return tasks.flatMap((task) => {
+    const title = task.title.trim().slice(0, TASK_TITLE_MAX_LENGTH);
+    const prompt = task.prompt.trim().slice(0, TASK_PROMPT_MAX_LENGTH);
+    if (title === '' || prompt === '') return [];
+    const reason = task.reason?.trim();
+    return [
+      {
+        id: newId('tsk'),
+        title,
+        prompt,
+        ...(reason && { reason }),
+        toolCallId,
+        turnId,
+        status: 'suggested' as const,
+      },
+    ];
+  });
+}
+
+/** 补进提出建议的会话的说明（`injectNote`）：模型下一次请求时看得到任务的结果。 */
+export function taskReportNote(
+  task: Pick<SuggestedTask, 'title'>,
+  sessionId: SessionId,
+  outcome: TurnOutcome,
+  summary: string | undefined,
+): string {
+  const lines = [
+    `The user started the follow-up task you suggested, "${task.title}", as a separate session (${sessionId}). Its first turn ended: ${outcome}.`,
+  ];
+  lines.push(summary === undefined ? 'It gave no final answer.' : `Its final answer:\n${summary}`);
+  lines.push('This is for your information; do not redo that task here unless the user asks.');
+  return lines.join('\n\n');
 }
 
 function invalidOption(approvalId: ApprovalId, optionId: string): HostError<'INVALID_PARAMS'> {

@@ -64,6 +64,12 @@ function describeEvent(event: WevirEvent): string {
     case 'subagent.started':
     case 'subagent.updated':
       return event.payload.subagent.status;
+    case 'tasks.suggested':
+      return event.payload.tasks[0]?.title ?? '';
+    case 'task.started':
+      return event.payload.sessionId;
+    case 'task.reported':
+      return event.payload.outcome;
     case 'pending.added':
     case 'pending.updated':
       return event.payload.pending.status;

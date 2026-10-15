@@ -15,6 +15,8 @@ export const SubscriptionIdSchema = z.templateLiteral(['sub_', IdBodySchema]);
 export const PendingMessageIdSchema = z.templateLiteral(['pnd_', IdBodySchema]);
 /** 引擎向用户提的一组问题（0.10.0）。 */
 export const QuestionIdSchema = z.templateLiteral(['qst_', IdBodySchema]);
+/** 建议的后续任务（0.16.0，U23）。 */
+export const TaskIdSchema = z.templateLiteral(['tsk_', IdBodySchema]);
 /** 保存的环境（0.15.0，U22.1）。 */
 export const EnvironmentIdSchema = z.templateLiteral(['env_', IdBodySchema]);
 /** Host 实例 ID：每个数据目录一个，跨重启不变。 */
@@ -22,6 +24,7 @@ export const HostIdSchema = z.templateLiteral(['hst_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
+export type TaskId = z.infer<typeof TaskIdSchema>;
 export type SessionId = z.infer<typeof SessionIdSchema>;
 export type TurnId = z.infer<typeof TurnIdSchema>;
 export type ApprovalId = z.infer<typeof ApprovalIdSchema>;

@@ -8,6 +8,7 @@ import { clientLabel } from './approval-model';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SubagentRow } from './subagent-marker';
+import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
 import { groupWork } from './tool-model';
 import { WorkGroup } from './work-group';
 
@@ -121,6 +122,10 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <NoticePart part={part} />;
     case 'question':
       return <QuestionPart part={part} />;
+    case 'tasks':
+      return <SuggestedTasksCard part={part} />;
+    case 'task_report':
+      return <TaskReportMarker part={part} />;
     // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
     case 'reasoning':
     case 'tool':

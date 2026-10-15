@@ -10,6 +10,7 @@ import {
   SeqCursorSchema,
   SessionIdSchema,
   StreamIdSchema,
+  TaskIdSchema,
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
@@ -638,6 +639,38 @@ export const SessionEnvironmentFields = {
   worktrees: z.array(SessionWorktreeSchema).optional(),
 };
 
+export const TurnOutcomeSchema = z.enum(['completed', 'cancelled', 'failed', 'interrupted']);
+export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
+
+// ── 建议的后续任务（0.16.0，U23） ─────────────────────────────────────
+
+/** Agent 建议的一项后续任务（domain-model §3.11）。 */
+export const SuggestedTaskSchema = z.object({
+  id: TaskIdSchema,
+  title: z.string().min(1).max(200),
+  /** 开新会话时的第一条消息。 */
+  prompt: z.string().min(1).max(8000),
+  reason: z.string().optional(),
+  /** 提出建议的工具调用。 */
+  toolCallId: z.string().min(1),
+  turnId: TurnIdSchema.optional(),
+  status: z.enum(['suggested', 'started', 'reported']),
+  /** 开出来的会话（started 起有）。 */
+  sessionId: SessionIdSchema.optional(),
+  /** 那个会话第一个回合的结局（reported 时有）。 */
+  outcome: TurnOutcomeSchema.optional(),
+});
+export type SuggestedTask = z.infer<typeof SuggestedTaskSchema>;
+
+/** 会话是怎么来的（0.16.0）：现在只有“从一项建议开出来”。 */
+export const SessionOriginSchema = z.object({
+  kind: z.literal('suggested_task'),
+  /** 提出建议的会话。 */
+  sessionId: SessionIdSchema,
+  taskId: TaskIdSchema,
+});
+export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
+
 export const SessionSchema = z.object({
   id: SessionIdSchema,
   workspaceId: WorkspaceIdSchema,
@@ -668,6 +701,8 @@ export const SessionSchema = z.object({
   /** 有问题等用户回答（0.10.0）：回合仍是 `running`，只是在等用户。 */
   awaitingInput: z.boolean().optional(),
   ...SessionEnvironmentFields,
+  /** 从一项建议开出来的会话（0.16.0）。 */
+  origin: SessionOriginSchema.optional(),
   createdAt: IsoTimeSchema,
   /** 最后一个事件的 `ts`。 */
   updatedAt: IsoTimeSchema,
@@ -690,5 +725,7 @@ export const SessionSnapshotSchema = z.object({
   pendingMessages: z.array(PendingMessageSchema).optional(),
   /** 等用户回答的问题（0.10.0），按提出的先后；没有时省略。 */
   pendingQuestions: z.array(QuestionRequestSchema).optional(),
+  /** 这个会话里 Agent 建议的后续任务（0.16.0），按提出的先后；没有时省略。 */
+  suggestedTasks: z.array(SuggestedTaskSchema).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

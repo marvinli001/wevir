@@ -103,6 +103,7 @@ import {
   subagentTitle,
   userMessageInput,
 } from './subagents.js';
+import { writeSuggestTasksServer } from './suggest-tasks.js';
 import { lowestEffort, TITLE_THREAD_CONFIG, TitleCollector, titleViaGateway } from './title.js';
 
 /**
@@ -170,6 +171,8 @@ export interface CodexAdapterOptions {
   providerExtra?: Readonly<Record<string, unknown>>;
   /** 子进程的 `RUST_LOG`，默认 `warn`。 */
   rustLog?: string;
+  /** 运行建议后续任务的 MCP 服务的 Node（U23，suggest-tasks.ts），默认 `process.execPath`。 */
+  mcpNode?: string;
   /** 旁听 app-server 的每一条原始通知（在映射之前，按到达顺序同步调用）；录制测试样本用。 */
   onRawNotification?: (method: string, params: unknown) => void;
   /** 旁听 app-server 的每一个服务端请求（到达时、处理之前同步调用）；录制测试样本用。 */
@@ -315,9 +318,10 @@ class Launcher implements CodexLauncher {
       await checkCodexVersion(binary, buildCodexEnv(baseEnv), binaryArgs);
       this.#versionChecked = true;
     }
+    const suggestTasks = writeSuggestTasksServer(this.paths.codexHome, this.#options.mcpNode);
     if (this.chatgpt) {
       // ChatGPT 进程：没有网关与令牌，没有 Wevir 的 Provider 与模型目录。
-      writeCodexConfig(this.paths, renderChatgptConfigToml(endpoints), undefined);
+      writeCodexConfig(this.paths, renderChatgptConfigToml(endpoints, suggestTasks), undefined);
       this.launchedCatalog = undefined;
       return this.#spawnSpec(binary, binaryArgs, buildCodexEnv(baseEnv));
     }
@@ -338,6 +342,7 @@ class Launcher implements CodexLauncher {
         gatewayBaseURL: (id) => gateway.baseURL(id),
         ...(catalog !== undefined && { catalogFile: this.paths.catalogFile }),
         providerExtra: this.#options.providerExtra,
+        suggestTasks,
       }),
       catalog,
     );
@@ -406,6 +411,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   /** 环境会话的额外目录（0.15.0，codex-event-mapping.md §4.8）：沙箱的 writableRoots 加 developer instructions。 */
   readonly additionalRoots = true;
+  /** 建议后续任务（0.16.0，codex-event-mapping.md §6.8）：Wevir 的本机 MCP 工具 `wevir_tasks.suggest_tasks`。 */
+  readonly suggestedTasks = true;
   readonly process: CodexProcess;
   readonly paths: CodexPaths;
   /** ChatGPT 进程的账号（`mode: 'chatgpt'` 时才有）。 */
@@ -684,6 +691,27 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * 插话（codex-event-mapping.md §4.5）：`turn/steer`，app-server 接受即返回。插话的 ID 先记下再发请求：它进回合的
    * userMessage 可能早于响应到达。`turn/start` 的结果还没到（没有回合 ID）、取消已开始时不发请求，直接拒绝。
    */
+  /** 补一条说明进 thread（0.16.0，§6.8）：`thread/inject_items` 的一条 user 消息，不开回合。 */
+  async injectNote(engineSessionId: string, text: string): Promise<void> {
+    this.#assertUsable();
+    this.#openSession(engineSessionId);
+    const params: ThreadInjectItemsParams = {
+      threadId: engineSessionId,
+      items: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text }] }],
+    };
+    try {
+      await this.process.request('thread/inject_items', params);
+    } catch (error) {
+      throw new AdapterError(
+        'engine_unavailable',
+        `thread/inject_items 失败：${error instanceof Error ? error.message : String(error)}`,
+        {
+          cause: error,
+        },
+      );
+    }
+  }
+
   async steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {
     this.#assertUsable();
     const session = this.#openSession(engineSessionId);
@@ -1135,9 +1163,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       turn === undefined ||
       (turn.turnId !== undefined && turnId !== undefined && turnId !== turn.turnId);
     if (stale) {
-      // 用量的映射不读回合状态；按设计忽略的（thread 状态等）照样忽略；其余一律原样保留。
+      // 用量与 MCP 服务启动（Wevir 自己的正常启动不出事件，§6.8）的映射不读回合状态；按设计忽略的（thread 状态等）照样
+      // 忽略；其余一律原样保留。
       const events =
-        method === 'thread/tokenUsage/updated'
+        method === 'thread/tokenUsage/updated' || method === 'mcpServer/startupStatus/updated'
           ? session.mapper.map(method, params)
           : (IGNORED_NOTIFICATIONS as readonly string[]).includes(method)
             ? []

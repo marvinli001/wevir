@@ -35,6 +35,7 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   /** 环境会话的额外目录（0.15.0）。 */
   readonly additionalRoots = true;
+  readonly suggestedTasks = true;
   readonly gateway: CodexAdapter;
   readonly chatgpt: CodexAdapter;
   readonly accounts: EngineAccounts;
@@ -95,6 +96,10 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     config: { modelId: string; reasoningEffort?: string; permissionMode?: PermissionMode },
   ): Promise<void> {
     return this.#forSession(engineSessionId).configureSession(engineSessionId, config);
+  }
+
+  injectNote(engineSessionId: string, text: string): Promise<void> {
+    return this.#forSession(engineSessionId).injectNote(engineSessionId, text);
   }
 
   steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {

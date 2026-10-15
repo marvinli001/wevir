@@ -32,6 +32,8 @@ import type {
   StreamBlockRef,
   SubagentStatus,
   SubagentSummary,
+  SuggestedTask,
+  TaskId,
   TodoItem,
   ToolDisplay,
   ToolOutput,
@@ -102,7 +104,14 @@ export type ChatPart =
       key: string;
       subagent: SubagentSummary;
       ended?: Exclude<SubagentStatus, 'running'>;
-    };
+    }
+  /**
+   * Agent 建议的后续任务（0.16.0，domain-model §3.11）：`tasks.suggested` 时出现在提出建议的回合里（`key` 是
+   * `k:<toolCallId>`），`tasks` 随 `task.started` / `task.reported` 原位换成最新的状态。
+   */
+  | { type: 'tasks'; key: string; toolCallId: string; tasks: readonly SuggestedTask[] }
+  /** 一项建议开出来的会话回报了结果（`task.reported`），在当时所在的位置（当前回合，空闲时一条系统消息）。 */
+  | { type: 'task_report'; key: string; task: SuggestedTask; summary?: string };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -186,6 +195,8 @@ export interface Transcript {
   pendingMessages: readonly PendingMessage[];
   /** 0.10.0：等用户回答的问题，按提出的先后；规则同 Host 快照的 `pendingQuestions`。 */
   pendingQuestions: readonly QuestionRequest[];
+  /** 0.16.0：Agent 建议的后续任务，按提出的先后；规则同 Host 快照的 `suggestedTasks`。 */
+  suggestedTasks: readonly SuggestedTask[];
   lastSeq: number;
 }
 
@@ -267,6 +278,10 @@ export class TranscriptProjection {
   /** 子会话 ID → 它的部件（开始与结束）所在的消息。 */
   #subagentParts = new Map<SessionId, MutableMessage[]>();
   #parent: ParentRef | undefined;
+  /** 建议的后续任务（0.16.0），按提出的先后。 */
+  #tasks = new Map<TaskId, SuggestedTask>();
+  /** 提出建议的工具调用 → 它的 `tasks` 部件所在的消息。 */
+  #taskParts = new Map<string, MutableMessage>();
   #lastSeq = 0;
   #dirty = true;
   #snapshot: Transcript | undefined;
@@ -297,6 +312,8 @@ export class TranscriptProjection {
     this.#subagents = [];
     this.#subagentParts.clear();
     this.#parent = undefined;
+    this.#tasks.clear();
+    this.#taskParts.clear();
     this.#pending = [];
     this.#lastSeq = 0;
     this.#dirty = true;
@@ -413,6 +430,11 @@ export class TranscriptProjection {
       case 'user.steered':
         this.#steered(event);
         return;
+      case 'tasks.suggested':
+      case 'task.started':
+      case 'task.reported':
+        this.#task(event);
+        return;
     }
   }
 
@@ -450,6 +472,7 @@ export class TranscriptProjection {
       pendingQuestions: [...this.#questions.values()].filter(
         (question) => question.status === 'pending',
       ),
+      suggestedTasks: [...this.#tasks.values()],
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -888,6 +911,56 @@ export class TranscriptProjection {
       if (!messages.includes(message)) messages.push(message);
     }
     this.#subagentParts.set(summary.sessionId, messages);
+  }
+
+  // ── 建议的后续任务 ───────────────────────────────────────────────────
+
+  /**
+   * `tasks.suggested` 在提出建议的回合里加一个 `tasks` 部件；`task.started` / `task.reported` 更新任务并原位换掉那个部件的
+   * `tasks`，`task.reported` 另在当时所在的位置加一个 `task_report` 部件。
+   */
+  #task(
+    event:
+      | WevirEventOf<'tasks.suggested'>
+      | WevirEventOf<'task.started'>
+      | WevirEventOf<'task.reported'>,
+  ): void {
+    if (event.type === 'tasks.suggested') {
+      const { toolCallId, turnId, tasks } = event.payload;
+      for (const task of tasks) this.#tasks.set(task.id, task);
+      const message = this.#target(turnId, event.seq);
+      message.parts.push({ type: 'tasks', key: `k:${toolCallId}`, toolCallId, tasks });
+      this.#taskParts.set(toolCallId, message);
+      return;
+    }
+    const previous = this.#tasks.get(event.payload.taskId);
+    if (!previous) return;
+    const task: SuggestedTask =
+      event.type === 'task.started'
+        ? { ...previous, status: 'started', sessionId: event.payload.sessionId }
+        : {
+            ...previous,
+            status: 'reported',
+            sessionId: event.payload.sessionId,
+            outcome: event.payload.outcome,
+          };
+    this.#tasks.set(task.id, task);
+    const message = this.#taskParts.get(task.toolCallId);
+    if (message) {
+      this.#touch(message, event.seq);
+      const tasks = [...this.#tasks.values()].filter((item) => item.toolCallId === task.toolCallId);
+      message.parts = message.parts.map((part) =>
+        part.type === 'tasks' && part.toolCallId === task.toolCallId ? { ...part, tasks } : part,
+      );
+    }
+    if (event.type === 'task.reported') {
+      this.#target(this.#activeTurnId, event.seq).parts.push({
+        type: 'task_report',
+        key: `kr:${task.id}`,
+        task,
+        ...(event.payload.summary !== undefined && { summary: event.payload.summary }),
+      });
+    }
   }
 
   // ── 错误与调试 ───────────────────────────────────────────────────────

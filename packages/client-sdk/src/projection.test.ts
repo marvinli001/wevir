@@ -883,3 +883,64 @@ describe('待发消息与插话（R11）', () => {
     expect(message).not.toHaveProperty('steered');
   });
 });
+
+describe('建议的后续任务（0.16.0）', () => {
+  const CHILD = 'ses_01JA2B3C4D5E6F7G8H9JKMNPZZ' as const;
+  const task = (id: `tsk_${string}`, title: string) => ({
+    id,
+    title,
+    prompt: `do ${title}`,
+    toolCallId: 'call_suggest_1',
+    turnId: TURN,
+    status: 'suggested' as const,
+  });
+  const A = task('tsk_01JA2B3C4D5E6F7G8H9JKMNPQA', 'tests');
+  const B = task('tsk_01JA2B3C4D5E6F7G8H9JKMNPQB', 'readme');
+
+  it('提出建议的回合里一个 tasks 部件，随开始与回报原位更新；回报时在当时的位置加一个 task_report 部件', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('tasks.suggested', { toolCallId: 'call_suggest_1', turnId: TURN, tasks: [A, B] });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const before = projection.snapshot();
+    const card = before.messages[1];
+    expect(card?.parts.find((p) => p.type === 'tasks')).toEqual({
+      type: 'tasks',
+      key: 'k:call_suggest_1',
+      toolCallId: 'call_suggest_1',
+      tasks: [A, B],
+    });
+    expect(before.suggestedTasks).toEqual([A, B]);
+
+    projection.apply(add('task.started', { taskId: A.id, sessionId: CHILD }));
+    projection.apply(
+      add('task.reported', {
+        taskId: A.id,
+        sessionId: CHILD,
+        outcome: 'failed',
+        summary: '没跑通',
+      }),
+    );
+    const after = projection.snapshot();
+    const reported = { ...A, status: 'reported', sessionId: CHILD, outcome: 'failed' };
+    expect(after.messages[1]?.parts.find((p) => p.type === 'tasks')).toMatchObject({
+      tasks: [reported, B],
+    });
+    expect(after.suggestedTasks).toEqual([reported, B]);
+    // 回报时会话空闲：一条系统消息。
+    expect(after.messages.at(-1)).toMatchObject({
+      role: 'system',
+      parts: [{ type: 'task_report', key: `kr:${A.id}`, task: reported, summary: '没跑通' }],
+    });
+    // 不认识的任务忽略。
+    projection.apply(
+      add('task.started', { taskId: 'tsk_01JA2B3C4D5E6F7G8H9JKMNPQZ', sessionId: CHILD }),
+    );
+    expect(projection.snapshot().suggestedTasks).toHaveLength(2);
+    projection.reset();
+    expect(projection.snapshot().suggestedTasks).toEqual([]);
+  });
+});

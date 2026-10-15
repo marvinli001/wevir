@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ECHO_APPROVAL_OPTIONS, ECHO_PLAN, EchoAdapter, type EchoAdapterOptions } from './echo.js';
+import {
+  ECHO_APPROVAL_OPTIONS,
+  ECHO_PLAN,
+  ECHO_SUGGESTIONS,
+  EchoAdapter,
+  type EchoAdapterOptions,
+} from './echo.js';
 import { isAdapterError } from './errors.js';
 import type { AgentEvent } from './events.js';
 import type { SessionConfig } from './types.js';
@@ -179,6 +185,28 @@ describe('EchoAdapter', () => {
     expect(events.find((e) => e.type === 'todo.updated')).toMatchObject({
       items: ECHO_PLAN.map((content) => ({ content })),
     });
+  });
+
+  it('suggest：工具调用完成后报 tasks.suggested；injectNote 的说明写在下一个回复末尾', async () => {
+    const session = await open();
+    await session.send('suggest follow-ups');
+    const events = await session.readUntil(settled);
+    const finished = events.findIndex((e) => e.type === 'tool.finished');
+    const suggested = events.findIndex((e) => e.type === 'tasks.suggested');
+    expect(finished).toBeGreaterThan(-1);
+    expect(suggested).toBe(finished + 1);
+    expect(events[suggested]).toMatchObject({
+      toolCallId: (events[finished] as { toolCallId: string }).toolCallId,
+      tasks: ECHO_SUGGESTIONS,
+    });
+
+    await session.adapter.injectNote(session.id, 'Task done: tests added\nmore detail');
+    await session.send('hello');
+    expect(textOf(await session.readUntil(settled), 'text')).toBe(
+      'Echo: hello\n\nNotes: Task done: tests added',
+    );
+    await session.send('again');
+    expect(textOf(await session.readUntil(settled), 'text')).toBe('Echo: again');
   });
 
   it('fail：回合以 turn.failed 结束，会话仍可用', async () => {

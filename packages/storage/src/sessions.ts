@@ -37,6 +37,8 @@ export interface SessionRecord {
   environmentId?: string;
   extraRoots?: string[];
   worktrees?: { workspaceId: string; path: string; branch: string }[];
+  /** 从一项建议开出来的会话（U23，0005_session_origin）：提出建议的会话与建议的 ID。建会话后不变。 */
+  origin?: { kind: string; sessionId: string; taskId: string };
   /** 子会话的父会话（R4，0002_subagents）；普通会话没有。 */
   parentSessionId?: string;
   /** 子会话：父会话里派出它的工具调用。 */
@@ -107,11 +109,11 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const insert = db.prepare(`
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
-      permission_mode, environment_id, extra_roots, worktrees, parent_session_id, parent_tool_call_id,
+      permission_mode, environment_id, extra_roots, worktrees, origin, parent_session_id, parent_tool_call_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
-      :permissionMode, :environmentId, :extraRoots, :worktrees, :parentSessionId, :parentToolCallId,
+      :permissionMode, :environmentId, :extraRoots, :worktrees, :origin, :parentSessionId, :parentToolCallId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM sessions WHERE id = ?');
@@ -150,6 +152,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         environmentId: record.environmentId ?? null,
         extraRoots: record.extraRoots ? JSON.stringify(record.extraRoots) : null,
         worktrees: record.worktrees ? JSON.stringify(record.worktrees) : null,
+        origin: toNullableJson(record.origin),
         parentSessionId: record.parentSessionId ?? null,
         parentToolCallId: record.parentToolCallId ?? null,
         title: record.title,
@@ -230,6 +233,8 @@ function fromRow(row: SqlRow): SessionRecord {
   const worktrees = optionalJson(row, 'worktrees');
   if (worktrees !== undefined)
     record.worktrees = worktrees as NonNullable<SessionRecord['worktrees']>;
+  const origin = optionalJson(row, 'origin');
+  if (origin !== undefined) record.origin = origin as NonNullable<SessionRecord['origin']>;
   const parentSessionId = optionalText(row, 'parent_session_id');
   if (parentSessionId !== undefined) record.parentSessionId = parentSessionId;
   const parentToolCallId = optionalText(row, 'parent_tool_call_id');

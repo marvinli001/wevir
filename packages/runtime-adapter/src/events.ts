@@ -271,6 +271,18 @@ export interface TurnSteeredEvent {
   steerId: string;
 }
 
+/**
+ * Agent 建议了后续任务（0.16.0，U23，domain-model §3.11）：在提出建议的工具调用完成之后报出（Codex：Wevir 的 MCP 工具
+ * `wevir_tasks.suggest_tasks`，codex-event-mapping.md §6.8）。ID 由 Host 分配；工具调用本身照常是工具事件。
+ */
+export interface TasksSuggestedEvent {
+  type: 'tasks.suggested';
+  engineSessionId: string;
+  /** 提出建议的工具调用。 */
+  toolCallId: string;
+  tasks: Array<{ title: string; prompt: string; reason?: string }>;
+}
+
 /** 适配器不认识的引擎消息，原样保留，不丢弃。 */
 export interface EngineRawEvent {
   type: 'engine.raw';
@@ -305,7 +317,8 @@ export type AgentEvent =
   | TurnStartedEvent
   | TurnSteeredEvent
   | SubagentStartedEvent
-  | SubagentUpdatedEvent;
+  | SubagentUpdatedEvent
+  | TasksSuggestedEvent;
 
 export type AgentEventType = AgentEvent['type'];
 

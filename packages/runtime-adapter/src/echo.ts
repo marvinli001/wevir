@@ -42,6 +42,20 @@ export interface EchoExitInfo {
 /** `plan` 关键词的清单（U20）。 */
 export const ECHO_PLAN = ['Read the relevant files', 'Make the change', 'Run the tests and report'];
 
+/** `suggest` 关键词建议的后续任务（U23）。`prompt` 带关键词，开出来的会话照样有可看的过程。 */
+export const ECHO_SUGGESTIONS: ReadonlyArray<{ title: string; prompt: string; reason: string }> = [
+  {
+    title: 'Add tests for the export functions',
+    prompt: 'tool: add unit tests for the three export functions and run them',
+    reason: 'The export format changed and nothing covers it yet',
+  },
+  {
+    title: 'Update the README usage section',
+    prompt: 'plan: update the README usage section for the new export format',
+    reason: 'The README still shows the old flags',
+  },
+];
+
 export const ECHO_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'allow-once', label: 'Allow once', kind: 'allow_once' },
   { optionId: 'reject-once', label: 'Reject', kind: 'reject_once' },
@@ -97,6 +111,8 @@ interface EchoSession {
   hub: EventHub<AgentEvent>;
   turn?: EchoTurn;
   turnCount: number;
+  /** `injectNote` 补进来、还没用上的说明（U23），下一个回合的回复末尾写出来。 */
+  notes: string[];
 }
 
 interface ReplyBlock {
@@ -119,10 +135,13 @@ interface ReplyBlock {
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
  * | `slow` | 回复的每个分片前多等九步，回合持续得久一些，测试插话与排队用（R11） |
  * | `plan` | 回合里带一份三步的清单（`todo.updated`，像 Codex 的计划）：开始时第一步进行中，工具与审批之后第二步、回复前第三步，回复完全部完成（U20） |
+ * | `suggest` | 回复前调一次 `suggest_tasks` 工具，建议两项后续任务（`tasks.suggested`，`ECHO_SUGGESTIONS`，U23） |
  * | `subagent` | 模拟 Codex 的子 agent（R4）：调 `spawn_agent` 派出一个子会话（父会话的流里 `subagent.started`），子会话以
  *   `turn.started` 开始一个回合，输入是 `Helper task: <输入，subagent 换成 helper>`，所以输入里的其他关键词由子会话执行
  *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
  *   （`subagent.updated` 的 `closed`）。父回合被取消时子会话照常跑完（与 Codex 相同，Host 自己级联取消） |
+ *
+ * `injectNote`（U23）补进来的说明在下一个回合的回复末尾写成 `Notes: <每条的第一行>`，像模型在上下文里看到了它。
  *
  * 插话（R11，`steer`）：回合进行中交来的输入在当前这次回复之后放进回合（`turn.steered`），再回复一次
  * `Echo: <插话>`（新的 attempt），像 Codex 在一次采样之后用上待处理的输入；回合被取消或引擎退出时丢掉没用上的。
@@ -173,6 +192,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       status: 'open',
       hub: new EventHub(),
       turnCount: 0,
+      notes: [],
     };
     this.#sessions.set(session.id, session);
     return this.#describe(session);
@@ -308,6 +328,14 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   /** 额外的可写目录（0.15.0）只记下，假引擎不读写文件。 */
   readonly additionalRoots = true;
 
+  /** `suggest` 关键词（U23）。 */
+  readonly suggestedTasks = true;
+
+  async injectNote(engineSessionId: string, text: string): Promise<void> {
+    this.#assertUsable();
+    this.#openSession(engineSessionId).notes.push(text);
+  }
+
   /** 子会话的回合跟父回合在同一个进程里，单独停掉时父 agent 自然在等它结束（`notifyParent` 不用另外处理）。 */
   async cancel(engineSessionId: string, _options?: CancelOptions): Promise<void> {
     const turn = this.#sessions.get(engineSessionId)?.turn;
@@ -399,6 +427,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     let attemptId = `${engineSessionId}:${session.turnCount}`;
     let blocks: ReplyBlock[] = [];
     const slowSteps = /slow/i.test(text) ? 10 : 1;
+    const notes = session.notes.splice(0);
     /** 进行中的工具调用 → 被取消时的失败文本（措辞取 dsh，T0.3 E1、D）。 */
     const openTools = new Map<string, string>();
 
@@ -496,6 +525,34 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         );
       }
 
+      if (!subagent && /\bsuggest\b/i.test(text)) {
+        const toolCallId = this.#nextId('call_echo');
+        emit({
+          type: 'tool.started',
+          engineSessionId,
+          toolCallId,
+          toolName: 'suggest_tasks',
+          display: { kind: 'unknown', summary: 'suggest_tasks' },
+          input: { tasks: ECHO_SUGGESTIONS },
+        });
+        openTools.set(toolCallId, 'Error: tool call aborted');
+        await this.#step(signal);
+        openTools.delete(toolCallId);
+        emit({
+          type: 'tool.finished',
+          engineSessionId,
+          toolCallId,
+          status: 'completed',
+          output: `Handed ${ECHO_SUGGESTIONS.length} tasks to the user`,
+        });
+        emit({
+          type: 'tasks.suggested',
+          engineSessionId,
+          toolCallId,
+          tasks: ECHO_SUGGESTIONS.map((task) => ({ ...task })),
+        });
+      }
+
       plan(1);
       let answered = '';
       if (!subagent && /\bask\b/i.test(text)) {
@@ -506,7 +563,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       if (!subagent && /think/i.test(text)) {
         blocks.push({ kind: 'reasoning', full: `Thinking about: ${text}`, generated: '' });
       }
-      blocks.push({ kind: 'text', full: `Echo: ${text}${answered}`, generated: '' });
+      const noted =
+        notes.length > 0
+          ? `\n\nNotes: ${notes.map((note) => note.split('\n')[0]).join(' | ')}`
+          : '';
+      blocks.push({ kind: 'text', full: `Echo: ${text}${answered}${noted}`, generated: '' });
       plan(2);
       await this.#reply(signal, emit, engineSessionId, attemptId, blocks, slowSteps);
       this.#commit(emit, engineSessionId, attemptId, blocks);
@@ -600,6 +661,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       status: 'open',
       hub: new EventHub({ bufferUntilSubscribed: true }),
       turnCount: 0,
+      notes: [],
     };
     let done: Promise<void> = Promise.resolve();
     await tool('spawn_agent', { message: prompt }, async (toolCallId) => {

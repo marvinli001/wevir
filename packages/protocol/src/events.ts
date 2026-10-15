@@ -9,6 +9,7 @@ import {
   SeqSchema,
   SessionIdSchema,
   StreamIdSchema,
+  TaskIdSchema,
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
@@ -26,10 +27,12 @@ import {
   SessionStateSchema,
   StreamBlockRefSchema,
   SubagentSummarySchema,
+  SuggestedTaskSchema,
   TitleSourceSchema,
   TodoItemSchema,
   ToolDisplaySchema,
   ToolOutputSchema,
+  TurnOutcomeSchema,
   UserContentPartSchema,
 } from './entities.js';
 
@@ -52,9 +55,6 @@ export const StateChangeReasonSchema = z.enum([
   'host_restarted',
 ]);
 export type StateChangeReason = z.infer<typeof StateChangeReasonSchema>;
-
-export const TurnOutcomeSchema = z.enum(['completed', 'cancelled', 'failed', 'interrupted']);
-export type TurnOutcome = z.infer<typeof TurnOutcomeSchema>;
 
 export const ToolFinishStatusSchema = z.enum(['completed', 'failed', 'cancelled', 'unknown']);
 export type ToolFinishStatus = z.infer<typeof ToolFinishStatusSchema>;
@@ -255,6 +255,26 @@ export const EventPayloadSchemas = {
   'subagent.updated': z.object({
     subagent: SubagentSummarySchema,
   }),
+  /** Agent 建议了后续任务（0.16.0，domain-model §3.11）；`status` 都是 `suggested`。 */
+  'tasks.suggested': z.object({
+    /** 提出建议的工具调用。 */
+    toolCallId: z.string().min(1),
+    turnId: TurnIdSchema.optional(),
+    tasks: z.array(SuggestedTaskSchema).min(1),
+  }),
+  /** 用户把一项建议开成了会话（0.16.0）。 */
+  'task.started': z.object({
+    taskId: TaskIdSchema,
+    sessionId: SessionIdSchema,
+  }),
+  /** 开出来的会话第一个回合结束了（0.16.0），结果回报到提出建议的会话。 */
+  'task.reported': z.object({
+    taskId: TaskIdSchema,
+    sessionId: SessionIdSchema,
+    outcome: TurnOutcomeSchema,
+    /** 那个回合最后一段回答的前 2000 字；没有回答时省略。 */
+    summary: z.string().optional(),
+  }),
   /** 一条待发消息加入（0.8.0，domain-model §3.3.2）；`status` 恒为 `waiting`。 */
   'pending.added': z.object({
     pending: PendingMessageSchema,
@@ -328,6 +348,9 @@ export const EngineErrorEventSchema = eventSchema('engine.error');
 export const EngineRawEventSchema = eventSchema('engine.raw');
 export const SubagentStartedEventSchema = eventSchema('subagent.started');
 export const SubagentUpdatedEventSchema = eventSchema('subagent.updated');
+export const TasksSuggestedEventSchema = eventSchema('tasks.suggested');
+export const TaskStartedEventSchema = eventSchema('task.started');
+export const TaskReportedEventSchema = eventSchema('task.reported');
 export const PendingAddedEventSchema = eventSchema('pending.added');
 export const PendingUpdatedEventSchema = eventSchema('pending.updated');
 export const UserSteeredEventSchema = eventSchema('user.steered');
@@ -360,6 +383,9 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   EngineRawEventSchema,
   SubagentStartedEventSchema,
   SubagentUpdatedEventSchema,
+  TasksSuggestedEventSchema,
+  TaskStartedEventSchema,
+  TaskReportedEventSchema,
   PendingAddedEventSchema,
   PendingUpdatedEventSchema,
   UserSteeredEventSchema,

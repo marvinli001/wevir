@@ -59,6 +59,8 @@ export const HOST_FEATURES = {
   subagentCancel: 'subagent_cancel',
   /** 保存的环境（0.15.0，U22.1）：`environment.*` 与 `session.create` 的 `environmentId`。与引擎无关。 */
   environments: 'environments',
+  /** 建议的后续任务（0.16.0，U23）：`tasks.suggested` / `task.*` 事件与 `session.create` 的 `origin`。取决于引擎。 */
+  suggestedTasks: 'suggested_tasks',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -72,6 +74,7 @@ export const HostFeaturesSchema = z.looseObject({
   workspace_git: z.boolean().optional(),
   subagent_cancel: z.boolean().optional(),
   environments: z.boolean().optional(),
+  suggested_tasks: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -19,6 +19,8 @@ import type {
   SubagentInfo,
   SubagentStatus,
   SubagentSummary,
+  SuggestedTask,
+  TaskId,
   TitleSource,
   TodoItem,
   TurnId,
@@ -75,6 +77,11 @@ export interface SessionProjection {
    * 结局），按提出的先后。快照只给未结束的。
    */
   readonly questions: ReadonlyMap<QuestionId, QuestionRequest>;
+  /**
+   * Agent 建议的后续任务（0.16.0，domain-model §3.11）：`tasks.suggested` 加入，`task.started` / `task.reported` 推进状态，
+   * 按提出的先后。
+   */
+  readonly suggestedTasks: ReadonlyMap<TaskId, SuggestedTask>;
 }
 
 /** 未结束（等回答）的问题，按提出的先后。 */
@@ -106,6 +113,7 @@ export const INITIAL_PROJECTION: SessionProjection = {
   subagents: [],
   pendings: new Map(),
   questions: new Map(),
+  suggestedTasks: new Map(),
 };
 
 /** 子会话的回合结果 → 子会话的状态（domain-model §3.3.1）。 */
@@ -128,6 +136,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  *   `running`；`turn.finished` 按结果；转 `closed` → `closed`；还在 `running` 时转 `error` → `failed`。
  * - `subagents`（父会话）：`subagent.started` 追加，`subagent.updated` 按 `sessionId` 替换。
  * - `pendings`（R11）：`pending.added` 加入，`pending.updated` 按 `id` 替换。
+ * - `suggestedTasks`（0.16.0）：`tasks.suggested` 加入，`task.started` 记下会话、`task.reported` 记下结局。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -162,6 +171,30 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     case 'pending.updated': {
       const { pending } = event.payload;
       next.pendings = new Map(projection.pendings).set(pending.id, pending);
+      break;
+    }
+    case 'tasks.suggested': {
+      const tasks = new Map(projection.suggestedTasks);
+      for (const task of event.payload.tasks) tasks.set(task.id, task);
+      next.suggestedTasks = tasks;
+      break;
+    }
+    case 'task.started':
+    case 'task.reported': {
+      const previous = projection.suggestedTasks.get(event.payload.taskId);
+      if (previous) {
+        next.suggestedTasks = new Map(projection.suggestedTasks).set(
+          previous.id,
+          event.type === 'task.started'
+            ? { ...previous, status: 'started', sessionId: event.payload.sessionId }
+            : {
+                ...previous,
+                status: 'reported',
+                sessionId: event.payload.sessionId,
+                outcome: event.payload.outcome,
+              },
+        );
+      }
       break;
     }
     case 'session.read_only':
@@ -424,6 +457,24 @@ export function checkEvent(
         reject(`插话的回合 ${e.payload.turnId} 不是当前回合`);
       }
       break;
+    case 'tasks.suggested':
+      for (const task of e.payload.tasks) {
+        if (projection.suggestedTasks.has(task.id)) reject(`建议 ${task.id} 已经提过`);
+        if (task.status !== 'suggested') reject(`新建议 ${task.id} 的状态必须是 suggested`);
+      }
+      break;
+    case 'task.started':
+      if (projection.suggestedTasks.get(e.payload.taskId)?.status !== 'suggested') {
+        reject(`建议 ${e.payload.taskId} 不在等开始`);
+      }
+      break;
+    case 'task.reported': {
+      const task = projection.suggestedTasks.get(e.payload.taskId);
+      if (task?.status !== 'started' || task.sessionId !== e.payload.sessionId) {
+        reject(`建议 ${e.payload.taskId} 没有由会话 ${e.payload.sessionId} 开始`);
+      }
+      break;
+    }
   }
 }
 
@@ -471,6 +522,13 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
       workspaceId: worktree.workspaceId as WorkspaceId,
     }));
   }
+  if (record.origin !== undefined) {
+    session.origin = {
+      kind: 'suggested_task',
+      sessionId: record.origin.sessionId as SessionId,
+      taskId: record.origin.taskId as TaskId,
+    };
+  }
   if (record.parentSessionId !== undefined) {
     session.parentSessionId = record.parentSessionId as SessionId;
   }
@@ -484,6 +542,9 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.subagents.length > 0) snapshot.subagents = [...projection.subagents];
   const pendingMessages = openPendings(projection);
   if (pendingMessages.length > 0) snapshot.pendingMessages = pendingMessages;
+  if (projection.suggestedTasks.size > 0) {
+    snapshot.suggestedTasks = [...projection.suggestedTasks.values()];
+  }
   const pendingQuestions = openQuestions(projection);
   if (pendingQuestions.length > 0) {
     snapshot.pendingQuestions = pendingQuestions;

@@ -637,6 +637,35 @@ interface SessionWorktree {            // Session.worktrees 的一项
 - **会话上的记录**：`Session.environmentId`、`extraRoots`、`worktrees`，写进 `session.created`，之后不变；resume 时照样把 `extraRoots` 交给引擎。
 - **worktree 不自动删**：可能有没合并的改动；会话关闭后留着，由用户自己 `git worktree remove`（以后在设置里列出可清理的）。
 
+### 3.11 建议的后续任务（0.16.0，U23）
+
+Agent 在工作中发现当前请求之外、值得另开一个会话做的事，可以“建议”出来；用户一键把它开成独立的会话，那个会话第一个回合结束时，结果回报给提出建议的会话（设计提案 D12、D13，维护者 2026-10-15 确认）。
+
+```ts
+// → protocol
+interface SuggestedTask {
+  id: TaskId                       // tsk_<ULID>，Host 分配
+  title: string                    // 1–200 字
+  prompt: string                   // 开新会话时的第一条消息
+  reason?: string                  // 为什么建议
+  toolCallId: string               // 提出建议的工具调用
+  turnId?: TurnId
+  status: 'suggested' | 'started' | 'reported'
+  sessionId?: SessionId            // 开出来的会话（started 起有）
+  outcome?: TurnOutcome            // 回报时那个会话第一个回合的结局（reported 时有）
+}
+interface SessionOrigin {          // Session.origin：这个会话是怎么来的
+  kind: 'suggested_task'
+  sessionId: SessionId             // 提出建议的会话
+  taskId: TaskId
+}
+```
+
+- **提出**：适配器报 `tasks.suggested`（引擎侧怎样提出见 codex-event-mapping.md §6.8：Codex 经 Wevir 自带的本机 MCP 工具 `suggest_tasks`；echo 用 `suggest` 关键词），Host 给每项分配 ID，写进提出建议的会话的事件流（`tasks.suggested`），快照的 `suggestedTasks` 由它与下面两种事件推导。
+- **开始**：`session.create` 带 `origin`。`workspaceId` 要与提出建议的会话相同，这项建议要在、还是 `suggested`，否则 `INVALID_PARAMS`。建好之后 Host 在提出建议的会话里写 `task.started`（`taskId`、`sessionId`），新会话的 `origin` 记下来源（存储 0005_session_origin）。新会话是普通会话：用户照常对话、停止、关闭，第一条消息是建议里的 `prompt`，由客户端发出。
+- **回报**：新会话的**第一个**回合结束（完成、失败、取消都算）时，Host 在提出建议的会话里写 `task.reported`（`taskId`、`sessionId`、`outcome`，以及那个回合最后一段回答的前 2000 字 `summary`），并让适配器把同样的内容作为一条不开新回合的说明补进提出建议的会话的引擎上下文（`injectNote`；Codex 是 `thread/inject_items`），主会话之后的回合就知道结果。提出建议的会话的引擎会话没挂着（关闭了、Host 重启后还没 resume）时只写事件，不补说明。
+- 功能位 `suggested_tasks`：适配器声明 `suggestedTasks`（Codex、echo 有）时 Host 才声明。
+
 ## 4. 会话状态机
 
 ```mermaid

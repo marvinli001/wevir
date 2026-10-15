@@ -122,6 +122,18 @@ export interface AgentRuntimeAdapter {
   readonly additionalRoots?: boolean;
 
   /**
+   * 引擎能让 agent 建议后续任务（0.16.0，U23）：回合里以 `tasks.suggested` 报出。有它 Host 才声明 `suggested_tasks`。
+   */
+  readonly suggestedTasks?: boolean;
+
+  /**
+   * 往会话的引擎上下文补一条说明，不开回合（0.16.0，U23：用户开出的任务会话回报结果，domain-model §3.11）。模型从下一次
+   * 请求起看得到；回合进行中也可以调用。不实现时 Host 只写事件（Codex：`thread/inject_items`）。
+   * 错误：`session_not_found`、`session_closed`（会话没挂着）、`disposed`。
+   */
+  injectNote?(engineSessionId: string, text: string): Promise<void>;
+
+  /**
    * 回复一个未决审批（dsh：ACP `{"outcome":{"outcome":"selected","optionId":…}}`）。审批随即不再未决，
    * 引擎随后的事件（通常是该工具的 `tool.finished`）照常上报。同一请求只能决定一次。
    * 错误：`session_not_found`、`approval_not_found`、`invalid_option`（审批保持未决）、`disposed`。

@@ -685,6 +685,20 @@ export const zhCN = {
   'settings.about.hostVersion': 'Host 版本',
   'settings.about.hostId': 'Host ID',
 
+  'suggest.title': '{count} 个建议的任务',
+  'suggest.startedCount': '{count} 已开始',
+  'suggest.start': '开始',
+  'suggest.starting': '正在开始…',
+  'suggest.running': '进行中',
+  'suggest.completed': '已完成',
+  'suggest.failed': '出错',
+  'suggest.cancelled': '已停止',
+  'suggest.open': '打开会话',
+  'suggest.startFailed': '没能开始：{error}',
+  'suggest.report.completed': '“{title}”已完成',
+  'suggest.report.failed': '“{title}”出错',
+  'suggest.report.cancelled': '“{title}”已停止',
+
   'error.title': '界面出错',
   'error.reload': '重新加载',
 } as const;

@@ -365,6 +365,14 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 
 **中断时还没结束的工具。** 回合以 `interrupted` 结束时，`turn/completed` 之前还没 `item/completed` 的工具（审批挂起时取消的命令、选了“告诉它换个做法”的补丁）不会再有结果，`#failOpenTools` 在终结事件之前给它们发 `tool.finished`（`failed`）；取消期间 Host 把它记为 `cancelled`（domain-model.md §6.4），选了“告诉它换个做法”时界面显示为被拒绝。
 
+### 6.8 建议的后续任务（0.16.0，U23）
+
+Codex 没有“向用户建议后续任务”的功能（`followup_task` 是 agent 之间的，设计提案附 4），Wevir 自己给它一个工具：一个本机 MCP 服务（`suggest-tasks.ts`，stdio、一行一条 JSON-RPC，只用 Node 内置模块），只有一个工具 `suggest_tasks({ tasks: [{ title, prompt, reason? }] })`（最多 5 项），调用只回“已交给用户”，不做别的事。脚本的源码在 `suggest-tasks.ts` 里，每次启动 codex-app-server 之前写进 CODEX_HOME（`wevir-suggest-tasks.mjs`，0600），打包时不必另带文件；两种进程（网关、ChatGPT）的 config.toml 都登记为 `[mcp_servers.wevir_tasks]`：`command` 是 Host 自己的 Node（`process.execPath`，Electron 里靠 `env = { ELECTRON_RUN_AS_NODE = "1" }`），`default_tools_approval_mode = "approve"`（不问用户）、`enabled_tools = ["suggest_tasks"]`、`startup_timeout_sec = 10`。
+
+rust-v0.162.1 实测（`codex-adapter.tasks.integration.test.ts`）：模型看到的是命名空间 `mcp__wevir_tasks` 里的 `suggest_tasks`（工具部件的 `toolName` 是 `mcp__wevir_tasks__suggest_tasks`），调用不出审批；每个 thread 第一次用到时 Codex 发两条 `mcpServer/startupStatus/updated`（`starting`、`ready`），Wevir 自己的服务正常启动的这两条不出事件，起不来（`failed` 等）的照常留 `engine.raw`。适配器在这个工具调用的 `item/completed`（`mcpToolCall`，`server` 是 `wevir_tasks`、`tool` 是 `suggest_tasks`、`status` 是 `completed`）时从 `arguments` 取出建议（去掉标题或说明为空的），紧跟在它的 `tool.finished` 之后报 `tasks.suggested`；工具调用本身照常是一个工具部件。说明怎么用在工具的描述里，prompts/base.md 也有一段（只有网关进程用它）。
+
+回报（`injectNote`）：用户开出的任务会话第一个回合结束时，Host 让适配器往提出建议的会话的 thread 补一条 user 消息（`thread/inject_items`，同 §6.5 停止子 agent 的说明），写明任务、结局与回答摘要；实测不开回合，下一次请求里就有它。
+
 ### 6.7 回合失败的归类（`turn-error.ts`）
 
 `turn/completed` 的 `turn.error` 带 `codexErrorInfo`（v2/CodexErrorInfo.ts：字符串，或带上游 `httpStatusCode` 的对象）。所有 Provider 都经网关：网关把上游的状态码原样转给 Codex，自己拒绝的请求带 `wevir gateway:` 前缀的原文。自上而下第一条匹配的生效；`message` 始终是完整原文，`code` 是上游的 HTTP 状态码（有时）。
@@ -396,6 +404,7 @@ Host 据此自己级联取消（domain-model §4.5）。录制样本 `subagent.j
 | 审批 | `codex-adapter.approval.integration.test.ts` | 详情与理由、四个决定、本会话同意后不再问、补丁的“告诉它换个做法”、审批挂起时取消（之后到的 `serverRequest/resolved` 没有多余事件与告警）、工作区内不需要审批 |
 | 恢复与取消 | `codex-adapter.resume.integration.test.ts` | 关闭后恢复、换进程后恢复且下一回合带完整历史、`not_found` 与 `corrupted`、没对话过的会话、`cancel_unconfirmed` 时重启并能恢复 |
 | 计划、提问、错误、标题 | `codex-adapter.turn.integration.test.ts` | `todo.updated`；提问（U11：mock 模型调 `request_user_input`，回答回到模型、回合接着做，开发中功能的 warning 不出现）；缺 Key / 401 / 400 的归类、标题经网关与经临时 thread |
+| 建议的后续任务 | `suggest-tasks.test.ts`、`codex-adapter.tasks.integration.test.ts` | §6.8：MCP 脚本的 initialize / tools/list / tools/call、两种 config.toml 的登记、参数的整理与映射；真实二进制下模型看到 `mcp__wevir_tasks` 里的 `suggest_tasks`、调用不问用户、完成后紧跟 `tasks.suggested`、MCP 服务正常启动不出 `engine.raw`；`injectNote` 不开回合、下一次请求里有它 |
 | 外连、密钥与 skills | `codex-adapter.isolation.integration.test.ts` | 改写自 Spike 的 `network-audit.ts` 与 secrets 场景，另加 §1.3 的 skills 回归：没有 Provider 只启动进程、有 Provider 跑一个带工具调用的回合，经只记录目标的代理与 lsof 看外连为零（反例：打开 plugins 时抓到 chatgpt.com、github.com、api.github.com）；网关令牌与上游 Key 不在数据目录的任何文件、stderr 与日志里；模型跑的命令看不到 `WEVIR_*` |
 | ChatGPT 进程（R6） | `account.test.ts`（假的 app-server，状态机与 `model/list` 的换算）、`codex-runtime.chatgpt.integration.test.ts`（真实二进制 + `test-fixtures/mock-chatgpt.ts` 的登录服务与后端） | §8：没登录时 ChatGPT 会话建不起来；设备码登录 → 邮箱、套餐与用量 → `model/list` → ChatGPT 会话落在 ChatGPT 进程、网关会话照旧在网关进程 → 登出（凭据删除、令牌吊销）；浏览器登录（回调打到本机 1455）与取消；`auth.json` 0600 只在 ChatGPT 进程的目录；外连经拒绝的代理只剩 chatgpt.com |
 | Host | `packages/host/src/cli.codex.integration.test.ts`、`cli.codex.subagent.integration.test.ts`、`cli.codex.pending.integration.test.ts` | `wevir-host`（默认引擎就是 codex）：provider.upsert、一问一答、一次工具调用、模型生成的标题与旧客户端的降级、SIGTERM 回收；子会话（派出、子会话的审批经父会话处理、取消父会话时级联取消）；插话与排队（R11：慢回合里插话一次，等慢回答流完再进同一回合；排队一次，回合结束后作为下一回合发出） |

@@ -232,6 +232,33 @@ describe('foldTurn', () => {
     ).toEqual([['改一下'], ['error'], ['先别跑了'], ['好，停下了。']]);
   });
 
+  it('建议的任务（U23）：卡片在收起的回合里照样显示', () => {
+    const s = session();
+    s.turn();
+    s.run(TURN, 'k1', { kind: 'unknown', summary: 'wevir_tasks/suggest_tasks' });
+    s.add('tasks.suggested', {
+      toolCallId: 'k1',
+      turnId: TURN,
+      tasks: [
+        {
+          id: 'tsk_01JA2B3C4D5E6F7G8H9JKMNPQR',
+          title: '补测试',
+          prompt: '补测试',
+          toolCallId: 'k1',
+          turnId: TURN,
+          status: 'suggested',
+        },
+      ],
+    });
+    s.say(TURN, '建议了一项后续任务。');
+    s.finish(TURN, 'completed');
+    const messages = s.project().messages;
+    const fold = foldTurn(messages, false, false);
+    expect(fold.defaultFolded).toBe(true);
+    const assistant = messages.find((m) => m.role === 'assistant');
+    expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual(['tasks', 'text']);
+  });
+
   it('流式进行到一半：没有那一行；正在运行的工具是当前动作，增量里的思考是“正在思考”', () => {
     const s = session();
     s.turn();

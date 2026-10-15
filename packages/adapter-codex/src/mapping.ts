@@ -27,6 +27,7 @@ import type {
   TurnPlanStepStatus,
   TurnPlanUpdatedNotification,
 } from './protocol.js';
+import { SUGGEST_TASKS_SERVER, SUGGEST_TASKS_TOOL, suggestedTasksOf } from './suggest-tasks.js';
 import {
   fileChangeDisplay,
   isToolItem,
@@ -183,6 +184,12 @@ export class CodexEventMapper {
         return isPatchUpdated(params) ? this.#patchUpdated(params) : [this.raw(method, params)];
       case 'thread/tokenUsage/updated':
         return isTokenUsage(params) ? this.#usage(params) : [this.raw(method, params)];
+      case 'mcpServer/startupStatus/updated':
+        // Wevir 自己的 MCP 服务（§6.8）每个 thread 起一次：正常启动不出事件，起不来的照常留 engine.raw。
+        return params.name === SUGGEST_TASKS_SERVER &&
+          (params.status === 'starting' || params.status === 'ready')
+          ? []
+          : [this.raw(method, params)];
       case 'turn/plan/updated':
         return isPlanUpdated(params) ? [this.#plan(params)] : [this.raw(method, params)];
       case 'error':
@@ -335,6 +342,23 @@ export class CodexEventMapper {
       status: item.status === 'completed' ? 'completed' : 'failed',
       ...(output !== undefined && { output }),
     });
+    // 建议的后续任务（0.16.0，§6.8）：Wevir 自己的 MCP 工具调用完成了，参数就是建议。
+    if (
+      item.type === 'mcpToolCall' &&
+      item.server === SUGGEST_TASKS_SERVER &&
+      item.tool === SUGGEST_TASKS_TOOL &&
+      item.status === 'completed'
+    ) {
+      const tasks = suggestedTasksOf(item.arguments);
+      if (tasks.length > 0) {
+        events.push({
+          type: 'tasks.suggested',
+          engineSessionId: this.engineSessionId,
+          toolCallId: item.id,
+          tasks,
+        });
+      }
+    }
     return events;
   }
 

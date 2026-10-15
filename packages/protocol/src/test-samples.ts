@@ -13,6 +13,7 @@ import type {
   Session,
   SessionSnapshot,
   SubagentSummary,
+  SuggestedTask,
   ToolDisplay,
   Workspace,
 } from './entities.js';
@@ -49,6 +50,9 @@ export const ids = {
   pending2: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPR1',
   /** 提问（0.10.0）。 */
   question: `qst_${ULID}`,
+  /** 建议的后续任务（0.16.0）。 */
+  task: `tsk_${ULID}`,
+  task2: 'tsk_01JA2B3C4D5E6F7G8H9JKMNPR1',
 } as const;
 
 export const identity: ClientIdentity = {
@@ -76,6 +80,25 @@ export const environment: Environment = {
   ],
   createdAt: TS,
   updatedAt: TS,
+};
+
+/** 建议的后续任务（0.16.0）。 */
+export const suggestedTask: SuggestedTask = {
+  id: ids.task,
+  title: '补齐导出接口的测试',
+  prompt: '给 src/export.ts 的三个导出函数补单元测试，跑通 pnpm test。',
+  reason: '这次改了导出格式，还没有测试覆盖',
+  toolCallId: 'call_suggest_1',
+  turnId: ids.turn,
+  status: 'suggested',
+};
+
+export const reportedTask: SuggestedTask = {
+  ...suggestedTask,
+  id: ids.task2,
+  status: 'reported',
+  sessionId: ids.childSession,
+  outcome: 'completed',
 };
 
 export const deepseekProvider: ProviderProfile = {
@@ -548,6 +571,23 @@ export const eventPayloads: PayloadSamples = {
     valid: { subagent: subagentSummary },
     invalid: { subagent: { ...subagentSummary, pendingApprovals: undefined } },
   },
+  'tasks.suggested': {
+    valid: { toolCallId: 'call_suggest_1', turnId: ids.turn, tasks: [suggestedTask] },
+    invalid: { toolCallId: 'call_suggest_1', tasks: [] },
+  },
+  'task.started': {
+    valid: { taskId: ids.task, sessionId: ids.childSession },
+    invalid: { taskId: 'tsk_', sessionId: ids.childSession },
+  },
+  'task.reported': {
+    valid: {
+      taskId: ids.task,
+      sessionId: ids.childSession,
+      outcome: 'completed',
+      summary: '三个函数都补了测试，pnpm test 通过。',
+    },
+    invalid: { taskId: ids.task, sessionId: ids.childSession, outcome: 'done' },
+  },
   'pending.added': {
     valid: { pending: pendingSteer },
     invalid: { pending: { ...pendingSteer, delivery: 'interrupt' } },
@@ -947,9 +987,19 @@ export const methodSamples: MethodSamples = {
           permissionMode: 'full_access',
           environmentId: ids.environment,
         },
+        {
+          workspaceId: ids.workspace,
+          providerId: 'deepseek-official',
+          origin: { kind: 'suggested_task', sessionId: ids.session, taskId: ids.task },
+        },
       ],
       invalid: [
         { workspaceId: ids.workspace },
+        {
+          workspaceId: ids.workspace,
+          providerId: 'deepseek-official',
+          origin: { kind: 'fork', sessionId: ids.session, taskId: ids.task },
+        },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', permissionMode: 'never' },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', environmentId: 'e1' },
       ],
@@ -975,6 +1025,7 @@ export const methodSamples: MethodSamples = {
         { session: readOnlySession, pendingApprovals: [] },
         { ...snapshot, subagents: [subagentSummary] },
         { session: childSession, pendingApprovals: [childApproval] },
+        { ...snapshot, suggestedTasks: [suggestedTask, reportedTask] },
       ],
       invalid: [{ session }, { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] }],
     },

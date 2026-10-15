@@ -56,6 +56,11 @@ export function FoldScopeProvider({
  * 一处可展开内容的状态：用户点过就用点过的，否则用 `defaultOpen`（默认值可以随内容变，例如回合结束后变成收起）。
  * `setOpen` 记下用户的选择。
  */
+/** 消息流属于哪个会话（U23：建议的任务卡片要知道是谁提出的）；不在消息流里时 undefined。 */
+export function useTranscriptSessionId(): string | undefined {
+  return useContext(FoldContext)?.sessionId;
+}
+
 export function useFold(key: string, defaultOpen: boolean): [boolean, (open: boolean) => void] {
   const setFolds = useFoldSetter();
   const sessionId = useContext(FoldContext)?.sessionId ?? '';

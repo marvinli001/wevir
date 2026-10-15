@@ -41,6 +41,7 @@ import {
   QuestionAnswerSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
+  SessionOriginSchema,
   SessionSchema,
   SessionSnapshotSchema,
   UserContentPartSchema,
@@ -318,6 +319,8 @@ export const SessionCreateParamsSchema = z.object({
   permissionMode: PermissionModeSchema.optional(),
   /** 用这个环境建（0.15.0，Host 功能 `environments`）：`workspaceId` 必须是它的主文件夹。 */
   environmentId: EnvironmentIdSchema.optional(),
+  /** 从一项建议开出来（0.16.0，Host 功能 `suggested_tasks`）。 */
+  origin: SessionOriginSchema.optional(),
 });
 
 export const SessionResultSchema = z.object({
