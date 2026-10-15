@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { COMPACT_DETAIL, COMPACT_ICON, COMPACT_ITEM } from '@/components/compact-menu';
 import { IconButton } from '@/components/icon-button';
 import {
   DropdownMenu,
@@ -115,7 +116,12 @@ function LocationMenu({ choice }: { choice: WorktreeChoice }) {
         {choice.active ? <GitFork aria-hidden /> : <Laptop aria-hidden />}
         {choice.active ? t('worktree.new') : t('environment.local')}
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="top" sideOffset={6} align="start" className="w-56">
+      <DropdownMenuContent
+        side="top"
+        sideOffset={6}
+        align="start"
+        className="w-auto max-w-72 min-w-44"
+      >
         <LocationItem
           icon={<Laptop />}
           label={t('environment.local')}
@@ -136,7 +142,7 @@ function LocationMenu({ choice }: { choice: WorktreeChoice }) {
   );
 }
 
-/** 菜单的一项；给了 `reason` 就是不可选的，原因写在名称下面。 */
+/** 菜单的一项（紧凑菜单）；给了 `reason` 就是不可选的，原因弱色写在名称后面。 */
 function LocationItem({
   icon,
   label,
@@ -158,16 +164,12 @@ function LocationItem({
       disabled={reason !== undefined}
       onClick={onClick}
       data-testid={testId}
-      className="gap-2"
+      className={COMPACT_ITEM}
     >
-      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block">{label}</span>
-        {reason && <span className="block truncate text-xs text-muted-foreground">{reason}</span>}
-      </span>
-      {selected && <Check aria-hidden className="size-4" />}
+      <span className={cn('flex shrink-0', COMPACT_ICON)}>{icon}</span>
+      <span className="shrink-0">{label}</span>
+      <span className={COMPACT_DETAIL}>{reason}</span>
+      {selected && <Check aria-hidden />}
     </DropdownMenuItem>
   );
 }
@@ -207,12 +209,10 @@ function EnvironmentSettings({ rootPath }: { rootPath: string | undefined }) {
         side="top"
         align="end"
         sideOffset={8}
-        className="w-80 gap-0.5 p-1.5"
+        className="w-72 gap-0 p-1"
         data-testid="environment-popover"
       >
-        <p className="px-2 pt-1 pb-1.5 text-xs text-muted-foreground">
-          {t('environment.settings')}
-        </p>
+        <p className="px-2 pt-1 pb-1 text-xs text-muted-foreground">{t('environment.settings')}</p>
         <Row icon={<Laptop />} label={t('environment.location')}>
           <span className="text-muted-foreground">{t('environment.local')}</span>
         </Row>
@@ -235,7 +235,7 @@ function EnvironmentSettings({ rootPath }: { rootPath: string | undefined }) {
               <Copy aria-hidden />
             ))}
         </Row>
-        <div className="mx-2 my-1 h-px bg-border" />
+        <div className="-mx-1 my-1 h-px bg-border" />
         <Row
           icon={<FolderCog />}
           label={t('environment.projectSettings')}
@@ -278,7 +278,7 @@ function Row({
       </span>
     </>
   );
-  const className = 'flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-sm';
+  const className = 'flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left text-sm';
   if (!onClick) return <div className={className}>{content}</div>;
   return (
     <button

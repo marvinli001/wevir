@@ -1,6 +1,12 @@
 import { cn } from 'cn';
-import { FolderPlus } from 'lucide-react';
+import { Folder, FolderPlus } from 'lucide-react';
 import type { ComponentProps } from 'react';
+import {
+  COMPACT_DETAIL,
+  COMPACT_ICON,
+  COMPACT_ITEM,
+  COMPACT_RADIO_ITEM,
+} from '@/components/compact-menu';
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -10,11 +16,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
+import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
 import { openCreateProject } from './create-project';
 
 /**
- * 选项目的下拉菜单内容：每个项目一行（名称与截掉开头的路径），最下面是“创建项目…”。首页标题里的项目名与输入框上方的
- * 环境栏（U12）共用。
+ * 选项目的下拉菜单内容（紧凑菜单，`components/compact-menu.ts`）：每个项目一行，文件夹图标、名称与截掉开头的上一级目录
+ * （`~` 开头），当前的打勾；最下面是“创建项目…”。首页标题里的项目名与输入框上方的环境栏（U12）共用。
  */
 export function ProjectMenuContent({
   currentId,
@@ -35,17 +42,19 @@ export function ProjectMenuContent({
             value={workspace.id}
             title={workspace.rootPath}
             closeOnClick
+            className={COMPACT_RADIO_ITEM}
           >
-            <span className="min-w-0">
-              <span className="block truncate">{workspace.displayName}</span>
-              <StartTruncated text={workspace.rootPath} className="text-muted-foreground" />
+            <Folder aria-hidden className={COMPACT_ICON} />
+            <span className="max-w-48 shrink-0 truncate">{workspace.displayName}</span>
+            <span dir="rtl" className={cn(COMPACT_DETAIL, 'text-left')}>
+              <bdi dir="ltr">{abbreviateHome(parentDirectory(workspace.rootPath))}</bdi>
             </span>
           </DropdownMenuRadioItem>
         ))}
       </DropdownMenuRadioGroup>
       {workspaces.length > 0 && <DropdownMenuSeparator />}
-      <DropdownMenuItem onClick={() => openCreateProject()}>
-        <FolderPlus className="text-muted-foreground" />
+      <DropdownMenuItem onClick={() => openCreateProject()} className={COMPACT_ITEM}>
+        <FolderPlus aria-hidden className={COMPACT_ICON} />
         {t('home.createProject')}
       </DropdownMenuItem>
     </DropdownMenuContent>

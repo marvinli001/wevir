@@ -1,4 +1,6 @@
-import { Check, ChevronDown, Pencil, Plus } from 'lucide-react';
+import { cn } from 'cn';
+import { Check, ChevronDown, Layers, Pencil, Plus } from 'lucide-react';
+import { COMPACT_DETAIL, COMPACT_ICON, COMPACT_ITEM } from '@/components/compact-menu';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -39,7 +41,7 @@ export function EnvironmentPicker({
         {active ? active.name : t('env.choose')}
         <ChevronDown aria-hidden className="size-3.5" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center" className="w-80">
+      <DropdownMenuContent align="center" className="w-auto max-w-80 min-w-56">
         {environments.map((environment) => (
           <DropdownMenuItem
             key={environment.id}
@@ -49,15 +51,12 @@ export function EnvironmentPicker({
               const primary = environment.folders[0]?.workspaceId;
               if (primary) onSelect(primary);
             }}
-            className="group/env gap-2"
+            className={cn(COMPACT_ITEM, 'group/env pr-1')}
           >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{environment.name}</span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {environmentSummary(environment)}
-              </span>
-            </span>
-            {active?.id === environment.id && <Check aria-hidden className="size-4" />}
+            <Layers aria-hidden className={COMPACT_ICON} />
+            <span className="max-w-36 shrink-0 truncate">{environment.name}</span>
+            <span className={COMPACT_DETAIL}>{environmentSummary(environment)}</span>
+            {active?.id === environment.id && <Check aria-hidden />}
             <button
               type="button"
               aria-label={t('env.edit')}
@@ -65,19 +64,28 @@ export function EnvironmentPicker({
                 event.stopPropagation();
                 openEnvironmentDialog(environment);
               }}
-              className="flex size-6 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover/env:opacity-100 hover:bg-accent hover:text-foreground focus-visible:opacity-100"
+              className="flex size-5 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 group-hover/env:opacity-100 hover:bg-muted hover:text-foreground focus-visible:opacity-100"
             >
-              <Pencil aria-hidden className="size-3.5" />
+              <Pencil aria-hidden className="size-3" />
             </button>
           </DropdownMenuItem>
         ))}
         {environments.length > 0 && <DropdownMenuSeparator />}
-        <DropdownMenuItem closeOnClick onClick={() => chooseEnvironment(null)}>
-          {t('env.none')}
-          {!active && <Check aria-hidden className="ml-auto size-4" />}
+        <DropdownMenuItem
+          closeOnClick
+          onClick={() => chooseEnvironment(null)}
+          className={COMPACT_ITEM}
+        >
+          <span className="size-3.5 shrink-0" />
+          <span className="flex-1">{t('env.none')}</span>
+          {!active && <Check aria-hidden />}
         </DropdownMenuItem>
-        <DropdownMenuItem closeOnClick onClick={() => openEnvironmentDialog()}>
-          <Plus aria-hidden className="size-4" />
+        <DropdownMenuItem
+          closeOnClick
+          onClick={() => openEnvironmentDialog()}
+          className={COMPACT_ITEM}
+        >
+          <Plus aria-hidden className={COMPACT_ICON} />
           {t('env.create')}…
         </DropdownMenuItem>
       </DropdownMenuContent>
