@@ -11,8 +11,10 @@ import {
   connectionChanged,
   deepseekModelChoices,
   type FormErrors,
+  hasProviderPlaceholder,
   modelRow,
   type ProviderForm,
+  placeholderError,
   toUpsertParams,
   validateForm,
 } from './provider-form';
@@ -51,7 +53,10 @@ export function ProviderEditor({
   const [saving, setSaving] = useState(false);
   const ids = useId();
 
-  const update = (patch: Partial<ProviderForm>) => setForm((current) => ({ ...current, ...patch }));
+  const update = (patch: Partial<ProviderForm>) => {
+    setForm((current) => ({ ...current, ...patch }));
+    setErrors({});
+  };
   const vertex = form.kind === 'google-vertex';
   const openAI = form.kind !== 'deepseek-official';
   const name = form.editing
@@ -62,8 +67,10 @@ export function ProviderEditor({
         ? t('provider.form.customName')
         : t('provider.catalog.deepseek');
 
-  // 按模板新建（含 DeepSeek 官方）时其余字段都已填好，Key 放在最前并聚焦：用户只需填 Key。
+  const urlError = placeholderError(form.baseURL) ?? errors.baseURL;
+  // 普通模板聚焦 Key；资源地址有占位时先聚焦地址。
   const keyFirst = !form.editing && (form.preset !== undefined || !openAI);
+  const resourceFirst = !form.editing && hasProviderPlaceholder(initial.baseURL);
   const keyField = vertex ? null : (
     <FormField id={`${ids}-key`} label={t('provider.form.apiKey')}>
       <Input
@@ -72,7 +79,7 @@ export function ProviderEditor({
         className="font-mono"
         autoComplete="off"
         spellCheck={false}
-        autoFocus={keyFirst}
+        autoFocus={keyFirst && !resourceFirst}
         value={form.apiKey}
         placeholder={
           form.hasSecret
@@ -207,15 +214,16 @@ export function ProviderEditor({
               ))}
             </select>
           </FormField>
-          <FormField id={`${ids}-url`} label={t('provider.form.baseURL')} error={errors.baseURL}>
+          <FormField id={`${ids}-url`} label={t('provider.form.baseURL')} error={urlError}>
             <Input
               id={`${ids}-url`}
               className="font-mono"
               value={form.baseURL}
+              autoFocus={resourceFirst}
               spellCheck={false}
               placeholder="https://"
               onChange={(event) => update({ baseURL: event.target.value })}
-              aria-invalid={!!errors.baseURL}
+              aria-invalid={!!urlError}
             />
           </FormField>
           <ModelsField form={form} errors={errors} onChange={update} />
@@ -328,7 +336,7 @@ function FormField({
 }
 
 /** OpenAI 兼容 Provider 的模型列表：每行模型 ID、上下文长度与图片输入，单选默认模型。 */
-function ModelsField({
+export function ModelsField({
   form,
   errors,
   onChange,
@@ -364,7 +372,7 @@ function ModelsField({
         <span className="text-xs text-muted-foreground">{t('provider.form.images')}</span>
         <span />
         {form.models.map((row, index) => {
-          const idError = errors[`models.${index}.id`];
+          const idError = placeholderError(row.id) ?? errors[`models.${index}.id`];
           const contextError = errors[`models.${index}.contextWindow`];
           return (
             <div key={row.key} className="contents" data-model-row={index}>

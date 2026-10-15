@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.7（含百炼 Responses 地址默认与工具兼容）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.8（含 Azure Responses 与 Foundry Claude）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -108,6 +108,8 @@ Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 c
 | `drop-tool-choice-without-tools` | 所有 Provider | `tools` 是空数组或没有时去掉 `tool_choice` | — | Codex 的压缩请求发 `tools: []` + `tool_choice: "auto"`（样本 `4-compact`），xAI 报 400（codex-notes §3.4）。没有工具时 `tool_choice` 本来就没有意义，所以不设开关 |
 | `strip-null-reasoning-content` | 所有 Provider | 历史里 reasoning 项的 `content: null` 去掉这个键 | — | Codex 回放上游没给 `content` 的推理项（xAI 只给 `encrypted_content`）时写 `"content": null`，xAI 回 422 `expected a sequence`，去掉就是 200（openai/codex#47733，2026-09）。schema 里 `content` 是数组，null 对谁都不合法 |
 | `strip-null-reasoning-encrypted-content` | 所有 Provider | 历史里 reasoning 项的 `encrypted_content: null` 去掉这个键，明文 `content`、`summary` 保留 | — | 锁定 Codex 的 `ResponseItem::Reasoning.encrypted_content` 是 `Option<String>`，没有 skip-serialize：上游省略或给 null，下一步都写 null（`protocol/src/models.rs:1051–1063`）。不把它当成可带回的加密推理 |
+| `azure-namespace-description` | Azure 全球三个资源域名的 Responses（§3.5） | 顶层 tools 中 namespace 的 description 缺失、空串或纯空白时补 `Tools in this namespace.`；已有描述不变 | — | [Codex #37952](https://github.com/openai/codex/issues/37952) 报告 Azure 拒收缺失或空的 namespace 描述；锁定配置不开 Responses Lite，修正普通 tools，不处理尚不发出的 additional_tools |
+| `azure-encrypted-reasoning` | 同上，store 为 false | include 缺少 reasoning.encrypted_content 时追加，保留其他 include 项且不重复 | — | [Azure Responses 无状态推理](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses#encrypted-reasoning-items)要求显式 include；正式请求与 testProvider 共用 |
 | `auto-only-tool-choice` | 生效的 `compat.toolChoice === auto_only`（§4.4） | 有工具时 `required`、具名与其他非 auto 值改为 `auto`；`none` 去掉 `tool_choice`，工具保留；没有 `tool_choice` 时不补 | — | [Kimi Responses](https://platform.kimi.com/docs/api/responses.md) 的枚举只有 auto；[MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create) 认 none / auto（2026-10-15 重核）。用共同的 auto_only 规则兼容两种；去掉 none 后允许模型自行调用工具 |
 | `flatten-custom-tools` | 生效的 `compat.supportsCustomTools === false`（§4.4：声明优先，其次地址默认） | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现。xAI（R8 核实）：OpenAPI（docs.x.ai/openapi.json）的 `tools` 只有 function 与托管工具，没有 `custom`；第三方 2026-08 的现网对照也是 custom 被拒、摊平后通过。国内服务模板里 xAI 显式写了 `false`（经代理改了地址也生效）。规则与 Chat 转换的摊平相同（§4.3） |
 | `flatten-namespace-tools` | 生效的 `compat.supportsNamespaceTools === false`（§4.4） | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；具名 `tool_choice` 同样改名并去掉 `namespace`；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | xAI 的 OpenAPI 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段，而 Codex 的子 agent 工具在 `multi_agent_v1` 里（样本 `1-first-turn`）。没找到直接的 400 报告（R8 没有 xAI 的 Key），但摊平对认命名空间的上游同样可用，所以地址默认仍是 false；P0a 加了显式开关，经代理换地址也能生效，true 可覆盖地址默认 |
@@ -139,6 +141,18 @@ Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 c
 `reasoning.effort` 原样透传，优先于将淘汰的 enable_thinking；Qwen3.8 模板只列 off（Codex 发 none）、low、medium、xhigh。保留 Codex 的 store: false，不启用服务端默认的七天响应存储。历史中的 reasoning id / summary 原样保留，只清理已有的两个 null 键，不改成 Chat / Messages 信封。官方还说明 Responses 输入约限模型窗口的 80%，超限会自动截断；模型目录的 1M 是模型窗口，不保证可输入同样多的历史。
 
 `bailian.test.ts` 的录制请求与 `bailian.integration.test.ts` 的严格 HTTP mock 覆盖工具摊平、响应还原、工具结果和下一回合的推理回放，以及同路由的 testProvider；不能代替真实 custom / namespace / tool_choice 能力探测。真实契约与桌面 apply_patch 待验收（§10）。
+
+### 3.5 Azure OpenAI / Microsoft Foundry
+
+2026-10-15 按微软的 [Codex 指南](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/codex)使用 `/openai/v1/responses`，不加 api-version。`isAzureHost` 只识别资源子域 `*.openai.azure.com`、`*.services.ai.azure.com`、`*.cognitiveservices.azure.com`，不识别 Azure 中国或相似域名。前两种写法由 [v1 生命周期](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle)明确列出；第三种仅保留域名识别，须使用部署详情页实际给出的 v1 端点，本次未从该页面独立确认其等价性。
+
+认证保持网关现有的 Bearer API Key：微软的 OpenAI SDK 示例将资源 Key 交给普通 OpenAI 客户端，Codex 示例使用 env_key；据客户端的 Bearer 行为推断 v1 接受它。REST 示例使用 api-key。当前没有真实 Key，尚未实测确认，不增加认证字段或协议版本。Foundry Claude 走现有 Messages 转换，baseURL 为 `https://<resource>.services.ai.azure.com/anthropic`，认证是 x-api-key 与 anthropic-version: 2023-06-01。
+
+只增加上表两条 Azure 请求修正。锁定版本按 §10 使用 multi_agent_v1，不发保留的 collaboration 命名空间，因而不删除或摊平子 agent 工具。Responses Lite 内部头仍不转发。custom apply_patch、prompt_cache_key、非空加密推理与响应 content_filters 原样透传；Codex 的响应解析忽略未知字段，HTTP 400 content_filter 的状态码与错误 code 按 §6 保留。
+
+模型字段在两条路上均是部署名，原样发送。模板用可替换占位标明部署名，替换后保留窗口、输出与推理档位；不会把部署别名猜成模型 ID。Foundry Messages 地址默认使用 adaptive（显式 thinkingFormat 优先），避免自定义部署别名被当成旧的 enabled 格式；模板另显式声明 adaptive / inline，代理同样可用。已知型号的特殊限制仍按 §5 的模型名识别；使用完全自定义别名时无型号推断，中途指令回退为 user、默认 effort 交由服务决定，需真实部署验证。旧 Claude 部署需要手动声明 enabled。只提供当前 GA 的 Opus / Sonnet / Haiku 5.5，不加入预览模型与仅 Entra 的 Mythos。
+
+来源、部署要求与手动配置见 [providers.md §7.12](./providers.md#712-azure-openai--microsoft-foundry)。`azure.test.ts` 使用四份录制请求，`azure.integration.test.ts` 用本机 HTTP mock 检查命名空间限制、认证、加密推理与工具往返、content_filters、内容过滤错误和 provider.test。mock 不证明真实 Azure 的认证或工具支持。
 
 ## 4. Chat Completions 转换
 
@@ -440,6 +454,7 @@ Codex 升级时重查上述字段默认值、Provider 判定与触发条件；�
 
 
 - Google Cloud Vertex：本地实现服务账号、Gemini Chat 与 Claude Messages 变体，尚缺 GCP 项目与真实服务账号，两个模型的契约第 3 层与桌面工具对话未验收。不读取 ADC / gcloud，不接 express Key、Gemini 原生 API 或其他发布方。Claude 的 URL 图片、30 MB、地域可用性限制见 §2 与 providers.md §7.11。
+- Azure：缺 WEVIR_TEST_API_KEY、资源端点与部署名，Bearer Key 认证、Responses / Claude 的契约第 3 层和桌面 apply_patch 均未验收。大陆直连情况未确认；不接 Entra ID、Azure 中国、旧 deployments + api-version 路径或 /api/projects 路由。自定义 Claude 部署别名的型号识别局限见 §3.5。
 - Gemini：未提供 WEVIR_TEST_API_KEY，3.8 Flash / 3.1 Pro Preview / 4 Argon 的真实契约与桌面工具对话未验收；Schema 清洗默认关闭，占位签名、Schema 与中途 system 仍待实测（§4.5）。不接 Interactions 或原生 generateContent；思考内容不返回、不显示。
 - 阿里云百炼：缺 WEVIR_TEST_API_KEY，Qwen3.8 Max / Flash 的契约第 3 层与桌面 apply_patch 未验收；custom、namespace 与非 auto 选择的真实支持待探测，当前为保守默认（§3.4）。Responses 文档说明输入约限窗口的 80% 且会自动截断；未从官方确认最大输出，模板不填 maxTokens。旧 Provider 不迁移，手动修改见 providers.md §7.2。只接按量 Responses，不接订阅套餐、托管第三方模型模板或 Anthropic 端点。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。

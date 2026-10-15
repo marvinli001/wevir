@@ -831,6 +831,13 @@ export const messages: Messages = {
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
+  'provider.catalog.azureOpenai': 'Azure OpenAI',
+  'provider.catalog.azureClaude': 'Azure Claude',
+  'provider.preset.azureOpenai.note':
+    'Azure 全球資源；中國大陸直連情況未確認。填寫實際資源名稱與部署名稱，刪除未部署的模型；模型 ID 為部署名稱。',
+  'provider.preset.azureClaude.note':
+    'Azure 全球資源的 Claude 按量部署，需 Azure Marketplace。中國大陸直連情況未確認。填寫資源名稱與部署名稱，刪除未部署的模型。',
+  'provider.form.error.placeholder': '替換預留內容後儲存',
   'provider.preset.vertex.note':
     'Google Cloud 現稱 Gemini Enterprise Agent Platform。需啟用計費和模型權限，使用服務帳戶 JSON。預設 global；Claude 的 us / eu 多區域加價 10%。中國大陸無法直接連線。',
   'provider.vertex.project': 'Google Cloud 專案 ID',

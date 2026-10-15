@@ -1,6 +1,7 @@
 import { cn } from 'cn';
 import anthropic from '@/assets/provider-logos/anthropic.svg';
 import antigravity from '@/assets/provider-logos/antigravity-color.svg';
+import azure from '@/assets/provider-logos/azure-color.svg';
 import claude from '@/assets/provider-logos/claude-color.svg';
 import codex from '@/assets/provider-logos/codex-color.svg';
 import cursor from '@/assets/provider-logos/cursor.svg';
@@ -22,6 +23,7 @@ const LOGOS = {
   anthropic: { src: anthropic, mono: true },
   gemini: { src: gemini, mono: false },
   vertex: { src: vertex, mono: false },
+  azure: { src: azure, mono: false },
   deepseek: { src: deepseek, mono: false },
   qwen: { src: qwen, mono: false },
   kimi: { src: kimi, mono: false },

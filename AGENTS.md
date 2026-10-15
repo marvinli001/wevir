@@ -62,6 +62,8 @@ gitignore 掉的本地目录：`upstream/`（上游克隆）、`.wevir-dev/`（�
 
 Vertex 服务账号（0.21.0）：`packages/model-gateway/src/vertex-auth.ts` 用 Node crypto 换取并缓存 OAuth 令牌，Gemini 走 Chat、Claude 走 Messages 变体；`packages/storage/migrations/0008_vertex.sql` 只存 project/location，整份 JSON 只进 SecretStore。桌面设置与引导共用 `settings/vertex-fields.tsx`，Host 功能 `google_vertex` 门控入口，客户端能力 `provider_kind_google_vertex` 门控列表。真实契约的 WEVIR_TEST_VERTEX_* 变量见 docs/development.md §6.3。
 
+Azure 全球资源（2026-10-15）：`model-gateway/src/providers.ts` 的 `isAzureHost` 识别三种资源域名，`dialects.ts` 只对 Azure Responses 补 namespace 空描述与无状态推理 include；Foundry Claude 用现有 Messages 转换。桌面目录有 Azure OpenAI / Azure Claude 两个模板，`settings/provider-form.ts` 的通用占位检查与 `provider-editor.tsx` 的模型行供设置和引导共用，填写部署名保留模板能力。来源、手动配置与真实验证缺口见 providers.md §7.12、model-gateway.md §3.5、development.md §6.3。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

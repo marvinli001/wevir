@@ -389,6 +389,18 @@ WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST
 
 2026-10-15 未提供百炼 Key，上述真实契约与 pnpm dev 中通过百炼模板、经 apply_patch 改文件的对话未验收。工具默认值来自保守兼容策略，拿到 Key 后先确认 custom / namespace / 非 auto 的 tool_choice，再判断是否覆盖 compat；同时验证工具结果与下一回合的 reasoning id / summary 回放。provider.test 的最小请求不能替代这些验收，地址与旧 Provider 的手动修改见 providers.md §7.2。
 
+Azure OpenAI 的 v1 Responses 与 Foundry Claude 分别用以下命令。先在进程环境提供对应资源的 WEVIR_TEST_API_KEY；将资源和部署占位替换为部署详情的实际值，不把 Key 写入文件或命令记录：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL='https://<resource>.openai.azure.com/openai/v1' WEVIR_TEST_MODEL='<deployment>' pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=anthropic-messages WEVIR_TEST_BASE_URL='https://<resource>.services.ai.azure.com/anthropic' WEVIR_TEST_MODEL='<deployment>' pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+两条路的 model 都是部署名。2026-10-15 未提供 Azure Key、资源端点与部署名，真实契约与 pnpm dev 中通过两个模板、经 apply_patch 改文件均未验收。Responses 的 Bearer API Key 目前仅按微软 SDK 与 Codex 示例推断；第三种 cognitiveservices.azure.com 地址须以部署详情确认为准。网关录制请求与本机 HTTP mock 只证明兼容修正、认证头构造、工具和推理往返及 provider.test；不能证明真实服务通过。配置与 Claude 自定义别名的局限见 providers.md §7.12 和 model-gateway.md §3.5。
+
 xAI 与 Gemini 的 API Key 经 Codex 的契约第 3 层验证（网关按地址套用它们的方言，model-gateway.md §3.2、§4.5；模型 ID 以 providers.md §7.6、§7.7 为准）：
 
 ```bash

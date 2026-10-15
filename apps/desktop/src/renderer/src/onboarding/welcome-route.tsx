@@ -13,10 +13,13 @@ import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { PendingPage } from '@/routes/route-states';
 import { type CatalogEntry, catalogEntry, FEATURED_PROVIDERS } from '@/settings/provider-catalog';
+import { ModelsField } from '@/settings/provider-editor';
 import {
+  hasProviderPlaceholder,
   newDeepSeekForm,
   newOpenAIForm,
   type ProviderForm,
+  placeholderError,
   toUpsertParams,
   validateForm,
 } from '@/settings/provider-form';
@@ -188,6 +191,7 @@ function ProviderStep({
 
   const update = (patch: Partial<ProviderForm>) => {
     setForm((current) => current && { ...current, ...patch });
+    setErrors({});
     setFailure(undefined);
   };
 
@@ -410,7 +414,7 @@ function ProviderTile({
   );
 }
 
-/** 选中的服务要填的：模板与 DeepSeek 只要 Key；Ollama 是模型 ID；自定义是地址、协议、模型与 Key。 */
+/** 普通模板只填 Key；带占位的模板另填资源地址与部署名。设置页与引导使用相同的模型行和校验。 */
 function ProviderFields({
   entry,
   form,
@@ -423,6 +427,9 @@ function ProviderFields({
   onChange: (patch: Partial<ProviderForm>) => void;
 }) {
   const custom = entry.source?.kind === 'custom';
+  const resourceURL = hasProviderPlaceholder(form.preset?.baseURL ?? '');
+  const deploymentModels = form.preset?.models.some((model) => hasProviderPlaceholder(model.id));
+  const urlError = placeholderError(form.baseURL) ?? errors.baseURL;
   const keyless = form.kind === 'openai-compatible' && form.preset?.placeholderKey !== undefined;
   const firstModel = form.models[0];
   const setModel = (id: string) =>
@@ -431,49 +438,54 @@ function ProviderFields({
 
   return (
     <div className="flex flex-col gap-4">
+      {form.kind !== 'google-vertex' && form.preset?.note && (
+        <p className="text-sm text-muted-foreground">{t(form.preset.note)}</p>
+      )}
+      {(custom || resourceURL) && (
+        <Field label={t('welcome.field.baseURL')} error={urlError}>
+          {(id) => (
+            <Input
+              id={id}
+              value={form.baseURL}
+              onChange={(event) => onChange({ baseURL: event.target.value })}
+              placeholder="https://example.com/v1"
+              className="h-10 font-mono"
+              aria-invalid={!!urlError}
+              autoFocus
+            />
+          )}
+        </Field>
+      )}
+      {deploymentModels && <ModelsField form={form} errors={errors} onChange={onChange} />}
       {custom && (
-        <>
-          <Field label={t('welcome.field.baseURL')} error={errors.baseURL}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t('welcome.field.api')}>
+            {(id) => (
+              <select
+                id={id}
+                value={form.api}
+                onChange={(event) => onChange({ api: event.target.value as ProviderForm['api'] })}
+                className={cn(SELECT, 'h-10 w-full')}
+              >
+                {FORM_APIS.map((api) => (
+                  <option key={api} value={api}>
+                    {t(`provider.form.api.${api}`)}
+                  </option>
+                ))}
+              </select>
+            )}
+          </Field>
+          <Field label={t('welcome.field.model')} error={errors['models.0.id']}>
             {(id) => (
               <Input
                 id={id}
-                value={form.baseURL}
-                onChange={(event) => onChange({ baseURL: event.target.value })}
-                placeholder="https://example.com/v1"
+                value={firstModel?.id ?? ''}
+                onChange={(event) => setModel(event.target.value)}
                 className="h-10 font-mono"
-                autoFocus
               />
             )}
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label={t('welcome.field.api')}>
-              {(id) => (
-                <select
-                  id={id}
-                  value={form.api}
-                  onChange={(event) => onChange({ api: event.target.value as ProviderForm['api'] })}
-                  className={cn(SELECT, 'h-10 w-full')}
-                >
-                  {FORM_APIS.map((api) => (
-                    <option key={api} value={api}>
-                      {t(`provider.form.api.${api}`)}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </Field>
-            <Field label={t('welcome.field.model')} error={errors['models.0.id']}>
-              {(id) => (
-                <Input
-                  id={id}
-                  value={firstModel?.id ?? ''}
-                  onChange={(event) => setModel(event.target.value)}
-                  className="h-10 font-mono"
-                />
-              )}
-            </Field>
-          </div>
-        </>
+        </div>
       )}
       {keyless && (
         <Field label={t('welcome.field.model')} error={errors['models.0.id']}>
@@ -522,7 +534,7 @@ function ProviderFields({
               autoComplete="off"
               spellCheck={false}
               className="h-10 font-mono"
-              autoFocus={!custom}
+              autoFocus={!custom && !resourceURL}
             />
           )}
         </Field>

@@ -1,5 +1,5 @@
 // 新增 Provider 时的预设模板（T5.4），取自 docs/architecture/providers.md §7（2026-10 核对）。选了模板，地址、
-// 协议、模型都已填好，用户只需填 Key；地址与模型 ID 以各服务当前的官方文档为准，改了文档这里一起改。
+// 协议、模型的初始值已填好；尖括号中的占位必须替换。地址与模型 ID 以官方文档为准，改了文档这里一起改。
 
 import type { ProviderApi, ProviderCompat, ProviderModel } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
@@ -124,6 +124,61 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     ],
     defaultModelId: 'claude-opus-5-5',
     docsURL: 'https://platform.claude.com/docs/en/models/overview',
+  },
+  {
+    // Azure 的 model 是部署名；占位替换后仍保留这一行的能力声明（providers.md §7.12）。
+    id: 'azure-openai',
+    name: 'provider.catalog.azureOpenai',
+    note: 'provider.preset.azureOpenai.note',
+    api: 'openai-responses',
+    baseURL: 'https://<resource>.openai.azure.com/openai/v1',
+    models: [
+      {
+        id: '<gpt-6.1-sol-deployment>',
+        displayName: 'GPT-6.1 Sol',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: '<gpt-6-astra-deployment>',
+        displayName: 'GPT-6 Astra',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: '<gpt-6-luna-deployment>',
+        displayName: 'GPT-6 Luna',
+        contextWindow: 1050000,
+        maxTokens: 128000,
+        supportsImages: true,
+        reasoningEfforts: ['off', ...FIVE_EFFORTS],
+      },
+    ],
+    defaultModelId: '<gpt-6.1-sol-deployment>',
+    docsURL: 'https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/codex',
+  },
+  {
+    id: 'azure-claude',
+    name: 'provider.catalog.azureClaude',
+    note: 'provider.preset.azureClaude.note',
+    api: 'anthropic-messages',
+    baseURL: 'https://<resource>.services.ai.azure.com/anthropic',
+    compat: { thinkingFormat: 'adaptive', systemMessageMode: 'inline' },
+    models: ['sonnet', 'opus', 'haiku'].map((family) => ({
+      id: `<claude-${family}-5-5-deployment>`,
+      displayName: `Claude ${family[0]?.toUpperCase()}${family.slice(1)} 5.5`,
+      contextWindow: 1000000,
+      maxTokens: 128000,
+      supportsImages: true,
+      reasoningEfforts: FIVE_EFFORTS,
+    })),
+    defaultModelId: '<claude-sonnet-5-5-deployment>',
+    docsURL:
+      'https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude',
   },
   {
     // 百炼按量 Responses（2026-10-15 核对，providers.md §7.2）；工具支持待真实 Key 验证，显式保留保守默认供代理使用。

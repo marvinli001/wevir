@@ -173,6 +173,22 @@ export function deepseekModelChoices(form: ProviderForm): string[] {
  */
 export type FormErrors = Record<string, string>;
 
+/** 模板里的尖括号或花括号占位；URL 编码不应绕过检查。供设置页与首次引导共用。 */
+export function hasProviderPlaceholder(value: string): boolean {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // 非法百分号仍检查原文，URL 的其他错误由 baseURLProblem 处理。
+  }
+  return /<[^<>]+>|\{[^{}]+\}/.test(decoded);
+}
+
+/** 选模板后立即标出待填项，保存时使用同一条校验。 */
+export function placeholderError(value: string): string | undefined {
+  return hasProviderPlaceholder(value) ? t('provider.form.error.placeholder') : undefined;
+}
+
 export function validateForm(form: ProviderForm, takenIds: string[]): FormErrors {
   const errors: FormErrors = {};
   if (form.displayName.trim() === '') errors.displayName = t('provider.form.error.required');
@@ -206,6 +222,8 @@ export function validateForm(form: ProviderForm, takenIds: string[]): FormErrors
     form.models.forEach((row, index) => {
       const id = row.id.trim();
       if (id === '') errors[`models.${index}.id`] = t('provider.form.error.required');
+      else if (hasProviderPlaceholder(id))
+        errors[`models.${index}.id`] = t('provider.form.error.placeholder');
       else if (
         form.kind === 'google-vertex' &&
         !(
@@ -229,6 +247,7 @@ export function validateForm(form: ProviderForm, takenIds: string[]): FormErrors
 }
 
 function baseURLProblem(value: string): string | undefined {
+  if (hasProviderPlaceholder(value)) return t('provider.form.error.placeholder');
   if (!HttpUrlSchema.safeParse(value).success) return t('provider.form.error.url');
   const url = new URL(value);
   // 地址会原样写进 dsh 的配置文件（providers.md §2.2），凭据要单独填在 Key 里。
@@ -289,12 +308,12 @@ export function toUpsertParams(
   }
   const models = form.models.map((row): ProviderModel => {
     const id = row.id.trim();
-    // 改了模型 ID 就是另一个模型，原模型的推理档位等设置不再沿用；图片输入按勾选。
+    // 填部署名占位不改变这一行的模型能力；其他模型改 ID 时不再沿用原模型设置。图片输入按勾选。
     const {
       contextWindow: _previous,
       supportsImages: marked,
       ...rest
-    } = row.base?.id === id ? row.base : { id };
+    } = row.base && (row.base.id === id || hasProviderPlaceholder(row.base.id)) ? row.base : { id };
     const contextWindow =
       row.contextWindow.trim() === '' ? undefined : parseContextWindow(row.contextWindow);
     // 没勾选时，原模型标过的写 false，没标过的照旧不写。

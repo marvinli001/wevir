@@ -841,6 +841,13 @@ export const messages: Messages = {
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
+  'provider.catalog.azureOpenai': 'Azure OpenAI',
+  'provider.catalog.azureClaude': 'Azure Claude',
+  'provider.preset.azureOpenai.note':
+    'Global Azure resources; direct access from mainland China is unconfirmed. Enter your resource and deployment names and remove undeployed models. Model IDs are deployment names.',
+  'provider.preset.azureClaude.note':
+    'Claude on global Azure, billed by usage through Azure Marketplace. Direct access from mainland China is unconfirmed. Enter resource and deployment names and remove undeployed models.',
+  'provider.form.error.placeholder': 'Replace the placeholder before saving',
   'provider.preset.vertex.note':
     'Google Cloud now calls this Gemini Enterprise Agent Platform. Enable billing and model access, then use a service account JSON. Default: global. Claude us / eu endpoints cost 10% more. Not directly accessible from mainland China.',
   'provider.vertex.project': 'Google Cloud project ID',

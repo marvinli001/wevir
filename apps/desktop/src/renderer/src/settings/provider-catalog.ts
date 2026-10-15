@@ -63,6 +63,22 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://console.cloud.google.com/vertex-ai',
   },
   {
+    id: 'azure-openai',
+    name: 'provider.catalog.azureOpenai',
+    logo: 'azure',
+    group: 'global',
+    source: preset('azure-openai'),
+    keyURL: 'https://ai.azure.com',
+  },
+  {
+    id: 'azure-claude',
+    name: 'provider.catalog.azureClaude',
+    logo: 'azure',
+    group: 'global',
+    source: preset('azure-claude'),
+    keyURL: 'https://ai.azure.com',
+  },
+  {
     id: 'xai',
     name: 'provider.catalog.xai',
     logo: 'xai',
@@ -127,6 +143,10 @@ export function catalogEntry(id: string): CatalogEntry | undefined {
 }
 
 const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
+  [
+    /^[a-z0-9-]+\.(openai\.azure\.com|services\.ai\.azure\.com|cognitiveservices\.azure\.com)$/,
+    'azure',
+  ],
   [/(^|\.)openai\.com$/, 'openai'],
   [/(^|\.)anthropic\.com$/, 'anthropic'],
   [/^generativelanguage\.googleapis\.com$/, 'gemini'],

@@ -10,6 +10,7 @@ import {
   deepseekModelChoices,
   type EditableProvider,
   editForm,
+  hasProviderPlaceholder,
   modelRow,
   newDeepSeekForm,
   newOpenAIForm,
@@ -26,6 +27,133 @@ const ollama = OPENAI_PRESETS.find((preset) => preset.id === 'local-ollama');
 if (!kimi || !deepseekOpenAI || !ollama) throw new Error('缺少模板');
 
 const upsertSchema = MethodSchemas['provider.upsert'].params;
+
+describe('Azure 模板与通用占位', () => {
+  it.each(['azure-openai', 'azure-claude'])('%s 的资源名和每一条部署名未替换前不能保存', (id) => {
+    const entry = catalogEntry(id);
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 Azure 模板');
+    expect(entry).toMatchObject({ group: 'global', logo: 'azure', keyURL: 'https://ai.azure.com' });
+    const preset = entry.source.preset;
+    const form = newOpenAIForm(preset, []);
+    expect(Object.keys(validateForm(form, [])).sort()).toEqual([
+      'baseURL',
+      'models.0.id',
+      'models.1.id',
+      'models.2.id',
+    ]);
+    const renamed = {
+      ...form,
+      baseURL: form.baseURL.replace('<resource>', 'my-resource'),
+      models: form.models.map((row, i) => ({ ...row, id: `production-${i}` })),
+      defaultIndex: 1,
+    };
+    expect(validateForm(renamed, [])).toEqual({});
+    const created = upsertSchema.parse(toUpsertParams(renamed));
+    if (created.kind !== 'openai-compatible') throw new Error('Azure 模板的 Provider 类型不对');
+    expect(created).toMatchObject({
+      api: id === 'azure-openai' ? 'openai-responses' : 'anthropic-messages',
+      baseURL: renamed.baseURL,
+      defaultModelId: 'production-1',
+      models: preset.models.map((model, i) => ({ ...model, id: `production-${i}` })),
+    });
+    expect(created).not.toHaveProperty('apiKey');
+    if (id === 'azure-claude') {
+      expect(created).toHaveProperty('compat', {
+        thinkingFormat: 'adaptive',
+        systemMessageMode: 'inline',
+      });
+      expect(preset.models.map((model) => model.displayName)).toEqual([
+        'Claude Sonnet 5.5',
+        'Claude Opus 5.5',
+        'Claude Haiku 5.5',
+      ]);
+      for (const model of preset.models) expect(model.reasoningEfforts).not.toContain('off');
+    } else {
+      expect(created).not.toHaveProperty('compat');
+      expect(preset.models[2]?.reasoningEfforts).toContain('off');
+    }
+    const saved = profile({ ...created, hasSecret: true } as Partial<EditableProvider>);
+    expect(toUpsertParams(editForm(saved))).toMatchObject({
+      models: created.models,
+      defaultModelId: created.defaultModelId,
+    });
+  });
+
+  it('删除未部署的行后只保存现有行，默认部署跟随所选行', () => {
+    const form = newOpenAIForm(
+      OPENAI_PRESETS.find((preset) => preset.id === 'azure-openai'),
+      [],
+    );
+    const selected = form.models[2];
+    if (!selected) throw new Error('缺少 Luna 占位行');
+    const filled = {
+      ...form,
+      baseURL: 'https://resource.openai.azure.com/openai/v1',
+      models: [{ ...selected, id: 'my-luna' }],
+      defaultIndex: 0,
+    };
+    expect(validateForm(filled, [])).toEqual({});
+    expect(toUpsertParams(filled)).toMatchObject({
+      defaultModelId: 'my-luna',
+      models: [
+        {
+          id: 'my-luna',
+          maxTokens: 128000,
+          reasoningEfforts: ['off', 'low', 'medium', 'high', 'xhigh', 'max'],
+        },
+      ],
+    });
+  });
+
+  it.each(['<resource>', '{WorkspaceId}', '%3Cresource%3E', '%7Bproject%7D'])(
+    '占位 %s 在自定义模板、URL 路径和模型 ID 上同样阻止保存',
+    (placeholder) => {
+      const form = newOpenAIForm(kimi, []);
+      expect(hasProviderPlaceholder(placeholder)).toBe(true);
+      expect(
+        validateForm({ ...form, baseURL: `https://example.com/${placeholder}/v1` }, []),
+      ).toHaveProperty('baseURL');
+      expect(
+        validateForm(
+          {
+            ...form,
+            models: [
+              { ...form.models[0], key: 'test', id: placeholder, contextWindow: '', images: false },
+            ],
+          },
+          [],
+        ),
+      ).toHaveProperty('models.0.id');
+    },
+  );
+
+  it('Azure 三种主机名显示标志，不匹配世纪互联与伪装域名', () => {
+    for (const domain of [
+      'openai.azure.com',
+      'services.ai.azure.com',
+      'cognitiveservices.azure.com',
+    ]) {
+      expect(
+        providerLogo({
+          kind: 'openai-compatible',
+          baseURL: `https://my-resource.${domain}/openai/v1`,
+        }),
+      ).toBe('azure');
+      expect(
+        providerLogo({
+          kind: 'openai-compatible',
+          baseURL: `https://my-resource.${domain}.example.com/v1`,
+        }),
+      ).toBeUndefined();
+    }
+    expect(
+      providerLogo({
+        kind: 'openai-compatible',
+        baseURL: 'https://resource.openai.azure.cn/openai/v1',
+      }),
+    ).toBeUndefined();
+  });
+});
 
 describe('Vertex 服务账号表单', () => {
   const account = JSON.stringify({
@@ -286,9 +414,17 @@ describe('预设模板（providers.md §7）', () => {
       compat: preset.compat,
     });
   });
-  it('每个模板只填 Key 就是合法的 provider.upsert 参数', () => {
+  it('每个模板填 Key 并替换资源与部署占位后都是合法的 provider.upsert 参数', () => {
     for (const preset of OPENAI_PRESETS) {
-      const form = { ...newOpenAIForm(preset, []), apiKey: 'sk-test' };
+      const initial = newOpenAIForm(preset, []);
+      const form = {
+        ...initial,
+        apiKey: 'sk-test',
+        baseURL: initial.baseURL.replace('<resource>', 'my-resource'),
+        models: initial.models.map((row, index) =>
+          hasProviderPlaceholder(row.id) ? { ...row, id: `deployment-${index}` } : row,
+        ),
+      };
       expect(validateForm(form, [])).toEqual({});
       const params = toUpsertParams(form);
       expect(upsertSchema.safeParse(params).success, preset.id).toBe(true);
@@ -296,8 +432,8 @@ describe('预设模板（providers.md §7）', () => {
         id: preset.id,
         kind: 'openai-compatible',
         api: preset.api,
-        baseURL: preset.baseURL,
-        defaultModelId: preset.defaultModelId,
+        baseURL: form.baseURL,
+        defaultModelId: form.models[form.defaultIndex]?.id,
         apiKey: 'sk-test',
       });
     }

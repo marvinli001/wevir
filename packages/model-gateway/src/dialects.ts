@@ -1,7 +1,7 @@
 // Responses 透传的方言修正（docs/architecture/model-gateway.md §3.2）：各家 Responses 实现与 OpenAI 的差异，
 // 只在网关里改，不碰 Codex（codex-notes §5.3）。每条修正声明对哪些 Provider 生效，改请求体，必要时再改响应事件。
 
-import { effectiveCompat } from './providers.js';
+import { effectiveCompat, isAzureHost } from './providers.js';
 import {
   CUSTOM_TOOL_PARAMETERS,
   compatibleToolChoice,
@@ -98,6 +98,39 @@ export const autoOnlyToolChoice: DialectFix = {
       return { body: rest as ResponsesRequest };
     }
     return { body: { ...body, tool_choice: choice } };
+  },
+};
+
+const azureResponses = (provider: GatewayProvider): boolean =>
+  provider.kind === 'openai-compatible' &&
+  provider.api === 'openai-responses' &&
+  isAzureHost(provider.baseURL ?? '');
+
+/** Azure 拒收缺失或空的 namespace 描述；只补描述，不改工具或命名空间（model-gateway.md §3.5）。 */
+export const azureNamespaceDescription: DialectFix = {
+  id: 'azure-namespace-description',
+  applies: azureResponses,
+  apply(body) {
+    const tools = body.tools?.map((tool) =>
+      tool.type === 'namespace' &&
+      (typeof tool.description !== 'string' || tool.description.trim() === '')
+        ? { ...tool, description: 'Tools in this namespace.' }
+        : tool,
+    );
+    return tools?.some((tool, index) => tool !== body.tools?.[index])
+      ? { body: { ...body, tools } }
+      : { body };
+  },
+};
+
+/** Azure 无状态请求显式索取加密推理，连接探测同样使用（model-gateway.md §3.5）。 */
+export const azureEncryptedReasoning: DialectFix = {
+  id: 'azure-encrypted-reasoning',
+  applies: azureResponses,
+  apply(body) {
+    const include = Array.isArray(body.include) ? body.include : [];
+    if (body.store !== false || include.includes('reasoning.encrypted_content')) return { body };
+    return { body: { ...body, include: [...include, 'reasoning.encrypted_content'] } };
   },
 };
 
@@ -237,6 +270,8 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   dropToolChoiceWithoutTools,
   stripNullReasoningContent,
   stripNullReasoningEncryptedContent,
+  azureNamespaceDescription,
+  azureEncryptedReasoning,
   autoOnlyToolChoice,
   flattenCustomTools,
   flattenNamespaceTools,

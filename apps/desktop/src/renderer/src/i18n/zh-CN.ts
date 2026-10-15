@@ -844,6 +844,13 @@ export const zhCN = {
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
+  'provider.catalog.azureOpenai': 'Azure OpenAI',
+  'provider.catalog.azureClaude': 'Azure Claude',
+  'provider.preset.azureOpenai.note':
+    'Azure 全球资源；中国大陆直连情况未确认。填写实际资源名与部署名，删除未部署的模型；模型 ID 为部署名。',
+  'provider.preset.azureClaude.note':
+    'Azure 全球资源的 Claude 按量部署，需 Azure Marketplace。中国大陆直连情况未确认。填写资源名与部署名，删除未部署的模型。',
+  'provider.form.error.placeholder': '替换占位内容后保存',
   'provider.preset.vertex.note':
     'Google Cloud 现名 Gemini Enterprise Agent Platform。需启用计费和模型权限，使用服务账号 JSON。默认 global；Claude 的 us / eu 多地域加价 10%。中国大陆无法直连。',
   'provider.vertex.project': 'Google Cloud 项目 ID',

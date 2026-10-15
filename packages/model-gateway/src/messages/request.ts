@@ -6,7 +6,7 @@
 
 import { createHash } from 'node:crypto';
 import { SYSTEM_AS_USER_NOTE, textOf } from '../chat/request.js';
-import { isAnthropicHost } from '../providers.js';
+import { isAnthropicHost, isAzureHost } from '../providers.js';
 import { compatibleToolChoice, isObject, ToolNames, toChatTools } from '../tools.js';
 import type {
   GatewayProvider,
@@ -126,7 +126,11 @@ export function toMessagesRequest(
   provider: GatewayProvider,
 ): MessagesTranslation {
   const compat = provider.compat ?? {};
-  const official = provider.kind === 'google-vertex' || isAnthropicHost(provider.baseURL ?? '');
+  const azure = isAzureHost(provider.baseURL ?? '');
+  const official =
+    provider.kind === 'google-vertex' || isAnthropicHost(provider.baseURL ?? '') || azure;
+  // Foundry 的 model 可以是任意部署别名；未显式指定格式时按当前 Claude 用 adaptive（§3.5）。
+  const thinkingFormat = compat.thinkingFormat ?? (azure ? 'adaptive' : undefined);
   // 代理用显式 adaptive 开启 Claude 方言；不把其他 Messages 服务当作 Anthropic。
   const claudeDialect = official || compat.thinkingFormat === 'adaptive';
   const model = currentClaude(body.model);
@@ -180,7 +184,7 @@ export function toMessagesRequest(
   }
   const last = messages.at(-1);
   if (last !== undefined) markCache(last.content);
-  Object.assign(request, thinkingParams(body, compat.thinkingFormat, maxTokens, claudeDialect));
+  Object.assign(request, thinkingParams(body, thinkingFormat, maxTokens, claudeDialect));
   for (const key of ['temperature', 'top_p'] as const) {
     if (typeof body[key] !== 'number') continue;
     if (claudeDialect && fixedSampling(body.model)) dropped.push(`field:${key}`);

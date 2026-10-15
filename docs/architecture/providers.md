@@ -75,7 +75,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 | 地址不是 `api.openai.com` | `supportsDeveloperRole: false`、`maxTokensField: max_tokens` |
 | 地址是 `deepseek.com` 及其子域（DeepSeek 的 OpenAI 兼容端点走 pi-ai 时） | 另加 `thinkingFormat: deepseek`、`requiresReasoningContentOnAssistantMessages: true`（T0.3 §6.2，取自 pi-ai 自带的 deepseek 目录） |
 
-Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI 与百炼按量端点）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。
+Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI 与百炼按量端点）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5，不改变这些工具开关。
 
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
@@ -510,3 +510,59 @@ Claude 另建一个 Provider（同一服务账号可复用；桌面表单选择 
 本地覆盖 RS256 JWT、并发与刷新、两种协议的录制请求与工具签名往返、认证错误与脱敏。尚未提供启用 Vertex 的 GCP 项目及服务账号，Gemini / Claude 的契约第 3 层与桌面端 apply_patch 都未验收；命令见 development.md §6.3。
 
 Claude 模型的 1M 上下文、128K 输出与五档力度同时核对了 [模型目录](https://platform.claude.com/docs/en/models/overview)与 [effort](https://platform.claude.com/docs/en/build-with-claude/effort)（2026-10-15）；平台 ID 与地域以上面的 Google Cloud 文档为准。
+
+
+### 7.12 Azure OpenAI / Microsoft Foundry
+
+**2026-10-15 核对。** 按微软的 [Codex 指南](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/codex)为 OpenAI 部署使用 v1 Responses 透传；Foundry Claude 的原生接口是 Messages，使用网关现有转换。目录直接列“Azure OpenAI”与“Azure Claude”两项，位于“国际”，Key 都从 [Foundry](https://ai.azure.com)的部署详情取得。只接按量服务，不需要新 Provider kind 或协议字段。
+
+**必须填写资源名和部署名。** 模板中的尖括号是待填写内容；设置页与首次引导会立即标出，未替换不能保存。地址与模型 ID 的通用检查也识别花括号和 URL 编码的占位。两种协议的 model 都是自己的部署名，可能与模型 ID 相同，也可能是自定义别名；网关不重写它。填写部署名后保留模板对应的窗口、输出与推理档位，删除未部署的行，默认模型跟随选中的那一行。修改其他普通模型 ID 仍清除旧型号的额外能力声明。旧 Provider 不自动套模板或迁移。
+
+OpenAI 示例（将所有占位替换为实际值；下面只列一个部署，模板另有 Astra 与 Luna）：
+
+```json
+{
+  "id": "azure-openai",
+  "kind": "openai-compatible",
+  "displayName": "Azure OpenAI",
+  "api": "openai-responses",
+  "baseURL": "https://<resource>.openai.azure.com/openai/v1",
+  "models": [
+    { "id": "<gpt-6.1-sol-deployment>", "displayName": "GPT-6.1 Sol", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] }
+  ],
+  "defaultModelId": "<gpt-6.1-sol-deployment>",
+  "apiKey": "<Azure resource API Key>"
+}
+```
+
+- **地址与认证。** 不加 api-version。微软明确支持资源的 openai.azure.com 与 services.ai.azure.com 两种 `/openai/v1` 地址。网关与标志也识别资源的 cognitiveservices.azure.com 域名，但当天 v1 页面未独立确认第三种地址的等价性，须复制部署详情给出的端点。资源 Key 仍以 Authorization: Bearer 发送：这是按微软 OpenAI SDK 与 Codex env_key 示例推断的行为，没有 Key 可实测；微软 REST 示例用 api-key，不能把本次本机 mock 当成服务支持 Bearer 的证据。
+- **模型与推理。** Sol 6.1、Astra、Luna 均在当天 Azure Responses 支持列表中。Sol / Astra 为 low–max，Luna 另有 off（交给 Codex 为 none）；窗口、图片输入与输出声明同 §7.8 的模型能力，具体部署可用性以控制台为准。gpt-6.1-sol 的部署名是示例，不是通用可用的资源部署。
+- **无状态历史与工具。** store: false 时显式 include reasoning.encrypted_content，网关只在缺失时追加。非空加密推理、custom apply_patch、缓存键、content_filters 原样透传；只为 Azure 补 namespace 的空描述。锁定 Codex 不开启 collaboration / Responses Lite，依据见 model-gateway.md §10。内容过滤的 HTTP 400 与 content_filter code 保留。custom / namespace 的实际支持仍待真实部署验证。
+
+Foundry Claude 示例（模板另列 Opus / Haiku 5.5，不列预览 Fable 与仅支持 Entra 的 Mythos）：
+
+```json
+{
+  "id": "azure-claude",
+  "kind": "openai-compatible",
+  "displayName": "Azure Claude",
+  "api": "anthropic-messages",
+  "baseURL": "https://<resource>.services.ai.azure.com/anthropic",
+  "compat": { "thinkingFormat": "adaptive", "systemMessageMode": "inline" },
+  "models": [
+    { "id": "<claude-sonnet-5-5-deployment>", "displayName": "Claude Sonnet 5.5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] }
+  ],
+  "defaultModelId": "<claude-sonnet-5-5-deployment>",
+  "apiKey": "<Azure resource API Key>"
+}
+```
+
+请求发到上述地址的 `/v1/messages`，用 x-api-key 与 anthropic-version: 2023-06-01。三款当前 GA Claude 均为 1M / 128K、五档 effort；不提供 off。Azure Marketplace 的用量付费资格、模型订阅与部署地域必须满足控制台要求；Global Standard 与部分型号的 US Data Zone 可用。新版文档区分 Azure 托管和 Anthropic 基础设施托管，并通过 CCU 计费，需按实际部署核对。Fable 5.1 仍为预览，而且微软当前 effort 表不认 max，因此不沿用官方 Anthropic 模板的四款模型与统一五档声明。
+
+Claude 工具、思考签名与跨回合历史复用现有 Messages 规则（model-gateway.md §5）。Foundry Messages 地址在未显式设置 thinkingFormat 时默认 adaptive，部署别名不会误用 enabled；显式配置优先，旧 Claude 部署可手动选择 enabled。型号专用的 forced choice / 采样 / 默认 effort / 中途 system 判断依赖模型 ID 前缀；完全自定义的部署别名无法据名称识别实际型号。模板显式 adaptive 确保开启档位仍用 adaptive，inline 在无法识别时按 user 回退，未指定 effort 时由服务决定默认。不要把某款型号的占位行改指向另一款模型并沿用其能力；完全自定义别名的特殊限制仍须真实部署验证。
+
+**地域与范围。** 这里是 Azure 全球资源，中国大陆能否直连尚未确认；十种语言的模板说明均标明这一点。不支持 Entra ID、世纪互联 Azure 中国、旧 `/openai/deployments/…?api-version=…` 或 `/api/projects/…` 路由；不增加 Foundry 托管的其他厂商模型模板。旧手动配置可在设置中将协议、baseURL、模型列表及默认部署名改为上述形式；Claude 合并上例 compat，保留其他自己的设置，Key 留空即保留已存 Key。建议重新测试连接并新建会话。
+
+来源（2026-10-15）：[v1 生命周期](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle)、[Responses 与支持模型](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses)、[Codex](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/codex)、[Claude 型号与能力](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models)、[部署与使用 Claude](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude)、[Foundry Responses](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/generate-responses)。
+
+本地使用录制 Codex 请求与 HTTP mock 覆盖两条路、认证头、namespace 描述、加密推理、工具与签名往返、内容过滤和连接测试。未提供资源地址、部署名与 WEVIR_TEST_API_KEY，Responses / Claude 的真实契约第 3 层和 pnpm dev 中经 apply_patch 改文件均未验收，命令见 development.md §6.3。

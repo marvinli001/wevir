@@ -834,6 +834,13 @@ export const messages: Messages = {
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
+  'provider.catalog.azureOpenai': 'Azure OpenAI',
+  'provider.catalog.azureClaude': 'Azure Claude',
+  'provider.preset.azureOpenai.note':
+    'Azure 글로벌 리소스. 중국 본토에서의 직접 연결은 확인되지 않았습니다. 실제 리소스 이름과 배포 이름을 입력하고 배포하지 않은 모델은 삭제하세요. 모델 ID는 배포 이름입니다.',
+  'provider.preset.azureClaude.note':
+    'Azure 글로벌의 Claude 종량제 배포이며 Azure Marketplace가 필요합니다. 중국 본토에서의 직접 연결은 확인되지 않았습니다. 리소스 이름과 배포 이름을 입력하고 배포하지 않은 모델은 삭제하세요.',
+  'provider.form.error.placeholder': '저장하기 전에 자리 표시자를 바꾸세요',
   'provider.preset.vertex.note':
     'Google Cloud의 현재 이름은 Gemini Enterprise Agent Platform입니다. 결제 및 모델 접근을 활성화하고 서비스 계정 JSON을 사용하세요. 기본 지역은 global입니다. Claude us / eu 엔드포인트는 10% 추가 요금이 있습니다. 중국 본토에서는 직접 접속할 수 없습니다.',
   'provider.vertex.project': 'Google Cloud 프로젝트 ID',

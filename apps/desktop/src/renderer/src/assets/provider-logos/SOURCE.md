@@ -7,6 +7,7 @@
 | `openai.svg` | OpenAI | `a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186` |
 | `anthropic.svg` | Anthropic | `e833fdfa7e7187a86a05b870925067556a506dcd4239089aed73e1e58c9366a3` |
 | `gemini-color.svg` | Google AI Studio | `8ab0a9bafec11f7e69bcb9fc4ffd8f1bc927d1ddcbbb6ff36dee5ae8b5a9d602` |
+| `azure-color.svg` | Azure OpenAI / Azure Claude | `abc639d094593943c1b201270f4903c74d02d2e26acf26abf592a29c222c5181` |
 | `vertexai-color.svg` | Google Vertex AI | `40f8bb6f7aca8d80ce2b0bd0d976e8e3ddeada3719758d262ea20075c11ad764` |
 | `deepseek-color.svg` | DeepSeek | `deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439` |
 | `qwen-color.svg` | 通义千问 | `77f5768c66d08ce1d3d14e73373975c1bc0454be88c81523ddd0ffd7e2974029` |

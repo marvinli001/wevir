@@ -212,6 +212,13 @@ export function isXaiHost(baseURL: string): boolean {
   return /(^|\.)x\.ai$/.test(hostnameOf(baseURL));
 }
 
+/** Azure 全球资源端点；不匹配主域本身、相似域名或 Azure 中国（model-gateway.md §3.5）。 */
+export function isAzureHost(baseURL: string): boolean {
+  return /^[a-z0-9-]+\.(?:openai\.azure\.com|services\.ai\.azure\.com|cognitiveservices\.azure\.com)$/.test(
+    hostnameOf(baseURL),
+  );
+}
+
 /** 百炼按量端点（model-gateway.md §3.4）；套餐域名不补默认值，显式 compat 仍优先。 */
 export function isBailianHost(baseURL: string): boolean {
   const host = hostnameOf(baseURL);
