@@ -55,12 +55,15 @@ export function ApprovalDock({
   client,
   self,
   subagentHref,
+  recap,
 }: {
   transcript: Transcript;
   client: WevirClient | undefined;
   self: ClientIdentity | undefined;
   /** 子会话的视图地址；给了才显示“查看子智能体”。 */
   subagentHref?: (subagent: SubagentSummary) => string;
+  /** 卡片最上面的“这一轮”回顾（U20，todo-card.tsx 的 TurnRecap）。 */
+  recap?: ReactNode;
 }) {
   const items = pendingApprovals(transcript);
   const current = items[0]?.approval;
@@ -130,6 +133,7 @@ export function ApprovalDock({
             approval={current}
             origin={origin && { subagent: origin, href: subagentHref?.(origin) }}
             remaining={remaining}
+            recap={recap}
             busy={submitting === current.id}
             error={notice?.tone === 'error' ? notice.text : undefined}
             onRespond={(optionId) => void respond(current, optionId)}
@@ -150,6 +154,7 @@ function ApprovalCard({
   approval,
   origin,
   remaining,
+  recap,
   busy,
   error,
   onRespond,
@@ -158,6 +163,7 @@ function ApprovalCard({
   /** 来自子会话的审批：哪个子智能体，以及它的视图地址。 */
   origin: { subagent: SubagentSummary; href: string | undefined } | undefined;
   remaining: number;
+  recap: ReactNode;
   busy: boolean;
   error: string | undefined;
   onRespond: (optionId: string) => void;
@@ -229,6 +235,7 @@ function ApprovalCard({
       data-testid="approval-card"
       className="rounded-2xl border border-border bg-card shadow-sm outline-none animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
     >
+      {recap}
       {origin && <ApprovalOrigin {...origin} />}
       <div className="px-4 pt-3.5">
         <div className="flex items-start gap-3">

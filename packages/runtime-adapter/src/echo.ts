@@ -39,6 +39,9 @@ export interface EchoExitInfo {
 }
 
 /** Echo 的审批选项，取 dsh 的值（T0.3 §5.2）。 */
+/** `plan` 关键词的清单（U20）。 */
+export const ECHO_PLAN = ['Read the relevant files', 'Make the change', 'Run the tests and report'];
+
 export const ECHO_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'allow-once', label: 'Allow once', kind: 'allow_once' },
   { optionId: 'reject-once', label: 'Reject', kind: 'reject_once' },
@@ -115,6 +118,7 @@ interface ReplyBlock {
  * | `think` | 回复前先发一段思考（reasoning 增量 → `assistant.thought`） |
  * | `fail` | 回合以 `turn.failed` 结束（模拟 dsh 的 -32603 回合失败） |
  * | `slow` | 回复的每个分片前多等九步，回合持续得久一些，测试插话与排队用（R11） |
+ * | `plan` | 回合里带一份三步的清单（`todo.updated`，像 Codex 的计划）：开始时第一步进行中，工具与审批之后第二步、回复前第三步，回复完全部完成（U20） |
  * | `subagent` | 模拟 Codex 的子 agent（R4）：调 `spawn_agent` 派出一个子会话（父会话的流里 `subagent.started`），子会话以
  *   `turn.started` 开始一个回合，输入是 `Helper task: <输入，subagent 换成 helper>`，所以输入里的其他关键词由子会话执行
  *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
@@ -408,6 +412,21 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       }
 
       const subagent = session.parentId === undefined && /subagent/i.test(text);
+      // 清单（U20）：像 Codex 的 `turn/plan/updated`，每次发完整的列表，来源是合成的工具调用 ID。
+      const planCallId = /\bplan\b/i.test(text) ? this.#nextId('plan_echo') : undefined;
+      const plan = (done: number) => {
+        if (planCallId === undefined) return;
+        emit({
+          type: 'todo.updated',
+          engineSessionId,
+          toolCallId: planCallId,
+          items: ECHO_PLAN.map((content, index) => ({
+            content,
+            status: index < done ? 'completed' : index === done ? 'in_progress' : 'pending',
+          })),
+        });
+      };
+      plan(0);
       if (subagent) await this.#runSubagent(session, turn, text, openTools);
 
       if (!subagent && /tool/i.test(text)) {
@@ -473,6 +492,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         );
       }
 
+      plan(1);
       let answered = '';
       if (!subagent && /\bask\b/i.test(text)) {
         const answers = await this.#askUser(turn, engineSessionId);
@@ -483,9 +503,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         blocks.push({ kind: 'reasoning', full: `Thinking about: ${text}`, generated: '' });
       }
       blocks.push({ kind: 'text', full: `Echo: ${text}${answered}`, generated: '' });
+      plan(2);
       await this.#reply(signal, emit, engineSessionId, attemptId, blocks, slowSteps);
       this.#commit(emit, engineSessionId, attemptId, blocks);
       blocks = [];
+      plan(ECHO_PLAN.length);
       // 插话：这次回复之后放进回合，再回复一次（像 Codex 在一次采样之后用上待处理的输入）。
       for (let round = 1; turn.steers.length > 0; round += 1) {
         const steers = turn.steers.splice(0);

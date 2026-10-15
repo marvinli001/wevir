@@ -31,6 +31,7 @@ import {
   usePermissionModes,
   useStartSession,
 } from './start-session';
+import { TodoDock, TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 
 /**
@@ -142,15 +143,23 @@ export function SessionView({ session }: { session: Session }) {
         </p>
       )}
       <div className="mx-auto w-full max-w-content shrink-0 px-6 pb-5">
-        {/* 输入框上方的提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
+        {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
         <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
-          {transcript && <QuestionDock transcript={transcript} client={client} />}
+          {transcript && <TodoDock transcript={transcript} />}
+          {transcript && (
+            <QuestionDock
+              transcript={transcript}
+              client={client}
+              recap={<TurnRecap transcript={transcript} />}
+            />
+          )}
           {transcript && (
             <ApprovalDock
               transcript={transcript}
               client={client}
               self={identity}
               subagentHref={subagentHref}
+              recap={<TurnRecap transcript={transcript} />}
             />
           )}
           <RecoveryPanel

@@ -13,13 +13,16 @@ import { IS_MAC } from '@/lib/shortcuts';
 export function QuestionDock({
   transcript,
   client,
+  recap,
 }: {
   transcript: Transcript;
   client: WevirClient | undefined;
+  /** 卡片最上面的“这一轮”回顾（U20，todo-card.tsx 的 TurnRecap）。 */
+  recap?: ReactNode;
 }) {
   const request = transcript.pendingQuestions[0];
   if (!request) return null;
-  return <QuestionCard key={request.id} request={request} client={client} />;
+  return <QuestionCard key={request.id} request={request} client={client} recap={recap} />;
 }
 
 /** “其他”在回答里的占位：选中了“其他”时这一题的回答是输入框里的文字。 */
@@ -32,9 +35,11 @@ const OTHER = '\u0000other';
 function QuestionCard({
   request,
   client,
+  recap,
 }: {
   request: QuestionRequest;
   client: WevirClient | undefined;
+  recap: ReactNode;
 }) {
   const [index, setIndex] = useState(0);
   const [chosen, setChosen] = useState<Record<string, string[]>>({});
@@ -130,6 +135,7 @@ function QuestionCard({
       data-keyboard-scope
       className="mb-2 rounded-2xl border border-border bg-card shadow-sm outline-none animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
     >
+      {recap}
       <header className="flex items-start gap-2.5 px-3.5 pt-3">
         <span className="mt-px shrink-0 rounded-md bg-brand/15 px-1.5 text-xs leading-5 font-medium text-brand tabular-nums">
           {index + 1}/{total}

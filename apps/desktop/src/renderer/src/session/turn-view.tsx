@@ -35,6 +35,7 @@ export const TurnView = memo(
     live,
     orb = 'working',
     hasSubagents,
+    hideTodos = false,
     self,
   }: {
     turnId: TurnId;
@@ -46,6 +47,8 @@ export const TurnView = memo(
     orb?: OrbState;
     /** 会话派出过子会话：collab 工具调用不显示（subagent-model.ts 的 visibleParts）。 */
     hasSubagents: boolean;
+    /** 这个回合的清单停在输入框上方（U20，todo-card.tsx），消息里不再画。 */
+    hideTodos?: boolean;
     self: ClientIdentity | undefined;
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
@@ -89,9 +92,10 @@ export const TurnView = memo(
                 );
               }
               if (message.role !== 'assistant') return null;
-              const parts = folded
+              const shown = folded
                 ? foldedParts(message, fold)
                 : visibleParts(message.parts, hasSubagents);
+              const parts = hideTodos ? shown.filter((part) => part.type !== 'todo') : shown;
               if (parts.length === 0) return null;
               return (
                 <div key={message.id} className="mt-3" data-message-role="assistant">

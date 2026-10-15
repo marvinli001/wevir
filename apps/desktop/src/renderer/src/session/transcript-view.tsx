@@ -10,6 +10,7 @@ import { FoldScopeProvider } from './fold-state';
 import type { LiveState } from './live-indicator';
 import { SystemMessage } from './message-view';
 import { useStickToBottom } from './scroll-controller';
+import { latestTodos } from './todo-model';
 import { groupTurns, isActiveTurn, turnStart } from './turn-model';
 import { TurnView } from './turn-view';
 import { WorkspaceRoot } from './work-group';
@@ -60,6 +61,8 @@ export function TranscriptView({
   );
   const hidden = start;
   const firstRendered = messages[start]?.id;
+  // 停在输入框上方的清单属于哪个回合（U20）：那个回合的消息里不再画它。
+  const dockedTodos = latestTodos(transcript)?.turnId;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在切换模式与换会话时固定或放开。
   useEffect(() => setPinnedStart(sticky ? undefined : firstRendered), [sticky, sessionId]);
@@ -130,6 +133,7 @@ export function TranscriptView({
                           orb: turnOrb(sessionId, block.turnId),
                         })}
                         hasSubagents={transcript.subagents.length > 0}
+                        hideTodos={block.turnId === dockedTodos}
                         self={self}
                       />
                     ) : (

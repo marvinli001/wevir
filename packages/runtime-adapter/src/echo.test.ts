@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ECHO_APPROVAL_OPTIONS, EchoAdapter, type EchoAdapterOptions } from './echo.js';
+import { ECHO_APPROVAL_OPTIONS, ECHO_PLAN, EchoAdapter, type EchoAdapterOptions } from './echo.js';
 import { isAdapterError } from './errors.js';
 import type { AgentEvent } from './events.js';
 import type { SessionConfig } from './types.js';
@@ -159,6 +159,26 @@ describe('EchoAdapter', () => {
     await session.adapter.cancel(session.id);
     const cancelled = await session.readUntil(settled);
     expect(cancelled[0]).toMatchObject({ type: 'question.cancelled', reason: 'turn_cancelled' });
+  });
+
+  it('plan：一份三步的清单随回合推进，回复完全部完成', async () => {
+    const session = await open();
+    await session.send('make a plan');
+    const events = await session.readUntil(settled);
+    const updates = events.flatMap((event) =>
+      event.type === 'todo.updated' ? [event.items.map((item) => item.status)] : [],
+    );
+    expect(updates).toEqual([
+      ['in_progress', 'pending', 'pending'],
+      ['completed', 'in_progress', 'pending'],
+      ['completed', 'completed', 'in_progress'],
+      ['completed', 'completed', 'completed'],
+    ]);
+    const ids = new Set(events.flatMap((e) => (e.type === 'todo.updated' ? [e.toolCallId] : [])));
+    expect(ids.size).toBe(1);
+    expect(events.find((e) => e.type === 'todo.updated')).toMatchObject({
+      items: ECHO_PLAN.map((content) => ({ content })),
+    });
   });
 
   it('fail：回合以 turn.failed 结束，会话仍可用', async () => {
