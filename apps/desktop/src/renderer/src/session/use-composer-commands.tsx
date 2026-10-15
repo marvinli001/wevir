@@ -160,7 +160,12 @@ function showStatus(): void {
       ? current.railOpen
       : [...current.railOpen, 'context'],
   }));
-  transientLayout.set((state) => ({ ...state, railOverlayOpen: true, auxOverlayOpen: false }));
+  transientLayout.set((state) => ({
+    ...state,
+    railOverlayOpen: true,
+    railTightOpen: true,
+    auxOverlayOpen: false,
+  }));
 }
 
 export interface SessionCommandOptions {

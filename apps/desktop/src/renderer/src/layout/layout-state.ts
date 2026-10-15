@@ -14,7 +14,7 @@ export interface LayoutPrefs {
   projectsCollapsed: boolean;
   /** 左栏的会话按状态还是按项目分组（U19，desktop-layout.md §13），默认按状态。 */
   sidebarView: 'status' | 'project';
-  /** 会话侧栏开着（U18，desktop-layout.md §12），默认开。 */
+  /** 地方够时会话侧栏开着（U18，desktop-layout.md §12），默认开；地方紧时默认收起，见 rail-model.ts 的 railRoom。 */
   railShown: boolean;
   /** 会话侧栏里展开着的卡片（`registerRailCard` 的 id），默认只有“环境”。 */
   railOpen: readonly string[];
@@ -65,6 +65,8 @@ export interface TransientLayout {
   auxOverlayOpen: boolean;
   /** 会话侧栏停靠不下、以浮层显示时，浮层是否开着（U18）。 */
   railOverlayOpen: boolean;
+  /** 会话侧栏地方紧（rail-model.ts 的 `tight`）、默认收起时，用户把它停靠出来了。窗口变宽或放不下时清掉。 */
+  railTightOpen: boolean;
   /** 最大化的窗格（§3.4），只对那个会话有效。 */
   maximized?: { scope: string; groupId: string };
 }
@@ -73,6 +75,7 @@ export const transientLayout = createStore<TransientLayout>({
   sidebarOverlayOpen: false,
   auxOverlayOpen: false,
   railOverlayOpen: false,
+  railTightOpen: false,
 });
 
 /** 展开或收起会话侧栏的一张卡片（U18）。 */

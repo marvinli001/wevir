@@ -162,7 +162,10 @@ export const TurnView = memo(
     prev.messages.every((message, index) => message === next.messages[index]),
 );
 
-/** “已处理 2 分 31 秒 ›────”：点它展开或收起整个过程。收起时标出过程里的失败、被拒绝、状态未知。 */
+/**
+ * “已处理 2 分 31 秒 ›”，下面一条横线把它与回答隔开（照 Codex 桌面端）：点它展开或收起整个过程。收起时标出过程里的失败、
+ * 被拒绝、状态未知。
+ */
 function TurnHeader({
   controls,
   outcome,
@@ -179,22 +182,24 @@ function TurnHeader({
   onToggle(): void;
 }) {
   return (
-    <button
-      type="button"
-      aria-expanded={open}
-      aria-controls={controls}
-      data-turn-header={outcome}
-      onClick={onToggle}
-      className="mt-3 flex min-h-6 w-full items-center gap-1.5 rounded-lg text-left text-sm text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-    >
-      <span className={cn('shrink-0', HEADER_TONES[outcome])}>{text}</span>
-      {issues && <IssueFlags issues={issues} />}
-      <ChevronRight
-        aria-hidden
-        className={cn('size-3.5 shrink-0 opacity-75 transition-transform', open && 'rotate-90')}
-      />
-      <span aria-hidden className="ml-1.5 h-px min-w-6 flex-1 bg-border" />
-    </button>
+    <div className="mt-3">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={controls}
+        data-turn-header={outcome}
+        onClick={onToggle}
+        className="flex min-h-6 max-w-full items-center gap-1.5 rounded-lg text-left text-sm text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      >
+        <span className={cn('shrink-0', HEADER_TONES[outcome])}>{text}</span>
+        {issues && <IssueFlags issues={issues} />}
+        <ChevronRight
+          aria-hidden
+          className={cn('size-3.5 shrink-0 opacity-75 transition-transform', open && 'rotate-90')}
+        />
+      </button>
+      <div aria-hidden className="mt-1.5 h-px bg-border" />
+    </div>
   );
 }
 

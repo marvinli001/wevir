@@ -6,7 +6,7 @@ import {
   formatTokens,
   parentDirectory,
   RAIL_DOCKED_WIDTH,
-  railDocks,
+  railRoom,
 } from './rail-model';
 
 const providers = [
@@ -16,18 +16,19 @@ const providers = [
   },
 ] as unknown as ProviderProfile[];
 
-describe('railDocks', () => {
+describe('railRoom', () => {
   const docked = (primaryWidth: number) => () => ({ mode: 'docked', primaryWidth });
-  it('扣掉侧栏后主窗格仍不窄于 440、窗格区不改浮层才停靠', () => {
-    expect(railDocks(1420, () => ({ mode: 'none', primaryWidth: 1420 - RAIL_DOCKED_WIDTH }))).toBe(
-      true,
-    );
-    expect(railDocks(700, () => ({ mode: 'none', primaryWidth: 700 - RAIL_DOCKED_WIDTH }))).toBe(
-      false,
-    );
-    expect(railDocks(1100, docked(500))).toBe(true);
-    expect(railDocks(1100, docked(430))).toBe(false);
-    expect(railDocks(1100, () => ({ mode: 'overlay', primaryWidth: 804 }))).toBe(false);
+  const bare = (width: number) => ({ mode: 'none', primaryWidth: width });
+  it('扣掉侧栏后主窗格不窄于 640 才默认显示，440–640 能停靠但默认收起', () => {
+    expect(railRoom(1420, bare)).toBe('roomy');
+    expect(railRoom(640 + RAIL_DOCKED_WIDTH, bare)).toBe('roomy');
+    expect(railRoom(639 + RAIL_DOCKED_WIDTH, bare)).toBe('tight');
+    expect(railRoom(440 + RAIL_DOCKED_WIDTH, bare)).toBe('tight');
+    expect(railRoom(700, bare)).toBe('none');
+    expect(railRoom(1300, docked(700))).toBe('roomy');
+    expect(railRoom(1100, docked(500))).toBe('tight');
+    expect(railRoom(1100, docked(430))).toBe('none');
+    expect(railRoom(1100, () => ({ mode: 'overlay', primaryWidth: 804 }))).toBe('none');
   });
 });
 

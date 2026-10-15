@@ -47,7 +47,7 @@ import { prunePaneScopes, updateScope, useScopePanes } from './pane-store';
 import { Sidebar } from './sidebar';
 import { Splitter } from './splitter';
 import './rail-cards';
-import { RAIL_DOCKED_WIDTH, railDocks } from './rail-model';
+import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';
 
@@ -114,10 +114,13 @@ export function WorkbenchLayout() {
       maximized,
     });
   // 会话侧栏（U18，desktop-layout.md §12）：只有会话页有；停靠后主窗格与窗格区还排得下才停靠，否则让位改浮层。
+  // 地方够时按偏好显示，地方紧时默认收起（rail-model.ts 的 railRoom）。
   const rail = header.session && sessionId !== undefined ? header.session : undefined;
-  const railCanDock =
-    rail !== undefined && maximized === undefined && railDocks(content.width, arrange);
-  const railDocked = railCanDock && prefs.railShown;
+  const room: RailRoom =
+    rail !== undefined && maximized === undefined ? railRoom(content.width, arrange) : 'none';
+  const railCanDock = room !== 'none';
+  const railDocked =
+    room === 'roomy' ? prefs.railShown : room === 'tight' && transient.railTightOpen;
   const railOverlay = rail !== undefined && !railCanDock && transient.railOverlayOpen;
   const plan = arrange(content.width - (railDocked ? RAIL_DOCKED_WIDTH : 0));
   const panes = usePaneController(
@@ -158,6 +161,12 @@ export function WorkbenchLayout() {
       transientLayout.set((state) => ({ ...state, railOverlayOpen: false }));
     }
   }, [railCanDock, transient.railOverlayOpen]);
+  // 地方紧时临时停靠出来的会话侧栏：窗口变宽（改按偏好）或放不下（改浮层）后清掉，再回到地方紧时又是默认收起。
+  useEffect(() => {
+    if (rail !== undefined && room !== 'tight' && transient.railTightOpen) {
+      transientLayout.set((state) => ({ ...state, railTightOpen: false }));
+    }
+  }, [rail, room, transient.railTightOpen]);
   // 窗格区与会话侧栏的浮层一次只开一个：窗格区的浮层打开时收起侧栏的。
   useEffect(() => {
     if (transient.auxOverlayOpen) {
@@ -179,11 +188,13 @@ export function WorkbenchLayout() {
       railOverlayOpen: open,
       ...(open && { auxOverlayOpen: false }),
     }));
-  // 能停靠时切换偏好（记住），放不下时开关浮层（不记住）。
+  // 地方够时切换偏好（记住），地方紧时临时停靠或收起，放不下时开关浮层（后两种不记住）。
   const toggleRail = () =>
-    railCanDock
+    room === 'roomy'
       ? layoutPrefs.set((current) => ({ ...current, railShown: !current.railShown }))
-      : setRailOverlayOpen(!transient.railOverlayOpen);
+      : room === 'tight'
+        ? transientLayout.set((state) => ({ ...state, railTightOpen: !state.railTightOpen }))
+        : setRailOverlayOpen(!transient.railOverlayOpen);
   const commitSidebarWidth = (width: number) => {
     setSidebarDrag(undefined);
     layoutPrefs.set((current) => ({ ...current, sidebarWidth: clampSidebarWidth(width) }));
@@ -444,6 +455,8 @@ export function WorkbenchLayout() {
             {rail && header.entry && sessionId !== undefined && plan.mode !== 'maximized' && (
               <div
                 className="layout-transition flex shrink-0 overflow-hidden"
+                // 宽只有开与关两种，拖窗口时也过渡：跨过默认显示的宽度时滑进滑出，不是一下跳开（index.css）。
+                data-resize-transition
                 inert={!railDocked}
                 style={{ width: railDocked ? RAIL_DOCKED_WIDTH : 0 }}
               >

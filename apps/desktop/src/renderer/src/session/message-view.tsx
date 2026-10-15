@@ -28,21 +28,14 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
   const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
   // 子会话里父 agent 给的输入标成“父 agent 派给它的任务”（R5）。别的客户端发的不标来源。
   return (
-    <div className="flex flex-col items-end" data-message-role="user">
+    <div className="group/user flex flex-col items-end" data-message-role="user">
       {/* 图片（0.28.0）在文字上方，同 Codex 与 Claude Code 桌面端。 */}
       {images.length > 0 && (
         <MessageImages images={images} className={texts.length > 0 ? 'mb-1.5' : undefined} />
       )}
-      {/* 悬停时左边出现“复制”（U36）。 */}
       {texts.length > 0 && (
-        <div className="group/user flex max-w-[85%] items-center gap-1">
-          <CopyButton
-            text={text}
-            className="shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-visible:opacity-100"
-          />
-          <div className="min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
-            {text}
-          </div>
+        <div className="max-w-[85%] min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
+          {text}
         </div>
       )}
       {message.fromParentAgent && (
@@ -54,6 +47,12 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
         <span className="mt-1 text-xs text-muted-foreground" data-steered>
           {t('transcript.steered')}
         </span>
+      )}
+      {/* 悬停时消息下方靠右出现“复制”（U36，照 Codex 桌面端）。 */}
+      {texts.length > 0 && (
+        <div className="mt-1 flex h-6 items-center opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
+          <CopyButton text={text} className="text-muted-foreground" />
+        </div>
       )}
     </div>
   );

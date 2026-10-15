@@ -59,7 +59,8 @@
   transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-:root[data-window-resizing] .layout-transition,
+/* 拖窗口时宽度跟着视口连续变的容器不过渡；宽只有开与关两种的（会话侧栏）标 data-resize-transition，照常过渡。 */
+:root[data-window-resizing] .layout-transition:not([data-resize-transition]),
 .layout-transition[data-resizing] {
   transition: none;
 }
