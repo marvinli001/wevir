@@ -67,6 +67,19 @@ export type { InteractionUpdate, SdkCredentialStore };
 
 let loading: Promise<CursorSdk> | undefined;
 
+/**
+ * 这个 Host 能不能用 `@cursor/sdk`：安装包不带它（ADR-0007 补记 3：许可证是“All rights reserved”，维护者定不随应用再分发），
+ * 没装时 Host 不挂 Cursor 引擎（host 的 engines.ts）。只解析、不加载。
+ */
+export function cursorSdkInstalled(): boolean {
+  try {
+    import.meta.resolve('@cursor/sdk');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** 第一次调用时加载 `@cursor/sdk`，之后复用。 */
 export function loadCursorSdk(): Promise<CursorSdk> {
   loading ??= import('@cursor/sdk').then(

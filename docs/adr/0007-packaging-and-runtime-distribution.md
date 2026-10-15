@@ -1,6 +1,6 @@
 # ADR-0007：第一个安装包与运行时分发
 
-- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）
+- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）；补记 3：Claude 与 Cursor 的 SDK 不随安装包分发
 - 日期：2026-10-14
 - 任务：R9；影响：`apps/desktop` 的打包与资源目录、adapter-codex 的二进制解析；推迟的部分影响 adapter-dsh、Host 的组件管理、设置页的引擎列表、R8 的 Grok Build 与 Gemini CLI
 - 依据：[ADR-0005](./0005-agent-runtime-and-model-gateway.md) 决策 8、未决事项 2 与 4；[ADR-0002](./0002-host-transport-and-process-model.md) 未决事项 1；[ADR-0004](./0004-repo-tooling.md)（打包工具留到打包阶段）；[UPSTREAM.md](../upstream/UPSTREAM.md) §1.2、§2.1、§2.4；[third-party-notices.md](../upstream/third-party-notices.md)；本文“背景”里的本机实测
@@ -129,10 +129,17 @@
    - **提示词**：资源目录的 `prompts/`（仓库的 `prompts/`，不含 README.md）。adapter-codex 的 `resolvePromptsDir`：`<WEVIR_RESOURCES_DIR>/prompts/`（有 `base.md` 时）→ 仓库的 `prompts/`，wevir-host 把结果交给 Codex 与会话标题（codex-event-mapping 未决事项里的“安装包里提示词的位置”）。
    - **签名与公证**（决策 2）：Hardened Runtime，entitlements 只有 `com.apple.security.cs.allow-jit`，主程序与包里其余可执行文件共用；electron-builder 默认模板里的 `allow-unsigned-executable-memory` 与 `disable-library-validation` 不要（包里的 `.node` 一起用 Wevir 的证书重签，同一个 Team ID 能过库验证）。@electron/osx-sign 把包里的二进制（codex-app-server，`@cursor/sdk` 的 `rg`、`cursorsandbox` 与 tree-sitter 的 `.node`）都重签。公证在环境里有 notarytool 凭据（`APPLE_KEYCHAIN_PROFILE`，或 Apple ID 三件套，或 App Store Connect API 密钥三件套）时自动进行，没有就跳过并告警。
    - **验收**（2026-10-16，macOS arm64，钥匙串里的 Developer ID 证书，没有公证凭据）：dmg 204 MB、zip 200 MB（带 blockmap；裁掉语言包之前是 214 / 209 MB）。`codesign --verify --deep --strict` 通过，包里的二进制与 `.node` 都是同一个 Team ID、带 Hardened Runtime 与时间戳；`spctl` 判定 `Unnotarized Developer ID`（还没公证）。用临时数据目录直接运行 `Wevir.app/Contents/MacOS/Wevir`：主程序拉起 `Contents/Resources/host/dist/main.js`，Host 的本机 MCP 脚本也由主程序以 Node 身份运行；经 CLI 登记 mock 模型（Responses）、新建会话发“工具”，模型请求经网关，安装包里的 codex-app-server 执行 `ls`，回合 `completed`，标题由模型生成，Codex 的模型目录里是 `base.md` 的内容（安装包里没有仓库的 `prompts/`，只能来自资源目录）。窗口经 `wevir://` 从 asar 加载、正常显示。退出应用时 Host 与 codex-app-server 都退出。裁掉语言包后重打的包又验了一遍启动、显示与退出。Windows x64 的 NSIS 安装程序（183 MB，未签名）在 macOS 上交叉打出来了，不用 Wine。
-   - **没有验证的**：公证，以及在另一台 Mac 上从下载的 dmg 安装（要维护者的公证凭据）；x64 的 Mac；Windows 包没有在 Windows 上安装运行过；按安装包的实际内容生成第三方声明（third-party-notices.md §4）；`@cursor/sdk` 与 `@anthropic-ai/claude-agent-sdk` 的许可证写的是“All rights reserved，按各自的服务条款使用”，能否随安装包再分发要维护者确认。
+   - **没有验证的**：公证，以及在另一台 Mac 上从下载的 dmg 安装（要维护者的公证凭据）；x64 的 Mac；Windows 包没有在 Windows 上安装运行过；按安装包的实际内容生成第三方声明（third-party-notices.md §4）；`@cursor/sdk` 与 `@anthropic-ai/claude-agent-sdk` 的许可证写的是“All rights reserved，按各自的服务条款使用”，能否随安装包再分发要维护者确认（同日定为不随应用分发，见补记 3）。
 2. **2026-10-16，维护者改决策 3：自动更新。** 不再是“第一个包不自动更新”，改成 (a) 的做法并扩展：
    - electron-updater，自定义 provider（基于 `generic`）：客户端内置两个 Wevir 自己的下载域名，只认域名不认服务商：全球线路 `download.wevir.si`（Cloudflare R2 + CDN），优化线路 `download2.wevir.si`（三网优化的服务器）；维护者 2026-10-16 定，当时还没有解析；检查更新时同时向两条线路取更新清单，先到且校验通过的胜出，有新版本时再按两条线路下载安装包前一小段的速度选线路，失败换另一条，GitHub Releases 作备用。
    - 正式版与开发版两个通道，只有 master 一条线：开发版是下一个正式版的预发布（`X.Y.Z-beta.N`），正式版在 master 上打 tag `vX.Y.Z`；开发版用户也收到正式版，从开发版切回正式版不降级。GitHub Actions 在 CI 通过后自动构建并上传到两条线路：先传安装包、都成功后再写清单，清单只许更高的版本覆盖。
    - 更新清单要签名验证：electron-builder 26.17 没有签名更新清单（`updateManifest` 是 27 的功能，现在还是 alpha），在自定义 provider 里自己验签，或等 27 正式版。
    - 界面照 Codex 桌面端：侧栏左下角显示新版本，点击后显示下载进度，下载完没有回合在跑就安装并重启，有回合在跑时等用户点“重启以更新”。
    - 分几步做：更新模块与界面、发布流水线、服务器配置。每一步做完在这里补记。
+3. **2026-10-16，Claude 与 Cursor 的 SDK 不随安装包分发。** `@anthropic-ai/claude-agent-sdk` 与 `@cursor/sdk` 的许可证写的是“All rights reserved，按各自的服务条款使用”，维护者定不随应用再分发。
+   - `stage-resources.ts` 的 `EXCLUDED_PACKAGES` 加上这两个包，剪掉它们与只被它们用到的依赖（`@anthropic-ai/sdk`、`@cursor/sdk` 的平台包等）。安装包里的 Host 从 85 MB 降到 21 MB，不再有原生模块与可执行文件。
+   - Host 照常启动：adapter-claude 不再静态 import SDK，改为模块加载时动态 import，只把 `ERR_MODULE_NOT_FOUND` 当作没装（`claudeSdkInstalled`）；adapter-cursor 本来就是第一次用到时才加载，加了只解析不加载的 `cursorSdkInstalled`。host 的 `subscriptionEngines` 在 SDK 不在时不挂那个引擎，日志记 `engine sdk not installed; engine disabled`。桌面端没有这种账号，订阅来源里显示“即将支持 · 当前后台服务不支持”。开发环境里两个 SDK 照旧经 pnpm 装上，五种订阅引擎都在。
+   - 安装包里要用 Claude 或 Cursor，得在用户选用时再下载 SDK（与 dsh 一样属于可选组件，决策 6，还没做）；下载时由用户的机器直接从 npm registry 取，Wevir 不分发这两个包。`@cursor/sdk` 的平台包带 `.node` 与可执行文件，下载来的没有 Wevir 的签名，到时主程序要加 `com.apple.security.cs.disable-library-validation`（同决策 2 对 dsh 的说法）。
+   - 验收（2026-10-16，macOS arm64）：资源目录里的 Host 以 `ELECTRON_RUN_AS_NODE` 在 `env -i` 的环境里启动，日志里两个引擎各记一条未启用，Host `ready`。
+   - 公证（同日，维护者的 App Store Connect API 密钥存成 notarytool 的钥匙串 profile，`APPLE_KEYCHAIN_PROFILE`）：electron-builder 公证并装订了 `.app`；`spctl` 判定 `accepted, source=Notarized Developer ID`，`stapler validate` 通过，dmg 里的那份也一样；加上下载隔离属性的副本 `spctl` 同样通过，`syspolicy_check distribution` 报 ready for distribution。dmg 本身没有签名（electron-builder 的默认），只靠里面装订过的应用通过 Gatekeeper。这次的包：dmg 191 MB、zip 186 MB，`appId` 是 `si.wevir.desktop`。
+

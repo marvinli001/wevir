@@ -23,5 +23,6 @@ export {
   type CursorAgentHandle,
   type CursorRun,
   type CursorSdk,
+  cursorSdkInstalled,
   loadCursorSdk,
 } from './sdk.js';

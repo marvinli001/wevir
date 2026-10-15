@@ -1,24 +1,45 @@
 // Claude Agent SDK 的入口（AGENTS.md 规则 2：`@anthropic-ai/claude-agent-sdk` 只在本包）。适配器与账号只经这里拿 SDK 的
 // 函数与类型；测试换成假的 `ClaudeSdk`（录好的消息回放）。
 
-import {
-  type CanUseTool,
-  forkSession,
-  getSessionInfo,
-  type Options,
-  type PermissionResult,
-  type PermissionUpdate,
-  type Query,
-  query,
-  type SDKAssistantMessage,
-  type SDKControlGetUsageResponse,
-  type SDKMessage,
-  type SDKPartialAssistantMessage,
-  type SDKRateLimitInfo,
-  type SDKResultMessage,
-  type SDKUserMessage,
-  type PermissionMode as SdkPermissionMode,
+import type {
+  CanUseTool,
+  Options,
+  PermissionResult,
+  PermissionUpdate,
+  Query,
+  SDKAssistantMessage,
+  SDKControlGetUsageResponse,
+  SDKMessage,
+  SDKPartialAssistantMessage,
+  SDKRateLimitInfo,
+  SDKResultMessage,
+  SDKUserMessage,
+  PermissionMode as SdkPermissionMode,
 } from '@anthropic-ai/claude-agent-sdk';
+
+type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
+
+/**
+ * 安装包不带 Claude Agent SDK（ADR-0007 补记 3：它的许可证是“All rights reserved”，维护者定不随应用再分发）。所以不能静态
+ * import：没装时 Host 照常启动，只是不挂 Claude 引擎（`claudeSdkInstalled`，host 的 engines.ts）。只把“找不到这个模块”当成没装，
+ * 别的加载错误照样抛出。
+ */
+const sdkModule: SdkModule | undefined = await import('@anthropic-ai/claude-agent-sdk').catch(
+  (error: unknown) => {
+    if ((error as { code?: unknown } | null)?.code === 'ERR_MODULE_NOT_FOUND') return undefined;
+    throw error;
+  },
+);
+
+/** 这个 Host 能不能用 Claude Agent SDK（开发环境经 pnpm 装上；安装包里没有）。 */
+export function claudeSdkInstalled(): boolean {
+  return sdkModule !== undefined;
+}
+
+function loadedSdk(): SdkModule {
+  if (sdkModule === undefined) throw new Error('Claude Agent SDK is not installed in this build');
+  return sdkModule;
+}
 
 export type {
   CanUseTool,
@@ -48,7 +69,8 @@ export interface ClaudeSdk {
 }
 
 export const realClaudeSdk: ClaudeSdk = {
-  query: (params) => query(params),
-  forkSession: (sessionId, options) => forkSession(sessionId, options),
-  sessionExists: async (sessionId, dir) => (await getSessionInfo(sessionId, { dir })) !== undefined,
+  query: (params) => loadedSdk().query(params),
+  forkSession: (sessionId, options) => loadedSdk().forkSession(sessionId, options),
+  sessionExists: async (sessionId, dir) =>
+    (await loadedSdk().getSessionInfo(sessionId, { dir })) !== undefined,
 };

@@ -52,7 +52,7 @@ export {
   PERMISSION_MODES,
   permissionResult,
 } from './permissions.js';
-export type { ClaudeSdk } from './sdk.js';
+export { type ClaudeSdk, claudeSdkInstalled } from './sdk.js';
 export { SIDE_BOUNDARY_NOTE } from './side.js';
 export { applyTaskTool, askUserAnswers, askUserQuestions, todoWriteItems } from './todos.js';
 export { claudeToolDisplay, isSubagentTool, normalizeToolName } from './tool-display.js';

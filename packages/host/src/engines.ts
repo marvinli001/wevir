@@ -7,16 +7,35 @@
 // 订阅的账号状态（host-process.ts）。
 
 import { AntigravityAdapter } from '@wevir/adapter-antigravity';
-import { ClaudeAdapter } from '@wevir/adapter-claude';
-import { CursorAdapter, isCursorShellSpawnFailure } from '@wevir/adapter-cursor';
+import { ClaudeAdapter, claudeSdkInstalled } from '@wevir/adapter-claude';
+import {
+  CursorAdapter,
+  cursorSdkInstalled,
+  isCursorShellSpawnFailure,
+} from '@wevir/adapter-cursor';
 import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import type { AdapterContext } from './cli.js';
 import type { EngineRoute } from './engine-router.js';
 
-/** 现在挂上的订阅引擎。 */
-export function subscriptionEngines(context: AdapterContext): EngineRoute[] {
-  return [
+/** 要连同 SDK 一起装的引擎：这个 Host 里有没有它们的 SDK。 */
+export interface EngineSdks {
+  claude: boolean;
+  cursor: boolean;
+}
+
+/**
+ * 现在挂上的订阅引擎。Claude Agent SDK 与 `@cursor/sdk` 不随安装包分发（ADR-0007 补记 3），没装时不挂那个引擎：Host 照常
+ * 启动，桌面端的订阅来源里它显示为还不能用（没有这种账号）。开发环境里两个 SDK 都经 pnpm 装上。
+ */
+export function subscriptionEngines(
+  context: AdapterContext,
+  sdks: EngineSdks = { claude: claudeSdkInstalled(), cursor: cursorSdkInstalled() },
+): EngineRoute[] {
+  for (const [engine, installed] of Object.entries(sdks)) {
+    if (!installed) context.logger.info('engine sdk not installed; engine disabled', { engine });
+  }
+  const routes: EngineRoute[] = [
     {
       // Claude Agent（claude-event-mapping.md）：用户自己装的 `claude` 与他的登录，经 Claude Agent SDK 驱动。
       name: 'claude',
@@ -73,6 +92,9 @@ export function subscriptionEngines(context: AdapterContext): EngineRoute[] {
       kinds: ['antigravity'],
     },
   ];
+  return routes.filter(
+    (route) => (route.name !== 'claude' || sdks.claude) && (route.name !== 'cursor' || sdks.cursor),
+  );
 }
 
 /**

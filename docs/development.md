@@ -162,7 +162,7 @@ pnpm --filter @wevir/desktop resources
 
 - `engines/codex/`：用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 取二进制并按 sha256 校验，连同 `apps/desktop/licenses/codex/` 里 Codex 的 `LICENSE` 与 `NOTICE`；Linux 另带 `codex-resources/bwrap`。
 - `prompts/`：仓库的 `prompts/`，不含 README.md。
-- `host/`：`pnpm --filter @wevir/host deploy --prod --ignore-scripts --config.node-linker=hoisted --os=<平台> --cpu=<架构>` 把 wevir-host 与它的生产依赖复制进来（工作区包按各自 `files` 复制，hoisted 布局没有符号链接；平台可选依赖如 `@cursor/sdk-<平台>` 按目标平台装）。然后从 Host 的依赖出发剪掉走不到的包：`vitest`（runtime-adapter 的可选 peer，pnpm 从工作区根的开发依赖解析到它）、`@deepseek-ai/dsh`（adapter-dsh 的开发依赖，ADR-0007 决策 6），以及只被它们用到的包；剪完检查没有这两个包、没有符号链接、留下的包没有安装脚本，不满足就报错。2026-10-16 在 macOS arm64 上是 24 个顶层包、85 MB，最大的是 `@cursor/sdk` 与它的平台包。
+- `host/`：`pnpm --filter @wevir/host deploy --prod --ignore-scripts --config.node-linker=hoisted --os=<平台> --cpu=<架构>` 把 wevir-host 与它的生产依赖复制进来（工作区包按各自 `files` 复制，hoisted 布局没有符号链接；平台可选依赖按目标平台装）。然后从 Host 的依赖出发剪掉走不到的包：`vitest`（runtime-adapter 的可选 peer，pnpm 从工作区根的开发依赖解析到它）、`@deepseek-ai/dsh`（adapter-dsh 的开发依赖，ADR-0007 决策 6）、`@anthropic-ai/claude-agent-sdk` 与 `@cursor/sdk`（不随应用分发，ADR-0007 补记 3；Host 没有它们时不挂 Claude 与 Cursor 引擎），以及只被它们用到的包；剪完检查没有这些包、没有符号链接、留下的包没有安装脚本，不满足就报错。2026-10-16 在 macOS arm64 上是 21 MB。
 
 打包时这个目录原样进入安装包的资源目录（`process.resourcesPath`）。安装包里的主进程用 Electron 自带的 Node 拉起 `<资源目录>/host/dist/main.js`（`host-lifecycle.ts` 的 `packagedHostEntry`），并设 `WEVIR_RESOURCES_DIR=<资源目录>`（环境里已有时不覆盖）。adapter-codex 找二进制的顺序是 `WEVIR_CODEX_BIN` → `<WEVIR_RESOURCES_DIR>/engines/codex/` → 开发缓存 `.wevir-dev/bin/`；提示词是 `<WEVIR_RESOURCES_DIR>/prompts/`（有 `base.md` 时）→ 仓库的 `prompts/`（`resolvePromptsDir`，wevir-host 交给 Codex 与会话标题）。开发时桌面端不设这个变量；要在开发构建上模拟安装后的布局，自己设上它并让开发缓存里没有二进制，例如：
 
@@ -194,7 +194,7 @@ pnpm --filter @wevir/desktop package
 
 **macOS 签名与公证**（ADR-0007 决策 2）：
 
-- 钥匙串里有 “Developer ID Application” 证书时 electron-builder 自动用它签名，开 Hardened Runtime，entitlements 在 `apps/desktop/build/entitlements.mac.plist`（只开 JIT）。包里的 `codex-app-server`、Host 依赖里的二进制与 `.node` 一起重签。CI 用 `CSC_LINK`（.p12 的 base64 或路径）与 `CSC_KEY_PASSWORD` 给证书。不签名：`CSC_IDENTITY_AUTO_DISCOVERY=false`。
+- 钥匙串里有 “Developer ID Application” 证书时 electron-builder 自动用它签名，开 Hardened Runtime，entitlements 在 `apps/desktop/build/entitlements.mac.plist`（只开 JIT）。包里的其余可执行文件（`codex-app-server` 等）一起重签。CI 用 `CSC_LINK`（.p12 的 base64 或路径）与 `CSC_KEY_PASSWORD` 给证书。不签名：`CSC_IDENTITY_AUTO_DISCOVERY=false`。
 - 公证：先把凭据存进钥匙串（一次即可，App 专用密码在 account.apple.com 生成，命令会提示输入）：
 
   ```bash

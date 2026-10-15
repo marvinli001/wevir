@@ -11,10 +11,11 @@
  *   resources/engines/codex/LICENSE、NOTICE          Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）
  *   resources/host/                                  wevir-host（dist/main.js）与它的生产依赖：pnpm deploy 的 hoisted
- *                                                    布局（没有符号链接），桌面端用 Electron 自带的 Node 运行
+ *                                                    布局（没有符号链接），不含 EXCLUDED_PACKAGES；桌面端用 Electron
+ *                                                    自带的 Node 运行
  *
  * `--target` 默认是本机平台；打别的平台的安装包时给出那个平台的三元组（fetch-codex.sh 的列表），Host 的平台可选依赖
- * （例如 @cursor/sdk-<平台>）也按它装。`WEVIR_GITHUB_MIRROR` 同 fetch-codex.sh。
+ * 也按它装。`WEVIR_GITHUB_MIRROR` 同 fetch-codex.sh。
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -74,9 +75,16 @@ export function nodePlatform(target: string): { os: NodeJS.Platform; cpu: string
  * - `vitest`：`@wevir/runtime-adapter` 的可选 peer（只有 `./contract` 的契约测试用），pnpm 从工作区根的开发依赖解析到它，
  *   deploy 便带上了它和 Vite 那一串；
  * - `@deepseek-ai/dsh`：adapter-dsh 的开发依赖（ADR-0007 决策 6：可选组件推迟期间，dsh 只在开发环境经 pnpm 安装），
- *   这里再拦一次。
+ *   这里再拦一次；
+ * - `@anthropic-ai/claude-agent-sdk`、`@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007
+ *   补记 3）。没有它们时 Host 不挂 Claude 与 Cursor 引擎（host 的 engines.ts）。
  */
-export const EXCLUDED_PACKAGES: readonly string[] = ['vitest', '@deepseek-ai/dsh'];
+export const EXCLUDED_PACKAGES: readonly string[] = [
+  'vitest',
+  '@deepseek-ai/dsh',
+  '@anthropic-ai/claude-agent-sdk',
+  '@cursor/sdk',
+];
 
 interface Manifest {
   name?: string;
@@ -246,7 +254,7 @@ function stageHost(dir: string, target: string): void {
   const removed = pruneDependencies(dir, EXCLUDED_PACKAGES);
   checkHostTree(dir, EXCLUDED_PACKAGES);
   console.log(
-    `resources/host：去掉了 ${removed.length} 个只被 ${EXCLUDED_PACKAGES.join('、')} 用到的包`,
+    `resources/host：去掉了 ${removed.length} 个包（${EXCLUDED_PACKAGES.join('、')} 与只被它们用到的）`,
   );
 }
 
