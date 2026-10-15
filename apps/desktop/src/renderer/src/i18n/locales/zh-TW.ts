@@ -887,6 +887,7 @@ export const messages: Messages = {
   'provider.form.modelId': '模型 ID',
   'provider.form.contextWindow': '上下文長度（token）',
   'provider.form.contextWindowPlaceholder': '選填',
+  'provider.form.images': '圖片輸入',
   'provider.form.default': '預設',
   'provider.form.addModel': '新增模型',
   'provider.form.removeModel': '刪除模型 {id}',

@@ -892,6 +892,7 @@ export const messages: Messages = {
   'provider.form.modelId': '모델 ID',
   'provider.form.contextWindow': '컨텍스트 길이 (토큰)',
   'provider.form.contextWindowPlaceholder': '선택 사항',
+  'provider.form.images': '이미지 입력',
   'provider.form.default': '기본값',
   'provider.form.addModel': '모델 추가',
   'provider.form.removeModel': '모델 {id} 삭제',

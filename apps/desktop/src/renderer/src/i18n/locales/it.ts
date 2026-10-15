@@ -914,6 +914,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'ID modello',
   'provider.form.contextWindow': 'Lunghezza del contesto (token)',
   'provider.form.contextWindowPlaceholder': 'Facoltativo',
+  'provider.form.images': 'Input immagini',
   'provider.form.default': 'Predefinito',
   'provider.form.addModel': 'Aggiungi modello',
   'provider.form.removeModel': 'Rimuovi modello {id}',

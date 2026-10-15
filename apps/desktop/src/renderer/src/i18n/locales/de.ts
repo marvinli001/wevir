@@ -907,6 +907,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'Modell-ID',
   'provider.form.contextWindow': 'Kontextlänge (Tokens)',
   'provider.form.contextWindowPlaceholder': 'Optional',
+  'provider.form.images': 'Bildeingabe',
   'provider.form.default': 'Standard',
   'provider.form.addModel': 'Modell hinzufügen',
   'provider.form.removeModel': 'Modell {id} entfernen',

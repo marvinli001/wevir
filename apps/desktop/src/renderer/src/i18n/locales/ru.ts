@@ -921,6 +921,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'ID модели',
   'provider.form.contextWindow': 'Размер контекста (токены)',
   'provider.form.contextWindowPlaceholder': 'Необязательно',
+  'provider.form.images': 'Ввод изображений',
   'provider.form.default': 'По умолчанию',
   'provider.form.addModel': 'Добавить модель',
   'provider.form.removeModel': 'Удалить модель {id}',

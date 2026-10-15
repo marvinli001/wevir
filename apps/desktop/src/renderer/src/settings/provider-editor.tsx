@@ -327,7 +327,7 @@ function FormField({
   );
 }
 
-/** OpenAI 兼容 Provider 的模型列表：每行模型 ID 与上下文长度，单选默认模型。 */
+/** OpenAI 兼容 Provider 的模型列表：每行模型 ID、上下文长度与图片输入，单选默认模型。 */
 function ModelsField({
   form,
   errors,
@@ -357,10 +357,11 @@ function ModelsField({
   return (
     <fieldset className="space-y-1.5">
       <legend className="mb-1.5 text-sm font-medium">{t('provider.form.models')}</legend>
-      <div className="grid grid-cols-[auto_1fr_10rem_auto] items-center gap-x-2 gap-y-1.5">
+      <div className="grid grid-cols-[auto_1fr_10rem_auto_auto] items-center gap-x-2 gap-y-1.5">
         <span className="text-xs text-muted-foreground">{t('provider.form.default')}</span>
         <span className="text-xs text-muted-foreground">{t('provider.form.modelId')}</span>
         <span className="text-xs text-muted-foreground">{t('provider.form.contextWindow')}</span>
+        <span className="text-xs text-muted-foreground">{t('provider.form.images')}</span>
         <span />
         {form.models.map((row, index) => {
           const idError = errors[`models.${index}.id`];
@@ -398,6 +399,14 @@ function ModelsField({
                 />
                 {contextError && <p className="mt-1 text-sm text-destructive">{contextError}</p>}
               </div>
+              <input
+                type="checkbox"
+                className="mx-auto size-4 accent-primary"
+                checked={row.images}
+                onChange={(event) => setRow(index, { images: event.target.checked })}
+                aria-label={t('provider.form.images')}
+                data-model-images={index}
+              />
               <IconButton
                 label={t('provider.form.removeModel', { id: row.id })}
                 disabled={form.models.length <= 1}

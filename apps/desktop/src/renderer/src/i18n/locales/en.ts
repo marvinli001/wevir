@@ -900,6 +900,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'Model ID',
   'provider.form.contextWindow': 'Context window (tokens)',
   'provider.form.contextWindowPlaceholder': 'Optional',
+  'provider.form.images': 'Image input',
   'provider.form.default': 'Default',
   'provider.form.addModel': 'Add model',
   'provider.form.removeModel': 'Remove model {id}',

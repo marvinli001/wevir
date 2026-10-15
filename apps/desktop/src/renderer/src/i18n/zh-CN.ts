@@ -900,6 +900,7 @@ export const zhCN = {
   'provider.form.modelId': '模型 ID',
   'provider.form.contextWindow': '上下文长度（token）',
   'provider.form.contextWindowPlaceholder': '可选',
+  'provider.form.images': '图片输入',
   'provider.form.default': '默认',
   'provider.form.addModel': '添加模型',
   'provider.form.removeModel': '删除模型 {id}',

@@ -28,7 +28,9 @@ export interface ModelRow {
   id: string;
   /** 上下文长度（token）的输入框原文，可以留空。 */
   contextWindow: string;
-  /** 编辑已有 Provider 或模板带来的原模型：保存时保留表单不编辑的字段（图片、推理档位、最大输出等）。 */
+  /** 收图片输入（`supportsImages`）：Codex 只给标了的模型开图片输入。 */
+  images: boolean;
+  /** 编辑已有 Provider 或模板带来的原模型：保存时保留表单不编辑的字段（推理档位、最大输出等）。 */
   base?: ProviderModel;
 }
 
@@ -85,6 +87,7 @@ export function modelRow(model?: ProviderModel): ModelRow {
     key: `row-${rowSeq}`,
     id: model?.id ?? '',
     contextWindow: model?.contextWindow?.toString() ?? '',
+    images: model?.supportsImages === true,
     ...(model && { base: model }),
   };
 }
@@ -286,11 +289,22 @@ export function toUpsertParams(
   }
   const models = form.models.map((row): ProviderModel => {
     const id = row.id.trim();
-    // 改了模型 ID 就是另一个模型，原模型的图片、推理档位等设置不再沿用。
-    const { contextWindow: _previous, ...rest } = row.base?.id === id ? row.base : { id };
+    // 改了模型 ID 就是另一个模型，原模型的推理档位等设置不再沿用；图片输入按勾选。
+    const {
+      contextWindow: _previous,
+      supportsImages: marked,
+      ...rest
+    } = row.base?.id === id ? row.base : { id };
     const contextWindow =
       row.contextWindow.trim() === '' ? undefined : parseContextWindow(row.contextWindow);
-    return { ...rest, id, ...(contextWindow !== undefined && { contextWindow }) };
+    // 没勾选时，原模型标过的写 false，没标过的照旧不写。
+    const supportsImages = row.images ? true : marked !== undefined ? false : undefined;
+    return {
+      ...rest,
+      id,
+      ...(contextWindow !== undefined && { contextWindow }),
+      ...(supportsImages !== undefined && { supportsImages }),
+    };
   });
   if (form.kind === 'google-vertex')
     return {

@@ -903,6 +903,7 @@ export const messages: Messages = {
   'provider.form.modelId': 'モデル ID',
   'provider.form.contextWindow': 'コンテキスト長 (トークン)',
   'provider.form.contextWindowPlaceholder': '任意',
+  'provider.form.images': '画像入力',
   'provider.form.default': 'デフォルト',
   'provider.form.addModel': 'モデルを追加',
   'provider.form.removeModel': 'モデル {id} を削除',

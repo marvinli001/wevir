@@ -385,7 +385,64 @@ describe('编辑已有 Provider', () => {
     expect(
       toUpsertParams({ ...form, models: [{ ...row, id: 'kimi-latest', contextWindow: '' }] })
         .models,
+    ).toEqual([{ id: 'kimi-latest', supportsImages: true }]);
+    expect(
+      toUpsertParams({
+        ...form,
+        models: [{ ...row, id: 'kimi-latest', contextWindow: '', images: false }],
+      }).models,
     ).toEqual([{ id: 'kimi-latest' }]);
+  });
+
+  it('图片输入：勾选写 supportsImages: true，取消时原模型标过的写 false、没标过的不写', () => {
+    const form = editForm(
+      profile({
+        models: [
+          { id: 'vision', supportsImages: true, reasoningEfforts: ['low', 'high'] },
+          { id: 'text', supportsImages: false },
+          { id: 'plain' },
+        ],
+        defaultModelId: 'vision',
+      }),
+    );
+    expect(form.models.map((row) => row.images)).toEqual([true, false, false]);
+    // 原样保存：标记与表单不编辑的字段都保留。
+    expect(toUpsertParams(form).models).toEqual([
+      { id: 'vision', supportsImages: true, reasoningEfforts: ['low', 'high'] },
+      { id: 'text', supportsImages: false },
+      { id: 'plain' },
+    ]);
+    const toggled = form.models.map((row) => ({ ...row, images: !row.images }));
+    const params = toUpsertParams({ ...form, models: toggled });
+    expect(params.models).toEqual([
+      { id: 'vision', supportsImages: false, reasoningEfforts: ['low', 'high'] },
+      { id: 'text', supportsImages: true },
+      { id: 'plain', supportsImages: true },
+    ]);
+    expect(upsertSchema.safeParse(params).success).toBe(true);
+  });
+
+  it('手填的新模型默认不收图片，勾选后带上标记', () => {
+    const form = newOpenAIForm(undefined, []);
+    const [row] = form.models;
+    if (!row) throw new Error('缺少模型行');
+    expect(row.images).toBe(false);
+    const filled = {
+      ...form,
+      id: 'gateway',
+      displayName: 'Gateway',
+      baseURL: 'https://gateway.example.com/v1',
+      models: [
+        { ...row, id: 'gpt-vision' },
+        { ...modelRow(), id: 'gpt-text' },
+      ],
+    };
+    expect(toUpsertParams(filled).models).toEqual([{ id: 'gpt-vision' }, { id: 'gpt-text' }]);
+    const [vision, text] = filled.models;
+    if (!vision || !text) throw new Error('缺少模型行');
+    expect(
+      toUpsertParams({ ...filled, models: [{ ...vision, images: true }, text] }).models,
+    ).toEqual([{ id: 'gpt-vision', supportsImages: true }, { id: 'gpt-text' }]);
   });
 
   it('默认模型跟着选中的那一行', () => {
