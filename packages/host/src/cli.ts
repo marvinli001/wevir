@@ -1,8 +1,11 @@
 import { parseArgs } from 'node:util';
 import { CodexRuntime, resolveCodexBinary } from '@wevir/adapter-codex';
 import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
+import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
-import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
+import { EngineRouter } from './engine-router.js';
+import { subscriptionEngines } from './engines.js';
 import { EXIT_CODE } from './exit-code.js';
 import { homePath, resolveHome } from './home.js';
 import {
@@ -112,12 +115,45 @@ export interface AdapterContext {
   home: string;
   /** Host 的日志；适配器的告警（旁路失效、映射不了的更新等）与网关的请求日志写进来。 */
   logger: Logger;
+  /** Host 进程的环境变量（`WEVIR_ECHO_SUBSCRIPTIONS` 等）；省略时当作空。 */
+  env?: NodeJS.ProcessEnv;
+}
+
+/** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex、dsh 或 echo）。 */
+const GATEWAY_KINDS = ['deepseek-official', 'openai-compatible', 'chatgpt'] as const;
+
+/**
+ * 开发用：echo 引擎挂上假的订阅账号（`WEVIR_ECHO_SUBSCRIPTIONS`，见 runtime-adapter 的 echo-accounts.ts），订阅来源的会话也由
+ * echo 回答。
+ */
+class EchoSubscriptionEngine extends EchoAdapter {
+  readonly accounts: EchoAccounts;
+
+  constructor(scenarios: string | undefined) {
+    super();
+    this.accounts = new EchoAccounts({ scenarios: parseEchoScenarios(scenarios) });
+  }
+
+  override async dispose(): Promise<void> {
+    this.accounts.dispose();
+    await super.dispose();
+  }
 }
 
 export function createAdapter(kind: AdapterKind, context: AdapterContext): AgentRuntimeAdapter {
   switch (kind) {
-    case 'echo':
-      return new EchoAdapter();
+    case 'echo': {
+      const scenarios = context.env?.WEVIR_ECHO_SUBSCRIPTIONS;
+      if (scenarios === undefined || scenarios === '') return new EchoAdapter();
+      return new EngineRouter([
+        { name: 'echo', adapter: new EchoAdapter(), kinds: GATEWAY_KINDS },
+        {
+          name: 'echo-subscriptions',
+          adapter: new EchoSubscriptionEngine(scenarios),
+          kinds: SUBSCRIPTION_KINDS,
+        },
+      ]);
+    }
     case 'dsh':
       // dsh 进程在第一个会话时才启动（Provider 只写 overlay）。可执行入口在这里就解析：依赖没装好或版本不对时
       // Host 直接启动失败，而不是等到建会话才报错。增量旁路默认开启（T3.2a）。
@@ -127,16 +163,24 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         clientInfo: { name: 'wevir', version: HOST_VERSION },
         logger: context.logger,
       });
-    case 'codex':
+    case 'codex': {
       // 两个 codex-app-server 进程（网关进程与 ChatGPT 进程，ADR-0005 补记 10）都在第一次用到时才启动（Provider 只交给
       // 网关与下一次启动的配置）。二进制在这里就解析：没下载时 Host 直接启动失败并给出下载命令，而不是等到建会话才报错；
       // 版本在第一次启动前核对。网关令牌经 logger.addSecret 从日志里抹掉。
-      return new CodexRuntime({
+      const codex = new CodexRuntime({
         home: context.home,
         binary: resolveCodexBinary(),
         clientInfo: { name: 'wevir', version: HOST_VERSION },
         logger: context.logger,
       });
+      // 订阅来源各自的引擎（ADR-0005 补记 14）；没有时 Host 只有 Codex。
+      const subscriptions = subscriptionEngines(context);
+      if (subscriptions.length === 0) return codex;
+      return new EngineRouter([
+        { name: 'codex', adapter: codex, kinds: GATEWAY_KINDS },
+        ...subscriptions,
+      ]);
+    }
   }
 }
 
@@ -211,7 +255,11 @@ export async function runHostCli(
 
   let adapter: AgentRuntimeAdapter;
   try {
-    adapter = (overrides.createAdapter ?? createAdapter)(options.adapter, { home, logger });
+    adapter = (overrides.createAdapter ?? createAdapter)(options.adapter, {
+      home,
+      logger,
+      env: proc.env,
+    });
   } catch (error) {
     logger.error('failed to create adapter', { adapter: options.adapter, error });
     logger.close();

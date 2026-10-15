@@ -10,10 +10,13 @@ import type { ClientCapability, HostFeature, HostFeatures } from '@wevir/protoco
  *   不按来源分支，照常显示标题。
  * - `provider_kind_chatgpt`（0.7.0）：`ProviderKind` 的 `chatgpt`。CLI 的 `provider list` 与桌面端的 Provider 列表
  *   按 kind 分支的地方都处理了它（没有 Key、没有地址，桌面端在“ChatGPT 账号”一节里显示）。
+ * - `subscription_kinds`（0.19.0）：`ProviderKind` 与 `AccountKind` 的订阅来源。CLI 的 `provider list` 写“订阅登录”，桌面端的
+ *   表单只管 DeepSeek 官方与 OpenAI 兼容，订阅来源在设置的订阅一节与模型选择里按种类显示。
  */
 export const DEFAULT_CLIENT_CAPABILITIES = {
   title_source_generated: true,
   provider_kind_chatgpt: true,
+  subscription_kinds: true,
 } as const satisfies Record<ClientCapability, true>;
 
 /** Host 是否声明了这项功能（host-api.md §10：客户端只在一处判断，功能内部不写降级路径）。 */

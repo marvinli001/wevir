@@ -241,16 +241,29 @@ export interface AgentRuntimeAdapter {
 export interface EngineAccounts {
   /** 支持的账号种类。 */
   readonly kinds: readonly AccountKind[];
-  /** 读状态；已登录时尽力附带用量。 */
-  read(kind: AccountKind): Promise<AccountState>;
+  /**
+   * 读状态；已登录时尽力附带用量。`refresh`（0.19.0）：重新找可执行文件、重读登录状态；不带时可以用最近一次的结果
+   * （订阅来源的检测可能要起进程，引擎自己决定缓存多久）。
+   */
+  read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState>;
   /** 开始登录，返回 `signing_in` 的状态（带 `login`）；已有进行中的登录时替换它。 */
   login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState>;
   /** 取消进行中的登录；`loginId` 不是当前的时什么都不做。返回取消之后的状态。 */
   cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState>;
   /** 登出，没登录时同样成功。 */
   logout(kind: AccountKind): Promise<AccountState>;
-  /** 账号能用的模型（Host 用它填 `chatgpt` Provider 的模型列表）。 */
+  /** 账号能用的模型（Host 用它填 `chatgpt` 与订阅来源的 Provider 的模型列表）。 */
   models(kind: AccountKind): Promise<AccountModels>;
+  /**
+   * 指定这类订阅的引擎用的可执行文件（0.19.0，`account.setPath`），`null` 回到自动查找；返回重新检测后的状态。Host 启动时
+   * 也用它把记下的路径交给引擎。不实现表示不能指定。
+   */
+  setExecutablePath?(kind: AccountKind, path: string | null): Promise<AccountState>;
+  /**
+   * 下载安装这类订阅的引擎（0.19.0，`account.install`，状态带 `canInstall` 的种类）：立即返回带 `installing` 的状态，进度、
+   * 完成与失败经 `onChange` 报告；已在安装时返回当前状态。不实现表示不能安装。
+   */
+  install?(kind: AccountKind): Promise<AccountState>;
   /**
    * 状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化）时调用，带完整的状态。返回退订函数。监听器里抛错不影响别的
    * 监听器。

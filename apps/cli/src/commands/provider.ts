@@ -27,8 +27,8 @@ const DEEPSEEK_ID = 'deepseek-official';
 const RESERVED_IDS = new Set([DEEPSEEK_ID, 'deepseek-account']);
 const APIS: readonly ProviderApi[] = ['openai-completions', 'openai-responses'];
 
-/** `provider add` 管的两种；ChatGPT 用 `provider login`。 */
-type Kind = Exclude<ProviderProfile['kind'], 'chatgpt'>;
+/** `provider add` 管的两种；ChatGPT 用 `provider login`，订阅来源（0.19.0）由 Host 按账号建。 */
+type Kind = Extract<ProviderProfile['kind'], 'deepseek-official' | 'openai-compatible'>;
 
 function parseKind(value: string): Kind | undefined {
   if (value === 'deepseek-official' || value === 'deepseek') return 'deepseek-official';
@@ -255,14 +255,16 @@ export async function providerList(ctx: Context): Promise<number> {
       providers.map((p) =>
         p.kind === 'chatgpt'
           ? [p.id, p.displayName, p.kind, p.defaultModelId, 'ChatGPT 登录', '（ChatGPT）']
-          : [
-              p.id,
-              p.displayName,
-              p.kind,
-              p.defaultModelId,
-              p.hasSecret ? '已设置' : '未设置',
-              p.baseURL ?? '（官方默认）',
-            ],
+          : p.kind !== 'deepseek-official' && p.kind !== 'openai-compatible'
+            ? [p.id, p.displayName, p.kind, p.defaultModelId, '订阅登录', `（${p.displayName}）`]
+            : [
+                p.id,
+                p.displayName,
+                p.kind,
+                p.defaultModelId,
+                p.hasSecret ? '已设置' : '未设置',
+                p.baseURL ?? '（官方默认）',
+              ],
       ),
     ),
   );

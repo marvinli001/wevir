@@ -17,6 +17,8 @@ export interface ProviderProfileRecord {
   models: unknown;
   defaultModelId: string;
   secretRef?: string;
+  /** 停用（0007，协议 0.19.0 的 `provider.setEnabled`）；省略表示启用。 */
+  enabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,16 +38,16 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
   const insert = db.prepare(`
     INSERT INTO provider_profiles (
       id, kind, display_name, api, base_url, compat, models, default_model_id, secret_ref,
-      created_at, updated_at
+      enabled, created_at, updated_at
     ) VALUES (
       :id, :kind, :displayName, :api, :baseURL, :compat, :models, :defaultModelId, :secretRef,
-      :createdAt, :updatedAt
+      :enabled, :createdAt, :updatedAt
     )`);
   const update = db.prepare(`
     UPDATE provider_profiles SET
       display_name = :displayName, api = :api, base_url = :baseURL, compat = :compat,
       models = :models, default_model_id = :defaultModelId, secret_ref = :secretRef,
-      updated_at = :updatedAt
+      enabled = :enabled, updated_at = :updatedAt
     WHERE id = :id`);
   const get = db.prepare('SELECT * FROM provider_profiles WHERE id = ?');
   const list = db.prepare('SELECT * FROM provider_profiles ORDER BY created_at, id');
@@ -61,6 +63,7 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
       models: toJson(record.models),
       defaultModelId: record.defaultModelId,
       secretRef: record.secretRef ?? null,
+      enabled: record.enabled === false ? 0 : 1,
       updatedAt: record.updatedAt,
     };
   }
@@ -97,5 +100,6 @@ function fromRow(row: SqlRow): ProviderProfileRecord {
   if (compat !== undefined) record.compat = compat;
   const secretRef = optionalText(row, 'secret_ref');
   if (secretRef !== undefined) record.secretRef = secretRef;
+  if (row.enabled === 0 || row.enabled === 0n) record.enabled = false;
   return record;
 }

@@ -129,7 +129,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const serialProvider = options.providerLock ?? createProviderLock();
   const requireAccounts = (): HostAccounts => {
     if (accounts === undefined) {
-      const message = 'this host engine has no ChatGPT account (use the Codex engine)';
+      const message = 'this host has no engine with accounts (use the Codex engine)';
       throw new HostError('ENGINE_ERROR', message, { category: 'unknown', message });
     }
     return accounts;
@@ -165,6 +165,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
       };
+      if (existing?.enabled === false) record.enabled = false;
       if (existing) storage.providers.update(record);
       else storage.providers.insert(record);
       await applyProviders();
@@ -336,6 +337,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           if (params.compat !== undefined) record.compat = params.compat;
         }
         if (secretRef !== undefined) record.secretRef = secretRef;
+        if (existing?.enabled === false) record.enabled = false;
         if (existing) storage.providers.update(record);
         else storage.providers.insert(record);
         await applyProviders();
@@ -383,7 +385,32 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return bridge.testProvider(config, modelId ?? provider.defaultModelId);
     },
 
-    'account.get': async ({ kind }) => ({ account: await requireAccounts().read(kind) }),
+    'provider.setEnabled': ({ providerId, enabled }) =>
+      serialProvider(async () => {
+        const provider = storage.providers.get(providerId);
+        if (!provider) {
+          throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
+        }
+        const { enabled: _was, ...rest } = provider;
+        const record: ProviderProfileRecord = enabled ? rest : { ...rest, enabled: false };
+        if ((provider.enabled !== false) !== enabled) {
+          record.updatedAt = isoNow();
+          storage.providers.update(record);
+        }
+        return { provider: toProviderProfile(record) };
+      }),
+
+    'account.list': async () => ({ accounts: await requireAccounts().list() }),
+
+    'account.get': async ({ kind, refresh }) => ({
+      account: await requireAccounts().read(kind, refresh === true ? { refresh } : undefined),
+    }),
+
+    'account.setPath': async ({ kind, path }) => ({
+      account: await requireAccounts().setPath(kind, path),
+    }),
+
+    'account.install': async ({ kind }) => ({ account: await requireAccounts().install(kind) }),
 
     'account.login': async ({ kind, method }) => ({
       account: await requireAccounts().login(kind, method),
@@ -528,6 +555,7 @@ function toProviderProfile(record: ProviderProfileRecord): ProviderProfile {
     ...(record.api !== undefined && { api: record.api }),
     ...(record.baseURL !== undefined && { baseURL: record.baseURL }),
     ...(record.compat !== undefined && { compat: record.compat }),
+    ...(record.enabled === false && { enabled: false }),
   };
   // 记录里的枚举与 JSON 列是 string / unknown；形状由写入时的参数校验保证，发出前再按注册表校验。
   return profile as ProviderProfile;

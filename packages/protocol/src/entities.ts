@@ -35,8 +35,20 @@ export type Workspace = z.infer<typeof WorkspaceSchema>;
  * `chatgpt`（0.7.0，R6）：用 ChatGPT 订阅登录的 Codex，没有 Key、没有地址，模型列表来自引擎（Codex 的 `model/list`）。
  * 给已有枚举加的值，按能力位 `provider_kind_chatgpt` 门控：没有声明它的连接在 `provider.list` 里看不到这类 Provider
  * （host-api.md §10）。
+ * 订阅来源（0.19.0）：`claude`（Claude Agent，用用户本机 `claude auth login` 的登录）、`cursor`、`opencode`、`grok`、
+ * `antigravity`，各自由对应的引擎运行（ADR-0005 补记 14），同样没有 Key 与地址，模型来自引擎，ID 固定等于种类。按能力位
+ * `subscription_kinds` 门控，规则同 `chatgpt`。
  */
-export const ProviderKindSchema = z.enum(['deepseek-official', 'openai-compatible', 'chatgpt']);
+export const SUBSCRIPTION_KINDS = ['claude', 'cursor', 'opencode', 'grok', 'antigravity'] as const;
+export const SubscriptionKindSchema = z.enum(SUBSCRIPTION_KINDS);
+export type SubscriptionKind = z.infer<typeof SubscriptionKindSchema>;
+
+export const ProviderKindSchema = z.enum([
+  'deepseek-official',
+  'openai-compatible',
+  'chatgpt',
+  ...SUBSCRIPTION_KINDS,
+]);
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
 export const ProviderApiSchema = z.enum([
@@ -126,6 +138,11 @@ export const ProviderProfileSchema = z.object({
   models: z.array(ProviderModelSchema),
   defaultModelId: z.string().min(1),
   hasSecret: z.boolean(),
+  /**
+   * 是否启用（0.19.0，Host 功能 `provider_enabled`，`provider.setEnabled`）：停用的 Provider 不出现在模型选择里，已有会话照常
+   * 能用。省略表示启用。
+   */
+  enabled: z.boolean().optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
 });
@@ -134,10 +151,12 @@ export type ProviderProfile = z.infer<typeof ProviderProfileSchema>;
 // ── 账号（0.7.0，R6） ──────────────────────────────────────────────────
 
 /**
- * 引擎自己的订阅登录（ADR-0005 决策 4）。目前只有 ChatGPT：Codex 的 `account/*`，凭据由 Codex 存在 Wevir 专属的
- * 目录里，Host 与客户端都拿不到令牌（domain-model §3.6）。以后加别的种类要按能力位门控。
+ * 引擎自己的订阅登录（ADR-0005 决策 4）：`chatgpt` 是 Codex 的 `account/*`（0.7.0），凭据由 Codex 存在 Wevir 专属的
+ * 目录里。订阅来源（0.19.0，ADR-0005 补记 14）是 `SUBSCRIPTION_KINDS`，每种由对应的引擎读状态、登录：有的在应用里登录
+ * （`signIn: in_app`），有的用用户自己在终端里的登录（`signIn: command`）。Host 与客户端都拿不到令牌（domain-model §3.6）。
+ * 订阅来源按能力位 `subscription_kinds` 门控。
  */
-export const AccountKindSchema = z.enum(['chatgpt']);
+export const AccountKindSchema = z.enum(['chatgpt', ...SUBSCRIPTION_KINDS]);
 export type AccountKind = z.infer<typeof AccountKindSchema>;
 
 /** `browser`：在浏览器里打开 `authUrl`，回调落在本机；`device_code`：在任意设备上打开 `verificationUrl` 输入 `userCode`。 */
@@ -189,6 +208,39 @@ export const AccountStateSchema = z.object({
     .object({
       primary: AccountRateLimitWindowSchema.optional(),
       secondary: AccountRateLimitWindowSchema.optional(),
+    })
+    .optional(),
+  // 以下是订阅来源（0.19.0）的字段，`chatgpt` 只用到 `planLabel`、`signIn`、`loginMethods`。
+  /** 套餐给人看的说法（如 `Max 20x`），引擎认得时给；没有时界面按 `plan` 显示。 */
+  planLabel: z.string().min(1).optional(),
+  /**
+   * 怎样登录：`in_app` 用 `account.login`（方式见 `loginMethods`）；`command` 由用户在终端里运行 `loginCommand`，之后
+   * `account.get` 带 `refresh` 重新检测。
+   */
+  signIn: z.enum(['in_app', 'command']).optional(),
+  /** `in_app` 支持的登录方式。 */
+  loginMethods: z.array(AccountLoginMethodSchema).optional(),
+  /** `command`：要在终端里运行的登录命令，如 `claude auth login`。 */
+  loginCommand: z.string().min(1).optional(),
+  /** 引擎的运行体（CLI 或下载的程序）找不找得到；false 时登录字段没有意义，界面给安装方法。省略：随包，总是在。 */
+  installed: z.boolean().optional(),
+  /** 运行体的版本。 */
+  version: z.string().min(1).optional(),
+  /** 实际用的可执行文件。 */
+  executablePath: z.string().min(1).optional(),
+  /** 用户用 `account.setPath` 指定的可执行文件，没指定时省略。 */
+  customPath: z.string().min(1).optional(),
+  /** 用户自己安装的命令（如 `npm install -g @anthropic-ai/claude-code`）。 */
+  installCommand: z.string().min(1).optional(),
+  /** 安装说明的网页。 */
+  installUrl: HttpUrlSchema.optional(),
+  /** Wevir 能替用户下载安装（`account.install`），如 Antigravity。 */
+  canInstall: z.boolean().optional(),
+  /** 正在下载安装；`totalBytes` 不知道时省略。失败时这一项去掉，原因在 `lastError`。 */
+  installing: z
+    .object({
+      completedBytes: z.int().min(0),
+      totalBytes: z.int().min(0).optional(),
     })
     .optional(),
 });

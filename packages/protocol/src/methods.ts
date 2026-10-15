@@ -288,6 +288,23 @@ export const AccountKindParamsSchema = z.object({
   kind: AccountKindSchema,
 });
 
+/** `account.get`（0.19.0 起可带 `refresh`）。 */
+export const AccountGetParamsSchema = AccountKindParamsSchema.extend({
+  /** 重新检测（重新找可执行文件、重读登录状态），用户在终端里登录之后用；省略时引擎可以用最近一次的结果。 */
+  refresh: z.boolean().optional(),
+});
+
+/** `account.list`（0.19.0，Host 功能 `subscription_sources`）：Host 的引擎支持的全部账号种类，各自的状态。 */
+export const AccountListResultSchema = z.object({
+  accounts: z.array(AccountStateSchema),
+});
+
+/** `account.setPath`（0.19.0）：用这个可执行文件运行这类订阅的引擎；`null` 清掉，回到自动查找。 */
+export const AccountSetPathParamsSchema = z.object({
+  kind: AccountKindSchema,
+  path: z.string().min(1).nullable(),
+});
+
 export const AccountLoginParamsSchema = z.object({
   kind: AccountKindSchema,
   method: AccountLoginMethodSchema,
@@ -306,6 +323,17 @@ export const AccountResultSchema = z.object({
 /** `account.updated` 通知：账号状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化），带完整的状态。 */
 export const AccountUpdatedParamsSchema = z.object({
   account: AccountStateSchema,
+});
+
+// ── provider.setEnabled（0.19.0） ──────────────────────────────────────
+
+export const ProviderSetEnabledParamsSchema = z.object({
+  providerId: ProviderIdSchema,
+  enabled: z.boolean(),
+});
+
+export const ProviderResultSchema = z.object({
+  provider: ProviderProfileSchema,
 });
 
 // ── session.* ─────────────────────────────────────────────────────────
@@ -563,8 +591,19 @@ export const MethodSchemas = {
     permission: 'provider.write',
   },
 
+  'provider.setEnabled': {
+    params: ProviderSetEnabledParamsSchema,
+    result: ProviderResultSchema,
+    permission: 'provider.write',
+  },
+
+  'account.list': {
+    params: EmptySchema,
+    result: AccountListResultSchema,
+    permission: 'provider.read',
+  },
   'account.get': {
-    params: AccountKindParamsSchema,
+    params: AccountGetParamsSchema,
     result: AccountResultSchema,
     permission: 'provider.read',
   },
@@ -579,6 +618,16 @@ export const MethodSchemas = {
     permission: 'provider.write',
   },
   'account.logout': {
+    params: AccountKindParamsSchema,
+    result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+  'account.setPath': {
+    params: AccountSetPathParamsSchema,
+    result: AccountResultSchema,
+    permission: 'host.manage',
+  },
+  'account.install': {
     params: AccountKindParamsSchema,
     result: AccountResultSchema,
     permission: 'provider.write',

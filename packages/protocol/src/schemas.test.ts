@@ -85,6 +85,7 @@ import {
   SubagentStatusSchema,
   SubagentSummarySchema,
   SubscriptionIdSchema,
+  SubscriptionKindSchema,
   SuggestedTaskSchema,
   TaskIdSchema,
   TitleSourceSchema,
@@ -251,8 +252,8 @@ const standaloneCases: Case[] = [
   {
     name: 'ProviderKind',
     schema: ProviderKindSchema,
-    valid: ['openai-compatible'],
-    invalid: ['anthropic'],
+    valid: ['openai-compatible', 'chatgpt', 'claude', 'cursor', 'opencode', 'grok', 'antigravity'],
+    invalid: ['anthropic', 'gemini'],
   },
   {
     name: 'ProviderApi',
@@ -475,7 +476,18 @@ const standaloneCases: Case[] = [
     invalid: [{ ...subagentSummary, modelId: '' }],
   },
   // 账号（0.7.0）
-  { name: 'AccountKind', schema: AccountKindSchema, valid: ['chatgpt'], invalid: ['ChatGPT'] },
+  {
+    name: 'AccountKind',
+    schema: AccountKindSchema,
+    valid: ['chatgpt', 'claude', 'antigravity'],
+    invalid: ['ChatGPT', 'gemini'],
+  },
+  {
+    name: 'SubscriptionKind',
+    schema: SubscriptionKindSchema,
+    valid: ['claude', 'cursor', 'opencode', 'grok', 'antigravity'],
+    invalid: ['chatgpt', 'Claude'],
+  },
   {
     name: 'AccountLoginMethod',
     schema: AccountLoginMethodSchema,

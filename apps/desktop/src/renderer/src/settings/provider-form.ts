@@ -32,12 +32,14 @@ export interface ModelRow {
   base?: ProviderModel;
 }
 
-/** 表单管的 Provider：DeepSeek 官方与 OpenAI 兼容。ChatGPT（R6）在“ChatGPT 账号”一节里，没有表单。 */
-export type FormKind = Exclude<ProviderKind, 'chatgpt'>;
+/**
+ * 表单管的 Provider：DeepSeek 官方与 OpenAI 兼容。ChatGPT（R6）与订阅来源（0.19.0）由账号登录后 Host 自己建，没有表单。
+ */
+export type FormKind = Extract<ProviderKind, 'deepseek-official' | 'openai-compatible'>;
 export type EditableProvider = ProviderProfile & { kind: FormKind };
 
 export function isEditableProvider(provider: ProviderProfile): provider is EditableProvider {
-  return provider.kind !== 'chatgpt';
+  return provider.kind === 'deepseek-official' || provider.kind === 'openai-compatible';
 }
 
 export interface ProviderForm {

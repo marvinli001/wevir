@@ -177,8 +177,9 @@ export interface ProviderConfig {
   /**
    * `chatgpt`（R6）：用 ChatGPT 订阅登录的 Codex，没有 Key 与地址，模型来自 `EngineAccounts.models`。不支持账号的引擎
    * 在 `validateProvider` 里拒绝它、在 `configureProviders` 里跳过它（Host 可能带着库里已有的这类 Provider 换引擎启动）。
+   * 订阅来源（0.19.0）同理：模型来自对应引擎的 `EngineAccounts.models`，Host 的引擎路由只把它交给那个引擎。
    */
-  kind: 'deepseek-official' | 'openai-compatible' | 'chatgpt';
+  kind: 'deepseek-official' | 'openai-compatible' | 'chatgpt' | SubscriptionKind;
   displayName: string;
   /** `openai-compatible` 必有：openai-completions / openai-responses / anthropic-messages。 */
   api?: string;
@@ -220,8 +221,11 @@ export interface ProviderTestResult {
 
 // ── 账号（R6）──────────────────────────────────────────────────────────────
 
+/** 与 @wevir/protocol 的 `SubscriptionKind` 同形（0.19.0，订阅来源，ADR-0005 补记 14）。 */
+export type SubscriptionKind = 'claude' | 'cursor' | 'opencode' | 'grok' | 'antigravity';
+
 /** 与 @wevir/protocol 的 `AccountKind` 同形。 */
-export type AccountKind = 'chatgpt';
+export type AccountKind = 'chatgpt' | SubscriptionKind;
 
 /** 与 @wevir/protocol 的 `AccountLoginMethod` 同形。 */
 export type AccountLoginMethod = 'browser' | 'device_code';
@@ -245,6 +249,19 @@ export interface AccountState {
     primary?: AccountRateLimitWindow;
     secondary?: AccountRateLimitWindow;
   };
+  // 订阅来源（0.19.0）的字段，含义见 @wevir/protocol 的 `AccountState`。
+  planLabel?: string;
+  signIn?: 'in_app' | 'command';
+  loginMethods?: AccountLoginMethod[];
+  loginCommand?: string;
+  installed?: boolean;
+  version?: string;
+  executablePath?: string;
+  customPath?: string;
+  installCommand?: string;
+  installUrl?: string;
+  canInstall?: boolean;
+  installing?: { completedBytes: number; totalBytes?: number };
 }
 
 export interface AccountRateLimitWindow {

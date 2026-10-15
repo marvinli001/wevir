@@ -29,6 +29,7 @@ import {
   parseProtocolVersion,
   type Session,
   type SessionId,
+  SUBSCRIPTION_KINDS,
   type SubscriptionId,
   type WevirEvent,
 } from '@wevir/protocol';
@@ -520,6 +521,9 @@ export class RpcConnection {
     if (this.#unwatchAccounts !== undefined || this.#host.accounts === undefined) return;
     if (this.#phase !== 'ready') return;
     this.#unwatchAccounts = this.#host.accounts.watch((account) => {
+      // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
+      if (isSubscriptionKind(account.kind) && this.#capabilities.subscription_kinds !== true)
+        return;
       const parsed = NotificationSchemas['account.updated'].params.safeParse({ account });
       if (!parsed.success) {
         this.#host.onError(new Error(`account.updated does not match its schema: ${parsed.error}`));
@@ -660,7 +664,7 @@ export function adaptEventForClient(
 
 /**
  * 按连接的能力位调整方法的结果，规则同 `adaptEventForClient`：结果里的会话降级 `titleSource`；`provider.list` 去掉
- * 连接认不出的 `chatgpt` 类 Provider（0.7.0）。
+ * 连接认不出的 `chatgpt` 类 Provider（0.7.0）与订阅来源（0.19.0），`account.list` 去掉订阅来源。
  */
 export function adaptResultForClient(
   method: MethodName,
@@ -668,9 +672,24 @@ export function adaptResultForClient(
   capabilities: ClientCapabilities,
 ): unknown {
   // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
-  if (method === 'provider.list' && capabilities.provider_kind_chatgpt !== true) {
+  // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
+  if (
+    method === 'provider.list' &&
+    (capabilities.provider_kind_chatgpt !== true || capabilities.subscription_kinds !== true)
+  ) {
     const value = result as MethodResult<'provider.list'>;
-    return { ...value, providers: value.providers.filter((p) => p.kind !== 'chatgpt') };
+    return {
+      ...value,
+      providers: value.providers.filter(
+        (p) =>
+          (p.kind !== 'chatgpt' || capabilities.provider_kind_chatgpt === true) &&
+          (!isSubscriptionKind(p.kind) || capabilities.subscription_kinds === true),
+      ),
+    };
+  }
+  if (method === 'account.list' && capabilities.subscription_kinds !== true) {
+    const value = result as MethodResult<'account.list'>;
+    return { ...value, accounts: value.accounts.filter((a) => !isSubscriptionKind(a.kind)) };
   }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (capabilities.title_source_generated === true) return result;
@@ -734,4 +753,8 @@ function toIssues(
 function unref<T extends ReturnType<typeof setTimeout>>(timer: T): T {
   timer.unref?.();
   return timer;
+}
+
+function isSubscriptionKind(kind: string): boolean {
+  return (SUBSCRIPTION_KINDS as readonly string[]).includes(kind);
 }

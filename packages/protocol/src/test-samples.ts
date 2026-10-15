@@ -154,6 +154,47 @@ export const chatgptProvider: ProviderProfile = {
   updatedAt: TS,
 };
 
+/** 订阅来源（0.19.0）：Claude Agent，模型来自引擎，已停用。 */
+export const claudeProvider: ProviderProfile = {
+  id: 'claude',
+  kind: 'claude',
+  displayName: 'Claude Agent',
+  models: [
+    { id: 'claude-opus-5-5', displayName: 'Claude Opus 5.5', reasoningEfforts: ['low', 'high'] },
+  ],
+  defaultModelId: 'claude-opus-5-5',
+  hasSecret: false,
+  enabled: false,
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 订阅来源（0.19.0）：用户在终端里登录的 Claude Agent。 */
+export const claudeAccount: AccountState = {
+  kind: 'claude',
+  status: 'signed_in',
+  email: 'me@example.com',
+  plan: 'max',
+  planLabel: 'Max 20x',
+  signIn: 'command',
+  loginCommand: 'claude auth login',
+  installed: true,
+  version: '2.1.140',
+  executablePath: '/Users/me/.local/bin/claude',
+  installCommand: 'npm install -g @anthropic-ai/claude-code',
+};
+
+/** 订阅来源（0.19.0）：Wevir 正在替用户下载 Antigravity。 */
+export const antigravityInstalling: AccountState = {
+  kind: 'antigravity',
+  status: 'signed_out',
+  signIn: 'in_app',
+  loginMethods: ['browser'],
+  installed: false,
+  canInstall: true,
+  installing: { completedBytes: 1048576, totalBytes: 293601280 },
+};
+
 export const signedInAccount: AccountState = {
   kind: 'chatgpt',
   status: 'signed_in',
@@ -823,10 +864,14 @@ export const methodSamples: MethodSamples = {
   'provider.list': {
     params: empty,
     result: {
-      valid: [{ providers: [deepseekProvider, compatibleProvider, chatgptProvider] }],
+      valid: [
+        { providers: [deepseekProvider, compatibleProvider, chatgptProvider] },
+        { providers: [{ ...compatibleProvider, enabled: true }, claudeProvider] },
+      ],
       invalid: [
         { providers: [{ ...compatibleProvider, hasSecret: undefined }] },
         { providers: [{ ...chatgptProvider, kind: 'chatgpt-plus' }] },
+        { providers: [{ ...claudeProvider, enabled: 'no' }] },
       ],
     },
   },
@@ -923,15 +968,63 @@ export const methodSamples: MethodSamples = {
       invalid: [{ ok: 'yes' }, { ok: false, reason: 'teapot' }, { ok: false, httpStatus: 42 }],
     },
   },
+  'provider.setEnabled': {
+    params: {
+      valid: [
+        { providerId: 'claude', enabled: false },
+        { providerId: 'local-ollama', enabled: true },
+      ],
+      invalid: [{ providerId: 'claude' }, { providerId: 'Claude', enabled: true }],
+    },
+    result: {
+      valid: [{ provider: claudeProvider }],
+      invalid: [{ provider: { ...claudeProvider, kind: 'gemini' } }, {}],
+    },
+  },
+  'account.list': {
+    params: empty,
+    result: {
+      valid: [
+        { accounts: [signedInAccount, claudeAccount, antigravityInstalling] },
+        {
+          accounts: [
+            {
+              kind: 'grok',
+              status: 'signed_out',
+              signIn: 'command',
+              loginCommand: 'grok login',
+              installed: false,
+              installCommand: 'npm install -g @xai-official/grok',
+              installUrl: 'https://x.ai/cli',
+            },
+          ],
+        },
+        { accounts: [] },
+      ],
+      invalid: [
+        { accounts: [{ ...claudeAccount, signIn: 'oauth' }] },
+        { accounts: [{ ...antigravityInstalling, installing: { completedBytes: -1 } }] },
+        {},
+      ],
+    },
+  },
   'account.get': {
-    params: { valid: [{ kind: 'chatgpt' }], invalid: [{}, { kind: 'grok' }] },
+    params: {
+      valid: [{ kind: 'chatgpt' }, { kind: 'claude', refresh: true }, { kind: 'grok' }],
+      invalid: [{}, { kind: 'gemini' }, { kind: 'claude', refresh: 'yes' }],
+    },
     result: {
       valid: [
         { account: signedInAccount },
         { account: signingInAccount },
         { account: { kind: 'chatgpt', status: 'signed_out', lastError: 'Login timed out' } },
+        { account: claudeAccount },
       ],
-      invalid: [{ account: { kind: 'chatgpt', status: 'expired' } }, {}],
+      invalid: [
+        { account: { kind: 'chatgpt', status: 'expired' } },
+        { account: { ...claudeAccount, installUrl: 'x.ai/cli' } },
+        {},
+      ],
     },
   },
   'account.login': {
@@ -993,6 +1086,26 @@ export const methodSamples: MethodSamples = {
           },
         },
       ],
+    },
+  },
+  'account.setPath': {
+    params: {
+      valid: [
+        { kind: 'claude', path: '/opt/homebrew/bin/claude' },
+        { kind: 'opencode', path: null },
+      ],
+      invalid: [{ kind: 'claude' }, { kind: 'claude', path: '' }],
+    },
+    result: {
+      valid: [{ account: { ...claudeAccount, customPath: '/opt/homebrew/bin/claude' } }],
+      invalid: [{ account: { ...claudeAccount, customPath: '' } }],
+    },
+  },
+  'account.install': {
+    params: { valid: [{ kind: 'antigravity' }], invalid: [{ kind: 'gemini' }, {}] },
+    result: {
+      valid: [{ account: antigravityInstalling }],
+      invalid: [{ account: { ...antigravityInstalling, canInstall: 'yes' } }],
     },
   },
   'session.create': {
@@ -1221,7 +1334,12 @@ export const notificationSamples: NotificationSamples = {
     ],
   },
   'account.updated': {
-    valid: [{ account: signedInAccount }, { account: signingInAccount }],
+    valid: [
+      { account: signedInAccount },
+      { account: signingInAccount },
+      { account: claudeAccount },
+      { account: antigravityInstalling },
+    ],
     invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },
   'settings.updated': {

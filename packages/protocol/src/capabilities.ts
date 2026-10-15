@@ -19,6 +19,12 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
   /** 认得 `ProviderKind` 的 `chatgpt`；没有时 Host 从 `provider.list` 的结果里去掉这类 Provider。 */
   providerKindChatgpt: 'provider_kind_chatgpt',
+  // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
+  /**
+   * 认得订阅来源的种类（`SUBSCRIPTION_KINDS`，`ProviderKind` 与 `AccountKind` 都有）；没有时 Host 从 `provider.list` 与
+   * `account.list` 的结果里去掉它们，也不发它们的 `account.updated`。
+   */
+  subscriptionKinds: 'subscription_kinds',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
@@ -26,6 +32,7 @@ export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_
 export const ClientCapabilitiesSchema = z.looseObject({
   title_source_generated: z.boolean().optional(),
   provider_kind_chatgpt: z.boolean().optional(),
+  subscription_kinds: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
@@ -65,6 +72,13 @@ export const HOST_FEATURES = {
   sideSessions: 'side_sessions',
   /** 单独新开 worktree 的会话（0.18.0）：`session.create` 的 `worktree`。与引擎无关。 */
   sessionWorktree: 'session_worktree',
+  /**
+   * 订阅来源（0.19.0，ADR-0005 补记 14）：`account.list`、`account.get` 的 `refresh`、`account.setPath`、`account.install`
+   * 与 `AccountState` 的安装字段。Host 有带账号的引擎时声明；有哪些种类看 `account.list`。
+   */
+  subscriptionSources: 'subscription_sources',
+  /** 启用与停用 Provider（0.19.0）：`provider.setEnabled` 与 `ProviderProfile.enabled`。与引擎无关。 */
+  providerEnabled: 'provider_enabled',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -81,6 +95,8 @@ export const HostFeaturesSchema = z.looseObject({
   suggested_tasks: z.boolean().optional(),
   side_sessions: z.boolean().optional(),
   session_worktree: z.boolean().optional(),
+  subscription_sources: z.boolean().optional(),
+  provider_enabled: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -136,7 +136,8 @@ interface Workspace {
 
 ```ts
 // → protocol
-type ProviderKind = 'deepseek-official' | 'openai-compatible' | 'chatgpt' // chatgpt：0.7.0（R6），能力位 provider_kind_chatgpt
+type ProviderKind = 'deepseek-official' | 'openai-compatible' | 'chatgpt' | SubscriptionKind
+// chatgpt：0.7.0（R6），能力位 provider_kind_chatgpt；SubscriptionKind：0.19.0，能力位 subscription_kinds（§3.6）
 type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages'
 
 type ProviderReasoningLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -171,6 +172,7 @@ interface ProviderProfile {
   models: ProviderModel[] // deepseek-official 可为空，用 dsh 自带目录；chatgpt 由 Host 从引擎取（§3.6）
   defaultModelId: string
   hasSecret: boolean      // 线缆上只暴露有没有 Key，不暴露 secretRef
+  enabled?: boolean       // 0.19.0：false = 停用（模型选择里不列出），省略 = 启用
   createdAt: IsoTime
   updatedAt: IsoTime
 }
@@ -183,6 +185,7 @@ interface ProviderProfile {
 | `displayName` | 显示名，写进 overlay 的 `displayName` | 创建时 | `provider.upsert` |
 | `api`、`baseURL`、`compat`、`models`、`defaultModelId` | 写进 overlay；写库前经适配器检查（dsh 不接受的配置回 `INVALID_PARAMS`） | 创建时 | `provider.upsert`。dsh 不热加载，适配器在没有回合时重启 dsh 才生效，挂着的会话以 `engine.exited`（`config_changed`）转 `error`、resume 后用新配置（ADR-0001 补记 5，providers.md §5） |
 | `hasSecret` | Key 是否已存 | Host | `provider.upsert` 带 Key 时 |
+| `enabled` | 是否启用（0.19.0，存储迁移 0007） | Host | `provider.setEnabled`；编辑与刷新模型列表时保留 |
 | `createdAt` / `updatedAt` | 时间 | Host | Host |
 
 规则：
@@ -470,13 +473,14 @@ type WevirEvent = /* §6.2 的判别联合，按 type 区分 payload */
 - 客户端遇到不认识的 `type` 必须忽略内容、照常推进 `lastSeq`（向前兼容）。Host 不扣下任何事件（订阅内 `seq` 连续），能力位只用来降级已知事件里的新枚举值或新形状（host-api.md §4、§10；ADR-0002 补记 1）。
 - 工具输出、`input` 等大字段入库前按统一上限截断，上限写进 `host-api.md`（ADR-0002 §3）。
 
-### 3.6 账号（0.7.0，R6）
+### 3.6 账号（0.7.0，R6；订阅来源 0.19.0）
 
-引擎自己的订阅登录（ADR-0005 决策 4）。目前只有 ChatGPT：Codex 的 `account/*`（codex-event-mapping.md §8）。账号**不是存储里的实体**：状态与凭据都在引擎那边（Codex 的 ChatGPT 进程的 `CODEX_HOME/auth.json`），Host 每次向引擎读，经 `account.*` 方法与 `account.updated` 通知转给客户端；Host 与客户端都拿不到令牌。
+引擎自己的订阅登录（ADR-0005 决策 4）。ChatGPT 是 Codex 的 `account/*`（codex-event-mapping.md §8）；0.19.0 起还有订阅来源（ADR-0005 补记 14）：`claude`（Claude Agent）、`cursor`、`opencode`、`grok`、`antigravity`，各由自己的引擎读状态与登录。账号**不是存储里的实体**：状态与凭据都在引擎那边（Codex 的 ChatGPT 进程的 `CODEX_HOME/auth.json`），Host 每次向引擎读，经 `account.*` 方法与 `account.updated` 通知转给客户端；Host 与客户端都拿不到令牌。
 
 ```ts
 // → protocol（AccountState 等）；→ adapter 接口（EngineAccounts，runtime-adapter 的 adapter.ts）
-type AccountKind = 'chatgpt'
+type SubscriptionKind = 'claude' | 'cursor' | 'opencode' | 'grok' | 'antigravity' // 0.19.0
+type AccountKind = 'chatgpt' | SubscriptionKind
 type AccountLoginMethod = 'browser' | 'device_code'
 
 interface AccountState {
@@ -494,6 +498,19 @@ interface AccountState {
   }
   lastError?: string       // signed_out 时：最近一次登录失败的原因（引擎原文）；取消的、被替换的不算
   rateLimits?: { primary?: AccountRateLimitWindow; secondary?: AccountRateLimitWindow } // 5 小时与每周的用量，尽力而为
+  // 0.19.0，订阅来源用：
+  planLabel?: string        // 套餐给人看的说法（Max 20x…）
+  signIn?: 'in_app' | 'command' // in_app：account.login；command：用户在终端里运行 loginCommand，再 account.get { refresh }
+  loginMethods?: AccountLoginMethod[]
+  loginCommand?: string     // claude auth login、grok login、opencode auth login
+  installed?: boolean       // 运行体找不找得到；省略 = 随包
+  version?: string
+  executablePath?: string
+  customPath?: string       // account.setPath 指定的，记在数据目录的 engines.json
+  installCommand?: string   // 用户自己安装的命令
+  installUrl?: string
+  canInstall?: boolean      // Wevir 能下载（Antigravity），account.install
+  installing?: { completedBytes: number; totalBytes?: number }
 }
 
 interface AccountRateLimitWindow {
@@ -508,6 +525,8 @@ interface AccountRateLimitWindow {
 - ChatGPT 登录成功时 Host 建 `chatgpt` Provider（`id`、`kind` 都是 `chatgpt`，显示名 `ChatGPT`，模型列表与默认模型来自引擎的 `model/list`）；之后每次登录成功、以及 `account.get` 读到已登录（每 10 分钟最多一次）时刷新模型列表，默认模型不在新列表里时换成新的默认。客户端用 `provider.upsert` 改显示名与默认模型，模型列表不由客户端写。
 - 登出不删 Provider，用它的会话也保留；没登录时 ChatGPT 会话建不起来、发不出消息（`missing_credentials`），重新登录后 resume 即可继续。删除 Provider 不登出。
 - 没有 `hasSecret` 的 Key：`chatgpt` Provider 的 `hasSecret` 恒为 false，客户端按 `kind` 显示账号状态。
+- 订阅来源（0.19.0）同上：账号第一次读到已登录时（Host 启动时会在后台读一遍，`account.list` / `account.get` 也会）Host 建 Provider，`id` 与 `kind` 都是种类，显示名 `Claude Agent`、`Cursor`、`OpenCode`、`Grok`、`Antigravity`（Claude 照 Anthropic 的品牌要求不叫 Claude Code），模型来自引擎；用它的会话由对应的引擎运行。Host 没有那个引擎时会话建不起来（`ENGINE_ERROR`）。
+- 启用开关（0.19.0，§3.2 的 `enabled`）对账号 Provider 同样有效，刷新模型列表时保留。
 
 ### 3.7 预留实体（v0 不实现）
 

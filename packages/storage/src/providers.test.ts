@@ -83,7 +83,18 @@ describe('provider_profiles', () => {
       'secret_ref',
       'created_at',
       'updated_at',
+      'enabled',
     ]);
+  });
+
+  it('启用开关（0007）：省略即启用，停用存取一致，更新时可改回', () => {
+    const repo = storage().providers;
+    repo.insert(compatible);
+    expect(repo.get('local-llm')?.enabled).toBeUndefined();
+    repo.update({ ...compatible, enabled: false });
+    expect(repo.get('local-llm')).toEqual({ ...compatible, enabled: false });
+    repo.update(compatible);
+    expect(repo.get('local-llm')).toEqual(compatible);
   });
 
   it('JSON 列拒绝非法 JSON', () => {

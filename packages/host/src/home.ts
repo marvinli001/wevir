@@ -11,6 +11,8 @@ export const HOME_LAYOUT = {
   hostIdFile: 'host-id',
   /** Host 设置（R11，domain-model §3.7）：CLI 与桌面共用的偏好。 */
   settingsFile: 'settings.json',
+  /** 订阅来源的引擎用的可执行文件（0.19.0，`account.setPath`）。 */
+  enginesFile: 'engines.json',
 } as const;
 
 export interface ResolveHomeOptions {

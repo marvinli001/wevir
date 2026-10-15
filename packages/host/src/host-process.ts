@@ -12,6 +12,7 @@ import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
+import { EnginePathStore } from './engine-paths.js';
 import { EventStore } from './event-store.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
@@ -158,7 +159,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.error('failed to apply providers to the engine', { error }),
     );
 
-    // ChatGPT 账号（R6）：引擎有账号时才有（Codex），Host 据此声明 chatgpt_account 功能。
+    // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
     const providerLock = createProviderLock();
     const db = storage;
     accounts =
@@ -170,7 +171,22 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
             providerLock,
             applyProviders: () => syncProviders(db, secrets, adapter),
             onWarning: (message, fields) => logger.warn(message, fields),
+            paths: new EnginePathStore({
+              path: homePath(home, 'enginesFile'),
+              onWarning: (message, fields) => logger.warn(message, fields),
+            }),
           });
+    if (accounts?.hasSubscriptions === true) {
+      // 用户指定的可执行文件先交给引擎，再在后台检测一遍订阅来源：已登录的种类建好 Provider，模型选择里才看得到。
+      // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。
+      const subscriptions = accounts;
+      await subscriptions.applySavedPaths();
+      void Promise.all(
+        subscriptions.kinds
+          .filter((kind) => kind !== 'chatgpt')
+          .map((kind) => subscriptions.read(kind).catch(() => undefined)),
+      );
+    }
 
     // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
     const settings = new HostSettingsStore({
@@ -206,7 +222,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         subagent_cancel: true,
         environments: true,
         session_worktree: true,
-        ...(accounts !== undefined && { chatgpt_account: true }),
+        provider_enabled: true,
+        ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
+        ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),
         ...(adapter.permissionModes !== undefined && { permission_modes: true }),
