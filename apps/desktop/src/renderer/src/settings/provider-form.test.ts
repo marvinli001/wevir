@@ -149,6 +149,12 @@ describe('预设模板（providers.md §7）', () => {
       docsURL: 'https://ai.google.dev/gemini-api/docs/openai',
     });
     expect(preset.compat?.geminiToolSchema).not.toBe(true);
+    expect(preset.models.map((model) => model.id)).toEqual([
+      'gemini-3.8-flash',
+      'gemini-3.1-pro-preview',
+      'gemini-4-argon',
+    ]);
+    expect(preset.defaultModelId).toBe('gemini-3.8-flash');
     for (const model of preset.models)
       expect(model).toMatchObject({
         contextWindow: 1048576,

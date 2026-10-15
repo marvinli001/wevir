@@ -344,6 +344,7 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
   "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai/",
   "models": [
     { "id": "gemini-3.8-flash", "contextWindow": 1048576, "maxTokens": 65536, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] },
+    { "id": "gemini-3.1-pro-preview", "contextWindow": 1048576, "maxTokens": 65536, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] },
     { "id": "gemini-4-argon", "contextWindow": 1048576, "maxTokens": 65536, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] }
   ],
   "defaultModelId": "gemini-3.8-flash",
@@ -351,7 +352,9 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 }
 ```
 
-3.8 Flash 与 4 Argon 都默认 medium，只列 low / medium / high；3.8 Flash 明确拒收 minimal，4 Argon 的 minimal 由兼容层映射到 low。网关仅对 Gemini 官方地址、未显式设置 thinkingFormat 时把 minimal 降到 low，none 仍省略，不能据此关闭思考。不发 extra_body.google.thinking_config，避免与 reasoning_effort 冲突。4 Argon 的 1,048,576 是输入输出共用上下文，同步输出上限为 65,536；它只支持隐式缓存，网关不伪造缓存请求。
+模板只列 3.8 Flash、3.1 Pro 与 4 Argon，默认 3.8 Flash。3.1 Pro 当前官方 API ID 为 `gemini-3.1-pro-preview`，按预览模型标识保存。三款都支持图片输入、1,048,576 上下文与 65,536 输出，只列 low / medium / high；3.1 Pro 默认 high，另两款默认 medium。
+
+3.8 Flash 明确拒收 minimal，4 Argon 的 minimal 由兼容层映射到 low。网关仅对 Gemini 官方地址、未显式设置 thinkingFormat 时把 minimal 降到 low，none 仍省略，不能据此关闭思考。不发 extra_body.google.thinking_config，避免与 reasoning_effort 冲突。4 Argon 的 1,048,576 是输入输出共用上下文，同步输出上限为 65,536；它只支持隐式缓存，网关不伪造缓存请求。
 
 2026-05-28 起 AI Studio 新建的是绑定服务账号的 auth key；无限制的旧 standard key 会被拒，有显式限制的仍可用。表单、网关与 provider.test 都不按 AQ. / AIza 前缀校验，Key 原样放入 Bearer 头，不自行换取令牌。真实 auth key 的兼容性仍须用目标账号验证。
 
@@ -359,11 +362,11 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 Schema 两项尚无真实 Key 证据，模板默认不清洗。只有服务确实因 additionalProperties 或空对象拒绝请求时，才手动通过 provider.upsert 设置 `compat: {geminiToolSchema: true}`（协议 0.26.0）。它只改 Chat 工具定义：递归去掉 additionalProperties、给空对象补可省略的 `_wevir_unused` 布尔参数；会放宽对象约束，结构化输出不变，经代理也可用。省略或 false 关闭，dsh 忽略，桌面表单原样保存但没有专门开关控件。
 
-已有 Provider 是用户数据，不自动迁移。旧模板用户可在设置 → 模型服务中手动把模型输出上限改为 65536、档位改成 low / medium / high；保留自定义地址与模型，不因模板更新覆盖。反向代理不触发官方地址的 minimal 修正与签名识别，模板的 Schema 开关不能代替它们；签名必须在完整链路中验证。
+已有 Provider 是用户数据，不自动迁移。旧模板用户可在设置 → 模型服务中手动添加 gemini-3.1-pro-preview，把模型输出上限改为 65536、档位改成 low / medium / high；保留自定义地址与模型，不因模板更新覆盖。反向代理不触发官方地址的 minimal 修正与签名识别，模板的 Schema 开关不能代替它们；签名必须在完整链路中验证。
 
-本次没有 WEVIR_TEST_API_KEY，两个模型的契约第 3 层与 pnpm dev 中带 apply_patch 的桌面对话均未验收；占位签名、additionalProperties、空对象和中途 system 仍待实测。命令见 development.md §6.3；本机 HTTP mock 的多步签名测试不能替代真实服务。
+本次没有 WEVIR_TEST_API_KEY，三款模型的契约第 3 层与 pnpm dev 中带 apply_patch 的桌面对话均未验收；占位签名、additionalProperties、空对象和中途 system 仍待实测。命令见 development.md §6.3；本机 HTTP mock 的多步签名测试不能替代真实服务。
 
-来源：[OpenAI 兼容端点](https://ai.google.dev/gemini-api/docs/openai)、[模型目录](https://ai.google.dev/gemini-api/docs/models)、[3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)、[4 Argon](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)、[思考档位](https://ai.google.dev/gemini-api/docs/thinking)、[工具签名与顺序](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)、[API Key](https://ai.google.dev/gemini-api/docs/api-key)、[可用地区](https://ai.google.dev/gemini-api/docs/available-regions)。原 thought-signatures URL 已移到以 Interactions 为主的 Thinking guide，Chat 细节以 generate-content 下的签名页为准。兼容表泛称的 Gemini 3 Flash minimal 支持不用于 3.8 Flash，按具体型号页处理。
+来源：[OpenAI 兼容端点](https://ai.google.dev/gemini-api/docs/openai)、[模型目录](https://ai.google.dev/gemini-api/docs/models)、[3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)、[3.1 Pro Preview](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview)、[4 Argon](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)、[思考档位](https://ai.google.dev/gemini-api/docs/thinking)、[工具签名与顺序](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)、[API Key](https://ai.google.dev/gemini-api/docs/api-key)、[可用地区](https://ai.google.dev/gemini-api/docs/available-regions)。原 thought-signatures URL 已移到以 Interactions 为主的 Thinking guide，Chat 细节以 generate-content 下的签名页为准。兼容表泛称的 Gemini 3 Flash minimal 支持不用于 3.8 Flash，按具体型号页处理。
 
 ### 7.8 OpenAI（Responses）
 

@@ -209,6 +209,13 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
         reasoningEfforts: ['low', 'medium', 'high'],
       },
       {
+        id: 'gemini-3.1-pro-preview',
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+      {
         id: 'gemini-4-argon',
         contextWindow: 1048576,
         maxTokens: 65536,

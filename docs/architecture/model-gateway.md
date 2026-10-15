@@ -246,7 +246,7 @@ Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端
 
 来源：[OpenAI 兼容](https://ai.google.dev/gemini-api/docs/openai)、[思考档位](https://ai.google.dev/gemini-api/docs/thinking)、[工具签名与顺序](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)（旧 thought-signatures 链接现已移到以 Interactions 为主的 Thinking guide，Chat 的细节在 generate-content 文档）。
 
-2026-10-15 没有 `WEVIR_TEST_API_KEY`：3.8 Flash / 4 Argon 的契约第 3 层与桌面 apply_patch 均未验收。AI Studio auth key 的 Bearer 认证、占位签名、Schema 两项与对话中间的 system（默认 inline）仍待真实服务验证。表单和 provider.test 不按 Key 前缀校验；连接探测没有工具，不能证明签名或 Schema 可用。官方 FAQ 的空文本签名例子针对无函数调用的响应；当前信封只保存工具调用签名，纯文本末片签名尚未映射，需真实 Chat 样本再核对，不把工具末片测试当作这项已验收。
+2026-10-15 没有 `WEVIR_TEST_API_KEY`：3.8 Flash / 3.1 Pro Preview / 4 Argon 的契约第 3 层与桌面 apply_patch 均未验收。AI Studio auth key 的 Bearer 认证、占位签名、Schema 两项与对话中间的 system（默认 inline）仍待真实服务验证。表单和 provider.test 不按 Key 前缀校验；连接探测没有工具，不能证明签名或 Schema 可用。官方 FAQ 的空文本签名例子针对无函数调用的响应；当前信封只保存工具调用签名，纯文本末片签名尚未映射，需真实 Chat 样本再核对，不把工具末片测试当作这项已验收。
 
 ## 5. Anthropic Messages 转换
 
@@ -425,7 +425,7 @@ Codex 升级时重查上述字段默认值、Provider 判定与触发条件；�
 
 
 - Google Cloud Vertex：本地实现服务账号、Gemini Chat 与 Claude Messages 变体，尚缺 GCP 项目与真实服务账号，两个模型的契约第 3 层与桌面工具对话未验收。不读取 ADC / gcloud，不接 express Key、Gemini 原生 API 或其他发布方。Claude 的 URL 图片、30 MB、地域可用性限制见 §2 与 providers.md §7.11。
-- Gemini：未提供 WEVIR_TEST_API_KEY，3.8 Flash / 4 Argon 的真实契约与桌面工具对话未验收；Schema 清洗默认关闭，占位签名、Schema 与中途 system 仍待实测（§4.5）。不接 Interactions 或原生 generateContent；思考内容不返回、不显示。
+- Gemini：未提供 WEVIR_TEST_API_KEY，3.8 Flash / 3.1 Pro Preview / 4 Argon 的真实契约与桌面工具对话未验收；Schema 清洗默认关闭，占位签名、Schema 与中途 system 仍待实测（§4.5）。不接 Interactions 或原生 generateContent；思考内容不返回、不显示。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
 - OpenAI 官方 API：2026-10-15 只完成文档与本地 mock 核对（§3.3）。缺 `WEVIR_TEST_API_KEY`，Sol / Luna 的契约第 3 层、桌面端 `apply_patch` 与 Luna 的关闭推理选项仍待真实服务验证，命令见 docs/development.md §6.3。
 - Anthropic 官方 API：2026-10-15 完成文档、录制请求与严格 HTTP mock 核对；缺 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面 apply_patch 未验收。未实现 Workspace ID，只支持绑定单个 workspace 的 Key；Codex 的手动压缩、动态工具目录与换模型可能改变思考前缀，尚无服务端压缩或工具变更机制兜底。

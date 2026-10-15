@@ -141,7 +141,7 @@ async function mockGemini(schema = false) {
 }
 
 describe('Gemini Chat 方言的真实 HTTP 往返', () => {
-  it.each(['gemini-3.8-flash', 'gemini-4-argon'])(
+  it.each(['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-4-argon'])(
     '%s：minimal 从 400 到 low；并行调用后再调用，全部签名与连续结果保留',
     async (model) => {
       const { mock, gateway } = await mockGemini();

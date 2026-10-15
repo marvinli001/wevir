@@ -40,7 +40,7 @@ const translated = (
 };
 
 describe('思考格式的请求（同一份录制工具结果）', () => {
-  it.each(['gemini-3.8-flash', 'gemini-4-argon'])(
+  it.each(['gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-4-argon'])(
     'Gemini 官方地址的 %s 将 minimal 降 low，none 省略，不混发 thinking_config',
     (model) => {
       const patch = { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' };
