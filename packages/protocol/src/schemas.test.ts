@@ -25,6 +25,7 @@ import {
   ErrorDataSchemas,
   EventPayloadSchemas,
   EventSourceSchema,
+  GitFileChangeSchema,
   HostFeaturesSchema,
   HostFrameSchema,
   HostIdSchema,
@@ -493,6 +494,19 @@ const standaloneCases: Case[] = [
     schema: PermissionModeSchema,
     valid: ['on_request', 'auto_review', 'full_access'],
     invalid: ['never', ''],
+  },
+  {
+    name: 'GitFileChange',
+    schema: GitFileChangeSchema,
+    valid: [
+      { path: 'src/a.ts', status: 'modified', added: 3, removed: 1 },
+      { path: 'new.md', status: 'untracked' },
+      { path: 'x', status: 'copied' },
+    ],
+    invalid: [
+      { path: '', status: 'modified' },
+      { path: 'a', status: 'modified', added: 1.5 },
+    ],
   },
   { name: 'PendingStatus', schema: PendingStatusSchema, valid: ['held'], invalid: ['paused'] },
   {

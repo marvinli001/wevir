@@ -1,6 +1,6 @@
 import type { SessionId, SubagentSummary } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Bot, SearchX } from 'lucide-react';
+import { Bot, ChevronRight, SearchX } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { EmptyState } from '@/components/empty-state';
@@ -9,19 +9,19 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { useTranscript } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
+import { formatDuration } from '@/session/format';
 import { SubagentAvatar } from '@/session/subagent-avatar';
 import {
   formatRelativeTime,
   groupSubagents,
   lastActivity,
   statusLabel,
-  subagentCounts,
   subagentTitle,
 } from '@/session/subagent-model';
 import { SubagentView, useNow } from '@/session/subagent-view';
 import { usePanes } from '../pane-controller';
 import type { PaneContext } from '../pane-registry';
-import { registerSummarySection } from '../summary-card';
+import { type RailContext, registerRailCard } from '../session-rail';
 
 /**
  * “子智能体”窗格（R5，desktop-layout.md §2.1、§5.2；截图 03、04）：URL 没有 `agent/:childId` 时是当前会话的子会话
@@ -188,45 +188,59 @@ function PaneNote({ icon, children }: { icon?: ReactNode; children: ReactNode })
   );
 }
 
-// ── 置顶摘要的“子智能体”一节（截图 02） ─────────────────────────────
+// ── 会话侧栏的“后台任务”卡片（U18，desktop-layout.md §12；截图 10–12） ───────────────────────
 
 const NO_SUBAGENTS: readonly SubagentSummary[] = [];
-/** 摘要里最多显示几个头像（最近派出的）。 */
-const SUMMARY_AVATARS = 5;
 
-function useSubagentsSummary(sessionId: string): ReactNode | null {
+/** 进行中的子会话各一行（头像、标题、用时每秒走），下面一行“M 个已完成”打开“子智能体”窗格。停止单个子会话等 U21。 */
+function useTasksCard({ sessionId, entry }: RailContext) {
   const panes = usePanes();
-  const state = useTranscript(sessionId === '' ? undefined : (sessionId as SessionId));
+  const navigate = useNavigate();
+  const state = useTranscript(sessionId);
   const subagents = state?.transcript.subagents ?? NO_SUBAGENTS;
+  const { open, done } = groupSubagents(subagents);
+  const now = useNow(open.length > 0 ? 1000 : undefined);
   if (subagents.length === 0) return null;
-  const { running, done } = subagentCounts(subagents);
   const counts = [
-    running > 0 && t('subagent.summary.running', { count: running }),
-    done > 0 && t('subagent.summary.done', { count: done }),
+    open.length > 0 && t('rail.tasks.running', { count: open.length }),
+    done.length > 0 && t('rail.tasks.done', { count: done.length }),
   ].filter(Boolean);
-  return (
-    <section key="subagents" data-testid="summary-subagents">
-      <h4 className="pl-1 text-sm text-muted-foreground">{t('subagent.summary.title')}</h4>
-      <button
-        type="button"
-        aria-label={t('subagent.summary.open')}
-        onClick={() => panes?.open({ kind: 'subagents' })}
-        className="mt-1 flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
-      >
-        <span className="flex shrink-0 items-center gap-1">
-          {subagents.slice(-SUMMARY_AVATARS).map((summary) => (
-            <SubagentAvatar
-              key={summary.sessionId}
-              sessionId={summary.sessionId}
-              status={summary.status}
-              size={20}
-            />
-          ))}
-        </span>
-        <span className="truncate">{counts.join(' · ')}</span>
-      </button>
-    </section>
-  );
+  return {
+    summary: counts.join(' · '),
+    details: (
+      <ul data-testid="rail-tasks">
+        {open.map((summary) => (
+          <li key={summary.sessionId}>
+            <button
+              type="button"
+              onClick={() =>
+                navigate(paths.agent(entry.workspace.id, sessionId, summary.sessionId))
+              }
+              className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              <SubagentAvatar sessionId={summary.sessionId} status={summary.status} size={16} />
+              <span className="min-w-0 flex-1 truncate">{subagentTitle(summary)}</span>
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                {formatDuration(now - Date.parse(summary.startedAt))}
+              </span>
+            </button>
+          </li>
+        ))}
+        {done.length > 0 && (
+          <li>
+            <button
+              type="button"
+              onClick={() => panes?.open({ kind: 'subagents' })}
+              className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] items-center gap-1 rounded-md px-1.5 text-left text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            >
+              {t('rail.tasks.done', { count: done.length })}
+              <ChevronRight aria-hidden className="size-3.5" />
+            </button>
+          </li>
+        )}
+      </ul>
+    ),
+  };
 }
 
-registerSummarySection({ id: 'subagents', order: 20, useContent: useSubagentsSummary });
+registerRailCard({ id: 'tasks', order: 40, title: () => t('rail.tasks'), useCard: useTasksCard });

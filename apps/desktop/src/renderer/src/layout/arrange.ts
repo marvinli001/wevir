@@ -28,8 +28,8 @@ export const PANE_LAYOUT = {
   /** 浮层最宽 = 内容区宽 − 这么多，左边总留一条能看到主窗格的边。 */
   overlayMargin: 48,
   maxVisible: 4,
-  /** 主窗格窄于这个宽度时置顶摘要不浮出（§3.8）。 */
-  summaryMinPrimaryWidth: 560,
+  /** 会话侧栏（U18，§12）的宽，不含它右边的间距。 */
+  railWidth: 288,
 } as const;
 
 export type TemplateId = 'one' | 'rows2' | 'cols2' | 'side3' | 'rows3' | 'grid4';

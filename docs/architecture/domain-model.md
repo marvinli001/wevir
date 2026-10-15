@@ -128,6 +128,7 @@ interface Workspace {
 - 一个 Session 恰属一个工作区（ACP 只有一个主 workspace，T0.3）。工作区之间不嵌套检查：两个工作区可以是父子目录，各自独立。
 - `workspace.remove` 只注销，不删除磁盘上任何文件（OpenWork §4.5）。有未关闭会话（状态不是 `closed`）的工作区不能移除，返回错误。已关闭会话的历史随工作区一起从列表中隐藏，事件库不删；同一 `rootPath` 再次添加时恢复原 `id`，历史重新可见。实现上用 `removedAt` 软删除列，不进线缆类型。
 - 工作区本身不带权限设置。dsh 的权限模式是进程级的 `workspace-write`（ADR-0001 §4）；“工作区外授权目录”之类的设置推迟到 Phase 1，届时按工作区生效（OpenWork §4.5）。
+- git 状态（当前分支、相对 HEAD 的改动，0.13.0）不是工作区的字段，也不进事件库：`workspace.git` 每次调用时在目录里现读（host-api.md §3.1），磁盘上的仓库随时会被用户或别的程序改动，以它为准。
 
 ### 3.2 ProviderProfile
 

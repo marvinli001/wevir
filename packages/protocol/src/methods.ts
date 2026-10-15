@@ -112,6 +112,48 @@ export const WorkspaceRemoveParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
 });
 
+// ── workspace.git（0.13.0，U18） ──────────────────────────────────────
+
+export const WorkspaceGitParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+});
+
+/** `workspace.git` 结果里的一个改动的文件。 */
+export const GitFileChangeSchema = z.object({
+  /** 相对工作区目录，`/` 分隔。 */
+  path: z.string().min(1),
+  /** 已见 `modified` / `added` / `deleted` / `untracked`；开放字符串，以后可能多出取值。 */
+  status: z.string().min(1),
+  /** 增删行数；二进制文件与未跟踪文件没有。 */
+  added: z.int().min(0).optional(),
+  removed: z.int().min(0).optional(),
+});
+export type GitFileChange = z.infer<typeof GitFileChangeSchema>;
+
+/** 文件列表最多这么多项，多了 `truncated`。 */
+export const WORKSPACE_GIT_MAX_FILES = 200;
+
+/**
+ * 工作区目录的 git 状态（host-api.md §3.1）：每次调用现读，不缓存。`repo: false`（不是仓库、没有 git、出错或超时）时
+ * 其余字段都省略。
+ */
+export const WorkspaceGitResultSchema = z.object({
+  repo: z.boolean(),
+  /** 当前分支（含还没有提交的新分支）；分离头指针时没有。 */
+  branch: z.string().min(1).optional(),
+  /** 分离头指针时 HEAD 的短 SHA。 */
+  detachedAt: z.string().min(1).optional(),
+  /** 已跟踪文件相对 HEAD 的增删行数之和（工作树 + 暂存区，只算工作区目录里的）。 */
+  added: z.int().min(0).optional(),
+  removed: z.int().min(0).optional(),
+  /** 改动的文件数，含未跟踪文件；`files` 被截断时仍是总数。 */
+  fileCount: z.int().min(0).optional(),
+  files: z.array(GitFileChangeSchema).max(WORKSPACE_GIT_MAX_FILES).optional(),
+  /** `files` 只列了前 `WORKSPACE_GIT_MAX_FILES` 项。 */
+  truncated: z.boolean().optional(),
+});
+export type WorkspaceGitResult = z.infer<typeof WorkspaceGitResultSchema>;
+
 // ── provider.* ────────────────────────────────────────────────────────
 
 export const ProviderListResultSchema = z.object({
@@ -423,6 +465,11 @@ export const MethodSchemas = {
     params: WorkspaceRemoveParamsSchema,
     result: EmptySchema,
     permission: 'workspace.write',
+  },
+  'workspace.git': {
+    params: WorkspaceGitParamsSchema,
+    result: WorkspaceGitResultSchema,
+    permission: 'workspace.read',
   },
 
   'provider.list': {

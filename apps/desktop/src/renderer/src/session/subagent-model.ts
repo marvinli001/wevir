@@ -92,15 +92,6 @@ export function groupSubagents(subagents: readonly SubagentSummary[]): SubagentG
   };
 }
 
-/** 置顶摘要的“N 进行中 · M 完成”。 */
-export function subagentCounts(subagents: readonly SubagentSummary[]): {
-  running: number;
-  done: number;
-} {
-  const running = subagents.filter((summary) => summary.status === 'running').length;
-  return { running, done: subagents.length - running };
-}
-
 /** 相对时间（截图 03 的“1 小时前”）：不到一分钟是“刚刚”，再往后是分钟、小时、天。 */
 export function formatRelativeTime(iso: string, now: number): string {
   const ms = now - Date.parse(iso);

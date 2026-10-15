@@ -1,3 +1,4 @@
+import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import { PanelRightClose, PanelRightOpen } from 'lucide-react';
 import {
@@ -45,7 +46,9 @@ import {
 import { prunePaneScopes, updateScope, useScopePanes } from './pane-store';
 import { Sidebar } from './sidebar';
 import { Splitter } from './splitter';
-import { SummaryCard, SummaryToggle } from './summary-card';
+import './rail-cards';
+import { RAIL_DOCKED_WIDTH, railDocks } from './rail-model';
+import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';
 
 /** 浮层顶上一行（标题与关闭按钮）的高，与顶栏一样是 44。 */
@@ -71,6 +74,7 @@ export function WorkbenchLayout() {
   // 浮层关闭后焦点回到打开它的按钮。
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
   const auxToggleRef = useRef<HTMLButtonElement>(null);
+  const railToggleRef = useRef<HTMLButtonElement>(null);
   const sidebarPlan = planSidebar({
     viewportWidth,
     sidebarWidth: dragWidth ?? prefs.sidebarWidth,
@@ -95,13 +99,21 @@ export function WorkbenchLayout() {
     transient.maximized && transient.maximized.scope === scopeKey
       ? transient.maximized.groupId
       : undefined;
-  const plan = arrangePanes({
-    width: content.width,
-    height: content.height,
-    overlayHeight: viewportHeight - OVERLAY_HEADER,
-    panes: scope ?? NO_PANES,
-    maximized,
-  });
+  const arrange = (width: number) =>
+    arrangePanes({
+      width,
+      height: content.height,
+      overlayHeight: viewportHeight - OVERLAY_HEADER,
+      panes: scope ?? NO_PANES,
+      maximized,
+    });
+  // 会话侧栏（U18，desktop-layout.md §12）：只有会话页有；停靠后主窗格与窗格区还排得下才停靠，否则让位改浮层。
+  const rail = header.session && sessionId !== undefined ? header.session : undefined;
+  const railCanDock =
+    rail !== undefined && maximized === undefined && railDocks(content.width, arrange);
+  const railDocked = railCanDock && prefs.railShown;
+  const railOverlay = rail !== undefined && !railCanDock && transient.railOverlayOpen;
+  const plan = arrange(content.width - (railDocked ? RAIL_DOCKED_WIDTH : 0));
   const panes = usePaneController(
     scopeKey,
     workspaceId,
@@ -122,7 +134,9 @@ export function WorkbenchLayout() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在换会话时触发。
   useEffect(() => {
     transientLayout.set((state) =>
-      state.auxOverlayOpen ? { ...state, auxOverlayOpen: false } : state,
+      state.auxOverlayOpen || state.railOverlayOpen
+        ? { ...state, auxOverlayOpen: false, railOverlayOpen: false }
+        : state,
     );
   }, [scopeKey]);
   useSubagentRoute(panes, workspaceId, sessionId, childId);
@@ -133,6 +147,19 @@ export function WorkbenchLayout() {
       transientLayout.set((state) => ({ ...state, auxOverlayOpen: false }));
     }
   }, [plan.mode, transient.auxOverlayOpen]);
+  useEffect(() => {
+    if (railCanDock && transient.railOverlayOpen) {
+      transientLayout.set((state) => ({ ...state, railOverlayOpen: false }));
+    }
+  }, [railCanDock, transient.railOverlayOpen]);
+  // 窗格区与会话侧栏的浮层一次只开一个：窗格区的浮层打开时收起侧栏的。
+  useEffect(() => {
+    if (transient.auxOverlayOpen) {
+      transientLayout.set((state) =>
+        state.railOverlayOpen ? { ...state, railOverlayOpen: false } : state,
+      );
+    }
+  }, [transient.auxOverlayOpen]);
 
   useShortcuts(sidebarPlan, panes, setOpenTabsOpen);
 
@@ -140,6 +167,17 @@ export function WorkbenchLayout() {
     transientLayout.set((state) => ({ ...state, sidebarOverlayOpen: open }));
   const setAuxOverlayOpen = (open: boolean) =>
     transientLayout.set((state) => ({ ...state, auxOverlayOpen: open }));
+  const setRailOverlayOpen = (open: boolean) =>
+    transientLayout.set((state) => ({
+      ...state,
+      railOverlayOpen: open,
+      ...(open && { auxOverlayOpen: false }),
+    }));
+  // 能停靠时切换偏好（记住），放不下时开关浮层（不记住）。
+  const toggleRail = () =>
+    railCanDock
+      ? layoutPrefs.set((current) => ({ ...current, railShown: !current.railShown }))
+      : setRailOverlayOpen(!transient.railOverlayOpen);
   const commitSidebarWidth = (width: number) => {
     setDragWidth(undefined);
     layoutPrefs.set((current) => ({ ...current, sidebarWidth: clampSidebarWidth(width) }));
@@ -256,12 +294,16 @@ export function WorkbenchLayout() {
             </div>
             {panes && (
               <div className="flex shrink-0 items-center gap-0.5">
-                <SummaryToggle
-                  sessionId={sessionId}
-                  workspaceName={header.subtitle ?? ''}
-                  primaryWidth={plan.primaryWidth}
-                />
-                <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+                {rail && (
+                  <>
+                    <RailToggle
+                      ref={railToggleRef}
+                      shown={railDocked || railOverlay}
+                      onToggle={toggleRail}
+                    />
+                    <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+                  </>
+                )}
                 <OpenTabsMenu open={openTabsOpen} onOpenChange={setOpenTabsOpen} />
                 <IconButton
                   ref={auxToggleRef}
@@ -291,13 +333,6 @@ export function WorkbenchLayout() {
               )}
             >
               <Outlet />
-              {panes && header.entry && (
-                <SummaryCard
-                  sessionId={sessionId}
-                  workspaceName={header.entry.workspace.displayName}
-                  primaryWidth={plan.primaryWidth}
-                />
-              )}
             </main>
             {/* 停靠的窗格区：外层过渡宽度，里面一列始终是窗格区的宽；收起时留着最后的内容滑出去。与主窗格同是画布色
                 （U17，desktop-tokens.md §21），窗格只靠细边框与圆角分开。 */}
@@ -347,6 +382,23 @@ export function WorkbenchLayout() {
             {plan.mode === 'maximized' && plan.tree && (
               <div className="flex min-w-0 flex-1 p-2">{tree(plan.tree)}</div>
             )}
+            {/* 停靠的会话侧栏：在窗格区右边，开合同样过渡外层宽度，收起时不卸载。 */}
+            {rail && header.entry && sessionId !== undefined && plan.mode !== 'maximized' && (
+              <div
+                className="layout-transition flex shrink-0 overflow-hidden"
+                inert={!railDocked}
+                style={{ width: railDocked ? RAIL_DOCKED_WIDTH : 0 }}
+              >
+                <div className="flex shrink-0 flex-col" style={{ width: RAIL_DOCKED_WIDTH }}>
+                  <SessionRail
+                    sessionId={sessionId as Session['id']}
+                    session={rail}
+                    entry={header.entry}
+                    visible={railDocked}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -375,6 +427,34 @@ export function WorkbenchLayout() {
             <div className="flex min-h-0 flex-1 p-2">{plan.tree && tree(plan.tree)}</div>
           </SheetContent>
         </Sheet>
+
+        {rail && header.entry && sessionId !== undefined && (
+          <Sheet open={railOverlay} onOpenChange={setRailOverlayOpen}>
+            <SheetContent
+              side="right"
+              showCloseButton={false}
+              finalFocus={railToggleRef}
+              className="gap-0 bg-background text-foreground data-[side=right]:w-(--overlay-width) data-[side=right]:sm:max-w-none"
+              style={
+                { '--overlay-width': `${RAIL_DOCKED_WIDTH + PANE_LAYOUT.gap}px` } as CSSProperties
+              }
+            >
+              <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">
+                <SheetTitle className="shrink-0 text-sm">{t('rail.label')}</SheetTitle>
+                <span className="flex-1" />
+                <RailToggle shown onToggle={() => setRailOverlayOpen(false)} />
+              </div>
+              <div className="flex min-h-0 flex-1 pl-2">
+                <SessionRail
+                  sessionId={sessionId as Session['id']}
+                  session={rail}
+                  entry={header.entry}
+                  visible={railOverlay}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
+        )}
 
         {/* 放在最后：盖在侧栏与顶栏的拖动区上面，按钮才点得到（拖动区按文档顺序计算）。 */}
         <WindowControls
@@ -603,6 +683,8 @@ interface Header {
   title: string;
   subtitle?: string;
   entry?: WorkspaceEntry;
+  /** 会话页的会话（会话侧栏用）；草稿页没有。 */
+  session?: Session;
   /** 会话与新会话草稿有窗格区；首页、未找到没有。 */
   panes: boolean;
 }
@@ -618,6 +700,7 @@ function useHeader(workspaceId: string | undefined, sessionId: string | undefine
         title: target.session.title || t('session.untitled'),
         subtitle: target.entry.workspace.displayName,
         entry: target.entry,
+        session: target.session,
         panes: true,
       };
     case 'draft':

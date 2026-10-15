@@ -18,6 +18,7 @@ import type { ProviderProfileRecord, SecretStore, Storage, WorkspaceRecord } fro
 import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
+import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
@@ -200,6 +201,15 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }
       storage.workspaces.markRemoved(workspaceId, isoNow());
       return {};
+    },
+
+    // 0.13.0（U18）：每次现读，目录已不存在时同 workspace.add 回 WORKSPACE_PATH_INVALID。
+    'workspace.git': async ({ workspaceId }) => {
+      const workspace = storage.workspaces.get(workspaceId);
+      if (!workspace || workspace.removedAt !== undefined) {
+        throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+      }
+      return readGitStatus(await resolveWorkspacePath(workspace.rootPath));
     },
 
     'provider.list': () => ({ providers: storage.providers.list().map(toProviderProfile) }),

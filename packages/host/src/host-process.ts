@@ -195,10 +195,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(accounts !== undefined && { accounts }),
         settings,
       }),
-      // 待发消息与设置（R11）不依赖引擎：引擎不能插话时 Host 一律排队。
+      // 待发消息与设置（R11）、工作区的 git 状态（U18）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
         pending_messages: true,
         host_settings: true,
+        workspace_git: true,
         ...(accounts !== undefined && { chatgpt_account: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),

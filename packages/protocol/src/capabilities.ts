@@ -53,6 +53,8 @@ export const HOST_FEATURES = {
    * `session.configured` 带它。取决于引擎（Codex 有，dsh 没有）。
    */
   permissionModes: 'permission_modes',
+  /** 工作区的 git 状态（0.13.0，U18）：`workspace.git`。与引擎无关。 */
+  workspaceGit: 'workspace_git',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -63,6 +65,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_configure: z.boolean().optional(),
   user_questions: z.boolean().optional(),
   permission_modes: z.boolean().optional(),
+  workspace_git: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

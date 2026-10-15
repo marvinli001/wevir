@@ -1,5 +1,5 @@
-// 布局的界面状态（T5.2，R12 改）。侧栏宽度、是否收起、收起的项目与整个“项目”一节、置顶摘要开关记在本机（全局）；
-// 每个会话的窗格在 pane-store.ts；侧栏与窗格区的浮层、最大化只在本次运行内。
+// 布局的界面状态（T5.2，R12 改）。侧栏宽度、是否收起、收起的项目与整个“项目”一节、会话侧栏开着与否与展开了哪些
+// 卡片（U18）记在本机（全局）；每个会话的窗格在 pane-store.ts；侧栏、窗格区与会话侧栏的浮层、最大化只在本次运行内。
 
 import { useSyncExternalStore } from 'react';
 import { createPersistedStore, createStore } from '@/lib/store';
@@ -12,8 +12,10 @@ export interface LayoutPrefs {
   collapsedWorkspaces: readonly string[];
   /** 侧栏的整个“项目”一节收起了（U5）。 */
   projectsCollapsed: boolean;
-  /** 置顶摘要卡片（desktop-layout.md §3.8），默认开。 */
-  summaryPinned: boolean;
+  /** 会话侧栏开着（U18，desktop-layout.md §12），默认开。 */
+  railShown: boolean;
+  /** 会话侧栏里展开着的卡片（`registerRailCard` 的 id），默认只有“环境”。 */
+  railOpen: readonly string[];
 }
 
 const DEFAULT_PREFS: LayoutPrefs = {
@@ -21,10 +23,11 @@ const DEFAULT_PREFS: LayoutPrefs = {
   sidebarCollapsed: false,
   collapsedWorkspaces: [],
   projectsCollapsed: false,
-  summaryPinned: true,
+  railShown: true,
+  railOpen: ['environment'],
 };
 
-/** 读回偏好；v1（T5.2，没有 summaryPinned）的格式也认。 */
+/** 读回偏好；v1（T5.2）的格式也认，旧版本存下的 summaryPinned 忽略。 */
 export function parseLayoutPrefs(raw: unknown): LayoutPrefs | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const value = raw as Partial<Record<keyof LayoutPrefs, unknown>>;
@@ -38,7 +41,10 @@ export function parseLayoutPrefs(raw: unknown): LayoutPrefs | undefined {
       ? value.collapsedWorkspaces.filter((id): id is string => typeof id === 'string')
       : [],
     projectsCollapsed: value.projectsCollapsed === true,
-    summaryPinned: value.summaryPinned !== false,
+    railShown: value.railShown !== false,
+    railOpen: Array.isArray(value.railOpen)
+      ? value.railOpen.filter((id): id is string => typeof id === 'string')
+      : DEFAULT_PREFS.railOpen,
   };
 }
 
@@ -53,6 +59,8 @@ export interface TransientLayout {
   sidebarOverlayOpen: boolean;
   /** 窗格区停靠不下、以浮层显示时，浮层是否开着。 */
   auxOverlayOpen: boolean;
+  /** 会话侧栏停靠不下、以浮层显示时，浮层是否开着（U18）。 */
+  railOverlayOpen: boolean;
   /** 最大化的窗格（§3.4），只对那个会话有效。 */
   maximized?: { scope: string; groupId: string };
 }
@@ -60,7 +68,18 @@ export interface TransientLayout {
 export const transientLayout = createStore<TransientLayout>({
   sidebarOverlayOpen: false,
   auxOverlayOpen: false,
+  railOverlayOpen: false,
 });
+
+/** 展开或收起会话侧栏的一张卡片（U18）。 */
+export function toggleRailCard(id: string): void {
+  layoutPrefs.set((prefs) => ({
+    ...prefs,
+    railOpen: prefs.railOpen.includes(id)
+      ? prefs.railOpen.filter((open) => open !== id)
+      : [...prefs.railOpen, id],
+  }));
+}
 
 export function toggleWorkspace(workspaceId: string): void {
   layoutPrefs.set((prefs) => ({

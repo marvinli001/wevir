@@ -9,7 +9,6 @@ import {
   modelLine,
   pendingApprovals,
   statusLabel,
-  subagentCounts,
   subagentTitle,
   visibleParts,
 } from './subagent-model';
@@ -103,13 +102,6 @@ describe('“子智能体”窗格', () => {
     const a = child(1, { startedAt: at(0) });
     const b = child(2, { startedAt: at(0) });
     expect(groupSubagents([a, b]).open.map((s) => s.title)).toEqual(['Task 2', 'Task 1']);
-  });
-
-  it('置顶摘要的计数', () => {
-    expect(subagentCounts([child(1), child(2, { status: 'completed' })])).toEqual({
-      running: 1,
-      done: 1,
-    });
   });
 
   it('相对时间', () => {

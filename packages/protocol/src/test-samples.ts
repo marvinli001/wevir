@@ -663,6 +663,44 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ workspaceId: ids.workspace }], invalid: [{ workspaceId: ids.session }] },
     result: empty,
   },
+  'workspace.git': {
+    params: {
+      valid: [{ workspaceId: ids.workspace }],
+      invalid: [{ workspaceId: ids.session }, {}],
+    },
+    result: {
+      valid: [
+        { repo: false },
+        {
+          repo: true,
+          branch: 'main',
+          added: 12,
+          removed: 3,
+          fileCount: 3,
+          files: [
+            { path: 'src/a.ts', status: 'modified', added: 10, removed: 3 },
+            { path: 'logo.png', status: 'added' },
+            { path: 'notes.md', status: 'untracked' },
+          ],
+        },
+        { repo: true, detachedAt: '1a2b3c4', added: 0, removed: 0, fileCount: 0, files: [] },
+        {
+          repo: true,
+          branch: 'main',
+          added: 1,
+          removed: 0,
+          fileCount: 201,
+          files: [{ path: 'a', status: 'modified', added: 1, removed: 0 }],
+          truncated: true,
+        },
+      ],
+      invalid: [
+        {},
+        { repo: true, files: [{ path: '', status: 'modified' }] },
+        { repo: true, added: -1 },
+      ],
+    },
+  },
   'provider.list': {
     params: empty,
     result: {

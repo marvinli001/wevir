@@ -132,6 +132,7 @@ describe('ChatGPT 账号（account.*）', () => {
     expect((await withAccounts.connect()).hello.features).toEqual({
       pending_messages: true,
       host_settings: true,
+      workspace_git: true,
       chatgpt_account: true,
       session_configure: true,
       user_questions: true,
@@ -143,6 +144,7 @@ describe('ChatGPT 账号（account.*）', () => {
     expect(hello.features).toEqual({
       pending_messages: true,
       host_settings: true,
+      workspace_git: true,
       session_configure: true,
       user_questions: true,
       permission_modes: true,
