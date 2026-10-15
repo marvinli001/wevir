@@ -293,6 +293,8 @@ export const messages: Messages = {
   'session.rename': 'Переименовать',
   'session.renameSave': 'Сохранить',
   'session.renameFailed': 'Не удалось переименовать: {error}',
+  'message.copy': 'Копировать',
+  'message.copied': 'Скопировано',
   'session.untitled': 'Сессия без названия',
   'session.draftTitle': 'Новая сессия',
   'session.marker.running': 'Выполняется',

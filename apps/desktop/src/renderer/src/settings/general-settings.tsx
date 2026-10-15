@@ -1,5 +1,5 @@
 import type { PendingDelivery } from '@wevir/protocol';
-import { Command, CornerDownLeft, CornerDownRight, ListPlus } from 'lucide-react';
+import { CornerDownRight, ListPlus } from 'lucide-react';
 import { useState } from 'react';
 import { useHostSettings } from '@/data/host-settings';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';

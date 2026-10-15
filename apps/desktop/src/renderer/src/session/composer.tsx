@@ -34,6 +34,7 @@ import { composerPrefs, sendKeyLabel } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
 import { DeliverySwitch } from './delivery-switch';
 import { composerKeyAction, otherDelivery } from './pending-model';
+import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './prompt-history';
 
 /** 有回合在进行（含正在取消）：没有字时按钮是“停止”；Host 不支持待发消息时不能再发送。 */
 export function isBusy(state: SessionState | undefined): boolean {
@@ -127,6 +128,8 @@ export function Composer({
 
   // ── 斜杠命令与 @ 提及（U33） ────────────────────────────────────────
   const listId = useId();
+  /** 正在翻的历史（U36）：-1 表示没在翻。 */
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const { sendShortcut } = composerPrefs.use();
   const [cursor, setCursor] = useState(() => text.length);
   /** 下一次渲染后要放的光标（菜单替换了文字）。 */
@@ -332,6 +335,8 @@ export function Composer({
     try {
       // 等待期间可能已经输入了下一条（回合进行中接着发是常事）：只清掉发出去的那条。
       if (await onSend(sent, busy ? delivery : undefined)) {
+        rememberPrompt(sent);
+        setHistoryIndex(-1);
         setText((current) => (current.trim() === sent ? '' : current));
       }
     } finally {
@@ -340,8 +345,29 @@ export function Composer({
     }
   };
 
+  /** ↑ / ↓ 翻发过的消息（U36）：输入框为空、或正在翻且光标在首行 / 末行时。 */
+  const onHistoryKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false;
+    if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return false;
+    const caret = event.currentTarget.selectionStart;
+    if (event.key === 'ArrowUp') {
+      const browsing = historyIndex >= 0;
+      if (!(text === '' || (browsing && caretOnFirstLine(text, caret)))) return false;
+      const next = promptAt(historyIndex + 1);
+      if (next === undefined) return browsing;
+      setHistoryIndex(historyIndex + 1);
+      replaceRange(0, text.length, next);
+      return true;
+    }
+    if (historyIndex < 0 || !caretOnLastLine(text, caret)) return false;
+    const next = historyIndex === 0 ? '' : (promptAt(historyIndex - 1) ?? '');
+    setHistoryIndex(historyIndex - 1);
+    replaceRange(0, text.length, next);
+    return true;
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (onMenuKey(event)) {
+    if (onMenuKey(event) || (!menuOpen && onHistoryKey(event))) {
       event.preventDefault();
       return;
     }
@@ -417,6 +443,7 @@ export function Composer({
             onChange={(event) => {
               setText(event.target.value);
               setCursor(event.target.selectionStart);
+              setHistoryIndex(-1);
             }}
             onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
             onKeyDown={onKeyDown}

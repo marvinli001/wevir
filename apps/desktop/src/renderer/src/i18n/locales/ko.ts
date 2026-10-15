@@ -286,6 +286,8 @@ export const messages: Messages = {
   'session.rename': '이름 바꾸기',
   'session.renameSave': '저장',
   'session.renameFailed': '이름 바꾸기 실패: {error}',
+  'message.copy': '복사',
+  'message.copied': '복사됨',
   'session.untitled': '제목 없는 세션',
   'session.draftTitle': '새 세션',
   'session.marker.running': '실행 중',

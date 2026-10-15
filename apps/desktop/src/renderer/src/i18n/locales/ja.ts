@@ -290,6 +290,8 @@ export const messages: Messages = {
   'session.rename': '名前を変更',
   'session.renameSave': '保存',
   'session.renameFailed': '名前の変更に失敗：{error}',
+  'message.copy': 'コピー',
+  'message.copied': 'コピーしました',
   'session.untitled': '無題のセッション',
   'session.draftTitle': '新しいセッション',
   'session.marker.running': '実行中',

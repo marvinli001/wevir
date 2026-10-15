@@ -295,6 +295,8 @@ export const zhCN = {
   'session.rename': '重命名',
   'session.renameSave': '保存',
   'session.renameFailed': '重命名失败：{error}',
+  'message.copy': '复制',
+  'message.copied': '已复制',
   'session.untitled': '未命名会话',
   'session.draftTitle': '新会话',
   'session.marker.running': '运行中',

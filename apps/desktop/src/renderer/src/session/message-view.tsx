@@ -3,6 +3,7 @@ import { cn } from 'cn';
 import { CircleAlert, Info } from 'lucide-react';
 import { memo } from 'react';
 import { t } from '@/i18n';
+import { CopyButton } from './copy-button';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SubagentRow } from './subagent-marker';
@@ -18,8 +19,15 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
   // 子会话里父 agent 给的输入标成“父 agent 派给它的任务”（R5）。别的客户端发的不标来源。
   return (
     <div className="flex flex-col items-end" data-message-role="user">
-      <div className="max-w-[85%] rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
-        {text}
+      {/* 悬停时左边出现“复制”（U36）。 */}
+      <div className="group/user flex max-w-[85%] items-center gap-1">
+        <CopyButton
+          text={text}
+          className="shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-visible:opacity-100"
+        />
+        <div className="min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
+          {text}
+        </div>
       </div>
       {message.fromParentAgent && (
         <span className="mt-1 text-xs text-muted-foreground">

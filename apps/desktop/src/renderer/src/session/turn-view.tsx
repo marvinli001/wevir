@@ -5,6 +5,7 @@ import { ChevronRight } from 'lucide-react';
 import { memo, useContext, useId } from 'react';
 import type { OrbState } from 'thinking-orbs';
 import { t } from '@/i18n';
+import { CopyButton } from './copy-button';
 import { Elapsed } from './elapsed';
 import { useFold, useFoldSetter } from './fold-state';
 import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
@@ -61,9 +62,17 @@ export const TurnView = memo(
       live !== undefined &&
       last?.role === 'assistant' &&
       groupWork(visibleParts(last.parts, hasSubagents)).at(-1)?.kind === 'work';
+    // 回合结束后的回答（最后一条助手消息的正文），悬停时下面出现“复制”（U36）。
+    const answer =
+      fold.finished && last?.role === 'assistant'
+        ? last.parts
+            .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+            .join('\n\n')
+            .trim()
+        : '';
     return (
       <TurnOrb value={orb}>
-        <div data-turn={turnId} data-turn-folded={folded || undefined}>
+        <div data-turn={turnId} data-turn-folded={folded || undefined} className="group/turn">
           {messages
             .slice(0, lead)
             .map((message) =>
@@ -114,6 +123,14 @@ export const TurnView = memo(
               hasSubagents={hasSubagents}
               fold={fold}
             />
+          )}
+          {answer !== '' && (
+            // 悬停时出现，不占消息流的高度（叠在下一个回合上方的空隙里）。
+            <div className="relative h-0">
+              <div className="absolute top-0.5 left-0 flex items-center opacity-0 transition-opacity duration-150 group-hover/turn:opacity-100 focus-within:opacity-100">
+                <CopyButton text={answer} className="-ml-1 text-muted-foreground" />
+              </div>
+            </div>
           )}
         </div>
       </TurnOrb>

@@ -284,6 +284,8 @@ export const messages: Messages = {
   'session.rename': '重新命名',
   'session.renameSave': '儲存',
   'session.renameFailed': '重新命名失敗：{error}',
+  'message.copy': '複製',
+  'message.copied': '已複製',
   'session.untitled': '未命名工作階段',
   'session.draftTitle': '新工作階段',
   'session.marker.running': '執行中',

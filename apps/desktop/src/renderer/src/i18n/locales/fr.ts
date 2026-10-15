@@ -293,6 +293,8 @@ export const messages: Messages = {
   'session.rename': 'Renommer',
   'session.renameSave': 'Enregistrer',
   'session.renameFailed': 'Échec du renommage : {error}',
+  'message.copy': 'Copier',
+  'message.copied': 'Copié',
   'session.untitled': 'Session sans titre',
   'session.draftTitle': 'Nouvelle session',
   'session.marker.running': 'En cours',
