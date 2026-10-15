@@ -1,12 +1,14 @@
 import { cn } from 'cn';
-import { ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, Folder, Plus } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 import { BrandMark } from '@/components/brand-mark';
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import type { WorkspaceEntry } from '@/data/workbench-model';
+import { recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
 import { MetalWordmark } from '@/fx/metal';
 import { t } from '@/i18n';
+import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
+import { openCreateProject } from '@/projects/create-project';
 import { ProjectMenuContent } from '@/projects/project-menu';
 
 /** 各块依次淡入上移（U10）：品牌行、标题、输入框，相隔 60 ms。 */
@@ -70,7 +72,70 @@ export function NewSessionHero({
         <ProjectPicker current={current} workspaces={workspaces} onSelect={onSelect} />
         {t('home.title.after')}
       </h1>
+      {workspaces.length > 0 && (
+        <RecentFolders current={current} workspaces={workspaces} onSelect={onSelect} />
+      )}
     </div>
+  );
+}
+
+/**
+ * 最近的文件夹（U22，desktop-layout.md §16；截图 01–02）：一键换到最近用过的项目，当前的打勾，最下面“添加文件夹…”。
+ */
+function RecentFolders({
+  current,
+  workspaces,
+  onSelect,
+}: {
+  current: WorkspaceEntry | undefined;
+  workspaces: readonly WorkspaceEntry[];
+  onSelect: (workspaceId: string) => void;
+}) {
+  const row =
+    'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-base outline-none transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50';
+  return (
+    <nav
+      aria-label={t('home.recentFolders')}
+      data-testid="recent-folders"
+      className={cn('mt-1 w-80 max-w-full rounded-xl border border-border bg-card p-1', ENTER)}
+      style={stagger(2)}
+    >
+      <ul>
+        {recentWorkspaces(workspaces).map(({ workspace }) => {
+          const selected = workspace.id === current?.workspace.id;
+          return (
+            <li key={workspace.id}>
+              <button
+                type="button"
+                aria-current={selected || undefined}
+                title={workspace.rootPath}
+                onClick={() => onSelect(workspace.id)}
+                className={row}
+              >
+                <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                <span className="shrink-0">{workspace.displayName}</span>
+                <span
+                  dir="rtl"
+                  className="min-w-0 flex-1 truncate text-left text-xs text-muted-foreground"
+                >
+                  <bdi dir="ltr">{abbreviateHome(parentDirectory(workspace.rootPath))}</bdi>
+                </span>
+                {selected && <Check aria-hidden className="size-4 shrink-0" />}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mx-2 my-1 h-px bg-border" />
+      <button
+        type="button"
+        onClick={() => openCreateProject()}
+        className={cn(row, 'text-muted-foreground hover:text-foreground')}
+      >
+        <Plus aria-hidden className="size-4 shrink-0" />
+        {t('home.addFolder')}
+      </button>
+    </nav>
   );
 }
 

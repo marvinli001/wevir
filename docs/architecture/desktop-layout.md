@@ -705,3 +705,9 @@ interface StoredPanes {
 - **每一项**：标题（子会话的标题）、右边用时（进行中每秒走）与停止按钮；下面一行说明文字色的模型名与 token 数（子会话快照的 `usage.totalTokens`，0.14.0；Host 没有时不写），失败与取消的写出状态（失败色）。点标题展开它的子步骤：子会话最近一个回合的过程（U16 的工作组：做完的折成一行摘要、失败的标红、命令与输出在详情里），下面一行“查看完整记录”打开子智能体详情（§10）。
 - **停止（D9）**：Host 有 `subagent_cancel` 时进行中的每一项（窗格与侧栏卡片里）都有停止按钮，对子会话 `session.cancel`；父会话照常跑。Codex 会把这件事告诉父 agent（codex-event-mapping.md §6.5），但父 agent 正在 `wait_agent` 时仍会等到它自己的超时。
 - **token 数（D10）**：子会话的快照在窗格可见时读一次，进行中的每 3 s 再读，结束后不再读。
+
+## 16. U22：新会话页的最近文件夹与环境
+
+维护者 2026-10-15 确认（`design-refs/claude-code-parallel-sessions/` 01–02；设计提案 D11）。
+
+- **最近的文件夹**（只改桌面端）：首页与新会话草稿页的标题下面一列最近用过的项目（`session/new-session.tsx` 的 `RecentFolders`），按项目里最近的会话活动排（没有会话的按项目的更新时间），最多 5 个，当前项目右边打勾，点一下就换到它（与标题里的项目菜单相同）；最下面“添加文件夹…”打开“创建项目”。排序是 `data/workbench-model.ts` 的 `recentWorkspaces`。

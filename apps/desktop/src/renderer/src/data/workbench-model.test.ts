@@ -4,6 +4,7 @@ import {
   groupByStatus,
   groupSessions,
   mergeSessions,
+  recentWorkspaces,
   resolveRoute,
   sessionMarker,
   type WorkbenchData,
@@ -109,6 +110,25 @@ describe('最近活动的顺序', () => {
       ],
     );
     expect(entry?.sessions.map((s) => s.id)).toEqual(['ses_late', 'ses_idle', 'ses_early']);
+  });
+});
+
+describe('recentWorkspaces', () => {
+  it('按项目里最近的会话活动排，没有会话的按项目的更新时间，最多 5 个', () => {
+    const entries = groupSessions(
+      ['ws_a', 'ws_b', 'ws_c', 'ws_d', 'ws_e', 'ws_f'].map((id, index) => ({
+        ...workspace(id as `ws_${string}`),
+        updatedAt: `2026-10-1${index}T00:00:00.000Z`,
+      })),
+      [session('ses_1', 'ws_a', { updatedAt: '2026-10-20T00:00:00.000Z' })],
+    );
+    expect(recentWorkspaces(entries).map((entry) => entry.workspace.id)).toEqual([
+      'ws_a',
+      'ws_f',
+      'ws_e',
+      'ws_d',
+      'ws_c',
+    ]);
   });
 });
 

@@ -407,6 +407,8 @@ export const zhCN = {
   'home.title.before': '今天在',
   'home.title.after': '里做什么？',
   'home.createProject': '创建项目…',
+  'home.recentFolders': '最近的文件夹',
+  'home.addFolder': '添加文件夹…',
   'home.chooseProject': '选择项目',
   'home.noProvider': '添加模型服务后即可开始',
   'home.addProvider': '添加模型服务',

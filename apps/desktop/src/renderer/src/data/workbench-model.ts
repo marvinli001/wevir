@@ -123,6 +123,22 @@ export function groupByStatus(
   return groups;
 }
 
+/**
+ * 新会话页“最近的文件夹”（U22）：按项目里最近的会话活动从新到旧，没有会话的项目按它自己的更新时间；最多 `limit` 个。
+ */
+export function recentWorkspaces(entries: readonly WorkspaceEntry[], limit = 5): WorkspaceEntry[] {
+  const latest = (entry: WorkspaceEntry) =>
+    entry.sessions.reduce(
+      (at, session) => (activityAt(session) > at ? activityAt(session) : at),
+      entry.workspace.updatedAt,
+    );
+  return entries
+    .map((entry) => ({ entry, at: latest(entry) }))
+    .sort((a, b) => (a.at === b.at ? 0 : a.at < b.at ? 1 : -1))
+    .slice(0, limit)
+    .map((item) => item.entry);
+}
+
 export type RouteTarget =
   | { kind: 'loading' }
   | { kind: 'unavailable'; error: string }
