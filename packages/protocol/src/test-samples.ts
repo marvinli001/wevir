@@ -814,6 +814,19 @@ export const methodSamples: MethodSamples = {
           },
           permissions: ['host.manage', 'session.read', 'session.write'],
         },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.27.0',
+          minProtocolVersion: '0.1.0',
+          features: { session_compact: true, session_review: true },
+          engineFeatures: {
+            'deepseek-official': { engine: 'codex', commands: ['compact', 'review'] },
+            claude: { engine: 'claude', commands: ['compact'] },
+            cursor: { engine: 'cursor', commands: [] },
+          },
+          permissions: ['host.manage', 'session.read', 'session.write'],
+        },
       ],
       invalid: [
         {
@@ -831,6 +844,15 @@ export const methodSamples: MethodSamples = {
           minProtocolVersion: '0.1.0',
           features: {},
           engineFeatures: { claude: { steer: true } },
+          permissions: [],
+        },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.27.0',
+          minProtocolVersion: '0.1.0',
+          features: {},
+          engineFeatures: { claude: { engine: 'claude', commands: ['init'] } },
           permissions: [],
         },
       ],

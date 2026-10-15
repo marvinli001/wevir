@@ -77,6 +77,7 @@ import {
   ReviewTargetSchema,
   SeqCursorSchema,
   SeqSchema,
+  SessionCommandSchema,
   SessionEngineSchema,
   SessionForkedFromSchema,
   SessionIdSchema,
@@ -791,6 +792,12 @@ const standaloneCases: Case[] = [
     schema: TurnCommandSchema,
     valid: [{ kind: 'compact' }, { kind: 'review', target: 'uncommitted' }],
     invalid: [{ kind: 'init' }, { kind: 'review', target: 'branch', baseBranch: '' }],
+  },
+  {
+    name: 'SessionCommand',
+    schema: SessionCommandSchema,
+    valid: ['review'],
+    invalid: ['init'],
   },
   {
     name: 'CompactionTrigger',

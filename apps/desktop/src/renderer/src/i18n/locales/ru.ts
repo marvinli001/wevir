@@ -352,6 +352,7 @@ export const messages: Messages = {
   'session.busy': 'Сессия занята',
   'session.readOnlyComposer': 'Сессия только для чтения',
   'session.sendFailed': 'Не удалось отправить: {error}',
+  'session.commandFailed': 'Не удалось выполнить команду: {error}',
   'session.cancelFailed': 'Не удалось остановить: {error}',
   'session.createFailed': 'Не удалось создать сессию: {error}',
   'session.noProvider': 'Поставщик моделей не настроен',

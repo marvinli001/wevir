@@ -1,4 +1,4 @@
-import { hostSupports } from '@wevir/client-sdk';
+import { commandSupported, hostSupports, isRpcError } from '@wevir/client-sdk';
 import type {
   PendingDelivery,
   PermissionMode,
@@ -226,10 +226,12 @@ export function SessionView({
         : undefined,
     [manage.archive, topLevel, client, store, session.id],
   );
-  // 压缩上下文与代码审查（0.24.0）：由命令开始的回合，前提同发送（出错或已关闭的会话先恢复）。会话所在的引擎做不到时 Host
-  // 拒绝，提示写在输入框上方。
+  // 压缩上下文与代码审查（0.24.0）：由命令开始的回合，前提同发送（出错或已关闭的会话先恢复）。0.27.0 起只列当前引擎会的
+  // （`engineFeatures` 的 `commands`，接力后跟着变）；失败的提示写在输入框上方。
   const commandsEnabled =
     writable && session.parentSessionId === undefined && view.status === 'connected';
+  const canCompact = commandsEnabled && commandSupported(view.hello.features, engine, 'compact');
+  const canReview = commandsEnabled && commandSupported(view.hello.features, engine, 'review');
   const runCommand = useCallback(
     async (start: () => Promise<unknown>) => {
       if (!client) return;
@@ -241,27 +243,31 @@ export function SessionView({
         await start();
         transcriptRef.current?.jumpToLatest('auto');
       } catch (error) {
-        setNotice(sendError(error));
+        setNotice(
+          isRpcError(error, 'SESSION_BUSY')
+            ? t('session.busy')
+            : t('session.commandFailed', { error: describe(error) }),
+        );
       }
     },
     [client, session.id, sessionState],
   );
   const onCompact = useMemo(
     () =>
-      client && commandsEnabled && hostSupports(view.hello.features, 'session_compact')
+      client && canCompact
         ? () => void runCommand(() => client.request('session.compact', { sessionId: session.id }))
         : undefined,
-    [commandsEnabled, view, runCommand, client, session.id],
+    [canCompact, runCommand, client, session.id],
   );
   const onReview = useMemo(
     () =>
-      client && commandsEnabled && hostSupports(view.hello.features, 'session_review')
+      client && canReview
         ? (target: ReviewTarget) =>
             void runCommand(() =>
               client.request('session.review', { sessionId: session.id, target }),
             )
         : undefined,
-    [commandsEnabled, view, runCommand, client, session.id],
+    [canReview, runCommand, client, session.id],
   );
   const commands = useSessionCommands({
     workspaceId: session.workspaceId,

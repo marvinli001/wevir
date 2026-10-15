@@ -100,10 +100,14 @@ export const HOST_FEATURES = {
   sessionArchive: 'session_archive',
   /**
    * 立即压缩会话的上下文（0.24.0）：`session.compact`，`turn.started` 的 `command`，`context.compacting` / `context.compacted`
-   * 事件（引擎自己压缩时也有）。取决于引擎（Codex、Claude 有）；会话所在的引擎不能压缩时 `INVALID_STATE`。
+   * 事件（引擎自己压缩时也有）。取决于引擎（Codex、Claude 有）：0.27.0 起 `engineFeatures` 的 `commands` 说哪种 Provider 的引擎
+   * 会；会话所在的引擎不能压缩时 `INVALID_STATE`。
    */
   sessionCompact: 'session_compact',
-  /** 代码审查（0.24.0）：`session.review`。取决于引擎（Codex 有）；会话所在的引擎不能审查时 `INVALID_STATE`。 */
+  /**
+   * 代码审查（0.24.0）：`session.review`。取决于引擎（Codex 有）：0.27.0 起看 `engineFeatures` 的 `commands`；会话所在的引擎不能
+   * 审查时 `INVALID_STATE`。
+   */
   sessionReview: 'session_review',
   /**
    * 接力（0.25.0，domain-model §3.14）：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与

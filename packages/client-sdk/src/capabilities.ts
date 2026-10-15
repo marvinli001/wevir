@@ -1,4 +1,10 @@
-import type { ClientCapability, HostFeature, HostFeatures } from '@wevir/protocol';
+import type {
+  ClientCapability,
+  EngineFeatures,
+  HostFeature,
+  HostFeatures,
+  SessionCommand,
+} from '@wevir/protocol';
 
 /**
  * 本版 client-sdk 能理解的全部客户端能力位（ADR-0002 §2、host-api.md §10），在 `host.hello` 里声明。
@@ -23,4 +29,24 @@ export const DEFAULT_CLIENT_CAPABILITIES = {
 /** Host 是否声明了这项功能（host-api.md §10：客户端只在一处判断，功能内部不写降级路径）。 */
 export function hostSupports(features: HostFeatures, feature: HostFeature): boolean {
   return features[feature] === true;
+}
+
+const COMMAND_FEATURES = {
+  compact: 'session_compact',
+  review: 'session_review',
+} as const satisfies Record<SessionCommand, HostFeature>;
+
+/**
+ * 会话能不能用这个命令（0.27.0）：Host 声明了功能，且会话当前的引擎会。`engine` 是 `host.hello` 的 `engineFeatures` 按会话当前
+ * Provider 的种类查到的那项；0.27.0 之前的 Host 没有它的 `commands`，只看功能（引擎不会时发出去才被拒绝）。
+ */
+export function commandSupported(
+  features: HostFeatures,
+  engine: EngineFeatures | undefined,
+  command: SessionCommand,
+): boolean {
+  return (
+    hostSupports(features, COMMAND_FEATURES[command]) &&
+    (engine?.commands === undefined || engine.commands.includes(command))
+  );
 }

@@ -123,7 +123,7 @@ const GATEWAY_KINDS = [
 
 /**
  * 开发用：echo 引擎挂上假的订阅账号（`WEVIR_ECHO_SUBSCRIPTIONS`，见 runtime-adapter 的 echo-accounts.ts），订阅来源的会话也由
- * echo 回答。
+ * echo 回答。同真实的订阅引擎，不能代码审查（`engineFeatures` 的 `commands` 只有 `compact`）。
  */
 class EchoSubscriptionEngine extends EchoAdapter {
   readonly accounts: EchoAccounts;
@@ -131,6 +131,7 @@ class EchoSubscriptionEngine extends EchoAdapter {
   constructor(scenarios: string | undefined) {
     super();
     this.accounts = new EchoAccounts({ scenarios: parseEchoScenarios(scenarios) });
+    Object.assign(this, { review: undefined });
   }
 
   override async dispose(): Promise<void> {

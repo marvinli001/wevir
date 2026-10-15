@@ -3,7 +3,7 @@
 // 引擎会话 ID 找回它（子会话与支线跟着派出它的引擎）；账号按种类合并。照 adapter-codex 的 CodexRuntime（两个进程按种类分会话）
 // 推广到任意个引擎。
 
-import type { EngineFeatures } from '@wevir/protocol';
+import type { EngineFeatures, SessionCommand } from '@wevir/protocol';
 import type {
   AccountKind,
   AccountState,
@@ -284,8 +284,12 @@ export class EngineRouter implements AgentRuntimeAdapter {
   }
 }
 
-/** 一个引擎能做什么（0.25.0）：按适配器实现了哪些可选方法、声明了哪些能力。 */
+/** `EngineFeatures.commands` 的顺序（0.27.0），对应适配器的 `compact` / `review`。 */
+const SESSION_COMMANDS = ['compact', 'review'] as const satisfies readonly SessionCommand[];
+
+/** 一个引擎能做什么（0.25.0）：按适配器实现了哪些可选方法、声明了哪些能力；0.27.0 起总是带 `commands`。 */
 export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): EngineFeatures {
+  const commands = SESSION_COMMANDS.filter((command) => adapter[command] !== undefined);
   return {
     engine: name,
     ...(adapter.steer !== undefined && { steer: true }),
@@ -295,6 +299,7 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
     ...(adapter.permissionModes !== undefined && { permissionModes: [...adapter.permissionModes] }),
     ...(adapter.additionalRoots === true && { additionalRoots: true }),
     ...(adapter.historyTool === true && { historyTool: true }),
+    commands,
   };
 }
 

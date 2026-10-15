@@ -345,6 +345,7 @@ export const messages: Messages = {
   'session.busy': '세션 사용 중',
   'session.readOnlyComposer': '읽기 전용 세션',
   'session.sendFailed': '전송 실패: {error}',
+  'session.commandFailed': '명령 실행 실패: {error}',
   'session.cancelFailed': '중지 실패: {error}',
   'session.createFailed': '세션 생성 실패: {error}',
   'session.noProvider': '구성된 모델 제공자 없음',

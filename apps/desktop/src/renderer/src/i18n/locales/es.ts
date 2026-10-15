@@ -355,6 +355,7 @@ export const messages: Messages = {
   'session.busy': 'Sesión ocupada',
   'session.readOnlyComposer': 'Sesión de solo lectura',
   'session.sendFailed': 'Error al enviar: {error}',
+  'session.commandFailed': 'Error al ejecutar el comando: {error}',
   'session.cancelFailed': 'Error al detener: {error}',
   'session.createFailed': 'Error al crear la sesión: {error}',
   'session.noProvider': 'Ningún proveedor de modelos configurado',

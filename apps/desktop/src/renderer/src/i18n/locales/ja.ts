@@ -350,6 +350,7 @@ export const messages: Messages = {
   'session.busy': 'セッション処理中',
   'session.readOnlyComposer': 'セッションは読み取り専用',
   'session.sendFailed': '送信に失敗しました: {error}',
+  'session.commandFailed': 'コマンドの実行に失敗しました: {error}',
   'session.cancelFailed': '停止に失敗しました: {error}',
   'session.createFailed': 'セッションの作成に失敗しました: {error}',
   'session.noProvider': 'モデルプロバイダー未設定',

@@ -122,6 +122,18 @@ describe('EngineRouter', () => {
     await expect(
       router.review?.(claude.engineSessionId, { target: 'uncommitted' }),
     ).rejects.toMatchObject({ code: 'invalid_input' });
+    // 0.27.0：engineFeatures 的 commands 按种类说同一件事，客户端据此只列引擎会的命令。
+    const features = router.engineFeatures();
+    expect(features['openai-compatible']?.commands).toEqual(['compact', 'review']);
+    expect(features.claude?.commands).toEqual(['compact']);
+  });
+
+  it('engineFeatures 总是带 commands，引擎一个都不会时是空数组（0.27.0）', () => {
+    const plain = new Recording({ stepDelayMs: 0 });
+    Object.assign(plain, { compact: undefined, review: undefined });
+    const router = new EngineRouter([{ name: 'plain', adapter: plain, kinds: ['cursor'] }]);
+    routers.push(router);
+    expect(router.engineFeatures().cursor?.commands).toEqual([]);
   });
 
   it('没有引擎的种类：validateProvider 给出问题，建会话报 invalid_input；额外目录只给支持它的引擎', async () => {

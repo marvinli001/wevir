@@ -351,6 +351,7 @@ export const messages: Messages = {
   'session.busy': 'Sitzung beschäftigt',
   'session.readOnlyComposer': 'Sitzung schreibgeschützt',
   'session.sendFailed': 'Senden fehlgeschlagen: {error}',
+  'session.commandFailed': 'Befehl fehlgeschlagen: {error}',
   'session.cancelFailed': 'Stoppen fehlgeschlagen: {error}',
   'session.createFailed': 'Sitzung konnte nicht erstellt werden: {error}',
   'session.noProvider': 'Kein Modellanbieter konfiguriert',

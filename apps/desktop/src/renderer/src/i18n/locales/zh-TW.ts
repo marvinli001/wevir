@@ -343,6 +343,7 @@ export const messages: Messages = {
   'session.busy': '工作階段忙碌中',
   'session.readOnlyComposer': '工作階段唯讀',
   'session.sendFailed': '傳送失敗：{error}',
+  'session.commandFailed': '命令執行失敗：{error}',
   'session.cancelFailed': '停止失敗：{error}',
   'session.createFailed': '建立工作階段失敗：{error}',
   'session.noProvider': '未設定模型服務',

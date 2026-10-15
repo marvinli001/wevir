@@ -45,7 +45,7 @@
 - `hostId`：每个数据目录一个，跨 Host 重启不变，客户端据此认出“同一个 Host”。
 - `permissions`：骨架阶段恒为权限词表全部（`PERMISSIONS`），为设备权限预留；每个方法需要的权限见 §3。
 - `capabilities` / `features`：见 §10。0.7.0 起 Host 按自己的引擎声明 `features.chatgpt_account`（Codex 引擎有，dsh、echo 没有）。
-- `engineFeatures`（0.25.0）：键是 Provider 种类，值是跑这种 Provider 的引擎的名字与它能做什么（插话、换模型、支线、提问、权限模式、额外目录、读历史的工具，`EngineFeatures`）。会话接力到别的来源后，客户端按会话当前的 `providerId` 的种类查它，决定输入框上的功能（domain-model §3.14）。
+- `engineFeatures`（0.25.0）：键是 Provider 种类，值是跑这种 Provider 的引擎的名字与它能做什么（插话、换模型、支线、提问、权限模式、额外目录、读历史的工具，0.27.0 起还有会话能用的命令 `commands`，`EngineFeatures`）。会话接力到别的来源后，客户端按会话当前的 `providerId` 的种类查它，决定输入框上的功能（domain-model §3.14）。
 
 **Host 的检查顺序与失败处理**：每种失败都先回 JSON-RPC 错误（`id` 取该请求的 `id`，取不到时为 `null`），再以对应关闭码关闭连接（§8）。
 
@@ -166,7 +166,7 @@ Host → 客户端的通知：
 - **`account.logout`**：登出（引擎删除本机凭据并尽力吊销令牌），没登录时同样成功。`chatgpt` Provider 与用它的会话保留，之后的回合失败（`missing_credentials`），重新登录即可继续。
 - **`session.create`**：`modelId` 省略时用 Provider 的 `defaultModelId`。0.16.0 起可带 `origin`（建议的后续任务，domain-model §3.11）：`workspaceId` 要与提出建议的会话相同、这项建议还没开始，否则 `INVALID_PARAMS`；建好后在提出建议的会话里写 `task.started`。0.15.0 起可带 `environmentId`（domain-model §3.10）：`workspaceId` 必须是环境的主文件夹；Host 先按环境准备目录（worktree），再建引擎会话，任何一步失败都回 `INVALID_PARAMS` 并删掉已建的 worktree。0.18.0 起可带 `worktree: 'new'`（Host 功能 `session_worktree`）：不用环境，在工作区的仓库里给这个会话单独新开一个 worktree，失败同样回 `INVALID_PARAMS`、不留 worktree；不能与 `environmentId` 同时给，`none` 与省略相同。Host 先建引擎会话，成功后才写 `session.created`（`seq = 1`），返回的 `session.state` 为 `idle`、`lastSeq` 为 1。引擎失败回 `ENGINE_ERROR`，不建会话。
 - **`session.fork`**（0.17.0，Host 功能 `side_sessions`，domain-model §3.12）：从会话分出一个支线会话，`side` 现在只能是 `true`。被分的会话是子会话、支线、只读，或还没有完成的回合时回 `INVALID_STATE`；回合进行中也可以分，支线带着到最近一个完成的回合为止的上下文。返回的新会话 `idle`、带 `forkedFrom` 与 `side`，它的事件流从 `session.created` 开始；支线不进 `session.list`。
-- **`session.compact`**（0.24.0，Host 功能 `session_compact`，domain-model §4.7）：立即压缩会话的上下文。开始一个由命令开始的回合：没有 `user.message`，`turn.started` 带 `command: { kind: 'compact' }`，回合里引擎报 `context.compacting` 与 `context.compacted`（`trigger: 'manual'`），之后照常 `turn.finished`。前提与 `session.send` 相同：会话空闲（回合进行中回 `SESSION_BUSY`，不排队），已关闭或出错时先 `session.resume`（否则 `INVALID_STATE`），只读与子会话 `INVALID_STATE`；引擎会话没挂着时 Host 先自动恢复。会话所在的引擎不能压缩时回 `INVALID_STATE`，不写事件。Codex：`thread/compact/start`；Claude：发 `/compact`。结果是开始的回合与它的 `turn.started` 的 `seq`。引擎在上下文快满时自己压缩（不经这个方法）同样报这两个事件，`trigger: 'auto'`，在普通回合中间。
+- **`session.compact`**（0.24.0，Host 功能 `session_compact`，domain-model §4.7）：立即压缩会话的上下文。开始一个由命令开始的回合：没有 `user.message`，`turn.started` 带 `command: { kind: 'compact' }`，回合里引擎报 `context.compacting` 与 `context.compacted`（`trigger: 'manual'`），之后照常 `turn.finished`。前提与 `session.send` 相同：会话空闲（回合进行中回 `SESSION_BUSY`，不排队），已关闭或出错时先 `session.resume`（否则 `INVALID_STATE`），只读与子会话 `INVALID_STATE`；引擎会话没挂着时 Host 先自动恢复。会话所在的引擎不能压缩时回 `INVALID_STATE`，不写事件；0.27.0 起 `host.hello` 的 `engineFeatures` 的 `commands`（`compact`、`review`）事先说明哪种 Provider 的引擎会，客户端按会话当前的 Provider 查，只列出会的命令。Codex：`thread/compact/start`；Claude：发 `/compact`。结果是开始的回合与它的 `turn.started` 的 `seq`。引擎在上下文快满时自己压缩（不经这个方法）同样报这两个事件，`trigger: 'auto'`，在普通回合中间。
 - **`session.review`**（0.24.0，Host 功能 `session_review`）：代码审查。`target: 'uncommitted'` 看工作树里暂存、未暂存与未跟踪的改动；`'branch'` 看当前分支对基础分支的改动，基础分支由 Host 找（同 `workspace.diff` 的 `branch`：origin 的 HEAD，再试 main、master 与 origin 上的同名分支），找不到时 `INVALID_PARAMS`。会话目录不是 git 仓库时同样 `INVALID_PARAMS`。回合同 `session.compact`：`turn.started` 带 `command: { kind: 'review', target, baseBranch? }`，审查结果是这个回合的助手消息。其余前提与错误同 `session.compact`。Codex：`review/start`（`delivery: 'inline'`，在会话自己的 thread 上）；别的引擎不支持（`INVALID_STATE`）。
 - **`session.rename`**（0.23.0，Host 功能 `session_rename`）：用户给会话改名。`title` 去掉首尾空白后不能是空的（否则 `INVALID_PARAMS`），最长 200 个字符；写一条 `session.title_changed`（`source: 'user'`），之后模型生成的标题不再覆盖它。子会话不能改名（`INVALID_PARAMS`）；已关闭、只读、已归档的会话可以。标题没变时不写事件。
 - **`session.archive`**（0.23.0，Host 功能 `session_archive`）：`archived: true` 归档——会话没关闭时先按 `session.close` 关闭（进行中的回合取消），再记下归档的时刻（`Session.archivedAt`）；`false` 取消归档，会话仍是关闭的，下次发送时客户端照常先 `session.resume`。只有顶层、不是支线的会话能归档（否则 `INVALID_PARAMS`）。已归档时再归档不改时刻。`archivedAt` 只在 `session.list`、`session.get` 与 `session.*` 方法的结果里，不是事件推导的；别的客户端在下一次 `session.list` 时看到变化。
@@ -403,6 +403,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 `0.25.0`：接力（domain-model §3.14，ADR-0005 补记 14）。`session.configure` 加 optional 的 `providerId`；新事件 `session.handoff`；`Session` 加 optional 的 `engines`（新类型 `SessionEngine`）；`host.hello` 的结果加 optional 的 `engineFeatures`（新类型 `EngineFeatures`、`HandoffStrategy`，后者是开放字符串）；Host 功能 `session_handoff`。新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端忽略 `session.handoff`（规则 5），会话的 `providerId`、`modelId` 在它下次读会话时更新；它不带 `providerId`，换模型照旧只在同一个 Provider 里。新客户端连旧 Host：hello 结果里没有 `session_handoff`，桌面端的模型选择里别的来源照旧不能选（旧 Host 会丢掉 `providerId`、按当前 Provider 校验模型，所以不能不看功能位就发）。冻结样本 `compat/0.25.0.json`。
 
+`0.27.0`：会话能用的命令。新类型 `SessionCommand`（`compact`、`review`）；`EngineFeatures` 加 optional 的 `commands`：这种 Provider 的引擎会的命令（还要 Host 声明 `session_compact` / `session_review`）。0.27.0 起的 Host 总是给，引擎一个都不会时是空数组。optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧 schema 忽略多出的字段，旧桌面端照旧按 Host 功能列 `/compact` 与 `/review`，引擎不会时发出去才被拒绝（`INVALID_STATE`）。新客户端连旧 Host：`engineFeatures` 或其中的 `commands` 没有时只看 Host 功能（同 0.24.0）。冻结样本 `compat/0.27.0.json`。
+
 依据 Paseo 的兼容纪律（Paseo 研读 §2.3、§2.4；ADR-0002 §2）。目标：半年前的客户端能连新 Host，半年前的 Host 能服务新客户端（同一主版本内）。改 `packages/protocol` 的提交要在说明里回答这两个问题。
 
 **版本**
@@ -458,7 +460,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `workspace_files` | 0.22.0 | `workspace.files`、`workspace.listDir`、`workspace.readFile`（与引擎无关） |
 | `session_rename` | 0.23.0 | `session.rename`（与引擎无关） |
 | `session_archive` | 0.23.0 | `session.archive`、`session.list` 的 `archived`、`Session.archivedAt`（与引擎无关） |
-| `session_compact` | 0.24.0 | `session.compact`、`turn.started` 的 `command`、`context.compacting` / `context.compacted` 事件（Codex、Claude、echo 引擎；会话所在的引擎不能压缩时 `INVALID_STATE`） |
+| `session_compact` | 0.24.0 | `session.compact`、`turn.started` 的 `command`、`context.compacting` / `context.compacted` 事件（Codex、Claude、echo 引擎；会话所在的引擎不能压缩时 `INVALID_STATE`，0.27.0 起看 `engineFeatures` 的 `commands`） |
 | `session_review` | 0.24.0 | `session.review`（Codex、echo 引擎；同上） |
 | `session_handoff` | 0.25.0 | 接力：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与 `host.hello` 的 `engineFeatures`（与引擎无关） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |

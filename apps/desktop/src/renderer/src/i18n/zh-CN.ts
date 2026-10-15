@@ -354,6 +354,7 @@ export const zhCN = {
   'session.busy': '会话正忙',
   'session.readOnlyComposer': '会话只读',
   'session.sendFailed': '发送失败：{error}',
+  'session.commandFailed': '命令执行失败：{error}',
   'session.cancelFailed': '停止失败：{error}',
   'session.createFailed': '创建会话失败：{error}',
   'session.noProvider': '未配置模型服务',

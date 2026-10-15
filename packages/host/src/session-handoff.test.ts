@@ -102,6 +102,9 @@ describe('接力（0.25.0）', () => {
       configure: true,
       permissionModes: ['on_request', 'auto_review', 'full_access'],
     });
+    // 0.27.0：echo 的订阅引擎同真实的订阅引擎，不能代码审查。
+    expect(hello.engineFeatures['openai-compatible'].commands).toEqual(['compact', 'review']);
+    expect(hello.engineFeatures.claude.commands).toEqual(['compact']);
   });
 
   it('API 模型与 Claude 之间来回切：第一次给整段摘要，换回时只补错过的那段', async () => {

@@ -663,6 +663,10 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = 'on_request';
 
 // ── 接力（0.25.0） ──────────────────────────────────────────────────────
 
+/** 由命令开始的回合的命令（0.27.0，`EngineFeatures.commands`）：`compact` 压缩上下文，`review` 代码审查（domain-model §4.7）。 */
+export const SessionCommandSchema = z.enum(['compact', 'review']);
+export type SessionCommand = z.infer<typeof SessionCommandSchema>;
+
 /**
  * 一种 Provider 的会话由哪个引擎跑、那个引擎能做什么（0.25.0，`host.hello` 的 `engineFeatures`，按 Provider 种类）。会话接力到
  * 别的来源之后，能用的功能跟着当前的引擎变（domain-model §3.14）。省略的项表示不支持。
@@ -684,6 +688,11 @@ export const EngineFeaturesSchema = z.object({
   additionalRoots: z.boolean().optional(),
   /** 接力过来的引擎会话能用 `read_session_history` 读之前的完整历史。 */
   historyTool: z.boolean().optional(),
+  /**
+   * 会话能用的命令（0.27.0）：`compact` 是 `session.compact`，`review` 是 `session.review`，都还要 Host 声明对应的功能。0.27.0
+   * 起的 Host 总是给，引擎一个都不会时是空数组；更早的 Host 没有这一项，客户端只能看 Host 的功能。
+   */
+  commands: z.array(SessionCommandSchema).optional(),
 });
 export type EngineFeatures = z.infer<typeof EngineFeaturesSchema>;
 
