@@ -5,6 +5,7 @@ import type {
   ClientIdentity,
   SessionId,
   SessionState,
+  UserContentPart,
   WevirEvent,
   WevirEventOf,
   WevirEventType,
@@ -1403,7 +1404,7 @@ describe('SessionManager：回合进行中发消息（R11）', () => {
   function turnStory(h: Harness, sessionId: SessionId, turnId: string | undefined): string[] {
     return all(h, sessionId).flatMap((e) => {
       if (e.type === 'user.steered' && e.payload.turnId === turnId) {
-        return [`steer:${e.payload.content[0]?.text}`];
+        return [`steer:${textOf(e.payload.content)}`];
       }
       if (e.type === 'assistant.message' && e.payload.turnId === turnId) return [e.payload.text];
       return [];
@@ -1411,7 +1412,7 @@ describe('SessionManager：回合进行中发消息（R11）', () => {
   }
 
   function userMessages(h: Harness, sessionId: SessionId): string[] {
-    return ofType(h, sessionId, 'user.message').map((e) => e.payload.content[0]?.text ?? '');
+    return ofType(h, sessionId, 'user.message').map((e) => textOf(e.payload.content));
   }
 
   it('空闲时带 delivery 照常开始回合', async () => {
@@ -1547,7 +1548,7 @@ describe('SessionManager：回合进行中发消息（R11）', () => {
       pendingId: second.pendingId as NonNullable<typeof second.pendingId>,
       content: text('second, edited'),
     });
-    expect(snapshot(h, id).pendingMessages?.map((p) => p.content[0]?.text)).toEqual([
+    expect(snapshot(h, id).pendingMessages?.map((p) => textOf(p.content))).toEqual([
       'first',
       'second, edited',
     ]);
@@ -2423,3 +2424,9 @@ describe('SessionManager：向用户提问（0.10.0）', () => {
     ]);
   });
 });
+
+/** 内容里第一段文本。 */
+function textOf(content: readonly UserContentPart[]): string {
+  const part = content[0];
+  return part?.type === 'text' ? part.text : '';
+}

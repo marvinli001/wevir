@@ -8,7 +8,12 @@ import type {
   WevirEventType,
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { type ChatPart, projectTranscript, TranscriptProjection } from './projection.js';
+import {
+  type ChatPart,
+  projectTranscript,
+  TranscriptProjection,
+  userContentText,
+} from './projection.js';
 import { applySessionEvent, applySubagentEvent } from './session-state.js';
 import { identity, SES } from './test-utils.js';
 
@@ -1038,5 +1043,39 @@ describe('命令回合与上下文压缩（0.24.0）', () => {
     const user = projectTranscript(list).messages[0];
     expect(user).toMatchObject({ role: 'user' });
     expect(user && 'command' in user).toBe(false);
+  });
+});
+
+describe('消息里的图片（0.28.0）', () => {
+  const image = {
+    type: 'image' as const,
+    imageId: 'img_01JA2B3C4D5E6F7G8H9JKMNPQR' as const,
+    mimeType: 'image/png' as const,
+    size: 42,
+    width: 4,
+    height: 2,
+  };
+
+  it('用户消息：先是文本部件，之后每张图片一个；只有图片时没有文本部件', () => {
+    const { list, add } = events();
+    add('user.message', {
+      turnId: TURN,
+      content: [{ type: 'text', text: '看' }, image, { type: 'text', text: '这张' }],
+      sentBy: identity,
+    });
+    add('user.message', { turnId: TURN2, content: [image], sentBy: identity });
+    const users = projectTranscript(list).messages.filter((message) => message.role === 'user');
+    expect(users[0]?.parts).toEqual([
+      { type: 'text', key: 'text', text: '看\n这张', state: 'done' },
+      { type: 'image', key: 'image:1', image },
+    ]);
+    expect(users[1]?.parts).toEqual([{ type: 'image', key: 'image:0', image }]);
+  });
+
+  it('userContentText 只取文本', () => {
+    expect(userContentText([{ type: 'text', text: 'a' }, image, { type: 'text', text: 'b' }])).toBe(
+      'a\nb',
+    );
+    expect(userContentText([image])).toBe('');
   });
 });

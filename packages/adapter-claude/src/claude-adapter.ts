@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   AdapterError,
@@ -283,9 +284,43 @@ type Session = RootSession | ChildSession;
 
 function textOf(input: AgentInput): string {
   return input.content
-    .map((part) => part.text)
-    .filter((text) => text !== '')
+    .flatMap((part) => (part.type === 'text' && part.text !== '' ? [part.text] : []))
     .join('\n\n');
+}
+
+type UserContent = SDKUserMessage['message']['content'];
+
+/**
+ * 用户消息的内容：只有文本时是字符串；有图片（0.28.0）时是内容块，图片在前（base64，同 T3 Code 的
+ * makeClaudeUserMessageWithAttachments），文本在后。
+ */
+async function userContent(text: string, input: AgentInput): Promise<UserContent> {
+  const images = await readImages(input);
+  if (images.length === 0) return text;
+  return text === '' ? images : [...images, { type: 'text' as const, text }];
+}
+
+function hasImages(input: AgentInput): boolean {
+  return input.content.some((part) => part.type === 'image');
+}
+
+function readImages(input: AgentInput) {
+  return Promise.all(
+    input.content.flatMap((part) =>
+      part.type === 'image'
+        ? [
+            readFile(part.path).then((bytes) => ({
+              type: 'image' as const,
+              source: {
+                type: 'base64' as const,
+                media_type: part.mimeType,
+                data: bytes.toString('base64'),
+              },
+            })),
+          ]
+        : [],
+    ),
+  );
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -356,6 +391,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   readonly additionalRoots = true;
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时挂上。 */
   readonly historyTool: boolean;
+
+  /** 图片（0.28.0）：Claude 的模型都收（model-catalog 里 `supportsImages` 恒为 true）。 */
+  acceptsImages(): boolean {
+    return true;
+  }
 
   readonly #sdk: ClaudeSdk;
   readonly #historyTool: HistoryToolServer | undefined;
@@ -441,8 +481,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     this.#ensureAlive();
     const session = this.#root(engineSessionId, 'send');
     const text = textOf(input);
-    if (text === '') throw new AdapterError('invalid_input', 'the message is empty');
-    await this.#startTurn(session, text);
+    if (text === '' && !hasImages(input)) {
+      throw new AdapterError('invalid_input', 'the message is empty');
+    }
+    await this.#startTurn(session, text, undefined, input);
   }
 
   /**
@@ -454,7 +496,13 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     await this.#startTurn(this.#root(engineSessionId, 'compact'), COMPACT_COMMAND, 'compact');
   }
 
-  async #startTurn(session: RootSession, text: string, kind?: Turn['kind']): Promise<void> {
+  /** `input` 带图片时（0.28.0）消息是内容块，否则是 `text` 字符串。 */
+  async #startTurn(
+    session: RootSession,
+    text: string,
+    kind?: Turn['kind'],
+    input?: AgentInput,
+  ): Promise<void> {
     if (session.turn !== undefined) {
       throw new AdapterError('session_busy', `session ${session.id} has a turn in progress`);
     }
@@ -481,9 +529,12 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       }
       // 斜杠命令前面不能有别的字：支线的边界说明留给下一条消息。
       const boundary = session.sideNotePending && kind === undefined;
-      const prompt = boundary ? `${SIDE_BOUNDARY_NOTE}\n\n${text}` : text;
+      const prompt = boundary ? `${SIDE_BOUNDARY_NOTE}\n\n${text}`.trim() : text;
       if (boundary) session.sideNotePending = false;
-      live.input.push(this.#userMessage(prompt, { uuid: turn.promptUuid }));
+      // 只有文本时不让出事件循环（取消与回合的先后靠它）。
+      const content =
+        input !== undefined && hasImages(input) ? await userContent(prompt, input) : prompt;
+      live.input.push(this.#userMessage(content, { uuid: turn.promptUuid }));
       turn.live = live;
       session.persisted = true;
     } catch (error) {
@@ -496,7 +547,10 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     this.#ensureAlive();
     const session = this.#root(engineSessionId, 'steer');
     const text = textOf(input);
-    if (text === '') throw new AdapterError('invalid_input', 'the message is empty');
+    if (text === '' && !input.content.some((part) => part.type === 'image')) {
+      throw new AdapterError('invalid_input', 'the message is empty');
+    }
+    const content = hasImages(input) ? await userContent(text, input) : text;
     const turn = session.turn;
     const live = session.live;
     if (turn === undefined || turn.settled || turn.cancelRequested || live === undefined) {
@@ -506,7 +560,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     // 开下一轮（Wevir 当作同一个回合，见 `#result`）。T3 用 `now`，会打断正在进行的输出。
     const uuid = randomUUID();
     turn.steers.push({ steerId, uuid, folded: false });
-    live.input.push(this.#userMessage(text, { uuid, priority: 'next' }));
+    live.input.push(this.#userMessage(content, { uuid, priority: 'next' }));
   }
 
   async configureSession(
@@ -1014,12 +1068,12 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   }
 
   #userMessage(
-    text: string,
+    content: UserContent,
     extra: { uuid?: string; priority?: 'now' | 'next' | 'later'; shouldQuery?: boolean },
   ): SDKUserMessage {
     return {
       type: 'user',
-      message: { role: 'user', content: text },
+      message: { role: 'user', content },
       parent_tool_use_id: null,
       ...(extra.priority !== undefined && { priority: extra.priority }),
       ...(extra.shouldQuery !== undefined && { shouldQuery: extra.shouldQuery }),

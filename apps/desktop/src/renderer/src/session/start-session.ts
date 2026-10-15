@@ -7,6 +7,7 @@ import type {
   PermissionMode,
   ProviderProfile,
   Session,
+  UserImagePart,
   WorkspaceId,
 } from '@wevir/protocol';
 import { useCallback, useState } from 'react';
@@ -17,6 +18,7 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
+import { messageContent } from './composer-images';
 import { type ModelChoice, modelsOf } from './model-picker';
 
 export async function sendText(
@@ -24,10 +26,11 @@ export async function sendText(
   sessionId: Session['id'],
   text: string,
   delivery?: PendingDelivery,
+  images?: readonly UserImagePart[],
 ) {
   await client.request('session.send', {
     sessionId,
-    content: [{ type: 'text', text }],
+    content: messageContent(text, images),
     clientMessageId: crypto.randomUUID(),
     ...(delivery !== undefined && { delivery }),
   });
@@ -135,8 +138,12 @@ export function useStartSession(
   const primary = workspaceId;
 
   const start = useCallback(
-    /** `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）。 */
-    async (text: string, target: WorkspaceId | undefined = workspaceId): Promise<boolean> => {
+    /** `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）；`images`：带的图片（0.28.0）。 */
+    async (
+      text: string,
+      target: WorkspaceId | undefined = workspaceId,
+      images?: readonly UserImagePart[],
+    ): Promise<boolean> => {
       const workspaceId = target;
       if (!client || !workspaceId || !choice) return false;
       setError(undefined);
@@ -158,7 +165,7 @@ export function useStartSession(
       }
       store?.upsertSession(session);
       try {
-        await sendText(client, session.id, text);
+        await sendText(client, session.id, text, undefined, images);
       } catch (reason) {
         setError(sendError(reason));
         return false;

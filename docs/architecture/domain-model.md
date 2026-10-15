@@ -392,6 +392,39 @@ interface PendingMessage {
 - **只有普通会话有。** 子会话由父 agent 驱动，不接受客户端的发送（§3.3.1），没有待发消息。
 - **与 Codex 对照。** Codex 终端界面在客户端排队（`tui/src/chatwidget/input_queue.rs`），回合完成后发下一条；回合被中断时把所有待发内容并回输入框、不自动发（`input_restore.rs` 的 `on_interrupted_turn`）；被拒的插话（回合不能插话）放到回合结束后发（`app/thread_routing.rs`）。Wevir 放在 Host：多端共享、要持久化，所以中断后的待发消息留在待发区暂停，而不是并回某一个客户端的输入框。
 
+### 3.3.3 消息里的图片（0.28.0）
+
+用户消息可以带图片，照 Codex 桌面端、Claude Code 桌面端与 T3 Code：输入框里粘贴、拖进来或从“+”菜单选。图片的字节由 Host 存在数据目录里，事件只带引用，所以多端共享、回放可得，事件本身不变大。
+
+```ts
+// → protocol
+type ImageId = `img_${string}`
+type UserImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+
+type UserContentPart =
+  | { type: 'text'; text: string }
+  | UserImagePart                  // 0.28.0，按客户端能力位 user_images 门控（host-api.md §10）
+
+interface UserImagePart {
+  type: 'image'
+  imageId: ImageId
+  mimeType: UserImageMimeType      // 按文件头认的，不是扩展名或客户端说的
+  size: number                     // 字节，不超过 10 MiB（IMAGE_MAX_BYTES，同 T3 Code 的 chatAttachment.ts）
+  width?: number                   // 像素，从文件头读出；读不出时省略
+  height?: number
+  name?: string                    // 原来的文件名；粘贴的截图没有
+}
+```
+
+规则：
+
+- **先传再发。** 客户端先 `image.upload`（base64），拿到 `UserImagePart`，再把它原样放进 `session.send` / `pending.update` 的 `content`。图片在文字之后，按加入的顺序；只有图片也可以。一条消息最多 10 张（`IMAGE_MAX_PER_MESSAGE`）。
+- **Host 为准。** 消息被接受时 Host 用自己记下的元数据替换客户端给的，把图片从 `images/staged/` 挪到 `images/`；之后它一直在，事件里引用它（会话没有删除，图片也不删）。上传了没发出去的过一天删掉。
+- **引擎与模型要收。** 适配器的 `acceptsImages` 按 Provider 与模型回答（Codex 要模型标了 `supportsImages`，否则 Codex 会把图片换成占位文字；Claude、Cursor、OpenCode、Grok、Antigravity 收；dsh 不收）；Provider 的模型列表标了 `supportsImages: false` 的也不收。不收时 `session.send` 回 `INVALID_PARAMS`，不写事件。
+- **交给引擎的是文件。** Host 把图片换成数据目录里的路径交给适配器（`AgentInput` 的 `image` 段），适配器按引擎的格式发：Codex 的 `localImage { path }`，Claude Agent SDK 的 base64 图片块，Cursor SDK 的 `images`，OpenCode 的 `file` 部件（`file://`），ACP 的 `image` 内容块（Grok、Antigravity）。
+- **读回来分段。** `image.read` 一次最多 4 MiB（`IMAGE_READ_CHUNK_BYTES`），base64 之后仍在连接的发送缓冲之内；大的图片分几次读。
+- **标题不看图片。** 首条消息截断的标题与生成的标题只用文字；只有图片的消息不生成标题。
+
 ### 3.4 ApprovalRequest
 
 引擎要求用户批准的一次操作。dsh 的审批只来自沙箱升级（ADR-0001 §6）：工作区外、且不在系统临时目录的操作先被沙箱拒绝，模型带 `sandbox_permissions` 重试时才发出 `session/request_permission`。
@@ -1059,7 +1092,7 @@ type WevirEvent =
   | WevirEventEnvelope<'user.message', {
       turnId: TurnId
       clientMessageId?: string
-      content: Array<{ type: 'text'; text: string }> // v0 只有文本；dsh promptCapabilities 不支持图片、音频
+      content: UserContentPart[] // 文本；0.28.0 起还有图片（§3.3.3）
       sentBy: ClientIdentity
       pendingId?: PendingMessageId  // 0.8.0：这个回合由一条排队的待发消息开始（§4.6）
     }>
@@ -1067,12 +1100,12 @@ type WevirEvent =
       turnId: TurnId
       pendingId: PendingMessageId
       clientMessageId?: string
-      content: Array<{ type: 'text'; text: string }>
+      content: UserContentPart[]
       sentBy: ClientIdentity
     }>
   | WevirEventEnvelope<'turn.started', {
       turnId: TurnId
-      input?: Array<{ type: 'text'; text: string }> // 0.6.0：子会话的回合由引擎开始，这是父 agent 给它的输入
+      input?: UserContentPart[] // 0.6.0：子会话的回合由引擎开始，这是父 agent 给它的输入（只有文本）
       command?: { kind: 'compact' } | { kind: 'review'; target: 'uncommitted' | 'branch'; baseBranch?: string } // 0.24.0
     }>
   | WevirEventEnvelope<'turn.finished', {
@@ -1298,6 +1331,7 @@ interface StreamPartFields { key: string; text: string; state: 'streaming' | 'do
 type ChatPart =
   | ({ type: 'text' } & StreamPartFields)
   | ({ type: 'reasoning' } & StreamPartFields & { startedAt?: IsoTime; endedAt?: IsoTime }) // U2：思考的起止
+  | { type: 'image'; key: string; image: UserImagePart } // 0.28.0：用户消息里的图片，在文本部件之后（只有图片时没有文本部件）
   | {
       type: 'tool'; key: string; toolCallId: string; toolName: string; display: ToolDisplay
       status: 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled' | 'unknown'

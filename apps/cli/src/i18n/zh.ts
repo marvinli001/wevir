@@ -274,6 +274,7 @@ export const zh = {
   'render.turnFinished': '── 本轮{outcome} · {duration} ──',
   'render.from': '（来自 {client}）',
   'render.steerEchoed': '（插话已并入本回合）',
+  'render.image': '[图片]',
   'render.steerTag': '（插话）',
   'render.steerTagFrom': '（插话，来自 {client}）',
   'render.pendingSteer': '插话：当前步骤结束后并入本回合',

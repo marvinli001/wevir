@@ -84,7 +84,7 @@
 | 读令牌查 5 小时与每周用量 | 不读令牌，没有用量 |
 | 下载失败就从头来 | 断线后用 Range 接着下，卡住有超时，连不上时说明镜像与手填路径（§2） |
 | 运行体的租约与删除 | 没有删除运行体的方法，也就没有租约 |
-| 附件（图片、音频、PDF、文本）、子 agent 批次、文本生成、slash 命令与 skills 列表 | 没有（Wevir 的输入只有文本） |
+| 附件（图片、音频、PDF、文本）、子 agent 批次、文本生成、slash 命令与 skills 列表 | 只有图片（0.28.0）：照通用 ACP 适配器发 `image` 内容块（引擎描述 `images: true`，`initialize` 报 `promptCapabilities.image: true`）；T3 的 Antigravity 不发 GIF，Wevir 不拦，运行体不收时回合失败。其余没有 |
 
 ## 8. 验证
 

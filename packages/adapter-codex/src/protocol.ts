@@ -164,13 +164,25 @@ export interface ThreadStartResponse {
   [key: string]: unknown;
 }
 
-/** v2/UserInput.ts 的 `text` 变体（v0 只有文本）。 */
+/** v2/UserInput.ts 的 `text` 变体。 */
 export interface TextUserInput {
   type: 'text';
   text: string;
   /** v2/TextElement.ts：界面定义的文本片段；Wevir 不用，发空数组。 */
   text_elements: never[];
 }
+
+/**
+ * v2/UserInput.ts 的 `localImage` 变体（0.28.0）：Codex 读这个文件，按 `input_image`（data URL）交给模型；模型的
+ * `input_modalities` 没有 image 时换成占位文字（core/src/context_manager/normalize.rs）。
+ */
+export interface LocalImageUserInput {
+  type: 'localImage';
+  path: string;
+}
+
+/** v2/UserInput.ts 里本包用到的变体。 */
+export type UserInput = TextUserInput | LocalImageUserInput;
 
 /** v2/ApprovalsReviewer.ts：`auto_review` 由 Codex 的审查子 agent 用会话的模型判断（旧名 `guardian_subagent`）。 */
 export type ApprovalsReviewer = 'user' | 'auto_review';
@@ -184,7 +196,7 @@ export type SandboxPolicy =
 /** v2/TurnStartParams.ts 的稳定字段里本包用到的。 */
 export interface TurnStartParams {
   threadId: string;
-  input: TextUserInput[];
+  input: UserInput[];
   /** 这个回合及之后的模型（会话中换模型，0.9.0）。 */
   model?: string | null;
   /** 这个回合及之后的推理强度（ReasoningEffort.ts）。 */
@@ -234,7 +246,7 @@ export interface TurnStartResponse {
  */
 export interface TurnSteerParams {
   threadId: string;
-  input: TextUserInput[];
+  input: UserInput[];
   /** 必须是进行中的回合，否则 app-server 拒绝。 */
   expectedTurnId: string;
   /** 回填到这次输入的 userMessage item 的 `clientId`，据此认出插话进了回合。 */

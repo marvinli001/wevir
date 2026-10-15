@@ -2,7 +2,7 @@
 // 样本（test-fixtures/acp/）：逐字增量合成消息、工具、待办（`plan`）、审批、提问、取消、回合失败、引擎自己报的回合结束、
 // 后台任务自己开的回合，以及按权限模式分进程、会话中换模型与权限模式、要认证时认证后重试。
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
@@ -304,6 +304,33 @@ describe('GrokAdapter：样本回放', () => {
     expect(warnings.map((warning) => warning.message)).toContain(
       'ACP session/update 到达时没有进行中的回合，保留为 engine.raw',
     );
+  });
+});
+
+describe('GrokAdapter：图片（0.28.0）', () => {
+  it('session/prompt 里文本之后是 image 内容块（base64）', async () => {
+    const { adapter, config, log } = setup();
+    expect(adapter.acceptsImages()).toBe(true);
+    const { engineSessionId } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(engineSessionId));
+    const path = join(temp.dir('images'), 'shot.png');
+    writeFileSync(path, Buffer.from('fake png bytes'));
+    await adapter.send(engineSessionId, {
+      content: [
+        { type: 'text', text: 'replay:simple' },
+        { type: 'image', path, mimeType: 'image/png', name: 'shot.png' },
+      ],
+    });
+    expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.settled' });
+    const prompt = readLog(log).find((message) => message.method === 'session/prompt');
+    expect(prompt?.params.prompt).toEqual([
+      { type: 'text', text: 'replay:simple' },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        data: Buffer.from('fake png bytes').toString('base64'),
+      },
+    ]);
   });
 });
 

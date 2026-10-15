@@ -49,10 +49,32 @@ export interface EngineSession {
   engineVersion?: string;
 }
 
+/** 用户输入的一段文本。 */
+export interface AgentTextInput {
+  type: 'text';
+  text: string;
+}
+
+/** 与 @wevir/protocol 的 `UserImageMimeType` 同形。 */
+export type AgentImageMimeType = 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+
+/**
+ * 用户输入的一张图片（0.28.0）：Host 存在数据目录里的文件，不超过 10 MiB，格式已按文件头核对。只有 `acceptsImages` 对这个
+ * 会话回答 `true` 的适配器会收到。引擎能读文件的直接给路径（Codex 的 `localImage`），否则读出来按引擎的格式发（base64）。
+ */
+export interface AgentImageInput {
+  type: 'image';
+  /** 绝对路径。 */
+  path: string;
+  mimeType: AgentImageMimeType;
+  /** 原来的文件名；粘贴的截图没有。 */
+  name?: string;
+}
+
 /** 一次 `send` 的用户输入。 */
 export interface AgentInput {
-  /** 至少一段。v0 只有文本（dsh 的 promptCapabilities 不支持图片、音频）。 */
-  content: Array<{ type: 'text'; text: string }>;
+  /** 至少一段；图片（0.28.0）在 `acceptsImages` 之后才会有。 */
+  content: Array<AgentTextInput | AgentImageInput>;
 }
 
 /**

@@ -15,16 +15,18 @@ import type {
   SubagentSummary,
   SuggestedTask,
   ToolDisplay,
+  UserImagePart,
   Workspace,
 } from './entities.js';
 import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
-import type {
-  MethodName,
-  MethodParams,
-  MethodResult,
-  NotificationName,
-  NotificationParams,
+import {
+  IMAGE_UPLOAD_DATA_MAX_LENGTH,
+  type MethodName,
+  type MethodParams,
+  type MethodResult,
+  type NotificationName,
+  type NotificationParams,
 } from './methods.js';
 
 export const ULID = '01JA2B3C4D5E6F7G8H9JKMNPQR';
@@ -53,7 +55,20 @@ export const ids = {
   /** 建议的后续任务（0.16.0）。 */
   task: `tsk_${ULID}`,
   task2: 'tsk_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  /** 消息里的图片（0.28.0）。 */
+  image: `img_${ULID}`,
 } as const;
+
+/** 消息里的一张图片（0.28.0）。 */
+export const imagePart: UserImagePart = {
+  type: 'image',
+  imageId: ids.image,
+  mimeType: 'image/png',
+  size: 48213,
+  width: 1280,
+  height: 800,
+  name: 'screenshot.png',
+};
 
 export const identity: ClientIdentity = {
   deviceId: 'dev-6f1c2a',
@@ -523,7 +538,7 @@ export const eventPayloads: PayloadSamples = {
     valid: {
       turnId: ids.turn,
       clientMessageId: 'msg-1',
-      content: [{ type: 'text', text: '帮我整理本周周报' }],
+      content: [{ type: 'text', text: '帮我整理本周周报' }, imagePart],
       sentBy: identity,
       pendingId: ids.pending2,
     },
@@ -1524,10 +1539,21 @@ export const methodSamples: MethodSamples = {
           clientMessageId: 'msg-3',
           delivery: 'steer',
         },
+        {
+          sessionId: ids.session,
+          content: [{ type: 'text', text: '这个报错是什么意思' }, imagePart],
+          clientMessageId: 'msg-4',
+        },
+        {
+          sessionId: ids.session,
+          content: [{ type: 'image', imageId: ids.image, mimeType: 'image/webp', size: 512 }],
+        },
       ],
       invalid: [
         { sessionId: ids.session, content: [] },
         { sessionId: ids.session, content: [{ type: 'image', data: 'xx' }] },
+        { sessionId: ids.session, content: [{ ...imagePart, mimeType: 'image/tiff' }] },
+        { sessionId: ids.session, content: [{ ...imagePart, imageId: 'img-1' }] },
         { sessionId: ids.session, content: [{ type: 'text', text: 'x' }], clientMessageId: '' },
         { sessionId: ids.session, content: [{ type: 'text', text: 'x' }], delivery: 'now' },
       ],
@@ -1647,6 +1673,35 @@ export const methodSamples: MethodSamples = {
       ],
     },
     result: { valid: [{ pending: pendingHeld }], invalid: [{ pending: { id: ids.pending } }] },
+  },
+  'image.upload': {
+    params: {
+      valid: [
+        { mimeType: 'image/png', data: 'iVBORw0KGgo=', name: 'screenshot.png' },
+        { mimeType: 'image/jpeg', data: '/9j/4AAQ' },
+      ],
+      invalid: [
+        { mimeType: 'image/svg+xml', data: 'PHN2Zz4=' },
+        { mimeType: 'image/png', data: '' },
+        { mimeType: 'image/png', data: 'x'.repeat(IMAGE_UPLOAD_DATA_MAX_LENGTH + 1) },
+      ],
+    },
+    result: {
+      valid: [{ image: imagePart }],
+      invalid: [{ image: { ...imagePart, size: 0 } }],
+    },
+  },
+  'image.read': {
+    params: {
+      valid: [{ imageId: ids.image }, { imageId: ids.image, offset: 4194304 }],
+      invalid: [{ imageId: ids.turn }, { imageId: ids.image, offset: -1 }],
+    },
+    result: {
+      valid: [
+        { imageId: ids.image, mimeType: 'image/png', size: 48213, offset: 0, data: 'iVBORw0KGgo=' },
+      ],
+      invalid: [{ imageId: ids.image, mimeType: 'image/png', size: 48213, data: '' }],
+    },
   },
   'pending.cancel': {
     params: {

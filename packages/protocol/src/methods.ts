@@ -11,6 +11,7 @@ import {
   ClientTokenSchema,
   EnvironmentIdSchema,
   HostIdSchema,
+  ImageIdSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
   QuestionIdSchema,
@@ -47,6 +48,8 @@ import {
   SessionSchema,
   SessionSnapshotSchema,
   UserContentPartSchema,
+  UserImageMimeTypeSchema,
+  UserImagePartSchema,
   VertexConfigSchema,
   WorkspaceSchema,
   WorktreeModeSchema,
@@ -717,6 +720,48 @@ export const PendingListResultSchema = z.object({
   pendingMessages: z.array(PendingMessageSchema),
 });
 
+// ── image.*（0.28.0） ───────────────────────────────────────────────
+
+/** 一张图片的字节上限（同 T3 Code 的 `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES`）。 */
+export const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+/** `image.upload` 的 `data`（base64）的长度上限。 */
+export const IMAGE_UPLOAD_DATA_MAX_LENGTH = Math.ceil(IMAGE_MAX_BYTES / 3) * 4;
+/** 一条消息最多带几张图片。 */
+export const IMAGE_MAX_PER_MESSAGE = 10;
+/** `image.read` 一次最多读的字节数；base64 之后仍在连接的发送缓冲之内，更大的图片分几次读。 */
+export const IMAGE_READ_CHUNK_BYTES = 4 * 1024 * 1024;
+
+/**
+ * 存一张图片，之后放进 `session.send` / `pending.update` 的 `content`。Host 按文件头认格式（要与 `mimeType` 一致）、读出
+ * 像素；没有发出去的图片过一天删掉。
+ */
+export const ImageUploadParamsSchema = z.object({
+  mimeType: UserImageMimeTypeSchema,
+  /** base64，解码后不超过 `IMAGE_MAX_BYTES`。 */
+  data: z.string().min(1).max(IMAGE_UPLOAD_DATA_MAX_LENGTH),
+  name: z.string().min(1).max(255).optional(),
+});
+
+export const ImageUploadResultSchema = z.object({
+  image: UserImagePartSchema,
+});
+
+export const ImageReadParamsSchema = z.object({
+  imageId: ImageIdSchema,
+  /** 从第几个字节读起，默认 0。 */
+  offset: z.int().min(0).optional(),
+});
+
+/** 一段字节：`offset` 起最多 `IMAGE_READ_CHUNK_BYTES`；`offset + 解码后的长度 < size` 时接着读。 */
+export const ImageReadResultSchema = z.object({
+  imageId: ImageIdSchema,
+  mimeType: UserImageMimeTypeSchema,
+  size: z.int().min(1),
+  offset: z.int().min(0),
+  /** base64。 */
+  data: z.string(),
+});
+
 // ── approval.* ────────────────────────────────────────────────────────
 
 // ── question.*（0.10.0） ─────────────────────────────────────────────
@@ -1014,6 +1059,17 @@ export const MethodSchemas = {
     params: SessionIdParamsSchema,
     result: PendingListResultSchema,
     permission: 'session.write',
+  },
+
+  'image.upload': {
+    params: ImageUploadParamsSchema,
+    result: ImageUploadResultSchema,
+    permission: 'session.write',
+  },
+  'image.read': {
+    params: ImageReadParamsSchema,
+    result: ImageReadResultSchema,
+    permission: 'session.read',
   },
 
   'question.respond': {

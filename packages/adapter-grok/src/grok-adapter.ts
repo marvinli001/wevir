@@ -269,6 +269,11 @@ export class GrokAdapter implements AgentRuntimeAdapter {
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时经 ACP 挂上。 */
   readonly historyTool: boolean;
   readonly accounts: GrokAccounts;
+
+  /** 图片（0.28.0）：各模式的进程照通用 ACP 适配器发图片内容块（`GROK_ENGINE.images`）。 */
+  acceptsImages(): boolean {
+    return true;
+  }
   readonly #options: GrokAdapterOptions;
   readonly #workDir: string;
   readonly #modes = new Map<PermissionMode, GrokModeAdapter>();

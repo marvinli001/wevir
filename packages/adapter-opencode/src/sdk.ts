@@ -26,7 +26,7 @@ import type {
 /** 锁定的 SDK 版本（package.json 钉的确切版本）。 */
 export const OPENCODE_SDK_VERSION = '1.18.34';
 
-/** 一次 `promptAsync` 的参数（只用到文本）。 */
+/** 一次 `promptAsync` 的参数（文本与图片文件）。 */
 export interface PromptInput {
   sessionID: string;
   /** 客户端给的用户消息 ID（opencode 的 `msg_` 格式，messageId.ts），用来认出这次输入对应的回合。 */
@@ -34,7 +34,10 @@ export interface PromptInput {
   model: { providerID: string; modelID: string };
   /** 模型的变体（opencode 的推理档位）。 */
   variant?: string;
-  parts: Array<{ type: 'text'; text: string }>;
+  /** 图片（0.28.0）是 `file` 部件：opencode 自己读 `file://` 地址的文件（同 T3 Code 的 toOpenCodeFileParts）。 */
+  parts: Array<
+    { type: 'text'; text: string } | { type: 'file'; mime: string; filename?: string; url: string }
+  >;
 }
 
 /**

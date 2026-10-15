@@ -1,4 +1,4 @@
-import type { AgentInput } from '@wevir/runtime-adapter';
+import type { AgentTextInput } from '@wevir/runtime-adapter';
 import { isRecord } from './mapping.js';
 import type { CollabAgentToolCallItem } from './protocol.js';
 
@@ -56,7 +56,7 @@ export function subagentTitle(parts: {
 }
 
 /** 子回合的 userMessage item → `turn.started` 的输入（只取文本）；没有文本时 undefined。 */
-export function userMessageInput(item: unknown): AgentInput['content'] | undefined {
+export function userMessageInput(item: unknown): AgentTextInput[] | undefined {
   if (!isRecord(item) || item.type !== 'userMessage' || !Array.isArray(item.content)) {
     return undefined;
   }

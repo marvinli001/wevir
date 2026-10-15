@@ -1,4 +1,5 @@
 import { hostSupports } from '@wevir/client-sdk';
+import type { PendingDelivery, UserImagePart } from '@wevir/protocol';
 import { Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
@@ -12,6 +13,7 @@ import { onboardingDone } from '@/onboarding/onboarding-state';
 import { openCreateProject } from '@/projects/create-project';
 import { Composer, setDraft } from '@/session/composer';
 import { EnvironmentBar } from '@/session/environment-bar';
+import { useAcceptsImages } from '@/session/image-attachments';
 import { ModelPicker } from '@/session/model-picker';
 import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
 import { PermissionPicker, usePermissionChoice } from '@/session/permission-picker';
@@ -66,15 +68,20 @@ function Home({
   const noProvider = providers !== undefined && providers.length === 0;
 
   // 还没有项目：先建项目（维护者 2026-10-14 定），建好后在它里面接着发。
-  const send = async (text: string): Promise<boolean> => {
-    if (workspace) return start(text);
+  const send = async (
+    text: string,
+    _delivery?: PendingDelivery,
+    images?: readonly UserImagePart[],
+  ): Promise<boolean> => {
+    if (workspace) return start(text, undefined, images);
     openCreateProject({
       onCreated: async (created) => {
-        if (await start(text, created.id)) setDraft(HOME_DRAFT, '');
+        if (await start(text, created.id, images)) setDraft(HOME_DRAFT, '');
       },
     });
     return false;
   };
+  const acceptImages = useAcceptsImages(choice);
 
   // 斜杠命令与 @ 提及（U33）：首页没有窗格区，命令只有模型、思考力度、权限与初始化。
   const { view } = useHostConnection();
@@ -119,6 +126,7 @@ function Home({
             variant="home"
             draftKey={HOME_DRAFT}
             state="idle"
+            acceptImages={acceptImages}
             disabled={!ready && !noProvider}
             {...(noProvider && { disabledReason: t('home.noProvider') })}
             leading={

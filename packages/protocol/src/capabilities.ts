@@ -27,6 +27,9 @@ export const CLIENT_CAPABILITIES = {
    * `account.list` 的结果里去掉它们，也不发它们的 `account.updated`。
    */
   subscriptionKinds: 'subscription_kinds',
+  // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
+  /** 认得 `UserContentPart` 的 `image`；没有时 Host 把事件与结果里的图片换成文本 `[image]`。 */
+  userImages: 'user_images',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
@@ -36,6 +39,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   provider_kind_chatgpt: z.boolean().optional(),
   provider_kind_google_vertex: z.boolean().optional(),
   subscription_kinds: z.boolean().optional(),
+  user_images: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
@@ -114,6 +118,11 @@ export const HOST_FEATURES = {
    * `host.hello` 的 `engineFeatures`。已有会话能换到别的来源的模型。与引擎无关。
    */
   sessionHandoff: 'session_handoff',
+  /**
+   * 消息里的图片（0.28.0）：`image.upload`、`image.read` 与 `UserContentPart` 的 `image`。取决于引擎（Codex、Claude 等有，
+   * dsh 没有）；会话所在的引擎或模型不收图片时 `session.send` 回 `INVALID_PARAMS`。
+   */
+  userImages: 'user_images',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -140,6 +149,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_compact: z.boolean().optional(),
   session_review: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
+  user_images: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

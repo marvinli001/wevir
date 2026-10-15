@@ -267,13 +267,16 @@ export function withHandoffContext(
   content: readonly UserContentPart[],
 ): UserContentPart[] {
   const [first, ...rest] = content;
-  const text = first === undefined ? '' : first.text;
-  return [{ type: 'text', text: `${context}\n\nUser message:\n${text}` }, ...rest];
+  // 消息以图片开头（0.28.0）时摘要单独一段，图片照旧跟在后面。
+  if (first?.type !== 'text')
+    return [{ type: 'text', text: `${context}\n\nUser message:` }, ...content];
+  return [{ type: 'text', text: `${context}\n\nUser message:\n${first.text}` }, ...rest];
 }
 
+/** 用户消息的文字；图片（0.28.0）写成 `[image]`。 */
 function contentText(content: readonly UserContentPart[]): string {
   return content
-    .map((part) => part.text)
+    .map((part) => (part.type === 'text' ? part.text : '[image]'))
     .join('\n')
     .trim();
 }

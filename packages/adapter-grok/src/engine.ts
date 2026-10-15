@@ -118,6 +118,8 @@ export const GROK_ENGINE: AcpEngine = Object.freeze<AcpEngine>({
     isPlanTool: isGrokTodoTool,
   },
   route: GROK_ROUTE,
+  // 图片（0.28.0）：initialize 报 `promptCapabilities.image: false`，实际收图片内容块（T3 Code 的 supportsImagePrompts）。
+  images: true,
   classifyTurnError,
   classifyResumeError,
   // `agent_message_chunk` / `agent_thought_chunk` 是逐字增量，没有 `messageId`（codex-notes §9）。

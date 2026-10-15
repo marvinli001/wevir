@@ -256,11 +256,14 @@ Claude 默认把 Agent 工具放到后台（工具立即返回 “Async agent la
 | 契约真实层 | `claude-adapter.contract.real.integration.test.ts` | 本机真实的 `claude`（`WEVIR_TEST_CLAUDE=1`，`claude-haiku-4-5`，用掉订阅额度，命令见文件头）；2026-10-15 在 `claude` 2.1.287 上跑过 12 条：一问一答与多回合、增量替换、工具、审批允许 / 拒绝 / 挂起时取消、恢复、插话、子会话、子会话的审批、取消子会话 |
 | 录制 | `test-fixtures/record-sdk.test.ts` | `WEVIR_RECORD_CLAUDE=1` 时重录样本（`settingSources: []`，本机路径、用户的插件与命令清单抹掉） |
 
+## 7a. 图片（0.28.0）
+
+用户消息里的图片按 T3 Code 的 `makeClaudeUserMessageWithAttachments` 发：`SDKUserMessage.message.content` 是内容块，每张图片一个 `{ type: 'image', source: { type: 'base64', media_type, data } }`（读 Host 存的文件），文本块在最后；只有文本时照旧是字符串。插话同样。Claude 的模型都收图片（随包的模型清单里 `supportsImages` 恒为 true），`acceptsImages` 一律回答收。
+
 ## 8. 留给后续任务
 
 - **跨来源换模型的接力**（补记 14）另做。
 - **后台任务**：关掉了（§6.4）。要支持就得让顶层会话接受引擎自己开的回合（协议与 Host 都要改）。
 - **slash 命令与 skills**：T3 把 `claude` 初始化结果里的命令与 skills 交给界面，Wevir 的协议还没有这类字段。
-- **图片输入**：`AgentInput` 只有文本。
 - **模型清单的更新**：随包的清单跟着 T3 的提交手动更新，不联网拉。
 - **建议的后续任务**（0.16.0）：Codex 经 Wevir 的 MCP 工具实现，Claude 可以用 SDK 的进程内 MCP 服务器（`createSdkMcpServer`）照做，没有做。

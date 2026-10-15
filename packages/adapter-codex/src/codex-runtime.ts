@@ -84,6 +84,11 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return this.#forSession(engineSessionId).subscribe(engineSessionId);
   }
 
+  /** 图片（0.28.0）：问承载这类 Provider 的进程。 */
+  acceptsImages(config: { providerId: string; modelId: string }): boolean {
+    return this.#forProvider(config.providerId).acceptsImages(config);
+  }
+
   send(engineSessionId: string, input: AgentInput): Promise<void> {
     return this.#forSession(engineSessionId).send(engineSessionId, input);
   }

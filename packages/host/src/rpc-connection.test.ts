@@ -1,7 +1,13 @@
-import type { Session, WevirEventOf } from '@wevir/protocol';
+import type {
+  PendingMessage,
+  Session,
+  UserContentPart,
+  UserImagePart,
+  WevirEventOf,
+} from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import { adaptEventForClient, adaptResultForClient } from './rpc-connection.js';
-import { SES, T0 } from './test-utils.js';
+import { identity, SES, T0 } from './test-utils.js';
 
 // 按连接的能力位降级（host-api.md §10）。0.5.0：`TitleSource` 的 `generated` 只发给声明了 `title_source_generated`
 // 的连接，其余连接看到 `first_prompt`；事件不扣下，seq 不变。
@@ -67,6 +73,91 @@ describe('adaptResultForClient', () => {
     );
     expect(adaptResultForClient('workspace.list', { workspaces: [] }, {})).toEqual({
       workspaces: [],
+    });
+  });
+});
+
+// 0.28.0：消息里的图片只发给声明了 `user_images` 的连接，其余连接看到文本 `[image]`，段数不变。
+describe('user_images', () => {
+  const image: UserImagePart = {
+    type: 'image',
+    imageId: 'img_01JA2B3C4D5E6F7G8H9JKMNPQR',
+    mimeType: 'image/png',
+    size: 10,
+  };
+  const content: UserContentPart[] = [{ type: 'text', text: '看' }, image];
+  const downgraded: UserContentPart[] = [
+    { type: 'text', text: '看' },
+    { type: 'text', text: '[image]' },
+  ];
+  const message: WevirEventOf<'user.message'> = {
+    seq: 3,
+    sessionId: SES,
+    ts: T0,
+    type: 'user.message',
+    source: 'host',
+    payload: { turnId: 'trn_1', content, sentBy: identity },
+  };
+  const pending: PendingMessage = {
+    id: 'pnd_1',
+    content,
+    delivery: 'queue',
+    status: 'waiting',
+    sentBy: identity,
+    createdAt: T0,
+    updatedAt: T0,
+  };
+
+  it('事件：user.message、user.steered、turn.started 的输入、pending.*', () => {
+    expect(adaptEventForClient(message, { user_images: true })).toBe(message);
+    expect(adaptEventForClient(message, {})).toEqual({
+      ...message,
+      payload: { ...message.payload, content: downgraded },
+    });
+    const steered: WevirEventOf<'user.steered'> = {
+      ...message,
+      type: 'user.steered',
+      payload: { turnId: 'trn_1', pendingId: 'pnd_1', content, sentBy: identity },
+    };
+    expect(adaptEventForClient(steered, {})).toMatchObject({ payload: { content: downgraded } });
+    const started: WevirEventOf<'turn.started'> = {
+      ...message,
+      type: 'turn.started',
+      payload: { turnId: 'trn_1', input: content },
+    };
+    expect(adaptEventForClient(started, {})).toMatchObject({ payload: { input: downgraded } });
+    const added: WevirEventOf<'pending.added'> = {
+      ...message,
+      type: 'pending.added',
+      payload: { pending },
+    };
+    expect(adaptEventForClient(added, {})).toMatchObject({
+      payload: { pending: { content: downgraded } },
+    });
+    // 没有图片的不动。
+    const text: WevirEventOf<'user.message'> = {
+      ...message,
+      payload: { ...message.payload, content: [{ type: 'text', text: '看' }] },
+    };
+    expect(adaptEventForClient(text, {})).toBe(text);
+  });
+
+  it('结果：session.get 与 pending.* 里的待发消息', () => {
+    const snapshot = { session: session('user'), pendingApprovals: [], pendingMessages: [pending] };
+    expect(adaptResultForClient('session.get', snapshot, { title_source_generated: true })).toEqual(
+      {
+        ...snapshot,
+        pendingMessages: [{ ...pending, content: downgraded }],
+      },
+    );
+    expect(adaptResultForClient('pending.update', { pending }, {})).toEqual({
+      pending: { ...pending, content: downgraded },
+    });
+    expect(adaptResultForClient('pending.resume', { pendingMessages: [pending] }, {})).toEqual({
+      pendingMessages: [{ ...pending, content: downgraded }],
+    });
+    expect(adaptResultForClient('pending.update', { pending }, { user_images: true })).toEqual({
+      pending,
     });
   });
 });

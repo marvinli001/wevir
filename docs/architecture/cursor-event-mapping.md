@@ -12,7 +12,7 @@
 - **SDK 在 Host 进程里跑。** `@cursor/sdk`（只由 `packages/adapter-cursor` 声明，AGENTS.md 规则 2）的本地 agent（`Agent.create` / `Agent.resume` 带 `local`）就在 Host 进程里执行模型返回的工具调用，不需要 Cursor CLI，也没有子进程可以重启；工具的 shell 由 SDK 自己起（Cursor 的沙箱包装，平台包 `@cursor/sdk-<平台>` 带 `cursorsandbox`、`rg`、tree-sitter）。
 - **懒加载。** SDK 约 2 MB 的 ESM 在第一次登录、读账号的模型或建会话时才 `import()`（`sdk.ts`），Host 启动、`account.list` 读本地凭据都不加载它。
 - **路由。** `engines.ts` 登记 `{ name: 'cursor', adapter: CursorAdapter, kinds: ['cursor'] }`；`--adapter codex` 的 Host 是 Codex 加 Cursor 的 `EngineRouter`。
-- **一个 Wevir 会话 = 一个 Cursor agent**，引擎会话 ID 是 `agentId`；一个回合是一次 `agent.send` 开出的 run。
+- **一个 Wevir 会话 = 一个 Cursor agent**，引擎会话 ID 是 `agentId`；一个回合是一次 `agent.send` 开出的 run。有图片（0.28.0）时 `send` 的消息是 `SDKUserMessage { text, images: [{ data, mimeType }] }`（base64，读 Host 存的文件，同 T3 Code 的 CursorAdapterV2），否则照旧是字符串。
 - **数据在哪。** 登录铸出的 API Key 在 `<数据目录>/engines/cursor/auth.json`（§2）。agent 的对话与检查点由 SDK 存在它的默认位置（`~/.cursor/projects/<工作区>/sdk-agent-store/`，SQLite 或 JSONL），与 T3 相同；`settingSources` 让 agent 读用户自己的 Cursor 设置（规则、skills、hooks、MCP、团队与 MDM 策略、插件）。
 - **外连。** SDK 连 Cursor 的后端（默认 `api2.cursor.sh`，环境变量 `CURSOR_BACKEND_URL` 可改；登录页 `cursor.com`，`CURSOR_WEBSITE_URL` 可改）。
 - **unhandled rejection。** 工作目录不对时 SDK 起 shell 失败（`spawn /bin/zsh ENOENT`）会 reject 一个没人等的内部 promise。Host 把 unhandled rejection 当致命错误，所以 `cli.ts` 先问 `engines.ts` 的 `isIgnorableEngineRejection`：带 Cursor 沙箱包装标记的这一种只记告警（T3 的同名守卫）。适配器也在建会话与恢复时先检查 cwd 是存在的目录。

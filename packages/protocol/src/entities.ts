@@ -3,6 +3,7 @@ import {
   ApprovalIdSchema,
   ClientIdentitySchema,
   EnvironmentIdSchema,
+  ImageIdSchema,
   IsoTimeSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
@@ -350,9 +351,39 @@ export type StreamBlockRef = z.infer<typeof StreamBlockRefSchema>;
 
 // ── 用户消息内容 ────────────────────────────────────────────────────────
 
-/** v0 只有文本；以后加图片等类型时按 `type` 扩展，并按客户端能力门控。 */
+/** 能随消息发送的图片格式（0.28.0）。 */
+export const UserImageMimeTypeSchema = z.enum([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+]);
+export type UserImageMimeType = z.infer<typeof UserImageMimeTypeSchema>;
+
+/**
+ * 消息里的一张图片（0.28.0，Host 功能 `user_images`）：`image.upload` 存下的图片的引用，字节经 `image.read` 读。客户端把
+ * `image.upload` 的结果原样放进 `content`；Host 以自己记下的为准。
+ */
+export const UserImagePartSchema = z.object({
+  type: z.literal('image'),
+  imageId: ImageIdSchema,
+  mimeType: UserImageMimeTypeSchema,
+  /** 字节数。 */
+  size: z.int().min(1),
+  /** 像素，从文件头读出；读不出时省略。 */
+  width: z.int().min(1).optional(),
+  height: z.int().min(1).optional(),
+  /** 原来的文件名；粘贴的截图没有。 */
+  name: z.string().min(1).max(255).optional(),
+});
+export type UserImagePart = z.infer<typeof UserImagePartSchema>;
+
+/**
+ * 文本，或图片（0.28.0）。图片按客户端能力 `user_images` 门控：没声明的连接收到的事件与结果里，图片换成文本 `[image]`。
+ */
 export const UserContentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
+  UserImagePartSchema,
 ]);
 export type UserContentPart = z.infer<typeof UserContentPartSchema>;
 

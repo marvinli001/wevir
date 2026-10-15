@@ -32,6 +32,7 @@ import type { EventStore } from './event-store.js';
 import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from './git-diff.js';
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
+import type { ImageStore } from './images.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import {
@@ -85,6 +86,8 @@ export interface HostMethodsOptions {
   settings?: HostSettingsStore;
   /** 回合快照（0.20.0）；省略时 `workspace.diff` 的 `turn` 回 `unavailable`，`session.checkpoints` 为空（测试）。 */
   checkpoints?: TurnCheckpoints;
+  /** 消息里的图片（0.28.0）；省略时 `image.*` 回 `INVALID_PARAMS`（测试）。 */
+  images?: ImageStore;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -129,6 +132,10 @@ export async function syncProviders(
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
+  const imageStore = (): ImageStore => {
+    if (options.images === undefined) throw invalidParams([], 'this host does not store images');
+    return options.images;
+  };
   /**
    * `workspace.git` / `workspace.diff*` 读的目录：工作区目录，给了会话时是会话的目录（0.15.0 起环境会话的 worktree）。工作区
    * 不在或已移除回 WORKSPACE_NOT_FOUND，会话不属于它回 SESSION_NOT_FOUND。
@@ -613,6 +620,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'pending.resume': async ({ sessionId }) => ({
       pendingMessages: await sessions.resumePending(sessionId),
     }),
+
+    'image.upload': async (params) => ({ image: await imageStore().upload(params) }),
+
+    'image.read': (params) => imageStore().read(params),
 
     'settings.get': () => ({ settings: settings.get() }),
 

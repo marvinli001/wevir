@@ -147,6 +147,13 @@ export interface AgentRuntimeAdapter {
   readonly googleVertex?: boolean;
 
   /**
+   * 这个 Provider 与模型的会话收不收用户消息里的图片（0.28.0，`AgentInput` 的 `image` 段）。Host 在接受带图片的消息之前问它，
+   * 回答 `false` 时回 `INVALID_PARAMS`、不写事件；多引擎的路由问承载这类 Provider 的引擎。适配器按引擎与模型回答（Codex：
+   * 模型声明了 `supportsImages`，否则 Codex 会把图片换成占位文字）。不实现表示引擎只收文本，Host 不声明 `user_images`。
+   */
+  acceptsImages?(config: { providerId: string; modelId: string }): boolean;
+
+  /**
    * 从会话分出一个支线会话（0.17.0，U23.1，domain-model §3.12）：新的引擎会话带着原会话到最近一个完成的回合为止的上下文，
    * 引擎不持久化它，模型知道这是支线、之前的历史只作参考（Codex：`thread/fork` 带 `ephemeral`，再用 `thread/inject_items`
    * 补一条边界说明）。原会话不受影响，回合进行中也可以。`config` 是支线的配置（同 `createSession`；`cwd` 与原会话相同）。

@@ -276,6 +276,7 @@ Keys:
   'render.turnFinished': '── Turn {outcome} · {duration} ──',
   'render.from': ' (from {client})',
   'render.steerEchoed': '(steer added to this turn)',
+  'render.image': '[image]',
   'render.steerTag': ' (steer)',
   'render.steerTagFrom': ' (steer, from {client})',
   'render.pendingSteer': 'Steer: added to this turn after the current step',

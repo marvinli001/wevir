@@ -10,6 +10,7 @@ import { t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 import { CopyButton } from './copy-button';
 import { modelLabel } from './handoff-model';
+import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SubagentRow } from './subagent-marker';
@@ -22,20 +23,28 @@ import { WorkGroup } from './work-group';
 
 export function UserMessage({ message }: { message: UserChatMessage }) {
   if (message.command) return <CommandMessage command={message.command} />;
-  const text = message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('\n');
+  const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
+  const text = texts.join('\n');
+  const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
   // 子会话里父 agent 给的输入标成“父 agent 派给它的任务”（R5）。别的客户端发的不标来源。
   return (
     <div className="flex flex-col items-end" data-message-role="user">
+      {/* 图片（0.28.0）在文字上方，同 Codex 与 Claude Code 桌面端。 */}
+      {images.length > 0 && (
+        <MessageImages images={images} className={texts.length > 0 ? 'mb-1.5' : undefined} />
+      )}
       {/* 悬停时左边出现“复制”（U36）。 */}
-      <div className="group/user flex max-w-[85%] items-center gap-1">
-        <CopyButton
-          text={text}
-          className="shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-visible:opacity-100"
-        />
-        <div className="min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
-          {text}
+      {texts.length > 0 && (
+        <div className="group/user flex max-w-[85%] items-center gap-1">
+          <CopyButton
+            text={text}
+            className="shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-visible:opacity-100"
+          />
+          <div className="min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
+            {text}
+          </div>
         </div>
-      </div>
+      )}
       {message.fromParentAgent && (
         <span className="mt-1 text-xs text-muted-foreground">
           {t('transcript.fromParentAgent')}

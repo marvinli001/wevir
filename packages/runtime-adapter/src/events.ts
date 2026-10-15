@@ -1,4 +1,10 @@
-import type { AgentInput, PendingApproval, TodoItem, ToolDisplay, UserQuestion } from './types.js';
+import type {
+  AgentTextInput,
+  PendingApproval,
+  TodoItem,
+  ToolDisplay,
+  UserQuestion,
+} from './types.js';
 
 // AgentEvent：适配器上报给 Host 的引擎无关中间表示。Host 给它配上 Wevir 会话 ID、turnId、seq，
 // 写成 WevirEvent（domain-model.md §6）。与那份事件目录相比：
@@ -235,8 +241,8 @@ export interface TurnStartedEvent {
   type: 'turn.started';
   /** 子会话。 */
   engineSessionId: string;
-  /** 父 agent 给的输入（Codex：子 thread 这一回合的 userMessage）；引擎没给时省略。 */
-  input?: AgentInput['content'];
+  /** 父 agent 给的输入（Codex：子 thread 这一回合的 userMessage，只取文本）；引擎没给时省略。 */
+  input?: AgentTextInput[];
 }
 
 /**

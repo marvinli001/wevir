@@ -1,4 +1,5 @@
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentEvent, ApprovalRequestedEvent } from '@wevir/runtime-adapter';
 import { isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
@@ -147,6 +148,41 @@ describe('一问一答（录音 plain）', () => {
     });
     sdk.sessions.add(id);
     expect((await adapter.resumeSession(id, CONFIG)).engineSessionId).toBe(id);
+  });
+});
+
+describe('图片（0.28.0）', () => {
+  it('图片在前（base64 图片块），文本在后；只有文本时照旧是字符串', async () => {
+    const { adapter, sdk } = harness();
+    expect(adapter.acceptsImages()).toBe(true);
+    const dir = mkdtempSync(join(tmpdir(), 'wevir-claude-image-'));
+    try {
+      const path = join(dir, 'shot.png');
+      writeFileSync(path, Buffer.from('fake png bytes'));
+      const { engineSessionId } = await adapter.createSession(CONFIG);
+      const log = collect(adapter, engineSessionId);
+      await adapter.send(engineSessionId, {
+        content: [
+          { type: 'text', text: 'Reply with exactly the word hello.' },
+          { type: 'image', path, mimeType: 'image/png' },
+        ],
+      });
+      await log.until(isTurnTerminal);
+      expect(sessionQueries(sdk)[0]?.prompts[0]?.message.content).toEqual([
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: Buffer.from('fake png bytes').toString('base64'),
+          },
+        },
+        { type: 'text', text: 'Reply with exactly the word hello.' },
+      ]);
+      expect(log.events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

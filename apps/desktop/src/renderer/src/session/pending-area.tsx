@@ -8,7 +8,14 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { describe as describeError } from '@/host/host-connection';
 import { t } from '@/i18n';
-import { canSteerNow, fallbackNote, groupPending, pendingText } from './pending-model';
+import { imagesOf, messageContent } from './composer-images';
+import {
+  canSteerNow,
+  fallbackNote,
+  groupPending,
+  pendingImageCount,
+  pendingText,
+} from './pending-model';
 
 /**
  * 输入框上方的待发区（R11，domain-model §3.3.2）：插话（等这一步结束）、排队（回合结束后）、已暂停三组。排队的与暂停的
@@ -47,10 +54,11 @@ export function PendingArea({
         onCancel={() => setEditing(undefined)}
         onSave={(text) =>
           run(async (c) => {
+            // 只改文字，图片（0.28.0）照旧。
             await c.request('pending.update', {
               sessionId,
               pendingId: message.id,
-              content: [{ type: 'text', text }],
+              content: messageContent(text, imagesOf(message.content)),
             });
             setEditing(undefined);
           })
@@ -167,6 +175,7 @@ function PendingGroup({
 
 function PendingRow({ message, actions }: { message: PendingMessage; actions: ReactNode }) {
   const note = fallbackNote(message);
+  const images = pendingImageCount(message);
   return (
     <li
       className="group flex items-start gap-2 rounded-lg bg-background/70 px-2.5 py-1.5 animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
@@ -176,6 +185,11 @@ function PendingRow({ message, actions }: { message: PendingMessage; actions: Re
         <p className="line-clamp-3 text-sm whitespace-pre-wrap break-words">
           {pendingText(message)}
         </p>
+        {images > 0 && (
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t('pending.images', { count: images })}
+          </p>
+        )}
         {note && (
           <p className="mt-0.5 text-xs text-warning" title={message.fallback?.message}>
             {note}
@@ -198,8 +212,10 @@ function PendingEditor({
 }) {
   const [text, setText] = useState(() => pendingText(message));
   const [saving, setSaving] = useState(false);
+  // 只有图片的消息可以把文字删光（0.28.0）。
+  const empty = text.trim() === '' && pendingImageCount(message) === 0;
   const save = async () => {
-    if (text.trim() === '' || saving) return;
+    if (empty || saving) return;
     setSaving(true);
     try {
       await onSave(text.trim());
@@ -231,7 +247,7 @@ function PendingEditor({
         <Button size="xs" variant="ghost" onClick={onCancel}>
           {t('pending.cancelEdit')}
         </Button>
-        <Button size="xs" disabled={text.trim() === '' || saving} onClick={() => void save()}>
+        <Button size="xs" disabled={empty || saving} onClick={() => void save()}>
           {t('pending.save')}
         </Button>
       </div>

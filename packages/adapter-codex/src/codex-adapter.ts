@@ -105,6 +105,7 @@ import {
   type TurnStartResponse,
   type TurnSteerParams,
   type TurnSteerResponse,
+  type UserInput,
 } from './protocol.js';
 import { classifyResumeError } from './resume-error.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
@@ -455,6 +456,18 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   get googleVertex(): boolean {
     return !this.#chatgpt;
   }
+
+  /**
+   * 图片（0.28.0，codex-event-mapping.md §4.2）：模型声明了 `supportsImages` 才收——目录里它的 `input_modalities` 才有 image，
+   * 否则 Codex 把图片换成占位文字。ChatGPT 的模型列表可能过期，不在列表里的交给 Codex 判断。
+   */
+  acceptsImages(config: { providerId: string; modelId: string }): boolean {
+    const provider = this.#providers.get(config.providerId);
+    if (provider === undefined) return false;
+    const model = provider.models.find((candidate) => candidate.id === config.modelId);
+    if (model === undefined) return this.#chatgpt;
+    return model.supportsImages === true;
+  }
   readonly process: CodexProcess;
   readonly paths: CodexPaths;
   /** ChatGPT 进程的账号（`mode: 'chatgpt'` 时才有）。 */
@@ -667,7 +680,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const turn = this.#beginTurn(session);
     const params: TurnStartParams = {
       threadId: engineSessionId,
-      input: input.content.map((part) => ({ type: 'text', text: part.text, text_elements: [] })),
+      input: userInput(input),
       ...(session.override && { model: session.override.model, effort: session.override.effort }),
       ...permissionSettings(session.permission, session.roots),
     };
@@ -897,7 +910,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     const params: TurnSteerParams = {
       threadId: engineSessionId,
-      input: input.content.map((part) => ({ type: 'text', text: part.text, text_elements: [] })),
+      input: userInput(input),
       expectedTurnId: turn.turnId,
       clientUserMessageId: steerId,
     };
@@ -2068,6 +2081,15 @@ export function extraRootsInstructions(roots: readonly string[] | undefined): {
       ...roots.map((root) => `- ${root}`),
     ].join('\n'),
   };
+}
+
+/** `turn/start` 与 `turn/steer` 的输入：文本照旧，图片是 Host 存下的文件（`localImage`，0.28.0）。 */
+function userInput(input: AgentInput): UserInput[] {
+  return input.content.map((part) =>
+    part.type === 'text'
+      ? { type: 'text', text: part.text, text_elements: [] }
+      : { type: 'localImage', path: part.path },
+  );
 }
 
 function engineSession(id: string, response: ThreadStartResponse): EngineSession {

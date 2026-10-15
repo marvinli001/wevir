@@ -7,6 +7,7 @@ import type {
   SubagentSummary,
   ToolDisplay,
   TurnId,
+  UserContentPart,
   WevirEvent,
   WevirEventOf,
 } from '@wevir/protocol';
@@ -263,7 +264,7 @@ export class EventRenderer {
   #userMessage(event: WevirEventOf<'user.message'>): void {
     const { clientMessageId, content, sentBy } = event.payload;
     if (this.#live && clientMessageId && this.#options.isEchoed?.(clientMessageId)) return;
-    const text = content.map((part) => part.text).join('\n');
+    const text = contentText(content, '\n');
     const from =
       sentBy.clientKind === 'cli'
         ? ''
@@ -279,7 +280,7 @@ export class EventRenderer {
       this.#sink.line(this.#s.dim(t('render.steerEchoed')));
       return;
     }
-    const text = content.map((part) => part.text).join('\n');
+    const text = contentText(content, '\n');
     const tag =
       sentBy.clientKind === 'cli'
         ? t('render.steerTag')
@@ -501,12 +502,15 @@ function firstLines(text: string): string {
 const pendingFallbackLabel = (reason: PendingFallbackReason): string =>
   t(`pendingFallback.${reason}`);
 
+/** 用户消息的文本：图片写成“[图片]”（0.28.0）。 */
+function contentText(content: readonly UserContentPart[], separator: string): string {
+  return content
+    .map((part) => (part.type === 'text' ? part.text : t('render.image')))
+    .join(separator);
+}
+
 /** 待发消息的一行预览：首行，过长截断。 */
 export function pendingPreview(pending: PendingMessage): string {
-  const text = pending.content
-    .map((part) => part.text)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = contentText(pending.content, ' ').replace(/\s+/g, ' ').trim();
   return text.length > 60 ? `${text.slice(0, 60)}…` : text;
 }

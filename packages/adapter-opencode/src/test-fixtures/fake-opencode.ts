@@ -449,7 +449,7 @@ export class FakeOpenCode implements OpenCodeSdk {
       this.#steer(running, body);
       return;
     }
-    const text = body.parts.map((part) => part.text).join('\n');
+    const text = body.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
     let candidates = this.recordings.filter((recording) => recording.prompt === text);
     if (candidates.length === 0) {
       candidates = this.recordings.filter((recording) => recording.name === 'plain');
@@ -583,7 +583,7 @@ export class FakeOpenCode implements OpenCodeSdk {
   #steer(replay: Replay, body: PromptInput): void {
     const action: RecordedAction = {
       type: 'steer',
-      text: body.parts.map((part) => part.text).join('\n'),
+      text: body.parts.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'),
     };
     const steerable = replay.candidates.some((recording) =>
       recording.lines.some((line) => line.action?.type === 'steer'),

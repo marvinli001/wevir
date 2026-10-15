@@ -8,6 +8,7 @@ import type {
   SessionId,
   SubagentSummary,
   TurnId,
+  UserImagePart,
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import { TriangleAlert } from 'lucide-react';
@@ -35,6 +36,7 @@ import { Composer, setDraft } from './composer';
 import { EnvironmentBar } from './environment-bar';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
 import { historyDigest } from './history-digest';
+import { useAcceptsImages } from './image-attachments';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { NewSessionHero, NewSessionLayout } from './new-session';
 import { PendingArea } from './pending-area';
@@ -102,6 +104,7 @@ export function SessionView({
   const transcript = state?.transcript;
   const sessionState = transcript?.state ?? session.state;
   const readOnly = transcript?.readOnly ?? session.readOnly;
+  const acceptImages = useAcceptsImages(session);
 
   // 当前的引擎能做什么（0.25.0）：接力到别的来源后跟着变；旧 Host 没有时只看 Host 的功能。
   const workbench = useWorkbenchData();
@@ -123,10 +126,15 @@ export function SessionView({
     hasFinishedTurn(transcript);
 
   const send = useCallback(
-    async (text: string, delivery?: PendingDelivery): Promise<boolean> => {
+    async (
+      text: string,
+      delivery?: PendingDelivery,
+      images?: readonly UserImagePart[],
+    ): Promise<boolean> => {
       if (!client) return false;
       setNotice(undefined);
-      const question = sideEnabled ? btwQuestion(text) : undefined;
+      // 带图片的消息不当作支线提问（支线只问文字）。
+      const question = sideEnabled && !images?.length ? btwQuestion(text) : undefined;
       if (question !== undefined) {
         try {
           await startSide(client, session.id, question, panes);
@@ -141,7 +149,7 @@ export function SessionView({
         if (sessionState === 'error' || sessionState === 'closed') {
           await client.request('session.resume', { sessionId: session.id });
         }
-        await sendText(client, session.id, text, delivery);
+        await sendText(client, session.id, text, delivery, images);
         transcriptRef.current?.jumpToLatest('auto');
         return true;
       } catch (error) {
@@ -427,6 +435,7 @@ export function SessionView({
             hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
           onSend={send}
           onStop={stop}
+          acceptImages={acceptImages && readOnly === undefined}
           autoFocus={variant === 'main'}
           commands={readOnly === undefined ? commands : undefined}
           {...(fileScope && { fileScope })}
@@ -601,6 +610,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     environment?.id,
     worktree.active,
   );
+  const acceptImages = useAcceptsImages(choice);
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
@@ -678,7 +688,8 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             draftKey={newSessionDraftKey(workspaceId)}
             state="idle"
             disabled={!client || !choice}
-            onSend={(text) => send(text)}
+            onSend={(text, _delivery, images) => send(text, undefined, images)}
+            acceptImages={acceptImages}
             leading={
               permissions && (
                 <PermissionPicker value={permission.mode} onChange={permission.choose} />

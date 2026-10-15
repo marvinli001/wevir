@@ -41,7 +41,12 @@ export function fallbackNote(message: PendingMessage): string | undefined {
 }
 
 export function pendingText(message: PendingMessage): string {
-  return message.content.map((part) => part.text).join('\n');
+  return message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+}
+
+/** 待发消息带的图片张数（0.28.0）。 */
+export function pendingImageCount(message: PendingMessage): number {
+  return message.content.filter((part) => part.type === 'image').length;
 }
 
 /** 输入框里一次按键要做的事（只看与发送有关的键）。 */

@@ -12,8 +12,14 @@
 // Cursor 的 SDK 没有审批回调：工具调用要么在沙箱里直接做，要么交给 Cursor 的 Auto-review 分类器决定，要么不用沙箱（T3 的能力表
 // supports*Approval 都是 false）。Wevir 的三种权限模式按语义映射到 `sandboxOptions.enabled` 与 `autoReview`（permissionPolicy）。
 
-import { stat } from 'node:fs/promises';
-import type { AgentOptions, InteractionUpdate, SDKModel, SettingSource } from '@cursor/sdk';
+import { readFile, stat } from 'node:fs/promises';
+import type {
+  AgentOptions,
+  InteractionUpdate,
+  SDKModel,
+  SDKUserMessage,
+  SettingSource,
+} from '@cursor/sdk';
 import {
   AdapterError,
   type AgentEvent,
@@ -169,6 +175,11 @@ interface Session {
 export class CursorAdapter implements AgentRuntimeAdapter {
   readonly accounts: CursorAccounts;
   readonly permissionModes = PERMISSION_MODES;
+
+  /** 图片（0.28.0）：经 SDK 的 `images` 交给 Cursor，模型由它挑。 */
+  acceptsImages(): boolean {
+    return true;
+  }
   readonly #options: CursorAdapterOptions;
   readonly #sdk: () => Promise<CursorSdk>;
   readonly #sessions = new Map<string, Session>();
@@ -279,10 +290,25 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('session_busy', 'the Cursor agent is already running a turn');
     }
     const text = input.content
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text)
+      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
       .join('\n\n');
-    if (text.trim() === '') throw new AdapterError('invalid_input', 'the message is empty');
+    // 图片（0.28.0）：SDK 的 `SDKUserMessage.images`，base64（同 T3 Code 的 CursorAdapterV2）。
+    // 只有文本时不让出事件循环。
+    const reads = input.content.flatMap((part) =>
+      part.type === 'image'
+        ? [
+            readFile(part.path).then((bytes) => ({
+              data: bytes.toString('base64'),
+              mimeType: part.mimeType,
+            })),
+          ]
+        : [],
+    );
+    const images = reads.length === 0 ? [] : await Promise.all(reads);
+    if (text.trim() === '' && images.length === 0) {
+      throw new AdapterError('invalid_input', 'the message is empty');
+    }
+    const message: string | SDKUserMessage = images.length === 0 ? text : { text, images };
 
     let resolve: () => void = () => {};
     const settled = new Promise<void>((done) => {
@@ -308,7 +334,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
         else this.#emit(session, turn.mapper.map(update));
       };
       const send = () =>
-        agent.send(text, {
+        agent.send(message, {
           model: modelSelection(
             session.settings.modelId,
             session.settings.reasoningEffort,

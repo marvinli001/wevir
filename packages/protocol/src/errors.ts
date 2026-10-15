@@ -39,6 +39,8 @@ export const ErrorCode = {
   QUESTION_NOT_FOUND: -32015,
   /** 没有这个环境（0.15.0）。 */
   ENVIRONMENT_NOT_FOUND: -32016,
+  /** 没有这张图片（0.28.0）。 */
+  IMAGE_NOT_FOUND: -32017,
 
   INVALID_STATE: -32020,
   SESSION_BUSY: -32021,

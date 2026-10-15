@@ -57,6 +57,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly generateTitle?: AgentRuntimeAdapter['generateTitle'];
   readonly compact?: AgentRuntimeAdapter['compact'];
   readonly review?: AgentRuntimeAdapter['review'];
+  readonly acceptsImages?: AgentRuntimeAdapter['acceptsImages'];
 
   /** Provider 种类 → 引擎。 */
   readonly #byKind = new Map<ProviderKind, EngineRoute>();
@@ -115,6 +116,14 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.respondToQuestion !== undefined)) {
       this.respondToQuestion = async (id, requestId, answers) =>
         this.#method(id, 'respondToQuestion').respondToQuestion(id, requestId, answers);
+    }
+    if (adapters.some((adapter) => adapter.acceptsImages !== undefined)) {
+      // 按 Provider 的种类问承载它的引擎；不认识的 Provider 当作不收。
+      this.acceptsImages = (config) => {
+        const kind = this.#kinds.get(config.providerId);
+        const route = kind === undefined ? undefined : this.#byKind.get(kind);
+        return route?.adapter.acceptsImages?.(config) === true;
+      };
     }
     if (adapters.some((adapter) => adapter.generateTitle !== undefined)) {
       this.generateTitle = async (id: string, request: TitleRequest) =>

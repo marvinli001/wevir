@@ -13,6 +13,7 @@ import {
   type EngineErrorInfo,
   type EngineFeatures,
   type EnvironmentId,
+  IMAGE_MAX_PER_MESSAGE,
   type MethodParams,
   type MethodResult,
   type PendingMessage,
@@ -45,6 +46,7 @@ import {
 } from '@wevir/protocol';
 import {
   type AgentEvent,
+  type AgentInput,
   type AgentRuntimeAdapter,
   type ApprovalCancelledEvent,
   type ApprovalRequestedEvent,
@@ -87,6 +89,7 @@ import {
   withHandoffContext,
 } from './handoff.js';
 import { newId } from './ids.js';
+import type { ImageStore } from './images.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
 
@@ -138,6 +141,10 @@ export interface SessionManagerOptions {
    * `<会话 ID>.json`。没给时不写，摘要里也不提这个工具。
    */
   historyDir?: string;
+  /**
+   * 消息里的图片（0.28.0，images.ts）。没给时、或适配器没有 `acceptsImages` 时，带图片的消息回 `INVALID_PARAMS`。
+   */
+  images?: ImageStore;
 }
 
 /** `recover()` 的结果：启动对账修正了什么。 */
@@ -278,6 +285,7 @@ export class SessionManager {
   readonly #checkpoints: TurnCheckpoints | undefined;
   readonly #engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined;
   readonly #historyDir: string | undefined;
+  readonly #images: ImageStore | undefined;
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
@@ -306,6 +314,7 @@ export class SessionManager {
     this.#checkpoints = options.checkpoints;
     this.#engineFeatures = options.engineFeatures;
     this.#historyDir = options.historyDir;
+    this.#images = options.images;
   }
 
   /**
@@ -659,9 +668,12 @@ export class SessionManager {
     const replayed = this.#replay(runtime, clientMessageId, fingerprint);
     if (replayed) return replayed;
     this.#assertNotChild(runtime);
+    // 图片（0.28.0）：换成 Host 记下的、挪出暂存区。回执的指纹仍按客户端发来的内容算，重发时照样认得出。
+    const content = await this.#acceptContent(runtime, params.content, ['content']);
+    const accepted = { ...params, content };
     const snapshot = this.#snapshot(runtime);
     if (params.delivery !== undefined && ACTIVE_STATES.includes(snapshot.session.state)) {
-      return this.#addPending(runtime, params, sentBy, fingerprint);
+      return this.#addPending(runtime, accepted, sentBy, fingerprint);
     }
     assertSendable(snapshot);
     return this.#serial(runtime, async () => {
@@ -669,11 +681,11 @@ export class SessionManager {
       if (replayed) return replayed;
       const snapshot = this.#snapshot(runtime);
       if (params.delivery !== undefined && ACTIVE_STATES.includes(snapshot.session.state)) {
-        return this.#addPending(runtime, params, sentBy, fingerprint);
+        return this.#addPending(runtime, accepted, sentBy, fingerprint);
       }
       assertSendable(snapshot);
       return this.#startTurn(runtime, {
-        content: params.content,
+        content,
         sentBy,
         ...(clientMessageId !== undefined && { clientMessageId, fingerprint }),
       });
@@ -818,6 +830,8 @@ export class SessionManager {
       assertSendable(this.#snapshot(runtime));
     }
 
+    // 图片换成磁盘上的路径；找不到时在写事件之前报错。
+    const agentInput = await this.#agentInput(content);
     const snapshot = this.#snapshot(runtime);
     const turnId = newId('trn');
     const inputs: AppendInput[] = [
@@ -887,9 +901,12 @@ export class SessionManager {
     // 接力（0.25.0）：还没交出去的历史摘要放在这条消息的开头交给新引擎；消息记录里只有用户写的。
     const handoff = this.#events.handoffState(runtime.id)?.context;
     try {
-      await this.#adapter.send(runtime.engineSessionId, {
-        content: handoff === undefined ? content : withHandoffContext(handoff, content),
-      });
+      await this.#adapter.send(
+        runtime.engineSessionId,
+        handoff === undefined
+          ? agentInput
+          : await this.#agentInput(withHandoffContext(handoff, content)),
+      );
     } catch (error) {
       // 引擎没有接受这个回合。等待期间回合可能已经以别的方式结束（例如引擎退出）。
       if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
@@ -901,6 +918,63 @@ export class SessionManager {
     // 截断的标题已经写下；引擎接受了第一个回合，再用会话的模型生成标题（不等它）。
     if (firstTitle) this.#generateTitle(runtime, content);
     return { turnId, seq: message.seq };
+  }
+
+  /**
+   * 消息里的图片（0.28.0）：最多 `IMAGE_MAX_PER_MESSAGE` 张；会话的引擎与模型要收图片（适配器的 `acceptsImages`），否则
+   * `INVALID_PARAMS`；每张换成 Host 记下的、挪出暂存区，没有这张图片时 `IMAGE_NOT_FOUND`。没有图片时原样返回。
+   */
+  async #acceptContent(
+    runtime: SessionRuntime,
+    content: UserContentPart[],
+    path: Array<string | number>,
+  ): Promise<UserContentPart[]> {
+    const count = content.filter((part) => part.type === 'image').length;
+    if (count === 0) return content;
+    if (count > IMAGE_MAX_PER_MESSAGE) {
+      throw invalidContent(path, `a message can carry at most ${IMAGE_MAX_PER_MESSAGE} images`);
+    }
+    const { providerId, modelId } = this.#snapshot(runtime).session;
+    const images = this.#images;
+    // Provider 的模型列表标了不收图片的，不必再问引擎（OpenCode 等的模型目录带这一项）。
+    const listed = (this.#storage.providers.get(providerId)?.models ?? []) as {
+      id: string;
+      supportsImages?: boolean;
+    }[];
+    const refused = listed.find((model) => model.id === modelId)?.supportsImages === false;
+    if (
+      images === undefined ||
+      refused ||
+      this.#adapter.acceptsImages?.({ providerId, modelId }) !== true
+    ) {
+      throw invalidContent(
+        path,
+        `model ${modelId} of provider ${providerId} does not accept images`,
+      );
+    }
+    return images.keep(content);
+  }
+
+  /** 交给引擎的输入：图片换成数据目录里的文件。 */
+  async #agentInput(content: readonly UserContentPart[]): Promise<AgentInput> {
+    const parts: AgentInput['content'] = [];
+    for (const part of content) {
+      if (part.type === 'text') {
+        parts.push(part);
+        continue;
+      }
+      const path = await this.#images?.path(part.imageId);
+      if (path === undefined) {
+        throw new HostError('IMAGE_NOT_FOUND', `image ${part.imageId} not found`);
+      }
+      parts.push({
+        type: 'image',
+        path,
+        mimeType: part.mimeType,
+        ...(part.name !== undefined && { name: part.name }),
+      });
+    }
+    return { content: parts };
   }
 
   // ── 待发消息（R11，domain-model §3.3.2、§4.6） ──────────────────────────────────
@@ -975,7 +1049,7 @@ export class SessionManager {
     const steer = this.#adapter.steer?.bind(this.#adapter);
     if (steer === undefined) return;
     try {
-      await steer(runtime.engineSessionId, pending.id, { content: pending.content });
+      await steer(runtime.engineSessionId, pending.id, await this.#agentInput(pending.content));
     } catch (error) {
       if (this.#disposed) return;
       const current = this.#events.pending(runtime.id, pending.id);
@@ -1005,8 +1079,12 @@ export class SessionManager {
     }
     const next: PendingMessage = { ...pending };
     let changed = false;
-    if (params.content !== undefined && !isDeepStrictEqual(params.content, pending.content)) {
-      next.content = params.content;
+    const content =
+      params.content === undefined
+        ? undefined
+        : await this.#acceptContent(runtime, params.content, ['content']);
+    if (content !== undefined && !isDeepStrictEqual(content, pending.content)) {
+      next.content = content;
       changed = true;
     }
     let handOver = false;
@@ -1809,7 +1887,8 @@ export class SessionManager {
     const instructions = this.#titleInstructions;
     const generate = this.#adapter.generateTitle?.bind(this.#adapter);
     if (instructions === undefined || generate === undefined) return;
-    const prompt = content.map((part) => part.text).join('\n');
+    const prompt = content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+    if (prompt.trim() === '') return;
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), TITLE_TIMEOUT_MS);
     const stop = () => abort.abort();
@@ -3354,13 +3433,17 @@ function exitInfo(event: Extract<AgentEvent, { type: 'engine.exited' }>): Engine
   return { category: 'engine_exited', message: `engine exited with ${how}${tail}` };
 }
 
+function invalidContent(path: Array<string | number>, message: string): HostError {
+  return new HostError('INVALID_PARAMS', message, { issues: [{ path, message }] });
+}
+
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 function makeTitle(content: readonly UserContentPart[]): string {
   const text = content
-    .map((part) => part.text)
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim();

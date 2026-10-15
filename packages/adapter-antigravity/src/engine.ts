@@ -100,4 +100,6 @@ export const ANTIGRAVITY_ENGINE: AcpEngine = Object.freeze<AcpEngine>({
   // `agent_message_chunk` 是逐字增量，没有 messageId（T3 的测试样本）。
   messageChunks: 'streamed',
   normalizeUpdate: normalizeAntigravityUpdate,
+  // 图片（0.28.0）：initialize 报 `promptCapabilities.image: true`（T3 的 AntigravityAcpSupport 也发图片内容块）。
+  images: true,
 });

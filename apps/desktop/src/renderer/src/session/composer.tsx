@@ -1,7 +1,14 @@
-import type { PendingDelivery, SessionState } from '@wevir/protocol';
+import {
+  IMAGE_MAX_PER_MESSAGE,
+  type PendingDelivery,
+  type SessionState,
+  type UserImagePart,
+} from '@wevir/protocol';
 import { cn } from 'cn';
 import { ArrowUp, Folder, Square } from 'lucide-react';
 import {
+  type ClipboardEvent,
+  type DragEvent,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -18,6 +25,7 @@ import { toRelativePath } from '@/files/file-path';
 import { type FileScope, useFileSearch, useFilesSupported } from '@/files/files-data';
 import { Beam } from '@/fx/beam';
 import { MetalCircle } from '@/fx/metal';
+import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { fileIcon } from '@/layout/panes/files-pane';
 import {
@@ -28,11 +36,19 @@ import {
   searchItems,
   slashMenuState,
 } from './composer-commands';
+import {
+  COMPOSER_IMAGE_ACCEPT,
+  type ComposerImage,
+  dragHasFiles,
+  type ImageRejection,
+  pickImages,
+} from './composer-images';
 import { ComposerMenu, type MenuEntry, menuOptionId } from './composer-menu';
 import { ComposerPlusMenu } from './composer-plus-menu';
 import { composerPrefs, sendKeyLabel } from './composer-prefs';
 import { detectMentionTrigger, mentionText, replaceTextRange } from './composer-trigger';
 import { DeliverySwitch } from './delivery-switch';
+import { ComposerThumb, ImagePreview, readAsDataUrl, uploadImage } from './image-attachments';
 import { composerKeyAction, otherDelivery } from './pending-model';
 import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './prompt-history';
 
@@ -43,6 +59,29 @@ export function isBusy(state: SessionState | undefined): boolean {
 
 /** 未发送的草稿按会话留在内存里，切走再切回来还在（不持久化）。 */
 const drafts = new Map<string, string>();
+
+/** 草稿里的图片（0.28.0），同样按会话留在内存里。 */
+const imageDrafts = new Map<string, ComposerImage[]>();
+const imageListeners = new Map<string, Set<(images: ComposerImage[]) => void>>();
+
+/** 改一个草稿的图片，挂着的输入框跟着刷新（图片传完时可能已经换了会话，草稿表照样更新）。 */
+function updateImageDraft(
+  draftKey: string,
+  update: (current: ComposerImage[]) => ComposerImage[],
+): void {
+  const next = update(imageDrafts.get(draftKey) ?? []);
+  if (next.length > 0) imageDrafts.set(draftKey, next);
+  else imageDrafts.delete(draftKey);
+  for (const listener of imageListeners.get(draftKey) ?? []) listener(next);
+}
+
+function rejectionText(rejected: { reason: ImageRejection; name: string }): string {
+  if (rejected.reason === 'limit')
+    return t('composer.imageLimit', { count: IMAGE_MAX_PER_MESSAGE });
+  return rejected.reason === 'too_large'
+    ? t('composer.imageTooLarge', { name: rejected.name })
+    : t('composer.imageUnsupported', { name: rejected.name });
+}
 
 /** 预先放一份草稿（基于历史新建会话，T5.5）：下次打开这个输入框时显示。 */
 export function setDraft(draftKey: string, text: string): void {
@@ -68,6 +107,9 @@ export function setDraft(draftKey: string, text: string): void {
  * U33 起照 T3 Code 与 Codex 桌面端：消息开头打 `/` 弹出斜杠命令（`commands`，由所在页面给出，有的带二级菜单），打 `@` 弹出
  * 文件（`fileScope` 的目录里按名字找），上下键选、回车或 Tab 确定、Esc 收起；底栏最左边是“+”菜单（文件和文件夹、提及文件、
  * 命令与页面标为 `plus` 的命令）。
+ *
+ * 0.28.0 起照 Codex 桌面端、Claude Code 桌面端与 T3 Code 带图片（`acceptImages` 时）：粘贴、拖进输入框或从“+”菜单的
+ * “图片”选，立即传给 Host，缩略图排在文字上方（右上角移除，点开看大图）；传完之前不能发送，只有图片也能发。
  */
 export function Composer({
   draftKey,
@@ -86,6 +128,7 @@ export function Composer({
   placeholder,
   commands,
   fileScope,
+  acceptImages = false,
 }: {
   /** 草稿归属（会话 ID，或新会话草稿的工作区）。 */
   draftKey: string;
@@ -103,8 +146,12 @@ export function Composer({
   busyDelivery?: PendingDelivery;
   /** 改“回合进行中按回车”（Host 设置）；给了才显示切换。 */
   onBusyDeliveryChange?: (delivery: PendingDelivery) => void;
-  /** 回合进行中发出时带上方式；空闲时不带。 */
-  onSend: (text: string, delivery?: PendingDelivery) => Promise<boolean>;
+  /** 回合进行中发出时带上方式；空闲时不带。`images` 是已传给 Host 的图片（0.28.0）。 */
+  onSend: (
+    text: string,
+    delivery?: PendingDelivery,
+    images?: readonly UserImagePart[],
+  ) => Promise<boolean>;
   onStop: () => void;
   autoFocus?: boolean;
   variant?: 'session' | 'home';
@@ -114,6 +161,8 @@ export function Composer({
   commands?: readonly ComposerCommand[];
   /** @ 提及与“文件和文件夹”的目录（U33）；省略时没有。 */
   fileScope?: FileScope;
+  /** 能带图片（0.28.0，`useAcceptsImages`）：Host 支持、模型收图片。 */
+  acceptImages?: boolean;
 }) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
@@ -122,9 +171,97 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const busy = isBusy(state);
   const pendingEnabled = busyDelivery !== undefined;
-  const canSend = (!busy || pendingEnabled) && !disabled && !sending && text.trim() !== '';
+
+  // ── 图片（0.28.0） ──────────────────────────────────────────────────
+  const { client } = useHostConnection();
+  const [images, setImagesState] = useState<ComposerImage[]>(() => imageDrafts.get(draftKey) ?? []);
+  const [imageError, setImageError] = useState<string>();
+  const [dragging, setDragging] = useState(false);
+  const [preview, setPreview] = useState<ComposerImage>();
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const listeners = imageListeners.get(draftKey) ?? new Set();
+    imageListeners.set(draftKey, listeners);
+    listeners.add(setImagesState);
+    return () => {
+      listeners.delete(setImagesState);
+    };
+  }, [draftKey]);
+  const updateImages = (update: (current: ComposerImage[]) => ComposerImage[]) =>
+    updateImageDraft(draftKey, update);
+  const uploading = images.some((image) => image.part === undefined);
+  const imagesEnabled = acceptImages && client !== undefined && !disabled;
+  const hasContent = text.trim() !== '' || images.length > 0;
+  const canSend = (!busy || pendingEnabled) && !disabled && !sending && !uploading && hasContent;
 
   useEffect(() => setDraft(draftKey, text), [draftKey, text]);
+
+  /** 粘贴、拖进来或选好的文件：挑出能发的图片，先显示缩略图，再传给 Host。 */
+  const addImages = (files: readonly File[], named: boolean) => {
+    if (!imagesEnabled || !client) return;
+    const picked = pickImages(files, images.length);
+    setImageError(picked.rejected && rejectionText(picked.rejected));
+    for (const { file, mimeType } of picked.accepted) {
+      const key = crypto.randomUUID();
+      const name = named ? file.name : undefined;
+      void readAsDataUrl(file)
+        .then(async (dataUrl) => {
+          updateImages((current) => [
+            ...current,
+            { key, dataUrl, ...(name !== undefined && { name }) },
+          ]);
+          const part = await uploadImage(client, dataUrl, mimeType, name);
+          updateImages((current) =>
+            current.map((image) => (image.key === key ? { ...image, part } : image)),
+          );
+        })
+        .catch((error: unknown) => {
+          updateImages((current) => current.filter((image) => image.key !== key));
+          setImageError(
+            t('composer.imageUploadFailed', {
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        });
+    }
+  };
+
+  const removeImage = (key: string) => {
+    updateImages((current) => current.filter((image) => image.key !== key));
+    setImageError(undefined);
+    textareaRef.current?.focus();
+  };
+
+  /** 粘贴：剪贴板里有图片时当图片加进来（同 T3 Code：有文件就不粘贴文字）。 */
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!imagesEnabled) return;
+    const files = Array.from(event.clipboardData.files);
+    if (files.length === 0) return;
+    event.preventDefault();
+    // 截图粘贴进来的文件都叫 image.png，不带名字。
+    addImages(files, false);
+  };
+
+  const onDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!imagesEnabled || !dragHasFiles(Array.from(event.dataTransfer.types))) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    setDragging(true);
+  };
+
+  const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    // 移到子元素上也会触发：只有离开整个输入框才算。
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setDragging(false);
+  };
+
+  const onDrop = (event: DragEvent<HTMLDivElement>) => {
+    setDragging(false);
+    if (!imagesEnabled || event.dataTransfer.files.length === 0) return;
+    event.preventDefault();
+    addImages(Array.from(event.dataTransfer.files), true);
+    textareaRef.current?.focus();
+  };
 
   // ── 斜杠命令与 @ 提及（U33） ────────────────────────────────────────
   const listId = useId();
@@ -332,12 +469,17 @@ export function Composer({
     if (!canSend) return;
     setSending(true);
     const sent = text.trim();
+    const sentImages = images;
     try {
       // 等待期间可能已经输入了下一条（回合进行中接着发是常事）：只清掉发出去的那条。
-      if (await onSend(sent, busy ? delivery : undefined)) {
-        rememberPrompt(sent);
+      const parts = sentImages.flatMap((image) => (image.part ? [image.part] : []));
+      if (await onSend(sent, busy ? delivery : undefined, parts)) {
+        if (sent !== '') rememberPrompt(sent);
         setHistoryIndex(-1);
         setText((current) => (current.trim() === sent ? '' : current));
+        const keys = new Set(sentImages.map((image) => image.key));
+        updateImages((current) => current.filter((image) => !keys.has(image.key)));
+        setImageError(undefined);
       }
     } finally {
       setSending(false);
@@ -381,7 +523,7 @@ export function Composer({
         // 输入法合成中按的回车是选词，不发送（Safari 等合成结束时 keyCode 为 229）。
         composing: event.nativeEvent.isComposing || event.keyCode === 229,
       },
-      { busy, pendingEnabled, hasText: text.trim() !== '', sendShortcut },
+      { busy, pendingEnabled, hasText: hasContent, sendShortcut },
     );
     if (action === 'none') return;
     event.preventDefault();
@@ -392,13 +534,14 @@ export function Composer({
   /** 右下角按钮现在做什么：回合进行中、没有字或不能再发时是停止。 */
   const action: ComposerAction = !busy
     ? 'send'
-    : busyDelivery === undefined || text.trim() === ''
+    : busyDelivery === undefined || !hasContent
       ? 'stop'
       : busyDelivery;
 
   return (
     // 菜单（U33）画在最外层：光束那一层裁掉溢出（overflow: hidden），放在里面会被裁掉。
-    <div className="relative">
+    // biome-ignore lint/a11y/noStaticElementInteractions: 拖放图片（0.28.0）只是“+”菜单“图片”的快捷方式。
+    <div className="relative" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       {menuOpen && (entries.length > 0 || slash !== undefined || !mentionSearch.pending) && (
         <ComposerMenu
           listId={listId}
@@ -435,8 +578,36 @@ export function Composer({
             // 首页的焦点只用光束表示（方向稿），会话里的输入框聚焦时描边加深一档。
             !home && 'focus-within:border-input',
             disabled && 'opacity-70',
+            dragging && 'border-ring ring-2 ring-ring/30',
           )}
         >
+          {(images.length > 0 || imageError) && (
+            <div className="flex flex-col gap-1.5 px-3.5 pt-3">
+              {images.length > 0 && (
+                <div className="flex flex-wrap gap-2" data-testid="composer-images">
+                  {images.map((image) => (
+                    <ComposerThumb
+                      key={image.key}
+                      src={image.dataUrl}
+                      {...(image.name !== undefined && { name: image.name })}
+                      uploading={image.part === undefined}
+                      onRemove={() => removeImage(image.key)}
+                      onOpen={() => setPreview(image)}
+                    />
+                  ))}
+                </div>
+              )}
+              {imageError && (
+                <p
+                  role="alert"
+                  className="text-xs text-destructive"
+                  data-testid="composer-image-error"
+                >
+                  {imageError}
+                </p>
+              )}
+            </div>
+          )}
           <Textarea
             ref={textareaRef}
             value={text}
@@ -447,6 +618,7 @@ export function Composer({
             }}
             onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             role={menuOpen ? 'combobox' : undefined}
             aria-expanded={menuOpen || undefined}
             aria-controls={menuOpen ? listId : undefined}
@@ -467,11 +639,13 @@ export function Composer({
           />
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
-              {(canMention || (commands?.length ?? 0) > 0) && (
+              {(canMention || imagesEnabled || (commands?.length ?? 0) > 0) && (
                 <ComposerPlusMenu
                   commands={commands ?? []}
                   disabled={disabled}
                   canMention={canMention}
+                  canAttachImages={imagesEnabled}
+                  onAttachImages={() => imageInputRef.current?.click()}
                   canCommand={(commands?.length ?? 0) > 0 && text.trim() === ''}
                   onAttach={() => void attachPaths()}
                   onMention={() => insertAtCursor('@')}
@@ -500,6 +674,26 @@ export function Composer({
           </div>
         </div>
       </Beam>
+      {imagesEnabled && (
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept={COMPOSER_IMAGE_ACCEPT}
+          multiple
+          hidden
+          data-testid="composer-image-input"
+          onChange={(event) => {
+            addImages(Array.from(event.target.files ?? []), true);
+            event.target.value = '';
+            textareaRef.current?.focus();
+          }}
+        />
+      )}
+      <ImagePreview
+        src={preview?.dataUrl}
+        {...(preview?.name !== undefined && { name: preview.name })}
+        onClose={() => setPreview(undefined)}
+      />
     </div>
   );
 }

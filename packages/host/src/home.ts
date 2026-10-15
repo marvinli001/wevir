@@ -17,6 +17,8 @@ export const HOME_LAYOUT = {
   historyDir: 'history',
   /** Host 写给引擎挂的本机 MCP 服务的脚本（0.25.0 的读历史工具，0700）。 */
   mcpDir: 'mcp',
+  /** 消息里的图片（0.28.0，images.ts）；没发出去的在 `staged/` 里，过一天删掉。 */
+  imagesDir: 'images',
 } as const;
 
 export interface ResolveHomeOptions {

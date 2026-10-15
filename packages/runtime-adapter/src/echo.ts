@@ -145,7 +145,7 @@ interface ReplyBlock {
  *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
  *   （`subagent.updated` 的 `closed`）。父回合被取消时子会话照常跑完（与 Codex 相同，Host 自己级联取消） |
  *
- * `fork`（U23.1）分出的支线回复 `Echo (side): <输入>`。`injectNote`（U23）补进来的说明在下一个回合的回复末尾写成 `Notes: <每条的第一行>`，像模型在上下文里看到了它。
+ * 图片（0.28.0）在回复里写成 `[image: <文件名或类型>]`。`fork`（U23.1）分出的支线回复 `Echo (side): <输入>`。`injectNote`（U23）补进来的说明在下一个回合的回复末尾写成 `Notes: <每条的第一行>`，像模型在上下文里看到了它。
  *
  * 插话（R11，`steer`）：回合进行中交来的输入在当前这次回复之后放进回合（`turn.steered`），再回复一次
  * `Echo: <插话>`（新的 attempt），像 Codex 在一次采样之后用上待处理的输入；回合被取消或引擎退出时丢掉没用上的。
@@ -241,7 +241,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     const { session, turn } = this.#beginTurn(engineSessionId, () => {
       if (input.content.length === 0) throw new AdapterError('invalid_input', 'content is empty');
     });
-    turn.done = this.#runTurn(session, turn, input.content.map((part) => part.text).join('\n'));
+    turn.done = this.#runTurn(session, turn, inputText(input));
   }
 
   /** 压缩上下文（0.24.0）：一个回合，`context.compacting` → `context.compacted`（`manual`），用量随之降下来。 */
@@ -294,7 +294,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     if (!turn || turn.cancelRequested) {
       throw new AdapterError('steer_rejected', 'no active turn to steer');
     }
-    turn.steers.push({ steerId, text: input.content.map((part) => part.text).join('\n') });
+    turn.steers.push({ steerId, text: inputText(input) });
   }
 
   async configureSession(
@@ -364,6 +364,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
 
   /** `suggest` 关键词（U23）。 */
   readonly suggestedTasks = true;
+
+  /** 图片（0.28.0）都收，回复里写成 `[image: <文件名或类型>]`。 */
+  acceptsImages(): boolean {
+    return true;
+  }
 
   /**
    * 支线（U23.1）：新会话沿用 `config`，假引擎没有历史可带；原会话还没开始过回合时报 `invalid_input`（同 Codex 没有第一条
@@ -1057,3 +1062,10 @@ function cancelPendingApproval(turn: EchoTurn, reason: ApprovalCancelledEvent['r
 }
 
 export * from './echo-accounts.js';
+
+/** 回复用的输入文本：图片写成 `[image: <文件名或类型>]`（0.28.0）。 */
+function inputText(input: AgentInput): string {
+  return input.content
+    .map((part) => (part.type === 'text' ? part.text : `[image: ${part.name ?? part.mimeType}]`))
+    .join('\n');
+}

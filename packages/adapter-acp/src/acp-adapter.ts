@@ -1,4 +1,6 @@
+import { readFile } from 'node:fs/promises';
 import {
+  type ContentBlock,
   type McpServer,
   methods,
   type PromptResponse,
@@ -147,6 +149,8 @@ interface PendingQuestion {
 export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRuntimeAdapter {
   readonly process: P;
   readonly engine: AcpEngine;
+  /** 图片（0.28.0）：引擎描述的 `images` 为 `true` 时才有。 */
+  readonly acceptsImages?: AgentRuntimeAdapter['acceptsImages'];
   readonly #sessions = new Map<string, AcpSession>();
   readonly #logger: AdapterLogger;
   readonly #warnOnce: WarnOnce;
@@ -166,6 +170,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   constructor(options: AcpAdapterOptions<P>) {
     const { engine } = options;
     this.engine = engine;
+    if (engine.images === true) this.acceptsImages = () => true;
     this.#logger = options.logger ?? stderrLogger(engine.name);
     this.#warnOnce = warnOnceVia(this.#logger);
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
@@ -314,6 +319,31 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     }
   }
 
+  /** `session/prompt` 的内容块：文本，之后是图片（0.28.0，读文件发 base64）。 */
+  #promptBlocks(input: AgentInput): ContentBlock[] | Promise<ContentBlock[]> {
+    const texts: ContentBlock[] = [];
+    const images: Promise<ContentBlock>[] = [];
+    for (const part of input.content) {
+      if (part.type === 'text') {
+        texts.push({ type: 'text', text: part.text });
+        continue;
+      }
+      if (this.acceptsImages === undefined) {
+        throw new AdapterError('invalid_input', `${this.engine.name} 不收图片`);
+      }
+      images.push(
+        readFile(part.path).then((bytes) => ({
+          type: 'image',
+          mimeType: part.mimeType,
+          data: bytes.toString('base64'),
+        })),
+      );
+    }
+    // 只有文本时同步返回：`send` 在发出 `session/prompt` 之前不让出事件循环（取消与回合结束的先后靠它）。
+    if (images.length === 0) return texts;
+    return Promise.all(images).then((blocks) => [...texts, ...blocks]);
+  }
+
   subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
     this.assertUsable();
     return this.#openSession(engineSessionId).queue.subscribe();
@@ -324,6 +354,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const session = this.#openSession(engineSessionId);
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
+    const pending = this.#promptBlocks(input);
+    const blocks = Array.isArray(pending) ? pending : await pending;
+    if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     const connection = this.process.connection;
     let finish!: () => void;
     const done = new Promise<void>((resolve) => {
@@ -336,7 +369,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     // ACP 的 session/prompt 到回合结束才返回（适配器接口注释第 7 条），这里发出请求就返回。
     const prompt: Promise<PromptResponse> = connection.agent.request(methods.agent.session.prompt, {
       sessionId: engineSessionId,
-      prompt: input.content.map((part) => ({ type: 'text' as const, text: part.text })),
+      prompt: blocks,
       ...(meta !== undefined && { _meta: meta }),
     });
     prompt.then(

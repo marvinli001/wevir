@@ -574,7 +574,11 @@ class FakeQuery {
     this.#turnRunning = true;
     const abort = new AbortController();
     this.#turnAbort = abort;
-    const text = typeof message.message.content === 'string' ? message.message.content : '';
+    const { content } = message.message;
+    const text =
+      typeof content === 'string'
+        ? content
+        : content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('\n\n');
     const prompt =
       text.includes('\n\n') && text.startsWith('---')
         ? text.slice(text.lastIndexOf('\n\n') + 2)

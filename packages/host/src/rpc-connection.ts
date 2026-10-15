@@ -26,12 +26,14 @@ import {
   NotificationSchemas,
   negotiateProtocolVersion,
   PERMISSIONS,
+  type PendingMessage,
   PROTOCOL_VERSION,
   parseProtocolVersion,
   type Session,
   type SessionId,
   SUBSCRIPTION_KINDS,
   type SubscriptionId,
+  type UserContentPart,
   type WevirEvent,
 } from '@wevir/protocol';
 import type { Storage } from '@wevir/storage';
@@ -660,6 +662,41 @@ export function adaptEventForClient(
   event: WevirEvent,
   capabilities: ClientCapabilities,
 ): WevirEvent {
+  // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
+  if (capabilities.user_images !== true) {
+    switch (event.type) {
+      case 'user.message':
+        if (hasImage(event.payload.content)) {
+          return {
+            ...event,
+            payload: { ...event.payload, content: withoutImages(event.payload.content) },
+          };
+        }
+        break;
+      case 'user.steered':
+        if (hasImage(event.payload.content)) {
+          return {
+            ...event,
+            payload: { ...event.payload, content: withoutImages(event.payload.content) },
+          };
+        }
+        break;
+      case 'turn.started':
+        if (event.payload.input !== undefined && hasImage(event.payload.input)) {
+          return {
+            ...event,
+            payload: { ...event.payload, input: withoutImages(event.payload.input) },
+          };
+        }
+        break;
+      case 'pending.added':
+      case 'pending.updated':
+        if (hasImage(event.payload.pending.content)) {
+          return { ...event, payload: { pending: pendingWithoutImages(event.payload.pending) } };
+        }
+        break;
+    }
+  }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (
     event.type === 'session.title_changed' &&
@@ -676,6 +713,16 @@ export function adaptEventForClient(
  * 连接认不出的 `chatgpt` 类 Provider（0.7.0）与订阅来源（0.19.0），`account.list` 去掉订阅来源。
  */
 export function adaptResultForClient(
+  method: MethodName,
+  result: unknown,
+  capabilities: ClientCapabilities,
+): unknown {
+  // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
+  const value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  return adaptKindsAndTitles(method, value, capabilities);
+}
+
+function adaptKindsAndTitles(
   method: MethodName,
   result: unknown,
   capabilities: ClientCapabilities,
@@ -720,6 +767,45 @@ export function adaptResultForClient(
     default:
       return result;
   }
+}
+
+/** 没声明 `user_images` 的连接：结果里待发消息的图片换成文本（0.28.0）。 */
+function resultWithoutImages(method: MethodName, result: unknown): unknown {
+  switch (method) {
+    case 'session.get': {
+      const value = result as MethodResult<'session.get'>;
+      if (!value.pendingMessages?.some((pending) => hasImage(pending.content))) return result;
+      return { ...value, pendingMessages: value.pendingMessages.map(pendingWithoutImages) };
+    }
+    case 'pending.update':
+    case 'pending.cancel': {
+      const value = result as MethodResult<'pending.update'>;
+      if (!hasImage(value.pending.content)) return result;
+      return { ...value, pending: pendingWithoutImages(value.pending) };
+    }
+    case 'pending.resume': {
+      const value = result as MethodResult<'pending.resume'>;
+      if (!value.pendingMessages.some((pending) => hasImage(pending.content))) return result;
+      return { ...value, pendingMessages: value.pendingMessages.map(pendingWithoutImages) };
+    }
+    default:
+      return result;
+  }
+}
+
+function hasImage(content: readonly UserContentPart[]): boolean {
+  return content.some((part) => part.type === 'image');
+}
+
+/** 图片换成文本 `[image]`，段数不变（`content` 至少一段）。 */
+function withoutImages(content: readonly UserContentPart[]): UserContentPart[] {
+  return content.map((part) => (part.type === 'image' ? { type: 'text', text: '[image]' } : part));
+}
+
+function pendingWithoutImages(pending: PendingMessage): PendingMessage {
+  return hasImage(pending.content)
+    ? { ...pending, content: withoutImages(pending.content) }
+    : pending;
 }
 
 function adaptSession(session: Session): Session {

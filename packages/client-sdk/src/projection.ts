@@ -43,6 +43,8 @@ import type {
   TurnId,
   TurnOutcome,
   Usage,
+  UserContentPart,
+  UserImagePart,
   WevirEvent,
   WevirEventOf,
 } from '@wevir/protocol';
@@ -86,6 +88,8 @@ export type SessionNotice =
 export type ChatPart =
   | ({ type: 'text' } & StreamPartFields)
   | ({ type: 'reasoning' } & StreamPartFields & ReasoningTiming)
+  /** 用户消息里的一张图片（0.28.0），在文本之后，按发送时的顺序。 */
+  | { type: 'image'; key: string; image: UserImagePart }
   | {
       type: 'tool';
       key: string;
@@ -541,12 +545,11 @@ export class TranscriptProjection {
     const { turnId, content, sentBy, clientMessageId, pendingId } = event.payload;
     const turn = this.#turn(turnId);
     if (turn.user) return;
-    const text = content.map((part) => part.text).join('\n');
     turn.user = this.#push({
       role: 'user',
       id: turnId,
       turnId,
-      parts: [{ type: 'text', key: 'text', text, state: 'done' }],
+      parts: userParts(content),
       firstSeq: event.seq,
       lastSeq: event.seq,
       sentBy,
@@ -567,14 +570,7 @@ export class TranscriptProjection {
       role: 'user',
       id: `${turnId}:steer:${pendingId}`,
       turnId,
-      parts: [
-        {
-          type: 'text',
-          key: 'text',
-          text: content.map((part) => part.text).join('\n'),
-          state: 'done',
-        },
-      ],
+      parts: userParts(content),
       firstSeq: event.seq,
       lastSeq: event.seq,
       sentBy,
@@ -611,14 +607,7 @@ export class TranscriptProjection {
       role: 'user',
       id: turnId,
       turnId,
-      parts: [
-        {
-          type: 'text',
-          key: 'text',
-          text: input.map((part) => part.text).join('\n'),
-          state: 'done',
-        },
-      ],
+      parts: userParts(input),
       firstSeq: event.seq,
       lastSeq: event.seq,
       fromParentAgent: true,
@@ -1079,6 +1068,21 @@ export function projectTranscript(
   const projection = new TranscriptProjection(options);
   for (const event of events) projection.apply(event);
   return projection.snapshot();
+}
+
+/** 用户消息里的文本：文本段以换行相连，图片不算（0.28.0）。 */
+export function userContentText(content: readonly UserContentPart[]): string {
+  return content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n');
+}
+
+/** 用户消息的部件：一个文本部件（只有图片时没有），之后每张图片一个（0.28.0）。 */
+function userParts(content: readonly UserContentPart[]): ChatPart[] {
+  const images: ChatPart[] = content.flatMap((part, index) =>
+    part.type === 'image' ? [{ type: 'image' as const, key: `image:${index}`, image: part }] : [],
+  );
+  const text = userContentText(content);
+  if (text === '' && images.length > 0) return images;
+  return [{ type: 'text', key: 'text', text, state: 'done' }, ...images];
 }
 
 function streamKey(ref: StreamBlockRef): string {

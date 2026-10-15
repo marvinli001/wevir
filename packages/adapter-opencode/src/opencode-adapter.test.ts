@@ -103,7 +103,8 @@ function interceptSteer(h: FakeHarness, options: { gate?: Promise<void>; swallow
     const intercepted: OpenCodeClient = {
       ...client,
       promptAsync: async (body, signal) => {
-        if (body.parts[0]?.text !== DEFAULT_CONTRACT_PROMPTS.steer) {
+        const first = body.parts[0];
+        if (first?.type !== 'text' || first.text !== DEFAULT_CONTRACT_PROMPTS.steer) {
           return client.promptAsync(body, signal);
         }
         seen.push(body);

@@ -58,6 +58,12 @@ export interface AcpEngine {
    * 不得抛错。
    */
   normalizeUpdate?(notification: AcpSessionNotification): AcpSessionNotification;
+  /**
+   * 用户消息里的图片（0.28.0）：`true` 时适配器声明 `acceptsImages`，图片发成 ACP 的 `image` 内容块（base64，文本在前，同 T3
+   * Code 的 ACP 适配器）。不看 `initialize` 的 `promptCapabilities.image`：Grok 报 `false` 却收图片（T3 的
+   * supportsImagePrompts），dsh 报的值取决于插件的默认模型，Wevir 不给它开。
+   */
+  readonly images?: boolean;
 }
 
 export interface AcpExtensions {

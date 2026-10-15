@@ -25,6 +25,7 @@
 
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   AdapterError,
   type AgentEvent,
@@ -64,6 +65,7 @@ import {
   type Session as OpenCodeSessionInfo,
   type Part,
   type PermissionRuleset,
+  type PromptInput,
 } from './sdk.js';
 import type { ServerExit } from './server.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
@@ -294,6 +296,11 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   readonly accounts: OpenCodeAccounts;
   readonly permissionModes = PERMISSION_MODES;
   readonly additionalRoots = true;
+
+  /** 图片（0.28.0）：交给 opencode；模型不收图片时 Host 按模型列表的 `supportsImages: false` 先拒绝。 */
+  acceptsImages(): boolean {
+    return true;
+  }
   readonly #options: OpenCodeAdapterOptions;
   readonly #runtime: OpenCodeRuntime;
   readonly #sessions = new Map<string, Session>();
@@ -390,7 +397,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (session.turn !== undefined) {
       throw new AdapterError('session_busy', 'the OpenCode session is already running a turn');
     }
-    const text = inputText(input);
+    const parts = inputParts(input);
     const model = modelOf(session.settings.modelId);
     const stream = session.stream;
     if (stream === undefined) throw new AdapterError('session_closed', 'the session is detached');
@@ -409,7 +416,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
           messageID: messageId,
           model,
           ...variantOf(session.settings),
-          parts: [{ type: 'text', text }],
+          parts,
         },
         turn.prompt.signal,
       );
@@ -446,7 +453,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (session.parent !== undefined) {
       throw new AdapterError('invalid_input', 'subagent sessions are driven by their parent agent');
     }
-    const text = inputText(input);
+    const parts = inputParts(input);
     const turn = session.turn;
     const stream = session.stream;
     if (turn === undefined || turn.done || turn.cancelling || stream === undefined) {
@@ -469,7 +476,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
           messageID: steer.messageId,
           model,
           ...variantOf(session.settings),
-          parts: [{ type: 'text', text }],
+          parts,
         },
         steer.abort.signal,
       );
@@ -1651,13 +1658,30 @@ function rootOf(session: Session): Session {
 }
 
 /** 输入的文本段（只用文本）。 */
-function inputText(input: AgentInput): string {
+/**
+ * `promptAsync` 的部件：文本合成一段，图片（0.28.0）是 `file` 部件，opencode 自己读 `file://` 地址的文件（同 T3 Code 的
+ * toOpenCodeFileParts）。都没有时报 `invalid_input`。
+ */
+function inputParts(input: AgentInput): PromptInput['parts'] {
   const text = input.content
-    .filter((part) => part.type === 'text')
-    .map((part) => part.text)
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join('\n\n');
-  if (text.trim() === '') throw new AdapterError('invalid_input', 'the message is empty');
-  return text;
+  const files = input.content.flatMap((part) =>
+    part.type === 'image'
+      ? [
+          {
+            type: 'file' as const,
+            mime: part.mimeType,
+            ...(part.name !== undefined && { filename: part.name }),
+            url: pathToFileURL(part.path).href,
+          },
+        ]
+      : [],
+  );
+  if (text.trim() === '' && files.length === 0) {
+    throw new AdapterError('invalid_input', 'the message is empty');
+  }
+  return [...(text.trim() === '' ? [] : [{ type: 'text' as const, text }]), ...files];
 }
 
 function modelOf(modelId: string): ParsedModelId {

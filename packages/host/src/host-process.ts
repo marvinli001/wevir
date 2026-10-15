@@ -21,6 +21,7 @@ import { EventStore } from './event-store.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
+import { ImageStore } from './images.js';
 import type { Logger } from './logger.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
@@ -149,6 +150,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     turnCheckpoints = checkpoints;
     // 每种 Provider 的引擎能做什么（0.25.0，接力）：hello 里告诉客户端，接力时按它挑权限模式、提不提读历史的工具。
     const engineFeatures = hostEngineFeatures(adapter, options.engine);
+    // 消息里的图片（0.28.0）：没发出去的过一天删掉，启动时先清一遍。
+    const images = new ImageStore({ dir: homePath(home, 'imagesDir') });
+    await images
+      .sweep()
+      .catch((error: unknown) => logger.warn('failed to sweep staged images', { error }));
     const manager = new SessionManager({
       storage,
       events: store,
@@ -162,6 +168,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       checkpoints,
       engineFeatures,
       historyDir: homePath(home, 'historyDir'),
+      images,
     });
     sessions = manager;
     const recovery = manager.recover();
@@ -234,6 +241,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         providerLock,
         ...(accounts !== undefined && { accounts }),
         settings,
+        images,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -259,6 +267,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.fork !== undefined && { side_sessions: true }),
         ...(adapter.compact !== undefined && { session_compact: true }),
         ...(adapter.review !== undefined && { session_review: true }),
+        ...(adapter.acceptsImages !== undefined && { user_images: true }),
       },
       engineFeatures,
       ...(accounts !== undefined && { accounts }),
