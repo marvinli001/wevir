@@ -166,7 +166,7 @@ describe('runHostCli', () => {
       expect(adapter).toBeInstanceOf(EngineRouter);
       const router = adapter as EngineRouter;
       expect(router.routes.map((route) => [route.name, route.kinds])).toEqual([
-        ['codex', ['deepseek-official', 'openai-compatible', 'google-vertex', 'chatgpt']],
+        ['codex', ['deepseek-official', 'openai-compatible', 'chatgpt']],
         ['claude', ['claude']],
         ['cursor', ['cursor']],
       ]);
