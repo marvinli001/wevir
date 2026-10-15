@@ -31,30 +31,30 @@ describe('connectionNotice', () => {
         phase: 'restarting',
         attempt: 2,
         maxAttempts: 3,
-        reason: '后台服务意外退出（信号 SIGKILL）',
+        reason: '后台服务异常退出（信号 SIGKILL）',
       }),
     ).toEqual({
       kind: 'restarting',
       tone: 'warning',
       message: '后台服务异常退出，正在重启（第 2/3 次）…',
-      detail: '后台服务意外退出（信号 SIGKILL）',
+      detail: '后台服务异常退出（信号 SIGKILL）',
     });
     expect(connectionNotice(view, { phase: 'waiting', pid: 42 })).toMatchObject({
       kind: 'waiting',
       tone: 'warning',
-      message: '后台服务已停止，等待重新运行…',
-      detail: expect.stringContaining('需手动重新启动'),
+      message: '后台服务已停止，等待重启…',
+      detail: expect.stringContaining('需手动重启'),
     });
     expect(
       connectionNotice(view, {
         phase: 'failed',
-        error: '重新拉起 3 次都没有成功',
+        error: '重启 3 次均失败',
         logPath: '/data/logs/host.log',
       }),
     ).toEqual({
       kind: 'hostFailed',
       tone: 'danger',
-      message: '后台服务无法启动：重新拉起 3 次都没有成功',
+      message: '后台服务无法启动：重启 3 次均失败',
       logPath: '/data/logs/host.log',
       action: 'retry',
     });

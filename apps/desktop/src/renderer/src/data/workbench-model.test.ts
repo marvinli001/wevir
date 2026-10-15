@@ -137,7 +137,7 @@ describe('groupByStatus', () => {
   const at = (daysAgo: number) => new Date(Date.parse(NOW) - daysAgo * day).toISOString();
   const ids = (rows: { session: Session }[]) => rows.map((row) => row.session.id);
 
-  it('需要你、进行中、最近 7 天的已完成；关闭了的不出现；组内按最近活动，跨工作区', () => {
+  it('待处理、进行中、最近 7 天的已完成；关闭了的不出现；组内按最近活动，跨工作区', () => {
     const groups = groupByStatus(
       groupSessions(
         [workspace('ws_a'), workspace('ws_b')],

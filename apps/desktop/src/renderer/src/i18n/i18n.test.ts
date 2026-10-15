@@ -6,7 +6,7 @@ describe('文案模块', () => {
   it('取源语言（简体中文）文案并替换参数', () => {
     expect(t('sidebar.settings')).toBe('设置');
     expect(t('host.reconnecting', { attempt: 3 })).toBe('重连中（第 3 次）');
-    expect(t('notFound.workspace', { id: 'ws_x' })).toBe('项目“ws_x”不存在，可能已被移除。');
+    expect(t('notFound.workspace', { id: 'ws_x' })).toBe('项目“ws_x”不存在');
   });
 
   it('参数值里的花括号不会被再次替换', () => {

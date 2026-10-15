@@ -93,9 +93,6 @@ export function ChatgptAccountSection({
             <h3 className="font-medium">{t('account.chatgpt.title')}</h3>
             <PhaseBadge phase={phase} />
           </div>
-          {phase.kind === 'signed_out' || phase.kind === 'loading' ? (
-            <p className="text-sm text-muted-foreground">{t('account.chatgpt.intro')}</p>
-          ) : null}
         </div>
         {phase.kind === 'signed_out' && (
           <div className="flex shrink-0 items-center gap-1.5">

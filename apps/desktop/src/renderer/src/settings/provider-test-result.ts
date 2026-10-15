@@ -27,7 +27,6 @@ const REASON_TITLE: Record<ProviderTestFailure, PlainMessageKey> = {
 };
 
 const REASON_HINT: Partial<Record<ProviderTestFailure, PlainMessageKey>> = {
-  missing_key: 'provider.test.hint.missing_key',
   network: 'provider.test.hint.network',
   timeout: 'provider.test.hint.timeout',
   auth: 'provider.test.hint.auth',

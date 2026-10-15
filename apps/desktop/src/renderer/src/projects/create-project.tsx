@@ -148,7 +148,6 @@ function CreateProjectForm({
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-border-strong px-4 py-6">
-              <p className="text-sm text-soft-foreground">{t('project.create.folderHint')}</p>
               <Button
                 type="button"
                 variant="secondary"

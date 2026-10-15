@@ -291,7 +291,7 @@ export class HostLifecycle {
     });
     this.#ready = undefined;
     if (performance.now() - this.#readyAt >= this.#timeouts.stableMs) this.#restarts = 0;
-    void this.#runRecovery(() => this.#restartLoop(ownership, `后台服务意外退出（${reason}）`));
+    void this.#runRecovery(() => this.#restartLoop(ownership, `后台服务异常退出（${reason}）`));
   }
 
   async #restartLoop(previous: HostOwnership, firstReason: string): Promise<void> {
@@ -316,9 +316,7 @@ export class HostLifecycle {
         this.#log('warn', 'host restart failed', { attempt, error: reason });
       }
     }
-    this.#fail(
-      new HostStartError(`${firstReason}，重新拉起 ${maxAttempts} 次都没有成功：${reason}`),
-    );
+    this.#fail(new HostStartError(`${firstReason}，重启 ${maxAttempts} 次均失败：${reason}`));
   }
 
   /**
@@ -332,7 +330,7 @@ export class HostLifecycle {
       const deadline = performance.now() + this.#timeouts.exitConfirmMs;
       while (isProcessAlive(info.pid)) {
         if (performance.now() >= deadline) {
-          throw new HostStartError(`旧的后台服务进程（pid ${info.pid}）还没有退出`);
+          throw new HostStartError(`旧的后台服务进程（pid ${info.pid}）未退出`);
         }
         await sleep(POLL_INTERVAL_MS, undefined, { signal: this.#shutdown.signal });
       }
@@ -450,7 +448,7 @@ export class HostLifecycle {
         timeoutMs: this.#timeouts.startMs,
       });
       await this.#terminate(child);
-      throw new HostStartError(`后台服务在 ${this.#timeouts.startMs / 1000} 秒内没有就绪`);
+      throw new HostStartError(`后台服务 ${this.#timeouts.startMs / 1000} 秒内未就绪`);
     }
     const hello = await this.#probe();
     return {
@@ -569,7 +567,7 @@ export class HostLifecycle {
       await sleep(POLL_INTERVAL_MS);
     }
     throw new HostStartError(
-      '数据目录里已有后台服务在运行，但它没有就绪' +
+      '数据目录中已有后台服务运行，但未就绪' +
         (lastError === undefined ? '' : `：${describe(lastError)}`),
     );
   }
@@ -734,7 +732,7 @@ export function resolveHostEntry(from: string | URL = import.meta.url): string {
   if (typeof bin !== 'string') throw new HostStartError(`${manifestPath} 里没有 bin.wevir-host`);
   const entry = resolve(dirname(manifestPath), bin);
   if (!existsSync(entry)) {
-    throw new HostStartError(`找不到 Host 的可执行入口 ${entry}，先在仓库根目录运行 pnpm build`);
+    throw new HostStartError(`找不到 Host 的可执行入口 ${entry}，需先在仓库根目录运行 pnpm build`);
   }
   return entry;
 }

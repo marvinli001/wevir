@@ -137,9 +137,9 @@ export function ProviderEditor({
         </h2>
       </div>
 
-      {form.preset && (
+      {form.preset && (form.preset.note || form.preset.docsURL) && (
         <div className="space-y-1.5 rounded-lg bg-muted px-3.5 py-2.5 text-sm text-muted-foreground">
-          <p>{t(form.preset.note)}</p>
+          {form.preset.note && <p>{t(form.preset.note)}</p>}
           {form.preset.docsURL && (
             <button
               type="button"

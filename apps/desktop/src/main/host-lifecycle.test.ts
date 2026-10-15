@@ -510,7 +510,7 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     expect(phases(statuses)).toEqual(['running', 'restarting:1', 'running']);
     expect(statuses[1]).toMatchObject({
       maxAttempts: 3,
-      reason: expect.stringMatching(/^后台服务意外退出/),
+      reason: expect.stringMatching(/^后台服务异常退出/),
     });
     // host.json 还记着旧进程：确认它已退出才拉起。
     expect(logs).toContainEqual(
@@ -565,11 +565,11 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     expect(host.status).toEqual({
       phase: 'failed',
       error: expect.stringMatching(
-        /^后台服务意外退出（.+），重新拉起 3 次都没有成功：后台服务启动失败（退出码 1）：simulated startup crash$/,
+        /^后台服务异常退出（.+），重启 3 次均失败：后台服务启动失败（退出码 1）：simulated startup crash$/,
       ),
       logPath: join(home, 'logs', 'host.log'),
     });
-    await expect(host.endpoint()).rejects.toThrow(/重新拉起 3 次都没有成功/);
+    await expect(host.endpoint()).rejects.toThrow(/重启 3 次均失败/);
 
     rmSync(marker);
     await host.retry();

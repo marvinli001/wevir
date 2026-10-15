@@ -46,9 +46,7 @@ export function GeneralSettings() {
         />
         <SettingsRow
           title={t('settings.chat.sendWhileBusy')}
-          description={
-            supported ? t('settings.chat.sendWhileBusyHint') : t('settings.chat.unsupported')
-          }
+          description={supported ? undefined : t('settings.chat.unsupported')}
           data-setting="send-while-busy"
           control={
             <Segmented

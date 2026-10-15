@@ -149,7 +149,7 @@ function ViewButton({
   );
 }
 
-/** 按状态的三组（U19）：需要你、进行中、最近 7 天的已完成；组内按最近活动，右边写项目名。 */
+/** 按状态的三组（U19）：待处理、进行中、最近 7 天的已完成；组内按最近活动，右边写项目名。 */
 function StatusTree() {
   const data = useWorkbenchData();
   const seen = useSeenSessions();

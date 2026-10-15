@@ -74,6 +74,7 @@ export function DeliverySwitch({
                   ? 'settings.chat.sendWhileBusy.steerHint'
                   : 'settings.chat.sendWhileBusy.queueHint',
               )}
+              {!checked && <kbd className="ml-1.5 font-sans opacity-70">Tab</kbd>}
             </TooltipContent>
           </Tooltip>
         );

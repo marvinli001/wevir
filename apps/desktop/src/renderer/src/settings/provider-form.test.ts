@@ -314,7 +314,10 @@ describe('测试连接的结果', () => {
       });
       expect(presentation.ok).toBe(false);
       expect(presentation.title).toMatch(/[一-龥]/);
-      if (reason !== 'unknown') expect(presentation.hint).toMatch(/[一-龥]/);
+      // 缺少 Key 的结论本身就是该做的事，不另给建议。
+      if (reason !== 'unknown' && reason !== 'missing_key') {
+        expect(presentation.hint).toMatch(/[一-龥]/);
+      }
       expect(presentation.detail).toBe(`原文 ${reason}`);
       titles.add(presentation.title);
     }

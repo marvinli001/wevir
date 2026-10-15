@@ -49,9 +49,9 @@ describe('待发区（R11）', () => {
   it('“已转为排队”的说明按原因', () => {
     expect(fallbackNote(pending(1))).toBeUndefined();
     expect(fallbackNote(pending(1, { fallback: { reason: 'unsupported' } }))).toBe(
-      '当前引擎不支持插话，已改为排队',
+      '引擎不支持插话，已转为排队',
     );
-    expect(fallbackNote(pending(1, { fallback: { reason: 'turn_ended' } }))).toContain('改为排队');
+    expect(fallbackNote(pending(1, { fallback: { reason: 'turn_ended' } }))).toContain('转为排队');
   });
 
   it('能插话的状态；另一种方式', () => {

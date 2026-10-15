@@ -31,8 +31,8 @@ export interface OpenAIPreset {
   /** 模板名，也是新建时建议的 Provider ID。 */
   id: string;
   name: PlainMessageKey;
-  /** 选模板时的一句说明（地址的地域、套餐差别等）。 */
-  note: PlainMessageKey;
+  /** 选模板时必须知道的事（地址的地域、套餐差别、能否直连等）；没有就不写。 */
+  note?: PlainMessageKey;
   api: FormApi;
   baseURL: string;
   models: ProviderModel[];
@@ -156,7 +156,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
   {
     id: 'deepseek-openai',
     name: 'provider.preset.deepseekOpenai',
-    note: 'provider.preset.deepseekOpenai.note',
     api: 'openai-completions',
     baseURL: 'https://api.deepseek.com',
     models: [

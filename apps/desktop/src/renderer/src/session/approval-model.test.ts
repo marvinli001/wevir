@@ -48,7 +48,7 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
     expect(presentation).toEqual({
       title: '允许修改项目目录之外的文件？',
       target: '/out/summary.md',
-      permission: '完全访问（不受项目目录限制）',
+      permission: '完全访问',
       justification: '用户要求写到共享目录。',
       preview: { text: content.split('\n').slice(0, 6).join('\n'), more: true },
     });

@@ -195,7 +195,6 @@ function EnvironmentForm({
               );
             })}
           </ul>
-          <p className="text-xs text-muted-foreground">{t('env.hint')}</p>
         </div>
         {error && (
           <p
