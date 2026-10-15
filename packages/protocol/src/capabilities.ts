@@ -94,6 +94,10 @@ export const HOST_FEATURES = {
    * 图片）。与引擎无关。
    */
   workspaceFiles: 'workspace_files',
+  /** 用户给会话改名（0.23.0）：`session.rename`，标题来源 `user`。与引擎无关。 */
+  sessionRename: 'session_rename',
+  /** 会话归档（0.23.0）：`session.archive`、`session.list` 的 `archived`、`Session.archivedAt`。与引擎无关。 */
+  sessionArchive: 'session_archive',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -115,6 +119,8 @@ export const HostFeaturesSchema = z.looseObject({
   provider_enabled: z.boolean().optional(),
   workspace_diff: z.boolean().optional(),
   workspace_files: z.boolean().optional(),
+  session_rename: z.boolean().optional(),
+  session_archive: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

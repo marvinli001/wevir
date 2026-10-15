@@ -11,6 +11,7 @@ import { useHistoryNav, useTrackHistory } from '@/lib/history-nav';
 import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { WelcomeRoute } from '@/onboarding/welcome-route';
 import { CreateProjectDialog } from '@/projects/create-project';
+import { RenameDialog } from '@/session/rename-dialog';
 import { SideSessionCloser } from '@/session/side-session';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
@@ -85,6 +86,7 @@ function AppRoot() {
       <Outlet />
       <CreateProjectDialog />
       <EnvironmentDialog />
+      <RenameDialog />
       <SideSessionCloser />
     </>
   );

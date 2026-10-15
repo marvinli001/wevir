@@ -235,6 +235,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_git: true,
         workspace_diff: true,
         workspace_files: true,
+        session_rename: true,
+        session_archive: true,
         subagent_cancel: true,
         environments: true,
         session_worktree: true,

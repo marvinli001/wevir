@@ -792,6 +792,11 @@ export const SessionSchema = z.object({
   updatedAt: IsoTimeSchema,
   /** 会话里最后一个事件的 `seq`；新建会话为 1（`session.created`）。 */
   lastSeq: SeqCursorSchema,
+  /**
+   * 归档的时刻（0.23.0）：归档的会话已关闭，`session.list` 默认不列。不是事件推导的，只出现在 `session.list`、`session.get`
+   * 与 `session.*` 方法的结果里；订阅的事件不带它。
+   */
+  archivedAt: IsoTimeSchema.optional(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

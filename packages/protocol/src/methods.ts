@@ -573,6 +573,21 @@ export const SessionForkParamsSchema = z.object({
   side: z.literal(true),
 });
 
+/** 会话标题的最大长度（`session.rename`，0.23.0）。 */
+export const SESSION_TITLE_MAX_LENGTH = 200;
+
+/** 用户给会话改名（0.23.0）：去掉首尾空白后不能是空的。 */
+export const SessionRenameParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  title: z.string().min(1).max(SESSION_TITLE_MAX_LENGTH),
+});
+
+/** 归档或取消归档（0.23.0）：归档前先关闭会话；取消归档不恢复，下次发送时照常恢复。 */
+export const SessionArchiveParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  archived: z.boolean(),
+});
+
 export const SessionCreateParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   providerId: ProviderIdSchema,
@@ -617,6 +632,8 @@ export const SessionListParamsSchema = z.object({
    * 给了就只列出这个会话的子会话（0.6.0）；不给时不含子会话（domain-model §3.3.1）。
    */
   parentSessionId: SessionIdSchema.optional(),
+  /** 归档（0.23.0）：`true` 只列已归档的会话；省略或 `false` 时不含已归档的。 */
+  archived: z.boolean().optional(),
 });
 
 export const SessionListResultSchema = z.object({
@@ -929,6 +946,16 @@ export const MethodSchemas = {
   },
   'session.fork': {
     params: SessionForkParamsSchema,
+    result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.rename': {
+    params: SessionRenameParamsSchema,
+    result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.archive': {
+    params: SessionArchiveParamsSchema,
     result: SessionResultSchema,
     permission: 'session.write',
   },

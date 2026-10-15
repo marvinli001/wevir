@@ -29,6 +29,7 @@ export const SETTINGS_TABS = [
   'notifications',
   'providers',
   'workspaces',
+  'archived',
   'about',
 ] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];

@@ -3,6 +3,7 @@
 
 import type { PermissionMode, ProviderProfile, SessionId } from '@wevir/protocol';
 import {
+  Archive,
   Brain,
   Cpu,
   FileCode2,
@@ -11,6 +12,7 @@ import {
   GitCompare,
   type LucideIcon,
   MessagesSquare,
+  Pencil,
   Shield,
   SquarePen,
 } from 'lucide-react';
@@ -173,6 +175,9 @@ export interface SessionCommandOptions {
   diffEnabled: boolean;
   panes: PaneController | undefined;
   send: (text: string) => void;
+  /** Host 能改名、归档（0.23.0）时给。 */
+  onRename?: () => void;
+  onArchive?: () => void;
 }
 
 /** 已有会话的命令。 */
@@ -192,6 +197,8 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     diffEnabled,
     panes,
     send,
+    onRename,
+    onArchive,
   } = options;
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
@@ -224,11 +231,15 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
       );
     }
     commands.push(simple('status', t('command.status'), Gauge, showStatus));
+    if (onRename) commands.push(simple('rename', t('command.rename'), Pencil, onRename));
+    if (onArchive) commands.push(simple('archive', t('command.archive'), Archive, onArchive));
     commands.push(
       simple('init', t('command.init'), FileCode2, () => send(initPrompt(currentLocale()))),
     );
     return commands;
   }, [
+    onRename,
+    onArchive,
     workspaceId,
     sessionId,
     providers,

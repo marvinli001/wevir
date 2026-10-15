@@ -17,7 +17,8 @@ import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
 import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
-import { useTranscript, useWorkbenchData } from '@/data/workbench-data';
+import { archiveSession, requestRename, useSessionManagement } from '@/data/session-actions';
+import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import { OpenFileLink, openFileLink } from '@/files/file-links';
@@ -200,6 +201,25 @@ export function SessionView({
     ],
   );
   const sendCommandText = useCallback((text: string) => void send(text), [send]);
+  // 改名与归档（U34，0.23.0）：只给顶层、不是支线的会话。
+  const manage = useSessionManagement();
+  const store = useWorkbenchStore();
+  const topLevel = session.parentSessionId === undefined && !session.side;
+  const onRename = useMemo(
+    () => (manage.rename && topLevel ? () => requestRename(session) : undefined),
+    [manage.rename, topLevel, session],
+  );
+  const onArchive = useMemo(
+    () =>
+      manage.archive && topLevel && client
+        ? () => {
+            archiveSession(client, store, session.id as SessionId, true).catch((error: unknown) =>
+              setNotice(t('session.archiveFailed', { error: describe(error) })),
+            );
+          }
+        : undefined,
+    [manage.archive, topLevel, client, store, session.id],
+  );
   const commands = useSessionCommands({
     workspaceId: session.workspaceId,
     sessionId: session.id as SessionId,
@@ -221,6 +241,8 @@ export function SessionView({
     diffEnabled: diffEnabled && !session.side,
     panes,
     send: sendCommandText,
+    ...(onRename && { onRename }),
+    ...(onArchive && { onArchive }),
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>

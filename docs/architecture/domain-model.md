@@ -232,6 +232,7 @@ interface Session {
   createdAt: IsoTime
   updatedAt: IsoTime               // 最后一个事件的 ts
   lastSeq: number
+  archivedAt?: IsoTime             // 0.23.0：归档的时刻，存储里的，不由事件推导
 }
 
 type SessionReadOnlyReason =
@@ -262,11 +263,12 @@ interface SessionSnapshot {
 | `id`、`workspaceId`、`cwd`、`engine` | 身份与映射（§1.1） | 会话管理器（T2.3），`session.create` | 不可改 |
 | `providerId`、`modelId`、`reasoningEffort` | 创建时选定；0.9.0 起 `modelId` 与 `reasoningEffort` 可在会话中换（`session.configure`，引擎支持时，Host 功能 `session_configure`），从下一个回合起生效 | `session.create`；`session.configured`（0.9.0） | `providerId` 不可改；模型只能在同一个 Provider 的模型里换 |
 | `permissionMode` | 0.11.0：创建时选定、可在会话中换（`session.configure`），从下一个回合起生效；省略即 `on_request`（§3.9） | `session.create`；`session.configured` | 引擎不支持权限模式时只有 `on_request`（不带这个字段） |
-| `title`、`titleSource` | 首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3）。适配器实现了 `generateTitle` 时（Codex），引擎接受第一个回合后 Host 再用会话的模型生成一次（prompts/thread-title.md，R3）：成功、且那时标题仍是截断的那个才写 `session.title_changed`（`generated`，带 `description` 检索摘要），失败只记告警 | 首个 `user.message` 时 Host 写 `session.title_changed`（`first_prompt`），之后可能再写一条（`generated`） | 用户改名（方法在 T1.2 之后按需加；改过名的会话不再自动生成） |
+| `title`、`titleSource` | 0.23.0 起用户能改名（`session.rename`，`titleSource: 'user'`，之后生成的标题不再覆盖）。首条非空用户消息生成：各段文本以空格相连、空白折叠后取前 50 个字符（按码点，`TITLE_MAX_LENGTH`，T2.3）。适配器实现了 `generateTitle` 时（Codex），引擎接受第一个回合后 Host 再用会话的模型生成一次（prompts/thread-title.md，R3）：成功、且那时标题仍是截断的那个才写 `session.title_changed`（`generated`，带 `description` 检索摘要），失败只记告警 | 首个 `user.message` 时 Host 写 `session.title_changed`（`first_prompt`），之后可能再写一条（`generated`） | 用户改名（方法在 T1.2 之后按需加；改过名的会话不再自动生成） |
 | `state`、`activeTurn`、`lastError` | 状态机（§4） | Host | 只由状态机修改 |
 | `readOnly` | 引擎会话恢复不了（§4.4），状态是 `error` 或 `closed` | `session.read_only` | 之后的 `session.resumed` 清除 |
 | `awaitingInput` | 有未答的问题（§3.8），会话在等用户 | `question.requested` | 最后一个未答的问题结束（`question.resolved`）时省略 |
 | `createdAt`、`updatedAt`、`lastSeq` | | 事件库（T2.2） | 每次追加事件 |
+| `archivedAt` | 0.23.0：归档的时刻。只有顶层、不是支线的会话能归档，归档前先关闭；`session.list` 默认不列已归档的。不是事件推导的：存在 `sessions.archived_at`（0009），Host 在 `session.list`、`session.get` 与 `session.*` 方法的结果里加上，订阅的事件不带 | `session.archive { archived: true }` | `session.archive { archived: false }`；`session.resume` 一个已归档的会话即取消归档 |
 
 除身份字段外，`Session` 的其余字段都可以由事件序列推导出来。`sessions` 表存一份缓存供会话列表使用，与事件推导结果不一致时以事件为准（T2.2 的“Host 重启后状态一致”）。
 

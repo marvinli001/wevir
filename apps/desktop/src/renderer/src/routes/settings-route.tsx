@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import {
+  Archive,
   Bell,
   Cpu,
   Folder,
@@ -20,6 +21,7 @@ import { useHostConnection } from '@/host/host-connection';
 import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
 import { WindowControls } from '@/layout/window-controls';
+import { ArchivedSettings } from '@/settings/archived-settings';
 import { GeneralSettings } from '@/settings/general-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { ProviderSettings } from '@/settings/provider-settings';
@@ -69,6 +71,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Folder,
     keywords: ['project.create.title'],
   },
+  archived: {
+    label: 'settings.tab.archived',
+    icon: Archive,
+    keywords: ['settings.archived.search', 'session.unarchive'],
+  },
   about: {
     label: 'settings.tab.about',
     icon: Info,
@@ -78,7 +85,7 @@ const TABS: Record<SettingsTab, TabInfo> = {
 
 const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
   { label: 'settings.group.app', tabs: ['general', 'appearance', 'notifications', 'about'] },
-  { label: 'settings.group.work', tabs: ['providers', 'workspaces'] },
+  { label: 'settings.group.work', tabs: ['providers', 'workspaces', 'archived'] },
 ];
 
 /** 打开设置前所在的位置（左栏“设置”链接带上），历史里退无可退时后退回到那里。 */
@@ -222,6 +229,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <ProviderSettings />;
     case 'workspaces':
       return <WorkspaceSettings />;
+    case 'archived':
+      return <ArchivedSettings />;
   }
 }
 

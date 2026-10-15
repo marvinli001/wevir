@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.22.0`（工作区的文件；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
+> 状态：v0（T1.2）· 协议版本 `0.23.0`（会话改名与归档；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -105,7 +105,7 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `account.setPath` | `host.manage` | `kind, path` | `account: AccountState` | `ENGINE_ERROR` |
 | `account.install` | `provider.write` | `kind` | `account: AccountState` | `ENGINE_ERROR` |
 | `session.create` | `session.write` | `workspaceId, providerId, modelId?, reasoningEffort?, permissionMode?, environmentId?, worktree?, origin?` | `session` | `WORKSPACE_NOT_FOUND`、`PROVIDER_NOT_FOUND`、`ENVIRONMENT_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
-| `session.list` | `session.read` | `workspaceId?, parentSessionId?` | `sessions: Session[]` | `WORKSPACE_NOT_FOUND`、`SESSION_NOT_FOUND` |
+| `session.list` | `session.read` | `workspaceId?, parentSessionId?, archived?` | `sessions: Session[]` | `WORKSPACE_NOT_FOUND`、`SESSION_NOT_FOUND` |
 | `session.get` | `session.read` | `sessionId` | `SessionSnapshot` | `SESSION_NOT_FOUND` |
 | `session.configure` | `session.write` | `sessionId, modelId?, reasoningEffort?, permissionMode?` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS`、`INVALID_STATE`、`ENGINE_ERROR` |
 | `session.send` | `session.write` | `sessionId, content, clientMessageId?, delivery?` | `turnId?, pendingId?, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`CLIENT_MESSAGE_CONFLICT`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
@@ -113,6 +113,8 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `session.close` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
 | `session.resume` | `session.write` | `sessionId` | `session` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.fork` | `session.write` | `sessionId, side` | `session` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.rename` | `session.write` | `sessionId, title` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS` |
+| `session.archive` | `session.write` | `sessionId, archived` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS`、`ENGINE_ERROR` |
 | `session.checkpoints` | `session.read` | `sessionId` | `repo, turns` | `SESSION_NOT_FOUND`、`WORKSPACE_PATH_INVALID` |
 | `pending.update` | `session.write` | `sessionId, pendingId, content?, delivery?` | `pending` | `SESSION_NOT_FOUND`、`PENDING_NOT_FOUND`、`PENDING_NOT_EDITABLE` |
 | `pending.cancel` | `session.write` | `sessionId, pendingId` | `pending` | `SESSION_NOT_FOUND`、`PENDING_NOT_FOUND`、`PENDING_NOT_EDITABLE` |
@@ -161,8 +163,10 @@ Host → 客户端的通知：
 - **`account.logout`**：登出（引擎删除本机凭据并尽力吊销令牌），没登录时同样成功。`chatgpt` Provider 与用它的会话保留，之后的回合失败（`missing_credentials`），重新登录即可继续。
 - **`session.create`**：`modelId` 省略时用 Provider 的 `defaultModelId`。0.16.0 起可带 `origin`（建议的后续任务，domain-model §3.11）：`workspaceId` 要与提出建议的会话相同、这项建议还没开始，否则 `INVALID_PARAMS`；建好后在提出建议的会话里写 `task.started`。0.15.0 起可带 `environmentId`（domain-model §3.10）：`workspaceId` 必须是环境的主文件夹；Host 先按环境准备目录（worktree），再建引擎会话，任何一步失败都回 `INVALID_PARAMS` 并删掉已建的 worktree。0.18.0 起可带 `worktree: 'new'`（Host 功能 `session_worktree`）：不用环境，在工作区的仓库里给这个会话单独新开一个 worktree，失败同样回 `INVALID_PARAMS`、不留 worktree；不能与 `environmentId` 同时给，`none` 与省略相同。Host 先建引擎会话，成功后才写 `session.created`（`seq = 1`），返回的 `session.state` 为 `idle`、`lastSeq` 为 1。引擎失败回 `ENGINE_ERROR`，不建会话。
 - **`session.fork`**（0.17.0，Host 功能 `side_sessions`，domain-model §3.12）：从会话分出一个支线会话，`side` 现在只能是 `true`。被分的会话是子会话、支线、只读，或还没有完成的回合时回 `INVALID_STATE`；回合进行中也可以分，支线带着到最近一个完成的回合为止的上下文。返回的新会话 `idle`、带 `forkedFrom` 与 `side`，它的事件流从 `session.created` 开始；支线不进 `session.list`。
+- **`session.rename`**（0.23.0，Host 功能 `session_rename`）：用户给会话改名。`title` 去掉首尾空白后不能是空的（否则 `INVALID_PARAMS`），最长 200 个字符；写一条 `session.title_changed`（`source: 'user'`），之后模型生成的标题不再覆盖它。子会话不能改名（`INVALID_PARAMS`）；已关闭、只读、已归档的会话可以。标题没变时不写事件。
+- **`session.archive`**（0.23.0，Host 功能 `session_archive`）：`archived: true` 归档——会话没关闭时先按 `session.close` 关闭（进行中的回合取消），再记下归档的时刻（`Session.archivedAt`）；`false` 取消归档，会话仍是关闭的，下次发送时客户端照常先 `session.resume`。只有顶层、不是支线的会话能归档（否则 `INVALID_PARAMS`）。已归档时再归档不改时刻。`archivedAt` 只在 `session.list`、`session.get` 与 `session.*` 方法的结果里，不是事件推导的；别的客户端在下一次 `session.list` 时看到变化。
 - **`session.checkpoints`**（0.20.0，Host 功能 `workspace_diff`）：会话有快照的回合，从早到晚，每项 `turnId` 与“后”快照里记下的统计 `fileCount`、`added`、`removed`（同 `workspace.diff` 的 `turn`，滤掉 git 带进来的文件；还没有“后”快照时省略）。会话目录不是 git 仓库时 `repo: false`、`turns` 为空。先等这个会话还没打完的快照。
-- **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。不含支线会话（0.17.0）。默认**不含子会话**（0.6.0，领域模型 §3.3.1）：子会话由引擎派出、只读，跟着父会话显示，不进左栏的会话列表。带 `parentSessionId` 时只列出这个会话的子会话（不论 `workspaceId`；会话不存在或所属工作区已移除时回 `SESSION_NOT_FOUND`）；一个会话的子会话也在它的快照 `subagents` 里（摘要）。
+- **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。不含支线会话（0.17.0）。默认**不含子会话**（0.6.0，领域模型 §3.3.1）：子会话由引擎派出、只读，跟着父会话显示，不进左栏的会话列表。带 `parentSessionId` 时只列出这个会话的子会话（不论 `workspaceId`；会话不存在或所属工作区已移除时回 `SESSION_NOT_FOUND`）；一个会话的子会话也在它的快照 `subagents` 里（摘要）。0.23.0 起默认不含已归档的会话，`archived: true` 时只列已归档的（按 `updatedAt` 从新到旧）。
 - **`session.get`**：返回由事件推导的快照 `{session: {state, activeTurn, lastSeq, …}, pendingApprovals, todos?, usage?, subagents?}`（ADR-0002 §3）。中途加入的客户端先取快照，再以 `sinceSeq = session.lastSeq` 订阅。0.6.0：子会话照常可以 `session.get`，`session` 带 `parentSessionId` 与 `subagent`（父工具调用、状态、起止时间）；派出过子会话的会话带 `subagents`，每个子会话一份摘要（标题、模型与推理强度、昵称、状态、起止时间，以及它的未决审批的副本），按 `startedAt` 排列（领域模型 §3.3.1）。
 - **`session.configure`**（0.9.0，Host 功能 `session_configure`）：换会话的模型或推理档位，从下一个回合起生效，进行中的回合不受影响，会话处于什么状态都可以调。`modelId` 必须在会话所用 Provider 的模型列表里（Provider 列了模型时，否则 `INVALID_PARAMS`）；不换 Provider。`reasoningEffort` 为 `null` 时清掉、用模型的默认档位，换了模型而没给它时也清掉；给了就原样交给引擎（不按 Provider 的 `reasoningEfforts` 校验，客户端从中选）。值真的变了时追加 `session.configured`（带改后的全部值），结果是改后的会话。子会话回 `INVALID_STATE`（`data.parentSessionId`），只读会话回 `INVALID_STATE`（`data.readOnly`）；Host 的引擎不支持（没有声明 `session_configure`）时回 `ENGINE_ERROR`（`category: unknown`，同 `account.*`）；引擎拒绝这个模型时回 `INVALID_PARAMS`。引擎会话没挂着（Host 重启后、关闭后）时只记下新的值，下次 resume 时交给引擎。0.11.0 起还可以换 `permissionMode`（Host 功能 `permission_modes`，见下一条），交给引擎的总是全部当前值，`session.configured` 也带上它。
 - **权限模式 `permissionMode`**（0.11.0，Host 功能 `permission_modes`，domain-model §3.9）：`on_request`（请求批准，默认）、`auto_review`（自动批准：越界的操作由会话的模型审查）、`full_access`（完全访问：不用沙箱、不审批）。`session.create` 省略时是 `on_request`；`session.configure` 省略时不改，从下一个回合起生效。Host 的引擎声明了支持的模式时（Codex）会话与 `session.created` / `session.configured` 都带它；引擎不支持时（dsh）只接受省略或 `on_request`，会话不带这个字段，别的值回 `INVALID_PARAMS`（`data.issues` 的 path 是 `permissionMode`）。子 agent 的子会话沿用父会话当时的模式。
@@ -382,6 +386,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 `0.22.0`：工作区的文件。新方法 `workspace.files`、`workspace.listDir`、`workspace.readFile`；新类型 `WorkspaceEntry`、`WorkspaceEntryKind`、`PreviewImageMimeType`；Host 功能 `workspace_files`。新方法与新类型，`unavailable` 是开放字符串，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法。新客户端连旧 Host：hello 结果里没有 `workspace_files`，桌面端不提供文件窗格，输入框的 @ 不弹出文件列表。冻结样本 `compat/0.22.0.json`。
 
+`0.23.0`：会话改名与归档。新方法 `session.rename`、`session.archive`；`session.list` 加 optional 的 `archived`，`Session` 加 optional 的 `archivedAt`；Host 功能 `session_rename`、`session_archive`；存储 0009_session_archive。行为变化：`session.list` 默认不再列出已归档的会话——只有新方法能归档，旧客户端看不到的只是别的客户端归档掉的会话。新方法与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新客户端连旧 Host：hello 结果里没有这两个功能，桌面端不显示改名、归档与“已归档”设置页。冻结样本 `compat/0.23.0.json`。
+
 依据 Paseo 的兼容纪律（Paseo 研读 §2.3、§2.4；ADR-0002 §2）。目标：半年前的客户端能连新 Host，半年前的 Host 能服务新客户端（同一主版本内）。改 `packages/protocol` 的提交要在说明里回答这两个问题。
 
 **版本**
@@ -435,6 +441,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `provider_enabled` | 0.19.0 | `provider.setEnabled` 与 `ProviderProfile.enabled`（与引擎无关） |
 | `workspace_diff` | 0.20.0 | `workspace.diff`、`workspace.diffFile`、`session.checkpoints` 与每个回合前后的快照（与引擎无关） |
 | `workspace_files` | 0.22.0 | `workspace.files`、`workspace.listDir`、`workspace.readFile`（与引擎无关） |
+| `session_rename` | 0.23.0 | `session.rename`（与引擎无关） |
+| `session_archive` | 0.23.0 | `session.archive`、`session.list` 的 `archived`、`Session.archivedAt`（与引擎无关） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

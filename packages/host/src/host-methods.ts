@@ -12,6 +12,7 @@ import type {
   MethodParams,
   MethodResult,
   ProviderProfile,
+  Session,
   SessionId,
   Workspace,
   WorkspaceId,
@@ -152,6 +153,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }
   };
   const serialProvider = options.providerLock ?? createProviderLock();
+  /** 会话加上存储里的归档时刻（0.23.0，不是事件推导的）。 */
+  const withArchive = (session: Session): Session => {
+    const archivedAt = storage.sessions.get(session.id)?.archivedAt;
+    return archivedAt === undefined ? session : { ...session, archivedAt };
+  };
   // 0.22.0：@ 提及与文件窗格的名字搜索，按目录缓存几秒。
   const fileIndex = new FileIndex();
   const requireAccounts = (): HostAccounts => {
@@ -513,7 +519,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.create': async (params) => ({ session: await sessions.create(params) }),
 
-    'session.list': ({ workspaceId, parentSessionId }) => {
+    'session.list': ({ workspaceId, parentSessionId, archived }) => {
       if (workspaceId !== undefined) {
         const workspace = storage.workspaces.get(workspaceId);
         if (!workspace || workspace.removedAt !== undefined) {
@@ -522,14 +528,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }
       // 默认不含子会话；给了 parentSessionId 只列它的子会话（domain-model §3.3.1）。
       if (parentSessionId !== undefined) assertSessionVisible(storage, parentSessionId);
+      // 0.23.0：默认不含已归档的会话，archived 时只列它们。
       const records = storage.sessions.list({
         ...(workspaceId !== undefined && { workspaceId }),
         ...(parentSessionId !== undefined && { parentSessionId }),
+        ...(archived === true && { archived: 'only' as const }),
       });
       return {
         sessions: records.flatMap((record) => {
           const snapshot = events.snapshot(record.id as SessionId);
-          return snapshot ? [snapshot.session] : [];
+          return snapshot ? [withArchive(snapshot.session)] : [];
         }),
       };
     },
@@ -538,7 +546,34 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       assertSessionVisible(storage, sessionId);
       const snapshot = events.snapshot(sessionId);
       if (!snapshot) throw sessionNotFound(sessionId);
-      return snapshot;
+      return { ...snapshot, session: withArchive(snapshot.session) };
+    },
+
+    // 0.23.0：用户改名，标题去掉首尾空白后不能是空的。
+    'session.rename': async ({ sessionId, title }) => {
+      assertSessionVisible(storage, sessionId);
+      const trimmed = title.trim();
+      if (trimmed === '') throw invalidParams(['title'], 'title must not be blank');
+      return { session: withArchive(await sessions.rename(sessionId, trimmed)) };
+    },
+
+    // 0.23.0：归档前先关闭会话；只有顶层、不是支线的会话能归档。已归档时不改时刻。
+    'session.archive': async ({ sessionId, archived }) => {
+      assertSessionVisible(storage, sessionId);
+      const record = storage.sessions.get(sessionId);
+      if (!record) throw sessionNotFound(sessionId);
+      if (record.parentSessionId !== undefined || record.side) {
+        throw invalidParams(['sessionId'], 'only top-level sessions can be archived');
+      }
+      if (archived) {
+        await sessions.close(sessionId);
+        if (record.archivedAt === undefined) storage.sessions.setArchived(sessionId, isoNow());
+      } else {
+        storage.sessions.setArchived(sessionId, undefined);
+      }
+      const snapshot = events.snapshot(sessionId);
+      if (!snapshot) throw sessionNotFound(sessionId);
+      return { session: withArchive(snapshot.session) };
     },
 
     'session.configure': async (params) => ({ session: await sessions.configure(params) }),
@@ -555,7 +590,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
 
-    'session.resume': async ({ sessionId }) => ({ session: await sessions.resume(sessionId) }),
+    // 恢复一个已归档的会话（在它里面接着发消息）即取消归档（0.23.0）。
+    'session.resume': async ({ sessionId }) => {
+      const session = await sessions.resume(sessionId);
+      if (storage.sessions.get(sessionId)?.archivedAt !== undefined) {
+        storage.sessions.setArchived(sessionId, undefined);
+      }
+      return { session };
+    },
 
     'session.fork': async (params) => ({ session: await sessions.fork(params) }),
 

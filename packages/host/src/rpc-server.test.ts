@@ -465,10 +465,10 @@ describe('host.hello', () => {
   it('未知方法：回 -32601，data 带 hostVersion 与升级提示', async () => {
     const h = await startHost();
     const client = await readyClient(h);
-    const frame = await client.call('session.rename', { title: 'x' });
+    const frame = await client.call('session.teleport', { title: 'x' });
     expect(frame.error).toEqual({
       code: -32601,
-      message: 'Method not found: session.rename',
+      message: 'Method not found: session.teleport',
       data: { hostVersion: HOST_VERSION, hint: '请升级 Wevir Host' },
     });
     expect(await client.request('host.ping')).toEqual({});

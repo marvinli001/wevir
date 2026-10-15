@@ -1343,12 +1343,24 @@ export const methodSamples: MethodSamples = {
   },
   'session.list': {
     params: {
-      valid: [{}, { workspaceId: ids.workspace }, { parentSessionId: ids.session }],
-      invalid: [{ workspaceId: 'ws_' }, { parentSessionId: ids.workspace }],
+      valid: [
+        {},
+        { workspaceId: ids.workspace },
+        { parentSessionId: ids.session },
+        { archived: true },
+      ],
+      invalid: [{ workspaceId: 'ws_' }, { parentSessionId: ids.workspace }, { archived: 'yes' }],
     },
     result: {
-      valid: [{ sessions: [session] }, { sessions: [childSession] }],
-      invalid: [{ sessions: [{ ...session, lastSeq: -1 }] }],
+      valid: [
+        { sessions: [session] },
+        { sessions: [childSession] },
+        { sessions: [{ ...session, state: 'closed', archivedAt: TS2 }] },
+      ],
+      invalid: [
+        { sessions: [{ ...session, lastSeq: -1 }] },
+        { sessions: [{ ...session, archivedAt: 'yesterday' }] },
+      ],
     },
   },
   'session.get': {
@@ -1434,6 +1446,36 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ session: sideSession }],
       invalid: [{ session: { ...sideSession, side: false } }],
+    },
+  },
+  'session.rename': {
+    params: {
+      valid: [{ sessionId: ids.session, title: '修复登录' }],
+      invalid: [
+        { sessionId: ids.session, title: '' },
+        { sessionId: ids.session, title: 'x'.repeat(201) },
+        { sessionId: ids.session },
+      ],
+    },
+    result: {
+      valid: [{ session: { ...session, title: '修复登录', titleSource: 'user' } }],
+      invalid: [{ session: { ...session, titleSource: 'renamed' } }],
+    },
+  },
+  'session.archive': {
+    params: {
+      valid: [
+        { sessionId: ids.session, archived: true },
+        { sessionId: ids.session, archived: false },
+      ],
+      invalid: [{ sessionId: ids.session }, { sessionId: ids.session, archived: 'yes' }],
+    },
+    result: {
+      valid: [
+        { session: { ...session, state: 'closed', archivedAt: TS2 } },
+        { session: { ...session, state: 'closed' } },
+      ],
+      invalid: [{ session: { ...session, archivedAt: 1 } }],
     },
   },
   'session.checkpoints': {

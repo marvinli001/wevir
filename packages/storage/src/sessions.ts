@@ -54,6 +54,8 @@ export interface SessionRecord {
   lastSeq: number;
   createdAt: string;
   updatedAt: string;
+  /** 归档的时刻（0009_session_archive，协议 0.23.0）；没有归档时省略。不是事件推导的缓存。 */
+  archivedAt?: string;
 }
 
 /** 可更新的缓存字段。`activeTurn`、`lastError`、`reasoningEffort` 传 `null` 表示清空。 */
@@ -87,7 +89,11 @@ export interface SessionRepository {
     includeChildren?: boolean;
     /** 也列支线会话（0006）；默认不列。 */
     includeSide?: boolean;
+    /** 归档（0009）：`only` 只列已归档的，`include` 都列；默认不列已归档的。 */
+    archived?: 'only' | 'include';
   }): SessionRecord[];
+  /** 归档或取消归档（`undefined`）；会话不存在时返回 false。 */
+  setArchived(id: string, archivedAt: string | undefined): boolean;
   /** 更新缓存字段；会话不存在时返回 false。 */
   update(id: string, patch: SessionCachePatch): boolean;
   /** 状态不是 `closed` 的会话数（不含子会话）：有这样的会话时工作区不能移除（domain-model §3.1）。 */
@@ -137,7 +143,13 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         ELSE s.parent_session_id IS NULL
       END
       AND (:includeSide = 1 OR s.side IS NULL)
+      AND CASE :archived
+        WHEN 'only' THEN s.archived_at IS NOT NULL
+        WHEN 'include' THEN 1
+        ELSE s.archived_at IS NULL
+      END
     ORDER BY s.updated_at DESC, s.id DESC`);
+  const setArchived = db.prepare('UPDATE sessions SET archived_at = ? WHERE id = ?');
   const countOpenByWorkspace = db.prepare(
     "SELECT COUNT(*) AS n FROM sessions WHERE workspace_id = ? AND state <> 'closed' AND parent_session_id IS NULL AND side IS NULL",
   );
@@ -191,8 +203,12 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
           parentSessionId: options?.parentSessionId ?? null,
           includeChildren: options?.includeChildren ? 1 : 0,
           includeSide: options?.includeSide ? 1 : 0,
+          archived: options?.archived ?? null,
         })
         .map(fromRow);
+    },
+    setArchived(id, archivedAt) {
+      return changed(setArchived.run(archivedAt ?? null, id));
     },
     update(id, patch) {
       const sets: string[] = [];
@@ -259,5 +275,7 @@ function fromRow(row: SqlRow): SessionRecord {
   if (activeTurn !== undefined) record.activeTurn = activeTurn as ActiveTurnRecord;
   const lastError = optionalJson(row, 'last_error');
   if (lastError !== undefined) record.lastError = lastError as SessionErrorRecord;
+  const archivedAt = optionalText(row, 'archived_at');
+  if (archivedAt !== undefined) record.archivedAt = archivedAt;
   return record;
 }

@@ -1133,6 +1133,25 @@ export class SessionManager {
     });
   }
 
+  /**
+   * `session.rename`（0.23.0）：用户改名，写 `session.title_changed`（`user`），之后模型生成的标题不再覆盖它（生成标题只在
+   * 来源是 `first_prompt` 时写）。标题与来源都没变时不写。子会话由父 agent 驱动，不能改名。已关闭、只读的会话可以。
+   */
+  async rename(sessionId: SessionId, title: string): Promise<Session> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
+    return this.#serial(runtime, async () => {
+      const { session } = this.#snapshot(runtime);
+      if (session.title !== title || session.titleSource !== 'user') {
+        this.#write(runtime, [
+          { type: 'session.title_changed', source: 'host', payload: { title, source: 'user' } },
+        ]);
+      }
+      return this.#snapshot(runtime).session;
+    });
+  }
+
   /** 打回合快照的会话（0.20.0）：顶层、不是支线的会话，返回它的目录。子会话的改动算在父会话的回合里。 */
   #checkpointCwd(runtime: SessionRuntime): string | undefined {
     if (this.#checkpoints === undefined || runtime.parentId !== undefined) return undefined;

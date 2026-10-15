@@ -1,14 +1,35 @@
-import type { Session } from '@wevir/protocol';
+import type { Session, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronDown, Folder, FolderOpen, Plus, Rows3, Settings, SquarePen } from 'lucide-react';
+import {
+  Archive,
+  ChevronDown,
+  Folder,
+  FolderOpen,
+  Pencil,
+  Pin,
+  PinOff,
+  Plus,
+  Rows3,
+  Settings,
+  SquarePen,
+} from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
-import { useWorkbenchData } from '@/data/workbench-data';
+import {
+  archiveSession,
+  requestRename,
+  togglePinned,
+  usePinnedSessions,
+  useSessionManagement,
+} from '@/data/session-actions';
+import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import {
   groupByStatus,
   type SessionMarker,
@@ -18,6 +39,7 @@ import {
 } from '@/data/workbench-model';
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
+import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { openCreateProject } from '@/projects/create-project';
 import { rememberWorkspace } from '@/routes/last-location';
@@ -153,6 +175,7 @@ function ViewButton({
 function StatusTree() {
   const data = useWorkbenchData();
   const seen = useSeenSessions();
+  const pinned = usePinnedSessions();
   const { sessionId } = useParams();
 
   if (data.status === 'loading') return null;
@@ -164,8 +187,13 @@ function StatusTree() {
     );
   }
   const groups = groupByStatus(data.workspaces, Date.now());
-  const { needsYou, running, completed } = groups;
-  if (needsYou.length + running.length + completed.length === 0) {
+  // 置顶的会话（U34，本机）单独一组排在最前，不再出现在别的组里。
+  const pinnedRows = pinnedOf(data.workspaces, pinned);
+  const isPinned = (row: StatusRow) => pinned.includes(row.session.id);
+  const needsYou = groups.needsYou.filter((row) => !isPinned(row));
+  const running = groups.running.filter((row) => !isPinned(row));
+  const completed = groups.completed.filter((row) => !isPinned(row));
+  if (pinnedRows.length + needsYou.length + running.length + completed.length === 0) {
     return (
       <p className="px-2 py-1 text-sm text-muted-foreground">
         {t(data.workspaces.length === 0 ? 'sidebar.noProjects' : 'sidebar.noSessions')}
@@ -184,6 +212,11 @@ function StatusTree() {
   );
   return (
     <div className="space-y-2 pt-1" data-testid="sidebar-status">
+      {pinnedRows.length > 0 && (
+        <StatusGroup title={t('sidebar.group.pinned')} id="pinned">
+          <ul className="space-y-px">{pinnedRows.map(row)}</ul>
+        </StatusGroup>
+      )}
       {needsYou.length > 0 && (
         <StatusGroup title={t('sidebar.group.needsYou')} id="needs-you">
           <ul className="space-y-px">{needsYou.map(row)}</ul>
@@ -227,6 +260,7 @@ function ProjectTree() {
   const data = useWorkbenchData();
   const { collapsedWorkspaces } = layoutPrefs.use();
   const seen = useSeenSessions();
+  const pinned = usePinnedSessions();
 
   if (data.status === 'loading') return null;
   if (data.status === 'error') {
@@ -239,18 +273,54 @@ function ProjectTree() {
   if (data.workspaces.length === 0) {
     return <p className="px-2 py-1 text-sm text-muted-foreground">{t('sidebar.noProjects')}</p>;
   }
+  const pinnedRows = pinnedOf(data.workspaces, pinned);
   return (
-    <ul className="space-y-px">
-      {data.workspaces.map((entry) => (
-        <ProjectItem
-          key={entry.workspace.id}
-          entry={entry}
-          expanded={!collapsedWorkspaces.includes(entry.workspace.id)}
-          isUnread={(session) => isUnread(seen, session)}
-        />
-      ))}
-    </ul>
+    <>
+      {pinnedRows.length > 0 && (
+        <div className="pt-1 pb-2">
+          <StatusGroup title={t('sidebar.group.pinned')} id="pinned">
+            <ul className="space-y-px">
+              {pinnedRows.map(({ session, workspace }) => (
+                <li key={session.id}>
+                  <SessionRow
+                    workspaceId={workspace.id}
+                    session={session}
+                    unread={isUnread(seen, session)}
+                    project={workspace}
+                  />
+                </li>
+              ))}
+            </ul>
+          </StatusGroup>
+        </div>
+      )}
+      <ul className="space-y-px">
+        {data.workspaces.map((entry) => (
+          <ProjectItem
+            key={entry.workspace.id}
+            entry={entry}
+            expanded={!collapsedWorkspaces.includes(entry.workspace.id)}
+            isUnread={(session) => isUnread(seen, session)}
+          />
+        ))}
+      </ul>
+    </>
   );
+}
+
+/** 置顶的会话，按置顶的先后（后置顶的在前）；不在列表里的（归档、移除）跳过。 */
+function pinnedOf(workspaces: readonly WorkspaceEntry[], pinned: readonly string[]): StatusRow[] {
+  if (pinned.length === 0) return [];
+  const byId = new Map<string, StatusRow>();
+  for (const entry of workspaces) {
+    for (const session of entry.sessions) {
+      byId.set(session.id, { session, workspace: entry.workspace });
+    }
+  }
+  return pinned.flatMap((id) => {
+    const row = byId.get(id);
+    return row ? [row] : [];
+  });
 }
 
 function ProjectItem({
@@ -376,41 +446,109 @@ function SessionRow({
   const marker = sessionMarker(session);
   const markerInfo = marker && MARKERS[marker];
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';
+  const manage = useSessionManagement();
+  const { client } = useHostConnection();
+  const store = useWorkbenchStore();
+  const pinned = usePinnedSessions().includes(session.id);
+  const archive = () => {
+    if (!client) return;
+    archiveSession(client, store, session.id as SessionId, true).catch((error: unknown) =>
+      console.warn('归档失败', session.id, error),
+    );
+  };
+  const pinLabel = t(pinned ? 'session.unpin' : 'session.pin');
   return (
-    <NavLink
-      to={paths.session(workspaceId, session.id)}
-      title={project && `${project.displayName} · ${project.rootPath}`}
-      className={({ isActive }) => cn(ROW, 'text-soft-foreground', isActive && ROW_ACTIVE)}
-    >
-      <span className="flex w-4 shrink-0 justify-center">
-        {(marker === 'running' || marker === 'awaiting_approval' || marker === 'awaiting_input') &&
-        markerInfo ? (
-          <span role="img" aria-label={markerInfo.label} className="flex">
-            <Orb
-              state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
-              paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
-            />
+    <ContextMenu>
+      <ContextMenuTrigger render={<div className="group/session relative" />}>
+        <NavLink
+          to={paths.session(workspaceId, session.id)}
+          title={project && `${project.displayName} · ${project.rootPath}`}
+          className={({ isActive }) =>
+            cn(
+              ROW,
+              'text-soft-foreground group-focus-within/session:pr-14 group-hover/session:pr-14',
+              isActive && ROW_ACTIVE,
+            )
+          }
+        >
+          <span className="flex w-4 shrink-0 justify-center">
+            {(marker === 'running' ||
+              marker === 'awaiting_approval' ||
+              marker === 'awaiting_input') &&
+            markerInfo ? (
+              <span role="img" aria-label={markerInfo.label} className="flex">
+                <Orb
+                  state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
+                  paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
+                />
+              </span>
+            ) : (
+              markerInfo && <StatusDot tone={markerInfo.tone} label={markerInfo.label} />
+            )}
           </span>
-        ) : (
-          markerInfo && <StatusDot tone={markerInfo.tone} label={markerInfo.label} />
+          <span
+            className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold text-foreground')}
+          >
+            {session.title || t('session.untitled')}
+          </span>
+          {/* 悬停时让出位置给置顶与归档（U34）。 */}
+          <span className="flex shrink-0 items-center group-focus-within/session:hidden group-hover/session:hidden">
+            {badge ? (
+              <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+                {markerInfo?.label}
+              </span>
+            ) : unread ? (
+              <StatusDot tone="accent" label={t('session.marker.unread')} className="size-1.5" />
+            ) : (
+              project && (
+                <span className="max-w-40 shrink-0 truncate text-xs text-muted-foreground">
+                  {project.displayName}
+                </span>
+              )
+            )}
+          </span>
+        </NavLink>
+        <div className="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within/session:opacity-100 group-hover/session:opacity-100">
+          <IconButton
+            label={pinLabel}
+            size="icon-xs"
+            className="text-muted-foreground"
+            onClick={() => togglePinned(session.id)}
+            data-action="pin-session"
+          >
+            {pinned ? <PinOff /> : <Pin />}
+          </IconButton>
+          {manage.archive && (
+            <IconButton
+              label={t('session.archive')}
+              size="icon-xs"
+              className="text-muted-foreground"
+              onClick={archive}
+              data-action="archive-session"
+            >
+              <Archive />
+            </IconButton>
+          )}
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        {manage.rename && (
+          <DropdownMenuItem onClick={() => requestRename(session)} data-action="rename-session">
+            <Pencil />
+            {t('session.rename')}
+          </DropdownMenuItem>
         )}
-      </span>
-      <span className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold text-foreground')}>
-        {session.title || t('session.untitled')}
-      </span>
-      {badge ? (
-        <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
-          {markerInfo?.label}
-        </span>
-      ) : unread ? (
-        <StatusDot tone="accent" label={t('session.marker.unread')} className="size-1.5" />
-      ) : (
-        project && (
-          <span className="max-w-[40%] shrink-0 truncate text-xs text-muted-foreground">
-            {project.displayName}
-          </span>
-        )
-      )}
-    </NavLink>
+        <DropdownMenuItem onClick={() => togglePinned(session.id)}>
+          {pinned ? <PinOff /> : <Pin />}
+          {pinLabel}
+        </DropdownMenuItem>
+        {manage.archive && (
+          <DropdownMenuItem onClick={archive}>
+            <Archive />
+            {t('session.archive')}
+          </DropdownMenuItem>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }

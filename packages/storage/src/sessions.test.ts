@@ -145,6 +145,26 @@ describe('sessions', () => {
     expect(s.sessions.countOpenByWorkspace('ws_01')).toBe(1);
   });
 
+  it('归档（0009）：默认不列已归档的，only 只列它们，include 都列；可取消归档', () => {
+    const s = storage();
+    seedSession(s);
+    seedSession(s, { id: 'ses_02', engineSessionId: 'e2', state: 'closed' });
+    expect(s.sessions.setArchived('ses_02', T2)).toBe(true);
+    expect(s.sessions.get('ses_02')?.archivedAt).toBe(T2);
+    expect(s.sessions.get('ses_01')).not.toHaveProperty('archivedAt');
+    expect(s.sessions.list().map((r) => r.id)).toEqual(['ses_01']);
+    expect(s.sessions.list({ archived: 'only' }).map((r) => r.id)).toEqual(['ses_02']);
+    expect(
+      s.sessions
+        .list({ archived: 'include' })
+        .map((r) => r.id)
+        .sort(),
+    ).toEqual(['ses_01', 'ses_02']);
+    expect(s.sessions.setArchived('ses_02', undefined)).toBe(true);
+    expect(s.sessions.get('ses_02')).not.toHaveProperty('archivedAt');
+    expect(s.sessions.setArchived('ses_missing', T2)).toBe(false);
+  });
+
   it('环境（0004）：增删改查，按创建时间', () => {
     const s = storage();
     const record = {
