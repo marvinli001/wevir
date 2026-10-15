@@ -39,7 +39,7 @@ export function DeliverySwitch({
         >
           <Liquid.Item effect="move" style={{ display: 'block', height: '100%' }}>
             <div
-              className="h-full w-1/2 rounded-full transition-transform duration-[380ms] ease-[cubic-bezier(0.3,1.4,0.4,1)] motion-reduce:transition-none"
+              className="h-full w-1/2 rounded-full transition-transform duration-(--spring-press-duration) ease-spring-press motion-reduce:transition-none"
               style={{ transform: `translateX(${index * 100}%)` }}
             />
           </Liquid.Item>

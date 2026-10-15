@@ -4,6 +4,7 @@ import { Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search } from
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
+import { ScrollFade } from '@/components/scroll-fade';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
@@ -247,7 +248,7 @@ function ModelList({
           data-testid="model-search"
         />
       </div>
-      <div className="overflow-y-auto p-1.5">
+      <ScrollFade className="overflow-y-auto p-1.5 [--scroll-fade-size:16px]">
         {groups.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-muted-foreground">
             {t('model.picker.empty')}
@@ -311,7 +312,7 @@ function ModelList({
             </section>
           );
         })}
-      </div>
+      </ScrollFade>
     </div>
   );
 }

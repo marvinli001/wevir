@@ -66,6 +66,7 @@ import {
 import { PREFERRED_HIGHLIGHTER } from '@/changes/diff-worker-pool';
 import { DIFF_HEADER_HEIGHT, StyledDiffCodeView } from '@/changes/styled-code-view';
 import { IconButton } from '@/components/icon-button';
+import { ScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -456,32 +457,34 @@ function ScopeMenu({
           <DropdownMenuSubTrigger disabled={turns.length === 0}>
             {t('changes.scope.turns')}
           </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="max-h-80 w-56 overflow-y-auto">
-            <DropdownMenuRadioGroup
-              value={turnValue}
-              onValueChange={(value) => {
-                const turn = turns.find((option) => option.turnId === value);
-                if (turn) choose({ kind: 'turn', turnId: turn.turnId });
-              }}
-            >
-              {turns.map((turn) => (
-                <DropdownMenuRadioItem key={turn.turnId} value={turn.turnId} closeOnClick>
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <span className="truncate">{turnLabel(turn.number)}</span>
-                    <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
-                      {turn.live ? (
-                        t('changes.turnLive')
-                      ) : (
-                        <>
-                          <span className="text-success">+{turn.added ?? 0}</span>{' '}
-                          <span className="text-destructive">−{turn.removed ?? 0}</span>
-                        </>
-                      )}
+          <DropdownMenuSubContent className="w-56">
+            <ScrollFade className="max-h-80 overflow-y-auto [--scroll-fade-size:16px]">
+              <DropdownMenuRadioGroup
+                value={turnValue}
+                onValueChange={(value) => {
+                  const turn = turns.find((option) => option.turnId === value);
+                  if (turn) choose({ kind: 'turn', turnId: turn.turnId });
+                }}
+              >
+                {turns.map((turn) => (
+                  <DropdownMenuRadioItem key={turn.turnId} value={turn.turnId} closeOnClick>
+                    <span className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className="truncate">{turnLabel(turn.number)}</span>
+                      <span className="ml-auto shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                        {turn.live ? (
+                          t('changes.turnLive')
+                        ) : (
+                          <>
+                            <span className="text-success">+{turn.added ?? 0}</span>{' '}
+                            <span className="text-destructive">−{turn.removed ?? 0}</span>
+                          </>
+                        )}
+                      </span>
                     </span>
-                  </span>
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </ScrollFade>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       </DropdownMenuContent>

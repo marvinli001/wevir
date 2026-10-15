@@ -349,3 +349,24 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 - **消息里的图片**：用户消息的图片在文字气泡上方，靠右排成一行（间距 6 px，最宽占消息流的 85%），每张高 128 px、宽按像素比例（48–240 px）、`rounded-xl`、细描边，读回来之前是 `muted` 底的占位，读不到时写“图片不可用”。点开是居中的对话框（最宽 90% 窗宽、最高 85% 窗高，图片 `rounded-lg`）。排队与暂停的待发消息在文字下面写“N 张图片”；改内容时只改文字，图片照旧。
 - **显示**：图片一律用 data URL（CSP 的 `img-src` 只放行 `'self'` 与 `data:`）：本机传上去的直接用本地那份，别处发的经 `image.read` 分段读回，按图片 ID 缓存最近 40 张。
 - **模型服务表单的“图片输入”**（`settings/provider-editor.tsx` 的模型列表）：OpenAI 兼容与 Vertex 的每行模型在上下文长度与删除按钮之间多一列勾选框，列头 12 px 说明文字色的“图片输入”，勾选框 16 px、`accent-primary`、居中，同“默认”列的单选，不加说明行。勾上即保存 `supportsImages: true`；取消时，原模型标过的写 `false`，没标过的不写。模板与已有 Profile 的标记照原样带进表单；改了模型 ID 时其他字段不再沿用，图片输入仍按勾选。
+
+## 44. 交互手感（2026-10-15）
+
+只用 CSS 与原生 API，不引入动画库；减弱动效时全部停下（`index.css` 的全局规则，层外的布局过渡另写一条）。
+
+- **弹簧缓动**（`styles/theme.css` 的 `:root`，由 `apps/desktop/scripts/spring-easing.ts` 生成，`spring-easing.test.ts` 核对）：按刚度 / 阻尼 / 质量解出阻尼振子从 0 到 1 的位移，采样成 CSS `linear()`，去掉落在连线上的点；时长取位移离终点不超过 0.5% 的时刻。每条有 `--spring-<名>` 与 `--spring-<名>-duration`，Tailwind 工具类 `ease-spring-<名>`。
+
+  | 名 | 刚度 / 阻尼 / 质量 | 时长 | 过冲 | 用途 |
+  |---|---|---|---|---|
+  | press | 600 / 30 / 1 | 370 ms（约 110 ms 回到 98%） | 8.8% | 按钮松开、“插话 / 排队”的滑块 |
+  | reveal | 320 / 28 / 1 | 410 ms（约 200 ms 到 98%） | 1.9% | 菜单、浮层、提示、对话框入场 |
+  | bounce | 380 / 18 / 1 | 600 ms | 19.5% | 确认反馈：复制成功的勾（`confirm-pop`，从一半大小弹出） |
+  | snap | 800 / 60 / 1 | 300 ms | 无（过阻尼） | 拖动分隔条时的吸附折叠与展开 |
+
+  改参数：编辑 `SPRINGS`，运行 `node apps/desktop/scripts/spring-easing.ts`，把打印的块换进 `theme.css`。
+
+- **弹层的进与出**：菜单、浮层、提示与对话框入场用 reveal（不再是 150 ms ease-smooth），退场 110 ms `ease-smooth`，比入场短、不回弹；对话框的遮罩入场仍是 200 ms `ease-smooth`，退场同样 110 ms。
+- **按压**（`theme.css` 的 `pressable`，`components/ui/button.tsx` 与“跳到最新”用）：按下 70 ms ease-out 缩到 `--press-scale`（默认 97%，“跳到最新”95%），松开走 press 弹簧；颜色、边框与阴影仍是 150 ms `ease-smooth`。原来两向都是 150 ms，且只过渡 `transform`，Tailwind v4 的缩放用的是 `scale` 属性，实际没有过渡。
+- **滚动边缘渐隐**（`components/scroll-fade.tsx`、`styles/scroll-fade.css`）：还能往哪头滚，那一头的内容在 `--scroll-fade-size` 内淡出，到头的一边长度归零；长度 `--scroll-fade-top` / `--scroll-fade-bottom` 用 `@property` 注册成 `<length>`，出现与消失过渡 180 ms。渐变按 1 − s^1.5 取 7 个停靠点（s 从内容一侧量到边缘），接内容的一头斜率为 0，看不出起点的线。经典滚动条那一条由第二层遮罩盖住、不淡出。滚动与容器、内容的尺寸变化（ResizeObserver，子元素换了重新观察）都在下一帧核对一次。用在：消息流（32 px，顶部在标题栏下方；贴底时底部不渐隐）、左栏的项目与会话列表、模型列表、界面语言列表、项目菜单（项目多时最高 320 px）、“变更”窗格的回合子菜单（16 px）。
+- **贴底**（`session/scroll-controller.ts`）：手势停下（滚动事件停 160 ms、或松开滚动条）时离底部不超过 32 px 就平滑吸回贴底；“跳到最新”只在手动模式且离底部超过 120 px 时出现。600 ms 的手势窗口与点开收起时的保持位置不变。
+- **分隔条**（`layout/splitter.tsx`、`layout/splitter-drag.ts`）：按下后移动不到 4 px 不改尺寸，双击复位时不先抖一下；拖动中按 Esc 取消，回到按下前的尺寸（只取消拖动，不关所在的浮层）。左栏与窗格区的分隔条拖到比最小宽度再小 48 px 时吸附折叠（宽度按 snap 弹簧收到 0），往回拖过 24 px 的回滞才重新展开；松开时折叠的就收起（左栏写进“收起”偏好，窗格区隐藏），宽度偏好不变，再打开还是原来的宽。窗格之间的分隔条只有死区与 Esc，不折叠。

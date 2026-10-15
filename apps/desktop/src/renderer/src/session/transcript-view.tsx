@@ -2,6 +2,7 @@ import type { Transcript } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { useScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
 import { turnOrb } from '@/fx/orb-state';
 import { t } from '@/i18n';
@@ -24,7 +25,7 @@ export interface TranscriptViewHandle {
 /**
  * 消息流：分段渲染（最后 `RENDER_WINDOW` 条起的一段，滚到顶部附近时向前扩展；起点挪到所在回合的开头），按回合成块
  * （turn-view.tsx：工作组与回合的折叠，U2），每块用 `content-visibility: auto` 跳过视口外的排版与绘制。贴底 / 手动
- * 两种滚动模式，离开底部时显示“跳到最新”；点开或收起一处时保持位置（fold-state.tsx）。
+ * 两种滚动模式，离开底部较远时显示“跳到最新”；点开或收起一处时保持位置（fold-state.tsx）。
  */
 export function TranscriptView({
   sessionId,
@@ -45,11 +46,13 @@ export function TranscriptView({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const { sticky, jumpToLatest, holdPosition } = useStickToBottom(
+  const { sticky, showJump, jumpToLatest, holdPosition } = useStickToBottom(
     containerRef,
     contentRef,
     sessionId,
   );
+  // 顶部（标题栏下方）与手动阅读时的底部渐隐；贴底时底部不渐隐。
+  useScrollFade(containerRef, { bottom: !sticky });
   const { messages } = transcript;
   // 渲染从哪条消息开始。贴底时不固定：只渲染最后 RENDER_WINDOW 条，新消息进来时窗口随之后移，DOM 不随会话
   // 增长；手动阅读时固定在当前第一条，新消息只追加，正在读的内容不会被挪走。向前扩展同样固定。
@@ -99,7 +102,7 @@ export function TranscriptView({
         // 可聚焦，键盘也能滚动（滚动控制器据此识别导航键）。
         // biome-ignore lint/a11y/noNoninteractiveTabindex: 可滚动区域需要能用键盘滚动。
         tabIndex={0}
-        className="transcript-scroll h-full overflow-y-auto outline-none"
+        className="transcript-scroll scroll-fade h-full overflow-y-auto outline-none [--scroll-fade-size:32px]"
       >
         <div
           ref={contentRef}
@@ -148,7 +151,7 @@ export function TranscriptView({
           </FoldScopeProvider>
         </div>
       </section>
-      {!sticky && (
+      {showJump && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <button
             type="button"
@@ -156,7 +159,7 @@ export function TranscriptView({
             title={t('transcript.jumpToLatest')}
             onClick={() => jumpToLatest('smooth')}
             data-action="jump-to-latest"
-            className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none transition-[color,background-color,transform] duration-150 animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-95"
+            className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
           >
             <ArrowDown aria-hidden className="size-4" />
           </button>

@@ -5,10 +5,11 @@ import { Pane } from './pane';
 import type { PaneContext } from './pane-registry';
 import { Splitter } from './splitter';
 
-/** 拖动窗格之间的分隔条：拖动中只改草稿（不写本机存储），松开时提交；双击回到默认比例。 */
+/** 拖动窗格之间的分隔条：拖动中只改草稿（不写本机存储），松开时提交，Esc 丢掉草稿；双击回到默认比例。 */
 export interface SplitResizeHandlers {
   onDraft: (key: string, fractions: number[]) => void;
   onCommit: (key: string, fractions: number[]) => void;
+  onCancel: () => void;
   onReset: (key: string) => void;
 }
 
@@ -64,6 +65,7 @@ function SplitHandle({
       }}
       onResize={(delta) => resize.onDraft(node.key, after(delta))}
       onResizeEnd={(delta) => resize.onCommit(node.key, after(delta))}
+      onResizeCancel={resize.onCancel}
       onReset={() => resize.onReset(node.key)}
     />
   );

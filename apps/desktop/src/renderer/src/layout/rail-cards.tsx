@@ -86,7 +86,7 @@ function PathRow({ name, path }: { name: string; path: string }) {
         className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
       >
         <span className="shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden>
-          {copied ? <Check className="text-success" /> : <Folder />}
+          {copied ? <Check className="confirm-pop text-success" /> : <Folder />}
         </span>
         <span className="shrink-0">{name}</span>
         <span className="min-w-0 truncate text-muted-foreground">

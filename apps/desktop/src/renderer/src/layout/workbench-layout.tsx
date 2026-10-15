@@ -69,7 +69,13 @@ export function WorkbenchLayout() {
   const viewportHeight = useViewportHeight();
   const prefs = layoutPrefs.use();
   const transient = transientLayout.use();
-  const [dragWidth, setDragWidth] = useState<number>();
+  // 拖动侧栏分隔条时的草稿：宽度，以及是否拖过了最小宽度、要折叠（松开才写进偏好）。
+  const [sidebarDrag, setSidebarDrag] = useState<{ width: number; collapsed: boolean }>();
+  // 拖动中吸附折叠或展开的那一下要过渡（平时拖动跟手、不过渡）。
+  const [sidebarSnapping, pulseSidebarSnap] = useSnapPulse();
+  const [auxSnapping, pulseAuxSnap] = useSnapPulse();
+  // 拖动窗格区分隔条拖过了最小宽度：窗格区先收起，松开才真的隐藏。
+  const [auxCollapsing, setAuxCollapsing] = useState(false);
   const sidebarDragStart = useRef(0);
   // 浮层关闭后焦点回到打开它的按钮。
   const sidebarToggleRef = useRef<HTMLButtonElement>(null);
@@ -77,7 +83,7 @@ export function WorkbenchLayout() {
   const railToggleRef = useRef<HTMLButtonElement>(null);
   const sidebarPlan = planSidebar({
     viewportWidth,
-    sidebarWidth: dragWidth ?? prefs.sidebarWidth,
+    sidebarWidth: sidebarDrag?.width ?? prefs.sidebarWidth,
     sidebarCollapsed: prefs.sidebarCollapsed,
     sidebarOverlayOpen: transient.sidebarOverlayOpen,
   });
@@ -179,8 +185,13 @@ export function WorkbenchLayout() {
       ? layoutPrefs.set((current) => ({ ...current, railShown: !current.railShown }))
       : setRailOverlayOpen(!transient.railOverlayOpen);
   const commitSidebarWidth = (width: number) => {
-    setDragWidth(undefined);
+    setSidebarDrag(undefined);
     layoutPrefs.set((current) => ({ ...current, sidebarWidth: clampSidebarWidth(width) }));
+  };
+  // 拖过最小宽度松开：收起侧栏，宽度偏好不变，再打开还是原来的宽。
+  const collapseSidebarByDrag = () => {
+    setSidebarDrag(undefined);
+    layoutPrefs.set((current) => ({ ...current, sidebarCollapsed: true }));
   };
 
   const commitScope = (update: Parameters<typeof updateScope>[2]) => {
@@ -195,6 +206,7 @@ export function WorkbenchLayout() {
     onDraft: (key, fractions) =>
       storedScope && setDraftSizes(setSplitRatios(storedScope, key, fractions).sizes),
     onCommit: (key, fractions) => commitScope((current) => setSplitRatios(current, key, fractions)),
+    onCancel: () => setDraftSizes(undefined),
     onReset: (key) => commitScope((current) => resetSplitRatios(current, key)),
   };
   const paneContext: PaneContext = { entry: header.entry, sessionId, childId };
@@ -203,7 +215,13 @@ export function WorkbenchLayout() {
   );
 
   const docked = sidebarPlan.sidebar === 'docked';
+  const sidebarShown = docked && !sidebarDrag?.collapsed;
   const auxDocked = plan.mode === 'docked' && plan.tree !== undefined;
+  const auxShownWidth = auxDocked && !auxCollapsing;
+  // 窗格区不再停靠（收起、改浮层、最大化）时丢掉拖动中的折叠草稿。
+  useEffect(() => {
+    if (!auxDocked) setAuxCollapsing(false);
+  }, [auxDocked]);
   const retainedAux = useRetainedAux(
     auxDocked ? plan : undefined,
     scopeKey,
@@ -215,8 +233,11 @@ export function WorkbenchLayout() {
       <div
         className="layout-transition relative flex h-full overflow-hidden"
         data-layout-sidebar={sidebarPlan.sidebar}
-        data-resizing={dragWidth !== undefined || undefined}
-        style={{ '--sidebar-shown': `${docked ? sidebarPlan.sidebarWidth : 0}px` } as CSSProperties}
+        data-resizing={sidebarDrag !== undefined || undefined}
+        data-snapping={sidebarSnapping || undefined}
+        style={
+          { '--sidebar-shown': `${sidebarShown ? sidebarPlan.sidebarWidth : 0}px` } as CSSProperties
+        }
       >
         {/* 收起时侧栏不卸载，宽度过渡到 0；里面一列始终是侧栏的宽，开合时不重新排版。 */}
         <aside
@@ -240,14 +261,33 @@ export function WorkbenchLayout() {
             valueNow={sidebarPlan.sidebarWidth}
             valueMin={LAYOUT.sidebarMin}
             valueMax={LAYOUT.sidebarMax}
+            collapsible="before"
             onResizeStart={() => {
               sidebarDragStart.current = sidebarPlan.sidebarWidth;
             }}
-            onResize={(delta) => setDragWidth(clampSidebarWidth(sidebarDragStart.current + delta))}
-            onResizeEnd={(delta) => commitSidebarWidth(sidebarDragStart.current + delta)}
+            onResize={(delta) =>
+              setSidebarDrag((current) => ({
+                width: clampSidebarWidth(sidebarDragStart.current + delta),
+                collapsed: current?.collapsed ?? false,
+              }))
+            }
+            onCollapseChange={(collapsed) => {
+              pulseSidebarSnap();
+              setSidebarDrag((current) => ({
+                width: current?.width ?? sidebarDragStart.current,
+                collapsed,
+              }));
+            }}
+            onResizeEnd={(delta, collapsed) =>
+              collapsed
+                ? collapseSidebarByDrag()
+                : commitSidebarWidth(sidebarDragStart.current + delta)
+            }
+            onResizeCancel={() => setSidebarDrag(undefined)}
             onReset={() => commitSidebarWidth(LAYOUT.sidebarDefault)}
             className="absolute inset-y-0 z-20 -ml-1"
-            style={{ left: sidebarPlan.sidebarWidth }}
+            // 跟着露出的宽走：吸附折叠时分隔条随侧栏的边一起滑走。
+            style={{ left: 'var(--sidebar-shown)' }}
           />
         )}
         <Sheet open={sidebarPlan.sidebar === 'overlay'} onOpenChange={setSidebarOverlayOpen}>
@@ -339,10 +379,11 @@ export function WorkbenchLayout() {
             {plan.mode !== 'maximized' && (
               <div
                 className="layout-transition flex shrink-0 overflow-hidden"
-                data-resizing={draftSizes !== undefined || undefined}
+                data-resizing={draftSizes !== undefined || auxCollapsing || undefined}
+                data-snapping={auxSnapping || undefined}
                 inert={!auxDocked}
                 style={{
-                  width: auxDocked ? SPLITTER_WIDTH + plan.auxWidth + PANE_LAYOUT.gap : 0,
+                  width: auxShownWidth ? SPLITTER_WIDTH + plan.auxWidth + PANE_LAYOUT.gap : 0,
                 }}
                 onTransitionEnd={(event) => {
                   if (event.target === event.currentTarget && !auxDocked) retainedAux.clear();
@@ -356,6 +397,7 @@ export function WorkbenchLayout() {
                       valueNow={retainedAux.plan.auxWidth}
                       valueMin={retainedAux.plan.auxMinWidth}
                       valueMax={retainedAux.plan.auxMaxWidth}
+                      collapsible="after"
                       onResizeStart={() => {
                         auxDragStart.current = plan.auxWidth;
                       }}
@@ -363,9 +405,25 @@ export function WorkbenchLayout() {
                         storedScope &&
                         setDraftSizes(setAuxRatio(storedScope, plan.columns, auxRatio(delta)).sizes)
                       }
-                      onResizeEnd={(delta) => {
+                      onCollapseChange={(collapsed) => {
+                        pulseAuxSnap();
+                        setAuxCollapsing(collapsed);
+                      }}
+                      onResizeEnd={(delta, collapsed) => {
+                        setAuxCollapsing(false);
+                        if (collapsed) {
+                          // 拖过最小宽度松开：隐藏窗格区，宽度比例不变，再打开还是原来的宽。
+                          setDraftSizes(undefined);
+                          panes?.toggleAux();
+                          retainedAux.clear();
+                          return;
+                        }
                         const ratio = auxRatio(delta);
                         commitScope((current) => setAuxRatio(current, plan.columns, ratio));
+                      }}
+                      onResizeCancel={() => {
+                        setAuxCollapsing(false);
+                        setDraftSizes(undefined);
                       }}
                       onReset={() => commitScope((current) => resetAuxRatio(current, plan.columns))}
                     />
@@ -502,6 +560,31 @@ function useRetainedAux(
 }
 
 type DockedAux = AuxPlan & { tree: LayoutNode };
+
+/**
+ * 拖动分隔条时吸附折叠或展开的那一下（交互手感一轮）：在 snap 弹簧的时长里返回 true，布局容器据此带上 data-snapping，
+ * 这段时间宽度按 snap 弹簧过渡（index.css），之后回到拖动时的不过渡。
+ */
+function useSnapPulse(): [boolean, () => void] {
+  const [snapping, setSnapping] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const pulse = () => {
+    // 构建后的 CSS 把 300ms 压成 .3s，两种单位都要认。
+    const value = getComputedStyle(document.documentElement)
+      .getPropertyValue('--spring-snap-duration')
+      .trim();
+    const amount = Number.parseFloat(value);
+    const duration = value.endsWith('ms') ? amount : amount * 1000;
+    setSnapping(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(
+      () => setSnapping(false),
+      Number.isFinite(duration) ? duration : 300,
+    );
+  };
+  return [snapping, pulse];
+}
 
 /** 拖窗口改尺寸时给 <html> 加 data-window-resizing，布局的宽度过渡暂时关掉（index.css）。 */
 function useWindowResizing() {

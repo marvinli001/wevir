@@ -138,7 +138,7 @@ function ProjectsSection() {
           </IconButton>
         </div>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
+      <ScrollArea fade className="min-h-0 flex-1">
         <nav id="sidebar-projects" aria-label={title} className="px-2 pb-2">
           <Collapse open={!projectsCollapsed}>
             {sidebarView === 'status' ? <StatusTree /> : <ProjectTree />}

@@ -1,6 +1,7 @@
 import { cn } from 'cn';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ScrollFade } from '@/components/scroll-fade';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { currentLocale, t } from '@/i18n';
 import {
@@ -98,7 +99,7 @@ export function LanguagePicker() {
             data-testid="language-search"
           />
         </div>
-        <ul className="max-h-80 overflow-y-auto p-1.5">
+        <ScrollFade as="ul" className="max-h-80 overflow-y-auto p-1.5 [--scroll-fade-size:16px]">
           {visible.length === 0 && (
             <li className="px-2 py-6 text-center text-xs text-muted-foreground">
               {t('settings.language.empty')}
@@ -134,7 +135,7 @@ export function LanguagePicker() {
               </li>
             );
           })}
-        </ul>
+        </ScrollFade>
       </PopoverContent>
     </Popover>
   );

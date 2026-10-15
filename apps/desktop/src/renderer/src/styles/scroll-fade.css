@@ -1,0 +1,60 @@
+/* 滚动边缘渐隐（交互手感一轮，components/scroll-fade.tsx，desktop-tokens.md §44）：还能往哪头滚，那一头的内容在
+ * --scroll-fade-size 内淡出；到头的一边长度归零。长度注册成 <length> 才能过渡。
+ *
+ * 渐变不是两点的直线：透明度按 1 − s^1.5 走（s 是从内容一侧量到边缘的比例），7 个停靠点，接内容的一头斜率为 0，看不出
+ * 起点那条线。第二层遮罩盖住经典滚动条那一条（宽度由 hook 写进 --scroll-fade-bar），滚动条本身不淡出。 */
+
+@property --scroll-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@property --scroll-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+@layer components {
+  .scroll-fade {
+    --scroll-fade-size: 24px;
+    mask-image:
+      linear-gradient(
+        to bottom,
+        transparent 0,
+        rgb(0 0 0 / 0.239) calc(var(--scroll-fade-top) / 6),
+        rgb(0 0 0 / 0.456) calc(var(--scroll-fade-top) * 2 / 6),
+        rgb(0 0 0 / 0.646) calc(var(--scroll-fade-top) * 3 / 6),
+        rgb(0 0 0 / 0.808) calc(var(--scroll-fade-top) * 4 / 6),
+        rgb(0 0 0 / 0.932) calc(var(--scroll-fade-top) * 5 / 6),
+        #000 var(--scroll-fade-top),
+        #000 calc(100% - var(--scroll-fade-bottom)),
+        rgb(0 0 0 / 0.932) calc(100% - var(--scroll-fade-bottom) * 5 / 6),
+        rgb(0 0 0 / 0.808) calc(100% - var(--scroll-fade-bottom) * 4 / 6),
+        rgb(0 0 0 / 0.646) calc(100% - var(--scroll-fade-bottom) * 3 / 6),
+        rgb(0 0 0 / 0.456) calc(100% - var(--scroll-fade-bottom) * 2 / 6),
+        rgb(0 0 0 / 0.239) calc(100% - var(--scroll-fade-bottom) / 6),
+        transparent 100%
+      ),
+      linear-gradient(#000, #000);
+    mask-size:
+      calc(100% - var(--scroll-fade-bar, 0px)) 100%,
+      var(--scroll-fade-bar, 0px) 100%;
+    mask-position:
+      0 0,
+      100% 0;
+    mask-repeat: no-repeat;
+    transition:
+      --scroll-fade-top 180ms var(--ease-smooth),
+      --scroll-fade-bottom 180ms var(--ease-smooth);
+  }
+
+  .scroll-fade[data-fade-top] {
+    --scroll-fade-top: var(--scroll-fade-size);
+  }
+
+  .scroll-fade[data-fade-bottom] {
+    --scroll-fade-bottom: var(--scroll-fade-size);
+  }
+}

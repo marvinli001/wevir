@@ -505,7 +505,7 @@ function CommandLine({ command }: { command: string }) {
         onClick={() => void window.wevir.copyText(command).then(() => setCopied(true))}
         data-action="copy-command"
       >
-        {copied ? <Check /> : <Copy />}
+        {copied ? <Check className="confirm-pop" /> : <Copy />}
         {t(copied ? 'source.copied' : 'source.copy')}
       </Button>
     </div>

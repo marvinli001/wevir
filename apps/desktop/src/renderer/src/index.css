@@ -7,6 +7,7 @@
 @import "./styles/shadcn-variants.css";
 @import "./styles/markdown.css";
 @import "./styles/session.css";
+@import "./styles/scroll-fade.css";
 
 @layer base {
   * {
@@ -63,6 +64,14 @@
   transition: none;
 }
 
+/* 拖动分隔条拖过最小宽度时吸附折叠、往回拖时展开（交互手感一轮，workbench-layout.tsx 的 useSnapPulse）：那一下按 snap
+ * 弹簧过渡，拖动中也是；写在 data-resizing 之后，同样的优先级由它生效。 */
+.layout-transition[data-snapping] {
+  transition-property: --sidebar-shown, width;
+  transition-duration: var(--spring-snap-duration);
+  transition-timing-function: var(--spring-snap);
+}
+
 /* 顶栏充当标题栏：按住可以拖动窗口，双击按系统设置缩放。拖动区域收不到鼠标事件，所以其中的控件要排除；
  * 弹出的对话框与侧边浮层盖在顶栏上时也要排除，否则点不到它们的顶部。 */
 @utility app-drag {
@@ -100,6 +109,12 @@
   ::after {
     animation-duration: 0.01ms;
     animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+  }
+
+  /* 布局过渡写在层外、优先级比上面的 * 高，要单独停下。 */
+  .layout-transition,
+  .layout-transition[data-snapping] {
     transition-duration: 0.01ms;
   }
 }

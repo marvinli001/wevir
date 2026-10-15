@@ -3,14 +3,15 @@
 // Wevir 的改动：transition-all 改为只过渡颜色、边框与阴影（不用 transition: all）；U1 起各尺寸的圆角都是
 // rounded-lg（按钮 8px），去掉 xs / sm 尺寸写死的 min(var(--radius-md), 10px | 12px)；U4 起 outline 照方向稿 A 的 .btn：
 // 浅色、深色都是表面色底、强分隔线的边框（不再按主题另算 dark:bg-input/30）；U10 起按下时缩到 97%（代替下移 1px），
-// 变换与颜色一起过渡。
+// 变换与颜色一起过渡；交互手感一轮起按压改用 theme.css 的 pressable：按下 70 ms，松开走 press 弹簧（原来两向都是
+// 150 ms ease-smooth，且只过渡 transform、没有过渡 Tailwind v4 缩放用的 scale 属性）。
 
 import { Button as ButtonPrimitive } from '@base-ui/react/button';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from 'cn';
 
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-[color,background-color,border-color,box-shadow,transform] duration-150 ease-smooth outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center rounded-lg border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap pressable outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {

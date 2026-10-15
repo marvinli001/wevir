@@ -7,6 +7,7 @@ import {
   COMPACT_ITEM,
   COMPACT_RADIO_ITEM,
 } from '@/components/compact-menu';
+import { ScrollFade } from '@/components/scroll-fade';
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -21,7 +22,7 @@ import { openCreateProject } from './create-project';
 
 /**
  * 选项目的下拉菜单内容（紧凑菜单，`components/compact-menu.ts`）：每个项目一行，文件夹图标、名称与截掉开头的上一级目录
- * （`~` 开头），当前的打勾；最下面是“创建项目…”。首页标题里的项目名与输入框上方的环境栏（U12）共用。
+ * （`~` 开头），当前的打勾；最下面是“创建项目…”。项目多时列表最高 320 px，带滚动边缘渐隐。首页标题里的项目名与输入框上方的环境栏（U12）共用。
  */
 export function ProjectMenuContent({
   currentId,
@@ -35,23 +36,28 @@ export function ProjectMenuContent({
 } & Pick<ComponentProps<typeof DropdownMenuContent>, 'align' | 'side' | 'sideOffset'>) {
   return (
     <DropdownMenuContent className="w-auto max-w-80 min-w-56" {...props}>
-      <DropdownMenuRadioGroup value={currentId ?? ''} onValueChange={(id: string) => onSelect(id)}>
-        {workspaces.map(({ workspace }) => (
-          <DropdownMenuRadioItem
-            key={workspace.id}
-            value={workspace.id}
-            title={workspace.rootPath}
-            closeOnClick
-            className={COMPACT_RADIO_ITEM}
-          >
-            <Folder aria-hidden className={COMPACT_ICON} />
-            <span className="max-w-48 shrink-0 truncate">{workspace.displayName}</span>
-            <span dir="rtl" className={cn(COMPACT_DETAIL, 'text-left')}>
-              <bdi dir="ltr">{abbreviateHome(parentDirectory(workspace.rootPath))}</bdi>
-            </span>
-          </DropdownMenuRadioItem>
-        ))}
-      </DropdownMenuRadioGroup>
+      <ScrollFade className="max-h-80 overflow-y-auto [--scroll-fade-size:16px]">
+        <DropdownMenuRadioGroup
+          value={currentId ?? ''}
+          onValueChange={(id: string) => onSelect(id)}
+        >
+          {workspaces.map(({ workspace }) => (
+            <DropdownMenuRadioItem
+              key={workspace.id}
+              value={workspace.id}
+              title={workspace.rootPath}
+              closeOnClick
+              className={COMPACT_RADIO_ITEM}
+            >
+              <Folder aria-hidden className={COMPACT_ICON} />
+              <span className="max-w-48 shrink-0 truncate">{workspace.displayName}</span>
+              <span dir="rtl" className={cn(COMPACT_DETAIL, 'text-left')}>
+                <bdi dir="ltr">{abbreviateHome(parentDirectory(workspace.rootPath))}</bdi>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </ScrollFade>
       {workspaces.length > 0 && <DropdownMenuSeparator />}
       <DropdownMenuItem onClick={() => openCreateProject()} className={COMPACT_ITEM}>
         <FolderPlus aria-hidden className={COMPACT_ICON} />

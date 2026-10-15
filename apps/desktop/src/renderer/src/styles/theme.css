@@ -35,6 +35,129 @@
   --ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* 弹簧缓动（desktop-tokens.md §44）：由 scripts/spring-easing.ts 按刚度 / 阻尼 / 质量解出位移、采样成 linear() 生成，
+ * 每条配一个时长（位移离终点不超过 0.5% 的时刻）；改参数后重新生成这一块，spring-easing.test.ts 核对。按 ease-spring-*
+ * 工具类或 var(--spring-*) 用，时长写 duration-(--spring-*-duration)。
+ * - press：按钮松开回弹；reveal：菜单、弹层、提示与对话框入场（退场不用弹簧，110 ms ease-smooth）；
+ * - bounce：确认反馈（复制成功的勾）；snap：过阻尼，拖动分隔条吸附折叠与展开。 */
+:root {
+  /* press：stiffness 600 / damping 30 / mass 1 */
+  --spring-press: linear(
+    0,
+    0.007 1.4%,
+    0.027 2.7%,
+    0.058 4.1%,
+    0.097 5.4%,
+    0.144 6.8%,
+    0.252 9.5%,
+    0.549 16.2%,
+    0.66 18.9%,
+    0.76 21.6%,
+    0.847 24.3%,
+    0.918 27%,
+    0.976 29.7%,
+    1.02 32.4%,
+    1.051 35.1%,
+    1.072 37.8%,
+    1.086 41.9%,
+    1.086 45.9%,
+    1.068 52.7%,
+    1.019 66.2%,
+    0.999 75.7%,
+    0.992 86.5%,
+    0.995 98.6%,
+    1
+  );
+  --spring-press-duration: 370ms;
+  /* reveal：stiffness 320 / damping 28 / mass 1 */
+  --spring-reveal: linear(
+    0,
+    0.004 1.2%,
+    0.015 2.4%,
+    0.031 3.7%,
+    0.053 4.9%,
+    0.108 7.3%,
+    0.175 9.8%,
+    0.363 15.9%,
+    0.512 20.7%,
+    0.613 24.4%,
+    0.702 28%,
+    0.778 31.7%,
+    0.841 35.4%,
+    0.891 39%,
+    0.931 42.7%,
+    0.969 47.6%,
+    0.994 52.4%,
+    1.011 58.5%,
+    1.019 67.1%,
+    1.01 87.8%,
+    1.005 98.8%,
+    1
+  );
+  --spring-reveal-duration: 410ms;
+  /* bounce：stiffness 380 / damping 18 / mass 1 */
+  --spring-bounce: linear(
+    0,
+    0.005 0.8%,
+    0.018 1.7%,
+    0.039 2.5%,
+    0.067 3.3%,
+    0.101 4.2%,
+    0.14 5%,
+    0.231 6.7%,
+    0.388 9.2%,
+    0.66 13.3%,
+    0.762 15%,
+    0.855 16.7%,
+    0.938 18.3%,
+    1.009 20%,
+    1.069 21.7%,
+    1.116 23.3%,
+    1.151 25%,
+    1.175 26.7%,
+    1.19 28.3%,
+    1.195 30%,
+    1.189 32.5%,
+    1.17 35%,
+    1.123 39.2%,
+    1.04 45.8%,
+    1 50%,
+    0.975 54.2%,
+    0.963 58.3%,
+    0.964 63.3%,
+    1.002 81.7%,
+    1.007 91.7%,
+    1.005 99.2%,
+    1
+  );
+  --spring-bounce-duration: 600ms;
+  /* snap：stiffness 800 / damping 60 / mass 1 */
+  --spring-snap: linear(
+    0,
+    0.009 1.7%,
+    0.033 3.3%,
+    0.067 5%,
+    0.109 6.7%,
+    0.204 10%,
+    0.4 16.7%,
+    0.488 20%,
+    0.568 23.3%,
+    0.637 26.7%,
+    0.697 30%,
+    0.748 33.3%,
+    0.81 38.3%,
+    0.857 43.3%,
+    0.893 48.3%,
+    0.928 55%,
+    0.956 63.3%,
+    0.978 75%,
+    0.993 93.3%,
+    0.995 98.3%,
+    1
+  );
+  --spring-snap-duration: 300ms;
+}
+
 @theme inline {
   /* font-sans / font-mono 与 Tailwind 预检的默认字体都取 tokens.css 的字体栈。标题宋体的 font-display 见下面的
    * @utility：tokens.css 的变量与 Tailwind 的主题变量同名会互相引用。 */
@@ -89,6 +212,41 @@
   --shadow-sm: var(--elevation);
   --shadow-md: var(--elevation);
   --shadow-lg: var(--elevation);
+
+  --ease-spring-press: var(--spring-press);
+  --ease-spring-reveal: var(--spring-reveal);
+  --ease-spring-bounce: var(--spring-bounce);
+  --ease-spring-snap: var(--spring-snap);
+}
+
+/* 按压（按钮，交互手感一轮）：按下 70 ms ease-out 缩到 --press-scale（默认 97%），松开走 press 弹簧回来；颜色、边框与
+ * 阴影 150 ms ease-smooth。按下与松开各用自己那一侧的过渡：:active 里的写按下，平时的写松开。带 aria-haspopup 的
+ * （菜单的触发按钮）不缩放。 */
+@utility pressable {
+  transition-property: color, background-color, border-color, box-shadow, scale;
+  transition-duration: 150ms, 150ms, 150ms, 150ms, var(--spring-press-duration);
+  transition-timing-function:
+    var(--ease-smooth), var(--ease-smooth), var(--ease-smooth), var(--ease-smooth),
+    var(--spring-press);
+
+  &:active:not([aria-haspopup]) {
+    scale: var(--press-scale, 0.97);
+    transition-duration: 150ms, 150ms, 150ms, 150ms, 70ms;
+    transition-timing-function:
+      var(--ease-smooth), var(--ease-smooth), var(--ease-smooth), var(--ease-smooth),
+      cubic-bezier(0, 0, 0.2, 1);
+  }
+}
+
+/* 确认反馈（复制成功的勾等）：从一半大小弹出，bounce 弹簧。在 utilities 层里，减少动效时由 index.css 的全局规则停下。 */
+@utility confirm-pop {
+  animation: confirm-pop var(--spring-bounce-duration) var(--spring-bounce);
+}
+
+@keyframes confirm-pop {
+  from {
+    scale: 0.5;
+  }
 }
 
 /* 标题宋体（U4 的首页标题等固定文案）：子集里只有那些文案的字，见 styles/fonts.css。 */
