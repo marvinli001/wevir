@@ -182,6 +182,48 @@ describe('OpenCodeTurnMapper 回放真实录音', () => {
     expect(mapper.finish()).toEqual([]);
   });
 
+  it('插话：opencode 在这一步结束后接着跑一步，那一步的 assistant 消息回答插话（parentID 是它）', () => {
+    const recording = loadRecording('steer');
+    const assistants = recording.lines
+      .map((line) => line.event)
+      .filter(
+        (event): event is Extract<Event, { type: 'message.updated' }> =>
+          event?.type === 'message.updated' && event.properties.info.role === 'assistant',
+      )
+      .map(
+        (event) =>
+          event.properties.info as Extract<typeof event.properties.info, { role: 'assistant' }>,
+      );
+    expect([...new Set(assistants.map((info) => info.parentID))]).toEqual([
+      recording.messageID,
+      recording.steerMessageID,
+    ]);
+    // 插话的用户消息在第一步结束之前就存下了。
+    const steerAt = recording.lines.findIndex(
+      (line) =>
+        line.event?.type === 'message.updated' &&
+        line.event.properties.info.id === recording.steerMessageID,
+    );
+    const firstDone = recording.lines.findIndex(
+      (line) =>
+        line.event?.type === 'message.updated' &&
+        line.event.properties.info.role === 'assistant' &&
+        line.event.properties.info.time.completed !== undefined,
+    );
+    expect(steerAt).toBeGreaterThan(0);
+    expect(steerAt).toBeLessThan(firstDone);
+    const { events } = replay(recording);
+    const messages = events.filter(
+      (event): event is Extract<AgentEvent, { type: 'assistant.message' }> =>
+        event.type === 'assistant.message',
+    );
+    expect(messages.map((event) => event.replaces?.[0]?.attemptId)).toEqual([
+      assistants[0]?.id,
+      assistants.at(-1)?.id,
+    ]);
+    expect(messages.at(-1)).toMatchObject({ text: 'The weather is sunny.' });
+  });
+
   it('子会话：子会话自己的事件流（用户消息之外）照样映射', () => {
     const recording = loadRecording('subagent-approval');
     const child = recording.lines

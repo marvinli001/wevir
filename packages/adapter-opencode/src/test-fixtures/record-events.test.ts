@@ -39,6 +39,8 @@ interface Scenario {
   permission?: { reply: 'once' | 'always' | 'reject'; message?: string };
   question?: string[][];
   abortAfterDeltas?: number;
+  /** 第 n 个增量时插话（新的消息 ID 再发一次 promptAsync）。 */
+  steerAfterDeltas?: number;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -69,6 +71,7 @@ const SCENARIOS: Scenario[] = [
     permission: { reply: 'once' },
   },
   { name: 'slow-cancel', prompt: DEFAULT_CONTRACT_PROMPTS.slow, abortAfterDeltas: 3 },
+  { name: 'steer', prompt: DEFAULT_CONTRACT_PROMPTS.slow, steerAfterDeltas: 3 },
   { name: 'fail', prompt: EXTRA_PROMPTS.fail },
 ];
 
@@ -126,6 +129,7 @@ describe.skipIf(!ENABLED)('录 opencode 事件', { timeout: 120_000 }, () => {
       const session = await client.createSession({ permission: permissionRules('on_request') });
       const tree = new Set([session.id]);
       const messageID = newMessageId();
+      let steerMessageID: string | undefined;
       const lines: unknown[] = [];
       let deltas = 0;
       let sawBusy = false;
@@ -165,6 +169,21 @@ describe.skipIf(!ENABLED)('录 opencode 事件', { timeout: 120_000 }, () => {
             lines.push({ action });
             await client.abort(session.id);
           }
+          if (
+            event.type === 'message.part.delta' &&
+            scenario.steerAfterDeltas !== undefined &&
+            ++deltas === scenario.steerAfterDeltas
+          ) {
+            const action: RecordedAction = { type: 'steer', text: DEFAULT_CONTRACT_PROMPTS.steer };
+            lines.push({ action });
+            steerMessageID = newMessageId();
+            await client.promptAsync({
+              sessionID: session.id,
+              messageID: steerMessageID,
+              model: { providerID: MOCK_PROVIDER_ID, modelID: MOCK_MODEL_ID },
+              parts: [{ type: 'text', text: action.text }],
+            });
+          }
         }
       })();
       await client.promptAsync({
@@ -184,6 +203,7 @@ describe.skipIf(!ENABLED)('录 opencode 事件', { timeout: 120_000 }, () => {
           sdk: OPENCODE_SDK_VERSION,
           sessionID: session.id,
           messageID,
+          ...(steerMessageID !== undefined && { steerMessageID }),
           recordedAt: new Date().toISOString().slice(0, 10),
         },
       };

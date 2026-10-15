@@ -10,8 +10,10 @@
 // 1.x 服务器的会话、消息、权限与提问接口。2.x 是另一套协议（`@opencode/client`），还不支持（opencode-event-mapping.md §1）。
 
 import type {
+  AssistantMessage,
   Event,
   Message,
+  OutputFormat,
   Part,
   PermissionRule,
   PermissionRuleset,
@@ -35,18 +37,41 @@ export interface PromptInput {
   parts: Array<{ type: 'text'; text: string }>;
 }
 
+/**
+ * 一次同步的 `prompt`（opencode 跑完这一轮才返回）：生成标题（`format: json_schema`，T3 的 textGeneration.ts）与只写进历史、
+ * 不开回合的说明（`noReply: true`，此时 opencode 存下用户消息就返回）。
+ */
+export interface SyncPromptInput {
+  sessionID: string;
+  messageID?: string;
+  /** 省略时 opencode 用会话上一条消息的模型。 */
+  model?: { providerID: string; modelID: string };
+  variant?: string;
+  /** 接在 opencode 自己的系统提示之后。 */
+  system?: string;
+  format?: OutputFormat;
+  noReply?: boolean;
+  parts: Array<{ type: 'text'; text: string }>;
+}
+
 /** 适配器用到的 opencode 服务器接口（一个客户端对应一个工作目录，`x-opencode-directory`）。 */
 export interface OpenCodeClient {
   health(signal?: AbortSignal): Promise<{ healthy: true; version: string }>;
   providers(signal?: AbortSignal): Promise<ProviderListResponse>;
-  createSession(input: { permission: PermissionRuleset }): Promise<Session>;
+  createSession(input: { permission: PermissionRuleset; title?: string }): Promise<Session>;
   getSession(sessionID: string): Promise<Session>;
+  deleteSession(sessionID: string): Promise<void>;
+  /** 分出一个新会话，带着 `messageID` 之前（不含）的消息；省略时带全部。 */
+  forkSession(sessionID: string, messageID?: string): Promise<Session>;
   updateSession(sessionID: string, input: { permission: PermissionRuleset }): Promise<Session>;
   children(sessionID: string): Promise<Session[]>;
   messages(sessionID: string): Promise<Array<{ info: Message; parts: Part[] }>>;
   status(): Promise<Record<string, SessionStatus>>;
   /** 发出输入，opencode 接受即返回（204），回合经事件流推进。 */
   promptAsync(input: PromptInput, signal?: AbortSignal): Promise<void>;
+  /** `noReply` 时返回存下的用户消息，否则返回这一轮最后的 assistant 消息。 */
+  prompt(input: SyncPromptInput, signal?: AbortSignal): Promise<{ info: Message; parts: Part[] }>;
+  deleteMessage(sessionID: string, messageID: string): Promise<void>;
   abort(sessionID: string): Promise<void>;
   replyPermission(
     requestID: string,
@@ -72,8 +97,10 @@ export interface OpenCodeSdk {
 }
 
 export type {
+  AssistantMessage,
   Event,
   Message,
+  OutputFormat,
   Part,
   PermissionRule,
   PermissionRuleset,
@@ -117,6 +144,19 @@ export function loadOpenCodeSdk(): Promise<OpenCodeSdk> {
             required('session.create', (await client.session.create(body)).data),
           getSession: async (sessionID) =>
             required('session.get', (await client.session.get({ sessionID })).data),
+          deleteSession: async (sessionID) => {
+            await client.session.delete({ sessionID });
+          },
+          forkSession: async (sessionID, messageID) =>
+            required(
+              'session.fork',
+              (
+                await client.session.fork({
+                  sessionID,
+                  ...(messageID !== undefined && { messageID }),
+                })
+              ).data,
+            ),
           updateSession: async (sessionID, body) =>
             required('session.update', (await client.session.update({ sessionID, ...body })).data),
           children: async (sessionID) =>
@@ -126,6 +166,14 @@ export function loadOpenCodeSdk(): Promise<OpenCodeSdk> {
           status: async () => required('session.status', (await client.session.status()).data),
           promptAsync: async (body, signal) => {
             await client.session.promptAsync(body, { ...(signal !== undefined && { signal }) });
+          },
+          prompt: async (body, signal) =>
+            required(
+              'session.prompt',
+              (await client.session.prompt(body, { ...(signal !== undefined && { signal }) })).data,
+            ) as { info: Message; parts: Part[] },
+          deleteMessage: async (sessionID, messageID) => {
+            await client.session.deleteMessage({ sessionID, messageID });
           },
           abort: async (sessionID) => {
             await client.session.abort({ sessionID });

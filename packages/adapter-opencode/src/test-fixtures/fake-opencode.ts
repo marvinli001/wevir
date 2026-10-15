@@ -4,23 +4,31 @@
 //   加上回放序号，几个会话同时回放也不撞；
 // - 录音里的 `action` 行（录的时候回复审批、提问或 abort 的地方）停下，等适配器做同样的事；审批按回复选分支（允许 / 拒绝并继续 /
 //   拒绝并停止各有一份录音），换分支时按“同一类 ID 第几次出现”对齐前后两份录音的 ID；
-// - 不在 abort 点上的 abort：停下回放，发 opencode 取消时的那两条事件（录音 slow-cancel 里的 MessageAbortedError 与 idle）。
+// - 不在 abort 点上的 abort：停下回放，发 opencode 取消时的那两条事件（录音 slow-cancel 里的 MessageAbortedError 与 idle）；
+// - 回放进行中的 promptAsync 是插话：在 action 行上换到有 `steer` 的那份录音（steer：慢回答的第 3 个增量处插话），录下的插话
+//   消息 ID 换成适配器发来的；没有这样的录音时只记下来，不回答（同 opencode 并进正要结束的那次运行）；
+// - 同步的 prompt：`noReply` 存下说明，`format: json_schema`（标题）回 titleReply；fork 与删会话、删消息只改状态、记调用。
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  AssistantMessage,
   Event,
+  Message,
   OpenCodeClient,
   OpenCodeConnectInput,
   OpenCodeSdk,
+  Part,
   PermissionRuleset,
   PromptInput,
   ProviderListResponse,
   QuestionAnswer,
   Session,
   SessionStatus,
+  SyncPromptInput,
 } from '../sdk.js';
 import type { OpenCodeServerHandle, ServerExit, StartServerOptions } from '../server.js';
+import { MOCK_STRUCTURED_TITLE } from './mock-model.js';
 
 const EVENTS_DIR = join(import.meta.dirname, 'events');
 
@@ -28,7 +36,8 @@ const EVENTS_DIR = join(import.meta.dirname, 'events');
 export type RecordedAction =
   | { type: 'permission'; reply: 'once' | 'always' | 'reject'; message?: string }
   | { type: 'question'; answers: string[][] }
-  | { type: 'abort' };
+  | { type: 'abort' }
+  | { type: 'steer'; text: string };
 
 export const FAKE_OPENCODE_VERSION = '1.18.34';
 
@@ -42,6 +51,8 @@ export interface Recording {
   prompt: string;
   sessionID: string;
   messageID: string;
+  /** 录音里插话的消息 ID（steer）。 */
+  steerMessageID?: string;
   lines: RecordingLine[];
 }
 
@@ -60,6 +71,7 @@ export function loadRecordings(): Recording[] {
         prompt: meta.prompt as string,
         sessionID: meta.sessionID as string,
         messageID: meta.messageID as string,
+        ...(meta.steerMessageID !== undefined && { steerMessageID: meta.steerMessageID }),
         lines: rest.map((line) => JSON.parse(line) as RecordingLine),
       };
     });
@@ -127,6 +139,8 @@ interface Replay {
   index: number;
   stopped: boolean;
   waiter: Waiter | undefined;
+  /** 适配器发来的插话消息 ID。 */
+  steerMessageId: string | undefined;
 }
 
 interface FakeSessionState {
@@ -143,6 +157,14 @@ export class FakeOpenCode implements OpenCodeSdk {
   /** 回放两条事件之间的间隔（毫秒）。 */
   delayMs = 0;
   providerList: ProviderListResponse = fakeProviderList();
+  /** 标题请求（`format: json_schema` 的 prompt）的回答。 */
+  titleReply: { structured?: unknown; text?: string; error?: AssistantMessage['error'] } = {
+    structured: MOCK_STRUCTURED_TITLE,
+  };
+  /** 同步 prompt 卡住不返回（测试中止）。 */
+  holdPrompt = false;
+  /** 每个会话存下的 `noReply` 说明。 */
+  readonly notes = new Map<string, string[]>();
   #counter = 0;
   #replays = new Map<string, Replay>();
   #subscribers = new Set<{ push: (event: Event) => void; end: (error?: Error) => void }>();
@@ -165,7 +187,18 @@ export class FakeOpenCode implements OpenCodeSdk {
       },
       createSession: async (body) => {
         record('createSession', body);
-        return this.#createSession(input.directory, body.permission).info;
+        return this.#createSession(input.directory, body.permission, undefined, body.title).info;
+      },
+      deleteSession: async (sessionID) => {
+        record('deleteSession', sessionID);
+        if (!this.sessions.delete(sessionID)) throw notFound(`session ${sessionID}`);
+      },
+      forkSession: async (sessionID, messageID) => {
+        record('forkSession', sessionID, messageID);
+        const source = this.sessions.get(sessionID);
+        if (source === undefined) throw notFound(`session ${sessionID}`);
+        return this.#createSession(input.directory, [], undefined, `${source.info.title} (fork #1)`)
+          .info;
       },
       getSession: async (sessionID) => {
         record('getSession', sessionID);
@@ -199,6 +232,14 @@ export class FakeOpenCode implements OpenCodeSdk {
       promptAsync: async (body) => {
         record('promptAsync', body);
         this.#prompt(body);
+      },
+      prompt: async (body, signal) => {
+        record('prompt', body);
+        return this.#syncPrompt(body, signal);
+      },
+      deleteMessage: async (sessionID, messageID) => {
+        record('deleteMessage', sessionID, messageID);
+        if (!this.sessions.has(sessionID)) throw notFound(`session ${sessionID}`);
       },
       abort: async (sessionID) => {
         record('abort', sessionID);
@@ -265,6 +306,7 @@ export class FakeOpenCode implements OpenCodeSdk {
     directory: string,
     permission: PermissionRuleset,
     parentID?: string,
+    title = 'New session',
   ): FakeSessionState {
     const id = `ses_fake${String(++this.#counter).padStart(4, '0')}`;
     const now = Date.now();
@@ -274,7 +316,7 @@ export class FakeOpenCode implements OpenCodeSdk {
         slug: id,
         projectID: 'global',
         directory,
-        title: 'New session',
+        title,
         version: FAKE_OPENCODE_VERSION,
         time: { created: now, updated: now },
         permission,
@@ -334,7 +376,79 @@ export class FakeOpenCode implements OpenCodeSdk {
     };
   }
 
+  async #syncPrompt(
+    body: SyncPromptInput,
+    signal: AbortSignal | undefined,
+  ): Promise<{ info: Message; parts: Part[] }> {
+    const state = this.sessions.get(body.sessionID);
+    if (state === undefined) throw notFound(`session ${body.sessionID}`);
+    const text = body.parts.map((part) => part.text).join('\n');
+    const now = Date.now();
+    const messageID = body.messageID ?? `msg_fake${String(++this.#counter).padStart(4, '0')}`;
+    if (body.noReply === true) {
+      this.notes.set(body.sessionID, [...(this.notes.get(body.sessionID) ?? []), text]);
+      return {
+        info: {
+          id: messageID,
+          sessionID: body.sessionID,
+          role: 'user',
+          time: { created: now },
+          agent: 'build',
+          model: body.model ?? { providerID: 'mock', modelID: 'echo' },
+        } as Message,
+        parts: [
+          { id: `prt_${messageID}`, sessionID: body.sessionID, messageID, type: 'text', text },
+        ],
+      };
+    }
+    if (this.holdPrompt) {
+      await new Promise<void>((_, reject) => {
+        signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+      });
+    }
+    const reply = this.titleReply;
+    const info = {
+      id: `msg_fakeA${String(++this.#counter).padStart(4, '0')}`,
+      sessionID: body.sessionID,
+      role: 'assistant',
+      time: { created: now, completed: now },
+      parentID: messageID,
+      modelID: body.model?.modelID ?? 'echo',
+      providerID: body.model?.providerID ?? 'mock',
+      mode: 'build',
+      agent: 'build',
+      path: { cwd: state.info.directory, root: '/' },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      finish: reply.structured !== undefined ? 'tool-calls' : 'stop',
+      ...(reply.structured !== undefined && { structured: reply.structured }),
+      ...(reply.error !== undefined && { error: reply.error }),
+    } as AssistantMessage;
+    const parts: Part[] =
+      reply.text === undefined
+        ? []
+        : [
+            {
+              id: `prt_${info.id}`,
+              sessionID: body.sessionID,
+              messageID: info.id,
+              type: 'text',
+              text: reply.text,
+            } as Part,
+          ];
+    return { info, parts };
+  }
+
   #prompt(body: PromptInput): void {
+    const running = this.#replays.get(body.sessionID);
+    if (
+      running !== undefined &&
+      !running.stopped &&
+      running.index < running.recording.lines.length
+    ) {
+      this.#steer(running, body);
+      return;
+    }
     const text = body.parts.map((part) => part.text).join('\n');
     let candidates = this.recordings.filter((recording) => recording.prompt === text);
     if (candidates.length === 0) {
@@ -357,6 +471,7 @@ export class FakeOpenCode implements OpenCodeSdk {
       index: 0,
       stopped: false,
       waiter: undefined,
+      steerMessageId: undefined,
     };
     const fresh = (id: string) => `${id}r${replayId}`;
     this.#replays.set(body.sessionID, replay);
@@ -375,7 +490,12 @@ export class FakeOpenCode implements OpenCodeSdk {
       if (line.action !== undefined) {
         const recorded = line.action;
         const lastRequest = this.#lastRequestId(replay, recorded.type);
-        const earlyKey = recorded.type === 'abort' ? replay.sessionID : lastRequest;
+        const steerKey = `steer:${replay.sessionID}`;
+        const earlyKey = this.#early.has(steerKey)
+          ? steerKey
+          : recorded.type === 'abort'
+            ? replay.sessionID
+            : lastRequest;
         const early = earlyKey === undefined ? undefined : this.#early.get(earlyKey);
         if (earlyKey !== undefined) this.#early.delete(earlyKey);
         const answer =
@@ -423,7 +543,10 @@ export class FakeOpenCode implements OpenCodeSdk {
         (action.type === 'permission' &&
           (action.reply === 'reject') === (answer.reply === 'reject') &&
           (action.message !== undefined) === (answer.message !== undefined)));
-    if (matches(replay.recording.lines[replay.index - 1]?.action)) return;
+    if (matches(replay.recording.lines[replay.index - 1]?.action)) {
+      this.#mapSteer(replay, replay.recording);
+      return;
+    }
     const target = replay.candidates.find((recording) =>
       recording.lines.some((line) => matches(line.action)),
     );
@@ -446,6 +569,29 @@ export class FakeOpenCode implements OpenCodeSdk {
     replay.recording = target;
     replay.ids = ids;
     replay.index = actionIndex + 1;
+    this.#mapSteer(replay, target);
+  }
+
+  /** 录音里的插话消息 ID → 适配器发来的。 */
+  #mapSteer(replay: Replay, recording: Recording): void {
+    if (recording.steerMessageID !== undefined && replay.steerMessageId !== undefined) {
+      replay.ids.set(recording.steerMessageID, replay.steerMessageId);
+    }
+  }
+
+  /** 回放进行中的 promptAsync：插话。有插话录音时在 action 行上换过去，没有时只记下来（不回答）。 */
+  #steer(replay: Replay, body: PromptInput): void {
+    const action: RecordedAction = {
+      type: 'steer',
+      text: body.parts.map((part) => part.text).join('\n'),
+    };
+    const steerable = replay.candidates.some((recording) =>
+      recording.lines.some((line) => line.action?.type === 'steer'),
+    );
+    if (!steerable || replay.steerMessageId !== undefined) return;
+    replay.steerMessageId = body.messageID;
+    if (replay.waiter !== undefined) replay.waiter.resolve(action);
+    else this.#early.set(`steer:${replay.sessionID}`, action);
   }
 
   #answer(action: RecordedAction, requestId: string): void {

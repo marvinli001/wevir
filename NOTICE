@@ -331,7 +331,7 @@ SDK 交出的消息的录制，见 docs/upstream/UPSTREAM.md §4.1。
   packages/adapter-cursor/src/cursor-adapter.ts
 
 订阅来源 OpenCode 的引擎移植自 packages/provider-opencode/src/server/（1.x 的 OpenCodeRuntime.ts、OpenCodeServerOwner.ts、
-OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.ts），改写成不依赖 Effect 的 TypeScript：
+OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.ts、textGeneration.ts），改写成不依赖 Effect 的 TypeScript：
 
   packages/adapter-opencode/src/sdk.ts
   packages/adapter-opencode/src/executable.ts
@@ -344,6 +344,7 @@ OpenCodeServerLedger.ts、status.ts、versionProbe.ts、toolItems.ts、adapter.t
   packages/adapter-opencode/src/tool-display.ts
   packages/adapter-opencode/src/mapping.ts
   packages/adapter-opencode/src/opencode-adapter.ts
+  packages/adapter-opencode/src/title.ts
 
 packages/adapter-opencode/src/test-fixtures/events/ 是 opencode 1.18.34（MIT，Copyright (c) 2025 opencode，
 https://github.com/anomalyco/opencode）的服务器对着本机假模型交出的事件流的录制，见 docs/upstream/UPSTREAM.md §4.1。

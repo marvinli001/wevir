@@ -1,5 +1,6 @@
 // AgentRuntimeAdapter 契约（runtime-adapter 的 ./contract）跑在假的 opencode 上（test-fixtures/fake-opencode.ts：按提示词回放真实
-// opencode 录下的事件）。真实 opencode 上的同一套契约见 opencode-adapter.contract.real.integration.test.ts。没有插话，那两条跳过。
+// opencode 录下的事件）。真实 opencode 上的同一套契约见 opencode-adapter.contract.real.integration.test.ts。插话回放录音 steer
+// （慢回答的第 3 个增量处插话，fake-opencode.ts 在 action 行上换过去）。
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,7 +30,7 @@ runAdapterContract(
     resume: true,
     concurrentSessions: true,
     subagents: true,
-    steer: false,
+    steer: true,
   },
   {
     name: 'OpenCodeAdapter 契约（假 opencode）',

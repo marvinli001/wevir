@@ -1,18 +1,27 @@
 // OpenCodeAdapter 在假的 opencode 上（test-fixtures/fake-opencode.ts 回放真实录音）：提问、审批的三种回复、子会话、失败、规则集、
-// 服务器退出与重起、回合开始前的旧 idle。
+// 服务器退出与重起、回合开始前的旧 idle；插话的交接与没用上的插话、标题、支线与补充说明。
 
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { isTurnTerminal } from '@wevir/runtime-adapter';
 import { DEFAULT_CONTRACT_PROMPTS } from '@wevir/runtime-adapter/contract';
 import { afterEach, describe, expect, it } from 'vitest';
-import { childPermissionRules, DECLINE_FEEDBACK, permissionRules } from './permissions.js';
-import type { Event, PermissionRuleset } from './sdk.js';
+import { STEER_IDLE_GRACE_MS } from './opencode-adapter.js';
+import {
+  childPermissionRules,
+  DECLINE_FEEDBACK,
+  permissionRules,
+  TITLE_PERMISSION_RULES,
+} from './permissions.js';
+import type { Event, OpenCodeClient, PermissionRuleset, PromptInput } from './sdk.js';
+import { SIDE_BOUNDARY_NOTE } from './side.js';
 import { type FakeHarness, fakeHarness } from './test-fixtures/harness.js';
 import {
   EXTRA_PROMPTS,
+  MOCK_STRUCTURED_TITLE,
   SUBAGENT_APPROVAL_PROMPT,
   SUBAGENT_PROMPT,
 } from './test-fixtures/mock-model.js';
+import { TITLE_SESSION_TITLE } from './title.js';
 
 const MODEL = 'mock/echo';
 
@@ -78,6 +87,37 @@ const text = (value: string) => ({ content: [{ type: 'text' as const, text: valu
 
 function calls(h: FakeHarness, method: string) {
   return h.fake.calls.filter((call) => call.method === method).map((call) => call.args);
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * 插话的 promptAsync 换成自己的：`gate` 放行之前不返回；`swallow` 时不交给假 opencode（像 opencode 把它并进了正要结束的那次
+ * 运行：存下了，不回答）。要在建会话之前装上。
+ */
+function interceptSteer(h: FakeHarness, options: { gate?: Promise<void>; swallow?: boolean }) {
+  const seen: PromptInput[] = [];
+  const connect = h.fake.connect.bind(h.fake);
+  h.fake.connect = (input) => {
+    const client = connect(input);
+    const intercepted: OpenCodeClient = {
+      ...client,
+      promptAsync: async (body, signal) => {
+        if (body.parts[0]?.text !== DEFAULT_CONTRACT_PROMPTS.steer) {
+          return client.promptAsync(body, signal);
+        }
+        seen.push(body);
+        await options.gate;
+        if (options.swallow === true) {
+          h.fake.calls.push({ method: 'promptAsync', args: [body] });
+          return;
+        }
+        return client.promptAsync(body, signal);
+      },
+    };
+    return intercepted;
+  };
+  return seen;
 }
 
 describe('OpenCodeAdapter（假 opencode）', () => {
@@ -429,5 +469,263 @@ describe('OpenCodeAdapter（假 opencode）', () => {
     await expect(
       h.adapter.createSession({ cwd: h.home, providerId: 'opencode', modelId: MODEL }),
     ).rejects.toMatchObject({ code: 'missing_credentials' });
+  });
+});
+
+describe('OpenCodeAdapter 的插话、标题、支线与补充说明（假 opencode）', () => {
+  it('插话交接期间到的 idle 先压着；opencode 为它另起循环时报 turn.steered，回合只结算一次', async () => {
+    const h = setup();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const steers = interceptSteer(h, { gate });
+    const { id, log } = await openSession(h);
+    h.fake.delayMs = 5;
+    await h.adapter.send(id, text('Say hello'));
+    await log.until((events) => events.some((event) => event.type === 'assistant.delta'), '增量');
+    const steering = h.adapter.steer(id, 'steer-1', text(DEFAULT_CONTRACT_PROMPTS.steer));
+    // 第一段回放走完（idle），插话还没交出去。
+    while (h.fake.sessions.get(id)?.status !== 'idle') await sleep(5);
+    await sleep(50);
+    expect(log.events.some(isTurnTerminal)).toBe(false);
+    release();
+    await steering;
+    await log.terminal();
+    const steered = log.events.findIndex((event) => event.type === 'turn.steered');
+    expect(log.events[steered]).toMatchObject({ steerId: 'steer-1' });
+    expect(log.events.slice(steered).some((event) => event.type === 'assistant.message')).toBe(
+      true,
+    );
+    expect(log.events.filter(isTurnTerminal)).toEqual([
+      expect.objectContaining({ type: 'turn.settled', outcome: 'completed' }),
+    ]);
+    // 插话用会话的模型，带自己的消息 ID。
+    expect(steers[0]).toMatchObject({
+      sessionID: id,
+      model: { providerID: 'mock', modelID: 'echo' },
+    });
+    expect(steers[0]?.messageID).not.toBe(
+      (calls(h, 'promptAsync')[0]?.[0] as PromptInput | undefined)?.messageID,
+    );
+  });
+
+  it('opencode 没回答插话（并进了正要结束的运行）：问过 session.status 后结算，下一次发送前删掉它', async () => {
+    const h = setup();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const steers = interceptSteer(h, { gate, swallow: true });
+    const { id, log } = await openSession(h);
+    h.fake.delayMs = 5;
+    await h.adapter.send(id, text('Say hello'));
+    await log.until((events) => events.some((event) => event.type === 'assistant.delta'), '增量');
+    const steering = h.adapter.steer(id, 'steer-1', text(DEFAULT_CONTRACT_PROMPTS.steer));
+    while (h.fake.sessions.get(id)?.status !== 'idle') await sleep(5);
+    release();
+    await steering;
+    await sleep(STEER_IDLE_GRACE_MS / 2);
+    expect(log.events.some(isTurnTerminal)).toBe(false);
+    await log.terminal();
+    expect(log.events.some((event) => event.type === 'turn.steered')).toBe(false);
+    expect(calls(h, 'status').length).toBeGreaterThan(0);
+
+    const from = h.fake.calls.length;
+    await h.adapter.send(id, text('Say hello'));
+    const after = h.fake.calls.slice(from).map((call) => call.method);
+    expect(after.indexOf('deleteMessage')).toBeLessThan(after.indexOf('promptAsync'));
+    expect(calls(h, 'deleteMessage')).toEqual([[id, steers[0]?.messageID]]);
+  });
+
+  it('插话之后取消：没用上的插话下一次发送前删掉；取消中的回合不收插话', async () => {
+    const h = setup();
+    const steers = interceptSteer(h, { swallow: true });
+    const { id, log } = await openSession(h);
+    await h.adapter.send(id, text(DEFAULT_CONTRACT_PROMPTS.slow));
+    await log.until((events) => events.some((event) => event.type === 'assistant.delta'), '增量');
+    await h.adapter.steer(id, 'steer-1', text(DEFAULT_CONTRACT_PROMPTS.steer));
+    const cancelling = h.adapter.cancel(id);
+    await expect(
+      h.adapter.steer(id, 'steer-2', text(DEFAULT_CONTRACT_PROMPTS.steer)),
+    ).rejects.toMatchObject({ code: 'steer_rejected' });
+    await cancelling;
+    expect(log.events.filter(isTurnTerminal)).toEqual([
+      expect.objectContaining({ type: 'turn.settled', outcome: 'cancelled' }),
+    ]);
+    expect(log.events.some((event) => event.type === 'turn.steered')).toBe(false);
+    await h.adapter.send(id, text('Say hello'));
+    expect(calls(h, 'deleteMessage')).toEqual([[id, steers[0]?.messageID]]);
+  });
+
+  it('子会话不能插话；不认识的会话报 session_not_found', async () => {
+    const h = setup();
+    await expect(h.adapter.steer('ses_unknown', 'steer-1', text('x'))).rejects.toMatchObject({
+      code: 'session_not_found',
+    });
+    const { id, log } = await openSession(h);
+    await h.adapter.send(id, text(DEFAULT_CONTRACT_PROMPTS.subagent));
+    await log.until(
+      (events) => events.some((event) => event.type === 'subagent.started'),
+      'subagent.started',
+    );
+    const started = log.events.find((event) => event.type === 'subagent.started') as Extract<
+      AgentEvent,
+      { type: 'subagent.started' }
+    >;
+    await expect(
+      h.adapter.steer(started.childEngineSessionId, 'steer-1', text('x')),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+    await log.terminal();
+  });
+
+  it('标题：临时会话（只留 StructuredOutput）、说明作 system、json_schema、最低的变体，用完删掉', async () => {
+    const h = setup();
+    const { id } = await openSession(h, { reasoningEffort: 'high' });
+    const request = {
+      instructions: 'You write titles.',
+      input: '<user_prompt>fix the login bug</user_prompt>',
+      outputSchema: { type: 'object', properties: { title: { type: 'string' } } },
+    };
+    await expect(h.adapter.generateTitle(id, request)).resolves.toBe(
+      JSON.stringify(MOCK_STRUCTURED_TITLE),
+    );
+    const created = calls(h, 'createSession').at(-1)?.[0];
+    expect(created).toEqual({
+      title: TITLE_SESSION_TITLE,
+      permission: [...TITLE_PERMISSION_RULES],
+    });
+    const [prompt] = calls(h, 'prompt').at(-1) as [Record<string, unknown>];
+    const temp = prompt.sessionID as string;
+    expect(temp).not.toBe(id);
+    expect(prompt).toEqual({
+      sessionID: temp,
+      model: { providerID: 'mock', modelID: 'echo' },
+      variant: 'low',
+      system: request.instructions,
+      format: { type: 'json_schema', schema: request.outputSchema },
+      parts: [{ type: 'text', text: request.input }],
+    });
+    expect(calls(h, 'deleteSession')).toEqual([[temp]]);
+    expect(h.fake.sessions.has(temp)).toBe(false);
+  });
+
+  it('标题：模型没走 StructuredOutput 时交出它的文本；其他错误报 engine_unavailable，照样删掉临时会话', async () => {
+    const h = setup();
+    const { id } = await openSession(h);
+    const request = { instructions: 'i', input: 'x', outputSchema: { type: 'object' } };
+    h.fake.titleReply = {
+      text: '{"title":"Fix login","description":"d"}',
+      error: {
+        name: 'StructuredOutputError',
+        data: { message: 'Model did not produce structured output', retries: 0 },
+      },
+    };
+    await expect(h.adapter.generateTitle(id, request)).resolves.toBe(
+      '{"title":"Fix login","description":"d"}',
+    );
+    h.fake.titleReply = {
+      error: { name: 'APIError', data: { message: 'upstream is down', isRetryable: false } },
+    };
+    await expect(h.adapter.generateTitle(id, request)).rejects.toMatchObject({
+      code: 'engine_unavailable',
+      message: expect.stringContaining('upstream is down'),
+    });
+    h.fake.titleReply = {};
+    await expect(h.adapter.generateTitle(id, request)).rejects.toMatchObject({
+      code: 'engine_unavailable',
+      message: expect.stringContaining('empty output'),
+    });
+    expect(calls(h, 'deleteSession')).toHaveLength(3);
+    await expect(h.adapter.generateTitle('ses_unknown', request)).rejects.toMatchObject({
+      code: 'session_not_found',
+    });
+  });
+
+  it('标题：Host 中止时停下并删掉临时会话', async () => {
+    const h = setup();
+    const { id } = await openSession(h);
+    h.fake.holdPrompt = true;
+    const controller = new AbortController();
+    const title = h.adapter.generateTitle(id, {
+      instructions: 'i',
+      input: 'x',
+      outputSchema: { type: 'object' },
+      signal: controller.signal,
+    });
+    while (calls(h, 'prompt').length === 0) await sleep(5);
+    controller.abort();
+    await expect(title).rejects.toMatchObject({ code: 'engine_unavailable' });
+    const temp = (calls(h, 'prompt')[0]?.[0] as { sessionID: string } | undefined)?.sessionID;
+    expect(calls(h, 'abort')).toContainEqual([temp]);
+    expect(calls(h, 'deleteSession')).toEqual([[temp]]);
+  });
+
+  it('支线：没有完成的回合时报 invalid_input；之后 fork 整个会话，装支线的规则，补边界消息', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h);
+    const config = { cwd: h.home, providerId: 'opencode', modelId: MODEL };
+    await expect(h.adapter.fork(id, config)).rejects.toMatchObject({ code: 'invalid_input' });
+    await h.adapter.send(id, text('Say hello'));
+    await log.terminal();
+
+    const side = await h.adapter.fork(id, { ...config, permissionMode: 'full_access' });
+    expect(side.engineSessionId).not.toBe(id);
+    expect(calls(h, 'forkSession')).toEqual([[id, undefined]]);
+    expect(calls(h, 'updateSession').at(-1)).toEqual([
+      side.engineSessionId,
+      { permission: permissionRules('full_access') },
+    ]);
+    expect(h.fake.notes.get(side.engineSessionId)).toEqual([SIDE_BOUNDARY_NOTE]);
+    expect(h.fake.notes.has(id)).toBe(false);
+
+    const sideLog = collect(h.adapter.subscribe(side.engineSessionId));
+    await h.adapter.send(side.engineSessionId, text('Say hello'));
+    await sideLog.terminal();
+    expect(sideLog.events.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    // 支线自己也能再分。
+    await expect(h.adapter.fork(side.engineSessionId, config)).resolves.toMatchObject({
+      modelId: MODEL,
+    });
+  });
+
+  it('支线：回合进行中只分到之前完成的回合（边界是进行中回合的用户消息）', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h);
+    await h.adapter.send(id, text('Say hello'));
+    await log.terminal();
+    await h.adapter.send(id, text(DEFAULT_CONTRACT_PROMPTS.slow));
+    await log.until(
+      (events) => events.filter((event) => event.type === 'assistant.delta').length > 2,
+      '第二个回合的增量',
+    );
+    await h.adapter.fork(id, { cwd: h.home, providerId: 'opencode', modelId: MODEL });
+    const running = (calls(h, 'promptAsync')[1]?.[0] as PromptInput | undefined)?.messageID;
+    expect(calls(h, 'forkSession')).toEqual([[id, running]]);
+    await h.adapter.cancel(id);
+  });
+
+  it('补充说明：空闲时立刻以 noReply 写进去；回合进行中留到下一次发送之前', async () => {
+    const h = setup();
+    const { id, log } = await openSession(h);
+    await h.adapter.injectNote(id, 'first note');
+    expect(h.fake.notes.get(id)).toEqual(['first note']);
+    expect(calls(h, 'prompt').at(-1)?.[0]).toMatchObject({
+      sessionID: id,
+      noReply: true,
+      model: { providerID: 'mock', modelID: 'echo' },
+      parts: [{ type: 'text', text: 'first note' }],
+    });
+
+    await h.adapter.send(id, text(DEFAULT_CONTRACT_PROMPTS.slow));
+    await log.until((events) => events.some((event) => event.type === 'assistant.delta'), '增量');
+    await h.adapter.injectNote(id, 'second note');
+    expect(h.fake.notes.get(id)).toEqual(['first note']);
+    await h.adapter.cancel(id);
+    const from = h.fake.calls.length;
+    await h.adapter.send(id, text('Say hello'));
+    expect(h.fake.notes.get(id)).toEqual(['first note', 'second note']);
+    const after = h.fake.calls.slice(from).map((call) => call.method);
+    expect(after.indexOf('prompt')).toBeLessThan(after.indexOf('promptAsync'));
   });
 });

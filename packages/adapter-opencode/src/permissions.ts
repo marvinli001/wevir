@@ -152,6 +152,15 @@ export function childPermissionRules(
   return [...parentRules, ...childSpecific];
 }
 
+/**
+ * 生成标题的临时会话（title.ts）的规则：什么工具都不给（T3 的 textGeneration.ts 同样全部 deny），只留 `format: json_schema` 时
+ * opencode 加上的 StructuredOutput——opencode 按规则过滤工具时不区分它，全部 deny 会把它也藏掉，模型就交不出结构化结果。
+ */
+export const TITLE_PERMISSION_RULES: PermissionRuleset = Object.freeze([
+  { permission: '*', pattern: '*', action: 'deny' },
+  { permission: 'StructuredOutput', pattern: '*', action: 'allow' },
+]) as PermissionRuleset;
+
 /** 审批选项：照 adapter-codex 的四个；`kind` 以 `allow_` / `reject_` 开头决定批准与否。 */
 export const APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
   { optionId: 'accept', label: '允许', kind: 'allow_accept' },

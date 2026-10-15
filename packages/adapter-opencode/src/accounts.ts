@@ -20,7 +20,7 @@ import {
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
 import { OPENCODE_INSTALL_COMMAND, OPENCODE_LOGIN_COMMAND } from './executable.js';
-import { accountModels, contextWindowOf, planLabel } from './models.js';
+import { accountModels, contextWindowOf, planLabel, variantsOf } from './models.js';
 import type { OpenCodeRuntime } from './runtime.js';
 import { errorMessage, type ProviderListResponse } from './sdk.js';
 
@@ -121,6 +121,11 @@ export class OpenCodeAccounts implements EngineAccounts {
   /** 模型的上下文窗口（来自最近一次的 `provider.list`）。 */
   contextWindow(modelId: string): number | undefined {
     return contextWindowOf(this.#providers, modelId);
+  }
+
+  /** 模型的变体（来自最近一次的 `provider.list`）。 */
+  variants(modelId: string): string[] {
+    return variantsOf(this.#providers, modelId);
   }
 
   dispose(): void {

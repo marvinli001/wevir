@@ -1,7 +1,8 @@
 // 本机的假模型服务（OpenAI 兼容的 /v1/chat/completions，流式）：让真实的 `opencode serve` 不连外网、不用订阅也能跑完一个回合，
 // 录事件（record-events.test.ts）与真实 opencode 上的契约（opencode-adapter.contract.real.integration.test.ts）都用它。回答按
 // 最后一条用户消息选脚本（契约的默认提示词，见 runtime-adapter 的 DEFAULT_CONTRACT_PROMPTS），最后一条是工具结果时给收尾的回答；
-// 请求里没有工具的（opencode 自己生成标题等）一律回一句短话。
+// 请求里有 StructuredOutput 工具的（`format: json_schema`，Wevir 的标题）调用它交出 MOCK_STRUCTURED_TITLE；请求里没有工具的
+// （opencode 自己生成标题等）一律回一句短话。慢回答（`slow`）流得够久，插话（`steer`）来得及在这一步结束前进来。
 
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -22,6 +23,14 @@ export const EXTRA_PROMPTS = Object.freeze({
 /** 子 agent 收到的任务（task 工具的 prompt），子会话按它选脚本。 */
 export const SUBAGENT_PROMPT = 'Reply with hi';
 export const SUBAGENT_APPROVAL_PROMPT = 'Run echo in the subagent';
+
+/** `format: json_schema` 时 opencode 加给模型的工具（模型调用它交出结构化结果）。 */
+export const STRUCTURED_OUTPUT_TOOL = 'StructuredOutput';
+/** 假模型交出的标题（`generateTitle`）。 */
+export const MOCK_STRUCTURED_TITLE = Object.freeze({
+  title: 'Mock title',
+  description: 'A title from the mock model',
+});
 
 interface ChatMessage {
   role: string;
@@ -56,9 +65,18 @@ function textOf(content: unknown): string {
   return '';
 }
 
+function toolNames(request: ChatRequest): string[] {
+  return (request.tools ?? []).map(
+    (tool) => (tool as { function?: { name?: unknown } }).function?.name as string,
+  );
+}
+
 /** 按请求选这一步的回答。 */
 export function scriptStep(request: ChatRequest): Step {
   const messages = request.messages ?? [];
+  if (toolNames(request).includes(STRUCTURED_OUTPUT_TOOL)) {
+    return { kind: 'tool', name: STRUCTURED_OUTPUT_TOOL, args: MOCK_STRUCTURED_TITLE };
+  }
   if (!Array.isArray(request.tools) || request.tools.length === 0) {
     return { kind: 'text', chunks: ['Mock title'] };
   }
@@ -114,6 +132,9 @@ export function scriptStep(request: ChatRequest): Step {
     return afterTool
       ? { kind: 'text', chunks: ['Found ', 'the file.'] }
       : { kind: 'tool', name: 'glob', args: { pattern: '*.txt' } };
+  }
+  if (has(DEFAULT_CONTRACT_PROMPTS.steer)) {
+    return { kind: 'text', chunks: ['The weather ', 'is sunny.'] };
   }
   if (has(DEFAULT_CONTRACT_PROMPTS.slow)) {
     return {

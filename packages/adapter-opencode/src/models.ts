@@ -84,17 +84,44 @@ export function accountModels(list: ProviderListResponse): AccountModels {
   };
 }
 
+type ProviderModel = ProviderListResponse['all'][number]['models'][string];
+
+function findModel(
+  list: ProviderListResponse | undefined,
+  modelId: string,
+): ProviderModel | undefined {
+  const parsed = parseModelId(modelId);
+  if (list === undefined || parsed === undefined) return undefined;
+  const provider = list.all.find((candidate) => candidate.id === parsed.providerID);
+  return (
+    provider?.models[parsed.modelID] ??
+    Object.values(provider?.models ?? {}).find((candidate) => candidate.id === parsed.modelID)
+  );
+}
+
 /** 模型的上下文窗口（`usage.updated` 的 `contextSize`）。 */
 export function contextWindowOf(
   list: ProviderListResponse | undefined,
   modelId: string,
 ): number | undefined {
-  const parsed = parseModelId(modelId);
-  if (list === undefined || parsed === undefined) return undefined;
-  const provider = list.all.find((candidate) => candidate.id === parsed.providerID);
-  const model =
-    provider?.models[parsed.modelID] ??
-    Object.values(provider?.models ?? {}).find((candidate) => candidate.id === parsed.modelID);
-  const context = model?.limit?.context;
+  const context = findModel(list, modelId)?.limit?.context;
   return typeof context === 'number' && context > 0 ? context : undefined;
+}
+
+/** 模型的变体（推理档位）；不推理或不认识的模型是空数组。 */
+export function variantsOf(list: ProviderListResponse | undefined, modelId: string): string[] {
+  const model = findModel(list, modelId);
+  if (model === undefined || model.capabilities?.reasoning === false) return [];
+  return Object.keys(model.variants ?? {});
+}
+
+/** 推理档位从低到高（Wevir 的 `ProviderReasoningLevel`，加上 opencode 变体里常见的 `none`）。 */
+const VARIANT_ORDER = ['none', 'off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+
+/**
+ * 最低的一档变体（生成标题用，同 Codex 与 Claude 的标题）。变体名是上游自己起的：一个都认不出时 undefined，让 opencode 用
+ * 模型的默认值，不去猜。
+ */
+export function lowestVariant(variants: readonly string[]): string | undefined {
+  return VARIANT_ORDER.find((level) => variants.includes(level));
 }

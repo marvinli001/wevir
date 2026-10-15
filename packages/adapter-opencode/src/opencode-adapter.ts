@@ -2,11 +2,14 @@
 // 移植自 pingdotgg/t3code packages/provider-opencode/src/server/adapter.ts（`openSession`、`ensureThread`、`resumeThread`、
 // `startTurn`、`interruptTurn`、`respondToRuntimeRequest`、`handleEvent`、`finalizeTurn`、`reconcileOpenCodePromptAdmissionStatus`、
 // `abortDescendants`、`emitSubagent`、`routeRuntimeRequest`）、OpenCodeRuntime.ts
-// （`openCodeQuestionId`、`toOpenCodeQuestionAnswers`）
+// （`openCodeQuestionId`、`toOpenCodeQuestionAnswers`），以及 adapter.ts 的 `steerTurn`、`advanceOpenCodePromptAdmission`、
+// `reconcilePromptAdmission`、`forkThread`、`openCodeBoundaryAfterProviderTurn`
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；T3 的编排节点、计划与 MCP 工具、附件、slash 命令、压缩、回滚、分支与插话
-// 不搬；子 agent 照 Wevir 的子会话报（subagent.started + 子会话自己的流），子会话的审批与提问在子会话的流里报（T3 挂到顶层
+// 修改：Effect 改写成普通 TS 的 AgentRuntimeAdapter；T3 的编排节点、计划与 MCP 工具、附件、slash 命令、压缩与回滚不搬；插话
+// 以回答它的 assistant 消息（`parentID` 是插话的消息 ID）报 `turn.steered`，没用上的插话在下一次发送前从 opencode 的历史里删掉
+// （T3 留着，Host 把它改为排队再发一次时模型会看到两遍）；分支只做 Wevir 的支线（分到最近一个完成的回合，补一条边界消息）；
+// 子 agent 照 Wevir 的子会话报（subagent.started + 子会话自己的流），子会话的审批与提问在子会话的流里报（T3 挂到顶层
 // 会话上，Wevir 的 Host 自己会把子会话的审批交给父会话的界面）；子会话的规则在 session.created 时就装上（T3 等 task 工具报出
 // 子会话 ID 才装）；回合以见到它的 busy 为开始，之前的 idle 一律当作上一个回合留下的（T3 的 admission 状态机在“旧 idle 赶上
 // opencode 的循环还没开始”时会去问 session.status、读到 idle 就提前结束回合）；取消在回合没停下之前每秒重发一次 abort。
@@ -15,6 +18,10 @@
 // 与他接上的上游，Wevir 在本机起它的服务器（runtime.ts / server.ts），经 `@opencode-ai/sdk` 说话。一个 Wevir 会话是一个
 // opencode 会话（引擎会话 ID = opencode 的 `ses_…`），一个回合是一次 `promptAsync`（带 Wevir 生成的用户消息 ID）到这个会话
 // 回到 idle。每个工作目录订阅一条事件流，事件按 sessionID 分给会话（task 工具派出的子会话也在同一条流里）。
+//
+// 插话（R11，§5.10）是回合进行中再发一次 `promptAsync`（新的消息 ID）：opencode 存下这条用户消息，正在跑的循环在这一步结束后
+// 看到它比最后一条 assistant 消息新，就接着跑一步，那一步的 assistant 消息的 `parentID` 就是它。支线（§5.12）是 `session.fork`
+// 加一条 `noReply` 的边界消息，标题（§5.11）在临时会话里同步 `prompt`（title.ts）。
 
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -31,13 +38,14 @@ import {
   type PendingApproval,
   type PermissionMode,
   type SessionConfig,
+  type TitleRequest,
   type TurnFailedEvent,
   type UserQuestion,
 } from '@wevir/runtime-adapter';
 import { OpenCodeAccounts } from './accounts.js';
 import { ENGINE_RAW_PROTOCOL, OpenCodeTurnMapper } from './mapping.js';
 import { newMessageId } from './message-id.js';
-import { parseModelId } from './models.js';
+import { lowestVariant, type ParsedModelId, parseModelId } from './models.js';
 import {
   APPROVAL_OPTIONS,
   childPermissionRules,
@@ -58,6 +66,8 @@ import {
   type PermissionRuleset,
 } from './sdk.js';
 import type { ServerExit } from './server.js';
+import { SIDE_BOUNDARY_NOTE } from './side.js';
+import { generateTitleText } from './title.js';
 
 /** 等取消确认的时限（T3 的 interruptTurn 等 10 秒）。 */
 export const CANCEL_TIMEOUT_MS = 10_000;
@@ -67,6 +77,8 @@ export const ABORT_RETRY_MS = 1_000;
 export const ACTIVITY_TIMEOUT_MS = 5_000;
 /** 事件流连上（收到 server.connected）的时限。 */
 export const STREAM_READY_TIMEOUT_MS = 10_000;
+/** 插话交出去之前到的 idle 先压着；交出去之后再等这么久，还没见到 busy 才去问 session.status。 */
+export const STEER_IDLE_GRACE_MS = 250;
 
 /** 告警与日志出口；Host 的 Logger 满足这个接口。 */
 export interface OpenCodeAdapterLogger {
@@ -101,6 +113,25 @@ interface SessionSettings {
   additionalRoots?: string[];
 }
 
+/** 交给进行中回合的一次插话。 */
+interface Steer {
+  readonly steerId: string;
+  /** 插话的用户消息 ID（Wevir 生成）。 */
+  readonly messageId: string;
+  readonly abort: AbortController;
+  /** `promptAsync` 已返回。 */
+  accepted: boolean;
+  /** 它的用户消息已在事件流里出现。 */
+  seen: boolean;
+  /** 已有回答它（或它之后的插话）的 assistant 消息，报过 turn.steered。 */
+  steered: boolean;
+}
+
+/** 插话还在交接（T3 的 admissionPending）：`promptAsync` 没返回，或它的用户消息还没出现。 */
+function admitting(steer: Steer): boolean {
+  return !steer.steered && !(steer.accepted && steer.seen);
+}
+
 interface Turn {
   readonly mapper: OpenCodeTurnMapper;
   /** 顶层回合：Wevir 生成的用户消息 ID。 */
@@ -115,6 +146,11 @@ interface Turn {
   reconciling: boolean;
   /** `promptAsync` 返回之前的事件先存着（引擎接受输入之后才报这个回合的事件）。 */
   buffer: AgentEvent[] | undefined;
+  /** 插话，按交出的顺序。 */
+  readonly steers: Steer[];
+  /** 插话交接期间到了 idle（可能是循环在插话存下之前就结束了）：先不结算，见到 busy 时作废（T3 的 idleDuringAdmission）。 */
+  idleHeld: boolean;
+  rechecking: boolean;
   prompt: AbortController | undefined;
   cancelling: boolean;
   done: boolean;
@@ -161,6 +197,12 @@ interface Session {
   readonly children: Set<Session>;
   /** 子会话：已在父会话的流里报过 subagent.started。 */
   announced: boolean;
+  /** 有完成过的回合（或是恢复、分出来的，opencode 里有历史）：可以分出支线。 */
+  history: boolean;
+  /** 回合进行中补来的说明，回合之后、下一次发送之前写进去（回合中写进去 opencode 的循环会接着回答它）。 */
+  readonly notes: string[];
+  /** 结算时没用上的插话的消息 ID，下一次发送（或分支）之前从 opencode 的历史里删掉。 */
+  readonly staleSteers: string[];
 }
 
 /** 不映射、也不保留为 engine.raw 的事件（高频的状态与本适配器不用的通知）。 */
@@ -296,7 +338,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw adapterError(error, 'session.create');
     }
     if (this.#disposed) throw new AdapterError('disposed', 'the OpenCode adapter was disposed');
-    this.#register(info.id, config.cwd, settings, rules, stream);
+    this.#register(info.id, config.cwd, settings, rules, stream, false);
     return this.#engineSession(info.id, settings);
   }
 
@@ -330,7 +372,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw adapterError(error, 'session resume');
     }
     if (this.#disposed) throw new AdapterError('disposed', 'the OpenCode adapter was disposed');
-    this.#register(engineSessionId, config.cwd, settings, rules, stream);
+    this.#register(engineSessionId, config.cwd, settings, rules, stream, true);
     return this.#engineSession(engineSessionId, settings);
   }
 
@@ -348,18 +390,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (session.turn !== undefined) {
       throw new AdapterError('session_busy', 'the OpenCode session is already running a turn');
     }
-    const text = input.content
-      .filter((part) => part.type === 'text')
-      .map((part) => part.text)
-      .join('\n\n');
-    if (text.trim() === '') throw new AdapterError('invalid_input', 'the message is empty');
-    const model = parseModelId(session.settings.modelId);
-    if (model === undefined) {
-      throw new AdapterError(
-        'invalid_input',
-        `OpenCode model '${session.settings.modelId}' must use the provider/model format`,
-      );
-    }
+    const text = inputText(input);
+    const model = modelOf(session.settings.modelId);
     const stream = session.stream;
     if (stream === undefined) throw new AdapterError('session_closed', 'the session is detached');
 
@@ -369,14 +401,14 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     turn.prompt = new AbortController();
     try {
       await stream.ready;
+      await this.#dropStaleSteers(session);
+      await this.#writeNotes(session);
       await stream.client.promptAsync(
         {
           sessionID: session.id,
           messageID: messageId,
           model,
-          ...(session.settings.reasoningEffort !== undefined && {
-            variant: session.settings.reasoningEffort,
-          }),
+          ...variantOf(session.settings),
           parts: [{ type: 'text', text }],
         },
         turn.prompt.signal,
@@ -402,6 +434,156 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (turn.done || turn.active) return;
     turn.watchdog = setTimeout(() => this.#reconcile(session, turn), ACTIVITY_TIMEOUT_MS);
     turn.watchdog.unref?.();
+  }
+
+  /**
+   * 插话（T3 的 `steerTurn`）：回合进行中再发一次 `promptAsync`，opencode 在这一步之后接着回答它。没有进行中的回合、回合正在
+   * 取消、或 opencode 不收时报 `steer_rejected`（Host 改为排队）。
+   */
+  async steer(engineSessionId: string, steerId: string, input: AgentInput): Promise<void> {
+    this.#alive();
+    const session = this.#attached(engineSessionId);
+    if (session.parent !== undefined) {
+      throw new AdapterError('invalid_input', 'subagent sessions are driven by their parent agent');
+    }
+    const text = inputText(input);
+    const turn = session.turn;
+    const stream = session.stream;
+    if (turn === undefined || turn.done || turn.cancelling || stream === undefined) {
+      throw new AdapterError('steer_rejected', 'the OpenCode session has no turn to steer');
+    }
+    const model = modelOf(session.settings.modelId);
+    const steer: Steer = {
+      steerId,
+      messageId: newMessageId(),
+      abort: new AbortController(),
+      accepted: false,
+      seen: false,
+      steered: false,
+    };
+    turn.steers.push(steer);
+    try {
+      await stream.client.promptAsync(
+        {
+          sessionID: session.id,
+          messageID: steer.messageId,
+          model,
+          ...variantOf(session.settings),
+          parts: [{ type: 'text', text }],
+        },
+        steer.abort.signal,
+      );
+    } catch (error) {
+      const index = turn.steers.indexOf(steer);
+      if (index >= 0) turn.steers.splice(index, 1);
+      if (turn.done) await this.#lateSteer(session, steer);
+      else this.#admitted(session, turn);
+      throw new AdapterError(
+        'steer_rejected',
+        `OpenCode did not take the steer: ${errorMessage(error)}`,
+        { cause: error },
+      );
+    }
+    steer.accepted = true;
+    if (turn.done) {
+      await this.#lateSteer(session, steer);
+      throw new AdapterError('steer_rejected', 'the OpenCode turn ended before the steer arrived');
+    }
+    this.#admitted(session, turn);
+  }
+
+  /**
+   * 支线（0.17.0）：`session.fork` 分到最近一个完成的回合（回合进行中时不含它：fork 的边界不含那条消息，T3 的
+   * openCodeBoundaryAfterProviderTurn），装上支线的规则，再用 `noReply` 补一条边界消息。分出的是普通的 opencode 会话。
+   */
+  async fork(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
+    this.#alive();
+    const source = this.#attached(engineSessionId);
+    if (source.parent !== undefined) {
+      throw new AdapterError('invalid_input', 'a subagent session cannot be forked');
+    }
+    if (!source.history) {
+      throw new AdapterError('invalid_input', 'the session has no finished turn to fork from');
+    }
+    await checkCwd(config.cwd);
+    const settings = settingsOf(config);
+    const model = modelOf(settings.modelId);
+    await this.accounts.requireReady();
+    const running = source.turn !== undefined && !source.turn.done ? source.turn : undefined;
+    const stream = await this.#stream(config.cwd);
+    const rules = permissionRules(settings.permissionMode, settings.additionalRoots);
+    let info: OpenCodeSessionInfo | undefined;
+    try {
+      if (running === undefined) await this.#dropStaleSteers(source);
+      info = await stream.client.forkSession(source.id, running?.messageId);
+      await stream.client.updateSession(info.id, { permission: rules });
+      await stream.client.prompt({
+        sessionID: info.id,
+        messageID: newMessageId(),
+        model,
+        ...variantOf(settings),
+        noReply: true,
+        parts: [{ type: 'text', text: SIDE_BOUNDARY_NOTE }],
+      });
+    } catch (error) {
+      if (info !== undefined) void stream.client.deleteSession(info.id).catch(() => {});
+      this.#releaseStream(stream);
+      throw adapterError(error, 'session.fork');
+    }
+    if (this.#disposed) throw new AdapterError('disposed', 'the OpenCode adapter was disposed');
+    this.#register(info.id, config.cwd, settings, rules, stream, true);
+    return this.#engineSession(info.id, settings);
+  }
+
+  /**
+   * 补一条说明（0.16.0）：`noReply` 的 prompt 只把它存成一条用户消息，不开回合。回合进行中先留着，下一次发送之前再写（回合中
+   * 写进去，opencode 的循环在这一步之后会接着回答它）。
+   */
+  async injectNote(engineSessionId: string, text: string): Promise<void> {
+    this.#alive();
+    const session = this.#attached(engineSessionId);
+    if (session.parent !== undefined) {
+      throw new AdapterError('invalid_input', 'subagent sessions are driven by their parent agent');
+    }
+    session.notes.push(text);
+    if (session.turn !== undefined && !session.turn.done) return;
+    try {
+      await this.#writeNotes(session);
+    } catch (error) {
+      throw adapterError(error, 'note');
+    }
+  }
+
+  /** 会话标题（title.ts）：用会话的模型、最低的一档变体，在临时会话里同步跑一次。 */
+  async generateTitle(engineSessionId: string, request: TitleRequest): Promise<string> {
+    this.#alive();
+    const session = this.#attached(engineSessionId);
+    const stream = session.stream;
+    if (stream === undefined) {
+      throw new AdapterError(
+        'session_closed',
+        `the OpenCode session ${engineSessionId} is not attached`,
+      );
+    }
+    const model = modelOf(session.settings.modelId);
+    const variant = lowestVariant(this.accounts.variants(session.settings.modelId));
+    const logger = this.#options.logger;
+    try {
+      await stream.ready;
+      return await generateTitleText({
+        client: stream.client,
+        model,
+        ...(variant !== undefined && { variant }),
+        request,
+        ...(logger !== undefined && { warn: (message, fields) => logger.warn(message, fields) }),
+      });
+    } catch (error) {
+      throw new AdapterError(
+        'engine_unavailable',
+        `OpenCode could not generate a title: ${errorMessage(error)}`,
+        { cause: error },
+      );
+    }
   }
 
   async configureSession(
@@ -540,6 +722,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (session === undefined || turn === undefined || turn.done) return;
     turn.cancelling = true;
     turn.prompt?.abort();
+    for (const steer of turn.steers) if (!steer.accepted) steer.abort.abort();
     const client = session.stream?.client;
     const abort = async () => {
       if (client === undefined) return;
@@ -602,6 +785,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       if (turn !== undefined && !turn.done) {
         turn.done = true;
         turn.prompt?.abort();
+        for (const steer of turn.steers) steer.abort.abort();
         session.turn = undefined;
         turn.resolve();
       }
@@ -630,6 +814,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     settings: SessionSettings,
     rules: PermissionRuleset,
     stream: DirectoryStream,
+    history: boolean,
   ): Session {
     const existing = this.#sessions.get(id);
     if (existing?.attached === true) {
@@ -652,6 +837,9 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       usage: existing?.usage ?? { totalTokens: 0 },
       children: new Set(),
       announced: true,
+      history: history || existing?.history === true,
+      notes: existing?.notes ?? [],
+      staleSteers: existing?.staleSteers ?? [],
     };
     this.#sessions.set(id, session);
     return session;
@@ -678,6 +866,9 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       usage: { totalTokens: 0 },
       children: new Set(),
       announced: false,
+      history: false,
+      notes: [],
+      staleSteers: [],
     };
     this.#sessions.set(child.id, child);
     parent.children.add(child);
@@ -751,6 +942,9 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       watchdog: undefined,
       reconciling: false,
       buffer: root ? [] : undefined,
+      steers: [],
+      idleHeld: false,
+      rechecking: false,
       prompt: undefined,
       cancelling: false,
       done: false,
@@ -830,6 +1024,11 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (turn.done) return;
     turn.done = true;
     clearTimeout(turn.watchdog);
+    if (session.parent === undefined) session.history = true;
+    // 没用上的插话留到下一次发送之前从 opencode 删掉（Host 把它们改为排队，之后再发）；还在交接的由 steer 自己收尾。
+    for (const steer of turn.steers) {
+      if (steer.accepted && !steer.steered) session.staleSteers.push(steer.messageId);
+    }
     const events = [
       ...turn.mapper.finish(),
       ...this.#cancelRequests(session, turn.cancelling ? 'turn_cancelled' : 'turn_ended'),
@@ -863,6 +1062,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     if (turn !== undefined && !turn.done) {
       turn.done = true;
       turn.prompt?.abort();
+      for (const steer of turn.steers) steer.abort.abort();
       events.push(...turn.mapper.finish());
       session.turn = undefined;
       turn.resolve();
@@ -1103,7 +1303,11 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
         return;
       case 'session.status':
         if (event.properties.status.type === 'idle') this.#onIdle(session);
-        else if (session.turn !== undefined) session.turn.active = true;
+        else if (session.turn !== undefined) {
+          session.turn.active = true;
+          // 压着的 idle 之后又忙起来：opencode 为插话接着跑了（或另起了循环）。
+          session.turn.idleHeld = false;
+        }
         return;
       case 'session.idle':
         this.#onIdle(session);
@@ -1131,10 +1335,18 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     const known = session.roles.has(info.id);
     session.roles.set(info.id, info.role);
     const turn = session.turn;
-    if (info.role === 'user') return;
+    if (info.role === 'user') {
+      const steer = turn?.steers.find((candidate) => candidate.messageId === info.id);
+      if (turn !== undefined && steer !== undefined && !steer.seen) {
+        steer.seen = true;
+        this.#admitted(session, turn);
+      }
+      return;
+    }
     if (turn !== undefined && turn.messageId !== undefined && info.parentID === turn.messageId) {
       turn.active = true;
     }
+    if (turn !== undefined && !turn.done) this.#emit(session, this.#steered(session, turn, info));
     // 子会话没收到用户消息就开始答（不该发生）：照样开一个回合；结算之后才到的旧消息不算。
     const active =
       turn ??
@@ -1223,7 +1435,72 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     const turn = session.turn;
     // 还没见到这个回合的 busy：是上一个回合留下的 idle。
     if (turn === undefined || turn.done || !turn.active) return;
+    if (!turn.cancelling && turn.steers.some(admitting)) {
+      turn.idleHeld = true;
+      return;
+    }
     this.#settle(session, turn, this.#completed(session, turn));
+  }
+
+  /**
+   * 回答插话的 assistant 消息（`parentID` 是插话的消息 ID）：报 turn.steered。几条插话在同一步之前交出时 opencode 只回答最后
+   * 一条（parentID 是它），之前的一并算进去。
+   */
+  #steered(
+    session: Session,
+    turn: Turn,
+    info: Extract<Message, { role: 'assistant' }>,
+  ): AgentEvent[] {
+    const index = turn.steers.findIndex((steer) => steer.messageId === info.parentID);
+    if (index < 0) return [];
+    const events: AgentEvent[] = [];
+    for (const steer of turn.steers.slice(0, index + 1)) {
+      if (steer.steered) continue;
+      steer.steered = true;
+      steer.seen = true;
+      events.push({ type: 'turn.steered', engineSessionId: session.id, steerId: steer.steerId });
+    }
+    return events;
+  }
+
+  /**
+   * 插话交接完了（T3 的 advanceOpenCodePromptAdmission 走到 reconcile-idle）：交接期间压着 idle、之后又没见到 busy 时，等一会儿
+   * 问 session.status，busy 就接着等，idle 就结算（opencode 的循环在插话存下之前已经结束：它把这次 prompt 并进了正要结束的那次
+   * 运行，不会再回答它）。只等 `promptAsync` 返回，不等它的用户消息出现（opencode 先回 204 再存消息，等的那一会儿盖住这段；
+   * 事件丢了也不会一直压着）。
+   */
+  #admitted(session: Session, turn: Turn): void {
+    if (!turn.idleHeld || turn.done || turn.rechecking) return;
+    if (turn.steers.some((steer) => !steer.steered && !steer.accepted)) return;
+    turn.rechecking = true;
+    const current = () => session.turn === turn && !turn.done && turn.idleHeld;
+    void (async () => {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, STEER_IDLE_GRACE_MS));
+        while (current()) {
+          let status: 'idle' | 'busy' | 'unknown' = 'unknown';
+          try {
+            const statuses = (await session.stream?.client.status()) ?? {};
+            const entry = statuses[session.id];
+            status = entry === undefined || entry.type === 'idle' ? 'idle' : 'busy';
+          } catch {
+            status = 'unknown';
+          }
+          if (!current()) return;
+          if (status === 'busy') {
+            turn.idleHeld = false;
+            return;
+          }
+          if (status === 'idle') {
+            this.#settle(session, turn, this.#completed(session, turn));
+            return;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      } finally {
+        turn.rechecking = false;
+      }
+    })();
   }
 
   #onError(
@@ -1280,6 +1557,51 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     }
   }
 
+  /**
+   * 回合结算之后插话才交接完（或交接失败）：opencode 可能已经存下它，并因为会话空闲为它另起了一次循环。没有新的回合时停下那次
+   * 循环（不留没人看的回合），消息记为没用上的；Host 已经开始下一个回合时什么都不做（新回合会带上它）。
+   */
+  async #lateSteer(session: Session, steer: Steer): Promise<void> {
+    const client = session.stream?.client;
+    if (client === undefined || !session.attached || session.turn !== undefined) return;
+    session.staleSteers.push(steer.messageId);
+    await client.abort(session.id).catch(() => {});
+  }
+
+  /** 删掉没用上的插话（上一个回合结算时记下的），失败只告警。 */
+  async #dropStaleSteers(session: Session): Promise<void> {
+    const client = session.stream?.client;
+    const ids = session.staleSteers.splice(0);
+    if (client === undefined) return;
+    for (const messageId of ids) {
+      await client.deleteMessage(session.id, messageId).catch((error: unknown) => {
+        if (isNotFound(error)) return;
+        this.#options.logger?.warn('could not remove an unused OpenCode steer message', {
+          engineSessionId: session.id,
+          error: errorMessage(error),
+        });
+      });
+    }
+  }
+
+  /** 把留着的说明写进会话（`noReply`）。写不进去的留着，抛出。 */
+  async #writeNotes(session: Session): Promise<void> {
+    const client = session.stream?.client;
+    if (client === undefined || session.notes.length === 0) return;
+    const model = parseModelId(session.settings.modelId);
+    while (session.notes.length > 0) {
+      const text = session.notes[0] as string;
+      await client.prompt({
+        sessionID: session.id,
+        messageID: newMessageId(),
+        ...(model !== undefined && { model }),
+        noReply: true,
+        parts: [{ type: 'text', text }],
+      });
+      session.notes.shift();
+    }
+  }
+
   // ── 其他 ─────────────────────────────────────────────────────────────────────
 
   #engineSession(engineSessionId: string, settings: SessionSettings): EngineSession {
@@ -1326,6 +1648,32 @@ function rootOf(session: Session): Session {
   let current = session;
   while (current.parent !== undefined) current = current.parent;
   return current;
+}
+
+/** 输入的文本段（只用文本）。 */
+function inputText(input: AgentInput): string {
+  const text = input.content
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('\n\n');
+  if (text.trim() === '') throw new AdapterError('invalid_input', 'the message is empty');
+  return text;
+}
+
+function modelOf(modelId: string): ParsedModelId {
+  const model = parseModelId(modelId);
+  if (model === undefined) {
+    throw new AdapterError(
+      'invalid_input',
+      `OpenCode model '${modelId}' must use the provider/model format`,
+    );
+  }
+  return model;
+}
+
+/** 推理档位作 opencode 的变体。 */
+function variantOf(settings: SessionSettings): { variant?: string } {
+  return settings.reasoningEffort === undefined ? {} : { variant: settings.reasoningEffort };
 }
 
 function settingsOf(config: {
