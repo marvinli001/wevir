@@ -23,7 +23,14 @@ export const ROUTE_PATTERNS = {
 export const AGENT_SEGMENT = 'agent/:childId';
 
 /** 设置的各页（U7 起“对话”并进“常规”）。 */
-export const SETTINGS_TABS = ['general', 'appearance', 'providers', 'workspaces', 'about'] as const;
+export const SETTINGS_TABS = [
+  'general',
+  'appearance',
+  'notifications',
+  'providers',
+  'workspaces',
+  'about',
+] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 export const DEFAULT_SETTINGS_TAB: SettingsTab = 'general';
 

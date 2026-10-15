@@ -19,6 +19,9 @@ import { groupSessions, mergeSessions, type WorkbenchData } from './workbench-mo
 /** 重读会话列表的间隔：只为发现别的客户端新建的会话，已知会话的变化走事件订阅。 */
 export const LIST_REFRESH_MS = 10_000;
 
+/** 列表里的会话收到一条事件（U31 的通知）：`session` 是应用这条事件之后的会话。 */
+export type SessionEventListener = (event: WevirEvent, session: Session) => void;
+
 export class WorkbenchStore {
   readonly #client: WevirClient;
   #workspaces: Workspace[] | undefined;
@@ -29,6 +32,7 @@ export class WorkbenchStore {
   readonly #subscriptions = new Map<SessionId, EventSubscription>();
   readonly #pending: WevirEvent[] = [];
   readonly #listeners = new Set<() => void>();
+  readonly #eventListeners = new Set<SessionEventListener>();
   readonly #batch = frameBatcher(() => this.#flush());
   #refreshing: Promise<void> | undefined;
   #rerun: Promise<void> | undefined;
@@ -64,6 +68,12 @@ export class WorkbenchStore {
     return this.#refreshing;
   }
 
+  /** 订阅列表里会话的新事件（订阅从会话当时的 lastSeq 开始，不含历史）；返回取消订阅的函数。 */
+  onSessionEvent = (listener: SessionEventListener): (() => void) => {
+    this.#eventListeners.add(listener);
+    return () => this.#eventListeners.delete(listener);
+  };
+
   /** 本端刚建好的会话（session.create 的结果）立即放进列表，不等下一次重读。 */
   upsertSession(session: Session): void {
     const current = this.#sessions.get(session.id);
@@ -79,6 +89,7 @@ export class WorkbenchStore {
     for (const subscription of this.#subscriptions.values()) subscription.close();
     this.#subscriptions.clear();
     this.#listeners.clear();
+    this.#eventListeners.clear();
   }
 
   async #refresh(): Promise<void> {
@@ -139,6 +150,13 @@ export class WorkbenchStore {
       const session = this.#sessions.get(event.sessionId);
       if (!session) continue;
       const next = applySessionEvent(session, event);
+      for (const listener of this.#eventListeners) {
+        try {
+          listener(event, next);
+        } catch (error) {
+          console.warn('会话事件的监听出错', error);
+        }
+      }
       if (next === session) continue;
       this.#sessions.set(session.id, next);
       changed = true;

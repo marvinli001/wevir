@@ -283,3 +283,11 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 - **渲染进程之外的文字**（维护者 2026-10-15 定）：主进程只报原因码。Host 起不来或意外退出时，`HostProcessStatus` 的 `failed.error` 与 `restarting.reason` 是 `HostFailure`（`shared/desktop-api.ts`：`startFailed`、`crashed`、`notReady`、`restartsFailed` 等，带退出码 / 信号、路径、秒数等参数），由 `host/error-text.ts` 的 `hostFailureText` 按界面语言说成话（`hostFailure.*`）。Host 的 stderr 尾部等原文放在 `detail`，不翻译，跟在后面（`hostFailure.withDetail`）。主进程不需要知道界面语言：它没有自己的菜单与对话框文字，IPC 的参数校验错误只是给开发者看的英文。
 - **Host 与引擎的错误**：协议里的码由界面翻译（JSON-RPC 错误码、引擎错误类别、只读原因、审批选项的 kind、Provider 测试的 reason、思考力度）。`describeError`（原 `host-connection.tsx` 的 `describe`，各处 `{error}` 都经它）按错误码取 `rpcError.<错误码名>`，按 client-sdk 错误的种类取 `clientError.<kind>`。只有诊断性的错误码带上 Host 原文：`PARSE_ERROR`、`INVALID_REQUEST`、`INVALID_PARAMS`、`INTERNAL_ERROR`、`HELLO_REQUIRED`。`ENGINE_ERROR` 写成引擎错误类别加引擎原文。认不出的错误码照原文。适配器、模型网关里写成中文的说明（账号的 `lastError`、Provider 测试的细节等）是诊断原文，不翻译（维护者 2026-10-15 定）。
 - **命令行**（`wevir`，维护者 2026-10-15 定）：只有中文与英文，不走桌面端的目录。语言按 `WEVIR_LANG=zh|en`，否则取 `LC_ALL`、`LC_MESSAGES`、`LANG` 里第一个非空的（POSIX 的顺序），`zh*` 为中文，其他（含 `C` / `POSIX`）与都没设时为英文；`runCli` 开始时按它拿到的环境变量设定，拉起的 Host 继承同样的环境。文案在 `apps/cli/src/i18n/`：`zh.ts` 是 key 与参数的源，`en.ts` 满足它的类型，`t()` 与桌面端同一套 ICU 子集（`{name}` 与英文的 `{count, plural, …}`），协议里的值（会话状态、引擎错误类别、只读原因、审批选项、Provider 测试的 reason 等）经 `format.ts` 按模板 key 取说法，缺一种值时类型检查不过；`i18n.test.ts` 核对两种目录的 key、参数，并检查英文目录里没有汉字。审批的回答两种语言都认（`y` / `n`、`允许` / `拒绝`）。`wevir-host` 的帮助与 stderr 说明按同样的规则分中英（`packages/host/src/cli-text.ts`）。Host 与引擎的原文（错误的 `message`、账号的 `lastError`、Provider 测试的细节）照原样跟在后面，不翻译。
+
+## 35. 会话的通知（U31）
+
+- **何时**：列表里的顶层会话（子会话与支线不算）有新的审批请求、提问、回合失败或回合完成（取消与中断不算）时。超过 2 分钟的事件（断线重连后补到的）不提醒。照 T3 Code 的做法：窗口在前台、主窗格正显示这个会话时不提醒。
+- **系统通知**：窗口不在前台（不可见或没有焦点）时，经主进程的 Electron `Notification` 发出。标题是事件（需要批准 / 需要回答 / 已完成 / 出错），正文是会话标题；同一个会话只留最新的一条（tag `session:<ID>`）。点击时窗口回到前台并打开这个会话。提示音用系统默认（`silent` 取反）。
+- **角标**：窗口在后台时发出的系统通知按会话计数，写到程序坞（macOS）或应用图标（Linux Unity）上；窗口回到前台时收回全部系统通知并清零，打开某个会话时收回它的那一条。
+- **应用内提醒**：窗口在前台、主窗格是别的会话时，右下角出现与连接通知同一套的卡片（§31）：审批与提问用提醒图标（警示色的圆形感叹号，`attention` 语气），完成用对勾，出错用警示；下面一行 12 px 说明文字色的会话标题与“打开”按钮。最多三张，再来的挤掉最早的，8 s 后自动关闭，打开这个会话时一并关闭。
+- **设置 → 通知**：两组卡片。“方式”：系统通知、提示音、程序坞角标（Linux 是应用图标角标，Windows 没有这一行）、应用内通知；系统通知关掉时提示音与角标不可用。“事件”：回合完成、需要批准、提问、出错。全部默认开，只存在本机（`wevir.notifications.v1`）。

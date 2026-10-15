@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { WorkbenchDataProvider } from '@/data/workbench-data';
 import { ConnectionToast } from '@/host/connection-toast';
 import { HostConnectionProvider } from '@/host/host-connection';
+import { NotificationCoordinator } from '@/notifications/notification-coordinator';
 import { router } from '@/routes/router';
 
 export function App() {
@@ -18,6 +19,8 @@ export function App() {
             {/* 连接通知在窗口右下角，工作台与设置页都看得到（T5.5，U25）。 */}
             <ToastViewport>
               <ConnectionToast />
+              {/* 会话的通知（U31）：系统通知与应用内提醒。 */}
+              <NotificationCoordinator />
             </ToastViewport>
           </TooltipProvider>
         </WorkbenchDataProvider>

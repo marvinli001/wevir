@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import {
+  Bell,
   Cpu,
   Folder,
   Info,
@@ -20,6 +21,7 @@ import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
 import { WindowControls } from '@/layout/window-controls';
 import { GeneralSettings } from '@/settings/general-settings';
+import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
@@ -46,6 +48,17 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Palette,
     keywords: ['settings.appearance.theme'],
   },
+  notifications: {
+    label: 'settings.tab.notifications',
+    icon: Bell,
+    keywords: [
+      'settings.notify.system',
+      'settings.notify.inApp',
+      'settings.notify.sound',
+      'settings.notify.completed',
+      'settings.notify.approval',
+    ],
+  },
   providers: {
     label: 'settings.tab.providers',
     icon: Cpu,
@@ -64,7 +77,7 @@ const TABS: Record<SettingsTab, TabInfo> = {
 };
 
 const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
-  { label: 'settings.group.app', tabs: ['general', 'appearance', 'about'] },
+  { label: 'settings.group.app', tabs: ['general', 'appearance', 'notifications', 'about'] },
   { label: 'settings.group.work', tabs: ['providers', 'workspaces'] },
 ];
 
@@ -201,6 +214,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <GeneralSettings />;
     case 'appearance':
       return <AppearanceSettings />;
+    case 'notifications':
+      return <NotificationSettingsPage />;
     case 'about':
       return <AboutSettings />;
     case 'providers':

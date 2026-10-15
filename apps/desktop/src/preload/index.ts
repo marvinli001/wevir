@@ -42,6 +42,16 @@ const api: DesktopApi = {
       windowChromeListeners.delete(listener);
     };
   },
+  notify: (notification) => ipcRenderer.invoke(IPC_CHANNELS.notify, notification),
+  closeNotifications: (tag) => ipcRenderer.invoke(IPC_CHANNELS.closeNotifications, tag),
+  setBadgeCount: (count) => ipcRenderer.invoke(IPC_CHANNELS.setBadgeCount, count),
+  onNotificationClick: (listener) => {
+    const handler = (_event: IpcRendererEvent, tag: string) => listener(tag);
+    ipcRenderer.on(IPC_CHANNELS.notificationClick, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.notificationClick, handler);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld('wevir', api);

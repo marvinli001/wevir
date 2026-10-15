@@ -1,5 +1,5 @@
 import { cn } from 'cn';
-import { CircleCheck, LoaderCircle, TriangleAlert, X } from 'lucide-react';
+import { CircleAlert, CircleCheck, LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { t } from '@/i18n';
@@ -7,8 +7,8 @@ import { t } from '@/i18n';
 /** 离场动画的时长（与 className 里的 duration-150 一致），动画事件没来时按它卸载。 */
 const EXIT_MS = 150;
 
-/** 前面的图标：进行中是转动的圈，完成是对勾，出错是警示。 */
-export type ToastTone = 'progress' | 'success' | 'danger';
+/** 前面的图标：进行中是转动的圈，完成是对勾，出错是警示，等用户处理（U31 的审批、提问）是提醒。 */
+export type ToastTone = 'progress' | 'success' | 'danger' | 'attention';
 
 /**
  * 窗口右下角的通知区（U25）：一列浮起的卡片，从下往上叠。容器本身不接收指针，只有卡片接收，空白处不挡下面的界面。
@@ -61,7 +61,14 @@ export function Toast({
   }, [open, duration, held]);
 
   if (!mounted.current) return null;
-  const Icon = tone === 'danger' ? TriangleAlert : tone === 'success' ? CircleCheck : LoaderCircle;
+  const Icon =
+    tone === 'danger'
+      ? TriangleAlert
+      : tone === 'success'
+        ? CircleCheck
+        : tone === 'attention'
+          ? CircleAlert
+          : LoaderCircle;
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: 指针与焦点的事件只为暂停自动关闭计时，卡片是 status / alert，本身不是控件。
     <div
@@ -91,6 +98,7 @@ export function Toast({
           tone === 'progress' && 'animate-spin text-muted-foreground',
           tone === 'success' && 'text-success',
           tone === 'danger' && 'text-destructive',
+          tone === 'attention' && 'text-warning',
         )}
       />
       <div className="min-w-0 flex-1 space-y-1">

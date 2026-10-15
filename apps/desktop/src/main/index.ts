@@ -11,6 +11,7 @@ import {
   dialog,
   type IpcMainInvokeEvent,
   ipcMain,
+  Notification,
   nativeTheme,
   protocol,
   session,
@@ -40,6 +41,7 @@ import {
   resolveHostEntry,
 } from './host-lifecycle.js';
 import { loadDesktopIdentity } from './identity.js';
+import { isBadgeCount, parseDesktopNotification } from './notification-input.js';
 import { serveRendererFile } from './renderer-files.js';
 
 const log: Log = (level, message, detail) => {
@@ -181,6 +183,50 @@ function run(): void {
     if (!isThemeMode(mode)) throw new Error('theme mode must be system, light or dark');
     nativeTheme.themeSource = mode;
     window.setBackgroundColor(windowBackground());
+  });
+
+  // 系统通知（U31）：显示中的通知按 tag 留着引用，否则可能被回收，点击就没有回调了。同一个 tag 的新通知替换旧的。
+  const notifications = new Map<string, Notification>();
+  ipcMain.handle(IPC_CHANNELS.notify, async (event, value: unknown): Promise<boolean> => {
+    assertSender(event);
+    const input = parseDesktopNotification(value);
+    if (!input) throw new Error('invalid notification');
+    if (!Notification.isSupported()) return false;
+    notifications.get(input.tag)?.close();
+    const notification = new Notification({
+      title: input.title,
+      body: input.body,
+      silent: !input.sound,
+    });
+    notifications.set(input.tag, notification);
+    const forget = () => {
+      if (notifications.get(input.tag) === notification) notifications.delete(input.tag);
+    };
+    notification.on('click', () => {
+      forget();
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send(IPC_CHANNELS.notificationClick, input.tag);
+    });
+    notification.on('close', forget);
+    notification.show();
+    return true;
+  });
+  ipcMain.handle(IPC_CHANNELS.closeNotifications, async (event, tag: unknown): Promise<void> => {
+    assertSender(event);
+    if (tag !== undefined && typeof tag !== 'string') throw new Error('tag must be a string');
+    for (const [key, notification] of notifications) {
+      if (tag !== undefined && key !== tag) continue;
+      notification.close();
+      notifications.delete(key);
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.setBadgeCount, async (event, count: unknown): Promise<void> => {
+    assertSender(event);
+    if (!isBadgeCount(count)) throw new Error('badge count must be an integer from 0 to 9999');
+    app.setBadgeCount(count);
   });
 
   // 所有 webContents（含将来的）一律：新窗口拒绝，外部链接交给系统浏览器；只允许同 origin 的导航

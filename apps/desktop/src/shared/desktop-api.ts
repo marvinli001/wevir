@@ -77,6 +77,21 @@ export type HostFailure =
     | { code: 'internal' }
   ) & { detail?: string };
 
+/**
+ * 一条系统通知（U31）：要不要发由渲染进程按通知设置决定，主进程只负责显示、替换与点击。点击时窗口回到前台，`tag` 原样交回
+ * 渲染进程（`onNotificationClick`），由它打开对应的会话。
+ */
+export interface DesktopNotification {
+  /** 同一个 tag 的旧通知被这一条替换（同一个会话只留最新的一条）。最长 200 个字符。 */
+  tag: string;
+  /** 最长 200 个字符。 */
+  title: string;
+  /** 最长 1000 个字符。 */
+  body: string;
+  /** 播放系统提示音。 */
+  sound: boolean;
+}
+
 /** 窗口标题栏的形态。macOS 隐藏了系统标题栏，红绿灯浮在页面左上角，由页面的顶栏充当标题栏。 */
 export interface WindowChrome {
   /** 红绿灯此刻浮在页面左上角（macOS 且不在全屏）：左上角的顶栏要给它们让出位置。 */
@@ -114,6 +129,14 @@ export interface DesktopApi {
   getWindowChrome(): WindowChrome;
   /** 订阅窗口标题栏形态的变化（进出全屏、页面重新加载），返回取消订阅的函数。 */
   onWindowChrome(listener: (chrome: WindowChrome) => void): () => void;
+  /** 显示一条系统通知（U31）；系统不支持通知时返回 false。 */
+  notify(notification: DesktopNotification): Promise<boolean>;
+  /** 收回还在通知中心里的通知：给了 tag 只收回那一条，否则全部。 */
+  closeNotifications(tag?: string): Promise<void>;
+  /** 程序坞（macOS）与任务栏（Linux Unity）上的角标数字，0 清除。 */
+  setBadgeCount(count: number): Promise<void>;
+  /** 订阅系统通知的点击，交回通知的 tag；返回取消订阅的函数。 */
+  onNotificationClick(listener: (tag: string) => void): () => void;
 }
 
 export const IPC_CHANNELS = {
@@ -128,4 +151,12 @@ export const IPC_CHANNELS = {
   setThemeSource: 'wevir:set-theme-source',
   /** 主进程 → 渲染进程的推送。 */
   windowChrome: 'wevir:window-chrome',
+  notify: 'wevir:notify',
+  closeNotifications: 'wevir:close-notifications',
+  setBadgeCount: 'wevir:set-badge-count',
+  /** 主进程 → 渲染进程的推送。 */
+  notificationClick: 'wevir:notification-click',
 } as const;
+
+/** `DesktopNotification` 各字段的长度上限，主进程按它校验。 */
+export const NOTIFICATION_LIMITS = { tag: 200, title: 200, body: 1000 } as const;
