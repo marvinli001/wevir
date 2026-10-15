@@ -30,6 +30,8 @@ export const PANE_LAYOUT = {
   maxVisible: 4,
   /** 会话侧栏（U18，§12）的宽，不含它右边的间距。 */
   railWidth: 288,
+  /** 停靠的会话侧栏与窗口右边缘的间距：比 gap 宽，消息流贴着窗口右边的细滚动条（约 11 px）从这里过（§12）。 */
+  railEdge: 12,
 } as const;
 
 export type TemplateId = 'one' | 'rows2' | 'cols2' | 'side3' | 'rows3' | 'grid4';

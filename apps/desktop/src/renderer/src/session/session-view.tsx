@@ -345,7 +345,7 @@ export function SessionView({
   return (
     <div className="flex h-full min-h-0 flex-col animate-in fade-in duration-200 ease-smooth">
       {state?.error ? (
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 pr-(--rail-inset)">
           <EmptyState
             icon={<TriangleAlert />}
             title={t('transcript.failed', { error: state.error })}
@@ -364,82 +364,85 @@ export function SessionView({
           </OpenFileLink>
         </OpenTurnChanges>
       ) : (
-        <p className="min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">
+        <p className="min-h-0 flex-1 py-16 pr-(--rail-inset) text-center text-sm text-muted-foreground">
           {t('transcript.loading')}
         </p>
       )}
-      <div
-        className={cn(
-          'mx-auto w-full max-w-content shrink-0',
-          variant === 'pane' ? 'px-4 pb-4' : 'px-6 pb-5',
-        )}
-      >
-        {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
-        <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
-          {transcript && <TodoDock transcript={transcript} />}
-          {transcript && (
-            <QuestionDock
-              transcript={transcript}
-              client={client}
-              recap={<TurnRecap transcript={transcript} />}
-            />
+      {/* 会话侧栏盖在主窗格上时（--rail-inset），输入框在侧栏左边剩下的地方居中。 */}
+      <div className="shrink-0 pr-(--rail-inset)">
+        <div
+          className={cn(
+            'mx-auto w-full max-w-content',
+            variant === 'pane' ? 'px-4 pb-4' : 'px-6 pb-5',
           )}
-          {transcript && (
-            <ApprovalDock
-              transcript={transcript}
-              session={session}
-              client={client}
-              self={identity}
-              subagentHref={subagentHref}
-              recap={<TurnRecap transcript={transcript} />}
-            />
-          )}
-          <RecoveryPanel
-            // 换会话、或从出错变为只读（恢复失败的原因已经写在只读说明里）时重建，清掉上一次的失败提示。
-            key={`${session.id}:${readOnly ? 'read-only' : 'error'}`}
-            state={sessionState}
-            readOnly={readOnly}
-            lastError={transcript?.lastError ?? session.lastError}
-            disabled={!client || !transcript}
-            onResume={resume}
-            onFromHistory={startFromHistory}
-          />
-          {notice && (
-            <p
-              role="alert"
-              className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
-            >
-              {notice}
-            </p>
-          )}
-          {transcript && (
-            <PendingArea
-              sessionId={session.id}
-              pending={transcript.pendingMessages}
+        >
+          {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
+          <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
+            {transcript && <TodoDock transcript={transcript} />}
+            {transcript && (
+              <QuestionDock
+                transcript={transcript}
+                client={client}
+                recap={<TurnRecap transcript={transcript} />}
+              />
+            )}
+            {transcript && (
+              <ApprovalDock
+                transcript={transcript}
+                session={session}
+                client={client}
+                self={identity}
+                subagentHref={subagentHref}
+                recap={<TurnRecap transcript={transcript} />}
+              />
+            )}
+            <RecoveryPanel
+              // 换会话、或从出错变为只读（恢复失败的原因已经写在只读说明里）时重建，清掉上一次的失败提示。
+              key={`${session.id}:${readOnly ? 'read-only' : 'error'}`}
               state={sessionState}
-              client={client}
-              onError={setNotice}
+              readOnly={readOnly}
+              lastError={transcript?.lastError ?? session.lastError}
+              disabled={!client || !transcript}
+              onResume={resume}
+              onFromHistory={startFromHistory}
             />
-          )}
+            {notice && (
+              <p
+                role="alert"
+                className="mb-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              >
+                {notice}
+              </p>
+            )}
+            {transcript && (
+              <PendingArea
+                sessionId={session.id}
+                pending={transcript.pendingMessages}
+                state={sessionState}
+                client={client}
+                onError={setNotice}
+              />
+            )}
+          </div>
+          <Composer
+            key={session.id}
+            draftKey={session.id}
+            state={sessionState}
+            disabled={!client || readOnly !== undefined}
+            disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
+            model={<SessionModelPicker session={session} onError={setNotice} />}
+            leading={<SessionPermissionPicker session={session} onError={setNotice} />}
+            {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
+            {...(pendingEnabled &&
+              hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
+            onSend={send}
+            onStop={stop}
+            acceptImages={acceptImages && readOnly === undefined}
+            autoFocus={variant === 'main'}
+            commands={readOnly === undefined ? commands : undefined}
+            {...(fileScope && { fileScope })}
+          />
         </div>
-        <Composer
-          key={session.id}
-          draftKey={session.id}
-          state={sessionState}
-          disabled={!client || readOnly !== undefined}
-          disabledReason={readOnly ? t('session.readOnlyComposer') : undefined}
-          model={<SessionModelPicker session={session} onError={setNotice} />}
-          leading={<SessionPermissionPicker session={session} onError={setNotice} />}
-          {...(pendingEnabled && { busyDelivery: settings.sendWhileBusy })}
-          {...(pendingEnabled &&
-            hostSettings.supported && { onBusyDeliveryChange: changeBusyDelivery })}
-          onSend={send}
-          onStop={stop}
-          acceptImages={acceptImages && readOnly === undefined}
-          autoFocus={variant === 'main'}
-          commands={readOnly === undefined ? commands : undefined}
-          {...(fileScope && { fileScope })}
-        />
       </div>
     </div>
   );

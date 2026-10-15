@@ -229,6 +229,9 @@ export function WorkbenchLayout() {
   const sidebarShown = docked && !sidebarDrag?.collapsed;
   const auxDocked = plan.mode === 'docked' && plan.tree !== undefined;
   const auxShownWidth = auxDocked && !auxCollapsing;
+  // 停靠的会话侧栏浮在内容区最右边（§12）。窗格区没露出时侧栏盖在主窗格上：主窗格占到最右，滚动条贴着窗口右边，
+  // 消息与输入框让出侧栏的宽（--rail-inset）；窗格区露出时在它右边留出侧栏的位置。两者宽度相加始终是侧栏的宽。
+  const railOverMain = railDocked && !auxShownWidth;
   // 窗格区不再停靠（收起、改浮层、最大化）时丢掉拖动中的折叠草稿。
   useEffect(() => {
     if (!auxDocked) setAuxCollapsing(false);
@@ -378,10 +381,13 @@ export function WorkbenchLayout() {
               inert={plan.mode === 'maximized'}
               onPointerDownCapture={() => panes?.focus(PRIMARY)}
               className={cn(
-                'relative min-h-0 min-w-0 flex-1 outline-none',
+                'rail-inset relative min-h-0 min-w-0 flex-1 outline-none',
                 // 最大化时主窗格留在原处、只是看不见，消息流的滚动位置与输入框里的草稿都还在。
                 plan.mode === 'maximized' && 'invisible absolute inset-0',
               )}
+              style={
+                { '--rail-inset': `${railOverMain ? RAIL_DOCKED_WIDTH : 0}px` } as CSSProperties
+              }
             >
               <Outlet />
             </main>
@@ -451,24 +457,34 @@ export function WorkbenchLayout() {
             {plan.mode === 'maximized' && plan.tree && (
               <div className="flex min-w-0 flex-1 p-2">{tree(plan.tree)}</div>
             )}
-            {/* 停靠的会话侧栏：在窗格区右边，开合同样过渡外层宽度，收起时不卸载。 */}
+            {/* 停靠的会话侧栏：浮在内容区最右边，开合同样过渡外层宽度，收起时不卸载。宽只有开与关两种，拖窗口时也过渡：
+                跨过默认显示的宽度时滑进滑出，不是一下跳开（index.css）。 */}
             {rail && header.entry && sessionId !== undefined && plan.mode !== 'maximized' && (
-              <div
-                className="layout-transition flex shrink-0 overflow-hidden"
-                // 宽只有开与关两种，拖窗口时也过渡：跨过默认显示的宽度时滑进滑出，不是一下跳开（index.css）。
-                data-resize-transition
-                inert={!railDocked}
-                style={{ width: railDocked ? RAIL_DOCKED_WIDTH : 0 }}
-              >
-                <div className="flex shrink-0 flex-col" style={{ width: RAIL_DOCKED_WIDTH }}>
-                  <SessionRail
-                    sessionId={sessionId as Session['id']}
-                    session={rail}
-                    entry={header.entry}
-                    visible={railDocked}
-                  />
+              <>
+                <div
+                  aria-hidden
+                  className="layout-transition shrink-0"
+                  data-resize-transition
+                  style={{ width: railDocked && !railOverMain ? RAIL_DOCKED_WIDTH : 0 }}
+                />
+                {/* 卡片之外的地方不接鼠标：在空白处滚动、拖滚动条落到下面的消息流。 */}
+                <div
+                  className="layout-transition pointer-events-none absolute inset-y-0 right-0 z-10 flex overflow-hidden"
+                  data-resize-transition
+                  inert={!railDocked}
+                  style={{ width: railDocked ? RAIL_DOCKED_WIDTH : 0 }}
+                >
+                  <div className="flex shrink-0 flex-col" style={{ width: RAIL_DOCKED_WIDTH }}>
+                    <SessionRail
+                      sessionId={sessionId as Session['id']}
+                      session={rail}
+                      entry={header.entry}
+                      visible={railDocked}
+                      floating
+                    />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
         </div>
@@ -507,7 +523,9 @@ export function WorkbenchLayout() {
               finalFocus={railToggleRef}
               className="gap-0 bg-background text-foreground data-[side=right]:w-(--overlay-width) data-[side=right]:sm:max-w-none"
               style={
-                { '--overlay-width': `${RAIL_DOCKED_WIDTH + PANE_LAYOUT.gap}px` } as CSSProperties
+                {
+                  '--overlay-width': `${PANE_LAYOUT.railWidth + 2 * PANE_LAYOUT.gap}px`,
+                } as CSSProperties
               }
             >
               <div className="flex h-11 shrink-0 items-center gap-2 pr-2 pl-4">

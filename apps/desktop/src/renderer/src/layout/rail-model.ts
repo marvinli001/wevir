@@ -4,7 +4,7 @@ import type { ProviderProfile, Session, Usage } from '@wevir/protocol';
 import { PANE_LAYOUT } from './arrange';
 
 /** 侧栏停靠时占内容区的宽：侧栏本身加它右边的间距。 */
-export const RAIL_DOCKED_WIDTH = PANE_LAYOUT.railWidth + PANE_LAYOUT.gap;
+export const RAIL_DOCKED_WIDTH = PANE_LAYOUT.railWidth + PANE_LAYOUT.railEdge;
 
 /** 停靠会话侧栏后主窗格还有这么宽，侧栏才默认显示（§12）。 */
 export const RAIL_ROOMY_PRIMARY_WIDTH = 640;

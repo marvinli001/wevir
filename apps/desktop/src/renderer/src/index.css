@@ -51,6 +51,18 @@
   initial-value: 0px;
 }
 
+/* 会话侧栏盖在主窗格右边时让出的宽（desktop-layout.md §12）：主窗格占到内容区最右，消息流的滚动条贴着窗口右边，
+ * 消息、输入框往左让出这么宽。与侧栏的宽同时、同样过渡，拖窗口时也是（侧栏标了 data-resize-transition）。 */
+@property --rail-inset {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+.rail-inset {
+  transition: --rail-inset 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 /* 侧栏与窗格区开合的过渡（U5，照 Codex 桌面端）：只过渡这几个布局量。拖动分隔条（data-resizing）与拖窗口改尺寸
  * （<html data-window-resizing>，layout/workbench-layout.tsx）时关掉，免得跟手变慢。 */
 .layout-transition {
@@ -129,7 +141,8 @@
 
   /* 布局过渡写在层外、优先级比上面的 * 高，要单独停下。 */
   .layout-transition,
-  .layout-transition[data-snapping] {
+  .layout-transition[data-snapping],
+  .rail-inset {
     transition-duration: 0.01ms;
   }
 }

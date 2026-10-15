@@ -53,18 +53,21 @@ export function registerRailCard(card: RailCard): void {
 
 /**
  * 侧栏的内容：竖排的卡片，多了在这一列里滚动。`visible` 为 false（收起着、浮层关着）时仍渲染（开合有宽度过渡），但不读
- * git 状态。
+ * git 状态。`floating`（停靠时，盖在主窗格的消息流上）：只有卡片接鼠标，这一列不画滚动条，免得与消息流贴着窗口右边的
+ * 滚动条叠在一起（卡片上照样能滚），右边留出那条滚动条的位置。
  */
 export function SessionRail({
   sessionId,
   session,
   entry,
   visible,
+  floating = false,
 }: {
   sessionId: SessionId;
   session: Session;
   entry: WorkspaceEntry;
   visible: boolean;
+  floating?: boolean;
 }) {
   const data = useWorkbenchData();
   const { railOpen } = layoutPrefs.use();
@@ -91,7 +94,13 @@ export function SessionRail({
   return (
     <aside
       aria-label={t('rail.label')}
-      className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-2 pr-2 [scrollbar-width:thin]"
+      className={cn(
+        'flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-2',
+        // 停靠时右边留 PANE_LAYOUT.railEdge（12 px），浮层里同窗格的 8 px。
+        floating
+          ? 'pointer-events-none pr-3 [scrollbar-width:none]'
+          : 'pr-2 [scrollbar-width:thin]',
+      )}
       data-testid="session-rail"
     >
       {items.map(({ card, content }) => (
@@ -121,7 +130,7 @@ function RailCardView({
   return (
     <section
       aria-label={title}
-      className="shrink-0 rounded-xl border border-border bg-background"
+      className="pointer-events-auto shrink-0 rounded-xl border border-border bg-background"
       data-testid={`rail-card-${id}`}
     >
       <button

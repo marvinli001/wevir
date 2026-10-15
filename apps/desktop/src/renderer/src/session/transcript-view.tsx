@@ -102,7 +102,8 @@ export function TranscriptView({
         // 可聚焦，键盘也能滚动（滚动控制器据此识别导航键）。
         // biome-ignore lint/a11y/noNoninteractiveTabindex: 可滚动区域需要能用键盘滚动。
         tabIndex={0}
-        className="transcript-scroll scroll-fade h-full overflow-y-auto outline-none [--scroll-fade-size:32px]"
+        // 右内边距是盖在上面的会话侧栏的宽（--rail-inset，主窗格里才有）：内边距在滚动条里面，滚动条仍贴着右边。
+        className="transcript-scroll scroll-fade h-full overflow-y-auto pr-(--rail-inset) outline-none [--scroll-fade-size:32px]"
       >
         <div
           ref={contentRef}
@@ -152,7 +153,7 @@ export function TranscriptView({
         </div>
       </section>
       {showJump && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center pr-(--rail-inset)">
           <button
             type="button"
             aria-label={t('transcript.jumpToLatest')}
