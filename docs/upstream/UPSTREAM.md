@@ -33,6 +33,7 @@ bash scripts/upstream-sync.sh
 |---|---|---|---|---|
 | `@deepseek-ai/dsh` | `0.2.1-alpha.2` | `0.2.0-rc.2` | MIT | 与上表 dsh 锁定提交同源；`packages/adapter-dsh/src/paths.ts` 的 `DSH_VERSION` 与之相同，解析到别的版本时启动报错 |
 | `@agentclientprotocol/sdk` | `1.4.0` | `1.8.0` | Apache-2.0（Zed Industries） | 与 dsh-acp 自己锁定的版本相同；peer `zod` 由 pnpm 自动安装为工作区里的 4.6.x |
+| `@anthropic-ai/claude-agent-sdk` | `0.3.286`（2026-09-30 发布） | `0.3.300`（2026-10-15） | Anthropic 商业条款（包内 `LICENSE.md`，`© Anthropic PBC`），不是开源许可证 | 只在 `packages/adapter-claude/package.json` 声明（2026-10-15，ADR-0005 补记 14）。驱动用户自己装的 `claude`，各平台带 Claude Code 原生二进制的可选包由 `pnpm-workspace.yaml` 的 `ignoredOptionalDependencies` 跳过；peer `@modelcontextprotocol/sdk` 由 `packageExtensions` 标成可选（只用到类型），`@anthropic-ai/sdk` 与 `zod` 由 pnpm 自动安装为工作区里已有的版本（claude-event-mapping.md §1）。随安装包分发前要定能不能分发（third-party-notices.md §3.2b） |
 
 ### 1.2 作为二进制运行的上游程序
 
@@ -176,7 +177,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 |---|---|
 | [`upstream/t3code/LICENSE`](https://github.com/pingdotgg/t3code/blob/ec1313c8f8333292506f05a355bb72d308a455d8/LICENSE) | 标准 MIT，`Copyright (c) 2026 T3 Tools Inc.` |
 
-结论与义务：移植了“变更”窗格与回合快照的几个文件（§4，0.20.0）。按 MIT 在文件头保留版权与许可证（§5 的格式），根目录 `NOTICE` 第 10 节列出文件并收录许可证全文。它依赖的 `@pierre/diffs`（Apache-2.0）是 npm 包，不是从 T3 拷贝的，见 `NOTICE` 第 11 节与 ADR-0004 补记 10；T3 给它打的搜索补丁没有用。
+结论与义务：移植了“变更”窗格与回合快照（0.20.0）和 Claude Agent 引擎的文件（§4）。按 MIT 在文件头保留版权与许可证（§5 的格式），根目录 `NOTICE` 第 10 节列出文件并收录许可证全文。“变更”窗格依赖的 `@pierre/diffs`（Apache-2.0）是 npm 包，不是从 T3 拷贝的，见 `NOTICE` 第 11 节与 ADR-0004 补记 10；T3 给它打的搜索补丁没有用。T3 Code 自己依赖的 `@anthropic-ai/claude-agent-sdk` 是 Anthropic 的商业条款，Wevir 作为 npm 依赖另行声明（§1.1），不从 T3 拷贝。T3 的仓库里还 vendored 了别的项目（`.repos/` 等），Wevir 没有参考。
 
 ## 3. 各仓库的参考重点
 
@@ -185,6 +186,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 - **dsh**（作为依赖，读文档和接口，不移植）：`docs/architecture.zh.md`、`docs/agent-lifecycle.zh.md`、`docs/capability-seams.zh.md`、`packages/acp/acp/README.zh.md`、`packages/sdk/{client,protocol,server}/README.zh.md`、`docs/user/guide/providers.md`。
 - **OpenWork**（桌面产品与交互参考，仅 MIT 区域）：`apps/app`（React + Vite + Tailwind v4 主界面）、`apps/desktop`（Electron 壳）、`apps/server`、`packages/ui`、`packages/sdk`、`packages/types`、`docs/architecture`。**`ee/` 排除**。
 - **Paseo**（多端与远程架构参考，骨架阶段不移植）：`packages/server`（daemon）、`packages/protocol`（`@getpaseo/protocol`）、`packages/client`、`packages/relay`、`packages/app`（Expo）、`packages/desktop`、`packages/cli`、`public-docs/sdk`。
+- **T3 Code**（订阅来源的做法，移植代码，补记 14）：`apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`（Claude 引擎的主体）、`apps/server/src/provider/ClaudeProvider.ts`、`ClaudeModelCatalog.ts`、`ClaudeModelManifest.ts`、`model-manifest.json`、`claudeUsageLimits.ts`、`Drivers/ClaudeExecutable.ts`、`Drivers/ClaudeHome.ts`、`apps/server/src/claudeModelOptions.ts`、`apps/server/src/textGeneration/ClaudeTextGeneration.ts`。T3 的服务端是 Effect 写的，移植时改写成普通 TS，不引入 `effect`。
 - **Codex**（Agent 运行时候选，作为二进制运行，读协议与源码，不移植）：`codex-rs/app-server/README.md` 与 `codex-rs/app-server-protocol/`（`schema/typescript/`、`schema/json/` 是这个版本生成的协议类型）、`codex-rs/model-provider-info/`（`[model_providers]` 配置）、`codex-rs/codex-api/src/sse/responses.rs`（解析模型流的事件）、`codex-rs/core/tests/common/responses.rs`（Responses SSE 的测试帮手）、`codex-rs/models-manager/`（模型目录）、`codex-rs/config/`（配置键）、`codex-rs/linux-sandbox/README.md`、`codex-rs/mxc-sandbox/README.md`。研读结论见 [docs/research/codex-notes.md](../research/codex-notes.md)。
 - **T3 Code**（diff 右栏与回合快照，维护者 2026-10-15 定照搬）：`apps/web/src/components/DiffPanel.tsx`、`apps/web/src/components/diffs/`、`apps/web/src/components/DiffWorkerPoolProvider.tsx`、`apps/web/src/lib/diffRendering.ts`、`apps/server/src/vcs/GitVcsDriver.ts`（captureCheckpoint 等）、`apps/server/src/vcs/GitVcsDriverCore.ts`（未提交与本分支的 diff）、`apps/server/src/orchestration-v2/CheckpointService.ts`。订阅来源的设计另见 ADR-0005 补记 14。
 
@@ -213,6 +215,15 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 | `apps/desktop/src/renderer/src/changes/diff-rendering.ts` | T3 Code `apps/web/src/lib/diffRendering.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 移植：去掉忽略空白，表面颜色换成 Wevir 的变量 |
 | `apps/desktop/src/renderer/src/changes/diff-file-contents.ts` | T3 Code `apps/web/src/lib/diffFileContents.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 移植 createDiffFileContentsLoader，请求换成 `workspace.diffFile` |
 | `apps/desktop/src/renderer/src/changes/changes-model.ts` | T3 Code `apps/web/src/lib/diffCollapse.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 只有 areAllCollapsed / toggleAll 来自 T3，其余是 Wevir 的 |
+| `packages/adapter-claude/src/claude-adapter.ts` | T3 Code `apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写（2026-10-15，Claude Agent 引擎）：每个会话一个常驻的 `query()`、建进程的选项、`spawnClaudeProcessGroup`、流式 / 快照 / 工具结果 / 结果的处理、`canUseTool`、中断、插话、`forkThread` 改写成不依赖 `effect` 的普通 TS，实现 Wevir 的 `AgentRuntimeAdapter`；插话用 priority next（T3 用 now）；关掉后台任务；不移植唤醒回合、prompt 回声的门控、后台任务名单、goal、回滚与编排用的 MCP 工具（claude-event-mapping.md） |
+| `packages/adapter-claude/src/account.ts` | T3 Code `apps/server/src/provider/ClaudeProvider.ts`、`apps/server/src/provider/claudeUsageLimits.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：版本探测、SDK 的探测会话、套餐名、登录判断与用量改写成 Wevir 的 `EngineAccounts` / `AccountState`；用量只留 5 小时与 7 天两个窗口，另认 `unifiedWindows`；去掉 slash 命令、skills 与重置额度 |
+| `packages/adapter-claude/src/model-manifest.ts` | T3 Code `apps/server/src/provider/model-manifest.json` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 摘录：`providers.claudeAgent` 与 claudeAgent 的 `compatibility` 原样转成 TS 常量；不联网更新 |
+| `packages/adapter-claude/src/model-catalog.ts` | T3 Code `apps/server/src/provider/ClaudeModelCatalog.ts`、`ClaudeModelManifest.ts`、`apps/server/src/claudeModelOptions.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：按版本过滤、effortMap、上下文窗口与模型后缀，输出 `ProviderModelConfig`；去掉自定义模型与 ultracode / ultrathink / fastMode |
+| `packages/adapter-claude/src/executable.ts` | T3 Code `apps/server/src/provider/Drivers/ClaudeExecutable.ts`、`apps/server/src/provider/ClaudeProvider.ts`、`apps/web/src/onboarding/providerReadiness.logic.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：Windows npm 启动脚本换成包入口、`--version` 探测、安装命令；另加 PATH 之外的常见安装位置（T3 的桌面端读登录 shell 的环境，Wevir 不读） |
+| `packages/adapter-claude/src/permissions.ts` | T3 Code `ClaudeAdapterV2.ts`（`permissionModeForClaudeRuntimePolicy`、`permissionResultFromDecision`、`toSessionPermissionUpdates`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：Wevir 的三种权限模式的映射；审批选项照 adapter-codex |
+| `packages/adapter-claude/src/tool-display.ts` | T3 Code `ClaudeAdapterV2.ts`（`classifyClaudeNativeTool`、`summarizeClaudeToolRequest`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：输出 Wevir 的 `ToolDisplay` |
+| `packages/adapter-claude/src/todos.ts` | T3 Code `ClaudeAdapterV2.ts`（`claudeTodoSteps`、`applyClaudeTaskTool`、`claudeUserInputQuestions`、`claudeSdkUserInputAnswers`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：输出 `TodoItem` 与 `UserQuestion` |
+| `packages/adapter-claude/src/turn-result.ts` | T3 Code `ClaudeAdapterV2.ts`（`resultUserFacingError`、`terminalResultError`、`terminalStatusFromResult`、`providerFailureFromResult`） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：输出 `turn.settled` / `turn.failed` 的归类 |
 
 ### 4.1 其他第三方来源的文件
 
@@ -224,6 +235,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 | `apps/desktop/src/renderer/src/styles/shadcn-variants.css` | shadcn 4.21.4 包内 `dist/tailwind.css` 的摘录 | MIT，`Copyright (c) 2023 shadcn` | 只取原语用到的 `@custom-variant` |
 | `packages/model-gateway/src/test-fixtures/codex-requests/**`、`packages/model-gateway/src/__snapshots__/codex-requests/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 发出的请求的录制（R1，`spikes/codex-app-server/src/record-requests.ts`），及其经网关转换后的快照 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 Codex 发给模型服务的请求体，不是源码。含 Codex 内置工具的定义与描述（apply_patch 的 Lark 语法等）与 Codex 注入的权限、skills、环境说明文字；基础提示词已换成长度说明，本机路径与 ID 换成占位符 |
 | `packages/adapter-codex/src/test-fixtures/app-server/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 运行输出的录制（R2 起，`record-app-server.test.ts`）：通知序列、审批对话、回合与恢复的错误 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 app-server 发给客户端的消息，不是源码。含 Codex 的 item 结构、内置工具名、错误措辞（如 500 时的“We’re currently experiencing high demand…”）；本机路径换成占位符，审批对话里的 ID 换成占位符 |
+| `packages/adapter-claude/src/test-fixtures/sdk/**` | Claude Code 2.1.287（本机 `claude`，`claude-haiku-4-5`）经 Claude Agent SDK 0.3.286 交出的消息的录制（2026-10-15，`record-sdk.test.ts`） | Claude Code 与 Claude Agent SDK 是 Anthropic 的商业条款（`© Anthropic PBC`） | 录的是 `claude` 发给 SDK 的消息与模型的回答，不是源码。含 Claude Code 的内置工具名与几段固定措辞（工具结果、“[Subagent hand-back] …” 等）；不读用户的设置，本机路径、用户的插件与命令清单抹掉 |
 | `spikes/dsh-acp/fixtures/**`、`packages/adapter-dsh/src/test-fixtures/acp/**` | dsh 0.2.1-alpha.2 运行时输出的录制（T0.3 起） | MIT，`Copyright (c) 2026 DeepSeek` | 录的是 dsh 发出的协议消息与事件，不是源码。`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` 含 dsh 内置工具的 schema 与描述文本，与上游 `snapshots/sdk/bash-tool/tool-schemas.expected.json` 相同 |
 
 ### 4.2 字体

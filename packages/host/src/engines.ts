@@ -6,10 +6,22 @@
 // 引擎应当懒启动：构造适配器时不起进程、不联网，第一次读账号或建会话时才去找可执行文件。Host 启动时会在后台读一遍每种
 // 订阅的账号状态（host-process.ts）。
 
+import { ClaudeAdapter } from '@wevir/adapter-claude';
 import type { AdapterContext } from './cli.js';
 import type { EngineRoute } from './engine-router.js';
 
-/** 现在挂上的订阅引擎；还没有时是空表，Host 只有 Codex。 */
-export function subscriptionEngines(_context: AdapterContext): EngineRoute[] {
-  return [];
+/** 现在挂上的订阅引擎。 */
+export function subscriptionEngines(context: AdapterContext): EngineRoute[] {
+  return [
+    {
+      // Claude Agent（claude-event-mapping.md）：用户自己装的 `claude` 与他的登录，经 Claude Agent SDK 驱动。
+      name: 'claude',
+      adapter: new ClaudeAdapter({
+        home: context.home,
+        logger: context.logger,
+        env: context.env ?? process.env,
+      }),
+      kinds: ['claude'],
+    },
+  ];
 }

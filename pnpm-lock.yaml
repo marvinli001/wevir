@@ -162,6 +162,8 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+packageExtensionsChecksum: sha256-qN8MqwqhwzLgANSJ3fXjIt06EfZvojnj/zxCJZTD7VM=
+
 patchedDependencies:
   '@pierre/diffs@1.5.1': e49d4cef404222759da588110b7930cda601862bfa1fc2e9b1e216174b52187c
   metal-fx@2.0.11: 28505134ca755ba5ea948a4b5513343d9459beb98a6c1686dbdb2d5490a31fa4
@@ -326,6 +328,15 @@ importers:
         specifier: workspace:*
         version: link:../runtime-adapter
 
+  packages/adapter-claude:
+    dependencies:
+      '@anthropic-ai/claude-agent-sdk':
+        specifier: 0.3.286
+        version: 0.3.286(@anthropic-ai/sdk@0.129.0(zod@4.6.5))(zod@4.6.5)
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/adapter-codex:
     dependencies:
       '@wevir/model-gateway':
@@ -368,6 +379,9 @@ importers:
 
   packages/host:
     dependencies:
+      '@wevir/adapter-claude':
+        specifier: workspace:*
+        version: link:../adapter-claude
       '@wevir/adapter-codex':
         specifier: workspace:*
         version: link:../adapter-codex
@@ -417,6 +431,17 @@ packages:
     resolution: {integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==}
     peerDependencies:
       zod: ^3.25.0 || ^4.0.0
+
+  '@anthropic-ai/claude-agent-sdk@0.3.286':
+    resolution: {integrity: sha512-InL/UNmRGSwBM/81PME0J0TZDsDBBlweWqRZgq2XSViSIg2hBi8nIL8j9Hm6MHRH85wgDJQE5n6Vo/r9hIO0NQ==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@anthropic-ai/sdk': '>=0.93.0'
+      '@modelcontextprotocol/sdk': ^1.29.0
+      zod: ^4.0.0
+    peerDependenciesMeta:
+      '@modelcontextprotocol/sdk':
+        optional: true
 
   '@anthropic-ai/sdk@0.129.0':
     resolution: {integrity: sha512-MH7LB20kNpGLUpPTe2OG5XvL/KhX8HUO9XyBaFjgFk6TLS4Xjt0VPIuMKywe7POKKPslX+QxSlVok9e+8kG5Nw==}
@@ -6295,10 +6320,18 @@ packages:
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
+ignoredOptionalDependencies:
+  - '@anthropic-ai/claude-agent-sdk-*'
+
 snapshots:
 
   '@agentclientprotocol/sdk@1.4.0(zod@4.6.5)':
     dependencies:
+      zod: 4.6.5
+
+  '@anthropic-ai/claude-agent-sdk@0.3.286(@anthropic-ai/sdk@0.129.0(zod@4.6.5))(zod@4.6.5)':
+    dependencies:
+      '@anthropic-ai/sdk': 0.129.0(zod@4.6.5)
       zod: 4.6.5
 
   '@anthropic-ai/sdk@0.129.0(zod@4.6.5)':

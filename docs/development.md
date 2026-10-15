@@ -226,6 +226,8 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `engines/dsh-agents/` | dsh 的 `DSH_AGENTS_HOME`，空目录（安全说明 §4） |
 | `engines/codex/` | Codex 的 `CODEX_HOME`，也是 `codex-app-server` 的 cwd：Wevir 每次启动它之前重写的 `config.toml` 与模型目录 `wevir-models.json`（只有网关令牌的变量名，没有 Key），以及 Codex 自己的 rollout（`sessions/`）、SQLite 库、`shell_snapshots/` 等 |
 | `engines/codex-chatgpt/` | ChatGPT 进程的 `CODEX_HOME`（R6）：Wevir 重写的 `config.toml`（没有 Provider 与模型目录），登录后 Codex 写的 `auth.json`（0600，ChatGPT 的令牌，见[安全说明](./security.md) §3），以及它自己的 rollout 与 SQLite 库。第一次用到 ChatGPT 账号时才出现 |
+| `engines/claude/` | Claude Agent 引擎（2026-10-15）探测登录与生成标题时的工作目录，里面没有 Wevir 的文件。会话记录与登录都在用户自己的 `~/.claude`（`claude` 写，Wevir 不读不改），见 [claude-event-mapping.md](./architecture/claude-event-mapping.md) §2 |
+| `engines.json` | `account.setPath` 指定的订阅引擎可执行文件（0.19.0） |
 | `desktop/` | Electron 的 userData（Chromium 配置、localStorage） |
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。
@@ -291,6 +293,26 @@ pnpm vitest run --project adapter-codex codex-adapter.contract
 没有二进制时集成测试跳过并打印下载命令。审批用例写 `packages/adapter-codex/.test-outside/`（工作区外、且不在系统临时目录，gitignore），同 §6.4 的第一条。升级 Codex 按 [UPSTREAM.md](./upstream/UPSTREAM.md)「Codex 升级检查清单」，其中重录样本是 `WEVIR_RECORD_CODEX=1 pnpm vitest run --project adapter-codex record-app-server`。Host 一侧的端到端是 `packages/host/src/cli.codex.integration.test.ts` 与子会话的 `cli.codex.subagent.integration.test.ts`（派出子会话、子会话的审批经父会话处理、取消父会话时级联取消；写 `packages/host/.test-outside/`）。mock 模型的默认脚本里“子智能体”（或 `subagent`）让父 agent 派一个子 agent 并等它（与 Spike 的 subagent 场景相同的 spawn → wait），再加“工作区外”让子 agent 请求审批、加“长”让它慢慢回答；echo 引擎的 `subagent` 关键词是同样的流程（`packages/runtime-adapter/src/echo.ts`）。
 
 ChatGPT 登录在桌面端的验收不需要真实账号：在 scratch 目录写一个小脚本，用 `@wevir/adapter-codex` 的 `CodexRuntime`（`chatgptEndpoints` 指向 `@wevir/adapter-codex/testing` 的 `startMockChatgpt()`）与 `@wevir/host` 的 `startHost` 起一个 Host，再 `WEVIR_HOME=<那个目录> WEVIR_DESKTOP_DEBUG_PORT=9349 pnpm --filter @wevir/desktop dev` 附着它；设备码登录由 mock 的 `approveDeviceCode()` 放行（浏览器登录会打开系统浏览器，验收时少用）。真实账号的登录与对话要维护者自己操作。
+
+### 6.2a Claude Agent 适配器的测试
+
+```bash
+pnpm vitest run --project adapter-claude
+```
+
+| 文件 | 内容 | 需要 |
+|---|---|---|
+| `claude-adapter.contract.test.ts` | 契约第 1 层：假的 Claude Agent SDK（`test-fixtures/fake-sdk.ts`）回放真实 `claude` 录的消息（`src/test-fixtures/sdk/`），审批按决定走对应录音的分支 | 无；约 3 s |
+| `claude-adapter.test.ts`、`account.test.ts`、`units.test.ts` | 映射回放、账号检测、找可执行文件、模型目录、结果归类 | 无 |
+| `claude-adapter.contract.real.integration.test.ts` | 契约真实层：本机真实的 `claude` 与用户的登录（`claude-haiku-4-5`，会用掉订阅额度），`WEVIR_TEST_CLAUDE=1` 才跑，`WEVIR_TEST_CLAUDE_MODEL` 可换模型；可以用 `-t` 只跑几条 | 装好并登录的 `claude` |
+
+跑真实 `claude` 的测试与录制要用干净的环境：在 Claude Code 里开的终端带着它的一堆环境变量（含 `ANTHROPIC_BASE_URL`），会被继承给 `claude`。
+
+```bash
+env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_CLAUDE=1 pnpm vitest run --project adapter-claude contract.real -t '一问一答|审批：选允许'
+```
+
+重录样本：`env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_RECORD_CLAUDE=1 pnpm vitest run --project adapter-claude record-sdk`。`WEVIR_CLAUDE_BIN` 可指定 `claude` 的路径（优先于自动查找，低于设置里指定的路径）。桌面端走一遍：`env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_CODEX_BIN=<codex-app-server> pnpm --silent wevir --home <目录> host start`（默认的 Codex Host 带着订阅引擎），再 `WEVIR_HOME=<目录> WEVIR_DESKTOP_DEBUG_PORT=9361 ./node_modules/.bin/electron-vite dev`（在 apps/desktop 里）；设置 → 模型服务里 Claude Agent 显示套餐与用量，模型选择里有它的模型。测完删掉 `~/.claude/projects` 下以临时工作目录命名的那个文件夹（`claude` 的会话记录）。
 
 ### 6.3 真实模型测试的环境变量
 

@@ -4,6 +4,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CodexRuntime } from '@wevir/adapter-codex';
 import { DshAdapter } from '@wevir/adapter-dsh';
 import { CloseCode } from '@wevir/protocol';
@@ -18,6 +19,7 @@ import {
   runHostCli,
   USAGE,
 } from './cli.js';
+import { EngineRouter } from './engine-router.js';
 import { HOST_VERSION } from './host-process.js';
 import { createLogger, LOG_FILE } from './logger.js';
 import type { HostRuntimeInfo } from './runtime-file.js';
@@ -134,7 +136,7 @@ describe('runHostCli', () => {
     // 真实 dsh 上的端到端见 cli.dsh.integration.test.ts。
   });
 
-  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动', () => {
+  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent）经 EngineRouter 挂在后面，同样不起进程', () => {
     const home = join(tempDir(), 'home');
     // 二进制只解析路径（WEVIR_CODEX_BIN），版本在第一次启动前才核对，这里不会运行它。
     const fakeBinary = join(tempDir(), 'codex-app-server');
@@ -142,8 +144,16 @@ describe('runHostCli', () => {
     vi.stubEnv('WEVIR_CODEX_BIN', fakeBinary);
     try {
       const adapter = createAdapter('codex', { home, logger: createLogger({ mirror: () => {} }) });
-      expect(adapter).toBeInstanceOf(CodexRuntime);
-      const codex = adapter as CodexRuntime;
+      expect(adapter).toBeInstanceOf(EngineRouter);
+      const routes = (adapter as EngineRouter).routes;
+      expect(routes.map((route) => [route.name, route.kinds])).toEqual([
+        ['codex', ['deepseek-official', 'openai-compatible', 'chatgpt']],
+        ['claude', ['claude']],
+      ]);
+      expect(routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
+      expect(routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
+      expect(adapter.accounts?.kinds).toEqual(['chatgpt', 'claude']);
+      const codex = routes[0]?.adapter as CodexRuntime;
       expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
       expect(codex.gateway.process.state).toBe('stopped');

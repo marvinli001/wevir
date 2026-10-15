@@ -10,6 +10,7 @@ import { MOCK_MODEL, startMockModel } from '@wevir/adapter-codex/testing';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAdapter, EXIT_CODE, runHostCli } from './cli.js';
+import { EngineRouter } from './engine-router.js';
 import { LOG_FILE } from './logger.js';
 import type { HostRuntimeInfo } from './runtime-file.js';
 import { fakeProcess, TestRpcClient, useTempDir, waitReady } from './test-utils.js';
@@ -44,8 +45,14 @@ describe.skipIf(!binaryAvailable())(
       const fake = fakeProcess(['--home', home, '--adapter', 'codex']);
       const exit = runHostCli(fake.proc, {
         createAdapter: (kind, context) => {
-          adapter = createAdapter(kind, context) as CodexRuntime;
-          return adapter;
+          const created = createAdapter(kind, context);
+          // 挂了订阅引擎时 Codex 在 EngineRouter 的 codex 路由里（engines.ts）。
+          adapter = (
+            created instanceof EngineRouter
+              ? created.routes.find((route) => route.name === 'codex')?.adapter
+              : created
+          ) as CodexRuntime;
+          return created;
         },
       });
       let stopped = false;

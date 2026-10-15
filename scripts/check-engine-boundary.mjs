@@ -1,7 +1,8 @@
 // 引擎边界的第二道防线：检查各工作区包 package.json 里的依赖声明。
 //
 // 每个引擎的 npm 包只能由它自己的适配器包声明（ENGINES）：@deepseek-ai/* 只在 packages/adapter-dsh，
-// @openai/codex（含 @openai/codex-sdk 等 @openai/codex-* 包）只在 packages/adapter-codex（ADR-0005 草案）。
+// @openai/codex（含 @openai/codex-sdk 等 @openai/codex-* 包）只在 packages/adapter-codex（ADR-0005 草案），
+// @anthropic-ai/claude-agent-sdk 与 @anthropic-ai/claude-code 只在 packages/adapter-claude（ADR-0005 补记 14）。
 // Biome 的 noRestrictedImports（见 biome.json）负责拦截静态 import、动态 import() 等写法，
 // 但看不见 CommonJS require()、createRequire() 之类的加载方式。pnpm 的 node_modules 是隔离的：
 // 一个包只能解析到自己声明的依赖，以及根 package.json 的依赖。所以只要适配器包以外
@@ -29,6 +30,13 @@ const ENGINES = [
     label: '@openai/codex*',
     matches: (name, spec) =>
       /^@openai\/codex(-|$)/.test(name) || /^npm:@openai\/codex(-[^@]*)?(@|$)/.test(spec),
+  },
+  {
+    owner: 'packages/adapter-claude',
+    label: '@anthropic-ai/claude-agent-sdk、@anthropic-ai/claude-code',
+    matches: (name, spec) =>
+      /^@anthropic-ai\/claude-(agent-sdk|code)(-|$)/.test(name) ||
+      /^npm:@anthropic-ai\/claude-(agent-sdk|code)(-[^@]*)?(@|$)/.test(spec),
   },
 ];
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];

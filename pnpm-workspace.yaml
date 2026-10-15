@@ -36,6 +36,21 @@ allowBuilds:
   esbuild@0.25.12: true
   esbuild@0.28.2: true
 
+# 不装的可选依赖。Claude Agent SDK 带各平台约 225 MB 的 Claude Code 原生二进制（@anthropic-ai/claude-agent-sdk-<平台>）；
+# Wevir 照 T3 Code 用用户自己装的 `claude`（适配器总是传 pathToClaudeCodeExecutable，AGENTS.md 规则 2，ADR-0005 补记 14），
+# 用不到随包的那一份。
+ignoredOptionalDependencies:
+  - '@anthropic-ai/claude-agent-sdk-*'
+
+# 依赖声明的修正。Claude Agent SDK 的 sdk.mjs 不 import @modelcontextprotocol/sdk，只在 sdk.d.ts 里用它的类型（Wevir 不给 SDK
+# 传 MCP 服务器）；当作必需的 peer 时 pnpm 会自动装上它，dsh 依赖树里 @google/genai 的可选 peer 随之解析到它，改动 dsh 的
+# 依赖。标成可选，引擎之间互不影响（AGENTS.md 规则 2）。
+packageExtensions:
+  '@anthropic-ai/claude-agent-sdk@0.3.286':
+    peerDependenciesMeta:
+      '@modelcontextprotocol/sdk':
+        optional: true
+
 # 依赖补丁（pnpm patch，键带精确版本，升级时重新核对还需不需要）。
 patchedDependencies:
   # 桌面端的“变更”窗格（0.20.0）：Pierre 把 diff 的行写成带 style 属性的 HTML（grid-row 的跨行、行号列宽、高亮的颜色），

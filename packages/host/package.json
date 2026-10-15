@@ -31,6 +31,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@wevir/adapter-claude": "workspace:*",
     "@wevir/adapter-codex": "workspace:*",
     "@wevir/adapter-dsh": "workspace:*",
     "@wevir/protocol": "workspace:*",
