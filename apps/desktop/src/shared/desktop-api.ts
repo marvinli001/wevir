@@ -92,6 +92,14 @@ export interface DesktopNotification {
   sound: boolean;
 }
 
+/** 本机装了的外部编辑器（U32，文件窗格的“打开方式”）。 */
+export interface EditorInfo {
+  /** 稳定的 ID（`vscode`、`cursor`、`zed`…），存在本机的偏好里。 */
+  id: string;
+  /** 产品名，不翻译。 */
+  name: string;
+}
+
 /** 窗口标题栏的形态。macOS 隐藏了系统标题栏，红绿灯浮在页面左上角，由页面的顶栏充当标题栏。 */
 export interface WindowChrome {
   /** 红绿灯此刻浮在页面左上角（macOS 且不在全屏）：左上角的顶栏要给它们让出位置。 */
@@ -137,6 +145,12 @@ export interface DesktopApi {
   setBadgeCount(count: number): Promise<void>;
   /** 订阅系统通知的点击，交回通知的 tag；返回取消订阅的函数。 */
   onNotificationClick(listener: (tag: string) => void): () => void;
+  /** 本机装了的外部编辑器（U32）。 */
+  listEditors(): Promise<EditorInfo[]>;
+  /** 用外部编辑器打开文件或文件夹（绝对路径），可跳到行。 */
+  openInEditor(editorId: string, path: string, line?: number): Promise<void>;
+  /** 在访达（资源管理器、文件管理器）中显示（绝对路径）。 */
+  revealPath(path: string): Promise<void>;
 }
 
 export const IPC_CHANNELS = {
@@ -156,6 +170,9 @@ export const IPC_CHANNELS = {
   setBadgeCount: 'wevir:set-badge-count',
   /** 主进程 → 渲染进程的推送。 */
   notificationClick: 'wevir:notification-click',
+  listEditors: 'wevir:list-editors',
+  openInEditor: 'wevir:open-in-editor',
+  revealPath: 'wevir:reveal-path',
 } as const;
 
 /** `DesktopNotification` 各字段的长度上限，主进程按它校验。 */

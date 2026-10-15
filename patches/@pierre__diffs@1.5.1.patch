@@ -1,3 +1,75 @@
+diff --git a/dist/components/File.js b/dist/components/File.js
+index 9c9da1b4dac0365f872a53fa26040039fc574fae..b51257c0fde610606671e9da57049b0893122871 100644
+--- a/dist/components/File.js
++++ b/dist/components/File.js
+@@ -30,6 +30,36 @@ import { setPreNodeProperties } from "../utils/setWrapperNodeProps.js";
+ import "./web-components.js";
+ import { toHtml } from "hast-util-to-html";
+ //#region src/components/File.ts
++// Wevir 的补丁（同 FileDiff.js）：渲染进程的 CSP 不放行 HTML 里的 style 属性。写 HTML 之前把 HAST 里的 style 挪到
++// data-csp-style，写完再经 CSSOM 原样补上（文件预览窗格的高亮颜色）。
++function moveStyles(nodes) {
++	const stack = Array.isArray(nodes) ? [...nodes] : [nodes];
++	while (stack.length > 0) {
++		const node = stack.pop();
++		if (node == null || typeof node !== "object") continue;
++		const properties = node.properties;
++		if (properties != null && properties.style != null) {
++			properties["data-csp-style"] = properties.style;
++			delete properties.style;
++		}
++		if (Array.isArray(node.children)) stack.push(...node.children);
++	}
++	return nodes;
++}
++function restoreStyles(element) {
++	for (const node of element.querySelectorAll("[data-csp-style]")) {
++		node.style.cssText = node.getAttribute("data-csp-style") ?? "";
++		node.removeAttribute("data-csp-style");
++	}
++}
++function setHTML(element, html) {
++	element.innerHTML = html;
++	restoreStyles(element);
++}
++function insertHTML(element, position, html) {
++	element.insertAdjacentHTML(position, html);
++	restoreStyles(element);
++}
+ const EMPTY_STRINGS = [""];
+ function createEditSessionFile(file) {
+ 	const editSessionFile = { ...file };
+@@ -814,10 +844,10 @@ var File = class {
+ 			if (code.childElementCount >= 2) for (let i = 0; i < 2; i++) {
+ 				const domEl = code.children[i];
+ 				const astEl = codeAst[i];
+-				domEl.innerHTML = toHtml(astEl.children);
++				setHTML(domEl, toHtml(moveStyles(astEl.children)));
+ 				domEl.style.cssText = astEl.properties.style;
+ 			}
+-			else code.innerHTML = toHtml(codeAst);
++			else setHTML(code, toHtml(moveStyles(codeAst)));
+ 			if (!pre.contains(code)) pre.replaceChildren(code);
+ 		};
+ 		if (this.shouldGuardRebuildScroll()) guardWebKitScrollDuringRebuild(pre, applyColumns);
+@@ -854,13 +884,13 @@ var File = class {
+ 		if (appendResult === void 0 && nextEnd > overlapEnd) return false;
+ 		this.cleanupErrorWrapper();
+ 		if (prependResult != null) {
+-			columns.gutter.insertAdjacentHTML("afterbegin", this.fileRenderer.renderPartialHTML(prependResult.gutterAST));
+-			columns.content.insertAdjacentHTML("afterbegin", this.fileRenderer.renderPartialHTML(prependResult.contentAST));
++			insertHTML(columns.gutter, "afterbegin", this.fileRenderer.renderPartialHTML(moveStyles(prependResult.gutterAST)));
++			insertHTML(columns.content, "afterbegin", this.fileRenderer.renderPartialHTML(moveStyles(prependResult.contentAST)));
+ 			rowCount += prependResult.rowCount;
+ 		}
+ 		if (appendResult != null) {
+-			columns.gutter.insertAdjacentHTML("beforeend", this.fileRenderer.renderPartialHTML(appendResult.gutterAST));
+-			columns.content.insertAdjacentHTML("beforeend", this.fileRenderer.renderPartialHTML(appendResult.contentAST));
++			insertHTML(columns.gutter, "beforeend", this.fileRenderer.renderPartialHTML(moveStyles(appendResult.gutterAST)));
++			insertHTML(columns.content, "beforeend", this.fileRenderer.renderPartialHTML(moveStyles(appendResult.contentAST)));
+ 			rowCount += appendResult.rowCount;
+ 		}
+ 		if (this.lastRowCount !== rowCount) {
 diff --git a/dist/components/FileDiff.js b/dist/components/FileDiff.js
 index 8d9ba31e097990b3163fd6644906144529561262..f2e92b8c38432b599cb1448fe56f615ed05657f1 100644
 --- a/dist/components/FileDiff.js

@@ -49,7 +49,9 @@ describe('pane-kinds', () => {
   });
 
   it('正式构建只能打开已经实现的种类，开发模式下还有占位', () => {
-    expect(openableKinds(false)).toEqual(['subagents', 'changes', 'tasks']);
+    expect(openableKinds(false)).toEqual(['subagents', 'changes', 'files', 'tasks']);
+    // 文件预览（U32）只由文件树、文件链接打开。
+    expect(openableKinds(true)).not.toContain('file');
     expect(openableKinds(true)).toContain('terminal');
     // 支线窗格（U23.1）只由 /btw 打开。
     expect(openableKinds(true)).not.toContain('session');

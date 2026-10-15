@@ -52,6 +52,10 @@ const api: DesktopApi = {
       ipcRenderer.removeListener(IPC_CHANNELS.notificationClick, handler);
     };
   },
+  listEditors: () => ipcRenderer.invoke(IPC_CHANNELS.listEditors),
+  openInEditor: (editorId, path, line) =>
+    ipcRenderer.invoke(IPC_CHANNELS.openInEditor, editorId, path, line),
+  revealPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.revealPath, path),
 };
 
 contextBridge.exposeInMainWorld('wevir', api);

@@ -20,14 +20,14 @@ describe('renderMarkdownHtml', () => {
     expect(html).toContain('<code class="language-ts">const a = 1 &lt; 2;</code>');
   });
 
-  it('原文里的 HTML 按文本显示；只有外部链接可点，图片显示为链接', () => {
+  it('原文里的 HTML 按文本显示；外部链接交给浏览器、本地路径是文件链接，图片显示为链接', () => {
     const html = renderMarkdownHtml(
       '<script>x</script>\n\n[官网](https://example.com) [本地](./a.md) ![图](https://e.com/a.png)',
     );
     expect(html).toContain('&lt;script&gt;x&lt;/script&gt;');
     expect(html).not.toContain('<script>');
     expect(html).toContain('<a href="https://example.com/" data-external-link="">官网</a>');
-    expect(html).not.toContain('a.md"');
+    expect(html).toContain('<a href="#" data-file-link="./a.md">本地</a>');
     expect(html).toContain('<a href="https://e.com/a.png" data-external-link="">图</a>');
     expect(html).not.toContain('<img');
   });
@@ -76,6 +76,13 @@ describe('辅助函数', () => {
     expect(externalHref('javascript:alert(1)')).toBeUndefined();
     expect(externalHref('file:///etc/passwd')).toBeUndefined();
     expect(externalHref('./a.md')).toBeUndefined();
+  });
+
+  it('文件路径的链接带 data-file-link，别的协议只留文字', () => {
+    expect(renderMarkdownHtml('[a.ts](/Users/me/p/a.ts:12)')).toContain(
+      '<a href="#" data-file-link="/Users/me/p/a.ts:12">a.ts</a>',
+    );
+    expect(renderMarkdownHtml('[x](javascript:alert(1))')).not.toContain('<a');
   });
 
   it('codeLanguage 取信息串的第一个词并过滤怪字符', () => {

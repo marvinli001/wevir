@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   FileText,
+  FolderTree,
   GitCompare,
   Info,
   ListChecks,
@@ -14,6 +15,7 @@ import type { WorkspaceEntry } from '@/data/workbench-model';
 import { type PlainMessageKey, t } from '@/i18n';
 import type { PaneKind } from './pane-kinds';
 import type { PaneTab } from './pane-state';
+import { FilesPane } from './panes/files-pane';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
 import { SessionPane } from './panes/session-pane';
@@ -41,6 +43,10 @@ const placeholder = (kind: PaneKind) => () => <PlaceholderPane name={t(VIEWS[kin
 const ChangesPane = lazy(() =>
   import('./panes/changes-pane').then((module) => ({ default: module.ChangesPane })),
 );
+// “文件预览”同样带着 Pierre 与 Shiki（U32）；文件树不带，直接打进主包。
+const FilePane = lazy(() =>
+  import('./panes/file-pane').then((module) => ({ default: module.FilePane })),
+);
 
 /** 每种窗格的图标、名称与内容（desktop-layout.md §2.1）。以后的种类由各自的任务换掉占位。 */
 const VIEWS: Record<PaneKind, PaneView> = {
@@ -63,11 +69,20 @@ const VIEWS: Record<PaneKind, PaneView> = {
       </Suspense>
     ),
   },
+  files: {
+    icon: FolderTree,
+    name: 'pane.kind.files',
+    render: (_, context) => <FilesPane context={context} />,
+  },
   file: {
     icon: FileText,
     name: 'pane.kind.file',
     title: (tab) => tab.params?.path?.split('/').at(-1),
-    render: placeholder('file'),
+    render: (tab, context) => (
+      <Suspense fallback={null}>
+        <FilePane tab={tab} context={context} />
+      </Suspense>
+    ),
   },
   tasks: {
     icon: Activity,

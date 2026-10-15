@@ -54,8 +54,8 @@ packageExtensions:
 # 依赖补丁（pnpm patch，键带精确版本，升级时重新核对还需不需要）。
 patchedDependencies:
   # 桌面端的“变更”窗格（0.20.0）：Pierre 把 diff 的行写成带 style 属性的 HTML（grid-row 的跨行、行号列宽、高亮的颜色），
-  # 渲染进程的 CSP 不放行 HTML 里的 style 属性（apps/desktop/src/shared/csp.ts）。补丁在 FileDiff.js 写 HTML 之前把 Pierre
-  # 自己的 HAST 里的 style 挪到 data-csp-style（不触发违规），写完经 CSSOM 原样补上；另把分隔条上写死的英文
+  # 渲染进程的 CSP 不放行 HTML 里的 style 属性（apps/desktop/src/shared/csp.ts）。补丁在 FileDiff.js（U32 起还有文件预览用的
+  # File.js）写 HTML 之前把 Pierre 自己的 HAST 里的 style 挪到 data-csp-style（不触发违规），写完经 CSSOM 原样补上；另把分隔条上写死的英文
   # （“N unmodified lines”等）换成可由使用方设置的 setDiffsText（新文件 utils/diffsText.js，从包入口导出），文案走 i18n。
   '@pierre/diffs@1.5.1': patches/@pierre__diffs@1.5.1.patch
   # 桌面端（U3，ADR-0004 补记 9）：最后一个 MetalFx 卸载时库调 loseContext()，那次异步的 webglcontextlost 回调写的是

@@ -986,6 +986,81 @@ export const methodSamples: MethodSamples = {
       invalid: [{ oldContents: 1 }, { unavailable: '' }],
     },
   },
+  'workspace.files': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, query: '' },
+        { workspaceId: ids.workspace, sessionId: ids.session, query: 'comp', limit: 20 },
+        { workspaceId: ids.workspace, query: 'src/', kind: 'directory' },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, query: 'a', limit: 0 },
+        { workspaceId: ids.workspace, query: 'a', limit: 201 },
+        { workspaceId: ids.workspace, query: 'a', kind: 'symlink' },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          entries: [
+            { path: 'src', kind: 'directory' },
+            { path: 'src/composer.tsx', kind: 'file' },
+          ],
+        },
+        { entries: [], truncated: true },
+      ],
+      invalid: [{ entries: [{ path: '', kind: 'file' }] }, { entries: [], truncated: false }],
+    },
+  },
+  'workspace.listDir': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, path: '' },
+        { workspaceId: ids.workspace, sessionId: ids.session, path: 'src/lib' },
+      ],
+      invalid: [{ workspaceId: ids.workspace }, { path: '' }],
+    },
+    result: {
+      valid: [
+        {
+          entries: [
+            { path: 'dist', kind: 'directory', ignored: true },
+            { path: 'src', kind: 'directory' },
+            { path: 'README.md', kind: 'file' },
+          ],
+        },
+        { entries: [], truncated: true },
+      ],
+      invalid: [{ entries: [{ path: 'a', kind: 'file', ignored: false }] }, {}],
+    },
+  },
+  'workspace.readFile': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, path: 'README.md' },
+        { workspaceId: ids.workspace, sessionId: ids.session, path: 'assets/logo.png' },
+      ],
+      invalid: [{ workspaceId: ids.workspace, path: '' }, { workspaceId: ids.workspace }],
+    },
+    result: {
+      valid: [
+        { path: 'README.md', size: 6, text: '# Demo' },
+        {
+          path: 'assets/logo.png',
+          size: 68,
+          image: { mimeType: 'image/png', data: 'iVBORw0KGgo=' },
+        },
+        { path: 'big.log', size: 2_000_000, unavailable: 'too_large' },
+        { path: 'gone.txt', unavailable: 'not_found' },
+      ],
+      invalid: [
+        { size: 1, text: 'x' },
+        { path: 'a.png', image: { mimeType: 'image/tiff', data: '' } },
+        { path: 'a', unavailable: '' },
+      ],
+    },
+  },
   'provider.list': {
     params: empty,
     result: {

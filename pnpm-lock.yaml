@@ -165,7 +165,7 @@ settings:
 packageExtensionsChecksum: sha256-qN8MqwqhwzLgANSJ3fXjIt06EfZvojnj/zxCJZTD7VM=
 
 patchedDependencies:
-  '@pierre/diffs@1.5.1': e49d4cef404222759da588110b7930cda601862bfa1fc2e9b1e216174b52187c
+  '@pierre/diffs@1.5.1': d2094993b5ab5f03229ff5fe8ed30aac62fbb0d1179f6a8f9bd712a07be59810
   metal-fx@2.0.11: 28505134ca755ba5ea948a4b5513343d9459beb98a6c1686dbdb2d5490a31fa4
 
 importers:
@@ -233,7 +233,7 @@ importers:
         version: 1.9.0(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@pierre/diffs':
         specifier: 1.5.1
-        version: 1.5.1(patch_hash=e49d4cef404222759da588110b7930cda601862bfa1fc2e9b1e216174b52187c)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 1.5.1(patch_hash=d2094993b5ab5f03229ff5fe8ed30aac62fbb0d1179f6a8f9bd712a07be59810)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@shikijs/transformers':
         specifier: 4.4.3
         version: 4.4.3
@@ -10593,7 +10593,7 @@ snapshots:
 
   '@oxc-project/types@0.153.0': {}
 
-  '@pierre/diffs@1.5.1(patch_hash=e49d4cef404222759da588110b7930cda601862bfa1fc2e9b1e216174b52187c)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@pierre/diffs@1.5.1(patch_hash=d2094993b5ab5f03229ff5fe8ed30aac62fbb0d1179f6a8f9bd712a07be59810)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@pierre/theme': 2.0.0
       '@pierre/theming': 1.0.1(@pierre/theme@2.0.0)(@shikijs/themes@4.4.3)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(shiki@4.4.3)

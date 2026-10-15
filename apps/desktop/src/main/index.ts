@@ -1,7 +1,8 @@
 // Wevir 桌面主进程（T5.1）：窗口与安全基线、Host 的附着 / 拉起 / 停止、给 preload 的 IPC。
 // Host 的生命周期见 host-lifecycle.ts（ADR-0002 §6）；渲染进程只经 client-sdk 与 Host 通信。
 
-import { join } from 'node:path';
+import { stat } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_LAYOUT, LOG_FILE, resolveHome } from '@wevir/host/runtime';
 import {
@@ -32,6 +33,7 @@ import {
 } from '../shared/renderer-origin.js';
 import { isThemeMode, THEME_BACKGROUND } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
+import { Editors, isLineNumber } from './editors.js';
 import {
   failureOf,
   HostLifecycle,
@@ -227,6 +229,30 @@ function run(): void {
     assertSender(event);
     if (!isBadgeCount(count)) throw new Error('badge count must be an integer from 0 to 9999');
     app.setBadgeCount(count);
+  });
+
+  // 外部编辑器与访达（U32，文件窗格）：路径要是绝对的、存在；编辑器只从本机找到的那张表里选。
+  const editors = new Editors();
+  ipcMain.handle(IPC_CHANNELS.listEditors, async (event) => {
+    assertSender(event);
+    return editors.list();
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.openInEditor,
+    async (event, editorId: unknown, path: unknown, line: unknown): Promise<void> => {
+      assertSender(event);
+      if (typeof editorId !== 'string' || typeof path !== 'string' || !isAbsolute(path)) {
+        throw new Error('editor id and an absolute path are required');
+      }
+      if (line !== undefined && !isLineNumber(line)) throw new Error('line must be positive');
+      await editors.open(editorId, path, line);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.revealPath, async (event, path: unknown): Promise<void> => {
+    assertSender(event);
+    if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('path must be absolute');
+    await stat(path);
+    shell.showItemInFolder(path);
   });
 
   // 所有 webContents（含将来的）一律：新窗口拒绝，外部链接交给系统浏览器；只允许同 origin 的导航

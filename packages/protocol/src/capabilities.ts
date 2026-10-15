@@ -89,6 +89,11 @@ export const HOST_FEATURES = {
    * 会话目录打快照。与引擎无关。
    */
   workspaceDiff: 'workspace_diff',
+  /**
+   * 工作区的文件（0.22.0）：`workspace.files`（按名字找）、`workspace.listDir`（列目录）、`workspace.readFile`（读文本与
+   * 图片）。与引擎无关。
+   */
+  workspaceFiles: 'workspace_files',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -109,6 +114,7 @@ export const HostFeaturesSchema = z.looseObject({
   subscription_sources: z.boolean().optional(),
   provider_enabled: z.boolean().optional(),
   workspace_diff: z.boolean().optional(),
+  workspace_files: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

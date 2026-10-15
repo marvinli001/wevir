@@ -7,10 +7,12 @@
 // Mermaid、会话引用、favicon、视频与图片预览、Shiki；渲染器改为几乎不带类名的语义 HTML（样式在
 // styles/markdown.css），因为 CSP 不放行 HTML 里的 style 属性：表格对齐用 align 属性，图片只显示为链接
 // （CSP 也不加载外部图片）。原文里的 HTML 一律按文本显示。代码块只输出转义后的源码，高亮在流式结束且
-// 进入视口后另做（highlight.ts）。链接不直接导航，由 markdown-view.tsx 经主进程用系统浏览器打开。
+// 进入视口后另做（highlight.ts）。链接不直接导航，由 markdown-view.tsx 经主进程用系统浏览器打开；U32 起相对与绝对路径的
+// 链接是文件链接，点开在文件窗格里。
 
 import DOMPurify from 'dompurify';
 import { Marked, type Token } from 'marked';
+import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
 
 function escapeHtml(value: string): string {
@@ -66,10 +68,16 @@ const parser = new Marked<string, string>({
     },
     link({ href, title, tokens }) {
       const inner = this.parser.parseInline(tokens);
-      const external = externalHref(href);
-      if (!external) return inner;
       const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
-      return `<a href="${escapeHtml(external)}" data-external-link=""${titleAttr}>${inner}</a>`;
+      const external = externalHref(href);
+      if (external) {
+        return `<a href="${escapeHtml(external)}" data-external-link=""${titleAttr}>${inner}</a>`;
+      }
+      // 文件链接（U32，Codex 写 `[a.ts](/绝对路径/a.ts:12)`）：点开时由 markdown-view.tsx 交给文件窗格。
+      if (parseFileHref(href)) {
+        return `<a href="#" data-file-link="${escapeHtml(href)}"${titleAttr}>${inner}</a>`;
+      }
+      return inner;
     },
     image({ href, text }) {
       const external = externalHref(href);
@@ -96,6 +104,7 @@ function sanitize(html: string): string {
       'data-code-block',
       'data-code-copy',
       'data-external-link',
+      'data-file-link',
     ],
     // 原文里的 HTML 已按文本转义，这里兜底；任务列表的复选框（marked 生成的 disabled <input>）保留。
     FORBID_TAGS: ['style', 'img', 'iframe', 'form', 'video', 'audio', 'svg', 'math'],

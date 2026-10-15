@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.21.0`（Google Cloud 服务账号 Provider；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
+> 状态：v0（T1.2）· 协议版本 `0.22.0`（工作区的文件；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -89,6 +89,9 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `workspace.git` | `workspace.read` | `workspaceId, sessionId?` | `repo, branch?, detachedAt?, added?, removed?, fileCount?, files?, truncated?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID` |
 | `workspace.diff` | `workspace.read` | `workspaceId, sessionId?, source` | `repo, unavailable?, base?, baseRef?, branch?, head?, live?, patch?, files?, fileCount?, added?, removed?, truncated?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
 | `workspace.diffFile` | `workspace.read` | `workspaceId, sessionId?, oldRev?, oldPath?, newRev?, newPath?` | `oldContents?, newContents?, unavailable?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
+| `workspace.files` | `workspace.read` | `workspaceId, sessionId?, query, limit?, kind?` | `entries, truncated?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND` |
+| `workspace.listDir` | `workspace.read` | `workspaceId, sessionId?, path` | `entries, truncated?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
+| `workspace.readFile` | `workspace.read` | `workspaceId, sessionId?, path` | `path, size?, text?, image?, unavailable?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
 | `provider.list` | `provider.read` | `{}` | `providers: ProviderProfile[]` | |
 | `provider.upsert` | `provider.write` | 按 `kind` 区分，见下 | `provider, created` | |
 | `provider.remove` | `provider.write` | `providerId` | `{}` | `PROVIDER_NOT_FOUND`、`RESOURCE_IN_USE` |
@@ -142,6 +145,9 @@ Host → 客户端的通知：
 - **`provider.remove`**：同时删除 Key。被未关闭会话引用时回 `RESOURCE_IN_USE`。删除 `chatgpt` 不登出账号；下次登录成功时 Host 再建它。
 - **`workspace.diff`**（0.20.0，Host 功能 `workspace_diff`）：一段改动的统一格式 diff，给桌面端的“变更”窗格。`source` 三种：`uncommitted` 是工作树加暂存区对 HEAD（还没有提交时对空树），含 `.gitignore` 之外的未跟踪文件（Host 把它们以 intent-to-add 加进一份临时索引，不碰用户的索引）；`branch` 是工作树对默认分支与 HEAD 的 merge-base（默认分支依次试 `origin/HEAD` 指向的分支、`main`、`master`、`origin/main`、`origin/master`），找不到时同 `uncommitted`、不带 `baseRef`；`turn` 是会话一个回合前后的快照之间（必须带 `sessionId`，否则 `INVALID_PARAMS`），回合还没有“后”快照（进行中、快照失败）时新的一侧是现在的工作树、带 `live: true`，没有“前”快照时只回 `repo: true, unavailable: 'no_checkpoint'`（快照见 domain-model §3.13）；回合里 HEAD 动过（pull、merge、rebase、提交）时，git 带进来、回合本身没写过的文件不算（T3 Code 的做法）。目录与 `workspace.git` 相同（带 `sessionId` 时是会话的目录），路径相对它（`git diff --relative`），跟踪重命名。`base` 是旧的一侧的提交（还没有提交时是空树），`head` 是新的一侧的提交（省略即工作树），两者给 `workspace.diffFile`。`patch` 是 `a/`、`b/` 前缀的统一格式 diff，只含 `files` 里没有 `omitted` 的文件；`files` 每项 `path`、`previousPath?`、`status`（`added` / `deleted` / `modified` / `renamed` / `copied` / `type_changed` / `untracked`，开放字符串）、`added` / `removed`（二进制文件没有，带 `binary: true`）。上限：整个 `patch` 2 MiB、单个文件 512 KiB（UTF-16 code unit），超过的文件只列出、带 `omitted`（`too_large` / `over_limit`）；未跟踪文件多于 5000 个时不算它们的 diff，逐个列出、带 `omitted: 'over_limit'`；`files` 最多 2000 项。有任何 `omitted` 或 `files` 被截断时 `truncated: true`，`fileCount` 与 `added` / `removed` 仍是全部。同一目录同一段的并发调用共用一次读取；每条 git 命令 10 s 超时，超时与 git 出错都回 `repo: false`。安全做法同 `workspace.git`，另外屏蔽钩子与提交签名。
 - **`workspace.diffFile`**（0.20.0）：一个文件两侧的全文，给“展开未修改的行”。旧的一侧是 `oldRev`（上面的 `base`）里的 `oldPath`，新的一侧是 `newRev`（上面的 `head`）里的 `newPath`，没有 `newRev` 时读磁盘（realpath 之后仍要在目录里、是普通文件）；只给要读的那一侧的路径，`oldPath` 要带 `oldRev`。路径必须相对、`/` 分隔、不含 `..`，否则 `INVALID_PARAMS`。一侧超过 1 MiB、含 NUL 字节、不存在时只回 `unavailable`（`too_large` / `binary` / `not_found`）。版本库里的一侧用 `git cat-file blob`，不经过 textconv 与过滤器。
+- **`workspace.files`**（0.22.0，Host 功能 `workspace_files`）：按名字找文件与文件夹，给桌面端输入框的 @ 提及与文件窗格的搜索。目录同 `workspace.git`（带 `sessionId` 时是会话的目录），路径相对它、`/` 分隔。Host 按目录建一份索引、缓存 5 s：git 仓库里是 `git ls-files --cached --others --exclude-standard`（跟踪的加没被忽略的未跟踪文件，文件夹取它们的父目录），否则逐层遍历、跳过 `node_modules`、`.git`、`.venv`、`target` 等目录与符号链接；最多 25 000 项，超出或遍历超过 10 s 时结果带 `truncated`。`query` 先去掉开头的 `@` 与空白、转小写，名字的匹配（完全相同、前缀、词边界、包含、子序列）优先于整条路径的匹配，含 `/` 时只按路径；排序与桌面端的斜杠命令共用 `@wevir/protocol` 的 `scoreQueryMatch`（移植自 T3 Code）。`query` 为空时按层级从浅到深给出前 `limit`（默认 50，最多 200）项；`kind` 只要文件或只要文件夹。匹配的多于 `limit` 时也带 `truncated`。
+- **`workspace.listDir`**（0.22.0）：列一个目录的直接子项，给文件窗格的目录树。`path` 为空字符串是根目录，否则同 `workspace.diffFile` 的路径规则（相对、`/` 分隔、不含 `..`，否则 `INVALID_PARAMS`）。文件夹在前、再按名字（数字按数值）；不含 `.git`；符号链接按它指到的类型，指到目录外的不列；git 仓库里被 `.gitignore` 忽略的项带 `ignored: true`（`git check-ignore`）。目录不存在或 realpath 在目录外时是空表。最多 5000 项，超出带 `truncated`。
+- **`workspace.readFile`**（0.22.0）：读一个文件，给文件窗格。路径规则同上。按扩展名认出的图片（png、jpg、gif、webp、svg、bmp、ico）给 `image: { mimeType, data }`（base64，不超过 4 MiB，免得超过连接的发送缓冲），其余当 UTF-8 文本给 `text`（不超过 1 MiB）；`size` 是文件的字节数。超过上限回 `unavailable: 'too_large'`，文本含 NUL 字节回 `binary`，不存在、不是普通文件或 realpath 在目录外回 `not_found`（不带 `size`）。开放字符串。
 - **`provider.setEnabled`**（0.19.0，Host 功能 `provider_enabled`）：启用或停用一个 Provider（任何种类），结果是改后的 Provider。停用只影响客户端：模型选择里不再列出它的模型；已有会话照常能用、能 resume，Host 不拒绝用它建会话。`ProviderProfile.enabled` 省略表示启用；Host 只在停用时写 `enabled: false`。
 - **订阅来源的 Provider**（0.19.0，Host 功能 `subscription_sources`，ADR-0005 补记 14）：`claude`、`cursor`、`opencode`、`grok`、`antigravity` 同 `chatgpt`，`id` 固定等于种类，没有 Key 与地址；对应的账号第一次读到已登录时 Host 建它（显示名见 domain-model §3.6），之后刷新模型列表的规则同 `chatgpt`。用它建的会话由对应的引擎运行；Host 没有那个引擎时回 `ENGINE_ERROR`。客户端没有声明能力位 `subscription_kinds` 时，`provider.list` 不含这些 Provider。
 - **`provider.test`**：用该 Provider 发一次最小请求（带已存的 Key）。连通与否放在结果里（`ok`、`error.category` / `error.message`），不作为 JSON-RPC 错误；只有 Provider 不存在才回错误。0.2.0 起失败时另有 `reason`（`missing_key` / `network` / `timeout` / `auth` / `model_not_found` / `protocol` / `rate_limited` / `server` / `unknown`）与收到的 `httpStatus`，归类规则见 [providers.md](./providers.md) §6。
@@ -374,6 +380,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 `0.21.0`：服务账号认证的 `google-vertex` Provider。`ProviderProfile.vertex` 与新 upsert 分支的 `vertex`、`serviceAccountJson` 都是 optional；vertex 内 project 必填、location optional（默认 global）。Host 写入时要求有效 project、Chat 或 Messages 协议、至少一个匹配发布方的模型；不使用自定义 baseURL，地址由网关生成。serviceAccountJson 只进 SecretStore，响应、日志、事件不返回它；省略保留、字符串替换、null 删除，hasSecret 沿用。新 Host 服务旧客户端：未声明 provider_kind_google_vertex 时 provider.list 隐藏此 kind，已有会话照常列出；新客户端连旧 Host：没有 google_vertex 功能就禁用 Vertex 入口，不发送新 kind。最低版本仍为 0.1.0，冻结样本 compat/0.21.0.json，旧样本不改。
 
+`0.22.0`：工作区的文件。新方法 `workspace.files`、`workspace.listDir`、`workspace.readFile`；新类型 `WorkspaceEntry`、`WorkspaceEntryKind`、`PreviewImageMimeType`；Host 功能 `workspace_files`。新方法与新类型，`unavailable` 是开放字符串，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法。新客户端连旧 Host：hello 结果里没有 `workspace_files`，桌面端不提供文件窗格，输入框的 @ 不弹出文件列表。冻结样本 `compat/0.22.0.json`。
+
 依据 Paseo 的兼容纪律（Paseo 研读 §2.3、§2.4；ADR-0002 §2）。目标：半年前的客户端能连新 Host，半年前的 Host 能服务新客户端（同一主版本内）。改 `packages/protocol` 的提交要在说明里回答这两个问题。
 
 **版本**
@@ -426,6 +434,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `subscription_sources` | 0.19.0 | 订阅来源：`account.list`、`account.get` 的 `refresh`、`account.setPath`、`account.install` 与 `AccountState` 的安装字段（Host 有带账号的引擎时） |
 | `provider_enabled` | 0.19.0 | `provider.setEnabled` 与 `ProviderProfile.enabled`（与引擎无关） |
 | `workspace_diff` | 0.20.0 | `workspace.diff`、`workspace.diffFile`、`session.checkpoints` 与每个回合前后的快照（与引擎无关） |
+| `workspace_files` | 0.22.0 | `workspace.files`、`workspace.listDir`、`workspace.readFile`（与引擎无关） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

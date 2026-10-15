@@ -33,6 +33,13 @@ import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
+import {
+  DEFAULT_FILES_LIMIT,
+  FileIndex,
+  listDirectory,
+  readWorkspaceFile,
+  searchIndex,
+} from './workspace-files.js';
 
 /** 一次请求的上下文：发起请求的连接在 `host.hello` 里给出的身份与能力位。 */
 export interface RequestContext {
@@ -145,6 +152,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }
   };
   const serialProvider = options.providerLock ?? createProviderLock();
+  // 0.22.0：@ 提及与文件窗格的名字搜索，按目录缓存几秒。
+  const fileIndex = new FileIndex();
   const requireAccounts = (): HostAccounts => {
     if (accounts === undefined) {
       const message = 'this host has no engine with accounts (use the Codex engine)';
@@ -310,6 +319,29 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           ...(newRev !== undefined && { newRev }),
           ...(newPath !== undefined && { newPath }),
         })) ?? { unavailable: 'not_found' }
+      );
+    },
+
+    // 0.22.0：工作区的文件。路径相对会话目录（或工作区根目录），不能往上走。
+    'workspace.files': async ({ workspaceId, sessionId, query, limit, kind }) => {
+      const dir = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      return searchIndex(await fileIndex.snapshot(dir), query, limit ?? DEFAULT_FILES_LIMIT, kind);
+    },
+
+    'workspace.listDir': async ({ workspaceId, sessionId, path }) => {
+      if (path !== '' && !isSafeRelativePath(path)) {
+        throw invalidParams(['path'], 'path must be a relative path inside the directory');
+      }
+      return listDirectory(await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)), path);
+    },
+
+    'workspace.readFile': async ({ workspaceId, sessionId, path }) => {
+      if (!isSafeRelativePath(path)) {
+        throw invalidParams(['path'], 'path must be a relative path inside the directory');
+      }
+      return readWorkspaceFile(
+        await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
+        path,
       );
     },
 

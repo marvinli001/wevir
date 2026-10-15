@@ -1,0 +1,93 @@
+// 文件窗格（U32）的路径换算：助手消息里的文件链接、绝对路径与会话目录之间的相对路径。纯逻辑。
+
+export interface FileTarget {
+  path: string;
+  /** 从 1 开始。 */
+  line?: number;
+}
+
+/** 协议（`https:`、`mailto:`）；冒号后面是数字的是行号（`a.ts:12`），不算。 */
+const SCHEME = /^[a-z][a-z0-9+.-]*:(?!\d)/i;
+const WINDOWS_DRIVE = /^[a-z]:[\\/]/i;
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * 文件链接里的路径与行号：`src/a.ts`、`/abs/a.ts:12`、`a.ts:12:5`、`a.ts#L12`、`a.ts#L12-L20`、`file:///abs/a.ts`。不像文件
+ * 路径（http、mailto 等别的协议、只有锚点）时 undefined。
+ */
+export function parseFileHref(href: string): FileTarget | undefined {
+  let value = href.trim();
+  if (value === '' || value.startsWith('#')) return undefined;
+  if (/^file:/i.test(value)) {
+    try {
+      value = new URL(value).pathname;
+    } catch {
+      return undefined;
+    }
+  } else if (SCHEME.test(value) && !WINDOWS_DRIVE.test(value)) {
+    return undefined;
+  }
+  let line: number | undefined;
+  const anchor = /#L(\d+)(?:-L?\d+)?$/i.exec(value);
+  if (anchor) {
+    line = Number(anchor[1]);
+    value = value.slice(0, anchor.index);
+  } else {
+    const hash = value.indexOf('#');
+    if (hash >= 0) value = value.slice(0, hash);
+    const suffix = /:(\d+)(?::\d+)?$/.exec(value);
+    if (suffix) {
+      line = Number(suffix[1]);
+      value = value.slice(0, suffix.index);
+    }
+  }
+  const path = safeDecode(value);
+  if (path === '') return undefined;
+  return line !== undefined && line > 0 ? { path, line } : { path };
+}
+
+function isAbsolutePath(path: string): boolean {
+  return path.startsWith('/') || WINDOWS_DRIVE.test(path);
+}
+
+/** `/` 分隔、去掉重复与结尾的 `/`。 */
+function normalize(path: string): string {
+  return path
+    .replace(/\\/g, '/')
+    .replace(/\/{2,}/g, '/')
+    .replace(/\/$/, '');
+}
+
+/**
+ * 相对 `cwd`（会话目录，绝对路径）的路径，`/` 分隔；`cwd` 本身是空字符串。在目录外、或相对路径往上走时 undefined。
+ */
+export function toRelativePath(path: string, cwd: string): string | undefined {
+  const target = normalize(path);
+  if (isAbsolutePath(target)) {
+    const root = normalize(cwd);
+    if (target === root) return '';
+    return target.startsWith(`${root}/`) ? target.slice(root.length + 1) : undefined;
+  }
+  const parts = target.split('/').filter((part) => part !== '' && part !== '.');
+  if (parts.some((part) => part === '..')) return undefined;
+  return parts.join('/');
+}
+
+/** 会话目录里的相对路径对应的绝对路径（给外部编辑器与访达）。 */
+export function toAbsolutePath(relativePath: string, cwd: string): string {
+  const root = cwd.replace(/[\\/]+$/, '');
+  if (relativePath === '') return root;
+  const separator = root.includes('\\') && !root.includes('/') ? '\\' : '/';
+  return `${root}${separator}${separator === '\\' ? relativePath.replace(/\//g, '\\') : relativePath}`;
+}
+
+export function isMarkdownPath(path: string): boolean {
+  return /\.(md|markdown|mdx)$/i.test(path);
+}

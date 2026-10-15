@@ -307,6 +307,100 @@ export const SessionCheckpointsResultSchema = z.object({
 });
 export type SessionCheckpointsResult = z.infer<typeof SessionCheckpointsResultSchema>;
 
+// ── workspace.files / workspace.listDir / workspace.readFile（0.22.0） ─────────
+
+/** `workspace.files` 一次最多返回的条数。 */
+export const WORKSPACE_FILES_MAX_LIMIT = 200;
+/** `workspace.listDir` 一个目录最多列出的条数。 */
+export const WORKSPACE_LIST_DIR_MAX_ENTRIES = 5000;
+/** `workspace.readFile` 读文本的上限（字节）。 */
+export const WORKSPACE_READ_TEXT_MAX_BYTES = 1024 * 1024;
+/** `workspace.readFile` 读图片的上限（字节）；base64 之后仍在连接的发送缓冲之内。 */
+export const WORKSPACE_READ_IMAGE_MAX_BYTES = 4 * 1024 * 1024;
+
+export const WorkspaceEntryKindSchema = z.enum(['file', 'directory']);
+export type WorkspaceEntryKind = z.infer<typeof WorkspaceEntryKindSchema>;
+
+/** 目录里的一项：相对会话目录（或工作区根目录）的路径，`/` 分隔。 */
+export const WorkspaceEntrySchema = z.object({
+  path: z.string().min(1),
+  kind: WorkspaceEntryKindSchema,
+  /** 被 `.gitignore` 忽略（只有 `workspace.listDir` 标）。 */
+  ignored: z.literal(true).optional(),
+});
+export type WorkspaceEntry = z.infer<typeof WorkspaceEntrySchema>;
+
+/**
+ * 按名字找文件与文件夹（输入框的 @ 提及、文件窗格的搜索）。`query` 为空时按目录层级给出前 `limit` 项。git 仓库里只列
+ * 跟踪的与没被忽略的文件，不是 git 仓库时跳过常见的依赖与构建目录；最多索引 25 000 项。
+ */
+export const WorkspaceFilesParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  /** 找这个会话的目录（环境会话的 worktree）；会话要属于这个工作区。 */
+  sessionId: SessionIdSchema.optional(),
+  query: z.string().max(256),
+  /** 默认 50。 */
+  limit: z.int().min(1).max(WORKSPACE_FILES_MAX_LIMIT).optional(),
+  /** 只要文件或只要文件夹。 */
+  kind: WorkspaceEntryKindSchema.optional(),
+});
+
+export const WorkspaceFilesResultSchema = z.object({
+  /** 按匹配程度从好到差。 */
+  entries: z.array(WorkspaceEntrySchema).max(WORKSPACE_FILES_MAX_LIMIT),
+  /** 匹配的不止这些，或索引到上限没有列全。 */
+  truncated: z.literal(true).optional(),
+});
+export type WorkspaceFilesResult = z.infer<typeof WorkspaceFilesResultSchema>;
+
+/** 列一个目录的直接子项（文件窗格的目录树）：文件夹在前，再按名字；不含 `.git`。 */
+export const WorkspaceListDirParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  sessionId: SessionIdSchema.optional(),
+  /** 相对路径，`/` 分隔；空字符串是根目录。 */
+  path: z.string().max(1024),
+});
+
+export const WorkspaceListDirResultSchema = z.object({
+  entries: z.array(WorkspaceEntrySchema).max(WORKSPACE_LIST_DIR_MAX_ENTRIES),
+  truncated: z.literal(true).optional(),
+});
+export type WorkspaceListDirResult = z.infer<typeof WorkspaceListDirResultSchema>;
+
+export const WorkspaceReadFileParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  sessionId: SessionIdSchema.optional(),
+  /** 相对路径，`/` 分隔。 */
+  path: z.string().min(1).max(1024),
+});
+
+/** 能预览的图片格式。 */
+export const PreviewImageMimeTypeSchema = z.enum([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/svg+xml',
+  'image/bmp',
+  'image/x-icon',
+]);
+export type PreviewImageMimeType = z.infer<typeof PreviewImageMimeTypeSchema>;
+
+/**
+ * 一个文件的内容：文本给 `text`（UTF-8），按扩展名认出的图片给 `image`（base64）；读不了时只有 `unavailable`：
+ * `too_large`（文本超过 1 MiB、图片超过 4 MiB）、`binary`（含 NUL 字节）、`not_found`（不存在、不是普通文件、在目录外）。
+ * 开放字符串。
+ */
+export const WorkspaceReadFileResultSchema = z.object({
+  path: z.string().min(1),
+  /** 文件的字节数；`not_found` 时省略。 */
+  size: z.int().min(0).optional(),
+  text: z.string().optional(),
+  image: z.object({ mimeType: PreviewImageMimeTypeSchema, data: z.string() }).optional(),
+  unavailable: z.string().min(1).optional(),
+});
+export type WorkspaceReadFileResult = z.infer<typeof WorkspaceReadFileResultSchema>;
+
 // ── provider.* ────────────────────────────────────────────────────────
 
 export const ProviderListResultSchema = z.object({
@@ -712,6 +806,21 @@ export const MethodSchemas = {
   'workspace.diffFile': {
     params: WorkspaceDiffFileParamsSchema,
     result: WorkspaceDiffFileResultSchema,
+    permission: 'workspace.read',
+  },
+  'workspace.files': {
+    params: WorkspaceFilesParamsSchema,
+    result: WorkspaceFilesResultSchema,
+    permission: 'workspace.read',
+  },
+  'workspace.listDir': {
+    params: WorkspaceListDirParamsSchema,
+    result: WorkspaceListDirResultSchema,
+    permission: 'workspace.read',
+  },
+  'workspace.readFile': {
+    params: WorkspaceReadFileParamsSchema,
+    result: WorkspaceReadFileResultSchema,
     permission: 'workspace.read',
   },
 

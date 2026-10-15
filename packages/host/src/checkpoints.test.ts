@@ -354,4 +354,27 @@ describe('SessionManager 与方法', () => {
       methods['session.checkpoints']({ sessionId: SID as SessionId }, context),
     ).rejects.toMatchObject({ code: 'SESSION_NOT_FOUND' });
   });
+
+  // 0.22.0 的文件方法与上面同一个目录规则（文件索引等的细节在 workspace-files.test.ts）。
+  it('workspace.files、listDir、readFile；路径不许往上走', async () => {
+    const { methods } = setup();
+    expect(
+      await methods['workspace.files']({ workspaceId: 'ws_1', query: 'a.t' }, context),
+    ).toMatchObject({ entries: [{ path: 'a.txt', kind: 'file' }] });
+    expect(
+      (await methods['workspace.listDir']({ workspaceId: 'ws_1', path: '' }, context)).entries,
+    ).toContainEqual({ path: 'a.txt', kind: 'file' });
+    expect(
+      await methods['workspace.readFile']({ workspaceId: 'ws_1', path: 'a.txt' }, context),
+    ).toEqual({ path: 'a.txt', size: 8, text: 'one\ntwo\n' });
+    await expect(
+      methods['workspace.readFile']({ workspaceId: 'ws_1', path: '../data/x' }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
+      methods['workspace.listDir']({ workspaceId: 'ws_1', path: '/etc' }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
+      methods['workspace.files']({ workspaceId: 'ws_9', query: '' }, context),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_NOT_FOUND' });
+  });
 });

@@ -55,6 +55,7 @@ import {
   PendingStatusSchema,
   PermissionModeSchema,
   PermissionsSchema,
+  PreviewImageMimeTypeSchema,
   ProtocolVersionSchema,
   ProviderApiSchema,
   ProviderCompatSchema,
@@ -110,6 +111,8 @@ import {
   WevirEventEnvelopeSchema,
   WevirEventSchema,
   type WevirEventType,
+  WorkspaceEntryKindSchema,
+  WorkspaceEntrySchema,
   WorkspaceIdSchema,
   WorkspaceSchema,
   WorktreeModeSchema,
@@ -612,6 +615,30 @@ const standaloneCases: Case[] = [
       { path: '', status: 'modified' },
       { path: 'a', status: 'modified', added: 1.5 },
     ],
+  },
+  {
+    name: 'WorkspaceEntryKind',
+    schema: WorkspaceEntryKindSchema,
+    valid: ['file', 'directory'],
+    invalid: ['symlink', ''],
+  },
+  {
+    name: 'WorkspaceEntry',
+    schema: WorkspaceEntrySchema,
+    valid: [
+      { path: 'src/a.ts', kind: 'file' },
+      { path: 'dist', kind: 'directory', ignored: true },
+    ],
+    invalid: [
+      { path: '', kind: 'file' },
+      { path: 'a', kind: 'file', ignored: false },
+    ],
+  },
+  {
+    name: 'PreviewImageMimeType',
+    schema: PreviewImageMimeTypeSchema,
+    valid: ['image/png', 'image/svg+xml'],
+    invalid: ['image/tiff', 'text/plain'],
   },
   {
     name: 'DiffSource',

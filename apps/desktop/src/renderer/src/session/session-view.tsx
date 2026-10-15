@@ -18,6 +18,7 @@ import { markSeen } from '@/data/seen-sessions';
 import { useTranscript, useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
+import { OpenFileLink, openFileLink } from '@/files/file-links';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
@@ -75,6 +76,14 @@ export function SessionView({
         ? (turnId: TurnId) => openChanges(panes, session.id, { kind: 'turn', turnId })
         : undefined,
     [variant, diffEnabled, panes, session.side, session.id],
+  );
+  // 助手消息里的文件链接（U32）：Host 有 `workspace_files` 时在文件窗格里打开（主会话与支线都用会话目录）。
+  const filesEnabled =
+    view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
+  const openLink = useMemo(
+    () =>
+      filesEnabled && panes ? (href: string) => openFileLink(panes, session.cwd, href) : undefined,
+    [filesEnabled, panes, session.cwd],
   );
   const transcriptRef = useRef<TranscriptViewHandle>(undefined);
   const [notice, setNotice] = useState<string>();
@@ -181,13 +190,15 @@ export function SessionView({
         </div>
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
         <OpenTurnChanges value={openTurnChanges}>
-          <TranscriptView
-            sessionId={session.id}
-            transcript={transcript}
-            cwd={session.cwd}
-            onReady={onReady}
-            compact={variant === 'pane'}
-          />
+          <OpenFileLink value={openLink}>
+            <TranscriptView
+              sessionId={session.id}
+              transcript={transcript}
+              cwd={session.cwd}
+              onReady={onReady}
+              compact={variant === 'pane'}
+            />
+          </OpenFileLink>
         </OpenTurnChanges>
       ) : (
         <p className="min-h-0 flex-1 py-16 text-center text-sm text-muted-foreground">

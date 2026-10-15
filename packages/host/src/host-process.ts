@@ -228,12 +228,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(accounts !== undefined && { accounts }),
         settings,
       }),
-      // 待发消息与设置（R11）、工作区的 git 状态（U18）与改动的 diff（0.20.0）不依赖引擎：引擎不能插话时 Host 一律排队。
+      // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
         pending_messages: true,
         host_settings: true,
         workspace_git: true,
         workspace_diff: true,
+        workspace_files: true,
         subagent_cancel: true,
         environments: true,
         session_worktree: true,

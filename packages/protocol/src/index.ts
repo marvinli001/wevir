@@ -7,4 +7,5 @@ export * from './jsonrpc.js';
 export * from './limits.js';
 export * from './methods.js';
 export * from './origins.js';
+export * from './search-ranking.js';
 export * from './version.js';

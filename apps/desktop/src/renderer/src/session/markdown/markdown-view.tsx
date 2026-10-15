@@ -1,5 +1,6 @@
 import { cn } from 'cn';
-import { memo, useEffect, useMemo, useRef } from 'react';
+import { memo, useContext, useEffect, useMemo, useRef } from 'react';
+import { OpenFileLink } from '@/files/file-links';
 import { t } from '@/i18n';
 import { highlightCodeBlocks, whenNearViewport } from './highlight';
 import {
@@ -13,7 +14,7 @@ const COPIED_RESET_MS = 2000;
 /**
  * 助手消息的 Markdown。流式时每个顶层块一份 HTML，新片段只重渲染它落进的末尾块（markdown.ts）；定稿后整篇
  * 渲染一次，代码块进入视口附近时再高亮。块包在 `display: contents` 的 div 里，样式（styles/markdown.css）
- * 不受分块影响。代码块的“复制”、外部链接用事件委托处理。
+ * 不受分块影响。代码块的“复制”、外部链接与文件链接（U32，交给 OpenFileLink）用事件委托处理。
  */
 export const MarkdownView = memo(function MarkdownView({
   text,
@@ -26,6 +27,10 @@ export const MarkdownView = memo(function MarkdownView({
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const renderer = useMemo(() => createStreamingMarkdownRenderer(), []);
+  // 事件委托只注册一次，打开文件的方式经 ref 取最新的。
+  const openFileLink = useContext(OpenFileLink);
+  const openFileRef = useRef(openFileLink);
+  openFileRef.current = openFileLink;
   const blocks = useMemo<MarkdownBlockHtml[]>(
     () => (streaming ? renderer.render(text) : [{ __html: renderMarkdownHtml(text) }]),
     [streaming, renderer, text],
@@ -70,6 +75,12 @@ export const MarkdownView = memo(function MarkdownView({
         // 渲染进程不导航：交给主进程用系统浏览器打开（只接受 http、https、mailto）。
         event.preventDefault();
         void window.wevir.openExternal(link.href);
+        return;
+      }
+      const fileLink = event.target.closest<HTMLAnchorElement>('a[data-file-link]');
+      if (fileLink && root.contains(fileLink)) {
+        event.preventDefault();
+        openFileRef.current?.(fileLink.dataset.fileLink ?? '');
       }
     };
     root.addEventListener('click', onClick);
