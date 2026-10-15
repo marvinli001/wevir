@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ClientIdentity } from '@wevir/protocol';
+import { t } from './i18n/index.js';
 
 /**
  * `host.hello` 里的身份（ADR-0002 §2）存在数据目录里：
@@ -40,7 +41,7 @@ async function readOrCreate(path: string, prefix: string): Promise<string> {
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
   }
-  throw new Error(`无法读写 ${path}`);
+  throw new Error(t('identity.unwritable', { path }));
 }
 
 async function readId(path: string): Promise<string | undefined> {
@@ -53,6 +54,6 @@ async function readId(path: string): Promise<string | undefined> {
   }
   const id = text.trim();
   if (id === '') return undefined;
-  if (id.length > 128) throw new Error(`${path} 的内容不是合法的 ID`);
+  if (id.length > 128) throw new Error(t('identity.invalid', { path }));
   return id;
 }

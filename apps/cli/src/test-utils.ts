@@ -57,6 +57,8 @@ export interface FakeRunOptions {
   /** stdin / stdout 是否假装成终端。 */
   tty?: boolean;
   env?: NodeJS.ProcessEnv;
+  /** 命令行的语言（WEVIR_LANG），默认中文：断言按中文写，不受跑测试的机器的语言影响。 */
+  lang?: 'zh' | 'en';
 }
 
 /** 在进程内运行 `wevir <argv>`。 */
@@ -84,7 +86,7 @@ export function runFake(argv: string[], options: FakeRunOptions): FakeRun {
   const interrupts = new Set<() => void>();
   const io: CliIO = {
     argv,
-    env: { ...options.env, WEVIR_HOME: options.home },
+    env: { ...options.env, WEVIR_LANG: options.lang ?? 'zh', WEVIR_HOME: options.home },
     cwd: options.cwd ?? options.home,
     stdin,
     stdout,

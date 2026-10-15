@@ -11,19 +11,20 @@ import type {
   WevirEventOf,
 } from '@wevir/protocol';
 import {
-  APPROVAL_END_LABEL,
+  approvalEndLabel,
   clientLabel,
-  ENGINE_ERROR_HINT,
-  ENGINE_ERROR_LABEL,
+  engineErrorHint,
+  engineErrorLabel,
   formatDuration,
   optionLabel,
-  READ_ONLY_LABEL,
-  STATE_REASON_LABEL,
-  SUBAGENT_END_LABEL,
-  TOOL_STATUS_LABEL,
-  TURN_OUTCOME_LABEL,
+  readOnlyLabel,
+  stateReasonLabel,
+  subagentEndLabel,
+  toolStatusLabel,
   truncate,
+  turnOutcomeLabel,
 } from './format.js';
+import { joinList, t } from './i18n/index.js';
 import type { Styles } from './style.js';
 
 /** 渲染的去处（attach 的 `LineConsole`；测试里是字符串）。 */
@@ -87,7 +88,7 @@ export class EventRenderer {
   caughtUp(): void {
     if (this.#live) return;
     this.#live = true;
-    if (this.#replayed > 1) this.#sink.line(this.#s.dim('── 以上为历史，以下为实时 ──'));
+    if (this.#replayed > 1) this.#sink.line(this.#s.dim(t('render.liveDivider')));
     for (const [key, block] of this.#blocks) {
       if (block.text === '') continue;
       this.#printDelta(key, block, block.text);
@@ -97,7 +98,7 @@ export class EventRenderer {
   /** 订阅被重置（Host 的数据比本地旧）：之后从头回放。 */
   reset(): void {
     this.#sink.endLine();
-    this.#sink.line(this.#s.yellow('Host 上的会话历史与本地看到的不一致，重新回放。'));
+    this.#sink.line(this.#s.yellow(t('render.reset')));
     this.#live = false;
     this.#replayed = 0;
     this.#blocks.clear();
@@ -122,26 +123,31 @@ export class EventRenderer {
         return;
       case 'session.resumed': {
         const version = event.payload.engineVersion;
-        this.#sink.line(this.#s.dim(`（引擎会话已恢复${version ? `，${version}` : ''}）`));
+        this.#sink.line(
+          this.#s.dim(version ? t('render.resumedVersion', { version }) : t('render.resumed')),
+        );
         return;
       }
       case 'session.read_only':
         this.#sink.line(
           this.#s.yellow(
-            `会话只读：${READ_ONLY_LABEL[event.payload.reason]}（${event.payload.message}）`,
+            t('render.readOnly', {
+              reason: readOnlyLabel(event.payload.reason),
+              message: event.payload.message,
+            }),
           ),
         );
-        this.#sink.line(this.#s.dim('历史仍可查看；要继续对话请新建会话。'));
+        this.#sink.line(this.#s.dim(t('render.readOnlyHint')));
         return;
       case 'session.state_changed': {
         const { to, reason } = event.payload;
         if (to === 'error') {
-          const why = STATE_REASON_LABEL[reason];
+          const why = stateReasonLabel(reason);
           this.#sink.line(
-            this.#s.red(`会话出错${why ? `：${why}` : ''}。再发一条消息会尝试恢复。`),
+            this.#s.red(why ? t('render.sessionErrorWhy', { why }) : t('render.sessionError')),
           );
         } else if (to === 'closed') {
-          this.#sink.line(this.#s.dim('会话已关闭。'));
+          this.#sink.line(this.#s.dim(t('render.sessionClosed')));
         }
         return;
       }
@@ -191,9 +197,11 @@ export class EventRenderer {
       case 'question.requested': {
         // 0.10.0：命令行只显示问题，回答在桌面端（见 TODO.md）。
         const { questions } = event.payload.question;
-        this.#sink.line(this.#s.yellow('? Agent 提问（请在桌面端回答）'));
+        this.#sink.line(this.#s.yellow(t('render.question')));
         for (const item of questions) {
-          this.#sink.line(`  ${item.header ? `${item.header}：` : ''}${item.question}`);
+          this.#sink.line(
+            `  ${item.header ? t('render.questionWithHeader', { header: item.header, question: item.question }) : item.question}`,
+          );
           item.options.forEach((option, index) => {
             const note = option.description ? this.#s.dim(` — ${option.description}`) : '';
             this.#sink.line(`    ${index + 1}) ${option.label}${note}`);
@@ -204,19 +212,21 @@ export class EventRenderer {
       case 'question.resolved': {
         const { status, resolution } = event.payload;
         if (status === 'cancelled') {
-          this.#sink.line(this.#s.dim('提问已取消'));
+          this.#sink.line(this.#s.dim(t('render.questionCancelled')));
           return;
         }
         const answers = Object.entries(resolution.answers ?? {})
-          .map(([id, answer]) => `${id}=${answer.answers.join('、') || '（跳过）'}`)
-          .join('；');
-        this.#sink.line(this.#s.dim(`✓ 已回答：${answers}`));
+          .map(([id, answer]) => `${id}=${joinList(answer.answers) || t('render.answerSkipped')}`)
+          .join(t('list.semicolon'));
+        this.#sink.line(this.#s.dim(t('render.answered', { answers })));
         return;
       }
       case 'engine.error': {
         const { category, message } = event.payload;
-        this.#sink.line(this.#s.red(`引擎错误（${ENGINE_ERROR_LABEL[category]}）：${message}`));
-        this.#sink.line(this.#s.dim(`下一步：${ENGINE_ERROR_HINT[category]}`));
+        this.#sink.line(
+          this.#s.red(t('err.engineCategory', { category: engineErrorLabel(category), message })),
+        );
+        this.#sink.line(this.#s.dim(t('error.hint', { hint: engineErrorHint(category) })));
         return;
       }
       case 'subagent.started':
@@ -228,7 +238,12 @@ export class EventRenderer {
         this.#dropTurn(turnId);
         const paint = outcome === 'completed' ? this.#s.dim : this.#s.yellow;
         this.#sink.line(
-          paint(`── 本轮${TURN_OUTCOME_LABEL[outcome]} · ${formatDuration(durationMs)} ──`),
+          paint(
+            t('render.turnFinished', {
+              outcome: turnOutcomeLabel(outcome),
+              duration: formatDuration(durationMs),
+            }),
+          ),
         );
         return;
       }
@@ -239,7 +254,10 @@ export class EventRenderer {
     const { clientMessageId, content, sentBy } = event.payload;
     if (this.#live && clientMessageId && this.#options.isEchoed?.(clientMessageId)) return;
     const text = content.map((part) => part.text).join('\n');
-    const from = sentBy.clientKind === 'cli' ? '' : this.#s.dim(`（来自 ${clientLabel(sentBy)}）`);
+    const from =
+      sentBy.clientKind === 'cli'
+        ? ''
+        : this.#s.dim(t('render.from', { client: clientLabel(sentBy) }));
     this.#sink.line();
     this.#sink.line(`${this.#s.bold(this.#s.cyan('›'))} ${text}${from}`);
   }
@@ -248,30 +266,33 @@ export class EventRenderer {
   #steered(event: WevirEventOf<'user.steered'>): void {
     const { clientMessageId, content, sentBy } = event.payload;
     if (this.#live && clientMessageId && this.#options.isEchoed?.(clientMessageId)) {
-      this.#sink.line(this.#s.dim('（插话已插进本回合）'));
+      this.#sink.line(this.#s.dim(t('render.steerEchoed')));
       return;
     }
     const text = content.map((part) => part.text).join('\n');
-    const from = sentBy.clientKind === 'cli' ? '' : `，来自 ${clientLabel(sentBy)}`;
+    const tag =
+      sentBy.clientKind === 'cli'
+        ? t('render.steerTag')
+        : t('render.steerTagFrom', { client: clientLabel(sentBy) });
     this.#sink.line();
-    this.#sink.line(`${this.#s.bold(this.#s.cyan('›'))} ${text}${this.#s.dim(`（插话${from}）`)}`);
+    this.#sink.line(`${this.#s.bold(this.#s.cyan('›'))} ${text}${this.#s.dim(tag)}`);
   }
 
   #pending(type: 'pending.added' | 'pending.updated', pending: PendingMessage): void {
     const text = pendingPreview(pending);
-    const fallback = pending.fallback ? PENDING_FALLBACK_LABEL[pending.fallback.reason] : undefined;
+    const fallback = pending.fallback ? pendingFallbackLabel(pending.fallback.reason) : undefined;
     if (type === 'pending.added') {
       const how =
         pending.delivery === 'steer'
-          ? '插话：等这一步结束后插进本回合'
-          : (fallback ?? '已排队：本回合结束后发出');
+          ? t('render.pendingSteer')
+          : (fallback ?? t('render.pendingQueued'));
       this.#sink.line(this.#s.dim(`⋯ ${how} · ${text}`));
       return;
     }
     if (pending.status === 'held') {
-      this.#sink.line(this.#s.yellow(`⋯ 已暂停 · ${text}（输入 /resume 继续发送）`));
+      this.#sink.line(this.#s.yellow(`⋯ ${t('render.pendingHeld', { text })}`));
     } else if (pending.status === 'cancelled') {
-      this.#sink.line(this.#s.dim(`⋯ 已删除待发消息 · ${text}`));
+      this.#sink.line(this.#s.dim(`⋯ ${t('render.pendingCancelled', { text })}`));
     } else if (pending.status === 'waiting' && fallback !== undefined) {
       this.#sink.line(this.#s.dim(`⋯ ${fallback} · ${text}`));
     }
@@ -292,7 +313,7 @@ export class EventRenderer {
   #printDelta(key: string, block: Block, text: string): void {
     if (this.#current !== key) {
       this.#sink.endLine();
-      if (block.kind === 'reasoning') this.#sink.write(this.#s.dim('思考：'));
+      if (block.kind === 'reasoning') this.#sink.write(this.#s.dim(t('render.thinking')));
       this.#current = key;
     }
     block.printed = true;
@@ -319,8 +340,8 @@ export class EventRenderer {
     if (thought) {
       this.#sink.line(
         this.#live
-          ? this.#s.dim(`思考：${text}`)
-          : this.#s.dim(`（思考过程 ${[...text].length} 字，已折叠）`),
+          ? this.#s.dim(`${t('render.thinking')}${text}`)
+          : this.#s.dim(t('render.thoughtCollapsed', { count: [...text].length })),
       );
     } else {
       this.#sink.line(text);
@@ -337,14 +358,14 @@ export class EventRenderer {
     }
     if (printed) {
       this.#current = undefined;
-      this.#sink.line(this.#s.dim('（上面这段输出被模型放弃，以后续内容为准）'));
+      this.#sink.line(this.#s.dim(t('render.abandoned')));
     }
   }
 
   #toolFinished(event: WevirEventOf<'tool.finished'>): void {
     const { toolCallId, status, output } = event.payload;
-    const name = this.#tools.get(toolCallId) ?? '工具';
-    const label = `${name} ${TOOL_STATUS_LABEL[status]}`;
+    const name = this.#tools.get(toolCallId) ?? t('render.tool');
+    const label = `${name} ${toolStatusLabel(status)}`;
     const detail = output && status !== 'completed' ? firstLines(output.text) : '';
     const paint =
       status === 'completed'
@@ -354,7 +375,9 @@ export class EventRenderer {
           : status === 'cancelled'
             ? this.#s.yellow
             : this.#s.dim;
-    this.#sink.line(`  ${paint(`⎿ ${label}`)}${detail ? this.#s.dim(`：${detail}`) : ''}`);
+    this.#sink.line(
+      `  ${paint(`⎿ ${label}`)}${detail ? this.#s.dim(t('common.colonDetail', { detail })) : ''}`,
+    );
   }
 
   /**
@@ -364,41 +387,55 @@ export class EventRenderer {
   #subagent(summary: SubagentSummary): void {
     const previous = this.#subagents.get(summary.sessionId);
     this.#subagents.set(summary.sessionId, summary);
-    const title = this.#s.bold(summary.title || '子 agent');
+    const name = summary.title || t('render.subagent');
+    const title = this.#s.bold(name);
     if (previous === undefined) {
       const model = [summary.modelId, summary.reasoningEffort].filter(Boolean).join(' · ');
       this.#sink.endLine();
       this.#sink.line(
-        `${this.#s.cyan('↳')} 子 agent 开始工作：${title}${this.#s.dim(`（${model}）`)}`,
+        `${this.#s.cyan('↳')} ${t('render.subagentStarted', {
+          title,
+          model: this.#s.dim(t('common.parenAfter', { text: model })),
+        })}`,
       );
     } else if (previous.status !== 'running' && summary.status === 'running') {
-      this.#sink.line(`${this.#s.cyan('↳')} 子 agent 继续工作：${title}`);
+      this.#sink.line(`${this.#s.cyan('↳')} ${t('render.subagentResumed', { title })}`);
     }
     if (summary.status !== 'running' && previous?.status !== summary.status) {
       const paint = summary.status === 'completed' ? this.#s.green : this.#s.yellow;
-      this.#sink.line(paint(`↳ 子 agent ${SUBAGENT_END_LABEL[summary.status]}：`) + title);
+      this.#sink.line(
+        paint(t('render.subagentEnded', { status: subagentEndLabel(summary.status) })) + title,
+      );
     }
     const before = new Set(previous?.pendingApprovals.map((approval) => approval.id));
     for (const approval of summary.pendingApprovals) {
-      if (!before.has(approval.id)) this.#approvalRequested(approval, summary.title || '子 agent');
+      if (!before.has(approval.id)) this.#approvalRequested(approval, name);
     }
     for (const id of before) {
       if (summary.pendingApprovals.some((approval) => approval.id === id)) continue;
-      this.#sink.line(this.#s.dim(`（子 agent ${summary.title || ''} 的审批已结束）`));
+      this.#sink.line(this.#s.dim(t('render.subagentApprovalEnded', { title: summary.title })));
     }
   }
 
   #approvalRequested(approval: ApprovalRequest, subagent?: string): void {
     this.#approvals.set(approval.id, approval);
     const detail = approval.detail;
-    const what = detail ? `${detail.toolName}${describeTool(detail.display)}` : '一次工具调用';
-    const from = subagent === undefined ? '' : `（来自子 agent ${subagent}）`;
-    this.#sink.line(this.#s.yellow(`⚠ 需要审批${from}：${what}`));
-    if (detail?.justification) this.#sink.line(`  理由：${detail.justification}`);
-    if (detail?.sandboxPermissions) this.#sink.line(`  申请权限：${detail.sandboxPermissions}`);
-    this.#sink.line(
-      `  选项：${approval.options.map((option, i) => `${i + 1}) ${optionLabel(option)}`).join('  ')}`,
-    );
+    const what = detail
+      ? `${detail.toolName}${describeTool(detail.display)}`
+      : t('render.oneToolCall');
+    const from =
+      subagent === undefined ? '' : t('render.approvalFromSubagent', { title: subagent });
+    this.#sink.line(this.#s.yellow(t('render.approvalNeeded', { from, what })));
+    if (detail?.justification) {
+      this.#sink.line(`  ${t('render.justification', { text: detail.justification })}`);
+    }
+    if (detail?.sandboxPermissions) {
+      this.#sink.line(`  ${t('render.sandboxPermissions', { text: detail.sandboxPermissions })}`);
+    }
+    const options = approval.options
+      .map((option, i) => `${i + 1}) ${optionLabel(option)}`)
+      .join('  ');
+    this.#sink.line(`  ${t('render.options', { options })}`);
   }
 
   #approvalResolved(event: WevirEventOf<'approval.resolved'>): void {
@@ -409,18 +446,20 @@ export class EventRenderer {
       approval.resolution = resolution;
     }
     if (resolution.reason !== 'user') {
-      this.#sink.line(this.#s.dim(APPROVAL_END_LABEL[resolution.reason]));
+      this.#sink.line(this.#s.dim(approvalEndLabel(resolution.reason)));
       return;
     }
     const option = approval?.options.find((o) => o.optionId === resolution.optionId);
     const decision = option ? optionLabel(option) : (resolution.optionId ?? status);
     const paint = status === 'approved' ? this.#s.green : this.#s.yellow;
     if (this.#live && this.#options.decidedHere?.(approvalId)) {
-      this.#sink.line(paint(`✓ 本终端已处理：${decision}`));
+      this.#sink.line(paint(t('render.decidedHere', { decision })));
     } else if (resolution.decidedBy) {
-      this.#sink.line(paint(`✓ 已由 ${clientLabel(resolution.decidedBy)} 处理：${decision}`));
+      this.#sink.line(
+        paint(t('render.decidedBy', { client: clientLabel(resolution.decidedBy), decision })),
+      );
     } else {
-      this.#sink.line(paint(`✓ 已处理：${decision}`));
+      this.#sink.line(paint(t('render.decided', { decision })));
     }
   }
 
@@ -449,11 +488,8 @@ function firstLines(text: string): string {
 }
 
 /** 插话没成、转为排队的原因（R11，domain-model §3.3.2）。 */
-const PENDING_FALLBACK_LABEL: Record<PendingFallbackReason, string> = {
-  unsupported: '这个引擎不能插话，已转为排队',
-  rejected: '模型这一轮不能插话，已转为排队',
-  turn_ended: '这一轮结束时还没插进去，已转为排队',
-};
+const pendingFallbackLabel = (reason: PendingFallbackReason): string =>
+  t(`pendingFallback.${reason}`);
 
 /** 待发消息的一行预览：首行，过长截断。 */
 export function pendingPreview(pending: PendingMessage): string {

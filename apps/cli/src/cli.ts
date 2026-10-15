@@ -14,6 +14,7 @@ import { workspaceAdd, workspaceList } from './commands/workspace.js';
 import { type CliIO, type Context, createContext } from './context.js';
 import { EXIT, UsageError } from './errors.js';
 import { padEnd } from './format.js';
+import { detectLocale, type PlainMessageKey, setLocale, t } from './i18n/index.js';
 
 export const CLI_VERSION: string = packageJson.version;
 
@@ -21,9 +22,11 @@ type Values = Record<string, string | boolean | undefined>;
 
 interface CommandDef {
   /** 一行概要，出现在总帮助里。 */
-  summary: string;
-  /** 用法行与说明（命令帮助）。 */
-  help: string;
+  summary: PlainMessageKey;
+  /** 用法行（不带“用法：”）。 */
+  usage: PlainMessageKey;
+  /** 用法行之后的说明与选项（命令帮助）。 */
+  help?: PlainMessageKey;
   options: ParseArgsOptionsConfig;
   positionals: { min: number; max: number };
   run(ctx: Context, values: Values, positionals: string[]): Promise<number>;
@@ -35,18 +38,9 @@ const str = (value: string | boolean | undefined): string | undefined =>
 const COMMANDS: Record<string, Record<string, CommandDef>> = {
   host: {
     start: {
-      summary: '在后台启动本机 Host（关闭终端也不停止）',
-      help: `用法：wevir host start [选项]
-
-以分离方式启动 Host：不持有终端，CLI 退出、终端关闭都不影响它；桌面端之后附着到它，退出时也不会停止它。
-已有 Host 在运行时只报告它的状态。
-
-选项：
-  --adapter <codex|dsh|echo>
-                         引擎适配器，默认 codex：codex-app-server（先在仓库根目录运行
-                         bash scripts/fetch-codex.sh，或用 WEVIR_CODEX_BIN 指定）；dsh 是可选引擎；
-                         echo 是开发用的假引擎
-  --log-level <级别>     debug | info | warn | error，默认 info（日志在 <数据目录>/logs/host.log）`,
+      summary: 'cmd.host.start.summary',
+      usage: 'cmd.host.start.usage',
+      help: 'cmd.host.start.help',
       options: { adapter: { type: 'string' }, 'log-level': { type: 'string' } },
       positionals: { min: 0, max: 0 },
       run: (ctx, v) => {
@@ -59,19 +53,17 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       },
     },
     status: {
-      summary: '查看 Host 是否在运行',
-      help: `用法：wevir host status
-
-读取 <数据目录>/run/host.json 并连上 Host 探活。Host 没有在运行时退出码为 1。`,
+      summary: 'cmd.host.status.summary',
+      usage: 'cmd.host.status.usage',
+      help: 'cmd.host.status.help',
       options: {},
       positionals: { min: 0, max: 0 },
       run: (ctx) => hostStatus(ctx),
     },
     stop: {
-      summary: '让 Host 优雅退出',
-      help: `用法：wevir host stop
-
-经 host.shutdown 请求 Host 优雅退出（运行中的回合会被取消），等它的进程结束。Host 没有在运行时什么也不做。`,
+      summary: 'cmd.host.stop.summary',
+      usage: 'cmd.host.stop.usage',
+      help: 'cmd.host.stop.help',
       options: {},
       positionals: { min: 0, max: 0 },
       run: (ctx) => hostStop(ctx),
@@ -79,13 +71,9 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
   },
   workspace: {
     add: {
-      summary: '登记一个本地文件夹为工作区',
-      help: `用法：wevir workspace add <路径> [--name <名称>]
-
-Host 按真实路径去重：同一个目录再次添加时返回已有的工作区。
-
-选项：
-  --name <名称>   显示名称，默认取目录名`,
+      summary: 'cmd.workspace.add.summary',
+      usage: 'cmd.workspace.add.usage',
+      help: 'cmd.workspace.add.help',
       options: { name: { type: 'string' } },
       positionals: { min: 1, max: 1 },
       run: (ctx, v, [path]) => {
@@ -94,8 +82,8 @@ Host 按真实路径去重：同一个目录再次添加时返回已有的工作
       },
     },
     list: {
-      summary: '列出工作区',
-      help: '用法：wevir workspace list',
+      summary: 'cmd.workspace.list.summary',
+      usage: 'cmd.workspace.list.usage',
       options: {},
       positionals: { min: 0, max: 0 },
       run: (ctx) => workspaceList(ctx),
@@ -103,25 +91,9 @@ Host 按真实路径去重：同一个目录再次添加时返回已有的工作
   },
   provider: {
     add: {
-      summary: '添加或更新 Provider（Key 不回显、不进 shell 历史）',
-      help: `用法：wevir provider add [选项]
-
-没给的选项在终端里逐项询问。API Key 只在终端里不回显地输入，不接受命令行参数，不会写进 shell 历史；
-stdin 不是终端时从 stdin 读一行作为 Key。同一个 ID 再次添加即更新（直接回车保留已存的 Key）。
-
-选项：
-  --kind <类型>            deepseek-official（DeepSeek 官方）或 openai-compatible（OpenAI 兼容地址）
-  --id <ID>                openai-compatible 的 ID（小写字母开头，可含数字与 -；创建后不能改）
-  --name <名称>            显示名称
-  --api <协议>             openai-completions（默认）或 openai-responses
-  --base-url <地址>        服务地址，例如 https://api.moonshot.cn/v1
-  --model <模型 ID>        默认模型
-  --context-window <数>    模型的上下文长度（token）
-  --no-key                 不设置 Key（保留已存的）
-
-示例：
-  wevir provider add --kind deepseek-official
-  wevir provider add --kind openai-compatible --id kimi --base-url https://api.moonshot.cn/v1 --model kimi-k2.6`,
+      summary: 'cmd.provider.add.summary',
+      usage: 'cmd.provider.add.usage',
+      help: 'cmd.provider.add.help',
       options: {
         kind: { type: 'string' },
         id: { type: 'string' },
@@ -153,20 +125,16 @@ stdin 不是终端时从 stdin 读一行作为 Key。同一个 ID 再次添加�
       },
     },
     list: {
-      summary: '列出 Provider',
-      help: '用法：wevir provider list',
+      summary: 'cmd.provider.list.summary',
+      usage: 'cmd.provider.list.usage',
       options: {},
       positionals: { min: 0, max: 0 },
       run: (ctx) => providerList(ctx),
     },
     test: {
-      summary: '用一次最小请求测试 Provider 的连接',
-      help: `用法：wevir provider test [<ID>] [--model <模型 ID>]
-
-只有一个 Provider 时可以省略 ID。会真实地向服务发一次很小的请求。
-
-选项：
-  --model <模型 ID>   测试这个模型，默认是 Provider 的默认模型`,
+      summary: 'cmd.provider.test.summary',
+      usage: 'cmd.provider.test.usage',
+      help: 'cmd.provider.test.help',
       options: { model: { type: 'string' } },
       positionals: { min: 0, max: 1 },
       run: (ctx, v, [id]) => {
@@ -175,29 +143,24 @@ stdin 不是终端时从 stdin 读一行作为 Key。同一个 ID 再次添加�
       },
     },
     login: {
-      summary: '用设备码登录 ChatGPT 账号（只限个人在本机使用）',
-      help: `用法：wevir provider login [chatgpt]
-
-用 ChatGPT 订阅登录 Host 的 Codex 引擎：打印一个网址与一次性码，在任意设备的浏览器里打开网址、登录
-ChatGPT 并输入这个码。登录走 OpenAI 自己的 Codex 登录流程，凭据只存在本机的 Codex 目录里，Wevir 不读取、
-不转交；按 OpenAI 的条款只供个人在本机使用 Wevir 时登录。登录成功后多出一个 ID 为 chatgpt 的 Provider。
-Ctrl-C 取消登录。`,
+      summary: 'cmd.provider.login.summary',
+      usage: 'cmd.provider.login.usage',
+      help: 'cmd.provider.login.help',
       options: {},
       positionals: { min: 0, max: 1 },
       run: (ctx, _v, [kind]) => accountLogin(ctx, parseAccountKind(kind)),
     },
     status: {
-      summary: '查看 ChatGPT 账号：是否登录、账号、套餐与用量',
-      help: '用法：wevir provider status [chatgpt]',
+      summary: 'cmd.provider.status.summary',
+      usage: 'cmd.provider.status.usage',
       options: {},
       positionals: { min: 0, max: 1 },
       run: (ctx, _v, [kind]) => accountStatus(ctx, parseAccountKind(kind)),
     },
     logout: {
-      summary: '登出 ChatGPT 账号（删除本机凭据）',
-      help: `用法：wevir provider logout [chatgpt]
-
-删除本机的 ChatGPT 凭据并尽力吊销令牌。chatgpt Provider 与用它的会话保留，重新登录后可以继续。`,
+      summary: 'cmd.provider.logout.summary',
+      usage: 'cmd.provider.logout.usage',
+      help: 'cmd.provider.logout.help',
       options: {},
       positionals: { min: 0, max: 1 },
       run: (ctx, _v, [kind]) => accountLogout(ctx, parseAccountKind(kind)),
@@ -205,16 +168,9 @@ Ctrl-C 取消登录。`,
   },
   session: {
     new: {
-      summary: '新建会话、发送提示并进入 attach',
-      help: `用法：wevir session new -w <路径> [选项] "<提示>"
-
-目录还不是工作区时自动登记。默认发送后进入 attach（实时输出、交互式审批、继续对话）。
-
-选项：
-  -w, --workspace <路径>   会话的工作区目录（必填）
-  --provider <ID>          使用的 Provider；只有一个时可省略
-  --model <模型 ID>        默认用 Provider 的默认模型
-  --detach                 只创建并发送，不进入 attach`,
+      summary: 'cmd.session.new.summary',
+      usage: 'cmd.session.new.usage',
+      help: 'cmd.session.new.help',
       options: {
         workspace: { type: 'string', short: 'w' },
         provider: { type: 'string' },
@@ -225,10 +181,7 @@ Ctrl-C 取消登录。`,
       run: (ctx, v, positionals) => {
         const workspace = str(v.workspace);
         if (workspace === undefined) {
-          throw new UsageError(
-            '缺少 -w <路径>',
-            '例如 wevir session new -w . "汇总这个目录下的 CSV"',
-          );
+          throw new UsageError(t('usage.missingWorkspace'), t('usage.missingWorkspace.hint'));
         }
         const provider = str(v.provider);
         const model = str(v.model);
@@ -242,11 +195,9 @@ Ctrl-C 取消登录。`,
       },
     },
     list: {
-      summary: '列出会话',
-      help: `用法：wevir session list [-w <路径>]
-
-选项：
-  -w, --workspace <路径>   只列这个工作区的会话`,
+      summary: 'cmd.session.list.summary',
+      usage: 'cmd.session.list.usage',
+      help: 'cmd.session.list.help',
       options: { workspace: { type: 'string', short: 'w' } },
       positionals: { min: 0, max: 0 },
       run: (ctx, v) => {
@@ -255,16 +206,9 @@ Ctrl-C 取消登录。`,
       },
     },
     attach: {
-      summary: '连到会话：实时输出、审批、继续对话',
-      help: `用法：wevir session attach <会话 ID>
-
-从头回放会话历史，然后实时显示助手输出与工具调用；遇到审批时在输入框里选择（另一端先处理时显示处理者）。
-会话空闲时在输入框里输入并回车即继续对话。会话 ID 可以只写开头几位（唯一即可）。
-
-按键：
-  Enter    发送消息 / 回答审批
-  Ctrl-C   回合运行中：第一次取消当前运行，第二次退出 attach；空闲时连按两次退出
-  Ctrl-D   退出 attach（会话保留在 Host 中）`,
+      summary: 'cmd.session.attach.summary',
+      usage: 'cmd.session.attach.usage',
+      help: 'cmd.session.attach.help',
       options: {},
       positionals: { min: 1, max: 1 },
       run: (ctx, _v, [id]) => sessionAttach(ctx, id as string),
@@ -272,62 +216,66 @@ Ctrl-C 取消登录。`,
   },
 };
 
-const GROUP_TITLES: Record<string, string> = {
-  host: 'Host',
-  workspace: '工作区',
-  provider: 'Provider（模型服务）',
-  session: '会话',
+const GROUP_TITLES: Record<string, PlainMessageKey> = {
+  host: 'group.host',
+  workspace: 'group.workspace',
+  provider: 'group.provider',
+  session: 'group.session',
 };
-
-const GLOBAL_HELP = `全局选项：
-  --home <目录>    数据目录，与 Host 相同；环境变量 WEVIR_HOME 优先。默认 macOS ~/Library/Application Support/Wevir，
-                   Windows %APPDATA%\\Wevir
-  -h, --help       显示帮助（wevir <命令> --help 查看命令的选项）
-  -v, --version    显示版本`;
 
 /** 总帮助里的一行：用法 + 概要。 */
 function commandLine(def: CommandDef): string {
-  const usage = (def.help.split('\n')[0] ?? '').replace(/^用法：/, '');
-  return `  ${padEnd(usage, 52)} ${def.summary}`;
+  return `  ${padEnd(t(def.usage), 52)} ${t(def.summary)}`;
+}
+
+/** 命令帮助：用法行，再接说明与选项。 */
+function commandHelp(def: CommandDef): string {
+  const usage = t('cli.usage', { usage: t(def.usage) });
+  return def.help === undefined ? usage : `${usage}\n\n${t(def.help)}`;
+}
+
+function groupTitle(group: string): string {
+  const key = GROUP_TITLES[group];
+  return key === undefined ? group : t(key);
 }
 
 export function mainHelp(): string {
   const sections = Object.entries(COMMANDS).map(
     ([group, commands]) =>
-      `${GROUP_TITLES[group]}\n${Object.values(commands)
+      `${groupTitle(group)}\n${Object.values(commands)
         .map((def) => commandLine(def))
         .join('\n')}`,
   );
-  return `wevir —— Wevir 命令行客户端 ${CLI_VERSION}
+  return `${t('cli.title', { version: CLI_VERSION })}
 
-用法：wevir <命令> [选项]
+${t('cli.usage', { usage: t('cli.mainUsage') })}
 
 ${sections.join('\n\n')}
 
-${GLOBAL_HELP}
+${t('cli.globalHelp')}
 
-先运行 wevir host start 启动 Host，再 wevir provider add 配置模型服务。`;
+${t('cli.firstSteps')}`;
 }
 
 function groupHelp(group: string): string {
   const commands = COMMANDS[group] ?? {};
-  return `${GROUP_TITLES[group]}\n${Object.values(commands)
+  return `${groupTitle(group)}\n${Object.values(commands)
     .map((def) => commandLine(def))
-    .join('\n')}\n\n运行 wevir ${group} <子命令> --help 查看选项。`;
+    .join('\n')}\n\n${t('cli.groupFooter', { group })}`;
 }
 
 /** 翻译 `parseArgs` 的报错。 */
 function usageFromParseError(error: unknown, group: string, name: string): UsageError {
   const { code, message } = error as { code?: string; message: string };
   const option = /'([^']+)'/.exec(message)?.[1];
-  const hint = `运行 wevir ${group} ${name} --help 查看用法`;
+  const hint = t('usage.seeCommandHelp', { command: `${group} ${name}` });
   switch (code) {
     case 'ERR_PARSE_ARGS_UNKNOWN_OPTION':
-      return new UsageError(`未知选项：${option ?? message}`, hint);
+      return new UsageError(t('usage.unknownOption', { option: option ?? message }), hint);
     case 'ERR_PARSE_ARGS_INVALID_OPTION_VALUE':
-      return new UsageError(`选项 ${option ?? ''} 缺少值或不需要值`, hint);
+      return new UsageError(t('usage.badOptionValue', { option: option ?? '' }), hint);
     case 'ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL':
-      return new UsageError(`多余的参数：${option ?? message}`, hint);
+      return new UsageError(t('usage.extraArgs', { args: option ?? message }), hint);
     default:
       return new UsageError(message, hint);
   }
@@ -350,11 +298,12 @@ function parseLeading(argv: readonly string[]): Leading {
     else if (token === '-v' || token === '--version') result.version = true;
     else if (token === '--home') {
       const value = argv[i + 1];
-      if (value === undefined) throw new UsageError('--home 缺少目录');
+      if (value === undefined) throw new UsageError(t('usage.homeMissing'));
       result.home = value;
       i += 1;
     } else if (token.startsWith('--home=')) result.home = token.slice('--home='.length);
-    else if (token.startsWith('-')) throw new UsageError(`未知选项：${token}`);
+    else if (token.startsWith('-'))
+      throw new UsageError(t('usage.unknownOption', { option: token }));
     else break;
   }
   result.rest = argv.slice(i);
@@ -363,6 +312,7 @@ function parseLeading(argv: readonly string[]): Leading {
 
 /** `wevir` 的主流程，返回退出码（调用方负责 `process.exit`）。 */
 export async function runCli(io: CliIO): Promise<number> {
+  setLocale(detectLocale(io.env));
   let ctx: Context | undefined;
   try {
     const leading = parseLeading(io.argv);
@@ -376,7 +326,7 @@ export async function runCli(io: CliIO): Promise<number> {
       return EXIT.ok;
     }
     const commands = COMMANDS[group];
-    if (!commands) throw new UsageError(`未知命令：${group}`);
+    if (!commands) throw new UsageError(t('usage.unknownCommand', { command: group }));
     if (name === undefined || name.startsWith('-')) {
       const asked = leading.help || name === '-h' || name === '--help';
       (asked ? io.stdout : io.stderr).write(`${groupHelp(group)}\n`);
@@ -384,7 +334,10 @@ export async function runCli(io: CliIO): Promise<number> {
     }
     const def = commands[name];
     if (!def) {
-      throw new UsageError(`未知命令：wevir ${group} ${name}`, `运行 wevir ${group} --help 查看`);
+      throw new UsageError(
+        t('usage.unknownCommand', { command: `wevir ${group} ${name}` }),
+        t('usage.seeGroupHelp', { group }),
+      );
     }
     let parsed: { values: Values; positionals: string[] };
     try {
@@ -403,20 +356,23 @@ export async function runCli(io: CliIO): Promise<number> {
     }
     const { values, positionals } = parsed;
     if (leading.help || values.help) {
-      io.stdout.write(`${def.help}\n`);
+      io.stdout.write(`${commandHelp(def)}\n`);
       return EXIT.ok;
     }
     if (positionals.length < def.positionals.min) {
-      throw new UsageError('缺少参数', `运行 wevir ${group} ${name} --help 查看用法`);
+      throw new UsageError(
+        t('usage.missingArgs'),
+        t('usage.seeCommandHelp', { command: `${group} ${name}` }),
+      );
     }
     if (positionals.length > def.positionals.max) {
       throw new UsageError(
-        `多余的参数：${positionals.slice(def.positionals.max).join(' ')}`,
-        `运行 wevir ${group} ${name} --help 查看用法`,
+        t('usage.extraArgs', { args: positionals.slice(def.positionals.max).join(' ') }),
+        t('usage.seeCommandHelp', { command: `${group} ${name}` }),
       );
     }
     const homeOption = str(values.home) ?? leading.home;
-    if (homeOption === '') throw new UsageError('--home 不能为空');
+    if (homeOption === '') throw new UsageError(t('usage.homeEmpty'));
     const home = resolveHome({
       ...(homeOption !== undefined && { home: homeOption }),
       env: io.env,

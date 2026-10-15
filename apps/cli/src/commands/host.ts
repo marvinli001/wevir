@@ -22,6 +22,7 @@ import {
 import { type Context, connect } from '../context.js';
 import { CliError, describeError, EXIT } from '../errors.js';
 import { formatTime, table } from '../format.js';
+import { t } from '../i18n/index.js';
 
 /** 分离启动的 Host 的 stdout / stderr 写到这里（Host 自己的结构化日志在 `logs/host.log`）。 */
 export const HOST_STDIO_LOG = 'host-stdio.log';
@@ -83,10 +84,10 @@ export function resolveHostEntry(from: string | URL = import.meta.url): string {
   const manifestPath = require.resolve('@wevir/host/package.json');
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { bin?: unknown };
   const bin = (manifest.bin as Record<string, unknown> | undefined)?.['wevir-host'];
-  if (typeof bin !== 'string') throw new CliError(`${manifestPath} 里没有 bin.wevir-host`);
+  if (typeof bin !== 'string') throw new CliError(t('host.noBin', { path: manifestPath }));
   const entry = resolve(dirname(manifestPath), bin);
   if (!existsSync(entry)) {
-    throw new CliError(`找不到 Host 的可执行入口 ${entry}。`, '先在仓库根目录运行 pnpm build');
+    throw new CliError(t('host.noEntry', { path: entry }), t('host.noEntry.hint'));
   }
   return entry;
 }
@@ -96,36 +97,40 @@ export async function hostStart(ctx: Context, options: HostStartOptions): Promis
   const runtime = await readRuntime(ctx.home);
   if (runtime.kind === 'invalid') {
     throw new CliError(
-      `运行时文件 ${runtime.path} 的内容不对。`,
-      '确认没有 Host 在运行后删除它，再运行 wevir host start',
+      t('host.invalidRuntime', { path: runtime.path }),
+      t('host.invalidRuntime.hint'),
     );
   }
   if (runtime.kind === 'live') {
     try {
       const { hello } = await probe(ctx);
-      ctx.print(`Host 已在运行：pid ${runtime.info.pid} · Host ${hello.hostVersion}`);
-      ctx.print(s.dim(`数据目录 ${ctx.home}`));
+      ctx.print(t('host.alreadyRunning', { pid: runtime.info.pid, version: hello.hostVersion }));
+      ctx.print(s.dim(t('host.dataDir', { path: ctx.home })));
       return EXIT.ok;
     } catch (error) {
       throw new CliError(
-        `Host 进程（pid ${runtime.info.pid}）在运行，但连不上：${describeError(error).message}`,
-        `查看日志 ${join(ctx.home, HOME_LAYOUT.logsDir, 'host.log')}；必要时结束该进程后再运行 wevir host start`,
+        t('host.unreachable', { pid: runtime.info.pid, error: describeError(error).message }),
+        t('host.unreachable.startHint', { log: join(ctx.home, HOME_LAYOUT.logsDir, 'host.log') }),
       );
     }
   }
 
   let child: ChildProcess | undefined;
   if (runtime.kind === 'starting') {
-    ctx.print(`Host 正在启动（pid ${runtime.info.pid}），等待它就绪…`);
+    ctx.print(t('host.waitingStart', { pid: runtime.info.pid }));
   } else {
     child = await spawnDetached(ctx, options);
   }
   const { info, hello } = await waitForHost(ctx, child);
   ctx.print(
-    `Host 已启动：pid ${info.pid} · Host ${hello.hostVersion} · 协议 ${hello.protocolVersion}`,
+    t('host.started', {
+      pid: info.pid,
+      version: hello.hostVersion,
+      protocol: hello.protocolVersion,
+    }),
   );
-  ctx.print(s.dim(`数据目录 ${ctx.home}`));
-  ctx.print(s.dim(`日志 ${join(ctx.home, HOME_LAYOUT.logsDir, 'host.log')}`));
+  ctx.print(s.dim(t('host.dataDir', { path: ctx.home })));
+  ctx.print(s.dim(t('host.logFile', { path: join(ctx.home, HOME_LAYOUT.logsDir, 'host.log') })));
   return EXIT.ok;
 }
 
@@ -173,12 +178,15 @@ async function waitForHost(
   const deadline = performance.now() + START_TIMEOUT_MS;
   let lastError: unknown;
   while (performance.now() < deadline) {
-    if (spawnError) throw new CliError(`无法启动 Host：${spawnError.message}`);
+    if (spawnError) throw new CliError(t('host.spawnFailed', { error: spawnError.message }));
     // 退出码 3：并发启动时别人先占住了数据目录，接着等那个 Host 就绪即可。
     if (exit && exit.code !== EXIT_CODE.alreadyRunning) {
+      const why = exit.signal
+        ? t('host.startFailed.signal', { signal: exit.signal })
+        : t('host.startFailed.exitCode', { code: String(exit.code) });
       throw new CliError(
-        `Host 启动失败（${exit.signal ? `信号 ${exit.signal}` : `退出码 ${exit.code}`}）。${await stdioTail(ctx.home)}`,
-        `完整输出见 ${join(ctx.home, HOME_LAYOUT.logsDir, HOST_STDIO_LOG)} 与 logs/host.log`,
+        t('host.startFailed', { why, tail: await stdioTail(ctx.home) }),
+        t('host.startFailed.hint', { stdio: join(ctx.home, HOME_LAYOUT.logsDir, HOST_STDIO_LOG) }),
       );
     }
     const runtime = await readRuntime(ctx.home);
@@ -192,9 +200,12 @@ async function waitForHost(
     }
     await sleep(100);
   }
+  const seconds = START_TIMEOUT_MS / 1000;
   throw new CliError(
-    `Host 在 ${START_TIMEOUT_MS / 1000} s 内没有就绪${lastError ? `（${describeError(lastError).message}）` : ''}。`,
-    `查看 ${join(ctx.home, HOME_LAYOUT.logsDir, 'host.log')}`,
+    lastError
+      ? t('host.notReadyWhy', { seconds, error: describeError(lastError).message })
+      : t('host.notReady', { seconds }),
+    t('host.seeLog', { log: join(ctx.home, HOME_LAYOUT.logsDir, 'host.log') }),
   );
 }
 
@@ -213,21 +224,21 @@ export async function hostStatus(ctx: Context): Promise<number> {
   const runtime = await readRuntime(ctx.home);
   switch (runtime.kind) {
     case 'missing':
-      ctx.print('Host 没有在运行。');
-      ctx.print(s.dim(`数据目录 ${ctx.home}`));
-      ctx.print(s.dim('下一步：运行 wevir host start'));
+      ctx.print(t('host.notRunning'));
+      ctx.print(s.dim(t('host.dataDir', { path: ctx.home })));
+      ctx.print(s.dim(t('error.hint', { hint: t('host.notRunning.hint') })));
       return EXIT.failure;
     case 'stale':
-      ctx.print(`Host 没有在运行（pid ${runtime.info.pid} 已退出，运行时文件是它留下的）。`);
-      ctx.print(s.dim('下一步：运行 wevir host start（会自动清理旧文件）'));
+      ctx.print(t('host.stale', { pid: runtime.info.pid }));
+      ctx.print(s.dim(t('error.hint', { hint: t('host.stale.hint') })));
       return EXIT.failure;
     case 'invalid':
       throw new CliError(
-        `运行时文件 ${runtime.path} 的内容不对。`,
-        '确认没有 Host 在运行后删除它，再运行 wevir host start',
+        t('host.invalidRuntime', { path: runtime.path }),
+        t('host.invalidRuntime.hint'),
       );
     case 'starting':
-      ctx.print(`Host 正在启动（pid ${runtime.info.pid}）。`);
+      ctx.print(t('host.starting', { pid: runtime.info.pid }));
       return EXIT.failure;
     case 'live':
       break;
@@ -238,22 +249,28 @@ export async function hostStatus(ctx: Context): Promise<number> {
     result = await probe(ctx);
   } catch (error) {
     throw new CliError(
-      `Host 进程（pid ${info.pid}）在运行，但连不上：${describeError(error).message}`,
-      `查看日志 ${join(ctx.home, HOME_LAYOUT.logsDir, 'host.log')}`,
+      t('host.unreachable', { pid: info.pid, error: describeError(error).message }),
+      t('host.unreachable.statusHint', { log: join(ctx.home, HOME_LAYOUT.logsDir, 'host.log') }),
     );
   }
   const { hello, latencyMs } = result;
-  ctx.print(s.green('Host 运行中'));
+  ctx.print(s.green(t('host.running')));
   ctx.print(
     table(
       ['', ''],
       [
-        ['pid', `${info.pid}（启动于 ${formatTime(info.startedAt)}）`],
-        ['地址', info.url ?? ''],
-        ['版本', `Host ${hello.hostVersion} · 协议 ${hello.protocolVersion}`],
+        ['pid', t('host.row.pidValue', { pid: info.pid, time: formatTime(info.startedAt) })],
+        [t('host.row.address'), info.url ?? ''],
+        [
+          t('host.row.version'),
+          t('host.row.versionValue', {
+            version: hello.hostVersion,
+            protocol: hello.protocolVersion,
+          }),
+        ],
         ['Host ID', hello.hostId],
-        ['响应', `${latencyMs} ms`],
-        ['数据目录', ctx.home],
+        [t('host.row.latency'), `${latencyMs} ms`],
+        [t('host.row.dataDir'), ctx.home],
       ],
     )
       .split('\n')
@@ -268,17 +285,17 @@ export async function hostStatus(ctx: Context): Promise<number> {
 export async function hostStop(ctx: Context): Promise<number> {
   const runtime = await readRuntime(ctx.home);
   if (runtime.kind === 'missing' || runtime.kind === 'stale') {
-    ctx.print('Host 没有在运行。');
+    ctx.print(t('host.notRunning'));
     return EXIT.ok;
   }
   if (runtime.kind === 'invalid') {
-    throw new CliError(`运行时文件 ${runtime.path} 的内容不对。`, '运行 wevir host status 查看');
+    throw new CliError(
+      t('host.invalidRuntime', { path: runtime.path }),
+      t('host.invalidRuntime.stopHint'),
+    );
   }
   if (runtime.kind === 'starting') {
-    throw new CliError(
-      `Host 正在启动（pid ${runtime.info.pid}）。`,
-      '等它就绪后再运行 wevir host stop',
-    );
+    throw new CliError(t('host.starting', { pid: runtime.info.pid }), t('host.starting.stopHint'));
   }
   const { pid } = runtime.info;
   const client = await connect(ctx);
@@ -294,17 +311,17 @@ export async function hostStop(ctx: Context): Promise<number> {
   } finally {
     client.close();
   }
-  ctx.print(`Host（pid ${pid}）正在退出…`);
+  ctx.print(t('host.stopping', { pid }));
   const deadline = performance.now() + STOP_TIMEOUT_MS;
   while (performance.now() < deadline) {
     if (!isProcessAlive(pid)) {
-      ctx.print('Host 已停止。');
+      ctx.print(t('host.stopped'));
       return EXIT.ok;
     }
     await sleep(100);
   }
   throw new CliError(
-    `Host（pid ${pid}）在 ${STOP_TIMEOUT_MS / 1000} s 内没有退出。`,
-    `查看 ${join(ctx.home, HOME_LAYOUT.logsDir, 'host.log')}；仍不退出时手动结束该进程`,
+    t('host.stopTimeout', { pid, seconds: STOP_TIMEOUT_MS / 1000 }),
+    t('host.stopTimeout.hint', { log: join(ctx.home, HOME_LAYOUT.logsDir, 'host.log') }),
   );
 }

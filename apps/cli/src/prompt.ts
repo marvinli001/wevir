@@ -2,6 +2,7 @@ import { createInterface, type Interface } from 'node:readline';
 import MuteStream from 'mute-stream';
 import type { CliIO } from './context.js';
 import { CliError, EXIT } from './errors.js';
+import { t } from './i18n/index.js';
 
 /**
  * 一问一答的交互输入（`provider add`）。TTY 时 readline 的输出经 `mute-stream`，输入 Key 时静音，
@@ -49,7 +50,7 @@ export class Questioner {
   /** 不提示，读一行；输入已结束时返回 undefined。 */
   async readLine(): Promise<string | undefined> {
     const next = await this.#lines.next();
-    if (this.#interrupted) throw new CliError('已取消。', undefined, EXIT.interrupted);
+    if (this.#interrupted) throw new CliError(t('prompt.cancelled'), undefined, EXIT.interrupted);
     return next.done ? undefined : next.value;
   }
 
@@ -62,11 +63,11 @@ export class Questioner {
       });
     }
     for (;;) {
-      const answer = await this.ask('请选择 ', String(fallback + 1));
+      const answer = await this.ask(t('prompt.choose'), String(fallback + 1));
       const index = Number(answer) - 1;
       if (Number.isInteger(index) && index >= 0 && index < options.length) return index;
-      if (!this.interactive) throw new CliError(`无效的选择：${answer}`);
-      this.#io.stdout.write(`请输入 1–${options.length} 之间的数字。\n`);
+      if (!this.interactive) throw new CliError(t('prompt.invalidChoice', { answer }));
+      this.#io.stdout.write(`${t('prompt.chooseRange', { count: options.length })}\n`);
     }
   }
 
@@ -82,12 +83,9 @@ export class Questioner {
     }
     try {
       const next = await this.#lines.next();
-      if (this.#interrupted) throw new CliError('已取消。', undefined, EXIT.interrupted);
+      if (this.#interrupted) throw new CliError(t('prompt.cancelled'), undefined, EXIT.interrupted);
       if (next.done) {
-        throw new CliError(
-          '输入已结束，没有读到需要的内容。',
-          '在终端里交互运行，或用选项给出各项',
-        );
+        throw new CliError(t('prompt.inputEnded'), t('prompt.inputEnded.hint'));
       }
       return next.value;
     } finally {

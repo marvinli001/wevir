@@ -16,9 +16,10 @@ import {
   createAdapter,
   EXIT_CODE,
   type HostCliOverrides,
+  hostCliLocale,
+  hostUsage,
   parseHostArgs,
   runHostCli,
-  USAGE,
 } from './cli.js';
 import { EngineRouter } from './engine-router.js';
 import { HOST_VERSION } from './host-process.js';
@@ -27,6 +28,16 @@ import type { HostRuntimeInfo } from './runtime-file.js';
 import { fakeProcess, TestRpcClient, useTempDir, waitReady } from './test-utils.js';
 
 const tempDir = useTempDir();
+
+describe('hostCliLocale', () => {
+  it('WEVIR_LANG 优先，其次 LC_ALL、LC_MESSAGES、LANG；zh* 为中文，其他为英文', () => {
+    expect(hostCliLocale({})).toBe('en');
+    expect(hostCliLocale({ LANG: 'zh_CN.UTF-8' })).toBe('zh');
+    expect(hostCliLocale({ LC_ALL: 'C', LANG: 'zh_CN.UTF-8' })).toBe('en');
+    expect(hostCliLocale({ LC_MESSAGES: 'zh_TW.UTF-8', LANG: 'en_US.UTF-8' })).toBe('zh');
+    expect(hostCliLocale({ WEVIR_LANG: 'en', LC_ALL: 'zh_CN.UTF-8' })).toBe('en');
+  });
+});
 
 describe('parseHostArgs', () => {
   it('默认值：codex 适配器、系统分配端口、info 级别、不监听 stdin', () => {
@@ -117,7 +128,12 @@ describe('runHostCli', () => {
   it('--help、--version 写到 stdout，退出码 0；参数错误退出码 2', async () => {
     const help = fakeProcess(['--help']);
     expect(await runHostCli(help.proc)).toBe(EXIT_CODE.ok);
-    expect(help.out.stdout).toBe(`${USAGE}\n`);
+    expect(help.out.stdout).toBe(`${hostUsage('en')}\n`);
+    expect(help.out.stdout).toContain('Usage: wevir-host');
+    const zhHelp = fakeProcess(['--help'], { LANG: 'zh_CN.UTF-8' });
+    expect(await runHostCli(zhHelp.proc)).toBe(EXIT_CODE.ok);
+    expect(zhHelp.out.stdout).toBe(`${hostUsage('zh')}\n`);
+    expect(zhHelp.out.stdout).toContain('用法：wevir-host');
     const version = fakeProcess(['--version']);
     expect(await runHostCli(version.proc)).toBe(EXIT_CODE.ok);
     expect(version.out.stdout).toBe(`${HOST_VERSION}\n`);
@@ -180,7 +196,7 @@ describe('runHostCli', () => {
 
   it('适配器建不起来（例如 dsh 的依赖没装好）：报错并以 1 退出，日志里有原因', async () => {
     const home = join(tempDir(), 'home');
-    const fake = fakeProcess(['--home', home, '--adapter', 'dsh']);
+    const fake = fakeProcess(['--home', home, '--adapter', 'dsh'], { WEVIR_LANG: 'zh' });
     const code = await runHostCli(fake.proc, {
       createAdapter: () => {
         throw new Error('找不到 @deepseek-ai/dsh');
@@ -294,9 +310,9 @@ describe('runHostCli', () => {
         hostVersion: HOST_VERSION,
       }),
     );
-    const fake = fakeProcess(['--home', home, '--adapter', 'echo']);
+    const fake = fakeProcess(['--home', home, '--adapter', 'echo'], { LANG: 'C' });
     expect(await runHostCli(fake.proc)).toBe(EXIT_CODE.alreadyRunning);
-    expect(fake.out.stderr).toContain('已有 Host 在运行');
+    expect(fake.out.stderr).toContain('a Host is already running');
     expect(fake.out.stderr).toContain(`pid ${process.ppid}`);
   });
 

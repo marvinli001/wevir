@@ -5,7 +5,8 @@ import { type ProviderProfile, type SessionId, SessionIdSchema } from '@wevir/pr
 import { attachSession } from '../attach.js';
 import { type Context, connect, withClient } from '../context.js';
 import { CliError, EXIT, UsageError } from '../errors.js';
-import { formatTime, STATE_LABEL, table, truncate } from '../format.js';
+import { formatTime, stateLabel, table, truncate } from '../format.js';
+import { joinList, t } from '../i18n/index.js';
 
 export interface SessionNewOptions {
   workspace: string;
@@ -22,18 +23,20 @@ export async function sessionNew(
   options: SessionNewOptions,
 ): Promise<number> {
   if (options.detach && prompt === undefined) {
-    throw new UsageError(
-      '--detach 需要同时给出提示',
-      '例如 wevir session new -w . --detach "整理一下 README"',
-    );
+    throw new UsageError(t('session.detachNeedsPrompt'), t('session.detachNeedsPrompt.hint'));
   }
   const client = await connect(ctx);
   try {
     const { workspace, created } = await client.request('workspace.add', {
       rootPath: resolve(ctx.io.cwd, options.workspace),
     });
-    if (created)
-      ctx.print(ctx.styles.dim(`已添加工作区 ${workspace.displayName}（${workspace.rootPath}）`));
+    if (created) {
+      ctx.print(
+        ctx.styles.dim(
+          t('session.workspaceAdded', { name: workspace.displayName, path: workspace.rootPath }),
+        ),
+      );
+    }
     const { providers } = await client.request('provider.list');
     const provider = pickProvider(providers, options.provider);
     const { session } = await client.request('session.create', {
@@ -41,13 +44,13 @@ export async function sessionNew(
       providerId: provider.id,
       ...(options.model !== undefined && { modelId: options.model }),
     });
-    ctx.print(`已创建会话 ${session.id}`);
+    ctx.print(t('session.created', { id: session.id }));
     if (options.detach) {
       await client.request('session.send', {
         sessionId: session.id,
         content: [{ type: 'text', text: prompt as string }],
       });
-      ctx.print(ctx.styles.dim(`已发送。查看输出：wevir session attach ${session.id}`));
+      ctx.print(ctx.styles.dim(t('session.sent', { id: session.id })));
       return EXIT.ok;
     }
     return await attachSession(ctx, client, session.id, {
@@ -61,16 +64,23 @@ export async function sessionNew(
 function pickProvider(providers: ProviderProfile[], wanted: string | undefined): ProviderProfile {
   if (wanted !== undefined) {
     const found = providers.find((p) => p.id === wanted);
-    if (!found)
-      throw new CliError(`没有 ID 为 ${wanted} 的 Provider。`, '运行 wevir provider list 查看');
+    if (!found) {
+      throw new CliError(
+        t('session.noSuchProvider', { id: wanted }),
+        t('session.noSuchProvider.hint'),
+      );
+    }
     return found;
   }
   if (providers.length === 0) {
-    throw new CliError('还没有配置 Provider。', '先运行 wevir provider add');
+    throw new CliError(t('session.noProviders'), t('session.noProviders.hint'));
   }
   if (providers.length > 1) {
     throw new UsageError(
-      `有 ${providers.length} 个 Provider，用 --provider 指定：${providers.map((p) => p.id).join('、')}`,
+      t('session.manyProviders', {
+        count: providers.length,
+        ids: joinList(providers.map((p) => p.id)),
+      }),
     );
   }
   return providers[0] as ProviderProfile;
@@ -86,10 +96,7 @@ export async function sessionList(ctx: Context, options: { workspace?: string })
       const real = await realpath(path).catch(() => path);
       const found = workspaces.find((w) => w.rootPath === real);
       if (!found) {
-        throw new CliError(
-          `${path} 还不是工作区。`,
-          '运行 wevir workspace list 查看已登记的工作区',
-        );
+        throw new CliError(t('session.notWorkspace', { path }), t('session.notWorkspace.hint'));
       }
       workspaceId = found.id;
     }
@@ -98,18 +105,26 @@ export async function sessionList(ctx: Context, options: { workspace?: string })
       workspaceId === undefined ? {} : { workspaceId },
     );
     if (sessions.length === 0) {
-      ctx.print('还没有会话。');
-      ctx.print(ctx.styles.dim('下一步：wevir session new -w <路径> "<提示>"'));
+      ctx.print(t('session.none'));
+      ctx.print(ctx.styles.dim(t('error.hint', { hint: t('session.none.hint') })));
       return EXIT.ok;
     }
     const names = new Map(workspaces.map((w) => [w.id, w.displayName]));
     ctx.print(
       table(
-        ['会话 ID', '状态', '标题', '工作区', '模型', '事件', '更新于'],
+        [
+          t('session.col.id'),
+          t('session.col.state'),
+          t('session.col.title'),
+          t('session.col.workspace'),
+          t('session.col.model'),
+          t('session.col.events'),
+          t('session.col.updated'),
+        ],
         sessions.map((s) => [
           s.id,
-          s.readOnly ? '只读' : STATE_LABEL[s.state],
-          truncate(s.title || '（无标题）', 30),
+          s.readOnly ? t('state.readOnly') : stateLabel(s.state),
+          truncate(s.title || t('session.untitled'), 30),
           names.get(s.workspaceId) ?? s.cwd,
           `${s.providerId}/${s.modelId}`,
           String(s.lastSeq),
@@ -138,13 +153,13 @@ async function resolveSessionId(client: WevirClient, id: string): Promise<Sessio
   const matches = sessions.filter((s) => s.id.startsWith(id) || s.id.startsWith(`ses_${id}`));
   if (matches.length === 1) return (matches[0] as (typeof sessions)[number]).id;
   if (matches.length === 0) {
-    throw new CliError(`找不到会话 ${id}。`, '运行 wevir session list 查看');
+    throw new CliError(t('session.notFound', { id }), t('err.sessionNotFound.hint'));
   }
+  const ids = joinList(matches.slice(0, 5).map((s) => s.id));
   throw new CliError(
-    `${id} 对应多个会话：${matches
-      .slice(0, 5)
-      .map((s) => s.id)
-      .join('、')}${matches.length > 5 ? ' 等' : ''}。`,
-    '写全会话 ID',
+    matches.length > 5
+      ? t('session.ambiguousMore', { id, ids })
+      : t('session.ambiguous', { id, ids }),
+    t('session.ambiguous.hint'),
   );
 }

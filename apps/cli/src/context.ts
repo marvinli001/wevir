@@ -2,6 +2,7 @@ import { type ConnectionState, WevirClient, webSocketTransport } from '@wevir/cl
 import { readHostEndpoint } from '@wevir/client-sdk/node';
 import type { ClientIdentity } from '@wevir/protocol';
 import { describeError } from './errors.js';
+import { t } from './i18n/index.js';
 import { loadCliIdentity } from './identity.js';
 import { type Styles, stylesFor } from './style.js';
 
@@ -88,8 +89,8 @@ export function createContext(io: CliIO, home: string): Context {
     },
     printError: (error) => {
       const { message, hint } = describeError(error);
-      io.stderr.write(`${errStyles.red(`错误：${message}`)}\n`);
-      if (hint) io.stderr.write(`${errStyles.dim(`下一步：${hint}`)}\n`);
+      io.stderr.write(`${errStyles.red(t('error.prefix', { message }))}\n`);
+      if (hint) io.stderr.write(`${errStyles.dim(t('error.hint', { hint }))}\n`);
     },
     identity: () => {
       identity ??= loadCliIdentity(home);

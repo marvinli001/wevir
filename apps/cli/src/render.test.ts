@@ -6,7 +6,8 @@ import type {
   WevirEventPayload,
   WevirEventType,
 } from '@wevir/protocol';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n/index.js';
 import { EventRenderer, type Sink } from './render.js';
 import { PLAIN } from './style.js';
 
@@ -78,6 +79,8 @@ const approval: ApprovalRequest = {
 };
 
 describe('EventRenderer', () => {
+  beforeEach(() => setLocale('zh'));
+
   it('实时：增量到达即显示，替换它们的已提交消息不再重复', () => {
     const { r, text } = renderer();
     r.caughtUp();
@@ -308,6 +311,30 @@ describe('EventRenderer', () => {
     );
     expect(text()).toContain('引擎错误（缺少凭据）：no api key\n下一步：');
     expect(text()).toContain('wevir provider add');
+  });
+
+  it('英文：标签、审批与复数', () => {
+    setLocale('en');
+    const { r, text } = renderer();
+    r.render(ev('engine.error', { category: 'provider', message: '401', fatal: false }));
+    r.render(ev('approval.requested', { approval }));
+    r.render(
+      ev('assistant.thought', { turnId: 'trn_1', messageId: 't1', text: 'x', replaces: [] }),
+    );
+    r.render(ev('turn.finished', { turnId: 'trn_1', outcome: 'cancelled', durationMs: 65_000 }));
+    expect(text()).toBe(
+      [
+        'Engine error (provider error): 401',
+        'Next: The provider returned an error: run wevir provider test to check the address, model and key',
+        '⚠ Approval needed: write /home/u/out/summary.md',
+        '  Reason: 用户要求另存一份',
+        '  Requested permissions: danger-full-access',
+        '  Options: 1) Allow once  2) Reject',
+        '(reasoning, 1 character, collapsed)',
+        '── Turn cancelled · 1 min 5 s ──',
+        '',
+      ].join('\n'),
+    );
   });
 });
 

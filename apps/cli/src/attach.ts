@@ -14,7 +14,8 @@ import type {
 } from '@wevir/protocol';
 import type { Context } from './context.js';
 import { describeError } from './errors.js';
-import { optionLabel, STATE_LABEL } from './format.js';
+import { optionLabel, stateLabel } from './format.js';
+import { t } from './i18n/index.js';
 import { EventRenderer, pendingPreview } from './render.js';
 import { LineConsole } from './terminal.js';
 
@@ -25,8 +26,8 @@ export interface AttachOptions {
 
 const MESSAGE_PROMPT = '› ';
 /** 回合进行中的输入框（R11）：回车按设置插话或排队。 */
-const BUSY_PROMPT: Record<PendingDelivery, string> = { steer: '插话 › ', queue: '排队 › ' };
-const DELIVERY_LABEL: Record<PendingDelivery, string> = { steer: '插话', queue: '排队' };
+const busyPrompt = (delivery: PendingDelivery): string => t(`attach.busyPrompt.${delivery}`);
+const deliveryLabel = (delivery: PendingDelivery): string => t(`attach.delivery.${delivery}`);
 const BUSY_STATES: ReadonlySet<SessionState> = new Set([
   'running',
   'awaiting_approval',
@@ -126,14 +127,10 @@ class AttachView {
     const offState = this.#client.onStateChange((state) => {
       if (state.status === 'reconnecting' && !this.#disconnected) {
         this.#disconnected = true;
-        this.#term.line(
-          this.#ctx.styles.yellow(
-            '与 Host 的连接断开，正在重连…（Host 已停止时，在另一个终端运行 wevir host start）',
-          ),
-        );
+        this.#term.line(this.#ctx.styles.yellow(t('attach.reconnecting')));
       } else if (state.status === 'connected' && this.#disconnected) {
         this.#disconnected = false;
-        this.#term.line(this.#ctx.styles.green('已重新连接到 Host。'));
+        this.#term.line(this.#ctx.styles.green(t('attach.reconnected')));
       } else if (state.status === 'closed' && state.error !== undefined) {
         this.#report(state.error);
         this.#finish(1);
@@ -187,10 +184,9 @@ class AttachView {
       subscription.close();
       this.#term.setPrompt(null);
       const s = this.#ctx.styles;
+      const id = this.#sessionId;
       this.#term.line(
-        s.dim(
-          `已退出 attach${this.#busy() ? '，当前运行仍在继续' : ''}。会话保留在 Host 中，重新连接：wevir session attach ${this.#sessionId}`,
-        ),
+        s.dim(this.#busy() ? t('attach.exitedBusy', { id }) : t('attach.exited', { id })),
       );
     });
   }
@@ -199,18 +195,19 @@ class AttachView {
     const { session } = snapshot;
     const s = this.#ctx.styles;
     const title = session.title ? ` · ${session.title}` : '';
-    const state = session.readOnly ? '只读' : STATE_LABEL[session.state];
-    this.#term.line(s.bold(`会话 ${session.id} · ${state}${title}`));
-    this.#term.line(s.dim(`工作区 ${session.cwd} · 模型 ${session.providerId}/${session.modelId}`));
+    const state = session.readOnly ? t('state.readOnly') : stateLabel(session.state);
+    this.#term.line(s.bold(t('attach.header', { id: session.id, state, title })));
+    this.#term.line(
+      s.dim(
+        t('attach.headerDetail', {
+          cwd: session.cwd,
+          model: `${session.providerId}/${session.modelId}`,
+        }),
+      ),
+    );
     if (this.#term.interactive) {
-      this.#term.line(
-        s.dim('Enter 发送 · Ctrl-C 取消当前运行（连按两次退出 attach） · Ctrl-D 退出 attach'),
-      );
-      if (this.#pendingSupported) {
-        this.#term.line(
-          s.dim('回合进行中：Enter 按设置插话或排队、Tab 用另一种 · /resume 继续发送暂停的消息'),
-        );
-      }
+      this.#term.line(s.dim(t('attach.keys')));
+      if (this.#pendingSupported) this.#term.line(s.dim(t('attach.keysBusy')));
     }
     for (const pending of snapshot.pendingMessages ?? []) {
       if (pending.status === 'held') this.#held.set(pending.id, pendingPreview(pending));
@@ -272,16 +269,12 @@ class AttachView {
   #afterCatchUp(): void {
     const s = this.#ctx.styles;
     if (this.#readOnly) {
-      this.#term.line(s.yellow('这个会话是只读的：可以查看历史，不能再发送消息。'));
+      this.#term.line(s.yellow(t('attach.readOnly')));
     } else if (this.#state === 'error') {
-      this.#term.line(s.dim('会话处于出错状态；发送消息时会先尝试恢复。'));
+      this.#term.line(s.dim(t('attach.errorState')));
     }
     if (this.#held.size > 0) {
-      this.#term.line(
-        s.yellow(
-          `有 ${this.#held.size} 条暂停的待发消息（上一轮没有正常结束）；输入 /resume 继续发送。`,
-        ),
-      );
+      this.#term.line(s.yellow(t('attach.held', { count: this.#held.size })));
       for (const text of this.#held.values()) this.#term.line(s.dim(`  ⋯ ${text}`));
     }
     const first = this.#firstMessage;
@@ -313,7 +306,7 @@ class AttachView {
       this.#term.setPrompt(approvalPrompt(approval.options));
     } else if (this.#busy() && this.#pendingSupported && this.#term.interactive) {
       // 回合进行中也能输入（R11）：输入框说明回车用哪种方式；流式输出的半行期间照旧不显示。
-      this.#term.setPrompt(BUSY_PROMPT[this.#busyDelivery]);
+      this.#term.setPrompt(busyPrompt(this.#busyDelivery));
     } else if (this.#busy() || this.#firstMessage !== undefined) {
       this.#term.setPrompt(null);
     } else {
@@ -326,11 +319,7 @@ class AttachView {
     if (this.#inputEnded && this.#caughtUp && this.#queued.length === 0) {
       if (approval && !this.#toldInputEnded) {
         this.#toldInputEnded = true;
-        this.#term.line(
-          this.#ctx.styles.dim(
-            `输入已结束，这条审批请在另一个终端处理：wevir session attach ${this.#sessionId}`,
-          ),
-        );
+        this.#term.line(this.#ctx.styles.dim(t('attach.inputEnded', { id: this.#sessionId })));
       }
       if (!approval && !this.#busy() && this.#firstMessage === undefined) this.#finish(0);
     }
@@ -393,7 +382,7 @@ class AttachView {
     if (this.#term.interactive && this.#busy()) {
       // 回合运行中输入框常被流式输出盖住，补一行让用户看到自己发了什么、用的哪种方式。
       const how = this.#pendingSupported
-        ? this.#ctx.styles.dim(`（${DELIVERY_LABEL[delivery]}）`)
+        ? this.#ctx.styles.dim(t('common.parenAfter', { text: deliveryLabel(delivery) }))
         : '';
       this.#term.line(`${this.#ctx.styles.dim(MESSAGE_PROMPT)}${text}${how}`);
     }
@@ -402,13 +391,13 @@ class AttachView {
 
   #resumePending(): void {
     if (this.#held.size === 0) {
-      this.#term.line(this.#ctx.styles.dim('没有暂停的待发消息。'));
+      this.#term.line(this.#ctx.styles.dim(t('attach.noHeld')));
       this.#refresh();
       return;
     }
     this.#client
       .request('pending.resume', { sessionId: this.#sessionId })
-      .then(() => this.#term.line(this.#ctx.styles.dim('继续发送暂停的消息。')))
+      .then(() => this.#term.line(this.#ctx.styles.dim(t('attach.resumingHeld'))))
       .catch((error: unknown) => this.#report(error))
       .finally(() => this.#refresh());
   }
@@ -435,7 +424,7 @@ class AttachView {
         if (!state || state.readOnly || (state.state !== 'error' && state.state !== 'closed')) {
           throw error;
         }
-        this.#term.line(this.#ctx.styles.dim('会话需要先恢复，正在恢复…'));
+        this.#term.line(this.#ctx.styles.dim(t('attach.recovering')));
         await this.#client.request('session.resume', { sessionId: this.#sessionId });
         result = await this.#client.request('session.send', params);
       }
@@ -456,7 +445,7 @@ class AttachView {
     const option = parseApprovalAnswer(approval.options, text);
     if (!option) {
       this.#term.line(
-        this.#ctx.styles.dim(`输入选项序号（1–${approval.options.length}），或 y 允许、n 拒绝。`),
+        this.#ctx.styles.dim(t('attach.answerHint', { count: approval.options.length })),
       );
       this.#refresh();
       return;
@@ -496,10 +485,10 @@ class AttachView {
     if (this.#busy()) {
       this.#exitArmed = true;
       if (this.#state === 'cancelling') {
-        this.#term.line(s.dim('正在取消…（再按一次 Ctrl-C 退出 attach）'));
+        this.#term.line(s.dim(t('attach.cancellingAgain')));
         return;
       }
-      this.#term.line(s.yellow('正在取消当前运行…（再按一次 Ctrl-C 退出 attach）'));
+      this.#term.line(s.yellow(t('attach.cancelling')));
       this.#client
         .request('session.cancel', { sessionId: this.#sessionId })
         .catch((error: unknown) => this.#report(error));
@@ -510,14 +499,14 @@ class AttachView {
       return;
     }
     this.#exitArmed = true;
-    this.#term.line(s.dim('再按一次 Ctrl-C 退出 attach（会话保留在 Host 中），或按 Ctrl-D。'));
+    this.#term.line(s.dim(t('attach.pressAgain')));
   }
 
   #report(error: unknown): void {
     const { message, hint } = describeError(error);
     const s = this.#ctx.styles;
     this.#term.line(s.red(message));
-    if (hint) this.#term.line(s.dim(`下一步：${hint}`));
+    if (hint) this.#term.line(s.dim(t('error.hint', { hint })));
   }
 
   #finish(code: number): void {
@@ -529,7 +518,9 @@ class AttachView {
 
 /** 审批的输入框：`审批 [1 允许一次 / 2 拒绝] › `。 */
 export function approvalPrompt(options: readonly ApprovalOption[]): string {
-  return `审批 [${options.map((o, i) => `${i + 1} ${optionLabel(o)}`).join(' / ')}] › `;
+  return t('attach.approvalPrompt', {
+    options: options.map((o, i) => `${i + 1} ${optionLabel(o)}`).join(' / '),
+  });
 }
 
 /** 解析审批的回答：序号、optionId，或 y / n（第一个允许 / 拒绝类选项）。 */

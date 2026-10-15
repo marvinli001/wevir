@@ -2,14 +2,18 @@ import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { HostUnavailableError, WevirRpcError } from '@wevir/client-sdk';
 import { ErrorCode } from '@wevir/protocol';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { approvalPrompt, parseApprovalAnswer } from './attach.js';
 import { describeError } from './errors.js';
 import { displayWidth, table, truncate } from './format.js';
+import { setLocale } from './i18n/index.js';
 import { IDENTITY_FILES, loadCliIdentity } from './identity.js';
 import { run, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
+
+// runCli 按它的环境变量设语言（测试里默认 WEVIR_LANG=zh）；直接调用的函数在这里固定为中文。
+beforeEach(() => setLocale('zh'));
 
 describe('命令行解析', () => {
   it('--help 列出全部命令，wevir <组> --help 列出子命令', async () => {
@@ -74,6 +78,32 @@ describe('命令行解析', () => {
     const stop = await run(['host', 'stop'], { home });
     expect(stop.code).toBe(0);
     expect(stop.out).toContain('Host 没有在运行');
+  });
+
+  it('英文：帮助、用法错误与 Host 没有运行', async () => {
+    const home = tempDir();
+    const main = await run(['--help'], { home, lang: 'en' });
+    expect(main.out).toContain('Usage: wevir <command> [options]');
+    expect(main.out).toContain('wevir workspace add <path> [--name <name>]');
+    expect(main.out).toContain('Sessions');
+    const sub = await run(['session', 'attach', '--help'], { home, lang: 'en' });
+    expect(sub.out).toMatch(/^Usage: wevir session attach <session ID>\n\nReplays/);
+    const bogus = await run(['bogus'], { home, lang: 'en' });
+    expect(bogus.code).toBe(2);
+    expect(bogus.err).toBe('Error: Unknown command: bogus\nNext: Run wevir --help for usage\n');
+    const list = await run(['session', 'list'], { home, lang: 'en' });
+    expect(list.err).toContain(
+      'Error: Wevir Host is not running.\nNext: Run wevir host start first',
+    );
+  });
+
+  it('语言跟着 LANG 走，WEVIR_LANG 优先', async () => {
+    const home = tempDir();
+    const env = { LANG: 'en_US.UTF-8', LC_ALL: '', LC_MESSAGES: '' };
+    const byLang = await run(['bogus'], { home, env: { ...env, LANG: 'zh_CN.UTF-8' } });
+    expect(byLang.err).toContain('错误：未知命令：bogus');
+    const forced = await run(['bogus'], { home, env, lang: 'en' });
+    expect(forced.err).toContain('Error: Unknown command: bogus');
   });
 
   it('--version', async () => {

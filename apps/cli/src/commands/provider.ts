@@ -8,7 +8,8 @@ import {
 } from '@wevir/protocol';
 import { type Context, withClient } from '../context.js';
 import { CliError, describeError, EXIT, UsageError } from '../errors.js';
-import { PROVIDER_TEST_HINT, PROVIDER_TEST_LABEL, table } from '../format.js';
+import { providerTestHint, providerTestLabel, table } from '../format.js';
+import { joinList, t } from '../i18n/index.js';
 import { Questioner } from '../prompt.js';
 
 export interface ProviderAddFlags {
@@ -54,38 +55,34 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
       ): Promise<string> => {
         if (given !== undefined) {
           const problem = check(given);
-          if (problem) throw new UsageError(`--${flag}：${problem}`);
+          if (problem) throw new UsageError(t('provider.flagProblem', { flag, problem }));
           return given;
         }
         if (!q.interactive) {
           if (fallback !== undefined) return fallback;
-          throw new UsageError(
-            `缺少 --${flag}`,
-            '在终端里交互运行 wevir provider add，或用选项给出各项',
-          );
+          throw new UsageError(t('provider.missingFlag', { flag }), t('provider.missingFlag.hint'));
         }
         for (;;) {
           const value = await q.ask(question, fallback);
-          const problem = value === '' ? '不能为空' : check(value);
+          const problem = value === '' ? t('provider.empty') : check(value);
           if (!problem) return value;
           ctx.print(ctx.styles.yellow(problem));
         }
       };
 
       if (flags.kind === 'chatgpt') {
-        throw new UsageError('ChatGPT 账号不用 provider add', '运行 wevir provider login');
+        throw new UsageError(t('provider.chatgpt'), t('provider.chatgpt.hint'));
       }
       let kind = flags.kind === undefined ? undefined : parseKind(flags.kind);
       if (flags.kind !== undefined && !kind) {
-        throw new UsageError(`--kind 只能是 deepseek-official 或 openai-compatible：${flags.kind}`);
+        throw new UsageError(t('provider.badKind', { kind: flags.kind }));
       }
       if (!kind) {
-        if (!q.interactive)
-          throw new UsageError('缺少 --kind（deepseek-official 或 openai-compatible）');
+        if (!q.interactive) throw new UsageError(t('provider.missingKind'));
         kind =
-          (await q.choose('Provider 类型：', [
-            'DeepSeek 官方（deepseek-official）',
-            'OpenAI 兼容地址（通义千问、Kimi、智谱、本机模型服务等）',
+          (await q.choose(t('provider.kindQuestion'), [
+            t('provider.kind.deepseek'),
+            t('provider.kind.compatible'),
           ])) === 0
             ? 'deepseek-official'
             : 'openai-compatible';
@@ -96,18 +93,18 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
       if (kind === 'deepseek-official') {
         existing = providers.find((p) => p.id === DEEPSEEK_ID);
         if (flags.id !== undefined && flags.id !== DEEPSEEK_ID) {
-          throw new UsageError(`DeepSeek 官方 Provider 的 ID 固定为 ${DEEPSEEK_ID}`);
+          throw new UsageError(t('provider.fixedId', { id: DEEPSEEK_ID }));
         }
         const displayName = await ask(
           'name',
           flags.name,
-          '显示名称 ',
+          t('provider.ask.name'),
           existing?.displayName ?? 'DeepSeek',
         );
         const model = await ask(
           'model',
           flags.model,
-          '默认模型（deepseek-flash 或 deepseek-v4-pro）',
+          t('provider.ask.deepseekModel'),
           existing?.defaultModelId ?? 'deepseek-flash',
         );
         params = {
@@ -121,45 +118,49 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
             : existing?.baseURL !== undefined && { baseURL: existing.baseURL }),
         };
       } else {
-        const id = await ask(
-          'id',
-          flags.id,
-          'Provider ID（小写字母开头，可含数字与 -；创建后不能改）：',
-          undefined,
-          (value) => {
-            if (!ProviderIdSchema.safeParse(value).success) {
-              return '只能用小写字母、数字和 -，以字母开头，最长 32 个字符';
-            }
-            if (RESERVED_IDS.has(value)) return `${value} 已被 dsh 占用，换一个 ID`;
-            return undefined;
-          },
-        );
+        const id = await ask('id', flags.id, t('provider.ask.id'), undefined, (value) => {
+          if (!ProviderIdSchema.safeParse(value).success) {
+            return t('provider.badId');
+          }
+          if (RESERVED_IDS.has(value)) return t('provider.reservedId', { id: value });
+          return undefined;
+        });
         existing = providers.find((p) => p.id === id);
         if (existing && existing.kind !== kind) {
-          throw new CliError(`ID ${id} 已被一个 ${existing.kind} 类型的 Provider 使用。`);
+          throw new CliError(t('provider.idTaken', { id, kind: existing.kind }));
         }
-        const displayName = await ask('name', flags.name, '显示名称 ', existing?.displayName ?? id);
+        const displayName = await ask(
+          'name',
+          flags.name,
+          t('provider.ask.name'),
+          existing?.displayName ?? id,
+        );
         const api = (await ask(
           'api',
           flags.api,
-          '协议（openai-completions 或 openai-responses）',
+          t('provider.ask.api'),
           existing?.api ?? 'openai-completions',
           (value) =>
-            (APIS as readonly string[]).includes(value) ? undefined : `只能是 ${APIS.join(' 或 ')}`,
+            (APIS as readonly string[]).includes(value) ? undefined : t('provider.badApi'),
         )) as ProviderApi;
         const baseURL = await ask(
           'base-url',
           flags.baseUrl,
-          '服务地址（例如 https://api.moonshot.cn/v1）',
+          t('provider.ask.baseUrl'),
           existing?.baseURL,
           checkUrl,
         );
-        const model = await ask('model', flags.model, '默认模型 ID ', existing?.defaultModelId);
+        const model = await ask(
+          'model',
+          flags.model,
+          t('provider.ask.model'),
+          existing?.defaultModelId,
+        );
         const previous = existing?.models.find((m) => m.id === model);
         const contextText =
           flags.contextWindow ??
           (q.interactive
-            ? await q.ask('上下文长度（token，可留空）', previous?.contextWindow?.toString())
+            ? await q.ask(t('provider.ask.contextWindow'), previous?.contextWindow?.toString())
             : undefined);
         const contextWindow = parseContextWindow(contextText);
         const entry: ProviderModel = {
@@ -184,7 +185,7 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
         let key: string | undefined;
         if (q.interactive) {
           key = await q.askSecret(
-            `API Key（输入不显示${existing?.hasSecret ? '；直接回车保留已存的 Key' : ''}）：`,
+            existing?.hasSecret ? t('provider.ask.keyKeep') : t('provider.ask.key'),
           );
         } else {
           key = (await q.readLine())?.trim();
@@ -199,20 +200,22 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
       } catch (error) {
         if (isRpcError(error, 'ENGINE_ERROR')) {
           throw new CliError(
-            `Provider 已保存，但引擎没能用上新配置：${describeError(error).message}`,
-            '查看 Host 日志 logs/host.log；改正后再运行一次 wevir provider add',
+            t('provider.engineFailed', { error: describeError(error).message }),
+            t('provider.engineFailed.hint'),
           );
         }
         throw error;
       }
       const { provider, created } = result;
-      ctx.print(
-        `${created ? '已添加' : '已更新'} Provider ${provider.id}（${provider.displayName}，默认模型 ${provider.defaultModelId}，Key ${provider.hasSecret ? '已设置' : '未设置'}）`,
-      );
-      if (!provider.hasSecret) {
-        ctx.print(ctx.styles.yellow('还没有设置 Key：需要 Key 的服务会话会因缺少凭据而失败。'));
-      }
-      ctx.print(ctx.styles.dim(`下一步：wevir provider test ${provider.id}`));
+      const summary = {
+        id: provider.id,
+        name: provider.displayName,
+        model: provider.defaultModelId,
+        key: provider.hasSecret ? t('provider.key.set') : t('provider.key.unset'),
+      };
+      ctx.print(created ? t('provider.added', summary) : t('provider.updated', summary));
+      if (!provider.hasSecret) ctx.print(ctx.styles.yellow(t('provider.noKeyWarning')));
+      ctx.print(ctx.styles.dim(t('error.hint', { hint: `wevir provider test ${provider.id}` })));
       return EXIT.ok;
     } finally {
       q.close();
@@ -223,13 +226,13 @@ export async function providerAdd(ctx: Context, flags: ProviderAddFlags): Promis
 function checkUrl(value: string): string | undefined {
   try {
     const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return '只支持 http / https 地址';
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return t('provider.url.scheme');
     if (url.username || url.password || url.search || url.hash) {
-      return '地址不能带用户名、密码、查询参数或 #';
+      return t('provider.url.extras');
     }
     return undefined;
   } catch {
-    return '不是合法的地址';
+    return t('provider.url.invalid');
   }
 }
 
@@ -237,7 +240,7 @@ function parseContextWindow(text: string | undefined): number | undefined {
   if (text === undefined || text.trim() === '') return undefined;
   const value = Number(text.trim());
   if (!Number.isInteger(value) || value < 1) {
-    throw new UsageError(`上下文长度必须是正整数：${text}`);
+    throw new UsageError(t('provider.badContextWindow', { text }));
   }
   return value;
 }
@@ -245,25 +248,46 @@ function parseContextWindow(text: string | undefined): number | undefined {
 export async function providerList(ctx: Context): Promise<number> {
   const { providers } = await withClient(ctx, (client) => client.request('provider.list'));
   if (providers.length === 0) {
-    ctx.print('还没有 Provider。');
-    ctx.print(ctx.styles.dim('下一步：wevir provider add'));
+    ctx.print(t('provider.none'));
+    ctx.print(ctx.styles.dim(t('error.hint', { hint: t('provider.none.hint') })));
     return EXIT.ok;
   }
   ctx.print(
     table(
-      ['ID', '名称', '类型', '默认模型', 'Key', '地址'],
+      [
+        'ID',
+        t('provider.col.name'),
+        t('provider.col.kind'),
+        t('provider.col.model'),
+        'Key',
+        t('provider.col.address'),
+      ],
       providers.map((p) =>
         p.kind === 'chatgpt'
-          ? [p.id, p.displayName, p.kind, p.defaultModelId, 'ChatGPT 登录', '（ChatGPT）']
+          ? [
+              p.id,
+              p.displayName,
+              p.kind,
+              p.defaultModelId,
+              t('provider.chatgptLogin'),
+              t('common.paren', { text: 'ChatGPT' }),
+            ]
           : p.kind !== 'deepseek-official' && p.kind !== 'openai-compatible'
-            ? [p.id, p.displayName, p.kind, p.defaultModelId, '订阅登录', `（${p.displayName}）`]
+            ? [
+                p.id,
+                p.displayName,
+                p.kind,
+                p.defaultModelId,
+                t('provider.subscriptionLogin'),
+                t('common.paren', { text: p.displayName }),
+              ]
             : [
                 p.id,
                 p.displayName,
                 p.kind,
                 p.defaultModelId,
-                p.hasSecret ? '已设置' : '未设置',
-                p.baseURL ?? '（官方默认）',
+                p.hasSecret ? t('provider.key.set') : t('provider.key.unset'),
+                p.baseURL ?? t('provider.officialAddress'),
               ],
       ),
     ),
@@ -281,17 +305,24 @@ export async function providerTest(
     if (id === undefined) {
       const { providers } = await client.request('provider.list');
       if (providers.length === 0) {
-        throw new CliError('还没有 Provider。', '先运行 wevir provider add');
+        throw new CliError(t('provider.none'), t('session.noProviders.hint'));
       }
       if (providers.length > 1) {
         throw new UsageError(
-          `有 ${providers.length} 个 Provider，指定要测试哪一个：${providers.map((p) => p.id).join('、')}`,
-          '例如 wevir provider test <ID>',
+          t('provider.manyToTest', {
+            count: providers.length,
+            ids: joinList(providers.map((p) => p.id)),
+          }),
+          t('provider.manyToTest.hint'),
         );
       }
       id = (providers[0] as ProviderProfile).id;
     }
-    ctx.print(`正在测试 ${id}${options.model ? `（模型 ${options.model}）` : ''}…`);
+    ctx.print(
+      options.model
+        ? t('provider.testingModel', { id, model: options.model })
+        : t('provider.testing', { id }),
+    );
     const result = await client.request(
       'provider.test',
       { providerId: id, ...(options.model !== undefined && { modelId: options.model }) },
@@ -300,16 +331,24 @@ export async function providerTest(
     if (result.ok) {
       ctx.print(
         ctx.styles.green(
-          `✓ 连接正常${result.latencyMs !== undefined ? `，用时 ${result.latencyMs} ms` : ''}`,
+          result.latencyMs !== undefined
+            ? t('provider.testOkLatency', { ms: result.latencyMs })
+            : t('provider.testOk'),
         ),
       );
       return EXIT.ok;
     }
     const reason = result.reason ?? 'unknown';
-    const status = result.httpStatus !== undefined ? `，HTTP ${result.httpStatus}` : '';
-    ctx.print(ctx.styles.red(`✗ 测试失败（${PROVIDER_TEST_LABEL[reason]}${status}）`));
+    const label = providerTestLabel(reason);
+    ctx.print(
+      ctx.styles.red(
+        result.httpStatus !== undefined
+          ? t('provider.testFailedHttp', { reason: label, status: result.httpStatus })
+          : t('provider.testFailed', { reason: label }),
+      ),
+    );
     if (result.error) ctx.print(`  ${result.error.message}`);
-    ctx.print(ctx.styles.dim(`下一步：${PROVIDER_TEST_HINT[reason]}`));
+    ctx.print(ctx.styles.dim(t('error.hint', { hint: providerTestHint(reason) })));
     return EXIT.failure;
   });
 }

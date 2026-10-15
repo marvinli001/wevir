@@ -13,6 +13,7 @@ import type {
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
 import { describeWindow } from './commands/account.js';
+import { setLocale } from './i18n/index.js';
 import { type FakeRun, run, runFake, startEchoHost, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
@@ -167,10 +168,28 @@ describe('wevir provider login / status / logout（ChatGPT 账号）', () => {
   });
 
   it('用量窗口的说法', () => {
+    setLocale('zh');
     const now = new Date('2026-10-14T08:00:00');
     expect(describeWindow({ usedPercent: 40, windowMinutes: 10080 }, now)).toBe('每周已用 40%');
     expect(
       describeWindow({ usedPercent: 5, windowMinutes: 300, resetsAt: '2026-10-14T10:30:00' }, now),
     ).toBe('5 小时窗口已用 5%，10:30 重置');
+    expect(
+      describeWindow({ usedPercent: 5, windowMinutes: 300, resetsAt: '2026-10-16T10:30:00' }, now),
+    ).toBe('5 小时窗口已用 5%，10 月 16 日 10:30 重置');
+    setLocale('en');
+    try {
+      expect(describeWindow({ usedPercent: 40, windowMinutes: 10080 }, now)).toBe(
+        'Weekly: 40% used',
+      );
+      expect(
+        describeWindow(
+          { usedPercent: 5, windowMinutes: 300, resetsAt: '2026-10-16T10:30:00' },
+          now,
+        ),
+      ).toBe('5-hour window: 5% used, resets 10/16 10:30 AM');
+    } finally {
+      setLocale('zh');
+    }
   });
 });

@@ -4,6 +4,7 @@ import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
+import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
 import { EngineRouter } from './engine-router.js';
 import { isIgnorableEngineRejection, subscriptionEngines } from './engines.js';
 import { EXIT_CODE } from './exit-code.js';
@@ -21,24 +22,13 @@ import { HostAlreadyRunningError } from './runtime-file.js';
 export const ADAPTER_KINDS = ['echo', 'dsh', 'codex'] as const;
 export type AdapterKind = (typeof ADAPTER_KINDS)[number];
 
+export { type HostCliLocale, hostCliLocale } from './cli-text.js';
 export { EXIT_CODE } from './exit-code.js';
 
-export const USAGE = `用法：wevir-host [选项]
-
-  --home <目录>          数据目录。环境变量 WEVIR_HOME 优先于它；都没有时用平台默认
-                         （macOS ~/Library/Application Support/Wevir，Windows %APPDATA%\\Wevir，
-                         Linux $XDG_DATA_HOME/wevir）
-  --adapter <codex|dsh|echo>
-                         引擎适配器，默认 codex：codex-app-server（ADR-0005，二进制见 WEVIR_CODEX_BIN
-                         或 bash scripts/fetch-codex.sh）；dsh 是 DeepSeek Harness（可选引擎）；echo 是开发用
-                         的假引擎
-  --port <端口>          仅调试用，默认 0（系统分配）；客户端一律以 run/host.json 里的 url 为准
-  --log-level <级别>     debug | info | warn | error，默认 info；日志写到 <数据目录>/logs/host.log
-  --exit-on-stdin-eof    由桌面拉起时使用：拉起方持有 stdin 管道，读到 EOF 即优雅退出
-  -h, --help             显示本帮助
-  -v, --version          显示版本
-
-退出码：0 正常退出；1 运行失败或退出超时被强制结束；2 参数错误；3 该数据目录已有 Host 在运行。`;
+/** 帮助文字，按语言（cli-text.ts）。 */
+export function hostUsage(locale: HostCliLocale = 'en'): string {
+  return HOST_CLI_TEXT[locale].usage;
+}
 
 export interface HostCliOptions {
   home?: string;
@@ -54,8 +44,12 @@ export type ParsedHostArgs =
   | { kind: 'version' }
   | { kind: 'error'; message: string };
 
-/** 解析命令行参数（不读环境变量，`WEVIR_HOME` 在 `resolveHome` 里处理）。 */
-export function parseHostArgs(argv: readonly string[]): ParsedHostArgs {
+/** 解析命令行参数（不读环境变量，`WEVIR_HOME` 在 `resolveHome` 里处理；报错的语言由调用方给）。 */
+export function parseHostArgs(
+  argv: readonly string[],
+  locale: HostCliLocale = 'en',
+): ParsedHostArgs {
+  const text = HOST_CLI_TEXT[locale];
   let values: ReturnType<typeof parse>['values'];
   try {
     ({ values } = parse(argv));
@@ -67,20 +61,17 @@ export function parseHostArgs(argv: readonly string[]): ParsedHostArgs {
 
   const adapter = values.adapter ?? 'codex';
   if (!(ADAPTER_KINDS as readonly string[]).includes(adapter)) {
-    return { kind: 'error', message: `--adapter 只能是 ${ADAPTER_KINDS.join(' | ')}：${adapter}` };
+    return { kind: 'error', message: text.badAdapter(ADAPTER_KINDS.join(' | '), adapter) };
   }
   const logLevel = values['log-level'] ?? 'info';
   if (!isLogLevel(logLevel)) {
-    return {
-      kind: 'error',
-      message: `--log-level 只能是 debug | info | warn | error：${logLevel}`,
-    };
+    return { kind: 'error', message: text.badLogLevel(logLevel) };
   }
   const port = values.port === undefined ? 0 : Number(values.port);
   if (!/^\d+$/.test(values.port ?? '0') || port > 65535) {
-    return { kind: 'error', message: `--port 必须是 0–65535 的整数：${values.port}` };
+    return { kind: 'error', message: text.badPort(values.port) };
   }
-  if (values.home === '') return { kind: 'error', message: '--home 不能为空' };
+  if (values.home === '') return { kind: 'error', message: text.emptyHome };
 
   const options: HostCliOptions = {
     adapter: adapter as AdapterKind,
@@ -219,16 +210,18 @@ export async function runHostCli(
   overrides: HostCliOverrides = {},
 ): Promise<number> {
   const shutdownTimeoutMs = overrides.shutdownTimeoutMs ?? SHUTDOWN_TIMEOUT_MS;
-  const parsed = parseHostArgs(proc.argv);
+  const locale = hostCliLocale(proc.env);
+  const text = HOST_CLI_TEXT[locale];
+  const parsed = parseHostArgs(proc.argv, locale);
   switch (parsed.kind) {
     case 'help':
-      proc.stdout.write(`${USAGE}\n`);
+      proc.stdout.write(`${text.usage}\n`);
       return EXIT_CODE.ok;
     case 'version':
       proc.stdout.write(`${HOST_VERSION}\n`);
       return EXIT_CODE.ok;
     case 'error':
-      proc.stderr.write(`wevir-host: ${parsed.message}\n运行 wevir-host --help 查看用法。\n`);
+      proc.stderr.write(`wevir-host: ${parsed.message}\n${text.seeHelp}\n`);
       return EXIT_CODE.usage;
   }
   const { options } = parsed;
@@ -264,7 +257,7 @@ export async function runHostCli(
     logger.error('failed to create adapter', { adapter: options.adapter, error });
     logger.close();
     proc.stderr.write(
-      `wevir-host: 无法创建 ${options.adapter} 适配器：${(error as Error).message}\n`,
+      `wevir-host: ${text.adapterFailed(options.adapter, (error as Error).message)}\n`,
     );
     return EXIT_CODE.failure;
   }
@@ -364,15 +357,17 @@ export async function runHostCli(
       (error: unknown) => {
         if (error instanceof HostAlreadyRunningError) {
           logger.error('another host is running', { path: error.path, existing: error.existing });
+          const { pid, startedAt } = error.existing;
           proc.stderr.write(
-            `wevir-host: 数据目录 ${home} 已有 Host 在运行（pid ${error.existing.pid}，` +
-              `启动于 ${error.existing.startedAt}）。客户端请读取 ${error.path} 附着到它。\n`,
+            `wevir-host: ${text.alreadyRunning({ home, pid, startedAt, path: error.path })}\n`,
           );
           finish(EXIT_CODE.alreadyRunning);
           return;
         }
         logger.error('failed to start', { error });
-        proc.stderr.write(`wevir-host: 启动失败：${(error as Error).message ?? String(error)}\n`);
+        proc.stderr.write(
+          `wevir-host: ${text.startFailed((error as Error).message ?? String(error))}\n`,
+        );
         finish(EXIT_CODE.failure);
       },
     );

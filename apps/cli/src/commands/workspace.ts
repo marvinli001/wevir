@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { type Context, withClient } from '../context.js';
 import { EXIT } from '../errors.js';
 import { formatTime, table } from '../format.js';
+import { t } from '../i18n/index.js';
 
 export async function workspaceAdd(
   ctx: Context,
@@ -15,9 +16,8 @@ export async function workspaceAdd(
       ...(options.name !== undefined && { displayName: options.name }),
     }),
   );
-  ctx.print(
-    `${created ? '已添加工作区' : '工作区已存在'}：${workspace.displayName}（${workspace.id}）`,
-  );
+  const params = { name: workspace.displayName, id: workspace.id };
+  ctx.print(created ? t('workspace.added', params) : t('workspace.exists', params));
   ctx.print(ctx.styles.dim(workspace.rootPath));
   return EXIT.ok;
 }
@@ -25,13 +25,13 @@ export async function workspaceAdd(
 export async function workspaceList(ctx: Context): Promise<number> {
   const { workspaces } = await withClient(ctx, (client) => client.request('workspace.list'));
   if (workspaces.length === 0) {
-    ctx.print('还没有工作区。');
-    ctx.print(ctx.styles.dim('下一步：wevir workspace add <路径>'));
+    ctx.print(t('workspace.none'));
+    ctx.print(ctx.styles.dim(t('error.hint', { hint: t('workspace.none.hint') })));
     return EXIT.ok;
   }
   ctx.print(
     table(
-      ['ID', '名称', '路径', '添加于'],
+      ['ID', t('workspace.col.name'), t('workspace.col.path'), t('workspace.col.added')],
       workspaces.map((w) => [w.id, w.displayName, w.rootPath, formatTime(w.createdAt)]),
     ),
   );
