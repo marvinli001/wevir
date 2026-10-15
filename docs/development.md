@@ -206,6 +206,48 @@ pnpm --filter @wevir/desktop package
 
 **Windows** 先不签名（ADR-0007 决策 2），安装时 SmartScreen 会提示。Windows 包要在 Windows 上打（资源目录里的 Host 依赖与 codex-app-server 按目标平台准备，NSIS 的图标与版本信息也在 Windows 上写最稳）。
 
+### 3.7 发布：开发版与正式版
+
+`.github/workflows/release.yml`（ADR-0007 补记 2 的发布流水线），脚本是 `apps/desktop/scripts/release.ts`：
+
+- **开发版**：master 上 push 触发的 CI 通过后自动发。版本 `X.Y.(Z+1)-beta.N`：`X.Y.Z` 是上一个 `vX.Y.Z` tag（没有时按 0.0.0），N 是从那个 tag 到这个提交的 master 提交数（`--first-parent`）。`node apps/desktop/scripts/release.ts plan` 在本机打印下一次的版本。
+- **正式版**：维护者决定发布时，在已经通过 CI 的 master 提交上打 tag 并推送：
+
+  ```bash
+  git tag v0.1.0 && git push origin v0.1.0
+  ```
+
+  流水线核对这个提交在 master 上、CI 通过，发到 `latest` 通道，另建 GitHub Release（dmg 与 exe）。
+- 三个包并行打：macOS arm64、x64（macos-latest，签名、公证，检查 `codesign`、`stapler`、`spctl`），Windows x64（windows-latest，不签名）。版本经 `package --app-version` 写进安装包，electron-builder 按它写出更新清单（`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，通道由版本的预发布标签决定）。
+- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路写完清单后经 Bunny 的 API 清 CDN 缓存。最后清理：每个平台目录只留清单引用的版本与最新 3 个开发版，正式版的安装包都留着。
+- 同一时间只跑一个发布，后来的排队，排队的只留最新一个。
+
+仓库要配的 secret 与 variable（Settings → Secrets and variables → Actions；`gh secret set` / `gh variable set`）：
+
+| 名称 | 类型 | 内容 |
+|---|---|---|
+| `WEVIR_RELEASE` | variable | `on` 时流水线才发布；下面的都配好之后再设 |
+| `MAC_CERT_P12_BASE64` | secret | Developer ID Application 证书与私钥导出的 .p12，base64 |
+| `MAC_CERT_PASSWORD` | secret | 导出 .p12 时设的密码 |
+| `APPLE_API_KEY_P8` | secret | App Store Connect API 密钥 .p8 的全文 |
+| `APPLE_API_KEY_ID` | variable | 这把密钥的 Key ID |
+| `APPLE_API_ISSUER` | secret | App Store Connect 的 Issuer ID |
+| `WEVIR_UPDATE_SIGNING_KEY` | secret | 更新清单的 Ed25519 私钥（PKCS#8 PEM 全文，`update-signing.ts keygen` 生成），公钥在 `src/main/updates/keys.ts` |
+| `WEVIR_GLOBAL_S3_ENDPOINT` | variable | Bunny Storage 的 S3 地址，如 `https://sg-s3.storage.bunnycdn.com` |
+| `WEVIR_GLOBAL_S3_REGION` | variable | Bunny 的区域代码，如 `sg` |
+| `WEVIR_GLOBAL_S3_BUCKET` | variable | 存储区名（同时是 S3 的 Access Key ID） |
+| `WEVIR_GLOBAL_S3_SECRET_ACCESS_KEY` | secret | 存储区的 Password（不是 Read-only password） |
+| `BUNNY_API_KEY` | secret | Bunny 账户的 API Key，清 CDN 缓存用；不配时不清，清单要等 CDN 缓存过期 |
+| `WEVIR_OPTIMIZED_S3_ENDPOINT` | variable | `https://download2.wevir.si`（RustFS 的 S3 接口，也是客户端访问的地址） |
+| `WEVIR_OPTIMIZED_S3_REGION` | variable | 可不配，默认 `us-east-1` |
+| `WEVIR_OPTIMIZED_S3_BUCKET` | variable | `desktop`（必须是这个名字，见下） |
+| `WEVIR_OPTIMIZED_S3_ACCESS_KEY_ID` | secret | RustFS 访问密钥 |
+| `WEVIR_OPTIMIZED_S3_SECRET_ACCESS_KEY` | secret | RustFS 访问密钥的 Secret |
+
+两条线路的服务端：`https://download.wevir.si/desktop/…` 对应 Bunny 存储区根目录下的 `desktop/…`（拉取区连到存储区）；`download2.wevir.si` 直接是 RustFS 的 S3 接口（path-style），`https://download2.wevir.si/desktop/…` 就是桶 `desktop` 里的键，所以桶名必须是 `desktop`，键里不带 `desktop/`（`release.ts` 的 `bucketIsDesktop`），桶要允许匿名读（GetObject）。客户端用 Range 请求测速，两边都要支持 Range。RustFS 上清单带 `Cache-Control: no-cache`；Bunny 的 S3 接口不收这个头，靠清缓存，也可以在拉取区给 `*.yml`、`*.sig` 加不缓存的 Edge Rule。
+
+本机试上传（不经 CI）：设好上表的线路变量，`node apps/desktop/scripts/release.ts publish --channel dev --version <版本> --dir <目录> --only optimized`，`<目录>` 下按 `darwin-arm64/` 等放产物与签过名的清单。要本机装 AWS CLI。
+
 ### 3.8 自动更新与发布目录
 
 安装包自己检查更新（[ADR-0007](./adr/0007-packaging-and-runtime-distribution.md) 补记 2、4）：主进程的 `src/main/updates/`，界面是侧栏左下角的更新入口与设置 → 关于。开发构建（`pnpm dev`）不检查。

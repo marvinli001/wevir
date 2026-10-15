@@ -1,0 +1,218 @@
+# 发布（ADR-0007 补记 2 的第 3 步）：构建安装包，签更新清单，上传到两条下载线路。
+#
+# - 开发版：master 上的 CI 通过后自动发（workflow_run）。版本 X.Y.(Z+1)-beta.N，见 apps/desktop/scripts/release.ts plan。
+# - 正式版：维护者决定发布时在 master 的提交上打 tag `vX.Y.Z` 并推送；要求这个提交在 master 上、CI 已经通过。
+#   正式版另建 GitHub Release（备用下载）。
+#
+# 产物按 src/main/updates/feed.ts 的布局放在每条线路的 desktop/<平台>-<架构>/：先传安装包，两条线路都成功后再写
+# 清单与签名，清单只许更高的版本覆盖（release.ts publish）。同一时间只跑一个发布，后来的排队；排队的只保留最新一个，
+# 连续提交时中间的开发版自然跳过。
+#
+# 要的仓库 secret 与 variable 见 docs/development.md §3.7。
+
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: 版本
+    # 仓库 variable WEVIR_RELEASE=on 时才发（secret 配齐之前不跑）。开发版只在 master 的 push 触发的 CI 成功后发
+    # （不含 PR 与 tag 触发的 CI）。
+    if: >-
+      vars.WEVIR_RELEASE == 'on' && (github.event_name == 'push' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      channel: ${{ steps.plan.outputs.channel }}
+      version: ${{ steps.plan.outputs.version }}
+      skip: ${{ steps.plan.outputs.skip }}
+    steps:
+      - id: sha
+        run: echo "sha=${{ github.event.workflow_run.head_sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.sha.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+
+      - name: 正式版的提交要在 master 上、CI 已通过
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          git merge-base --is-ancestor "$SHA" origin/master || { echo "::error::$GITHUB_REF_NAME 不在 master 上"; exit 1; }
+          passed=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$SHA" --status success --json databaseId --jq length)
+          [ "$passed" -gt 0 ] || { echo "::error::$SHA 还没有通过的 CI，等 CI 过了再推 tag"; exit 1; }
+
+      - id: plan
+        run: node apps/desktop/scripts/release.ts plan "${{ steps.sha.outputs.sha }}"
+
+  build:
+    name: 打包 ${{ matrix.dir }}
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin, dir: darwin-arm64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, dir: darwin-x64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, dir: win32-x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # package.ts 的 --app-version 写进安装包（extraMetadata.version）；electron-builder.yml 的 publish 让它写出更新清单
+      # （latest-mac.yml / beta.yml 等，通道由版本的预发布标签决定），package.ts 固定 --publish never，上传由 publish 作业做。
+      - name: 打包（macOS：签名、公证）
+        if: runner.os == 'macOS'
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          export APPLE_API_KEY="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
+          printf '%s\n' "$APPLE_API_KEY_P8" > "$APPLE_API_KEY"
+          pnpm --filter @wevir/desktop package --target ${{ matrix.target }} --app-version ${{ needs.plan.outputs.version }}
+          rm -f "$APPLE_API_KEY"
+
+      - name: 打包（Windows，不签名）
+        if: runner.os == 'Windows'
+        run: pnpm --filter @wevir/desktop package --target ${{ matrix.target }} --app-version ${{ needs.plan.outputs.version }}
+
+      - name: 检查签名与公证
+        if: runner.os == 'macOS'
+        working-directory: apps/desktop/release
+        run: |
+          app=$(ls -d mac*/Wevir.app | head -1)
+          codesign --verify --deep --strict "$app"
+          xcrun stapler validate "$app"
+          spctl -a -vvv -t exec "$app"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.target }}
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+          path: |
+            apps/desktop/release/Wevir-*.dmg
+            apps/desktop/release/Wevir-*.zip
+            apps/desktop/release/Wevir-*.exe
+            apps/desktop/release/Wevir-*.blockmap
+            apps/desktop/release/latest*.yml
+            apps/desktop/release/beta*.yml
+
+  publish:
+    name: 上传（${{ needs.plan.outputs.channel }} ${{ needs.plan.outputs.version }}）
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      # release-dir.ts 用到桌面端的 js-yaml、semver。
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile --filter @wevir/desktop
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: release
+
+      # 每个平台的产物放回 apps/desktop/release/，由 release-dir.ts 整理成 site/desktop/<平台>-<架构>/ 并签清单
+      # （用 keys.ts 的公钥核对，对不上就失败）。私钥只进这个作业。
+      - name: 整理发布目录、签更新清单
+        env:
+          WEVIR_UPDATE_SIGNING_KEY: ${{ secrets.WEVIR_UPDATE_SIGNING_KEY }}
+        run: |
+          for d in release/release-*; do
+            rm -rf apps/desktop/release && mkdir -p apps/desktop/release
+            cp "$d"/* apps/desktop/release/
+            node apps/desktop/scripts/release-dir.ts --out site --target "${d#release/release-}" --key -
+          done
+          ls -lR site
+
+      - name: 上传到 download.wevir.si 与 download2.wevir.si
+        env:
+          WEVIR_GLOBAL_S3_ENDPOINT: ${{ vars.WEVIR_GLOBAL_S3_ENDPOINT }}
+          WEVIR_GLOBAL_S3_REGION: ${{ vars.WEVIR_GLOBAL_S3_REGION }}
+          WEVIR_GLOBAL_S3_BUCKET: ${{ vars.WEVIR_GLOBAL_S3_BUCKET }}
+          WEVIR_GLOBAL_S3_ACCESS_KEY_ID: ${{ vars.WEVIR_GLOBAL_S3_BUCKET }}
+          WEVIR_GLOBAL_S3_SECRET_ACCESS_KEY: ${{ secrets.WEVIR_GLOBAL_S3_SECRET_ACCESS_KEY }}
+          BUNNY_API_KEY: ${{ secrets.BUNNY_API_KEY }}
+          WEVIR_OPTIMIZED_S3_ENDPOINT: ${{ vars.WEVIR_OPTIMIZED_S3_ENDPOINT }}
+          WEVIR_OPTIMIZED_S3_REGION: ${{ vars.WEVIR_OPTIMIZED_S3_REGION }}
+          WEVIR_OPTIMIZED_S3_BUCKET: ${{ vars.WEVIR_OPTIMIZED_S3_BUCKET }}
+          WEVIR_OPTIMIZED_S3_ACCESS_KEY_ID: ${{ secrets.WEVIR_OPTIMIZED_S3_ACCESS_KEY_ID }}
+          WEVIR_OPTIMIZED_S3_SECRET_ACCESS_KEY: ${{ secrets.WEVIR_OPTIMIZED_S3_SECRET_ACCESS_KEY }}
+        run: |
+          aws --version
+          node apps/desktop/scripts/release.ts publish --channel ${{ needs.plan.outputs.channel }} \
+            --version ${{ needs.plan.outputs.version }} --dir site/desktop
+
+      - name: GitHub Release（正式版）
+        if: needs.plan.outputs.channel == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ needs.plan.outputs.version }}" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --title "Wevir ${{ needs.plan.outputs.version }}" --generate-notes \
+            release/release-*/Wevir-*.dmg release/release-*/Wevir-*.exe
