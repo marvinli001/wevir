@@ -265,6 +265,8 @@ interface RootSession extends Owner {
   lastSettledUuid?: string;
   /** `injectNote` 补进来、还没交给 `claude` 的说明。 */
   pendingNotes: string[];
+  /** 当前（最近一个由消息开始的）回合在计划模式里（0.36.0）：进程的权限模式是 `plan`。 */
+  planning: boolean;
   /** 子 agent：派出它的工具调用 ID → 子会话（各层都登记在顶层会话上）。 */
   children: Map<string, ChildSession>;
   stream?: { attemptId: string; blocks: Map<number, StreamBlock> };
@@ -309,6 +311,22 @@ function mcpOptions(
       allowedTools.push(`mcp__${APP_TOOLS_SERVER}__${name}`);
   }
   return allowedTools.length === 0 ? {} : { mcpServers, allowedTools };
+}
+
+/** 退出计划模式的工具（0.36.0）：它的输入 `plan` 是计划的 Markdown。 */
+const EXIT_PLAN_MODE = 'ExitPlanMode';
+/** Claude 自己进出计划模式的工具。 */
+const PLAN_MODE_TOOLS: ReadonlySet<string> = new Set([EXIT_PLAN_MODE, 'EnterPlanMode']);
+/** 拒掉 ExitPlanMode 时告诉 Claude 的话（T3 的原文）。 */
+export const PLAN_CAPTURED_MESSAGE =
+  "The client captured your proposed plan. Stop here and wait for the user's feedback or implementation request in a later turn.";
+
+/** ExitPlanMode 输入里的计划（T3 的 `claudeProposedPlan`）；没有或是空的时 undefined。 */
+export function claudeProposedPlan(input: unknown): string | undefined {
+  const fields = record(input);
+  const value = fields.type === 'record' ? record(fields.value) : fields;
+  const plan = value.plan;
+  return typeof plan === 'string' && plan.trim() !== '' ? plan.trim() : undefined;
 }
 
 function textOf(input: AgentInput): string {
@@ -418,6 +436,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   readonly accounts: ClaudeAccounts;
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   readonly additionalRoots = true;
+  /**
+   * 计划模式（0.36.0，claude-event-mapping.md §5.5，照 T3 Code 的 `permissionModeForClaudeRuntimePolicy`）：计划回合的权限模式是
+   * `plan`（Claude Code 只读、不改文件），ExitPlanMode 的计划报成 `plan.proposed` 并拒掉这次调用，回合停在那里等用户。
+   */
+  readonly planMode = true;
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时挂上。 */
   readonly historyTool: boolean;
   /**
@@ -518,6 +541,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (text === '' && !hasImages(input)) {
       throw new AdapterError('invalid_input', 'the message is empty');
     }
+    if (session.turn !== undefined) {
+      throw new AdapterError('session_busy', `session ${session.id} has a turn in progress`);
+    }
+    // 模式按回合给（0.36.0）：这次没给就回到默认模式；进程的权限模式在 `#liveFor` 里跟着换。
+    session.planning = input.collaborationMode === 'plan';
     await this.#startTurn(session, text, undefined, input);
   }
 
@@ -901,6 +929,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       side: flags.side,
       sideNotePending: false,
       pendingNotes: [],
+      planning: false,
       children: new Map(),
     };
     this.#sessions.set(id, session);
@@ -938,7 +967,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     return {
       model: claudeApiModelId(session.config.modelId),
       effort: claudeEffort(session.config.modelId, session.config.reasoningEffort),
-      mode,
+      // 计划回合用 `plan`（0.36.0）；完全访问的启动参数照旧留着，回到默认模式时不用重起进程。
+      mode: session.planning ? 'plan' : mode,
       dangerous: mode === 'bypassPermissions',
     };
   }
@@ -1145,6 +1175,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       if (toolName === 'AskUserQuestion') {
         return this.#ask(owner, options.toolUseID, toolInput, options.signal);
       }
+      // 计划（0.36.0，T3 的做法）：计划已在 `#toolStarted` 报出；拒掉退出计划模式，让 Claude 停下等用户。实施是用户另发的一条
+      // 默认模式的消息。
+      if (toolName === EXIT_PLAN_MODE) {
+        return { behavior: 'deny', message: PLAN_CAPTURED_MESSAGE, toolUseID: options.toolUseID };
+      }
       if (session.config.permissionMode === 'full_access') {
         return { behavior: 'allow', updatedInput: toolInput, toolUseID: options.toolUseID };
       }
@@ -1279,6 +1314,24 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   ): void {
     if (owner.tools.has(toolCallId)) return;
     owner.tools.set(toolCallId, { name: toolName, input });
+    if (PLAN_MODE_TOOLS.has(toolName)) {
+      // Claude 自己进出计划模式：进程的权限模式不再是记下的那个，下一个回合按会话的模式重新设（T3 同）。
+      if (session.live !== undefined)
+        session.live.applied = { ...session.live.applied, mode: 'plan' };
+    }
+    if (toolName === EXIT_PLAN_MODE) {
+      // 计划（0.36.0）：报成 `plan.proposed`，这次工具调用本身不显示（它会被拒掉，结果也不报）。
+      const plan = claudeProposedPlan(input);
+      if (plan !== undefined && owner === session) {
+        owner.hub.emit({
+          type: 'plan.proposed',
+          engineSessionId: owner.id,
+          planId: toolCallId,
+          text: plan,
+        });
+      }
+      return;
+    }
     owner.hub.emit({
       type: 'tool.started',
       engineSessionId: owner.id,
@@ -1761,6 +1814,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       const toolCallId = fields.tool_use_id;
       if (typeof toolCallId !== 'string' || owner.finished.has(toolCallId)) continue;
       owner.finished.add(toolCallId);
+      // ExitPlanMode 没报 tool.started（计划另报），结果也不报。
+      if (owner.tools.get(toolCallId)?.name === EXIT_PLAN_MODE) continue;
       const text = toolResultText(fields.content);
       const failed = fields.is_error === true;
       owner.hub.emit({

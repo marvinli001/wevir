@@ -276,6 +276,8 @@ export const zh = {
   'render.from': '（来自 {client}）',
   'render.steerEchoed': '（插话已并入本回合）',
   'render.image': '[图片]',
+  'render.planTag': '（计划模式）',
+  'render.plan': '计划',
   'render.steerTag': '（插话）',
   'render.steerTagFrom': '（插话，来自 {client}）',
   'render.pendingSteer': '插话：当前步骤结束后并入本回合',

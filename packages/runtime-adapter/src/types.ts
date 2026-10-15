@@ -11,6 +11,12 @@
  */
 export type PermissionMode = 'on_request' | 'auto_review' | 'full_access';
 
+/**
+ * 回合的协作模式（0.36.0，protocol 的 `CollaborationMode`，domain-model §3.17）：`plan` 只做不改动工作区的事、可以提问，最后给出
+ * 计划（`plan.proposed`），不实施。
+ */
+export type CollaborationMode = 'default' | 'plan';
+
 /** 建会话与恢复会话的参数。 */
 export interface SessionConfig {
   /**
@@ -121,6 +127,11 @@ export interface AgentImageInput {
 export interface AgentInput {
   /** 至少一段；图片（0.28.0）在 `acceptsImages` 之后才会有。 */
   content: Array<AgentTextInput | AgentImageInput>;
+  /**
+   * 这个回合的协作模式（0.36.0）；省略表示 `default`。只有声明了 `planMode` 的适配器会收到 `plan`，而且只在 `send` 里（插话
+   * 沿用回合的模式）。模式按回合给：上一个回合是 `plan`、这次省略，就回到默认模式。
+   */
+  collaborationMode?: CollaborationMode;
 }
 
 /**
@@ -158,6 +169,9 @@ export interface GoalStartRequest {
   tokenBudget?: number;
   input: AgentInput;
 }
+
+/** `supports` 能问的：可选方法，与计划模式（0.36.0，`planMode`）。 */
+export type SessionCapability = SessionCommandMethod | 'planMode';
 
 /** `generateTitle` 的请求（prompts/README.md「会话标题」）。 */
 export interface TitleRequest {

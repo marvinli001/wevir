@@ -4,7 +4,8 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，Schema 解码换成手写的字段检查；T3 的运行模式换成 Wevir 的权限模式；审批选项不再
 // 换成 T3 的决定，只过滤 Grok 给的选项；提问的回答按 Wevir 的 `respondToQuestion`（问题 ID → 选项 label 或填写的文本）；
-// 退出计划模式由 Wevir 的审批决定（批准即实施，否则照 T3 放弃并等用户），不建计划卡片。
+// 退出计划模式照 T3 把计划报成计划条目（0.36.0 起，`plan.proposed`）、放弃这道关等用户，不再当审批问；计划只取请求里的
+// `planContent`，不去找 Grok 写的 plan.md。
 //
 // Grok Build 的 ACP 扩展（grok-event-mapping.md §1、§4、§5）：启动参数、`initialize` 与 `session/cancel` 的 `_meta`、审批
 // 选项、引擎自己报的回合结束（`prompt_complete` / `turn_completed`）、向用户提问（`ask_user_question`）与退出计划模式
@@ -333,26 +334,12 @@ export function parseExitPlanMode(params: unknown): XAiExitPlanMode | undefined 
   return { sessionId, toolCallId, ...(planContent !== undefined && { planContent }) };
 }
 
-/** 退出计划模式的审批选项：批准就按计划实施；否则 Grok 停下，等用户在下一条消息里给意见。 */
-export const EXIT_PLAN_APPROVE = 'approve-plan';
-export const EXIT_PLAN_KEEP = 'keep-planning';
-export const EXIT_PLAN_OPTIONS: readonly ApprovalOption[] = Object.freeze([
-  { optionId: EXIT_PLAN_APPROVE, label: 'Yes, implement the plan', kind: 'allow_once' },
-  { optionId: EXIT_PLAN_KEEP, label: 'No, stop and wait for feedback', kind: 'reject_once' },
-]);
-
 /**
- * 退出计划模式的回复：批准是 `approved`；拒绝或取消照 T3 的 `makeXAiExitPlanModeCapturedResponse` 放弃这道关，让 Grok
- * 停下等用户（T3 #8358：不回复回合会一直挂着）。
+ * 退出计划模式的回复（T3 的 `makeXAiExitPlanModeCapturedResponse`）：计划已经交给客户端，放弃这道关，让 Grok 停下等用户
+ * （T3 #8358：不回复回合会一直挂着）。
  */
-export function exitPlanModeResponse(optionId: string | undefined): {
-  outcome: 'approved' | 'abandoned';
-  feedback?: string;
-} {
-  if (optionId === EXIT_PLAN_APPROVE) return { outcome: 'approved' };
-  return {
-    outcome: 'abandoned',
-    feedback:
-      "The user did not approve leaving plan mode. Stop here and wait for the user's feedback or implementation request in a later turn.",
-  };
-}
+export const EXIT_PLAN_CAPTURED = Object.freeze({
+  outcome: 'abandoned' as const,
+  feedback:
+    "The client captured your proposed plan. Stop here and wait for the user's feedback or implementation request in a later turn.",
+});

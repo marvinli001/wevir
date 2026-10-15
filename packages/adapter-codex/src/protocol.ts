@@ -1,7 +1,9 @@
 // codex-app-server 协议里本包用到的子集，手写（不整批拷贝生成的类型）。每个类型注明它对应的生成文件，路径相对
 // upstream/codex/codex-rs/app-server-protocol/schema/typescript/（锁定 rust-v0.162.1 = 092d3ac）。只写本包读写的
 // 字段，其余字段按 `[key: string]: unknown` 不管；收到的消息不做 schema 校验，读之前自己检查要用的字段（mapping.ts）。
-// 只用稳定面（`experimentalApi: false`，ADR-0005 决策 5）。升级时与新版本的 schema diff（ADR-0005 决策 7）。
+// 0.36.0 起 initialize 带 `experimentalApi: true`（ADR-0005 补记 16，结束未决事项 5），为的是协作模式（计划模式）：
+// `turn/start` 的 `collaborationMode` 与 `item/plan/delta`。其余仍只用稳定面的字段，用到的实验字段逐个注明。升级时与新版本的
+// schema diff（ADR-0005 决策 7）。
 //
 // 线上格式：stdio 上逐行 JSON，形状是 JSON-RPC 2.0 但不带 "jsonrpc" 字段（app-server-protocol/src/rpc.rs:1-2）。
 
@@ -212,6 +214,26 @@ export interface TurnStartParams {
   sandboxPolicy?: SandboxPolicy | null;
   /** 约束最终助手消息的 JSON Schema（生成标题用）。 */
   outputSchema?: unknown;
+  /**
+   * 协作模式（CollaborationMode.ts，实验字段 `turn/start.collaborationMode`，0.36.0）：这个回合及之后的模式；优先于 `model`、
+   * `effort`，所以 `settings` 里带同样的模型与档位。`developer_instructions` 为 null 时用 Codex 内置的模式说明。
+   */
+  collaborationMode?: CollaborationMode | null;
+}
+
+/** ModeKind.ts */
+export type ModeKind = 'plan' | 'default';
+
+/** CollaborationMode.ts 与 Settings.ts（字段是 snake_case）。 */
+export interface CollaborationMode {
+  mode: ModeKind;
+  settings: {
+    model: string;
+    /** ReasoningEffort.ts；null 用模型的默认档位。 */
+    reasoning_effort: string | null;
+    /** null：这个模式的内置说明（collaboration-mode-templates/templates/）。 */
+    developer_instructions: string | null;
+  };
 }
 
 /** v2/TurnStatus.ts */
@@ -387,6 +409,16 @@ export interface FileUpdateChange {
 /** ThreadItem `agentMessage` */
 export interface AgentMessageItem {
   type: 'agentMessage';
+  id: string;
+  text: string;
+}
+
+/**
+ * ThreadItem `plan`（0.36.0）：计划模式里模型给出的 `<proposed_plan>` 块，Codex 从回答里拆出来，`text` 是块里的 Markdown；
+ * 以 `item/completed` 的为准（`item/plan/delta` 是实验的预览）。
+ */
+export interface PlanItem {
+  type: 'plan';
   id: string;
   text: string;
 }

@@ -262,6 +262,26 @@ describe('GrokAdapter：样本回放', () => {
     });
   });
 
+  it('exit_plan_mode（0.36.0）：计划报成 plan.proposed，回复放弃这道关，不当审批问', async () => {
+    const { adapter, config, log } = setup();
+    const { engineSessionId } = await adapter.createSession(config);
+    const events = new EventCollector(adapter.subscribe(engineSessionId));
+    await adapter.send(engineSessionId, text('replay:exit_plan'));
+    const turn = await events.turn();
+    expect(turn.filter((e) => e.type === 'plan.proposed')).toEqual([
+      {
+        type: 'plan.proposed',
+        engineSessionId,
+        planId: 'exit-plan-tool-call-1',
+        text: '# Export button\n\n- Add it to the toolbar',
+      },
+    ]);
+    expect(turn.some((e) => e.type === 'approval.requested')).toBe(false);
+    expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
+    const reply = readLog(log).find((message) => message.result?.outcome === 'abandoned');
+    expect(reply?.result?.feedback).toMatch(/captured your proposed plan/);
+  });
+
   it('提问时取消：提问以 cancelled 结束，回给 Grok cancelled', async () => {
     const { adapter, config, log } = setup();
     const { engineSessionId } = await adapter.createSession(config);

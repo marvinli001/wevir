@@ -1,5 +1,6 @@
 import { commandSupported, goalsSupported, hostSupports, isRpcError } from '@wevir/client-sdk';
 import type {
+  CollaborationMode,
   PendingDelivery,
   PermissionMode,
   ProviderProfile,
@@ -11,7 +12,7 @@ import type {
   UserImagePart,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { TriangleAlert } from 'lucide-react';
+import { ListChecks, TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useBrowserReveal } from '@/browser/browser-store';
@@ -33,7 +34,7 @@ import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
-import { Composer, isBusy, setDraft } from './composer';
+import { Composer, type ComposerPlan, isBusy, setDraft } from './composer';
 import { ContextMeter } from './context-meter';
 import { EnvironmentBar } from './environment-bar';
 import { GoalBanner } from './goal-banner';
@@ -46,6 +47,8 @@ import { NewSessionHero, NewSessionLayout } from './new-session';
 import { OllamaContextNotice } from './ollama-context-notice';
 import { PendingArea } from './pending-area';
 import { PermissionPicker, usePermissionChoice } from './permission-picker';
+import { usePlanControl } from './plan-mode';
+import { planImplementationPrompt, proposedPlanTitle } from './proposed-plan';
 import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
 import { btwQuestion, hasFinishedTurn, startSide } from './side-session';
@@ -191,11 +194,23 @@ export function SessionView({
     [runGoal, client, session.id],
   );
 
-  const send = useCallback(
+  // 计划模式（0.36.0）：会话当前的引擎有它、会话可写时才有开关；没动过开关时按最近一条消息的模式。
+  const plan = usePlanControl(
+    session.id,
+    providers,
+    session.providerId,
+    (transcript?.collaborationMode ?? session.collaborationMode) === 'plan',
+  );
+  const planEnabled =
+    plan.supported && readOnly === undefined && session.parentSessionId === undefined;
+
+  /** 发一条消息；`mode` 是这条消息的协作模式（0.36.0，省略即默认模式）。 */
+  const deliver = useCallback(
     async (
       text: string,
-      delivery?: PendingDelivery,
-      images?: readonly UserImagePart[],
+      delivery: PendingDelivery | undefined,
+      images: readonly UserImagePart[] | undefined,
+      mode: CollaborationMode | undefined,
     ): Promise<boolean> => {
       if (!client) return false;
       setNotice(undefined);
@@ -243,7 +258,7 @@ export function SessionView({
         if (sessionState === 'error' || sessionState === 'closed') {
           await client.request('session.resume', { sessionId: session.id });
         }
-        await sendText(client, session.id, text, delivery, images);
+        await sendText(client, session.id, text, delivery, images, mode);
         transcriptRef.current?.jumpToLatest('auto');
         return true;
       } catch (error) {
@@ -252,6 +267,69 @@ export function SessionView({
       }
     },
     [client, session.id, sessionState, sideEnabled, panes, goalsEnabled, goal, runGoal],
+  );
+  const send = useCallback(
+    (text: string, delivery?: PendingDelivery, images?: readonly UserImagePart[]) =>
+      deliver(text, delivery, images, planEnabled ? plan.mode : undefined),
+    [deliver, planEnabled, plan.mode],
+  );
+
+  // 计划给出之后（0.36.0，照 T3 Code）：会话空闲、没有待答的问题、开关还开着时，空输入框按发送是“实施”——回到默认模式发出
+  // 实施消息；下拉里是“在新会话中实施”。
+  const latestPlan = transcript?.latestPlan;
+  const planReady =
+    planEnabled &&
+    plan.active &&
+    latestPlan !== undefined &&
+    sessionState === 'idle' &&
+    (transcript?.pendingQuestions.length ?? 0) === 0;
+  const navigate = useNavigate();
+  const store = useWorkbenchStore();
+  const permissionModes = usePermissionModes();
+  const implementPlan = useCallback(async () => {
+    if (!latestPlan) return;
+    const prompt = planImplementationPrompt(t('plan.implementPrefix'), latestPlan.text);
+    if (await deliver(prompt, undefined, undefined, 'default')) plan.set(false);
+  }, [latestPlan, deliver, plan.set]);
+  const implementInNew = useCallback(async () => {
+    if (!client || !latestPlan) return;
+    setNotice(undefined);
+    const prompt = planImplementationPrompt(t('plan.implementPrefix'), latestPlan.text);
+    try {
+      const { session: created } = await client.request('session.create', {
+        workspaceId: session.workspaceId,
+        providerId: session.providerId,
+        modelId: session.modelId,
+        ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+        ...(permissionModes &&
+          session.permissionMode !== undefined && { permissionMode: session.permissionMode }),
+      });
+      store?.upsertSession(created);
+      await sendText(client, created.id, prompt, undefined, undefined, 'default');
+      navigate(paths.session(created.workspaceId, created.id));
+    } catch (error) {
+      setNotice(sendError(error));
+    }
+  }, [client, latestPlan, session, permissionModes, store, navigate]);
+  const composerPlan = useMemo<ComposerPlan | undefined>(
+    () =>
+      planEnabled
+        ? {
+            active: plan.active,
+            onToggle: plan.toggle,
+            ...(planReady && {
+              followUp: {
+                onImplement: () => void implementPlan(),
+                ...(variant === 'main' && { onImplementInNew: () => void implementInNew() }),
+              },
+            }),
+          }
+        : undefined,
+    [planEnabled, plan.active, plan.toggle, planReady, implementPlan, implementInNew, variant],
+  );
+  const planCommand = useMemo(
+    () => (planEnabled ? { active: plan.active, onToggle: plan.toggle } : undefined),
+    [planEnabled, plan.active, plan.toggle],
   );
 
   const stop = useCallback(() => {
@@ -284,7 +362,6 @@ export function SessionView({
     [client, session],
   );
   const switchable = useHandoffTargets(session);
-  const permissionModes = usePermissionModes();
   const permission = useMemo(
     () =>
       permissionModes && writable && session.parentSessionId === undefined
@@ -311,7 +388,6 @@ export function SessionView({
   const sendCommandText = useCallback((text: string) => void send(text), [send]);
   // 改名与归档（U34，0.23.0）：只给顶层、不是支线的会话。
   const manage = useSessionManagement();
-  const store = useWorkbenchStore();
   const topLevel = session.parentSessionId === undefined && !session.side;
   const onRename = useMemo(
     () => (manage.rename && topLevel ? () => requestRename(session) : undefined),
@@ -398,6 +474,7 @@ export function SessionView({
     ...(onCompact && { onCompact }),
     ...(onReview && { onReview }),
     goalEnabled: goalsEnabled,
+    ...(planCommand && { plan: planCommand }),
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>
@@ -426,7 +503,6 @@ export function SessionView({
   );
 
   // 基于历史新建（T5.5）：对话记录放进同一工作区新会话的输入框，沿用原会话的 Provider，用户确认后发送。
-  const navigate = useNavigate();
   const startFromHistory = useCallback(() => {
     if (!transcript) return;
     setDraft(newSessionDraftKey(session.workspaceId), historyDigest(transcript));
@@ -515,6 +591,7 @@ export function SessionView({
                 {notice}
               </p>
             )}
+            {planReady && <PlanReadyBanner title={proposedPlanTitle(latestPlan.text)} />}
             {transcript && (
               <PendingArea
                 sessionId={session.id}
@@ -564,10 +641,25 @@ export function SessionView({
             autoFocus={variant === 'main'}
             commands={readOnly === undefined ? commands : undefined}
             {...(fileScope && { fileScope })}
+            {...(composerPlan && { plan: composerPlan })}
           />
         </div>
       </div>
     </div>
+  );
+}
+
+/** 输入框上方的“计划已就绪”（0.36.0，照 T3 Code 的 ComposerPlanFollowUpBanner）：计划的标题。 */
+function PlanReadyBanner({ title }: { title: string | null }) {
+  return (
+    <p
+      data-testid="plan-ready"
+      className="mb-2 flex min-w-0 items-center gap-2 rounded-lg bg-muted px-3 py-2 text-sm"
+    >
+      <ListChecks aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      <span className="shrink-0 font-medium text-muted-foreground">{t('plan.ready')}</span>
+      {title && <span className="min-w-0 flex-1 truncate">{title}</span>}
+    </p>
   );
 }
 
@@ -750,10 +842,25 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const { view } = useHostConnection();
   const filesEnabled =
     view.status === 'connected' && hostSupports(view.hello.features, 'workspace_files');
-  const sendCommandText = useCallback((text: string) => void send(text), [send]);
+  // 计划模式（0.36.0）：草稿也能选，按选的模型所在的引擎；第一条消息带上它。
+  const draftKey = newSessionDraftKey(workspaceId);
+  const plan = usePlanControl(draftKey, providers ?? NO_PROVIDERS, choice?.providerId);
+  const startWithPlan = useCallback(
+    async (text: string, images?: readonly UserImagePart[]) => {
+      const started = await send(text, undefined, images, plan.mode);
+      if (started && plan.active) plan.set(false);
+      return started;
+    },
+    [send, plan],
+  );
+  const sendCommandText = useCallback((text: string) => void startWithPlan(text), [startWithPlan]);
   const permissionCommand = useMemo(
     () => (permissions ? { mode: permission.mode, onChange: permission.choose } : undefined),
     [permissions, permission.mode, permission.choose],
+  );
+  const planCommand = useMemo(
+    () => (plan.supported ? { active: plan.active, onToggle: plan.toggle } : undefined),
+    [plan.supported, plan.active, plan.toggle],
   );
   const commands = useDraftCommands({
     providers,
@@ -764,6 +871,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     panes,
     send: sendCommandText,
     goalEnabled: goals,
+    ...(planCommand && { plan: planCommand }),
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>
@@ -816,10 +924,11 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
           <Composer
             key={workspaceId}
             variant="home"
-            draftKey={newSessionDraftKey(workspaceId)}
+            draftKey={draftKey}
             state="idle"
             disabled={!client || !choice}
-            onSend={(text, _delivery, images) => send(text, undefined, images)}
+            onSend={(text, _delivery, images) => startWithPlan(text, images)}
+            {...(planCommand && { plan: planCommand })}
             acceptImages={acceptImages}
             leading={
               permissions && (

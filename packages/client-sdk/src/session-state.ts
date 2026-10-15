@@ -86,6 +86,11 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       }
       break;
     }
+    case 'user.message':
+      // 0.36.0：会话的协作模式是最近一条消息的。
+      if (event.payload.collaborationMode === 'plan') next.collaborationMode = 'plan';
+      else delete next.collaborationMode;
+      break;
     case 'turn.started':
       next.activeTurn = { turnId: event.payload.turnId, startedAt: event.ts };
       if (session.subagent !== undefined) {

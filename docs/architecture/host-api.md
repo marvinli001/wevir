@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.35.0`（会话目标；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
+> 状态：v0（T1.2）· 协议版本 `0.36.0`（计划模式；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -46,7 +46,7 @@
 - `hostId`：每个数据目录一个，跨 Host 重启不变，客户端据此认出“同一个 Host”。
 - `permissions`：骨架阶段恒为权限词表全部（`PERMISSIONS`），为设备权限预留；每个方法需要的权限见 §3。
 - `capabilities` / `features`：见 §10。0.7.0 起 Host 按自己的引擎声明 `features.chatgpt_account`（Codex 引擎有，dsh、echo 没有）。
-- `engineFeatures`（0.25.0）：键是 Provider 种类，值是跑这种 Provider 的引擎的名字与它能做什么（插话、换模型、支线、提问、权限模式、额外目录、读历史的工具，0.27.0 起还有会话能用的命令 `commands`，`EngineFeatures`）。会话接力到别的来源后，客户端按会话当前的 `providerId` 的种类查它，决定输入框上的功能（domain-model §3.14）。
+- `engineFeatures`（0.25.0）：键是 Provider 种类，值是跑这种 Provider 的引擎的名字与它能做什么（插话、换模型、支线、提问、权限模式、额外目录、读历史的工具，0.27.0 起还有会话能用的命令 `commands`，0.36.0 起还有计划模式 `planMode`，`EngineFeatures`）。会话接力到别的来源后，客户端按会话当前的 `providerId` 的种类查它，决定输入框上的功能（domain-model §3.14）。
 
 **Host 的检查顺序与失败处理**：每种失败都先回 JSON-RPC 错误（`id` 取该请求的 `id`，取不到时为 `null`），再以对应关闭码关闭连接（§8）。
 
@@ -197,7 +197,7 @@ Host → 客户端的通知：
 - **接力：`session.configure` 的 `providerId`**（0.25.0，Host 功能 `session_handoff`，domain-model §3.14，ADR-0005 补记 14）：换到别的 Provider（别的来源）。`modelId` 省略时用新 Provider 的默认模型，给了就要在它的模型列表里（列了模型时）；`reasoningEffort` 没给时清掉；`permissionMode` 没给时沿用，新引擎不支持时回 `INVALID_PARAMS`。会话要是 `idle`、`error` 或 `closed`，活动中回 `SESSION_BUSY`；子会话、支线与只读以外的检查同上；Provider 不在回 `PROVIDER_NOT_FOUND`。Host 先取消活动中的子会话、断开并关闭当前的引擎会话，再为新 Provider 挂上引擎会话：这个来源以前用过时恢复它以前的引擎会话（恢复不了就新建），否则新建；然后从事件库整理交给它的历史摘要：第一次用的来源拿整段对话（`full_thread_summary`），用过的只拿它错过的那段（`delta_since_target_last_seen`），没有要补的就不给。写 `session.handoff`（新旧两头、摘要与它覆盖的 `seq` 范围），会话原来是 `error` / `closed` 时同一事务里转 `idle`（`resumed`），只读随之解除；只读的会话因此可以换个来源接着用。摘要不进消息记录，随下一条消息的开头交给新引擎，那条消息的回合以 `interrupted` 以外的结局结束才算交付（否则再下一条接着带）。新引擎挂不上时回 `ENGINE_ERROR`、不写事件，会话还是原来的 Provider（原来的引擎会话已经关了，下次发消息时自动恢复）。`providerId` 与当前的相同时就是普通的换模型。刚接力、摘要还没交出去时 `session.fork` 回 `INVALID_STATE`。
 - **权限模式 `permissionMode`**（0.11.0，Host 功能 `permission_modes`，domain-model §3.9）：`on_request`（请求批准，默认）、`auto_review`（自动批准：越界的操作由会话的模型审查）、`full_access`（完全访问：不用沙箱、不审批）。`session.create` 省略时是 `on_request`；`session.configure` 省略时不改，从下一个回合起生效。Host 的引擎声明了支持的模式时（Codex）会话与 `session.created` / `session.configured` 都带它；引擎不支持时（dsh）只接受省略或 `on_request`，会话不带这个字段，别的值回 `INVALID_PARAMS`（`data.issues` 的 path 是 `permissionMode`）。子 agent 的子会话沿用父会话当时的模式。
 - **`question.respond`**（0.10.0，Host 功能 `user_questions`）：回答引擎提的一组问题（`question.requested`）。`answers` 按问题 ID，每题是选中的选项 `label` 或自己填的文本（问题 `allowOther` 时），可多个（问题 `multiSelect` 时）；省略或空数组的题当作跳过。Host 交给引擎后写 `question.resolved`（`answered`，`resolution` 带回答与回答者），结果同它。已经结束的问题（别的客户端答过、随回合取消）照样返回它的结局，不报错；没有这组问题回 `QUESTION_NOT_FOUND`。问题等回答期间会话仍是 `running`，`Session.awaitingInput` 为 true；回合被取消、会话关闭、引擎退出、Host 退出或重启时，未答的问题以 `cancelled` 结束（原因同审批）。
-- **`session.send`**：会话是 `running` / `awaiting_approval` / `cancelling` 时，带 `delivery`（0.8.0）就成为待发消息（领域模型 §3.3.2、§4.6）：`'steer'` 插话，等当前这一步结束插进本回合，引擎不支持或拒绝时转为排队；`'queue'` 排队，回合结束后作为下一个回合发出。这时结果是 `{pendingId, seq}`（`pending.added` 的 `seq`），没有 `turnId`。不带 `delivery` 时回 `SESSION_BUSY`（`data` 带 `state` 与 `activeTurn`），不排队、不打断（旧客户端的行为不变）；`error` / `closed` 时回 `INVALID_STATE`（`data.state`），先 `session.resume`。`idle` 时接受（`delivery` 不起作用），结果是新回合的 `turnId` 和这次 `user.message` 的 `seq`。`clientMessageId` 是幂等键，检查排在状态检查之前：同一会话里同一 ID、同样的 `content` 重发，返回原结果，不再发给引擎（不论会话现在处于什么状态，也不论那个回合后来怎样）；同一 ID、不同 `content` 回 `CLIENT_MESSAGE_CONFLICT`。send 前的自动 resume 失败回 `ENGINE_ERROR`（`category: session_unavailable`），工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不调引擎、状态不变）。会话只读（0.3.0，`session.readOnly`，引擎会话恢复不了）时回 `INVALID_STATE`，`data.readOnly` 给出原因与引擎原文，客户端据此提示“基于历史新建会话”，不要再提示 resume。Host 接受之后引擎拒收（适配器调用失败）时仍返回本回合的 `turnId` 与 `seq`：消息已被 Host 接受，失败经 `engine.error` 与 `session.state_changed`（→ `error`）送达，重发同一 `clientMessageId` 也返回这个结果（领域模型 §4.3）。子会话（0.6.0）是只读的，由父 agent 驱动：回 `INVALID_STATE`，`data.parentSessionId` 是父会话（幂等检查照样在前）。0.28.0 起 `content` 可以有图片（`type: 'image'`，`image.upload` 的结果），只有图片、没有文字也可以：一条消息最多 `IMAGE_MAX_PER_MESSAGE`（10）张；会话的引擎与模型不收图片时回 `INVALID_PARAMS`（Provider 的模型列表标了 `supportsImages: false`，或适配器的 `acceptsImages` 回答不收：Codex 要模型标了 `supportsImages`，dsh 不收），图片不存在回 `IMAGE_NOT_FOUND`，都不写事件。`pending.update` 的 `content` 同样。
+- **`session.send`**：会话是 `running` / `awaiting_approval` / `cancelling` 时，带 `delivery`（0.8.0）就成为待发消息（领域模型 §3.3.2、§4.6）：`'steer'` 插话，等当前这一步结束插进本回合，引擎不支持或拒绝时转为排队；`'queue'` 排队，回合结束后作为下一个回合发出。这时结果是 `{pendingId, seq}`（`pending.added` 的 `seq`），没有 `turnId`。不带 `delivery` 时回 `SESSION_BUSY`（`data` 带 `state` 与 `activeTurn`），不排队、不打断（旧客户端的行为不变）；`error` / `closed` 时回 `INVALID_STATE`（`data.state`），先 `session.resume`。`idle` 时接受（`delivery` 不起作用），结果是新回合的 `turnId` 和这次 `user.message` 的 `seq`。`clientMessageId` 是幂等键，检查排在状态检查之前：同一会话里同一 ID、同样的 `content` 重发，返回原结果，不再发给引擎（不论会话现在处于什么状态，也不论那个回合后来怎样）；同一 ID、不同 `content` 回 `CLIENT_MESSAGE_CONFLICT`。send 前的自动 resume 失败回 `ENGINE_ERROR`（`category: session_unavailable`），工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不调引擎、状态不变）。会话只读（0.3.0，`session.readOnly`，引擎会话恢复不了）时回 `INVALID_STATE`，`data.readOnly` 给出原因与引擎原文，客户端据此提示“基于历史新建会话”，不要再提示 resume。Host 接受之后引擎拒收（适配器调用失败）时仍返回本回合的 `turnId` 与 `seq`：消息已被 Host 接受，失败经 `engine.error` 与 `session.state_changed`（→ `error`）送达，重发同一 `clientMessageId` 也返回这个结果（领域模型 §4.3）。子会话（0.6.0）是只读的，由父 agent 驱动：回 `INVALID_STATE`，`data.parentSessionId` 是父会话（幂等检查照样在前）。0.28.0 起 `content` 可以有图片（`type: 'image'`，`image.upload` 的结果），只有图片、没有文字也可以：一条消息最多 `IMAGE_MAX_PER_MESSAGE`（10）张；会话的引擎与模型不收图片时回 `INVALID_PARAMS`（Provider 的模型列表标了 `supportsImages: false`，或适配器的 `acceptsImages` 回答不收：Codex 要模型标了 `supportsImages`，dsh 不收），图片不存在回 `IMAGE_NOT_FOUND`，都不写事件。`pending.update` 的 `content` 同样。 0.36.0 起可以带 `collaborationMode`（Host 功能 `plan_mode`，domain-model §3.17）：`plan` 让这个回合在计划模式里跑，记在 `user.message` 的 `collaborationMode` 上，回合里给出的计划是 `plan.proposed`；省略或 `default` 照常（`user.message` 不带这个字段）。模式按消息给，不是会话的设置；会话的 `collaborationMode` 是最近一条消息的。会话当前的 Provider 交给的引擎没有计划模式（`engineFeatures` 的 `planMode`）时回 `INVALID_PARAMS`（`path: ['collaborationMode']`），不写事件。带 `delivery` 成为待发消息时，模式记在待发消息上：排队的作为回合发出时用它，插话插进进行中的回合，沿用回合的模式。幂等的指纹在 `plan` 时连同模式一起算（同一 `clientMessageId` 换了模式回 `CLIENT_MESSAGE_CONFLICT`），默认模式的照旧只算内容。
 - **`pending.update`**（0.8.0）：改一条待发消息的内容（`content`）或方式（`delivery`），返回改后的 `pending`，同时写 `pending.updated`。排队的与暂停的可以改内容；排队的改成插话时，回合进行中且引擎支持就交给引擎，否则保持排队并在 `fallback` 里说明原因。已交给引擎的插话、暂停的改成插话、已到终态的回 `PENDING_NOT_EDITABLE`（`data` 带 `pendingId`、`status`、`delivery`）。规则全表见领域模型 §4.6。
 - **`pending.cancel`**（0.8.0）：删掉一条排队的或暂停的待发消息（`cancelled`），返回它；已取消的成功、无操作；已交给引擎的插话、已插入或已发出的回 `PENDING_NOT_EDITABLE`。
 - **`pending.resume`**（0.8.0）：让这个会话所有暂停的待发消息继续（转为等待），返回会话当前全部未到终态的待发消息。会话 `idle` 时随后立即发出第一条，活动中时等这个回合结束；`error` / `closed` 回 `INVALID_STATE`，先 `session.resume`。没有暂停的消息时成功、无操作。
@@ -312,6 +312,7 @@ Host → 客户端的通知：
 | `tool.updated` | engine |
 | `tool.finished` | engine / host |
 | `todo.updated` | host |
+| `plan.proposed` | engine |
 | `approval.requested` | engine |
 | `approval.resolved` | host |
 | `question.requested` | engine |
@@ -462,6 +463,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.35.0`：会话目标（domain-model §3.16，ADR-0005 补记 20）。新方法 `session.setGoal`、`session.updateGoal`、`session.clearGoal`；新类型 `GoalStatus`、`SessionGoal`、`TurnTrigger`（`goal`）与常量 `GOAL_OBJECTIVE_MAX_CHARS`；新事件 `session.goal_changed`；`Session` 加 optional 的 `goal`，`turn.started` 加 optional 的 `trigger`，`EngineFeatures` 加 optional 的 `goals`；Host 功能 `session_goals`。行为变化：普通会话里会有引擎自己开的回合（没有 `user.message`，之前只有命令回合与子会话）。新方法、新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法，忽略 `session.goal_changed`（规则 5）与 `trigger`；别的客户端设的目标在它那里是一条普通消息，续跑的回合是没有用户消息的回合（只有回答）。新客户端连旧 Host：hello 结果里没有 `session_goals`，桌面端不列 `/goal`、“+”菜单里没有“目标”。冻结样本 `compat/0.35.0.json`。
 
+`0.36.0`：计划模式（domain-model §3.17，ADR-0005 补记 21）。新类型 `CollaborationMode`（`default`、`plan`）；`session.send` 加 optional 的 `collaborationMode`；`user.message`、`PendingMessage` 与 `Session` 加 optional 的 `collaborationMode`；新事件 `plan.proposed`（`turnId`、`planId`、`text`）；`EngineFeatures` 加 optional 的 `planMode`；Host 功能 `plan_mode`。新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不发 `collaborationMode`，回合照旧是默认模式；别的客户端开的计划回合在旧客户端里是普通的回合，计划（`plan.proposed`）按规则 5 被忽略，看不到计划卡片（Codex 的回答里已拆掉计划块）。新客户端连旧 Host：hello 结果里没有 `plan_mode`，桌面端不显示计划模式的入口（旧 Host 会丢掉 `collaborationMode`，所以不能不看功能位就发）。冻结样本 `compat/0.36.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -519,6 +522,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `browser_tools` | 0.33.0 | 内置浏览器（domain-model §3.15.1）：`browser.*` 方法与 `browser.request` 通知，应用级工具里的 `browser_*` 与 `wevir_show` 的 `browser`（有应用级工具时，同 `app_tools`） |
 | `web_tools` | 0.34.0 | `web.get`、`web.update`、`web.test`；Host 带着联网服务启动时声明（`wevir-host` 总是带，与引擎无关；联网工具只挂在 Codex 上，web-tools.md §5） |
 | `session_goals` | 0.35.0 | `session.setGoal`、`session.updateGoal`、`session.clearGoal`，`session.goal_changed` 事件，`Session.goal`，`turn.started` 的 `trigger`（Codex、echo 引擎；会话所在的引擎没有目标时 `INVALID_STATE`，看 `engineFeatures` 的 `goals`） |
+| `plan_mode` | 0.36.0 | 计划模式：`session.send` 的 `collaborationMode`、`user.message` / 待发消息 / `Session` 的 `collaborationMode` 与 `plan.proposed` 事件（Codex、Claude、echo 引擎；`engineFeatures` 的 `planMode` 说哪种 Provider 的引擎有，没有时 `session.send` 回 `INVALID_PARAMS`） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**
@@ -543,7 +547,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 |---|---|---|
 | 工具输出 | `tool.updated.output.text`、`tool.finished.output.text` | 超过 `TOOL_OUTPUT_MAX_LENGTH`（65536）时保留开头 32768 与结尾 32768，中间插入一行 `[… N chars truncated …]`；`truncated: true`，`originalLength` 为截断前长度 |
 | JSON 值 | `tool.started.input`、`tool.updated.input`、`approval.requested` 的 `detail.input`、`engine.raw.params` | 先把其中每个超过 `JSON_STRING_MAX_LENGTH`（16384）的字符串截成开头 16384，并追加 `…[+N chars]`；之后整个值 `JSON.stringify` 仍超过 `JSON_VALUE_MAX_LENGTH`（131072）时，整体换成 `TruncatedJson`：`{"$truncated": true, "originalLength": N, "preview": "<原 JSON 文本开头 JSON_PREVIEW_LENGTH（4096）>"}` |
-| 不截断 | `assistant.*`、`user.message`、`todo.updated` | 这些是对话内容本身；单条事件可能较大，不影响连接健康的判断（图片在事件里只是引用，0.28.0） |
+| 不截断 | `assistant.*`、`user.message`、`todo.updated`、`plan.proposed` | 这些是对话内容本身；单条事件可能较大，不影响连接健康的判断（图片在事件里只是引用，0.28.0） |
 
 先截字符串再判断整体，是为了让 `write` 一类工具的 `file_path` 等短字段在大段 `content` 被截断后仍然可用。客户端看到 `$truncated: true` 时按截断显示，不要把它当作工具的真实输入。
 

@@ -2,6 +2,7 @@
 
 import { goalsSupported, hostSupports, isRpcError, type WevirClient } from '@wevir/client-sdk';
 import type {
+  CollaborationMode,
   EnvironmentId,
   PendingDelivery,
   PermissionMode,
@@ -22,6 +23,7 @@ import { messageContent } from './composer-images';
 import { parseGoalCommand } from './goal-command';
 import { engineFeaturesOf } from './handoff-model';
 import { type ModelChoice, modelsOf } from './model-picker';
+import { setPlanMode } from './plan-mode';
 
 export async function sendText(
   client: WevirClient,
@@ -29,12 +31,15 @@ export async function sendText(
   text: string,
   delivery?: PendingDelivery,
   images?: readonly UserImagePart[],
+  /** 协作模式（0.36.0）；只在 Host 与引擎有计划模式时给。 */
+  collaborationMode?: CollaborationMode,
 ) {
   await client.request('session.send', {
     sessionId,
     content: messageContent(text, images),
     clientMessageId: crypto.randomUUID(),
     ...(delivery !== undefined && { delivery }),
+    ...(collaborationMode !== undefined && { collaborationMode }),
   });
 }
 
@@ -150,11 +155,15 @@ export function useStartSession(
     );
 
   const start = useCallback(
-    /** `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）；`images`：带的图片（0.28.0）。 */
+    /**
+     * `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）；`images`：带的图片（0.28.0）；`collaborationMode`：第一条
+     * 消息的模式（0.36.0，草稿页选了计划模式）。
+     */
     async (
       text: string,
       target: WorkspaceId | undefined = workspaceId,
       images?: readonly UserImagePart[],
+      collaborationMode?: CollaborationMode,
     ): Promise<boolean> => {
       const workspaceId = target;
       if (!client || !workspaceId || !choice) return false;
@@ -186,12 +195,14 @@ export function useStartSession(
             objective: goal.objective,
           });
         } else {
-          await sendText(client, session.id, text, undefined, images);
+          await sendText(client, session.id, text, undefined, images, collaborationMode);
         }
       } catch (reason) {
         setError(sendError(reason));
         return false;
       }
+      // 会话页的开关接着草稿的（它最近一条消息就是这个模式，这里只是不等事件到）。
+      if (collaborationMode !== undefined) setPlanMode(session.id, collaborationMode === 'plan');
       onCreated?.(session);
       navigate(paths.session(workspaceId, session.id));
       return true;

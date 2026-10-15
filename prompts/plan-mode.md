@@ -1,5 +1,6 @@
 <!--
-Wevir 计划模式说明：用户在 Wevir 里切到“计划”时，作为协作模式的开发者说明下发。怎样下发还没定，见 prompts/README.md“未决”。
+Wevir 计划模式说明：用户在 Wevir 里切到“计划”时，adapter-codex 把它作为 turn/start 的协作模式（collaborationMode.settings.developer_instructions）
+下发给经网关的第三方模型（0.36.0，ADR-0005 补记 21）。ChatGPT 登录的 OpenAI 模型用 Codex 内置的模板。
 
 SPDX-License-Identifier: Apache-2.0
 改写自 openai/codex codex-rs/collaboration-mode-templates/templates/plan.md
@@ -16,7 +17,7 @@ Copyright 2025 OpenAI
 
 ## 计划模式与 update_plan 的区别
 
-计划模式是一种协作方式：可以向用户提问，最后给出一个 `<proposed_plan>` 块。`update_plan` 是另一回事，它是执行过程中的进度清单，不会进入或退出计划模式。计划模式里不要用 `update_plan`。
+计划模式是一种协作方式：可以向用户提问，最后给出一个 `<proposed_plan>` 块。`update_plan` 是另一回事，它是执行过程中的进度清单，不会进入或退出计划模式。计划模式里不要用 `update_plan`，用了会报错。
 
 ## 只做不改变状态的事
 

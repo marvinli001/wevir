@@ -151,6 +151,12 @@ export const HOST_FEATURES = {
    * `web_search` 与 `web_fetch`。Host 带着联网服务启动时声明（`wevir-host` 总是带）。
    */
   webTools: 'web_tools',
+  /**
+   * 计划模式（0.36.0，domain-model §3.17）：`session.send` 的 `collaborationMode`、`user.message` 与待发消息的
+   * `collaborationMode`、`Session.collaborationMode` 与 `plan.proposed` 事件。取决于引擎（Codex、Claude 有）：`engineFeatures` 的
+   * `planMode` 说哪种 Provider 的引擎有；会话所在的引擎没有时 `session.send` 回 `INVALID_PARAMS`。
+   */
+  planMode: 'plan_mode',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -184,6 +190,7 @@ export const HostFeaturesSchema = z.looseObject({
   file_preview: z.boolean().optional(),
   browser_tools: z.boolean().optional(),
   web_tools: z.boolean().optional(),
+  plan_mode: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -443,6 +443,7 @@ export const pendingHeld: PendingMessage = {
   delivery: 'queue',
   status: 'held',
   fallback: { reason: 'rejected', message: 'cannot steer a review turn' },
+  collaborationMode: 'plan',
   sentBy: identity,
   createdAt: TS,
   updatedAt: TS2,
@@ -574,6 +575,7 @@ export const eventPayloads: PayloadSamples = {
       sentBy: identity,
       pendingId: ids.pending2,
       from: { sessionId: ids.childSession, kind: 'report' },
+      collaborationMode: 'plan',
     },
     invalid: { turnId: ids.turn, content: [], sentBy: identity },
   },
@@ -660,6 +662,14 @@ export const eventPayloads: PayloadSamples = {
       items: [{ content: '列出本周提交', status: 'in_progress' }],
     },
     invalid: { turnId: ids.turn, toolCallId: 'call_mv4pwxip_0', items: [{ content: 'x' }] },
+  },
+  'plan.proposed': {
+    valid: {
+      turnId: ids.turn,
+      planId: 'item_plan_1',
+      text: '# 周报自动化\n\n## 概述\n\n每周五从提交记录生成周报草稿。\n\n## 测试\n\n- 空周\n',
+    },
+    invalid: { turnId: ids.turn, planId: '', text: '# 计划' },
   },
   'approval.requested': {
     valid: { approval: pendingApproval },
@@ -889,6 +899,24 @@ export const methodSamples: MethodSamples = {
           engineFeatures: {
             'deepseek-official': { engine: 'codex', commands: ['compact', 'review'], goals: true },
             claude: { engine: 'claude', commands: ['compact'] },
+            cursor: { engine: 'cursor', commands: [] },
+          },
+          permissions: ['host.manage', 'session.read', 'session.write'],
+        },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.36.0',
+          minProtocolVersion: '0.1.0',
+          features: { plan_mode: true },
+          engineFeatures: {
+            'deepseek-official': {
+              engine: 'codex',
+              commands: ['compact', 'review'],
+              planMode: true,
+            },
+            claude: { engine: 'claude', commands: ['compact'], planMode: true },
+            cursor: { engine: 'cursor', commands: [] },
           },
           permissions: ['host.manage', 'session.read', 'session.write'],
         },
@@ -918,6 +946,15 @@ export const methodSamples: MethodSamples = {
           minProtocolVersion: '0.1.0',
           features: {},
           engineFeatures: { claude: { engine: 'claude', commands: ['init'] } },
+          permissions: [],
+        },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.36.0',
+          minProtocolVersion: '0.1.0',
+          features: {},
+          engineFeatures: { claude: { engine: 'claude', planMode: 'yes' } },
           permissions: [],
         },
       ],
@@ -1632,12 +1669,17 @@ export const methodSamples: MethodSamples = {
       valid: [
         snapshot,
         { session: { ...session, state: 'idle' }, pendingApprovals: [] },
+        { session: { ...session, state: 'idle', collaborationMode: 'plan' }, pendingApprovals: [] },
         { session: readOnlySession, pendingApprovals: [] },
         { ...snapshot, subagents: [subagentSummary] },
         { session: childSession, pendingApprovals: [childApproval] },
         { ...snapshot, suggestedTasks: [suggestedTask, reportedTask] },
       ],
-      invalid: [{ session }, { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] }],
+      invalid: [
+        { session },
+        { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] },
+        { session: { ...session, collaborationMode: 'ask' }, pendingApprovals: [] },
+      ],
     },
   },
   'session.configure': {
@@ -1693,6 +1735,18 @@ export const methodSamples: MethodSamples = {
           sessionId: ids.session,
           content: [{ type: 'image', imageId: ids.image, mimeType: 'image/webp', size: 512 }],
         },
+        {
+          sessionId: ids.session,
+          content: [{ type: 'text', text: '先做个计划' }],
+          clientMessageId: 'msg-5',
+          collaborationMode: 'plan',
+        },
+        {
+          sessionId: ids.session,
+          content: [{ type: 'text', text: '实施这个计划' }],
+          delivery: 'queue',
+          collaborationMode: 'default',
+        },
       ],
       invalid: [
         { sessionId: ids.session, content: [] },
@@ -1701,6 +1755,11 @@ export const methodSamples: MethodSamples = {
         { sessionId: ids.session, content: [{ ...imagePart, imageId: 'img-1' }] },
         { sessionId: ids.session, content: [{ type: 'text', text: 'x' }], clientMessageId: '' },
         { sessionId: ids.session, content: [{ type: 'text', text: 'x' }], delivery: 'now' },
+        {
+          sessionId: ids.session,
+          content: [{ type: 'text', text: 'x' }],
+          collaborationMode: 'review',
+        },
       ],
     },
     result: {

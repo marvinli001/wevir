@@ -87,3 +87,25 @@ describe('输入框按键（R11）', () => {
     expect(composerKeyAction(key('Tab', { composing: true }), busy)).toBe('none');
   });
 });
+
+describe('计划模式的快捷键（0.36.0）', () => {
+  const idle = { busy: false, pendingEnabled: true, hasText: false };
+  it('Shift+Tab 在能开关计划模式时切换，否则照常移动焦点', () => {
+    const shiftTab = {
+      key: 'Tab',
+      shiftKey: true,
+      altKey: false,
+      ctrlKey: false,
+      metaKey: false,
+      composing: false,
+    };
+    expect(composerKeyAction(shiftTab, { ...idle, planToggle: true })).toBe('toggle-plan');
+    expect(composerKeyAction(shiftTab, idle)).toBe('none');
+    expect(composerKeyAction({ ...shiftTab, composing: true }, { ...idle, planToggle: true })).toBe(
+      'none',
+    );
+    expect(composerKeyAction({ ...shiftTab, metaKey: true }, { ...idle, planToggle: true })).toBe(
+      'none',
+    );
+  });
+});

@@ -190,6 +190,15 @@ SDK 的 `signal` 中止（中断、进程退出）时审批以 `approval.cancell
 
 会话带 `SessionConfig.appTools` 时，`query()` 的 `mcpServers` 里多一项 `wevir: { type: 'http', url, headers: { Authorization: 'Bearer <令牌>' } }`（domain-model §3.15）。不用批准的工具（只读的与 `wevir_show`，0.33.0 起还有只读的浏览器工具，`APP_TOOLS_NO_APPROVAL`）放进 `allowedTools`（`mcp__wevir__<名字>`），其余的（新开会话、发消息、停止，0.33.0 起还有操作网页的浏览器工具）照常经 `canUseTool` 走 §5.2 的审批，完全访问时直接放行。令牌在 Host 运行期间不变，重开进程（§4）时照样带上。只用假 SDK 验证过（`claude-adapter.test.ts`），没有用真实的 `claude` 跑：维护者要求开发测试时不用 Claude 订阅。
 
+### 5.5 计划模式（0.36.0）
+
+照 T3 的 `permissionModeForClaudeRuntimePolicy` 与 ExitPlanMode 的处理（domain-model §3.17）：`send` 带 `collaborationMode: 'plan'` 时这个回合的权限模式是 `plan`（`#desired`；进程在跑就 `setPermissionMode`，完全访问的 `allowDangerouslySkipPermissions` 照旧留着，回到默认模式不用重起），没带时回到会话权限模式对应的那个。Claude Code 在 `plan` 模式里只读，退出计划模式要调 ExitPlanMode，它总经 `canUseTool`：
+
+- 工具调用到达时（流式快照或 `canUseTool`，按 `toolCallId` 只算一次）把输入的 `plan`（去掉首尾空白；T3 的 `record` 包装也认）报成 `plan.proposed`（`planId` 是工具调用 ID）。ExitPlanMode 自己不报 `tool.started` / `tool.finished`：它会被拒掉，计划已经是卡片。
+- `canUseTool` 回 `deny`，说明照 T3：`The client captured your proposed plan. Stop here and wait for the user's feedback or implementation request in a later turn.` 不问用户、不发审批，完全访问的会话里也拦下。Claude 随后结束回合。
+- Claude 自己调 EnterPlanMode / ExitPlanMode 时进程的权限模式不再是记下的那个：适配器把记下的改成 `plan`，下一个回合按会话的模式重新 `setPermissionMode`（T3：`existing.permissionMode !== openedPermissionMode` 时重设）。
+- 子 agent 的 ExitPlanMode 不报计划（只认顶层会话的）。
+
 ## 6. 事件逐条映射
 
 ### 6.1 增量与已提交消息
@@ -218,7 +227,7 @@ SDK 的 `signal` 中止（中断、进程退出）时审批以 `approval.cancell
 | Glob、Grep、ToolSearch、WebSearch | `search` | `query`（pattern / query）、`paths: [path]` |
 | WebFetch | `fetch` | `url` |
 | Agent、Task、SendMessage、TaskStop | `sub_agent` | 摘要是 description |
-| TodoWrite、TaskCreate / TaskUpdate / TaskList / TaskGet、ExitPlanMode、EnterPlanMode | `plan` | |
+| TodoWrite、TaskCreate / TaskUpdate / TaskList / TaskGet、EnterPlanMode | `plan` | ExitPlanMode 不显示，报成 `plan.proposed`（§5.4） |
 | `mcp__<server>__<tool>` | `unknown` | `mcpServer` |
 | 其余 | `unknown` | 摘要取 command / 路径 / description 等 |
 

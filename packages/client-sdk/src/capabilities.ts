@@ -64,3 +64,14 @@ export function goalsSupported(
 ): boolean {
   return hostSupports(features, 'session_goals') && engine?.goals === true;
 }
+
+/**
+ * 会话能不能用计划模式（0.36.0）：Host 声明了 `plan_mode`，且会话当前的引擎有（`engineFeatures` 的 `planMode`）。`engine` 同
+ * `commandSupported`；0.36.0 的 Host 总是给 `engineFeatures`，没有那一项时当作没有。
+ */
+export function planModeSupported(
+  features: HostFeatures,
+  engine: EngineFeatures | undefined,
+): boolean {
+  return hostSupports(features, 'plan_mode') && engine?.planMode === true;
+}

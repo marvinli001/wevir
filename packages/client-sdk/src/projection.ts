@@ -21,6 +21,7 @@ import type {
   ApprovalResolution,
   ApprovalStatus,
   ClientIdentity,
+  CollaborationMode,
   CompactionTrigger,
   EngineErrorCategory,
   EngineErrorInfo,
@@ -46,8 +47,8 @@ import type {
   TurnCommand,
   TurnId,
   TurnOutcome,
-  UiShowTarget,
   TurnTrigger,
+  UiShowTarget,
   Usage,
   UserContentPart,
   UserImagePart,
@@ -110,6 +111,10 @@ export type ChatPart =
       finishedAt?: IsoTime;
     }
   | { type: 'todo'; key: string; items: readonly TodoItem[] }
+  /**
+   * Agent 给出的计划（0.36.0，`plan.proposed`）：在给出它的回合里（`key` 是 `p:<planId>`），同一 `planId` 再来一次原位替换。
+   */
+  | { type: 'plan'; key: string; planId: string; text: string }
   /** 引擎向用户提的一组问题（0.10.0），在提问时所在的位置；结束后原位换成带结局的。 */
   | { type: 'question'; key: string; question: QuestionRequest }
   | { type: 'error'; key: string; category: EngineErrorCategory; message: string; fatal: boolean }
@@ -186,6 +191,8 @@ export interface UserChatMessage extends MessageBase {
   command?: TurnCommand;
   /** 0.35.0：为会话目标工作的回合（`turn.started.trigger`）；引擎自己开的那种没有文字部件。 */
   trigger?: TurnTrigger;
+  /** 0.36.0：这个回合在计划模式里跑（`user.message` 的 `collaborationMode`）。 */
+  collaborationMode?: 'plan';
   clientMessageId?: string;
   /** R11：插话（`user.steered`），在回合中间；`id` 是 `<turnId>:steer:<pendingId>`。 */
   steered?: true;
@@ -244,7 +251,23 @@ export interface Transcript {
   uiShow: { seq: number; ts: IsoTime; target: UiShowTarget } | undefined;
   /** 0.35.0：会话的目标（最近一次 `session.goal_changed`），清除或没有时 undefined。 */
   goal: SessionGoal | undefined;
+  /** 0.36.0：最近一条用户消息（`user.message`）的协作模式；还没有消息时是 `default`。规则同 Host 快照的 `collaborationMode`。 */
+  collaborationMode: CollaborationMode;
+  /**
+   * 0.36.0：最近一条用户消息开始的回合里最后给出的计划（`plan.proposed`）；之后又有用户消息时清空。界面据此在输入框上方提供
+   * “实施”。
+   */
+  latestPlan: LatestPlan | undefined;
   lastSeq: number;
+}
+
+/** `Transcript.latestPlan`（0.36.0）。 */
+export interface LatestPlan {
+  turnId: TurnId;
+  planId: string;
+  text: string;
+  /** 那条 `plan.proposed` 的 `seq`。 */
+  seq: number;
 }
 
 /** 子会话的父会话（`session.created` 的 `parent`）。 */
@@ -270,6 +293,7 @@ interface MutableMessage {
   fromParentAgent?: true;
   command?: TurnCommand;
   trigger?: TurnTrigger;
+  collaborationMode?: 'plan';
   clientMessageId?: string;
   steered?: true;
   pendingId?: PendingMessageId;
@@ -334,6 +358,9 @@ export class TranscriptProjection {
   #uiShow: Transcript['uiShow'];
   /** 提出建议的工具调用 → 它的 `tasks` 部件所在的消息。 */
   #taskParts = new Map<string, MutableMessage>();
+  /** 最近一条用户消息的协作模式（0.36.0）。 */
+  #collaborationMode: CollaborationMode = 'default';
+  #latestPlan: LatestPlan | undefined;
   #lastSeq = 0;
   #dirty = true;
   #snapshot: Transcript | undefined;
@@ -368,6 +395,8 @@ export class TranscriptProjection {
     this.#tasks.clear();
     this.#taskParts.clear();
     this.#pending = [];
+    this.#collaborationMode = 'default';
+    this.#latestPlan = undefined;
     this.#lastSeq = 0;
     this.#dirty = true;
   }
@@ -463,6 +492,9 @@ export class TranscriptProjection {
       case 'todo.updated':
         this.#todo(event);
         return;
+      case 'plan.proposed':
+        this.#plan(event);
+        return;
       case 'approval.requested':
         this.#approvalRequested(event);
         return;
@@ -556,6 +588,8 @@ export class TranscriptProjection {
       suggestedTasks: [...this.#tasks.values()],
       uiShow: this.#uiShow,
       goal: this.#goal,
+      collaborationMode: this.#collaborationMode,
+      latestPlan: this.#latestPlan,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -576,9 +610,13 @@ export class TranscriptProjection {
   }
 
   #userMessage(event: WevirEventOf<'user.message'>): void {
-    const { turnId, content, sentBy, clientMessageId, pendingId, from } = event.payload;
+    const { turnId, content, sentBy, clientMessageId, pendingId, from, collaborationMode } =
+      event.payload;
     const turn = this.#turn(turnId);
     if (turn.user) return;
+    const planning = collaborationMode === 'plan';
+    this.#collaborationMode = planning ? 'plan' : 'default';
+    this.#latestPlan = undefined;
     turn.user = this.#push({
       role: 'user',
       id: turnId,
@@ -590,6 +628,7 @@ export class TranscriptProjection {
       clientMessageId,
       ...(pendingId !== undefined && { pendingId }),
       ...(from !== undefined && { from }),
+      ...(planning && { collaborationMode: 'plan' as const }),
       ts: event.ts,
       snapshot: undefined,
     });
@@ -946,6 +985,23 @@ export class TranscriptProjection {
     else message.parts.push({ type: 'todo', key: 'todo', items });
   }
 
+  /** `plan.proposed`（0.36.0）：回合里的 `plan` 部件，同一 `planId` 原位替换；记为最近的计划。 */
+  #plan(event: WevirEventOf<'plan.proposed'>): void {
+    const { turnId, planId, text } = event.payload;
+    const key = `p:${planId}`;
+    this.#activity(turnId, event.ts);
+    this.#latestPlan = { turnId, planId, text, seq: event.seq };
+    const part = { type: 'plan', key, planId, text } as const;
+    for (const segment of this.#turn(turnId).segments) {
+      const index = segment.parts.findIndex((candidate) => candidate.key === key);
+      if (index < 0) continue;
+      this.#touch(segment, event.seq);
+      segment.parts = segment.parts.map((candidate, i) => (i === index ? part : candidate));
+      return;
+    }
+    this.#assistant(turnId, event.seq).parts.push(part);
+  }
+
   // ── 审批 ─────────────────────────────────────────────────────────────
 
   #approvalRequested(event: WevirEventOf<'approval.requested'>): void {
@@ -1174,6 +1230,9 @@ function freeze(message: MutableMessage): ChatMessage {
         ...(message.fromParentAgent && { fromParentAgent: true }),
         ...(message.command !== undefined && { command: message.command }),
         ...(message.trigger !== undefined && { trigger: message.trigger }),
+        ...(message.collaborationMode !== undefined && {
+          collaborationMode: message.collaborationMode,
+        }),
         ...(message.clientMessageId !== undefined && { clientMessageId: message.clientMessageId }),
         ...(message.steered && { steered: true }),
         ...(message.pendingId !== undefined && { pendingId: message.pendingId }),

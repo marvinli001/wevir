@@ -620,6 +620,19 @@ export const SubagentSummarySchema = z.object({
 });
 export type SubagentSummary = z.infer<typeof SubagentSummarySchema>;
 
+// ── 协作模式（0.36.0） ──────────────────────────────────────────────────
+
+/**
+ * 回合的协作模式（0.36.0，Host 功能 `plan_mode`，domain-model §3.17）：`default` 照常做事；`plan` 计划模式：Agent 只做不改动
+ * 工作区的操作（读、搜索、试运行），可以向用户提问，最后给出一份计划（`plan.proposed`），不实施。按消息给（`session.send` 的
+ * `collaborationMode`），不是会话的设置；会话的 `collaborationMode` 是最近一个由消息开始的回合用的模式。
+ */
+export const CollaborationModeSchema = z.enum(['default', 'plan']);
+export type CollaborationMode = z.infer<typeof CollaborationModeSchema>;
+
+/** 没有指定协作模式的消息（含 0.36.0 之前的）按它算。 */
+export const DEFAULT_COLLABORATION_MODE: CollaborationMode = 'default';
+
 // ── 待发消息（0.8.0，R11） ──────────────────────────────────────────────
 
 /**
@@ -671,6 +684,10 @@ export const PendingMessageSchema = z.object({
     .optional(),
   /** `session.send` 的幂等键，原样带到 `user.message` / `user.steered`。 */
   clientMessageId: z.string().optional(),
+  /**
+   * 计划模式（0.36.0）：排队的消息作为回合发出时用它；插进进行中的回合时不起作用（回合沿用自己的模式）。省略表示 `default`。
+   */
+  collaborationMode: CollaborationModeSchema.optional(),
   sentBy: ClientIdentitySchema,
   /** 别的会话发来的（0.30.0）：原样带到 `user.message` / `user.steered`。 */
   from: MessageFromSchema.optional(),
@@ -761,6 +778,8 @@ export const EngineFeaturesSchema = z.object({
   additionalRoots: z.boolean().optional(),
   /** 接力过来的引擎会话能用 `read_session_history` 读之前的完整历史。 */
   historyTool: z.boolean().optional(),
+  /** 计划模式（0.36.0）：`session.send` 能带 `collaborationMode: 'plan'`，回合里的计划以 `plan.proposed` 报出。 */
+  planMode: z.boolean().optional(),
   /**
    * 会话能用的命令（0.27.0）：`compact` 是 `session.compact`，`review` 是 `session.review`，都还要 Host 声明对应的功能。0.27.0
    * 起的 Host 总是给，引擎一个都不会时是空数组；更早的 Host 没有这一项，客户端只能看 Host 的功能。
@@ -992,6 +1011,11 @@ export const SessionSchema = z.object({
   reasoningEffort: z.string().optional(),
   /** 权限模式（0.11.0）；省略表示 `on_request`。 */
   permissionMode: PermissionModeSchema.optional(),
+  /**
+   * 最近一个由消息开始的回合用的协作模式（0.36.0，`user.message` 的 `collaborationMode`）；省略表示 `default`。客户端拿它作输入框
+   * 计划开关的初值。
+   */
+  collaborationMode: CollaborationModeSchema.optional(),
   title: z.string(),
   titleSource: TitleSourceSchema,
   state: SessionStateSchema,

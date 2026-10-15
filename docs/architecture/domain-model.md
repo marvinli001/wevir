@@ -834,6 +834,26 @@ interface SessionGoal {
 - **状态。** `complete` 与 `blocked` 由模型用目标工具设（规则在 prompts/base.md 的目标一节：逐条核对证据才算完成，同一阻碍连续三个目标回合以上才算受阻）；`budget_limited`、`usage_limited` 由引擎设；用户只在 `active` 与 `paused` 之间切换（`session.updateGoal`），或清除（`session.clearGoal`）。停止回合（`session.cancel`）时先暂停进行中的目标，停下的回合不会被续上。继续时会话空闲则引擎随即开回合；这个进程里还没有把会话当前的设置交给 thread（恢复、换模型或权限之后）时，Codex 适配器先以空输入开一个回合，再设为 `active`。
 - **引擎。** 只有 Codex 有（`host.hello` 的 `engineFeatures` 的 `goals`）；接力到别的来源后，目标留在原来的 Codex thread 上，界面不再提供目标的操作。子会话与支线没有目标（Codex 的临时 thread 不给目标工具）。
 
+### 3.17 计划模式（0.36.0）
+
+维护者 2026-10-15 定：照 Codex 桌面端与 T3 Code 加计划模式。计划模式的回合里 Agent 只做不改动工作区的事（读文件、搜索、试运行、只写缓存的测试与构建），可以向用户提问，最后给出一份**决策完备**的计划，不实施；用户看过计划后让它实施（回到默认模式发一条消息），或留在计划模式继续完善。
+
+```ts
+// → protocol
+type CollaborationMode = 'default' | 'plan'
+// session.send 的 collaborationMode?: CollaborationMode   省略或 default 照常
+// user.message 的 collaborationMode?: CollaborationMode   计划回合才有
+// PendingMessage 的 collaborationMode?                    排队的消息带着它
+// Session 的 collaborationMode?                           最近一条 user.message 的模式（计划时才有）
+// EngineFeatures 的 planMode?: boolean                    这种 Provider 的引擎有计划模式
+```
+
+- **按消息给，不是会话的设置。** 模式是这条消息开始的回合的，记在 `user.message` 上；下一条消息没给就回到默认模式。`Session.collaborationMode` 由事件推导（最近一条 `user.message` 的），客户端拿它作输入框开关的初值。排队的待发消息带着发送时的模式，作为回合发出时用它；插话插进进行中的回合，沿用回合的模式。由命令开始的回合（§4.7）没有模式。
+- **计划**是 `plan.proposed`（§6）：给出它的回合、引擎给的 `planId`、整份 Markdown。同一 `planId` 再来一次是替换；之后的计划替换之前的。计划不会自己执行，“实施”是用户另发一条默认模式的消息，带上计划全文。它与 `todo.updated`（执行时的清单，Codex 的 `update_plan`）是两回事。接力（§3.14）的摘要把计划记成一条 `Proposed plan: …`。
+- **各引擎**（ADR-0005 补记 21）：Codex 用协作模式（每个 `turn/start` 带 `collaborationMode`，计划是 `plan` item）；Claude Agent 用 Claude Code 的权限模式 `plan`，计划是 ExitPlanMode 的输入（拦下并拒掉这次调用，回合停下等用户）；echo 回复之后报一份计划。Grok 没有计划模式的开关，它自己进入计划模式时给出的计划（`exit_plan_mode`）照样报成 `plan.proposed`。Cursor、OpenCode、Antigravity、dsh 没有；`session.send` 带 `plan` 时 `INVALID_PARAMS`。
+- **只读靠谁**：Codex 的计划模式靠说明约束（不改沙箱，同 Codex），Claude Code 的 `plan` 模式由它自己拦下改文件的工具。提问（§3.8）在计划模式里照常可用，Codex 的 `request_user_input` 在计划模式里是阻塞的。
+- **客户端**：桌面端的开关按会话或新会话草稿留在内存里，在输入框的“+”菜单、Shift+Tab 与 `/plan`（`/default` 退出），开着时底栏有“计划”芯片；计划是消息流里的计划卡片（折叠、复制、下载 Markdown），会话空闲、计划是最近一条消息的回合给出的、开关还开着时，空输入框的主按钮是“实施”（下拉“在新会话中实施”），有字时发送是“继续完善”（desktop-tokens §49）。投影（client-sdk）：`ChatPart` 的 `plan`、`UserChatMessage.collaborationMode`、`Transcript.collaborationMode` 与 `latestPlan`（最近一条用户消息开始的回合里最后的计划，之后又有用户消息时清空）。CLI 把计划回合的消息标成“（计划模式）”，计划原样缩进打印。
+
 ## 4. 会话状态机
 
 ```mermaid
@@ -1064,6 +1084,7 @@ stateDiagram-v2
 | `tool.updated` | engine | 工具调用的中间更新 | ACP `tool_call_update`（非终态） |
 | `tool.finished` | engine / host | 工具调用结束 | ACP `tool_call_update`（`completed` / `failed`）；Host 收尾时补写（`source: host`） |
 | `todo.updated` | host | 待办列表（完整列表） | dsh：从 `todo_write` 的 `tool_call.rawInput` 推导；Codex：`turn/plan/updated`，`toolCallId` 是合成的 `plan:<回合 ID>`（codex-event-mapping.md §6.1） |
+| `plan.proposed` | engine | Agent 给出的计划（0.36.0，§3.17） | Codex 的 `plan` item（`item/completed`）；Claude 的 ExitPlanMode；Grok 的 `exit_plan_mode` |
 | `approval.requested` | engine | 新的审批请求 | ACP `session/request_permission` |
 | `approval.resolved` | host | 审批结算，带 `decidedBy` | `approval.respond` 或 Host 结算 |
 | `question.requested` | engine | 引擎向用户提一组问题（0.10.0，§3.8） | Codex `item/tool/requestUserInput` |
@@ -1156,6 +1177,7 @@ type WevirEvent =
       content: UserContentPart[] // 文本；0.28.0 起还有图片（§3.3.3）
       sentBy: ClientIdentity
       pendingId?: PendingMessageId  // 0.8.0：这个回合由一条排队的待发消息开始（§4.6）
+      collaborationMode?: CollaborationMode  // 0.36.0：计划回合（§3.17）
     }>
   | WevirEventEnvelope<'user.steered', {    // 0.8.0：插话进了回合 turnId（§4.6）
       turnId: TurnId
@@ -1224,6 +1246,11 @@ type WevirEvent =
       turnId: TurnId
       toolCallId: string        // 来源 todo_write 调用
       items: TodoItem[]
+    }>
+  | WevirEventEnvelope<'plan.proposed', {   // 0.36.0，§3.17
+      turnId: TurnId
+      planId: string            // 引擎给的 ID，会话内唯一
+      text: string              // Markdown
     }>
   | WevirEventEnvelope<'approval.requested', { approval: ApprovalRequest }> // status 恒为 pending
   | WevirEventEnvelope<'approval.resolved', {

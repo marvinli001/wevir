@@ -21,7 +21,7 @@ import type {
   ProviderIssue,
   ProviderTestResult,
   ReviewRequest,
-  SessionCommandMethod,
+  SessionCapability,
   SessionConfig,
   TitleRequest,
 } from '@wevir/runtime-adapter';
@@ -48,6 +48,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly suggestedTasks?: boolean;
   readonly historyTool?: boolean;
   readonly appTools?: boolean;
+  readonly planMode?: boolean;
   readonly accounts?: EngineAccounts;
 
   // 可选方法：至少一个引擎有时才有，Host 据此声明功能；会话所在的引擎没有时报 `invalid_input`。
@@ -95,6 +96,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.suggestedTasks === true)) this.suggestedTasks = true;
     if (adapters.some((adapter) => adapter.historyTool === true)) this.historyTool = true;
     if (adapters.some((adapter) => adapter.appTools === true)) this.appTools = true;
+    if (adapters.some((adapter) => adapter.planMode === true)) this.planMode = true;
     const accounts = routes.flatMap((route) =>
       route.adapter.accounts === undefined ? [] : [route.adapter.accounts],
     );
@@ -161,10 +163,13 @@ export class EngineRouter implements AgentRuntimeAdapter {
     }
   }
 
-  /** 会话所在的引擎有没有这个方法（0.24.0）：Host 在开始命令回合之前问。 */
-  supports(engineSessionId: string, method: SessionCommandMethod): boolean {
+  /** 会话所在的引擎有没有这个方法（0.24.0）或计划模式（0.36.0）：Host 在开始命令回合之前问。 */
+  supports(engineSessionId: string, method: SessionCapability): boolean {
     const adapter = this.#forSession(engineSessionId).adapter;
-    return adapter.supports?.(engineSessionId, method) ?? adapter[method] !== undefined;
+    return (
+      adapter.supports?.(engineSessionId, method) ??
+      (method === 'planMode' ? adapter.planMode === true : adapter[method] !== undefined)
+    );
   }
 
   async createSession(config: SessionConfig): Promise<EngineSession> {
@@ -332,6 +337,7 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
     ...(adapter.additionalRoots === true && { additionalRoots: true }),
     ...(adapter.historyTool === true && { historyTool: true }),
     ...(adapter.appTools === true && { appTools: true }),
+    ...(adapter.planMode === true && { planMode: true }),
     commands,
     ...(adapter.startGoal !== undefined && { goals: true }),
   };

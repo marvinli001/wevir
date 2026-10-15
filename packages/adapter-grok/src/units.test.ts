@@ -10,7 +10,7 @@ import { grokToolDisplay, resolveToolTitle } from './tool-display.js';
 import {
   askUserQuestionResponse,
   completionOf,
-  exitPlanModeResponse,
+  EXIT_PLAN_CAPTURED,
   grokApprovalOptions,
   grokSpawnArgs,
   parseAskUserQuestion,
@@ -180,16 +180,15 @@ describe('提问与退出计划模式', () => {
     });
   });
 
-  it('退出计划模式：批准即实施，否则放弃并等用户', () => {
+  it('退出计划模式：取出计划，回复放弃这道关、等用户（0.36.0）', () => {
     expect(
       parseExitPlanMode({
         method: 'x.ai/exit_plan_mode',
         params: { sessionId: 's', toolCallId: 't', planContent: '# Plan' },
       }),
     ).toEqual({ sessionId: 's', toolCallId: 't', planContent: '# Plan' });
-    expect(exitPlanModeResponse('approve-plan')).toEqual({ outcome: 'approved' });
-    expect(exitPlanModeResponse(undefined)).toMatchObject({ outcome: 'abandoned' });
-    expect(exitPlanModeResponse('keep-planning').feedback).toMatch(/wait for the user/);
+    expect(EXIT_PLAN_CAPTURED.outcome).toBe('abandoned');
+    expect(EXIT_PLAN_CAPTURED.feedback).toMatch(/captured your proposed plan/);
   });
 });
 

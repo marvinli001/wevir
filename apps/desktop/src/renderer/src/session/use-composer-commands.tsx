@@ -1,7 +1,8 @@
 // 各页面的斜杠命令（U33）：会话页、草稿页与首页各自拼出能用的命令，交给输入框（composer.tsx）。照 Codex 桌面端的命令
 // 表取 Wevir 现在做得到的：模型、思考力度、权限（二级菜单），新建会话、支线提问、文件、变更、状态、初始化；0.24.0 起还有
 // 压缩上下文与代码审查（Host 声明 `session_compact` / `session_review`、会话当前的引擎会时）；0.35.0 起还有目标（`/goal`，Host
-// 声明 `session_goals`、会话当前的引擎有目标时，也在“+”菜单里，同 Codex 桌面端）。
+// 声明 `session_goals`、会话当前的引擎有目标时，也在“+”菜单里，同 Codex 桌面端）；0.36.0 起有计划模式（`/plan`、`/default`
+// 与“+”菜单的开关）。
 
 import type { PermissionMode, ProviderProfile, ReviewTarget, SessionId } from '@wevir/protocol';
 import {
@@ -13,6 +14,7 @@ import {
   FoldVertical,
   Gauge,
   GitCompare,
+  ListChecks,
   type LucideIcon,
   MessagesSquare,
   Pencil,
@@ -143,6 +145,33 @@ function permissionCommand(
   };
 }
 
+/** 计划模式（0.36.0）的开关：Shift+Tab、输入框底栏的芯片与这里是同一个开关。 */
+export interface PlanCommandOptions {
+  active: boolean;
+  onToggle: () => void;
+}
+
+/**
+ * 计划模式的命令（0.36.0，照 Codex 桌面端）：“+”菜单里是一项开关（开着时打勾）；斜杠菜单里关着时是 `/plan`，开着时是
+ * `/default`（退出）。
+ */
+function planCommands(plan: PlanCommandOptions): ComposerCommand[] {
+  return [
+    {
+      name: 'plan',
+      label: t('command.plan'),
+      icon: ListChecks,
+      plus: true,
+      checked: plan.active,
+      run: plan.onToggle,
+      ...(plan.active && { slash: false as const }),
+    },
+    ...(plan.active
+      ? [{ name: 'default', label: t('command.default'), icon: ListChecks, run: plan.onToggle }]
+      : []),
+  ];
+}
+
 function simple(
   name: string,
   label: string,
@@ -196,6 +225,8 @@ export interface SessionCommandOptions {
   onReview?: (target: ReviewTarget) => void;
   /** 会话能用目标（0.35.0）且可写：`/goal ` 放进输入框，接着写目标。 */
   goalEnabled?: boolean;
+  /** 会话当前的引擎有计划模式（0.36.0）且会话可写时给。 */
+  plan?: PlanCommandOptions;
 }
 
 /** `/goal`（0.35.0）：选中后输入框里是 `/goal `，接着写目标；也在“+”菜单里。 */
@@ -226,9 +257,11 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onCompact,
     onReview,
     goalEnabled,
+    plan,
   } = options;
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
+    if (plan) commands.push(...planCommands(plan));
     if (canConfigure) {
       commands.push(modelCommand(providers, model, true, accounts, onModelChange, switchable));
       const effort = effortCommand(providers, model, onModelChange);
@@ -278,6 +311,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     );
     return commands;
   }, [
+    plan,
     onRename,
     onArchive,
     onCompact,
@@ -312,15 +346,27 @@ export interface DraftCommandOptions {
   send?: (text: string) => void;
   /** 选的模型能用目标（0.35.0）：`/goal 〈目标〉` 建会话并设目标。 */
   goalEnabled?: boolean;
+  /** 选的模型所在的引擎有计划模式（0.36.0）时给。 */
+  plan?: PlanCommandOptions;
 }
 
 /** 新会话（草稿页、首页）的命令：选模型、思考力度、权限，打开文件，初始化。 */
 export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[] {
   const accounts = useAccounts();
-  const { providers, model, onModelChange, permission, filesEnabled, panes, send, goalEnabled } =
-    options;
+  const {
+    providers,
+    model,
+    onModelChange,
+    permission,
+    filesEnabled,
+    panes,
+    send,
+    goalEnabled,
+    plan,
+  } = options;
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
+    if (plan) commands.push(...planCommands(plan));
     if (providers && model) {
       commands.push(modelCommand(providers, model, false, accounts, onModelChange));
       const effort = effortCommand(providers, model, onModelChange);
@@ -346,6 +392,7 @@ export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[
     panes,
     send,
     goalEnabled,
+    plan,
     accounts,
   ]);
 }

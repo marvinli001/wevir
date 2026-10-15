@@ -669,6 +669,17 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   }
 
   /**
+   * 报一份计划（0.36.0，引擎的扩展请求，例如 Grok 的退出计划模式）：`plan.proposed`。没有挂着的会话或进行中的回合时不报，
+   * 返回 false。
+   */
+  protected proposePlan(engineSessionId: string, planId: string, text: string): boolean {
+    const session = this.#sessions.get(engineSessionId);
+    if (session?.status !== 'open' || session.turn === undefined) return false;
+    session.queue.plan({ type: 'plan.proposed', engineSessionId: session.id, planId, text });
+    return true;
+  }
+
+  /**
    * 向用户提问（引擎的扩展请求，例如 Grok 的 `ask_user_question`）：发 `question.requested`，等 `answerQuestion` 给的
    * 回答（按问题 ID，选中的选项 `label` 或用户填写的文本）；被取消时得到 undefined，规则同 `requestApproval`。
    */

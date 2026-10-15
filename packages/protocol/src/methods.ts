@@ -28,6 +28,7 @@ import {
   AccountLoginMethodSchema,
   AccountStateSchema,
   ApprovalResolutionSchema,
+  CollaborationModeSchema,
   EngineErrorInfoSchema,
   EngineFeaturesSchema,
   EnvironmentFolderSchema,
@@ -813,6 +814,11 @@ export const SessionSendParamsSchema = z.object({
    * 回合进行中回 `SESSION_BUSY`（旧客户端的行为）。会话空闲时不起作用。
    */
   delivery: PendingDeliverySchema.optional(),
+  /**
+   * 协作模式（0.36.0，Host 功能 `plan_mode`）：`plan` 让这个回合在计划模式里跑；省略或 `default` 照常。排队的消息带着它，插话时
+   * 不起作用。会话当前的引擎没有计划模式（`engineFeatures` 的 `planMode`）时 `INVALID_PARAMS`。
+   */
+  collaborationMode: CollaborationModeSchema.optional(),
 });
 
 export const SessionSendResultSchema = z.object({

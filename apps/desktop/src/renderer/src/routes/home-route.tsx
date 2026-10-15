@@ -17,6 +17,7 @@ import { useAcceptsImages } from '@/session/image-attachments';
 import { ModelPicker } from '@/session/model-picker';
 import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
 import { PermissionPicker, usePermissionChoice } from '@/session/permission-picker';
+import { usePlanControl } from '@/session/plan-mode';
 import { useModelChoice, usePermissionModes, useStartSession } from '@/session/start-session';
 import { useDraftCommands } from '@/session/use-composer-commands';
 import { homeWorkspace, rememberWorkspace, useLastLocation } from './last-location';
@@ -66,6 +67,12 @@ function Home({
     worktree.active,
   );
   const noProvider = providers !== undefined && providers.length === 0;
+  // 计划模式（0.36.0）：按选的模型所在的引擎；第一条消息带上它。
+  const plan = usePlanControl(HOME_DRAFT, providers ?? [], choice?.providerId);
+  const planCommand = useMemo(
+    () => (plan.supported ? { active: plan.active, onToggle: plan.toggle } : undefined),
+    [plan.supported, plan.active, plan.toggle],
+  );
 
   // 还没有项目：先建项目（维护者 2026-10-14 定），建好后在它里面接着发。
   const send = async (
@@ -73,10 +80,15 @@ function Home({
     _delivery?: PendingDelivery,
     images?: readonly UserImagePart[],
   ): Promise<boolean> => {
-    if (workspace) return start(text, undefined, images);
+    const mode = plan.mode;
+    const done = (started: boolean) => {
+      if (started && plan.active) plan.set(false);
+      return started;
+    };
+    if (workspace) return done(await start(text, undefined, images, mode));
     openCreateProject({
       onCreated: async (created) => {
-        if (await start(text, created.id, images)) setDraft(HOME_DRAFT, '');
+        if (done(await start(text, created.id, images, mode))) setDraft(HOME_DRAFT, '');
       },
     });
     return false;
@@ -100,6 +112,7 @@ function Home({
     filesEnabled: false,
     panes: undefined,
     ...(workspace && { send: sendCommandText, goalEnabled: goals }),
+    ...(planCommand && { plan: planCommand }),
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>
@@ -153,6 +166,7 @@ function Home({
             onStop={() => {}}
             autoFocus
             commands={commands}
+            {...(planCommand && { plan: planCommand })}
             {...(fileScope && { fileScope })}
           />
         </>

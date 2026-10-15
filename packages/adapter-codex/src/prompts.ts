@@ -91,6 +91,7 @@ export function promptReader(dir: string): (path: string) => string {
 export class BasePrompt {
   readonly #read: (path: string) => string;
   #source: string | undefined;
+  #planMode: string | undefined;
 
   constructor(dir: string = defaultPromptsDir()) {
     this.#read = promptReader(dir);
@@ -99,6 +100,15 @@ export class BasePrompt {
   render(vars: BasePromptVars): string {
     this.#source ??= this.#read('base.md');
     return renderPromptTemplate(this.#source, { ...vars }, this.#read);
+  }
+
+  /**
+   * 计划模式的说明（`plan-mode.md`，0.36.0，ADR-0005 补记 16）：经网关的第三方模型在计划模式的回合里作为协作模式的
+   * `developer_instructions` 下发。没有变量；只读、只渲染一次。
+   */
+  planMode(): string {
+    this.#planMode ??= renderPromptTemplate(this.#read('plan-mode.md'), {}, this.#read);
+    return this.#planMode;
   }
 }
 

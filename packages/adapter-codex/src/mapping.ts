@@ -106,6 +106,12 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'guardianWarning',
   // 已弃用、由 `contextCompaction` item 取代的压缩通知（0.24.0，§4.9）：压缩照 item 报。
   'thread/compacted',
+  // 0.36.0 开了实验面之后多出来的（ADR-0005 补记 16）：计划的增量只是预览，以 `plan` item 完成时的为准（§6.14）；thread 设置的
+  // 回执（`turn/start` 带的协作模式等）、Wevir 不用的 thread 队列、内容审核的元数据都没有对应的 Wevir 事件。
+  'item/plan/delta',
+  'thread/settings/updated',
+  'thread/queue/changed',
+  'turn/moderationMetadata',
 ] as const);
 
 /**
@@ -116,6 +122,9 @@ const SILENT_ITEMS = new Set(['userMessage', 'enteredReviewMode', 'exitedReviewM
 
 /** 上下文压缩的 item（0.24.0，§4.9）。 */
 const COMPACTION_ITEM = 'contextCompaction';
+
+/** 计划模式给出的计划（0.36.0，§6.14）。 */
+const PLAN_ITEM = 'plan';
 
 const SUMMARY_SUFFIX = '/summary';
 
@@ -326,6 +335,8 @@ export class CodexEventMapper {
       this.#state(item.id, item.type);
       return [this.#compactionEvent('context.compacting', item.id)];
     }
+    // 计划在完成时才报：开始时还是空的。
+    if (item.type === PLAN_ITEM) return [];
     if (SILENT_ITEMS.has(item.type)) return [];
     if (!isToolItem(item)) return [this.raw('item/started', params, item.type)];
     return this.#toolStarted(item);
@@ -378,6 +389,13 @@ export class CodexEventMapper {
       if (state.completed) return [];
       state.completed = true;
       return [this.#compactionEvent('context.compacted', item.id)];
+    }
+    if (item.type === PLAN_ITEM) {
+      const text = typeof item.text === 'string' ? item.text.trim() : '';
+      if (text === '') return [this.raw('item/completed', params, item.type)];
+      return [
+        { type: 'plan.proposed', engineSessionId: this.engineSessionId, planId: item.id, text },
+      ];
     }
     if (SILENT_ITEMS.has(item.type)) return [];
     if (!isToolItem(item)) return [this.raw('item/completed', params, item.type)];

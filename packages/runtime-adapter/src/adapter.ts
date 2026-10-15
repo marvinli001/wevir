@@ -16,7 +16,7 @@ import type {
   ProviderIssue,
   ProviderTestResult,
   ReviewRequest,
-  SessionCommandMethod,
+  SessionCapability,
   SessionConfig,
   TitleRequest,
 } from './types.js';
@@ -139,10 +139,18 @@ export interface AgentRuntimeAdapter {
   clearGoal?(engineSessionId: string): Promise<boolean>;
 
   /**
-   * 这个会话所在的引擎有没有某个可选方法（0.24.0）：多引擎的路由（host/engine-router.ts）实现它，Host 在开始命令回合之前问，
-   * 引擎没有时直接拒绝、不写事件。单个引擎的适配器不实现，看方法在不在。
+   * 这个会话所在的引擎有没有某个可选方法（0.24.0），或计划模式（0.36.0，`planMode`）：多引擎的路由（host/engine-router.ts）实现
+   * 它，Host 在开始命令回合、开始计划模式的回合之前问，引擎没有时直接拒绝、不写事件。单个引擎的适配器不实现，看方法在不在
+   * （`planMode` 看那个属性）。
    */
-  supports?(engineSessionId: string, method: SessionCommandMethod): boolean;
+  supports?(engineSessionId: string, method: SessionCapability): boolean;
+
+  /**
+   * 引擎有计划模式（0.36.0，domain-model §3.17）：`send` 的 `collaborationMode: 'plan'` 让回合只做不改动工作区的事，计划以
+   * `plan.proposed` 报出。有它 Host 才声明 `plan_mode`，`engineFeatures` 带 `planMode`（Codex：协作模式；Claude：权限模式
+   * `plan`）。
+   */
+  readonly planMode?: boolean;
 
   /**
    * 换会话的模型、推理档位（0.9.0，`session.configure`）或权限模式（0.11.0）：Host 每次给全部当前值，从下一个回合起用新的

@@ -295,7 +295,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 
-10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单、接力、会话目标与 Claude Agent、Cursor、OpenCode、Grok、Antigravity 引擎）
+10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单、接力、会话目标、计划卡片与 Claude Agent、Cursor、OpenCode、Grok、Antigravity 引擎）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
 来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
@@ -356,6 +356,11 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   apps/desktop/src/renderer/src/session/composer-images.ts（规则）
       <- packages/contracts/src/chatAttachment.ts
          apps/web/src/components/chat/composerAttachmentFiles.ts
+  apps/desktop/src/renderer/src/session/proposed-plan.ts
+      <- apps/web/src/proposedPlan.ts
+         packages/shared/src/proposedPlanText.ts
+  apps/desktop/src/renderer/src/session/plan-card.tsx
+      <- apps/web/src/components/chat/ProposedPlanCard.tsx
   apps/desktop/src/renderer/src/notifications/notification-model.ts、notification-coordinator.tsx（规则）
       <- apps/web/src/components/ThreadNotificationCoordinator.tsx
          apps/web/src/threadNotifications.ts

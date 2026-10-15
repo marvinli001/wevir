@@ -558,6 +558,33 @@ describe('映射的边界情况', () => {
     expect(mapper.map('thread/compacted', { threadId: id, turnId })).toEqual([]);
   });
 
+  it('计划模式（0.36.0）：plan item 完成时 → plan.proposed（去掉首尾空白），开始与增量不出事件；空的计划留 engine.raw', () => {
+    const mapper = new CodexEventMapper(id);
+    const started = { type: 'plan', id: `${turnId}-plan`, text: '' };
+    expect(mapper.map('item/started', { threadId: id, turnId, item: started })).toEqual([]);
+    expect(
+      mapper.map('item/plan/delta', { threadId: id, turnId, itemId: started.id, delta: '# 计' }),
+    ).toEqual([]);
+    const item = { ...started, text: '\n# 计划\n\n- 改 A\n' };
+    expect(mapper.map('item/completed', { threadId: id, turnId, item })).toEqual([
+      { type: 'plan.proposed', engineSessionId: id, planId: started.id, text: '# 计划\n\n- 改 A' },
+    ]);
+    expect(mapper.map('item/completed', { threadId: id, turnId, item: started })).toMatchObject([
+      { type: 'engine.raw', method: 'item/completed', kind: 'plan' },
+    ]);
+  });
+
+  it('开了实验面之后多出来的通知（0.36.0）按设计忽略', () => {
+    const mapper = new CodexEventMapper(id);
+    for (const method of [
+      'thread/settings/updated',
+      'thread/queue/changed',
+      'turn/moderationMetadata',
+    ]) {
+      expect(mapper.map(method, { threadId: id, turnId }), method).toEqual([]);
+    }
+  });
+
   it('审查的进入与退出（0.24.0）不出事件', () => {
     const mapper = new CodexEventMapper(id);
     for (const type of ['enteredReviewMode', 'exitedReviewMode']) {

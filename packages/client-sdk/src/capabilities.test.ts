@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandSupported, goalsSupported } from './capabilities.js';
+import { commandSupported, goalsSupported, planModeSupported } from './capabilities.js';
 
 describe('commandSupported（0.27.0）', () => {
   const features = { session_compact: true, session_review: true };
@@ -31,5 +31,15 @@ describe('goalsSupported（0.35.0）', () => {
     expect(goalsSupported({ session_goals: true }, claude)).toBe(false);
     expect(goalsSupported({}, codex)).toBe(false);
     expect(goalsSupported({ session_goals: true }, undefined)).toBe(false);
+  });
+});
+
+describe('planModeSupported（0.36.0）', () => {
+  it('Host 声明 plan_mode，且会话当前的引擎有计划模式', () => {
+    const codex = { engine: 'codex', planMode: true };
+    expect(planModeSupported({ plan_mode: true }, codex)).toBe(true);
+    expect(planModeSupported({ plan_mode: true }, { engine: 'cursor' })).toBe(false);
+    expect(planModeSupported({}, codex)).toBe(false);
+    expect(planModeSupported({ plan_mode: true }, undefined)).toBe(false);
   });
 });

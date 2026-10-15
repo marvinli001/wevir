@@ -18,6 +18,7 @@ T3 Code（[pingdotgg/t3code](https://github.com/pingdotgg/t3code)，MIT，`ec131
 | `grok_prompt_error` | 上游 400：`prompt_complete` 的 `error` 先于 `-32603` 的 `session/prompt` 错误；第二个 prompt 恢复 |
 | `message_steering` | `session/cancel`（`cancelTrigger: ctrl_c`）与随后的 prompt |
 | `plan_questions` | `_x.ai/ask_user_question` 与回答 |
+| `exit_plan` | `_x.ai/exit_plan_mode` 与“放弃这道关”的回复（0.36.0）。Wevir 照 `plan_questions` 的格式手写的，不是录音：请求的形状取自 T3 的 `XAiExitPlanModeRequest` |
 | `grok_background_bash` | 后台命令，以及它结束后 Grok 自己开的回合（`task-completed-*`） |
 
 重新录制要在 T3 Code 里跑它的 `apps/server/scripts/record-grok-acp-replay-fixture.ts`，或者照同样的格式用真实 `grok` 录；换了样本之后跑 `pnpm vitest run --project adapter-grok`。

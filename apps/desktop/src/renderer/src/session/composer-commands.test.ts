@@ -98,3 +98,16 @@ describe('mentions', () => {
     expect(mentionText('src/a.ts')).toBe('@src/a.ts');
   });
 });
+
+describe('只在“+”菜单里的命令（0.36.0）', () => {
+  const plusOnly: ComposerCommand = { name: 'plan', label: 'Plan mode', icon: Bot, slash: false };
+  const exit: ComposerCommand = { name: 'default', label: 'Default mode', icon: Bot };
+  it('斜杠菜单不列 slash: false 的命令，也不进它的二级菜单', () => {
+    expect(searchCommands([plusOnly, exit], '').map((command) => command.name)).toEqual([
+      'default',
+    ]);
+    expect(searchCommands([plusOnly, exit], 'plan')).toEqual([]);
+    const nested = { ...plusOnly, items: () => [] };
+    expect(slashMenuState('/plan x', 7, [nested])).toBeUndefined();
+  });
+});

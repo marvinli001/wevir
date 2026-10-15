@@ -5,7 +5,7 @@ import type { AgentEvent, ApprovalRequestedEvent } from '@wevir/runtime-adapter'
 import { isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ClaudeAccounts } from './account.js';
-import { ClaudeAdapter } from './claude-adapter.js';
+import { ClaudeAdapter, claudeProposedPlan, PLAN_CAPTURED_MESSAGE } from './claude-adapter.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
 import { FakeClaudeSdk, loadRecording } from './test-fixtures/fake-sdk.js';
 import {
@@ -689,6 +689,163 @@ describe('清单与提问', () => {
       updatedInput: { questions: input.questions, answers: { 'Which color?': 'Red, Blue' } },
     });
     await adapter.cancel(engineSessionId);
+  });
+});
+
+describe('计划模式（0.36.0）', () => {
+  const PLAN = '# Export button\n\n- Add it to the toolbar';
+  const exitInput = { plan: `${PLAN}\n` };
+  const planScript = (prompt: string) =>
+    prompt === 'plan it'
+      ? {
+          steps: [
+            {
+              kind: 'message' as const,
+              message: {
+                type: 'assistant',
+                message: {
+                  id: 'msg_p',
+                  model: 'claude-haiku-4-5',
+                  content: [
+                    { type: 'text', text: 'I read the toolbar code.' },
+                    { type: 'tool_use', id: 'toolu_exit', name: 'ExitPlanMode', input: exitInput },
+                  ],
+                },
+                parent_tool_use_id: null,
+                uuid: 'a1',
+              },
+            },
+            {
+              kind: 'permission' as const,
+              toolName: 'ExitPlanMode',
+              input: exitInput,
+              toolUseID: 'toolu_exit',
+              allow: [],
+              interrupt: [],
+              decline: [
+                {
+                  kind: 'message' as const,
+                  message: {
+                    type: 'user',
+                    message: {
+                      role: 'user',
+                      content: [
+                        {
+                          type: 'tool_result',
+                          tool_use_id: 'toolu_exit',
+                          is_error: true,
+                          content: 'The client captured your proposed plan.',
+                        },
+                      ],
+                    },
+                    parent_tool_use_id: null,
+                    uuid: 'u1',
+                  },
+                },
+                {
+                  kind: 'message' as const,
+                  message: {
+                    type: 'result',
+                    subtype: 'success',
+                    is_error: false,
+                    result: '',
+                    stop_reason: 'end_turn',
+                    modelUsage: {},
+                    user_message_uuids: ['<prompt>'],
+                  },
+                },
+              ],
+            },
+          ],
+        }
+      : undefined;
+
+  it('计划回合用权限模式 plan；ExitPlanMode → plan.proposed 并拒掉，工具本身不显示；下一个默认回合换回 default', async () => {
+    const { adapter, sdk } = harness({ script: planScript });
+    expect(adapter.planMode).toBe(true);
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, { ...text('plan it'), collaborationMode: 'plan' });
+    expect(await log.until(isTurnTerminal)).toMatchObject({ outcome: 'completed' });
+    expect(sessionQueries(sdk)[0]?.options).toMatchObject({ permissionMode: 'plan' });
+    expect(log.events.filter((event) => event.type === 'plan.proposed')).toEqual([
+      { type: 'plan.proposed', engineSessionId, planId: 'toolu_exit', text: PLAN },
+    ]);
+    const shown = log.events.filter(
+      (event) =>
+        (event.type === 'tool.started' || event.type === 'tool.finished') &&
+        event.toolCallId === 'toolu_exit',
+    );
+    expect(shown).toEqual([]);
+    expect(log.events.some((event) => event.type === 'approval.requested')).toBe(false);
+
+    const from = log.events.length;
+    await adapter.send(engineSessionId, text('go'));
+    await log.until(isTurnTerminal, from);
+    expect(sessionQueries(sdk)).toHaveLength(1);
+    expect(sessionQueries(sdk)[0]?.calls).toEqual([
+      { method: 'setPermissionMode', args: ['default'] },
+    ]);
+  });
+
+  it('ExitPlanMode 的拒绝带 T3 的说明；完全访问的会话里照样拦下；计划是空的不报', async () => {
+    const holdScript = (prompt: string) =>
+      prompt === 'hold'
+        ? {
+            steps: [
+              { kind: 'delay' as const, ms: 2000 },
+              {
+                kind: 'message' as const,
+                message: {
+                  type: 'result',
+                  subtype: 'success',
+                  is_error: false,
+                  result: '',
+                  stop_reason: 'end_turn',
+                  modelUsage: {},
+                  user_message_uuids: ['<prompt>'],
+                },
+              },
+            ],
+          }
+        : undefined;
+    const { adapter, sdk } = harness({ script: holdScript });
+    const { engineSessionId } = await adapter.createSession({
+      ...CONFIG,
+      permissionMode: 'full_access',
+    });
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, { ...text('hold'), collaborationMode: 'plan' });
+    // 完全访问的启动参数照旧带上，回到默认模式不用重起。
+    expect(sessionQueries(sdk)[0]?.options).toMatchObject({
+      permissionMode: 'plan',
+      allowDangerouslySkipPermissions: true,
+    });
+    const canUseTool = sessionQueries(sdk)[0]?.options.canUseTool;
+    const decide = (toolUseID: string, input: unknown) =>
+      canUseTool?.('ExitPlanMode', input as Record<string, unknown>, {
+        signal: new AbortController().signal,
+        toolUseID,
+        requestId: `req-${toolUseID}`,
+      });
+    expect(await decide('toolu_x', { plan: '# P' })).toEqual({
+      behavior: 'deny',
+      message: PLAN_CAPTURED_MESSAGE,
+      toolUseID: 'toolu_x',
+    });
+    expect(await decide('toolu_empty', { plan: '  ' })).toMatchObject({ behavior: 'deny' });
+    const plans = log.events.filter((event) => event.type === 'plan.proposed');
+    expect(plans).toEqual([
+      { type: 'plan.proposed', engineSessionId, planId: 'toolu_x', text: '# P' },
+    ]);
+    await adapter.cancel(engineSessionId);
+  });
+
+  it('claudeProposedPlan：取 plan，认 T3 的 record 包装，空的是 undefined', () => {
+    expect(claudeProposedPlan({ plan: ' # A ' })).toBe('# A');
+    expect(claudeProposedPlan({ type: 'record', value: { plan: '# B' } })).toBe('# B');
+    expect(claudeProposedPlan({ plan: '' })).toBeUndefined();
+    expect(claudeProposedPlan(undefined)).toBeUndefined();
   });
 });
 

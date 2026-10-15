@@ -123,6 +123,18 @@ export interface TodoUpdatedEvent {
   items: TodoItem[];
 }
 
+/**
+ * Agent 给出了一份计划（0.36.0，计划模式，domain-model §3.17）：整份 Markdown（Codex：`plan` item 完成时的 `text`；Claude 与
+ * Grok：ExitPlanMode 的计划）。同一 `planId` 再来一次是替换。回合里的事件，在终结事件之前。
+ */
+export interface PlanProposedEvent {
+  type: 'plan.proposed';
+  engineSessionId: string;
+  /** 引擎给的 ID（Codex 的 item ID、ExitPlanMode 的工具调用 ID）。 */
+  planId: string;
+  text: string;
+}
+
 /** 引擎请求审批，携带引擎给的选项列表。等 `respondToApproval`，或以 `approval.cancelled` 结束。 */
 export interface ApprovalRequestedEvent extends PendingApproval {
   type: 'approval.requested';
@@ -346,6 +358,7 @@ export type AgentEvent =
   | ToolUpdatedEvent
   | ToolFinishedEvent
   | TodoUpdatedEvent
+  | PlanProposedEvent
   | ApprovalRequestedEvent
   | ApprovalCancelledEvent
   | QuestionRequestedEvent

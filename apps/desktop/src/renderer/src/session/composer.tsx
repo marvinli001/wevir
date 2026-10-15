@@ -5,7 +5,7 @@ import {
   type UserImagePart,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowUp, Folder, Square } from 'lucide-react';
+import { ArrowUp, ChevronDown, Folder, ListChecks, Square, X } from 'lucide-react';
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -19,6 +19,12 @@ import {
   useState,
 } from 'react';
 import { splitPath } from '@/changes/changes-model';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toRelativePath } from '@/files/file-path';
@@ -55,6 +61,16 @@ import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './p
 /** 有回合在进行（含正在取消）：没有字时按钮是“停止”；Host 不支持待发消息时不能再发送。 */
 export function isBusy(state: SessionState | undefined): boolean {
   return state === 'running' || state === 'awaiting_approval' || state === 'cancelling';
+}
+
+/**
+ * 计划模式（0.36.0，desktop-tokens §49）：开着时底栏有“计划”芯片（点它退出），Shift+Tab 开关；计划给出之后（`followUp`）
+ * 输入框空着时主按钮是“实施”（带“在新会话中实施”的下拉），有字时发送键是“继续完善”。
+ */
+export interface ComposerPlan {
+  active: boolean;
+  onToggle: () => void;
+  followUp?: { onImplement: () => void; onImplementInNew?: () => void };
 }
 
 /** 未发送的草稿按会话留在内存里，切走再切回来还在（不持久化）。 */
@@ -110,6 +126,8 @@ export function setDraft(draftKey: string, text: string): void {
  *
  * 0.28.0 起照 Codex 桌面端、Claude Code 桌面端与 T3 Code 带图片（`acceptImages` 时）：粘贴、拖进输入框或从“+”菜单的
  * “图片”选，立即传给 Host，缩略图排在文字上方（右上角移除，点开看大图）；传完之前不能发送，只有图片也能发。
+ *
+ * 0.36.0 起有计划模式（`plan`，见 `ComposerPlan`）。
  */
 export function Composer({
   draftKey,
@@ -129,6 +147,7 @@ export function Composer({
   commands,
   fileScope,
   acceptImages = false,
+  plan,
 }: {
   /** 草稿归属（会话 ID，或新会话草稿的工作区）。 */
   draftKey: string;
@@ -163,6 +182,8 @@ export function Composer({
   fileScope?: FileScope;
   /** 能带图片（0.28.0，`useAcceptsImages`）：Host 支持、模型收图片。 */
   acceptImages?: boolean;
+  /** 计划模式（0.36.0）；省略时没有（Host 或引擎不支持）。 */
+  plan?: ComposerPlan;
 }) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
@@ -193,6 +214,10 @@ export function Composer({
   const imagesEnabled = acceptImages && client !== undefined && !disabled;
   const hasContent = text.trim() !== '' || images.length > 0;
   const canSend = (!busy || pendingEnabled) && !disabled && !sending && !uploading && hasContent;
+  // 计划给出之后，输入框空着时按发送就是“实施”（0.36.0）。
+  const followUp = !busy ? plan?.followUp : undefined;
+  const implementReady =
+    followUp !== undefined && !hasContent && !disabled && !sending && !uploading;
 
   useEffect(() => setDraft(draftKey, text), [draftKey, text]);
 
@@ -466,6 +491,10 @@ export function Composer({
 
   /** 发送；回合进行中带上方式，默认按设置。 */
   const send = async (delivery = busyDelivery) => {
+    if (implementReady) {
+      followUp.onImplement();
+      return;
+    }
     if (!canSend) return;
     setSending(true);
     const sent = text.trim();
@@ -523,17 +552,20 @@ export function Composer({
         // 输入法合成中按的回车是选词，不发送（Safari 等合成结束时 keyCode 为 229）。
         composing: event.nativeEvent.isComposing || event.keyCode === 229,
       },
-      { busy, pendingEnabled, hasText: hasContent, sendShortcut },
+      { busy, pendingEnabled, hasText: hasContent, sendShortcut, planToggle: plan !== undefined },
     );
     if (action === 'none') return;
     event.preventDefault();
-    if (action === 'send') void send();
+    if (action === 'toggle-plan') plan?.onToggle();
+    else if (action === 'send') void send();
     else if (busyDelivery !== undefined) void send(otherDelivery(busyDelivery));
   };
 
-  /** 右下角按钮现在做什么：回合进行中、没有字或不能再发时是停止。 */
+  /** 右下角按钮现在做什么：回合进行中、没有字或不能再发时是停止；计划给出之后有字时是“继续完善”。 */
   const action: ComposerAction = !busy
-    ? 'send'
+    ? followUp !== undefined
+      ? 'refine'
+      : 'send'
     : busyDelivery === undefined || !hasContent
       ? 'stop'
       : busyDelivery;
@@ -655,6 +687,15 @@ export function Composer({
                 />
               )}
               {leading}
+              {plan?.active && (
+                <PlanChip
+                  disabled={disabled}
+                  onExit={() => {
+                    plan.onToggle();
+                    textareaRef.current?.focus();
+                  }}
+                />
+              )}
               {busy && busyDelivery !== undefined && onBusyDeliveryChange && (
                 <DeliverySwitch
                   value={busyDelivery}
@@ -664,13 +705,20 @@ export function Composer({
               )}
             </div>
             {model}
-            <ComposerButton
-              action={action}
-              // 金属只在“能做点什么”时流动：有字可发、或回合进行中（停止）。空着的输入框停在静帧。
-              flowing={action === 'stop' ? !disabled : canSend}
-              disabled={action === 'stop' ? disabled : !canSend}
-              onClick={() => (action === 'stop' ? onStop() : void send())}
-            />
+            {implementReady ? (
+              <ImplementButton
+                onImplement={followUp.onImplement}
+                {...(followUp.onImplementInNew && { onImplementInNew: followUp.onImplementInNew })}
+              />
+            ) : (
+              <ComposerButton
+                action={action}
+                // 金属只在“能做点什么”时流动：有字可发、或回合进行中（停止）。空着的输入框停在静帧。
+                flowing={action === 'stop' ? !disabled : canSend}
+                disabled={action === 'stop' ? disabled : !canSend}
+                onClick={() => (action === 'stop' ? onStop() : void send())}
+              />
+            )}
           </div>
         </div>
       </Beam>
@@ -698,14 +746,92 @@ export function Composer({
   );
 }
 
-type ComposerAction = 'send' | 'stop' | PendingDelivery;
+type ComposerAction = 'send' | 'refine' | 'stop' | PendingDelivery;
 
 const ACTION_LABELS = {
   send: 'session.send',
+  refine: 'plan.refine',
   stop: 'session.stop',
   steer: 'session.sendSteer',
   queue: 'session.sendQueue',
 } as const;
+
+/** 底栏的“计划”芯片（0.36.0）：计划模式开着时显示，点它退出（Shift+Tab 同）。 */
+function PlanChip({ disabled, onExit }: { disabled: boolean; onExit: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label={t('composer.planExit')}
+            data-testid="composer-plan-chip"
+            onClick={onExit}
+            className="group/plan flex h-7 shrink-0 items-center gap-1 rounded-full bg-muted px-2 text-xs font-medium text-foreground outline-none transition-colors duration-150 hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+          />
+        }
+      >
+        <ListChecks aria-hidden className="size-3.5 group-hover/plan:hidden" />
+        <X aria-hidden className="hidden size-3.5 group-hover/plan:block" />
+        {t('composer.planChip')}
+      </TooltipTrigger>
+      <TooltipContent>
+        {t('composer.planExit')}
+        <kbd className="ml-1.5 font-sans opacity-70">⇧Tab</kbd>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * 计划给出之后、输入框空着时的主按钮（0.36.0，照 T3 Code 的 ComposerPrimaryActions）：“实施”回到默认模式发出实施消息；
+ * 右边的下拉是“在新会话中实施”。
+ */
+function ImplementButton({
+  onImplement,
+  onImplementInNew,
+}: {
+  onImplement: () => void;
+  onImplementInNew?: () => void;
+}) {
+  const pill =
+    'flex h-8 shrink-0 items-center bg-primary text-sm font-medium text-primary-foreground outline-none transition-colors duration-150 hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring/50';
+  return (
+    <span className="flex shrink-0 items-center" data-testid="plan-implement">
+      <button
+        type="button"
+        data-composer-action="implement"
+        onClick={onImplement}
+        className={cn(
+          pill,
+          onImplementInNew ? 'rounded-l-full pr-2.5 pl-3.5' : 'rounded-full px-3.5',
+        )}
+      >
+        {t('plan.implement')}
+      </button>
+      {onImplementInNew && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            aria-label={t('plan.implementOptions')}
+            data-testid="plan-implement-options"
+            className={cn(
+              pill,
+              'rounded-r-full border-l border-primary-foreground/20 pr-2.5 pl-1.5',
+            )}
+          >
+            <ChevronDown aria-hidden className="size-3.5" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent side="top" align="end" sideOffset={8}>
+            <DropdownMenuItem onClick={onImplementInNew} data-action="implement-in-new">
+              {t('plan.implementInNew')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </span>
+  );
+}
 
 /**
  * 圆形的金属按钮（metal-fx 的 circle、gold）。metal-fx 把按钮的背景清成透明、内圈是它自己的底色并设好对比色，图标的颜色

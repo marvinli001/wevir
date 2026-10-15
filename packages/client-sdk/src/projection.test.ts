@@ -499,6 +499,65 @@ describe('TranscriptProjection：快照', () => {
   });
 });
 
+describe('计划模式（0.36.0）', () => {
+  it('计划是回合里的 plan 部件，同一 planId 原位替换；latestPlan 与 collaborationMode 跟着最近一条消息', () => {
+    const { list, add } = events();
+    add('user.message', {
+      turnId: TURN,
+      content: [{ type: 'text', text: '先出计划' }],
+      sentBy: identity,
+      collaborationMode: 'plan',
+    });
+    add('turn.started', { turnId: TURN });
+    add('plan.proposed', { turnId: TURN, planId: 'p1', text: '# A' });
+    add('plan.proposed', { turnId: TURN, planId: 'p1', text: '# B' });
+    let transcript = projectTranscript(list);
+    expect(transcript.collaborationMode).toBe('plan');
+    expect(transcript.messages[0]).toMatchObject({ role: 'user', collaborationMode: 'plan' });
+    expect(transcript.messages[1]?.parts).toEqual([
+      { type: 'plan', key: 'p:p1', planId: 'p1', text: '# B' },
+    ]);
+    expect(transcript.latestPlan).toMatchObject({ turnId: TURN, planId: 'p1', text: '# B' });
+
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('user.message', {
+      turnId: TURN2,
+      content: [{ type: 'text', text: '实施' }],
+      sentBy: identity,
+    });
+    transcript = projectTranscript(list);
+    expect(transcript.collaborationMode).toBe('default');
+    expect(transcript.latestPlan).toBeUndefined();
+    expect(transcript.messages.at(-1)).not.toHaveProperty('collaborationMode');
+    // 计划部件留在给出它的回合里。
+    expect(transcript.messages[1]?.parts[0]).toMatchObject({ type: 'plan', text: '# B' });
+  });
+
+  it('applySessionEvent：会话的 collaborationMode 跟着 user.message', () => {
+    const { add } = events();
+    const base = { id: SES, lastSeq: 1 } as Session;
+    const planned = applySessionEvent(
+      base,
+      add('user.message', {
+        turnId: TURN,
+        content: [{ type: 'text', text: 'x' }],
+        sentBy: identity,
+        collaborationMode: 'plan',
+      }),
+    );
+    expect(planned.collaborationMode).toBe('plan');
+    const back = applySessionEvent(
+      planned,
+      add('user.message', {
+        turnId: TURN2,
+        content: [{ type: 'text', text: 'y' }],
+        sentBy: identity,
+      }),
+    );
+    expect(back).not.toHaveProperty('collaborationMode');
+  });
+});
+
 describe('提问（0.10.0）', () => {
   it('提问是回合里的一个部件，等回答时在 pendingQuestions；结束后原位换成带结局的', () => {
     const { list, add, turn } = events();

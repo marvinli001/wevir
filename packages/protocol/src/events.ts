@@ -16,6 +16,7 @@ import {
 import {
   ApprovalRequestSchema,
   ApprovalResolutionSchema,
+  CollaborationModeSchema,
   CompactionTriggerSchema,
   EngineErrorCategorySchema,
   HandoffStrategySchema,
@@ -26,8 +27,8 @@ import {
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
   SessionEnvironmentFields,
-  SessionOpenedBySchema,
   SessionGoalSchema,
+  SessionOpenedBySchema,
   SessionReadOnlyReasonSchema,
   SessionSideFields,
   SessionStateSchema,
@@ -40,8 +41,8 @@ import {
   ToolOutputSchema,
   TurnCommandSchema,
   TurnOutcomeSchema,
-  UiShowTargetSchema,
   TurnTriggerSchema,
+  UiShowTargetSchema,
   UserContentPartSchema,
 } from './entities.js';
 
@@ -177,6 +178,8 @@ export const EventPayloadSchemas = {
     pendingId: PendingMessageIdSchema.optional(),
     /** 别的会话发来的（0.30.0，应用级工具）。 */
     from: MessageFromSchema.optional(),
+    /** 这个回合的协作模式（0.36.0）；省略表示 `default`。 */
+    collaborationMode: CollaborationModeSchema.optional(),
   }),
   'turn.started': z.object({
     turnId: TurnIdSchema,
@@ -252,6 +255,18 @@ export const EventPayloadSchemas = {
     /** 来源 `todo_write` 调用。 */
     toolCallId: z.string(),
     items: z.array(TodoItemSchema),
+  }),
+  /**
+   * Agent 给出了一份计划（0.36.0，domain-model §3.17）：计划模式的回合里（Codex 的 `<proposed_plan>`，Claude 与 Grok 的
+   * ExitPlanMode），整份 Markdown。同一回合同一 `planId` 再来一次是替换；之后的计划替换之前的（客户端以最近的为准）。计划不会
+   * 自己执行：用户让 Agent 实施时另发一条默认模式的消息。
+   */
+  'plan.proposed': z.object({
+    turnId: TurnIdSchema,
+    /** 引擎给的 ID（Codex 的 item ID、Claude 的工具调用 ID），只在会话内唯一。 */
+    planId: z.string().min(1),
+    /** Markdown。 */
+    text: z.string().min(1),
   }),
   'approval.requested': z.object({
     /** `status` 恒为 `pending`。 */
@@ -427,6 +442,7 @@ export const ToolStartedEventSchema = eventSchema('tool.started');
 export const ToolUpdatedEventSchema = eventSchema('tool.updated');
 export const ToolFinishedEventSchema = eventSchema('tool.finished');
 export const TodoUpdatedEventSchema = eventSchema('todo.updated');
+export const PlanProposedEventSchema = eventSchema('plan.proposed');
 export const ApprovalRequestedEventSchema = eventSchema('approval.requested');
 export const ApprovalResolvedEventSchema = eventSchema('approval.resolved');
 export const QuestionRequestedEventSchema = eventSchema('question.requested');
@@ -467,6 +483,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   ToolUpdatedEventSchema,
   ToolFinishedEventSchema,
   TodoUpdatedEventSchema,
+  PlanProposedEventSchema,
   ApprovalRequestedEventSchema,
   ApprovalResolvedEventSchema,
   QuestionRequestedEventSchema,

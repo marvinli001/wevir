@@ -278,6 +278,8 @@ Keys:
   'render.from': ' (from {client})',
   'render.steerEchoed': '(steer added to this turn)',
   'render.image': '[image]',
+  'render.planTag': ' (plan mode)',
+  'render.plan': 'Plan',
   'render.steerTag': ' (steer)',
   'render.steerTagFrom': ' (steer, from {client})',
   'render.pendingSteer': 'Steer: added to this turn after the current step',

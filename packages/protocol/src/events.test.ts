@@ -51,6 +51,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.status;
     case 'todo.updated':
       return String(event.payload.items.length);
+    case 'plan.proposed':
+      return event.payload.text;
     case 'approval.requested':
       return event.payload.approval.status;
     case 'approval.resolved':

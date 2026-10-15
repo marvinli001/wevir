@@ -131,9 +131,11 @@ export function ComposerPlusMenu({
               key={command.name}
               onClick={() => onRun(command)}
               data-command={command.name}
+              {...(command.checked !== undefined && { 'data-checked': command.checked })}
             >
               <Icon />
-              {command.label}
+              <span className="flex-1">{command.label}</span>
+              {command.checked && <Check aria-hidden className="text-muted-foreground" />}
             </DropdownMenuItem>
           );
         })}

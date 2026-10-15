@@ -43,6 +43,10 @@ export interface ComposerCommand {
   items?: () => readonly ComposerCommandItem[];
   /** 也放进输入框左下角的“+”菜单。 */
   plus?: boolean;
+  /** “+”菜单里打勾（开关类的命令开着时，计划模式，0.36.0）。 */
+  checked?: boolean;
+  /** `false`：只在“+”菜单里，斜杠菜单不列（计划模式开着时 `/plan` 让位给 `/default`）。 */
+  slash?: false;
 }
 
 export interface SlashMenuState {
@@ -73,7 +77,9 @@ export function slashMenuState(
   }
   const nested = /^(\s*)\/(\S+)[ \t]+([^\n]*)$/.exec(before);
   if (nested) {
-    const command = commands.find((candidate) => candidate.name === nested[2]?.toLowerCase());
+    const command = commands.find(
+      (candidate) => candidate.slash !== false && candidate.name === nested[2]?.toLowerCase(),
+    );
     if (!command?.items) return undefined;
     return {
       level: 'items',
@@ -120,13 +126,13 @@ function rank<T>(
   return ranked.map((entry) => entry.item);
 }
 
-/** 按命令名与名称搜：名字的匹配优先；查询为空时按给出的顺序。 */
+/** 按命令名与名称搜：名字的匹配优先；查询为空时按给出的顺序。只在“+”菜单里的不列。 */
 export function searchCommands(
   commands: readonly ComposerCommand[],
   query: string,
 ): ComposerCommand[] {
   return rank(
-    commands,
+    commands.filter((command) => command.slash !== false),
     query,
     (command, normalized) => {
       const scores = [

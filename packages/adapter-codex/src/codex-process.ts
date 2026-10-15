@@ -381,8 +381,8 @@ export class CodexProcess extends EventEmitter<CodexProcessEventMap> {
           title: clientInfo.title ?? null,
           version: clientInfo.version,
         } satisfies ClientInfo,
-        // 只用稳定面（ADR-0005 决策 5）。
-        capabilities: { experimentalApi: false, requestAttestation: false },
+        // 实验面只为协作模式（计划模式）打开（0.36.0，ADR-0005 补记 16）；用到的实验字段在 protocol.ts 里逐个注明。
+        capabilities: { experimentalApi: true, requestAttestation: false },
       };
       const response = await Promise.race([
         this.#request<InitializeResponse>(launch, 'initialize', params),

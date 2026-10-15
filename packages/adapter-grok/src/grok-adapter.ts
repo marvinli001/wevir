@@ -43,8 +43,7 @@ import {
   ASK_USER_QUESTION_CANCELLED,
   askUserQuestionResponse,
   completionOf,
-  EXIT_PLAN_OPTIONS,
-  exitPlanModeResponse,
+  EXIT_PLAN_CAPTURED,
   GROK_CANCEL_META,
   GROK_PERMISSION_MODES,
   parseAskUserQuestion,
@@ -188,15 +187,14 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
         : askUserQuestionResponse(request.questions, answers);
     }
     if (XAI_EXIT_PLAN_MODE_METHODS.includes(method)) {
+      // 计划（0.36.0，照 T3 的 `registerGrokExitPlanModeExtensions`）：报成 `plan.proposed`，放弃这道关让 Grok 停下等用户；
+      // 实施是用户另发的消息。不再当审批问。
       const request = parseExitPlanMode(params);
       if (request === undefined) throw invalidParams(method);
-      const optionId = await this.requestApproval(
-        request.sessionId,
-        request.toolCallId,
-        EXIT_PLAN_OPTIONS.map((option) => ({ ...option })),
-        signal,
-      );
-      return exitPlanModeResponse(optionId);
+      if (request.planContent !== undefined) {
+        this.proposePlan(request.sessionId, request.toolCallId, request.planContent.trim());
+      }
+      return { ...EXIT_PLAN_CAPTURED };
     }
     return super.extRequest(method, params, signal);
   }

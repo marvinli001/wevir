@@ -76,7 +76,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 
 ## 2. 握手
 
-`initialize { clientInfo: { name: 'wevir', title: null, version: <Host 版本> }, capabilities: { experimentalApi: false, requestAttestation: false } }`，15 s 内没有响应算启动失败；随后发通知 `initialized`。`clientInfo.name` 会成为发给模型服务的 `originator` 与 User-Agent 前缀（实测 `userAgent` 是 `wevir/0.162.1 (Mac OS …; arm64) unknown (wevir; <Host 版本>)`），网关透传时剥掉（model-gateway.md）。
+`initialize { clientInfo: { name: 'wevir', title: null, version: <Host 版本> }, capabilities: { experimentalApi: true, requestAttestation: false } }`（0.36.0 起开实验面，只为协作模式，ADR-0005 补记 21；之前是 `false`），15 s 内没有响应算启动失败；随后发通知 `initialized`。`clientInfo.name` 会成为发给模型服务的 `originator` 与 User-Agent 前缀（实测 `userAgent` 是 `wevir/0.162.1 (Mac OS …; arm64) unknown (wevir; <Host 版本>)`），网关透传时剥掉（model-gateway.md）。
 
 ## 3. 配置
 
@@ -211,6 +211,18 @@ Host 在第一个回合开始后调用（规则与提示词在 prompts/README.md
 - **压缩之后的上下文**：本地压缩换掉的是对话历史：之后的请求里是摘要（Codex 在前面加上 `templates/compact/summary_prefix.md` 的“Another language model started to solve this problem …”）与最近的用户消息（`COMPACT_USER_MESSAGE_MAX_TOKENS`，20k 以内），初始上下文由 `build_compaction_replacement_history` 重建，`developerInstructions`（§4.8 额外文件夹的说明）随它回来；`baseInstructions`（base.md）不在历史里，每次请求都带（经网关的模型是第一条 developer 消息）。所以 Wevir 不需要像 T3 Code 那样在压缩后用 `thread/inject_items` 补回说明（T3 的 CodexAdapterV2.ts 1754-1790 补的是它自己的 additionalContext）；支线的边界说明（§6.9）是注入的一条用户消息，随历史进摘要。`codex-adapter.command.integration.test.ts` 核对了压缩后的请求里摘要、base.md 与额外文件夹说明都在。base.md 的“压缩之后怎样接着做”告诉模型那份摘要是它之前的工作、怎样接着做。
 - **`review`**：`review/start { threadId, target, delivery: 'inline' }`，`target` 是 `{ type: 'uncommittedChanges' }` 或 `{ type: 'baseBranch', branch }`（Host 给的基础分支），结果带回合 ID（`turn.id`）。`detached` 已弃用，不用。Codex 在一个子对话里审查（`core/src/tasks/review.rs`：审查专用的基础提示词、审批固定 `never`、关掉 web search 与子 agent），子对话的工具调用转到这个 thread、照常映射；它的 agentMessage 不转（只有开始的 `item/started`，映射器不发事件）。回合里另有 `enteredReviewMode`（在 `turn/started` 之前就到）与 `exitedReviewMode` 两个 item，不出事件；审查结果是随后的 agentMessage（`render_review_output_text`：结构化的 findings 渲染成文字，模型没给 JSON 时就是原文）。审查回合同样拒绝 `turn/steer`（`ActiveTurnNotSteerable`），Host 本来就不对命令回合插话。
 
+### 4.10 计划模式：协作模式（0.36.0）
+
+`send` 的 `AgentInput.collaborationMode`（domain-model §3.17）→ 每个 `turn/start` 都带实验字段 `collaborationMode: { mode, settings: { model, reasoning_effort, developer_instructions } }`，照 T3 Code 的 `buildCodexTurnStartParams`（`codex-adapter.ts` 的 `#collaborationMode`）：
+
+- **默认模式也带。** 协作模式是 thread 的设置（app-server 的 `build_thread_settings_overrides`），对这个回合及之后一直有效；计划回合之后不带就留在计划模式，进程重启、`thread/resume` 之后也一样，所以每个回合都带。
+- **`settings` 跟着会话**：`model` 是会话当前的模型，`reasoning_effort` 是会话选的档位（Codex 的值，`off` 写成 `none`；没选时 null，用模型的默认档位）。协作模式的设置优先于 `turn/start` 的 `model` / `effort`，两边写一样的值。
+- **`developer_instructions`**：计划模式里经网关的模型给 `prompts/plan-mode.md`（`BasePrompt.planMode()`，渲染一次）；ChatGPT 进程给 null，用 Codex 内置的 `plan.md`（app-server 的 `normalize_collaboration_mode`；模型目录带了模式说明时 Codex 用目录里的，丢掉客户端给的，见 T3 的注释）。默认模式一律 null（内置的 `default.md`）。Codex 把它渲染成单独一条 `<collaboration_mode>` 开发者消息（`core/src/context/world_state/collaboration_mode.rs`，只在变化时重发），thread 的 `developerInstructions`（§4.8 的额外目录）不受影响。
+- **只读**：计划模式不改 `sandboxPolicy`、审批策略（§4.7 照旧按权限模式带），只读靠说明约束，同 Codex。
+- **提问**：计划模式里 `request_user_input` 是阻塞的（`request_user_input.rs` 的 `is_blocking`），照常是 `question.requested`（§6.6）。
+- **插话**：`turn/steer` 不带协作模式，插进去的消息沿用回合的模式。
+- 子会话（§6.5）由 Codex 驱动，不经 `turn/start`，继承父 thread 的设置。
+
 ## 5. Provider
 
 ### 5.1 网关实例与令牌
@@ -256,6 +268,7 @@ R2 实测（真实二进制）：
 | `turn/completed` | `turn.settled` / `turn.failed` | `completed` → settled（`completed`），`interrupted` → settled（`cancelled`），`stopReason` 是 Codex 的状态原文；`failed` → `turn.failed`，`message` = `turn.error.message` + `additionalDetails`，`category` 与 `code` 见 §6.7。之前先收尾没提交的增量（§6.4）；`interrupted` 时还没结束的工具按 `failed` 收尾（§6.6） |
 | `error` | `engine.raw` | `willRetry: true` 不算回合失败（Codex 自己也只在状态栏短暂显示），只留 engine.raw，已经流出的增量以 `abandoned` 结束；`willRetry: false` 随后有 `turn/completed`（failed），以它为准 |
 | `serverRequest/resolved` | （无）或 `approval.cancelled` | 由适配器处理，不进映射器（§6.6） |
+| `item/plan/delta`、`thread/settings/updated`、`thread/queue/changed`、`turn/moderationMetadata`（0.36.0 开实验面之后才有） | （无） | 按设计忽略：计划的增量只是预览，以 `plan` item 完成时的为准（§6.14）；thread 设置的回执、Wevir 不用的 thread 队列、内容审核的元数据没有对应的 Wevir 事件。其余实验通知（`autoApprovalReview/strictReviewRequired`、`process/*`、`thread/environment/*` 等）照下面的规则留 `engine.raw` |
 | `turn/started`、`item/reasoning/summaryPartAdded`、`thread/status/changed`、`thread/started`、`thread/compacted` | （无） | 按设计忽略：Host 自己写 `turn.started`、维护会话状态；块号已在增量里；`thread/compacted` 已弃用，压缩照 item 报（§4.9）。回合之外到达时同样忽略（R4 起，子会话在两个回合之间的状态变化很多）。子会话的 `turn/started` 例外，见 §6.5；`compact` 开的回合从它拿回合 ID（§4.9） |
 | `thread/name/updated`（子会话） | 父会话流里的 `subagent.updated`（`title`） | §6.5 |
 | `turn/diff/updated`、`thread/name/updated`（普通会话）等其余带 threadId 的 | `engine.raw` | |
@@ -273,7 +286,8 @@ R2 实测（真实二进制）：
 | `userMessage` | （无） | （无）：Host 自己记 `user.message` |
 | `contextCompaction`（0.24.0） | `context.compacting`（`compactionId` = itemId） | `context.compacted`；`trigger` 见 §4.9 |
 | `enteredReviewMode`、`exitedReviewMode`（0.24.0） | （无） | （无）：Host 的 `turn.started.command` 表示审查，结果是随后的 agentMessage（§4.9） |
-| 其余（`plan`、`hookPrompt`、`subAgentActivity` 等） | `engine.raw` | `engine.raw` |
+| `plan`（0.36.0，计划模式） | （无）：开始时还是空的 | `plan.proposed`（`planId` = itemId，即 `<turnId>-plan`；`text` 去掉首尾空白）。文本为空时 `engine.raw`（§6.14） |
+| 其余（`hookPrompt`、`subAgentActivity` 等） | `engine.raw` | `engine.raw` |
 
 `tool.finished.output`：命令是 `aggregatedOutput`（没有时用累积的增量）；文件改动是各个 diff 相连；MCP 是结果或错误的 JSON；动态工具是文本内容；子 agent 是 `agentsStates` 的 JSON。
 
@@ -457,6 +471,10 @@ output_token_limit = 12000
 **续跑的回合。** 目标进行中、thread 空闲时 Codex 自己开回合（ext/goal/src/runtime.rs 的 `continue_if_idle`，`turn_trigger: "goal"`，输入是一条 `<codex_internal_context source="goal">` 的 user 消息，模板 templates/goals/continuation.md）。适配器在主会话没有进行中回合时收到 `turn/started`，登记成引擎开始的回合，报 `turn.started`（目标进行中或刚到预算上限时带 `trigger: 'goal'`），之后的通知照常归它。Host 刚好在这时 `send`：Codex 的 `turn/start` 遇到进行中的回合时并进它（`start_or_steer_turn`），适配器照样发 `turn/start`，Host 丢掉那条引擎的 `turn.started`、把这个回合的事件记在自己的回合上。目标工具的调用不产生 item（不报 `tool.*`），只有目标的变化。
 
 rust-v0.162.1 实测（`codex-adapter.goal.integration.test.ts`，经网关的 mock 模型）：第一个请求就带三个目标工具；第一个回合结束后几毫秒 Codex 开续跑回合，请求最后一条是续跑的提示；mock 在续跑回合里调 `update_goal { status: 'complete' }` 后 Codex 不再开回合；停止续跑回合时先暂停的目标不再续跑；`dispose` 后新的适配器 `resumeSession` 读到暂停的目标，`updateGoal('active')` 先开空输入的回合，之后 Codex 续跑到完成。
+
+### 6.14 计划（0.36.0）
+
+计划模式的回合里，Codex 把模型回答中的 `<proposed_plan>` 块拆出来（`core/src/session/turn.rs` 的 `PlanModeStreamState`、`stream_events_utils.rs` 的 `strip_proposed_plan_blocks`）：回答的 `agentMessage` 里不再有这一块，块里的 Markdown 成为一个 `plan` item（`item/started` 时为空，`item/plan/delta` 是流式预览，`item/completed` 时是从定稿的回答里重新解析的全文）。适配器只在 `item/completed` 时报 `plan.proposed`。默认模式的回合里 `<proposed_plan>` 不拆，照原文留在回答里。`turn/plan/updated`（`update_plan`）是另一回事，映射成 `todo.updated`（§6.1）；Codex 在计划模式里拒绝 `update_plan`。实测（rust-v0.162.1，经网关的 mock 模型，`codex-adapter.plan.integration.test.ts`）：计划回合的请求带 Wevir 的 `plan-mode.md`、会话的档位与 `request_user_input` 工具，之后的默认回合带内置的 `default.md`；额外目录的说明两种回合都在。
 
 ### 6.7 回合失败的归类（`turn-error.ts`）
 

@@ -1,7 +1,15 @@
 import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
 import type { MessageFrom, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowLeftRight, CircleAlert, FoldVertical, Info, Reply, ScanSearch, Target } from 'lucide-react';
+import {
+  ArrowLeftRight,
+  CircleAlert,
+  FoldVertical,
+  Info,
+  Reply,
+  ScanSearch,
+  Target,
+} from 'lucide-react';
 import { memo } from 'react';
 import { Link } from 'react-router';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -15,6 +23,7 @@ import { modelLabel } from './handoff-model';
 import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
+import { PlanCard } from './plan-card';
 import { SubagentRow } from './subagent-marker';
 import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
 import { groupWork } from './tool-model';
@@ -57,6 +66,11 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
       {message.steered && (
         <span className="mt-1 text-xs text-muted-foreground" data-steered>
           {t('transcript.steered')}
+        </span>
+      )}
+      {message.collaborationMode === 'plan' && (
+        <span className="mt-1 text-xs text-muted-foreground" data-plan-mode>
+          {t('command.plan')}
         </span>
       )}
       {/* 悬停时消息下方靠右出现“复制”（U36，照 Codex 桌面端）。 */}
@@ -245,6 +259,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <TaskReportMarker part={part} />;
     case 'compaction':
       return <CompactionPart part={part} />;
+    case 'plan':
+      return <PlanCard part={part} />;
     // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
     case 'reasoning':
     case 'tool':

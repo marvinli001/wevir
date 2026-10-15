@@ -199,6 +199,11 @@ export class EventRenderer {
           this.#sink.line(this.#s.dim(`  ${mark} ${item.content}`));
         }
         return;
+      case 'plan.proposed':
+        // 计划（0.36.0）：标题一行，Markdown 原样缩进两格。
+        this.#sink.line(`${this.#s.cyan('▣')} ${this.#s.bold(t('render.plan'))}`);
+        for (const line of event.payload.text.split('\n')) this.#sink.line(`  ${line}`);
+        return;
       case 'approval.requested':
         this.#approvalRequested(event.payload.approval);
         return;
@@ -262,15 +267,16 @@ export class EventRenderer {
   }
 
   #userMessage(event: WevirEventOf<'user.message'>): void {
-    const { clientMessageId, content, sentBy } = event.payload;
+    const { clientMessageId, content, sentBy, collaborationMode } = event.payload;
     if (this.#live && clientMessageId && this.#options.isEchoed?.(clientMessageId)) return;
     const text = contentText(content, '\n');
     const from =
       sentBy.clientKind === 'cli'
         ? ''
         : this.#s.dim(t('render.from', { client: clientLabel(sentBy) }));
+    const mode = collaborationMode === 'plan' ? this.#s.dim(t('render.planTag')) : '';
     this.#sink.line();
-    this.#sink.line(`${this.#s.bold(this.#s.cyan('›'))} ${text}${from}`);
+    this.#sink.line(`${this.#s.bold(this.#s.cyan('›'))} ${text}${mode}${from}`);
   }
 
   /** 插话进了回合（R11）：像用户消息一样显示，标上“插话”。 */

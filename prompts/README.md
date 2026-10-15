@@ -2,14 +2,14 @@
 
 这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），其余还只是文本。谁来加载、什么时候加载，见下面的表；MCP、插件、skills 这些还没开始建设的部分在文件里留了占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；MCP、插件、skills 这些还没开始建设的部分在文件里留了占位。
 
 ## 文件
 
 | 文件 | 用途 | 由谁加载 | 状态 |
 |---|---|---|---|
 | [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；skills、插件、MCP 是占位（联网搜索 0.34.0 起是 Wevir 自己的 `wevir_web`） |
-| [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | 下发方式未定，见“未决” | 可用 |
+| [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | adapter-codex（0.36.0，ADR-0005 补记 21）：经网关的第三方模型在计划模式的回合里，作为 `turn/start` 的协作模式（`collaborationMode.settings.developer_instructions`）下发；ChatGPT 登录的 OpenAI 模型用 Codex 内置的模板 | 已接入（Codex 引擎） |
 | [`auto-review.md`](auto-review.md) | 审批自动复核员 | Host（新功能），与引擎无关 | 可用；只读工具是占位 |
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
@@ -32,7 +32,7 @@
 1. `base.md`（第一条 developer 消息；Codex 不发 Responses 的 `instructions` 字段，codex-notes §5）。
 2. Codex 生成的权限说明：沙箱模式与审批策略（`codex-rs/prompts/templates/permissions/`），Wevir 不改。
 3. 用户自定义指令：经 `thread/start` 的 `developerInstructions` 下发（占位，未做）。
-4. 协作模式说明：默认模式用 Codex 内置的；计划模式用 `plan-mode.md`。
+4. 协作模式说明（`<collaboration_mode>`，0.36.0 起每个回合都带）：默认模式用 Codex 内置的 `default.md`；计划模式经网关的模型用 `plan-mode.md`，ChatGPT 登录的模型用 Codex 内置的 `plan.md`。它是单独的一条 developer 消息，不替换第 3 条。
 5. Codex 生成的 skills 列表：adapter-codex 用 `skills.include_instructions = false` 关掉了（否则会把用户 `~/.agents/skills` 里给别的工具装的 skills 列出来，codex-event-mapping.md §1.3），Wevir 的 skills 建好后再开。
 6. AGENTS.md 内容与 `<environment_context>`（Codex 生成）。
 7. 用户消息。
@@ -95,6 +95,6 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 
 ## 未决
 
-1. **计划模式怎样下发**（ADR-0005 未决事项 5）。Codex 的协作模式是实验面，而 ADR-0005 决策 5 只用稳定面。开这一项实验面，就能用上只在计划模式提供的 `request_user_input` 和 Codex 对 `<proposed_plan>` 的解析；不开就由 Wevir 自己做：计划回合把稳定面的 `sandboxPolicy` 设为只读、把 `plan-mode.md` 放在用户消息前面，提问退回纯文本，计划由 Wevir 从消息里解析。
+1. ~~**计划模式怎样下发**~~（ADR-0005 未决事项 5）：已定（2026-10-15，ADR-0005 补记 21）。开实验面，用 Codex 原生的协作模式：`plan-mode.md` 作为计划模式的 `developer_instructions`（经网关的模型），`<proposed_plan>` 由 Codex 解析成计划条目，`request_user_input` 照常；计划回合不改沙箱，只读靠说明约束（同 Codex）。
 2. **自动复核用哪个模型、是否经网关、默认开不开。** 随 Host 的实现任务决定。
 3. **三个插件的形态。** 浏览器放在桌面端哪里、用什么驱动、Chrome 用扩展还是 CDP、电脑操作先做哪个平台、工具怎样暴露给 Codex（MCP 还是动态工具），建插件时决定，再补各 SKILL.md 的占位。

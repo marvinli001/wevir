@@ -706,12 +706,20 @@ export class SessionManager {
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     const { clientMessageId } = params;
-    const fingerprint = requestFingerprint(params.content);
+    // 计划模式的消息（0.36.0）连同模式一起算指纹；默认模式的照旧只算内容，旧回执照样对得上。
+    const fingerprint = requestFingerprint(
+      params.collaborationMode === 'plan'
+        ? { content: params.content, collaborationMode: 'plan' }
+        : params.content,
+    );
     // 到达时先查一遍：会话忙就立即返回，不排在进行中的命令（例如等结算的取消）后面。回执只增不删，
     // 在命令队列外读也安全；进入队列后再查一遍。
     const replayed = this.#replay(runtime, clientMessageId, fingerprint);
     if (replayed) return replayed;
     this.#assertNotChild(runtime);
+    // 计划模式（0.36.0）：只记 `plan`，`default` 与省略一样。
+    const collaborationMode = params.collaborationMode === 'plan' ? 'plan' : undefined;
+    if (collaborationMode !== undefined) this.#assertPlanMode(runtime);
     // 图片（0.28.0）：换成 Host 记下的、挪出暂存区。回执的指纹仍按客户端发来的内容算，重发时照样认得出。
     const content = await this.#acceptContent(runtime, params.content, ['content']);
     const accepted = { ...params, content };
@@ -733,6 +741,7 @@ export class SessionManager {
         sentBy,
         ...(clientMessageId !== undefined && { clientMessageId, fingerprint }),
         ...(from !== undefined && { from }),
+        ...(collaborationMode !== undefined && { collaborationMode }),
       });
     });
   }
@@ -982,9 +991,12 @@ export class SessionManager {
       from?: MessageFrom;
       /** `session.setGoal`（0.35.0）：这条消息是新的目标，交给引擎的 `startGoal`。 */
       goal?: { objective: string; tokenBudget?: number };
+      /** 计划模式（0.36.0）。 */
+      collaborationMode?: 'plan';
     },
   ): Promise<{ turnId: TurnId; seq: number }> {
-    const { content, sentBy, clientMessageId, fingerprint, pending, goal } = input;
+    const { content, sentBy, clientMessageId, fingerprint, pending, goal, collaborationMode } =
+      input;
     const from = input.from ?? pending?.from;
     if (!runtime.attachment) {
       await this.#autoResume(runtime);
@@ -1007,6 +1019,7 @@ export class SessionManager {
           ...(clientMessageId !== undefined && { clientMessageId }),
           ...(pending !== undefined && { pendingId: pending.id }),
           ...(from !== undefined && { from }),
+          ...(collaborationMode !== undefined && { collaborationMode }),
         },
       },
       {
@@ -1073,7 +1086,10 @@ export class SessionManager {
           ? agentInput
           : await this.#agentInput(withHandoffContext(handoff, content));
       if (goal === undefined) {
-        await this.#adapter.send(runtime.engineSessionId, engineInput);
+        await this.#adapter.send(
+          runtime.engineSessionId,
+          collaborationMode === undefined ? engineInput : { ...engineInput, collaborationMode },
+        );
       } else {
         if (this.#adapter.startGoal === undefined) throw new Error('adapter has no startGoal');
         await this.#adapter.startGoal(runtime.engineSessionId, { ...goal, input: engineInput });
@@ -1179,6 +1195,7 @@ export class SessionManager {
     };
     if (params.clientMessageId !== undefined) pending.clientMessageId = params.clientMessageId;
     if (from !== undefined) pending.from = from;
+    if (params.collaborationMode === 'plan') pending.collaborationMode = 'plan';
     if (wantsSteer && !steerable) {
       pending.fallback =
         state === 'cancelling'
@@ -1356,6 +1373,7 @@ export class SessionManager {
       sentBy: next.sentBy,
       ...(next.clientMessageId !== undefined && { clientMessageId: next.clientMessageId }),
       pending: next,
+      ...(next.collaborationMode === 'plan' && { collaborationMode: 'plan' as const }),
     });
   }
 
@@ -1678,7 +1696,23 @@ export class SessionManager {
       }),
       ...(this.#adapter.additionalRoots === true && { additionalRoots: true }),
       ...(this.#adapter.historyTool === true && { historyTool: true }),
+      ...(this.#adapter.planMode === true && { planMode: true }),
     };
+  }
+
+  /**
+   * 计划模式（0.36.0）：会话当前的 Provider 交给的引擎要有它（`engineFeatures` 的 `planMode`），否则 `INVALID_PARAMS`，不写事件。
+   * 按 Provider 的种类判断，不必先把引擎会话挂上。
+   */
+  #assertPlanMode(runtime: SessionRuntime): void {
+    const { providerId } = this.#snapshot(runtime).session;
+    const kind = this.#storage.providers.get(providerId)?.kind;
+    const features = kind === undefined ? undefined : this.#featuresOf(kind);
+    if (features?.planMode === true) return;
+    const message = `the engine of provider ${providerId} has no plan mode`;
+    throw new HostError('INVALID_PARAMS', message, {
+      issues: [{ path: ['collaborationMode'], message }],
+    });
   }
 
   /**
@@ -2484,6 +2518,19 @@ export class SessionManager {
             type: 'todo.updated',
             source: 'host',
             payload: { turnId, toolCallId: event.toolCallId, items: event.items },
+          },
+        ]);
+        return;
+      case 'plan.proposed':
+        if (event.text.trim() === '' || event.planId === '') {
+          this.#onWarning('引擎的计划是空的，丢弃', { sessionId });
+          return;
+        }
+        this.#write(runtime, [
+          {
+            type: 'plan.proposed',
+            source: 'engine',
+            payload: { turnId, planId: event.planId, text: event.text },
           },
         ]);
         return;

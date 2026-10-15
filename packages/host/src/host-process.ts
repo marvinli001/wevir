@@ -323,6 +323,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(mcp !== undefined && { app_tools: true }),
         ...(browsers !== undefined && { browser_tools: true }),
         ...(options.web !== undefined && { web_tools: true }),
+        ...(adapter.planMode === true && { plan_mode: true }),
       },
       engineFeatures,
       ...(accounts !== undefined && { accounts }),

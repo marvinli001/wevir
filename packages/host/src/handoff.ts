@@ -143,6 +143,17 @@ export function historyItems(
         }
         break;
       }
+      case 'plan.proposed':
+        // 计划模式给出的计划（0.36.0）：换到别的来源实施时，新的引擎要看得到它。
+        items.push({
+          itemId: id(event),
+          seq: event.seq,
+          turnId: event.payload.turnId,
+          role: 'assistant',
+          kind: 'plan',
+          text: `Proposed plan: ${event.payload.text}`,
+        });
+        break;
       case 'engine.error':
         if (!event.payload.fatal && event.payload.turnId !== undefined) {
           items.push({

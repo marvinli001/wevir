@@ -3,6 +3,7 @@ import {
   type ApprovalCancelledEvent,
   type ApprovalRequestedEvent,
   EventHub,
+  type PlanProposedEvent,
   type QuestionCancelledEvent,
   type QuestionRequestedEvent,
   type TodoItem,
@@ -167,6 +168,13 @@ export class SessionEventQueue {
     if (event.type === 'approval.requested' || event.type === 'question.requested') {
       this.#flushChunks();
     }
+    this.#hub.emit(event);
+  }
+
+  /** 计划（0.36.0，引擎的扩展请求，例如 Grok 的退出计划模式）。只属于回合；正在流式的一块内容先提交。 */
+  plan(event: PlanProposedEvent): void {
+    if (!this.#inTurn) return;
+    this.#flushChunks();
     this.#hub.emit(event);
   }
 

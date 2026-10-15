@@ -45,6 +45,24 @@ export interface EchoExitInfo {
 /** `plan` 关键词的清单（U20）。 */
 export const ECHO_PLAN = ['Read the relevant files', 'Make the change', 'Run the tests and report'];
 
+/** 计划模式（0.36.0）报的计划的开头；后面接一节“输入”。 */
+export const ECHO_PROPOSED_PLAN = [
+  '# Echo plan',
+  '',
+  '## Summary',
+  '',
+  'Repeat the request back after reading the relevant files.',
+  '',
+  '## Key Changes',
+  '',
+  '- Read the files the request mentions',
+  '- Make the change in one place',
+  '',
+  '## Test Plan',
+  '',
+  '- Run the tests and report',
+].join('\n');
+
 /** `suggest` 关键词建议的后续任务（U23）。`prompt` 带关键词，开出来的会话照样有可看的过程。 */
 export const ECHO_SUGGESTIONS: ReadonlyArray<{ title: string; prompt: string; reason: string }> = [
   {
@@ -154,6 +172,9 @@ interface ReplyBlock {
  * 会话目标（0.35.0，`startGoal`）：第一个回合同 `send`；目标进行中、会话空闲时“引擎”自己开一个续跑回合（`turn.started` 带
  * `trigger: 'goal'`，回复 `Echo: Continue: <目标>`），它正常结束后目标达成；取消回合时先暂停目标。
  *
+ * 计划模式（0.36.0，`collaborationMode: 'plan'`）：回复 `Echo (plan): <输入>`，回复之后报一份计划（`plan.proposed`，`ECHO_PROPOSED_PLAN`
+ * 加上输入），像 Codex 的 `<proposed_plan>`；同一会话里每次计划的 `planId` 不同。
+ *
  * 图片（0.28.0）在回复里写成 `[image: <文件名或类型>]`。`fork`（U23.1）分出的支线回复 `Echo (side): <输入>`。`injectNote`（U23）补进来的说明在下一个回合的回复末尾写成 `Notes: <每条的第一行>`，像模型在上下文里看到了它。
  *
  * 插话（R11，`steer`）：回合进行中交来的输入在当前这次回复之后放进回合（`turn.steered`），再回复一次
@@ -251,7 +272,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     const { session, turn } = this.#beginTurn(engineSessionId, () => {
       if (input.content.length === 0) throw new AdapterError('invalid_input', 'content is empty');
     });
-    turn.done = this.#runTurn(session, turn, inputText(input));
+    turn.done = this.#runTurn(session, turn, inputText(input), input.collaborationMode === 'plan');
   }
 
   /** 压缩上下文（0.24.0）：一个回合，`context.compacting` → `context.compacted`（`manual`），用量随之降下来。 */
@@ -469,6 +490,9 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   /** `suggest` 关键词（U23）。 */
   readonly suggestedTasks = true;
 
+  /** 计划模式（0.36.0）：回复之后报一份计划。 */
+  readonly planMode = true;
+
   /** 图片（0.28.0）都收，回复里写成 `[image: <文件名或类型>]`。 */
   acceptsImages(): boolean {
     return true;
@@ -593,7 +617,12 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     await Promise.all(turns);
   }
 
-  async #runTurn(session: EchoSession, turn: EchoTurn, text: string): Promise<void> {
+  async #runTurn(
+    session: EchoSession,
+    turn: EchoTurn,
+    text: string,
+    planning = false,
+  ): Promise<void> {
     const engineSessionId = session.id;
     const signal = turn.abort.signal;
     const emit = (event: AgentEvent) => turn.hub.emit(event);
@@ -745,12 +774,20 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         notes.length > 0
           ? `\n\nNotes: ${notes.map((note) => note.split('\n')[0]).join(' | ')}`
           : '';
-      const echo = session.side ? 'Echo (side)' : 'Echo';
+      const echo = session.side ? 'Echo (side)' : planning ? 'Echo (plan)' : 'Echo';
       blocks.push({ kind: 'text', full: `${echo}: ${text}${answered}${noted}`, generated: '' });
       plan(2);
       await this.#reply(signal, emit, engineSessionId, attemptId, blocks, slowSteps);
       this.#commit(emit, engineSessionId, attemptId, blocks);
       blocks = [];
+      if (planning) {
+        emit({
+          type: 'plan.proposed',
+          engineSessionId,
+          planId: this.#nextId('plan_proposed'),
+          text: `${ECHO_PROPOSED_PLAN}\n\n## 输入\n\n${text}`,
+        });
+      }
       plan(ECHO_PLAN.length);
       // 插话：这次回复之后放进回合，再回复一次（像 Codex 在一次采样之后用上待处理的输入）。
       for (let round = 1; turn.steers.length > 0; round += 1) {

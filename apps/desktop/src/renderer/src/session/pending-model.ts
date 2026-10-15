@@ -50,7 +50,7 @@ export function pendingImageCount(message: PendingMessage): number {
 }
 
 /** 输入框里一次按键要做的事（只看与发送有关的键）。 */
-export type ComposerKeyAction = 'send' | 'send-other' | 'none';
+export type ComposerKeyAction = 'send' | 'send-other' | 'toggle-plan' | 'none';
 
 export interface ComposerKey {
   key: string;
@@ -65,7 +65,8 @@ export interface ComposerKey {
 /**
  * Enter 按默认方式发送（空闲时就是发送，回合进行中按“回合进行中按回车”的设置），Shift+Enter 换行；回合进行中、有内容时
  * Tab 用另一种方式发送（照 Codex：回车插话、Tab 排队，维护者 2026-10-14 定），其余时候 Tab 照常移动焦点。U35 起可以设成
- * ⌘ / Ctrl + Enter 发送（`sendShortcut: 'mod-enter'`），这时单按 Enter 换行。
+ * ⌘ / Ctrl + Enter 发送（`sendShortcut: 'mod-enter'`），这时单按 Enter 换行。0.36.0 起有计划模式时（`planToggle`）Shift+Tab 开关它
+ * （照 Codex）。
  */
 export function composerKeyAction(
   key: ComposerKey,
@@ -74,9 +75,21 @@ export function composerKeyAction(
     pendingEnabled: boolean;
     hasText: boolean;
     sendShortcut?: 'enter' | 'mod-enter';
+    /** 能开关计划模式（0.36.0）。 */
+    planToggle?: boolean;
   },
 ): ComposerKeyAction {
   if (key.composing) return 'none';
+  if (
+    key.key === 'Tab' &&
+    key.shiftKey &&
+    !key.altKey &&
+    !key.ctrlKey &&
+    !key.metaKey &&
+    context.planToggle === true
+  ) {
+    return 'toggle-plan';
+  }
   if (key.key === 'Enter' && !key.shiftKey) {
     if (context.sendShortcut !== 'mod-enter') return 'send';
     return key.metaKey || key.ctrlKey ? 'send' : 'none';

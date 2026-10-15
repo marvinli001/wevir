@@ -100,6 +100,7 @@ import {
   type ApprovalRequestMethod,
   type ApprovalResponse,
   type CollabAgentToolCallItem,
+  type CollaborationMode,
   type CommandExecutionRequestApprovalParams,
   type FileChangeRequestApprovalParams,
   MCP_ELICITATION_REQUEST,
@@ -285,6 +286,8 @@ interface CodexSession {
    * 照样要带）。
    */
   override?: { model: string; effort: string | null };
+  /** 会话当前的推理强度（Codex 的值；null 是模型的默认档位）：协作模式（0.36.0）的 `settings` 要带上。 */
+  effort: string | null;
   /** 权限模式（0.11.0）：每个 `turn/start` 按它带审批策略、审查方与沙箱，`configureSession` 可以换。 */
   permission: PermissionMode;
   /** 环境会话的额外目录（0.15.0）：沙箱的 writableRoots。 */
@@ -524,6 +527,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * （Streamable HTTP，带这个会话的令牌）；要批准的工具经 `mcpServer/elicitation/request` 上报为审批。
    */
   readonly appTools = true;
+
+  /**
+   * 计划模式（0.36.0，codex-event-mapping.md §4.10）：Codex 的协作模式，每个 `turn/start` 带 `collaborationMode`；计划是
+   * `plan` item。
+   */
+  readonly planMode = true;
   /** 读历史的工具（0.25.0，codex-event-mapping.md §6.10）：给了 `historyTool` 时登记。 */
   get historyTool(): boolean {
     return this.#options.historyTool !== undefined;
@@ -664,6 +673,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.cwd,
         provider,
         model,
+        config.reasoningEffort,
         config.permissionMode,
         config.additionalRoots,
       );
@@ -705,6 +715,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.cwd,
         provider,
         model,
+        config.reasoningEffort,
         config.permissionMode,
         config.additionalRoots,
       );
@@ -768,24 +779,30 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       // 之后的事件归 Host 的回合。
       const session = this.#openSession(engineSessionId);
       check();
-      await this.#turnStart(session, engineTurn, userInput(input));
+      await this.#turnStart(session, engineTurn, userInput(input), input.collaborationMode);
       return;
     }
     const session = await this.#turnSession(engineSessionId, check);
     const turn = this.#beginTurn(session);
-    await this.#turnStart(session, turn, userInput(input));
+    await this.#turnStart(session, turn, userInput(input), input.collaborationMode);
   }
 
   /**
    * `turn/start`，带会话当前的模型与权限设置；app-server 接受即返回（codex-notes §2.2），正好是 send 的语义。没接受时丢掉这个回合
    * （引擎开始的回合以 `turn.failed` 结束，流里已经报过它的 `turn.started`）。
    */
-  async #turnStart(session: CodexSession, turn: Turn, input: UserInput[]): Promise<void> {
+  async #turnStart(
+    session: CodexSession,
+    turn: Turn,
+    input: UserInput[],
+    mode: 'default' | 'plan' = 'default',
+  ): Promise<void> {
     const params: TurnStartParams = {
       threadId: session.id,
       input,
       ...(session.override && { model: session.override.model, effort: session.override.effort }),
       ...permissionSettings(session.permission, session.roots),
+      collaborationMode: this.#collaborationMode(session, mode),
     };
     let response: TurnStartResponse;
     try {
@@ -960,6 +977,24 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#learnTurnId(session, turn, response.turn.id);
   }
 
+  /**
+   * `turn/start` 的协作模式（0.36.0，codex-event-mapping.md §4.10，照 T3 Code 的 `buildCodexTurnStartParams`）：每个回合都带，
+   * 默认模式也带——它是 thread 的设置、对之后的回合一直有效，计划回合之后不带就留在计划模式。`settings` 的模型与档位优先于
+   * `model` / `effort`，所以用会话当前的。说明：默认模式用 Codex 内置的（null）；计划模式经网关的第三方模型用 Wevir 的
+   * `plan-mode.md`，ChatGPT 登录的 OpenAI 模型用 Codex 内置的（模型目录自带模式说明时 Codex 也会用自己的）。这条说明是单独
+   * 一条 `<collaboration_mode>` 开发者消息，不替换 thread 的 `developerInstructions`（额外目录的说明）。
+   */
+  #collaborationMode(session: CodexSession, mode: 'default' | 'plan'): CollaborationMode {
+    return {
+      mode,
+      settings: {
+        model: session.model.id,
+        reasoning_effort: session.effort,
+        developer_instructions: mode === 'plan' && !this.#chatgpt ? this.#prompt.planMode() : null,
+      },
+    };
+  }
+
   /** 开回合之前（`send`、`compact`、`review`）：会话挂着、不是子会话、没有进行中的回合、已登录。 */
   async #turnSession(engineSessionId: string, check?: () => void): Promise<CodexSession> {
     this.#assertUsable();
@@ -1026,10 +1061,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       modelId: config.modelId,
     });
     session.model = model;
-    session.override = {
-      model: model.id,
-      effort: config.reasoningEffort === undefined ? null : toCodexEffort(config.reasoningEffort),
-    };
+    session.effort =
+      config.reasoningEffort === undefined ? null : toCodexEffort(config.reasoningEffort);
+    session.override = { model: model.id, effort: session.effort };
     session.permission = config.permissionMode ?? 'on_request';
     // 新的设置要等下一个 turn/start 才交给 thread（0.35.0：Codex 自己开的目标回合沿用 thread 上的）。
     session.settingsSynced = false;
@@ -1076,6 +1110,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.cwd,
         provider,
         model,
+        config.reasoningEffort,
         config.permissionMode,
         config.additionalRoots,
       );
@@ -1712,7 +1747,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       cwd: parent.cwd,
       providerId: parent.providerId,
       model,
-      // 子 thread 由 Codex 驱动，不经 turn/start；记下父会话的模式只为完整。
+      // 子 thread 由 Codex 驱动，不经 turn/start；记下父会话的模式与档位只为完整。
+      effort: parent.effort,
       permission: parent.permission,
       roots: parent.roots,
       parentId: parent.id,
@@ -2280,6 +2316,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     cwd: string,
     provider: ProviderConfig,
     model: ProviderModelConfig,
+    reasoningEffort: string | undefined,
     permission: PermissionMode = 'on_request',
     roots: readonly string[] = [],
   ): void {
@@ -2290,6 +2327,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       cwd,
       providerId: provider.id,
       model,
+      effort: reasoningEffort === undefined ? null : toCodexEffort(reasoningEffort),
       permission,
       roots,
       status: 'open',

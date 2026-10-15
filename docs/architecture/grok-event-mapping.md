@@ -88,7 +88,7 @@ Grok 有时给 `Tool` 这样不说明问题的标题（T3 的 `isGenericAcpToolT
 
 - **审批选项**（引擎描述 `approvalOptions`，T3 的 `grokApprovalOptions`）：只交出 `allow_once`、`reject_once` 与本会话允许编辑（`allow-edits-session`，编辑审批才有）。Grok 的 `always-allow`（“不再询问 bash 命令”）与 `reject-always` 会给整个项目存一条比会话活得长的授权（T3 引 grok-build 的 `prompter.rs` / `grants.rs`），去掉：长期的权限变化只经 Wevir 的权限模式。录到的选项：写文件是 `allow-edits-session`、`allow-once`、`reject-once`；命令是 `always-allow`、`allow-once`、`reject-once`、`reject-always`；发消息给子 agent 是 `allow-once`、`reject-once`。
 - **向用户提问**：`_x.ai/ask_user_question`（参数可能包了一层 `{method, params}`）→ `question.requested`（问题 ID 是 `id`，没有时用问题原文；`allowOther: true`，Grok 接受选项之外的回答）；`respondToQuestion` 的回答 → `{outcome: 'accepted', answers: {<问题原文>: [<选中的 label>]}}`，不在选项里的回答记为 `Other`、原文放进 `annotations[问题].notes`（T3 的 `makeXAiAskUserQuestionResponse`）；取消、回合结束、引擎退出时 `question.cancelled`，回 `{outcome: 'cancelled'}`。
-- **退出计划模式**：`_x.ai/exit_plan_mode` → 一次审批（选项“实施计划” `allow_once` / “停下等反馈” `reject_once`），详情取自同一 `toolCallId` 的 `exit_plan_mode` 工具调用。批准回 `{outcome: 'approved'}`，Grok 接着实施；拒绝或取消照 T3 回 `{outcome: 'abandoned', feedback}`，让 Grok 停下等用户下一条消息（T3 #8358：不回复回合会一直挂着）。T3 把计划捕获成卡片；Wevir 没有计划卡片，计划在 `plan.md` 的写入工具里看得到。
+- **退出计划模式**（0.36.0 起照 T3 的 `registerGrokExitPlanModeExtensions`）：`_x.ai/exit_plan_mode` 的 `planContent`（去掉首尾空白）报成 `plan.proposed`（`planId` 是请求的 `toolCallId`），回复 `{outcome: 'abandoned', feedback}`（T3 的 `makeXAiExitPlanModeCapturedResponse`），让 Grok 停下等用户下一条消息（T3 #8358：不回复回合会一直挂着）；不再当审批问。没有 `planContent` 时只回复、不报计划（T3 会去找 Grok 写的 `plan.md`，Wevir 没搬）。Grok 没有声明计划模式：Wevir 不让它进计划模式，只有它自己进入时才会走到这里。
 - **自动模式**（`auto_review`）：Grok 的分类器自己放行日常操作，只把拦下的问客户端（`clientType: extension`），这些审批照常交给用户。
 
 ## 6. 权限模式、模型与恢复

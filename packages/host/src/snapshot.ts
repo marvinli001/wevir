@@ -81,6 +81,8 @@ export interface SessionProjection {
   readonly goal?: SessionGoal;
   /** 最近一条 `user.message`；同一回合的 `turn.started` 从这里取 `clientMessageId`。 */
   readonly lastUserMessage?: { readonly turnId: TurnId; readonly clientMessageId?: string };
+  /** 最近一条 `user.message` 的协作模式（0.36.0）；`plan` 以外省略。 */
+  readonly collaborationMode?: 'plan';
   /** 子会话（R4，domain-model §3.3.1）：`session.created.parent` 设置，状态由子会话自己的事件推导。 */
   readonly subagent?: SubagentInfo;
   /** 这个会话派出的子会话的摘要（`subagent.started` 追加，`subagent.updated` 替换），按派出的先后。 */
@@ -312,9 +314,10 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     }
     case 'user.message': {
-      const { turnId, clientMessageId } = event.payload;
+      const { turnId, clientMessageId, collaborationMode } = event.payload;
       next.lastUserMessage =
         clientMessageId === undefined ? { turnId } : { turnId, clientMessageId };
+      next.collaborationMode = collaborationMode === 'plan' ? 'plan' : undefined;
       break;
     }
     case 'turn.started': {
@@ -608,6 +611,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     ? projection.model.permissionMode
     : (record.permissionMode as PermissionMode | undefined);
   if (permissionMode !== undefined) session.permissionMode = permissionMode;
+  if (projection.collaborationMode) session.collaborationMode = projection.collaborationMode;
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
