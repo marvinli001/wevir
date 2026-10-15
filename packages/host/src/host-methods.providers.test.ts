@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { createHostMethods, type ProviderBridge, syncProviders } from './host-methods.js';
+import { adaptResultForClient } from './rpc-connection.js';
 import { SessionManager } from './session-manager.js';
 import { identity, useStorages, useTempDir } from './test-utils.js';
 
@@ -84,6 +85,71 @@ async function hostError(promise: Promise<unknown>): Promise<HostError> {
 }
 
 describe('Provider 桥接（Host 侧）', () => {
+  it('Vertex 的 project/location 持久化，整份 JSON 只进 SecretStore；旧客户端看不到新 kind', async () => {
+    const bridge = { ...fakeBridge(), googleVertex: true };
+    const { methods, storage, secrets } = setup(bridge);
+    const vertex: MethodParams<'provider.upsert'> = {
+      id: 'vertex',
+      kind: 'google-vertex',
+      displayName: 'Vertex',
+      api: 'openai-completions',
+      vertex: { project: 'vertex-example', location: 'global' },
+      models: [{ id: 'google/gemini-3.8-flash' }],
+      defaultModelId: 'google/gemini-3.8-flash',
+    };
+    const json = '{"type":"service_account","private_key":"fake-private-key"}';
+    const created = await methods['provider.upsert'](
+      { ...vertex, serviceAccountJson: json },
+      context,
+    );
+    expect(created.provider).toMatchObject({
+      kind: 'google-vertex',
+      vertex: vertex.vertex,
+      hasSecret: true,
+    });
+    expect(JSON.stringify(created)).not.toContain('private_key');
+    expect(JSON.stringify(storage.providers.get('vertex'))).not.toContain('fake-private-key');
+    expect(await secrets.get('vertex')).toBe(json);
+    expect(bridge.applied.at(-1)?.[0]).toMatchObject({
+      serviceAccountJson: json,
+      vertex: vertex.vertex,
+    });
+    expect(bridge.applied.at(-1)?.[0]).not.toHaveProperty('apiKey');
+    const listed = await methods['provider.list']({}, context);
+    expect(adaptResultForClient('provider.list', listed, {})).toEqual({ providers: [] });
+    expect(
+      adaptResultForClient('provider.list', listed, { provider_kind_google_vertex: true }),
+    ).toEqual(listed);
+    await methods['provider.upsert']({ ...vertex, displayName: 'Renamed' }, context);
+    expect(await secrets.get('vertex')).toBe(json);
+    await methods['provider.test']({ providerId: 'vertex' }, context);
+    expect(bridge.tested[0]?.provider).toMatchObject({ serviceAccountJson: json });
+    await methods['provider.upsert']({ ...vertex, serviceAccountJson: null }, context);
+    expect(await secrets.get('vertex')).toBeUndefined();
+    expect((await methods['provider.list']({}, context)).providers[0]?.hasSecret).toBe(false);
+  });
+
+  it('没有 Vertex 功能的引擎拒绝新 kind，不写记录与密钥', async () => {
+    const { methods, storage, secrets } = setup();
+    await expect(
+      methods['provider.upsert'](
+        {
+          id: 'vertex',
+          kind: 'google-vertex',
+          displayName: 'Vertex',
+          api: 'openai-completions',
+          vertex: { project: 'vertex-example' },
+          models: [{ id: 'google/gemini-3.8-flash' }],
+          defaultModelId: 'google/gemini-3.8-flash',
+          serviceAccountJson: 'fake-json',
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    expect(storage.providers.get('vertex')).toBeUndefined();
+    expect(await secrets.get('vertex')).toBeUndefined();
+  });
+
   it('P0a 的 compat 经协议解析、保存、list 与引擎桥接后仍保留', async () => {
     const bridge = fakeBridge();
     const { methods, storage } = setup(bridge);

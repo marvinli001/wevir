@@ -27,6 +27,7 @@ import {
   type TestPresentation,
 } from '@/settings/provider-test-result';
 import { SELECT } from '@/settings/settings-ui';
+import { VertexFields } from '@/settings/vertex-fields';
 import { onboardingDone } from './onboarding-state';
 import { ProviderCatalogDialog } from './provider-catalog-dialog';
 
@@ -143,7 +144,9 @@ function ProviderStep({
   onSkip: () => void;
   onConnected: (connected: Connected) => void;
 }) {
-  const { client } = useHostConnection();
+  const { client, view: connection } = useHostConnection();
+  const vertexAvailable =
+    connection.status === 'connected' && connection.hello.features.google_vertex === true;
   const data = useWorkbenchData();
   const store = useWorkbenchStore();
   const [entry, setEntry] = useState<CatalogEntry>();
@@ -162,7 +165,7 @@ function ProviderStep({
   const extra = entry && !FEATURED_PROVIDERS.includes(entry.id) ? entry : undefined;
 
   const choose = (next: CatalogEntry) => {
-    if (!next.source) return;
+    if (!next.source || (next.id === 'google-vertex' && !vertexAvailable)) return;
     setCatalogOpen(false);
     if (next.id === entry?.id) return;
     setEntry(next);
@@ -200,8 +203,12 @@ function ProviderStep({
       savedId ? { ...form, editing: true } : form,
       savedId ? takenIds.filter((id) => id !== savedId) : takenIds,
     );
-    if (form.apiKey.trim() === '' && !form.hasSecret)
-      next.apiKey = t('provider.form.error.required');
+    if (!form.hasSecret) {
+      if (form.kind === 'google-vertex' && !form.serviceAccountJson?.trim())
+        next.serviceAccountJson = t('provider.form.error.required');
+      else if (form.kind !== 'google-vertex' && !form.apiKey.trim())
+        next.apiKey = t('provider.form.error.required');
+    }
     setErrors(next);
     if (Object.keys(next).length > 0) return;
     setBusy(true);
@@ -211,7 +218,13 @@ function ProviderStep({
       setSavedId(provider.id);
       setForm(
         (current) =>
-          current && { ...current, editing: true, hasSecret: provider.hasSecret, apiKey: '' },
+          current && {
+            ...current,
+            editing: true,
+            hasSecret: provider.hasSecret,
+            apiKey: '',
+            serviceAccountJson: '',
+          },
       );
       await store?.refresh();
       let result: TestPresentation;
@@ -239,6 +252,7 @@ function ProviderStep({
         <legend className="sr-only">{t('welcome.provider.title')}</legend>
         {featured.map((item) => (
           <ProviderTile
+            vertexAvailable={vertexAvailable}
             key={item.id}
             entry={item}
             selected={entry?.id === item.id}
@@ -312,6 +326,7 @@ function ProviderStep({
       )}
 
       <ProviderCatalogDialog
+        vertexAvailable={vertexAvailable}
         open={catalogOpen}
         selected={entry?.id}
         onOpenChange={setCatalogOpen}
@@ -332,14 +347,17 @@ function ProviderTile({
   entry,
   selected,
   more = false,
+  vertexAvailable = false,
   onClick,
 }: {
   entry: CatalogEntry | undefined;
   selected: boolean;
   more?: boolean;
+  vertexAvailable?: boolean;
   onClick: () => void;
 }) {
-  const available = more || entry?.source !== undefined;
+  const available =
+    more || (entry?.source !== undefined && (entry.id !== 'google-vertex' || vertexAvailable));
   return (
     <button
       type="button"
@@ -380,7 +398,7 @@ function ProviderTile({
       </span>
       {!available && (
         <span className="-mt-1.5 text-[0.6875rem] leading-4 text-muted-foreground">
-          {t('welcome.soon')}
+          {t(entry?.id === 'google-vertex' ? 'welcome.upgradeHost' : 'welcome.soon')}
         </span>
       )}
       {selected && (
@@ -470,7 +488,10 @@ function ProviderFields({
           )}
         </Field>
       )}
-      {!keyless && (
+      {form.kind === 'google-vertex' && (
+        <VertexFields form={form} errors={errors} onChange={onChange} />
+      )}
+      {!keyless && form.kind !== 'google-vertex' && (
         <Field
           label={t('welcome.field.apiKey')}
           error={errors.apiKey}

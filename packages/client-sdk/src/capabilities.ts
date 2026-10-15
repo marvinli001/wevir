@@ -16,6 +16,7 @@ import type { ClientCapability, HostFeature, HostFeatures } from '@wevir/protoco
 export const DEFAULT_CLIENT_CAPABILITIES = {
   title_source_generated: true,
   provider_kind_chatgpt: true,
+  provider_kind_google_vertex: true,
   subscription_kinds: true,
 } as const satisfies Record<ClientCapability, true>;
 

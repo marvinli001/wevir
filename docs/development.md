@@ -320,11 +320,27 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_CLAUDE=1 pnpm vitest ru
 
 | 变量 | 含义 |
 |---|---|
-| `WEVIR_TEST_API_KEY` | 模型 Key。设了它，下面几组测试才跑真实模型的用例 |
-| `WEVIR_TEST_PROVIDER` | dsh 与 Codex 契约第 3 层要：`deepseek-official` 或 `openai-compatible`；模型网关的真实模型测试只认 `deepseek`（或 `deepseek-official`） |
+| `WEVIR_TEST_API_KEY` | 模型 Key。静态 Key 的真实模型用例要设；Vertex 服务账号不使用它 |
+| `WEVIR_TEST_PROVIDER` | dsh 与 Codex 契约第 3 层要：`deepseek-official` 或 `openai-compatible`；Codex 另支持 `google-vertex`。模型网关单独的真实模型测试只认 `deepseek`（或 `deepseek-official`） |
 | `WEVIR_TEST_BASE_URL` | 走 OpenAI 兼容服务时的地址，例如 `https://dashscope.aliyuncs.com/compatible-mode/v1`。不设则用 DeepSeek 官方 |
 | `WEVIR_TEST_MODEL` | 模型 ID。设了 `WEVIR_TEST_BASE_URL` 时必填；用 DeepSeek 官方时可省略，各测试有自己的默认值（dsh 是 `deepseek-v4-flash`，Codex 与网关经 Responses 端点是 `deepseek-flash`） |
 | `WEVIR_TEST_API` | Codex 契约第 3 层走 OpenAI 兼容服务时的协议：`openai-completions`（默认）、`openai-responses` 或 `anthropic-messages` |
+| `WEVIR_TEST_VERTEX_PROJECT` | Vertex 的目标项目 ID 或编号，google-vertex 时必填 |
+| `WEVIR_TEST_VERTEX_LOCATION` | Vertex location，默认 global；按模型的可用地域选择 |
+| `WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_JSON` | 整份服务账号 JSON，仅从进程环境读取，不回显、不写日志或快照 |
+| `WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_FILE` | 用户已有的服务账号 JSON 文件绝对路径；与上一项只选一种。只读进内存，不复制文件，不读取 ADC / gcloud |
+
+Vertex 使用 Codex 契约第 3 层。先通过进程环境设置上述 JSON 或已有文件路径，再分别验证 Gemini 与 Claude（不把私钥写进命令或仓库）：
+
+```bash
+WEVIR_TEST_PROVIDER=google-vertex WEVIR_TEST_VERTEX_PROJECT=your-project-id WEVIR_TEST_VERTEX_LOCATION=global WEVIR_TEST_API=openai-completions WEVIR_TEST_MODEL=google/gemini-3.8-flash pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+```bash
+WEVIR_TEST_PROVIDER=google-vertex WEVIR_TEST_VERTEX_PROJECT=your-project-id WEVIR_TEST_VERTEX_LOCATION=global WEVIR_TEST_API=anthropic-messages WEVIR_TEST_MODEL=claude-sonnet-5-5 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+Vertex 不读 WEVIR_TEST_BASE_URL。未指定模型时，Chat 默认 google/gemini-3.8-flash，Messages 默认 claude-sonnet-5-5；不设置 API Key，凭据只在 Host 网关内存。缺 JSON / 文件路径时整层跳过并打印缺失的变量名。2026-10-15 未提供 Vertex 服务账号，两个模型的真实契约与 `pnpm dev` 中用 Vertex 模板经 apply_patch 改文件均未验收；本地 HTTP mock 不能替代真实服务。
 
 用到 Key 的测试：`packages/adapter-dsh` 的 `dsh-adapter.approval.integration`、`dsh-adapter.resume.integration`、`provider-test.integration`、`dsh-adapter.contract.real.integration`，`packages/host` 的 `host-process.dsh.integration`，`packages/adapter-codex` 的 `codex-adapter.contract.real.integration`（Key 只进网关的内存，不进 Codex 的环境），以及 `packages/model-gateway` 的 `gateway.real.integration`（经 DeepSeek 的透传与 Chat 转换各跑一次）。Key 只经环境变量传给测试，再只进 dsh 子进程的环境，不写进 overlay、快照或日志；不要把 Key 写进仓库里的任何文件。
 

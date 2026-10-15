@@ -30,6 +30,7 @@ export type FormApi = (typeof FORM_APIS)[number];
 export interface OpenAIPreset {
   /** 模板名，也是新建时建议的 Provider ID。 */
   id: string;
+  kind?: 'google-vertex';
   name: PlainMessageKey;
   /** 选模板时必须知道的事（地址的地域、套餐差别、能否直连等）；没有就不写。 */
   note?: PlainMessageKey;
@@ -225,5 +226,46 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     models: [{ id: 'qwen3:8b', contextWindow: 32768 }],
     defaultModelId: 'qwen3:8b',
     placeholderKey: 'ollama',
+  },
+];
+
+/** Vertex 的两种模型分别建 Provider；地址由网关根据 project / location 生成。 */
+export const VERTEX_PRESETS: readonly OpenAIPreset[] = [
+  {
+    id: 'google-vertex',
+    kind: 'google-vertex',
+    name: 'provider.catalog.googleVertex',
+    note: 'provider.preset.vertex.note',
+    api: 'openai-completions',
+    baseURL: '',
+    models: [
+      {
+        id: 'google/gemini-3.8-flash',
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+    ],
+    defaultModelId: 'google/gemini-3.8-flash',
+    docsURL: 'https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/openai',
+  },
+  {
+    id: 'google-vertex-claude',
+    kind: 'google-vertex',
+    name: 'provider.catalog.googleVertex',
+    note: 'provider.preset.vertex.note',
+    api: 'anthropic-messages',
+    baseURL: '',
+    compat: { thinkingFormat: 'adaptive', systemMessageMode: 'inline' },
+    models: ['claude-sonnet-5-5', 'claude-opus-5-5'].map((id) => ({
+      id,
+      contextWindow: 1000000,
+      maxTokens: 128000,
+      supportsImages: true,
+      reasoningEfforts: FIVE_EFFORTS,
+    })),
+    defaultModelId: 'claude-sonnet-5-5',
+    docsURL: 'https://platform.claude.com/docs/en/build-with-claude/claude-on-vertex-ai',
   },
 ];

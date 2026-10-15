@@ -10,6 +10,7 @@ import { SseParser } from './sse.js';
 import { isObject } from './tools.js';
 import type { GatewayProvider, ResponsesRequest } from './types.js';
 import { prepareUpstream } from './upstream.js';
+import { credentialOf, VertexAuthError, VertexTokenCache } from './vertex-auth.js';
 
 /** 整个探测的时限：连接、等响应头与等第一条流式数据共用。 */
 export const PROVIDER_TEST_TIMEOUT_MS = 20_000;
@@ -25,6 +26,7 @@ export interface ProviderTestOptions {
   timeoutMs?: number;
   /** 默认全局 `fetch`；测试注入。 */
   fetch?: typeof fetch;
+  vertexAuth?: VertexTokenCache;
 }
 
 /**
@@ -52,15 +54,22 @@ export async function testProvider(
 ): Promise<ProviderTestResult> {
   const issues = validateProvider(provider);
   if (issues.length > 0) return failure('unknown', `配置不完整：${describeIssues(issues)}`);
-  const apiKey = provider.apiKey;
+  const apiKey = credentialOf(provider);
   if (apiKey === undefined || apiKey === '') {
-    return failure('missing_key', '还没有填写 API Key（本机服务不校验 Key 时也要填一个任意值）');
+    return failure(
+      'missing_key',
+      provider.kind === 'google-vertex'
+        ? '还没有填写服务账号 JSON'
+        : '还没有填写 API Key（本机服务不校验 Key 时也要填一个任意值）',
+    );
   }
   const prepared = prepareUpstream(provider, probeRequest(modelId), {
     deepseekBaseURL: options.deepseekBaseURL,
   });
   if (!prepared.ok) return failure('unknown', prepared.message);
-  const redact = (text: string) => text.replaceAll(apiKey, '***');
+  let credential = apiKey;
+  const redact = (text: string) => text.replaceAll(credential, '***');
+  const auth = options.vertexAuth ?? new VertexTokenCache({ fetch: options.fetch });
   const doFetch = options.fetch ?? fetch;
   const timeoutMs = options.timeoutMs ?? PROVIDER_TEST_TIMEOUT_MS;
   const controller = new AbortController();
@@ -68,6 +77,15 @@ export async function testProvider(
   const started = performance.now();
   const latency = () => Math.round(performance.now() - started);
   try {
+    if (provider.kind === 'google-vertex') {
+      try {
+        credential = await auth.get(apiKey, controller.signal);
+        prepared.headers.authorization = `Bearer ${credential}`;
+      } catch (error) {
+        if (error instanceof VertexAuthError) return failure('auth', error.message);
+        return networkFailure(error, prepared.url, controller.signal, timeoutMs, redact);
+      }
+    }
     let response: Response;
     try {
       response = await doFetch(prepared.url, {
@@ -123,6 +141,7 @@ export async function testProvider(
     };
   } finally {
     clearTimeout(timer);
+    if (options.vertexAuth === undefined) auth.close();
     // 成功时也断开：只要第一条数据，不让模型继续生成。
     controller.abort();
   }

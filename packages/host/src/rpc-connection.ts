@@ -673,9 +673,12 @@ export function adaptResultForClient(
 ): unknown {
   // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
   // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
+  // COMPAT(providerKindGoogleVertex): added in 0.21.0, remove gate after 2027-06-01
   if (
     method === 'provider.list' &&
-    (capabilities.provider_kind_chatgpt !== true || capabilities.subscription_kinds !== true)
+    (capabilities.provider_kind_chatgpt !== true ||
+      capabilities.subscription_kinds !== true ||
+      capabilities.provider_kind_google_vertex !== true)
   ) {
     const value = result as MethodResult<'provider.list'>;
     return {
@@ -683,6 +686,7 @@ export function adaptResultForClient(
       providers: value.providers.filter(
         (p) =>
           (p.kind !== 'chatgpt' || capabilities.provider_kind_chatgpt === true) &&
+          (p.kind !== 'google-vertex' || capabilities.provider_kind_google_vertex === true) &&
           (!isSubscriptionKind(p.kind) || capabilities.subscription_kinds === true),
       ),
     };

@@ -120,6 +120,8 @@ export interface AgentRuntimeAdapter {
    * 多文件夹的环境会话。
    */
   readonly additionalRoots?: boolean;
+  /** 服务账号认证的 Vertex Provider（0.21.0）。 */
+  readonly googleVertex?: boolean;
 
   /**
    * 从会话分出一个支线会话（0.17.0，U23.1，domain-model §3.12）：新的引擎会话带着原会话到最近一个完成的回合为止的上下文，

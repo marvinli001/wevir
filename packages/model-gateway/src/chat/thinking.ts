@@ -64,6 +64,21 @@ export function chatThinkingParameters(
   requested: unknown,
 ): JsonObject {
   const format = chatThinkingFormat(provider);
+  if (provider.kind === 'google-vertex' && provider.compat?.thinkingFormat === undefined) {
+    if (typeof requested !== 'string' || requested === '') return {};
+    const noMinimal = /^google\/gemini-3\.8-flash(?:$|-)/.test(model);
+    const effort =
+      requested === 'none'
+        ? noMinimal
+          ? 'low'
+          : 'minimal'
+        : requested === 'minimal' && noMinimal
+          ? 'low'
+          : requested === 'xhigh' || requested === 'max'
+            ? 'high'
+            : requested;
+    return { reasoning_effort: effort };
+  }
   const params: JsonObject = format === 'minimax' ? { reasoning_split: true } : {};
   if (typeof requested !== 'string' || requested === '') return params;
   // 未设或尚未实现的格式保持旧行为，已有 Provider 不因新增方言而迁移。

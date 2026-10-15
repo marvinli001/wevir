@@ -13,6 +13,8 @@ export interface ProviderProfileRecord {
   baseURL?: string;
   /** protocol `ProviderCompat`，原样存 JSON。 */
   compat?: unknown;
+  /** Vertex project / location，服务账号 JSON 不在数据库里。 */
+  vertex?: { project: string; location?: string };
   /** protocol `ProviderModel[]`，原样存 JSON。 */
   models: unknown;
   defaultModelId: string;
@@ -38,16 +40,16 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
   const insert = db.prepare(`
     INSERT INTO provider_profiles (
       id, kind, display_name, api, base_url, compat, models, default_model_id, secret_ref,
-      enabled, created_at, updated_at
+      enabled, vertex, created_at, updated_at
     ) VALUES (
       :id, :kind, :displayName, :api, :baseURL, :compat, :models, :defaultModelId, :secretRef,
-      :enabled, :createdAt, :updatedAt
+      :enabled, :vertex, :createdAt, :updatedAt
     )`);
   const update = db.prepare(`
     UPDATE provider_profiles SET
       display_name = :displayName, api = :api, base_url = :baseURL, compat = :compat,
       models = :models, default_model_id = :defaultModelId, secret_ref = :secretRef,
-      enabled = :enabled, updated_at = :updatedAt
+      enabled = :enabled, vertex = :vertex, updated_at = :updatedAt
     WHERE id = :id`);
   const get = db.prepare('SELECT * FROM provider_profiles WHERE id = ?');
   const list = db.prepare('SELECT * FROM provider_profiles ORDER BY created_at, id');
@@ -60,6 +62,7 @@ export function createProviderProfileRepository(db: SqliteDatabase): ProviderPro
       api: record.api ?? null,
       baseURL: record.baseURL ?? null,
       compat: toNullableJson(record.compat),
+      vertex: toNullableJson(record.vertex),
       models: toJson(record.models),
       defaultModelId: record.defaultModelId,
       secretRef: record.secretRef ?? null,
@@ -98,6 +101,8 @@ function fromRow(row: SqlRow): ProviderProfileRecord {
   if (baseURL !== undefined) record.baseURL = baseURL;
   const compat = optionalJson(row, 'compat');
   if (compat !== undefined) record.compat = compat;
+  const vertex = optionalJson(row, 'vertex');
+  if (vertex !== undefined) record.vertex = vertex as ProviderProfileRecord['vertex'];
   const secretRef = optionalText(row, 'secret_ref');
   if (secretRef !== undefined) record.secretRef = secretRef;
   if (row.enabled === 0 || row.enabled === 0n) record.enabled = false;

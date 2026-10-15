@@ -46,6 +46,7 @@ export type SubscriptionKind = z.infer<typeof SubscriptionKindSchema>;
 export const ProviderKindSchema = z.enum([
   'deepseek-official',
   'openai-compatible',
+  'google-vertex',
   'chatgpt',
   ...SUBSCRIPTION_KINDS,
 ]);
@@ -83,7 +84,7 @@ export const ProviderModelSchema = z.object({
   /** 是否接受图片输入（0.2.0）。省略时沿用 dsh 目录，目录里没有的模型只收文本。 */
   supportsImages: z.boolean().optional(),
   /**
-   * 可选的推理档位（0.2.0），只对 `openai-compatible` 有意义。省略：沿用 dsh 目录（手填的模型不推理）；
+   * 可选的推理档位（0.2.0），对 `openai-compatible` 与 `google-vertex` 有意义。省略：沿用 dsh 目录（手填的模型不推理）；
    * 空数组：明确不推理。
    */
   reasoningEfforts: z.array(ProviderReasoningLevelSchema).optional(),
@@ -91,7 +92,7 @@ export const ProviderModelSchema = z.object({
 export type ProviderModel = z.infer<typeof ProviderModelSchema>;
 
 /**
- * 请求格式的修正，只对 `openai-compatible` 有意义。前四个原样写进 dsh overlay 的 `compat`，Codex 引擎的模型网关
+ * 请求格式的修正，用于 `openai-compatible` 与 `google-vertex`。前四个原样写进 dsh overlay 的 `compat`，Codex 引擎的模型网关
  * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；其余只有模型网关用（0.4.0、0.12.0，
  * model-gateway.md §4.4），dsh 忽略。
  */
@@ -121,16 +122,24 @@ export type ProviderCompat = z.infer<typeof ProviderCompatSchema>;
 /** http / https 地址；允许 localhost 与 IP（本机模型服务）。 */
 export const HttpUrlSchema = z.url({ protocol: /^https?$/ });
 
+/** Vertex 的非密钥配置（0.21.0），省略 location 时用 global。 */
+export const VertexConfigSchema = z.object({
+  project: z.string().min(1),
+  location: z.string().min(1).optional(),
+});
+export type VertexConfig = z.infer<typeof VertexConfigSchema>;
+
 /** Key 不在 Profile 里，线缆上只暴露 `hasSecret`。 */
 export const ProviderProfileSchema = z.object({
   id: ProviderIdSchema,
   kind: ProviderKindSchema,
   displayName: z.string(),
-  /** `openai-compatible` 必有。 */
+  /** `openai-compatible` 与 `google-vertex` 必有。 */
   api: ProviderApiSchema.optional(),
   /** `openai-compatible` 必有；`deepseek-official` 可选（覆盖官方地址）。 */
   baseURL: HttpUrlSchema.optional(),
   compat: ProviderCompatSchema.optional(),
+  vertex: VertexConfigSchema.optional(),
   /**
    * `deepseek-official` 可为空，用 dsh 自带目录。`chatgpt`（0.7.0）由 Host 按账号从引擎取（登录成功时与读账号时刷新），
    * 客户端不写。

@@ -35,11 +35,18 @@ export interface ModelRow {
 /**
  * 表单管的 Provider：DeepSeek 官方与 OpenAI 兼容。ChatGPT（R6）与订阅来源（0.19.0）由账号登录后 Host 自己建，没有表单。
  */
-export type FormKind = Extract<ProviderKind, 'deepseek-official' | 'openai-compatible'>;
+export type FormKind = Extract<
+  ProviderKind,
+  'deepseek-official' | 'openai-compatible' | 'google-vertex'
+>;
 export type EditableProvider = ProviderProfile & { kind: FormKind };
 
 export function isEditableProvider(provider: ProviderProfile): provider is EditableProvider {
-  return provider.kind === 'deepseek-official' || provider.kind === 'openai-compatible';
+  return (
+    provider.kind === 'deepseek-official' ||
+    provider.kind === 'openai-compatible' ||
+    provider.kind === 'google-vertex'
+  );
 }
 
 export interface ProviderForm {
@@ -64,6 +71,8 @@ export interface ProviderForm {
   /** 原样保留（模板或已有 Provider 的 compat），表单不编辑。 */
   compat?: ProviderCompat;
   apiKey: string;
+  vertex?: { project: string; location?: string };
+  serviceAccountJson?: string;
   /** 新建时选的模板，界面据此显示说明与文档链接。 */
   preset?: OpenAIPreset;
 }
@@ -100,7 +109,8 @@ export function newDeepSeekForm(): ProviderForm {
 export function newOpenAIForm(preset: OpenAIPreset | undefined, takenIds: string[]): ProviderForm {
   const models = preset?.models.map(modelRow) ?? [modelRow()];
   return {
-    kind: 'openai-compatible',
+    kind: preset?.kind ?? 'openai-compatible',
+    ...(preset?.kind === 'google-vertex' && { vertex: { project: '', location: 'global' } }),
     editing: false,
     hasSecret: false,
     id: preset ? uniqueId(preset.id, takenIds) : '',
@@ -136,6 +146,7 @@ export function editForm(provider: EditableProvider): ProviderForm {
     ),
     defaultModelId: provider.defaultModelId,
     ...(provider.compat && { compat: provider.compat }),
+    ...(provider.vertex && { vertex: { ...provider.vertex } }),
     apiKey: '',
   };
 }
@@ -163,7 +174,7 @@ export function validateForm(form: ProviderForm, takenIds: string[]): FormErrors
   const errors: FormErrors = {};
   if (form.displayName.trim() === '') errors.displayName = t('provider.form.error.required');
 
-  if (form.kind === 'openai-compatible' && !form.editing) {
+  if (form.kind !== 'deepseek-official' && !form.editing) {
     const id = form.id.trim();
     if (id === '') errors.id = t('provider.form.error.required');
     else if (!ProviderIdSchema.safeParse(id).success) errors.id = t('provider.form.error.idFormat');
@@ -173,18 +184,34 @@ export function validateForm(form: ProviderForm, takenIds: string[]): FormErrors
   }
 
   const baseURL = form.baseURL.trim();
-  if (baseURL === '') {
+  if (form.kind === 'google-vertex') {
+    if (!/^(?:[a-z][a-z0-9-]{4,28}[a-z0-9]|[0-9]{1,32})$/.test(form.vertex?.project.trim() ?? ''))
+      errors['vertex.project'] = t('provider.vertex.projectInvalid');
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(form.vertex?.location?.trim() || 'global'))
+      errors['vertex.location'] = t('provider.vertex.locationInvalid');
+    if (form.serviceAccountJson?.trim() && !serviceAccountEmail(form.serviceAccountJson))
+      errors.serviceAccountJson = t('provider.vertex.accountInvalid');
+  } else if (baseURL === '') {
     if (form.kind === 'openai-compatible') errors.baseURL = t('provider.form.error.required');
   } else {
     const problem = baseURLProblem(baseURL);
     if (problem) errors.baseURL = problem;
   }
 
-  if (form.kind === 'openai-compatible') {
+  if (form.kind !== 'deepseek-official') {
     const seen = new Set<string>();
     form.models.forEach((row, index) => {
       const id = row.id.trim();
       if (id === '') errors[`models.${index}.id`] = t('provider.form.error.required');
+      else if (
+        form.kind === 'google-vertex' &&
+        !(
+          form.api === 'openai-completions'
+            ? /^google\/gemini-[a-z0-9][a-z0-9.-]*$/
+            : /^claude-[a-z0-9][a-z0-9.-]*(?:@[0-9]{8})?$/
+        ).test(id)
+      )
+        errors[`models.${index}.id`] = t('provider.vertex.modelInvalid');
       else if (seen.has(id)) errors[`models.${index}.id`] = t('provider.form.error.modelDuplicate');
       seen.add(id);
       if (row.contextWindow.trim() !== '' && parseContextWindow(row.contextWindow) === undefined) {
@@ -221,14 +248,18 @@ export function connectionChanged(initial: ProviderForm, form: ProviderForm): bo
   if (!initial.editing) return true;
   return (
     form.apiKey.trim() !== '' ||
+    (form.serviceAccountJson?.trim() ?? '') !== '' ||
+    form.vertex?.project.trim() !== initial.vertex?.project.trim() ||
+    (form.vertex?.location?.trim() || 'global') !==
+      (initial.vertex?.location?.trim() || 'global') ||
     form.baseURL.trim() !== initial.baseURL.trim() ||
-    (form.kind === 'openai-compatible' && form.api !== initial.api) ||
+    (form.kind !== 'deepseek-official' && form.api !== initial.api) ||
     defaultModelOf(form) !== defaultModelOf(initial)
   );
 }
 
 function defaultModelOf(form: ProviderForm): string {
-  return form.kind === 'openai-compatible'
+  return form.kind !== 'deepseek-official'
     ? (form.models[form.defaultIndex]?.id.trim() ?? '')
     : form.defaultModelId;
 }
@@ -261,6 +292,23 @@ export function toUpsertParams(
       row.contextWindow.trim() === '' ? undefined : parseContextWindow(row.contextWindow);
     return { ...rest, id, ...(contextWindow !== undefined && { contextWindow }) };
   });
+  if (form.kind === 'google-vertex')
+    return {
+      id: form.id.trim(),
+      kind: 'google-vertex',
+      displayName: common.displayName,
+      api: form.api,
+      vertex: {
+        project: form.vertex?.project.trim() ?? '',
+        location: form.vertex?.location?.trim() || 'global',
+      },
+      models,
+      defaultModelId: models[form.defaultIndex]?.id ?? models[0]?.id ?? '',
+      ...(form.compat && { compat: form.compat }),
+      ...(form.serviceAccountJson?.trim() && {
+        serviceAccountJson: form.serviceAccountJson.trim(),
+      }),
+    };
   return {
     ...common,
     id: form.id.trim(),
@@ -271,4 +319,23 @@ export function toUpsertParams(
     defaultModelId: models[form.defaultIndex]?.id ?? models[0]?.id ?? '',
     ...(form.compat && { compat: form.compat }),
   };
+}
+
+/** 只显示账号邮箱；输入与错误中都不回显 JSON 或私钥。 */
+export function serviceAccountEmail(json: string): string | undefined {
+  try {
+    const value = JSON.parse(json);
+    if (
+      json.length <= 64 * 1024 &&
+      value?.type === 'service_account' &&
+      typeof value.client_email === 'string' &&
+      /^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.gserviceaccount\.com$/.test(value.client_email) &&
+      typeof value.private_key === 'string' &&
+      value.private_key.includes('-----BEGIN PRIVATE KEY-----')
+    )
+      return value.client_email;
+  } catch {
+    /* 表单显示固定的错误文案。 */
+  }
+  return undefined;
 }

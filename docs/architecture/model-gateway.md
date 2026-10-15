@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.4（Responses 方言、Chat 思考格式与 Messages 转换）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.5（含 Google Cloud 服务账号认证）· 日期：2026-10-15 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -43,6 +43,26 @@ await gateway.close();                                   // 停止监听，中�
 
 ## 2. 路由与处理方式
 
+### Google Cloud 服务账号认证
+
+认证实现在 `vertex-auth.ts`；对应测试为 `vertex-auth.test.ts`（JWT、刷新与取消）、`vertex.test.ts`（录制请求、路由与限制）和 `vertex.integration.test.ts`（HTTP 交换、共享令牌、工具签名与脱敏）。
+
+`google-vertex`（协议 0.21.0）由 Host 从 SecretStore 取整份 serviceAccountJson，只交给进程内网关；project / location 存 ProviderProfile.vertex，location 默认 global，不读取 ADC、gcloud 或 express API Key。网关固定向 https://oauth2.googleapis.com/token 发 RS256 JWT bearer（scope 为 https://www.googleapis.com/auth/cloud-platform、aud 为令牌端点、有效期一小时），不跟随重定向、不使用 JSON 自带的其他 token_uri。按整份凭据的 SHA-256 缓存令牌，在剩余五分钟内的下一次请求刷新，同一凭据的并发请求与 testProvider 共用一次交换。取消一条模型请求只取消它的等待，不影响其他等待者；网关关闭会取消交换、清空缓存。替换凭据不复用旧令牌。交换或签名失败统一为 auth（网关 HTTP 401 / invalid_api_key），不把令牌服务的响应原文、JWT 或私钥放进错误与日志。
+
+Gemini 走现有 Chat 转换：global 为 https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/endpoints/openapi/chat/completions；其他 location 为 https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/endpoints/openapi/chat/completions。模型需 google/gemini- 前缀，thought signature 沿用 §4.5，按 Vertex kind 启用。Gemini 3.8 Flash 不认 minimal（降为 low），xhigh / max 降为 high；显式 compat 仍优先于地址默认。模板只列 low / medium / high。
+
+Claude 走 Messages 变体：https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/anthropic/models/{model}:streamRawPredict；其他 location 的域名为 {location}-aiplatform.googleapis.com，仍用 v1。模型必须 claude- 开头，模型进 URL、正文去掉 model、加 anthropic_version: vertex-2023-10-16，认证仅 Authorization: Bearer，不发 x-api-key / anthropic-version。思考块与工具历史沿用 §5；不接受 URL 图片（在请求上游前报 400，不悄悄丢图），转换后的请求体超过 30,000,000 字节报 413。当前模板模型用 global 或 us / eu；具体地域仅旧模型可用，详见 providers.md §7.11。
+
+Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 compat 优先）：
+
+| 方言 | 生效条件 | 请求变化 |
+|---|---|---|
+| Gemini thought signature | google-vertex 的 Chat 路由 | 复用 §4.5，签名按 Provider 与模型绑定 |
+| Gemini 推理档位 | 同上，未显式设置 thinkingFormat | 3.8 Flash 的 minimal / none 降 low，其他 Gemini 的 none 用 minimal；xhigh / max 降 high |
+| Claude Messages 变体 | google-vertex 的 Messages 路由 | model 进 URL、版本字段进正文、只用 Bearer；当前 Claude 的模型限制同 §5，URL 图片与 30 MB 限制见上文 |
+
+正式请求与 testProvider 共用认证与 prepareUpstream。只对 google-vertex 应用这些规则，不改变普通 Messages / Chat 服务。官方依据与核对日期见 providers.md §7.11。
+
 只有一个路由：`POST /v1/p/<providerId>/responses`（忽略查询串）。检查顺序与网关自己的回应：
 
 | 情况 | 状态码 | 正文（`{"error":{"message":"wevir gateway: …"}}`） | 是否碰上游 |
@@ -51,7 +71,7 @@ await gateway.close();                                   // 停止监听，中�
 | 路径不是上面的形状 | 404 | `不支持 <方法> 这个路径` | 否 |
 | 方法不是 POST | 405 | | 否 |
 | 没有这个 Provider | 404 | `没有 Provider <id>`，`code: model_not_found` | 否 |
-| Provider 没存 Key | 401 | `Provider <id> 没有 API Key` | 否 |
+| Provider 没存 Key 或 Vertex 服务账号 | 401 | `Provider <id> 没有 API Key`，Vertex 为“没有服务账号 JSON” | 否 |
 | 请求体超过 64 MiB | 413 | | 否 |
 | `content-encoding` 不是 identity / gzip / deflate / br / zstd | 415 | Codex 只在 OpenAI 官方 + ChatGPT 登录时用 zstd 压缩请求体（`core/src/client.rs:1634-1642`），经网关的请求不压缩；解压留着以防万一 | 否 |
 | 不是 JSON，或缺 `model` / `input` | 400 | | 否 |
@@ -63,6 +83,8 @@ await gateway.close();                                   // 停止监听，中�
 | Provider | 处理方式 | 上游地址 |
 |---|---|---|
 | `kind: deepseek-official` | Responses 透传（§3） | `https://api.deepseek.com/responses`（DeepSeek 的 Codex 接入文档）。Provider 的 `baseURL` **不用**：那是 dsh 的 Anthropic Messages 地址（providers.md §2.2），协议不同 |
+| `google-vertex` + `api: openai-completions` | Chat 转换 + 服务账号令牌 | 本节 Google Cloud 路由 |
+| `google-vertex` + `api: anthropic-messages` | Messages 变体 + 服务账号令牌 | 本节 Google Cloud 路由 |
 | `openai-compatible` + `api: openai-responses` | Responses 透传（§3） | `<baseURL>/responses`（末尾斜线去掉） |
 | `openai-compatible` + `api: openai-completions` | Chat 转换（§4） | `<baseURL>/chat/completions` |
 | `openai-compatible` + `api: anthropic-messages` | Messages 转换（§5） | `<baseURL>/v1/messages`；`baseURL` 已以 `/v1` 结尾时只加 `/messages`（与 adapter-dsh 对 DeepSeek 的 Messages 地址同一拼法）。例：`https://api.deepseek.com/anthropic` → `…/anthropic/v1/messages` |
@@ -209,7 +231,7 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 
 ### 4.5 Gemini 的 thought signature（R8）
 
-Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端点（`https://generativelanguage.googleapis.com/v1beta/openai/`，`api: openai-completions`）。Gemini 3 起，函数调用的多轮对话**必须**带回模型给的 thought signature：当前回合（从最近一条带文本的用户消息算起）里每一步的第一个函数调用缺签名就是 400（`Function call is missing a thought_signature in functionCall parts…`），并行调用只有第一个带签名（ai.google.dev 的 thought-signatures 页，2026-10-13）。兼容端点上签名在 `tool_calls[i].extra_content.google.thought_signature`，回传时放回同一个位置。网关按地址（`isGeminiHost`：主机名是 `generativelanguage.googleapis.com`）处理，做法与 §5.3 的思考信封相同：
+Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端点（`https://generativelanguage.googleapis.com/v1beta/openai/`，`api: openai-completions`）。Gemini 3 起，函数调用的多轮对话**必须**带回模型给的 thought signature：当前回合（从最近一条带文本的用户消息算起）里每一步的第一个函数调用缺签名就是 400（`Function call is missing a thought_signature in functionCall parts…`），并行调用只有第一个带签名（ai.google.dev 的 thought-signatures 页，2026-10-13）。兼容端点上签名在 `tool_calls[i].extra_content.google.thought_signature`，回传时放回同一个位置。网关按地址（`isGeminiHost`：主机名是 `generativelanguage.googleapis.com`）或 Vertex 的 Chat 路由处理，做法与 §5.3 的思考信封相同：
 
 - **响应**（`ChatStreamTranslator` 的 `signatures` 选项）：工具调用分片里的签名记在调用上；流结束提交调用时，在这些调用之前先提交一个 reasoning 项（只有 `output_item.done`，没有 `content` 与 `summary`），`encrypted_content` 是 `wevir-gw:gemini:v1:` 加 `{provider, model, signatures: {<call_id>: <签名>}}` 的 base64。没有签名就不加这一项。Gemini 的流式工具调用一个 chunk 给全、没有 `index`，带工具调用时 `finish_reason` 是 `stop`（python-genai#2868），§4.2 的规则本来就能处理。
 - **请求**：历史里的这种 reasoning 项不变成 `reasoning_content`（Gemini 不认这个字段），只把签名挂回同一 `call_id` 的工具调用；Provider 或模型与信封里的不同（换过模型）就不带（`dropped` 记 `reasoning:foreign_signature`）。最后每条带工具调用的 assistant 消息，第一个调用还没有签名的（换过模型、网关之外来的历史、上游当时没给）填文档给的占位值 `skip_thought_signature_validator`（`dropped` 记 `signature:placeholder`）；文档说它会降低效果，只是让请求不被拒。
@@ -354,7 +376,7 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 
 ## 8. 日志口径
 
-每个到达路由的请求结束时一行 `info`（`msg: "gateway request"`），字段**只有**：`method`、`providerId`、`outcome`、`durationMs`，另按情况有 `upstreamStatus`（上游的状态码）、`status`（网关自己回的状态码）、`error`（连不上上游时的错误码，如 `ECONNREFUSED`，不记带地址的原文）。`outcome` 取值：`completed`、`client_closed`（Codex 断开或网关关闭，正常）、`upstream_error`（上游非 2xx）、`network_error`、`rejected`（§2 里网关自己回的 4xx）。令牌不对是一行 `warn`（`gateway request rejected`，`method` 与 `status: 401`）。网关内部异常是 `warn`（`gateway internal error`）。
+每个到达路由的请求结束时一行 `info`（`msg: "gateway request"`），字段**只有**：`method`、`providerId`、`outcome`、`durationMs`，另按情况有 `upstreamStatus`（上游的状态码）、`status`（网关自己回的状态码）、`error`（连不上上游时的错误码，如 `ECONNREFUSED`，不记带地址的原文）。`outcome` 取值：`completed`、`client_closed`（Codex 断开或网关关闭，正常）、`upstream_error`（上游非 2xx）、`auth_error`（服务账号交换失败，401）、`network_error`、`rejected`（§2 里网关自己回的 4xx）。令牌不对是一行 `warn`（`gateway request rejected`，`method` 与 `status: 401`）。网关内部异常是 `warn`（`gateway internal error`）。
 
 不记请求体、响应体、上游错误原文、任何 Key 与令牌（集成测试核对：日志里没有 Key、令牌、模型的推理与回答、思考块的签名、请求里的文本）。三种处理方式同一口径。
 
@@ -393,6 +415,7 @@ Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试
 Codex 升级时重查上述字段默认值、Provider 判定与触发条件；一旦 Wevir 配置能发 additional_tools / configuration_update，就要先录真实样本，并把工具并入 tools、将最后的推理档位反映到 Chat / Messages，再启用相应元数据。
 
 
+- Google Cloud Vertex：本地实现服务账号、Gemini Chat 与 Claude Messages 变体，尚缺 GCP 项目与真实服务账号，两个模型的契约第 3 层与桌面工具对话未验收。不读取 ADC / gcloud，不接 express Key、Gemini 原生 API 或其他发布方。Claude 的 URL 图片、30 MB、地域可用性限制见 §2 与 providers.md §7.11。
 - Gemini 原生协议（经兼容端点够用，§4.5）；Gemini 的思考内容不返回、不显示。
 - 真实模型只在 Spike 里用 DeepSeek 跑过三条路（codex-notes §7.3）；本包的真实模型测试要 Key，R1、R10 都没有执行（Messages 转换没有对任何真实服务跑过）。其他服务的推理带回、自定义工具、namespace 要逐家验证。R8 按文档与第三方实测给 xAI、Gemini 加了方言（§3.2、§4.5），同样没有 Key，没有对真实服务跑过；有 Key 时用 adapter-codex 的契约第 3 层验证（docs/development.md）。
 - OpenAI 官方 API：2026-10-15 只完成文档与本地 mock 核对（§3.3）。缺 `WEVIR_TEST_API_KEY`，Sol / Luna 的契约第 3 层、桌面端 `apply_patch` 与 Luna 的关闭推理选项仍待真实服务验证，命令见 docs/development.md §6.3。

@@ -51,7 +51,9 @@ type TestState = { status: 'running' } | { status: 'done'; result: TestPresentat
 export function ProviderSettings() {
   const data = useWorkbenchData();
   const store = useWorkbenchStore();
-  const { client } = useHostConnection();
+  const { client, view: connection } = useHostConnection();
+  const vertexAvailable =
+    connection.status === 'connected' && connection.hello.features.google_vertex === true;
   const [view, setView] = useState<View>({ kind: 'list' });
   const [notice, setNotice] = useState<Notice>();
   const [tests, setTests] = useState<Record<string, TestState>>({});
@@ -115,7 +117,7 @@ export function ProviderSettings() {
   const pick = (entry: CatalogEntry) => {
     setCatalogOpen(false);
     const source = entry.source;
-    if (!source) return;
+    if (!source || (entry.id === 'google-vertex' && !vertexAvailable)) return;
     if (source.kind === 'deepseek-official') {
       const existing = providers.find((provider) => provider.id === DEEPSEEK_OFFICIAL_ID);
       setView({ kind: 'form', form: existing ? editForm(existing) : newDeepSeekForm() });
@@ -195,7 +197,12 @@ export function ProviderSettings() {
           </ul>
         )}
       </SettingsSection>
-      <ProviderCatalogDialog open={catalogOpen} onOpenChange={setCatalogOpen} onSelect={pick} />
+      <ProviderCatalogDialog
+        vertexAvailable={vertexAvailable}
+        open={catalogOpen}
+        onOpenChange={setCatalogOpen}
+        onSelect={pick}
+      />
       {removing && client && (
         <RemoveProviderDialog
           provider={removing}
@@ -238,7 +245,12 @@ function ProviderCard({
   const running = test?.status === 'running';
   const [toggling, setToggling] = useState(false);
   const enabled = provider.enabled !== false;
-  const host = provider.baseURL ? safeHost(provider.baseURL) : t('provider.baseURLOfficial');
+  const host =
+    provider.kind === 'google-vertex'
+      ? `${provider.vertex?.project ?? ''} / ${provider.vertex?.location ?? 'global'}`
+      : provider.baseURL
+        ? safeHost(provider.baseURL)
+        : t('provider.baseURLOfficial');
   return (
     <li className="group/provider px-4 py-3" data-provider-id={provider.id}>
       <div className="flex items-center gap-3.5">

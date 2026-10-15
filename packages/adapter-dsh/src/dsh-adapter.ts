@@ -120,7 +120,9 @@ export class DshAdapter extends AcpAdapter<DshProcess> {
 
   #writeProviders(all: readonly ProviderConfig[]): void {
     // ChatGPT 账号（R6）只有 Codex 引擎有：Host 换成 dsh 启动时库里可能还有这类 Provider，跳过。
-    const providers = all.filter((provider) => provider.kind !== 'chatgpt');
+    const providers = all.filter(
+      (provider) => provider.kind !== 'chatgpt' && provider.kind !== 'google-vertex',
+    );
     let overlay: string;
     try {
       overlay = renderProviderOverlay(providers);

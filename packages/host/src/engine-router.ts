@@ -40,6 +40,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly routes: readonly EngineRoute[];
   readonly permissionModes?: readonly PermissionMode[];
   readonly additionalRoots?: boolean;
+  readonly googleVertex?: boolean;
   readonly suggestedTasks?: boolean;
   readonly accounts?: EngineAccounts;
 
@@ -72,6 +73,12 @@ export class EngineRouter implements AgentRuntimeAdapter {
     const modes = new Set(adapters.flatMap((adapter) => adapter.permissionModes ?? []));
     if (modes.size > 0) this.permissionModes = PERMISSION_ORDER.filter((mode) => modes.has(mode));
     if (adapters.some((adapter) => adapter.additionalRoots === true)) this.additionalRoots = true;
+    if (
+      routes.some(
+        (route) => route.kinds.includes('google-vertex') && route.adapter.googleVertex === true,
+      )
+    )
+      this.googleVertex = true;
     if (adapters.some((adapter) => adapter.suggestedTasks === true)) this.suggestedTasks = true;
     const accounts = routes.flatMap((route) =>
       route.adapter.accounts === undefined ? [] : [route.adapter.accounts],

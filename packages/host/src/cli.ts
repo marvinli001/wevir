@@ -111,7 +111,12 @@ export interface AdapterContext {
 }
 
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex、dsh 或 echo）。 */
-const GATEWAY_KINDS = ['deepseek-official', 'openai-compatible', 'chatgpt'] as const;
+const GATEWAY_KINDS = [
+  'deepseek-official',
+  'openai-compatible',
+  'google-vertex',
+  'chatgpt',
+] as const;
 
 /**
  * 开发用：echo 引擎挂上假的订阅账号（`WEVIR_ECHO_SUBSCRIPTIONS`，见 runtime-adapter 的 echo-accounts.ts），订阅来源的会话也由

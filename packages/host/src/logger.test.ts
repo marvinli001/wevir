@@ -92,6 +92,11 @@ describe('createLogger', () => {
 });
 
 describe('redact', () => {
+  it('服务账号 JSON 与私钥字段整体遮掉', () => {
+    expect(
+      redact({ serviceAccountJson: 'fake-json', private_key: 'fake-key', privateKey: 'fake-key' }),
+    ).toEqual({ serviceAccountJson: REDACTED, private_key: REDACTED, privateKey: REDACTED });
+  });
   it('展开 Error（含 HostError 的 code 与 data），处理循环引用与 bigint', () => {
     const error = new HostError('SESSION_NOT_FOUND', 'session ses_1 not found');
     const circular: Record<string, unknown> = { a: 1 };

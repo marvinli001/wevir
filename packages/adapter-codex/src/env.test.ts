@@ -15,6 +15,8 @@ describe('buildCodexEnv', () => {
     DEEPSEEK_API_KEY: 'sk-ds',
     NODE_OPTIONS: '--inspect',
     WEVIR_GATEWAY_TOKEN: 'from-parent',
+    WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_JSON: 'fake-service-account-json',
+    WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_FILE: '/outside-repo/fake-account.json',
   };
 
   it('只继承白名单，固定注入 CODEX_HOME、令牌与日志级别', () => {

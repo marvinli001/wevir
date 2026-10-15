@@ -121,9 +121,10 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
     format: chatThinkingFormat(provider) ?? 'openai',
   };
   const tools = toChatTools(body.tools, names, dropped);
-  const signatures = isGeminiHost(baseURL)
-    ? { provider: provider.id, model: body.model }
-    : undefined;
+  const signatures =
+    provider.kind === 'google-vertex' || isGeminiHost(baseURL)
+      ? { provider: provider.id, model: body.model }
+      : undefined;
   const messages = toChatMessages(body, {
     names,
     dropped,

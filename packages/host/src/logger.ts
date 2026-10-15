@@ -15,7 +15,8 @@ export const REDACTED = '[REDACTED]';
  * 字段名命中即整体替换（不分大小写，按子串）：令牌、密钥、密码、API Key、凭据、Authorization、
  * Cookie。宁可多遮。
  */
-const SENSITIVE_KEY = /token|secret|password|passwd|api[-_]?key|credential|authorization|cookie/i;
+const SENSITIVE_KEY =
+  /token|secret|password|passwd|api[-_]?key|private[-_]?key|serviceAccountJson|credential|authorization|cookie/i;
 
 /** 嵌套过深的值不再展开。 */
 const MAX_DEPTH = 8;

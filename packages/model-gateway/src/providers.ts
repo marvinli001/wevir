@@ -51,12 +51,31 @@ export function effectiveCompat(provider: GatewayProvider): GatewayCompat {
 export function routeOf(
   provider: GatewayProvider,
   deepseekBaseURL = DEEPSEEK_RESPONSES_BASE_URL,
+  model = provider.defaultModelId,
 ): Route {
   if (provider.kind === 'deepseek-official') {
     return { mode: 'responses', url: `${trimSlash(deepseekBaseURL)}/responses` };
   }
   const issues = validateProvider(provider);
   if (issues.length > 0) return { mode: 'unsupported', message: describeIssues(issues) };
+  if (provider.kind === 'google-vertex') {
+    const project = provider.vertex?.project ?? '';
+    const location = provider.vertex?.location ?? 'global';
+    const host =
+      location === 'global' ? 'aiplatform.googleapis.com' : `${location}-aiplatform.googleapis.com`;
+    if (!vertexModelMatches(provider.api, model))
+      return { mode: 'unsupported', message: '模型 ID 与 Vertex 协议不匹配' };
+    if (provider.api === 'anthropic-messages')
+      return {
+        mode: 'messages',
+        url: `https://${host}/v1/projects/${project}/locations/${location}/publishers/anthropic/models/${encodeURIComponent(model)}:streamRawPredict`,
+      };
+    const version = location === 'global' ? 'v1' : 'v1beta1';
+    return {
+      mode: 'chat',
+      url: `https://${host}/${version}/projects/${project}/locations/${location}/endpoints/openapi/chat/completions`,
+    };
+  }
   const base = trimSlash(provider.baseURL ?? '');
   if (provider.api === 'openai-responses') return { mode: 'responses', url: `${base}/responses` };
   if (provider.api === 'anthropic-messages') {
@@ -90,6 +109,23 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
       const problem = baseURLProblem(provider.baseURL);
       if (problem !== undefined) issue(['baseURL'], problem);
     }
+  } else if (provider.kind === 'google-vertex') {
+    if (!['openai-completions', 'anthropic-messages'].includes(provider.api ?? ''))
+      issue(['api'], 'Vertex 只支持 Gemini Chat 或 Claude Messages');
+    if (!/^(?:[a-z][a-z0-9-]{4,28}[a-z0-9]|[0-9]{1,32})$/.test(provider.vertex?.project ?? ''))
+      issue(['vertex', 'project'], '请填写有效的 Google Cloud project ID 或项目编号');
+    const location = provider.vertex?.location ?? 'global';
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(location))
+      issue(['vertex', 'location'], '请填写有效的 Google Cloud location');
+    if (provider.baseURL !== undefined)
+      issue(['baseURL'], 'Vertex 地址由 project 与 location 生成');
+    if (provider.models.length === 0) issue(['models'], '至少要有一个模型');
+    for (const [index, model] of provider.models.entries()) {
+      if (!vertexModelMatches(provider.api, model.id))
+        issue(['models', index, 'id'], '模型 ID 与 Vertex 协议不匹配');
+    }
+    if (!provider.models.some((m) => m.id === provider.defaultModelId))
+      issue(['defaultModelId'], '默认模型必须在模型列表里');
   } else if (provider.kind !== 'deepseek-official') {
     issue(['kind'], `不认识的 Provider 类型 ${String(provider.kind)}`);
   }
@@ -183,4 +219,11 @@ function hostnameOf(baseURL: string): string {
 
 export function trimSlash(url: string): string {
   return url.replace(/\/+$/, '');
+}
+
+/** Vertex 只接 Gemini 与 Claude，模型名不能改变 URL 的路径。 */
+export function vertexModelMatches(api: string | undefined, model: string): boolean {
+  return api === 'openai-completions'
+    ? /^google\/gemini-[a-z0-9][a-z0-9.-]*$/.test(model)
+    : api === 'anthropic-messages' && /^claude-[a-z0-9][a-z0-9.-]*(?:@[0-9]{8})?$/.test(model);
 }

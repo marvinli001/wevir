@@ -246,3 +246,31 @@ describe('renderChatgptConfigToml（ChatGPT 进程，R6）', () => {
     expect(chatgptThreadConfig('high')).toEqual({ model_reasoning_effort: 'high' });
   });
 });
+
+describe('Vertex 凭据边界', () => {
+  it('服务账号 JSON 不进 Codex 配置、模型目录或 thread 配置', () => {
+    const provider: ProviderConfig = {
+      id: 'vertex',
+      kind: 'google-vertex',
+      displayName: 'Vertex',
+      api: 'openai-completions',
+      vertex: { project: 'vertex-example', location: 'global' },
+      models: [{ id: 'google/gemini-3.8-flash' }],
+      defaultModelId: 'google/gemini-3.8-flash',
+      serviceAccountJson: 'service-account-must-stay-in-host',
+    };
+    const rendered = JSON.stringify([
+      renderConfigToml({ providers: [provider], gatewayBaseURL }),
+      renderModelCatalog([provider], () => 'test prompt'),
+      threadConfig(
+        provider,
+        { id: provider.defaultModelId },
+        gatewayBaseURL(provider.id),
+        undefined,
+      ),
+    ]);
+    expect(rendered).not.toContain('service-account-must-stay-in-host');
+    expect(rendered).not.toContain('serviceAccountJson');
+    expect(rendered).not.toContain('aiplatform.googleapis.com');
+  });
+});

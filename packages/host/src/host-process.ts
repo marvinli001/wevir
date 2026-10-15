@@ -238,6 +238,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         environments: true,
         session_worktree: true,
         provider_enabled: true,
+        ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),

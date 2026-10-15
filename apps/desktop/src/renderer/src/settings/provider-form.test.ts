@@ -4,7 +4,7 @@ import {
   ProviderTestFailureSchema,
 } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { catalogEntry } from './provider-catalog';
+import { catalogAvailable, catalogEntry, providerLogo } from './provider-catalog';
 import {
   connectionChanged,
   deepseekModelChoices,
@@ -13,10 +13,11 @@ import {
   modelRow,
   newDeepSeekForm,
   newOpenAIForm,
+  serviceAccountEmail,
   toUpsertParams,
   validateForm,
 } from './provider-form';
-import { OPENAI_PRESETS, type OpenAIPreset } from './provider-presets';
+import { OPENAI_PRESETS, type OpenAIPreset, VERTEX_PRESETS } from './provider-presets';
 import { presentTestError, presentTestResult } from './provider-test-result';
 
 const kimi = OPENAI_PRESETS.find((preset) => preset.id === 'kimi');
@@ -25,6 +26,96 @@ const ollama = OPENAI_PRESETS.find((preset) => preset.id === 'local-ollama');
 if (!kimi || !deepseekOpenAI || !ollama) throw new Error('缺少模板');
 
 const upsertSchema = MethodSchemas['provider.upsert'].params;
+
+describe('Vertex 服务账号表单', () => {
+  const account = JSON.stringify({
+    type: 'service_account',
+    client_email: 'agent@vertex-example.iam.gserviceaccount.com',
+    private_key: '-----BEGIN PRIVATE KEY-----fake-test-key',
+  });
+  it.each(VERTEX_PRESETS)('$api 保存 project/location 与对应模型，JSON 只走密钥字段', (preset) => {
+    const empty = newOpenAIForm(preset, []);
+    expect(validateForm(empty, [])).toHaveProperty('vertex.project');
+    const form = {
+      ...empty,
+      vertex: { project: 'vertex-example', location: 'global' },
+      serviceAccountJson: account,
+    };
+    expect(validateForm(form, [])).toEqual({});
+    const params = upsertSchema.parse(toUpsertParams(form));
+    expect(params).toMatchObject({
+      kind: 'google-vertex',
+      api: preset.api,
+      vertex: form.vertex,
+      models: preset.models,
+      serviceAccountJson: account,
+    });
+    expect(params).not.toHaveProperty('apiKey');
+    expect(params).not.toHaveProperty('baseURL');
+    expect(serviceAccountEmail(account)).toBe('agent@vertex-example.iam.gserviceaccount.com');
+    expect(serviceAccountEmail('{broken')).toBeUndefined();
+  });
+
+  it('编辑时不带回密钥，project/location 或协议变化需要重新测试', () => {
+    const form = editForm(
+      profile({
+        kind: 'google-vertex',
+        id: 'vertex',
+        api: 'openai-completions',
+        vertex: { project: 'vertex-example' },
+        models: [{ id: 'google/gemini-3.8-flash' }],
+        defaultModelId: 'google/gemini-3.8-flash',
+        baseURL: undefined,
+      }),
+    );
+    expect(toUpsertParams(form)).not.toHaveProperty('serviceAccountJson');
+    expect(toUpsertParams(form)).not.toHaveProperty('apiKey');
+    expect(connectionChanged(form, { ...form, displayName: 'New name' })).toBe(false);
+    expect(connectionChanged(form, { ...form, vertex: { project: 'other-project' } })).toBe(true);
+    expect(
+      connectionChanged(form, { ...form, vertex: { project: 'vertex-example', location: 'us' } }),
+    ).toBe(true);
+    expect(connectionChanged(form, { ...form, serviceAccountJson: account })).toBe(true);
+    expect(connectionChanged(form, { ...form, api: 'anthropic-messages' })).toBe(true);
+  });
+
+  it('错误不含 JSON/私钥；不接受路径注入、混合发布方或非法 location', () => {
+    const form = newOpenAIForm(VERTEX_PRESETS[0], []);
+    const errors = validateForm(
+      {
+        ...form,
+        vertex: { project: '../escape', location: 'a/b' },
+        serviceAccountJson: 'invalid-private-key',
+      },
+      [],
+    );
+    expect(errors).toHaveProperty('vertex.project');
+    expect(errors).toHaveProperty('vertex.location');
+    expect(errors).toHaveProperty('serviceAccountJson');
+    expect(JSON.stringify(errors)).not.toContain('invalid-private-key');
+    expect(
+      validateForm(
+        {
+          ...form,
+          vertex: { project: 'vertex-example' },
+          models: [modelRow({ id: 'claude-sonnet-5-5' })],
+        },
+        [],
+      ),
+    ).toHaveProperty('models.0.id');
+  });
+
+  it('目录已可选，旧 Host 入口关闭，标志认新 kind 与地域域名', () => {
+    const entry = catalogEntry('google-vertex');
+    expect(entry?.source).toBeDefined();
+    expect(catalogAvailable(entry, true)).toBe(true);
+    expect(catalogAvailable(entry, false)).toBe(false);
+    expect(providerLogo({ kind: 'google-vertex' })).toBe('vertex');
+    expect(
+      providerLogo({ kind: 'openai-compatible', baseURL: 'https://us-aiplatform.googleapis.com' }),
+    ).toBe('vertex');
+  });
+});
 
 function profile(overrides: Partial<EditableProvider>): EditableProvider {
   return {
@@ -222,7 +313,7 @@ describe('编辑已有 Provider', () => {
     expect(form.apiKey).toBe('');
     expect(form.hasSecret).toBe(true);
     expect(toUpsertParams(form)).not.toHaveProperty('apiKey');
-    expect(toUpsertParams({ ...form, apiKey: 'sk-new' }).apiKey).toBe('sk-new');
+    expect(toUpsertParams({ ...form, apiKey: 'sk-new' })).toHaveProperty('apiKey', 'sk-new');
   });
 
   it('ID 被自己占用不算重复；compat 原样带回', () => {

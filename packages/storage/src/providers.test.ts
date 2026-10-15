@@ -29,6 +29,19 @@ const compatible: ProviderProfileRecord = {
 describe('provider_profiles', () => {
   const { storage } = useTempStorage();
 
+  it('Vertex 的非密钥配置随插入与修改往返', () => {
+    const repo = storage().providers;
+    const record = {
+      ...compatible,
+      kind: 'google-vertex',
+      vertex: { project: 'vertex-example', location: 'global' },
+    };
+    repo.insert(record);
+    expect(repo.get(record.id)).toEqual(record);
+    repo.update({ ...record, vertex: { project: 'other-project', location: 'us' } });
+    expect(repo.get(record.id)?.vertex).toEqual({ project: 'other-project', location: 'us' });
+  });
+
   it('插入与读取，可选字段与 JSON 字段原样往返', () => {
     const repo = storage().providers;
     repo.insert(official);
@@ -84,6 +97,7 @@ describe('provider_profiles', () => {
       'created_at',
       'updated_at',
       'enabled',
+      'vertex',
     ]);
   });
 

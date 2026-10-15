@@ -505,8 +505,8 @@ export const messages: Messages = {
   'engineError.category.cancel_unconfirmed': 'Cancelación sin confirmar',
   'engineError.category.session_unavailable': 'Sesión del motor no disponible',
   'engineError.category.unknown': 'Error del motor',
-  'engineError.hint.missing_credentials': 'Añade la API Key en Configuración',
-  'engineError.hint.provider': 'Revisa la URL del servicio, el modelo y la API Key',
+  'engineError.hint.missing_credentials': 'Añade las credenciales del servicio en Ajustes',
+  'engineError.hint.provider': 'Comprueba la URL del servicio, el modelo y las credenciales',
   'engineError.hint.engine_exited': 'Envía un mensaje para reanudar la sesión',
   'engineError.hint.cancel_unconfirmed':
     'Motor reiniciado; envía un mensaje para reanudar la sesión',
@@ -628,7 +628,7 @@ export const messages: Messages = {
 
   'provider.section.accounts': 'Cuentas de suscripción',
   'provider.section.subscriptions': 'Suscripciones',
-  'provider.section.keyed': 'API Key',
+  'provider.section.keyed': 'API y cuentas de servicio',
   'provider.enabled': 'Mostrar «{name}» en el selector de modelos',
   'provider.summary':
     '{sources, plural, one {# fuente} other {# fuentes}} · {models, plural, one {# modelo} other {# modelos}}',
@@ -687,7 +687,7 @@ export const messages: Messages = {
   'provider.edit': 'Editar',
   'provider.remove': 'Eliminar',
   'provider.saved': '«{name}» guardado',
-  'provider.savedNoKey': '«{name}» guardado sin API Key',
+  'provider.savedNoKey': '“{name}” guardado sin credenciales',
   'provider.engineNotApplied': '«{name}» guardado; el motor no lo aplicó: {error}',
 
   'account.chatgpt.title': 'Cuenta de ChatGPT',
@@ -739,6 +739,21 @@ export const messages: Messages = {
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
+  'provider.preset.vertex.note':
+    'Google Cloud lo llama ahora Gemini Enterprise Agent Platform. Habilita la facturación y el acceso a modelos y usa una cuenta de servicio JSON. Región predeterminada: global. Los endpoints Claude us / eu cuestan un 10% más. Sin acceso directo desde China continental.',
+  'provider.vertex.project': 'ID del proyecto de Google Cloud',
+  'provider.vertex.location': 'Región',
+  'provider.vertex.family': 'Familia de modelos',
+  'provider.vertex.account': 'JSON de la cuenta de servicio',
+  'provider.vertex.accountPlaceholder': 'Pega el JSON completo de la cuenta de servicio',
+  'provider.vertex.file': 'Selecciona un archivo JSON de cuenta de servicio',
+  'provider.vertex.accountInvalid':
+    'Usa un archivo JSON válido de cuenta de servicio (máximo 64 KiB)',
+  'provider.vertex.projectInvalid': 'Introduce un ID o número de proyecto de Google Cloud válido',
+  'provider.vertex.locationInvalid': 'Introduce una región válida, como global, us o eu',
+  'provider.vertex.modelInvalid':
+    'Los ID de Gemini empiezan por google/gemini-; los de Claude por claude-',
+  'welcome.upgradeHost': 'Actualiza el servicio en segundo plano',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': 'Qwen',
@@ -816,10 +831,10 @@ export const messages: Messages = {
   'provider.test.seconds': '{seconds} s',
   'provider.test.notRun': 'Prueba no completada',
   'provider.test.gone': 'Proveedor de modelos eliminado',
-  'provider.test.reason.missing_key': 'Falta la API Key',
+  'provider.test.reason.missing_key': 'Faltan credenciales',
   'provider.test.reason.network': 'No se puede conectar al servicio',
   'provider.test.reason.timeout': 'Tiempo de conexión agotado',
-  'provider.test.reason.auth': 'API Key no válida o sin permisos',
+  'provider.test.reason.auth': 'Credenciales no válidas o permisos insuficientes',
   'provider.test.reason.model_not_found': 'El modelo no existe en el servicio',
   'provider.test.reason.protocol': 'URL o protocolo incorrectos',
   'provider.test.reason.rate_limited': 'Límite de solicitudes alcanzado o cuota agotada',
@@ -827,7 +842,8 @@ export const messages: Messages = {
   'provider.test.reason.unknown': 'La prueba falló',
   'provider.test.hint.network': 'Revisa la URL del servicio, la red y el proxy',
   'provider.test.hint.timeout': 'Sin respuesta en 20 segundos',
-  'provider.test.hint.auth': 'Comprueba que la API Key y la URL del servicio son del mismo sitio',
+  'provider.test.hint.auth':
+    'Comprueba las credenciales, los permisos del proyecto y la URL del servicio',
   'provider.test.hint.model_not_found': 'Revisa el ID del modelo predeterminado',
   'provider.test.hint.protocol': 'El servicio no responde según el protocolo seleccionado',
   'provider.test.hint.rate_limited': 'Reinténtalo más tarde o revisa el saldo',

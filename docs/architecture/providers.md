@@ -124,7 +124,7 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 ## 4. 不做
 
-- **OAuth 类 Provider**（Codex、Claude 等订阅账号登录）：grant 只能存在 dsh 能写的 `DSH_HOME/.credentials.yaml`，与“密钥不落 DSH_HOME”冲突，ACP 也没有登录入口（ADR-0001 未决事项 1）。骨架只支持 API Key 类 Provider。
+- **OAuth 类 Provider**（Codex、Claude 等订阅账号登录）：grant 只能存在 dsh 能写的 `DSH_HOME/.credentials.yaml`，与“密钥不落 DSH_HOME”冲突，ACP 也没有登录入口（ADR-0001 未决事项 1）。这是 dsh 骨架阶段的限制。Codex 网关现支持 §7.11 的 Vertex 服务账号；交互式订阅登录走各自引擎，不复用服务账号路径。
 - **`anthropic-messages` 协议（dsh 引擎）**：协议类型里保留（`ProviderApi`），adapter-dsh 的 `validateProvider` 拒绝、`provider.test` 不发请求。Codex 引擎经模型网关支持（R10，[model-gateway.md](./model-gateway.md) §5）。
 - 按 Provider 配置请求头、超时、重试策略、`reasoning` 默认档位等 pi-ai 的其余字段：骨架不暴露。
 
@@ -193,7 +193,7 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 - Host 进程里的 `fetch` 不读 `HTTPS_PROXY` 等代理变量（dsh 子进程的代理行为由 dsh 决定）。需要代理才能访问的服务，`provider.test` 可能报 `network` / `timeout` 而对话正常。
 - 模型不存在的判断依赖错误原文，服务改措辞会落到 `protocol` 或 `unknown`。
 
-## 7. 服务示例（`openai-compatible`）
+## 7. 服务示例
 
 以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
 
@@ -411,7 +411,7 @@ Opus 5.5 / Haiku 5.5 的默认 effort 为 medium，Sonnet 5.5 / Fable 5.1 为 hi
 
 来源与核对日期：**2026-10-15 已核对** [模型目录](https://platform.claude.com/docs/en/models/overview)、[effort](https://platform.claude.com/docs/en/build-with-claude/effort)、[认证](https://platform.claude.com/docs/en/manage-claude/authentication)、[思考模式与限制](https://platform.claude.com/docs/en/build-with-claude/thinking)、[手动思考的兼容性](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)、[中途 system](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)、[思考前缀](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)。当前没有提供 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面端 apply_patch 对话未验收；本地录制请求与严格 HTTP mock 通过不代表真实服务通过。
 
-桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 要 Google Cloud 的 OAuth 令牌，模型网关还没有，先标“即将支持”。
+桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 使用服务账号（§7.11），Host 声明 google_vertex 后可选；旧 Host 的入口提示更新后台服务。
 
 ### 7.10 已有 Chat Provider 的思考配置
 
@@ -420,3 +420,59 @@ Opus 5.5 / Haiku 5.5 的默认 effort 为 medium，Sonnet 5.5 / Fable 5.1 为 hi
 模型目录只声明厂商支持的 reasoningEfforts，不能关闭思考的模型不列 off。Kimi K3 在 Chat 上用 openai 或 deepseek 格式（只发 reasoning_effort），K2.6 用 deepseek 格式（thinking.type 与 keep: all）；模型特例与 MiniMax 的原始思考回传见 model-gateway.md §4.4。provider.test 不带 reasoning.effort，仅验证最小连接，不能证明工具调用后的第二步、推理回传或强制思考模型的小输出上限可用。
 
 来源与核对日期：2026-10-15，[Z.ai Chat 参数](https://docs.z.ai/api-reference/llm/chat-completion)、[Kimi 思考模型](https://platform.kimi.com/docs/guide/use-thinking-models.md)、[MiniMax Chat 参数](https://platform.minimax.io/docs/api-reference/text-openai-api)、[MiniMax 工具指南](https://platform.minimax.cn/docs/guides/text-m3-function-call)、[TokenHub Chat 字段](https://intl.cloud.tencent.com/zh/document/product/1300/82345)。本次没有真实 API Key，仍需逐服务验证；大陆网络与地域说明沿用各服务节，在正式更新模板时再核对。
+
+### 7.11 Google Cloud（Vertex AI / Gemini Enterprise Agent Platform）
+
+**2026-10-15 核对。** 使用独立的 `google-vertex` kind 与服务账号认证，只有 Codex 网关支持（领域模型 §3.2、Host API 0.21.0）。Gemini 官方提供 OpenAI Chat 兼容端点，故复用 Responses → Chat 转换；Claude 官方接口是 Messages 的变体，故复用 Messages 转换并改变 URL 与版本字段。不使用原生 generateContent、express API Key、ADC 或本机 gcloud 凭据。只接按量计费的 Gemini 与 Claude，不接 Model Garden 的其他发布方。
+
+在 [Google Cloud 控制台](https://console.cloud.google.com/vertex-ai) 为目标项目启用计费与 Vertex AI API，开通所选模型的访问权限，给服务账号目标项目的 Vertex AI 调用权限（如 Vertex AI User）。项目可以与服务账号所属项目不同。将用户已有的服务账号 JSON 文件导入桌面表单，或粘贴完整 JSON；输入被掩码，只显示 client_email，之后编辑时留空保留凭据。整份 JSON 只在 SecretStore，SQLite 只保存 project/location，令牌与私钥不交给 Codex。
+
+默认地域 `global`。Gemini 3.8 Flash 的当前按量地域是 global / us / eu，Claude 当前模板模型也使用这三种；Claude 的 us / eu 相比 global 加价 10%，具体地域只支持 Sonnet 4.6 及更早型号，应先查模型可用地域再手动换模型。Google Cloud 没有中国大陆地域，googleapis.com 在大陆无法直连；需要可访问 Google Cloud 的网络。网关的代理局限见 §6.3。
+
+Gemini 示例（密钥只通过 serviceAccountJson 传入 SecretStore；下例的占位符不是实际密钥）：
+
+```json
+{
+  "id": "google-vertex",
+  "kind": "google-vertex",
+  "displayName": "Google Vertex AI",
+  "api": "openai-completions",
+  "vertex": { "project": "your-project-id", "location": "global" },
+  "models": [
+    { "id": "google/gemini-3.8-flash", "contextWindow": 1048576, "maxTokens": 65536, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] }
+  ],
+  "defaultModelId": "google/gemini-3.8-flash",
+  "serviceAccountJson": "<完整服务账号 JSON>"
+}
+```
+
+不要填写 baseURL 或 apiKey。网关生成 global 的 `https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/endpoints/openapi/chat/completions`，其他地域使用 `https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/endpoints/openapi/chat/completions`。Gemini 模型 ID 要带 `google/`。官方兼容指南仍以 3.5 Flash 举例，本模板以当天 Model Garden 的 3.8 Flash 为准；该型号拒绝 minimal，不能关闭思考，所以只列 low / medium / high，thought signature 按 model-gateway.md §4.5 带回。旧型号可手动填写其官方 ID 与支持档位。
+
+Claude 另建一个 Provider（同一服务账号可复用；桌面表单选择 Claude 会填好以下模型）：
+
+```json
+{
+  "id": "google-vertex-claude",
+  "kind": "google-vertex",
+  "displayName": "Google Vertex AI · Claude",
+  "api": "anthropic-messages",
+  "vertex": { "project": "your-project-id", "location": "global" },
+  "compat": { "thinkingFormat": "adaptive", "systemMessageMode": "inline" },
+  "models": [
+    { "id": "claude-sonnet-5-5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] },
+    { "id": "claude-opus-5-5", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh", "max"] }
+  ],
+  "defaultModelId": "claude-sonnet-5-5",
+  "serviceAccountJson": "<完整服务账号 JSON>"
+}
+```
+
+地址为 `https://aiplatform.googleapis.com/v1/projects/{project}/locations/global/publishers/anthropic/models/{model}:streamRawPredict`（其他 location 换成地域域名），模型不进正文，正文另带 anthropic_version: vertex-2023-10-16。新模型使用第一方 ID，旧型号的 @日期后缀照官方列表填写。只发 Bearer 访问令牌；不发 x-api-key 或 anthropic-version。工具、签名与思考沿用 Messages 转换；URL 图片在联网前报错，内嵌图片可以使用。转换后正文上限 30 MB；Files、Batches、Models API 不在网关范围内。
+
+**已有配置不自动迁移。** 目录原先不能新建 Vertex，没有旧的 Vertex 模板。手动建过 openai-compatible / 静态令牌配置的用户应新建 google-vertex Provider，填写 project/location 与完整服务账号；kind 创建后不可改，旧 Profile 与会话继续保留原配置。需要改模型、地域或凭据时手动编辑，凭据留空即保留。
+
+来源：[OpenAI 兼容接口](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/openai)、[认证](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/migrate/openai/auth-and-credentials)、[服务账号 JWT bearer](https://developers.google.com/identity/protocols/oauth2/service-account)、[API Key](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/api-keys)、[express 模式 API 范围](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/start/express-mode/vertex-ai-express-mode-api-reference)、[地域 Chat 示例](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/migrate/openai/examples)、[Gemini 3.8 Flash](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-8-flash)、[Claude on Google Cloud](https://platform.claude.com/docs/en/build-with-claude/claude-on-vertex-ai)、[Claude REST 调用](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/partner-models/claude/use-claude)。上述 Google 旧路径会重定向到新品牌路径，API 域名仍为 aiplatform.googleapis.com。
+
+本地覆盖 RS256 JWT、并发与刷新、两种协议的录制请求与工具签名往返、认证错误与脱敏。尚未提供启用 Vertex 的 GCP 项目及服务账号，Gemini / Claude 的契约第 3 层与桌面端 apply_patch 都未验收；命令见 development.md §6.3。
+
+Claude 模型的 1M 上下文、128K 输出与五档力度同时核对了 [模型目录](https://platform.claude.com/docs/en/models/overview)与 [effort](https://platform.claude.com/docs/en/build-with-claude/effort)（2026-10-15）；平台 ID 与地域以上面的 Google Cloud 文档为准。

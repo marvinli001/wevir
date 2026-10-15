@@ -15,6 +15,7 @@ import { type ProviderTestOptions, testProvider } from './provider-test.js';
 import { isObject } from './tools.js';
 import type { GatewayProvider, ResponsesRequest } from './types.js';
 import { errorText, prepareUpstream } from './upstream.js';
+import { credentialOf, VertexAuthError, VertexTokenCache } from './vertex-auth.js';
 
 /** 与 Host 的 Logger 兼容的最小接口。 */
 export interface GatewayLogger {
@@ -28,6 +29,9 @@ export interface ModelGatewayOptions {
   deepseekBaseURL?: string;
   /** testProvider 的时限，默认 20 s。 */
   testTimeoutMs?: number;
+  /** 测试注入 HTTP 传输；生产仍只向固定的 Google 地址认证。 */
+  fetch?: typeof fetch;
+  vertexAuth?: VertexTokenCache;
 }
 
 export interface ModelGateway {
@@ -53,6 +57,7 @@ const ROUTE = /^\/v1\/p\/([^/?#]+)\/responses(?:\?.*)?$/;
 
 export async function startModelGateway(options: ModelGatewayOptions = {}): Promise<ModelGateway> {
   const logger = options.logger;
+  const auth = options.vertexAuth ?? new VertexTokenCache({ fetch: options.fetch });
   const token = randomBytes(32).toString('base64url');
   const tokenHash = sha256(token);
   let providers = new Map<string, GatewayProvider>();
@@ -109,8 +114,12 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
     const provider = providers.get(providerId);
     if (provider === undefined)
       return reject(404, `没有 Provider ${providerId}`, 'model_not_found');
-    if (!provider.apiKey)
-      return reject(401, `Provider ${providerId} 没有 API Key`, 'invalid_api_key');
+    if (!credentialOf(provider))
+      return reject(
+        401,
+        `Provider ${providerId} 没有${provider.kind === 'google-vertex' ? '服务账号 JSON' : ' API Key'}`,
+        'invalid_api_key',
+      );
 
     let body: ResponsesRequest;
     try {
@@ -136,9 +145,23 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
     });
     let upstreamStatus: number | undefined;
     try {
+      let upstreamKey = provider.apiKey;
+      if (provider.kind === 'google-vertex') {
+        try {
+          upstreamKey = await auth.get(provider.serviceAccountJson ?? '', abort.signal);
+          prepared.headers.authorization = `Bearer ${upstreamKey}`;
+        } catch (error) {
+          if (abort.signal.aborted) return log('client_closed', {});
+          if (!(error instanceof VertexAuthError)) throw error;
+          send(res, 401, gatewayError(error.message, 'invalid_api_key'));
+          return log('auth_error', { status: 401 });
+        }
+      }
+      const redact = (value: string) =>
+        upstreamKey ? value.replaceAll(upstreamKey, '***') : value;
       let upstream: Response;
       try {
-        upstream = await fetch(prepared.url, {
+        upstream = await (options.fetch ?? fetch)(prepared.url, {
           method: 'POST',
           headers: prepared.headers,
           body: JSON.stringify(prepared.payload),
@@ -148,7 +171,13 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       } catch (error) {
         if (abort.signal.aborted) return log('client_closed', {});
         // 连不上上游：5xx 让 Codex 按自己的策略重试。
-        send(res, 502, gatewayError(`连不上上游：${errorText(error)}`));
+        send(
+          res,
+          502,
+          gatewayError(
+            `连不上上游：${provider.kind === 'google-vertex' ? 'Google Cloud 网络请求失败' : errorText(error)}`,
+          ),
+        );
         return log('network_error', { status: 502, error: networkCode(error) });
       }
       upstreamStatus = upstream.status;
@@ -158,7 +187,11 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         send(
           res,
           upstream.status,
-          JSON.stringify(normalizeErrorBody(text, upstream.status, provider.apiKey)),
+          JSON.stringify(
+            provider.kind === 'google-vertex'
+              ? normalizeErrorBody(redact(text), upstream.status)
+              : normalizeErrorBody(text, upstream.status, provider.apiKey),
+          ),
         );
         return log('upstream_error', { upstreamStatus });
       }
@@ -167,7 +200,10 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         'cache-control': 'no-cache',
       });
       for await (const piece of prepared.translate(upstream, abort.signal)) {
-        await write(res, piece);
+        await write(
+          res,
+          provider.kind === 'google-vertex' && typeof piece === 'string' ? redact(piece) : piece,
+        );
         if (res.destroyed) break;
       }
       if (res.destroyed) return log('client_closed', { upstreamStatus });
@@ -199,17 +235,21 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
     baseURL: (providerId) => `http://127.0.0.1:${port}/v1/p/${encodeURIComponent(providerId)}`,
     setProviders(next) {
       providers = new Map(next.map((provider) => [provider.id, structuredClone(provider)]));
+      auth.retain(next);
     },
     testProvider(provider, modelId) {
       const testOptions: ProviderTestOptions = {
         deepseekBaseURL: options.deepseekBaseURL,
         timeoutMs: options.testTimeoutMs,
+        fetch: options.fetch,
+        vertexAuth: auth,
       };
       return testProvider(provider, modelId, testOptions);
     },
     async close() {
       if (closing) return;
       closing = true;
+      auth.close();
       for (const abort of inflight) abort.abort();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

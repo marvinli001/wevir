@@ -3,6 +3,7 @@ import {
   type ModelGatewayOptions,
   startModelGateway,
   testProvider,
+  VertexTokenCache,
   validateProvider,
 } from '@wevir/model-gateway';
 import {
@@ -284,6 +285,7 @@ class Launcher implements CodexLauncher {
   readonly #prompt: BasePrompt;
   providers: readonly ProviderConfig[] = [];
   gateway: ModelGateway | undefined;
+  readonly vertexAuth: VertexTokenCache;
   /** 当前进程启动时用的模型目录（判断目录是否过期）。 */
   launchedCatalog: string | undefined;
   #binary: string | undefined;
@@ -292,6 +294,9 @@ class Launcher implements CodexLauncher {
   constructor(options: CodexAdapterOptions, logger: CodexAdapterLogger, prompt: BasePrompt) {
     this.paths = codexPaths(options.home, options.mode);
     this.#options = options;
+    this.vertexAuth = new VertexTokenCache({
+      fetch: options.gateway?.fetch ?? options.providerTest?.fetch,
+    });
     this.#logger = logger;
     this.#prompt = prompt;
   }
@@ -335,6 +340,7 @@ class Launcher implements CodexLauncher {
     const gateway = await startModelGateway({
       ...this.#options.gateway,
       logger: gatewayLogger(this.#logger),
+      vertexAuth: this.vertexAuth,
     });
     this.gateway = gateway;
     this.#logger.addSecret?.(gateway.token);
@@ -418,6 +424,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly additionalRoots = true;
   /** 建议后续任务（0.16.0，codex-event-mapping.md §6.8）：Wevir 的本机 MCP 工具 `wevir_tasks.suggest_tasks`。 */
   readonly suggestedTasks = true;
+  get googleVertex(): boolean {
+    return !this.#chatgpt;
+  }
   readonly process: CodexProcess;
   readonly paths: CodexPaths;
   /** ChatGPT 进程的账号（`mode: 'chatgpt'` 时才有）。 */
@@ -949,6 +958,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#titleThreads.clear();
       await this.process.dispose();
       await this.#launcher.closeGateway();
+      this.#launcher.vertexAuth.close();
     })();
     return this.#disposed;
   }
@@ -1090,6 +1100,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         deepseekBaseURL: this.#options.gateway.deepseekBaseURL,
       }),
       ...this.#options.providerTest,
+      vertexAuth: this.#launcher.vertexAuth,
     });
   }
 
@@ -1108,6 +1119,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     if (!this.#chatgpt) renderModelCatalog(next, (vars) => this.#prompt.render(vars));
     this.#providers = new Map(next.map((provider) => [provider.id, provider]));
     this.#launcher.providers = next;
+    this.#launcher.vertexAuth.retain(next);
     this.#launcher.gateway?.setProviders(next);
   }
 

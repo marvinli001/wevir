@@ -2,7 +2,12 @@ import { cn } from 'cn';
 import { ProviderLogo } from '@/components/provider-logo';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { t } from '@/i18n';
-import { CATALOG_GROUPS, type CatalogEntry, PROVIDER_CATALOG } from '@/settings/provider-catalog';
+import {
+  CATALOG_GROUPS,
+  type CatalogEntry,
+  catalogAvailable,
+  PROVIDER_CATALOG,
+} from '@/settings/provider-catalog';
 
 /** “更多”：按国际、国内、本地与自定义列出全部模型服务（U6）；还没接上的标“即将支持”、不能选。 */
 export function ProviderCatalogDialog({
@@ -10,8 +15,10 @@ export function ProviderCatalogDialog({
   selected,
   onOpenChange,
   onSelect,
+  vertexAvailable = false,
 }: {
   open: boolean;
+  vertexAvailable?: boolean;
   selected?: string;
   onOpenChange: (open: boolean) => void;
   onSelect: (entry: CatalogEntry) => void;
@@ -26,7 +33,7 @@ export function ProviderCatalogDialog({
               <h3 className="mb-2 text-xs font-medium text-muted-foreground">{t(group.label)}</h3>
               <ul className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                 {PROVIDER_CATALOG.filter((entry) => entry.group === group.id).map((entry) => {
-                  const available = entry.source !== undefined;
+                  const available = catalogAvailable(entry, vertexAvailable);
                   return (
                     <li key={entry.id}>
                       <button
@@ -55,7 +62,9 @@ export function ProviderCatalogDialog({
                         </span>
                         {!available && (
                           <span className="shrink-0 rounded-sm bg-muted px-1.5 text-xs leading-5 text-muted-foreground">
-                            {t('welcome.soon')}
+                            {t(
+                              entry.id === 'google-vertex' ? 'welcome.upgradeHost' : 'welcome.soon',
+                            )}
                           </span>
                         )}
                       </button>

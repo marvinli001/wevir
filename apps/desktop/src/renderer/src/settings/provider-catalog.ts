@@ -1,9 +1,9 @@
 // 首次引导与“更多”对话框里列出的模型服务（U6）：每一项对应一个新建 Provider 的方式（DeepSeek 官方、某个 OpenAI 兼容
-// 模板或空白的自定义表单），带标志、去哪里取 Key。还没接上的服务（Google Vertex AI）列出来、标“即将支持”，不能选。
+// 模板或空白的自定义表单），带标志、去哪里取 Key。Vertex 使用服务账号，入口受 Host 的 google_vertex 功能控制。
 
 import type { ProviderLogoId } from '@/components/provider-logo';
 import type { PlainMessageKey } from '@/i18n';
-import { OPENAI_PRESETS, type OpenAIPreset } from './provider-presets';
+import { OPENAI_PRESETS, type OpenAIPreset, VERTEX_PRESETS } from './provider-presets';
 
 export type CatalogGroup = 'global' | 'cn' | 'local';
 
@@ -53,7 +53,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     source: preset('gemini'),
     keyURL: 'https://aistudio.google.com/apikey',
   },
-  { id: 'google-vertex', name: 'provider.catalog.googleVertex', logo: 'vertex', group: 'global' },
+  {
+    id: 'google-vertex',
+    name: 'provider.catalog.googleVertex',
+    logo: 'vertex',
+    group: 'global',
+    source: { kind: 'preset', preset: VERTEX_PRESETS[0] as OpenAIPreset },
+    keyURL: 'https://console.cloud.google.com/vertex-ai',
+  },
   {
     id: 'xai',
     name: 'provider.catalog.xai',
@@ -121,7 +128,7 @@ const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/(^|\.)openai\.com$/, 'openai'],
   [/(^|\.)anthropic\.com$/, 'anthropic'],
   [/(^|\.)generativelanguage\.googleapis\.com$/, 'gemini'],
-  [/(^|\.)aiplatform\.googleapis\.com$/, 'vertex'],
+  [/(^|\.|-)aiplatform\.googleapis\.com$/, 'vertex'],
   [/(^|\.)x\.ai$/, 'xai'],
   [/(^|\.)deepseek\.com$/, 'deepseek'],
   [/(^|\.)(dashscope|aliyuncs)\./, 'qwen'],
@@ -136,6 +143,7 @@ export function providerLogo(provider: {
 }): ProviderLogoId | undefined {
   if (provider.kind === 'deepseek-official') return 'deepseek';
   if (provider.kind === 'chatgpt') return 'openai';
+  if (provider.kind === 'google-vertex') return 'vertex';
   if (!provider.baseURL) return undefined;
   let url: URL;
   try {
@@ -145,4 +153,12 @@ export function providerLogo(provider: {
   }
   if (url.port === '11434') return 'ollama';
   return HOST_LOGOS.find(([pattern]) => pattern.test(url.hostname))?.[1];
+}
+
+/** 新 kind 只在 Host 明确支持时开放；旧 Host 不会收到无法解析的请求。 */
+export function catalogAvailable(
+  entry: CatalogEntry | undefined,
+  vertexAvailable: boolean,
+): boolean {
+  return entry?.source !== undefined && (entry.id !== 'google-vertex' || vertexAvailable);
 }

@@ -18,6 +18,20 @@ function sample(name: string): TurnError {
 }
 
 describe('classifyTurnError', () => {
+  it('Vertex 缺少服务账号 JSON 归 missing_credentials，交换失败仍归 provider', () => {
+    expect(
+      classifyTurnError({
+        ...sample('turn-missing-key'),
+        message: 'wevir gateway: Provider vertex 没有服务账号 JSON',
+      }),
+    ).toMatchObject({ category: 'missing_credentials', httpStatus: 401 });
+    expect(
+      classifyTurnError({
+        ...sample('turn-401'),
+        message: 'wevir gateway: Google Cloud 服务账号认证失败',
+      }),
+    ).toMatchObject({ category: 'provider' });
+  });
   it.each([
     ['turn-missing-key', 'missing_credentials', 401],
     ['turn-401', 'provider', 401],

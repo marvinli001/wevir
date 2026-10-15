@@ -14,7 +14,12 @@ import { MessagesStreamTranslator } from './messages/response.js';
 import { routeOf } from './providers.js';
 import { SseParser, sseEvent } from './sse.js';
 import { isObject } from './tools.js';
-import type { GatewayProvider, ResponsesEvent, ResponsesRequest } from './types.js';
+import type {
+  GatewayProvider,
+  MessagesRequest,
+  ResponsesEvent,
+  ResponsesRequest,
+} from './types.js';
 
 export const GATEWAY_VERSION: string = packageJson.version;
 
@@ -51,7 +56,7 @@ export function prepareUpstream(
   body: ResponsesRequest,
   options: PrepareOptions = {},
 ): Prepared {
-  const route = routeOf(provider, options.deepseekBaseURL);
+  const route = routeOf(provider, options.deepseekBaseURL, body.model);
   if (route.mode === 'unsupported') return { ok: false, status: 400, message: route.message };
   const headers: Record<string, string> = {
     'content-type': 'application/json',
@@ -60,23 +65,39 @@ export function prepareUpstream(
   };
   if (route.mode === 'messages') {
     // Anthropic 的认证头是 x-api-key（DeepSeek 等兼容服务同样支持），不发 Authorization。
-    if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
-    headers['anthropic-version'] = ANTHROPIC_VERSION;
+    if (provider.kind !== 'google-vertex') {
+      if (provider.apiKey) headers['x-api-key'] = provider.apiKey;
+      headers['anthropic-version'] = ANTHROPIC_VERSION;
+    }
     const messages = toMessagesRequest(body, provider);
+    let payload: unknown = messages.request;
+    if (provider.kind === 'google-vertex') {
+      if (hasUrlImage(messages.request))
+        return {
+          ok: false,
+          status: 400,
+          message: 'Claude on Vertex 不支持 URL 图片，请使用内嵌图片',
+        };
+      const { model: _model, ...rest } = messages.request;
+      payload = { ...rest, anthropic_version: 'vertex-2023-10-16' };
+      if (Buffer.byteLength(JSON.stringify(payload)) > 30_000_000)
+        return { ok: false, status: 413, message: 'Claude on Vertex 请求体超过 30 MB' };
+    }
     const origin = { provider: provider.id, model: body.model };
     return {
       ok: true,
       mode: 'messages',
       url: route.url,
       headers,
-      payload: messages.request,
+      payload,
       messages,
       contentType: () => 'text/event-stream',
       translate: (response, signal) =>
         toResponsesEvents(response, new MessagesStreamTranslator(messages.names, origin), signal),
     };
   }
-  if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`;
+  if (provider.kind !== 'google-vertex' && provider.apiKey)
+    headers.authorization = `Bearer ${provider.apiKey}`;
   if (route.mode === 'chat') {
     const chat = toChatRequest(body, provider);
     return {
@@ -226,4 +247,16 @@ export function errorText(error: unknown): string {
   return cause === undefined || cause === error.message
     ? error.message
     : `${error.message}（${cause}）`;
+}
+
+function hasUrlImage(request: MessagesRequest): boolean {
+  const isUrlImage = (block: unknown): boolean => {
+    if (!isObject(block)) return false;
+    if (block.type === 'image' && isObject(block.source) && block.source.type === 'url')
+      return true;
+    return (
+      block.type === 'tool_result' && Array.isArray(block.content) && block.content.some(isUrlImage)
+    );
+  };
+  return request.messages.some((message) => message.content.some(isUrlImage));
 }

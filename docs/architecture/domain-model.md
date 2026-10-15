@@ -136,7 +136,7 @@ interface Workspace {
 
 ```ts
 // → protocol
-type ProviderKind = 'deepseek-official' | 'openai-compatible' | 'chatgpt' | SubscriptionKind
+type ProviderKind = 'deepseek-official' | 'openai-compatible' | 'google-vertex' | 'chatgpt' | SubscriptionKind
 // chatgpt：0.7.0（R6），能力位 provider_kind_chatgpt；SubscriptionKind：0.19.0，能力位 subscription_kinds（§3.6）
 type ProviderApi = 'openai-completions' | 'openai-responses' | 'anthropic-messages'
 
@@ -148,10 +148,10 @@ interface ProviderModel {
   contextWindow?: number  // 不填时 dsh 按 262144 猜，usage.updated 的 contextSize 会失真
   maxTokens?: number      // 最大输出（协议 0.2.0）
   supportsImages?: boolean // 是否接受图片（0.2.0）；省略沿用 dsh 目录
-  reasoningEfforts?: ProviderReasoningLevel[] // 推理档位（0.2.0，只对 openai-compatible）；[] 表示不推理
+  reasoningEfforts?: ProviderReasoningLevel[] // 推理档位（0.2.0，openai-compatible 与 google-vertex）；[] 表示不推理
 }
 
-interface ProviderCompat { // 只对 openai-compatible 有意义；前四个原样写进 dsh overlay 的 compat
+interface ProviderCompat { // openai-compatible 与 google-vertex；前四个原样写进 dsh overlay 的 compat
   supportsDeveloperRole?: boolean
   maxTokensField?: 'max_tokens' | 'max_completion_tokens'
   thinkingFormat?: string
@@ -166,9 +166,10 @@ interface ProviderProfile {
   id: ProviderId
   kind: ProviderKind
   displayName: string
-  api?: ProviderApi       // openai-compatible 必填
-  baseURL?: string        // openai-compatible 必填；deepseek-official 可选（覆盖官方地址）
+  api?: ProviderApi       // openai-compatible 与 google-vertex 必填
+  baseURL?: string        // openai-compatible 必填；deepseek-official 可选；google-vertex 不使用
   compat?: ProviderCompat
+  vertex?: { project: string; location?: string } // 0.21.0，google-vertex；location 省略为 global
   models: ProviderModel[] // deepseek-official 可为空，用 dsh 自带目录；chatgpt 由 Host 从引擎取（§3.6）
   defaultModelId: string
   hasSecret: boolean      // 线缆上只暴露有没有 Key，不暴露 secretRef
@@ -184,7 +185,8 @@ interface ProviderProfile {
 | `kind` | `deepseek-official` 走 `llm-deepseek`，dsh 的路由名固定为 `deepseek-official`，所以这类 Profile 最多一个，`id` 必须是 `deepseek-official`；`openai-compatible` 走 `llm-pi-ai` 的自定义 provider；`chatgpt`（0.7.0）是 ChatGPT 订阅登录的 Codex（§3.6），`id` 固定为 `chatgpt`，只有 Codex 引擎有 | 创建时 | 不可改 |
 | `displayName` | 显示名，写进 overlay 的 `displayName` | 创建时 | `provider.upsert` |
 | `api`、`baseURL`、`compat`、`models`、`defaultModelId` | 写进 overlay；写库前经适配器检查（dsh 不接受的配置回 `INVALID_PARAMS`） | 创建时 | `provider.upsert`。dsh 不热加载，适配器在没有回合时重启 dsh 才生效，挂着的会话以 `engine.exited`（`config_changed`）转 `error`、resume 后用新配置（ADR-0001 补记 5，providers.md §5） |
-| `hasSecret` | Key 是否已存 | Host | `provider.upsert` 带 Key 时 |
+| `vertex` | Vertex 项目与地域（0.21.0，存储迁移 0008），location 默认 global | 创建时 | `provider.upsert`，之后的请求使用新配置 |
+| `hasSecret` | Key 或服务账号 JSON 是否已存 | Host | `provider.upsert` 带凭据时 |
 | `enabled` | 是否启用（0.19.0，存储迁移 0007） | Host | `provider.setEnabled`；编辑与刷新模型列表时保留 |
 | `createdAt` / `updatedAt` | 时间 | Host | Host |
 
@@ -192,8 +194,9 @@ interface ProviderProfile {
 
 - Key 不在 Profile 里。Host 的 `SecretStore`（ADR-0003）以 Provider ID 为键保存；存储层的 `secretRef` 列不上线缆。Key 只经子进程环境变量 `WEVIR_PROVIDER_<ID>_KEY` 传给 dsh，`<ID>` 是 Provider ID 转大写、`-` 换成 `_`（ID 只含小写字母、数字和 `-`，不会撞名）。overlay 里只写 `apiKeyEnv` 变量名。`deepseek-official` 的 Key 同时用于 `web-search-deepseek`（T0.3 §6.2）。
 - 被未关闭会话引用的 Profile 不能删除。已关闭会话引用的 Profile 删除后，这些会话不能 resume，直到再建一个同 ID 的 Profile。
-- `openai-compatible` 的 ID 不能是 `deepseek-official`、`deepseek-account`（dsh 内置路由名）；`api` 暂只支持 `openai-completions`、`openai-responses`，`anthropic-messages` 只预留类型（providers.md §2）。
-- OAuth 类 Provider 不在 v0（ADR-0001 未决事项 1）。例外是 `chatgpt`（0.7.0，R6）：登录走 Codex 自己的流程，凭据在引擎那边，Host 只有 Provider 记录与账号状态（§3.6）。
+- `openai-compatible` 的 ID 不能是 `deepseek-official`、`deepseek-account`（dsh 内置路由名）；dsh 支持 openai-completions / openai-responses，Codex 网关另支持 anthropic-messages。google-vertex 只用 Chat / Messages 两条路（providers.md §7.11）。
+- `google-vertex`（0.21.0）使用服务账号，只有 Codex 网关支持。选择独立 kind 而非给普通 API Key 增加认证模式：它的地址由 project / location 与协议生成、密钥是整份服务账号 JSON，不能作为普通 Key 传出。`api` 选择 openai-completions（Gemini）或 anthropic-messages（Claude）；一条 Profile 配一种协议，模型不混列。`vertex` 是 optional 的新增字段，Host 写入时检查必有 project；location 省略为 global。SQLite 的 vertex JSON 列只保存这两个非密钥配置。`provider.upsert.serviceAccountJson` 省略保留、字符串替换、null 删除；整份 JSON 只进 SecretStore。网关用 Node crypto 的 RS256 JWT bearer 换令牌，按凭据缓存、提前刷新与合并并发；访问令牌与 JWT 只在内存，私钥只在 SecretStore 与 Host 内存；三者都不进引擎环境或日志。新枚举由客户端能力位 provider_kind_google_vertex 门控，入口看 Host 功能 google_vertex。地址与限制见 providers.md §7.11。
+- Vertex 不读取本机 ADC 或 gcloud 登录态。交互式订阅登录如 `chatgpt`（0.7.0，R6）走 Codex 自己的流程，凭据在引擎那边，Host 只有 Provider 记录与账号状态（§3.6）。
 
 ### 3.3 Session
 

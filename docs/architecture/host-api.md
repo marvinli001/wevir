@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.12.0`（P0a：ProviderCompat 加 optional 的 supportsNamespaceTools / toolChoice；0.11.0 U15：会话的权限模式——`PermissionMode`、`session.create` / `session.configure` 的 `permissionMode`、`Session.permissionMode`、`session.created` / `session.configured` 带它、Host 功能 `permission_modes`；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
+> 状态：v0（T1.2）· 协议版本 `0.21.0`（Google Cloud 服务账号 Provider；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -137,6 +137,7 @@ Host → 客户端的通知：
 - **`environment.*`**（0.15.0，Host 功能 `environments`，domain-model §3.10）：保存的环境。`create` 的 `folders` 1–8 个、工作区不重复且都在，`name` 去掉首尾空白后 1–60 字，否则 `INVALID_PARAMS`；`update` 只改给出的字段；`remove` 不影响已经用它建的会话。按创建时间排列。
 - **`workspace.git`**（0.13.0，Host 功能 `workspace_git`，U18）：工作区目录的 git 状态，给桌面端会话侧栏的“环境”（分支）与“变更”（+N −M）卡片。Host 每次调用时在工作区目录里现跑只读的 git 命令，不缓存、不写事件；客户端在回合结束、窗口获得焦点与定时（桌面端 10 s）时重读。目录不在 git 仓库里、本机没有 git、git 出错或超时（每条命令 5 s）都回 `repo: false`，其余字段省略。是仓库时：`branch` 是当前分支（含还没有提交的新分支）；分离头指针时没有 `branch`，`detachedAt` 是 HEAD 的短 SHA。改动按工作区目录统计（`git diff --relative`，工作区是仓库的子目录时只算这个目录里的）：已跟踪文件相对 HEAD（工作树 + 暂存区；还没有提交时是暂存区）的增删行数之和 `added` / `removed`，不跟踪重命名（重命名算一删一增）；`fileCount` 是改动的文件数，含未跟踪（`.gitignore` 之外的）文件；`files` 每项 `path`（相对工作区目录，`/` 分隔）、`status`（`modified` / `added` / `deleted` / `untracked`，开放字符串，以后可能多）、`added` / `removed`（二进制文件与未跟踪文件没有），按 git 的顺序、先已跟踪后未跟踪，最多 200 项，多了 `truncated: true`。为了不在不受信任的仓库里执行仓库配置里的命令，Host 关掉 fsmonitor、外部 diff 与 textconv，屏蔽仓库自己（local、worktree 两级配置）定义的过滤器（`filter.<名字>.clean` 等，`git diff` 读工作树文件时会执行它；全局与系统配置里的照常用），并设 `GIT_OPTIONAL_LOCKS=0`（不写索引锁）。工作区已移除回 `WORKSPACE_NOT_FOUND`，目录已不存在回 `WORKSPACE_PATH_INVALID`。0.15.0 起可带 `sessionId`：读这个会话的目录（环境会话是 Host 新开的 worktree，domain-model §3.10），会话不存在或不属于这个工作区回 `SESSION_NOT_FOUND`。
 - **`provider.upsert`**：参数按 `kind` 判别。`deepseek-official` 的 `id` 固定为 `deepseek-official`；`openai-compatible` 必须给 `api`、`baseURL`（http / https，允许 localhost 与 IP）和至少一个模型。语义是整体替换非密钥字段，不是合并；`id` 不存在时新建（`created: true`）。`kind` 创建后不可改，改了回 `INVALID_PARAMS`；`defaultModelId` 不在 `models` 里（`openai-compatible`）同样回 `INVALID_PARAMS`。`apiKey`：省略 = 保留已存的 Key，字符串 = 设置或替换，`null` = 删除。**Key 只进 SecretStore，Host 不得把它写进日志、事件或任何响应**；响应里只有 `hasSecret`。写库前 Host 让引擎适配器检查配置（`validateProvider`），引擎不接受时回 `INVALID_PARAMS`（`data.issues` 是适配器给的字段路径与说明，例如 `anthropic-messages` 暂不支持、compat 开关与协议不匹配），不写库。写库后 Host 把全部 Provider 交给引擎；引擎没能用上新配置时回 `ENGINE_ERROR`，但 Profile 已保存（`provider.remove` 同样）。新配置何时对运行中的会话生效见 [providers.md](./providers.md) §5。
+- **`provider.upsert` 的 `google-vertex`**（0.21.0）：Host 功能 google_vertex；api 选 openai-completions 或 anthropic-messages，vertex.project 必须有效，location 省略为 global；models 不混用 Gemini 与 Claude，defaultModelId 必须在列表中。不使用自定义 baseURL。serviceAccountJson（optional，最多 64 KiB）整份进 SecretStore，省略保留、字符串替换、null 删除；不使用 apiKey。能力门控与兼容方式见 §10。
 - **`provider.upsert` 的 `chatgpt`**（0.7.0）：`id` 固定为 `chatgpt`，只有 `displayName` 与 `defaultModelId`；没有 Key、地址与 compat，`models` 由 Host 向引擎要（ChatGPT 进程的 `model/list`），`defaultModelId` 不在其中回 `INVALID_PARAMS`。Host 没有 `chatgpt_account` 功能时（dsh、echo 引擎）引擎的 `validateProvider` 拒绝，回 `INVALID_PARAMS`。ChatGPT 登录成功后 Host 自己建这个 Provider（显示名 `ChatGPT`，默认模型取引擎标为默认的那个），之后每次登录成功与 `account.get` 读到已登录时刷新它的模型列表（默认模型不在新列表里时换成新的默认）。
 - **`provider.remove`**：同时删除 Key。被未关闭会话引用时回 `RESOURCE_IN_USE`。删除 `chatgpt` 不登出账号；下次登录成功时 Host 再建它。
 - **`workspace.diff`**（0.20.0，Host 功能 `workspace_diff`）：一段改动的统一格式 diff，给桌面端的“变更”窗格。`source` 三种：`uncommitted` 是工作树加暂存区对 HEAD（还没有提交时对空树），含 `.gitignore` 之外的未跟踪文件（Host 把它们以 intent-to-add 加进一份临时索引，不碰用户的索引）；`branch` 是工作树对默认分支与 HEAD 的 merge-base（默认分支依次试 `origin/HEAD` 指向的分支、`main`、`master`、`origin/main`、`origin/master`），找不到时同 `uncommitted`、不带 `baseRef`；`turn` 是会话一个回合前后的快照之间（必须带 `sessionId`，否则 `INVALID_PARAMS`），回合还没有“后”快照（进行中、快照失败）时新的一侧是现在的工作树、带 `live: true`，没有“前”快照时只回 `repo: true, unavailable: 'no_checkpoint'`（快照见 domain-model §3.13）；回合里 HEAD 动过（pull、merge、rebase、提交）时，git 带进来、回合本身没写过的文件不算（T3 Code 的做法）。目录与 `workspace.git` 相同（带 `sessionId` 时是会话的目录），路径相对它（`git diff --relative`），跟踪重命名。`base` 是旧的一侧的提交（还没有提交时是空树），`head` 是新的一侧的提交（省略即工作树），两者给 `workspace.diffFile`。`patch` 是 `a/`、`b/` 前缀的统一格式 diff，只含 `files` 里没有 `omitted` 的文件；`files` 每项 `path`、`previousPath?`、`status`（`added` / `deleted` / `modified` / `renamed` / `copied` / `type_changed` / `untracked`，开放字符串）、`added` / `removed`（二进制文件没有，带 `binary: true`）。上限：整个 `patch` 2 MiB、单个文件 512 KiB（UTF-16 code unit），超过的文件只列出、带 `omitted`（`too_large` / `over_limit`）；未跟踪文件多于 5000 个时不算它们的 diff，逐个列出、带 `omitted: 'over_limit'`；`files` 最多 2000 项。有任何 `omitted` 或 `files` 被截断时 `truncated: true`，`fileCount` 与 `added` / `removed` 仍是全部。同一目录同一段的并发调用共用一次读取；每条 git 命令 10 s 超时，超时与 git 出错都回 `repo: false`。安全做法同 `workspace.git`，另外屏蔽钩子与提交签名。
@@ -371,6 +372,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 ## 10. 兼容规则
 
+`0.21.0`：服务账号认证的 `google-vertex` Provider。`ProviderProfile.vertex` 与新 upsert 分支的 `vertex`、`serviceAccountJson` 都是 optional；vertex 内 project 必填、location optional（默认 global）。Host 写入时要求有效 project、Chat 或 Messages 协议、至少一个匹配发布方的模型；不使用自定义 baseURL，地址由网关生成。serviceAccountJson 只进 SecretStore，响应、日志、事件不返回它；省略保留、字符串替换、null 删除，hasSecret 沿用。新 Host 服务旧客户端：未声明 provider_kind_google_vertex 时 provider.list 隐藏此 kind，已有会话照常列出；新客户端连旧 Host：没有 google_vertex 功能就禁用 Vertex 入口，不发送新 kind。最低版本仍为 0.1.0，冻结样本 compat/0.21.0.json，旧样本不改。
+
 依据 Paseo 的兼容纪律（Paseo 研读 §2.3、§2.4；ADR-0002 §2）。目标：半年前的客户端能连新 Host，半年前的 Host 能服务新客户端（同一主版本内）。改 `packages/protocol` 的提交要在说明里回答这两个问题。
 
 **版本**
@@ -399,6 +402,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 |---|---|---|---|
 | `title_source_generated` | 0.5.0 | `TitleSource` 的 `generated` | 换成 `first_prompt`（事件与会话的结果都换），标题本身不变 |
 | `provider_kind_chatgpt` | 0.7.0 | `ProviderKind` 的 `chatgpt` | `provider.list` 的结果里去掉 `chatgpt` 类 Provider |
+| `provider_kind_google_vertex` | 0.21.0 | `ProviderKind` 的 `google-vertex` | `provider.list` 隐藏这类 Provider |
 | `subscription_kinds` | 0.19.0 | `ProviderKind` 与 `AccountKind` 的订阅来源（`claude`、`cursor`、`opencode`、`grok`、`antigravity`） | `provider.list` 与 `account.list` 的结果里去掉这些种类，不发它们的 `account.updated` |
 
 **Host 功能（`features`）**
@@ -408,6 +412,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | 功能 | 加入版本 | 声明了它的 Host 提供 |
 |---|---|---|
 | `chatgpt_account` | 0.7.0 | `account.*` 方法、`account.updated` 通知与 `chatgpt` 类 Provider（Codex 引擎） |
+| `google_vertex` | 0.21.0 | 服务账号的 Gemini Chat 与 Claude Messages 变体（Codex 网关） |
 | `pending_messages` | 0.8.0 | `session.send` 的 `delivery`、`pending.*` 方法、`pending.*` 与 `user.steered` 事件、快照的 `pendingMessages` |
 | `host_settings` | 0.8.0 | `settings.get` / `settings.update` 与 `settings.updated` 通知 |
 | `session_configure` | 0.9.0 | `session.configure` 与 `session.configured` 事件（Codex 引擎） |

@@ -105,6 +105,7 @@ import {
   UserContentPartSchema,
   UserQuestionOptionSchema,
   UserQuestionSchema,
+  VertexConfigSchema,
   WEVIR_EVENT_TYPES,
   WevirEventEnvelopeSchema,
   WevirEventSchema,
@@ -301,6 +302,12 @@ const standaloneCases: Case[] = [
       { systemMessageMode: 'top' },
       { supportsCustomTools: 'no' },
     ],
+  },
+  {
+    name: 'VertexConfig',
+    schema: VertexConfigSchema,
+    valid: [{ project: 'vertex-example' }, { project: 'vertex-example', location: 'global' }],
+    invalid: [{}, { project: '' }, { project: 'vertex-example', location: '' }],
   },
   {
     name: 'HttpUrl',

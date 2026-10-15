@@ -113,6 +113,9 @@ export function effectiveCompat(provider: ProviderConfig): ProviderCompatConfig 
  * （所有会话都受影响），所以 Host 在写库之前调用它（`AgentRuntimeAdapter.validateProvider`）。
  */
 export function validateProviderConfig(provider: ProviderConfig): ProviderIssue[] {
+  if (provider.kind === 'google-vertex') {
+    return [{ path: ['kind'], message: 'Vertex 服务账号需要 Codex 模型网关' }];
+  }
   if (provider.kind === 'chatgpt') {
     return [{ path: ['kind'], message: 'dsh 引擎没有 ChatGPT 账号，要用 Codex 引擎' }];
   }

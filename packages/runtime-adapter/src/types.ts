@@ -179,12 +179,15 @@ export interface ProviderConfig {
    * 在 `validateProvider` 里拒绝它、在 `configureProviders` 里跳过它（Host 可能带着库里已有的这类 Provider 换引擎启动）。
    * 订阅来源（0.19.0）同理：模型来自对应引擎的 `EngineAccounts.models`，Host 的引擎路由只把它交给那个引擎。
    */
-  kind: 'deepseek-official' | 'openai-compatible' | 'chatgpt' | SubscriptionKind;
+  kind: 'deepseek-official' | 'openai-compatible' | 'google-vertex' | 'chatgpt' | SubscriptionKind;
   displayName: string;
-  /** `openai-compatible` 必有：openai-completions / openai-responses / anthropic-messages。 */
+  /** `openai-compatible` 必有；google-vertex 只用 openai-completions / anthropic-messages。 */
   api?: string;
   baseURL?: string;
   compat?: ProviderCompatConfig;
+  vertex?: { project: string; location?: string };
+  /** 整份服务账号 JSON，只供 Host 进程里的网关使用。 */
+  serviceAccountJson?: string;
   models: ProviderModelConfig[];
   defaultModelId: string;
   /** 没有存 Key 时省略。 */

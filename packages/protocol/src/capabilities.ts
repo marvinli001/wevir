@@ -19,6 +19,8 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
   /** 认得 `ProviderKind` 的 `chatgpt`；没有时 Host 从 `provider.list` 的结果里去掉这类 Provider。 */
   providerKindChatgpt: 'provider_kind_chatgpt',
+  // COMPAT(providerKindGoogleVertex): added in 0.21.0, remove gate after 2027-06-01
+  providerKindGoogleVertex: 'provider_kind_google_vertex',
   // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
   /**
    * 认得订阅来源的种类（`SUBSCRIPTION_KINDS`，`ProviderKind` 与 `AccountKind` 都有）；没有时 Host 从 `provider.list` 与
@@ -32,6 +34,7 @@ export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_
 export const ClientCapabilitiesSchema = z.looseObject({
   title_source_generated: z.boolean().optional(),
   provider_kind_chatgpt: z.boolean().optional(),
+  provider_kind_google_vertex: z.boolean().optional(),
   subscription_kinds: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
@@ -47,6 +50,8 @@ export const HOST_FEATURES = {
    * dsh 与 echo 引擎的 Host 不声明它。
    */
   chatgptAccount: 'chatgpt_account',
+  /** 服务账号认证的 Vertex Provider（0.21.0），只有模型网关支持。 */
+  googleVertex: 'google_vertex',
   /** 回合进行中发消息（0.8.0）：`session.send` 的 `delivery`、`pending.*` 方法与事件、`user.steered`。 */
   pendingMessages: 'pending_messages',
   /** Host 设置（0.8.0）：`settings.get` / `settings.update` 与 `settings.updated` 通知。 */
@@ -89,6 +94,7 @@ export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
   chatgpt_account: z.boolean().optional(),
+  google_vertex: z.boolean().optional(),
   pending_messages: z.boolean().optional(),
   host_settings: z.boolean().optional(),
   session_configure: z.boolean().optional(),

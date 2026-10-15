@@ -2,6 +2,7 @@
 // 不进 Codex 的环境与 CODEX_HOME，不打印。照 packages/adapter-dsh/src/test-fixtures/real-model.ts 的
 // `realProviderFromEnv`，Provider 的形状换成经网关的（模型列表不能为空）。
 
+import { readFileSync } from 'node:fs';
 import type { ProviderConfig } from '@wevir/runtime-adapter';
 
 export type RealProvider = { provider: ProviderConfig; modelId: string } | { skip: string };
@@ -15,6 +16,53 @@ export type RealProvider = { provider: ProviderConfig; modelId: string } | { ski
  * 缺 Key 或 `WEVIR_TEST_PROVIDER` 时返回跳过的原因；值不对、缺地址或模型时直接报错，不悄悄跳过。
  */
 export function realProviderFromEnv(env: NodeJS.ProcessEnv = process.env): RealProvider {
+  if (env.WEVIR_TEST_PROVIDER === 'google-vertex') {
+    const json = env.WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_JSON;
+    const file = env.WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_FILE;
+    if (json && file) throw new Error('服务账号 JSON 与文件路径只选一种');
+    if (!json && !file)
+      return {
+        skip: '缺少 WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_JSON 或 WEVIR_TEST_VERTEX_SERVICE_ACCOUNT_FILE',
+      };
+    const project = env.WEVIR_TEST_VERTEX_PROJECT;
+    if (!project) throw new Error('google-vertex 需要 WEVIR_TEST_VERTEX_PROJECT');
+    const api = env.WEVIR_TEST_API || 'openai-completions';
+    if (!['openai-completions', 'anthropic-messages'].includes(api))
+      throw new Error('Vertex 只支持 openai-completions 或 anthropic-messages');
+    let serviceAccountJson: string;
+    try {
+      serviceAccountJson = json || readFileSync(file ?? '', 'utf8');
+    } catch {
+      throw new Error('无法读取 Vertex 服务账号文件');
+    }
+    const modelId =
+      env.WEVIR_TEST_MODEL ||
+      (api === 'anthropic-messages' ? 'claude-sonnet-5-5' : 'google/gemini-3.8-flash');
+    return {
+      modelId,
+      provider: {
+        id: 'vertex-real',
+        kind: 'google-vertex',
+        displayName: 'Google Vertex AI',
+        api,
+        vertex: { project, location: env.WEVIR_TEST_VERTEX_LOCATION || 'global' },
+        serviceAccountJson,
+        models: [
+          {
+            id: modelId,
+            contextWindow: api === 'anthropic-messages' ? 1000000 : 1048576,
+            maxTokens: api === 'anthropic-messages' ? 128000 : 65536,
+            supportsImages: true,
+            reasoningEfforts:
+              api === 'anthropic-messages'
+                ? ['low', 'medium', 'high', 'xhigh', 'max']
+                : ['low', 'medium', 'high'],
+          },
+        ],
+        defaultModelId: modelId,
+      },
+    };
+  }
   const key = env.WEVIR_TEST_API_KEY || undefined;
   const kind = env.WEVIR_TEST_PROVIDER || undefined;
   if (key === undefined || kind === undefined) {
@@ -64,5 +112,7 @@ export function realProviderFromEnv(env: NodeJS.ProcessEnv = process.env): RealP
       modelId: model,
     };
   }
-  throw new Error(`WEVIR_TEST_PROVIDER 只能是 deepseek-official 或 openai-compatible：${kind}`);
+  throw new Error(
+    `WEVIR_TEST_PROVIDER 只能是 deepseek-official、openai-compatible 或 google-vertex：${kind}`,
+  );
 }

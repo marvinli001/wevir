@@ -93,7 +93,7 @@ export function createProviderLock(): ProviderLock {
 
 export type ProviderBridge = Pick<
   AgentRuntimeAdapter,
-  'validateProvider' | 'configureProviders' | 'testProvider'
+  'validateProvider' | 'configureProviders' | 'testProvider' | 'googleVertex'
 >;
 
 /**
@@ -324,13 +324,15 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'provider.upsert': async (params) => {
       if (params.kind === 'chatgpt') return upsertChatgpt(params);
+      if (params.kind === 'google-vertex' && bridge?.googleVertex !== true)
+        throw invalidParams(['kind'], 'this engine does not support Google Vertex');
       return serialProvider(async () => {
         const existing = storage.providers.get(params.id);
         if (existing && existing.kind !== params.kind) {
           throw invalidParams(['kind'], `kind of provider ${params.id} cannot be changed`);
         }
         if (
-          params.kind === 'openai-compatible' &&
+          (params.kind === 'openai-compatible' || params.kind === 'google-vertex') &&
           !params.models.some((model) => model.id === params.defaultModelId)
         ) {
           throw invalidParams(['defaultModelId'], 'defaultModelId must be one of models');
@@ -345,9 +347,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
             defaultModelId: params.defaultModelId,
             createdAt: '',
             updatedAt: '',
-            ...(params.baseURL !== undefined && { baseURL: params.baseURL }),
-            ...(params.kind === 'openai-compatible' && {
+            ...('baseURL' in params && params.baseURL !== undefined && { baseURL: params.baseURL }),
+            ...(params.kind !== 'deepseek-official' && {
               api: params.api,
+              ...(params.kind === 'google-vertex' &&
+                params.vertex !== undefined && { vertex: params.vertex }),
               ...(params.compat !== undefined && { compat: params.compat }),
             }),
           },
@@ -363,10 +367,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         }
 
         let secretRef = existing?.secretRef;
-        if (typeof params.apiKey === 'string') {
+        const secret = params.kind === 'google-vertex' ? params.serviceAccountJson : params.apiKey;
+        if (typeof secret === 'string') {
           secretRef = params.id;
-          await secrets.set(secretRef, params.apiKey);
-        } else if (params.apiKey === null) {
+          await secrets.set(secretRef, secret);
+        } else if (secret === null) {
           if (secretRef !== undefined) await secrets.delete(secretRef);
           secretRef = undefined;
         }
@@ -381,8 +386,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           createdAt: existing?.createdAt ?? now,
           updatedAt: now,
         };
-        if (params.baseURL !== undefined) record.baseURL = params.baseURL;
-        if (params.kind === 'openai-compatible') {
+        if ('baseURL' in params && params.baseURL !== undefined) record.baseURL = params.baseURL;
+        if (params.kind === 'google-vertex' && params.vertex !== undefined)
+          record.vertex = params.vertex;
+        if (params.kind !== 'deepseek-official') {
           record.api = params.api;
           if (params.compat !== undefined) record.compat = params.compat;
         }
@@ -605,6 +612,7 @@ function toProviderProfile(record: ProviderProfileRecord): ProviderProfile {
     ...(record.api !== undefined && { api: record.api }),
     ...(record.baseURL !== undefined && { baseURL: record.baseURL }),
     ...(record.compat !== undefined && { compat: record.compat }),
+    ...(record.vertex !== undefined && { vertex: record.vertex }),
     ...(record.enabled === false && { enabled: false }),
   };
   // 记录里的枚举与 JSON 列是 string / unknown；形状由写入时的参数校验保证，发出前再按注册表校验。
@@ -626,7 +634,11 @@ function toProviderConfig(
   if (record.api !== undefined) config.api = record.api;
   if (record.baseURL !== undefined) config.baseURL = record.baseURL;
   if (record.compat !== undefined) config.compat = record.compat as ProviderConfig['compat'];
-  if (apiKey !== undefined) config.apiKey = apiKey;
+  if (record.vertex !== undefined) config.vertex = record.vertex;
+  if (apiKey !== undefined) {
+    if (record.kind === 'google-vertex') config.serviceAccountJson = apiKey;
+    else config.apiKey = apiKey;
+  }
   return config;
 }
 

@@ -126,7 +126,7 @@ export function toMessagesRequest(
   provider: GatewayProvider,
 ): MessagesTranslation {
   const compat = provider.compat ?? {};
-  const official = isAnthropicHost(provider.baseURL ?? '');
+  const official = provider.kind === 'google-vertex' || isAnthropicHost(provider.baseURL ?? '');
   // 代理用显式 adaptive 开启 Claude 方言；不把其他 Messages 服务当作 Anthropic。
   const claudeDialect = official || compat.thinkingFormat === 'adaptive';
   const model = currentClaude(body.model);

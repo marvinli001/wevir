@@ -18,6 +18,7 @@ import {
 } from './provider-form';
 import { FORM_APIS } from './provider-presets';
 import { SELECT } from './settings-ui';
+import { VertexFields } from './vertex-fields';
 
 export interface SaveOutcome {
   id: string;
@@ -51,7 +52,8 @@ export function ProviderEditor({
   const ids = useId();
 
   const update = (patch: Partial<ProviderForm>) => setForm((current) => ({ ...current, ...patch }));
-  const openAI = form.kind === 'openai-compatible';
+  const vertex = form.kind === 'google-vertex';
+  const openAI = form.kind !== 'deepseek-official';
   const name = form.editing
     ? initial.displayName
     : form.preset
@@ -62,7 +64,7 @@ export function ProviderEditor({
 
   // 按模板新建（含 DeepSeek 官方）时其余字段都已填好，Key 放在最前并聚焦：用户只需填 Key。
   const keyFirst = !form.editing && (form.preset !== undefined || !openAI);
-  const keyField = (
+  const keyField = vertex ? null : (
     <FormField id={`${ids}-key`} label={t('provider.form.apiKey')}>
       <Input
         id={`${ids}-key`}
@@ -92,7 +94,10 @@ export function ProviderEditor({
     const outcome: SaveOutcome = {
       id: params.id,
       displayName: params.displayName,
-      hasSecret: params.apiKey !== undefined || form.hasSecret,
+      hasSecret:
+        (params.kind === 'google-vertex'
+          ? params.serviceAccountJson !== undefined
+          : params.apiKey !== undefined) || form.hasSecret,
       connectionChanged: connectionChanged(initial, form),
     };
     setSaving(true);
@@ -137,7 +142,7 @@ export function ProviderEditor({
         </h2>
       </div>
 
-      {form.preset && (form.preset.note || form.preset.docsURL) && (
+      {!vertex && form.preset && (form.preset.note || form.preset.docsURL) && (
         <div className="space-y-1.5 rounded-lg bg-muted px-3.5 py-2.5 text-sm text-muted-foreground">
           {form.preset.note && <p>{t(form.preset.note)}</p>}
           {form.preset.docsURL && (
@@ -181,7 +186,12 @@ export function ProviderEditor({
         />
       </FormField>
 
-      {openAI ? (
+      {vertex ? (
+        <>
+          <VertexFields form={form} errors={errors} onChange={update} />
+          <ModelsField form={form} errors={errors} onChange={update} />
+        </>
+      ) : openAI ? (
         <>
           <FormField id={`${ids}-api`} label={t('provider.form.api')}>
             <select
@@ -279,7 +289,15 @@ export function ProviderEditor({
 }
 
 /** 有输入框的字段：Host 退回的 `issues[].path` 落在这些字段（或其下）时显示在输入框旁。 */
-const FIELD_KEYS = ['displayName', 'id', 'baseURL', 'models', 'defaultModelId'];
+const FIELD_KEYS = [
+  'displayName',
+  'id',
+  'baseURL',
+  'models',
+  'defaultModelId',
+  'vertex',
+  'serviceAccountJson',
+];
 
 function FormField({
   id,

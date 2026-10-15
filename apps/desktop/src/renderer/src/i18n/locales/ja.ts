@@ -496,8 +496,8 @@ export const messages: Messages = {
   'engineError.category.cancel_unconfirmed': 'キャンセル未確認',
   'engineError.category.session_unavailable': 'エンジンセッションを利用できません',
   'engineError.category.unknown': 'エンジンエラー',
-  'engineError.hint.missing_credentials': '設定で API Key を入力',
-  'engineError.hint.provider': 'サービス URL、モデル、API Key を確認',
+  'engineError.hint.missing_credentials': '設定でモデルサービスの認証情報を入力してください',
+  'engineError.hint.provider': 'サービス URL、モデル、認証情報を確認してください',
   'engineError.hint.engine_exited': 'メッセージを送信してセッションを再開',
   'engineError.hint.cancel_unconfirmed':
     'エンジンが再起動しました。メッセージを送信してセッションを再開',
@@ -619,7 +619,7 @@ export const messages: Messages = {
 
   'provider.section.accounts': 'サブスクリプションアカウント',
   'provider.section.subscriptions': 'サブスクリプション',
-  'provider.section.keyed': 'API Key',
+  'provider.section.keyed': 'API とサービス アカウント',
   'provider.enabled': 'モデル選択に「{name}」を表示',
   'provider.summary': '{sources} 個のソース · {models} 個のモデル',
 
@@ -677,7 +677,7 @@ export const messages: Messages = {
   'provider.edit': '編集',
   'provider.remove': '削除',
   'provider.saved': '「{name}」を保存しました',
-  'provider.savedNoKey': '「{name}」を保存しました (API Key 未設定)',
+  'provider.savedNoKey': '「{name}」を保存しました。認証情報は未設定です',
   'provider.engineNotApplied': '「{name}」を保存しましたが、エンジンに適用されていません: {error}',
 
   'account.chatgpt.title': 'ChatGPT アカウント',
@@ -726,6 +726,22 @@ export const messages: Messages = {
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
+  'provider.preset.vertex.note':
+    'Google Cloud での現在の名称は Gemini Enterprise Agent Platform です。課金とモデルへのアクセスを有効にし、サービス アカウント JSON を使用します。既定は global。Claude の us / eu は 10% 割増です。中国本土から直接接続できません。',
+  'provider.vertex.project': 'Google Cloud プロジェクト ID',
+  'provider.vertex.location': 'ロケーション',
+  'provider.vertex.family': 'モデル系列',
+  'provider.vertex.account': 'サービス アカウント JSON',
+  'provider.vertex.accountPlaceholder': 'サービス アカウント JSON 全体を貼り付け',
+  'provider.vertex.file': 'サービス アカウント JSON ファイルを選択',
+  'provider.vertex.accountInvalid':
+    '有効なサービス アカウント JSON ファイルを使用してください（64 KiB 以下）',
+  'provider.vertex.projectInvalid':
+    '有効な Google Cloud プロジェクト ID またはプロジェクト番号を入力してください',
+  'provider.vertex.locationInvalid': 'global、us、eu など有効なロケーションを入力してください',
+  'provider.vertex.modelInvalid':
+    'Gemini の ID は google/gemini-、Claude の ID は claude- で始まる必要があります',
+  'welcome.upgradeHost': 'バックグラウンド サービスの更新が必要です',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': 'Qwen',
@@ -799,10 +815,10 @@ export const messages: Messages = {
   'provider.test.seconds': '{seconds} 秒',
   'provider.test.notRun': 'テスト未完了',
   'provider.test.gone': 'モデルプロバイダーは削除されました',
-  'provider.test.reason.missing_key': 'API Key がありません',
+  'provider.test.reason.missing_key': '認証情報がありません',
   'provider.test.reason.network': 'サービスに接続できません',
   'provider.test.reason.timeout': '接続タイムアウト',
-  'provider.test.reason.auth': 'API Key が無効か、権限がありません',
+  'provider.test.reason.auth': '認証情報が無効か、権限が不足しています',
   'provider.test.reason.model_not_found': 'サービスにこのモデルが存在しません',
   'provider.test.reason.protocol': 'URL またはプロトコルが正しくありません',
   'provider.test.reason.rate_limited': 'レート制限中または利用枠の超過',
@@ -810,7 +826,7 @@ export const messages: Messages = {
   'provider.test.reason.unknown': 'テスト失敗',
   'provider.test.hint.network': 'サービス URL、ネットワーク、プロキシを確認',
   'provider.test.hint.timeout': '20 秒以内に応答なし',
-  'provider.test.hint.auth': 'API Key とサービス URL が同じサイトのものか確認',
+  'provider.test.hint.auth': '認証情報、プロジェクトの権限、サービス URL を確認してください',
   'provider.test.hint.model_not_found': 'デフォルトモデル ID を確認',
   'provider.test.hint.protocol': 'サービスが選択したプロトコルで応答しません',
   'provider.test.hint.rate_limited': 'しばらくしてから再試行するか、残高を確認',

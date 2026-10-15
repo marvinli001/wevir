@@ -8,7 +8,7 @@ import type { TurnError } from './protocol.js';
 // test-fixtures/app-server/errors/turn-*.json（真实 codex-app-server + 网关 + mock 上游录制）。
 
 /** 网关在 Provider 没有 Key 时的拒绝（model-gateway 的 gateway.ts，401）。 */
-const MISSING_KEY = /wevir gateway: Provider .+ 没有 API Key/;
+const MISSING_KEY = /wevir gateway: Provider .+ 没有(?: API Key|服务账号 JSON)/;
 
 /** 带上游状态码的变体：连接或流的失败、重试用完。 */
 const HTTP_VARIANTS = [

@@ -36,6 +36,7 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   /** 环境会话的额外目录（0.15.0）。 */
   readonly additionalRoots = true;
   readonly suggestedTasks = true;
+  readonly googleVertex = true;
   readonly gateway: CodexAdapter;
   readonly chatgpt: CodexAdapter;
   readonly accounts: EngineAccounts;

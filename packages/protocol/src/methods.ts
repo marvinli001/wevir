@@ -45,6 +45,7 @@ import {
   SessionSchema,
   SessionSnapshotSchema,
   UserContentPartSchema,
+  VertexConfigSchema,
   WorkspaceSchema,
   WorktreeModeSchema,
 } from './entities.js';
@@ -340,6 +341,23 @@ export const ProviderUpsertParamsSchema = z.discriminatedUnion('kind', [
     baseURL: HttpUrlSchema,
     compat: ProviderCompatSchema.optional(),
     models: z.array(ProviderModelSchema).min(1),
+  }),
+  z.object({
+    id: ProviderIdSchema,
+    kind: z.literal('google-vertex'),
+    displayName: z.string().min(1),
+    defaultModelId: z.string().min(1),
+    api: ProviderApiSchema,
+    vertex: VertexConfigSchema.optional(),
+    compat: ProviderCompatSchema.optional(),
+    models: z.array(ProviderModelSchema).min(1),
+    /** 整份服务账号 JSON 只进 SecretStore；省略保留、null 删除。 */
+    serviceAccountJson: z
+      .string()
+      .min(1)
+      .max(64 * 1024)
+      .nullable()
+      .optional(),
   }),
   /**
    * ChatGPT 订阅（0.7.0）：没有 Key、地址与 compat；`models` 由 Host 从引擎取（ChatGPT 登录成功时 Host 会自己建这个

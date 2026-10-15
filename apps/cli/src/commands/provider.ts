@@ -271,7 +271,9 @@ export async function providerList(ctx: Context): Promise<number> {
               t('provider.chatgptLogin'),
               t('common.paren', { text: 'ChatGPT' }),
             ]
-          : p.kind !== 'deepseek-official' && p.kind !== 'openai-compatible'
+          : p.kind !== 'deepseek-official' &&
+              p.kind !== 'openai-compatible' &&
+              p.kind !== 'google-vertex'
             ? [
                 p.id,
                 p.displayName,
@@ -286,7 +288,9 @@ export async function providerList(ctx: Context): Promise<number> {
                 p.kind,
                 p.defaultModelId,
                 p.hasSecret ? t('provider.key.set') : t('provider.key.unset'),
-                p.baseURL ?? t('provider.officialAddress'),
+                p.kind === 'google-vertex'
+                  ? `${p.vertex?.project ?? ''}/${p.vertex?.location ?? 'global'}`
+                  : (p.baseURL ?? t('provider.officialAddress')),
               ],
       ),
     ),
