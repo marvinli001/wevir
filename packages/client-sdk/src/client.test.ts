@@ -596,6 +596,51 @@ describe('账号（R6）', () => {
   });
 });
 
+describe('全部账号（0.19.0）', () => {
+  const claudeIn = { kind: 'claude', status: 'signed_in', signIn: 'command' };
+  const claudeOut = { kind: 'claude', status: 'signed_out', signIn: 'command' };
+  const cursorOut = { kind: 'cursor', status: 'signed_out', signIn: 'in_app' };
+
+  it('watchAccounts：有 subscription_sources 时读 account.list，通知按种类替换；重连后再读；只有 ChatGPT 时读 account.get；都没有时给空表', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { subscription_sources: true } },
+    }));
+    let accounts: unknown[] = [claudeIn, cursorOut];
+    host.on('account.list', () => ({ result: { accounts } }));
+    const { client } = await connect(host);
+    const seen: unknown[][] = [];
+    const stop = client.watchAccounts((list) => seen.push(list));
+    await vi.waitFor(() => expect(seen).toEqual([[claudeIn, cursorOut]]));
+    host.last.notify('account.updated', { account: claudeOut });
+    host.last.notify('account.updated', { account: { kind: 'grok', status: 'signed_in' } });
+    expect(seen.at(-1)).toEqual([claudeOut, cursorOut, { kind: 'grok', status: 'signed_in' }]);
+    accounts = [claudeOut];
+    host.last.drop();
+    await vi.waitFor(() => expect(seen.at(-1)).toEqual([claudeOut]));
+    stop();
+
+    const chatgptOnly = new FakeHost();
+    chatgptOnly.on('host.hello', () => ({
+      result: { ...HELLO, features: { chatgpt_account: true } },
+    }));
+    chatgptOnly.on('account.get', () => ({
+      result: { account: { kind: 'chatgpt', status: 'signed_out' } },
+    }));
+    const { client: second } = await connect(chatgptOnly);
+    const lists: unknown[][] = [];
+    second.watchAccounts((list) => lists.push(list));
+    await vi.waitFor(() => expect(lists).toEqual([[{ kind: 'chatgpt', status: 'signed_out' }]]));
+
+    const plain = new FakeHost();
+    const { client: old } = await connect(plain);
+    const empty: unknown[][] = [];
+    old.watchAccounts((list) => empty.push(list));
+    await vi.waitFor(() => expect(empty).toEqual([[]]));
+    expect(plain.last.requests('account.list')).toEqual([]);
+  });
+});
+
 describe('Host 设置（R11）', () => {
   it('watchSettings：先 settings.get，之后的 settings.updated 照收；重连后再 settings.get；Host 没有功能时不调', async () => {
     const host = new FakeHost();

@@ -1,10 +1,16 @@
 import { cn } from 'cn';
 import anthropic from '@/assets/provider-logos/anthropic.svg';
+import antigravity from '@/assets/provider-logos/antigravity-color.svg';
+import claude from '@/assets/provider-logos/claude-color.svg';
+import codex from '@/assets/provider-logos/codex-color.svg';
+import cursor from '@/assets/provider-logos/cursor.svg';
 import deepseek from '@/assets/provider-logos/deepseek-color.svg';
 import gemini from '@/assets/provider-logos/gemini-color.svg';
+import grok from '@/assets/provider-logos/grok.svg';
 import kimi from '@/assets/provider-logos/kimi-color.svg';
 import ollama from '@/assets/provider-logos/ollama.svg';
 import openai from '@/assets/provider-logos/openai.svg';
+import opencode from '@/assets/provider-logos/opencode.svg';
 import qwen from '@/assets/provider-logos/qwen-color.svg';
 import vertex from '@/assets/provider-logos/vertexai-color.svg';
 import xai from '@/assets/provider-logos/xai.svg';
@@ -22,6 +28,13 @@ const LOGOS = {
   zhipu: { src: zhipu, mono: false },
   xai: { src: xai, mono: true },
   ollama: { src: ollama, mono: true },
+  // 订阅来源的软件标志（0.19.0）：模型选择与设置里用它区分“来自哪个订阅”与 API。
+  codex: { src: codex, mono: false },
+  claude: { src: claude, mono: false },
+  cursor: { src: cursor, mono: true },
+  opencode: { src: opencode, mono: true },
+  grok: { src: grok, mono: true },
+  antigravity: { src: antigravity, mono: false },
 } as const;
 
 export type ProviderLogoId = keyof typeof LOGOS;

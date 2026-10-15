@@ -14,5 +14,13 @@
 | `zhipu-color.svg` | 智谱 GLM | `8174e65ff71647d5c705c920c953a82bd723d9e3e42887bdd4ffc9dfe51207a0` |
 | `xai.svg` | xAI | `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451` |
 | `ollama.svg` | Ollama | `3a268218fb2e6e81fa31df70f70b51331625047794db81db21d35359428fae7a` |
+| `codex-color.svg` | 订阅来源 Codex（ChatGPT 订阅） | `4a2f43ce46b5b6e3722c95088f88d26ef91e6a8c2e598e70642a1c54367386e4` |
+| `claude-color.svg` | 订阅来源 Claude Agent | `a3101f3047a119aa11825ad9369510f0c472428c8c52d420e31bc62db44a8364` |
+| `cursor.svg` | 订阅来源 Cursor | `0cb51bddf264ae108926fd554c063ef40fc1aac3c5c921ddb39ad184e4e5d0ef` |
+| `opencode.svg` | 订阅来源 OpenCode | `7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302` |
+| `grok.svg` | 订阅来源 Grok | `9175fc90c22655160231976c849f25a03b888d7cc0e04c5f1b987b659bb07c95` |
+| `antigravity-color.svg` | 订阅来源 Antigravity | `652128cf55a28bb958563ee372d0bd00208d9e6fd446f523f77aafd811eef8ca` |
+
+订阅来源的标志（0.19.0）是软件本身的标志（Claude 用 Claude 的标志，不用 Claude Code 的，照 Anthropic 对第三方的品牌要求）。
 
 单色的（`fill="currentColor"`）经 CSS 遮罩画成文字色，彩色的（`-color`）用 `<img>` 原样显示。

@@ -1,4 +1,4 @@
-import type { SessionId } from '@wevir/protocol';
+import type { AccountState, SessionId } from '@wevir/protocol';
 import {
   createContext,
   type ReactNode,
@@ -9,6 +9,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { useHostConnection } from '@/host/host-connection';
+import { AccountsStore } from './accounts-store';
 import { TranscriptCache, type TranscriptState } from './transcript-store';
 import type { WorkbenchData } from './workbench-model';
 import { LIST_REFRESH_MS, WorkbenchStore } from './workbench-store';
@@ -16,6 +17,7 @@ import { LIST_REFRESH_MS, WorkbenchStore } from './workbench-store';
 interface Stores {
   workbench: WorkbenchStore;
   transcripts: TranscriptCache;
+  accounts: AccountsStore;
 }
 
 const StoresContext = createContext<Stores | undefined>(undefined);
@@ -36,14 +38,17 @@ export function WorkbenchDataProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!client) return;
+    const workbench = new WorkbenchStore(client);
     const created = {
-      workbench: new WorkbenchStore(client),
+      workbench,
       transcripts: new TranscriptCache(client),
+      accounts: new AccountsStore(client, workbench),
     };
     setStores(created);
     return () => {
       created.workbench.dispose();
       created.transcripts.dispose();
+      created.accounts.dispose();
     };
   }, [client]);
 
@@ -70,6 +75,19 @@ export function useWorkbenchData(): WorkbenchData {
 /** 列表的写入口（新建会话后立即放进列表等）；还没连上 Host 时为 undefined。 */
 export function useWorkbenchStore(): WorkbenchStore | undefined {
   return useContext(StoresContext)?.workbench;
+}
+
+const NO_ACCOUNTS = () => undefined;
+
+/** ChatGPT 与订阅来源的账号（0.19.0，accounts-store.ts）；还没连上或还没读到时为 undefined。 */
+export function useAccounts(): AccountState[] | undefined {
+  const store = useContext(StoresContext)?.accounts;
+  return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? NO_ACCOUNTS);
+}
+
+/** 账号表的写入口（本端操作的结果立即合进来）。 */
+export function useAccountsStore(): AccountsStore | undefined {
+  return useContext(StoresContext)?.accounts;
 }
 
 const NO_TRANSCRIPT = () => undefined;

@@ -27,10 +27,13 @@ import { NoticeBanner, SELECT } from './settings-ui';
 export function ChatgptAccountSection({
   client,
   provider,
+  embedded = false,
 }: {
   client: WevirClient;
   /** 登录成功后 Host 建的 `chatgpt` Provider（还没建时省略）。 */
   provider: ProviderProfile | undefined;
+  /** 放在订阅格子的详情里（0.19.0）：不画自己的卡片与标题，名称与状态由详情的头部给出。 */
+  embedded?: boolean;
 }) {
   const store = useWorkbenchStore();
   const [account, setAccount] = useState<AccountState>();
@@ -83,16 +86,18 @@ export function ChatgptAccountSection({
   const phase = accountPhase(account);
   return (
     <section
-      className="space-y-3 rounded-xl border border-border bg-card p-4"
+      className={cn('space-y-3', !embedded && 'rounded-xl border border-border bg-card p-4')}
       data-section="chatgpt-account"
       data-phase={phase.kind}
     >
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex items-center gap-2">
-            <h3 className="font-medium">{t('account.chatgpt.title')}</h3>
-            <PhaseBadge phase={phase} />
-          </div>
+          {!embedded && (
+            <div className="flex items-center gap-2">
+              <h3 className="font-medium">{t('account.chatgpt.title')}</h3>
+              <PhaseBadge phase={phase} />
+            </div>
+          )}
         </div>
         {phase.kind === 'signed_out' && (
           <div className="flex shrink-0 items-center gap-1.5">
@@ -394,7 +399,8 @@ function SignedIn({
   );
 }
 
-function UsageBar({ window: usage }: { window: AccountRateLimitWindow }) {
+/** 一个用量窗口：名称、已用百分比、进度条与重置时间（订阅来源的详情也用，0.19.0）。 */
+export function UsageBar({ window: usage }: { window: AccountRateLimitWindow }) {
   const tone = usageTone(usage);
   const percent = Math.min(100, Math.max(0, usage.usedPercent));
   const resets = resetLabel(usage.resetsAt);

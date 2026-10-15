@@ -7,12 +7,14 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
+import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
-import { useHostConnection } from '@/host/host-connection';
+import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
+import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { ProviderCatalogDialog } from '@/onboarding/provider-catalog-dialog';
-import { ChatgptAccountSection } from './chatgpt-account';
+import { modelsOf } from '@/session/model-picker';
 import { type CatalogEntry, providerLogo } from './provider-catalog';
 import { ProviderEditor, type SaveOutcome } from './provider-editor';
 import {
@@ -34,6 +36,7 @@ import {
   SettingsLoading,
   SettingsSection,
 } from './settings-ui';
+import { SubscriptionSources } from './subscription-sources';
 
 type View = { kind: 'list' } | { kind: 'form'; form: ProviderForm };
 
@@ -42,7 +45,8 @@ type TestState = { status: 'running' } | { status: 'done'; result: TestPresentat
 /**
  * 设置 → 模型服务（T5.4，U7 改样式）：列表、新增（在与首次引导相同的“模型服务”对话框里选，再填表单）、编辑、删除、测试连接。
  * Key 只在表单里输入一次，之后只显示“已设置”。有 Key、且新建或改了影响连接的字段时，保存后自动测一次连接。
- * Host 有 ChatGPT 账号（`chatgpt_account`，R6）时列表上方是“ChatGPT 账号”一节，`chatgpt` Provider 只在那里显示。
+ * 0.19.0 起上面是“订阅”（subscription-sources.tsx：Codex 与五种订阅的格子与详情，ChatGPT 账号也在里面），下面是“API Key”的
+ * 列表，每行有在模型选择里显示的开关；页面顶上一行是现在能选的来源与模型数。
  */
 export function ProviderSettings() {
   const data = useWorkbenchData();
@@ -70,7 +74,6 @@ export function ProviderSettings() {
   );
 
   if (data.status !== 'ready') return <SettingsLoading data={data} />;
-  const chatgpt = data.providers.find((provider) => provider.kind === 'chatgpt');
   const providers = data.providers.filter(isEditableProvider);
   const takenIds = data.providers.map((provider) => provider.id);
   const sessions = data.workspaces.flatMap((entry) => entry.sessions);
@@ -131,11 +134,10 @@ export function ProviderSettings() {
           <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />
         </div>
       )}
-      {client?.supports('chatgpt_account') && (
-        <SettingsSection title={t('provider.section.accounts')}>
-          <ChatgptAccountSection client={client} provider={chatgpt} />
-        </SettingsSection>
-      )}
+      <SourceSummary providers={data.providers} />
+      <SettingsSection title={t('provider.section.subscriptions')}>
+        <SubscriptionSources client={client} providers={data.providers} />
+      </SettingsSection>
       <SettingsSection
         title={t('provider.section.keyed')}
         action={
@@ -160,9 +162,7 @@ export function ProviderSettings() {
           </div>
         )}
         {providers.length === 0 ? (
-          <EmptyList>
-            {client?.supports('chatgpt_account') ? t('provider.emptyKeyed') : t('provider.empty')}
-          </EmptyList>
+          <EmptyList>{t('provider.emptyKeyed')}</EmptyList>
         ) : (
           <ul className={LIST_CARD}>
             {providers.map((provider) => (
@@ -171,6 +171,19 @@ export function ProviderSettings() {
                 provider={provider}
                 test={tests[provider.id]}
                 disabled={!client}
+                canToggle={client?.supports('provider_enabled') === true}
+                onToggle={async (enabled) => {
+                  if (!client) return;
+                  try {
+                    await client.request('provider.setEnabled', {
+                      providerId: provider.id,
+                      enabled,
+                    });
+                    await store?.refresh();
+                  } catch (error) {
+                    setNotice({ tone: 'error', text: describe(error) });
+                  }
+                }}
                 onTest={() => void runTest(provider.id)}
                 onEdit={() => {
                   setNotice(undefined);
@@ -207,6 +220,8 @@ function ProviderCard({
   provider,
   test,
   disabled,
+  canToggle,
+  onToggle,
   onTest,
   onEdit,
   onRemove,
@@ -214,19 +229,30 @@ function ProviderCard({
   provider: EditableProvider;
   test: TestState | undefined;
   disabled: boolean;
+  canToggle: boolean;
+  onToggle: (enabled: boolean) => Promise<void>;
   onTest: () => void;
   onEdit: () => void;
   onRemove: () => void;
 }) {
   const running = test?.status === 'running';
+  const [toggling, setToggling] = useState(false);
+  const enabled = provider.enabled !== false;
   const host = provider.baseURL ? safeHost(provider.baseURL) : t('provider.baseURLOfficial');
   return (
     <li className="group/provider px-4 py-3" data-provider-id={provider.id}>
       <div className="flex items-center gap-3.5">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background">
+        <span
+          className={cn(
+            'flex size-9 shrink-0 items-center justify-center rounded-[10px] border border-border bg-background shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] transition-opacity duration-150',
+            !enabled && 'opacity-50',
+          )}
+        >
           <ProviderLogo logo={providerLogo(provider)} fallback={provider.displayName} />
         </span>
-        <div className="min-w-0 flex-1">
+        <div
+          className={cn('min-w-0 flex-1 transition-opacity duration-150', !enabled && 'opacity-60')}
+        >
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-medium">{provider.displayName}</h3>
             <span
@@ -261,10 +287,59 @@ function ProviderCard({
           <IconButton label={t('provider.remove')} onClick={onRemove} disabled={disabled}>
             <Trash2 />
           </IconButton>
+          {canToggle && (
+            <Switch
+              className="ml-2"
+              checked={enabled}
+              label={t('provider.enabled', { name: provider.displayName })}
+              disabled={disabled || toggling}
+              onChange={(next) => {
+                setToggling(true);
+                void onToggle(next).finally(() => setToggling(false));
+              }}
+              data-action="toggle-provider"
+            />
+          )}
         </div>
       </div>
       {test?.status === 'done' && <TestResultView result={test.result} />}
     </li>
+  );
+}
+
+/**
+ * 页面顶上的一行（0.19.0）：模型选择里现在能选的来源叠成一排标志，旁边写“可选多少个模型、来自几个来源”。没有可选的来源时
+ * 不画。
+ */
+function SourceSummary({ providers }: { providers: readonly ProviderProfile[] }) {
+  const accounts = useAccounts();
+  const pickable = pickerOrder(providers.filter((provider) => isPickable(provider, accounts)));
+  if (pickable.length === 0) return null;
+  const models = pickable.reduce((sum, provider) => sum + modelsOf(provider).length, 0);
+  return (
+    <div className="mb-8 flex items-center gap-3" data-source-summary>
+      <span className="flex -space-x-1.5">
+        {pickable.slice(0, 6).map((provider) => {
+          const source = sourceOf(provider);
+          return (
+            <span
+              key={provider.id}
+              className="flex size-7 items-center justify-center rounded-full border border-border bg-card shadow-xs ring-2 ring-background"
+              title={source ? t(source.name) : provider.displayName}
+            >
+              <ProviderLogo
+                logo={source?.logo ?? providerLogo(provider)}
+                fallback={provider.displayName}
+                className="size-3.5"
+              />
+            </span>
+          );
+        })}
+      </span>
+      <p className="text-sm text-muted-foreground">
+        {t('provider.summary', { models, sources: pickable.length })}
+      </p>
+    </div>
   );
 }
 

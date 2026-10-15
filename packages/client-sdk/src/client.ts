@@ -52,6 +52,16 @@ interface AccountWatcher {
   updates: number;
 }
 
+/** `watchAccounts` 的一个监听器（0.19.0）。 */
+interface AccountListWatcher {
+  readonly listener: (accounts: AccountState[]) => void;
+  readonly onError?: (error: unknown) => void;
+  /** 当前的全部账号，按 Host 给的顺序；通知按种类替换其中一项。 */
+  accounts: AccountState[];
+  /** 收到的 `account.updated` 数：读全部的结果晚于其间到达的通知时，它是旧的，丢掉。 */
+  updates: number;
+}
+
 /** `watchSettings` 的一个监听器。 */
 interface SettingsWatcher {
   readonly listener: (settings: HostSettings) => void;
@@ -198,6 +208,8 @@ export class WevirClient {
   readonly #listeners = new Set<(state: ConnectionState) => void>();
   /** `watchAccount` 的监听器（R6）。 */
   readonly #accountWatchers = new Set<AccountWatcher>();
+  /** `watchAccounts` 的监听器（0.19.0）。 */
+  readonly #accountListWatchers = new Set<AccountListWatcher>();
   readonly #settingsWatchers = new Set<SettingsWatcher>();
   #state: ConnectionState = { status: 'connecting' };
   #connection: Connection | undefined;
@@ -246,7 +258,7 @@ export class WevirClient {
   /**
    * 跟着一个账号的状态（R6，host-api.md §3.1）：现在与每次（重）连上之后各调一次 `account.get`，结果与之后的每条
    * `account.updated` 都交给 `listener`（Host 只给调过 `account.*` 的连接发通知，所以重连后要再调）。Host 没有
-   * `chatgpt_account` 功能时什么都不做。`account.get` 失败交给 `onError`。返回取消函数。
+   * `chatgpt_account`（订阅来源：`subscription_sources`）功能时什么都不做。`account.get` 失败交给 `onError`。返回取消函数。
    */
   watchAccount(
     kind: AccountKind,
@@ -264,8 +276,57 @@ export class WevirClient {
     return () => this.#accountWatchers.delete(watcher);
   }
 
+  /**
+   * 跟着全部账号（0.19.0，host-api.md §3.1 `account.list`）：现在与每次（重）连上之后读一次全部，之后每条 `account.updated`
+   * 按种类替换其中一项，每次都把整张表交给 `listener`。Host 有 `subscription_sources` 时读 `account.list`；只有
+   * `chatgpt_account` 时只读 ChatGPT；都没有时交给它空表。读失败交给 `onError`。返回取消函数。
+   */
+  watchAccounts(
+    listener: (accounts: AccountState[]) => void,
+    onError?: (error: unknown) => void,
+  ): () => void {
+    const watcher: AccountListWatcher = {
+      listener,
+      accounts: [],
+      updates: 0,
+      ...(onError !== undefined && { onError }),
+    };
+    this.#accountListWatchers.add(watcher);
+    if (this.#connection !== undefined) this.#readAccountList(watcher);
+    return () => this.#accountListWatchers.delete(watcher);
+  }
+
+  #readAccountList(watcher: AccountListWatcher): void {
+    const before = watcher.updates;
+    const read: Promise<AccountState[]> = this.supports('subscription_sources')
+      ? this.request('account.list').then(({ accounts }) => accounts)
+      : this.supports('chatgpt_account')
+        ? this.request('account.get', { kind: 'chatgpt' }).then(({ account }) => [account])
+        : Promise.resolve([]);
+    read.then(
+      (accounts) => {
+        if (!this.#accountListWatchers.has(watcher) || watcher.updates !== before) return;
+        watcher.accounts = accounts;
+        this.#deliverAccountList(watcher);
+      },
+      (error: unknown) => {
+        if (this.#accountListWatchers.has(watcher)) watcher.onError?.(error);
+      },
+    );
+  }
+
+  #deliverAccountList(watcher: AccountListWatcher): void {
+    try {
+      watcher.listener([...watcher.accounts]);
+    } catch (error) {
+      this.#warn('an account list listener threw', { error });
+    }
+  }
+
   #readAccount(watcher: AccountWatcher): void {
-    if (!this.supports('chatgpt_account')) return;
+    if (!this.supports(watcher.kind === 'chatgpt' ? 'chatgpt_account' : 'subscription_sources')) {
+      return;
+    }
     const before = watcher.updates;
     this.request('account.get', { kind: watcher.kind }).then(
       ({ account }) => {
@@ -519,6 +580,7 @@ export class WevirClient {
         }
         this.#emit({ status: 'connected', hello: connection.hello });
         for (const watcher of this.#accountWatchers) this.#readAccount(watcher);
+        for (const watcher of this.#accountListWatchers) this.#readAccountList(watcher);
         for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
         return;
       }
@@ -724,6 +786,13 @@ export class WevirClient {
         if (watcher.kind !== account.kind) continue;
         watcher.updates += 1;
         this.#deliverAccount(watcher, account);
+      }
+      for (const watcher of [...this.#accountListWatchers]) {
+        watcher.updates += 1;
+        const index = watcher.accounts.findIndex((item) => item.kind === account.kind);
+        if (index >= 0) watcher.accounts[index] = account;
+        else watcher.accounts.push(account);
+        this.#deliverAccountList(watcher);
       }
       return;
     }

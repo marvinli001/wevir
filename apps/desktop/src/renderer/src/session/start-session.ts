@@ -11,7 +11,8 @@ import type {
 } from '@wevir/protocol';
 import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { isPickable, pickerOrder } from '@/data/sources';
+import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
@@ -94,8 +95,13 @@ export function resolveChoice(
  */
 export function useModelChoice(preferred?: string) {
   const data = useWorkbenchData();
+  const accounts = useAccounts();
   const stored = lastChoice.use();
-  const providers = data.status === 'ready' ? data.providers : undefined;
+  // 0.19.0：只在能选的里挑（停用的、订阅没登录的不算），订阅来源排在 API 前面（data/sources.ts）。
+  const providers =
+    data.status === 'ready'
+      ? pickerOrder(data.providers.filter((provider) => isPickable(provider, accounts)))
+      : undefined;
   const choice = providers && resolveChoice(providers, stored, preferred);
   return { providers, choice, choose: (next: ModelChoice) => lastChoice.set(next) };
 }
