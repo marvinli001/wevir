@@ -205,6 +205,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_git: true,
         subagent_cancel: true,
         environments: true,
+        session_worktree: true,
         ...(accounts !== undefined && { chatgpt_account: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),

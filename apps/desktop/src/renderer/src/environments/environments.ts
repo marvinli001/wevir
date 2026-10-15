@@ -1,9 +1,11 @@
 // 保存的环境（U22.1，0.15.0，domain-model §3.10）：列表来自 Host 的 `environment.list`，增删改后就地更新；新会话页选中的环境
-// 记在本机（`wevir.environment-choice.v1`），只在它的主文件夹就是当前项目时生效。
+// 记在本机（`wevir.environment-choice.v1`），只在它的主文件夹就是当前项目时生效。不用环境时，新会话也可以单独新开一个 git
+// worktree（0.18.0，`session.create` 的 `worktree`），选没选同样记在本机（`wevir.new-worktree.v1`）。
 
 import { hostSupports } from '@wevir/client-sdk';
 import type { Environment, EnvironmentFolder, EnvironmentId, WorkspaceId } from '@wevir/protocol';
 import { useCallback, useEffect } from 'react';
+import { useWorkspaceGit } from '@/data/workspace-git';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { createPersistedStore, createStore } from '@/lib/store';
@@ -99,6 +101,51 @@ export function useActiveEnvironment(
   if (!supported || choice === null || workspaceId === undefined) return undefined;
   const environment = environments.find((item) => item.id === choice);
   return environment?.folders[0]?.workspaceId === workspaceId ? environment : undefined;
+}
+
+const worktreeStore = createPersistedStore<boolean>('wevir.new-worktree.v1', false, (raw) =>
+  typeof raw === 'boolean' ? raw : undefined,
+);
+
+export interface WorktreeChoice {
+  /** Host 声明了 `session_worktree`；没有时“此计算机”只是一个标签。 */
+  supported: boolean;
+  /** 选了“新工作树”。 */
+  chosen: boolean;
+  /** 新会话真的要新开 worktree：选了、而且用得上。 */
+  active: boolean;
+  /** 用不上“新工作树”的原因（选了环境、还没有项目、项目不是 git 仓库）；用得上时 undefined。 */
+  unavailable: string | undefined;
+  choose(next: boolean): void;
+}
+
+/**
+ * 新会话页的“此计算机 / 新工作树”（0.18.0）。选了环境时由环境按文件夹定，这里不另开；项目不是 git 仓库时也不开（还没读到
+ * git 状态时照选的来，Host 会再查一次）。
+ */
+export function useWorktreeChoice(workspaceId: WorkspaceId | undefined): WorktreeChoice {
+  const { view } = useHostConnection();
+  const supported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'session_worktree');
+  const environment = useActiveEnvironment(workspaceId);
+  const git = useWorkspaceGit(workspaceId, { active: supported });
+  const chosen = worktreeStore.use();
+  const unavailable = !supported
+    ? undefined
+    : environment
+      ? t('worktree.byEnvironment')
+      : workspaceId === undefined
+        ? t('worktree.noProject')
+        : git.status?.repo === false
+          ? t('worktree.notRepo')
+          : undefined;
+  return {
+    supported,
+    chosen,
+    active: supported && chosen && unavailable === undefined,
+    unavailable,
+    choose: (next) => worktreeStore.set(next),
+  };
 }
 
 /** 环境的一句说明：“2 个文件夹 · worktree”。 */

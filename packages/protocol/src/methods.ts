@@ -46,6 +46,7 @@ import {
   SessionSnapshotSchema,
   UserContentPartSchema,
   WorkspaceSchema,
+  WorktreeModeSchema,
 } from './entities.js';
 import { WevirEventSchema } from './events.js';
 import { ProtocolVersionSchema } from './version.js';
@@ -325,6 +326,11 @@ export const SessionCreateParamsSchema = z.object({
   permissionMode: PermissionModeSchema.optional(),
   /** 用这个环境建（0.15.0，Host 功能 `environments`）：`workspaceId` 必须是它的主文件夹。 */
   environmentId: EnvironmentIdSchema.optional(),
+  /**
+   * `new`：在工作区的仓库里给这个会话新开一个 git worktree（0.18.0，Host 功能 `session_worktree`，domain-model §3.10）；
+   * 省略或 `none`：用工作区目录本身。不能与 `environmentId` 同时给（环境按文件夹定）。
+   */
+  worktree: WorktreeModeSchema.optional(),
   /** 从一项建议开出来（0.16.0，Host 功能 `suggested_tasks`）。 */
   origin: SessionOriginSchema.optional(),
 });

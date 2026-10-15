@@ -712,6 +712,7 @@ interface StoredPanes {
 
 - **最近的文件夹**（只改桌面端）：首页与新会话草稿页的标题下面一列最近用过的项目（`session/new-session.tsx` 的 `RecentFolders`），按项目里最近的会话活动排（没有会话的按项目的更新时间），最多 5 个，当前项目右边打勾，点一下就换到它（与标题里的项目菜单相同）；最下面“添加文件夹…”打开“创建项目”。排序是 `data/workbench-model.ts` 的 `recentWorkspaces`。
 - **选择环境（U22.1，0.15.0）**：最近的文件夹下面一行“选择环境 ▾”（Host 有 `environments` 时才出现），点开是保存的环境（名字、文件夹数、有 worktree 的写“worktree”，当前的打勾）、“不用环境”与“新建环境…”。选了环境后标题里的项目换成环境的主文件夹，环境栏写环境名，发出第一条消息时 `session.create` 带上 `environmentId`；选择记在本机（`wevir.environment-choice.v1`，按主文件夹的工作区记）。“新建环境…”与每行的编辑按钮打开同一个对话框（`environments/environment-dialog.tsx`）：名称、文件夹（从项目里勾选，第一个是主文件夹，可调顺序）、每个文件夹的“新开 worktree”开关、删除。运行位置只有“此计算机”，SSH 与云端推迟（D11 的 C、D），界面上不放点不动的选项。会话侧栏的“环境”卡片在环境会话里多写环境名、每个 worktree 的分支与额外的文件夹。
+- **新工作树（0.18.0）**：不用环境时，环境栏的“此计算机”点开可选“此计算机 / 新工作树”（照 Claude Code 桌面端的 Local / New Worktree，desktop-tokens §16）；选了新工作树，发出第一条消息时 `session.create` 带 `worktree: 'new'`，会话在 Host 新开的 worktree 里跑，会话侧栏的“环境”卡片照样写 worktree 的目录与分支。选了环境时由环境按文件夹定。
 
 ## 17. U23：建议的后续任务
 

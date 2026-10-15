@@ -10,7 +10,7 @@ import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
 import { useTranscript, useWorkbenchData } from '@/data/workbench-data';
 import type { WorkspaceEntry } from '@/data/workbench-model';
-import { useActiveEnvironment } from '@/environments/environments';
+import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
@@ -362,12 +362,14 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const permission = usePermissionChoice();
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspaceId);
+  const worktree = useWorktreeChoice(workspaceId);
   const { start: send, error } = useStartSession(
     workspaceId,
     choice,
     movePanes,
     permission.mode,
     environment?.id,
+    worktree.active,
   );
 
   const noProvider = providers !== undefined && providers.length === 0;
@@ -430,7 +432,12 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             onStop={() => {}}
             autoFocus
             tray={
-              <EnvironmentBar current={entry} workspaces={workspaces} onSelect={selectProject} />
+              <EnvironmentBar
+                current={entry}
+                workspaces={workspaces}
+                onSelect={selectProject}
+                worktree={worktree}
+              />
             }
           />
         </>

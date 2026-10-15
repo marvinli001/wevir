@@ -118,6 +118,8 @@ export function useStartSession(
   permissionMode?: PermissionMode,
   /** 新会话页选中的环境（U22.1，0.15.0）；它的主文件夹就是 `workspaceId`。 */
   environmentId?: EnvironmentId,
+  /** 选了“新工作树”（0.18.0）：在 `workspaceId` 的仓库里新开一个 worktree。 */
+  newWorktree?: boolean,
 ) {
   const { client } = useHostConnection();
   const permissions = usePermissionModes();
@@ -140,8 +142,9 @@ export function useStartSession(
           modelId: choice.modelId,
           ...(choice.reasoningEffort !== undefined && { reasoningEffort: choice.reasoningEffort }),
           ...(permissions && permissionMode !== undefined && { permissionMode }),
-          // 环境只对它的主文件夹生效（首页先建项目再接着发时 target 是新项目）。
+          // 环境与新工作树只对选的那个项目生效（首页先建项目再接着发时 target 是新项目）。
           ...(environmentId !== undefined && target === primary && { environmentId }),
+          ...(newWorktree && target === primary && { worktree: 'new' as const }),
         }));
       } catch (reason) {
         setError(t('session.createFailed', { error: describe(reason) }));
@@ -168,6 +171,7 @@ export function useStartSession(
       permissions,
       permissionMode,
       environmentId,
+      newWorktree,
       primary,
     ],
   );

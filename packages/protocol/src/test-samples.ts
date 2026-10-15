@@ -693,6 +693,14 @@ export const methodSamples: MethodSamples = {
           features: { chatgpt_account: true },
           permissions: ['host.manage', 'provider.read', 'provider.write'],
         },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.18.0',
+          minProtocolVersion: '0.1.0',
+          features: { environments: true, session_worktree: true },
+          permissions: ['host.manage', 'session.read', 'session.write'],
+        },
       ],
       invalid: [
         {
@@ -1004,9 +1012,11 @@ export const methodSamples: MethodSamples = {
           providerId: 'deepseek-official',
           origin: { kind: 'suggested_task', sessionId: ids.session, taskId: ids.task },
         },
+        { workspaceId: ids.workspace, providerId: 'deepseek-official', worktree: 'new' },
       ],
       invalid: [
         { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, providerId: 'deepseek-official', worktree: 'yes' },
         {
           workspaceId: ids.workspace,
           providerId: 'deepseek-official',

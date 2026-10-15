@@ -600,11 +600,17 @@ export const DEFAULT_PERMISSION_MODE: PermissionMode = 'on_request';
 
 // ── 环境（0.15.0，U22.1） ──────────────────────────────────────────────
 
+/**
+ * 会话用文件夹本身还是新开一个 git worktree：`new`：每个会话在这个文件夹的仓库里新开一个；`none`：用工作区目录本身。环境的
+ * 文件夹（0.15.0）与 `session.create` 的 `worktree`（0.18.0）共用。
+ */
+export const WorktreeModeSchema = z.enum(['none', 'new']);
+export type WorktreeMode = z.infer<typeof WorktreeModeSchema>;
+
 /** 环境里的一个文件夹（domain-model §3.10）。 */
 export const EnvironmentFolderSchema = z.object({
   workspaceId: WorkspaceIdSchema,
-  /** `new`：每个会话在这个文件夹的仓库里新开一个 git worktree；`none`：用工作区目录本身。 */
-  worktree: z.enum(['none', 'new']),
+  worktree: WorktreeModeSchema,
 });
 export type EnvironmentFolder = z.infer<typeof EnvironmentFolderSchema>;
 
@@ -620,7 +626,7 @@ export const EnvironmentSchema = z.object({
 });
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
-/** Host 为环境会话新开的 worktree（`Session.worktrees` 的一项）。 */
+/** Host 为会话新开的 worktree（`Session.worktrees` 的一项；环境会话 0.15.0，单独新开 0.18.0）。 */
 export const SessionWorktreeSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   /** worktree 里对应这个文件夹的目录。 */
@@ -635,7 +641,7 @@ export const SessionEnvironmentFields = {
   environmentId: EnvironmentIdSchema.optional(),
   /** 除主文件夹外的文件夹（或它们的 worktree），作为额外的可写目录交给引擎。 */
   extraRoots: z.array(z.string().min(1)).optional(),
-  /** Host 为这个会话新开的 worktree。 */
+  /** Host 为这个会话新开的 worktree（按环境，或 0.18.0 起 `session.create` 的 `worktree: 'new'`）。 */
   worktrees: z.array(SessionWorktreeSchema).optional(),
 };
 

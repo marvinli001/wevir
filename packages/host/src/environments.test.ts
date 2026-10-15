@@ -1,4 +1,5 @@
-// 环境（0.15.0，U22.1，domain-model §3.10）：environment.* 方法与按环境建会话（真实的 git worktree）。
+// 环境（0.15.0，U22.1，domain-model §3.10）：environment.* 方法与按环境建会话（真实的 git worktree）；不用环境、单独新开 worktree
+// 的会话（0.18.0）。
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
@@ -243,5 +244,72 @@ describe('按环境建会话', () => {
         context,
       ),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+  });
+});
+
+describe('单独新开 worktree 的会话（0.18.0）', () => {
+  it("worktree: 'new' 在工作区的仓库里新开 worktree 作 cwd，不记环境；none 与省略一样用工作区目录", async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    const create = vi.spyOn(adapter, 'createSession');
+    const h = setup(adapter);
+    const app = await h.project('app', { sub: true });
+    const { session } = await h.methods['session.create'](
+      { workspaceId: app.id, providerId: 'mock', worktree: 'new' },
+      context,
+    );
+    const worktreeRoot = join(h.worktreesDir, session.id, '1-app');
+    const branch = `wevir/${session.id.slice(-8).toLowerCase()}`;
+    expect(session).toMatchObject({
+      workspaceId: app.id,
+      cwd: join(worktreeRoot, 'sub'),
+      worktrees: [{ workspaceId: app.id, path: join(worktreeRoot, 'sub'), branch }],
+    });
+    expect(session.environmentId).toBeUndefined();
+    expect(session.extraRoots).toBeUndefined();
+    expect(git(join(worktreeRoot, 'sub'), 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe(branch);
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ cwd: join(worktreeRoot, 'sub') });
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('additionalRoots');
+    const created = h.storage.events.list(session.id, { limit: 1 })[0];
+    expect(created?.payload).toMatchObject({
+      cwd: join(worktreeRoot, 'sub'),
+      worktrees: [{ branch }],
+    });
+    expect(created?.payload).not.toHaveProperty('environmentId');
+
+    const local = await h.methods['session.create'](
+      { workspaceId: app.id, providerId: 'mock', worktree: 'none' },
+      context,
+    );
+    expect(local.session.cwd).toBe(app.rootPath);
+    expect(local.session.worktrees).toBeUndefined();
+  });
+
+  it('不是仓库、与 environmentId 同时给时不建会话，也不留 worktree', async () => {
+    const h = setup();
+    const app = await h.project('app');
+    const plain = await h.project('plain', { git: false });
+    await expect(
+      h.methods['session.create'](
+        { workspaceId: plain.id, providerId: 'mock', worktree: 'new' },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: 'INVALID_PARAMS',
+      message: expect.stringContaining('plain'),
+      data: { issues: [{ path: ['worktree'] }] },
+    });
+    const { environment } = await h.methods['environment.create'](
+      { name: 'env', folders: [{ workspaceId: app.id, worktree: 'none' }] },
+      context,
+    );
+    await expect(
+      h.methods['session.create'](
+        { workspaceId: app.id, providerId: 'mock', environmentId: environment.id, worktree: 'new' },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS', data: { issues: [{ path: ['worktree'] }] } });
+    expect(existsSync(h.worktreesDir) ? readdirSync(h.worktreesDir) : []).toEqual([]);
+    expect(git(app.rootPath, 'branch', '--list', 'wevir/*').trim()).toBe('');
+    expect(h.storage.sessions.list()).toEqual([]);
   });
 });

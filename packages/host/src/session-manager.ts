@@ -486,7 +486,8 @@ export class SessionManager {
   }
 
   /**
-   * 按环境准备会话的目录（0.15.0，domain-model §3.10）。不带环境时就是工作区目录。带环境时 `workspaceId` 要是主文件夹；
+   * 按环境准备会话的目录（0.15.0，domain-model §3.10）。不带环境、也不要 worktree 时就是工作区目录。带环境时 `workspaceId`
+   * 要是主文件夹；`worktree: 'new'`（0.18.0）等于只有这个工作区一个文件夹、要新开 worktree 的环境，只是不记 `environmentId`。
    * 依次处理每个文件夹，要新开 worktree 的在 `<worktreesDir>/<会话 ID>/` 下开。任何一步失败都撤回已建的 worktree 并回
    * `INVALID_PARAMS`（工作区不在时 `WORKSPACE_NOT_FOUND`）。
    */
@@ -501,18 +502,40 @@ export class SessionManager {
       worktrees: [],
       undo: async () => {},
     };
-    if (params.environmentId === undefined) return plain;
-    const environment = this.#storage.environments.get(params.environmentId);
-    if (!environment) {
-      throw new HostError('ENVIRONMENT_NOT_FOUND', `environment ${params.environmentId} not found`);
-    }
     const invalid = (path: string, message: string) =>
       new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
-    if (environment.folders[0]?.workspaceId !== params.workspaceId) {
-      throw invalid('workspaceId', "workspaceId must be the environment's first folder");
-    }
-    if (environment.folders.length > 1 && !this.#adapter.additionalRoots) {
-      throw invalid('environmentId', 'this host engine cannot give a session more than one folder');
+    // 出错时指向请求里的哪个字段。
+    let field: 'environmentId' | 'worktree';
+    let folders: readonly { workspaceId: string; worktree: string }[];
+    let environmentId: EnvironmentId | undefined;
+    if (params.environmentId !== undefined) {
+      if (params.worktree === 'new') {
+        throw invalid('worktree', 'worktree cannot be combined with environmentId');
+      }
+      const environment = this.#storage.environments.get(params.environmentId);
+      if (!environment) {
+        throw new HostError(
+          'ENVIRONMENT_NOT_FOUND',
+          `environment ${params.environmentId} not found`,
+        );
+      }
+      if (environment.folders[0]?.workspaceId !== params.workspaceId) {
+        throw invalid('workspaceId', "workspaceId must be the environment's first folder");
+      }
+      if (environment.folders.length > 1 && !this.#adapter.additionalRoots) {
+        throw invalid(
+          'environmentId',
+          'this host engine cannot give a session more than one folder',
+        );
+      }
+      field = 'environmentId';
+      folders = environment.folders;
+      environmentId = environment.id as EnvironmentId;
+    } else if (params.worktree === 'new') {
+      field = 'worktree';
+      folders = [{ workspaceId: params.workspaceId, worktree: 'new' }];
+    } else {
+      return plain;
     }
     const created: CreatedWorktree[] = [];
     const dir = this.#worktreesDir === undefined ? undefined : join(this.#worktreesDir, sessionId);
@@ -525,7 +548,7 @@ export class SessionManager {
     try {
       const paths: string[] = [];
       const worktrees: SessionWorktree[] = [];
-      for (const [index, folder] of environment.folders.entries()) {
+      for (const [index, folder] of folders.entries()) {
         const workspace = this.#storage.workspaces.get(folder.workspaceId);
         if (!workspace || workspace.removedAt !== undefined) {
           throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${folder.workspaceId} not found`);
@@ -535,9 +558,7 @@ export class SessionManager {
           paths.push(workspace.rootPath);
           continue;
         }
-        if (dir === undefined) {
-          throw invalid('environmentId', 'this host has no place for worktrees');
-        }
+        if (dir === undefined) throw invalid(field, 'this host has no place for worktrees');
         const suffix = worktrees.length === 0 ? '' : `-${worktrees.length + 1}`;
         try {
           const worktree = await createWorktree({
@@ -556,13 +577,13 @@ export class SessionManager {
         } catch (error) {
           if (!(error instanceof WorktreeError)) throw error;
           throw invalid(
-            'environmentId',
+            field,
             `cannot create a worktree for ${workspace.displayName}: ${error.message}`,
           );
         }
       }
       return {
-        environmentId: environment.id as EnvironmentId,
+        ...(environmentId !== undefined && { environmentId }),
         cwd: paths[0] ?? rootPath,
         extraRoots: paths.slice(1),
         worktrees,

@@ -106,6 +106,7 @@ import {
   type WevirEventType,
   WorkspaceIdSchema,
   WorkspaceSchema,
+  WorktreeModeSchema,
 } from './index.js';
 import {
   childSession,
@@ -511,6 +512,12 @@ const standaloneCases: Case[] = [
     schema: EnvironmentIdSchema,
     valid: ['env_01JA2B3C4D5E6F7G8H9JKMNPQR'],
     invalid: ['ws_01JA2B3C4D5E6F7G8H9JKMNPQR', 'env_'],
+  },
+  {
+    name: 'WorktreeMode',
+    schema: WorktreeModeSchema,
+    valid: ['none', 'new'],
+    invalid: ['reuse', ''],
   },
   {
     name: 'EnvironmentFolder',

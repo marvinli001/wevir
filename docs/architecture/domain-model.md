@@ -605,7 +605,7 @@ type PermissionMode = 'on_request' | 'auto_review' | 'full_access'
 - 子 agent 的子会话沿用父会话当时的模式（Codex 的子 thread 继承父回合的审批与沙箱设置）。
 - 自动批准不产生审批请求，也不另出事件：允许的操作照常执行，拒绝的以工具失败结束、拒绝理由在工具输出里（审查过程的通知暂不投影，codex-event-mapping.md §9）。
 
-### 3.10 环境（0.15.0，U22.1）
+### 3.10 环境（0.15.0，U22.1；单独新开 worktree 0.18.0）
 
 保存的一组会话设置（设计提案 D11 的 A、B，维护者 2026-10-15 确认；SSH 与云端推迟）：在哪儿跑、用哪几个文件夹、每个文件夹要不要单独开一个 git worktree。新建会话时选一个环境，Host 按它准备会话的目录。
 
@@ -619,9 +619,10 @@ interface Environment {
   createdAt: IsoTime
   updatedAt: IsoTime
 }
+type WorktreeMode = 'none' | 'new'     // new：每个会话在这个文件夹的仓库里新开一个 worktree；0.18.0 起 session.create 的 worktree 也用它
 interface EnvironmentFolder {
   workspaceId: WorkspaceId
-  worktree: 'none' | 'new'             // new：每个会话在这个文件夹的仓库里新开一个 worktree
+  worktree: WorktreeMode
 }
 interface SessionWorktree {            // Session.worktrees 的一项
   workspaceId: WorkspaceId
@@ -634,6 +635,7 @@ interface SessionWorktree {            // Session.worktrees 的一项
 
 - **方法**：`environment.list / create / update / remove`（host-api.md §3）。文件夹引用的工作区要在、没被移除；移除工作区时环境不跟着改，用到它的环境建会话时报 `WORKSPACE_NOT_FOUND`。删除环境不影响已经用它建的会话。
 - **建会话**：`session.create` 带 `environmentId` 时，`workspaceId` 必须是环境的主文件夹（否则 `INVALID_PARAMS`），会话属于这个工作区。Host 按顺序准备每个文件夹：`worktree: 'none'` 用工作区目录本身；`'new'` 在 `<数据目录>/worktrees/<会话 ID>/<序号>-<仓库目录名>` 用 `git worktree add -b <分支> <路径> HEAD` 新开一个，会话用 worktree 里对应的目录。主文件夹的目录是会话的 `cwd`——**环境会话的 `cwd` 可以是 worktree 里的目录，不再总等于工作区的 `rootPath`**（§3.3）；其余文件夹的目录是 `extraRoots`，交给引擎作额外的可写目录（Codex：`sandboxPolicy.workspaceWrite.writableRoots`，并在 developer instructions 里告诉模型，codex-event-mapping.md §4.8）。文件夹不是 git 仓库、建 worktree 失败、引擎不支持额外目录（适配器没声明 `additionalRoots`）时回 `INVALID_PARAMS`，已经建好的 worktree 删掉，不建会话。
+- **不用环境、单独新开 worktree**（0.18.0，Host 功能 `session_worktree`）：`session.create` 带 `worktree: 'new'` 时，等于只有这个工作区一个文件夹、`worktree: 'new'` 的环境：在 `<数据目录>/worktrees/<会话 ID>/1-<仓库目录名>` 新开 worktree（分支同上），会话的 `cwd` 是 worktree 里对应工作区的目录，`worktrees` 记下它，不记 `environmentId`。不是 git 仓库、建 worktree 失败时回 `INVALID_PARAMS`（`issues` 指向 `worktree`），不建会话。与 `environmentId` 同时给也回 `INVALID_PARAMS`（环境按文件夹定）。`none` 与省略相同。
 - **会话上的记录**：`Session.environmentId`、`extraRoots`、`worktrees`，写进 `session.created`，之后不变；resume 时照样把 `extraRoots` 交给引擎。
 - **worktree 不自动删**：可能有没合并的改动；会话关闭后留着，由用户自己 `git worktree remove`（以后在设置里列出可清理的）。
 

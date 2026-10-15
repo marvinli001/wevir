@@ -246,6 +246,10 @@ export const zhCN = {
   'environment.copyPath': '复制路径',
   'environment.copied': '已复制',
   'environment.projectSettings': '项目设置',
+  'worktree.new': '新工作树',
+  'worktree.byEnvironment': '由所选环境决定',
+  'worktree.noProject': '未选择项目',
+  'worktree.notRepo': '非 Git 仓库',
 
   'transcript.label': '会话内容',
   'transcript.loading': '正在加载会话…',
