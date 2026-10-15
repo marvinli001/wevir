@@ -49,7 +49,7 @@ describe('命令行解析', () => {
       [['host', 'restart'], '未知命令：wevir host restart'],
       [['session', 'new', 'hi'], '缺少 -w <路径>'],
       [['session', 'attach'], '缺少参数'],
-      [['workspace', 'list', 'extra'], '多余的参数：extra'],
+      [['workspace', 'list', 'extra'], '多余参数：extra'],
       [['provider', 'add', '--api-key', 'sk-xxx'], '未知选项：--api-key'],
     ];
     for (const [argv, message] of cases) {
@@ -69,15 +69,15 @@ describe('命令行解析', () => {
     ]) {
       const result = await run(argv, { home });
       expect(result.code).toBe(1);
-      expect(result.err).toContain('Wevir Host 没有在运行');
-      expect(result.err).toContain('下一步：先运行 wevir host start');
+      expect(result.err).toContain('Wevir Host 未运行');
+      expect(result.err).toContain('下一步：运行 wevir host start');
     }
     const status = await run(['host', 'status'], { home });
     expect(status.code).toBe(1);
-    expect(status.out).toContain('Host 没有在运行');
+    expect(status.out).toContain('Host 未运行');
     const stop = await run(['host', 'stop'], { home });
     expect(stop.code).toBe(0);
-    expect(stop.out).toContain('Host 没有在运行');
+    expect(stop.out).toContain('Host 未运行');
   });
 
   it('英文：帮助、用法错误与 Host 没有运行', async () => {
@@ -87,14 +87,14 @@ describe('命令行解析', () => {
     expect(main.out).toContain('wevir workspace add <path> [--name <name>]');
     expect(main.out).toContain('Sessions');
     const sub = await run(['session', 'attach', '--help'], { home, lang: 'en' });
-    expect(sub.out).toMatch(/^Usage: wevir session attach <session ID>\n\nReplays/);
+    expect(sub.out).toMatch(
+      /^Usage: wevir session attach <session ID>\n\nAttach to a session: live output, approvals and follow-ups\n\n/,
+    );
     const bogus = await run(['bogus'], { home, lang: 'en' });
     expect(bogus.code).toBe(2);
-    expect(bogus.err).toBe('Error: Unknown command: bogus\nNext: Run wevir --help for usage\n');
+    expect(bogus.err).toBe('Error: Unknown command: bogus\nNext: Run wevir --help\n');
     const list = await run(['session', 'list'], { home, lang: 'en' });
-    expect(list.err).toContain(
-      'Error: Wevir Host is not running.\nNext: Run wevir host start first',
-    );
+    expect(list.err).toContain('Error: Wevir Host is not running\nNext: Run wevir host start');
   });
 
   it('语言跟着 LANG 走，WEVIR_LANG 优先', async () => {
@@ -140,8 +140,8 @@ describe('审批输入', () => {
 describe('错误说明', () => {
   it('Host 与引擎的错误都给出下一步', () => {
     expect(describeError(new HostUnavailableError('not_running', '/x/run/host.json'))).toEqual({
-      message: 'Wevir Host 没有在运行。',
-      hint: '先运行 wevir host start',
+      message: 'Wevir Host 未运行',
+      hint: '运行 wevir host start',
     });
     const busy = describeError(
       new WevirRpcError('session.send', {
@@ -150,7 +150,7 @@ describe('错误说明', () => {
         data: { state: 'running' },
       }),
     );
-    expect(busy.message).toBe('会话正忙（运行中），这条消息没有发出。');
+    expect(busy.message).toBe('会话忙（运行中），消息未发送');
     expect(busy.hint).toContain('Ctrl-C');
     const engine = describeError(
       new WevirRpcError('session.create', {
@@ -168,7 +168,7 @@ describe('错误说明', () => {
         data: { path: '/nope', reason: 'not_found' },
       }),
     );
-    expect(path.message).toBe('工作区目录不存在：/nope。');
+    expect(path.message).toBe('工作区目录不存在：/nope');
   });
 });
 

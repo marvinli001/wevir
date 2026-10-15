@@ -106,7 +106,6 @@ export async function sessionList(ctx: Context, options: { workspace?: string })
     );
     if (sessions.length === 0) {
       ctx.print(t('session.none'));
-      ctx.print(ctx.styles.dim(t('error.hint', { hint: t('session.none.hint') })));
       return EXIT.ok;
     }
     const names = new Map(workspaces.map((w) => [w.id, w.displayName]));

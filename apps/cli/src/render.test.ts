@@ -146,7 +146,7 @@ describe('EventRenderer', () => {
         text: '生成',
       }),
     );
-    expect(text()).toBe('\n› 第一问\n旧回答\n── 以上为历史，以下为实时 ──\n正在生成');
+    expect(text()).toBe('\n› 第一问\n旧回答\n── 以下为实时输出 ──\n正在生成');
   });
 
   it('回放的思考折叠成一行，实时的思考以“思考：”开头', () => {
@@ -169,7 +169,7 @@ describe('EventRenderer', () => {
     r.render(
       ev('assistant.stream_ended', { turnId: 'trn_1', streamId: 'stm_1', outcome: 'abandoned' }),
     );
-    expect(text()).toBe('半句\n（上面这段输出被模型放弃，以后续内容为准）\n');
+    expect(text()).toBe('半句\n（以上输出已被模型放弃）\n');
   });
 
   it('工具调用：一行摘要，失败时带输出的开头', () => {
@@ -248,7 +248,7 @@ describe('EventRenderer', () => {
     );
     expect(text()).toBe(
       [
-        '↳ 子 agent 开始工作：Helper task（deepseek-chat · medium）',
+        '↳ 子 agent 启动：Helper task（deepseek-chat · medium）',
         '⚠ 需要审批（来自子 agent Helper task）：write /home/u/out/summary.md',
         '  理由：用户要求另存一份',
         '  申请权限：danger-full-access',
@@ -284,7 +284,7 @@ describe('EventRenderer', () => {
         resolution: { reason: 'turn_cancelled' },
       }),
     );
-    expect(cancelled.text()).toBe('审批已取消（回合被取消）\n');
+    expect(cancelled.text()).toBe('审批已取消（回合已取消）\n');
   });
 
   it('本终端输入过的消息不重复显示；其他客户端的消息注明来源', () => {
@@ -325,7 +325,7 @@ describe('EventRenderer', () => {
     expect(text()).toBe(
       [
         'Engine error (provider error): 401',
-        'Next: The provider returned an error: run wevir provider test to check the address, model and key',
+        'Next: Run wevir provider test to check the address, model and key',
         '⚠ Approval needed: write /home/u/out/summary.md',
         '  Reason: 用户要求另存一份',
         '  Requested permissions: danger-full-access',

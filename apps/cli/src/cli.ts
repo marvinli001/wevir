@@ -228,10 +228,10 @@ function commandLine(def: CommandDef): string {
   return `  ${padEnd(t(def.usage), 52)} ${t(def.summary)}`;
 }
 
-/** 命令帮助：用法行，再接说明与选项。 */
+/** 命令帮助：用法行、概要，再接必要的说明与选项。 */
 function commandHelp(def: CommandDef): string {
-  const usage = t('cli.usage', { usage: t(def.usage) });
-  return def.help === undefined ? usage : `${usage}\n\n${t(def.help)}`;
+  const head = `${t('cli.usage', { usage: t(def.usage) })}\n\n${t(def.summary)}`;
+  return def.help === undefined ? head : `${head}\n\n${t(def.help)}`;
 }
 
 function groupTitle(group: string): string {
@@ -252,16 +252,14 @@ ${t('cli.usage', { usage: t('cli.mainUsage') })}
 
 ${sections.join('\n\n')}
 
-${t('cli.globalHelp')}
-
-${t('cli.firstSteps')}`;
+${t('cli.globalHelp')}`;
 }
 
 function groupHelp(group: string): string {
   const commands = COMMANDS[group] ?? {};
   return `${groupTitle(group)}\n${Object.values(commands)
     .map((def) => commandLine(def))
-    .join('\n')}\n\n${t('cli.groupFooter', { group })}`;
+    .join('\n')}`;
 }
 
 /** 翻译 `parseArgs` 的报错。 */

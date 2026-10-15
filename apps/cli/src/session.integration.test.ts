@@ -88,7 +88,7 @@ describe('工作区与 Provider', () => {
   it('provider add 在终端里逐项询问，Key 不回显', async () => {
     const { home } = await setup();
     const f = fake(['provider', 'add'], { home, tty: true });
-    let at = await f.waitFor('请选择 [1]');
+    let at = await f.waitFor('选择 [1]');
     f.stdin.write('2\r');
     at = await f.waitFor('Provider ID', at);
     f.stdin.write('kimi\r');
@@ -137,7 +137,7 @@ describe('会话', () => {
       '  ⎿ echo_write 完成',
       'Echo: tool then approve',
       '── 本轮完成',
-      `已退出 attach。会话保留在 Host 中，重新连接：wevir session attach ${id}`,
+      `已退出 attach；重新连接：wevir session attach ${id}`,
     ]) {
       expect(out).toContain(line);
     }
@@ -158,7 +158,7 @@ describe('会话', () => {
     for (const line of [
       '› subagent approve',
       '● spawn_agent Helper task: helper approve',
-      '↳ 子 agent 开始工作：Helper task: helper approve（echo-model）',
+      '↳ 子 agent 启动：Helper task: helper approve（echo-model）',
       '⚠ 需要审批（来自子 agent Helper task: helper approve）：echo_write /outside-workspace/echo.txt',
       '↳ 子 agent 完成：Helper task: helper approve',
       'Echo: subagent approve',
@@ -217,12 +217,11 @@ describe('会话', () => {
       home,
       tty: true,
     });
-    let at = await a.waitFor('回合进行中：Enter 按设置插话或排队、Tab 用另一种');
-    at = await a.waitFor('Echo: pl', at);
+    let at = await a.waitFor('Echo: pl');
     a.stdin.write('are you there?\r');
     at = await a.waitFor('› are you there?（插话）', at);
-    at = await a.waitFor('⋯ 插话：等这一步结束后插进本回合 · are you there?', at);
-    at = await a.waitFor('（插话已插进本回合）', at);
+    at = await a.waitFor('⋯ 插话：当前步骤结束后并入本回合 · are you there?', at);
+    at = await a.waitFor('（插话已并入本回合）', at);
     at = await a.waitFor('Echo: are you there?', at);
     at = await a.waitFor('── 本轮完成', at);
     a.stdin.write('\x04');
@@ -238,27 +237,27 @@ describe('会话', () => {
     let at = await a.waitFor('Echo: a lo');
     a.stdin.write('later please\t');
     at = await a.waitFor('› later please（排队）', at);
-    at = await a.waitFor('⋯ 已排队：本回合结束后发出 · later please', at);
+    at = await a.waitFor('⋯ 已排队：本回合结束后发送 · later please', at);
     a.stdin.write('\x03');
-    at = await a.waitFor('正在取消当前运行…（再按一次 Ctrl-C 退出 attach）', at);
+    at = await a.waitFor('正在取消当前运行…（再按 Ctrl-C 退出 attach）', at);
     at = await a.waitFor('── 本轮已取消', at);
-    at = await a.waitFor('⋯ 已暂停 · later please（输入 /resume 继续发送）', at);
+    at = await a.waitFor('⋯ 已暂停 · later please（/resume 继续发送）', at);
     a.stdin.write('/resume\r');
-    at = await a.waitFor('继续发送暂停的消息。', at);
+    at = await a.waitFor('继续发送暂停的消息', at);
     at = await a.waitFor('Echo: later please', at);
     at = await a.waitFor('── 本轮完成', at);
     a.stdin.write('\x03');
-    at = await a.waitFor('再按一次 Ctrl-C 退出 attach', at);
+    at = await a.waitFor('再按 Ctrl-C 或 Ctrl-D 退出 attach', at);
     a.stdin.write('\x03');
     expect(await a.exit).toBe(0);
-    expect(a.out()).toContain('已退出 attach。会话保留在 Host 中');
+    expect(a.out()).toContain('已退出 attach；重新连接');
   });
 
   it('attach 不存在的会话：说明与下一步', async () => {
     const { home } = await setup();
     const result = await run(['session', 'attach', 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR'], { home });
     expect(result.code).toBe(1);
-    expect(result.err).toContain('错误：会话不存在。');
+    expect(result.err).toContain('错误：会话不存在\n');
     expect(result.err).toContain('下一步：运行 wevir session list 查看');
   });
 });

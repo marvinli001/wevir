@@ -105,11 +105,11 @@ function start(argv: string[], home: string): FakeRun {
 describe('wevir provider login / status / logout（ChatGPT 账号）', () => {
   it('登录：打印网址与一次性码，等到登录成功；之后 status 显示账号、套餐与用量，list 里有 chatgpt', async () => {
     const { home, accounts } = await setup();
-    expect((await run(['provider', 'status'], { home })).out).toContain('ChatGPT：没有登录');
+    expect((await run(['provider', 'status'], { home })).out).toContain('ChatGPT：未登录');
 
     const login = start(['provider', 'login'], home);
     await login.waitFor('ABCD-EFGH');
-    expect(login.out()).toContain('仅供个人在本机使用 Wevir 时登录');
+    expect(login.out()).toContain('仅限个人在本机使用');
     expect(login.out()).toContain('https://auth.openai.com/codex/device');
     expect(accounts.calls).toEqual(['login:device_code']);
     accounts.set({
@@ -128,7 +128,7 @@ describe('wevir provider login / status / logout（ChatGPT 账号）', () => {
     // 已登录时再 login 不重新登录。
     const again = await run(['provider', 'login'], { home });
     expect(again.code).toBe(0);
-    expect(again.out).toContain('已经登录 ChatGPT');
+    expect(again.out).toContain('已登录 ChatGPT');
     // Host 在登录成功后建了 chatgpt Provider（后台进行，等一下）。
     let list = '';
     for (let i = 0; i < 50 && !list.includes('ChatGPT 登录'); i += 1) {
@@ -149,14 +149,14 @@ describe('wevir provider login / status / logout（ChatGPT 账号）', () => {
     await login.waitFor('ABCD-EFGH');
     login.interrupt();
     expect(await login.exit).toBe(130);
-    expect(login.out()).toContain('已取消登录');
+    expect(login.out()).toContain('登录已取消');
     expect(accounts.calls).toContain('cancel:login-1');
 
     const failing = start(['provider', 'login'], home);
     await failing.waitFor('ABCD-EFGH');
     accounts.set({ kind: 'chatgpt', status: 'signed_out', lastError: 'device auth timed out' });
     expect(await failing.exit).toBe(1);
-    expect(failing.err()).toContain('登录没有成功：device auth timed out');
+    expect(failing.err()).toContain('登录失败：device auth timed out');
   });
 
   it('引擎没有账号（echo、dsh）：说明只有 Codex 引擎有', async () => {
@@ -164,7 +164,7 @@ describe('wevir provider login / status / logout（ChatGPT 账号）', () => {
     hosts.push(await startEchoHost(home));
     const result = await run(['provider', 'status'], { home });
     expect(result.code).not.toBe(0);
-    expect(result.err).toContain('这个 Host 没有 ChatGPT 账号');
+    expect(result.err).toContain('当前 Host 不支持 ChatGPT 账号');
   });
 
   it('用量窗口的说法', () => {

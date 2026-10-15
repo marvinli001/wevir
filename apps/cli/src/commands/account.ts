@@ -71,7 +71,6 @@ export async function accountLogin(ctx: Context, kind: AccountKind): Promise<num
             ctx.print(
               ctx.styles.green(t('account.signedIn', { account: describeAccount(update) })),
             );
-            ctx.print(ctx.styles.dim(t('error.hint', { hint: t('account.signedIn.hint') })));
             return EXIT.ok;
           } else if (update.status === 'signed_out' && started) {
             throw new CliError(
@@ -114,7 +113,6 @@ export async function accountStatus(ctx: Context, kind: AccountKind): Promise<nu
             ctx.styles.dim(`  ${t('account.status.lastError', { error: account.lastError })}`),
           );
         }
-        ctx.print(ctx.styles.dim(t('error.hint', { hint: t('account.status.signedOut.hint') })));
         return EXIT.ok;
     }
   });

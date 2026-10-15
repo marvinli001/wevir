@@ -137,7 +137,6 @@ export class EventRenderer {
             }),
           ),
         );
-        this.#sink.line(this.#s.dim(t('render.readOnlyHint')));
         return;
       case 'session.state_changed': {
         const { to, reason } = event.payload;

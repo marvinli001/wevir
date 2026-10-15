@@ -78,12 +78,12 @@ describe('wevir host（分离启动的 Host 子进程）', () => {
 
     const stopped = await run(['host', 'stop'], opts);
     expect(stopped.code, stopped.err).toBe(0);
-    expect(stopped.out).toContain('Host 已停止。');
+    expect(stopped.out).toContain('Host 已停止');
     expect(isProcessAlive(pid)).toBe(false);
     expect(existsSync(join(home, 'run', 'host.json'))).toBe(false);
     const down = await run(['host', 'status'], opts);
     expect(down.code).toBe(1);
-    expect(down.out).toContain('Host 没有在运行');
+    expect(down.out).toContain('Host 未运行');
 
     expect((await run(['host', 'start', '--adapter', 'echo'], opts)).code).toBe(0);
     const list = await run(['session', 'list'], opts);

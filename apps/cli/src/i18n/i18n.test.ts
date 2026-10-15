@@ -86,12 +86,10 @@ describe('目录', () => {
 describe('t', () => {
   it('按当前语言取文案、替换参数，英文按数量选单复数', () => {
     setLocale('zh');
-    expect(t('attach.held', { count: 1 })).toBe(
-      '有 1 条暂停的待发消息（上一轮没有正常结束）；输入 /resume 继续发送。',
-    );
+    expect(t('attach.held', { count: 1 })).toBe('1 条待发消息已暂停；/resume 继续发送');
     setLocale('en');
-    expect(t('attach.held', { count: 1 })).toMatch(/^1 held message \(/);
-    expect(t('attach.held', { count: 3 })).toMatch(/^3 held messages \(/);
+    expect(t('attach.held', { count: 1 })).toBe('1 held message; /resume to send');
+    expect(t('attach.held', { count: 3 })).toBe('3 held messages; /resume to send');
     expect(t('state.awaiting_approval')).toBe('Awaiting approval');
   });
 });

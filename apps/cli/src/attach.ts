@@ -205,10 +205,6 @@ class AttachView {
         }),
       ),
     );
-    if (this.#term.interactive) {
-      this.#term.line(s.dim(t('attach.keys')));
-      if (this.#pendingSupported) this.#term.line(s.dim(t('attach.keysBusy')));
-    }
     for (const pending of snapshot.pendingMessages ?? []) {
       if (pending.status === 'held') this.#held.set(pending.id, pendingPreview(pending));
     }

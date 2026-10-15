@@ -249,7 +249,6 @@ export async function providerList(ctx: Context): Promise<number> {
   const { providers } = await withClient(ctx, (client) => client.request('provider.list'));
   if (providers.length === 0) {
     ctx.print(t('provider.none'));
-    ctx.print(ctx.styles.dim(t('error.hint', { hint: t('provider.none.hint') })));
     return EXIT.ok;
   }
   ctx.print(
@@ -305,7 +304,7 @@ export async function providerTest(
     if (id === undefined) {
       const { providers } = await client.request('provider.list');
       if (providers.length === 0) {
-        throw new CliError(t('provider.none'), t('session.noProviders.hint'));
+        throw new CliError(t('session.noProviders'), t('session.noProviders.hint'));
       }
       if (providers.length > 1) {
         throw new UsageError(

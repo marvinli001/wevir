@@ -26,7 +26,6 @@ export async function workspaceList(ctx: Context): Promise<number> {
   const { workspaces } = await withClient(ctx, (client) => client.request('workspace.list'));
   if (workspaces.length === 0) {
     ctx.print(t('workspace.none'));
-    ctx.print(ctx.styles.dim(t('error.hint', { hint: t('workspace.none.hint') })));
     return EXIT.ok;
   }
   ctx.print(
