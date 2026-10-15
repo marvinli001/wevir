@@ -159,7 +159,7 @@ Wevir 的三种模式按语义对到 Claude Code 的权限模式（同 T3 的 ru
 | `auto_review`（自动批准） | `auto` | Claude Code 的模型分类器逐个批准或拒绝，拿不准时照样经 `canUseTool` 问用户 |
 | `full_access`（完全访问） | `bypassPermissions` + `allowDangerouslySkipPermissions` | 不问；`canUseTool` 收到的请求一律允许（AskUserQuestion 除外） |
 
-Codex 的 `on_request` 在工作区里写文件不问（沙箱放行），Claude 的 `default` 改文件也问，所以桌面端审批卡片的标题（“允许修改项目目录之外的文件？”）对 Claude 不准确，留给桌面端（§8）。`auto` 模式在账号没有资格时 `claude` 会退回别的模式，初始化消息里的模式与请求的不同时记一条告警。
+Codex 的 `on_request` 在工作区里写文件不问（沙箱放行），Claude 的 `default` 改文件也问，所以桌面端审批卡片的标题按会话的目录与 Provider 写（desktop-tokens §17）：Claude 改项目目录里的文件是“允许修改文件？”，运行命令是“允许运行命令？”，路径出了目录才说“项目目录之外”。`auto` 模式在账号没有资格时 `claude` 会退回别的模式，初始化消息里的模式与请求的不同时记一条告警。
 
 ### 5.2 `canUseTool` → 审批
 
@@ -250,7 +250,6 @@ Claude 默认把 Agent 工具放到后台（工具立即返回 “Async agent la
 
 ## 8. 留给后续任务
 
-- **桌面端的审批卡片措辞**：标题按 Codex 的沙箱语义写（“允许修改项目目录之外的文件？”“允许在沙箱之外运行命令？”），Claude 的 `default` 模式改工作区里的文件也问，卡片应当按引擎或按请求说明换措辞。
 - **跨来源换模型的接力**（补记 14）另做。
 - **后台任务**：关掉了（§6.4）。要支持就得让顶层会话接受引擎自己开的回合（协议与 Host 都要改）。
 - **slash 命令与 skills**：T3 把 `claude` 初始化结果里的命令与 skills 交给界面，Wevir 的协议还没有这类字段。

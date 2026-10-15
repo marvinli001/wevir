@@ -1,7 +1,9 @@
 import type { ApprovalRequest, ClientIdentity } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  type ApprovalScope,
   approvalLayout,
+  approvalScope,
   clientLabel,
   decidedHere,
   optionLabel,
@@ -33,6 +35,11 @@ function approval(detail: ApprovalRequest['detail']): ApprovalRequest {
   };
 }
 
+/** Codex 与 dsh：只为越过沙箱的操作问。 */
+const codex: ApprovalScope = { roots: ['/repo'], sandboxed: true };
+/** Claude Agent：项目目录里改文件、运行命令也问（claude-event-mapping.md §5.1）。 */
+const claude: ApprovalScope = { roots: ['/repo', '/wt/repo-feature'], sandboxed: false };
+
 describe('presentApproval（acp-event-mapping.md §5.5）', () => {
   it('写文件：标题、目标、完全访问、理由与内容预览（前 6 行）', () => {
     const content = Array.from({ length: 8 }, (_, i) => `第 ${i + 1} 行`).join('\n');
@@ -44,6 +51,7 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
         justification: '用户要求写到共享目录。',
         sandboxPermissions: 'danger-full-access',
       }),
+      codex,
     );
     expect(presentation).toEqual({
       title: '允许修改项目目录之外的文件？',
@@ -62,13 +70,99 @@ describe('presentApproval（acp-event-mapping.md §5.5）', () => {
           display: { kind: 'shell', command: 'rm -rf build\necho ok' },
           sandboxPermissions: 'network',
         }),
+        codex,
       ),
     ).toEqual({
       title: '允许在沙箱之外运行命令？',
       target: 'rm -rf build\necho ok',
       permission: 'network',
     });
-    expect(presentApproval(approval(null))).toEqual({ title: '允许越过项目目录限制？' });
+    expect(presentApproval(approval(null), codex)).toEqual({ title: '允许越过项目目录限制？' });
+  });
+});
+
+describe('审批标题按会话的边界', () => {
+  const title = (detail: ApprovalRequest['detail'], scope?: ApprovalScope) =>
+    presentApproval(approval(detail), scope).title;
+  const write = (path: string): ApprovalRequest['detail'] => ({
+    toolName: 'Write',
+    display: { kind: 'write', paths: [path], summary: path },
+  });
+  const bash: ApprovalRequest['detail'] = {
+    toolName: 'Bash',
+    display: { kind: 'shell', command: 'pnpm test' },
+  };
+
+  it('Claude Agent：项目目录与 worktree 里的改动、命令不说“之外”', () => {
+    expect(title(write('/repo/approve.txt'), claude)).toBe('允许修改文件？');
+    expect(title(write('/wt/repo-feature/src/a.ts'), claude)).toBe('允许修改文件？');
+    expect(title(write('src/a.ts'), claude)).toBe('允许修改文件？');
+    expect(title(bash, claude)).toBe('允许运行命令？');
+    expect(
+      title(
+        { toolName: 'WebFetch', display: { kind: 'fetch', url: 'https://example.com' } },
+        claude,
+      ),
+    ).toBe('允许执行此操作？');
+    expect(title(null, claude)).toBe('允许执行此操作？');
+  });
+
+  it('Claude Agent：路径出了目录时照实说', () => {
+    expect(title(write('/repo-other/a.txt'), claude)).toBe('允许修改项目目录之外的文件？');
+    expect(title(write('/repo/../etc/hosts'), claude)).toBe('允许修改项目目录之外的文件？');
+    expect(
+      title(
+        {
+          toolName: 'Read',
+          display: { kind: 'read', paths: ['/etc/hosts'], summary: '/etc/hosts' },
+        },
+        claude,
+      ),
+    ).toBe('允许读取项目目录之外的文件？');
+    expect(
+      title({ toolName: 'Read', display: { kind: 'read', paths: ['/repo/a.ts'] } }, claude),
+    ).toBe('允许执行此操作？');
+  });
+
+  it('Codex：越过沙箱的请求标题不变；目录里受保护的文件只说修改', () => {
+    expect(title(write('/tmp/out.txt'), codex)).toBe('允许修改项目目录之外的文件？');
+    expect(
+      title({ toolName: 'fileChange', display: { kind: 'edit', paths: [], summary: '' } }, codex),
+    ).toBe('允许修改项目目录之外的文件？');
+    expect(title(bash, codex)).toBe('允许在沙箱之外运行命令？');
+    expect(title(write('/repo/.git/config'), codex)).toBe('允许修改文件？');
+  });
+
+  it('Windows 路径与不知道会话边界时', () => {
+    const windows: ApprovalScope = { roots: ['C:\\Users\\me\\repo'], sandboxed: false };
+    expect(title(write('c:/Users/me/repo/a.txt'), windows)).toBe('允许修改文件？');
+    expect(title(write('C:\\Users\\me\\repo2\\a.txt'), windows)).toBe(
+      '允许修改项目目录之外的文件？',
+    );
+    expect(title(write('/out/a.txt'))).toBe('允许修改文件？');
+    expect(title(bash)).toBe('允许运行命令？');
+    expect(title({ ...bash, sandboxPermissions: 'require_escalated' })).toBe(
+      '允许在沙箱之外运行命令？',
+    );
+  });
+
+  it('approvalScope：目录含额外文件夹与 worktree，订阅来源的 Provider 不是沙箱引擎', () => {
+    const session = {
+      cwd: '/repo',
+      extraRoots: ['/docs'],
+      worktrees: [{ workspaceId: 'ws_1', path: '/wt/repo', branch: 'feature' }],
+      providerId: 'claude',
+    } as Parameters<typeof approvalScope>[0];
+    expect(approvalScope(session, [{ id: 'claude', kind: 'claude' }])).toEqual({
+      roots: ['/repo', '/docs', '/wt/repo'],
+      sandboxed: false,
+    });
+    expect(
+      approvalScope({ ...session, providerId: 'chatgpt' } as typeof session, [
+        { id: 'chatgpt', kind: 'chatgpt' },
+      ])?.sandboxed,
+    ).toBe(true);
+    expect(approvalScope(session, [])).toBeUndefined();
   });
 });
 

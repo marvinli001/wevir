@@ -213,6 +213,7 @@ export function SessionView({
           {transcript && (
             <ApprovalDock
               transcript={transcript}
+              session={session}
               client={client}
               self={identity}
               subagentHref={subagentHref}

@@ -1,13 +1,18 @@
-// 审批卡片的文案与内容（T5.3），按 acp-event-mapping.md §5.5：审批问的是“这一次操作能不能越过工作区的
-// 限制”。标题按展示类型；正文是目标、所需权限、Agent 给出的理由，写文件再附内容预览；按钮按请求携带的选项。
-// U13 起照 Claude Code 的权限提示：标题是一句问话，目标（命令全文或路径）放在代码块里，选项分左右两组、带数字键。
-// 纯函数，组件在 approval-card.tsx。
+// 审批卡片的文案与内容（T5.3），按 acp-event-mapping.md §5.5。标题按展示类型与会话的边界（`ApprovalScope`）：Codex 与 dsh
+// 只为越过沙箱的操作请求批准，Claude Agent 这类订阅引擎在项目目录里改文件、运行命令也问（claude-event-mapping.md §5.1），
+// 所以“项目目录之外”“沙箱之外”只在请求确实如此时写。正文是目标、所需权限、Agent 给出的理由，写文件再附内容预览；按钮按
+// 请求携带的选项。U13 起照 Claude Code 的权限提示：标题是一句问话，目标（命令全文或路径）放在代码块里，选项分左右两组、
+// 带数字键。纯函数，组件在 approval-card.tsx。
 
-import type {
-  ApprovalOption,
-  ApprovalRequest,
-  ApprovalResolution,
-  ClientIdentity,
+import {
+  type ApprovalDetail,
+  type ApprovalOption,
+  type ApprovalRequest,
+  type ApprovalResolution,
+  type ClientIdentity,
+  type ProviderProfile,
+  type Session,
+  SUBSCRIPTION_KINDS,
 } from '@wevir/protocol';
 import { type PlainMessageKey, t } from '@/i18n';
 
@@ -24,16 +29,47 @@ export interface ApprovalPresentation {
   preview?: { text: string; more: boolean };
 }
 
-export function presentApproval(approval: ApprovalRequest): ApprovalPresentation {
+/**
+ * 审批所在会话的边界（`approvalScope`）。会话还没读到、Provider 不认识时没有，标题按“不知道会话的边界”写，不说“之外”。
+ */
+export interface ApprovalScope {
+  /** 会话的目录：主文件夹、额外的文件夹与 worktree。 */
+  roots: readonly string[];
+  /**
+   * 引擎只为越过沙箱的操作请求批准：Codex 与 dsh（ChatGPT、DeepSeek 官方、OpenAI 兼容的 Provider）。订阅来源的引擎
+   * （Claude Agent 等）按自己的规则问。
+   */
+  sandboxed: boolean;
+}
+
+type ScopeSession = Pick<Session, 'cwd' | 'extraRoots' | 'worktrees' | 'providerId'>;
+
+export function approvalScope(
+  session: ScopeSession,
+  providers: readonly Pick<ProviderProfile, 'id' | 'kind'>[],
+): ApprovalScope | undefined {
+  const provider = providers.find((candidate) => candidate.id === session.providerId);
+  if (!provider) return undefined;
+  return {
+    roots: [
+      session.cwd,
+      ...(session.extraRoots ?? []),
+      ...(session.worktrees ?? []).map((worktree) => worktree.path),
+    ],
+    sandboxed: !(SUBSCRIPTION_KINDS as readonly string[]).includes(provider.kind),
+  };
+}
+
+export function presentApproval(
+  approval: ApprovalRequest,
+  scope?: ApprovalScope,
+): ApprovalPresentation {
   const detail = approval.detail;
-  if (!detail) return { title: t('approval.title.generic') };
+  if (!detail) {
+    return { title: t(scope?.sandboxed ? 'approval.title.outside' : 'approval.title.generic') };
+  }
   const kind = detail.display.kind;
-  const title =
-    kind === 'write' || kind === 'edit'
-      ? t('approval.title.file')
-      : kind === 'shell'
-        ? t('approval.title.shell')
-        : t('approval.title.generic');
+  const title = t(titleKey(detail, scope));
   const target = (
     kind === 'shell'
       ? (detail.display.command ?? detail.display.summary)
@@ -136,6 +172,58 @@ export function decidedHere(
     resolution.decidedBy?.clientId === self.clientId &&
     resolution.decidedBy.deviceId === self.deviceId
   );
+}
+
+/**
+ * 标题：改文件看路径在不在会话的目录里，路径不全时按引擎（沙箱引擎只为目录之外的文件问）；读文件、搜索只在路径出了目录时
+ * 单说；命令按引擎，请求带着 `sandboxPermissions` 的也是越过沙箱。
+ */
+function titleKey(detail: ApprovalDetail, scope: ApprovalScope | undefined): PlainMessageKey {
+  const { kind, paths } = detail.display;
+  const outside =
+    scope && paths?.length ? paths.some((path) => !within(path, scope.roots)) : undefined;
+  switch (kind) {
+    case 'write':
+    case 'edit':
+      return (outside ?? scope?.sandboxed) ? 'approval.title.fileOutside' : 'approval.title.file';
+    case 'read':
+    case 'search':
+      if (outside) return 'approval.title.readOutside';
+      break;
+    case 'shell':
+      return scope?.sandboxed || detail.sandboxPermissions
+        ? 'approval.title.shellOutside'
+        : 'approval.title.shell';
+  }
+  return scope?.sandboxed ? 'approval.title.outside' : 'approval.title.generic';
+}
+
+/** `path` 是不是在某个目录里（含目录本身）；相对路径按第一个目录（会话的工作目录）算。 */
+function within(path: string, roots: readonly string[]): boolean {
+  const [cwd] = roots;
+  if (cwd === undefined) return false;
+  const target = normalizePath(isAbsolute(path) ? path : `${cwd}/${path}`);
+  return roots.some((root) => {
+    const base = normalizePath(root);
+    return target === base || target.startsWith(base.endsWith('/') ? base : `${base}/`);
+  });
+}
+
+function isAbsolute(path: string): boolean {
+  return path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(path);
+}
+
+/** 分隔符统一成 `/`，去掉 `.` 与 `..`；Windows 的盘符路径不分大小写。 */
+function normalizePath(path: string): string {
+  const drive = /^[A-Za-z]:/.test(path);
+  const parts: string[] = [];
+  for (const part of path.replaceAll('\\', '/').split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  }
+  const joined = drive ? parts.join('/') : `/${parts.join('/')}`;
+  return drive ? joined.toLowerCase() : joined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

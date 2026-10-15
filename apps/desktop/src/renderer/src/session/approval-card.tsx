@@ -14,6 +14,7 @@ import type {
   ApprovalOption,
   ApprovalRequest,
   ClientIdentity,
+  Session,
   SubagentSummary,
 } from '@wevir/protocol';
 import { cn } from 'cn';
@@ -21,13 +22,16 @@ import { ChevronRight } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
+import { useWorkbenchData } from '@/data/workbench-data';
 import { Beam } from '@/fx/beam';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import {
   type ApprovalLayout,
+  type ApprovalScope,
   approvalLayout,
+  approvalScope,
   decidedHere,
   presentApproval,
   resolutionText,
@@ -52,12 +56,15 @@ interface Notice {
  */
 export function ApprovalDock({
   transcript,
+  session,
   client,
   self,
   subagentHref,
   recap,
 }: {
   transcript: Transcript;
+  /** 审批所在的会话（标题按它的目录与引擎写）；不给时在会话列表里找这个会话或它的父会话。 */
+  session?: Session;
   client: WevirClient | undefined;
   self: ClientIdentity | undefined;
   /** 子会话的视图地址；给了才显示“查看子智能体”。 */
@@ -72,6 +79,7 @@ export function ApprovalDock({
   const [submitting, setSubmitting] = useState<ApprovalId>();
   const [notice, setNotice] = useState<Notice>();
   const shown = useRef<ApprovalId | undefined>(undefined);
+  const scope = useApprovalScope(transcript, session);
 
   // 正在显示的审批不再未决：按结算结果提示（本窗口做的决定不提示）。
   useEffect(() => {
@@ -131,6 +139,7 @@ export function ApprovalDock({
           <ApprovalCard
             key={current.id}
             approval={current}
+            scope={scope}
             origin={origin && { subagent: origin, href: subagentHref?.(origin) }}
             remaining={remaining}
             recap={recap}
@@ -144,6 +153,24 @@ export function ApprovalDock({
   );
 }
 
+/** 会话的边界：子会话的审批（R5）用父会话的目录与 Provider。 */
+function useApprovalScope(
+  transcript: Transcript,
+  session: Session | undefined,
+): ApprovalScope | undefined {
+  const data = useWorkbenchData();
+  const ownerId = transcript.parent?.sessionId ?? transcript.sessionId;
+  return useMemo(() => {
+    if (data.status !== 'ready') return undefined;
+    const owner =
+      session ??
+      data.workspaces
+        .flatMap((entry) => entry.sessions)
+        .find((candidate) => candidate.id === ownerId);
+    return owner && approvalScope(owner, data.providers);
+  }, [data, session, ownerId]);
+}
+
 /**
  * 一个审批（U13 起照 Claude Code 的权限提示）：一句问话做标题，下面是 Agent 给的理由、所需权限（警示色）与放在代码块里的
  * 目标（命令全文或路径），写文件再附内容预览；底部只有两个按钮（U15）：左边“拒绝”（1、Esc），右边“允许”（2、⌘↵，主按钮），
@@ -152,6 +179,7 @@ export function ApprovalDock({
  */
 function ApprovalCard({
   approval,
+  scope,
   origin,
   remaining,
   recap,
@@ -160,6 +188,7 @@ function ApprovalCard({
   onRespond,
 }: {
   approval: ApprovalRequest;
+  scope: ApprovalScope | undefined;
   /** 来自子会话的审批：哪个子智能体，以及它的视图地址。 */
   origin: { subagent: SubagentSummary; href: string | undefined } | undefined;
   remaining: number;
@@ -168,7 +197,7 @@ function ApprovalCard({
   error: string | undefined;
   onRespond: (optionId: string) => void;
 }) {
-  const presentation = presentApproval(approval);
+  const presentation = presentApproval(approval, scope);
   const layout = useMemo(() => approvalLayout(approval.options), [approval.options]);
   const titleId = `approval-${approval.id}`;
   const cardRef = useRef<HTMLElement>(null);
