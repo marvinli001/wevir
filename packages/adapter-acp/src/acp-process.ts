@@ -13,7 +13,7 @@ import {
   type RequestPermissionRequest,
   type RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
-import { AdapterError } from '@wevir/runtime-adapter';
+import { AdapterError, isAdapterError } from '@wevir/runtime-adapter';
 import type { AcpEngine, IncrementalEvent, IncrementalWarning } from './engine.js';
 
 /** `initialize` 的时限。dsh 实测冷启动到 initialize 完成中位约 0.5 s，最大 0.61 s（T0.3）。 */
@@ -190,6 +190,23 @@ export interface AcpProcessOptions {
   onExtRequest?: (method: string, params: unknown, signal: AbortSignal) => Promise<unknown>;
   /** `initialize` 的 `clientInfo`，默认 `{name: 'wevir', version: '0.0.0'}`。 */
   clientInfo?: { name: string; version: string };
+  /**
+   * 接受的 `initialize` 协议版本，默认只有 SDK 的 `PROTOCOL_VERSION`。有的引擎报的版本号与线上格式不一致（Antigravity
+   * 1.1.1 报 2，说的仍是 v1 的格式），由引擎的适配器放宽。
+   */
+  protocolVersions?: readonly number[];
+  /**
+   * `initialize` 成功之后、进程报就绪之前调用（Antigravity：ACP `authenticate`）。抛错即这次启动失败；抛出的
+   * `missing_credentials` 原样交给调用方（`start` / `restart`），其余包成 `engine_unavailable`。
+   */
+  afterInitialize?: (connection: ClientConnection, response: InitializeResponse) => Promise<void>;
+  /** stderr 的每一段（utf8）。只观察，不影响尾部的保留；不得抛错。 */
+  onStderr?: (chunk: string) => void;
+  /**
+   * 在 ACP 解码之前改写 stdout 的字节流（Antigravity：去掉它写在 stdout 上的登录提示行，那不是 JSON-RPC）。
+   * 每个进程调用一次。
+   */
+  transformStdout?: (stdout: ReadableStream<Uint8Array>) => ReadableStream<Uint8Array>;
   initializeTimeoutMs?: number;
   restart?: Partial<RestartPolicy>;
   disposeTimeouts?: Partial<DisposeTimeouts>;
@@ -377,6 +394,30 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
   }
 
   /**
+   * 停掉当前进程而不再启动（Antigravity：登出后旧进程里还缓存着凭据）：与 `restart` 同一个回收阶梯，不发 `exit`
+   * 事件，状态回到 `stopped`，之后的 `start()` 拉起新进程。旧连接上的会话随旧进程失效，调用方先自行处理。正在启动
+   * 时等它完成再停。没有进程时什么都不做；`dispose` 之后抛 `disposed`。
+   */
+  stop(): Promise<void> {
+    if (this.#disposing !== undefined) return Promise.reject(this.#disposedError());
+    return (async () => {
+      await this.#restartRequest?.catch(() => {});
+      await this.#starting?.catch(() => {});
+      if (this.#disposing !== undefined) throw this.#disposedError();
+      clearTimeout(this.#restartTimer);
+      this.#restartTimer = undefined;
+      const launch = this.#current;
+      if (launch !== undefined) {
+        await this.#stop(
+          launch,
+          new AdapterError('engine_unavailable', `${this.#name} 进程已停止`),
+        );
+      }
+      if (this.#disposing === undefined && this.#starting === undefined) this.#state = 'stopped';
+    })();
+  }
+
+  /**
    * 回收进程：关 stdin → SIGTERM → SIGKILL，每步等到进程退出或超时，整个阶梯 4.5 s 内返回。
    * 停止自动重启，进行中的 ACP 请求以 `disposed` 失败，不发 `exit` 事件。幂等。
    */
@@ -432,12 +473,18 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
           );
         }),
       ]);
-      if (response.protocolVersion !== PROTOCOL_VERSION) {
+      const accepted = this.#options.protocolVersions ?? [PROTOCOL_VERSION];
+      if (!accepted.includes(response.protocolVersion)) {
         throw new Error(
           `${this.#name} 的 ACP 协议版本是 ${response.protocolVersion}，客户端是 ${PROTOCOL_VERSION}`,
         );
       }
       if (launch.exit !== undefined) throw new Error(`${this.#name} 在 initialize 之后立即退出`);
+      if (this.#options.afterInitialize !== undefined) {
+        clearTimeout(timer);
+        await this.#options.afterInitialize(launch.connection, response);
+        if (launch.exit !== undefined) throw new Error(`${this.#name} 在启动过程中退出`);
+      }
       launch.initialize = response;
       launch.readyAt = Date.now();
       if (launch.incremental === 'waiting') this.#awaitIncremental(launch);
@@ -453,6 +500,7 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       const exit = await this.#stop(launch, error);
       if (this.#disposing !== undefined) throw this.#disposedError();
       this.#state = 'stopped';
+      if (isAdapterError(error, 'missing_credentials')) throw error;
       const detail = exit === undefined ? '' : `；${describeExit(exit)}`;
       throw new AdapterError(
         'engine_unavailable',
@@ -507,7 +555,9 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       Writable.toWeb(stdin) as WritableStream<Uint8Array>,
       // stdout 可能先于 exit 事件结束；等进程退出记下来再结束输入，进行中的请求才会以
       // “进程已退出”失败，而不是笼统的连接关闭。
-      (Readable.toWeb(stdout) as ReadableStream<Uint8Array>).pipeThrough(
+      (this.#options.transformStdout ?? ((stream) => stream))(
+        Readable.toWeb(stdout) as ReadableStream<Uint8Array>,
+      ).pipeThrough(
         new TransformStream<Uint8Array, Uint8Array>({ flush: () => exited.then(() => {}) }),
       ),
     );
@@ -564,6 +614,11 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     stderr.setEncoding('utf8');
     stderr.on('data', (chunk: string) => {
       launch.stderrTail = (launch.stderrTail + chunk).slice(-STDERR_TAIL_CHARS);
+      try {
+        this.#options.onStderr?.(chunk);
+      } catch {
+        // 回调约定不抛错。
+      }
     });
     const channel = this.#options.engine.incremental;
     const sink = this.#options.incremental;

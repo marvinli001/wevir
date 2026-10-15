@@ -77,6 +77,14 @@ interface Turn {
   finish: () => void;
 }
 
+/** `session/new` / `session/resume` 的响应里引擎相关的部分（`afterActivation`）。 */
+export interface AcpSessionSetup {
+  /** 选定路由之后的 `configOptions`。 */
+  configOptions: unknown;
+  /** ACP 的 `modes`（只给模式、不给 mode 类 config option 的引擎用 `session/set_mode`）。 */
+  modes?: unknown;
+}
+
 interface AcpSession {
   readonly id: string;
   readonly cwd: string;
@@ -194,7 +202,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     const connection = await this.#readyConnection();
     this.#activating += 1;
     try {
-      let response: { sessionId: string; configOptions?: unknown };
+      let response: { sessionId: string; configOptions?: unknown; modes?: unknown };
       try {
         response = await this.#withAuth(() =>
           connection.agent.request(methods.agent.session.new, {
@@ -209,6 +217,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       let configOptions: unknown;
       try {
         configOptions = await this.#selectRoute(id, config, response.configOptions);
+        configOptions = await this.afterActivation(id, config, {
+          configOptions,
+          modes: response.modes,
+        });
       } catch (error) {
         // 选不上路由的会话不交给 Host，引擎侧也关掉。
         await connection.agent
@@ -243,8 +255,9 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.#activating += 1;
     try {
       let configOptions: unknown;
+      let modes: unknown;
       try {
-        ({ configOptions } = await this.#withAuth(() =>
+        ({ configOptions, modes } = await this.#withAuth(() =>
           connection.agent.request(methods.agent.session.resume, {
             sessionId: engineSessionId,
             cwd: config.cwd,
@@ -273,6 +286,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       }
       try {
         configOptions = await this.#selectRoute(engineSessionId, config, configOptions);
+        configOptions = await this.afterActivation(engineSessionId, config, {
+          configOptions,
+          modes,
+        });
       } catch (error) {
         await connection.agent
           .request(methods.agent.session.close, { sessionId: engineSessionId })
@@ -666,6 +683,44 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     session.configOptions = await this.#selectRoute(engineSessionId, config, session.configOptions);
   }
 
+  /**
+   * 会话挂到引擎上（`session/new` / `session/resume` 成功、路由已选定）之后、交给 Host 之前调用：引擎在这里按 `config`
+   * 设定会话的其他选项（Antigravity：权限模式）。返回最终的 `configOptions`；抛错时会话被关掉，错误交给调用方。
+   * 默认原样返回。
+   */
+  protected async afterActivation(
+    _engineSessionId: string,
+    _config: SessionConfig,
+    setup: AcpSessionSetup,
+  ): Promise<unknown> {
+    return setup.configOptions;
+  }
+
+  /**
+   * `session/request_permission` 在当作审批之前先交给它（Antigravity：`interaction_*` 是提问，用 `requestAnswers` 问
+   * 用户）。返回 Promise 时由它给出回复；返回 undefined 照常走 `requestApproval`。只在会话有进行中的回合时调用。
+   */
+  protected interceptPermission(
+    _params: RequestPermissionRequest,
+    _signal: AbortSignal,
+  ): Promise<RequestPermissionResponse> | undefined {
+    return undefined;
+  }
+
+  /** 会话挂在当前进程上时返回，否则抛 `session_not_found` / `session_closed`。 */
+  protected assertOpenSession(engineSessionId: string): void {
+    this.#openSession(engineSessionId);
+  }
+
+  /**
+   * 停掉引擎进程、不再启动（Antigravity 登出：旧进程里缓存着凭据）：挂着的会话全部脱开并发 `engine.exited`
+   * （`reason`），下一次建会话或恢复时再拉起新进程。
+   */
+  protected async stopEngine(reason: NonNullable<EngineExitedEvent['reason']>): Promise<void> {
+    this.#detachAll({ exitCode: null, signal: null, reason });
+    await this.process.stop();
+  }
+
   /** 一个回合结算（`turn.settled` / `turn.failed` 已发出）之后调用（dsh：等回合结束的配置重启）。默认什么都不做。 */
   protected afterTurn(): void {}
 
@@ -703,7 +758,15 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     ) {
       session.configOptions = params.update.configOptions;
     }
-    session.queue.acpUpdate(params);
+    let notification = params;
+    if (this.engine.normalizeUpdate !== undefined) {
+      try {
+        notification = this.engine.normalizeUpdate(params);
+      } catch {
+        // 约定不抛错；万一抛了就用原文。
+      }
+    }
+    session.queue.acpUpdate(notification);
   }
 
   /**
@@ -721,6 +784,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
       });
       return Promise.resolve(PERMISSION_CANCELLED);
     }
+    const intercepted = this.interceptPermission(params, signal);
+    if (intercepted !== undefined) return intercepted;
     const options: ApprovalOption[] = params.options.map((option) => ({
       optionId: option.optionId,
       label: option.name,

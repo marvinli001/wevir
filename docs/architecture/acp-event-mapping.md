@@ -54,8 +54,9 @@ AcpProcess 的 exit 事件 ──▶ 每个挂着的会话一条 engine.exited�
 | `tools.isPlanTool`（可选） | 引擎用 ACP `plan` 报完整的待办列表时，哪些工具调用写待办（§1.6） | 不用（待办来自 `todo_write` 的输入） |
 | `route.modelMethod`（可选） | 换模型用 `session/set_config_option`（默认）还是 `session/set_model`（推理强度在 `_meta.reasoningEffort`）；`encode` 返回 undefined 表示不换模型 | `config_option` |
 | `initializeMeta`、`extensions`、`approvalOptions`（可选） | `initialize` 的 `_meta`；引擎的 ACP 扩展通知与扩展请求的方法名（§1.7）；交给用户之前过滤审批选项 | 不用 |
+| `normalizeUpdate`（可选） | `session/update` 进映射之前的整理，按写出的顺序同步调用 | 不用（Antigravity 给工具负载设上限、去掉图片数据） |
 
-进程（`AcpProcess`）对所有引擎都一样，数值是在 dsh 上实测定下的（ADR-0001 补记 1）：`initialize` 的 `clientCapabilities` 为 `{}`（不声明 `fs` 与 `terminal`，工具在引擎自己的沙箱里执行），时限 15 s，协议版本不是 1 算启动失败；启动失败报 `engine_unavailable`，带退出码与 stderr 尾部（只留最后 16 KiB）。就绪的进程意外退出时发 `exit`，自动重启最多连续 3 次（等 0.5 s、1 s、2 s），连续运行满 60 s 后重新计数。回收是关连接 → 关 stdin 等 2 s → SIGTERM 等 1.5 s → SIGKILL 等 1 s，启动器以 detached 启动时信号发给整个进程组。引擎不热加载配置时，换了启动配置（`launchConfigStale`）的进程要重启才生效，什么时候重启由引擎的适配器决定（dsh 见第二部分开头）。
+进程（`AcpProcess`）对所有引擎都一样，数值是在 dsh 上实测定下的（ADR-0001 补记 1），另有几个默认关着的钩子（2026-10-15，Antigravity 用）：`protocolVersions`（接受的 `initialize` 协议版本，默认只有 1）、`afterInitialize`（就绪之前再做一步，例如 `authenticate`；抛出的 `missing_credentials` 原样交给调用方）、`onStderr`（观察 stderr）、`transformStdout`（ACP 解码之前改写 stdout）与 `stop()`（停掉进程、不再启动）。默认值如下：`initialize` 的 `clientCapabilities` 为 `{}`（不声明 `fs` 与 `terminal`，工具在引擎自己的沙箱里执行），时限 15 s，协议版本不是 1 算启动失败；启动失败报 `engine_unavailable`，带退出码与 stderr 尾部（只留最后 16 KiB）。就绪的进程意外退出时发 `exit`，自动重启最多连续 3 次（等 0.5 s、1 s、2 s），连续运行满 60 s 后重新计数。回收是关连接 → 关 stdin 等 2 s → SIGTERM 等 1.5 s → SIGKILL 等 1 s，启动器以 detached 启动时信号发给整个进程组。引擎不热加载配置时，换了启动配置（`launchConfigStale`）的进程要重启才生效，什么时候重启由引擎的适配器决定（dsh 见第二部分开头）。
 
 Grok Build 的那份是 `GROK_ENGINE`（`packages/adapter-grok/src/engine.ts`，[grok-event-mapping.md](./grok-event-mapping.md)）：逐字增量、`plan` 待办、`session/set_model`、xAI 扩展；它的适配器还用到 `AcpAdapter` 给子类的扩展点（`promptMeta` / `cancelMeta`、`extNotification` / `extRequest`、`completeTurn`、`requestApproval`、`requestAnswers` / `answerQuestion`、`applyRoute`、`authenticateAfter`，§1.7）。Gemini CLI（codex-notes §9）还没有接。
 
@@ -173,6 +174,9 @@ ACP 的扩展方法名以 `_` 开头（Grok 的 `_x.ai/…`）。引擎描述的
 | `requestAnswers(id, toolCallId, questions, signal?)`、`answerQuestion(id, requestId, answers)` | 向用户提问：发 `question.requested`（`q-<n>`），子类的 `respondToQuestion` 经 `answerQuestion` 给回答；结束规则同审批，结束时发 `question.cancelled` | Grok 的 `ask_user_question` |
 | `applyRoute(id, config)` | 给挂着、没有回合的会话重新选定模型与推理强度（会话中换模型） | Grok |
 | `authenticateAfter(error)` | `session/new` / `session/resume` 失败后：引擎要先认证时认证，返回 true 重试一次；也可以抛 `missing_credentials` | Grok 的 `-32000 Authentication required` |
+| `afterActivation(id, config, {configOptions, modes})` | 会话挂上、路由选定之后、交给 Host 之前设别的选项，返回最终的 `configOptions`；抛错时会话被关掉 | Antigravity：按权限模式设会话模式 |
+| `interceptPermission(params, signal)` | `session/request_permission` 当作审批之前先交给它；返回 Promise 时由它回复（可以用 `requestAnswers` 问用户），返回 undefined 照常走 §1.3 | Antigravity 的 `interaction_*` 提问（回答换成选项 ID 在 Antigravity 的钩子里） |
+| `stopEngine(reason)`、`assertOpenSession(id)` | 停掉进程、不再启动，挂着的会话以 `engine.exited`（`reason`）脱开；会话没挂着时报错 | Antigravity 登出（旧进程里缓存着凭据） |
 
 # 第二部分：dsh 专属补充（`@wevir/adapter-dsh`）
 

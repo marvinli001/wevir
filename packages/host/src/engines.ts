@@ -6,6 +6,7 @@
 // 引擎应当懒启动：构造适配器时不起进程、不联网，第一次读账号或建会话时才去找可执行文件。Host 启动时会在后台读一遍每种
 // 订阅的账号状态（host-process.ts）。
 
+import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CursorAdapter, isCursorShellSpawnFailure } from '@wevir/adapter-cursor';
 import { GrokAdapter } from '@wevir/adapter-grok';
@@ -57,6 +58,17 @@ export function subscriptionEngines(context: AdapterContext): EngineRoute[] {
         env: context.env ?? process.env,
       }),
       kinds: ['grok'],
+    },
+    // Antigravity（Google 的 ACP 运行体，antigravity-event-mapping.md）：Wevir 下载钉住的版本或用指定的可执行文件，私有
+    // profile 在 <数据目录>/engines/antigravity；第一次建会话、登录或刷新时才启动。
+    {
+      name: 'antigravity',
+      adapter: new AntigravityAdapter({
+        home: context.home,
+        logger: context.logger,
+        env: context.env ?? process.env,
+      }),
+      kinds: ['antigravity'],
     },
   ];
 }

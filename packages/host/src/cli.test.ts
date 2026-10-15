@@ -4,6 +4,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CodexRuntime } from '@wevir/adapter-codex';
 import { CursorAdapter } from '@wevir/adapter-cursor';
@@ -157,7 +158,7 @@ describe('runHostCli', () => {
     // 真实 dsh 上的端到端见 cli.dsh.integration.test.ts。
   });
 
-  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor、OpenCode、Grok）经 EngineRouter 挂在后面，同样不起进程', () => {
+  it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor、OpenCode、Grok、Antigravity）经 EngineRouter 挂在后面，同样不起进程', () => {
     const home = join(tempDir(), 'home');
     // 二进制只解析路径（WEVIR_CODEX_BIN），版本在第一次启动前才核对，这里不会运行它。
     const fakeBinary = join(tempDir(), 'codex-app-server');
@@ -173,6 +174,7 @@ describe('runHostCli', () => {
         ['cursor', ['cursor']],
         ['opencode', ['opencode']],
         ['grok', ['grok']],
+        ['antigravity', ['antigravity']],
       ]);
       expect(router.routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
       expect(router.routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
@@ -180,12 +182,23 @@ describe('runHostCli', () => {
       expect(router.routes[3]?.adapter).toBeInstanceOf(OpenCodeAdapter);
       expect(router.routes[4]?.adapter).toBeInstanceOf(GrokAdapter);
       expect((router.routes[4]?.adapter as GrokAdapter | undefined)?.engines).toEqual([]);
+      expect(router.routes[5]?.adapter).toBeInstanceOf(AntigravityAdapter);
+      expect((router.routes[5]?.adapter as AntigravityAdapter | undefined)?.process.state).toBe(
+        'stopped',
+      );
       const codex = router.routes[0]?.adapter as CodexRuntime;
       expect(codex.gateway.paths.codexHome).toBe(join(home, 'engines', 'codex'));
       expect(codex.chatgpt.paths.codexHome).toBe(join(home, 'engines', 'codex-chatgpt'));
       expect(codex.gateway.process.state).toBe('stopped');
       expect(codex.chatgpt.process.state).toBe('stopped');
-      expect(router.accounts?.kinds).toEqual(['chatgpt', 'claude', 'cursor', 'opencode', 'grok']);
+      expect(router.accounts?.kinds).toEqual([
+        'chatgpt',
+        'claude',
+        'cursor',
+        'opencode',
+        'grok',
+        'antigravity',
+      ]);
       expect(existsSync(home)).toBe(false);
     } finally {
       vi.unstubAllEnvs();

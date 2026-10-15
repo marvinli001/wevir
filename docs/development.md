@@ -63,6 +63,7 @@ pnpm dev
 | `WEVIR_NODE` | 改用这个 Node 可执行文件拉起 Host（排查用）。默认用 Electron 自带的 Node |
 | `WEVIR_DESKTOP_DEBUG_PORT` | 渲染进程的 Chrome 远程调试端口，默认 9339，只在开发模式打开、只监听 127.0.0.1 |
 | `ELECTRON_MIRROR` | Electron 二进制的下载地址（§7.3） |
+| `WEVIR_ANTIGRAVITY_MIRROR` | 在设置里下载 Antigravity 运行体时替换 `https://dl.google.com` 前缀（§7.4） |
 
 **调试。** 渲染进程：Chrome 打开 `chrome://inspect`，在 Configure 里加 `localhost:9339`，或直接用 `http://127.0.0.1:9339/json` 走 DevTools 协议。主进程的日志带 `[wevir-desktop]` 前缀，打在运行 `pnpm dev` 的终端里。Host 的日志在数据目录的 `logs/host.log`（§5.2）。
 
@@ -141,6 +142,7 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 | `packages/adapter-cursor` | Cursor 引擎（订阅来源）：`@cursor/sdk` 的应用内登录、模型、本地 agent、流式更新 → AgentEvent、取消与恢复（[cursor-event-mapping.md](./architecture/cursor-event-mapping.md)） | `pnpm vitest run --project adapter-cursor`（假 SDK 与本机 mock 后端，不需要 Cursor 账号、不联网；真实回合的手动步骤见映射文档 §8） |
 | `packages/adapter-opencode` | OpenCode 引擎（订阅来源）：用户的 `opencode`、本机服务器、账号与模型、规则集与审批、子 agent、流式事件 → AgentEvent、取消与恢复（[opencode-event-mapping.md](./architecture/opencode-event-mapping.md)） | `pnpm vitest run --project adapter-opencode`（假 opencode 回放真实录音，不需要 opencode）；装了 opencode 时 `WEVIR_TEST_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode contract.real`（真实 opencode + 本机假模型，不用订阅、不联网）；用订阅的手动步骤见映射文档 §9 |
 | `packages/adapter-grok` | Grok Build 引擎（订阅来源）：用户自己的 `grok` 的账号检测、按权限模式分进程的 ACP 会话、xAI 扩展（[grok-event-mapping.md](./architecture/grok-event-mapping.md)） | `pnpm vitest run --project adapter-grok`（假 grok 回放 T3 录的真实样本，不需要 Grok 账号、不联网；真实 `grok` 见 §6.2b） |
+| `packages/adapter-antigravity` | Antigravity 引擎（订阅来源）：钉住版本的下载安装、私有 profile、应用内 Google 登录、经通用 ACP 适配器的会话（[antigravity-event-mapping.md](./architecture/antigravity-event-mapping.md)） | `pnpm vitest run --project adapter-antigravity`（本机假下载服务器与假运行体，不下载真实运行体、不联网；真实运行体的手动步骤见映射文档 §8） |
 | `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat、Anthropic Messages 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §9 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
@@ -233,6 +235,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `engines.json` | `account.setPath` 指定的订阅引擎可执行文件（0.19.0） |
 | `engines/cursor/` | Cursor 引擎：应用内登录铸出的 API Key `auth.json`（0600，见[安全说明](./security.md) §3）。第一次登录 Cursor 时才出现；agent 的对话由 Cursor 的 SDK 存在它自己的位置（`~/.cursor/projects/`） |
 | `engines/opencode/` | OpenCode 引擎：读账号时 `opencode serve` 的工作目录，`servers/` 是本机服务器的台账（0600，进程身份与端口）。登录、配置与会话都在用户自己的 opencode 目录（`~/.config/opencode`、`~/.local/share/opencode`），Wevir 不读不改，见 [opencode-event-mapping.md](./architecture/opencode-event-mapping.md) §1 |
+| `engines/antigravity/` | Antigravity 引擎：`runtime/<平台>-<架构>/`（设置里下载的运行体，`active.json` 指向装好的版本，没下完的在 `downloads/`）、`profile/`（运行体的 `GEMINI_HOME`：Google 登录 `antigravity-acp/acp_token.json` 与对话，Wevir 不读登录的内容）、`tmp/`（每个进程的解包目录，约 1 GB，进程退出后删掉）、`models.json`（模型列表）。第一次下载或登录时才出现 |
 | `desktop/` | Electron 的 userData（Chromium 配置、localStorage） |
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。
@@ -469,6 +472,8 @@ WEVIR_GITHUB_MIRROR=https://ghfast.top/https://github.com bash scripts/upstream-
 ```
 
 脚本按 SHA 浅拉取 `docs/upstream/upstream.lock` 里的锁定提交，最后检查 `HEAD` 与锁定的 SHA 一致才算完成，所以经第三方镜像拿到的内容与 GitHub 上的同一提交逐字节相同。
+
+设置 → 模型服务 → Antigravity 的下载从 `dl.google.com` 取 Google 的运行体，大陆网络下常连不上。`WEVIR_ANTIGRAVITY_MIRROR` 把 `https://dl.google.com` 前缀换成镜像（路径不变，例如内网的同步镜像），在启动 Host（或桌面端）之前设好；内容照样按钉住的 sha256 校验，给错文件只会校验失败。没有镜像时自己下载 ACP Registry 里的压缩包，把 `agy_acp_server.par` 与 `localharness_external` 放在同一个目录，在设置里填可执行文件的路径（[antigravity-event-mapping.md](./architecture/antigravity-event-mapping.md) §2）。下载断了下次点下载会接着下。没有实测过可用的公共镜像。
 
 `scripts/fetch-codex.sh`（下载 `codex-app-server`，§2）同样认这个变量：Release 资产走 `<镜像>/openai/codex/releases/download/…`，下载后照样按脚本里的 sha256 校验（2026-10-14 经 `https://ghfast.top/https://github.com` 实测：72 MiB 约 8 s，校验通过）。
 

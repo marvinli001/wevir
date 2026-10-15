@@ -9,7 +9,7 @@ import type {
   TurnFailedEvent,
 } from '@wevir/runtime-adapter';
 import type { AdapterCapabilities } from '@wevir/runtime-adapter/contract';
-import type { AcpSessionUpdate } from './acp-mapping.js';
+import type { AcpSessionNotification, AcpSessionUpdate } from './acp-mapping.js';
 
 // 引擎描述（ADR-0005 决策 1.3）：通用 ACP 适配器对一个 ACP 引擎需要知道的全部差异。进程、连接、映射、事件队列、
 // 会话与审批的记账都是通用的（docs/architecture/acp-event-mapping.md 第一部分），每个引擎只给出这里的几项。
@@ -53,6 +53,11 @@ export interface AcpEngine {
    * Grok 去掉对整个项目长期有效的授权（grok-event-mapping.md §5）。返回空数组时按原样交出。
    */
   approvalOptions?(options: ApprovalOption[]): ApprovalOption[];
+  /**
+   * 可选：`session/update` 进映射之前的整理（Antigravity：给工具负载设上限、去掉图片数据），按引擎写出的顺序同步调用，
+   * 不得抛错。
+   */
+  normalizeUpdate?(notification: AcpSessionNotification): AcpSessionNotification;
 }
 
 export interface AcpExtensions {

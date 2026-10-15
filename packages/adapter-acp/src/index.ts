@@ -2,6 +2,7 @@ export {
   AcpAdapter,
   type AcpAdapterOptions,
   type AcpProcessHooks,
+  type AcpSessionSetup,
   CANCEL_TIMEOUT_MS,
   type TurnCompletion,
 } from './acp-adapter.js';

@@ -68,7 +68,7 @@ flowchart TB
 
 ## 2. 包与职责
 
-依赖只朝一个方向：客户端 → client-sdk → protocol；Host → runtime-adapter、storage、protocol、adapter-dsh、adapter-codex、adapter-cursor、adapter-opencode、adapter-grok；adapter-dsh、adapter-grok → adapter-acp → runtime-adapter；adapter-codex → model-gateway → runtime-adapter。只有 `adapter-dsh` 依赖 `@deepseek-ai/*`、只有 `adapter-codex` 可以依赖 `@openai/codex*`、只有 `adapter-cursor` 可以依赖 `@cursor/sdk*`、只有 `adapter-opencode` 可以依赖 `@opencode-ai/*` 与 `@opencode/*`（AGENTS.md 规则 2，`pnpm lint` 强制；adapter-codex 目前运行官方的独立二进制，不依赖 npm 包），ACP SDK 只由 `adapter-acp` 声明。
+依赖只朝一个方向：客户端 → client-sdk → protocol；Host → runtime-adapter、storage、protocol、adapter-dsh、adapter-codex、adapter-cursor、adapter-opencode、adapter-grok、adapter-antigravity；adapter-dsh、adapter-grok、adapter-antigravity → adapter-acp → runtime-adapter；adapter-codex → model-gateway → runtime-adapter。只有 `adapter-dsh` 依赖 `@deepseek-ai/*`、只有 `adapter-codex` 可以依赖 `@openai/codex*`、只有 `adapter-cursor` 可以依赖 `@cursor/sdk*`、只有 `adapter-opencode` 可以依赖 `@opencode-ai/*` 与 `@opencode/*`（AGENTS.md 规则 2，`pnpm lint` 强制；adapter-codex 目前运行官方的独立二进制，不依赖 npm 包），ACP SDK 只由 `adapter-acp` 声明。
 
 | 包 | 职责 | 主要依赖 |
 |---|---|---|
@@ -82,6 +82,7 @@ flowchart TB
 | `packages/adapter-cursor` | Cursor 引擎（订阅来源 `cursor`，ADR-0005 补记 14，[cursor-event-mapping.md](./cursor-event-mapping.md)）：`@cursor/sdk` 在 Host 进程里跑本地 agent；应用内登录（铸 API Key，存 `engines/cursor/auth.json`）、模型列表、会话与回合、流式更新 → `AgentEvent`、取消与恢复；没有审批，权限模式映射到 Cursor 的沙箱与 Auto-review。在 Host 的 `engines.ts` 登记，经 `EngineRouter` 与 Codex 并列 | runtime-adapter；`@cursor/sdk` 1.0.35 |
 | `packages/adapter-opencode` | OpenCode 引擎（订阅来源 `opencode`，ADR-0005 补记 14，[opencode-event-mapping.md](./opencode-event-mapping.md)）：用户自己装的 `opencode` 与他接上的上游；本机懒启动的 `opencode serve`（127.0.0.1、随机端口与密码、空闲停、整组回收），`provider.list` → 账号与模型，会话的规则集与审批、提问、子 agent、流式事件 → `AgentEvent`、取消与恢复。在 Host 的 `engines.ts` 登记，经 `EngineRouter` 与 Codex 并列 | runtime-adapter；`@opencode-ai/sdk` 1.18.34 |
 | `packages/adapter-grok` | Grok Build 引擎（订阅来源 `grok`，ADR-0005 补记 14，[grok-event-mapping.md](./grok-event-mapping.md)）：经 ACP 驱动用户自己装的 `grok agent stdio` 与他的 `grok login`，每种权限模式一个进程；账号检测（`--version`、`grok models`、只做 `initialize` 的探测）、模型与推理档位、逐字增量、待办、审批与提问、引擎报的回合结束、取消、恢复，会话中换模型与权限模式。在 Host 的 `engines.ts` 登记，经 `EngineRouter` 与 Codex 并列 | adapter-acp、runtime-adapter；不声明任何 npm 包（用户自己装 `grok`） |
+| `packages/adapter-antigravity` | Antigravity 引擎（订阅来源 `antigravity`，ADR-0005 补记 14，[antigravity-event-mapping.md](./antigravity-event-mapping.md)）：Google 官方的 ACP 运行体经通用 ACP 适配器驱动；钉住版本与 sha256 的下载安装（`account.install`）、私有 `GEMINI_HOME`、应用内 Google 登录（ACP `authenticate`）、模型来自会话的 `configOptions`、审批与提问、取消与恢复。在 Host 的 `engines.ts` 登记 | adapter-acp、runtime-adapter；`yauzl` 3.4.0 |
 | `packages/host` | `EventStore`（`seq`、增量合并、截断）、`SessionManager`、`HostRpcServer`、`createHostMethods`、进程入口 `wevir-host` 与运行时文件；子路径 `./runtime` 给拉起 Host 的客户端用 | protocol、runtime-adapter、storage、adapter-dsh、adapter-codex、adapter-cursor、adapter-opencode、ws |
 | `packages/client-sdk` | `WevirClient`（hello、类型安全的请求、断线排队、心跳、重连状态机）、`subscribe()` 异步迭代器（按 `seq` 去重补缺口）、`TranscriptProjection`（事件 → 消息与部件）；`./node` 读 `host.json`。浏览器入口不碰 Node 内置模块 | protocol |
 | `apps/desktop` | Electron 桌面端：主进程（窗口安全基线、`HostLifecycle`）、preload、渲染进程（侧栏 + 主窗格 + 窗格区的工作台布局，[desktop-layout.md](./desktop-layout.md)；会话视图、设置） | client-sdk、host（只用 `./runtime`）、protocol |

@@ -1,0 +1,33 @@
+{
+  "name": "@wevir/adapter-antigravity",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Wevir engine adapter for Google Antigravity's official ACP agent (ported from T3 Code): pinned download with SHA-256 check, private GEMINI_HOME profile, in-app Google sign-in through ACP authenticate, models from session config options, sessions over the generic ACP adapter.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@wevir/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@wevir/adapter-acp": "workspace:*",
+    "@wevir/runtime-adapter": "workspace:*",
+    "yauzl": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/yauzl": "3.4.0"
+  }
+}

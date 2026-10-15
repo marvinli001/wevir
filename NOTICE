@@ -240,7 +240,7 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
   仓库：https://github.com/lobehub/lobe-icons
   版权：Copyright (c) 2023 LobeHub
 
-10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单与 Claude Agent、Cursor、OpenCode 引擎）
+10. T3 Code（“变更”窗格、回合快照、会话的通知、文件窗格、输入框菜单与 Claude Agent、Cursor、OpenCode、Grok、Antigravity 引擎）
 ------------------------------------------------------------------------------------------------
 仓库：https://github.com/pingdotgg/t3code
 来源提交：ec1313c8f8333292506f05a355bb72d308a455d8
@@ -366,6 +366,35 @@ Effect 的 TypeScript，建在 @wevir/adapter-acp 上：
 
 packages/adapter-grok/src/test-fixtures/acp/ 是 T3 Code 的 apps/server/src/orchestration-v2/testkit/fixtures/ 里 7 个
 grok_transcript.ndjson 的原样副本：T3 录的 xAI Grok Build 1.0.41 / 1.0.44 的 ACP 往返，其中 Grok 的输出受 xAI 的条款约束。
+
+订阅来源 Antigravity 的引擎（packages/adapter-antigravity）移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），
+改写成不依赖 Effect 的 TypeScript，修改说明在各文件头：
+
+  packages/adapter-antigravity/src/release.ts
+      <- apps/server/src/provider/antigravityRelease.ts
+  packages/adapter-antigravity/src/installation.ts
+      <- apps/server/src/provider/AntigravityInstallation.ts
+  packages/adapter-antigravity/src/zip.ts
+      <- apps/server/src/zipArchive.ts
+  packages/adapter-antigravity/src/profile.ts
+      <- apps/server/src/provider/antigravityAuthSupport.ts
+         apps/server/src/provider/Drivers/AntigravitySkills.ts
+  packages/adapter-antigravity/src/session-files.ts
+      <- apps/server/src/provider/acp/AntigravitySessionFiles.ts
+  packages/adapter-antigravity/src/protocol.ts
+      <- apps/server/src/provider/acp/AntigravityProtocol.ts
+  packages/adapter-antigravity/src/models.ts
+      <- apps/server/src/provider/AntigravityProvider.ts
+  packages/adapter-antigravity/src/accounts.ts
+      <- apps/server/src/provider/AntigravityAuth.ts
+         apps/server/src/provider/Drivers/AntigravityDriver.ts
+         apps/server/src/provider/AntigravityProvider.ts
+  packages/adapter-antigravity/src/antigravity-adapter.ts
+      <- apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.ts
+         apps/server/src/provider/acp/AntigravityAcpSupport.ts
+  packages/adapter-antigravity/src/test-fixtures/acp-samples.ts
+      <- T3 测试里的 Antigravity 样本（AntigravityProtocol.test.ts、AntigravityProvider.test.ts、
+         packages/effect-acp/test/fixtures/antigravity-initialize.json、AntigravityTextGeneration.test.ts）
 
 许可证全文见文末“MIT License”。
 
