@@ -134,6 +134,53 @@ function profile(overrides: Partial<EditableProvider>): EditableProvider {
 }
 
 describe('预设模板（providers.md §7）', () => {
+  it('Gemini 按量目录用 Chat 与已有标志，模型不列 off / minimal，Schema 清洗默认关闭', () => {
+    const entry = catalogEntry('google-ai-studio');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 Gemini 模板');
+    const preset = entry.source.preset;
+    expect(entry).toMatchObject({
+      group: 'global',
+      logo: 'gemini',
+      keyURL: 'https://aistudio.google.com/apikey',
+    });
+    expect(preset).toMatchObject({
+      api: 'openai-completions',
+      baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+      docsURL: 'https://ai.google.dev/gemini-api/docs/openai',
+    });
+    expect(preset.compat?.geminiToolSchema).not.toBe(true);
+    for (const model of preset.models)
+      expect(model).toMatchObject({
+        contextWindow: 1048576,
+        maxTokens: 65536,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      });
+    expect(providerLogo({ kind: 'openai-compatible', baseURL: preset.baseURL })).toBe('gemini');
+    for (const apiKey of ['AQ.mock-not-a-real-key', 'AIza-mock-not-a-real-key']) {
+      const form = { ...newOpenAIForm(preset, []), apiKey };
+      expect(validateForm(form, [])).toEqual({});
+      expect(upsertSchema.parse(toUpsertParams(form))).toMatchObject({
+        apiKey,
+        models: preset.models,
+      });
+    }
+  });
+
+  it('已有 Gemini Profile 的模型不套新模板，手动 Schema 开关经编辑与协议解析保留', () => {
+    const original = profile({
+      id: 'gemini',
+      models: [{ id: 'gemini-old' }],
+      defaultModelId: 'gemini-old',
+      compat: { geminiToolSchema: true },
+    });
+    const form = editForm(original);
+    expect(upsertSchema.parse(toUpsertParams(form))).toMatchObject({
+      models: original.models,
+      defaultModelId: original.defaultModelId,
+      compat: original.compat,
+    });
+  });
   it('新建与编辑都保留 namespace / toolChoice，经过协议解析也不丢开关', () => {
     const preset: OpenAIPreset = {
       ...kimi,

@@ -859,7 +859,8 @@ export const messages: Messages = {
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.xai.note': 'API Key는 xai-로 시작. 중국 본토에서 직접 연결 불가.',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note': 'OpenAI 호환 엔드포인트로 연결. 중국 본토에서 직접 연결 불가.',
+  'provider.preset.gemini.note':
+    'Google 글로벌 종량제 API. 중국 본토·홍콩·마카오는 지원 지역이 아니며 중국 본토에서는 직접 연결할 수 없습니다.',
   'provider.preset.ollama': '로컬 Ollama',
   'provider.preset.ollama.note': 'API Key 불필요. 모델 ID는 이미 pull한 모델이어야 함.',
 

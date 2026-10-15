@@ -116,6 +116,8 @@ export interface GatewayCompat extends ProviderCompatConfig {
   supportsNamespaceTools?: boolean;
   /** 三种处理方式的工具选择限制；auto_only 的 none 只去掉 tool_choice、保留 tools。 */
   toolChoice?: 'any' | 'auto_only';
+  /** Chat 工具 Schema 的 Gemini 清洗，省略或 false 关闭；经代理时可显式开启（§4.5）。 */
+  geminiToolSchema?: boolean;
   /**
    * Chat 上游怎样收对话中间的 developer / system 消息：`inline`（默认）原位转 system；`merge` 全部并进开头的
    * 一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。

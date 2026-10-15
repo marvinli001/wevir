@@ -871,7 +871,7 @@ export const messages: Messages = {
   'provider.preset.xai.note': 'API Key は xai- で始まります。中国本土からは直接接続できません。',
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
-    'OpenAI 互換エンドポイント経由で接続。中国本土からは直接接続できません。',
+    'Google のグローバル従量課金 API。中国本土・香港・マカオは対象地域外で、中国本土から直接接続できません。',
   'provider.preset.ollama': 'ローカルの Ollama',
   'provider.preset.ollama.note': 'API Key は不要。モデル ID はプル済みのモデルに限ります。',
 

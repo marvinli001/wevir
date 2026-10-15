@@ -93,7 +93,7 @@ export type ProviderModel = z.infer<typeof ProviderModelSchema>;
 
 /**
  * 请求格式的修正，用于 `openai-compatible` 与 `google-vertex`。前四个原样写进 dsh overlay 的 `compat`，Codex 引擎的模型网关
- * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；其余只有模型网关用（0.4.0、0.12.0，
+ * 也读它们（`thinkingFormat` 用于 `anthropic-messages`）；其余只有模型网关用（0.4.0、0.12.0、0.26.0，
  * model-gateway.md §4.4），dsh 忽略。
  */
 export const ProviderCompatSchema = z.object({
@@ -110,6 +110,8 @@ export const ProviderCompatSchema = z.object({
   supportsNamespaceTools: z.boolean().optional(),
   /** 网关三条路的工具选择（0.12.0）：auto_only 改 required / 具名为 auto，none 只去掉 tool_choice。 */
   toolChoice: z.enum(['any', 'auto_only']).optional(),
+  /** Chat 工具 Schema 的 Gemini 清洗（0.26.0），默认关闭，详见 model-gateway.md §4.5；dsh 忽略。 */
+  geminiToolSchema: z.boolean().optional(),
   /**
    * `openai-completions` 上游怎样收对话中间的 developer / system 消息（0.4.0）：`inline`（默认）原位转 system；
    * `merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明来源的 user 消息。

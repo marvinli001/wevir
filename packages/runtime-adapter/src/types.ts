@@ -151,8 +151,8 @@ export interface TodoItem {
 // ── Provider（T3.4）──────────────────────────────────────────────────────
 
 /**
- * 与 @wevir/protocol 的 `ProviderCompat` 同形：OpenAI 兼容服务的请求格式修正（domain-model.md §3.2）。后四个只有
- * Codex 引擎的模型网关用（protocol 0.4.0、0.12.0，model-gateway.md §4.4），dsh 适配器忽略它们。
+ * 与 @wevir/protocol 的 `ProviderCompat` 同形：OpenAI 兼容服务的请求格式修正（domain-model.md §3.2）。前四个以外只有
+ * Codex 引擎的模型网关用（model-gateway.md §4.4），dsh 适配器忽略它们。
  */
 export interface ProviderCompatConfig {
   supportsDeveloperRole?: boolean;
@@ -162,6 +162,7 @@ export interface ProviderCompatConfig {
   supportsCustomTools?: boolean;
   supportsNamespaceTools?: boolean;
   toolChoice?: 'any' | 'auto_only';
+  geminiToolSchema?: boolean;
   systemMessageMode?: 'inline' | 'merge' | 'user';
 }
 

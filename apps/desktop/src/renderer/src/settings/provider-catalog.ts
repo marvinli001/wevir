@@ -51,6 +51,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     logo: 'gemini',
     group: 'global',
     source: preset('gemini'),
+    // 国际按量 Gemini API Key（2026-10-15 核对），地域说明与模板共用。
     keyURL: 'https://aistudio.google.com/apikey',
   },
   {
@@ -127,7 +128,7 @@ export function catalogEntry(id: string): CatalogEntry | undefined {
 const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/(^|\.)openai\.com$/, 'openai'],
   [/(^|\.)anthropic\.com$/, 'anthropic'],
-  [/(^|\.)generativelanguage\.googleapis\.com$/, 'gemini'],
+  [/^generativelanguage\.googleapis\.com$/, 'gemini'],
   [/(^|\.|-)aiplatform\.googleapis\.com$/, 'vertex'],
   [/(^|\.)x\.ai$/, 'xai'],
   [/(^|\.)deepseek\.com$/, 'deepseek'],

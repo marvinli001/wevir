@@ -1,6 +1,6 @@
 // Chat 思考参数、结构化推理回传与 MiniMax 的正文思考标签。参数依据与取舍见 model-gateway.md §4.4。
 
-import { isDeepSeekHost } from '../providers.js';
+import { isDeepSeekHost, isGeminiHost } from '../providers.js';
 import { isObject } from '../tools.js';
 import type { GatewayProvider, JsonObject } from '../types.js';
 
@@ -82,7 +82,17 @@ export function chatThinkingParameters(
   const params: JsonObject = format === 'minimax' ? { reasoning_split: true } : {};
   if (typeof requested !== 'string' || requested === '') return params;
   // 未设或尚未实现的格式保持旧行为，已有 Provider 不因新增方言而迁移。
-  if (format === undefined) return requested === 'none' ? params : { reasoning_effort: requested };
+  if (format === undefined) {
+    if (requested === 'none') return params;
+    // Gemini 3.8 Flash 拒收 minimal；只对官方地址、未声明格式时降档（§4.5）。
+    const effort =
+      provider.compat?.thinkingFormat === undefined &&
+      isGeminiHost(provider.baseURL ?? '') &&
+      requested === 'minimal'
+        ? 'low'
+        : requested;
+    return { reasoning_effort: effort };
+  }
   const effort = effectiveEffort(provider, model, format, requested);
   const enabled = effort !== 'none';
   const modelId = model.toLowerCase();

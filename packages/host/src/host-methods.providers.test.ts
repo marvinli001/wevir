@@ -153,7 +153,11 @@ describe('Provider 桥接（Host 侧）', () => {
   it('P0a 的 compat 经协议解析、保存、list 与引擎桥接后仍保留', async () => {
     const bridge = fakeBridge();
     const { methods, storage } = setup(bridge);
-    const compat = { supportsNamespaceTools: false, toolChoice: 'auto_only' } as const;
+    const compat = {
+      supportsNamespaceTools: false,
+      toolChoice: 'auto_only',
+      geminiToolSchema: true,
+    } as const;
     const params = MethodSchemas['provider.upsert'].params.parse({ ...qwen, compat });
     const result = await methods['provider.upsert'](params, context);
     expect(result.provider.compat).toEqual(compat);

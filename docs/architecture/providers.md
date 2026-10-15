@@ -76,7 +76,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 
 Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表当前只有 xAI）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。P0a 不改变任何服务模板、目录、模型或地址。
 
-每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
+每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
 Codex 的 Chat 转换也读取 `thinkingFormat`（2026-10-15）：`openai` / `deepseek` / `qwen` / `zai` 使用与 pi-ai 同名格式相同的参数位置与开关语义；力度、none、强制思考模型与预算的映射见 [model-gateway.md §4.4](./model-gateway.md#44-网关的-compat-开关)。`minimax` / `tencent` 是网关扩展，当前只用于 Codex，dsh 上游的配置枚举不认这两个值。通过代理接入时必须显式写格式；DeepSeek 地址仍默认 deepseek。推理必填的默认值按格式补，显式 `requiresReasoningContentOnAssistantMessages: false` 可以停止补空串；模型已返回的推理不删除。只收 auto 的服务另设 `toolChoice: auto_only`。这些规则不更新模板、不自动改已有 Provider，桌面表单仍原样保存 compat。
 
@@ -329,9 +329,11 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 来源：docs.x.ai 的 models 页与各模型页（2026-10-14）。`supportsCustomTools: false` 让网关把 apply_patch 摊平成函数（xAI 的地址不写也会默认摊平，写明是为了经代理改地址后仍然生效）。
 
-### 7.7 Google AI Studio（Gemini API Key，R8）
+### 7.7 Google AI Studio（Gemini API Key）
 
-Codex 引擎经网关的 Chat 转换走 Gemini 的 OpenAI 兼容端点（model-gateway.md §4.5）；dsh 不适用。个人 Google 账号登录已停（codex-notes §4.2），只有 API Key。大陆无法直连。经 Gemini CLI 的另一条路（ADR-0005 决策 4 第 ③ 行）还没做。
+**2026-10-15 核对。** 国际按量 API，只用 [AI Studio 的 API Key](https://aistudio.google.com/apikey)。官方 OpenAI 兼容指南提供的是 `chat/completions`，兼容层仍是 beta、没有 Responses；因此 Codex 经 Host 网关做 Chat 转换（model-gateway.md §4.5）。Interactions 是另一种协议，本接法不使用它或原生 generateContent。dsh 不适用；Gemini CLI 是独立引擎路线。
+
+中国内地、香港、澳门都不在官方可用地区，内地无法直连；须符合 Google 可用地区要求并具备可访问 Google 的网络。Host 的 fetch 代理限制见 §6.3。
 
 ```json
 {
@@ -341,15 +343,27 @@ Codex 引擎经网关的 Chat 转换走 Gemini 的 OpenAI 兼容端点（model-g
   "api": "openai-completions",
   "baseURL": "https://generativelanguage.googleapis.com/v1beta/openai/",
   "models": [
-    { "id": "gemini-3.8-flash", "contextWindow": 1048576, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] },
-    { "id": "gemini-4-argon", "contextWindow": 1048576, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] }
+    { "id": "gemini-3.8-flash", "contextWindow": 1048576, "maxTokens": 65536, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] },
+    { "id": "gemini-4-argon", "contextWindow": 1048576, "maxTokens": 65536, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high"] }
   ],
   "defaultModelId": "gemini-3.8-flash",
   "apiKey": "<Gemini API Key>"
 }
 ```
 
-来源：ai.google.dev 的 openai、models、thought-signatures 页（2026-10-13）。3.8 Flash 与 4 Argon 不认 `minimal`，模型目录里不列。
+3.8 Flash 与 4 Argon 都默认 medium，只列 low / medium / high；3.8 Flash 明确拒收 minimal，4 Argon 的 minimal 由兼容层映射到 low。网关仅对 Gemini 官方地址、未显式设置 thinkingFormat 时把 minimal 降到 low，none 仍省略，不能据此关闭思考。不发 extra_body.google.thinking_config，避免与 reasoning_effort 冲突。4 Argon 的 1,048,576 是输入输出共用上下文，同步输出上限为 65,536；它只支持隐式缓存，网关不伪造缓存请求。
+
+2026-05-28 起 AI Studio 新建的是绑定服务账号的 auth key；无限制的旧 standard key 会被拒，有显式限制的仍可用。表单、网关与 provider.test 都不按 AQ. / AIza 前缀校验，Key 原样放入 Bearer 头，不自行换取令牌。真实 auth key 的兼容性仍须用目标账号验证。
+
+并行调用合在一条 assistant 消息，之后连续放全批 tool 结果；当前回合每一步第一个调用的 thought signature 都按原 call_id 带回（§4.5）。provider.test 没有工具、输出上限只有 16，只证明最小连接，不能证明第二步签名、占位签名、Schema 或中途 system 可用。
+
+Schema 两项尚无真实 Key 证据，模板默认不清洗。只有服务确实因 additionalProperties 或空对象拒绝请求时，才手动通过 provider.upsert 设置 `compat: {geminiToolSchema: true}`（协议 0.26.0）。它只改 Chat 工具定义：递归去掉 additionalProperties、给空对象补可省略的 `_wevir_unused` 布尔参数；会放宽对象约束，结构化输出不变，经代理也可用。省略或 false 关闭，dsh 忽略，桌面表单原样保存但没有专门开关控件。
+
+已有 Provider 是用户数据，不自动迁移。旧模板用户可在设置 → 模型服务中手动把模型输出上限改为 65536、档位改成 low / medium / high；保留自定义地址与模型，不因模板更新覆盖。反向代理不触发官方地址的 minimal 修正与签名识别，模板的 Schema 开关不能代替它们；签名必须在完整链路中验证。
+
+本次没有 WEVIR_TEST_API_KEY，两个模型的契约第 3 层与 pnpm dev 中带 apply_patch 的桌面对话均未验收；占位签名、additionalProperties、空对象和中途 system 仍待实测。命令见 development.md §6.3；本机 HTTP mock 的多步签名测试不能替代真实服务。
+
+来源：[OpenAI 兼容端点](https://ai.google.dev/gemini-api/docs/openai)、[模型目录](https://ai.google.dev/gemini-api/docs/models)、[3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash)、[4 Argon](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon)、[思考档位](https://ai.google.dev/gemini-api/docs/thinking)、[工具签名与顺序](https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures)、[API Key](https://ai.google.dev/gemini-api/docs/api-key)、[可用地区](https://ai.google.dev/gemini-api/docs/available-regions)。原 thought-signatures URL 已移到以 Interactions 为主的 Thinking guide，Chat 细节以 generate-content 下的签名页为准。兼容表泛称的 Gemini 3 Flash minimal 支持不用于 3.8 Flash，按具体型号页处理。
 
 ### 7.8 OpenAI（Responses）
 

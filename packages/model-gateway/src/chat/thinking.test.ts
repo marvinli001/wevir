@@ -40,6 +40,29 @@ const translated = (
 };
 
 describe('思考格式的请求（同一份录制工具结果）', () => {
+  it.each(['gemini-3.8-flash', 'gemini-4-argon'])(
+    'Gemini 官方地址的 %s 将 minimal 降 low，none 省略，不混发 thinking_config',
+    (model) => {
+      const patch = { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' };
+      expect(translated(undefined, 'minimal', model, patch).reasoning_effort).toBe('low');
+      for (const effort of ['low', 'medium', 'high'])
+        expect(translated(undefined, effort, model, patch).reasoning_effort).toBe(effort);
+      expect(translated(undefined, 'none', model, patch)).not.toHaveProperty('reasoning_effort');
+      expect(translated(undefined, undefined, model, patch)).not.toHaveProperty('reasoning_effort');
+      expect(translated(undefined, 'minimal', model, patch)).not.toHaveProperty('extra_body');
+      expect(translated('openai', 'minimal', model, patch).reasoning_effort).toBe('minimal');
+      expect(translated('openrouter', 'minimal', model, patch).reasoning_effort).toBe('minimal');
+      for (const baseURL of [
+        'https://proxy.example.com',
+        'https://generativelanguage.googleapis.com.example.com',
+        'https://example.com/generativelanguage.googleapis.com',
+      ])
+        expect(translated(undefined, 'minimal', model, { baseURL }).reasoning_effort).toBe(
+          'minimal',
+        );
+    },
+  );
+
   it.each([
     ['openai', { reasoning_effort: 'high' }],
     ['deepseek', { thinking: { type: 'enabled' }, reasoning_effort: 'high' }],

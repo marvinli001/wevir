@@ -868,7 +868,7 @@ export const messages: Messages = {
     'API Key starts with xai-; not directly reachable from mainland China.',
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
-    'Connected through the OpenAI-compatible endpoint; not directly reachable from mainland China.',
+    'Google global pay-as-you-go API. Mainland China, Hong Kong and Macao are unsupported; no direct access from mainland China.',
   'provider.preset.ollama': 'Local Ollama',
   'provider.preset.ollama.note': 'No API Key needed; the model ID must be a pulled model.',
 

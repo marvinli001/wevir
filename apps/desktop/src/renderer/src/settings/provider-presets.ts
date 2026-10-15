@@ -193,8 +193,8 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://docs.x.ai/developers/models',
   },
   {
-    // Gemini API 没有 Responses，网关转 Chat，走它的 OpenAI 兼容端点（ADR-0005 决策 2.3）；Gemini 3 起函数调用要带回
-    // thought signature，网关按地址处理（model-gateway.md §4.5）。只用 API Key，个人订阅登录已停（codex-notes §4.2）。
+    // Google 国际按量 API（2026-10-15 核对）：Responses 转 Chat，thought signature 按地址带回（§4.5）。
+    // Schema 限制未实测，geminiToolSchema 保持默认关闭；API Key 不按前缀校验。
     id: 'gemini',
     name: 'provider.preset.gemini',
     note: 'provider.preset.gemini.note',
@@ -204,12 +204,14 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
       {
         id: 'gemini-3.8-flash',
         contextWindow: 1048576,
+        maxTokens: 65536,
         supportsImages: true,
         reasoningEfforts: ['low', 'medium', 'high'],
       },
       {
         id: 'gemini-4-argon',
         contextWindow: 1048576,
+        maxTokens: 65536,
         supportsImages: true,
         reasoningEfforts: ['low', 'medium', 'high'],
       },

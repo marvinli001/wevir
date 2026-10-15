@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.23.0`（会话改名与归档；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
+> 状态：v0（T1.2）· 协议版本 `0.26.0`（Gemini 工具 Schema 的可选清洗；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-15
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -390,6 +390,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `unauthorized`、`incompatible_protocol`、`client_message_conflict`（ADR-0002） | `UNAUTHORIZED`、`INCOMPATIBLE_PROTOCOL`、`CLIENT_MESSAGE_CONFLICT` |
 
 ## 10. 兼容规则
+
+`0.26.0`：`ProviderCompat` 加 optional 的布尔字段 `geminiToolSchema`，只有 Codex 网关的 Chat 转换使用，默认关闭，dsh 接受但忽略（model-gateway.md §4.5）。不加能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧 schema 忽略此字段，编辑 Provider 时整体替换 compat 会清掉它，回到关闭状态；新客户端连旧 Host：旧 Host 丢掉此字段，不能启用清洗，仍可连接。冻结样本 `compat/0.26.0.json`，旧样本不改。
 
 `0.21.0`：服务账号认证的 `google-vertex` Provider。`ProviderProfile.vertex` 与新 upsert 分支的 `vertex`、`serviceAccountJson` 都是 optional；vertex 内 project 必填、location optional（默认 global）。Host 写入时要求有效 project、Chat 或 Messages 协议、至少一个匹配发布方的模型；不使用自定义 baseURL，地址由网关生成。serviceAccountJson 只进 SecretStore，响应、日志、事件不返回它；省略保留、字符串替换、null 删除，hasSecret 沿用。新 Host 服务旧客户端：未声明 provider_kind_google_vertex 时 provider.list 隐藏此 kind，已有会话照常列出；新客户端连旧 Host：没有 google_vertex 功能就禁用 Vertex 入口，不发送新 kind。最低版本仍为 0.1.0，冻结样本 compat/0.21.0.json，旧样本不改。
 

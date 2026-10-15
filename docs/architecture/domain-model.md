@@ -160,6 +160,7 @@ interface ProviderCompat { // openai-compatible 与 google-vertex；前四个原
   systemMessageMode?: 'inline' | 'merge' | 'user' // 0.4.0，同上
   supportsNamespaceTools?: boolean // 0.12.0，Responses namespace 工具支持；false 摊平，dsh 忽略
   toolChoice?: 'any' | 'auto_only' // 0.12.0，Responses / Chat 的工具选择限制，dsh 忽略
+  geminiToolSchema?: boolean // 0.26.0，Chat 工具 Schema 的可选清洗，默认关闭，dsh 忽略
 }
 
 interface ProviderProfile {

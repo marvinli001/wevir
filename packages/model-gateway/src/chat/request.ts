@@ -141,7 +141,13 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
     stream_options: { include_usage: true },
   };
   if (tools.length > 0) {
-    request.tools = tools;
+    request.tools =
+      compat.geminiToolSchema === true
+        ? tools.map((tool) => ({
+            ...tool,
+            function: { ...tool.function, parameters: geminiToolSchema(tool.function.parameters) },
+          }))
+        : tools;
     const choice = compatibleToolChoice(
       toChatToolChoice(body.tool_choice, names),
       compat.toolChoice,
@@ -171,6 +177,56 @@ export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider)
   }
   for (const key of DROPPED_FIELDS) if (body[key] !== undefined) dropped.push(`field:${key}`);
   return { request, names, dropped, thinking, ...(signatures !== undefined && { signatures }) };
+}
+
+/** 默认关闭的 Gemini 工具 Schema 清洗（§4.5）；不遍历 enum / default 等业务数据或改原始对象。 */
+function geminiToolSchema(value: unknown): unknown {
+  if (!isObject(value)) return value;
+  const { additionalProperties: _drop, ...schema } = value;
+  for (const key of [
+    'properties',
+    'patternProperties',
+    '$defs',
+    'definitions',
+    'dependentSchemas',
+  ]) {
+    const entries = schema[key];
+    if (isObject(entries)) {
+      schema[key] = Object.fromEntries(
+        Object.entries(entries).map(([name, child]) => [name, geminiToolSchema(child)]),
+      );
+    }
+  }
+  for (const key of [
+    'items',
+    'prefixItems',
+    'additionalItems',
+    'allOf',
+    'anyOf',
+    'oneOf',
+    'not',
+    'if',
+    'then',
+    'else',
+    'contains',
+    'propertyNames',
+    'unevaluatedProperties',
+  ]) {
+    const child = schema[key];
+    if (child !== undefined)
+      schema[key] = Array.isArray(child) ? child.map(geminiToolSchema) : geminiToolSchema(child);
+  }
+  const object =
+    schema.type === 'object' || (Array.isArray(schema.type) && schema.type.includes('object'));
+  if (
+    (object && schema.properties === undefined) ||
+    (isObject(schema.properties) && Object.keys(schema.properties).length === 0)
+  ) {
+    schema.properties = {
+      _wevir_unused: { type: 'boolean', description: 'Unused parameter; omit it.' },
+    };
+  }
+  return schema;
 }
 
 interface MessageContext {

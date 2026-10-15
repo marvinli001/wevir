@@ -49,6 +49,7 @@ export const GATEWAY_ONLY_COMPAT = Object.freeze([
   'supportsCustomTools',
   'supportsNamespaceTools',
   'toolChoice',
+  'geminiToolSchema',
   'systemMessageMode',
 ] as const);
 type GatewayOnlyCompat = (typeof GATEWAY_ONLY_COMPAT)[number];

@@ -72,6 +72,19 @@ describe('routeOf', () => {
 });
 
 describe('validateProvider', () => {
+  it('Gemini Schema 开关只接受布尔值，省略与 false 不启用', () => {
+    for (const geminiToolSchema of [undefined, false, true])
+      expect(validateProvider(compatible({ compat: { geminiToolSchema } }))).toEqual([]);
+    expect(
+      validateProvider(compatible({ compat: { geminiToolSchema: 'true' as never } })).map(
+        (i) => i.path,
+      ),
+    ).toEqual([['compat', 'geminiToolSchema']]);
+    expect(effectiveCompat(compatible({})).geminiToolSchema).toBeUndefined();
+    expect(
+      effectiveCompat(compatible({ compat: { geminiToolSchema: false } })).geminiToolSchema,
+    ).toBe(false);
+  });
   it('新的工具开关检查取值，不限制可用的协议', () => {
     for (const api of ['openai-responses', 'openai-completions', 'anthropic-messages']) {
       expect(

@@ -854,7 +854,8 @@ export const messages: Messages = {
   'provider.preset.xai': 'xAI（Grok API）',
   'provider.preset.xai.note': 'API Key 以 xai- 開頭；中國大陸無法直接連線。',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note': '經 OpenAI 相容端點連接；中國大陸無法直接連線。',
+  'provider.preset.gemini.note':
+    'Google 國際按量 API；中國大陸、香港、澳門不在可用地區，大陸無法直接連線。',
   'provider.preset.ollama': '本機 Ollama',
   'provider.preset.ollama.note': '無需 API Key；模型 ID 須為已拉取的模型。',
 

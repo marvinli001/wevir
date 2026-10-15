@@ -1023,6 +1023,12 @@ describe('schema 只做结构声明', () => {
 });
 
 describe('ProviderCompat 的通用工具方言（0.12.0）', () => {
+  it('Gemini Schema 清洗可省略、无默认值，只接受布尔值', () => {
+    expect(ProviderCompatSchema.parse({})).not.toHaveProperty('geminiToolSchema');
+    for (const geminiToolSchema of [true, false])
+      expect(ProviderCompatSchema.parse({ geminiToolSchema })).toEqual({ geminiToolSchema });
+    expect(ProviderCompatSchema.safeParse({ geminiToolSchema: 'true' }).success).toBe(false);
+  });
   it('新字段 optional；false 与 auto_only 原样保留，省略时不补默认值', () => {
     expect(ProviderCompatSchema.parse({})).toEqual({});
     for (const supportsNamespaceTools of [false, true]) {

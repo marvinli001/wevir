@@ -186,6 +186,13 @@ describe('overlay', () => {
 });
 
 describe('effectiveCompat', () => {
+  it('Gemini 工具 Schema 清洗只用于网关，不写 dsh overlay，也不拒绝共享配置', () => {
+    expect(compat({ compat: { geminiToolSchema: true } })).toEqual({
+      supportsDeveloperRole: false,
+      maxTokensField: 'max_tokens',
+    });
+    expect(validateProviderConfig({ ...kimi, compat: { geminiToolSchema: true } })).toEqual([]);
+  });
   const compat = (patch: Partial<ProviderConfig>) => effectiveCompat({ ...kimi, ...patch });
 
   it('OpenAI 官方地址不补默认值', () => {

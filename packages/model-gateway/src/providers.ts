@@ -148,6 +148,9 @@ export function validateProvider(provider: GatewayProvider): ProviderIssue[] {
   if (compat.toolChoice !== undefined && !['any', 'auto_only'].includes(compat.toolChoice)) {
     issue(['compat', 'toolChoice'], 'toolChoice 只能是 any 或 auto_only');
   }
+  if (compat.geminiToolSchema !== undefined && typeof compat.geminiToolSchema !== 'boolean') {
+    issue(['compat', 'geminiToolSchema'], 'geminiToolSchema 只能是 true 或 false');
+  }
   // Chat 读取已实现的思考格式；其他 pi-ai 格式仍接受保存并沿用旧发法，不收窄协议的 string 类型。
   if (
     provider.api === 'anthropic-messages' &&

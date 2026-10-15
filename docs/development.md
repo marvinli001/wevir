@@ -383,8 +383,16 @@ WEVIR_TEST_API_KEY=<xAI Key> WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_AP
 ```
 
 ```bash
-WEVIR_TEST_API_KEY=<Gemini Key> WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ WEVIR_TEST_MODEL=gemini-3.8-flash pnpm vitest run --project adapter-codex codex-adapter.contract.real
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-completions WEVIR_TEST_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ WEVIR_TEST_MODEL=gemini-3.8-flash pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
 ```
+
+Gemini 先在进程环境中提供 WEVIR_TEST_API_KEY；不要把 Key 写进命令、文件或日志。再用同样的 Chat 地址验证 4 Argon：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-completions WEVIR_TEST_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ WEVIR_TEST_MODEL=gemini-4-argon pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+2026-10-15 未提供 Gemini Key，两次真实契约均跳过，pnpm dev 中通过 Gemini 模板、经 apply_patch 改文件的桌面对话未跑。`gemini.integration.test.ts` 的 HTTP mock 与四份录制请求覆盖 minimal 降档、并行结果连续排放、空文本末片签名和同回合多步回传；Schema 清洗开关默认关闭。拿到 Key 后先分别试 additionalProperties 与空对象参数，确实收到相关 400 才开启 compat.geminiToolSchema；provider.test 没有工具，不能代替此项或第二步工具签名验收。
 
 OpenAI 官方 API 经 Responses 透传，先在进程环境提供 `WEVIR_TEST_API_KEY`，然后分别验证 Sol 与 Luna（不把 Key 写入文件或命令记录）：
 

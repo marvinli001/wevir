@@ -506,7 +506,43 @@ describe('Gemini 的 thought signature（model-gateway.md §4.5）', () => {
     const [first] = toolCalls(chat.messages);
     expect(first?.[0]?.extra_content).toEqual({ google: { thought_signature: 'sig-1' } });
     expect(first?.[1]).not.toHaveProperty('extra_content');
+    expect(roles(chat.messages)).toEqual(['user', 'assistant', 'tool', 'tool']);
+    expect(chat.messages.slice(2).map((m) => m.tool_call_id)).toEqual(['c1', 'c2']);
     expect(chat.messages.some((m) => 'reasoning_content' in m)).toBe(false);
+  });
+
+  it('同一回合多步各带自己的签名，同批结果（含图片）连续排放', () => {
+    const { request: chat } = toChatRequest(
+      request([
+        user('检查两个文件再修改'),
+        envelope({ c1: 'step-1' }),
+        call('c1'),
+        call('c2'),
+        {
+          ...output('c2'),
+          output: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }],
+        },
+        output('c1'),
+        envelope({ c3: 'step-2' }),
+        call('c3'),
+        output('c3'),
+      ]),
+      gemini,
+    );
+    expect(roles(chat.messages)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'user',
+      'assistant',
+      'tool',
+    ]);
+    expect(chat.messages.slice(2, 4).map((m) => m.tool_call_id)).toEqual(['c2', 'c1']);
+    expect(toolCalls(chat.messages).map((step) => step.map((c) => c.extra_content))).toEqual([
+      [{ google: { thought_signature: 'step-1' } }, undefined],
+      [{ google: { thought_signature: 'step-2' } }],
+    ]);
   });
 
   it('缺签名的一步（没有信封、别的模型或 Provider 的信封）给第一个调用填占位值', () => {
@@ -542,5 +578,80 @@ describe('Gemini 的 thought signature（model-gateway.md §4.5）', () => {
     );
     expect(signatures).toBeUndefined();
     expect(toolCalls(chat.messages)[0]?.[0]).not.toHaveProperty('extra_content');
+  });
+});
+
+describe('Gemini 工具 Schema 的可选清洗', () => {
+  const gemini = provider({ baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/' });
+
+  it('默认与显式 false 都不清洗，录制请求不被修改；true 对代理同样生效', () => {
+    for (const name of CODEX_SAMPLES) {
+      const body = codexRequest(name).body;
+      const before = structuredClone(body);
+      const original = toChatRequest(body, gemini).request;
+      expect(
+        toChatRequest(body, { ...gemini, compat: { geminiToolSchema: false } }).request,
+      ).toEqual(original);
+      const cleaned = toChatRequest(body, {
+        ...gemini,
+        compat: { geminiToolSchema: true },
+      }).request;
+      const proxy = toChatRequest(body, provider({ compat: { geminiToolSchema: true } })).request;
+      expect(cleaned.tools).toEqual(proxy.tools);
+      expect(body).toEqual(before);
+      for (const tool of cleaned.tools ?? []) {
+        expect(JSON.stringify(tool.function.parameters)).not.toContain('"additionalProperties":');
+      }
+    }
+    const patch = toChatRequest(codexRequest('1-first-turn').body, gemini).request.tools?.find(
+      (t) => t.function.name === 'apply_patch',
+    );
+    expect(patch?.function.parameters).toHaveProperty('additionalProperties', false);
+  });
+
+  it('只清洗 Schema 结构，保留同名业务属性与 enum / default；空对象补可省略参数', () => {
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        additionalProperties: { type: 'string' },
+        empty: { type: 'object', properties: {}, required: [], additionalProperties: true },
+        list: { type: 'array', items: { anyOf: [{ type: 'object' }, { type: 'null' }] } },
+        literal: { default: { additionalProperties: false }, enum: [{ properties: {} }] },
+      },
+      $defs: { empty: { type: 'object', additionalProperties: { type: 'string' } } },
+      required: ['additionalProperties', 'list'],
+    };
+    const body = request('hi', {
+      tools: [
+        { type: 'function', name: 'f', parameters: schema },
+        { type: 'function', name: 'no_args' },
+      ],
+      text: { format: { type: 'json_schema', schema } },
+    });
+    const { request: chat } = toChatRequest(body, provider({ compat: { geminiToolSchema: true } }));
+    const placeholder = {
+      _wevir_unused: { type: 'boolean', description: 'Unused parameter; omit it.' },
+    };
+    expect(chat.tools?.[0]?.function.parameters).toEqual({
+      type: 'object',
+      properties: {
+        additionalProperties: { type: 'string' },
+        empty: { type: 'object', properties: placeholder, required: [] },
+        list: {
+          type: 'array',
+          items: { anyOf: [{ type: 'object', properties: placeholder }, { type: 'null' }] },
+        },
+        literal: schema.properties.literal,
+      },
+      $defs: { empty: { type: 'object', properties: placeholder } },
+      required: schema.required,
+    });
+    expect(chat.tools?.[1]?.function.parameters).toEqual({
+      type: 'object',
+      properties: placeholder,
+    });
+    expect(chat.response_format).toMatchObject({ json_schema: { schema } });
+    expect(schema).toHaveProperty('additionalProperties', false);
   });
 });

@@ -867,7 +867,8 @@ export const zhCN = {
   'provider.preset.xai': 'xAI（Grok API）',
   'provider.preset.xai.note': 'API Key 以 xai- 开头；中国内地无法直连。',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note': '经 OpenAI 兼容端点接入；中国内地无法直连。',
+  'provider.preset.gemini.note':
+    'Google 国际按量 API；中国内地、香港、澳门不在可用地区，内地无法直连。',
   'provider.preset.ollama': '本机 Ollama',
   'provider.preset.ollama.note': '无需 API Key；模型 ID 须为已拉取的模型。',
 

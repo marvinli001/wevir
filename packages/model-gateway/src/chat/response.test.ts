@@ -381,4 +381,50 @@ describe('Gemini 的 thought signature', () => {
     ];
     expect(doneItems(unsigned).map((i) => i.type)).toEqual(['function_call']);
   });
+
+  it.each([true, false])(
+    '空文本的末片才带签名，按 call id / index 归属（id=%s），finish_reason 前不提交调用',
+    (byId) => {
+      const t = new ChatStreamTranslator(new ToolNames(), {
+        responseId: 'resp_test',
+        signatures: { provider: 'gemini', model: 'gemini-3.8-flash' },
+      });
+      const events = [
+        ...t.chunk(
+          chunk({
+            tool_calls: [
+              { index: 0, id: 'c1', function: { name: 'exec_command', arguments: '{}' } },
+              { index: 1, id: 'c2', function: { name: 'exec_command', arguments: '{}' } },
+            ],
+          }),
+        ),
+        ...t.chunk(chunk({ content: '' })),
+        ...t.chunk(
+          chunk({
+            content: '',
+            tool_calls: [
+              {
+                ...(byId ? { id: 'c1' } : { index: 0 }),
+                extra_content: { google: { thought_signature: 'late-signature' } },
+              },
+            ],
+          }),
+        ),
+      ];
+      expect(doneItems(events)).toEqual([]);
+      expect(t.done).toBe(false);
+      expect(t.ended).toBe(false);
+      events.push(...t.chunk(chunk({}, 'stop')), ...t.finish());
+      expect(codexProblems(events)).toEqual([]);
+      expect(doneItems(events).map((i) => i.type)).toEqual([
+        'reasoning',
+        'function_call',
+        'function_call',
+      ]);
+      expect(decodeGeminiSignatures(doneItems(events)[0]?.encrypted_content)?.signatures).toEqual({
+        c1: 'late-signature',
+      });
+      expect(events.some((e) => e.type === 'response.output_text.delta')).toBe(false);
+    },
+  );
 });
