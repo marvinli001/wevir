@@ -12,7 +12,7 @@ export const RAIL_ROOMY_PRIMARY_WIDTH = 640;
 /**
  * 会话侧栏有多少地方（§12）：`roomy` 停靠后主窗格仍不窄于 640，默认显示，开关记进偏好；`tight` 停靠后主窗格在 440–640
  * 之间，能停靠但默认收起，点按钮才停靠出来，不记住；`none` 停靠后主窗格窄于最小宽、或窗格区得改浮层，侧栏改浮层，窗格区
- * 按整宽排。`fitsWith(width)` 是按这个宽排窗格区的结果。例：侧栏 260 时窗口约 1200 以上 `roomy`。
+ * 按整宽排。`fitsWith(width)` 是按这个宽排窗格区的结果。例：侧栏 300 时窗口约 1240 以上 `roomy`。
  */
 export type RailRoom = 'roomy' | 'tight' | 'none';
 

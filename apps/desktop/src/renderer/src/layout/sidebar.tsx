@@ -1,13 +1,10 @@
 import type { Session, SessionId } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
-  Archive,
   ChevronDown,
   Folder,
   FolderOpen,
   Pencil,
-  Pin,
-  PinOff,
   Plus,
   Rows3,
   Settings,
@@ -17,6 +14,7 @@ import { type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
+import { ArchiveIcon, PinIcon } from '@/components/session-icons';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
@@ -45,12 +43,16 @@ import { openCreateProject } from '@/projects/create-project';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
+import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-drag';
 
 /** 侧栏的一行：悬停是表面色的淡底，当前项是表面色（照 Codex 桌面端，U5）。 */
 const ROW =
   'flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-base outline-none ' +
   'transition-colors duration-150 hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50';
 const ROW_ACTIVE = 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent';
+/** 行右边悬停出现的置顶与归档（U34）：22 px、6 px 圆角，说明文字色，悬停时前景色加一层淡底。 */
+const ROW_ACTION =
+  'size-[22px] rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground dark:hover:bg-sidebar-foreground/10';
 
 /** 每个项目先列这么多个会话，其余的点“显示更多”。 */
 const SESSIONS_SHOWN = 5;
@@ -82,6 +84,7 @@ export function Sidebar({ controls }: { controls?: ReactNode }) {
       </div>
 
       <ProjectsSection />
+      <PinDragGhost />
 
       <div className="shrink-0 p-2">
         <NavLink
@@ -200,23 +203,18 @@ function StatusTree() {
       </p>
     );
   }
-  const row = ({ session, workspace }: StatusRow) => (
-    <li key={session.id}>
-      <SessionRow
-        workspaceId={workspace.id}
-        session={session}
-        unread={isUnread(seen, session)}
-        project={workspace}
-      />
-    </li>
+  const rowContent = ({ session, workspace }: StatusRow) => (
+    <SessionRow
+      workspaceId={workspace.id}
+      session={session}
+      unread={isUnread(seen, session)}
+      project={workspace}
+    />
   );
+  const row = (entry: StatusRow) => <li key={entry.session.id}>{rowContent(entry)}</li>;
   return (
     <div className="space-y-2 pt-1" data-testid="sidebar-status">
-      {pinnedRows.length > 0 && (
-        <StatusGroup title={t('sidebar.group.pinned')} id="pinned">
-          <ul className="space-y-px">{pinnedRows.map(row)}</ul>
-        </StatusGroup>
-      )}
+      <PinnedGroup rows={pinnedRows} render={rowContent} />
       {needsYou.length > 0 && (
         <StatusGroup title={t('sidebar.group.needsYou')} id="needs-you">
           <ul className="space-y-px">{needsYou.map(row)}</ul>
@@ -276,24 +274,19 @@ function ProjectTree() {
   const pinnedRows = pinnedOf(data.workspaces, pinned);
   return (
     <>
-      {pinnedRows.length > 0 && (
-        <div className="pt-1 pb-2">
-          <StatusGroup title={t('sidebar.group.pinned')} id="pinned">
-            <ul className="space-y-px">
-              {pinnedRows.map(({ session, workspace }) => (
-                <li key={session.id}>
-                  <SessionRow
-                    workspaceId={workspace.id}
-                    session={session}
-                    unread={isUnread(seen, session)}
-                    project={workspace}
-                  />
-                </li>
-              ))}
-            </ul>
-          </StatusGroup>
-        </div>
-      )}
+      <div className="pt-1 pb-2 empty:hidden">
+        <PinnedGroup
+          rows={pinnedRows}
+          render={({ session, workspace }) => (
+            <SessionRow
+              workspaceId={workspace.id}
+              session={session}
+              unread={isUnread(seen, session)}
+              project={workspace}
+            />
+          )}
+        />
+      </div>
       <ul className="space-y-px">
         {data.workspaces.map((entry) => (
           <ProjectItem
@@ -457,16 +450,28 @@ function SessionRow({
     );
   };
   const pinLabel = t(pinned ? 'session.unpin' : 'session.pin');
+  const dragging = usePinDragId() === session.id;
   return (
     <ContextMenu>
-      <ContextMenuTrigger render={<div className="group/session relative" />}>
+      <ContextMenuTrigger
+        render={
+          <div
+            className={cn(
+              'group/session relative transition-opacity duration-150',
+              dragging && 'opacity-40',
+            )}
+            onPointerDown={(event) => beginPinDrag(event, session)}
+          />
+        }
+      >
         <NavLink
           to={paths.session(workspaceId, session.id)}
           title={project && `${project.displayName} · ${project.rootPath}`}
+          draggable={false}
           className={({ isActive }) =>
             cn(
               ROW,
-              'text-soft-foreground group-focus-within/session:pr-14 group-hover/session:pr-14',
+              'text-soft-foreground select-none group-focus-within/session:pr-14 group-hover/session:pr-14',
               isActive && ROW_ACTIVE,
             )
           }
@@ -508,25 +513,28 @@ function SessionRow({
             )}
           </span>
         </NavLink>
-        <div className="absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-focus-within/session:opacity-100 group-hover/session:opacity-100">
+        <div
+          data-row-actions=""
+          className="absolute inset-y-0 right-1 flex items-center gap-px opacity-0 transition-opacity duration-150 group-focus-within/session:opacity-100 group-hover/session:opacity-100"
+        >
           <IconButton
             label={pinLabel}
             size="icon-xs"
-            className="text-muted-foreground"
+            className={ROW_ACTION}
             onClick={() => togglePinned(session.id)}
             data-action="pin-session"
           >
-            {pinned ? <PinOff /> : <Pin />}
+            <PinIcon filled={pinned} className="size-3.5" />
           </IconButton>
           {manage.archive && (
             <IconButton
               label={t('session.archive')}
               size="icon-xs"
-              className="text-muted-foreground"
+              className={ROW_ACTION}
               onClick={archive}
               data-action="archive-session"
             >
-              <Archive />
+              <ArchiveIcon className="size-3.5" />
             </IconButton>
           )}
         </div>
@@ -539,12 +547,12 @@ function SessionRow({
           </DropdownMenuItem>
         )}
         <DropdownMenuItem onClick={() => togglePinned(session.id)}>
-          {pinned ? <PinOff /> : <Pin />}
+          <PinIcon filled={pinned} />
           {pinLabel}
         </DropdownMenuItem>
         {manage.archive && (
           <DropdownMenuItem onClick={archive}>
-            <Archive />
+            <ArchiveIcon />
             {t('session.archive')}
           </DropdownMenuItem>
         )}

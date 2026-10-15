@@ -9,9 +9,9 @@ const base: SidebarInput = {
 };
 
 describe('clampSidebarWidth', () => {
-  it('夹在 220–400 之间，非法值回到默认', () => {
+  it('夹在 220–480 之间，非法值回到默认', () => {
     expect(clampSidebarWidth(100)).toBe(220);
-    expect(clampSidebarWidth(999)).toBe(400);
+    expect(clampSidebarWidth(999)).toBe(480);
     expect(clampSidebarWidth(301.6)).toBe(302);
     expect(clampSidebarWidth(Number.NaN)).toBe(LAYOUT.sidebarDefault);
   });
@@ -21,7 +21,7 @@ describe('planSidebar', () => {
   it('1280：侧栏停靠', () => {
     expect(planSidebar(base)).toEqual({
       sidebar: 'docked',
-      sidebarWidth: 260,
+      sidebarWidth: 300,
       sidebarCanDock: true,
     });
   });
@@ -29,7 +29,7 @@ describe('planSidebar', () => {
   it('窗口最小宽度 960 与放大后的 900：侧栏仍停靠，主窗格留得出 560', () => {
     for (const viewportWidth of [960, 900]) {
       const plan = planSidebar({ ...base, viewportWidth });
-      expect(plan).toMatchObject({ sidebar: 'docked', sidebarWidth: 260 });
+      expect(plan).toMatchObject({ sidebar: 'docked', sidebarWidth: 300 });
       expect(viewportWidth - plan.sidebarWidth).toBeGreaterThanOrEqual(LAYOUT.primaryComfortWidth);
     }
   });

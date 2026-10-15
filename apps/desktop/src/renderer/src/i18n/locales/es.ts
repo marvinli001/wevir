@@ -111,6 +111,7 @@ export const messages: Messages = {
   'sidebar.view.status': 'Agrupar por estado',
   'sidebar.view.project': 'Agrupar por proyecto',
   'sidebar.group.pinned': 'Fijadas',
+  'sidebar.releaseToUnpin': 'Suelta para desfijar',
   'sidebar.group.needsYou': 'Pendientes',
   'sidebar.group.running': 'En curso',
   'sidebar.group.completed': 'Completadas',

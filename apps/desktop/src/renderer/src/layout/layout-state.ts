@@ -30,13 +30,17 @@ const DEFAULT_PREFS: LayoutPrefs = {
   railOpen: ['environment'],
 };
 
-/** 读回偏好；v1（T5.2）的格式也认，旧版本存下的 summaryPinned 忽略。 */
-export function parseLayoutPrefs(raw: unknown): LayoutPrefs | undefined {
+/**
+ * 读回偏好；v1（T5.2）的格式也认，旧版本存下的 summaryPinned 忽略。从 v1、v2 迁来时（`legacy`），侧栏宽还是旧默认
+ * 260 的当作没拖过，换成新的默认（2026-10-15 起 300）。
+ */
+export function parseLayoutPrefs(raw: unknown, legacy = false): LayoutPrefs | undefined {
   if (raw === null || typeof raw !== 'object') return undefined;
   const value = raw as Partial<Record<keyof LayoutPrefs, unknown>>;
   return {
     sidebarWidth:
-      typeof value.sidebarWidth === 'number'
+      typeof value.sidebarWidth === 'number' &&
+      !(legacy && value.sidebarWidth === LAYOUT.legacySidebarDefault)
         ? clampSidebarWidth(value.sidebarWidth)
         : DEFAULT_PREFS.sidebarWidth,
     sidebarCollapsed: value.sidebarCollapsed === true,
@@ -53,10 +57,10 @@ export function parseLayoutPrefs(raw: unknown): LayoutPrefs | undefined {
 }
 
 export const layoutPrefs = createPersistedStore<LayoutPrefs>(
-  'wevir.layout.v2',
+  'wevir.layout.v3',
   DEFAULT_PREFS,
   parseLayoutPrefs,
-  ['wevir.layout.v1'],
+  ['wevir.layout.v2', 'wevir.layout.v1'],
 );
 
 export interface TransientLayout {

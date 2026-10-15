@@ -32,12 +32,12 @@ export function createStore<T>(initial: T, onChange?: (state: T) => void): Store
 /**
  * 存在 localStorage 里的 Store，只放本机的界面偏好（不放令牌等敏感信息）。读不到或格式不对时用
  * `fallback`；localStorage 不可用时只在本次运行内生效。`legacyKeys` 是旧版本用过的 key：新 key 还没有值时
- * 按顺序读第一个有值的（交给同一个 `parse`），写到新 key 下并删掉旧的。
+ * 按顺序读第一个有值的（交给同一个 `parse`，第二个参数是 true），写到新 key 下并删掉旧的。
  */
 export function createPersistedStore<T>(
   key: string,
   fallback: T,
-  parse: (raw: unknown) => T | undefined,
+  parse: (raw: unknown, legacy: boolean) => T | undefined,
   legacyKeys: readonly string[] = [],
 ): Store<T> {
   let initial = fallback;
@@ -47,7 +47,7 @@ export function createPersistedStore<T>(
     const legacy =
       raw === null ? legacyKeys.find((old) => storage.getItem(old) !== null) : undefined;
     if (legacy !== undefined) raw = storage.getItem(legacy);
-    if (raw !== null) initial = parse(JSON.parse(raw)) ?? fallback;
+    if (raw !== null) initial = parse(JSON.parse(raw), legacy !== undefined) ?? fallback;
     if (legacy !== undefined) {
       storage.setItem(key, JSON.stringify(initial));
       for (const old of legacyKeys) storage.removeItem(old);

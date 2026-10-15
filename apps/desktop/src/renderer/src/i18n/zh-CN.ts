@@ -112,6 +112,7 @@ export const zhCN = {
   'sidebar.view.status': '按状态分组',
   'sidebar.view.project': '按项目分组',
   'sidebar.group.pinned': '置顶',
+  'sidebar.releaseToUnpin': '松开取消置顶',
   'sidebar.group.needsYou': '待处理',
   'sidebar.group.running': '进行中',
   'sidebar.group.completed': '已完成',

@@ -18,7 +18,7 @@ describe('parseLayoutPrefs', () => {
 
   it('旧版本的置顶摘要开关忽略；不合格的值回到默认', () => {
     expect(parseLayoutPrefs({ summaryPinned: false, sidebarWidth: 'x', railOpen: 'x' })).toEqual({
-      sidebarWidth: 260,
+      sidebarWidth: 300,
       sidebarCollapsed: false,
       collapsedWorkspaces: [],
       projectsCollapsed: false,
@@ -27,6 +27,12 @@ describe('parseLayoutPrefs', () => {
       railOpen: ['environment'],
     });
     expect(parseLayoutPrefs(null)).toBeUndefined();
+  });
+
+  it('从 v1、v2 迁来时旧默认宽 260 换成新的默认 300，拖过的宽保留', () => {
+    expect(parseLayoutPrefs({ sidebarWidth: 260 }, true)?.sidebarWidth).toBe(300);
+    expect(parseLayoutPrefs({ sidebarWidth: 280 }, true)?.sidebarWidth).toBe(280);
+    expect(parseLayoutPrefs({ sidebarWidth: 260 })?.sidebarWidth).toBe(260);
   });
 
   it('记住按项目分组', () => {

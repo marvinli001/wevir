@@ -107,6 +107,7 @@ export const messages: Messages = {
   'sidebar.view.status': 'Nach Status gruppieren',
   'sidebar.view.project': 'Nach Projekt gruppieren',
   'sidebar.group.pinned': 'Angeheftet',
+  'sidebar.releaseToUnpin': 'Loslassen zum Lösen',
   'sidebar.group.needsYou': 'Zu erledigen',
   'sidebar.group.running': 'Läuft',
   'sidebar.group.completed': 'Abgeschlossen',

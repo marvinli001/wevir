@@ -102,6 +102,7 @@ export const messages: Messages = {
   'sidebar.view.status': '依狀態分組',
   'sidebar.view.project': '依專案分組',
   'sidebar.group.pinned': '置頂',
+  'sidebar.releaseToUnpin': '放開取消置頂',
   'sidebar.group.needsYou': '待處理',
   'sidebar.group.running': '進行中',
   'sidebar.group.completed': '已完成',

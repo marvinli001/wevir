@@ -105,6 +105,7 @@ export const messages: Messages = {
   'sidebar.view.status': 'По статусу',
   'sidebar.view.project': 'По проектам',
   'sidebar.group.pinned': 'Закреплённые',
+  'sidebar.releaseToUnpin': 'Отпустите, чтобы открепить',
   'sidebar.group.needsYou': 'Требуют внимания',
   'sidebar.group.running': 'Выполняются',
   'sidebar.group.completed': 'Завершены',

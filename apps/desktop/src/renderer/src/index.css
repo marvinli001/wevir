@@ -73,6 +73,20 @@
   transition-timing-function: var(--spring-snap);
 }
 
+/* 左栏拖动置顶时（layout/pin-drag.tsx）：全窗口是抓手光标、不选中文字，行上悬停出现的置顶与归档不出现。 */
+:root[data-pin-dragging],
+:root[data-pin-dragging] * {
+  cursor: grabbing;
+  user-select: none;
+}
+:root[data-pin-dragging] [data-row-actions] {
+  visibility: hidden;
+}
+/* 拖动中经过的行不出悬停底色；滚轮仍落在列表上，照常滚动。 */
+:root[data-pin-dragging] nav li {
+  pointer-events: none;
+}
+
 /* 顶栏充当标题栏：按住可以拖动窗口，双击按系统设置缩放。拖动区域收不到鼠标事件，所以其中的控件要排除；
  * 弹出的对话框与侧边浮层盖在顶栏上时也要排除，否则点不到它们的顶部。 */
 @utility app-drag {

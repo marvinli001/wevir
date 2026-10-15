@@ -108,6 +108,7 @@ export const messages: Messages = {
   'sidebar.view.status': 'ステータス別',
   'sidebar.view.project': 'プロジェクト別',
   'sidebar.group.pinned': 'ピン留め',
+  'sidebar.releaseToUnpin': '離してピン留めを外す',
   'sidebar.group.needsYou': '要対応',
   'sidebar.group.running': '進行中',
   'sidebar.group.completed': '完了',

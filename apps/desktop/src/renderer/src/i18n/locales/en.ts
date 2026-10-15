@@ -107,6 +107,7 @@ export const messages: Messages = {
   'sidebar.view.status': 'Group by status',
   'sidebar.view.project': 'Group by project',
   'sidebar.group.pinned': 'Pinned',
+  'sidebar.releaseToUnpin': 'Release to unpin',
   'sidebar.group.needsYou': 'Needs attention',
   'sidebar.group.running': 'In progress',
   'sidebar.group.completed': 'Completed',

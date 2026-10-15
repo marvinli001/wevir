@@ -104,6 +104,7 @@ export const messages: Messages = {
   'sidebar.view.status': '상태별 그룹',
   'sidebar.view.project': '프로젝트별 그룹',
   'sidebar.group.pinned': '고정됨',
+  'sidebar.releaseToUnpin': '놓아서 고정 해제',
   'sidebar.group.needsYou': '처리 필요',
   'sidebar.group.running': '진행 중',
   'sidebar.group.completed': '완료됨',

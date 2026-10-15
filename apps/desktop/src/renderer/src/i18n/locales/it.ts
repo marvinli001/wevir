@@ -111,6 +111,7 @@ export const messages: Messages = {
   'sidebar.view.status': 'Raggruppa per stato',
   'sidebar.view.project': 'Raggruppa per progetto',
   'sidebar.group.pinned': 'Fissate',
+  'sidebar.releaseToUnpin': 'Rilascia per sbloccare',
   'sidebar.group.needsYou': 'Da gestire',
   'sidebar.group.running': 'In corso',
   'sidebar.group.completed': 'Completate',

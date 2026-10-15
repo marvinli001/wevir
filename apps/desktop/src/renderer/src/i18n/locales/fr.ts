@@ -109,6 +109,7 @@ export const messages: Messages = {
   'sidebar.view.status': 'Grouper par statut',
   'sidebar.view.project': 'Grouper par projet',
   'sidebar.group.pinned': 'Épinglées',
+  'sidebar.releaseToUnpin': 'Relâcher pour désépingler',
   'sidebar.group.needsYou': 'À traiter',
   'sidebar.group.running': 'En cours',
   'sidebar.group.completed': 'Terminées',
