@@ -152,6 +152,7 @@ describe('ChatGPT 账号（account.*）', () => {
       side_sessions: true,
       session_compact: true,
       session_review: true,
+      session_goals: true,
       user_images: true,
     });
 
@@ -179,6 +180,7 @@ describe('ChatGPT 账号（account.*）', () => {
       side_sessions: true,
       session_compact: true,
       session_review: true,
+      session_goals: true,
       user_images: true,
     });
     const frame = await client.call('account.get', { kind: 'chatgpt' });

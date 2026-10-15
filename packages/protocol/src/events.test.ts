@@ -21,6 +21,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.to.providerId;
     case 'session.title_changed':
       return event.payload.title;
+    case 'session.goal_changed':
+      return event.payload.goal?.status ?? 'cleared';
     case 'session.resumed':
       return event.payload.engineVersion ?? '';
     case 'session.read_only':

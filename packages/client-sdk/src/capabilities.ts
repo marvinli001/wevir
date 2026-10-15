@@ -53,3 +53,14 @@ export function commandSupported(
     (engine?.commands === undefined || engine.commands.includes(command))
   );
 }
+
+/**
+ * 会话能不能用目标（0.35.0，`session.setGoal` 等）：Host 声明了 `session_goals`，且会话当前的引擎有目标（`engineFeatures` 的
+ * `goals`）。没有 `engineFeatures` 的旧 Host 也没有这个功能。
+ */
+export function goalsSupported(
+  features: HostFeatures,
+  engine: EngineFeatures | undefined,
+): boolean {
+  return hostSupports(features, 'session_goals') && engine?.goals === true;
+}

@@ -12,6 +12,7 @@ import type {
   QuestionRequest,
   Session,
   SessionEngine,
+  SessionGoal,
   SessionId,
   SessionReadOnly,
   SessionSnapshot,
@@ -76,6 +77,8 @@ export interface SessionProjection {
   readonly todos?: readonly TodoItem[];
   /** 最近一次 `usage.updated`。 */
   readonly usage?: Usage;
+  /** 会话的目标（0.35.0）：最近一次 `session.goal_changed`，清除时没有。 */
+  readonly goal?: SessionGoal;
   /** 最近一条 `user.message`；同一回合的 `turn.started` 从这里取 `clientMessageId`。 */
   readonly lastUserMessage?: { readonly turnId: TurnId; readonly clientMessageId?: string };
   /** 子会话（R4，domain-model §3.3.1）：`session.created.parent` 设置，状态由子会话自己的事件推导。 */
@@ -234,6 +237,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     case 'session.title_changed':
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
+      break;
+    case 'session.goal_changed':
+      next.goal = event.payload.goal ?? undefined;
       break;
     case 'session.handoff': {
       const { from, to, resumed } = event.payload;
@@ -638,6 +644,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   }
   if (projection.subagent) session.subagent = projection.subagent;
   if (projection.engines !== undefined) session.engines = sessionEngines(projection);
+  if (projection.goal) session.goal = projection.goal;
   const snapshot: SessionSnapshot = {
     session,
     pendingApprovals: [...projection.pendingApprovals],

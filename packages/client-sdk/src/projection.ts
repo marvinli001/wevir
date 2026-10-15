@@ -7,7 +7,9 @@
 // 父 agent 的用户消息。R11：待发消息（`pending.*`）投影成 `pendingMessages`；插话（`user.steered`）是回合中间的一条用户
 // 消息，之后的助手输出放进这个回合的下一条助手消息（domain-model §8）。U2：思考部件带起止时刻（桌面端的“思考了 17 秒”），
 // 插话分出的每条助手消息都带回合的开始时刻。0.24.0：由命令开始的回合（`turn.started.command`，压缩上下文、代码审查）投影成
-// 一条带 `command`、没有文字的用户消息；上下文压缩（`context.*`）是回合里的 `compaction` 部件。
+// 一条带 `command`、没有文字的用户消息；上下文压缩（`context.*`）是回合里的 `compaction` 部件。0.35.0：为会话目标工作的回合
+// （`turn.started.trigger`）的用户消息带 `trigger`；引擎自己开的目标回合没有 `user.message`，投影成一条带 `trigger`、没有文字的
+// 用户消息。会话的目标（`session.goal_changed`）是 `Transcript.goal`。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -28,6 +30,7 @@ import type {
   PendingMessageId,
   QuestionId,
   QuestionRequest,
+  SessionGoal,
   SessionId,
   SessionReadOnly,
   SessionReadOnlyReason,
@@ -44,6 +47,7 @@ import type {
   TurnId,
   TurnOutcome,
   UiShowTarget,
+  TurnTrigger,
   Usage,
   UserContentPart,
   UserImagePart,
@@ -180,6 +184,8 @@ export interface UserChatMessage extends MessageBase {
   fromParentAgent?: true;
   /** 0.24.0：回合由命令开始（`turn.started.command`），没有文字部件。 */
   command?: TurnCommand;
+  /** 0.35.0：为会话目标工作的回合（`turn.started.trigger`）；引擎自己开的那种没有文字部件。 */
+  trigger?: TurnTrigger;
   clientMessageId?: string;
   /** R11：插话（`user.steered`），在回合中间；`id` 是 `<turnId>:steer:<pendingId>`。 */
   steered?: true;
@@ -236,6 +242,8 @@ export interface Transcript {
    * 历史里的。
    */
   uiShow: { seq: number; ts: IsoTime; target: UiShowTarget } | undefined;
+  /** 0.35.0：会话的目标（最近一次 `session.goal_changed`），清除或没有时 undefined。 */
+  goal: SessionGoal | undefined;
   lastSeq: number;
 }
 
@@ -261,6 +269,7 @@ interface MutableMessage {
   sentBy?: ClientIdentity;
   fromParentAgent?: true;
   command?: TurnCommand;
+  trigger?: TurnTrigger;
   clientMessageId?: string;
   steered?: true;
   pendingId?: PendingMessageId;
@@ -315,6 +324,7 @@ export class TranscriptProjection {
   #readOnly: SessionReadOnly | undefined;
   #lastError: EngineErrorInfo | undefined;
   #usage: Usage | undefined;
+  #goal: SessionGoal | undefined;
   #subagents: SubagentSummary[] = [];
   /** 子会话 ID → 它的部件（开始与结束）所在的消息。 */
   #subagentParts = new Map<SessionId, MutableMessage[]>();
@@ -351,6 +361,7 @@ export class TranscriptProjection {
     this.#readOnly = undefined;
     this.#lastError = undefined;
     this.#usage = undefined;
+    this.#goal = undefined;
     this.#subagents = [];
     this.#subagentParts.clear();
     this.#parent = undefined;
@@ -385,6 +396,9 @@ export class TranscriptProjection {
       case 'session.title_changed':
         this.#title = event.payload.title;
         return;
+      case 'session.goal_changed':
+        this.#goal = event.payload.goal ?? undefined;
+        return;
       case 'session.configured':
         return;
       case 'session.handoff': {
@@ -414,6 +428,7 @@ export class TranscriptProjection {
         // 子会话：这一回合的输入来自父 agent（R4），投影成一条用户消息；命令开的回合（0.24.0）同样有一条，带 `command`。
         if (event.payload.input !== undefined) this.#agentInput(event);
         if (event.payload.command !== undefined) this.#commandInput(event);
+        if (event.payload.trigger !== undefined) this.#triggerInput(event);
         const turn = this.#turn(event.payload.turnId);
         turn.startedAt = event.ts;
         turn.activityAt = event.ts;
@@ -540,6 +555,7 @@ export class TranscriptProjection {
       ),
       suggestedTasks: [...this.#tasks.values()],
       uiShow: this.#uiShow,
+      goal: this.#goal,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -649,6 +665,31 @@ export class TranscriptProjection {
       firstSeq: event.seq,
       lastSeq: event.seq,
       command,
+      ts: event.ts,
+      snapshot: undefined,
+    });
+  }
+
+  /**
+   * 为会话目标工作的回合（0.35.0）：有 `user.message`（设目标的第一个回合）时给它标上 `trigger`；没有（引擎自己开的）时补一条
+   * 带 `trigger`、没有文字的用户消息。
+   */
+  #triggerInput(event: WevirEventOf<'turn.started'>): void {
+    const { turnId, trigger } = event.payload;
+    const turn = this.#turn(turnId);
+    if (trigger === undefined) return;
+    if (turn.user) {
+      this.#touch(turn.user, turn.user.lastSeq).trigger = trigger;
+      return;
+    }
+    turn.user = this.#push({
+      role: 'user',
+      id: turnId,
+      turnId,
+      parts: [],
+      firstSeq: event.seq,
+      lastSeq: event.seq,
+      trigger,
       ts: event.ts,
       snapshot: undefined,
     });
@@ -1132,6 +1173,7 @@ function freeze(message: MutableMessage): ChatMessage {
         ...(message.sentBy !== undefined && { sentBy: message.sentBy }),
         ...(message.fromParentAgent && { fromParentAgent: true }),
         ...(message.command !== undefined && { command: message.command }),
+        ...(message.trigger !== undefined && { trigger: message.trigger }),
         ...(message.clientMessageId !== undefined && { clientMessageId: message.clientMessageId }),
         ...(message.steered && { steered: true }),
         ...(message.pendingId !== undefined && { pendingId: message.pendingId }),

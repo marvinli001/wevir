@@ -14,6 +14,7 @@ import type {
   CancelOptions,
   EngineAccounts,
   EngineSession,
+  GoalStartRequest,
   PendingApproval,
   PermissionMode,
   ProviderConfig,
@@ -58,6 +59,9 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly generateTitle?: AgentRuntimeAdapter['generateTitle'];
   readonly compact?: AgentRuntimeAdapter['compact'];
   readonly review?: AgentRuntimeAdapter['review'];
+  readonly startGoal?: AgentRuntimeAdapter['startGoal'];
+  readonly updateGoal?: AgentRuntimeAdapter['updateGoal'];
+  readonly clearGoal?: AgentRuntimeAdapter['clearGoal'];
   readonly acceptsImages?: AgentRuntimeAdapter['acceptsImages'];
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
 
@@ -148,6 +152,12 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.review !== undefined)) {
       this.review = async (id, request: ReviewRequest) =>
         this.#method(id, 'review').review(id, request);
+    }
+    if (adapters.some((adapter) => adapter.startGoal !== undefined)) {
+      this.startGoal = async (id, request: GoalStartRequest) =>
+        this.#method(id, 'startGoal').startGoal(id, request);
+      this.updateGoal = async (id, status) => this.#method(id, 'updateGoal').updateGoal(id, status);
+      this.clearGoal = async (id) => this.#method(id, 'clearGoal').clearGoal(id);
     }
   }
 
@@ -323,6 +333,7 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
     ...(adapter.historyTool === true && { historyTool: true }),
     ...(adapter.appTools === true && { appTools: true }),
     commands,
+    ...(adapter.startGoal !== undefined && { goals: true }),
   };
 }
 
@@ -333,7 +344,10 @@ type OptionalMethod =
   | 'respondToQuestion'
   | 'generateTitle'
   | 'compact'
-  | 'review';
+  | 'review'
+  | 'startGoal'
+  | 'updateGoal'
+  | 'clearGoal';
 
 function unsupported(route: EngineRoute, method: string): AdapterError {
   return new AdapterError('invalid_input', `the ${route.name} engine does not support ${method}`);

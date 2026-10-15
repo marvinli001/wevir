@@ -116,6 +116,11 @@ export const HOST_FEATURES = {
    */
   sessionReview: 'session_review',
   /**
+   * 会话目标（0.35.0）：`session.setGoal`、`session.updateGoal`、`session.clearGoal`，`session.goal_changed` 事件，`Session.goal`，
+   * `turn.started` 的 `trigger`。取决于引擎（Codex 有，看 `engineFeatures` 的 `goals`）；会话所在的引擎没有目标时 `INVALID_STATE`。
+   */
+  sessionGoals: 'session_goals',
+  /**
    * 接力（0.25.0，domain-model §3.14）：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与
    * `host.hello` 的 `engineFeatures`。已有会话能换到别的来源的模型。与引擎无关。
    */
@@ -172,6 +177,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_archive: z.boolean().optional(),
   session_compact: z.boolean().optional(),
   session_review: z.boolean().optional(),
+  session_goals: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),
   app_tools: z.boolean().optional(),

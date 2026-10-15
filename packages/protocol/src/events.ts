@@ -27,6 +27,7 @@ import {
   ResolvedApprovalStatusSchema,
   SessionEnvironmentFields,
   SessionOpenedBySchema,
+  SessionGoalSchema,
   SessionReadOnlyReasonSchema,
   SessionSideFields,
   SessionStateSchema,
@@ -40,6 +41,7 @@ import {
   TurnCommandSchema,
   TurnOutcomeSchema,
   UiShowTargetSchema,
+  TurnTriggerSchema,
   UserContentPartSchema,
 } from './entities.js';
 
@@ -116,6 +118,13 @@ export const EventPayloadSchemas = {
     description: z.string().optional(),
   }),
   /**
+   * 会话的目标变了（0.35.0，domain-model §3.16）：设置、状态或用量变化时带完整的目标，清除时 `goal` 为 `null`。来自引擎（Codex 的
+   * `thread/goal/updated` / `thread/goal/cleared`），回合之内或之间都可能。
+   */
+  'session.goal_changed': z.object({
+    goal: SessionGoalSchema.nullable(),
+  }),
+  /**
    * 会话的模型、推理档位或权限模式改了（0.9.0，`session.configure`），带改后的全部值；从下一个回合起生效。没有
    * `reasoningEffort` 表示用模型的默认档位；没有 `permissionMode`（0.11.0 之前的 Host）表示 `on_request`。
    */
@@ -178,6 +187,8 @@ export const EventPayloadSchemas = {
     input: z.array(UserContentPartSchema).min(1).optional(),
     /** 回合由命令开始（0.24.0，`session.compact` / `session.review`），没有 `user.message`。 */
     command: TurnCommandSchema.optional(),
+    /** 回合怎么开始的（0.35.0）：`goal` 为会话目标工作；引擎自己开的目标回合没有 `user.message`。 */
+    trigger: TurnTriggerSchema.optional(),
   }),
   'turn.finished': z.object({
     turnId: TurnIdSchema,
@@ -401,6 +412,7 @@ export const SessionCreatedEventSchema = eventSchema('session.created');
 export const SessionResumedEventSchema = eventSchema('session.resumed');
 export const SessionReadOnlyEventSchema = eventSchema('session.read_only');
 export const SessionTitleChangedEventSchema = eventSchema('session.title_changed');
+export const SessionGoalChangedEventSchema = eventSchema('session.goal_changed');
 export const SessionConfiguredEventSchema = eventSchema('session.configured');
 export const SessionHandoffEventSchema = eventSchema('session.handoff');
 export const SessionStateChangedEventSchema = eventSchema('session.state_changed');
@@ -440,6 +452,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SessionResumedEventSchema,
   SessionReadOnlyEventSchema,
   SessionTitleChangedEventSchema,
+  SessionGoalChangedEventSchema,
   SessionConfiguredEventSchema,
   SessionHandoffEventSchema,
   SessionStateChangedEventSchema,

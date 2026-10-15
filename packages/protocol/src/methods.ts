@@ -32,6 +32,7 @@ import {
   EngineFeaturesSchema,
   EnvironmentFolderSchema,
   EnvironmentSchema,
+  GOAL_OBJECTIVE_MAX_CHARS,
   HostSettingsSchema,
   HttpUrlSchema,
   PendingDeliverySchema,
@@ -45,6 +46,7 @@ import {
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
   ReviewTargetSchema,
+  SessionGoalSchema,
   SessionOriginSchema,
   SessionSchema,
   SessionSnapshotSchema,
@@ -704,6 +706,35 @@ export const SessionReviewParamsSchema = z.object({
   target: ReviewTargetSchema,
 });
 
+/**
+ * 设会话目标（0.35.0，Host 功能 `session_goals`）：替换原有的目标，以目标为用户消息开始第一个回合（`turn.started` 的 `trigger` 为
+ * `goal`），之后引擎在会话空闲时自己开回合接着做，直到目标达成、暂停或受阻。结果同 `session.send`：回合与它的 `user.message` 的
+ * `seq`。
+ */
+export const SessionSetGoalParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  /** 目标；Host 去掉首尾空白，之后不能是空的，最多 `GOAL_OBJECTIVE_MAX_CHARS` 字。 */
+  objective: z
+    .string()
+    .refine((value) => value.trim() !== '', { message: 'objective is empty' })
+    .refine((value) => [...value.trim()].length <= GOAL_OBJECTIVE_MAX_CHARS, {
+      message: `at most ${GOAL_OBJECTIVE_MAX_CHARS} characters`,
+    }),
+  /** token 预算；省略表示不限。 */
+  tokenBudget: z.int().positive().optional(),
+});
+
+/** 暂停或继续会话目标（0.35.0）：`active` 时会话空闲则引擎随即开回合接着做。 */
+export const SessionUpdateGoalParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  status: z.enum(['active', 'paused']),
+});
+
+export const SessionGoalResultSchema = z.object({ goal: SessionGoalSchema });
+
+/** `session.clearGoal`（0.35.0）的结果：`cleared` 为 `false` 表示本来就没有目标。 */
+export const SessionClearGoalResultSchema = z.object({ cleared: z.boolean() });
+
 /** `session.compact`（0.24.0）与 `session.review` 的结果：开始的回合与它的 `turn.started` 的 `seq`。 */
 export const SessionCommandResultSchema = z.object({
   turnId: TurnIdSchema,
@@ -1219,6 +1250,21 @@ export const MethodSchemas = {
   'session.review': {
     params: SessionReviewParamsSchema,
     result: SessionCommandResultSchema,
+    permission: 'session.write',
+  },
+  'session.setGoal': {
+    params: SessionSetGoalParamsSchema,
+    result: SessionCommandResultSchema,
+    permission: 'session.write',
+  },
+  'session.updateGoal': {
+    params: SessionUpdateGoalParamsSchema,
+    result: SessionGoalResultSchema,
+    permission: 'session.write',
+  },
+  'session.clearGoal': {
+    params: SessionIdParamsSchema,
+    result: SessionClearGoalResultSchema,
     permission: 'session.write',
   },
   'session.rename': {

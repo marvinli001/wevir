@@ -57,7 +57,7 @@ function Home({
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspace?.id);
   const worktree = useWorktreeChoice(workspace?.id);
-  const { start, error, ready } = useStartSession(
+  const { start, error, goals, ready } = useStartSession(
     workspace?.id,
     choice,
     undefined,
@@ -99,7 +99,7 @@ function Home({
     ...(permissionCommand && { permission: permissionCommand }),
     filesEnabled: false,
     panes: undefined,
-    ...(workspace && { send: sendCommandText }),
+    ...(workspace && { send: sendCommandText, goalEnabled: goals }),
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>

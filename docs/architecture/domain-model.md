@@ -810,6 +810,30 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
 - **标签页归属与操作方。** 每个标签页属于开它的会话（OpenWork 的 `createBrowserTabRegistry`）：agent 只看得到、只操作得了自己会话的；用户在会话的浏览器窗格里开的也属于那个会话。标签页另有操作方 `controller`：agent 开的是 `agent`；用户开的、用户在地址栏里跳转过、在 agent 的标签页里点过敲过的是 `user`（用户接手），这时 agent 只读（列、快照、截图、等待、日志照常，其余回 `browser_denied`），用户点“交给 Agent”再交回去。agent 的命令执行期间页面收到的输入不算用户接手。全部会话合计最多 12 个标签页。
 - **上屏。** 只有正在看的会话的当前标签页、在浏览器窗格可见时放在窗口上；其余停在一个不显示的窗口里继续绘制，并用 DevTools 模拟一个 1280×800 的视口与焦点（OpenWork 的 `backgroundTabEmulationCommands`），这样 agent 在后台也能截图、点击、打字。
 
+### 3.16 会话目标（0.35.0）
+
+维护者 2026-10-15 定：照 T3 Code 移植 `/goal`，用 Codex 原生的目标（ADR-0005 补记 20）。会话可以有一个目标：用户设下要一直做到的结果，agent 一个回合接一个回合地做，直到目标达成、暂停或受阻。
+
+```ts
+// → protocol
+type GoalStatus = 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete'
+interface SessionGoal {
+  objective: string        // 最多 GOAL_OBJECTIVE_MAX_CHARS（4000）字
+  status: GoalStatus
+  tokenBudget?: number     // 用户给的 token 预算
+  tokensUsed: number
+  timeUsedSeconds: number  // 只算回合进行的时间
+  updatedAt: IsoTime
+}
+// Session.goal?: SessionGoal   最近一次 session.goal_changed；清除后没有
+```
+
+- **谁持久化。** 目标由引擎保存（Codex：CODEX_HOME 下的 state DB，要不是临时的 thread），Host 从引擎的通知记下每次变化（`session.goal_changed`，§6），`Session.goal` 由它推导；Host 重启后从事件重放出来，引擎恢复会话时会再报一次当前的目标，相同的不再写。
+- **设目标。** `session.setGoal` 替换原有的目标（连同用量），以目标为用户消息开始第一个回合（`user.message` + 带 `trigger: 'goal'` 的 `turn.started`），前提同 §4.7 的命令回合，首个回合照常起标题。Codex 先以 `paused` 写入目标，第一个回合交给 thread 之后再设为 `active`：Codex 自己开的回合沿用 thread 上最近一次 `turn/start` 的设置，这样续跑的回合用的是会话当前的模型与权限模式。
+- **续跑。** 目标进行中、会话空闲时引擎自己开回合接着做（Codex 的 `continue_if_idle`，提示词是它的 `templates/goals/continuation.md`）：这是普通会话里由引擎开始的回合，只有带 `trigger: 'goal'` 的 `turn.started`，没有 `user.message`，转换同 #2，不起标题，之后的事件、结算与回合快照同普通回合。用户这时发的消息照常插话或排队；Host 刚好在引擎开回合的同一刻发出的消息，引擎并进这个回合，之后的事件归 Host 的回合。
+- **状态。** `complete` 与 `blocked` 由模型用目标工具设（规则在 prompts/base.md 的目标一节：逐条核对证据才算完成，同一阻碍连续三个目标回合以上才算受阻）；`budget_limited`、`usage_limited` 由引擎设；用户只在 `active` 与 `paused` 之间切换（`session.updateGoal`），或清除（`session.clearGoal`）。停止回合（`session.cancel`）时先暂停进行中的目标，停下的回合不会被续上。继续时会话空闲则引擎随即开回合；这个进程里还没有把会话当前的设置交给 thread（恢复、换模型或权限之后）时，Codex 适配器先以空输入开一个回合，再设为 `active`。
+- **引擎。** 只有 Codex 有（`host.hello` 的 `engineFeatures` 的 `goals`）；接力到别的来源后，目标留在原来的 Codex thread 上，界面不再提供目标的操作。子会话与支线没有目标（Codex 的临时 thread 不给目标工具）。
+
 ## 4. 会话状态机
 
 ```mermaid
@@ -854,7 +878,7 @@ stateDiagram-v2
 | # | 从 | 到 | 触发 | 写入的事件（`reason`） |
 |---|---|---|---|---|
 | 1 | — | `idle` | `session.create`：适配器 `createSession` 成功 | `session.created`（初始状态隐含为 `idle`，不写 `state_changed`）。失败时不建会话，RPC 返回错误 |
-| 2 | `idle` | `running` | `session.send` 被接受（必要时先自动 resume）；0.24.0 起还有 `session.compact`、`session.review`（§4.7） | `user.message`、`turn.started`、首个回合还有 `session.title_changed`（`turn_started`）；命令开的回合只有带 `command` 的 `turn.started` |
+| 2 | `idle` | `running` | `session.send` 被接受（必要时先自动 resume）；0.24.0 起还有 `session.compact`、`session.review`（§4.7）；0.35.0 起还有 `session.setGoal` 与引擎为目标开的回合（§3.16） | `user.message`、`turn.started`、首个回合还有 `session.title_changed`（`turn_started`）；命令开的回合只有带 `command` 的 `turn.started`，引擎开的目标回合只有带 `trigger` 的 `turn.started` |
 | 3 | `running` | `awaiting_approval` | 适配器上报审批请求 | `approval.requested`（`approval_requested`） |
 | 4 | `awaiting_approval` | `running` | 某个审批被决定后不再有 `pending` 审批 | `approval.resolved`（`approvals_settled`） |
 | 5 | `running` / `awaiting_approval` | `cancelling` | `session.cancel` | 每个未决审批一条 `approval.resolved`（`turn_cancelled`），适配器以 `cancelled` 回复 ACP；然后发 `session/cancel`（`cancel_requested`） |
@@ -1025,11 +1049,12 @@ stateDiagram-v2
 | `session.resumed` | host | 引擎会话重新挂上，带引擎版本（0.3.0） | `session.resume`、send 前的自动 resume（§4.4） |
 | `session.read_only` | host | 引擎会话恢复不了，会话只读（0.3.0） | 适配器的 `session_lost`（§4.4） |
 | `session.title_changed` | host | 标题变化 | 首个 `user.message`；用户改名 |
+| `session.goal_changed` | engine | 会话的目标变了（0.35.0，§3.16）：完整的目标，清除时 `null` | 引擎的目标通知（Codex：`thread/goal/updated` / `thread/goal/cleared`） |
 | `session.configured` | host | 模型、推理档位（0.9.0）或权限模式（0.11.0）变了，带改后的全部值，下一个回合起生效 | `session.configure` |
 | `session.handoff` | host | 换到了别的来源（0.25.0，§3.14）：之后的回合交给新的引擎会话，带新旧两头与交给它的历史摘要 | `session.configure` 带别的 `providerId` |
 | `session.state_changed` | host | 状态机转换（§4.1） | Host |
 | `user.message` | host | 用户发出的消息 | `session.send`（ACP 不回发用户消息） |
-| `turn.started` | host | 回合开始；由命令开始的回合带 `command`、没有 `user.message`（0.24.0，§4.7） | `session.send` 被接受，Host 发出 `session/prompt`；`session.compact`、`session.review` |
+| `turn.started` | host | 回合开始；由命令开始的回合带 `command`、没有 `user.message`（0.24.0，§4.7）；为目标工作的回合带 `trigger: 'goal'`，引擎自己开的没有 `user.message`（0.35.0，§3.16） | `session.send` 被接受，Host 发出 `session/prompt`；`session.compact`、`session.review`、`session.setGoal`；引擎开始的目标回合 |
 | `turn.finished` | host | 回合结束 | `session/prompt` 的结果或失败；进程退出；Host 重启 |
 | `assistant.delta` | engine | 助手文本或思考的增量 | stream-tap 旁路的 `text-delta` / `reasoning-delta`（T3.2a） |
 | `assistant.stream_ended` | engine | 一个 LLM attempt 的增量流结束 | stream-tap 的 `end` 帧 |
@@ -1119,6 +1144,7 @@ type WevirEvent =
       source: 'first_prompt' | 'user' | 'generated' // generated：0.5.0
       description?: string      // 0.5.0：模型生成标题时的检索摘要，留给会话搜索
     }>
+  | WevirEventEnvelope<'session.goal_changed', { goal: SessionGoal | null }> // 0.35.0（§3.16）
   | WevirEventEnvelope<'session.state_changed', {
       from: SessionState
       to: SessionState
@@ -1142,6 +1168,7 @@ type WevirEvent =
       turnId: TurnId
       input?: UserContentPart[] // 0.6.0：子会话的回合由引擎开始，这是父 agent 给它的输入（只有文本）
       command?: { kind: 'compact' } | { kind: 'review'; target: 'uncommitted' | 'branch'; baseBranch?: string } // 0.24.0
+      trigger?: 'goal'          // 0.35.0：为会话目标工作的回合（§3.16）
     }>
   | WevirEventEnvelope<'turn.finished', {
       turnId: TurnId

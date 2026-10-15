@@ -72,6 +72,9 @@ export const MAPPED_NOTIFICATIONS = Object.freeze([
   'turn/plan/updated',
   'turn/completed',
   'error',
+  // 会话目标（0.35.0，goals.ts，适配器在回合之外也处理）。
+  'thread/goal/updated',
+  'thread/goal/cleared',
 ] as const);
 
 /**

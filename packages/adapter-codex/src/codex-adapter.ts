@@ -20,8 +20,10 @@ import {
   type CancelOptions,
   type EngineAccounts,
   type EngineExitedEvent,
+  type EngineGoal,
   type EngineSession,
   EventHub,
+  type GoalStartRequest,
   isAdapterError,
   type PendingApproval,
   type PermissionMode,
@@ -75,6 +77,7 @@ import {
   writeCodexConfig,
 } from './config.js';
 import { buildCodexEnv } from './env.js';
+import { engineGoal, goalNotification } from './goals.js';
 import {
   CodexEventMapper,
   type CodexEventMapperOptions,
@@ -110,6 +113,11 @@ import {
   type ThreadCompactStartParams,
   type ThreadForkParams,
   type ThreadForkResponse,
+  type ThreadGoal,
+  type ThreadGoalClearParams,
+  type ThreadGoalClearResponse,
+  type ThreadGoalSetParams,
+  type ThreadGoalSetResponse,
   type ThreadInjectItemsParams,
   type ThreadReadParams,
   type ThreadReadResponse,
@@ -240,6 +248,13 @@ interface Turn {
   turnId?: string;
   /** 命令开的回合（0.24.0，§4.9）：`compact` 的 `contextCompaction` 记为 `manual`。 */
   readonly kind?: 'compact' | 'review';
+  /**
+   * 引擎开始的回合（0.35.0，§6.13）：Codex 为进行中的目标自己开的，或 `updateGoal` 继续目标时适配器开的；流里先报 `turn.started`。
+   * Host 在这时交来的消息照样 `turn/start`，Codex 把它并进这个回合。
+   */
+  readonly engine?: true;
+  /** `startGoal` 的回合（0.35.0）：`turn/start` 之后才把目标设为 `active`；此前取消的不再设。 */
+  goalActivation?: boolean;
   cancelRequested: boolean;
   /** 交给 `turn/steer`、还没进回合的插话（R11）：`clientUserMessageId`，见到同一 `clientId` 的 userMessage 完成就报出。 */
   readonly steers: Set<string>;
@@ -291,6 +306,13 @@ interface CodexSession {
   pendingTurnStart?: boolean;
   /** 最近一个结束的回合（Codex 的 turn ID）：回合进行中分支时只分到这里（0.17.0，§6.9）。 */
   lastTurnId?: string;
+  /** 最近知道的目标（0.35.0）：`null` 没有，`undefined` 还不知道（恢复后 Codex 报一次）。 */
+  goal?: EngineGoal | null;
+  /**
+   * 这个进程里已经有 `turn/start` 把会话当前的模型与权限设置交给了 thread（0.35.0）：Codex 自己开的目标回合沿用 thread 上最近一次
+   * 的设置。恢复与 `configureSession` 之后为 false，这时继续目标先由适配器 `turn/start` 一个回合。
+   */
+  settingsSynced?: boolean;
 }
 
 /**
@@ -686,6 +708,16 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.permissionMode,
         config.additionalRoots,
       );
+      // 0.35.0：记下 thread 的目标（停止回合时要知道它是不是进行中）；Codex 恢复时的那次通知可能早于登记。
+      const session = this.#sessions.get(engineSessionId);
+      if (session !== undefined) {
+        await this.#readGoal(session).catch((error: unknown) =>
+          this.#logger.warn('恢复会话后读目标失败', {
+            engineSessionId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
       return engineSession(engineSessionId, response);
     } finally {
       this.#activating -= 1;
@@ -727,25 +759,162 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   }
 
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
-    const session = await this.#turnSession(engineSessionId, () => {
+    const check = () => {
       if (input.content.length === 0) throw new AdapterError('invalid_input', 'content 不能为空');
-    });
+    };
+    const engineTurn = this.#sessions.get(engineSessionId)?.turn;
+    if (engineTurn?.engine === true && !engineTurn.cancelRequested) {
+      // 0.35.0：Host 开回合的同时 Codex 开了目标回合（Host 还没看到它的 turn.started）。turn/start 遇到进行中的回合时并进它，
+      // 之后的事件归 Host 的回合。
+      const session = this.#openSession(engineSessionId);
+      check();
+      await this.#turnStart(session, engineTurn, userInput(input));
+      return;
+    }
+    const session = await this.#turnSession(engineSessionId, check);
     const turn = this.#beginTurn(session);
+    await this.#turnStart(session, turn, userInput(input));
+  }
+
+  /**
+   * `turn/start`，带会话当前的模型与权限设置；app-server 接受即返回（codex-notes §2.2），正好是 send 的语义。没接受时丢掉这个回合
+   * （引擎开始的回合以 `turn.failed` 结束，流里已经报过它的 `turn.started`）。
+   */
+  async #turnStart(session: CodexSession, turn: Turn, input: UserInput[]): Promise<void> {
     const params: TurnStartParams = {
-      threadId: engineSessionId,
-      input: userInput(input),
+      threadId: session.id,
+      input,
       ...(session.override && { model: session.override.model, effort: session.override.effort }),
       ...permissionSettings(session.permission, session.roots),
     };
     let response: TurnStartResponse;
     try {
-      // turn/start 立即返回（codex-notes §2.2），正好是 send 的语义：引擎接受输入就返回。
       response = await this.process.request<TurnStartResponse>('turn/start', params);
     } catch (error) {
-      this.#dropTurn(session, turn);
+      if (turn.engine === true && turn.turnId === undefined && session.turn === turn) {
+        session.hub.emit({
+          type: 'turn.failed',
+          engineSessionId: session.id,
+          category: 'unknown',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (turn.turnId === undefined) this.#dropTurn(session, turn);
       throw engineError(error, 'turn/start');
     }
+    session.settingsSynced = true;
     this.#learnTurnId(session, turn, response.turn.id);
+  }
+
+  /**
+   * 设会话目标（0.35.0，codex-event-mapping.md §6.13，照 T3 Code 的 runGoalCommand）：有目标时先 `thread/goal/clear`（新目标连同
+   * 用量一起换掉，同 Codex 终端界面），以 `paused` 写入新目标，用会话当前的设置 `turn/start` 第一个回合（输入是目标），再设为
+   * `active`。先暂停是为了不让 Codex 抢先用 thread 上旧的设置开回合；回合在这之前被取消就不再设。之后 Codex 在 thread 空闲时
+   * 自己开回合接着做（`#deliverMapped` 认出，报 `turn.started`）。
+   */
+  async startGoal(engineSessionId: string, request: GoalStartRequest): Promise<void> {
+    const session = await this.#turnSession(engineSessionId, () => {
+      if (request.input.content.length === 0) {
+        throw new AdapterError('invalid_input', 'content 不能为空');
+      }
+    });
+    const turn = this.#beginTurn(session);
+    turn.goalActivation = true;
+    try {
+      const current = session.goal ?? (await this.#readGoal(session));
+      if (current !== null) await this.#clearThreadGoal(session);
+      await this.#setThreadGoal(session, {
+        objective: request.objective,
+        status: 'paused',
+        ...(request.tokenBudget !== undefined && { tokenBudget: request.tokenBudget }),
+      });
+    } catch (error) {
+      this.#dropTurn(session, turn);
+      throw engineError(error, 'thread/goal/set');
+    }
+    try {
+      await this.#turnStart(session, turn, userInput(request.input));
+    } finally {
+      turn.goalActivation = false;
+    }
+    if (turn.cancelRequested) return;
+    try {
+      await this.#setThreadGoal(session, { status: 'active' });
+    } catch (error) {
+      this.#logger.warn('目标设为 active 失败，这个回合照常进行、之后不续跑', {
+        engineSessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * 暂停或继续目标（0.35.0，§6.13）：`thread/goal/set`。继续时 thread 空闲则 Codex 随即开回合；这个进程里还没有 `turn/start` 交过
+   * 会话当前的设置（恢复、换模型或权限之后）时，先由适配器以空输入 `turn/start` 一个回合（同 T3），再设为 `active`。
+   */
+  async updateGoal(engineSessionId: string, status: 'active' | 'paused'): Promise<EngineGoal> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) throw new AdapterError('invalid_input', '子会话没有目标');
+    if (status === 'active' && session.turn === undefined && session.settingsSynced !== true) {
+      await this.#account?.assertSignedIn();
+      if (session.turn === undefined) {
+        const turn = this.#beginTurn(session, undefined, true);
+        session.hub.emit({ type: 'turn.started', engineSessionId, trigger: 'goal' });
+        await this.#turnStart(session, turn, []);
+      }
+    }
+    try {
+      return await this.#setThreadGoal(session, { status });
+    } catch (error) {
+      throw engineError(error, 'thread/goal/set');
+    }
+  }
+
+  /** 清除目标（0.35.0，§6.13）：`thread/goal/clear`；本来就没有时 `false`。 */
+  async clearGoal(engineSessionId: string): Promise<boolean> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) throw new AdapterError('invalid_input', '子会话没有目标');
+    try {
+      return await this.#clearThreadGoal(session);
+    } catch (error) {
+      throw engineError(error, 'thread/goal/clear');
+    }
+  }
+
+  /** `thread/goal/set`（`origin: 'user'`：Codex 把这次改动作为用户的话记进模型的上下文）；返回并记下改后的目标。 */
+  async #setThreadGoal(
+    session: CodexSession,
+    update: Pick<ThreadGoalSetParams, 'objective' | 'status' | 'tokenBudget'>,
+  ): Promise<EngineGoal> {
+    const params: ThreadGoalSetParams = { threadId: session.id, origin: 'user', ...update };
+    const response = await this.process.request<ThreadGoalSetResponse>('thread/goal/set', params);
+    const goal = engineGoal(response.goal);
+    if (goal === null)
+      throw new AdapterError('engine_unavailable', 'thread/goal/set 返回的目标不完整');
+    session.goal = goal;
+    return goal;
+  }
+
+  async #clearThreadGoal(session: CodexSession): Promise<boolean> {
+    const params: ThreadGoalClearParams = { threadId: session.id, origin: 'user' };
+    const response = await this.process.request<ThreadGoalClearResponse>(
+      'thread/goal/clear',
+      params,
+    );
+    session.goal = null;
+    return response.cleared;
+  }
+
+  /** `thread/goal/get`：还不知道有没有目标时（恢复后 Codex 的那次通知还没到）。 */
+  async #readGoal(session: CodexSession): Promise<EngineGoal | null> {
+    const response = await this.process.request<{ goal: ThreadGoal | null }>('thread/goal/get', {
+      threadId: session.id,
+    });
+    const goal = response.goal === null ? null : engineGoal(response.goal);
+    session.goal = goal;
+    return goal;
   }
 
   /**
@@ -805,10 +974,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     return session;
   }
 
-  #beginTurn(session: CodexSession, kind?: Turn['kind']): Turn {
+  #beginTurn(session: CodexSession, kind?: Turn['kind'], engine?: true): Turn {
     let settle!: () => void;
     const turn: Turn = {
       ...(kind !== undefined && { kind }),
+      ...(engine && { engine }),
       cancelRequested: false,
       steers: new Set(),
       done: new Promise<void>((resolve) => {
@@ -861,6 +1031,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       effort: config.reasoningEffort === undefined ? null : toCodexEffort(config.reasoningEffort),
     };
     session.permission = config.permissionMode ?? 'on_request';
+    // 新的设置要等下一个 turn/start 才交给 thread（0.35.0：Codex 自己开的目标回合沿用 thread 上的）。
+    session.settingsSynced = false;
   }
 
   /**
@@ -1050,8 +1222,20 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#endApprovals(session, 'turn_cancelled');
       this.#endQuestions(session, 'turn_cancelled');
       this.#endQuestions(session, 'turn_cancelled');
+      // 0.35.0：先暂停进行中的目标，免得 Codex 在回合停下后又开回合接着做（同 Codex 终端界面与 T3 的停止）。
+      if (
+        session.parentId === undefined &&
+        (session.goal?.status === 'active' || turn.goalActivation)
+      ) {
+        await this.#setThreadGoal(session, { status: 'paused' }).catch((error: unknown) =>
+          this.#logger.warn('停止回合时暂停目标失败', {
+            engineSessionId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
       // turn/start 的结果还没到时，等它到了再发（send 里）。
-      if (turn.turnId !== undefined) this.#interrupt(session, turn);
+      if (turn.turnId !== undefined && session.turn === turn) this.#interrupt(session, turn);
     }
     if (!(await settledWithin(turn.done, this.#cancelTimeoutMs))) {
       if (session.turn === turn && this.#disposed === undefined) {
@@ -1398,6 +1582,18 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   #deliverMapped(session: CodexSession, method: string, params: unknown): void {
     if (session.parentId !== undefined && this.#childNotification(session, method, params)) return;
+    // 会话目标（0.35.0，§6.13）：不属于某个回合。子会话没有目标。
+    const goal = goalNotification(method, params);
+    if (goal !== undefined) {
+      if (session.parentId === undefined) {
+        session.goal = goal.goal;
+        session.hub.emit({ type: 'goal.updated', engineSessionId: session.id, goal: goal.goal });
+      }
+      return;
+    }
+    if (method === 'turn/started' && session.parentId === undefined && session.turn === undefined) {
+      this.#engineTurnStarted(session, params);
+    }
     const turn = session.turn;
     // 不属于进行中回合的通知（上一个回合迟到的、或根本没有回合）：只保留 engine.raw 与用量（events.ts 的顺序约定）。
     const turnId = notificationTurnId(params);
@@ -1440,6 +1636,23 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         session.hub.emit(event);
       }
     }
+  }
+
+  /**
+   * 没有进行中的回合时 Codex 开了回合（0.35.0，§6.13）：目标进行中、thread 空闲时它自己接着做。登记成引擎开始的回合，报
+   * `turn.started`（目标进行中时带 `trigger: 'goal'`）；之后的通知照常归它。
+   */
+  #engineTurnStarted(session: CodexSession, params: unknown): void {
+    const turnId = notificationTurnId(params);
+    if (turnId === undefined || turnId === session.lastTurnId) return;
+    const turn = this.#beginTurn(session, undefined, true);
+    turn.turnId = turnId;
+    const goal = session.goal?.status === 'active' || session.goal?.status === 'budget_limited';
+    session.hub.emit({
+      type: 'turn.started',
+      engineSessionId: session.id,
+      ...(goal && { trigger: 'goal' as const }),
+    });
   }
 
   /**

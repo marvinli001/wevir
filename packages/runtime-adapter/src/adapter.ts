@@ -7,7 +7,9 @@ import type {
   AgentInput,
   ApprovalDecision,
   EngineAppToolsGrant,
+  EngineGoal,
   EngineSession,
+  GoalStartRequest,
   PendingApproval,
   PermissionMode,
   ProviderConfig,
@@ -113,6 +115,28 @@ export interface AgentRuntimeAdapter {
    * 错误：同 `send`。
    */
   review?(engineSessionId: string, request: ReviewRequest): Promise<void>;
+
+  /**
+   * 设会话目标（0.35.0，`session.setGoal`，domain-model §3.16）：替换原有的目标，以 `request.input` 开始第一个回合，同 `send` 在
+   * 引擎接受后返回、回合以终结事件结束；之后目标进行中、会话空闲时引擎自己开回合接着做（流里的 `turn.started`，`trigger` 为
+   * `goal`），目标的变化以 `goal.updated` 报出。不实现表示引擎没有目标，Host 不声明 `session_goals`（Codex：先以 `paused` 写入目标，
+   * `turn/start` 之后再设为 `active`，免得 Codex 抢先用旧的设置开回合）。
+   * 错误：同 `send`。
+   */
+  startGoal?(engineSessionId: string, request: GoalStartRequest): Promise<void>;
+
+  /**
+   * 暂停或继续会话目标（0.35.0，`session.updateGoal`），返回改后的目标。继续时会话空闲则引擎随即开回合（`turn.started`，`trigger`
+   * 为 `goal`）；暂停不打断进行中的回合，只是之后不再接着做。和 `startGoal` 同时实现。
+   * 错误：`session_not_found`、`session_closed`、`invalid_input`（没有目标、子会话）、`engine_unavailable`、`disposed`。
+   */
+  updateGoal?(engineSessionId: string, status: 'active' | 'paused'): Promise<EngineGoal>;
+
+  /**
+   * 清除会话目标（0.35.0，`session.clearGoal`）；本来就没有时返回 `false`。进行中的回合不受影响。和 `startGoal` 同时实现。
+   * 错误：`session_not_found`、`session_closed`、`invalid_input`（子会话）、`engine_unavailable`、`disposed`。
+   */
+  clearGoal?(engineSessionId: string): Promise<boolean>;
 
   /**
    * 这个会话所在的引擎有没有某个可选方法（0.24.0）：多引擎的路由（host/engine-router.ts）实现它，Host 在开始命令回合之前问，
@@ -235,6 +259,8 @@ export interface AgentRuntimeAdapter {
    *
    * `options.notifyParent`（0.14.0，U21）：用户单独停掉的是一个子会话（不是父会话取消时的级联），引擎能告诉父 agent
    * 时在回合结算后告诉它（Codex：往父 thread 补一条说明，codex-event-mapping.md §6.5）；做不到就忽略。
+   *
+   * 会话目标进行中时（0.35.0）先暂停目标，免得引擎在回合停下后又开回合接着做（同 Codex 终端界面的停止）。
    */
   cancel(engineSessionId: string, options?: CancelOptions): Promise<void>;
 

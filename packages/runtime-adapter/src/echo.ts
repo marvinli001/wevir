@@ -7,7 +7,9 @@ import type {
   AgentInput,
   ApprovalDecision,
   ApprovalOption,
+  EngineGoal,
   EngineSession,
+  GoalStartRequest,
   PendingApproval,
   PermissionMode,
   ReviewRequest,
@@ -116,6 +118,10 @@ interface EchoSession {
   notes: string[];
   /** `fork` 分出的支线（U23.1）。 */
   readonly side?: true;
+  /** 会话目标（0.35.0）。 */
+  goal?: EngineGoal;
+  /** 当前目标已经续跑过的回合数：续跑一次之后目标达成。 */
+  goalContinuations: number;
 }
 
 interface ReplyBlock {
@@ -144,6 +150,9 @@ interface ReplyBlock {
  *   `turn.started` 开始一个回合，输入是 `Helper task: <输入，subagent 换成 helper>`，所以输入里的其他关键词由子会话执行
  *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
  *   （`subagent.updated` 的 `closed`）。父回合被取消时子会话照常跑完（与 Codex 相同，Host 自己级联取消） |
+ *
+ * 会话目标（0.35.0，`startGoal`）：第一个回合同 `send`；目标进行中、会话空闲时“引擎”自己开一个续跑回合（`turn.started` 带
+ * `trigger: 'goal'`，回复 `Echo: Continue: <目标>`），它正常结束后目标达成；取消回合时先暂停目标。
  *
  * 图片（0.28.0）在回复里写成 `[image: <文件名或类型>]`。`fork`（U23.1）分出的支线回复 `Echo (side): <输入>`。`injectNote`（U23）补进来的说明在下一个回合的回复末尾写成 `Notes: <每条的第一行>`，像模型在上下文里看到了它。
  *
@@ -197,6 +206,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       hub: new EventHub(),
       turnCount: 0,
       notes: [],
+      goalContinuations: 0,
     };
     this.#sessions.set(session.id, session);
     return this.#describe(session);
@@ -258,6 +268,100 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         ? `Review the changes against ${request.baseBranch}`
         : 'Review the uncommitted changes';
     turn.done = this.#runTurn(session, turn, text);
+  }
+
+  /**
+   * 会话目标（0.35.0）：以输入开始第一个回合，目标随即 `active`。目标进行中、会话空闲时“引擎”自己开一个续跑回合（`turn.started`，
+   * `trigger: 'goal'`，回复 `Echo: Continue: <目标>`，所以目标里的关键词照样生效），续跑回合正常结束后目标达成（`complete`）。
+   */
+  async startGoal(engineSessionId: string, request: GoalStartRequest): Promise<void> {
+    const { session, turn } = this.#beginTurn(engineSessionId, () => {
+      if (request.input.content.length === 0) {
+        throw new AdapterError('invalid_input', 'content is empty');
+      }
+    });
+    session.goalContinuations = 0;
+    this.#setGoal(session, {
+      objective: request.objective,
+      status: 'active',
+      ...(request.tokenBudget !== undefined && { tokenBudget: request.tokenBudget }),
+      tokensUsed: 0,
+      timeUsedSeconds: 0,
+      updatedAt: new Date().toISOString(),
+    });
+    turn.done = this.#runTurn(session, turn, inputText(request.input));
+  }
+
+  async updateGoal(engineSessionId: string, status: 'active' | 'paused'): Promise<EngineGoal> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.goal === undefined) throw new AdapterError('invalid_input', 'no goal to update');
+    if (status === 'active') session.goalContinuations = 0;
+    const goal = this.#setGoal(session, { ...session.goal, status });
+    if (status === 'active') this.#scheduleGoal(session);
+    return goal;
+  }
+
+  async clearGoal(engineSessionId: string): Promise<boolean> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.goal === undefined) return false;
+    session.goal = undefined;
+    session.hub.emit({ type: 'goal.updated', engineSessionId, goal: null });
+    return true;
+  }
+
+  #setGoal(session: EchoSession, goal: EngineGoal): EngineGoal {
+    const next = { ...goal, updatedAt: new Date().toISOString() };
+    session.goal = next;
+    session.hub.emit({ type: 'goal.updated', engineSessionId: session.id, goal: next });
+    return next;
+  }
+
+  /** 回合结束或继续目标之后：目标进行中、会话空闲时开一个续跑回合（像 Codex 的 `continue_if_idle`）。 */
+  #scheduleGoal(session: EchoSession): void {
+    const timer = setTimeout(() => {
+      this.#timers.delete(timer);
+      const goal = session.goal;
+      if (
+        this.#disposed ||
+        session.status !== 'open' ||
+        session.turn ||
+        goal?.status !== 'active'
+      ) {
+        return;
+      }
+      session.turnCount += 1;
+      session.goalContinuations += 1;
+      const turn: EchoTurn = {
+        abort: new AbortController(),
+        hub: session.hub,
+        cancelRequested: false,
+        steers: [],
+        done: Promise.resolve(),
+      };
+      session.turn = turn;
+      session.hub.emit({ type: 'turn.started', engineSessionId: session.id, trigger: 'goal' });
+      turn.done = this.#runTurn(session, turn, `Continue: ${goal.objective}`);
+    }, this.#stepDelayMs);
+    this.#timers.add(timer);
+  }
+
+  /** 普通会话的回合结束了：为目标记账；续跑过的回合正常结束即达成，否则接着做。 */
+  #afterTurn(session: EchoSession, outcome: 'completed' | 'cancelled' | 'failed'): void {
+    const goal = session.goal;
+    if (session.parentId !== undefined || goal === undefined || goal.status !== 'active') return;
+    const accounted = {
+      ...goal,
+      tokensUsed: goal.tokensUsed + 1200,
+      timeUsedSeconds: goal.timeUsedSeconds + 1,
+    };
+    if (outcome === 'completed' && session.goalContinuations > 0) {
+      this.#setGoal(session, { ...accounted, status: 'complete' });
+      return;
+    }
+    this.#setGoal(session, accounted);
+    if (outcome === 'completed') this.#scheduleGoal(session);
   }
 
   #beginTurn(
@@ -388,6 +492,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       hub: new EventHub(),
       turnCount: 0,
       notes: [],
+      goalContinuations: 0,
       side: true,
     };
     this.#sessions.set(session.id, session);
@@ -401,8 +506,13 @@ export class EchoAdapter implements AgentRuntimeAdapter {
 
   /** 子会话的回合跟父回合在同一个进程里，单独停掉时父 agent 自然在等它结束（`notifyParent` 不用另外处理）。 */
   async cancel(engineSessionId: string, _options?: CancelOptions): Promise<void> {
-    const turn = this.#sessions.get(engineSessionId)?.turn;
-    if (!turn) return;
+    const session = this.#sessions.get(engineSessionId);
+    const turn = session?.turn;
+    if (!session || !turn) return;
+    // 停止回合时先暂停进行中的目标（0.35.0），回合停下后不再接着做。
+    if (!turn.cancelRequested && session.goal?.status === 'active') {
+      this.#setGoal(session, { ...session.goal, status: 'paused' });
+    }
     if (!turn.cancelRequested) {
       turn.cancelRequested = true;
       cancelPendingApproval(turn, 'turn_cancelled');
@@ -493,6 +603,8 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     const notes = session.notes.splice(0);
     /** 进行中的工具调用 → 被取消时的失败文本（措辞取 dsh，T0.3 E1、D）。 */
     const openTools = new Map<string, string>();
+    /** 回合的结局；引擎“死了”时没有。 */
+    let outcome: 'completed' | 'cancelled' | 'failed' | undefined;
 
     try {
       await this.#step(signal);
@@ -664,9 +776,11 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         totalTokens: 1200 * session.turnCount,
       });
       emit({ type: 'turn.settled', engineSessionId, outcome: 'completed', stopReason: 'end_turn' });
+      outcome = 'completed';
     } catch (error) {
       if (!(error instanceof TurnAbort)) {
         emit({ type: 'turn.failed', engineSessionId, category: 'unknown', message: String(error) });
+        outcome = 'failed';
         return;
       }
       // 进程“死了”或 dispose：没有引擎再发事件。
@@ -681,8 +795,10 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         outcome: 'cancelled',
         stopReason: 'cancelled',
       });
+      outcome = 'cancelled';
     } finally {
       if (session.turn === turn) session.turn = undefined;
+      if (outcome !== undefined) this.#afterTurn(session, outcome);
     }
   }
 
@@ -780,6 +896,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       hub: new EventHub({ bufferUntilSubscribed: true }),
       turnCount: 0,
       notes: [],
+      goalContinuations: 0,
     };
     let done: Promise<void> = Promise.resolve();
     await tool('spawn_agent', { message: prompt }, async (toolCallId) => {

@@ -37,7 +37,7 @@
 6. AGENTS.md 内容与 `<environment_context>`（Codex 生成）。
 7. 用户消息。
 
-`base.md` 按 Wevir 给 Codex 的配置写：Codex 托管的联网搜索、目标（goals）、插件都是关的（ADR-0005 决策 5 与补记），联网用 Wevir 自己的 `wevir_web`（0.34.0，docs/architecture/web-tools.md），`update_plan` 是开的，子智能体用 `multi_agent_v1`。配置变了要同步改 `base.md` 的“工具”一节。
+`base.md` 按 Wevir 给 Codex 的配置写：Codex 托管的联网搜索、插件都是关的（ADR-0005 决策 5 与补记），联网用 Wevir 自己的 `wevir_web`（0.34.0，docs/architecture/web-tools.md），目标（goals，0.35.0 起，补记 20）与 `update_plan` 是开的，子智能体用 `multi_agent_v1`。配置变了要同步改 `base.md` 的“工具”一节。
 
 ## 模板语法
 

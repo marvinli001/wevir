@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { commandSupported } from './capabilities.js';
+import { commandSupported, goalsSupported } from './capabilities.js';
 
 describe('commandSupported（0.27.0）', () => {
   const features = { session_compact: true, session_review: true };
@@ -20,5 +20,16 @@ describe('commandSupported（0.27.0）', () => {
     expect(commandSupported(features, { engine: 'echo' }, 'review')).toBe(true);
     expect(commandSupported(features, undefined, 'compact')).toBe(true);
     expect(commandSupported({}, undefined, 'compact')).toBe(false);
+  });
+});
+
+describe('goalsSupported（0.35.0）', () => {
+  it('要 Host 声明 session_goals，且会话当前的引擎有目标', () => {
+    const codex = { engine: 'codex', commands: [], goals: true };
+    const claude = { engine: 'claude', commands: [] };
+    expect(goalsSupported({ session_goals: true }, codex)).toBe(true);
+    expect(goalsSupported({ session_goals: true }, claude)).toBe(false);
+    expect(goalsSupported({}, codex)).toBe(false);
+    expect(goalsSupported({ session_goals: true }, undefined)).toBe(false);
   });
 });

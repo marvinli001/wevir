@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.34.0`（Agent 的联网工具；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
+> 状态：v0（T1.2）· 协议版本 `0.35.0`（会话目标；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -120,6 +120,9 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `session.fork` | `session.write` | `sessionId, side` | `session` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.compact` | `session.write` | `sessionId` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.review` | `session.write` | `sessionId, target` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`INVALID_PARAMS`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.setGoal` | `session.write` | `sessionId, objective, tokenBudget?` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`INVALID_PARAMS`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.updateGoal` | `session.write` | `sessionId, status` | `goal` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.clearGoal` | `session.write` | `sessionId` | `cleared` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.rename` | `session.write` | `sessionId, title` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS` |
 | `session.archive` | `session.write` | `sessionId, archived` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS`、`ENGINE_ERROR` |
 | `session.checkpoints` | `session.read` | `sessionId` | `repo, turns` | `SESSION_NOT_FOUND`、`WORKSPACE_PATH_INVALID` |
@@ -183,6 +186,8 @@ Host → 客户端的通知：
 - **`session.fork`**（0.17.0，Host 功能 `side_sessions`，domain-model §3.12）：从会话分出一个支线会话，`side` 现在只能是 `true`。被分的会话是子会话、支线、只读，或还没有完成的回合时回 `INVALID_STATE`；回合进行中也可以分，支线带着到最近一个完成的回合为止的上下文。返回的新会话 `idle`、带 `forkedFrom` 与 `side`，它的事件流从 `session.created` 开始；支线不进 `session.list`。
 - **`session.compact`**（0.24.0，Host 功能 `session_compact`，domain-model §4.7）：立即压缩会话的上下文。开始一个由命令开始的回合：没有 `user.message`，`turn.started` 带 `command: { kind: 'compact' }`，回合里引擎报 `context.compacting` 与 `context.compacted`（`trigger: 'manual'`），之后照常 `turn.finished`。前提与 `session.send` 相同：会话空闲（回合进行中回 `SESSION_BUSY`，不排队），已关闭或出错时先 `session.resume`（否则 `INVALID_STATE`），只读与子会话 `INVALID_STATE`；引擎会话没挂着时 Host 先自动恢复。会话所在的引擎不能压缩时回 `INVALID_STATE`，不写事件；0.27.0 起 `host.hello` 的 `engineFeatures` 的 `commands`（`compact`、`review`）事先说明哪种 Provider 的引擎会，客户端按会话当前的 Provider 查，只列出会的命令。Codex：`thread/compact/start`；Claude：发 `/compact`。结果是开始的回合与它的 `turn.started` 的 `seq`。引擎在上下文快满时自己压缩（不经这个方法）同样报这两个事件，`trigger: 'auto'`，在普通回合中间。
 - **`session.review`**（0.24.0，Host 功能 `session_review`）：代码审查。`target: 'uncommitted'` 看工作树里暂存、未暂存与未跟踪的改动；`'branch'` 看当前分支对基础分支的改动，基础分支由 Host 找（同 `workspace.diff` 的 `branch`：origin 的 HEAD，再试 main、master 与 origin 上的同名分支），找不到时 `INVALID_PARAMS`。会话目录不是 git 仓库时同样 `INVALID_PARAMS`。回合同 `session.compact`：`turn.started` 带 `command: { kind: 'review', target, baseBranch? }`，审查结果是这个回合的助手消息。其余前提与错误同 `session.compact`。Codex：`review/start`（`delivery: 'inline'`，在会话自己的 thread 上）；别的引擎不支持（`INVALID_STATE`）。
+- **`session.setGoal`**（0.35.0，Host 功能 `session_goals`，domain-model §3.16，ADR-0005 补记 20）：设会话的目标。`objective` 去掉首尾空白后不能是空的，最多 `GOAL_OBJECTIVE_MAX_CHARS`（4000，按码点，同 Codex）个字；`tokenBudget` 可选，正整数。替换原有的目标（连同用量），以目标为用户消息开始第一个回合：`user.message` 的内容就是目标，`turn.started` 带 `trigger: 'goal'`，首个回合照常起标题。之后目标进行中、会话空闲时引擎自己开回合接着做：这样的回合只有 `turn.started`（`trigger: 'goal'`）、没有 `user.message`，直到模型判定目标达成（`complete`）或受阻（`blocked`）、用户暂停或清除、预算或用量到了上限。前提同 `session.compact`（空闲，否则 `SESSION_BUSY`；只读、子会话、出错或已关闭 `INVALID_STATE`；引擎会话没挂着时先自动恢复）；会话所在的引擎没有目标时 `INVALID_STATE`，不写事件，`host.hello` 的 `engineFeatures` 的 `goals` 事先说明（目前只有 Codex）。结果同 `session.send`：开始的回合与它的 `user.message` 的 `seq`。
+- **`session.updateGoal`** / **`session.clearGoal`**（0.35.0）：`status: 'paused'` 暂停（进行中的回合照常做完，之后不再接着做），`'active'` 继续（会话空闲时引擎随即开回合）；结果是改后的 `goal`。会话没有目标时 `updateGoal` 回 `INVALID_STATE`；`clearGoal` 清除目标，结果的 `cleared` 为 `false` 表示本来就没有。只读、子会话、出错或已关闭 `INVALID_STATE`，引擎没有目标同上；回合进行中也可以。`session.cancel` 停止回合时 Host 让引擎先暂停进行中的目标（同 Codex 终端界面），停下的回合之后不会被续上。目标的每次变化（设置、状态、用量）都写成 `session.goal_changed`（来自引擎的通知，清除时 `goal` 为 `null`），`Session.goal` 与快照跟着它；Host 重启后从事件重放出来，引擎也持久化了它（Codex 的 state DB）。
 - **`session.rename`**（0.23.0，Host 功能 `session_rename`）：用户给会话改名。`title` 去掉首尾空白后不能是空的（否则 `INVALID_PARAMS`），最长 200 个字符；写一条 `session.title_changed`（`source: 'user'`），之后模型生成的标题不再覆盖它。子会话不能改名（`INVALID_PARAMS`）；已关闭、只读、已归档的会话可以。标题没变时不写事件。
 - **`session.archive`**（0.23.0，Host 功能 `session_archive`）：`archived: true` 归档——会话没关闭时先按 `session.close` 关闭（进行中的回合取消），再记下归档的时刻（`Session.archivedAt`）；`false` 取消归档，会话仍是关闭的，下次发送时客户端照常先 `session.resume`。只有顶层、不是支线的会话能归档（否则 `INVALID_PARAMS`）。已归档时再归档不改时刻。`archivedAt` 只在 `session.list`、`session.get` 与 `session.*` 方法的结果里，不是事件推导的；别的客户端在下一次 `session.list` 时看到变化。
 - **`session.checkpoints`**（0.20.0，Host 功能 `workspace_diff`）：会话有快照的回合，从早到晚，每项 `turnId` 与“后”快照里记下的统计 `fileCount`、`added`、`removed`（同 `workspace.diff` 的 `turn`，滤掉 git 带进来的文件；还没有“后”快照时省略）。会话目录不是 git 仓库时 `repo: false`、`turns` 为空。先等这个会话还没打完的快照。
@@ -292,6 +297,7 @@ Host → 客户端的通知：
 | `session.resumed` | host |
 | `session.read_only` | host |
 | `session.title_changed` | host |
+| `session.goal_changed` | engine |
 | `session.configured` | host |
 | `session.handoff` | host |
 | `session.state_changed` | host |
@@ -454,6 +460,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.34.0`：Agent 的联网工具（[web-tools.md](./web-tools.md)）。新方法 `web.get`、`web.update`、`web.test`；新类型 `WebSettings`、`WebSearchServiceId`（开放字符串）、`WebTestFailure`、`WebTestResult`；Host 功能 `web_tools`。新方法与新类型，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法，联网工具按 Host 里的设置照常工作（默认开着、搜索服务是博查、没有 Key 时只有网页抓取）。新客户端连旧 Host：hello 结果里没有 `web_tools`，桌面端的“设置 → 联网搜索”只显示后台服务不支持，CLI 的 `wevir web` 报方法不存在。冻结样本 `compat/0.34.0.json`。
 
+`0.35.0`：会话目标（domain-model §3.16，ADR-0005 补记 20）。新方法 `session.setGoal`、`session.updateGoal`、`session.clearGoal`；新类型 `GoalStatus`、`SessionGoal`、`TurnTrigger`（`goal`）与常量 `GOAL_OBJECTIVE_MAX_CHARS`；新事件 `session.goal_changed`；`Session` 加 optional 的 `goal`，`turn.started` 加 optional 的 `trigger`，`EngineFeatures` 加 optional 的 `goals`；Host 功能 `session_goals`。行为变化：普通会话里会有引擎自己开的回合（没有 `user.message`，之前只有命令回合与子会话）。新方法、新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法，忽略 `session.goal_changed`（规则 5）与 `trigger`；别的客户端设的目标在它那里是一条普通消息，续跑的回合是没有用户消息的回合（只有回答）。新客户端连旧 Host：hello 结果里没有 `session_goals`，桌面端不列 `/goal`、“+”菜单里没有“目标”。冻结样本 `compat/0.35.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -510,6 +518,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `app_tools` | 0.30.0 | 应用级工具（domain-model §3.15）：引擎会话挂上 Host 的 `wevir` MCP 服务；`ui.show` 事件、`user.message` 与待发消息的 `from`、`Session.openedBy`（Codex、Claude、Cursor、OpenCode、Grok、Antigravity、dsh 引擎；echo 没有，`engineFeatures` 的 `appTools` 按 Provider 说） |
 | `browser_tools` | 0.33.0 | 内置浏览器（domain-model §3.15.1）：`browser.*` 方法与 `browser.request` 通知，应用级工具里的 `browser_*` 与 `wevir_show` 的 `browser`（有应用级工具时，同 `app_tools`） |
 | `web_tools` | 0.34.0 | `web.get`、`web.update`、`web.test`；Host 带着联网服务启动时声明（`wevir-host` 总是带，与引擎无关；联网工具只挂在 Codex 上，web-tools.md §5） |
+| `session_goals` | 0.35.0 | `session.setGoal`、`session.updateGoal`、`session.clearGoal`，`session.goal_changed` 事件，`Session.goal`，`turn.started` 的 `trigger`（Codex、echo 引擎；会话所在的引擎没有目标时 `INVALID_STATE`，看 `engineFeatures` 的 `goals`） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

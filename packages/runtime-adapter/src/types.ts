@@ -129,8 +129,35 @@ export interface AgentInput {
  */
 export type ReviewRequest = { target: 'uncommitted' } | { target: 'branch'; baseBranch: string };
 
-/** Host 在开始回合之前问引擎会不会的可选方法（`supports`）。 */
-export type SessionCommandMethod = 'compact' | 'review';
+/** Host 在开始回合之前问引擎会不会的可选方法（`supports`）；`startGoal` 代表会话目标的几个方法（0.35.0）。 */
+export type SessionCommandMethod = 'compact' | 'review' | 'startGoal';
+
+/** 会话目标的状态（0.35.0，同协议的 `GoalStatus`；Codex 的 `ThreadGoalStatus`）。 */
+export type EngineGoalStatus =
+  | 'active'
+  | 'paused'
+  | 'blocked'
+  | 'usage_limited'
+  | 'budget_limited'
+  | 'complete';
+
+/** 引擎持久化的会话目标（0.35.0）。 */
+export interface EngineGoal {
+  objective: string;
+  status: EngineGoalStatus;
+  tokenBudget?: number;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  /** 引擎最近一次改动目标的时刻（ISO 8601，毫秒精度）。 */
+  updatedAt: string;
+}
+
+/** `startGoal` 的请求（0.35.0）：新的目标与第一个回合的输入（Host 写下的 `user.message`，即目标本身）。 */
+export interface GoalStartRequest {
+  objective: string;
+  tokenBudget?: number;
+  input: AgentInput;
+}
 
 /** `generateTitle` 的请求（prompts/README.md「会话标题」）。 */
 export interface TitleRequest {

@@ -768,6 +768,8 @@ export const EngineFeaturesSchema = z.object({
   commands: z.array(SessionCommandSchema).optional(),
   /** 会话的引擎挂上了 Wevir 的应用级工具（0.30.0，`app_tools`）。 */
   appTools: z.boolean().optional(),
+  /** 会话目标（0.35.0，`session.setGoal` 等，还要 Host 声明 `session_goals`）。 */
+  goals: z.boolean().optional(),
 });
 export type EngineFeatures = z.infer<typeof EngineFeaturesSchema>;
 
@@ -848,6 +850,46 @@ export const TurnCommandSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 export type TurnCommand = z.infer<typeof TurnCommandSchema>;
+
+/**
+ * 会话目标的状态（0.35.0，domain-model §3.16，Codex 的 `ThreadGoalStatus`）：`active` 进行中，引擎在会话空闲时自己开回合接着做；
+ * `paused` 用户暂停（停止回合时也会暂停）；`blocked` 模型判定同一阻碍连续出现、需要用户；`usage_limited` 账号用量到了上限；
+ * `budget_limited` 用完了 token 预算；`complete` 模型判定已达成。后四种由引擎或模型设置，用户只能在 `active` 与 `paused` 之间切换。
+ */
+export const GoalStatusSchema = z.enum([
+  'active',
+  'paused',
+  'blocked',
+  'usage_limited',
+  'budget_limited',
+  'complete',
+]);
+export type GoalStatus = z.infer<typeof GoalStatusSchema>;
+
+/** 目标的最长字数（0.35.0），同 Codex 的 `MAX_THREAD_GOAL_OBJECTIVE_CHARS`（按 Unicode 码点）。 */
+export const GOAL_OBJECTIVE_MAX_CHARS = 4000;
+
+/** 会话的目标（0.35.0，`session.setGoal`）：引擎持久化，Host 从引擎的通知记下（`session.goal_changed`）。 */
+export const SessionGoalSchema = z.object({
+  objective: z.string().min(1),
+  status: GoalStatusSchema,
+  /** 用户给的 token 预算；没有时省略。 */
+  tokenBudget: z.int().positive().optional(),
+  /** 为这个目标用掉的 token。 */
+  tokensUsed: z.int().min(0),
+  /** 为这个目标工作的时长（秒），只算回合进行的时间。 */
+  timeUsedSeconds: z.int().min(0),
+  /** 引擎最近一次改动目标的时刻。 */
+  updatedAt: IsoTimeSchema,
+});
+export type SessionGoal = z.infer<typeof SessionGoalSchema>;
+
+/**
+ * 回合怎么开始的（0.35.0）：`goal` 为会话目标工作的回合，`session.setGoal` 开的第一个回合（带 `user.message`，即目标本身），或
+ * 目标进行中、会话空闲时引擎自己开的回合（没有 `user.message`）。
+ */
+export const TurnTriggerSchema = z.enum(['goal']);
+export type TurnTrigger = z.infer<typeof TurnTriggerSchema>;
 
 /** 上下文压缩怎么来的（0.24.0）：`manual` 用户的 `session.compact`；`auto` 引擎在上下文快满时自己压缩。 */
 export const CompactionTriggerSchema = z.enum(['manual', 'auto']);
@@ -988,6 +1030,8 @@ export const SessionSchema = z.object({
    * 与 `session.*` 方法的结果里；订阅的事件不带它。
    */
   archivedAt: IsoTimeSchema.optional(),
+  /** 会话的目标（0.35.0，`session.goal_changed`）；没有或已清除时省略。 */
+  goal: SessionGoalSchema.optional(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

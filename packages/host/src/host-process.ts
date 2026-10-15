@@ -318,6 +318,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.fork !== undefined && { side_sessions: true }),
         ...(adapter.compact !== undefined && { session_compact: true }),
         ...(adapter.review !== undefined && { session_review: true }),
+        ...(adapter.startGoal !== undefined && { session_goals: true }),
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),
         ...(browsers !== undefined && { browser_tools: true }),

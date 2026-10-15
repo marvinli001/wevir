@@ -27,6 +27,7 @@ import {
   type ResolvedApprovalStatus,
   type ReviewTarget,
   type Session,
+  type SessionGoal,
   type SessionId,
   type SessionReadOnlyReason,
   type SessionSnapshot,
@@ -54,6 +55,7 @@ import {
   type ApprovalRequestedEvent,
   type AppToolsEndpoint,
   type DeltaBlockRef,
+  type EngineGoal,
   type EngineSession,
   isAdapterError,
   type QuestionCancelledEvent,
@@ -765,6 +767,119 @@ export class SessionManager {
   }
 
   /**
+   * `session.setGoal`（0.35.0，domain-model §3.16）：替换会话的目标，以目标为用户消息开始第一个回合（`turn.started` 的 `trigger` 为
+   * `goal`）；之后目标进行中、会话空闲时引擎自己开回合接着做（`#engineTurnStarted`）。前提同 `session.compact`；会话所在的引擎没有
+   * 目标时 `INVALID_STATE`，不写事件。
+   */
+  async setGoal(
+    params: MethodParams<'session.setGoal'>,
+    sentBy: ClientIdentity,
+  ): Promise<MethodResult<'session.setGoal'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    assertSendable(this.#snapshot(runtime));
+    const objective = params.objective.trim();
+    return this.#serial(runtime, async () => {
+      assertSendable(this.#snapshot(runtime));
+      await this.#goalEngine(runtime);
+      assertSendable(this.#snapshot(runtime));
+      return this.#startTurn(runtime, {
+        content: [{ type: 'text', text: objective }],
+        sentBy,
+        goal: {
+          objective,
+          ...(params.tokenBudget !== undefined && { tokenBudget: params.tokenBudget }),
+        },
+      });
+    });
+  }
+
+  /**
+   * `session.updateGoal`（0.35.0）：暂停或继续会话的目标。继续时会话空闲则引擎随即开回合（`#engineTurnStarted`）；暂停不打断进行中
+   * 的回合。会话没有目标、只读、出错或已关闭时 `INVALID_STATE`；引擎会话没挂上时先自动恢复。目标的变化随引擎的通知写成
+   * `session.goal_changed`。
+   */
+  updateGoal(
+    sessionId: SessionId,
+    status: 'active' | 'paused',
+  ): Promise<MethodResult<'session.updateGoal'>> {
+    return this.#goalCommand(sessionId, async (runtime, goals) => {
+      if (this.#snapshot(runtime).session.goal === undefined) {
+        throw new HostError('INVALID_STATE', 'the session has no goal', {
+          state: this.#snapshot(runtime).session.state,
+        });
+      }
+      return { goal: toSessionGoal(await goals.update(runtime.engineSessionId, status)) };
+    });
+  }
+
+  /** `session.clearGoal`（0.35.0）：清除会话的目标；进行中的回合不受影响。前提同 `session.updateGoal`（不要求有目标）。 */
+  clearGoal(sessionId: SessionId): Promise<MethodResult<'session.clearGoal'>> {
+    return this.#goalCommand(sessionId, async (runtime, goals) => ({
+      cleared: await goals.clear(runtime.engineSessionId),
+    }));
+  }
+
+  /** 目标的暂停、继续与清除：排在会话的命令队列里，引擎会话挂好、引擎有目标之后执行；引擎的错误转成 `ENGINE_ERROR`。 */
+  async #goalCommand<T>(
+    sessionId: SessionId,
+    run: (
+      runtime: SessionRuntime,
+      goals: {
+        update: (id: string, status: 'active' | 'paused') => Promise<EngineGoal>;
+        clear: (id: string) => Promise<boolean>;
+      },
+    ) => Promise<T>,
+  ): Promise<T> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    this.#assertNotChild(runtime);
+    return this.#serial(runtime, async () => {
+      const { session } = this.#snapshot(runtime);
+      if (session.readOnly !== undefined) {
+        throw new HostError('INVALID_STATE', 'session is read-only', {
+          state: session.state,
+          readOnly: session.readOnly,
+        });
+      }
+      if (session.state === 'error' || session.state === 'closed') {
+        throw new HostError('INVALID_STATE', `session is ${session.state}; resume it first`, {
+          state: session.state,
+        });
+      }
+      await this.#goalEngine(runtime);
+      const { updateGoal, clearGoal } = this.#adapter;
+      if (updateGoal === undefined || clearGoal === undefined) {
+        throw new Error('adapter has startGoal but no updateGoal / clearGoal');
+      }
+      try {
+        return await run(runtime, {
+          update: (id, status) => updateGoal.call(this.#adapter, id, status),
+          clear: (id) => clearGoal.call(this.#adapter, id),
+        });
+      } catch (error) {
+        if (isHostError(error)) throw error;
+        const info = engineErrorInfo(error);
+        throw new HostError('ENGINE_ERROR', info.message, info);
+      }
+    });
+  }
+
+  /** 目标的方法之前：引擎会话没挂上时先自动恢复（路由要它才知道会话在哪个引擎上），会话所在的引擎没有目标时 `INVALID_STATE`。 */
+  async #goalEngine(runtime: SessionRuntime): Promise<void> {
+    if (!runtime.attachment) await this.#autoResume(runtime);
+    const supported =
+      this.#adapter.supports?.(runtime.engineSessionId, 'startGoal') ??
+      this.#adapter.startGoal !== undefined;
+    if (!supported) {
+      throw new HostError('INVALID_STATE', "the session's engine has no goals", {
+        state: this.#snapshot(runtime).session.state,
+      });
+    }
+  }
+
+  /**
    * 命令回合的共同部分：会话空闲（否则 `SESSION_BUSY`）、可以发送（`assertSendable`）；引擎会话没挂着时先自动恢复（多引擎的路由
    * 要它才知道会话在哪个引擎上）；会话所在的引擎没有这个方法时 `INVALID_STATE`，不写事件。
    */
@@ -865,9 +980,11 @@ export class SessionManager {
       fingerprint?: string;
       pending?: PendingMessage;
       from?: MessageFrom;
+      /** `session.setGoal`（0.35.0）：这条消息是新的目标，交给引擎的 `startGoal`。 */
+      goal?: { objective: string; tokenBudget?: number };
     },
   ): Promise<{ turnId: TurnId; seq: number }> {
-    const { content, sentBy, clientMessageId, fingerprint, pending } = input;
+    const { content, sentBy, clientMessageId, fingerprint, pending, goal } = input;
     const from = input.from ?? pending?.from;
     if (!runtime.attachment) {
       await this.#autoResume(runtime);
@@ -892,7 +1009,11 @@ export class SessionManager {
           ...(from !== undefined && { from }),
         },
       },
-      { type: 'turn.started', source: 'host', payload: { turnId } },
+      {
+        type: 'turn.started',
+        source: 'host',
+        payload: { turnId, ...(goal !== undefined && { trigger: 'goal' as const }) },
+      },
     ];
     if (pending !== undefined) {
       inputs.push(pendingUpdated({ ...pending, status: 'sent', turnId, updatedAt: isoNow() }));
@@ -947,12 +1068,16 @@ export class SessionManager {
     // 接力（0.25.0）：还没交出去的历史摘要放在这条消息的开头交给新引擎；消息记录里只有用户写的。
     const handoff = this.#events.handoffState(runtime.id)?.context;
     try {
-      await this.#adapter.send(
-        runtime.engineSessionId,
+      const engineInput =
         handoff === undefined
           ? agentInput
-          : await this.#agentInput(withHandoffContext(handoff, content)),
-      );
+          : await this.#agentInput(withHandoffContext(handoff, content));
+      if (goal === undefined) {
+        await this.#adapter.send(runtime.engineSessionId, engineInput);
+      } else {
+        if (this.#adapter.startGoal === undefined) throw new Error('adapter has no startGoal');
+        await this.#adapter.startGoal(runtime.engineSessionId, { ...goal, input: engineInput });
+      }
     } catch (error) {
       // 引擎没有接受这个回合。等待期间回合可能已经以别的方式结束（例如引擎退出）。
       if (runtime.turn?.turnId === turnId) this.#engineFailed(runtime, engineErrorInfo(error));
@@ -2235,6 +2360,9 @@ export class SessionManager {
       case 'turn.started':
         this.#engineTurnStarted(runtime, event);
         return;
+      case 'goal.updated':
+        this.#goalUpdated(runtime, event.goal);
+        return;
     }
 
     // 其余事件都属于进行中的回合。
@@ -2758,10 +2886,58 @@ export class SessionManager {
     this.#write(child, inputs);
   }
 
+  /**
+   * 会话的目标变了（0.35.0）：与快照里的不同才写 `session.goal_changed`（引擎恢复会话时会再报一次当前的目标）。子会话没有目标。
+   */
+  #goalUpdated(runtime: SessionRuntime, goal: EngineGoal | null): void {
+    if (runtime.parentId !== undefined) return;
+    const next = goal === null ? undefined : toSessionGoal(goal);
+    if (isDeepStrictEqual(this.#snapshot(runtime).session.goal, next)) return;
+    this.#write(runtime, [
+      { type: 'session.goal_changed', source: 'engine', payload: { goal: next ?? null } },
+    ]);
+  }
+
+  /**
+   * 普通会话的回合由引擎开始（0.35.0，目标进行中、会话空闲时引擎自己接着做）：会话 `idle` 时写 `turn.started`（带 `trigger`，没有
+   * `user.message`）并转 `running`，不起标题。Host 这时已经开了自己的回合（消息交给引擎的路上引擎开了回合，引擎把消息并进了它）
+   * 时丢掉，之后的事件归 Host 的回合。
+   */
+  #engineMainTurnStarted(runtime: SessionRuntime, event: TurnStartedEvent): void {
+    if (runtime.turn) return;
+    const { state } = this.#snapshot(runtime).session;
+    if (state !== 'idle') {
+      this.#onError(new Error(`会话 ${runtime.id} 是 ${state}，丢弃引擎开始的回合`));
+      return;
+    }
+    const turnId = newId('trn');
+    this.#write(runtime, [
+      {
+        type: 'turn.started',
+        source: 'host',
+        payload: { turnId, ...(event.trigger !== undefined && { trigger: event.trigger }) },
+      },
+      stateChanged('idle', 'running', 'turn_started'),
+    ]);
+    runtime.turn = {
+      turnId,
+      streams: new Map(),
+      openTools: new Set(),
+      tools: new Map(),
+      finished: deferred(),
+      addedWhileCancelling: new Set(),
+    };
+    // 回合前的快照（0.20.0）：引擎已经开始了，尽快打；不会抛错。
+    const checkpointCwd = this.#checkpointCwd(runtime);
+    if (checkpointCwd !== undefined) {
+      void this.#checkpoints?.beforeTurn(runtime.id, checkpointCwd, turnId);
+    }
+  }
+
   /** 子会话的回合由引擎开始（C2）：`closed` / `error` 时先恢复（C5），再 `turn.started`（带输入）并转 `running`。 */
   #engineTurnStarted(child: SessionRuntime, event: TurnStartedEvent): void {
     if (child.parentId === undefined) {
-      this.#onError(new Error(`会话 ${child.id} 不是子会话，丢弃引擎开始的回合`));
+      this.#engineMainTurnStarted(child, event);
       return;
     }
     if (child.turn) {
@@ -3372,6 +3548,18 @@ function finishTurn(
 }
 
 // ── 小工具 ───────────────────────────────────────────────────────────
+
+/** 引擎的目标 → 协议的 `SessionGoal`（0.35.0）。 */
+function toSessionGoal(goal: EngineGoal): SessionGoal {
+  return {
+    objective: goal.objective,
+    status: goal.status,
+    ...(goal.tokenBudget !== undefined && { tokenBudget: goal.tokenBudget }),
+    tokensUsed: goal.tokensUsed,
+    timeUsedSeconds: goal.timeUsedSeconds,
+    updatedAt: goal.updatedAt,
+  };
+}
 
 function assertSendable(snapshot: SessionSnapshot): void {
   const { state, activeTurn } = snapshot.session;

@@ -275,6 +275,55 @@ export interface ThreadCompactStartParams {
   threadId: string;
 }
 
+/** v2/ThreadGoalStatus.ts（0.35.0，codex-event-mapping.md §6.13）。 */
+export type ThreadGoalStatus =
+  | 'active'
+  | 'paused'
+  | 'blocked'
+  | 'usageLimited'
+  | 'budgetLimited'
+  | 'complete';
+
+/** v2/ThreadGoal.ts：时间都是秒。 */
+export interface ThreadGoal {
+  threadId: string;
+  objective: string;
+  status: ThreadGoalStatus;
+  tokenBudget: number | null;
+  tokensUsed: number;
+  timeUsedSeconds: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** v2/ThreadGoalMutationOrigin.ts：`user` 时 Codex 把这次改动作为用户的话记进模型的上下文。 */
+export type ThreadGoalMutationOrigin = 'user' | 'automatic';
+
+/** v2/ThreadGoalSetParams.ts（响应 v2/ThreadGoalSetResponse.ts 是 `{ goal }`）。没有目标时 `objective` 必填。 */
+export interface ThreadGoalSetParams {
+  threadId: string;
+  origin?: ThreadGoalMutationOrigin | null;
+  objective?: string | null;
+  status?: ThreadGoalStatus | null;
+  tokenBudget?: number | null;
+}
+
+/** v2/ThreadGoalSetResponse.ts */
+export interface ThreadGoalSetResponse {
+  goal: ThreadGoal;
+}
+
+/** v2/ThreadGoalClearParams.ts（响应 v2/ThreadGoalClearResponse.ts 是 `{ cleared }`）。 */
+export interface ThreadGoalClearParams {
+  threadId: string;
+  origin?: ThreadGoalMutationOrigin | null;
+}
+
+/** v2/ThreadGoalClearResponse.ts */
+export interface ThreadGoalClearResponse {
+  cleared: boolean;
+}
+
 /** v2/ReviewTarget.ts 里 Wevir 用到的两种（`commit`、`custom` 不用）。 */
 export type ReviewTarget = { type: 'uncommittedChanges' } | { type: 'baseBranch'; branch: string };
 

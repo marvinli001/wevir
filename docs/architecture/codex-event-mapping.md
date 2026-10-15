@@ -90,7 +90,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 | `check_for_update_on_startup` | `false` | 决策 5 |
 | `web_search` | `disabled` | 决策 5：托管搜索由 OpenAI 服务端执行，经网关的模型用不了，custom provider 默认又会把它发给上游；联网改用 `wevir_web`（§6.12）。ChatGPT 会话在 `thread/start` 里按 Wevir 的联网开关改成 `cached` |
 | `[analytics] enabled` | `false` | 决策 5 |
-| `[features] plugins / goals / memories` | `false` / `false` / `false` | 决策 5（plugins 是唯一产生外连的开关）、补记 1（goals）、决策 5（memories 默认就关） |
+| `[features] plugins / goals / memories` | `false` / `true` / `false` | 决策 5（plugins 是唯一产生外连的开关）、补记 20（goals，0.35.0 起打开，§6.13；补记 1 时关着）、决策 5（memories 默认就关） |
 | `[features] instant_interrupt` | `false` | R11：插话等这一步结束再进回合（§4.5；这个开关默认开，开着时插话立刻掐断正在流式输出的采样） |
 | `[features] default_mode_request_user_input` | `true` | U11：普通回合也给模型 `request_user_input` 工具（默认只在计划模式给），模型可以向用户提问（§6.6）。功能阶段是 UnderDevelopment |
 | `suppress_unstable_features_warning` | `true` | U11：开了开发中的功能时，app-server 每个 thread 开头发一条 warning 通知（会成为 `engine.raw`），关掉它 |
@@ -440,6 +440,23 @@ output_token_limit = 12000
 - 展示：`server` 是 `wevir_web` 的 `mcpToolCall`，`web_search` 报 `search`（摘要与 `query` 是查询词），`web_fetch` 报 `fetch`（摘要与 `url` 是网址）；输出取 MCP 结果里的文字段落，不是整个结果的 JSON。
 
 实测（rust-v0.162.1，经网关的 mock 模型与假端点，2026-10-15，`codex-adapter.web.integration.test.ts`）：`--strict-config` 接受上面的配置（含 `env_vars`、`tool_timeout_sec` 与每个工具的 `output_token_limit`）；模型看到命名空间 `mcp__wevir_web` 里的两个工具；调用不出审批，桥脚本带着 `Bearer <令牌>` 把 `{ name, arguments }` 发到端点，回答作为工具结果回到模型；`thread/start` 的覆盖只影响那个会话——没有 Key 时请求里只有 `web_fetch`，关着时两个都没有，托管的 `web_search` 也没有。
+
+### 6.13 会话目标（0.35.0，`goals.ts`、`codex-adapter.ts`）
+
+`features.goals = true`（补记 20）：模型拿到 `get_goal`、`create_goal`、`update_goal`（ext/goal/src/spec.rs），目标存在 CODEX_HOME 的 state DB 里（`goals_1.sqlite`）。主会话的 thread 不是临时的，有目标；支线（`ephemeral`）与生成标题的临时 thread 没有（标题的 thread 另外在 `TITLE_THREAD_CONFIG` 里关掉 goals）。只用稳定面：
+
+| 适配器 | Codex |
+|---|---|
+| `startGoal` | 有目标时先 `thread/goal/clear`（不知道有没有时先 `thread/goal/get`）；`thread/goal/set { objective, status: 'paused', tokenBudget? }`；`turn/start`（输入是目标，带会话当前的模型与权限设置，同 `send`）；再 `thread/goal/set { status: 'active' }`。照 T3 Code 的 runGoalCommand：先暂停是为了不让 Codex 在 `turn/start` 之前就用 thread 上旧的设置开回合（`continue_if_idle` 在 set 为 `active` 时就会跑）。回合在设为 `active` 之前被取消就不再设 |
+| `updateGoal` | `thread/goal/set { status }`。`active`、会话空闲、而这个进程里还没有 `turn/start` 交过会话当前的设置（恢复后、`configureSession` 之后）时，先以空输入 `turn/start` 一个回合（适配器先报 `turn.started`，`trigger: 'goal'`，同 T3 的 resume），再设 `active` |
+| `clearGoal` | `thread/goal/clear`，结果的 `cleared` |
+| `cancel` | 目标 `active`（或 `startGoal` 还没设 `active`）时先 `thread/goal/set { status: 'paused' }`，再 `turn/interrupt`：Codex 的回合被中断后线程空闲，不暂停的话它会马上续跑（同终端界面与 T3 的 Stop） |
+
+用户的改动都带 `origin: 'user'`（同终端界面）：Codex 把它作为用户的话记进模型的上下文（core/src/context/user_goal.rs）。`thread/goal/updated`（完整的目标，状态转成下划线，秒级时间戳转成 ISO）与 `thread/goal/cleared` 映射成 `goal.updated`，不属于某个回合，回合之内或之间都报；子会话的忽略。`resumeSession` 之后读一次 `thread/goal/get` 记下当前的目标（停止回合时要知道它是不是进行中；Codex 恢复时的那次通知可能早于适配器登记会话）。
+
+**续跑的回合。** 目标进行中、thread 空闲时 Codex 自己开回合（ext/goal/src/runtime.rs 的 `continue_if_idle`，`turn_trigger: "goal"`，输入是一条 `<codex_internal_context source="goal">` 的 user 消息，模板 templates/goals/continuation.md）。适配器在主会话没有进行中回合时收到 `turn/started`，登记成引擎开始的回合，报 `turn.started`（目标进行中或刚到预算上限时带 `trigger: 'goal'`），之后的通知照常归它。Host 刚好在这时 `send`：Codex 的 `turn/start` 遇到进行中的回合时并进它（`start_or_steer_turn`），适配器照样发 `turn/start`，Host 丢掉那条引擎的 `turn.started`、把这个回合的事件记在自己的回合上。目标工具的调用不产生 item（不报 `tool.*`），只有目标的变化。
+
+rust-v0.162.1 实测（`codex-adapter.goal.integration.test.ts`，经网关的 mock 模型）：第一个请求就带三个目标工具；第一个回合结束后几毫秒 Codex 开续跑回合，请求最后一条是续跑的提示；mock 在续跑回合里调 `update_goal { status: 'complete' }` 后 Codex 不再开回合；停止续跑回合时先暂停的目标不再续跑；`dispose` 后新的适配器 `resumeSession` 读到暂停的目标，`updateGoal('active')` 先开空输入的回合，之后 Codex 续跑到完成。
 
 ### 6.7 回合失败的归类（`turn-error.ts`）
 

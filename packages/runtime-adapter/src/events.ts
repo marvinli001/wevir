@@ -1,5 +1,6 @@
 import type {
   AgentTextInput,
+  EngineGoal,
   PendingApproval,
   TodoItem,
   ToolDisplay,
@@ -21,10 +22,10 @@ import type {
 //
 // 顺序约定：
 // - 一个会话同一时刻至多一个回合。`send` 成功之后到该回合的终结事件之前，事件都属于这个回合。子会话（R4，
-//   domain-model §3.3.1）的回合由引擎开始：`turn.started` 之后到终结事件之前的事件属于它。
+//   domain-model §3.3.1）与普通会话的目标回合（0.35.0）由引擎开始：`turn.started` 之后到终结事件之前的事件属于它。
 // - 每个回合恰好一个终结事件：`turn.settled`、`turn.failed`，或（进程死了）`engine.exited`。
 //   回合内的其他事件都在终结事件之前发出。
-// - 回合之间只可能出现 `engine.exited`、`engine.raw`、`subagent.*`（以及子会话的 `turn.started`）。
+// - 回合之间只可能出现 `engine.exited`、`engine.raw`、`subagent.*`、`goal.updated` 与引擎开始的回合的 `turn.started`。
 // - `engine.exited` 之后该会话的订阅结束。
 // - 子会话：父会话的流里先有 `subagent.started`，子会话的流在第一个订阅者到来之前缓冲（`EventHub` 的
 //   `bufferUntilSubscribed`），Host 收到 `subagent.started` 再订阅不会漏事件。
@@ -236,15 +237,27 @@ export interface EngineExitedEvent {
 }
 
 /**
- * 子会话的回合开始（R4）：只出现在子会话的流里，回合由引擎开始（父 agent 派了任务或发来消息），不经 `send`。
- * 之后到终结事件为止的事件属于这个回合。
+ * 引擎开始的回合，不经 `send`：子会话（R4，父 agent 派了任务或发来消息），或普通会话的目标回合（0.35.0：目标进行中、会话空闲时
+ * Codex 自己接着做，或 `updateGoal` 继续目标时适配器开的）。之后到终结事件为止的事件属于这个回合。普通会话在 Host 刚好也开了
+ * 回合（`send` 已经交给引擎）时，Host 丢掉它：引擎把那条消息并进了这个回合，之后的事件归 Host 的回合。
  */
 export interface TurnStartedEvent {
   type: 'turn.started';
-  /** 子会话。 */
   engineSessionId: string;
   /** 父 agent 给的输入（Codex：子 thread 这一回合的 userMessage，只取文本）；引擎没给时省略。 */
   input?: AgentTextInput[];
+  /** 为会话目标工作的回合（0.35.0）。 */
+  trigger?: 'goal';
+}
+
+/**
+ * 会话的目标变了（0.35.0）：设置、状态或用量变化时带完整的目标，清除时 `goal` 为 `null`。回合之内或之间都可能（Codex：
+ * `thread/goal/updated` / `thread/goal/cleared`，恢复会话时也报一次当前的目标）。
+ */
+export interface GoalUpdatedEvent {
+  type: 'goal.updated';
+  engineSessionId: string;
+  goal: EngineGoal | null;
 }
 
 /**
@@ -348,7 +361,8 @@ export type AgentEvent =
   | TurnSteeredEvent
   | SubagentStartedEvent
   | SubagentUpdatedEvent
-  | TasksSuggestedEvent;
+  | TasksSuggestedEvent
+  | GoalUpdatedEvent;
 
 export type AgentEventType = AgentEvent['type'];
 

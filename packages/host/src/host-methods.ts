@@ -686,6 +686,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.review': ({ sessionId, target }) => sessions.review(sessionId, target),
 
+    // 0.35.0：会话目标。
+    'session.setGoal': (params, { client }) => sessions.setGoal(params, client),
+
+    'session.updateGoal': ({ sessionId, status }) => sessions.updateGoal(sessionId, status),
+
+    'session.clearGoal': ({ sessionId }) => sessions.clearGoal(sessionId),
+
     'pending.update': async (params) => ({ pending: await sessions.updatePending(params) }),
 
     'pending.cancel': (params) => ({ pending: sessions.cancelPending(params) }),

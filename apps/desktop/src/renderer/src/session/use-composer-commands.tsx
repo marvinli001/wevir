@@ -1,6 +1,7 @@
 // 各页面的斜杠命令（U33）：会话页、草稿页与首页各自拼出能用的命令，交给输入框（composer.tsx）。照 Codex 桌面端的命令
 // 表取 Wevir 现在做得到的：模型、思考力度、权限（二级菜单），新建会话、支线提问、文件、变更、状态、初始化；0.24.0 起还有
-// 压缩上下文与代码审查（Host 声明 `session_compact` / `session_review`、会话当前的引擎会时）。
+// 压缩上下文与代码审查（Host 声明 `session_compact` / `session_review`、会话当前的引擎会时）；0.35.0 起还有目标（`/goal`，Host
+// 声明 `session_goals`、会话当前的引擎有目标时，也在“+”菜单里，同 Codex 桌面端）。
 
 import type { PermissionMode, ProviderProfile, ReviewTarget, SessionId } from '@wevir/protocol';
 import {
@@ -18,6 +19,7 @@ import {
   ScanSearch,
   Shield,
   SquarePen,
+  Target,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
@@ -192,6 +194,13 @@ export interface SessionCommandOptions {
   /** Host 能压缩上下文、审查代码（0.24.0）、会话当前的引擎会（0.27.0）且会话可写时给。 */
   onCompact?: () => void;
   onReview?: (target: ReviewTarget) => void;
+  /** 会话能用目标（0.35.0）且可写：`/goal ` 放进输入框，接着写目标。 */
+  goalEnabled?: boolean;
+}
+
+/** `/goal`（0.35.0）：选中后输入框里是 `/goal `，接着写目标；也在“+”菜单里。 */
+function goalCommand(): ComposerCommand {
+  return { name: 'goal', label: t('command.goal'), icon: Target, insert: '/goal ', plus: true };
 }
 
 /** 已有会话的命令。 */
@@ -216,6 +225,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    goalEnabled,
   } = options;
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
@@ -247,6 +257,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
         ),
       );
     }
+    if (goalEnabled) commands.push(goalCommand());
     if (onCompact) commands.push(simple('compact', t('command.compact'), FoldVertical, onCompact));
     if (onReview) {
       commands.push({
@@ -271,6 +282,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    goalEnabled,
     workspaceId,
     sessionId,
     providers,
@@ -298,12 +310,15 @@ export interface DraftCommandOptions {
   panes: PaneController | undefined;
   /** 发出第一条消息（建会话）；没有工作区时不给。 */
   send?: (text: string) => void;
+  /** 选的模型能用目标（0.35.0）：`/goal 〈目标〉` 建会话并设目标。 */
+  goalEnabled?: boolean;
 }
 
 /** 新会话（草稿页、首页）的命令：选模型、思考力度、权限，打开文件，初始化。 */
 export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[] {
   const accounts = useAccounts();
-  const { providers, model, onModelChange, permission, filesEnabled, panes, send } = options;
+  const { providers, model, onModelChange, permission, filesEnabled, panes, send, goalEnabled } =
+    options;
   return useMemo(() => {
     const commands: ComposerCommand[] = [];
     if (providers && model) {
@@ -315,11 +330,22 @@ export function useDraftCommands(options: DraftCommandOptions): ComposerCommand[
     if (filesEnabled && panes) {
       commands.push(simple('files', t('command.files'), FolderTree, () => openFiles(panes)));
     }
+    if (send && goalEnabled) commands.push(goalCommand());
     if (send) {
       commands.push(
         simple('init', t('command.init'), FileCode2, () => send(initPrompt(currentLocale()))),
       );
     }
     return commands;
-  }, [providers, model, onModelChange, permission, filesEnabled, panes, send, accounts]);
+  }, [
+    providers,
+    model,
+    onModelChange,
+    permission,
+    filesEnabled,
+    panes,
+    send,
+    goalEnabled,
+    accounts,
+  ]);
 }

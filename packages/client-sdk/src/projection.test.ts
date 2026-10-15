@@ -1046,6 +1046,51 @@ describe('命令回合与上下文压缩（0.24.0）', () => {
   });
 });
 
+describe('会话目标（0.35.0）', () => {
+  const goal = {
+    objective: '补齐测试',
+    status: 'active' as const,
+    tokensUsed: 0,
+    timeUsedSeconds: 0,
+    updatedAt: '2026-10-15T08:00:00.000Z',
+  };
+
+  it('设目标的回合：用户消息带 trigger；引擎自己开的回合补一条带 trigger、没有文字的用户消息', () => {
+    const { list, add } = events();
+    add('user.message', {
+      turnId: TURN,
+      content: [{ type: 'text', text: '补齐测试' }],
+      sentBy: identity,
+    });
+    add('turn.started', { turnId: TURN, trigger: 'goal' });
+    add('session.goal_changed', { goal });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('turn.started', { turnId: TURN2, trigger: 'goal' });
+    const { messages, goal: current } = projectTranscript(list);
+    expect(messages[0]).toMatchObject({
+      role: 'user',
+      trigger: 'goal',
+      parts: [{ type: 'text', text: '补齐测试' }],
+    });
+    const continuation = messages.find(
+      (message) => 'turnId' in message && message.turnId === TURN2,
+    );
+    expect(continuation).toMatchObject({ role: 'user', trigger: 'goal', parts: [] });
+    expect(current).toEqual(goal);
+  });
+
+  it('普通回合没有 trigger；清除目标后 goal 是 undefined', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('session.goal_changed', { goal: { ...goal, status: 'paused' } });
+    expect(projectTranscript(list).goal?.status).toBe('paused');
+    add('session.goal_changed', { goal: null });
+    const { messages, goal: current } = projectTranscript(list);
+    expect(messages[0] && 'trigger' in messages[0]).toBe(false);
+    expect(current).toBeUndefined();
+  });
+});
+
 describe('消息里的图片（0.28.0）', () => {
   const image = {
     type: 'image' as const,

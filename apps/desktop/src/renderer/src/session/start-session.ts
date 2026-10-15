@@ -1,6 +1,6 @@
 // 发消息与新建会话（U4 从 session-view.tsx 抽出）：新会话草稿页与首页的大输入框共用同一套建会话的流程。
 
-import { hostSupports, isRpcError, type WevirClient } from '@wevir/client-sdk';
+import { goalsSupported, hostSupports, isRpcError, type WevirClient } from '@wevir/client-sdk';
 import type {
   EnvironmentId,
   PendingDelivery,
@@ -19,6 +19,8 @@ import { t } from '@/i18n';
 import { createPersistedStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
 import { messageContent } from './composer-images';
+import { parseGoalCommand } from './goal-command';
+import { engineFeaturesOf } from './handoff-model';
 import { type ModelChoice, modelsOf } from './model-picker';
 
 export async function sendText(
@@ -130,12 +132,22 @@ export function useStartSession(
   /** 选了“新工作树”（0.18.0）：在 `workspaceId` 的仓库里新开一个 worktree。 */
   newWorktree?: boolean,
 ) {
-  const { client } = useHostConnection();
+  const { client, view } = useHostConnection();
   const permissions = usePermissionModes();
   const store = useWorkbenchStore();
   const navigate = useNavigate();
   const [error, setError] = useState<string>();
   const primary = workspaceId;
+  // 选的模型能用目标（0.35.0）：`/goal 〈目标〉` 建会话后设目标，第一个回合以目标为消息。
+  const data = useWorkbenchData();
+  const goals =
+    view.status === 'connected' &&
+    choice !== undefined &&
+    data.status === 'ready' &&
+    goalsSupported(
+      view.hello.features,
+      engineFeaturesOf(view.hello.engineFeatures, data.providers, choice.providerId),
+    );
 
   const start = useCallback(
     /** `target`：在别的工作区里建（首页没有项目时，先建项目再接着发）；`images`：带的图片（0.28.0）。 */
@@ -146,6 +158,9 @@ export function useStartSession(
     ): Promise<boolean> => {
       const workspaceId = target;
       if (!client || !workspaceId || !choice) return false;
+      const goal = goals && !images?.length ? parseGoalCommand(text) : undefined;
+      // 新会话还没有目标可管：只有 `/goal 〈目标〉` 建会话，其余写法留在输入框里。
+      if (goal !== undefined && goal.type !== 'set') return false;
       setError(undefined);
       let session: Session;
       try {
@@ -165,7 +180,14 @@ export function useStartSession(
       }
       store?.upsertSession(session);
       try {
-        await sendText(client, session.id, text, undefined, images);
+        if (goal?.type === 'set') {
+          await client.request('session.setGoal', {
+            sessionId: session.id,
+            objective: goal.objective,
+          });
+        } else {
+          await sendText(client, session.id, text, undefined, images);
+        }
       } catch (reason) {
         setError(sendError(reason));
         return false;
@@ -186,8 +208,9 @@ export function useStartSession(
       environmentId,
       newWorktree,
       primary,
+      goals,
     ],
   );
 
-  return { start, error, ready: client !== undefined && choice !== undefined };
+  return { start, error, goals, ready: client !== undefined && choice !== undefined };
 }

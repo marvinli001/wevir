@@ -1,4 +1,4 @@
-import { commandSupported, hostSupports, isRpcError } from '@wevir/client-sdk';
+import { commandSupported, goalsSupported, hostSupports, isRpcError } from '@wevir/client-sdk';
 import type {
   PendingDelivery,
   PermissionMode,
@@ -36,6 +36,8 @@ import { ApprovalDock } from './approval-card';
 import { Composer, isBusy, setDraft } from './composer';
 import { ContextMeter } from './context-meter';
 import { EnvironmentBar } from './environment-bar';
+import { GoalBanner } from './goal-banner';
+import { parseGoalCommand } from './goal-command';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
 import { historyDigest } from './history-digest';
 import { useAcceptsImages } from './image-attachments';
@@ -136,6 +138,59 @@ export function SessionView({
     transcript !== undefined &&
     hasFinishedTurn(transcript);
 
+  // 会话目标（0.35.0）：Host 声明 `session_goals`、会话当前的引擎有目标、会话是顶层且可写时，`/goal` 与目标横幅可用。
+  const goalsEnabled =
+    view.status === 'connected' &&
+    client !== undefined &&
+    readOnly === undefined &&
+    session.parentSessionId === undefined &&
+    !session.side &&
+    goalsSupported(view.hello.features, engine);
+  const goal = transcript?.goal ?? (transcript === undefined ? session.goal : undefined);
+  const runGoal = useCallback(
+    async (request: () => Promise<unknown>): Promise<boolean> => {
+      setNotice(undefined);
+      try {
+        if (sessionState === 'error' || sessionState === 'closed') {
+          await client?.request('session.resume', { sessionId: session.id });
+        }
+        await request();
+        return true;
+      } catch (error) {
+        setNotice(
+          isRpcError(error, 'SESSION_BUSY')
+            ? t('session.busy')
+            : t('goal.failed', { error: describe(error) }),
+        );
+        return false;
+      }
+    },
+    [client, session.id, sessionState],
+  );
+  const pauseGoal = useCallback(
+    () =>
+      void runGoal(
+        async () =>
+          await client?.request('session.updateGoal', { sessionId: session.id, status: 'paused' }),
+      ),
+    [runGoal, client, session.id],
+  );
+  const resumeGoal = useCallback(
+    () =>
+      void runGoal(
+        async () =>
+          await client?.request('session.updateGoal', { sessionId: session.id, status: 'active' }),
+      ),
+    [runGoal, client, session.id],
+  );
+  const clearGoal = useCallback(
+    () =>
+      void runGoal(
+        async () => await client?.request('session.clearGoal', { sessionId: session.id }),
+      ),
+    [runGoal, client, session.id],
+  );
+
   const send = useCallback(
     async (
       text: string,
@@ -144,6 +199,34 @@ export function SessionView({
     ): Promise<boolean> => {
       if (!client) return false;
       setNotice(undefined);
+      // `/goal`（0.35.0）：设、暂停、继续、清除目标；不带参数时目标已在横幅里，没有目标时留在输入框里接着写。
+      const goalCommand = goalsEnabled && !images?.length ? parseGoalCommand(text) : undefined;
+      if (goalCommand !== undefined) {
+        switch (goalCommand.type) {
+          case 'show':
+            return goal !== undefined;
+          case 'set': {
+            const done = await runGoal(() =>
+              client.request('session.setGoal', {
+                sessionId: session.id,
+                objective: goalCommand.objective,
+              }),
+            );
+            if (done) transcriptRef.current?.jumpToLatest('auto');
+            return done;
+          }
+          case 'pause':
+          case 'resume':
+            return runGoal(() =>
+              client.request('session.updateGoal', {
+                sessionId: session.id,
+                status: goalCommand.type === 'pause' ? 'paused' : 'active',
+              }),
+            );
+          case 'clear':
+            return runGoal(() => client.request('session.clearGoal', { sessionId: session.id }));
+        }
+      }
       // 带图片的消息不当作支线提问（支线只问文字）。
       const question = sideEnabled && !images?.length ? btwQuestion(text) : undefined;
       if (question !== undefined) {
@@ -168,7 +251,7 @@ export function SessionView({
         return false;
       }
     },
-    [client, session.id, sessionState, sideEnabled, panes],
+    [client, session.id, sessionState, sideEnabled, panes, goalsEnabled, goal, runGoal],
   );
 
   const stop = useCallback(() => {
@@ -314,6 +397,7 @@ export function SessionView({
     ...(onArchive && { onArchive }),
     ...(onCompact && { onCompact }),
     ...(onReview && { onReview }),
+    goalEnabled: goalsEnabled,
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>
@@ -438,6 +522,18 @@ export function SessionView({
                 state={sessionState}
                 client={client}
                 onError={setNotice}
+              />
+            )}
+            {goal && goalsEnabled && (
+              <GoalBanner
+                goal={goal}
+                working={
+                  sessionState !== 'idle' && sessionState !== 'closed' && sessionState !== 'error'
+                }
+                disabled={!client}
+                onPause={pauseGoal}
+                onResume={resumeGoal}
+                onClear={clearGoal}
               />
             )}
           </div>
@@ -632,7 +728,11 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspaceId);
   const worktree = useWorktreeChoice(workspaceId);
-  const { start: send, error } = useStartSession(
+  const {
+    start: send,
+    error,
+    goals,
+  } = useStartSession(
     workspaceId,
     choice,
     movePanes,
@@ -663,6 +763,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     filesEnabled,
     panes,
     send: sendCommandText,
+    goalEnabled: goals,
   });
   const fileScope = useMemo<FileScope | undefined>(
     () =>

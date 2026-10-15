@@ -41,6 +41,11 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       next.title = event.payload.title;
       next.titleSource = event.payload.source;
       break;
+    case 'session.goal_changed':
+      // 0.35.0：会话的目标；清除时去掉。
+      if (event.payload.goal === null) delete next.goal;
+      else next.goal = event.payload.goal;
+      break;
     case 'question.requested':
       next.awaitingInput = true;
       break;

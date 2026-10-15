@@ -45,8 +45,11 @@ import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
  * - `features.default_mode_request_user_input = true`：模型在普通回合也能用 `request_user_input` 向用户提问（默认只在
  *   计划模式提供；Stage::UnderDevelopment，U11，codex-event-mapping.md §6.6）；`suppress_unstable_features_warning = true`
  *   免得每个 thread 开头一条“开了开发中的功能”的 warning 通知；
- * - `features.goals = false`：Wevir 暂不支持目标（补记 1）；`features.memories = false`、`approvals_reviewer = "user"`：
- *   两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI 模型名）；
+ * - `features.goals = true`：会话目标（0.35.0，补记 20，codex-event-mapping.md §6.13）：模型拿到 get_goal / create_goal /
+ *   update_goal，目标进行中、thread 空闲时 Codex 自己开回合接着做（要 CODEX_HOME 下的 state DB 与不是临时的 thread；生成
+ *   标题的临时 thread 另外关掉它，支线是临时的 thread，本来就没有）。默认就是开，写出来防默认值变化；
+ * - `features.memories = false`、`approvals_reviewer = "user"`：两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI
+ *   模型名）；
  * - `tools.update_plan.enabled = true`：计划默认关；
  * - `skills.include_instructions = false`、`skills.bundled.enabled = false`：不把 skills 列表放进上下文，也不往
  *   CODEX_HOME 装内置 skills。Codex 读用户的 `~/.agents/skills`（HOME 是用户真实的家目录），不关就会把用户给别的
@@ -70,7 +73,7 @@ export const HARDENING_TABLES: readonly string[] = [
   '[features]',
   'plugins = false',
   'apps = false',
-  'goals = false',
+  'goals = true',
   'memories = false',
   'instant_interrupt = false',
   'default_mode_request_user_input = true',

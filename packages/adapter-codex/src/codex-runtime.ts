@@ -5,7 +5,9 @@ import type {
   ApprovalDecision,
   CancelOptions,
   EngineAccounts,
+  EngineGoal,
   EngineSession,
+  GoalStartRequest,
   PendingApproval,
   PermissionMode,
   ProviderConfig,
@@ -101,6 +103,18 @@ export class CodexRuntime implements AgentRuntimeAdapter {
 
   review(engineSessionId: string, request: ReviewRequest): Promise<void> {
     return this.#forSession(engineSessionId).review(engineSessionId, request);
+  }
+
+  startGoal(engineSessionId: string, request: GoalStartRequest): Promise<void> {
+    return this.#forSession(engineSessionId).startGoal(engineSessionId, request);
+  }
+
+  updateGoal(engineSessionId: string, status: 'active' | 'paused'): Promise<EngineGoal> {
+    return this.#forSession(engineSessionId).updateGoal(engineSessionId, status);
+  }
+
+  clearGoal(engineSessionId: string): Promise<boolean> {
+    return this.#forSession(engineSessionId).clearGoal(engineSessionId);
   }
 
   respondToQuestion(

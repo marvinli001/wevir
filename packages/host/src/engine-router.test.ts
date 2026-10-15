@@ -19,11 +19,19 @@ class Recording extends EchoAdapter {
   }
 }
 
-/** 没有插话、分支与代码审查的引擎（像 Claude）：读这几个方法得到 undefined，其余照常。 */
+/** 没有插话、分支、代码审查与目标的引擎（像 Claude）：读这几个方法得到 undefined，其余照常。 */
+const MISSING = new Set<PropertyKey>([
+  'steer',
+  'fork',
+  'review',
+  'startGoal',
+  'updateGoal',
+  'clearGoal',
+]);
 function withoutSteer(inner: Recording): AgentRuntimeAdapter & { configured: ProviderConfig[] } {
   return new Proxy(inner, {
     get(target, property) {
-      if (property === 'steer' || property === 'fork' || property === 'review') return undefined;
+      if (MISSING.has(property)) return undefined;
       const value = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
@@ -153,6 +161,32 @@ describe('EngineRouter', () => {
     const without = new EngineRouter([{ name: 'echo', adapter: plain, kinds: ['cursor'] }]);
     routers.push(without);
     expect(without.bindEngineAppTools).toBeUndefined();
+  });
+
+  it('会话目标交给会话所在的引擎；engineFeatures 的 goals 只给有目标的引擎（0.35.0）', async () => {
+    const { router } = setup();
+    expect(router.startGoal).toBeDefined();
+    await router.configureProviders([
+      provider('local', 'openai-compatible'),
+      provider('claude', 'claude'),
+    ]);
+    const local = await router.createSession({ cwd: '/w', providerId: 'local', modelId: 'm' });
+    const claude = await router.createSession({ cwd: '/w', providerId: 'claude', modelId: 'm' });
+    expect(router.supports(local.engineSessionId, 'startGoal')).toBe(true);
+    expect(router.supports(claude.engineSessionId, 'startGoal')).toBe(false);
+    const events = router.subscribe(local.engineSessionId);
+    await router.startGoal?.(local.engineSessionId, {
+      objective: '补测试',
+      input: { content: [{ type: 'text', text: '补测试' }] },
+    });
+    const seen = await collect(events, (event) => event.type === 'goal.updated');
+    expect(seen.at(-1)).toMatchObject({ goal: { objective: '补测试', status: 'active' } });
+    await expect(router.clearGoal?.(claude.engineSessionId)).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    const features = router.engineFeatures();
+    expect(features['openai-compatible']?.goals).toBe(true);
+    expect(features.claude?.goals).toBeUndefined();
   });
 
   it('engineFeatures 总是带 commands，引擎一个都不会时是空数组（0.27.0）', () => {

@@ -12,6 +12,7 @@ import type {
   ProviderProfile,
   QuestionRequest,
   Session,
+  SessionGoal,
   SessionSnapshot,
   SubagentSummary,
   SuggestedTask,
@@ -264,6 +265,16 @@ export const session: Session = {
   createdAt: TS,
   updatedAt: TS2,
   lastSeq: 12,
+};
+
+/** 会话目标（0.35.0）。 */
+export const sessionGoal: SessionGoal = {
+  objective: '把登录页的测试补齐并全部通过',
+  status: 'active',
+  tokenBudget: 200000,
+  tokensUsed: 18420,
+  timeUsedSeconds: 312,
+  updatedAt: TS2,
 };
 
 /** 接力过的会话（0.25.0）：先用 DeepSeek，再换到 Claude Agent。 */
@@ -543,6 +554,10 @@ export const eventPayloads: PayloadSamples = {
       omittedItems: 0,
     },
   },
+  'session.goal_changed': {
+    valid: { goal: sessionGoal },
+    invalid: { goal: { ...sessionGoal, status: 'running' } },
+  },
   'session.title_changed': {
     valid: { title: '整理本周周报', source: 'first_prompt' },
     invalid: { title: '整理本周周报', source: 'engine' },
@@ -563,8 +578,8 @@ export const eventPayloads: PayloadSamples = {
     invalid: { turnId: ids.turn, content: [], sentBy: identity },
   },
   'turn.started': {
-    valid: { turnId: ids.turn, command: { kind: 'review', target: 'branch', baseBranch: 'main' } },
-    invalid: { turnId: ids.turn, command: { kind: 'review', target: 'commit' } },
+    valid: { turnId: ids.turn, trigger: 'goal' },
+    invalid: { turnId: ids.turn, trigger: 'plan' },
   },
   'turn.finished': {
     valid: {
@@ -862,6 +877,18 @@ export const methodSamples: MethodSamples = {
             'deepseek-official': { engine: 'codex', commands: ['compact', 'review'] },
             claude: { engine: 'claude', commands: ['compact'] },
             cursor: { engine: 'cursor', commands: [] },
+          },
+          permissions: ['host.manage', 'session.read', 'session.write'],
+        },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.35.0',
+          minProtocolVersion: '0.1.0',
+          features: { session_goals: true },
+          engineFeatures: {
+            'deepseek-official': { engine: 'codex', commands: ['compact', 'review'], goals: true },
+            claude: { engine: 'claude', commands: ['compact'] },
           },
           permissions: ['host.manage', 'session.read', 'session.write'],
         },
@@ -1590,6 +1617,7 @@ export const methodSamples: MethodSamples = {
         { sessions: [childSession] },
         { sessions: [{ ...session, state: 'closed', archivedAt: TS2 }] },
         { sessions: [{ ...session, openedBy: { sessionId: ids.childSession } }] },
+        { sessions: [{ ...session, state: 'idle', goal: { ...sessionGoal, status: 'paused' } }] },
       ],
       invalid: [
         { sessions: [{ ...session, lastSeq: -1 }] },
@@ -1707,6 +1735,40 @@ export const methodSamples: MethodSamples = {
       valid: [{ session: sideSession }],
       invalid: [{ session: { ...sideSession, side: false } }],
     },
+  },
+  'session.setGoal': {
+    params: {
+      valid: [
+        { sessionId: ids.session, objective: '把登录页的测试补齐并全部通过' },
+        { sessionId: ids.session, objective: '迁移到新的构建脚本', tokenBudget: 200000 },
+      ],
+      invalid: [
+        { sessionId: ids.session, objective: '  ' },
+        { sessionId: ids.session, objective: 'x'.repeat(4001) },
+        { sessionId: ids.session, objective: '迁移', tokenBudget: 0 },
+      ],
+    },
+    result: {
+      valid: [{ turnId: ids.turn, seq: 12 }],
+      invalid: [{ turnId: ids.session, seq: 12 }],
+    },
+  },
+  'session.updateGoal': {
+    params: {
+      valid: [
+        { sessionId: ids.session, status: 'paused' },
+        { sessionId: ids.session, status: 'active' },
+      ],
+      invalid: [{ sessionId: ids.session, status: 'complete' }, { sessionId: ids.session }],
+    },
+    result: {
+      valid: [{ goal: { ...sessionGoal, status: 'paused' } }],
+      invalid: [{ goal: null }],
+    },
+  },
+  'session.clearGoal': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: { valid: [{ cleared: true }, { cleared: false }], invalid: [{}] },
   },
   'session.compact': {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}, { sessionId: ids.turn }] },

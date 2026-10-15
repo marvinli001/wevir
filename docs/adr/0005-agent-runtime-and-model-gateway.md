@@ -144,7 +144,7 @@
 
 1. **2026-10-14，起草 R1–R10 的任务 prompt 时读了 Codex 的终端界面（codex-notes §2.7）。** 不改变决策，补三点：
    - Codex 自己的客户端打开了实验面（子 agent 选择器、`canAcceptDirectInput`、审批的 `availableDecisions` 都是实验字段）。Wevir 仍只用稳定面：子会话从 `collabAgentToolCall` 与子 thread 的事件识别，重启后靠 Host 自己的记录；审批用默认的四个选项。
-   - `features.goals` 默认开启，模型会拿到三个目标工具。Wevir 暂不支持目标，配置里加 `[features] goals = false`（决策 5 的加固项之外新增一项，R2 核实）。
+   - `features.goals` 默认开启，模型会拿到三个目标工具。Wevir 暂不支持目标，配置里加 `[features] goals = false`（决策 5 的加固项之外新增一项，R2 核实）。补记 20 起打开。
    - 子 agent 的审批要能在父会话里处理（决策 6.1 的子 agent 视图是只读的）；服务端不生成会话标题，标题由 Wevir 自己生成。
 2. **2026-10-14，基础提示词定下（未决事项 1）。** 维护者决定 Wevir 写自己的提示词，放在仓库根目录的 [`prompts/`](../../prompts/README.md)：
    - 经网关的第三方模型用 `prompts/base.md`，由 adapter-codex 写进生成的模型目录的 `base_instructions`。它自称 Wevir 并如实报出底层模型与 Provider；工具说明按决策 5 与补记 1 的配置写（联网搜索、目标、插件关闭，`update_plan` 打开，子智能体用 `multi_agent_v1`），配置变了要同步改。ChatGPT 登录的 OpenAI 模型仍用 Codex 内置的、按模型调好的提示词。
@@ -241,3 +241,10 @@
 18. **2026-10-16，Ollama Responses 与模型发现。** 沿用决策 2.3 的无状态 Responses 透传；本机支持 namespace，custom apply_patch 由网关摊平，Cloud 保守摊平 custom / namespace，显式 compat 优先。Host API 0.31.0 加 provider.discoverModels 与功能 provider_model_discovery，仅访问回环或精确 HTTPS ollama.com 的固定元数据路径，不跟随重定向与 remote_host。模型最大窗口与实际上下文分开，界面提示不足 64k，不修改服务或既有 Provider。无真实本机模型与 Cloud Key，真实契约和桌面工具对话未验收；依据见 model-gateway.md §3.7、providers.md §7.5。
 
 19. **2026-10-15，联网工具：Wevir 自己的 MCP 服务 `wevir_web`（协议 0.34.0，[web-tools.md](../architecture/web-tools.md)）。** 决策 5 的 `web_search = "disabled"` 不变（托管搜索由 OpenAI 服务端执行，经网关的第三方模型用不了，custom provider 默认又会把它发给上游）。经网关的 Codex 会话改由 Wevir 的 `web_search` / `web_fetch` 联网：桥脚本把调用转给 Host，搜索经用户选的服务（默认博查，可选 Tavily；Key 在 Host 的密钥存储），抓取由 Host 自己做、不需要 Key、拒绝本机与局域网地址。ChatGPT 会话用 Codex 托管的搜索（`thread/start` 覆盖 `web_search = "cached"`，跟着 Wevir 的联网开关），`wevir_web` 只给它抓取。其余引擎有自己的联网工具，不挂。base.md 的“联网与外部信息”一节从占位改成工具的用法。
+
+20. **2026-10-15，会话目标：照 T3 Code 移植 `/goal`，用 Codex 原生的目标（协议 0.35.0，[domain-model.md](../architecture/domain-model.md) §3.16，[codex-event-mapping.md](../architecture/codex-event-mapping.md) §6.13）。** 维护者对比 Wevir、T3 Code 与 Codex 的 agent 能力后定：补上目标模式。推翻补记 1 的“Wevir 暂不支持目标”：config.toml 的 `[features] goals` 改为 `true`（Codex 的默认值，Stage 是 Stable）。
+   - **用 Codex 自己的目标，不在 Host 里另做一套。** 目标存在 CODEX_HOME 的 state DB 里，需要不是临时的 thread：主会话满足；支线（`ephemeral`）与生成标题的临时 thread 没有目标工具（标题的 thread 另外关掉 goals）。接口都是稳定面：`thread/goal/set`、`thread/goal/get`、`thread/goal/clear`，通知 `thread/goal/updated`、`thread/goal/cleared`；续跑的回合由 Codex 在 thread 空闲时自己开（`turn_trigger = "goal"`），提示词是它的 `templates/goals/`，Wevir 不重写。
+   - **Host 接住引擎自己开的回合。** 普通会话从此也有引擎开始的回合（之前只有子会话与命令回合）：适配器报 `turn.started`（`trigger: 'goal'`），Host 写没有 `user.message` 的 `turn.started` 并转 `running`。Host 发出消息的同一刻 Codex 开了回合时，Codex 把消息并进那个回合，Host 丢掉引擎的那条 `turn.started`。
+   - **顺序照 T3。** 设目标时先清除旧的、以 `paused` 写入新的、`turn/start` 第一个回合（输入是目标），再设为 `active`：Codex 自己开的回合沿用 thread 上最近一次 `turn/start` 的模型与权限设置，先暂停是为了不让它用旧的设置抢先开回合。停止回合时先暂停目标（同 Codex 终端界面）。继续时这个进程里还没有把当前设置交给 thread（恢复、换模型或权限之后）就先开一个空输入的回合。T3 把一串目标回合并成一次“运行”、给 Codex 的续跑留 5 秒宽限；Wevir 的每个目标回合是一个独立的回合，不需要宽限。
+   - **只有 Codex 有。** `host.hello` 的 `engineFeatures` 加 `goals`；Claude、Cursor 等订阅引擎没有目标（T3 的 Claude 目标是它自己模拟的，不移植）。
+   - **提示词。** prompts/base.md 的工具一节加“目标”：只在用户或系统明确要求时 `create_goal`，逐条核对证据才 `complete`，同一阻碍连续三个目标回合以上才 `blocked`，只在用户要求时 `paused` 与设 token 预算。参考 Codex 的工具说明与模板（Apache-2.0）和 OpenAI Codex 的 gpt-6.1-sol 提示词里的目标规则（外泄原文没有许可证，只参考），用自己的话写。

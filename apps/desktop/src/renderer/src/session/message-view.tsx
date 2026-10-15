@@ -1,7 +1,7 @@
 import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
 import type { MessageFrom, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowLeftRight, CircleAlert, FoldVertical, Info, Reply, ScanSearch } from 'lucide-react';
+import { ArrowLeftRight, CircleAlert, FoldVertical, Info, Reply, ScanSearch, Target } from 'lucide-react';
 import { memo } from 'react';
 import { Link } from 'react-router';
 import { ProviderLogo } from '@/components/provider-logo';
@@ -26,6 +26,8 @@ import { WorkGroup } from './work-group';
 export function UserMessage({ message }: { message: UserChatMessage }) {
   if (message.command) return <CommandMessage command={message.command} />;
   if (message.from?.kind === 'report') return <SessionReport message={message} />;
+  // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
+  if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
   const text = texts.join('\n');
   const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
@@ -47,6 +49,11 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
         </span>
       )}
       {message.from?.kind === 'message' && <FromSession from={message.from} />}
+      {message.trigger === 'goal' && (
+        <span className="mt-1 text-xs text-muted-foreground" data-goal>
+          {t('command.goal')}
+        </span>
+      )}
       {message.steered && (
         <span className="mt-1 text-xs text-muted-foreground" data-steered>
           {t('transcript.steered')}
@@ -144,6 +151,18 @@ function CommandMessage({ command }: { command: TurnCommand }) {
       <div className="flex max-w-[85%] min-w-0 items-center gap-2 rounded-xl bg-muted px-3.5 py-2 text-base">
         <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 truncate">{label}</span>
+      </div>
+    </div>
+  );
+}
+
+/** 引擎为进行中的目标自己开的回合（0.35.0）：用户一侧是“继续目标”，样式同命令回合。 */
+function GoalContinuation() {
+  return (
+    <div className="flex flex-col items-end" data-message-role="user" data-goal-continuation>
+      <div className="flex max-w-[85%] min-w-0 items-center gap-2 rounded-xl bg-muted px-3.5 py-2 text-base text-muted-foreground">
+        <Target aria-hidden className="size-4 shrink-0" />
+        <span className="min-w-0 truncate">{t('goal.continuation')}</span>
       </div>
     </div>
   );

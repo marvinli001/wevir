@@ -442,6 +442,8 @@ function SessionRow({
   const marker = sessionMarker(session);
   const markerInfo = marker && MARKERS[marker];
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';
+  // 目标进行中（0.35.0，照 T3 Code 的侧栏）：回合之间也标着，agent 还会接着做。
+  const goal = session.goal?.status === 'active';
   const manage = useSessionManagement();
   const { client } = useHostConnection();
   const store = useWorkbenchStore();
@@ -504,6 +506,13 @@ function SessionRow({
             {badge ? (
               <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
                 {markerInfo?.label}
+              </span>
+            ) : goal ? (
+              <span
+                data-goal
+                className="shrink-0 rounded-sm bg-running/10 px-1.5 text-xs leading-5 font-medium text-running"
+              >
+                {t('session.marker.goal')}
               </span>
             ) : unread ? (
               <StatusDot tone="accent" label={t('session.marker.unread')} className="size-1.5" />
