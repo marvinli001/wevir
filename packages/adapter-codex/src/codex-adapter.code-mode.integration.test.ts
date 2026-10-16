@@ -39,8 +39,10 @@ describe.skipIf(binary === undefined)(
             {
               kind: 'custom',
               name: 'exec',
+              // echo 而不是 printf：Windows 上 Codex 用 PowerShell 跑命令，printf 会找到 Git for Windows 的 printf.exe，
+              // MSYS 程序在 unelevated 沙箱里起不来（ADR-0005 补记 17）；echo 在 PowerShell 里是内置的 Write-Output。
               input:
-                'text(JSON.stringify(await tools.exec_command({ cmd: "printf code_mode_marker" })));',
+                'text(JSON.stringify(await tools.exec_command({ cmd: "echo code_mode_marker" })));',
             },
           ],
         };
