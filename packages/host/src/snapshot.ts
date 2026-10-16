@@ -482,6 +482,11 @@ export function checkEvent(
         reject(`回合 ${e.payload.turnId} 不是当前回合`);
       }
       break;
+    case 'turn.rewound':
+      if (projection.activeTurn !== undefined || projection.state !== 'idle') {
+        reject(`会话是 ${projection.state}，回合进行中不能撤回`);
+      }
+      break;
     case 'session.resumed':
       if (
         projection.state !== 'idle' &&

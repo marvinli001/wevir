@@ -481,6 +481,9 @@ export class TranscriptProjection {
       case 'turn.finished':
         this.#turnFinished(event);
         return;
+      case 'turn.rewound':
+        this.#turnRewound(event.payload.turnId);
+        return;
       case 'assistant.delta':
         this.#delta(event);
         return;
@@ -821,6 +824,29 @@ export class TranscriptProjection {
   }
 
   // ── 回合 ─────────────────────────────────────────────────────────────
+
+  /**
+   * 回合被撤回（0.38.0）：它的用户消息与助手消息从消息记录里去掉，连同指向它们的工具、子会话与建议的部件；最近的计划是它的时也去掉。
+   */
+  #turnRewound(turnId: TurnId): void {
+    const removed = new Set(this.#messages.filter((message) => message.turnId === turnId));
+    if (removed.size === 0) return;
+    this.#messages = this.#messages.filter((message) => !removed.has(message));
+    this.#turns.delete(turnId);
+    for (const [toolCallId, message] of this.#tools) {
+      if (removed.has(message)) this.#tools.delete(toolCallId);
+    }
+    for (const [key, message] of this.#taskParts) {
+      if (removed.has(message)) this.#taskParts.delete(key);
+    }
+    for (const [sessionId, messages] of this.#subagentParts) {
+      this.#subagentParts.set(
+        sessionId,
+        messages.filter((message) => !removed.has(message)),
+      );
+    }
+    if (this.#latestPlan?.turnId === turnId) this.#latestPlan = undefined;
+  }
 
   #turnFinished(event: WevirEventOf<'turn.finished'>): void {
     const { turnId, outcome, durationMs } = event.payload;

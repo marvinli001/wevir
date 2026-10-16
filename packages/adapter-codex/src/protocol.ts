@@ -132,6 +132,30 @@ export interface ThreadForkParams {
 /** v2/ThreadForkResponse.ts（与 ThreadStartResponse 同样只读这几项）。 */
 export type ThreadForkResponse = ThreadStartResponse;
 
+/** v2/ThreadTurnsListParams.ts（分支与撤回，0.38.0）：按回合翻 thread 的历史，默认从新到旧。 */
+export interface ThreadTurnsListParams {
+  threadId: string;
+  cursor?: string | null;
+  limit?: number | null;
+  sortDirection?: 'asc' | 'desc' | null;
+  itemsView?: 'notLoaded' | 'summary' | 'full' | null;
+}
+
+/** v2/ThreadTurnsListResponse.ts 里本包读的：每个回合的 ID 与状态。 */
+export interface ThreadTurnsListResponse {
+  data: Array<{ id: string; status: 'completed' | 'interrupted' | 'failed' | 'inProgress' }>;
+  nextCursor?: string | null;
+}
+
+/**
+ * v2/ThreadRevertParams.ts（撤回，0.38.0）：thread 的历史换成 `beforeTurnId` 之前的部分（不含它与之后的回合）。只对分页历史的
+ * thread 有效（非临时 thread 默认如此），不改文件。
+ */
+export interface ThreadRevertParams {
+  threadId: string;
+  beforeTurnId: string;
+}
+
 /**
  * v2/Thread.ts（只读这几项；都是稳定字段，`canAcceptDirectInput` 等实验字段不读）。子 agent 的 thread 有
  * `parentThreadId`、`agentNickname`、`agentRole`（R4，codex-notes §2.4）。

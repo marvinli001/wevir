@@ -9,6 +9,7 @@ import type {
   EngineAppToolsGrant,
   EngineGoal,
   EngineSession,
+  ForkOptions,
   GoalStartRequest,
   PendingApproval,
   PermissionMode,
@@ -187,14 +188,32 @@ export interface AgentRuntimeAdapter {
   acceptsImages?(config: { providerId: string; modelId: string }): boolean;
 
   /**
-   * 从会话分出一个支线会话（0.17.0，U23.1，domain-model §3.12）：新的引擎会话带着原会话到最近一个完成的回合为止的上下文，
+   * 从会话分出一个新会话。`options` 省略时同 `{ kind: 'side' }`。支线（0.17.0，U23.1，domain-model §3.12）：新的引擎会话带着原会话到最近一个完成的回合为止的上下文，
    * 引擎不持久化它，模型知道这是支线、之前的历史只作参考（Codex：`thread/fork` 带 `ephemeral`，再用 `thread/inject_items`
    * 补一条边界说明）。原会话不受影响，回合进行中也可以。`config` 是支线的配置（同 `createSession`；`cwd` 与原会话相同）。
    * 返回后像 `createSession` 一样 `subscribe`。不实现表示引擎不能分支，Host 不声明 `side_sessions`。
    * 错误：`session_not_found`、`session_closed`、`invalid_input`（子会话、还没有完成的回合）、`engine_unavailable`、
    * `disposed`。
    */
-  fork?(engineSessionId: string, config: SessionConfig): Promise<EngineSession>;
+  fork?(
+    engineSessionId: string,
+    config: SessionConfig,
+    options?: ForkOptions,
+  ): Promise<EngineSession>;
+
+  /**
+   * 能分支到新会话（0.38.0，`fork` 的 `{ kind: 'branch' }`）：分出的是持久化的普通会话，能从任一完成的回合分（`dropTurns`）。有它
+   * Host 才声明 `session_branches`、在 `engineFeatures` 里报 `branch`。
+   */
+  readonly branches?: boolean;
+
+  /**
+   * 撤回会话最后一个完成的回合（0.38.0，`session.rewind`）：引擎的上下文回到这个回合之前，下一个回合接着之前的历史（Codex：
+   * `thread/revert`，`beforeTurnId` 是 thread 最后一个回合）。不改文件。会话要空闲（没有进行中的回合）、至少有一个完成的回合。
+   * 不实现表示引擎不能撤回，Host 不声明 `session_rewind`。
+   * 错误：`session_not_found`、`session_closed`、`session_busy`、`invalid_input`（子会话、支线、没有回合）、`engine_unavailable`。
+   */
+  rewind?(engineSessionId: string): Promise<void>;
 
   /**
    * 引擎能让 agent 建议后续任务（0.16.0，U23）：回合里以 `tasks.suggested` 报出。有它 Host 才声明 `suggested_tasks`。

@@ -15,6 +15,7 @@ import {
   foldTurn,
   groupTurns,
   isActiveTurn,
+  lastTurnId,
   turnHeaderText,
   turnStart,
 } from './turn-model';
@@ -140,6 +141,23 @@ describe('groupTurns / turnStart', () => {
     expect(turnStart(messages, 2)).toBe(0);
     expect(turnStart(messages, 4)).toBe(4);
     expect(turnStart(messages, 6)).toBe(5);
+  });
+});
+
+describe('lastTurnId（0.38.0）', () => {
+  it('最后一条用户或助手消息所在的回合；后面的系统消息不算；撤回之后是之前那个', () => {
+    const s = session();
+    expect(lastTurnId(s.project())).toBeUndefined();
+    s.turn();
+    s.say(TURN, '一');
+    s.finish(TURN, 'completed');
+    s.turn(TURN2);
+    s.say(TURN2, '二');
+    s.finish(TURN2, 'completed');
+    s.add('session.read_only', { reason: 'engine_session_not_found', message: 'x' });
+    expect(lastTurnId(s.project())).toBe(TURN2);
+    s.add('turn.rewound', { turnId: TURN2 });
+    expect(lastTurnId(s.project())).toBe(TURN);
   });
 });
 

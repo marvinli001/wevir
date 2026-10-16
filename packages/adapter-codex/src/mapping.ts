@@ -112,6 +112,8 @@ export const IGNORED_NOTIFICATIONS = Object.freeze([
   'thread/settings/updated',
   'thread/queue/changed',
   'turn/moderationMetadata',
+  // 撤回（0.38.0，`thread/revert`）的回执：Host 自己写 `turn.rewound`。
+  'thread/reverted',
 ] as const);
 
 /**

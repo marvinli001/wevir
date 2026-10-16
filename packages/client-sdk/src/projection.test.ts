@@ -1281,3 +1281,36 @@ describe('应用级工具（0.30.0）', () => {
     expect(first.seq).toBeLessThan(last.seq);
   });
 });
+
+describe('撤回回合（0.38.0）', () => {
+  it('turn.rewound 去掉那个回合的用户消息、回答与工具；之后同一个回合 ID 不再出现，新回合照常', () => {
+    const { list, add, turn } = events();
+    turn(TURN, '第一');
+    add('assistant.message', { turnId: TURN, messageId: 'm1', text: '答一', replaces: [] });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    turn(TURN2, '第二');
+    add('tool.started', {
+      turnId: TURN2,
+      toolCallId: 'call_1',
+      toolName: 'shell',
+      display: { kind: 'shell', summary: 'ls' },
+    });
+    add('tool.finished', { turnId: TURN2, toolCallId: 'call_1', status: 'completed' });
+    add('assistant.message', { turnId: TURN2, messageId: 'm2', text: '答二', replaces: [] });
+    add('turn.finished', { turnId: TURN2, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    expect(projectTranscript(list).messages).toHaveLength(4);
+
+    add('turn.rewound', { turnId: TURN2 });
+    const transcript = projectTranscript(list);
+    expect(transcript.messages.map((m) => [m.role, m.role === 'system' ? '' : m.turnId])).toEqual([
+      ['user', TURN],
+      ['assistant', TURN],
+    ]);
+    // 撤回之后迟到的同一工具的事件不会把回合找回来。
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    expect(projection.snapshot().messages).toHaveLength(2);
+  });
+});

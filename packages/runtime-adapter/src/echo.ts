@@ -9,6 +9,7 @@ import type {
   ApprovalOption,
   EngineGoal,
   EngineSession,
+  ForkOptions,
   GoalStartRequest,
   PendingApproval,
   PermissionMode,
@@ -132,6 +133,8 @@ interface EchoSession {
   hub: EventHub<AgentEvent>;
   turn?: EchoTurn;
   turnCount: number;
+  /** 每个回合的输入（`recall` 关键词写出来）；`fork` 分支时带过去，`rewind` 去掉最后一个（0.38.0）。 */
+  history: string[];
   /** `injectNote` 补进来、还没用上的说明（U23），下一个回合的回复末尾写出来。 */
   notes: string[];
   /** `fork` 分出的支线（U23.1）。 */
@@ -164,6 +167,7 @@ interface ReplyBlock {
  * | `compact` | 回复前像引擎自己压缩一次上下文（`context.compacting` → `context.compacted`，`auto`，0.24.0） |
  * | `plan` | 回合里带一份三步的清单（`todo.updated`，像 Codex 的计划）：开始时第一步进行中，工具与审批之后第二步、回复前第三步，回复完全部完成（U20） |
  * | `suggest` | 回复前调一次 `suggest_tasks` 工具，建议两项后续任务（`tasks.suggested`，`ECHO_SUGGESTIONS`，U23） |
+ * | `recall` | 回复末尾写出之前每个回合的输入（`History: …`，0.38.0），看分支与撤回带走了哪些回合 |
  * | `subagent` | 模拟 Codex 的子 agent（R4）：调 `spawn_agent` 派出一个子会话（父会话的流里 `subagent.started`），子会话以
  *   `turn.started` 开始一个回合，输入是 `Helper task: <输入，subagent 换成 helper>`，所以输入里的其他关键词由子会话执行
  *   （例如 `approve` 让子会话请求审批）；父回合 `wait_agent` 等它结束再回复。再有 `close` 时父 agent 随后关掉它
@@ -226,6 +230,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       status: 'open',
       hub: new EventHub(),
       turnCount: 0,
+      history: [],
       notes: [],
       goalContinuations: 0,
     };
@@ -498,29 +503,58 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     return true;
   }
 
+  /** 分支到新会话（0.38.0）。 */
+  readonly branches = true;
+
   /**
-   * 支线（U23.1）：新会话沿用 `config`，假引擎没有历史可带；原会话还没开始过回合时报 `invalid_input`（同 Codex 没有第一条
-   * 用户消息时 fork 失败）。支线的回复写成 `Echo (side): <输入>`。
+   * 支线（U23.1）：新会话沿用 `config`，不带历史；原会话还没开始过回合时报 `invalid_input`（同 Codex 没有第一条用户消息时 fork
+   * 失败）。支线的回复写成 `Echo (side): <输入>`。分支（0.38.0）：普通会话，带着去掉最后 `dropTurns` 个完成的回合之后的历史；
+   * 回合进行中时它不算（同 Codex 只分到结束的回合）。
    */
-  async fork(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
+  async fork(
+    engineSessionId: string,
+    config: SessionConfig,
+    options: ForkOptions = { kind: 'side' },
+  ): Promise<EngineSession> {
     this.#assertUsable();
     const source = this.#openSession(engineSessionId);
     if (source.parentId !== undefined) {
       throw new AdapterError('invalid_input', 'a sub-agent session cannot be forked');
     }
     if (source.turnCount === 0) throw new AdapterError('invalid_input', 'nothing to fork yet');
+    let history: string[] = [];
+    if (options.kind === 'branch') {
+      const finished = source.turn ? source.history.slice(0, -1) : source.history;
+      if (options.dropTurns >= finished.length) {
+        throw new AdapterError('invalid_input', 'no such turn to fork from');
+      }
+      history = finished.slice(0, finished.length - options.dropTurns);
+    }
     const session: EchoSession = {
       id: `echo-${randomUUID()}`,
       config: { ...config },
       status: 'open',
       hub: new EventHub(),
-      turnCount: 0,
+      turnCount: history.length,
+      history,
       notes: [],
       goalContinuations: 0,
-      side: true,
+      ...(options.kind === 'side' && { side: true as const }),
     };
     this.#sessions.set(session.id, session);
     return this.#describe(session);
+  }
+
+  /** 撤回最后一个回合（0.38.0）：忘掉它的输入。 */
+  async rewind(engineSessionId: string): Promise<void> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined || session.side) {
+      throw new AdapterError('invalid_input', 'this session cannot be rewound');
+    }
+    if (session.turn) throw new AdapterError('session_busy', 'a turn is running');
+    if (session.history.length === 0) throw new AdapterError('invalid_input', 'no turn to rewind');
+    session.history.pop();
   }
 
   async injectNote(engineSessionId: string, text: string): Promise<void> {
@@ -630,6 +664,8 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     let blocks: ReplyBlock[] = [];
     const slowSteps = /slow/i.test(text) ? 10 : 1;
     const notes = session.notes.splice(0);
+    const earlier = session.history.slice();
+    session.history.push(text);
     /** 进行中的工具调用 → 被取消时的失败文本（措辞取 dsh，T0.3 E1、D）。 */
     const openTools = new Map<string, string>();
     /** 回合的结局；引擎“死了”时没有。 */
@@ -774,8 +810,15 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         notes.length > 0
           ? `\n\nNotes: ${notes.map((note) => note.split('\n')[0]).join(' | ')}`
           : '';
+      const recalled = /recall/i.test(text)
+        ? `\n\nHistory: ${earlier.length > 0 ? earlier.join(' | ') : '(none)'}`
+        : '';
       const echo = session.side ? 'Echo (side)' : planning ? 'Echo (plan)' : 'Echo';
-      blocks.push({ kind: 'text', full: `${echo}: ${text}${answered}${noted}`, generated: '' });
+      blocks.push({
+        kind: 'text',
+        full: `${echo}: ${text}${answered}${noted}${recalled}`,
+        generated: '',
+      });
       plan(2);
       await this.#reply(signal, emit, engineSessionId, attemptId, blocks, slowSteps);
       this.#commit(emit, engineSessionId, attemptId, blocks);
@@ -841,6 +884,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
 
   /** `compact`（0.24.0）开的回合：只压缩上下文，不回复。取消时同普通回合。 */
   async #runCompact(session: EchoSession, turn: EchoTurn): Promise<void> {
+    session.history.push('/compact');
     const engineSessionId = session.id;
     const signal = turn.abort.signal;
     const emit = (event: AgentEvent) => turn.hub.emit(event);
@@ -932,6 +976,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       status: 'open',
       hub: new EventHub({ bufferUntilSubscribed: true }),
       turnCount: 0,
+      history: [],
       notes: [],
       goalContinuations: 0,
     };

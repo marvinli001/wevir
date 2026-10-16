@@ -99,6 +99,17 @@ function rejectionText(rejected: { reason: ImageRejection; name: string }): stri
     : t('composer.imageUnsupported', { name: rejected.name });
 }
 
+/** 挂着的输入框：`restoreDraft` 放回来的文字。 */
+const textListeners = new Map<string, Set<(text: string) => void>>();
+
+/**
+ * 把一段文字放回输入框（0.38.0：编辑过的消息撤回了回合却没发出去）：挂着的输入框空着时直接显示，否则留作草稿。
+ */
+export function restoreDraft(draftKey: string, text: string): void {
+  if ((drafts.get(draftKey) ?? '') === '') drafts.set(draftKey, text);
+  for (const listener of textListeners.get(draftKey) ?? []) listener(text);
+}
+
 /** 预先放一份草稿（基于历史新建会话，T5.5）：下次打开这个输入框时显示。 */
 export function setDraft(draftKey: string, text: string): void {
   if (text) drafts.set(draftKey, text);
@@ -206,6 +217,16 @@ export function Composer({
     listeners.add(setImagesState);
     return () => {
       listeners.delete(setImagesState);
+    };
+  }, [draftKey]);
+  useEffect(() => {
+    const listeners = textListeners.get(draftKey) ?? new Set();
+    textListeners.set(draftKey, listeners);
+    const restore = (restored: string) =>
+      setText((current) => (current.trim() === '' ? restored : current));
+    listeners.add(restore);
+    return () => {
+      listeners.delete(restore);
     };
   }, [draftKey]);
   const updateImages = (update: (current: ComposerImage[]) => ComposerImage[]) =>

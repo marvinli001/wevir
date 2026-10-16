@@ -23,6 +23,7 @@ import {
   type EngineGoal,
   type EngineSession,
   EventHub,
+  type ForkOptions,
   type GoalStartRequest,
   isAdapterError,
   type PendingApproval,
@@ -124,8 +125,11 @@ import {
   type ThreadReadResponse,
   type ThreadResumeParams,
   type ThreadResumeResponse,
+  type ThreadRevertParams,
   type ThreadStartParams,
   type ThreadStartResponse,
+  type ThreadTurnsListParams,
+  type ThreadTurnsListResponse,
   type ThreadUnsubscribeResponse,
   type ToolRequestUserInputParams,
   type ToolRequestUserInputResponse,
@@ -541,6 +545,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * `plan` item。
    */
   readonly planMode = true;
+  /** 分支到新会话（0.38.0，codex-event-mapping.md §6.15）：`thread/fork` 带 `lastTurnId`，不临时、不加边界说明。 */
+  readonly branches = true;
   /** 读历史的工具（0.25.0，codex-event-mapping.md §6.10）：给了 `historyTool` 时登记。 */
   get historyTool(): boolean {
     return this.#options.historyTool !== undefined;
@@ -1084,13 +1090,20 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   /**
    * 分出支线（0.17.0，§6.9）：`thread/fork` 带 `ephemeral`，设置同 `thread/start`（继承的历史里已有主线的说明与额外目录）；
    * 回合进行中时带 `lastTurnId` 只分到最近一个结束的回合。新 thread 登记成会话，再注入边界消息；注入失败时关掉它。
+   * 分支（0.38.0，§6.15）：持久化的 thread，不注入边界消息；`lastTurnId` 是从后往前数、跳过进行中的回合之后的第 `dropTurns`
+   * 个回合（`thread/turns/list`）；没有要去掉的回合、也没有进行中的回合时不带，分到最后。
    */
-  async fork(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
+  async fork(
+    engineSessionId: string,
+    config: SessionConfig,
+    options: ForkOptions = { kind: 'side' },
+  ): Promise<EngineSession> {
     this.#assertUsable();
     const source = this.#openSession(engineSessionId);
     if (source.parentId !== undefined) throw new AdapterError('invalid_input', '子会话不能分支');
     const running = source.turn !== undefined;
-    if (running && source.lastTurnId === undefined) {
+    const side = options.kind === 'side';
+    if (side && running && source.lastTurnId === undefined) {
       throw new AdapterError('invalid_input', '还没有结束的回合可以分');
     }
     const { provider, model } = this.#route(config);
@@ -1098,12 +1111,19 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     this.#assertUsable();
     this.#activating += 1;
     try {
+      const lastTurnId = side
+        ? running
+          ? source.lastTurnId
+          : undefined
+        : options.dropTurns > 0 || running
+          ? await this.#finishedTurnId(engineSessionId, options.dropTurns)
+          : undefined;
       const params: ThreadForkParams = {
         threadId: engineSessionId,
-        ...(running && { lastTurnId: source.lastTurnId }),
+        ...(lastTurnId !== undefined && { lastTurnId }),
         cwd: config.cwd,
         ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
-        ephemeral: true,
+        ephemeral: side,
         excludeTurns: true,
       };
       let response: ThreadForkResponse;
@@ -1122,6 +1142,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.permissionMode,
         config.additionalRoots,
       );
+      if (!side) return engineSession(id, response);
       const inject: ThreadInjectItemsParams = {
         threadId: id,
         items: [
@@ -1141,6 +1162,59 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       return engineSession(id, response);
     } finally {
       this.#activating -= 1;
+    }
+  }
+
+  /**
+   * 撤回最后一个回合（0.38.0，§6.15）：`thread/revert` 的 `beforeTurnId` 是 thread 最后一个结束的回合（`thread/turns/list`）。
+   * Codex 在 app-server 里重载 thread，订阅不变；之后的 `turn/start` 重新带上会话的设置。
+   */
+  async rewind(engineSessionId: string): Promise<void> {
+    this.#assertUsable();
+    const session = this.#openSession(engineSessionId);
+    if (session.parentId !== undefined) throw new AdapterError('invalid_input', '子会话不能撤回');
+    if (session.turn !== undefined) throw new AdapterError('session_busy', '回合进行中，不能撤回');
+    const beforeTurnId = await this.#finishedTurnId(engineSessionId, 0);
+    const params: ThreadRevertParams = { threadId: engineSessionId, beforeTurnId };
+    try {
+      await this.process.request('thread/revert', params);
+    } catch (error) {
+      throw engineError(error, 'thread/revert');
+    }
+    session.lastTurnId = undefined;
+    session.settingsSynced = false;
+  }
+
+  /**
+   * thread 里从后往前数的第 `skip` 个结束的回合（0 是最后一个），跳过进行中的。按页翻 `thread/turns/list`（不带 item）；没有这么多
+   * 回合时报 `invalid_input`。
+   */
+  async #finishedTurnId(threadId: string, skip: number): Promise<string> {
+    let remaining = skip;
+    let cursor: string | undefined;
+    for (;;) {
+      const params: ThreadTurnsListParams = {
+        threadId,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+        limit: Math.min(skip + 2, 50),
+        ...(cursor !== undefined && { cursor }),
+      };
+      let page: ThreadTurnsListResponse;
+      try {
+        page = await this.process.request<ThreadTurnsListResponse>('thread/turns/list', params);
+      } catch (error) {
+        throw engineError(error, 'thread/turns/list');
+      }
+      for (const turn of page.data) {
+        if (turn.status === 'inProgress') continue;
+        if (remaining === 0) return turn.id;
+        remaining -= 1;
+      }
+      if (!page.nextCursor || page.data.length === 0) {
+        throw new AdapterError('invalid_input', `thread 里没有第 ${skip + 1} 个结束的回合`);
+      }
+      cursor = page.nextCursor;
     }
   }
 

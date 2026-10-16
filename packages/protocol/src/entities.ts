@@ -789,6 +789,10 @@ export const EngineFeaturesSchema = z.object({
   appTools: z.boolean().optional(),
   /** 会话目标（0.35.0，`session.setGoal` 等，还要 Host 声明 `session_goals`）。 */
   goals: z.boolean().optional(),
+  /** 分支到新会话（0.38.0，`session.fork` 不带 `side`，还要 Host 声明 `session_branches`），能从任一完成的回合分。 */
+  branch: z.boolean().optional(),
+  /** 撤回最后一个回合（0.38.0，`session.rewind`，还要 Host 声明 `session_rewind`）。 */
+  rewind: z.boolean().optional(),
 });
 export type EngineFeatures = z.infer<typeof EngineFeaturesSchema>;
 
@@ -914,10 +918,10 @@ export type TurnTrigger = z.infer<typeof TurnTriggerSchema>;
 export const CompactionTriggerSchema = z.enum(['manual', 'auto']);
 export type CompactionTrigger = z.infer<typeof CompactionTriggerSchema>;
 
-/** 支线会话从哪儿分出来（0.17.0，domain-model §3.12）。 */
+/** 会话从哪儿分出来（支线 0.17.0，domain-model §3.12；分支 0.38.0，§3.18）。 */
 export const SessionForkedFromSchema = z.object({
   sessionId: SessionIdSchema,
-  /** 被分的会话当时最近一个完成的回合。 */
+  /** 带到哪个完成的回合为止：支线是被分的会话当时最近一个完成的回合，分支是 `session.fork` 的 `turnId`。 */
   turnId: TurnIdSchema.optional(),
 });
 export type SessionForkedFrom = z.infer<typeof SessionForkedFromSchema>;

@@ -164,3 +164,12 @@ export function foldedParts(message: ChatMessage, fold: TurnFold): readonly Chat
 export function turnHeaderText(finished: { outcome: TurnOutcome; durationMs: number }): string {
   return t(`turn.header.${finished.outcome}`, { duration: formatDuration(finished.durationMs) });
 }
+
+/** 会话最后一个回合（0.38.0，编辑最后一条用户消息）：最后一条用户或助手消息所在的回合；没有回合时 `undefined`。 */
+export function lastTurnId(transcript: { messages: readonly ChatMessage[] }): TurnId | undefined {
+  for (let i = transcript.messages.length - 1; i >= 0; i--) {
+    const message = transcript.messages[i];
+    if (message !== undefined && message.role !== 'system') return message.turnId;
+  }
+  return undefined;
+}

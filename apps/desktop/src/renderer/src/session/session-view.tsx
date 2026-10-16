@@ -1,4 +1,12 @@
-import { commandSupported, goalsSupported, hostSupports, isRpcError } from '@wevir/client-sdk';
+import {
+  branchSupported,
+  commandSupported,
+  goalsSupported,
+  hostSupports,
+  isRpcError,
+  rewindSupported,
+  type UserChatMessage,
+} from '@wevir/client-sdk';
 import type {
   CollaborationMode,
   PendingDelivery,
@@ -34,7 +42,7 @@ import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
-import { Composer, type ComposerPlan, isBusy, setDraft } from './composer';
+import { Composer, type ComposerPlan, isBusy, restoreDraft, setDraft } from './composer';
 import { ContextMeter } from './context-meter';
 import { EnvironmentBar } from './environment-bar';
 import { GoalBanner } from './goal-banner';
@@ -42,6 +50,7 @@ import { parseGoalCommand } from './goal-command';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
 import { historyDigest } from './history-digest';
 import { useAcceptsImages } from './image-attachments';
+import { type MessageActions, MessageActionsContext } from './message-actions';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { NewSessionHero, NewSessionLayout } from './new-session';
 import { OllamaContextNotice } from './ollama-context-notice';
@@ -63,6 +72,7 @@ import { useSessions } from './suggested-tasks';
 import { TodoDock, TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
+import { lastTurnId } from './turn-model';
 import { useUiShow } from './ui-show';
 import { useDraftCommands, useSessionCommands } from './use-composer-commands';
 
@@ -311,6 +321,82 @@ export function SessionView({
       setNotice(sendError(error));
     }
   }, [client, latestPlan, session, permissionModes, store, navigate]);
+  // 消息下方的操作（0.38.0）：主窗格里的顶层会话、可写时，回答能分支到新会话，最后一条用户消息能编辑（会话空闲时）。
+  const messageActionsEnabled =
+    view.status === 'connected' &&
+    client !== undefined &&
+    variant === 'main' &&
+    readOnly === undefined &&
+    session.parentSessionId === undefined &&
+    !session.side;
+  const branchEnabled = messageActionsEnabled && branchSupported(view.hello.features, engine);
+  const rewindEnabled = messageActionsEnabled && rewindSupported(view.hello.features, engine);
+  const branchFrom = useCallback(
+    async (turnId: TurnId) => {
+      if (!client) return;
+      setNotice(undefined);
+      try {
+        if (sessionState === 'error' || sessionState === 'closed') {
+          await client.request('session.resume', { sessionId: session.id });
+        }
+        const { session: created } = await client.request('session.fork', {
+          sessionId: session.id,
+          turnId,
+        });
+        store?.upsertSession(created);
+        navigate(paths.session(created.workspaceId, created.id));
+      } catch (error) {
+        setNotice(t('message.branchFailed', { error: describe(error) }));
+      }
+    },
+    [client, session.id, sessionState, store, navigate],
+  );
+  const submitEdit = useCallback(
+    async (message: UserChatMessage, text: string): Promise<boolean> => {
+      if (!client) return false;
+      setNotice(undefined);
+      try {
+        await client.request('session.rewind', { sessionId: session.id, turnId: message.turnId });
+      } catch (error) {
+        setNotice(
+          isRpcError(error, 'SESSION_BUSY')
+            ? t('session.busy')
+            : t('message.editFailed', { error: describe(error) }),
+        );
+        return false;
+      }
+      const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
+      try {
+        await sendText(
+          client,
+          session.id,
+          text,
+          undefined,
+          images,
+          planEnabled && message.collaborationMode === 'plan' ? 'plan' : undefined,
+        );
+        transcriptRef.current?.jumpToLatest('auto');
+      } catch (error) {
+        // 回合已经撤回了：改过的文字放回输入框，用户再发一次。
+        restoreDraft(session.id, text);
+        setNotice(sendError(error));
+      }
+      return true;
+    },
+    [client, session.id, planEnabled],
+  );
+  const editTurnId =
+    rewindEnabled && sessionState === 'idle' && transcript !== undefined
+      ? lastTurnId(transcript)
+      : undefined;
+  const messageActions = useMemo<MessageActions>(
+    () => ({
+      ...(branchEnabled && { branch: (turnId: TurnId) => void branchFrom(turnId) }),
+      ...(editTurnId !== undefined && { editTurnId, submitEdit }),
+    }),
+    [branchEnabled, branchFrom, editTurnId, submitEdit],
+  );
+
   const composerPlan = useMemo<ComposerPlan | undefined>(
     () =>
       planEnabled
@@ -525,13 +611,15 @@ export function SessionView({
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
         <OpenTurnChanges value={openTurnChanges}>
           <OpenFileLink value={openLink}>
-            <TranscriptView
-              sessionId={session.id}
-              transcript={transcript}
-              cwd={session.cwd}
-              onReady={onReady}
-              compact={variant === 'pane'}
-            />
+            <MessageActionsContext value={messageActions}>
+              <TranscriptView
+                sessionId={session.id}
+                transcript={transcript}
+                cwd={session.cwd}
+                onReady={onReady}
+                compact={variant === 'pane'}
+              />
+            </MessageActionsContext>
           </OpenFileLink>
         </OpenTurnChanges>
       ) : (

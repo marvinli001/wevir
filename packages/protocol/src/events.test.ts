@@ -35,6 +35,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.turnId;
     case 'turn.finished':
       return event.payload.outcome;
+    case 'turn.rewound':
+      return event.payload.turnId;
     case 'assistant.delta':
       return event.payload.text;
     case 'assistant.stream_ended':

@@ -7,6 +7,7 @@ import type {
   EngineAccounts,
   EngineGoal,
   EngineSession,
+  ForkOptions,
   GoalStartRequest,
   PendingApproval,
   PermissionMode,
@@ -43,6 +44,8 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   readonly appTools = true;
   /** 计划模式（0.36.0）：两个进程都是 Codex 的协作模式。 */
   readonly planMode = true;
+  /** 分支到新会话（0.38.0）：两个进程都是 `thread/fork`。 */
+  readonly branches = true;
   readonly googleVertex = true;
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时两个进程都登记。 */
   readonly historyTool: boolean;
@@ -134,11 +137,19 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     return this.#forSession(engineSessionId).configureSession(engineSessionId, config);
   }
 
-  async fork(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {
+  async fork(
+    engineSessionId: string,
+    config: SessionConfig,
+    options?: ForkOptions,
+  ): Promise<EngineSession> {
     const adapter = this.#forSession(engineSessionId);
-    const session = await adapter.fork(engineSessionId, config);
+    const session = await adapter.fork(engineSessionId, config, options);
     this.#owners.set(session.engineSessionId, adapter);
     return session;
+  }
+
+  rewind(engineSessionId: string): Promise<void> {
+    return this.#forSession(engineSessionId).rewind(engineSessionId);
   }
 
   injectNote(engineSessionId: string, text: string): Promise<void> {

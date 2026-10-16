@@ -307,6 +307,14 @@ export const sideSession: Session = {
   lastSeq: 1,
 };
 
+/** 分支到新会话（0.38.0）：顶层会话，带着到 `turnId` 为止的历史。 */
+export const branchSession: Session = {
+  ...idleSession,
+  id: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR4',
+  forkedFrom: { sessionId: ids.session, turnId: ids.turn },
+  lastSeq: 9,
+};
+
 export const toolDisplay: ToolDisplay = {
   kind: 'write',
   summary: '/tmp/wevir-outside.txt',
@@ -591,6 +599,10 @@ export const eventPayloads: PayloadSamples = {
       durationMs: 5250,
     },
     invalid: { turnId: ids.turn, outcome: 'done', durationMs: 5250 },
+  },
+  'turn.rewound': {
+    valid: { turnId: ids.turn },
+    invalid: { turnId: 'turn-1' },
   },
   'assistant.delta': {
     valid: { turnId: ids.turn, streamId: ids.stream, blockIndex: 0, kind: 'text', text: '好的，' },
@@ -921,6 +933,24 @@ export const methodSamples: MethodSamples = {
             },
             claude: { engine: 'claude', commands: ['compact'], planMode: true },
             cursor: { engine: 'cursor', commands: [] },
+          },
+          permissions: ['host.manage', 'session.read', 'session.write'],
+        },
+        {
+          hostId: ids.host,
+          hostVersion: '0.0.0',
+          protocolVersion: '0.38.0',
+          minProtocolVersion: '0.1.0',
+          features: { side_sessions: true, session_branches: true, session_rewind: true },
+          engineFeatures: {
+            'deepseek-official': {
+              engine: 'codex',
+              fork: true,
+              commands: ['compact', 'review'],
+              branch: true,
+              rewind: true,
+            },
+            claude: { engine: 'claude', fork: true, commands: ['compact'] },
           },
           permissions: ['host.manage', 'session.read', 'session.write'],
         },
@@ -1789,13 +1819,27 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
     result: { valid: [{ session }], invalid: [{}] },
   },
+  'session.rewind': {
+    params: {
+      valid: [{ sessionId: ids.session, turnId: ids.turn }],
+      invalid: [{ sessionId: ids.session }],
+    },
+    result: { valid: [{ seq: 12 }], invalid: [{}] },
+  },
   'session.fork': {
     params: {
-      valid: [{ sessionId: ids.session, side: true }],
-      invalid: [{ sessionId: ids.session }, { sessionId: ids.session, side: false }],
+      valid: [
+        { sessionId: ids.session, side: true },
+        { sessionId: ids.session },
+        { sessionId: ids.session, turnId: ids.turn },
+      ],
+      invalid: [
+        { sessionId: ids.session, side: false },
+        { sessionId: ids.session, turnId: 'turn-1' },
+      ],
     },
     result: {
-      valid: [{ session: sideSession }],
+      valid: [{ session: sideSession }, { session: branchSession }],
       invalid: [{ session: { ...sideSession, side: false } }],
     },
   },

@@ -9,6 +9,7 @@ import { CopyButton } from './copy-button';
 import { Elapsed } from './elapsed';
 import { useFold, useFoldSetter } from './fold-state';
 import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
+import { BranchButton, useMessageActions } from './message-actions';
 import { PartsView, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
@@ -38,6 +39,7 @@ export const TurnView = memo(
     orb = 'working',
     hasSubagents,
     hideTodos = false,
+    lastTurn = false,
   }: {
     turnId: TurnId;
     messages: readonly ChatMessage[];
@@ -50,8 +52,11 @@ export const TurnView = memo(
     hasSubagents: boolean;
     /** 这个回合的清单停在输入框上方（U20，todo-card.tsx），消息里不再画。 */
     hideTodos?: boolean;
+    /** 会话最后一个回合：回答下面的操作行一直显示（照 Codex 桌面端），别的回合悬停时才出现。 */
+    lastTurn?: boolean;
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
+    const { branch } = useMessageActions();
     const [open, setOpen] = useFold(`turn:${turnId}`, !fold.defaultFolded);
     const folded = fold.showHeader && !open;
     const id = useId();
@@ -144,12 +149,24 @@ export const TurnView = memo(
               fold={fold}
             />
           )}
-          {answer !== '' && (
-            // 悬停时出现，不占消息流的高度（叠在下一个回合上方的空隙里）。
-            <div className="relative h-0">
-              <div className="absolute top-0.5 left-0 flex items-center opacity-0 transition-opacity duration-150 group-hover/turn:opacity-100 focus-within:opacity-100">
+          {fold.finished && (answer !== '' || branch !== undefined) && (
+            // 回答下面的“复制”（U36）与“分支到新会话”（0.38.0）：最后一个回合的一直显示，别的悬停时出现。占一行高度：消息流的
+            // 每一块有 `content-visibility: auto`（绘制裁在块里），叠到块外面的按钮既看不见也点不着。
+            <div
+              className={cn(
+                'mt-1 flex h-6 items-center gap-0.5',
+                !lastTurn &&
+                  'opacity-0 transition-opacity duration-150 group-hover/turn:opacity-100 focus-within:opacity-100',
+              )}
+              data-message-actions
+            >
+              {answer !== '' && (
                 <CopyButton text={answer} className="-ml-1 text-muted-foreground" />
-              </div>
+              )}
+              <BranchButton
+                turnId={turnId}
+                className={cn('text-muted-foreground', answer === '' && '-ml-1')}
+              />
             </div>
           )}
         </div>
@@ -162,6 +179,7 @@ export const TurnView = memo(
     prev.live === next.live &&
     prev.orb === next.orb &&
     prev.hasSubagents === next.hasSubagents &&
+    prev.lastTurn === next.lastTurn &&
     prev.messages.length === next.messages.length &&
     prev.messages.every((message, index) => message === next.messages[index]),
 );

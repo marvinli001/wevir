@@ -49,12 +49,14 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly historyTool?: boolean;
   readonly appTools?: boolean;
   readonly planMode?: boolean;
+  readonly branches?: boolean;
   readonly accounts?: EngineAccounts;
 
   // 可选方法：至少一个引擎有时才有，Host 据此声明功能；会话所在的引擎没有时报 `invalid_input`。
   readonly steer?: AgentRuntimeAdapter['steer'];
   readonly configureSession?: AgentRuntimeAdapter['configureSession'];
   readonly fork?: AgentRuntimeAdapter['fork'];
+  readonly rewind?: AgentRuntimeAdapter['rewind'];
   readonly injectNote?: AgentRuntimeAdapter['injectNote'];
   readonly respondToQuestion?: AgentRuntimeAdapter['respondToQuestion'];
   readonly generateTitle?: AgentRuntimeAdapter['generateTitle'];
@@ -97,6 +99,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.historyTool === true)) this.historyTool = true;
     if (adapters.some((adapter) => adapter.appTools === true)) this.appTools = true;
     if (adapters.some((adapter) => adapter.planMode === true)) this.planMode = true;
+    if (adapters.some((adapter) => adapter.branches === true)) this.branches = true;
     const accounts = routes.flatMap((route) =>
       route.adapter.accounts === undefined ? [] : [route.adapter.accounts],
     );
@@ -111,13 +114,19 @@ export class EngineRouter implements AgentRuntimeAdapter {
         this.#method(id, 'configureSession').configureSession(id, config);
     }
     if (adapters.some((adapter) => adapter.fork !== undefined)) {
-      this.fork = async (id, config) => {
+      this.fork = async (id, config, options) => {
         const route = this.#forSession(id);
         if (route.adapter.fork === undefined) throw unsupported(route, 'fork');
-        const session = await route.adapter.fork(id, config);
+        if (options?.kind === 'branch' && route.adapter.branches !== true) {
+          throw unsupported(route, 'branching');
+        }
+        const session = await route.adapter.fork(id, config, options);
         this.#owners.set(session.engineSessionId, route);
         return session;
       };
+    }
+    if (adapters.some((adapter) => adapter.rewind !== undefined)) {
+      this.rewind = async (id) => this.#method(id, 'rewind').rewind(id);
     }
     if (adapters.some((adapter) => adapter.injectNote !== undefined)) {
       this.injectNote = async (id, text) => this.#method(id, 'injectNote').injectNote(id, text);
@@ -163,12 +172,16 @@ export class EngineRouter implements AgentRuntimeAdapter {
     }
   }
 
-  /** 会话所在的引擎有没有这个方法（0.24.0）或计划模式（0.36.0）：Host 在开始命令回合之前问。 */
+  /** 会话所在的引擎有没有这个方法（0.24.0）、计划模式（0.36.0）或分支（0.38.0）：Host 在开始命令回合、分支与撤回之前问。 */
   supports(engineSessionId: string, method: SessionCapability): boolean {
     const adapter = this.#forSession(engineSessionId).adapter;
     return (
       adapter.supports?.(engineSessionId, method) ??
-      (method === 'planMode' ? adapter.planMode === true : adapter[method] !== undefined)
+      (method === 'planMode'
+        ? adapter.planMode === true
+        : method === 'branch'
+          ? adapter.branches === true && adapter.fork !== undefined
+          : adapter[method] !== undefined)
     );
   }
 
@@ -340,6 +353,8 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
     ...(adapter.planMode === true && { planMode: true }),
     commands,
     ...(adapter.startGoal !== undefined && { goals: true }),
+    ...(adapter.fork !== undefined && adapter.branches === true && { branch: true }),
+    ...(adapter.rewind !== undefined && { rewind: true }),
   };
 }
 
@@ -353,7 +368,8 @@ type OptionalMethod =
   | 'review'
   | 'startGoal'
   | 'updateGoal'
-  | 'clearGoal';
+  | 'clearGoal'
+  | 'rewind';
 
 function unsupported(route: EngineRoute, method: string): AdapterError {
   return new AdapterError('invalid_input', `the ${route.name} engine does not support ${method}`);

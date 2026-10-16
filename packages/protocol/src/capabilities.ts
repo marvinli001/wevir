@@ -157,6 +157,16 @@ export const HOST_FEATURES = {
    * `planMode` 说哪种 Provider 的引擎有；会话所在的引擎没有时 `session.send` 回 `INVALID_PARAMS`。
    */
   planMode: 'plan_mode',
+  /**
+   * 分支到新会话（0.38.0，domain-model §3.18）：`session.fork` 不带 `side`、可带 `turnId`。取决于引擎（看 `engineFeatures` 的
+   * `branch`）；会话所在的引擎不能分支时 `INVALID_STATE`。
+   */
+  sessionBranches: 'session_branches',
+  /**
+   * 撤回最后一个回合（0.38.0，domain-model §3.18）：`session.rewind` 与 `turn.rewound` 事件，客户端用它编辑重发最后一条用户消息。
+   * 取决于引擎（看 `engineFeatures` 的 `rewind`）；会话所在的引擎不能撤回时 `INVALID_STATE`。
+   */
+  sessionRewind: 'session_rewind',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -191,6 +201,8 @@ export const HostFeaturesSchema = z.looseObject({
   browser_tools: z.boolean().optional(),
   web_tools: z.boolean().optional(),
   plan_mode: z.boolean().optional(),
+  session_branches: z.boolean().optional(),
+  session_rewind: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

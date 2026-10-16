@@ -10,19 +10,21 @@ import {
   ScanSearch,
   Target,
 } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Link } from 'react-router';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
 import { useWorkbenchData } from '@/data/workbench-data';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
 import { CopyButton } from './copy-button';
+import { formatMessageTime } from './format';
 import { modelLabel } from './handoff-model';
 import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
+import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
 import { PlanCard } from './plan-card';
 import { SubagentRow } from './subagent-marker';
 import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
@@ -34,12 +36,33 @@ import { WorkGroup } from './work-group';
 
 export function UserMessage({ message }: { message: UserChatMessage }) {
   if (message.command) return <CommandMessage command={message.command} />;
+  return <PlainUserMessage message={message} />;
+}
+
+function PlainUserMessage({ message }: { message: UserChatMessage }) {
+  const actions = useMessageActions();
+  const [editing, setEditing] = useState(false);
   if (message.from?.kind === 'report') return <SessionReport message={message} />;
   // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
   const text = texts.join('\n');
   const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
+  // 编辑（0.38.0）：只有会话最后一个完成的回合的用户消息，插话不算。
+  const editable =
+    actions.editTurnId === message.turnId &&
+    actions.submitEdit !== undefined &&
+    !message.steered &&
+    message.trigger === undefined &&
+    message.from === undefined;
+  if (editing && editable) {
+    return (
+      <div className="flex flex-col items-end" data-message-role="user">
+        {images.length > 0 && <MessageImages images={images} className="mb-1.5" />}
+        <UserMessageEditor message={message} initialText={text} onDone={() => setEditing(false)} />
+      </div>
+    );
+  }
   // 子会话里父 agent 给的输入标成“父 agent 派给它的任务”（R5）。别的客户端发的不标来源。
   return (
     <div className="group/user flex flex-col items-end" data-message-role="user">
@@ -73,13 +96,32 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
           {t('command.plan')}
         </span>
       )}
-      {/* 悬停时消息下方靠右出现“复制”（U36，照 Codex 桌面端）。 */}
+      {/* 悬停时消息下方靠右出现时间、“复制”（U36）与最后一条消息的“编辑”（0.38.0），照 Codex 桌面端。 */}
       {texts.length > 0 && (
-        <div className="mt-1 flex h-6 items-center opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
+        <div className="mt-1 flex h-6 items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
+          <MessageTime ts={message.ts} />
           <CopyButton text={text} className="text-muted-foreground" />
+          {editable && (
+            <EditButton onClick={() => setEditing(true)} className="text-muted-foreground" />
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+/** 消息的时间（0.38.0）：悬停时出现在操作行里，提示里是完整的日期与时刻。 */
+function MessageTime({ ts }: { ts: string }) {
+  const label = formatMessageTime(ts, currentLocale());
+  if (label === '') return null;
+  const full = new Intl.DateTimeFormat(currentLocale(), {
+    dateStyle: 'full',
+    timeStyle: 'short',
+  }).format(new Date(ts));
+  return (
+    <time dateTime={ts} title={full} className="mr-1 text-xs text-muted-foreground tabular-nums">
+      {label}
+    </time>
   );
 }
 

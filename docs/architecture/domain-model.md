@@ -854,6 +854,24 @@ type CollaborationMode = 'default' | 'plan'
 - **只读靠谁**：Codex 的计划模式靠说明约束（不改沙箱，同 Codex），Claude Code 的 `plan` 模式由它自己拦下改文件的工具。提问（§3.8）在计划模式里照常可用，Codex 的 `request_user_input` 在计划模式里是阻塞的。
 - **客户端**：桌面端的开关按会话或新会话草稿留在内存里，在输入框的“+”菜单、Shift+Tab 与 `/plan`（`/default` 退出），开着时底栏有“计划”芯片；计划是消息流里的计划卡片（折叠、复制、下载 Markdown；写的时候随增量长出来，没有复制与下载，回合末尾那一行写“正在写计划”；没写完就结束的标“未完成”），会话空闲、计划是最近一条消息的回合给出的、开关还开着时，空输入框的主按钮是“实施”（下拉“在新会话中实施”），有字时发送是“继续完善”（desktop-tokens §49）。投影（client-sdk）：`ChatPart` 的 `plan`（0.37.0 起带 `state`：写的时候 `streaming`、给出后 `done`、没写完 `incomplete`）、`UserChatMessage.collaborationMode`、`Transcript.collaborationMode` 与 `latestPlan`（最近一条用户消息开始的回合里最后的计划，之后又有用户消息时清空）。CLI 把计划回合的消息标成“（计划模式）”，计划原样缩进打印。
 
+### 3.18 分支到新会话与撤回最后一个回合（0.38.0）
+
+维护者 2026-10-16 定：照 Codex 桌面端与 T3 Code，回答下面有“分支到新会话”（T3 的 Fork from this response、Codex 的“分支到新聊天”），最后一条用户消息能编辑（同 Codex：只有最后一条）。
+
+```ts
+// → protocol
+// session.fork { sessionId, side?: true, turnId?: TurnId }   不带 side 是分支；turnId 省略时到最近一个完成的回合
+// session.rewind { sessionId, turnId } → { seq }             turnId 必须是最后一个没撤回的完成的回合
+// turn.rewound { turnId }                                    撤回的回合
+// EngineFeatures 的 branch?、rewind?: boolean
+```
+
+- **分支**：新会话是普通的顶层会话（进 `session.list`，引擎会话持久化，没有支线的边界说明），标题、项目、目录、Provider、模型、推理档位、权限模式与环境字段同被分的会话（不含 worktree），`forkedFrom` 记着从哪个会话、哪个回合分出来。它的事件流是 `session.created`、抄来的消息记录、`session.title_changed`：抄的是被分会话 `seq` 不超过那个回合的 `turn.finished` 的事件里属于消息记录的那些（用户消息与插话、回合的开始结束与撤回、助手的增量与消息、工具、清单、计划、用量、压缩、子会话与建议的任务），`seq` 重新编号，`ts`、`source` 与 `payload` 照旧；会话自己的事实（`session.*`）、审批与提问（结算过的，记的是原会话）、待发消息、原始帧与界面请求不抄。子会话与建议的任务的部件仍指向原会话派出的会话。抄来的回合没有快照（§3.13），“变更”窗格里显示没有快照。
+- **撤回**：只撤回会话最后一个完成的回合，会话要空闲；引擎的上下文回到那个回合之前，Host 写 `turn.rewound`，消息记录（client-sdk 的投影）去掉那个回合的用户消息与回答；事件本身还在事件流里，分支照样把它们连同 `turn.rewound` 一起抄。会话目录里的文件不动（Codex 的 `thread/revert` 也不动；T3 Code 可选恢复文件，Wevir 暂不做）。编辑就是撤回之后把改过的文字（连同原来的图片与计划模式）照常发出。
+- **回合怎么对上**：Host 不知道引擎自己的回合 ID，按回合数对：分支要去掉的是那个回合之后没被撤回的完成的回合数（`ForkOptions` 的 `dropTurns`），撤回的是最后一个；适配器从后往前数引擎的回合（同 T3 Code 的 Codex 回退）。接力（§3.14）之后新引擎没有之前的回合，接力之前的回合分不了、撤不回（`INVALID_STATE`）。引擎没接下的回合（发送时适配器就失败，会话转 `error`）也算一个回合，这时数会差一个，是已知的局限。
+- **各引擎**：Codex 分支用 `thread/fork` 带 `lastTurnId`（`thread/turns/list` 从后往前数），撤回用 `thread/revert`（codex-event-mapping.md §6.15）；echo 记着每个回合的输入（`recall` 关键词写出来）。Claude、OpenCode 只有支线（Claude 的 `resumeSessionAt`、OpenCode 的 `session.revert` 留待以后），Grok、Cursor、Antigravity、dsh 都没有；`engineFeatures` 的 `branch` / `rewind` 说哪种 Provider 的引擎有。
+- **客户端**：桌面端回答下面是“复制”与“分支到新会话”（最后一个回合的一直显示，别的悬停时出现），分支后打开新会话；用户消息下面悬停时是时间、“复制”，最后一条（会话空闲、能撤回时）还有“编辑”：气泡换成输入框，Esc 取消，发送键发出。撤回成功、发送失败时改过的文字放回输入框。
+
 ## 4. 会话状态机
 
 ```mermaid
@@ -1076,6 +1094,7 @@ stateDiagram-v2
 | `user.message` | host | 用户发出的消息 | `session.send`（ACP 不回发用户消息） |
 | `turn.started` | host | 回合开始；由命令开始的回合带 `command`、没有 `user.message`（0.24.0，§4.7）；为目标工作的回合带 `trigger: 'goal'`，引擎自己开的没有 `user.message`（0.35.0，§3.16） | `session.send` 被接受，Host 发出 `session/prompt`；`session.compact`、`session.review`、`session.setGoal`；引擎开始的目标回合 |
 | `turn.finished` | host | 回合结束 | `session/prompt` 的结果或失败；进程退出；Host 重启 |
+| `turn.rewound` | host | 会话最后一个完成的回合被撤回（0.38.0，§3.18），它的消息从消息记录里去掉 | `session.rewind` |
 | `assistant.delta` | engine | 助手文本或思考的增量 | stream-tap 旁路的 `text-delta` / `reasoning-delta`（T3.2a） |
 | `assistant.stream_ended` | engine | 一个 LLM attempt 的增量流结束 | stream-tap 的 `end` 帧 |
 | `assistant.message` | engine | 已提交的助手消息，替换对应增量 | ACP `agent_message_chunk` |
@@ -1199,6 +1218,7 @@ type WevirEvent =
       engineStopReason?: string // 引擎原值
       durationMs: number
     }>
+  | WevirEventEnvelope<'turn.rewound', { turnId: TurnId }>   // 0.38.0，§3.18
   | WevirEventEnvelope<'assistant.delta', {
       turnId: TurnId
       streamId: StreamId

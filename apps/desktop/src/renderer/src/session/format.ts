@@ -37,3 +37,25 @@ function isTruncatedJson(
     typeof (value as { preview?: unknown }).preview === 'string'
   );
 }
+
+/**
+ * 消息的时间（0.38.0，消息下方的操作行，照 Codex 桌面端）：今天的只写时刻，六天之内写星期与时刻，今年之内写月日与时刻，再早写
+ * 完整的日期。
+ */
+export function formatMessageTime(iso: string, locale: string, now = new Date()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const time: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' };
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
+  if (days === 0) return new Intl.DateTimeFormat(locale, time).format(date);
+  if (days > 0 && days < 7) {
+    return new Intl.DateTimeFormat(locale, { weekday: 'long', ...time }).format(date);
+  }
+  if (date.getFullYear() === now.getFullYear()) {
+    return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric', ...time }).format(
+      date,
+    );
+  }
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+}

@@ -45,6 +45,8 @@ import {
   type TurnOutcome,
   type UiShowTarget,
   type UserContentPart,
+  type WevirEvent,
+  type WevirEventType,
   type WorkspaceId,
 } from '@wevir/protocol';
 import {
@@ -238,6 +240,35 @@ interface SessionRuntime {
 const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
 
 /** 命令开的回合（0.24.0）里的插话改为排队时记下的原因。 */
+/**
+ * 分支到新会话时抄过去的事件（0.38.0，`#branchHistory`）：消息记录里的。子会话、建议的任务与它们的结局照抄，指向原会话派出的会话。
+ */
+const BRANCH_HISTORY_EVENTS: ReadonlySet<string> = new Set<WevirEventType>([
+  'user.message',
+  'user.steered',
+  'turn.started',
+  'turn.finished',
+  'turn.rewound',
+  'assistant.delta',
+  'assistant.stream_ended',
+  'assistant.message',
+  'assistant.thought',
+  'tool.started',
+  'tool.updated',
+  'tool.finished',
+  'todo.updated',
+  'plan.delta',
+  'plan.proposed',
+  'usage.updated',
+  'context.compacting',
+  'context.compacted',
+  'subagent.started',
+  'subagent.updated',
+  'tasks.suggested',
+  'task.started',
+  'task.reported',
+]);
+
 const COMMAND_TURN_NOT_STEERABLE = 'a compact or review turn cannot be steered';
 
 /** 引擎会话恢复不了的原因（适配器的 `session_lost`）→ 会话只读的原因。 */
@@ -1897,13 +1928,21 @@ export class SessionManager {
   }
 
   /**
-   * `session.fork`（0.17.0，domain-model §3.12）：从顶层会话分出一个支线会话。被分的会话不能是子会话、支线、只读、出错或
-   * 已关闭，要有完成的回合；引擎会话没挂上时先自动恢复。排在被分会话的命令队列里；它的回合进行中也可以（引擎只分到最近一个
-   * 完成的回合）。支线沿用它的项目、目录、Provider、模型、推理档位、权限模式与环境字段（不含 worktree），自己的事件流从
-   * `session.created`（带 `forkedFrom`、`side`）开始。
+   * `session.fork`：从顶层会话分出一个新会话。被分的会话不能是子会话、支线、只读、出错或已关闭，要有完成的回合；引擎会话没挂上时
+   * 先自动恢复。排在被分会话的命令队列里；它的回合进行中也可以（只分到完成的回合）。新会话沿用它的项目、目录、Provider、模型、推理
+   * 档位、权限模式与环境字段（不含 worktree），事件流从 `session.created`（带 `forkedFrom`）开始。
+   *
+   * - 支线（`side: true`，0.17.0，domain-model §3.12）：到最近一个完成的回合，带 `side`，不进 `session.list`。
+   * - 分支（不带 `side`，0.38.0，§3.18）：到 `turnId`（省略时最近一个完成的回合），普通的顶层会话，标题同被分的会话；
+   *   `session.created` 之后抄来被分会话到那个回合为止的消息记录（`#branchHistory`）。引擎去掉那个回合之后的回合
+   *   （`dropTurns`）。接力（0.25.0）之前的回合不在现在的引擎里，分不了。
    */
   async fork(params: MethodParams<'session.fork'>): Promise<Session> {
     this.#assertOpen();
+    const side = params.side === true;
+    if (side && params.turnId !== undefined) {
+      throw invalidContent(['turnId'], 'a side session forks at the latest finished turn');
+    }
     const source = this.#runtime(params.sessionId);
     this.#assertNotChild(source);
     const fork = this.#adapter.fork?.bind(this.#adapter);
@@ -1912,24 +1951,44 @@ export class SessionManager {
       const { session } = this.#snapshot(source);
       const refuse = (message: string) =>
         new HostError('INVALID_STATE', message, { state: session.state });
-      if (fork === undefined) throw refuse('this host engine cannot fork sessions');
+      if (fork === undefined || (!side && this.#adapter.branches !== true)) {
+        throw refuse('this host engine cannot fork sessions');
+      }
       if (record.side) throw refuse('a side session cannot be forked again');
       if (session.readOnly !== undefined) throw refuse('session is read-only');
       if (session.state === 'error' || session.state === 'closed') {
         throw refuse(`session is ${session.state}; resume it first`);
       }
-      const turnId = this.#lastFinishedTurn(source.id);
-      if (turnId === undefined) throw refuse('session has no finished turn to fork from');
-      // 刚接力（0.25.0）、新引擎还没跑过回合时，它的会话里没有可分的内容。
+      const { turns, handoffSeq } = this.#finishedTurns(source.id);
+      if (turns.length === 0) throw refuse('session has no finished turn to fork from');
+      const index =
+        params.turnId === undefined
+          ? turns.length - 1
+          : turns.findIndex((turn) => turn.turnId === params.turnId);
+      const target = turns[index];
+      if (target === undefined) {
+        throw invalidContent(['turnId'], 'turnId is not a finished turn of the session');
+      }
+      // 刚接力（0.25.0）、新引擎还没跑过回合时，它的会话里没有可分的内容；接力之前的回合不在新引擎里。
       if (this.#events.handoffState(source.id)?.context !== undefined) {
         throw refuse('the session just switched models; send a message before forking');
       }
+      if (target.seq < handoffSeq) {
+        throw refuse('the turn is from before the session switched models');
+      }
       if (!source.attachment) await this.#autoResume(source);
+      if (!side && this.#adapter.supports?.(source.engineSessionId, 'branch') === false) {
+        throw refuse("the session's engine cannot branch");
+      }
       const config = sessionConfig(record);
       const sessionId = newId('ses');
       let engineSession: EngineSession;
       try {
-        engineSession = await fork(source.engineSessionId, this.#engineConfig(sessionId, config));
+        engineSession = await fork(
+          source.engineSessionId,
+          this.#engineConfig(sessionId, config),
+          side ? { kind: 'side' } : { kind: 'branch', dropTurns: turns.length - 1 - index },
+        );
       } catch (error) {
         const info = engineErrorInfo(error);
         throw new HostError('ENGINE_ERROR', info.message, info);
@@ -1938,9 +1997,9 @@ export class SessionManager {
       const now = isoNow();
       const modelId = engineSession.modelId ?? config.modelId;
       const reasoningEffort = engineSession.reasoningEffort ?? config.reasoningEffort;
-      const forkedFrom = { sessionId: source.id, turnId };
+      const forkedFrom = { sessionId: source.id, turnId: target.turnId };
       try {
-        const side: SessionRecord = {
+        const forked: SessionRecord = {
           id: sessionId,
           workspaceId: record.workspaceId,
           cwd: record.cwd,
@@ -1949,7 +2008,7 @@ export class SessionManager {
           providerId: record.providerId,
           modelId,
           forkedFrom,
-          side: true,
+          ...(side && { side: true as const }),
           title: '',
           titleSource: 'first_prompt',
           state: 'idle',
@@ -1957,11 +2016,11 @@ export class SessionManager {
           createdAt: now,
           updatedAt: now,
         };
-        if (reasoningEffort !== undefined) side.reasoningEffort = reasoningEffort;
-        if (record.permissionMode !== undefined) side.permissionMode = record.permissionMode;
-        if (record.environmentId !== undefined) side.environmentId = record.environmentId;
-        if (record.extraRoots !== undefined) side.extraRoots = record.extraRoots;
-        this.#storage.sessions.insert(side);
+        if (reasoningEffort !== undefined) forked.reasoningEffort = reasoningEffort;
+        if (record.permissionMode !== undefined) forked.permissionMode = record.permissionMode;
+        if (record.environmentId !== undefined) forked.environmentId = record.environmentId;
+        if (record.extraRoots !== undefined) forked.extraRoots = record.extraRoots;
+        this.#storage.sessions.insert(forked);
         this.#events.append(sessionId, {
           type: 'session.created',
           source: 'host',
@@ -1979,12 +2038,22 @@ export class SessionManager {
             }),
             ...(record.extraRoots !== undefined && { extraRoots: record.extraRoots }),
             forkedFrom,
-            side: true,
+            ...(side && { side: true as const }),
             ...(engineSession.engineVersion !== undefined && {
               engineVersion: engineSession.engineVersion,
             }),
           },
         });
+        if (!side) {
+          this.#events.appendHistory(sessionId, this.#branchHistory(source.id, target.seq));
+          if (session.title !== '') {
+            this.#events.append(sessionId, {
+              type: 'session.title_changed',
+              source: 'host',
+              payload: { title: session.title, source: session.titleSource },
+            });
+          }
+        }
       } catch (error) {
         await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
         throw error;
@@ -1999,13 +2068,86 @@ export class SessionManager {
     });
   }
 
-  /** 会话最近一个结束的回合（`turn.finished`）；还没有时 `undefined`。 */
-  #lastFinishedTurn(sessionId: SessionId): TurnId | undefined {
-    let turnId: TurnId | undefined;
+  /**
+   * `session.rewind`（0.38.0，domain-model §3.18）：撤回顶层会话（不是支线）最后一个完成的回合，客户端随后把改过的消息照常发出。
+   * 会话要空闲（`SESSION_BUSY`）、不是只读、出错或已关闭；`turnId` 必须是最后一个没撤回的完成的回合（`INVALID_STATE`）。引擎会话
+   * 没挂上时先自动恢复，引擎撤回之后写 `turn.rewound`。会话目录里的文件不动。
+   */
+  async rewind(params: MethodParams<'session.rewind'>): Promise<{ seq: number }> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    const rewind = this.#adapter.rewind?.bind(this.#adapter);
+    return this.#serial(runtime, async () => {
+      const record = this.#record(runtime);
+      const { session } = this.#snapshot(runtime);
+      const refuse = (message: string) =>
+        new HostError('INVALID_STATE', message, { state: session.state });
+      if (rewind === undefined) throw refuse('this host engine cannot rewind turns');
+      if (record.side) throw refuse('a side session cannot be rewound');
+      if (session.readOnly !== undefined) throw refuse('session is read-only');
+      if (session.state === 'error' || session.state === 'closed') {
+        throw refuse(`session is ${session.state}; resume it first`);
+      }
+      if (session.state !== 'idle') {
+        throw new HostError('SESSION_BUSY', 'a turn is running', { state: session.state });
+      }
+      const { turns, handoffSeq } = this.#finishedTurns(runtime.id);
+      const last = turns.at(-1);
+      if (last === undefined || last.turnId !== params.turnId) {
+        throw refuse('only the last finished turn can be rewound');
+      }
+      if (this.#events.handoffState(runtime.id)?.context !== undefined || last.seq < handoffSeq) {
+        throw refuse('the turn is from before the session switched models');
+      }
+      if (!runtime.attachment) await this.#autoResume(runtime);
+      if (this.#adapter.supports?.(runtime.engineSessionId, 'rewind') === false) {
+        throw refuse("the session's engine cannot rewind turns");
+      }
+      try {
+        await rewind(runtime.engineSessionId);
+      } catch (error) {
+        const info = engineErrorInfo(error);
+        throw new HostError('ENGINE_ERROR', info.message, info);
+      }
+      const event = this.#events.append(runtime.id, {
+        type: 'turn.rewound',
+        source: 'host',
+        payload: { turnId: last.turnId },
+      });
+      return { seq: event.seq };
+    });
+  }
+
+  /**
+   * 会话里完成、没被撤回的回合（`turn.finished` 的 `seq`），按先后；`handoffSeq` 是最近一次接力（`session.handoff`）的 `seq`，没有时
+   * 0。分支与撤回按它数引擎的回合（0.38.0）。
+   */
+  #finishedTurns(sessionId: SessionId): {
+    turns: Array<{ turnId: TurnId; seq: number }>;
+    handoffSeq: number;
+  } {
+    const turns: Array<{ turnId: TurnId; seq: number }> = [];
+    let handoffSeq = 0;
     for (const event of this.#events.readSince(sessionId, 0)) {
-      if (event.type === 'turn.finished') turnId = event.payload.turnId;
+      if (event.type === 'turn.finished')
+        turns.push({ turnId: event.payload.turnId, seq: event.seq });
+      else if (event.type === 'turn.rewound') {
+        const index = turns.findIndex((turn) => turn.turnId === event.payload.turnId);
+        if (index >= 0) turns.splice(index, 1);
+      } else if (event.type === 'session.handoff') handoffSeq = event.seq;
     }
-    return turnId;
+    return { turns, handoffSeq };
+  }
+
+  /**
+   * 分支要抄的消息记录（0.38.0，domain-model §3.18）：被分会话 `seq` 不超过 `untilSeq` 的事件里属于消息记录的那些。会话自己的事实
+   * （`session.*`）、审批与提问（结算过的，属于原会话）、待发消息、原始帧与界面请求不抄。
+   */
+  #branchHistory(sessionId: SessionId, untilSeq: number): WevirEvent[] {
+    return this.#events
+      .readSince(sessionId, 0, untilSeq)
+      .filter((event) => event.seq <= untilSeq && BRANCH_HISTORY_EVENTS.has(event.type));
   }
 
   /**

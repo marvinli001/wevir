@@ -677,10 +677,28 @@ export const ProviderResultSchema = z.object({
 
 // ── session.* ─────────────────────────────────────────────────────────
 
-/** `session.fork`（0.17.0，Host 功能 `side_sessions`）：从会话分出一个支线会话。`side` 现在只能是 `true`。 */
+/**
+ * `session.fork`：从会话分出一个新会话。`side: true`（0.17.0，Host 功能 `side_sessions`）分出支线；不带 `side`（0.38.0，Host 功能
+ * `session_branches`）是分支到新会话：普通的顶层会话，带着被分会话到 `turnId` 那个完成的回合为止的历史。`turnId` 省略时到最近一个
+ * 完成的回合；支线不能带 `turnId`（`INVALID_PARAMS`）。
+ */
 export const SessionForkParamsSchema = z.object({
   sessionId: SessionIdSchema,
-  side: z.literal(true),
+  side: z.literal(true).optional(),
+  turnId: TurnIdSchema.optional(),
+});
+
+/**
+ * `session.rewind`（0.38.0，Host 功能 `session_rewind`）：撤掉会话最后一个完成的回合（`turnId` 必须是它），引擎的上下文与消息记录
+ * 一起回到这个回合之前；用来编辑重发最后一条用户消息。不改会话目录里的文件。写一条 `turn.rewound`。
+ */
+export const SessionRewindParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  turnId: TurnIdSchema,
+});
+
+export const SessionRewindResultSchema = z.object({
+  seq: SeqSchema,
 });
 
 /** 会话标题的最大长度（`session.rename`，0.23.0）。 */
@@ -1246,6 +1264,11 @@ export const MethodSchemas = {
   'session.fork': {
     params: SessionForkParamsSchema,
     result: SessionResultSchema,
+    permission: 'session.write',
+  },
+  'session.rewind': {
+    params: SessionRewindParamsSchema,
+    result: SessionRewindResultSchema,
     permission: 'session.write',
   },
   'session.compact': {

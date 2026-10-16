@@ -118,7 +118,7 @@ export function TranscriptView({
           )}
           <FoldScopeProvider sessionId={sessionId} onToggle={holdPosition}>
             <WorkspaceRoot value={cwd}>
-              {groupTurns(messages.slice(start)).map((block) => {
+              {groupTurns(messages.slice(start)).map((block, index, blocks) => {
                 const fresh = !firstRender && sticky && !seenKeys.has(block.key);
                 seenKeys.add(block.key);
                 return (
@@ -141,6 +141,7 @@ export function TranscriptView({
                         })}
                         hasSubagents={transcript.subagents.length > 0}
                         hideTodos={block.turnId === dockedTodos}
+                        lastTurn={index === blocks.length - 1}
                       />
                     ) : (
                       block.message.role === 'system' && <SystemMessage message={block.message} />

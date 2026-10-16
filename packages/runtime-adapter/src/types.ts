@@ -101,6 +101,13 @@ export interface EngineSession {
   engineVersion?: string;
 }
 
+/**
+ * `fork` 分出什么（0.38.0）：`side` 是支线（0.17.0，引擎不持久化，带一条边界说明，到最近一个完成的回合为止）；`branch` 是分支到
+ * 新会话（持久化的普通会话，没有边界说明），去掉最后 `dropTurns` 个完成的回合，带到它们之前为止（0 表示到最近一个完成的回合）。
+ * 回合按引擎自己的回合数，从后往前数，Host 数的是它的回合里没被撤回的（domain-model §3.18）。
+ */
+export type ForkOptions = { kind: 'side' } | { kind: 'branch'; dropTurns: number };
+
 /** 用户输入的一段文本。 */
 export interface AgentTextInput {
   type: 'text';
@@ -170,8 +177,8 @@ export interface GoalStartRequest {
   input: AgentInput;
 }
 
-/** `supports` 能问的：可选方法，与计划模式（0.36.0，`planMode`）。 */
-export type SessionCapability = SessionCommandMethod | 'planMode';
+/** `supports` 能问的：可选方法，计划模式（0.36.0，`planMode`），分支与撤回（0.38.0，`branch` 是 `fork` 的 `{ kind: 'branch' }`）。 */
+export type SessionCapability = SessionCommandMethod | 'planMode' | 'branch' | 'rewind';
 
 /** `generateTitle` 的请求（prompts/README.md「会话标题」）。 */
 export interface TitleRequest {

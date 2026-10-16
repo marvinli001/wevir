@@ -200,6 +200,13 @@ export const EventPayloadSchemas = {
     engineStopReason: z.string().optional(),
     durationMs: z.int().min(0),
   }),
+  /**
+   * 回合被撤回（0.38.0，`session.rewind`）：这个回合（会话最后一个完成的回合）的用户消息与回答从消息记录里去掉，引擎的上下文也回到
+   * 它之前。事件本身还在事件流里。
+   */
+  'turn.rewound': z.object({
+    turnId: TurnIdSchema,
+  }),
   'assistant.delta': z.object({
     turnId: TurnIdSchema,
     streamId: StreamIdSchema,
@@ -449,6 +456,7 @@ export const SessionStateChangedEventSchema = eventSchema('session.state_changed
 export const UserMessageEventSchema = eventSchema('user.message');
 export const TurnStartedEventSchema = eventSchema('turn.started');
 export const TurnFinishedEventSchema = eventSchema('turn.finished');
+export const TurnRewoundEventSchema = eventSchema('turn.rewound');
 export const AssistantDeltaEventSchema = eventSchema('assistant.delta');
 export const AssistantStreamEndedEventSchema = eventSchema('assistant.stream_ended');
 export const AssistantMessageEventSchema = eventSchema('assistant.message');
@@ -491,6 +499,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   UserMessageEventSchema,
   TurnStartedEventSchema,
   TurnFinishedEventSchema,
+  TurnRewoundEventSchema,
   AssistantDeltaEventSchema,
   AssistantStreamEndedEventSchema,
   AssistantMessageEventSchema,

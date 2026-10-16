@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.37.0`（计划的流式预览；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
+> 状态：v0（T1.2）· 协议版本 `0.38.0`（分支到新会话与撤回最后一个回合；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -117,7 +117,8 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `session.cancel` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
 | `session.close` | `session.write` | `sessionId` | `{}` | `SESSION_NOT_FOUND`、`INVALID_STATE` |
 | `session.resume` | `session.write` | `sessionId` | `session` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`PROVIDER_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
-| `session.fork` | `session.write` | `sessionId, side` | `session` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.fork` | `session.write` | `sessionId, side?, turnId?` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
+| `session.rewind` | `session.write` | `sessionId, turnId` | `seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.compact` | `session.write` | `sessionId` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.review` | `session.write` | `sessionId, target` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`INVALID_PARAMS`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.setGoal` | `session.write` | `sessionId, objective, tokenBudget?` | `turnId, seq` | `SESSION_NOT_FOUND`、`SESSION_BUSY`、`INVALID_STATE`、`INVALID_PARAMS`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
@@ -184,6 +185,8 @@ Host → 客户端的通知：
 - **`account.logout`**：登出（引擎删除本机凭据并尽力吊销令牌），没登录时同样成功。`chatgpt` Provider 与用它的会话保留，之后的回合失败（`missing_credentials`），重新登录即可继续。
 - **`session.create`**：`modelId` 省略时用 Provider 的 `defaultModelId`。0.16.0 起可带 `origin`（建议的后续任务，domain-model §3.11）：`workspaceId` 要与提出建议的会话相同、这项建议还没开始，否则 `INVALID_PARAMS`；建好后在提出建议的会话里写 `task.started`。0.15.0 起可带 `environmentId`（domain-model §3.10）：`workspaceId` 必须是环境的主文件夹；Host 先按环境准备目录（worktree），再建引擎会话，任何一步失败都回 `INVALID_PARAMS` 并删掉已建的 worktree。0.18.0 起可带 `worktree: 'new'`（Host 功能 `session_worktree`）：不用环境，在工作区的仓库里给这个会话单独新开一个 worktree，失败同样回 `INVALID_PARAMS`、不留 worktree；不能与 `environmentId` 同时给，`none` 与省略相同。Host 先建引擎会话，成功后才写 `session.created`（`seq = 1`），返回的 `session.state` 为 `idle`、`lastSeq` 为 1。引擎失败回 `ENGINE_ERROR`，不建会话。
 - **`session.fork`**（0.17.0，Host 功能 `side_sessions`，domain-model §3.12）：从会话分出一个支线会话，`side` 现在只能是 `true`。被分的会话是子会话、支线、只读，或还没有完成的回合时回 `INVALID_STATE`；回合进行中也可以分，支线带着到最近一个完成的回合为止的上下文。返回的新会话 `idle`、带 `forkedFrom` 与 `side`，它的事件流从 `session.created` 开始；支线不进 `session.list`。
+- **分支：`session.fork` 不带 `side`**（0.38.0，Host 功能 `session_branches`，domain-model §3.18）：分支到新会话。新会话是普通的顶层会话（进 `session.list`，引擎会话持久化），带着被分会话到 `turnId` 那个完成的回合为止的消息记录：事件流是 `session.created`（带 `forkedFrom: { sessionId, turnId }`，没有 `side`），接着抄来的那段历史（`seq` 重新编号，`ts` 与 `payload` 照旧，会话自己的事实、审批与提问不抄），再是标题（同被分的会话）。`turnId` 省略时到最近一个完成的回合；不是这个会话完成的（没被撤回的）回合时回 `INVALID_PARAMS`，支线带 `turnId` 同样。回合进行中也可以分。会话所在的引擎不能分支（`engineFeatures` 的 `branch`）、那个回合在最近一次接力之前、刚接力还没发过消息时回 `INVALID_STATE`。
+- **`session.rewind`**（0.38.0，Host 功能 `session_rewind`，domain-model §3.18）：撤回会话最后一个完成的回合，客户端用它编辑重发最后一条用户消息（撤回之后照常 `session.send`）。`turnId` 必须是最后一个没撤回的完成的回合，否则 `INVALID_STATE`；回合进行中回 `SESSION_BUSY`；子会话、支线、只读、出错或已关闭的会话，引擎不能撤回（`engineFeatures` 的 `rewind`），或那个回合在最近一次接力之前时回 `INVALID_STATE`。引擎会话没挂着时 Host 先自动恢复，引擎撤回之后写 `turn.rewound`，结果是它的 `seq`；引擎失败时回 `ENGINE_ERROR`、不写事件。会话目录里的文件不动。
 - **`session.compact`**（0.24.0，Host 功能 `session_compact`，domain-model §4.7）：立即压缩会话的上下文。开始一个由命令开始的回合：没有 `user.message`，`turn.started` 带 `command: { kind: 'compact' }`，回合里引擎报 `context.compacting` 与 `context.compacted`（`trigger: 'manual'`），之后照常 `turn.finished`。前提与 `session.send` 相同：会话空闲（回合进行中回 `SESSION_BUSY`，不排队），已关闭或出错时先 `session.resume`（否则 `INVALID_STATE`），只读与子会话 `INVALID_STATE`；引擎会话没挂着时 Host 先自动恢复。会话所在的引擎不能压缩时回 `INVALID_STATE`，不写事件；0.27.0 起 `host.hello` 的 `engineFeatures` 的 `commands`（`compact`、`review`）事先说明哪种 Provider 的引擎会，客户端按会话当前的 Provider 查，只列出会的命令。Codex：`thread/compact/start`；Claude：发 `/compact`。结果是开始的回合与它的 `turn.started` 的 `seq`。引擎在上下文快满时自己压缩（不经这个方法）同样报这两个事件，`trigger: 'auto'`，在普通回合中间。
 - **`session.review`**（0.24.0，Host 功能 `session_review`）：代码审查。`target: 'uncommitted'` 看工作树里暂存、未暂存与未跟踪的改动；`'branch'` 看当前分支对基础分支的改动，基础分支由 Host 找（同 `workspace.diff` 的 `branch`：origin 的 HEAD，再试 main、master 与 origin 上的同名分支），找不到时 `INVALID_PARAMS`。会话目录不是 git 仓库时同样 `INVALID_PARAMS`。回合同 `session.compact`：`turn.started` 带 `command: { kind: 'review', target, baseBranch? }`，审查结果是这个回合的助手消息。其余前提与错误同 `session.compact`。Codex：`review/start`（`delivery: 'inline'`，在会话自己的 thread 上）；别的引擎不支持（`INVALID_STATE`）。
 - **`session.setGoal`**（0.35.0，Host 功能 `session_goals`，domain-model §3.16，ADR-0005 补记 20）：设会话的目标。`objective` 去掉首尾空白后不能是空的，最多 `GOAL_OBJECTIVE_MAX_CHARS`（4000，按码点，同 Codex）个字；`tokenBudget` 可选，正整数。替换原有的目标（连同用量），以目标为用户消息开始第一个回合：`user.message` 的内容就是目标，`turn.started` 带 `trigger: 'goal'`，首个回合照常起标题。之后目标进行中、会话空闲时引擎自己开回合接着做：这样的回合只有 `turn.started`（`trigger: 'goal'`）、没有 `user.message`，直到模型判定目标达成（`complete`）或受阻（`blocked`）、用户暂停或清除、预算或用量到了上限。前提同 `session.compact`（空闲，否则 `SESSION_BUSY`；只读、子会话、出错或已关闭 `INVALID_STATE`；引擎会话没挂着时先自动恢复）；会话所在的引擎没有目标时 `INVALID_STATE`，不写事件，`host.hello` 的 `engineFeatures` 的 `goals` 事先说明（目前只有 Codex）。结果同 `session.send`：开始的回合与它的 `user.message` 的 `seq`。
@@ -304,6 +307,7 @@ Host → 客户端的通知：
 | `user.message` | host |
 | `turn.started` | host |
 | `turn.finished` | host |
+| `turn.rewound` | host |
 | `assistant.delta` | engine |
 | `assistant.stream_ended` | engine |
 | `assistant.message` | engine |
@@ -468,6 +472,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.37.0`：计划的流式预览（domain-model §3.17）。新事件 `plan.delta`（`turnId`、`planId`、`text`、optional 的 `restart`）：Codex 写计划时的增量，Host 与 `assistant.delta` 同一个缓冲、同一个 60 ms 窗口合并，同一 `planId` 的 `plan.proposed` 以全文替换。新事件，不需要能力位与 Host 功能，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端按规则 5 忽略 `plan.delta`，计划照旧在 `plan.proposed` 时整份出现。新客户端连旧 Host：没有 `plan.delta`，同上。冻结样本 `compat/0.37.0.json`。
 
+`0.38.0`：分支到新会话与撤回最后一个回合（domain-model §3.18）。`session.fork` 的 `side` 变成 optional、加 optional 的 `turnId`；新方法 `session.rewind`；新事件 `turn.rewound`（`turnId`）；`EngineFeatures` 加 optional 的 `branch`、`rewind`；Host 功能 `session_branches`、`session_rewind`。放宽的参数、新方法、新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端照旧只发 `side: true`；别的客户端分出的分支会话在它那里是普通会话，消息记录照常回放；撤回的回合在它那里还在（`turn.rewound` 按规则 5 被忽略），之后的消息接在后面。新客户端连旧 Host：hello 结果里没有这两个功能，桌面端不显示“分支到新会话”与“编辑”（旧 Host 要求 `side: true`，不带时回 `INVALID_PARAMS`）。冻结样本 `compat/0.38.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -526,6 +532,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `web_tools` | 0.34.0 | `web.get`、`web.update`、`web.test`；Host 带着联网服务启动时声明（`wevir-host` 总是带，与引擎无关；联网工具只挂在 Codex 上，web-tools.md §5） |
 | `session_goals` | 0.35.0 | `session.setGoal`、`session.updateGoal`、`session.clearGoal`，`session.goal_changed` 事件，`Session.goal`，`turn.started` 的 `trigger`（Codex、echo 引擎；会话所在的引擎没有目标时 `INVALID_STATE`，看 `engineFeatures` 的 `goals`） |
 | `plan_mode` | 0.36.0 | 计划模式：`session.send` 的 `collaborationMode`、`user.message` / 待发消息 / `Session` 的 `collaborationMode` 与 `plan.proposed` 事件（0.37.0 起写的时候还有 `plan.delta`；Codex、Claude、echo 引擎；`engineFeatures` 的 `planMode` 说哪种 Provider 的引擎有，没有时 `session.send` 回 `INVALID_PARAMS`） |
+| `session_branches` | 0.38.0 | 分支到新会话：`session.fork` 不带 `side`、可带 `turnId`（Codex、echo 引擎；`engineFeatures` 的 `branch` 说哪种 Provider 的引擎能分支，没有时 `INVALID_STATE`） |
+| `session_rewind` | 0.38.0 | 撤回最后一个回合：`session.rewind` 与 `turn.rewound` 事件（Codex、echo 引擎；`engineFeatures` 的 `rewind`，没有时 `INVALID_STATE`） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

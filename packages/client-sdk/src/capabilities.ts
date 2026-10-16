@@ -75,3 +75,25 @@ export function planModeSupported(
 ): boolean {
   return hostSupports(features, 'plan_mode') && engine?.planMode === true;
 }
+
+/**
+ * 会话能不能分支到新会话（0.38.0，`session.fork` 不带 `side`）：Host 声明了 `session_branches`，且会话当前的引擎能分支
+ * （`engineFeatures` 的 `branch`）。
+ */
+export function branchSupported(
+  features: HostFeatures,
+  engine: EngineFeatures | undefined,
+): boolean {
+  return hostSupports(features, 'session_branches') && engine?.branch === true;
+}
+
+/**
+ * 会话能不能撤回最后一个回合（0.38.0，`session.rewind`，编辑重发最后一条用户消息）：Host 声明了 `session_rewind`，且会话当前的
+ * 引擎能撤回（`engineFeatures` 的 `rewind`）。
+ */
+export function rewindSupported(
+  features: HostFeatures,
+  engine: EngineFeatures | undefined,
+): boolean {
+  return hostSupports(features, 'session_rewind') && engine?.rewind === true;
+}
