@@ -11,14 +11,17 @@
  *     <目录> 下每个子目录是一个平台（`darwin-arm64`、`darwin-x64`、`win32-x64`，与 src/main/updates/feed.ts 的
  *     `<平台>-<架构>` 一致），里面是 electron-builder 的产物与签过名的清单（`<清单>.sig`，update-signing.ts sign）。
  *     上传到每条线路的 `desktop/<平台>-<架构>/`：
- *       1. 安装包与 blockmap 传到所有线路；
+ *       1. 安装包与 blockmap 传到所有线路；全球线路再经 CDN 逐个下载核对，与本地一致才往下走（waitForCdn）；
  *       2. 都成功后核对每条线路上同通道的现有清单，版本不比这次低就整个停下（只许更高的版本覆盖）；
- *       3. 逐条线路写清单与 `.sig`，全球线路随后清 CDN 缓存（Bunny 的 S3 接口不收 Cache-Control）；
- *       4. 清理：开发版与正式版各留最新的 KEEP_VERSIONS 个版本，再加上清单正引用的。
+ *       3. 逐条线路写清单与 `.sig`，全球线路随后清 CDN 缓存（Bunny 的 S3 接口不收 Cache-Control）并同样核对；
+ *       4. 清理：开发版与正式版各留最新的 KEEP_VERSIONS 个版本，再加上清单正引用的；以前的固定名字安装包也删掉。
+ *     安装包的名字都带版本，发出去就不再改写：Bunny 存储覆盖同名文件后，CDN 回源会在一段时间里拿到新旧混杂
+ *     或不完整的内容（2026-10-16 固定名字的 dmg 就这样坏过），所以不再有覆盖写的安装包，下载页按清单链接。
  *     线路的连接信息来自环境变量（见 MIRRORS），用 AWS CLI（GitHub 的 Ubuntu runner 自带）。
  */
 import { execFileSync, spawnSync } from 'node:child_process';
-import { appendFileSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, createReadStream, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -107,19 +110,16 @@ export function versionOfFile(name: string): string | undefined {
 }
 
 /**
- * 安装包的固定名字（README 的下载链接用）：版本换成通道名，`Wevir-0.1.1-beta.4-mac-arm64.dmg` → `Wevir-beta-mac-arm64.dmg`，
- * 正式版是 `Wevir-latest-…`。只给直接下载安装的文件（dmg、Windows 安装程序、AppImage、deb、rpm），更新用的 zip、blockmap
- * 与清单返回 undefined。名字里没有版本，所以清理不会删它们。
+ * 以前每次发布覆盖写的固定名字安装包（`Wevir-beta-mac-arm64.dmg`、`Wevir-latest-win-x64-setup.exe`）。
+ * 已不再生成（见文件头），清理时删掉，免得旧链接一直拿到旧版本或坏掉的缓存。
  */
-export function aliasOfFile(name: string, channel: Channel): string | undefined {
-  const version = versionOfFile(name);
-  if (version === undefined || !/\.(dmg|exe|AppImage|deb|rpm)$/.test(name)) return undefined;
-  return `Wevir-${channelName(channel)}-${name.slice(`Wevir-${version}-`.length)}`;
+export function isLegacyAlias(name: string): boolean {
+  return /^Wevir-(?:latest|beta)-(?:mac|win|linux)-/.test(name);
 }
 
 /**
  * 清理时要删的文件：开发版（预发布）与正式版分开算，各留最新的 `keep` 个，`referenced`（现有清单引用的版本）也留下；
- * 清单、签名、固定名字的安装包与认不出版本的文件都不动。
+ * 以前的固定名字安装包都删；清单、签名与认不出版本的文件不动。
  */
 export function filesToPrune(
   names: readonly string[],
@@ -133,6 +133,7 @@ export function filesToPrune(
     versions.filter((v) => v.includes('-') === prerelease).slice(0, keep);
   const kept = new Set([...referenced, ...newest(true), ...newest(false)]);
   return names.filter((name) => {
+    if (isLegacyAlias(name)) return true;
     const version = versionOfFile(name);
     return version !== undefined && !kept.has(version);
   });
@@ -318,7 +319,7 @@ function list(mirror: MirrorTarget, prefix: string): string[] {
     .filter((name) => name !== '' && !name.includes('/'));
 }
 
-async function purgeBunny(urls: readonly string[], apiKey: string): Promise<void> {
+async function purgeBunny(urls: readonly string[], apiKey: string, quiet = false): Promise<void> {
   for (const url of urls) {
     const response = await fetch(
       `https://api.bunny.net/purge?url=${encodeURIComponent(url)}&async=false`,
@@ -328,8 +329,101 @@ async function purgeBunny(urls: readonly string[], apiKey: string): Promise<void
       },
     );
     if (!response.ok) throw new Error(`purging ${url} failed: HTTP ${response.status}`);
-    console.log(`[global] purged ${url}`);
+    if (!quiet) console.log(`[global] purged ${url}`);
   }
+}
+
+// ---------- CDN 核对 ----------
+
+/** 经 CDN 核对一个文件最多等多久；Bunny 存储写完后，各地副本几分钟内才一致。 */
+export const CDN_CHECK_TIMEOUT_MS = 20 * 60_000;
+/** 两次核对之间的间隔。 */
+export const CDN_RETRY_MS = 30_000;
+/** 全球线路的安装包都核对过后，再等这么久让其他地区的存储副本跟上，然后清一次缓存才写清单。 */
+export const CDN_SETTLE_MS = 3 * 60_000;
+
+/** 文件的大小与 sha512（base64，与 electron-builder 清单的写法相同）。 */
+export interface Digest {
+  size: number;
+  sha512: string;
+}
+
+async function digestOf(chunks: AsyncIterable<Uint8Array>): Promise<Digest> {
+  const hash = createHash('sha512');
+  let size = 0;
+  for await (const chunk of chunks) {
+    hash.update(chunk);
+    size += chunk.byteLength;
+  }
+  return { size, sha512: hash.digest('base64') };
+}
+
+export function fileDigest(path: string): Promise<Digest> {
+  return digestOf(createReadStream(path));
+}
+
+export interface CdnCheck {
+  /** 下载公网地址，返回内容的大小与 sha512；HTTP 出错时抛错。 */
+  fetchDigest(url: string): Promise<Digest>;
+  purge(url: string): Promise<void>;
+  sleep(ms: number): Promise<void>;
+  now(): number;
+  log(line: string): void;
+}
+
+/**
+ * 逐个清缓存、经 CDN 下载并核对，直到内容与本地一致；超过 `timeoutMs` 还对不上就抛错（这次发布停在写清单之前）。
+ * 每次先清再取，CDN 就会重新回源，而不是一直给出第一次回源时缓存下来的半截或旧内容。
+ */
+export async function waitForCdn(
+  files: readonly { url: string; expected: Digest }[],
+  check: CdnCheck,
+  timeoutMs = CDN_CHECK_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = check.now() + timeoutMs;
+  for (const { url, expected } of files) {
+    for (let attempt = 1; ; attempt++) {
+      await check.purge(url);
+      let problem: string;
+      try {
+        const got = await check.fetchDigest(url);
+        if (got.size === expected.size && got.sha512 === expected.sha512) {
+          check.log(`[global] verified ${url}${attempt > 1 ? ` (attempt ${attempt})` : ''}`);
+          break;
+        }
+        problem =
+          got.size === expected.size
+            ? 'content differs'
+            : `${got.size} bytes, expected ${expected.size}`;
+      } catch (error) {
+        problem = error instanceof Error ? error.message : String(error);
+      }
+      if (check.now() + CDN_RETRY_MS > deadline) {
+        throw new Error(
+          `${url} still does not match the upload after ${Math.round(timeoutMs / 60_000)} minutes (${problem})`,
+        );
+      }
+      check.log(`[global] ${url}: ${problem}; retrying`);
+      await check.sleep(CDN_RETRY_MS);
+    }
+  }
+}
+
+function bunnyCheck(apiKey: string): CdnCheck {
+  return {
+    async fetchDigest(url) {
+      const response = await fetch(url);
+      if (!response.ok || response.body === null) {
+        await response.body?.cancel();
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return digestOf(response.body);
+    },
+    purge: (url) => purgeBunny([url], apiKey, true),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now(),
+    log: (line) => console.log(line),
+  };
 }
 
 async function publish(options: {
@@ -382,10 +476,37 @@ async function publish(options: {
     }
   }
 
+  // 全球线路：经 CDN 取回每个安装包，与本地一致了才写清单；客户端与下载页只在清单出现后才会请求它们。
+  const bunnyKey = process.env.BUNNY_API_KEY?.trim();
+  const globalLine = mirrors.find((mirror) => mirror.id === 'global');
+  const publicFiles = async (mirror: MirrorTarget, release: PlatformRelease, names: string[]) =>
+    Promise.all(
+      names.map(async (name) => ({
+        url: `${mirror.publicUrl}/desktop/${release.dir}/${name}`,
+        expected: await fileDigest(join(options.dir, release.dir, name)),
+      })),
+    );
+  if (globalLine && bunnyKey) {
+    const files = (
+      await Promise.all(
+        releases.map((release) => publicFiles(globalLine, release, release.payload)),
+      )
+    ).flat();
+    await waitForCdn(files, bunnyCheck(bunnyKey));
+    console.log(`[global] waiting ${CDN_SETTLE_MS / 1000}s for the other storage regions`);
+    await new Promise((resolve) => setTimeout(resolve, CDN_SETTLE_MS));
+    await purgeBunny(
+      files.map((file) => file.url),
+      bunnyKey,
+    );
+  } else if (globalLine) {
+    console.warn('[global] BUNNY_API_KEY is not set: installers are not checked through the CDN');
+  }
+
   // 2. 都传完了，再核对一次版本。
   checkNewer();
 
-  // 3. 写清单与签名（先清单后签名，两次写之间只隔一个请求）与固定名字的安装包，再清 CDN 缓存。
+  // 3. 写清单与签名（先清单后签名，两次写之间只隔一个请求），全球线路再清 CDN 缓存并核对。
   for (const mirror of mirrors) {
     const written: string[] = [];
     for (const release of releases) {
@@ -393,16 +514,16 @@ async function publish(options: {
         upload(mirror, join(options.dir, release.dir, name), keyOf(mirror, release, name), true);
         written.push(`${mirror.publicUrl}/desktop/${release.dir}/${name}`);
       }
-      // 固定名字的安装包随清单一起换成这个版本（README 的下载链接），同样不让 CDN 留旧的。
-      for (const name of release.payload) {
-        const alias = aliasOfFile(name, options.channel);
-        if (alias === undefined) continue;
-        upload(mirror, join(options.dir, release.dir, name), keyOf(mirror, release, alias), true);
-        written.push(`${mirror.publicUrl}/desktop/${release.dir}/${alias}`);
-      }
     }
-    const bunnyKey = process.env.BUNNY_API_KEY?.trim();
-    if (mirror.id === 'global' && bunnyKey) await purgeBunny(written, bunnyKey);
+    if (mirror.id === 'global' && bunnyKey) {
+      await purgeBunny(written, bunnyKey);
+      const manifests = await Promise.all(
+        releases.map((release) =>
+          publicFiles(mirror, release, [release.manifest, `${release.manifest}.sig`]),
+        ),
+      );
+      await waitForCdn(manifests.flat(), bunnyCheck(bunnyKey));
+    }
   }
 
   // 4. 清理旧版本的安装包。

@@ -169,7 +169,8 @@ jobs:
     name: 上传（${{ needs.plan.outputs.channel }} ${{ needs.plan.outputs.version }}）
     needs: [plan, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 全球线路要经 CDN 核对每个安装包，再等其他地区的存储副本跟上（release.ts 的 waitForCdn、CDN_SETTLE_MS）。
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
@@ -223,6 +224,18 @@ jobs:
           aws --version
           node apps/desktop/scripts/release.ts publish --channel ${{ needs.plan.outputs.channel }} \
             --version ${{ needs.plan.outputs.version }} --dir site/desktop
+
+      # 官网下载页在构建时读清单写进链接（线路不许跨域读时就只用它），所以每次发布后重建一次。
+      - name: 重建官网
+        env:
+          WEVIR_SITE_DEPLOY_HOOK: ${{ secrets.WEVIR_SITE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$WEVIR_SITE_DEPLOY_HOOK" ]; then
+            echo "::warning::WEVIR_SITE_DEPLOY_HOOK 没有设置，官网的下载链接要等下次部署才更新"
+            exit 0
+          fi
+          curl -fsS -X POST "$WEVIR_SITE_DEPLOY_HOOK" > /dev/null
+          echo "官网已触发重建"
 
       - name: GitHub Release（正式版）
         if: needs.plan.outputs.channel == 'stable'

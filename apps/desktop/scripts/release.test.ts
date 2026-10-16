@@ -1,14 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
-  aliasOfFile,
+  CDN_RETRY_MS,
+  type CdnCheck,
   checkPlatformDir,
   compareVersions,
+  type Digest,
   devVersion,
   filesToPrune,
+  isLegacyAlias,
   manifestFile,
   readManifest,
   stableVersionOfTag,
   versionOfFile,
+  waitForCdn,
 } from './release.js';
 
 describe('compareVersions', () => {
@@ -107,15 +111,11 @@ describe('清理', () => {
     expect(versionOfFile('beta-mac.yml')).toBeUndefined();
   });
 
-  it('安装包的固定名字：版本换成通道名，更新用的文件没有', () => {
-    expect(aliasOfFile('Wevir-0.1.1-beta.4-mac-arm64.dmg', 'dev')).toBe('Wevir-beta-mac-arm64.dmg');
-    expect(aliasOfFile('Wevir-0.1.1-beta.4-win-x64-setup.exe', 'dev')).toBe(
-      'Wevir-beta-win-x64-setup.exe',
-    );
-    expect(aliasOfFile('Wevir-0.2.0-mac-x64.dmg', 'stable')).toBe('Wevir-latest-mac-x64.dmg');
-    expect(aliasOfFile('Wevir-0.1.1-beta.4-mac-arm64.zip', 'dev')).toBeUndefined();
-    expect(aliasOfFile('Wevir-0.1.1-beta.4-win-x64-setup.exe.blockmap', 'dev')).toBeUndefined();
-    expect(aliasOfFile('beta-mac.yml', 'dev')).toBeUndefined();
+  it('认出以前的固定名字安装包', () => {
+    expect(isLegacyAlias('Wevir-beta-mac-arm64.dmg')).toBe(true);
+    expect(isLegacyAlias('Wevir-latest-win-x64-setup.exe')).toBe(true);
+    expect(isLegacyAlias('Wevir-0.1.1-beta.4-mac-arm64.dmg')).toBe(false);
+    expect(isLegacyAlias('beta-mac.yml')).toBe(false);
     expect(versionOfFile('Wevir-beta-mac-arm64.dmg')).toBeUndefined();
   });
 
@@ -143,7 +143,7 @@ describe('清理', () => {
     ]);
   });
 
-  it('正式版也只留最新几个，固定名字的安装包不动', () => {
+  it('正式版也只留最新几个，以前的固定名字安装包删掉', () => {
     const versions = ['0.1.0', '0.2.0', '0.3.0', '0.3.1-beta.4', '0.3.1-beta.7', '0.3.1-beta.9'];
     const names = [
       'latest-mac.yml',
@@ -152,8 +152,70 @@ describe('清理', () => {
       ...versions.map((v) => `Wevir-${v}-mac-arm64.dmg`),
     ];
     expect(filesToPrune(names, new Set(['0.3.0', '0.3.1-beta.9']), 2)).toEqual([
+      'Wevir-latest-mac-arm64.dmg',
+      'Wevir-beta-mac-arm64.dmg',
       'Wevir-0.1.0-mac-arm64.dmg',
       'Wevir-0.3.1-beta.4-mac-arm64.dmg',
     ]);
+  });
+});
+
+describe('waitForCdn', () => {
+  const good: Digest = { size: 10, sha512: 'good' };
+
+  /** 每个地址按顺序给出这些结果（Error 表示请求失败），时间只随 sleep 前进。 */
+  function fakeCdn(answers: Record<string, (Digest | Error)[]>) {
+    let clock = 0;
+    const purged: string[] = [];
+    const lines: string[] = [];
+    const check: CdnCheck = {
+      async fetchDigest(url) {
+        const next = answers[url]?.shift();
+        if (next === undefined) throw new Error(`unexpected fetch ${url}`);
+        if (next instanceof Error) throw next;
+        return next;
+      },
+      async purge(url) {
+        purged.push(url);
+      },
+      async sleep(ms) {
+        clock += ms;
+      },
+      now: () => clock,
+      log: (line) => lines.push(line),
+    };
+    return { check, purged, lines, elapsed: () => clock };
+  }
+
+  it('内容一致就通过，每次取之前都清缓存', async () => {
+    const cdn = fakeCdn({ a: [good], b: [good] });
+    await waitForCdn(
+      [
+        { url: 'a', expected: good },
+        { url: 'b', expected: good },
+      ],
+      cdn.check,
+    );
+    expect(cdn.purged).toEqual(['a', 'b']);
+    expect(cdn.elapsed()).toBe(0);
+  });
+
+  it('半截、内容不同或请求失败时清缓存重取，直到一致', async () => {
+    const cdn = fakeCdn({
+      a: [{ size: 7, sha512: 'x' }, { size: 10, sha512: 'old' }, new Error('HTTP 404'), good],
+    });
+    await waitForCdn([{ url: 'a', expected: good }], cdn.check);
+    expect(cdn.purged).toEqual(['a', 'a', 'a', 'a']);
+    expect(cdn.elapsed()).toBe(3 * CDN_RETRY_MS);
+    expect(cdn.lines.join('\n')).toContain('7 bytes, expected 10');
+    expect(cdn.lines.join('\n')).toContain('content differs');
+    expect(cdn.lines.at(-1)).toBe('[global] verified a (attempt 4)');
+  });
+
+  it('超时还对不上就抛错', async () => {
+    const cdn = fakeCdn({ a: Array.from({ length: 10 }, () => ({ size: 10, sha512: 'old' })) });
+    await expect(
+      waitForCdn([{ url: 'a', expected: good }], cdn.check, 2 * CDN_RETRY_MS),
+    ).rejects.toThrow(/a still does not match the upload .*content differs/);
   });
 });

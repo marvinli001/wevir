@@ -36,9 +36,9 @@ Wevir is an open-source, local-first workspace for AI coding agents. Model provi
 
 | Platform | Installer |
 | --- | --- |
-| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://download.wevir.si/desktop/darwin-arm64/Wevir-beta-mac-arm64.dmg) |
-| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://download.wevir.si/desktop/darwin-x64/Wevir-beta-mac-x64.dmg) |
-| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [Download EXE](https://download.wevir.si/desktop/win32-x64/Wevir-beta-win-x64-setup.exe) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://wevir.si/en/download/#platforms) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://wevir.si/en/download/#platforms) |
+| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [Download EXE](https://wevir.si/en/download/#platforms) |
 
 ## Run from source
 

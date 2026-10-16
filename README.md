@@ -36,9 +36,9 @@ Wevir 是开源、本地优先的 AI Agent 工作台，将模型服务、Agent �
 
 | 平台 | 安装包 |
 | --- | --- |
-| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-arm64/Wevir-beta-mac-arm64.dmg) |
-| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-x64/Wevir-beta-mac-x64.dmg) |
-| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://download.wevir.si/desktop/win32-x64/Wevir-beta-win-x64-setup.exe) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://wevir.si/download/#platforms) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://wevir.si/download/#platforms) |
+| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://wevir.si/download/#platforms) |
 
 ## 从源码运行
 

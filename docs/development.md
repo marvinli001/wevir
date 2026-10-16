@@ -219,7 +219,7 @@ pnpm --filter @wevir/desktop package
 
   流水线核对这个提交在 master 上、CI 通过，发到 `latest` 通道，另建 GitHub Release（dmg 与 exe）。
 - 三个包并行打：macOS arm64、x64（macos-latest，签名、公证，检查 `codesign`、`stapler`、`spctl`），Windows x64（windows-latest，不签名）。版本经 `package --app-version` 写进安装包，electron-builder 按它写出更新清单（`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，通道由版本的预发布标签决定）。
-- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路写完清单后经 Bunny 的 API 清 CDN 缓存。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本（正式版的 dmg 与 exe 另在 GitHub Release 上）。
+- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路传完安装包后经 CDN 逐个下载、与本地核对 sha512，对不上就清缓存重取（最多 20 分钟，超时整个停下、不写清单），都对上后再等 3 分钟让其他地区的存储副本跟上、清一次缓存，才写清单；写完清单同样清缓存并核对（`release.ts` 的 `waitForCdn`）。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本（正式版的 dmg 与 exe 另在 GitHub Release 上）。
 - 同一时间只跑一个发布，后来的排队，排队的只留最新一个。
 
 仓库要配的 secret 与 variable（Settings → Secrets and variables → Actions；`gh secret set` / `gh variable set`）：
@@ -254,7 +254,8 @@ pnpm --filter @wevir/desktop package
 
 - **两条线路**：全球 `https://download.wevir.si`、优化 `https://download2.wevir.si`，发布目录是 `<线路>/desktop/<平台>-<架构>/`（例如 `darwin-arm64`、`win32-x64`）。每次检查同时向两条线路取更新清单（`latest-mac.yml` / `latest.yml`，开发版通道另取 `beta-*`），先给出验过签的那条胜出；清单 404 当作该通道还没发布过（还没发正式版时只有 `beta-*`），两条线路上该通道的清单都不存在时显示已是最新，不报连不上；有新版本时在给出同一版本的线路之间各取安装包开头 256 KB 测速，选快的下载，下载失败换另一条重试一次。
 - **签名**：每份清单旁边有 `<清单>.sig`（Ed25519，签清单的原始字节），应用只认 `src/main/updates/keys.ts` 里的公钥，验不过就不下载；清单里每个文件的 sha512 由 electron-updater 下载后核对。私钥在维护者本机 `~/.wevir-release/update-signing-key.pem`（`node apps/desktop/scripts/update-signing.ts keygen` 生成，不进仓库，CI 用 secret），别处另生成的私钥签出来的清单客户端不认。
-- **固定名字的安装包**：每次发布在清单旁边另存一份不带版本的安装包，名字里的版本换成通道名（`Wevir-beta-mac-arm64.dmg`、`Wevir-beta-win-x64-setup.exe`，正式版是 `Wevir-latest-…`，`release.ts` 的 `aliasOfFile`），和清单一起写、一起清 CDN 缓存。README 的下载链接指向它们，版本徽章经 shields.io 读 `darwin-arm64/beta-mac.yml` 的 `version`，所以 README 不用随版本改。
+- **安装包不覆盖写**：安装包的名字都带版本，发出去就不再改写。以前每次发布另存一份固定名字的安装包（`Wevir-beta-mac-arm64.dmg` 等）覆盖写：Bunny 存储覆盖同名文件后，CDN 回源在一段时间里会拿到新旧混杂的内容，2026-10-16 固定名字的 dmg 与 exe 就这样坏过（大小对、内容一半是旧的）。现在不再生成，清理时删掉留下的（`release.ts` 的 `isLegacyAlias`）。README 的下载链接指向官网下载页，版本徽章经 shields.io 读 `darwin-arm64/beta-mac.yml` 的 `version`。
+- **官网下载页**（仓库 `wevirsi`）：构建时读两条线路的清单（两个通道取版本高的），把带版本的安装包写进链接；浏览器里再读一次清单、测速选线路，读不到（线路不许跨域读）就沿用构建时的链接。发布作业最后调 `WEVIR_SITE_DEPLOY_HOOK`（secret，Vercel 的部署钩子）重建官网，没设置时只给警告。
 - **通道**：正式版只读 `latest`；开发版读 `latest` 与 `beta`、取版本高的，所以正式版发布后开发版用户也收到它。开发版的版本号写成 `X.Y.Z-beta.N`，electron-builder 据此写 `beta-*.yml`。切换通道不降级。
 - **发布目录**：打包时带上版本，再整理并签名：
 
