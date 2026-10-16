@@ -59,6 +59,8 @@ function refs(dir: string): string[] {
 }
 
 const open = new Set<string>([SID]);
+/** 用例结束时 dispose：等没打完的快照里的 git 退出，Windows 上才删得掉临时目录。 */
+const services: TurnCheckpoints[] = [];
 function checkpoints(options: Partial<ConstructorParameters<typeof TurnCheckpoints>[0]> = {}) {
   const warnings: unknown[] = [];
   const service = new TurnCheckpoints({
@@ -66,12 +68,14 @@ function checkpoints(options: Partial<ConstructorParameters<typeof TurnCheckpoin
     onWarning: (message, fields) => warnings.push({ message, ...fields }),
     ...options,
   });
+  services.push(service);
   return { service, warnings };
 }
 
-afterEach(() => {
+afterEach(async () => {
   open.clear();
   open.add(SID);
+  await Promise.all(services.splice(0).map((service) => service.dispose()));
 });
 
 describe('TurnCheckpoints', () => {
@@ -277,6 +281,7 @@ describe('SessionManager 与方法', () => {
     const turnCheckpoints = new TurnCheckpoints({
       isOpen: (id) => storage.sessions.get(id)?.state !== 'closed',
     });
+    services.push(turnCheckpoints);
     const manager = new SessionManager({
       storage,
       events,

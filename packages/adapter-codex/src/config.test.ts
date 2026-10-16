@@ -15,6 +15,7 @@ import {
   threadConfig,
   toCodexEffort,
   tomlString,
+  windowsSandboxTable,
 } from './config.js';
 
 const deepseek: ProviderConfig = {
@@ -55,6 +56,12 @@ describe('renderConfigToml', () => {
     providers: [deepseek, openaiNamed],
     gatewayBaseURL,
     catalogFile: '/data/engines/codex/wevir-models.json',
+  });
+
+  it('Windows 上打开 Codex 的受限令牌沙箱（ADR-0005 补记 17），其他平台不写', () => {
+    expect(windowsSandboxTable('win32')).toEqual(['', '[windows]', 'sandbox = "unelevated"']);
+    expect(windowsSandboxTable('darwin')).toEqual([]);
+    expect(windowsSandboxTable('linux')).toEqual([]);
   });
 
   it('包含 ADR-0005 决策 5 与补记 1 的全部加固项', () => {

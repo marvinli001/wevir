@@ -39,6 +39,16 @@ afterAll(() => {
   extra.remove();
 });
 
+/**
+ * 在沙箱里建一个空文件。Windows 上 Codex 用 PowerShell 跑命令，`touch` 是 Git 带的 MSYS 程序，它在 Codex 的受限令牌沙箱
+ * 里起不来（CreateFileMapping 报 fatal error），所以用 PowerShell 自己的 New-Item。
+ */
+function sandboxedTouch(path: string): string {
+  return process.platform === 'win32'
+    ? `New-Item -ItemType File -Force -Path '${path}' | Out-Null`
+    : `touch ${path}`;
+}
+
 /** Codex 审查子 agent 的说明的第一句（codex-rs prompts/templates/guardian/policy_template.md）。 */
 const REVIEW_PROMPT = 'You are judging one planned coding-agent action';
 
@@ -86,7 +96,11 @@ const script: MockScript = (view) => {
   if (root !== undefined) {
     return {
       toolCalls: [
-        { kind: 'function', name: 'exec_command', args: { cmd: `touch ${join(extra.dir, root)}` } },
+        {
+          kind: 'function',
+          name: 'exec_command',
+          args: { cmd: sandboxedTouch(join(extra.dir, root)) },
+        },
       ],
     };
   }
@@ -155,8 +169,12 @@ describe.skipIf(binary === undefined)(
       const plain = await open('on_request');
       const denied = await run(plain.adapter, plain.id, plain.events, '[extra:without]');
       expect(denied.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
-      // 沙箱拦下了：命令输出是 Operation not permitted，文件没写出来。
-      expect(JSON.stringify(mock.requests.at(-1)?.body.input)).toContain('Operation not permitted');
+      // 沙箱拦下了：命令输出是权限错误（macOS 上是 Operation not permitted，Windows 上 PowerShell 报 Access to the path
+      // … is denied），文件没写出来。
+      const outputs = JSON.stringify(
+        mock.requests.at(-1)?.body.input.filter((item) => item.type === 'function_call_output'),
+      );
+      expect(outputs).toMatch(/Operation not permitted|is denied/);
       expect(existsSync(join(extra.dir, 'without'))).toBe(false);
 
       const { adapter, id, events } = await open('on_request', [extra.dir]);
@@ -164,7 +182,10 @@ describe.skipIf(binary === undefined)(
       expect(turn.at(-1)).toMatchObject({ type: 'turn.settled', outcome: 'completed' });
       expect(turn.some((e) => e.type === 'approval.requested')).toBe(false);
       expect(existsSync(join(extra.dir, 'with'))).toBe(true);
-      expect(JSON.stringify(mock.requests.at(-1)?.body)).toContain(extra.dir);
+      // 在 JSON 里比：Windows 路径的反斜杠转义成两个。
+      expect(JSON.stringify(mock.requests.at(-1)?.body)).toContain(
+        JSON.stringify(extra.dir).slice(1, -1),
+      );
     });
 
     it('自动批准：会话的模型审查，允许的执行、拒绝的失败，都不问用户', async () => {

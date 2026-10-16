@@ -193,7 +193,8 @@ describe.skipIf(binary === undefined)(
         expect(input).toContain('摘要：打过招呼。');
         expect(input).toContain('你是 Wevir 里的 Agent');
         expect(input).toContain('Besides the working directory');
-        expect(input).toContain(extra);
+        // 在 JSON 里比：Windows 路径的反斜杠转义成两个。
+        expect(input).toContain(JSON.stringify(extra).slice(1, -1));
       }
     });
 

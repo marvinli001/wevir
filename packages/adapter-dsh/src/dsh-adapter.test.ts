@@ -172,12 +172,14 @@ describe('DshAdapter', () => {
     await adapter.send(engineSessionId, text('hang'));
     const first = await events.next();
     expect(first.value).toMatchObject({ type: 'assistant.delta', text: '指南针、' });
+    // 增量走 stream tap，取消后补发的半段走 ACP 的 stdout，两条管道之间没有先后：等第二段增量到了再取消（慢的机器上
+    // 它可能晚于补发的消息，那时已被替换、不再发出）。
+    expect((await events.next()).value).toMatchObject({ type: 'assistant.delta', text: '造纸术' });
     await expectAdapterError(adapter.send(engineSessionId, text('order')), 'session_busy');
     await adapter.cancel(engineSessionId);
     await adapter.cancel(engineSessionId);
     const attemptId = `${engineSessionId}:1`;
     expect(await untilTerminal(events)).toEqual([
-      expect.objectContaining({ type: 'assistant.delta', text: '造纸术' }),
       expect.objectContaining({
         type: 'assistant.message',
         text: '指南针、造纸术',

@@ -1,7 +1,7 @@
 // 测试共用：临时数据目录上的 Storage / EventStore、各类事件的构造函数、最小 RPC 客户端，以及在进程内跑
 // runHostCli 用的假进程。只被 *.test.ts 引用，不进 index。
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -34,13 +34,22 @@ export const TURN2: TurnId = 'trn_2';
 export const STREAM: StreamId = 'stm_1';
 export const T0 = '2026-10-13T00:00:00.000Z';
 
+/**
+ * `TestRpcClient.until` 与 `waitReady` 的时限。Windows 上起进程慢一个数量级：Host 启动、`session.create` 冷启动引擎
+ * （dsh 是一整个 Node bundle）在 CI 的 runner 上会超过 5 s。
+ */
+const UNTIL_TIMEOUT_MS = process.platform === 'win32' ? 20_000 : 5000;
+
 export const identity: ClientIdentity = { deviceId: 'dev-1', clientId: 'cli-1', clientKind: 'cli' };
 
-/** 注册 beforeEach / afterEach：每个用例一个新的临时数据目录，结束时删除。 */
+/**
+ * 注册 beforeEach / afterEach：每个用例一个新的临时数据目录，结束时删除。取 native 的 realpath：Windows 的临时目录带
+ * 8.3 短名（RUNNER~1），`realpathSync` 不展开，而 Host 用的 `fs.promises.realpath` 与 git、Codex 报的都是长名。
+ */
 export function useTempDir(): () => string {
   let dir: string | undefined;
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'wevir-host-'));
+    dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'wevir-host-')));
   });
   afterEach(() => {
     if (dir) rmSync(dir, { recursive: true, force: true });
@@ -348,7 +357,7 @@ export class TestRpcClient {
     );
   }
 
-  until<T>(check: () => T | undefined, label: string, timeoutMs = 5000): Promise<T> {
+  until<T>(check: () => T | undefined, label: string, timeoutMs = UNTIL_TIMEOUT_MS): Promise<T> {
     return new Promise((resolve, reject) => {
       const listener = () => {
         const value = check();
@@ -414,7 +423,9 @@ export interface Ready {
 
 /** 等 runHostCli 往 stdout 写就绪行。 */
 export async function waitReady(out: { stdout: string }): Promise<Ready> {
-  await vi.waitFor(() => expect(out.stdout).toContain('"event":"ready"'), { timeout: 5000 });
+  await vi.waitFor(() => expect(out.stdout).toContain('"event":"ready"'), {
+    timeout: UNTIL_TIMEOUT_MS,
+  });
   const line = out.stdout.split('\n').find((l) => l.includes('"event":"ready"')) as string;
   return JSON.parse(line) as Ready;
 }

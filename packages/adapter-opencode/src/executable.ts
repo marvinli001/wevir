@@ -50,16 +50,16 @@ export function commonOpenCodeDirs(
     ];
   }
   return [
-    path.join(home, '.opencode', 'bin'),
+    path.posix.join(home, '.opencode', 'bin'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
-    path.join(home, '.local', 'bin'),
-    path.join(home, '.npm-global', 'bin'),
-    path.join(home, '.bun', 'bin'),
-    path.join(home, '.volta', 'bin'),
-    path.join(home, 'Library', 'pnpm'),
-    path.join(home, '.local', 'share', 'pnpm'),
-    path.join(home, '.local', 'share', 'mise', 'shims'),
+    path.posix.join(home, '.local', 'bin'),
+    path.posix.join(home, '.npm-global', 'bin'),
+    path.posix.join(home, '.bun', 'bin'),
+    path.posix.join(home, '.volta', 'bin'),
+    path.posix.join(home, 'Library', 'pnpm'),
+    path.posix.join(home, '.local', 'share', 'pnpm'),
+    path.posix.join(home, '.local', 'share', 'mise', 'shims'),
   ];
 }
 

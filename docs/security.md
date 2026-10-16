@@ -64,7 +64,7 @@
 - **ChatGPT 登录的范围**：OpenAI 只允许本地或开源应用用 Codex 的 app-server 登录，商业或托管服务不行；界面与 CLI 都写明“仅供个人在本机使用 Wevir 时登录”。浏览器登录的回调落在本机 `127.0.0.1:1455`（登录期间由 codex-app-server 监听，完成或取消即关闭），浏览器要在这台机器上；设备码方式在任意设备上输入码即可，码只该输入你自己刚发起的登录。
 - **命令看不到令牌**：`[shell_environment_policy]` 套用 Codex 内置的 *KEY* / *SECRET* / *TOKEN* 排除并排除 `WEVIR_*`。副作用：你 shell 配置里导出的名字含 KEY、SECRET、TOKEN 的变量（例如 `GITHUB_TOKEN`）在模型跑的命令里也看不到。
 - **用户级 skills 不进会话**：`HOME` 是你真实的家目录（命令要用 git 等配置），Codex 会读 `~/.agents/skills`；Wevir 关掉了 skills 列表，那里的 skills 不会列给模型。你在消息里显式写 `$<skill 名>` 时，Codex 会把那个 skill 放进上下文：这是有意保留的，算你主动使用自己的 skill（取舍见 codex-event-mapping.md §1.3）。工作区里的 `AGENTS.md`、`.codex/config.toml`、`.agents/skills` 照常生效，打开不可信仓库时与 §4 的提醒相同。
-- **沙箱与审批**：`workspace-write`，macOS 上是 Seatbelt，默认禁网；工作区、`$TMPDIR` 与 `/tmp` 可写。写工作区外的补丁、模型申请越出沙箱的命令要审批，卡片上是命令原文（或补丁的 diff）、工作目录与模型给的理由。“本会话内这个命令不再问”只在这个会话、这个 Codex 进程里有效（Host 或引擎重启后重新问）；没有“总是允许”。子 agent 的审批在子会话（R4）之前一律拒绝。Windows 与 Linux 的沙箱还没有在 Wevir 里实测（ADR-0005 未决事项 4）。
+- **沙箱与审批**：`workspace-write`，macOS 上是 Seatbelt，默认禁网；工作区、`$TMPDIR` 与 `/tmp` 可写。写工作区外的补丁、模型申请越出沙箱的命令要审批，卡片上是命令原文（或补丁的 diff）、工作目录与模型给的理由。“本会话内这个命令不再问”只在这个会话、这个 Codex 进程里有效（Host 或引擎重启后重新问）；没有“总是允许”。子 agent 的审批在子会话（R4）之前一律拒绝。Windows 上是 Codex 不需要管理员权限的受限令牌沙箱（`[windows] sandbox = "unelevated"`，ADR-0005 补记 17），在 CI 的 Windows runner 上验证过；Linux 的沙箱还没有在 Wevir 里实测（ADR-0005 未决事项 4）。
 - **会话标题**：第一个回合开始后，Host 把第一条消息（转义、截到约 1 KB）经同一个 Provider 的同一个模型再发一次，请它起标题（不带工具、只经本机网关），所以每个新会话多一次模型请求；不想要时用 dsh 引擎（只有截断的标题）。
 
 ## 6. 骨架阶段不做的

@@ -108,13 +108,15 @@ describe.skipIf(!binaryAvailable())(
       /** 轮询到 `probe` 给出结果（可以是异步的）为止。 */
       async function until<T>(
         probe: () => T | undefined | Promise<T | undefined>,
-        what: string,
+        what: string | (() => string),
       ): Promise<T> {
         const deadline = Date.now() + 30_000;
         for (;;) {
           const found = await probe();
           if (found !== undefined) return found;
-          if (Date.now() > deadline) throw new Error(`等待超时：${what}`);
+          if (Date.now() > deadline) {
+            throw new Error(`等待超时：${typeof what === 'string' ? what : what()}`);
+          }
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
       }
@@ -143,14 +145,19 @@ describe.skipIf(!binaryAvailable())(
         status: 'running',
       });
       // 子会话的标题由会话的模型生成（mock 回 JSON），父会话的摘要跟着变；昵称来自 thread/read。
-      const summary = await until(async () => {
-        const [item] = (await get(first.sessionId)).subagents ?? [];
-        return item?.status === 'completed' &&
-          item.nickname !== undefined &&
-          item.title.startsWith('Mock：')
-          ? item
-          : undefined;
-      }, '子会话完成、标题生成、昵称补上');
+      let lastSummary: unknown;
+      const summary = await until(
+        async () => {
+          const [item] = (await get(first.sessionId)).subagents ?? [];
+          lastSummary = item;
+          return item?.status === 'completed' &&
+            item.nickname !== undefined &&
+            item.title.startsWith('Mock：')
+            ? item
+            : undefined;
+        },
+        () => `子会话完成、标题生成、昵称补上（最后看到的摘要：${JSON.stringify(lastSummary)}）`,
+      );
       expect(summary).toMatchObject({ sessionId: child, pendingApprovals: [] });
       expect(
         (await client.request('session.list')).sessions.map((s: { id: string }) => s.id),

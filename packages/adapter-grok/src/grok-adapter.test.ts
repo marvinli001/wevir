@@ -442,7 +442,11 @@ describe('GrokAdapter：权限模式、模型与认证', () => {
     const engine = adapter.engines[0];
     process.kill(engine?.process.pid as number, 'SIGKILL');
     const { event } = await events.waitFor((e) => e.type === 'engine.exited');
-    expect(event).toMatchObject({ engineSessionId, signal: 'SIGKILL' });
+    // Windows 上被别的进程结束的子进程没有信号，只有退出码。
+    expect(event).toMatchObject({
+      engineSessionId,
+      signal: process.platform === 'win32' ? null : 'SIGKILL',
+    });
     await expect.poll(() => events.ended).toBe(true);
     await expect
       .poll(

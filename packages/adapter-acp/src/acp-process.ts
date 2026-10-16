@@ -654,6 +654,9 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       };
       launch.exit = exit;
       clearTimeout(launch.incrementalGrace);
+      // 关掉我们这端的 stdin：引擎经启动脚本起时（Windows 上 npm 的 .cmd 经 cmd.exe），退出的可能只是启动脚本，
+      // 还拿着管道的引擎读到 EOF 才会退出。
+      stdin.destroy();
       this.#lastExit = exit;
       settle(exit);
       connection.close(

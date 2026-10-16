@@ -30,8 +30,9 @@ export class TempDirs {
   readonly #roots: string[] = [];
 
   make(label: string): { root: string; home: string; workspace: string } {
-    // realpath：macOS 的临时目录在 /var 下，Codex 报的路径是 /private/var/…
-    const root = realpathSync(mkdtempSync(join(tmpdir(), `wevir-codex-${label}-`)));
+    // realpath：macOS 的临时目录在 /var 下，Codex 报的路径是 /private/var/…；Windows 的临时目录带 8.3 短名
+    // （RUNNER~1），只有 native 的 realpath 展开成 Codex 报的长名。
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), `wevir-codex-${label}-`)));
     this.#roots.push(root);
     const home = join(root, 'home');
     const workspace = join(root, 'workspace');
@@ -41,7 +42,10 @@ export class TempDirs {
   }
 
   cleanup(): void {
-    for (const root of this.#roots.splice(0)) rmSync(root, { recursive: true, force: true });
+    // 重试：Windows 上 Codex 在工作区里起的命令进程退出后，目录句柄要稍后才放开（EBUSY）。
+    for (const root of this.#roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    }
   }
 }
 
@@ -66,8 +70,21 @@ export function collectingLogger(): Required<NonNullable<CodexAdapterOptions['lo
   };
 }
 
+/**
+ * `initialize` 的时限：Windows 的 CI runner 上几个测试文件同时冷启动 codex-app-server 时，偶尔超过默认的 15 s
+ * （`INITIALIZE_TIMEOUT_MS`）。
+ */
+const TEST_INITIALIZE_TIMEOUT_MS = process.platform === 'win32' ? 60_000 : undefined;
+
 export function newAdapter(options: CodexAdapterOptions): CodexAdapter {
-  return new CodexAdapter({ providerExtra: NO_RETRIES, logger: collectingLogger(), ...options });
+  return new CodexAdapter({
+    providerExtra: NO_RETRIES,
+    logger: collectingLogger(),
+    ...(TEST_INITIALIZE_TIMEOUT_MS !== undefined && {
+      initializeTimeoutMs: TEST_INITIALIZE_TIMEOUT_MS,
+    }),
+    ...options,
+  });
 }
 
 /** 订阅一个会话，把事件收进数组（订阅结束时停止）。 */

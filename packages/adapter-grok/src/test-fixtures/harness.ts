@@ -1,17 +1,32 @@
 // adapter-grok 测试共用：假 grok（fake-grok.mjs）、临时目录、按样本读录制的帧、收集事件。
 
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { GrokAdapter, type GrokAdapterOptions } from '../grok-adapter.js';
 
-export const FAKE_GROK = fileURLToPath(new URL('./fake-grok.mjs', import.meta.url));
+const FAKE_GROK_SCRIPT = fileURLToPath(new URL('./fake-grok.mjs', import.meta.url));
 export const GROK_FIXTURES = fileURLToPath(new URL('./acp', import.meta.url));
 
 // git 不一定保留可执行位（Windows 上检出、某些 CI），测试前补上。
-chmodSync(FAKE_GROK, 0o755);
+chmodSync(FAKE_GROK_SCRIPT, 0o755);
+
+/**
+ * Windows 上起不了 .mjs（`spawn EFTYPE`）：在临时目录里放一个 `grok.cmd` 用当前的 Node 跑假 grok，与 npm 装的
+ * `grok.cmd` 一样经 shell 启动（launch.ts 的 `needsShell`）。进程退出时删掉。
+ */
+function windowsLauncher(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'wevir-grok-bin-'));
+  const launcher = join(dir, 'grok.cmd');
+  writeFileSync(launcher, `@"${process.execPath}" "${FAKE_GROK_SCRIPT}" %*\r\n`);
+  process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+  return launcher;
+}
+
+/** 假 grok 的可执行文件（`WEVIR_GROK_BIN`）。 */
+export const FAKE_GROK = process.platform === 'win32' ? windowsLauncher() : FAKE_GROK_SCRIPT;
 
 /** 一组测试的临时目录，`remove` 在 afterAll 里调用。 */
 export function tempRoot(name: string): { dir: (sub: string) => string; remove: () => void } {
@@ -22,7 +37,8 @@ export function tempRoot(name: string): { dir: (sub: string) => string; remove: 
       mkdirSync(dir, { recursive: true });
       return dir;
     },
-    remove: () => rmSync(root, { recursive: true, force: true }),
+    // 重试：Windows 上 .cmd 启动的假 grok 在 cmd.exe 被结束后才读到 EOF 退出，它的工作目录要稍后才放开。
+    remove: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 

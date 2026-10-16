@@ -75,6 +75,14 @@ export const HARDENING_TABLES: readonly string[] = [
   `exclude = ["WEVIR_*"]`,
 ];
 
+/**
+ * Windows 上 Codex 的沙箱要显式打开（`[windows] sandbox`）：没开时它认为没有平台沙箱，`workspace-write` 下工作区里的命令
+ * 与补丁也都要审批（upstream/codex/codex-rs/core/src/safety.rs）。`unelevated` 是不需要管理员权限的受限令牌沙箱。
+ */
+export function windowsSandboxTable(platform: NodeJS.Platform = process.platform): string[] {
+  return platform === 'win32' ? ['', '[windows]', 'sandbox = "unelevated"'] : [];
+}
+
 /** 一个 Wevir Provider 在 Codex 里的 Provider ID：`wevir_<id>`。 */
 export function codexProviderId(providerId: string): string {
   return `wevir_${providerId}`;
@@ -266,7 +274,7 @@ export function renderConfigToml(input: RenderConfigInput): string {
     ...(input.suggestTasks === undefined ? [] : suggestTasksToml(input.suggestTasks)),
     ...(input.historyTool === undefined ? [] : historyToolToml(input.historyTool)),
   ];
-  return `${[...top, ...HARDENING_TABLES, ...providers, ...mcp].join('\n')}\n`;
+  return `${[...top, ...HARDENING_TABLES, ...windowsSandboxTable(), ...providers, ...mcp].join('\n')}\n`;
 }
 
 /**
@@ -327,7 +335,7 @@ export function renderChatgptConfigToml(
     ...(suggestTasks === undefined ? [] : suggestTasksToml(suggestTasks)),
     ...(historyTool === undefined ? [] : historyToolToml(historyTool)),
   ];
-  return `${[...top, ...HARDENING_TABLES, ...mcp].join('\n')}\n`;
+  return `${[...top, ...HARDENING_TABLES, ...windowsSandboxTable(), ...mcp].join('\n')}\n`;
 }
 
 /** ChatGPT 会话的 `thread/start` 的 `config` 覆盖：只有推理档位（模型的元数据来自 Codex 自己的目录）。 */

@@ -189,8 +189,9 @@ export async function startMockChatgpt(): Promise<MockChatgpt> {
       const callback = new URL(redirect);
       callback.searchParams.set('code', 'code-browser');
       callback.searchParams.set('state', state);
-      // 跟着重定向走：Codex 的回调换完令牌后把浏览器带到本机的 /success，加载了它登录才算完成。
-      const response = await fetch(callback);
+      // 跟着重定向走：Codex 的回调换完令牌后把浏览器带到本机的 /success，加载了它登录才算完成。有时限：取消登录后
+      // 回调端口正在关的那一刻连上的请求可能一直没有回应（Windows CI 上见过），按失败算。
+      const response = await fetch(callback, { signal: AbortSignal.timeout(15_000) });
       await response.arrayBuffer().catch(() => {});
       return response.status;
     },

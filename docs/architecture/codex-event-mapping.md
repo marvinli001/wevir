@@ -86,6 +86,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 |---|---|---|
 | `approval_policy` / `sandbox_mode` | `on-request` / `workspace-write` | 决策 5 |
 | `approvals_reviewer` | `user`（默认值，写出来防默认变化） | 决策 5：不开 auto_review |
+| `[windows] sandbox` | `unelevated`（只在 Windows 上写） | ADR-0005 补记 17：没有它时 Codex 在 Windows 上认为没有沙箱，工作区内的命令与补丁也要审批 |
 | `check_for_update_on_startup` | `false` | 决策 5 |
 | `web_search` | `disabled` | 决策 5 |
 | `[analytics] enabled` | `false` | 决策 5 |

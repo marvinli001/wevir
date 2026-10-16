@@ -122,7 +122,7 @@ describe.skipIf(binary === undefined)('ChatGPT 进程（mock 登录服务）', {
 
       // 凭据：ChatGPT 进程的 CODEX_HOME 里的 auth.json（0600），网关进程的目录里没有。
       const authFile = join(home, 'engines', 'codex-chatgpt', 'auth.json');
-      expect(statSync(authFile).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') expect(statSync(authFile).mode & 0o777).toBe(0o600);
       expect(existsSync(join(home, 'engines', 'codex', 'auth.json'))).toBe(false);
       const config = readFileSync(join(home, 'engines', 'codex-chatgpt', 'config.toml'), 'utf8');
       expect(config).toContain('cli_auth_credentials_store = "file"');

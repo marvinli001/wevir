@@ -184,7 +184,10 @@ describe('readGitStatus', () => {
     const [first, second] = [readGitStatus(dir), readGitStatus(dir)];
     expect(first).toBe(second);
     await first;
-    expect(readGitStatus(dir)).not.toBe(first);
+    const third = readGitStatus(dir);
+    expect(third).not.toBe(first);
+    // 等它的 git 退出：Windows 上还在跑的 git 占着目录，删不掉临时目录。
+    await third;
   });
 });
 

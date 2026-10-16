@@ -6,5 +6,7 @@ export default defineProject({
   ssr: { resolve: { conditions: ['@wevir/source'] } },
   test: {
     name: 'host',
+    // Windows 上起进程（git、dsh、Host）慢一个数量级，CI 的 runner 上一个用例几次 git 就会超过默认的 5 s。
+    ...(process.platform === 'win32' && { testTimeout: 30_000 }),
   },
 });

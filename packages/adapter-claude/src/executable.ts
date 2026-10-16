@@ -45,15 +45,15 @@ export function commonClaudeDirs(
     ];
   }
   return [
-    path.join(home, '.local', 'bin'),
-    path.join(home, '.claude', 'local'),
+    path.posix.join(home, '.local', 'bin'),
+    path.posix.join(home, '.claude', 'local'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
-    path.join(home, '.npm-global', 'bin'),
-    path.join(home, '.bun', 'bin'),
-    path.join(home, '.volta', 'bin'),
-    path.join(home, 'Library', 'pnpm'),
-    path.join(home, '.local', 'share', 'pnpm'),
+    path.posix.join(home, '.npm-global', 'bin'),
+    path.posix.join(home, '.bun', 'bin'),
+    path.posix.join(home, '.volta', 'bin'),
+    path.posix.join(home, 'Library', 'pnpm'),
+    path.posix.join(home, '.local', 'share', 'pnpm'),
   ];
 }
 

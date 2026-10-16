@@ -79,7 +79,9 @@ describe('读历史的 MCP 服务', () => {
           text: index === 0 ? long : `第 ${index + 1} 条`,
         })),
       });
-      expect(statSync(historyFilePath(env.historyDir, SESSION)).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32') {
+        expect(statSync(historyFilePath(env.historyDir, SESSION)).mode & 0o777).toBe(0o600);
+      }
 
       const page1 = (await env.tool({ sessionId: SESSION })).json();
       expect(page1).toMatchObject({ total: 25, throughSeq: 40, nextPosition: 20 });

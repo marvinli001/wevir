@@ -26,6 +26,19 @@ import { fileURLToPath } from 'node:url';
 
 const env = process.env;
 const args = process.argv.slice(2);
+
+// Windows 上经 grok.cmd（cmd.exe）启动（harness.ts）：测试直接结束 cmd.exe 时这里收不到信号，跟着它退出，免得留下
+// 占着工作目录的进程。
+if (process.platform === 'win32') {
+  const launcher = process.ppid;
+  setInterval(() => {
+    try {
+      process.kill(launcher, 0);
+    } catch {
+      process.exit(0);
+    }
+  }, 100).unref();
+}
 const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = env.FAKE_GROK_FIXTURES ?? join(here, 'acp');
 
@@ -269,7 +282,8 @@ async function runReplay(requestId, sessionId, promptId, name, nth, cancelSignal
     } else if (live.kind === 'request') {
       if (responded) continue;
       const answer = await Promise.race([request(live.method, live.params), cancelSignal]);
-      if (answer === 'cancel') {
+      // 取消时客户端把未决的审批答成 cancelled；这个回复可能先于 session/cancel 读到，同样按取消结束。
+      if (answer === 'cancel' || answer.result?.outcome?.outcome === 'cancelled') {
         finish(sessionId, promptId, 'cancelled', requestId);
         return;
       }

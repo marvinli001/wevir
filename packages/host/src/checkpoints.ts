@@ -173,10 +173,14 @@ export class TurnCheckpoints {
     });
   }
 
-  /** Host 退出：停下进行中的 git，之后的调用什么都不做。 */
-  dispose(): void {
+  /**
+   * Host 退出：停下进行中的 git 并等它们退出，之后的调用什么都不做。要等：Windows 上还在跑的 git 占着工作区目录，
+   * Host 退出后马上删目录（测试的临时目录、用户删工作区）会失败。
+   */
+  async dispose(): Promise<void> {
     this.#disposed = true;
     for (const controller of this.#aborts) controller.abort();
+    await Promise.all(this.#tails.values());
   }
 
   #enqueue(sessionId: string, task: () => Promise<void>): Promise<void> {

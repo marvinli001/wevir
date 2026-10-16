@@ -353,7 +353,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 回收已建好的部分；这里的失败不掩盖原始错误。
     await rpc?.close().catch(() => {});
     accounts?.dispose();
-    turnCheckpoints?.dispose();
+    await turnCheckpoints?.dispose();
     await sessions?.dispose().catch(() => {});
     await adapter.dispose().catch(() => {});
     try {
@@ -417,8 +417,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
     });
   }
   parts.accounts?.dispose();
-  // 回合结束后的快照不再等：没打完的回合，diff 对着工作树（live）。
-  parts.checkpoints.dispose();
+  // 回合结束后的快照不再等：没打完的回合，diff 对着工作树（live）。进行中的 git 停下后等它退出（不超过预算）。
+  await beforeDeadline(parts.checkpoints.dispose(), deadline);
   // 超时的话引擎进程留给适配器自己回收（dsh 读到 stdin EOF 即退出，T3.1）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
   await step('flush_storage', () => {
