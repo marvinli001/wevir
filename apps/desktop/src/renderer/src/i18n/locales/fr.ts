@@ -1129,7 +1129,6 @@ export const messages: Messages = {
   'settings.about.channel.stable': 'Stable',
   'settings.about.channel.dev': 'Développement',
   'settings.about.update': 'Mise à jour du logiciel',
-  'settings.about.mirror': 'Ligne de téléchargement',
   'update.entry.available': 'Version {version} disponible',
   'update.entry.update': 'Mettre à jour',
   'update.entry.downloading': 'Téléchargement {percent} %',
@@ -1156,9 +1155,6 @@ export const messages: Messages = {
   'update.action.download': 'Télécharger',
   'update.action.restart': 'Redémarrer pour mettre à jour',
   'update.action.move': 'Déplacer dans Applications',
-  'update.mirror.global': 'Mondiale',
-  'update.mirror.optimized': 'Optimisée',
-  'update.mirror.latency': '{name} · {ms} ms',
 
   'suggest.title': '{count, plural, one {# tâche suggérée} other {# tâches suggérées}}',
   'suggest.startedCount': '{count, plural, one {# lancée} other {# lancées}}',

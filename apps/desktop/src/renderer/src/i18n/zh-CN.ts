@@ -1107,7 +1107,6 @@ export const zhCN = {
   'settings.about.channel.stable': '正式版',
   'settings.about.channel.dev': '开发版',
   'settings.about.update': '软件更新',
-  'settings.about.mirror': '下载线路',
   'update.entry.available': '新版本 {version}',
   'update.entry.update': '更新',
   'update.entry.downloading': '正在下载 {percent}%',
@@ -1133,9 +1132,6 @@ export const zhCN = {
   'update.action.download': '下载',
   'update.action.restart': '重启以更新',
   'update.action.move': '移到“应用程序”',
-  'update.mirror.global': '全球线路',
-  'update.mirror.optimized': '优化线路',
-  'update.mirror.latency': '{name} · {ms} ms',
 
   'suggest.title': '{count} 个建议的任务',
   'suggest.startedCount': '{count} 已开始',

@@ -1131,7 +1131,6 @@ export const messages: Messages = {
   'settings.about.channel.stable': 'Стабильный',
   'settings.about.channel.dev': 'Разработка',
   'settings.about.update': 'Обновление ПО',
-  'settings.about.mirror': 'Линия загрузки',
   'update.entry.available': 'Доступна версия {version}',
   'update.entry.update': 'Обновить',
   'update.entry.downloading': 'Загрузка {percent}%',
@@ -1157,9 +1156,6 @@ export const messages: Messages = {
   'update.action.download': 'Загрузить',
   'update.action.restart': 'Перезапустить для обновления',
   'update.action.move': 'Переместить в «Программы»',
-  'update.mirror.global': 'Глобальная',
-  'update.mirror.optimized': 'Оптимизированная',
-  'update.mirror.latency': '{name} · {ms} ms',
 
   'suggest.title':
     '{count, plural, one {# предложенная задача} few {# предложенные задачи} many {# предложенных задач} other {# предложенной задачи}}',

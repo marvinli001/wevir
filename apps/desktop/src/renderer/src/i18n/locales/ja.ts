@@ -1111,7 +1111,6 @@ export const messages: Messages = {
   'settings.about.channel.stable': '安定版',
   'settings.about.channel.dev': '開発版',
   'settings.about.update': 'ソフトウェアアップデート',
-  'settings.about.mirror': 'ダウンロード回線',
   'update.entry.available': 'バージョン {version} があります',
   'update.entry.update': 'アップデート',
   'update.entry.downloading': 'ダウンロード中 {percent}%',
@@ -1137,9 +1136,6 @@ export const messages: Messages = {
   'update.action.download': 'ダウンロード',
   'update.action.restart': '再起動してアップデート',
   'update.action.move': '「アプリケーション」に移動',
-  'update.mirror.global': 'グローバル',
-  'update.mirror.optimized': '最適化',
-  'update.mirror.latency': '{name} · {ms} ms',
 
   'suggest.title': '提案されたタスク {count} 件',
   'suggest.startedCount': '{count} 件開始済み',

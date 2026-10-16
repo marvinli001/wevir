@@ -1098,7 +1098,6 @@ export const messages: Messages = {
   'settings.about.channel.stable': '정식',
   'settings.about.channel.dev': '개발',
   'settings.about.update': '소프트웨어 업데이트',
-  'settings.about.mirror': '다운로드 회선',
   'update.entry.available': '버전 {version} 사용 가능',
   'update.entry.update': '업데이트',
   'update.entry.downloading': '다운로드 중 {percent}%',
@@ -1124,9 +1123,6 @@ export const messages: Messages = {
   'update.action.download': '다운로드',
   'update.action.restart': '다시 시작하여 업데이트',
   'update.action.move': '응용 프로그램으로 이동',
-  'update.mirror.global': '글로벌',
-  'update.mirror.optimized': '최적화',
-  'update.mirror.latency': '{name} · {ms} ms',
 
   'suggest.title': '제안된 작업 {count}개',
   'suggest.startedCount': '{count}개 시작됨',

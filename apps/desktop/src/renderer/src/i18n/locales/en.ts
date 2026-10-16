@@ -1109,7 +1109,6 @@ export const messages: Messages = {
   'settings.about.channel.stable': 'Stable',
   'settings.about.channel.dev': 'Development',
   'settings.about.update': 'Software update',
-  'settings.about.mirror': 'Download line',
   'update.entry.available': 'Version {version} available',
   'update.entry.update': 'Update',
   'update.entry.downloading': 'Downloading {percent}%',
@@ -1135,9 +1134,6 @@ export const messages: Messages = {
   'update.action.download': 'Download',
   'update.action.restart': 'Restart to update',
   'update.action.move': 'Move to Applications',
-  'update.mirror.global': 'Global',
-  'update.mirror.optimized': 'Optimized',
-  'update.mirror.latency': '{name} · {ms} ms',
 
   'suggest.title': '{count, plural, one {# suggested task} other {# suggested tasks}}',
   'suggest.startedCount': '{count} started',

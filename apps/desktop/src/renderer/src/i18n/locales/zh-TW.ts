@@ -1094,7 +1094,6 @@ export const messages: Messages = {
   'settings.about.channel.stable': '正式版',
   'settings.about.channel.dev': '開發版',
   'settings.about.update': '軟體更新',
-  'settings.about.mirror': '下載線路',
   'update.entry.available': '新版本 {version}',
   'update.entry.update': '更新',
   'update.entry.downloading': '正在下載 {percent}%',
@@ -1120,9 +1119,6 @@ export const messages: Messages = {
   'update.action.download': '下載',
   'update.action.restart': '重新啟動以更新',
   'update.action.move': '移到「應用程式」',
-  'update.mirror.global': '全球線路',
-  'update.mirror.optimized': '最佳化線路',
-  'update.mirror.latency': '{name} · {ms} ms',
 
   'suggest.title': '{count} 個建議的工作',
   'suggest.startedCount': '{count} 已開始',

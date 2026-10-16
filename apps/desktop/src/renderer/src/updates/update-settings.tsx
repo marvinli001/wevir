@@ -1,4 +1,4 @@
-// 设置 → 关于的“应用”一节（ADR-0007 补记 4）：版本、更新通道、更新状态与操作、下载线路。
+// 设置 → 关于的“应用”一节（ADR-0007 补记 4）：版本、更新通道、更新状态与操作。
 
 import { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
@@ -51,28 +51,9 @@ export function AppUpdateSettings() {
           data-testid="update-status"
           control={<UpdateAction state={state} />}
         />
-        {state.mirror !== undefined && (
-          <SettingsRow
-            title={t('settings.about.mirror')}
-            control={
-              <span className="text-xs text-muted-foreground" data-testid="update-mirror">
-                {t('update.mirror.latency', {
-                  name: mirrorName(state.mirror.id),
-                  ms: state.mirror.latencyMs,
-                })}
-              </span>
-            }
-          />
-        )}
       </div>
     </SettingsSection>
   );
-}
-
-function mirrorName(id: string): string {
-  if (id === 'global') return t('update.mirror.global');
-  if (id === 'optimized') return t('update.mirror.optimized');
-  return id;
 }
 
 function statusText(state: UpdateState): string | undefined {
