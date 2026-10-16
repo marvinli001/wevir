@@ -119,7 +119,7 @@ describe('清理', () => {
     expect(versionOfFile('Wevir-beta-mac-arm64.dmg')).toBeUndefined();
   });
 
-  it('只删没被引用、也不在最新几个里的预发布', () => {
+  it('只删没被引用、也不在最新几个里的版本', () => {
     const versions = [
       '0.1.0',
       '0.1.1-beta.1',
@@ -140,6 +140,20 @@ describe('清理', () => {
       'Wevir-0.1.1-beta.2-mac-arm64.zip.blockmap',
       'Wevir-0.0.1-beta.600-mac-arm64.zip',
       'Wevir-0.0.1-beta.600-mac-arm64.zip.blockmap',
+    ]);
+  });
+
+  it('正式版也只留最新几个，固定名字的安装包不动', () => {
+    const versions = ['0.1.0', '0.2.0', '0.3.0', '0.3.1-beta.4', '0.3.1-beta.7', '0.3.1-beta.9'];
+    const names = [
+      'latest-mac.yml',
+      'Wevir-latest-mac-arm64.dmg',
+      'Wevir-beta-mac-arm64.dmg',
+      ...versions.map((v) => `Wevir-${v}-mac-arm64.dmg`),
+    ];
+    expect(filesToPrune(names, new Set(['0.3.0', '0.3.1-beta.9']), 2)).toEqual([
+      'Wevir-0.1.0-mac-arm64.dmg',
+      'Wevir-0.3.1-beta.4-mac-arm64.dmg',
     ]);
   });
 });

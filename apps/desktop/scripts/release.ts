@@ -14,7 +14,7 @@
  *       1. 安装包与 blockmap 传到所有线路；
  *       2. 都成功后核对每条线路上同通道的现有清单，版本不比这次低就整个停下（只许更高的版本覆盖）；
  *       3. 逐条线路写清单与 `.sig`，全球线路随后清 CDN 缓存（Bunny 的 S3 接口不收 Cache-Control）；
- *       4. 清理：开发版只留清单引用的与最新的 KEEP_PRERELEASES 个预发布版本，正式版的安装包都留着。
+ *       4. 清理：开发版与正式版各留最新的 KEEP_VERSIONS 个版本，再加上清单正引用的。
  *     线路的连接信息来自环境变量（见 MIRRORS），用 AWS CLI（GitHub 的 Ubuntu runner 自带）。
  */
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -25,8 +25,8 @@ import { parseArgs } from 'node:util';
 
 export type Channel = 'stable' | 'dev';
 
-/** 每个平台目录保留的预发布版本数（不算清单正引用的）。 */
-export const KEEP_PRERELEASES = 3;
+/** 每个平台目录里开发版、正式版各保留的版本数（不算清单正引用的）。 */
+export const KEEP_VERSIONS = 2;
 
 // ---------- 版本 ----------
 
@@ -118,21 +118,23 @@ export function aliasOfFile(name: string, channel: Channel): string | undefined 
 }
 
 /**
- * 清理时要删的文件：只删预发布版本的安装包，`referenced`（现有清单引用的版本）与最新的 `keep` 个预发布版本留下；
- * 正式版、清单、签名与认不出版本的文件都不动。
+ * 清理时要删的文件：开发版（预发布）与正式版分开算，各留最新的 `keep` 个，`referenced`（现有清单引用的版本）也留下；
+ * 清单、签名、固定名字的安装包与认不出版本的文件都不动。
  */
 export function filesToPrune(
   names: readonly string[],
   referenced: ReadonlySet<string>,
   keep: number,
 ): string[] {
-  const prereleases = [
-    ...new Set(names.map(versionOfFile).filter((v): v is string => v?.includes('-') === true)),
+  const versions = [
+    ...new Set(names.map(versionOfFile).filter((v): v is string => v !== undefined)),
   ].sort((a, b) => compareVersions(b, a));
-  const kept = new Set([...referenced, ...prereleases.slice(0, keep)]);
+  const newest = (prerelease: boolean) =>
+    versions.filter((v) => v.includes('-') === prerelease).slice(0, keep);
+  const kept = new Set([...referenced, ...newest(true), ...newest(false)]);
   return names.filter((name) => {
     const version = versionOfFile(name);
-    return version?.includes('-') === true && !kept.has(version);
+    return version !== undefined && !kept.has(version);
   });
 }
 
@@ -403,7 +405,7 @@ async function publish(options: {
     if (mirror.id === 'global' && bunnyKey) await purgeBunny(written, bunnyKey);
   }
 
-  // 4. 清理旧的开发版安装包。
+  // 4. 清理旧版本的安装包。
   for (const mirror of mirrors) {
     for (const release of releases) {
       const prefix = `${mirror.root}${release.dir}/`;
@@ -413,7 +415,7 @@ async function publish(options: {
         const text = download(mirror, prefix + manifestFile(channel, release.dir));
         if (text !== undefined) referenced.add(readManifest(text).version);
       }
-      for (const name of filesToPrune(names, referenced, KEEP_PRERELEASES)) {
+      for (const name of filesToPrune(names, referenced, KEEP_VERSIONS)) {
         aws(mirror, ['s3api', 'delete-object', '--bucket', mirror.bucket, '--key', prefix + name]);
         console.log(`[${mirror.id}] deleted ${prefix + name}`);
       }

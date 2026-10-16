@@ -219,7 +219,7 @@ pnpm --filter @wevir/desktop package
 
   流水线核对这个提交在 master 上、CI 通过，发到 `latest` 通道，另建 GitHub Release（dmg 与 exe）。
 - 三个包并行打：macOS arm64、x64（macos-latest，签名、公证，检查 `codesign`、`stapler`、`spctl`），Windows x64（windows-latest，不签名）。版本经 `package --app-version` 写进安装包，electron-builder 按它写出更新清单（`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，通道由版本的预发布标签决定）。
-- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路写完清单后经 Bunny 的 API 清 CDN 缓存。最后清理：每个平台目录只留清单引用的版本与最新 3 个开发版，正式版的安装包都留着。
+- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路写完清单后经 Bunny 的 API 清 CDN 缓存。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本（正式版的 dmg 与 exe 另在 GitHub Release 上）。
 - 同一时间只跑一个发布，后来的排队，排队的只留最新一个。
 
 仓库要配的 secret 与 variable（Settings → Secrets and variables → Actions；`gh secret set` / `gh variable set`）：
