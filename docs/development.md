@@ -344,6 +344,8 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 
 插件 P1（协议 0.41.0）的全局数据在 `<数据目录>/plugins/`：`registry.json` 为 0600，含用户 MCP 的 env / headers 原值与 skills 开关；托管 skills 在 `skills/<name>/`。文件夹、SKILL.md、ZIP 或 Codex / Claude 插件包经 `skill.install` 安装，客户端结果只看得到密钥的键名与已设置标记。P1 无界面，使用 client-sdk 的类型化 request / watchPlugins；方法与默认禁用外部 skills 的规则见 [plugins.md](architecture/plugins.md)。针对性验证：`pnpm vitest run --project protocol`、`pnpm vitest run --project host plugins`、`pnpm vitest run --project client-sdk client.test.ts`、`pnpm vitest run --project adapter-codex codex-adapter.plugins-gate.integration.test.ts`；真实 Codex 测试使用仓库锁定的 app-server 与本机假模型，不需要供应商 Key。数据目录别名也会规范化；本次在 macOS 用真实 app-server 与本机假模型验证两个适配实现、MCP 审批及运行中插件变更。Windows 的临时 HOME 隔离实验因 Codex 的 dirs::home_dir 不读 HOME 而跳过，待该平台单独验证。
 
+插件 P1a（协议 0.42.0）把 Wevir 插件包装进 `<数据目录>/plugins/packages/<id>/`，注册表同样在 `registry.json`（含输入项的值）。改了清单的 zod 定义就运行 `pnpm --filter @wevir/protocol schema` 重新生成 `packages/protocol/schemas/wevir-plugin.schema.json`。针对性验证：`pnpm vitest run --project protocol plugin-manifest`、`pnpm vitest run --project host plugin-packages`；真实 Codex 例子在 `plugins.codex.integration.test.ts`（worktree 里没有 `.wevir-dev/bin` 时用 `WEVIR_CODEX_BIN` 指向主 checkout 的 app-server）。
+
 ### 5.3 日志
 
 - **Host**：`logs/host.log`，字段 `{ts, level, msg, …}`。`--log-level debug|info|warn|error`，默认 info。字段名像令牌、密钥、密码、API Key 的值替换为 `[REDACTED]`，本次启动的令牌在任何字符串里出现都替换。stderr 是终端时同时镜像一份。

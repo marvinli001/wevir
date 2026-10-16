@@ -5,6 +5,7 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
+import { crc32 } from 'node:zlib';
 import type {
   ApprovalId,
   ApprovalRequest,
@@ -443,4 +444,45 @@ export async function waitReady(out: { stdout: string }): Promise<Ready> {
   });
   const line = out.stdout.split('\n').find((l) => l.includes('"event":"ready"')) as string;
   return JSON.parse(line) as Ready;
+}
+
+/** 最小 stored ZIP，故意允许测试生成危险路径 / Unix 链接条目。 */
+export function zip(entries: Array<{ name: string; data?: string; mode?: number }>): Buffer {
+  const locals: Buffer[] = [],
+    central: Buffer[] = [];
+  let offset = 0;
+  for (const item of entries) {
+    const name = Buffer.from(item.name),
+      data = Buffer.from(item.data ?? 'x');
+    const local = Buffer.alloc(30),
+      head = Buffer.alloc(46);
+    local.writeUInt32LE(0x04034b50);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc32(data), 14);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    head.writeUInt32LE(0x02014b50);
+    head.writeUInt16LE(0x0314, 4);
+    head.writeUInt16LE(20, 6);
+    head.writeUInt32LE(crc32(data), 16);
+    head.writeUInt32LE(data.length, 20);
+    head.writeUInt32LE(data.length, 24);
+    head.writeUInt16LE(name.length, 28);
+    head.writeUInt32LE(((item.mode ?? 0o100600) << 16) >>> 0, 38);
+    head.writeUInt32LE(offset, 42);
+    locals.push(local, name, data);
+    central.push(head, name);
+    offset += local.length + name.length + data.length;
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(
+    central.reduce((n, part) => n + part.length, 0),
+    12,
+  );
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, ...central, end]);
 }

@@ -1,0 +1,8 @@
+{
+  "name": "Claude_Sample",
+  "version": "2.0.0",
+  "description": "Claude plugin fixture",
+  "author": { "name": "Fixture Author", "url": "https://example.com" },
+  "homepage": "https://example.com/claude-sample",
+  "hooks": "./hooks/hooks.json"
+}

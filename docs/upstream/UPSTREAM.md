@@ -205,14 +205,15 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 每移植一个文件（含大幅改写后仍可辨认出来源的文件）登记一行。“来源提交”写完整 SHA。
 
-插件 P1（0.41.0）新增的 Codex 格式 / 协议改写如下，均为 Apache-2.0，Copyright 2025 OpenAI；未修改 upstream，未参考 OpenWork ee，没有移植 T3 的 `$` 输入菜单。
+插件 P1（0.41.0）与 P1a（0.42.0）新增的 Codex 格式 / 协议改写如下，均为 Apache-2.0，Copyright 2025 OpenAI；未修改 upstream，未参考 OpenWork ee，没有移植 T3 的 `$` 输入菜单。
 
 | Wevir 文件 | 来源路径（openai/codex） | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|
 | `packages/host/src/plugin-skills.ts` | `codex-rs/skills/src/parser.rs`、`ext/skills/src/loader/{mod,discovery}.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | Rust 改为 TS / yaml；frontmatter、标量修复、Unicode 长度、6 层 / 2000 目录；optional agents/openai.yaml 原样保留给引擎解释 |
 | `packages/host/src/plugin-install.ts` | `codex-rs/core-plugins/src/manifest.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 只读本地 Codex / Claude 清单，skills / mcpServers 展开成 Host 实体；有界复制 / 解压与拒绝链接由 Wevir 实现，不运行 hooks / 脚本 |
 | `packages/adapter-codex/src/plugins.ts` | `codex-rs/config/src/{mcp_types,skills_config}.rs`、`app-server-protocol/src/protocol/v2/{plugin,mcp,config}.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 取配置子集生成 TOML / 热更新；禁用 Host 未启用的 skills；MCP 分页状态只投影状态与工具元数据 |
-| `packages/protocol/src/plugins.ts` | `codex-rs/config/src/mcp_types.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | Wevir 判别联合与配置子集；camelCase；密钥写入和脱敏结果分开 |
+| `packages/protocol/src/plugins.ts` | `codex-rs/config/src/mcp_types.rs`；0.42.0 起另取 `core-plugins/src/manifest.rs` 的清单字段名 | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | Wevir 判别联合与配置子集；camelCase；密钥写入和脱敏结果分开；`wevir-plugin.json` 沿用 name、version、description、skills（默认 ./skills）与 `./` 路径规则，mcpServers 换成 connectors，另加 schemaVersion、id、icon、inputs |
+| `packages/host/src/plugin-packages.ts` | `codex-rs/core-plugins/src/manifest.rs`、`codex-rs/codex-mcp/src/agent_plugin_config.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 插件 P1a（0.42.0）：Codex / Claude 包导入成 Wevir 插件，清单元数据与 interface（displayName、developerName、websiteURL、logo）映射到 Plugin，`${PLUGIN_ROOT}` / `${CLAUDE_PLUGIN_ROOT}` 换成 `${pluginDir}`，hooks、commands、agents、apps 等列为已忽略 |
 
 | Wevir 文件 | 来源路径 | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|

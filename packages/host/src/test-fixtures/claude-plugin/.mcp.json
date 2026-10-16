@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "files": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/server",
+      "args": ["--root", "${CLAUDE_PLUGIN_ROOT}/data"],
+      "env": { "FILES_KEY": "claude-env-value" }
+    }
+  }
+}

@@ -166,6 +166,7 @@ export class CodexPlugins {
     for (const name of this.#names)
       if (!names.has(name))
         edits.push({ keyPath: `mcp_servers.${name}`, value: null, mergeStrategy: 'replace' });
+    for (const secret of config.secrets ?? []) this.#secret(secret);
     for (const item of config.connectors) {
       for (const secret of Object.values(
         item.config.transport === 'stdio' ? (item.config.env ?? {}) : (item.config.headers ?? {}),

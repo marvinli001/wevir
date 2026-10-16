@@ -1,4 +1,4 @@
-# 插件：连接器与 Skills（P1，0.41.0）
+# 插件：连接器、Skills 与插件包（P1 0.41.0，P1a 0.42.0）
 
 插件是 Host 的全局配置，所有会话共用。P1 只提供协议与引擎接入，没有设置页、输入框 `$` 菜单、插件市场或 OAuth 登录。
 
@@ -8,9 +8,9 @@ Skill 是含 `SKILL.md` 的文件夹。沿用 Codex `rust-v0.162.1`、提交 `09
 
 ## 数据与安装
 
-`<数据目录>/plugins/registry.json` 保存连接器、托管 skill 与外部 skill 的开关；目录 0700，JSON 0600，临时文件写完再原子替换，写操作串行。托管 skills 在 `plugins/skills/<name>/`（普通名字直接使用，路径特殊字符编码；过长或平台保留名使用稳定散列目录）。路径按 realpath 规范化，数据目录经符号链接访问也不会把启用规则误认成另一条路径。env、headers 的值只保存在 Host，协议结果以 `{ KEY: true }` 表示已设置；更新省略的键保留，传 null 删除。HTTP URL 不接受内嵌用户名或密码，凭据用 headers。
+`<数据目录>/plugins/registry.json` 保存连接器、托管 skill 与外部 skill 的开关；目录 0700，JSON 0600，临时文件写完再原子替换，写操作串行。托管 skills 在 `plugins/skills/<name>/`（普通名字直接使用，路径特殊字符编码；过长或平台保留名使用稳定散列目录），插件包在 `plugins/packages/<id>/`（0.42.0）。路径按 realpath 规范化，数据目录经符号链接访问也不会把启用规则误认成另一条路径。env、headers 的值只保存在 Host，协议结果以 `{ KEY: true }` 表示已设置；更新省略的键保留，传 null 删除。HTTP URL 不接受内嵌用户名或密码，凭据用 headers。
 
-`skill.install { path }` 接受一个目录、单个 SKILL.md、ZIP，或含 `.codex-plugin/plugin.json` / `.claude-plugin/plugin.json` 的插件包目录。插件包读取 name、version、description、skills（默认 ./skills）、mcpServers（默认 ./.mcp.json，可行内对象）、interface，展开为独立 skills 与连接器；不保存包层。MCP JSON 采用 `{ "mcpServers": { "name": { "command": "…" } } }`，HTTP 项使用 url / headers（兼容 Codex 的 http_headers）。不执行安装脚本、不展开环境变量、不导入不支持的字段。
+`skill.install { path }` 接受一个目录（下面可有多个 skill）、单个 SKILL.md 或 ZIP。0.41.0 时它也接受 Codex / Claude 插件包并展开成散项；0.42.0 起插件包一律走 `plugin.install`（见下节），`skill.install` 遇到含 `wevir-plugin.json`、`.codex-plugin/`、`.claude-plugin/` 的来源回 INVALID_PARAMS。P1 没有发布过，没有展开过的旧数据要迁移；P1 装的散装连接器与 skills 照旧是独立项。
 
 安装先复制 / 解压到私有暂存目录，验证全部条目后发布。拒绝名字冲突、绝对或越界的包内路径、ZIP 路径穿越、符号链接与特殊文件，限制 2000 个条目、总计 64 MiB 与 32 层复制深度；失败清理暂存与已发布的本次目录。安装成功默认启用。移除只删除 Wevir 托管的 skill；用户与项目的原始文件不由 Host 删除，只可改开关。
 
@@ -31,3 +31,85 @@ Host feature `plugins` 表示注册表 API 可用，与引擎分开；EngineFeat
 方法：plugins.list；connector.add / update / remove / setEnabled；skill.install / remove / setEnabled。读需要 host.manage（包含目录与命令配置），写同样需要 host.manage。plugins.changed 是无负载的全局通知，发给调过插件方法的连接；client-sdk 的 watchPlugins 在首次连接、重连与通知后重读，并避免旧响应覆盖新结果。注册表变化不写会话事件流。
 
 验证：协议兼容样本；Host 安装、拒绝、持久化、密钥脱敏、echo 交付；真实 Codex + 本机假模型验证 MCP 工具调用、审批、skills 列表、禁用项与热更新。真实外部 MCP 服务与 OAuth 不属于本期验收。
+
+## Wevir 插件包（P1a，0.42.0）
+
+插件是 Wevir 自己的单位：一个包可以带多个连接器和多个 skills，有 id、名字、版本和图标，整体开关、整体升级和卸载。以后插件市场上架的就是这种包（市场本期不做）。散装的连接器与 skills 照旧可装；Claude / Codex 格式的包只作为导入来源，装好后同样是 Wevir 插件。
+
+### 清单 `wevir-plugin.json`
+
+放在包的根目录。zod 定义是 `packages/protocol/src/plugins.ts` 的 `WevirPluginManifestSchema`，Host、桌面端和以后的市场共用；同一份定义生成 `packages/protocol/schemas/wevir-plugin.schema.json`，插件作者在清单里写 `$schema` 指向它即可在编辑器里补全。字段名取自 Codex `core-plugins/src/manifest.rs`（`rust-v0.162.1`，`092d3acd`）与 Claude 插件清单，Wevir 用不到的（hooks、commands、agents、apps、interface 等）不搬。清单不接受未知字段。
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `$schema` | string? | 编辑器补全用，Host 不读 |
+| `schemaVersion` | `1` | 清单格式版本 |
+| `id` | string | `[a-z0-9]` 与单个 `-`，最长 64，不以 `wevir` 开头；市场里的唯一标识，安装后不变 |
+| `name` | string | 显示名，最长 128 |
+| `version` | string | semver 2.0.0 |
+| `description` | string? | 最长 1024 |
+| `author` | `{ name, url? }`? | url 为 http(s) |
+| `homepage` | string? | http(s) |
+| `license` | string? | SPDX 表达式等，最长 128 |
+| `icon` | string? | 包内 `.png` / `.svg`，最大 128 KiB；`plugins.list` 以 `data:` URL 回传 |
+| `skills` | string? | 包内目录，默认 `./skills`；下面每个含 SKILL.md 的文件夹是一个 skill，规则同 P1 |
+| `connectors` | object \| string? | `{ 名字: McpServerConfig }`，或指向包内同样形状的 JSON 文件；名字 `[a-z0-9_-]`，最长 63；字段同 P1 的 McpServerConfig（stdio：command、args、env、cwd；http：url、headers；共同：enabled、toolTimeoutSec），enabled 是安装时的默认开关 |
+| `inputs` | array? | 最多 32 项 `{ key, label, description?, secret?, required? }`；key 为 `[A-Za-z_][A-Za-z0-9_]*`，不可重复 |
+
+包内路径一律以 `./` 开头，不许有 `..` 段和反斜杠。两种占位符由 Host 在交给引擎前展开，引擎看不到占位符：
+
+- `${input:KEY}`：只能用在连接器的 args、env、headers 和 url（url 里只能在路径与查询部分，主机名里的占位符过不了 URL 校验）；KEY 必须在 inputs 里声明。没填的可选项展开成空字符串；用到没填的必填项的连接器不交给引擎，`plugins.list` 里的 Connector 带 `missingInputs`。
+- `${pluginDir}`：只能用在 stdio 连接器的 command、args、cwd、env，指向安装目录 `<数据目录>/plugins/packages/<id>`（升级后路径不变）。
+
+完整例子（测试样例 `packages/host/src/test-fixtures/wevir-plugin/`，省略了 `$schema`）：
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "sample-tools",
+  "name": "Sample tools",
+  "version": "1.0.0",
+  "description": "Test plugin with a stdio connector and a skill",
+  "author": { "name": "Wevir tests" },
+  "license": "MIT",
+  "icon": "./icon.svg",
+  "connectors": {
+    "api": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["${pluginDir}/server/mcp.mjs", "${input:REGION}"],
+      "env": { "PACKAGE_TOKEN": "${input:TOKEN}" }
+    }
+  },
+  "inputs": [
+    { "key": "TOKEN", "label": "Token", "secret": true, "required": true },
+    { "key": "REGION", "label": "Region", "description": "Data region" }
+  ]
+}
+```
+
+包的其余内容：`skills/package-canary/SKILL.md`、`server/mcp.mjs`、`icon.svg`。`$schema` 可写 schemas 文件的相对路径，Host 不读它。
+
+### 安装、升级与卸载
+
+`plugin.install { path, inputs?, replace? }` 接受插件包的文件夹或 ZIP（ZIP 允许一层导出文件夹）。复制 / 解压、条目数与大小上限、路径穿越、符号链接与特殊文件的拒绝全部复用 P1。包先在 `plugins/` 下的私有暂存目录里读清单、扫 skills、检查占位符与图标，再原子改名到 `plugins/packages/<id>/`；失败清理暂存，注册表写失败时把目录改回原样。
+
+- 同 `id` 已装时不带 `replace` 回 INVALID_PARAMS；带 `replace` 是升级：旧目录先挪开，新目录就位并写好注册表后才删除旧目录，任何一步失败都放回旧版本。升级保留插件的整体开关、仍在清单里的输入项的值、按名字对应的连接器与 skills 的开关和 ID；新增项默认打开。
+- 名字冲突：插件里的连接器在引擎里叫 `<插件 id>_<名字>`，与散装连接器互相排斥；skill 名字与已装的任何 skill（散装、外部、其他插件）冲突时拒绝安装，错误里写出冲突的名字。
+- `plugin.remove { id }` 删除安装目录与注册表里的插件和它的各项。插件里的项不能用 `connector.remove` / `skill.remove` 单独删除（错误提示卸载插件），`connector.update` 对它们只许改 enabled。
+- `plugin.setEnabled { id, enabled }` 整体开关；`connector.setEnabled` / `skill.setEnabled` 照旧是单项开关。生效 = 插件开且该项开；列表里的 enabled 是该项自己的开关，插件关着时它的连接器不交给引擎、skills 写成禁用。
+- `plugin.setInputs { id, values }` 填写输入项：只认清单声明的键，null 或空字符串清除。安装时也可在 `inputs` 里一并给出。必填项没填时插件照样装上，只是用到它的连接器不启动。值和 P1 的 env / headers 一样只存在 0600 的 `registry.json`；结果里密钥项只有 `set`，非密钥项另给 `value`。密钥项的值随引擎配置交给适配器用于日志打码。
+
+注册表里插件记清单的元数据、来源、开关、输入项声明与值、连接器的原样配置（含占位符）和 skills。引擎拿到的是展开后的配置：Codex 两个适配实现机制不变，连接器来源从“散项”变成“散项 + 启用插件里可启动的项”，插件 skills 所在目录在启用时加入 `skills/extraRoots/set`；echo 照旧报告收到的启用项。
+
+### 导入 Claude / Codex 包
+
+没有 `wevir-plugin.json`、但有 `.codex-plugin/plugin.json` 或 `.claude-plugin/plugin.json` 的包按清单转成 Wevir 插件，`source` 记 codex / claude：
+
+- `id` 取清单的 name，转小写，非字母数字换成 `-`；转不出合法 id 时拒绝。显示名取 Codex `interface.displayName`，否则 name；版本缺省 `0.0.0`（导入的版本不要求 semver）；description、author（Claude 的 author，或 Codex 的 `interface.developerName`）、homepage（或 `interface.websiteURL`）照搬，Codex 的 `interface.logo` 是包内 png / svg 时作图标。
+- 只取 skills（默认 `./skills`）与 MCP（`mcpServers`，默认 `./.mcp.json`，规则同 P1），连接器名字守插件内的名字规则；stdio 配置里的 `${CLAUDE_PLUGIN_ROOT}`（Claude）或 `${PLUGIN_ROOT}`（Codex）换成 `${pluginDir}`。导入的包没有 inputs，其他 `${…}` 原样保留。
+- 清单里其他字段（hooks、commands、agents、apps、outputStyles 等）以及根目录按约定存在的 `commands/`、`agents/`、`hooks/`、`output-styles/` 不安装，写进结果的 `ignored`。
+
+### 验证
+
+`packages/protocol/src/plugin-manifest.test.ts`：清单合法 / 非法样本，JSON Schema 与 zod 源一致。`packages/host/src/plugin-packages.test.ts`：文件夹与 ZIP 安装、升级保留输入与开关、失败升级不动旧版本、卸载清干净、整体与单项开关、缺输入项的连接器不启动、占位符展开、导入 Claude（含 `${CLAUDE_PLUGIN_ROOT}`）与 Codex 包、忽略项报告、名字冲突、单独删除被拒、重启后还在、RPC 与 echo。`plugins.codex.integration.test.ts` 在真实 app-server + 本机假模型上对两个 Codex 实现各跑一遍：装样例包后 agent 经审批调到包里 `${pluginDir}` 的 stdio 工具（收到展开后的输入项），skill 在 Codex 的 skills/list 里且进上下文；关掉插件后下一个回合没有该工具，新会话的上下文里也没有该 skill，config.toml 里没有占位符。

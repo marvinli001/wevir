@@ -70,6 +70,8 @@ Ollama（2026-10-16）：本机与 Cloud 模板用 Responses，模型由 Host `o
 
 插件 P1（0.41.0，无界面）：Host 的 `plugins.ts` 是全局注册表（`plugins/registry.json` 0600、`plugins/skills/`），`plugin-skills.ts` 按 Codex 解析 / 扫描，`plugin-install.ts` 处理目录、SKILL.md、ZIP 与 Codex / Claude 包的安全展开；协议 `plugins.ts` 将密钥输入与脱敏结果分开，client-sdk 的 `watchPlugins` 跟踪全局 `plugins.changed`。runtime-adapter 的 `plugins.ts` 是进程内含密钥的配置桥，CodexAdapter / CodexRuntime 经 adapter-codex 的 `plugins.ts` 注入与热更新，echo 可报告收到的项，其余引擎尚不支持。格式、隔离实测与验证入口见 `docs/architecture/plugins.md`、`codex-event-mapping.md` §10。
 
+插件 P1a（0.42.0，无界面）：Wevir 自己的插件包 `wevir-plugin.json`。清单的 zod 定义在 protocol 的 `plugins.ts`（只依赖 zod），`pnpm --filter @wevir/protocol schema` 生成 `packages/protocol/schemas/wevir-plugin.schema.json`，`plugin-manifest.test.ts` 检查两者一致；Host 的 `plugin-packages.ts` 读 Wevir 包并把 Claude / Codex 包导入成 Wevir 插件，`plugins.ts` 把插件装进 `plugins/packages/<id>/`（升级原子替换）、管整体 / 单项开关与输入项，交给引擎前展开 `${input:KEY}` 与 `${pluginDir}`。样例包在 `packages/host/src/test-fixtures/{wevir,claude,codex}-plugin/`。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

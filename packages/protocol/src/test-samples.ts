@@ -855,9 +855,48 @@ const skill = {
   enabled: true,
 };
 const pluginList = { connectors: [connector], skills: [skill] };
+const plugin = {
+  id: 'sample-plugin',
+  name: 'Sample plugin',
+  version: '1.2.0',
+  author: { name: 'Sample' },
+  source: 'wevir' as const,
+  enabled: true,
+  path: '/data/plugins/packages/sample-plugin',
+  inputs: [
+    { key: 'TOKEN', label: 'Token', secret: true, required: true, set: true },
+    { key: 'REGION', label: 'Region', secret: false, required: false, set: true, value: 'eu' },
+  ],
+  connectors: ['con_plugin'],
+  skills: ['skl_plugin'],
+};
+const pluginConnector = {
+  id: 'con_plugin',
+  name: 'sample-plugin_api',
+  pluginId: plugin.id,
+  missingInputs: ['TOKEN'],
+  config: {
+    transport: 'stdio' as const,
+    command: 'node',
+    args: [`\${pluginDir}/server.mjs`, `\${input:REGION}`],
+    env: { TOKEN: true as const },
+  },
+  enabled: true,
+};
+const pluginList042 = {
+  connectors: [connector, pluginConnector],
+  skills: [skill, { ...skill, id: 'skl_plugin', name: 'plugin-skill', pluginId: plugin.id }],
+  plugins: [plugin],
+};
 
 export const methodSamples: MethodSamples = {
-  'plugins.list': { params: empty, result: { valid: [pluginList], invalid: [{ connectors: [] }] } },
+  'plugins.list': {
+    params: empty,
+    result: {
+      valid: [pluginList, pluginList042],
+      invalid: [{ connectors: [] }, { ...pluginList042, plugins: [{ ...plugin, source: 'npm' }] }],
+    },
+  },
   'connector.add': {
     params: {
       valid: [
@@ -914,6 +953,34 @@ export const methodSamples: MethodSamples = {
   'skill.setEnabled': {
     params: { valid: [{ id: skill.id, enabled: false }], invalid: [{ id: skill.id }] },
     result: { valid: [{ skill }], invalid: [{}] },
+  },
+  'plugin.install': {
+    params: {
+      valid: [
+        { path: '/tmp/sample-plugin' },
+        { path: '/tmp/sample-plugin.zip', inputs: { TOKEN: 'input-only' }, replace: true },
+      ],
+      invalid: [{}, { path: '/tmp/x', inputs: { 'bad-key': 'x' } }],
+    },
+    result: {
+      valid: [
+        { plugin, ignored: [] },
+        { plugin: { ...plugin, source: 'claude' }, ignored: ['hooks', 'commands'] },
+      ],
+      invalid: [{ plugin }, { plugin: { ...plugin, inputs: undefined }, ignored: [] }],
+    },
+  },
+  'plugin.remove': { params: { valid: [{ id: plugin.id }], invalid: [{}] }, result: empty },
+  'plugin.setEnabled': {
+    params: { valid: [{ id: plugin.id, enabled: false }], invalid: [{ id: plugin.id }] },
+    result: { valid: [{ plugin }], invalid: [{}] },
+  },
+  'plugin.setInputs': {
+    params: {
+      valid: [{ id: plugin.id, values: { TOKEN: 'input-only', REGION: null } }],
+      invalid: [{ id: plugin.id }, { id: plugin.id, values: { TOKEN: 1 } }],
+    },
+    result: { valid: [{ plugin }], invalid: [{}] },
   },
   'host.hello': {
     params: {

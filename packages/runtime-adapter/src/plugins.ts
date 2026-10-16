@@ -14,6 +14,8 @@ export interface EnginePluginConfig {
   skillsRoot: string;
   connectors: Array<{ name: string; config: EngineMcpConfig; enabled: boolean }>;
   skills: Array<{ name: string; path: string; enabled: boolean }>;
+  /** 插件里密钥输入项的值（0.42.0）：展开后可能出现在 args / url 里，适配器拿去给日志打码。 */
+  secrets?: string[];
 }
 export interface EngineConnectorStatus {
   name: string;

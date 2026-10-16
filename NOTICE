@@ -197,6 +197,9 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
          codex-rs/app-server-protocol/src/protocol/v2/{plugin,mcp,config}.rs
   packages/protocol/src/plugins.ts
       <- codex-rs/config/src/mcp_types.rs
+         codex-rs/core-plugins/src/manifest.rs（0.42.0 的 wevir-plugin.json 字段名）
+  packages/host/src/plugin-packages.ts
+      <- codex-rs/core-plugins/src/manifest.rs、codex-rs/codex-mcp/src/agent_plugin_config.rs（插件 P1a，0.42.0）
 
 上述文件按 Apache License 2.0 发布，许可证全文见文末“Apache License 2.0”。
 

@@ -51,6 +51,8 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 export const HOST_FEATURES = {
   /** Host 全局连接器与 skills 注册表（0.41.0）。 */
   plugins: 'plugins',
+  /** Wevir 插件包：`plugin.*` 方法与 `plugins.list` 的 `plugins`（0.42.0）。 */
+  pluginPackages: 'plugin_packages',
   /** Ollama model discovery through Host (0.31.0). */
   providerModelDiscovery: 'provider_model_discovery',
   /**
@@ -184,6 +186,7 @@ export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
   plugins: z.boolean().optional(),
+  plugin_packages: z.boolean().optional(),
   provider_model_discovery: z.boolean().optional(),
   chatgpt_account: z.boolean().optional(),
   google_vertex: z.boolean().optional(),

@@ -1,0 +1,14 @@
+{
+  "name": "codex-sample",
+  "version": "0.3.1",
+  "apps": "./.app.json",
+  "mcpServers": {
+    "search": { "command": "python3", "args": ["${PLUGIN_ROOT}/search.py"] }
+  },
+  "interface": {
+    "displayName": "Codex Sample",
+    "developerName": "Fixture Developer",
+    "websiteURL": "https://example.com/codex-sample",
+    "logo": "./assets/logo.svg"
+  }
+}

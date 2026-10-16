@@ -277,6 +277,21 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'skill.setEnabled': async ({ id, enabled }) => ({
       skill: await plugins().setSkillEnabled(id, enabled),
     }),
+    'plugin.install': ({ path, inputs, replace }) =>
+      plugins().installPlugin(path, {
+        ...(inputs !== undefined && { inputs }),
+        ...(replace !== undefined && { replace }),
+      }),
+    'plugin.remove': async ({ id }) => {
+      await plugins().removePlugin(id);
+      return {};
+    },
+    'plugin.setEnabled': async ({ id, enabled }) => ({
+      plugin: await plugins().setPluginEnabled(id, enabled),
+    }),
+    'plugin.setInputs': async ({ id, values }) => ({
+      plugin: await plugins().setPluginInputs(id, values),
+    }),
     'workspace.list': () => ({ workspaces: storage.workspaces.list().map(toWorkspace) }),
 
     'workspace.add': async ({ rootPath, displayName }) => {

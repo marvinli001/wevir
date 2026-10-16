@@ -407,6 +407,7 @@ class Launcher implements CodexLauncher {
 
   async prepare(): Promise<CodexSpawnSpec> {
     const plugins = await this.plugins?.read();
+    for (const value of plugins?.secrets ?? []) this.#logger.addSecret?.(value);
     for (const item of plugins?.connectors ?? []) {
       for (const value of Object.values(
         item.config.transport === 'stdio' ? (item.config.env ?? {}) : (item.config.headers ?? {}),

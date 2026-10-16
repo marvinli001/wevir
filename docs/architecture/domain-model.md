@@ -892,6 +892,8 @@ Host 拥有插件注册表，不属于某个 Session。连接器 `Connector { id
 
 `plugins.changed {}` 是与 settings.updated 同类的全局通知，**不分配 seq、不写 WevirEvent**；调用过 plugins / connector / skill 方法的连接收到后重读。EngineFeatures.mcpServers / skills 表示引擎是否接收它们；Host feature plugins 只表示注册表 API 可用。
 
+**插件（0.42.0）**：`Plugin { id, name, version, description?, author?, homepage?, iconUrl?, source, enabled, path, inputs, connectors, skills }` 是 Wevir 自己的插件单位，由 `wevir-plugin.json` 描述（字段见 [plugins.md](plugins.md)「Wevir 插件包」），也可从 Claude / Codex 包导入（source 为 claude / codex）。connectors / skills 是它包含的 Connector 与 Skill 的 ID，这些项带 `pluginId`；引擎里的连接器名是 `<插件 id>_<清单里的名字>`。inputs 是 `PluginInputView { key, label, description?, secret, required, set, value? }`：密钥项只给 set，非密钥项给 value。生效 = 插件开且该项开；Connector / Skill 的 enabled 是该项自己的开关。连接器引用了没填的必填输入项时带 `missingInputs`，不交给引擎。插件里的项不能单独删除，连接器配置随插件升级更换，只能改开关。
+
 ## 4. 会话状态机
 
 ```mermaid

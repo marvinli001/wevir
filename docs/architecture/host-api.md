@@ -76,14 +76,18 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 <!-- registry:methods -->
 | 方法 | 权限 | params | result | 错误 |
 |---|---|---|---|---|
-| `plugins.list` | `host.manage` | `{}` | `connectors, skills`（密钥只回键名与 true） | |
+| `plugins.list` | `host.manage` | `{}` | `connectors, skills, plugins?`（密钥只回键名与 true；0.42.0 起总有 plugins） | |
 | `connector.add` | `host.manage` | `name, config, enabled?` | `connector` | |
 | `connector.update` | `host.manage` | `id, name?, config?, enabled?`（密钥键省略保留、null 删除） | `connector` | |
 | `connector.remove` | `host.manage` | `id` | `{}` | |
 | `connector.setEnabled` | `host.manage` | `id, enabled` | `connector` | |
-| `skill.install` | `host.manage` | `path`（目录、SKILL.md、ZIP、插件包目录） | `connectors, skills` | |
+| `skill.install` | `host.manage` | `path`（目录、SKILL.md、ZIP；0.42.0 起插件包改走 plugin.install） | `connectors, skills, plugins?` | |
 | `skill.remove` | `host.manage` | `id`（只移除托管项） | `{}` | |
 | `skill.setEnabled` | `host.manage` | `id, enabled` | `skill` | |
+| `plugin.install` | `host.manage` | `path`（Wevir / Claude / Codex 插件包的文件夹或 ZIP）、`inputs?`、`replace?` | `plugin, ignored` | 0.42.0 |
+| `plugin.remove` | `host.manage` | `id` | `{}` | 0.42.0 |
+| `plugin.setEnabled` | `host.manage` | `id, enabled` | `plugin` | 0.42.0 |
+| `plugin.setInputs` | `host.manage` | `id, values`（null 或空字符串清除） | `plugin` | 0.42.0 |
 | `host.hello` | null | `token, protocolVersion, clientKind, deviceId, clientId, capabilities` | `hostId, hostVersion, protocolVersion, minProtocolVersion, features, permissions` | §2 |
 | `host.ping` | null | `{}` | `{}` | |
 | `host.shutdown` | `host.manage` | `{}` | `{}` | |
@@ -156,7 +160,7 @@ Host → 客户端的通知：
 <!-- registry:notifications -->
 | 通知 | params |
 |---|---|
-| `plugins.changed` | `{}`（全局变化，调用过插件方法的连接重读 plugins.list；不写会话事件流） |
+| `plugins.changed` | `{}`（全局变化，调用过 plugins / plugin / connector / skill 方法的连接重读 plugins.list；不写会话事件流） |
 | `events.event` | `subscriptionId, event: WevirEvent` |
 | `account.updated` | `account: AccountState`（0.7.0；只发给调用过 `account.*` 方法的连接；订阅来源只发给声明了 `subscription_kinds` 的连接） |
 | `settings.updated` | `settings: HostSettings`（发给调用过 `settings.*` 的连接） |
@@ -489,6 +493,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.40.0`：交给用户的文件（domain-model §3.15.2）。新事件 `file.shared`（`files`、`turnId?`）；新类型 `SharedFile` 与常量 `SHARED_FILES_MAX`（20）；Host 功能 `shared_files`。应用级工具里多了 `wevir_share_file`（MCP 的工具参数，不是 Host API 的形状），不用批准。新事件，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端按规则 5 忽略 `file.shared`，看不到文件卡片，agent 的回答照常；文件就在会话的文件夹里。新客户端连旧 Host：hello 结果里没有 `shared_files`，agent 没有这个工具，收不到这个事件，不需要降级。冻结样本 `compat/0.40.0.json`。
 
+`0.42.0`：Wevir 插件包（[plugins.md](plugins.md)「Wevir 插件包」、domain-model §3.19）。新类型 Plugin、PluginInputView 与清单 WevirPluginManifest（`wevir-plugin.json`，JSON Schema 在 `packages/protocol/schemas/`）；新方法 plugin.install / remove / setEnabled / setInputs；`plugins.list` 与 `skill.install` 的结果加 optional 的 `plugins`，Connector 加 optional 的 `pluginId`、`missingInputs`，Skill 加 optional 的 `pluginId`；Host 功能 plugin_packages。行为变化：`skill.install` 不再接受插件包（`INVALID_PARAMS`，提示改用 plugin.install）；插件里的连接器与 skill 不能单独 remove，connector.update 对它们只改开关；生效 = 插件开且该项开，列表里的 enabled 是该项自己的开关。plugin.install 遇到同 id 已装且没有 `replace` 时回 `INVALID_PARAMS`；带 `replace` 是升级，保留已填的输入项与各项开关。密钥输入项的值只在 Host，结果里只有 `set`；非密钥项回 `value`。新方法与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：插件里的连接器与 skills 在它那里是普通的连接器与 skills（名字是 `<插件 id>_<名字>`），删除会被拒绝。新客户端连旧 Host：hello 结果里没有 plugin_packages，不发 plugin.*。冻结 compat/0.42.0.json 是 0.41.0 全部样本加新样本。
+
 `0.41.0`：全局连接器与 skills（[plugins.md](plugins.md)、domain-model §3.19）。新增 plugins.list、connector.add / update / remove / setEnabled、skill.install / remove / setEnabled，通知 plugins.changed，Host 功能 plugins；EngineFeatures 新增 optional 的 mcpServers / skills。所有方法权限 host.manage；新客户端先看功能位，旧 Host 不支持时不发请求，旧客户端忽略新通知。密钥输入与结果用不同 schema，结果只含键名 / true，更新省略保留、null 删除。兼容的新增方法与 optional 字段，不需要客户端能力位，最低版本仍为 0.1.0。冻结 compat/0.41.0.json 是 0.40.0 全部样本加新样本。
 
 **线缆契约（永远遵守）**
@@ -554,6 +560,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 | `shared_files` | 0.40.0 | 交给用户的文件：应用级工具 `wevir_share_file` 与 `file.shared` 事件（有应用级工具时，同 `app_tools`） |
 | `plugins` | 0.41.0 | Host 全局连接器与 skills 注册表；注入支持另看 engineFeatures.mcpServers / skills |
+| `plugin_packages` | 0.42.0 | Wevir 插件包：plugin.* 方法与 plugins.list 的 plugins |
 | `chat_sessions` | 0.39.0 | 不在项目里的会话：`session.create` 可以不带 `workspaceId`，`Workspace.kind` 的 `chats`（与引擎无关，0.39.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

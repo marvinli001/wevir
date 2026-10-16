@@ -8,14 +8,13 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { join } from 'node:path';
-import { crc32 } from 'node:zlib';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { type RunningHost, startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { parseSkill, scanSkills } from './plugin-skills.js';
 import { PluginRegistry } from './plugins.js';
-import { TestRpcClient, useTempDir } from './test-utils.js';
+import { TestRpcClient, useTempDir, zip } from './test-utils.js';
 
 const temp = useTempDir();
 const running: RunningHost[] = [];
@@ -40,47 +39,6 @@ async function registry() {
   const store = new PluginRegistry({ home, userHome, roots: () => [project], adapter });
   await store.load();
   return { home, userHome, project, adapter, store };
-}
-
-/** 最小 stored ZIP，故意允许测试生成危险路径 / Unix 链接条目。 */
-function zip(entries: Array<{ name: string; data?: string; mode?: number }>): Buffer {
-  const locals: Buffer[] = [],
-    central: Buffer[] = [];
-  let offset = 0;
-  for (const item of entries) {
-    const name = Buffer.from(item.name),
-      data = Buffer.from(item.data ?? 'x');
-    const local = Buffer.alloc(30),
-      head = Buffer.alloc(46);
-    local.writeUInt32LE(0x04034b50);
-    local.writeUInt16LE(20, 4);
-    local.writeUInt32LE(crc32(data), 14);
-    local.writeUInt32LE(data.length, 18);
-    local.writeUInt32LE(data.length, 22);
-    local.writeUInt16LE(name.length, 26);
-    head.writeUInt32LE(0x02014b50);
-    head.writeUInt16LE(0x0314, 4);
-    head.writeUInt16LE(20, 6);
-    head.writeUInt32LE(crc32(data), 16);
-    head.writeUInt32LE(data.length, 20);
-    head.writeUInt32LE(data.length, 24);
-    head.writeUInt16LE(name.length, 28);
-    head.writeUInt32LE(((item.mode ?? 0o100600) << 16) >>> 0, 38);
-    head.writeUInt32LE(offset, 42);
-    locals.push(local, name, data);
-    central.push(head, name);
-    offset += local.length + name.length + data.length;
-  }
-  const end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50);
-  end.writeUInt16LE(entries.length, 8);
-  end.writeUInt16LE(entries.length, 10);
-  end.writeUInt32LE(
-    central.reduce((n, part) => n + part.length, 0),
-    12,
-  );
-  end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...locals, ...central, end]);
 }
 
 describe('Codex skill metadata and discovery', () => {
@@ -266,52 +224,16 @@ describe('Host plugin registry', () => {
     expect((await reboot.list()).skills.map((item) => item.name)).toEqual(['single', 'zip-skill']);
   });
 
-  it.each(['.codex-plugin', '.claude-plugin'])(
-    '展开 %s 包的默认 skills / .mcp.json，与行内服务表',
-    async (marker) => {
+  it.each(['.codex-plugin/plugin.json', '.claude-plugin/plugin.json', 'wevir-plugin.json'])(
+    'skill.install 不再接受插件包（%s），提示改用 plugin.install',
+    async (manifest) => {
       const h = await registry();
       const root = join(temp(), 'package');
-      mkdirSync(join(root, marker), { recursive: true });
-      writeFileSync(
-        join(root, marker, 'plugin.json'),
-        JSON.stringify({
-          name: 'bundle',
-          version: '1.0',
-          description: 'A package',
-          interface: { displayName: 'Package' },
-        }),
-      );
+      mkdirSync(join(root, manifest, '..'), { recursive: true });
+      writeFileSync(join(root, manifest), JSON.stringify({ name: 'bundle' }));
       skill(join(root, 'skills'), 'bundled');
-      writeFileSync(
-        join(root, '.mcp.json'),
-        JSON.stringify({
-          mcpServers: {
-            package_mcp: { command: 'node', args: ['tool.mjs'], env: { KEY: 'package-secret' } },
-          },
-        }),
-      );
-      const result = await h.store.install(root);
-      expect(result.skills.map((item) => item.name)).toEqual(['bundled']);
-      expect(result.connectors[0]).toMatchObject({
-        name: 'package_mcp',
-        config: { env: { KEY: true } },
-      });
-      const inline = join(temp(), 'inline');
-      mkdirSync(join(inline, marker), { recursive: true });
-      writeFileSync(
-        join(inline, marker, 'plugin.json'),
-        JSON.stringify({
-          name: 'inline',
-          skills: [],
-          mcpServers: {
-            direct: { url: 'https://example.com/mcp', headers: { Key: 'header-secret' } },
-          },
-        }),
-      );
-      expect((await h.store.install(inline)).connectors.map((item) => item.name)).toEqual([
-        'package_mcp',
-        'direct',
-      ]);
+      await expect(h.store.install(root)).rejects.toThrow('plugin.install');
+      expect((await h.store.list()).skills).toEqual([]);
     },
   );
 
@@ -349,8 +271,8 @@ describe('Host plugin registry', () => {
     const archive = join(temp(), 'bad.zip');
     writeFileSync(archive, zip([entry]));
     await expect(store.install(archive)).rejects.toThrow();
-    expect(await store.list()).toEqual({ connectors: [], skills: [] });
-    expect(readdirSync(join(home, 'plugins'))).toEqual(['skills']);
+    expect(await store.list()).toEqual({ connectors: [], skills: [], plugins: [] });
+    expect(readdirSync(join(home, 'plugins')).sort()).toEqual(['packages', 'skills']);
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -366,7 +288,7 @@ describe('Host plugin registry', () => {
         join(packageDir, '.codex-plugin', 'plugin.json'),
         JSON.stringify({ name: 'bad', skills: './../sources' }),
       );
-      await expect(h.store.install(packageDir)).rejects.toThrow('path');
+      await expect(h.store.installPlugin(packageDir)).rejects.toThrow('path');
       const dup = join(temp(), 'dup.zip');
       writeFileSync(
         dup,

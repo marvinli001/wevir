@@ -131,6 +131,7 @@ describe('ChatGPT 账号（account.*）', () => {
     const withAccounts = await start();
     expect((await withAccounts.connect()).hello.features).toEqual({
       plugins: true,
+      plugin_packages: true,
       provider_model_discovery: true,
       pending_messages: true,
       host_settings: true,
@@ -165,6 +166,7 @@ describe('ChatGPT 账号（account.*）', () => {
     const { client, hello } = await plain.connect();
     expect(hello.features).toEqual({
       plugins: true,
+      plugin_packages: true,
       provider_model_discovery: true,
       pending_messages: true,
       host_settings: true,

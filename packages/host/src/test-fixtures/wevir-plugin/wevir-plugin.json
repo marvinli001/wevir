@@ -1,0 +1,23 @@
+{
+  "$schema": "../../../../protocol/schemas/wevir-plugin.schema.json",
+  "schemaVersion": 1,
+  "id": "sample-tools",
+  "name": "Sample tools",
+  "version": "1.0.0",
+  "description": "Test plugin with a stdio connector and a skill",
+  "author": { "name": "Wevir tests" },
+  "license": "MIT",
+  "icon": "./icon.svg",
+  "connectors": {
+    "api": {
+      "transport": "stdio",
+      "command": "node",
+      "args": ["${pluginDir}/server/mcp.mjs", "${input:REGION}"],
+      "env": { "PACKAGE_TOKEN": "${input:TOKEN}" }
+    }
+  },
+  "inputs": [
+    { "key": "TOKEN", "label": "Token", "secret": true, "required": true },
+    { "key": "REGION", "label": "Region", "description": "Data region" }
+  ]
+}

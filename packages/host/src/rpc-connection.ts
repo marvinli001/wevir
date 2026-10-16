@@ -433,7 +433,7 @@ export class RpcConnection {
         this.#respond(id, method, adaptResultForClient(method, result, this.#capabilities));
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
-        if (/^(plugins|connector|skill)\./.test(method)) this.#watchPlugins();
+        if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
       }
     }
   }

@@ -15,12 +15,14 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "schemas"
   ],
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "schema": "node scripts/plugin-schema.ts && biome format --write schemas"
   },
   "dependencies": {
     "zod": "^4.6.5"

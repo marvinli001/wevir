@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2025 OpenAI
 // 改写自 openai/codex codex-rs/core-plugins/src/manifest.rs，提交 092d3acd6bec3e3a14bdc7e7a2810ab628ab759d。
-// 修改：只读本地 Codex / Claude 包，展开成 Host 的 skills 与 MCP 配置；不执行 hooks / 安装脚本。
+// 修改：只读本地 Codex / Claude 包的清单与 MCP 配置（0.42.0 起由 plugin-packages.ts 转成 Wevir 插件）；不执行 hooks / 安装脚本。
 import { constants, createWriteStream } from 'node:fs';
 import { copyFile, lstat, mkdir, readdir, readFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { ConnectorNameSchema, type McpServerConfig, McpServerConfigSchema } from '@wevir/protocol';
+import {
+  type McpServerConfig,
+  McpServerConfigSchema,
+  WEVIR_PLUGIN_MANIFEST,
+} from '@wevir/protocol';
 import yauzl from 'yauzl';
 import { record, scanSkills } from './plugin-skills.js';
 
@@ -18,7 +22,7 @@ export function contained(root: string, path: string): boolean {
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`));
 }
 
-function member(root: string, name: string): string {
+export function member(root: string, name: string): string {
   if (
     !name ||
     name.includes('\\') ||
@@ -101,49 +105,50 @@ export async function packageRoot(root: string): Promise<string> {
     : root;
 }
 
-export async function readPackage(root: string) {
-  let manifest: Record<string, unknown> | undefined;
-  for (const dir of ['.codex-plugin', '.claude-plugin']) {
+/** Codex / Claude 插件包的清单；没有时返回 undefined。 */
+export async function readManifest(
+  root: string,
+): Promise<{ format: 'codex' | 'claude'; manifest: Record<string, unknown> } | undefined> {
+  for (const [dir, format] of [
+    ['.codex-plugin', 'codex'],
+    ['.claude-plugin', 'claude'],
+  ] as const) {
+    let manifest: Record<string, unknown>;
     try {
       manifest = record(JSON.parse(await readFile(join(root, dir, 'plugin.json'), 'utf8')));
-      break;
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-        throw new Error('Invalid plugin manifest');
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw new Error('Invalid plugin manifest');
     }
+    if (typeof manifest.name !== 'string' || !manifest.name.trim())
+      throw new Error('Plugin manifest requires a name');
+    for (const field of ['version', 'description']) {
+      if (manifest[field] !== undefined && typeof manifest[field] !== 'string')
+        throw new Error('Invalid plugin manifest metadata');
+    }
+    if (
+      manifest.interface !== undefined &&
+      (manifest.interface === null ||
+        typeof manifest.interface !== 'object' ||
+        Array.isArray(manifest.interface))
+    )
+      throw new Error('Invalid plugin interface');
+    return { format, manifest };
   }
+  return undefined;
+}
+
+/** 清单的 mcpServers（默认 ./.mcp.json，或行内服务表），转成 McpServerConfig。 */
+export async function readMcpServers(
+  root: string,
+  manifest: Record<string, unknown>,
+  names: { safeParse(value: unknown): { success: boolean } },
+): Promise<Array<{ name: string; config: McpServerConfig }>> {
   const connectors: Array<{ name: string; config: McpServerConfig }> = [];
-  if (!manifest) return { skills: await scanSkills(root, 'wevir', true), connectors };
-  if (typeof manifest.name !== 'string' || !manifest.name.trim())
-    throw new Error('Plugin manifest requires a name');
-  for (const field of ['version', 'description']) {
-    if (manifest[field] !== undefined && typeof manifest[field] !== 'string')
-      throw new Error('Invalid plugin manifest metadata');
-  }
-  if (
-    manifest.interface !== undefined &&
-    (manifest.interface === null ||
-      typeof manifest.interface !== 'object' ||
-      Array.isArray(manifest.interface))
-  )
-    throw new Error('Invalid plugin interface');
-  const paths =
-    manifest.skills === undefined
-      ? ['./skills']
-      : Array.isArray(manifest.skills)
-        ? manifest.skills
-        : [manifest.skills];
-  const skills = [];
-  const resolveManifestPath = (value: unknown): string => {
-    if (typeof value !== 'string' || !value.startsWith('./'))
-      throw new Error('Plugin paths must start with ./');
-    return member(root, value);
-  };
-  for (const path of paths)
-    skills.push(...(await scanSkills(resolveManifestPath(path), 'wevir', true)));
   let mcp = manifest.mcpServers ?? './.mcp.json';
   if (typeof mcp === 'string') {
-    const file = resolveManifestPath(mcp);
+    if (!mcp.startsWith('./')) throw new Error('Plugin paths must start with ./');
+    const file = member(root, mcp);
     try {
       mcp = JSON.parse(await readFile(file, 'utf8'));
     } catch (error) {
@@ -156,8 +161,7 @@ export async function readPackage(root: string) {
   // Codex 的行内 mcpServers 是服务表，.mcp.json / Claude 常用 mcpServers 包装。
   const servers = 'mcpServers' in data ? record(data.mcpServers) : data;
   for (const [name, value] of Object.entries(servers)) {
-    if (!ConnectorNameSchema.safeParse(name).success)
-      throw new Error('Invalid or reserved connector name');
+    if (!names.safeParse(name).success) throw new Error(`Invalid connector name "${name}"`);
     const entry = record(value);
     const allowed = new Set([
       'type',
@@ -180,17 +184,30 @@ export async function readPackage(root: string) {
       (entry.transport !== undefined &&
         !['stdio', 'http', 'streamable-http'].includes(String(entry.transport)))
     )
-      throw new Error('Unsupported plugin MCP configuration');
+      throw new Error(`Unsupported plugin MCP configuration "${name}"`);
     const parsed = McpServerConfigSchema.safeParse({
       ...entry,
       transport: entry.url === undefined ? 'stdio' : 'http',
       headers: entry.headers ?? entry.http_headers,
       toolTimeoutSec: entry.toolTimeoutSec ?? entry.tool_timeout_sec,
     });
-    if (!parsed.success) throw new Error('Invalid plugin MCP configuration');
+    if (!parsed.success) throw new Error(`Invalid plugin MCP configuration "${name}"`);
     connectors.push({ name, config: parsed.data });
   }
-  return { skills, connectors };
+  return connectors;
+}
+
+/** skill.install 的来源：skill 文件夹（可含多个）、SKILL.md 或 ZIP；插件包改走 plugin.install（0.42.0）。 */
+export async function readSkills(root: string) {
+  let isPackage = false;
+  for (const marker of [WEVIR_PLUGIN_MANIFEST, '.codex-plugin', '.claude-plugin']) {
+    try {
+      await lstat(join(root, marker));
+      isPackage = true;
+    } catch {}
+  }
+  if (isPackage) throw new Error('This is a plugin package; install it with plugin.install');
+  return scanSkills(root, 'wevir', true);
 }
 
 export async function stagePlugin(path: string, target: string): Promise<string> {
@@ -215,5 +232,5 @@ export async function stagePlugin(path: string, target: string): Promise<string>
     await unpackPlugin(path, target);
     return packageRoot(target);
   }
-  throw new Error('Install a skill folder, SKILL.md, ZIP or plugin package folder');
+  throw new Error('Install a folder, SKILL.md or ZIP');
 }
