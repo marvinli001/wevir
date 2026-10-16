@@ -8,7 +8,7 @@
 <p align="center">在一个桌面工作台里运行 Agent、跟进会话、审阅执行过程与代码变更。</p>
 
 <p align="center">
-  <a href="#downloads"><img alt="Preview v0.0.1-beta.180" src="https://img.shields.io/badge/preview-v0.0.1--beta.180-80643D?style=flat-square&logo=github&logoColor=white" /></a>
+  <a href="#downloads"><img alt="Preview" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Fbeta-mac.yml&query=%24.version&prefix=v&label=preview&color=80643D&style=flat-square&logo=github&logoColor=white" /></a>
   <img alt="macOS arm64 and x64" src="https://img.shields.io/badge/macOS-arm64%20%7C%20x64-111111?style=flat-square&logo=apple&logoColor=white" />
   <img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" />
   <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
@@ -37,13 +37,13 @@ Codex 是默认执行引擎。Host 为 API 模型服务提供内置网关，其�
 
 ## 下载与安装
 
-当前预览版：**`0.0.1-beta.180`**（安装包链接于 2026-10-16 核验）。
+当前预览版：<img alt="Preview" src="https://img.shields.io/badge/dynamic/yaml?url=https%3A%2F%2Fdownload.wevir.si%2Fdesktop%2Fdarwin-arm64%2Fbeta-mac.yml&query=%24.version&prefix=v&label=preview&color=80643D&style=flat-square&logo=github&logoColor=white" />（下面的链接总是最新的预览版）。
 
 | 平台 | 安装包 |
 | --- | --- |
-| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-arm64/Wevir-0.0.1-beta.180-mac-arm64.dmg) |
-| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-x64/Wevir-0.0.1-beta.180-mac-x64.dmg) |
-| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://download.wevir.si/desktop/win32-x64/Wevir-0.0.1-beta.180-win-x64-setup.exe) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-arm64/Wevir-beta-mac-arm64.dmg) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-x64/Wevir-beta-mac-x64.dmg) |
+| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://download.wevir.si/desktop/win32-x64/Wevir-beta-win-x64-setup.exe) |
 
 安装后，在设置中登录支持的 Agent 账户或添加模型服务。模型使用与计费按所连接服务的账户规则执行。Windows 预览版安装包目前未签名，首次启动时 Windows SmartScreen 可能会显示提示。
 

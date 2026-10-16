@@ -254,6 +254,7 @@ pnpm --filter @wevir/desktop package
 
 - **两条线路**：全球 `https://download.wevir.si`、优化 `https://download2.wevir.si`，发布目录是 `<线路>/desktop/<平台>-<架构>/`（例如 `darwin-arm64`、`win32-x64`）。每次检查同时向两条线路取更新清单（`latest-mac.yml` / `latest.yml`，开发版通道另取 `beta-*`），先给出验过签的那条胜出；清单 404 当作该通道还没发布过（还没发正式版时只有 `beta-*`），两条线路上该通道的清单都不存在时显示已是最新，不报连不上；有新版本时在给出同一版本的线路之间各取安装包开头 256 KB 测速，选快的下载，下载失败换另一条重试一次。
 - **签名**：每份清单旁边有 `<清单>.sig`（Ed25519，签清单的原始字节），应用只认 `src/main/updates/keys.ts` 里的公钥，验不过就不下载；清单里每个文件的 sha512 由 electron-updater 下载后核对。私钥在维护者本机 `~/.wevir-release/update-signing-key.pem`（`node apps/desktop/scripts/update-signing.ts keygen` 生成，不进仓库，CI 用 secret），别处另生成的私钥签出来的清单客户端不认。
+- **固定名字的安装包**：每次发布在清单旁边另存一份不带版本的安装包，名字里的版本换成通道名（`Wevir-beta-mac-arm64.dmg`、`Wevir-beta-win-x64-setup.exe`，正式版是 `Wevir-latest-…`，`release.ts` 的 `aliasOfFile`），和清单一起写、一起清 CDN 缓存。README 的下载链接指向它们，版本徽章经 shields.io 读 `darwin-arm64/beta-mac.yml` 的 `version`，所以 README 不用随版本改。
 - **通道**：正式版只读 `latest`；开发版读 `latest` 与 `beta`、取版本高的，所以正式版发布后开发版用户也收到它。开发版的版本号写成 `X.Y.Z-beta.N`，electron-builder 据此写 `beta-*.yml`。切换通道不降级。
 - **发布目录**：打包时带上版本，再整理并签名：
 

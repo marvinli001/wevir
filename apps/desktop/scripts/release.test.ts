@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  aliasOfFile,
   checkPlatformDir,
   compareVersions,
   devVersion,
@@ -104,6 +105,18 @@ describe('清理', () => {
     expect(versionOfFile('Wevir-0.1.1-beta.4-mac-arm64.zip.blockmap')).toBe('0.1.1-beta.4');
     expect(versionOfFile('Wevir-0.1.0-win-x64-setup.exe')).toBe('0.1.0');
     expect(versionOfFile('beta-mac.yml')).toBeUndefined();
+  });
+
+  it('安装包的固定名字：版本换成通道名，更新用的文件没有', () => {
+    expect(aliasOfFile('Wevir-0.1.1-beta.4-mac-arm64.dmg', 'dev')).toBe('Wevir-beta-mac-arm64.dmg');
+    expect(aliasOfFile('Wevir-0.1.1-beta.4-win-x64-setup.exe', 'dev')).toBe(
+      'Wevir-beta-win-x64-setup.exe',
+    );
+    expect(aliasOfFile('Wevir-0.2.0-mac-x64.dmg', 'stable')).toBe('Wevir-latest-mac-x64.dmg');
+    expect(aliasOfFile('Wevir-0.1.1-beta.4-mac-arm64.zip', 'dev')).toBeUndefined();
+    expect(aliasOfFile('Wevir-0.1.1-beta.4-win-x64-setup.exe.blockmap', 'dev')).toBeUndefined();
+    expect(aliasOfFile('beta-mac.yml', 'dev')).toBeUndefined();
+    expect(versionOfFile('Wevir-beta-mac-arm64.dmg')).toBeUndefined();
   });
 
   it('只删没被引用、也不在最新几个里的预发布', () => {

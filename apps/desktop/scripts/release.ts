@@ -107,6 +107,17 @@ export function versionOfFile(name: string): string | undefined {
 }
 
 /**
+ * 安装包的固定名字（README 的下载链接用）：版本换成通道名，`Wevir-0.1.1-beta.4-mac-arm64.dmg` → `Wevir-beta-mac-arm64.dmg`，
+ * 正式版是 `Wevir-latest-…`。只给直接下载安装的文件（dmg、Windows 安装程序、AppImage、deb、rpm），更新用的 zip、blockmap
+ * 与清单返回 undefined。名字里没有版本，所以清理不会删它们。
+ */
+export function aliasOfFile(name: string, channel: Channel): string | undefined {
+  const version = versionOfFile(name);
+  if (version === undefined || !/\.(dmg|exe|AppImage|deb|rpm)$/.test(name)) return undefined;
+  return `Wevir-${channelName(channel)}-${name.slice(`Wevir-${version}-`.length)}`;
+}
+
+/**
  * 清理时要删的文件：只删预发布版本的安装包，`referenced`（现有清单引用的版本）与最新的 `keep` 个预发布版本留下；
  * 正式版、清单、签名与认不出版本的文件都不动。
  */
@@ -372,13 +383,20 @@ async function publish(options: {
   // 2. 都传完了，再核对一次版本。
   checkNewer();
 
-  // 3. 写清单与签名（先清单后签名，两次写之间只隔一个请求），再清 CDN 缓存。
+  // 3. 写清单与签名（先清单后签名，两次写之间只隔一个请求）与固定名字的安装包，再清 CDN 缓存。
   for (const mirror of mirrors) {
     const written: string[] = [];
     for (const release of releases) {
       for (const name of [release.manifest, `${release.manifest}.sig`]) {
         upload(mirror, join(options.dir, release.dir, name), keyOf(mirror, release, name), true);
         written.push(`${mirror.publicUrl}/desktop/${release.dir}/${name}`);
+      }
+      // 固定名字的安装包随清单一起换成这个版本（README 的下载链接），同样不让 CDN 留旧的。
+      for (const name of release.payload) {
+        const alias = aliasOfFile(name, options.channel);
+        if (alias === undefined) continue;
+        upload(mirror, join(options.dir, release.dir, name), keyOf(mirror, release, alias), true);
+        written.push(`${mirror.publicUrl}/desktop/${release.dir}/${alias}`);
       }
     }
     const bunnyKey = process.env.BUNNY_API_KEY?.trim();
