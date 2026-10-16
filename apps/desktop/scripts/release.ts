@@ -183,6 +183,12 @@ export interface Mirror {
   /** 这条线路的 S3 接口收不收 Cache-Control（Bunny 不收）。 */
   cacheControl: boolean;
   /**
+   * 大文件能不能分片上传。Bunny 不能：它把分片上传的文件复制到其他地区的存储副本时会丢片或混进旧的分片
+   * （2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 正好少了一个 8 MiB 的分片，CDN 清缓存后回源仍是坏的），
+   * 所以全球线路每个文件都用一次 PutObject 整个传（S3 单次上限 5 GB）。
+   */
+  multipart: boolean;
+  /**
    * 公网地址就是 S3 接口（path-style，`<地址>/<桶>/<键>`）：发布目录的 `desktop/` 是桶本身，桶名必须是 `desktop`，
    * 键里不再带 `desktop/`。否则桶是公网地址的根，键是 `desktop/<平台>-<架构>/<文件>`。
    */
@@ -200,6 +206,7 @@ export const MIRRORS: readonly Mirror[] = [
     publicUrl: 'https://download.wevir.si',
     env: 'WEVIR_GLOBAL',
     cacheControl: false,
+    multipart: false,
     bucketIsDesktop: false,
   },
   {
@@ -207,6 +214,7 @@ export const MIRRORS: readonly Mirror[] = [
     publicUrl: 'https://download2.wevir.si',
     env: 'WEVIR_OPTIMIZED',
     cacheControl: true,
+    multipart: true,
     bucketIsDesktop: true,
   },
 ];
@@ -272,17 +280,35 @@ function contentType(name: string): string {
 
 function upload(mirror: MirrorTarget, file: string, key: string, noCache = false): void {
   const name = key.slice(key.lastIndexOf('/') + 1);
-  const args = [
-    's3',
-    'cp',
-    file,
-    `s3://${mirror.bucket}/${key}`,
-    '--only-show-errors',
-    '--content-type',
-    contentType(name),
-  ];
-  if (noCache && mirror.cacheControl) args.push('--cache-control', 'no-cache');
-  aws(mirror, args);
+  const cache = noCache && mirror.cacheControl ? ['--cache-control', 'no-cache'] : [];
+  if (mirror.multipart) {
+    aws(mirror, [
+      's3',
+      'cp',
+      file,
+      `s3://${mirror.bucket}/${key}`,
+      '--only-show-errors',
+      '--content-type',
+      contentType(name),
+      ...cache,
+    ]);
+  } else {
+    aws(mirror, [
+      's3api',
+      'put-object',
+      '--bucket',
+      mirror.bucket,
+      '--key',
+      key,
+      '--body',
+      file,
+      '--content-type',
+      contentType(name),
+      ...cache,
+      '--output',
+      'json',
+    ]);
+  }
   console.log(`[${mirror.id}] ${key}`);
 }
 

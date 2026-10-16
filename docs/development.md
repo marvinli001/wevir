@@ -219,7 +219,7 @@ pnpm --filter @wevir/desktop package
 
   流水线核对这个提交在 master 上、CI 通过，发到 `latest` 通道，另建 GitHub Release（dmg 与 exe）。
 - 三个包并行打：macOS arm64、x64（macos-latest，签名、公证，检查 `codesign`、`stapler`、`spctl`），Windows x64（windows-latest，不签名）。版本经 `package --app-version` 写进安装包，electron-builder 按它写出更新清单（`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，通道由版本的预发布标签决定）。
-- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路传完安装包后经 CDN 逐个下载、与本地核对 sha512，对不上就清缓存重取（最多 20 分钟，超时整个停下、不写清单），都对上后再等 3 分钟让其他地区的存储副本跟上、清一次缓存，才写清单；写完清单同样清缓存并核对（`release.ts` 的 `waitForCdn`）。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本（正式版的 dmg 与 exe 另在 GitHub Release 上）。
+- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路（Bunny）每个文件用一次 PutObject 整个传、不分片（Bunny 把分片上传的文件复制到其他地区的存储副本时会丢片：2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 少了一个 8 MiB 的分片，清缓存也没用）；传完安装包后经 CDN 逐个下载、与本地核对 sha512，对不上就清缓存重取（最多 20 分钟，超时整个停下、不写清单），都对上后再等 3 分钟让其他地区的存储副本跟上、清一次缓存，才写清单；写完清单同样清缓存并核对（`release.ts` 的 `waitForCdn`）。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本（正式版的 dmg 与 exe 另在 GitHub Release 上）。
 - 同一时间只跑一个发布，后来的排队，排队的只留最新一个。
 
 仓库要配的 secret 与 variable（Settings → Secrets and variables → Actions；`gh secret set` / `gh variable set`）：
@@ -341,6 +341,8 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `desktop/` | Electron 的 userData（Chromium 配置、localStorage） |
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。
+
+插件 P1（协议 0.41.0）的全局数据在 `<数据目录>/plugins/`：`registry.json` 为 0600，含用户 MCP 的 env / headers 原值与 skills 开关；托管 skills 在 `skills/<name>/`。文件夹、SKILL.md、ZIP 或 Codex / Claude 插件包经 `skill.install` 安装，客户端结果只看得到密钥的键名与已设置标记。P1 无界面，使用 client-sdk 的类型化 request / watchPlugins；方法与默认禁用外部 skills 的规则见 [plugins.md](architecture/plugins.md)。针对性验证：`pnpm vitest run --project protocol`、`pnpm vitest run --project host plugins`、`pnpm vitest run --project client-sdk client.test.ts`、`pnpm vitest run --project adapter-codex codex-adapter.plugins-gate.integration.test.ts`；真实 Codex 测试使用仓库锁定的 app-server 与本机假模型，不需要供应商 Key。Windows 的临时 HOME 隔离实验因 Codex 的 dirs::home_dir 不读 HOME 而跳过，待该平台单独验证。
 
 ### 5.3 日志
 
