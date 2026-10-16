@@ -35,7 +35,7 @@ Host 的默认引擎是 Codex（ADR-0005，R3 起），要先下载锁定版本�
 bash scripts/fetch-codex.sh
 ```
 
-它按平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64，Windows 在 Git Bash 里运行）下载 GitHub Release 的压缩包，按脚本里的 sha256 校验后解到 `.wevir-dev/bin/codex-app-server[.exe]`（gitignore），Linux 另带 `codex-resources/bwrap`，已是同一版本就直接退出。大陆网络设 `WEVIR_GITHUB_MIRROR`（§7.4）。也可以不下载、用 `WEVIR_CODEX_BIN=<绝对路径>` 指向别处的同版本二进制；版本不对时 Host 在第一次启动它之前报错。准备安装包用的资源目录见 §3.5。
+它按平台（macOS arm64 / x64、Linux musl x64 / arm64、Windows x64 / arm64，Windows 在 Git Bash 里运行）下载 GitHub Release 的压缩包，按脚本里的 sha256 校验后解到 `.wevir-dev/bin/codex-app-server[.exe]`（gitignore），旁边是 `codex-code-mode-host[.exe]`（code mode 的 `exec` 在它里面跑，codex-app-server 在自己旁边找它；没有它时只给 code mode 的模型调不了任何工具），Linux 另带 `codex-resources/bwrap`，已是同一版本且文件齐全就直接退出。大陆网络设 `WEVIR_GITHUB_MIRROR`（§7.4）。也可以不下载、用 `WEVIR_CODEX_BIN=<绝对路径>` 指向别处的同版本二进制（同一目录里也要有 `codex-code-mode-host`）；版本不对时 Host 在第一次启动它之前报错。准备安装包用的资源目录见 §3.5。
 
 安装时会跑 5 个依赖的构建脚本（`pnpm-workspace.yaml` 的 `allowBuilds` 逐个登记：dsh 的 `dsh-subprocess-local`、`node-pty`、`koffi`、两个版本的 `esbuild`），其他构建脚本一律不跑。`strictDepBuilds` 保持开启，依赖升级后冒出没登记的构建脚本时安装直接失败（`ERR_PNPM_IGNORED_BUILDS`），审查后再登记，见 ADR-0004 §2。
 
@@ -160,7 +160,7 @@ pnpm --filter @wevir/desktop resources
 
 它运行 `apps/desktop/scripts/stage-resources.ts`，按本机平台（或 `-- --target <三元组>` 指定的平台，三元组见 `scripts/fetch-codex.sh`）准备 `apps/desktop/resources/`（gitignore）：
 
-- `engines/codex/`：用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 取二进制并按 sha256 校验，连同 `apps/desktop/licenses/codex/` 里 Codex 的 `LICENSE` 与 `NOTICE`；Linux 另带 `codex-resources/bwrap`。
+- `engines/codex/`：用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 取二进制并按 sha256 校验，连同 `codex-code-mode-host` 与 `apps/desktop/licenses/codex/` 里 Codex 的 `LICENSE` 与 `NOTICE`；Linux 另带 `codex-resources/bwrap`。
 - `prompts/`：仓库的 `prompts/`，不含 README.md。
 - `host/`：`pnpm --filter @wevir/host deploy --prod --ignore-scripts --config.node-linker=hoisted --os=<平台> --cpu=<架构>` 把 wevir-host 与它的生产依赖复制进来（工作区包按各自 `files` 复制，hoisted 布局没有符号链接；平台可选依赖按目标平台装）。然后从 Host 的依赖出发剪掉走不到的包：`vitest`（runtime-adapter 的可选 peer，pnpm 从工作区根的开发依赖解析到它）、`@deepseek-ai/dsh`（adapter-dsh 的开发依赖，ADR-0007 决策 6）、`@anthropic-ai/claude-agent-sdk` 与 `@cursor/sdk`（不随应用分发，ADR-0007 补记 3；Host 没有它们时不挂 Claude 与 Cursor 引擎），以及只被它们用到的包；剪完检查没有这些包、没有符号链接、留下的包没有安装脚本，不满足就报错。2026-10-16 在 macOS arm64 上是 21 MB。
 

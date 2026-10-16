@@ -35,7 +35,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 ### 1.1 二进制与版本
 
 - 锁定 `CODEX_VERSION = 'rust-v0.162.1'`（`paths.ts`），与 `docs/upstream/upstream.lock` 的 codex 行、`scripts/fetch-codex.sh` 一致。
-- 解析顺序（`resolveCodexBinary`）：环境变量 `WEVIR_CODEX_BIN`（必须是存在的绝对路径）→ 应用资源目录 `<WEVIR_RESOURCES_DIR>/engines/codex/`（安装包随附的那份，打包后的桌面端拉起 Host 时设这个变量；`pnpm --filter @wevir/desktop resources` 准备，R9，ADR-0007 决策 5）→ 开发缓存 `<仓库>/.wevir-dev/bin/codex-app-server[.exe]`（`bash scripts/fetch-codex.sh` 下载，6 个平台的资产名与 sha256 写在脚本里）。不查 PATH，不碰用户自己装的 Codex。
+- 解析顺序（`resolveCodexBinary`）：环境变量 `WEVIR_CODEX_BIN`（必须是存在的绝对路径）→ 应用资源目录 `<WEVIR_RESOURCES_DIR>/engines/codex/`（安装包随附的那份，打包后的桌面端拉起 Host 时设这个变量；`pnpm --filter @wevir/desktop resources` 准备，R9，ADR-0007 决策 5）→ 开发缓存 `<仓库>/.wevir-dev/bin/codex-app-server[.exe]`（`bash scripts/fetch-codex.sh` 下载，6 个平台的资产名与 sha256 写在脚本里）。不查 PATH，不碰用户自己装的 Codex。同一目录里要有 `codex-code-mode-host[.exe]`：code mode 的 `exec` 在这个独立进程里跑，codex-app-server 在自己旁边找它；`codex-adapter.code-mode.integration.test.ts` 用 `features.code_mode_only` 检查它在。
 - Host 以 `--adapter codex` 构造适配器时就解析路径，找不到即启动失败并给出下载命令；第一次启动进程之前跑 `codex-app-server --version`，输出（`codex-app-server 0.162.1`）与锁定版本不一致就启动失败（`engine_unavailable`，说明锁定的版本）。
 
 ### 1.2 目录与环境

@@ -75,7 +75,7 @@
 
 ### 5. Codex 随包（与打包工具无关，R9 已做）
 
-- 构建时 `pnpm --filter @wevir/desktop resources [--target <三元组>]`（`apps/desktop/scripts/stage-resources.ts`）用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 按**目标平台**取锁定版本的二进制（同一张 sha256 表），放进桌面端的资源目录 `apps/desktop/resources/engines/codex/`（gitignore），打包时原样进入安装包的资源目录（electron-builder 的 `extraResources`，运行时是 `process.resourcesPath`）。
+- 构建时 `pnpm --filter @wevir/desktop resources [--target <三元组>]`（`apps/desktop/scripts/stage-resources.ts`）用 `scripts/fetch-codex.sh --target <三元组> --out <目录>` 按**目标平台**取锁定版本的二进制（同一张 sha256 表；`codex-app-server` 与它旁边的 `codex-code-mode-host`，2026-10-16 补：后者是 code mode 的 `exec` 运行的独立进程，漏了它时只给 code mode 的模型调不了工具），放进桌面端的资源目录 `apps/desktop/resources/engines/codex/`（gitignore），打包时原样进入安装包的资源目录（electron-builder 的 `extraResources`，运行时是 `process.resourcesPath`）。
 - 打包后的桌面主进程拉起 Host 时告诉它资源目录（环境变量 `WEVIR_RESOURCES_DIR`，`host-lifecycle.ts` 的 `hostEnvironment`；环境里已有这个变量时不覆盖，开发时不设）；adapter-codex 的解析顺序：`WEVIR_CODEX_BIN` → `<资源目录>/engines/codex/` → 开发缓存 `.wevir-dev/bin/`。资源目录里没有二进制时退回开发缓存，版本照旧在启动前用 `--version` 核对。
 - 随附 Codex 的 `LICENSE` 与 `NOTICE`：取自锁定提交 `092d3ac`，放在 `apps/desktop/licenses/codex/`，准备资源时复制到二进制旁边；third-party-notices.md 加上 Codex（§2.5）。
 - Linux：ADR-0005 未决事项 4 还没有结论（Linux 没有实测）。R9 的默认做法是随包带 `bwrap`（Codex 发布的 `bwrap-<目标>.tar.gz`，0.2 MiB，放在 `codex-resources/bwrap`，同样按 sha256 校验）：系统有 `bwrap` 时 Codex 优先用系统的，没有时才用它，不带的话这类机器上沙箱里的命令跑不起来。第三方声明写明 LGPL-2.0-or-later 与源码位置（锁定提交的 `codex-rs/vendor/bubblewrap/`）。Linux 实测后在 ADR-0005 补记里定下或改掉。Windows 的沙箱附带程序等 Windows 实测后再定。

@@ -7,6 +7,7 @@
  * 这里找 codex-app-server 与提示词。
  *
  *   resources/engines/codex/codex-app-server[.exe]   锁定版本，scripts/fetch-codex.sh 按 sha256 校验
+ *   resources/engines/codex/codex-code-mode-host[.exe]  同上；code mode 的 exec 在它里面跑，codex-app-server 在旁边找它
  *   resources/engines/codex/codex-resources/bwrap    只有 Linux（LGPL-2.0-or-later）
  *   resources/engines/codex/LICENSE、NOTICE          Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）

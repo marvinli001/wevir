@@ -54,7 +54,7 @@ mac:
   category: public.app-category.developer-tools
   icon: ../../assets/icons/exports/macos/light/Wevir.icns
   # Developer ID 签名（钥匙串里的 “Developer ID Application” 证书，CI 用 CSC_LINK）+ Hardened Runtime。包里的其余
-  # 可执行文件（codex-app-server、Host 依赖里的原生模块与二进制）由 @electron/osx-sign 一起重签。
+  # 可执行文件（codex-app-server、codex-code-mode-host、Host 依赖里的原生模块与二进制）由 @electron/osx-sign 一起重签。
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
