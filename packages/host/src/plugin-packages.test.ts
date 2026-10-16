@@ -356,6 +356,27 @@ describe('Wevir plugin packages', () => {
       'wevir-plugin.json at id',
     ],
     [
+      'homepage 不是地址',
+      (m: Record<string, unknown>) => {
+        m.homepage = 'not a url';
+      },
+      'wevir-plugin.json at homepage',
+    ],
+    [
+      'author.url 不是地址',
+      (m: Record<string, unknown>) => {
+        m.author = { name: 'Sample', url: 'not a url' };
+      },
+      'wevir-plugin.json at author.url',
+    ],
+    [
+      '行内 http 连接器的 url 不是地址',
+      (m: Record<string, unknown>) => {
+        m.connectors = { api: { transport: 'http', url: 'not a url' } };
+      },
+      'wevir-plugin.json at connectors',
+    ],
+    [
       '引用未声明的输入项',
       (m: Record<string, unknown>) => {
         m.inputs = [];

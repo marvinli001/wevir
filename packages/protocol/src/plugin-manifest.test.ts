@@ -1,7 +1,14 @@
 // wevir-plugin.json（0.42.0）：zod 清单的合法 / 非法样本，schemas/wevir-plugin.schema.json 与源一致。
 import { describe, expect, it } from 'vitest';
 import generated from '../schemas/wevir-plugin.schema.json' with { type: 'json' };
-import { PluginPathSchema, WevirPluginManifestSchema, wevirPluginJsonSchema } from './plugins.js';
+import {
+  McpServerConfigSchema,
+  McpServerPatchSchema,
+  McpServerViewSchema,
+  PluginPathSchema,
+  WevirPluginManifestSchema,
+  wevirPluginJsonSchema,
+} from './plugins.js';
 
 const minimal = { schemaVersion: 1, id: 'sample', name: 'Sample', version: '1.0.0' };
 const full = {
@@ -75,6 +82,57 @@ describe('WevirPluginManifestSchema', () => {
       expect(PluginPathSchema.safeParse(path).success, path).toBe(true);
     for (const path of ['skills', '../x', './..', './a/../b', './a\\b', './a//b'])
       expect(PluginPathSchema.safeParse(path).success, path).toBe(false);
+  });
+});
+
+describe('http(s) 地址字段', () => {
+  const good = [
+    'http://example.com',
+    'https://example.com/mcp?region=1',
+    'http://127.0.0.1:8080/x',
+  ];
+  const bad = [
+    'not a url',
+    '',
+    'example.com',
+    '/relative/path',
+    'ftp://example.com/x',
+    'file:///tmp/x',
+    'https://user:pass@example.com',
+    'https://user@example.com',
+  ];
+  // 每个用到 http(s) 地址的位置：把地址放进去解析。
+  const places: Array<[string, (url: string) => { success: boolean }]> = [
+    ['McpServerConfig.url', (url) => McpServerConfigSchema.safeParse({ transport: 'http', url })],
+    ['McpServerPatch.url', (url) => McpServerPatchSchema.safeParse({ transport: 'http', url })],
+    ['McpServerView.url', (url) => McpServerViewSchema.safeParse({ transport: 'http', url })],
+    [
+      '清单 author.url',
+      (url) => WevirPluginManifestSchema.safeParse({ ...minimal, author: { name: 'x', url } }),
+    ],
+    ['清单 homepage', (url) => WevirPluginManifestSchema.safeParse({ ...minimal, homepage: url })],
+    [
+      '清单行内连接器的 url',
+      (url) =>
+        WevirPluginManifestSchema.safeParse({
+          ...minimal,
+          connectors: { remote: { transport: 'http', url } },
+        }),
+    ],
+  ];
+
+  describe.each(places)('%s', (_place, parse) => {
+    it.each(good)('接受 %s', (url) => {
+      expect(parse(url).success).toBe(true);
+    });
+    // 不是地址的字符串要像其他非法值一样报校验失败，不能抛 TypeError。
+    it.each(bad)('拒绝 %j 且不抛错', (url) => {
+      expect(parse(url).success).toBe(false);
+    });
+  });
+
+  it('补丁省略 url 仍合法', () => {
+    expect(McpServerPatchSchema.safeParse({ transport: 'http', headers: {} }).success).toBe(true);
   });
 });
 

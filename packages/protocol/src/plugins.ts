@@ -20,9 +20,14 @@ const common = {
   toolTimeoutSec: z.number().positive().finite().optional(),
 };
 const stdio = { command: text, args: z.array(z.string()).optional(), cwd: text.optional() };
+// zod 4 在 z.url() 失败后仍会跑 refine，所以这里要自己接住 new URL 的解析错误，不能抛 TypeError。
 const httpUrl = z.url().refine((value) => {
-  const url = new URL(value);
-  return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
 });
 
 export const McpServerConfigSchema = z.discriminatedUnion('transport', [

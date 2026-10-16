@@ -381,4 +381,39 @@ describe('plugins RPC + echo', () => {
     const restarted = await launch();
     expect(await restarted.client.request('plugins.list', {})).toEqual(before);
   }, 30_000);
+
+  it('connector.add / connector.update 的 URL 不是 http(s) 地址时回 INVALID_PARAMS，注册表不变', async () => {
+    const home = join(temp(), 'host');
+    const host = await startHost({
+      home,
+      engine: 'echo',
+      adapter: new EchoAdapter({ stepDelayMs: 0 }),
+      logger: createLogger({ level: 'error', mirror: () => {} }),
+    });
+    running.push(host);
+    const client = await TestRpcClient.connect(host.url);
+    clients.push(client);
+    const info = JSON.parse(readFileSync(join(home, 'run', 'host.json'), 'utf8'));
+    await client.hello(info.token);
+    const { connector } = await client.request('connector.add', {
+      name: 'remote',
+      config: { transport: 'http', url: 'https://example.com/mcp' },
+    });
+    const before = await client.request('plugins.list', {});
+    const invalid = { code: -32602, message: 'invalid params' };
+    for (const url of ['not a url', '', 'ftp://example.com', 'https://user:pass@example.com']) {
+      await expect(
+        client.request('connector.add', { name: 'bad', config: { transport: 'http', url } }),
+        `add ${JSON.stringify(url)}`,
+      ).rejects.toMatchObject(invalid);
+      await expect(
+        client.request('connector.update', {
+          id: connector.id,
+          config: { transport: 'http', url },
+        }),
+        `update ${JSON.stringify(url)}`,
+      ).rejects.toMatchObject(invalid);
+    }
+    expect(await client.request('plugins.list', {})).toEqual(before);
+  }, 30_000);
 });
