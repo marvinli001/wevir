@@ -33,6 +33,7 @@ import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from '.
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import {
@@ -485,6 +486,35 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }
       const config = toProviderConfig(provider, await secretOf(secrets, provider));
       return bridge.testProvider(config, modelId ?? provider.defaultModelId);
+    },
+
+    'provider.discoverModels': async ({ providerId, baseURL, apiKey, modelId }) => {
+      if ((providerId === undefined) === (baseURL === undefined) || (providerId && apiKey))
+        throw invalidParams(
+          ['providerId'],
+          'provide a stored providerId or an unsaved baseURL and key',
+        );
+      if (providerId !== undefined) {
+        const target = await serialProvider(async () => {
+          const provider = storage.providers.get(providerId);
+          if (!provider)
+            throw new HostError('PROVIDER_NOT_FOUND', `provider ${providerId} not found`);
+          if (provider.kind !== 'openai-compatible')
+            throw invalidParams(
+              ['providerId'],
+              'Ollama discovery requires an OpenAI-compatible provider',
+            );
+          // Snapshot endpoint and credential under the same lock as provider.upsert.
+          ollamaOrigin(provider.baseURL ?? '');
+          return {
+            baseURL: provider.baseURL ?? '',
+            apiKey: await secretOf(secrets, provider),
+            modelId,
+          };
+        });
+        return discoverOllamaModels(target);
+      }
+      return discoverOllamaModels({ baseURL: baseURL ?? '', apiKey, modelId });
     },
 
     'provider.setEnabled': ({ providerId, enabled }) =>

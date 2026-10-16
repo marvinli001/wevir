@@ -50,6 +50,8 @@ export function presentTestResult(result: MethodResult<'provider.test'>): TestPr
   const hint = REASON_HINT[reason];
   const presentation: TestPresentation = { ok: false, title: t(REASON_TITLE[reason]) };
   if (hint) presentation.hint = t(hint);
+  if (result.error?.code === 'ollama_responses_unavailable')
+    presentation.hint = t('provider.ollama.upgrade');
   if (result.error?.message) presentation.detail = result.error.message;
   return presentation;
 }

@@ -49,6 +49,8 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
  * 每次握手时给出。
  */
 export const HOST_FEATURES = {
+  /** Ollama model discovery through Host (0.31.0). */
+  providerModelDiscovery: 'provider_model_discovery',
   /**
    * ChatGPT 账号（0.7.0，R6）：`account.*` 方法、`account.updated` 通知与 `chatgpt` 类 Provider 可用。只有 Codex 引擎有，
    * dsh 与 echo 引擎的 Host 不声明它。
@@ -133,6 +135,7 @@ export const HOST_FEATURES = {
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
+  provider_model_discovery: z.boolean().optional(),
   chatgpt_account: z.boolean().optional(),
   google_vertex: z.boolean().optional(),
   pending_messages: z.boolean().optional(),

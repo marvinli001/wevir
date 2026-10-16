@@ -5,7 +5,7 @@
 
 import type { ProviderTestFailure, ProviderTestResult } from '@wevir/runtime-adapter';
 import { UPSTREAM_PROTOCOL_ERROR } from './messages/response.js';
-import { describeIssues, validateProvider } from './providers.js';
+import { describeIssues, isOllamaHost, validateProvider } from './providers.js';
 import { SseParser } from './sse.js';
 import { isObject } from './tools.js';
 import type { GatewayProvider, ResponsesRequest } from './types.js';
@@ -101,7 +101,21 @@ export async function testProvider(
     const status = response.status;
     if (!response.ok) {
       const body = await readText(response, controller.signal).catch(() => '');
-      return { ...httpFailure(status, body, modelId, prepared.url, redact), latencyMs: latency() };
+      const result = httpFailure(status, body, modelId, prepared.url, redact);
+      if (
+        status === 404 &&
+        result.reason === 'protocol' &&
+        prepared.mode === 'responses' &&
+        isOllamaHost(provider.baseURL ?? '')
+      ) {
+        result.error = {
+          category: 'provider',
+          code: 'ollama_responses_unavailable',
+          message:
+            'Ollama Responses endpoint is unavailable; upgrade Ollama or use Chat Completions',
+        };
+      }
+      return { ...result, latencyMs: latency() };
     }
     const contentType = response.headers.get('content-type') ?? '';
     if (/html/i.test(contentType)) {

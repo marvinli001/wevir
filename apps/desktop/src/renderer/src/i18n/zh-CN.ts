@@ -897,9 +897,29 @@ export const zhCN = {
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
     'Google 国际按量 API；中国内地、香港、澳门不在可用地区，内地无法直连。',
-  'provider.preset.ollama': '本机 Ollama',
+  'provider.catalog.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud.note':
+    'Ollama 官方云服务，需 API Key；中国大陆直连情况未确认，受账号用量与并发限制。',
   'provider.preset.ollama.note':
-    '无需 API Key；模型 ID 须为已拉取的模型；Ollama 须以 OLLAMA_CONTEXT_LENGTH=32768 启动，默认上下文可能只有 4096。',
+    '模型在本机运行，中国大陆可直接使用；需 Ollama 0.13.3 及以上，选择已安装且支持工具的模型。',
+  'provider.ollama.models': 'Ollama 模型',
+  'provider.ollama.refresh': '读取模型',
+  'provider.ollama.loading': '正在读取…',
+  'provider.ollama.upgradeHost': '升级后台服务后可读取模型，也可手动添加。',
+  'provider.ollama.keyRequired': '请填写有效的 Ollama Cloud API Key 后重试。',
+  'provider.ollama.failed': '未能读取模型，请检查 Ollama 地址与服务状态后重试。',
+  'provider.ollama.empty': '没有找到模型。请先自行安装支持工具的模型，再读取。',
+  'provider.ollama.context': '上下文 {size}',
+  'provider.ollama.noTools': '不支持工具',
+  'provider.ollama.lowContext':
+    'Ollama 当前上下文为 {size}，Agent 建议至少 64k。请在 Ollama 设置中调大，或用 OLLAMA_CONTEXT_LENGTH=65536 重启服务，然后重新读取模型并更新上下文长度。',
+  'provider.ollama.unknownContext':
+    '实际上下文尚未确认。请先运行模型，再读取并填写实际值；模型标称上限不代表当前配置。',
+  'provider.ollama.partial': '未能读取模型详情，请手动核对能力与推理档位。',
+  'provider.ollama.truncated': '只显示前 64 个模型，其余可手动添加。',
+  'provider.ollama.upgrade': '升级 Ollama（至少 0.13.3）或改用 Chat 协议。',
+  'provider.preset.ollama': '本机 Ollama',
 
   'provider.form.titleNew': '添加 {name}',
   'provider.form.titleEdit': '编辑 {name}',

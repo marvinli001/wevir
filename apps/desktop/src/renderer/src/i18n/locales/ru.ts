@@ -918,9 +918,30 @@ export const messages: Messages = {
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
     'Глобальный API Google с оплатой по использованию. Материковый Китай, Гонконг и Макао не поддерживаются; прямого доступа из материкового Китая нет.',
-  'provider.preset.ollama': 'Локальный Ollama',
+  'provider.catalog.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud.note':
+    'Официальное облако Ollama с API-ключом. Прямой доступ из материкового Китая не проверен. Действуют лимиты аккаунта на использование и параллельность.',
   'provider.preset.ollama.note':
-    'API Key не нужен; ID модели — уже загруженная модель. Запускайте Ollama с OLLAMA_CONTEXT_LENGTH=32768: контекст по умолчанию может быть всего 4096.',
+    'Локальный запуск в материковом Китае. Нужны Ollama 0.13.3 или новее и установленная модель с инструментами.',
+  'provider.ollama.models': 'Модели Ollama',
+  'provider.ollama.refresh': 'Прочитать модели',
+  'provider.ollama.loading': 'Чтение…',
+  'provider.ollama.upgradeHost': 'Обновите фоновую службу или добавьте модели вручную.',
+  'provider.ollama.keyRequired': 'Введите действующий API-ключ Ollama Cloud и повторите попытку.',
+  'provider.ollama.failed': 'Не удалось прочитать модели. Проверьте адрес и службу Ollama.',
+  'provider.ollama.empty': 'Моделей нет. Установите модель с поддержкой инструментов.',
+  'provider.ollama.context': 'Контекст {size}',
+  'provider.ollama.noTools': 'Нет инструментов',
+  'provider.ollama.lowContext':
+    'Контекст Ollama — {size}; рекомендуется минимум 64k. Увеличьте его в настройках или перезапустите с OLLAMA_CONTEXT_LENGTH=65536, затем прочитайте модели заново и обновите длину контекста.',
+  'provider.ollama.unknownContext':
+    'Фактический контекст неизвестен. Запустите модель, прочитайте и укажите выделенное значение. Предел модели не равен текущему выделению.',
+  'provider.ollama.partial':
+    'Сведения недоступны. Проверьте возможности и уровни рассуждения вручную.',
+  'provider.ollama.truncated': 'Показаны первые 64 модели. Остальные добавьте вручную.',
+  'provider.ollama.upgrade': 'Обновите Ollama до 0.13.3 или новее либо выберите Chat.',
+  'provider.preset.ollama': 'Локальный Ollama',
 
   'provider.form.titleNew': 'Добавить {name}',
   'provider.form.titleEdit': 'Изменить {name}',

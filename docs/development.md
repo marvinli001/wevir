@@ -441,6 +441,14 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_GROK=1 pnpm vitest run 
 
 ### 6.3 真实模型测试的环境变量
 
+Ollama 使用 Responses（至少 0.13.3）。先自行安装 Ollama 与支持工具的模型，并确认实际上下文至少 65536；模型下载可能十几 GB，不由 Wevir 自动执行。设置进程环境中的 WEVIR_TEST_API_KEY 为本机占位值 ollama（Cloud 则是真实 Key，不写文件），再运行：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=http://127.0.0.1:11434/v1 WEVIR_TEST_MODEL=gpt-oss:20b pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+Cloud 改 WEVIR_TEST_BASE_URL=https://ollama.com/v1，WEVIR_TEST_MODEL 取发现接口返回的原名。之后另用 pnpm dev 的对应模板做一次 apply_patch 改文件对话。2026-10-16 本机无 Ollama 与模型，这两项未验收；mock 测试不替代真实验收。发现接口与上下文含义见 providers.md §7.5；不会自动下载模型、管理服务或修改 OLLAMA_CONTEXT_LENGTH。
+
 | 变量 | 含义 |
 |---|---|
 | `WEVIR_TEST_API_KEY` | 模型 Key。静态 Key 的真实模型用例要设；Vertex 服务账号不使用它 |

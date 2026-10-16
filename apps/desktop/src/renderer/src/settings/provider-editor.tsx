@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
+import { OllamaModels } from './ollama-models';
 import {
   ASSUMED_CONTEXT_WINDOW,
   connectionChanged,
@@ -229,6 +230,7 @@ export function ProviderEditor({
               aria-invalid={!!urlError}
             />
           </FormField>
+          <OllamaModels client={client} form={form} onChange={update} />
           <ModelsField form={form} errors={errors} onChange={update} />
         </>
       ) : (

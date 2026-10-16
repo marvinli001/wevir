@@ -1294,6 +1294,47 @@ export const methodSamples: MethodSamples = {
       invalid: [{ ok: 'yes' }, { ok: false, reason: 'teapot' }, { ok: false, httpStatus: 42 }],
     },
   },
+  'provider.discoverModels': {
+    params: {
+      valid: [
+        { providerId: 'local-ollama' },
+        { baseURL: 'http://127.0.0.1:11434/v1', modelId: 'gpt-oss:20b' },
+        { baseURL: 'https://ollama.com/v1', apiKey: 'placeholder-key' },
+      ],
+      invalid: [
+        { providerId: 42 },
+        { baseURL: 'file:///tmp/models' },
+        { modelId: '' },
+        { apiKey: '' },
+      ],
+    },
+    result: {
+      valid: [
+        { ok: true, models: [] },
+        { ok: false, models: [], reason: 'network' },
+        {
+          ok: true,
+          models: [
+            {
+              model: {
+                id: 'gpt-oss:20b',
+                contextWindow: 4096,
+                reasoningEfforts: ['low', 'medium', 'high'],
+              },
+              maxContextWindow: 131072,
+              contextSource: 'running',
+              detailsAvailable: true,
+            },
+          ],
+        },
+      ],
+      invalid: [
+        { ok: true },
+        { ok: true, models: [{ model: { id: '' } }] },
+        { ok: false, models: [], reason: 'invalid' },
+      ],
+    },
+  },
   'provider.setEnabled': {
     params: {
       valid: [

@@ -33,6 +33,16 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   },
   { matches: isDeepSeekHost, api: 'openai-responses', compat: { toolChoice: 'auto_only' } },
   { matches: isDeepSeekHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
+  {
+    matches: isOllamaCloud,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
+    matches: isOllamaHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, toolChoice: 'auto_only' },
+  },
 ];
 
 /** 每个字段按 Provider 声明 > 地址默认 > 全局默认取值，undefined 视为没写。 */
@@ -246,6 +256,30 @@ function hostnameOf(baseURL: string): string {
     return new URL(baseURL).hostname.toLowerCase();
   } catch {
     return '';
+  }
+}
+
+export function isOllamaCloud(baseURL: string): boolean {
+  try {
+    const url = new URL(baseURL);
+    return url.protocol === 'https:' && url.hostname === 'ollama.com' && url.port === '';
+  } catch {
+    return false;
+  }
+}
+
+/** Only loopback's conventional Ollama port, or the exact Cloud origin. */
+export function isOllamaHost(baseURL: string): boolean {
+  if (isOllamaCloud(baseURL)) return true;
+  try {
+    const url = new URL(baseURL);
+    return (
+      ['http:', 'https:'].includes(url.protocol) &&
+      ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) &&
+      url.port === '11434'
+    );
+  } catch {
+    return false;
   }
 }
 

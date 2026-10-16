@@ -5,7 +5,7 @@ import { type MethodParams, MethodSchemas } from '@wevir/protocol';
 import type { ProviderConfig, ProviderIssue, ProviderTestResult } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { FileSecretStore } from '@wevir/storage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { createHostMethods, type ProviderBridge, syncProviders } from './host-methods.js';
@@ -85,6 +85,111 @@ async function hostError(promise: Promise<unknown>): Promise<HostError> {
 }
 
 describe('Provider 桥接（Host 侧）', () => {
+  it('discovery snapshots a stored endpoint and key together across a concurrent edit', async () => {
+    const { methods, secrets } = setup();
+    await methods['provider.upsert'](
+      { ...qwen, id: 'ollama', baseURL: 'https://ollama.com/v1', apiKey: 'old-test-key' },
+      context,
+    );
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const original = secrets.get.bind(secrets);
+    vi.spyOn(secrets, 'get').mockImplementationOnce(async (ref) => {
+      entered();
+      await gate;
+      return original(ref);
+    });
+    const send = vi.fn<typeof fetch>(async (url, init) => {
+      expect(String(url)).toBe('https://ollama.com/api/tags');
+      expect(init?.headers).toHaveProperty('authorization', 'Bearer old-test-key');
+      return new Response('{"models":[]}');
+    });
+    vi.stubGlobal('fetch', send);
+    try {
+      const discovery = methods['provider.discoverModels']({ providerId: 'ollama' }, context);
+      await reading;
+      let edited = false;
+      const edit = Promise.resolve(
+        methods['provider.upsert'](
+          { ...qwen, id: 'ollama', baseURL: 'http://127.0.0.1:11434/v1', apiKey: 'new-test-key' },
+          context,
+        ),
+      ).then(() => {
+        edited = true;
+      });
+      await Promise.resolve();
+      expect(edited).toBe(false);
+      release();
+      expect(await discovery).toMatchObject({ ok: true });
+      await edit;
+      expect(await secrets.get('ollama')).toBe('new-test-key');
+    } finally {
+      release();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+  it('discovery binds the stored key to its saved origin, and never persists an unsaved key', async () => {
+    const { methods, storage, secrets } = setup();
+    const send = vi.fn<typeof fetch>(async (url, init) => {
+      expect(String(url).startsWith('https://ollama.com/api/')).toBe(true);
+      expect(init?.headers).toHaveProperty('authorization', 'Bearer stored-cloud-test');
+      return new Response(JSON.stringify({ models: [] }));
+    });
+    vi.stubGlobal('fetch', send);
+    try {
+      await methods['provider.upsert'](
+        { ...qwen, id: 'ollama', baseURL: 'https://ollama.com/v1', apiKey: 'stored-cloud-test' },
+        context,
+      );
+      const result = await methods['provider.discoverModels']({ providerId: 'ollama' }, context);
+      expect(result).toEqual({ ok: true, models: [] });
+      expect(JSON.stringify(result)).not.toContain('stored-cloud-test');
+      expect(storage.providers.get('ollama')).not.toHaveProperty('apiKey');
+      expect(await secrets.get('ollama')).toBe('stored-cloud-test');
+      await expect(
+        methods['provider.discoverModels'](
+          { providerId: 'ollama', baseURL: 'http://localhost:11434/v1' },
+          context,
+        ),
+      ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+      await expect(
+        methods['provider.discoverModels']({ providerId: 'ollama', apiKey: 'override' }, context),
+      ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+      await expect(methods['provider.discoverModels']({}, context)).rejects.toMatchObject({
+        code: 'INVALID_PARAMS',
+      });
+      send.mockImplementation(async () => new Response(JSON.stringify({ models: [] })));
+      expect(
+        await methods['provider.discoverModels'](
+          { baseURL: 'https://ollama.com/v1', apiKey: 'unsaved-cloud-test' },
+          context,
+        ),
+      ).toEqual({ ok: true, models: [] });
+      expect(storage.providers.list()).toHaveLength(1);
+      expect(await secrets.get('unsaved-cloud-test')).toBeUndefined();
+      await methods['provider.upsert'](
+        { ...qwen, id: 'other', apiKey: 'must-not-forward' },
+        context,
+      );
+      send.mockClear();
+      await expect(
+        methods['provider.discoverModels']({ providerId: 'other' }, context),
+      ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+      expect(send).not.toHaveBeenCalled();
+      await expect(
+        methods['provider.discoverModels']({ providerId: 'gone' }, context),
+      ).rejects.toMatchObject({ code: 'PROVIDER_NOT_FOUND' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it('Vertex 的 project/location 持久化，整份 JSON 只进 SecretStore；旧客户端看不到新 kind', async () => {
     const bridge = { ...fakeBridge(), googleVertex: true };
     const { methods, storage, secrets } = setup(bridge);

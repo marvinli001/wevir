@@ -900,9 +900,32 @@ export const messages: Messages = {
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
     'Google のグローバル従量課金 API。中国本土・香港・マカオは対象地域外で、中国本土から直接接続できません。',
-  'provider.preset.ollama': 'ローカルの Ollama',
+  'provider.catalog.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud.note':
+    'Ollama 公式クラウド。API キーが必要です。中国本土からの直接接続は未確認で、アカウントの使用量・同時実行制限が適用されます。',
   'provider.preset.ollama.note':
-    'API Key は不要。モデル ID はプル済みのモデルに限ります。Ollama は OLLAMA_CONTEXT_LENGTH=32768 で起動してください。既定のコンテキストは 4096 の場合があります。',
+    'ローカル実行で、中国本土でも利用できます。Ollama 0.13.3 以降と、ツール対応のインストール済みモデルが必要です。',
+  'provider.ollama.models': 'Ollama モデル',
+  'provider.ollama.refresh': 'モデルを読み込む',
+  'provider.ollama.loading': '読み込み中…',
+  'provider.ollama.upgradeHost':
+    'バックグラウンドサービスを更新するか、手動でモデルを追加してください。',
+  'provider.ollama.keyRequired': '有効な Ollama Cloud API キーを入力して再試行してください。',
+  'provider.ollama.failed':
+    'モデルを読み込めません。Ollama のアドレスと稼働状態を確認してください。',
+  'provider.ollama.empty': 'モデルがありません。ツール対応モデルをインストールしてください。',
+  'provider.ollama.context': 'コンテキスト {size}',
+  'provider.ollama.noTools': 'ツール非対応',
+  'provider.ollama.lowContext':
+    'Ollama のコンテキストは {size} です。Agent には最低 64k を推奨します。設定で増やすか OLLAMA_CONTEXT_LENGTH=65536 で再起動し、モデルを再読込してコンテキスト長を更新してください。',
+  'provider.ollama.unknownContext':
+    '実際のコンテキスト長は未確認です。モデルを実行して割り当て値を読み込み、入力してください。モデルの上限は現在の割り当て値ではありません。',
+  'provider.ollama.partial':
+    'モデル詳細を取得できません。機能と推論レベルを手動で確認してください。',
+  'provider.ollama.truncated': '最初の 64 モデルのみ表示します。他は手動で追加してください。',
+  'provider.ollama.upgrade': 'Ollama を 0.13.3 以降に更新するか、Chat に変更してください。',
+  'provider.preset.ollama': 'ローカルの Ollama',
 
   'provider.form.titleNew': '{name} を追加',
   'provider.form.titleEdit': '{name} を編集',

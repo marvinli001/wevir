@@ -12,6 +12,7 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { PendingPage } from '@/routes/route-states';
+import { OllamaModels } from '@/settings/ollama-models';
 import { type CatalogEntry, catalogEntry, FEATURED_PROVIDERS } from '@/settings/provider-catalog';
 import { ModelsField } from '@/settings/provider-editor';
 import {
@@ -278,6 +279,7 @@ function ProviderStep({
           className="mt-8 flex flex-col gap-5 animate-in duration-300 fade-in slide-in-from-top-1"
         >
           <ProviderFields entry={entry} form={form} errors={errors} onChange={update} />
+          <OllamaModels client={client} form={form} onChange={update} />
           {failure && (
             <div
               role="alert"
@@ -456,7 +458,9 @@ function ProviderFields({
           )}
         </Field>
       )}
-      {deploymentModels && <ModelsField form={form} errors={errors} onChange={onChange} />}
+      {(deploymentModels || entry.id === 'ollama' || entry.id === 'ollama-cloud') && (
+        <ModelsField form={form} errors={errors} onChange={onChange} />
+      )}
       {custom && (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t('welcome.field.api')}>
@@ -487,7 +491,7 @@ function ProviderFields({
           </Field>
         </div>
       )}
-      {keyless && (
+      {keyless && entry.id !== 'ollama' && (
         <Field label={t('welcome.field.model')} error={errors['models.0.id']}>
           {(id) => (
             <Input

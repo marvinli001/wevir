@@ -914,9 +914,33 @@ export const messages: Messages = {
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
     'API global de Google de pago por uso. China continental, Hong Kong y Macao no están disponibles; sin acceso directo desde China continental.',
-  'provider.preset.ollama': 'Ollama local',
+  'provider.catalog.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud.note':
+    'Cloud oficial de Ollama con clave API. Acceso directo desde China continental sin verificar. Se aplican los límites de uso y concurrencia de la cuenta.',
   'provider.preset.ollama.note':
-    'No requiere API Key; el ID del modelo debe ser un modelo ya descargado. Inicia Ollama con OLLAMA_CONTEXT_LENGTH=32768; su contexto predeterminado puede ser de solo 4096.',
+    'Ejecución local en China continental. Requiere Ollama 0.13.3 o posterior y un modelo instalado con herramientas.',
+  'provider.ollama.models': 'Modelos Ollama',
+  'provider.ollama.refresh': 'Leer modelos',
+  'provider.ollama.loading': 'Leyendo…',
+  'provider.ollama.upgradeHost':
+    'Actualiza el servicio en segundo plano o añade los modelos manualmente.',
+  'provider.ollama.keyRequired': 'Introduce una clave API de Ollama Cloud válida y reintenta.',
+  'provider.ollama.failed':
+    'No se pudieron leer los modelos. Revisa la dirección y el servicio Ollama.',
+  'provider.ollama.empty': 'No hay modelos. Instala uno compatible con herramientas.',
+  'provider.ollama.context': 'Contexto {size}',
+  'provider.ollama.noTools': 'Sin herramientas',
+  'provider.ollama.lowContext':
+    'El contexto de Ollama es {size}; se recomiendan al menos 64k. Auméntalo en los ajustes o reinicia con OLLAMA_CONTEXT_LENGTH=65536, después vuelve a leer los modelos y actualiza el contexto.',
+  'provider.ollama.unknownContext':
+    'Contexto real desconocido. Ejecuta el modelo, lee e introduce el contexto asignado. El máximo del modelo no es la asignación actual.',
+  'provider.ollama.partial':
+    'Detalles no disponibles. Comprueba capacidades y niveles de razonamiento.',
+  'provider.ollama.truncated':
+    'Solo se muestran los primeros 64 modelos. Añade los demás manualmente.',
+  'provider.ollama.upgrade': 'Actualiza Ollama a 0.13.3 o posterior o usa Chat.',
+  'provider.preset.ollama': 'Ollama local',
 
   'provider.form.titleNew': 'Añadir {name}',
   'provider.form.titleEdit': 'Editar {name}',

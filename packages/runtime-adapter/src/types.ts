@@ -278,7 +278,12 @@ export interface ProviderTestResult {
   ok: boolean;
   latencyMs?: number;
   /** `ok` 为 false 时必有；`message` 给人看，不含 Key。 */
-  error?: { category: 'missing_credentials' | 'provider' | 'unknown'; message: string };
+  error?: {
+    category: 'missing_credentials' | 'provider' | 'unknown';
+    message: string;
+    /** Diagnostic code, matching protocol EngineErrorInfo; UI localizes known codes. */
+    code?: string | number;
+  };
   reason?: ProviderTestFailure;
   httpStatus?: number;
 }

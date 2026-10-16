@@ -428,7 +428,10 @@ describe('预设模板（providers.md §7）', () => {
         ...initial,
         apiKey: 'sk-test',
         baseURL: initial.baseURL.replace('<resource>', 'my-resource'),
-        models: initial.models.map((row, index) =>
+        models: (initial.models.length > 0
+          ? initial.models
+          : [modelRow({ id: 'discovered-model', contextWindow: 65536 })]
+        ).map((row, index) =>
           hasProviderPlaceholder(row.id) ? { ...row, id: `deployment-${index}` } : row,
         ),
       };

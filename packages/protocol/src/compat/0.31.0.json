@@ -1,0 +1,89 @@
+{
+  "protocolVersion": "0.31.0",
+  "methods": {
+    "host.hello": {
+      "params": [],
+      "result": [
+        {
+          "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "hostVersion": "0.0.0",
+          "protocolVersion": "0.31.0",
+          "minProtocolVersion": "0.1.0",
+          "features": {
+            "provider_model_discovery": true
+          },
+          "permissions": ["host.manage", "session.read", "session.write"]
+        }
+      ]
+    },
+    "provider.discoverModels": {
+      "params": [
+        {
+          "baseURL": "http://127.0.0.1:11434/v1"
+        },
+        {
+          "providerId": "local-ollama",
+          "modelId": "gpt-oss:20b"
+        },
+        {
+          "baseURL": "https://ollama.com/v1",
+          "apiKey": "placeholder-cloud-key"
+        }
+      ],
+      "result": [
+        {
+          "ok": true,
+          "models": [
+            {
+              "model": {
+                "id": "gpt-oss:20b",
+                "contextWindow": 4096,
+                "reasoningEfforts": ["low", "medium", "high"],
+                "supportsImages": false
+              },
+              "maxContextWindow": 131072,
+              "contextSource": "running",
+              "capabilities": ["completion", "tools", "thinking"],
+              "sizeBytes": 12000000000,
+              "parameterSize": "20B",
+              "quantization": "Q4_K_M",
+              "detailsAvailable": true
+            }
+          ]
+        },
+        {
+          "ok": false,
+          "models": [],
+          "reason": "auth"
+        },
+        {
+          "ok": true,
+          "models": [],
+          "truncated": true
+        }
+      ]
+    },
+    "provider.test": {
+      "params": [
+        {
+          "providerId": "local-ollama"
+        }
+      ],
+      "result": [
+        {
+          "ok": false,
+          "reason": "protocol",
+          "httpStatus": 404,
+          "error": {
+            "category": "provider",
+            "message": "Ollama Responses endpoint is unavailable",
+            "code": "ollama_responses_unavailable"
+          }
+        }
+      ]
+    }
+  },
+  "notifications": {},
+  "events": [],
+  "errors": []
+}

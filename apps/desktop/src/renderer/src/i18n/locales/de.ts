@@ -903,9 +903,33 @@ export const messages: Messages = {
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
     'Globale Google-API mit nutzungsbasierter Abrechnung. Festlandchina, Hongkong und Macao werden nicht unterstützt; kein direkter Zugang aus Festlandchina.',
-  'provider.preset.ollama': 'Lokales Ollama',
+  'provider.catalog.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud.note':
+    'Offizieller Ollama-Clouddienst mit API-Schlüssel. Direkter Zugriff aus Festlandchina ungeprüft. Nutzung und Parallelität sind kontobegrenzt.',
   'provider.preset.ollama.note':
-    'Kein API Key nötig; die Modell-ID muss ein bereits geladenes Modell sein. Ollama mit OLLAMA_CONTEXT_LENGTH=32768 starten; der Standardkontext kann nur 4096 betragen.',
+    'Lokale Ausführung in Festlandchina. Benötigt Ollama ab 0.13.3 und ein installiertes Modell mit Werkzeugunterstützung.',
+  'provider.ollama.models': 'Ollama-Modelle',
+  'provider.ollama.refresh': 'Modelle lesen',
+  'provider.ollama.loading': 'Wird gelesen…',
+  'provider.ollama.upgradeHost': 'Hintergrunddienst aktualisieren oder Modelle manuell hinzufügen.',
+  'provider.ollama.keyRequired':
+    'Gültigen API-Schlüssel für Ollama Cloud eingeben und erneut versuchen.',
+  'provider.ollama.failed':
+    'Modelle konnten nicht gelesen werden. Ollama-Adresse und Dienst prüfen.',
+  'provider.ollama.empty':
+    'Keine Modelle gefunden. Zuerst ein Modell mit Werkzeugunterstützung installieren.',
+  'provider.ollama.context': 'Kontext {size}',
+  'provider.ollama.noTools': 'Keine Werkzeuge',
+  'provider.ollama.lowContext':
+    'Ollama verwendet {size} Kontext; empfohlen sind mindestens 64k. In Ollama erhöhen oder mit OLLAMA_CONTEXT_LENGTH=65536 neu starten, dann Modelle erneut lesen und Kontext aktualisieren.',
+  'provider.ollama.unknownContext':
+    'Tatsächlicher Kontext unbekannt. Modell starten, zugewiesenen Kontext lesen und eintragen. Das Modellmaximum ist nicht die aktuelle Zuweisung.',
+  'provider.ollama.partial': 'Modelldetails fehlen. Fähigkeiten und Denkstufen manuell prüfen.',
+  'provider.ollama.truncated':
+    'Nur die ersten 64 Modelle werden angezeigt. Weitere manuell hinzufügen.',
+  'provider.ollama.upgrade': 'Ollama auf mindestens 0.13.3 aktualisieren oder Chat verwenden.',
+  'provider.preset.ollama': 'Lokales Ollama',
 
   'provider.form.titleNew': '{name} hinzufügen',
   'provider.form.titleEdit': '{name} bearbeiten',

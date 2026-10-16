@@ -128,6 +128,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://open.bigmodel.cn/usercenter/apikeys',
   },
   {
+    id: 'ollama-cloud',
+    name: 'provider.catalog.ollamaCloud',
+    logo: 'ollama',
+    group: 'global',
+    source: preset('ollama-cloud'),
+    keyURL: 'https://ollama.com/settings/keys',
+  },
+  {
     id: 'ollama',
     name: 'provider.catalog.ollama',
     logo: 'ollama',
@@ -151,6 +159,7 @@ export function catalogEntry(id: string): CatalogEntry | undefined {
 }
 
 const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
+  [/^ollama\.com$/, 'ollama'],
   [
     /^[a-z0-9-]+\.(openai\.azure\.com|services\.ai\.azure\.com|cognitiveservices\.azure\.com)$/,
     'azure',

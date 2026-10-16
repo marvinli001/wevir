@@ -40,6 +40,7 @@ import { historyDigest } from './history-digest';
 import { useAcceptsImages } from './image-attachments';
 import { type ModelChoice, ModelPicker } from './model-picker';
 import { NewSessionHero, NewSessionLayout } from './new-session';
+import { OllamaContextNotice } from './ollama-context-notice';
 import { PendingArea } from './pending-area';
 import { PermissionPicker, usePermissionChoice } from './permission-picker';
 import { QuestionDock } from './question-card';
@@ -386,6 +387,12 @@ export function SessionView({
           {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
           <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
             {transcript && <TodoDock transcript={transcript} />}
+            <OllamaContextNotice
+              client={client}
+              providerId={session.providerId}
+              modelId={session.modelId}
+              running={sessionState === 'running'}
+            />
             {transcript && (
               <QuestionDock
                 transcript={transcript}

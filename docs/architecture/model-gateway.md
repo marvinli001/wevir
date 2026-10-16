@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.9（含 DeepSeek 官方文档复核）· 日期：2026-10-16 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.10（含 Ollama Responses 与模型发现）· 日期：2026-10-16 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -166,6 +166,14 @@ Responses 不存历史：store / include / previous_response_id 等静默忽略�
 
 `deepseek.test.ts` 使用四份录制请求，`deepseek.integration.test.ts` 的 HTTP mock 检查 Responses 原生工具和推理往返、非 auto 拒绝与修正、显式 any / 代理覆盖、provider.test。`gateway.real.integration.test.ts` 提供三条路的工具与跨回合验证，以及 Responses 在显式 any 时 forced choice 的 400 与默认修正后的 200 对照；缺 Key 时明确跳过，不把 mock 结果当成服务能力证明。
 
+### 3.7 Ollama 本机与 Cloud
+
+2026-10-16 对照 [Codex 指南](https://docs.ollama.com/integrations/codex)使用无状态 Responses：本机 `http://127.0.0.1:11434/v1`，Cloud `https://ollama.com/v1`。Responses 从 0.13.3 起可用；不使用 previous_response_id、conversation 或 truncation，每步携带完整历史。占位 Key 也照常放入 Bearer 头，本机 Ollama 忽略它。
+
+[0.40.4 源码](https://github.com/ollama/ollama/blob/v0.40.4/openai/responses.go)支持 namespace 的声明与调用还原，但 custom 工具声明没有 format / grammar 支持；历史能解析 custom 调用不等于能声明 freeform 工具。故本机只摊平 custom，保留 namespace；Cloud 官方明确不支持 custom/freeform 回放，namespace 尚未真实验证，保守摊平两者。两种地址的 Responses 默认 toolChoice: auto_only，Provider 显式 compat 逐字段优先；只识别本机 11434 端口及精确的 ollama.com，不识别套餐或其他域名。当前 OpenAI 兼容文档已经列出 Chat 的 tool_choice，与旧调研不同，Chat 路由不加这个默认值。
+
+模型发现由 Host 的 provider.discoverModels 读取固定的 /api/tags、/api/show 与本机 /api/ps，不经过渲染进程。只允许回环地址或 HTTPS ollama.com，禁止凭据、查询串、非 /v1 路径与重定向；不会访问 tags 返回的 remote_host。响应体、模型数、并发数与请求时限均受限，Key 与上游原文不返回客户端。详情缺失时仍列出模型，但不猜思考档位或实际窗口。model_info 的 context_length 只是模型上限；运行中 /api/ps 的 context_length 优先，其次 /api/show 的 num_ctx。Cloud 使用模型上限；本机未知实际值时提醒核对，已知小于 65536 时提示 OLLAMA_CONTEXT_LENGTH。只提示、不修改服务或已存 Provider。
+
 ## 4. Chat Completions 转换
 
 ### 4.1 请求：Responses → Chat
@@ -242,12 +250,13 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 | `isXaiHost`：`x.ai` 及子域 | `supportsCustomTools: false`、`supportsNamespaceTools: false` | §3.2 |
 | `isBailianHost`：`dashscope.aliyuncs.com`、`dashscope-intl.aliyuncs.com`、`*.maas.aliyuncs.com`（排除 coding / token-plan 套餐域名） | `supportsCustomTools: false`、`supportsNamespaceTools: false`、`toolChoice: auto_only` | §3.4；未有真实 Key，保守默认 |
 | `isDeepSeekHost`：`deepseek.com` 及子域的 Responses / Chat，含固定地址的 deepseek-official | `toolChoice: auto_only` | §3.6；Responses 两模型已实测思考时 required / 具名 400；Messages 保持原选择 |
+| `isOllamaHost`：回环主机的 11434 端口或精确 HTTPS ollama.com，仅 Responses | `supportsCustomTools: false`、`toolChoice: auto_only`；Cloud 另有 `supportsNamespaceTools: false` | §3.7；本机 namespace 保留，Cloud 保守摊平 |
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
-| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量地址为 `false` |
-| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量地址为 `false` |
-| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量地址与 DeepSeek Responses / Chat 为 `auto_only`；Messages 的模型默认见 §5.1 |
+| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量与 Ollama 地址为 `false` |
+| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量与 Ollama Cloud 地址为 `false` |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat 与 Ollama Responses 为 `auto_only`；Messages 的模型默认见 §5.1 |
 | `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -423,7 +432,7 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 
 失败归类与 adapter-dsh 的口径相同（providers.md §6.2，代码是复制的：网关不能依赖 adapter-dsh）：没有 Key → `missing_key`（不发请求）；配置不完整 → `unknown`；401 / 403 → `auth`；429 → `rate_limited`；5xx → `server`；原文提到模型不存在 → `model_not_found`；其余 404 / 405、400 / 422 → `protocol`；连不上 → `network`；超时 → `timeout`；200 但是网页、或不是 Responses 事件、或 Messages 转换发现流不是 Messages 格式（`upstream_protocol_error`）→ `protocol`；200 但第一条是 `response.failed` / `error` 事件（Chat 转换时就是上游流里的错误）→ 按原文归为 `model_not_found` / `auth` / `unknown`。消息里的 Key 换成 `***`。
 
-与 adapter-dsh 的差别：`deepseek-official` 走 DeepSeek 的 Responses 端点，而不是 dsh 用的 Anthropic Messages；`openai-responses` 的探测请求是 message 项的数组，不是字符串；adapter-dsh 不支持 `anthropic-messages`，网关支持（`max_tokens: 16`，dsh 对 DeepSeek 的 Messages 探测是 `max_tokens: 1` 加 `thinking: disabled`）。
+与 adapter-dsh 的差别：`deepseek-official` 走 DeepSeek 的 Responses 端点，而不是 dsh 用的 Anthropic Messages；`openai-responses` 的探测请求是 message 项的数组，不是字符串；adapter-dsh 不支持 `anthropic-messages`，网关支持（`max_tokens: 16`，dsh 对 DeepSeek 的 Messages 探测是 `max_tokens: 1` 加 `thinking: disabled`）。Ollama Responses 端点的非模型 404 仍是 protocol，另带 error.code: ollama_responses_unavailable（协议 0.31.0），桌面端据此提示升级 Ollama 或切换 Chat；缺模型的 404 不改。
 
 ## 8. 日志口径
 
@@ -454,6 +463,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试：`__snapshots__/codex-requests/` 的变化就是转换结果的变化。根 `biome.json` 排除了这两个目录，保持录制原样。
 
 ## 10. 局限与没做的
+
+- Ollama：本机未安装服务与模型，真实契约第 3 层及桌面 apply_patch 未验收；Cloud 没有真实 Key，namespace 采用保守摊平。发现只列前 64 个模型，详情失败时不猜实际上下文与推理档位；未知自定义思考枚举不映射。会话提醒只针对标准回环 11434 或 local-ollama 模板 ID，其他端口可在表单中读取、核对；发现不会自动修改已存目录。见 §3.7、providers.md §7.5。
 
 **P0a 对锁定 Codex 的输入项核实（2026-10-15，rust-v0.162.1 / `092d3ac`）：** 下列 Codex 路径相对 `upstream/codex/codex-rs/`；Wevir 适配器路径相对 `packages/`。
 

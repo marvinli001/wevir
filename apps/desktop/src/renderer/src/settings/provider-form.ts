@@ -63,6 +63,8 @@ export interface ProviderForm {
   api: FormApi;
   /** `deepseek-official` 可以留空（用官方地址）。 */
   baseURL: string;
+  /** Editing: binds discovery's stored credential to the unchanged saved endpoint. */
+  savedBaseURL?: string;
   /**
    * `openai-compatible`：表单编辑的模型列表，默认模型是 `defaultIndex` 那一行。`deepseek-official`：已列出的
    * 模型（新建时显式列出，旧 Profile 可能为空），原样保留、不在表单里编辑。
@@ -144,6 +146,7 @@ export function editForm(provider: EditableProvider): ProviderForm {
     displayName: provider.displayName,
     api,
     baseURL: provider.baseURL ?? '',
+    savedBaseURL: provider.baseURL ?? '',
     models: provider.kind === 'openai-compatible' && models.length === 0 ? [modelRow()] : models,
     defaultIndex: Math.max(
       0,

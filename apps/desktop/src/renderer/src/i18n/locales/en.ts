@@ -897,9 +897,32 @@ export const messages: Messages = {
   'provider.preset.gemini': 'Google AI Studio',
   'provider.preset.gemini.note':
     'Google global pay-as-you-go API. Mainland China, Hong Kong and Macao are unsupported; no direct access from mainland China.',
-  'provider.preset.ollama': 'Local Ollama',
+  'provider.catalog.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud': 'Ollama Cloud',
+  'provider.preset.ollamaCloud.note':
+    'Official Ollama cloud service; API key required. Direct access from mainland China is unverified. Account usage and concurrency limits apply.',
   'provider.preset.ollama.note':
-    'No API Key needed; the model ID must be a pulled model. Start Ollama with OLLAMA_CONTEXT_LENGTH=32768; its default context may be only 4096.',
+    'Runs locally and is accessible in mainland China. Requires Ollama 0.13.3 or later and an installed model with tool support.',
+  'provider.ollama.models': 'Ollama models',
+  'provider.ollama.refresh': 'Read models',
+  'provider.ollama.loading': 'Reading…',
+  'provider.ollama.upgradeHost':
+    'Upgrade the background service to discover models, or add them manually.',
+  'provider.ollama.keyRequired': 'Enter a valid Ollama Cloud API key and retry.',
+  'provider.ollama.failed':
+    'Could not read models. Check the Ollama address and service, then retry.',
+  'provider.ollama.empty': 'No models found. Install a model with tool support, then retry.',
+  'provider.ollama.context': 'Context {size}',
+  'provider.ollama.noTools': 'No tool support',
+  'provider.ollama.lowContext':
+    'Ollama context is {size}; agents should use at least 64k. Increase it in Ollama settings or restart with OLLAMA_CONTEXT_LENGTH=65536, then read models again and update the context length.',
+  'provider.ollama.unknownContext':
+    'Actual context is unknown. Run the model, then read and enter its allocated context. The model limit is not the current allocation.',
+  'provider.ollama.partial':
+    'Model details are unavailable. Check capabilities and thinking levels manually.',
+  'provider.ollama.truncated': 'Only the first 64 models are shown. Add others manually.',
+  'provider.ollama.upgrade': 'Upgrade Ollama to 0.13.3 or later, or switch to Chat.',
+  'provider.preset.ollama': 'Local Ollama',
 
   'provider.form.titleNew': 'Add {name}',
   'provider.form.titleEdit': 'Edit {name}',

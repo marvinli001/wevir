@@ -322,22 +322,36 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 - 思考模式的模型按 pi-ai 目录的写法用 `"compat": {"thinkingFormat": "zai"}`。
 - 来源：[智谱 OpenAI 兼容说明](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)；pi-ai 目录 `providers/data/zai-coding-cn.json`。
 
-### 7.5 本机模型服务（Ollama、vLLM 等）
+### 7.5 Ollama 本机与 Ollama Cloud
+
+**2026-10-16 核对。** 按 [Ollama 的 Codex 指南](https://docs.ollama.com/integrations/codex)改用 Responses 透传：本机从 0.13.3 起支持无状态 `/v1/responses`，不使用 previous_response_id、conversation 或 truncation。模板不预填未安装的模型，先在表单点“读取模型”，再勾选支持工具的模型；也可以手动添加。
 
 ```json
 {
   "id": "local-ollama",
   "kind": "openai-compatible",
   "displayName": "本机 Ollama",
-  "api": "openai-completions",
+  "api": "openai-responses",
   "baseURL": "http://127.0.0.1:11434/v1",
-  "models": [{ "id": "qwen3:8b", "contextWindow": 32768 }],
-  "defaultModelId": "qwen3:8b",
+  "compat": { "supportsCustomTools": false, "toolChoice": "auto_only" },
+  "models": [{ "id": "gpt-oss:20b", "contextWindow": 65536, "reasoningEfforts": ["low", "medium", "high"] }],
+  "defaultModelId": "gpt-oss:20b",
   "apiKey": "ollama"
 }
 ```
 
-`apiKey` 填任意值（§3）。Ollama 的 OpenAI 兼容接口不能按请求设上下文长度，用的是服务端的默认值：官方 FAQ 写默认 4096（新版本按显存给 4k / 32k / 256k），可用 `OLLAMA_CONTEXT_LENGTH` 或 Modelfile 的 `num_ctx` 改（docs.ollama.com，2026-10-15 核对）。预设的 32768 要求以 `OLLAMA_CONTEXT_LENGTH=32768` 启动 Ollama（模板说明里写了）；用默认的 4096 时把 `contextWindow` 改成真实值，否则 Codex 按 32768 判断何时压缩，上下文早已被 Ollama 截断。
+- **本机。** 上面是手动配置示例，要求已自行安装对应模型，并确认实际分配了 65536 上下文。占位 Key 仍以 Authorization: Bearer 发送，本机 Ollama 忽略它；不会省略认证头。网关把 custom apply_patch 转成只有 input 字符串参数的函数，历史与响应成对还原；0.40.4 源码支持 namespace，故本机保留。低版本 Responses 端点 404 时，连接测试提示“升级 Ollama 或改用 Chat 协议”；模型不存在的 404 仍按缺模型处理。
+- **发现与上下文。** Host 的 `provider.discoverModels` 读 /api/tags、/api/show 与本机 /api/ps，拿模型名、大小、参数量、量化、能力、思考档位和上下文；只访问回环主机（127.0.0.1 / localhost / ::1）或 HTTPS ollama.com，不访问局域网、自定义 DNS 名、重定向或 tags 返回的 remote_host。路径必须是 /v1；本机自定义端口可发现，但工具地址默认只识别 11434，其他端口需显式 compat。Cloud 用原名，经已登录的本机 daemon 使用时保留 tags 返回的云模型别名，不自行加减后缀。
+- **实际窗口。** /api/ps 的 context_length 优先于 /api/show 参数中的 num_ctx；model_info 的 `*.context_length` 只是模型最大值，本机实际未知时不拿它填表。官方默认按显存给 4k / 32k / 256k；Agent 建议至少 64k。已知实际值不足 65536 时表单与会话显示提醒，可在 Ollama 设置中调整，或以 `OLLAMA_CONTEXT_LENGTH=65536` 重启自己的服务，之后重新读取并更新 Provider。OpenAI 兼容 API 不能按请求修改 num_ctx，Wevir 不替用户改服务、下载模型或管理进程。没有实际值时请先运行模型再核对；留空仍受通用 128k 估算规则影响，不代表 Ollama 已分配 128k。
+- **思考。** 按 /api/show 的 thinking.values 列出档位；gpt-oss 的 low / medium / high 不加 off。布尔开关可用时映射到兼容接口的 none / medium；只有 false 的模型不提供思考。缺元数据时不猜型号能力，未知的自定义档位暂不提供选择。详情失败仍列出 tags，但提示手动核对。
+
+Cloud 另有模板 `ollama-cloud`，国际分组、复用 Ollama 标志，地址 `https://ollama.com/v1`；需[官方 API Key](https://ollama.com/settings/keys)。模型从官方 /api/tags 与 /api/show 动态发现，不维护静态的过时云列表；直连使用返回的原名。Cloud 默认使用模型最大上下文；账号用量与并发限制仍由 Ollama 管理，中国大陆直连情况未确认。Cloud 明确不支持 custom/freeform 调用回放与 Responses 内置 web search；namespace 未有真实验证，模板保守声明 `supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: auto_only`。显式 compat 优先于地址默认。auto_only 不保证禁止调用工具。
+
+**旧 Provider 手动更新。** 已存的 Chat + qwen3:8b 不自动迁移。在设置 → 模型服务编辑，把协议改为 Responses，保留本机 /v1 地址，重新读取后勾选已安装的工具模型，核对上下文并选择默认模型，再测试连接、新建会话。显式旧工具 compat 不被地址默认覆盖；发现列表不会自动重写已有模型，需手动改值或取消勾选后重新勾选。旧 Host 没有 provider_model_discovery 时界面提示升级，仍能手动填写。vLLM / LM Studio 不在本节接入范围。
+
+**验收边界。** 录制请求、本机 HTTP mock、发现元数据与安全边界测试不能代替真实 Ollama。当前机器未安装 Ollama、无已运行模型；真实契约第 3 层与桌面 apply_patch 尚未验收，安装与十几 GB 模型下载由维护者确认后自行准备。命令见 development.md §6.3。
+
+来源（2026-10-16）：[OpenAI 兼容](https://docs.ollama.com/api/openai-compatibility)、[Anthropic 兼容](https://docs.ollama.com/api/anthropic-compatibility)、[Codex](https://docs.ollama.com/integrations/codex)、[上下文](https://docs.ollama.com/context-length)、[Cloud](https://docs.ollama.com/cloud)、[思考](https://docs.ollama.com/capabilities/thinking)、[模型列表](https://docs.ollama.com/api/tags)、[模型详情](https://docs.ollama.com/api-reference/show-model-details)、[运行模型](https://docs.ollama.com/api/ps)、[0.40.4 Responses 源码](https://github.com/ollama/ollama/blob/v0.40.4/openai/responses.go)。当前 Chat 文档已列 tool_choice；本次只给 Responses 配置 auto_only，不据旧调研修改 Chat。
 
 ### 7.6 xAI（Grok API Key，R8）
 

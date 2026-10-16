@@ -513,11 +513,47 @@ export const ProviderTestResultSchema = z.object({
   ok: z.boolean(),
   latencyMs: z.int().min(0).optional(),
   /** `ok` 为 false 时必有。 */
-  error: EngineErrorInfoSchema.optional(),
+  error: EngineErrorInfoSchema.extend({
+    /** Stable diagnostic code for localized provider-specific guidance (0.31.0). */
+    code: z.union([z.string(), z.int()]).optional(),
+  }).optional(),
   /** `ok` 为 false 时有（0.2.0）。 */
   reason: ProviderTestFailureSchema.optional(),
   /** 服务端返回的 HTTP 状态码（0.2.0）；没有收到响应时省略。 */
   httpStatus: z.int().min(100).max(599).optional(),
+});
+
+/** Ollama discovery (0.31.0). Exactly one of providerId / baseURL is required by Host. */
+export const ProviderDiscoverModelsParamsSchema = z.object({
+  providerId: ProviderIdSchema.optional(),
+  baseURL: HttpUrlSchema.optional(),
+  /** Unsaved form only; never persisted or returned. Stored providers use SecretStore. */
+  apiKey: z.string().min(1).max(8192).optional(),
+  /** Omit to list models; sessions request only their current model. */
+  modelId: z.string().min(1).max(512).optional(),
+});
+
+export const DiscoveredProviderModelSchema = z.object({
+  model: ProviderModelSchema,
+  capabilities: z.array(z.string()).optional(),
+  sizeBytes: z.int().min(0).optional(),
+  parameterSize: z.string().optional(),
+  quantization: z.string().optional(),
+  remoteHost: z.string().optional(),
+  /** Model limit, distinct from the allocated context in model.contextWindow. */
+  maxContextWindow: z.int().min(1).optional(),
+  /** running / configured / cloud; omitted when the actual context is unknown. */
+  contextSource: z.string().optional(),
+  detailsAvailable: z.boolean().optional(),
+});
+export type DiscoveredProviderModel = z.infer<typeof DiscoveredProviderModelSchema>;
+
+export const ProviderDiscoverModelsResultSchema = z.object({
+  ok: z.boolean(),
+  models: z.array(DiscoveredProviderModelSchema),
+  reason: ProviderTestFailureSchema.optional(),
+  /** True when the server has more models than the bounded discovery list. */
+  truncated: z.boolean().optional(),
 });
 
 // ── account.*（0.7.0，R6） ─────────────────────────────────────────────
@@ -930,6 +966,11 @@ export const MethodSchemas = {
   'provider.test': {
     params: ProviderTestParamsSchema,
     result: ProviderTestResultSchema,
+    permission: 'provider.write',
+  },
+  'provider.discoverModels': {
+    params: ProviderDiscoverModelsParamsSchema,
+    result: ProviderDiscoverModelsResultSchema,
     permission: 'provider.write',
   },
 

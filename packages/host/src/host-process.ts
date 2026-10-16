@@ -274,6 +274,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
+        provider_model_discovery: true,
         pending_messages: true,
         host_settings: true,
         workspace_git: true,

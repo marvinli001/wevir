@@ -23,6 +23,7 @@ import {
   CompactionTriggerSchema,
   DiffFileSchema,
   DiffSourceSchema,
+  DiscoveredProviderModelSchema,
   EngineErrorCategorySchema,
   EngineErrorInfoSchema,
   EngineFeaturesSchema,
@@ -304,6 +305,24 @@ const standaloneCases: Case[] = [
       { id: 'm', contextWindow: 0 },
       { id: 'm', maxTokens: 0 },
       { id: 'm', reasoningEfforts: ['turbo'] },
+    ],
+  },
+  {
+    name: 'DiscoveredProviderModel',
+    schema: DiscoveredProviderModelSchema,
+    valid: [
+      { model: { id: 'm' } },
+      {
+        model: { id: 'm', contextWindow: 4096 },
+        maxContextWindow: 131072,
+        contextSource: 'running',
+        detailsAvailable: true,
+      },
+    ],
+    invalid: [
+      { model: { id: '' } },
+      { model: { id: 'm' }, maxContextWindow: 0 },
+      { model: { id: 'm' }, sizeBytes: -1 },
     ],
   },
   {
