@@ -265,6 +265,11 @@ export interface DesktopApi {
   previewFile(path: string): Promise<boolean>;
   /** 用系统的默认应用打开一个文件（`shell.openPath`）。只认文档与媒体的扩展名，不打开可执行文件。 */
   openPath(path: string): Promise<void>;
+  /**
+   * 另存为（0.40.0，agent 交给用户的文件）：弹出保存对话框（默认在“下载”里、用 `name`），把文件（绝对路径）复制过去。用户取消时
+   * 是 `cancelled`。
+   */
+  saveFileAs(path: string, name: string): Promise<'saved' | 'cancelled'>;
   /** 自动更新的状态（ADR-0007 补记 4）。 */
   getUpdateState(): Promise<UpdateState>;
   /** 订阅自动更新状态的变化，返回取消订阅的函数。 */
@@ -306,6 +311,7 @@ export const IPC_CHANNELS = {
   revealPath: 'wevir:reveal-path',
   previewFile: 'wevir:preview-file',
   openPath: 'wevir:open-path',
+  saveFileAs: 'wevir:save-file-as',
   getUpdateState: 'wevir:get-update-state',
   /** 主进程 → 渲染进程的推送。 */
   updateState: 'wevir:update-state',

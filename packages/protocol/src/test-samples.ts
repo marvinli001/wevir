@@ -800,6 +800,21 @@ export const eventPayloads: PayloadSamples = {
     valid: { target: { kind: 'file', path: 'docs/report.md', line: 12 }, turnId: ids.turn },
     invalid: { target: { kind: 'file', path: 'docs/report.md', line: 0 } },
   },
+  'file.shared': {
+    valid: {
+      files: [
+        {
+          path: 'out/周报.docx',
+          name: '周报.docx',
+          size: 18_432,
+          mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        },
+        { path: 'chart.png', name: 'chart.png', size: 0 },
+      ],
+      turnId: ids.turn,
+    },
+    invalid: { files: [], turnId: ids.turn },
+  },
 };
 
 export function eventOf<T extends WevirEventType>(type: T, seq = 7): WevirEventOf<T> {

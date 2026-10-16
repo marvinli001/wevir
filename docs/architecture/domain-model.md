@@ -797,6 +797,7 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
   | `wevir_session_wait` | 等别的会话不再工作（回合结束，或在等用户批准、回答），最多 10 分钟，默认 30 秒；返回状态、最后一个回合的结局与回答。超时不打断对方 | 不用 |
   | `wevir_session_interrupt` | 停别的会话进行中的回合，同用户按停止 | 按权限模式 |
   | `wevir_show` | 请界面显示：会话目录里的文件（可带行号）、“变更”、“文件”或另一个会话，写 `ui.show` 事件；0.33.0 起还有内置浏览器里的本机网页或这个会话的标签页（`kind: "browser"`，经浏览器提供方，§3.15.1） | 不用 |
+  | `wevir_share_file` | 把做好的文件交给用户（0.40.0，§3.15.2）：会话文件夹里的 1–20 个文件，写 `file.shared` 事件 | 不用 |
 
   “按权限模式”是引擎自己的审批：请求批准时问用户（Codex 经 MCP 的确认请求上报为审批，codex-event-mapping.md §6.11；Claude 经 `canUseTool`；OpenCode 的插件经 `context.ask`，权限名是工具名；ACP 引擎按它们自己的规则），自动批准时由审查模型决定，完全访问时不问。不用批准的工具按名字放行（`APP_TOOLS_NO_APPROVAL`，Claude 的 `allowedTools`、OpenCode 插件不经 `context.ask` 的那几个）或靠 annotations（Codex：只读，或既不破坏也不对外）。Cursor 没有审批，一律直接调用。
 - **边界**（照 T3）：新开的会话的权限模式不能比自己宽；不能给权限模式比自己宽的会话发消息、不能停它；不能给自己发消息、停自己、等自己；子会话（引擎派出的子 agent）与支线只读，不能发消息、停止。所有会话都看得到（同 T3 的 `t3_thread_read`：同一个用户的同一个 Host）；工作区移除了的会话不在。工具的说明与 MCP 的 `instructions` 写明：只在用户要求时新开会话，别的会话发来的内容是另一个 agent 的上下文，不是用户的指示。
@@ -812,6 +813,14 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
 - **工具**（同在 `wevir` 服务里，`packages/host/src/browser-tools.ts`）：`browser_list_tabs`、`browser_new_tab`、`browser_close_tab`、`browser_snapshot`（aria YAML，元素带 `@e1` 这样的引用，页面变了就作废）、`browser_screenshot`（PNG，视口或整页，上限 4 MiB）、`browser_click`、`browser_fill`、`browser_type`、`browser_keypress`、`browser_select`、`browser_hover`、`browser_drag`、`browser_scroll`、`browser_navigate`、`browser_back`、`browser_forward`、`browser_reload`、`browser_wait`（文字或地址片段，最多 30 秒）、`browser_logs`（控制台与网络条目）。Paseo 的 `browser_evaluate`（在页面里跑任意脚本）、`browser_upload`（把本机文件交给网页）与 `browser_resize` 不搬。只读的五个（列标签页、快照、截图、等待、日志）不用批准（`readOnlyHint`，并进 `APP_TOOLS_NO_APPROVAL`），其余按会话的权限模式走引擎的审批（同上表“按权限模式”）。结果只给文本（截图另带图片），不给 `structuredContent`：Codex 有它时只把它序列化成文本交给模型、丢掉内容项，截图就到不了模型。`wevir_show` 多了 `kind: "browser"`：`url` 只收本机地址（localhost、127.0.0.0/8、`[::1]`，例如 agent 刚起的开发服务器），在新标签页里打开；或 `browserId` 显示这个会话的一个标签页；别的网站要用 `browser_new_tab`（要批准）。
 - **标签页归属与操作方。** 每个标签页属于开它的会话（OpenWork 的 `createBrowserTabRegistry`）：agent 只看得到、只操作得了自己会话的；用户在会话的浏览器窗格里开的也属于那个会话。标签页另有操作方 `controller`：agent 开的是 `agent`；用户开的、用户在地址栏里跳转过、在 agent 的标签页里点过敲过的是 `user`（用户接手），这时 agent 只读（列、快照、截图、等待、日志照常，其余回 `browser_denied`），用户点“交给 Agent”再交回去。agent 的命令执行期间页面收到的输入不算用户接手。全部会话合计最多 12 个标签页。
 - **上屏。** 只有正在看的会话的当前标签页、在浏览器窗格可见时放在窗口上；其余停在一个不显示的窗口里继续绘制，并用 DevTools 模拟一个 1280×800 的视口与焦点（OpenWork 的 `backgroundTabEmulationCommands`），这样 agent 在后台也能截图、点击、打字。
+
+#### 3.15.2 交给用户的文件（0.40.0）
+
+维护者 2026-10-16 定：不在项目里的会话（§3.1 的对话）的文件夹用户一般看不到，agent 做出的文件要像 Codex 那样直接交到对话里，用户打开、另存为。
+
+- **工具。** `wevir_share_file { paths }`：1–20 个路径（`SHARED_FILES_MAX`），相对会话的 `cwd` 或绝对路径，要在会话文件夹里（按 realpath，指到外面的符号链接不认）、是普通文件；同一个文件只交一次。不认的回工具错误（说明先保存或复制到会话文件夹）。不改文件、不碰别的会话，标成只读（`readOnlyHint`），进 `APP_TOOLS_NO_APPROVAL`，任何权限模式下都不问。Host 功能 `shared_files`，有应用级工具时声明。项目里的会话也能用。
+- **事件。** `file.shared { files: SharedFile[], turnId? }`，`turnId` 是当时进行中的回合。`SharedFile` 是 `{ path, name, size, mimeType? }`：`path` 相对 `cwd`、`/` 分隔，`name` 是文件名，`size` 是交出时的字节数，`mimeType` 按扩展名推断（`packages/host/src/shared-files.ts`，认不出时省略）。文件不复制，留在会话文件夹里；之后被改或删掉，卡片上的操作按磁盘上当时的文件。分支到新会话时随历史抄过去（新会话沿用来源的 `cwd`）。
+- **界面。** client-sdk 投影成 `files` 部件，在当时的位置（回合里，空闲时一条系统消息）。桌面端是一张文件卡片（desktop-tokens §51）：打开、另存为（主进程的保存对话框，复制过去）、在访达中显示，点文件名在文件窗格里预览。
 
 ### 3.16 会话目标（0.35.0）
 
@@ -1123,6 +1132,7 @@ stateDiagram-v2
 | `pending.updated` | host | 待发消息变了：内容、方式、状态（含到终态），带完整的消息（0.8.0） | `pending.*` 方法；插话被拒、插入；回合结束时的暂停与发出（§4.6） |
 | `user.steered` | host | 一条插话进了当前回合（0.8.0） | 适配器的 `turn.steered`（Codex：带同一 `clientId` 的 userMessage 完成） |
 | `ui.show` | host | 会话里的 agent 请界面显示一样东西（0.30.0，§3.15） | 应用级工具 `wevir_show` |
+| `file.shared` | host | agent 把做好的文件交给用户（0.40.0，§3.15.2） | 应用级工具 `wevir_share_file` |
 
 和计划草稿相比的调整，都来自 Spike 样本：
 

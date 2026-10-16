@@ -1,7 +1,7 @@
 // 应用级工具（0.30.0，domain-model §3.15）：Host 的 `/mcp` 端点（app-mcp.ts）与工具（app-tools.ts），用 echo 引擎跑会话，按 MCP 的
 // Streamable HTTP 直接调端点（引擎怎样挂上它见各适配器的测试）。
 
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -228,6 +228,7 @@ describe('应用级工具的端点', () => {
       'wevir_session_wait',
       'wevir_session_interrupt',
       'wevir_show',
+      'wevir_share_file',
     ]);
     expect(tools.find((tool) => tool.name === 'wevir_session_create')?.annotations).toMatchObject({
       destructiveHint: true,
@@ -290,7 +291,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(8);
+    expect(list.body.result.tools).toHaveLength(9);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -482,6 +483,43 @@ describe('应用级工具', () => {
       { kind: 'file', path: 'notes.md' },
       { kind: 'session', sessionId: b },
       { kind: 'changes' },
+    ]);
+  });
+
+  it('wevir_share_file：会话文件夹里的文件写成 file.shared，带大小与类型，同一个文件只交一次；外面的、不在的、目录都拒绝', async () => {
+    const h = await setup();
+    const a = await h.create();
+    mkdirSync(join(h.workspace, 'out'));
+    writeFileSync(join(h.workspace, 'out', '周报.docx'), 'docx bytes');
+    mkdirSync(join(h.workspace, '..', 'outside'));
+    writeFileSync(join(h.workspace, '..', 'outside', 'x.txt'), 'x');
+    symlinkSync(join(h.workspace, '..', 'outside', 'x.txt'), join(h.workspace, 'link.txt'));
+
+    expect(
+      await h.call(a, 'wevir_share_file', {
+        paths: ['out/周报.docx', join(h.workspace, 'notes.md'), 'notes.md'],
+      }),
+    ).toEqual({
+      shared: [
+        { path: 'out/周报.docx', name: '周报.docx', size: 10 },
+        { path: 'notes.md', name: 'notes.md', size: 8 },
+      ],
+    });
+    for (const paths of [['../outside/x.txt'], ['link.txt'], ['missing.md'], ['out'], []]) {
+      expect(await h.call(a, 'wevir_share_file', { paths }), JSON.stringify(paths)).toHaveProperty(
+        'error',
+      );
+    }
+    const shared = h.all(a).filter((e) => e.type === 'file.shared');
+    expect(shared).toHaveLength(1);
+    expect(shared[0]?.type === 'file.shared' && shared[0].payload.files).toEqual([
+      {
+        path: 'out/周报.docx',
+        name: '周报.docx',
+        size: 10,
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+      { path: 'notes.md', name: 'notes.md', size: 8, mimeType: 'text/markdown' },
     ]);
   });
 

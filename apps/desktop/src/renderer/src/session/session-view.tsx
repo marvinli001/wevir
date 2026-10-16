@@ -33,8 +33,9 @@ import { archiveSession, requestRename, useSessionManagement } from '@/data/sess
 import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { isChats, type WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
-import { OpenFileLink, openFileLink } from '@/files/file-links';
+import { OpenFileLink, OpenSessionFile, openFileLink } from '@/files/file-links';
 import type { FileScope } from '@/files/files-data';
+import { openFile } from '@/files/files-store';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
@@ -114,6 +115,11 @@ export function SessionView({
     () =>
       filesEnabled && panes ? (href: string) => openFileLink(panes, session.cwd, href) : undefined,
     [filesEnabled, panes, session.cwd],
+  );
+  // 交给用户的文件（0.40.0）：点文件名在文件窗格里预览。
+  const openSessionFile = useMemo(
+    () => (filesEnabled && panes ? (path: string) => openFile(panes, path) : undefined),
+    [filesEnabled, panes],
   );
   const transcriptRef = useRef<TranscriptViewHandle>(undefined);
   const [notice, setNotice] = useState<string>();
@@ -612,15 +618,17 @@ export function SessionView({
       ) : transcript && (state.caughtUp || transcript.lastSeq > 0) ? (
         <OpenTurnChanges value={openTurnChanges}>
           <OpenFileLink value={openLink}>
-            <MessageActionsContext value={messageActions}>
-              <TranscriptView
-                sessionId={session.id}
-                transcript={transcript}
-                cwd={session.cwd}
-                onReady={onReady}
-                compact={variant === 'pane'}
-              />
-            </MessageActionsContext>
+            <OpenSessionFile value={openSessionFile}>
+              <MessageActionsContext value={messageActions}>
+                <TranscriptView
+                  sessionId={session.id}
+                  transcript={transcript}
+                  cwd={session.cwd}
+                  onReady={onReady}
+                  compact={variant === 'pane'}
+                />
+              </MessageActionsContext>
+            </OpenSessionFile>
           </OpenFileLink>
         </OpenTurnChanges>
       ) : (

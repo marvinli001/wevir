@@ -90,6 +90,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.pendingId;
     case 'ui.show':
       return event.payload.target.kind;
+    case 'file.shared':
+      return event.payload.files[0]?.name ?? '';
     default: {
       const unhandled: never = event;
       return unhandled;

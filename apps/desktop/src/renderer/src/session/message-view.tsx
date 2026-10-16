@@ -26,6 +26,7 @@ import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
 import { PlanCard } from './plan-card';
+import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
 import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
 import { groupWork } from './tool-model';
@@ -299,6 +300,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <SuggestedTasksCard part={part} />;
     case 'task_report':
       return <TaskReportMarker part={part} />;
+    case 'files':
+      return <SharedFilesCard part={part} />;
     case 'compaction':
       return <CompactionPart part={part} />;
     case 'plan':

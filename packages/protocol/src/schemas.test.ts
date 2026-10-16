@@ -95,6 +95,7 @@ import {
   SessionSnapshotSchema,
   SessionStateSchema,
   SessionWorktreeSchema,
+  SharedFileSchema,
   StateChangeReasonSchema,
   StreamBlockRefSchema,
   StreamIdSchema,
@@ -734,6 +735,19 @@ const standaloneCases: Case[] = [
       { kind: 'session', sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR' },
     ],
     invalid: [{ kind: 'file', path: '' }, { kind: 'browser' }, { kind: 'session' }],
+  },
+  {
+    name: 'SharedFile',
+    schema: SharedFileSchema,
+    valid: [
+      { path: 'report.md', name: 'report.md', size: 120, mimeType: 'text/markdown' },
+      { path: 'out/a.bin', name: 'a.bin', size: 0 },
+    ],
+    invalid: [
+      { path: '', name: 'a', size: 1 },
+      { path: 'a', name: 'a', size: -1 },
+      { path: 'a', name: 'a', size: 1.5 },
+    ],
   },
   {
     name: 'GitFileChange',

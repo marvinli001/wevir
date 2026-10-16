@@ -36,6 +36,7 @@ import type {
   SessionReadOnly,
   SessionReadOnlyReason,
   SessionState,
+  SharedFile,
   StreamBlockRef,
   SubagentStatus,
   SubagentSummary,
@@ -161,7 +162,11 @@ export type ChatPart =
    */
   | { type: 'tasks'; key: string; toolCallId: string; tasks: readonly SuggestedTask[] }
   /** 一项建议开出来的会话回报了结果（`task.reported`），在当时所在的位置（当前回合，空闲时一条系统消息）。 */
-  | { type: 'task_report'; key: string; task: SuggestedTask; summary?: string };
+  | { type: 'task_report'; key: string; task: SuggestedTask; summary?: string }
+  /**
+   * Agent 交给用户的文件（0.40.0，`file.shared`）：在当时所在的位置（`key` 是 `f:<seq>`），`path` 相对会话的 `cwd`。
+   */
+  | { type: 'files'; key: string; files: readonly SharedFile[] };
 
 /** 文本与思考部件共有的字段。 */
 export interface StreamPartFields {
@@ -564,6 +569,13 @@ export class TranscriptProjection {
         return;
       case 'ui.show':
         this.#uiShow = { seq: event.seq, ts: event.ts, target: event.payload.target };
+        return;
+      case 'file.shared':
+        this.#target(event.payload.turnId, event.seq).parts.push({
+          type: 'files',
+          key: `f:${event.seq}`,
+          files: event.payload.files,
+        });
         return;
     }
   }

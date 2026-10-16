@@ -337,6 +337,7 @@ Host → 客户端的通知：
 | `pending.updated` | host |
 | `user.steered` | host |
 | `ui.show` | host |
+| `file.shared` | host |
 
 `engine.raw` 不按能力位门控，所有订阅者都收到（门控意味着扣下事件，会打断 `seq` 的连续性，§4 第 4 条）；客户端默认不投影它，开发者模式下作为调试信息显示。它的 `params` 按 §11 截断。
 
@@ -477,6 +478,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.39.0`：不在项目里的会话（domain-model §3.1，照 Codex 桌面端的“不在项目中工作”）。`session.create` 的 `workspaceId` 变成 optional：省略时会话建在 Host 的“对话”工作区，每个会话一个新建的文件夹；新类型 `WorkspaceKind`（`chats`），`Workspace` 加 optional 的 `kind`；Host 功能 `chat_sessions`。放宽的参数与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端照旧带 `workspaceId`；别的客户端建的对话在它那里是一个叫 `Chats` 的项目里的普通会话（它的 schema 丢掉 `kind`），移除这个项目回 `INVALID_PARAMS`。新客户端连旧 Host：hello 结果里没有 `chat_sessions`，桌面端不显示“不在目录中工作”，没有项目时照旧先建项目（旧 Host 要求 `workspaceId`）。冻结样本 `compat/0.39.0.json`。
 
+`0.40.0`：交给用户的文件（domain-model §3.15.2）。新事件 `file.shared`（`files`、`turnId?`）；新类型 `SharedFile` 与常量 `SHARED_FILES_MAX`（20）；Host 功能 `shared_files`。应用级工具里多了 `wevir_share_file`（MCP 的工具参数，不是 Host API 的形状），不用批准。新事件，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端按规则 5 忽略 `file.shared`，看不到文件卡片，agent 的回答照常；文件就在会话的文件夹里。新客户端连旧 Host：hello 结果里没有 `shared_files`，agent 没有这个工具，收不到这个事件，不需要降级。冻结样本 `compat/0.40.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -538,6 +541,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `session_branches` | 0.38.0 | 分支到新会话：`session.fork` 不带 `side`、可带 `turnId`（Codex、echo 引擎；`engineFeatures` 的 `branch` 说哪种 Provider 的引擎能分支，没有时 `INVALID_STATE`） |
 | `session_rewind` | 0.38.0 | 撤回最后一个回合：`session.rewind` 与 `turn.rewound` 事件（Codex、echo 引擎；`engineFeatures` 的 `rewind`，没有时 `INVALID_STATE`） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
+| `shared_files` | 0.40.0 | 交给用户的文件：应用级工具 `wevir_share_file` 与 `file.shared` 事件（有应用级工具时，同 `app_tools`） |
 | `chat_sessions` | 0.39.0 | 不在项目里的会话：`session.create` 可以不带 `workspaceId`，`Workspace.kind` 的 `chats`（与引擎无关，0.39.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

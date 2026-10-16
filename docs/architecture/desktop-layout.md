@@ -769,6 +769,7 @@ interface StoredPanes {
 - **别的会话发来的消息**（`user.message.from.kind` 是 `message`）：照常是用户气泡，气泡下方一行说明文字色的小字“来自“〈会话标题〉””，点它打开那个会话（`session/message-view.tsx` 的 `FromSession`）。
 - **回报**（`from.kind` 是 `report`）：Host 给模型看的回报正文不显示成气泡，换成同建议任务回报（§17）的圆角小标签：回复图标加““〈会话标题〉”的回报”，悬停看全文，点它打开那个会话（`SessionReport`）。
 - **显示**（`ui.show`）：只在主会话视图里、只对刚到的（15 秒内、`seq` 比处理过的新）打开窗格（`session/ui-show.ts`）：文件进“文件预览”并选中那一行，`changes` 打开“变更”（未提交），`files` 打开文件树，`session` 在“会话”窗格里打开那个会话，标签是它的标题（参数 `label`）。翻看历史、晚到的客户端都不再打开。
+- **交给用户的文件**（`file.shared`，0.40.0，domain-model §3.15.2）：在当时的位置一张文件卡片（`session/shared-files-card.tsx`，desktop-tokens §51），收起的回合里也显示。点文件名在“文件预览”里打开（Host 有 `workspace_files` 时，没有时交给默认应用或在访达中显示）；右边是用默认应用打开（文档与媒体才有，shared/open-path.ts）、另存为（主进程的 `saveFileAs`：保存对话框默认在“下载”里、用文件名，复制过去）、在访达中显示。
 - **审批卡片**：新开会话、发消息、停止别的会话的审批标题是“允许开一个新会话？”“允许给其他会话发消息？”“允许停止其他会话？”（`approval-model.ts` 按工具名 `mcp__wevir__…`），其余同别的工具。
 
 ## 21. 浏览器（0.33.0）

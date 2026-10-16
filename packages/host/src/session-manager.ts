@@ -33,6 +33,7 @@ import {
   type SessionSnapshot,
   type SessionState,
   type SessionWorktree,
+  type SharedFile,
   type StateChangeReason,
   type StreamBlockRef,
   type StreamId,
@@ -274,6 +275,7 @@ const BRANCH_HISTORY_EVENTS: ReadonlySet<string> = new Set<WevirEventType>([
   'tasks.suggested',
   'task.started',
   'task.reported',
+  'file.shared',
 ]);
 
 const COMMAND_TURN_NOT_STEERABLE = 'a compact or review turn cannot be steered';
@@ -1916,6 +1918,23 @@ export class SessionManager {
         type: 'ui.show',
         source: 'host',
         payload: { target, ...(turnId !== undefined && { turnId }) },
+      },
+    ]);
+  }
+
+  /**
+   * 应用级工具的 `wevir_share_file`（0.40.0）：在会话的流里写 `file.shared`，消息流在当时的位置出现文件卡片。会话有进行中的回合时
+   * 带上它。
+   */
+  shareFiles(sessionId: SessionId, files: readonly SharedFile[]): void {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const turnId = runtime.turn?.turnId;
+    this.#write(runtime, [
+      {
+        type: 'file.shared',
+        source: 'host',
+        payload: { files: [...files], ...(turnId !== undefined && { turnId }) },
       },
     ]);
   }

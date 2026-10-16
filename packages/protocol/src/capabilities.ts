@@ -172,6 +172,11 @@ export const HOST_FEATURES = {
    * （`Workspace.kind` 是 `chats`），每个会话一个新建的文件夹。
    */
   chatSessions: 'chat_sessions',
+  /**
+   * Agent 交文件给用户（0.40.0，domain-model §3.15.2）：应用级工具里有 `wevir_share_file`，会话的流里有 `file.shared` 事件。有应用级
+   * 工具时声明（同 `app_tools`）。
+   */
+  sharedFiles: 'shared_files',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -209,6 +214,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_branches: z.boolean().optional(),
   session_rewind: z.boolean().optional(),
   chat_sessions: z.boolean().optional(),
+  shared_files: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

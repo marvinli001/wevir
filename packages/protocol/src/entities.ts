@@ -985,6 +985,21 @@ export const UiShowTargetSchema = z.discriminatedUnion('kind', [
 ]);
 export type UiShowTarget = z.infer<typeof UiShowTargetSchema>;
 
+/** `file.shared` 一次最多交几个文件（0.40.0）。 */
+export const SHARED_FILES_MAX = 20;
+
+/**
+ * Agent 交给用户的一个文件（0.40.0，`wevir_share_file`，domain-model §3.15.2）：会话文件夹里的文件，`path` 相对会话的 `cwd`、
+ * `/` 分隔；`name` 是显示的文件名，`size` 是交出时的字节数，`mimeType` 由扩展名推断（认不出时省略）。
+ */
+export const SharedFileSchema = z.object({
+  path: z.string().min(1),
+  name: z.string().min(1),
+  size: z.int().min(0),
+  mimeType: z.string().min(1).optional(),
+});
+export type SharedFile = z.infer<typeof SharedFileSchema>;
+
 /** 会话是怎么来的（0.16.0）：现在只有“从一项建议开出来”。 */
 export const SessionOriginSchema = z.object({
   kind: z.literal('suggested_task'),

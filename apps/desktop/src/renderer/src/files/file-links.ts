@@ -9,6 +9,12 @@ import { openFile, openFiles } from './files-store';
 export const OpenFileLink = createContext<((href: string) => void) | undefined>(undefined);
 
 /**
+ * 在文件窗格里打开会话文件夹里的一个文件（`path` 相对会话目录，0.40.0 的文件卡片用）。会话视图在 Host 有 `workspace_files` 时
+ * 提供；没有时卡片改用系统的默认应用。
+ */
+export const OpenSessionFile = createContext<((path: string) => void) | undefined>(undefined);
+
+/**
  * 打开一个文件链接：在会话目录里的进文件窗格（目录打开文件树），在目录外的绝对路径在访达里显示。
  */
 export function openFileLink(panes: PaneController | undefined, cwd: string, href: string): void {

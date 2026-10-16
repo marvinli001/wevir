@@ -1,8 +1,8 @@
 // Wevir 桌面主进程（T5.1）：窗口与安全基线、Host 的附着 / 拉起 / 停止、给 preload 的 IPC。
 // Host 的生命周期见 host-lifecycle.ts（ADR-0002 §6）；渲染进程只经 client-sdk 与 Host 通信。
 
-import { stat } from 'node:fs/promises';
-import { isAbsolute, join } from 'node:path';
+import { copyFile, stat } from 'node:fs/promises';
+import { basename, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_LAYOUT, LOG_FILE, resolveHome } from '@wevir/host/runtime';
 import {
@@ -296,6 +296,28 @@ function run(): void {
     const error = await shell.openPath(await openablePath(path));
     if (error !== '') throw new Error(error);
   });
+  // agent 交给用户的文件（0.40.0）：另存为。目标由用户在保存对话框里选，这里只复制，不打开。
+  ipcMain.handle(
+    IPC_CHANNELS.saveFileAs,
+    async (event, path: unknown, name: unknown): Promise<'saved' | 'cancelled'> => {
+      assertSender(event);
+      if (typeof path !== 'string' || !isAbsolute(path) || typeof name !== 'string') {
+        throw new Error('an absolute path and a file name are required');
+      }
+      if (!(await stat(path)).isFile()) throw new Error('not a file');
+      const fileName = basename(name.replaceAll('\\', '/')) || basename(path);
+      const options = { defaultPath: join(app.getPath('downloads'), fileName) };
+      const result =
+        mainWindow && !mainWindow.isDestroyed()
+          ? await dialog.showSaveDialog(mainWindow, options)
+          : await dialog.showSaveDialog(options);
+      if (result.canceled || result.filePath === undefined || result.filePath === '') {
+        return 'cancelled';
+      }
+      await copyFile(path, result.filePath);
+      return 'saved';
+    },
+  );
 
   // 自动更新（ADR-0007 补记 4）：开发构建里是 disabled，界面不显示入口。
   const updates = createUpdateController(log);

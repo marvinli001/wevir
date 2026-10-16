@@ -1314,3 +1314,30 @@ describe('撤回回合（0.38.0）', () => {
     expect(projection.snapshot().messages).toHaveLength(2);
   });
 });
+
+describe('交给用户的文件（0.40.0）', () => {
+  const report = { path: 'out/周报.docx', name: '周报.docx', size: 10 };
+  const chart = { path: 'chart.png', name: 'chart.png', size: 3, mimeType: 'image/png' };
+
+  it('回合里的 file.shared 是助手消息里当时位置的 files 部件；没有回合时是一条系统消息', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('assistant.message', { turnId: TURN, messageId: 'msg_1', text: '写好了。', replaces: [] });
+    add('file.shared', { turnId: TURN, files: [report, chart] });
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    const shared = add('file.shared', { files: [report] });
+    const { messages } = projectTranscript(list);
+    const answer = messages.find((m) => m.role === 'assistant');
+    expect(answer?.parts.map((p) => p.type)).toEqual(['text', 'files']);
+    expect(answer?.parts.at(-1)).toEqual({
+      type: 'files',
+      key: `f:${list.at(-4)?.seq}`,
+      files: [report, chart],
+    });
+    expect(messages.at(-1)).toMatchObject({
+      role: 'system',
+      parts: [{ type: 'files', key: `f:${shared.seq}`, files: [report] }],
+    });
+  });
+});

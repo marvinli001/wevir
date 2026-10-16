@@ -62,6 +62,7 @@ const api: DesktopApi = {
   revealPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.revealPath, path),
   previewFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.previewFile, path),
   openPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.openPath, path),
+  saveFileAs: (path, name) => ipcRenderer.invoke(IPC_CHANNELS.saveFileAs, path, name),
   getUpdateState: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateState),
   onUpdateState: (listener) => {
     const handler = (_event: IpcRendererEvent, state: UpdateState) => listener(state);

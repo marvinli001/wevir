@@ -32,6 +32,8 @@ import {
   SessionReadOnlyReasonSchema,
   SessionSideFields,
   SessionStateSchema,
+  SHARED_FILES_MAX,
+  SharedFileSchema,
   StreamBlockRefSchema,
   SubagentSummarySchema,
   SuggestedTaskSchema,
@@ -414,6 +416,14 @@ export const EventPayloadSchemas = {
     target: UiShowTargetSchema,
     turnId: TurnIdSchema.optional(),
   }),
+  /**
+   * Agent 把做好的文件交给用户（0.40.0，`wevir_share_file`）：消息流里在当时的位置出现文件卡片，用户可以打开、另存为、在访达中
+   * 显示。文件留在会话文件夹里，事件只记路径与交出时的大小。
+   */
+  'file.shared': z.object({
+    files: z.array(SharedFileSchema).min(1).max(SHARED_FILES_MAX),
+    turnId: TurnIdSchema.optional(),
+  }),
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -485,6 +495,7 @@ export const PendingAddedEventSchema = eventSchema('pending.added');
 export const PendingUpdatedEventSchema = eventSchema('pending.updated');
 export const UserSteeredEventSchema = eventSchema('user.steered');
 export const UiShowEventSchema = eventSchema('ui.show');
+export const FileSharedEventSchema = eventSchema('file.shared');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -528,6 +539,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   PendingUpdatedEventSchema,
   UserSteeredEventSchema,
   UiShowEventSchema,
+  FileSharedEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;
