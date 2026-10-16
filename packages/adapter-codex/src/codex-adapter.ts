@@ -162,6 +162,14 @@ export const RESUME_RETRIES = 10;
 export const RESUME_RETRY_DELAY_MS = 200;
 
 /**
+ * 子 agent 的 `thread/read` 遇到内部错误（-32603）时的重试：spawn 刚报出来时子 thread 的 rollout 文件可能还没写下
+ * 会话元数据（`rollout at … is empty`，机器忙时才会碰上），稍后再读就有。每次间隔 `THREAD_READ_RETRY_DELAY_MS`，最多
+ * `THREAD_READ_RETRIES` 次；别的错误（如不支持 thread/read）不重试。
+ */
+export const THREAD_READ_RETRIES = 10;
+export const THREAD_READ_RETRY_DELAY_MS = 200;
+
+/**
  * 还没认出来的 thread 的通知先存着（R4）：子 thread 的第一批通知可能早于父会话里报出它的 collabAgentToolCall。每个
  * thread 最多存这么多条，存了这么久还没认出来就丢掉（codex-event-mapping.md §6.5）。
  */
@@ -1789,18 +1797,32 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     childId: string,
     prompt: string | undefined,
   ): Promise<void> {
+    const open = () => this.#sessions.get(parent.id) === parent && parent.status === 'open';
     let read: ThreadReadResponse;
-    try {
-      read = await this.process.request<ThreadReadResponse>('thread/read', {
-        threadId: childId,
-      } satisfies ThreadReadParams);
-    } catch (error) {
-      this.#warnOnce('thread_read', '读子 agent 的 thread 信息失败，昵称与名称从缺', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        read = await this.process.request<ThreadReadResponse>('thread/read', {
+          threadId: childId,
+        } satisfies ThreadReadParams);
+        break;
+      } catch (error) {
+        if (
+          error instanceof CodexRpcError &&
+          error.code === -32603 &&
+          attempt < THREAD_READ_RETRIES &&
+          open()
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, THREAD_READ_RETRY_DELAY_MS));
+          if (!open()) return;
+          continue;
+        }
+        this.#warnOnce('thread_read', '读子 agent 的 thread 信息失败，昵称与名称从缺', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
     }
-    if (this.#sessions.get(parent.id) !== parent || parent.status !== 'open') return;
+    if (!open()) return;
     const nickname = nonEmpty(read.thread.agentNickname);
     const role = nonEmpty(read.thread.agentRole);
     const name = nonEmpty(read.thread.name);

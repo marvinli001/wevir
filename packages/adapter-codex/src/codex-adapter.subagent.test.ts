@@ -27,12 +27,12 @@ afterEach(async () => {
 });
 afterAll(() => dirs.cleanup());
 
-async function replay(sample: string) {
+async function replay(sample: string, fakeArgs: string[] = []) {
   const logger = collectingLogger();
   const adapter = newAdapter({
     home: dirs.make('subagent').home,
     binary: process.execPath,
-    binaryArgs: [FAKE_APP_SERVER],
+    binaryArgs: [FAKE_APP_SERVER, ...fakeArgs],
     logger,
     providers: [
       {
@@ -111,6 +111,16 @@ describe.each(['subagent', 'subagent-wait', 'subagent-early-child'])(
     });
   },
 );
+
+it('thread/read 先碰上子 thread 的 rollout 还是空的（-32603）：重试到读出来，昵称照样补上', async () => {
+  const { parent, started, logger } = await replay('subagent', ['--thread-read-empty', '2']);
+  const updated = await waitForEvent(parent, ofType('subagent.updated'), 'subagent.updated');
+  expect(updated).toMatchObject({
+    childEngineSessionId: started.childEngineSessionId,
+    nickname: 'Ampere',
+  });
+  expect(logger.warnings.some((w) => w.startsWith('读子 agent 的 thread 信息失败'))).toBe(false);
+});
 
 describe('子会话的约束', () => {
   it('子会话不接受 send；可以订阅、列未决审批', async () => {

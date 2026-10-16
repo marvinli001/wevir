@@ -4,10 +4,12 @@
 // packages/adapter-dsh/src/test-fixtures/fake-dsh.mjs 的思路：样本按提示词选（`replay:<样本名>`，其余用 `stream`），
 // 样本里的 thread、回合、item 与服务端请求的 ID 换成当前的。只用 Node 内置模块。
 //
-//   node fake-app-server.mjs [--fixtures <目录>] [--version] [--strict-config]
+//   node fake-app-server.mjs [--fixtures <目录>] [--version] [--strict-config] [--thread-read-empty <n>]
 //
 // - `--version`：打印锁定的版本（与 paths.ts 的 CODEX_VERSION 一致）后退出。
 // - initialize / thread/start / thread/resume / thread/unsubscribe / turn/start / turn/interrupt 有回应，其余回 -32601。
+// - `--thread-read-empty <n>`：也回应 thread/read，每个 thread 的前 n 次照真实二进制回 rollout 还是空的（-32603），之后
+//   给出昵称 Ampere（子 agent 刚报出时 rollout 还没写下的竞争）。不带这个参数时 thread/read 回 -32601。
 // - 审批：样本里的 `{"serverRequest": …}` 发给客户端，等它回复 `{decision}`，接着回放 `<样本名>.<决定>.jsonl`
 //   （acceptForSession 用 accept 的分支）；审批未决时 `turn/interrupt` 回放 `<样本名>.interrupt.jsonl`（turn/completed
 //   之后才是 serverRequest/resolved，与真实的顺序相同）。
@@ -37,6 +39,10 @@ const FIXTURES =
   fixturesIndex >= 0
     ? args[fixturesIndex + 1]
     : fileURLToPath(new URL('./app-server/', import.meta.url));
+const threadReadIndex = args.indexOf('--thread-read-empty');
+const THREAD_READ_EMPTY = threadReadIndex >= 0 ? Number(args[threadReadIndex + 1]) : undefined;
+/** threadId → 已经回过几次 rollout 是空的。 */
+const emptyReads = new Map();
 const STORE = join(process.cwd(), 'fake-threads.json');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -221,6 +227,21 @@ const handlers = {
     }
     thread.subscribed = true;
     return threadResult(thread);
+  },
+  'thread/read': (params) => {
+    if (THREAD_READ_EMPTY === undefined) {
+      throw { code: -32601, message: 'fake-app-server 不支持 thread/read' };
+    }
+    const { threadId } = params;
+    const seen = emptyReads.get(threadId) ?? 0;
+    if (seen < THREAD_READ_EMPTY) {
+      emptyReads.set(threadId, seen + 1);
+      throw {
+        code: -32603,
+        message: `failed to read thread: thread-store internal error: failed to read session metadata rollout-${threadId}.jsonl: rollout at rollout-${threadId}.jsonl is empty`,
+      };
+    }
+    return { thread: { id: threadId, agentNickname: 'Ampere', agentRole: null, name: null } };
   },
   'thread/unsubscribe': (params) => {
     const thread = threads.get(params.threadId);
