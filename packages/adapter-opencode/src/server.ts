@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import type { OpenCodePluginEntry } from './app-tools.js';
 import { serverConfigContent } from './permissions.js';
 
 /** 等服务器就绪的时限（T3 的 DEFAULT_OPENCODE_SERVER_TIMEOUT_MS）。 */
@@ -65,6 +66,8 @@ export interface StartServerOptions {
   /** 核对版本：连上 `url` 读 `/global/health`，返回版本号，不合要求时抛错。 */
   verify: (url: string, password: string) => Promise<string>;
   ledger?: ServerLedger;
+  /** 应用级工具的插件（app-tools.ts），并进配置的 `plugin`。 */
+  appToolsPlugin?: OpenCodePluginEntry;
   timeoutMs?: number;
   signal?: AbortSignal;
 }
@@ -108,7 +111,10 @@ export async function startOpenCodeServer(
     env: {
       ...options.env,
       OPENCODE_SERVER_PASSWORD: password,
-      OPENCODE_CONFIG_CONTENT: serverConfigContent(options.env.OPENCODE_CONFIG_CONTENT),
+      OPENCODE_CONFIG_CONTENT: serverConfigContent(
+        options.env.OPENCODE_CONFIG_CONTENT,
+        options.appToolsPlugin,
+      ),
     },
     detached: process.platform !== 'win32',
     stdio: ['ignore', 'pipe', 'pipe'],

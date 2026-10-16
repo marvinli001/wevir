@@ -7,6 +7,8 @@
 // 用订阅真跑一个回合的步骤见 docs/architecture/opencode-event-mapping.md §8。
 
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type IncomingHttpHeaders } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type AgentEvent, isTurnTerminal } from '@wevir/runtime-adapter';
@@ -16,6 +18,8 @@ import { OPENCODE_BIN_ENV } from './executable.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
 import {
+  APP_TOOL_REPLY_PREFIX,
+  EXTRA_PROMPTS,
   isolatedOpenCodeEnv,
   MOCK_MODEL_ID,
   MOCK_PROVIDER_ID,
@@ -297,6 +301,144 @@ describe.skipIf(!ENABLED)('OpenCodeAdapter（真实 opencode + 假模型）', { 
       ).rejects.toMatchObject({ code: 'session_lost', lostReason: 'not_found' });
     } finally {
       await adapter.dispose();
+    }
+  });
+
+  it('应用级工具：插件挂上 Host 的工具，按 opencode 会话 ID 调用；要审批的经 opencode 的权限系统', async () => {
+    // 假的 Host 端点：列出一个只读、一个要审批的工具，记下每次调用的请求头与参数。
+    const calls: Array<{ headers: IncomingHttpHeaders; method: string; params: unknown }> = [];
+    const host = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        calls.push({ headers: req.headers, method: body.method, params: body.params });
+        const result =
+          body.method === 'tools/list'
+            ? {
+                tools: [
+                  {
+                    name: 'wevir_session_list',
+                    title: 'List Wevir sessions',
+                    description: 'List the Wevir sessions.',
+                    inputSchema: {
+                      type: 'object',
+                      properties: { scope: { type: 'string', enum: ['project', 'all'] } },
+                    },
+                  },
+                  {
+                    name: 'wevir_session_create',
+                    title: 'Create a Wevir session',
+                    description: 'Open a new Wevir session.',
+                    inputSchema: {
+                      type: 'object',
+                      properties: { prompt: { type: 'string' } },
+                      required: ['prompt'],
+                    },
+                  },
+                ],
+              }
+            : { content: [{ type: 'text', text: `called ${body.params.name}` }] };
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
+      });
+    });
+    await new Promise<void>((resolve) => host.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(host.address() as AddressInfo).port}/mcp`;
+    const adapter = newAdapter('home-app-tools');
+    adapter.bindEngineAppTools((kinds) =>
+      kinds.includes('opencode') ? { url, token: 'engine-token' } : undefined,
+    );
+    try {
+      const session = await adapter.createSession({
+        cwd: workspace,
+        providerId: 'opencode',
+        modelId: MODEL,
+      });
+      const id = session.engineSessionId;
+      const log = watch(adapter, id);
+      // 插件启动时列出工具（不带会话），模型看到的参数照 Host 的 JSON Schema。
+      const from = model?.requests.length ?? 0;
+      const listed = await log.turn(EXTRA_PROMPTS.appList);
+      expect(calls[0]).toMatchObject({ method: 'tools/list' });
+      expect(calls[0]?.headers.authorization).toBe('Bearer engine-token');
+      expect(calls[0]?.headers['x-wevir-engine-session']).toBeUndefined();
+      const tools = (model?.requests[requestFor(EXTRA_PROMPTS.appList, from)]?.tools ??
+        []) as Array<{
+        function: { name: string; parameters: { properties?: Record<string, unknown> } };
+      }>;
+      const listTool = tools.find((tool) => tool.function.name === 'wevir_session_list');
+      expect(listTool?.function.parameters.properties?.scope).toMatchObject({
+        enum: ['project', 'all'],
+      });
+      // 只读的工具不问；调用带着这个会话的 opencode 会话 ID，结果交到了模型。
+      expect(listed.some((event) => event.type === 'approval.requested')).toBe(false);
+      expect(listed).toContainEqual(
+        expect.objectContaining({
+          type: 'tool.started',
+          toolName: 'mcp__wevir__wevir_session_list',
+        }),
+      );
+      const listCall = calls.find((call) => call.method === 'tools/call');
+      expect(listCall?.headers['x-wevir-engine-session']).toBe(id);
+      expect(listCall?.params).toEqual({ name: 'wevir_session_list', arguments: { scope: 'all' } });
+      expect(
+        listed.find((event) => event.type === 'assistant.message' && 'text' in event),
+      ).toMatchObject({ text: `${APP_TOOL_REPLY_PREFIX}called wevir_session_list` });
+
+      // 要审批的：on_request 下 opencode 问用户，拒绝了不调 Host。
+      const before = calls.length;
+      const declineFrom = log.events.length;
+      await adapter.send(id, text(EXTRA_PROMPTS.appCreate));
+      await log.until(
+        (list) => list.some((event) => event.type === 'approval.requested'),
+        declineFrom,
+      );
+      const asked = log.events
+        .slice(declineFrom)
+        .find((event) => event.type === 'approval.requested');
+      if (asked?.type !== 'approval.requested') throw new Error('no approval');
+      const askedTool = log.events
+        .slice(declineFrom)
+        .find((event) => event.type === 'tool.started' && event.toolCallId === asked.toolCallId);
+      expect(askedTool).toMatchObject({ toolName: 'mcp__wevir__wevir_session_create' });
+      await adapter.respondToApproval(id, asked.requestId, { optionId: 'decline' });
+      await log.until((list) => list.some(isTurnTerminal), declineFrom);
+      expect(calls.length).toBe(before);
+
+      // 允许之后才调 Host。
+      const acceptFrom = log.events.length;
+      await adapter.send(id, text(EXTRA_PROMPTS.appCreate));
+      await log.until(
+        (list) => list.some((event) => event.type === 'approval.requested'),
+        acceptFrom,
+      );
+      const second = log.events
+        .slice(acceptFrom)
+        .find((event) => event.type === 'approval.requested');
+      if (second?.type !== 'approval.requested') throw new Error('no approval');
+      await adapter.respondToApproval(id, second.requestId, { optionId: 'accept' });
+      await log.until((list) => list.some(isTurnTerminal), acceptFrom);
+      expect(calls.at(-1)).toMatchObject({
+        method: 'tools/call',
+        params: { name: 'wevir_session_create', arguments: { prompt: 'Say hi' } },
+      });
+      expect(calls.at(-1)?.headers['x-wevir-engine-session']).toBe(id);
+
+      // 完全访问的会话不问。
+      const full = await adapter.createSession({
+        cwd: workspace,
+        providerId: 'opencode',
+        modelId: MODEL,
+        permissionMode: 'full_access',
+      });
+      const fullLog = watch(adapter, full.engineSessionId);
+      const created = await fullLog.turn(EXTRA_PROMPTS.appCreate);
+      expect(created.some((event) => event.type === 'approval.requested')).toBe(false);
+      expect(calls.at(-1)?.headers['x-wevir-engine-session']).toBe(full.engineSessionId);
+    } finally {
+      await adapter.dispose();
+      await new Promise((resolve) => host.close(resolve));
     }
   });
 });

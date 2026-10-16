@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@opencode-ai/sdk": "1.18.34",
-    "@wevir/runtime-adapter": "workspace:*"
+    "@wevir/runtime-adapter": "workspace:*",
+    "zod": "^4.6.5"
   }
 }

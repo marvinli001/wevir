@@ -1,9 +1,9 @@
 # OpenCode → Wevir 事件映射
 
-> 状态：v0.2（订阅来源 `opencode` 的引擎：检测与模型、本机服务器、会话、回合与流式事件、审批与提问、子 agent、取消、恢复；v0.2 加插话、会话标题、支线与补充说明）· 日期：2026-10-15
+> 状态：v0.3（订阅来源 `opencode` 的引擎：检测与模型、本机服务器、会话、回合与流式事件、审批与提问、子 agent、取消、恢复；v0.2 加插话、会话标题、支线与补充说明；v0.3 加应用级工具）· 日期：2026-10-16
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 补记 14；[host-api.md](./host-api.md) §3.1 的 `account.*`；[领域模型](./domain-model.md) §3.6
-> 代码：`packages/adapter-opencode/src/`（`sdk.ts`、`executable.ts`、`server.ts`、`runtime.ts`、`accounts.ts`、`models.ts`、`permissions.ts`、`message-id.ts`、`tool-display.ts`、`mapping.ts`、`opencode-adapter.ts`、`title.ts`、`side.ts`），登记在 `packages/host/src/engines.ts`
-> 来源：移植自 T3 Code（[pingdotgg/t3code](https://github.com/pingdotgg/t3code)，MIT，提交 `ec1313c8f8333292506f05a355bb72d308a455d8`）的 `packages/provider-opencode`（1.x 那一套：`OpenCodeRuntime.ts`、`OpenCodeServerOwner.ts`、`OpenCodeServerLedger.ts`、`status.ts`、`versionProbe.ts`、`toolItems.ts`、`adapter.ts`、`textGeneration.ts`），逐文件的登记见 [UPSTREAM.md](../upstream/UPSTREAM.md) §4
+> 代码：`packages/adapter-opencode/src/`（`sdk.ts`、`executable.ts`、`server.ts`、`runtime.ts`、`accounts.ts`、`models.ts`、`permissions.ts`、`message-id.ts`、`tool-display.ts`、`mapping.ts`、`opencode-adapter.ts`、`title.ts`、`side.ts`、`app-tools.ts`、`app-tools-plugin.ts`），登记在 `packages/host/src/engines.ts`
+> 来源：移植自 T3 Code（[pingdotgg/t3code](https://github.com/pingdotgg/t3code)，MIT，提交 `ec1313c8f8333292506f05a355bb72d308a455d8`）的 `packages/provider-opencode`（1.x 那一套：`OpenCodeRuntime.ts`、`OpenCodeServerOwner.ts`、`OpenCodeServerLedger.ts`、`status.ts`、`versionProbe.ts`、`toolItems.ts`、`adapter.ts`、`textGeneration.ts`），逐文件的登记见 [UPSTREAM.md](../upstream/UPSTREAM.md) §4；应用级工具的插件改写自 Paseo（[getpaseo/paseo](https://github.com/getpaseo/paseo)，Apache-2.0，提交 `dc7bc8db124e837ba909ffd3b4b20e16adaebe24`）的 `packages/server/src/server/agent/providers/opencode/bridge-plugin.mjs`
 
 本文件写 OpenCode 引擎怎样被 Wevir 驱动，以及 opencode 服务器的事件怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。事件与接口的形状以锁定的 `@opencode-ai/sdk` 1.18.34 的 `dist/v2/gen/*.d.ts` 为准，行为以真实 `opencode` 1.18.34 录下的事件（`test-fixtures/events/*.jsonl`，§9）为准。
 
@@ -14,7 +14,7 @@
 - **路由。** `engines.ts` 登记 `{ name: 'opencode', adapter: OpenCodeAdapter, kinds: ['opencode'] }`；`--adapter codex` 的 Host 是 Codex、Claude Agent、Cursor、OpenCode 的 `EngineRouter`。
 - **一个 Wevir 会话 = 一个 opencode 会话**，引擎会话 ID 是 opencode 的 `ses_…`；一个回合是一次 `session.promptAsync`（带 Wevir 生成的用户消息 ID，`message-id.ts`）到这个会话回到 idle。图片（0.28.0）是 `file` 部件 `{ type: 'file', mime, filename?, url: 'file://…' }`，opencode 自己读 Host 存的文件（同 T3 Code 的 toOpenCodeFileParts）；模型目录标了不收图片（`capabilities.input.image`）的，Host 按 `supportsImages: false` 先拒绝。
 - **一个 Host 一个服务器，按目录分客户端。** opencode 1.x 的服务器按请求头 `x-opencode-directory` 为每个目录开一个实例，一个进程服务所有目录（`opencode serve` 自己就是 `instance: false`）。适配器给每个工作目录一个 SDK 客户端，各订阅一条事件流（`/event`），事件按 `sessionID` 分给会话；task 工具派出的子会话也在同一条流里。T3 每个会话另起一个绑在目录上的服务器，Wevir 不这样做（§8）。
-- **配置与数据复用用户自己的**（同 T3）：服务器读用户的 opencode 配置（`~/.config/opencode`、项目里的 `opencode.json`）、`opencode auth login` 存的凭据和它的会话库（`~/.local/share/opencode`），所以 Wevir 里的会话也出现在用户自己的 opencode 会话列表里，用户配的 Provider、模型、MCP、agent 照常生效。隔离数据目录就等于丢掉用户的登录，没有这样做。服务器的环境继承 Host 的（上游的 Key 环境变量照常生效），PATH 补上 `opencode` 所在的目录与常见的安装目录（`executable.ts`）。Wevir 自己只写 `<数据目录>/engines/opencode/`：账号检测用它当中立的工作目录，`servers/` 下是服务器台账（§3）。唯一加进去的配置是一层权限（§4.2）。
+- **配置与数据复用用户自己的**（同 T3）：服务器读用户的 opencode 配置（`~/.config/opencode`、项目里的 `opencode.json`）、`opencode auth login` 存的凭据和它的会话库（`~/.local/share/opencode`），所以 Wevir 里的会话也出现在用户自己的 opencode 会话列表里，用户配的 Provider、模型、MCP、agent 照常生效。隔离数据目录就等于丢掉用户的登录，没有这样做。服务器的环境继承 Host 的（上游的 Key 环境变量照常生效），PATH 补上 `opencode` 所在的目录与常见的安装目录（`executable.ts`）。Wevir 自己只写 `<数据目录>/engines/opencode/`：账号检测用它当中立的工作目录，`servers/` 下是服务器台账（§3），`plugins/` 下是应用级工具的插件（§4.4）。加进去的配置只有一层权限（§4.2）与应用级工具的插件（§4.4）。
 - **外连。** 适配器只连本机的服务器。服务器自己连用户接上的上游、models.dev 等，与用户直接用 opencode 相同。
 
 ## 2. 账号与模型（`executable.ts`、`runtime.ts`、`accounts.ts`、`models.ts`）
@@ -84,6 +84,19 @@ task 工具派出的子会话是 opencode 自己建的，它的规则只继承�
 | `acceptForSession`（允许，本会话不再询问） | `always` | 把请求带的 `always` 模式（例如 `echo *`）记进这个目录实例的已批准列表，同一会话里匹配的未决请求一并放行；只在内存里，服务器停了就没了，不写用户的配置 |
 | `decline`（拒绝并继续） | `reject` 带 `message` | 记成 CorrectedError：工具失败，反馈交给模型，回合接着做 |
 | `cancel`（拒绝并停止） | `reject` | 记成 RejectedError：停下这个会话的循环（opencode 的 `continue_loop_on_deny` 关着时），同一会话里别的未决请求一并拒绝；回合以 opencode 的 idle 正常结束 |
+
+### 4.4 应用级工具（0.30.0，`app-tools.ts`、`app-tools-plugin.ts`）
+
+Wevir 的 `wevir` 工具（domain-model §3.15）在别的引擎上是每个会话一个令牌的 MCP 服务。opencode 1.x 的 MCP 服务按服务器与目录登记（`mcp.add`），一个服务器服务所有会话，没法给每个会话自己的令牌。照 Paseo 的 OpenCode 桥（`bridge-plugin.mjs`），改用 opencode 插件：
+
+- **引擎令牌。** `OpenCodeAdapter` 声明 `appTools` 并实现 `bindEngineAppTools`：Host 在 `/mcp` 监听之后给它一个只认 `opencode` 种类的会话的引擎令牌（host-api.md §1）。`SessionConfig.appTools` 里按会话的令牌用不上。
+- **插件。** 起服务器时（runtime.ts），有令牌就把插件写进 `<数据目录>/engines/opencode/plugins/wevir-app-tools-<内容摘要>.mjs`（0600，内容不变不重写，里面没有令牌），经 `OPENCODE_CONFIG_CONTENT` 的 `plugin` 登记为 `[file://…, { url, token, noApproval }]`（permissions.ts 的 `serverConfigContent`；用户自己的插件照留，以前的 Wevir 插件去掉）。插件只有一个默认导出的函数（opencode 把模块导出的每个函数都当成插件）。
+- **工具。** 插件启动时用引擎令牌 `tools/list`（不带会话），每个工具注册成同名的插件工具（`wevir_session_list` 等）。opencode 的插件工具参数要是 zod 的 shape（1.14.49 起也收 JSON Schema，但会把每个参数都当成必填），所以把 Host 给的 JSON Schema 转成 zod（Paseo 的 `jsonSchemaToZod`）；zod 是适配器自己声明的那份，按绝对的 `file:` 地址 import（插件在数据目录里，按包名解析不到）。和 opencode 自带的 zod 不是同一份，opencode 照常转出 JSON Schema 给模型（真实 1.18.34 上核对过）。列不出工具时（Host 不在）插件不挂工具，不让加载失败。
+- **调用。** `execute(args, context)` 用 `context.sessionID` 作请求头 `x-wevir-engine-session` 调 `tools/call`，带上 opencode 的中止信号；Host 把它映射回 Wevir 会话（子 agent 的子会话有自己的记录），之后套用这个会话的工具与边界。结果的文本是工具输出；`isError` 时抛错，opencode 记成工具失败、原因交给模型；Host 认不出会话（404）时也抛错。
+- **审批。** opencode 把插件工具的权限交给插件自己。只读的工具与 `wevir_show`（`APP_TOOLS_NO_APPROVAL`）直接调；其余先 `context.ask({ permission: <工具名>, patterns: ['*'], always: ['*'], metadata: <参数> })`，由会话的规则集决定：`on_request` / `auto_review` 的 `*` 是 ask，经 `permission.asked` 成为 Wevir 的审批（§5.5；“本会话不再询问”记住这个工具），`full_access` 放行。拒绝时 `ask` 抛错，不调 Host。生成标题的临时会话全部 deny，看不到这些工具。
+- **工具名。** opencode 里叫 `wevir_session_create`，报给 Host 时照别的引擎的 MCP 工具写成 `mcp__wevir__wevir_session_create`（`engineToolName`，domain-model §7），桌面端据此给三个要审批的工具说清楚做什么。
+- **服务器的时机。** Host 启动时为读账号起的服务器可能在 `/mcp` 监听之前，没有插件：绑定之后这个服务器没人借用就停掉（借着的还完再停），下次用到时带插件重起。
+- **暴露面。** 令牌在 opencode 服务器的环境里（插件选项），这个服务器里跑的命令读得到，与它的 `OPENCODE_SERVER_PASSWORD` 一样；能冒充的只有这个服务器上的 OpenCode 会话，别的引擎的会话不认。
 
 ## 5. 事件 → AgentEvent（`mapping.ts`、`tool-display.ts`、`opencode-adapter.ts`）
 
@@ -207,6 +220,7 @@ T3 的 `textGeneration.ts`：在会话的工作目录里建一个临时 opencode
 - 一个 Host 一个服务器、按目录分客户端（T3 每个会话一个服务器，账号检测另用一个共享的）；服务器总带随机密码；台账记在 Wevir 的数据目录。
 - 不支持 OpenCode 2.x、不支持连外部服务器的网址与密码（T3 的设置里有 `serverUrl` / `serverPassword`）。
 - 不搬：回滚、按指定回合分支（T3 的 `forkThread` 带 `providerTurnId`）、`/compact` 与 slash 命令、skills、附件、agent 选择（build / plan）、T3 自己的 MCP 服务、OpenCode Go 的用量。
+- 应用级工具（§4.4）照 Paseo 用插件挂，不照 T3（T3 给每个会话一个绑在目录上的服务器，MCP 服务能按会话登记）。与 Paseo 的差异：工具定义与调用走 Host 的 `/mcp`（JSON-RPC）而不是另开一个桥；只读的工具不问；没有 `shell.env` 与按父会话找上下文；`isError` 时抛错。
 - 插话（§5.10）：T3 的 `steerTurn` 与 admission 状态机里交接期间压着 idle 的那一段；变体同会话（T3 的插话不带变体）；没用上的插话从 opencode 的历史里删掉（T3 留着）；插话以回答它的 assistant 消息报 `turn.steered`（T3 的编排节点没有对应的事件）。
 - 标题（§5.11）：说明经 `system`、输出经 `format: json_schema` 约束、取 `structured`，临时会话放行 `StructuredOutput`（T3 把说明与输入拼成一段文本、自己解析 JSON）；变体取最低的一档（T3 用选的那一档）；用完删掉临时会话。只做会话标题（T3 还生成提交信息、PR、分支名与审阅指南）。
 - 支线（§5.12）：T3 的 `forkThread` 只在空闲时分；Wevir 回合进行中也能分（到之前完成的回合），并补一条边界消息；补充说明用 `noReply`（T3 没有）。
@@ -223,16 +237,17 @@ T3 的 `textGeneration.ts`：在会话的工作目录里建一个临时 opencode
 - `opencode-adapter.test.ts`：规则集与权限模式、消息 ID 与模型拆分、提问、审批的三种回复、子会话（`subagent.started`、子会话的回合、装上的规则、子会话的审批）、模型报错、接受输入之前的旧 idle、服务器崩溃后脱开与重起、恢复时重装规则与 `session_lost`、空闲停服务器、没接上游；插话交接期间的 idle（opencode 另起循环时报 `turn.steered`、并进结束的运行时问过 status 再结算）、没用上的插话在下一次发送前删掉、取消中不收插话、子会话不能插话；标题（临时会话的规则、system、json_schema、最低变体、删掉临时会话、文本退路、错误、中止）；支线（没有完成的回合时报错、边界、规则、边界消息、回合进行中的边界）；补充说明（空闲时立刻写、回合中留到下一次发送之前）。
 - `accounts.test.ts`：已登录与套餐、模型、没接上游、没装、2.x 与太旧、跑不起来、缓存与 `refresh`、指定路径、登录登出报错、读完还回服务器。
 - `server.test.ts`：用一个假的 `opencode`（Node 脚本）核对就绪、随机密码与并进的权限配置、整组停掉（孙进程也退出）、启动前退出、超时、核对版本失败、台账清理主人不在的服务器而不动 pid 被复用的进程。
+- `app-tools.test.ts`：插件文件（摘要命名、不重写、zod 的绝对地址、只有默认导出）、配置里的那一项与 `OPENCODE_CONFIG_CONTENT` 的合并；在 Node 里加载生成的插件对着记请求的假端点：列工具与参数的 zod shape（必填与可选、枚举、整数、可空）、只读的不问、要审批的先 `ask` 且拒绝时不调、请求头里的引擎令牌与会话 ID、`isError` 与 404 抛错、Host 不在时不挂工具；适配器声明 `appTools`、绑定后起的服务器带插件、绑定前起的那个空闲时换掉、给不出令牌时照常起；工具名。Host 侧的映射与拒绝（令牌不对、不认识的会话、别的引擎的会话、不带会话不能调用）在 host 的 `app-tools.test.ts`，路由只转给实现了的引擎、种类只限它自己的在 `engine-router.test.ts`。
 - `units.test.ts`：找可执行文件、版本、规则集按 findLast 的求值、服务器配置的合并、审批回复、模型 ID、工具展示、消息 ID、`ps` 与就绪行的解析、提问与错误归类。
 - Host 的 `cli.test.ts`：`--adapter codex` 的路由里有 OpenCode，构造时不起进程。
 
-真实 opencode + 本机假模型（不用订阅、不联网；2026-10-15 在 macOS 上用 `opencode-darwin-arm64` 1.18.34 跑过，28 条全部通过，含插话）：
+真实 opencode + 本机假模型（不用订阅、不联网；2026-10-15 在 macOS 上用 `opencode-darwin-arm64` 1.18.34 跑过，28 条全部通过，含插话；2026-10-16 加上应用级工具后 29 条全部通过）：
 
 ```bash
 WEVIR_TEST_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode contract.real
 ```
 
-它起真实的 `opencode serve`，数据、配置、缓存都在临时目录里（`isolatedOpenCodeEnv`，不碰用户的登录与会话），模型是 `test-fixtures/mock-model.ts` 的 OpenAI 兼容假服务（`OPENCODE_CONFIG_CONTENT` 里的 `mock` Provider），跑完整的契约套件（含审批、子 agent 的审批、取消、插话、恢复、杀掉服务器进程后的 `engine.exited`、dispose 后进程退出），另有标题（假模型调用 StructuredOutput，请求里只有这个工具、`tool_choice: required`、说明在系统提示里）、支线（支线的请求里有主线到之前完成的回合的历史、边界消息在它们之后，主线的请求里没有支线的内容）、补充说明（不开回合，下一次请求里有它，回合中补的排在回合之后）、插话之后取消（下一次请求里没有那条插话）。重录事件（`-t steer` 只录一个场景）：
+它起真实的 `opencode serve`，数据、配置、缓存都在临时目录里（`isolatedOpenCodeEnv`，不碰用户的登录与会话），模型是 `test-fixtures/mock-model.ts` 的 OpenAI 兼容假服务（`OPENCODE_CONFIG_CONTENT` 里的 `mock` Provider），跑完整的契约套件（含审批、子 agent 的审批、取消、插话、恢复、杀掉服务器进程后的 `engine.exited`、dispose 后进程退出），另有标题（假模型调用 StructuredOutput，请求里只有这个工具、`tool_choice: required`、说明在系统提示里）、支线（支线的请求里有主线到之前完成的回合的历史、边界消息在它们之后，主线的请求里没有支线的内容）、补充说明（不开回合，下一次请求里有它，回合中补的排在回合之后）、插话之后取消（下一次请求里没有那条插话）、应用级工具（对着一个记请求的假 Host 端点：插件列出工具，模型看到的参数照 JSON Schema；只读的不问，调用带着这个会话的 opencode 会话 ID，结果交到模型；要审批的在 `on_request` 下成为审批、拒绝了不调、允许了才调，工具名是 `mcp__wevir__…`；完全访问的不问）。2026-10-16 另用一个临时测试跑过整条链路：真实 Host（只有 OpenCode 的路由）+ 真实 opencode 1.18.34 + 假模型，模型调 `wevir_session_list`，插件带引擎令牌打到 Host 的 `/mcp`，Host 把 opencode 会话映射回发消息的那个 Wevir 会话（列表里只有它是 `isYou`）。重录事件（`-t steer` 只录一个场景）：
 
 ```bash
 WEVIR_RECORD_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode record-events
@@ -251,3 +266,4 @@ WEVIR_RECORD_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest 
 9. 新会话的第一个回合开始后，会话列表里的标题换成模型起的（不再是首条消息的截断）；用户自己的 opencode 会话列表里没有留下 `Wevir title` 的临时会话。
 10. 回合进行中再发一条（插话）：它进了同一个回合，模型接着回答它；在插话之后马上停止，再发下一条时模型不会看到两遍。
 11. 在有过回合的会话里用 /btw 提一个支线问题：支线知道主线之前的对话，回答后主线照常继续，主线里看不到支线的内容。
+12. 应用级工具：让 OpenCode 会话列出 Wevir 的会话（不弹审批，列表里它自己是 `isYou`），再让它新开一个会话做件小事：弹出“新开会话”的审批，允许后左栏出现新会话、带“来自”那一行，做完后回报回到原会话；换成完全访问再试一次不弹审批。

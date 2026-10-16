@@ -18,7 +18,13 @@ export const EXTRA_PROMPTS = Object.freeze({
   question: 'Please ask me a question',
   fail: 'Please fail',
   reasoning: 'Please think first',
+  /** 应用级工具（app-tools.ts）：一个只读的、一个要审批的。 */
+  appList: 'Please list the Wevir sessions',
+  appCreate: 'Please open a Wevir session',
 });
+
+/** 应用级工具调用之后，假模型把工具结果原样带进回答（核对结果交到了模型）。 */
+export const APP_TOOL_REPLY_PREFIX = 'Wevir said: ';
 
 /** 子 agent 收到的任务（task 工具的 prompt），子会话按它选脚本。 */
 export const SUBAGENT_PROMPT = 'Reply with hi';
@@ -177,6 +183,14 @@ export function scriptStep(request: ChatRequest): Step {
             ],
           },
         };
+  }
+  if (has(EXTRA_PROMPTS.appList) || has(EXTRA_PROMPTS.appCreate)) {
+    if (afterTool) {
+      return { kind: 'text', chunks: [APP_TOOL_REPLY_PREFIX, textOf(messages.at(-1)?.content)] };
+    }
+    return has(EXTRA_PROMPTS.appList)
+      ? { kind: 'tool', name: 'wevir_session_list', args: { scope: 'all' } }
+      : { kind: 'tool', name: 'wevir_session_create', args: { prompt: 'Say hi' } };
   }
   if (has(EXTRA_PROMPTS.fail)) {
     return { kind: 'error', status: 400, message: 'mock model rejected the request' };

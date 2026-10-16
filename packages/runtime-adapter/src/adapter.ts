@@ -6,6 +6,7 @@ import type {
   AccountState,
   AgentInput,
   ApprovalDecision,
+  EngineAppToolsGrant,
   EngineSession,
   PendingApproval,
   PermissionMode,
@@ -179,6 +180,14 @@ export interface AgentRuntimeAdapter {
    * 并在 `engineFeatures` 里报 `appTools`。
    */
   readonly appTools?: boolean;
+
+  /**
+   * 引擎级的应用级工具入口（OpenCode，domain-model §3.15）：一个引擎进程服务所有会话、MCP 服务挂不到单个会话上的引擎实现它。
+   * Host 在 `wevir` MCP 端点监听之后调用一次；`grant(kinds)` 给出端点与一个只认这些 Provider 种类的会话的引擎令牌（Host 运行期间
+   * 不变）。带引擎令牌的请求在 `APP_TOOLS_ENGINE_SESSION_HEADER` 里写调用工具的引擎会话 ID，Host 映射回 Wevir 会话，之后同按会话
+   * 的令牌。
+   */
+  bindEngineAppTools?(grant: EngineAppToolsGrant): void;
 
   /**
    * 往会话的引擎上下文补一条说明，不开回合（0.16.0，U23：用户开出的任务会话回报结果，domain-model §3.11）。模型从下一次

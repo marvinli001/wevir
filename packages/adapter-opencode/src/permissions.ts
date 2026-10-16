@@ -21,6 +21,7 @@
 // 命令、改文件与联网对所有 agent 都是 ask，子会话在那一步里照样能用工具、越界的照样问；会话自己的规则仍然盖过它。
 
 import type { ApprovalOption, PermissionMode } from '@wevir/runtime-adapter';
+import { isAppToolsPlugin, type OpenCodePluginEntry } from './app-tools.js';
 import type { PermissionRule, PermissionRuleset } from './sdk.js';
 
 export const PERMISSION_MODES: readonly PermissionMode[] = Object.freeze([
@@ -101,9 +102,13 @@ export const SERVER_PERMISSION_CONFIG: Readonly<Record<string, 'ask'>> = Object.
 
 /**
  * 交给服务器的 `OPENCODE_CONFIG_CONTENT`：用户自己设了的照留（T3：不能盖掉用户的配置），只把 SERVER_PERMISSION_CONFIG 并进它的
- * `permission`。用户的值不是 JSON 对象时原样交出（opencode 自己会报错）。
+ * `permission`，有应用级工具时把那个插件（app-tools.ts）加到 `plugin` 的最后（去掉以前的）。用户的值不是 JSON 对象时原样交出
+ * （opencode 自己会报错）。
  */
-export function serverConfigContent(existing: string | undefined): string {
+export function serverConfigContent(
+  existing: string | undefined,
+  appToolsPlugin?: OpenCodePluginEntry,
+): string {
   let parsed: unknown = {};
   if (existing !== undefined && existing.trim() !== '') {
     try {
@@ -124,7 +129,16 @@ export function serverConfigContent(existing: string | undefined): string {
       : typeof config.permission === 'string'
         ? { '*': config.permission }
         : {};
-  return JSON.stringify({ ...config, permission: { ...permission, ...SERVER_PERMISSION_CONFIG } });
+  const plugins = Array.isArray(config.plugin)
+    ? config.plugin.filter((entry) => !isAppToolsPlugin(entry))
+    : [];
+  return JSON.stringify({
+    ...config,
+    permission: { ...permission, ...SERVER_PERMISSION_CONFIG },
+    ...(appToolsPlugin !== undefined
+      ? { plugin: [...plugins, appToolsPlugin] }
+      : config.plugin !== undefined && { plugin: plugins }),
+  });
 }
 
 function sameRule(left: PermissionRule, right: PermissionRule): boolean {

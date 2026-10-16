@@ -173,6 +173,8 @@ export class FakeOpenCode implements OpenCodeSdk {
   #early = new Map<string, RecordedAction>();
   #running = false;
   starts = 0;
+  /** 每次起服务器的参数（应用级工具的插件）。 */
+  readonly startOptions: StartServerOptions[] = [];
 
   connect(input: OpenCodeConnectInput): OpenCodeClient {
     const record = (method: string, ...args: unknown[]) => this.calls.push({ method, args });
@@ -266,6 +268,7 @@ export class FakeOpenCode implements OpenCodeSdk {
   /** 给适配器的 startServer。 */
   start = async (options: StartServerOptions): Promise<OpenCodeServerHandle> => {
     this.starts += 1;
+    this.startOptions.push(options);
     this.#running = true;
     const exited = new Promise<ServerExit>((resolve) => {
       this.#exit = resolve;

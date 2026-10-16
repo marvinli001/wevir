@@ -430,6 +430,9 @@ importers:
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../runtime-adapter
+      zod:
+        specifier: ^4.6.5
+        version: 4.6.5
 
   packages/client-sdk:
     dependencies:

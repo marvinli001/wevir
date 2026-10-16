@@ -110,14 +110,17 @@ Wevir 不移植 dsh 的源码，而是把 npm 包 @deepseek-ai/dsh 0.2.1-alpha.2
 许可证：Apache License 2.0
 版权：Copyright (c) 2025-present Mohamed Boudra
 
-Wevir 从 Paseo 移植了两处：文件预览里 HTML 的 CSP 指令（协议 0.32.0；不能联网、只认自己的资源，Wevir
-改写为 Host 的响应头，另加沙箱与 'self'），以及内置浏览器的浏览器自动化与浏览器工具（协议 0.33.0）。这些
+Wevir 从 Paseo 移植了三处：OpenCode 的应用级工具插件（把 Wevir 的应用级工具挂进 opencode），文件预览里
+HTML 的 CSP 指令（协议 0.32.0；不能联网、只认自己的资源，Wevir 改写为 Host 的响应头，另加沙箱与 'self'），
+以及内置浏览器的浏览器自动化与浏览器工具（协议 0.33.0）。这些
 文件仍按 Apache License 2.0 发布（不因进入 MIT 仓库而改变），由 Wevir 修改，修改说明在各文件头；按第 4 条
 保留版权声明、标明修改，许可证全文见文末“Apache License 2.0”。Paseo 在上面的提交下没有 NOTICE 文件；上游
 若加了 NOTICE 文件，把其中的署名内容一并收进这里。
 
 移植的文件（左边是 Wevir 文件，右边是 Paseo 的来源路径）：
 
+  packages/adapter-opencode/src/app-tools-plugin.ts（它生成的插件文件同样带着这份声明）
+      <- packages/server/src/server/agent/providers/opencode/bridge-plugin.mjs
   packages/host/src/html-preview-csp.ts
       <- packages/app/src/file-pane/html-preview-csp.ts
   packages/protocol/src/browser.ts

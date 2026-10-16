@@ -128,6 +128,33 @@ describe('EngineRouter', () => {
     expect(features.claude?.commands).toEqual(['compact']);
   });
 
+  it('引擎令牌（OpenCode）：只转给实现了的引擎，种类只限它自己的', () => {
+    const plain = new Recording({ stepDelayMs: 0 });
+    const asked: string[][] = [];
+    class EngineTools extends Recording {
+      endpoint: unknown;
+      bindEngineAppTools(grant: (kinds: readonly ProviderConfig['kind'][]) => unknown): void {
+        // 要了别的引擎的种类也拿不到。
+        this.endpoint = grant(['opencode', 'claude']);
+      }
+    }
+    const opencode = new EngineTools({ stepDelayMs: 0 });
+    const router = new EngineRouter([
+      { name: 'echo', adapter: plain, kinds: ['openai-compatible'] },
+      { name: 'opencode', adapter: opencode, kinds: ['opencode'] },
+    ]);
+    routers.push(router);
+    router.bindEngineAppTools?.((kinds) => {
+      asked.push([...kinds]);
+      return { url: 'http://127.0.0.1:1/mcp', token: 't' };
+    });
+    expect(asked).toEqual([['opencode']]);
+    expect(opencode.endpoint).toEqual({ url: 'http://127.0.0.1:1/mcp', token: 't' });
+    const without = new EngineRouter([{ name: 'echo', adapter: plain, kinds: ['cursor'] }]);
+    routers.push(without);
+    expect(without.bindEngineAppTools).toBeUndefined();
+  });
+
   it('engineFeatures 总是带 commands，引擎一个都不会时是空数组（0.27.0）', () => {
     const plain = new Recording({ stepDelayMs: 0 });
     Object.assign(plain, { compact: undefined, review: undefined });

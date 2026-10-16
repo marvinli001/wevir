@@ -33,6 +33,7 @@ import {
   type AgentRuntimeAdapter,
   type ApprovalCancelledEvent,
   type ApprovalDecision,
+  type EngineAppToolsGrant,
   type EngineSession,
   EventHub,
   isAdapterError,
@@ -44,6 +45,7 @@ import {
   type UserQuestion,
 } from '@wevir/runtime-adapter';
 import { OpenCodeAccounts } from './accounts.js';
+import { engineToolName } from './app-tools.js';
 import { ENGINE_RAW_PROTOCOL, OpenCodeTurnMapper } from './mapping.js';
 import { newMessageId } from './message-id.js';
 import { lowestVariant, type ParsedModelId, parseModelId } from './models.js';
@@ -296,6 +298,15 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   readonly accounts: OpenCodeAccounts;
   readonly permissionModes = PERMISSION_MODES;
   readonly additionalRoots = true;
+  /**
+   * 应用级工具（0.30.0，opencode-event-mapping.md §4.4）：一个服务器服务所有会话，按会话的令牌（`SessionConfig.appTools`）挂
+   * 不上，用 Host 给的引擎令牌经插件挂在服务器上（`bindEngineAppTools`，app-tools.ts）。
+   */
+  readonly appTools = true;
+
+  bindEngineAppTools(grant: EngineAppToolsGrant): void {
+    this.#runtime.setAppTools(() => grant(['opencode']));
+  }
 
   /** 图片（0.28.0）：交给 opencode；模型不收图片时 Host 按模型列表的 `supportsImages: false` 先拒绝。 */
   acceptsImages(): boolean {
@@ -1402,7 +1413,8 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     const synthetic = callID === undefined;
     const toolCallId = callID ?? `permission:${request.id}`;
     const toolName =
-      (callID === undefined ? undefined : turn.mapper.toolName(callID)) ?? request.permission;
+      (callID === undefined ? undefined : turn.mapper.toolName(callID)) ??
+      engineToolName(request.permission);
     const input = synthetic
       ? { ...request.metadata, patterns: request.patterns }
       : Object.keys(request.metadata).length > 0

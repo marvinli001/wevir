@@ -17,6 +17,7 @@
 // - step-finish 与 assistant 消息带 token 用量，消息完成时报 `usage.updated`。
 
 import type { AgentEvent, TodoItem } from '@wevir/runtime-adapter';
+import { engineToolName } from './app-tools.js';
 import type { Message, Part } from './sdk.js';
 import { openCodeToolDisplay } from './tool-display.js';
 
@@ -323,7 +324,8 @@ export class OpenCodeTurnMapper {
     let state = this.#tools.get(part.callID);
     if (state === undefined) {
       state = {
-        toolName: part.tool,
+        // 应用级工具报成 `mcp__wevir__…`（app-tools.ts）。
+        toolName: engineToolName(part.tool),
         started: false,
         finished: false,
         inputJson: '',
@@ -346,7 +348,7 @@ export class OpenCodeTurnMapper {
         type: 'tool.started',
         engineSessionId: this.#engineSessionId,
         toolCallId: part.callID,
-        toolName: part.tool,
+        toolName: state.toolName,
         display: openCodeToolDisplay(part.tool, input),
         ...(!isEmptyInput(input) && { input }),
       });

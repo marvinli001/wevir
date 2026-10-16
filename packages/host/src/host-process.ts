@@ -15,7 +15,7 @@ import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
-import { APP_TOOLS_INSTRUCTIONS, AppTools } from './app-tools.js';
+import { APP_TOOLS_INSTRUCTIONS, AppTools, engineSessionResolver } from './app-tools.js';
 import { BrowserBroker } from './browser-broker.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
@@ -252,6 +252,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         version: HOST_VERSION,
         instructions: APP_TOOLS_INSTRUCTIONS,
         onError: (error) => logger.error('app tools error', { error }),
+        engineSession: engineSessionResolver(storage, options.engine),
       });
     }
     const mcp = appMcp;
@@ -327,6 +328,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const url = await server.listen();
     mcp?.setPort(server.port);
     fileUrls.setPort(server.port);
+    // 一个进程服务所有会话的引擎（OpenCode）拿引擎令牌；它的服务器下次起来时挂上。
+    if (mcp !== undefined) adapter.bindEngineAppTools?.((kinds) => mcp.grantEngine(kinds));
     await runtimeFile.publish(url, token);
 
     let stopping: Promise<void> | undefined;

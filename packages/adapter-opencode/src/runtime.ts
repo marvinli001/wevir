@@ -11,6 +11,8 @@
 // 服务器第一次读账号或建会话时才起；会话挂着、或正在读账号时借着它，都还回来 30 秒后停掉；意外退出时通知适配器（会话以
 // engine.exited 脱开），下次要用时重起。
 
+import type { AppToolsEndpoint } from '@wevir/runtime-adapter';
+import { appToolsPluginEntry, writeAppToolsPlugin } from './app-tools.js';
 import {
   compareVersions,
   findOpenCode,
@@ -76,6 +78,9 @@ export class OpenCodeRuntime {
   #customPath: string | null = null;
   #installation: OpenCodeInstallation | undefined;
   #server: OpenCodeServerHandle | undefined;
+  /** 应用级工具的引擎令牌（Host 监听之后给）；正在跑的服务器挂没挂上插件。 */
+  #appTools: (() => AppToolsEndpoint | undefined) | undefined;
+  #serverHasAppTools = false;
   #starting: Promise<OpenCodeServerHandle> | undefined;
   #leases = 0;
   #idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -121,6 +126,22 @@ export class OpenCodeRuntime {
     this.#customPath = path;
     this.#installation = undefined;
     await this.#stopServer();
+  }
+
+  /**
+   * 应用级工具（app-tools.ts）：之后起的服务器挂上插件。已经在跑、没挂上的那个（Host 监听之前为读账号起的）没人借用时就停掉，
+   * 下次用到时重起。
+   */
+  setAppTools(grant: () => AppToolsEndpoint | undefined): void {
+    this.#appTools = grant;
+    if (this.#server !== undefined && !this.#serverHasAppTools) this.#scheduleIdleStop(0);
+  }
+
+  /** 正在跑的服务器缺应用级工具，换一个起。 */
+  get #outdated(): boolean {
+    return (
+      this.#server !== undefined && !this.#serverHasAppTools && this.#appTools?.() !== undefined
+    );
   }
 
   /** 找 `opencode` 并跑 `--version`（T3 的版本探测；2.x 与太旧的版本不能用）。 */
@@ -185,6 +206,7 @@ export class OpenCodeRuntime {
     if (installation === undefined) {
       throw new Error(`opencode was not found; install it with \`${OPENCODE_INSTALL_COMMAND}\``);
     }
+    if (this.#leases === 0 && this.#outdated) await this.#stopServer();
     this.#leases += 1;
     this.#cancelIdleStop();
     let server: OpenCodeServerHandle;
@@ -205,7 +227,7 @@ export class OpenCodeRuntime {
         if (released) return;
         released = true;
         this.#leases = Math.max(0, this.#leases - 1);
-        if (this.#leases === 0) this.#scheduleIdleStop();
+        if (this.#leases === 0) this.#scheduleIdleStop(this.#outdated ? 0 : undefined);
       },
     };
   }
@@ -240,10 +262,16 @@ export class OpenCodeRuntime {
     await this.#ledger.reapOrphans();
     const sdk = await this.#loadSdk();
     const parentEnv = this.#options.env ?? process.env;
+    const appTools = this.#appTools?.();
+    const appToolsPlugin =
+      appTools === undefined
+        ? undefined
+        : appToolsPluginEntry(writeAppToolsPlugin(this.#options.engineDir), appTools);
     const server = await (this.#options.startServer ?? startOpenCodeServer)({
       executable: installation.executablePath,
       env: openCodeEnv(parentEnv, installation.executablePath),
       ledger: this.#ledger,
+      ...(appToolsPlugin !== undefined && { appToolsPlugin }),
       signal: this.#abort.signal,
       verify: async (url, password) => {
         // T3 的 verifyOpenCodeServerVersion：5 秒内要答 `/global/health`，版本要够新。
@@ -262,6 +290,7 @@ export class OpenCodeRuntime {
       throw new Error('the OpenCode engine has been disposed');
     }
     this.#server = server;
+    this.#serverHasAppTools = appToolsPlugin !== undefined;
     void server.exited.then((exit) => {
       if (this.#server !== server) return;
       this.#server = undefined;

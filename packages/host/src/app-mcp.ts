@@ -2,11 +2,15 @@
 // HTTP 传输回 JSON（不开 SSE 流，不记 MCP 会话），每个 Wevir 会话一个令牌，谁调的工具就是令牌对应的会话。照 T3 Code 的
 // McpHttpServer / McpSessionRegistry（每个 provider 会话一个 bearer 令牌、只存摘要），写法是 Wevir 自己的：只用 Node 内置模块，
 // 同 runtime-adapter 的 history-tool.ts。
+//
+// 一个进程服务所有会话的引擎（OpenCode）拿的是引擎令牌（`grantEngine`）：调用工具时在 `x-wevir-engine-session` 请求头里写自己的
+// 引擎会话 ID，Host 映射回 Wevir 会话（只认交给这个引擎的 Provider 种类），之后与按会话的令牌一样。照 Paseo 的 OpenCode 桥
+// （一个桥令牌，按 OpenCode 会话 ID 找 agent）。
 
 import { createHash, randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { SessionId } from '@wevir/protocol';
-import type { AppToolsEndpoint } from '@wevir/runtime-adapter';
+import { APP_TOOLS_ENGINE_SESSION_HEADER, type AppToolsEndpoint } from '@wevir/runtime-adapter';
 
 /** 端点路径。 */
 export const APP_MCP_PATH = '/mcp';
@@ -57,6 +61,11 @@ export interface AppMcpServerOptions {
   /** 给模型的说明（`initialize` 的 `instructions`）。 */
   instructions?: string;
   onError?: (error: unknown) => void;
+  /**
+   * 引擎令牌的调用方：引擎会话 ID → 由交给这个引擎的 Provider 种类（`kinds`）承载、还存在的 Wevir 会话；认不出时 `undefined`。
+   * 不给时 `grantEngine` 不发令牌。
+   */
+  engineSession?: (kinds: readonly string[], engineSessionId: string) => SessionId | undefined;
 }
 
 type JsonRpcId = string | number;
@@ -78,6 +87,9 @@ export class AppMcpServer {
   readonly #options: AppMcpServerOptions;
   readonly #tokens = new Map<SessionId, string>();
   readonly #sessions = new Map<string, SessionId>();
+  /** 引擎令牌：Provider 种类（排序后用逗号连起来）→ 令牌；令牌摘要 → 种类。 */
+  readonly #engineTokens = new Map<string, string>();
+  readonly #engines = new Map<string, readonly string[]>();
   /** 进行中的请求：Host 退出时中止，长等待（`wevir_session_wait`）不拖住退出。 */
   readonly #inflight = new Set<AbortController>();
   #port: number | undefined;
@@ -115,6 +127,26 @@ export class AppMcpServer {
     return this.#sessions.get(digest(token));
   }
 
+  /**
+   * 引擎令牌：只认 Provider 种类在 `kinds` 里的会话，同一组种类在 Host 运行期间一直用同一个。还没监听、没有种类或没有
+   * `engineSession` 时 `undefined`。
+   */
+  grantEngine(kinds: readonly string[]): AppToolsEndpoint | undefined {
+    const url = this.url;
+    if (url === undefined || kinds.length === 0 || this.#options.engineSession === undefined) {
+      return undefined;
+    }
+    const scope = [...new Set(kinds)].sort();
+    const key = scope.join(',');
+    let token = this.#engineTokens.get(key);
+    if (token === undefined) {
+      token = randomBytes(32).toString('base64url');
+      this.#engineTokens.set(key, token);
+      this.#engines.set(digest(token), scope);
+    }
+    return { url, token };
+  }
+
   /** Host 退出：之后的请求回 503，进行中的工具调用收到中止。 */
   close(): void {
     this.#closed = true;
@@ -146,15 +178,26 @@ export class AppMcpServer {
       return plain(res, 403);
     }
     const auth = req.headers.authorization ?? '';
-    const match = /^Bearer\s+(\S+)$/i.exec(auth);
-    const sessionId = match?.[1] === undefined ? undefined : this.sessionOf(match[1]);
-    if (sessionId === undefined) {
+    const token = /^Bearer\s+(\S+)$/i.exec(auth)?.[1];
+    let sessionId = token === undefined ? undefined : this.sessionOf(token);
+    const engineKinds =
+      sessionId === undefined && token !== undefined ? this.#engines.get(digest(token)) : undefined;
+    if (sessionId === undefined && engineKinds === undefined) {
       res.setHeader('WWW-Authenticate', 'Bearer');
       return plain(res, 401);
     }
     if (req.method !== 'POST') {
       res.setHeader('Allow', 'POST');
       return plain(res, 405);
+    }
+    if (engineKinds !== undefined) {
+      // 引擎令牌：带了引擎会话 ID 就要认得出；不带时只能列工具（插件启动时），不能调用。
+      const header = req.headers[APP_TOOLS_ENGINE_SESSION_HEADER];
+      const engineSessionId = typeof header === 'string' ? header.trim() : '';
+      if (engineSessionId !== '') {
+        sessionId = this.#options.engineSession?.(engineKinds, engineSessionId);
+        if (sessionId === undefined) return plain(res, 404);
+      }
     }
     let body: unknown;
     try {
@@ -189,7 +232,7 @@ export class AppMcpServer {
   /** 一条 JSON-RPC 消息；通知与客户端的回复返回 `undefined`。 */
   async #message(
     message: JsonRpcMessage,
-    sessionId: SessionId,
+    sessionId: SessionId | undefined,
     signal: AbortSignal,
   ): Promise<unknown> {
     if (message === null || typeof message !== 'object' || typeof message.method !== 'string') {
@@ -232,6 +275,9 @@ export class AppMcpServer {
       case 'tools/call': {
         const tool = typeof params.name === 'string' ? this.#tools.get(params.name) : undefined;
         if (!tool) return rpcError(id, -32602, `unknown tool: ${String(params.name)}`);
+        if (sessionId === undefined) {
+          return rpcError(id, -32602, `${APP_TOOLS_ENGINE_SESSION_HEADER} is required`);
+        }
         const args =
           params.arguments !== null && typeof params.arguments === 'object'
             ? (params.arguments as Record<string, unknown>)

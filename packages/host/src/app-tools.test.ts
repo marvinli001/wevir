@@ -10,7 +10,7 @@ import type { AppToolsEndpoint, EngineSession, SessionConfig } from '@wevir/runt
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppMcpServer } from './app-mcp.js';
-import { AppTools, reportText } from './app-tools.js';
+import { AppTools, engineSessionResolver, reportText } from './app-tools.js';
 import { EventStore } from './event-store.js';
 import { SessionManager } from './session-manager.js';
 import { identity, useStorages, useTempDir } from './test-utils.js';
@@ -84,6 +84,7 @@ async function setup(stepDelayMs = 0) {
     tools: tools.tools,
     version: '0.0.0',
     onError: (e) => errors.push(e),
+    engineSession: engineSessionResolver(storage, 'dsh'),
   });
   const appMcp = mcp;
   const http: Server = createServer((req, res) => {
@@ -154,6 +155,7 @@ async function setup(stepDelayMs = 0) {
     adapter,
     errors,
     port,
+    grantEngine: (kinds: readonly string[]) => appMcp.grantEngine(kinds),
     workspace,
     create,
     tokenOf,
@@ -241,6 +243,100 @@ describe('应用级工具的端点', () => {
     expect(notification.status).toBe(202);
     const unknown = await h.rpc(a, 'tools/call', { name: 'nope', arguments: {} });
     expect(unknown.body.error).toMatchObject({ code: -32602 });
+  });
+});
+
+describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
+  /** 带引擎令牌与引擎会话 ID 的请求。 */
+  const engineRpc = async (
+    port: number,
+    token: string,
+    engineSessionId: string | undefined,
+    method: string,
+    params: unknown = {},
+  ) => {
+    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(engineSessionId !== undefined && { 'x-wevir-engine-session': engineSessionId }),
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    });
+    const text = await response.text();
+    const json = response.headers.get('content-type')?.includes('json') === true;
+    // biome-ignore lint/suspicious/noExplicitAny: 测试里读任意形状的 JSON-RPC 回复。
+    const body: any = json ? JSON.parse(text) : text;
+    return { status: response.status, body };
+  };
+
+  it('按引擎会话 ID 映射回 Wevir 会话，同按会话的令牌一样调用', async () => {
+    const h = await setup();
+    const a = await h.create();
+    const b = await h.create();
+    // 还没监听、没有种类、不认引擎会话时都不发。
+    const idle = new AppMcpServer({ tools: [], version: '0', engineSession: () => undefined });
+    expect(idle.grantEngine(['openai-compatible'])).toBeUndefined();
+    expect(h.grantEngine([])).toBeUndefined();
+    const grant = h.grantEngine;
+    const endpoint = grant(['openai-compatible']);
+    if (endpoint === undefined) throw new Error('no engine grant');
+    expect(endpoint.url).toBe(`http://127.0.0.1:${h.port}/mcp`);
+    // 同一组种类一直是同一个令牌，和会话的令牌不同。
+    expect(grant(['openai-compatible'])?.token).toBe(endpoint.token);
+    expect(endpoint.token).not.toBe(h.tokenOf(a));
+
+    // 不带会话：能列工具（插件启动时），不能调用。
+    const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
+    expect(list.status).toBe(200);
+    expect(list.body.result.tools).toHaveLength(8);
+    const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
+      name: 'wevir_session_list',
+      arguments: {},
+    });
+    expect(anonymous.body.error).toMatchObject({ code: -32602 });
+
+    // 带 b 的引擎会话 ID：调用方是 b。
+    const engineB = h.storage.sessions.get(b)?.engineSessionId as string;
+    const listed = await engineRpc(h.port, endpoint.token, engineB, 'tools/call', {
+      name: 'wevir_session_list',
+      arguments: {},
+    });
+    expect(listed.status).toBe(200);
+    const sessions = listed.body.result.structuredContent.sessions as Array<{
+      sessionId: string;
+      isYou: boolean;
+    }>;
+    expect(sessions.find((session) => session.isYou)?.sessionId).toBe(b);
+  });
+
+  it('拒绝：令牌不对、不认识的会话、别的引擎的会话', async () => {
+    const h = await setup();
+    const a = await h.create();
+    const engineA = h.storage.sessions.get(a)?.engineSessionId as string;
+    const grant = h.grantEngine;
+    const own = grant(['openai-compatible']);
+    const other = grant(['opencode']);
+    if (own === undefined || other === undefined) throw new Error('no engine grant');
+    expect(other.token).not.toBe(own.token);
+    const call = { name: 'wevir_session_list', arguments: {} };
+
+    expect((await engineRpc(h.port, 'nope', engineA, 'tools/call', call)).status).toBe(401);
+    expect((await engineRpc(h.port, own.token, 'ses_unknown', 'tools/call', call)).status).toBe(
+      404,
+    );
+    // a 的 Provider 是 openai-compatible：只认 opencode 的引擎令牌冒充不了它。
+    expect((await engineRpc(h.port, other.token, engineA, 'tools/call', call)).status).toBe(404);
+    // 按会话的令牌不看这个请求头：照旧是令牌对应的会话。
+    const b = await h.create();
+    const engineB = h.storage.sessions.get(b)?.engineSessionId as string;
+    const mixed = await h.rpc(a, 'tools/call', call, { 'x-wevir-engine-session': engineB });
+    const sessions = mixed.body.result.structuredContent.sessions as Array<{
+      sessionId: string;
+      isYou: boolean;
+    }>;
+    expect(sessions.find((session) => session.isYou)?.sessionId).toBe(a);
   });
 });
 

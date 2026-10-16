@@ -49,6 +49,17 @@ export interface AppToolsEndpoint {
   token: string;
 }
 
+/**
+ * 引擎级的应用级工具入口（`AgentRuntimeAdapter.bindEngineAppTools`）：`grant(kinds)` 返回同一个 `/mcp` 端点与一个引擎令牌；
+ * Host 还没监听时返回 `undefined`。
+ */
+export type EngineAppToolsGrant = (
+  kinds: readonly ProviderConfig['kind'][],
+) => AppToolsEndpoint | undefined;
+
+/** 带引擎令牌的请求里写调用工具的引擎会话 ID 的请求头（OpenCode 的 `ses_…`）。 */
+export const APP_TOOLS_ENGINE_SESSION_HEADER = 'x-wevir-engine-session';
+
 /** 应用级工具的 MCP 服务名：模型看到的工具是 `mcp__wevir__wevir_session_list` 这样（Codex、Claude）。 */
 export const APP_TOOLS_SERVER = 'wevir';
 

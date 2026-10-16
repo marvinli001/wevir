@@ -59,6 +59,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly compact?: AgentRuntimeAdapter['compact'];
   readonly review?: AgentRuntimeAdapter['review'];
   readonly acceptsImages?: AgentRuntimeAdapter['acceptsImages'];
+  readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
 
   /** Provider 种类 → 引擎。 */
   readonly #byKind = new Map<ProviderKind, EngineRoute>();
@@ -125,6 +126,16 @@ export class EngineRouter implements AgentRuntimeAdapter {
         const kind = this.#kinds.get(config.providerId);
         const route = kind === undefined ? undefined : this.#byKind.get(kind);
         return route?.adapter.acceptsImages?.(config) === true;
+      };
+    }
+    if (adapters.some((adapter) => adapter.bindEngineAppTools !== undefined)) {
+      // 引擎令牌只认交给这个引擎的 Provider 种类：别的引擎的会话冒充不了。
+      this.bindEngineAppTools = (grant) => {
+        for (const route of routes) {
+          route.adapter.bindEngineAppTools?.((kinds) =>
+            grant(kinds.filter((kind) => route.kinds.includes(kind))),
+          );
+        }
       };
     }
     if (adapters.some((adapter) => adapter.generateTitle !== undefined)) {
