@@ -31,11 +31,11 @@ import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
 import { openFiles } from '@/files/files-store';
 import { currentLocale, t } from '@/i18n';
-import { layoutPrefs, transientLayout } from '@/layout/layout-state';
 import type { PaneController } from '@/layout/pane-controller';
 import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
 import type { ComposerCommand, ComposerCommandItem } from './composer-commands';
+import { composerPrefs, toggleContextMeter } from './composer-prefs';
 import { initPrompt } from './init-prompt';
 import { effortLabel, type ModelChoice, modelsOf } from './model-picker';
 import { PERMISSION_META, PERMISSION_MODES } from './permission-picker';
@@ -182,21 +182,15 @@ function simple(
   return { name, label, icon, run, ...(plus && { plus: true }) };
 }
 
-/** 打开会话侧栏，展开“上下文”卡片（用量）。 */
-function showStatus(): void {
-  layoutPrefs.set((current) => ({
-    ...current,
-    railShown: true,
-    railOpen: current.railOpen.includes('context')
-      ? current.railOpen
-      : [...current.railOpen, 'context'],
-  }));
-  transientLayout.set((state) => ({
-    ...state,
-    railOverlayOpen: true,
-    railTightOpen: true,
-    auxOverlayOpen: false,
-  }));
+/** `/status`：开关输入框底栏的上下文用量（context-meter.tsx），开着时斜杠菜单里打勾。 */
+function statusCommand(shown: boolean): ComposerCommand {
+  return {
+    name: 'status',
+    label: t('command.status'),
+    icon: Gauge,
+    checked: shown,
+    run: toggleContextMeter,
+  };
 }
 
 export interface SessionCommandOptions {
@@ -238,6 +232,7 @@ function goalCommand(): ComposerCommand {
 export function useSessionCommands(options: SessionCommandOptions): ComposerCommand[] {
   const navigate = useNavigate();
   const accounts = useAccounts();
+  const showContext = composerPrefs.use().showContext;
   const {
     workspaceId,
     sessionId,
@@ -303,7 +298,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
         ],
       });
     }
-    commands.push(simple('status', t('command.status'), Gauge, showStatus));
+    commands.push(statusCommand(showContext));
     if (onRename) commands.push(simple('rename', t('command.rename'), Pencil, onRename));
     if (onArchive) commands.push(simple('archive', t('command.archive'), Archive, onArchive));
     commands.push(
@@ -328,6 +323,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     sideEnabled,
     filesEnabled,
     diffEnabled,
+    showContext,
     panes,
     send,
     accounts,

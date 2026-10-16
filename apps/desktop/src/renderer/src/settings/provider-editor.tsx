@@ -1,10 +1,10 @@
 import { isRpcError, type WevirClient } from '@wevir/client-sdk';
-import { cn } from 'cn';
 import { ArrowLeft, ExternalLink, Plus, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useId, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
@@ -23,7 +23,6 @@ import {
   validateForm,
 } from './provider-form';
 import { FORM_APIS } from './provider-presets';
-import { SELECT } from './settings-ui';
 import { VertexFields } from './vertex-fields';
 
 export interface SaveOutcome {
@@ -205,18 +204,15 @@ export function ProviderEditor({
       ) : openAI ? (
         <>
           <FormField id={`${ids}-api`} label={t('provider.form.api')}>
-            <select
+            <Select
               id={`${ids}-api`}
-              className={SELECT}
               value={form.api}
-              onChange={(event) => update({ api: event.target.value as ProviderForm['api'] })}
-            >
-              {FORM_APIS.map((api) => (
-                <option key={api} value={api}>
-                  {t(`provider.form.api.${api}`)}
-                </option>
-              ))}
-            </select>
+              onValueChange={(api) => update({ api })}
+              options={FORM_APIS.map((api) => ({
+                value: api,
+                label: t(`provider.form.api.${api}`),
+              }))}
+            />
           </FormField>
           <FormField id={`${ids}-url`} label={t('provider.form.baseURL')} error={urlError}>
             <Input
@@ -240,18 +236,14 @@ export function ProviderEditor({
             label={t('provider.form.defaultModel')}
             error={errors.defaultModelId}
           >
-            <select
+            <Select
               id={`${ids}-model`}
-              className={cn(SELECT, 'font-mono')}
+              className="font-mono"
+              popupClassName="font-mono"
               value={form.defaultModelId}
-              onChange={(event) => update({ defaultModelId: event.target.value })}
-            >
-              {deepseekModelChoices(form).map((id) => (
-                <option key={id} value={id}>
-                  {id}
-                </option>
-              ))}
-            </select>
+              onValueChange={(defaultModelId) => update({ defaultModelId })}
+              options={deepseekModelChoices(form).map((id) => ({ value: id, label: id }))}
+            />
           </FormField>
           <FormField
             id={`${ids}-url`}

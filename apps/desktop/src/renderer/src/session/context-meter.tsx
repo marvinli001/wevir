@@ -11,6 +11,7 @@ import { useTranscript } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { ContextBar } from '@/layout/context-bar';
 import { type ContextUsage, contextUsage, formatTokens } from '@/layout/rail-model';
+import { composerPrefs } from './composer-prefs';
 
 const TONE_TEXT: Record<ContextUsage['tone'], string> = {
   normal: 'text-muted-foreground',
@@ -22,7 +23,8 @@ const RADIUS = 6.25;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 /**
- * 会话的上下文用量（`usage.updated` 或快照的 `usage`）；引擎还没报过（新会话、Cursor 这类不报的引擎）时不显示。
+ * 会话的上下文用量（`usage.updated` 或快照的 `usage`）；引擎还没报过（新会话、Cursor 这类不报的引擎）或用 `/status` 关掉了时不显示。
+ * 弹层对着圆环居中。
  * `onCompact` 给了（Host 与引擎都会 `compact`、会话可写）才有按钮，回合进行中按钮不可点。
  */
 export function ContextMeter({
@@ -39,7 +41,8 @@ export function ContextMeter({
   const state = useTranscript(session.id);
   const usage = contextUsage(state?.transcript.usage, session, providers);
   const [open, setOpen] = useState(false);
-  if (!usage) return null;
+  const shown = composerPrefs.use().showContext;
+  if (!usage || !shown) return null;
   const size = formatTokens(usage.size);
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -81,7 +84,7 @@ export function ContextMeter({
       </PopoverTrigger>
       <PopoverContent
         side="top"
-        align="end"
+        align="center"
         sideOffset={8}
         className="w-64 gap-2 p-3 text-xs"
         data-testid="context-meter-popover"

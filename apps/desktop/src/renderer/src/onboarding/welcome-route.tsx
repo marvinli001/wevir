@@ -7,6 +7,7 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select } from '@/components/ui/select';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -30,7 +31,6 @@ import {
   presentTestResult,
   type TestPresentation,
 } from '@/settings/provider-test-result';
-import { SELECT } from '@/settings/settings-ui';
 import { VertexFields } from '@/settings/vertex-fields';
 import { onboardingDone } from './onboarding-state';
 import { ProviderCatalogDialog } from './provider-catalog-dialog';
@@ -465,18 +465,16 @@ function ProviderFields({
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label={t('welcome.field.api')}>
             {(id) => (
-              <select
+              <Select
                 id={id}
                 value={form.api}
-                onChange={(event) => onChange({ api: event.target.value as ProviderForm['api'] })}
-                className={cn(SELECT, 'h-10 w-full')}
-              >
-                {FORM_APIS.map((api) => (
-                  <option key={api} value={api}>
-                    {t(`provider.form.api.${api}`)}
-                  </option>
-                ))}
-              </select>
+                onValueChange={(api) => onChange({ api })}
+                options={FORM_APIS.map((api) => ({
+                  value: api,
+                  label: t(`provider.form.api.${api}`),
+                }))}
+                className="h-10"
+              />
             )}
           </Field>
           <Field label={t('welcome.field.model')} error={errors['models.0.id']}>

@@ -1,12 +1,14 @@
 // Wevir 桌面主进程（T5.1）：窗口与安全基线、Host 的附着 / 拉起 / 停止、给 preload 的 IPC。
 // Host 的生命周期见 host-lifecycle.ts（ADR-0002 §6）；渲染进程只经 client-sdk 与 Host 通信。
 
+import { existsSync } from 'node:fs';
 import { copyFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_LAYOUT, LOG_FILE, resolveHome } from '@wevir/host/runtime';
 import {
   app,
+  autoUpdater,
   BrowserWindow,
   clipboard,
   dialog,
@@ -14,7 +16,9 @@ import {
   ipcMain,
   Notification,
   nativeTheme,
+  powerMonitor,
   protocol,
+  screen,
   session,
   shell,
 } from 'electron';
@@ -33,8 +37,10 @@ import {
   DEV_SERVER_ORIGIN,
   rendererOriginOf,
 } from '../shared/renderer-origin.js';
+import { isCleanableCategory, type StorageUsage } from '../shared/storage.js';
 import { isThemeMode, THEME_BACKGROUND } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
+import { BROWSER_PARTITION } from './browser/browser-host.js';
 import { registerBrowserIpc } from './browser/browser-ipc.js';
 import { Editors, isLineNumber } from './editors.js';
 import {
@@ -50,7 +56,15 @@ import { loadDesktopIdentity } from './identity.js';
 import { isBadgeCount, parseDesktopNotification } from './notification-input.js';
 import { inspectInstallSource, readSkillFile } from './plugin-source.js';
 import { serveRendererFile } from './renderer-files.js';
+import { BROWSER_PARTITION_DIR, cleanLogs, measureStorage } from './storage.js';
+import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
+import {
+  fitWindowState,
+  loadWindowState,
+  saveWindowState,
+  type WindowState,
+} from './window-state.js';
 
 const log: Log = (level, message, detail) => {
   const line = `[wevir-desktop] ${level} ${message}${detail ? ` ${JSON.stringify(detail)}` : ''}`;
@@ -99,6 +113,19 @@ if (app.requestSingleInstanceLock()) {
 
 function run(): void {
   let mainWindow: BrowserWindow | undefined;
+  let tray: AppTray | undefined;
+  /**
+   * 关掉主窗口只是隐藏，Wevir 留在后台（菜单栏 / 通知区域的图标，tray.ts）；真正退出（菜单的退出、⌘Q、托盘的退出、
+   * 安装更新、关机）之前置位，窗口才真的关。
+   */
+  let allowClose = false;
+  /** 显示并聚焦主窗口（托盘、程序坞、第二个实例、通知的点击）。 */
+  const showMainWindow = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  };
 
   // Host 与窗口并行准备。首次只尝试一次，失败时 getHostConnection 把原因交给渲染进程显示；之后拥有的 Host
   // 意外退出由 HostLifecycle 重新拉起，状态经 hostStatus 推给渲染进程（T5.5）。
@@ -258,9 +285,7 @@ function run(): void {
     notification.on('click', () => {
       forget();
       if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+      showMainWindow();
       mainWindow.webContents.send(IPC_CHANNELS.notificationClick, input.tag);
     });
     notification.on('close', forget);
@@ -370,7 +395,20 @@ function run(): void {
   });
   ipcMain.handle(IPC_CHANNELS.installUpdate, async (event): Promise<void> => {
     assertSender(event);
+    // 安装更新要关掉窗口再退出；装不了（状态变成 error）时恢复“关窗口只是隐藏”。
+    allowClose = true;
     updates.install();
+    if (updates.state.phase === 'error') allowClose = false;
+  });
+  // macOS 的 Squirrel 在关窗口之前发这个事件，不经过 before-quit。
+  autoUpdater.on('before-quit-for-update', () => {
+    allowClose = true;
+  });
+  ipcMain.handle(IPC_CHANNELS.setTrayLabels, async (event, value: unknown): Promise<void> => {
+    assertSender(event);
+    const labels = parseTrayLabels(value);
+    if (!labels) throw new Error('tray labels must be two short strings');
+    tray?.setLabels(labels);
   });
   ipcMain.handle(IPC_CHANNELS.setUpdateChannel, async (event, channel: unknown): Promise<void> => {
     assertSender(event);
@@ -383,6 +421,41 @@ function run(): void {
     // 成功时 Electron 把应用移过去并重新打开，这个进程随之退出。
     app.moveToApplicationsFolder();
   });
+
+  // 设置 → 存储：量数据目录（main/storage.ts）。缓存与内置浏览器的数据由 Chromium 自己清（文件还开着），日志直接清。
+  ipcMain.handle(IPC_CHANNELS.getStorageUsage, async (event): Promise<StorageUsage> => {
+    assertSender(event);
+    return measureStorage(home);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.cleanStorage,
+    async (event, categories: unknown): Promise<StorageUsage> => {
+      assertSender(event);
+      if (!Array.isArray(categories) || !categories.every(isCleanableCategory)) {
+        throw new Error('categories must be cache, browser or logs');
+      }
+      // 内置浏览器还没用过时没有分区目录，不为清理去建它。
+      const browserSession = existsSync(join(app.getPath('userData'), BROWSER_PARTITION_DIR))
+        ? session.fromPartition(BROWSER_PARTITION)
+        : undefined;
+      for (const category of new Set(categories)) {
+        if (category === 'cache') {
+          for (const target of [session.defaultSession, browserSession]) {
+            await target?.clearCache();
+            await target?.clearCodeCaches({});
+          }
+        } else if (category === 'browser') {
+          // 内置浏览器的 Cookie、本地存储、登录状态：网站都要重新登录。
+          await browserSession?.clearStorageData();
+          await browserSession?.clearAuthCache();
+          await browserSession?.clearCache();
+        } else {
+          await cleanLogs(home);
+        }
+      }
+      return measureStorage(home);
+    },
+  );
 
   // 内置浏览器（0.33.0，browser/）：标签页是主窗口里的 WebContentsView，用自己的 session 分区与导航规则。
   const browser = registerBrowserIpc({
@@ -417,19 +490,18 @@ function run(): void {
     contents.on('will-attach-webview', (event) => event.preventDefault());
   });
 
-  app.on('second-instance', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  });
+  app.on('second-instance', showMainWindow);
+  // macOS：点程序坞图标（窗口关掉、藏在后台时）把窗口叫回来。
+  app.on('activate', showMainWindow);
 
-  // 骨架没有托盘，关掉窗口就退出（macOS 也一样），自己拉起的 Host 随之停止。
+  // 窗口只在真正退出时才关（见 allowClose），所以走到这里就是在退出；自己拉起的 Host 随之停止。
   app.on('window-all-closed', () => app.quit());
 
   // 退出前只停自己拉起的 Host（附着的不停），停完再真正退出。
   let quitReady = false;
   let quitting = false;
   app.on('before-quit', (event) => {
+    allowClose = true;
     if (quitReady) return;
     event.preventDefault();
     if (quitting) return;
@@ -465,8 +537,35 @@ function run(): void {
     protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir));
     applyAppIcon();
     mainWindow = createWindow();
+    // 关窗口（红绿灯、Alt+F4、⌘W）只是隐藏，留在后台；真正退出时才关。
+    mainWindow.on('close', (event) => {
+      const window = mainWindow;
+      if (allowClose || !window || window.isDestroyed()) return;
+      event.preventDefault();
+      // macOS 的全屏窗口直接隐藏会留下一块黑的桌面空间：先退出全屏，退完再隐藏。
+      if (window.isFullScreen()) {
+        window.once('leave-full-screen', () => window.hide());
+        window.setFullScreen(false);
+      } else {
+        window.hide();
+      }
+    });
+    // Windows 关机、注销：不拦窗口，直接退出。
+    mainWindow.on('session-end', () => {
+      allowClose = true;
+      app.quit();
+    });
+    powerMonitor.on('shutdown', () => {
+      allowClose = true;
+      app.quit();
+    });
     // 内置浏览器的后台标签页停在一个不显示的窗口里：主窗口关掉时一起关，否则 window-all-closed 不会触发。
-    mainWindow.on('closed', () => browser.destroy());
+    mainWindow.on('closed', () => {
+      browser.destroy();
+      tray?.destroy();
+      tray = undefined;
+    });
+    tray = createAppTray({ onOpen: showMainWindow, onQuit: () => app.quit() });
     updates.start();
   });
 }
@@ -491,15 +590,59 @@ function windowChrome(window: BrowserWindow): WindowChrome {
   return { trafficLights: HIDDEN_TITLE_BAR && !window.isFullScreen() };
 }
 
+/** 左栏最窄 220 + 中栏最窄 560，再留出拖动与边框的余量；更窄（例如放大界面后）由渲染进程的折叠规则处理（layout-rules.ts）。 */
+const MIN_WINDOW = { width: 960, height: 600 };
+const DEFAULT_WINDOW: WindowState = { width: 1280, height: 800, maximized: false };
+
+/** 上次的位置与大小（window-state.ts），对着当前的显示器校正过。 */
+function initialWindowState(): WindowState {
+  const saved = loadWindowState(app.getPath('userData')) ?? DEFAULT_WINDOW;
+  return fitWindowState(
+    saved,
+    screen.getAllDisplays().map((display) => display.workArea),
+    MIN_WINDOW,
+  );
+}
+
+/** 窗口挪动、缩放、最大化时记下来（停下 500 ms 后写一次），关掉（隐藏）与退出时立刻写。 */
+function trackWindowState(window: BrowserWindow): void {
+  const dir = app.getPath('userData');
+  let timer: NodeJS.Timeout | undefined;
+  const current = (): WindowState => ({
+    // 最大化、全屏时取还原后的位置与大小。
+    ...window.getNormalBounds(),
+    maximized: window.isMaximized(),
+  });
+  const save = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+    if (window.isDestroyed() || window.isMinimized()) return;
+    // 全屏期间不记，退出全屏后会再触发 resize。
+    if (window.isFullScreen()) return;
+    saveWindowState(dir, current()).catch((error: unknown) =>
+      log('warn', 'failed to save window state', { error: String(error) }),
+    );
+  };
+  const later = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(save, 500);
+  };
+  window.on('resize', later);
+  window.on('move', later);
+  window.on('maximize', later);
+  window.on('unmaximize', later);
+  window.on('close', save);
+}
+
 function createWindow(): BrowserWindow {
   const icon = windowIcon();
+  const state = initialWindowState();
   const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    // 左栏最窄 220 + 中栏最窄 560，再留出拖动与边框的余量；更窄（例如放大界面后）由渲染进程的
-    // 折叠规则处理（src/renderer/src/layout/layout-rules.ts）。
-    minWidth: 960,
-    minHeight: 600,
+    width: state.width,
+    height: state.height,
+    ...(state.x !== undefined && state.y !== undefined && { x: state.x, y: state.y }),
+    minWidth: MIN_WINDOW.width,
+    minHeight: MIN_WINDOW.height,
     title: 'Wevir',
     ...(icon !== undefined && { icon }),
     ...(HIDDEN_TITLE_BAR && {
@@ -521,7 +664,11 @@ function createWindow(): BrowserWindow {
   });
   // Windows / Linux 不显示 Electron 默认菜单栏（File Edit View Window）；菜单仍在，快捷键照常可用。
   if (process.platform !== 'darwin') window.setMenuBarVisibility(false);
-  window.once('ready-to-show', () => window.show());
+  window.once('ready-to-show', () => {
+    if (state.maximized) window.maximize();
+    window.show();
+  });
+  trackWindowState(window);
   // preload 按平台给出初值；进出全屏与页面（重新）加载完成时推送实际状态，例如在全屏里刷新页面。
   const pushWindowChrome = () =>
     window.webContents.send(IPC_CHANNELS.windowChrome, windowChrome(window));

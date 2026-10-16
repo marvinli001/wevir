@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
+import { Select } from '@/components/ui/select';
 import { useWorkbenchStore } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -17,7 +18,7 @@ import {
   usageTone,
   windowName,
 } from './chatgpt-account-model';
-import { NoticeBanner, SELECT } from './settings-ui';
+import { NoticeBanner } from './settings-ui';
 
 /**
  * 设置 → 模型 Provider 顶部的“ChatGPT 账号”（R6，ADR-0005 决策 4 第 ① 行）：未登录时登录按钮与条款说明，登录中显示进度
@@ -373,20 +374,18 @@ function SignedIn({
         {provider === undefined || provider.models.length === 0 ? (
           <span className="text-muted-foreground">{t('account.chatgpt.modelsLoading')}</span>
         ) : (
-          <select
+          <Select
             id={modelSelect}
-            className={cn(SELECT, 'max-w-72')}
+            className="max-w-72"
             value={provider.defaultModelId}
             disabled={saving}
-            onChange={(event) => void setDefaultModel(event.target.value)}
+            onValueChange={(id) => void setDefaultModel(id)}
+            options={provider.models.map((model) => ({
+              value: model.id,
+              label: model.displayName ?? model.id,
+            }))}
             data-default-model
-          >
-            {provider.models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.displayName ?? model.id}
-              </option>
-            ))}
-          </select>
+          />
         )}
         {saving && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}
       </div>

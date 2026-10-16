@@ -54,6 +54,9 @@ const api: DesktopApi = {
   notify: (notification) => ipcRenderer.invoke(IPC_CHANNELS.notify, notification),
   closeNotifications: (tag) => ipcRenderer.invoke(IPC_CHANNELS.closeNotifications, tag),
   setBadgeCount: (count) => ipcRenderer.invoke(IPC_CHANNELS.setBadgeCount, count),
+  setTrayLabels: (labels) => ipcRenderer.invoke(IPC_CHANNELS.setTrayLabels, labels),
+  getStorageUsage: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageUsage),
+  cleanStorage: (categories) => ipcRenderer.invoke(IPC_CHANNELS.cleanStorage, categories),
   onNotificationClick: (listener) => {
     const handler = (_event: IpcRendererEvent, tag: string) => listener(tag);
     ipcRenderer.on(IPC_CHANNELS.notificationClick, handler);

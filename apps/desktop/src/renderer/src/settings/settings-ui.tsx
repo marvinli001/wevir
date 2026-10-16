@@ -177,7 +177,3 @@ export function EmptyList({ children }: { children: ReactNode }) {
     </p>
   );
 }
-
-/** 原生下拉框（与 components/ui/input.tsx 的输入框同一套：表面色、强分隔线的边框、运行色的焦点环）。 */
-export const SELECT =
-  'h-8 w-full rounded-lg border border-input bg-card px-2 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50';

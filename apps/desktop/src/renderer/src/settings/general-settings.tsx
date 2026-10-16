@@ -1,20 +1,14 @@
 import type { PendingDelivery } from '@wevir/protocol';
 import { CornerDownRight, ListPlus } from 'lucide-react';
 import { useState } from 'react';
+import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { composerPrefs, type SendShortcut, sendKeyLabel } from '@/session/composer-prefs';
 import { LanguagePicker } from './language-picker';
-import {
-  LIST_CARD,
-  NoticeBanner,
-  SELECT,
-  Segmented,
-  SettingsRow,
-  SettingsSection,
-} from './settings-ui';
+import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from './settings-ui';
 
 /**
  * 设置 → 常规（U7，原来的“对话”并进来）：界面语言（本机，language-picker.tsx），回合进行中按回车的默认方式（R11：存在 Host，`settings.update`，
@@ -87,7 +81,9 @@ export function GeneralSettings() {
             <Segmented<SendShortcut>
               label={t('settings.composer.send')}
               value={composer.sendShortcut}
-              onChange={(sendShortcut) => composerPrefs.set({ sendShortcut })}
+              onChange={(sendShortcut) =>
+                composerPrefs.set((current) => ({ ...current, sendShortcut }))
+              }
               options={[
                 { value: 'enter', label: sendKeyLabel('enter') },
                 { value: 'mod-enter', label: sendKeyLabel('mod-enter') },
@@ -100,20 +96,13 @@ export function GeneralSettings() {
             title={t('settings.editor')}
             data-setting="editor"
             control={
-              <select
-                className={SELECT}
+              <Select
+                className="w-48"
                 aria-label={t('settings.editor')}
                 value={preferred?.id ?? ''}
-                onChange={(event) =>
-                  filePrefs.set((current) => ({ ...current, editor: event.target.value }))
-                }
-              >
-                {editors.map((editor) => (
-                  <option key={editor.id} value={editor.id}>
-                    {editor.name}
-                  </option>
-                ))}
-              </select>
+                onValueChange={(editor) => filePrefs.set((current) => ({ ...current, editor }))}
+                options={editors.map((editor) => ({ value: editor.id, label: editor.name }))}
+              />
             }
           />
         )}

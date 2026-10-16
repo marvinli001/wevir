@@ -5,6 +5,7 @@ import {
   Cpu,
   Folder,
   Globe,
+  HardDrive,
   Info,
   Keyboard,
   type LucideIcon,
@@ -29,6 +30,7 @@ import { NotificationSettingsPage } from '@/settings/notification-settings-page'
 import { ProviderSettings } from '@/settings/provider-settings';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import { ShortcutsSettings } from '@/settings/shortcuts-settings';
+import { StorageSettings } from '@/settings/storage-settings';
 import { WebSettingsPage } from '@/settings/web-settings';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
 import { setThemeMode, useTheme } from '@/theme/theme';
@@ -76,6 +78,16 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Keyboard,
     keywords: ['shortcuts.newSession', 'shortcuts.send', 'shortcuts.toggleSidebar'],
   },
+  storage: {
+    label: 'settings.tab.storage',
+    icon: HardDrive,
+    keywords: [
+      'settings.storage.clean',
+      'settings.storage.category.cache',
+      'settings.storage.category.logs',
+      'settings.storage.category.browser',
+    ],
+  },
   providers: {
     label: 'settings.tab.providers',
     icon: Cpu,
@@ -112,7 +124,7 @@ const TABS: Record<SettingsTab, TabInfo> = {
 const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
   {
     label: 'settings.group.app',
-    tabs: ['general', 'appearance', 'notifications', 'shortcuts', 'about'],
+    tabs: ['general', 'appearance', 'notifications', 'shortcuts', 'storage', 'about'],
   },
   { label: 'settings.group.work', tabs: ['providers', 'web', 'workspaces', 'archived'] },
 ];
@@ -264,6 +276,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <WorkspaceSettings />;
     case 'archived':
       return <ArchivedSettings />;
+    case 'storage':
+      return <StorageSettings />;
   }
 }
 

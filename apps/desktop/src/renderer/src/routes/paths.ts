@@ -31,6 +31,7 @@ export const SETTINGS_TABS = [
   'appearance',
   'notifications',
   'shortcuts',
+  'storage',
   'providers',
   'web',
   'workspaces',

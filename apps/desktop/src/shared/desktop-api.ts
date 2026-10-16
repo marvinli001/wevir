@@ -2,6 +2,7 @@
 // 通道名，渲染进程、preload、主进程共用；不 import Node 或 Electron 的东西。
 
 import type { BrowserRequest, BrowserResponse, ClientIdentity } from '@wevir/protocol';
+import type { CleanableCategory, StorageUsage } from './storage.js';
 import type { ThemeMode } from './theme.js';
 
 /** 连接 Host 需要的全部信息。令牌只放在渲染进程的内存里，不写 localStorage 等任何持久化位置。 */
@@ -277,6 +278,15 @@ export interface DesktopApi {
   notify(notification: DesktopNotification): Promise<boolean>;
   /** 收回还在通知中心里的通知：给了 tag 只收回那一条，否则全部。 */
   closeNotifications(tag?: string): Promise<void>;
+  /**
+   * 菜单栏（macOS）与通知区域（Windows、Linux）图标的菜单文字，按界面语言（main/tray.ts）。窗口关掉后 Wevir 留在后台，
+   * 从这个菜单打开或退出。
+   */
+  setTrayLabels(labels: { open: string; quit: string }): Promise<void>;
+  /** 设置 → 存储：数据目录各类占了多少（shared/storage.ts）。要把整个目录走一遍，大的 worktree 会慢。 */
+  getStorageUsage(): Promise<StorageUsage>;
+  /** 清理所选的几类（缓存、内置浏览器的数据、日志），返回清完之后重新量的结果。 */
+  cleanStorage(categories: CleanableCategory[]): Promise<StorageUsage>;
   /** 程序坞（macOS）与任务栏（Linux Unity）上的角标数字，0 清除。 */
   setBadgeCount(count: number): Promise<void>;
   /** 订阅系统通知的点击，交回通知的 tag；返回取消订阅的函数。 */
@@ -352,6 +362,9 @@ export const IPC_CHANNELS = {
   installUpdate: 'wevir:install-update',
   setUpdateChannel: 'wevir:set-update-channel',
   moveToApplications: 'wevir:move-to-applications',
+  setTrayLabels: 'wevir:set-tray-labels',
+  getStorageUsage: 'wevir:get-storage-usage',
+  cleanStorage: 'wevir:clean-storage',
   browserExecute: 'wevir:browser-execute',
   browserGetState: 'wevir:browser-get-state',
   /** 主进程 → 渲染进程的推送。 */

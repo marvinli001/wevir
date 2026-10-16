@@ -1,10 +1,10 @@
 import { ExternalLink } from 'lucide-react';
 import { useId, useState } from 'react';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { t } from '@/i18n';
 import { modelRow, type ProviderForm, serviceAccountEmail } from './provider-form';
 import { VERTEX_PRESETS } from './provider-presets';
-import { SELECT } from './settings-ui';
 
 /** 设置与首次引导共用；JSON 输入始终掩码，只显示解析出的账号邮箱。 */
 export function VertexFields({
@@ -81,12 +81,15 @@ export function VertexFields({
         <label htmlFor={`${id}-family`} className="block text-sm font-medium">
           {t('provider.vertex.family')}
         </label>
-        <select
+        <Select
           id={`${id}-family`}
-          className={SELECT}
           value={form.api}
-          onChange={(event) => {
-            const preset = VERTEX_PRESETS.find((p) => p.api === event.target.value);
+          options={[
+            { value: 'openai-completions', label: 'Gemini' },
+            { value: 'anthropic-messages', label: 'Claude' },
+          ]}
+          onValueChange={(api) => {
+            const preset = VERTEX_PRESETS.find((p) => p.api === api);
             if (preset)
               onChange({
                 api: preset.api,
@@ -96,10 +99,7 @@ export function VertexFields({
                 preset,
               });
           }}
-        >
-          <option value="openai-completions">Gemini</option>
-          <option value="anthropic-messages">Claude</option>
-        </select>
+        />
       </div>
       <div className="space-y-1.5">
         <label htmlFor={`${id}-account`} className="block text-sm font-medium">

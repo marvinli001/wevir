@@ -362,6 +362,7 @@ export function Composer({
           ...(command.detail !== undefined && { detail: command.detail }),
           hint: `/${command.name}`,
           nested: command.items !== undefined,
+          ...(command.checked && { checked: true }),
         };
       });
     }
@@ -385,10 +386,11 @@ export function Composer({
     return [];
   }, [slash?.level, slashResults, mention, mentionSearch.entries]);
 
-  // 换了触发或查询：高亮回到第一项；二级菜单刚打开时停在当前选中的那项。
+  // 换了触发或查询：高亮回到第一项；二级菜单刚打开时停在当前选中的那项（一级里打勾的是开着的开关，如 `/status`，不跳过去）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只跟着触发与查询。
   useEffect(() => {
-    const checked = query === '' ? entries.findIndex((entry) => entry.checked) : -1;
+    const checked =
+      query === '' && slash?.level === 'items' ? entries.findIndex((entry) => entry.checked) : -1;
     setActive(Math.max(0, checked));
   }, [menuKey, query]);
 
