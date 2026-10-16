@@ -72,6 +72,7 @@ export interface ConnectionHost {
   readonly accounts?: { watch(listener: (state: AccountState) => void): () => void };
   /** Host 设置（R11）：调过 `settings.*` 的连接用它收 `settings.updated`。 */
   readonly settings?: { watch(listener: (settings: HostSettings) => void): () => void };
+  readonly plugins?: { watch(listener: () => void): () => void };
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
   readonly limits: ConnectionLimits;
@@ -141,6 +142,7 @@ export class RpcConnection {
   #unwatchAccounts: (() => void) | undefined;
   /** 调过 `settings.*` 之后：退订 `settings.updated`。 */
   #unwatchSettings: (() => void) | undefined;
+  #unwatchPlugins: (() => void) | undefined;
   /** `browser.register` 之后：注销这条连接的浏览器提供方。 */
   #unregisterBrowser: (() => void) | undefined;
   /** 这条连接作为浏览器提供方的标识。 */
@@ -431,6 +433,7 @@ export class RpcConnection {
         this.#respond(id, method, adaptResultForClient(method, result, this.#capabilities));
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
+        if (/^(plugins|connector|skill)\./.test(method)) this.#watchPlugins();
       }
     }
   }
@@ -605,6 +608,13 @@ export class RpcConnection {
     });
   }
 
+  #watchPlugins(): void {
+    if (this.#unwatchPlugins || !this.#host.plugins || this.#phase !== 'ready') return;
+    this.#unwatchPlugins = this.#host.plugins.watch(() => {
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'plugins.changed', params: {} });
+    });
+  }
+
   #drop(subscription: Subscription): void {
     if (!subscription.active) return;
     subscription.active = false;
@@ -694,6 +704,8 @@ export class RpcConnection {
     this.#unwatchAccounts?.();
     this.#unwatchAccounts = undefined;
     this.#unwatchSettings?.();
+    this.#unwatchPlugins?.();
+    this.#unwatchPlugins = undefined;
     this.#unwatchSettings = undefined;
     this.#unregisterBrowser?.();
     this.#unregisterBrowser = undefined;

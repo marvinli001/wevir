@@ -51,9 +51,9 @@ import { type SuggestTasksServer, suggestTasksToml } from './suggest-tasks.js';
  * - `features.memories = false`、`approvals_reviewer = "user"`：两者默认就是这样，写出来防默认值变化（它们会用写死的 OpenAI
  *   模型名）；
  * - `tools.update_plan.enabled = true`：计划默认关；
- * - `skills.include_instructions = false`、`skills.bundled.enabled = false`：不把 skills 列表放进上下文，也不往
+ * - 未绑定 Host 插件注册表时 `skills.include_instructions = false`、`skills.bundled.enabled = false`：不把 skills 列表放进上下文，也不往
  *   CODEX_HOME 装内置 skills。Codex 读用户的 `~/.agents/skills`（HOME 是用户真实的家目录），不关就会把用户给别的
- *   工具装的 skills 列给模型（R2 实测，codex-event-mapping.md §1.3）；
+ *   工具装的 skills 列给模型（R2 实测，codex-event-mapping.md §1.3）；0.41.0 起 Host 绑定注册表时由 plugins.ts 打开目录，逐路径禁用未启用项（§10）；
  * - `shell_environment_policy`：套用内置的 *KEY* / *SECRET* / *TOKEN* 排除并排除 `WEVIR_*`，模型跑的命令看不到
  *   网关令牌（默认 `ignore_default_excludes = true`，codex-notes §6.3）。
  */
@@ -240,7 +240,7 @@ export function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
-function tomlValue(value: unknown): string {
+export function tomlValue(value: unknown): string {
   if (typeof value === 'string') return tomlString(value);
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   throw new TypeError(`config.toml 里不支持这种值：${JSON.stringify(value)}`);

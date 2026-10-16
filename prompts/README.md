@@ -2,13 +2,13 @@
 
 这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；MCP、插件、skills 这些还没开始建设的部分在文件里留了占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
 | 文件 | 用途 | 由谁加载 | 状态 |
 |---|---|---|---|
-| [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；skills、插件、MCP 是占位（联网搜索 0.34.0 起是 Wevir 自己的 `wevir_web`） |
+| [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；skills 与 MCP 0.41.0 起由 Host 注册表交给 Codex（联网搜索 0.34.0 起是 `wevir_web`） |
 | [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | adapter-codex（0.36.0，ADR-0005 补记 21）：经网关的第三方模型在计划模式的回合里，作为 `turn/start` 的协作模式（`collaborationMode.settings.developer_instructions`）下发；ChatGPT 登录的 OpenAI 模型用 Codex 内置的模板 | 已接入（Codex 引擎） |
 | [`auto-review.md`](auto-review.md) | 审批自动复核员 | Host（新功能），与引擎无关 | 可用；只读工具是占位 |
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
@@ -33,7 +33,7 @@
 2. Codex 生成的权限说明：沙箱模式与审批策略（`codex-rs/prompts/templates/permissions/`），Wevir 不改。
 3. 用户自定义指令：经 `thread/start` 的 `developerInstructions` 下发（占位，未做）。
 4. 协作模式说明（`<collaboration_mode>`，0.36.0 起每个回合都带）：默认模式用 Codex 内置的 `default.md`；计划模式经网关的模型用 `plan-mode.md`，ChatGPT 登录的模型用 Codex 内置的 `plan.md`。它是单独的一条 developer 消息，不替换第 3 条。
-5. Codex 生成的 skills 列表：adapter-codex 用 `skills.include_instructions = false` 关掉了（否则会把用户 `~/.agents/skills` 里给别的工具装的 skills 列出来，codex-event-mapping.md §1.3），Wevir 的 skills 建好后再开。
+5. Codex 生成的 skills 列表：0.41.0 起 Host 绑定注册表时打开 skills.include_instructions，逐路径禁用未获 Host 启用的外部 skills（codex-event-mapping.md §10）；未绑定注册表的独立适配器保留关闭默认值。
 6. AGENTS.md 内容与 `<environment_context>`（Codex 生成）。
 7. 用户消息。
 

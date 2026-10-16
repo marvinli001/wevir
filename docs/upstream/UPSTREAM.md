@@ -172,7 +172,7 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 结论与义务：
 
-- 移植了四份提示词文本（§4 的 `prompts/*.md`，ADR-0005 补记 2），没有移植代码。它们按 Apache-2.0 第 4 条处理：文件头写明来源、版权与修改（4(b)、4(c)），根目录 `NOTICE` 收录 Codex `NOTICE` 中与之相关的署名（`OpenAI Codex`、`Copyright 2025 OpenAI`）与 Apache License 2.0 全文（4(a)、4(d)）；Ratatui 那一条只涉及 TUI 代码，与这些文件无关，不收录。随安装包分发 `codex-app-server` 二进制时，按 Apache-2.0 第 4 条随附 `LICENSE` 全文与 `NOTICE` 的署名内容（4(a)、4(d)）：R9 起两份文件取自锁定提交、放在 `apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边，第三方声明见 [third-party-notices.md](./third-party-notices.md) §2.5。Linux 包带上 `bwrap`（R9 的默认做法，§1.2），另按 LGPL-2.0 提供其源码获取方式（锁定提交的 `codex-rs/vendor/bubblewrap/`）。
+- R2 移植了四份提示词文本（§4 的 `prompts/*.md`，ADR-0005 补记 2）；P1（0.41.0）另改写 skills 解析 / 扫描与插件配置协议，逐文件登记在 §4。它们按 Apache-2.0 第 4 条处理：文件头写明来源、版权与修改（4(b)、4(c)），根目录 `NOTICE` 收录 Codex `NOTICE` 中与之相关的署名（`OpenAI Codex`、`Copyright 2025 OpenAI`）与 Apache License 2.0 全文（4(a)、4(d)）；Ratatui 那一条只涉及 TUI 代码，与这些文件无关，不收录。随安装包分发 `codex-app-server` 二进制时，按 Apache-2.0 第 4 条随附 `LICENSE` 全文与 `NOTICE` 的署名内容（4(a)、4(d)）：R9 起两份文件取自锁定提交、放在 `apps/desktop/licenses/codex/`，准备资源目录时复制到二进制旁边，第三方声明见 [third-party-notices.md](./third-party-notices.md) §2.5。Linux 包带上 `bwrap`（R9 的默认做法，§1.2），另按 LGPL-2.0 提供其源码获取方式（锁定提交的 `codex-rs/vendor/bubblewrap/`）。
 - 二进制里静态链接的 Rust crate 闭包（`codex-rs/Cargo.lock`）的许可证在打包前另做一次核对，方法同 §2.1 对 npm 闭包的做法。
 - 不得使用 OpenAI 或 Codex 的名称与商标，说明来源的用途除外（Apache-2.0 第 6 条）。
 
@@ -204,6 +204,15 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 ## 4. 移植登记表
 
 每移植一个文件（含大幅改写后仍可辨认出来源的文件）登记一行。“来源提交”写完整 SHA。
+
+插件 P1（0.41.0）新增的 Codex 格式 / 协议改写如下，均为 Apache-2.0，Copyright 2025 OpenAI；未修改 upstream，未参考 OpenWork ee，没有移植 T3 的 `$` 输入菜单。
+
+| Wevir 文件 | 来源路径（openai/codex） | 来源提交 | 许可证 | 修改说明 |
+|---|---|---|---|---|
+| `packages/host/src/plugin-skills.ts` | `codex-rs/skills/src/parser.rs`、`ext/skills/src/loader/{mod,discovery}.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | Rust 改为 TS / yaml；frontmatter、标量修复、Unicode 长度、6 层 / 2000 目录；optional agents/openai.yaml 原样保留给引擎解释 |
+| `packages/host/src/plugin-install.ts` | `codex-rs/core-plugins/src/manifest.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 只读本地 Codex / Claude 清单，skills / mcpServers 展开成 Host 实体；有界复制 / 解压与拒绝链接由 Wevir 实现，不运行 hooks / 脚本 |
+| `packages/adapter-codex/src/plugins.ts` | `codex-rs/config/src/{mcp_types,skills_config}.rs`、`app-server-protocol/src/protocol/v2/{plugin,mcp,config}.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | 取配置子集生成 TOML / 热更新；禁用 Host 未启用的 skills；MCP 分页状态只投影状态与工具元数据 |
+| `packages/protocol/src/plugins.ts` | `codex-rs/config/src/mcp_types.rs` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | Apache-2.0 | Wevir 判别联合与配置子集；camelCase；密钥写入和脱敏结果分开 |
 
 | Wevir 文件 | 来源路径 | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|

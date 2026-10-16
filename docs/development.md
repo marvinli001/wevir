@@ -342,7 +342,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。
 
-插件 P1（协议 0.41.0）的全局数据在 `<数据目录>/plugins/`：`registry.json` 为 0600，含用户 MCP 的 env / headers 原值与 skills 开关；托管 skills 在 `skills/<name>/`。文件夹、SKILL.md、ZIP 或 Codex / Claude 插件包经 `skill.install` 安装，客户端结果只看得到密钥的键名与已设置标记。P1 无界面，使用 client-sdk 的类型化 request / watchPlugins；方法与默认禁用外部 skills 的规则见 [plugins.md](architecture/plugins.md)。针对性验证：`pnpm vitest run --project protocol`、`pnpm vitest run --project host plugins`、`pnpm vitest run --project client-sdk client.test.ts`、`pnpm vitest run --project adapter-codex codex-adapter.plugins-gate.integration.test.ts`；真实 Codex 测试使用仓库锁定的 app-server 与本机假模型，不需要供应商 Key。Windows 的临时 HOME 隔离实验因 Codex 的 dirs::home_dir 不读 HOME 而跳过，待该平台单独验证。
+插件 P1（协议 0.41.0）的全局数据在 `<数据目录>/plugins/`：`registry.json` 为 0600，含用户 MCP 的 env / headers 原值与 skills 开关；托管 skills 在 `skills/<name>/`。文件夹、SKILL.md、ZIP 或 Codex / Claude 插件包经 `skill.install` 安装，客户端结果只看得到密钥的键名与已设置标记。P1 无界面，使用 client-sdk 的类型化 request / watchPlugins；方法与默认禁用外部 skills 的规则见 [plugins.md](architecture/plugins.md)。针对性验证：`pnpm vitest run --project protocol`、`pnpm vitest run --project host plugins`、`pnpm vitest run --project client-sdk client.test.ts`、`pnpm vitest run --project adapter-codex codex-adapter.plugins-gate.integration.test.ts`；真实 Codex 测试使用仓库锁定的 app-server 与本机假模型，不需要供应商 Key。数据目录别名也会规范化；本次在 macOS 用真实 app-server 与本机假模型验证两个适配实现、MCP 审批及运行中插件变更。Windows 的临时 HOME 隔离实验因 Codex 的 dirs::home_dir 不读 HOME 而跳过，待该平台单独验证。
 
 ### 5.3 日志
 

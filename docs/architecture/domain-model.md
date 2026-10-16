@@ -884,6 +884,14 @@ type CollaborationMode = 'default' | 'plan'
 - **各引擎**：Codex 分支用 `thread/fork` 带 `lastTurnId`（`thread/turns/list` 从后往前数），撤回用 `thread/revert`（codex-event-mapping.md §6.15）；echo 记着每个回合的输入（`recall` 关键词写出来）。Claude、OpenCode 只有支线（Claude 的 `resumeSessionAt`、OpenCode 的 `session.revert` 留待以后），Grok、Cursor、Antigravity、dsh 都没有；`engineFeatures` 的 `branch` / `rewind` 说哪种 Provider 的引擎有。
 - **客户端**：桌面端回答下面是“复制”与“分支到新会话”（最后一个回合的一直显示，别的悬停时出现），分支后打开新会话；用户消息下面悬停时是时间、“复制”，最后一条（会话空闲、能撤回时）还有“编辑”：气泡换成输入框，Esc 取消，发送键发出。撤回成功、发送失败时改过的文字放回输入框。
 
+### 3.19 全局插件（0.41.0）
+
+Host 拥有插件注册表，不属于某个 Session。连接器 `Connector { id, name, config, enabled, status?, authStatus?, tools? }` 的 config 按 transport 区分 stdio（command、args、env、cwd）与 http（url、headers），共同字段 enabled、toolTimeoutSec；写入的 env / headers 是字符串，读取的 config 使用 `McpServerView`，值固定为 true，表示该键已设置。更新缺省保留旧值，null 删除。
+
+`Skill { id, name, description, shortDescription?, source, path, enabled }` 的 path 指向规范绝对路径的 SKILL.md。source 是 wevir / user / project；托管项默认启用、外部项默认禁用，外部选择按 path 保存，删除仅适用于托管项。安装包展开为独立 skills / connectors，不保留包实体。存储与格式来源见 [plugins.md](plugins.md)。
+
+`plugins.changed {}` 是与 settings.updated 同类的全局通知，**不分配 seq、不写 WevirEvent**；调用过 plugins / connector / skill 方法的连接收到后重读。EngineFeatures.mcpServers / skills 表示引擎是否接收它们；Host feature plugins 只表示注册表 API 可用。
+
 ## 4. 会话状态机
 
 ```mermaid

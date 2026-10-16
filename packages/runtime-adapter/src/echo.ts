@@ -3,6 +3,7 @@ import type { AgentRuntimeAdapter, CancelOptions } from './adapter.js';
 import { AdapterError } from './errors.js';
 import { EventHub } from './event-hub.js';
 import type { AgentEvent, ApprovalCancelledEvent, EngineExitedEvent } from './events.js';
+import type { EnginePluginConfig, EnginePluginSource } from './plugins.js';
 import type {
   AgentInput,
   ApprovalDecision,
@@ -189,6 +190,19 @@ interface ReplyBlock {
  * `simulateEngineExit()` 模拟引擎进程退出，供 Host 测试 `engine.exited` 的处理。
  */
 export class EchoAdapter implements AgentRuntimeAdapter {
+  readonly mcpServers = true;
+  readonly skills = true;
+  #plugins: EnginePluginSource | undefined;
+  #pluginConfig: EnginePluginConfig | undefined;
+  bindPlugins(source: EnginePluginSource): void {
+    this.#plugins = source;
+  }
+  async reloadPlugins(): Promise<void> {
+    this.#pluginConfig = await this.#plugins?.read();
+  }
+  async listConnectorStatus() {
+    return [];
+  }
   /** 三种权限模式都认（0.11.0）：`approve` 关键词在 `on_request` 下请求审批，另外两种直接写（auto_review 当作审查通过）。 */
   readonly permissionModes: readonly PermissionMode[] = [
     'on_request',
@@ -274,6 +288,10 @@ export class EchoAdapter implements AgentRuntimeAdapter {
   }
 
   async send(engineSessionId: string, input: AgentInput): Promise<void> {
+    if (this.#plugins && /plugins/i.test(inputText(input)))
+      this.#pluginConfig = await this.#plugins.read(
+        this.#sessions.get(engineSessionId)?.config.cwd,
+      );
     const { session, turn } = this.#beginTurn(engineSessionId, () => {
       if (input.content.length === 0) throw new AdapterError('invalid_input', 'content is empty');
     });
@@ -816,7 +834,17 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       const echo = session.side ? 'Echo (side)' : planning ? 'Echo (plan)' : 'Echo';
       blocks.push({
         kind: 'text',
-        full: `${echo}: ${text}${answered}${noted}${recalled}`,
+        full: `${echo}: ${text}${answered}${noted}${recalled}${
+          /plugins/i.test(text) && this.#pluginConfig
+            ? `\nConnectors: ${this.#pluginConfig.connectors
+                .filter((item) => item.enabled)
+                .map((item) => item.name)
+                .join(', ')}\nSkills: ${this.#pluginConfig.skills
+                .filter((item) => item.enabled)
+                .map((item) => item.name)
+                .join(', ')}`
+            : ''
+        }`,
         generated: '',
       });
       plan(2);

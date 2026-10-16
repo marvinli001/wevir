@@ -61,6 +61,7 @@ import {
   WorktreeModeSchema,
 } from './entities.js';
 import { WevirEventSchema } from './events.js';
+import { PluginMethodSchemas } from './plugins.js';
 import { ProtocolVersionSchema } from './version.js';
 
 // Host API v0 的方法与通知。语义、错误与示例报文见 docs/architecture/host-api.md。
@@ -1063,6 +1064,7 @@ export interface MethodSpec {
  * 除 `host.hello` 外，所有方法都要求本连接已完成 hello。
  */
 export const MethodSchemas = {
+  ...PluginMethodSchemas,
   'host.hello': {
     params: HostHelloParamsSchema,
     result: HostHelloResultSchema,
@@ -1409,6 +1411,7 @@ export function isMethodName(method: string): method is MethodName {
 
 /** Host → 客户端的通知注册表。 */
 export const NotificationSchemas = {
+  'plugins.changed': { params: z.object({}) },
   'events.event': { params: EventsEventParamsSchema },
   /** 发给调用过 `account.*` 方法的连接（0.7.0）。 */
   'account.updated': { params: AccountUpdatedParamsSchema },

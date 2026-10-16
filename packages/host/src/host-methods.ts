@@ -36,6 +36,7 @@ import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
+import type { PluginRegistry } from './plugins.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import type { WebService } from './web/service.js';
@@ -77,6 +78,7 @@ export type HostMethodName = Exclude<MethodName, ConnectionMethodName>;
 export type HostMethods = { [M in HostMethodName]: MethodHandler<M> };
 
 export interface HostMethodsOptions {
+  plugins?: PluginRegistry;
   storage: Storage;
   events: EventStore;
   sessions: SessionManager;
@@ -146,6 +148,11 @@ export async function syncProviders(
  * 读写存储。参数已经过方法注册表校验；返回值由 RPC 层按注册表校验后再发出。
  */
 export function createHostMethods(options: HostMethodsOptions): HostMethods {
+  const plugins = (): PluginRegistry => {
+    if (!options.plugins)
+      throw new HostError('INVALID_PARAMS', 'This Host has no plugin registry', { issues: [] });
+    return options.plugins;
+  };
   const { storage, events, sessions, secrets, providers: bridge, accounts } = options;
   const settings = options.settings ?? new HostSettingsStore();
   const webService = (): WebService => {
@@ -248,6 +255,28 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   };
 
   return {
+    'plugins.list': () => plugins().list(),
+    'connector.add': async ({ name, config, enabled }) => ({
+      connector: await plugins().add(name, config, enabled),
+    }),
+    'connector.update': async ({ id, ...patch }) => ({
+      connector: await plugins().update(id, patch),
+    }),
+    'connector.remove': async ({ id }) => {
+      await plugins().removeConnector(id);
+      return {};
+    },
+    'connector.setEnabled': async ({ id, enabled }) => ({
+      connector: await plugins().update(id, { enabled }),
+    }),
+    'skill.install': ({ path }) => plugins().install(path),
+    'skill.remove': async ({ id }) => {
+      await plugins().removeSkill(id);
+      return {};
+    },
+    'skill.setEnabled': async ({ id, enabled }) => ({
+      skill: await plugins().setSkillEnabled(id, enabled),
+    }),
     'workspace.list': () => ({ workspaces: storage.workspaces.list().map(toWorkspace) }),
 
     'workspace.add': async ({ rootPath, displayName }) => {

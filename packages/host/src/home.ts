@@ -3,6 +3,8 @@ import { isAbsolute, join, posix, resolve, win32 } from 'node:path';
 
 /** 数据目录里的固定位置。`wevir.db`、`secrets.json` 由 storage 包定义。 */
 export const HOME_LAYOUT = {
+  /** Host 全局连接器、skills 与开关（0.41.0）。 */
+  pluginsDir: 'plugins',
   /** 运行时文件 `host.json` 所在目录（0700）。 */
   runDir: 'run',
   /** 结构化日志目录（0700）。 */

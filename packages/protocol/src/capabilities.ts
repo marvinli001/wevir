@@ -49,6 +49,8 @@ export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
  * 每次握手时给出。
  */
 export const HOST_FEATURES = {
+  /** Host 全局连接器与 skills 注册表（0.41.0）。 */
+  plugins: 'plugins',
   /** Ollama model discovery through Host (0.31.0). */
   providerModelDiscovery: 'provider_model_discovery',
   /**
@@ -181,6 +183,7 @@ export const HOST_FEATURES = {
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
 export const HostFeaturesSchema = z.looseObject({
+  plugins: z.boolean().optional(),
   provider_model_discovery: z.boolean().optional(),
   chatgpt_account: z.boolean().optional(),
   google_vertex: z.boolean().optional(),

@@ -41,6 +41,8 @@ export interface EngineRoute {
 const PERMISSION_ORDER: readonly PermissionMode[] = ['on_request', 'auto_review', 'full_access'];
 
 export class EngineRouter implements AgentRuntimeAdapter {
+  readonly mcpServers: boolean;
+  readonly skills: boolean;
   readonly routes: readonly EngineRoute[];
   readonly permissionModes?: readonly PermissionMode[];
   readonly additionalRoots?: boolean;
@@ -85,6 +87,8 @@ export class EngineRouter implements AgentRuntimeAdapter {
       }
     }
     const adapters = routes.map((route) => route.adapter);
+    this.mcpServers = adapters.some((adapter) => adapter.mcpServers === true);
+    this.skills = adapters.some((adapter) => adapter.skills === true);
 
     const modes = new Set(adapters.flatMap((adapter) => adapter.permissionModes ?? []));
     if (modes.size > 0) this.permissionModes = PERMISSION_ORDER.filter((mode) => modes.has(mode));
@@ -284,6 +288,20 @@ export class EngineRouter implements AgentRuntimeAdapter {
     await Promise.all(this.routes.map((route) => route.adapter.dispose()));
   }
 
+  bindPlugins(source: import('@wevir/runtime-adapter').EnginePluginSource): void {
+    for (const route of this.routes) route.adapter.bindPlugins?.(source);
+  }
+  async reloadPlugins(): Promise<void> {
+    await Promise.all(this.routes.map((route) => route.adapter.reloadPlugins?.()));
+  }
+  async listConnectorStatus() {
+    return (
+      await Promise.all(
+        this.routes.map(async (route) => (await route.adapter.listConnectorStatus?.()) ?? []),
+      )
+    ).flat();
+  }
+
   /** 每种 Provider 的会话由哪个引擎跑、能做什么（0.25.0，`host.hello` 的 `engineFeatures`）。 */
   engineFeatures(): Record<string, EngineFeatures> {
     const features: Record<string, EngineFeatures> = {};
@@ -342,6 +360,8 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
   const commands = SESSION_COMMANDS.filter((command) => adapter[command] !== undefined);
   return {
     engine: name,
+    mcpServers: adapter.mcpServers === true,
+    skills: adapter.skills === true,
     ...(adapter.steer !== undefined && { steer: true }),
     ...(adapter.configureSession !== undefined && { configure: true }),
     ...(adapter.fork !== undefined && { fork: true }),

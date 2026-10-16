@@ -68,6 +68,8 @@ DeepSeek 按量 API（2026-10-16）：桌面 `settings/provider-presets.ts` 的�
 
 Ollama（2026-10-16）：本机与 Cloud 模板用 Responses，模型由 Host `ollama-models.ts` 的 `provider.discoverModels`（协议 0.31.0，功能 provider_model_discovery）从受限端点读取；设置与引导共用 `settings/ollama-models.tsx`，会话的 `session/ollama-context-notice.tsx` 提醒已知实际上下文不足 64k。最大窗口与实际分配分开，不自动改 Provider 或 Ollama；方言与手动更新见 model-gateway.md §3.7、providers.md §7.5。
 
+插件 P1（0.41.0，无界面）：Host 的 `plugins.ts` 是全局注册表（`plugins/registry.json` 0600、`plugins/skills/`），`plugin-skills.ts` 按 Codex 解析 / 扫描，`plugin-install.ts` 处理目录、SKILL.md、ZIP 与 Codex / Claude 包的安全展开；协议 `plugins.ts` 将密钥输入与脱敏结果分开，client-sdk 的 `watchPlugins` 跟踪全局 `plugins.changed`。runtime-adapter 的 `plugins.ts` 是进程内含密钥的配置桥，CodexAdapter / CodexRuntime 经 adapter-codex 的 `plugins.ts` 注入与热更新，echo 可报告收到的项，其余引擎尚不支持。格式、隔离实测与验证入口见 `docs/architecture/plugins.md`、`codex-event-mapping.md` §10。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

@@ -186,7 +186,19 @@ Codex 的 NOTICE 文件中与下列文件相关的署名：
   apps/desktop/src/renderer/src/session/init-prompt.ts
       <- codex-rs/tui/assets/prompt_for_init_command.md（英文照原文，另有中文改写）
 
-这五个文件按 Apache License 2.0 发布，许可证全文见文末“Apache License 2.0”。
+插件 P1（0.41.0）另外改写了以下格式、扫描与协议子集；修改说明同样在文件头，完整登记见 docs/upstream/UPSTREAM.md：
+
+  packages/host/src/plugin-skills.ts
+      <- codex-rs/skills/src/parser.rs、codex-rs/ext/skills/src/loader/{mod,discovery}.rs
+  packages/host/src/plugin-install.ts
+      <- codex-rs/core-plugins/src/manifest.rs
+  packages/adapter-codex/src/plugins.ts
+      <- codex-rs/config/src/{mcp_types,skills_config}.rs
+         codex-rs/app-server-protocol/src/protocol/v2/{plugin,mcp,config}.rs
+  packages/protocol/src/plugins.ts
+      <- codex-rs/config/src/mcp_types.rs
+
+上述文件按 Apache License 2.0 发布，许可证全文见文末“Apache License 2.0”。
 
 下面两处测试样本是 codex-app-server 发给模型服务的请求的录制（及其经 Wevir 模型网关转换后的快照），
 其中含 Codex 内置工具的定义与描述文本，以及 Codex 注入的权限、skills 与环境说明文字：

@@ -28,6 +28,7 @@ import { createHostMethods, createProviderLock, syncProviders } from './host-met
 import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import type { Logger } from './logger.js';
+import { PluginRegistry } from './plugins.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
@@ -57,6 +58,8 @@ export type ShutdownTrigger =
   | { kind: 'api' };
 
 export interface StartHostOptions {
+  /** 测试时与隔离的引擎 HOME 一致；产品默认 os.homedir()。 */
+  pluginUserHome?: string;
   /** 数据目录（绝对路径），见 `resolveHome`。 */
   home: string;
   /** 引擎适配器，由 Host 独占，退出时 `dispose`。 */
@@ -154,6 +157,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     }
     // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
     const sessionsDb = storage;
+    const plugins = new PluginRegistry({
+      home,
+      ...(options.pluginUserHome !== undefined && { userHome: options.pluginUserHome }),
+      roots: () => sessionsDb.workspaces.list().map((workspace) => workspace.rootPath),
+      adapter,
+      onWarning: (message) => logger.warn(message),
+    });
+    await plugins.load();
     const checkpoints = new TurnCheckpoints({
       isOpen: (sessionId) => {
         const record = sessionsDb.sessions.get(sessionId);
@@ -284,6 +295,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       storage,
       events: store,
       methods: createHostMethods({
+        plugins,
         storage,
         events: store,
         sessions: manager,
@@ -300,6 +312,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
+        plugins: true,
         provider_model_discovery: true,
         pending_messages: true,
         host_settings: true,
@@ -336,6 +349,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.rewind !== undefined && { session_rewind: true }),
       },
       engineFeatures,
+      plugins,
       ...(accounts !== undefined && { accounts }),
       settings,
       ...(browsers !== undefined && { browsers }),

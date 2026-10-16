@@ -46,6 +46,8 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 
 ### 1.3 用户级目录：只有 `~/.agents/skills`，关掉 skills 列表
 
+**0.41.0 起的当前规则见 §10 与 plugins.md**：Host 绑定注册表时打开目录说明，逐路径禁用未获启用的 skills。本节保留 R2 的隔离背景与当时的取舍；没有绑定 Host 插件注册表的独立适配器仍用这里的关闭默认值。
+
 `HOME` 用用户真实的家目录：模型跑的命令要用 git 等用户配置，而 Codex 给命令建环境时会用登录 shell 读用户的 rc 做快照（`shell_snapshots/`），rc 里的 PATH 等只有这样才能带上。R2 在锁定提交里查了 Codex 在 `CODEX_HOME` 之外读的用户级位置（`dirs::home_dir()` 的调用方）：
 
 | 位置 | 谁读 | 处理 |
@@ -80,7 +82,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 
 ## 3. 配置
 
-每次启动进程之前重写（`config.ts`），文件 0600，不含任何 Key 或令牌：
+每次启动进程之前重写（`config.ts`），文件 0600，不含模型 Key 或网关令牌。0.41.0 起用户 MCP 的 env / headers 会写进同一 Host 私有配置文件；客户端结果始终脱敏（plugins.md）。
 
 | 项 | 值 | 依据 |
 |---|---|---|
@@ -95,7 +97,7 @@ R6 起 Host 用的是 `CodexRuntime`（`codex-runtime.ts`）：两个 codex-app-
 | `[features] default_mode_request_user_input` | `true` | U11：普通回合也给模型 `request_user_input` 工具（默认只在计划模式给），模型可以向用户提问（§6.6）。功能阶段是 UnderDevelopment |
 | `suppress_unstable_features_warning` | `true` | U11：开了开发中的功能时，app-server 每个 thread 开头发一条 warning 通知（会成为 `engine.raw`），关掉它 |
 | `[tools.update_plan] enabled` | `true` | 决策 5（计划默认关） |
-| `[skills] include_instructions`、`[skills.bundled] enabled` | `false`、`false` | §1.3 |
+| `[skills] include_instructions`、`[skills.bundled] enabled` | Host 绑定插件注册表时 `true`、`false`；未绑定时 `false`、`false` | §1.3、§10 |
 | `[shell_environment_policy]` | `ignore_default_excludes = false`，`exclude = ["WEVIR_*"]` | 决策 5：命令看不到令牌 |
 | `model` / `model_provider` | 第一个 Provider 的默认模型 / `wevir_<id>`（没有 Provider 时不写） | 会话总在 `thread/start` 里指定自己的；这只是不让进程落到 OpenAI 的默认 Provider |
 | `model_catalog_json` | `<CODEX_HOME>/wevir-models.json`（没有模型时不写：Codex 拒绝空目录） | 决策 5 |
@@ -580,6 +582,8 @@ ADR-0005 决策 4 第 ① 行：ChatGPT 订阅经 app-server 自己的 `account/
 
 ### 8.5 外连
 
+0.41.0 起用户启用的 MCP 连接器按用户配置的命令 / 地址连接；下表与既有“网关进程外连为零”的断言针对没有用户连接器的配置。插件市场与 ChatGPT apps 仍关闭。
+
 网关进程不变（§3，外连为零；没有 ChatGPT 凭据，`account/*` 与 `model/list` 都不联网）。ChatGPT 进程：
 
 | 时机 | 目标（实测或由 mock 核实的路径） |
@@ -600,3 +604,11 @@ ADR-0005 决策 4 第 ① 行：ChatGPT 订阅经 app-server 自己的 `account/
 - “以后以这个前缀开头的命令不再问”（execpolicy 修订）与网络策略修订：要 Host 记规则（§6.6）。U15 起审批卡片只给“拒绝 / 允许”，长期放开改用权限模式（§4.7）。
 - 自动批准的审查结论（`item/autoApprovalReview/completed` 的 `riskLevel`、`rationale`）投影到对应工具的那一行，以及审查拒绝后用户再批准（`thread/approveGuardianDeniedAction`）：U15 没做（§4.7）。
 - ~~`turn/steer`（回合进行中追加输入）~~ R11 已接上（§4.5）。
+
+## 10. 插件 P1：skills 隔离的前置实测
+
+P1 要用 Host 的全局注册表管理 MCP 连接器与 skills，保持 `features.plugins = false`、`features.apps = false`、`skills.bundled.enabled = false`。接入之前先对锁定的 `codex-app-server 0.162.1`（源码 `092d3acd`）做前置实验：独立的临时 HOME 里放用户 skill，项目里放项目 skill，额外根目录里放 Wevir skill；打开 `skills.include_instructions`，按 SKILL.md 的绝对路径写 `[[skills.config]] enabled = false`，经 `skills/extraRoots/set` 加入 Wevir 根目录。
+
+2026-10-16 前置实验通过（`codex-adapter.plugins-gate.integration.test.ts`）：`skills/list` 保留用户 / 项目项并标为 enabled=false，Wevir 项为 true；普通回合实际发给本机假模型的输入只有 Wevir 项，没有两个禁用项；显式 `$gate-user` / `$gate-project` 没有注入正文，`$gate-wevir` 注入了完整正文。因此禁用也阻止显式点名的自动注入，用户必须先在 Host 启用。此实验不替代后续 Host 端到端验证；实现规则见 [plugins.md](plugins.md)。
+
+用户 MCP 的批准沿用 §6.11 的 `mcp_tool_call` elicitation，允许的服务名由 Host 注册表给出；`openMcpCall` 按实际 serverName 关联到工具，不再只认内置的 wevir。其他 MCP 表单仍拒绝。状态通知与 skills/changed 触发全局 plugins.changed，客户端重读时不回 MCP 凭据或任意原始报错。

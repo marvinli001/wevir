@@ -21,6 +21,7 @@ import {
   type EngineAccounts,
   type EngineExitedEvent,
   type EngineGoal,
+  type EnginePluginSource,
   type EngineSession,
   EventHub,
   type ForkOptions,
@@ -94,6 +95,7 @@ import {
   prepareCodexHome,
   resolveCodexBinary,
 } from './paths.js';
+import { CodexPlugins, pluginsToml } from './plugins.js';
 import { BasePrompt, defaultPromptsDir } from './prompts.js';
 import {
   APPROVAL_REQUESTS,
@@ -368,6 +370,7 @@ export const FILE_CHANGE_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.fr
  * ADR-0005 决策 2.2 与补记 3）、按当前的 Provider 写 config.toml 与模型目录，再给出 spawn 参数。
  */
 class Launcher implements CodexLauncher {
+  plugins: EnginePluginSource | undefined;
   readonly paths: CodexPaths;
   readonly #options: CodexAdapterOptions;
   readonly #logger: CodexAdapterLogger;
@@ -403,6 +406,13 @@ class Launcher implements CodexLauncher {
   }
 
   async prepare(): Promise<CodexSpawnSpec> {
+    const plugins = await this.plugins?.read();
+    for (const item of plugins?.connectors ?? []) {
+      for (const value of Object.values(
+        item.config.transport === 'stdio' ? (item.config.env ?? {}) : (item.config.headers ?? {}),
+      ))
+        this.#logger.addSecret?.(value);
+    }
     prepareCodexHome(this.paths);
     const parent = this.#options.parentEnv;
     this.#binary ??= this.#options.binary ?? resolveCodexBinary({ env: parent });
@@ -437,7 +447,10 @@ class Launcher implements CodexLauncher {
       // ChatGPT 进程：没有网关与令牌，没有 Wevir 的 Provider 与模型目录。
       writeCodexConfig(
         this.paths,
-        renderChatgptConfigToml(endpoints, suggestTasks, this.#options.historyTool, webTool),
+        pluginsToml(
+          renderChatgptConfigToml(endpoints, suggestTasks, this.#options.historyTool, webTool),
+          plugins,
+        ),
         undefined,
       );
       this.launchedCatalog = undefined;
@@ -456,15 +469,20 @@ class Launcher implements CodexLauncher {
     const catalog = this.catalog();
     writeCodexConfig(
       this.paths,
-      renderConfigToml({
-        providers: this.providers,
-        gatewayBaseURL: (id) => gateway.baseURL(id),
-        ...(catalog !== undefined && { catalogFile: this.paths.catalogFile }),
-        providerExtra: this.#options.providerExtra,
-        suggestTasks,
-        ...(this.#options.historyTool !== undefined && { historyTool: this.#options.historyTool }),
-        ...(webTool !== undefined && { webTool }),
-      }),
+      pluginsToml(
+        renderConfigToml({
+          providers: this.providers,
+          gatewayBaseURL: (id) => gateway.baseURL(id),
+          ...(catalog !== undefined && { catalogFile: this.paths.catalogFile }),
+          providerExtra: this.#options.providerExtra,
+          suggestTasks,
+          ...(this.#options.historyTool !== undefined && {
+            historyTool: this.#options.historyTool,
+          }),
+          ...(webTool !== undefined && { webTool }),
+        }),
+        plugins,
+      ),
       catalog,
     );
     this.launchedCatalog = catalog;
@@ -528,6 +546,9 @@ class Launcher implements CodexLauncher {
  * 有回合时等最后一个回合结束，挂着的会话以 `engine.exited`（`config_changed`）脱开。
  */
 export class CodexAdapter implements AgentRuntimeAdapter {
+  readonly mcpServers = true;
+  readonly skills = true;
+  readonly #plugins: CodexPlugins;
   /** 三种权限模式都支持（0.11.0，codex-event-mapping.md §4.7）。 */
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   /** 环境会话的额外目录（0.15.0，codex-event-mapping.md §4.8）：沙箱的 writableRoots 加 developer instructions。 */
@@ -613,6 +634,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       restart: options.restart,
       disposeTimeouts: options.disposeTimeouts,
     });
+    this.#plugins = new CodexPlugins(
+      this.process,
+      () =>
+        [...this.#sessions.values()]
+          .filter((session) => session.status === 'open')
+          .map(({ id, cwd }) => ({ id, cwd })),
+      (value) => this.#logger.addSecret?.(value),
+    );
     this.process.on('exit', (exit) => this.#onExit(exit));
     this.process.on('restarting', ({ attempt, maxRestarts, delayMs }) =>
       this.#logger.warn(
@@ -659,12 +688,25 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   // ── 会话与回合 ─────────────────────────────────────────────────────────────────────────
 
+  bindPlugins(source: EnginePluginSource): void {
+    this.#launcher.plugins = source;
+    this.#plugins.source = source;
+  }
+
+  reloadPlugins(): Promise<void> {
+    return this.#plugins.sync();
+  }
+  listConnectorStatus() {
+    return this.#plugins.status();
+  }
+
   async createSession(config: SessionConfig): Promise<EngineSession> {
     this.#assertUsable();
     if (!config.cwd) throw new AdapterError('invalid_input', 'cwd 不能为空');
     const { provider, model } = this.#route(config);
     await this.process.start();
     await this.#applyConfigIfIdle();
+    await this.#plugins.sync(config.cwd);
     // ChatGPT 会话：没登录时不建 thread（Codex 会拿着空的凭据去连 api.openai.com）。
     await this.#account?.assertSignedIn();
     this.#assertUsable();
@@ -712,6 +754,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     const { provider, model } = this.#route(config);
     await this.process.start();
     await this.#applyConfigIfIdle();
+    await this.#plugins.sync(config.cwd);
     await this.#account?.assertSignedIn();
     this.#assertUsable();
     this.#activating += 1;
@@ -1018,6 +1061,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     check?.();
+    await this.#plugins.sync(session.cwd);
     await this.#account?.assertSignedIn();
     if (session.turn !== undefined) throw new AdapterError('session_busy', '会话有进行中的回合');
     return session;
@@ -1100,6 +1144,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   ): Promise<EngineSession> {
     this.#assertUsable();
     const source = this.#openSession(engineSessionId);
+    await this.#plugins.sync(config.cwd);
     if (source.parentId !== undefined) throw new AdapterError('invalid_input', '子会话不能分支');
     const running = source.turn !== undefined;
     const side = options.kind === 'side';
@@ -1625,6 +1670,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   // ── 通知与服务端请求 ───────────────────────────────────────────────────────────────────
 
   #onNotification(method: string, params: unknown): void {
+    this.#plugins.notification(method);
     this.#options.onRawNotification?.(method, params);
     const threadId =
       isRecord(params) && typeof params.threadId === 'string' ? params.threadId : undefined;
@@ -2082,8 +2128,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
 
   /**
    * 批准一次应用级工具的调用（0.30.0，codex-event-mapping.md §6.11）：`mcpServer/elicitation/request` 里 `wevir` 服务的
-   * `mcp_tool_call` 批准，属于挂着的会话进行中的回合时上报为 `approval.requested`（工具调用是那个还没完成的 `mcpToolCall`），
-   * 选项只有允许与拒绝。别的 MCP 服务的、别的种类的确认一律 `decline`（Wevir 不显示 MCP 表单）。
+   * `mcp_tool_call` 批准，0.41.0 起也包括 Host 启用的用户连接器。属于挂着的会话进行中的回合时上报为 `approval.requested`，
+   * 选项只有允许与拒绝。其他服务或种类的确认一律 `decline`（Wevir 不显示 MCP 表单）。
    */
   #onMcpApproval(request: CodexServerRequest): Promise<unknown> {
     const params = request.params as McpServerElicitationRequestParams;
@@ -2092,7 +2138,8 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     if (
       !isRecord(params) ||
       typeof params.threadId !== 'string' ||
-      params.serverName !== APP_TOOLS_SERVER ||
+      typeof params.serverName !== 'string' ||
+      (params.serverName !== APP_TOOLS_SERVER && !this.#plugins.hasConnector(params.serverName)) ||
       meta?.codex_approval_kind !== MCP_TOOL_APPROVAL_KIND
     ) {
       this.#warnOnce('mcp_elicitation', 'Codex 的 MCP 确认不是应用级工具的批准，拒绝', {
@@ -2117,7 +2164,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       engineSessionId: session.id,
       requestId: `codex-${this.#nextApproval}`,
       toolCallId:
-        session.mapper.openMcpCall(APP_TOOLS_SERVER) ?? `mcp-approval-${this.#nextApproval}`,
+        session.mapper.openMcpCall(params.serverName) ?? `mcp-approval-${this.#nextApproval}`,
       options: MCP_TOOL_APPROVAL_OPTIONS.map((option) => ({ ...option })),
     };
     return new Promise<unknown>((reply) => {

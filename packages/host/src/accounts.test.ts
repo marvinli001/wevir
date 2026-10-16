@@ -130,6 +130,7 @@ describe('ChatGPT 账号（account.*）', () => {
   it('引擎有账号时 hello 声明 chatgpt_account；echo 引擎不声明，account.* 回 ENGINE_ERROR', async () => {
     const withAccounts = await start();
     expect((await withAccounts.connect()).hello.features).toEqual({
+      plugins: true,
       provider_model_discovery: true,
       pending_messages: true,
       host_settings: true,
@@ -163,6 +164,7 @@ describe('ChatGPT 账号（account.*）', () => {
     const plain = await start(new EchoAdapter());
     const { client, hello } = await plain.connect();
     expect(hello.features).toEqual({
+      plugins: true,
       provider_model_discovery: true,
       pending_messages: true,
       host_settings: true,

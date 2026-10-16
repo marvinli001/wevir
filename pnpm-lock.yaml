@@ -494,6 +494,12 @@ importers:
       ws:
         specifier: ^8.22.0
         version: 8.22.0
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
+      yauzl:
+        specifier: 3.4.0
+        version: 3.4.0
     devDependencies:
       '@types/turndown':
         specifier: 5.0.6
@@ -501,6 +507,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+      '@types/yauzl':
+        specifier: 3.4.0
+        version: 3.4.0
 
   packages/model-gateway:
     dependencies:

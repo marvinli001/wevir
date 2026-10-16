@@ -840,7 +840,81 @@ type MethodSamples = {
 
 const empty = { valid: [{}], invalid: [null, 'x'] };
 
+const connector = {
+  id: 'con_test',
+  name: 'sample',
+  config: { transport: 'stdio' as const, command: 'node', env: { KEY: true as const } },
+  enabled: true,
+};
+const skill = {
+  id: 'skl_test',
+  name: 'sample',
+  description: 'A sample skill',
+  source: 'wevir' as const,
+  path: '/data/plugins/skills/sample/SKILL.md',
+  enabled: true,
+};
+const pluginList = { connectors: [connector], skills: [skill] };
+
 export const methodSamples: MethodSamples = {
+  'plugins.list': { params: empty, result: { valid: [pluginList], invalid: [{ connectors: [] }] } },
+  'connector.add': {
+    params: {
+      valid: [
+        {
+          name: 'sample',
+          config: { transport: 'stdio', command: 'node', env: { KEY: 'input-only' } },
+        },
+        {
+          name: 'remote',
+          config: {
+            transport: 'http',
+            url: 'https://example.com/mcp',
+            headers: { Authorization: 'input-only' },
+            toolTimeoutSec: 20,
+          },
+        },
+      ],
+      invalid: [
+        { name: 'wevir_bad', config: { transport: 'stdio', command: 'node' } },
+        { name: 'Upper', config: { transport: 'stdio', command: 'node' } },
+      ],
+    },
+    result: {
+      valid: [{ connector }],
+      invalid: [
+        {
+          connector: {
+            ...connector,
+            config: { transport: 'stdio', command: 'node', env: { KEY: 'must-not-return' } },
+          },
+        },
+      ],
+    },
+  },
+  'connector.update': {
+    params: {
+      valid: [
+        { id: connector.id, config: { transport: 'stdio', env: { NEW: 'input-only', KEY: null } } },
+      ],
+      invalid: [{}],
+    },
+    result: { valid: [{ connector }], invalid: [{}] },
+  },
+  'connector.remove': { params: { valid: [{ id: connector.id }], invalid: [{}] }, result: empty },
+  'connector.setEnabled': {
+    params: { valid: [{ id: connector.id, enabled: false }], invalid: [{ id: connector.id }] },
+    result: { valid: [{ connector }], invalid: [{}] },
+  },
+  'skill.install': {
+    params: { valid: [{ path: '/tmp/skill.zip' }, { path: '/tmp/SKILL.md' }], invalid: [{}] },
+    result: { valid: [pluginList], invalid: [{}] },
+  },
+  'skill.remove': { params: { valid: [{ id: skill.id }], invalid: [{}] }, result: empty },
+  'skill.setEnabled': {
+    params: { valid: [{ id: skill.id, enabled: false }], invalid: [{ id: skill.id }] },
+    result: { valid: [{ skill }], invalid: [{}] },
+  },
   'host.hello': {
     params: {
       valid: [
@@ -2220,6 +2294,7 @@ type NotificationSamples = {
 };
 
 export const notificationSamples: NotificationSamples = {
+  'plugins.changed': empty,
   'events.event': {
     valid: [{ subscriptionId: ids.subscription, event: eventOf('assistant.delta', 13) }],
     invalid: [

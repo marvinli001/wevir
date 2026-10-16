@@ -85,6 +85,12 @@ interface SettingsWatcher {
   updates: number;
 }
 
+interface PluginsWatcher {
+  readonly listener: (plugins: MethodResult<'plugins.list'>) => void;
+  readonly onError?: (error: unknown) => void;
+  updates: number;
+}
+
 export interface HostEndpoint {
   url: string;
   token: string;
@@ -226,6 +232,7 @@ export class WevirClient {
   /** `watchAccounts` 的监听器（0.19.0）。 */
   readonly #accountListWatchers = new Set<AccountListWatcher>();
   readonly #settingsWatchers = new Set<SettingsWatcher>();
+  readonly #pluginsWatchers = new Set<PluginsWatcher>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
   #browserProvider: BrowserProviderEntry | undefined;
   #state: ConnectionState = { status: 'connecting' };
@@ -395,6 +402,35 @@ export class WevirClient {
       },
       (error: unknown) => {
         if (this.#settingsWatchers.has(watcher)) watcher.onError?.(error);
+      },
+    );
+  }
+
+  /** 全局插件：首次连接、重连和 plugins.changed 时重读。 */
+  watchPlugins(
+    listener: PluginsWatcher['listener'],
+    onError?: PluginsWatcher['onError'],
+  ): () => void {
+    const watcher: PluginsWatcher = { listener, updates: 0, ...(onError && { onError }) };
+    this.#pluginsWatchers.add(watcher);
+    if (this.#connection) this.#readPlugins(watcher);
+    return () => this.#pluginsWatchers.delete(watcher);
+  }
+
+  #readPlugins(watcher: PluginsWatcher): void {
+    if (!this.supports('plugins')) return;
+    const before = ++watcher.updates;
+    this.request('plugins.list').then(
+      (plugins) => {
+        if (!this.#pluginsWatchers.has(watcher) || before !== watcher.updates) return;
+        try {
+          watcher.listener(plugins);
+        } catch (error) {
+          this.#warn('a plugins listener threw', { error });
+        }
+      },
+      (error: unknown) => {
+        if (this.#pluginsWatchers.has(watcher)) watcher.onError?.(error);
       },
     );
   }
@@ -657,6 +693,7 @@ export class WevirClient {
         for (const watcher of this.#accountWatchers) this.#readAccount(watcher);
         for (const watcher of this.#accountListWatchers) this.#readAccountList(watcher);
         for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
+        for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         return;
       }
@@ -882,6 +919,10 @@ export class WevirClient {
         watcher.updates += 1;
         this.#deliverSettings(watcher, parsed.data.settings);
       }
+      return;
+    }
+    if (method === 'plugins.changed') {
+      for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
       return;
     }
     if (method === 'browser.request') {

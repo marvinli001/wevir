@@ -771,6 +771,8 @@ export type SessionCommand = z.infer<typeof SessionCommandSchema>;
  * 别的来源之后，能用的功能跟着当前的引擎变（domain-model §3.14）。省略的项表示不支持。
  */
 export const EngineFeaturesSchema = z.object({
+  mcpServers: z.boolean().optional(),
+  skills: z.boolean().optional(),
   /** 引擎的名字（`codex`、`claude`、`echo` 等），只作诊断。 */
   engine: z.string().min(1),
   /** 回合进行中插话；没有时插话一律排队。 */

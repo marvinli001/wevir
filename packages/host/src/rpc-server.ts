@@ -60,6 +60,7 @@ export interface HostRpcServerOptions {
   accounts?: { watch(listener: (state: AccountState) => void): () => void };
   /** Host 设置（R11）：调过 `settings.*` 的连接经它收 `settings.updated`。 */
   settings?: { watch(listener: (settings: HostSettings) => void): () => void };
+  plugins?: { watch(listener: () => void): () => void };
   /** 内置浏览器（0.33.0）：连接用 `browser.register` 登记为浏览器提供方。 */
   browsers?: BrowserBroker;
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
@@ -147,6 +148,7 @@ export class HostRpcServer {
       ...(options.engineFeatures !== undefined && { engineFeatures: options.engineFeatures }),
       ...(options.accounts !== undefined && { accounts: options.accounts }),
       ...(options.settings !== undefined && { settings: options.settings }),
+      ...(options.plugins !== undefined && { plugins: options.plugins }),
       ...(options.browsers !== undefined && { browsers: options.browsers }),
       limits,
       resultValidation:

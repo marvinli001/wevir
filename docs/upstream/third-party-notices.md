@@ -30,6 +30,8 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 |---|---|---|---|---|
 | `zod` | 4.6.5 | MIT | Copyright (c) 2025 Colin McDonnell | `@wevir/protocol` |
 | `ws` | 8.22.0 | MIT | Copyright (c) 2011 Einar Otto Stangvik；Copyright (c) 2013 Arnout Kazemier and contributors | `@wevir/host` |
+| `yaml` | 2.9.1 | ISC | Copyright Eemeli Aro | `@wevir/host`，P1 的 SKILL.md YAML 解析 |
+| `yauzl` | 3.4.0 | MIT | Copyright (c) 2014 Josh Wolfe | `@wevir/host`，P1 的本地 ZIP 安装；adapter-antigravity 也使用同一版本 |
 | `mute-stream` | 3.0.0 | ISC | Copyright (c) Isaac Z. Schlueter and Contributors | `@wevir/cli`（T4.2，未提交，以提交时为准） |
 
 ### 2.2 打进桌面端产物的库

@@ -6,6 +6,7 @@ import type {
   CancelOptions,
   EngineAccounts,
   EngineGoal,
+  EnginePluginSource,
   EngineSession,
   ForkOptions,
   GoalStartRequest,
@@ -35,6 +36,8 @@ export type CodexRuntimeOptions = Omit<CodexAdapterOptions, 'mode'>;
  * 引擎会话 ID 找回它（子会话由派出它的那个进程认出）。
  */
 export class CodexRuntime implements AgentRuntimeAdapter {
+  readonly mcpServers = true;
+  readonly skills = true;
   /** 两个进程都是 CodexAdapter，权限模式相同（0.11.0）。 */
   readonly permissionModes: readonly PermissionMode[] = PERMISSION_MODES;
   /** 环境会话的额外目录（0.15.0）。 */
@@ -80,6 +83,23 @@ export class CodexRuntime implements AgentRuntimeAdapter {
     const session = await adapter.createSession(config);
     this.#owners.set(session.engineSessionId, adapter);
     return session;
+  }
+
+  bindPlugins(source: EnginePluginSource): void {
+    this.gateway.bindPlugins(source);
+    this.chatgpt.bindPlugins(source);
+  }
+
+  async reloadPlugins(): Promise<void> {
+    await Promise.all([this.gateway.reloadPlugins(), this.chatgpt.reloadPlugins()]);
+  }
+
+  async listConnectorStatus() {
+    const statuses = await Promise.all([
+      this.gateway.listConnectorStatus(),
+      this.chatgpt.listConnectorStatus(),
+    ]);
+    return statuses.flat();
   }
 
   async resumeSession(engineSessionId: string, config: SessionConfig): Promise<EngineSession> {

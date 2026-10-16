@@ -184,6 +184,94 @@ interface Case {
 }
 
 const standaloneCases: Case[] = [
+  {
+    name: 'ConnectorName',
+    schema: protocol.ConnectorNameSchema,
+    valid: ['sample', 'a_1-b'],
+    invalid: ['wevir_x', 'Upper', '', '../x'],
+  },
+  {
+    name: 'McpServerConfig',
+    schema: protocol.McpServerConfigSchema,
+    valid: [
+      { transport: 'stdio', command: 'node', env: { KEY: 'input' } },
+      { transport: 'http', url: 'https://example.com/mcp', headers: { Key: 'input' } },
+    ],
+    invalid: [
+      { transport: 'stdio' },
+      { transport: 'http', url: 'file:///tmp/x' },
+      { transport: 'http', url: 'https://user:pass@example.com' },
+      { transport: 'stdio', command: 'node', toolTimeoutSec: 0 },
+    ],
+  },
+  {
+    name: 'McpServerPatch',
+    schema: protocol.McpServerPatchSchema,
+    valid: [
+      { transport: 'stdio', env: { KEY: null } },
+      { transport: 'http', headers: {} },
+    ],
+    invalid: [{ env: {} }, { transport: 'http', headers: { KEY: true } }],
+  },
+  {
+    name: 'McpServerView',
+    schema: protocol.McpServerViewSchema,
+    valid: [
+      { transport: 'stdio', command: 'node', env: { KEY: true } },
+      { transport: 'http', url: 'http://localhost/mcp', headers: { Authorization: true } },
+    ],
+    invalid: [
+      { transport: 'stdio', command: 'node', env: { KEY: 'secret' } },
+      { transport: 'http', url: 'http://localhost/mcp', headers: { Authorization: 'secret' } },
+    ],
+  },
+  {
+    name: 'Connector',
+    schema: protocol.ConnectorSchema,
+    valid: [
+      {
+        id: 'con_1',
+        name: 'sample',
+        config: { transport: 'stdio', command: 'node' },
+        enabled: true,
+        status: 'connected',
+        authStatus: 'unsupported',
+        tools: [{ name: 'ping' }],
+      },
+    ],
+    invalid: [
+      {
+        id: 'con_1',
+        name: 'wevir',
+        config: { transport: 'stdio', command: 'node' },
+        enabled: true,
+      },
+    ],
+  },
+  {
+    name: 'Skill',
+    schema: protocol.SkillSchema,
+    valid: [
+      {
+        id: 'skl_1',
+        name: 'sample',
+        description: 'A skill',
+        source: 'project',
+        path: '/tmp/SKILL.md',
+        enabled: false,
+      },
+    ],
+    invalid: [
+      {
+        id: 'skl_1',
+        name: 'sample',
+        description: '',
+        source: 'package',
+        path: '/tmp/SKILL.md',
+        enabled: true,
+      },
+    ],
+  },
   // version / common
   {
     name: 'ProtocolVersion',

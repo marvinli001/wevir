@@ -672,6 +672,59 @@ describe('Host 设置（R11）', () => {
   });
 });
 
+describe('全局插件（0.41.0）', () => {
+  it('watchPlugins：首次 / 变化 / 重连重读，旧响应不覆盖新列表，退订与旧 Host 不再读取', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { plugins: true } } }));
+    const current = { connectors: [], skills: [] };
+    host.on('plugins.list', () => ({ result: current }));
+    const { client } = await connect(host);
+    const seen: unknown[] = [];
+    const stop = client.watchPlugins((value) => seen.push(value));
+    await vi.waitFor(() => expect(seen).toEqual([{ connectors: [], skills: [] }]));
+    host.last.notify('plugins.changed', {});
+    await vi.waitFor(() => expect(host.last.requests('plugins.list')).toHaveLength(2));
+    await vi.waitFor(() => expect(seen).toHaveLength(2));
+    host.on('plugins.list', () => 'no-reply');
+    host.last.notify('plugins.changed', {});
+    host.last.notify('plugins.changed', {});
+    await vi.waitFor(() => expect(host.last.requests('plugins.list')).toHaveLength(4));
+    const requests = host.last.requests('plugins.list');
+    host.last.reply(requests[3]?.id as number, {
+      result: {
+        connectors: [],
+        skills: [
+          {
+            id: 'skl_1',
+            name: 'new',
+            description: 'new',
+            source: 'wevir',
+            path: '/tmp/new/SKILL.md',
+            enabled: true,
+          },
+        ],
+      },
+    });
+    host.last.reply(requests[2]?.id as number, { result: current });
+    await tick();
+    expect(seen).toHaveLength(3);
+    expect(seen.at(-1)).toMatchObject({ skills: [{ name: 'new' }] });
+    host.on('plugins.list', () => ({ result: current }));
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(seen).toHaveLength(4));
+    stop();
+    host.last.notify('plugins.changed', {});
+    await tick();
+    expect(seen).toHaveLength(4);
+    const plain = new FakeHost();
+    const { client: old } = await connect(plain);
+    old.watchPlugins((value) => seen.push(value));
+    await tick();
+    expect(plain.last.requests('plugins.list')).toEqual([]);
+  });
+});
+
 describe('浏览器提供方（0.33.0）', () => {
   const request = {
     requestId: 'brq_01JA2B3C4D5E6F7G8H9JKMNPQR',

@@ -61,6 +61,12 @@ export interface CancelOptions {
 }
 
 export interface AgentRuntimeAdapter {
+  /** 全局插件（0.41.0）：未声明的引擎不接收用户连接器或 skills。 */
+  readonly mcpServers?: boolean;
+  readonly skills?: boolean;
+  bindPlugins?(source: import('./plugins.js').EnginePluginSource): void;
+  reloadPlugins?(): Promise<void>;
+  listConnectorStatus?(): Promise<import('./plugins.js').EngineConnectorStatus[]>;
   /**
    * 新建引擎会话（dsh：ACP `session/new`）。不发事件。
    * 错误：`invalid_input`、`engine_unavailable`、`disposed`。
