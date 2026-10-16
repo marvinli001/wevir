@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { currentLocale, t } from '@/i18n';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
 import type { UpdateChannel, UpdateState } from '../../../shared/desktop-api.js';
+import { UpdateProgress } from './update-progress';
 import { useUpdateState } from './update-store';
 
 export function AppUpdateSettings() {
@@ -69,7 +70,7 @@ function statusText(state: UpdateState): string | undefined {
     case 'available':
       return t('update.status.available', { version: state.version });
     case 'downloading':
-      return t('update.status.downloading', { percent: Math.floor(state.percent) });
+      return t('update.status.downloading', { version: state.version });
     case 'downloaded':
       return t('update.status.downloaded', { version: state.version });
     case 'installing':
@@ -100,6 +101,7 @@ function UpdateAction({ state }: { state: UpdateState }) {
         </Button>
       );
     case 'downloading':
+      return <UpdateProgress percent={Math.floor(state.percent)} />;
     case 'installing':
       return null;
     default:

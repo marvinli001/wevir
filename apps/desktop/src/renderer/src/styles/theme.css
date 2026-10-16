@@ -257,3 +257,25 @@
 /* 暗色只认 <html data-theme="dark">，不认 .dark 类，也不直接跟 prefers-color-scheme（跟随系统由
  * theme.ts 解析后写进 data-theme）。 */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* 进度条上的流光（自动更新的下载进度）：一道亮光从左往右扫过填充部分。在 utilities 层里，减少动效时由 index.css 的全局规则停下。 */
+@utility progress-sheen {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, white 35%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  animation: progress-sheen 1.6s var(--ease-smooth) infinite;
+}
+
+@keyframes progress-sheen {
+  from {
+    background-position: -100% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}

@@ -1,39 +1,16 @@
-// 侧栏左下角的更新入口（ADR-0007 补记 4，照 Codex 桌面端）：发现新版本时出现，点击开始下载，下载时显示进度，下载完没有回合在跑
-// 就直接安装并重启，有回合在跑时变成“重启以更新”等用户点。没有新版本时不占位置。
+// 侧栏左下角的更新入口（ADR-0007 补记 4，照 Codex 桌面端）：发现新版本时出现，点击开始下载，下载时整行是一条进度条，
+// 下载完填满变成墨色底的“重启以更新”，等用户点。没有新版本时不占位置。
 
 import { cn } from 'cn';
 import { ArrowDownToLine, LoaderCircle, RotateCw } from 'lucide-react';
-import { useEffect, useMemo, useRef } from 'react';
-import { useWorkbenchData } from '@/data/workbench-data';
 import { t } from '@/i18n';
-import { hasActiveTurn, shouldInstallNow, type UpdateEntry, updateEntry } from './update-model';
+import { type UpdateEntry, updateEntry } from './update-model';
 import { useUpdateState } from './update-store';
 
-/** 工作台里有没有回合还没结束（任何工作区的任何会话）。 */
-function useHasActiveTurn(): boolean {
-  const data = useWorkbenchData();
-  return useMemo(
-    () =>
-      data.status === 'ready' && hasActiveTurn(data.workspaces.flatMap((entry) => entry.sessions)),
-    [data],
-  );
-}
-
 export function UpdateEntryButton({ className }: { className?: string }) {
-  const state = useUpdateState();
-  const busy = useHasActiveTurn();
-  const entry = updateEntry(state, busy);
-
-  // 下载完、没有回合在跑：直接安装。每个版本只请求一次（安装失败时状态会变成 error）。
-  const requested = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (state?.phase !== 'downloaded' || !shouldInstallNow(state, busy)) return;
-    if (requested.current === state.version) return;
-    requested.current = state.version;
-    void window.wevir.installUpdate();
-  }, [state, busy]);
-
+  const entry = updateEntry(useUpdateState());
   if (entry === undefined) return null;
+  const filled = entry.kind === 'restart' || entry.kind === 'installing';
   return (
     <button
       type="button"
@@ -42,30 +19,45 @@ export function UpdateEntryButton({ className }: { className?: string }) {
       disabled={entry.kind === 'downloading' || entry.kind === 'installing'}
       onClick={() => onClick(entry)}
       className={cn(
-        'relative flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 text-base outline-none',
-        'transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50 disabled:cursor-default',
-        entry.kind === 'restart'
-          ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-          : 'hover:bg-sidebar-accent/70',
+        'group relative flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 text-base outline-none',
+        'transition-colors duration-300 ease-smooth focus-visible:ring-2 focus-visible:ring-sidebar-ring/50 disabled:cursor-default',
+        filled && 'text-primary-foreground',
+        (entry.kind === 'available' || entry.kind === 'failed') && 'hover:bg-sidebar-accent/70',
+        entry.kind === 'downloading' && 'bg-sidebar-foreground/[0.06]',
         className,
       )}
     >
-      <EntryIcon entry={entry} />
-      <span className="min-w-0 flex-1 truncate text-left">{label(entry)}</span>
-      {entry.kind === 'available' && (
-        <span className="shrink-0 text-xs text-muted-foreground">{t('update.entry.update')}</span>
-      )}
-      {entry.kind === 'downloading' && (
-        <span
-          aria-hidden
-          className="absolute inset-x-2 bottom-1 h-0.5 overflow-hidden rounded-full bg-sidebar-foreground/10"
-        >
+      {/* 进度填充：下载时按百分比变宽（淡墨色加流光），下载完填满并转成墨色，成为“重启以更新”的底。 */}
+      <span
+        aria-hidden
+        className={cn(
+          'absolute inset-y-0 left-0 overflow-hidden transition-[width,background-color] duration-500 ease-smooth',
+          filled ? 'bg-primary group-enabled:group-hover:bg-primary/90' : 'bg-primary/15',
+        )}
+        style={{
+          width: entry.kind === 'downloading' ? `${entry.percent}%` : filled ? '100%' : '0%',
+        }}
+      >
+        {entry.kind === 'downloading' && <span className="progress-sheen block size-full" />}
+      </span>
+      <span className="relative flex min-w-0 flex-1 items-center gap-2">
+        <EntryIcon entry={entry} />
+        <span className="min-w-0 flex-1 truncate text-left">{label(entry)}</span>
+        {entry.kind === 'available' && (
+          <span className="shrink-0 text-xs text-muted-foreground">{t('update.entry.update')}</span>
+        )}
+        {entry.kind === 'downloading' && (
           <span
-            className="block h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-            style={{ width: `${entry.percent}%` }}
-          />
-        </span>
-      )}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={entry.percent}
+            className="shrink-0 text-xs text-muted-foreground tabular-nums"
+          >
+            {entry.percent}%
+          </span>
+        )}
+      </span>
     </button>
   );
 }
@@ -91,7 +83,7 @@ function label(entry: UpdateEntry): string {
     case 'available':
       return t('update.entry.available', { version: entry.version });
     case 'downloading':
-      return t('update.entry.downloading', { percent: entry.percent });
+      return t('update.entry.downloading');
     case 'restart':
       return t('update.entry.restart');
     case 'installing':
