@@ -110,8 +110,18 @@ export class AppTools {
    * `wevir_session_wait` 拿到这个结果的不发。失败只记下。
    */
   onTurnFinished(info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }): void {
-    // 等一轮事件循环：同时在等这个会话的 `wevir_session_wait` 先把结果记成已交付。
-    setImmediate(() => this.#report(info));
+    // 等一轮事件循环：同时在等这个会话的 `wevir_session_wait` 先把结果记成已交付。在定时器里出错不能抛出去
+    // （没人接住，Host 会崩）：例如 Host 正在退出、存储已经关了。
+    setImmediate(() => {
+      try {
+        this.#report(info);
+      } catch (error) {
+        this.#options.onWarning?.('应用级工具的回报没能发给请求方', {
+          sessionId: info.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    });
   }
 
   #report(info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }): void {

@@ -43,8 +43,15 @@ export class TempDirs {
 
   cleanup(): void {
     // 重试：Windows 上 Codex 在工作区里起的命令进程退出后，目录句柄要稍后才放开（EBUSY）。
+    // 重试完还被占着（runner 很忙时会有）就留给系统清理临时目录，不让清理失败把测试算成失败。
     for (const root of this.#roots.splice(0)) {
-      rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      } catch (error) {
+        if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EBUSY') {
+          throw error;
+        }
+      }
     }
   }
 }
