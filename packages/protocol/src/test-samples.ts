@@ -2085,6 +2085,62 @@ export const methodSamples: MethodSamples = {
       invalid: [{ session: { ...session, titleSource: 'renamed' } }],
     },
   },
+  'session.delete': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, force: true }],
+      invalid: [{}, { sessionId: ids.session, force: 'yes' }],
+    },
+    result: {
+      valid: [
+        { sessionIds: [ids.session] },
+        {
+          sessionIds: [ids.session, ids.childSession],
+          keptBranches: ['wevir/fix-login'],
+          engineDataKept: true,
+        },
+      ],
+      invalid: [{}, { sessionIds: [ids.session], engineDataKept: false }],
+    },
+  },
+  'session.usage': {
+    params: { valid: [{}, { archived: true }], invalid: [{ archived: 'yes' }] },
+    result: {
+      valid: [
+        { sessions: [] },
+        {
+          sessions: [
+            { sessionId: ids.session, eventBytes: 48_213, fileBytes: 0, worktrees: [] },
+            {
+              sessionId: ids.childSession,
+              eventBytes: 1_024,
+              fileBytes: 2_048,
+              worktrees: [
+                {
+                  workspaceId: ids.workspace,
+                  branch: 'wevir/fix-login',
+                  path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/1-app',
+                  bytes: 1_048_576,
+                  dirty: true,
+                },
+                {
+                  workspaceId: ids.workspace,
+                  branch: 'wevir/fix-login-2',
+                  path: '/Users/me/Library/Application Support/Wevir/worktrees/ses_x/2-lib',
+                  bytes: 0,
+                  dirty: false,
+                  missing: true,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      invalid: [
+        {},
+        { sessions: [{ sessionId: ids.session, eventBytes: -1, fileBytes: 0, worktrees: [] }] },
+      ],
+    },
+  },
   'session.archive': {
     params: {
       valid: [
@@ -2468,7 +2524,13 @@ export const errorDataSamples: ErrorDataSamples = {
     invalid: { approvalId: ids.approval, status: 'cancelled', resolution: { reason: 'timeout' } },
   },
   CLIENT_MESSAGE_CONFLICT: { valid: { clientMessageId: 'msg-1' }, invalid: { clientMessageId: 1 } },
-  RESOURCE_IN_USE: { valid: { sessionIds: [ids.session] }, invalid: { sessionIds: ['s1'] } },
+  RESOURCE_IN_USE: {
+    valid: {
+      sessionIds: [ids.session],
+      worktrees: [{ path: '/Users/me/Wevir/worktrees/ses_x/1-app', branch: 'wevir/fix-login' }],
+    },
+    invalid: { sessionIds: ['s1'] },
+  },
   PENDING_NOT_EDITABLE: {
     valid: { pendingId: ids.pending, status: 'waiting', delivery: 'steer' },
     invalid: { pendingId: ids.pending, status: 'waiting' },

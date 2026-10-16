@@ -94,7 +94,9 @@ import {
   SessionSchema,
   SessionSnapshotSchema,
   SessionStateSchema,
+  SessionUsageSchema,
   SessionWorktreeSchema,
+  SessionWorktreeUsageSchema,
   SharedFileSchema,
   StateChangeReasonSchema,
   StreamBlockRefSchema,
@@ -837,6 +839,52 @@ const standaloneCases: Case[] = [
       { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', path: '/w/1-wevir', branch: 'wevir/a1' },
     ],
     invalid: [{ workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', path: '', branch: 'b' }],
+  },
+  {
+    name: 'SessionWorktreeUsage',
+    schema: SessionWorktreeUsageSchema,
+    valid: [
+      {
+        workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        branch: 'wevir/a1',
+        path: '/w/1-wevir',
+        bytes: 4096,
+        dirty: false,
+      },
+      {
+        workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        branch: 'wevir/a1',
+        path: '/w/1-wevir',
+        bytes: 0,
+        dirty: false,
+        missing: true,
+      },
+    ],
+    invalid: [
+      {
+        workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        branch: 'b',
+        path: '/w',
+        bytes: 1.5,
+        dirty: false,
+      },
+      {
+        workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        branch: 'b',
+        path: '/w',
+        bytes: 0,
+        dirty: false,
+        missing: false,
+      },
+    ],
+  },
+  {
+    name: 'SessionUsage',
+    schema: SessionUsageSchema,
+    valid: [
+      { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', eventBytes: 0, fileBytes: 0, worktrees: [] },
+    ],
+    invalid: [{ sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', eventBytes: 0, fileBytes: 0 }],
   },
   {
     name: 'TaskId',

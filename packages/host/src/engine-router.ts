@@ -69,6 +69,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly clearGoal?: AgentRuntimeAdapter['clearGoal'];
   readonly acceptsImages?: AgentRuntimeAdapter['acceptsImages'];
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
+  readonly deleteSession?: AgentRuntimeAdapter['deleteSession'];
 
   /** Provider 种类 → 引擎。 */
   readonly #byKind = new Map<ProviderKind, EngineRoute>();
@@ -167,6 +168,16 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.review !== undefined)) {
       this.review = async (id, request: ReviewRequest) =>
         this.#method(id, 'review').review(id, request);
+    }
+    if (adapters.some((adapter) => adapter.deleteSession !== undefined)) {
+      // 0.43.0：删的多是 Host 重启后没挂过的会话，按挂着时的归属、否则按它最后用的 Provider 找引擎；引擎没有这个方法时报
+      // `invalid_input`，Host 记为引擎数据留着。
+      this.deleteSession = async (id, options) => {
+        const route = this.#owners.get(id) ?? this.#forProvider(options.providerId);
+        if (route.adapter.deleteSession === undefined) throw unsupported(route, 'deleteSession');
+        await route.adapter.deleteSession(id, options);
+        this.#owners.delete(id);
+      };
     }
     if (adapters.some((adapter) => adapter.startGoal !== undefined)) {
       this.startGoal = async (id, request: GoalStartRequest) =>

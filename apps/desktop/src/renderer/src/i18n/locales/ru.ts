@@ -1351,4 +1351,26 @@ export const messages: Messages = {
   'settings.storage.browserWarning': 'На сайтах во встроенном браузере потребуется войти заново.',
   'settings.storage.manage': 'Управление',
   'settings.storage.open': 'Открыть',
+  'settings.storage.chats': 'Архивные сеансы',
+  'settings.storage.chatsEmpty': 'Архивных сеансов нет',
+  'settings.storage.selectAll': 'Выбрать все',
+  'settings.storage.deleteSelected': 'Удалить выбранное',
+  'settings.storage.deleteTitle':
+    '{count, plural, one {Удалить # сеанс навсегда?} few {Удалить # сеанса навсегда?} many {Удалить # сеансов навсегда?} other {Удалить # сеанса навсегда?}}',
+  'settings.storage.deleteSize': 'Около {size}',
+  'settings.storage.deleteDirty':
+    '{count, plural, one {В # рабочем дереве есть незафиксированные изменения} other {В # рабочих деревьях есть незафиксированные изменения}}',
+  'settings.storage.deleteIrreversible': 'Это действие нельзя отменить.',
+  'settings.storage.deleteError': 'Не удалось удалить: {error}',
+  'settings.storage.deleted':
+    '{count, plural, one {Удалён # сеанс} few {Удалено # сеанса} many {Удалено # сеансов} other {Удалено # сеанса}}, освобождено около {size}.',
+  'settings.storage.deleteFailed':
+    '{count, plural, one {# сеанс не удалён} few {# сеанса не удалены} many {# сеансов не удалены} other {# сеанса не удалены}}: {error}',
+  'settings.storage.keptBranches': 'Неслитые ветки сохранены: {branches}.',
+  'settings.storage.engineDataKept': 'Часть данных движка не удалена.',
+  'settings.storage.worktrees': 'Рабочие деревья',
+  'settings.storage.worktreesEmpty': 'Рабочих деревьев нет',
+  'settings.storage.dirty': 'Незафиксированные изменения',
+  'settings.storage.missing': 'Папка отсутствует',
+  'settings.storage.archived': 'В архиве',
 };

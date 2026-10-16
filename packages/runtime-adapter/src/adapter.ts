@@ -305,6 +305,15 @@ export interface AgentRuntimeAdapter {
   close(engineSessionId: string): Promise<void>;
 
   /**
+   * 永久删掉引擎为这个会话存下的数据（0.43.0，`session.delete`，domain-model §3.20）：引擎会话已经关闭，之后不能再
+   * `resumeSession`。Host 重启后适配器不认识这个会话，所以带上它最后用的 `providerId`，多引擎的路由按它找引擎。引擎没有这个会话时
+   * 直接成功。挂着时先关闭。不实现表示引擎的数据留着，Host 在结果里报 `engineDataKept`（Codex：`thread/delete`，连同它派出的子
+   * thread；echo：忘掉它）。
+   * 错误：`engine_unavailable`、`disposed`，以及引擎拒绝时的 `invalid_input`。
+   */
+  deleteSession?(engineSessionId: string, options: { providerId: string }): Promise<void>;
+
+  /**
    * 检查引擎能否接受这个 Provider 配置（T3.4）。Host 在 `provider.upsert` 写库之前调用，有问题就拒绝请求。
    * 返回空数组表示可以；不抛错。不实现表示引擎不检查。
    */

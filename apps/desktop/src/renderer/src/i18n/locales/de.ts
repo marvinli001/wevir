@@ -1342,4 +1342,26 @@ export const messages: Messages = {
     'Websites im integrierten Browser erfordern eine erneute Anmeldung.',
   'settings.storage.manage': 'Verwalten',
   'settings.storage.open': 'Verwalten',
+  'settings.storage.chats': 'Archivierte Chats',
+  'settings.storage.chatsEmpty': 'Keine archivierten Chats',
+  'settings.storage.selectAll': 'Alle auswählen',
+  'settings.storage.deleteSelected': 'Auswahl löschen',
+  'settings.storage.deleteTitle':
+    '{count, plural, one {# Chat endgültig löschen?} other {# Chats endgültig löschen?}}',
+  'settings.storage.deleteSize': 'Etwa {size}',
+  'settings.storage.deleteDirty':
+    '{count, plural, one {# Worktree hat nicht committete Änderungen} other {# Worktrees haben nicht committete Änderungen}}',
+  'settings.storage.deleteIrreversible': 'Dies kann nicht rückgängig gemacht werden.',
+  'settings.storage.deleteError': 'Löschen fehlgeschlagen: {error}',
+  'settings.storage.deleted':
+    '{count, plural, one {# Chat gelöscht} other {# Chats gelöscht}}, etwa {size} freigegeben.',
+  'settings.storage.deleteFailed':
+    '{count, plural, one {# Chat nicht gelöscht} other {# Chats nicht gelöscht}}: {error}',
+  'settings.storage.keptBranches': 'Nicht gemergte Branches behalten: {branches}.',
+  'settings.storage.engineDataKept': 'Einige Engine-Daten wurden nicht gelöscht.',
+  'settings.storage.worktrees': 'Worktrees',
+  'settings.storage.worktreesEmpty': 'Keine Worktrees',
+  'settings.storage.dirty': 'Nicht committete Änderungen',
+  'settings.storage.missing': 'Ordner fehlt',
+  'settings.storage.archived': 'Archiviert',
 };

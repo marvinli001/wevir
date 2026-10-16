@@ -109,6 +109,11 @@ export const HOST_FEATURES = {
   /** 会话归档（0.23.0）：`session.archive`、`session.list` 的 `archived`、`Session.archivedAt`。与引擎无关。 */
   sessionArchive: 'session_archive',
   /**
+   * 删除已归档的会话与按会话的占用（0.43.0，domain-model §3.20）：`session.delete`、`session.usage`、`RESOURCE_IN_USE` 的 `worktrees`。
+   * 与引擎无关；引擎的数据只在适配器有 `deleteSession` 时删。
+   */
+  sessionDelete: 'session_delete',
+  /**
    * 立即压缩会话的上下文（0.24.0）：`session.compact`，`turn.started` 的 `command`，`context.compacting` / `context.compacted`
    * 事件（引擎自己压缩时也有）。取决于引擎（Codex、Claude 有）：0.27.0 起 `engineFeatures` 的 `commands` 说哪种 Provider 的引擎
    * 会；会话所在的引擎不能压缩时 `INVALID_STATE`。
@@ -207,6 +212,7 @@ export const HostFeaturesSchema = z.looseObject({
   workspace_files: z.boolean().optional(),
   session_rename: z.boolean().optional(),
   session_archive: z.boolean().optional(),
+  session_delete: z.boolean().optional(),
   session_compact: z.boolean().optional(),
   session_review: z.boolean().optional(),
   session_goals: z.boolean().optional(),

@@ -718,6 +718,58 @@ export const SessionArchiveParamsSchema = z.object({
 });
 
 /**
+ * 永久删除一个已归档的会话（0.43.0，domain-model §3.20）：连同它的子会话与支线、文件、Host 开的 worktree 与引擎的数据。worktree
+ * 有没提交的改动时不带 `force` 回 `RESOURCE_IN_USE`。
+ */
+export const SessionDeleteParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  force: z.boolean().optional(),
+});
+
+export const SessionDeleteResultSchema = z.object({
+  /** 删掉的全部会话，这个会话在前，之后是它的子会话与支线。 */
+  sessionIds: z.array(SessionIdSchema),
+  /** 没合并、留下的 worktree 分支名。 */
+  keptBranches: z.array(z.string().min(1)).optional(),
+  /** 有引擎会话的数据没删掉（引擎不支持、Provider 已删或引擎报错）。 */
+  engineDataKept: z.literal(true).optional(),
+});
+
+/** Host 为会话开的一个 worktree 占了多少（0.43.0）。 */
+export const SessionWorktreeUsageSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  branch: z.string().min(1),
+  /** worktree 的根目录。 */
+  path: z.string().min(1),
+  bytes: z.int().min(0),
+  /** 有没提交的改动（跟踪文件的修改或没被忽略的未跟踪文件）。 */
+  dirty: z.boolean(),
+  /** 目录已经不在。 */
+  missing: z.literal(true).optional(),
+});
+export type SessionWorktreeUsage = z.infer<typeof SessionWorktreeUsageSchema>;
+
+/** 一个会话（含它的子会话与支线）占了多少（0.43.0）。 */
+export const SessionUsageSchema = z.object({
+  sessionId: SessionIdSchema,
+  /** 事件 payload 的字节数。 */
+  eventBytes: z.int().min(0),
+  /** 历史文件、对话文件夹与只有这些会话引用的图片。 */
+  fileBytes: z.int().min(0),
+  worktrees: z.array(SessionWorktreeUsageSchema),
+});
+export type SessionUsage = z.infer<typeof SessionUsageSchema>;
+
+/** 范围同 `session.list` 的顶层会话：默认不含已归档的，`archived: true` 只列它们。 */
+export const SessionUsageParamsSchema = z.object({
+  archived: z.boolean().optional(),
+});
+
+export const SessionUsageResultSchema = z.object({
+  sessions: z.array(SessionUsageSchema),
+});
+
+/**
  * 代码审查（0.24.0，Host 功能 `session_review`）：开始一个由命令开始的回合（`turn.started` 的 `command`），审查结果是这个回合的
  * 回答。
  */
@@ -1311,6 +1363,16 @@ export const MethodSchemas = {
     params: SessionArchiveParamsSchema,
     result: SessionResultSchema,
     permission: 'session.write',
+  },
+  'session.delete': {
+    params: SessionDeleteParamsSchema,
+    result: SessionDeleteResultSchema,
+    permission: 'session.write',
+  },
+  'session.usage': {
+    params: SessionUsageParamsSchema,
+    result: SessionUsageResultSchema,
+    permission: 'session.read',
   },
   'session.checkpoints': {
     params: SessionCheckpointsParamsSchema,

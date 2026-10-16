@@ -139,6 +139,8 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `session.clearGoal` | `session.write` | `sessionId` | `cleared` | `SESSION_NOT_FOUND`、`INVALID_STATE`、`WORKSPACE_PATH_INVALID`、`ENGINE_ERROR` |
 | `session.rename` | `session.write` | `sessionId, title` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS` |
 | `session.archive` | `session.write` | `sessionId, archived` | `session` | `SESSION_NOT_FOUND`、`INVALID_PARAMS`、`ENGINE_ERROR` |
+| `session.delete` | `session.write` | `sessionId, force?` | `sessionIds, keptBranches?, engineDataKept?` | `SESSION_NOT_FOUND`、`INVALID_PARAMS`、`RESOURCE_IN_USE` |
+| `session.usage` | `session.read` | `archived?` | `sessions: SessionUsage[]` | |
 | `session.checkpoints` | `session.read` | `sessionId` | `repo, turns` | `SESSION_NOT_FOUND`、`WORKSPACE_PATH_INVALID` |
 | `pending.update` | `session.write` | `sessionId, pendingId, content?, delivery?` | `pending` | `SESSION_NOT_FOUND`、`PENDING_NOT_FOUND`、`PENDING_NOT_EDITABLE`、`IMAGE_NOT_FOUND` |
 | `pending.cancel` | `session.write` | `sessionId, pendingId` | `pending` | `SESSION_NOT_FOUND`、`PENDING_NOT_FOUND`、`PENDING_NOT_EDITABLE` |
@@ -208,6 +210,8 @@ Host → 客户端的通知：
 - **`session.updateGoal`** / **`session.clearGoal`**（0.35.0）：`status: 'paused'` 暂停（进行中的回合照常做完，之后不再接着做），`'active'` 继续（会话空闲时引擎随即开回合）；结果是改后的 `goal`。会话没有目标时 `updateGoal` 回 `INVALID_STATE`；`clearGoal` 清除目标，结果的 `cleared` 为 `false` 表示本来就没有。只读、子会话、出错或已关闭 `INVALID_STATE`，引擎没有目标同上；回合进行中也可以。`session.cancel` 停止回合时 Host 让引擎先暂停进行中的目标（同 Codex 终端界面），停下的回合之后不会被续上。目标的每次变化（设置、状态、用量）都写成 `session.goal_changed`（来自引擎的通知，清除时 `goal` 为 `null`），`Session.goal` 与快照跟着它；Host 重启后从事件重放出来，引擎也持久化了它（Codex 的 state DB）。
 - **`session.rename`**（0.23.0，Host 功能 `session_rename`）：用户给会话改名。`title` 去掉首尾空白后不能是空的（否则 `INVALID_PARAMS`），最长 200 个字符；写一条 `session.title_changed`（`source: 'user'`），之后模型生成的标题不再覆盖它。子会话不能改名（`INVALID_PARAMS`）；已关闭、只读、已归档的会话可以。标题没变时不写事件。
 - **`session.archive`**（0.23.0，Host 功能 `session_archive`）：`archived: true` 归档——会话没关闭时先按 `session.close` 关闭（进行中的回合取消），再记下归档的时刻（`Session.archivedAt`）；`false` 取消归档，会话仍是关闭的，下次发送时客户端照常先 `session.resume`。只有顶层、不是支线的会话能归档（否则 `INVALID_PARAMS`）。已归档时再归档不改时刻。`archivedAt` 只在 `session.list`、`session.get` 与 `session.*` 方法的结果里，不是事件推导的；别的客户端在下一次 `session.list` 时看到变化。
+- **`session.delete`**（0.43.0，Host 功能 `session_delete`，domain-model §3.20）：永久删掉一个已归档的顶层会话（没归档、子会话、支线回 `INVALID_PARAMS`），连同它的子会话与支线、事件、历史文件、对话文件夹、只有它们引用的图片、Host 为它开的 worktree（分支合并过的才删）与引擎的数据（适配器有 `deleteSession` 时；Codex 是 `thread/delete`）。worktree 里有没提交的改动时回 `RESOURCE_IN_USE`（`data.sessionIds` 是这个会话，`data.worktrees` 是这些 worktree 的 `path` 与 `branch`），什么都不删；`force: true` 时一起删掉。结果的 `sessionIds` 是删掉的全部会话（它自己在前），`keptBranches` 是没合并、留下的分支名，`engineDataKept: true` 表示有引擎会话的数据没删掉（引擎不支持、Provider 已删或引擎报错）。不写事件、不发通知。
+- **`session.usage`**（0.43.0，同属 `session_delete`）：每个会话占了多少，范围同 `session.list` 的顶层会话（`archived: true` 只列已归档的），每项算上它的子会话与支线：`eventBytes`（事件 payload 的字节数）、`fileBytes`（历史文件、对话文件夹、只有它们引用的图片）、`worktrees`（每个 Host 开的 worktree 的根目录 `path`、`branch`、`workspaceId`、目录大小 `bytes`、有没有没提交的改动 `dirty`，目录不在时 `missing: true`）。只读；要走一遍对话文件夹与 worktree 目录，存储页打开时才调。
 - **`session.checkpoints`**（0.20.0，Host 功能 `workspace_diff`）：会话有快照的回合，从早到晚，每项 `turnId` 与“后”快照里记下的统计 `fileCount`、`added`、`removed`（同 `workspace.diff` 的 `turn`，滤掉 git 带进来的文件；还没有“后”快照时省略）。会话目录不是 git 仓库时 `repo: false`、`turns` 为空。先等这个会话还没打完的快照。
 - **`session.list`**：按 `updatedAt` 从新到旧；省略 `workspaceId` 时列出所有未移除工作区的会话。不含支线会话（0.17.0）。默认**不含子会话**（0.6.0，领域模型 §3.3.1）：子会话由引擎派出、只读，跟着父会话显示，不进左栏的会话列表。带 `parentSessionId` 时只列出这个会话的子会话（不论 `workspaceId`；会话不存在或所属工作区已移除时回 `SESSION_NOT_FOUND`）；一个会话的子会话也在它的快照 `subagents` 里（摘要）。0.23.0 起默认不含已归档的会话，`archived: true` 时只列已归档的（按 `updatedAt` 从新到旧）。
 - **`session.get`**：返回由事件推导的快照 `{session: {state, activeTurn, lastSeq, …}, pendingApprovals, todos?, usage?, subagents?}`（ADR-0002 §3）。中途加入的客户端先取快照，再以 `sinceSeq = session.lastSeq` 订阅。0.6.0：子会话照常可以 `session.get`，`session` 带 `parentSessionId` 与 `subagent`（父工具调用、状态、起止时间）；派出过子会话的会话带 `subagents`，每个子会话一份摘要（标题、模型与推理强度、昵称、状态、起止时间，以及它的未决审批的副本），按 `startedAt` 排列（领域模型 §3.3.1）。
@@ -402,7 +406,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `SESSION_BUSY` | -32021 | 会话有进行中的回合 | `state, activeTurn?` |
 | `ALREADY_DECIDED` | -32022 | 审批已结算 | `approvalId, status, resolution` |
 | `CLIENT_MESSAGE_CONFLICT` | -32023 | 同一 `clientMessageId` 的请求体不同 | `clientMessageId` |
-| `RESOURCE_IN_USE` | -32024 | 被未关闭的会话引用，不能移除 | `sessionIds` |
+| `RESOURCE_IN_USE` | -32024 | 被未关闭的会话引用，不能移除；`session.delete` 时会话的 worktree 有没提交的改动（0.43.0） | `sessionIds, worktrees?` |
 | `PENDING_NOT_EDITABLE` | -32025 | 待发消息现在不能这样改：插话已交给引擎、暂停的不能改成插话、已到终态（0.8.0） | `pendingId, status, delivery` |
 | `WORKSPACE_PATH_INVALID` | -32040 | 工作区路径不可用 | `path, reason` |
 | `ENGINE_ERROR` | -32041 | 引擎拒绝或失败（建会话、resume、send 前的自动 resume） | `category, message` |
@@ -496,6 +500,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.42.0`：Wevir 插件包（[plugins.md](plugins.md)「Wevir 插件包」、domain-model §3.19）。新类型 Plugin、PluginInputView 与清单 WevirPluginManifest（`wevir-plugin.json`，JSON Schema 在 `packages/protocol/schemas/`）；新方法 plugin.install / remove / setEnabled / setInputs；`plugins.list` 与 `skill.install` 的结果加 optional 的 `plugins`，Connector 加 optional 的 `pluginId`、`missingInputs`，Skill 加 optional 的 `pluginId`；Host 功能 plugin_packages。行为变化：`skill.install` 不再接受插件包（`INVALID_PARAMS`，提示改用 plugin.install）；插件里的连接器与 skill 不能单独 remove，connector.update 对它们只改开关；生效 = 插件开且该项开，列表里的 enabled 是该项自己的开关。plugin.install 遇到同 id 已装且没有 `replace` 时回 `INVALID_PARAMS`；带 `replace` 是升级，保留已填的输入项与各项开关。密钥输入项的值只在 Host，结果里只有 `set`；非密钥项回 `value`。新方法与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：插件里的连接器与 skills 在它那里是普通的连接器与 skills（名字是 `<插件 id>_<名字>`），删除会被拒绝。新客户端连旧 Host：hello 结果里没有 plugin_packages，不发 plugin.*。冻结 compat/0.42.0.json 是 0.41.0 全部样本加新样本。
 
+`0.43.0`：删除会话与会话占用（domain-model §3.20）。新方法 `session.delete`、`session.usage`；新类型 `SessionUsage`、`SessionWorktreeUsage`；`RESOURCE_IN_USE` 的 data 加 optional 的 `worktrees`；Host 功能 `session_delete`；适配器接口加可选的 `deleteSession`（Codex 两个实现与 echo 有）。行为变化：已归档的会话可以被永久删掉，之后 `session.get`、`events.subscribe` 回 `SESSION_NOT_FOUND`，分支出去的会话的 `forkedFrom` 可能指向不存在的会话。新方法与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法，只是别的客户端删掉的已归档会话从“已归档”里消失。新客户端连旧 Host：hello 结果里没有 `session_delete`，存储页不显示按会话的占用与删除。冻结 compat/0.43.0.json 是 0.42.0 全部样本加新样本。
+
 `0.41.0`：全局连接器与 skills（[plugins.md](plugins.md)、domain-model §3.19）。新增 plugins.list、connector.add / update / remove / setEnabled、skill.install / remove / setEnabled，通知 plugins.changed，Host 功能 plugins；EngineFeatures 新增 optional 的 mcpServers / skills。所有方法权限 host.manage；新客户端先看功能位，旧 Host 不支持时不发请求，旧客户端忽略新通知。密钥输入与结果用不同 schema，结果只含键名 / true，更新省略保留、null 删除。兼容的新增方法与 optional 字段，不需要客户端能力位，最低版本仍为 0.1.0。冻结 compat/0.41.0.json 是 0.40.0 全部样本加新样本。
 
 **线缆契约（永远遵守）**
@@ -562,6 +568,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `shared_files` | 0.40.0 | 交给用户的文件：应用级工具 `wevir_share_file` 与 `file.shared` 事件（有应用级工具时，同 `app_tools`） |
 | `plugins` | 0.41.0 | Host 全局连接器与 skills 注册表；注入支持另看 engineFeatures.mcpServers / skills |
 | `plugin_packages` | 0.42.0 | Wevir 插件包：plugin.* 方法与 plugins.list 的 plugins |
+| `session_delete` | 0.43.0 | `session.delete`、`session.usage` 与 `RESOURCE_IN_USE` 的 `worktrees`（与引擎无关；引擎数据只在适配器有 `deleteSession` 时删：Codex、echo） |
 | `chat_sessions` | 0.39.0 | 不在项目里的会话：`session.create` 可以不带 `workspaceId`，`Workspace.kind` 的 `chats`（与引擎无关，0.39.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

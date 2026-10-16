@@ -17,6 +17,7 @@ import {
   type StorageUsage,
 } from '../../../shared/storage.js';
 import { LIST_CARD, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
+import { SessionStorageSections } from './storage-sessions';
 
 /** 条形图与图例的颜色：静器没有彩色的强调色，各类是同一种墨色的深浅（desktop-tokens.md §53）。 */
 const TONE: Record<StorageCategory, string> = {
@@ -31,7 +32,8 @@ const TONE: Record<StorageCategory, string> = {
 
 /**
  * 设置 → 存储（照 Codex 桌面端的 Storage）：数据目录一共占了多少、分在哪几类（条形图加图例）、目录在哪；下面勾选缓存、
- * 内置浏览器的数据与日志清理；会话到“已归档”里管理。量与清理都在主进程（main/storage.ts）。
+ * 内置浏览器的数据与日志清理；Host 有 `session_delete`（0.43.0）时再列已归档的会话（勾选后永久删除）与工作树
+ * （storage-sessions.tsx）。量数据目录与清理在主进程（main/storage.ts），按会话的占用与删除经 Host。
  */
 export function StorageSettings() {
   const navigate = useNavigate();
@@ -192,6 +194,8 @@ export function StorageSettings() {
           ))}
         </div>
       </SettingsSection>
+
+      <SessionStorageSections onDeleted={refresh} />
 
       <SettingsSection title={t('settings.storage.manage')}>
         <div className={LIST_CARD}>

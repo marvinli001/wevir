@@ -69,6 +69,11 @@ export class ChatFolders {
     return { path, undo: () => rm(path, { recursive: true, force: true }) };
   }
 
+  /** 会话的文件夹（0.43.0，`session.usage` / `session.delete`）；还没有“对话”工作区时 undefined。不看它在不在。 */
+  sessionDir(sessionId: string): string | undefined {
+    return this.#rootPath === undefined ? undefined : join(this.#rootPath, sessionId);
+  }
+
   async #root(): Promise<string> {
     if (this.#rootPath === undefined) {
       await mkdir(this.#dir, { recursive: true, mode: 0o700 });

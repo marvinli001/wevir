@@ -1353,4 +1353,26 @@ export const messages: Messages = {
     'Les sites du navigateur intégré demanderont une nouvelle connexion.',
   'settings.storage.manage': 'Gérer',
   'settings.storage.open': 'Gérer',
+  'settings.storage.chats': 'Chats archivés',
+  'settings.storage.chatsEmpty': 'Aucun chat archivé',
+  'settings.storage.selectAll': 'Tout sélectionner',
+  'settings.storage.deleteSelected': 'Supprimer la sélection',
+  'settings.storage.deleteTitle':
+    '{count, plural, one {Supprimer définitivement # chat ?} other {Supprimer définitivement # chats ?}}',
+  'settings.storage.deleteSize': 'Environ {size}',
+  'settings.storage.deleteDirty':
+    '{count, plural, one {# worktree a des modifications non validées} other {# worktrees ont des modifications non validées}}',
+  'settings.storage.deleteIrreversible': 'Cette action est irréversible.',
+  'settings.storage.deleteError': 'Échec de la suppression : {error}',
+  'settings.storage.deleted':
+    '{count, plural, one {# chat supprimé} other {# chats supprimés}}, environ {size} libérés.',
+  'settings.storage.deleteFailed':
+    '{count, plural, one {# chat non supprimé} other {# chats non supprimés}} : {error}',
+  'settings.storage.keptBranches': 'Branches non fusionnées conservées : {branches}.',
+  'settings.storage.engineDataKept': 'Certaines données du moteur n’ont pas été supprimées.',
+  'settings.storage.worktrees': 'Worktrees',
+  'settings.storage.worktreesEmpty': 'Aucun worktree',
+  'settings.storage.dirty': 'Modifications non validées',
+  'settings.storage.missing': 'Dossier introuvable',
+  'settings.storage.archived': 'Archivé',
 };

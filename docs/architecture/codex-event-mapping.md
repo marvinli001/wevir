@@ -483,6 +483,10 @@ rust-v0.162.1 实测（`codex-adapter.goal.integration.test.ts`，经网关的 m
 
 分支（domain-model §3.18）用 `thread/fork`，与支线（§6.9）不同的是不带 `ephemeral`（thread 落盘，换进程后照常 `thread/resume`）、不注入边界说明；`lastTurnId`（包含它）是从后往前数第 `dropTurns` 个结束的回合，由 `thread/turns/list`（`sortDirection: 'desc'`、`itemsView: 'notLoaded'`，跳过 `inProgress` 的）找出；不去掉回合、也没有进行中的回合时不带，分到最后。撤回用 `thread/revert`，`beforeTurnId` 是 thread 最后一个结束的回合：Codex 把 thread 的历史换成那之前的部分（只对分页历史的 thread 有效，非临时的 thread 默认如此；临时 thread 拒绝），在 app-server 里重载 thread、订阅不变，回执通知 `thread/reverted` 忽略；之后的 `turn/start` 照常带会话的设置。两者都不动文件。实测（rust-v0.162.1，经网关的 mock 模型，`codex-adapter.branch.integration.test.ts`）：从中间的回合分出的 thread，请求里只有那之前的回合；主线回合进行中分，进行中的回合不在里面；分支换进程后能恢复；撤回之后的请求里没有被撤回的回合，可以连着撤回，换进程恢复后也能撤回。
 
+### 6.16 删除会话（0.43.0）
+
+`deleteSession(threadId)`（Host 的 `session.delete`，domain-model §3.20）：会话还挂着时先按 `close` 关闭，再发 `thread/delete { threadId }`。Codex（rust-v0.162.1 的 `request_processors/thread_delete.rs`）先找出这个 thread 派出的子 thread（状态库里的 spawn 关系），把它们与这个 thread 从内存里卸下，再由 thread store 删掉 rollout 与状态库里的记录，之后发 `thread/deleted` 通知（适配器不订阅）。找不到 thread 时 Codex 回 -32600 `thread not found: …` 或 `no rollout found for thread id …`（从没写过 rollout 的、已经删过的），适配器都算成功；别的错误按 `engineError` 归类。适配器随后忘掉这个 thread 与它的子会话。CodexRuntime 按挂着时的进程、否则按 Provider 的种类（chatgpt 进 ChatGPT 进程，其余进网关进程）转交。支线（`ephemeral`）没有 rollout，Host 不为它们调。
+
 ### 6.7 回合失败的归类（`turn-error.ts`）
 
 `turn/completed` 的 `turn.error` 带 `codexErrorInfo`（v2/CodexErrorInfo.ts：字符串，或带上游 `httpStatusCode` 的对象）。所有 Provider 都经网关：网关把上游的状态码原样转给 Codex，自己拒绝的请求带 `wevir gateway:` 前缀的原文。自上而下第一条匹配的生效；`message` 始终是完整原文，`code` 是上游的 HTTP 状态码（有时）。

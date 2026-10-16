@@ -215,6 +215,16 @@ export class EventStore {
     for (const sessionId of this.#buffers.keys()) this.#commit(sessionId, []);
   }
 
+  /** 会话已从库里删掉（0.43.0，`session.delete`）：丢掉它缓冲的增量与内存里的投影。 */
+  forget(sessionIds: readonly SessionId[]): void {
+    for (const sessionId of sessionIds) {
+      const buffer = this.#buffers.get(sessionId);
+      if (buffer?.timer) clearTimeout(buffer.timer);
+      this.#buffers.delete(sessionId);
+      this.#projections.delete(sessionId);
+    }
+  }
+
   /**
    * 写入所有缓冲的增量（失败交给 `onError`），然后停止接受写入。不关闭数据库（它属于调用方）。
    * 可重复调用。

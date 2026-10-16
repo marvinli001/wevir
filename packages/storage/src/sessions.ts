@@ -101,6 +101,16 @@ export interface SessionRepository {
   }): SessionRecord[];
   /** 归档或取消归档（`undefined`）；会话不存在时返回 false。 */
   setArchived(id: string, archivedAt: string | undefined): boolean;
+  /**
+   * 会话的“一家”（0.43.0，`session.delete`）：它自己、它的子会话（按 `parent_session_id` 一层层往下）与从它分出的支线（`forked_from`
+   * 指向它的 `side` 会话），以及这些会话各自的子会话与支线。它自己在前，父会话在子会话之前。不存在时为空数组。
+   */
+  family(id: string): SessionRecord[];
+  /**
+   * 删掉这些会话的行与它们的事件、审批、发送回执（0.43.0）。要在调用方的事务里；`ids` 里的子会话要排在父会话之后（`family` 的顺序），
+   * 按倒序删。返回删掉的会话数。
+   */
+  remove(ids: readonly string[]): number;
   /** 更新缓存字段；会话不存在时返回 false。 */
   update(id: string, patch: SessionCachePatch): boolean;
   /** 状态不是 `closed` 的会话数（不含子会话）：有这样的会话时工作区不能移除（domain-model §3.1）。 */
@@ -166,6 +176,16 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
     "SELECT COUNT(*) AS n FROM sessions WHERE provider_id = ? AND state <> 'closed' AND parent_session_id IS NULL AND side IS NULL",
   );
 
+  const descendants = db.prepare(`
+    SELECT * FROM sessions
+    WHERE parent_session_id = :id
+      OR (side = 1 AND json_valid(forked_from) AND json_extract(forked_from, '$.sessionId') = :id)
+    ORDER BY created_at, id`);
+  const removeEvents = db.prepare('DELETE FROM events WHERE session_id = ?');
+  const removeApprovals = db.prepare('DELETE FROM approvals WHERE session_id = ?');
+  const removeReceipts = db.prepare('DELETE FROM send_receipts WHERE session_id = ?');
+  const removeSession = db.prepare('DELETE FROM sessions WHERE id = ?');
+
   return {
     insert(record) {
       insert.run({
@@ -215,6 +235,31 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
           archived: options?.archived ?? null,
         })
         .map(fromRow);
+    },
+    family(id) {
+      const root = get.get(id);
+      if (!root) return [];
+      const records = [fromRow(root)];
+      const seen = new Set([id]);
+      for (let index = 0; index < records.length; index += 1) {
+        for (const row of descendants.all({ id: (records[index] as SessionRecord).id })) {
+          const record = fromRow(row);
+          if (seen.has(record.id)) continue;
+          seen.add(record.id);
+          records.push(record);
+        }
+      }
+      return records;
+    },
+    remove(ids) {
+      let removed = 0;
+      for (const id of [...ids].reverse()) {
+        removeEvents.run(id);
+        removeApprovals.run(id);
+        removeReceipts.run(id);
+        removed += removeSession.run(id).changes > 0 ? 1 : 0;
+      }
+      return removed;
     },
     setArchived(id, archivedAt) {
       return changed(setArchived.run(archivedAt ?? null, id));

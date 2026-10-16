@@ -1351,4 +1351,26 @@ export const messages: Messages = {
     'Tendrás que volver a iniciar sesión en los sitios del navegador integrado.',
   'settings.storage.manage': 'Gestionar',
   'settings.storage.open': 'Gestionar',
+  'settings.storage.chats': 'Chats archivados',
+  'settings.storage.chatsEmpty': 'No hay chats archivados',
+  'settings.storage.selectAll': 'Seleccionar todo',
+  'settings.storage.deleteSelected': 'Eliminar selección',
+  'settings.storage.deleteTitle':
+    '{count, plural, one {¿Eliminar # chat de forma permanente?} other {¿Eliminar # chats de forma permanente?}}',
+  'settings.storage.deleteSize': 'Unos {size}',
+  'settings.storage.deleteDirty':
+    '{count, plural, one {# worktree tiene cambios sin confirmar} other {# worktrees tienen cambios sin confirmar}}',
+  'settings.storage.deleteIrreversible': 'No se puede deshacer.',
+  'settings.storage.deleteError': 'Error al eliminar: {error}',
+  'settings.storage.deleted':
+    '{count, plural, one {# chat eliminado} other {# chats eliminados}}, unos {size} liberados.',
+  'settings.storage.deleteFailed':
+    '{count, plural, one {# chat no eliminado} other {# chats no eliminados}}: {error}',
+  'settings.storage.keptBranches': 'Ramas sin fusionar conservadas: {branches}.',
+  'settings.storage.engineDataKept': 'Algunos datos del motor no se eliminaron.',
+  'settings.storage.worktrees': 'Worktrees',
+  'settings.storage.worktreesEmpty': 'No hay worktrees',
+  'settings.storage.dirty': 'Cambios sin confirmar',
+  'settings.storage.missing': 'Carpeta inexistente',
+  'settings.storage.archived': 'Archivado',
 };

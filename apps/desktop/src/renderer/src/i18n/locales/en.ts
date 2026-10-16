@@ -1327,4 +1327,26 @@ export const messages: Messages = {
   'settings.storage.browserWarning': 'Sites in the built-in browser will need to sign in again.',
   'settings.storage.manage': 'Manage',
   'settings.storage.open': 'Manage',
+  'settings.storage.chats': 'Archived chats',
+  'settings.storage.chatsEmpty': 'No archived chats',
+  'settings.storage.selectAll': 'Select all',
+  'settings.storage.deleteSelected': 'Delete selected',
+  'settings.storage.deleteTitle':
+    '{count, plural, one {Permanently delete # chat?} other {Permanently delete # chats?}}',
+  'settings.storage.deleteSize': 'About {size}',
+  'settings.storage.deleteDirty':
+    '{count, plural, one {# worktree has uncommitted changes} other {# worktrees have uncommitted changes}}',
+  'settings.storage.deleteIrreversible': 'This cannot be undone.',
+  'settings.storage.deleteError': 'Delete failed: {error}',
+  'settings.storage.deleted':
+    '{count, plural, one {Deleted # chat} other {Deleted # chats}}, freed about {size}.',
+  'settings.storage.deleteFailed':
+    '{count, plural, one {# chat not deleted} other {# chats not deleted}}: {error}',
+  'settings.storage.keptBranches': 'Kept unmerged branches: {branches}.',
+  'settings.storage.engineDataKept': 'Some engine data was not deleted.',
+  'settings.storage.worktrees': 'Worktrees',
+  'settings.storage.worktreesEmpty': 'No worktrees',
+  'settings.storage.dirty': 'Uncommitted changes',
+  'settings.storage.missing': 'Folder missing',
+  'settings.storage.archived': 'Archived',
 };

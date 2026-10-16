@@ -115,6 +115,8 @@ import {
   type ReviewStartParams,
   type ReviewStartResponse,
   type ThreadCompactStartParams,
+  type ThreadDeleteParams,
+  type ThreadDeleteResponse,
   type ThreadForkParams,
   type ThreadForkResponse,
   type ThreadGoal,
@@ -1447,6 +1449,28 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     session.hub.end();
   }
 
+  /**
+   * 删掉 thread（0.43.0，`session.delete`，codex-event-mapping.md §6.16）：`thread/delete` 删掉 rollout 与状态库里的记录，连同它
+   * 派出的子 thread。挂着时先关闭；Codex 没有这个 thread（`thread not found`、`no rollout found`）时算成功。
+   */
+  async deleteSession(engineSessionId: string): Promise<void> {
+    this.#assertUsable();
+    if (this.#sessions.get(engineSessionId)?.status === 'open') await this.close(engineSessionId);
+    await this.process.start();
+    this.#assertUsable();
+    const params: ThreadDeleteParams = { threadId: engineSessionId };
+    try {
+      await this.process.request<ThreadDeleteResponse>('thread/delete', params);
+    } catch (error) {
+      if (!(error instanceof CodexRpcError && THREAD_GONE.test(error.rpcMessage))) {
+        throw engineError(error, 'thread/delete');
+      }
+    }
+    for (const [id, session] of this.#sessions) {
+      if (id === engineSessionId || session.parentId === engineSessionId) this.#sessions.delete(id);
+    }
+  }
+
   dispose(): Promise<void> {
     this.#disposed ??= (async () => {
       for (const session of this.#sessions.values()) {
@@ -2668,6 +2692,9 @@ function notificationTurnId(params: unknown): string | undefined {
 }
 
 /** 请求失败 → AdapterError：参数错误（-32602、-32600）是 `invalid_input`，其余是 `engine_unavailable`。 */
+/** `thread/delete` 找不到 thread（0.43.0）：从没写过 rollout，或已经删了（codex-rs thread_delete.rs 与 thread store）。 */
+const THREAD_GONE = /^(?:thread not found: |no rollout found for (?:thread|conversation) id )/;
+
 function engineError(error: unknown, method: string): AdapterError {
   if (isAdapterError(error)) return error;
   const message = error instanceof Error ? error.message : String(error);

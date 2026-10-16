@@ -902,6 +902,27 @@ Host 拥有插件注册表，不属于某个 Session。连接器 `Connector { id
 
 **插件（0.42.0）**：`Plugin { id, name, version, description?, author?, homepage?, iconUrl?, source, enabled, path, inputs, connectors, skills }` 是 Wevir 自己的插件单位，由 `wevir-plugin.json` 描述（字段见 [plugins.md](plugins.md)「Wevir 插件包」），也可从 Claude / Codex 包导入（source 为 claude / codex）。connectors / skills 是它包含的 Connector 与 Skill 的 ID，这些项带 `pluginId`；引擎里的连接器名是 `<插件 id>_<清单里的名字>`。inputs 是 `PluginInputView { key, label, description?, secret, required, set, value? }`：密钥项只给 set，非密钥项给 value。生效 = 插件开且该项开；Connector / Skill 的 enabled 是该项自己的开关。连接器引用了没填的必填输入项时带 `missingInputs`，不交给引擎。插件里的项不能单独删除，连接器配置随插件升级更换，只能改开关。
 
+### 3.20 删除会话与会话占用（0.43.0）
+
+归档（§3.3 `archivedAt`）只是把会话收起来，数据都还在。`session.delete` 永久删掉一个**已归档**的会话，给设置 → 存储腾出空间（照 Codex 桌面端的 Clean up old chats / Manage worktrees）；没归档的、子会话与支线都不能直接删（`INVALID_PARAMS`），要先归档顶层会话。
+
+一起删掉的是这个会话的“一家”：它自己、它派出的子会话（按 `parent_session_id` 一层层往下）与从它分出的支线（`forked_from` 指向它、`side` 的）。分支出去的普通会话（0.38.0 不带 `side` 的 `session.fork`）是独立的会话，留着，它的 `forkedFrom` 指向一个已经不在的会话。Host 删的东西：
+
+| 东西 | 位置 | 怎么删 |
+|---|---|---|
+| 会话行、事件、审批、发送回执 | `wevir.db` 的 `sessions`、`events`、`approvals`、`send_receipts` | 一个事务里删（子会话先于父会话）；删完空闲页至少 1 MiB 时 `VACUUM`，文件才变小 |
+| 读历史的工具的历史 | `history/<会话 ID>.json` | 删文件 |
+| 对话的文件夹（0.39.0） | `chats/<会话 ID>/` | 会话在“对话”工作区、`cwd` 正是这个文件夹时整个删；项目里的会话不碰工作区目录 |
+| 消息里的图片（0.28.0） | `images/<图片 ID>.*` 与 `.json` | 只删别的会话的事件里没引用的（分支会抄历史，同一张图片会在两个会话里） |
+| Host 开的 worktree（0.15.0 / 0.18.0） | `worktrees/<会话 ID>/` | 每个 worktree `git worktree remove --force`、`worktree prune`，分支用 `git branch -d` 删（没合并的分支 git 不删，留着，结果里列出）；最后删整个 `worktrees/<会话 ID>/` |
+| 引擎的数据 | 引擎自己的目录（Codex：`engines/codex*/` 下的 rollout 与状态库） | 会话挂过的每个引擎会话（建会话时的与接力 §3.14 换上的）交给适配器的 `deleteSession`（Codex：`thread/delete`，连同它派出的子 thread）；引擎没有这个方法、Provider 已删、或引擎报错时引擎的数据留着，结果带 `engineDataKept` |
+
+有 worktree 里有没提交的改动（跟踪文件的修改，或没被忽略的未跟踪文件，即 `git status --porcelain` 不空）时，不带 `force` 的删除回 `RESOURCE_IN_USE`，`data.worktrees` 列出这些 worktree，什么都不删；带 `force: true` 时连同这些改动一起删。已提交到 worktree 分支上的内容不受 `force` 影响：没合并的分支照样留着。worktree 目录已经不在时跳过（`session.usage` 里是 `missing`）；git 读不了它时（原仓库已经不在）也算有改动，要 `force`，这时跳过 git、直接删目录。
+
+删除之前 Host 照 `session.close` 再关一次（已关闭时无操作），断开子会话的引擎会话，之后忘掉内存里的投影与运行时。不写事件、不发通知：会话的事件已经删了；订阅着它的连接收不到新事件，再订阅、`session.get` 回 `SESSION_NOT_FOUND`，别的客户端在下一次 `session.list` 时看不到它。删除各步之间失败时：引擎数据与 worktree 已删、库还没删的，会话还在、在引擎那边是丢失的（§4.4 的只读）；库删了、文件没删完的，剩下的文件只记告警。
+
+`session.usage { archived? }` 给存储页量每个会话占了多少，会话的范围同 `session.list`（顶层、不是支线、工作区没移除；默认不含已归档的，`archived: true` 时只列它们）。每项 `SessionUsage { sessionId, eventBytes, fileBytes, worktrees }`，都算上这个会话的一家：`eventBytes` 是事件 payload 的字节数之和（库文件里这个会话的大致份额，不含索引与空闲页），`fileBytes` 是历史文件、对话文件夹与只有它们引用的图片，`worktrees` 是 `SessionWorktreeUsage { workspaceId, branch, path, bytes, dirty, missing? }`：`path` 是 worktree 的根目录，`bytes` 是它整个目录的大小，`dirty` 同上，目录不在时 `missing: true`、`bytes` 为 0。引擎的数据不按会话量（Codex 的 rollout 不在 Host 的目录里一一对应），只在存储页的“引擎数据”一类里。
+
 ## 4. 会话状态机
 
 ```mermaid

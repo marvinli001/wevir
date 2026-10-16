@@ -1,5 +1,5 @@
 import { mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   IMAGE_MAX_BYTES,
   IMAGE_READ_CHUNK_BYTES,
@@ -130,6 +130,18 @@ export class ImageStore {
       kept.push(image.part);
     }
     return kept;
+  }
+
+  /** 这张图片在磁盘上的文件（0.43.0，`session.usage` / `session.delete`）：图片本身与旁边的 `.json`；没有时为空数组。 */
+  async files(imageId: ImageId): Promise<string[]> {
+    const image = await this.#find(imageId);
+    if (image === undefined) return [];
+    return [image.path, join(dirname(image.path), `${imageId}.json`)];
+  }
+
+  /** 删掉这张图片（0.43.0，`session.delete` 删掉最后一个引用它的会话时）。没有时无操作。 */
+  async remove(imageId: ImageId): Promise<void> {
+    for (const path of await this.files(imageId)) await rm(path, { force: true });
   }
 
   /** 删掉 `staged/` 里放了超过一天的图片。最多一分钟一次。 */

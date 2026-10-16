@@ -1347,4 +1347,26 @@ export const messages: Messages = {
   'settings.storage.browserWarning': 'I siti nel browser integrato richiederanno un nuovo accesso.',
   'settings.storage.manage': 'Gestisci',
   'settings.storage.open': 'Gestisci',
+  'settings.storage.chats': 'Chat archiviate',
+  'settings.storage.chatsEmpty': 'Nessuna chat archiviata',
+  'settings.storage.selectAll': 'Seleziona tutto',
+  'settings.storage.deleteSelected': 'Elimina selezionate',
+  'settings.storage.deleteTitle':
+    '{count, plural, one {Eliminare definitivamente # chat?} other {Eliminare definitivamente # chat?}}',
+  'settings.storage.deleteSize': 'Circa {size}',
+  'settings.storage.deleteDirty':
+    '{count, plural, one {# worktree ha modifiche non committate} other {# worktree hanno modifiche non committate}}',
+  'settings.storage.deleteIrreversible': 'L’operazione non può essere annullata.',
+  'settings.storage.deleteError': 'Eliminazione non riuscita: {error}',
+  'settings.storage.deleted':
+    '{count, plural, one {# chat eliminata} other {# chat eliminate}}, circa {size} liberati.',
+  'settings.storage.deleteFailed':
+    '{count, plural, one {# chat non eliminata} other {# chat non eliminate}}: {error}',
+  'settings.storage.keptBranches': 'Branch non unite mantenute: {branches}.',
+  'settings.storage.engineDataKept': 'Alcuni dati del motore non sono stati eliminati.',
+  'settings.storage.worktrees': 'Worktree',
+  'settings.storage.worktreesEmpty': 'Nessun worktree',
+  'settings.storage.dirty': 'Modifiche non committate',
+  'settings.storage.missing': 'Cartella mancante',
+  'settings.storage.archived': 'Archiviata',
 };

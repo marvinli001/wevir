@@ -100,6 +100,7 @@ import {
 } from './handoff.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import { deleteSessionData, measureUsage } from './session-delete.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
 
@@ -1910,6 +1911,82 @@ export class SessionManager {
   }
 
   /**
+   * `session.delete`（0.43.0，domain-model §3.20）：永久删掉一个已归档的顶层会话的一家。先照 `session.close` 再关一次，然后排在它的命令
+   * 队列里重新检查（期间可能被恢复、取消归档）再删；之后排着的命令回 `SESSION_NOT_FOUND`。
+   */
+  async delete(
+    sessionId: SessionId,
+    options: { force?: boolean } = {},
+  ): Promise<MethodResult<'session.delete'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    this.#assertDeletable(sessionId);
+    await this.close(sessionId);
+    return this.#serial(runtime, async () => {
+      const record = this.#assertDeletable(sessionId);
+      return deleteSessionData(
+        {
+          storage: this.#storage,
+          events: this.#events,
+          adapter: this.#adapter,
+          images: this.#images,
+          chats: this.#chats,
+          historyDir: this.#historyDir,
+          worktreesDir: this.#worktreesDir,
+          onWarning: this.#onWarning,
+          detach: (ids) => this.#forget(ids),
+        },
+        record,
+        options.force === true,
+      );
+    });
+  }
+
+  /** `session.usage`（0.43.0）：范围同 `session.list` 的顶层会话。 */
+  usage(archived: boolean): Promise<MethodResult<'session.usage'>['sessions']> {
+    this.#assertOpen();
+    const records = this.#storage.sessions.list(archived ? { archived: 'only' } : {});
+    return measureUsage(
+      {
+        storage: this.#storage,
+        images: this.#images,
+        chats: this.#chats,
+        historyDir: this.#historyDir,
+        worktreesDir: this.#worktreesDir,
+      },
+      records,
+    );
+  }
+
+  #assertDeletable(sessionId: SessionId): SessionRecord {
+    const invalid = (path: string, message: string) =>
+      new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
+    const record = this.#storage.sessions.get(sessionId);
+    if (!record) throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+    if (record.parentSessionId !== undefined || record.side) {
+      throw invalid('sessionId', 'only top-level sessions can be deleted');
+    }
+    if (record.archivedAt === undefined) {
+      throw invalid('sessionId', 'only archived sessions can be deleted');
+    }
+    return record;
+  }
+
+  /** 会话删掉了（0.43.0）：断开还挂着的引擎会话，忘掉运行时与它们的提问。 */
+  #forget(sessionIds: readonly SessionId[]): void {
+    const ids = new Set<SessionId>(sessionIds);
+    for (const id of ids) {
+      const runtime = this.#runtimes.get(id);
+      if (runtime === undefined) continue;
+      this.#detach(runtime);
+      this.#runtimes.delete(id);
+    }
+    for (const [questionId, sessionId] of this.#questionSessions) {
+      if (ids.has(sessionId)) this.#questionSessions.delete(questionId);
+    }
+  }
+
+  /**
    * `session.rename`（0.23.0）：用户改名，写 `session.title_changed`（`user`），之后模型生成的标题不再覆盖它（生成标题只在
    * 来源是 `first_prompt` 时写）。标题与来源都没变时不写。子会话由父 agent 驱动，不能改名。已关闭、只读的会话可以。
    */
@@ -3673,7 +3750,8 @@ export class SessionManager {
 
   #snapshot(runtime: SessionRuntime): SessionSnapshot {
     const snapshot = this.#events.snapshot(runtime.id);
-    if (!snapshot) throw new Error(`会话 ${runtime.id} 不存在`);
+    // 0.43.0：会话可能在排着的命令之前被删掉。
+    if (!snapshot) throw new HostError('SESSION_NOT_FOUND', `session ${runtime.id} not found`);
     return snapshot;
   }
 

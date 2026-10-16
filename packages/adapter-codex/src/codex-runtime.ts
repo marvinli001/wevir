@@ -243,6 +243,17 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   }
 
   /** 不认识的 Provider 交给网关进程，由它报 `invalid_input`。 */
+  /** 删掉会话（0.43.0）：挂着时按会话找进程，否则按它最后用的 Provider。 */
+  deleteSession(engineSessionId: string, options: { providerId: string }): Promise<void> {
+    const adapter =
+      this.#owners.get(engineSessionId) ??
+      (this.chatgpt.hasSession(engineSessionId)
+        ? this.chatgpt
+        : this.#forProvider(options.providerId));
+    this.#owners.delete(engineSessionId);
+    return adapter.deleteSession(engineSessionId);
+  }
+
   #forProvider(providerId: string): CodexAdapter {
     return this.#kinds.get(providerId) === 'chatgpt' ? this.chatgpt : this.gateway;
   }

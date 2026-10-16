@@ -104,6 +104,8 @@ export const ErrorDataSchemas = {
   RESOURCE_IN_USE: z.object({
     /** 阻止操作的未关闭会话。 */
     sessionIds: z.array(SessionIdSchema),
+    /** `session.delete`（0.43.0）：有没提交的改动的 worktree。 */
+    worktrees: z.array(z.object({ path: z.string().min(1), branch: z.string().min(1) })).optional(),
   }),
   /** 待发消息现在不能这样改（0.8.0）：插话已交给引擎、暂停的不能改成插话、已到终态。 */
   PENDING_NOT_EDITABLE: z.object({

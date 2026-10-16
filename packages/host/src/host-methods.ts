@@ -725,6 +725,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return { session: withArchive(snapshot.session) };
     },
 
+    // 0.43.0：永久删掉已归档的会话（domain-model §3.20）。
+    'session.delete': async ({ sessionId, force }) => {
+      assertSessionVisible(storage, sessionId);
+      return sessions.delete(sessionId, { ...(force !== undefined && { force }) });
+    },
+
+    'session.usage': async ({ archived }) => ({
+      sessions: await sessions.usage(archived === true),
+    }),
+
     'session.configure': async (params) => ({ session: await sessions.configure(params) }),
 
     'session.send': (params, { client }) => sessions.send(params, client),

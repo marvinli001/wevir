@@ -392,6 +392,14 @@ export interface TurnInterruptParams {
   turnId: string;
 }
 
+/** v2/ThreadDeleteParams.ts（0.43.0）：删掉 thread 与它派出的子 thread（rollout 与状态库），之后不能再 resume。 */
+export interface ThreadDeleteParams {
+  threadId: string;
+}
+
+/** v2/ThreadDeleteResponse.ts */
+export type ThreadDeleteResponse = Record<string, never>;
+
 /** v2/ThreadUnsubscribeParams.ts */
 export interface ThreadUnsubscribeParams {
   threadId: string;

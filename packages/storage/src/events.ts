@@ -26,6 +26,12 @@ export interface EventRepository {
   list(sessionId: string, options?: { afterSeq?: number; limit?: number }): EventRecord[];
   /** 会话里最大的 `seq`；没有事件时为 0。 */
   lastSeq(sessionId: string): number;
+  /** 每个会话的事件 payload 的字节数之和（0.43.0，`session.usage`）；没有事件的会话不在里面。 */
+  payloadBytes(): Map<string, number>;
+  /**
+   * 事件里引用的消息图片（0.43.0）：图片 ID → 引用它的会话。只看 payload 里 `"imageId":"…"` 的写法（Host 写事件时的 JSON 没有空格）。
+   */
+  imageRefs(): Map<string, Set<string>>;
 }
 
 export function createEventRepository(db: SqliteDatabase): EventRepository {
@@ -37,6 +43,13 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
     SELECT * FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?`);
   const lastSeq = db.prepare(
     'SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE session_id = ?',
+  );
+
+  const payloadBytes = db.prepare(
+    'SELECT session_id, SUM(length(CAST(payload AS BLOB))) AS bytes FROM events GROUP BY session_id',
+  );
+  const withImages = db.prepare(
+    `SELECT session_id, payload FROM events WHERE payload LIKE '%"imageId":"%'`,
   );
 
   return {
@@ -54,8 +67,30 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
       return list.all(sessionId, options?.afterSeq ?? 0, options?.limit ?? -1).map(fromRow);
     },
     lastSeq: (sessionId) => integer(lastSeq.get(sessionId) ?? {}, 'seq'),
+    payloadBytes() {
+      const bytes = new Map<string, number>();
+      for (const row of payloadBytes.all()) {
+        bytes.set(text(row, 'session_id'), integer(row, 'bytes'));
+      }
+      return bytes;
+    },
+    imageRefs() {
+      const refs = new Map<string, Set<string>>();
+      for (const row of withImages.all()) {
+        const sessionId = text(row, 'session_id');
+        for (const match of text(row, 'payload').matchAll(IMAGE_ID)) {
+          const imageId = match[1] as string;
+          const sessions = refs.get(imageId) ?? new Set<string>();
+          sessions.add(sessionId);
+          refs.set(imageId, sessions);
+        }
+      }
+      return refs;
+    },
   };
 }
+
+const IMAGE_ID = /"imageId":"([^"\\]+)"/g;
 
 function fromRow(row: SqlRow): EventRecord {
   return {

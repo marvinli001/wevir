@@ -28,6 +28,10 @@ export interface Storage {
   readonly events: EventRepository;
   readonly approvals: ApprovalRepository;
   readonly sendReceipts: SendReceiptRepository;
+  /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
+  freeBytes(): number;
+  /** `VACUUM` 并截断 WAL（0.43.0，`session.delete` 之后空闲页多时）：文件变小。不能在事务里调用。 */
+  vacuum(): void;
   close(): void;
 }
 
@@ -52,6 +56,15 @@ export function openStorage(options: { dataDir: string }): Storage {
       events: createEventRepository(db),
       approvals: createApprovalRepository(db),
       sendReceipts: createSendReceiptRepository(db),
+      freeBytes: () => {
+        const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };
+        const size = db.prepare('PRAGMA page_size').get() as { page_size: number };
+        return Number(free.freelist_count) * Number(size.page_size);
+      },
+      vacuum: () => {
+        db.exec('VACUUM');
+        db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+      },
       close: () => db.close(),
     };
   } catch (err) {

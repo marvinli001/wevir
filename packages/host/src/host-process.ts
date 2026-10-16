@@ -331,6 +331,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         file_preview: true,
         session_rename: true,
         session_archive: true,
+        session_delete: true,
         session_handoff: true,
         subagent_cancel: true,
         environments: true,

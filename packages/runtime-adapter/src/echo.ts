@@ -607,6 +607,17 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     session.hub.end();
   }
 
+  /** 删掉会话与它派出的子会话（0.43.0，同 Codex 的 `thread/delete`）：之后 `resumeSession` 报 `session_lost`。不认识的直接成功。 */
+  async deleteSession(engineSessionId: string): Promise<void> {
+    this.#assertUsable();
+    if (!this.#sessions.has(engineSessionId)) return;
+    for (const child of [...this.#sessions.values()]) {
+      if (child.parentId === engineSessionId) await this.deleteSession(child.id);
+    }
+    await this.close(engineSessionId);
+    this.#sessions.delete(engineSessionId);
+  }
+
   dispose(): Promise<void> {
     this.#disposed ??= this.#dispose();
     return this.#disposed;
