@@ -242,6 +242,9 @@ importers:
       '@types/semver':
         specifier: 7.7.1
         version: 7.7.1
+      '@types/yauzl':
+        specifier: 3.4.0
+        version: 3.4.0
       '@vitejs/plugin-react':
         specifier: ^5.2.0
         version: 5.2.0(supports-color@7.2.0)(vite@7.3.7(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1))
@@ -347,6 +350,9 @@ importers:
       vite:
         specifier: ^7.3.7
         version: 7.3.7(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.33.0)(yaml@2.9.1)
+      yauzl:
+        specifier: 3.4.0
+        version: 3.4.0
 
   packages/adapter-acp:
     dependencies:

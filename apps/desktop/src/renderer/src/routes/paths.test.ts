@@ -1,6 +1,13 @@
 import { createMemoryRouter, matchPath } from 'react-router';
 import { describe, expect, it } from 'vitest';
-import { AGENT_SEGMENT, isSettingsTab, paths, ROUTE_PATTERNS } from './paths';
+import {
+  AGENT_SEGMENT,
+  isPluginsTab,
+  isSettingsTab,
+  PLUGINS_TABS,
+  paths,
+  ROUTE_PATTERNS,
+} from './paths';
 
 describe('路由', () => {
   it('会话、草稿、设置的路径与路由表匹配，ID 原样取回', () => {
@@ -63,6 +70,29 @@ describe('路由', () => {
     });
     expect(other.state.matches.map((match) => match.route.path)).toEqual(['*']);
     other.dispose();
+  });
+
+  it('插件页：/plugins 与 /plugins/:tab 都匹配，分段 ID 原样取回', () => {
+    expect(paths.plugins()).toBe('/plugins');
+    expect(paths.plugins('connectors')).toBe('/plugins/connectors');
+    expect(matchPath(ROUTE_PATTERNS.plugins, paths.plugins())).not.toBeNull();
+    expect(matchPath(ROUTE_PATTERNS.pluginsTab, paths.plugins())).toBeNull();
+    for (const tab of PLUGINS_TABS) {
+      expect(matchPath(ROUTE_PATTERNS.pluginsTab, paths.plugins(tab))?.params).toEqual({ tab });
+    }
+    // 工作台里 /plugins 与会话路由互不相干，多出的段是“未找到”。
+    const router = createMemoryRouter(
+      [{ path: ROUTE_PATTERNS.plugins }, { path: ROUTE_PATTERNS.pluginsTab }, { path: '*' }],
+      { initialEntries: ['/plugins/skills/extra'] },
+    );
+    expect(router.state.matches.map((match) => match.route.path)).toEqual(['*']);
+    router.dispose();
+  });
+
+  it('只认识列出的插件页分段', () => {
+    expect(isPluginsTab('skills')).toBe(true);
+    expect(isPluginsTab('market')).toBe(false);
+    expect(isPluginsTab(undefined)).toBe(false);
   });
 
   it('只认识列出的设置页', () => {

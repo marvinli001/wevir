@@ -2,7 +2,7 @@
 // 对象交给页面（Electron 安全清单第 3、20 条）。渲染进程开着 sandbox，这个文件由 electron-vite 打成单个
 // CJS 文件（沙箱里的 preload 不能是 ESM），只能 import `electron`。
 
-import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
+import { contextBridge, type IpcRendererEvent, ipcRenderer, webUtils } from 'electron';
 import {
   type BrowserReveal,
   type BrowserStatePayload,
@@ -36,6 +36,11 @@ const api: DesktopApi = {
   retryHost: () => ipcRenderer.invoke(IPC_CHANNELS.retryHost),
   selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.selectFolder),
   selectPaths: (defaultPath) => ipcRenderer.invoke(IPC_CHANNELS.selectPaths, defaultPath),
+  selectInstallSource: (kind) => ipcRenderer.invoke(IPC_CHANNELS.selectInstallSource, kind),
+  inspectInstallSource: (path) => ipcRenderer.invoke(IPC_CHANNELS.inspectInstallSource, path),
+  readSkillFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.readSkillFile, path),
+  // 拖放取路径：File 对象过 contextBridge，由 preload 里的 webUtils 换成本机路径。
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
   copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),
   setThemeSource: (mode) => ipcRenderer.invoke(IPC_CHANNELS.setThemeSource, mode),

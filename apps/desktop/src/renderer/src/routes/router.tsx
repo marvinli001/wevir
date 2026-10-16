@@ -24,6 +24,7 @@ import { SideSessionCloser } from '@/session/side-session';
 import { HomeRoute } from './home-route';
 import { NotFoundRoute } from './not-found';
 import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, paths, ROUTE_PATTERNS } from './paths';
+import { PluginsRoute } from './plugins-route';
 import { SessionRoute } from './session-route';
 import { SettingsRoute } from './settings-route';
 
@@ -44,6 +45,9 @@ export const router = createHashRouter([
         children: [
           { path: ROUTE_PATTERNS.home, Component: HomeRoute },
           { path: ROUTE_PATTERNS.draft, Component: SessionRoute },
+          // 插件页（0.42.0）：在工作台里，左栏照常。
+          { path: ROUTE_PATTERNS.plugins, Component: PluginsRoute },
+          { path: ROUTE_PATTERNS.pluginsTab, Component: PluginsRoute },
           {
             path: ROUTE_PATTERNS.session,
             Component: SessionRoute,

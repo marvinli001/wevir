@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Outlet, useLocation, useNavigate, useParams } from 'react-router';
+import { Outlet, useLocation, useMatch, useNavigate, useParams } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
 import { useWorkbenchData } from '@/data/workbench-data';
@@ -18,7 +18,7 @@ import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { workspaceLabel } from '@/projects/chats';
 import { useRememberLocation } from '@/routes/last-location';
-import { paths } from '@/routes/paths';
+import { paths, ROUTE_PATTERNS } from '@/routes/paths';
 import {
   type AuxPlan,
   arrangePanes,
@@ -805,9 +805,11 @@ interface Header {
   panes: boolean;
 }
 
-/** 顶栏标题：会话标题 · 工作区名；草稿页是“新会话”；首页、设置、未找到等页面不显示标题。 */
+/** 顶栏标题：会话标题 · 工作区名；草稿页是“新会话”；插件页是“插件”；首页、设置、未找到等页面不显示标题。 */
 function useHeader(workspaceId: string | undefined, sessionId: string | undefined): Header {
   const data = useWorkbenchData();
+  const onPlugins = useMatch(`${ROUTE_PATTERNS.plugins}/*`) !== null;
+  if (onPlugins) return { title: t('plugins.title'), panes: false };
   if (workspaceId === undefined) return { title: '', panes: false };
   const target = resolveRoute(data, workspaceId, sessionId);
   switch (target.kind) {

@@ -100,6 +100,24 @@ export interface EditorInfo {
   name: string;
 }
 
+/** 插件页“添加”选哪一种来源（0.42.0）：Windows 与 Linux 的文件对话框选不了文件夹，所以分开。 */
+export type InstallSourceKind = 'folder' | 'file';
+
+/**
+ * 插件页“添加”的来源是什么（0.42.0，main/plugin-source.ts）。规则同 Host 的 `plugin.install` / `skill.install`：文件夹或
+ * ZIP（ZIP 可有一层导出文件夹）的根上有 `wevir-plugin.json`、`.codex-plugin/plugin.json` 或 `.claude-plugin/plugin.json` 的
+ * 是插件包，`SKILL.md`、其他文件夹与没有清单的 ZIP 是 Skills。只读，不解压、不复制。
+ */
+export type InstallSourceInspection =
+  /** Wevir 的插件包。`manifest` 是 `wevir-plugin.json` 解析后的 JSON（读不出来、超过 256 KiB 或不是 JSON 时没有），由渲染进程用协议的清单校验。 */
+  | { kind: 'plugin'; format: 'wevir'; manifest?: unknown }
+  /** Claude / Codex 的插件包，由 Host 导入成 Wevir 插件。 */
+  | { kind: 'plugin'; format: 'claude' | 'codex' }
+  /** 一个或几个 Skills。 */
+  | { kind: 'skill' }
+  /** 不是文件夹、ZIP 或 `SKILL.md`。 */
+  | { kind: 'unsupported' };
+
 /** 窗口标题栏的形态。macOS 隐藏了系统标题栏，红绿灯浮在页面左上角，由页面的顶栏充当标题栏。 */
 export interface WindowChrome {
   /** 红绿灯此刻浮在页面左上角（macOS 且不在全屏）：左上角的顶栏要给它们让出位置。 */
@@ -228,6 +246,17 @@ export interface DesktopApi {
   selectFolder(): Promise<string | null>;
   /** 选文件与文件夹（多选，U33 输入框的“文件和文件夹”），从 `defaultPath` 开始；取消时是空表。 */
   selectPaths(defaultPath?: string): Promise<string[]>;
+  /** 插件页“添加”的文件夹或文件（ZIP、SKILL.md）选择对话框（0.42.0）；取消时为 null。 */
+  selectInstallSource(kind: InstallSourceKind): Promise<string | null>;
+  /** 判断“添加”的来源是插件包还是 Skills（0.42.0）；路径要是绝对的、存在。 */
+  inspectInstallSource(path: string): Promise<InstallSourceInspection>;
+  /** 读一个 `SKILL.md` 的文本给 Skills 预览（0.42.0）：只认名为 SKILL.md 的普通文件，最大 512 KiB。 */
+  readSkillFile(path: string): Promise<string>;
+  /**
+   * 拖进页面的文件在本机的路径（Electron 的 `webUtils.getPathForFile`，0.42.0）：插件页的拖放把路径交给 Host 安装。同步取值；
+   * 不是磁盘上的文件（网页里拖出来的内容）时是空字符串。
+   */
+  getPathForFile(file: File): string;
   /** 用系统浏览器打开链接；只接受 http、https、mailto。 */
   openExternal(url: string): Promise<void>;
   /**
@@ -296,6 +325,9 @@ export const IPC_CHANNELS = {
   retryHost: 'wevir:retry-host',
   selectFolder: 'wevir:select-folder',
   selectPaths: 'wevir:select-paths',
+  selectInstallSource: 'wevir:select-install-source',
+  inspectInstallSource: 'wevir:inspect-install-source',
+  readSkillFile: 'wevir:read-skill-file',
   openExternal: 'wevir:open-external',
   copyText: 'wevir:copy-text',
   setThemeSource: 'wevir:set-theme-source',
@@ -339,3 +371,6 @@ export const IPC_CHANNELS = {
 
 /** `DesktopNotification` 各字段的长度上限，主进程按它校验。 */
 export const NOTIFICATION_LIMITS = { tag: 200, title: 200, body: 1000 } as const;
+
+/** 插件页读文件的上限（0.42.0，main/plugin-source.ts 按它校验）。 */
+export const INSTALL_SOURCE_LIMITS = { manifestBytes: 256 * 1024, skillBytes: 512 * 1024 } as const;

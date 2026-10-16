@@ -48,6 +48,7 @@ import {
 } from './host-lifecycle.js';
 import { loadDesktopIdentity } from './identity.js';
 import { isBadgeCount, parseDesktopNotification } from './notification-input.js';
+import { inspectInstallSource, readSkillFile } from './plugin-source.js';
 import { serveRendererFile } from './renderer-files.js';
 import { createUpdateController } from './updates/electron-updates.js';
 
@@ -187,6 +188,35 @@ function run(): void {
       return result.canceled ? [] : result.filePaths;
     },
   );
+  // 插件页（0.42.0）：“添加”的来源选择与判断、Skills 预览读 SKILL.md（plugin-source.ts，只读）。
+  ipcMain.handle(
+    IPC_CHANNELS.selectInstallSource,
+    async (event, kind: unknown): Promise<string | null> => {
+      const window = assertSender(event);
+      if (kind !== 'folder' && kind !== 'file') throw new Error('kind must be folder or file');
+      // Windows 与 Linux 的对话框不能同时选文件与文件夹，所以分两种；.md 里再由 inspectInstallSource 认 SKILL.md。
+      const result = await dialog.showOpenDialog(
+        window,
+        kind === 'folder'
+          ? { properties: ['openDirectory'] }
+          : {
+              properties: ['openFile'],
+              filters: [{ name: 'ZIP, SKILL.md', extensions: ['zip', 'md'] }],
+            },
+      );
+      return result.canceled ? null : (result.filePaths[0] ?? null);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.inspectInstallSource, async (event, path: unknown) => {
+    assertSender(event);
+    if (typeof path !== 'string') throw new Error('path must be a string');
+    return inspectInstallSource(path);
+  });
+  ipcMain.handle(IPC_CHANNELS.readSkillFile, async (event, path: unknown): Promise<string> => {
+    assertSender(event);
+    if (typeof path !== 'string') throw new Error('path must be a string');
+    return readSkillFile(path);
+  });
   ipcMain.handle(IPC_CHANNELS.openExternal, async (event, url: unknown): Promise<void> => {
     assertSender(event);
     if (typeof url !== 'string' || !isExternalUrl(url)) {

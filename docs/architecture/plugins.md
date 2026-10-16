@@ -1,6 +1,6 @@
 # 插件：连接器、Skills 与插件包（P1 0.41.0，P1a 0.42.0）
 
-插件是 Host 的全局配置，所有会话共用。P1 只提供协议与引擎接入，没有设置页、输入框 `$` 菜单、插件市场或 OAuth 登录。
+插件是 Host 的全局配置，所有会话共用。P1 / P1a 只提供协议与引擎接入；桌面端的“插件”页（P2，不改协议与 Host）见 [desktop-layout.md §23](desktop-layout.md#23-插件页0420)；输入框 `$` 菜单、插件市场与 OAuth 登录仍然没有。
 
 连接器是用户登记的 MCP 服务，使用 stdio（command、args、env、cwd）或 Streamable HTTP（url、headers）。共同字段为 enabled、toolTimeoutSec。名字只允许 `[a-z0-9_-]+`，`wevir` 开头保留给内置服务。用户工具按会话权限模式批准，不写 Codex 的 `default_tools_approval_mode = "approve"`。
 
