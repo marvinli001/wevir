@@ -235,7 +235,8 @@ describe.skipIf(binary === undefined)(
       script = () => ({ text: [PLAN_REPLY] });
       await turn(adapter, id, '先出计划', events, 'plan');
       const texts = developerTexts(mock.requests.at(-1)?.body).join('\n');
-      expect(texts).toContain(outside);
+      // 说明在请求体里是 JSON 字符串，Windows 路径的反斜杠转义过。
+      expect(texts).toContain(JSON.stringify(outside).slice(1, -1));
       expect(texts).toContain(PLAN_HEADING);
     });
 

@@ -239,7 +239,7 @@ describe('写文件（0.32.0）', () => {
     expect(readFileSync(join(dir, 'a.md'), 'utf8')).toBe('# 新\n');
     // 原地写：硬链接看到同样的内容，权限不变。
     expect(readFileSync(join(dir, 'hard.md'), 'utf8')).toBe('# 新\n');
-    expect(statSync(join(dir, 'a.md')).mode & 0o777).toBe(0o640);
+    if (process.platform !== 'win32') expect(statSync(join(dir, 'a.md')).mode & 0o777).toBe(0o640);
 
     // 别人在这之后改了文件：不写，回磁盘上的状态。
     utimesSync(join(dir, 'a.md'), new Date(), new Date(Date.now() + 5000));

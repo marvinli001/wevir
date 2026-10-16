@@ -88,7 +88,8 @@ describe('wevir_web 的桥脚本', () => {
   it('initialize、tools/list 两个工具；tools/call 带令牌转给端点，回复原样交回', async () => {
     const bridge = startBridge(url, TOKEN);
     try {
-      expect(statSync(bridge.server.script).mode & 0o777).toBe(0o600);
+      if (process.platform !== 'win32')
+        expect(statSync(bridge.server.script).mode & 0o777).toBe(0o600);
       const init = await bridge.call('initialize', { protocolVersion: '2025-06-18' });
       expect(init.result.serverInfo.name).toBe('wevir_web');
       const list = await bridge.call('tools/list');

@@ -152,7 +152,7 @@ describe('插件文件', () => {
     expect(zodModuleUrl().startsWith('file://')).toBe(true);
     expect(existsSync(fileURLToPath(zodModuleUrl()))).toBe(true);
     expect(source).toContain('SPDX-License-Identifier: Apache-2.0');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     const mtime = statSync(file).mtimeMs;
     expect(writeAppToolsPlugin(engineDir)).toBe(url);
     expect(statSync(file).mtimeMs).toBe(mtime);
