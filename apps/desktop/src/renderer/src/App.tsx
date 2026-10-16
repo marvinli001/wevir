@@ -1,5 +1,6 @@
 import { CSPProvider } from '@base-ui/react/csp-provider';
 import { RouterProvider } from 'react-router/dom';
+import { BrowserCoordinator } from '@/browser/browser-coordinator';
 import { ToastViewport } from '@/components/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { WorkbenchDataProvider } from '@/data/workbench-data';
@@ -16,6 +17,8 @@ export function App() {
         <WorkbenchDataProvider>
           <TooltipProvider delay={500}>
             <RouterProvider router={router} />
+            {/* 内置浏览器（0.33.0）：登记为浏览器提供方，转交 agent 的浏览器命令。 */}
+            <BrowserCoordinator />
             {/* 连接通知在窗口右下角，工作台与设置页都看得到（T5.5，U25）。 */}
             <ToastViewport>
               <ConnectionToast />

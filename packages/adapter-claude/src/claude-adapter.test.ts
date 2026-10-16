@@ -855,6 +855,12 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_session_wait',
       'mcp__wevir__wevir_models',
       'mcp__wevir__wevir_show',
+      // 0.33.0：只读的浏览器工具。
+      'mcp__wevir__browser_list_tabs',
+      'mcp__wevir__browser_snapshot',
+      'mcp__wevir__browser_screenshot',
+      'mcp__wevir__browser_wait',
+      'mcp__wevir__browser_logs',
     ]);
   });
 });

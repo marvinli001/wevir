@@ -188,7 +188,7 @@ SDK 的 `signal` 中止（中断、进程退出）时审批以 `approval.cancell
 
 ### 5.4 应用级工具（0.30.0）
 
-会话带 `SessionConfig.appTools` 时，`query()` 的 `mcpServers` 里多一项 `wevir: { type: 'http', url, headers: { Authorization: 'Bearer <令牌>' } }`（domain-model §3.15）。不用批准的工具（只读的与 `wevir_show`，`APP_TOOLS_NO_APPROVAL`）放进 `allowedTools`（`mcp__wevir__<名字>`），其余的（新开会话、发消息、停止）照常经 `canUseTool` 走 §5.2 的审批，完全访问时直接放行。令牌在 Host 运行期间不变，重开进程（§4）时照样带上。只用假 SDK 验证过（`claude-adapter.test.ts`），没有用真实的 `claude` 跑：维护者要求开发测试时不用 Claude 订阅。
+会话带 `SessionConfig.appTools` 时，`query()` 的 `mcpServers` 里多一项 `wevir: { type: 'http', url, headers: { Authorization: 'Bearer <令牌>' } }`（domain-model §3.15）。不用批准的工具（只读的与 `wevir_show`，0.33.0 起还有只读的浏览器工具，`APP_TOOLS_NO_APPROVAL`）放进 `allowedTools`（`mcp__wevir__<名字>`），其余的（新开会话、发消息、停止，0.33.0 起还有操作网页的浏览器工具）照常经 `canUseTool` 走 §5.2 的审批，完全访问时直接放行。令牌在 Host 运行期间不变，重开进程（§4）时照样带上。只用假 SDK 验证过（`claude-adapter.test.ts`），没有用真实的 `claude` 跑：维护者要求开发测试时不用 Claude 订阅。
 
 ## 6. 事件逐条映射
 

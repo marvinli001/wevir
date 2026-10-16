@@ -1,7 +1,7 @@
 // preload 经 contextBridge 交给渲染进程的接口（`window.wevir`），以及它背后的 IPC 通道。只有类型和
 // 通道名，渲染进程、preload、主进程共用；不 import Node 或 Electron 的东西。
 
-import type { ClientIdentity } from '@wevir/protocol';
+import type { BrowserRequest, BrowserResponse, ClientIdentity } from '@wevir/protocol';
 import type { ThemeMode } from './theme.js';
 
 /** 连接 Host 需要的全部信息。令牌只放在渲染进程的内存里，不写 localStorage 等任何持久化位置。 */
@@ -147,6 +147,70 @@ export type UpdateState = UpdatePhase & {
   mirror?: { id: string; latencyMs: number };
 };
 
+/** 内置浏览器（0.33.0）的标签页由谁操作：agent 开的归 agent；用户开的、用户在里面点过敲过的归用户，agent 只读。 */
+export type BrowserController = 'agent' | 'user';
+
+/** 浏览器窗格里内容区的位置（窗口里的 CSS 像素）。 */
+export interface BrowserBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** 一个标签页，给浏览器窗格画标签与地址栏。 */
+export interface BrowserTabState {
+  id: string;
+  /** 开它的会话。 */
+  ownerSessionId: string | null;
+  url: string;
+  title: string;
+  isLoading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  controller: BrowserController;
+  /** agent 的命令正在这个标签页上执行。 */
+  agentBusy: boolean;
+  /** 页面打不开（Chromium 的错误码与说明）。 */
+  loadError?: { code: number; description: string; url: string };
+}
+
+export interface BrowserStatePayload {
+  /** 屏幕上的标签页。 */
+  activeTabId: string | null;
+  /** 每个会话的当前标签页。 */
+  activeTabIdByOwner: Record<string, string>;
+  visibleSessionId: string | null;
+  tabs: BrowserTabState[];
+}
+
+/** agent 请界面显示一个标签页（`wevir_show`）：正看着这个会话的窗口打开浏览器窗格。 */
+export interface BrowserReveal {
+  sessionId: string;
+  tabId: string;
+}
+
+/** 浏览器窗格的操作（用户）。地址由主进程规范化，不合法时 reject。 */
+export interface DesktopBrowserApi {
+  /** 执行 Host 交来的一个浏览器请求（渲染进程只是转交）。 */
+  execute(request: BrowserRequest): Promise<BrowserResponse>;
+  state(): Promise<BrowserStatePayload>;
+  onState(listener: (state: BrowserStatePayload) => void): () => void;
+  onReveal(listener: (reveal: BrowserReveal) => void): () => void;
+  /** 正在看的会话（主会话视图），决定哪些标签页能上屏。 */
+  setVisibleSession(sessionId: string | null): Promise<void>;
+  /** 窗格可见：把这个会话的当前标签页放到这个位置。 */
+  show(bounds: BrowserBounds, sessionId: string): Promise<boolean>;
+  hide(): Promise<void>;
+  /** 新开标签页（归用户），可以带地址；返回标签页 ID。 */
+  open(sessionId: string, address?: string): Promise<string>;
+  close(tabId: string): Promise<void>;
+  select(tabId: string): Promise<void>;
+  navigate(tabId: string, address: string): Promise<void>;
+  history(tabId: string, action: 'back' | 'forward' | 'reload' | 'stop'): Promise<void>;
+  setController(tabId: string, controller: BrowserController): Promise<void>;
+}
+
 export interface DesktopApi {
   /**
    * 当前 Host 的连接信息。首次启动时等 Host 就绪（附着或拉起）；之后每次重读 `run/host.json`，所以 Host 换了
@@ -215,6 +279,8 @@ export interface DesktopApi {
   setUpdateChannel(channel: UpdateChannel): Promise<void>;
   /** 把应用移到“应用程序”文件夹并重新打开（macOS，`disabled` 的 `location`）。 */
   moveToApplications(): Promise<void>;
+  /** 内置浏览器（0.33.0）。 */
+  browser: DesktopBrowserApi;
 }
 
 export const IPC_CHANNELS = {
@@ -248,6 +314,21 @@ export const IPC_CHANNELS = {
   installUpdate: 'wevir:install-update',
   setUpdateChannel: 'wevir:set-update-channel',
   moveToApplications: 'wevir:move-to-applications',
+  browserExecute: 'wevir:browser-execute',
+  browserGetState: 'wevir:browser-get-state',
+  /** 主进程 → 渲染进程的推送。 */
+  browserState: 'wevir:browser-state',
+  /** 主进程 → 渲染进程的推送。 */
+  browserReveal: 'wevir:browser-reveal',
+  browserSetVisibleSession: 'wevir:browser-set-visible-session',
+  browserShow: 'wevir:browser-show',
+  browserHide: 'wevir:browser-hide',
+  browserOpen: 'wevir:browser-open',
+  browserClose: 'wevir:browser-close',
+  browserSelect: 'wevir:browser-select',
+  browserNavigate: 'wevir:browser-navigate',
+  browserHistory: 'wevir:browser-history',
+  browserSetController: 'wevir:browser-set-controller',
 } as const;
 
 /** `DesktopNotification` 各字段的长度上限，主进程按它校验。 */

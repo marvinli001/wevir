@@ -4,6 +4,8 @@
 
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
 import {
+  type BrowserReveal,
+  type BrowserStatePayload,
   type DesktopApi,
   type HostProcessStatus,
   IPC_CHANNELS,
@@ -73,6 +75,35 @@ const api: DesktopApi = {
   installUpdate: () => ipcRenderer.invoke(IPC_CHANNELS.installUpdate),
   setUpdateChannel: (channel) => ipcRenderer.invoke(IPC_CHANNELS.setUpdateChannel, channel),
   moveToApplications: () => ipcRenderer.invoke(IPC_CHANNELS.moveToApplications),
+  browser: {
+    execute: (request) => ipcRenderer.invoke(IPC_CHANNELS.browserExecute, request),
+    state: () => ipcRenderer.invoke(IPC_CHANNELS.browserGetState),
+    onState: (listener) => {
+      const handler = (_event: IpcRendererEvent, state: BrowserStatePayload) => listener(state);
+      ipcRenderer.on(IPC_CHANNELS.browserState, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.browserState, handler);
+      };
+    },
+    onReveal: (listener) => {
+      const handler = (_event: IpcRendererEvent, reveal: BrowserReveal) => listener(reveal);
+      ipcRenderer.on(IPC_CHANNELS.browserReveal, handler);
+      return () => {
+        ipcRenderer.removeListener(IPC_CHANNELS.browserReveal, handler);
+      };
+    },
+    setVisibleSession: (sessionId) =>
+      ipcRenderer.invoke(IPC_CHANNELS.browserSetVisibleSession, sessionId),
+    show: (bounds, sessionId) => ipcRenderer.invoke(IPC_CHANNELS.browserShow, bounds, sessionId),
+    hide: () => ipcRenderer.invoke(IPC_CHANNELS.browserHide),
+    open: (sessionId, address) => ipcRenderer.invoke(IPC_CHANNELS.browserOpen, sessionId, address),
+    close: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.browserClose, tabId),
+    select: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.browserSelect, tabId),
+    navigate: (tabId, address) => ipcRenderer.invoke(IPC_CHANNELS.browserNavigate, tabId, address),
+    history: (tabId, action) => ipcRenderer.invoke(IPC_CHANNELS.browserHistory, tabId, action),
+    setController: (tabId, controller) =>
+      ipcRenderer.invoke(IPC_CHANNELS.browserSetController, tabId, controller),
+  },
 };
 
 contextBridge.exposeInMainWorld('wevir', api);

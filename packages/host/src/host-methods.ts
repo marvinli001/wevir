@@ -59,13 +59,16 @@ export type MethodHandler<M extends MethodName> = (
   context: RequestContext,
 ) => MethodResult<M> | Promise<MethodResult<M>>;
 
-/** 由 RPC 连接自己处理的方法：握手、心跳、退出与订阅。 */
+/** 由 RPC 连接自己处理的方法：握手、心跳、退出、订阅与浏览器提供方（0.33.0，登记的是这条连接）。 */
 export type ConnectionMethodName =
   | 'host.hello'
   | 'host.ping'
   | 'host.shutdown'
   | 'events.subscribe'
-  | 'events.unsubscribe';
+  | 'events.unsubscribe'
+  | 'browser.register'
+  | 'browser.unregister'
+  | 'browser.respond';
 
 /** 其余方法的实现表，RPC 层按方法注册表校验参数后分发到这里（host-api.md §3）。 */
 export type HostMethodName = Exclude<MethodName, ConnectionMethodName>;

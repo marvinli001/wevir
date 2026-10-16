@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { BrowserRequestSchema, BrowserResponseSchema } from './browser.js';
 import {
   ClientCapabilitiesSchema,
   HostFeaturesSchema,
@@ -909,6 +910,21 @@ export const EventsEventParamsSchema = z.object({
   event: WevirEventSchema,
 });
 
+// ── browser.*（0.33.0，内置浏览器） ────────────────────────────────────
+
+/** 登记为浏览器提供方：`commands` 是它会的命令（`BROWSER_COMMANDS`），认不出的名字 Host 忽略。 */
+export const BrowserRegisterParamsSchema = z.object({
+  commands: z.array(z.string().min(1).max(64)).min(1).max(64),
+});
+
+export const BrowserRespondParamsSchema = BrowserResponseSchema;
+
+/** `accepted: false`：请求已经超时、被取消，或不是交给这条连接的，回答被丢掉。 */
+export const BrowserRespondResultSchema = z.object({ accepted: z.boolean() });
+
+/** `browser.request` 通知的参数。 */
+export const BrowserRequestParamsSchema = BrowserRequestSchema;
+
 // ── 注册表 ────────────────────────────────────────────────────────────
 
 export interface MethodSpec {
@@ -1193,6 +1209,22 @@ export const MethodSchemas = {
     permission: 'session.write',
   },
 
+  'browser.register': {
+    params: BrowserRegisterParamsSchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'browser.unregister': {
+    params: EmptySchema,
+    result: EmptySchema,
+    permission: 'host.manage',
+  },
+  'browser.respond': {
+    params: BrowserRespondParamsSchema,
+    result: BrowserRespondResultSchema,
+    permission: 'host.manage',
+  },
+
   'events.subscribe': {
     params: EventsSubscribeParamsSchema,
     result: EventsSubscribeResultSchema,
@@ -1222,6 +1254,8 @@ export const NotificationSchemas = {
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
   'settings.updated': { params: SettingsUpdatedParamsSchema },
+  /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
+  'browser.request': { params: BrowserRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;
 
 export type NotificationName = keyof typeof NotificationSchemas;

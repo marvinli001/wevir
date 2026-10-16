@@ -2,6 +2,8 @@ import {
   type AccountKind,
   type AccountState,
   AccountUpdatedParamsSchema,
+  type BrowserRequest,
+  type BrowserResponse,
   type ClientCapabilities,
   type ClientIdentity,
   EventsSubscribeResultSchema,
@@ -12,6 +14,7 @@ import {
   type MethodParams,
   type MethodResult,
   MethodSchemas,
+  NotificationSchemas,
   PING_INTERVAL_MS,
   PROTOCOL_VERSION,
   type SessionId,
@@ -60,6 +63,18 @@ interface AccountListWatcher {
   accounts: AccountState[];
   /** 收到的 `account.updated` 数：读全部的结果晚于其间到达的通知时，它是旧的，丢掉。 */
   updates: number;
+}
+
+/** 浏览器提供方（0.33.0）：执行 Host 交来的一个请求；回答不含 `requestId`，由客户端补上。 */
+export type BrowserRequestHandler = (
+  request: BrowserRequest,
+) => Promise<DistributiveOmit<BrowserResponse, 'requestId'>>;
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+interface BrowserProviderEntry {
+  readonly commands: readonly string[];
+  readonly handle: BrowserRequestHandler;
 }
 
 /** `watchSettings` 的一个监听器。 */
@@ -211,6 +226,8 @@ export class WevirClient {
   /** `watchAccounts` 的监听器（0.19.0）。 */
   readonly #accountListWatchers = new Set<AccountListWatcher>();
   readonly #settingsWatchers = new Set<SettingsWatcher>();
+  /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
+  #browserProvider: BrowserProviderEntry | undefined;
   #state: ConnectionState = { status: 'connecting' };
   #connection: Connection | undefined;
   #hello: HostHello | undefined;
@@ -388,6 +405,64 @@ export class WevirClient {
     } catch (error) {
       this.#warn('a settings listener threw', { error });
     }
+  }
+
+  /**
+   * 把这个客户端登记为浏览器提供方（0.33.0，`browser.register`）：现在与每次（重）连上之后登记一次（Host 没有
+   * `browser_tools` 时不登记），之后 Host 发来的 `browser.request` 交给 `handle`，它的回答经 `browser.respond` 发回；`handle`
+   * 抛错时回 `browser_unknown_error`。再调一次替换之前的；返回注销的函数。
+   */
+  provideBrowser(commands: readonly string[], handle: BrowserRequestHandler): () => void {
+    const entry: BrowserProviderEntry = { commands, handle };
+    this.#browserProvider = entry;
+    if (this.#connection !== undefined) this.#registerBrowser(entry);
+    return () => {
+      if (this.#browserProvider !== entry) return;
+      this.#browserProvider = undefined;
+      if (this.#connection !== undefined && this.supports('browser_tools')) {
+        this.request('browser.unregister').catch(() => {});
+      }
+    };
+  }
+
+  #registerBrowser(entry: BrowserProviderEntry): void {
+    if (!this.supports('browser_tools')) return;
+    this.request('browser.register', { commands: [...entry.commands] }).catch((error: unknown) =>
+      this.#warn('failed to register as a browser provider', { error }),
+    );
+  }
+
+  #onBrowserRequest(params: unknown): void {
+    const parsed = NotificationSchemas['browser.request'].params.safeParse(params);
+    if (!parsed.success) {
+      this.#warn('ignored a malformed browser.request notification');
+      return;
+    }
+    const request = parsed.data;
+    const entry = this.#browserProvider;
+    const respond = (response: DistributiveOmit<BrowserResponse, 'requestId'>) =>
+      this.request('browser.respond', {
+        requestId: request.requestId,
+        ...response,
+      } as BrowserResponse).catch((error: unknown) =>
+        this.#warn('failed to answer a browser request', { error }),
+      );
+    if (entry === undefined) {
+      void respond({
+        ok: false,
+        error: { code: 'browser_no_host', message: 'This client no longer provides a browser.' },
+      });
+      return;
+    }
+    entry.handle(request).then(respond, (error: unknown) =>
+      respond({
+        ok: false,
+        error: {
+          code: 'browser_unknown_error',
+          message: error instanceof Error && error.message !== '' ? error.message : String(error),
+        },
+      }),
+    );
   }
 
   /** Host 是否声明了这项功能（host-api.md §10）。功能是否可用只在这里判断。 */
@@ -582,6 +657,7 @@ export class WevirClient {
         for (const watcher of this.#accountWatchers) this.#readAccount(watcher);
         for (const watcher of this.#accountListWatchers) this.#readAccountList(watcher);
         for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
+        if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         return;
       }
       case 'reconnecting':
@@ -806,6 +882,10 @@ export class WevirClient {
         watcher.updates += 1;
         this.#deliverSettings(watcher, parsed.data.settings);
       }
+      return;
+    }
+    if (method === 'browser.request') {
+      this.#onBrowserRequest(params);
       return;
     }
     if (method !== 'events.event') {

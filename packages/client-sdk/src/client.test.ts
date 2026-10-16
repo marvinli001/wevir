@@ -671,3 +671,74 @@ describe('Host 设置（R11）', () => {
     expect(plain.last.requests('settings.get')).toEqual([]);
   });
 });
+
+describe('浏览器提供方（0.33.0）', () => {
+  const request = {
+    requestId: 'brq_01JA2B3C4D5E6F7G8H9JKMNPQR',
+    sessionId: SES,
+    cwd: '/work',
+    command: { command: 'reload', args: { browserId: 'tab_1' } },
+  };
+
+  it('provideBrowser：连上时登记、重连后再登记；请求交给处理函数、回答带上 requestId；抛错回 browser_unknown_error', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { browser_tools: true } } }));
+    host.on('browser.register', () => ({ result: {} }));
+    host.on('browser.unregister', () => ({ result: {} }));
+    host.on('browser.respond', () => ({ result: { accepted: true } }));
+    const { client, warnings } = await connect(host);
+    let fail = false;
+    const stop = client.provideBrowser(['reload'], async (incoming) => {
+      if (fail) throw new Error('tab is gone');
+      return {
+        ok: true,
+        result: {
+          command: 'reload',
+          browserId: (incoming.command.args as { browserId: string }).browserId,
+        },
+      };
+    });
+    await vi.waitFor(() =>
+      expect(host.last.requests('browser.register').map((frame) => frame.params)).toEqual([
+        { commands: ['reload'] },
+      ]),
+    );
+    host.last.notify('browser.request', request);
+    await vi.waitFor(() =>
+      expect(host.last.requests('browser.respond').map((frame) => frame.params)).toEqual([
+        {
+          requestId: request.requestId,
+          ok: true,
+          result: { command: 'reload', browserId: 'tab_1' },
+        },
+      ]),
+    );
+    fail = true;
+    host.last.notify('browser.request', request);
+    await vi.waitFor(() =>
+      expect(host.last.requests('browser.respond').at(-1)?.params).toEqual({
+        requestId: request.requestId,
+        ok: false,
+        error: { code: 'browser_unknown_error', message: 'tab is gone' },
+      }),
+    );
+    host.last.notify('browser.request', { ...request, command: { command: 'evaluate', args: {} } });
+    expect(warnings).toContain('ignored a malformed browser.request notification');
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(host.last.requests('browser.register')).toHaveLength(1));
+    stop();
+    await vi.waitFor(() => expect(host.last.requests('browser.unregister')).toHaveLength(1));
+  });
+
+  it('Host 没有 browser_tools 时不登记', async () => {
+    const host = new FakeHost();
+    const { client } = await connect(host);
+    client.provideBrowser(['reload'], async () => ({
+      ok: false,
+      error: { code: 'browser_denied', message: 'no' },
+    }));
+    await tick();
+    expect(host.last.requests('browser.register')).toEqual([]);
+  });
+});

@@ -174,11 +174,26 @@ export function decidedHere(
   );
 }
 
-/** Wevir 自己的应用级工具（0.30.0）里要批准的：按工具说清楚做什么。 */
+/** Wevir 自己的应用级工具（0.30.0，浏览器工具 0.33.0）里要批准的：按工具说清楚做什么。 */
 const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
   wevir_session_create: 'approval.title.appCreate',
   wevir_session_send: 'approval.title.appSend',
   wevir_session_interrupt: 'approval.title.appInterrupt',
+  // 内置浏览器（0.33.0）：只读的不问，其余按会话的权限模式问。
+  browser_new_tab: 'approval.title.browserOpen',
+  browser_navigate: 'approval.title.browserOpen',
+  browser_close_tab: 'approval.title.browserClose',
+  browser_click: 'approval.title.browserAct',
+  browser_fill: 'approval.title.browserAct',
+  browser_type: 'approval.title.browserAct',
+  browser_keypress: 'approval.title.browserAct',
+  browser_select: 'approval.title.browserAct',
+  browser_hover: 'approval.title.browserAct',
+  browser_drag: 'approval.title.browserAct',
+  browser_scroll: 'approval.title.browserAct',
+  browser_back: 'approval.title.browserAct',
+  browser_forward: 'approval.title.browserAct',
+  browser_reload: 'approval.title.browserAct',
 };
 
 /**

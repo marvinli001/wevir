@@ -132,6 +132,7 @@ import {
   WorktreeModeSchema,
 } from './index.js';
 import {
+  browserTab,
   childSession,
   compatibleProvider,
   deepseekProvider,
@@ -986,6 +987,120 @@ const standaloneCases: Case[] = [
       { jsonrpc: '2.0', method: 'events.event', params: {} },
     ],
     invalid: [{ jsonrpc: '2.0', id: 1, method: 'host.ping' }],
+  },
+  // browser（0.33.0）
+  {
+    name: 'BrowserRequestId',
+    schema: protocol.BrowserRequestIdSchema,
+    valid: [ids.browserRequest],
+    invalid: ['brq_', `req_${ULID}`],
+  },
+  {
+    name: 'BrowserTabId',
+    schema: protocol.BrowserTabIdSchema,
+    valid: [browserTab.browserId, 'a'],
+    invalid: ['', 'tab 1', 'x'.repeat(65)],
+  },
+  {
+    name: 'BrowserRef',
+    schema: protocol.BrowserRefSchema,
+    valid: ['@e1', '@e120'],
+    invalid: ['e1', '@x1'],
+  },
+  {
+    name: 'BrowserMouseButton',
+    schema: protocol.BrowserMouseButtonSchema,
+    valid: ['left', 'middle'],
+    invalid: ['primary'],
+  },
+  {
+    name: 'BrowserModifier',
+    schema: protocol.BrowserModifierSchema,
+    valid: ['Shift', 'Meta'],
+    invalid: ['shift'],
+  },
+  {
+    name: 'BrowserCommand',
+    schema: protocol.BrowserCommandSchema,
+    valid: [
+      { command: 'list_tabs', args: {} },
+      { command: 'screenshot', args: { browserId: browserTab.browserId, fullPage: true } },
+      { command: 'scroll', args: { browserId: browserTab.browserId, deltaX: 0, deltaY: 400 } },
+    ],
+    invalid: [
+      { command: 'evaluate', args: { browserId: browserTab.browserId, function: '() => 1' } },
+      { command: 'new_tab', args: { url: 'javascript:alert(1)' } },
+    ],
+  },
+  {
+    name: 'BrowserTabInfo',
+    schema: protocol.BrowserTabInfoSchema,
+    valid: [browserTab, { ...browserTab, controller: 'user', canGoBack: undefined }],
+    invalid: [{ ...browserTab, controller: '' }],
+  },
+  {
+    name: 'BrowserSnapshotStats',
+    schema: protocol.BrowserSnapshotStatsSchema,
+    valid: [{ nodeCount: 1, refCount: 0, textLength: 10, iframeCount: 0, maxDepth: 3 }],
+    invalid: [{ nodeCount: -1, refCount: 0, textLength: 0 }],
+  },
+  {
+    name: 'BrowserConsoleEntry',
+    schema: protocol.BrowserConsoleEntrySchema,
+    valid: [{ level: 'error', message: 'boom', source: 'app.js', line: 3, timestamp: 1 }],
+    invalid: [{ level: 'log', message: 'x' }],
+  },
+  {
+    name: 'BrowserNetworkEntry',
+    schema: protocol.BrowserNetworkEntrySchema,
+    valid: [{ url: 'http://localhost:5173/', type: 'navigation', startTime: 0, duration: 12.5 }],
+    invalid: [{ url: 'http://localhost:5173/', startTime: 0 }],
+  },
+  {
+    name: 'BrowserResult',
+    schema: protocol.BrowserResultSchema,
+    valid: [
+      { command: 'wait', browserId: browserTab.browserId, matched: 'text' },
+      {
+        command: 'screenshot',
+        browserId: browserTab.browserId,
+        mimeType: 'image/png',
+        dataBase64: 'iVBORw0KGgo=',
+        width: 1280,
+        height: 800,
+      },
+      {
+        command: 'show',
+        browserId: browserTab.browserId,
+        url: browserTab.url,
+        shown: false,
+      },
+    ],
+    invalid: [
+      {
+        command: 'screenshot',
+        browserId: browserTab.browserId,
+        mimeType: 'image/jpeg',
+        dataBase64: 'x',
+        width: 1,
+        height: 1,
+      },
+    ],
+  },
+  {
+    name: 'BrowserError',
+    schema: protocol.BrowserErrorSchema,
+    valid: [
+      { code: 'browser_no_host', message: 'No browser', retryable: true },
+      { code: 'later_code', message: 'x' },
+    ],
+    invalid: [{ code: 'browser_no_host' }],
+  },
+  {
+    name: 'BrowserDialogEvent',
+    schema: protocol.BrowserDialogEventSchema,
+    valid: [{ type: 'alert', message: 'Hi', action: 'accepted', timestamp: 1 }],
+    invalid: [{ type: 'alert', message: 'Hi', timestamp: 1 }],
   },
 ];
 

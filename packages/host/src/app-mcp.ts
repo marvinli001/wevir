@@ -17,7 +17,10 @@ export const APP_MCP_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-0
 
 /** 工具结果（MCP `CallToolResult`）。 */
 export interface AppToolResult {
-  content: Array<{ type: 'text'; text: string }>;
+  /** 文本，截图类的工具还有图片（base64）。 */
+  content: Array<
+    { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+  >;
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }

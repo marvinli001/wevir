@@ -411,6 +411,8 @@ Host 的 `wevir` MCP 服务（domain-model §3.15）是 HTTP 的、每个会话�
 
 实测（rust-v0.162.1，经网关的 mock 模型，测试里的 HTTP MCP 服务扮演 Host，`codex-adapter.app-tools.integration.test.ts`，2026-10-16）：模型看到命名空间 `mcp__wevir` 里的工具，`tool.started` 的工具名是 `mcp__wevir__wevir_session_list`；请求带这个会话的令牌；请求批准时只读的工具不问，`wevir_session_create` 先出审批、允许后才调用、拒绝时不调用；完全访问时不问。
 
+0.33.0 的浏览器工具（domain-model §3.15.1）同在 `wevir` 服务里，只读的五个带 `readOnlyHint`，不问。Codex 把 MCP 工具结果交给模型时，有 `structuredContent` 就只把它序列化成文本、丢掉内容项（codex-rs protocol 的 `CallToolResult::as_function_call_output_payload`），所以浏览器工具的结果只给文本与图片，截图才能作为图片到达模型。
+
 ### 6.7 回合失败的归类（`turn-error.ts`）
 
 `turn/completed` 的 `turn.error` 带 `codexErrorInfo`（v2/CodexErrorInfo.ts：字符串，或带上游 `httpStatusCode` 的对象）。所有 Provider 都经网关：网关把上游的状态码原样转给 Codex，自己拒绝的请求带 `wevir gateway:` 前缀的原文。自上而下第一条匹配的生效；`message` 始终是完整原文，`code` 是上游的 HTTP 状态码（有时）。

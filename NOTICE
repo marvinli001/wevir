@@ -50,6 +50,10 @@ Wevir 不包含 OpenWork ee/ 目录（OpenWork Enterprise Edition License）的�
   apps/desktop/src/renderer/src/layout/panes/file-viewers.tsx（xlsx 的表格）
       <- apps/app/src/react-app/domains/session/artifacts/artifact-spreadsheet-model.ts
          apps/app/src/react-app/domains/session/artifacts/artifact-spreadsheet-editor.tsx
+  apps/desktop/src/shared/browser-tabs.ts
+      <- packages/browser-tabs/index.mjs
+  apps/desktop/src/main/browser/browser-host.ts
+      <- apps/desktop/electron/browser-panel.mjs
 
 上面的来源文件里没有第三方作品的署名。OpenWork 里 shadcn 生成的组件没有从 OpenWork 拷贝，Wevir
 直接从原始来源获取，见第 2 节；OpenWork 里由 Radix Colors 生成的色值 Wevir 没有拷贝，U1 起也不再使用
@@ -106,15 +110,49 @@ Wevir 不移植 dsh 的源码，而是把 npm 包 @deepseek-ai/dsh 0.2.1-alpha.2
 许可证：Apache License 2.0
 版权：Copyright (c) 2025-present Mohamed Boudra
 
-Wevir 主要参考 Paseo 的架构设计。0.32.0 起移植了一处：文件预览里 HTML 的 CSP 指令（不能联网、只认自己的
-资源）取自 Paseo 的 HTML 预览，放在单独的文件里、仍按 Apache-2.0，Wevir 改写为 Host 的响应头（另加沙箱与 'self'，见文件头）。按 Apache License 2.0
-第 4 条保留版权声明、标明修改，许可证全文见文末“Apache License 2.0”。Paseo 在上面的提交下没有 NOTICE 文件；
-上游若加了 NOTICE 文件，把其中的署名内容一并收进这里。
+Wevir 从 Paseo 移植了两处：文件预览里 HTML 的 CSP 指令（协议 0.32.0；不能联网、只认自己的资源，Wevir
+改写为 Host 的响应头，另加沙箱与 'self'），以及内置浏览器的浏览器自动化与浏览器工具（协议 0.33.0）。这些
+文件仍按 Apache License 2.0 发布（不因进入 MIT 仓库而改变），由 Wevir 修改，修改说明在各文件头；按第 4 条
+保留版权声明、标明修改，许可证全文见文末“Apache License 2.0”。Paseo 在上面的提交下没有 NOTICE 文件；上游
+若加了 NOTICE 文件，把其中的署名内容一并收进这里。
 
-移植的文件（左边是 Wevir 文件，右边是 Paseo 的来源路径），由 Wevir 修改，修改说明在文件头：
+移植的文件（左边是 Wevir 文件，右边是 Paseo 的来源路径）：
 
   packages/host/src/html-preview-csp.ts
       <- packages/app/src/file-pane/html-preview-csp.ts
+  packages/protocol/src/browser.ts
+      <- packages/protocol/src/browser-automation/rpc-schemas.ts
+         packages/protocol/src/browser-automation/capabilities.ts
+  packages/host/src/browser-broker.ts
+      <- packages/server/src/server/browser-tools/broker.ts
+         packages/server/src/server/browser-tools/errors.ts
+  packages/host/src/browser-tools.ts
+      <- packages/server/src/server/browser-tools/tools.ts
+  apps/desktop/src/main/browser/automation/service.ts
+      <- packages/desktop/src/features/browser-automation/service.ts
+  apps/desktop/src/main/browser/automation/service.test.ts
+      <- packages/desktop/src/features/browser-automation/service.test.ts
+  apps/desktop/src/main/browser/automation/contents.ts
+      <- packages/desktop/src/features/browser-automation/ipc.ts
+  apps/desktop/src/main/browser/automation/snapshot-engine.ts（及 .test.ts）
+      <- packages/desktop/src/features/browser-automation/snapshot-engine.ts（及 .test.ts）
+  apps/desktop/src/main/browser/automation/aria-snapshot-script.ts
+      <- packages/desktop/src/features/browser-automation/aria-snapshot-script.ts
+  apps/desktop/src/main/browser/automation/actionability.ts
+      <- packages/desktop/src/features/browser-automation/actionability.ts
+  apps/desktop/src/main/browser/automation/trusted-input.ts（及 .test.ts）
+      <- packages/desktop/src/features/browser-automation/trusted-input.ts（及 .test.ts）
+  apps/desktop/src/main/browser/automation/cdp-session-queue.ts
+      <- packages/desktop/src/features/browser-automation/cdp-session-queue.ts
+  apps/desktop/src/main/browser/automation/dialog-handling.ts
+      <- packages/desktop/src/features/browser-automation/dialog-handling.ts
+
+aria-snapshot-script.ts 里的 ARIA 快照模型由 Paseo 改编自 Playwright 的注入脚本，上游文件里的署名照原样保留：
+
+  Adapted from Playwright's injected ARIA snapshot model.
+  Copyright (c) Microsoft Corporation. Licensed under the Apache License, Version 2.0.
+
+Playwright 仓库：https://github.com/microsoft/playwright（Apache License 2.0）。
 
 
 5. OpenAI Codex
@@ -536,7 +574,7 @@ SOFTWARE.
 
 Apache License 2.0
 ------------------------------------------------------------------------------------------------
-第 4、5 节、第 8 节的 Paper Shaders 与第 11 节的 @pierre/* 的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 5 节）：
+第 4、5 节（第 4 节的 Paseo 文件含其中 Playwright 改编的部分）、第 8 节的 Paper Shaders 与第 11 节的 @pierre/* 的许可证是下面这份 Apache License 2.0（取自 Codex 仓库的 LICENSE，来源提交同第 5 节）：
 
                                  Apache License
                            Version 2.0, January 2004

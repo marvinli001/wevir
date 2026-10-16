@@ -38,6 +38,7 @@ import {
 } from '@wevir/protocol';
 import type { Storage } from '@wevir/storage';
 import type { RawData, WebSocket } from 'ws';
+import type { BrowserBroker } from './browser-broker.js';
 import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
@@ -71,6 +72,8 @@ export interface ConnectionHost {
   readonly accounts?: { watch(listener: (state: AccountState) => void): () => void };
   /** Host 设置（R11）：调过 `settings.*` 的连接用它收 `settings.updated`。 */
   readonly settings?: { watch(listener: (settings: HostSettings) => void): () => void };
+  /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
+  readonly browsers?: BrowserBroker;
   readonly limits: ConnectionLimits;
   readonly resultValidation: 'strict' | 'warn';
   /** 服务正在优雅退出：新请求一律 `HOST_SHUTTING_DOWN`。 */
@@ -138,6 +141,10 @@ export class RpcConnection {
   #unwatchAccounts: (() => void) | undefined;
   /** 调过 `settings.*` 之后：退订 `settings.updated`。 */
   #unwatchSettings: (() => void) | undefined;
+  /** `browser.register` 之后：注销这条连接的浏览器提供方。 */
+  #unregisterBrowser: (() => void) | undefined;
+  /** 这条连接作为浏览器提供方的标识。 */
+  readonly #browserProviderId = newId('conn');
   /** 所有订阅排队的字节数之和。 */
   #queuedBytes = 0;
   #lastActivity = performance.now();
@@ -374,6 +381,44 @@ export class RpcConnection {
         const subscription = this.#subscriptions.get(subscriptionId);
         if (subscription) this.#drop(subscription);
         this.#respond(id, method, {});
+        return;
+      }
+      case 'browser.register': {
+        const { commands } = params as MethodParams<'browser.register'>;
+        this.#unregisterBrowser?.();
+        this.#unregisterBrowser = this.#host.browsers?.register({
+          id: this.#browserProviderId,
+          commands,
+          send: (request) => {
+            const parsed = NotificationSchemas['browser.request'].params.safeParse(request);
+            if (!parsed.success) {
+              this.#host.onError(
+                new Error(`browser.request does not match its schema: ${parsed.error}`),
+              );
+              return false;
+            }
+            return this.#send({
+              jsonrpc: JSONRPC_VERSION,
+              method: 'browser.request',
+              params: parsed.data,
+            });
+          },
+        });
+        this.#respond(id, method, {});
+        return;
+      }
+      case 'browser.unregister':
+        this.#unregisterBrowser?.();
+        this.#unregisterBrowser = undefined;
+        this.#respond(id, method, {});
+        return;
+      case 'browser.respond': {
+        const accepted =
+          this.#host.browsers?.respond(
+            this.#browserProviderId,
+            params as MethodParams<'browser.respond'>,
+          ) ?? false;
+        this.#respond(id, method, { accepted });
         return;
       }
       default: {
@@ -650,6 +695,8 @@ export class RpcConnection {
     this.#unwatchAccounts = undefined;
     this.#unwatchSettings?.();
     this.#unwatchSettings = undefined;
+    this.#unregisterBrowser?.();
+    this.#unregisterBrowser = undefined;
   }
 }
 

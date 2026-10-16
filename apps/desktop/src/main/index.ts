@@ -35,6 +35,7 @@ import {
 } from '../shared/renderer-origin.js';
 import { isThemeMode, THEME_BACKGROUND } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
+import { registerBrowserIpc } from './browser/browser-ipc.js';
 import { Editors, isLineNumber } from './editors.js';
 import {
   failureOf,
@@ -331,9 +332,21 @@ function run(): void {
     app.moveToApplicationsFolder();
   });
 
+  // 内置浏览器（0.33.0，browser/）：标签页是主窗口里的 WebContentsView，用自己的 session 分区与导航规则。
+  const browser = registerBrowserIpc({
+    getWindow: () => mainWindow,
+    assertSender,
+    log,
+  });
+
   // 所有 webContents（含将来的）一律：新窗口拒绝，外部链接交给系统浏览器；只允许同 origin 的导航
-  // （开发服务器的整页刷新）；不允许挂 <webview>（Electron 安全清单第 12、13 条）。
+  // （开发服务器的整页刷新）；不允许挂 <webview>（Electron 安全清单第 12、13 条）。内置浏览器的标签页有自己的规则
+  // （只放行 http(s)，弹窗变成新标签页，外部协议一律拒绝），这里只给它们加上“不许挂 <webview>”。
   app.on('web-contents-created', (_event, contents) => {
+    if (browser.isBrowserContents(contents)) {
+      contents.on('will-attach-webview', (event) => event.preventDefault());
+      return;
+    }
     contents.setWindowOpenHandler(({ url }) => {
       openIfExternal(url);
       return { action: 'deny' };
@@ -400,6 +413,8 @@ function run(): void {
     protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir));
     applyAppIcon();
     mainWindow = createWindow();
+    // 内置浏览器的后台标签页停在一个不显示的窗口里：主窗口关掉时一起关，否则 window-all-closed 不会触发。
+    mainWindow.on('closed', () => browser.destroy());
     updates.start();
   });
 }

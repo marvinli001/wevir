@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.32.0`（文件预览与编辑；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
+> 状态：v0（T1.2）· 协议版本 `0.33.0`（内置浏览器；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -13,7 +13,7 @@
 
 - JSON-RPC 2.0 over WebSocket，文本帧，一帧一个 JSON-RPC 对象（ADR-0002 §1）。**v0 不支持批量**：收到 JSON 数组时 Host 回一个 `INVALID_REQUEST`（`id: null`）；二进制帧同样回 `INVALID_REQUEST`（`id: null`）。
 - 参数一律按名称传（对象）；方法没有参数时传 `{}`，省略 `params` 等同于 `{}`。请求 `id` 用字符串或整数，不用 `null`。
-- 客户端只发请求；Host 只发响应和通知（v0 只有 `events.event`）。同一连接上可以连发多个请求，响应顺序不保证与请求一致，按 `id` 对应；同一会话的命令在 Host 内串行执行（ADR-0002 §4）。
+- 客户端只发请求；Host 只发响应和通知。Host 要客户端做事时也只用通知：0.33.0 起登记为浏览器提供方的连接会收到 `browser.request`，用请求 `browser.respond` 回答（§3.1），线缆上仍没有 Host 发出的 JSON-RPC 请求。同一连接上可以连发多个请求，响应顺序不保证与请求一致，按 `id` 对应；同一会话的命令在 Host 内串行执行（ADR-0002 §4）。
 - 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行下表的白名单，精确匹配），不通过直接 403，不会走到 JSON-RPC 层。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426（下面两个路径除外）。例外是 `POST /mcp`：应用级工具的 MCP 端点（0.30.0，domain-model §3.15），给 Host 自己挂到引擎会话上的 agent 用，不是客户端的接口。它按 MCP 的 Streamable HTTP 只回 JSON（不开 SSE、不记 MCP 会话），要 `Authorization: Bearer <这个会话的令牌>`（每个 Wevir 会话一个，只在内存里、Host 重启后作废，与 `run/host.json` 的令牌无关）；带 `Origin` 头、`Host` 头不是本机地址的回 403，没有或不认识的令牌回 401，不是 POST 的回 405，Host 退出期间回 503。
 - 另一个例外是 `GET /files/<令牌>/<路径>`（0.32.0，`workspace.fileUrl`）：文件预览的只读读取，给渲染进程里的 `<img>`、`<video>`、`<audio>`、`<iframe>` 与 `fetch` 用。`Host` 头不是本机地址的回 403（防 DNS 重绑定）；不认识、已作废的令牌与读不到的文件一律回 404（不区分）；不是 GET / HEAD 的回 405。令牌按目录发，目录里只读得到能预览的几类文件（图片、样式、脚本、字体、音视频、PDF、网页与 Office 文件，按扩展名，所以 HTML 页面的相对引用与 Markdown 里的图片也走它），路径里有以 `.` 开头的段（`.env`、`.git/`）的不给，realpath 之后仍要在目录里。音视频支持单段 `Range`（206 / 416）。响应都带 `X-Content-Type-Options: nosniff`、`Cache-Control: private, no-store` 与 `Access-Control-Allow-Origin: *`（令牌就是凭据，带它的人本来就读得到；渲染进程要 `fetch` Office 文件的字节）；HTML 另带 CSP：`sandbox allow-scripts allow-forms allow-popups allow-downloads`（不透明 origin，碰不到桌面端的会话与存储，照 T3 Code）且不能联网（`connect-src 'none'`，外部脚本、样式、字体与图片都不加载，只认同一个令牌下的文件，照 Paseo 的 HTML 预览），SVG 带 `default-src 'none'; style-src 'unsafe-inline'; sandbox`。
 - Origin 白名单只有桌面渲染进程（T5.1，代码 `DESKTOP_RENDERER_ORIGINS`）。浏览器与渲染进程的 WebSocket 升级一定带 Origin 头；CLI 与测试用的 Node 客户端不带，不受白名单影响。白名单只是纵深防御，挡的是本机浏览器里任意网页发起的连接；鉴权仍靠 hello 里的令牌（§2）。
@@ -130,6 +130,9 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `image.read` | `session.read` | `imageId, offset?` | `imageId, mimeType, size, offset, data` | `IMAGE_NOT_FOUND`、`INVALID_PARAMS` |
 | `question.respond` | `session.write` | `questionId, answers` | `questionId, status, resolution` | `QUESTION_NOT_FOUND`、`INVALID_PARAMS`、`ENGINE_ERROR` |
 | `approval.respond` | `session.write` | `approvalId, optionId` | `approvalId, status, resolution` | `APPROVAL_NOT_FOUND`、`ALREADY_DECIDED` |
+| `browser.register` | `host.manage` | `commands` | `{}` | |
+| `browser.unregister` | `host.manage` | `{}` | `{}` | |
+| `browser.respond` | `host.manage` | `requestId, ok, result?, error?, dialogs?` | `accepted` | |
 | `events.subscribe` | `session.read` | `sessionId, sinceSeq` | `subscriptionId, replayedThroughSeq` | `SESSION_NOT_FOUND` |
 | `events.unsubscribe` | `session.read` | `subscriptionId` | `{}` | |
 
@@ -141,6 +144,7 @@ Host → 客户端的通知：
 | `events.event` | `subscriptionId, event: WevirEvent` |
 | `account.updated` | `account: AccountState`（0.7.0；只发给调用过 `account.*` 方法的连接；订阅来源只发给声明了 `subscription_kinds` 的连接） |
 | `settings.updated` | `settings: HostSettings`（发给调用过 `settings.*` 的连接） |
+| `browser.request` | `requestId, sessionId, cwd, command: BrowserCommand`（0.33.0；只发给用 `browser.register` 登记过的连接） |
 
 ### 3.1 各方法要点
 
@@ -195,6 +199,7 @@ Host → 客户端的通知：
 - **`session.close`**：活动中的会话先取消再关闭（领域模型 §4.1 #14）；已关闭时成功、无操作。0.6.0：活动中的子会话同 `session.cancel` 一并取消，但不关闭（历史照常可读）；对子会话本身回 `INVALID_STATE`（子会话由父 agent 关闭）。
 - **`session.resume`**：`error` / `closed` 时恢复为 `idle`，其余状态成功、无操作；返回最新的 `session`。成功时先写 `session.resumed`（0.3.0，带引擎版本），引擎不回放历史，历史以事件库为准。Provider 已被删除回 `PROVIDER_NOT_FOUND`；工作区目录已不存在回 `WORKSPACE_PATH_INVALID`（不写事件）；引擎拒绝回 `ENGINE_ERROR`（同时追加一条 `engine.error` 事件，状态不变）。引擎会话恢复不了（会话日志被删除、格式不兼容或损坏）时另写 `session.read_only`，会话带上 `readOnly`；只读会话仍可以 resume，引擎找回会话时成功并解除只读（领域模型 §4.4）。对子会话回 `INVALID_STATE`（0.6.0）：子会话在父 agent 又用到它时由 Host 重新挂上（领域模型 §4.5 C5）。
 - **`approval.respond`**：`optionId` 必须是该审批 `options` 里的一个，否则 `INVALID_PARAMS`，审批不变。首个决定生效；审批已不是 `pending` 时回 `ALREADY_DECIDED`，`data` 带既有的 `status` 与 `resolution`（领域模型 §5）。提交给引擎失败时会话转 `error`，审批结为 `cancelled`（`engine_exited`），同样回 `ALREADY_DECIDED`（领域模型 §4.3）。子会话的审批（0.6.0）属于子会话，`approvalId` 取自子会话的事件流，或父会话快照与 `subagent.*` 事件里摘要的 `pendingApprovals`；任何连接都能回，不论它订阅的是父会话还是子会话，首个决定生效（领域模型 §5 第 8 条）。
+- **`browser.register` / `browser.unregister` / `browser.respond` 与通知 `browser.request`**（0.33.0，Host 功能 `browser_tools`，domain-model §3.15.1）：内置浏览器在桌面端的主进程里，Host 经这条反向通道把会话里的 agent 调的 `browser_*` 工具交给它。`browser.register` 把这条连接登记为浏览器提供方，`commands` 是它会的命令（`BROWSER_COMMANDS`，Host 只发它声明过的，认不出的名字忽略）；再调一次替换，连接关闭即注销。Host 发 `browser.request`（`requestId` 是 `brq_` 开头的 ID，`sessionId` 是调工具的会话，`cwd` 是它的目录，`command` 是 `BrowserCommand`），提供方执行后用 `browser.respond` 回答：`ok: true` 带 `result`（`BrowserResult`，与命令同名），`ok: false` 带 `error`（`code` 是开放字符串，已知的在 `BROWSER_ERROR_CODES`；`message`；`retryable?`），可带执行期间自动处理掉的对话框 `dialogs`。结果 `accepted: false` 表示这个请求已经超时、被取消（引擎取消了工具调用）或不是交给这条连接的，回答被丢掉。新开标签页交给最近登记的提供方，带 `browserId` 的交给开出这个标签页的那个；提供方断开时在途的请求以 `browser_no_host` 结束（Paseo 的 BrowserToolsBroker）。没有提供方时工具明确返回不可用。没有 `browser_tools` 的 Host 上这三个方法照常回 `{}` / `accepted: false`，登记不生效。
 - **`events.subscribe` / `events.unsubscribe`**：见 §4。`events.unsubscribe` 对不存在或已释放的 `subscriptionId` 成功、无操作。
 
 ### 3.2 示例
@@ -333,6 +338,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `SubscriptionId` | `sub_` | Host（只在建立它的连接上有效） |
 | `PendingMessageId` | `pnd_` | Host |
 | `ImageId` | `img_` | 数据目录（0.28.0，消息里的图片） |
+| `BrowserRequestId` | `brq_` | Host（0.33.0，交给浏览器提供方的请求，只在内存里） |
 
 `ProviderId` 由用户给出，`^[a-z][a-z0-9-]{0,31}$`。`deviceId`、`clientId`、`clientMessageId` 由客户端生成，1–128 个字符。时间字段是 `Date.prototype.toISOString()` 的输出（UTC、毫秒精度）。
 
@@ -440,6 +446,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.32.0`：文件预览与编辑。新方法 `workspace.fileUrl`、`workspace.writeFile`；`workspace.readFile` 的结果加 optional 的 `mtimeMs`；Host 功能 `file_preview`；Host 的 HTTP 服务多了 `GET /files/…`（§1）。新方法与 optional 字段，`unavailable` 是开放字符串，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法、忽略 `mtimeMs`。新客户端连旧 Host：hello 结果里没有 `file_preview`，桌面端的文件窗格照 0.22.0 只读、只显示文本与图片，PDF、网页、音视频与 Office 文件只给“用默认应用打开”。冻结样本 `compat/0.32.0.json`。
 
+`0.33.0`：内置浏览器（domain-model §3.15.1）。新方法 `browser.register`、`browser.unregister`、`browser.respond`，新通知 `browser.request`（Host 交给登记过的连接，线缆上仍没有 Host 发起的 JSON-RPC 请求，§1）；新类型 `BrowserCommand`、`BrowserResult`、`BrowserTabInfo`、`BrowserRequest`、`BrowserResponse` 等（`packages/protocol/src/browser.ts`，命令名、错误码、`controller`、对话框的类型与处理方式都是开放字符串）与 ID `brq_`；Host 功能 `browser_tools`。应用级工具里多了 `browser_*` 工具，`wevir_show` 的 `kind` 多了 `browser`（MCP 的工具参数，不是 Host API 的形状）。`UiShowTarget` 不变：显示网页经浏览器提供方（`show` 命令），不写 `ui.show`，所以不需要给判别联合加变体，也不需要能力位。新方法与新通知，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不登记，收不到 `browser.request`；agent 调浏览器工具得到“桌面端没开或太旧”。新客户端连旧 Host：hello 结果里没有 `browser_tools`，桌面端不登记（浏览器窗格照样能用，只是 agent 用不了）。冻结样本 `compat/0.33.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -494,6 +502,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `user_images` | 0.28.0 | `image.upload`、`image.read` 与消息里的图片（引擎有 `acceptsImages` 时：Codex、Claude、Cursor、OpenCode、Grok、Antigravity、echo；dsh 没有） |
 | `file_preview` | 0.32.0 | `workspace.fileUrl`（`GET /files/…` 的只读流式地址）、`workspace.writeFile` 与 `workspace.readFile` 的 `mtimeMs`（与引擎无关） |
 | `app_tools` | 0.30.0 | 应用级工具（domain-model §3.15）：引擎会话挂上 Host 的 `wevir` MCP 服务；`ui.show` 事件、`user.message` 与待发消息的 `from`、`Session.openedBy`（Codex、Claude、Cursor、Grok、Antigravity、dsh 引擎；OpenCode 与 echo 没有，`engineFeatures` 的 `appTools` 按 Provider 说） |
+| `browser_tools` | 0.33.0 | 内置浏览器（domain-model §3.15.1）：`browser.*` 方法与 `browser.request` 通知，应用级工具里的 `browser_*` 与 `wevir_show` 的 `browser`（有应用级工具时，同 `app_tools`） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

@@ -792,13 +792,22 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
   | `wevir_session_send` | 给别的会话发消息：`delivery` 是 `auto`（空闲时开回合，忙时按 Host 设置的 `sendWhileBusy`）、`queue` 或 `steer`；`reportBack` 默认 `false` | 按权限模式 |
   | `wevir_session_wait` | 等别的会话不再工作（回合结束，或在等用户批准、回答），最多 10 分钟，默认 30 秒；返回状态、最后一个回合的结局与回答。超时不打断对方 | 不用 |
   | `wevir_session_interrupt` | 停别的会话进行中的回合，同用户按停止 | 按权限模式 |
-  | `wevir_show` | 请界面显示：会话目录里的文件（可带行号）、“变更”、“文件”或另一个会话；写 `ui.show` 事件 | 不用 |
+  | `wevir_show` | 请界面显示：会话目录里的文件（可带行号）、“变更”、“文件”或另一个会话，写 `ui.show` 事件；0.33.0 起还有内置浏览器里的本机网页或这个会话的标签页（`kind: "browser"`，经浏览器提供方，§3.15.1） | 不用 |
 
   “按权限模式”是引擎自己的审批：请求批准时问用户（Codex 经 MCP 的确认请求上报为审批，codex-event-mapping.md §6.11；Claude 经 `canUseTool`；ACP 引擎按它们自己的规则），自动批准时由审查模型决定，完全访问时不问。不用批准的工具按名字放行（`APP_TOOLS_NO_APPROVAL`，Claude 的 `allowedTools`）或靠 annotations（Codex：只读，或既不破坏也不对外）。Cursor 没有审批，一律直接调用。
 - **边界**（照 T3）：新开的会话的权限模式不能比自己宽；不能给权限模式比自己宽的会话发消息、不能停它；不能给自己发消息、停自己、等自己；子会话（引擎派出的子 agent）与支线只读，不能发消息、停止。所有会话都看得到（同 T3 的 `t3_thread_read`：同一个用户的同一个 Host）；工作区移除了的会话不在。工具的说明与 MCP 的 `instructions` 写明：只在用户要求时新开会话，别的会话发来的内容是另一个 agent 的上下文，不是用户的指示。
 - **会话之间的消息。** Host 代发：`user.message`（或待发消息、插话）带 `from: { sessionId, kind: 'message', reportBack? }`，`sentBy` 是 Host 自己（`clientId: 'wevir-app-tools'`）。agent 开出的会话带 `Session.openedBy`（存储里是 `origin` 列的 `{ kind: 'agent', sessionId }`），不进左栏以外的地方，同普通会话。
 - **回报。** 一个回合结束（`turn.finished`）时，开始它的 `user.message` 带 `reportBack` 的，Host 把那个回合最后一段回答（前 4000 字）作为 `from.kind: 'report'` 的消息发回 `from.sessionId`，交付方式同上（对方忙时按 `sendWhileBusy` 插话或排队；空闲时开回合，所以请人做事的 agent 结束回合后会被结果叫醒，T3 的 delegate_task 完成通知、Paseo 的 `notifyOnFinish`）。请求方已经用 `wevir_session_wait` 拿到这个回合结果的不再回报；回报开的回合本身不再回报（它不是 `message`）。发不出去（会话关了又恢复不了、只读）时只记告警。
 - **显示。** `ui.show`（`target` 是 `UiShowTarget`，`turnId` 是当时进行中的回合）写在调用方会话的流里。桌面端只在主会话视图里、只对刚到的（15 秒内、比处理过的 `seq` 新）打开窗格：文件进“文件预览”并跳到行，`changes` 打开“变更”（未提交的改动），`files` 打开文件树，`session` 在窗格里打开那个会话（desktop-layout.md §20）。
+
+#### 3.15.1 内置浏览器（0.33.0）
+
+维护者 2026-10-16 定：桌面端加内置浏览器窗格，会话里的 agent 经应用级工具用它（打开网页、看页面、点击、填写、截图），尽量照搬上游。浏览器宿主照 OpenWork（MIT）的 Electron `WebContentsView`（`apps/desktop/electron/browser-panel.mjs`）与标签页归属策略（`packages/browser-tabs`）；自动化照 Paseo（Apache-2.0）的 CDP 实现（`packages/desktop/src/features/browser-automation/`：`webContents.debugger`、改编自 Playwright 的 aria 快照、可操作性检查、可信输入、对话框）与工具定义（`packages/server/src/server/browser-tools/`）。桌面主进程一直禁用 `<webview>`，所以不用 T3 / Paseo 的 webview。
+
+- **通道。** 浏览器在桌面端主进程，Host 是另一个进程。照 Paseo 的 broker：桌面端渲染进程连上 Host 后用 `browser.register` 把自己登记为浏览器提供方（client-sdk 的 `provideBrowser`，重连后自动再登记），Host 的 `BrowserBroker`（`packages/host/src/browser-broker.ts`）把工具调用变成 `browser.request` 通知，渲染进程原样经 IPC 交给主进程执行（`apps/desktop/src/main/browser/`），回答经 `browser.respond` 回来（host-api.md §3.1）。默认时限 30 秒（`browser_wait` 是它的时限加 5 秒）；引擎取消工具调用时 Host 立即结束等待，迟到的回答丢掉。桌面没开、太旧（没登记）时工具回 `browser_no_host`。
+- **工具**（同在 `wevir` 服务里，`packages/host/src/browser-tools.ts`）：`browser_list_tabs`、`browser_new_tab`、`browser_close_tab`、`browser_snapshot`（aria YAML，元素带 `@e1` 这样的引用，页面变了就作废）、`browser_screenshot`（PNG，视口或整页，上限 4 MiB）、`browser_click`、`browser_fill`、`browser_type`、`browser_keypress`、`browser_select`、`browser_hover`、`browser_drag`、`browser_scroll`、`browser_navigate`、`browser_back`、`browser_forward`、`browser_reload`、`browser_wait`（文字或地址片段，最多 30 秒）、`browser_logs`（控制台与网络条目）。Paseo 的 `browser_evaluate`（在页面里跑任意脚本）、`browser_upload`（把本机文件交给网页）与 `browser_resize` 不搬。只读的五个（列标签页、快照、截图、等待、日志）不用批准（`readOnlyHint`，并进 `APP_TOOLS_NO_APPROVAL`），其余按会话的权限模式走引擎的审批（同上表“按权限模式”）。结果只给文本（截图另带图片），不给 `structuredContent`：Codex 有它时只把它序列化成文本交给模型、丢掉内容项，截图就到不了模型。`wevir_show` 多了 `kind: "browser"`：`url` 只收本机地址（localhost、127.0.0.0/8、`[::1]`，例如 agent 刚起的开发服务器），在新标签页里打开；或 `browserId` 显示这个会话的一个标签页；别的网站要用 `browser_new_tab`（要批准）。
+- **标签页归属与操作方。** 每个标签页属于开它的会话（OpenWork 的 `createBrowserTabRegistry`）：agent 只看得到、只操作得了自己会话的；用户在会话的浏览器窗格里开的也属于那个会话。标签页另有操作方 `controller`：agent 开的是 `agent`；用户开的、用户在地址栏里跳转过、在 agent 的标签页里点过敲过的是 `user`（用户接手），这时 agent 只读（列、快照、截图、等待、日志照常，其余回 `browser_denied`），用户点“交给 Agent”再交回去。agent 的命令执行期间页面收到的输入不算用户接手。全部会话合计最多 12 个标签页。
+- **上屏。** 只有正在看的会话的当前标签页、在浏览器窗格可见时放在窗口上；其余停在一个不显示的窗口里继续绘制，并用 DevTools 模拟一个 1280×800 的视口与焦点（OpenWork 的 `backgroundTabEmulationCommands`），这样 agent 在后台也能截图、点击、打字。
 
 ## 4. 会话状态机
 

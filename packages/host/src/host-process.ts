@@ -16,6 +16,7 @@ import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
 import { APP_TOOLS_INSTRUCTIONS, AppTools } from './app-tools.js';
+import { BrowserBroker } from './browser-broker.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
@@ -234,6 +235,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     await settings.load();
 
+    // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
+    const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
     if (adapter.appTools === true) {
       appTools = new AppTools({
         storage,
@@ -241,6 +244,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sessions: manager,
         hostId,
         sendWhileBusy: () => settings.get().sendWhileBusy,
+        ...(browsers !== undefined && { browser: browsers }),
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       appMcp = new AppMcpServer({
@@ -306,10 +310,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.review !== undefined && { session_review: true }),
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),
+        ...(browsers !== undefined && { browser_tools: true }),
       },
       engineFeatures,
       ...(accounts !== undefined && { accounts }),
       settings,
+      ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,

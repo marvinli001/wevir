@@ -11,6 +11,7 @@ export const PANE_KINDS = [
   'plan',
   'terminal',
   'session',
+  'browser',
 ] as const;
 
 export type PaneKind = (typeof PANE_KINDS)[number];
@@ -69,6 +70,8 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
     available: true,
     internal: true,
   },
+  // 0.33.0：内置浏览器（desktop-layout.md §21），当前会话的标签页；网页是主进程的原生视图。
+  browser: { minWidth: 360, minHeight: 240, shape: 'tall', multiple: false, available: true },
 };
 
 export function isPaneKind(value: unknown): value is PaneKind {

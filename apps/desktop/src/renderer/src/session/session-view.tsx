@@ -14,6 +14,7 @@ import { cn } from 'cn';
 import { TriangleAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
+import { useBrowserReveal } from '@/browser/browser-store';
 import { openChanges } from '@/changes/changes-store';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
@@ -110,6 +111,8 @@ export function SessionView({
   const sessionsById = useSessions();
   const titleOf = useCallback((id: SessionId) => sessionsById.get(id)?.title, [sessionsById]);
   useUiShow(session, variant === 'main' ? transcript?.uiShow : undefined, panes, titleOf);
+  // agent 请显示网页（0.33.0，`wevir_show` 的 browser）：同样只在主会话里打开浏览器窗格。
+  useBrowserReveal(session.id, variant === 'main' ? panes : undefined);
   const sessionState = transcript?.state ?? session.state;
   const readOnly = transcript?.readOnly ?? session.readOnly;
   const acceptImages = useAcceptsImages(session);

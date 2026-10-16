@@ -1,6 +1,7 @@
 // 仅供测试：各 schema 的合法与非法样例。不从 index.ts 导出，不进入构建产物。
 // 合法样例以 TS 类型约束（与 z.infer 一致），非法样例各自只破坏一处，便于定位。
 
+import type { BrowserTabInfo } from './browser.js';
 import type { ClientIdentity } from './common.js';
 import type {
   AccountState,
@@ -57,7 +58,21 @@ export const ids = {
   task2: 'tsk_01JA2B3C4D5E6F7G8H9JKMNPR1',
   /** 消息里的图片（0.28.0）。 */
   image: `img_${ULID}`,
+  /** 浏览器请求（0.33.0）。 */
+  browserRequest: `brq_${ULID}`,
 } as const;
+
+/** 浏览器的一个标签页（0.33.0）。 */
+export const browserTab: BrowserTabInfo = {
+  browserId: 'tab_m2k1_1',
+  url: 'http://localhost:5173/',
+  title: 'Vite App',
+  isActive: true,
+  isLoading: false,
+  canGoBack: false,
+  canGoForward: false,
+  controller: 'agent',
+};
 
 /** 消息里的一张图片（0.28.0）。 */
 export const imagePart: UserImagePart = {
@@ -1851,6 +1866,65 @@ export const methodSamples: MethodSamples = {
       invalid: [{ approvalId: ids.approval, status: 'pending', resolution: userResolution }],
     },
   },
+  'browser.register': {
+    params: {
+      valid: [
+        { commands: ['list_tabs', 'new_tab', 'snapshot', 'click'] },
+        { commands: ['someday'] },
+      ],
+      invalid: [{ commands: [] }, { commands: [''] }],
+    },
+    result: empty,
+  },
+  'browser.unregister': { params: empty, result: empty },
+  'browser.respond': {
+    params: {
+      valid: [
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: { command: 'list_tabs', tabs: [browserTab] },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'snapshot',
+            browserId: browserTab.browserId,
+            url: browserTab.url,
+            title: browserTab.title,
+            format: 'aria-yaml',
+            snapshot: '- button "Save" [ref=@e1]',
+            truncated: false,
+            stats: { nodeCount: 3, refCount: 1, textLength: 26 },
+          },
+          dialogs: [
+            { type: 'confirm', message: 'Leave?', action: 'dismissed', timestamp: 1760256000000 },
+          ],
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: { command: 'click', browserId: browserTab.browserId, ref: '@e1', x: 40, y: 12 },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: false,
+          error: {
+            code: 'browser_stale_ref',
+            message: 'Browser element reference @e3 is stale.',
+            retryable: false,
+          },
+        },
+      ],
+      invalid: [
+        { requestId: 'r1', ok: false, error: { code: 'browser_timeout', message: 'x' } },
+        { requestId: ids.browserRequest, ok: true, result: { command: 'evaluate' } },
+        { requestId: ids.browserRequest, ok: false, error: { code: '', message: 'x' } },
+      ],
+    },
+    result: { valid: [{ accepted: true }, { accepted: false }], invalid: [{}] },
+  },
   'events.subscribe': {
     params: {
       valid: [
@@ -1897,6 +1971,54 @@ export const notificationSamples: NotificationSamples = {
   'settings.updated': {
     valid: [{ settings: { sendWhileBusy: 'queue' } }],
     invalid: [{ settings: {} }],
+  },
+  'browser.request': {
+    valid: [
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'new_tab', args: { url: 'http://localhost:5173/' } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'click',
+          args: { browserId: browserTab.browserId, ref: '@e4', modifiers: ['Shift'] },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'wait', args: { browserId: browserTab.browserId, text: 'Saved' } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'show', args: { url: 'http://127.0.0.1:3000/' } },
+      },
+    ],
+    invalid: [
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'navigate',
+          args: { browserId: browserTab.browserId, url: 'file:///etc/passwd' },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'click', args: { browserId: browserTab.browserId, ref: 'button' } },
+      },
+    ],
   },
 };
 

@@ -118,6 +118,18 @@ describe('审批标题按会话的边界', () => {
     expect(title(mcp('mcp__other__wevir_session_create'), claude)).toBe('允许执行此操作？');
   });
 
+  it('浏览器工具（0.33.0）：开网页、操作网页、关标签页各有标题', () => {
+    const mcp = (toolName: string): ApprovalRequest['detail'] => ({
+      toolName,
+      display: { kind: 'unknown', summary: toolName },
+    });
+    expect(title(mcp('mcp__wevir__browser_new_tab'), codex)).toBe('允许在浏览器中打开网页？');
+    expect(title(mcp('mcp__wevir__browser_navigate'), codex)).toBe('允许在浏览器中打开网页？');
+    expect(title(mcp('mcp__wevir__browser_click'), claude)).toBe('允许操作浏览器中的网页？');
+    expect(title(mcp('mcp__wevir__browser_fill'), codex)).toBe('允许操作浏览器中的网页？');
+    expect(title(mcp('mcp__wevir__browser_close_tab'), codex)).toBe('允许关闭浏览器标签页？');
+  });
+
   it('Claude Agent：路径出了目录时照实说', () => {
     expect(title(write('/repo-other/a.txt'), claude)).toBe('允许修改项目目录之外的文件？');
     expect(title(write('/repo/../etc/hosts'), claude)).toBe('允许修改项目目录之外的文件？');

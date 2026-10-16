@@ -136,6 +136,11 @@ export const HOST_FEATURES = {
    * `workspace.writeFile`（按修改时间检查冲突的写回）与 `workspace.readFile` 结果的 `mtimeMs`。与引擎无关。
    */
   filePreview: 'file_preview',
+  /**
+   * 内置浏览器（0.33.0，domain-model §3.15）：连接可以用 `browser.register` 登记为浏览器提供方、收 `browser.request` 通知、用
+   * `browser.respond` 回答；应用级工具里有 `browser_*` 工具，`wevir_show` 能显示网页。只在有应用级工具时声明。
+   */
+  browserTools: 'browser_tools',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -166,6 +171,7 @@ export const HostFeaturesSchema = z.looseObject({
   user_images: z.boolean().optional(),
   app_tools: z.boolean().optional(),
   file_preview: z.boolean().optional(),
+  browser_tools: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

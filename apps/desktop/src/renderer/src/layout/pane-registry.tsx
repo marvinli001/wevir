@@ -4,6 +4,7 @@ import {
   FileText,
   FolderTree,
   GitCompare,
+  Globe,
   Info,
   ListChecks,
   type LucideIcon,
@@ -15,6 +16,7 @@ import type { WorkspaceEntry } from '@/data/workbench-model';
 import { type PlainMessageKey, t } from '@/i18n';
 import type { PaneKind } from './pane-kinds';
 import type { PaneTab } from './pane-state';
+import { BrowserPane } from './panes/browser-pane';
 import { FilesPane } from './panes/files-pane';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
@@ -99,6 +101,11 @@ const VIEWS: Record<PaneKind, PaneView> = {
       tab.params?.label ??
       (tab.params?.title ? t('side.tab', { title: tab.params.title }) : undefined),
     render: (tab) => <SessionPane key={tab.params?.sessionId} tab={tab} />,
+  },
+  browser: {
+    icon: Globe,
+    name: 'pane.kind.browser',
+    render: (_, context) => <BrowserPane context={context} />,
   },
 };
 
