@@ -346,6 +346,8 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 
 插件 P1a（协议 0.42.0）把 Wevir 插件包装进 `<数据目录>/plugins/packages/<id>/`，注册表同样在 `registry.json`（含输入项的值）。改了清单的 zod 定义就运行 `pnpm --filter @wevir/protocol schema` 重新生成 `packages/protocol/schemas/wevir-plugin.schema.json`。针对性验证：`pnpm vitest run --project protocol plugin-manifest`、`pnpm vitest run --project host plugin-packages`；真实 Codex 例子在 `plugins.codex.integration.test.ts`（worktree 里没有 `.wevir-dev/bin` 时用 `WEVIR_CODEX_BIN` 指向主 checkout 的 app-server）。
 
+插件 P3（对话里安装，协议仍为 0.42.0）：`plugin-app-tools.ts` 复用 P1/P1a 安装，三个写工具必须得到用户批准，完整说明见 [plugins.md「在对话里安装」](architecture/plugins.md#在对话里安装p3)。验证命令：`pnpm vitest run --project host app-tools`、`pnpm vitest run --project host plugin-app-tools.codex.integration`；后者以锁定的真实 app-server 与本机假模型分别跑 CodexAdapter / CodexRuntime，不需要供应商密钥。
+
 插件 P2（桌面端的插件页，不改协议与 Host）：纯逻辑与主进程的来源判断由 `pnpm vitest run --project desktop plugins`、`pnpm vitest run --project desktop plugin-source`、`pnpm vitest run --project desktop paths` 覆盖，类型检查是 `pnpm --filter @wevir/desktop typecheck`。界面要在构建出来的桌面端里走一遍：`pnpm build` 与 `pnpm --filter @wevir/desktop build` 后，先用 `pnpm --silent wevir --home <临时目录> host start --adapter echo` 起 echo Host，再 `cd apps/desktop && WEVIR_HOME=<临时目录> ./node_modules/.bin/electron . --remote-debugging-port=9359`（用 CDP 驱动；原生文件对话框加 `--inspect=9350`，在主进程里替换 `dialog.showOpenDialog`）；Codex Host 用 `packages/host/dist` 与 `packages/adapter-codex/dist` 的 `startHost` 加 `CodexRuntime` 与本机假模型起，`WEVIR_CODEX_BIN` 指向 `.wevir-dev/bin/codex-app-server`。
 
 ### 5.3 日志

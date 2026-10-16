@@ -74,6 +74,8 @@ Ollama（2026-10-16）：本机与 Cloud 模板用 Responses，模型由 Host `o
 
 插件 P2（0.42.0 的界面，不改协议与 Host）：左栏“新建会话”下面常驻“插件”（Host 有 `plugins` 功能才显示），页面在 `apps/desktop/src/renderer/src/plugins/`，路由 `/plugins/:tab`（插件 | 连接器 | Skills，`routes/plugins-route.tsx`）。纯逻辑：`plugins-model.ts`（功能门控、分段、连接器状态、Skills 分组）、`connector-import.ts`（粘贴 Claude / Cursor 的 `mcpServers` JSON）、`connector-form.ts`（添加 / 编辑表单与 `connector.add` / `update` 的请求）、`add-flow.ts`（按主进程 `inspectInstallSource` 的判断决定装 Skills、装插件包、先填输入项还是升级），各有单元测试；主进程 `main/plugin-source.ts` 为此给桌面端加了 yauzl 依赖。布局与视觉见 `docs/architecture/desktop-layout.md` §23、`docs/design/desktop-tokens.md` §52。
 
+插件 P3（对话里安装，仍为 0.42.0）：`app-tools.ts` 经 `plugin-app-tools.ts` 加入全局列表、插件安装、skill 安装与连接器添加；复用 P1/P1a，来源按 cwd / realpath 限会话文件夹，审批前固定副本、验证与脱敏，三个写工具核对用户批准（引擎未问时 Host 补问）。`session-manager.ts` 沿用原审批事件和 `approval.respond`，拒绝 / 取消不改配置；审批标题十种语言同步。验证入口见 development.md 的 P3 段。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

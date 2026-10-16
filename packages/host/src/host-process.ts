@@ -191,7 +191,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       storage,
       events: store,
       adapter,
-      appTools: { grant: (sessionId) => appMcp?.grant(sessionId) },
+      appTools: {
+        grant: (sessionId) => appMcp?.grant(sessionId),
+        prepareEvent: (sessionId, event) =>
+          appTools?.plugins?.prepareEvent(sessionId, event) ?? Promise.resolve(event),
+        resolved: (sessionId, toolCallId, approved) =>
+          appTools?.plugins?.resolved(sessionId, toolCallId, approved),
+        dispose: () => appTools?.plugins?.close(),
+      },
       onTurnFinished: (info) => appTools?.onTurnFinished(info),
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
@@ -263,6 +270,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
     if (adapter.appTools === true) {
       appTools = new AppTools({
+        plugins,
         storage,
         events: store,
         sessions: manager,

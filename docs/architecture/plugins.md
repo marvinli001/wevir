@@ -113,3 +113,20 @@ Host feature `plugins` 表示注册表 API 可用，与引擎分开；EngineFeat
 ### 验证
 
 `packages/protocol/src/plugin-manifest.test.ts`：清单合法 / 非法样本，JSON Schema 与 zod 源一致。`packages/host/src/plugin-packages.test.ts`：文件夹与 ZIP 安装、升级保留输入与开关、失败升级不动旧版本、卸载清干净、整体与单项开关、缺输入项的连接器不启动、占位符展开、导入 Claude（含 `${CLAUDE_PLUGIN_ROOT}`）与 Codex 包、忽略项报告、名字冲突、单独删除被拒、重启后还在、RPC 与 echo。`plugins.codex.integration.test.ts` 在真实 app-server + 本机假模型上对两个 Codex 实现各跑一遍：装样例包后 agent 经审批调到包里 `${pluginDir}` 的 stdio 工具（收到展开后的输入项），skill 在 Codex 的 skills/list 里且进上下文；关掉插件后下一个回合没有该工具，新会话的上下文里也没有该 skill，config.toml 里没有占位符。
+
+## 在对话里安装（P3）
+
+所有支持应用级工具的引擎都能经 `wevir` MCP 调 Host 的全局注册表；实际使用连接器与 skills 仍取决于引擎的 `mcpServers` / `skills` 能力。沿用 0.42.0 的方法、通知与审批事件，不新增线缆方法或版本。
+
+- `wevir_plugins_list {}`：列出插件、连接器与 skills，只读且不需批准；结果不含输入项密钥、环境变量或 HTTP header 的值。
+- `wevir_plugin_install { path, inputs? }`：把会话文件夹里的 Wevir、Claude 或 Codex 插件文件夹 / ZIP 交给 P1a 的安装实现。agent 帮用户做包时先写 `wevir-plugin.json` 与内容；必填输入项必须全部提供，缺失时工具列出键名，让 agent 向用户询问，失败不安装。此工具不升级已有插件。
+- `wevir_skill_install { path }`：安装会话文件夹里的 skill 文件夹、单个 `SKILL.md` 或 ZIP，沿用 P1 的解析、限制与发布事务。
+- `wevir_connector_add { name, transport, … }`：新增散装连接器，其余字段同协议 `McpServerConfig`（stdio 的 command / args / env / cwd，HTTP 的 url / headers，以及 enabled / toolTimeoutSec）。
+
+两个安装工具的来源按会话 `cwd` 解析相对或绝对路径，并用 realpath 核对边界；不能指向会话文件夹外，符号链接及包内链接照 P1 拒绝。先复制 / 解压到 Host 私有暂存区、验证并生成审批详情，批准后安装这个副本；批准期间源文件变化不会改变已审核内容。暂存不是已安装项，拒绝、取消、验证或安装失败都清理。
+
+三个写工具必须获得用户批准，不进 `APP_TOOLS_NO_APPROVAL`，不标只读。引擎正常请求审批时，Host 在原审批里显示插件名、版本、包含的连接器与 skills，或 skill 名与描述，或连接器命令行 / 地址。密钥输入项、env、headers、地址查询值与疑似凭据参数脱敏后才进入工具事件和审批详情。若引擎未询问（例如完全访问模式），Host 用已有的 `approval.requested` / `approval.respond` 补问；只有用户的允许决定才能写注册表。回合结束、停止、会话关闭、Host 退出或调用取消时不安装。
+
+成功后对所有会话生效。Codex 热更新成功后后续回合可用，下一个新会话会重新加载；当前回合的工具与 skills 目录不能保证立即刷新。禁用 / 移除也不清除旧历史里的 skill 内容。其他引擎目前能帮助安装，使用能力以 P1 的支持表为准。
+
+验证入口：`pnpm vitest run --project host app-tools`（路径、链接、校验、缺输入、脱敏、用户拒绝与取消），`pnpm vitest run --project host plugin-app-tools.codex.integration`（真实锁定 app-server + 本机假模型，在会话文件夹写 skill、批准安装、`plugins.list` 出现它，两个 Codex 实现）。

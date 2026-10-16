@@ -1013,6 +1013,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_models',
       'mcp__wevir__wevir_show',
       'mcp__wevir__wevir_share_file',
+      'mcp__wevir__wevir_plugins_list',
       // 0.33.0：只读的浏览器工具。
       'mcp__wevir__browser_list_tabs',
       'mcp__wevir__browser_snapshot',

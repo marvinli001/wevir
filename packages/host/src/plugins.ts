@@ -261,6 +261,24 @@ export class PluginRegistry {
     return { connectors, skills, plugins };
   }
 
+  /** 仅限进程内的应用工具脱敏，含禁用项；不能放进 RPC 结果或日志。 */
+  appToolSecrets(): string[] {
+    const state = this.#state;
+    const configs = [...state.connectors, ...state.plugins.flatMap((plugin) => plugin.connectors)];
+    return [
+      ...new Set([
+        ...configs.flatMap(({ config }) =>
+          Object.values(config.transport === 'stdio' ? (config.env ?? {}) : (config.headers ?? {})),
+        ),
+        ...state.plugins.flatMap((plugin) =>
+          plugin.inputs.flatMap((input) =>
+            input.secret && plugin.values[input.key] ? [plugin.values[input.key] as string] : [],
+          ),
+        ),
+      ]),
+    ].filter((value) => value !== '');
+  }
+
   async #plugin(plugin: StoredPlugin): Promise<Plugin> {
     const path = join(this.packagesRoot, plugin.id);
     let iconUrl: string | undefined;
@@ -341,7 +359,7 @@ export class PluginRegistry {
   /** 装 Wevir 插件包或导入 Claude / Codex 包（文件夹或 ZIP）；同 id 已装时 replace 升级，保留输入项与各项开关。 */
   async installPlugin(
     path: string,
-    options: { inputs?: Record<string, string>; replace?: boolean } = {},
+    options: { inputs?: Record<string, string>; replace?: boolean; signal?: AbortSignal } = {},
   ): Promise<{ plugin: Plugin; ignored: string[] }> {
     const result = await this.#mutate(
       async (next) => {
@@ -440,25 +458,35 @@ export class PluginRegistry {
         await rm(moved.target, { recursive: true, force: true });
         if (moved.trash) await rename(moved.trash, moved.target);
       },
+      options.signal,
     );
     if (result.moved.trash) await rm(result.moved.trash, { recursive: true, force: true });
     return { plugin: await this.#plugin(result.plugin), ignored: result.ignored };
   }
 
-  add(name: string, config: McpServerConfig, enabled?: boolean): Promise<Connector> {
-    return this.#mutate(async (next) => {
-      this.#checkName(next, name);
-      const parsed = McpServerConfigSchema.safeParse(config);
-      if (!parsed.success) throw invalid('Invalid connector configuration');
-      const item = {
-        id: `con_${randomUUID()}`,
-        name,
-        config: { ...parsed.data, enabled: enabled ?? config.enabled ?? true },
-        enabled: enabled ?? config.enabled ?? true,
-      };
-      next.connectors.push(item);
-      return view(item);
-    });
+  add(
+    name: string,
+    config: McpServerConfig,
+    enabled?: boolean,
+    signal?: AbortSignal,
+  ): Promise<Connector> {
+    return this.#mutate(
+      async (next) => {
+        this.#checkName(next, name);
+        const parsed = McpServerConfigSchema.safeParse(config);
+        if (!parsed.success) throw invalid('Invalid connector configuration');
+        const item = {
+          id: `con_${randomUUID()}`,
+          name,
+          config: { ...parsed.data, enabled: enabled ?? config.enabled ?? true },
+          enabled: enabled ?? config.enabled ?? true,
+        };
+        next.connectors.push(item);
+        return view(item);
+      },
+      undefined,
+      signal,
+    );
   }
 
   update(
@@ -555,7 +583,7 @@ export class PluginRegistry {
     });
   }
 
-  async install(path: string): Promise<PluginsList> {
+  async install(path: string, signal?: AbortSignal): Promise<PluginsList> {
     await this.#mutate(
       async (next) => {
         const stage = await mkdtemp(join(this.dir, '.install-'));
@@ -607,6 +635,7 @@ export class PluginRegistry {
       async (result) => {
         for (const folder of result.published) await rm(folder, { recursive: true, force: true });
       },
+      signal,
     );
     return this.list();
   }
@@ -626,12 +655,15 @@ export class PluginRegistry {
   #mutate<T>(
     op: (next: Registry) => Promise<T>,
     rollback?: (result: T) => Promise<void>,
+    signal?: AbortSignal,
   ): Promise<T> {
     const operation = this.#queue.then(async () => {
+      signal?.throwIfAborted();
       const next = structuredClone(this.#state);
       const result = await op(next);
       try {
-        await this.#save(next);
+        signal?.throwIfAborted();
+        await this.#save(next, signal);
       } catch (error) {
         await rollback?.(result);
         throw error;
@@ -651,7 +683,7 @@ export class PluginRegistry {
     return operation;
   }
 
-  async #save(next: Registry): Promise<void> {
+  async #save(next: Registry, signal?: AbortSignal): Promise<void> {
     const temp = join(this.dir, `.registry-${randomUUID()}.tmp`);
     try {
       const file = await open(temp, 'wx', 0o600);
@@ -661,6 +693,7 @@ export class PluginRegistry {
       } finally {
         await file.close();
       }
+      signal?.throwIfAborted();
       await rename(temp, join(this.dir, 'registry.json'));
     } finally {
       await rm(temp, { force: true });

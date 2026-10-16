@@ -205,6 +205,8 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 
 每移植一个文件（含大幅改写后仍可辨认出来源的文件）登记一行。“来源提交”写完整 SHA。
 
+P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具与审批衔接，复用下表的 P1/P1a 解析、清单与安装实现，没有新增上游代码移植；没有移植 T3 的 `$` 输入菜单。
+
 插件 P1（0.41.0）与 P1a（0.42.0）新增的 Codex 格式 / 协议改写如下，均为 Apache-2.0，Copyright 2025 OpenAI；未修改 upstream，未参考 OpenWork ee，没有移植 T3 的 `$` 输入菜单。
 
 | Wevir 文件 | 来源路径（openai/codex） | 来源提交 | 许可证 | 修改说明 |

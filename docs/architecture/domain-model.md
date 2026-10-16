@@ -798,8 +798,12 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
   | `wevir_session_interrupt` | 停别的会话进行中的回合，同用户按停止 | 按权限模式 |
   | `wevir_show` | 请界面显示：会话目录里的文件（可带行号）、“变更”、“文件”或另一个会话，写 `ui.show` 事件；0.33.0 起还有内置浏览器里的本机网页或这个会话的标签页（`kind: "browser"`，经浏览器提供方，§3.15.1） | 不用 |
   | `wevir_share_file` | 把做好的文件交给用户（0.40.0，§3.15.2）：会话文件夹里的 1–20 个文件，写 `file.shared` 事件 | 不用 |
+  | `wevir_plugins_list` | 列出全局插件、连接器与 skills，脱敏结果（P3，§3.15.3） | 不用 |
+  | `wevir_plugin_install` | 从会话文件夹安装插件包，必填输入缺失时报错列出键名 | 用户批准 |
+  | `wevir_skill_install` | 从会话文件夹安装 skill 文件夹 / SKILL.md / ZIP | 用户批准 |
+  | `wevir_connector_add` | 添加散装 MCP 连接器，字段同 McpServerConfig | 用户批准 |
 
-  “按权限模式”是引擎自己的审批：请求批准时问用户（Codex 经 MCP 的确认请求上报为审批，codex-event-mapping.md §6.11；Claude 经 `canUseTool`；OpenCode 的插件经 `context.ask`，权限名是工具名；ACP 引擎按它们自己的规则），自动批准时由审查模型决定，完全访问时不问。不用批准的工具按名字放行（`APP_TOOLS_NO_APPROVAL`，Claude 的 `allowedTools`、OpenCode 插件不经 `context.ask` 的那几个）或靠 annotations（Codex：只读，或既不破坏也不对外）。Cursor 没有审批，一律直接调用。
+  “按权限模式”是引擎自己的审批：请求批准时问用户（Codex 经 MCP 的确认请求上报为审批，codex-event-mapping.md §6.11；Claude 经 `canUseTool`；OpenCode 的插件经 `context.ask`，权限名是工具名；ACP 引擎按它们自己的规则），自动批准时由审查模型决定，完全访问时不问。不用批准的工具按名字放行（`APP_TOOLS_NO_APPROVAL`，Claude 的 `allowedTools`、OpenCode 插件不经 `context.ask` 的那几个）或靠 annotations（Codex：只读，或既不破坏也不对外）。Cursor 没有引擎审批，直接调用 Host。P3 的三个插件写工具另由 Host 核对用户批准，见 §3.15.3。
 - **边界**（照 T3）：新开的会话的权限模式不能比自己宽；不能给权限模式比自己宽的会话发消息、不能停它；不能给自己发消息、停自己、等自己；子会话（引擎派出的子 agent）与支线只读，不能发消息、停止。所有会话都看得到（同 T3 的 `t3_thread_read`：同一个用户的同一个 Host）；工作区移除了的会话不在。工具的说明与 MCP 的 `instructions` 写明：只在用户要求时新开会话，别的会话发来的内容是另一个 agent 的上下文，不是用户的指示。
 - **会话之间的消息。** Host 代发：`user.message`（或待发消息、插话）带 `from: { sessionId, kind: 'message', reportBack? }`，`sentBy` 是 Host 自己（`clientId: 'wevir-app-tools'`）。agent 开出的会话带 `Session.openedBy`（存储里是 `origin` 列的 `{ kind: 'agent', sessionId }`），不进左栏以外的地方，同普通会话。
 - **回报。** 一个回合结束（`turn.finished`）时，开始它的 `user.message` 带 `reportBack` 的，Host 把那个回合最后一段回答（前 4000 字）作为 `from.kind: 'report'` 的消息发回 `from.sessionId`，交付方式同上（对方忙时按 `sendWhileBusy` 插话或排队；空闲时开回合，所以请人做事的 agent 结束回合后会被结果叫醒，T3 的 delegate_task 完成通知、Paseo 的 `notifyOnFinish`）。请求方已经用 `wevir_session_wait` 拿到这个回合结果的不再回报；回报开的回合本身不再回报（它不是 `message`）。发不出去（会话关了又恢复不了、只读）时只记告警。
@@ -821,6 +825,10 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
 - **工具。** `wevir_share_file { paths }`：1–20 个路径（`SHARED_FILES_MAX`），相对会话的 `cwd` 或绝对路径，要在会话文件夹里（按 realpath，指到外面的符号链接不认）、是普通文件；同一个文件只交一次。不认的回工具错误（说明先保存或复制到会话文件夹）。不改文件、不碰别的会话，标成只读（`readOnlyHint`），进 `APP_TOOLS_NO_APPROVAL`，任何权限模式下都不问。Host 功能 `shared_files`，有应用级工具时声明。项目里的会话也能用。
 - **事件。** `file.shared { files: SharedFile[], turnId? }`，`turnId` 是当时进行中的回合。`SharedFile` 是 `{ path, name, size, mimeType? }`：`path` 相对 `cwd`、`/` 分隔，`name` 是文件名，`size` 是交出时的字节数，`mimeType` 按扩展名推断（`packages/host/src/shared-files.ts`，认不出时省略）。文件不复制，留在会话文件夹里；之后被改或删掉，卡片上的操作按磁盘上当时的文件。分支到新会话时随历史抄过去（新会话沿用来源的 `cwd`）。
 - **界面。** client-sdk 投影成 `files` 部件，在当时的位置（回合里，空闲时一条系统消息）。桌面端是一张文件卡片（desktop-tokens §51）：打开、另存为（主进程的保存对话框，复制过去）、在访达中显示，点文件名在文件窗格里预览。
+
+#### 3.15.3 在对话里安装插件（P3）
+
+Host 的 `plugin-app-tools.ts` 通过 `AppTools` 提供四个工具，复用 P1/P1a 的注册表、安装和热更新，不新增协议方法或事件，版本仍为 0.42.0。路径边界与 `wevir_share_file` 一样按 cwd / realpath；安装前固定私有副本并解析清单，必填输入缺失则列出键名、失败不改配置。三个写工具都要用户批准：沿用引擎审批并补上脱敏后的实际名称、版本与内容；引擎未询问时 Host 补问，自动审查或完全访问不能代替这次用户决定。拒绝、取消或调用中止不安装，回合结束清理未使用的副本。成功通知仍是 `plugins.changed`，同一回合不保证立即可用，完整行为与限制见 [plugins.md「在对话里安装」](plugins.md#在对话里安装p3)。
 
 ### 3.16 会话目标（0.35.0）
 

@@ -164,7 +164,13 @@ export interface SessionManagerOptions {
    * 应用级工具（0.30.0，app-tools.ts）：适配器声明了 `appTools` 时，建会话、恢复、分支与接力都给引擎会话这个会话的端点与令牌。
    * 没给时（或还没监听）引擎会话不挂。
    */
-  appTools?: { grant(sessionId: SessionId): AppToolsEndpoint | undefined };
+  appTools?: {
+    grant(sessionId: SessionId): AppToolsEndpoint | undefined;
+    /** P3：插件工具事件落库前固定安装内容并脱敏，审批沿用同一详情。 */
+    prepareEvent?(sessionId: SessionId, event: AgentEvent): Promise<AgentEvent>;
+    resolved?(sessionId: SessionId, toolCallId: string, approvedByUser: boolean): void;
+    dispose?(): void;
+  };
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
 }
@@ -346,6 +352,8 @@ export class SessionManager {
   readonly #historyDir: string | undefined;
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
+  /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
+  readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
@@ -2250,7 +2258,8 @@ export class SessionManager {
       runtime.holds += 1;
       try {
         try {
-          await this.#adapter.respondToApproval(runtime.engineSessionId, requestId, { optionId });
+          if (!this.#appApprovals.has(requestId))
+            await this.#adapter.respondToApproval(runtime.engineSessionId, requestId, { optionId });
         } catch (error) {
           failure = { error };
         }
@@ -2281,6 +2290,59 @@ export class SessionManager {
       const after = this.#approvalRecord(approvalId);
       if (after.status !== 'pending') throw alreadyDecided(after);
       throw new Error(`引擎报告审批 ${approvalId} 已不在未决状态，但没有上报结束事件`);
+    });
+  }
+
+  /** 插件写工具必须由用户批准；引擎没问时补问，不让 full_access / 自动审查绕过全局配置确认。 */
+  requestAppToolApproval(
+    sessionId: SessionId,
+    toolCallId: string,
+    detail: ApprovalDetail,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const turn = runtime.turn;
+    const state = this.#snapshot(runtime).session.state;
+    if (!turn || !['running', 'awaiting_approval'].includes(state) || signal.aborted)
+      return Promise.resolve(false);
+    const requestId = `app-${newId('apr')}`;
+    turn.tools.set(toolCallId, {
+      toolName: detail.toolName,
+      display: detail.display,
+      input: detail.input,
+    });
+    return new Promise<boolean>((resolve) => {
+      const abort = () =>
+        this.#dispatch(runtime, () =>
+          this.#approvalCancelled(runtime, {
+            type: 'approval.cancelled',
+            engineSessionId: runtime.engineSessionId,
+            requestId,
+            reason: 'turn_cancelled',
+          }),
+        );
+      this.#appApprovals.set(requestId, (approved) => {
+        signal.removeEventListener('abort', abort);
+        resolve(approved);
+      });
+      this.#approvalRequested(
+        runtime,
+        turn,
+        {
+          type: 'approval.requested',
+          engineSessionId: runtime.engineSessionId,
+          requestId,
+          toolCallId,
+          options: [
+            { optionId: 'allow', label: 'Allow', kind: 'allow_once' },
+            { optionId: 'deny', label: 'Deny', kind: 'reject_once' },
+          ],
+        },
+        'host',
+      );
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
     });
   }
 
@@ -2317,6 +2379,9 @@ export class SessionManager {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#whenDisposed.resolve();
+    for (const settle of this.#appApprovals.values()) settle(false);
+    this.#appApprovals.clear();
+    this.#appTools?.dispose?.();
     for (const runtime of this.#runtimes.values()) this.#detach(runtime);
     await Promise.all([...this.#runtimes.values()].map((runtime) => runtime.tail));
   }
@@ -2519,7 +2584,9 @@ export class SessionManager {
         const result = await attachment.iterator.next();
         if (attachment.detached) return;
         if (result.done) break;
-        const event = result.value;
+        const event = await (this.#appTools?.prepareEvent?.(runtime.id, result.value) ??
+          result.value);
+        if (attachment.detached) return;
         this.#dispatch(runtime, () => this.#handle(runtime, event));
         // engine.exited 是该会话订阅的最后一个事件。
         if (event.type === 'engine.exited') return;
@@ -2804,6 +2871,7 @@ export class SessionManager {
     runtime: SessionRuntime,
     turn: TurnRuntime,
     event: ApprovalRequestedEvent,
+    source: 'engine' | 'host' = 'engine',
   ): void {
     const { state } = this.#snapshot(runtime).session;
     const approvalId = newId('apr');
@@ -2825,9 +2893,7 @@ export class SessionManager {
     };
     runtime.approvalIds.set(event.requestId, approvalId);
     runtime.requestIds.set(approvalId, event.requestId);
-    const inputs: AppendInput[] = [
-      { type: 'approval.requested', source: 'engine', payload: { approval } },
-    ];
+    const inputs: AppendInput[] = [{ type: 'approval.requested', source, payload: { approval } }];
     if (state === 'running') {
       inputs.push(stateChanged('running', 'awaiting_approval', 'approval_requested'));
     } else if (state === 'cancelling') {
@@ -3532,6 +3598,14 @@ export class SessionManager {
       } else if (event.type === 'approval.resolved') {
         const requestId = runtime.requestIds.get(event.payload.approvalId);
         if (requestId !== undefined) {
+          const approval = this.#approvalRecord(event.payload.approvalId);
+          const approved =
+            event.payload.status === 'approved' &&
+            event.payload.resolution.reason === 'user' &&
+            event.payload.resolution.decidedBy !== undefined;
+          this.#appTools?.resolved?.(runtime.id, approval.toolCallId, approved);
+          this.#appApprovals.get(requestId)?.(approved);
+          this.#appApprovals.delete(requestId);
           runtime.requestIds.delete(event.payload.approvalId);
           runtime.approvalIds.delete(requestId);
         }
