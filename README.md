@@ -1,33 +1,136 @@
-# Wevir
+<p align="center">
+  <img src="./assets/icons/exports/brand/light/mark-128.png" width="56" alt="Wevir" />
+</p>
 
-Wevir 是面向中国大陆用户的**本地优先、开源、多模型、可跨设备接续的 Agent 工作台**，覆盖代码开发、文件、资料与办公任务。它以 [OpenAI Codex](https://github.com/openai/codex) 的 app-server 为默认 Agent 执行内核、经 Host 内置的模型协议网关接各家模型服务（[ADR-0005](docs/adr/0005-agent-runtime-and-model-gateway.md)；骨架阶段的引擎 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（dsh）保留为可选引擎），自己拥有 Local Agent Host、版本化的会话协议和桌面 / 命令行客户端：会话与审批的事实在本机的 Host 里，多个客户端看同一条事件流，模型可以选 DeepSeek 或任一 OpenAI 兼容服务。
+<h1 align="center">Wevir</h1>
 
-## 当前状态：骨架已完成
+<p align="center"><strong>本地优先的 AI 编程 Agent 工作台</strong></p>
+<p align="center">在一个桌面工作台里运行 Agent、跟进会话、审阅执行过程与代码变更。</p>
+<p align="center"><sub>A local-first workspace for coding agents. Run sessions, follow execution, and review changes in one desktop app.</sub></p>
 
-骨架阶段把“建会话 → 发提示 → 看流式输出 → 审批 → 取消 → 重启恢复”这条线竖着打通了（计划已归档：[SKELETON_PLAN](docs/archive/skeleton/SKELETON_PLAN.md) §4.2）。现在能做的：
+<p align="center">
+  <a href="#downloads"><img alt="Preview v0.0.1-beta.180" src="https://img.shields.io/badge/preview-v0.0.1--beta.180-80643D?style=flat-square&logo=github&logoColor=white" /></a>
+  <img alt="macOS arm64 and x64" src="https://img.shields.io/badge/macOS-arm64%20%7C%20x64-111111?style=flat-square&logo=apple&logoColor=white" />
+  <img alt="Windows x64" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" />
+  <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-80643D?style=flat-square&logo=opensourceinitiative&logoColor=white" /></a>
+</p>
 
-- 桌面端（Electron，开发模式）：添加工作区、配置 Provider 并测试连接、新建会话，看到流式回答、工具调用与内联的审批卡片，运行中取消，退出再打开后历史完整、可以接着对话；Host 意外退出会自动重新拉起并补齐事件。
-- Host 默认以 Codex 的 `codex-app-server` 为引擎（R3 起；先运行 `bash scripts/fetch-codex.sh` 下载锁定版本），模型请求经 Host 里的模型网关接 DeepSeek 或 OpenAI / Anthropic 兼容服务；审批（命令与工作区外的文件改动）、取消、关闭后恢复、计划与模型生成的会话标题都已接上。dsh 仍可用（`--adapter dsh`），另有 echo 假引擎用于离线开发和测试。方案与验证见 [ADR-0005](docs/adr/0005-agent-runtime-and-model-gateway.md) 与 [Codex 事件映射](docs/architecture/codex-event-mapping.md)。
-- 还没有：安装包、手机端、远程访问、终端面板、Diff 与文件预览、Skills / MCP 管理。用真实模型 Key 跑完整对话、Windows 上的 `pnpm dev` 都还没验证。
+<p align="center"><a href="#chinese">简体中文</a> · <a href="#english">English</a> · <a href="#downloads">下载</a></p>
 
-## 快速开始
+---
 
-需要 Node ≥ 22.19（推荐 24 LTS）与 pnpm 12.6.0。
+<a id="chinese"></a>
+
+## Wevir 是什么
+
+Wevir 是一款开源、本地优先的 AI Agent 工作台。它把模型服务、Agent 会话、工具审批和代码变更放进同一套桌面体验，并提供 CLI 连接同一个本地 Host。
+
+Codex 是默认执行引擎。Host 为 API 模型服务提供内置网关，其他执行引擎由独立适配器提供。会话与事件由本机 Host 保存，桌面端和 CLI 可从同一条会话继续工作。
+
+## 核心能力
+
+- **连接常用模型服务**：支持 OpenAI、Anthropic、Google AI Studio、Google Vertex AI、DeepSeek、Azure OpenAI / Microsoft Foundry，以及 OpenAI 兼容接口；可使用 API Key 或已接入的订阅账户。
+- **看清 Agent 正在做什么**：流式回复、计划、工具调用、子 Agent、审批和提问都留在会话时间线中；可选择请求批准、自动批准或完全访问等权限模式。
+- **在上下文中审阅变更**：查看每回合的文件差异、浏览项目文件并预览文件内容。
+- **桌面端与 CLI 共用本地会话**：Host 负责会话状态和事件流，客户端断开后可重连并继续。
+
+<a id="downloads"></a>
+
+## 下载与安装
+
+当前预览版：**`0.0.1-beta.180`**（安装包链接于 2026-10-16 核验）。
+
+| 平台 | 安装包 | 备用镜像 |
+| --- | --- | --- |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-arm64/Wevir-0.0.1-beta.180-mac-arm64.dmg) | [镜像](https://download2.wevir.si/desktop/darwin-arm64/Wevir-0.0.1-beta.180-mac-arm64.dmg) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [下载 DMG](https://download.wevir.si/desktop/darwin-x64/Wevir-0.0.1-beta.180-mac-x64.dmg) | [镜像](https://download2.wevir.si/desktop/darwin-x64/Wevir-0.0.1-beta.180-mac-x64.dmg) |
+| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [下载 EXE](https://download.wevir.si/desktop/win32-x64/Wevir-0.0.1-beta.180-win-x64-setup.exe) | [镜像](https://download2.wevir.si/desktop/win32-x64/Wevir-0.0.1-beta.180-win-x64-setup.exe) |
+
+安装后，在设置中登录支持的 Agent 账户或添加模型服务。模型使用与计费按所连接服务的账户规则执行。Windows 预览版安装包目前未签名，首次启动时 Windows SmartScreen 可能会显示提示。
+
+正式版尚未发布；正式版安装包会列在 [GitHub Releases](https://github.com/marvinli001/wevir/releases)。
+
+## 从源码运行
+
+适用于参与开发或希望自行构建的用户。需要 Node.js **22.19 或更高版本**（推荐 Node 24 LTS）和 pnpm **12.6.0**。
 
 ```bash
+git clone https://github.com/marvinli001/wevir.git
+cd wevir
 pnpm install
-```
-
-```bash
+bash scripts/fetch-codex.sh
 pnpm dev
 ```
 
-第一次 `pnpm dev` 会下载 Electron 二进制。在大陆网络下先切换 npm 镜像、设好 `ELECTRON_MIRROR`，见[开发指南 §7](docs/development.md#7-大陆网络)。
+首次运行会下载 Electron 与锁定版本的 Codex 运行时。更多环境配置、开发命令和故障排查见[开发指南](docs/development.md)。
 
-- [开发指南](docs/development.md)：环境、运行、数据目录与日志、离线开发、测试、大陆网络、常见问题
-- [架构总览](docs/architecture/overview.md)：分层、各包职责、一次请求的数据流
-- [安全说明](docs/security.md)：信任边界、密钥、dsh 沙箱
-- 架构决策：[docs/adr/](docs/adr/README.md) · 骨架复盘：[docs/retro/skeleton.md](docs/retro/skeleton.md) · 已归档的计划：[docs/archive/](docs/archive/)
-- 贡献者与 AI 助手的仓库规则：[AGENTS.md](AGENTS.md)
+## 文档
 
-许可证：[MIT](LICENSE)。移植自上游与其他第三方来源的文件及其版权声明见 [NOTICE](NOTICE)。
+- [桌面工作台布局](docs/architecture/desktop-layout.md)
+- [模型协议网关](docs/architecture/model-gateway.md)
+- [安全说明](docs/security.md)
+- [架构决策记录](docs/adr/README.md)
+- [开发指南](docs/development.md)
+
+## 许可证
+
+Wevir 使用 [MIT License](LICENSE)。上游移植内容与第三方版权声明见 [NOTICE](NOTICE)。
+
+---
+
+<a id="english"></a>
+
+## English
+
+Wevir is an open-source, local-first workspace for AI coding agents. It brings model providers, agent sessions, tool approvals, and code changes into one desktop experience, with a CLI that connects to the same local Host.
+
+Codex is the default runtime. The Host includes a gateway for API-based model providers, while additional runtimes are provided through isolated adapters. The local Host owns session state and its event stream, so the desktop app and CLI can continue the same work.
+
+### Features
+
+- **Connect your models**: OpenAI, Anthropic, Google AI Studio, Google Vertex AI, DeepSeek, Azure OpenAI / Microsoft Foundry, and OpenAI-compatible APIs. Use API keys or supported subscriptions.
+- **Follow the work**: Streaming responses, plans, tool calls, subagents, approvals, and questions appear in the session timeline. Choose a permission mode for each session.
+- **Review changes in context**: Inspect per-turn diffs, browse project files, and preview file contents.
+- **Continue from desktop or CLI**: The local Host owns session state and events. Clients can reconnect and pick up where they left off.
+
+<a id="english-downloads"></a>
+
+### Downloads
+
+Current preview: **`0.0.1-beta.180`** (installer links verified on 2026-10-16).
+
+| Platform | Installer | Alternate mirror |
+| --- | --- | --- |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Apple%20Silicon-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://download.wevir.si/desktop/darwin-arm64/Wevir-0.0.1-beta.180-mac-arm64.dmg) | [Mirror](https://download2.wevir.si/desktop/darwin-arm64/Wevir-0.0.1-beta.180-mac-arm64.dmg) |
+| <img alt="Apple" src="https://img.shields.io/badge/macOS-Intel-111111?style=flat-square&logo=apple&logoColor=white" /> | [Download DMG](https://download.wevir.si/desktop/darwin-x64/Wevir-0.0.1-beta.180-mac-x64.dmg) | [Mirror](https://download2.wevir.si/desktop/darwin-x64/Wevir-0.0.1-beta.180-mac-x64.dmg) |
+| <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D4?style=flat-square&logo=windows11&logoColor=white" /> | [Download EXE](https://download.wevir.si/desktop/win32-x64/Wevir-0.0.1-beta.180-win-x64-setup.exe) | [Mirror](https://download2.wevir.si/desktop/win32-x64/Wevir-0.0.1-beta.180-win-x64-setup.exe) |
+
+After installation, sign in with a supported agent account or add a model provider in Settings. Provider usage and billing follow the account you connect. The current Windows preview installer is unsigned, so Windows SmartScreen may show a prompt on first launch.
+
+The first stable release is not available yet. Stable installers will be listed on [GitHub Releases](https://github.com/marvinli001/wevir/releases).
+
+### Run from source
+
+For contributors and developers building Wevir locally. Requirements: Node.js **22.19 or newer** (Node 24 LTS recommended) and pnpm **12.6.0**.
+
+```bash
+git clone https://github.com/marvinli001/wevir.git
+cd wevir
+pnpm install
+bash scripts/fetch-codex.sh
+pnpm dev
+```
+
+The first run downloads Electron and the pinned Codex runtime. See the [development guide](docs/development.md) for environment setup, commands, and troubleshooting.
+
+### Documentation
+
+- [Desktop workspace layout](docs/architecture/desktop-layout.md)
+- [Model protocol gateway](docs/architecture/model-gateway.md)
+- [Security](docs/security.md)
+- [Architecture decision records](docs/adr/README.md)
+- [Development guide](docs/development.md)
+
+### License
+
+Wevir is licensed under the [MIT License](LICENSE). See [NOTICE](NOTICE) for upstream code and third-party attributions.
