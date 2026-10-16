@@ -146,7 +146,7 @@ describe('Wevir plugin packages', () => {
     expect(JSON.stringify(after)).not.toContain(SECRET);
     expect(after.connectors.find((item) => item.pluginId)?.missingInputs).toBeUndefined();
     const file = join(h.home, 'plugins', 'registry.json');
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     // 可选项清空后展开成空字符串，连接器照常启动。
     await h.store.setPluginInputs('sample-tools', { REGION: null });
     expect((await h.store.engineConfig()).connectors[0]?.config).toMatchObject({

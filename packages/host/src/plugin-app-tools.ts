@@ -348,7 +348,9 @@ export class PluginAppTools {
   }
 
   async #clean(prepared: Prepared): Promise<void> {
-    if (prepared.stage) await rm(prepared.stage, { recursive: true, force: true });
+    // Windows 上刚关掉的句柄（杀毒、索引）会让 rmdir 短暂报 EPERM / EBUSY，重试几次再放弃。
+    if (prepared.stage)
+      await rm(prepared.stage, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
