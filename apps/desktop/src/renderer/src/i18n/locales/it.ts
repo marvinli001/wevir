@@ -208,7 +208,6 @@ export const messages: Messages = {
   'fx.gallery.shot': 'Screenshot di esempio',
   'fx.gallery.replay': 'Cambia e riproduci',
   'pane.placeholder.title': '“{kind}” non ancora implementato',
-  'pane.placeholder.body': 'Riquadro segnaposto (modalità sviluppo)',
   'pane.overview.workspacePath': 'Cartella del progetto',
   'pane.overview.files': 'File correlati',
   'pane.overview.filesEmpty': 'Nessun file',
@@ -241,7 +240,7 @@ export const messages: Messages = {
   'files.slideNotes': 'Note della diapositiva {n}',
   'files.textOnly': 'Solo testo',
   'files.parseFailed': 'Analisi non riuscita: {error}',
-  'files.noInlinePreview': 'Questo formato non può essere visualizzato qui',
+  'files.noInlinePreview': 'Anteprima non supportata per questo formato',
   'files.quickLook': 'Visualizzazione rapida',
   'files.openDefault': 'Apri con l’app predefinita',
   'files.retry': 'Riprova',
@@ -453,12 +452,8 @@ export const messages: Messages = {
   'permission.change': 'Cambia autorizzazioni',
   'permission.label': 'Autorizzazioni: {mode}',
   'permission.on_request': 'Chiedi approvazione',
-  'permission.on_request.description':
-    'Approvazione per scritture fuori dal progetto e accesso alla rete',
   'permission.auto_review': 'Approvazione automatica',
-  'permission.auto_review.description': 'Il modello attuale esamina le operazioni fuori dai limiti',
   'permission.full_access': 'Accesso completo',
-  'permission.full_access.description': 'Nessuna restrizione di accesso',
   'permission.configureFailed': 'Cambio autorizzazioni non riuscito: {error}',
 
   'environment.local': 'Questo computer',
@@ -942,7 +937,7 @@ export const messages: Messages = {
   'account.chatgpt.logout': 'Esci',
   'account.chatgpt.logout.title': 'Uscire da ChatGPT?',
   'account.chatgpt.logout.body':
-    'Le credenziali locali verranno eliminate e il token revocato; le sessioni restano e riprendono dopo un nuovo accesso.',
+    'Elimina le credenziali locali e revoca i token. Le sessioni restano.',
   'account.chatgpt.logout.failed': 'Uscita non riuscita: {error}',
   'account.chatgpt.modelsLoading': 'Caricamento elenco modelli…',
   'account.chatgpt.usage.used': '{percent}% usato',
@@ -958,36 +953,27 @@ export const messages: Messages = {
   'account.chatgpt.usage.resetsOn': 'Reimpostazione il {date} alle {time}',
 
   'provider.preset.openai': 'OpenAI',
-  'provider.preset.openai.note':
-    'Non raggiungibile direttamente dalla Cina continentale; Cina continentale, Hong Kong e Macao non sono regioni supportate e l’uso può comportare limitazioni dell’account.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note':
-    'API ufficiale a consumo. Non raggiungibile direttamente dalla Cina continentale; Cina continentale, Hong Kong e Macao non sono supportati. Usa una Key associata a un solo workspace.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
   'provider.catalog.azureOpenai': 'Azure OpenAI',
   'provider.catalog.azureClaude': 'Azure Claude',
-  'provider.preset.azureOpenai.note':
-    'Risorse Azure globali; accesso diretto dalla Cina continentale non confermato. Inserisci i nomi della risorsa e delle distribuzioni e rimuovi i modelli non distribuiti. Gli ID dei modelli sono nomi di distribuzione.',
+  'provider.preset.azureOpenai.note': 'Gli ID modello sono i nomi dei deployment',
   'provider.preset.azureClaude.note':
-    'Claude su Azure globale, a consumo tramite Azure Marketplace. Accesso diretto dalla Cina continentale non confermato. Inserisci i nomi della risorsa e delle distribuzioni e rimuovi i modelli non distribuiti.',
+    'Richiede Azure Marketplace; gli ID modello sono i nomi dei deployment',
   'provider.form.error.placeholder': 'Sostituisci il segnaposto prima di salvare',
-  'provider.preset.vertex.note':
-    'Google Cloud ora usa il nome Gemini Enterprise Agent Platform. Attiva fatturazione e accesso ai modelli, poi usa un account di servizio JSON. Regione predefinita: global. Gli endpoint Claude us / eu costano il 10% in più. Accesso diretto non disponibile dalla Cina continentale.',
   'provider.vertex.project': 'ID progetto Google Cloud',
   'provider.vertex.location': 'Regione',
   'provider.vertex.family': 'Famiglia di modelli',
   'provider.vertex.account': 'JSON dell’account di servizio',
   'provider.vertex.accountPlaceholder': 'Incolla il JSON completo dell’account di servizio',
   'provider.vertex.file': 'Seleziona il file JSON dell’account di servizio',
-  'provider.vertex.accountInvalid':
-    'Usa un file JSON valido di un account di servizio (massimo 64 KiB)',
-  'provider.vertex.projectInvalid': 'Inserisci un ID o numero di progetto Google Cloud valido',
-  'provider.vertex.locationInvalid': 'Inserisci una regione valida, come global, us o eu',
-  'provider.vertex.modelInvalid':
-    'Gli ID Gemini iniziano con google/gemini-; gli ID Claude con claude-',
+  'provider.vertex.accountInvalid': 'JSON dell’account di servizio non valido (max 64 KiB)',
+  'provider.vertex.projectInvalid': 'ID o numero di progetto non valido',
+  'provider.vertex.locationInvalid': 'Località non valida (ad es. global, us, eu)',
+  'provider.vertex.modelInvalid': 'Deve iniziare con google/gemini- o claude-',
   'welcome.upgradeHost': 'Aggiorna il servizio in background',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
@@ -1000,49 +986,32 @@ export const messages: Messages = {
   'provider.catalog.group.cn': 'Cina',
   'provider.catalog.group.local': 'Locali e personalizzati',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
-  'provider.preset.dashscope.note':
-    'Pagamento a consumo nella regione di Pechino, accessibile direttamente dalla Cina continentale. Puoi usare un dominio dedicato allo spazio di lavoro o un endpoint internazionale con la chiave della regione corrispondente.',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note':
-    'Indirizzo del sito cinese; il sito internazionale usa https://api.moonshot.ai/v1.',
+  'provider.preset.kimi.note': 'Internazionale: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note':
-    'Indirizzo a consumo; il piano GLM Coding usa https://open.bigmodel.cn/api/coding/paas/v4.',
+  'provider.preset.zhipu.note': 'Piano GLM Coding: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (compatibile OpenAI)',
-  'provider.preset.deepseek.note':
-    'Pagamento a consumo, accesso diretto dalla Cina continentale. Flash è il modello predefinito e supporta le immagini; è disponibile anche V4 Pro.',
-  'provider.preset.deepseekOpenai.note':
-    'Pagamento a consumo, accesso diretto dalla Cina continentale. Usa Chat Completions; durante il ragionamento il modello sceglie automaticamente gli strumenti.',
   'provider.preset.xai': 'xAI (Grok API)',
-  'provider.preset.xai.note':
-    'La API Key inizia con xai-; non raggiungibile direttamente dalla Cina continentale.',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note':
-    'API globale Google a consumo. Cina continentale, Hong Kong e Macao non supportati; nessun accesso diretto dalla Cina continentale.',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',
-  'provider.preset.ollamaCloud.note':
-    'Cloud ufficiale Ollama con chiave API. Accesso diretto dalla Cina continentale non verificato. Limiti di utilizzo e concorrenza dell’account.',
-  'provider.preset.ollama.note':
-    'Esecuzione locale nella Cina continentale. Richiede Ollama 0.13.3 o successivo e un modello installato con strumenti.',
+  'provider.preset.ollama.note': 'Richiede Ollama 0.13.3 o successivo',
   'provider.ollama.models': 'Modelli Ollama',
   'provider.ollama.refresh': 'Leggi modelli',
   'provider.ollama.loading': 'Lettura…',
-  'provider.ollama.upgradeHost':
-    'Aggiorna il servizio in background o aggiungi i modelli manualmente.',
-  'provider.ollama.keyRequired': 'Inserisci una chiave API Ollama Cloud valida e riprova.',
-  'provider.ollama.failed': 'Impossibile leggere i modelli. Verifica indirizzo e servizio Ollama.',
-  'provider.ollama.empty': 'Nessun modello. Installa un modello con strumenti e riprova.',
+  'provider.ollama.upgradeHost': 'Servizio in background troppo vecchio per leggere i modelli',
+  'provider.ollama.keyRequired': 'Chiave API Ollama Cloud non valida',
+  'provider.ollama.failed': 'Lettura dei modelli non riuscita',
+  'provider.ollama.empty': 'Nessun modello trovato',
   'provider.ollama.context': 'Contesto {size}',
   'provider.ollama.noTools': 'Strumenti non supportati',
   'provider.ollama.lowContext':
-    'Il contesto Ollama è {size}; si consigliano almeno 64k. Aumentalo nelle impostazioni o riavvia con OLLAMA_CONTEXT_LENGTH=65536, poi rileggi i modelli e aggiorna il contesto.',
+    'Contesto {size}, inferiore ai 64k consigliati (OLLAMA_CONTEXT_LENGTH=65536)',
   'provider.ollama.unknownContext':
-    'Contesto effettivo sconosciuto. Avvia il modello, poi leggi e inserisci il contesto allocato. Il massimo del modello non indica l’allocazione attuale.',
-  'provider.ollama.partial':
-    'Dettagli non disponibili. Verifica capacità e livelli di ragionamento.',
-  'provider.ollama.truncated': 'Sono mostrati i primi 64 modelli. Aggiungi gli altri manualmente.',
-  'provider.ollama.upgrade': 'Aggiorna Ollama almeno alla 0.13.3 o usa Chat.',
+    'Lunghezza del contesto non confermata; leggere con il modello in esecuzione',
+  'provider.ollama.partial': 'Dettagli del modello incompleti',
+  'provider.ollama.truncated': 'Primi 64 modelli mostrati',
+  'provider.ollama.upgrade': 'Richiede Ollama 0.13.3 o successivo, oppure il protocollo Chat',
   'provider.preset.ollama': 'Ollama locale',
 
   'provider.form.titleNew': 'Aggiungi {name}',
@@ -1109,11 +1078,10 @@ export const messages: Messages = {
   'provider.test.hint.model_not_found': 'Verifica l’ID del modello predefinito',
   'provider.test.hint.protocol': 'Il servizio non risponde secondo il protocollo scelto',
   'provider.test.hint.rate_limited': 'Riprova più tardi o verifica il credito',
-  'provider.test.hint.server': 'Errore temporaneo del server',
 
   'provider.remove.title': 'Eliminare il fornitore di modelli “{name}”?',
   'provider.remove.body':
-    'Viene eliminata anche la API Key salvata. Le sessioni che lo usano non potranno continuare finché non si aggiunge di nuovo un servizio con ID {id}; la cronologia resta.',
+    'Anche la chiave API viene eliminata. Le sessioni che usano {id} non potranno continuare; la cronologia resta.',
   'provider.remove.openSessions':
     '{count, plural, one {# sessione in uso verrà chiusa prima.} other {# sessioni in uso verranno chiuse prima.}}',
   'provider.remove.confirm': 'Elimina',

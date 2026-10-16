@@ -203,7 +203,6 @@ export const messages: Messages = {
   'fx.gallery.shot': 'Sample screenshot',
   'fx.gallery.replay': 'Shuffle and replay',
   'pane.placeholder.title': '“{kind}” not implemented',
-  'pane.placeholder.body': 'Development placeholder pane',
   'pane.overview.workspacePath': 'Project folder',
   'pane.overview.files': 'Related files',
   'pane.overview.filesEmpty': 'No files',
@@ -236,7 +235,7 @@ export const messages: Messages = {
   'files.slideNotes': 'Notes for slide {n}',
   'files.textOnly': 'Text only',
   'files.parseFailed': 'Unable to parse: {error}',
-  'files.noInlinePreview': 'This format can’t be previewed here',
+  'files.noInlinePreview': 'Preview not supported for this format',
   'files.quickLook': 'Quick Look',
   'files.openDefault': 'Open with default app',
   'files.retry': 'Retry',
@@ -447,11 +446,8 @@ export const messages: Messages = {
   'permission.change': 'Change permissions',
   'permission.label': 'Permissions: {mode}',
   'permission.on_request': 'Ask for approval',
-  'permission.on_request.description': 'Approval for writes outside the project and network access',
   'permission.auto_review': 'Auto-approve',
-  'permission.auto_review.description': 'Current model reviews out-of-bounds actions',
   'permission.full_access': 'Full access',
-  'permission.full_access.description': 'No access restrictions',
   'permission.configureFailed': 'Failed to switch permissions: {error}',
 
   'environment.local': 'This computer',
@@ -929,8 +925,7 @@ export const messages: Messages = {
   'account.chatgpt.emailUnknown': 'Signed in',
   'account.chatgpt.logout': 'Sign out',
   'account.chatgpt.logout.title': 'Sign out of ChatGPT?',
-  'account.chatgpt.logout.body':
-    'Local credentials will be deleted and tokens revoked. Sessions are kept and can continue after signing in again.',
+  'account.chatgpt.logout.body': 'Deletes local credentials and revokes tokens. Sessions are kept.',
   'account.chatgpt.logout.failed': 'Sign-out failed: {error}',
   'account.chatgpt.modelsLoading': 'Loading models…',
   'account.chatgpt.usage.used': '{percent}% used',
@@ -943,35 +938,26 @@ export const messages: Messages = {
   'account.chatgpt.usage.resetsOn': 'Resets {date} at {time}',
 
   'provider.preset.openai': 'OpenAI',
-  'provider.preset.openai.note':
-    'Not directly reachable from mainland China; mainland China, Hong Kong and Macao are unsupported regions, and use there may restrict the account.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note':
-    'Official pay-as-you-go API. Not directly reachable from mainland China; mainland China, Hong Kong and Macao are unsupported. Use a key scoped to one workspace.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
   'provider.catalog.azureOpenai': 'Azure OpenAI',
   'provider.catalog.azureClaude': 'Azure Claude',
-  'provider.preset.azureOpenai.note':
-    'Global Azure resources; direct access from mainland China is unconfirmed. Enter your resource and deployment names and remove undeployed models. Model IDs are deployment names.',
-  'provider.preset.azureClaude.note':
-    'Claude on global Azure, billed by usage through Azure Marketplace. Direct access from mainland China is unconfirmed. Enter resource and deployment names and remove undeployed models.',
+  'provider.preset.azureOpenai.note': 'Model IDs are deployment names',
+  'provider.preset.azureClaude.note': 'Requires Azure Marketplace; model IDs are deployment names',
   'provider.form.error.placeholder': 'Replace the placeholder before saving',
-  'provider.preset.vertex.note':
-    'Google Cloud now calls this Gemini Enterprise Agent Platform. Enable billing and model access, then use a service account JSON. Default: global. Claude us / eu endpoints cost 10% more. Not directly accessible from mainland China.',
   'provider.vertex.project': 'Google Cloud project ID',
   'provider.vertex.location': 'Location',
   'provider.vertex.family': 'Model family',
   'provider.vertex.account': 'Service account JSON',
   'provider.vertex.accountPlaceholder': 'Paste the complete service account JSON',
   'provider.vertex.file': 'Select a service account JSON file',
-  'provider.vertex.accountInvalid': 'Use a valid service account JSON file (up to 64 KiB)',
-  'provider.vertex.projectInvalid': 'Enter a valid Google Cloud project ID or project number',
-  'provider.vertex.locationInvalid': 'Enter a valid location, such as global, us or eu',
-  'provider.vertex.modelInvalid':
-    'Gemini IDs must start with google/gemini-; Claude IDs with claude-',
+  'provider.vertex.accountInvalid': 'Invalid service account JSON (max 64 KiB)',
+  'provider.vertex.projectInvalid': 'Invalid project ID or number',
+  'provider.vertex.locationInvalid': 'Invalid location (e.g. global, us, eu)',
+  'provider.vertex.modelInvalid': 'Must start with google/gemini- or claude-',
   'welcome.upgradeHost': 'Update the background service',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
@@ -984,50 +970,31 @@ export const messages: Messages = {
   'provider.catalog.group.cn': 'China',
   'provider.catalog.group.local': 'Local and custom',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
-  'provider.preset.dashscope.note':
-    'Pay as you go in Beijing, directly reachable from mainland China. You can use a workspace domain or international endpoint with the matching regional key.',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note':
-    'China site URL; the international site is https://api.moonshot.ai/v1.',
+  'provider.preset.kimi.note': 'International: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note':
-    'Pay-as-you-go URL; the GLM Coding plan uses https://open.bigmodel.cn/api/coding/paas/v4.',
+  'provider.preset.zhipu.note': 'GLM Coding plan: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI-compatible)',
-  'provider.preset.deepseek.note':
-    'Pay as you go, accessible directly from mainland China. Flash supports images and is the default; V4 Pro is also available.',
-  'provider.preset.deepseekOpenai.note':
-    'Pay as you go, accessible directly from mainland China. Uses Chat Completions; the model chooses tools automatically while thinking.',
   'provider.preset.xai': 'xAI (Grok API)',
-  'provider.preset.xai.note':
-    'API Key starts with xai-; not directly reachable from mainland China.',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note':
-    'Google global pay-as-you-go API. Mainland China, Hong Kong and Macao are unsupported; no direct access from mainland China.',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',
-  'provider.preset.ollamaCloud.note':
-    'Official Ollama cloud service; API key required. Direct access from mainland China is unverified. Account usage and concurrency limits apply.',
-  'provider.preset.ollama.note':
-    'Runs locally and is accessible in mainland China. Requires Ollama 0.13.3 or later and an installed model with tool support.',
+  'provider.preset.ollama.note': 'Requires Ollama 0.13.3 or later',
   'provider.ollama.models': 'Ollama models',
   'provider.ollama.refresh': 'Read models',
   'provider.ollama.loading': 'Reading…',
-  'provider.ollama.upgradeHost':
-    'Upgrade the background service to discover models, or add them manually.',
-  'provider.ollama.keyRequired': 'Enter a valid Ollama Cloud API key and retry.',
-  'provider.ollama.failed':
-    'Could not read models. Check the Ollama address and service, then retry.',
-  'provider.ollama.empty': 'No models found. Install a model with tool support, then retry.',
+  'provider.ollama.upgradeHost': 'Background service too old to read models',
+  'provider.ollama.keyRequired': 'Invalid Ollama Cloud API key',
+  'provider.ollama.failed': 'Failed to read models',
+  'provider.ollama.empty': 'No models found',
   'provider.ollama.context': 'Context {size}',
   'provider.ollama.noTools': 'No tool support',
   'provider.ollama.lowContext':
-    'Ollama context is {size}; agents should use at least 64k. Increase it in Ollama settings or restart with OLLAMA_CONTEXT_LENGTH=65536, then read models again and update the context length.',
-  'provider.ollama.unknownContext':
-    'Actual context is unknown. Run the model, then read and enter its allocated context. The model limit is not the current allocation.',
-  'provider.ollama.partial':
-    'Model details are unavailable. Check capabilities and thinking levels manually.',
-  'provider.ollama.truncated': 'Only the first 64 models are shown. Add others manually.',
-  'provider.ollama.upgrade': 'Upgrade Ollama to 0.13.3 or later, or switch to Chat.',
+    'Context {size}, below the recommended 64k (OLLAMA_CONTEXT_LENGTH=65536)',
+  'provider.ollama.unknownContext': 'Context length unconfirmed; read while the model is running',
+  'provider.ollama.partial': 'Model details incomplete',
+  'provider.ollama.truncated': 'Showing the first 64 models',
+  'provider.ollama.upgrade': 'Requires Ollama 0.13.3 or later, or the Chat protocol',
   'provider.preset.ollama': 'Local Ollama',
 
   'provider.form.titleNew': 'Add {name}',
@@ -1093,11 +1060,10 @@ export const messages: Messages = {
   'provider.test.hint.model_not_found': 'Check the default model ID',
   'provider.test.hint.protocol': 'Service didn’t respond using the selected protocol',
   'provider.test.hint.rate_limited': 'Retry later or check your balance',
-  'provider.test.hint.server': 'Temporary server issue',
 
   'provider.remove.title': 'Delete model provider “{name}”?',
   'provider.remove.body':
-    'The saved API Key is deleted too. Sessions using it can’t continue until a provider with ID {id} is added again; history is kept.',
+    'The API Key is deleted too. Sessions using {id} can’t continue; history is kept.',
   'provider.remove.openSessions':
     '{count, plural, one {# open session will be closed first.} other {# open sessions will be closed first.}}',
   'provider.remove.confirm': 'Delete',

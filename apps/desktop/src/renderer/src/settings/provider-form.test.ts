@@ -581,7 +581,7 @@ describe('DeepSeek 官方', () => {
     });
     expect(upsertSchema.safeParse(params).success).toBe(true);
     expect(form.preset).toBe(DEEPSEEK_OFFICIAL_PRESET);
-    expect(form.preset?.note).toBe('provider.preset.deepseek.note');
+    expect(form.preset?.note).toBeUndefined();
     expect(form.preset?.docsURL).toBe(
       'https://api-docs.deepseek.com/quick_start/agent_integrations/codex',
     );
@@ -853,8 +853,8 @@ describe('测试连接的结果', () => {
       });
       expect(presentation.ok).toBe(false);
       expect(presentation.title).toMatch(/[一-龥]/);
-      // 缺少 Key 的结论本身就是该做的事，不另给建议。
-      if (reason !== 'unknown' && reason !== 'missing_key') {
+      // 缺少 Key 与服务端错误的结论已经够了，不另给建议。
+      if (reason !== 'unknown' && reason !== 'missing_key' && reason !== 'server') {
         expect(presentation.hint).toMatch(/[一-龥]/);
       }
       expect(presentation.detail).toBe(`原文 ${reason}`);

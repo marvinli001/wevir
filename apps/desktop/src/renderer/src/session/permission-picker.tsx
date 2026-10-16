@@ -20,26 +20,21 @@ export const PERMISSION_MODES: readonly PermissionMode[] = [
 ];
 const MODES = PERMISSION_MODES;
 
-export const PERMISSION_META: Record<
-  PermissionMode,
-  { icon: LucideIcon; label: PlainMessageKey; description: PlainMessageKey }
-> = {
-  on_request: {
-    icon: Hand,
-    label: 'permission.on_request',
-    description: 'permission.on_request.description',
-  },
-  auto_review: {
-    icon: ShieldCheck,
-    label: 'permission.auto_review',
-    description: 'permission.auto_review.description',
-  },
-  full_access: {
-    icon: ShieldAlert,
-    label: 'permission.full_access',
-    description: 'permission.full_access.description',
-  },
-};
+export const PERMISSION_META: Record<PermissionMode, { icon: LucideIcon; label: PlainMessageKey }> =
+  {
+    on_request: {
+      icon: Hand,
+      label: 'permission.on_request',
+    },
+    auto_review: {
+      icon: ShieldCheck,
+      label: 'permission.auto_review',
+    },
+    full_access: {
+      icon: ShieldAlert,
+      label: 'permission.full_access',
+    },
+  };
 
 /** 新会话用的权限模式（U15）：本机记住上次选的，首页与草稿页共用；默认请求批准。 */
 const lastMode = createPersistedStore<PermissionMode>(
@@ -127,22 +122,12 @@ export function PermissionPicker({
                 closeOnClick
                 data-mode={mode}
                 className={cn(
-                  'items-start gap-2.5 py-2 pl-2',
+                  'gap-2.5 pl-2',
                   mode === 'full_access' && 'text-warning focus:**:text-warning focus:text-warning',
                 )}
               >
-                <ModeIcon aria-hidden className="mt-0.5 size-4" />
-                <span className="min-w-0">
-                  <span className="block font-medium">{t(meta.label)}</span>
-                  <span
-                    className={cn(
-                      'block text-xs',
-                      mode === 'full_access' ? 'text-warning/85' : 'text-muted-foreground',
-                    )}
-                  >
-                    {t(meta.description)}
-                  </span>
-                </span>
+                <ModeIcon aria-hidden className="size-4" />
+                {t(meta.label)}
               </DropdownMenuRadioItem>
             );
           })}

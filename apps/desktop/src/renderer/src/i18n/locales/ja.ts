@@ -204,7 +204,6 @@ export const messages: Messages = {
   'fx.gallery.shot': 'サンプル画面',
   'fx.gallery.replay': '切り替えて再生',
   'pane.placeholder.title': '「{kind}」は未実装',
-  'pane.placeholder.body': '開発モードのプレースホルダーペイン',
   'pane.overview.workspacePath': 'プロジェクトディレクトリ',
   'pane.overview.files': '関連ファイル',
   'pane.overview.filesEmpty': 'ファイルなし',
@@ -237,7 +236,7 @@ export const messages: Messages = {
   'files.slideNotes': 'スライド {n} のノート',
   'files.textOnly': 'テキストのみ',
   'files.parseFailed': '解析できません：{error}',
-  'files.noInlinePreview': 'この形式はここでプレビューできません',
+  'files.noInlinePreview': 'この形式はプレビュー非対応',
   'files.quickLook': 'クイックルック',
   'files.openDefault': 'デフォルトのアプリで開く',
   'files.retry': '再試行',
@@ -449,12 +448,8 @@ export const messages: Messages = {
   'permission.change': '権限を変更',
   'permission.label': '権限: {mode}',
   'permission.on_request': '承認を求める',
-  'permission.on_request.description':
-    'プロジェクト外への書き込みとネットワークアクセスは承認が必要',
   'permission.auto_review': '自動承認',
-  'permission.auto_review.description': '範囲外の操作を現在のモデルが審査',
   'permission.full_access': 'フルアクセス',
-  'permission.full_access.description': 'アクセス制限なし',
   'permission.configureFailed': '権限の切り替えに失敗しました: {error}',
 
   'environment.local': 'このコンピューター',
@@ -934,7 +929,7 @@ export const messages: Messages = {
   'account.chatgpt.logout': 'ログアウト',
   'account.chatgpt.logout.title': 'ChatGPT からログアウトしますか？',
   'account.chatgpt.logout.body':
-    'このマシンの認証情報を削除し、トークンを失効させます。セッションは保持され、再ログイン後に続行できます。',
+    'ローカルの資格情報を削除し、トークンを失効させます。セッションは保持されます。',
   'account.chatgpt.logout.failed': 'ログアウトに失敗しました: {error}',
   'account.chatgpt.modelsLoading': 'モデル一覧を読み込み中…',
   'account.chatgpt.usage.used': '{percent}% 使用',
@@ -947,37 +942,26 @@ export const messages: Messages = {
   'account.chatgpt.usage.resetsOn': '{date} {time} にリセット',
 
   'provider.preset.openai': 'OpenAI',
-  'provider.preset.openai.note':
-    '中国本土からは直接接続できません。中国本土、香港、マカオはサポート対象地域外のため、利用するとアカウントが制限される可能性があります。',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note':
-    '公式の従量課金 API。中国本土からは直接接続できず、中国本土・香港・マカオはサポート対象外です。単一の workspace に紐づく Key を使用してください。',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
   'provider.catalog.azureOpenai': 'Azure OpenAI',
   'provider.catalog.azureClaude': 'Azure Claude',
-  'provider.preset.azureOpenai.note':
-    'Azure グローバルリソース。中国本土からの直接接続は未確認です。実際のリソース名とデプロイ名を入力し、未デプロイのモデルを削除してください。モデル ID はデプロイ名です。',
-  'provider.preset.azureClaude.note':
-    'Azure グローバルの Claude 従量課金デプロイ。Azure Marketplace が必要です。中国本土からの直接接続は未確認です。リソース名とデプロイ名を入力し、未デプロイのモデルを削除してください。',
+  'provider.preset.azureOpenai.note': 'モデル ID はデプロイ名',
+  'provider.preset.azureClaude.note': 'Azure Marketplace が必要。モデル ID はデプロイ名',
   'provider.form.error.placeholder': '保存前にプレースホルダーを置き換えてください',
-  'provider.preset.vertex.note':
-    'Google Cloud での現在の名称は Gemini Enterprise Agent Platform です。課金とモデルへのアクセスを有効にし、サービス アカウント JSON を使用します。既定は global。Claude の us / eu は 10% 割増です。中国本土から直接接続できません。',
   'provider.vertex.project': 'Google Cloud プロジェクト ID',
   'provider.vertex.location': 'ロケーション',
   'provider.vertex.family': 'モデル系列',
   'provider.vertex.account': 'サービス アカウント JSON',
   'provider.vertex.accountPlaceholder': 'サービス アカウント JSON 全体を貼り付け',
   'provider.vertex.file': 'サービス アカウント JSON ファイルを選択',
-  'provider.vertex.accountInvalid':
-    '有効なサービス アカウント JSON ファイルを使用してください（64 KiB 以下）',
-  'provider.vertex.projectInvalid':
-    '有効な Google Cloud プロジェクト ID またはプロジェクト番号を入力してください',
-  'provider.vertex.locationInvalid': 'global、us、eu など有効なロケーションを入力してください',
-  'provider.vertex.modelInvalid':
-    'Gemini の ID は google/gemini-、Claude の ID は claude- で始まる必要があります',
+  'provider.vertex.accountInvalid': 'サービスアカウント JSON が無効（最大 64 KiB）',
+  'provider.vertex.projectInvalid': 'プロジェクト ID または番号が無効',
+  'provider.vertex.locationInvalid': '無効なロケーション（例: global、us、eu）',
+  'provider.vertex.modelInvalid': 'google/gemini- または claude- で始まる必要あり',
   'welcome.upgradeHost': 'バックグラウンド サービスの更新が必要です',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
@@ -990,48 +974,31 @@ export const messages: Messages = {
   'provider.catalog.group.cn': '中国',
   'provider.catalog.group.local': 'ローカルとカスタム',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
-  'provider.preset.dashscope.note':
-    '北京リージョンの従量課金 API。中国本土から直接接続できます。ワークスペース専用ドメインや国際エンドポイントに変更する場合は、対応するリージョンのキーを使用してください。',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note': '中国版の URL。国際版は https://api.moonshot.ai/v1。',
+  'provider.preset.kimi.note': '国際版: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note':
-    '従量課金の URL。GLM Coding プランは https://open.bigmodel.cn/api/coding/paas/v4。',
+  'provider.preset.zhipu.note': 'GLM Coding プラン: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 互換)',
-  'provider.preset.deepseek.note':
-    '従量課金で、中国本土から直接接続できます。既定の Flash は画像に対応し、V4 Pro も選べます。',
-  'provider.preset.deepseekOpenai.note':
-    '従量課金で、中国本土から直接接続できます。Chat Completions を使い、思考中はモデルがツールを自動で選択します。',
   'provider.preset.xai': 'xAI (Grok API)',
-  'provider.preset.xai.note': 'API Key は xai- で始まります。中国本土からは直接接続できません。',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note':
-    'Google のグローバル従量課金 API。中国本土・香港・マカオは対象地域外で、中国本土から直接接続できません。',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',
-  'provider.preset.ollamaCloud.note':
-    'Ollama 公式クラウド。API キーが必要です。中国本土からの直接接続は未確認で、アカウントの使用量・同時実行制限が適用されます。',
-  'provider.preset.ollama.note':
-    'ローカル実行で、中国本土でも利用できます。Ollama 0.13.3 以降と、ツール対応のインストール済みモデルが必要です。',
+  'provider.preset.ollama.note': 'Ollama 0.13.3 以降が必要',
   'provider.ollama.models': 'Ollama モデル',
   'provider.ollama.refresh': 'モデルを読み込む',
   'provider.ollama.loading': '読み込み中…',
-  'provider.ollama.upgradeHost':
-    'バックグラウンドサービスを更新するか、手動でモデルを追加してください。',
-  'provider.ollama.keyRequired': '有効な Ollama Cloud API キーを入力して再試行してください。',
-  'provider.ollama.failed':
-    'モデルを読み込めません。Ollama のアドレスと稼働状態を確認してください。',
-  'provider.ollama.empty': 'モデルがありません。ツール対応モデルをインストールしてください。',
+  'provider.ollama.upgradeHost': 'バックグラウンドサービスが古く、モデルを読み込めません',
+  'provider.ollama.keyRequired': 'Ollama Cloud API キーが無効',
+  'provider.ollama.failed': 'モデルの読み込みに失敗',
+  'provider.ollama.empty': 'モデルが見つかりません',
   'provider.ollama.context': 'コンテキスト {size}',
   'provider.ollama.noTools': 'ツール非対応',
   'provider.ollama.lowContext':
-    'Ollama のコンテキストは {size} です。Agent には最低 64k を推奨します。設定で増やすか OLLAMA_CONTEXT_LENGTH=65536 で再起動し、モデルを再読込してコンテキスト長を更新してください。',
-  'provider.ollama.unknownContext':
-    '実際のコンテキスト長は未確認です。モデルを実行して割り当て値を読み込み、入力してください。モデルの上限は現在の割り当て値ではありません。',
-  'provider.ollama.partial':
-    'モデル詳細を取得できません。機能と推論レベルを手動で確認してください。',
-  'provider.ollama.truncated': '最初の 64 モデルのみ表示します。他は手動で追加してください。',
-  'provider.ollama.upgrade': 'Ollama を 0.13.3 以降に更新するか、Chat に変更してください。',
+    'コンテキスト {size}、推奨の 64k 未満（OLLAMA_CONTEXT_LENGTH=65536）',
+  'provider.ollama.unknownContext': 'コンテキスト長は未確認。モデル実行中に読み込み',
+  'provider.ollama.partial': 'モデル詳細が不完全',
+  'provider.ollama.truncated': '先頭 64 モデルのみ表示',
+  'provider.ollama.upgrade': 'Ollama 0.13.3 以降、または Chat プロトコルが必要',
   'provider.preset.ollama': 'ローカルの Ollama',
 
   'provider.form.titleNew': '{name} を追加',
@@ -1097,11 +1064,10 @@ export const messages: Messages = {
   'provider.test.hint.model_not_found': 'デフォルトモデル ID を確認',
   'provider.test.hint.protocol': 'サービスが選択したプロトコルで応答しません',
   'provider.test.hint.rate_limited': 'しばらくしてから再試行するか、残高を確認',
-  'provider.test.hint.server': 'サーバーが一時的に異常',
 
   'provider.remove.title': 'モデルプロバイダー「{name}」を削除しますか？',
   'provider.remove.body':
-    '保存済みの API Key も削除されます。これを使用するセッションは、ID {id} のサービスを再追加するまで続行できません。履歴は保持されます。',
+    'API キーも削除されます。{id} を使うセッションは続行できません。履歴は残ります。',
   'provider.remove.openSessions': '使用中のセッション {count} 件が先に閉じられます。',
   'provider.remove.confirm': '削除',
   'provider.remove.failed': '削除に失敗しました: {error}',

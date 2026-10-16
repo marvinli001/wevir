@@ -200,7 +200,6 @@ export const messages: Messages = {
   'fx.gallery.shot': '예시 스크린샷',
   'fx.gallery.replay': '바꿔서 다시 재생',
   'pane.placeholder.title': '“{kind}” 미구현',
-  'pane.placeholder.body': '개발 모드 자리 표시자 패널',
   'pane.overview.workspacePath': '프로젝트 디렉터리',
   'pane.overview.files': '관련 파일',
   'pane.overview.filesEmpty': '파일 없음',
@@ -233,7 +232,7 @@ export const messages: Messages = {
   'files.slideNotes': '슬라이드 {n} 노트',
   'files.textOnly': '텍스트만',
   'files.parseFailed': '구문 분석 실패: {error}',
-  'files.noInlinePreview': '이 형식은 여기에서 미리 볼 수 없습니다',
+  'files.noInlinePreview': '이 형식은 미리 보기를 지원하지 않음',
   'files.quickLook': '훑어보기',
   'files.openDefault': '기본 앱으로 열기',
   'files.retry': '다시 시도',
@@ -444,11 +443,8 @@ export const messages: Messages = {
   'permission.change': '권한 변경',
   'permission.label': '권한: {mode}',
   'permission.on_request': '승인 요청',
-  'permission.on_request.description': '프로젝트 외부 쓰기 및 네트워크 접근 시 승인 필요',
   'permission.auto_review': '자동 승인',
-  'permission.auto_review.description': '현재 모델이 범위 밖 작업을 검토',
   'permission.full_access': '전체 액세스',
-  'permission.full_access.description': '액세스 제한 없음',
   'permission.configureFailed': '권한 전환 실패: {error}',
 
   'environment.local': '이 컴퓨터',
@@ -922,8 +918,7 @@ export const messages: Messages = {
   'account.chatgpt.emailUnknown': '로그인됨',
   'account.chatgpt.logout': '로그아웃',
   'account.chatgpt.logout.title': 'ChatGPT에서 로그아웃할까요?',
-  'account.chatgpt.logout.body':
-    '이 컴퓨터의 자격 증명을 삭제하고 토큰을 취소합니다. 세션은 유지되며 다시 로그인하면 계속할 수 있습니다.',
+  'account.chatgpt.logout.body': '로컬 자격 증명을 삭제하고 토큰을 해지합니다. 세션은 유지됩니다.',
   'account.chatgpt.logout.failed': '로그아웃 실패: {error}',
   'account.chatgpt.modelsLoading': '모델 목록 불러오는 중…',
   'account.chatgpt.usage.used': '{percent}% 사용됨',
@@ -936,36 +931,26 @@ export const messages: Messages = {
   'account.chatgpt.usage.resetsOn': '{date} {time}에 재설정',
 
   'provider.preset.openai': 'OpenAI',
-  'provider.preset.openai.note':
-    '중국 본토에서 직접 연결 불가. 중국 본토, 홍콩, 마카오는 지원 지역이 아니며 사용 시 계정이 제한될 수 있습니다.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note':
-    '공식 종량제 API. 중국 본토에서 직접 연결할 수 없으며 중국 본토·홍콩·마카오는 지원 지역이 아닙니다. 단일 workspace에 연결된 Key를 사용하세요.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
   'provider.catalog.azureOpenai': 'Azure OpenAI',
   'provider.catalog.azureClaude': 'Azure Claude',
-  'provider.preset.azureOpenai.note':
-    'Azure 글로벌 리소스. 중국 본토에서의 직접 연결은 확인되지 않았습니다. 실제 리소스 이름과 배포 이름을 입력하고 배포하지 않은 모델은 삭제하세요. 모델 ID는 배포 이름입니다.',
-  'provider.preset.azureClaude.note':
-    'Azure 글로벌의 Claude 종량제 배포이며 Azure Marketplace가 필요합니다. 중국 본토에서의 직접 연결은 확인되지 않았습니다. 리소스 이름과 배포 이름을 입력하고 배포하지 않은 모델은 삭제하세요.',
+  'provider.preset.azureOpenai.note': '모델 ID는 배포 이름',
+  'provider.preset.azureClaude.note': 'Azure Marketplace 필요, 모델 ID는 배포 이름',
   'provider.form.error.placeholder': '저장하기 전에 자리 표시자를 바꾸세요',
-  'provider.preset.vertex.note':
-    'Google Cloud의 현재 이름은 Gemini Enterprise Agent Platform입니다. 결제 및 모델 접근을 활성화하고 서비스 계정 JSON을 사용하세요. 기본 지역은 global입니다. Claude us / eu 엔드포인트는 10% 추가 요금이 있습니다. 중국 본토에서는 직접 접속할 수 없습니다.',
   'provider.vertex.project': 'Google Cloud 프로젝트 ID',
   'provider.vertex.location': '지역',
   'provider.vertex.family': '모델 계열',
   'provider.vertex.account': '서비스 계정 JSON',
   'provider.vertex.accountPlaceholder': '전체 서비스 계정 JSON 붙여넣기',
   'provider.vertex.file': '서비스 계정 JSON 파일 선택',
-  'provider.vertex.accountInvalid': '올바른 서비스 계정 JSON 파일을 사용하세요(최대 64 KiB)',
-  'provider.vertex.projectInvalid':
-    '올바른 Google Cloud 프로젝트 ID 또는 프로젝트 번호를 입력하세요',
-  'provider.vertex.locationInvalid': 'global, us, eu 등 올바른 지역을 입력하세요',
-  'provider.vertex.modelInvalid':
-    'Gemini ID는 google/gemini-, Claude ID는 claude-로 시작해야 합니다',
+  'provider.vertex.accountInvalid': '서비스 계정 JSON이 유효하지 않음(최대 64KiB)',
+  'provider.vertex.projectInvalid': '프로젝트 ID 또는 번호가 유효하지 않음',
+  'provider.vertex.locationInvalid': '잘못된 위치(예: global, us, eu)',
+  'provider.vertex.modelInvalid': 'google/gemini- 또는 claude-로 시작해야 함',
   'welcome.upgradeHost': '백그라운드 서비스를 업데이트하세요',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
@@ -978,46 +963,30 @@ export const messages: Messages = {
   'provider.catalog.group.cn': '중국',
   'provider.catalog.group.local': '로컬 및 사용자 지정',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
-  'provider.preset.dashscope.note':
-    '베이징 리전의 종량제 API로 중국 본토에서 직접 연결할 수 있습니다. 워크스페이스 전용 도메인이나 국제 엔드포인트를 사용할 때는 해당 리전의 키가 필요합니다.',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note': '중국 사이트 주소. 국제 사이트는 https://api.moonshot.ai/v1.',
+  'provider.preset.kimi.note': '국제 사이트: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note':
-    '종량제 주소. GLM Coding 요금제는 https://open.bigmodel.cn/api/coding/paas/v4.',
+  'provider.preset.zhipu.note': 'GLM Coding 요금제: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 호환)',
-  'provider.preset.deepseek.note':
-    '사용량 기반 요금이며 중국 본토에서 직접 연결할 수 있습니다. 기본 모델인 Flash는 이미지를 지원하며 V4 Pro도 선택할 수 있습니다.',
-  'provider.preset.deepseekOpenai.note':
-    '사용량 기반 요금이며 중국 본토에서 직접 연결할 수 있습니다. Chat Completions를 사용하며 추론 중에는 모델이 도구를 자동으로 선택합니다.',
   'provider.preset.xai': 'xAI (Grok API)',
-  'provider.preset.xai.note': 'API Key는 xai-로 시작. 중국 본토에서 직접 연결 불가.',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note':
-    'Google 글로벌 종량제 API. 중국 본토·홍콩·마카오는 지원 지역이 아니며 중국 본토에서는 직접 연결할 수 없습니다.',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',
-  'provider.preset.ollamaCloud.note':
-    'Ollama 공식 클라우드이며 API 키가 필요합니다. 중국 본토 직접 접속은 미확인 상태이며 계정별 사용량 및 동시 실행 제한이 적용됩니다.',
-  'provider.preset.ollama.note':
-    '로컬에서 실행하며 중국 본토에서도 이용할 수 있습니다. Ollama 0.13.3 이상과 도구를 지원하는 설치된 모델이 필요합니다.',
+  'provider.preset.ollama.note': 'Ollama 0.13.3 이상 필요',
   'provider.ollama.models': 'Ollama 모델',
   'provider.ollama.refresh': '모델 읽기',
   'provider.ollama.loading': '읽는 중…',
-  'provider.ollama.upgradeHost': '백그라운드 서비스를 업데이트하거나 모델을 직접 추가하세요.',
-  'provider.ollama.keyRequired': '유효한 Ollama Cloud API 키를 입력하고 다시 시도하세요.',
-  'provider.ollama.failed': '모델을 읽을 수 없습니다. Ollama 주소와 서비스 상태를 확인하세요.',
-  'provider.ollama.empty': '모델이 없습니다. 도구를 지원하는 모델을 설치하세요.',
+  'provider.ollama.upgradeHost': '백그라운드 서비스가 오래되어 모델을 읽을 수 없음',
+  'provider.ollama.keyRequired': 'Ollama Cloud API 키가 유효하지 않음',
+  'provider.ollama.failed': '모델 읽기 실패',
+  'provider.ollama.empty': '모델 없음',
   'provider.ollama.context': '컨텍스트 {size}',
   'provider.ollama.noTools': '도구 미지원',
-  'provider.ollama.lowContext':
-    'Ollama 컨텍스트는 {size}이며 Agent에는 최소 64k를 권장합니다. 설정에서 늘리거나 OLLAMA_CONTEXT_LENGTH=65536으로 다시 시작한 뒤 모델을 다시 읽고 컨텍스트 길이를 업데이트하세요.',
-  'provider.ollama.unknownContext':
-    '실제 컨텍스트를 알 수 없습니다. 모델을 실행하고 할당된 값을 읽어 입력하세요. 모델 최대치는 현재 할당량이 아닙니다.',
-  'provider.ollama.partial':
-    '모델 상세 정보를 읽지 못했습니다. 기능과 추론 단계를 직접 확인하세요.',
-  'provider.ollama.truncated': '처음 64개 모델만 표시합니다. 나머지는 직접 추가하세요.',
-  'provider.ollama.upgrade': 'Ollama를 0.13.3 이상으로 업데이트하거나 Chat으로 변경하세요.',
+  'provider.ollama.lowContext': '컨텍스트 {size}, 권장 64k 미만 (OLLAMA_CONTEXT_LENGTH=65536)',
+  'provider.ollama.unknownContext': '컨텍스트 길이 미확인, 모델 실행 중 읽기',
+  'provider.ollama.partial': '모델 세부 정보 불완전',
+  'provider.ollama.truncated': '처음 64개 모델만 표시',
+  'provider.ollama.upgrade': 'Ollama 0.13.3 이상 또는 Chat 프로토콜 필요',
   'provider.preset.ollama': '로컬 Ollama',
 
   'provider.form.titleNew': '{name} 추가',
@@ -1083,11 +1052,10 @@ export const messages: Messages = {
   'provider.test.hint.model_not_found': '기본 모델 ID 확인',
   'provider.test.hint.protocol': '서비스가 선택한 프로토콜로 응답하지 않음',
   'provider.test.hint.rate_limited': '잠시 후 다시 시도하거나 잔액 확인',
-  'provider.test.hint.server': '서버 일시적 오류',
 
   'provider.remove.title': '“{name}” 모델 제공자를 삭제할까요?',
   'provider.remove.body':
-    '저장된 API Key도 함께 삭제됩니다. 이를 사용하는 세션은 ID가 {id}인 서비스를 다시 추가하기 전까지 계속할 수 없으며, 기록은 유지됩니다.',
+    'API 키도 삭제됩니다. {id}을(를) 사용하는 세션은 계속할 수 없으며 기록은 유지됩니다.',
   'provider.remove.openSessions': '사용 중인 세션 {count}개가 먼저 닫힙니다.',
   'provider.remove.confirm': '삭제',
   'provider.remove.failed': '삭제 실패: {error}',

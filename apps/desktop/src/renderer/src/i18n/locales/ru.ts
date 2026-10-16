@@ -205,7 +205,6 @@ export const messages: Messages = {
   'fx.gallery.shot': 'Пример снимка',
   'fx.gallery.replay': 'Сменить и повторить',
   'pane.placeholder.title': '«{kind}» ещё не реализовано',
-  'pane.placeholder.body': 'Заглушка режима разработки',
   'pane.overview.workspacePath': 'Папка проекта',
   'pane.overview.files': 'Связанные файлы',
   'pane.overview.filesEmpty': 'Нет файлов',
@@ -238,7 +237,7 @@ export const messages: Messages = {
   'files.slideNotes': 'Заметки к слайду {n}',
   'files.textOnly': 'Только текст',
   'files.parseFailed': 'Не удалось разобрать: {error}',
-  'files.noInlinePreview': 'Этот формат нельзя просмотреть здесь',
+  'files.noInlinePreview': 'Предпросмотр этого формата не поддерживается',
   'files.quickLook': 'Быстрый просмотр',
   'files.openDefault': 'Открыть в приложении по умолчанию',
   'files.retry': 'Повторить',
@@ -452,11 +451,8 @@ export const messages: Messages = {
   'permission.change': 'Изменить разрешения',
   'permission.label': 'Разрешения: {mode}',
   'permission.on_request': 'Запрашивать подтверждение',
-  'permission.on_request.description': 'Подтверждение записи вне проекта и доступа к сети',
   'permission.auto_review': 'Автоподтверждение',
-  'permission.auto_review.description': 'Выход за рамки проверяет текущая модель',
   'permission.full_access': 'Полный доступ',
-  'permission.full_access.description': 'Без ограничений доступа',
   'permission.configureFailed': 'Не удалось сменить разрешения: {error}',
 
   'environment.local': 'Этот компьютер',
@@ -948,7 +944,7 @@ export const messages: Messages = {
   'account.chatgpt.logout': 'Выйти',
   'account.chatgpt.logout.title': 'Выйти из ChatGPT?',
   'account.chatgpt.logout.body':
-    'Локальные учётные данные будут удалены, токены отозваны; сессии сохранятся и продолжатся после повторного входа.',
+    'Локальные учётные данные будут удалены, токены отозваны. Сессии сохранятся.',
   'account.chatgpt.logout.failed': 'Не удалось выйти: {error}',
   'account.chatgpt.modelsLoading': 'Загрузка списка моделей…',
   'account.chatgpt.usage.used': 'Использовано {percent}%',
@@ -964,35 +960,26 @@ export const messages: Messages = {
   'account.chatgpt.usage.resetsOn': 'Сброс {date} в {time}',
 
   'provider.preset.openai': 'OpenAI',
-  'provider.preset.openai.note':
-    'Нет прямого доступа из материкового Китая; материковый Китай, Гонконг и Макао не входят в поддерживаемые регионы, использование может привести к ограничению аккаунта.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note':
-    'Официальный API с оплатой по использованию. Прямой доступ из материкового Китая недоступен; материковый Китай, Гонконг и Макао не поддерживаются. Используйте Key, привязанный к одному workspace.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
   'provider.catalog.azureOpenai': 'Azure OpenAI',
   'provider.catalog.azureClaude': 'Azure Claude',
-  'provider.preset.azureOpenai.note':
-    'Глобальные ресурсы Azure; прямой доступ из материкового Китая не подтверждён. Укажите имена ресурса и развёртываний, удалите неразвёрнутые модели. ID модели — имя развёртывания.',
-  'provider.preset.azureClaude.note':
-    'Claude в глобальном Azure с оплатой по использованию через Azure Marketplace. Прямой доступ из материкового Китая не подтверждён. Укажите имена ресурса и развёртываний, удалите неразвёрнутые модели.',
+  'provider.preset.azureOpenai.note': 'ID модели — имя развёртывания',
+  'provider.preset.azureClaude.note': 'Требуется Azure Marketplace; ID модели — имя развёртывания',
   'provider.form.error.placeholder': 'Замените заполнитель перед сохранением',
-  'provider.preset.vertex.note':
-    'В Google Cloud сервис теперь называется Gemini Enterprise Agent Platform. Включите оплату и доступ к моделям и используйте JSON сервисного аккаунта. По умолчанию: global. Эндпоинты Claude us / eu дороже на 10%. Прямой доступ из материкового Китая недоступен.',
   'provider.vertex.project': 'ID проекта Google Cloud',
   'provider.vertex.location': 'Регион',
   'provider.vertex.family': 'Семейство моделей',
   'provider.vertex.account': 'JSON сервисного аккаунта',
   'provider.vertex.accountPlaceholder': 'Вставьте полный JSON сервисного аккаунта',
   'provider.vertex.file': 'Выбрать JSON-файл сервисного аккаунта',
-  'provider.vertex.accountInvalid':
-    'Используйте корректный JSON-файл сервисного аккаунта (до 64 КиБ)',
-  'provider.vertex.projectInvalid': 'Введите корректный ID или номер проекта Google Cloud',
-  'provider.vertex.locationInvalid': 'Введите корректный регион, например global, us или eu',
-  'provider.vertex.modelInvalid': 'ID Gemini начинаются с google/gemini-, ID Claude — с claude-',
+  'provider.vertex.accountInvalid': 'Недопустимый JSON сервисного аккаунта (макс. 64 КиБ)',
+  'provider.vertex.projectInvalid': 'Недопустимый ID или номер проекта',
+  'provider.vertex.locationInvalid': 'Недопустимый регион (например, global, us, eu)',
+  'provider.vertex.modelInvalid': 'Должен начинаться с google/gemini- или claude-',
   'welcome.upgradeHost': 'Обновите фоновую службу',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
@@ -1005,48 +992,31 @@ export const messages: Messages = {
   'provider.catalog.group.cn': 'Китай',
   'provider.catalog.group.local': 'Локальные и свои',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
-  'provider.preset.dashscope.note':
-    'Оплата по использованию, регион Пекин, прямой доступ из материкового Китая. Можно использовать домен рабочего пространства или международную конечную точку с ключом соответствующего региона.',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note':
-    'Адрес китайской версии; международная — https://api.moonshot.ai/v1.',
+  'provider.preset.kimi.note': 'Международный: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note':
-    'Адрес с оплатой по факту использования; для тарифа GLM Coding — https://open.bigmodel.cn/api/coding/paas/v4.',
+  'provider.preset.zhipu.note': 'Тариф GLM Coding: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (совместимый с OpenAI)',
-  'provider.preset.deepseek.note':
-    'Оплата по использованию, прямой доступ из материкового Китая. По умолчанию используется Flash с поддержкой изображений; также доступна V4 Pro.',
-  'provider.preset.deepseekOpenai.note':
-    'Оплата по использованию, прямой доступ из материкового Китая. Используется Chat Completions; при рассуждении модель автоматически выбирает инструменты.',
   'provider.preset.xai': 'xAI (Grok API)',
-  'provider.preset.xai.note':
-    'API Key начинается с xai-; нет прямого доступа из материкового Китая.',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note':
-    'Глобальный API Google с оплатой по использованию. Материковый Китай, Гонконг и Макао не поддерживаются; прямого доступа из материкового Китая нет.',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',
-  'provider.preset.ollamaCloud.note':
-    'Официальное облако Ollama с API-ключом. Прямой доступ из материкового Китая не проверен. Действуют лимиты аккаунта на использование и параллельность.',
-  'provider.preset.ollama.note':
-    'Локальный запуск в материковом Китае. Нужны Ollama 0.13.3 или новее и установленная модель с инструментами.',
+  'provider.preset.ollama.note': 'Требуется Ollama 0.13.3 или новее',
   'provider.ollama.models': 'Модели Ollama',
   'provider.ollama.refresh': 'Прочитать модели',
   'provider.ollama.loading': 'Чтение…',
-  'provider.ollama.upgradeHost': 'Обновите фоновую службу или добавьте модели вручную.',
-  'provider.ollama.keyRequired': 'Введите действующий API-ключ Ollama Cloud и повторите попытку.',
-  'provider.ollama.failed': 'Не удалось прочитать модели. Проверьте адрес и службу Ollama.',
-  'provider.ollama.empty': 'Моделей нет. Установите модель с поддержкой инструментов.',
+  'provider.ollama.upgradeHost': 'Фоновая служба устарела, модели не читаются',
+  'provider.ollama.keyRequired': 'Недействительный ключ API Ollama Cloud',
+  'provider.ollama.failed': 'Не удалось прочитать модели',
+  'provider.ollama.empty': 'Модели не найдены',
   'provider.ollama.context': 'Контекст {size}',
   'provider.ollama.noTools': 'Нет инструментов',
   'provider.ollama.lowContext':
-    'Контекст Ollama — {size}; рекомендуется минимум 64k. Увеличьте его в настройках или перезапустите с OLLAMA_CONTEXT_LENGTH=65536, затем прочитайте модели заново и обновите длину контекста.',
-  'provider.ollama.unknownContext':
-    'Фактический контекст неизвестен. Запустите модель, прочитайте и укажите выделенное значение. Предел модели не равен текущему выделению.',
-  'provider.ollama.partial':
-    'Сведения недоступны. Проверьте возможности и уровни рассуждения вручную.',
-  'provider.ollama.truncated': 'Показаны первые 64 модели. Остальные добавьте вручную.',
-  'provider.ollama.upgrade': 'Обновите Ollama до 0.13.3 или новее либо выберите Chat.',
+    'Контекст {size}, меньше рекомендуемых 64k (OLLAMA_CONTEXT_LENGTH=65536)',
+  'provider.ollama.unknownContext': 'Длина контекста не подтверждена; читать при запущенной модели',
+  'provider.ollama.partial': 'Сведения о модели неполные',
+  'provider.ollama.truncated': 'Показаны первые 64 модели',
+  'provider.ollama.upgrade': 'Требуется Ollama 0.13.3 или новее либо протокол Chat',
   'provider.preset.ollama': 'Локальный Ollama',
 
   'provider.form.titleNew': 'Добавить {name}',
@@ -1113,11 +1083,10 @@ export const messages: Messages = {
   'provider.test.hint.model_not_found': 'Проверьте ID модели по умолчанию',
   'provider.test.hint.protocol': 'Сервис не отвечает по выбранному протоколу',
   'provider.test.hint.rate_limited': 'Повторите позже или проверьте баланс',
-  'provider.test.hint.server': 'Временный сбой на стороне сервиса',
 
   'provider.remove.title': 'Удалить поставщика моделей «{name}»?',
   'provider.remove.body':
-    'Сохранённый API Key тоже будет удалён. Использующие его сессии нельзя будет продолжить, пока снова не добавлен сервис с ID {id}; история сохранится.',
+    'Ключ API тоже удаляется. Сессии, использующие {id}, не смогут продолжиться; история сохранится.',
   'provider.remove.openSessions': 'Сначала будут закрыты использующие его сессии: {count}.',
   'provider.remove.confirm': 'Удалить',
   'provider.remove.failed': 'Не удалось удалить: {error}',

@@ -112,8 +112,8 @@ describe('审批标题按会话的边界', () => {
       toolName,
       display: { kind: 'unknown', summary: toolName },
     });
-    expect(title(mcp('mcp__wevir__wevir_session_create'), codex)).toBe('允许开一个新会话？');
-    expect(title(mcp('mcp__wevir__wevir_session_send'), claude)).toBe('允许给其他会话发消息？');
+    expect(title(mcp('mcp__wevir__wevir_session_create'), codex)).toBe('允许新建会话？');
+    expect(title(mcp('mcp__wevir__wevir_session_send'), claude)).toBe('允许向其他会话发消息？');
     expect(title(mcp('mcp__wevir__wevir_session_interrupt'), claude)).toBe('允许停止其他会话？');
     expect(title(mcp('mcp__other__wevir_session_create'), claude)).toBe('允许执行此操作？');
   });

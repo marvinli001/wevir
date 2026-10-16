@@ -148,6 +148,6 @@ describe('Ollama presets and discovered selections', () => {
           code: 'ollama_responses_unavailable',
         },
       }).hint,
-    ).toContain('升级 Ollama');
+    ).toContain('Ollama 0.13.3');
   });
 });

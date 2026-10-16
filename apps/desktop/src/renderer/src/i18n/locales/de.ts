@@ -204,7 +204,6 @@ export const messages: Messages = {
   'fx.gallery.shot': 'Beispiel-Screenshot',
   'fx.gallery.replay': 'Wechseln und neu abspielen',
   'pane.placeholder.title': '„{kind}“ noch nicht implementiert',
-  'pane.placeholder.body': 'Platzhalter im Entwicklermodus',
   'pane.overview.workspacePath': 'Projektordner',
   'pane.overview.files': 'Zugehörige Dateien',
   'pane.overview.filesEmpty': 'Keine Dateien',
@@ -237,7 +236,7 @@ export const messages: Messages = {
   'files.slideNotes': 'Notizen zu Folie {n}',
   'files.textOnly': 'Nur Text',
   'files.parseFailed': 'Analyse fehlgeschlagen: {error}',
-  'files.noInlinePreview': 'Dieses Format kann hier nicht angezeigt werden',
+  'files.noInlinePreview': 'Vorschau für dieses Format nicht unterstützt',
   'files.quickLook': 'Übersicht',
   'files.openDefault': 'Mit Standard-App öffnen',
   'files.retry': 'Erneut versuchen',
@@ -450,12 +449,8 @@ export const messages: Messages = {
   'permission.change': 'Berechtigung ändern',
   'permission.label': 'Berechtigung: {mode}',
   'permission.on_request': 'Freigabe anfordern',
-  'permission.on_request.description':
-    'Schreiben außerhalb des Projekts und Netzwerkzugriff erfordern Freigabe',
   'permission.auto_review': 'Automatisch freigeben',
-  'permission.auto_review.description': 'Aktuelles Modell prüft Zugriffe außerhalb der Grenzen',
   'permission.full_access': 'Vollzugriff',
-  'permission.full_access.description': 'Keine Zugriffsbeschränkungen',
   'permission.configureFailed': 'Berechtigungswechsel fehlgeschlagen: {error}',
 
   'environment.local': 'Dieser Computer',
@@ -937,7 +932,7 @@ export const messages: Messages = {
   'account.chatgpt.logout': 'Abmelden',
   'account.chatgpt.logout.title': 'Von ChatGPT abmelden?',
   'account.chatgpt.logout.body':
-    'Lokale Anmeldedaten werden gelöscht und das Token widerrufen. Sitzungen bleiben erhalten und lassen sich nach erneuter Anmeldung fortsetzen.',
+    'Löscht lokale Anmeldedaten und widerruft Tokens. Sitzungen bleiben erhalten.',
   'account.chatgpt.logout.failed': 'Abmelden fehlgeschlagen: {error}',
   'account.chatgpt.modelsLoading': 'Modellliste wird geladen…',
   'account.chatgpt.usage.used': '{percent} % genutzt',
@@ -950,35 +945,27 @@ export const messages: Messages = {
   'account.chatgpt.usage.resetsOn': 'Zurücksetzung am {date} um {time}',
 
   'provider.preset.openai': 'OpenAI',
-  'provider.preset.openai.note':
-    'In Festlandchina kein direkter Zugriff; Festlandchina, Hongkong und Macau sind keine unterstützten Regionen, die Nutzung kann zu Kontoeinschränkungen führen.',
   'provider.preset.anthropic': 'Anthropic',
-  'provider.preset.anthropic.note':
-    'Offizielle API mit nutzungsabhängiger Abrechnung. Kein direkter Zugriff aus Festlandchina; Festlandchina, Hongkong und Macau werden nicht unterstützt. Einen auf einen Workspace beschränkten Key verwenden.',
   'provider.catalog.openai': 'OpenAI',
   'provider.catalog.anthropic': 'Anthropic',
   'provider.catalog.googleAiStudio': 'Google AI Studio',
   'provider.catalog.googleVertex': 'Google Vertex AI',
   'provider.catalog.azureOpenai': 'Azure OpenAI',
   'provider.catalog.azureClaude': 'Azure Claude',
-  'provider.preset.azureOpenai.note':
-    'Globale Azure-Ressourcen; direkter Zugriff aus Festlandchina ist nicht bestätigt. Ressourcen- und Bereitstellungsnamen eintragen, nicht bereitgestellte Modelle entfernen. Modell-IDs sind Bereitstellungsnamen.',
+  'provider.preset.azureOpenai.note': 'Modell-IDs sind Bereitstellungsnamen',
   'provider.preset.azureClaude.note':
-    'Claude auf globalem Azure, nutzungsbasiert über Azure Marketplace. Direkter Zugriff aus Festlandchina ist nicht bestätigt. Ressourcen- und Bereitstellungsnamen eintragen, nicht bereitgestellte Modelle entfernen.',
+    'Erfordert Azure Marketplace; Modell-IDs sind Bereitstellungsnamen',
   'provider.form.error.placeholder': 'Platzhalter vor dem Speichern ersetzen',
-  'provider.preset.vertex.note':
-    'Google Cloud nennt dies jetzt Gemini Enterprise Agent Platform. Abrechnung und Modellzugriff aktivieren und ein Dienstkonto als JSON verwenden. Standard: global. Claude-Endpunkte us / eu kosten 10 % mehr. Kein direkter Zugriff aus Festlandchina.',
   'provider.vertex.project': 'Google Cloud-Projekt-ID',
   'provider.vertex.location': 'Region',
   'provider.vertex.family': 'Modellfamilie',
   'provider.vertex.account': 'Dienstkonto-JSON',
   'provider.vertex.accountPlaceholder': 'Vollständiges Dienstkonto-JSON einfügen',
   'provider.vertex.file': 'JSON-Datei des Dienstkontos auswählen',
-  'provider.vertex.accountInvalid':
-    'Eine gültige Dienstkonto-JSON-Datei verwenden (maximal 64 KiB)',
-  'provider.vertex.projectInvalid': 'Gültige Google Cloud-Projekt-ID oder Projektnummer eingeben',
-  'provider.vertex.locationInvalid': 'Gültige Region eingeben, etwa global, us oder eu',
-  'provider.vertex.modelInvalid': 'Gemini-IDs beginnen mit google/gemini-, Claude-IDs mit claude-',
+  'provider.vertex.accountInvalid': 'Ungültiges Dienstkonto-JSON (max. 64 KiB)',
+  'provider.vertex.projectInvalid': 'Ungültige Projekt-ID oder -nummer',
+  'provider.vertex.locationInvalid': 'Ungültiger Standort (z. B. global, us, eu)',
+  'provider.vertex.modelInvalid': 'Muss mit google/gemini- oder claude- beginnen',
   'welcome.upgradeHost': 'Hintergrunddienst aktualisieren',
   'provider.catalog.xai': 'xAI',
   'provider.catalog.deepseek': 'DeepSeek',
@@ -991,50 +978,31 @@ export const messages: Messages = {
   'provider.catalog.group.cn': 'China',
   'provider.catalog.group.local': 'Lokal & benutzerdefiniert',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
-  'provider.preset.dashscope.note':
-    'Nutzungsbasierte Abrechnung in Peking, aus Festlandchina direkt erreichbar. Alternativ eine Workspace-Domain oder einen internationalen Endpunkt mit passendem regionalem Key verwenden.',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note':
-    'Adresse der chinesischen Seite; international: https://api.moonshot.ai/v1.',
+  'provider.preset.kimi.note': 'International: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note':
-    'Adresse für nutzungsbasierte Abrechnung; GLM Coding Plan: https://open.bigmodel.cn/api/coding/paas/v4.',
+  'provider.preset.zhipu.note': 'GLM-Coding-Tarif: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI-kompatibel)',
-  'provider.preset.deepseek.note':
-    'Nutzungsabhängige Abrechnung, aus Festlandchina direkt erreichbar. Standard ist Flash mit Bildunterstützung; V4 Pro ist ebenfalls verfügbar.',
-  'provider.preset.deepseekOpenai.note':
-    'Nutzungsabhängige Abrechnung, aus Festlandchina direkt erreichbar. Verwendet Chat Completions; beim Nachdenken wählt das Modell die Werkzeuge automatisch.',
   'provider.preset.xai': 'xAI (Grok API)',
-  'provider.preset.xai.note': 'API Key beginnt mit xai-; in Festlandchina kein direkter Zugriff.',
   'provider.preset.gemini': 'Google AI Studio',
-  'provider.preset.gemini.note':
-    'Globale Google-API mit nutzungsbasierter Abrechnung. Festlandchina, Hongkong und Macao werden nicht unterstützt; kein direkter Zugang aus Festlandchina.',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',
-  'provider.preset.ollamaCloud.note':
-    'Offizieller Ollama-Clouddienst mit API-Schlüssel. Direkter Zugriff aus Festlandchina ungeprüft. Nutzung und Parallelität sind kontobegrenzt.',
-  'provider.preset.ollama.note':
-    'Lokale Ausführung in Festlandchina. Benötigt Ollama ab 0.13.3 und ein installiertes Modell mit Werkzeugunterstützung.',
+  'provider.preset.ollama.note': 'Erfordert Ollama 0.13.3 oder neuer',
   'provider.ollama.models': 'Ollama-Modelle',
   'provider.ollama.refresh': 'Modelle lesen',
   'provider.ollama.loading': 'Wird gelesen…',
-  'provider.ollama.upgradeHost': 'Hintergrunddienst aktualisieren oder Modelle manuell hinzufügen.',
-  'provider.ollama.keyRequired':
-    'Gültigen API-Schlüssel für Ollama Cloud eingeben und erneut versuchen.',
-  'provider.ollama.failed':
-    'Modelle konnten nicht gelesen werden. Ollama-Adresse und Dienst prüfen.',
-  'provider.ollama.empty':
-    'Keine Modelle gefunden. Zuerst ein Modell mit Werkzeugunterstützung installieren.',
+  'provider.ollama.upgradeHost': 'Hintergrunddienst zu alt zum Lesen der Modelle',
+  'provider.ollama.keyRequired': 'Ungültiger Ollama-Cloud-API-Schlüssel',
+  'provider.ollama.failed': 'Modelle konnten nicht gelesen werden',
+  'provider.ollama.empty': 'Keine Modelle gefunden',
   'provider.ollama.context': 'Kontext {size}',
   'provider.ollama.noTools': 'Keine Werkzeuge',
   'provider.ollama.lowContext':
-    'Ollama verwendet {size} Kontext; empfohlen sind mindestens 64k. In Ollama erhöhen oder mit OLLAMA_CONTEXT_LENGTH=65536 neu starten, dann Modelle erneut lesen und Kontext aktualisieren.',
-  'provider.ollama.unknownContext':
-    'Tatsächlicher Kontext unbekannt. Modell starten, zugewiesenen Kontext lesen und eintragen. Das Modellmaximum ist nicht die aktuelle Zuweisung.',
-  'provider.ollama.partial': 'Modelldetails fehlen. Fähigkeiten und Denkstufen manuell prüfen.',
-  'provider.ollama.truncated':
-    'Nur die ersten 64 Modelle werden angezeigt. Weitere manuell hinzufügen.',
-  'provider.ollama.upgrade': 'Ollama auf mindestens 0.13.3 aktualisieren oder Chat verwenden.',
+    'Kontext {size}, unter den empfohlenen 64k (OLLAMA_CONTEXT_LENGTH=65536)',
+  'provider.ollama.unknownContext': 'Kontextlänge unbestätigt; bei laufendem Modell lesen',
+  'provider.ollama.partial': 'Modelldetails unvollständig',
+  'provider.ollama.truncated': 'Erste 64 Modelle angezeigt',
+  'provider.ollama.upgrade': 'Erfordert Ollama 0.13.3 oder neuer oder das Chat-Protokoll',
   'provider.preset.ollama': 'Lokales Ollama',
 
   'provider.form.titleNew': '{name} hinzufügen',
@@ -1101,11 +1069,10 @@ export const messages: Messages = {
   'provider.test.hint.model_not_found': 'Standardmodell-ID prüfen',
   'provider.test.hint.protocol': 'Dienst antwortet nicht im gewählten Protokoll',
   'provider.test.hint.rate_limited': 'Später erneut versuchen oder Guthaben prüfen',
-  'provider.test.hint.server': 'Vorübergehende Störung auf dem Server',
 
   'provider.remove.title': 'Modellanbieter „{name}“ löschen?',
   'provider.remove.body':
-    'Der gespeicherte API Key wird ebenfalls gelöscht. Sitzungen, die diesen Anbieter nutzen, lassen sich erst wieder fortsetzen, wenn ein Anbieter mit der ID {id} hinzugefügt wird; der Verlauf bleibt erhalten.',
+    'Der API-Schlüssel wird mitgelöscht. Sitzungen mit {id} können nicht fortgesetzt werden; der Verlauf bleibt.',
   'provider.remove.openSessions':
     '{count, plural, one {# aktive Sitzung wird zuerst geschlossen.} other {# aktive Sitzungen werden zuerst geschlossen.}}',
   'provider.remove.confirm': 'Löschen',

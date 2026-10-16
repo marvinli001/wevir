@@ -33,7 +33,6 @@ const REASON_HINT: Partial<Record<ProviderTestFailure, PlainMessageKey>> = {
   model_not_found: 'provider.test.hint.model_not_found',
   protocol: 'provider.test.hint.protocol',
   rate_limited: 'provider.test.hint.rate_limited',
-  server: 'provider.test.hint.server',
 };
 
 export function presentTestResult(result: MethodResult<'provider.test'>): TestPresentation {

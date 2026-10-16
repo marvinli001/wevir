@@ -53,7 +53,6 @@ const FIVE_EFFORTS: ProviderModel['reasoningEfforts'] = ['low', 'medium', 'high'
 export const DEEPSEEK_OFFICIAL_PRESET: OpenAIPreset = {
   id: DEEPSEEK_OFFICIAL_ID,
   name: 'provider.catalog.deepseek',
-  note: 'provider.preset.deepseek.note',
   api: 'openai-responses',
   baseURL: 'https://api.deepseek.com',
   models: [
@@ -79,7 +78,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     // （2026-10-15 核对，providers.md §7.8）。
     id: 'openai',
     name: 'provider.preset.openai',
-    note: 'provider.preset.openai.note',
     api: 'openai-responses',
     baseURL: 'https://api.openai.com/v1',
     models: [
@@ -112,7 +110,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     // 官方按量 Messages API（2026-10-15 核对，providers.md §7.9）。显式声明格式与中途 system 的模式，代理同样生效。
     id: 'anthropic',
     name: 'provider.preset.anthropic',
-    note: 'provider.preset.anthropic.note',
     api: 'anthropic-messages',
     baseURL: 'https://api.anthropic.com',
     compat: { thinkingFormat: 'adaptive', systemMessageMode: 'inline' },
@@ -208,7 +205,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     // 百炼按量 Responses（2026-10-15 核对，providers.md §7.2）；工具支持待真实 Key 验证，显式保留保守默认供代理使用。
     id: 'dashscope',
     name: 'provider.preset.dashscope',
-    note: 'provider.preset.dashscope.note',
     api: 'openai-responses',
     baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     compat: {
@@ -261,7 +257,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
   {
     id: 'deepseek-openai',
     name: 'provider.preset.deepseekOpenai',
-    note: 'provider.preset.deepseekOpenai.note',
     api: 'openai-completions',
     baseURL: 'https://api.deepseek.com',
     models: DEEPSEEK_OFFICIAL_PRESET.models,
@@ -278,7 +273,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     // （按地址也会默认摊平，这里写明，经代理改了地址时仍然生效）。大陆不可达，要用户自己的网络环境。
     id: 'xai',
     name: 'provider.preset.xai',
-    note: 'provider.preset.xai.note',
     api: 'openai-responses',
     baseURL: 'https://api.x.ai/v1',
     models: [
@@ -299,7 +293,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     // Schema 限制未实测，geminiToolSchema 保持默认关闭；API Key 不按前缀校验。
     id: 'gemini',
     name: 'provider.preset.gemini',
-    note: 'provider.preset.gemini.note',
     api: 'openai-completions',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     models: [
@@ -343,7 +336,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
   {
     id: 'ollama-cloud',
     name: 'provider.preset.ollamaCloud',
-    note: 'provider.preset.ollamaCloud.note',
     api: 'openai-responses',
     baseURL: 'https://ollama.com/v1',
     models: [],
@@ -359,7 +351,6 @@ export const VERTEX_PRESETS: readonly OpenAIPreset[] = [
     id: 'google-vertex',
     kind: 'google-vertex',
     name: 'provider.catalog.googleVertex',
-    note: 'provider.preset.vertex.note',
     api: 'openai-completions',
     baseURL: '',
     models: [
@@ -378,7 +369,6 @@ export const VERTEX_PRESETS: readonly OpenAIPreset[] = [
     id: 'google-vertex-claude',
     kind: 'google-vertex',
     name: 'provider.catalog.googleVertex',
-    note: 'provider.preset.vertex.note',
     api: 'anthropic-messages',
     baseURL: '',
     compat: { thinkingFormat: 'adaptive', systemMessageMode: 'inline' },

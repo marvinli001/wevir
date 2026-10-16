@@ -23,7 +23,6 @@ export function VertexFields({
   return (
     <div className="space-y-4" data-vertex-fields>
       <div className="space-y-1.5 text-sm text-muted-foreground">
-        <p>{t('provider.preset.vertex.note')}</p>
         {docsURL && (
           <button
             type="button"
