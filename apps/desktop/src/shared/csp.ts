@@ -29,10 +29,22 @@
 // Pierre 把 diff 的行写成带 style 属性的 HTML，style 属性仍不放行：pnpm 补丁在它写完后经 CSSOM 补上
 // （patches/@pierre__diffs@1.5.1.patch，pnpm-workspace.yaml 的说明）。
 
+//
+// 文件预览（0.32.0，desktop-layout.md §19，ADR-0004 补记 11）放开 Host 的文件地址 `http://127.0.0.1:*`（`workspace.fileUrl`，host-api.md §1 的
+// `GET /files/…`），端口每次启动由系统分配，同 connect-src 只能放行整个端口范围：
+// - `img-src`、`media-src`：图片与音视频（`media-src` 原来跟着 `default-src 'none'`）；
+// - `frame-src`：PDF 用 Chromium 自带的查看器（不加沙箱的 iframe，PDF 不跑脚本），网页放进加了 `sandbox` 的 iframe（不透明
+//   origin），Host 给 HTML 的响应另带沙箱与不能联网的 CSP；主进程的 `will-frame-navigate` 不让子框架跳到别处（main/index.ts）；
+// - `connect-src`：fetch Office 文件的字节（xlsx 的表格、docx / pptx 的文字在渲染进程里解析）。
+// 这些地址都要 Host 发的令牌（只在 Host 内存里、一小时作废），只读，读得到的只是会话目录里能预览的几类文件。
+
 import { DEV_SERVER_PORT } from './renderer-origin.js';
 
 /** Host 只监听 127.0.0.1、端口每次启动由系统分配（host-api.md §1），只能放行整个端口范围。 */
 export const HOST_CONNECT_SRC = 'ws://127.0.0.1:*';
+
+/** Host 的文件预览地址（0.32.0，`workspace.fileUrl`）。 */
+export const HOST_FILES_SRC = 'http://127.0.0.1:*';
 
 /**
  * 构建产物 index.html 里的 nonce 占位符（Vite 的 `html.cspNonce`，electron.vite.config.ts）：协议处理器每次提供
@@ -41,10 +53,11 @@ export const HOST_CONNECT_SRC = 'ws://127.0.0.1:*';
 export const CSP_NONCE_PLACEHOLDER = 'WEVIR_CSP_NONCE';
 
 const COMMON = [
-  "img-src 'self' data:",
+  `img-src 'self' data: ${HOST_FILES_SRC}`,
+  `media-src ${HOST_FILES_SRC}`,
   "font-src 'self'",
   "object-src 'none'",
-  "frame-src 'none'",
+  `frame-src ${HOST_FILES_SRC}`,
   "base-uri 'none'",
   "form-action 'none'",
   "frame-ancestors 'none'",
@@ -60,7 +73,7 @@ export function productionCsp(nonce?: string): string {
     "script-src 'self' 'wasm-unsafe-eval'",
     "worker-src 'self'",
     nonce === undefined ? "style-src 'self'" : `style-src 'self' 'nonce-${nonce}'`,
-    `connect-src ${HOST_CONNECT_SRC}`,
+    `connect-src ${HOST_CONNECT_SRC} ${HOST_FILES_SRC}`,
     ...COMMON,
   ].join('; ');
 }
@@ -76,7 +89,7 @@ export function developmentCsp(nonce: string): string {
     `script-src 'self' 'nonce-${nonce}' 'wasm-unsafe-eval'`,
     "worker-src 'self'",
     `style-src 'self' 'nonce-${nonce}'`,
-    `connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ${HOST_CONNECT_SRC}`,
+    `connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ${HOST_CONNECT_SRC} ${HOST_FILES_SRC}`,
     ...COMMON,
   ].join('; ');
 }

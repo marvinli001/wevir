@@ -30,7 +30,9 @@ describe('渲染进程的 origin', () => {
     expect(csp).toContain("script-src 'self' 'nonce-abc' 'wasm-unsafe-eval';");
     expect(csp).toContain("worker-src 'self';");
     expect(csp).toContain("style-src 'self' 'nonce-abc';");
-    expect(csp).toContain(`connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ws://127.0.0.1:*;`);
+    expect(csp).toContain(
+      `connect-src 'self' ws://localhost:${DEV_SERVER_PORT} ws://127.0.0.1:* http://127.0.0.1:*;`,
+    );
     // 只为 Shiki 的 WebAssembly 放开 'wasm-unsafe-eval'（0.20.0），不放开 JS 的 eval 与内联。
     expect(csp.replace("'wasm-unsafe-eval'", '')).not.toContain('unsafe');
   });

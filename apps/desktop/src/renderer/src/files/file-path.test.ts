@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { isMarkdownPath, parseFileHref, toAbsolutePath, toRelativePath } from './file-path';
+import {
+  isMarkdownPath,
+  parseFileHref,
+  resolveRelativeTo,
+  toAbsolutePath,
+  toRelativePath,
+} from './file-path';
 
 describe('parseFileHref', () => {
   it('reads paths with line suffixes and anchors', () => {
@@ -51,5 +57,19 @@ describe('isMarkdownPath', () => {
     expect(isMarkdownPath('README.md')).toBe(true);
     expect(isMarkdownPath('docs/a.MDX')).toBe(true);
     expect(isMarkdownPath('a.mdc')).toBe(false);
+  });
+});
+
+describe('resolveRelativeTo', () => {
+  it('按文件所在的目录解析，不许走出会话目录', () => {
+    expect(resolveRelativeTo('docs/guide.md', './img/a.png', '/w')).toBe('docs/img/a.png');
+    expect(resolveRelativeTo('docs/guide.md', '../logo%20big.png?raw=1#x', '/w')).toBe(
+      'logo big.png',
+    );
+    expect(resolveRelativeTo('README.md', '/w/assets/a.png', '/w')).toBe('assets/a.png');
+    expect(resolveRelativeTo('README.md', '/elsewhere/a.png', '/w')).toBeUndefined();
+    expect(resolveRelativeTo('README.md', '../outside.png', '/w')).toBeUndefined();
+    expect(resolveRelativeTo('README.md', 'https://example.com/a.png', '/w')).toBeUndefined();
+    expect(resolveRelativeTo('README.md', 'data:image/png;base64,AA', '/w')).toBeUndefined();
   });
 });

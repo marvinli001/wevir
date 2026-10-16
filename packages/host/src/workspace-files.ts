@@ -4,15 +4,15 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写，不用 Effect 与 fff（见下）。
 //
-// 工作区的文件（host-api.md §3.1 的 `workspace.files` / `workspace.listDir` / `workspace.readFile`，0.22.0）：给桌面端输入框的
-// @ 提及与文件窗格找文件、列目录、读内容。做法参照 T3 Code 的 WorkspaceEntries / WorkspaceFileSystem（MIT，ec1313c）：
+// 工作区的文件（host-api.md §3.1 的 `workspace.files` / `workspace.listDir` / `workspace.readFile`，0.22.0；0.32.0 起还有
+// `workspace.writeFile` 与 `workspace.fileUrl` 用的 statWorkspaceFile）：给桌面端输入框的 @ 提及与文件窗格找文件、列目录、读写内容。做法参照 T3 Code 的 WorkspaceEntries / WorkspaceFileSystem（MIT，ec1313c）：
 // 名字搜索在一份按目录缓存的文件索引上做（T3 用 fff，Wevir 在 git 仓库里用 `git ls-files`，否则自己遍历，最多 25 000 项），
 // 读文件限 1 MiB、含 NUL 字节算二进制，路径 realpath 之后仍要在目录里。图片按扩展名给 base64，供窗格预览。
 //
 // git 命令照 git-diff.ts 的规矩：不执行仓库配置里的命令（safeConfig），去掉 GIT_* 环境变量，限时。
 
 import type { Dirent } from 'node:fs';
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   insertRankedSearchResult,
@@ -23,11 +23,13 @@ import {
   WORKSPACE_LIST_DIR_MAX_ENTRIES,
   WORKSPACE_READ_IMAGE_MAX_BYTES,
   WORKSPACE_READ_TEXT_MAX_BYTES,
+  WORKSPACE_WRITE_TEXT_MAX_BYTES,
   type WorkspaceEntry,
   type WorkspaceEntryKind,
   type WorkspaceFilesResult,
   type WorkspaceListDirResult,
   type WorkspaceReadFileResult,
+  type WorkspaceWriteFileResult,
 } from '@wevir/protocol';
 import { type RepoInfo, repoInfo, runGit } from './git-diff.js';
 
@@ -363,26 +365,34 @@ export async function listDirectory(root: string, path: string): Promise<Workspa
   return { entries: kept, ...(truncated && { truncated: true as const }) };
 }
 
+/** `root` 下 `path` 这个普通文件的 realpath、字节数与修改时间；不存在、不是普通文件或 realpath 在 `root` 之外时是 undefined。 */
+export async function statWorkspaceFile(
+  root: string,
+  path: string,
+): Promise<{ real: string; size: number; mtimeMs: number } | undefined> {
+  try {
+    const real = await realpath(resolve(root, path));
+    if (!within(root, real)) return undefined;
+    const info = await stat(real);
+    if (!info.isFile()) return undefined;
+    return { real, size: info.size, mtimeMs: info.mtimeMs };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * 读 `root` 下的 `path`：图片（按扩展名）给 base64，其余当 UTF-8 文本；超过上限、含 NUL 字节、不存在、不是普通文件或
- * realpath 在 `root` 之外时给 `unavailable`。
+ * realpath 在 `root` 之外时给 `unavailable`。读到时带这一版的 `mtimeMs`（0.32.0）。
  */
 export async function readWorkspaceFile(
   root: string,
   path: string,
 ): Promise<WorkspaceReadFileResult> {
   const notFound: WorkspaceReadFileResult = { path, unavailable: 'not_found' };
-  let real: string;
-  let size: number;
-  try {
-    real = await realpath(resolve(root, path));
-    if (!within(root, real)) return notFound;
-    const info = await stat(real);
-    if (!info.isFile()) return notFound;
-    size = info.size;
-  } catch {
-    return notFound;
-  }
+  const file = await statWorkspaceFile(root, path);
+  if (!file) return notFound;
+  const { real, size, mtimeMs } = file;
   const mimeType = IMAGE_TYPES[extname(path).toLowerCase()];
   const limit = mimeType ? WORKSPACE_READ_IMAGE_MAX_BYTES : WORKSPACE_READ_TEXT_MAX_BYTES;
   if (size > limit) return { path, size, unavailable: 'too_large' };
@@ -393,8 +403,49 @@ export async function readWorkspaceFile(
     return notFound;
   }
   if (bytes.length > limit) return { path, size: bytes.length, unavailable: 'too_large' };
-  if (mimeType)
-    return { path, size: bytes.length, image: { mimeType, data: bytes.toString('base64') } };
+  if (mimeType) {
+    return {
+      path,
+      size: bytes.length,
+      mtimeMs,
+      image: { mimeType, data: bytes.toString('base64') },
+    };
+  }
   if (bytes.includes(0)) return { path, size: bytes.length, unavailable: 'binary' };
-  return { path, size: bytes.length, text: bytes.toString('utf8') };
+  return { path, size: bytes.length, mtimeMs, text: bytes.toString('utf8') };
+}
+
+/** `workspace.writeFile` 拒绝写的原因（host-methods 把它换成 `INVALID_PARAMS`）。 */
+export class WriteRejected extends Error {}
+
+/**
+ * 把 `text` 写回 `root` 下已有的普通文件 `path`（0.32.0，文件窗格的编辑）。带 `expectedMtimeMs` 时，磁盘上的修改时间与它不同
+ * （或文件已删除）就不写，回 `conflict`。原地写，保留权限与硬链接；不新建文件。
+ */
+export async function writeWorkspaceFile(
+  root: string,
+  path: string,
+  text: string,
+  expectedMtimeMs: number | undefined,
+): Promise<WorkspaceWriteFileResult> {
+  const bytes = Buffer.from(text, 'utf8');
+  if (bytes.length > WORKSPACE_WRITE_TEXT_MAX_BYTES) throw new WriteRejected('text is too large');
+  const file = await statWorkspaceFile(root, path);
+  if (!file) {
+    if (expectedMtimeMs !== undefined) return { path, conflict: true };
+    throw new WriteRejected('path is not an existing file inside the directory');
+  }
+  if (expectedMtimeMs !== undefined && file.mtimeMs !== expectedMtimeMs) {
+    return { path, size: file.size, mtimeMs: file.mtimeMs, conflict: true };
+  }
+  // r+ 不新建也不换 inode；先写再截断，免得中途失败留下空文件。
+  const handle = await open(file.real, 'r+');
+  try {
+    await handle.write(bytes, 0, bytes.length, 0);
+    await handle.truncate(bytes.length);
+    const info = await handle.stat();
+    return { path, size: info.size, mtimeMs: info.mtimeMs };
+  } finally {
+    await handle.close();
+  }
 }

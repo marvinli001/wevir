@@ -8,14 +8,15 @@
 // styles/markdown.css），因为 CSP 不放行 HTML 里的 style 属性：表格对齐用 align 属性，图片只显示为链接
 // （CSP 也不加载外部图片）。原文里的 HTML 一律按文本显示。代码块只输出转义后的源码，高亮在流式结束且
 // 进入视口后另做（highlight.ts）。链接不直接导航，由 markdown-view.tsx 经主进程用系统浏览器打开；U32 起相对与绝对路径的
-// 链接是文件链接，点开在文件窗格里。
+// 链接是文件链接，点开在文件窗格里。0.32.0 起文件窗格另用 markdown-document.ts：加回 OpenWork 的 KaTeX 与 Mermaid，会话目录里的
+// 图片显示出来。
 
 import DOMPurify from 'dompurify';
-import { Marked, type Token } from 'marked';
+import { Marked, type RendererObject, type Token } from 'marked';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
 
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -40,7 +41,7 @@ export function codeLanguage(lang: string | undefined): string | undefined {
   return first && /^[a-z0-9_+#.-]{1,32}$/.test(first) ? first : undefined;
 }
 
-function codeBlockHtml(text: string, lang: string | undefined): string {
+export function codeBlockHtml(text: string, lang: string | undefined): string {
   const language = codeLanguage(lang);
   const label = escapeHtml(language ?? t('markdown.code'));
   const copy = escapeHtml(t('markdown.copyCode'));
@@ -53,59 +54,67 @@ function codeBlockHtml(text: string, lang: string | undefined): string {
   );
 }
 
-const parser = new Marked<string, string>({
+/** 图片只显示为链接（CSP 也不加载外部图片）。 */
+export function imageLinkHtml(href: string, text: string): string {
+  const external = externalHref(href);
+  const label = escapeHtml(text || href);
+  return external ? `<a href="${escapeHtml(external)}" data-external-link="">${label}</a>` : label;
+}
+
+export const BASE_OPTIONS = {
   async: false,
   gfm: true,
   breaks: false,
   pedantic: false,
   silent: true,
-  renderer: {
-    code({ text, lang }) {
-      return codeBlockHtml(text, lang);
-    },
-    html({ text }) {
-      return escapeHtml(text);
-    },
-    link({ href, title, tokens }) {
-      const inner = this.parser.parseInline(tokens);
-      const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
-      const external = externalHref(href);
-      if (external) {
-        return `<a href="${escapeHtml(external)}" data-external-link=""${titleAttr}>${inner}</a>`;
-      }
-      // 文件链接（U32，Codex 写 `[a.ts](/绝对路径/a.ts:12)`）：点开时由 markdown-view.tsx 交给文件窗格。
-      if (parseFileHref(href)) {
-        return `<a href="#" data-file-link="${escapeHtml(href)}"${titleAttr}>${inner}</a>`;
-      }
-      return inner;
-    },
-    image({ href, text }) {
-      const external = externalHref(href);
-      const label = escapeHtml(text || href);
-      return external
-        ? `<a href="${escapeHtml(external)}" data-external-link="">${label}</a>`
-        : label;
-    },
+} as const;
+
+export const renderer: RendererObject<string, string> = {
+  code({ text, lang }) {
+    return codeBlockHtml(text, lang);
   },
-});
+  html({ text }) {
+    return escapeHtml(text);
+  },
+  link({ href, title, tokens }) {
+    const inner = this.parser.parseInline(tokens);
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+    const external = externalHref(href);
+    if (external) {
+      return `<a href="${escapeHtml(external)}" data-external-link=""${titleAttr}>${inner}</a>`;
+    }
+    // 文件链接（U32，Codex 写 `[a.ts](/绝对路径/a.ts:12)`）：点开时由 markdown-view.tsx 交给文件窗格。
+    if (parseFileHref(href)) {
+      return `<a href="#" data-file-link="${escapeHtml(href)}"${titleAttr}>${inner}</a>`;
+    }
+    return inner;
+  },
+  image({ href, text }) {
+    return imageLinkHtml(href, text);
+  },
+};
+
+const parser = new Marked<string, string>({ ...BASE_OPTIONS, renderer });
+
+export const SANITIZE_ATTR = [
+  'href',
+  'title',
+  'class',
+  'align',
+  'start',
+  'type',
+  'checked',
+  'disabled',
+  'aria-label',
+  'data-code-block',
+  'data-code-copy',
+  'data-external-link',
+  'data-file-link',
+];
 
 function sanitize(html: string): string {
   return DOMPurify.sanitize(html, {
-    ALLOWED_ATTR: [
-      'href',
-      'title',
-      'class',
-      'align',
-      'start',
-      'type',
-      'checked',
-      'disabled',
-      'aria-label',
-      'data-code-block',
-      'data-code-copy',
-      'data-external-link',
-      'data-file-link',
-    ],
+    ALLOWED_ATTR: SANITIZE_ATTR,
     // 原文里的 HTML 已按文本转义，这里兜底；任务列表的复选框（marked 生成的 disabled <input>）保留。
     FORBID_TAGS: ['style', 'img', 'iframe', 'form', 'video', 'audio', 'svg', 'math'],
   });

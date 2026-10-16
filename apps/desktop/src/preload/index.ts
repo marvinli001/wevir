@@ -58,6 +58,8 @@ const api: DesktopApi = {
   openInEditor: (editorId, path, line) =>
     ipcRenderer.invoke(IPC_CHANNELS.openInEditor, editorId, path, line),
   revealPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.revealPath, path),
+  previewFile: (path) => ipcRenderer.invoke(IPC_CHANNELS.previewFile, path),
+  openPath: (path) => ipcRenderer.invoke(IPC_CHANNELS.openPath, path),
   getUpdateState: () => ipcRenderer.invoke(IPC_CHANNELS.getUpdateState),
   onUpdateState: (listener) => {
     const handler = (_event: IpcRendererEvent, state: UpdateState) => listener(state);

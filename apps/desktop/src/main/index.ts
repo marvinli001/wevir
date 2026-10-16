@@ -25,6 +25,7 @@ import {
   type UpdateState,
   type WindowChrome,
 } from '../shared/desktop-api.js';
+import { canOpenExternally } from '../shared/open-path.js';
 import {
   APP_ENTRY_URL,
   APP_ORIGIN,
@@ -273,6 +274,27 @@ function run(): void {
     await stat(path);
     shell.showItemInFolder(path);
   });
+  // 文件窗格（0.32.0）：Office 等窗格里看不了的文件交给系统。只认文档与媒体（shared/open-path.ts），不打开可执行文件。
+  const openablePath = async (path: unknown): Promise<string> => {
+    if (typeof path !== 'string' || !isAbsolute(path) || !canOpenExternally(path)) {
+      throw new Error('an absolute path to a document or media file is required');
+    }
+    if (!(await stat(path)).isFile()) throw new Error('not a file');
+    return path;
+  };
+  ipcMain.handle(IPC_CHANNELS.previewFile, async (event, path: unknown): Promise<boolean> => {
+    assertSender(event);
+    const file = await openablePath(path);
+    // Quick Look 只有 macOS 有（Electron 的 previewFile）；其他平台由渲染进程改用 openPath。
+    if (process.platform !== 'darwin' || !mainWindow || mainWindow.isDestroyed()) return false;
+    mainWindow.previewFile(file);
+    return true;
+  });
+  ipcMain.handle(IPC_CHANNELS.openPath, async (event, path: unknown): Promise<void> => {
+    assertSender(event);
+    const error = await shell.openPath(await openablePath(path));
+    if (error !== '') throw new Error(error);
+  });
 
   // 自动更新（ADR-0007 补记 4）：开发构建里是 disabled，界面不显示入口。
   const updates = createUpdateController(log);
@@ -321,6 +343,12 @@ function run(): void {
       event.preventDefault();
       openIfExternal(url);
     });
+    // 子框架（0.32.0，文件窗格的 PDF 与网页预览）：只能加载 Host 的文件地址（host-api.md §1 的 `/files/`）与 PDF 查看器自己的
+    // 框架。沙箱里的网页（跨 origin 的子框架）自己发起的跳转不触发这个事件，由 whenReady 里的 webRequest 拦下。
+    contents.on('will-frame-navigate', (details) => {
+      if (details.isMainFrame || isFilePreviewUrl(details.url)) return;
+      details.preventDefault();
+    });
     contents.on('will-attach-webview', (event) => event.preventDefault());
   });
 
@@ -357,6 +385,17 @@ function run(): void {
       callback(false),
     );
     session.defaultSession.setPermissionCheckHandler(() => false);
+    // 文件窗格里的网页（0.32.0）：子框架只许加载 Host 的文件地址，页面里的链接、跳转与 meta refresh 都不让框架离开（Paseo 的 HTML
+    // 预览同样要挡导航，CSP 管不到）。新窗口（target=_blank、window.open）照旧由 setWindowOpenHandler 交给系统浏览器，Chromium
+    // 只在用户点了之后才放行弹窗。
+    session.defaultSession.webRequest.onBeforeRequest(
+      { urls: ['http://*/*', 'https://*/*'] },
+      (details, callback) => {
+        callback({
+          cancel: details.resourceType === 'subFrame' && !isFilePreviewUrl(details.url),
+        });
+      },
+    );
     const rendererDir = fileURLToPath(new URL('../renderer/', import.meta.url));
     protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir));
     applyAppIcon();
@@ -430,6 +469,26 @@ const MAX_COPY_LENGTH = 8 * 1024 * 1024;
 function isExternalUrl(url: string): boolean {
   try {
     return ['http:', 'https:', 'mailto:'].includes(new URL(url).protocol);
+  } catch {
+    return false;
+  }
+}
+
+/** Chromium 自带的 PDF 查看器（扩展的 ID）：它在 PDF 的框架里再开一个自己的框架显示内容。 */
+const PDF_VIEWER_EXTENSION = 'mhjfbmdgcfjbbpaeojofohoefgiehjai';
+
+/** Host 发的文件预览地址（`workspace.fileUrl`）：本机、任意端口、`/files/` 下；以及 PDF 查看器自己的框架。 */
+function isFilePreviewUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    // chrome-extension: 不是特殊协议，URL 的 origin 是 'null'，按协议与主机比。
+    if (parsed.protocol === 'chrome-extension:' && parsed.host === PDF_VIEWER_EXTENSION)
+      return true;
+    return (
+      parsed.protocol === 'http:' &&
+      parsed.hostname === '127.0.0.1' &&
+      parsed.pathname.startsWith('/files/')
+    );
   } catch {
     return false;
   }

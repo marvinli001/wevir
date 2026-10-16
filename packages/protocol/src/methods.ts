@@ -404,11 +404,70 @@ export const WorkspaceReadFileResultSchema = z.object({
   path: z.string().min(1),
   /** 文件的字节数；`not_found` 时省略。 */
   size: z.int().min(0).optional(),
+  /**
+   * 读到的这一版的修改时间（毫秒，0.32.0）：`not_found` 时省略。编辑后写回时作 `workspace.writeFile` 的 `expectedMtimeMs`。
+   */
+  mtimeMs: z.number().min(0).optional(),
   text: z.string().optional(),
   image: z.object({ mimeType: PreviewImageMimeTypeSchema, data: z.string() }).optional(),
   unavailable: z.string().min(1).optional(),
 });
 export type WorkspaceReadFileResult = z.infer<typeof WorkspaceReadFileResultSchema>;
+
+// ── workspace.fileUrl / workspace.writeFile（0.32.0） ──────────────────────
+
+/** `workspace.writeFile` 写文本的上限（字节，UTF-8）。 */
+export const WORKSPACE_WRITE_TEXT_MAX_BYTES = 1024 * 1024;
+
+/**
+ * 给一个文件发只读的流式地址（文件预览：PDF、HTML、音视频、Office 文件与大图片不走 base64）。地址在 Host 的 RPC 端口上
+ * （`http://127.0.0.1:<端口>/files/<令牌>/<路径>`），令牌只在 Host 内存里、一小时后作废；同一个令牌还能读同一目录里其他
+ * 文件中网页会引用的那几类（图片、样式、脚本、字体、音视频、PDF、网页，路径里没有以 `.` 开头的段），HTML 页面的相对引用与
+ * Markdown 里的图片照常加载。HTML 的响应带 CSP：沙箱、不能联网。
+ */
+export const WorkspaceFileUrlParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  sessionId: SessionIdSchema.optional(),
+  /** 相对路径，`/` 分隔。 */
+  path: z.string().min(1).max(1024),
+});
+
+/** 文件不存在、不是普通文件或在目录外时只有 `unavailable: 'not_found'`（开放字符串）。 */
+export const WorkspaceFileUrlResultSchema = z.object({
+  path: z.string().min(1),
+  /** 这个文件的地址；目录里的其他文件按相对路径从它解析。 */
+  url: z.string().min(1).optional(),
+  size: z.int().min(0).optional(),
+  mtimeMs: z.number().min(0).optional(),
+  /** 地址作废的时间（毫秒）。 */
+  expiresAt: z.number().min(0).optional(),
+  unavailable: z.string().min(1).optional(),
+});
+export type WorkspaceFileUrlResult = z.infer<typeof WorkspaceFileUrlResultSchema>;
+
+/**
+ * 把文本写回一个已有的文件（文件窗格的编辑）。带 `expectedMtimeMs` 时，文件在那之后被改过（或已删除）就不写，结果带
+ * `conflict`，以及磁盘上现在的 `size` / `mtimeMs`。只写已有的普通文件，不新建；路径 realpath 之后仍要在目录里。
+ */
+export const WorkspaceWriteFileParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  sessionId: SessionIdSchema.optional(),
+  path: z.string().min(1).max(1024),
+  /** 新的全文（UTF-8）。 */
+  text: z.string(),
+  /** 编辑基于的那一版（`workspace.readFile` 或上一次写回的 `mtimeMs`）。 */
+  expectedMtimeMs: z.number().min(0).optional(),
+});
+
+export const WorkspaceWriteFileResultSchema = z.object({
+  path: z.string().min(1),
+  /** 写完（或冲突时磁盘上）的字节数；冲突且文件已删除时省略。 */
+  size: z.int().min(0).optional(),
+  mtimeMs: z.number().min(0).optional(),
+  /** 没写：文件在 `expectedMtimeMs` 之后变了。 */
+  conflict: z.literal(true).optional(),
+});
+export type WorkspaceWriteFileResult = z.infer<typeof WorkspaceWriteFileResultSchema>;
 
 // ── provider.* ────────────────────────────────────────────────────────
 
@@ -946,6 +1005,16 @@ export const MethodSchemas = {
     params: WorkspaceReadFileParamsSchema,
     result: WorkspaceReadFileResultSchema,
     permission: 'workspace.read',
+  },
+  'workspace.fileUrl': {
+    params: WorkspaceFileUrlParamsSchema,
+    result: WorkspaceFileUrlResultSchema,
+    permission: 'workspace.read',
+  },
+  'workspace.writeFile': {
+    params: WorkspaceWriteFileParamsSchema,
+    result: WorkspaceWriteFileResultSchema,
+    permission: 'workspace.write',
   },
 
   'provider.list': {

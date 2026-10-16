@@ -32,7 +32,7 @@ Wevir 不包含 OpenWork ee/ 目录（OpenWork Enterprise Edition License）的�
       <- apps/app/src/app/theme.ts
   apps/desktop/src/renderer/public/theme-init.js
       <- apps/app/index.html（第 19–32 行的内联脚本）
-  apps/desktop/src/renderer/src/session/markdown/markdown.ts
+  apps/desktop/src/renderer/src/session/markdown/markdown.ts、markdown-document.ts
       <- apps/app/src/components/markdown/markdown-primitive.ts
   apps/desktop/src/renderer/src/session/scroll-controller.ts
       <- apps/app/src/react-app/domains/session/surface/scroll-controller.ts
@@ -41,6 +41,15 @@ Wevir 不包含 OpenWork ee/ 目录（OpenWork Enterprise Edition License）的�
          apps/app/src/lib/current-tool-lifecycle.ts
   apps/desktop/src/renderer/src/session/approval-card.tsx
       <- apps/app/src/react-app/domains/session/chat/permission-approval-modal.tsx
+  apps/desktop/src/renderer/src/files/workbook/ooxml-package.ts、xlsx-workbook.ts、office-text.ts、index.ts
+      <- packages/workbook/src/ooxml-package.ts、xlsx-workbook.ts、office-text.ts、index.ts（只改格式与类型断言）
+  apps/desktop/src/renderer/src/session/markdown/markdown-math.ts
+      <- apps/app/src/components/markdown/markdown-math.ts
+  apps/desktop/src/renderer/src/session/markdown/mermaid.ts
+      <- apps/app/src/components/markdown/mermaid.ts
+  apps/desktop/src/renderer/src/layout/panes/file-viewers.tsx（xlsx 的表格）
+      <- apps/app/src/react-app/domains/session/artifacts/artifact-spreadsheet-model.ts
+         apps/app/src/react-app/domains/session/artifacts/artifact-spreadsheet-editor.tsx
 
 上面的来源文件里没有第三方作品的署名。OpenWork 里 shadcn 生成的组件没有从 OpenWork 拷贝，Wevir
 直接从原始来源获取，见第 2 节；OpenWork 里由 Radix Colors 生成的色值 Wevir 没有拷贝，U1 起也不再使用
@@ -97,10 +106,15 @@ Wevir 不移植 dsh 的源码，而是把 npm 包 @deepseek-ai/dsh 0.2.1-alpha.2
 许可证：Apache License 2.0
 版权：Copyright (c) 2025-present Mohamed Boudra
 
-Wevir 目前没有移植 Paseo 的代码，只参考了它的架构设计，所以不涉及 Apache License 2.0 第 4 条的
-再分发义务。Paseo 在上面的提交下没有 NOTICE 文件。以后移植时，按 docs/upstream/UPSTREAM.md §2.3
-保留其版权与署名声明、标明修改、在这里列出文件并附 Apache License 2.0 全文；上游若加了 NOTICE 文件，
-把其中的署名内容一并收进这里。
+Wevir 主要参考 Paseo 的架构设计。0.32.0 起移植了一处：文件预览里 HTML 的 CSP 指令（不能联网、只认自己的
+资源）取自 Paseo 的 HTML 预览，放在单独的文件里、仍按 Apache-2.0，Wevir 改写为 Host 的响应头（另加沙箱与 'self'，见文件头）。按 Apache License 2.0
+第 4 条保留版权声明、标明修改，许可证全文见文末“Apache License 2.0”。Paseo 在上面的提交下没有 NOTICE 文件；
+上游若加了 NOTICE 文件，把其中的署名内容一并收进这里。
+
+移植的文件（左边是 Wevir 文件，右边是 Paseo 的来源路径），由 Wevir 修改，修改说明在文件头：
+
+  packages/host/src/html-preview-csp.ts
+      <- packages/app/src/file-pane/html-preview-csp.ts
 
 
 5. OpenAI Codex
@@ -307,6 +321,27 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
          apps/server/src/mcp/OrchestratorMcpService.ts
          apps/server/src/mcp/McpSessionRegistry.ts
          packages/provider-core/src/server/orchestrationInstructions.ts
+  packages/host/src/file-urls.ts
+      <- apps/server/src/http.ts（assetResponseHeaders、assetByteRange、assetFileResponse）
+         apps/server/src/assets/AssetAccess.ts
+  packages/host/src/html-preview.ts、apps/desktop/src/renderer/src/files/html-preview-link.ts
+      <- packages/shared/src/htmlRender.ts
+  apps/desktop/src/renderer/src/files/file-preview.ts
+      <- packages/shared/src/filePreview.ts
+         packages/shared/src/video.ts
+  apps/desktop/src/renderer/src/files/delimited-preview.ts
+      <- packages/shared/src/delimitedPreview.ts
+  apps/desktop/src/renderer/src/files/file-save-coordinator.ts
+      <- apps/web/src/components/files/fileSaveCoordinator.ts
+  apps/desktop/src/renderer/src/layout/panes/file-editor.tsx
+      <- apps/web/src/components/files/FilePreviewPanel.tsx（EditableFileSurface）
+         apps/web/src/components/files/useFileSaveCoordinator.ts
+  apps/desktop/src/renderer/src/layout/panes/file-viewers.tsx
+      <- apps/web/src/components/files/BrowserDocumentFrame.tsx
+         apps/web/src/components/files/DelimitedTablePreview.tsx
+         apps/web/src/components/files/AudioPreview.tsx
+         apps/web/src/components/media/MediaVideoPlayer.tsx
+         apps/web/src/components/chat/ZoomableImage.tsx
 
 Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），均由 Wevir
 改写，修改说明在各文件头：

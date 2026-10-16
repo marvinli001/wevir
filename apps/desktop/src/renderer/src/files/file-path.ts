@@ -91,3 +91,27 @@ export function toAbsolutePath(relativePath: string, cwd: string): string {
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown|mdx)$/i.test(path);
 }
+
+/**
+ * 文件 `from`（相对会话目录）里引用的 `href`（Markdown 的图片，0.32.0）对应的会话目录里的路径：相对路径按 `from` 所在的目录
+ * 解析，绝对路径要在 `cwd` 之下；去掉查询串与锚点。往上走出目录、是别的协议时 undefined。
+ */
+export function resolveRelativeTo(from: string, href: string, cwd: string): string | undefined {
+  let value = href.trim().replace(/^<|>$/g, '');
+  if (value === '' || SCHEME.test(value)) return undefined;
+  value = safeDecode(value.split(/[?#]/, 1)[0] ?? '');
+  if (value === '') return undefined;
+  if (isAbsolutePath(value)) {
+    const relative = toRelativePath(value, cwd);
+    return relative === '' ? undefined : relative;
+  }
+  const parts = from.split('/').slice(0, -1);
+  for (const part of value.replace(/\\/g, '/').split('/')) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      if (parts.length === 0) return undefined;
+      parts.pop();
+    } else parts.push(part);
+  }
+  return parts.length === 0 ? undefined : parts.join('/');
+}

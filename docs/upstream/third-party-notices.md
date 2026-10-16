@@ -34,7 +34,7 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 
 ### 2.2 打进桌面端产物的库
 
-从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`；0.20.0 加了 `@pierre/diffs`、`shiki`、`@shikijs/transformers`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
+从 `apps/desktop` 的 `devDependencies` 里会打进产物的 12 个包出发（U1 去掉了 `@radix-ui/colors`；U3 加了 libraries.dev 的 6 个动效库与 `three`；0.20.0 加了 `@pierre/diffs`、`shiki`、`@shikijs/transformers`；0.32.0 加了 `mermaid`、`katex`、`marked-katex-extension`、`htmlparser2`，见表末），沿 lockfile 走出的闭包（不含只有类型的 `@types/*`、`csstype`）。实际打进去的以构建产物为准。
 
 | 包 | 版本 | 许可证 | 版权 |
 |---|---|---|---|
@@ -67,8 +67,17 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 | `lru_map` | 0.4.1 | MIT | Rasmus Andersson（包内 `LICENSE` 没有版权行，作者见 `package.json`） |
 | `diff` | 9.0.0 | BSD-3-Clause | Copyright (c) 2009-2015, Kevin Decker |
 | `@ungap/structured-clone` | 1.4.0 | ISC | Copyright (c) 2021, Andrea Giammarchi |
+| `mermaid`、`@mermaid-js/parser` | 11.17.2、1.2.1 | MIT | Copyright (c) 2014 - 2022 Knut Sveidqvist。0.32.0 的文件窗格里 Markdown 的 Mermaid 图，第一次用到时才加载。`@mermaid-js/parser` 的产物里打包了 Langium（MIT，Copyright TypeFox GmbH）与 Chevrotain（Apache-2.0，Copyright (c) 2021 the original author or authors；`@chevrotain/types` 11.1.2 同为 Apache-2.0） |
+| `katex`、`marked-katex-extension` | 0.18.10（Mermaid 另带 0.16.47）、5.1.13 | MIT | Copyright (c) 2013-2020 Khan Academy and other contributors；Copyright (c) 2021 @markedjs。KaTeX 的字体（SIL Open Font License 1.1）随 `katex.min.css` 打进产物 |
+| `htmlparser2`、`domhandler`、`domutils`、`domelementtype`、`dom-serializer`、`entities` | 8.0.2、5.0.3、3.2.2、2.3.0、2.0.0、4.5.0 | MIT（`htmlparser2`、`dom-serializer`）、BSD-2-Clause（其余） | Copyright 2010, 2011, Chris Winberry；Copyright (c) Felix Böhm。0.32.0 的 Office 文件预览（OpenWork 的 workbook） |
+| `d3` 与它的 `d3-*` 子包（`array`、`axis`、`brush`、`chord`、`color`、`contour`、`delaunay`、`dispatch`、`drag`、`dsv`、`fetch`、`force`、`format`、`geo`、`hierarchy`、`interpolate`、`path`、`polygon`、`quadtree`、`random`、`scale`、`scale-chromatic`、`selection`、`shape`、`time`、`time-format`、`timer`、`transition`、`zoom`）、`internmap`、`delaunator` | 见 lockfile | ISC | Copyright 2010-2023 Mike Bostock；`delaunator` Copyright (c) 2021, Mapbox |
+| `d3-sankey`、`d3-array` 2.12.1、`d3-path` 1.0.9、`d3-shape` 1.3.7、`d3-ease`、`rw` | 0.12.3 等 | BSD-3-Clause | Copyright 2010-2021 Mike Bostock |
+| `cytoscape`、`cytoscape-cose-bilkent`、`cytoscape-fcose`、`cose-base`、`layout-base` | 3.34.3、4.1.0、2.2.0、1.0.3 / 2.2.0、1.0.2 / 2.0.1 | MIT | Copyright (c) 2016-2026, The Cytoscape Consortium；cose-base 与 layout-base Copyright (c) 2016 – present, iVis@Bilkent |
+| `dagre-d3-es`、`lodash-es`、`dayjs`、`roughjs`（`hachure-fill`、`path-data-parser`、`points-on-curve`、`points-on-path`）、`stylis`、`uuid`、`khroma`、`@braintree/sanitize-url`、`@upsetjs/venn.js`、`@iconify/utils`（`@antfu/install-pkg`、`package-manager-detector`、`import-meta-resolve`）、`es-toolkit`、`marked` 16.4.2、`ts-dedent`、`fastdom`、`strictdom` | 见 lockfile | MIT | Copyright (c) 2013 Chris Pettitt（dagre-d3）；OpenJS Foundation；iamkun；Preet Shihn；Sultan Tarimo；Robert Kieffer；Fabio Spampinato, Andrew Maney；Braintree；各包 `LICENSE` |
+| `robust-predicates` | 3.0.3 | Unlicense | Vladimir Agafonkin（公有领域） |
+| `commander`、`iconv-lite`、`safer-buffer` | 7.2.0 / 8.3.0、0.6.3、2.1.2 | MIT | Mermaid 依赖树里的 Node 端工具，渲染进程的产物里不会用到，以构建产物为准 |
 
-非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）加 0.20.0 的 `@pierre/*` 三个、BSD-3-Clause 两个（`highlight.js`、0.20.0 的 `diff`）、ISC 两个（`lucide-react`、0.20.0 的 `@ungap/structured-clone`）。与 ADR-0004 补记 5、6、10 记下的一致。`@pierre/theme` 带 `NOTICE`，内容要收进声明（已抄在根目录 `NOTICE` §11）。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。
+非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）加 0.20.0 的 `@pierre/*` 三个、BSD-3-Clause 两个（`highlight.js`、0.20.0 的 `diff`）、ISC 两个（`lucide-react`、0.20.0 的 `@ungap/structured-clone`）。0.32.0 加的（文件预览：`mermaid`、`katex`、`marked-katex-extension`、`htmlparser2` 与它们的闭包，均钉住版本，发布满两周）里非 MIT 的：ISC 的 `d3` 一族、BSD-3-Clause 的 `d3-sankey` 等五个与 `rw`、BSD-2-Clause 的 `domhandler` 等四个、Unlicense 的 `robust-predicates`、`@mermaid-js/parser` 打包的 Chevrotain（Apache-2.0，没有 `NOTICE`）。与 ADR-0004 补记 5、6、10 记下的一致。`@pierre/theme` 带 `NOTICE`，内容要收进声明（已抄在根目录 `NOTICE` §11）。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。
 
 ### 2.3 Electron
 

@@ -8,6 +8,7 @@ import {
   externalHref,
   renderMarkdownHtml,
 } from './markdown';
+import { renderDocumentHtml } from './markdown-document';
 
 vi.mock('dompurify', () => ({ default: { sanitize: (html: string) => html } }));
 
@@ -90,5 +91,46 @@ describe('辅助函数', () => {
     expect(codeLanguage('c++')).toBe('c++');
     expect(codeLanguage('"><x')).toBeUndefined();
     expect(codeLanguage(undefined)).toBeUndefined();
+  });
+});
+
+describe('renderDocumentHtml（文件窗格，0.32.0）', () => {
+  it('公式交给 KaTeX，style 挪到 data-csp-style', () => {
+    const html = renderDocumentHtml('质能方程 $E = mc^2$ 与\n\n$$\\frac{a}{b}$$');
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('class="katex-display"');
+    expect(html).not.toContain(' style="');
+    expect(html).toContain('data-csp-style="');
+  });
+
+  it('Mermaid 代码块先显示源码，会话目录里的图片输出 data-file-image', () => {
+    const html = renderDocumentHtml(
+      '```mermaid\ngraph TD; A-->B\n```\n\n![架构](./img/a.png) ![外部](https://example.com/b.png)',
+      { imagePath: (href) => (href.startsWith('./') ? `docs/${href.slice(2)}` : undefined) },
+    );
+    expect(html).toContain('data-mermaid=""');
+    expect(html).toContain('<code class="language-mermaid">graph TD; A--&gt;B</code>');
+    expect(html).toContain('<img data-file-image="docs/img/a.png" alt="架构" loading="lazy">');
+    // 外部图片仍只是链接。
+    expect(html).toContain('<a href="https://example.com/b.png" data-external-link="">外部</a>');
+    // 消息里的 Markdown 不变：没有公式与图。
+    expect(renderMarkdownHtml('$E$')).toBe('<p>$E$</p>\n');
+  });
+
+  it('原文里的 HTML 照旧按文本显示', () => {
+    expect(renderDocumentHtml('<img src=x onerror=alert(1)>')).toContain('&lt;img');
+  });
+});
+
+describe('extractSvgStyles（Mermaid 的 SVG 挂上前）', () => {
+  it('style 属性改名、<style> 取出', async () => {
+    const { extractSvgStyles } = await import('./mermaid');
+    const { markup, sheets } = extractSvgStyles(
+      '<svg id="m" style="max-width: 10px;"><style>#m .node{fill:red}</style><g><rect style="fill:#fff" data-style="x"/><text>style="not attr"</text></g></svg>',
+    );
+    expect(sheets).toEqual(['#m .node{fill:red}']);
+    expect(markup).toBe(
+      '<svg id="m" data-csp-style="max-width: 10px;"><g><rect data-csp-style="fill:#fff" data-style="x"/><text>style="not attr"</text></g></svg>',
+    );
   });
 });

@@ -177,6 +177,103 @@
     tab-size: 2;
   }
 
+  /* 文件窗格里的 Mermaid 图（0.32.0，session/markdown/mermaid.ts）：同代码块的外框，标题行右边是“图 / 源码”的切换。 */
+  .markdown .md-mermaid {
+    margin-block: 0.75em;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .markdown .md-mermaid-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.25rem 0.25rem 0.25rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--text-xs);
+    color: var(--muted-foreground);
+  }
+
+  .markdown .md-mermaid-views {
+    display: flex;
+    gap: 0.125rem;
+  }
+
+  .markdown .md-mermaid-views button {
+    border-radius: var(--radius-sm);
+    padding: 0.125rem 0.5rem;
+    color: var(--muted-foreground);
+    cursor: pointer;
+  }
+
+  .markdown .md-mermaid-views button:hover:not(:disabled),
+  .markdown .md-mermaid-views button[aria-pressed="true"] {
+    background: var(--accent);
+    color: var(--foreground);
+  }
+
+  .markdown .md-mermaid-views button:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+
+  .markdown .md-mermaid-views button:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
+
+  .markdown .md-mermaid-rendered {
+    overflow: auto;
+    padding: 1rem;
+  }
+
+  .markdown .md-mermaid-rendered > svg {
+    display: block;
+    height: auto;
+    max-width: 100%;
+    margin-inline: auto;
+  }
+
+  .markdown .md-mermaid pre {
+    margin: 0;
+    overflow-x: auto;
+    padding: 0.75rem;
+    background: var(--code-background);
+    font-family: var(--font-code);
+    font-size: var(--text-sm);
+    line-height: 1.55;
+  }
+
+  .markdown .md-mermaid-status {
+    margin: 0;
+    padding: 0.375rem 0.75rem;
+    border-top: 1px solid var(--border);
+    font-size: var(--text-xs);
+    color: var(--muted-foreground);
+  }
+
+  /* 公式（KaTeX）：块公式太宽时横向滚动；KaTeX 解析不了的原样显示成代码。 */
+  .markdown .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-block: 0.25rem;
+  }
+
+  .markdown [data-math-error] {
+    font-family: var(--font-code);
+    font-size: var(--text-sm);
+    color: var(--destructive);
+  }
+
+  /* 会话目录里的图片（文件窗格的 Markdown）：不超出正文宽度。 */
+  .markdown img[data-file-image] {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+  }
+
   /* highlight.js 的类名 → 代码 Token。 */
   .markdown .hljs-comment,
   .markdown .hljs-quote {

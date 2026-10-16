@@ -15,7 +15,7 @@
 
 ## 2. 桌面端
 
-- 渲染进程持有令牌，渲染进程被攻破就等于拿到 Host 的全部权限。对策（T5.1）：所有渲染进程开 `sandbox` 与 `contextIsolation`，`nodeIntegration` 关闭；preload 只暴露 `window.wevir` 上的少数方法，主进程校验 IPC 的发送方；严格的 CSP（没有 `unsafe-inline`、`unsafe-eval`；U3 起样式另放行每次加载随机的 nonce，给动效库运行时插入的 `<style>`，渲染进程经 `document.createElement('style')` 建的样式元素都会带上它，注入的标记与 `style` 属性仍被拦下，取舍见 `apps/desktop/src/shared/csp.ts` 与 ADR-0004 补记 9；0.20.0 起脚本另放行 `'wasm-unsafe-eval'`，只允许编译 WebAssembly（Shiki 的高亮引擎），worker 只放行 `'self'`，ADR-0004 补记 10）；拒绝新窗口与跨 origin 导航，外部链接交给系统浏览器；网页权限请求一律拒绝。模型输出的 Markdown 经 DOMPurify 清洗后才渲染。
+- 渲染进程持有令牌，渲染进程被攻破就等于拿到 Host 的全部权限。对策（T5.1）：所有渲染进程开 `sandbox` 与 `contextIsolation`，`nodeIntegration` 关闭；preload 只暴露 `window.wevir` 上的少数方法，主进程校验 IPC 的发送方；严格的 CSP（没有 `unsafe-inline`、`unsafe-eval`；U3 起样式另放行每次加载随机的 nonce，给动效库运行时插入的 `<style>`，渲染进程经 `document.createElement('style')` 建的样式元素都会带上它，注入的标记与 `style` 属性仍被拦下，取舍见 `apps/desktop/src/shared/csp.ts` 与 ADR-0004 补记 9；0.20.0 起脚本另放行 `'wasm-unsafe-eval'`，只允许编译 WebAssembly（Shiki 的高亮引擎），worker 只放行 `'self'`，ADR-0004 补记 10）；拒绝新窗口与跨 origin 导航，外部链接交给系统浏览器；网页权限请求一律拒绝。模型输出的 Markdown 经 DOMPurify 清洗后才渲染。0.32.0 起文件预览放开 Host 的文件地址（`http://127.0.0.1:*`，图片、音视频、框架与 connect）：地址要 Host 发的令牌（只在内存里、一小时作废），只读、只给会话目录里能预览的几类文件、不给以 `.` 开头的路径段；会话目录里的网页放进 `sandbox` 框架（不透明 origin），Host 的响应另带沙箱与不能联网的 CSP，主进程不让子框架离开 Host 的文件地址，页面请求打开的外部链接只在用户刚点过时交给系统浏览器；Quick Look 与默认应用只认文档与媒体的扩展名，不打开可执行文件（ADR-0004 补记 11）。
 - **开发模式**会打开渲染进程的 Chrome 远程调试端口（默认 9339，只监听 127.0.0.1）。同一用户的进程连上它就能在渲染进程里执行任意脚本、读到令牌，和读 `host.json` 是同一个边界；正式构建不开。
 
 ## 3. 密钥

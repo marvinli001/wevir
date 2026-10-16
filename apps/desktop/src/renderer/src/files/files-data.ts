@@ -1,4 +1,5 @@
-// 文件窗格与 @ 提及的数据（0.22.0，host-api.md §3.1 的 `workspace.files` / `listDir` / `readFile`）。Host 每次现读；目录与
+// 文件窗格与 @ 提及的数据（0.22.0，host-api.md §3.1 的 `workspace.files` / `listDir` / `readFile`；0.32.0 起还有
+// `workspace.fileUrl` 的流式地址与 `workspace.writeFile` 的写回）。Host 每次现读；目录与
 // 文件内容在窗格显示时读，之后窗口获得焦点、会话的回合结束（`refreshKey` 变了）、点“刷新”时重读。最近一次读到的留在内存里，
 // 换回来时先显示它。
 
@@ -7,11 +8,13 @@ import type {
   SessionId,
   WorkspaceEntry,
   WorkspaceEntryKind,
+  WorkspaceFileUrlResult,
   WorkspaceId,
   WorkspaceReadFileResult,
+  WorkspaceWriteFileResult,
 } from '@wevir/protocol';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { describe, useHostConnection } from '@/host/host-connection';
+import { describe, type HostConnectionView, useHostConnection } from '@/host/host-connection';
 
 /** 读哪个目录：会话的目录（环境会话的 worktree），没有会话时是工作区的根目录。 */
 export interface FileScope {
@@ -113,16 +116,66 @@ export function useDirectory(
   return useHostRead(key, directories, read, refreshKey);
 }
 
-/** 一个文件的内容。 */
-export function useFileContents(scope: FileScope, path: string, refreshKey: unknown) {
+/** 一个文件的内容；`enabled` 为 false（窗格从流式地址加载它）时不读。 */
+export function useFileContents(
+  scope: FileScope,
+  path: string,
+  refreshKey: unknown,
+  enabled = true,
+) {
   const { client } = useHostConnection();
   const supported = useFilesSupported();
-  const key = `${scopeKey(scope)}:${path}`;
+  const key = enabled ? `${scopeKey(scope)}:${path}` : undefined;
   const read =
-    client && supported
+    client && supported && enabled
       ? () => client.request('workspace.readFile', { ...scopeParams(scope), path })
       : undefined;
   return useHostRead(key, files, read, refreshKey);
+}
+
+/** 写回成功后更新缓存，焦点回来重读之前也显示新的内容。 */
+export function rememberWrittenFile(
+  scope: FileScope,
+  path: string,
+  text: string,
+  written: WorkspaceWriteFileResult,
+): void {
+  files.set(`${scopeKey(scope)}:${path}`, {
+    path,
+    text,
+    ...(written.size !== undefined && { size: written.size }),
+    ...(written.mtimeMs !== undefined && { mtimeMs: written.mtimeMs }),
+  });
+}
+
+/** Host 声明了 `file_preview`（0.32.0）：有流式地址与写回。 */
+export function hasFilePreview(view: HostConnectionView): boolean {
+  return view.status === 'connected' && hostSupports(view.hello.features, 'file_preview');
+}
+
+export function useFilePreviewSupported(): boolean {
+  return hasFilePreview(useHostConnection().view);
+}
+
+const fileUrls = new Map<string, WorkspaceFileUrlResult>();
+
+/**
+ * 一个文件的流式地址（`workspace.fileUrl`）；`enabled` 为 false 或 Host 没有 `file_preview` 时不读。地址后面加上修改时间
+ * （`?v=`，Host 不看查询串），文件变了 `<img>`、`<video>`、`<iframe>` 才会重新加载。
+ */
+export function useFileUrl(scope: FileScope, path: string, refreshKey: unknown, enabled: boolean) {
+  const { client } = useHostConnection();
+  const supported = useFilePreviewSupported();
+  const key = enabled ? `${scopeKey(scope)}:${path}` : undefined;
+  const read =
+    client && supported && enabled
+      ? () => client.request('workspace.fileUrl', { ...scopeParams(scope), path })
+      : undefined;
+  const state = useHostRead(key, fileUrls, read, refreshKey);
+  const result = state.value;
+  const src =
+    result?.url === undefined ? undefined : `${result.url}?v=${Math.round(result.mtimeMs ?? 0)}`;
+  return { ...state, src };
 }
 
 /** 输入时等这么久再搜（T3 也是 120 ms）。 */

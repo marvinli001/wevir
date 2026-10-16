@@ -71,7 +71,12 @@ describe('CSP', () => {
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval';");
     expect(csp).toContain("style-src 'self' 'nonce-abc';");
-    expect(csp).toContain('connect-src ws://127.0.0.1:*;');
+    expect(csp).toContain('connect-src ws://127.0.0.1:* http://127.0.0.1:*;');
+    // 文件预览（0.32.0）：Host 的文件地址只进图片、音视频、框架与 connect，脚本与样式仍只有 'self'。
+    expect(csp).toContain("img-src 'self' data: http://127.0.0.1:*;");
+    expect(csp).toContain('media-src http://127.0.0.1:*;');
+    expect(csp).toContain('frame-src http://127.0.0.1:*;');
+    expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval';");
     expect(csp.replace("'wasm-unsafe-eval'", '')).not.toContain('unsafe');
     expect(productionCsp()).toContain("style-src 'self';");
   });

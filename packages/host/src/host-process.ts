@@ -20,6 +20,7 @@ import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { EventStore } from './event-store.js';
+import { FileUrls } from './file-urls.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
@@ -250,6 +251,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
     }
     const mcp = appMcp;
+    // 文件预览的流式地址（0.32.0，file-urls.ts）：与 MCP 端点同在 RPC 的 HTTP 服务上，监听之后才知道端口。
+    const fileUrls = new FileUrls({
+      onError: (error) => logger.warn('file preview request failed', { error }),
+    });
 
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
@@ -271,6 +276,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(accounts !== undefined && { accounts }),
         settings,
         images,
+        fileUrls,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -280,6 +286,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_git: true,
         workspace_diff: true,
         workspace_files: true,
+        file_preview: true,
         session_rename: true,
         session_archive: true,
         session_handoff: true,
@@ -307,12 +314,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,
       onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),
-      ...(mcp !== undefined && { httpHandler: (req, res) => mcp.handle(req, res) }),
+      httpHandler: (req, res) => fileUrls.handle(req, res) || (mcp?.handle(req, res) ?? false),
       onError: (error) => logger.error('rpc error', { error }),
     });
     rpc = server;
     const url = await server.listen();
     mcp?.setPort(server.port);
+    fileUrls.setPort(server.port);
     await runtimeFile.publish(url, token);
 
     let stopping: Promise<void> | undefined;

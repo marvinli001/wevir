@@ -194,6 +194,13 @@ export interface DesktopApi {
   openInEditor(editorId: string, path: string, line?: number): Promise<void>;
   /** 在访达（资源管理器、文件管理器）中显示（绝对路径）。 */
   revealPath(path: string): Promise<void>;
+  /**
+   * 用系统预览看一个文件（0.32.0，文件窗格的 Office 文件等）：macOS 是 Quick Look（`BrowserWindow.previewFile`），其他平台
+   * 返回 false，由调用方改用 `openPath`。只认文档与媒体的扩展名（shared/open-path.ts）。
+   */
+  previewFile(path: string): Promise<boolean>;
+  /** 用系统的默认应用打开一个文件（`shell.openPath`）。只认文档与媒体的扩展名，不打开可执行文件。 */
+  openPath(path: string): Promise<void>;
   /** 自动更新的状态（ADR-0007 补记 4）。 */
   getUpdateState(): Promise<UpdateState>;
   /** 订阅自动更新状态的变化，返回取消订阅的函数。 */
@@ -231,6 +238,8 @@ export const IPC_CHANNELS = {
   listEditors: 'wevir:list-editors',
   openInEditor: 'wevir:open-in-editor',
   revealPath: 'wevir:reveal-path',
+  previewFile: 'wevir:preview-file',
+  openPath: 'wevir:open-path',
   getUpdateState: 'wevir:get-update-state',
   /** 主进程 → 渲染进程的推送。 */
   updateState: 'wevir:update-state',

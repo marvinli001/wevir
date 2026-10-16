@@ -371,10 +371,35 @@ describe('SessionManager 与方法', () => {
     ).toContainEqual({ path: 'a.txt', kind: 'file' });
     expect(
       await methods['workspace.readFile']({ workspaceId: 'ws_1', path: 'a.txt' }, context),
-    ).toEqual({ path: 'a.txt', size: 8, text: 'one\ntwo\n' });
+    ).toEqual({ path: 'a.txt', size: 8, mtimeMs: expect.any(Number), text: 'one\ntwo\n' });
     await expect(
       methods['workspace.readFile']({ workspaceId: 'ws_1', path: '../data/x' }, context),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    // 0.32.0：写回带修改时间的冲突检查；没有 FileUrls 时不发地址。
+    const read = await methods['workspace.readFile'](
+      { workspaceId: 'ws_1', path: 'a.txt' },
+      context,
+    );
+    const written = await methods['workspace.writeFile'](
+      { workspaceId: 'ws_1', path: 'a.txt', text: 'one\n', expectedMtimeMs: read.mtimeMs },
+      context,
+    );
+    expect(written).toEqual({ path: 'a.txt', size: 4, mtimeMs: expect.any(Number) });
+    expect(
+      await methods['workspace.writeFile'](
+        { workspaceId: 'ws_1', path: 'a.txt', text: 'stale\n', expectedMtimeMs: 1 },
+        context,
+      ),
+    ).toEqual({ path: 'a.txt', size: 4, mtimeMs: written.mtimeMs, conflict: true });
+    await expect(
+      methods['workspace.writeFile']({ workspaceId: 'ws_1', path: 'new.txt', text: 'x' }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    await expect(
+      methods['workspace.writeFile']({ workspaceId: 'ws_1', path: '../data/x', text: '' }, context),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    expect(
+      await methods['workspace.fileUrl']({ workspaceId: 'ws_1', path: 'a.txt' }, context),
+    ).toEqual({ path: 'a.txt', unavailable: 'not_found' });
     await expect(
       methods['workspace.listDir']({ workspaceId: 'ws_1', path: '/etc' }, context),
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });

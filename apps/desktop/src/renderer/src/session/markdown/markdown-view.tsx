@@ -8,6 +8,16 @@ import {
   type MarkdownBlockHtml,
   renderMarkdownHtml,
 } from './markdown';
+import { restoreCspStyles, useMermaidEnhancer } from './mermaid';
+
+/**
+ * 文件窗格里的 Markdown（0.32.0）：公式、Mermaid 图与会话目录里的图片。`render` 是 markdown-document.ts 的 renderDocumentHtml
+ * （由文件窗格传进来，KaTeX 不进启动时的主块），`imageUrl` 向 Host 要会话目录里一张图片的地址。
+ */
+export interface DocumentMarkdown {
+  render(text: string): string;
+  imageUrl(path: string): Promise<string | undefined>;
+}
 
 const COPIED_RESET_MS = 2000;
 
@@ -20,10 +30,12 @@ export const MarkdownView = memo(function MarkdownView({
   text,
   streaming,
   className,
+  document: documentMode,
 }: {
   text: string;
   streaming: boolean;
   className?: string;
+  document?: DocumentMarkdown;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const renderer = useMemo(() => createStreamingMarkdownRenderer(), []);
@@ -32,9 +44,34 @@ export const MarkdownView = memo(function MarkdownView({
   const openFileRef = useRef(openFileLink);
   openFileRef.current = openFileLink;
   const blocks = useMemo<MarkdownBlockHtml[]>(
-    () => (streaming ? renderer.render(text) : [{ __html: renderMarkdownHtml(text) }]),
-    [streaming, renderer, text],
+    () =>
+      documentMode
+        ? [{ __html: documentMode.render(text) }]
+        : streaming
+          ? renderer.render(text)
+          : [{ __html: renderMarkdownHtml(text) }],
+    [streaming, renderer, text, documentMode],
   );
+  useMermaidEnhancer(rootRef, blocks, documentMode !== undefined);
+
+  // 文件窗格：KaTeX 的 style 经 CSSOM 补回，图片向 Host 要地址。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 内容（blocks）换了要对新的 DOM 重新做。
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root || !documentMode) return;
+    restoreCspStyles(root);
+    let stopped = false;
+    for (const image of root.querySelectorAll<HTMLImageElement>('img[data-file-image]')) {
+      const path = image.dataset.fileImage;
+      if (path === undefined) continue;
+      void documentMode.imageUrl(path).then((url) => {
+        if (!stopped && url !== undefined) image.src = url;
+      });
+    }
+    return () => {
+      stopped = true;
+    };
+  }, [blocks, documentMode]);
 
   useEffect(() => {
     if (!streaming) renderer.reset();

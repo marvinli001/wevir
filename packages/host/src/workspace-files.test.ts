@@ -1,7 +1,16 @@
 // workspace.files / workspace.listDir / workspace.readFile（0.22.0）：对着真实的目录与 git 仓库。
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { MethodSchemas } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
@@ -13,6 +22,8 @@ import {
   readWorkspaceFile,
   scorePath,
   searchIndex,
+  WriteRejected,
+  writeWorkspaceFile,
 } from './workspace-files.js';
 
 const tempDir = useTempDir();
@@ -181,11 +192,13 @@ describe('读文件', () => {
     expect(await readWorkspaceFile(dir, 'a.txt')).toEqual({
       path: 'a.txt',
       size: 7,
+      mtimeMs: expect.any(Number),
       text: '你好\n',
     });
     expect(await readWorkspaceFile(dir, 'logo.png')).toEqual({
       path: 'logo.png',
       size: png.length,
+      mtimeMs: expect.any(Number),
       image: { mimeType: 'image/png', data: png.toString('base64') },
     });
     expect(await readWorkspaceFile(dir, 'bin.dat')).toEqual({
@@ -208,5 +221,54 @@ describe('读文件', () => {
     writeFileSync(join(outside, 'secret.txt'), 'secret');
     symlinkSync(join(outside, 'secret.txt'), join(dir, 'link.txt'));
     expect((await readWorkspaceFile(dir, 'link.txt')).unavailable).toBe('not_found');
+  });
+});
+
+describe('写文件（0.32.0）', () => {
+  it('按修改时间检查冲突，原地写', async () => {
+    const dir = realpathSync(tempDir());
+    writeFileSync(join(dir, 'a.md'), '# 旧的标题\n', { mode: 0o640 });
+    linkSync(join(dir, 'a.md'), join(dir, 'hard.md'));
+    const read = await readWorkspaceFile(dir, 'a.md');
+    const written = await writeWorkspaceFile(dir, 'a.md', '# 新\n', read.mtimeMs);
+    expect(written).toEqual({
+      path: 'a.md',
+      size: 6,
+      mtimeMs: statSync(join(dir, 'a.md')).mtimeMs,
+    });
+    expect(readFileSync(join(dir, 'a.md'), 'utf8')).toBe('# 新\n');
+    // 原地写：硬链接看到同样的内容，权限不变。
+    expect(readFileSync(join(dir, 'hard.md'), 'utf8')).toBe('# 新\n');
+    expect(statSync(join(dir, 'a.md')).mode & 0o777).toBe(0o640);
+
+    // 别人在这之后改了文件：不写，回磁盘上的状态。
+    utimesSync(join(dir, 'a.md'), new Date(), new Date(Date.now() + 5000));
+    const conflict = await writeWorkspaceFile(dir, 'a.md', 'mine', written.mtimeMs);
+    expect(conflict).toMatchObject({ path: 'a.md', size: 6, conflict: true });
+    expect(conflict.mtimeMs).not.toBe(written.mtimeMs);
+    expect(readFileSync(join(dir, 'a.md'), 'utf8')).toBe('# 新\n');
+    // 不带 expectedMtimeMs 时直接写。
+    expect(await writeWorkspaceFile(dir, 'a.md', '', undefined)).toMatchObject({ size: 0 });
+  });
+
+  it('已删除算冲突；不新建、不写目录外与过大的文本', async () => {
+    const { dir, outside } = twoDirs();
+    writeFileSync(join(outside, 'secret.txt'), 'secret');
+    symlinkSync(join(outside, 'secret.txt'), join(dir, 'link.txt'));
+    expect(await writeWorkspaceFile(dir, 'gone.md', 'x', 123)).toEqual({
+      path: 'gone.md',
+      conflict: true,
+    });
+    await expect(writeWorkspaceFile(dir, 'gone.md', 'x', undefined)).rejects.toBeInstanceOf(
+      WriteRejected,
+    );
+    await expect(writeWorkspaceFile(dir, 'link.txt', 'x', undefined)).rejects.toBeInstanceOf(
+      WriteRejected,
+    );
+    expect(readFileSync(join(outside, 'secret.txt'), 'utf8')).toBe('secret');
+    writeFileSync(join(dir, 'a.txt'), 'a');
+    await expect(
+      writeWorkspaceFile(dir, 'a.txt', 'x'.repeat(1024 * 1024 + 1), undefined),
+    ).rejects.toBeInstanceOf(WriteRejected);
   });
 });

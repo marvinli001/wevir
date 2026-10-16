@@ -131,6 +131,11 @@ export const HOST_FEATURES = {
    * 的会话带 `Session.openedBy`。取决于引擎：挂得上的引擎才有（`engineFeatures` 的 `appTools`）。
    */
   appTools: 'app_tools',
+  /**
+   * 文件预览与编辑（0.32.0）：`workspace.fileUrl`（Host 的 RPC 端口上的只读流式地址，PDF、网页、音视频与 Office 文件用）、
+   * `workspace.writeFile`（按修改时间检查冲突的写回）与 `workspace.readFile` 结果的 `mtimeMs`。与引擎无关。
+   */
+  filePreview: 'file_preview',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -160,6 +165,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),
   app_tools: z.boolean().optional(),
+  file_preview: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

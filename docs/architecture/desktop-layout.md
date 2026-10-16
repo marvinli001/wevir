@@ -60,7 +60,7 @@ T5.2 的桌面端原来是固定的三栏：左栏、限宽居中的中栏、默
 | 子智能体 | `subagents` | 现在（R5，§10） | 当前会话的子会话；详情由 URL 决定（§5.2） | 否，列表与详情在同一个标签里切换 | 300 × 200 | 高 | 置顶摘要的“子智能体”节、消息流里的子 agent 标记、“打开窗格”菜单 |
 | 变更 / Diff | `changes` | 现在（0.20.0，§18） | 当前会话目录的 diff：未提交、本分支（git 状态）与每个回合（Host 的回合快照） | 否，范围在这个标签里切换 | 360 × 240 | 高 | 会话侧栏的“变更”卡片、回合下面的“N 个文件已更改”、“打开窗格”菜单 |
 | 文件 | `files` | 现在（0.22.0，§19） | 当前会话目录（没有会话时是工作区根目录）的文件树与按名字搜索 | 否 | 260 × 200 | 高 | “打开窗格”菜单、消息流里指向目录的链接 |
-| 文件预览 | `file` | 现在（0.22.0，§19） | 会话目录里的一个文件（只读） | 是，每个文件一个标签；同一个文件只开一次 | 360 × 240 | 高 | 只由功能打开：文件树、消息流里的文件链接 |
+| 文件预览 | `file` | 现在（0.22.0；0.32.0 补齐办公格式与编辑，§19） | 会话目录里的一个文件（文本可编辑，PDF、网页、音视频、表格与 Office 文件可看） | 是，每个文件一个标签；同一个文件只开一次 | 360 × 240 | 高 | 只由功能打开：文件树、消息流里的文件链接 |
 | 后台任务 | `tasks` | 现在（U21，§15） | 当前会话的子会话（截图 05 左栏，`design-refs/claude-code-parallel-sessions/` 08–09） | 否 | 300 × 200 | 高 | 窗格区开关（没有窗格时）、会话侧栏的“后台任务”卡片、“打开窗格”菜单 |
 | 计划与清单 | `plan` | 以后（R3 有计划事件之后） | 当前会话的计划 | 否 | 280 × 160 | 矮 | 置顶摘要、“打开窗格”菜单 |
 | 终端 | `terminal` | 以后 | 工作区（放在打开它的会话里） | 是 | 360 × 160 | 矮（以后可能放到主窗格下面，图 M） | “打开窗格”菜单 |
@@ -744,15 +744,22 @@ interface StoredPanes {
 - **没给 diff 的文件**：单个文件太大、整体超过上限、未跟踪文件太多时 Host 只列出它们（host-api.md §3.1），列表最后一节“N 个文件未显示 diff”逐个写路径、原因（文件过大 / 超出上限）与行数。
 - **空的与读不了的**：暂无改动、非 Git 仓库、此回合无快照、暂无回合（“最近一回合”而会话还没有快照）、读取失败：窗格中间一个图标加一句说明文字色的短语。
 
-## 19. 文件与文件预览（0.22.0，U32）
+## 19. 文件与文件预览（0.22.0，U32；0.32.0 补齐办公格式）
 
-维护者 2026-10-15 要 T3 Code 那样的右栏文件阅读。照 T3 的 FileBrowserPanel 与 FilePreviewPanel 做（UPSTREAM.md §4），只读不编辑。代码在 `layout/panes/files-pane.tsx`（文件树）、`layout/panes/file-pane.tsx`（预览，`React.lazy`，与“变更”窗格共用 Pierre 与 Shiki 的 worker 池）与 `files/`：读数据 `files-data.ts`（`workspace.listDir`、`workspace.readFile`、`workspace.files`），路径换算 `file-path.ts`，要跳的行、显示偏好与上次用的编辑器 `files-store.ts`，消息里的文件链接 `file-links.ts`。Host 侧见 host-api.md §3.1。样式见 desktop-tokens.md §36。
+维护者 2026-10-15 要 T3 Code 那样的右栏文件阅读。照 T3 的 FileBrowserPanel 与 FilePreviewPanel 做（UPSTREAM.md §4），0.22.0 只读。2026-10-16 维护者要补“非编码工作”的体验，0.32.0 照 T3 补齐 PDF、网页、音视频、CSV 表格、可缩放的图片与文本的编辑，照 OpenWork 补 xlsx 与 docx / pptx，其余 Office 文件交给系统（见本节末）。代码在 `layout/panes/files-pane.tsx`（文件树）、`layout/panes/file-pane.tsx`（预览，`React.lazy`，与“变更”窗格共用 Pierre 与 Shiki 的 worker 池）与 `files/`：读数据 `files-data.ts`（`workspace.listDir`、`workspace.readFile`、`workspace.files`），路径换算 `file-path.ts`，要跳的行、显示偏好与上次用的编辑器 `files-store.ts`，消息里的文件链接 `file-links.ts`。Host 侧见 host-api.md §3.1。样式见 desktop-tokens.md §36。
 
 - **目录**：会话的目录（环境会话是它的 worktree），没有会话（草稿页）时是工作区的根目录。Host 没有 `workspace_files` 时窗格里写“后台服务不支持文件浏览”。
 - **文件树**（`files`，“打开窗格”菜单里叫“文件”）：顶上一行是搜索框与刷新；目录按需逐层读，展开状态按目录范围记在本次运行内；文件夹在前，被 `.gitignore` 忽略的项淡一些；点文件在“文件预览”里打开，已经打开的文件那一行是选中底色。搜索框有字时换成按名字搜的平铺结果（文件名加说明文字色的目录，最多 100 项）。
 - **文件预览**（`file`，参数 `path`，只由功能打开，不进“打开窗格”菜单）：顶上一行是图标、文件名与目录、Markdown 的“显示源码 / 显示预览”、自动换行、刷新、复制路径与“打开方式”（主按钮用上次的外部编辑器，下拉里是本机找到的编辑器与“在访达中显示”）。代码用 Pierre 的虚拟化 File 加 Shiki 高亮；Markdown 默认显示渲染后的样子（与消息同一个渲染器）；图片居中显示；文本超过 1 MiB、图片超过 4 MiB、二进制、不存在时中间一句短语。换行与 Markdown 的显示记在本机（`wevir.files.v1`）。
 - **刷新**：窗格显示时读一次，之后窗口获得焦点、会话状态变了（回合结束）、点“刷新”时重读。
 - **消息里的文件链接**：助手消息里 Markdown 链接的地址是相对路径、绝对路径或 `file:` 时是文件链接（`a.ts:12`、`a.ts#L12` 带行号）。主会话与支线在 Host 有 `workspace_files` 时，点在会话目录里的文件打开“文件预览”并选中、滚到那一行，点目录打开文件树，点目录外的绝对路径在访达里显示。
+- **各种文件**（0.32.0，Host 有 `file_preview` 时；按扩展名分，`files/file-preview.ts` 的 `filePaneView`，照 T3 的 `filePreviewKind`）：
+  - **从 Host 的流式地址加载的**（`workspace.fileUrl`，host-api.md §1 的 `GET /files/…`，不走 base64；地址后面带修改时间，文件变了才重新加载）：图片可缩放（照 T3 的 ZoomableImage：点击 2 倍、滚轮缩放、拖动平移、`+` `-` `0` 键，适应窗格）；音频与视频用原生播放器（视频换了地址不重置播放位置，失败时“重试”）；PDF 用 Chromium 自带的查看器（不加沙箱的框架，隐藏它的工具栏、按宽度适应）；网页放进沙箱框架（不透明 origin，碰不到应用的会话与存储；Host 给的响应带沙箱与不能联网的 CSP，页面里相对引用的样式、脚本与图片照常加载，主进程不让子框架跳出 Host 的文件地址；页面里点外部链接时，Host 插进页面的一段脚本请窗格打开，框架有焦点、用户刚点过时交给系统浏览器，照 T3）。
+  - **渲染与源码能切换的**（顶栏的切换按钮，选择记在本机 `wevir.files.v1`）：Markdown（默认渲染；文件窗格里另渲染公式（KaTeX）与 Mermaid 图（先显示源码，进入视口附近后渲染，可切回源码，太大、太复杂或带不安全指令时只显示源码），会话目录里的图片按 Markdown 文件所在的目录解析后显示，外部图片仍是链接；照 OpenWork）、网页（默认显示页面）、CSV / TSV（默认显示表格，最多 100 行、30 列，照 T3）。带行号打开时显示源码。
+  - **Office**（照 OpenWork 的 workbook，在渲染进程里解析，带它的大小与压缩比上限）：xlsx 显示只读的表格（列字母、行号，多个工作表在底部用标签切换，超过 1000 行或 100 列截断并说明），docx / pptx 按段落显示文字（顶上“仅文字内容”，幻灯片与备注分段），其余（doc、xls、ppt、OpenDocument、RTF、iWork）中间是“此格式无法在窗格中预览”与两个按钮。
+  - **系统预览与默认应用**：PDF、图片、音视频与 Office 文件的顶栏另有“快速查看”（macOS，Electron 的 `BrowserWindow.previewFile`，即 Quick Look）与“用默认应用打开”（`shell.openPath`）；“打开方式”的下拉里也有“用默认应用打开”。主进程只认文档与媒体的扩展名（`shared/open-path.ts`），不打开可执行文件与脚本。
+  - **编辑**（照 T3 的 EditableFileSurface，`layout/panes/file-editor.tsx`）：文本直接在 Pierre 的 File 里编辑（`@pierre/diffs/edit`），停下 500 ms 自动写回（`workspace.writeFile`，T3 的 FileSaveCoordinator），顶栏显示“正在保存 / 已保存”。写回带读到的那一版的修改时间，文件在那之后被别处（例如 agent）改过时不写，顶上一行“文件已在别处修改，编辑未保存”，选“重新载入”丢掉自己的编辑、读磁盘上的，选“覆盖”照写。有没写的编辑时，回合结束等引起的重读不会盖掉它。文本超过 1 MiB 时只读。
+  - Host 没有 `file_preview`（0.32.0 之前）时同 0.22.0：只读，只有文本与图片，其余写“二进制文件”，Office 等能交给系统的显示那两个按钮。
 - **外部编辑器**（主进程 `main/editors.ts`，照 T3 的编辑器表）：VS Code、Cursor、Windsurf、Trae、Antigravity、Kiro、Zed、Sublime Text、WebStorm、IntelliJ IDEA、PyCharm、Xcode。macOS 找 `/Applications` 与 `~/Applications` 里的应用包，有自带的命令行就用它（能跳到行），没有就 `open -a`；其他平台在 PATH 里找命令（Windows 只认 `.exe`）。启动时不经 shell。
 
 ## 20. 应用级工具：会话之间的消息与“显示”（0.30.0）

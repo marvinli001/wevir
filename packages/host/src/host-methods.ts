@@ -29,6 +29,7 @@ import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
+import { type FileUrls, isServablePath } from './file-urls.js';
 import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from './git-diff.js';
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
@@ -42,6 +43,9 @@ import {
   listDirectory,
   readWorkspaceFile,
   searchIndex,
+  statWorkspaceFile,
+  WriteRejected,
+  writeWorkspaceFile,
 } from './workspace-files.js';
 
 /** 一次请求的上下文：发起请求的连接在 `host.hello` 里给出的身份与能力位。 */
@@ -89,6 +93,8 @@ export interface HostMethodsOptions {
   checkpoints?: TurnCheckpoints;
   /** 消息里的图片（0.28.0）；省略时 `image.*` 回 `INVALID_PARAMS`（测试）。 */
   images?: ImageStore;
+  /** 文件预览的流式地址（0.32.0）；省略时 `workspace.fileUrl` 回 `unavailable: 'not_found'`（测试）。 */
+  fileUrls?: FileUrls;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -357,6 +363,33 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
         path,
       );
+    },
+
+    // 0.32.0：文件预览的流式地址与编辑的写回。
+    'workspace.fileUrl': async ({ workspaceId, sessionId, path }) => {
+      if (!isSafeRelativePath(path)) {
+        throw invalidParams(['path'], 'path must be a relative path inside the directory');
+      }
+      const root = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      const file = await statWorkspaceFile(root, path);
+      if (!file || !options.fileUrls) return { path, unavailable: 'not_found' };
+      // 令牌下只读得到能预览的类型（file-urls.ts），其余的文件不发地址。
+      if (!isServablePath(path)) return { path, unavailable: 'unsupported' };
+      const { url, expiresAt } = options.fileUrls.issue(root, path);
+      return { path, url, size: file.size, mtimeMs: file.mtimeMs, expiresAt };
+    },
+
+    'workspace.writeFile': async ({ workspaceId, sessionId, path, text, expectedMtimeMs }) => {
+      if (!isSafeRelativePath(path)) {
+        throw invalidParams(['path'], 'path must be a relative path inside the directory');
+      }
+      const root = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
+      try {
+        return await writeWorkspaceFile(root, path, text, expectedMtimeMs);
+      } catch (error) {
+        if (error instanceof WriteRejected) throw invalidParams(['path'], error.message);
+        throw error;
+      }
     },
 
     'session.checkpoints': async ({ sessionId }) => {

@@ -1,6 +1,6 @@
 # Wevir Host API v0
 
-> 状态：v0（T1.2）· 协议版本 `0.31.0`（Ollama 模型发现；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
+> 状态：v0（T1.2）· 协议版本 `0.32.0`（文件预览与编辑；版本历史见 §10；最低兼容 `0.1.0`）· 日期：2026-10-16
 > 依据：[ADR-0002](../adr/0002-host-transport-and-process-model.md)（协议部分以它为准）；[领域模型](./domain-model.md)；[Paseo 研读](../research/paseo-notes.md) §2（兼容纪律的出处）
 > 代码：`packages/protocol`。方法注册表 `MethodSchemas`、通知注册表 `NotificationSchemas`、事件 `EventPayloadSchemas`、错误码 `ErrorCode`、关闭码 `CloseCode` 是唯一的定义；本文件的表格由 `host-api-doc.test.ts` 与代码逐项比对，改一边不改另一边测试就失败。
 > 下游：T2.4（Host 侧执行）、T4.1（client-sdk）、T5.1（Origin 白名单写回本文件）
@@ -14,7 +14,8 @@
 - JSON-RPC 2.0 over WebSocket，文本帧，一帧一个 JSON-RPC 对象（ADR-0002 §1）。**v0 不支持批量**：收到 JSON 数组时 Host 回一个 `INVALID_REQUEST`（`id: null`）；二进制帧同样回 `INVALID_REQUEST`（`id: null`）。
 - 参数一律按名称传（对象）；方法没有参数时传 `{}`，省略 `params` 等同于 `{}`。请求 `id` 用字符串或整数，不用 `null`。
 - 客户端只发请求；Host 只发响应和通知（v0 只有 `events.event`）。同一连接上可以连发多个请求，响应顺序不保证与请求一致，按 `id` 对应；同一会话的命令在 Host 内串行执行（ADR-0002 §4）。
-- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行下表的白名单，精确匹配），不通过直接 403，不会走到 JSON-RPC 层。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426。例外是 `POST /mcp`：应用级工具的 MCP 端点（0.30.0，domain-model §3.15），给 Host 自己挂到引擎会话上的 agent 用，不是客户端的接口。它按 MCP 的 Streamable HTTP 只回 JSON（不开 SSE、不记 MCP 会话），要 `Authorization: Bearer <这个会话的令牌>`（每个 Wevir 会话一个，只在内存里、Host 重启后作废，与 `run/host.json` 的令牌无关）；带 `Origin` 头、`Host` 头不是本机地址的回 403，没有或不认识的令牌回 401，不是 POST 的回 405，Host 退出期间回 503。
+- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行下表的白名单，精确匹配），不通过直接 403，不会走到 JSON-RPC 层。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426（下面两个路径除外）。例外是 `POST /mcp`：应用级工具的 MCP 端点（0.30.0，domain-model §3.15），给 Host 自己挂到引擎会话上的 agent 用，不是客户端的接口。它按 MCP 的 Streamable HTTP 只回 JSON（不开 SSE、不记 MCP 会话），要 `Authorization: Bearer <这个会话的令牌>`（每个 Wevir 会话一个，只在内存里、Host 重启后作废，与 `run/host.json` 的令牌无关）；带 `Origin` 头、`Host` 头不是本机地址的回 403，没有或不认识的令牌回 401，不是 POST 的回 405，Host 退出期间回 503。
+- 另一个例外是 `GET /files/<令牌>/<路径>`（0.32.0，`workspace.fileUrl`）：文件预览的只读读取，给渲染进程里的 `<img>`、`<video>`、`<audio>`、`<iframe>` 与 `fetch` 用。`Host` 头不是本机地址的回 403（防 DNS 重绑定）；不认识、已作废的令牌与读不到的文件一律回 404（不区分）；不是 GET / HEAD 的回 405。令牌按目录发，目录里只读得到能预览的几类文件（图片、样式、脚本、字体、音视频、PDF、网页与 Office 文件，按扩展名，所以 HTML 页面的相对引用与 Markdown 里的图片也走它），路径里有以 `.` 开头的段（`.env`、`.git/`）的不给，realpath 之后仍要在目录里。音视频支持单段 `Range`（206 / 416）。响应都带 `X-Content-Type-Options: nosniff`、`Cache-Control: private, no-store` 与 `Access-Control-Allow-Origin: *`（令牌就是凭据，带它的人本来就读得到；渲染进程要 `fetch` Office 文件的字节）；HTML 另带 CSP：`sandbox allow-scripts allow-forms allow-popups allow-downloads`（不透明 origin，碰不到桌面端的会话与存储，照 T3 Code）且不能联网（`connect-src 'none'`，外部脚本、样式、字体与图片都不加载，只认同一个令牌下的文件，照 Paseo 的 HTML 预览），SVG 带 `default-src 'none'; style-src 'unsafe-inline'; sandbox`。
 - Origin 白名单只有桌面渲染进程（T5.1，代码 `DESKTOP_RENDERER_ORIGINS`）。浏览器与渲染进程的 WebSocket 升级一定带 Origin 头；CLI 与测试用的 Node 客户端不带，不受白名单影响。白名单只是纵深防御，挡的是本机浏览器里任意网页发起的连接；鉴权仍靠 hello 里的令牌（§2）。
 
 <!-- registry:origins -->
@@ -92,7 +93,9 @@ hello 成功后再发 `host.hello`，回 `INVALID_REQUEST`，连接不关。
 | `workspace.diffFile` | `workspace.read` | `workspaceId, sessionId?, oldRev?, oldPath?, newRev?, newPath?` | `oldContents?, newContents?, unavailable?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
 | `workspace.files` | `workspace.read` | `workspaceId, sessionId?, query, limit?, kind?` | `entries, truncated?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND` |
 | `workspace.listDir` | `workspace.read` | `workspaceId, sessionId?, path` | `entries, truncated?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
-| `workspace.readFile` | `workspace.read` | `workspaceId, sessionId?, path` | `path, size?, text?, image?, unavailable?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
+| `workspace.readFile` | `workspace.read` | `workspaceId, sessionId?, path` | `path, size?, mtimeMs?, text?, image?, unavailable?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
+| `workspace.fileUrl` | `workspace.read` | `workspaceId, sessionId?, path` | `path, url?, size?, mtimeMs?, expiresAt?, unavailable?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
+| `workspace.writeFile` | `workspace.write` | `workspaceId, sessionId?, path, text, expectedMtimeMs?` | `path, size?, mtimeMs?, conflict?` | `WORKSPACE_NOT_FOUND`、`WORKSPACE_PATH_INVALID`、`SESSION_NOT_FOUND`、`INVALID_PARAMS` |
 | `provider.list` | `provider.read` | `{}` | `providers: ProviderProfile[]` | |
 | `provider.upsert` | `provider.write` | 按 `kind` 区分，见下 | `provider, created` | |
 | `provider.remove` | `provider.write` | `providerId` | `{}` | `PROVIDER_NOT_FOUND`、`RESOURCE_IN_USE` |
@@ -155,7 +158,9 @@ Host → 客户端的通知：
 - **`workspace.diffFile`**（0.20.0）：一个文件两侧的全文，给“展开未修改的行”。旧的一侧是 `oldRev`（上面的 `base`）里的 `oldPath`，新的一侧是 `newRev`（上面的 `head`）里的 `newPath`，没有 `newRev` 时读磁盘（realpath 之后仍要在目录里、是普通文件）；只给要读的那一侧的路径，`oldPath` 要带 `oldRev`。路径必须相对、`/` 分隔、不含 `..`，否则 `INVALID_PARAMS`。一侧超过 1 MiB、含 NUL 字节、不存在时只回 `unavailable`（`too_large` / `binary` / `not_found`）。版本库里的一侧用 `git cat-file blob`，不经过 textconv 与过滤器。
 - **`workspace.files`**（0.22.0，Host 功能 `workspace_files`）：按名字找文件与文件夹，给桌面端输入框的 @ 提及与文件窗格的搜索。目录同 `workspace.git`（带 `sessionId` 时是会话的目录），路径相对它、`/` 分隔。Host 按目录建一份索引、缓存 5 s：git 仓库里是 `git ls-files --cached --others --exclude-standard`（跟踪的加没被忽略的未跟踪文件，文件夹取它们的父目录），否则逐层遍历、跳过 `node_modules`、`.git`、`.venv`、`target` 等目录与符号链接；最多 25 000 项，超出或遍历超过 10 s 时结果带 `truncated`。`query` 先去掉开头的 `@` 与空白、转小写，名字的匹配（完全相同、前缀、词边界、包含、子序列）优先于整条路径的匹配，含 `/` 时只按路径；排序与桌面端的斜杠命令共用 `@wevir/protocol` 的 `scoreQueryMatch`（移植自 T3 Code）。`query` 为空时按层级从浅到深给出前 `limit`（默认 50，最多 200）项；`kind` 只要文件或只要文件夹。匹配的多于 `limit` 时也带 `truncated`。
 - **`workspace.listDir`**（0.22.0）：列一个目录的直接子项，给文件窗格的目录树。`path` 为空字符串是根目录，否则同 `workspace.diffFile` 的路径规则（相对、`/` 分隔、不含 `..`，否则 `INVALID_PARAMS`）。文件夹在前、再按名字（数字按数值）；不含 `.git`；符号链接按它指到的类型，指到目录外的不列；git 仓库里被 `.gitignore` 忽略的项带 `ignored: true`（`git check-ignore`）。目录不存在或 realpath 在目录外时是空表。最多 5000 项，超出带 `truncated`。
-- **`workspace.readFile`**（0.22.0）：读一个文件，给文件窗格。路径规则同上。按扩展名认出的图片（png、jpg、gif、webp、svg、bmp、ico）给 `image: { mimeType, data }`（base64，不超过 4 MiB，免得超过连接的发送缓冲），其余当 UTF-8 文本给 `text`（不超过 1 MiB）；`size` 是文件的字节数。超过上限回 `unavailable: 'too_large'`，文本含 NUL 字节回 `binary`，不存在、不是普通文件或 realpath 在目录外回 `not_found`（不带 `size`）。开放字符串。
+- **`workspace.readFile`**（0.22.0）：读一个文件，给文件窗格。路径规则同上。按扩展名认出的图片（png、jpg、gif、webp、svg、bmp、ico）给 `image: { mimeType, data }`（base64，不超过 4 MiB，免得超过连接的发送缓冲），其余当 UTF-8 文本给 `text`（不超过 1 MiB）；`size` 是文件的字节数。超过上限回 `unavailable: 'too_large'`，文本含 NUL 字节回 `binary`，不存在、不是普通文件或 realpath 在目录外回 `not_found`（不带 `size`）。开放字符串。0.32.0 起读到文件时带 `mtimeMs`（这一版的修改时间，毫秒，可能有小数），编辑后写回时作 `workspace.writeFile` 的 `expectedMtimeMs`。
+- **`workspace.fileUrl`**（0.32.0，Host 功能 `file_preview`）：给一个文件发只读的流式地址，给文件窗格预览 PDF、网页、音视频、Office 文件与大图片（不走 base64 的 JSON-RPC）。路径规则同 `workspace.readFile`；不存在、不是普通文件或 realpath 在目录外只回 `unavailable: 'not_found'`，不是能预览的类型（见 §1）或路径里有以 `.` 开头的段回 `unsupported`（开放字符串）。`url` 是 `http://127.0.0.1:<RPC 端口>/files/<令牌>/<路径>`（各段百分号编码），`size`、`mtimeMs` 是这时的文件，`expiresAt` 是令牌作废的时间。令牌按目录发（同一个会话目录在有效期内重复调用给同一个），只在 Host 内存里，一小时后作废、Host 重启后全部作废，最多同时 64 个。HTTP 端见 §1。
+- **`workspace.writeFile`**（0.32.0，Host 功能 `file_preview`）：把文本写回一个已有的普通文件，给文件窗格的编辑。路径规则同上，realpath 之后仍要在目录里；不存在、不是普通文件回 `INVALID_PARAMS`，文本超过 1 MiB（UTF-8）同样。带 `expectedMtimeMs` 时，磁盘上的修改时间与它不同（或文件已删除）就不写，回 `conflict: true` 与现在的 `size` / `mtimeMs`（已删除时省略）；不带时直接写。原地写（保留权限与硬链接），写完回新的 `size` / `mtimeMs`。不新建文件、不改编码与换行（客户端给什么写什么）。
 - **`provider.setEnabled`**（0.19.0，Host 功能 `provider_enabled`）：启用或停用一个 Provider（任何种类），结果是改后的 Provider。停用只影响客户端：模型选择里不再列出它的模型；已有会话照常能用、能 resume，Host 不拒绝用它建会话。`ProviderProfile.enabled` 省略表示启用；Host 只在停用时写 `enabled: false`。
 - **订阅来源的 Provider**（0.19.0，Host 功能 `subscription_sources`，ADR-0005 补记 14）：`claude`、`cursor`、`opencode`、`grok`、`antigravity` 同 `chatgpt`，`id` 固定等于种类，没有 Key 与地址；对应的账号第一次读到已登录时 Host 建它（显示名见 domain-model §3.6），之后刷新模型列表的规则同 `chatgpt`。用它建的会话由对应的引擎运行；Host 没有那个引擎时回 `ENGINE_ERROR`。客户端没有声明能力位 `subscription_kinds` 时，`provider.list` 不含这些 Provider。
 - **`provider.test`**：用该 Provider 发一次最小请求（带已存的 Key）。连通与否放在结果里（`ok`、`error.category` / `error.message`），不作为 JSON-RPC 错误；只有 Provider 不存在才回错误。0.2.0 起失败时另有 `reason`（`missing_key` / `network` / `timeout` / `auth` / `model_not_found` / `protocol` / `rate_limited` / `server` / `unknown`）与收到的 `httpStatus`，归类规则见 [providers.md](./providers.md) §6。
@@ -433,6 +438,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、parameterSize、quantization、remoteHost（只保留 origin）、maxContextWindow、contextSource（开放字符串 running / configured / cloud）、detailsAvailable。model.contextWindow 只在实际值已知时填写；本机 /api/ps 优先于 /api/show num_ctx，model_info 的模型最大值单列 maxContextWindow；Ollama Cloud 使用最大值。可用档位来自 thinking.values；缺元数据不猜测，只有布尔开关映射到 off / medium。仅返回固定结果，不保存 Provider 或事件。
 
+`0.32.0`：文件预览与编辑。新方法 `workspace.fileUrl`、`workspace.writeFile`；`workspace.readFile` 的结果加 optional 的 `mtimeMs`；Host 功能 `file_preview`；Host 的 HTTP 服务多了 `GET /files/…`（§1）。新方法与 optional 字段，`unavailable` 是开放字符串，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法、忽略 `mtimeMs`。新客户端连旧 Host：hello 结果里没有 `file_preview`，桌面端的文件窗格照 0.22.0 只读、只显示文本与图片，PDF、网页、音视频与 Office 文件只给“用默认应用打开”。冻结样本 `compat/0.32.0.json`。
+
 **线缆契约（永远遵守）**
 
 1. **只增不减。** 方法、通知、事件类型、字段、枚举值、错误码都不删除；错误码与关闭码的数值不改、不复用。
@@ -485,6 +492,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `session_review` | 0.24.0 | `session.review`（Codex、echo 引擎；同上） |
 | `session_handoff` | 0.25.0 | 接力：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与 `host.hello` 的 `engineFeatures`（与引擎无关） |
 | `user_images` | 0.28.0 | `image.upload`、`image.read` 与消息里的图片（引擎有 `acceptsImages` 时：Codex、Claude、Cursor、OpenCode、Grok、Antigravity、echo；dsh 没有） |
+| `file_preview` | 0.32.0 | `workspace.fileUrl`（`GET /files/…` 的只读流式地址）、`workspace.writeFile` 与 `workspace.readFile` 的 `mtimeMs`（与引擎无关） |
 | `app_tools` | 0.30.0 | 应用级工具（domain-model §3.15）：引擎会话挂上 Host 的 `wevir` MCP 服务；`ui.show` 事件、`user.message` 与待发消息的 `from`、`Session.openedBy`（Codex、Claude、Cursor、Grok、Antigravity、dsh 引擎；OpenCode 与 echo 没有，`engineFeatures` 的 `appTools` 按 Provider 说） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 

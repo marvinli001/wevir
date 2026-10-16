@@ -327,3 +327,53 @@ describe('startHost', () => {
     expect(runtimeInfo(home).pid).toBe(process.pid);
   });
 });
+
+describe('文件预览（0.32.0）', () => {
+  it('hello 声明 file_preview；workspace.fileUrl 的地址在 RPC 端口上读得到，writeFile 写回', async () => {
+    const { host } = await start();
+    const client = await connect(host);
+    const hello = await TestRpcClient.connect(host.url);
+    clients.push(hello);
+    expect(
+      (
+        (await hello.hello(runtimeInfo(host.home).token as string)).result as {
+          features: Record<string, boolean>;
+        }
+      ).features.file_preview,
+    ).toBe(true);
+    const workspaceDir = join(tempDir(), 'files-ws');
+    mkdirSync(workspaceDir, { recursive: true });
+    writeFileSync(join(workspaceDir, 'report.pdf'), '%PDF-1.4 demo');
+    writeFileSync(join(workspaceDir, 'notes.md'), '# a\n');
+    const { workspace } = await client.request('workspace.add', { rootPath: workspaceDir });
+
+    const issued = await client.request('workspace.fileUrl', {
+      workspaceId: workspace.id,
+      path: 'report.pdf',
+    });
+    expect(issued).toMatchObject({ path: 'report.pdf', size: 13 });
+    const port = new URL(host.url).port;
+    expect(issued.url?.startsWith(`http://127.0.0.1:${port}/files/`)).toBe(true);
+    const response = await fetch(issued.url as string);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/pdf');
+    expect(await response.text()).toBe('%PDF-1.4 demo');
+    expect(
+      await client.request('workspace.fileUrl', { workspaceId: workspace.id, path: 'notes.md' }),
+    ).toEqual({ path: 'notes.md', unavailable: 'unsupported' });
+
+    const read = await client.request('workspace.readFile', {
+      workspaceId: workspace.id,
+      path: 'notes.md',
+    });
+    const written = await client.request('workspace.writeFile', {
+      workspaceId: workspace.id,
+      path: 'notes.md',
+      text: '# b\n',
+      ...(read.mtimeMs !== undefined && { expectedMtimeMs: read.mtimeMs }),
+    });
+    expect(written).toMatchObject({ path: 'notes.md', size: 4 });
+    expect(written.conflict).toBeUndefined();
+    expect(readFileSync(join(workspaceDir, 'notes.md'), 'utf8')).toBe('# b\n');
+  });
+});

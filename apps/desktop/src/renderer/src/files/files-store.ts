@@ -36,19 +36,25 @@ export interface FilePrefs {
   wrap: boolean;
   /** Markdown 显示渲染后的样子，默认是。 */
   renderMarkdown: boolean;
+  /** 网页显示渲染后的样子（0.32.0，照 T3 默认是）。 */
+  renderHtml: boolean;
+  /** CSV / TSV 显示成表格（0.32.0，照 T3 默认是）。 */
+  renderTable: boolean;
   /** 上次用的外部编辑器（`EditorInfo.id`）。 */
   editor?: string;
 }
 
 export const filePrefs = createPersistedStore<FilePrefs>(
   'wevir.files.v1',
-  { wrap: false, renderMarkdown: true },
+  { wrap: false, renderMarkdown: true, renderHtml: true, renderTable: true },
   (raw) => {
     if (raw === null || typeof raw !== 'object') return undefined;
     const value = raw as Partial<Record<keyof FilePrefs, unknown>>;
     return {
       wrap: value.wrap === true,
       renderMarkdown: value.renderMarkdown !== false,
+      renderHtml: value.renderHtml !== false,
+      renderTable: value.renderTable !== false,
       ...(typeof value.editor === 'string' && { editor: value.editor }),
     };
   },

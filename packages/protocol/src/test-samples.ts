@@ -1179,12 +1179,63 @@ export const methodSamples: MethodSamples = {
         },
         { path: 'big.log', size: 2_000_000, unavailable: 'too_large' },
         { path: 'gone.txt', unavailable: 'not_found' },
+        { path: 'notes.md', size: 7, mtimeMs: 1_760_000_000_123.456, text: '# Notes' },
       ],
       invalid: [
         { size: 1, text: 'x' },
         { path: 'a.png', image: { mimeType: 'image/tiff', data: '' } },
         { path: 'a', unavailable: '' },
+        { path: 'a', mtimeMs: -1, text: '' },
       ],
+    },
+  },
+  'workspace.fileUrl': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, path: 'docs/report.pdf' },
+        { workspaceId: ids.workspace, sessionId: ids.session, path: 'site/index.html' },
+      ],
+      invalid: [{ workspaceId: ids.workspace, path: '' }, { path: 'a.pdf' }],
+    },
+    result: {
+      valid: [
+        {
+          path: 'docs/report.pdf',
+          url: 'http://127.0.0.1:52811/files/Zm9vYmFy/docs/report.pdf',
+          size: 123_456,
+          mtimeMs: 1_760_000_000_123.456,
+          expiresAt: 1_760_003_600_000,
+        },
+        { path: 'gone.pdf', unavailable: 'not_found' },
+      ],
+      invalid: [{ url: 'http://127.0.0.1:1/files/x/a' }, { path: 'a', unavailable: '' }],
+    },
+  },
+  'workspace.writeFile': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, path: 'notes.md', text: '# Notes\n' },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          path: 'src/app.ts',
+          text: '',
+          expectedMtimeMs: 1_760_000_000_123.456,
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, path: 'notes.md' },
+        { workspaceId: ids.workspace, path: '', text: 'x' },
+        { workspaceId: ids.workspace, path: 'a', text: 'x', expectedMtimeMs: -1 },
+      ],
+    },
+    result: {
+      valid: [
+        { path: 'notes.md', size: 9, mtimeMs: 1_760_000_100_000 },
+        { path: 'notes.md', size: 12, mtimeMs: 1_760_000_200_000, conflict: true },
+        { path: 'gone.md', conflict: true },
+      ],
+      invalid: [{ size: 1 }, { path: 'a', conflict: false }],
     },
   },
   'provider.list': {
