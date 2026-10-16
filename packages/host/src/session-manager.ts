@@ -14,6 +14,7 @@ import {
   type EngineFeatures,
   type EnvironmentId,
   IMAGE_MAX_PER_MESSAGE,
+  type MessageFrom,
   type MethodParams,
   type MethodResult,
   type PendingMessage,
@@ -41,6 +42,7 @@ import {
   type TurnCommand,
   type TurnId,
   type TurnOutcome,
+  type UiShowTarget,
   type UserContentPart,
   type WorkspaceId,
 } from '@wevir/protocol';
@@ -50,6 +52,7 @@ import {
   type AgentRuntimeAdapter,
   type ApprovalCancelledEvent,
   type ApprovalRequestedEvent,
+  type AppToolsEndpoint,
   type DeltaBlockRef,
   type EngineSession,
   isAdapterError,
@@ -145,6 +148,19 @@ export interface SessionManagerOptions {
    * 消息里的图片（0.28.0，images.ts）。没给时、或适配器没有 `acceptsImages` 时，带图片的消息回 `INVALID_PARAMS`。
    */
   images?: ImageStore;
+  /**
+   * 应用级工具（0.30.0，app-tools.ts）：适配器声明了 `appTools` 时，建会话、恢复、分支与接力都给引擎会话这个会话的端点与令牌。
+   * 没给时（或还没监听）引擎会话不挂。
+   */
+  appTools?: { grant(sessionId: SessionId): AppToolsEndpoint | undefined };
+  /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
+  onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
+}
+
+/** `session.send` 之外的发送参数（0.30.0）。 */
+export interface SendOptions {
+  /** 别的会话发来的（应用级工具）：记进 `user.message` / 待发消息的 `from`。 */
+  from?: MessageFrom;
 }
 
 /** `recover()` 的结果：启动对账修正了什么。 */
@@ -286,6 +302,8 @@ export class SessionManager {
   readonly #engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined;
   readonly #historyDir: string | undefined;
   readonly #images: ImageStore | undefined;
+  readonly #appTools: SessionManagerOptions['appTools'];
+  readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
@@ -315,6 +333,15 @@ export class SessionManager {
     this.#engineFeatures = options.engineFeatures;
     this.#historyDir = options.historyDir;
     this.#images = options.images;
+    this.#appTools = options.appTools;
+    this.#onTurnFinished = options.onTurnFinished;
+  }
+
+  /** 引擎会话的配置：存下的配置加上这个会话的应用级工具（适配器能挂时）。 */
+  #engineConfig(sessionId: SessionId, config: SessionConfig): SessionConfig {
+    if (this.#adapter.appTools !== true) return config;
+    const appTools = this.#appTools?.grant(sessionId);
+    return appTools === undefined ? config : { ...config, appTools };
   }
 
   /**
@@ -400,7 +427,10 @@ export class SessionManager {
    * `session.create`：先建引擎会话，成功后才写 `session.created`（#1）。返回的会话是 `idle`、
    * `lastSeq` 为 1。
    */
-  async create(params: MethodParams<'session.create'>): Promise<Session> {
+  async create(
+    params: MethodParams<'session.create'>,
+    options: { openedBy?: SessionId } = {},
+  ): Promise<Session> {
     this.#assertOpen();
     const workspace = this.#storage.workspaces.get(params.workspaceId);
     if (!workspace || workspace.removedAt !== undefined) {
@@ -414,7 +444,14 @@ export class SessionManager {
     const permissionMode = this.#permissionMode(params.permissionMode);
     const origin = this.#claimTask(params);
     try {
-      return await this.#create(params, workspace, provider, permissionMode, origin);
+      return await this.#create(
+        params,
+        workspace,
+        provider,
+        permissionMode,
+        origin,
+        options.openedBy,
+      );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
     }
@@ -448,6 +485,7 @@ export class SessionManager {
     provider: { id: string; defaultModelId: string },
     permissionMode: PermissionMode | undefined,
     origin: MethodParams<'session.create'>['origin'],
+    openedBy: SessionId | undefined,
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。
@@ -462,7 +500,7 @@ export class SessionManager {
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     try {
-      engineSession = await this.#adapter.createSession(config);
+      engineSession = await this.#adapter.createSession(this.#engineConfig(sessionId, config));
     } catch (error) {
       await prepared.undo();
       const info = engineErrorInfo(error);
@@ -494,6 +532,7 @@ export class SessionManager {
       if (prepared.extraRoots.length > 0) record.extraRoots = prepared.extraRoots;
       if (prepared.worktrees.length > 0) record.worktrees = prepared.worktrees;
       if (origin !== undefined) record.origin = origin;
+      else if (openedBy !== undefined) record.origin = { kind: 'agent', sessionId: openedBy };
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',
@@ -511,6 +550,7 @@ export class SessionManager {
           ...(engineSession.engineVersion !== undefined && {
             engineVersion: engineSession.engineVersion,
           }),
+          ...(openedBy !== undefined && { openedBy: { sessionId: openedBy } }),
         },
       });
     } catch (error) {
@@ -658,7 +698,9 @@ export class SessionManager {
   async send(
     params: MethodParams<'session.send'>,
     sentBy: ClientIdentity,
+    options: SendOptions = {},
   ): Promise<MethodResult<'session.send'>> {
+    const { from } = options;
     this.#assertOpen();
     const runtime = this.#runtime(params.sessionId);
     const { clientMessageId } = params;
@@ -673,7 +715,7 @@ export class SessionManager {
     const accepted = { ...params, content };
     const snapshot = this.#snapshot(runtime);
     if (params.delivery !== undefined && ACTIVE_STATES.includes(snapshot.session.state)) {
-      return this.#addPending(runtime, accepted, sentBy, fingerprint);
+      return this.#addPending(runtime, accepted, sentBy, fingerprint, from);
     }
     assertSendable(snapshot);
     return this.#serial(runtime, async () => {
@@ -681,13 +723,14 @@ export class SessionManager {
       if (replayed) return replayed;
       const snapshot = this.#snapshot(runtime);
       if (params.delivery !== undefined && ACTIVE_STATES.includes(snapshot.session.state)) {
-        return this.#addPending(runtime, accepted, sentBy, fingerprint);
+        return this.#addPending(runtime, accepted, sentBy, fingerprint, from);
       }
       assertSendable(snapshot);
       return this.#startTurn(runtime, {
         content,
         sentBy,
         ...(clientMessageId !== undefined && { clientMessageId, fingerprint }),
+        ...(from !== undefined && { from }),
       });
     });
   }
@@ -821,9 +864,11 @@ export class SessionManager {
       /** 普通发送带 `clientMessageId` 时记回执用。 */
       fingerprint?: string;
       pending?: PendingMessage;
+      from?: MessageFrom;
     },
   ): Promise<{ turnId: TurnId; seq: number }> {
     const { content, sentBy, clientMessageId, fingerprint, pending } = input;
+    const from = input.from ?? pending?.from;
     if (!runtime.attachment) {
       await this.#autoResume(runtime);
       // 等待期间引擎可能已经报了退出。
@@ -844,6 +889,7 @@ export class SessionManager {
           sentBy,
           ...(clientMessageId !== undefined && { clientMessageId }),
           ...(pending !== undefined && { pendingId: pending.id }),
+          ...(from !== undefined && { from }),
         },
       },
       { type: 'turn.started', source: 'host', payload: { turnId } },
@@ -988,6 +1034,7 @@ export class SessionManager {
     params: MethodParams<'session.send'>,
     sentBy: ClientIdentity,
     fingerprint: string,
+    from?: MessageFrom,
   ): Promise<MethodResult<'session.send'>> {
     const { state } = this.#snapshot(runtime).session;
     const wantsSteer = params.delivery === 'steer';
@@ -1006,6 +1053,7 @@ export class SessionManager {
       updatedAt: now,
     };
     if (params.clientMessageId !== undefined) pending.clientMessageId = params.clientMessageId;
+    if (from !== undefined) pending.from = from;
     if (wantsSteer && !steerable) {
       pending.fallback =
         state === 'cancelling'
@@ -1209,6 +1257,7 @@ export class SessionManager {
           ...(pending.clientMessageId !== undefined && {
             clientMessageId: pending.clientMessageId,
           }),
+          ...(pending.from !== undefined && { from: pending.from }),
         },
       },
       pendingUpdated({
@@ -1414,7 +1463,10 @@ export class SessionManager {
       let engine: EngineSession | undefined;
       if (previous !== undefined) {
         try {
-          engine = await this.#adapter.resumeSession(previous.engineSessionId, config);
+          engine = await this.#adapter.resumeSession(
+            previous.engineSessionId,
+            this.#engineConfig(runtime.id, config),
+          );
         } catch (error) {
           // 以前的引擎会话恢复不了：新建一个，交给它整段对话。
           this.#onWarning('接力时恢复以前的引擎会话失败，改为新建', {
@@ -1427,7 +1479,7 @@ export class SessionManager {
       const resumed = engine !== undefined;
       if (engine === undefined) {
         try {
-          engine = await this.#adapter.createSession(config);
+          engine = await this.#adapter.createSession(this.#engineConfig(runtime.id, config));
         } catch (error) {
           if (isAdapterError(error, 'invalid_input')) throw invalid('providerId', errorText(error));
           const info = engineErrorInfo(error);
@@ -1610,6 +1662,23 @@ export class SessionManager {
    * `session.rename`（0.23.0）：用户改名，写 `session.title_changed`（`user`），之后模型生成的标题不再覆盖它（生成标题只在
    * 来源是 `first_prompt` 时写）。标题与来源都没变时不写。子会话由父 agent 驱动，不能改名。已关闭、只读的会话可以。
    */
+  /**
+   * 应用级工具的 `wevir_show`（0.30.0）：在会话的流里写 `ui.show`，正在看这个会话的客户端打开对应的窗格。会话有进行中的回合时
+   * 带上它。
+   */
+  showInUi(sessionId: SessionId, target: UiShowTarget): void {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const turnId = runtime.turn?.turnId;
+    this.#write(runtime, [
+      {
+        type: 'ui.show',
+        source: 'host',
+        payload: { target, ...(turnId !== undefined && { turnId }) },
+      },
+    ]);
+  }
+
   async rename(sessionId: SessionId, title: string): Promise<Session> {
     this.#assertOpen();
     const runtime = this.#runtime(sessionId);
@@ -1653,7 +1722,10 @@ export class SessionManager {
       await assertDirectory(record.cwd);
       let engine: EngineSession;
       try {
-        engine = await this.#adapter.resumeSession(runtime.engineSessionId, sessionConfig(record));
+        engine = await this.#adapter.resumeSession(
+          runtime.engineSessionId,
+          this.#engineConfig(runtime.id, sessionConfig(record)),
+        );
         if (!runtime.attachment) this.#attach(runtime);
       } catch (error) {
         const info = engineErrorInfo(error, 'session_unavailable');
@@ -1695,15 +1767,15 @@ export class SessionManager {
       }
       if (!source.attachment) await this.#autoResume(source);
       const config = sessionConfig(record);
+      const sessionId = newId('ses');
       let engineSession: EngineSession;
       try {
-        engineSession = await fork(source.engineSessionId, config);
+        engineSession = await fork(source.engineSessionId, this.#engineConfig(sessionId, config));
       } catch (error) {
         const info = engineErrorInfo(error);
         throw new HostError('ENGINE_ERROR', info.message, info);
       }
 
-      const sessionId = newId('ses');
       const now = isoNow();
       const modelId = engineSession.modelId ?? config.modelId;
       const reasoningEffort = engineSession.reasoningEffort ?? config.reasoningEffort;
@@ -1969,7 +2041,10 @@ export class SessionManager {
     await assertDirectory(record.cwd);
     let engine: EngineSession;
     try {
-      engine = await this.#adapter.resumeSession(runtime.engineSessionId, sessionConfig(record));
+      engine = await this.#adapter.resumeSession(
+        runtime.engineSessionId,
+        this.#engineConfig(runtime.id, sessionConfig(record)),
+      );
       this.#attach(runtime);
     } catch (error) {
       const info = engineErrorInfo(error, 'session_unavailable');
@@ -2755,7 +2830,7 @@ export class SessionManager {
   #reportTask(runtime: SessionRuntime, turnId: TurnId, outcome: TurnOutcome): void {
     try {
       const origin = this.#storage.sessions.get(runtime.id)?.origin;
-      if (origin === undefined) return;
+      if (origin?.kind !== 'suggested_task' || origin.taskId === undefined) return;
       const parentId = origin.sessionId as SessionId;
       const taskId = origin.taskId as TaskId;
       const task = this.#events.suggestedTask(parentId, taskId);
@@ -2990,6 +3065,21 @@ export class SessionManager {
           turn.finished.resolve();
         }
         this.#reportTask(runtime, event.payload.turnId, event.payload.outcome);
+        const onTurnFinished = this.#onTurnFinished;
+        if (onTurnFinished !== undefined) {
+          const info = {
+            sessionId: runtime.id,
+            turnId: event.payload.turnId,
+            outcome: event.payload.outcome,
+          };
+          queueMicrotask(() => {
+            try {
+              onTurnFinished(info);
+            } catch (error) {
+              this.#onError(error);
+            }
+          });
+        }
         const checkpointCwd = this.#checkpointCwd(runtime);
         if (checkpointCwd !== undefined) {
           this.#checkpoints?.afterTurn(runtime.id, checkpointCwd, event.payload.turnId);

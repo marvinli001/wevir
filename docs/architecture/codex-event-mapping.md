@@ -402,6 +402,14 @@ rust-v0.162.1 实测（`codex-adapter.side.integration.test.ts`）：支线的�
 
 实测（rust-v0.162.1，经网关的 mock 模型，2026-10-15）：模型看到命名空间 `mcp__wevir_history` 里的 `read_session_history`；调用不出审批，`mcpToolCall` 完成后输出是历史的 JSON（`total`、`items`、`nextPosition`）。接力回来的 thread 是 `thread/resume` 恢复的原来那个，下一条用户消息开头是 `Context handoff (delta_since_target_last_seen)` 的摘要。
 
+### 6.11 应用级工具（0.30.0）
+
+Host 的 `wevir` MCP 服务（domain-model §3.15）是 HTTP 的、每个会话一个令牌，不能像 §6.8、§6.10 那样写进进程共用的 config.toml。`thread/start`、`thread/resume` 与 `thread/fork` 都接受 `config` 覆盖（app-server-protocol `v2/thread.rs`），`#threadSettings` 在会话带 `SessionConfig.appTools` 时往里加 `mcp_servers.wevir`（`config.ts` 的 `appToolsConfig`）：`url`，`http_headers = { Authorization = "Bearer <令牌>" }`（Codex 不接受 HTTP 服务的行内 `bearer_token`，`bearer_token_env_var` 又是整个进程共用），`startup_timeout_sec = 10`，`tool_timeout_sec = 660`（`wevir_session_wait` 最多等 10 分钟），`default_tools_approval_mode = "auto"`。thread 还挂在 app-server 里时 `thread/resume` 的覆盖被忽略，令牌在 Host 运行期间不变，所以不受影响；Host 重启后 app-server 也是新的。
+
+批准：`auto` 时 Codex 对只读的工具（`readOnlyHint`）、或既不破坏也不对外（`destructiveHint` 与 `openWorldHint` 都是 false）的工具直接调；其余按 thread 的审批策略：`never` 且完全访问时直接调，否则发服务端请求 `mcpServer/elicitation/request`（功能 `tool_call_mcp_elicitation`，稳定、默认开）。它的 `_meta.codex_approval_kind` 是 `mcp_tool_call`，表单没有字段，也不带 item id。适配器只认 `serverName` 是 `wevir` 的这种请求（别的回 `decline`，Wevir 不显示 MCP 表单），属于挂着的会话进行中的回合时上报为 `approval.requested`：`toolCallId` 是这个 thread 里还没完成的 `wevir` 的 `mcpToolCall`（调用在请求之前已经以 `item/started` 报出，mapping 的 `openMcpCall`），选项只有 `accept`（允许）与 `decline`（拒绝），回复分别是 `{ action: 'accept', content: {} }` 与 `{ action: 'decline' }`；回合取消时同别的审批一样不回复（`NO_REPLY`，app-server 自己收回）。之前没有处理这个请求时，它回 METHOD_NOT_FOUND，Codex 当作拒绝。`mcpServer/startupStatus/updated` 里 Wevir 自己的三个服务（`wevir_tasks`、`wevir_history`、`wevir`）正常启动不出事件。
+
+实测（rust-v0.162.1，经网关的 mock 模型，测试里的 HTTP MCP 服务扮演 Host，`codex-adapter.app-tools.integration.test.ts`，2026-10-16）：模型看到命名空间 `mcp__wevir` 里的工具，`tool.started` 的工具名是 `mcp__wevir__wevir_session_list`；请求带这个会话的令牌；请求批准时只读的工具不问，`wevir_session_create` 先出审批、允许后才调用、拒绝时不调用；完全访问时不问。
+
 ### 6.7 回合失败的归类（`turn-error.ts`）
 
 `turn/completed` 的 `turn.error` 带 `codexErrorInfo`（v2/CodexErrorInfo.ts：字符串，或带上游 `httpStatusCode` 的对象）。所有 Provider 都经网关：网关把上游的状态码原样转给 Codex，自己拒绝的请求带 `wevir gateway:` 前缀的原文。自上而下第一条匹配的生效；`message` 始终是完整原文，`code` 是上游的 HTTP 状态码（有时）。

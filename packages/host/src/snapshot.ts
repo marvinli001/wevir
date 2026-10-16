@@ -624,7 +624,9 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     };
   }
   if (record.side) session.side = true;
-  if (record.origin !== undefined) {
+  if (record.origin?.kind === 'agent') {
+    session.openedBy = { sessionId: record.origin.sessionId as SessionId };
+  } else if (record.origin?.taskId !== undefined) {
     session.origin = {
       kind: 'suggested_task',
       sessionId: record.origin.sessionId as SessionId,

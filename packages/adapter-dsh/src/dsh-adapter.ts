@@ -5,6 +5,7 @@ import {
   type ProviderIssue,
   type ProviderTestResult,
 } from '@wevir/runtime-adapter';
+import type { AppToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import { DshProcess, type DshProcessOptions, type DshStreamTapOptions } from './dsh-process.js';
 import { DSH_ENGINE } from './engine.js';
 import {
@@ -33,6 +34,8 @@ export interface DshAdapterOptions
   providers?: readonly ProviderConfig[];
   /** `testProvider` 的选项（测试注入 fetch、缩短时限）。 */
   providerTest?: ProviderTestOptions;
+  /** 应用级工具的 stdio 桥（0.30.0）：会话带 `appTools` 时经 ACP 挂上。 */
+  appToolsBridge?: AppToolsBridge;
 }
 
 /**
@@ -53,12 +56,20 @@ export class DshAdapter extends AcpAdapter<DshProcess> {
   readonly #providerTest: ProviderTestOptions | undefined;
 
   constructor(options: DshAdapterOptions) {
-    const { streamTap, logger, cancelTimeoutMs, providers, providerTest, ...processOptions } =
-      options;
+    const {
+      streamTap,
+      logger,
+      cancelTimeoutMs,
+      providers,
+      providerTest,
+      appToolsBridge,
+      ...processOptions
+    } = options;
     super({
       engine: DSH_ENGINE,
       logger,
       cancelTimeoutMs,
+      ...(appToolsBridge !== undefined && { appToolsBridge }),
       createProcess: (hooks) =>
         new DshProcess({
           ...processOptions,

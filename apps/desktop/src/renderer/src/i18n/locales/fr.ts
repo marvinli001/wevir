@@ -419,6 +419,8 @@ export const messages: Messages = {
   'transcript.showEarlier':
     'Afficher {count, plural, one {# message précédent} other {# messages précédents}}',
   'transcript.fromParentAgent': 'Tâche de l’agent parent',
+  'transcript.fromSession': 'De « {title} »',
+  'transcript.reportFrom': 'Rapport de « {title} »',
   'transcript.steered': 'Intervention',
 
   'time.seconds': '{n} s',
@@ -521,6 +523,9 @@ export const messages: Messages = {
   'approval.title.shellOutside': 'Autoriser l’exécution hors du bac à sable ?',
   'approval.title.outside': 'Autoriser le dépassement des limites du projet ?',
   'approval.title.generic': 'Autoriser cette action ?',
+  'approval.title.appCreate': 'Autoriser l’ouverture d’une nouvelle session ?',
+  'approval.title.appSend': 'Autoriser l’envoi d’un message à une autre session ?',
+  'approval.title.appInterrupt': 'Autoriser l’arrêt d’une autre session ?',
   'approval.permission': 'Autorisation requise : {permission}',
   'approval.permission.fullAccess': 'Accès complet',
   'approval.preview': 'Aperçu du contenu',

@@ -417,6 +417,8 @@ export const zhCN = {
   'transcript.jumpToLatest': '回到底部',
   'transcript.showEarlier': '显示更早的 {count} 条消息',
   'transcript.fromParentAgent': '来自父智能体的任务',
+  'transcript.fromSession': '来自“{title}”',
+  'transcript.reportFrom': '“{title}”的回报',
   'transcript.steered': '插话',
 
   'time.seconds': '{n} 秒',
@@ -518,6 +520,9 @@ export const zhCN = {
   'approval.title.shellOutside': '允许在沙箱之外运行命令？',
   'approval.title.outside': '允许越过项目目录限制？',
   'approval.title.generic': '允许执行此操作？',
+  'approval.title.appCreate': '允许开一个新会话？',
+  'approval.title.appSend': '允许给其他会话发消息？',
+  'approval.title.appInterrupt': '允许停止其他会话？',
   'approval.permission': '所需权限：{permission}',
   'approval.permission.fullAccess': '完全访问',
   'approval.preview': '内容预览',

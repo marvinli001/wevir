@@ -8,6 +8,8 @@ import type {
   TurnFailedEvent,
   TurnSettledEvent,
 } from '@wevir/runtime-adapter';
+import { APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
+import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
 import type {
   AgentMessageItem,
   ApprovalRequestMethod,
@@ -19,6 +21,7 @@ import type {
   FileChangeRequestApprovalParams,
   ItemNotification,
   McpProgressNotification,
+  McpToolCallItem,
   PatchUpdatedNotification,
   ReasoningItem,
   TokenUsageNotification,
@@ -47,6 +50,13 @@ import { classifyTurnError } from './turn-error.js';
 
 /** engine.raw 的 `protocol`。 */
 export const ENGINE_RAW_PROTOCOL = 'codex-app-server';
+
+/** Wevir 自己的本机 MCP 服务：建议任务、读历史、应用级工具。 */
+const WEVIR_MCP_SERVERS: readonly string[] = [
+  SUGGEST_TASKS_SERVER,
+  HISTORY_TOOL_SERVER,
+  APP_TOOLS_SERVER,
+];
 
 /** 映射成 Wevir 事件的通知（其余一律 engine.raw，除了 `IGNORED_NOTIFICATIONS`）。 */
 export const MAPPED_NOTIFICATIONS = Object.freeze([
@@ -200,8 +210,8 @@ export class CodexEventMapper {
       case 'thread/tokenUsage/updated':
         return isTokenUsage(params) ? this.#usage(params) : [this.raw(method, params)];
       case 'mcpServer/startupStatus/updated':
-        // Wevir 自己的 MCP 服务（§6.8）每个 thread 起一次：正常启动不出事件，起不来的照常留 engine.raw。
-        return params.name === SUGGEST_TASKS_SERVER &&
+        // Wevir 自己的 MCP 服务（§6.8、§6.10、§6.11）每个 thread 起一次：正常启动不出事件，起不来的照常留 engine.raw。
+        return WEVIR_MCP_SERVERS.includes(params.name as string) &&
           (params.status === 'starting' || params.status === 'ready')
           ? []
           : [this.raw(method, params)];
@@ -227,6 +237,19 @@ export class CodexEventMapper {
       ...(kind !== undefined && { kind }),
       ...(params !== undefined && { params }),
     };
+  }
+
+  /**
+   * 服务 `server` 还没完成的 MCP 工具调用里最近开始的那个（0.30.0）：Codex 的 MCP 批准请求（`mcpServer/elicitation/request`）
+   * 不带 item id，调用在请求之前已经以 `item/started` 报出（codex-event-mapping.md §6.11）。
+   */
+  openMcpCall(server: string): string | undefined {
+    let found: string | undefined;
+    for (const [id, state] of this.#items) {
+      if (state.type !== 'mcpToolCall' || state.completed) continue;
+      if ((state.tool as McpToolCallItem | undefined)?.server === server) found = id;
+    }
+    return found;
   }
 
   /**

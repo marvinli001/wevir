@@ -29,6 +29,7 @@ import {
   type PermissionMode,
   type SessionConfig,
 } from '@wevir/runtime-adapter';
+import type { AppToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import {
   HISTORY_TOOL_SERVER,
   type HistoryToolServer,
@@ -72,6 +73,7 @@ export interface GrokModeAdapterOptions {
   cancelTimeoutMs?: number;
   process?: GrokProcessOptions;
   mcpServers?: readonly McpServer[];
+  appToolsBridge?: AppToolsBridge;
 }
 
 /**
@@ -93,6 +95,7 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
       ...(options.logger !== undefined && { logger: options.logger }),
       ...(options.cancelTimeoutMs !== undefined && { cancelTimeoutMs: options.cancelTimeoutMs }),
       ...(options.mcpServers !== undefined && { mcpServers: options.mcpServers }),
+      ...(options.appToolsBridge !== undefined && { appToolsBridge: options.appToolsBridge }),
       createProcess: (hooks) =>
         new AcpProcess({
           ...options.process,
@@ -242,6 +245,8 @@ export interface GrokAdapterOptions {
   process?: GrokProcessOptions;
   /** 读历史的本机 MCP 服务（0.25.0，接力）：经 ACP 的 `session/new` / `session/resume` 交给 `grok`。 */
   historyTool?: HistoryToolServer;
+  /** 应用级工具的 stdio 桥（0.30.0）：会话带 `appTools` 时经 ACP 挂上。 */
+  appToolsBridge?: AppToolsBridge;
 }
 
 /** 一个会话在路由里的记录。 */
@@ -268,6 +273,8 @@ export class GrokAdapter implements AgentRuntimeAdapter {
   readonly permissionModes: readonly PermissionMode[] = GROK_PERMISSION_MODES;
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时经 ACP 挂上。 */
   readonly historyTool: boolean;
+  /** 应用级工具（0.30.0）：给了 `appToolsBridge` 时经 ACP 挂上。 */
+  readonly appTools: boolean;
   readonly accounts: GrokAccounts;
 
   /** 图片（0.28.0）：各模式的进程照通用 ACP 适配器发图片内容块（`GROK_ENGINE.images`）。 */
@@ -283,6 +290,7 @@ export class GrokAdapter implements AgentRuntimeAdapter {
   constructor(options: GrokAdapterOptions) {
     this.#options = options;
     this.historyTool = options.historyTool !== undefined;
+    this.appTools = options.appToolsBridge !== undefined;
     this.#workDir = `${options.home}/engines/grok`;
     this.accounts = new GrokAccounts({
       workDir: this.#workDir,
@@ -454,6 +462,9 @@ export class GrokAdapter implements AgentRuntimeAdapter {
         ...(this.#options.process !== undefined && { process: this.#options.process }),
         ...(this.#options.historyTool !== undefined && {
           mcpServers: [acpHistoryServer(this.#options.historyTool)],
+        }),
+        ...(this.#options.appToolsBridge !== undefined && {
+          appToolsBridge: this.#options.appToolsBridge,
         }),
       });
       this.#modes.set(mode, host);

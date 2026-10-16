@@ -412,6 +412,8 @@ export const messages: Messages = {
   'transcript.showEarlier':
     'Show {count, plural, one {# earlier message} other {# earlier messages}}',
   'transcript.fromParentAgent': 'Task from parent agent',
+  'transcript.fromSession': 'From “{title}”',
+  'transcript.reportFrom': 'Report from “{title}”',
   'transcript.steered': 'Steered',
 
   'time.seconds': '{n}s',
@@ -513,6 +515,9 @@ export const messages: Messages = {
   'approval.title.shellOutside': 'Allow running a command outside the sandbox?',
   'approval.title.outside': 'Allow access beyond the project?',
   'approval.title.generic': 'Allow this action?',
+  'approval.title.appCreate': 'Allow opening a new session?',
+  'approval.title.appSend': 'Allow messaging another session?',
+  'approval.title.appInterrupt': 'Allow stopping another session?',
   'approval.permission': 'Required permission: {permission}',
   'approval.permission.fullAccess': 'Full access',
   'approval.preview': 'Preview',

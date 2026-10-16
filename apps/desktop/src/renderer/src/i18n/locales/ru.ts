@@ -416,6 +416,8 @@ export const messages: Messages = {
   'transcript.jumpToLatest': 'К последним',
   'transcript.showEarlier': 'Показать предыдущие сообщения ({count})',
   'transcript.fromParentAgent': 'Задача от родительского агента',
+  'transcript.fromSession': 'От «{title}»',
+  'transcript.reportFrom': 'Отчёт от «{title}»',
   'transcript.steered': 'Вмешательство',
 
   'time.seconds': '{n} с',
@@ -528,6 +530,9 @@ export const messages: Messages = {
   'approval.title.shellOutside': 'Разрешить выполнение команды вне песочницы?',
   'approval.title.outside': 'Разрешить выход за пределы папки проекта?',
   'approval.title.generic': 'Разрешить это действие?',
+  'approval.title.appCreate': 'Разрешить открыть новый сеанс?',
+  'approval.title.appSend': 'Разрешить отправить сообщение другому сеансу?',
+  'approval.title.appInterrupt': 'Разрешить остановить другой сеанс?',
   'approval.permission': 'Требуемое разрешение: {permission}',
   'approval.permission.fullAccess': 'Полный доступ',
   'approval.preview': 'Предпросмотр',

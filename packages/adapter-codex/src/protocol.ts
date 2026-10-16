@@ -638,6 +638,29 @@ export interface ToolRequestUserInputResponse {
 export const REQUEST_USER_INPUT = 'item/tool/requestUserInput';
 
 /**
+ * v2/McpServerElicitationRequestParams.ts（0.30.0）：MCP 服务要用户确认。Codex 批准 MCP 工具调用也走它（`_meta` 的
+ * `codex_approval_kind` 是 `mcp_tool_call`，表单没有字段）。本包只读这些字段。
+ */
+export interface McpServerElicitationRequestParams {
+  threadId: string;
+  turnId?: string | null;
+  serverName: string;
+  mode?: string;
+  message?: string;
+  _meta?: unknown;
+}
+
+/** v2/McpServerElicitationRequestResponse.ts。 */
+export interface McpServerElicitationResponse {
+  action: 'accept' | 'decline' | 'cancel';
+  content?: unknown;
+}
+
+export const MCP_ELICITATION_REQUEST = 'mcpServer/elicitation/request';
+/** `_meta.codex_approval_kind`：批准 MCP 工具调用的请求（codex-rs protocol/src/mcp_approval_meta.rs）。 */
+export const MCP_TOOL_APPROVAL_KIND = 'mcp_tool_call';
+
+/**
  * 审批的回复：v2/CommandExecutionRequestApprovalResponse.ts 与 v2/FileChangeRequestApprovalResponse.ts 的
  * 字符串决定（v2/CommandExecutionApprovalDecision.ts、v2/FileChangeApprovalDecision.ts 的公共部分；带 execpolicy
  * 或网络策略修订的对象形式不用）。

@@ -1,4 +1,10 @@
-import { createServer, type IncomingMessage, type Server, STATUS_CODES } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+  STATUS_CODES,
+} from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import {
@@ -55,6 +61,10 @@ export interface HostRpcServerOptions {
   settings?: { watch(listener: (settings: HostSettings) => void): () => void };
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
   port?: number;
+  /**
+   * 普通 HTTP 请求（不是 WebSocket 升级）先交给它（0.30.0，应用级工具的 `/mcp`，app-mcp.ts）；返回 `false` 的照旧回 426。
+   */
+  httpHandler?: (req: IncomingMessage, res: ServerResponse) => boolean;
   /**
    * 带 `Origin` 头的升级请求只放行这些 origin（精确匹配）；不带 `Origin` 的（CLI、测试）一律放行。
    * 默认为空；`startHost` 传入桌面渲染进程的 `DESKTOP_RENDERER_ORIGINS`（host-api.md §1）。
@@ -153,7 +163,8 @@ export class HostRpcServer {
   async listen(): Promise<string> {
     if (this.#http) throw new Error('已经在监听');
     const http = createServer();
-    http.on('request', (_req, res) => {
+    http.on('request', (req, res) => {
+      if (this.#options.httpHandler?.(req, res) === true) return;
       res.writeHead(426, { Connection: 'close', 'Content-Type': 'text/plain' });
       res.end(STATUS_CODES[426]);
     });

@@ -14,7 +14,7 @@
 - JSON-RPC 2.0 over WebSocket，文本帧，一帧一个 JSON-RPC 对象（ADR-0002 §1）。**v0 不支持批量**：收到 JSON 数组时 Host 回一个 `INVALID_REQUEST`（`id: null`）；二进制帧同样回 `INVALID_REQUEST`（`id: null`）。
 - 参数一律按名称传（对象）；方法没有参数时传 `{}`，省略 `params` 等同于 `{}`。请求 `id` 用字符串或整数，不用 `null`。
 - 客户端只发请求；Host 只发响应和通知（v0 只有 `events.event`）。同一连接上可以连发多个请求，响应顺序不保证与请求一致，按 `id` 对应；同一会话的命令在 Host 内串行执行（ADR-0002 §4）。
-- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行下表的白名单，精确匹配），不通过直接 403，不会走到 JSON-RPC 层。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426。
+- 端点 URL 与令牌从 `<数据目录>/run/host.json` 读取，客户端不自己拼地址、不回退到默认端口。WebSocket 升级时 Host 校验 `Host` 头（只允许 `127.0.0.1:<port>` 与 `localhost:<port>`，缺失也拒绝）与 `Origin`（不带 Origin 的放行，带 Origin 的只放行下表的白名单，精确匹配），不通过直接 403，不会走到 JSON-RPC 层。Host 优雅退出期间的升级请求回 503，不是升级的 HTTP 请求回 426。例外是 `POST /mcp`：应用级工具的 MCP 端点（0.30.0，domain-model §3.15），给 Host 自己挂到引擎会话上的 agent 用，不是客户端的接口。它按 MCP 的 Streamable HTTP 只回 JSON（不开 SSE、不记 MCP 会话），要 `Authorization: Bearer <这个会话的令牌>`（每个 Wevir 会话一个，只在内存里、Host 重启后作废，与 `run/host.json` 的令牌无关）；带 `Origin` 头、`Host` 头不是本机地址的回 403，没有或不认识的令牌回 401，不是 POST 的回 405，Host 退出期间回 503。
 - Origin 白名单只有桌面渲染进程（T5.1，代码 `DESKTOP_RENDERER_ORIGINS`）。浏览器与渲染进程的 WebSocket 升级一定带 Origin 头；CLI 与测试用的 Node 客户端不带，不受白名单影响。白名单只是纵深防御，挡的是本机浏览器里任意网页发起的连接；鉴权仍靠 hello 里的令牌（§2）。
 
 <!-- registry:origins -->
@@ -308,6 +308,7 @@ Host → 客户端的通知：
 | `pending.added` | host |
 | `pending.updated` | host |
 | `user.steered` | host |
+| `ui.show` | host |
 
 `engine.raw` 不按能力位门控，所有订阅者都收到（门控意味着扣下事件，会打断 `seq` 的连续性，§4 第 4 条）；客户端默认不投影它，开发者模式下作为调试信息显示。它的 `params` 按 §11 截断。
 
@@ -414,6 +415,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 `0.29.0`：上下文用量的自动压缩线。`usage.updated` 与快照的 `usage` 加 optional 的 `autoCompactAt`：已用量（`contextUsed`）到这个数时引擎自己压缩上下文。Codex 引擎经网关的模型报上下文窗口的九成（Provider 模型没填 `contextWindow` 时按 128k，codex-event-mapping.md §3），ChatGPT 登录的模型与其他引擎不报。optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧 schema 忽略这个字段。新客户端连旧 Host：收不到它，桌面端的用量表不画自动压缩的线。冻结样本 `compat/0.29.0.json`。
 
+`0.30.0`：应用级工具（domain-model §3.15）。新事件 `ui.show`（新类型 `UiShowTarget`）；`user.message`、`user.steered` 与 `PendingMessage` 加 optional 的 `from`（新类型 `MessageFrom`：别的会话发来的消息或回报）；`Session` 与 `session.created` 加 optional 的 `openedBy`（新类型 `SessionOpenedBy`）；`EngineFeatures` 加 optional 的 `appTools`；Host 功能 `app_tools`；Host 的 HTTP 服务多了 `POST /mcp`（§1）。agent 开出的会话不改 `origin`：它的 `kind` 是字面量 `suggested_task`，旧客户端解析不了新的值，所以另加 `openedBy`。新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端忽略 `ui.show`（规则 5）与新字段，别的会话发来的消息与回报在它那里是普通的用户消息（回报的正文是给模型看的英文说明）。新客户端连旧 Host：hello 结果里没有 `app_tools`，收不到这些事件与字段，不需要降级。冻结样本 `compat/0.30.0.json`。
+
 依据 Paseo 的兼容纪律（Paseo 研读 §2.3、§2.4；ADR-0002 §2）。目标：半年前的客户端能连新 Host，半年前的 Host 能服务新客户端（同一主版本内）。改 `packages/protocol` 的提交要在说明里回答这两个问题。
 
 **版本**
@@ -474,6 +477,7 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 | `session_review` | 0.24.0 | `session.review`（Codex、echo 引擎；同上） |
 | `session_handoff` | 0.25.0 | 接力：`session.configure` 的 `providerId`、`session.handoff` 事件、`Session.engines` 与 `host.hello` 的 `engineFeatures`（与引擎无关） |
 | `user_images` | 0.28.0 | `image.upload`、`image.read` 与消息里的图片（引擎有 `acceptsImages` 时：Codex、Claude、Cursor、OpenCode、Grok、Antigravity、echo；dsh 没有） |
+| `app_tools` | 0.30.0 | 应用级工具（domain-model §3.15）：引擎会话挂上 Host 的 `wevir` MCP 服务；`ui.show` 事件、`user.message` 与待发消息的 `from`、`Session.openedBy`（Codex、Claude、Cursor、Grok、Antigravity、dsh 引擎；OpenCode 与 echo 没有，`engineFeatures` 的 `appTools` 按 Provider 说） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 
 **`COMPAT` 标签**

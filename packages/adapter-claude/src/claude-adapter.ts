@@ -18,7 +18,10 @@ import {
   type AgentEvent,
   type AgentInput,
   type AgentRuntimeAdapter,
+  APP_TOOLS_NO_APPROVAL,
+  APP_TOOLS_SERVER,
   type ApprovalDecision,
+  type AppToolsEndpoint,
   type CancelOptions,
   type EngineSession,
   EventHub,
@@ -282,6 +285,32 @@ interface ChildSession extends Owner {
 
 type Session = RootSession | ChildSession;
 
+/**
+ * 会话的 MCP 服务：读历史的工具（stdio，0.25.0）与应用级工具（HTTP，0.30.0）。`allowedTools` 里是不用批准的工具，其余的 MCP
+ * 工具经 `canUseTool` 问用户（完全访问时直接放行）。
+ */
+function mcpOptions(
+  historyTool: HistoryToolServer | undefined,
+  appTools: AppToolsEndpoint | undefined,
+): Pick<Options, 'mcpServers' | 'allowedTools'> {
+  const mcpServers: NonNullable<Options['mcpServers']> = {};
+  const allowedTools: string[] = [];
+  if (historyTool !== undefined) {
+    mcpServers[HISTORY_TOOL_SERVER] = { type: 'stdio', ...historyToolCommand(historyTool) };
+    allowedTools.push(`mcp__${HISTORY_TOOL_SERVER}__${HISTORY_TOOL_NAME}`);
+  }
+  if (appTools !== undefined) {
+    mcpServers[APP_TOOLS_SERVER] = {
+      type: 'http',
+      url: appTools.url,
+      headers: { Authorization: `Bearer ${appTools.token}` },
+    };
+    for (const name of APP_TOOLS_NO_APPROVAL)
+      allowedTools.push(`mcp__${APP_TOOLS_SERVER}__${name}`);
+  }
+  return allowedTools.length === 0 ? {} : { mcpServers, allowedTools };
+}
+
 function textOf(input: AgentInput): string {
   return input.content
     .flatMap((part) => (part.type === 'text' && part.text !== '' ? [part.text] : []))
@@ -391,6 +420,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   readonly additionalRoots = true;
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时挂上。 */
   readonly historyTool: boolean;
+  /**
+   * 应用级工具（0.30.0，claude-event-mapping.md §5.4）：`SessionConfig.appTools` 作为 HTTP 的 MCP 服务挂上；只读的工具放进
+   * `allowedTools`，其余经 `canUseTool` 走审批。
+   */
+  readonly appTools = true;
 
   /** 图片（0.28.0）：Claude 的模型都收（model-catalog 里 `supportsImages` 恒为 true）。 */
   acceptsImages(): boolean {
@@ -961,12 +995,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       permissionMode: desired.mode,
       ...(desired.dangerous && { allowDangerouslySkipPermissions: true }),
       canUseTool: this.#canUseTool(session),
-      ...(this.#historyTool !== undefined && {
-        mcpServers: {
-          [HISTORY_TOOL_SERVER]: { type: 'stdio', ...historyToolCommand(this.#historyTool) },
-        },
-        allowedTools: [`mcp__${HISTORY_TOOL_SERVER}__${HISTORY_TOOL_NAME}`],
-      }),
+      ...mcpOptions(this.#historyTool, session.config.appTools),
       includePartialMessages: true,
       forwardSubagentText: true,
       // T3：要思考的摘要（新模型默认不显示思考内容）。

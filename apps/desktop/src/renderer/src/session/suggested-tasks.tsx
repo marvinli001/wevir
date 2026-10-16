@@ -196,7 +196,7 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
 }
 
 /** 列表里的全部会话，按 ID。 */
-function useSessions(): ReadonlyMap<SessionId, Session> {
+export function useSessions(): ReadonlyMap<SessionId, Session> {
   const data = useWorkbenchData();
   const map = new Map<SessionId, Session>();
   if (data.status === 'ready') {

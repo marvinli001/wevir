@@ -91,11 +91,13 @@ const VIEWS: Record<PaneKind, PaneView> = {
   },
   plan: { icon: ListChecks, name: 'pane.kind.plan', render: placeholder('plan') },
   terminal: { icon: SquareTerminal, name: 'pane.kind.terminal', render: placeholder('terminal') },
-  // 支线会话（U23.1）：参数是支线会话 ID 与问题的开头。
+  // 支线会话（U23.1）：参数是支线会话 ID 与问题的开头；agent 请界面显示的会话（0.30.0，`wevir_show`）带它的标题 `label`。
   session: {
     icon: MessagesSquare,
     name: 'pane.kind.session',
-    title: (tab) => (tab.params?.title ? t('side.tab', { title: tab.params.title }) : undefined),
+    title: (tab) =>
+      tab.params?.label ??
+      (tab.params?.title ? t('side.tab', { title: tab.params.title }) : undefined),
     render: (tab) => <SessionPane key={tab.params?.sessionId} tab={tab} />,
   },
 };

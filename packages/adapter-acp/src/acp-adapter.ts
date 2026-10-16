@@ -24,6 +24,11 @@ import {
   type TurnSettledEvent,
   type UserQuestion,
 } from '@wevir/runtime-adapter';
+import {
+  type AppToolsBridge,
+  acpAppToolsServer,
+  writeAppToolsBridgeScript,
+} from '@wevir/runtime-adapter/app-tools-bridge';
 import { isAcpSessionNotification, sessionConfigInfo } from './acp-mapping.js';
 import { type AcpExit, type AcpProcess, settledWithin } from './acp-process.js';
 import type { AcpEngine, IncrementalEvent } from './engine.js';
@@ -60,6 +65,11 @@ export interface AcpAdapterOptions<P extends AcpProcess> {
    * 交给每个 `session/new` 与 `session/resume` 的本机 MCP 服务（0.25.0：读历史的工具，Grok 用）。默认没有（dsh、Antigravity）。
    */
   mcpServers?: readonly McpServer[];
+  /**
+   * 应用级工具的 stdio 桥（0.30.0，`@wevir/runtime-adapter/app-tools-bridge`）：给了时适配器声明 `appTools`，带
+   * `SessionConfig.appTools` 的会话在 `session/new` 与 `session/resume` 的 `mcpServers` 里多一项 `wevir`。
+   */
+  appToolsBridge?: AppToolsBridge;
 }
 
 export interface AcpProcessHooks {
@@ -156,6 +166,10 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
   readonly #warnOnce: WarnOnce;
   readonly #cancelTimeoutMs: number;
   readonly #mcpServers: McpServer[];
+  readonly #appToolsBridge: AppToolsBridge | undefined;
+  #bridgeWritten = false;
+  /** 应用级工具（0.30.0）：有桥时才有。 */
+  readonly appTools?: boolean;
   #nextRequestId = 0;
   #nextQuestionId = 0;
   #disposed: Promise<void> | undefined;
@@ -175,6 +189,8 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     this.#warnOnce = warnOnceVia(this.#logger);
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
     this.#mcpServers = [...(options.mcpServers ?? [])];
+    this.#appToolsBridge = options.appToolsBridge;
+    if (options.appToolsBridge !== undefined) this.appTools = true;
     this.process = options.createProcess({
       onSessionUpdate: (params) => this.#onSessionUpdate(params),
       onRequestPermission: (params, signal) => this.#onRequestPermission(params, signal),
@@ -208,6 +224,17 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     return this.#sessions.size;
   }
 
+  /** 交给这个会话的 MCP 服务：固定的那些，加上它的应用级工具（0.30.0）。 */
+  #sessionMcpServers(config: SessionConfig): McpServer[] {
+    const bridge = this.#appToolsBridge;
+    if (bridge === undefined || config.appTools === undefined) return this.#mcpServers;
+    if (!this.#bridgeWritten) {
+      writeAppToolsBridgeScript(bridge);
+      this.#bridgeWritten = true;
+    }
+    return [...this.#mcpServers, acpAppToolsServer(bridge, config.appTools)];
+  }
+
   async createSession(config: SessionConfig): Promise<EngineSession> {
     this.assertUsable();
     if (!config.cwd) throw new AdapterError('invalid_input', 'cwd 不能为空');
@@ -219,7 +246,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         response = await this.#withAuth(() =>
           connection.agent.request(methods.agent.session.new, {
             cwd: config.cwd,
-            mcpServers: this.#mcpServers,
+            mcpServers: this.#sessionMcpServers(config),
           }),
         );
       } catch (error) {
@@ -273,7 +300,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           connection.agent.request(methods.agent.session.resume, {
             sessionId: engineSessionId,
             cwd: config.cwd,
-            mcpServers: this.#mcpServers,
+            mcpServers: this.#sessionMcpServers(config),
           }),
         ));
       } catch (error) {

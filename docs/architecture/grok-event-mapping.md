@@ -103,7 +103,9 @@ Grok 有时给 `Tool` 这样不说明问题的标题（T3 的 `isGenericAcpToolT
 - **每种权限模式一个进程**，不是每个会话一个（§1）；用户点停止后不杀进程组，已放到后台的命令继续跑。
 - **后台任务与唤醒回合**：模型可以把命令放到后台（`run_terminal_command` 的 `background: true`、`monitor`）。命令结束后 Grok 自己开一个回合（`task-completed-*`）回答；Wevir 的顶层会话没有引擎开的回合（Claude Agent 同，claude-event-mapping.md），这个回合的消息与工具更新在回合之外到达，保留为 `engine.raw` 并告警，界面上看不到。T3 推迟回合的结束、并把唤醒回合接成续写，Wevir 没做。用户下一条消息时 Grok 的上下文里有这些内容。
 - **子 agent**（`spawn_subagent`、`subagent_*` 通知）：只作为一次 `sub_agent` 工具调用显示，没有子会话（ACP 引擎的能力 `subagents: false`）。
-- **没做**：计划卡片、斜杠命令（`initialize` 的 `availableCommands`）、对话压缩、skills、MCP 服务器（`mcpServers` 恒为空）、用量与邮箱（§2.1）、图片输入（Wevir 的输入只有文本）、会话标题（Grok 的 `session_info_update` 保留为 `engine.raw`，标题由 Host 生成）、插话（ACP 不能往进行中的回合追加输入，Host 排队）。
+- **没做**：计划卡片、斜杠命令（`initialize` 的 `availableCommands`）、对话压缩、skills、用户自己的 MCP 服务器、用量与邮箱（§2.1）、图片输入（Wevir 的输入只有文本）、会话标题（Grok 的 `session_info_update` 保留为 `engine.raw`，标题由 Host 生成）、插话（ACP 不能往进行中的回合追加输入，Host 排队）。
+
+- **应用级工具**（0.30.0，domain-model §3.15）：会话带 `SessionConfig.appTools` 时，`session/new` 与 `session/resume` 的 `mcpServers` 里除了读历史的工具还有一项 stdio 的 `wevir`：Host 的 Node 跑 `<数据目录>/mcp/wevir-app-tools.mjs`（`@wevir/runtime-adapter/app-tools-bridge`），把每条 JSON-RPC 转给 Host 的 `/mcp`，地址与令牌在这一项的 `env` 里（T3 对 ACP 引擎也用 stdio 桥，HTTP 的服务 ACP 引擎常常接不上）。会话挪到别的权限模式的进程时照样带上。工具要不要批准由 Grok 自己定（`session/request_permission` 照常转成审批）。只用假 grok 验证了 `session/new` 的参数（`grok-adapter.test.ts`）与桥本身（`app-tools-bridge.test.ts`），本机没有 grok。
 
 ## 8. 验证
 

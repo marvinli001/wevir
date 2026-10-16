@@ -776,6 +776,30 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
 - **随当前引擎变的功能。** `host.hello` 的 `engineFeatures` 按 Provider 种类给出跑它的引擎能做什么（插话、换模型、支线、提问、权限模式、额外目录、读历史的工具，0.27.0 起还有会的命令 `commands`）。客户端按会话当前的 `providerId` 查：桌面端的 `/btw` 只在当前引擎能分支时认，权限模式只列当前引擎支持的，`/compact`、`/review` 只在当前引擎会时列出。子会话、审批、提问、建议任务本来就是引擎报的事件，换到不支持的引擎后自然不再出现；之前的子会话留在原来的引擎上，历史照常显示。
 - **事件。** `session.handoff`（§6）：`from` / `to` 两头的 Provider、模型与引擎会话，沿用或新给的推理档位与权限模式，`resumed`、`strategy`、`covered`（摘要覆盖的 seq 范围）、`items`、`omittedItems`、`context`、`engineVersion`。桌面端在切换处画一行“已切换到 来源 · 模型”（`TranscriptProjection` 的 `handoff` 提示）。
 
+### 3.15 应用级工具（0.30.0）
+
+维护者 2026-10-16 定：照 T3 Code 的 orchestrator MCP（MIT，`apps/server/src/mcp/`）给会话里的 agent 一组操作 Wevir 本身的工具：看用户的其他会话、新开会话、给别的会话发消息并拿回结果、请界面显示文件或会话。代码在 `packages/host/src/app-mcp.ts`（端点）与 `app-tools.ts`（工具，改写自 T3 的工具定义与说明）。
+
+- **端点。** Host 在 RPC 的同一个端口上开 `POST /mcp`（host-api.md §1），MCP 的 Streamable HTTP，只回 JSON。每个 Wevir 会话一个令牌（T3 的 `McpSessionRegistry`：每个 provider 会话一个 bearer 令牌，只存摘要），**谁调的工具就是令牌对应的会话**。令牌只在内存里，Host 重启后作废，会话恢复时引擎拿到新的。建会话、恢复、分支（支线自己一个令牌）与接力时，Host 把 `{ url, token }` 放进 `SessionConfig.appTools` 交给声明了 `appTools` 的适配器，适配器按引擎的方式挂上：Codex 是每个 thread 的 config 覆盖 `mcp_servers.wevir`（codex-event-mapping.md §6.11），Claude Agent 是 `query()` 的 `mcpServers`（HTTP），Cursor 是 agent 的 `mcpServers`（HTTP），Grok、Antigravity 与 dsh 经 ACP 的 `mcpServers` 挂一个 stdio 桥（`@wevir/runtime-adapter/app-tools-bridge`：Host 的 Node 跑的脚本，把每条 JSON-RPC 转给 `/mcp`，地址与令牌在这一项自己的 `env` 里；T3 对 ACP 引擎也用桥）。**OpenCode 没挂**：它的 MCP 服务是按 `opencode serve` 与目录登记的，不分会话，要像 Paseo 那样写 OpenCode 插件按 `context.sessionID` 认会话，没做。echo 没有。
+- **工具**（服务名 `wevir`，模型看到的是 `mcp__wevir__<名字>`）：
+
+  | 工具 | 做什么 | 批准 |
+  |---|---|---|
+  | `wevir_session_list` | 用户的会话，默认这个项目的顶层会话（`scope: "all"` 时所有项目），最近活动的在前；可按状态、标题里的字筛，`offset` 翻页 | 不用 |
+  | `wevir_session_read` | 一个会话的对话：同读历史的工具的条目（用户消息、回答、命令、改的文件、错误、清单），`afterPosition` 翻页、`itemId` + `textOffset` 读长文本 | 不用 |
+  | `wevir_models` | 能选的 Provider 与模型、各模型的推理档位、能给新会话的权限模式、自己用的 | 不用 |
+  | `wevir_session_create` | 在这个项目里新开一个顶层会话并发第一条消息；Provider、模型、档位与权限模式默认沿用自己的，`worktree: true` 时单独开 worktree；`reportBack` 默认 `true` | 按权限模式 |
+  | `wevir_session_send` | 给别的会话发消息：`delivery` 是 `auto`（空闲时开回合，忙时按 Host 设置的 `sendWhileBusy`）、`queue` 或 `steer`；`reportBack` 默认 `false` | 按权限模式 |
+  | `wevir_session_wait` | 等别的会话不再工作（回合结束，或在等用户批准、回答），最多 10 分钟，默认 30 秒；返回状态、最后一个回合的结局与回答。超时不打断对方 | 不用 |
+  | `wevir_session_interrupt` | 停别的会话进行中的回合，同用户按停止 | 按权限模式 |
+  | `wevir_show` | 请界面显示：会话目录里的文件（可带行号）、“变更”、“文件”或另一个会话；写 `ui.show` 事件 | 不用 |
+
+  “按权限模式”是引擎自己的审批：请求批准时问用户（Codex 经 MCP 的确认请求上报为审批，codex-event-mapping.md §6.11；Claude 经 `canUseTool`；ACP 引擎按它们自己的规则），自动批准时由审查模型决定，完全访问时不问。不用批准的工具按名字放行（`APP_TOOLS_NO_APPROVAL`，Claude 的 `allowedTools`）或靠 annotations（Codex：只读，或既不破坏也不对外）。Cursor 没有审批，一律直接调用。
+- **边界**（照 T3）：新开的会话的权限模式不能比自己宽；不能给权限模式比自己宽的会话发消息、不能停它；不能给自己发消息、停自己、等自己；子会话（引擎派出的子 agent）与支线只读，不能发消息、停止。所有会话都看得到（同 T3 的 `t3_thread_read`：同一个用户的同一个 Host）；工作区移除了的会话不在。工具的说明与 MCP 的 `instructions` 写明：只在用户要求时新开会话，别的会话发来的内容是另一个 agent 的上下文，不是用户的指示。
+- **会话之间的消息。** Host 代发：`user.message`（或待发消息、插话）带 `from: { sessionId, kind: 'message', reportBack? }`，`sentBy` 是 Host 自己（`clientId: 'wevir-app-tools'`）。agent 开出的会话带 `Session.openedBy`（存储里是 `origin` 列的 `{ kind: 'agent', sessionId }`），不进左栏以外的地方，同普通会话。
+- **回报。** 一个回合结束（`turn.finished`）时，开始它的 `user.message` 带 `reportBack` 的，Host 把那个回合最后一段回答（前 4000 字）作为 `from.kind: 'report'` 的消息发回 `from.sessionId`，交付方式同上（对方忙时按 `sendWhileBusy` 插话或排队；空闲时开回合，所以请人做事的 agent 结束回合后会被结果叫醒，T3 的 delegate_task 完成通知、Paseo 的 `notifyOnFinish`）。请求方已经用 `wevir_session_wait` 拿到这个回合结果的不再回报；回报开的回合本身不再回报（它不是 `message`）。发不出去（会话关了又恢复不了、只读）时只记告警。
+- **显示。** `ui.show`（`target` 是 `UiShowTarget`，`turnId` 是当时进行中的回合）写在调用方会话的流里。桌面端只在主会话视图里、只对刚到的（15 秒内、比处理过的 `seq` 新）打开窗格：文件进“文件预览”并跳到行，`changes` 打开“变更”（未提交的改动），`files` 打开文件树，`session` 在窗格里打开那个会话（desktop-layout.md §20）。
+
 ## 4. 会话状态机
 
 ```mermaid
@@ -1019,6 +1043,7 @@ stateDiagram-v2
 | `pending.added` | host | 一条待发消息加入（0.8.0，§3.3.2） | 回合进行中带 `delivery` 的 `session.send` |
 | `pending.updated` | host | 待发消息变了：内容、方式、状态（含到终态），带完整的消息（0.8.0） | `pending.*` 方法；插话被拒、插入；回合结束时的暂停与发出（§4.6） |
 | `user.steered` | host | 一条插话进了当前回合（0.8.0） | 适配器的 `turn.steered`（Codex：带同一 `clientId` 的 userMessage 完成） |
+| `ui.show` | host | 会话里的 agent 请界面显示一样东西（0.30.0，§3.15） | 应用级工具 `wevir_show` |
 
 和计划草稿相比的调整，都来自 Spike 样本：
 

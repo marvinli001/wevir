@@ -643,6 +643,18 @@ export type PendingStatus = z.infer<typeof PendingStatusSchema>;
 export const PendingFallbackReasonSchema = z.enum(['unsupported', 'rejected', 'turn_ended']);
 export type PendingFallbackReason = z.infer<typeof PendingFallbackReasonSchema>;
 
+/**
+ * 会话之间的消息（0.30.0，应用级工具，domain-model §3.15）：这条消息不是用户写的，是另一个会话里的 agent 用 `wevir_session_send`
+ * / `wevir_session_create` 发来的（`message`），或 Host 把一个会话回合的结果回报给请它做事的会话（`report`）。
+ */
+export const MessageFromSchema = z.object({
+  sessionId: SessionIdSchema,
+  kind: z.enum(['message', 'report']),
+  /** `message` 的发送方要回报：这条消息开始的回合结束后，Host 把结果作为 `report` 发回 `sessionId`。 */
+  reportBack: z.literal(true).optional(),
+});
+export type MessageFrom = z.infer<typeof MessageFromSchema>;
+
 export const PendingMessageSchema = z.object({
   id: PendingMessageIdSchema,
   content: z.array(UserContentPartSchema).min(1),
@@ -660,6 +672,8 @@ export const PendingMessageSchema = z.object({
   /** `session.send` 的幂等键，原样带到 `user.message` / `user.steered`。 */
   clientMessageId: z.string().optional(),
   sentBy: ClientIdentitySchema,
+  /** 别的会话发来的（0.30.0）：原样带到 `user.message` / `user.steered`。 */
+  from: MessageFromSchema.optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
   /** `inserted`：插进的回合；`sent`：它开始的回合。 */
@@ -726,6 +740,8 @@ export const EngineFeaturesSchema = z.object({
    * 起的 Host 总是给，引擎一个都不会时是空数组；更早的 Host 没有这一项，客户端只能看 Host 的功能。
    */
   commands: z.array(SessionCommandSchema).optional(),
+  /** 会话的引擎挂上了 Wevir 的应用级工具（0.30.0，`app_tools`）。 */
+  appTools: z.boolean().optional(),
 });
 export type EngineFeatures = z.infer<typeof EngineFeaturesSchema>;
 
@@ -846,6 +862,29 @@ export const SuggestedTaskSchema = z.object({
 });
 export type SuggestedTask = z.infer<typeof SuggestedTaskSchema>;
 
+/** 由另一个会话里的 agent 用 `wevir_session_create` 开出来的会话（0.30.0）。 */
+export const SessionOpenedBySchema = z.object({
+  /** 开出它的会话。 */
+  sessionId: SessionIdSchema,
+});
+export type SessionOpenedBy = z.infer<typeof SessionOpenedBySchema>;
+
+/**
+ * 请界面显示的东西（0.30.0，`ui.show`）：会话目录里的文件（`path` 相对会话目录，`line` 从 1 开始）、“变更”窗格、“文件”窗格、
+ * 另一个会话。
+ */
+export const UiShowTargetSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('file'),
+    path: z.string().min(1),
+    line: z.int().min(1).optional(),
+  }),
+  z.object({ kind: z.literal('changes') }),
+  z.object({ kind: z.literal('files') }),
+  z.object({ kind: z.literal('session'), sessionId: SessionIdSchema }),
+]);
+export type UiShowTarget = z.infer<typeof UiShowTargetSchema>;
+
 /** 会话是怎么来的（0.16.0）：现在只有“从一项建议开出来”。 */
 export const SessionOriginSchema = z.object({
   kind: z.literal('suggested_task'),
@@ -904,6 +943,8 @@ export const SessionSchema = z.object({
   ...SessionEnvironmentFields,
   /** 从一项建议开出来的会话（0.16.0）。 */
   origin: SessionOriginSchema.optional(),
+  /** 由另一个会话里的 agent 开出来的会话（0.30.0）。 */
+  openedBy: SessionOpenedBySchema.optional(),
   /** 支线会话（0.17.0，domain-model §3.12）。 */
   ...SessionSideFields,
   createdAt: IsoTimeSchema,

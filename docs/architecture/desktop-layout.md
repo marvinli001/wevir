@@ -754,3 +754,12 @@ interface StoredPanes {
 - **刷新**：窗格显示时读一次，之后窗口获得焦点、会话状态变了（回合结束）、点“刷新”时重读。
 - **消息里的文件链接**：助手消息里 Markdown 链接的地址是相对路径、绝对路径或 `file:` 时是文件链接（`a.ts:12`、`a.ts#L12` 带行号）。主会话与支线在 Host 有 `workspace_files` 时，点在会话目录里的文件打开“文件预览”并选中、滚到那一行，点目录打开文件树，点目录外的绝对路径在访达里显示。
 - **外部编辑器**（主进程 `main/editors.ts`，照 T3 的编辑器表）：VS Code、Cursor、Windsurf、Trae、Antigravity、Kiro、Zed、Sublime Text、WebStorm、IntelliJ IDEA、PyCharm、Xcode。macOS 找 `/Applications` 与 `~/Applications` 里的应用包，有自带的命令行就用它（能跳到行），没有就 `open -a`；其他平台在 PATH 里找命令（Windows 只认 `.exe`）。启动时不经 shell。
+
+## 20. 应用级工具：会话之间的消息与“显示”（0.30.0）
+
+维护者 2026-10-16 要 Claude Code 桌面端那样让 agent 操作 Wevir 本身（domain-model §3.15）。界面上只有三处：
+
+- **别的会话发来的消息**（`user.message.from.kind` 是 `message`）：照常是用户气泡，气泡下方一行说明文字色的小字“来自“〈会话标题〉””，点它打开那个会话（`session/message-view.tsx` 的 `FromSession`）。
+- **回报**（`from.kind` 是 `report`）：Host 给模型看的回报正文不显示成气泡，换成同建议任务回报（§17）的圆角小标签：回复图标加““〈会话标题〉”的回报”，悬停看全文，点它打开那个会话（`SessionReport`）。
+- **显示**（`ui.show`）：只在主会话视图里、只对刚到的（15 秒内、`seq` 比处理过的新）打开窗格（`session/ui-show.ts`）：文件进“文件预览”并选中那一行，`changes` 打开“变更”（未提交），`files` 打开文件树，`session` 在“会话”窗格里打开那个会话，标签是它的标题（参数 `label`）。翻看历史、晚到的客户端都不再打开。
+- **审批卡片**：新开会话、发消息、停止别的会话的审批标题是“允许开一个新会话？”“允许给其他会话发消息？”“允许停止其他会话？”（`approval-model.ts` 按工具名 `mcp__wevir__…`），其余同别的工具。

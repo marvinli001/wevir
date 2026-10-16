@@ -1,12 +1,14 @@
 import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
-import type { TurnCommand } from '@wevir/protocol';
+import type { MessageFrom, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ArrowLeftRight, CircleAlert, FoldVertical, Info, ScanSearch } from 'lucide-react';
+import { ArrowLeftRight, CircleAlert, FoldVertical, Info, Reply, ScanSearch } from 'lucide-react';
 import { memo } from 'react';
+import { Link } from 'react-router';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { t } from '@/i18n';
+import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
 import { CopyButton } from './copy-button';
 import { modelLabel } from './handoff-model';
@@ -14,7 +16,7 @@ import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { SubagentRow } from './subagent-marker';
-import { SuggestedTasksCard, TaskReportMarker } from './suggested-tasks';
+import { SuggestedTasksCard, TaskReportMarker, useSessions } from './suggested-tasks';
 import { groupWork } from './tool-model';
 import { WorkGroup } from './work-group';
 
@@ -23,6 +25,7 @@ import { WorkGroup } from './work-group';
 
 export function UserMessage({ message }: { message: UserChatMessage }) {
   if (message.command) return <CommandMessage command={message.command} />;
+  if (message.from?.kind === 'report') return <SessionReport message={message} />;
   const texts = message.parts.flatMap((part) => (part.type === 'text' ? [part.text] : []));
   const text = texts.join('\n');
   const images = message.parts.flatMap((part) => (part.type === 'image' ? [part.image] : []));
@@ -43,6 +46,7 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
           {t('transcript.fromParentAgent')}
         </span>
       )}
+      {message.from?.kind === 'message' && <FromSession from={message.from} />}
       {message.steered && (
         <span className="mt-1 text-xs text-muted-foreground" data-steered>
           {t('transcript.steered')}
@@ -53,6 +57,72 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
         <div className="mt-1 flex h-6 items-center opacity-0 transition-opacity duration-150 group-hover/user:opacity-100 focus-within:opacity-100">
           <CopyButton text={text} className="text-muted-foreground" />
         </div>
+      )}
+    </div>
+  );
+}
+
+/** 别的会话里的 agent 发来的消息（0.30.0）：气泡下方注明来自哪个会话，点它打开那个会话。 */
+function FromSession({ from }: { from: MessageFrom }) {
+  const sessions = useSessions();
+  const source = sessions.get(from.sessionId);
+  const label = t('transcript.fromSession', {
+    title: source?.title || t('session.untitled'),
+  });
+  return (
+    <span className="mt-1 text-xs text-muted-foreground" data-from-session={from.sessionId}>
+      {source ? (
+        <Link
+          to={paths.session(source.workspaceId, source.id)}
+          className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {label}
+        </Link>
+      ) : (
+        label
+      )}
+    </span>
+  );
+}
+
+/**
+ * 别的会话回报的结果（0.30.0）：Host 发给模型的回报正文不显示成用户气泡，同建议任务的回报标记一行“〈会话〉的回报”，悬停看
+ * 全文，点它打开那个会话。
+ */
+function SessionReport({ message }: { message: UserChatMessage }) {
+  const sessions = useSessions();
+  const sessionId = message.from?.sessionId;
+  const source = sessionId === undefined ? undefined : sessions.get(sessionId);
+  const text = message.parts
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join('\n');
+  const className =
+    'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground outline-none';
+  const content = (
+    <>
+      <Reply aria-hidden className="size-4 shrink-0" />
+      <span className="truncate">
+        {t('transcript.reportFrom', { title: source?.title || t('session.untitled') })}
+      </span>
+    </>
+  );
+  return (
+    <div className="my-2 flex" data-message-role="user" data-session-report={sessionId}>
+      {source ? (
+        <Link
+          to={paths.session(source.workspaceId, source.id)}
+          title={text}
+          className={cn(
+            className,
+            'hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+          )}
+        >
+          {content}
+        </Link>
+      ) : (
+        <span className={className} title={text}>
+          {content}
+        </span>
       )}
     </div>
   );

@@ -1,0 +1,83 @@
+// 会话里的 agent 请界面显示的东西（0.30.0，应用级工具的 `wevir_show`，desktop-layout.md §20）：会话视图看到新的 `ui.show` 时
+// 打开对应的窗格。只对打开会话之后新到的打开：订阅从头回放的历史里也有，按时刻跳过旧的。
+
+import type { Session, SessionId, UiShowTarget } from '@wevir/protocol';
+import { useEffect, useRef } from 'react';
+import { openChanges } from '@/changes/changes-store';
+import { openFile, openFiles } from '@/files/files-store';
+import type { PaneController } from '@/layout/pane-controller';
+
+/** 比这早的 `ui.show` 当作历史，不再打开。 */
+export const UI_SHOW_FRESH_MS = 15_000;
+
+/** 是否该打开：还没处理过的（`seq` 更大），而且是刚发生的。 */
+export function shouldShow(
+  show: { seq: number; ts: string },
+  handledSeq: number | undefined,
+  now: number,
+): boolean {
+  if (handledSeq !== undefined && show.seq <= handledSeq) return false;
+  return now - Date.parse(show.ts) <= UI_SHOW_FRESH_MS;
+}
+
+/** 打开 `target` 对应的窗格；`sessionTitle` 是要显示的会话的标题（窗格标签用）。 */
+export function showTarget(
+  panes: PaneController,
+  sessionId: SessionId,
+  target: UiShowTarget,
+  sessionTitle?: string,
+): void {
+  switch (target.kind) {
+    case 'file':
+      openFile(panes, target.path, target.line);
+      return;
+    case 'files':
+      openFiles(panes);
+      return;
+    case 'changes':
+      openChanges(panes, sessionId, { kind: 'uncommitted' });
+      return;
+    case 'session':
+      panes.open({
+        kind: 'session',
+        params: {
+          sessionId: target.sessionId,
+          ...(sessionTitle !== undefined && sessionTitle !== '' && { label: sessionTitle }),
+        },
+      });
+      return;
+  }
+}
+
+/**
+ * 会话视图用：`uiShow` 是投影里最近一次的 `ui.show`。换会话时重新开始计；`titleOf` 取要显示的会话的标题。
+ */
+export function useUiShow(
+  session: Session,
+  uiShow: { seq: number; ts: string; target: UiShowTarget } | undefined,
+  panes: PaneController | undefined,
+  titleOf: (sessionId: SessionId) => string | undefined,
+): void {
+  const handled = useRef<{ sessionId: SessionId; seq: number | undefined }>({
+    sessionId: session.id,
+    seq: undefined,
+  });
+  useEffect(() => {
+    if (handled.current.sessionId !== session.id) {
+      handled.current = { sessionId: session.id, seq: undefined };
+    }
+    if (!panes || uiShow === undefined) return;
+    if (!shouldShow(uiShow, handled.current.seq, Date.now())) {
+      handled.current.seq = Math.max(handled.current.seq ?? 0, uiShow.seq);
+      return;
+    }
+    handled.current.seq = uiShow.seq;
+    const { target } = uiShow;
+    showTarget(
+      panes,
+      session.id,
+      target,
+      target.kind === 'session' ? titleOf(target.sessionId) : undefined,
+    );
+  }, [session.id, uiShow, panes, titleOf]);
+}

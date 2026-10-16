@@ -406,6 +406,8 @@ export const messages: Messages = {
   'transcript.jumpToLatest': '回到底部',
   'transcript.showEarlier': '顯示較早的 {count} 則訊息',
   'transcript.fromParentAgent': '來自上層代理的工作',
+  'transcript.fromSession': '來自「{title}」',
+  'transcript.reportFrom': '「{title}」的回報',
   'transcript.steered': '插話',
 
   'time.seconds': '{n} 秒',
@@ -507,6 +509,9 @@ export const messages: Messages = {
   'approval.title.shellOutside': '允許在沙箱外執行指令？',
   'approval.title.outside': '允許超出專案目錄限制？',
   'approval.title.generic': '允許執行此操作？',
+  'approval.title.appCreate': '允許開一個新工作階段？',
+  'approval.title.appSend': '允許傳訊息給其他工作階段？',
+  'approval.title.appInterrupt': '允許停止其他工作階段？',
   'approval.permission': '所需權限：{permission}',
   'approval.permission.fullAccess': '完整存取',
   'approval.preview': '內容預覽',

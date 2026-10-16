@@ -405,6 +405,7 @@ export const pendingSteer: PendingMessage = {
   status: 'waiting',
   clientMessageId: 'msg-3',
   sentBy: identity,
+  from: { sessionId: ids.childSession, kind: 'message', reportBack: true },
   createdAt: TS,
   updatedAt: TS,
 };
@@ -481,6 +482,7 @@ export const eventPayloads: PayloadSamples = {
           branch: 'wevir/jkmnpqr0',
         },
       ],
+      openedBy: { sessionId: ids.childSession },
     },
     invalid: { workspaceId: ids.workspace, cwd: '/x', providerId: 'DeepSeek', modelId: 'm' },
   },
@@ -541,6 +543,7 @@ export const eventPayloads: PayloadSamples = {
       content: [{ type: 'text', text: '帮我整理本周周报' }, imagePart],
       sentBy: identity,
       pendingId: ids.pending2,
+      from: { sessionId: ids.childSession, kind: 'report' },
     },
     invalid: { turnId: ids.turn, content: [], sentBy: identity },
   },
@@ -723,8 +726,13 @@ export const eventPayloads: PayloadSamples = {
       clientMessageId: 'msg-3',
       content: [{ type: 'text', text: '顺便把测试也跑一下' }],
       sentBy: identity,
+      from: { sessionId: ids.childSession, kind: 'message' },
     },
     invalid: { turnId: ids.turn, content: [{ type: 'text', text: 'x' }], sentBy: identity },
+  },
+  'ui.show': {
+    valid: { target: { kind: 'file', path: 'docs/report.md', line: 12 }, turnId: ids.turn },
+    invalid: { target: { kind: 'file', path: 'docs/report.md', line: 0 } },
   },
 };
 
@@ -1474,9 +1482,11 @@ export const methodSamples: MethodSamples = {
         { sessions: [session] },
         { sessions: [childSession] },
         { sessions: [{ ...session, state: 'closed', archivedAt: TS2 }] },
+        { sessions: [{ ...session, openedBy: { sessionId: ids.childSession } }] },
       ],
       invalid: [
         { sessions: [{ ...session, lastSeq: -1 }] },
+        { sessions: [{ ...session, openedBy: { sessionId: ids.workspace } }] },
         { sessions: [{ ...session, archivedAt: 'yesterday' }] },
       ],
     },

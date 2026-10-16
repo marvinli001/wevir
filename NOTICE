@@ -302,6 +302,11 @@ npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 �
          apps/server/src/orchestration-v2/ContextHandoffDelivery.ts
          packages/provider-core/src/server/handoffBudget.ts
          docs/internals/context-handoffs.md
+  packages/host/src/app-tools.ts、app-mcp.ts（做法）
+      <- apps/server/src/mcp/toolkits/orchestrator/tools.ts
+         apps/server/src/mcp/OrchestratorMcpService.ts
+         apps/server/src/mcp/McpSessionRegistry.ts
+         packages/provider-core/src/server/orchestrationInstructions.ts
 
 Claude Agent 引擎（packages/adapter-claude）移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），均由 Wevir
 改写，修改说明在各文件头：

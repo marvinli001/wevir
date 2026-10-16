@@ -461,3 +461,37 @@ describe('GrokAdapter：权限模式、模型与认证', () => {
     expect((await events.turn()).at(-1)).toMatchObject({ type: 'turn.settled' });
   });
 });
+
+describe('GrokAdapter：应用级工具（0.30.0）', () => {
+  it('给了桥时会话带 appTools 的 session/new 多一项 stdio 的 wevir，令牌只在它自己的 env 里', async () => {
+    const dir = temp.dir(`case-${++seq}`);
+    const log = join(dir, 'grok.log');
+    const bridge = { script: join(dir, 'mcp', 'wevir-app-tools.mjs'), node: '/usr/bin/node' };
+    const adapter = fakeGrokAdapter(join(dir, 'home'), fakeGrokEnv({ FAKE_GROK_LOG: log }), [], {
+      appToolsBridge: bridge,
+    });
+    adapters.push(adapter);
+    expect(adapter.appTools).toBe(true);
+    const appTools = { url: 'http://127.0.0.1:4100/mcp', token: 'session-token' };
+    await adapter.createSession({
+      cwd: temp.dir(`ws-${seq}`),
+      providerId: 'grok',
+      modelId: 'grok-4.7',
+      appTools,
+    });
+    const created = readLog(log).find((message) => message.method === 'session/new');
+    expect((created?.params as { mcpServers?: unknown[] } | undefined)?.mcpServers).toEqual([
+      {
+        name: 'wevir',
+        command: '/usr/bin/node',
+        args: [bridge.script],
+        env: [
+          { name: 'ELECTRON_RUN_AS_NODE', value: '1' },
+          { name: 'WEVIR_APP_TOOLS_URL', value: appTools.url },
+          { name: 'WEVIR_APP_TOOLS_TOKEN', value: appTools.token },
+        ],
+      },
+    ]);
+    expect(readFileSync(bridge.script, 'utf8')).toContain('WEVIR_APP_TOOLS_TOKEN');
+  });
+});

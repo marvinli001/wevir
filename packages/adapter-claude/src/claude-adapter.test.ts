@@ -831,3 +831,30 @@ describe('读历史的工具（0.25.0）', () => {
     expect(plainOptions?.mcpServers).toBeUndefined();
   });
 });
+
+describe('应用级工具（0.30.0）', () => {
+  it('会话带 appTools 时挂上 HTTP 的 wevir 服务，只读的工具放进 allowedTools；没有时不挂', async () => {
+    const { adapter, sdk } = harness();
+    expect(adapter.appTools).toBe(true);
+    const appTools = { url: 'http://127.0.0.1:4100/mcp', token: 'session-token' };
+    const { engineSessionId } = await adapter.createSession({ ...CONFIG, appTools });
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    const options = sessionQueries(sdk)[0]?.options;
+    expect(options?.mcpServers).toEqual({
+      wevir: {
+        type: 'http',
+        url: appTools.url,
+        headers: { Authorization: 'Bearer session-token' },
+      },
+    });
+    expect(options?.allowedTools).toEqual([
+      'mcp__wevir__wevir_session_list',
+      'mcp__wevir__wevir_session_read',
+      'mcp__wevir__wevir_session_wait',
+      'mcp__wevir__wevir_models',
+      'mcp__wevir__wevir_show',
+    ]);
+  });
+});

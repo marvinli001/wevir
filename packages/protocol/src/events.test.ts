@@ -80,6 +80,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.pending.status;
     case 'user.steered':
       return event.payload.pendingId;
+    case 'ui.show':
+      return event.payload.target.kind;
     default: {
       const unhandled: never = event;
       return unhandled;

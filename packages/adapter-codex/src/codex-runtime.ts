@@ -37,6 +37,8 @@ export class CodexRuntime implements AgentRuntimeAdapter {
   /** 环境会话的额外目录（0.15.0）。 */
   readonly additionalRoots = true;
   readonly suggestedTasks = true;
+  /** 应用级工具（0.30.0）：两个进程都按 thread 挂上。 */
+  readonly appTools = true;
   readonly googleVertex = true;
   /** 读历史的工具（0.25.0）：给了 `historyTool` 时两个进程都登记。 */
   readonly historyTool: boolean;

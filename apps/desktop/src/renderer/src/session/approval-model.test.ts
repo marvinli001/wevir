@@ -107,6 +107,17 @@ describe('审批标题按会话的边界', () => {
     expect(title(null, claude)).toBe('允许执行此操作？');
   });
 
+  it('应用级工具（0.30.0）按工具说做什么，别的 MCP 服务不算', () => {
+    const mcp = (toolName: string): ApprovalRequest['detail'] => ({
+      toolName,
+      display: { kind: 'unknown', summary: toolName },
+    });
+    expect(title(mcp('mcp__wevir__wevir_session_create'), codex)).toBe('允许开一个新会话？');
+    expect(title(mcp('mcp__wevir__wevir_session_send'), claude)).toBe('允许给其他会话发消息？');
+    expect(title(mcp('mcp__wevir__wevir_session_interrupt'), claude)).toBe('允许停止其他会话？');
+    expect(title(mcp('mcp__other__wevir_session_create'), claude)).toBe('允许执行此操作？');
+  });
+
   it('Claude Agent：路径出了目录时照实说', () => {
     expect(title(write('/repo-other/a.txt'), claude)).toBe('允许修改项目目录之外的文件？');
     expect(title(write('/repo/../etc/hosts'), claude)).toBe('允许修改项目目录之外的文件？');

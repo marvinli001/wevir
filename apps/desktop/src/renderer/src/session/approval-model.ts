@@ -174,11 +174,20 @@ export function decidedHere(
   );
 }
 
+/** Wevir 自己的应用级工具（0.30.0）里要批准的：按工具说清楚做什么。 */
+const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
+  wevir_session_create: 'approval.title.appCreate',
+  wevir_session_send: 'approval.title.appSend',
+  wevir_session_interrupt: 'approval.title.appInterrupt',
+};
+
 /**
  * 标题：改文件看路径在不在会话的目录里，路径不全时按引擎（沙箱引擎只为目录之外的文件问）；读文件、搜索只在路径出了目录时
  * 单说；命令按引擎，请求带着 `sandboxPermissions` 的也是越过沙箱。
  */
 function titleKey(detail: ApprovalDetail, scope: ApprovalScope | undefined): PlainMessageKey {
+  const appTool = APP_TOOL_TITLES[detail.toolName.replace(/^mcp__wevir__/, '')];
+  if (appTool !== undefined && detail.toolName.startsWith('mcp__wevir__')) return appTool;
   const { kind, paths } = detail.display;
   const outside =
     scope && paths?.length ? paths.some((path) => !within(path, scope.roots)) : undefined;

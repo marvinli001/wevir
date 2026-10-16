@@ -1079,3 +1079,25 @@ describe('消息里的图片（0.28.0）', () => {
     expect(userContentText([image])).toBe('');
   });
 });
+
+describe('应用级工具（0.30.0）', () => {
+  it('用户消息带 from；ui.show 记成最近一次', () => {
+    const { list, add } = events();
+    const from = { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQS' as const, kind: 'report' as const };
+    add('user.message', {
+      turnId: TURN,
+      content: [{ type: 'text', text: 'r' }],
+      sentBy: identity,
+      from,
+    });
+    add('turn.started', { turnId: TURN });
+    const first = add('ui.show', { target: { kind: 'files' }, turnId: TURN });
+    const last = add('ui.show', { target: { kind: 'file', path: 'a.md', line: 2 } });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const transcript = projection.snapshot();
+    expect(transcript.messages[0]).toMatchObject({ role: 'user', from });
+    expect(transcript.uiShow).toEqual({ seq: last.seq, ts: last.ts, target: last.payload.target });
+    expect(first.seq).toBeLessThan(last.seq);
+  });
+});

@@ -22,6 +22,7 @@ import {
   type PermissionMode,
   type SessionConfig,
 } from '@wevir/runtime-adapter';
+import type { AppToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import { AntigravityAccounts } from './accounts.js';
 import { ANTIGRAVITY_ENGINE, classifyAntigravityTurnError } from './engine.js';
 import { AntigravityInstallation, type AntigravityInstallationOptions } from './installation.js';
@@ -54,6 +55,8 @@ export interface AntigravityAdapterOptions {
   installation?: Partial<Omit<AntigravityInstallationOptions, 'directory'>>;
   initializeTimeoutMs?: number;
   cancelTimeoutMs?: number;
+  /** 应用级工具的 stdio 桥（0.30.0）：会话带 `appTools` 时经 ACP 挂上。 */
+  appToolsBridge?: AppToolsBridge;
 }
 
 interface SessionSettings {
@@ -123,6 +126,7 @@ export class AntigravityAdapter extends AcpAdapter {
       },
       logger,
       ...(options.cancelTimeoutMs !== undefined && { cancelTimeoutMs: options.cancelTimeoutMs }),
+      ...(options.appToolsBridge !== undefined && { appToolsBridge: options.appToolsBridge }),
     });
     this.installation = installation;
     this.#launcher = launcher as AntigravityLauncher;

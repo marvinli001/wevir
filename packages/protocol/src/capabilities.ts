@@ -123,6 +123,12 @@ export const HOST_FEATURES = {
    * dsh 没有）；会话所在的引擎或模型不收图片时 `session.send` 回 `INVALID_PARAMS`。
    */
   userImages: 'user_images',
+  /**
+   * 应用级工具（0.30.0，domain-model §3.15）：Host 给每个会话的引擎挂上 `wevir` MCP 服务，agent 能列出、读、新开会话，给别的
+   * 会话发消息、等它、停它，并请求界面显示文件、改动或会话（`ui.show` 事件）。会话之间的消息带 `user.message.from`，agent 开出
+   * 的会话带 `Session.openedBy`。取决于引擎：挂得上的引擎才有（`engineFeatures` 的 `appTools`）。
+   */
+  appTools: 'app_tools',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -150,6 +156,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_review: z.boolean().optional(),
   session_handoff: z.boolean().optional(),
   user_images: z.boolean().optional(),
+  app_tools: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

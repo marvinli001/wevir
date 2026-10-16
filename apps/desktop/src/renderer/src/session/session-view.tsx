@@ -52,9 +52,11 @@ import {
   usePermissionModes,
   useStartSession,
 } from './start-session';
+import { useSessions } from './suggested-tasks';
 import { TodoDock, TurnRecap } from './todo-card';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
+import { useUiShow } from './ui-show';
 import { useDraftCommands, useSessionCommands } from './use-composer-commands';
 
 /**
@@ -103,6 +105,10 @@ export function SessionView({
   useEffect(() => setNotice(undefined), [session.id]);
 
   const transcript = state?.transcript;
+  // 会话里的 agent 请界面显示的东西（0.30.0，`wevir_show`）：只在主会话里打开窗格。
+  const sessionsById = useSessions();
+  const titleOf = useCallback((id: SessionId) => sessionsById.get(id)?.title, [sessionsById]);
+  useUiShow(session, variant === 'main' ? transcript?.uiShow : undefined, panes, titleOf);
   const sessionState = transcript?.state ?? session.state;
   const readOnly = transcript?.readOnly ?? session.readOnly;
   const acceptImages = useAcceptsImages(session);

@@ -38,8 +38,11 @@ export interface SessionRecord {
   environmentId?: string;
   extraRoots?: string[];
   worktrees?: { workspaceId: string; path: string; branch: string }[];
-  /** 从一项建议开出来的会话（U23，0005_session_origin）：提出建议的会话与建议的 ID。建会话后不变。 */
-  origin?: { kind: string; sessionId: string; taskId: string };
+  /**
+   * 会话是怎么来的（U23，0005_session_origin）：`suggested_task` 是从一项建议开出来的（提出建议的会话与建议的 ID）；`agent`（0.30.0）
+   * 是另一个会话里的 agent 用应用级工具开出来的（`sessionId` 是那个会话，没有 `taskId`）。建会话后不变。
+   */
+  origin?: { kind: string; sessionId: string; taskId?: string };
   /** 支线会话（U23.1，0006_side_sessions）：从哪个会话、到它哪个完成的回合为止分出来。建会话后不变。 */
   forkedFrom?: { sessionId: string; turnId?: string };
   side?: true;

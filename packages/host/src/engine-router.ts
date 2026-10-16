@@ -46,6 +46,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly googleVertex?: boolean;
   readonly suggestedTasks?: boolean;
   readonly historyTool?: boolean;
+  readonly appTools?: boolean;
   readonly accounts?: EngineAccounts;
 
   // 可选方法：至少一个引擎有时才有，Host 据此声明功能；会话所在的引擎没有时报 `invalid_input`。
@@ -88,6 +89,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
       this.googleVertex = true;
     if (adapters.some((adapter) => adapter.suggestedTasks === true)) this.suggestedTasks = true;
     if (adapters.some((adapter) => adapter.historyTool === true)) this.historyTool = true;
+    if (adapters.some((adapter) => adapter.appTools === true)) this.appTools = true;
     const accounts = routes.flatMap((route) =>
       route.adapter.accounts === undefined ? [] : [route.adapter.accounts],
     );
@@ -308,6 +310,7 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
     ...(adapter.permissionModes !== undefined && { permissionModes: [...adapter.permissionModes] }),
     ...(adapter.additionalRoots === true && { additionalRoots: true }),
     ...(adapter.historyTool === true && { historyTool: true }),
+    ...(adapter.appTools === true && { appTools: true }),
     commands,
   };
 }

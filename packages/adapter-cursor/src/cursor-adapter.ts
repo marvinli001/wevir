@@ -25,7 +25,9 @@ import {
   type AgentEvent,
   type AgentInput,
   type AgentRuntimeAdapter,
+  APP_TOOLS_SERVER,
   type ApprovalDecision,
+  type AppToolsEndpoint,
   type EngineSession,
   EventHub,
   isAdapterError,
@@ -117,7 +119,10 @@ export const SETTING_SOURCES: readonly SettingSource[] = [
   'plugins',
 ];
 
-/** 会话的配置 → `Agent.create` / `Agent.resume` 的选项（T3 的 makeCursorAgentOptions，去掉了 T3 自己的 MCP 服务）。 */
+/**
+ * 会话的配置 → `Agent.create` / `Agent.resume` 的选项（T3 的 makeCursorAgentOptions；T3 自己的 MCP 服务换成 Wevir 的应用级工具，
+ * 0.30.0，cursor-event-mapping.md §7）。
+ */
 export function agentOptions(input: {
   apiKey: string;
   cwd: string;
@@ -125,6 +130,7 @@ export function agentOptions(input: {
   reasoningEffort?: string;
   permissionMode?: PermissionMode;
   catalog?: readonly SDKModel[];
+  appTools?: AppToolsEndpoint;
 }): AgentOptions {
   const policy = permissionPolicy(input.permissionMode);
   return {
@@ -139,6 +145,15 @@ export function agentOptions(input: {
       sandboxOptions: { enabled: policy.sandboxEnabled },
       enableAgentRetries: true,
     },
+    ...(input.appTools !== undefined && {
+      mcpServers: {
+        [APP_TOOLS_SERVER]: {
+          type: 'http',
+          url: input.appTools.url,
+          headers: { Authorization: `Bearer ${input.appTools.token}` },
+        },
+      },
+    }),
   };
 }
 
@@ -162,6 +177,8 @@ interface Session {
   readonly id: string;
   readonly cwd: string;
   settings: SessionSettings;
+  /** 应用级工具（0.30.0）：重新打开 agent 时照样挂上。 */
+  appTools: AppToolsEndpoint | undefined;
   /** 挂着的 agent；关闭、登出、dispose 之后是 undefined，要 `resumeSession`。 */
   agent: CursorAgentHandle | undefined;
   hub: EventHub<AgentEvent>;
@@ -175,6 +192,8 @@ interface Session {
 export class CursorAdapter implements AgentRuntimeAdapter {
   readonly accounts: CursorAccounts;
   readonly permissionModes = PERMISSION_MODES;
+  /** 应用级工具（0.30.0）：HTTP 的 MCP 服务交给 agent；Cursor 没有审批，工具直接调用。 */
+  readonly appTools = true;
 
   /** 图片（0.28.0）：经 SDK 的 `images` 交给 Cursor，模型由它挑。 */
   acceptsImages(): boolean {
@@ -211,6 +230,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       cwd: config.cwd,
       ...settings,
       catalog: await this.#catalog(apiKey, settings),
+      ...(config.appTools !== undefined && { appTools: config.appTools }),
     });
     let agent: CursorAgentHandle;
     try {
@@ -226,6 +246,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       id: agent.agentId,
       cwd: config.cwd,
       settings,
+      appTools: config.appTools,
       agent,
       hub: new EventHub(),
       turn: undefined,
@@ -248,6 +269,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       cwd: config.cwd,
       ...settings,
       catalog: await this.#catalog(apiKey, settings),
+      ...(config.appTools !== undefined && { appTools: config.appTools }),
     });
     let agent: CursorAgentHandle;
     try {
@@ -269,6 +291,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       id: engineSessionId,
       cwd: config.cwd,
       settings,
+      appTools: config.appTools,
       agent,
       hub: new EventHub(),
       turn: undefined,
@@ -599,6 +622,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
       cwd: session.cwd,
       ...session.settings,
       catalog: await this.#catalog(apiKey, session.settings),
+      ...(session.appTools !== undefined && { appTools: session.appTools }),
     });
     let reopened: CursorAgentHandle;
     try {

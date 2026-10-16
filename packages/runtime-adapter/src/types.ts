@@ -33,7 +33,36 @@ export interface SessionConfig {
    * `additionalRoots` 的适配器会收到。
    */
   additionalRoots?: string[];
+  /**
+   * 应用级工具（0.30.0，domain-model §3.15）：Host 里 `wevir` MCP 服务的地址与这个会话的令牌。只有声明了 `appTools` 的适配器
+   * 会收到；适配器按引擎的方式把它挂到这个引擎会话上（Streamable HTTP，带 `Authorization: Bearer <token>`）。令牌只认这一个
+   * Wevir 会话，Host 重启后作废，恢复会话时给新的。
+   */
+  appTools?: AppToolsEndpoint;
 }
+
+/** Host 里的 `wevir` MCP 服务（0.30.0）。 */
+export interface AppToolsEndpoint {
+  /** `http://127.0.0.1:<端口>/mcp`。 */
+  url: string;
+  /** 这个会话的令牌；不写进日志。 */
+  token: string;
+}
+
+/** 应用级工具的 MCP 服务名：模型看到的工具是 `mcp__wevir__wevir_session_list` 这样（Codex、Claude）。 */
+export const APP_TOOLS_SERVER = 'wevir';
+
+/**
+ * 不用批准的应用级工具（0.30.0）：只读的，加上只请界面显示的 `wevir_show`。其余（新开会话、给别的会话发消息、停别的会话）按
+ * 会话的权限模式走引擎自己的审批。引擎要按名字放行时用它（Claude 的 `allowedTools`）；Codex 看工具的 annotations。
+ */
+export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
+  'wevir_session_list',
+  'wevir_session_read',
+  'wevir_session_wait',
+  'wevir_models',
+  'wevir_show',
+]);
 
 /** `createSession` / `resumeSession` 的结果。 */
 export interface EngineSession {

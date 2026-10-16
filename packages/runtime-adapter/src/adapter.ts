@@ -175,6 +175,12 @@ export interface AgentRuntimeAdapter {
   readonly historyTool?: boolean;
 
   /**
+   * 引擎会话能挂上 Host 的应用级工具（0.30.0，`SessionConfig.appTools`）。有它 Host 才在建会话、恢复、分支与接力时给令牌，
+   * 并在 `engineFeatures` 里报 `appTools`。
+   */
+  readonly appTools?: boolean;
+
+  /**
    * 往会话的引擎上下文补一条说明，不开回合（0.16.0，U23：用户开出的任务会话回报结果，domain-model §3.11）。模型从下一次
    * 请求起看得到；回合进行中也可以调用。不实现时 Host 只写事件（Codex：`thread/inject_items`）。
    * 错误：`session_not_found`、`session_closed`（会话没挂着）、`disposed`。

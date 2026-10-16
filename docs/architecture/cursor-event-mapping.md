@@ -147,7 +147,8 @@ SDK 的错误类带自己的 `name`（打包后类名被压缩，但实例的 `n
 
 - Effect 改写成普通 TS，没有引入 `effect`；SDK 用动态 import 而不是 `createRequire`（T3 为了 Node SEA）。
 - 凭据存在 Wevir 的数据目录（§2），不进 Host 的 `secrets.json`；T3 存在自己的密钥库，并迁移旧版的文件。
-- 不接 T3 自己的 MCP 服务（`t3-code`）、skills 的 `$提及` 改写、图片附件、计划模式（`mode: 'plan'` 与 `createPlan` 的计划视图）、`/compress`、`readThreadSnapshot`、用量；子 agent 不建子线程。
+- T3 自己的 MCP 服务（`t3-code`）换成 Wevir 的应用级工具（0.30.0，domain-model §3.15）：会话带 `SessionConfig.appTools` 时 `Agent.create` / `Agent.resume` 的选项里有 `mcpServers.wevir`（`type: 'http'`、`url`、`Authorization` 头），重新打开 agent 时照样带上；Cursor 没有审批，工具直接调用。只验证了选项（`cursor-adapter.test.ts`），没有用真实账号跑。
+- 不接 skills 的 `$提及` 改写、图片附件、计划模式（`mode: 'plan'` 与 `createPlan` 的计划视图）、`/compress`、`readThreadSnapshot`、用量；子 agent 不建子线程。
 - 权限模式按 §3.2 映射到 Wevir 的三种；换权限模式时重新打开 agent（T3 的会话中不能换）。
 - 取消确认不了时 T3 记为 interrupted，Wevir 记为 cancelled。
 

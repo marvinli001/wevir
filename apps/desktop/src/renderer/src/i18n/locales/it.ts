@@ -419,6 +419,8 @@ export const messages: Messages = {
   'transcript.showEarlier':
     '{count, plural, one {Mostra # messaggio precedente} other {Mostra # messaggi precedenti}}',
   'transcript.fromParentAgent': 'Attività dall’agente principale',
+  'transcript.fromSession': 'Da «{title}»',
+  'transcript.reportFrom': 'Resoconto da «{title}»',
   'transcript.steered': 'Inserito',
 
   'time.seconds': '{n} s',
@@ -520,6 +522,9 @@ export const messages: Messages = {
   'approval.title.shellOutside': 'Consentire l’esecuzione del comando fuori dalla sandbox?',
   'approval.title.outside': 'Consentire di superare i limiti del progetto?',
   'approval.title.generic': 'Consentire questa operazione?',
+  'approval.title.appCreate': 'Consentire di aprire una nuova sessione?',
+  'approval.title.appSend': 'Consentire di inviare un messaggio a un’altra sessione?',
+  'approval.title.appInterrupt': 'Consentire di fermare un’altra sessione?',
   'approval.permission': 'Autorizzazione richiesta: {permission}',
   'approval.permission.fullAccess': 'Accesso completo',
   'approval.preview': 'Anteprima contenuto',

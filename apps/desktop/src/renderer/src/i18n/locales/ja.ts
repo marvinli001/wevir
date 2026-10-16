@@ -414,6 +414,8 @@ export const messages: Messages = {
   'transcript.jumpToLatest': '最下部へ',
   'transcript.showEarlier': '以前のメッセージ {count} 件を表示',
   'transcript.fromParentAgent': '親エージェントからのタスク',
+  'transcript.fromSession': '「{title}」から',
+  'transcript.reportFrom': '「{title}」からの報告',
   'transcript.steered': '割り込み',
 
   'time.seconds': '{n} 秒',
@@ -515,6 +517,9 @@ export const messages: Messages = {
   'approval.title.shellOutside': 'サンドボックス外でのコマンド実行を許可しますか？',
   'approval.title.outside': 'プロジェクトディレクトリの制限を越えることを許可しますか？',
   'approval.title.generic': 'この操作を許可しますか？',
+  'approval.title.appCreate': '新しいセッションを開くことを許可しますか？',
+  'approval.title.appSend': '別のセッションへのメッセージ送信を許可しますか？',
+  'approval.title.appInterrupt': '別のセッションの停止を許可しますか？',
   'approval.permission': '必要な権限: {permission}',
   'approval.permission.fullAccess': 'フルアクセス',
   'approval.preview': '内容のプレビュー',

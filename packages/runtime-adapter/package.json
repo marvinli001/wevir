@@ -22,6 +22,11 @@
       "types": "./dist/history-tool.d.ts",
       "default": "./dist/history-tool.js"
     },
+    "./app-tools-bridge": {
+      "@wevir/source": "./src/app-tools-bridge.ts",
+      "types": "./dist/app-tools-bridge.d.ts",
+      "default": "./dist/app-tools-bridge.js"
+    },
     "./contract": {
       "@wevir/source": "./src/contract.ts",
       "types": "./dist/contract.d.ts",

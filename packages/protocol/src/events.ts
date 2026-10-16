@@ -19,12 +19,14 @@ import {
   CompactionTriggerSchema,
   EngineErrorCategorySchema,
   HandoffStrategySchema,
+  MessageFromSchema,
   PendingMessageSchema,
   PermissionModeSchema,
   QuestionRequestSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
   SessionEnvironmentFields,
+  SessionOpenedBySchema,
   SessionReadOnlyReasonSchema,
   SessionSideFields,
   SessionStateSchema,
@@ -37,6 +39,7 @@ import {
   ToolOutputSchema,
   TurnCommandSchema,
   TurnOutcomeSchema,
+  UiShowTargetSchema,
   UserContentPartSchema,
 } from './entities.js';
 
@@ -79,6 +82,8 @@ export const EventPayloadSchemas = {
     ...SessionEnvironmentFields,
     /** 支线会话（0.17.0，domain-model §3.12）。 */
     ...SessionSideFields,
+    /** 由另一个会话里的 agent 开出来的（0.30.0）。 */
+    openedBy: SessionOpenedBySchema.optional(),
     /** 只有子会话有（0.6.0，domain-model §3.3.1）：父会话与派出它的工具调用。 */
     parent: z
       .object({
@@ -161,6 +166,8 @@ export const EventPayloadSchemas = {
     sentBy: ClientIdentitySchema,
     /** 这个回合由一条排队的待发消息开始（0.8.0，domain-model §4.6）。 */
     pendingId: PendingMessageIdSchema.optional(),
+    /** 别的会话发来的（0.30.0，应用级工具）。 */
+    from: MessageFromSchema.optional(),
   }),
   'turn.started': z.object({
     turnId: TurnIdSchema,
@@ -348,6 +355,16 @@ export const EventPayloadSchemas = {
     clientMessageId: z.string().optional(),
     content: z.array(UserContentPartSchema).min(1),
     sentBy: ClientIdentitySchema,
+    /** 别的会话发来的（0.30.0）。 */
+    from: MessageFromSchema.optional(),
+  }),
+  /**
+   * 会话里的 agent 请界面显示一样东西（0.30.0，`wevir_show`）：正在看这个会话的客户端打开对应的窗格；之后加入的客户端读历史时
+   * 不再打开。
+   */
+  'ui.show': z.object({
+    target: UiShowTargetSchema,
+    turnId: TurnIdSchema.optional(),
   }),
 } as const;
 
@@ -415,6 +432,7 @@ export const TaskReportedEventSchema = eventSchema('task.reported');
 export const PendingAddedEventSchema = eventSchema('pending.added');
 export const PendingUpdatedEventSchema = eventSchema('pending.updated');
 export const UserSteeredEventSchema = eventSchema('user.steered');
+export const UiShowEventSchema = eventSchema('ui.show');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -453,6 +471,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   PendingAddedEventSchema,
   PendingUpdatedEventSchema,
   UserSteeredEventSchema,
+  UiShowEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

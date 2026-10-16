@@ -1,5 +1,10 @@
 import { chmodSync, writeFileSync } from 'node:fs';
-import type { ProviderConfig, ProviderModelConfig } from '@wevir/runtime-adapter';
+import {
+  APP_TOOLS_SERVER,
+  type AppToolsEndpoint,
+  type ProviderConfig,
+  type ProviderModelConfig,
+} from '@wevir/runtime-adapter';
 import {
   HISTORY_TOOL_NAME,
   HISTORY_TOOL_SERVER,
@@ -371,6 +376,26 @@ export function threadConfig(
     ...(reasoningEffort !== undefined && {
       model_reasoning_effort: toCodexEffort(reasoningEffort),
     }),
+  };
+}
+
+/** 应用级工具一次调用的上限（秒）：`wevir_session_wait` 最长等 10 分钟，再留一点余量。 */
+export const APP_TOOLS_TOOL_TIMEOUT_SEC = 660;
+
+/**
+ * 应用级工具（0.30.0，codex-event-mapping.md §6.11）：`thread/start` / `thread/resume` / `thread/fork` 的 `config` 覆盖里的
+ * `mcp_servers.wevir`。Streamable HTTP，令牌放 `http_headers`（Codex 不接受行内的 `bearer_token`，环境变量又是整个进程共用）。
+ * 批准方式 `auto`：只读的工具（`readOnlyHint`）直接调，其余按会话的审批策略问用户（完全访问时不问）。
+ */
+export function appToolsConfig(endpoint: AppToolsEndpoint): Record<string, unknown> {
+  return {
+    [`mcp_servers.${APP_TOOLS_SERVER}`]: {
+      url: endpoint.url,
+      http_headers: { Authorization: `Bearer ${endpoint.token}` },
+      startup_timeout_sec: 10,
+      tool_timeout_sec: APP_TOOLS_TOOL_TIMEOUT_SEC,
+      default_tools_approval_mode: 'auto',
+    },
   };
 }
 

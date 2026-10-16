@@ -3,6 +3,7 @@ import { CodexRuntime, resolveCodexBinary, resolvePromptsDir } from '@wevir/adap
 import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
+import { type AppToolsBridge, appToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
 import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
 import { type HistoryToolServer, historyToolServer } from '@wevir/runtime-adapter/history-tool';
 import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
@@ -111,6 +112,8 @@ export interface AdapterContext {
   env?: NodeJS.ProcessEnv;
   /** 读历史的本机 MCP 服务（0.25.0，接力）；`createAdapter` 为 Codex 与订阅引擎写好脚本后填上。 */
   historyTool?: HistoryToolServer;
+  /** 应用级工具的 stdio 桥（0.30.0）：ACP 的引擎（Grok、Antigravity、dsh）经它连 Host 的 `/mcp`。 */
+  appToolsBridge?: AppToolsBridge;
 }
 
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex、dsh 或 echo）。 */
@@ -162,6 +165,7 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         entry: resolveDshEntry().entry,
         clientInfo: { name: 'wevir', version: HOST_VERSION },
         logger: context.logger,
+        appToolsBridge: appToolsBridge(homePath(context.home, 'mcpDir')),
       });
     case 'codex': {
       // 两个 codex-app-server 进程（网关进程与 ChatGPT 进程，ADR-0005 补记 10）都在第一次用到时才启动（Provider 只交给
@@ -181,7 +185,12 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         historyTool,
       });
       // 订阅来源各自的引擎（ADR-0005 补记 14）；没有时 Host 只有 Codex。
-      const subscriptions = subscriptionEngines({ ...context, historyTool });
+      // 应用级工具（0.30.0）：Codex、Claude、Cursor 直接连 HTTP，ACP 的引擎经 stdio 桥。
+      const subscriptions = subscriptionEngines({
+        ...context,
+        historyTool,
+        appToolsBridge: appToolsBridge(homePath(context.home, 'mcpDir')),
+      });
       if (subscriptions.length === 0) return codex;
       return new EngineRouter([
         { name: 'codex', adapter: codex, kinds: GATEWAY_KINDS },

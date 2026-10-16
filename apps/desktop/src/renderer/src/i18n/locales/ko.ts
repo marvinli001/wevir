@@ -408,6 +408,8 @@ export const messages: Messages = {
   'transcript.jumpToLatest': '맨 아래로',
   'transcript.showEarlier': '이전 메시지 {count}개 표시',
   'transcript.fromParentAgent': '상위 에이전트의 작업',
+  'transcript.fromSession': '“{title}”에서 보냄',
+  'transcript.reportFrom': '“{title}”의 보고',
   'transcript.steered': '끼어들기',
 
   'time.seconds': '{n}초',
@@ -509,6 +511,9 @@ export const messages: Messages = {
   'approval.title.shellOutside': '샌드박스 밖에서 명령 실행을 허용할까요?',
   'approval.title.outside': '프로젝트 디렉터리 제한을 벗어나도록 허용할까요?',
   'approval.title.generic': '이 작업을 허용할까요?',
+  'approval.title.appCreate': '새 세션을 열도록 허용할까요?',
+  'approval.title.appSend': '다른 세션에 메시지를 보내도록 허용할까요?',
+  'approval.title.appInterrupt': '다른 세션을 중지하도록 허용할까요?',
   'approval.permission': '필요한 권한: {permission}',
   'approval.permission.fullAccess': '전체 액세스',
   'approval.preview': '내용 미리 보기',

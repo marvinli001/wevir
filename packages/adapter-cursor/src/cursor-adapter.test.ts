@@ -58,6 +58,23 @@ async function until(events: AgentEvent[], type: AgentEvent['type']): Promise<Ag
 const text = (value: string) => ({ content: [{ type: 'text' as const, text: value }] });
 
 describe('CursorAdapter', () => {
+  it('应用级工具（0.30.0）：会话带 appTools 时选项里有 HTTP 的 wevir 服务', () => {
+    const options = agentOptions({
+      apiKey: 'k',
+      cwd: '/w',
+      modelId: 'auto',
+      appTools: { url: 'http://127.0.0.1:4100/mcp', token: 't' },
+    });
+    expect(options.mcpServers).toEqual({
+      wevir: {
+        type: 'http',
+        url: 'http://127.0.0.1:4100/mcp',
+        headers: { Authorization: 'Bearer t' },
+      },
+    });
+    expect(agentOptions({ apiKey: 'k', cwd: '/w', modelId: 'auto' }).mcpServers).toBeUndefined();
+  });
+
   it('权限模式 → 沙箱与 Auto-review；建 agent 的选项带 cwd、Key、全部设置层与重试', () => {
     expect(permissionPolicy(undefined)).toEqual({ autoReview: false, sandboxEnabled: true });
     expect(permissionPolicy('on_request')).toEqual({ autoReview: false, sandboxEnabled: true });

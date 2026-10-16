@@ -14,6 +14,8 @@ import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
+import { AppMcpServer } from './app-mcp.js';
+import { APP_TOOLS_INSTRUCTIONS, AppTools } from './app-tools.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
@@ -158,10 +160,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await images
       .sweep()
       .catch((error: unknown) => logger.warn('failed to sweep staged images', { error }));
+    // 应用级工具（0.30.0，app-mcp.ts / app-tools.ts）：MCP 端点开在 RPC 的同一个端口上，监听之后才发令牌；工具要用会话管理器
+    // 与 Host 设置，下面建好之后再接上。
+    let appMcp: AppMcpServer | undefined;
+    let appTools: AppTools | undefined;
     const manager = new SessionManager({
       storage,
       events: store,
       adapter,
+      appTools: { grant: (sessionId) => appMcp?.grant(sessionId) },
+      onTurnFinished: (info) => appTools?.onTurnFinished(info),
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
@@ -225,6 +233,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     });
     await settings.load();
 
+    if (adapter.appTools === true) {
+      appTools = new AppTools({
+        storage,
+        events: store,
+        sessions: manager,
+        hostId,
+        sendWhileBusy: () => settings.get().sendWhileBusy,
+        onWarning: (message, fields) => logger.warn(message, fields),
+      });
+      appMcp = new AppMcpServer({
+        tools: appTools.tools,
+        version: HOST_VERSION,
+        instructions: APP_TOOLS_INSTRUCTIONS,
+        onError: (error) => logger.error('app tools error', { error }),
+      });
+    }
+    const mcp = appMcp;
+
     const token = randomBytes(32).toString('base64url');
     logger.addSecret(token);
     let requestShutdown: (trigger: ShutdownTrigger) => void = () => {};
@@ -271,6 +297,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.compact !== undefined && { session_compact: true }),
         ...(adapter.review !== undefined && { session_review: true }),
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
+        ...(mcp !== undefined && { app_tools: true }),
       },
       engineFeatures,
       ...(accounts !== undefined && { accounts }),
@@ -279,10 +306,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
       allowedOrigins: DESKTOP_RENDERER_ORIGINS,
       onShutdownRequest: (client) => requestShutdown({ kind: 'rpc', client }),
+      ...(mcp !== undefined && { httpHandler: (req, res) => mcp.handle(req, res) }),
       onError: (error) => logger.error('rpc error', { error }),
     });
     rpc = server;
     const url = await server.listen();
+    mcp?.setPort(server.port);
     await runtimeFile.publish(url, token);
 
     let stopping: Promise<void> | undefined;
@@ -297,6 +326,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           budgetMs: options.shutdownBudgetMs ?? SHUTDOWN_BUDGET_MS,
           logger,
           rpc: server,
+          appMcp: mcp,
           sessions: manager,
           adapter,
           accounts,
@@ -342,6 +372,8 @@ interface ShutdownParts {
   budgetMs: number;
   logger: Logger;
   rpc: HostRpcServer;
+  /** 应用级工具的 MCP 端点（0.30.0）；引擎挂不上时没有。 */
+  appMcp: AppMcpServer | undefined;
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
@@ -373,6 +405,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
       return false;
     }
   };
+  // 应用级工具不再接新调用，进行中的等待（wevir_session_wait）随即返回。
+  parts.appMcp?.close();
   // 新连接回 503、新请求回 HOST_SHUTTING_DOWN，等在途请求结束；已连上的客户端继续收事件。
   await step('stop_accepting', () => parts.rpc.stopAccepting(), true);
   // 取消回合的事件经订阅推送出去，所以连接要留到后面再关。

@@ -84,6 +84,7 @@
 | 读令牌查 5 小时与每周用量 | 不读令牌，没有用量 |
 | 下载失败就从头来 | 断线后用 Range 接着下，卡住有超时，连不上时说明镜像与手填路径（§2） |
 | 运行体的租约与删除 | 没有删除运行体的方法，也就没有租约 |
+| T3 自己的 MCP 服务（Antigravity 不挂，`mcpServers` 恒为空） | 应用级工具（0.30.0，domain-model §3.15）：会话带 `SessionConfig.appTools` 时 `session/new` 与 `session/resume` 带一项 stdio 的 `wevir`（同 Grok 的桥，grok-event-mapping.md §7）；运行体对 MCP 的支持与审批没有用真实运行体核对 |
 | 附件（图片、音频、PDF、文本）、子 agent 批次、文本生成、slash 命令与 skills 列表 | 只有图片（0.28.0）：照通用 ACP 适配器发 `image` 内容块（引擎描述 `images: true`，`initialize` 报 `promptCapabilities.image: true`）；T3 的 Antigravity 不发 GIF，Wevir 不拦，运行体不收时回合失败。其余没有 |
 
 ## 8. 验证

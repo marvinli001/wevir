@@ -23,6 +23,7 @@ import type {
   EngineErrorCategory,
   EngineErrorInfo,
   IsoTime,
+  MessageFrom,
   PendingMessage,
   PendingMessageId,
   QuestionId,
@@ -42,6 +43,7 @@ import type {
   TurnCommand,
   TurnId,
   TurnOutcome,
+  UiShowTarget,
   Usage,
   UserContentPart,
   UserImagePart,
@@ -183,6 +185,8 @@ export interface UserChatMessage extends MessageBase {
   steered?: true;
   /** R11：来自一条待发消息（插话，或排队后作为这个回合发出的）。 */
   pendingId?: PendingMessageId;
+  /** 0.30.0：别的会话发来的消息或回报（应用级工具）。 */
+  from?: MessageFrom;
   ts: IsoTime;
 }
 
@@ -227,6 +231,11 @@ export interface Transcript {
   pendingQuestions: readonly QuestionRequest[];
   /** 0.16.0：Agent 建议的后续任务，按提出的先后；规则同 Host 快照的 `suggestedTasks`。 */
   suggestedTasks: readonly SuggestedTask[];
+  /**
+   * 0.30.0：最近一次 `ui.show`（会话里的 agent 请界面显示的东西）。客户端只对订阅之后新到的打开窗格，用 `seq` 与 `ts` 区分
+   * 历史里的。
+   */
+  uiShow: { seq: number; ts: IsoTime; target: UiShowTarget } | undefined;
   lastSeq: number;
 }
 
@@ -255,6 +264,7 @@ interface MutableMessage {
   clientMessageId?: string;
   steered?: true;
   pendingId?: PendingMessageId;
+  from?: MessageFrom;
   ts?: IsoTime;
   startedAt?: IsoTime;
   finished?: { outcome: TurnOutcome; durationMs: number };
@@ -311,6 +321,7 @@ export class TranscriptProjection {
   #parent: ParentRef | undefined;
   /** 建议的后续任务（0.16.0），按提出的先后。 */
   #tasks = new Map<TaskId, SuggestedTask>();
+  #uiShow: Transcript['uiShow'];
   /** 提出建议的工具调用 → 它的 `tasks` 部件所在的消息。 */
   #taskParts = new Map<string, MutableMessage>();
   #lastSeq = 0;
@@ -487,6 +498,9 @@ export class TranscriptProjection {
       case 'task.reported':
         this.#task(event);
         return;
+      case 'ui.show':
+        this.#uiShow = { seq: event.seq, ts: event.ts, target: event.payload.target };
+        return;
     }
   }
 
@@ -525,6 +539,7 @@ export class TranscriptProjection {
         (question) => question.status === 'pending',
       ),
       suggestedTasks: [...this.#tasks.values()],
+      uiShow: this.#uiShow,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -545,7 +560,7 @@ export class TranscriptProjection {
   }
 
   #userMessage(event: WevirEventOf<'user.message'>): void {
-    const { turnId, content, sentBy, clientMessageId, pendingId } = event.payload;
+    const { turnId, content, sentBy, clientMessageId, pendingId, from } = event.payload;
     const turn = this.#turn(turnId);
     if (turn.user) return;
     turn.user = this.#push({
@@ -558,6 +573,7 @@ export class TranscriptProjection {
       sentBy,
       clientMessageId,
       ...(pendingId !== undefined && { pendingId }),
+      ...(from !== undefined && { from }),
       ts: event.ts,
       snapshot: undefined,
     });
@@ -567,7 +583,7 @@ export class TranscriptProjection {
    * 插话进了回合（R11）：在当前位置加一条用户消息，这个回合之后的助手输出另起一条助手消息（`<turnId>:assistant:<seq>`）。
    */
   #steered(event: WevirEventOf<'user.steered'>): void {
-    const { turnId, pendingId, content, sentBy, clientMessageId } = event.payload;
+    const { turnId, pendingId, content, sentBy, clientMessageId, from } = event.payload;
     const turn = this.#turn(turnId);
     this.#push({
       role: 'user',
@@ -580,6 +596,7 @@ export class TranscriptProjection {
       ...(clientMessageId !== undefined && { clientMessageId }),
       steered: true,
       pendingId,
+      ...(from !== undefined && { from }),
       ts: event.ts,
       snapshot: undefined,
     });
@@ -1118,6 +1135,7 @@ function freeze(message: MutableMessage): ChatMessage {
         ...(message.clientMessageId !== undefined && { clientMessageId: message.clientMessageId }),
         ...(message.steered && { steered: true }),
         ...(message.pendingId !== undefined && { pendingId: message.pendingId }),
+        ...(message.from !== undefined && { from: message.from }),
         ts: message.ts as IsoTime,
       };
     case 'assistant':

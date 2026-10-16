@@ -12,9 +12,11 @@ import {
   type AgentEvent,
   type AgentInput,
   type AgentRuntimeAdapter,
+  APP_TOOLS_SERVER,
   type ApprovalCancelledEvent,
   type ApprovalDecision,
   type ApprovalOption,
+  type AppToolsEndpoint,
   type CancelOptions,
   type EngineAccounts,
   type EngineExitedEvent,
@@ -50,6 +52,7 @@ import {
   settledWithin,
 } from './codex-process.js';
 import {
+  appToolsConfig,
   autoCompactLimit,
   basePromptVars,
   type ChatgptEndpoints,
@@ -90,6 +93,10 @@ import {
   type CollabAgentToolCallItem,
   type CommandExecutionRequestApprovalParams,
   type FileChangeRequestApprovalParams,
+  MCP_ELICITATION_REQUEST,
+  MCP_TOOL_APPROVAL_KIND,
+  type McpServerElicitationRequestParams,
+  type McpServerElicitationResponse,
   REQUEST_USER_INPUT,
   type RequestId,
   type ReviewStartParams,
@@ -237,6 +244,8 @@ interface PendingCodexApproval {
   readonly rpcId: RequestId;
   /** 兑现服务端请求的处理结果：`{decision}` 写回 app-server，`NO_REPLY` 不回。 */
   readonly reply: (result: unknown) => void;
+  /** 选项 → 回复（0.30.0，MCP 批准回 `{action}`）；没有时回 `{decision: optionId}`。 */
+  readonly respond?: (optionId: string) => unknown;
 }
 
 interface CodexSession {
@@ -288,6 +297,12 @@ export const COMMAND_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze
   { optionId: 'decline', label: '拒绝并继续', kind: 'reject_decline' },
   // 中断回合：用户接着说该怎么做。
   { optionId: 'cancel', label: '拒绝并停止', kind: 'reject_cancel' },
+]);
+
+/** 应用级工具的批准（0.30.0）：Codex 的 MCP 批准只有接受、拒绝。 */
+export const MCP_TOOL_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
+  { optionId: 'accept', label: '允许', kind: 'allow_accept' },
+  { optionId: 'decline', label: '拒绝', kind: 'reject_decline' },
 ]);
 
 export const FILE_CHANGE_APPROVAL_OPTIONS: readonly ApprovalOption[] = Object.freeze([
@@ -456,6 +471,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   readonly additionalRoots = true;
   /** 建议后续任务（0.16.0，codex-event-mapping.md §6.8）：Wevir 的本机 MCP 工具 `wevir_tasks.suggest_tasks`。 */
   readonly suggestedTasks = true;
+  /**
+   * 应用级工具（0.30.0，codex-event-mapping.md §6.11）：每个 thread 的 `config` 覆盖里挂 Host 的 `wevir` MCP 服务
+   * （Streamable HTTP，带这个会话的令牌）；要批准的工具经 `mcpServer/elicitation/request` 上报为审批。
+   */
+  readonly appTools = true;
   /** 读历史的工具（0.25.0，codex-event-mapping.md §6.10）：给了 `historyTool` 时登记。 */
   get historyTool(): boolean {
     return this.#options.historyTool !== undefined;
@@ -581,7 +601,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     try {
       const params: ThreadStartParams = {
         cwd: config.cwd,
-        ...this.#threadSettings(provider, model, config.reasoningEffort),
+        ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
         ...extraRootsInstructions(config.additionalRoots),
       };
       let response: ThreadStartResponse;
@@ -627,7 +647,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       const params: ThreadResumeParams = {
         threadId: engineSessionId,
         cwd: config.cwd,
-        ...this.#threadSettings(provider, model, config.reasoningEffort),
+        ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
         ...extraRootsInstructions(config.additionalRoots),
         excludeTurns: true,
       };
@@ -842,7 +862,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         threadId: engineSessionId,
         ...(running && { lastTurnId: source.lastTurnId }),
         cwd: config.cwd,
-        ...this.#threadSettings(provider, model, config.reasoningEffort),
+        ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
         ephemeral: true,
         excludeTurns: true,
       };
@@ -967,9 +987,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     }
     session.approvals.delete(requestId);
     this.#approvalsByRpc.delete(pending.rpcId);
-    pending.reply({
-      decision: option.optionId as ApprovalDecisionValue,
-    } satisfies ApprovalResponse);
+    pending.reply(
+      pending.respond?.(option.optionId) ??
+        ({ decision: option.optionId as ApprovalDecisionValue } satisfies ApprovalResponse),
+    );
   }
 
   async listPendingApprovals(engineSessionId?: string): Promise<PendingApproval[]> {
@@ -1632,6 +1653,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
   #onServerRequest(request: CodexServerRequest): Promise<unknown> {
     this.#options.onRawServerRequest?.(request);
     if (request.method === REQUEST_USER_INPUT) return this.#onUserInputRequest(request);
+    if (request.method === MCP_ELICITATION_REQUEST) return this.#onMcpApproval(request);
     if (!(APPROVAL_REQUESTS as readonly string[]).includes(request.method)) {
       return Promise.reject(
         Object.assign(new Error(`Wevir 不支持 ${request.method}`), { code: METHOD_NOT_FOUND }),
@@ -1683,6 +1705,62 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       this.#approvalsByRpc.set(request.id, { session, requestId: info.requestId });
       session.hub.emit({ type: 'approval.requested', ...copyApproval(info) });
       // 取消开始之后才到的请求：照常上报，随即结掉；app-server 中断回合时自己收回它。
+      if (turn.cancelRequested) this.#endApproval(session, info.requestId, 'turn_cancelled');
+    });
+  }
+
+  /**
+   * 批准一次应用级工具的调用（0.30.0，codex-event-mapping.md §6.11）：`mcpServer/elicitation/request` 里 `wevir` 服务的
+   * `mcp_tool_call` 批准，属于挂着的会话进行中的回合时上报为 `approval.requested`（工具调用是那个还没完成的 `mcpToolCall`），
+   * 选项只有允许与拒绝。别的 MCP 服务的、别的种类的确认一律 `decline`（Wevir 不显示 MCP 表单）。
+   */
+  #onMcpApproval(request: CodexServerRequest): Promise<unknown> {
+    const params = request.params as McpServerElicitationRequestParams;
+    const decline = Promise.resolve({ action: 'decline' } satisfies McpServerElicitationResponse);
+    const meta = isRecord(params) && isRecord(params._meta) ? params._meta : undefined;
+    if (
+      !isRecord(params) ||
+      typeof params.threadId !== 'string' ||
+      params.serverName !== APP_TOOLS_SERVER ||
+      meta?.codex_approval_kind !== MCP_TOOL_APPROVAL_KIND
+    ) {
+      this.#warnOnce('mcp_elicitation', 'Codex 的 MCP 确认不是应用级工具的批准，拒绝', {
+        serverName: isRecord(params) ? params.serverName : undefined,
+      });
+      return decline;
+    }
+    const session = this.#sessions.get(params.threadId);
+    const turn = session?.status === 'open' ? session.turn : undefined;
+    if (
+      session === undefined ||
+      turn === undefined ||
+      (turn.turnId !== undefined &&
+        typeof params.turnId === 'string' &&
+        params.turnId !== turn.turnId)
+    ) {
+      this.#logger.warn('应用级工具的批准不属于进行中的回合，拒绝', { threadId: params.threadId });
+      return decline;
+    }
+    this.#nextApproval += 1;
+    const info: PendingApproval = {
+      engineSessionId: session.id,
+      requestId: `codex-${this.#nextApproval}`,
+      toolCallId:
+        session.mapper.openMcpCall(APP_TOOLS_SERVER) ?? `mcp-approval-${this.#nextApproval}`,
+      options: MCP_TOOL_APPROVAL_OPTIONS.map((option) => ({ ...option })),
+    };
+    return new Promise<unknown>((reply) => {
+      session.approvals.set(info.requestId, {
+        info,
+        rpcId: request.id,
+        reply,
+        respond: (optionId) =>
+          optionId === 'accept'
+            ? ({ action: 'accept', content: {} } satisfies McpServerElicitationResponse)
+            : ({ action: 'decline' } satisfies McpServerElicitationResponse),
+      });
+      this.#approvalsByRpc.set(request.id, { session, requestId: info.requestId });
+      session.hub.emit({ type: 'approval.requested', ...copyApproval(info) });
       if (turn.cancelRequested) this.#endApproval(session, info.requestId, 'turn_cancelled');
     });
   }
@@ -1903,12 +1981,17 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     return { provider, model };
   }
 
-  /** `thread/start` 与 `thread/resume` 共用的设置：模型、Provider、审批与沙箱、基础提示词、配置覆盖。 */
+  /**
+   * `thread/start`、`thread/resume` 与 `thread/fork` 共用的设置：模型、Provider、审批与沙箱、基础提示词、配置覆盖（含这个会话的
+   * 应用级工具，0.30.0）。
+   */
   #threadSettings(
     provider: ProviderConfig,
     model: ProviderModelConfig,
     reasoningEffort: string | undefined,
+    appTools: AppToolsEndpoint | undefined,
   ): Omit<ThreadStartParams, 'cwd'> {
+    const tools = appTools === undefined ? {} : appToolsConfig(appTools);
     if (this.#chatgpt) {
       // ChatGPT 登录的 OpenAI 模型用 Codex 内置的、按模型调好的提示词（补记 2），不覆盖 baseInstructions。
       return {
@@ -1916,7 +1999,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         modelProvider: OPENAI_PROVIDER,
         approvalPolicy: 'on-request',
         sandbox: 'workspace-write',
-        config: chatgptThreadConfig(reasoningEffort),
+        config: { ...chatgptThreadConfig(reasoningEffort), ...tools },
       };
     }
     const gateway = this.#launcher.gateway;
@@ -1929,13 +2012,16 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       // 经网关的第三方模型用 Wevir 的 base.md（补记 2），按会话的 Provider 与模型渲染；模型目录里同名模型只有一条，
       // 这里覆盖保证显示名是这个 Provider 的。ChatGPT 登录的 OpenAI 模型（R6）不覆盖。
       baseInstructions: this.#prompt.render(basePromptVars(provider, model)),
-      config: threadConfig(
-        provider,
-        model,
-        gateway.baseURL(provider.id),
-        reasoningEffort,
-        this.#options.providerExtra,
-      ),
+      config: {
+        ...threadConfig(
+          provider,
+          model,
+          gateway.baseURL(provider.id),
+          reasoningEffort,
+          this.#options.providerExtra,
+        ),
+        ...tools,
+      },
     };
   }
 
