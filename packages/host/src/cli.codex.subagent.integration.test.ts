@@ -5,7 +5,7 @@
 // - 取消父会话：Codex 不动子 agent，Host 级联取消子会话（domain-model §4.5）。
 // 没有 codex-app-server 时跳过并打印下载命令。
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveCodexBinary } from '@wevir/adapter-codex';
@@ -14,7 +14,7 @@ import type { SessionId, SessionSnapshot, WevirEvent } from '@wevir/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EXIT_CODE, runHostCli } from './cli.js';
 import type { HostRuntimeInfo } from './runtime-file.js';
-import { fakeProcess, TestRpcClient, useTempDir, waitReady } from './test-utils.js';
+import { fakeProcess, removeTempDir, TestRpcClient, useTempDir, waitReady } from './test-utils.js';
 
 const tempDir = useTempDir();
 const cleanups: Array<() => unknown> = [];
@@ -40,7 +40,7 @@ function outsideDir(): string {
   const root = fileURLToPath(new URL('../.test-outside/', import.meta.url));
   mkdirSync(root, { recursive: true });
   const dir = realpathSync(mkdtempSync(join(root, 'subagent-')));
-  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  cleanups.push(() => removeTempDir(root));
   return dir;
 }
 

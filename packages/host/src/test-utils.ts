@@ -43,8 +43,23 @@ const UNTIL_TIMEOUT_MS = process.platform === 'win32' ? 20_000 : 5000;
 export const identity: ClientIdentity = { deviceId: 'dev-1', clientId: 'cli-1', clientKind: 'cli' };
 
 /**
- * 注册 beforeEach / afterEach：每个用例一个新的临时数据目录，结束时删除。取 native 的 realpath：Windows 的临时目录带
- * 8.3 短名（RUNNER~1），`realpathSync` 不展开，而 Host 用的 `fs.promises.realpath` 与 git、Codex 报的都是长名。
+ * 删除测试的临时目录。重试：Windows 上 git、Codex 在目录里起的进程退出后，目录句柄要稍后才放开（EBUSY）。重试完还被
+ * 占着（runner 很忙时会有）就留给系统清理临时目录，不让清理失败把测试算成失败（与 adapter-codex 的 harness 相同）。
+ */
+export function removeTempDir(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } catch (error) {
+    if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EBUSY') {
+      throw error;
+    }
+  }
+}
+
+/**
+ * 注册 beforeEach / afterEach：每个用例一个新的临时数据目录，结束时删除（`removeTempDir`）。取 native 的 realpath：
+ * Windows 的临时目录带 8.3 短名（RUNNER~1），`realpathSync` 不展开，而 Host 用的 `fs.promises.realpath` 与 git、Codex
+ * 报的都是长名。
  */
 export function useTempDir(): () => string {
   let dir: string | undefined;
@@ -52,7 +67,7 @@ export function useTempDir(): () => string {
     dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'wevir-host-')));
   });
   afterEach(() => {
-    if (dir) rmSync(dir, { recursive: true, force: true });
+    if (dir) removeTempDir(dir);
     dir = undefined;
   });
   return () => {
