@@ -1,0 +1,84 @@
+/*
+ * 启动画面（index.html 的 #splash）：窗口中央的品牌主标，一道流光斜着扫过。页面脚本与 index.css 加载之前就要画出来，
+ * 所以样式单独成文件、在 <head> 里同步加载（生产 CSP 是 style-src 'self'，不放行内联样式），颜色也不能用 tokens.css 的
+ * 变量，这里按 theme-init.js 设好的 data-theme 写定值（取自 styles/palette.css）。数据就绪后由 layout/splash.ts 淡出并移除。
+ */
+#splash {
+  --splash-bg: #fcfbfa; /* --ivory-2 */
+  --splash-mark: #dcd9d3;
+  --splash-sheen: #9b7840; /* --gold */
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: grid;
+  place-items: center;
+  background: var(--splash-bg);
+  /* 盖住顶栏时也能拖动窗口。 */
+  -webkit-app-region: drag;
+  transition: opacity 260ms ease;
+}
+
+[data-theme="dark"] #splash {
+  --splash-bg: #101114; /* --graphite-2 */
+  --splash-mark: #2a2c31;
+  --splash-sheen: #dfded8; /* --platinum */
+}
+
+#splash[data-leaving] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#splash svg {
+  width: 44px;
+  height: 44px;
+  overflow: visible;
+  animation: splash-in 320ms ease-out backwards;
+  transition: transform 260ms ease;
+}
+
+#splash[data-leaving] svg {
+  transform: scale(1.06);
+}
+
+#splash .splash-base {
+  fill: var(--splash-mark);
+}
+
+#splash .splash-sheen-stop {
+  stop-color: var(--splash-sheen);
+}
+
+/* 流光：一条斜带从左到右扫过主标（裁剪在主标里），扫完停一会儿再来。px 在 SVG 里就是 viewBox 的单位。 */
+#splash .splash-sheen {
+  transform: translateX(-4px);
+  animation: splash-sweep 1.6s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+}
+
+@keyframes splash-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes splash-sweep {
+  0% {
+    transform: translateX(-4px);
+  }
+  50%,
+  100% {
+    transform: translateX(50px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #splash svg,
+  #splash .splash-sheen {
+    animation: none;
+  }
+
+  #splash .splash-sheen {
+    display: none;
+  }
+}

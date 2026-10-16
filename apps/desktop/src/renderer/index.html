@@ -7,8 +7,31 @@
     <title>Wevir</title>
     <!-- 首帧前设置 data-theme：普通脚本、同步加载，必须在样式与应用脚本之前（public/theme-init.js）。 -->
     <script src="/theme-init.js"></script>
+    <!-- 启动画面的样式（public/splash.css）：应用脚本加载前就要画出来，同步加载。 -->
+    <link rel="stylesheet" href="/splash.css" />
   </head>
   <body>
+    <!-- 启动画面：品牌主标与流光，数据就绪后由 src/layout/splash.ts 淡出并移除。主标几何同 components/brand-mark.tsx。 -->
+    <div id="splash" aria-hidden="true">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <clipPath id="splash-clip">
+            <path d="M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z" />
+          </clipPath>
+          <linearGradient id="splash-sheen-fill">
+            <stop class="splash-sheen-stop" offset="0" stop-opacity="0" />
+            <stop class="splash-sheen-stop" offset="0.5" stop-opacity="1" />
+            <stop class="splash-sheen-stop" offset="1" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        <path class="splash-base" d="M8 2H22Q24 2 24 4V6L20 10H10Q8 10 8 12V18H12Q14 18 14 20V24H22Q24 24 24 22V12L28 8Q30 8 30 10V22Q30 30 22 30H10Q8 30 8 28V24H6Q2 24 2 20V8Q2 2 8 2Z" />
+        <g clip-path="url(#splash-clip)">
+          <g transform="rotate(20 16 16)">
+            <rect class="splash-sheen" x="-14" y="-20" width="14" height="72" fill="url(#splash-sheen-fill)" />
+          </g>
+        </g>
+      </svg>
+    </div>
     <div id="root"></div>
     <script type="module" src="./src/main.tsx"></script>
   </body>

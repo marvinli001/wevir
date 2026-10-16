@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { WorkbenchDataProvider } from '@/data/workbench-data';
 import { ConnectionToast } from '@/host/connection-toast';
 import { HostConnectionProvider } from '@/host/host-connection';
+import { SplashGate } from '@/layout/splash';
 import { NotificationCoordinator } from '@/notifications/notification-coordinator';
 import { router } from '@/routes/router';
 
@@ -15,6 +16,8 @@ export function App() {
     <CSPProvider disableStyleElements>
       <HostConnectionProvider>
         <WorkbenchDataProvider>
+          {/* 启动画面：数据就绪后撤掉（layout/splash.tsx）。 */}
+          <SplashGate />
           <TooltipProvider delay={500}>
             <RouterProvider router={router} />
             {/* 内置浏览器（0.33.0）：登记为浏览器提供方，转交 agent 的浏览器命令。 */}
