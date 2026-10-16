@@ -156,6 +156,27 @@ describe('UpdateController', () => {
     expect(ctl.state.phase).toBe('latest');
   });
 
+  it('该通道还没发布过版本（两条线路都没有清单）：latest，不报连不上', async () => {
+    const updater = new FakeUpdater('0.0.1-beta.180');
+    const { ctl } = controller({
+      updater,
+      fetcher: fakeServer({}).fetcher,
+      prefs: { channel: 'stable' },
+    });
+    await ctl.check();
+    expect(ctl.state.phase).toBe('latest');
+  });
+
+  it('两条线路都连不上：报 unreachable', async () => {
+    const updater = new FakeUpdater('0.1.0');
+    const { ctl } = controller({
+      updater,
+      fetcher: () => Promise.reject(new Error('getaddrinfo ENOTFOUND')),
+    });
+    await ctl.check();
+    expect(ctl.state).toMatchObject({ phase: 'error', code: 'unreachable' });
+  });
+
   it('下载失败时换另一条线路重试一次', async () => {
     const updater = new FakeUpdater('0.1.0');
     const { ctl } = controller({

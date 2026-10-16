@@ -142,7 +142,8 @@ export interface MirrorManifest {
 /** 为什么一条线路没有给出可用的清单。 */
 export interface MirrorFailure {
   mirror: UpdateMirror;
-  reason: 'network' | 'signature' | 'invalid';
+  /** `empty`：这条线路上该通道的清单都不存在（还没发布过）。 */
+  reason: 'network' | 'signature' | 'invalid' | 'empty';
   detail: string;
 }
 
@@ -171,14 +172,14 @@ export async function readMirror(options: {
   const started = now();
   const baseUrl = feedUrl(options.mirror, options.platform, options.arch);
   const read = await Promise.all(
-    channelNames(options.channel).map(async (name, index) => {
+    channelNames(options.channel).map(async (name) => {
       const file = manifestFile(name, options.platform);
       let text: Uint8Array;
       try {
         text = await fetchBytes(options.fetcher, baseUrl + file, options.signal);
       } catch (error) {
-        // 开发版还没发过预发布时没有 beta 的清单：只要正式版的（第一份）在，就当这一份不存在。
-        if (index > 0 && (error as { status?: unknown }).status === 404) return undefined;
+        // 某个通道还没发布过时没有它的清单（开发版没发过预发布时没有 beta，没发过正式版时没有 latest）：当这一份不存在。
+        if ((error as { status?: unknown }).status === 404) return undefined;
         throw error;
       }
       const signature = await fetchBytes(options.fetcher, `${baseUrl + file}.sig`, options.signal);
@@ -195,6 +196,11 @@ export async function readMirror(options: {
     }),
   );
   const manifests = read.filter((manifest) => manifest !== undefined);
+  if (manifests.length === 0) {
+    throw Object.assign(new Error(`no ${options.channel} release published at ${baseUrl}`), {
+      reason: 'empty',
+    });
+  }
   const info = manifests.reduce((best, next) =>
     compare(next.version, best.version) > 0 ? next : best,
   );
@@ -205,7 +211,8 @@ function failureOf(mirror: UpdateMirror, error: unknown): MirrorFailure {
   const reason = (error as { reason?: unknown })?.reason;
   return {
     mirror,
-    reason: reason === 'signature' || reason === 'invalid' ? reason : 'network',
+    reason:
+      reason === 'signature' || reason === 'invalid' || reason === 'empty' ? reason : 'network',
     detail: error instanceof Error ? error.message : String(error),
   };
 }
@@ -259,6 +266,10 @@ export class UpdateFeedError extends Error {
   /** 有线路的清单验签失败（可能被篡改），与单纯连不上分开报。 */
   get tampered(): boolean {
     return this.failures.some((failure) => failure.reason === 'signature');
+  }
+  /** 每条线路都连上了，只是该通道还没发布过版本：没有可更新的，不算错误。 */
+  get empty(): boolean {
+    return this.failures.length > 0 && this.failures.every((failure) => failure.reason === 'empty');
   }
 }
 

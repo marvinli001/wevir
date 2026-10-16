@@ -92,11 +92,12 @@ describe('verifyManifest / parseManifest', () => {
 describe('readMirror / raceMirrors', () => {
   const { privateKey, publicKey } = testKeyPair();
   const base = (mirror: { url: string }) => `${mirror.url}/desktop/darwin-arm64/`;
-  function routes(mirror: { url: string }, latest: string, beta?: string) {
-    const r: Record<string, string> = {
-      [`${base(mirror)}latest-mac.yml`]: manifestText(latest),
-      [`${base(mirror)}latest-mac.yml.sig`]: signText(manifestText(latest), privateKey),
-    };
+  function routes(mirror: { url: string }, latest: string | undefined, beta?: string) {
+    const r: Record<string, string> = {};
+    if (latest !== undefined) {
+      r[`${base(mirror)}latest-mac.yml`] = manifestText(latest);
+      r[`${base(mirror)}latest-mac.yml.sig`] = signText(manifestText(latest), privateKey);
+    }
     if (beta !== undefined) {
       r[`${base(mirror)}beta-mac.yml`] = manifestText(beta);
       r[`${base(mirror)}beta-mac.yml.sig`] = signText(manifestText(beta), privateKey);
@@ -139,6 +140,40 @@ describe('readMirror / raceMirrors', () => {
     expect(newerBeta.requests.some((r) => r.url.endsWith('beta-mac.yml'))).toBe(true);
   });
 
+  it('还没发过正式版：开发版只读 beta；该通道一份清单都没有时报 empty（不是连不上）', async () => {
+    const betaOnly = fakeServer({
+      ...routes(GLOBAL, undefined, '0.0.1-beta.180'),
+      ...routes(OPTIMIZED, undefined, '0.0.1-beta.180'),
+    });
+    const dev = await raceMirrors({
+      mirrors: [GLOBAL, OPTIMIZED],
+      timeoutMs: 1000,
+      read: read(betaOnly.fetcher, 'dev'),
+    });
+    expect(dev.first.info.version).toBe('0.0.1-beta.180');
+
+    const error = await raceMirrors({
+      mirrors: [GLOBAL, OPTIMIZED],
+      timeoutMs: 1000,
+      read: read(betaOnly.fetcher, 'stable'),
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UpdateFeedError);
+    expect((error as UpdateFeedError).empty).toBe(true);
+    expect((error as UpdateFeedError).tampered).toBe(false);
+
+    // 一条线路没有清单、另一条连不上：不算 empty。
+    const half: Fetcher = (url, init) =>
+      url.startsWith(OPTIMIZED.url)
+        ? Promise.reject(new Error('connect ECONNREFUSED'))
+        : betaOnly.fetcher(url, init);
+    const mixed = await raceMirrors({
+      mirrors: [GLOBAL, OPTIMIZED],
+      timeoutMs: 1000,
+      read: read(half, 'stable'),
+    }).catch((e: unknown) => e);
+    expect((mixed as UpdateFeedError).empty).toBe(false);
+  });
+
   it('先给出验过签的清单的线路胜出；慢的那条在后台跑完，结果给测速用', async () => {
     const server = fakeServer(
       { ...routes(GLOBAL, '0.2.0'), ...routes(OPTIMIZED, '0.2.0') },
@@ -176,7 +211,7 @@ describe('readMirror / raceMirrors', () => {
     expect((error as UpdateFeedError).tampered).toBe(true);
     expect((error as UpdateFeedError).failures.map((f) => [f.mirror.id, f.reason]).sort()).toEqual([
       ['global', 'signature'],
-      ['optimized', 'network'],
+      ['optimized', 'empty'],
     ]);
   });
 

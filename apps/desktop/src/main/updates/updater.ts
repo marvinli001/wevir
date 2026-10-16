@@ -300,6 +300,13 @@ export class UpdateController implements FeedSource {
       void this.#retryDownload();
       return;
     }
+    if (phase === 'checking' && error instanceof UpdateFeedError && error.empty) {
+      this.#options.log('info', 'no release published on this channel yet', {
+        error: error.message,
+      });
+      this.#set({ phase: 'latest' });
+      return;
+    }
     const code: UpdateErrorCode =
       error instanceof UpdateFeedError
         ? error.tampered
