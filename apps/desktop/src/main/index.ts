@@ -467,6 +467,8 @@ function createWindow(): BrowserWindow {
       spellcheck: false,
     },
   });
+  // Windows / Linux 不显示 Electron 默认菜单栏（File Edit View Window）；菜单仍在，快捷键照常可用。
+  if (process.platform !== 'darwin') window.setMenuBarVisibility(false);
   window.once('ready-to-show', () => window.show());
   // preload 按平台给出初值；进出全屏与页面（重新）加载完成时推送实际状态，例如在全屏里刷新页面。
   const pushWindowChrome = () =>
