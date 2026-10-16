@@ -17,6 +17,7 @@ import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
 import { APP_TOOLS_INSTRUCTIONS, AppTools, engineSessionResolver } from './app-tools.js';
 import { BrowserBroker } from './browser-broker.js';
+import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
@@ -172,6 +173,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 与 Host 设置，下面建好之后再接上。
     let appMcp: AppMcpServer | undefined;
     let appTools: AppTools | undefined;
+    // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
+    const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
+    await chats.load();
     const manager = new SessionManager({
       storage,
       events: store,
@@ -184,6 +188,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(titleInstructions !== undefined && { titleInstructions }),
       // 环境会话新开的 worktree（0.15.0，domain-model §3.10）。
       worktreesDir: join(home, 'worktrees'),
+      chats,
       checkpoints,
       engineFeatures,
       historyDir: homePath(home, 'historyDir'),
@@ -290,6 +295,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         settings,
         images,
         fileUrls,
+        chats,
         ...(options.web !== undefined && { web: options.web }),
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
@@ -308,6 +314,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         environments: true,
         session_worktree: true,
         provider_enabled: true,
+        chat_sessions: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),

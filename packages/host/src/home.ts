@@ -21,6 +21,8 @@ export const HOME_LAYOUT = {
   imagesDir: 'images',
   /** 联网工具的设置（0.34.0，web/service.ts）：开关与所选的搜索服务；Key 在 `secrets.json`。 */
   webFile: 'web.json',
+  /** 不在项目里的会话（0.39.0，chats.ts）：“对话”工作区，每个会话一个 `<会话 ID>/` 文件夹（0700）。 */
+  chatsDir: 'chats',
 } as const;
 
 export interface ResolveHomeOptions {

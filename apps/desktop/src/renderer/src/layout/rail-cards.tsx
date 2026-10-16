@@ -10,6 +10,7 @@ import { openChanges } from '@/changes/changes-store';
 import { useTranscript } from '@/data/workbench-data';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
+import { workspaceLabel } from '@/projects/chats';
 import { ContextBar } from './context-bar';
 import { usePanes } from './pane-controller';
 import { abbreviateHome, contextUsage, formatTokens, parentDirectory } from './rail-model';
@@ -31,7 +32,7 @@ function useEnvironmentCard({ entry, git, session }: RailContext) {
     status?.branch ??
     (status?.detachedAt ? t('rail.environment.detached', { sha: status.detachedAt }) : undefined);
   return {
-    summary: <span className="truncate">{branch ?? workspace.displayName}</span>,
+    summary: <span className="truncate">{branch ?? workspaceLabel(workspace)}</span>,
     details: (
       <ul className="space-y-0.5">
         <Row icon={<Laptop />}>{t('environment.local')}</Row>
@@ -42,7 +43,7 @@ function useEnvironmentCard({ entry, git, session }: RailContext) {
             </span>
           </Row>
         )}
-        <PathRow name={workspace.displayName} path={session.cwd} />
+        <PathRow name={workspaceLabel(workspace)} path={session.cwd} />
         {(session.extraRoots ?? []).map((root) => (
           <PathRow key={root} name={basename(root)} path={root} />
         ))}

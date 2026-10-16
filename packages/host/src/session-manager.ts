@@ -77,7 +77,9 @@ import {
   requestFingerprint,
   type SessionRecord,
   type Storage,
+  type WorkspaceRecord,
 } from '@wevir/storage';
+import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
@@ -133,6 +135,11 @@ export interface SessionManagerOptions {
    * 文件夹建不了会话（`INVALID_PARAMS`）。
    */
   worktreesDir?: string;
+  /**
+   * 不在项目里的会话（0.39.0，chats.ts）：`session.create` 不带 `workspaceId` 时建在这里的“对话”工作区，每个会话一个新建的文件夹。
+   * 没给时 `workspaceId` 必填（`INVALID_PARAMS`）。
+   */
+  chats?: ChatFolders;
   /**
    * 回合快照（0.20.0，checkpoints.ts）：顶层、不是支线的会话在回合开始交给引擎之前打“前”快照，回合结束后打“后”快照，
    * 会话关闭时删掉它的快照。没给时不打。
@@ -331,6 +338,7 @@ export class SessionManager {
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
   readonly #worktreesDir: string | undefined;
+  readonly #chats: ChatFolders | undefined;
   readonly #checkpoints: TurnCheckpoints | undefined;
   readonly #engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined;
   readonly #historyDir: string | undefined;
@@ -362,6 +370,7 @@ export class SessionManager {
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
     this.#titleInstructions = options.titleInstructions;
     this.#worktreesDir = options.worktreesDir;
+    this.#chats = options.chats;
     this.#checkpoints = options.checkpoints;
     this.#engineFeatures = options.engineFeatures;
     this.#historyDir = options.historyDir;
@@ -465,21 +474,20 @@ export class SessionManager {
     options: { openedBy?: SessionId } = {},
   ): Promise<Session> {
     this.#assertOpen();
-    const workspace = this.#storage.workspaces.get(params.workspaceId);
-    if (!workspace || workspace.removedAt !== undefined) {
-      throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${params.workspaceId} not found`);
-    }
     const provider = this.#storage.providers.get(params.providerId);
     if (!provider) {
       throw new HostError('PROVIDER_NOT_FOUND', `provider ${params.providerId} not found`);
     }
+    const workspace = await this.#createWorkspace(params);
+    const chat = this.#chats?.isChats(workspace) === true;
     await assertDirectory(workspace.rootPath);
     const permissionMode = this.#permissionMode(params.permissionMode);
-    const origin = this.#claimTask(params);
+    const origin = this.#claimTask(params, workspace.id);
     try {
       return await this.#create(
         params,
         workspace,
+        chat,
         provider,
         permissionMode,
         origin,
@@ -491,18 +499,49 @@ export class SessionManager {
   }
 
   /**
+   * 新会话所在的工作区。不带 `workspaceId`（0.39.0）时是“对话”工作区（没有就建）；对话里的会话不能带环境或新开 worktree。
+   */
+  async #createWorkspace(params: MethodParams<'session.create'>): Promise<WorkspaceRecord> {
+    const invalid = (path: string, message: string) =>
+      new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
+    let workspace: WorkspaceRecord | undefined;
+    if (params.workspaceId === undefined) {
+      if (this.#chats === undefined) {
+        throw invalid('workspaceId', 'this host needs a workspaceId (no chat sessions)');
+      }
+      workspace = await this.#chats.workspace(this.#storage, isoNow());
+    } else {
+      workspace = this.#storage.workspaces.get(params.workspaceId);
+      if (!workspace || workspace.removedAt !== undefined) {
+        throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${params.workspaceId} not found`);
+      }
+    }
+    if (this.#chats?.isChats(workspace) === true) {
+      if (params.environmentId !== undefined) {
+        throw invalid('environmentId', 'a chat session has no environment');
+      }
+      if (params.worktree === 'new')
+        throw invalid('worktree', 'a chat session has no git worktree');
+    }
+    return workspace;
+  }
+
+  /**
    * `session.create` 的 `origin`（0.16.0，domain-model §3.11）：提出建议的会话要在、与新会话同一个工作区，这项建议要在、还是
    * `suggested`，而且没有别的 `session.create` 正在开它；否则 `INVALID_PARAMS`。通过后占住它，直到建完或失败。
    */
-  #claimTask(params: MethodParams<'session.create'>): MethodParams<'session.create'>['origin'] {
+  #claimTask(
+    params: MethodParams<'session.create'>,
+    workspaceId: string,
+  ): MethodParams<'session.create'>['origin'] {
     const origin = params.origin;
     if (origin === undefined) return undefined;
     const fail = (message: string) =>
       new HostError('INVALID_PARAMS', message, { issues: [{ path: ['origin'], message }] });
     if (!this.#adapter.suggestedTasks) throw fail('this host engine does not suggest tasks');
     const parent = this.#storage.sessions.get(origin.sessionId);
-    if (!parent || parent.workspaceId !== params.workspaceId) {
-      throw fail(`session ${origin.sessionId} is not in workspace ${params.workspaceId}`);
+    if (!parent || parent.workspaceId !== workspaceId) {
+      throw fail(`session ${origin.sessionId} is not in workspace ${workspaceId}`);
     }
     const task = this.#events.suggestedTask(origin.sessionId, origin.taskId);
     if (task?.status !== 'suggested' || this.#startingTasks.has(origin.taskId)) {
@@ -515,14 +554,17 @@ export class SessionManager {
   async #create(
     params: MethodParams<'session.create'>,
     workspace: { id: string; rootPath: string },
+    chat: boolean,
     provider: { id: string; defaultModelId: string },
     permissionMode: PermissionMode | undefined,
     origin: MethodParams<'session.create'>['origin'],
     openedBy: SessionId | undefined,
   ): Promise<Session> {
     const sessionId = newId('ses');
-    // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。
-    const prepared = await this.#prepareEnvironment(params, sessionId, workspace.rootPath);
+    // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
+    const prepared = chat
+      ? await this.#chatDirectory(sessionId)
+      : await this.#prepareEnvironment(params, sessionId, workspace);
     const config: SessionConfig = {
       cwd: prepared.cwd,
       providerId: provider.id,
@@ -571,7 +613,7 @@ export class SessionManager {
         type: 'session.created',
         source: 'host',
         payload: {
-          workspaceId: params.workspaceId,
+          workspaceId: workspace.id as WorkspaceId,
           cwd: config.cwd,
           providerId: provider.id,
           modelId,
@@ -609,6 +651,14 @@ export class SessionManager {
     return this.#snapshot(runtime).session;
   }
 
+  /** 对话的文件夹（0.39.0）：`<对话工作区>/<会话 ID>`，新建、空的。 */
+  async #chatDirectory(sessionId: SessionId): Promise<PreparedEnvironment> {
+    const chats = this.#chats;
+    if (chats === undefined) throw new Error('chat sessions are not configured');
+    const dir = await chats.createSessionDir(sessionId);
+    return { cwd: dir.path, extraRoots: [], worktrees: [], undo: dir.undo };
+  }
+
   /**
    * 按环境准备会话的目录（0.15.0，domain-model §3.10）。不带环境、也不要 worktree 时就是工作区目录。带环境时 `workspaceId`
    * 要是主文件夹；`worktree: 'new'`（0.18.0）等于只有这个工作区一个文件夹、要新开 worktree 的环境，只是不记 `environmentId`。
@@ -618,8 +668,9 @@ export class SessionManager {
   async #prepareEnvironment(
     params: MethodParams<'session.create'>,
     sessionId: SessionId,
-    rootPath: string,
+    workspace: { id: string; rootPath: string },
   ): Promise<PreparedEnvironment> {
+    const rootPath = workspace.rootPath;
     const plain: PreparedEnvironment = {
       cwd: rootPath,
       extraRoots: [],
@@ -643,7 +694,7 @@ export class SessionManager {
           `environment ${params.environmentId} not found`,
         );
       }
-      if (environment.folders[0]?.workspaceId !== params.workspaceId) {
+      if (environment.folders[0]?.workspaceId !== workspace.id) {
         throw invalid('workspaceId', "workspaceId must be the environment's first folder");
       }
       if (environment.folders.length > 1 && !this.#adapter.additionalRoots) {
@@ -657,7 +708,7 @@ export class SessionManager {
       environmentId = environment.id as EnvironmentId;
     } else if (params.worktree === 'new') {
       field = 'worktree';
-      folders = [{ workspaceId: params.workspaceId, worktree: 'new' }];
+      folders = [{ workspaceId: workspace.id, worktree: 'new' }];
     } else {
       return plain;
     }

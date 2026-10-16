@@ -6,6 +6,7 @@ import { archiveSession, useSessionManagement } from '@/data/session-actions';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
+import { workspaceLabel } from '@/projects/chats';
 import { EmptyList, LIST_CARD, NoticeBanner, SettingsSection } from './settings-ui';
 
 /**
@@ -42,7 +43,7 @@ export function ArchivedSettings() {
     const names = new Map<string, string>();
     if (data.status === 'ready') {
       for (const entry of data.workspaces)
-        names.set(entry.workspace.id, entry.workspace.displayName);
+        names.set(entry.workspace.id, workspaceLabel(entry.workspace));
     }
     return names;
   }, [data]);

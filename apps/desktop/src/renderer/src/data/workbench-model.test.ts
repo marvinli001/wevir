@@ -1,9 +1,11 @@
 import type { Session, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  chatsOf,
   groupByStatus,
   groupSessions,
   mergeSessions,
+  projectsOf,
   recentWorkspaces,
   resolveRoute,
   sessionMarker,
@@ -50,6 +52,16 @@ describe('groupSessions', () => {
       ['ws_a', ['ses_0', 'ses_2', 'ses_1']],
       ['ws_b', []],
     ]);
+  });
+});
+
+describe('projectsOf / chatsOf（0.39.0）', () => {
+  it('“对话”工作区不算项目，单独取出来', () => {
+    const chats: Workspace = { ...workspace('ws_c'), kind: 'chats' };
+    const entries = groupSessions([workspace('ws_a'), chats], [session('ses_1', 'ws_c')]);
+    expect(projectsOf(entries).map((entry) => entry.workspace.id)).toEqual(['ws_a']);
+    expect(chatsOf(entries)?.sessions.map((s) => s.id)).toEqual(['ses_1']);
+    expect(chatsOf(groupSessions([workspace('ws_a')], []))).toBeUndefined();
   });
 });
 

@@ -1,5 +1,5 @@
 import { cn } from 'cn';
-import { Folder, FolderPlus } from 'lucide-react';
+import { Folder, FolderPlus, X } from 'lucide-react';
 import type { ComponentProps } from 'react';
 import {
   COMPACT_DETAIL,
@@ -22,17 +22,22 @@ import { openCreateProject } from './create-project';
 
 /**
  * 选项目的下拉菜单内容（紧凑菜单，`components/compact-menu.ts`）：每个项目一行，文件夹图标、名称与截掉开头的上一级目录
- * （`~` 开头），当前的打勾；最下面是“创建项目…”。项目多时列表最高 320 px，带滚动边缘渐隐。首页标题里的项目名与输入框上方的环境栏（U12）共用。
+ * （`~` 开头），当前的打勾；下面是“创建项目…”，Host 能建对话时（0.39.0，照 Codex 桌面端）最下面还有“不在目录中工作”，
+ * 没选项目时它打勾。项目多时列表最高 320 px，带滚动边缘渐隐。首页标题里的项目名与输入框上方的环境栏（U12）共用。
+ * `workspaces` 只放项目（`projectsOf`），`onSelect(null)` 是不在项目里。
  */
 export function ProjectMenuContent({
   currentId,
   workspaces,
   onSelect,
+  chats = false,
   ...props
 }: {
   currentId: string | undefined;
   workspaces: readonly WorkspaceEntry[];
-  onSelect: (workspaceId: string) => void;
+  onSelect: (workspaceId: string | null) => void;
+  /** 列出“不在目录中工作”（`useChatsSupported`）。 */
+  chats?: boolean;
 } & Pick<ComponentProps<typeof DropdownMenuContent>, 'align' | 'side' | 'sideOffset'>) {
   return (
     <DropdownMenuContent className="w-auto max-w-80 min-w-56" {...props}>
@@ -63,6 +68,19 @@ export function ProjectMenuContent({
         <FolderPlus aria-hidden className={COMPACT_ICON} />
         {t('home.createProject')}
       </DropdownMenuItem>
+      {chats && (
+        <DropdownMenuRadioGroup value={currentId ?? ''} onValueChange={() => onSelect(null)}>
+          <DropdownMenuRadioItem
+            value=""
+            closeOnClick
+            className={COMPACT_RADIO_ITEM}
+            data-testid="project-none"
+          >
+            <X aria-hidden className={COMPACT_ICON} />
+            {t('home.workWithoutProject')}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      )}
     </DropdownMenuContent>
   );
 }

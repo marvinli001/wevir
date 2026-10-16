@@ -26,6 +26,7 @@ import type {
   WorkspaceRecord,
 } from '@wevir/storage';
 import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
+import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
@@ -101,6 +102,8 @@ export interface HostMethodsOptions {
   fileUrls?: FileUrls;
   /** 联网服务（0.34.0，`web.*`）；省略时 `web.*` 回 `INVALID_PARAMS`，Host 也不声明 `web_tools`。 */
   web?: WebService;
+  /** 不在项目里的会话（0.39.0）：认出“对话”工作区（`kind: 'chats'`）；与 SessionManager 用同一个。 */
+  chats?: ChatFolders;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -162,7 +165,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (!workspace || workspace.removedAt !== undefined) {
       throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
     }
-    if (sessionId === undefined) return workspace.rootPath;
+    if (sessionId === undefined) {
+      // “对话”工作区下是各个会话的文件夹，只能按会话读。
+      if (options.chats?.isChats(workspace) === true) {
+        throw invalidParams(['sessionId'], 'the chats workspace is read per session');
+      }
+      return workspace.rootPath;
+    }
     const session = storage.sessions.get(sessionId);
     if (!session || session.workspaceId !== workspaceId) throw sessionNotFound(sessionId);
     return session.cwd;
@@ -177,6 +186,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }
   };
   const serialProvider = options.providerLock ?? createProviderLock();
+  const toWorkspace = (record: WorkspaceRecord): Workspace => ({
+    id: record.id as WorkspaceId,
+    rootPath: record.rootPath,
+    displayName: record.displayName,
+    ...(options.chats?.isChats(record) === true && { kind: 'chats' as const }),
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  });
   /** 会话加上存储里的归档时刻（0.23.0，不是事件推导的）。 */
   const withArchive = (session: Session): Session => {
     const archivedAt = storage.sessions.get(session.id)?.archivedAt;
@@ -235,6 +252,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'workspace.add': async ({ rootPath, displayName }) => {
       const real = await resolveWorkspacePath(rootPath);
+      if (options.chats?.owns(real) === true) {
+        throw invalidParams(['rootPath'], 'this folder holds Wevir chats');
+      }
       // 查重与插入在同一个同步段里，两个并发的 add 不会都插入。
       const existing = storage.workspaces.getByRootPath(real);
       if (existing) {
@@ -257,6 +277,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const workspace = storage.workspaces.get(workspaceId);
       if (!workspace || workspace.removedAt !== undefined) {
         throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+      }
+      if (options.chats?.isChats(workspace) === true) {
+        throw invalidParams(['workspaceId'], 'the chats workspace cannot be removed');
       }
       const open = storage.sessions
         .list({ workspaceId })
@@ -281,7 +304,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         id: newId('env'),
         name: environmentName(name),
         location: { kind: 'local' },
-        folders: checkEnvironmentFolders(storage, folders),
+        folders: checkEnvironmentFolders(storage, folders, options.chats),
         createdAt: now,
         updatedAt: now,
       };
@@ -297,7 +320,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const record: EnvironmentRecord = {
         ...current,
         ...(name !== undefined && { name: environmentName(name) }),
-        ...(folders !== undefined && { folders: checkEnvironmentFolders(storage, folders) }),
+        ...(folders !== undefined && {
+          folders: checkEnvironmentFolders(storage, folders, options.chats),
+        }),
         updatedAt: isoNow(),
       };
       storage.environments.update(record);
@@ -763,16 +788,6 @@ function mustGetWorkspace(storage: Storage, id: string): WorkspaceRecord {
   return record;
 }
 
-function toWorkspace(record: WorkspaceRecord): Workspace {
-  return {
-    id: record.id as WorkspaceId,
-    rootPath: record.rootPath,
-    displayName: record.displayName,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  };
-}
-
 /** 线缆上只暴露是否有 Key（`hasSecret`），不暴露 `secretRef`。 */
 function toProviderProfile(record: ProviderProfileRecord): ProviderProfile {
   const profile = {
@@ -841,6 +856,7 @@ function environmentName(name: string): string {
 function checkEnvironmentFolders(
   storage: Storage,
   folders: readonly EnvironmentFolder[],
+  chats: ChatFolders | undefined,
 ): EnvironmentRecord['folders'] {
   const seen = new Set<string>();
   for (const folder of folders) {
@@ -851,6 +867,9 @@ function checkEnvironmentFolders(
     const workspace = storage.workspaces.get(folder.workspaceId);
     if (!workspace || workspace.removedAt !== undefined) {
       throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${folder.workspaceId} not found`);
+    }
+    if (chats?.isChats(workspace) === true) {
+      throw invalidParams(['folders'], 'the chats workspace cannot be in an environment');
     }
   }
   return folders.map((folder) => ({ workspaceId: folder.workspaceId, worktree: folder.worktree }));

@@ -67,6 +67,41 @@ describe('homeWorkspace', () => {
   });
 });
 
+describe('homeWorkspace：Host 能建对话（0.39.0）', () => {
+  const chats: Workspace = {
+    ...workspace,
+    id: 'ws_chats',
+    rootPath: '/data/chats',
+    displayName: 'Chats',
+    kind: 'chats',
+  };
+  const data = ready([
+    { workspace, sessions: [session] },
+    {
+      workspace: chats,
+      sessions: [
+        { ...session, id: 'ses_9', workspaceId: 'ws_chats', updatedAt: '2026-10-14T05:00:00.000Z' },
+      ],
+    },
+  ]);
+
+  it('记下的项目还在就用它', () => {
+    expect(homeWorkspace(data, { workspaceId: 'ws_a' }, true)?.workspace.id).toBe('ws_a');
+  });
+
+  it('选了不在目录中工作、在对话里、项目不在了或从没选过：不在项目里', () => {
+    expect(homeWorkspace(data, { workspaceId: null }, true)).toBeUndefined();
+    expect(homeWorkspace(data, { workspaceId: 'ws_chats' }, true)).toBeUndefined();
+    expect(homeWorkspace(data, { workspaceId: 'ws_gone' }, true)).toBeUndefined();
+    expect(homeWorkspace(data, null, true)).toBeUndefined();
+  });
+
+  it('Host 不能建对话时照旧退回最近的项目，不会落到“对话”工作区', () => {
+    expect(homeWorkspace(data, { workspaceId: null })?.workspace.id).toBe('ws_a');
+    expect(homeWorkspace(data, { workspaceId: 'ws_chats' })?.workspace.id).toBe('ws_a');
+  });
+});
+
 describe('parseLastLocation', () => {
   it('只认 {workspaceId}；T5.5 存的 sessionId 不再用', () => {
     expect(parseLastLocation({ workspaceId: 'ws_a', sessionId: 'ses_1' })).toEqual({
@@ -74,6 +109,7 @@ describe('parseLastLocation', () => {
     });
     expect(parseLastLocation({ workspaceId: 'ws_a' })).toEqual({ workspaceId: 'ws_a' });
     expect(parseLastLocation(null)).toBeNull();
+    expect(parseLastLocation({ workspaceId: null })).toEqual({ workspaceId: null });
     expect(parseLastLocation({ workspaceId: '' })).toBeUndefined();
     expect(parseLastLocation(['ws_a'])).toBeUndefined();
   });

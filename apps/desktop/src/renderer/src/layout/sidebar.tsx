@@ -29,7 +29,10 @@ import {
 } from '@/data/session-actions';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import {
+  chatsOf,
   groupByStatus,
+  isChats,
+  projectsOf,
   type SessionMarker,
   type StatusRow,
   sessionMarker,
@@ -39,6 +42,7 @@ import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { workspaceLabel } from '@/projects/chats';
 import { openCreateProject } from '@/projects/create-project';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
@@ -211,7 +215,7 @@ function StatusTree() {
       workspaceId={workspace.id}
       session={session}
       unread={isUnread(seen, session)}
-      project={workspace}
+      project={projectLabel(workspace, session)}
     />
   );
   const row = (entry: StatusRow) => <li key={entry.session.id}>{rowContent(entry)}</li>;
@@ -271,7 +275,11 @@ function ProjectTree() {
       </p>
     );
   }
-  if (data.workspaces.length === 0) {
+  const projects = projectsOf(data.workspaces);
+  // 不在项目里的会话（0.39.0）：项目下面单独一组“对话”。
+  const chats = chatsOf(data.workspaces);
+  const chatSessions = chats?.sessions ?? [];
+  if (projects.length === 0 && chatSessions.length === 0) {
     return <p className="px-2 py-1 text-sm text-muted-foreground">{t('sidebar.noProjects')}</p>;
   }
   const pinnedRows = pinnedOf(data.workspaces, pinned);
@@ -285,13 +293,13 @@ function ProjectTree() {
               workspaceId={workspace.id}
               session={session}
               unread={isUnread(seen, session)}
-              project={workspace}
+              project={projectLabel(workspace, session)}
             />
           )}
         />
       </div>
       <ul className="space-y-px">
-        {data.workspaces.map((entry) => (
+        {projects.map((entry) => (
           <ProjectItem
             key={entry.workspace.id}
             entry={entry}
@@ -300,8 +308,73 @@ function ProjectTree() {
           />
         ))}
       </ul>
+      {chats && chatSessions.length > 0 && (
+        <ChatsGroup
+          workspaceId={chats.workspace.id}
+          sessions={chatSessions}
+          isUnread={(session) => isUnread(seen, session)}
+        />
+      )}
     </>
   );
+}
+
+/** 按项目分组时项目下面的“对话”（0.39.0，照 Codex 桌面端）：不在项目里的会话，标题右边悬停出现“新对话”。 */
+function ChatsGroup({
+  workspaceId,
+  sessions,
+  isUnread,
+}: {
+  workspaceId: string;
+  sessions: readonly Session[];
+  isUnread: (session: Session) => boolean;
+}) {
+  const { sessionId } = useParams();
+  const navigate = useNavigate();
+  return (
+    <section
+      aria-labelledby="sidebar-group-chats"
+      data-testid="sidebar-group-chats"
+      className="group/chats pt-3"
+    >
+      <div className="relative flex h-6 items-center">
+        <h3 id="sidebar-group-chats" className="px-2 text-xs font-medium text-muted-foreground">
+          {t('sidebar.chats')}
+        </h3>
+        <IconButton
+          label={t('sidebar.newChat')}
+          size="icon-xs"
+          className="absolute right-1 text-muted-foreground opacity-0 group-hover/chats:opacity-100 focus-visible:opacity-100"
+          onClick={() => {
+            rememberWorkspace(null);
+            navigate(paths.home());
+          }}
+        >
+          <SquarePen />
+        </IconButton>
+      </div>
+      <MoreList
+        items={sessions}
+        limit={SESSIONS_SHOWN}
+        activeIndex={sessions.findIndex((session) => session.id === sessionId)}
+        render={(session) => (
+          <li key={session.id}>
+            <SessionRow workspaceId={workspaceId} session={session} unread={isUnread(session)} />
+          </li>
+        )}
+      />
+    </section>
+  );
+}
+
+/** 行右边写的项目名与悬停提示的路径：对话写“对话”，路径是它自己的文件夹。 */
+function projectLabel(
+  workspace: WorkspaceEntry['workspace'],
+  session: Session,
+): { displayName: string; rootPath: string } {
+  return isChats(workspace)
+    ? { displayName: workspaceLabel(workspace), rootPath: session.cwd }
+    : workspace;
 }
 
 /** 置顶的会话，按置顶的先后（后置顶的在前）；不在列表里的（归档、移除）跳过。 */

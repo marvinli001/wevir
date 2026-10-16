@@ -13,6 +13,21 @@ export type WorkbenchData =
   | { status: 'ready'; workspaces: WorkspaceEntry[]; providers: ProviderProfile[] }
   | { status: 'error'; error: string };
 
+/** Host 的“对话”工作区（0.39.0）：放不在项目里的会话，左栏单独一组，项目列表里不出现。 */
+export function isChats(workspace: Pick<Workspace, 'kind'>): boolean {
+  return workspace.kind === 'chats';
+}
+
+/** 用户添加的项目（去掉“对话”工作区）。 */
+export function projectsOf(entries: readonly WorkspaceEntry[]): WorkspaceEntry[] {
+  return entries.filter((entry) => !isChats(entry.workspace));
+}
+
+/** “对话”工作区；还没有对话时没有。 */
+export function chatsOf(entries: readonly WorkspaceEntry[]): WorkspaceEntry | undefined {
+  return entries.find((entry) => isChats(entry.workspace));
+}
+
 /**
  * 会话按 workspaceId 归到各自的工作区下，每组按最近活动从新到旧（同一时刻按 ID 倒序，顺序稳定）；不属于
  * 任何已知工作区的会话不显示。

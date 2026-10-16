@@ -167,6 +167,11 @@ export const HOST_FEATURES = {
    * 取决于引擎（看 `engineFeatures` 的 `rewind`）；会话所在的引擎不能撤回时 `INVALID_STATE`。
    */
   sessionRewind: 'session_rewind',
+  /**
+   * 不在项目里的会话（0.39.0，domain-model §3.1）：`session.create` 可以不带 `workspaceId`，会话建在 Host 的“对话”工作区
+   * （`Workspace.kind` 是 `chats`），每个会话一个新建的文件夹。
+   */
+  chatSessions: 'chat_sessions',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -203,6 +208,7 @@ export const HostFeaturesSchema = z.looseObject({
   plan_mode: z.boolean().optional(),
   session_branches: z.boolean().optional(),
   session_rewind: z.boolean().optional(),
+  chat_sessions: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

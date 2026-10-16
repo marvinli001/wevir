@@ -5,6 +5,7 @@ import { type FormEvent, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useWorkbenchData } from '@/data/workbench-data';
+import { projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { abbreviateHome } from '@/layout/rail-model';
@@ -51,7 +52,8 @@ function EnvironmentForm({
   const [folders, setFolders] = useState<EnvironmentFolder[]>(environment?.folders ?? []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const workspaces = data.status === 'ready' ? data.workspaces.map((entry) => entry.workspace) : [];
+  const workspaces =
+    data.status === 'ready' ? projectsOf(data.workspaces).map((entry) => entry.workspace) : [];
 
   const indexOf = (id: WorkspaceId) => folders.findIndex((folder) => folder.workspaceId === id);
   const toggle = (id: WorkspaceId) =>

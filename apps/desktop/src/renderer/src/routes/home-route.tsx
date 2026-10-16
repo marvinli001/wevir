@@ -10,6 +10,7 @@ import type { FileScope } from '@/files/files-data';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { onboardingDone } from '@/onboarding/onboarding-state';
+import { useChatsSupported } from '@/projects/chats';
 import { openCreateProject } from '@/projects/create-project';
 import { Composer, setDraft } from '@/session/composer';
 import { EnvironmentBar } from '@/session/environment-bar';
@@ -38,19 +39,26 @@ export function HomeRoute() {
   const data = useWorkbenchData();
   const last = useLastLocation();
   const welcomed = onboardingDone.use();
+  const chats = useChatsSupported();
   if (data.status === 'loading') return <PendingPage />;
   if (data.status === 'error') return <PendingPage error={data.error} />;
   // 还没有 Provider、也没走过引导：先去分步引导（U6）。
   if (data.providers.length === 0 && !welcomed) return <Navigate to={paths.welcome()} replace />;
-  return <Home entry={homeWorkspace(data, last)} workspaces={data.workspaces} />;
+  return (
+    <Home entry={homeWorkspace(data, last, chats)} workspaces={data.workspaces} chats={chats} />
+  );
 }
 
 function Home({
   entry,
   workspaces,
+  chats,
 }: {
+  /** 选的项目；不在项目里时省略。 */
   entry: WorkspaceEntry | undefined;
   workspaces: readonly WorkspaceEntry[];
+  /** Host 能建对话（0.39.0）：不选项目时发出去就是对话。 */
+  chats: boolean;
 }) {
   const workspace = entry?.workspace;
   const { providers, choice, choose } = useModelChoice();
@@ -74,7 +82,7 @@ function Home({
     [plan.supported, plan.active, plan.toggle],
   );
 
-  // 还没有项目：先建项目（维护者 2026-10-14 定），建好后在它里面接着发。
+  // 没选项目：Host 能建对话时就建对话（0.39.0）；否则先建项目（维护者 2026-10-14 定），建好后在它里面接着发。
   const send = async (
     text: string,
     _delivery?: PendingDelivery,
@@ -85,7 +93,7 @@ function Home({
       if (started && plan.active) plan.set(false);
       return started;
     };
-    if (workspace) return done(await start(text, undefined, images, mode));
+    if (workspace || chats) return done(await start(text, undefined, images, mode));
     openCreateProject({
       onCreated: async (created) => {
         if (done(await start(text, created.id, images, mode))) setDraft(HOME_DRAFT, '');
@@ -111,7 +119,7 @@ function Home({
     ...(permissionCommand && { permission: permissionCommand }),
     filesEnabled: false,
     panes: undefined,
-    ...(workspace && { send: sendCommandText, goalEnabled: goals }),
+    ...((workspace || chats) && { send: sendCommandText, goalEnabled: goals }),
     ...(planCommand && { plan: planCommand }),
   });
   const fileScope = useMemo<FileScope | undefined>(

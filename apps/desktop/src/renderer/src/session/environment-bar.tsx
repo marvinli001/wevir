@@ -21,13 +21,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import type { WorkspaceEntry } from '@/data/workbench-model';
+import { isChats, projectsOf, type WorkspaceEntry } from '@/data/workbench-model';
 import {
   environmentSummary,
   useActiveEnvironment,
   type WorktreeChoice,
 } from '@/environments/environments';
 import { t } from '@/i18n';
+import { useChatsSupported } from '@/projects/chats';
 import { ProjectMenuContent, StartTruncated } from '@/projects/project-menu';
 import { paths } from '@/routes/paths';
 
@@ -51,13 +52,15 @@ export function EnvironmentBar({
   onSelect,
   worktree,
 }: {
+  /** 选的项目；不在项目里（0.39.0）时省略，“对话”工作区也算不在项目里。 */
   current: WorkspaceEntry | undefined;
   workspaces: readonly WorkspaceEntry[];
-  onSelect: (workspaceId: string) => void;
+  onSelect: (workspaceId: string | null) => void;
   /** 页面的 `useWorktreeChoice`（建会话时也要用，所以由页面读）。 */
   worktree: WorktreeChoice;
 }) {
-  const workspace = current?.workspace;
+  const chats = useChatsSupported();
+  const workspace = current && !isChats(current.workspace) ? current.workspace : undefined;
   // 新会话页选中的环境（U22.1）。
   const environment = useActiveEnvironment(workspace?.id);
   return (
@@ -69,14 +72,15 @@ export function EnvironmentBar({
           className={cn(ITEM, TRIGGER, 'max-w-60')}
         >
           <Folder aria-hidden />
-          <span className={cn('truncate', !workspace && 'text-muted-foreground')}>
-            {workspace?.displayName ?? t('home.chooseProject')}
+          <span className={cn('truncate', !workspace && !chats && 'text-muted-foreground')}>
+            {workspace?.displayName ?? t(chats ? 'home.noProject' : 'home.chooseProject')}
           </span>
         </DropdownMenuTrigger>
         <ProjectMenuContent
           currentId={workspace?.id}
-          workspaces={workspaces}
+          workspaces={projectsOf(workspaces)}
           onSelect={onSelect}
+          chats={chats}
           side="top"
           sideOffset={6}
         />

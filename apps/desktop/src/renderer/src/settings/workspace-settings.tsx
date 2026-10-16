@@ -6,7 +6,7 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
-import type { WorkspaceEntry } from '@/data/workbench-model';
+import { projectsOf, type WorkspaceEntry } from '@/data/workbench-model';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { openCreateProject } from '@/projects/create-project';
@@ -31,6 +31,8 @@ export function WorkspaceSettings() {
   const [removing, setRemoving] = useState<WorkspaceEntry>();
 
   if (data.status !== 'ready') return <SettingsLoading data={data} />;
+  // “对话”工作区（0.39.0）不是项目，不列、也不能移除。
+  const projects = projectsOf(data.workspaces);
 
   const remove = async (workspace: Workspace) => {
     if (!client) return;
@@ -58,11 +60,11 @@ export function WorkspaceSettings() {
     >
       <div className="space-y-3">
         {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
-        {data.workspaces.length === 0 ? (
+        {projects.length === 0 ? (
           <EmptyList>{t('project.empty')}</EmptyList>
         ) : (
           <ul className={LIST_CARD}>
-            {data.workspaces.map((entry) => (
+            {projects.map((entry) => (
               <WorkspaceRow
                 key={entry.workspace.id}
                 entry={entry}

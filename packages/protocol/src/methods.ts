@@ -761,7 +761,11 @@ export const SessionCommandResultSchema = z.object({
 });
 
 export const SessionCreateParamsSchema = z.object({
-  workspaceId: WorkspaceIdSchema,
+  /**
+   * 省略（0.39.0，Host 功能 `chat_sessions`）：不在项目里的会话，建在 Host 的“对话”工作区（`kind: 'chats'`），工作目录是给它
+   * 新建的空文件夹，不能带 `environmentId` 或 `worktree: 'new'`。给的是“对话”工作区时也一样。
+   */
+  workspaceId: WorkspaceIdSchema.optional(),
   providerId: ProviderIdSchema,
   /** 省略时用 Provider 的 `defaultModelId`。 */
   modelId: z.string().min(1).optional(),

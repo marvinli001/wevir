@@ -128,6 +128,7 @@ export function usePermissionModes(): boolean {
  * `permissionMode`（U15）只在 Host 支持权限模式时带上。
  */
 export function useStartSession(
+  /** 不给（0.39.0，Host 功能 `chat_sessions`）：建不在项目里的会话（对话）。 */
   workspaceId: WorkspaceId | undefined,
   choice: ModelChoice | undefined,
   onCreated?: (session: Session) => void,
@@ -143,6 +144,7 @@ export function useStartSession(
   const navigate = useNavigate();
   const [error, setError] = useState<string>();
   const primary = workspaceId;
+  const chats = view.status === 'connected' && hostSupports(view.hello.features, 'chat_sessions');
   // 选的模型能用目标（0.35.0）：`/goal 〈目标〉` 建会话后设目标，第一个回合以目标为消息。
   const data = useWorkbenchData();
   const goals =
@@ -166,7 +168,8 @@ export function useStartSession(
       collaborationMode?: CollaborationMode,
     ): Promise<boolean> => {
       const workspaceId = target;
-      if (!client || !workspaceId || !choice) return false;
+      if (!client || !choice) return false;
+      if (!workspaceId && !chats) return false;
       const goal = goals && !images?.length ? parseGoalCommand(text) : undefined;
       // 新会话还没有目标可管：只有 `/goal 〈目标〉` 建会话，其余写法留在输入框里。
       if (goal !== undefined && goal.type !== 'set') return false;
@@ -174,20 +177,24 @@ export function useStartSession(
       let session: Session;
       try {
         ({ session } = await client.request('session.create', {
-          workspaceId,
+          ...(workspaceId !== undefined && { workspaceId }),
           providerId: choice.providerId,
           modelId: choice.modelId,
           ...(choice.reasoningEffort !== undefined && { reasoningEffort: choice.reasoningEffort }),
           ...(permissions && permissionMode !== undefined && { permissionMode }),
           // 环境与新工作树只对选的那个项目生效（首页先建项目再接着发时 target 是新项目）。
-          ...(environmentId !== undefined && target === primary && { environmentId }),
-          ...(newWorktree && target === primary && { worktree: 'new' as const }),
+          ...(environmentId !== undefined &&
+            workspaceId &&
+            target === primary && { environmentId }),
+          ...(newWorktree && workspaceId && target === primary && { worktree: 'new' as const }),
         }));
       } catch (reason) {
         setError(t('session.createFailed', { error: describe(reason) }));
         return false;
       }
       store?.upsertSession(session);
+      // 第一个对话：“对话”工作区刚建，列表里还没有它，跳过去之前先重读。
+      if (!workspaceId) await store?.refresh();
       try {
         if (goal?.type === 'set') {
           await client.request('session.setGoal', {
@@ -204,7 +211,7 @@ export function useStartSession(
       // 会话页的开关接着草稿的（它最近一条消息就是这个模式，这里只是不等事件到）。
       if (collaborationMode !== undefined) setPlanMode(session.id, collaborationMode === 'plan');
       onCreated?.(session);
-      navigate(paths.session(workspaceId, session.id));
+      navigate(paths.session(session.workspaceId, session.id));
       return true;
     },
     [
@@ -220,6 +227,7 @@ export function useStartSession(
       newWorktree,
       primary,
       goals,
+      chats,
     ],
   );
 

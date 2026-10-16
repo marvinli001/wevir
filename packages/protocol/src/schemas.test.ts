@@ -135,6 +135,7 @@ import {
   WorkspaceEntryKindSchema,
   WorkspaceEntrySchema,
   WorkspaceIdSchema,
+  WorkspaceKindSchema,
   WorkspaceSchema,
   WorktreeModeSchema,
 } from './index.js';
@@ -633,6 +634,12 @@ const standaloneCases: Case[] = [
     schema: EnvironmentIdSchema,
     valid: ['env_01JA2B3C4D5E6F7G8H9JKMNPQR'],
     invalid: ['ws_01JA2B3C4D5E6F7G8H9JKMNPQR', 'env_'],
+  },
+  {
+    name: 'WorkspaceKind',
+    schema: WorkspaceKindSchema,
+    valid: ['chats'],
+    invalid: ['project', ''],
   },
   {
     name: 'WorktreeMode',

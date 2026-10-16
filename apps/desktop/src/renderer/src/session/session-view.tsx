@@ -31,7 +31,7 @@ import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
 import { archiveSession, requestRename, useSessionManagement } from '@/data/session-actions';
 import { useTranscript, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
-import type { WorkspaceEntry } from '@/data/workbench-model';
+import { isChats, type WorkspaceEntry } from '@/data/workbench-model';
 import { useActiveEnvironment, useWorktreeChoice } from '@/environments/environments';
 import { OpenFileLink, openFileLink } from '@/files/file-links';
 import type { FileScope } from '@/files/files-data';
@@ -40,6 +40,7 @@ import { t } from '@/i18n';
 import { usePanes } from '@/layout/pane-controller';
 import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
+import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
 import { Composer, type ComposerPlan, isBusy, restoreDraft, setDraft } from './composer';
@@ -924,7 +925,12 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
 
   const noProvider = providers !== undefined && providers.length === 0;
   const workspaces = data.status === 'ready' ? data.workspaces : [entry];
-  const selectProject = (id: string) => navigate(paths.draft(id));
+  // “不在目录中工作”（0.39.0）回到首页去建对话。
+  const selectProject = (id: string | null) => {
+    if (id !== null) return navigate(paths.draft(id));
+    rememberWorkspace(null);
+    return navigate(paths.home());
+  };
   // 斜杠命令与 @ 提及（U33）：草稿页的目录是工作区的根目录。
   const panes = usePanes();
   const { view } = useHostConnection();
@@ -961,15 +967,17 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     goalEnabled: goals,
     ...(planCommand && { plan: planCommand }),
   });
+  // “对话”工作区（0.39.0）只能按会话读文件，草稿还没有会话。
+  const chatDraft = isChats(entry.workspace);
   const fileScope = useMemo<FileScope | undefined>(
     () =>
-      filesEnabled
+      filesEnabled && !chatDraft
         ? {
             workspaceId: entry.workspace.id as FileScope['workspaceId'],
             root: entry.workspace.rootPath,
           }
         : undefined,
-    [filesEnabled, entry.workspace.id, entry.workspace.rootPath],
+    [filesEnabled, chatDraft, entry.workspace.id, entry.workspace.rootPath],
   );
 
   return (

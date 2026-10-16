@@ -20,11 +20,20 @@ import {
 
 // ── Workspace ──────────────────────────────────────────────────────────
 
+/**
+ * 工作区的种类（0.39.0，domain-model §3.1）：`chats` 是 Host 自己的“对话”工作区，放不在项目里的会话，每个会话在它下面有自己的
+ * 文件夹（`<数据目录>/chats/<会话 ID>`）。省略表示用户添加的项目。
+ */
+export const WorkspaceKindSchema = z.enum(['chats']);
+export type WorkspaceKind = z.infer<typeof WorkspaceKindSchema>;
+
 export const WorkspaceSchema = z.object({
   id: WorkspaceIdSchema,
   /** 目录的 realpath；Host 按它去重。 */
   rootPath: z.string().min(1),
   displayName: z.string(),
+  /** 0.39.0；省略表示项目。 */
+  kind: WorkspaceKindSchema.optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
 });

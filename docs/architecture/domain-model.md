@@ -111,6 +111,7 @@ interface Workspace {
   id: WorkspaceId
   rootPath: string
   displayName: string
+  kind?: 'chats'          // 0.39.0：Host 的“对话”工作区；省略是项目
   createdAt: IsoTime
   updatedAt: IsoTime
 }
@@ -121,6 +122,7 @@ interface Workspace {
 | `id` | Host 分配 | `workspace.add` | 不可改 |
 | `rootPath` | 目录的 realpath（`fs.realpath` 之后的绝对路径）。Host 按它去重：同一路径（含经符号链接到达的同一目录）再次添加，返回已有的工作区 | `workspace.add` | 不可改。目录被移动或删除后工作区仍在，在其中建会话或 resume 会失败 |
 | `displayName` | 显示名，默认取目录名 | `workspace.add` | 用户改名（T5.4） |
+| `kind` | `chats`：Host 自己的“对话”工作区（0.39.0），见下；省略：用户添加的项目 | Host | 不可改 |
 | `createdAt` / `updatedAt` | 时间 | Host | Host |
 
 规则：
@@ -128,6 +130,7 @@ interface Workspace {
 - 一个 Session 恰属一个工作区（ACP 只有一个主 workspace，T0.3）。工作区之间不嵌套检查：两个工作区可以是父子目录，各自独立。
 - `workspace.remove` 只注销，不删除磁盘上任何文件（OpenWork §4.5）。有未关闭会话（状态不是 `closed`）的工作区不能移除，返回错误。已关闭会话的历史随工作区一起从列表中隐藏，事件库不删；同一 `rootPath` 再次添加时恢复原 `id`，历史重新可见。实现上用 `removedAt` 软删除列，不进线缆类型。
 - 工作区本身不带权限设置。dsh 的权限模式是进程级的 `workspace-write`（ADR-0001 §4）；“工作区外授权目录”之类的设置推迟到 Phase 1，届时按工作区生效（OpenWork §4.5）。
+- 不在项目里的会话（0.39.0，Host 功能 `chat_sessions`，照 Codex 桌面端的“不在项目中工作”）：`session.create` 不带 `workspaceId` 时，会话建在 Host 的“对话”工作区里。它的 `rootPath` 是 `<数据目录>/chats`，`kind` 是 `chats`，第一次有对话时才建（之前 `workspace.list` 里没有它）；Host 按 rootPath 认出它，不另存种类。“对话”工作区里的每个会话有自己新建的空文件夹 `<数据目录>/chats/<会话 ID>/`（0700），会话的 `cwd` 就是它，显式给“对话”工作区的 `workspaceId` 也一样；会话没建成时删掉这个文件夹。分支、支线与子 agent 沿用来源会话的 `cwd`。对话没有环境、不能新开 worktree（`INVALID_PARAMS`）；“对话”工作区不能移除、不能进环境，它（与它下面的文件夹）不能作为项目添加，`workspace.*` 的文件与 git 方法对它只能按会话读（不带 `sessionId` 时 `INVALID_PARAMS`）。老客户端不认 `kind`，看到的是一个叫 `Chats` 的项目。
 - git 状态（当前分支、相对 HEAD 的改动，0.13.0）不是工作区的字段，也不进事件库：`workspace.git` 每次调用时在目录里现读（host-api.md §3.1），磁盘上的仓库随时会被用户或别的程序改动，以它为准。
 
 ### 3.2 ProviderProfile

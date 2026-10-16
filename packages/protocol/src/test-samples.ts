@@ -100,6 +100,16 @@ export const workspace: Workspace = {
   updatedAt: TS,
 };
 
+/** Host 的“对话”工作区（0.39.0）。 */
+export const chatsWorkspace: Workspace = {
+  id: ids.workspace,
+  rootPath: '/Users/me/Library/Application Support/Wevir/chats',
+  displayName: 'Chats',
+  kind: 'chats',
+  createdAt: TS,
+  updatedAt: TS,
+};
+
 /** 环境（0.15.0）。 */
 export const environment: Environment = {
   id: ids.environment,
@@ -1012,7 +1022,13 @@ export const methodSamples: MethodSamples = {
   },
   'workspace.list': {
     params: empty,
-    result: { valid: [{ workspaces: [workspace] }], invalid: [{ workspaces: [{ id: 'x' }] }] },
+    result: {
+      valid: [{ workspaces: [workspace] }, { workspaces: [workspace, chatsWorkspace] }],
+      invalid: [
+        { workspaces: [{ id: 'x' }] },
+        { workspaces: [{ ...chatsWorkspace, kind: 'repo' }] },
+      ],
+    },
   },
   'workspace.add': {
     params: {
@@ -1657,9 +1673,11 @@ export const methodSamples: MethodSamples = {
           origin: { kind: 'suggested_task', sessionId: ids.session, taskId: ids.task },
         },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', worktree: 'new' },
+        { providerId: 'deepseek-official', permissionMode: 'full_access' },
       ],
       invalid: [
         { workspaceId: ids.workspace },
+        {},
         { workspaceId: ids.workspace, providerId: 'deepseek-official', worktree: 'yes' },
         {
           workspaceId: ids.workspace,

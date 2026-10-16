@@ -16,6 +16,7 @@ import { useWorkbenchData } from '@/data/workbench-data';
 import { resolveRoute, type WorkspaceEntry } from '@/data/workbench-model';
 import { t } from '@/i18n';
 import { formatShortcut, matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
+import { workspaceLabel } from '@/projects/chats';
 import { useRememberLocation } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import {
@@ -813,7 +814,7 @@ function useHeader(workspaceId: string | undefined, sessionId: string | undefine
     case 'session':
       return {
         title: target.session.title || t('session.untitled'),
-        subtitle: target.entry.workspace.displayName,
+        subtitle: workspaceLabel(target.entry.workspace),
         entry: target.entry,
         session: target.session,
         panes: true,
@@ -821,7 +822,7 @@ function useHeader(workspaceId: string | undefined, sessionId: string | undefine
     case 'draft':
       return {
         title: t('session.draftTitle'),
-        subtitle: target.entry.workspace.displayName,
+        subtitle: workspaceLabel(target.entry.workspace),
         entry: target.entry,
         panes: true,
       };

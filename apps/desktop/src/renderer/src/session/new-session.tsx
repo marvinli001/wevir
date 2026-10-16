@@ -4,11 +4,12 @@ import { type CSSProperties, type ReactNode, useState } from 'react';
 import { BrandMark } from '@/components/brand-mark';
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
+import { isChats, projectsOf, recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
 import { EnvironmentPicker } from '@/environments/environment-picker';
 import { MetalWordmark } from '@/fx/metal';
 import { currentLocale, t } from '@/i18n';
 import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
+import { useChatsSupported } from '@/projects/chats';
 import { openCreateProject } from '@/projects/create-project';
 import { ProjectMenuContent } from '@/projects/project-menu';
 
@@ -57,15 +58,18 @@ function randomTitleVariant(): TitleVariant {
  * （维护者 2026-10-15 定），会话都在左栏。
  */
 export function NewSessionHero({
-  current,
-  workspaces,
+  current: selected,
+  workspaces: all,
   onSelect,
 }: {
+  /** 选的项目；不在项目里（0.39.0）时省略，“对话”工作区也算不在项目里。 */
   current: WorkspaceEntry | undefined;
   workspaces: readonly WorkspaceEntry[];
-  onSelect: (workspaceId: string) => void;
+  onSelect: (workspaceId: string | null) => void;
 }) {
   const [variant] = useState(randomTitleVariant);
+  const current = selected && !isChats(selected.workspace) ? selected : undefined;
+  const workspaces = projectsOf(all);
   const after = t(`home.title.${variant}.after`);
   return (
     <div className="flex w-full max-w-content flex-col items-center gap-5 text-center">
@@ -162,8 +166,9 @@ function ProjectPicker({
 }: {
   current: WorkspaceEntry | undefined;
   workspaces: readonly WorkspaceEntry[];
-  onSelect: (workspaceId: string) => void;
+  onSelect: (workspaceId: string | null) => void;
 }) {
+  const chats = useChatsSupported();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -171,8 +176,8 @@ function ProjectPicker({
         title={current?.workspace.rootPath}
         className="inline-flex max-w-full min-w-0 items-center gap-0.5 rounded-xs border-b-[1.5px] border-dashed border-border-strong px-0.5 font-sans text-[0.86em] font-semibold text-foreground outline-none hover:border-foreground focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:border-foreground"
       >
-        <span className={cn('truncate', !current && 'text-muted-foreground')}>
-          {current?.workspace.displayName ?? t('home.chooseProject')}
+        <span className={cn('truncate', !current && !chats && 'text-muted-foreground')}>
+          {current?.workspace.displayName ?? t(chats ? 'home.noProject' : 'home.chooseProject')}
         </span>
         <ChevronDown aria-hidden className="size-4 shrink-0 text-muted-foreground" />
       </DropdownMenuTrigger>
@@ -180,6 +185,7 @@ function ProjectPicker({
         currentId={current?.workspace.id}
         workspaces={workspaces}
         onSelect={onSelect}
+        chats={chats}
         align="center"
       />
     </DropdownMenu>
