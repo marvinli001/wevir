@@ -37,8 +37,17 @@ export function tempRoot(name: string): { dir: (sub: string) => string; remove: 
       mkdirSync(dir, { recursive: true });
       return dir;
     },
-    // 重试：Windows 上 .cmd 启动的假 grok 在 cmd.exe 被结束后才读到 EOF 退出，它的工作目录要稍后才放开。
-    remove: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+    // 重试：Windows 上 .cmd 启动的假 grok 在 cmd.exe 被结束后才读到 EOF 退出，它的工作目录要稍后才放开。重试完还被占着
+    // （runner 很忙时会有）就留给系统清理临时目录，不让清理失败把测试算成失败（同 adapter-codex 的 harness）。
+    remove: () => {
+      try {
+        rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      } catch (error) {
+        if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EBUSY') {
+          throw error;
+        }
+      }
+    },
   };
 }
 
