@@ -9,6 +9,7 @@ import {
   renderMarkdownHtml,
 } from './markdown';
 import { renderDocumentHtml } from './markdown-document';
+import { repairStreamingMarkdown } from './stream-safe';
 
 vi.mock('dompurify', () => ({ default: { sanitize: (html: string) => html } }));
 
@@ -58,6 +59,27 @@ describe('createStreamingMarkdownRenderer', () => {
     let blocks = renderer.render('');
     for (let i = 1; i <= source.length; i++) blocks = renderer.render(source.slice(0, i));
     expect(blocks.map((block) => block.__html).join('')).toBe(renderMarkdownHtml(source));
+  });
+
+  it('每个前缀都与修补后的整篇渲染一致（只重新 lex 末尾不会走样）', () => {
+    const docs = [
+      '## 结论\n\n第二轮回归**基本通过**，剩下三处：\n\n1. 第一 `a()`\n2. 第二\n   继续\n3. 第三\n\n| a | b |\n|---|---|\n| 1 | *2* |\n\n> 引用\n> 第二行\n\n```ts\nconst a = 1;\n\n\nconst b = 2;\n```\n\n- x [链接](https://x.y)\n- y\n  - z\n\n最后 ~~删~~。\n',
+      '我先看看。\n\n**结论**：可以。\n\n- 一\n\n- 二\n\n段落\n标题\n===\n\n    缩进代码\n\n结束',
+      'Intro\n\n1. **Bold** item with `code`\n2. Another\n\n## Heading\n\nText.\n\n---\n\nMore with [link](https://x.y).\n',
+    ];
+    for (const doc of docs) {
+      const renderer = createStreamingMarkdownRenderer();
+      for (let i = 1; i <= doc.length; i++) {
+        const prefix = doc.slice(0, i);
+        const html = renderer
+          .render(prefix)
+          .map((block) => block.__html)
+          .join('');
+        expect(html, JSON.stringify(prefix)).toBe(
+          renderMarkdownHtml(repairStreamingMarkdown(prefix)),
+        );
+      }
+    }
   });
 
   it('含引用式链接定义时整篇重来', () => {

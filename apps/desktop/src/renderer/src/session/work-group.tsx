@@ -32,6 +32,7 @@ import { livePreviewKey } from './file-preview-model';
 import { useFold } from './fold-state';
 import { formatJson } from './format';
 import { AWAITING_PILL, LiveIndicator, type LiveState } from './live-indicator';
+import { MarkdownView } from './markdown/markdown-view';
 import { ToolDetails } from './tool-details';
 import {
   currentAction,
@@ -345,9 +346,13 @@ function WorkLine({
       <Collapse open={open && hasDetail} id={id}>
         <div className="mt-1 mb-2 ml-5.5">
           {entry.type === 'reasoning' ? (
-            <p className="border-l-2 border-border pl-3 text-sm whitespace-pre-wrap text-muted-foreground">
-              {entry.text}
-            </p>
+            // 思考过程也按 Markdown 显示（Claude 等模型的思考常带标题与列表），收着看的不缓冲放字。
+            <MarkdownView
+              text={entry.text}
+              streaming={entry.state === 'streaming'}
+              smooth={false}
+              className="border-l-2 border-border pl-3 text-sm text-muted-foreground"
+            />
           ) : entry.type === 'raw' ? (
             <pre className="max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
               {formatJson(entry.params).text}

@@ -330,3 +330,17 @@
     font-weight: 600;
   }
 }
+
+/* 流式回答新放出的字淡入（reveal.ts）：时长同 FRESH_FADE_MS，延迟由脚本设成负的已过时长。减弱动效时 index.css 把时长压成
+ * 0.01ms，markdown-view.tsx 也不再包 span。 */
+@layer components {
+  .markdown .md-fresh {
+    animation: md-fresh 360ms var(--ease-fall) both;
+  }
+}
+
+@keyframes md-fresh {
+  from {
+    opacity: 0;
+  }
+}

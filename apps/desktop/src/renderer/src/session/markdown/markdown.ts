@@ -15,6 +15,7 @@ import DOMPurify from 'dompurify';
 import { Marked, type RendererObject, type Token } from 'marked';
 import { parseFileHref } from '@/files/file-path';
 import { t } from '@/i18n';
+import { repairStreamingMarkdown } from './stream-safe';
 
 export function escapeHtml(value: string): string {
   return value
@@ -158,7 +159,7 @@ function hasReferenceDefinition(tokens: readonly Token[]): boolean {
 /**
  * 流式消息的增量渲染器。整篇渲染每来一个片段就要把全文重新 lex、parse、清洗一遍，代价随文本增长；这里保留
  * 上一帧的顶层 token，追加时只重新 lex 末尾，已定的块复用之前的 HTML 对象。引用式链接定义跨块生效，所以
- * 源码里有定义时总是整篇重来。
+ * 源码里有定义时总是整篇重来。末尾没写完的语法先经 stream-safe.ts 修补，不露出 `**`、半张表这类原文。
  */
 export function createStreamingMarkdownRenderer(): StreamingMarkdownRenderer {
   let state: StreamingState | null = null;
@@ -168,7 +169,7 @@ export function createStreamingMarkdownRenderer(): StreamingMarkdownRenderer {
   });
 
   const renderAll = (source: string, previous: StreamingState | null): StreamingState => {
-    const tokens = parser.lexer(source);
+    const tokens = parser.lexer(repairStreamingMarkdown(source));
     const reusable =
       previous && !hasReferenceDefinition(tokens) && !hasReferenceDefinition(previous.tokens)
         ? previous
@@ -188,7 +189,8 @@ export function createStreamingMarkdownRenderer(): StreamingMarkdownRenderer {
     if (keep <= 0 || hasReferenceDefinition(previous.tokens)) return null;
     let offset = 0;
     for (const token of previous.tokens.slice(0, keep)) offset += token.raw.length;
-    const tail = parser.lexer(source.slice(offset));
+    // 末尾修补（stream-safe.ts）只动最后一两个块，已定的块的 raw 仍与原文一致，下一次的 offset 才对得上。
+    const tail = parser.lexer(repairStreamingMarkdown(source.slice(offset)));
     if (hasReferenceDefinition(tail)) return null;
     // 末尾没变的块同样复用（例如新片段只开了一个新块）。
     const previousTail = previous.tokens.slice(keep);

@@ -5,6 +5,7 @@ import {
   latestTodos,
   todoCollapsedByDefault,
   todoProgress,
+  todoRowState,
   todoStatus,
   turnRecap,
 } from './todo-model';
@@ -89,13 +90,21 @@ describe('进度与收起', () => {
     });
   });
 
-  it('回合结束且全部完成、或在等用户时收起；结束而没做完时展开', () => {
+  it('回合结束（做没做完都算）或在等用户时收起', () => {
     const done = { turnId: T1, items: items('completed', 'completed') };
     const partial = { turnId: T1, items: items('completed', 'pending') };
     expect(todoCollapsedByDefault({ ...done, active: false }, false)).toBe(true);
     expect(todoCollapsedByDefault({ ...done, active: true }, false)).toBe(false);
-    expect(todoCollapsedByDefault({ ...partial, active: false }, false)).toBe(false);
+    expect(todoCollapsedByDefault({ ...partial, active: false }, false)).toBe(true);
+    expect(todoCollapsedByDefault({ ...partial, active: true }, false)).toBe(false);
     expect(todoCollapsedByDefault({ ...partial, active: true }, true)).toBe(true);
+  });
+
+  it('回合结束后还在“进行中”的一项不再转圈，没开始的照旧', () => {
+    expect(todoRowState({ status: 'in_progress' }, true)).toBe('in_progress');
+    expect(todoRowState({ status: 'in_progress' }, false)).toBe('stalled');
+    expect(todoRowState({ status: 'pending' }, false)).toBe('pending');
+    expect(todoRowState({ status: 'completed' }, false)).toBe('completed');
   });
 });
 

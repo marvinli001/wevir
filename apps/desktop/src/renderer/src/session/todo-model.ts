@@ -62,11 +62,23 @@ export function todoProgress(items: readonly TodoItem[]): TodoProgress {
   };
 }
 
-/** 清单卡片默认收起：回合结束且全部完成，或会话在等用户（审批、提问）时。用户点过的照用户的。 */
+/**
+ * 清单卡片默认收起：回合结束（没标完的也收起：模型常忘了最后再更新一次，回合已经不在做了），或会话在等用户（审批、提问）
+ * 时。用户点过的照用户的。
+ */
 export function todoCollapsedByDefault(todos: TurnTodos, waiting: boolean): boolean {
-  if (waiting) return true;
-  const { done, total } = todoProgress(todos.items);
-  return !todos.active && done === total;
+  return waiting || !todos.active;
+}
+
+/**
+ * 一项在卡片上的样子：回合结束后还是“进行中”的不再转圈（`stalled`），照原样显示没标完，不替模型改成完成。
+ */
+export function todoRowState(
+  item: Pick<TodoItem, 'status'>,
+  turnActive: boolean,
+): TodoStatus | 'stalled' {
+  const status = todoStatus(item);
+  return status === 'in_progress' && !turnActive ? 'stalled' : status;
 }
 
 /** 回顾的素材：有清单时是进度，没有时是这一轮最近一个工作组的摘要；都没有时是 undefined。 */
