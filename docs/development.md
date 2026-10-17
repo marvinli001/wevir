@@ -641,6 +641,7 @@ WEVIR_TEST_WEB_FETCH=1 pnpm vitest run --project host web.contract --maxWorkers=
 
 - **审批用例要求仓库不在系统临时目录下。** dsh 的 `workspace-write` 允许不经审批写 `/tmp` 与 `$TMPDIR`，审批用例的写入目标是 `packages/adapter-dsh/.test-outside/`；仓库克隆在 `/tmp` 下时，这些用例直接报“在系统临时目录 … 下，写入不会触发审批”。
 - `WEVIR_RECORD_FIXTURES=1`：重新录制 adapter-dsh 的 resume 错误样本，见 `packages/adapter-dsh/src/test-fixtures/README.md`。
+- **LSP 工具**（domain-model §3.15.5）：`packages/host/src/lsp-tools.test.ts` 用假语言服务器（`test-fixtures/fake-lsp.mjs`，经 stdio 讲 LSP）测工具、诊断、改动文件的反馈、失败上限与回收；`lsp-tools.typescript.integration.test.ts` 用仓库根目录装的 TypeScript 7 跑真实的 `tsc --lsp`（不是 7.x 或没有这个平台的原生包时跳过）。别的语言用本机装好的服务器：`npm i -g pyright`（或 `pip install basedpyright`）、`go install golang.org/x/tools/gopls@latest`、`rustup component add rust-analyzer`（`~/.cargo/bin/rust-analyzer` 是 rustup 的代理，没装组件时一启动就退出）、clangd 与 sourcekit-lsp 随 Xcode 命令行工具；不想动全局环境时装进一个目录再把它放到启动 Host 的 PATH 前面。sourcekit-lsp 的引用与诊断要 SwiftPM 包构建过（有索引与编译参数），没构建时只有定义与悬停。
 - `pnpm gate:m2`：Gate M2 的端到端验收（子进程 Host + 最小 WebSocket 客户端），`--keep` 保留临时数据目录。
 
 ## 7. 大陆网络

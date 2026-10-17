@@ -28,6 +28,7 @@ import { createHostMethods, createProviderLock, syncProviders } from './host-met
 import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import type { Logger } from './logger.js';
+import { LspManager } from './lsp/manager.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { HostRpcServer } from './rpc-server.js';
@@ -210,8 +211,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       adapter,
       appTools: {
         grant: (sessionId) => appMcp?.grant(sessionId),
-        prepareEvent: (sessionId, event) =>
-          appTools?.plugins?.prepareEvent(sessionId, event) ?? Promise.resolve(event),
+        prepareEvent: (sessionId, event) => {
+          // 代码智能：记下引擎改过的文件（不改事件）。
+          appTools?.lsp?.observe(sessionId, event);
+          return appTools?.plugins?.prepareEvent(sessionId, event) ?? Promise.resolve(event);
+        },
         resolved: (sessionId, toolCallId, approved) =>
           appTools?.plugins?.resolved(sessionId, toolCallId, approved),
         forget: (sessionIds) => void processes?.removeSessions(sessionIds),
@@ -287,6 +291,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
 
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
+    // 代码智能（lsp_* 工具）：语言服务器按需启动，空闲关闭，Host 退出时回收。
+    const lsp =
+      adapter.appTools === true
+        ? new LspManager({ onWarning: (message, fields) => logger.warn(message, fields) })
+        : undefined;
     if (adapter.appTools === true) {
       appTools = new AppTools({
         plugins,
@@ -297,6 +306,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sendWhileBusy: () => settings.get().sendWhileBusy,
         ...(browsers !== undefined && { browser: browsers }),
         ...(processes !== undefined && { processes }),
+        ...(lsp !== undefined && { lsp }),
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       appMcp = new AppMcpServer({
@@ -413,6 +423,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           rpc: server,
           appMcp: mcp,
           processes,
+          lsp,
           sessions: manager,
           adapter,
           accounts,
@@ -465,6 +476,8 @@ interface ShutdownParts {
   appMcp: AppMcpServer | undefined;
   /** 后台进程（processes.ts）；没有应用级工具时没有。 */
   processes: ProcessManager | undefined;
+  /** 代码智能的语言服务器；引擎挂不上应用级工具时没有。 */
+  lsp: LspManager | undefined;
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
@@ -517,6 +530,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   await beforeDeadline(parts.checkpoints.dispose(), deadline);
   // 超时的话引擎进程留给适配器自己回收（dsh 读到 stdin EOF 即退出，T3.1）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
+  // 语言服务器：先 shutdown / exit，不退出的结束进程。
+  if (parts.lsp !== undefined) await step('close_lsp', () => parts.lsp?.close(), true);
   // 引擎（和它挂着的桥脚本）停了之后再关联网服务的端点。
   if (parts.web !== undefined) await step('close_web', () => parts.web?.close(), true);
   await step('flush_storage', () => {

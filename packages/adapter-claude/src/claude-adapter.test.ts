@@ -1027,6 +1027,14 @@ describe('应用级工具（0.30.0）', () => {
       // 0.48.0：查元素与网络记录。
       'mcp__wevir__browser_query',
       'mcp__wevir__browser_network',
+      // 代码智能：只读的 LSP 工具。
+      'mcp__wevir__lsp_definition',
+      'mcp__wevir__lsp_references',
+      'mcp__wevir__lsp_hover',
+      'mcp__wevir__lsp_document_symbols',
+      'mcp__wevir__lsp_workspace_symbols',
+      'mcp__wevir__lsp_call_hierarchy',
+      'mcp__wevir__lsp_diagnostics',
     ]);
   });
 });
