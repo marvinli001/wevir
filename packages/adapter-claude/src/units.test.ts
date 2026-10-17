@@ -5,6 +5,9 @@ import { claudeEnv, NESTED_SESSION_ENV } from './env.js';
 import {
   claudePath,
   findClaude,
+  findGitBash,
+  GIT_BASH_ENV,
+  isGitBashError,
   isWindowsLauncherShim,
   parseClaudeVersion,
   resolveWindowsShim,
@@ -134,6 +137,147 @@ describe('找 claude', () => {
       ANTHROPIC_API_KEY: 'k',
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
     });
+  });
+});
+
+describe('Windows 上找 Git Bash', () => {
+  const files = (list: string[]) => (path: string) => list.includes(path);
+  const find = (
+    list: string[],
+    env: NodeJS.ProcessEnv,
+    platform: NodeJS.Platform = 'win32',
+    home = 'C:\\Users\\me',
+  ) => findGitBash({ env, platform, home, exists: files(list) });
+  const gitRoot = 'C:\\Program Files\\Git';
+
+  it('CLAUDE_CODE_GIT_BASH_PATH 已设置且文件存在：优先于一切', () => {
+    const custom = 'D:\\Tools\\Git\\bin\\bash.exe';
+    expect(
+      find([custom, `${gitRoot}\\bin\\bash.exe`], {
+        [GIT_BASH_ENV]: custom,
+        ProgramFiles: 'C:\\Program Files',
+      }),
+    ).toBe(custom);
+    // 名字不分大小写，值两端的空白去掉。
+    expect(find([custom], { claude_code_git_bash_path: `  ${custom} ` })).toBe(custom);
+  });
+
+  it('变量指向不存在的文件：忽略，继续找', () => {
+    expect(
+      find([`${gitRoot}\\bin\\bash.exe`], {
+        [GIT_BASH_ENV]: 'D:\\gone\\bash.exe',
+        ProgramFiles: 'C:\\Program Files',
+      }),
+    ).toBe(`${gitRoot}\\bin\\bash.exe`);
+    expect(find([], { [GIT_BASH_ENV]: 'D:\\gone\\bash.exe' })).toBeUndefined();
+  });
+
+  it('PATH 里的 git.exe 推出 Git 根：cmd\\、bin\\、mingw64\\bin\\ 三种位置', () => {
+    const bash = 'D:\\Dev\\Git\\bin\\bash.exe';
+    for (const dir of ['D:\\Dev\\Git\\cmd', 'D:\\Dev\\Git\\bin', 'D:\\Dev\\Git\\mingw64\\bin']) {
+      expect(find([`${dir}\\git.exe`, bash], { Path: `C:\\Windows;${dir};C:\\x` })).toBe(bash);
+    }
+    // PATH 项带引号、尾部有空格也认；PATH 的名字大小写不限。
+    expect(
+      find(['D:\\Dev\\Git\\cmd\\git.exe', bash], { PATH: '"D:\\Dev\\Git\\cmd" ;C:\\Windows' }),
+    ).toBe(bash);
+  });
+
+  it('不在 PATH 里直接找 bash.exe：System32 的那个是 WSL', () => {
+    expect(
+      find(['C:\\Windows\\System32\\bash.exe'], { Path: 'C:\\Windows\\System32' }),
+    ).toBeUndefined();
+  });
+
+  it('PATH 里的 git 推出的路径先于常见位置', () => {
+    const fromPath = 'D:\\Dev\\Git\\bin\\bash.exe';
+    const common = `${gitRoot}\\bin\\bash.exe`;
+    expect(
+      find(['D:\\Dev\\Git\\cmd\\git.exe', fromPath, common], {
+        Path: 'D:\\Dev\\Git\\cmd',
+        ProgramFiles: 'C:\\Program Files',
+      }),
+    ).toBe(fromPath);
+  });
+
+  it('常见位置：ProgramFiles、ProgramFiles(x86)、LOCALAPPDATA\\Programs、scoop', () => {
+    const env = {
+      Path: 'C:\\Windows',
+      ProgramFiles: 'C:\\Program Files',
+      'ProgramFiles(x86)': 'C:\\Program Files (x86)',
+      LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local',
+    };
+    const x64 = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    const x86 = 'C:\\Program Files (x86)\\Git\\bin\\bash.exe';
+    const perUser = 'C:\\Users\\me\\AppData\\Local\\Programs\\Git\\bin\\bash.exe';
+    const scoop = 'C:\\Users\\me\\scoop\\apps\\git\\current\\bin\\bash.exe';
+    expect(find([x64, x86, perUser, scoop], env)).toBe(x64);
+    expect(find([x86, perUser, scoop], env)).toBe(x86);
+    expect(find([perUser, scoop], env)).toBe(perUser);
+    expect(find([scoop], env)).toBe(scoop);
+    expect(find([], env)).toBeUndefined();
+  });
+
+  it('只在 Windows 上找', () => {
+    const list = [`${gitRoot}\\bin\\bash.exe`];
+    expect(find(list, { ProgramFiles: 'C:\\Program Files' }, 'darwin')).toBeUndefined();
+    expect(find(list, { ProgramFiles: 'C:\\Program Files' }, 'linux')).toBeUndefined();
+  });
+
+  it('claude 缺 Git Bash 的报错', () => {
+    expect(
+      isGitBashError(
+        '`claude --version` failed: Claude Code on Windows requires git-bash (https://git-scm.com/downloads/win). If installed but not in PATH, set environment variable pointing to your bash.exe, similar to: CLAUDE_CODE_GIT_BASH_PATH=C:\\Program Files\\Git\\bin\\bash.exe',
+      ),
+    ).toBe(true);
+    expect(isGitBashError('`claude --version` failed: boom')).toBe(false);
+  });
+
+  it('交给 claude 的环境（Windows）：找到就带上 CLAUDE_CODE_GIT_BASH_PATH，旧写法不并存', () => {
+    const bash = `${gitRoot}\\bin\\bash.exe`;
+    const env = claudeEnv(
+      {
+        Path: 'C:\\Windows',
+        ProgramFiles: 'C:\\Program Files',
+        Claude_Code_Git_Bash_Path: 'D:\\gone\\bash.exe',
+      },
+      'C:\\Users\\me\\.local\\bin\\claude.exe',
+      {
+        platform: 'win32',
+        home: 'C:\\Users\\me',
+        exists: files([bash]),
+        isDir: () => false,
+      },
+    );
+    expect(env[GIT_BASH_ENV]).toBe(bash);
+    expect(
+      Object.keys(env).filter((name) => name.toLowerCase() === GIT_BASH_ENV.toLowerCase()),
+    ).toEqual([GIT_BASH_ENV]);
+    expect(env.PATH).toBe('C:\\Users\\me\\.local\\bin;C:\\Windows');
+    expect(env.Path).toBeUndefined();
+  });
+
+  it('交给 claude 的环境（Windows）：找不到时不编一个，原来的值照旧；非 Windows 不碰', () => {
+    const lost = claudeEnv({ Path: 'C:\\Windows' }, undefined, {
+      platform: 'win32',
+      home: 'C:\\Users\\me',
+      exists: files([]),
+      isDir: () => false,
+    });
+    expect(GIT_BASH_ENV in lost).toBe(false);
+    const stale = claudeEnv({ [GIT_BASH_ENV]: 'D:\\gone\\bash.exe' }, undefined, {
+      platform: 'win32',
+      home: 'C:\\Users\\me',
+      exists: files([]),
+      isDir: () => false,
+    });
+    expect(stale[GIT_BASH_ENV]).toBe('D:\\gone\\bash.exe');
+    const mac = claudeEnv({ PATH: '/usr/bin' }, '/opt/claude', {
+      platform: 'darwin',
+      exists: files([`${gitRoot}\\bin\\bash.exe`]),
+      isDir: () => false,
+    });
+    expect(GIT_BASH_ENV in mac).toBe(false);
   });
 });
 

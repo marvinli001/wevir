@@ -71,10 +71,16 @@ export function pickerOrder<T extends Pick<ProviderProfile, 'kind'>>(providers: 
     .map(({ provider }) => provider);
 }
 
-/** 订阅格子与详情里的状态。`soon`：这个 Host 还没有这种订阅的引擎。 */
+/**
+ * Claude 在 Windows 上缺 Git for Windows 时 Host 给的状态（claude-event-mapping.md §2）：没装（`installed: false`）、没有安装命令、
+ * 安装地址是 Git 的下载页；协议没有专门的字段，认这个地址。
+ */
+export const GIT_FOR_WINDOWS_URL = 'https://git-scm.com/downloads/win';
+
+/** 订阅格子与详情里的状态。`soon`：这个 Host 还没有这种订阅的引擎；`missing` 的 `requires`：缺的是 Git，不是软件本身。 */
 export type SourcePhase =
   | { kind: 'soon' }
-  | { kind: 'missing'; canInstall: boolean }
+  | { kind: 'missing'; canInstall: boolean; requires?: 'git' }
   | { kind: 'installing'; percent: number | undefined }
   | { kind: 'signed_out'; signIn: 'in_app' | 'command' }
   | { kind: 'signing_in' }
@@ -92,8 +98,14 @@ export function sourcePhase(account: AccountState | undefined): SourcePhase {
           : Math.min(100, Math.round((completedBytes / totalBytes) * 100)),
     };
   }
-  if (account.installed === false)
-    return { kind: 'missing', canInstall: account.canInstall === true };
+  if (account.installed === false) {
+    return {
+      kind: 'missing',
+      canInstall: account.canInstall === true,
+      ...(account.kind === 'claude' &&
+        account.installUrl === GIT_FOR_WINDOWS_URL && { requires: 'git' as const }),
+    };
+  }
   if (account.status === 'signing_in') return { kind: 'signing_in' };
   if (account.status === 'signed_in') {
     return { kind: 'signed_in', plan: account.planLabel ?? account.plan };

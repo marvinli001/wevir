@@ -393,6 +393,8 @@ export interface FakeQueryRecord {
 export interface FakeSdkOptions {
   /** 探测会话的 `initializationResult().account`；省略时是已登录的 Max 账号。 */
   account?: Record<string, unknown>;
+  /** 探测会话的 `initializationResult()` 抛这个错（`claude` 起不来时）。 */
+  initError?: Error;
   /** 按 prompt 换脚本（测试用自己拼的消息）。 */
   script?: (prompt: string) => Script | undefined;
 }
@@ -725,6 +727,7 @@ class FakeQuery {
   }
 
   async initializationResult(): Promise<Record<string, unknown>> {
+    if (this.#options.initError !== undefined) throw this.#options.initError;
     return {
       commands: [],
       agents: [],

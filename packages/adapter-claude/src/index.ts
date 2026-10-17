@@ -24,7 +24,7 @@ export {
   ENGINE_RAW_PROTOCOL,
   toolResultText,
 } from './claude-adapter.js';
-export { claudeEnv, NESTED_SESSION_ENV } from './env.js';
+export { type ClaudeEnvOptions, claudeEnv, NESTED_SESSION_ENV } from './env.js';
 export {
   CLAUDE_BIN_ENV,
   CLAUDE_INSTALL_COMMAND,
@@ -32,6 +32,9 @@ export {
   claudePath,
   commonClaudeDirs,
   findClaude,
+  findGitBash,
+  GIT_BASH_ENV,
+  GIT_FOR_WINDOWS_URL,
   parseClaudeVersion,
   probeClaudeVersion,
   resolveWindowsShim,

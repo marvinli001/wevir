@@ -209,6 +209,7 @@ function phaseText(phase: SourcePhase, source: SourceInfo): string {
     case 'soon':
       return t('source.status.soon');
     case 'missing':
+      if (phase.requires === 'git') return t('source.status.requiresGit');
       return t(phase.canInstall ? 'source.status.downloadable' : 'source.status.missing');
     case 'installing':
       return phase.percent === undefined
@@ -358,6 +359,9 @@ function SubscriptionBody({
   if (account === undefined || phase.kind === 'soon') {
     return <p className="text-sm text-muted-foreground">{t('source.soon.body')}</p>;
   }
+  // 缺 Git 时上面的一步已经说明白，不再重复 Host 给的英文原文。
+  const notice =
+    error ?? (phase.kind === 'missing' && phase.requires === 'git' ? undefined : account.lastError);
 
   return (
     <div className="space-y-4" data-phase={phase.kind}>
@@ -448,9 +452,7 @@ function SubscriptionBody({
           onRefresh={() => void refresh()}
         />
       )}
-      {(error ?? account.lastError) !== undefined && (
-        <NoticeBanner notice={{ tone: 'error', text: error ?? account.lastError ?? '' }} />
-      )}
+      {notice !== undefined && <NoticeBanner notice={{ tone: 'error', text: notice }} />}
     </div>
   );
 }
@@ -527,6 +529,40 @@ function InstallStep({
   const [editing, setEditing] = useState(false);
   const [path, setPath] = useState(account.customPath ?? '');
   const installing = phase.kind === 'installing';
+  if (phase.kind === 'missing' && phase.requires === 'git') {
+    return (
+      <Step
+        title={t('source.git.title')}
+        actions={
+          <>
+            {account.installUrl !== undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void window.wevir.openExternal(account.installUrl ?? '')}
+                data-action="download-git"
+              >
+                <ExternalLink />
+                {t('source.git.download')}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy !== undefined}
+              onClick={() =>
+                void onRun('refresh', () => client.request('account.get', { kind, refresh: true }))
+              }
+              data-action="recheck"
+            >
+              {busy === 'refresh' ? <LoaderCircle className="animate-spin" /> : <RotateCw />}
+              {t('source.recheck')}
+            </Button>
+          </>
+        }
+      />
+    );
+  }
   return (
     <div className="space-y-4">
       {account.canInstall === true || installing ? (
