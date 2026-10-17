@@ -4,8 +4,10 @@ import {
   channelNames,
   type Fetcher,
   feedUrl,
+  GITHUB_MIRROR_URL,
   installerFile,
   manifestFile,
+  manifestUrl,
   mirrorsFromEnv,
   PROBE_BYTES,
   parseManifest,
@@ -14,19 +16,27 @@ import {
   readMirror,
   UPDATE_MIRRORS,
   UpdateFeedError,
+  type UpdateMirror,
   verifyManifest,
 } from './feed.js';
 import { UPDATE_PUBLIC_KEYS } from './keys.js';
 
 const GLOBAL = { id: 'global', url: 'https://download.example' };
 const OPTIMIZED = { id: 'optimized', url: 'https://download2.example' };
+const GITHUB = {
+  id: 'github',
+  url: 'https://github.example/o/r/releases/download/desktop-updates',
+  layout: 'release' as const,
+};
 
 describe('线路与清单的位置', () => {
-  it('内置两条线路是维护者定的域名，内置了公钥', () => {
+  it('内置三条线路：维护者定的两个域名与 GitHub Release，内置了公钥', () => {
     expect(UPDATE_MIRRORS.map((m) => m.url)).toEqual([
       'https://download.wevir.si',
       'https://download2.wevir.si',
+      'https://github.com/marvinli001/wevir/releases/download/desktop-updates',
     ]);
+    expect(UPDATE_MIRRORS.find((m) => m.url === GITHUB_MIRROR_URL)?.layout).toBe('release');
     expect(UPDATE_PUBLIC_KEYS.length).toBeGreaterThan(0);
   });
 
@@ -34,11 +44,24 @@ describe('线路与清单的位置', () => {
     expect(feedUrl(GLOBAL, 'darwin', 'arm64')).toBe(
       'https://download.example/desktop/darwin-arm64/',
     );
+    expect(manifestUrl(GLOBAL, 'darwin', 'arm64', 'beta-mac.yml')).toBe(
+      'https://download.example/desktop/darwin-arm64/beta-mac.yml',
+    );
     expect(manifestFile('latest', 'darwin')).toBe('latest-mac.yml');
     expect(manifestFile('beta', 'win32')).toBe('beta.yml');
     expect(manifestFile('latest', 'linux')).toBe('latest-linux.yml');
     expect(channelNames('stable')).toEqual(['latest']);
     expect(channelNames('dev')).toEqual(['latest', 'beta']);
+  });
+
+  it('GitHub Release 没有目录：清单前加平台与架构，安装包相对 Release 的下载地址', () => {
+    expect(manifestUrl(GITHUB, 'darwin', 'arm64', 'latest-mac.yml')).toBe(
+      `${GITHUB.url}/darwin-arm64-latest-mac.yml`,
+    );
+    expect(manifestUrl(GITHUB, 'win32', 'x64', 'beta.yml')).toBe(
+      `${GITHUB.url}/win32-x64-beta.yml`,
+    );
+    expect(feedUrl(GITHUB, 'darwin', 'x64')).toBe(`${GITHUB.url}/`);
   });
 
   it('WEVIR_UPDATE_MIRRORS 换线路，格式不对时不用', () => {
@@ -48,6 +71,9 @@ describe('线路与清单的位置', () => {
         { id: 'optimized', url: 'http://127.0.0.1:8702' },
       ],
     );
+    expect(mirrorsFromEnv('github=http://127.0.0.1:8703/o/r/releases/download/x')).toEqual([
+      { id: 'github', url: 'http://127.0.0.1:8703/o/r/releases/download/x', layout: 'release' },
+    ]);
     expect(mirrorsFromEnv(undefined)).toBeUndefined();
     expect(mirrorsFromEnv('global=ftp://x')).toBeUndefined();
   });
@@ -105,7 +131,7 @@ describe('readMirror / raceMirrors', () => {
     return r;
   }
   const read =
-    (fetcher: Fetcher, channel: 'stable' | 'dev') => (mirror: typeof GLOBAL, signal: AbortSignal) =>
+    (fetcher: Fetcher, channel: 'stable' | 'dev') => (mirror: UpdateMirror, signal: AbortSignal) =>
       readMirror({
         mirror,
         channel,
@@ -172,6 +198,25 @@ describe('readMirror / raceMirrors', () => {
       read: read(half, 'stable'),
     }).catch((e: unknown) => e);
     expect((mixed as UpdateFeedError).empty).toBe(false);
+  });
+
+  it('GitHub 线路从带平台前缀的附件读清单，安装包仍相对 Release 的下载地址', async () => {
+    const prefix = `${GITHUB.url}/darwin-arm64-`;
+    const server = fakeServer({
+      [`${prefix}latest-mac.yml`]: manifestText('0.3.0'),
+      [`${prefix}latest-mac.yml.sig`]: signText(manifestText('0.3.0'), privateKey),
+      [`${prefix}beta-mac.yml`]: manifestText('0.3.1-beta.2'),
+      [`${prefix}beta-mac.yml.sig`]: signText(manifestText('0.3.1-beta.2'), privateKey),
+    });
+    const { first } = await raceMirrors({
+      mirrors: [GITHUB],
+      timeoutMs: 1000,
+      read: read(server.fetcher, 'dev'),
+    });
+    expect(first.info.version).toBe('0.3.1-beta.2');
+    expect(first.baseUrl + installerFile(first.info, 'darwin')).toBe(
+      `${GITHUB.url}/${installerFile(first.info, 'darwin')}`,
+    );
   });
 
   it('先给出验过签的清单的线路胜出；慢的那条在后台跑完，结果给测速用', async () => {

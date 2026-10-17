@@ -1,6 +1,6 @@
 # ADR-0007：第一个安装包与运行时分发
 
-- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）；补记 3：Claude 与 Cursor 的 SDK 不随安装包分发；补记 4：自动更新的客户端
+- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）；补记 3：Claude 与 Cursor 的 SDK 不随安装包分发；补记 4：自动更新的客户端；2026-10-17 补记 5：加 GitHub Release 线路
 - 日期：2026-10-14
 - 任务：R9；影响：`apps/desktop` 的打包与资源目录、adapter-codex 的二进制解析；推迟的部分影响 adapter-dsh、Host 的组件管理、设置页的引擎列表、R8 的 Grok Build 与 Gemini CLI
 - 依据：[ADR-0005](./0005-agent-runtime-and-model-gateway.md) 决策 8、未决事项 2 与 4；[ADR-0002](./0002-host-transport-and-process-model.md) 未决事项 1；[ADR-0004](./0004-repo-tooling.md)（打包工具留到打包阶段）；[UPSTREAM.md](../upstream/UPSTREAM.md) §1.2、§2.1、§2.4；[third-party-notices.md](../upstream/third-party-notices.md)；本文“背景”里的本机实测
@@ -150,4 +150,9 @@
    - **状态与时机**：启动 30 s 后检查一次，之后每小时一次；睡眠时计时器不走，所以唤醒或窗口回到前台时，上次检查早于 15 分钟就补查一次并重新计时（2026-10-17 起，原来是每 4 小时、不补查）。macOS 应用菜单有“检查更新…”，打开设置 → 关于并立即检查；不自动下载（`autoDownload` 关），点侧栏的入口才下载。下载完显示“重启以更新”等用户点（2026-10-16 起不再在没有回合在跑时自己安装）；下载好了但用户直接退出时退出时安装（`autoInstallOnAppQuit`）。安装经 `quitAndInstall`，主进程原有的退出流程照常停掉自己拉起的 Host。开发构建、没有公钥、macOS 上从 dmg 直接打开或被系统转移位置时关闭；最后一种在设置里给“移到“应用程序””。
    - **验收**（2026-10-16，macOS arm64，两个版本都用 Developer ID 签名、没有公证）：装 0.1.0，两条本机线路（支持 Range 的小服务器，全球线路限速 3 MB/s）发 0.1.1 的发布目录，`WEVIR_UPDATE_MIRRORS` 指过去。启动后两条线路都取了清单与签名、各取了安装包开头 256 KB，按吞吐选了优化线路（约 87 000 对 2 900 字节 / 毫秒）；侧栏左下角出现“新版本 0.1.1 · 更新”，点击后从优化线路下载整个 zip（第一次更新没有旧的 update.zip，不走差分），没有回合在跑，直接显示“正在安装更新”，应用退出并停掉 Host，Squirrel 换掉应用、重新打开：Info.plist 是 0.1.1，签名完整，新版本启动后又检查了一次。
    - **没有验证的**：Windows（NSIS 的更新、未签名时 electron-updater 不做发布者校验，安全只靠清单签名与 sha512）；差分下载（要第二次更新才有旧包）；真实的两个域名与 CDN（还没解析）；下载中途断网、两条线路都坏时界面的表现只有单元测试。
+5. **2026-10-17，加 GitHub Release 线路（维护者定）。** 海外以 GitHub 为主要的更新线路，`download.wevir.si`（Bunny）留作备用，`download2.wevir.si`（RustFS）照旧；原有两条线路与客户端的选线路逻辑都不变，只是多一条。国内的 git 平台（CNB、Gitee）商量过，这次不做。
+   - **布局**：仓库里 tag `desktop-updates` 的一个滚动 Release（预发布、不标 Latest，Releases 页上的最新版本仍是正式版的 `vX.Y.Z`），只放更新用的文件。附件没有目录：清单与签名的名字前加平台目录（`darwin-arm64-latest-mac.yml`、`win32-x64-beta.yml.sig`），安装包与 blockmap 照原名（名字本来就带平台与架构），所以清单里的相对路径、electron-updater 差分下载时按版本号换出的旧 blockmap 地址都照样对。开发版与正式版的文件同在这一个 Release 里，与发布目录一样各留最新 2 个版本。
+   - **客户端**（`feed.ts`）：`UPDATE_MIRRORS` 加 `{ id: 'github', layout: 'release' }`，地址 `https://github.com/marvinli001/wevir/releases/download/desktop-updates`；清单地址由 `manifestUrl` 按布局拼，安装包相对 Release 的下载地址。仍然先验签，下载经 GitHub 的跳转到 `release-assets.githubusercontent.com`（支持 Range，测速与差分照用）。`WEVIR_UPDATE_MIRRORS` 里地址带 `/releases/download/` 的按这个布局读。
+   - **发布**（`release.ts`）：线路抽成 `Line`（S3 两条与 GitHub 一条），流程不变：安装包先传到所有线路，再核对版本、写清单，最后清理。GitHub 线路用 gh 与工作流的 `GITHUB_TOKEN`（发布作业本来就有 `contents: write`），没有这个 Release 时先建；传完核对附件的大小与 GitHub 给的 sha256。写清单是 `--clobber`（先删后传），有一两秒这条线路没有清单或清单与签名对不上，客户端这时会用另外两条线路。正式版另建的 `vX.Y.Z` Release（dmg 与 exe，给人下载）照旧，不清理。
+   - **验证**：单元测试；用模拟的 gh 跑了 `publish --only github` 的五次发布（建 Release、清单前缀、拒绝更低版本、两个通道各留 2 个版本）。没有在真实仓库上发过，第一次开发版发布时看。
 

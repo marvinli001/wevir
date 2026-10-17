@@ -1,10 +1,11 @@
-# 发布（ADR-0007 补记 2 的第 3 步）：构建安装包，签更新清单，上传到两条下载线路。
+# 发布（ADR-0007 补记 2 的第 3 步）：构建安装包，签更新清单，上传到三条下载线路（两个自己的域名与 GitHub Release）。
 #
 # - 开发版：master 上的 CI 跑完后自动发（workflow_run）。版本 X.Y.(Z+1)-beta.N，见 apps/desktop/scripts/release.ts plan。
 # - 正式版：维护者决定发布时在 master 的提交上打 tag `vX.Y.Z` 并推送；要求这个提交在 master 上、CI 已经通过。
 #   正式版另建 GitHub Release（备用下载）。
 #
-# 产物按 src/main/updates/feed.ts 的布局放在每条线路的 desktop/<平台>-<架构>/：先传安装包，两条线路都成功后再写
+# 产物按 src/main/updates/feed.ts 的布局放在每条线路的 desktop/<平台>-<架构>/（GitHub 线路是 tag desktop-updates 的
+# 预发布 Release，清单名前加平台目录）：先传安装包，所有线路都成功后再写
 # 清单与签名，清单只许更高的版本覆盖（release.ts publish）。同一时间只跑一个发布，后来的排队；排队的只保留最新一个，
 # 连续提交时中间的开发版自然跳过。
 #
@@ -207,8 +208,10 @@ jobs:
           done
           ls -lR site
 
-      - name: 上传到 download.wevir.si 与 download2.wevir.si
+      - name: 上传到 download.wevir.si、download2.wevir.si 与 GitHub Release
         env:
+          GH_TOKEN: ${{ github.token }}
+          WEVIR_RELEASE_SHA: ${{ needs.plan.outputs.sha }}
           WEVIR_GLOBAL_S3_ENDPOINT: ${{ vars.WEVIR_GLOBAL_S3_ENDPOINT }}
           WEVIR_GLOBAL_S3_REGION: ${{ vars.WEVIR_GLOBAL_S3_REGION }}
           WEVIR_GLOBAL_S3_BUCKET: ${{ vars.WEVIR_GLOBAL_S3_BUCKET }}

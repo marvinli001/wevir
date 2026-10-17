@@ -219,7 +219,7 @@ pnpm --filter @wevir/desktop package
 
   流水线核对这个提交在 master 上、CI 通过，发到 `latest` 通道，另建 GitHub Release（dmg 与 exe）。
 - 三个包并行打：macOS arm64、x64（macos-latest，签名、公证，检查 `codesign`、`stapler`、`spctl`），Windows x64（windows-latest，不签名）。版本经 `package --app-version` 写进安装包，electron-builder 按它写出更新清单（`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，通道由版本的预发布标签决定）。
-- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到两条线路。先传安装包，两条线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路（Bunny）每个文件用一次 PutObject 整个传、不分片（Bunny 把分片上传的文件复制到其他地区的存储副本时会丢片：2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 少了一个 8 MiB 的分片，清缓存也没用）；传完安装包后经 CDN 逐个下载、与本地核对 sha512，对不上就清缓存重取（最多 20 分钟，超时整个停下、不写清单），都对上后再等 3 分钟让其他地区的存储副本跟上、清一次缓存，才写清单；写完清单同样清缓存并核对（`release.ts` 的 `waitForCdn`）。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本（正式版的 dmg 与 exe 另在 GitHub Release 上）。
+- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到三条线路（两个域名与 GitHub Release `desktop-updates`）。先传安装包，所有线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路（Bunny）每个文件用一次 PutObject 整个传、不分片（Bunny 把分片上传的文件复制到其他地区的存储副本时会丢片：2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 少了一个 8 MiB 的分片，清缓存也没用）；传完安装包后经 CDN 逐个下载、与本地核对 sha512，对不上就清缓存重取（最多 20 分钟，超时整个停下、不写清单），都对上后再等 3 分钟让其他地区的存储副本跟上、清一次缓存，才写清单；写完清单同样清缓存并核对（`release.ts` 的 `waitForCdn`）。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本，GitHub 线路的 Release 也一样（正式版的 dmg 与 exe 另在 `vX.Y.Z` 的 GitHub Release 上，不清理）。GitHub 线路用工作流的 `GITHUB_TOKEN`，不用另配 secret；Release 不存在时自动建（预发布、不标 Latest）。
 - 同一时间只跑一个发布，后来的排队，排队的只留最新一个。
 
 仓库要配的 secret 与 variable（Settings → Secrets and variables → Actions；`gh secret set` / `gh variable set`）：
@@ -246,13 +246,13 @@ pnpm --filter @wevir/desktop package
 
 两条线路的服务端：`https://download.wevir.si/desktop/…` 对应 Bunny 存储区根目录下的 `desktop/…`（拉取区连到存储区）；`download2.wevir.si` 直接是 RustFS 的 S3 接口（path-style），`https://download2.wevir.si/desktop/…` 就是桶 `desktop` 里的键，所以桶名必须是 `desktop`，键里不带 `desktop/`（`release.ts` 的 `bucketIsDesktop`），桶要允许匿名读（GetObject）。客户端用 Range 请求测速，两边都要支持 Range。RustFS 上清单带 `Cache-Control: no-cache`；Bunny 的 S3 接口不收这个头，靠清缓存，也可以在拉取区给 `*.yml`、`*.sig` 加不缓存的 Edge Rule。
 
-本机试上传（不经 CI）：设好上表的线路变量，`node apps/desktop/scripts/release.ts publish --channel dev --version <版本> --dir <目录> --only optimized`，`<目录>` 下按 `darwin-arm64/` 等放产物与签过名的清单。要本机装 AWS CLI。
+本机试上传（不经 CI）：设好上表的线路变量，`node apps/desktop/scripts/release.ts publish --channel dev --version <版本> --dir <目录> --only optimized`，`<目录>` 下按 `darwin-arm64/` 等放产物与签过名的清单。要本机装 AWS CLI。`--only github` 要 gh 与 `GH_TOKEN`，会写真实仓库的 Release。
 
 ### 3.8 自动更新与发布目录
 
 安装包自己检查更新（[ADR-0007](./adr/0007-packaging-and-runtime-distribution.md) 补记 2、4）：主进程的 `src/main/updates/`，界面是侧栏左下角的更新入口与设置 → 关于。开发构建（`pnpm dev`）不检查。
 
-- **两条线路**：全球 `https://download.wevir.si`、优化 `https://download2.wevir.si`，发布目录是 `<线路>/desktop/<平台>-<架构>/`（例如 `darwin-arm64`、`win32-x64`）。每次检查同时向两条线路取更新清单（`latest-mac.yml` / `latest.yml`，开发版通道另取 `beta-*`），先给出验过签的那条胜出；清单 404 当作该通道还没发布过（还没发正式版时只有 `beta-*`），两条线路上该通道的清单都不存在时显示已是最新，不报连不上；有新版本时在给出同一版本的线路之间各取安装包开头 256 KB 测速，选快的下载，下载失败换另一条重试一次。
+- **三条线路**：全球 `https://download.wevir.si`、优化 `https://download2.wevir.si`，发布目录是 `<线路>/desktop/<平台>-<架构>/`（例如 `darwin-arm64`、`win32-x64`）；GitHub `https://github.com/marvinli001/wevir/releases/download/desktop-updates`，附件没有目录，清单名前加平台目录（`darwin-arm64-latest-mac.yml`），安装包照原名（ADR-0007 补记 5）。每次检查同时向所有线路取更新清单（`latest-mac.yml` / `latest.yml`，开发版通道另取 `beta-*`），先给出验过签的那条胜出；清单 404 当作该通道还没发布过（还没发正式版时只有 `beta-*`），所有线路上该通道的清单都不存在时显示已是最新，不报连不上；有新版本时在给出同一版本的线路之间各取安装包开头 256 KB 测速，选快的下载，下载失败换另一条重试一次。
 - **签名**：每份清单旁边有 `<清单>.sig`（Ed25519，签清单的原始字节），应用只认 `src/main/updates/keys.ts` 里的公钥，验不过就不下载；清单里每个文件的 sha512 由 electron-updater 下载后核对。私钥在维护者本机 `~/.wevir-release/update-signing-key.pem`（`node apps/desktop/scripts/update-signing.ts keygen` 生成，不进仓库，CI 用 secret），别处另生成的私钥签出来的清单客户端不认。
 - **安装包不覆盖写**：安装包的名字都带版本，发出去就不再改写。以前每次发布另存一份固定名字的安装包（`Wevir-beta-mac-arm64.dmg` 等）覆盖写：Bunny 存储覆盖同名文件后，CDN 回源在一段时间里会拿到新旧混杂的内容，2026-10-16 固定名字的 dmg 与 exe 就这样坏过（大小对、内容一半是旧的）。现在不再生成，清理时删掉留下的（`release.ts` 的 `isLegacyAlias`）。README 的下载链接指向官网下载页，版本徽章经 shields.io 读 `darwin-arm64/beta-mac.yml` 的 `version`。
 - **官网下载页**（仓库 `wevirsi`）：构建时读两条线路的清单（两个通道取版本高的），把带版本的安装包写进链接；浏览器里再读一次清单、测速选线路，读不到（线路不许跨域读）就沿用构建时的链接。发布作业最后调 `WEVIR_SITE_DEPLOY_HOOK`（secret，Vercel 的部署钩子）重建官网，没设置时只给警告。
@@ -268,7 +268,7 @@ pnpm --filter @wevir/desktop package
   ```
 
   后者把 `apps/desktop/release/` 里的清单、它列出的文件与 blockmap 复制到 `<out>/desktop/<平台>-<架构>/`，写签名并用内置公钥核对。把 `<out>` 同步到每条线路的根即可：先传安装包，最后传清单与签名。
-- **本机验收**：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,optimized=http://127.0.0.1:8702` 换掉两条线路（照样验签），`WEVIR_UPDATE_FIRST_CHECK_MS` 改启动后第一次检查的延迟（默认 30 s，之后每小时；唤醒、回到前台时上次检查早于 15 分钟就补查）。服务器要支持 Range（测速与差分下载）。
+- **本机验收**：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,optimized=http://127.0.0.1:8702` 换掉内置线路（照样验签；地址带 `/releases/download/` 的按 GitHub Release 的布局读），`WEVIR_UPDATE_FIRST_CHECK_MS` 改启动后第一次检查的延迟（默认 30 s，之后每小时；唤醒、回到前台时上次检查早于 15 分钟就补查）。服务器要支持 Range（测速与差分下载）。
 
 ## 4. 离线开发：echo 假引擎
 

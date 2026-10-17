@@ -1,9 +1,10 @@
 // 自动更新的下载线路、更新清单的签名与选线路（ADR-0007 补记 2、4）。这里只有纯逻辑，网络请求经参数里的 `fetch` 注入，
 // 不依赖 Electron，单元测试直接跑；electron-updater 的 provider 与状态机在 mirror-provider.ts 与 updater.ts。
 //
-// 发布目录（每条线路相同）：`<线路>/desktop/<平台>-<架构>/`，里面是 electron-builder 写的更新清单
+// 发布目录（Wevir 自己的两条线路）：`<线路>/desktop/<平台>-<架构>/`，里面是 electron-builder 写的更新清单
 // （`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`）、每份清单的签名 `<清单>.sig`，以及清单里
-// 列出的安装包与 blockmap（相对路径）。正式版只读 latest，开发版读 latest 与 beta、取版本高的：正式版发布后开发版用户
+// 列出的安装包与 blockmap（相对路径）。GitHub 线路是一个 Release（tag `desktop-updates`）的附件，附件没有目录：清单与签名
+// 名字前加 `<平台>-<架构>-`，安装包与 blockmap 的名字本来就带平台与架构，照原名放，清单里的相对路径照样指得到。正式版只读 latest，开发版读 latest 与 beta、取版本高的：正式版发布后开发版用户
 // 也会收到它，切回正式版时不降级（electron-updater 的 allowDowngrade 关着）。
 
 import { createPublicKey, verify } from 'node:crypto';
@@ -11,23 +12,31 @@ import { load } from 'js-yaml';
 import { compare, valid } from 'semver';
 import type { UpdateChannel } from '../../shared/desktop-api.js';
 
-/** 一条下载线路。客户端只认 Wevir 自己的域名，后面换服务商只改 DNS。 */
+/** 一条下载线路。Wevir 自己的线路只认自己的域名，后面换服务商只改 DNS；GitHub 线路是 Release 的下载地址。 */
 export interface UpdateMirror {
-  /** 稳定的 ID，记在状态里给界面显示（`global` / `optimized`）。 */
+  /** 稳定的 ID，记在状态里给界面显示（`global` / `optimized` / `github`）。 */
   id: string;
   /** 线路的根地址，不带末尾的 `/`。 */
   url: string;
+  /** `release`：GitHub Release 的附件，没有目录（见文件头）。不写时是 `desktop/<平台>-<架构>/` 的发布目录。 */
+  layout?: 'release';
 }
 
-/** 内置的两条线路（维护者 2026-10-16 定）。 */
+/** GitHub 线路：仓库里 tag `desktop-updates` 的 Release，发布作业（scripts/release.ts）往里传。 */
+export const GITHUB_MIRROR_URL =
+  'https://github.com/marvinli001/wevir/releases/download/desktop-updates';
+
+/** 内置的三条线路（维护者 2026-10-16 定前两条，2026-10-17 加 GitHub，面向海外）。 */
 export const UPDATE_MIRRORS: readonly UpdateMirror[] = [
   { id: 'global', url: 'https://download.wevir.si' },
   { id: 'optimized', url: 'https://download2.wevir.si' },
+  { id: 'github', url: GITHUB_MIRROR_URL, layout: 'release' },
 ];
 
 /**
  * 排查与本机验收用：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,optimized=http://127.0.0.1:8702` 换掉内置线路。
- * 清单照样要验签，换线路换不掉签名检查。格式不对时返回 undefined（用内置的）。
+ * 地址里有 `/releases/download/` 的按 GitHub Release 的布局读。清单照样要验签，换线路换不掉签名检查。格式不对时返回
+ * undefined（用内置的）。
  */
 export function mirrorsFromEnv(value: string | undefined): UpdateMirror[] | undefined {
   if (value === undefined || value.trim() === '') return undefined;
@@ -35,14 +44,31 @@ export function mirrorsFromEnv(value: string | undefined): UpdateMirror[] | unde
   for (const part of value.split(',')) {
     const match = /^\s*([a-z][a-z0-9-]*)=(https?:\/\/[^\s,]+?)\/?\s*$/.exec(part);
     if (match === null) return undefined;
-    mirrors.push({ id: match[1] as string, url: match[2] as string });
+    const url = match[2] as string;
+    mirrors.push({
+      id: match[1] as string,
+      url,
+      ...(url.includes('/releases/download/') && { layout: 'release' as const }),
+    });
   }
   return mirrors.length > 0 ? mirrors : undefined;
 }
 
-/** 某个平台与架构的发布目录。 */
+/** 某个平台与架构的发布目录：清单里的相对路径相对于它。GitHub 线路是 Release 的下载地址本身。 */
 export function feedUrl(mirror: UpdateMirror, platform: NodeJS.Platform, arch: string): string {
+  if (mirror.layout === 'release') return `${mirror.url}/`;
   return `${mirror.url}/desktop/${platform}-${arch}/`;
+}
+
+/** 清单 `file`（`latest-mac.yml` 等）在这条线路上的地址；签名是它后面加 `.sig`。 */
+export function manifestUrl(
+  mirror: UpdateMirror,
+  platform: NodeJS.Platform,
+  arch: string,
+  file: string,
+): string {
+  if (mirror.layout === 'release') return `${mirror.url}/${platform}-${arch}-${file}`;
+  return feedUrl(mirror, platform, arch) + file;
 }
 
 /** 通道读哪几份清单（electron-builder 的通道名：正式版 latest，开发版 beta）。 */
@@ -174,15 +200,16 @@ export async function readMirror(options: {
   const read = await Promise.all(
     channelNames(options.channel).map(async (name) => {
       const file = manifestFile(name, options.platform);
+      const url = manifestUrl(options.mirror, options.platform, options.arch, file);
       let text: Uint8Array;
       try {
-        text = await fetchBytes(options.fetcher, baseUrl + file, options.signal);
+        text = await fetchBytes(options.fetcher, url, options.signal);
       } catch (error) {
         // 某个通道还没发布过时没有它的清单（开发版没发过预发布时没有 beta，没发过正式版时没有 latest）：当这一份不存在。
         if ((error as { status?: unknown }).status === 404) return undefined;
         throw error;
       }
-      const signature = await fetchBytes(options.fetcher, `${baseUrl + file}.sig`, options.signal);
+      const signature = await fetchBytes(options.fetcher, `${url}.sig`, options.signal);
       if (!verifyManifest(text, Buffer.from(signature).toString('utf8'), options.publicKeys)) {
         throw Object.assign(new Error(`signature check failed for ${file}`), {
           reason: 'signature',

@@ -7,8 +7,11 @@ import {
   type Digest,
   devVersion,
   filesToPrune,
+  githubAssetName,
+  githubDirListing,
   isLegacyAlias,
   manifestFile,
+  platformDirOfFile,
   readManifest,
   stableVersionOfTag,
   versionOfFile,
@@ -217,5 +220,46 @@ describe('waitForCdn', () => {
     await expect(
       waitForCdn([{ url: 'a', expected: good }], cdn.check, 2 * CDN_RETRY_MS),
     ).rejects.toThrow(/a still does not match the upload .*content differs/);
+  });
+});
+
+describe('GitHub 线路的附件名', () => {
+  it('安装包与 blockmap 的名字里认出平台目录', () => {
+    expect(platformDirOfFile('Wevir-0.1.0-mac-arm64.zip')).toBe('darwin-arm64');
+    expect(platformDirOfFile('Wevir-0.1.1-beta.3-mac-x64.dmg.blockmap')).toBe('darwin-x64');
+    expect(platformDirOfFile('Wevir-0.1.1-beta.3-win-x64-setup.exe')).toBe('win32-x64');
+    expect(platformDirOfFile('beta-mac.yml')).toBeUndefined();
+  });
+
+  it('清单与签名加平台前缀，安装包照原名；放错目录的安装包不收', () => {
+    expect(githubAssetName('darwin-arm64', 'latest-mac.yml')).toBe('darwin-arm64-latest-mac.yml');
+    expect(githubAssetName('win32-x64', 'beta.yml.sig')).toBe('win32-x64-beta.yml.sig');
+    expect(githubAssetName('darwin-arm64', 'Wevir-0.1.0-mac-arm64.zip')).toBe(
+      'Wevir-0.1.0-mac-arm64.zip',
+    );
+    expect(() => githubAssetName('darwin-x64', 'Wevir-0.1.0-mac-arm64.zip')).toThrow();
+  });
+
+  it('按平台目录列出附件，给清理用', () => {
+    const assets = [
+      'darwin-arm64-latest-mac.yml',
+      'darwin-arm64-latest-mac.yml.sig',
+      'darwin-x64-latest-mac.yml',
+      'win32-x64-beta.yml',
+      'Wevir-0.1.0-mac-arm64.zip',
+      'Wevir-0.1.0-mac-arm64.zip.blockmap',
+      'Wevir-0.1.0-mac-x64.zip',
+      'Wevir-0.1.1-beta.2-win-x64-setup.exe',
+    ];
+    expect(githubDirListing(assets, 'darwin-arm64')).toEqual([
+      'latest-mac.yml',
+      'latest-mac.yml.sig',
+      'Wevir-0.1.0-mac-arm64.zip',
+      'Wevir-0.1.0-mac-arm64.zip.blockmap',
+    ]);
+    expect(githubDirListing(assets, 'win32-x64')).toEqual([
+      'beta.yml',
+      'Wevir-0.1.1-beta.2-win-x64-setup.exe',
+    ]);
   });
 });

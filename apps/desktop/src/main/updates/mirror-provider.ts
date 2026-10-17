@@ -24,7 +24,7 @@ export class MirrorProvider extends Provider<UpdateInfo> {
     _updater: unknown,
     runtimeOptions: ProviderRuntimeOptions,
   ) {
-    // R2 与 Caddy 不一定支持一次请求多个 Range，差分下载按单个 Range 逐段取。
+    // RustFS、Bunny 与 GitHub 不一定都支持一次请求多个 Range，差分下载按单个 Range 逐段取。
     super({ ...runtimeOptions, isUseMultipleRangeRequest: false });
     this.#feed = options.feed;
   }

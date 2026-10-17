@@ -10,18 +10,28 @@
  *   node scripts/release.ts publish --channel dev|stable --version <版本> --dir <目录> [--only <线路>]
  *     <目录> 下每个子目录是一个平台（`darwin-arm64`、`darwin-x64`、`win32-x64`，与 src/main/updates/feed.ts 的
  *     `<平台>-<架构>` 一致），里面是 electron-builder 的产物与签过名的清单（`<清单>.sig`，update-signing.ts sign）。
- *     上传到每条线路的 `desktop/<平台>-<架构>/`：
+ *     上传到每条线路的 `desktop/<平台>-<架构>/`（GitHub 线路是 tag `desktop-updates` 的 Release，见 githubAssetName）：
  *       1. 安装包与 blockmap 传到所有线路；全球线路再经 CDN 逐个下载核对，与本地一致才往下走（waitForCdn）；
  *       2. 都成功后核对每条线路上同通道的现有清单，版本不比这次低就整个停下（只许更高的版本覆盖）；
  *       3. 逐条线路写清单与 `.sig`，全球线路随后清 CDN 缓存（Bunny 的 S3 接口不收 Cache-Control）并同样核对；
  *       4. 清理：开发版与正式版各留最新的 KEEP_VERSIONS 个版本，再加上清单正引用的；以前的固定名字安装包也删掉。
  *     安装包的名字都带版本，发出去就不再改写：Bunny 存储覆盖同名文件后，CDN 回源会在一段时间里拿到新旧混杂
  *     或不完整的内容（2026-10-16 固定名字的 dmg 就这样坏过），所以不再有覆盖写的安装包，下载页按清单链接。
- *     线路的连接信息来自环境变量（见 MIRRORS），用 AWS CLI（GitHub 的 Ubuntu runner 自带）。
+ *     线路的连接信息来自环境变量（见 MIRRORS），用 AWS CLI（GitHub 的 Ubuntu runner 自带）；GitHub 线路用 gh 与 GH_TOKEN。
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { appendFileSync, createReadStream, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  copyFileSync,
+  createReadStream,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -345,6 +355,208 @@ function list(mirror: MirrorTarget, prefix: string): string[] {
     .filter((name) => name !== '' && !name.includes('/'));
 }
 
+/** 一条线路上的操作，`dir` 是平台目录（`darwin-arm64`），`name` 是目录里的文件名。 */
+interface Line {
+  id: string;
+  /** 文件的公网地址（客户端与 CDN 核对用）。 */
+  url(dir: string, name: string): string;
+  /** `manifest`：清单与签名，要求不缓存。 */
+  upload(dir: string, name: string, file: string, manifest: boolean): void;
+  /** 现有文件的内容；没有时返回 undefined。 */
+  read(dir: string, name: string): string | undefined;
+  list(dir: string): string[];
+  remove(dir: string, name: string): void;
+}
+
+function s3Line(mirror: MirrorTarget): Line {
+  const key = (dir: string, name: string) => `${mirror.root}${dir}/${name}`;
+  return {
+    id: mirror.id,
+    url: (dir, name) => `${mirror.publicUrl}/desktop/${dir}/${name}`,
+    upload: (dir, name, file, manifest) => upload(mirror, file, key(dir, name), manifest),
+    read: (dir, name) => download(mirror, key(dir, name)),
+    list: (dir) => list(mirror, `${mirror.root}${dir}/`),
+    remove: (dir, name) => {
+      aws(mirror, ['s3api', 'delete-object', '--bucket', mirror.bucket, '--key', key(dir, name)]);
+      console.log(`[${mirror.id}] deleted ${key(dir, name)}`);
+    },
+  };
+}
+
+// ---------- GitHub 线路 ----------
+
+/** GitHub 线路的 Release（与 src/main/updates/feed.ts 的 GITHUB_MIRROR_URL 一致）：滚动的预发布，只放更新用的文件。 */
+export const GITHUB_TAG = 'desktop-updates';
+const GITHUB_REPO = 'marvinli001/wevir';
+
+const MANIFEST_NAME = /^(?:latest|beta)(?:-mac|-linux)?\.yml(?:\.sig)?$/;
+
+/** 安装包与 blockmap 的名字里的平台目录：`Wevir-0.1.0-mac-arm64.zip` → `darwin-arm64`，`…-win-x64-setup.exe` → `win32-x64`。 */
+export function platformDirOfFile(name: string): string | undefined {
+  const match = /^Wevir-\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?-(mac|win|linux)-([0-9a-z_]+)[-.]/.exec(
+    name,
+  );
+  if (match === null) return undefined;
+  const os = { mac: 'darwin', win: 'win32', linux: 'linux' }[match[1] as 'mac' | 'win' | 'linux'];
+  return `${os}-${match[2]}`;
+}
+
+/**
+ * Release 的附件没有目录：清单与签名前加 `<平台目录>-`（`darwin-arm64-latest-mac.yml`），安装包与 blockmap 照原名，
+ * 它们的名字本来就带平台与架构，清单里的相对路径与差分下载找旧 blockmap 的地址都照样对。
+ */
+export function githubAssetName(dir: string, name: string): string {
+  if (MANIFEST_NAME.test(name)) return `${dir}-${name}`;
+  if (platformDirOfFile(name) === dir) return name;
+  throw new Error(`${dir}/${name} cannot be a release asset: its name does not carry ${dir}`);
+}
+
+/** 附件里属于平台目录 `dir` 的文件，按目录里的名字给出（githubAssetName 的反面）。 */
+export function githubDirListing(assets: readonly string[], dir: string): string[] {
+  return assets.flatMap((asset) => {
+    if (asset.startsWith(`${dir}-`) && MANIFEST_NAME.test(asset.slice(dir.length + 1))) {
+      return [asset.slice(dir.length + 1)];
+    }
+    return platformDirOfFile(asset) === dir ? [asset] : [];
+  });
+}
+
+interface GithubAsset {
+  id: number;
+  name: string;
+  size: number;
+  /** GitHub 算的 `sha256:<hex>`，旧附件可能没有。 */
+  digest?: string | null;
+}
+
+function githubLine(env: NodeJS.ProcessEnv): Line {
+  if (!env.GH_TOKEN?.trim() && !env.GITHUB_TOKEN?.trim()) throw new Error('GH_TOKEN is not set');
+  const repo = env.GITHUB_REPOSITORY?.trim() || GITHUB_REPO;
+  const gh = (args: readonly string[]) =>
+    execFileSync('gh', args, {
+      env,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  let releaseId: number | undefined;
+  let assets: GithubAsset[] | undefined;
+  const findRelease = (create: boolean): number | undefined => {
+    if (releaseId !== undefined) return releaseId;
+    const found = spawnSync(
+      'gh',
+      ['api', `repos/${repo}/releases/tags/${GITHUB_TAG}`, '--jq', '.id'],
+      {
+        env,
+        encoding: 'utf8',
+      },
+    );
+    if (found.status === 0) {
+      releaseId = Number(found.stdout.trim());
+      return releaseId;
+    }
+    if (!/\b404\b|Not Found/i.test(found.stderr)) {
+      throw new Error(`[github] reading release ${GITHUB_TAG} failed: ${found.stderr.trim()}`);
+    }
+    if (!create) return undefined;
+    // 预发布、不标 Latest：仓库的 Releases 页上“最新版本”仍是正式版的 vX.Y.Z。
+    gh([
+      'release',
+      'create',
+      GITHUB_TAG,
+      '--repo',
+      repo,
+      '--target',
+      env.WEVIR_RELEASE_SHA?.trim() || env.GITHUB_SHA?.trim() || 'master',
+      '--prerelease',
+      '--latest=false',
+      '--title',
+      'Desktop update feed',
+      '--notes',
+      'Files for the in-app updater (manifests, installers and blockmaps of the newest builds). Download Wevir from the versioned releases or https://wevir.si.',
+    ]);
+    console.log(`[github] created release ${GITHUB_TAG}`);
+    return findRelease(false);
+  };
+  const listAssets = (): GithubAsset[] => {
+    if (assets !== undefined) return assets;
+    const id = findRelease(false);
+    if (id === undefined) return [];
+    const out = gh([
+      'api',
+      '--paginate',
+      `repos/${repo}/releases/${id}/assets?per_page=100`,
+      '--jq',
+      '.[] | {id, name, size, digest}',
+    ]);
+    assets = out
+      .split('\n')
+      .filter((line) => line.trim() !== '')
+      .map((line) => JSON.parse(line) as GithubAsset);
+    return assets;
+  };
+  const asset = (dir: string, name: string) =>
+    listAssets().find((a) => a.name === githubAssetName(dir, name));
+  return {
+    id: 'github',
+    url: (dir, name) =>
+      `https://github.com/${repo}/releases/download/${GITHUB_TAG}/${githubAssetName(dir, name)}`,
+    upload(dir, name, file) {
+      const assetName = githubAssetName(dir, name);
+      findRelease(true);
+      // gh 用文件名做附件名：清单要换成带平台前缀的名字，先复制一份。
+      const temp = assetName === name ? undefined : mkdtempSync(join(tmpdir(), 'wevir-release-'));
+      const path = temp === undefined ? file : join(temp, assetName);
+      if (temp !== undefined) copyFileSync(file, path);
+      try {
+        gh(['release', 'upload', GITHUB_TAG, path, '--repo', repo, '--clobber']);
+      } finally {
+        if (temp !== undefined) rmSync(temp, { recursive: true, force: true });
+      }
+      assets = undefined;
+      // 核对 GitHub 收到的大小与 sha256（GitHub 给附件算 digest）。
+      const uploaded = asset(dir, name);
+      const size = statSync(file).size;
+      if (uploaded === undefined || uploaded.size !== size) {
+        throw new Error(
+          `[github] ${assetName}: uploaded ${uploaded?.size ?? 'nothing'}, expected ${size} bytes`,
+        );
+      }
+      const sha256 = createHash('sha256').update(readFileSync(file)).digest('hex');
+      if (uploaded.digest?.startsWith('sha256:') && uploaded.digest !== `sha256:${sha256}`) {
+        throw new Error(
+          `[github] ${assetName}: GitHub has ${uploaded.digest}, expected sha256:${sha256}`,
+        );
+      }
+      console.log(`[github] ${assetName}`);
+    },
+    read(dir, name) {
+      const found = asset(dir, name);
+      if (found === undefined) return undefined;
+      return gh([
+        'api',
+        '-H',
+        'Accept: application/octet-stream',
+        `repos/${repo}/releases/assets/${found.id}`,
+      ]);
+    },
+    list: (dir) =>
+      githubDirListing(
+        listAssets().map((a) => a.name),
+        dir,
+      ),
+    remove(dir, name) {
+      const assetName = githubAssetName(dir, name);
+      gh(['release', 'delete-asset', GITHUB_TAG, assetName, '--repo', repo, '--yes']);
+      assets = undefined;
+      console.log(`[github] deleted ${assetName}`);
+    },
+  };
+}
+
+/** `--only` 认的线路。 */
+export const LINE_IDS: readonly string[] = [...MIRRORS.map((mirror) => mirror.id), 'github'];
+
 async function purgeBunny(urls: readonly string[], apiKey: string, quiet = false): Promise<void> {
   for (const url of urls) {
     const response = await fetch(
@@ -470,23 +682,26 @@ async function publish(options: {
       return checkPlatformDir(platformDir, names, text, options.channel, options.version);
     });
   if (releases.length === 0) throw new Error(`${options.dir} has no platform directories`);
-  const mirrors = MIRRORS.filter(
-    (mirror) => options.only === undefined || mirror.id === options.only,
-  ).map((mirror) => mirrorTarget(mirror, process.env));
-  if (mirrors.length === 0) throw new Error(`unknown mirror ${options.only}`);
-  const keyOf = (mirror: MirrorTarget, release: PlatformRelease, name: string) =>
-    `${mirror.root}${release.dir}/${name}`;
+  const wanted = (id: string) => options.only === undefined || id === options.only;
+  const mirrors: Line[] = [
+    ...MIRRORS.filter((mirror) => wanted(mirror.id)).map((mirror) =>
+      s3Line(mirrorTarget(mirror, process.env)),
+    ),
+    ...(wanted('github') ? [githubLine(process.env)] : []),
+  ];
+  if (mirrors.length === 0)
+    throw new Error(`unknown mirror ${options.only}; one of ${LINE_IDS.join(', ')}`);
 
   // 只许更高的版本覆盖：哪条线路上已有不低于这次的清单，一份清单都不写。上传前查一次（免得白传），写清单前再查一次。
   const checkNewer = (): void => {
     for (const mirror of mirrors) {
       for (const release of releases) {
-        const current = download(mirror, keyOf(mirror, release, release.manifest));
+        const current = mirror.read(release.dir, release.manifest);
         if (current === undefined) continue;
         const existing = readManifest(current).version;
         if (compareVersions(existing, options.version) >= 0) {
           throw new Error(
-            `[${mirror.id}] ${keyOf(mirror, release, release.manifest)} is already ${existing}; not overwriting it with ${options.version}`,
+            `[${mirror.id}] ${release.dir}/${release.manifest} is already ${existing}; not overwriting it with ${options.version}`,
           );
         }
       }
@@ -498,17 +713,17 @@ async function publish(options: {
   for (const mirror of mirrors) {
     for (const release of releases) {
       for (const name of release.payload)
-        upload(mirror, join(options.dir, release.dir, name), keyOf(mirror, release, name));
+        mirror.upload(release.dir, name, join(options.dir, release.dir, name), false);
     }
   }
 
   // 全球线路：经 CDN 取回每个安装包，与本地一致了才写清单；客户端与下载页只在清单出现后才会请求它们。
   const bunnyKey = process.env.BUNNY_API_KEY?.trim();
   const globalLine = mirrors.find((mirror) => mirror.id === 'global');
-  const publicFiles = async (mirror: MirrorTarget, release: PlatformRelease, names: string[]) =>
+  const publicFiles = async (mirror: Line, release: PlatformRelease, names: string[]) =>
     Promise.all(
       names.map(async (name) => ({
-        url: `${mirror.publicUrl}/desktop/${release.dir}/${name}`,
+        url: mirror.url(release.dir, name),
         expected: await fileDigest(join(options.dir, release.dir, name)),
       })),
     );
@@ -537,8 +752,8 @@ async function publish(options: {
     const written: string[] = [];
     for (const release of releases) {
       for (const name of [release.manifest, `${release.manifest}.sig`]) {
-        upload(mirror, join(options.dir, release.dir, name), keyOf(mirror, release, name), true);
-        written.push(`${mirror.publicUrl}/desktop/${release.dir}/${name}`);
+        mirror.upload(release.dir, name, join(options.dir, release.dir, name), true);
+        written.push(mirror.url(release.dir, name));
       }
     }
     if (mirror.id === 'global' && bunnyKey) {
@@ -555,17 +770,14 @@ async function publish(options: {
   // 4. 清理旧版本的安装包。
   for (const mirror of mirrors) {
     for (const release of releases) {
-      const prefix = `${mirror.root}${release.dir}/`;
-      const names = list(mirror, prefix);
+      const names = mirror.list(release.dir);
       const referenced = new Set<string>();
       for (const channel of ['latest', 'beta'] as const) {
-        const text = download(mirror, prefix + manifestFile(channel, release.dir));
+        const text = mirror.read(release.dir, manifestFile(channel, release.dir));
         if (text !== undefined) referenced.add(readManifest(text).version);
       }
-      for (const name of filesToPrune(names, referenced, KEEP_VERSIONS)) {
-        aws(mirror, ['s3api', 'delete-object', '--bucket', mirror.bucket, '--key', prefix + name]);
-        console.log(`[${mirror.id}] deleted ${prefix + name}`);
-      }
+      for (const name of filesToPrune(names, referenced, KEEP_VERSIONS))
+        mirror.remove(release.dir, name);
     }
   }
 }
