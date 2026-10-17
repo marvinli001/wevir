@@ -10,7 +10,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { brotliDecompressSync, gunzipSync, inflateSync, zstdDecompressSync } from 'node:zlib';
 import type { ProviderTestResult } from '@wevir/runtime-adapter';
-import { gatewayError, normalizeErrorBody } from './errors.js';
+import { gatewayError, normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { type ProviderTestOptions, testProvider } from './provider-test.js';
 import { isObject } from './tools.js';
 import type { GatewayProvider, ResponsesRequest } from './types.js';
@@ -184,13 +184,15 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
       if (!upstream.ok) {
         // 状态码原样转给 Codex（429 / 5xx 由 Codex 自己的重试策略处理），正文整理成 {"error": {"message"}}。
         const text = await readLimited(upstream, abort.signal).catch(() => '');
+        const normalized =
+          provider.kind === 'google-vertex'
+            ? normalizeErrorBody(redact(text), upstream.status)
+            : normalizeErrorBody(text, upstream.status, provider.apiKey);
         send(
           res,
           upstream.status,
           JSON.stringify(
-            provider.kind === 'google-vertex'
-              ? normalizeErrorBody(redact(text), upstream.status)
-              : normalizeErrorBody(text, upstream.status, provider.apiKey),
+            phalaRoutingError(normalized, upstream.status, provider.baseURL ?? '') ?? normalized,
           ),
         );
         return log('upstream_error', { upstreamStatus });

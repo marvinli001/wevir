@@ -144,6 +144,13 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://ollama.com/settings/keys',
   },
   {
+    id: 'redpill',
+    name: 'provider.catalog.redpill',
+    group: 'global',
+    source: preset('redpill'),
+    keyURL: 'https://www.redpill.ai/dashboard',
+  },
+  {
     id: 'ollama',
     name: 'provider.catalog.ollama',
     logo: 'ollama',

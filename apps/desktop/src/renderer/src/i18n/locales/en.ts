@@ -990,6 +990,15 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    'International pay-as-you-go access to multiple model providers; direct access from mainland China is unverified. Includes non-TEE models; changing the URL does not attest the TLS channel.',
+  'provider.phala.phala_no_route.title': 'No RedPill route meets the constraints',
+  'provider.phala.phala_no_route.hint':
+    'Check that the endpoint serves the selected model and review the routing constraints.',
+  'provider.phala.phala_attestation_unavailable.title': 'No attested RedPill upstream is available',
+  'provider.phala.phala_attestation_unavailable.hint':
+    'Try again later, or choose another TEE model with tool support.',
   'provider.catalog.custom': 'OpenAI-compatible service',
   'provider.catalog.group.global': 'Global',
   'provider.catalog.group.cn': 'China',

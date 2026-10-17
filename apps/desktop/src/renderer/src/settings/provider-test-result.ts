@@ -4,6 +4,7 @@
 import { isRpcError } from '@wevir/client-sdk';
 import type { MethodResult, ProviderTestFailure } from '@wevir/protocol';
 import { describe } from '@/host/host-connection';
+import { phalaErrorPresentation } from '@/host/phala-error';
 import { type PlainMessageKey, t } from '@/i18n';
 
 export interface TestPresentation {
@@ -45,6 +46,8 @@ export function presentTestResult(result: MethodResult<'provider.test'>): TestPr
           : t('provider.test.okLatency', { latency: formatLatency(result.latencyMs) }),
     };
   }
+  const phala = result.error && phalaErrorPresentation(result.error);
+  if (phala) return { ok: false, ...phala, detail: result.error?.message };
   const reason = result.reason ?? 'unknown';
   const hint = REASON_HINT[reason];
   const presentation: TestPresentation = { ok: false, title: t(REASON_TITLE[reason]) };

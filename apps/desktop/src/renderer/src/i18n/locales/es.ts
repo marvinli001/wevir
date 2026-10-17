@@ -1008,6 +1008,16 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    'Acceso internacional a varios proveedores de modelos con pago por uso; acceso directo desde China continental sin verificar. Incluye modelos sin TEE; cambiar la URL no acredita el canal TLS.',
+  'provider.phala.phala_no_route.title': 'Ninguna ruta RedPill cumple las condiciones',
+  'provider.phala.phala_no_route.hint':
+    'Comprueba que el endpoint ofrezca el modelo seleccionado y revisa las condiciones de enrutamiento.',
+  'provider.phala.phala_attestation_unavailable.title':
+    'No hay un proveedor RedPill atestado disponible',
+  'provider.phala.phala_attestation_unavailable.hint':
+    'Inténtalo más tarde o elige otro modelo TEE compatible con herramientas.',
   'provider.catalog.custom': 'Servicio compatible con OpenAI',
   'provider.catalog.group.global': 'Internacional',
   'provider.catalog.group.cn': 'China',

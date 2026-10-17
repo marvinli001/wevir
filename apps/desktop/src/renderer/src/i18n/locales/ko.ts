@@ -983,6 +983,16 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    '여러 회사의 모델을 이용하는 해외 종량제 서비스이며 중국 본토에서의 직접 접속은 검증되지 않았습니다. 비 TEE 모델이 포함되며 URL 변경만으로 TLS 채널이 증명되지는 않습니다.',
+  'provider.phala.phala_no_route.title': '조건을 충족하는 RedPill 경로가 없습니다',
+  'provider.phala.phala_no_route.hint':
+    '엔드포인트가 선택한 모델을 제공하는지와 라우팅 조건을 확인하세요.',
+  'provider.phala.phala_attestation_unavailable.title':
+    '증명된 RedPill 업스트림을 사용할 수 없습니다',
+  'provider.phala.phala_attestation_unavailable.hint':
+    '나중에 다시 시도하거나 도구를 지원하는 다른 TEE 모델을 선택하세요.',
   'provider.catalog.custom': 'OpenAI 호환 서비스',
   'provider.catalog.group.global': '글로벌',
   'provider.catalog.group.cn': '중국',

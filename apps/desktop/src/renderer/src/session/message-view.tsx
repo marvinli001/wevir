@@ -15,6 +15,7 @@ import { Link } from 'react-router';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
 import { useWorkbenchData } from '@/data/workbench-data';
+import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
@@ -444,6 +445,7 @@ function TodoList({ part }: { part: ChatPartOf<'todo'> }) {
 }
 
 function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
+  const phala = part.category === 'provider' ? phalaErrorPresentation(part) : undefined;
   return (
     <div
       role="note"
@@ -451,10 +453,12 @@ function ErrorPart({ part }: { part: ChatPartOf<'error'> }) {
     >
       <CircleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-destructive" />
       <div className="min-w-0">
-        <p className="font-medium text-destructive">{t(`engineError.category.${part.category}`)}</p>
+        <p className="font-medium text-destructive">
+          {phala?.title ?? t(`engineError.category.${part.category}`)}
+        </p>
         <p className="mt-0.5 font-mono text-xs break-words whitespace-pre-wrap">{part.message}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {t(`engineError.hint.${part.category}`)}
+          {phala?.hint ?? t(`engineError.hint.${part.category}`)}
         </p>
       </div>
     </div>

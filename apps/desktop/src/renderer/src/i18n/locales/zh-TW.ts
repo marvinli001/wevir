@@ -981,6 +981,13 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': '智譜 GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    '國際按量多模型入口，中國大陸直連尚未驗證。包含非 TEE 模型；只換位址不等於經證明的 TLS。',
+  'provider.phala.phala_no_route.title': '沒有符合條件的 RedPill 路由',
+  'provider.phala.phala_no_route.hint': '確認端點提供所選模型，並檢查路由條件。',
+  'provider.phala.phala_attestation_unavailable.title': 'RedPill 暫無可證明的上游',
+  'provider.phala.phala_attestation_unavailable.hint': '稍後重試，或選擇其他支援工具的 TEE 模型。',
   'provider.catalog.custom': 'OpenAI 相容服務',
   'provider.catalog.group.global': '國際',
   'provider.catalog.group.cn': '中國大陸',

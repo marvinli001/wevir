@@ -374,6 +374,27 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://docs.ollama.com/integrations/codex',
   },
   {
+    // 公开 /v1/models（2026-10-17）：只列声明 tools 的主力编码模型；未给逐模型推理枚举，暂不列力度。
+    id: 'redpill',
+    name: 'provider.catalog.redpill',
+    note: 'provider.preset.redpill.note',
+    api: 'openai-responses',
+    baseURL: 'https://api.redpill.ai/v1',
+    models: [
+      { id: 'openai/gpt-5.5', contextWindow: 1050000, maxTokens: 128000, supportsImages: true },
+      {
+        id: 'anthropic/claude-opus-4.8',
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        supportsImages: true,
+      },
+      { id: 'z-ai/glm-5.3', contextWindow: 1048576, maxTokens: 1048576 },
+    ],
+    defaultModelId: 'openai/gpt-5.5',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    docsURL: 'https://docs.redpill.ai/guides/integrations/coding-tools/codex-cli',
+  },
+  {
     id: 'ollama-cloud',
     name: 'provider.preset.ollamaCloud',
     api: 'openai-responses',

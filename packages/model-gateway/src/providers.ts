@@ -41,6 +41,11 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   },
   { matches: isZaiHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
   {
+    matches: isPhalaHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
     matches: isOllamaCloud,
     api: 'openai-responses',
     compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
@@ -231,6 +236,20 @@ export function isDeepSeekHost(baseURL: string): boolean {
 /** Kimi 开放平台的国内 / 国际按量端点；不匹配 Kimi Code 会员域名（model-gateway.md §3.8）。 */
 export function isKimiHost(baseURL: string): boolean {
   return /(^|\.)moonshot\.(cn|ai)$/.test(hostnameOf(baseURL));
+}
+
+/** 已核对的 Phala / RedPill 按量 API（model-gateway.md §3.10），不匹配其他子域或路径。 */
+export function isPhalaHost(baseURL: string): boolean {
+  try {
+    const url = new URL(baseURL);
+    return (
+      ['https:', 'http:'].includes(url.protocol) &&
+      ['inference.phala.com', 'api.redpill.ai', 'tee.redpill.ai'].includes(url.hostname) &&
+      /^\/v1\/*$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** Z.ai / 智谱的标准 API 地址；只认已核对的路径，不为套餐域名或路径补值（model-gateway.md §3.9）。 */

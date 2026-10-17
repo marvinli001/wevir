@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.12（含 Z.ai / 智谱按量兼容）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.13（含 Phala / RedPill Responses 兼容）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -195,6 +195,18 @@ Responses 的 effort、完整推理、图片、缓存字段与 store 原样透�
 
 `zai.test.ts` 的四份录制请求与 `zai.integration.test.ts` 的本机严格 mock 覆盖工具选择、namespace 摊平 / 还原、原生 apply_patch 与三步推理历史、provider.test。mock 的拒收规则用于检验兼容流程，不证明上游实际拒收 namespace；两站标准 Key 的真实契约与桌面 apply_patch 仍待验收。
 
+### 3.10 Phala Private AI / RedPill
+
+2026-10-17 核对 [Phala 按量 API](https://docs.phala.com/phala-cloud/confidential-ai/confidential-model/confidential-ai-api.md)与 [RedPill Codex 指南](https://docs.redpill.ai/guides/integrations/coding-tools/codex-cli)：使用 Responses 透传，模板默认多模型入口 `https://api.redpill.ai/v1`。Phala Private AI 的地址为 `https://inference.phala.com/v1`。`api.redpill.ai/v1` 的目录混合标准与 TEE 模型；`tee.redpill.ai/v1` 只提供 TEE 模型且强制经证明的上游。只对这三个已核对主机的 `/v1` 地址补 Responses compat，不匹配其他子域或路径。
+
+[Responses 参考](https://docs.redpill.ai/api-reference/responses)只笼统列 tools，[工具指南](https://docs.redpill.ai/guides/function-calling)只说明函数格式，当前 OpenAPI 未定义 Responses 的工具 schema。缺真实 Key，不能据此认定 custom、namespace 或 forced tool_choice 可用。保守复用 §3.2 的 flatten-custom-tools、flatten-namespace-tools 和 auto-only-tool-choice；Provider 显式 compat 逐字段优先，模板也写明同样的开关以供代理使用。保留完整推理、store、include、缓存字段与非空 encrypted_content，不注入 Chat 思考字段或输出预算；实际兼容性仍待真实契约验证。模型目录仅声明 reasoning 能力，没有逐模型力度枚举，模板暂不列推理档位，由服务决定。
+
+正式请求与 provider.test 共用 Phala 路由错误识别：HTTP 404 且 type 为 not_found_error 时，标记 `phala_no_route`；HTTP 503 且 type 为 service_unavailable、原文明确是 upstream verification failed 时，标记 `phala_attestation_unavailable`。保留 HTTP 状态、上游 type 与脱敏原文；标记同时放入错误 code 与 message，让 Codex 传回会话后仍能本地化。连接探测均归 server，避免提示用户把路由不可用当作协议错误。普通路径 404、未知模型、普通 503 与其他服务保持原归类。桌面端对这两个标记提供对应的标题和修复提示，十种语言同步。
+
+`phala.test.ts` / `phala.integration.test.ts` 使用录制请求与严格 HTTP mock 检查工具、三步历史与错误；`adapter-codex/src/codex-adapter.phala.integration.test.ts` 以真实 codex-app-server + 本机 mock 确认错误标记到达 turn.failed、凭据脱敏，且未声明力度时不发 effort。这些不证明真实上游通过。
+
+模型 is_tee 只表示可机密运行，不能证明某一次请求使用了可证明的上游，也不表示零留存。Wevir 只更换 baseURL，不在本机验证 ACI、TLS 通道或收据，不接 Private AI Proxy；网关不会透传 x-receipt-id 等证明头给 Codex，也不以此作已验证标志。来源、模型与手动配置见 [providers.md §7.13](./providers.md#713-redpill--phala-private-ai)。
+
 ## 4. Chat Completions 转换
 
 ### 4.1 请求：Responses → Chat
@@ -274,12 +286,13 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 | `isOllamaHost`：回环主机的 11434 端口或精确 HTTPS ollama.com，仅 Responses | `supportsCustomTools: false`、`toolChoice: auto_only`；Cloud 另有 `supportsNamespaceTools: false` | §3.7；本机 namespace 保留，Cloud 保守摊平 |
 | `isKimiHost`：moonshot.cn / moonshot.ai 及子域，仅 Responses | `toolChoice: auto_only`；custom 与 namespace 保持支持 | §3.8；Kimi Code 域名不匹配 |
 | `isZaiHost`：z.ai / bigmodel.cn 及子域的标准 /api/v1、/api/paas/v4 路径，排除套餐 | Responses：`supportsCustomTools: true`、`supportsNamespaceTools: false`、`toolChoice: auto_only`；Chat：`toolChoice: auto_only` | §3.9；custom 按 Codex 指南，namespace 保守摊平、待真实验证 |
+| `isPhalaHost`：inference.phala.com、api.redpill.ai、tee.redpill.ai 的 /v1，仅 Responses | `supportsCustomTools: false`、`supportsNamespaceTools: false`、`toolChoice: auto_only` | §3.10；原生工具能力未明确，保守摊平，显式值优先 |
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
-| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量与 Ollama 地址为 `false` |
-| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量、Ollama Cloud 与 Z.ai / 智谱 Responses 地址为 `false` |
-| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat、Ollama / Kimi Responses 与 Z.ai / 智谱 Responses / Chat 为 `auto_only`；Messages 的模型默认见 §5.1 |
+| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量、Ollama 与 Phala / RedPill Responses 地址为 `false` |
+| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量、Ollama Cloud、Z.ai / 智谱与 Phala / RedPill Responses 地址为 `false` |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat、Ollama / Kimi / Phala / RedPill Responses 与 Z.ai / 智谱 Responses / Chat 为 `auto_only`；Messages 的模型默认见 §5.1 |
 | `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -486,6 +499,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试：`__snapshots__/codex-requests/` 的变化就是转换结果的变化。根 `biome.json` 排除了这两个目录，保持录制原样。
 
 ## 10. 局限与没做的
+
+- Phala / RedPill：公开文档和实时模型目录已核对；缺 WEVIR_TEST_API_KEY，真实契约与桌面 apply_patch 未验收。原生 custom / namespace / forced choice、逐模型推理档位、跨回合推理 / 缓存字段与实际输出预算仍待实测。多模型入口包含非 TEE 模型，默认不强制经证明的上游；更换地址不等于本机验证过 TLS；不做证明校验、收据展示或 Private AI Proxy，见 §3.10、providers.md §7.13。
 
 - Z.ai / 智谱：两站无标准 API Key，按量 Responses、namespace 原生能力、Flash 图片与桌面 apply_patch 未验收；namespace 暂保守摊平。2026-10-16 新 Key 分类与旧账号 Chat 限制仍需真实账号核对，不提供套餐地址或自动切换协议。Responses 默认输出预算、推理 / 缓存字段兼容性也待实测（§3.9、providers.md §7.4）。
 

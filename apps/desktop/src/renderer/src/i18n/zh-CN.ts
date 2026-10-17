@@ -994,6 +994,13 @@ export const zhCN = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': '智谱 GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    '国际按量多模型入口，中国大陆直连未验证。包含非 TEE 模型；只换地址不等于经证明的 TLS。',
+  'provider.phala.phala_no_route.title': '没有符合条件的 RedPill 路由',
+  'provider.phala.phala_no_route.hint': '确认端点提供所选模型，并检查路由条件。',
+  'provider.phala.phala_attestation_unavailable.title': 'RedPill 暂无可证明的上游',
+  'provider.phala.phala_attestation_unavailable.hint': '稍后重试，或选择其他支持工具的 TEE 模型。',
   'provider.catalog.custom': 'OpenAI 兼容服务',
   'provider.catalog.group.global': '国际',
   'provider.catalog.group.cn': '国内',

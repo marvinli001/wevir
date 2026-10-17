@@ -2,6 +2,7 @@
 // Codex 按状态码决定重试，按 `error.code` / `error.type` 认出额度用完等情况（codex-api/src/api_bridge.rs），
 // 所以上游给了 type / code 就保留。
 
+import { isPhalaHost } from './providers.js';
 import { isObject } from './tools.js';
 
 /** 上游错误原文最多保留这么多字符。 */
@@ -9,6 +10,28 @@ const MAX_MESSAGE_CHARS = 4000;
 
 export interface ErrorBody {
   error: { message: string; type?: string; code?: string };
+}
+
+/** Phala 的路由不可用与证明失败不是协议错误；标记进 message 以穿过 Codex 的 HTTP 错误封装。 */
+export function phalaRoutingError(
+  body: ErrorBody,
+  status: number,
+  baseURL: string,
+): ErrorBody | undefined {
+  if (!isPhalaHost(baseURL)) return undefined;
+  const error = body.error;
+  const code =
+    status === 404 && error.type === 'not_found_error'
+      ? 'phala_no_route'
+      : status === 503 &&
+          error.type === 'service_unavailable' &&
+          /upstream verification failed/i.test(error.message)
+        ? 'phala_attestation_unavailable'
+        : undefined;
+  if (code === undefined) return undefined;
+  return {
+    error: { ...error, code, message: `[${code}] ${error.message}`.slice(0, MAX_MESSAGE_CHARS) },
+  };
 }
 
 /**

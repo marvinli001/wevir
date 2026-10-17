@@ -452,6 +452,16 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_GROK=1 pnpm vitest run 
 
 ### 6.3 真实模型测试的环境变量
 
+RedPill 多模型模板使用 Responses。先通过进程环境提供 RedPill 的 WEVIR_TEST_API_KEY，再运行（不把 Key 写入命令、文件或日志）：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://api.redpill.ai/v1 WEVIR_TEST_MODEL=openai/gpt-5.5 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+另两款模板模型为 anthropic/claude-opus-4.8、z-ai/glm-5.3，分别修改 WEVIR_TEST_MODEL 验证；先从公开 /v1/models 确认仍有 tools 声明。之后在 pnpm dev 使用 RedPill 模板完成一次 apply_patch 改文件对话，并核对工具结果、下一回合推理回放与图片。2026-10-17 没有测试 Key，这些真实验收均待补；录制请求、本机 HTTP mock 与连接成功不证明工具或 TLS 通道已通过真实验收。custom / namespace / forced choice 的原生支持和逐模型力度尚未明确，模板暂用保守 compat、不列力度；拿到 Key 后按 model-gateway.md §3.10 对照探测再决定是否放开。真实契约没有显式 compat 环境入口，原生工具的对照需通过进程内网关配置。
+
+需要单独验证 Phala TEE 服务时，使用与端点对应的 Phala Key，设置 WEVIR_TEST_BASE_URL=https://inference.phala.com/v1、WEVIR_TEST_MODEL=z-ai/glm-5.3；RedPill TEE-only 为 https://tee.redpill.ai/v1，使用 RedPill Key。先检查目录的 is_tee 与 tools，勿将模板的普通模型原样搬到 TEE-only。证明校验、收据展示与 Private AI Proxy 不在本接法范围，端点与手动修改见 providers.md §7.13。
+
 Z.ai 与智谱标准 API 按官方 Codex 指南使用 Responses。先在进程环境提供**对应站点新建的标准** WEVIR_TEST_API_KEY，再分别运行（两站 Key 不通用，不写进命令或文件）：
 
 ```bash

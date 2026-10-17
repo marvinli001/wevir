@@ -4,6 +4,7 @@
 // 因为网关不能依赖 adapter-dsh（会把 dsh 带进依赖）。
 
 import type { ProviderTestFailure, ProviderTestResult } from '@wevir/runtime-adapter';
+import { normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { UPSTREAM_PROTOCOL_ERROR } from './messages/response.js';
 import { describeIssues, isOllamaHost, validateProvider } from './providers.js';
 import { SseParser } from './sse.js';
@@ -101,6 +102,24 @@ export async function testProvider(
     const status = response.status;
     if (!response.ok) {
       const body = await readText(response, controller.signal).catch(() => '');
+      const routingError = phalaRoutingError(
+        normalizeErrorBody(body, status, credential),
+        status,
+        provider.baseURL ?? '',
+      );
+      if (routingError !== undefined) {
+        return {
+          ok: false,
+          reason: 'server',
+          httpStatus: status,
+          latencyMs: latency(),
+          error: {
+            category: 'provider',
+            code: routingError.error.code,
+            message: routingError.error.message.slice(0, MAX_DETAIL_CHARS),
+          },
+        };
+      }
       const result = httpFailure(status, body, modelId, prepared.url, redact);
       if (
         status === 404 &&

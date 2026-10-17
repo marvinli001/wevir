@@ -77,6 +77,8 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 
 Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI、百炼按量端点、DeepSeek 的 Responses / Chat 路由及 Ollama / Kimi / Z.ai / 智谱 Responses；Z.ai / 智谱 Chat 也默认 auto_only）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5；Kimi Responses 的非 data URL 图片过滤仅按开放平台地址生效，代理需自行满足 data URL 要求。
 
+Phala / RedPill 的已核对地址在 Codex Responses 上也补保守的 custom / namespace 摊平与 auto_only（model-gateway.md §3.10）；显式 compat 优先。这里只影响网关，不改变 dsh 的默认值。
+
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
 Codex 的 Chat 转换也读取 `thinkingFormat`（2026-10-15）：`openai` / `deepseek` / `qwen` / `zai` 使用与 pi-ai 同名格式相同的参数位置与开关语义；力度、none、强制思考模型与预算的映射见 [model-gateway.md §4.4](./model-gateway.md#44-网关的-compat-开关)。`minimax` / `tencent` 是网关扩展，当前只用于 Codex，dsh 上游的配置枚举不认这两个值。通过代理接入时必须显式写格式；DeepSeek 地址仍默认 deepseek。推理必填的默认值按格式补，显式 `requiresReasoningContentOnAssistantMessages: false` 可以停止补空串；模型已返回的推理不删除。只收 auto 的服务另设 `toolChoice: auto_only`。这些规则不更新模板、不自动改已有 Provider，桌面表单仍原样保存 compat。
@@ -187,6 +189,8 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 | `unknown` | 其他，以及配置不完整（不发请求） | `unknown` |
 
 `provider.test` 的结果字段 `reason`、`httpStatus` 是协议 0.2.0 新增的（host-api.md）。
+
+Codex 网关另识别 Phala / RedPill 的 404 not_found_error 与 503 upstream verification failed（service_unavailable）：分别返回 `phala_no_route`、`phala_attestation_unavailable` 的 error.code，reason 为 server，避免当作地址或协议填写错误。HTTP 状态与脱敏原文保留；普通 404、未知模型与普通 503 不套用此说明。桌面连接测试与会话均有对应的本地化提示，见 model-gateway.md §3.10。
 
 ### 6.3 局限
 
@@ -636,3 +640,41 @@ Claude 工具、思考签名与跨回合历史复用现有 Messages 规则（mod
 来源（2026-10-15）：[v1 生命周期](https://learn.microsoft.com/en-us/azure/foundry/openai/api-version-lifecycle)、[Responses 与支持模型](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses)、[Codex](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/codex)、[Claude 型号与能力](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models)、[部署与使用 Claude](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/use-foundry-models-claude)、[Foundry Responses](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/how-to/generate-responses)。
 
 本地使用录制 Codex 请求与 HTTP mock 覆盖两条路、认证头、namespace 描述、加密推理、工具与签名往返、内容过滤和连接测试。未提供资源地址、部署名与 WEVIR_TEST_API_KEY，Responses / Claude 的真实契约第 3 层和 pnpm dev 中经 apply_patch 改文件均未验收，命令见 development.md §6.3。
+
+### 7.13 RedPill / Phala Private AI
+
+**2026-10-17 核对。** 国际按量多模型入口，模板默认 `https://api.redpill.ai/v1`，中国大陆直连尚未验证。按 [RedPill Codex 指南](https://docs.redpill.ai/guides/integrations/coding-tools/codex-cli)选择 Responses 透传；不将 Chat / Messages 参数表当作 Responses 原生工具支持的证明。Key 在 [RedPill dashboard](https://www.redpill.ai/dashboard) 创建，按预付余额计费；与模型厂商直连的 Key 不通用。
+
+```json
+{
+  "id": "redpill",
+  "kind": "openai-compatible",
+  "displayName": "RedPill",
+  "api": "openai-responses",
+  "baseURL": "https://api.redpill.ai/v1",
+  "compat": {
+    "supportsCustomTools": false,
+    "supportsNamespaceTools": false,
+    "toolChoice": "auto_only"
+  },
+  "models": [
+    { "id": "openai/gpt-5.5", "contextWindow": 1050000, "maxTokens": 128000, "supportsImages": true },
+    { "id": "anthropic/claude-opus-4.8", "contextWindow": 1000000, "maxTokens": 128000, "supportsImages": true },
+    { "id": "z-ai/glm-5.3", "contextWindow": 1048576, "maxTokens": 1048576 }
+  ],
+  "defaultModelId": "openai/gpt-5.5",
+  "apiKey": "<RedPill API Key>"
+}
+```
+
+模型 ID、上下文、最大输出和图片能力取自当天公开的 [RedPill /v1/models](https://api.redpill.ai/v1/models)：三款均在 supported_parameters 声明 tools / tool_choice、supported_features 声明 tools / reasoning。目录共 68 个模型，混合标准与 TEE 模型；模板中的 GPT-5.5、Opus 4.8 为非 TEE，GLM-5.3 为 is_tee: true。GPT-5.6 Sol、Claude Sonnet / Opus 5 等条目的工具能力数组尚为空，因此不据模型名字推断支持，也不列入模板；同样排除工具能力为空的 deepseek/deepseek-v4-flash-0731。目录上限不保证一次回答能达到同样的长度，maxTokens 不会给 Responses 请求补 max_output_tokens。目录不提供逐模型推理枚举，模板暂不列档位，由服务默认决定，不能据此宣称不支持思考。
+
+**工具兼容。** Responses 文档未说明 custom / namespace / forced choice，OpenAPI 也没有定义这部分 schema；没有 Key 可确认，故保守摊平为函数并用 auto_only。声明的 compat 优先于地址默认，代理也能沿用；none 会去掉工具选择、保留工具，不能作为禁止调用的保证。完整推理与非空 encrypted_content 保留，每一步携带完整历史。原生工具、跨回合推理、缓存字段和图片的真实服务验收仍待补。
+
+**机密边界。** 默认 api.redpill.ai 入口包含普通转发模型，不强制 TEE 或经证明的上游。is_tee 表示模型可以机密运行，不代表某次请求一定经可证明的上游；TEE 与零留存也不同。[TEE-only 端点](https://docs.redpill.ai/guides/tee-endpoint) `https://tee.redpill.ai/v1` 会强制经证明的上游，使用 RedPill Key；须先从它的 /v1/models 换成支持工具的 TEE 模型，普通模型会 404。Phala Private AI 的 [inference.phala.com/v1](https://docs.phala.com/phala-cloud/confidential-ai/confidential-model/confidential-ai-api.md) 目录当天有 22 个 TEE 模型，在 Phala Cloud 的 Private AI → API Keys 取本站 Key；使用工作区 Balance，赠送余额不能支付 Private AI，不假定两站 Key 通用。只换 baseURL 不等于在本机验证过 TLS 通道。Wevir 不做证明校验、收据展示、路由约束界面或 Private AI Proxy，也不把连接成功显示成“已验证机密”。
+
+**错误。** [路由文档](https://docs.redpill.ai/guides/error-handling)的 404 not_found_error 表示没有满足条件的路由；[经证明的路由](https://docs.redpill.ai/guides/attested-routing)的 503 service_unavailable、upstream verification failed 表示暂时没有可证明的上游。连接测试与会话分别提示检查模型 / 路由条件或稍后重试，不把它们笼统说成协议填写错误；普通路径 404、未知模型与普通 503 仍按 §6.2 处理。
+
+**手动修改与验收。** 已有 Provider 不自动迁移。可在设置 → 模型服务编辑原配置，手动选择 Responses、填所需地址与完整模型 ID；需要摊平的代理地址通过 provider.upsert 保存上述 compat（表单会保留已有字段），或使用新模板另建 Provider。同版本 LobeHub Icons 未找到 RedPill 标志，界面使用首字母。`phala.test.ts` / `phala.integration.test.ts` 覆盖录制 Codex 请求、本机严格 HTTP mock、工具与推理往返、错误分类和脱敏；这些不能代替真实服务。当前无 WEVIR_TEST_API_KEY，契约第 3 层与 pnpm dev 中的 apply_patch 对话未验收，命令见 development.md §6.3。
+
+来源：[Phala 按量 API](https://docs.phala.com/phala-cloud/confidential-ai/confidential-model/confidential-ai-api.md)、[RedPill Quickstart](https://docs.redpill.ai/get-started/quickstart)、[Agent 接入](https://docs.redpill.ai/get-started/use-in-agents)、[Responses](https://docs.redpill.ai/api-reference/responses)、[模型目录字段](https://docs.redpill.ai/api-reference/models)、[推理](https://docs.redpill.ai/guides/reasoning)。核对日期均为 2026-10-17。

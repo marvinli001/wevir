@@ -994,6 +994,15 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    '複数社のモデルを使える海外の従量課金サービス。中国本土からの直接接続は未検証です。非 TEE モデルも含み、URL の変更だけでは TLS 経路は検証されません。',
+  'provider.phala.phala_no_route.title': '条件を満たす RedPill の経路がありません',
+  'provider.phala.phala_no_route.hint':
+    '接続先が選択したモデルを提供しているか、経路の条件を確認してください。',
+  'provider.phala.phala_attestation_unavailable.title': '検証済みの RedPill 上流が利用できません',
+  'provider.phala.phala_attestation_unavailable.hint':
+    '後で再試行するか、ツール対応の別の TEE モデルを選んでください。',
   'provider.catalog.custom': 'OpenAI 互換サービス',
   'provider.catalog.group.global': 'グローバル',
   'provider.catalog.group.cn': '中国',

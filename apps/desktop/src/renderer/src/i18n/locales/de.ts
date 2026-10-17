@@ -998,6 +998,16 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    'Internationaler Zugang zu mehreren Modellanbietern nach Verbrauch; Direktzugriff aus Festlandchina ungeprüft. Enthält Modelle ohne TEE; eine andere URL attestiert den TLS-Kanal nicht.',
+  'provider.phala.phala_no_route.title': 'Keine RedPill-Route erfüllt die Bedingungen',
+  'provider.phala.phala_no_route.hint':
+    'Prüfe, ob der Endpunkt das gewählte Modell anbietet, und kontrolliere die Routing-Bedingungen.',
+  'provider.phala.phala_attestation_unavailable.title':
+    'Kein attestierter RedPill-Upstream verfügbar',
+  'provider.phala.phala_attestation_unavailable.hint':
+    'Versuche es später erneut oder wähle ein anderes TEE-Modell mit Werkzeugunterstützung.',
   'provider.catalog.custom': 'OpenAI-kompatibler Dienst',
   'provider.catalog.group.global': 'International',
   'provider.catalog.group.cn': 'China',

@@ -1013,6 +1013,16 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    'Международный доступ к моделям разных провайдеров с оплатой по использованию; прямой доступ из материкового Китая не проверен. Включает модели без TEE; смена URL не подтверждает TLS-канал.',
+  'provider.phala.phala_no_route.title': 'Нет маршрута RedPill, отвечающего условиям',
+  'provider.phala.phala_no_route.hint':
+    'Проверьте, что конечная точка предоставляет выбранную модель, и уточните условия маршрутизации.',
+  'provider.phala.phala_attestation_unavailable.title':
+    'Нет доступного аттестованного провайдера RedPill',
+  'provider.phala.phala_attestation_unavailable.hint':
+    'Повторите попытку позже или выберите другую модель TEE с поддержкой инструментов.',
   'provider.catalog.custom': 'OpenAI-совместимый сервис',
   'provider.catalog.group.global': 'Международные',
   'provider.catalog.group.cn': 'Китай',

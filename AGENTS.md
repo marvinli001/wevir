@@ -80,6 +80,8 @@ Z.ai / 智谱按量 API（2026-10-17）：桌面 `settings/provider-presets.ts` 
 
 插件 P3（对话里安装，仍为 0.42.0）：`app-tools.ts` 经 `plugin-app-tools.ts` 加入全局列表、插件安装、skill 安装与连接器添加；复用 P1/P1a，来源按 cwd / realpath 限会话文件夹，审批前固定副本、验证与脱敏，三个写工具核对用户批准（引擎未问时 Host 补问）。`session-manager.ts` 沿用原审批事件和 `approval.respond`，拒绝 / 取消不改配置；审批标题十种语言同步。验证入口见 development.md 的 P3 段。
 
+Phala Private AI / RedPill（2026-10-17）：桌面 redpill 模板默认 api.redpill.ai/v1，列公开目录声明 tools 的三款编码模型（含普通转发模型）；providers.ts 的 isPhalaHost 限三个已核对 API 主机的 /v1，Responses 默认摊平 custom / namespace 与 auto_only。errors.ts 的路由标记经 provider.test 与 Codex 会话原文交给 host/phala-error.ts 本地化；不做证明校验或 Private AI Proxy，旧 Profile 不迁移，来源与真实验收缺口见 providers.md §7.13、model-gateway.md §3.10。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

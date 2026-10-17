@@ -1006,6 +1006,16 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
+  'provider.catalog.redpill': 'RedPill',
+  'provider.preset.redpill.note':
+    'Accès international à plusieurs fournisseurs de modèles, facturé à la consommation ; accès direct depuis la Chine continentale non vérifié. Inclut des modèles sans TEE ; changer l’URL n’atteste pas le canal TLS.',
+  'provider.phala.phala_no_route.title': 'Aucune route RedPill ne satisfait les contraintes',
+  'provider.phala.phala_no_route.hint':
+    'Vérifiez que le point d’accès propose le modèle sélectionné et contrôlez les contraintes de routage.',
+  'provider.phala.phala_attestation_unavailable.title':
+    'Aucun fournisseur RedPill attesté disponible',
+  'provider.phala.phala_attestation_unavailable.hint':
+    'Réessayez plus tard ou choisissez un autre modèle TEE compatible avec les outils.',
   'provider.catalog.custom': 'Service compatible OpenAI',
   'provider.catalog.group.global': 'International',
   'provider.catalog.group.cn': 'Chine',
