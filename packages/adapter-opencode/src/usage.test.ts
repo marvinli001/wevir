@@ -41,16 +41,19 @@ const json =
   (body: unknown, status = 200) =>
   () =>
     new Response(JSON.stringify(body), { status });
+// 键写成 POSIX 路径；Windows 上 path.join 出来的是反斜杠，查之前换回来。
 const files = (contents: Record<string, string>) => async (file: string) => {
-  const value = contents[file];
+  const value = contents[file.replaceAll('\\', '/')];
   if (value === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
   return value;
 };
 
 describe('OpenCode Go 的 Key 与用量', () => {
   it('auth.json 在 XDG_DATA_HOME 下，默认 ~/.local/share', () => {
-    expect(openCodeAuthPath({ XDG_DATA_HOME: '/xdg' })).toBe('/xdg/opencode/auth.json');
-    expect(openCodeAuthPath({ HOME: '/home/me' })).toBe('/home/me/.local/share/opencode/auth.json');
+    expect(openCodeAuthPath({ XDG_DATA_HOME: '/xdg' })).toBe(join('/xdg', 'opencode', 'auth.json'));
+    expect(openCodeAuthPath({ HOME: '/home/me' })).toBe(
+      join('/home/me', '.local', 'share', 'opencode', 'auth.json'),
+    );
   });
 
   it('Key：auth.json 的 opencode-go 优先，OPENCODE_AUTH_CONTENT 代替文件，都没有时 OPENCODE_API_KEY；没有文件不算错', async () => {

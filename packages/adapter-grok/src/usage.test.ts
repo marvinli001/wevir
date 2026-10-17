@@ -17,8 +17,9 @@ const AUTH = JSON.stringify({
   [LOGIN_KEY]: { key: 'grok-token', email: 'me@example.com', auth_mode: 'oauth' },
 });
 
+// 键写成 POSIX 路径；Windows 上 path.join 出来的是反斜杠，查之前换回来。
 const files = (contents: Record<string, string>) => async (file: string) => {
-  const value = contents[file];
+  const value = contents[file.replaceAll('\\', '/')];
   if (value === undefined) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
   return value;
 };
