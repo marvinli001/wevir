@@ -7,12 +7,22 @@
 // 工具（列标签页、快照、截图、等待、日志）标 `readOnlyHint`，其余按会话的权限模式走引擎的审批；说明文字改成 Wevir 的；
 // 打开与跳转的结果写出 HTTP 状态码（0.44.0），网络记录统一成“地址 状态 类型 耗时”。0.46.0：参数错误带错误码
 // （`browser_invalid_url` / `browser_invalid_argument`）；结果写出命令引起的跳转、新标签页、下载与选文件框；快照分段（`offset`）；
-// 日志写出总数与省略了多少；超时的提示按命令给。
+// 日志写出总数与省略了多少；超时的提示按命令给。0.48.0：加回 browser_evaluate 与 browser_upload（上传的文件由这里按会话目录解析、
+// 核对在会话文件夹里），另加 browser_query、browser_network、browser_dialogs、browser_download；快照可以限定范围（selector、ref、
+// frame、viewportOnly）与节点数；browser_wait 多了地址正则、元素状态与网络空闲。
 //
 // 内置浏览器（0.33.0，domain-model §3.15）：工具经 `BrowserBroker` 交给桌面端的浏览器。
 
+import { realpathSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import type { BrowserCommand, BrowserResult, SessionId } from '@wevir/protocol';
-import { BrowserCommandSchema } from '@wevir/protocol';
+import {
+  BROWSER_DOWNLOAD_MAX_BYTES,
+  BROWSER_RESULT_MAX_BYTES,
+  BROWSER_SNAPSHOT_MAX_NODES,
+  BROWSER_UPLOAD_MAX_FILES,
+  BrowserCommandSchema,
+} from '@wevir/protocol';
 import type { Storage } from '@wevir/storage';
 import { type AppTool, AppToolError, type AppToolResult } from './app-mcp.js';
 import {
@@ -31,6 +41,8 @@ export const BROWSER_READ_ONLY_TOOLS = [
   'browser_screenshot',
   'browser_wait',
   'browser_logs',
+  'browser_query',
+  'browser_network',
 ] as const;
 
 const REF = {
@@ -51,7 +63,13 @@ const READ_ONLY = {
 const ACTS = { readOnlyHint: false, destructiveHint: false, openWorldHint: true };
 
 const REF_NOTE =
-  'refs come from the latest browser_snapshot of the same tab and expire when the page changes.';
+  'refs come from the latest browser_snapshot (or browser_query) of the same tab, work inside iframes too, and expire when the page changes.';
+const FRAME = {
+  type: 'string',
+  description:
+    'Frame to use: the frame=… id an iframe has in browser_snapshot (like 1 or 1.0), a frame name, or part of its URL. Default: the page itself.',
+};
+const SELECTOR = { type: 'string', description: 'CSS selector.' };
 /** 浏览器的数据（#8）：cookie 与网站存储在 Wevir 的浏览器里一直保留，所有会话共用。 */
 const STORAGE_NOTE =
   "Cookies and site storage (logins included) persist in the Wevir browser across tabs, sessions and restarts, shared by all sessions; don't assume a clean profile.";
@@ -63,8 +81,8 @@ interface ToolSpec {
   properties: Record<string, Record<string, unknown>>;
   required: string[];
   readOnly: boolean;
-  /** 把参数换成命令；参数不对时抛 `AppToolError`。 */
-  command(args: Record<string, unknown>): BrowserCommand;
+  /** 把参数换成命令；参数不对时抛 `AppToolError`。`cwd` 是会话的目录。 */
+  command(args: Record<string, unknown>, cwd: string): BrowserCommand;
   timeoutMs?(args: Record<string, unknown>): number | undefined;
 }
 
@@ -86,7 +104,7 @@ export function browserTools(options: BrowserToolsOptions): AppTool[] {
       let command: BrowserCommand;
       let timeoutMs: number | undefined;
       try {
-        command = validated(spec.command(args));
+        command = validated(spec.command(args, cwd));
         timeoutMs = spec.timeoutMs?.(args);
       } catch (error) {
         if (error instanceof AppToolError) return argumentError(error);
@@ -163,14 +181,50 @@ const SPECS: ToolSpec[] = [
         minimum: 0,
         description: 'Line to start from, as given at the end of the previous part. Default 0.',
       },
+      selector: {
+        type: 'string',
+        description: 'Only this element (first match) and what is inside it.',
+      },
+      ref: {
+        ...REF,
+        description: 'Only this element from the latest snapshot and what is inside it.',
+      },
+      frame: FRAME,
+      viewportOnly: { type: 'boolean', description: 'Only elements on screen.' },
+      maxNodes: {
+        type: 'integer',
+        minimum: 100,
+        maximum: BROWSER_SNAPSHOT_MAX_NODES,
+        description: 'Stop after this many nodes (default 20000). The end says where it stopped.',
+      },
     },
     required: ['browserId'],
     readOnly: true,
     command: (args) => {
       const offset = optionalInt(args, 'offset', 0, 1_000_000);
+      const selector = optionalString(args, 'selector');
+      const ref = optionalString(args, 'ref');
+      const frame = optionalString(args, 'frame');
+      const maxNodes = optionalInt(args, 'maxNodes', 100, BROWSER_SNAPSHOT_MAX_NODES);
+      if (selector !== undefined && ref !== undefined) {
+        throw new AppToolError('browser_snapshot takes selector or ref, not both.');
+      }
+      if (ref !== undefined && frame !== undefined) {
+        throw new AppToolError(
+          'browser_snapshot takes ref or frame, not both: a ref already knows its frame.',
+        );
+      }
       return {
         command: 'snapshot',
-        args: { ...tab(args), ...(offset !== undefined && offset > 0 && { offset }) },
+        args: {
+          ...tab(args),
+          ...(offset !== undefined && offset > 0 && { offset }),
+          ...(selector !== undefined && { selector }),
+          ...(ref !== undefined && { ref }),
+          ...(frame !== undefined && { frame }),
+          ...(args.viewportOnly === true && { viewportOnly: true }),
+          ...(maxNodes !== undefined && { maxNodes }),
+        },
       };
     },
   },
@@ -191,7 +245,7 @@ const SPECS: ToolSpec[] = [
   {
     name: 'browser_click',
     title: 'Click in the browser',
-    description: `Click an element of a tab. The result says if the page navigated (with the HTTP status), opened a new tab (in the background), started a download (blocked) or asked for a file (the Wevir browser does not give pages local files). ${REF_NOTE}`,
+    description: `Click an element of a tab. The result says if the page navigated (with the HTTP status), opened a new tab (in the background), started a download (blocked; use browser_download to save one) or asked for a file (use browser_upload to give it one). ${REF_NOTE}`,
     properties: {
       browserId: BROWSER_ID,
       ref: REF,
@@ -229,7 +283,7 @@ const SPECS: ToolSpec[] = [
   {
     name: 'browser_fill',
     title: 'Fill a field in the browser',
-    description: `Replace the value of an input, textarea or editable element of a tab (not file inputs). ${REF_NOTE}`,
+    description: `Replace the value of an input, textarea or editable element of a tab (for file inputs use browser_upload). ${REF_NOTE}`,
     properties: { browserId: BROWSER_ID, ref: REF, value: { type: 'string' } },
     required: ['browserId', 'ref', 'value'],
     readOnly: false,
@@ -371,12 +425,23 @@ const SPECS: ToolSpec[] = [
     name: 'browser_wait',
     title: 'Wait for the browser',
     description:
-      'Wait until a tab shows this text, or its URL contains this part (give exactly one), up to timeoutMs (default ' +
-      '5000, at most 30000).',
+      'Wait until one condition holds, up to timeoutMs (default 5000, at most 30000): the page shows text; the URL ' +
+      'contains url or matches urlRegex; an element matching selector reaches state (attached, detached, visible ' +
+      '(default) or hidden); or networkIdle: no request running for idleMs (default 500). text and selector can be ' +
+      'in a frame. Give exactly one condition.',
     properties: {
       browserId: BROWSER_ID,
       text: { type: 'string' },
-      url: { type: 'string' },
+      url: { type: 'string', description: 'Part of the URL.' },
+      urlRegex: {
+        type: 'string',
+        description: 'JavaScript regular expression the URL must match.',
+      },
+      selector: SELECTOR,
+      state: { type: 'string', enum: ['attached', 'detached', 'visible', 'hidden'] },
+      networkIdle: { type: 'boolean' },
+      idleMs: { type: 'integer', minimum: 100, maximum: 10_000 },
+      frame: FRAME,
       timeoutMs: { type: 'integer', minimum: 1, maximum: 30_000 },
     },
     required: ['browserId'],
@@ -384,9 +449,38 @@ const SPECS: ToolSpec[] = [
     command: (args) => {
       const text = optionalString(args, 'text');
       const url = optionalString(args, 'url');
-      if ((text === undefined) === (url === undefined)) {
-        throw new AppToolError('browser_wait needs exactly one of text or url.');
+      const urlRegex = optionalString(args, 'urlRegex');
+      const selector = optionalString(args, 'selector');
+      const networkIdle = args.networkIdle === true;
+      const given = [text, url, urlRegex, selector].filter((value) => value !== undefined).length;
+      if (given + (networkIdle ? 1 : 0) !== 1) {
+        throw new AppToolError(
+          'browser_wait needs exactly one of text, url, urlRegex, selector or networkIdle.',
+        );
       }
+      if (urlRegex !== undefined) {
+        try {
+          new RegExp(urlRegex);
+        } catch (error) {
+          throw new AppToolError(
+            `urlRegex is not a valid regular expression: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      }
+      const state = optionalEnum(args, 'state', [
+        'attached',
+        'detached',
+        'visible',
+        'hidden',
+      ] as const);
+      if (state !== undefined && selector === undefined) {
+        throw new AppToolError('state goes with selector.');
+      }
+      const frame = optionalString(args, 'frame');
+      if (frame !== undefined && text === undefined && selector === undefined) {
+        throw new AppToolError('frame goes with text or selector.');
+      }
+      const idleMs = optionalInt(args, 'idleMs', 100, 10_000);
       const timeoutMs = optionalInt(args, 'timeoutMs', 1, 30_000);
       return {
         command: 'wait',
@@ -394,6 +488,12 @@ const SPECS: ToolSpec[] = [
           ...tab(args),
           ...(text !== undefined && { text }),
           ...(url !== undefined && { url }),
+          ...(urlRegex !== undefined && { urlRegex }),
+          ...(selector !== undefined && { selector }),
+          ...(state !== undefined && { state }),
+          ...(networkIdle && { networkIdle: true }),
+          ...(networkIdle && idleMs !== undefined && { idleMs }),
+          ...(frame !== undefined && { frame }),
           ...(timeoutMs !== undefined && { timeoutMs }),
         },
       };
@@ -408,7 +508,8 @@ const SPECS: ToolSpec[] = [
     title: 'Read browser logs',
     description:
       'Read the console messages and network requests of the page currently loaded in a tab (both start over when ' +
-      'a new page loads; the last maxEntries of each, default 50, at most 200). Requests still running show as pending.',
+      'a new page loads; the last maxEntries of each, default 50, at most 200). Requests still running show as pending. ' +
+      'For filters, headers and response bodies use browser_network.',
     properties: {
       browserId: BROWSER_ID,
       maxEntries: { type: 'integer', minimum: 1, maximum: 200 },
@@ -423,7 +524,315 @@ const SPECS: ToolSpec[] = [
       };
     },
   },
+  {
+    name: 'browser_evaluate',
+    title: 'Run JavaScript in the browser',
+    description:
+      'Run a JavaScript function in a tab and return its result as JSON, to check page state that a snapshot does ' +
+      'not show (variables, storage, computed styles, element properties). Pass the source of a function, like ' +
+      '() => document.title or async () => { const r = await fetch("/api/me"); return r.status; }; with ref it is ' +
+      "called with that element, like (el) => el.value. It runs in the page itself (or in frame) with the page's " +
+      'permissions and can change the page. Elements, Maps, Sets, errors and cycles are written out; the result is ' +
+      'cut at maxBytes characters (default 6000, at most 200000). A function that throws returns ' +
+      'browser_script_error with the error. Not on tabs the user is using.',
+    properties: {
+      browserId: BROWSER_ID,
+      function: { type: 'string', description: 'Source of the function (or an expression).' },
+      ref: { ...REF, description: 'Element passed to the function as its argument.' },
+      frame: FRAME,
+      timeoutMs: { type: 'integer', minimum: 1, maximum: 30_000, description: 'Default 5000.' },
+      maxBytes: { type: 'integer', minimum: 100, maximum: BROWSER_RESULT_MAX_BYTES },
+    },
+    required: ['browserId', 'function'],
+    readOnly: false,
+    command: (args) => {
+      const ref = optionalString(args, 'ref');
+      const frame = optionalString(args, 'frame');
+      if (ref !== undefined && frame !== undefined) {
+        throw new AppToolError(
+          'browser_evaluate takes ref or frame, not both: a ref already knows its frame.',
+        );
+      }
+      const timeoutMs = optionalInt(args, 'timeoutMs', 1, 30_000);
+      const maxBytes = optionalInt(args, 'maxBytes', 100, BROWSER_RESULT_MAX_BYTES);
+      return {
+        command: 'evaluate',
+        args: {
+          ...tab(args),
+          function: requiredString(args, 'function'),
+          ...(ref !== undefined && { ref }),
+          ...(frame !== undefined && { frame }),
+          ...(timeoutMs !== undefined && { timeoutMs }),
+          ...(maxBytes !== undefined && { maxBytes }),
+        },
+      };
+    },
+    timeoutMs: (args) => {
+      const timeoutMs = optionalInt(args, 'timeoutMs', 1, 30_000);
+      return timeoutMs === undefined ? undefined : Math.max(30_000, timeoutMs + 5_000);
+    },
+  },
+  {
+    name: 'browser_query',
+    title: 'Find elements in the browser',
+    description:
+      'Find elements of a tab by CSS selector: how many match, and for the first maxResults (default 20, at most ' +
+      '100) the tag, id, classes, text, whether visible, position and size (CSS pixels in the page), the values of ' +
+      'the attributes you list, and a ref you can use with browser_click and the other tools. Use it to check the ' +
+      'state of specific elements without a whole snapshot.',
+    properties: {
+      browserId: BROWSER_ID,
+      selector: SELECTOR,
+      frame: FRAME,
+      maxResults: { type: 'integer', minimum: 1, maximum: 100 },
+      attributes: {
+        type: 'array',
+        items: { type: 'string' },
+        maxItems: 20,
+        description: 'Attribute names to read, like ["href", "aria-expanded", "disabled"].',
+      },
+    },
+    required: ['browserId', 'selector'],
+    readOnly: true,
+    command: (args) => {
+      const frame = optionalString(args, 'frame');
+      const maxResults = optionalInt(args, 'maxResults', 1, 100);
+      const attributes = stringArray(args, 'attributes', 20);
+      return {
+        command: 'query',
+        args: {
+          ...tab(args),
+          selector: requiredString(args, 'selector'),
+          ...(frame !== undefined && { frame }),
+          ...(maxResults !== undefined && { maxResults }),
+          ...(attributes !== undefined && attributes.length > 0 && { attributes }),
+        },
+      };
+    },
+  },
+  {
+    name: 'browser_network',
+    title: 'Inspect browser network requests',
+    description:
+      'List the network requests of the page loaded in a tab, filtered by url (part of it), method, status (404, ' +
+      '4xx or 400-499), type (document, script, fetch, xhr, image, …) or failedOnly (network errors and HTTP ' +
+      'errors); the last maxEntries matches (default 50), each with an id. With id: that request in detail ' +
+      '(request and response headers, request body, timing); add body=true for the response body (text cut at ' +
+      'maxBytes characters, default 6000; binary bodies give their size only). Cookie and authorization headers ' +
+      'show their length only. clear=true empties the log after reading, so the next call shows only new requests. ' +
+      'The log starts over when a new page loads.',
+    properties: {
+      browserId: BROWSER_ID,
+      url: { type: 'string' },
+      method: { type: 'string' },
+      status: { type: 'string' },
+      type: { type: 'string' },
+      failedOnly: { type: 'boolean' },
+      maxEntries: { type: 'integer', minimum: 1, maximum: 200 },
+      id: { type: 'string', description: 'id of a request from the list.' },
+      body: { type: 'boolean' },
+      maxBytes: { type: 'integer', minimum: 100, maximum: BROWSER_RESULT_MAX_BYTES },
+      clear: { type: 'boolean' },
+    },
+    required: ['browserId'],
+    readOnly: true,
+    command: (args) => {
+      const status = optionalString(args, 'status');
+      if (status !== undefined && !/^(\d{3}|[1-5]xx|\d{3}\s*-\s*\d{3})$/i.test(status.trim())) {
+        throw new AppToolError(
+          `status must be like 404, 4xx or 400-499 (got ${JSON.stringify(status)}).`,
+        );
+      }
+      const id = optionalString(args, 'id');
+      if (args.body === true && id === undefined) {
+        throw new AppToolError('body needs the id of a request.');
+      }
+      const strings = Object.fromEntries(
+        (['url', 'method', 'type'] as const).flatMap((key) => {
+          const value = optionalString(args, key);
+          return value === undefined ? [] : [[key, value]];
+        }),
+      );
+      const maxEntries = optionalInt(args, 'maxEntries', 1, 200);
+      const maxBytes = optionalInt(args, 'maxBytes', 100, BROWSER_RESULT_MAX_BYTES);
+      return {
+        command: 'network',
+        args: {
+          ...tab(args),
+          ...strings,
+          ...(status !== undefined && { status: status.trim() }),
+          ...(args.failedOnly === true && { failedOnly: true }),
+          ...(maxEntries !== undefined && { maxEntries }),
+          ...(id !== undefined && { id }),
+          ...(args.body === true && { body: true }),
+          ...(maxBytes !== undefined && { maxBytes }),
+          ...(args.clear === true && { clear: true }),
+        },
+      };
+    },
+  },
+  {
+    name: 'browser_dialogs',
+    title: 'Set how the browser answers dialogs',
+    description:
+      'Choose how a tab answers the dialogs its pages open from now on: confirm (accept = OK, dismiss = Cancel), ' +
+      "prompt (accept with promptText, or the page's default text when promptText is not given; dismiss = Cancel) " +
+      'and beforeunload (accept = leave the page, dismiss = stay). Alerts are always accepted. The default is ' +
+      'dismiss, dismiss, accept. Options you leave out keep their current value; the choice lasts until the tab ' +
+      'closes or the user takes it over. Results report each dialog and how it was answered.',
+    properties: {
+      browserId: BROWSER_ID,
+      confirm: { type: 'string', enum: ['accept', 'dismiss'] },
+      prompt: { type: 'string', enum: ['accept', 'dismiss'] },
+      promptText: { type: 'string' },
+      beforeunload: { type: 'string', enum: ['accept', 'dismiss'] },
+    },
+    required: ['browserId'],
+    readOnly: false,
+    command: (args) => {
+      const actions = ['accept', 'dismiss'] as const;
+      const confirm = optionalEnum(args, 'confirm', actions);
+      let prompt = optionalEnum(args, 'prompt', actions);
+      const beforeunload = optionalEnum(args, 'beforeunload', actions);
+      const promptText = args.promptText;
+      if (promptText !== undefined && typeof promptText !== 'string') {
+        throw new AppToolError('promptText must be a string.');
+      }
+      if (promptText !== undefined) {
+        if (prompt === 'dismiss') throw new AppToolError('promptText goes with prompt "accept".');
+        prompt = 'accept';
+      }
+      return {
+        command: 'dialogs',
+        args: {
+          ...tab(args),
+          ...(confirm !== undefined && { confirm }),
+          ...(prompt !== undefined && { prompt }),
+          ...(promptText !== undefined && { promptText }),
+          ...(beforeunload !== undefined && { beforeunload }),
+        },
+      };
+    },
+  },
+  {
+    name: 'browser_upload',
+    title: 'Upload files in the browser',
+    description:
+      'Give files from the session folder to a page: to the file input with ref (inputs of type=file show as ' +
+      'buttons in the snapshot; a button that opens a file chooser works too), or, without ref, to the file ' +
+      'chooser the page just opened (a click result says when it asked for a file). paths are relative to the ' +
+      `session folder or absolute inside it, at most ${BROWSER_UPLOAD_MAX_FILES}. Not on tabs the user is using.`,
+    properties: {
+      browserId: BROWSER_ID,
+      ref: REF,
+      paths: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        maxItems: BROWSER_UPLOAD_MAX_FILES,
+      },
+    },
+    required: ['browserId', 'paths'],
+    readOnly: false,
+    command: (args, cwd) => {
+      const ref = optionalString(args, 'ref');
+      const paths = stringArray(args, 'paths', BROWSER_UPLOAD_MAX_FILES);
+      if (paths === undefined || paths.length === 0) {
+        throw new AppToolError('paths needs at least one file in the session folder.');
+      }
+      return {
+        command: 'upload',
+        args: {
+          ...tab(args),
+          ...(ref !== undefined && { ref }),
+          paths: sessionFilePaths(paths, cwd),
+        },
+      };
+    },
+  },
+  {
+    name: 'browser_download',
+    title: 'Download a file in the browser',
+    description:
+      'Save a download into the downloads folder of the session folder: click ref and keep the download it ' +
+      'starts, or download url with the tab (its cookies and login). Give exactly one. Waits up to timeoutMs ' +
+      '(default 30000, at most 120000) and returns the path, size and state (completed, or in_progress when it ' +
+      'is still running and continues in the background). Other downloads stay blocked. Not on tabs the user ' +
+      'is using.',
+    properties: {
+      browserId: BROWSER_ID,
+      ref: REF,
+      url: { type: 'string' },
+      timeoutMs: { type: 'integer', minimum: 1, maximum: 120_000 },
+    },
+    required: ['browserId'],
+    readOnly: false,
+    command: (args) => {
+      const ref = optionalString(args, 'ref');
+      const url = optionalString(args, 'url');
+      if ((ref === undefined) === (url === undefined)) {
+        throw new AppToolError('browser_download needs exactly one of ref or url.');
+      }
+      const timeoutMs = optionalInt(args, 'timeoutMs', 1, 120_000);
+      return {
+        command: 'download',
+        args: {
+          ...tab(args),
+          ...(ref !== undefined && { ref }),
+          ...(url !== undefined && { url: httpUrl(url) }),
+          ...(timeoutMs !== undefined && { timeoutMs }),
+        },
+      };
+    },
+    timeoutMs: (args) => (optionalInt(args, 'timeoutMs', 1, 120_000) ?? 30_000) + 10_000,
+  },
 ];
+
+function stringArray(
+  args: Record<string, unknown>,
+  key: string,
+  max: number,
+): string[] | undefined {
+  const value = args[key];
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || item === '')) {
+    throw new AppToolError(`${key} must be an array of non-empty strings.`);
+  }
+  if (value.length > max) throw new AppToolError(`${key} takes at most ${max} items.`);
+  return value as string[];
+}
+
+/** 不在会话文件夹里（`browser_denied`）。 */
+class BrowserDeniedError extends AppToolError {}
+
+/**
+ * 上传的文件：相对会话目录解析，真实路径（跟随符号链接）要在会话文件夹里、是普通文件；交给桌面端的是真实的绝对路径。
+ */
+export function sessionFilePaths(paths: readonly string[], cwd: string): string[] {
+  let root: string;
+  try {
+    root = realpathSync(cwd);
+  } catch {
+    throw new BrowserDeniedError(`The session folder ${cwd} is not available.`);
+  }
+  return paths.map((path) => {
+    const absolute = isAbsolute(path) ? path : resolve(cwd, path);
+    let real: string;
+    try {
+      real = realpathSync(absolute);
+    } catch {
+      throw new AppToolError(`${path} does not exist in the session folder.`);
+    }
+    const inside = relative(root, real);
+    if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) {
+      throw new BrowserDeniedError(
+        `${path} is outside the session folder; browser_upload only gives pages files from ${cwd}.`,
+      );
+    }
+    if (!statSync(real).isFile()) throw new AppToolError(`${path} is not a file.`);
+    return real;
+  });
+}
 
 /** 调工具的会话的目录；会话不在了（工作区移除）时拒绝。 */
 export function callerCwd(storage: Storage, sessionId: SessionId): string {
@@ -461,7 +870,11 @@ class BrowserUrlError extends AppToolError {}
 /** 参数错误也带错误码，与桌面端报的错误一个格式。 */
 function argumentError(error: AppToolError): AppToolResult {
   const code =
-    error instanceof BrowserUrlError ? 'browser_invalid_url' : 'browser_invalid_argument';
+    error instanceof BrowserUrlError
+      ? 'browser_invalid_url'
+      : error instanceof BrowserDeniedError
+        ? 'browser_denied'
+        : 'browser_invalid_argument';
   return { content: [{ type: 'text', text: `[${code}] ${error.message}` }], isError: true };
 }
 
@@ -601,7 +1014,14 @@ function successText(payload: Extract<BrowserPayload, { ok: true }>): string {
     case 'reload':
       return `Browser ${result.command} done.`;
     case 'wait':
-      return `The page matched the ${result.matched}.`;
+      return (
+        {
+          text: 'The page shows the text.',
+          url: 'The URL matches.',
+          selector: 'The element reached the state.',
+          network_idle: 'The network is idle.',
+        }[result.matched] ?? `The page matched the ${result.matched}.`
+      );
     case 'logs':
       return [
         `${counted(result.console.length, result.consoleTotal, 'console message', 'console messages')}, ${counted(result.network.length, result.networkTotal, 'network entry', 'network entries')} since this page loaded.`,
@@ -609,30 +1029,188 @@ function successText(payload: Extract<BrowserPayload, { ok: true }>): string {
           (entry) =>
             `[console.${entry.level}] ${entry.message}${entry.source ? ` (${entry.source}${entry.line !== undefined ? `:${entry.line}` : ''})` : ''}`,
         ),
-        ...result.network.map((entry) =>
-          [
-            '[network]',
-            ...(entry.method !== undefined ? [entry.method] : []),
-            entry.url,
-            entry.status !== undefined
-              ? String(entry.status)
-              : entry.pending === true || entry.failed !== undefined
-                ? ''
-                : 'status=unknown',
-            ...(entry.type !== undefined ? [entry.type] : []),
-            entry.pending === true
-              ? entry.status !== undefined
-                ? 'body still loading'
-                : 'pending'
-              : entry.failed !== undefined
-                ? `failed ${entry.failed}`
-                : `${Math.round(entry.duration)}ms`,
-          ]
-            .filter((part) => part !== '')
-            .join(' '),
-        ),
+        ...result.network.map(networkEntryLine),
       ].join('\n');
+    case 'evaluate':
+      return [
+        `Returned ${result.type}${result.truncated ? ` (first ${result.value.length} of ${result.length} characters; pass a larger maxBytes, up to ${BROWSER_RESULT_MAX_BYTES}, or return less)` : ''}:`,
+        result.value,
+      ].join('\n');
+    case 'query':
+      return queryText(result);
+    case 'network':
+      return result.detail ? networkDetailText(result.detail) : networkListText(result);
+    case 'dialogs':
+      return dialogPolicyText(result.browserId, result.policy);
+    case 'upload':
+      return `Gave ${result.files.length} file${result.files.length === 1 ? '' : 's'} to ${result.ref ?? 'the file chooser'}: ${result.files
+        .map((file) => `${file.path} (${bytes(file.size)})`)
+        .join(', ')}.`;
+    case 'download':
+      return downloadText(result);
   }
+}
+
+function queryText(result: Extract<BrowserResult, { command: 'query' }>): string {
+  if (result.count === 0) return `No element matches ${JSON.stringify(result.selector)}.`;
+  const lines = result.elements.map((element) => {
+    const name = `<${element.tag}${element.id ? `#${element.id}` : ''}${element.classes ? `.${element.classes.split(/\s+/).slice(0, 3).join('.')}` : ''}>`;
+    const box = element.box
+      ? ` at ${element.box.x},${element.box.y} size ${element.box.width}x${element.box.height}`
+      : '';
+    const attributes = element.attributes
+      ? Object.entries(element.attributes)
+          .map(([key, value]) => ` ${key}=${JSON.stringify(value)}`)
+          .join('')
+      : '';
+    return `- ${element.ref ?? ''} ${name}${element.text ? ` ${JSON.stringify(element.text)}` : ''} ${element.visible ? 'visible' : 'hidden'}${box}${attributes}`;
+  });
+  return [
+    `${result.count} element${result.count === 1 ? ' matches' : 's match'} ${JSON.stringify(result.selector)}${result.count > result.elements.length ? `; the first ${result.elements.length}` : ''}:`,
+    ...lines,
+    'The refs work with browser_click and the other tools until the page changes.',
+  ].join('\n');
+}
+
+function networkEntryLine(
+  entry: Extract<BrowserResult, { command: 'logs' }>['network'][number],
+): string {
+  return [
+    '[network]',
+    ...(entry.id !== undefined ? [`id=${entry.id}`] : []),
+    ...(entry.method !== undefined ? [entry.method] : []),
+    entry.url,
+    entry.status !== undefined
+      ? String(entry.status)
+      : entry.pending === true || entry.failed !== undefined
+        ? ''
+        : 'status=unknown',
+    ...(entry.type !== undefined ? [entry.type] : []),
+    ...(entry.fromCache === true ? ['cache'] : []),
+    entry.pending === true
+      ? entry.status !== undefined
+        ? 'body still loading'
+        : 'pending'
+      : entry.failed !== undefined
+        ? `failed ${entry.failed}`
+        : `${Math.round(entry.duration)}ms`,
+  ]
+    .filter((part) => part !== '')
+    .join(' ');
+}
+
+function networkListText(result: Extract<BrowserResult, { command: 'network' }>): string {
+  const head =
+    result.matched === result.total
+      ? `${result.total} request${result.total === 1 ? '' : 's'} on this page`
+      : `${result.matched} of ${result.total} requests on this page ${result.matched === 1 ? 'matches' : 'match'}`;
+  const shown =
+    result.entries.length < result.matched ? ` (the last ${result.entries.length} shown)` : '';
+  return [
+    `${head}${shown}.`,
+    ...result.entries.map(networkEntryLine),
+    ...(result.entries.length > 0
+      ? [
+          'Call browser_network with id for headers and timing, and body=true for the response body.',
+        ]
+      : []),
+    ...(result.cleared ? ['The log is now empty; later requests are recorded as usual.'] : []),
+  ].join('\n');
+}
+
+function networkDetailText(
+  detail: NonNullable<Extract<BrowserResult, { command: 'network' }>['detail']>,
+): string {
+  const facts = [
+    detail.type,
+    detail.mimeType,
+    detail.protocol,
+    detail.fromCache ? 'from cache' : undefined,
+    detail.remoteAddress ? `remote ${detail.remoteAddress}` : undefined,
+  ].filter((part): part is string => part !== undefined && part !== '');
+  const timing = [
+    `started ${Math.round(detail.startTime)} ms into the page`,
+    ...(detail.waitingMs !== undefined
+      ? [`waited ${Math.round(detail.waitingMs)} ms for the response`]
+      : []),
+    detail.pending ? 'still running' : `took ${Math.round(detail.duration)} ms`,
+    ...(detail.transferSize !== undefined ? [`${bytes(detail.transferSize)} transferred`] : []),
+  ];
+  const headers = (title: string, values: Record<string, string> | undefined) =>
+    values === undefined
+      ? []
+      : [`${title}:`, ...Object.entries(values).map(([name, value]) => `  ${name}: ${value}`)];
+  const body = detail.body;
+  const bodyLines =
+    body === undefined
+      ? []
+      : body.unavailable !== undefined
+        ? [`Response body: not available, ${body.unavailable}.`]
+        : body.binary
+          ? [
+              `Response body: binary, ${bytes(body.size)}${detail.mimeType ? ` (${detail.mimeType})` : ''}.`,
+            ]
+          : [
+              `Response body (${bytes(body.size)}${body.truncated ? `, first ${body.text?.length ?? 0} characters; pass a larger maxBytes, up to ${BROWSER_RESULT_MAX_BYTES}` : ''}):`,
+              body.text ?? '',
+            ];
+  return [
+    `Request ${detail.id}: ${detail.method} ${detail.url}`,
+    detail.failed !== undefined
+      ? `Failed: ${detail.failed}`
+      : detail.status !== undefined
+        ? `Status: ${detail.status}${detail.statusText ? ` ${detail.statusText}` : ''}`
+        : 'Status: no response yet',
+    ...(facts.length > 0 ? [`Type: ${facts.join(', ')}`] : []),
+    `Timing: ${timing.join(', ')}`,
+    ...headers('Request headers', detail.requestHeaders),
+    ...(detail.postData !== undefined
+      ? [`Request body${detail.postDataTruncated ? ' (start)' : ''}:`, detail.postData]
+      : detail.postDataTruncated
+        ? ['Request body: not recorded (too large or streamed).']
+        : []),
+    ...headers('Response headers', detail.responseHeaders),
+    ...bodyLines,
+  ].join('\n');
+}
+
+function dialogPolicyText(
+  browserId: string,
+  policy: Extract<BrowserResult, { command: 'dialogs' }>['policy'],
+): string {
+  const prompt =
+    policy.prompt === 'accept'
+      ? policy.promptText !== undefined
+        ? `accept with ${JSON.stringify(policy.promptText)}`
+        : "accept with the page's default text"
+      : policy.prompt;
+  const beforeunload =
+    policy.beforeunload === 'accept'
+      ? 'accept (leave the page)'
+      : policy.beforeunload === 'dismiss'
+        ? 'dismiss (stay on the page)'
+        : policy.beforeunload;
+  return `Dialogs in browser tab ${browserId} from now on: confirm ${policy.confirm}, prompt ${prompt}, beforeunload ${beforeunload}; alerts are accepted. This lasts until the tab closes or the user takes it over.`;
+}
+
+function downloadText(result: Extract<BrowserResult, { command: 'download' }>): string {
+  const from = `${JSON.stringify(result.filename)} from ${result.url}`;
+  switch (result.state) {
+    case 'completed':
+      return `Downloaded ${from} (${bytes(result.size)}${result.mimeType ? `, ${result.mimeType}` : ''}) to ${result.path}.`;
+    case 'in_progress':
+      return `Still downloading ${from} (${bytes(result.size)} so far) to ${result.path}; it continues in the background. Check the file later.`;
+    case 'too_large':
+      return `The download of ${from} was cancelled: it is larger than ${bytes(BROWSER_DOWNLOAD_MAX_BYTES)}.`;
+    default:
+      return `The download of ${from} ended as ${result.state} after ${bytes(result.size)}; nothing was saved.`;
+  }
+}
+
+function bytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 102.4) / 10} KB`;
+  return `${Math.round(size / 104_857.6) / 10} MB`;
 }
 
 /** 主文档的 HTTP 状态码；出错的状态写明，免得把错误页当成正常页面。 */
@@ -690,6 +1268,9 @@ function timeoutHint(command: BrowserCommand['command'] | undefined): string {
     case 'screenshot':
     case 'logs':
     case 'wait':
+    case 'query':
+    case 'network':
+    case 'evaluate':
       return 'If the tab keeps not answering, close it with browser_close_tab and open the page again.';
     case 'new_tab':
     case 'navigate':
@@ -716,21 +1297,21 @@ function withEvents(text: string, payload: BrowserPayload): string {
   }
   for (const download of effects?.downloads ?? []) {
     lines.push(
-      `The page started a download of ${JSON.stringify(download.filename)} (${download.url}); the Wevir browser ${download.state === 'blocked' ? 'blocks downloads, nothing was saved' : `reports it as ${download.state}`}.`,
+      `The page started a download of ${JSON.stringify(download.filename)} (${download.url}); the Wevir browser ${download.state === 'blocked' ? 'blocked it and nothing was saved; to keep it, call browser_download with the same ref or the URL' : `reports it as ${download.state}`}.`,
     );
   }
   if (effects?.fileChooser) {
     lines.push(
-      `The page asked to choose ${effects.fileChooser.multiple ? 'files' : 'a file'} from this computer; the Wevir browser does not give pages local files, so nothing was chosen. Ask the user to do it in the browser pane if it is needed.`,
+      `The page asked to choose ${effects.fileChooser.multiple ? 'files' : 'a file'}; nothing was chosen. To give it files from the session folder, call browser_upload without ref.`,
     );
   }
   const dialogs = payload.dialogs;
   if (dialogs && dialogs.length > 0) {
     lines.push(
-      `The page opened ${dialogs.length === 1 ? 'a dialog' : 'dialogs'}, handled automatically: ${dialogs
+      `The page opened ${dialogs.length === 1 ? 'a dialog' : 'dialogs'}, answered automatically (browser_dialogs sets how): ${dialogs
         .map(
           (dialog) =>
-            `${dialog.action} ${dialog.type}${dialog.message ? ` ${JSON.stringify(dialog.message)}` : ''}`,
+            `${dialog.action} ${dialog.type}${dialog.message ? ` ${JSON.stringify(dialog.message)}` : ''}${dialog.response !== undefined ? ` with ${JSON.stringify(dialog.response)}` : ''}`,
         )
         .join('; ')}.`,
     );

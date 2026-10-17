@@ -2,7 +2,7 @@
 // WebSocket 登记为浏览器提供方，模型那一侧直接按 MCP 调 `/mcp` 端点：工具列表与 annotations、请求带会话与目录、结果与截图、
 // 没有提供方、断开、参数在发出前就被拒、wevir_show 只开本机网页。
 
-import { mkdirSync, readFileSync, realpathSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BrowserRequest, SessionId } from '@wevir/protocol';
 import { BROWSER_COMMANDS } from '@wevir/protocol';
@@ -127,7 +127,7 @@ describe('浏览器工具', () => {
       tools as Array<{ name: string; annotations: { readOnlyHint?: boolean } }>
     ).filter((tool) => tool.name.startsWith('browser_'));
     expect(browser.map((tool) => tool.name)).toContain('browser_click');
-    expect(browser.map((tool) => tool.name)).not.toContain('browser_evaluate');
+    expect(browser.map((tool) => tool.name)).toContain('browser_evaluate');
     const readOnly = browser
       .filter((tool) => tool.annotations.readOnlyHint === true)
       .map((tool) => tool.name);
@@ -234,7 +234,7 @@ describe('浏览器工具', () => {
       '[browser_invalid_url] file: URLs are not supported: the Wevir browser only opens http and https pages, by design.',
       '[browser_invalid_url] "not a url" is not a URL. Pass an http(s) URL, or a host like localhost:5173.',
       '[browser_invalid_argument] ref must be a ref from browser_snapshot, like @e3 (got "garbage").',
-      '[browser_invalid_argument] browser_wait needs exactly one of text or url.',
+      '[browser_invalid_argument] browser_wait needs exactly one of text, url, urlRegex, selector or networkIdle.',
     ]);
     expect(desktop.requests).toHaveLength(before);
   });
@@ -299,6 +299,239 @@ describe('浏览器工具', () => {
   });
 });
 
+describe('浏览器工具（0.48.0）', () => {
+  it('新工具的参数在 Host 核对：上传只收会话文件夹里的文件，下载要 ref 或 url 之一，等待只能一个条件', async () => {
+    const { connect, call, cwd } = await setup();
+    writeFileSync(join(cwd, 'a.txt'), 'hello');
+    mkdirSync(join(cwd, 'docs'));
+    const desktop = await fakeDesktop(connect, (request) => ({
+      ok: true,
+      result:
+        request.command.command === 'upload'
+          ? {
+              command: 'upload',
+              browserId: 'tab_1',
+              files: [{ path: join(cwd, 'a.txt'), size: 5 }],
+            }
+          : request.command.command === 'evaluate'
+            ? {
+                command: 'evaluate',
+                browserId: 'tab_1',
+                value: '"T"',
+                type: 'string',
+                truncated: false,
+                length: 3,
+              }
+            : { command: 'wait', browserId: 'tab_1', matched: 'url' },
+    }));
+
+    const uploaded = await call('browser_upload', { browserId: 'tab_1', paths: ['a.txt'] });
+    expect(uploaded.isError).toBeUndefined();
+    expect(uploaded.content[0]?.text).toBe(
+      `Gave 1 file to the file chooser: ${join(cwd, 'a.txt')} (5 B).`,
+    );
+    expect(desktop.requests.at(-1)?.command).toEqual({
+      command: 'upload',
+      args: { browserId: 'tab_1', paths: [join(cwd, 'a.txt')] },
+    });
+    await call('browser_evaluate', { browserId: 'tab_1', function: '() => document.title' });
+    await call('browser_wait', { browserId: 'tab_1', urlRegex: '/done$' });
+    expect(desktop.requests.map((request) => request.command.command)).toEqual([
+      'upload',
+      'evaluate',
+      'wait',
+    ]);
+
+    const refused = await Promise.all(
+      (
+        [
+          ['browser_upload', { browserId: 'tab_1', paths: ['/etc/hosts'] }],
+          ['browser_upload', { browserId: 'tab_1', paths: ['../outside.txt'] }],
+          ['browser_upload', { browserId: 'tab_1', paths: ['docs'] }],
+          ['browser_upload', { browserId: 'tab_1', paths: ['missing.txt'] }],
+          ['browser_upload', { browserId: 'tab_1', paths: [] }],
+          ['browser_download', { browserId: 'tab_1' }],
+          ['browser_download', { browserId: 'tab_1', ref: '@e1', url: 'http://a.test/x' }],
+          ['browser_download', { browserId: 'tab_1', url: 'file:///etc/hosts' }],
+          ['browser_evaluate', { browserId: 'tab_1' }],
+          ['browser_wait', { browserId: 'tab_1', urlRegex: 'a', networkIdle: true }],
+          ['browser_snapshot', { browserId: 'tab_1', selector: 'main', ref: '@e1' }],
+        ] as const
+      ).map(async ([name, args]) => {
+        const result = await call(name, args);
+        expect(result.isError, `${name} ${JSON.stringify(args)}`).toBe(true);
+        return result.content[0]?.text ?? '';
+      }),
+    );
+    expect(refused[0]).toMatch(/^\[browser_denied\] .*outside the session folder/);
+    expect(refused[1]).toMatch(/^\[browser_denied\]|does not exist/);
+    expect(refused[2]).toMatch(/is not a file/);
+    expect(refused[3]).toMatch(/does not exist/);
+    expect(desktop.requests).toHaveLength(3);
+  });
+});
+
+describe('browserToolResult（0.48.0）', () => {
+  const text = (payload: Parameters<typeof browserToolResult>[0]) => {
+    const first = browserToolResult(payload).content[0];
+    return first?.type === 'text' ? (first as { text: string }).text : '';
+  };
+
+  it('evaluate 写出类型与截断', () => {
+    expect(
+      text({
+        ok: true,
+        result: {
+          command: 'evaluate',
+          browserId: 'tab_1',
+          value: '[1,2',
+          type: 'array',
+          truncated: true,
+          length: 9,
+        },
+      }),
+    ).toBe(
+      'Returned array (first 4 of 9 characters; pass a larger maxBytes, up to 200000, or return less):\n[1,2',
+    );
+  });
+
+  it('query 写出数量、引用、可见性与位置', () => {
+    expect(
+      text({
+        ok: true,
+        result: {
+          command: 'query',
+          browserId: 'tab_1',
+          selector: 'a',
+          count: 3,
+          elements: [
+            {
+              ref: '@e4',
+              tag: 'a',
+              id: 'home',
+              classes: 'nav link',
+              text: 'Home',
+              visible: true,
+              box: { x: 1, y: 2, width: 30, height: 10 },
+              attributes: { href: '/' },
+            },
+          ],
+        },
+      }).split('\n'),
+    ).toEqual([
+      '3 elements match "a"; the first 1:',
+      '- @e4 <a#home.nav.link> "Home" visible at 1,2 size 30x10 href="/"',
+      'The refs work with browser_click and the other tools until the page changes.',
+    ]);
+    expect(
+      text({
+        ok: true,
+        result: { command: 'query', browserId: 'tab_1', selector: '.x', count: 0, elements: [] },
+      }),
+    ).toBe('No element matches ".x".');
+  });
+
+  it('network 写出过滤后的列表与一条请求的详情', () => {
+    expect(
+      text({
+        ok: true,
+        result: {
+          command: 'network',
+          browserId: 'tab_1',
+          entries: [
+            {
+              id: '3',
+              url: 'http://a.test/x.png',
+              method: 'GET',
+              status: 404,
+              type: 'image',
+              startTime: 0,
+              duration: 12,
+            },
+          ],
+          total: 9,
+          matched: 1,
+        },
+      }).split('\n'),
+    ).toEqual([
+      '1 of 9 requests on this page matches.',
+      '[network] id=3 GET http://a.test/x.png 404 image 12ms',
+      'Call browser_network with id for headers and timing, and body=true for the response body.',
+    ]);
+    const detail = text({
+      ok: true,
+      result: {
+        command: 'network',
+        browserId: 'tab_1',
+        entries: [],
+        total: 9,
+        matched: 9,
+        detail: {
+          id: '2',
+          url: 'http://a.test/api',
+          method: 'POST',
+          status: 200,
+          type: 'fetch',
+          mimeType: 'application/json',
+          requestHeaders: { Authorization: '[redacted, 13 characters]' },
+          responseHeaders: { 'Content-Type': 'application/json' },
+          postData: '{"q":1}',
+          startTime: 100,
+          duration: 20,
+          waitingMs: 15,
+          body: { size: 2, text: '{}' },
+        },
+      },
+    });
+    expect(detail).toContain('Authorization: [redacted, 13 characters]');
+    expect(detail).toContain('waited 15 ms for the response');
+    expect(detail).toContain('{"q":1}');
+    expect(detail).toContain('Response body (2 B):\n{}');
+  });
+
+  it('dialogs 与 download 的说明', () => {
+    expect(
+      text({
+        ok: true,
+        result: {
+          command: 'dialogs',
+          browserId: 'tab_1',
+          policy: {
+            confirm: 'accept',
+            prompt: 'accept',
+            promptText: 'Alice',
+            beforeunload: 'dismiss',
+          },
+        },
+      }),
+    ).toBe(
+      'Dialogs in browser tab tab_1 from now on: confirm accept, prompt accept with "Alice", beforeunload dismiss (stay on the page); alerts are accepted. This lasts until the tab closes or the user takes it over.',
+    );
+    const download = (state: string, extra: Record<string, unknown> = {}) =>
+      text({
+        ok: true,
+        result: {
+          command: 'download',
+          browserId: 'tab_1',
+          url: 'http://a.test/r.csv',
+          filename: 'r.csv',
+          size: 2048,
+          state,
+          ...extra,
+        },
+      } as Parameters<typeof browserToolResult>[0]);
+    expect(download('completed', { path: '/work/downloads/r.csv', mimeType: 'text/csv' })).toBe(
+      'Downloaded "r.csv" from http://a.test/r.csv (2 KB, text/csv) to /work/downloads/r.csv.',
+    );
+    expect(download('too_large')).toBe(
+      'The download of "r.csv" from http://a.test/r.csv was cancelled: it is larger than 500 MB.',
+    );
+    expect(download('interrupted')).toBe(
+      'The download of "r.csv" from http://a.test/r.csv ended as interrupted after 2 KB; nothing was saved.',
+    );
+  });
+});
+
 describe('httpUrl', () => {
   it('没写协议的当 http，别的协议拒绝', () => {
     expect(httpUrl('localhost:5173')).toBe('http://localhost:5173/');
@@ -341,9 +574,9 @@ describe('browserToolResult', () => {
       'Clicked @e2.',
       'The page navigated to http://a.test/missing.json (HTTP 404, an error page); take a new browser_snapshot.',
       'The page opened a new tab in the background: browserId=tab_2 url=http://a.test/r3.',
-      'The page started a download of "smoke.bin" (http://a.test/download.bin); the Wevir browser blocks downloads, nothing was saved.',
-      'The page asked to choose a file from this computer; the Wevir browser does not give pages local files, so nothing was chosen. Ask the user to do it in the browser pane if it is needed.',
-      'The page opened a dialog, handled automatically: accepted alert "hi".',
+      'The page started a download of "smoke.bin" (http://a.test/download.bin); the Wevir browser blocked it and nothing was saved; to keep it, call browser_download with the same ref or the URL.',
+      'The page asked to choose a file; nothing was chosen. To give it files from the session folder, call browser_upload without ref.',
+      'The page opened a dialog, answered automatically (browser_dialogs sets how): accepted alert "hi".',
     ]);
   });
 

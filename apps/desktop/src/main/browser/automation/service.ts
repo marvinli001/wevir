@@ -8,22 +8,40 @@
 // 引用用不了时分开“快照里没有”与“页面变了”；网络记录带 Resource Timing 的状态码，不再给导航编一个 GET。
 // 0.46.0：网络记录改用 contents.ts 的 CDP 记录（Resource Timing 只作没有它时的退路），日志带总数；快照按字节预算分段
 // （`offset`）；结果带对话框之外的页面变化（下载、选文件框）；文件输入框不能填，直接说明。
+// 0.48.0：加回 Paseo 的 evaluate 与 upload（执行前在主进程里只做语法检查、不执行；不经页面的 eval，CSP 挡不住也不受它影响；
+// 返回值在页面里序列化并截断；上传的文件再核对一遍在会话文件夹里，交给文件输入框或被拦下的选文件框），另加 query、network、
+// dialogs；快照的范围参数；等待的条件多了地址正则、元素状态与网络空闲；引用可以在跨域 frame 里（脚本在那个 frame 里跑，坐标
+// 逐层换算到顶层页面）。
 
+import { realpathSync, statSync } from 'node:fs';
+import { isAbsolute, relative } from 'node:path';
+import { Script } from 'node:vm';
 import {
+  BROWSER_EVALUATE_DEFAULT_BYTES,
   BROWSER_SCREENSHOT_MAX_BYTES,
   type BrowserCommand,
   type BrowserConsoleEntry,
   type BrowserEffects,
   type BrowserErrorCode,
+  type BrowserNetworkDetail,
   type BrowserNetworkEntry,
+  type BrowserQueryElement,
   type BrowserRequest,
   type BrowserResponse,
 } from '@wevir/protocol';
 import { type ActionabilityResult, waitForActionableTarget } from './actionability.js';
-import type { BrowserAutomationDialogEvent } from './dialog-handling.js';
-import { type BrowserRefActionResult, BrowserSnapshotEngine } from './snapshot-engine.js';
+import type { BrowserAutomationDialogEvent, DialogPolicy } from './dialog-handling.js';
+import { DEFAULT_DIALOG_POLICY } from './dialog-handling.js';
+import { findFrame, frameNotFoundMessage, frameToTopPoint, type TabFrame } from './frames.js';
+import { filterNetwork } from './network.js';
+import {
+  type BrowserRefActionResult,
+  BrowserSnapshotEngine,
+  type SnapshotPage,
+} from './snapshot-engine.js';
 import {
   type ClickInputOptions,
+  dispatchCdpKey,
   dispatchTrustedClick,
   dispatchTrustedDrag,
   dispatchTrustedHover,
@@ -65,6 +83,15 @@ export interface TabContents {
     effects?: Pick<BrowserEffects, 'downloads' | 'fileChooser'>;
   }>;
   sendDebugCommand?(command: string, params?: Record<string, unknown>): Promise<unknown>;
+  /** 子 frame（0.48.0）。 */
+  listFrames?(): Promise<TabFrame[]>;
+  getNetworkDetail?(id: string): BrowserNetworkDetail | undefined;
+  getNetworkBody?(id: string, maxChars: number): Promise<BrowserNetworkDetail['body']>;
+  clearNetworkLog?(): void;
+  getDialogPolicy?(): Readonly<DialogPolicy>;
+  setDialogPolicy?(policy: Readonly<DialogPolicy>): Promise<void>;
+  /** 被拦下、还没交文件的选文件框；取走后清掉。 */
+  takeFileChooser?(): { backendNodeId: number; multiple: boolean } | undefined;
 }
 
 export interface TabImage {
@@ -298,15 +325,16 @@ type CommandHandler = (
   context: CommandHandlerContext,
 ) => AutomationCommandPayload | Promise<AutomationCommandPayload>;
 
-/** 由 browser-host.ts 自己处理的命令（标签页的开关、列出与显示）。 */
-export type HostHandledCommand = 'list_tabs' | 'new_tab' | 'close_tab' | 'show';
+/** 由 browser-host.ts 自己处理的命令（标签页的开关、列出与显示，0.48.0 起还有要接住下载的 download）。 */
+export type HostHandledCommand = 'list_tabs' | 'new_tab' | 'close_tab' | 'show' | 'download';
 
 export function isHostHandled(command: BrowserCommand['command']): command is HostHandledCommand {
   return (
     command === 'list_tabs' ||
     command === 'new_tab' ||
     command === 'close_tab' ||
-    command === 'show'
+    command === 'show' ||
+    command === 'download'
   );
 }
 
@@ -316,15 +344,47 @@ const commandHandlers: Record<
 > = {
   snapshot: ({ command, requestId, sessionId, registry, snapshotEngine }) => {
     const snapshotCommand = command as Extract<BrowserCommand, { command: 'snapshot' }>;
-    return executeSnapshot(
+    return executeSnapshot(requestId, sessionId, snapshotCommand.args, registry, snapshotEngine);
+  },
+  evaluate: ({ command, requestId, sessionId, registry, snapshotEngine }) =>
+    executeEvaluate(
       requestId,
       sessionId,
-      snapshotCommand.args.browserId,
-      snapshotCommand.args.offset ?? 0,
+      (command as Extract<BrowserCommand, { command: 'evaluate' }>).args,
       registry,
       snapshotEngine,
-    );
-  },
+    ),
+  query: ({ command, requestId, sessionId, registry, snapshotEngine }) =>
+    executeQuery(
+      requestId,
+      sessionId,
+      (command as Extract<BrowserCommand, { command: 'query' }>).args,
+      registry,
+      snapshotEngine,
+    ),
+  network: ({ command, requestId, sessionId, registry }) =>
+    executeNetwork(
+      requestId,
+      sessionId,
+      (command as Extract<BrowserCommand, { command: 'network' }>).args,
+      registry,
+    ),
+  dialogs: ({ command, requestId, sessionId, registry }) =>
+    executeDialogs(
+      requestId,
+      sessionId,
+      (command as Extract<BrowserCommand, { command: 'dialogs' }>).args,
+      registry,
+    ),
+  upload: ({ request, command, requestId, sessionId, registry, snapshotEngine }) =>
+    executeUpload(
+      requestId,
+      sessionId,
+      request.cwd,
+      (command as Extract<BrowserCommand, { command: 'upload' }>).args,
+      registry,
+      snapshotEngine,
+    ),
   click: ({ command, requestId, sessionId, registry, snapshotEngine }) => {
     const clickCommand = command as Extract<BrowserCommand, { command: 'click' }>;
     return executeClick(
@@ -359,11 +419,7 @@ const commandHandlers: Record<
       requestId,
       sessionId,
       waitCommand.args.browserId,
-      {
-        text: waitCommand.args.text,
-        url: waitCommand.args.url,
-        timeoutMs: waitCommand.args.timeoutMs,
-      },
+      waitCommand.args,
       registry,
     );
   },
@@ -513,15 +569,14 @@ interface ResolvedTabTarget {
 async function executeSnapshot(
   requestId: string,
   sessionId: string | undefined,
-  browserId: string,
-  offset: number,
+  args: Extract<BrowserCommand, { command: 'snapshot' }>['args'],
   registry: BrowserRegistry,
   snapshotEngine: BrowserSnapshotEngine,
 ): Promise<AutomationCommandPayload> {
   const target = resolveTabTarget({
     requestId,
     sessionId,
-    browserId,
+    browserId: args.browserId,
     registry,
   });
   if ('ok' in target) {
@@ -529,11 +584,40 @@ async function executeSnapshot(
   }
 
   return withDialogCapture(target.contents, async () => {
+    let frame: { id: string; page: SnapshotPage } | undefined;
+    if (args.frame !== undefined) {
+      const found = await resolveFrame(requestId, target.contents, args.frame);
+      if ('ok' in found) return found;
+      frame = { id: found.id, page: found.page };
+    }
     const snapshot = await snapshotEngine.snapshot({
       browserId: target.browserId,
       page: target.contents,
-      offset,
+      offset: args.offset ?? 0,
+      frames: () => target.contents.listFrames?.() ?? Promise.resolve([]),
+      ...(args.selector !== undefined && { selector: args.selector }),
+      ...(args.ref !== undefined && { ref: args.ref }),
+      ...(frame !== undefined && { frame }),
+      ...(args.viewportOnly === true && { viewportOnly: true }),
+      ...(args.maxNodes !== undefined && { maxNodes: args.maxNodes }),
     });
+    if ('ok' in snapshot) {
+      if (snapshot.reason === 'invalid_selector') {
+        return fail(
+          requestId,
+          'browser_invalid_argument',
+          `The selector ${JSON.stringify(args.selector)} is not valid: ${snapshot.message}`,
+        );
+      }
+      if (snapshot.reason === 'not_found') {
+        return fail(
+          requestId,
+          'browser_invalid_argument',
+          `No element matches the selector ${JSON.stringify(args.selector)}${args.frame ? ` in frame ${args.frame}` : ''}. Check it with browser_query, or snapshot the whole page.`,
+        );
+      }
+      return staleRefFailure(requestId, args.ref ?? '', snapshot.reason);
+    }
 
     return {
       requestId,
@@ -566,20 +650,8 @@ async function executeClick(
     if (!target.contents.sendDebugCommand) {
       return fail(requestId, 'browser_unsupported', 'browser_click requires trusted browser input');
     }
-    const elementExpression = snapshotEngine.runtimeElementExpression({
-      browserId: target.browserId,
-      ref,
-    });
-    if (typeof elementExpression !== 'string') {
-      return staleRefFailure(requestId, ref, elementExpression.reason);
-    }
-    const actionable = await waitForActionableTarget({
-      page: target.contents,
-      elementExpression,
-    });
-    if (!actionable.ok) {
-      return actionabilityFailure(requestId, ref, actionable);
-    }
+    const actionable = await actionableRef(requestId, target, snapshotEngine, ref);
+    if (!actionable.ok) return actionable.failure;
     await dispatchTrustedClick(cdpSender(target.contents), actionable.target.point, options);
     return {
       requestId,
@@ -609,9 +681,11 @@ async function executeFill(
     return target;
   }
   return withDialogCapture(target.contents, async () => {
+    const located = await refPage(requestId, target, snapshotEngine, ref);
+    if (!located.ok) return located.failure;
     const result = await snapshotEngine.fill({
       browserId: target.browserId,
-      page: target.contents,
+      page: located.page,
       ref,
       value,
     });
@@ -636,9 +710,11 @@ async function executeSelect(
     return target;
   }
   return withDialogCapture(target.contents, async () => {
+    const located = await refPage(requestId, target, snapshotEngine, ref);
+    if (!located.ok) return located.failure;
     const result = await snapshotEngine.select({
       browserId: target.browserId,
-      page: target.contents,
+      page: located.page,
       ref,
       value,
     });
@@ -669,20 +745,8 @@ async function executeHover(
     if (!target.contents.sendDebugCommand) {
       return fail(requestId, 'browser_unsupported', 'browser_hover requires trusted browser input');
     }
-    const elementExpression = snapshotEngine.runtimeElementExpression({
-      browserId: target.browserId,
-      ref,
-    });
-    if (typeof elementExpression !== 'string') {
-      return staleRefFailure(requestId, ref, elementExpression.reason);
-    }
-    const actionable = await waitForActionableTarget({
-      page: target.contents,
-      elementExpression,
-    });
-    if (!actionable.ok) {
-      return actionabilityFailure(requestId, ref, actionable);
-    }
+    const actionable = await actionableRef(requestId, target, snapshotEngine, ref);
+    if (!actionable.ok) return actionable.failure;
     await dispatchTrustedHover(cdpSender(target.contents), actionable.target.point);
     return {
       requestId,
@@ -715,34 +779,10 @@ async function executeDrag(
     if (!target.contents.sendDebugCommand) {
       return fail(requestId, 'browser_unsupported', 'browser_drag requires trusted browser input');
     }
-    const sourceExpression = snapshotEngine.runtimeElementExpression({
-      browserId: target.browserId,
-      ref: sourceRef,
-    });
-    const targetExpression = snapshotEngine.runtimeElementExpression({
-      browserId: target.browserId,
-      ref: targetRef,
-    });
-    if (typeof sourceExpression !== 'string') {
-      return staleRefFailure(requestId, sourceRef, sourceExpression.reason);
-    }
-    if (typeof targetExpression !== 'string') {
-      return staleRefFailure(requestId, targetRef, targetExpression.reason);
-    }
-    const source = await waitForActionableTarget({
-      page: target.contents,
-      elementExpression: sourceExpression,
-    });
-    if (!source.ok) {
-      return actionabilityFailure(requestId, sourceRef, source);
-    }
-    const dropTarget = await waitForActionableTarget({
-      page: target.contents,
-      elementExpression: targetExpression,
-    });
-    if (!dropTarget.ok) {
-      return actionabilityFailure(requestId, targetRef, dropTarget);
-    }
+    const source = await actionableRef(requestId, target, snapshotEngine, sourceRef);
+    if (!source.ok) return source.failure;
+    const dropTarget = await actionableRef(requestId, target, snapshotEngine, targetRef);
+    if (!dropTarget.ok) return dropTarget.failure;
     await dispatchTrustedDrag(
       cdpSender(target.contents),
       source.target.point,
@@ -824,20 +864,8 @@ async function executeScroll(
 
     let point: { x: number; y: number };
     if (ref) {
-      const elementExpression = snapshotEngine.runtimeElementExpression({
-        browserId: target.browserId,
-        ref,
-      });
-      if (typeof elementExpression !== 'string') {
-        return staleRefFailure(requestId, ref, elementExpression.reason);
-      }
-      const actionable = await waitForActionableTarget({
-        page: target.contents,
-        elementExpression,
-      });
-      if (!actionable.ok) {
-        return actionabilityFailure(requestId, ref, actionable);
-      }
+      const actionable = await actionableRef(requestId, target, snapshotEngine, ref);
+      if (!actionable.ok) return actionable.failure;
       point = actionable.target.point;
     } else {
       point = await readViewportCenter(target.contents);
@@ -936,11 +964,16 @@ function cdpSender(contents: TabContents): NonNullable<TabContents['sendDebugCom
   return contents.sendDebugCommand?.bind(contents) as NonNullable<TabContents['sendDebugCommand']>;
 }
 
+type WaitArgs = Extract<BrowserCommand, { command: 'wait' }>['args'];
+
+/** 网络空闲默认要持续多久。 */
+const DEFAULT_NETWORK_IDLE_MS = 500;
+
 async function executeWait(
   requestId: string,
   sessionId: string | undefined,
   browserId: string,
-  condition: { text?: string; url?: string; timeoutMs?: number },
+  condition: WaitArgs,
   registry: BrowserRegistry,
 ): Promise<AutomationCommandPayload> {
   const target = resolveTabTarget({ requestId, sessionId, browserId, registry });
@@ -948,52 +981,183 @@ async function executeWait(
     return target;
   }
   return withDialogCapture(target.contents, async () => {
-    if (!condition.text && !condition.url) {
-      return fail(requestId, 'browser_unsupported', 'browser_wait requires text or url');
+    const kinds = [
+      condition.text !== undefined,
+      condition.url !== undefined,
+      condition.urlRegex !== undefined,
+      condition.selector !== undefined,
+      condition.networkIdle === true,
+    ].filter(Boolean).length;
+    if (kinds !== 1) {
+      return fail(
+        requestId,
+        'browser_invalid_argument',
+        'browser_wait needs exactly one of text, url, urlRegex, selector or networkIdle.',
+      );
     }
+    let urlPattern: RegExp | undefined;
+    if (condition.urlRegex !== undefined) {
+      try {
+        urlPattern = new RegExp(condition.urlRegex);
+      } catch (error) {
+        return fail(
+          requestId,
+          'browser_invalid_argument',
+          `urlRegex is not a valid regular expression: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    // 文字与元素可以在 frame 里；frame 换了文档时下一轮重新找。
+    let framePage: SnapshotPage | undefined;
+    const pageForCheck = async (): Promise<SnapshotPage | FailurePayload> => {
+      if (condition.frame === undefined) return target.contents;
+      if (framePage) return framePage;
+      const found = await resolveFrame(requestId, target.contents, condition.frame);
+      if ('ok' in found) return found;
+      framePage = found.page;
+      return framePage;
+    };
+    const state = condition.state ?? 'visible';
+    const idleMs = condition.idleMs ?? DEFAULT_NETWORK_IDLE_MS;
+    let idleSince: number | undefined;
+    let lastFrameFailure: FailurePayload | undefined;
+    const matched = (kind: string): AutomationCommandPayload => ({
+      requestId,
+      ok: true,
+      result: { command: 'wait', browserId: target.browserId, matched: kind },
+    });
 
     const timeoutMs = condition.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
     const deadline = Date.now() + timeoutMs;
     do {
-      if (condition.url && target.contents.getURL().includes(condition.url)) {
-        return {
-          requestId,
-          ok: true,
-          result: { command: 'wait', browserId: target.browserId, matched: 'url' },
-        };
+      if (condition.url !== undefined && target.contents.getURL().includes(condition.url)) {
+        return matched('url');
       }
-      if (condition.text) {
-        const pageText = await target.contents.executeJavaScript("document.body.innerText || ''");
-        if (typeof pageText === 'string' && pageText.includes(condition.text)) {
-          return {
-            requestId,
-            ok: true,
-            result: { command: 'wait', browserId: target.browserId, matched: 'text' },
-          };
+      if (urlPattern?.test(target.contents.getURL())) return matched('url');
+      if (condition.networkIdle === true) {
+        const pending = pendingRequests(target.contents).length;
+        if (pending > 0) {
+          idleSince = undefined;
+        } else {
+          idleSince ??= Date.now();
+          if (Date.now() - idleSince >= idleMs) return matched('network_idle');
+        }
+      }
+      if (condition.text !== undefined || condition.selector !== undefined) {
+        const page = await pageForCheck();
+        if ('ok' in page) {
+          lastFrameFailure = page;
+        } else {
+          lastFrameFailure = undefined;
+          if (condition.text !== undefined) {
+            const pageText = await page
+              .executeJavaScript("document.body ? document.body.innerText || '' : ''")
+              .catch(() => {
+                framePage = undefined;
+                return '';
+              });
+            if (typeof pageText === 'string' && pageText.includes(condition.text)) {
+              return matched('text');
+            }
+          } else if (condition.selector !== undefined) {
+            const current = await page
+              .executeJavaScript(elementStateScript(condition.selector))
+              .catch(() => {
+                framePage = undefined;
+                return undefined;
+              });
+            if (current === 'invalid') {
+              return fail(
+                requestId,
+                'browser_invalid_argument',
+                `The selector ${JSON.stringify(condition.selector)} is not valid.`,
+              );
+            }
+            if (typeof current === 'string' && elementStateMatches(current, state)) {
+              return matched('selector');
+            }
+          }
         }
       }
       await delay(WAIT_POLL_INTERVAL_MS);
     } while (Date.now() < deadline);
 
+    if (lastFrameFailure) return lastFrameFailure;
     const waited = `${Math.round(timeoutMs / 100) / 10} s`;
-    if (condition.text) {
+    const where = condition.frame !== undefined ? ` in frame ${condition.frame}` : '';
+    if (condition.text !== undefined) {
       return fail(
         requestId,
         'browser_timeout',
-        `The page did not show the text ${JSON.stringify(condition.text)} within ${waited}. Take a browser_snapshot to see what it shows.`,
+        `The page did not show the text ${JSON.stringify(condition.text)}${where} within ${waited}. Take a browser_snapshot to see what it shows.`,
         true,
       );
     }
-    if (condition.url) {
+    if (condition.selector !== undefined) {
       return fail(
         requestId,
         'browser_timeout',
-        `The tab's URL did not contain ${JSON.stringify(condition.url)} within ${waited} (it is ${target.contents.getURL()}). Take a browser_snapshot to see the page.`,
+        `No element matching ${JSON.stringify(condition.selector)}${where} became ${state} within ${waited}. Check it with browser_query or take a browser_snapshot.`,
         true,
       );
     }
-    return fail(requestId, 'browser_unsupported', 'browser_wait requires text or url');
+    if (condition.networkIdle === true) {
+      const pending = pendingRequests(target.contents);
+      const listed = pending
+        .slice(0, 5)
+        .map((entry) => `${entry.method ?? 'GET'} ${entry.url}`)
+        .join('; ');
+      return fail(
+        requestId,
+        'browser_timeout',
+        `The network did not stay idle for ${idleMs} ms within ${waited}; ${pending.length} request${pending.length === 1 ? ' is' : 's are'} still running${listed ? `: ${listed}` : ''}${pending.length > 5 ? '; …' : ''}. Long-polling or streaming requests never finish; use browser_wait with text or selector instead.`,
+        true,
+      );
+    }
+    return fail(
+      requestId,
+      'browser_timeout',
+      `The tab's URL did not ${urlPattern ? `match ${String(urlPattern)}` : `contain ${JSON.stringify(condition.url)}`} within ${waited} (it is ${target.contents.getURL()}). Take a browser_snapshot to see the page.`,
+      true,
+    );
   });
+}
+
+/** 当前页面还没结束的请求。 */
+function pendingRequests(contents: TabContents): BrowserNetworkEntry[] {
+  return (contents.getNetworkLog?.().entries ?? []).filter((entry) => entry.pending === true);
+}
+
+/** 元素现在的状态：`detached`（没有）、`visible`、`hidden`，选择器不对是 `invalid`。 */
+function elementStateScript(selector: string): string {
+  return `(() => {
+    let element;
+    try {
+      element = document.querySelector(${JSON.stringify(selector)});
+    } catch {
+      return 'invalid';
+    }
+    if (!element) return 'detached';
+    const view = (element.ownerDocument && element.ownerDocument.defaultView) || window;
+    const rect = element.getBoundingClientRect();
+    const style = view.getComputedStyle(element);
+    const visible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' &&
+      style.display !== 'none' && Number(style.opacity || '1') !== 0;
+    return visible ? 'visible' : 'hidden';
+  })()`;
+}
+
+function elementStateMatches(current: string, wanted: string): boolean {
+  switch (wanted) {
+    case 'attached':
+      return current !== 'detached';
+    case 'detached':
+      return current === 'detached';
+    case 'hidden':
+      return current !== 'visible';
+    default:
+      return current === 'visible';
+  }
 }
 
 async function executeType(
@@ -1013,26 +1177,19 @@ async function executeType(
     if (!target.contents.sendDebugCommand) {
       return fail(requestId, 'browser_unsupported', 'browser_type requires trusted browser input');
     }
-    let actionable: ActionabilityResult | null = null;
+    let actionable: Extract<ActionableRef, { ok: true }> | null = null;
     if (ref) {
-      const elementExpression = snapshotEngine.runtimeElementExpression({
-        browserId: target.browserId,
-        ref,
-      });
-      if (typeof elementExpression !== 'string') {
-        return staleRefFailure(requestId, ref, elementExpression.reason);
-      }
-      actionable = await waitForActionableTarget({
-        page: target.contents,
-        elementExpression,
-        editable: true,
-      });
-      if (!actionable.ok) {
-        return actionabilityFailure(requestId, ref, actionable);
-      }
+      const located = await actionableRef(requestId, target, snapshotEngine, ref, true);
+      if (!located.ok) return located.failure;
+      actionable = located;
       await dispatchTrustedClick(cdpSender(target.contents), actionable.target.point);
     }
-    await target.contents.insertText(text);
+    // 焦点在跨进程的 iframe 里时 webContents.insertText 会把页面卡死（Electron 44），改用 CDP 的 Input.insertText。
+    if (await focusIsInRemoteFrame(target.contents)) {
+      await cdpSender(target.contents)('Input.insertText', { text });
+    } else {
+      await target.contents.insertText(text);
+    }
     return {
       requestId,
       ok: true,
@@ -1040,7 +1197,7 @@ async function executeType(
         command: 'type',
         browserId: target.browserId,
         ...(ref ? { ref } : {}),
-        ...(actionable?.ok ? { x: actionable.target.point.x, y: actionable.target.point.y } : {}),
+        ...(actionable ? { x: actionable.target.point.x, y: actionable.target.point.y } : {}),
       },
     };
   });
@@ -1060,23 +1217,12 @@ async function executeKeypress(
     return target;
   }
   return withDialogCapture(target.contents, async () => {
-    let actionable: ActionabilityResult | null = null;
+    let actionable: Extract<ActionableRef, { ok: true }> | null = null;
     if (ref) {
-      const elementExpression = snapshotEngine.runtimeElementExpression({
-        browserId: target.browserId,
-        ref,
-      });
-      if (typeof elementExpression !== 'string') {
-        return staleRefFailure(requestId, ref, elementExpression.reason);
-      }
-      actionable = await waitForActionableTarget({
-        page: target.contents,
-        elementExpression,
-      });
-      if (!actionable.ok) {
-        return actionabilityFailure(requestId, ref, actionable);
-      }
-      const focused = await focusKeypressTarget(target.contents, elementExpression);
+      const located = await actionableRef(requestId, target, snapshotEngine, ref);
+      if (!located.ok) return located.failure;
+      actionable = located;
+      const focused = await focusKeypressTarget(located.page, located.expression);
       if (focused === 'stale_ref') {
         return staleRefFailure(requestId, ref);
       }
@@ -1091,7 +1237,11 @@ async function executeKeypress(
         await dispatchTrustedClick(cdpSender(target.contents), actionable.target.point);
       }
     }
-    dispatchTrustedKey((event) => target.contents.sendInputEvent(event), key);
+    if (target.contents.sendDebugCommand && (await focusIsInRemoteFrame(target.contents))) {
+      await dispatchCdpKey(cdpSender(target.contents), key);
+    } else {
+      dispatchTrustedKey((event) => target.contents.sendInputEvent(event), key);
+    }
     return {
       requestId,
       ok: true,
@@ -1100,7 +1250,7 @@ async function executeKeypress(
         browserId: target.browserId,
         key,
         ...(ref ? { ref } : {}),
-        ...(actionable?.ok ? { x: actionable.target.point.x, y: actionable.target.point.y } : {}),
+        ...(actionable ? { x: actionable.target.point.x, y: actionable.target.point.y } : {}),
       },
     };
   });
@@ -1374,7 +1524,7 @@ function parseNetworkEntries(value: unknown): NetworkLogEntry[] {
 }
 
 async function focusKeypressTarget(
-  contents: TabContents,
+  contents: SnapshotPage,
   elementExpression: string,
 ): Promise<'editable' | 'focused' | 'stale_ref'> {
   const result = await contents.executeJavaScript(`(() => {
@@ -1446,4 +1596,672 @@ function resolveTabTarget(input: {
   }
 
   return { browserId, contents };
+}
+
+// ── 0.48.0：引用所在的 frame ─────────────────────────────────────────
+
+/** 焦点是不是在读不到的（跨域）iframe 里：顺着 activeElement 走进同源的 iframe，走不进去的就是。 */
+async function focusIsInRemoteFrame(contents: TabContents): Promise<boolean> {
+  const result = await contents
+    .executeJavaScript(`(() => {
+      let element = document.activeElement;
+      while (element && (element.tagName === 'IFRAME' || element.tagName === 'FRAME')) {
+        let inner = null;
+        try {
+          inner = element.contentDocument;
+        } catch {
+          inner = null;
+        }
+        if (!inner) return true;
+        element = inner.activeElement;
+      }
+      return false;
+    })()`)
+    .catch(() => false);
+  return result === true;
+}
+
+type ActionableRef =
+  | {
+      ok: true;
+      /** 顶层页面里的坐标。 */
+      target: { point: { x: number; y: number } };
+      /** 元素所在的页面（顶层或 frame）与在那里解析元素的表达式。 */
+      page: SnapshotPage;
+      expression: string;
+    }
+  | { ok: false; failure: FailurePayload };
+
+/** 引用的元素所在的页面：顶层，或它所在的 frame（跨域的也行）。 */
+async function refPage(
+  requestId: string,
+  target: ResolvedTabTarget,
+  snapshotEngine: BrowserSnapshotEngine,
+  ref: string,
+): Promise<
+  | { ok: true; page: SnapshotPage; frame: string; frames: TabFrame[]; expression: string }
+  | { ok: false; failure: FailurePayload }
+> {
+  const expression = snapshotEngine.runtimeElementExpression({ browserId: target.browserId, ref });
+  if (typeof expression !== 'string') {
+    return { ok: false, failure: staleRefFailure(requestId, ref, expression.reason) };
+  }
+  const frame = snapshotEngine.refFrame({ browserId: target.browserId, ref });
+  if (typeof frame !== 'string') {
+    return { ok: false, failure: staleRefFailure(requestId, ref, frame.reason) };
+  }
+  if (frame === '') {
+    return { ok: true, page: target.contents, frame, frames: [], expression };
+  }
+  const frames = (await target.contents.listFrames?.()) ?? [];
+  const found = frames.find((candidate) => candidate.id === frame);
+  if (!found) return { ok: false, failure: staleRefFailure(requestId, ref) };
+  return { ok: true, page: found.page, frame, frames, expression };
+}
+
+/** 等引用的元素可以操作，给出顶层页面里的坐标（frame 里的逐层换算，并看它所在的 iframe 有没有被盖住）。 */
+async function actionableRef(
+  requestId: string,
+  target: ResolvedTabTarget,
+  snapshotEngine: BrowserSnapshotEngine,
+  ref: string,
+  editable = false,
+): Promise<ActionableRef> {
+  const located = await refPage(requestId, target, snapshotEngine, ref);
+  if (!located.ok) return located;
+  const actionable = await waitForActionableTarget({
+    page: located.page,
+    elementExpression: located.expression,
+    editable,
+  });
+  if (!actionable.ok) {
+    return { ok: false, failure: actionabilityFailure(requestId, ref, actionable) };
+  }
+  let point = actionable.target.point;
+  if (located.frame !== '') {
+    const top = await frameToTopPoint(target.contents, located.frames, located.frame, point);
+    if (!top) return { ok: false, failure: staleRefFailure(requestId, ref) };
+    if (top.covered) {
+      return {
+        ok: false,
+        failure: fail(
+          requestId,
+          'browser_timeout',
+          `Browser element ${ref} is in frame ${located.frame}, and that frame is covered or off screen at the element. Scroll it into view (browser_scroll) or take a new browser_snapshot.`,
+          true,
+        ),
+      };
+    }
+    point = { x: top.x, y: top.y };
+  }
+  return { ok: true, target: { point }, page: located.page, expression: located.expression };
+}
+
+/** 按 agent 给的说法找 frame。 */
+async function resolveFrame(
+  requestId: string,
+  contents: TabContents,
+  spec: string,
+): Promise<TabFrame | FailurePayload> {
+  const frames = (await contents.listFrames?.()) ?? [];
+  const found = findFrame(frames, spec);
+  return found ?? fail(requestId, 'browser_invalid_argument', frameNotFoundMessage(frames, spec));
+}
+
+// ── 0.48.0：evaluate ─────────────────────────────────────────────────
+
+/** 返回值序列化后最多多少字符时连同截断说明一起给（与协议的上限一致）。 */
+const EVALUATE_DEFAULT_TIMEOUT_MS = 5_000;
+const EVALUATE_ERROR_MAX_CHARS = 2_000;
+
+type EvaluateArgs = Extract<BrowserCommand, { command: 'evaluate' }>['args'];
+
+async function executeEvaluate(
+  requestId: string,
+  sessionId: string | undefined,
+  args: EvaluateArgs,
+  registry: BrowserRegistry,
+  snapshotEngine: BrowserSnapshotEngine,
+): Promise<AutomationCommandPayload> {
+  const target = resolveTabTarget({ requestId, sessionId, browserId: args.browserId, registry });
+  if ('ok' in target) return target;
+  // 只检查语法、不执行（与页面里一样包在 async 函数里，所以可以写 await）。
+  const syntax = syntaxError(args.function);
+  if (syntax !== undefined) {
+    return fail(
+      requestId,
+      'browser_invalid_argument',
+      `The function does not parse: ${syntax}. Pass a function like () => document.title, or async () => { …; return value; }.`,
+    );
+  }
+  return withDialogCapture(target.contents, async () => {
+    let page: SnapshotPage = target.contents;
+    let elementExpression: string | undefined;
+    if (args.ref !== undefined) {
+      const located = await refPage(requestId, target, snapshotEngine, args.ref);
+      if (!located.ok) return located.failure;
+      page = located.page;
+      elementExpression = located.expression;
+    } else if (args.frame !== undefined) {
+      const found = await resolveFrame(requestId, target.contents, args.frame);
+      if ('ok' in found) return found;
+      page = found.page;
+    }
+    const timeoutMs = args.timeoutMs ?? EVALUATE_DEFAULT_TIMEOUT_MS;
+    const maxChars = args.maxBytes ?? BROWSER_EVALUATE_DEFAULT_BYTES;
+    let raw: unknown;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      raw = await Promise.race([
+        page.executeJavaScript(buildEvaluateScript(args.function, elementExpression, maxChars)),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(EVALUATE_TIMED_OUT), timeoutMs);
+        }),
+      ]);
+    } catch (error) {
+      return fail(
+        requestId,
+        'browser_script_error',
+        clip(error instanceof Error ? error.message : String(error), EVALUATE_ERROR_MAX_CHARS),
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    if (raw === EVALUATE_TIMED_OUT) {
+      return fail(
+        requestId,
+        'browser_timeout',
+        `The function did not finish within ${Math.round(timeoutMs / 100) / 10} s (it may still be running in the page). Return sooner, or pass a larger timeoutMs (at most 30000).`,
+        true,
+      );
+    }
+    const result = readEvaluateResult(raw);
+    if (result.kind === 'stale_ref') return staleRefFailure(requestId, args.ref ?? '');
+    if (result.kind === 'thrown') {
+      return fail(
+        requestId,
+        'browser_script_error',
+        clip(result.message, EVALUATE_ERROR_MAX_CHARS),
+      );
+    }
+    return {
+      requestId,
+      ok: true,
+      result: {
+        command: 'evaluate',
+        browserId: target.browserId,
+        value: result.value,
+        type: result.type,
+        truncated: result.length > result.value.length,
+        length: result.length,
+      },
+    };
+  });
+}
+
+const EVALUATE_TIMED_OUT = Symbol('timed out');
+
+/** 用主进程的 V8 检查语法（`vm.Script` 只编译、不运行）；没问题时返回 undefined。 */
+export function syntaxError(source: string): string | undefined {
+  try {
+    new Script(`(async () => (\n${source}\n))`);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * 页面里执行 agent 的函数（改写自 Paseo 的 buildEvaluateScript）：不用 eval（页面的 CSP 不允许时会失败），源码直接放进脚本；不是函数
+ * 时就用它的值。返回值在页面里转成 JSON（元素、Map、Set、错误、循环引用、BigInt 都有写法），只把前 `maxChars` 个字符带回来。
+ */
+export function buildEvaluateScript(
+  source: string,
+  elementExpression: string | undefined,
+  maxChars: number,
+): string {
+  return `(async () => {
+    const describeElement = (element) => {
+      const tag = String(element.tagName || element.nodeName || '').toLowerCase();
+      const id = element.id ? '#' + element.id : '';
+      const className = typeof element.getAttribute === 'function' ? element.getAttribute('class') : '';
+      const classes = className ? '.' + String(className).trim().split(/\\s+/).slice(0, 3).join('.') : '';
+      const text = String(element.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 80);
+      return '<' + tag + id + classes + '>' + (text ? ' ' + text : '');
+    };
+    const normalize = (value, depth, seen) => {
+      if (value === null) return null;
+      const type = typeof value;
+      if (type === 'string' || type === 'boolean') return value;
+      if (type === 'number') return Number.isFinite(value) ? value : String(value);
+      if (type === 'bigint') return value.toString() + 'n';
+      if (type === 'undefined') return undefined;
+      if (type === 'symbol') return value.toString();
+      if (type === 'function') return '[Function ' + (value.name || 'anonymous') + ']';
+      if (seen.includes(value)) return '[Circular]';
+      if (depth > 12) return '[…]';
+      try {
+        if (value.window === value) return '[Window]';
+      } catch {
+        return '[Window]';
+      }
+      if (typeof value.nodeType === 'number') {
+        return value.nodeType === 1 ? describeElement(value) : '#' + String(value.nodeName || 'node').toLowerCase();
+      }
+      const tag = Object.prototype.toString.call(value);
+      if (tag === '[object Error]' || value instanceof Error) {
+        return { name: String(value.name), message: String(value.message), ...(value.stack ? { stack: String(value.stack).split('\\n').slice(0, 6).join('\\n') } : {}) };
+      }
+      if (tag === '[object Date]') return Number.isNaN(value.getTime()) ? 'Invalid Date' : value.toISOString();
+      if (tag === '[object RegExp]') return String(value);
+      const next = seen.concat([value]);
+      if (tag === '[object Map]') {
+        return { '[Map]': Array.from(value.entries()).slice(0, 1000).map(([key, item]) => [normalize(key, depth + 1, next), normalize(item, depth + 1, next) ?? null]) };
+      }
+      if (tag === '[object Set]') {
+        return { '[Set]': Array.from(value.values()).slice(0, 1000).map((item) => normalize(item, depth + 1, next) ?? null) };
+      }
+      if (Array.isArray(value) || ArrayBuffer.isView(value) || (typeof value.length === 'number' && typeof value.item === 'function')) {
+        const items = Array.from(value).slice(0, 1000).map((item) => normalize(item, depth + 1, next) ?? null);
+        if (value.length > 1000) items.push('[… ' + (value.length - 1000) + ' more]');
+        return items;
+      }
+      if (typeof value.toJSON === 'function') {
+        try {
+          return normalize(value.toJSON(), depth + 1, next);
+        } catch {}
+      }
+      const out = {};
+      const keys = Object.keys(value);
+      for (const key of keys.slice(0, 1000)) {
+        let item;
+        try {
+          item = value[key];
+        } catch {
+          item = '[Throws]';
+        }
+        const normalized = normalize(item, depth + 1, next);
+        if (normalized !== undefined) out[key] = normalized;
+      }
+      if (keys.length > 1000) out['…'] = (keys.length - 1000) + ' more keys';
+      return out;
+    };
+    const typeOf = (value) => {
+      if (value === null) return 'null';
+      if (Array.isArray(value)) return 'array';
+      if (value && typeof value === 'object' && value.nodeType === 1) return 'element';
+      return typeof value;
+    };
+    try {
+      const candidate = (
+${source}
+);
+      const args = [];
+      ${
+        elementExpression
+          ? `const element = ${elementExpression};
+      if (!element) return { staleRef: true };
+      args.push(element);`
+          : ''
+      }
+      const value = typeof candidate === 'function' ? await candidate(...args) : await candidate;
+      const json = value === undefined ? 'undefined' : (JSON.stringify(normalize(value, 0, [])) ?? 'undefined');
+      return { ok: true, type: typeOf(value), value: json.slice(0, ${JSON.stringify(maxChars)}), length: json.length };
+    } catch (error) {
+      const message = error && typeof error === 'object'
+        ? String(error.name || 'Error') + ': ' + String(error.message)
+        : 'Thrown: ' + String(error);
+      return { thrown: message };
+    }
+  })()`;
+}
+
+function readEvaluateResult(
+  value: unknown,
+):
+  | { kind: 'ok'; type: string; value: string; length: number }
+  | { kind: 'thrown'; message: string }
+  | { kind: 'stale_ref' } {
+  if (!value || typeof value !== 'object') {
+    return { kind: 'thrown', message: 'The page returned no result.' };
+  }
+  const record = value as Record<string, unknown>;
+  if (record.staleRef === true) return { kind: 'stale_ref' };
+  if (typeof record.thrown === 'string') return { kind: 'thrown', message: record.thrown };
+  if (record.ok === true && typeof record.value === 'string') {
+    return {
+      kind: 'ok',
+      type: readString(record.type) ?? 'unknown',
+      value: record.value,
+      length: readNumber(record.length) ?? record.value.length,
+    };
+  }
+  return { kind: 'thrown', message: 'The page returned no result.' };
+}
+
+// ── 0.48.0：query、network、dialogs ──────────────────────────────────
+
+const DEFAULT_QUERY_RESULTS = 20;
+
+async function executeQuery(
+  requestId: string,
+  sessionId: string | undefined,
+  args: Extract<BrowserCommand, { command: 'query' }>['args'],
+  registry: BrowserRegistry,
+  snapshotEngine: BrowserSnapshotEngine,
+): Promise<AutomationCommandPayload> {
+  const target = resolveTabTarget({ requestId, sessionId, browserId: args.browserId, registry });
+  if ('ok' in target) return target;
+  return withDialogCapture(target.contents, async () => {
+    let page: SnapshotPage = target.contents;
+    let frame = '';
+    let frames: TabFrame[] = [];
+    if (args.frame !== undefined) {
+      frames = (await target.contents.listFrames?.()) ?? [];
+      const found = findFrame(frames, args.frame);
+      if (!found) {
+        return fail(
+          requestId,
+          'browser_invalid_argument',
+          frameNotFoundMessage(frames, args.frame),
+        );
+      }
+      page = found.page;
+      frame = found.id;
+    }
+    const result = await snapshotEngine.query({
+      browserId: target.browserId,
+      page,
+      frame,
+      selector: args.selector,
+      maxResults: args.maxResults ?? DEFAULT_QUERY_RESULTS,
+      ...(args.attributes !== undefined && { attributes: args.attributes }),
+    });
+    if (!result.ok) {
+      return fail(
+        requestId,
+        'browser_invalid_argument',
+        `The selector ${JSON.stringify(args.selector)} is not valid: ${result.message}`,
+      );
+    }
+    // frame 里的位置换算到顶层页面。
+    let offset = { x: 0, y: 0 };
+    if (frame !== '') {
+      const top = await frameToTopPoint(target.contents, frames, frame, { x: 0, y: 0 });
+      if (top) offset = { x: top.x, y: top.y };
+    }
+    const round = (value: number) => Math.round(value * 10) / 10;
+    const elements: BrowserQueryElement[] = result.elements.map((element) => ({
+      ref: element.ref,
+      tag: element.tag,
+      ...(element.id !== undefined && { id: element.id }),
+      ...(element.classes !== undefined && { classes: element.classes }),
+      text: element.text,
+      visible: element.visible,
+      box: {
+        x: round(element.box.x + offset.x),
+        y: round(element.box.y + offset.y),
+        width: round(element.box.width),
+        height: round(element.box.height),
+      },
+      ...(element.attributes !== undefined && { attributes: element.attributes }),
+    }));
+    return {
+      requestId,
+      ok: true,
+      result: {
+        command: 'query',
+        browserId: target.browserId,
+        selector: args.selector,
+        count: result.count,
+        elements,
+      },
+    };
+  });
+}
+
+const DEFAULT_NETWORK_ENTRIES = 50;
+
+async function executeNetwork(
+  requestId: string,
+  sessionId: string | undefined,
+  args: Extract<BrowserCommand, { command: 'network' }>['args'],
+  registry: BrowserRegistry,
+): Promise<AutomationCommandPayload> {
+  const target = resolveTabTarget({ requestId, sessionId, browserId: args.browserId, registry });
+  if ('ok' in target) return target;
+  return withDialogCapture(target.contents, async () => {
+    if (!target.contents.getNetworkLog) {
+      return fail(requestId, 'browser_unsupported', 'This tab does not record network requests.');
+    }
+    const log = target.contents.getNetworkLog();
+    let matched: BrowserNetworkEntry[];
+    try {
+      matched = filterNetwork(log.entries, args);
+    } catch (error) {
+      return fail(
+        requestId,
+        'browser_invalid_argument',
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    let detail: BrowserNetworkDetail | undefined;
+    if (args.id !== undefined) {
+      detail = target.contents.getNetworkDetail?.(args.id);
+      if (!detail) {
+        return fail(
+          requestId,
+          'browser_invalid_argument',
+          `No network entry ${args.id} on the current page (the log starts over when a page loads, and clear empties it). List the entries without id first.`,
+        );
+      }
+      if (args.body === true) {
+        const body = await target.contents.getNetworkBody?.(
+          args.id,
+          args.maxBytes ?? BROWSER_EVALUATE_DEFAULT_BYTES,
+        );
+        if (body) detail = { ...detail, body };
+      }
+    }
+    if (args.clear === true) target.contents.clearNetworkLog?.();
+    return {
+      requestId,
+      ok: true,
+      result: {
+        command: 'network',
+        browserId: target.browserId,
+        entries: detail ? [] : matched.slice(-(args.maxEntries ?? DEFAULT_NETWORK_ENTRIES)),
+        total: log.total,
+        matched: matched.length,
+        ...(detail && { detail }),
+        ...(args.clear === true && { cleared: true }),
+      },
+    };
+  });
+}
+
+async function executeDialogs(
+  requestId: string,
+  sessionId: string | undefined,
+  args: Extract<BrowserCommand, { command: 'dialogs' }>['args'],
+  registry: BrowserRegistry,
+): Promise<AutomationCommandPayload> {
+  const target = resolveTabTarget({ requestId, sessionId, browserId: args.browserId, registry });
+  if ('ok' in target) return target;
+  return withDialogCapture(target.contents, async () => {
+    if (!target.contents.setDialogPolicy) {
+      return fail(
+        requestId,
+        'browser_unsupported',
+        'This tab cannot change how dialogs are answered.',
+      );
+    }
+    const current = target.contents.getDialogPolicy?.() ?? DEFAULT_DIALOG_POLICY;
+    const prompt = args.prompt ?? current.prompt;
+    const promptText = prompt === 'dismiss' ? undefined : (args.promptText ?? current.promptText);
+    const policy: DialogPolicy = {
+      confirm: args.confirm ?? current.confirm,
+      prompt,
+      ...(promptText !== undefined && { promptText }),
+      beforeunload: args.beforeunload ?? current.beforeunload,
+    };
+    await target.contents.setDialogPolicy(policy);
+    return {
+      requestId,
+      ok: true,
+      result: { command: 'dialogs', browserId: target.browserId, policy },
+    };
+  });
+}
+
+// ── 0.48.0：upload ───────────────────────────────────────────────────
+
+/** 点了之后等被拦下的选文件框最多多久。 */
+const FILE_CHOOSER_WAIT_MS = 2_000;
+
+async function executeUpload(
+  requestId: string,
+  sessionId: string | undefined,
+  cwd: string,
+  args: Extract<BrowserCommand, { command: 'upload' }>['args'],
+  registry: BrowserRegistry,
+  snapshotEngine: BrowserSnapshotEngine,
+): Promise<AutomationCommandPayload> {
+  const target = resolveTabTarget({ requestId, sessionId, browserId: args.browserId, registry });
+  if ('ok' in target) return target;
+  // Host 已经核对过；这里再核对一遍（只在会话文件夹里、是普通文件），不信任请求。
+  const files = sessionFiles(args.paths, cwd);
+  if (typeof files === 'string') return fail(requestId, 'browser_denied', files);
+  return withDialogCapture(target.contents, async () => {
+    if (!target.contents.sendDebugCommand) {
+      return fail(requestId, 'browser_unsupported', 'browser_upload requires CDP');
+    }
+    const send = cdpSender(target.contents);
+    const paths = files.map((file) => file.path);
+    let setTo: { objectId: string } | { backendNodeId: number } | undefined;
+    let multiple = true;
+    if (args.ref !== undefined) {
+      const located = await refPage(requestId, target, snapshotEngine, args.ref);
+      if (!located.ok) return located.failure;
+      const kind =
+        located.frame === ''
+          ? await located.page
+              .executeJavaScript(fileInputKindScript(located.expression))
+              .catch(() => 'stale')
+          : 'other';
+      if (kind === 'stale') return staleRefFailure(requestId, args.ref);
+      if (kind === 'single' || kind === 'multiple') {
+        const evaluated = (await send('Runtime.evaluate', {
+          expression: located.expression,
+          objectGroup: 'wevir-browser-upload',
+          returnByValue: false,
+        })) as { result?: { objectId?: string; subtype?: string } };
+        const objectId = evaluated.result?.objectId;
+        if (!objectId || evaluated.result?.subtype === 'null') {
+          return staleRefFailure(requestId, args.ref);
+        }
+        setTo = { objectId };
+        multiple = kind === 'multiple';
+      } else {
+        // 不是文件输入框（多半是打开选文件框的按钮），或在跨域 frame 里：点它，接住被拦下的选文件框。
+        target.contents.takeFileChooser?.();
+        const actionable = await actionableRef(requestId, target, snapshotEngine, args.ref);
+        if (!actionable.ok) return actionable.failure;
+        await dispatchTrustedClick(send, actionable.target.point);
+        const deadline = Date.now() + FILE_CHOOSER_WAIT_MS;
+        let chooser = target.contents.takeFileChooser?.();
+        while (!chooser && Date.now() < deadline) {
+          await delay(50);
+          chooser = target.contents.takeFileChooser?.();
+        }
+        if (!chooser) {
+          return fail(
+            requestId,
+            'browser_unsupported',
+            `Clicking ${args.ref} did not open a file chooser. Pass the ref of the file input (an input of type=file; it shows as a button in the snapshot), or the element that opens the chooser.`,
+          );
+        }
+        setTo = { backendNodeId: chooser.backendNodeId };
+        multiple = chooser.multiple;
+      }
+    } else {
+      const chooser = target.contents.takeFileChooser?.();
+      if (!chooser) {
+        return fail(
+          requestId,
+          'browser_invalid_argument',
+          'No file chooser is waiting for files. Click the element that opens it first (the result says the page asked for a file), or pass the ref of the file input.',
+        );
+      }
+      setTo = { backendNodeId: chooser.backendNodeId };
+      multiple = chooser.multiple;
+    }
+    if (!multiple && paths.length > 1) {
+      return fail(
+        requestId,
+        'browser_invalid_argument',
+        `This file input takes one file; ${paths.length} were given.`,
+      );
+    }
+    await send('DOM.setFileInputFiles', { files: paths, ...setTo });
+    return {
+      requestId,
+      ok: true,
+      result: {
+        command: 'upload',
+        browserId: target.browserId,
+        ...(args.ref !== undefined && { ref: args.ref }),
+        files,
+      },
+    };
+  });
+}
+
+/** 文件输入框是单选还是多选；不是文件输入框是 `other`，引用失效是 `stale`。 */
+function fileInputKindScript(elementExpression: string): string {
+  return `(() => {
+    const element = ${elementExpression};
+    if (!element) return 'stale';
+    const isFile = element.tagName && element.tagName.toLowerCase() === 'input' &&
+      String(element.getAttribute('type') || '').toLowerCase() === 'file';
+    if (!isFile) return 'other';
+    return element.multiple ? 'multiple' : 'single';
+  })()`;
+}
+
+/**
+ * 上传的文件：绝对路径（Host 已经按会话目录解析过），真实路径在会话文件夹里、是普通文件。不满足时返回说明。
+ */
+export function sessionFiles(
+  paths: readonly string[],
+  cwd: string,
+): Array<{ path: string; size: number }> | string {
+  let root: string;
+  try {
+    root = realpathSync(cwd);
+  } catch {
+    return `The session folder ${cwd} is not available.`;
+  }
+  const files: Array<{ path: string; size: number }> = [];
+  for (const path of paths) {
+    if (!isAbsolute(path)) return `${path} is not an absolute path.`;
+    let real: string;
+    try {
+      real = realpathSync(path);
+    } catch {
+      return `${path} does not exist.`;
+    }
+    const inside = relative(root, real);
+    if (inside === '' || inside.startsWith('..') || isAbsolute(inside)) {
+      return `${path} is outside the session folder; only files in ${cwd} can be uploaded.`;
+    }
+    const stat = statSync(real);
+    if (!stat.isFile()) return `${path} is not a file.`;
+    files.push({ path: real, size: stat.size });
+  }
+  return files;
 }

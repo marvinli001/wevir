@@ -8,27 +8,42 @@
 // 卡住，CDP 仍报 Page.javascriptDialogOpening），没在命令期间报掉的留到这个标签页的下一个命令；prompt 的替身装进每个新文档；
 // 网络记录改用 CDP 的 Network 域（方法、状态码、进行中与失败的请求，只留当前页面的）；控制台记录也只留当前页面的；页面要选本机
 // 文件时拦下原生文件框（Page.setInterceptFileChooserDialog）并报出来；下载由 browser-host.ts 拦下后记到这里。
+// 0.48.0：列出子 frame（WebFrameMain，跨进程的也行）给快照、执行、查询与等待用；网络记录带编号、请求头与响应头、请求体开头、
+// MIME、是否来自缓存与等待时间，响应体留在 Chromium 的缓冲里按需取（`Network.getResponseBody`），记录可以清空；对话框按标签页
+// 的策略回答（替身烤进新文档的脚本，改策略时换掉）；被拦下的选文件框记下它的元素，browser_upload 不带引用时把文件交给它。
 
 import type {
   BrowserConsoleEntry as BrowserAutomationConsoleLogEntry,
   BrowserEffects,
+  BrowserNetworkDetail,
   BrowserNetworkEntry,
 } from '@wevir/protocol';
 import { CdpSessionQueue } from './cdp-session-queue.js';
 import {
   type BrowserAutomationDialogEvent,
+  DEFAULT_DIALOG_POLICY,
+  type DialogPolicy,
   dialogAcceptValue,
   handledDialogEvent,
   MAX_DIALOGS_PER_COMMAND,
   promptShimDrainScript,
   promptShimInstallScript,
 } from './dialog-handling.js';
+import { FRAME_PATH_SCRIPT, type TabFrame } from './frames.js';
+import { redactHeaders, responseBody } from './network.js';
 import type { TabContents, TabImage } from './service.js';
 import { BrowserTabClosedError } from './service.js';
 import type { IsolatedKeyboardInputEvent } from './trusted-input.js';
 
 const MAX_CONSOLE_MESSAGES_PER_TAB = 200;
 const MAX_NETWORK_ENTRIES_PER_TAB = 200;
+/** Chromium 为取响应体留的缓冲（每个标签页合计、单个响应）；超过的响应体拿不到。 */
+const NETWORK_BUFFER_BYTES = 16 * 1024 * 1024;
+const NETWORK_RESOURCE_BUFFER_BYTES = 4 * 1024 * 1024;
+/** 请求体最多留多少字符。 */
+const MAX_POST_DATA_CHARS = 2_000;
+/** 一个 frame 算编号最多等多久（卡住的 frame 不列出）。 */
+const FRAME_PATH_TIMEOUT_MS = 1_000;
 /** 命令结束时读 prompt 替身的记录最多等多久：页面卡住时不拖住命令。 */
 const PROMPT_DRAIN_TIMEOUT_MS = 1_000;
 /** 对话框打开后还没关（没有 `disableDialogs` 的标签页）就用 CDP 回答它。 */
@@ -45,6 +60,15 @@ interface WebContentsDebugger {
     listener: (event: unknown, method: string, params?: Record<string, unknown>) => void,
   ): void;
   on?(event: 'detach', listener: () => void): void;
+}
+
+/** Electron 的 WebFrameMain 里用到的部分。 */
+interface FrameLike {
+  readonly url: string;
+  readonly name: string;
+  readonly detached?: boolean;
+  isDestroyed(): boolean;
+  executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>;
 }
 
 interface ConsoleMessageEmitter {
@@ -83,6 +107,7 @@ interface BrowserAutomationWebContents extends ConsoleMessageEmitter {
   setBackgroundThrottling(allowed: boolean): void;
   sendInputEvent(event: IsolatedKeyboardInputEvent): void;
   insertText(text: string): Promise<void>;
+  readonly mainFrame?: FrameLike & { readonly framesInSubtree: FrameLike[] };
 }
 
 /** 命令期间（或上一个命令之后）发生、要在命令结果里报的事。 */
@@ -126,7 +151,62 @@ export function adaptWebContents(contents: BrowserAutomationWebContents): TabCon
     captureDialogs: (task) => monitor.capture(task),
     sendDebugCommand: (command: string, params?: Record<string, unknown>) =>
       monitor.sendDebugCommand(command, params),
+    listFrames: () => listFrames(contents),
+    getNetworkDetail: (id) => monitor.networkDetail(id),
+    getNetworkBody: (id, maxChars) => monitor.networkBody(id, maxChars),
+    clearNetworkLog: () => monitor.clearNetwork(),
+    getDialogPolicy: () => monitor.dialogPolicy,
+    setDialogPolicy: (policy) => monitor.setDialogPolicy(policy),
+    takeFileChooser: () => monitor.takeFileChooser(),
   };
+}
+
+/** 子 frame（不含顶层），带编号；算不出编号（卡住、已经没了）的不列。 */
+async function listFrames(contents: BrowserAutomationWebContents): Promise<TabFrame[]> {
+  const main = contents.mainFrame;
+  if (!main || contents.isDestroyed()) return [];
+  const frames = main.framesInSubtree.filter(
+    (frame) => frame !== main && !frame.isDestroyed() && frame.detached !== true,
+  );
+  const ids = await Promise.all(
+    frames.map((frame) =>
+      Promise.race([
+        frame.executeJavaScript(FRAME_PATH_SCRIPT).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), FRAME_PATH_TIMEOUT_MS)),
+      ]),
+    ),
+  );
+  return frames.flatMap((frame, index): TabFrame[] => {
+    const id = ids[index];
+    if (typeof id !== 'string' || id === '') return [];
+    return [
+      {
+        id,
+        url: frame.isDestroyed() ? '' : frame.url,
+        name: frame.isDestroyed() ? '' : frame.name,
+        page: {
+          getURL: () => (frame.isDestroyed() ? '' : frame.url),
+          executeJavaScript: (code) =>
+            frame.isDestroyed()
+              ? Promise.reject(new Error('The frame is gone.'))
+              : frame.executeJavaScript(code),
+        },
+      },
+    ];
+  });
+}
+
+/** 标签页的对话框策略（browser-host.ts 的 beforeunload 用）。 */
+export function dialogPolicyOf(contentsId: number): Readonly<DialogPolicy> {
+  return monitorsByContentsId.get(contentsId)?.dialogPolicy ?? DEFAULT_DIALOG_POLICY;
+}
+
+/** 用户接手标签页时策略回到默认：用户自己操作时不该被 agent 的选择挡住离开。 */
+export function resetDialogPolicy(contentsId: number): void {
+  const monitor = monitorsByContentsId.get(contentsId);
+  if (monitor && monitor.dialogPolicy !== DEFAULT_DIALOG_POLICY) {
+    void monitor.setDialogPolicy(DEFAULT_DIALOG_POLICY);
+  }
 }
 
 /**
@@ -137,11 +217,14 @@ export function watchTab(contents: BrowserAutomationWebContents): void {
   monitorFor(contents);
 }
 
-/** 页面要离开时的 beforeunload（browser-host.ts 的 `will-prevent-unload`，已经让它离开）。 */
-export function recordBeforeUnload(contentsId: number): void {
+/** 页面要离开时的 beforeunload（browser-host.ts 的 `will-prevent-unload`，按策略离开或留下）。 */
+export function recordBeforeUnload(
+  contentsId: number,
+  action: BrowserAutomationDialogEvent['action'] = 'accepted',
+): void {
   monitorsByContentsId
     .get(contentsId)
-    ?.record(handledDialogEvent({ type: 'beforeunload', message: '' }));
+    ?.record({ ...handledDialogEvent({ type: 'beforeunload', message: '' }), action }, true);
 }
 
 /** 页面开始的下载（browser-host.ts 已经取消）。 */
@@ -150,6 +233,11 @@ export function recordDownload(
   download: { url: string; filename: string; state: string },
 ): void {
   monitorsByContentsId.get(contentsId)?.recordDownload(download);
+}
+
+/** 点击之后等跳转期间开始、还没报的下载（browser-host.ts 并进这个命令的结果）。 */
+export function takeDownloads(contentsId: number): NonNullable<BrowserEffects['downloads']> {
+  return monitorsByContentsId.get(contentsId)?.takeDownloads() ?? [];
 }
 
 /** 要不要拦下页面的选文件框：agent 在操作时拦下（不弹原生框，报给 agent），用户接手后放开。 */
@@ -203,7 +291,11 @@ function captureViewportFrame(
 }
 
 interface NetworkRecord {
+  /** 给 agent 的编号（这个标签页里递增）。 */
+  id: string;
   requestId: string;
+  /** CDP 的请求 ID（取响应体用；重定向的几跳共用一个）。 */
+  cdpRequestId: string;
   loaderId: string;
   url: string;
   method: string;
@@ -212,8 +304,20 @@ interface NetworkRecord {
   start: number;
   end?: number;
   status?: number;
+  statusText?: string;
   transferSize?: number;
   failed?: string;
+  requestHeaders?: Record<string, unknown>;
+  postData?: string;
+  hasPostData?: boolean;
+  responseHeaders?: Record<string, unknown>;
+  mimeType?: string;
+  remoteAddress?: string;
+  protocol?: string;
+  fromCache?: boolean;
+  waitingMs?: number;
+  /** 被重定向了：这一跳没有响应体。 */
+  redirected?: boolean;
 }
 
 /** 一个标签页的记录：对话框、控制台、网络、下载与选文件框。 */
@@ -226,8 +330,14 @@ class TabMonitor {
   #dialogs: BrowserAutomationDialogEvent[] = [];
   #downloads: NonNullable<BrowserEffects['downloads']> = [];
   #fileChooser: BrowserEffects['fileChooser'];
+  /** 被拦下、还没交文件的选文件框（browser_upload 不带引用时用）。 */
+  #chooser: { backendNodeId: number; multiple: boolean } | undefined;
   #network: NetworkRecord[] = [];
   #networkTotal = 0;
+  #networkSeq = 0;
+  dialogPolicy: Readonly<DialogPolicy> = DEFAULT_DIALOG_POLICY;
+  /** 新文档脚本（prompt / confirm 的替身）的标识，换策略时换掉。 */
+  #shimScriptId: string | undefined;
   /** 当前页面的第一个请求的时间（CDP 时钟），网络记录的 `startTime` 从它算起。 */
   #pageStart: number | undefined;
   #interceptFileChooser = true;
@@ -267,23 +377,78 @@ class TabMonitor {
     this.#enabled = true;
     const commands: Array<[string, Record<string, unknown>?]> = [
       ['Page.enable'],
-      ['Page.addScriptToEvaluateOnNewDocument', { source: promptShimInstallScript() }],
       ['Page.setInterceptFileChooserDialog', { enabled: this.#interceptFileChooser }],
-      // 不要响应体：只记请求本身。
-      ['Network.enable', { maxTotalBufferSize: 0, maxResourceBufferSize: 0 }],
+      // 响应体留在 Chromium 的缓冲里，要了才取（browser_network 的 body）。
+      [
+        'Network.enable',
+        {
+          maxTotalBufferSize: NETWORK_BUFFER_BYTES,
+          maxResourceBufferSize: NETWORK_RESOURCE_BUFFER_BYTES,
+        },
+      ],
     ];
-    await Promise.all(
-      commands.map(([command, params]) =>
+    await Promise.all([
+      this.#installShimScript(),
+      ...commands.map(([command, params]) =>
         this.#send(command, params).catch(() => {
           // 标签页正在关，或调试器被别人占了：之后的命令照常执行，只是少了这项记录。
         }),
       ),
-    );
+    ]);
     // 已经载入的页面：现在就装上替身（新文档由上面的脚本装）。
     await this.#send('Runtime.evaluate', {
-      expression: promptShimInstallScript(),
+      expression: promptShimInstallScript(this.dialogPolicy),
       returnByValue: true,
     }).catch(() => {});
+  }
+
+  /** 把带着当前策略的替身登记成新文档脚本（换掉旧的）。 */
+  async #installShimScript(): Promise<void> {
+    const previous = this.#shimScriptId;
+    this.#shimScriptId = undefined;
+    if (previous !== undefined) {
+      await this.#send('Page.removeScriptToEvaluateOnNewDocument', { identifier: previous }).catch(
+        () => {},
+      );
+    }
+    const added = (await this.#send('Page.addScriptToEvaluateOnNewDocument', {
+      source: promptShimInstallScript(this.dialogPolicy),
+    }).catch(() => undefined)) as { identifier?: unknown } | undefined;
+    if (typeof added?.identifier === 'string') this.#shimScriptId = added.identifier;
+  }
+
+  /** 换对话框策略：之后的新文档、现在的文档与它的子 frame 都用新的。 */
+  async setDialogPolicy(policy: Readonly<DialogPolicy>): Promise<void> {
+    this.dialogPolicy = policy;
+    if (!this.#enabled || this.contents.isDestroyed()) return;
+    await this.#queue.run(() => this.#installShimScript());
+    const script = promptShimInstallScript(policy);
+    await this.#queue
+      .run(() => this.#send('Runtime.evaluate', { expression: script, returnByValue: true }))
+      .catch(() => {});
+    const main = this.contents.mainFrame;
+    if (!main) return;
+    await Promise.all(
+      main.framesInSubtree
+        .filter((frame) => frame !== main && !frame.isDestroyed())
+        .map((frame) => frame.executeJavaScript(script).catch(() => {})),
+    );
+  }
+
+  /** 被拦下、还没交文件的选文件框；取走后清掉。 */
+  takeFileChooser(): { backendNodeId: number; multiple: boolean } | undefined {
+    const chooser = this.#chooser;
+    this.#chooser = undefined;
+    // 交了文件就不再报“页面要选文件、没选”。
+    if (chooser) this.#fileChooser = undefined;
+    return chooser;
+  }
+
+  /** 还没报的下载（点击之后等跳转的那段时间里开始的）。 */
+  takeDownloads(): NonNullable<BrowserEffects['downloads']> {
+    const downloads = this.#downloads;
+    this.#downloads = [];
+    return downloads;
   }
 
   /** 走这个标签页的 CDP 队列。 */
@@ -308,7 +473,15 @@ class TabMonitor {
     return { result, ...this.#take() };
   }
 
-  record(dialog: BrowserAutomationDialogEvent): void {
+  /** `authoritative`：Electron 的 `will-prevent-unload` 知道实际怎么处理的，盖过 CDP 报的同一个 beforeunload。 */
+  record(dialog: BrowserAutomationDialogEvent, authoritative = false): void {
+    if (authoritative && dialog.type === 'beforeunload') {
+      const last = this.#dialogs.at(-1);
+      if (last?.type === 'beforeunload' && Math.abs(dialog.timestamp - last.timestamp) < 1_000) {
+        last.action = dialog.action;
+        return;
+      }
+    }
     this.#recordAll([dialog]);
   }
 
@@ -325,21 +498,92 @@ class TabMonitor {
   }
 
   networkLog(): { entries: BrowserNetworkEntry[]; total: number } {
-    const base = this.#pageStart ?? this.#network[0]?.start ?? 0;
     return {
       total: this.#networkTotal,
-      entries: this.#network.map((record) => ({
-        url: withoutFragment(record.url),
-        method: record.method,
-        ...(record.status !== undefined && { status: record.status }),
-        ...(record.type !== undefined && { type: record.type }),
-        startTime: Math.max(0, (record.start - base) * 1000),
-        duration: record.end === undefined ? 0 : Math.max(0, (record.end - record.start) * 1000),
-        ...(record.transferSize !== undefined && { transferSize: record.transferSize }),
-        ...(record.end === undefined && { pending: true }),
-        ...(record.failed !== undefined && { failed: record.failed }),
-      })),
+      entries: this.#network.map((record) => this.#entry(record)),
     };
+  }
+
+  #entry(record: NetworkRecord): BrowserNetworkEntry {
+    const base = this.#pageStart ?? this.#network[0]?.start ?? 0;
+    return {
+      id: record.id,
+      url: withoutFragment(record.url),
+      method: record.method,
+      ...(record.status !== undefined && { status: record.status }),
+      ...(record.type !== undefined && { type: record.type }),
+      startTime: Math.max(0, (record.start - base) * 1000),
+      duration: record.end === undefined ? 0 : Math.max(0, (record.end - record.start) * 1000),
+      ...(record.transferSize !== undefined && { transferSize: record.transferSize }),
+      ...(record.end === undefined && { pending: true }),
+      ...(record.failed !== undefined && { failed: record.failed }),
+      ...(record.mimeType !== undefined && { mimeType: record.mimeType }),
+      ...(record.fromCache === true && { fromCache: true }),
+    };
+  }
+
+  /** 一条记录的详情（凭据类的头只给长度）。 */
+  networkDetail(id: string): BrowserNetworkDetail | undefined {
+    const record = this.#network.find((candidate) => candidate.id === id);
+    if (!record) return undefined;
+    const { pending, failed, ...entry } = this.#entry(record);
+    const postData = record.postData;
+    return {
+      id: record.id,
+      url: entry.url,
+      method: record.method,
+      ...(record.status !== undefined && { status: record.status }),
+      ...(record.statusText && { statusText: record.statusText }),
+      ...(record.type !== undefined && { type: record.type }),
+      ...(record.mimeType !== undefined && { mimeType: record.mimeType }),
+      requestHeaders: redactHeaders(record.requestHeaders),
+      ...(record.responseHeaders !== undefined && {
+        responseHeaders: redactHeaders(record.responseHeaders),
+      }),
+      ...(postData !== undefined && {
+        postData: postData.slice(0, MAX_POST_DATA_CHARS),
+        ...(postData.length > MAX_POST_DATA_CHARS && { postDataTruncated: true }),
+      }),
+      ...(postData === undefined && record.hasPostData === true && { postDataTruncated: true }),
+      ...(record.remoteAddress && { remoteAddress: record.remoteAddress }),
+      ...(record.protocol && { protocol: record.protocol }),
+      ...(record.fromCache === true && { fromCache: true }),
+      startTime: entry.startTime,
+      duration: entry.duration,
+      ...(record.waitingMs !== undefined && { waitingMs: record.waitingMs }),
+      ...(entry.transferSize !== undefined && { transferSize: entry.transferSize }),
+      ...(pending === true && { pending: true }),
+      ...(failed !== undefined && { failed }),
+    };
+  }
+
+  /** 一条记录的响应体（Chromium 缓冲里还有的话）。 */
+  async networkBody(id: string, maxChars: number): Promise<BrowserNetworkDetail['body']> {
+    const record = this.#network.find((candidate) => candidate.id === id);
+    if (!record) return undefined;
+    if (record.redirected)
+      return { size: 0, unavailable: 'this hop was redirected; it has no body' };
+    if (record.failed !== undefined)
+      return { size: 0, unavailable: `the request failed (${record.failed})` };
+    if (record.end === undefined) return { size: 0, unavailable: 'the response is still loading' };
+    try {
+      const raw = (await this.sendDebugCommand('Network.getResponseBody', {
+        requestId: record.cdpRequestId,
+      })) as { body?: unknown; base64Encoded?: unknown };
+      return responseBody(raw, record.mimeType, maxChars);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        size: 0,
+        unavailable: `the browser no longer has it (${message.slice(0, 120)}); reload the page and read it again`,
+      };
+    }
+  }
+
+  /** 清空这个标签页的网络记录（之后的请求照常记）。 */
+  clearNetwork(): void {
+    this.#network = [];
+    this.#networkTotal = 0;
   }
 
   #take(): CapturedTabEvents {
@@ -388,7 +632,21 @@ class TabMonitor {
         timer = setTimeout(() => resolve(undefined), PROMPT_DRAIN_TIMEOUT_MS);
       });
       const result = await Promise.race([drained, timeout]);
-      return parsePromptShimDialogs(result?.result?.value);
+      const main = parsePromptShimDialogs(result?.result?.value);
+      // 子 frame 里的替身各记各的（同源的由新文档脚本装上，跨域的在改策略时装上）。
+      const frames = (this.contents.mainFrame?.framesInSubtree ?? []).filter(
+        (frame) => frame !== this.contents.mainFrame && !frame.isDestroyed(),
+      );
+      if (frames.length === 0) return main;
+      const drainedFrames = await Promise.all(
+        frames.map((frame) =>
+          Promise.race([
+            frame.executeJavaScript(promptShimDrainScript()).catch(() => []),
+            timeout.then(() => []),
+          ]).then(parsePromptShimDialogs),
+        ),
+      );
+      return [...main, ...drainedFrames.flat()].sort((a, b) => a.timestamp - b.timestamp);
     } catch {
       return [];
     } finally {
@@ -417,6 +675,12 @@ class TabMonitor {
         return;
       case 'Page.fileChooserOpened':
         this.#fileChooser = { multiple: params.mode === 'selectMultiple' };
+        if (typeof params.backendNodeId === 'number') {
+          this.#chooser = {
+            backendNodeId: params.backendNodeId,
+            multiple: params.mode === 'selectMultiple',
+          };
+        }
         return;
       case 'Page.frameNavigated': {
         const frame = params.frame as { id?: unknown; parentId?: unknown; loaderId?: unknown };
@@ -427,6 +691,7 @@ class TabMonitor {
         this.#pageStart = this.#network[0]?.start;
         this.console = [];
         this.consoleTotal = 0;
+        this.#chooser = undefined;
         return;
       }
       case 'Network.requestWillBeSent':
@@ -434,8 +699,12 @@ class TabMonitor {
         return;
       case 'Network.responseReceived': {
         const record = this.#find(params.requestId);
-        const response = params.response as { status?: unknown } | undefined;
-        if (record && typeof response?.status === 'number') record.status = response.status;
+        if (record) applyResponse(record, params.response);
+        return;
+      }
+      case 'Network.requestServedFromCache': {
+        const record = this.#find(params.requestId);
+        if (record) record.fromCache = true;
         return;
       }
       case 'Network.loadingFinished': {
@@ -460,24 +729,41 @@ class TabMonitor {
   }
 
   #onRequest(params: Record<string, unknown>): void {
-    const request = params.request as { url?: unknown; method?: unknown } | undefined;
+    const request = params.request as
+      | {
+          url?: unknown;
+          method?: unknown;
+          headers?: unknown;
+          postData?: unknown;
+          hasPostData?: unknown;
+        }
+      | undefined;
     if (typeof params.requestId !== 'string' || typeof request?.url !== 'string') return;
     const timestamp = numberOr(params.timestamp, 0);
     const existing = this.#find(params.requestId);
-    const redirect = params.redirectResponse as { status?: unknown } | undefined;
+    const redirect = params.redirectResponse;
     if (existing && redirect) {
       // 重定向：上一跳记成结束，同一个请求接着走新地址。
       existing.end = timestamp;
-      if (typeof redirect.status === 'number') existing.status = redirect.status;
+      applyResponse(existing, redirect);
+      existing.redirected = true;
       existing.requestId = `${existing.requestId}:redirect`;
     }
+    this.#networkSeq += 1;
     this.#network.push({
+      id: String(this.#networkSeq),
       requestId: params.requestId,
+      cdpRequestId: params.requestId,
       loaderId: typeof params.loaderId === 'string' ? params.loaderId : '',
       url: request.url,
       method: typeof request.method === 'string' ? request.method : 'GET',
       ...(typeof params.type === 'string' && { type: params.type.toLowerCase() }),
       start: timestamp,
+      ...(isRecord(request.headers) && { requestHeaders: request.headers }),
+      ...(typeof request.postData === 'string' && {
+        postData: request.postData.slice(0, MAX_POST_DATA_CHARS + 1),
+      }),
+      ...(request.hasPostData === true && { hasPostData: true }),
     });
     this.#networkTotal += 1;
     if (this.#network.length > MAX_NETWORK_ENTRIES_PER_TAB) {
@@ -492,6 +778,42 @@ class TabMonitor {
       if (record?.requestId === requestId) return record;
     }
     return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** CDP 的 Response：状态、头、MIME、远端地址、协议、缓存与等待时间。 */
+function applyResponse(record: NetworkRecord, value: unknown): void {
+  if (!isRecord(value)) return;
+  if (typeof value.status === 'number') record.status = value.status;
+  if (typeof value.statusText === 'string') record.statusText = value.statusText;
+  if (isRecord(value.headers)) record.responseHeaders = value.headers;
+  if (typeof value.mimeType === 'string' && value.mimeType) record.mimeType = value.mimeType;
+  if (typeof value.remoteIPAddress === 'string' && value.remoteIPAddress) {
+    record.remoteAddress =
+      typeof value.remotePort === 'number'
+        ? `${value.remoteIPAddress}:${value.remotePort}`
+        : value.remoteIPAddress;
+  }
+  if (typeof value.protocol === 'string' && value.protocol) record.protocol = value.protocol;
+  if (
+    value.fromDiskCache === true ||
+    value.fromServiceWorker === true ||
+    value.fromPrefetchCache === true
+  ) {
+    record.fromCache = true;
+  }
+  const timing = value.timing;
+  if (
+    isRecord(timing) &&
+    typeof timing.sendEnd === 'number' &&
+    typeof timing.receiveHeadersEnd === 'number' &&
+    timing.sendEnd >= 0
+  ) {
+    record.waitingMs = Math.max(0, timing.receiveHeadersEnd - timing.sendEnd);
   }
 }
 
@@ -514,15 +836,19 @@ function parsePromptShimDialogs(value: unknown): BrowserAutomationDialogEvent[] 
       return [];
     }
     const record = entry as Record<string, unknown>;
-    if (record.type !== 'prompt' || record.action !== 'dismissed') {
+    if (
+      (record.type !== 'prompt' && record.type !== 'confirm') ||
+      (record.action !== 'dismissed' && record.action !== 'accepted')
+    ) {
       return [];
     }
     return [
       {
-        type: 'prompt',
+        type: record.type,
         message: typeof record.message === 'string' ? record.message : '',
         ...(typeof record.defaultValue === 'string' ? { defaultValue: record.defaultValue } : {}),
-        action: 'dismissed',
+        action: record.action,
+        ...(typeof record.response === 'string' ? { response: record.response } : {}),
         timestamp: typeof record.timestamp === 'number' ? record.timestamp : Date.now(),
       },
     ];

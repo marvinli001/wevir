@@ -2510,6 +2510,171 @@ export const methodSamples: MethodSamples = {
           },
           effects: { navigation: { url: 'http://localhost:5173/' } },
         },
+        // 0.48.0：执行与查询、网络详情、对话框策略、上传与下载、快照的范围与停在哪里。
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'evaluate',
+            browserId: browserTab.browserId,
+            value: '{"title":"Wevir"',
+            type: 'object',
+            truncated: true,
+            length: 40,
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'query',
+            browserId: browserTab.browserId,
+            selector: 'a.nav',
+            count: 2,
+            elements: [
+              {
+                ref: '@e7',
+                tag: 'a',
+                classes: 'nav',
+                text: 'Home',
+                visible: true,
+                box: { x: 10, y: 20, width: 40, height: 16 },
+                attributes: { href: '/' },
+              },
+            ],
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'network',
+            browserId: browserTab.browserId,
+            entries: [],
+            total: 12,
+            matched: 12,
+            detail: {
+              id: '41',
+              url: 'http://localhost:5173/api/items',
+              method: 'POST',
+              status: 201,
+              statusText: 'Created',
+              type: 'fetch',
+              mimeType: 'application/json',
+              requestHeaders: { authorization: '[redacted, 20 characters]' },
+              responseHeaders: { 'content-type': 'application/json' },
+              postData: '{"name":"a"}',
+              remoteAddress: '127.0.0.1:5173',
+              protocol: 'http/1.1',
+              startTime: 120.5,
+              duration: 8,
+              waitingMs: 6.5,
+              transferSize: 310,
+              body: { size: 14, text: '{"id":"item1"}' },
+            },
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'network',
+            browserId: browserTab.browserId,
+            entries: [
+              {
+                id: '42',
+                url: 'http://localhost:5173/logo.png',
+                method: 'GET',
+                status: 404,
+                type: 'image',
+                mimeType: 'text/html',
+                startTime: 3,
+                duration: 2,
+                fromCache: false,
+              },
+            ],
+            total: 12,
+            matched: 1,
+            cleared: true,
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'dialogs',
+            browserId: browserTab.browserId,
+            policy: {
+              confirm: 'accept',
+              prompt: 'accept',
+              promptText: 'Alice',
+              beforeunload: 'dismiss',
+            },
+          },
+          dialogs: [
+            {
+              type: 'prompt',
+              message: 'Name?',
+              defaultValue: '',
+              action: 'accepted',
+              response: 'Alice',
+              timestamp: 1760256000000,
+            },
+          ],
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'upload',
+            browserId: browserTab.browserId,
+            ref: '@e3',
+            files: [{ path: '/Users/me/projects/wevir/a.txt', size: 12 }],
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'download',
+            browserId: browserTab.browserId,
+            url: 'http://localhost:5173/report.csv',
+            filename: 'report.csv',
+            path: '/Users/me/projects/wevir/downloads/report.csv',
+            size: 2048,
+            mimeType: 'text/csv',
+            state: 'completed',
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'snapshot',
+            browserId: browserTab.browserId,
+            url: browserTab.url,
+            title: browserTab.title,
+            format: 'aria-yaml',
+            snapshot: '- listitem "Item 300"\n# The snapshot stopped after 300 nodes.',
+            truncated: false,
+            stats: {
+              nodeCount: 300,
+              refCount: 0,
+              textLength: 60,
+              stoppedAt: 'body > ul > li:nth-of-type(300)',
+              maxNodes: 300,
+            },
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: false,
+          error: {
+            code: 'browser_script_error',
+            message: 'TypeError: Cannot read properties of null',
+            retryable: false,
+          },
+        },
       ],
       invalid: [
         {
@@ -2517,6 +2682,27 @@ export const methodSamples: MethodSamples = {
           ok: true,
           result: { command: 'click', browserId: browserTab.browserId, ref: '@e2' },
           effects: { navigation: { url: 'http://localhost:5173/', status: 42 } },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'evaluate',
+            browserId: browserTab.browserId,
+            value: 1,
+            type: 'number',
+            truncated: false,
+            length: 1,
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'upload',
+            browserId: browserTab.browserId,
+            files: [{ path: '/a.txt', size: -1 }],
+          },
         },
         { requestId: 'r1', ok: false, error: { code: 'browser_timeout', message: 'x' } },
         {
@@ -2612,6 +2798,109 @@ export const notificationSamples: NotificationSamples = {
         cwd: '/Users/me/projects/wevir',
         command: { command: 'snapshot', args: { browserId: browserTab.browserId, offset: 160 } },
       },
+      // 0.48.0
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'snapshot',
+          args: {
+            browserId: browserTab.browserId,
+            selector: 'main',
+            viewportOnly: true,
+            maxNodes: 5000,
+          },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'evaluate',
+          args: {
+            browserId: browserTab.browserId,
+            function: '(el) => el.dataset',
+            ref: '@e3',
+            timeoutMs: 2000,
+            maxBytes: 1000,
+          },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'query',
+          args: {
+            browserId: browserTab.browserId,
+            selector: 'a',
+            frame: '1.0',
+            attributes: ['href'],
+          },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'network',
+          args: { browserId: browserTab.browserId, status: '4xx', method: 'GET', failedOnly: true },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'dialogs',
+          args: { browserId: browserTab.browserId, prompt: 'accept', promptText: 'Alice' },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'upload',
+          args: { browserId: browserTab.browserId, paths: ['/Users/me/projects/wevir/a.txt'] },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'download',
+          args: { browserId: browserTab.browserId, url: 'http://localhost:5173/report.csv' },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'wait',
+          args: {
+            browserId: browserTab.browserId,
+            selector: '#done',
+            state: 'visible',
+            frame: 'checkout',
+          },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'wait',
+          args: { browserId: browserTab.browserId, networkIdle: true, idleMs: 500 },
+        },
+      },
       {
         requestId: ids.browserRequest,
         sessionId: ids.session,
@@ -2634,6 +2923,36 @@ export const notificationSamples: NotificationSamples = {
         sessionId: ids.session,
         cwd: '/Users/me/projects/wevir',
         command: { command: 'click', args: { browserId: browserTab.browserId, ref: 'button' } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'snapshot', args: { browserId: browserTab.browserId, maxNodes: 10 } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'upload', args: { browserId: browserTab.browserId, paths: [] } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'download',
+          args: { browserId: browserTab.browserId, url: 'file:///etc/hosts' },
+        },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: {
+          command: 'evaluate',
+          args: { browserId: browserTab.browserId, function: '() => 1', timeoutMs: 60000 },
+        },
       },
     ],
   },

@@ -2,9 +2,14 @@
 // 改写自 getpaseo/paseo packages/desktop/src/features/browser-automation/service.test.ts
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
-// 由 Wevir 修改：类型换成 Wevir 协议的；标签页按会话归属（假注册表的 ownerOf）；去掉 list_tabs、evaluate 与 upload 的用例（Wevir 不在
-// 这里处理或不提供）；Enter 带 char，快照里没有的引用与过期的引用分开报。
+// 由 Wevir 修改：类型换成 Wevir 协议的；标签页按会话归属（假注册表的 ownerOf）；去掉 list_tabs 的用例（不在这里处理）；Enter 带
+// char，快照里没有的引用与过期的引用分开报。0.48.0：evaluate 与 upload 的用例按 Wevir 的实现重写（语法检查、会话文件夹），加 query、
+// network、dialogs、等待条件、frame 里的引用与跨进程 frame 里的输入。
 
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { basename, join } from 'node:path';
+import { createContext, runInContext } from 'node:vm';
 import type {
   BrowserCommand as BrowserAutomationCommand,
   BrowserConsoleEntry as BrowserAutomationConsoleLogEntry,
@@ -91,6 +96,7 @@ class FakeTab implements TabContents {
   public canNavigateBack = true;
   public canNavigateForward = false;
   public keypressTargetEditable = false;
+  public focusInRemoteFrame = false;
 
   public constructor(
     public readonly id: number,
@@ -122,13 +128,23 @@ class FakeTab implements TabContents {
     return this.destroyed;
   }
 
+  /** 先问它：返回 undefined 时照常回答。 */
+  public scriptOverride: ((code: string) => unknown) | undefined;
+
   public async executeJavaScript(code: string): Promise<unknown> {
     this.scripts.push(code);
+    const overridden = this.scriptOverride?.(code);
+    if (overridden !== undefined) {
+      return overridden;
+    }
     if (code.includes('requestAnimationFrame') && this.paintDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.paintDelayMs));
     }
     if (code.includes('document.body.innerText')) {
       return this.bodyText;
+    }
+    if (code.includes('inner = element.contentDocument')) {
+      return this.focusInRemoteFrame;
     }
     if (code.includes('__WEVIR_ARIA_SNAPSHOT__')) {
       return JSON.stringify(snapshotResult(this.snapshotNodes));
@@ -443,6 +459,7 @@ function requireSnapshotRefs(result: Awaited<ReturnType<BrowserAutomationHarness
         totalLines: 6,
         startLine: 0,
         shownLines: 6,
+        maxNodes: 20000,
       },
     },
   });
@@ -534,6 +551,7 @@ describe('executeAutomationCommand', () => {
           totalLines: 2,
           startLine: 0,
           shownLines: 2,
+          maxNodes: 20000,
         },
       },
     });
@@ -1669,5 +1687,525 @@ describe('executeAutomationCommand', () => {
       'debug:Page.getLayoutMetrics',
       'debug:Page.captureScreenshot',
     ]);
+  });
+
+  // ── 0.48.0 ──────────────────────────────────────────────────────────
+
+  test('evaluate rejects source that does not parse without running it', async () => {
+    const browser = new BrowserAutomationHarness();
+
+    const result = await browser.execute({
+      command: 'evaluate',
+      args: { browserId: BROWSER_A, function: '() => {' },
+    });
+
+    expect(result).toMatchObject({ ok: false, error: { code: 'browser_invalid_argument' } });
+    expect(browser.tab.scripts).toEqual([]);
+  });
+
+  test('evaluate runs the function in the page and reports truncation', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.scriptOverride = (code) =>
+      code.includes('const describeElement')
+        ? runInContext(code, createContext({ title: 'Fixture' }))
+        : undefined;
+
+    const result = await browser.execute({
+      command: 'evaluate',
+      args: { browserId: BROWSER_A, function: '() => ({ title, list: [1, 2, 3] })', maxBytes: 100 },
+    });
+    const cut = await browser.execute({
+      command: 'evaluate',
+      args: { browserId: BROWSER_A, function: '() => "y".repeat(500)', maxBytes: 100 },
+    });
+
+    expect(result).toEqual({
+      requestId: 'req-evaluate',
+      ok: true,
+      result: {
+        command: 'evaluate',
+        browserId: BROWSER_A,
+        value: '{"title":"Fixture","list":[1,2,3]}',
+        type: 'object',
+        truncated: false,
+        length: 34,
+      },
+    });
+    expect(cut).toMatchObject({ ok: true, result: { truncated: true, length: 502 } });
+  });
+
+  test('evaluate reports what the page threw and a timeout', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.scriptOverride = (code) =>
+      code.includes('const describeElement')
+        ? code.includes('never')
+          ? new Promise(() => {})
+          : { thrown: 'ReferenceError: missing is not defined' }
+        : undefined;
+
+    const thrown = await browser.execute({
+      command: 'evaluate',
+      args: { browserId: BROWSER_A, function: '() => missing' },
+    });
+    const slow = await browser.execute({
+      command: 'evaluate',
+      args: { browserId: BROWSER_A, function: '() => never', timeoutMs: 10 },
+    });
+
+    expect(thrown).toMatchObject({
+      ok: false,
+      error: { code: 'browser_script_error', message: 'ReferenceError: missing is not defined' },
+    });
+    expect(slow).toMatchObject({ ok: false, error: { code: 'browser_timeout', retryable: true } });
+  });
+
+  test('evaluate and query run in the frame the agent names', async () => {
+    const browser = new BrowserAutomationHarness();
+    const framePage = {
+      scripts: [] as string[],
+      getURL: () => 'https://b.test/widget',
+      executeJavaScript: async (code: string) => {
+        framePage.scripts.push(code);
+        if (code.includes('const describeElement')) {
+          return { ok: true, type: 'string', value: '"inside"', length: 8 };
+        }
+        if (code.includes('document.querySelectorAll(".item")')) {
+          return {
+            count: 3,
+            elements: [
+              {
+                ref: '@e1',
+                fingerprint: {
+                  role: 'listitem',
+                  name: 'One',
+                  tagName: 'li',
+                  type: '',
+                  ariaLabel: '',
+                },
+                tag: 'li',
+                text: 'One',
+                visible: true,
+                box: { x: 1, y: 2, width: 30, height: 10 },
+              },
+            ],
+          };
+        }
+        return true;
+      },
+    };
+    Object.assign(browser.tab, {
+      listFrames: async () => [
+        { id: '1', url: 'https://b.test/widget', name: 'widget', page: framePage },
+      ],
+    });
+    browser.tab.scriptOverride = (code) =>
+      code.includes('window.frames[1]') ? { x: 100, y: 200, hit: true } : undefined;
+
+    const evaluated = await browser.execute({
+      command: 'evaluate',
+      args: { browserId: BROWSER_A, function: '() => "inside"', frame: 'widget' },
+    });
+    const queried = await browser.execute({
+      command: 'query',
+      args: { browserId: BROWSER_A, selector: '.item', frame: 'b.test', maxResults: 1 },
+    });
+    const missing = await browser.execute({
+      command: 'query',
+      args: { browserId: BROWSER_A, selector: '.item', frame: 'nope' },
+    });
+
+    expect(evaluated).toMatchObject({ ok: true, result: { value: '"inside"' } });
+    expect(queried).toEqual({
+      requestId: 'req-query',
+      ok: true,
+      result: {
+        command: 'query',
+        browserId: BROWSER_A,
+        selector: '.item',
+        count: 3,
+        // 位置换算到顶层页面。
+        elements: [
+          {
+            ref: '@e1',
+            tag: 'li',
+            text: 'One',
+            visible: true,
+            box: { x: 101, y: 202, width: 30, height: 10 },
+          },
+        ],
+      },
+    });
+    expect(missing).toMatchObject({
+      ok: false,
+      error: {
+        code: 'browser_invalid_argument',
+        message: expect.stringContaining('1 name="widget"'),
+      },
+    });
+    expect(browser.snapshotEngine.refFrame({ browserId: BROWSER_A, ref: '@e1' })).toBe('1');
+  });
+
+  test('query reports an invalid selector', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.scriptOverride = (code) =>
+      code.includes('document.querySelectorAll')
+        ? { error: 'invalid_selector', message: "'[' is not a valid selector" }
+        : undefined;
+
+    const result = await browser.execute({
+      command: 'query',
+      args: { browserId: BROWSER_A, selector: '[' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'browser_invalid_argument', message: expect.stringContaining('is not valid') },
+    });
+  });
+
+  test('network filters the log, gives one entry with its body, and clears', async () => {
+    const browser = new BrowserAutomationHarness();
+    let entries = [
+      { id: '1', url: 'https://a.test/', method: 'GET', status: 200, type: 'document' },
+      { id: '2', url: 'https://a.test/api', method: 'POST', status: 500, type: 'fetch' },
+      { id: '3', url: 'https://a.test/x.png', method: 'GET', status: 404, type: 'image' },
+    ];
+    const bodyRequests: Array<[string, number]> = [];
+    Object.assign(browser.tab, {
+      getNetworkLog: () => ({ entries, total: 9 }),
+      getNetworkDetail: (id: string) =>
+        id === '2'
+          ? {
+              id: '2',
+              url: 'https://a.test/api',
+              method: 'POST',
+              status: 500,
+              requestHeaders: {},
+              responseHeaders: {},
+            }
+          : undefined,
+      getNetworkBody: async (id: string, maxChars: number) => {
+        bodyRequests.push([id, maxChars]);
+        return { size: 2, text: '{}' };
+      },
+      clearNetworkLog: () => {
+        entries = [];
+      },
+    });
+
+    const filtered = await browser.execute({
+      command: 'network',
+      args: { browserId: BROWSER_A, status: '4xx-5xx'.slice(0, 3), method: 'get' },
+    });
+    const detail = await browser.execute({
+      command: 'network',
+      args: { browserId: BROWSER_A, id: '2', body: true, maxBytes: 500 },
+    });
+    const unknown = await browser.execute({
+      command: 'network',
+      args: { browserId: BROWSER_A, id: '7' },
+    });
+    const badStatus = await browser.execute({
+      command: 'network',
+      args: { browserId: BROWSER_A, status: 'teapot' },
+    });
+    const cleared = await browser.execute({
+      command: 'network',
+      args: { browserId: BROWSER_A, clear: true },
+    });
+
+    expect(filtered).toMatchObject({
+      ok: true,
+      result: { matched: 1, total: 9, entries: [{ id: '3' }] },
+    });
+    expect(detail).toMatchObject({
+      ok: true,
+      result: { entries: [], detail: { id: '2', body: { size: 2, text: '{}' } } },
+    });
+    expect(bodyRequests).toEqual([['2', 500]]);
+    expect(unknown).toMatchObject({ ok: false, error: { code: 'browser_invalid_argument' } });
+    expect(badStatus).toMatchObject({ ok: false, error: { code: 'browser_invalid_argument' } });
+    expect(cleared).toMatchObject({ ok: true, result: { cleared: true, matched: 3 } });
+    expect(entries).toEqual([]);
+  });
+
+  test('dialogs merge the given answers into the tab policy', async () => {
+    const browser = new BrowserAutomationHarness();
+    let policy: Record<string, unknown> = {
+      confirm: 'dismiss',
+      prompt: 'dismiss',
+      beforeunload: 'accept',
+    };
+    Object.assign(browser.tab, {
+      getDialogPolicy: () => policy,
+      setDialogPolicy: async (next: Record<string, unknown>) => {
+        policy = next;
+      },
+    });
+
+    await browser.execute({
+      command: 'dialogs',
+      args: { browserId: BROWSER_A, prompt: 'accept', promptText: 'Alice' },
+    });
+    const second = await browser.execute({
+      command: 'dialogs',
+      args: { browserId: BROWSER_A, confirm: 'accept' },
+    });
+    const third = await browser.execute({
+      command: 'dialogs',
+      args: { browserId: BROWSER_A, prompt: 'dismiss', beforeunload: 'dismiss' },
+    });
+
+    expect(second).toMatchObject({
+      ok: true,
+      result: {
+        policy: {
+          confirm: 'accept',
+          prompt: 'accept',
+          promptText: 'Alice',
+          beforeunload: 'accept',
+        },
+      },
+    });
+    // 不再回答 prompt 时，之前给的文字也不留。
+    expect(third).toMatchObject({
+      ok: true,
+      result: { policy: { confirm: 'accept', prompt: 'dismiss', beforeunload: 'dismiss' } },
+    });
+    expect(policy).not.toHaveProperty('promptText');
+  });
+
+  test('upload sets session files on a file input ref', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wevir-upload-'));
+    try {
+      writeFileSync(join(dir, 'a.txt'), 'hello');
+      writeFileSync(join(dir, 'b.txt'), 'hi');
+      const browser = new BrowserAutomationHarness();
+      browser.tab.snapshotNodes = formElements();
+      await browser.snapshot();
+      browser.tab.scriptOverride = (code) =>
+        code.includes("element.multiple ? 'multiple'") ? 'single' : undefined;
+
+      const one = await browser.execute(
+        {
+          command: 'upload',
+          args: { browserId: BROWSER_A, ref: '@e4', paths: [join(dir, 'a.txt')] },
+        },
+        { cwd: dir },
+      );
+      const two = await browser.execute(
+        {
+          command: 'upload',
+          args: {
+            browserId: BROWSER_A,
+            ref: '@e4',
+            paths: [join(dir, 'a.txt'), join(dir, 'b.txt')],
+          },
+        },
+        { cwd: dir },
+      );
+
+      const real = realpathSync(dir);
+      expect(one).toMatchObject({
+        ok: true,
+        result: { command: 'upload', ref: '@e4', files: [{ path: join(real, 'a.txt'), size: 5 }] },
+      });
+      expect(
+        browser.tab.debugCommands.find((entry) => entry.command === 'DOM.setFileInputFiles'),
+      ).toEqual({
+        command: 'DOM.setFileInputFiles',
+        params: { files: [join(real, 'a.txt')], objectId: 'object-1' },
+      });
+      expect(two).toMatchObject({
+        ok: false,
+        error: {
+          code: 'browser_invalid_argument',
+          message: 'This file input takes one file; 2 were given.',
+        },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('upload without a ref answers the waiting file chooser, or says none is waiting', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wevir-upload-'));
+    try {
+      writeFileSync(join(dir, 'a.txt'), 'hello');
+      const browser = new BrowserAutomationHarness();
+      let chooser: { backendNodeId: number; multiple: boolean } | undefined = {
+        backendNodeId: 42,
+        multiple: false,
+      };
+      Object.assign(browser.tab, {
+        takeFileChooser: () => {
+          const taken = chooser;
+          chooser = undefined;
+          return taken;
+        },
+      });
+      const args = { browserId: BROWSER_A, paths: [join(dir, 'a.txt')] };
+
+      const first = await browser.execute({ command: 'upload', args }, { cwd: dir });
+      const second = await browser.execute({ command: 'upload', args }, { cwd: dir });
+
+      expect(first).toMatchObject({ ok: true });
+      expect(browser.tab.debugCommands.at(-1)).toEqual({
+        command: 'DOM.setFileInputFiles',
+        params: { files: [join(realpathSync(dir), 'a.txt')], backendNodeId: 42 },
+      });
+      expect(second).toMatchObject({ ok: false, error: { code: 'browser_invalid_argument' } });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('upload refuses files outside the session folder', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'wevir-upload-'));
+    const outside = mkdtempSync(join(tmpdir(), 'wevir-outside-'));
+    try {
+      writeFileSync(join(outside, 'secret.txt'), 'x');
+      mkdirSync(join(dir, 'folder'));
+      symlinkSync(join(outside, 'secret.txt'), join(dir, 'link.txt'));
+      const browser = new BrowserAutomationHarness();
+      const upload = (path: string) =>
+        browser.execute(
+          { command: 'upload', args: { browserId: BROWSER_A, paths: [path] } },
+          { cwd: dir },
+        );
+
+      for (const path of [
+        join(outside, 'secret.txt'),
+        join(dir, '..', basename(outside), 'secret.txt'),
+        join(dir, 'link.txt'),
+        join(dir, 'folder'),
+        join(dir, 'missing.txt'),
+        'relative.txt',
+      ]) {
+        await expect(upload(path)).resolves.toMatchObject({
+          ok: false,
+          error: { code: 'browser_denied' },
+        });
+      }
+      expect(browser.tab.debugCommands).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('wait needs exactly one condition', async () => {
+    const browser = new BrowserAutomationHarness();
+
+    const none = await browser.execute({ command: 'wait', args: { browserId: BROWSER_A } });
+    const two = await browser.execute({
+      command: 'wait',
+      args: { browserId: BROWSER_A, text: 'a', selector: 'b' },
+    });
+    const badRegex = await browser.execute({
+      command: 'wait',
+      args: { browserId: BROWSER_A, urlRegex: '(' },
+    });
+
+    for (const result of [none, two, badRegex]) {
+      expect(result).toMatchObject({ ok: false, error: { code: 'browser_invalid_argument' } });
+    }
+  });
+
+  test('wait matches a URL pattern, an element state and network idle', async () => {
+    const browser = new BrowserAutomationHarness();
+    let state = 'detached';
+    browser.tab.scriptOverride = (code) =>
+      code.includes("return visible ? 'visible' : 'hidden'") ? state : undefined;
+    let pending = true;
+    Object.assign(browser.tab, {
+      getNetworkLog: () => ({
+        entries: [{ id: '1', url: 'https://a.test/api', method: 'GET', pending }],
+        total: 1,
+      }),
+    });
+    setTimeout(() => {
+      state = 'visible';
+      pending = false;
+    }, 30);
+
+    const url = await browser.execute({
+      command: 'wait',
+      args: { browserId: BROWSER_A, urlRegex: 'a\\.test/fo', timeoutMs: 100 },
+    });
+    const visible = await browser.execute({
+      command: 'wait',
+      args: { browserId: BROWSER_A, selector: '#done', state: 'visible', timeoutMs: 1_000 },
+    });
+    const idle = await browser.execute({
+      command: 'wait',
+      args: { browserId: BROWSER_A, networkIdle: true, idleMs: 100, timeoutMs: 1_000 },
+    });
+    const gone = await browser.execute({
+      command: 'wait',
+      args: { browserId: BROWSER_A, selector: '#done', state: 'detached', timeoutMs: 1 },
+    });
+
+    expect(url).toMatchObject({ ok: true, result: { matched: 'url' } });
+    expect(visible).toMatchObject({ ok: true, result: { matched: 'selector' } });
+    expect(idle).toMatchObject({ ok: true, result: { matched: 'network_idle' } });
+    expect(gone).toMatchObject({ ok: false, error: { code: 'browser_timeout', retryable: true } });
+  });
+
+  test('a click on a ref inside a frame lands at the point on the top page', async () => {
+    const browser = new BrowserAutomationHarness();
+    const framePage = {
+      getURL: () => 'https://b.test/widget',
+      executeJavaScript: async (code: string) => {
+        if (code.includes('__WEVIR_ARIA_SNAPSHOT__')) {
+          return JSON.stringify({
+            ...snapshotResult([{ role: 'button', name: 'Inside', tagName: 'button', ref: '@e1' }]),
+          });
+        }
+        if (code.includes('performance.now()')) {
+          return {
+            ok: true,
+            target: { point: { x: 5, y: 6 }, rect: { x: 0, y: 0, width: 10, height: 10 } },
+          };
+        }
+        return true;
+      },
+    };
+    Object.assign(browser.tab, {
+      listFrames: async () => [
+        { id: '0', url: 'https://b.test/widget', name: '', page: framePage },
+      ],
+    });
+    browser.tab.scriptOverride = (code) =>
+      code.includes('window.frames[0]') ? { x: 300, y: 400, hit: true } : undefined;
+
+    const snapshot = await browser.execute({
+      command: 'snapshot',
+      args: { browserId: BROWSER_A, frame: '0' },
+    });
+    await browser.execute({ command: 'click', args: { browserId: BROWSER_A, ref: '@e1' } });
+
+    expect(snapshot).toMatchObject({
+      ok: true,
+      result: { snapshot: expect.stringContaining('button "Inside" [ref=@e1]') },
+    });
+    expect(
+      browser.tab.debugCommands.find((entry) => entry.command === 'Input.dispatchMouseEvent')
+        ?.params,
+    ).toMatchObject({ x: 305, y: 406 });
+  });
+
+  test('type and keypress go through CDP when focus is in a cross-site frame', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.focusInRemoteFrame = true;
+
+    await browser.execute({ command: 'type', args: { browserId: BROWSER_A, text: 'Ada' } });
+    await browser.execute({ command: 'keypress', args: { browserId: BROWSER_A, key: 'Enter' } });
+
+    expect(browser.tab.insertedText).toEqual([]);
+    expect(browser.tab.inputEvents).toEqual([]);
+    expect(browser.tab.debugCommands.map((entry) => entry.command)).toEqual(
+      expect.arrayContaining(['Input.insertText', 'Input.dispatchKeyEvent']),
+    );
   });
 });

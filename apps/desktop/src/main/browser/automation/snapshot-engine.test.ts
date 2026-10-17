@@ -2,10 +2,25 @@
 // 改写自 getpaseo/paseo packages/desktop/src/features/browser-automation/snapshot-engine.test.ts
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
-// 由 Wevir 修改：页面里的全局名改成 Wevir 的；加上省掉重复名字的文字子节点。
+// 由 Wevir 修改：页面里的全局名改成 Wevir 的；加上省掉重复名字的文字子节点。0.48.0：快照的范围、跨域 frame 的占位、停下时的说明、
+// browser_query 的引用。
 
 import { describe, expect, it } from 'vitest';
-import { BrowserSnapshotEngine, type SnapshotPage } from './snapshot-engine.js';
+import {
+  type BrowserAriaSnapshot,
+  BrowserSnapshotEngine,
+  type SnapshotPage,
+} from './snapshot-engine.js';
+
+/** 快照成功（失败时让测试失败）。 */
+async function snap(
+  engine: BrowserSnapshotEngine,
+  input: Parameters<BrowserSnapshotEngine['snapshot']>[0],
+): Promise<BrowserAriaSnapshot> {
+  const result = await engine.snapshot(input);
+  if ('ok' in result) throw new Error(`snapshot failed: ${result.reason}`);
+  return result;
+}
 
 class SnapshotFixture implements SnapshotPage {
   public currentUrl = 'https://example.com/form';
@@ -98,6 +113,7 @@ describe('BrowserSnapshotEngine', () => {
         totalLines: 4,
         startLine: 0,
         shownLines: 4,
+        maxNodes: 20000,
       },
     });
   });
@@ -130,7 +146,7 @@ describe('BrowserSnapshotEngine', () => {
     page.snapshotNodes = [{ kind: 'text', text: 'A'.repeat(81_000) }];
     const engine = new BrowserSnapshotEngine();
 
-    const snapshot = await engine.snapshot({ browserId: 'browser-1', page });
+    const snapshot = await snap(engine, { browserId: 'browser-1', page });
 
     expect(snapshot.stats.textLength).toBeLessThanOrEqual(1_000);
     expect(snapshot.snapshot).toContain('…');
@@ -148,7 +164,7 @@ describe('BrowserSnapshotEngine', () => {
     ];
     const engine = new BrowserSnapshotEngine();
 
-    const first = await engine.snapshot({ browserId: 'browser-1', page, pageBytes: 4_000 });
+    const first = await snap(engine, { browserId: 'browser-1', page, pageBytes: 4_000 });
     expect(first.truncated).toBe(true);
     expect(new TextEncoder().encode(first.snapshot).length).toBeLessThanOrEqual(4_000);
     expect(first.stats).toMatchObject({ totalLines: 302, startLine: 0 });
@@ -165,7 +181,7 @@ describe('BrowserSnapshotEngine', () => {
     let offset = next;
     let last = first;
     while (last.stats.startLine !== undefined && offset < 302) {
-      last = await engine.snapshot({ browserId: 'browser-1', page, offset, pageBytes: 4_000 });
+      last = await snap(engine, { browserId: 'browser-1', page, offset, pageBytes: 4_000 });
       offset = (last.stats.startLine ?? 0) + (last.stats.shownLines ?? 0);
     }
     expect(last.snapshot).toContain('- button "Save changes" [ref=@e1]');
@@ -177,7 +193,7 @@ describe('BrowserSnapshotEngine', () => {
     const page = new SnapshotFixture();
     const engine = new BrowserSnapshotEngine();
 
-    const snapshot = await engine.snapshot({ browserId: 'browser-1', page, offset: 99 });
+    const snapshot = await snap(engine, { browserId: 'browser-1', page, offset: 99 });
 
     expect(snapshot.snapshot).toMatch(/offset 99 is past the end/);
     expect(snapshot.stats.shownLines).toBe(0);
@@ -206,14 +222,14 @@ describe('BrowserSnapshotEngine', () => {
     ];
     const engine = new BrowserSnapshotEngine();
 
-    const snapshot = await engine.snapshot({ browserId: 'browser-1', page });
+    const snapshot = await snap(engine, { browserId: 'browser-1', page });
 
     expect(snapshot.truncated).toBe(true);
     expect(snapshot.snapshot).toBe(
       [
         '- document "Fixture"',
         '  - button "Final action" [ref=@e1]',
-        '# The page is very large: the snapshot stops after its first 20000 nodes.',
+        '# The snapshot stopped after 20000 nodes; the rest of the page is not included. Snapshot part of the page (selector, ref or frame), only what is on screen (viewportOnly), or raise maxNodes (up to 50000).',
       ].join('\n'),
     );
   });
@@ -243,7 +259,7 @@ describe('BrowserSnapshotEngine', () => {
     ];
     const engine = new BrowserSnapshotEngine();
 
-    const snapshot = await engine.snapshot({ browserId: 'browser-1', page });
+    const snapshot = await snap(engine, { browserId: 'browser-1', page });
 
     expect(snapshot.snapshot).toBe(
       [
@@ -254,5 +270,261 @@ describe('BrowserSnapshotEngine', () => {
         '    - text: "and more"',
       ].join('\n'),
     );
+  });
+
+  describe('0.48.0 scope, frames and limits', () => {
+    const fingerprint = (name: string) => ({
+      role: 'button',
+      name,
+      tagName: 'button',
+      type: '',
+      ariaLabel: '',
+    });
+    const button = (ref: string, name: string) => ({
+      kind: 'role',
+      role: 'button',
+      name,
+      tagName: 'button',
+      attributes: [],
+      ref,
+      fingerprint: fingerprint(name),
+      children: [],
+    });
+    const result = (
+      children: unknown[],
+      refs: Array<[string, string]>,
+      extra: Record<string, unknown> = {},
+    ) =>
+      JSON.stringify({
+        marker: '__WEVIR_ARIA_SNAPSHOT__',
+        root: {
+          kind: 'role',
+          role: 'document',
+          name: 'Fixture',
+          tagName: 'document',
+          attributes: [],
+          children,
+        },
+        refs: refs.map(([ref, name]) => ({ ref, fingerprint: fingerprint(name) })),
+        truncated: false,
+        stats: {
+          nodeCount: children.length + 1,
+          refCount: refs.length,
+          textLength: 0,
+          iframeCount: 0,
+          maxDepth: 1,
+        },
+        ...extra,
+      });
+    /** 每次快照脚本都交给 `answer`。 */
+    const scripted = (answer: (code: string) => unknown): SnapshotPage & { scripts: string[] } => {
+      const scripts: string[] = [];
+      return {
+        scripts,
+        getURL: () => 'https://a.test/',
+        executeJavaScript: async (code: string) => {
+          scripts.push(code);
+          return code.includes('__WEVIR_ARIA_SNAPSHOT__') ? answer(code) : true;
+        },
+      };
+    };
+
+    it('fills a cross-site frame placeholder from that frame and keeps numbering refs', async () => {
+      const top = scripted(() =>
+        result(
+          [
+            button('@e1', 'Top'),
+            {
+              kind: 'role',
+              role: 'iframe',
+              name: '',
+              tagName: 'iframe',
+              attributes: ['frame=1'],
+              children: [{ kind: 'frame', frame: '1' }],
+            },
+          ],
+          [['@e1', 'Top']],
+        ),
+      );
+      const inner = scripted((code) => {
+        // 接着顶层的编号。
+        expect(code).toContain('"refStart":2');
+        return result([button('@e2', 'Inside')], [['@e2', 'Inside']]);
+      });
+      const engine = new BrowserSnapshotEngine();
+
+      const snapshot = await snap(engine, {
+        browserId: 'b',
+        page: top,
+        frames: async () => [{ id: '1', url: 'https://b.test/', name: '', page: inner }],
+      });
+
+      expect(snapshot.snapshot).toBe(
+        [
+          '- document "Fixture"',
+          '  - button "Top" [ref=@e1]',
+          '  - iframe [frame=1]',
+          '    - button "Inside" [ref=@e2]',
+        ].join('\n'),
+      );
+      expect(snapshot.stats.refCount).toBe(2);
+      expect(engine.refFrame({ browserId: 'b', ref: '@e2' })).toBe('1');
+      expect(engine.refFrame({ browserId: 'b', ref: '@e1' })).toBe('');
+    });
+
+    it('says when a frame cannot be read', async () => {
+      const top = scripted(() =>
+        result(
+          [
+            {
+              kind: 'role',
+              role: 'iframe',
+              name: '',
+              tagName: 'iframe',
+              attributes: [],
+              children: [{ kind: 'frame', frame: '0' }],
+            },
+          ],
+          [],
+        ),
+      );
+      const snapshot = await snap(new BrowserSnapshotEngine(), { browserId: 'b', page: top });
+      expect(snapshot.snapshot).toContain('(content from another site could not be read)');
+    });
+
+    it('passes the scope to the page script and reports selector failures', async () => {
+      let answer: unknown = result([], []);
+      const page = scripted(() => answer);
+      const engine = new BrowserSnapshotEngine();
+
+      await snap(engine, {
+        browserId: 'b',
+        page,
+        selector: 'main',
+        viewportOnly: true,
+        maxNodes: 300,
+      });
+      expect(page.scripts.at(-1)).toContain('"selector":"main"');
+      expect(page.scripts.at(-1)).toContain('"viewportOnly":true');
+      expect(page.scripts.at(-1)).toContain('"maxNodes":300');
+
+      answer = JSON.stringify({ marker: '__WEVIR_ARIA_SNAPSHOT__', error: 'not_found' });
+      await expect(engine.snapshot({ browserId: 'b', page, selector: '#none' })).resolves.toEqual({
+        ok: false,
+        reason: 'not_found',
+      });
+      answer = JSON.stringify({
+        marker: '__WEVIR_ARIA_SNAPSHOT__',
+        error: 'invalid_selector',
+        message: 'bad',
+      });
+      await expect(engine.snapshot({ browserId: 'b', page, selector: '[' })).resolves.toEqual({
+        ok: false,
+        reason: 'invalid_selector',
+        message: 'bad',
+      });
+    });
+
+    it('a snapshot from a ref starts at that element in its frame', async () => {
+      const top = scripted(() => result([button('@e1', 'Top')], [['@e1', 'Top']]));
+      const inner = scripted(() => result([button('@e1', 'Inside')], [['@e1', 'Inside']]));
+      const engine = new BrowserSnapshotEngine();
+      const frames = async () => [{ id: '0', url: 'https://b.test/', name: '', page: inner }];
+      await snap(engine, { browserId: 'b', page: inner, frame: { id: '0', page: inner }, frames });
+
+      await snap(engine, { browserId: 'b', page: top, ref: '@e1', frames });
+
+      expect(inner.scripts.at(-1)).toContain('"rootRef":{"ref":"@e1"');
+      expect(top.scripts).toEqual([]);
+      await expect(
+        engine.snapshot({ browserId: 'b', page: top, ref: '@e9', frames }),
+      ).resolves.toEqual({
+        ok: false,
+        reason: 'missing_ref',
+      });
+    });
+
+    it('says where a truncated snapshot stopped and how to narrow it', async () => {
+      const page = scripted(() =>
+        result([button('@e1', 'Top')], [['@e1', 'Top']], {
+          truncated: true,
+          refsTruncated: true,
+          stoppedAt: 'body > ul > li:nth-of-type(100)',
+        }),
+      );
+      const snapshot = await snap(new BrowserSnapshotEngine(), {
+        browserId: 'b',
+        page,
+        maxNodes: 100,
+      });
+
+      expect(snapshot.snapshot).toContain(
+        '# The snapshot stopped after 100 nodes at body > ul > li:nth-of-type(100); the rest of the page is not included.',
+      );
+      expect(snapshot.snapshot).toContain('# Only the first 500 elements got refs.');
+      expect(snapshot.stats).toMatchObject({
+        stoppedAt: 'body > ul > li:nth-of-type(100)',
+        maxNodes: 100,
+      });
+    });
+
+    it('query gives refs after the snapshot refs and keeps both usable', async () => {
+      const page = scripted(() => result([button('@e1', 'Top')], [['@e1', 'Top']]));
+      page.executeJavaScript = async (code: string) => {
+        page.scripts.push(code);
+        if (code.includes('__WEVIR_ARIA_SNAPSHOT__'))
+          return result([button('@e1', 'Top')], [['@e1', 'Top']]);
+        if (code.includes('document.querySelectorAll')) {
+          expect(code).toContain('["@e2","@e3"]');
+          return {
+            count: 5,
+            elements: [
+              {
+                ref: '@e2',
+                fingerprint: fingerprint('A'),
+                tag: 'a',
+                text: 'A',
+                visible: false,
+                box: { x: 0, y: 0, width: 0, height: 0 },
+                attributes: { href: '/a' },
+              },
+            ],
+          };
+        }
+        return true;
+      };
+      const engine = new BrowserSnapshotEngine();
+      await snap(engine, { browserId: 'b', page });
+
+      const queried = await engine.query({
+        browserId: 'b',
+        page,
+        frame: '',
+        selector: 'a',
+        maxResults: 2,
+        attributes: ['href'],
+      });
+
+      expect(queried).toEqual({
+        ok: true,
+        count: 5,
+        elements: [
+          {
+            ref: '@e2',
+            tag: 'a',
+            text: 'A',
+            visible: false,
+            box: { x: 0, y: 0, width: 0, height: 0 },
+            attributes: { href: '/a' },
+          },
+        ],
+      });
+      expect(engine.runtimeElementExpression({ browserId: 'b', ref: '@e1' })).toEqual(
+        expect.any(String),
+      );
+      expect(engine.runtimeElementExpression({ browserId: 'b', ref: '@e2' })).toEqual(
+        expect.any(String),
+      );
+    });
   });
 });

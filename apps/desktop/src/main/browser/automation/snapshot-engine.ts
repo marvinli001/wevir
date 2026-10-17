@@ -5,9 +5,17 @@
 // 由 Wevir 修改：页面里的全局名改成 `__WEVIR_BROWSER_AUTOMATION__`；子节点只有与名字相同的文字时不再重复列出。
 // 0.46.0：快照按字节预算分段（`offset` 接着读），每段末尾列出后面还有哪些带引用的元素（引用在整个快照里有效）；文件输入框
 // 与填不进去的元素给出原因，不再是笼统的脚本错误；填值的事件用元素所在文档（iframe）的构造函数。
+// 0.48.0：快照能只取一个元素（选择器或引用）、一个 frame、视口里的部分，节点上限可调，停下时说明停在哪、怎么缩小范围；跨域
+// iframe 的占位节点在那个 frame 里再跑一遍脚本接上，引用全局编号、记下所在的 frame；browser_query 找到的元素也给引用（接着
+// 现有的编号）。
 
-import { BROWSER_SNAPSHOT_PAGE_BYTES } from '@wevir/protocol';
-import { ARIA_SNAPSHOT_SCRIPT, ARIA_SNAPSHOT_SCRIPT_MARKER } from './aria-snapshot-script.js';
+import {
+  BROWSER_SNAPSHOT_DEFAULT_NODES,
+  BROWSER_SNAPSHOT_MAX_NODES,
+  BROWSER_SNAPSHOT_PAGE_BYTES,
+} from '@wevir/protocol';
+import { ARIA_SNAPSHOT_SCRIPT_MARKER, ariaSnapshotScript } from './aria-snapshot-script.js';
+import type { TabFrame } from './frames.js';
 
 export interface SnapshotPage {
   getURL(): string;
@@ -30,10 +38,14 @@ export interface BrowserAriaSnapshotStats {
   totalLines?: number;
   startLine?: number;
   shownLines?: number;
+  stoppedAt?: string;
+  maxNodes?: number;
 }
 
 interface SnapshotNode {
-  kind: 'role' | 'text' | 'group';
+  kind: 'role' | 'text' | 'group' | 'frame';
+  /** `frame`：还没接上的跨域 frame 的编号。 */
+  frame?: string;
   role?: string;
   name?: string;
   text?: string;
@@ -57,17 +69,60 @@ interface RawAriaSnapshot {
   root: SnapshotNode;
   refs: BrowserRefMetadata[];
   truncated: boolean;
+  refsTruncated: boolean;
+  stoppedAt: string;
   stats: BrowserAriaSnapshotStats;
+  error?: string;
+  message?: string;
 }
 
 interface BrowserRefMetadata {
   ref: string;
   fingerprint: BrowserRefFingerprint;
+  /** 元素所在的 frame 的编号（0.48.0）；顶层页面（含接在里面的同源 iframe）是空串。 */
+  frame?: string;
 }
 
 interface BrowserRefState {
   refs: Map<string, BrowserRefMetadata>;
+  /** 下一个引用的编号。 */
+  nextRef: number;
 }
+
+/** 快照的参数（0.48.0）。 */
+export interface SnapshotScope {
+  selector?: string;
+  /** 从这个引用的元素开始。 */
+  ref?: string;
+  /** 只取这个 frame（service 已经按 agent 的说法找到）。 */
+  frame?: { id: string; page: SnapshotPage };
+  viewportOnly?: boolean;
+  maxNodes?: number;
+}
+
+/** 快照做不了：引用用不了、选择器不对或没找到、引用所在的 frame 没了。 */
+export type SnapshotFailure =
+  | { ok: false; reason: 'stale_ref' | 'missing_ref' }
+  | { ok: false; reason: 'invalid_selector'; message: string }
+  | { ok: false; reason: 'not_found' };
+
+/** browser_query 找到的元素（`box` 是元素所在 frame 里的坐标）。 */
+export interface QueriedElement {
+  ref: string;
+  tag: string;
+  id?: string;
+  classes?: string;
+  text: string;
+  visible: boolean;
+  box: { x: number; y: number; width: number; height: number };
+  attributes?: Record<string, string>;
+}
+
+/** 一次快照里所有 frame 合计的引用上限。 */
+const MAX_REFS = 500;
+/** 在一个跨域 frame 里跑快照脚本最多等多久（frame 卡住时不拖住整个快照）。 */
+const FRAME_SCRIPT_TIMEOUT_MS = 3_000;
+const FRAME_UNREADABLE = '(content from another site could not be read)';
 
 export type BrowserRefActionResult =
   | { ok: true }
@@ -85,38 +140,197 @@ const MAX_LINE_BYTES = 600;
 export class BrowserSnapshotEngine {
   private readonly statesByBrowserId = new Map<string, BrowserRefState>();
 
-  async snapshot(input: {
-    browserId: string;
-    page: SnapshotPage;
-    /** 从第几行开始（从 0 起）。 */
-    offset?: number;
-    /** 一段的字节预算，默认 `BROWSER_SNAPSHOT_PAGE_BYTES`。 */
-    pageBytes?: number;
-  }): Promise<BrowserAriaSnapshot> {
-    const rawSnapshot = parseAriaSnapshot(await input.page.executeJavaScript(ARIA_SNAPSHOT_SCRIPT));
-    const lines = renderSnapshot(rawSnapshot.root);
+  async snapshot(
+    input: {
+      browserId: string;
+      page: SnapshotPage;
+      /** 从第几行开始（从 0 起）。 */
+      offset?: number;
+      /** 一段的字节预算，默认 `BROWSER_SNAPSHOT_PAGE_BYTES`。 */
+      pageBytes?: number;
+      /** 列出子 frame：接跨域 frame、按引用找它所在的 frame 时用。 */
+      frames?: () => Promise<TabFrame[]>;
+    } & SnapshotScope,
+  ): Promise<BrowserAriaSnapshot | SnapshotFailure> {
+    const maxNodes = Math.min(
+      Math.max(1, input.maxNodes ?? BROWSER_SNAPSHOT_DEFAULT_NODES),
+      BROWSER_SNAPSHOT_MAX_NODES,
+    );
+    let frameList: TabFrame[] | undefined;
+    const frames = async () => {
+      frameList ??= input.frames ? await input.frames().catch(() => []) : [];
+      return frameList;
+    };
+
+    let rootPage = input.frame?.page ?? input.page;
+    let rootFrame = input.frame?.id ?? '';
+    let rootRef: { ref: string; fingerprint: BrowserRefFingerprint } | undefined;
+    if (input.ref !== undefined) {
+      const resolved = this.resolveRef({ browserId: input.browserId, ref: input.ref });
+      if (!resolved.ok) return resolved;
+      rootFrame = resolved.metadata.frame ?? '';
+      rootRef = { ref: input.ref, fingerprint: resolved.metadata.fingerprint };
+      if (rootFrame === '') {
+        rootPage = input.page;
+      } else {
+        const frame = (await frames()).find((candidate) => candidate.id === rootFrame);
+        if (!frame) return { ok: false, reason: 'stale_ref' };
+        rootPage = frame.page;
+      }
+    }
+
+    const first = parseAriaSnapshot(
+      await rootPage.executeJavaScript(
+        ariaSnapshotScript({
+          maxNodes,
+          maxRefs: MAX_REFS,
+          refStart: 1,
+          ...(input.selector !== undefined &&
+            rootRef === undefined && { selector: input.selector }),
+          ...(rootRef !== undefined && { rootRef }),
+          ...(input.viewportOnly === true && { viewportOnly: true }),
+        }),
+      ),
+    );
+    if (first.error === 'stale_ref') return { ok: false, reason: 'stale_ref' };
+    if (first.error === 'not_found') return { ok: false, reason: 'not_found' };
+    if (first.error === 'invalid_selector') {
+      return {
+        ok: false,
+        reason: 'invalid_selector',
+        message: first.message ?? 'invalid selector',
+      };
+    }
+
+    const refs: BrowserRefMetadata[] = first.refs.map((ref) => ({ ...ref, frame: rootFrame }));
+    let nodeCount = first.stats.nodeCount;
+    let iframeCount = first.stats.iframeCount ?? 0;
+    let truncated = first.truncated;
+    let refsTruncated = first.refsTruncated;
+    let stoppedAt = first.stoppedAt;
+    // 跨域 frame 的占位节点：在那个 frame 里再跑一遍，接着编号与节点数。
+    const pending = collectFramePlaceholders(first.root);
+    while (pending.length > 0) {
+      const node = pending.shift() as SnapshotNode;
+      const frameId = node.frame ?? '';
+      node.kind = 'group';
+      node.frame = undefined;
+      node.children = [{ kind: 'text', text: FRAME_UNREADABLE }];
+      if (truncated || nodeCount >= maxNodes) continue;
+      const frame = (await frames()).find((candidate) => candidate.id === frameId);
+      if (!frame) continue;
+      const raw = await withTimeout(
+        frame.page.executeJavaScript(
+          ariaSnapshotScript({
+            maxNodes: maxNodes - nodeCount,
+            maxRefs: Math.max(0, MAX_REFS - refs.length),
+            refStart: refs.length + 1,
+            ...(input.viewportOnly === true && { viewportOnly: true }),
+          }),
+        ),
+        FRAME_SCRIPT_TIMEOUT_MS,
+      )
+        .then(parseAriaSnapshot)
+        .catch(() => undefined);
+      if (!raw || raw.error) continue;
+      node.children = raw.root.children ?? [];
+      refs.push(...raw.refs.map((ref) => ({ ...ref, frame: frameId })));
+      nodeCount += raw.stats.nodeCount;
+      iframeCount += raw.stats.iframeCount ?? 0;
+      truncated ||= raw.truncated;
+      refsTruncated ||= raw.refsTruncated;
+      if (!stoppedAt && raw.stoppedAt) stoppedAt = raw.stoppedAt;
+      pending.push(...collectFramePlaceholders(node));
+    }
+
+    const lines = renderSnapshot(first.root);
+    const limitNotes = [
+      ...(truncated
+        ? [
+            `# The snapshot stopped after ${maxNodes} nodes${stoppedAt ? ` at ${stoppedAt}` : ''}; the rest of the page is not included. Snapshot part of the page (selector, ref or frame), only what is on screen (viewportOnly), or raise maxNodes (up to ${BROWSER_SNAPSHOT_MAX_NODES}).`,
+          ]
+        : []),
+      ...(refsTruncated
+        ? [
+            `# Only the first ${MAX_REFS} elements got refs. Snapshot part of the page (selector, ref, frame or viewportOnly) to get refs for the others.`,
+          ]
+        : []),
+    ];
     const part = pageOfSnapshot(
       lines,
       input.offset ?? 0,
       input.pageBytes ?? BROWSER_SNAPSHOT_PAGE_BYTES,
-      rawSnapshot.truncated,
+      limitNotes,
     );
     this.statesByBrowserId.set(input.browserId, {
-      refs: new Map(rawSnapshot.refs.map((ref) => [ref.ref, ref])),
+      refs: new Map(refs.map((ref) => [ref.ref, ref])),
+      nextRef: refs.length + 1,
     });
     return {
       format: 'aria-yaml',
       snapshot: part.snapshot,
       truncated: part.truncated,
       stats: {
-        ...rawSnapshot.stats,
-        refCount: rawSnapshot.refs.length,
+        ...first.stats,
+        nodeCount,
+        iframeCount,
+        refCount: refs.length,
         textLength: part.snapshot.length,
         totalLines: lines.length,
         startLine: part.startLine,
         shownLines: part.shownLines,
+        ...(stoppedAt && { stoppedAt }),
+        maxNodes,
       },
     };
+  }
+
+  /**
+   * 按 CSS 选择器找元素（browser_query），前 `maxResults` 个给引用，接着这个标签页现有的编号（之前快照的引用照样有效）。
+   */
+  async query(input: {
+    browserId: string;
+    page: SnapshotPage;
+    /** 元素所在 frame 的编号；顶层是空串。 */
+    frame: string;
+    selector: string;
+    maxResults: number;
+    attributes?: readonly string[];
+  }): Promise<
+    | { ok: true; count: number; elements: QueriedElement[] }
+    | { ok: false; reason: 'invalid_selector'; message: string }
+  > {
+    await input.page.executeJavaScript(ariaSnapshotScript({ mode: 'install' }));
+    const state = this.statesByBrowserId.get(input.browserId) ?? { refs: new Map(), nextRef: 1 };
+    const refs = Array.from(
+      { length: input.maxResults },
+      (_, index) => `@e${state.nextRef + index}`,
+    );
+    const raw = await input.page.executeJavaScript(
+      buildQueryScript(input.selector, refs, input.attributes ?? []),
+    );
+    const parsed = parseQueryResult(raw);
+    if (!parsed.ok) return parsed;
+    for (const element of parsed.elements) {
+      state.refs.set(element.ref, {
+        ref: element.ref,
+        fingerprint: element.fingerprint,
+        frame: input.frame,
+      });
+    }
+    state.nextRef += parsed.elements.length;
+    this.statesByBrowserId.set(input.browserId, state);
+    return {
+      ok: true,
+      count: parsed.count,
+      elements: parsed.elements.map(({ fingerprint: _fingerprint, ...element }) => element),
+    };
+  }
+
+  /** 引用的元素在哪个 frame（顶层是空串）。 */
+  refFrame(input: { browserId: string; ref: string }): string | BrowserRefFailure {
+    const resolved = this.resolveRef(input);
+    return resolved.ok ? (resolved.metadata.frame ?? '') : resolved;
   }
 
   async fill(input: {
@@ -211,12 +425,21 @@ function parseAriaSnapshot(value: unknown): RawAriaSnapshot {
   if (record.marker !== ARIA_SNAPSHOT_SCRIPT_MARKER) {
     return emptySnapshot();
   }
+  if (typeof record.error === 'string') {
+    return {
+      ...emptySnapshot(),
+      error: record.error,
+      ...(typeof record.message === 'string' && { message: record.message }),
+    };
+  }
   const root = parseSnapshotNode(record.root);
   return {
     marker: ARIA_SNAPSHOT_SCRIPT_MARKER,
     root: root ?? emptySnapshot().root,
     refs: parseRefs(record.refs),
     truncated: record.truncated === true,
+    refsTruncated: record.refsTruncated === true,
+    stoppedAt: typeof record.stoppedAt === 'string' ? record.stoppedAt : '',
     stats: parseStats(record.stats),
   };
 }
@@ -227,8 +450,26 @@ function emptySnapshot(): RawAriaSnapshot {
     root: { kind: 'role', role: 'document', name: '', tagName: 'document', children: [] },
     refs: [],
     truncated: false,
+    refsTruncated: false,
+    stoppedAt: '',
     stats: { nodeCount: 0, refCount: 0, textLength: 0, iframeCount: 0, maxDepth: 0 },
   };
+}
+
+/** 还没接上的跨域 frame（按文档顺序）。 */
+function collectFramePlaceholders(node: SnapshotNode): SnapshotNode[] {
+  if (node.kind === 'frame') return [node];
+  return (node.children ?? []).flatMap(collectFramePlaceholders);
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timeout')), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 function parseSnapshotNode(value: unknown): SnapshotNode | null {
@@ -237,11 +478,12 @@ function parseSnapshotNode(value: unknown): SnapshotNode | null {
   }
   const record = value as Record<string, unknown>;
   const kind = record.kind;
-  if (kind !== 'role' && kind !== 'text' && kind !== 'group') {
+  if (kind !== 'role' && kind !== 'text' && kind !== 'group' && kind !== 'frame') {
     return null;
   }
   return {
     kind,
+    ...(kind === 'frame' && typeof record.frame === 'string' && { frame: record.frame }),
     ...(readString(record.role) ? { role: readString(record.role) ?? undefined } : {}),
     ...(readString(record.name) ? { name: readString(record.name) ?? undefined } : {}),
     ...(readString(record.text) ? { text: readString(record.text) ?? undefined } : {}),
@@ -321,6 +563,9 @@ function renderSnapshot(root: SnapshotNode): SnapshotLine[] {
 }
 
 function renderNode(node: SnapshotNode, depth: number): SnapshotLine[] {
+  if (node.kind === 'frame') {
+    return [{ text: `${'  '.repeat(depth)}- text: ${JSON.stringify(FRAME_UNREADABLE)}` }];
+  }
   if (node.kind === 'group') {
     return (node.children ?? []).flatMap((child) => renderNode(child, depth));
   }
@@ -376,8 +621,10 @@ export function pageOfSnapshot(
   lines: SnapshotLine[],
   offset: number,
   pageBytes: number,
-  pageTruncated: boolean,
+  /** 快照本身没取全时的说明（节点或引用到了上限），每段末尾都给。 */
+  limitNotes: readonly string[] = [],
 ): { snapshot: string; truncated: boolean; startLine: number; shownLines: number } {
+  const pageTruncated = limitNotes.length > 0;
   const total = lines.length;
   const start = Math.min(Math.max(0, offset), total);
   if (start >= total && total > 0) {
@@ -388,7 +635,8 @@ export function pageOfSnapshot(
       shownLines: 0,
     };
   }
-  const bodyBudget = Math.floor(pageBytes * PAGE_BODY_SHARE);
+  const limitBytes = limitNotes.reduce((sum, note) => sum + bytesOf(note) + 1, 0);
+  const bodyBudget = Math.floor(pageBytes * PAGE_BODY_SHARE) - limitBytes;
   const body: string[] = [];
   let used = 0;
   let end = start;
@@ -414,7 +662,12 @@ export function pageOfSnapshot(
     const later = lines.slice(end).filter((line) => line.ref !== undefined);
     if (later.length > 0) {
       notes.push('# Elements with refs further down (usable now):');
-      let budget = pageBytes - used - notes.reduce((sum, note) => sum + bytesOf(note) + 1, 0) - 80;
+      let budget =
+        pageBytes -
+        used -
+        limitBytes -
+        notes.reduce((sum, note) => sum + bytesOf(note) + 1, 0) -
+        80;
       let listed = 0;
       for (const line of later) {
         const text = clampLine(line.text.trimStart());
@@ -429,15 +682,125 @@ export function pageOfSnapshot(
       }
     }
   }
-  if (pageTruncated) {
-    notes.push('# The page is very large: the snapshot stops after its first 20000 nodes.');
-  }
+  notes.push(...limitNotes);
   return {
     snapshot: [...body, ...notes].join('\n'),
     truncated: start > 0 || end < total || pageTruncated,
     startLine: start,
     shownLines: end - start,
   };
+}
+
+/** 在 frame 里按选择器找元素，给前几个登记引用（运行时已经装上）。 */
+function buildQueryScript(
+  selector: string,
+  refs: readonly string[],
+  attributes: readonly string[],
+): string {
+  return `(() => {
+    const runtime = window.__WEVIR_BROWSER_AUTOMATION__;
+    if (!runtime || typeof runtime.register !== 'function') return { error: 'no_runtime' };
+    let nodes;
+    try {
+      nodes = document.querySelectorAll(${JSON.stringify(selector)});
+    } catch (error) {
+      return { error: 'invalid_selector', message: String((error && error.message) || error) };
+    }
+    const refs = ${JSON.stringify(refs)};
+    const names = ${JSON.stringify(attributes)};
+    const clip = (value, max) => {
+      const text = String(value == null ? '' : value).replace(/\\s+/g, ' ').trim();
+      return text.length > max ? text.slice(0, max) + '…' : text;
+    };
+    const elements = [];
+    for (let index = 0; index < nodes.length && index < refs.length; index += 1) {
+      const element = nodes[index];
+      const view = (element.ownerDocument && element.ownerDocument.defaultView) || window;
+      const rect = element.getBoundingClientRect();
+      const style = view.getComputedStyle(element);
+      const visible = rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' &&
+        style.display !== 'none' && Number(style.opacity || '1') !== 0;
+      const attributes = {};
+      for (const name of names) {
+        const value = element.getAttribute(name);
+        if (value !== null) attributes[name] = clip(value, 500);
+      }
+      const classes = clip(element.getAttribute('class'), 200);
+      elements.push({
+        ref: refs[index],
+        fingerprint: runtime.register(element, refs[index]),
+        tag: element.tagName.toLowerCase(),
+        ...(element.id ? { id: element.id } : {}),
+        ...(classes ? { classes } : {}),
+        text: clip(typeof element.innerText === 'string' ? element.innerText : element.textContent, 200),
+        visible,
+        box: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        ...(names.length > 0 ? { attributes } : {}),
+      });
+    }
+    return { count: nodes.length, elements };
+  })()`;
+}
+
+function parseQueryResult(value: unknown):
+  | {
+      ok: true;
+      count: number;
+      elements: Array<QueriedElement & { fingerprint: BrowserRefFingerprint }>;
+    }
+  | { ok: false; reason: 'invalid_selector'; message: string } {
+  if (!value || typeof value !== 'object') {
+    return { ok: false, reason: 'invalid_selector', message: 'the page did not answer the query' };
+  }
+  const record = value as Record<string, unknown>;
+  if (record.error === 'invalid_selector') {
+    return {
+      ok: false,
+      reason: 'invalid_selector',
+      message: readString(record.message) ?? 'invalid selector',
+    };
+  }
+  const elements = Array.isArray(record.elements)
+    ? record.elements.flatMap(
+        (item): Array<QueriedElement & { fingerprint: BrowserRefFingerprint }> => {
+          if (!item || typeof item !== 'object') return [];
+          const element = item as Record<string, unknown>;
+          const ref = readString(element.ref);
+          const fingerprint = parseFingerprint(element.fingerprint);
+          const box = element.box as Record<string, unknown> | undefined;
+          if (!ref || !fingerprint || !box) return [];
+          const attributes =
+            element.attributes && typeof element.attributes === 'object'
+              ? Object.fromEntries(
+                  Object.entries(element.attributes as Record<string, unknown>).filter(
+                    (entry): entry is [string, string] => typeof entry[1] === 'string',
+                  ),
+                )
+              : undefined;
+          return [
+            {
+              ref,
+              fingerprint,
+              tag: readString(element.tag) ?? '',
+              ...(readString(element.id) && { id: readString(element.id) as string }),
+              ...(readString(element.classes) && {
+                classes: readString(element.classes) as string,
+              }),
+              text: readString(element.text) ?? '',
+              visible: element.visible === true,
+              box: {
+                x: readNumber(box.x) ?? 0,
+                y: readNumber(box.y) ?? 0,
+                width: readNumber(box.width) ?? 0,
+                height: readNumber(box.height) ?? 0,
+              },
+              ...(attributes && { attributes }),
+            },
+          ];
+        },
+      )
+    : [];
+  return { ok: true, count: readNumber(record.count) ?? elements.length, elements };
 }
 
 function buildFillScript(metadata: BrowserRefMetadata, value: string): string {

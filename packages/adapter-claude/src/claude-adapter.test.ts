@@ -1024,6 +1024,9 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__browser_screenshot',
       'mcp__wevir__browser_wait',
       'mcp__wevir__browser_logs',
+      // 0.48.0：查元素与网络记录。
+      'mcp__wevir__browser_query',
+      'mcp__wevir__browser_network',
     ]);
   });
 });

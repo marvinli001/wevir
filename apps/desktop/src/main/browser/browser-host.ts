@@ -13,9 +13,14 @@
 // beforeunload 直接离开；点击、按键之后报主框架跳到了哪里、页面开了哪些新标签页（agent 的标签页弹出的新标签页不抢当前标签页）、
 // 被拦下的下载与选文件框；每个 agent 命令有看门狗，页面卡住时说清楚原因（`browser_dialog_blocked` 或页面不响应），不再干等到
 // Host 的时限；还在载入的标签页列出目标地址。
+// 0.48.0：browser_query 与 browser_network 只读（用户的标签页也能用）；evaluate 之后也看页面有没有跳转；beforeunload 按标签页的
+// 对话框策略离开或留下（只在 agent 操作时，用户接手时策略回到默认）；browser_download 要的那一个下载存进会话文件夹的
+// `downloads/`（downloads.ts），其余照旧拦下。
 //
 // 内置浏览器（0.33.0，desktop-layout.md §21）：整个窗口一个浏览器表面，每个标签页属于开它的会话。
 
+import { existsSync, mkdirSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import {
   type BrowserCommand,
   type BrowserEffects,
@@ -40,9 +45,12 @@ import type {
 } from '../../shared/desktop-api.js';
 import {
   adaptWebContents,
+  dialogPolicyOf,
   interceptFileChooser,
   recordBeforeUnload,
   recordDownload,
+  resetDialogPolicy,
+  takeDownloads,
   watchTab,
 } from './automation/contents.js';
 import {
@@ -51,6 +59,13 @@ import {
   isHostHandled,
 } from './automation/service.js';
 import { BrowserSnapshotEngine } from './automation/snapshot-engine.js';
+import {
+  DOWNLOADS_DIR,
+  type DownloadItemLike,
+  downloadFilename,
+  trackDownload,
+  uniqueSavePath,
+} from './downloads.js';
 import { loadFailure, loadFailureMessage } from './load-failure.js';
 import { isAllowedNavigation, isAllowedRequest } from './url-policy.js';
 
@@ -78,7 +93,12 @@ const INTERACTIVE_COMMANDS = new Set<BrowserCommand['command']>([
   'select',
   'fill',
   'drag',
+  'evaluate',
 ]);
+/** browser_download 默认等多久。 */
+const DOWNLOAD_TIMEOUT_MS = 30_000;
+/** 点击（或请求地址）之后最多等多久看下载开始没有。 */
+const DOWNLOAD_START_MS = 10_000;
 
 /** 网页里的安全设置（OpenWork 的 BROWSER_SECURITY_PREFERENCES，不挂 preload）。 */
 const TAB_PREFERENCES = Object.freeze({
@@ -104,6 +124,8 @@ const READ_ONLY_COMMANDS = new Set<BrowserCommand['command']>([
   'screenshot',
   'wait',
   'logs',
+  'query',
+  'network',
 ]);
 
 interface Tab {
@@ -129,6 +151,8 @@ interface Tab {
   openedTabs: Array<{ browserId: string; url: string }>;
   /** 上一个命令时页面不响应：下一个命令先花 1 s 问一下，还不响应就直接报，不再等满看门狗。 */
   unresponsive: boolean;
+  /** browser_download 正在等的下载：下一个开始的下载存进 `dir`。 */
+  armedDownload: { dir: string; onStart(item: DownloadItemLike, path: string): void } | undefined;
 }
 
 export interface BrowserHostOptions {
@@ -167,8 +191,25 @@ export function createBrowserHost(options: BrowserHostOptions) {
     created.setPermissionCheckHandler(() => false);
     created.setDevicePermissionHandler(() => false);
     created.setDisplayMediaRequestHandler((_request, callback) => callback({}));
-    // 下载一律取消。
+    // 下载一律取消，browser_download 要的那一个除外（只在 agent 操作的标签页）。
     created.on('will-download', (event, item, contents) => {
+      const tab = [...tabs.values()].find((candidate) => candidate.view.webContents === contents);
+      const armed = tab?.armedDownload;
+      if (tab && armed && tab.controller === 'agent') {
+        tab.armedDownload = undefined;
+        try {
+          mkdirSync(armed.dir, { recursive: true });
+          const path = uniqueSavePath(armed.dir, downloadFilename(item.getFilename()));
+          item.setSavePath(path);
+          armed.onStart(item, path);
+          options.log('info', 'saved a download the agent asked for', {
+            url: safeUrl(item.getURL()),
+          });
+          return;
+        } catch (error) {
+          options.log('warn', 'could not save a download', { error: String(error) });
+        }
+      }
       event.preventDefault();
       options.log('info', 'blocked a download in the built-in browser', {
         url: safeUrl(item.getURL()),
@@ -266,6 +307,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
       commits: 0,
       openedTabs: [],
       unresponsive: false,
+      armedDownload: undefined,
     };
     tabs.set(tabId, tab);
     registry.add({ tabId, ownerSessionId });
@@ -306,10 +348,13 @@ export function createBrowserHost(options: BrowserHostOptions) {
       if (event.isMainFrame && !isAllowedNavigation(event.url)) event.preventDefault();
     });
     contents.on('will-attach-webview', (event) => event.preventDefault());
-    // beforeunload 想拦住离开：不弹框，直接离开（agent 要跳转、关标签页），记成一个处理掉的对话框。
+    // beforeunload 想拦住离开：不弹框，按标签页的策略离开（默认）或留下（agent 用 browser_dialogs 选的，只在它操作时），记成一个
+    // 处理掉的对话框。
     contents.on('will-prevent-unload', (event) => {
-      event.preventDefault();
-      recordBeforeUnload(contents.id);
+      const leave =
+        tab.controller !== 'agent' || dialogPolicyOf(contents.id).beforeunload === 'accept';
+      if (leave) event.preventDefault();
+      recordBeforeUnload(contents.id, leave ? 'accepted' : 'dismissed');
     });
     contents.on('did-start-navigation', (details) => {
       if (details.isMainFrame && !details.isSameDocument) tab.navigations += 1;
@@ -362,6 +407,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
     tab.controller = controller;
     if (!tab.view.webContents.isDestroyed()) {
       interceptFileChooser(tab.view.webContents.id, controller === 'agent');
+      if (controller === 'user') resetDialogPolicy(tab.view.webContents.id);
     }
   }
 
@@ -702,7 +748,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
       default:
         break;
     }
-    if (isHostHandled(command.command)) {
+    if (isHostHandled(command.command) && command.command !== 'download') {
       return failure(
         requestId,
         'browser_unsupported',
@@ -736,8 +782,18 @@ export function createBrowserHost(options: BrowserHostOptions) {
         }),
       );
     }
+    if (command.command === 'download') {
+      const timeoutMs = command.args.timeoutMs ?? DOWNLOAD_TIMEOUT_MS;
+      return guarded(tab, command, timeoutMs + 5_000, () =>
+        withTabEvents(tab, requestId, () => busy(tab, () => download(tab, request, command))),
+      );
+    }
     const budget =
-      command.command === 'wait' ? (command.args.timeoutMs ?? 5_000) + 3_000 : COMMAND_BUDGET_MS;
+      command.command === 'wait'
+        ? (command.args.timeoutMs ?? 5_000) + 3_000
+        : command.command === 'evaluate'
+          ? Math.max(COMMAND_BUDGET_MS, (command.args.timeoutMs ?? 5_000) + 3_000)
+          : COMMAND_BUDGET_MS;
     return guarded(tab, command, budget, () =>
       busy(tab, async () => {
         const before = {
@@ -745,28 +801,120 @@ export function createBrowserHost(options: BrowserHostOptions) {
           navigations: tab.navigations,
           commits: tab.commits,
         };
-        const payload = await executeAutomationCommand(
-          request,
-          {
-            getTabContents: (browserId) => {
-              const target = tabs.get(browserId);
-              return target && !target.view.webContents.isDestroyed()
-                ? adaptWebContents(target.view.webContents)
-                : null;
-            },
-            ownerOf: (browserId) => registry.ownerOf(browserId),
-          },
-          { snapshotEngine },
-        );
+        const payload = await executeAutomationCommand(request, automationRegistry, {
+          snapshotEngine,
+        });
         const navigation = INTERACTIVE_COMMANDS.has(command.command)
           ? await settleNavigation(tab, before)
           : undefined;
+        // 等跳转期间才开始的下载（点了下载链接）也报在这个命令里，不留到下一个。
+        const late = INTERACTIVE_COMMANDS.has(command.command)
+          ? takeDownloads(tab.view.webContents.id)
+          : [];
+        const downloads = [...(payload.effects?.downloads ?? []), ...late];
         return withEffects(payload, {
           ...(navigation && { navigation }),
           ...takeOpenedTabs(tab),
+          ...(downloads.length > 0 && { downloads }),
         });
       }),
     );
+  }
+
+  const automationRegistry = {
+    getTabContents: (browserId: string) => {
+      const target = tabs.get(browserId);
+      return target && !target.view.webContents.isDestroyed()
+        ? adaptWebContents(target.view.webContents)
+        : null;
+    },
+    ownerOf: (browserId: string) => registry.ownerOf(browserId),
+  };
+
+  /**
+   * browser_download：点 `ref`（或请求 `url`），接住接着开始的下载，存进会话文件夹的 `downloads/`，等它结束（有时限）。
+   */
+  async function download(
+    tab: Tab,
+    request: BrowserRequest,
+    command: Extract<BrowserCommand, { command: 'download' }>,
+  ): Promise<AutomationCommandPayload> {
+    const { requestId } = request;
+    const { ref, url } = command.args;
+    if ((ref === undefined) === (url === undefined)) {
+      return failure(
+        requestId,
+        'browser_invalid_argument',
+        'browser_download needs exactly one of ref or url.',
+      );
+    }
+    if (!existsSync(request.cwd)) {
+      return failure(
+        requestId,
+        'browser_denied',
+        `The session folder ${request.cwd} is not available.`,
+      );
+    }
+    const timeoutMs = command.args.timeoutMs ?? DOWNLOAD_TIMEOUT_MS;
+    const deadline = Date.now() + timeoutMs;
+    const dir = join(request.cwd, DOWNLOADS_DIR);
+    const started = new Promise<{ item: DownloadItemLike; path: string }>((resolve) => {
+      tab.armedDownload = { dir, onStart: (item, path) => resolve({ item, path }) };
+    });
+    try {
+      if (url !== undefined) {
+        if (!isAllowedNavigation(url)) {
+          return failure(
+            requestId,
+            'browser_denied',
+            'The Wevir browser only downloads http and https URLs.',
+          );
+        }
+        tab.view.webContents.downloadURL(url);
+      } else {
+        const clicked = await executeAutomationCommand(
+          {
+            ...request,
+            command: { command: 'click', args: { browserId: tab.tabId, ref: ref as string } },
+          },
+          automationRegistry,
+          { snapshotEngine },
+        );
+        if (!clicked.ok) return clicked;
+      }
+      const startWait = Math.min(timeoutMs, DOWNLOAD_START_MS);
+      const first = await Promise.race([started, delay(startWait).then(() => undefined)]);
+      if (!first) {
+        return failure(
+          requestId,
+          'browser_timeout',
+          `No download started within ${Math.round(startWait / 1000)} s after ${url !== undefined ? `requesting ${url}` : `clicking ${ref}`}. Take a browser_snapshot to see what the page did.`,
+        );
+      }
+      const finished = await trackDownload(
+        first.item,
+        first.path,
+        Math.max(0, deadline - Date.now()),
+      );
+      const kept = finished.state === 'completed' || finished.state === 'in_progress';
+      const mimeType = first.item.getMimeType();
+      return {
+        requestId,
+        ok: true,
+        result: {
+          command: 'download',
+          browserId: tab.tabId,
+          url: first.item.getURL(),
+          filename: basename(first.path),
+          ...(kept && { path: first.path }),
+          size: finished.size,
+          ...(mimeType && { mimeType }),
+          state: finished.state,
+        },
+      };
+    } finally {
+      tab.armedDownload = undefined;
+    }
   }
 
   /**
