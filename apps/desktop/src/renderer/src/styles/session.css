@@ -28,7 +28,8 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    animation: shimmer 2.4s linear infinite;
+    /* 3 s 一遍，中段快、两头慢（§55，Claude 桌面端文字流光的曲线），扫过之间像是停了一下。 */
+    animation: shimmer 3s cubic-bezier(0.714, 0.121, 0.211, 0.888) infinite;
   }
 }
 

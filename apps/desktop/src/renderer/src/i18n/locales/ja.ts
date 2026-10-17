@@ -345,6 +345,8 @@ export const messages: Messages = {
   'session.renameFailed': '名前の変更に失敗：{error}',
   'message.copy': 'コピー',
   'message.copied': 'コピーしました',
+  'message.expand': 'すべて表示',
+  'message.collapse': '折りたたむ',
   'message.branch': '新しいセッションに分岐',
   'message.branchFailed': '分岐に失敗しました: {error}',
   'message.edit': '編集',

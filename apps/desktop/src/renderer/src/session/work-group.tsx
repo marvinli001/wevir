@@ -14,7 +14,7 @@ import {
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
-import { createContext, Fragment, useContext, useId } from 'react';
+import { createContext, Fragment, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Collapse } from '@/components/collapse';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
@@ -90,12 +90,16 @@ export function IssueFlags({ issues }: { issues: Readonly<Record<IssueKind, numb
   ));
 }
 
+/** 进行中的列表最多露出的行数；更早的往上推出去，顶上渐隐（照 Codex 的进行中列表）。 */
+const LIVE_ROWS = 8;
+
 /**
  * 一串连续的思考与工具调用（U2，照 Claude Code 桌面端与 Codex，design-refs/09、12）：收起时一行摘要（“思考了 17 秒，
  * 读取了 6 个文件，修改了 index.ts，运行了 2 条命令”加改动行数，只涉及一个文件时写出文件名，失败、被拒绝、状态未知另外
  * 标出）；展开是逐条的一行，有详情的那条可以再单独展开。进行中的回合里，排在最后的那一组显示当前动作（闪光文字、已用
  * 时间，前面是状态图标位）。U16 起进行中的那一组默认展开，下面列出已经做完的步骤（照 Codex 的进行中列表），正在做的那条
- * 由组头代表；这一组做完（后面有了正文或回合结束）就收回成摘要，用户点过的照用户的。
+ * 由组头代表；这一组做完（后面有了正文或回合结束）就收回成摘要，用户点过的照用户的。§55 起进行中新列进来的一行与换了的
+ * 当前动作从下方上浮进入；列表超过 LIVE_ROWS 行时只露出最后几行，顶上渐隐。
  */
 export function WorkGroup({
   foldKey,
@@ -126,6 +130,15 @@ export function WorkGroup({
   const shown = live
     ? entries.filter((entry, index) => !isLiveEntry(entry, index === entries.length - 1, tail))
     : entries;
+  // 已经列过的行：之后新列进来的才上浮进入（第一次画、收起再展开的不动）。
+  const listed = useRef<Set<string> | undefined>(undefined);
+  const fresh = (key: string) =>
+    live !== undefined && listed.current !== undefined && !listed.current.has(key);
+  useEffect(() => {
+    listed.current ??= new Set();
+    for (const entry of shown) listed.current.add(entry.key);
+  });
+  const clipped = live !== undefined && shown.length > LIVE_ROWS;
   return (
     <div className="my-1.5" data-work-group={live ? 'live' : 'done'}>
       <button
@@ -141,13 +154,16 @@ export function WorkGroup({
         {action && indicator ? (
           <>
             <LiveIndicator state={indicator} />
-            <span
-              className={cn(
-                'min-w-0 truncate',
-                action.tone === 'awaiting' ? AWAITING_PILL : 'shimmer',
-              )}
-            >
-              {live === 'stopping' ? t('work.stopping') : action.text}
+            {/* 当前动作换了一句时新的一句上浮进入（按文字作 key 重新挂上）；上浮在外层，闪光的动画在里层，互不覆盖。 */}
+            <span key={live === 'stopping' ? 'stopping' : action.text} className="min-w-0 rise-in">
+              <span
+                className={cn(
+                  'block truncate',
+                  action.tone === 'awaiting' ? AWAITING_PILL : 'shimmer',
+                )}
+              >
+                {live === 'stopping' ? t('work.stopping') : action.text}
+              </span>
             </span>
             <Elapsed since={startedAt} className="shrink-0 tabular-nums" />
           </>
@@ -164,13 +180,21 @@ export function WorkGroup({
         />
       </button>
       <Collapse open={open} id={id}>
-        <ul className="mt-0.5 flex flex-col">
+        <ul
+          className={cn(
+            'mt-0.5 flex flex-col',
+            clipped &&
+              'max-h-48 justify-end overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_3rem)]',
+          )}
+          data-work-list={clipped ? 'clipped' : undefined}
+        >
           {shown.map((entry) => (
             <WorkLine
               key={entry.key}
               entry={entry}
               turnActive={turnActive}
               settled={entry !== entries.at(-1) || !tail}
+              enter={fresh(entry.key)}
             />
           ))}
         </ul>
@@ -208,11 +232,15 @@ function WorkLine({
   entry,
   turnActive,
   settled,
+  enter = false,
 }: {
   entry: WorkEntry;
   turnActive: boolean;
   settled: boolean;
+  /** 进行中新列进来的一行：挂上时上浮进入（只看挂上那一刻的值）。 */
+  enter?: boolean;
 }) {
+  const [entering] = useState(enter);
   const [open, setOpen] = useFold(`line:${entry.key}`, false);
   const id = useId();
   const root = useContext(WorkspaceRoot);
@@ -236,7 +264,7 @@ function WorkLine({
   const problem =
     entry.type === 'tool' && view.tone === 'failed' ? outputSummary(entry) : undefined;
   return (
-    <li data-work-line={view.tone}>
+    <li data-work-line={view.tone} className={cn('shrink-0', entering && 'rise-in')}>
       <button
         type="button"
         aria-expanded={hasDetail ? open : undefined}
@@ -248,11 +276,19 @@ function WorkLine({
         <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
         <span className={cn('shrink-0', LINE_TONES[view.tone])}>{view.label}</span>
         {view.target && (
-          <code className="min-w-0 truncate font-mono text-xs text-soft-foreground">
+          <code
+            className="min-w-0 truncate font-mono text-xs text-soft-foreground"
+            title={view.targetTitle}
+          >
             {view.target}
           </code>
         )}
         {stats && <DiffStat stats={stats} />}
+        {view.duration && (
+          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+            {view.duration}
+          </span>
+        )}
         {hasDetail && (
           <ChevronRight
             aria-hidden

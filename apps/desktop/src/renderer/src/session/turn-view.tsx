@@ -2,8 +2,9 @@ import type { ChatMessage } from '@wevir/client-sdk';
 import type { TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight } from 'lucide-react';
-import { memo, useContext, useId } from 'react';
+import { Fragment, memo, useContext, useEffect, useId, useRef } from 'react';
 import type { OrbState } from 'thinking-orbs';
+import { Collapse } from '@/components/collapse';
 import { t } from '@/i18n';
 import { CopyButton } from './copy-button';
 import { Elapsed } from './elapsed';
@@ -14,7 +15,7 @@ import { PartsView, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
 import { OpenTurnChanges } from './turn-changes';
-import { foldedParts, foldTurn, type TurnFold, turnHeaderText } from './turn-model';
+import { foldSegments, foldTurn, type TurnFold, turnHeaderText } from './turn-model';
 import { DiffStat, IssueFlags } from './work-group';
 
 const HEADER_TONES: Record<TurnOutcome, string> = {
@@ -27,8 +28,9 @@ const HEADER_TONES: Record<TurnOutcome, string> = {
 /**
  * 一个回合（U2，照 Codex 桌面端 design-refs/10–12）：用户消息、助手消息与中间的插话。正常完成的回合默认把过程收进一行
  * “已处理 2 分 31 秒”，只留最后的回答、错误与插话，回答下面是“N 个文件已更改”；出错、被停止、被中断的回合不自动收起，
- * 那一行写“出错 · 用时”等。进行中的回合末尾是当前动作那一行。按消息的对象身份 memo：投影只为改动过的消息换新对象，
- * 流式输出时只有进行中的回合重画。
+ * 那一行写“出错 · 用时”等。有那一行时过程按段（turn-model.ts 的 foldSegments）放进 Collapse，点开、收起与回合结束时的
+ * 自动收起都有高度过渡，留下的回答不动。进行中的回合末尾是当前动作那一行。按消息的对象身份 memo：投影只为改动过的消息
+ * 换新对象，流式输出时只有进行中的回合重画。
  */
 export const TurnView = memo(
   function TurnView({
@@ -60,6 +62,12 @@ export const TurnView = memo(
     const [open, setOpen] = useFold(`turn:${turnId}`, !fold.defaultFolded);
     const folded = fold.showHeader && !open;
     const id = useId();
+    // 这个回合在本视图里刚结束（上一次画的时候还没有那一行）：过程先以展开的样子挂进分段，再收起，有收起的过渡。
+    const hadHeader = useRef(fold.showHeader);
+    const justFolded = !hadHeader.current && fold.showHeader;
+    useEffect(() => {
+      hadHeader.current = fold.showHeader;
+    });
     const lead = messages[0]?.role === 'user' && !messages[0].steered ? 1 : 0;
     const last = messages.at(-1);
     // 进行中：最后一项是工作组（或进行中的压缩，0.24.0）时它显示当前动作，否则末尾另起“正在思考”一行；压缩上下文的回合
@@ -116,19 +124,46 @@ export const TurnView = memo(
                 );
               }
               if (message.role !== 'assistant') return null;
-              const shown = folded
-                ? foldedParts(message, fold)
-                : visibleParts(message.parts, hasSubagents);
-              const parts = hideTodos ? shown.filter((part) => part.type !== 'todo') : shown;
+              const visible = visibleParts(message.parts, hasSubagents);
+              const parts = hideTodos ? visible.filter((part) => part.type !== 'todo') : visible;
               if (parts.length === 0) return null;
+              const view = (shown: typeof parts) => (
+                <PartsView
+                  parts={shown}
+                  turnActive={turnActive}
+                  {...(message === last && live && { live })}
+                  {...(fold.startedAt !== undefined && { startedAt: fold.startedAt })}
+                />
+              );
+              if (!fold.showHeader) {
+                return (
+                  <div key={message.id} className="mt-3" data-message-role="assistant">
+                    {view(parts)}
+                  </div>
+                );
+              }
+              const segments = foldSegments(message.id, parts, fold);
+              // 整条都是过程：连同上边距一起收起。
+              if (segments.every((segment) => !segment.kept)) {
+                return (
+                  <Collapse key={message.id} open={!folded} fromOpen={justFolded}>
+                    <div className="mt-3" data-message-role="assistant">
+                      {view(parts)}
+                    </div>
+                  </Collapse>
+                );
+              }
               return (
                 <div key={message.id} className="mt-3" data-message-role="assistant">
-                  <PartsView
-                    parts={parts}
-                    turnActive={turnActive}
-                    {...(message === last && live && { live })}
-                    {...(fold.startedAt !== undefined && { startedAt: fold.startedAt })}
-                  />
+                  {segments.map((segment) =>
+                    segment.kept ? (
+                      <Fragment key={segment.key}>{view(segment.parts)}</Fragment>
+                    ) : (
+                      <Collapse key={segment.key} open={!folded} fromOpen={justFolded}>
+                        {view(segment.parts)}
+                      </Collapse>
+                    ),
+                  )}
                 </div>
               );
             })}
@@ -249,8 +284,11 @@ function LiveLine({
       data-live-line={live}
     >
       <LiveIndicator state={live} />
-      <span className={live === 'awaiting' || live === 'input' ? AWAITING_PILL : 'shimmer'}>
-        {text}
+      {/* 换了一句时上浮进入（work-group.tsx 的当前动作同样写法）。 */}
+      <span key={text} className="rise-in">
+        <span className={live === 'awaiting' || live === 'input' ? AWAITING_PILL : 'shimmer'}>
+          {text}
+        </span>
       </span>
       <Elapsed since={startedAt} className="tabular-nums" />
     </div>

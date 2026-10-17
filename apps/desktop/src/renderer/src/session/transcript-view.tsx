@@ -124,10 +124,7 @@ export function TranscriptView({
                 return (
                   <div
                     key={block.key}
-                    className={cn(
-                      'transcript-item pt-6 first:pt-0',
-                      fresh && 'animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth',
-                    )}
+                    className={cn('transcript-item pt-6 first:pt-0', fresh && 'block-enter')}
                     data-message-id={block.key}
                   >
                     {block.kind === 'turn' ? (

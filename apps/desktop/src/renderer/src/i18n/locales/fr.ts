@@ -349,6 +349,8 @@ export const messages: Messages = {
   'session.renameFailed': 'Échec du renommage : {error}',
   'message.copy': 'Copier',
   'message.copied': 'Copié',
+  'message.expand': 'Afficher plus',
+  'message.collapse': 'Afficher moins',
   'message.branch': 'Créer une branche dans une nouvelle session',
   'message.branchFailed': 'Échec de la création de branche : {error}',
   'message.edit': 'Modifier',

@@ -341,6 +341,8 @@ export const messages: Messages = {
   'session.renameFailed': '이름 바꾸기 실패: {error}',
   'message.copy': '복사',
   'message.copied': '복사됨',
+  'message.expand': '더 보기',
+  'message.collapse': '접기',
   'message.branch': '새 세션으로 분기',
   'message.branchFailed': '분기할 수 없음: {error}',
   'message.edit': '편집',

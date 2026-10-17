@@ -352,7 +352,11 @@ describe('逐条的一行', () => {
 
   it('各种类的动词与目标；未知工具显示工具名，计划不带目标', () => {
     const read = tool('a', 'read', { display: { kind: 'read', paths: ['src/a.ts'] } });
-    expect(toolLine(read, true)).toMatchObject({ label: '已读取', target: 'src/a.ts' });
+    expect(toolLine(read, true)).toMatchObject({
+      label: '已读取',
+      target: 'a.ts',
+      targetTitle: 'src/a.ts',
+    });
     expect(toolLine(tool('a', 'write'), true).label).toBe('已写入');
     expect(toolLine(tool('a', 'unknown', { toolName: 'mcp__x__y' }), true)).toMatchObject({
       label: '已调用',
@@ -376,6 +380,48 @@ describe('逐条的一行', () => {
     expect(toolLine(shell, true, root).target).toBe('cat /Users/me/proj/src/a.ts');
     expect(relativeToRoot('/Users/me/proj', root)).toBe('.');
     expect(relativeToRoot('/x/a.ts', undefined)).toBe('/x/a.ts');
+  });
+
+  it('有路径时只写文件名（照 Codex），完整路径在提示里；工作区外的长路径也是', () => {
+    const root = '/Users/me/proj';
+    const edit = tool('a', 'edit', {
+      display: {
+        kind: 'edit',
+        paths: ['/Users/me/proj/src/a.ts', '/Users/me/Library/Wevir/brain/task.md'],
+      },
+    });
+    expect(toolLine(edit, true, root)).toMatchObject({
+      label: '已修改',
+      target: 'a.ts, task.md',
+      targetTitle: 'src/a.ts\n/Users/me/Library/Wevir/brain/task.md',
+    });
+    // 只有文件名时不重复提示。
+    const plain = tool('b', 'read', { display: { kind: 'read', paths: ['README.md'] } });
+    expect(toolLine(plain, true, root)).toEqual({
+      label: '已读取',
+      target: 'README.md',
+      tone: 'done',
+    });
+  });
+
+  it('跑了 2 秒以上的命令（含失败的）在行尾写用时', () => {
+    const run = (seconds: number, extra: Partial<ToolPart> = {}) =>
+      toolLine(
+        tool('a', 'shell', {
+          display: { kind: 'shell', command: 'pnpm test' },
+          startedAt: at(0),
+          finishedAt: at(seconds),
+          ...extra,
+        }),
+        false,
+      );
+    expect(run(1.5).duration).toBeUndefined();
+    expect(run(12)).toMatchObject({ target: 'pnpm test', duration: '12 秒' });
+    expect(run(75, { status: 'failed' })).toMatchObject({ tone: 'failed', duration: '1 分 15 秒' });
+    expect(run(12, { status: 'cancelled' }).duration).toBeUndefined();
+    expect(
+      toolLine(tool('r', 'read', { startedAt: at(0), finishedAt: at(30) }), false).duration,
+    ).toBeUndefined();
   });
 
   it('思考：流式进行到一半时“正在思考”，后面已有输出或已提交后写用时', () => {

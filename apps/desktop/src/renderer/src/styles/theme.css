@@ -33,6 +33,11 @@
   --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
   --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-emphasized: cubic-bezier(0.32, 0.72, 0, 1);
+  /* 消息流的时间线（desktop-tokens.md §55，数值取自 open-claude-ui 对 Claude 桌面端的测量，只取数值不搬代码）：`ease-expand`
+   * 是展开收起的行高（Collapse），`ease-rise` 是状态文字与新出现的一行上浮进入（rise-in），`ease-fall` 是勾画出的确认勾。 */
+  --ease-expand: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-rise: cubic-bezier(0.3, 0.7, 0.4, 1);
+  --ease-fall: cubic-bezier(0, 0, 0.2, 1);
 }
 
 /* 弹簧缓动（desktop-tokens.md §44）：由 scripts/spring-easing.ts 按刚度 / 阻尼 / 质量解出位移、采样成 linear() 生成，
@@ -238,14 +243,51 @@
   }
 }
 
-/* 确认反馈（复制成功的勾等）：从一半大小弹出，bounce 弹簧。在 utilities 层里，减少动效时由 index.css 的全局规则停下。 */
+/* 确认反馈（复制成功的勾等）：从一半大小弹出（bounce 弹簧），同时从左往右画出来（180 ms ease-fall）。在 utilities 层里，
+ * 减少动效时由 index.css 的全局规则停下。 */
 @utility confirm-pop {
-  animation: confirm-pop var(--spring-bounce-duration) var(--spring-bounce);
+  animation:
+    confirm-pop var(--spring-bounce-duration) var(--spring-bounce),
+    check-draw 180ms var(--ease-fall);
 }
 
 @keyframes confirm-pop {
   from {
     scale: 0.5;
+  }
+}
+
+@keyframes check-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+/* 状态文字换了一句、进行中的列表多了一行（§55）：从下方 6 px 上浮、淡入，240 ms ease-rise。 */
+@utility rise-in {
+  animation: rise-in 240ms var(--ease-rise) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+  }
+}
+
+/* 消息流末尾新出现的一块（§55）：上浮 8 px、淡入，同时从 4 px 的模糊变清，300 ms ease-smooth。 */
+@utility block-enter {
+  animation: block-enter 300ms var(--ease-smooth) both;
+}
+
+@keyframes block-enter {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+    filter: blur(4px);
   }
 }
 

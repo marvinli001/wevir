@@ -154,12 +154,41 @@ export function foldTurn(
   };
 }
 
+/** 收起时留在助手消息里的部件：最后一段正文与 `alwaysShown` 的那些。 */
+function keptInFold(messageId: string, part: ChatPart, fold: TurnFold): boolean {
+  return partId(messageId, part.key) === fold.finalKey || alwaysShown(part);
+}
+
 /** 收起时一条消息里留下的部件：最后一段正文与错误。用户消息与插话整条留下。 */
 export function foldedParts(message: ChatMessage, fold: TurnFold): readonly ChatPart[] {
   if (message.role !== 'assistant') return message.parts;
-  return message.parts.filter(
-    (part) => partId(message.id, part.key) === fold.finalKey || alwaysShown(part),
-  );
+  return message.parts.filter((part) => keptInFold(message.id, part, fold));
+}
+
+/** 助手消息的一段：收起时留下的部件（`kept`），或夹在它们之间的一串过程。`key` 取第一个部件的 key。 */
+export interface FoldSegment {
+  key: string;
+  kept: boolean;
+  parts: ChatPart[];
+}
+
+/**
+ * 有回合那一行的助手消息按收起时留不留分段（`parts` 是这条消息要显示的部件，已按 `visibleParts` 筛过）：过程段在展开、
+ * 收起时有高度过渡，留下的段不动。留下的部件不是思考、工具或子智能体，本来就断开工作组，分段不改变 `groupWork` 的分组。
+ */
+export function foldSegments(
+  messageId: string,
+  parts: readonly ChatPart[],
+  fold: TurnFold,
+): FoldSegment[] {
+  const segments: FoldSegment[] = [];
+  for (const part of parts) {
+    const kept = keptInFold(messageId, part, fold);
+    const last = segments.at(-1);
+    if (last && last.kept === kept) last.parts.push(part);
+    else segments.push({ key: part.key, kept, parts: [part] });
+  }
+  return segments;
 }
 
 /** 回合那一行的文字：“已处理 2 分 31 秒”“出错 · 12 秒”“已停止 · 3 秒”“已中断 · 1 分 2 秒”。 */

@@ -10,7 +10,7 @@ import {
   ScanSearch,
   Target,
 } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
@@ -71,11 +71,7 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
       {images.length > 0 && (
         <MessageImages images={images} className={texts.length > 0 ? 'mb-1.5' : undefined} />
       )}
-      {texts.length > 0 && (
-        <div className="max-w-[85%] min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words">
-          {text}
-        </div>
-      )}
+      {texts.length > 0 && <UserBubble text={text} />}
       {message.fromParentAgent && (
         <span className="mt-1 text-xs text-muted-foreground">
           {t('transcript.fromParentAgent')}
@@ -108,6 +104,56 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** 长消息收起的高度（§55，照 Claude 桌面端：超过 300 px 收起，底部 3rem 渐隐）。 */
+const USER_FOLD_PX = 300;
+/** 只比收起高度多出这么一点的不收：收起省不了多少，反倒多一次点击。 */
+const USER_FOLD_SLACK_PX = 96;
+
+/** 用户消息的气泡：很长时收起到 300 px，底部渐隐，下面是“展开 / 收起”，展开收起有高度过渡。 */
+function UserBubble({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+  const [expanded, setExpanded] = useState(false);
+  // 量内容的全高（scrollHeight 不受 max-height 影响）；宽度变了重新量。
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => setHeight(element.scrollHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const foldable = height !== undefined && height > USER_FOLD_PX + USER_FOLD_SLACK_PX;
+  const folded = foldable && !expanded;
+  return (
+    <>
+      <div
+        ref={ref}
+        className={cn(
+          'max-w-[85%] min-w-0 rounded-xl bg-muted px-3.5 py-2 text-base whitespace-pre-wrap break-words',
+          foldable && 'overflow-hidden transition-[max-height] duration-300 ease-expand',
+          folded && '[mask-image:linear-gradient(to_bottom,black_calc(100%-3rem),transparent)]',
+        )}
+        style={foldable ? { maxHeight: folded ? USER_FOLD_PX : height } : undefined}
+        data-user-bubble={foldable ? (folded ? 'folded' : 'expanded') : undefined}
+      >
+        {text}
+      </div>
+      {foldable && (
+        <button
+          type="button"
+          aria-expanded={!folded}
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 rounded-md px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        >
+          {t(folded ? 'message.expand' : 'message.collapse')}
+        </button>
+      )}
+    </>
   );
 }
 

@@ -350,6 +350,8 @@ export const zhCN = {
   'session.renameFailed': '重命名失败：{error}',
   'message.copy': '复制',
   'message.copied': '已复制',
+  'message.expand': '展开',
+  'message.collapse': '收起',
   'message.branch': '分支到新会话',
   'message.branchFailed': '分支失败：{error}',
   'message.edit': '编辑',

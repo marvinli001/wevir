@@ -348,6 +348,8 @@ export const messages: Messages = {
   'session.renameFailed': 'Не удалось переименовать: {error}',
   'message.copy': 'Копировать',
   'message.copied': 'Скопировано',
+  'message.expand': 'Показать полностью',
+  'message.collapse': 'Свернуть',
   'message.branch': 'Ответвить в новый сеанс',
   'message.branchFailed': 'Не удалось ответвить: {error}',
   'message.edit': 'Изменить',

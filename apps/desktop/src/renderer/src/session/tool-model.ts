@@ -416,8 +416,12 @@ export function workIssues(
 /** 展开后的一行。`tone` 决定颜色：进行中闪光、待审批用待审批色、失败与被拒绝用失败色、状态未知用警示色。 */
 export interface WorkLineView {
   label: string;
-  /** 等宽显示的目标：路径、命令、查询词、URL。 */
+  /** 等宽显示的目标：文件名、命令、查询词、URL。 */
   target?: string;
+  /** 目标只写了文件名时的完整路径（相对工作目录），悬停提示里显示。 */
+  targetTitle?: string;
+  /** 跑得久的命令的用时（照 Codex 的“在 10s 内运行”），排在行尾。 */
+  duration?: string;
   tone: 'done' | 'running' | 'awaiting' | 'failed' | 'muted' | 'unknown';
 }
 
@@ -484,9 +488,12 @@ export function isWebSearch(part: Pick<ToolPart, 'toolName' | 'display'>): boole
   return part.display.kind === 'search' && /web_?search$/i.test(part.toolName);
 }
 
+/** 命令跑了这么久才在行尾写用时。 */
+const SHELL_DURATION_WORTH_MENTIONING_MS = 2000;
+
 /**
- * 工具调用：“已运行 pnpm test”“正在读取 a.ts”“等待审批：运行 touch …”“运行失败 pnpm test”。`root` 是会话的工作目录，
- * 读取与修改的路径相对它显示。
+ * 工具调用：“已运行 pnpm test”“正在读取 a.ts”“等待审批：运行 touch …”“运行失败 pnpm test”。读取与修改的目标只写文件名
+ * （照 Codex 与 Claude Code 桌面端），完整路径相对 `root`（会话的工作目录）放进 `targetTitle`；跑了 2 秒以上的命令带用时。
  */
 export function toolLine(part: ToolPart, turnActive: boolean, root?: string): WorkLineView {
   const lifecycle = toolLifecycle(part, turnActive);
@@ -498,10 +505,20 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
         ? undefined
         : toolSummary(part);
   const kind = part.display.kind;
-  const target =
-    summary && (kind === 'read' || kind === 'edit' || kind === 'write')
+  const isFile = kind === 'read' || kind === 'edit' || kind === 'write';
+  const paths = isFile ? part.display.paths?.filter((path) => path.trim() !== '') : undefined;
+  const target = paths?.length
+    ? paths.map(basename).join(', ')
+    : summary && isFile
       ? relativeToRoot(summary, root)
       : summary;
+  const targetTitle = paths?.length
+    ? paths.map((path) => relativeToRoot(path, root)).join('\n')
+    : undefined;
+  const ms =
+    kind === 'shell' && (lifecycle === 'completed' || lifecycle === 'failed')
+      ? between(part.startedAt, part.finishedAt)
+      : undefined;
   return {
     label:
       lifecycle === 'running'
@@ -510,6 +527,9 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
           ? t(`work.done.${kind}`)
           : t(`work.line.${lifecycle}`, { verb }),
     ...(target && { target }),
+    ...(targetTitle !== undefined && targetTitle !== target && { targetTitle }),
+    ...(ms !== undefined &&
+      ms >= SHELL_DURATION_WORTH_MENTIONING_MS && { duration: formatDuration(ms) }),
     tone: LINE_TONES[lifecycle],
   };
 }

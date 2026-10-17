@@ -339,6 +339,8 @@ export const messages: Messages = {
   'session.renameFailed': '重新命名失敗：{error}',
   'message.copy': '複製',
   'message.copied': '已複製',
+  'message.expand': '展開',
+  'message.collapse': '收合',
   'message.branch': '分支到新工作階段',
   'message.branchFailed': '分支失敗：{error}',
   'message.edit': '編輯',

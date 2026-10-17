@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { currentAction, groupWork, type WorkEntry } from './tool-model';
 import {
   foldedParts,
+  foldSegments,
   foldTurn,
   groupTurns,
   isActiveTurn,
@@ -189,6 +190,20 @@ describe('foldTurn', () => {
       3,
       'part',
     ]);
+    // 分段：回答之前的整段过程（含中间说的话）一段，回答一段；各段的分组与整条消息的一致。
+    const segments = assistant ? foldSegments(assistant.id, assistant.parts, fold) : [];
+    expect(segments.map((segment) => [segment.kept, segment.parts.length])).toEqual([
+      [false, 8],
+      [true, 1],
+    ]);
+    expect(segments[0]?.key).toBe(assistant?.parts[0]?.key);
+    expect(
+      segments.flatMap((segment) =>
+        groupWork(segment.parts).map((item) =>
+          item.kind === 'work' ? item.entries.length : item.kind,
+        ),
+      ),
+    ).toEqual([4, 'part', 3, 'part']);
   });
 
   it('只有正文的回合：没有那一行，也不收起', () => {
@@ -275,6 +290,16 @@ describe('foldTurn', () => {
     expect(fold.defaultFolded).toBe(true);
     const assistant = messages.find((m) => m.role === 'assistant');
     expect(assistant && foldedParts(assistant, fold).map((p) => p.type)).toEqual(['tasks', 'text']);
+    expect(
+      assistant &&
+        foldSegments(assistant.id, assistant.parts, fold).map((segment) => [
+          segment.kept,
+          segment.parts.map((p) => p.type),
+        ]),
+    ).toEqual([
+      [false, ['tool']],
+      [true, ['tasks', 'text']],
+    ]);
   });
 
   it('压缩上下文（0.24.0）：命令回合没有那一行；自动压缩在收起的回合里照样显示，不算过程', () => {

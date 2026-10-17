@@ -350,6 +350,8 @@ export const messages: Messages = {
   'session.renameFailed': 'Rinomina non riuscita: {error}',
   'message.copy': 'Copia',
   'message.copied': 'Copiato',
+  'message.expand': 'Mostra altro',
+  'message.collapse': 'Mostra meno',
   'message.branch': 'Dirama in nuova sessione',
   'message.branchFailed': 'Impossibile diramare: {error}',
   'message.edit': 'Modifica',

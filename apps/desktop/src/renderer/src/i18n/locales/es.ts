@@ -350,6 +350,8 @@ export const messages: Messages = {
   'session.renameFailed': 'Error al renombrar: {error}',
   'message.copy': 'Copiar',
   'message.copied': 'Copiado',
+  'message.expand': 'Mostrar más',
+  'message.collapse': 'Mostrar menos',
   'message.branch': 'Ramificar a nueva sesión',
   'message.branchFailed': 'No se pudo ramificar: {error}',
   'message.edit': 'Editar',

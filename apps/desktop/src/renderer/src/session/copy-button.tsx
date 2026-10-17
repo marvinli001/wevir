@@ -19,7 +19,7 @@ export function CopyButton({ text, className }: { text: string; className?: stri
       onClick={() => void window.wevir.copyText(text).then(() => setCopied(true))}
       data-action="copy-message"
     >
-      {copied ? <Check /> : <Copy />}
+      {copied ? <Check className="confirm-pop" /> : <Copy />}
     </IconButton>
   );
 }
