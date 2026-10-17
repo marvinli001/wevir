@@ -488,7 +488,7 @@ export class SessionManager {
    */
   async create(
     params: MethodParams<'session.create'>,
-    options: { openedBy?: SessionId } = {},
+    options: { openedBy?: SessionId; role?: string } = {},
   ): Promise<Session> {
     this.#assertOpen();
     const provider = this.#storage.providers.get(params.providerId);
@@ -512,6 +512,7 @@ export class SessionManager {
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
+        options.role,
     }
   }
 
@@ -579,6 +580,7 @@ export class SessionManager {
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
+    role: string | undefined,
     const prepared = chat
       ? await this.#chatDirectory(sessionId)
       : await this.#prepareEnvironment(params, sessionId, workspace);
@@ -624,7 +626,9 @@ export class SessionManager {
       if (prepared.extraRoots.length > 0) record.extraRoots = prepared.extraRoots;
       if (prepared.worktrees.length > 0) record.worktrees = prepared.worktrees;
       if (origin !== undefined) record.origin = origin;
-      else if (openedBy !== undefined) record.origin = { kind: 'agent', sessionId: openedBy };
+      else if (openedBy !== undefined) {
+        record.origin = { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) };
+      }
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',

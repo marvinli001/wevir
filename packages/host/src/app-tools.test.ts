@@ -8,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -24,6 +25,7 @@ import { AppTools, engineSessionResolver, reportText } from './app-tools.js';
 import { EventStore } from './event-store.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
+import { RoleStore } from './roles.js';
 import { SessionManager } from './session-manager.js';
 import { identity, useStorages, useTempDir, zip } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
@@ -114,7 +116,10 @@ async function setup(
         env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
       })
     : undefined;
+  const rolesDir = join(root, 'data', 'roles');
+  const projectRolesDir = join(workspace, '.wevir', 'roles');
   tools = new AppTools({
+    roles: new RoleStore({ dir: rolesDir }),
     ...(plugins && { plugins }),
     ...(processes && { processes }),
     storage,
@@ -124,8 +129,10 @@ async function setup(
     sendWhileBusy: () => busyDelivery,
     onWarning: (message, fields) => errors.push({ message, fields }),
   });
+  const appTools = tools;
   mcp = new AppMcpServer({
     tools: tools.tools,
+    filterTools: (sessionId, list) => appTools.filterTools(sessionId, list),
     version: '0.0.0',
     onError: (e) => errors.push(e),
     engineSession: engineSessionResolver(storage, 'dsh'),
@@ -210,6 +217,8 @@ async function setup(
     processes,
     toolOutput,
     workspace,
+    rolesDir,
+    projectRolesDir,
     create,
     tokenOf,
     rpc,
@@ -276,6 +285,7 @@ describe('应用级工具的端点', () => {
       'wevir_session_list',
       'wevir_session_read',
       'wevir_models',
+      'wevir_roles',
       'wevir_session_create',
       'wevir_session_send',
       'wevir_session_wait',
@@ -347,7 +357,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(12);
+    expect(list.body.result.tools).toHaveLength(13);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -839,6 +849,164 @@ describe('应用级工具', () => {
       ],
       permissionModes: ['on_request', 'auto_review'],
     });
+  });
+});
+
+describe('预设角色', () => {
+  const role = (lines: string[], body = 'Do the thing carefully.') =>
+    `---\n${lines.join('\n')}\n---\n${body}\n`;
+  /** 列出某个会话看得到的工具名。 */
+  const visible = async (h: Awaited<ReturnType<typeof setup>>, sessionId: SessionId) => {
+    const list = await h.rpc(sessionId, 'tools/list');
+    return (list.body.result.tools as Array<{ name: string }>).map((tool) => tool.name);
+  };
+
+  it('wevir_roles：内置的、用户的、项目的（同名项目盖用户盖内置），坏文件另列', async () => {
+    const h = await setup();
+    mkdirSync(h.rolesDir, { recursive: true });
+    mkdirSync(h.projectRolesDir, { recursive: true });
+    writeFileSync(
+      join(h.rolesDir, 'planner.md'),
+      role(['description: Plans work', 'model: m2', 'permissionMode: on_request']),
+    );
+    writeFileSync(join(h.rolesDir, 'worker.md'), role(['description: User worker']));
+    writeFileSync(join(h.projectRolesDir, 'worker.md'), role(['description: Project worker']));
+    writeFileSync(join(h.rolesDir, 'broken.md'), 'no frontmatter here');
+    writeFileSync(join(h.rolesDir, 'Bad Name.md'), role(['description: x']));
+    const a = await h.create();
+    const result = await h.call(a, 'wevir_roles');
+    const byName = Object.fromEntries(
+      (result.roles as Array<{ name: string; description: string; source: string }>).map((r) => [
+        r.name,
+        r,
+      ]),
+    );
+    expect(Object.keys(byName)).toEqual(['explorer', 'planner', 'reviewer', 'worker']);
+    expect(byName.explorer).toMatchObject({ source: 'builtin', tools: ['readonly'] });
+    expect(byName.planner).toMatchObject({ source: 'user', modelId: 'm2' });
+    expect(byName.worker).toMatchObject({ source: 'project', description: 'Project worker' });
+    expect(result.problems).toEqual([
+      expect.objectContaining({ file: 'Bad Name.md' }),
+      expect.objectContaining({ file: 'broken.md' }),
+    ]);
+  });
+
+  it('用角色开会话：角色的模型与档位，权限上限只收窄，说明放在第一条消息前，描述里带角色名', async () => {
+    const h = await setup();
+    mkdirSync(h.rolesDir, { recursive: true });
+    writeFileSync(
+      join(h.rolesDir, 'planner.md'),
+      role(
+        ['description: Plans work', 'provider: mock', 'model: m2', 'permissionMode: on_request'],
+        'Plan first, then write the plan to PLAN.md.',
+      ),
+    );
+    const caller = await h.create({ permissionMode: 'full_access' });
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'plan the migration',
+      role: 'planner',
+      reportBack: false,
+    });
+    const child = opened.sessionId as SessionId;
+    expect(opened).toMatchObject({
+      role: 'planner',
+      modelId: 'm2',
+      // 调用方是完全访问，角色的上限把它收窄到请求批准。
+      permissionMode: 'on_request',
+    });
+    expect(h.storage.sessions.get(child)?.origin).toEqual({
+      kind: 'agent',
+      sessionId: caller,
+      role: 'planner',
+    });
+    const first = h.all(child).find((e) => e.type === 'user.message');
+    const text =
+      first?.type === 'user.message' && first.payload.content[0]?.type === 'text'
+        ? first.payload.content[0].text
+        : '';
+    expect(text).toMatch(/^You are working as the "planner" role \(Plans work\)/);
+    expect(text).toContain('Plan first, then write the plan to PLAN.md.');
+    expect(text.endsWith('Your task:\n\nplan the migration')).toBe(true);
+
+    // 明说的模型盖过角色的；明说的权限不能超过角色的上限；没这个角色报可选的。
+    const other = await h.call(caller, 'wevir_session_create', {
+      message: 'again',
+      role: 'planner',
+      modelId: 'm',
+      reportBack: false,
+    });
+    expect(other).toMatchObject({ role: 'planner', modelId: 'm' });
+    const wider = await h.call(caller, 'wevir_session_create', {
+      message: 'x',
+      role: 'planner',
+      permissionMode: 'full_access',
+    });
+    expect(wider.error).toMatch(/broader than role planner allows/);
+    const missing = await h.call(caller, 'wevir_session_create', { message: 'x', role: 'nope' });
+    expect(missing.error).toMatch(
+      /No role "nope"\. Available: explorer, planner, reviewer, worker/,
+    );
+    // 角色用的 Provider 不可用时说清楚。
+    writeFileSync(
+      join(h.rolesDir, 'remote.md'),
+      role(['description: Uses a missing provider', 'provider: gone']),
+    );
+    const gone = await h.call(caller, 'wevir_session_create', { message: 'x', role: 'remote' });
+    expect(gone.error).toMatch(/provider gone, which is not available/);
+  });
+
+  it('角色限制应用级工具：tools/list 不列、tools/call 拒绝；readonly 与前缀；没有角色的不受影响', async () => {
+    const h = await setup();
+    mkdirSync(h.rolesDir, { recursive: true });
+    writeFileSync(
+      join(h.rolesDir, 'no-browser.md'),
+      role([
+        'description: No browser or sessions',
+        'disallowedTools: [browser_*, wevir_session_create]',
+      ]),
+    );
+    const caller = await h.create();
+    const plain = await visible(h, caller);
+    expect(plain).toContain('wevir_session_create');
+
+    const explorer = (
+      await h.call(caller, 'wevir_session_create', {
+        message: 'look around',
+        role: 'explorer',
+        reportBack: false,
+      })
+    ).sessionId as SessionId;
+    const seen = await visible(h, explorer);
+    expect(seen).toContain('wevir_session_list');
+    expect(seen).toContain('wevir_session_progress');
+    for (const hidden of ['wevir_session_create', 'wevir_session_send', 'wevir_session_close']) {
+      expect(seen, hidden).not.toContain(hidden);
+    }
+    const blocked = await h.call(explorer, 'wevir_session_create', { message: 'spawn' });
+    expect(blocked.error).toBe('wevir_session_create is not available to this session.');
+    // 允许的照常用。
+    expect(await h.call(explorer, 'wevir_session_list')).toHaveProperty('sessions');
+
+    const limited = (
+      await h.call(caller, 'wevir_session_create', {
+        message: 'x',
+        role: 'no-browser',
+        reportBack: false,
+      })
+    ).sessionId as SessionId;
+    const names = await visible(h, limited);
+    expect(names).toContain('wevir_session_send');
+    expect(names.some((name) => name.startsWith('browser_'))).toBe(false);
+    expect(names).not.toContain('wevir_session_create');
+    // 有 role 的会话仍然能列出角色。
+    expect(names).toContain('wevir_roles');
+
+    // 角色文件之后被删：收紧到只读工具，不放开。
+    rmSync(join(h.rolesDir, 'no-browser.md'));
+    const after = await visible(h, limited);
+    expect(after).toContain('wevir_session_list');
+    expect(after).not.toContain('wevir_session_send');
+    expect(after).not.toContain('wevir_session_create');
   });
 });
 

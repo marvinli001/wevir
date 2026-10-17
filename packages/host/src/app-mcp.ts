@@ -67,6 +67,14 @@ export interface AppMcpServerOptions {
     | ((sessionId: SessionId | undefined) => string | undefined | Promise<string | undefined>);
   onError?: (error: unknown) => void;
   /**
+   * 这个会话能用哪些工具（预设角色的限制，roles.ts）：`tools/list` 只列留下的，`tools/call` 拒绝没留下的。调用方不明（引擎令牌
+   * 的 `tools/list` 不带会话头）时 `sessionId` 是 `undefined`，不过滤。不给时都能用。
+   */
+  filterTools?: (
+    sessionId: SessionId | undefined,
+    tools: readonly AppTool[],
+  ) => readonly AppTool[] | Promise<readonly AppTool[]>;
+  /**
    * 引擎令牌的调用方：引擎会话 ID → 由交给这个引擎的 Provider 种类（`kinds`）承载、还存在的 Wevir 会话；认不出时 `undefined`。
    * 不给时 `grantEngine` 不发令牌。
    */
@@ -238,6 +246,21 @@ export class AppMcpServer {
     json(res, 200, Array.isArray(body) ? replies : replies[0]);
   }
 
+  /** `filterTools` 之后留下的工具；过滤本身出错时不放行（拒绝比越权安全）。 */
+  async #visible(
+    sessionId: SessionId | undefined,
+    tools: readonly AppTool[],
+  ): Promise<readonly AppTool[]> {
+    const filter = this.#options.filterTools;
+    if (filter === undefined || sessionId === undefined) return tools;
+    try {
+      return await filter(sessionId, tools);
+    } catch (error) {
+      this.#options.onError?.(error);
+      return [];
+    }
+  }
+
   /** 一条 JSON-RPC 消息；通知与客户端的回复返回 `undefined`。 */
   async #message(
     message: JsonRpcMessage,
@@ -280,7 +303,7 @@ export class AppMcpServer {
         return rpcResult(id, {});
       case 'tools/list':
         return rpcResult(id, {
-          tools: [...this.#tools.values()].map((tool) => ({
+          tools: (await this.#visible(sessionId, [...this.#tools.values()])).map((tool) => ({
             name: tool.name,
             title: tool.title,
             description: tool.description,
@@ -293,6 +316,12 @@ export class AppMcpServer {
         if (!tool) return rpcError(id, -32602, `unknown tool: ${String(params.name)}`);
         if (sessionId === undefined) {
           return rpcError(id, -32602, `${APP_TOOLS_ENGINE_SESSION_HEADER} is required`);
+        }
+        if ((await this.#visible(sessionId, [tool])).length === 0) {
+          return rpcResult(
+            id,
+            errorResult(new AppToolError(`${tool.name} is not available to this session.`)),
+          );
         }
         const args =
           params.arguments !== null && typeof params.arguments === 'object'

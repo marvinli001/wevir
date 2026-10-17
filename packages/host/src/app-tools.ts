@@ -43,6 +43,12 @@ import { PluginAppTools } from './plugin-app-tools.js';
 import type { PluginRegistry } from './plugins.js';
 import { noticeText, processTools } from './process-tools.js';
 import type { ProcessManager, ProcessNotice } from './processes.js';
+import {
+  ROLE_READONLY_TOOLS,
+  type RoleDefinition,
+  type RoleStore,
+  roleAllowsTool,
+} from './roles.js';
 import type { SessionManager } from './session-manager.js';
 import { type SessionProgress, sessionProgress } from './session-progress.js';
 import { describeSharedFile, SharedFileError } from './shared-files.js';
@@ -84,6 +90,7 @@ export const APP_TOOLS_INSTRUCTIONS = `You are running inside Wevir, a desktop a
 - wevir_session_interrupt: stop the running turn of another session.
 - wevir_session_close / wevir_session_archive: close or archive a session you opened (or one it opened) once its work is done, so it stops running and leaves the user's active list. Archived sessions stay in the user's archive; you cannot delete them.
 - wevir_models: providers and models you can choose for a new session.
+- wevir_roles: preset roles for new sessions (wevir_session_create role=...): a role sets the model, a ceiling on the permission mode, a task brief and which Wevir tools the session may use, for example an explorer that only investigates, a reviewer, or a worker that cannot open other sessions. Pick one when the job fits it.
 - wevir_show: open a file, the changes view, the file tree, another session or a local web page in the Wevir window next to this conversation, when showing it is clearer than describing it.
 - wevir_share_file: hand files you made to the user (documents, spreadsheets, images, archives). They appear as file cards in this conversation, where the user can open them or save a copy anywhere. Save the file in this session's folder first; when the session has no project, that folder is the only place the user will find your output.
 - wevir_plugins_list: inspect global plugins, MCP connectors and skills without secrets. To install one, first write or download its files into this session's folder, then use wevir_plugin_install (Wevir/Claude/Codex package), wevir_skill_install (skill folder/SKILL.md/ZIP), or wevir_connector_add (MCP configuration). The three changes require the user's approval. Missing required plugin inputs are returned as an error: ask the user for them and retry. Changes are global; Codex uses them on subsequent turns after hot reload or in the next new session, with no guarantee for this current turn. Other engines need MCP/skills support to use them.
@@ -127,6 +134,8 @@ export interface AppToolsOptions {
   lsp?: LspManager;
   /** 跨会话记忆：有它时加上 `wevir_memory_*` 工具。 */
   memory?: MemoryStore;
+  /** 预设角色：有它时加上 `wevir_roles`，`wevir_session_create` 认 `role`，角色限制的工具由 `filterTools` 过滤。 */
+  roles?: RoleStore;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
 
@@ -174,6 +183,7 @@ export class AppTools {
       this.#listTool(),
       this.#readTool(),
       this.#modelsTool(),
+      ...(options.roles === undefined ? [] : [this.#rolesTool()]),
       this.#createTool(),
       this.#sendTool(),
       this.#waitTool(),
@@ -513,6 +523,46 @@ export class AppTools {
     };
   }
 
+  #rolesTool(): AppTool {
+    return {
+      name: 'wevir_roles',
+      title: 'List Wevir roles',
+      description:
+        'List the preset roles you can give a new session (wevir_session_create role=...): name, what it is for, ' +
+        'the model and permission ceiling it sets, and which Wevir tools it may use (tools = only those, ' +
+        '"readonly" means every read-only tool; disallowedTools = never those). Roles come from Wevir (built in), ' +
+        "the user's roles folder and this project's .wevir/roles. A role limits Wevir's own tools; the engine's " +
+        'built-in tools (shell, file edits) are governed by its permission ceiling and its brief.',
+      inputSchema: objectSchema({}),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      call: async (_args, { sessionId }) => {
+        const record = this.#callerRecord(sessionId);
+        const roles = this.#options.roles;
+        if (roles === undefined) throw new AppToolError('Roles are not available in this Host.');
+        const listed = await roles.list(this.#projectRoot(record.workspaceId));
+        return jsonResult({
+          roles: listed.roles.map((role) => ({
+            name: role.name,
+            description: role.description,
+            source: role.source,
+            ...(role.providerId !== undefined && { providerId: role.providerId }),
+            ...(role.modelId !== undefined && { modelId: role.modelId }),
+            ...(role.reasoningEffort !== undefined && { reasoningEffort: role.reasoningEffort }),
+            ...(role.permissionMode !== undefined && { permissionMode: role.permissionMode }),
+            ...(role.tools !== undefined && { tools: role.tools }),
+            ...(role.disallowedTools !== undefined && { disallowedTools: role.disallowedTools }),
+          })),
+          ...(listed.problems.length > 0 && { problems: listed.problems }),
+        });
+      },
+    };
+  }
+
   #createTool(): AppTool {
     return {
       name: 'wevir_session_create',
@@ -523,12 +573,15 @@ export class AppTools {
         'model, reasoning level and permission mode default to yours (see wevir_models); the permission mode cannot be ' +
         'broader than yours. worktree=true gives it its own git worktree. reportBack (default true) sends its answer ' +
         'back to you as a message when the turn ends; end your turn instead of polling. Only open sessions when the ' +
-        'user asked for separate or parallel work. Close or archive sessions you opened when their work is done ' +
+        'user asked for separate or parallel work. role (see wevir_roles) starts it from a preset role: the role ' +
+        'supplies the model, a permission ceiling, a task brief and the Wevir tools it may use; providerId, modelId and ' +
+        'reasoningEffort given here override the role. Close or archive sessions you opened when their work is done ' +
         '(wevir_session_close, wevir_session_archive); you cannot delete sessions, and the user keeps the archive.',
       inputSchema: objectSchema(
         {
           message: { type: 'string', description: 'The first message, a complete brief.' },
           title: { type: 'string', maxLength: 120 },
+          role: { type: 'string', description: 'A preset role name from wevir_roles.' },
           providerId: { type: 'string' },
           modelId: { type: 'string' },
           reasoningEffort: { type: 'string' },
@@ -544,12 +597,28 @@ export class AppTools {
         const caller = this.#session(sessionId);
         const message = requiredString(args, 'message');
         const title = optionalString(args, 'title')?.trim();
-        const providerId = optionalString(args, 'providerId') ?? caller.providerId;
+        const roleName = optionalString(args, 'role');
+        const role =
+          roleName === undefined ? undefined : await this.#role(roleName, callerRecord.workspaceId);
+        // 模型：这里明说的 > 角色的 > 开它的会话的。明说了 Provider 就不用角色的模型与档位（它们是角色那个 Provider 的）。
+        const explicitProvider = optionalString(args, 'providerId');
+        const explicitModel = optionalString(args, 'modelId');
+        const providerId = explicitProvider ?? role?.providerId ?? caller.providerId;
+        if (role?.providerId !== undefined && explicitProvider === undefined) {
+          const provider = this.#options.storage.providers.get(role.providerId);
+          if (provider === undefined || provider.enabled === false) {
+            throw new AppToolError(
+              `Role ${role.name} uses provider ${role.providerId}, which is not available; pass providerId to override.`,
+            );
+          }
+        }
         const sameProvider = providerId === caller.providerId;
+        const fromRole = explicitProvider === undefined ? role : undefined;
         const modelId =
-          optionalString(args, 'modelId') ?? (sameProvider ? caller.modelId : undefined);
+          explicitModel ?? fromRole?.modelId ?? (sameProvider ? caller.modelId : undefined);
         const reasoningEffort =
           optionalString(args, 'reasoningEffort') ??
+          (explicitModel === undefined ? fromRole?.reasoningEffort : undefined) ??
           (sameProvider && modelId === caller.modelId ? caller.reasoningEffort : undefined);
         const callerMode = caller.permissionMode ?? DEFAULT_PERMISSION_MODE;
         const requested = optionalEnum(
@@ -562,7 +631,22 @@ export class AppTools {
             `permissionMode ${requested} is broader than this session's (${callerMode}).`,
           );
         }
-        const permissionMode = requested ?? callerMode;
+        // 角色的权限模式是上限：只会收窄，不会比开它的会话宽；这里明说的也不能超过它。
+        const ceiling = role?.permissionMode;
+        if (
+          requested !== undefined &&
+          ceiling !== undefined &&
+          PERMISSION_RANK[requested] > PERMISSION_RANK[ceiling]
+        ) {
+          throw new AppToolError(
+            `permissionMode ${requested} is broader than role ${role?.name} allows (${ceiling}).`,
+          );
+        }
+        const roleMode =
+          ceiling !== undefined && PERMISSION_RANK[ceiling] < PERMISSION_RANK[callerMode]
+            ? ceiling
+            : callerMode;
+        const permissionMode = requested ?? roleMode;
         const reportBack = args.reportBack !== false;
         const session = await this.#host(() =>
           this.#options.sessions.create(
@@ -574,7 +658,7 @@ export class AppTools {
               ...(permissionMode !== DEFAULT_PERMISSION_MODE && { permissionMode }),
               ...(args.worktree === true && { worktree: 'new' as const }),
             },
-            { openedBy: sessionId },
+            { openedBy: sessionId, ...(role !== undefined && { role: role.name }) },
           ),
         );
         if (title !== undefined && title !== '') {
@@ -584,7 +668,12 @@ export class AppTools {
         }
         const sent = await this.#host(() =>
           this.#options.sessions.send(
-            { sessionId: session.id, content: [{ type: 'text', text: message }] },
+            {
+              sessionId: session.id,
+              content: [
+                { type: 'text', text: role === undefined ? message : roleBrief(role, message) },
+              ],
+            },
             this.#identity,
             { from: { sessionId, kind: 'message', ...(reportBack && { reportBack: true }) } },
           ),
@@ -1063,14 +1152,64 @@ export class AppTools {
     return false;
   }
 
+  /** 项目文件夹（找项目里的 `.wevir/roles`）；工作区不在了时 `undefined`。 */
+  #projectRoot(workspaceId: string): string | undefined {
+    return this.#options.storage.workspaces.get(workspaceId)?.rootPath;
+  }
+
+  async #role(name: string, workspaceId: string): Promise<RoleDefinition> {
+    const roles = this.#options.roles;
+    if (roles === undefined) throw new AppToolError('Roles are not available in this Host.');
+    const { roles: all } = await roles.list(this.#projectRoot(workspaceId));
+    const found = all.find((role) => role.name === name);
+    if (found === undefined) {
+      throw new AppToolError(
+        `No role "${name}". Available: ${all.map((role) => role.name).join(', ')} (see wevir_roles).`,
+      );
+    }
+    return found;
+  }
+
+  /**
+   * 这个会话开出来时用的角色：自己的记录里有 `origin.role`，子会话（引擎派出的子 agent）沿用父会话的。角色文件之后被删、改坏
+   * 了找不到时，按“只读工具”收紧，不放开。
+   */
+  async #roleOf(
+    sessionId: SessionId,
+  ): Promise<Pick<RoleDefinition, 'tools' | 'disallowedTools'> | undefined> {
+    const roles = this.#options.roles;
+    if (roles === undefined) return undefined;
+    const { storage } = this.#options;
+    let record = storage.sessions.get(sessionId);
+    for (let depth = 0; depth < 8 && record?.parentSessionId !== undefined; depth += 1) {
+      record = storage.sessions.get(record.parentSessionId);
+    }
+    const name = record?.origin?.role;
+    if (record === undefined || name === undefined) return undefined;
+    const { roles: all } = await roles.list(this.#projectRoot(record.workspaceId));
+    return all.find((role) => role.name === name) ?? { tools: [ROLE_READONLY_TOOLS] };
+  }
+
+  /** 预设角色限制的工具（app-mcp.ts 的 `filterTools`）：没有角色的会话都能用。 */
+  async filterTools(
+    sessionId: SessionId | undefined,
+    tools: readonly AppTool[],
+  ): Promise<readonly AppTool[]> {
+    const role = sessionId === undefined ? undefined : await this.#roleOf(sessionId);
+    return role === undefined ? tools : tools.filter((tool) => roleAllowsTool(role, tool));
+  }
+
   #describe(session: Session, callerId: SessionId): Record<string, unknown> {
     const workspace = this.#options.storage.workspaces.get(session.workspaceId);
-    const archived = this.#options.storage.sessions.get(session.id)?.archivedAt !== undefined;
+    const record = this.#options.storage.sessions.get(session.id);
+    const archived = record?.archivedAt !== undefined;
+    const role = record?.origin?.role;
     return {
       sessionId: session.id,
       title: session.title,
       state: session.state,
       ...(archived && { archived: true }),
+      ...(role !== undefined && { role }),
       ...((session.awaitingInput === true || session.state === 'awaiting_approval') && {
         waitingForUser: true,
       }),
@@ -1269,6 +1408,13 @@ export function reportText(
   const head = `Session ${sessionId}${title === '' ? '' : ` "${title}"`} finished a turn you asked for (${outcome}).`;
   const body = answer === undefined ? 'It gave no final answer.' : `Its final answer:\n\n${answer}`;
   return `${head}\n${body}\n\nRead the whole conversation with wevir_session_read if you need more.`;
+}
+
+/** 用角色开的会话的第一条消息：先是角色的说明，再是开它的会话交代的任务。 */
+export function roleBrief(role: RoleDefinition, task: string): string {
+  const head = `You are working as the "${role.name}" role (${role.description})`;
+  const body = role.instructions === '' ? '' : `\n\n${role.instructions}`;
+  return `${head}${body}\n\nYour task:\n\n${task}`;
 }
 
 /** 一行文字，空白折成一个空格，太长的截断。 */

@@ -1059,6 +1059,7 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_session_wait',
       'mcp__wevir__wevir_session_progress',
       'mcp__wevir__wevir_models',
+      'mcp__wevir__wevir_roles',
       'mcp__wevir__wevir_show',
       'mcp__wevir__wevir_share_file',
       'mcp__wevir__wevir_plugins_list',

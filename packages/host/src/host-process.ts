@@ -33,6 +33,7 @@ import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
+import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
@@ -209,6 +210,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await chats.load();
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
+    // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
+    const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
     const manager = new SessionManager({
       storage,
       events: store,
@@ -312,10 +315,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(processes !== undefined && { processes }),
         ...(lsp !== undefined && { lsp }),
         memory,
+        roles,
         onWarning: (message, fields) => logger.warn(message, fields),
       });
+      const tools = appTools;
       appMcp = new AppMcpServer({
         tools: appTools.tools,
+        filterTools: (sessionId, list) => tools.filterTools(sessionId, list),
         version: HOST_VERSION,
         instructions: instructionsWithMemory({
           base: APP_TOOLS_INSTRUCTIONS,
