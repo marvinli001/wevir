@@ -134,6 +134,22 @@ export const WorkspaceRemoveParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
 });
 
+/** 项目显示名的最大长度（`workspace.update`，0.49.0）。 */
+export const WORKSPACE_NAME_MAX_LENGTH = 200;
+
+/**
+ * `workspace.update`（0.49.0，Host 功能 `workspace_update`）：改项目的显示名。`rootPath` 不可改。`displayName` 去掉首尾空白后不能是
+ * 空的；“对话”工作区不能改。
+ */
+export const WorkspaceUpdateParamsSchema = z.object({
+  workspaceId: WorkspaceIdSchema,
+  displayName: z.string().min(1).max(WORKSPACE_NAME_MAX_LENGTH),
+});
+
+export const WorkspaceUpdateResultSchema = z.object({
+  workspace: WorkspaceSchema,
+});
+
 // ── environment.*（0.15.0，U22.1） ────────────────────────────────────
 
 export const EnvironmentListResultSchema = z.object({
@@ -1148,6 +1164,11 @@ export const MethodSchemas = {
   'workspace.remove': {
     params: WorkspaceRemoveParamsSchema,
     result: EmptySchema,
+    permission: 'workspace.write',
+  },
+  'workspace.update': {
+    params: WorkspaceUpdateParamsSchema,
+    result: WorkspaceUpdateResultSchema,
     permission: 'workspace.write',
   },
   'environment.list': {
