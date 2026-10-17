@@ -664,6 +664,8 @@ export const messages: Messages = {
   'approval.title.appCreate': 'Neue Sitzung öffnen erlauben?',
   'approval.title.appSend': 'Nachricht an eine andere Sitzung erlauben?',
   'approval.title.appInterrupt': 'Andere Sitzung anhalten erlauben?',
+  'approval.title.appClose': 'Andere Sitzung schließen erlauben?',
+  'approval.title.appArchive': 'Andere Sitzung archivieren erlauben?',
   'approval.title.pluginInstall': 'Installation dieses Plugins erlauben?',
   'approval.title.skillInstall': 'Installation dieser Skills erlauben?',
   'approval.title.connectorAdd': 'Hinzufügen dieses Connectors erlauben?',

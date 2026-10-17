@@ -662,6 +662,8 @@ export const messages: Messages = {
   'approval.title.appCreate': '新しいセッションを開くことを許可しますか？',
   'approval.title.appSend': '別のセッションへのメッセージ送信を許可しますか？',
   'approval.title.appInterrupt': '別のセッションの停止を許可しますか？',
+  'approval.title.appClose': '別のセッションを閉じることを許可しますか？',
+  'approval.title.appArchive': '別のセッションのアーカイブを許可しますか？',
   'approval.title.pluginInstall': 'このプラグインのインストールを許可しますか？',
   'approval.title.skillInstall': 'これらのスキルのインストールを許可しますか？',
   'approval.title.connectorAdd': 'このコネクターの追加を許可しますか？',

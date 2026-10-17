@@ -661,6 +661,8 @@ export const messages: Messages = {
   'approval.title.appCreate': 'Allow opening a new session?',
   'approval.title.appSend': 'Allow messaging another session?',
   'approval.title.appInterrupt': 'Allow stopping another session?',
+  'approval.title.appClose': 'Allow closing another session?',
+  'approval.title.appArchive': 'Allow archiving another session?',
   'approval.title.pluginInstall': 'Allow installing this plugin?',
   'approval.title.skillInstall': 'Allow installing these skills?',
   'approval.title.connectorAdd': 'Allow adding this connector?',

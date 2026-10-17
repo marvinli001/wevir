@@ -280,6 +280,8 @@ describe('应用级工具的端点', () => {
       'wevir_session_send',
       'wevir_session_wait',
       'wevir_session_interrupt',
+      'wevir_session_close',
+      'wevir_session_archive',
       'wevir_show',
       'wevir_share_file',
     ]);
@@ -344,7 +346,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(9);
+    expect(list.body.result.tools).toHaveLength(11);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -567,6 +569,65 @@ describe('应用级工具', () => {
     await h.settle(target);
     const finished = h.all(target).find((e) => e.type === 'turn.finished');
     expect(finished?.payload).toMatchObject({ outcome: 'cancelled' });
+  });
+
+  it('关闭与归档只限自己开出来的会话（含它们再开的）：用户的会话、自己、子会话都拒绝；归档先关闭，可取消', async () => {
+    const h = await setup(30);
+    const caller = await h.create();
+    const own = await h.create();
+    const theirs = await h.create();
+    // 用户自己的会话，不是 caller 开的。
+    const opened = await h.call(caller, 'wevir_session_create', { message: 'slow work' });
+    const child = opened.sessionId as SessionId;
+    await vi.waitFor(() => expect(h.state(child)).toBe('running'));
+    // 孙会话：child 开的，caller 也能收。
+    const grand = (await h.manager.create(
+      { workspaceId: 'ws_1', providerId: 'mock' },
+      { openedBy: child },
+    )) as { id: SessionId };
+
+    for (const target of [own, theirs, caller]) {
+      for (const name of ['wevir_session_close', 'wevir_session_archive']) {
+        expect(
+          await h.call(caller, name, { sessionId: target }),
+          `${name} ${target}`,
+        ).toHaveProperty('error');
+      }
+    }
+    expect(h.storage.sessions.get(own)?.archivedAt).toBeUndefined();
+    expect(h.state(own)).toBe('idle');
+
+    // 关闭：进行中的回合被取消，会话仍在列表里（没归档）。
+    const closed = await h.call(caller, 'wevir_session_close', { sessionId: child });
+    expect(closed).toMatchObject({ sessionId: child, state: 'closed' });
+    expect(closed).not.toHaveProperty('archived');
+    const finished = h.all(child).find((e) => e.type === 'turn.finished');
+    expect(finished?.payload).toMatchObject({ outcome: 'cancelled' });
+    expect(h.storage.sessions.get(child)?.archivedAt).toBeUndefined();
+
+    // 归档：先关闭再记时刻；孙会话也行；重复归档不改时刻。
+    const archived = await h.call(caller, 'wevir_session_archive', { sessionId: grand.id });
+    expect(archived).toMatchObject({ sessionId: grand.id, state: 'closed', archived: true });
+    const at = h.storage.sessions.get(grand.id)?.archivedAt;
+    expect(at).toBeDefined();
+    await h.call(caller, 'wevir_session_archive', { sessionId: grand.id });
+    expect(h.storage.sessions.get(grand.id)?.archivedAt).toBe(at);
+    // 归档的默认不在列表里，includeArchived 才有。
+    const visible = await h.call(caller, 'wevir_session_list', { state: 'any' });
+    expect(
+      (visible.sessions as Array<{ sessionId: string }>).map((s) => s.sessionId),
+    ).not.toContain(grand.id);
+    const all = await h.call(caller, 'wevir_session_list', { includeArchived: true });
+    expect((all.sessions as Array<{ sessionId: string }>).map((s) => s.sessionId)).toContain(
+      grand.id,
+    );
+    // 取消归档。
+    const restored = await h.call(caller, 'wevir_session_archive', {
+      sessionId: grand.id,
+      archived: false,
+    });
+    expect(restored).not.toHaveProperty('archived');
+    expect(h.storage.sessions.get(grand.id)?.archivedAt).toBeUndefined();
   });
 
   it('wevir_show：会话目录里的文件写成 ui.show，目录外的拒绝', async () => {

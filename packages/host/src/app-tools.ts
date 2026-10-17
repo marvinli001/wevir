@@ -72,6 +72,7 @@ export const APP_TOOLS_INSTRUCTIONS = `You are running inside Wevir, a desktop a
 - wevir_session_send: send a message to another session (for example to follow up on one you opened). Add reportBack to get its answer back as a message.
 - wevir_session_wait: wait for a session to finish its current turn when you need the result in this turn. A timeout does not stop it.
 - wevir_session_interrupt: stop the running turn of another session.
+- wevir_session_close / wevir_session_archive: close or archive a session you opened (or one it opened) once its work is done, so it stops running and leaves the user's active list. Archived sessions stay in the user's archive; you cannot delete them.
 - wevir_models: providers and models you can choose for a new session.
 - wevir_show: open a file, the changes view, the file tree, another session or a local web page in the Wevir window next to this conversation, when showing it is clearer than describing it.
 - wevir_share_file: hand files you made to the user (documents, spreadsheets, images, archives). They appear as file cards in this conversation, where the user can open them or save a copy anywhere. Save the file in this session's folder first; when the session has no project, that folder is the only place the user will find your output.
@@ -164,6 +165,8 @@ export class AppTools {
       this.#sendTool(),
       this.#waitTool(),
       this.#interruptTool(),
+      this.#closeTool(),
+      this.#archiveTool(),
       this.#showTool(),
       this.#shareTool(),
       ...(this.plugins?.tools ?? []),
@@ -485,8 +488,8 @@ export class AppTools {
         'model, reasoning level and permission mode default to yours (see wevir_models); the permission mode cannot be ' +
         'broader than yours. worktree=true gives it its own git worktree. reportBack (default true) sends its answer ' +
         'back to you as a message when the turn ends; end your turn instead of polling. Only open sessions when the ' +
-        'user asked for separate or parallel work. You cannot archive or delete sessions; sessions you open stay in ' +
-        'the sidebar until the user removes them, so tell the user about ones that are no longer needed.',
+        'user asked for separate or parallel work. Close or archive sessions you opened when their work is done ' +
+        '(wevir_session_close, wevir_session_archive); you cannot delete sessions, and the user keeps the archive.',
       inputSchema: objectSchema(
         {
           message: { type: 'string', description: 'The first message, a complete brief.' },
@@ -665,6 +668,57 @@ export class AppTools {
         this.#callerRecord(sessionId);
         const target = this.#writableTarget(sessionId, requiredString(args, 'sessionId'));
         await this.#host(() => this.#options.sessions.cancel(target.id));
+        return jsonResult(this.#describe(this.#session(target.id), sessionId));
+      },
+    };
+  }
+
+  #closeTool(): AppTool {
+    return {
+      name: 'wevir_session_close',
+      title: 'Close a Wevir session',
+      description:
+        'Close a session you opened with wevir_session_create (or one of its descendants): a running turn is ' +
+        'cancelled, its engine session is released and it stops using resources. It stays in the sidebar and the ' +
+        'user can pick it up again by sending a message. Use wevir_session_archive to also move it out of the ' +
+        'active list. Sessions the user started, subagents and side sessions cannot be closed here.',
+      inputSchema: objectSchema({ sessionId: { type: 'string' } }, ['sessionId']),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      call: async (args, { sessionId }) => {
+        this.#callerRecord(sessionId);
+        const target = this.#openedTarget(sessionId, requiredString(args, 'sessionId'));
+        await this.#host(() => this.#options.sessions.close(target.id));
+        return jsonResult(this.#describe(this.#session(target.id), sessionId));
+      },
+    };
+  }
+
+  #archiveTool(): AppTool {
+    return {
+      name: 'wevir_session_archive',
+      title: 'Archive a Wevir session',
+      description:
+        'Archive a session you opened with wevir_session_create (or one of its descendants) once its work is ' +
+        "done: it is closed first (a running turn is cancelled) and moves to the user's archive, out of the " +
+        'sidebar. archived=false brings it back to the list. Archiving never deletes anything; only the user can ' +
+        'delete an archived session. Sessions the user started, subagents and side sessions cannot be archived here.',
+      inputSchema: objectSchema({ sessionId: { type: 'string' }, archived: { type: 'boolean' } }, [
+        'sessionId',
+      ]),
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true },
+      call: async (args, { sessionId }) => {
+        this.#callerRecord(sessionId);
+        const target = this.#openedTarget(sessionId, requiredString(args, 'sessionId'));
+        const archived = args.archived !== false;
+        const { storage, sessions } = this.#options;
+        if (archived) {
+          await this.#host(() => sessions.close(target.id));
+          if (storage.sessions.get(target.id)?.archivedAt === undefined) {
+            storage.sessions.setArchived(target.id, new Date().toISOString());
+          }
+        } else {
+          storage.sessions.setArchived(target.id, undefined);
+        }
         return jsonResult(this.#describe(this.#session(target.id), sessionId));
       },
     };
@@ -878,12 +932,47 @@ export class AppTools {
     return target;
   }
 
+  /**
+   * 关闭与归档只限自己开出来的会话（`wevir_session_create` 开的，含它们再开的）：用户自己的会话只有用户能收。顶层会话才行，
+   * 子会话与支线由父会话管。
+   */
+  #openedTarget(callerId: SessionId, id: string): Session {
+    const target = this.#session(id);
+    if (target.id === callerId) {
+      throw new AppToolError('A session cannot close or archive itself.');
+    }
+    if (target.parentSessionId !== undefined || target.side === true) {
+      throw new AppToolError(`Session ${id} is a subagent or side session; its parent manages it.`);
+    }
+    if (!this.#openedBy(target, callerId)) {
+      throw new AppToolError(
+        `Session ${id} was not opened by this session; only the user can close or archive it.`,
+      );
+    }
+    return target;
+  }
+
+  /** `session` 是不是 `ancestor` 开出来的（沿 `openedBy` 往上找，防环）。 */
+  #openedBy(session: Session, ancestor: SessionId): boolean {
+    const seen = new Set<SessionId>();
+    let current: Session | undefined = session;
+    while (current?.openedBy !== undefined && !seen.has(current.id)) {
+      seen.add(current.id);
+      const parent: SessionId = current.openedBy.sessionId as SessionId;
+      if (parent === ancestor) return true;
+      current = this.#options.events.snapshot(parent)?.session;
+    }
+    return false;
+  }
+
   #describe(session: Session, callerId: SessionId): Record<string, unknown> {
     const workspace = this.#options.storage.workspaces.get(session.workspaceId);
+    const archived = this.#options.storage.sessions.get(session.id)?.archivedAt !== undefined;
     return {
       sessionId: session.id,
       title: session.title,
       state: session.state,
+      ...(archived && { archived: true }),
       ...((session.awaitingInput === true || session.state === 'awaiting_approval') && {
         waitingForUser: true,
       }),

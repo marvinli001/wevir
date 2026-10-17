@@ -679,6 +679,8 @@ export const messages: Messages = {
   'approval.title.appCreate': 'Разрешить открыть новый сеанс?',
   'approval.title.appSend': 'Разрешить отправить сообщение другому сеансу?',
   'approval.title.appInterrupt': 'Разрешить остановить другой сеанс?',
+  'approval.title.appClose': 'Разрешить закрыть другой сеанс?',
+  'approval.title.appArchive': 'Разрешить архивировать другой сеанс?',
   'approval.title.pluginInstall': 'Разрешить установку этого плагина?',
   'approval.title.skillInstall': 'Разрешить установку этих навыков?',
   'approval.title.connectorAdd': 'Разрешить добавление этого коннектора?',

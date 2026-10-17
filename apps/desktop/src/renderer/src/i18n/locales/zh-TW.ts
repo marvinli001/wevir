@@ -655,6 +655,8 @@ export const messages: Messages = {
   'approval.title.appCreate': '允許建立工作階段？',
   'approval.title.appSend': '允許向其他工作階段傳送訊息？',
   'approval.title.appInterrupt': '允許停止其他工作階段？',
+  'approval.title.appClose': '允許關閉其他工作階段？',
+  'approval.title.appArchive': '允許封存其他工作階段？',
   'approval.title.pluginInstall': '允許安裝此外掛程式？',
   'approval.title.skillInstall': '允許安裝這些 Skills？',
   'approval.title.connectorAdd': '允許新增此連接器？',

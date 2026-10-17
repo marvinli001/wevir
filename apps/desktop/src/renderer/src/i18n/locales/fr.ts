@@ -670,6 +670,8 @@ export const messages: Messages = {
   'approval.title.appCreate': 'Autoriser l’ouverture d’une nouvelle session ?',
   'approval.title.appSend': 'Autoriser l’envoi d’un message à une autre session ?',
   'approval.title.appInterrupt': 'Autoriser l’arrêt d’une autre session ?',
+  'approval.title.appClose': 'Autoriser la fermeture d’une autre session ?',
+  'approval.title.appArchive': 'Autoriser l’archivage d’une autre session ?',
   'approval.title.pluginInstall': 'Autoriser l’installation de ce plugin ?',
   'approval.title.skillInstall': 'Autoriser l’installation de ces skills ?',
   'approval.title.connectorAdd': 'Autoriser l’ajout de ce connecteur ?',

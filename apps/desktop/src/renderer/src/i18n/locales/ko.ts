@@ -657,6 +657,8 @@ export const messages: Messages = {
   'approval.title.appCreate': '새 세션을 열도록 허용할까요?',
   'approval.title.appSend': '다른 세션에 메시지를 보내도록 허용할까요?',
   'approval.title.appInterrupt': '다른 세션을 중지하도록 허용할까요?',
+  'approval.title.appClose': '다른 세션을 닫도록 허용할까요?',
+  'approval.title.appArchive': '다른 세션을 보관하도록 허용할까요?',
   'approval.title.pluginInstall': '이 플러그인 설치를 허용할까요?',
   'approval.title.skillInstall': '이 스킬 설치를 허용할까요?',
   'approval.title.connectorAdd': '이 커넥터 추가를 허용할까요?',

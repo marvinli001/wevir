@@ -671,6 +671,8 @@ export const messages: Messages = {
   'approval.title.appCreate': '¿Permitir abrir una sesión nueva?',
   'approval.title.appSend': '¿Permitir enviar un mensaje a otra sesión?',
   'approval.title.appInterrupt': '¿Permitir detener otra sesión?',
+  'approval.title.appClose': '¿Permitir cerrar otra sesión?',
+  'approval.title.appArchive': '¿Permitir archivar otra sesión?',
   'approval.title.pluginInstall': '¿Permitir instalar este plugin?',
   'approval.title.skillInstall': '¿Permitir instalar estas skills?',
   'approval.title.connectorAdd': '¿Permitir añadir este conector?',

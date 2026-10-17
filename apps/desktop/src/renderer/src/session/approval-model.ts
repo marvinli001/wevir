@@ -179,6 +179,8 @@ const APP_TOOL_TITLES: Readonly<Record<string, PlainMessageKey>> = {
   wevir_session_create: 'approval.title.appCreate',
   wevir_session_send: 'approval.title.appSend',
   wevir_session_interrupt: 'approval.title.appInterrupt',
+  wevir_session_close: 'approval.title.appClose',
+  wevir_session_archive: 'approval.title.appArchive',
   wevir_plugin_install: 'approval.title.pluginInstall',
   wevir_skill_install: 'approval.title.skillInstall',
   wevir_connector_add: 'approval.title.connectorAdd',

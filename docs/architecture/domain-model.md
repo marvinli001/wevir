@@ -804,6 +804,7 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
   | `wevir_session_send` | 给别的会话发消息：`delivery` 是 `auto`（空闲时开回合，忙时按 Host 设置的 `sendWhileBusy`）、`queue` 或 `steer`；`reportBack` 默认 `false` | 按权限模式 |
   | `wevir_session_wait` | 等别的会话不再工作（回合结束，或在等用户批准、回答），最多 10 分钟，默认 30 秒；返回状态、最后一个回合的结局与回答。超时不打断对方 | 不用 |
   | `wevir_session_interrupt` | 停别的会话进行中的回合，同用户按停止 | 按权限模式 |
+  | `wevir_session_close` / `wevir_session_archive` | 关闭或归档自己开出来的会话（含它们再开的，沿 `Session.openedBy` 往上找；#14）：关闭取消进行中的回合、释放引擎会话，会话仍在列表里；归档先关闭再记 `archivedAt`，`archived: false` 取消归档。用户自己的会话、自己、子会话与支线都拒绝；不能删除（`session.delete` 只给用户） | 按权限模式 |
   | `wevir_show` | 请界面显示：会话目录里的文件（可带行号）、“变更”、“文件”或另一个会话，写 `ui.show` 事件；0.33.0 起还有内置浏览器里的本机网页或这个会话的标签页（`kind: "browser"`，经浏览器提供方，§3.15.1） | 不用 |
   | `wevir_share_file` | 把做好的文件交给用户（0.40.0，§3.15.2）：会话文件夹里的 1–20 个文件，写 `file.shared` 事件 | 不用 |
   | `wevir_plugins_list` | 列出全局插件、连接器与 skills，脱敏结果（P3，§3.15.3） | 不用 |
@@ -815,7 +816,7 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
   | `wevir_process_write` / `wevir_process_kill` | 写 stdin、发信号（默认 SIGTERM，发给整个进程组） | 按权限模式 |
 
   “按权限模式”是引擎自己的审批：请求批准时问用户（Codex 经 MCP 的确认请求上报为审批，codex-event-mapping.md §6.11；Claude 经 `canUseTool`；OpenCode 的插件经 `context.ask`，权限名是工具名；ACP 引擎按它们自己的规则），自动批准时由审查模型决定，完全访问时不问。不用批准的工具按名字放行（`APP_TOOLS_NO_APPROVAL`，Claude 的 `allowedTools`、OpenCode 插件不经 `context.ask` 的那几个）或靠 annotations（Codex：只读，或既不破坏也不对外）。Cursor 没有引擎审批，直接调用 Host。P3 的三个插件写工具另由 Host 核对用户批准，见 §3.15.3。
-- **边界**（照 T3）：新开的会话的权限模式不能比自己宽；不能给权限模式比自己宽的会话发消息、不能停它；不能给自己发消息、停自己、等自己；子会话（引擎派出的子 agent）与支线只读，不能发消息、停止。所有会话都看得到（同 T3 的 `t3_thread_read`：同一个用户的同一个 Host）；工作区移除了的会话不在。工具的说明与 MCP 的 `instructions` 写明：只在用户要求时新开会话，别的会话发来的内容是另一个 agent 的上下文，不是用户的指示。
+- **边界**（照 T3）：新开的会话的权限模式不能比自己宽；不能给权限模式比自己宽的会话发消息、不能停它；不能给自己发消息、停自己、等自己；子会话（引擎派出的子 agent）与支线只读，不能发消息、停止；关闭与归档只限自己开出来的顶层会话。所有会话都看得到（同 T3 的 `t3_thread_read`：同一个用户的同一个 Host）；工作区移除了的会话不在。工具的说明与 MCP 的 `instructions` 写明：只在用户要求时新开会话，别的会话发来的内容是另一个 agent 的上下文，不是用户的指示。
 - **会话之间的消息。** Host 代发：`user.message`（或待发消息、插话）带 `from: { sessionId, kind: 'message', reportBack? }`，`sentBy` 是 Host 自己（`clientId: 'wevir-app-tools'`）。agent 开出的会话带 `Session.openedBy`（存储里是 `origin` 列的 `{ kind: 'agent', sessionId }`），不进左栏以外的地方，同普通会话。
 - **回报。** 一个回合结束（`turn.finished`）时，开始它的 `user.message` 带 `reportBack` 的，Host 把那个回合最后一段回答（前 4000 字）作为 `from.kind: 'report'` 的消息发回 `from.sessionId`，交付方式：对方忙时**一律排队**（不跟 `sendWhileBusy`：交给引擎的插话撤不回，请求方随后 `wevir_session_wait` 到同一个结果时会收到两次）；空闲时开回合，所以请人做事的 agent 结束回合后会被结果叫醒（T3 的 delegate_task 完成通知、Paseo 的 `notifyOnFinish`）。请求方已经用 `wevir_session_wait` 拿到这个回合结果的不再回报：回合先结束、回报已经排在请求方队列里的撤回，发送途中被等到的也撤回；回报开的回合本身不再回报（它不是 `message`）。发不出去（会话关了又恢复不了、只读）时只记告警。
 - **大输出落盘（0.47.0）。** 每个工具结果交回引擎之前经过 `ToolOutputStore.spill`（`packages/host/src/tool-output.ts`，`AppMcpServer` 的 `spill` 选项）：文本超过 8000 字节（UTF-8，`TOOL_OUTPUT_INLINE_BYTES`；经网关的模型在 Codex 里工具输出只留 10 000 字节，超出的从中间删掉）时整份写进 `<数据目录>/tool-output/<会话 ID>/<时间>-<工具>-<随机>.txt`（JSON 结果写成缩进的 `.json`），结果换成大小、行数、路径、开头约 2000 字节与结尾约 1000 字节（按行截），说明用 rg / sed / head / tail 按需读；图片原样保留，`structuredContent` 去掉。写不进去时原样返回。目录 0700、文件 0600，删除会话时随会话删（§3.20 的一家会话的文件，存储页算进会话的文件），Host 启动时清掉七天前的文件。引擎自己的工具（Codex 的 shell 等）不经过这里。

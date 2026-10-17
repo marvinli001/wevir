@@ -666,6 +666,8 @@ export const zhCN = {
   'approval.title.appCreate': '允许新建会话？',
   'approval.title.appSend': '允许向其他会话发消息？',
   'approval.title.appInterrupt': '允许停止其他会话？',
+  'approval.title.appClose': '允许关闭其他会话？',
+  'approval.title.appArchive': '允许归档其他会话？',
   'approval.title.pluginInstall': '允许安装此插件？',
   'approval.title.skillInstall': '允许安装这些 Skills？',
   'approval.title.connectorAdd': '允许添加此连接器？',
