@@ -539,6 +539,10 @@ export class TranscriptProjection {
           ...(event.payload.autoCompactAt !== undefined && {
             autoCompactAt: event.payload.autoCompactAt,
           }),
+          // 回合中间的用量更新不带分布时沿用上一次的（0.50.0）。
+          ...((event.payload.breakdown ?? this.#usage?.breakdown) !== undefined && {
+            breakdown: event.payload.breakdown ?? this.#usage?.breakdown,
+          }),
         };
         return;
       case 'context.compacting':

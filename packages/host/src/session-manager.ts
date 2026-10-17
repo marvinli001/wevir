@@ -2748,6 +2748,7 @@ export class SessionManager {
               contextSize: event.contextSize,
               ...(event.totalTokens !== undefined && { totalTokens: event.totalTokens }),
               ...(event.autoCompactAt !== undefined && { autoCompactAt: event.autoCompactAt }),
+              ...(event.breakdown !== undefined && { breakdown: event.breakdown }),
             },
           },
         ]);

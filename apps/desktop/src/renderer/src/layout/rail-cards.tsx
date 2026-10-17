@@ -12,6 +12,7 @@ import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
 import { workspaceLabel } from '@/projects/chats';
 import { ContextBar } from './context-bar';
+import { ContextBreakdown } from './context-breakdown';
 import { usePanes } from './pane-controller';
 import { abbreviateHome, contextUsage, formatTokens, parentDirectory } from './rail-model';
 import { type RailContext, registerRailCard } from './session-rail';
@@ -136,6 +137,7 @@ function useContextCard({ sessionId, session, providers }: RailContext) {
             <span className="tabular-nums">{formatTokens(usage.autoCompactAt)}</span>
           </div>
         )}
+        <ContextBreakdown breakdown={usage.breakdown} />
       </div>
     ),
   };

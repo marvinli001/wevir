@@ -517,7 +517,31 @@ export const snapshot: SessionSnapshot = {
   session,
   pendingApprovals: [pendingApproval],
   todos: [{ content: '列出本周提交', status: 'in_progress' }],
-  usage: { contextUsed: 5120, contextSize: 262144, totalTokens: 182400, autoCompactAt: 235929 },
+  usage: {
+    contextUsed: 5120,
+    contextSize: 262144,
+    totalTokens: 182400,
+    autoCompactAt: 235929,
+    breakdown: {
+      categories: [
+        { name: 'System prompt', tokens: 9600, kind: 'used' },
+        { name: 'Messages', tokens: 105200, kind: 'used' },
+        { name: 'Autocompact buffer', tokens: 33000, kind: 'buffer' },
+        { name: 'Free space', tokens: 297700, kind: 'free' },
+        { name: 'MCP tools (deferred)', tokens: 274800, kind: 'deferred' },
+      ],
+      groups: [
+        {
+          group: 'memory_files',
+          count: 2,
+          items: [
+            { name: '/Users/me/projects/wevir/AGENTS.md', source: 'Project', tokens: 2400 },
+            { name: '/Users/me/.claude/CLAUDE.md', source: 'User', tokens: 600 },
+          ],
+        },
+      ],
+    },
+  },
 };
 
 // ── 事件 payload：键必须覆盖全部事件类型（编译期穷尽） ───────────────────
@@ -740,7 +764,31 @@ export const eventPayloads: PayloadSamples = {
     invalid: { questionId: ids.question, status: 'pending', resolution: { reason: 'user' } },
   },
   'usage.updated': {
-    valid: { contextUsed: 5120, contextSize: 262144, totalTokens: 182400, autoCompactAt: 235929 },
+    valid: {
+      contextUsed: 5120,
+      contextSize: 262144,
+      totalTokens: 182400,
+      autoCompactAt: 235929,
+      breakdown: {
+        categories: [
+          { name: 'System prompt', tokens: 9600, kind: 'used' },
+          { name: 'Messages', tokens: 105200, kind: 'used' },
+          { name: 'Autocompact buffer', tokens: 33000, kind: 'buffer' },
+          { name: 'Free space', tokens: 297700, kind: 'free' },
+          { name: 'MCP tools (deferred)', tokens: 274800, kind: 'deferred' },
+        ],
+        groups: [
+          {
+            group: 'memory_files',
+            count: 2,
+            items: [
+              { name: '/Users/me/projects/wevir/AGENTS.md', source: 'Project', tokens: 2400 },
+              { name: '/Users/me/.claude/CLAUDE.md', source: 'User', tokens: 600 },
+            ],
+          },
+        ],
+      },
+    },
     invalid: { contextUsed: 5120, contextSize: 262144, totalTokens: -1 },
   },
   'context.compacting': {

@@ -1,6 +1,6 @@
 // 会话侧栏（U18，desktop-layout.md §12）的纯逻辑：停靠还是浮层、上下文的用量、路径与 token 数的写法。
 
-import type { ProviderProfile, Session, Usage } from '@wevir/protocol';
+import type { ProviderProfile, Session, Usage, UsageBreakdown } from '@wevir/protocol';
 import { PANE_LAYOUT } from './arrange';
 
 /** 侧栏停靠时占内容区的宽：侧栏本身加它右边的间距。 */
@@ -39,6 +39,8 @@ export interface ContextUsage {
   /** 引擎自己压缩的线（0.29.0）与它在上下文里的位置（0–100）；引擎不报时没有。 */
   autoCompactAt?: number;
   autoCompactPercent?: number;
+  /** 上下文是被什么占的（0.50.0）；引擎不报时没有。 */
+  breakdown?: UsageBreakdown;
   /** 用量表的颜色：到 75% 提醒，到 90% 或过了自动压缩的线是警示。 */
   tone: 'normal' | 'warning' | 'danger';
 }
@@ -61,6 +63,7 @@ export function contextUsage(
     percent,
     estimated: model?.contextWindow === undefined,
     ...(usage.totalTokens !== undefined && { total: usage.totalTokens }),
+    ...(usage.breakdown !== undefined && { breakdown: usage.breakdown }),
     ...(autoCompactAt !== undefined && {
       autoCompactAt,
       autoCompactPercent: Math.min(100, (autoCompactAt / usage.contextSize) * 100),

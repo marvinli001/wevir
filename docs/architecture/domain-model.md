@@ -256,7 +256,7 @@ interface SessionSnapshot {
   session: Session
   pendingApprovals: ApprovalRequest[]
   todos?: TodoItem[]               // 最近一次 todo.updated
-  usage?: { contextUsed: number; contextSize: number; totalTokens?: number; autoCompactAt?: number } // 最近一次 usage.updated
+  usage?: { contextUsed: number; contextSize: number; totalTokens?: number; autoCompactAt?: number; breakdown?: UsageBreakdown } // 最近一次 usage.updated（breakdown 沿用上一次的，0.50.0）
   subagents?: SubagentSummary[]    // 0.6.0：这个会话派出的子会话，按 startedAt（§3.3.1）；没有时省略
   pendingMessages?: PendingMessage[] // 0.8.0：等待中与暂停的待发消息，按加入的先后（§3.3.2）；没有时省略
   pendingQuestions?: QuestionRequest[] // 0.10.0：等用户回答的问题，按提出的先后（§3.8）；没有时省略
@@ -1398,6 +1398,10 @@ type WevirEvent =
       contextSize: number       // ACP usage_update.size（模型未声明 contextWindow 时是猜测值）
       totalTokens?: number      // 0.14.0：这个会话累计用掉的 token（Codex 的 tokenUsage.total.totalTokens）；引擎不报时省略
       autoCompactAt?: number    // 0.29.0：已用到这个数时引擎自己压缩上下文（Codex：窗口的九成）；不自动压缩或不说阈值时省略
+      breakdown?: {             // 0.50.0：上下文是被什么占的；引擎不报或这次没算时省略
+        categories: { name: string; tokens: number; kind: string }[]   // kind：used | free | buffer | deferred
+        groups?: { group: string; count: number; items: { name: string; source?: string; tokens: number }[] }[]  // mcp_tools | memory_files | agents | skills
+      }
     }>
   | WevirEventEnvelope<'context.compacting', { turnId: TurnId; compactionId: string; trigger: 'manual' | 'auto' }> // 0.24.0
   | WevirEventEnvelope<'context.compacted', { turnId: TurnId; compactionId: string; trigger: 'manual' | 'auto' }>  // 0.24.0

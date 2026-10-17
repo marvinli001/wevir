@@ -332,6 +332,36 @@ describe('会话快照推导', () => {
     expect(store.snapshot(SES)?.session.title).toBe('写一个 summary.md');
   });
 
+  it('用量的上下文分布（0.50.0）：不带分布的更新沿用上一次的，带了就换新的', () => {
+    const storage = open(dataDir());
+    const store = createStore(storage);
+    store.appendMany(SES, START);
+    const breakdown = {
+      categories: [
+        { name: 'Messages', tokens: 900, kind: 'used' },
+        { name: 'Free space', tokens: 261_244, kind: 'free' },
+      ],
+    };
+    store.append(SES, {
+      type: 'usage.updated',
+      source: 'engine',
+      payload: { contextUsed: 900, contextSize: 262144, breakdown },
+    });
+    store.append(SES, ev.usage(1200));
+    expect(expectConsistent(storage, store).usage).toEqual({
+      contextUsed: 1200,
+      contextSize: 262144,
+      breakdown,
+    });
+    const fresh = { categories: [{ name: 'Messages', tokens: 1300, kind: 'used' }] };
+    store.append(SES, {
+      type: 'usage.updated',
+      source: 'engine',
+      payload: { contextUsed: 1300, contextSize: 262144, breakdown: fresh },
+    });
+    expect(expectConsistent(storage, store).usage?.breakdown).toEqual(fresh);
+  });
+
   it('下一回合开始时清掉上一回合的 lastError；没有 clientMessageId 时 activeTurn 也不带', () => {
     const storage = open(dataDir());
     const store = createStore(storage);

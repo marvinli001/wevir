@@ -352,6 +352,48 @@ export const TodoItemSchema = z.object({
 });
 export type TodoItem = z.infer<typeof TodoItemSchema>;
 
+/**
+ * 上下文分布里的一行（0.50.0）。`name` 是引擎给的类别名，原样传；桌面端认得的名字（Messages、System prompt、Free space……）按
+ * 界面语言显示，其余照写。
+ */
+export const UsageCategorySchema = z.object({
+  name: z.string().min(1).max(100),
+  tokens: z.int().min(0),
+  /**
+   * 这一行是什么：`used` 占着上下文，`free` 是剩下的，`buffer` 是给压缩留的，`deferred` 是按需才载入的工具定义（不算在窗口里，
+   * 只列出来）。其他值按 `used` 看。
+   */
+  kind: z.string().min(1).max(20),
+});
+export type UsageCategory = z.infer<typeof UsageCategorySchema>;
+
+/** 一组细项里的一项（0.50.0）：一个 MCP 工具、一个记忆文件、一个自定义 agent、一个技能。 */
+export const UsageItemSchema = z.object({
+  name: z.string().min(1).max(300),
+  /** 它的来源：MCP 工具的服务名、记忆文件的种类、agent 与技能的来源。 */
+  source: z.string().max(100).optional(),
+  tokens: z.int().min(0),
+});
+export type UsageItem = z.infer<typeof UsageItemSchema>;
+
+/**
+ * 一组细项（0.50.0）：`group` 已见 `mcp_tools`、`memory_files`、`agents`、`skills`，其他值照 `group` 本身显示。`items` 只带
+ * 占用最多的前若干项（至多 100），`count` 是这一组一共有多少项。
+ */
+export const UsageGroupSchema = z.object({
+  group: z.string().min(1).max(40),
+  count: z.int().min(0),
+  items: z.array(UsageItemSchema).max(100),
+});
+export type UsageGroup = z.infer<typeof UsageGroupSchema>;
+
+/** 上下文是被什么占的（0.50.0）：Claude 报与 `/context` 同口径的分类，Codex 报最近一次请求的输入、缓存与输出。 */
+export const UsageBreakdownSchema = z.object({
+  categories: z.array(UsageCategorySchema).max(32),
+  groups: z.array(UsageGroupSchema).max(16).optional(),
+});
+export type UsageBreakdown = z.infer<typeof UsageBreakdownSchema>;
+
 export const UsageSchema = z.object({
   contextUsed: z.int().min(0),
   contextSize: z.int().min(0),
@@ -359,6 +401,8 @@ export const UsageSchema = z.object({
   totalTokens: z.int().min(0).optional(),
   /** 已用到这个数时引擎自己压缩上下文（0.29.0）；引擎不自动压缩或不说阈值时省略。 */
   autoCompactAt: z.int().min(0).optional(),
+  /** 上下文的分布（0.50.0）；引擎不报时省略。回合中间的 `usage.updated` 不带它时，沿用上一次的。 */
+  breakdown: UsageBreakdownSchema.optional(),
 });
 export type Usage = z.infer<typeof UsageSchema>;
 

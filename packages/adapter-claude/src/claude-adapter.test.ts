@@ -69,6 +69,53 @@ function sessionQueries(sdk: FakeClaudeSdk) {
   return sdk.queries.filter((query) => query.options.canUseTool !== undefined);
 }
 
+describe('上下文分布（0.50.0）', () => {
+  const CONTEXT_USAGE = {
+    categories: [
+      { name: 'Messages', tokens: 4000, color: 'x', kind: 'used' },
+      { name: 'Free space', tokens: 196_000, color: 'x', kind: 'free' },
+    ],
+    memoryFiles: [{ path: '/p/AGENTS.md', type: 'Project', tokens: 300 }],
+    mcpTools: [],
+    agents: [],
+  };
+
+  it('回合结束后向 claude 要 summary 级的分布，随 usage.updated 报出', async () => {
+    const { adapter, sdk } = harness({ contextUsage: CONTEXT_USAGE });
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    const withBreakdown = await log.until(
+      (event) => event.type === 'usage.updated' && event.breakdown !== undefined,
+    );
+    expect(withBreakdown).toMatchObject({
+      type: 'usage.updated',
+      contextSize: 200_000,
+      breakdown: {
+        categories: [
+          { name: 'Messages', tokens: 4000, kind: 'used' },
+          { name: 'Free space', tokens: 196_000, kind: 'free' },
+        ],
+        groups: [{ group: 'memory_files', count: 1 }],
+      },
+    });
+    expect(sessionQueries(sdk)[0]?.contextUsageRequests).toEqual([{ detail: 'summary' }]);
+  });
+
+  it('claude 不认这个请求时回合照常结束，只是没有分布', async () => {
+    const { adapter } = harness();
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(
+      log.events.some((event) => event.type === 'usage.updated' && event.breakdown !== undefined),
+    ).toBe(false);
+  });
+});
+
 describe('一问一答（录音 plain）', () => {
   it('思考与文本先增量后提交，替换对得上；用量与结算；交给 SDK 的选项照 T3', async () => {
     const { adapter, sdk } = harness();

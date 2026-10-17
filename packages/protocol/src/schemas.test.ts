@@ -121,6 +121,10 @@ import {
   TurnOutcomeSchema,
   TurnTriggerSchema,
   UiShowTargetSchema,
+  UsageBreakdownSchema,
+  UsageCategorySchema,
+  UsageGroupSchema,
+  UsageItemSchema,
   UsageSchema,
   UserContentPartSchema,
   UserImageMimeTypeSchema,
@@ -587,8 +591,76 @@ const standaloneCases: Case[] = [
   {
     name: 'Usage',
     schema: UsageSchema,
-    valid: [{ contextUsed: 0, contextSize: 0 }],
-    invalid: [{ contextUsed: 1 }],
+    valid: [
+      { contextUsed: 0, contextSize: 0 },
+      {
+        contextUsed: 10,
+        contextSize: 100,
+        breakdown: { categories: [{ name: 'Messages', tokens: 10, kind: 'used' }] },
+      },
+    ],
+    invalid: [
+      { contextUsed: 1 },
+      { contextUsed: 1, contextSize: 2, breakdown: { categories: [{ name: 'Messages' }] } },
+    ],
+  },
+  {
+    name: 'UsageCategory',
+    schema: UsageCategorySchema,
+    valid: [
+      { name: 'Free space', tokens: 297_700, kind: 'free' },
+      { name: 'Something new', tokens: 0, kind: 'unknown-future-kind' },
+    ],
+    invalid: [
+      { name: '', tokens: 1, kind: 'used' },
+      { name: 'Messages', tokens: -1, kind: 'used' },
+      { name: 'Messages', tokens: 1 },
+    ],
+  },
+  {
+    name: 'UsageItem',
+    schema: UsageItemSchema,
+    valid: [
+      { name: 'mcp__linear__create_issue', source: 'linear', tokens: 120 },
+      { name: 'a', tokens: 0 },
+    ],
+    invalid: [
+      { name: '', tokens: 1 },
+      { name: 'a', tokens: 1.5 },
+    ],
+  },
+  {
+    name: 'UsageGroup',
+    schema: UsageGroupSchema,
+    valid: [
+      { group: 'mcp_tools', count: 406, items: [{ name: 'a', tokens: 3 }] },
+      { group: 'agents', count: 0, items: [] },
+    ],
+    invalid: [
+      { group: 'mcp_tools', count: -1, items: [] },
+      {
+        group: 'mcp_tools',
+        count: 101,
+        items: Array.from({ length: 101 }, () => ({ name: 'a', tokens: 1 })),
+      },
+    ],
+  },
+  {
+    name: 'UsageBreakdown',
+    schema: UsageBreakdownSchema,
+    valid: [
+      { categories: [] },
+      {
+        categories: [{ name: 'Messages', tokens: 5, kind: 'used' }],
+        groups: [
+          { group: 'skills', count: 1, items: [{ name: 'pdf', source: 'plugin', tokens: 5 }] },
+        ],
+      },
+    ],
+    invalid: [
+      {},
+      { categories: [{ name: 'x', tokens: 1, kind: 'used' }], groups: [{ group: 'x' }] },
+    ],
   },
   {
     name: 'StreamBlockRef',

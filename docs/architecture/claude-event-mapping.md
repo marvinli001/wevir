@@ -254,7 +254,7 @@ Claude 默认把 Agent 工具放到后台（工具立即返回 “Async agent la
 
 ### 6.5 用量
 
-顶层会话的每条 API 消息（同一 `id` 的快照只算一次，`<synthetic>` 不算）报 `usage.updated`：`contextUsed` 是 input + 缓存写入 + 缓存读取 + output（T3 的 `claudeProviderTurnTokenUsage`），`contextSize` 是 §3 的上下文窗口（不知道时 200k）。回合结束时再报一次，带 `totalTokens`（结果的 `modelUsage` 各模型四项之和，SDK 按进程累计）。
+顶层会话的每条 API 消息（同一 `id` 的快照只算一次，`<synthetic>` 不算）报 `usage.updated`：`contextUsed` 是 input + 缓存写入 + 缓存读取 + output（T3 的 `claudeProviderTurnTokenUsage`），`contextSize` 是 §3 的上下文窗口（不知道时 200k）。回合结束时再报一次，带 `totalTokens`（结果的 `modelUsage` 各模型四项之和，SDK 按进程累计）。随后（0.50.0）向进程要一份 `getContextUsage({ detail: 'summary' })`（`/context` 的结构化版本，只用上一次响应的用量与本地估算），结果回来再报一条带 `breakdown` 的 `usage.updated`（`context-breakdown.ts`）：类别原样（零占用的行不要，`kind` 用 SDK 的），MCP 工具（只算已载入的，去掉 `mcp__服务__` 前缀，服务名放 `source`）、记忆文件、自定义智能体、技能四组各取占用最多的前 50 项并带总数。这条可能在回合结算之后才到；进程已关或已换掉就不报，旧版 `claude` 不认这个请求时没有分布。
 
 ### 6.6 不映射的消息
 

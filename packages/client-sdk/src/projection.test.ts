@@ -294,6 +294,37 @@ describe('TranscriptProjection：增量与已提交消息（domain-model §6.3�
   });
 });
 
+describe('TranscriptProjection：上下文分布（0.50.0）', () => {
+  const breakdown = {
+    categories: [
+      { name: 'Messages', tokens: 4000, kind: 'used' },
+      { name: 'Free space', tokens: 196_000, kind: 'free' },
+    ],
+  };
+
+  it('不带分布的 usage.updated 沿用上一次的，带了就换新的', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('usage.updated', { contextUsed: 4000, contextSize: 200_000, breakdown });
+    add('usage.updated', { contextUsed: 5000, contextSize: 200_000 });
+    expect(projectTranscript(list).usage).toEqual({
+      contextUsed: 5000,
+      contextSize: 200_000,
+      breakdown,
+    });
+    const fresh = { categories: [{ name: 'Messages', tokens: 5000, kind: 'used' }] };
+    add('usage.updated', { contextUsed: 5000, contextSize: 200_000, breakdown: fresh });
+    expect(projectTranscript(list).usage?.breakdown).toEqual(fresh);
+  });
+
+  it('从没报过分布时 usage 里没有这个字段', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('usage.updated', { contextUsed: 1, contextSize: 2 });
+    expect(projectTranscript(list).usage).toEqual({ contextUsed: 1, contextSize: 2 });
+  });
+});
+
 describe('TranscriptProjection：工具与审批', () => {
   it('工具从运行到审批再到被拒绝；未决审批按创建时间列出', () => {
     const { list, add, turn } = events();

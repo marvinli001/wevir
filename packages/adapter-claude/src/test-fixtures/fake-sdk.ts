@@ -387,6 +387,8 @@ export interface FakeQueryRecord {
   options: Options;
   prompts: SDKUserMessage[];
   calls: Array<{ method: string; args: unknown[] }>;
+  /** `getContextUsage()` 的参数：只读请求，不记进 `calls`（那里是会改进程状态的调用）。 */
+  contextUsageRequests: unknown[];
   closed: boolean;
 }
 
@@ -397,6 +399,8 @@ export interface FakeSdkOptions {
   initError?: Error;
   /** 按 prompt 换脚本（测试用自己拼的消息）。 */
   script?: (prompt: string) => Script | undefined;
+  /** `getContextUsage()` 的响应；省略时像老版本的 `claude` 一样拒绝这个请求。 */
+  contextUsage?: Record<string, unknown>;
 }
 
 export class FakeClaudeSdk implements ClaudeSdk {
@@ -415,6 +419,7 @@ export class FakeClaudeSdk implements ClaudeSdk {
       options: params.options ?? {},
       prompts: [],
       calls: [],
+      contextUsageRequests: [],
       closed: false,
     };
     this.queries.push(record);
@@ -720,6 +725,12 @@ class FakeQuery {
 
   async setPermissionMode(mode: string): Promise<void> {
     this.#record.calls.push({ method: 'setPermissionMode', args: [mode] });
+  }
+
+  async getContextUsage(opts?: unknown): Promise<Record<string, unknown>> {
+    this.#record.contextUsageRequests.push(opts);
+    if (this.#options.contextUsage === undefined) throw new Error('Unknown control request');
+    return this.#options.contextUsage;
   }
 
   async stopTask(taskId: string): Promise<void> {

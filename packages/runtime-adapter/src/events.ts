@@ -4,6 +4,7 @@ import type {
   PendingApproval,
   TodoItem,
   ToolDisplay,
+  UsageBreakdown,
   UserQuestion,
 } from './types.js';
 
@@ -25,7 +26,8 @@ import type {
 //   domain-model §3.3.1）与普通会话的目标回合（0.35.0）由引擎开始：`turn.started` 之后到终结事件之前的事件属于它。
 // - 每个回合恰好一个终结事件：`turn.settled`、`turn.failed`，或（进程死了）`engine.exited`。
 //   回合内的其他事件都在终结事件之前发出。
-// - 回合之间只可能出现 `engine.exited`、`engine.raw`、`subagent.*`、`goal.updated` 与引擎开始的回合的 `turn.started`。
+// - 回合之间只可能出现 `engine.exited`、`engine.raw`、`usage.updated`（0.50.0：回合结束后才算出来的上下文分布）、`subagent.*`、
+//   `goal.updated` 与引擎开始的回合的 `turn.started`。
 // - `engine.exited` 之后该会话的订阅结束。
 // - 子会话：父会话的流里先有 `subagent.started`，子会话的流在第一个订阅者到来之前缓冲（`EventHub` 的
 //   `bufferUntilSubscribed`），Host 收到 `subagent.started` 再订阅不会漏事件。
@@ -195,6 +197,8 @@ export interface UsageUpdatedEvent {
   totalTokens?: number;
   /** 已用到这个数时引擎自己压缩上下文（0.29.0）；不自动压缩或不知道阈值时省略。 */
   autoCompactAt?: number;
+  /** 上下文的分布（0.50.0）；引擎不报或这次没算时省略（Host 与客户端沿用上一次的）。 */
+  breakdown?: UsageBreakdown;
 }
 
 /**

@@ -42,6 +42,7 @@ import {
   writeHistoryToolScript,
 } from '@wevir/runtime-adapter/history-tool';
 import { ClaudeAccounts, type ClaudeInstallation } from './account.js';
+import { claudeContextBreakdown } from './context-breakdown.js';
 import { claudeEnv } from './env.js';
 import {
   type ClaudeEffort,
@@ -1798,6 +1799,32 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     });
   }
 
+  /**
+   * 回合结束时向 `claude` 要一份上下文分布（0.50.0）。`summary` 只用上一次响应的用量和本地估算，不额外调 token 计数接口；
+   * 结果异步回来，回合可能已经结算（`usage.updated` 回合之间也可以报），进程已经换掉或关掉就不报了。
+   */
+  #reportContextBreakdown(session: RootSession, turn: Turn): void {
+    const live = turn.live;
+    const contextUsed = turn.lastContextUsed;
+    if (live === undefined || contextUsed === undefined) return;
+    live.query.getContextUsage({ detail: 'summary' }).then(
+      (response) => {
+        if (live.closing || session.live !== live) return;
+        const breakdown = claudeContextBreakdown(response);
+        if (breakdown === undefined) return;
+        session.hub.emit({
+          type: 'usage.updated',
+          engineSessionId: session.id,
+          contextUsed,
+          contextSize: claudeContextWindow(session.config.modelId) ?? 200_000,
+          breakdown,
+        });
+      },
+      // 老版本的 `claude` 不认这个请求，或进程已经走了：没有分布而已。
+      () => undefined,
+    );
+  }
+
   #user(session: RootSession, message: Extract<SDKMessage, { type: 'user' }>): void {
     const turn = session.turn;
     const owner = this.#owner(session, message.parent_tool_use_id);
@@ -1903,6 +1930,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         contextSize: claudeContextWindow(session.config.modelId) ?? 200_000,
         totalTokens,
       });
+      this.#reportContextBreakdown(session, turn);
     }
     if (turn.cancelRequested || turn.stoppedByUser || isAbortedResult(message)) {
       this.#settle(session, turn, {

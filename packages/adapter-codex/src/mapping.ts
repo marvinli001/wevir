@@ -7,6 +7,7 @@ import type {
   ToolDisplay,
   TurnFailedEvent,
   TurnSettledEvent,
+  UsageBreakdown,
 } from '@wevir/runtime-adapter';
 import { APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
 import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
@@ -24,6 +25,7 @@ import type {
   McpToolCallItem,
   PatchUpdatedNotification,
   ReasoningItem,
+  TokenUsageBreakdown,
   TokenUsageNotification,
   ToolItem,
   TurnNotification,
@@ -657,6 +659,7 @@ export class CodexEventMapper {
           totalTokens: params.tokenUsage.total.totalTokens,
         }),
         ...(autoCompactAt !== undefined && { autoCompactAt }),
+        breakdown: codexContextBreakdown(params.tokenUsage.last, contextSize, autoCompactAt),
       },
     ];
   }
@@ -816,4 +819,31 @@ function isReasoning(
     item.content.every((piece) => typeof piece === 'string') &&
     item.summary.every((piece) => typeof piece === 'string')
   );
+}
+
+/**
+ * 上下文的分布（0.50.0）：Codex 不分系统提示、工具与消息，只报最近一次请求的输入（含缓存的）与输出（含推理的），所以按这四
+ * 项拆开；`Free space` 是上下文大小减去已用的、再扣掉自动压缩留的余量（`Autocompact buffer`，有阈值时）。
+ */
+export function codexContextBreakdown(
+  last: TokenUsageBreakdown,
+  contextSize: number,
+  autoCompactAt: number | undefined,
+): UsageBreakdown {
+  const count = (value: number) => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
+  const input = count(last.inputTokens);
+  const cached = Math.min(count(last.cachedInputTokens), input);
+  const output = count(last.outputTokens);
+  const reasoning = Math.min(count(last.reasoningOutputTokens), output);
+  const used = count(last.totalTokens);
+  const buffer = autoCompactAt === undefined ? 0 : count(contextSize - autoCompactAt);
+  const rows: Array<{ name: string; tokens: number; kind: string }> = [
+    { name: 'Input', tokens: input - cached, kind: 'used' },
+    { name: 'Cached input', tokens: cached, kind: 'used' },
+    { name: 'Output', tokens: output - reasoning, kind: 'used' },
+    { name: 'Reasoning', tokens: reasoning, kind: 'used' },
+    { name: 'Autocompact buffer', tokens: buffer, kind: 'buffer' },
+    { name: 'Free space', tokens: count(contextSize - used - buffer), kind: 'free' },
+  ];
+  return { categories: rows.filter((row) => row.tokens > 0) };
 }

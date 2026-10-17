@@ -45,6 +45,7 @@ import {
   TurnOutcomeSchema,
   TurnTriggerSchema,
   UiShowTargetSchema,
+  UsageBreakdownSchema,
   UserContentPartSchema,
 } from './entities.js';
 
@@ -323,6 +324,8 @@ export const EventPayloadSchemas = {
      * 阈值时省略。
      */
     autoCompactAt: z.int().min(0).optional(),
+    /** 上下文的分布（0.50.0）；引擎不报或这次没算时省略。 */
+    breakdown: UsageBreakdownSchema.optional(),
   }),
   /**
    * 引擎开始压缩上下文（0.24.0）：`session.compact` 的回合里，或引擎在上下文快满时自己压缩（`auto`，在普通回合中间）。之后同一

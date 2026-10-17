@@ -3,7 +3,12 @@ import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { checkDeltaReplacement, checkTurnEvents } from '@wevir/runtime-adapter/contract';
 import { describe, expect, it } from 'vitest';
-import { CodexEventMapper, ENGINE_RAW_PROTOCOL, PLAN_TOOL_CALL_PREFIX } from './mapping.js';
+import {
+  CodexEventMapper,
+  codexContextBreakdown,
+  ENGINE_RAW_PROTOCOL,
+  PLAN_TOOL_CALL_PREFIX,
+} from './mapping.js';
 import type { ApprovalRequestMethod } from './protocol.js';
 
 // 回放真实 codex-app-server（rust-v0.162.1）录下的通知序列（src/test-fixtures/app-server/，录制方法见
@@ -130,6 +135,15 @@ describe('回放 codex-app-server 的通知', () => {
         contextUsed: 1020,
         contextSize: 128_000,
         totalTokens: 1020,
+        // 分布（0.50.0）：输入 1000、输出 20（其中推理 2），没有缓存，剩下的是空闲。
+        breakdown: {
+          categories: [
+            { name: 'Input', tokens: 1000, kind: 'used' },
+            { name: 'Output', tokens: 18, kind: 'used' },
+            { name: 'Reasoning', tokens: 2, kind: 'used' },
+            { name: 'Free space', tokens: 126_980, kind: 'free' },
+          ],
+        },
       },
     ]);
     expect(events.at(-1)).toEqual({
@@ -159,6 +173,45 @@ describe('回放 codex-app-server 的通知', () => {
       autoCompactAt: 115_200,
     });
     expect(of(replay('stream').events, 'usage.updated')[0]).not.toHaveProperty('autoCompactAt');
+  });
+
+  it('上下文分布（0.50.0）：输入拆成新的与缓存的，输出拆成回答与推理，有阈值时留出压缩余量', () => {
+    expect(
+      codexContextBreakdown(
+        {
+          totalTokens: 12_000,
+          inputTokens: 10_000,
+          cachedInputTokens: 7_500,
+          outputTokens: 2_000,
+          reasoningOutputTokens: 1_500,
+        },
+        100_000,
+        90_000,
+      ),
+    ).toEqual({
+      categories: [
+        { name: 'Input', tokens: 2_500, kind: 'used' },
+        { name: 'Cached input', tokens: 7_500, kind: 'used' },
+        { name: 'Output', tokens: 500, kind: 'used' },
+        { name: 'Reasoning', tokens: 1_500, kind: 'used' },
+        { name: 'Autocompact buffer', tokens: 10_000, kind: 'buffer' },
+        { name: 'Free space', tokens: 78_000, kind: 'free' },
+      ],
+    });
+    // 缓存比输入还多、已用超过窗口这类不合理的数不会出负数。
+    const odd = codexContextBreakdown(
+      {
+        totalTokens: 200,
+        inputTokens: 100,
+        cachedInputTokens: 150,
+        outputTokens: 100,
+        reasoningOutputTokens: 120,
+      },
+      150,
+      undefined,
+    );
+    expect(odd.categories.every((row) => row.tokens > 0)).toBe(true);
+    expect(odd.categories.find((row) => row.kind === 'free')).toBeUndefined();
   });
 
   it('tool-read：只读命令显示为 read，带路径与原始命令', () => {
