@@ -1,6 +1,7 @@
 import { CSPProvider } from '@base-ui/react/csp-provider';
 import { RouterProvider } from 'react-router/dom';
 import { BrowserCoordinator } from '@/browser/browser-coordinator';
+import { ActionToasts } from '@/components/action-toasts';
 import { ToastViewport } from '@/components/toast';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { WorkbenchDataProvider } from '@/data/workbench-data';
@@ -25,6 +26,8 @@ export function App() {
             {/* 连接通知在窗口右下角，工作台与设置页都看得到（T5.5，U25）。 */}
             <ToastViewport>
               <ConnectionToast />
+              {/* 菜单动作的失败提示（归档、分支、删除…）。 */}
+              <ActionToasts />
               {/* 会话的通知（U31）：系统通知与应用内提醒。 */}
               <NotificationCoordinator />
             </ToastViewport>

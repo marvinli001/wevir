@@ -1,17 +1,18 @@
-import type { Workspace } from '@wevir/protocol';
-import { Folder, FolderPlus, SquarePen, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { Folder, FolderPlus, Pencil, SquarePen, Trash2 } from 'lucide-react';
 import { Link } from 'react-router';
-import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { useWorkbenchData } from '@/data/workbench-data';
 import { projectsOf, type WorkspaceEntry } from '@/data/workbench-model';
+import {
+  requestEditProject,
+  requestRemoveProject,
+  useWorkspaceManagement,
+} from '@/data/workspace-actions';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { openCreateProject } from '@/projects/create-project';
 import { paths } from '@/routes/paths';
-import { openSessions, removeClosingSessions } from './remove';
 import {
   EmptyList,
   LIST_CARD,
@@ -22,25 +23,16 @@ import {
 
 /**
  * 设置 → 项目（T5.4 的工作区，U5 改叫项目）：“创建项目”打开与侧栏相同的对话框（projects/create-project.tsx），
- * 列出路径，移除只注销、不删文件。
+ * 列出路径；编辑与移除打开的对话框与侧栏项目的右键菜单是同一个（projects/），移除只注销、不删文件。
  */
 export function WorkspaceSettings() {
   const data = useWorkbenchData();
-  const store = useWorkbenchStore();
   const { client } = useHostConnection();
-  const [removing, setRemoving] = useState<WorkspaceEntry>();
+  const manage = useWorkspaceManagement();
 
   if (data.status !== 'ready') return <SettingsLoading data={data} />;
   // “对话”工作区（0.39.0）不是项目，不列、也不能移除。
   const projects = projectsOf(data.workspaces);
-
-  const remove = async (workspace: Workspace) => {
-    if (!client) return;
-    await removeClosingSessions(client, () =>
-      client.request('workspace.remove', { workspaceId: workspace.id }),
-    );
-    await store?.refresh();
-  };
 
   return (
     <SettingsSection
@@ -69,19 +61,12 @@ export function WorkspaceSettings() {
                 key={entry.workspace.id}
                 entry={entry}
                 disabled={!client}
-                onRemove={() => setRemoving(entry)}
+                canEdit={manage.update}
               />
             ))}
           </ul>
         )}
       </div>
-      {removing && (
-        <RemoveWorkspaceDialog
-          entry={removing}
-          onClose={() => setRemoving(undefined)}
-          onConfirm={() => remove(removing.workspace)}
-        />
-      )}
     </SettingsSection>
   );
 }
@@ -89,11 +74,11 @@ export function WorkspaceSettings() {
 function WorkspaceRow({
   entry,
   disabled,
-  onRemove,
+  canEdit,
 }: {
   entry: WorkspaceEntry;
   disabled: boolean;
-  onRemove: () => void;
+  canEdit: boolean;
 }) {
   const { workspace, sessions } = entry;
   return (
@@ -124,40 +109,25 @@ function WorkspaceRow({
         >
           <SquarePen />
         </IconButton>
-        <IconButton label={t('workspace.remove')} disabled={disabled} onClick={onRemove}>
+        {canEdit && (
+          <IconButton
+            label={t('project.edit')}
+            disabled={disabled}
+            onClick={() => requestEditProject(workspace)}
+            data-action="edit-workspace"
+          >
+            <Pencil />
+          </IconButton>
+        )}
+        <IconButton
+          label={t('workspace.remove')}
+          disabled={disabled}
+          onClick={() => requestRemoveProject(entry)}
+          data-action="remove-workspace"
+        >
           <Trash2 />
         </IconButton>
       </div>
     </li>
-  );
-}
-
-function RemoveWorkspaceDialog({
-  entry,
-  onClose,
-  onConfirm,
-}: {
-  entry: WorkspaceEntry;
-  onClose: () => void;
-  onConfirm: () => Promise<void>;
-}) {
-  const { workspace, sessions } = entry;
-  const open = openSessions(sessions).length;
-  return (
-    <ConfirmDialog
-      open
-      onOpenChange={(next) => !next && onClose()}
-      title={t('workspace.remove.title', { name: workspace.displayName })}
-      confirmLabel={t('workspace.remove.confirm')}
-      onConfirm={onConfirm}
-      failure={(error) => t('workspace.remove.failed', { error })}
-    >
-      <p>{t('workspace.remove.body')}</p>
-      <p className="rounded-md bg-muted px-2.5 py-1.5 font-mono text-sm break-all text-foreground">
-        {workspace.rootPath}
-      </p>
-      {sessions.length > 0 && <p>{t('workspace.remove.sessions', { count: sessions.length })}</p>}
-      {open > 0 && <p>{t('workspace.remove.openSessions', { count: open })}</p>}
-    </ConfirmDialog>
   );
 }

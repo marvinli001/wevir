@@ -18,7 +18,11 @@ import { WorkbenchLayout } from '@/layout/workbench-layout';
 import { useHistoryNav, useTrackHistory } from '@/lib/history-nav';
 import { matchesShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { WelcomeRoute } from '@/onboarding/welcome-route';
+import { ArchiveProjectDialog } from '@/projects/archive-project-dialog';
 import { CreateProjectDialog } from '@/projects/create-project';
+import { EditProjectDialog } from '@/projects/edit-project-dialog';
+import { RemoveProjectDialog } from '@/projects/remove-project-dialog';
+import { DeleteSessionDialog } from '@/session/delete-session-dialog';
 import { RenameDialog } from '@/session/rename-dialog';
 import { SideSessionCloser } from '@/session/side-session';
 import { HomeRoute } from './home-route';
@@ -123,6 +127,10 @@ function AppRoot() {
       <CreateProjectDialog />
       <EnvironmentDialog />
       <RenameDialog />
+      <DeleteSessionDialog />
+      <EditProjectDialog />
+      <RemoveProjectDialog />
+      <ArchiveProjectDialog />
       <SideSessionCloser />
     </>
   );

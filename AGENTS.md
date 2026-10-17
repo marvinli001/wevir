@@ -86,6 +86,8 @@ Xiaomi MiMo 按量 API（2026-10-17）：桌面 mimo 模板使用 Responses，Pr
 
 后台进程与大输出落盘（0.47.0）：Host 的 `processes.ts`（ProcessManager：登录 shell、进程组、日志、匹配与通知、退出时回收）与 `process-tools.ts`（六个 `wevir_process_*` 工具），通知经 `app-tools.ts` 的 `onProcessNotice` 以带 `from.process` 的消息发回会话，桌面 `session/message-view.tsx` 显示成一行标记；`tool-output.ts` 把超过 8000 字节的应用级工具结果写进 `<数据目录>/tool-output/<会话 ID>/`，`app-mcp.ts` 的 `spill` 接入，删除会话随会话删。行为、批准与缺口见 domain-model §3.15、§3.15.4，安全取舍见 security.md §2。
 
+左栏右键菜单与项目改名、移除（0.49.0）：协议 `workspace.update`（只改 `displayName`，1–200 字，“对话”工作区不可改；Host 特性 `workspace_update`），客户端动作集中在渲染进程 `data/session-actions.ts`（会话：置顶、未读、改名、归档、分支、永久删除）与 `data/workspace-actions.ts`（项目：置顶、改名、移除、归档会话），左栏的悬停按钮、右键菜单（`layout/session-context-menu.tsx`、`layout/project-context-menu.tsx`，分组与是否出现由 `layout/context-menu-model.ts` 决定）与设置页共用；失败的动作经 `data/action-notices.ts` 在右下角提示。置顶与未读只记在本机；没有对应概念的项（分区、移到别的项目、分享、新窗口）不做。移除项目只是注销，磁盘上的文件不动，确认框复用设置页的 `RESOURCE_IN_USE` 处理。细节见 desktop-layout §25。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

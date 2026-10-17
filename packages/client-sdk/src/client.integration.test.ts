@@ -183,6 +183,27 @@ describe('client-sdk 对着真实 Host', () => {
     expect(statuses()).toEqual(['connecting', 'connected']);
   });
 
+  it('workspace.update：改名经协议往返，Host 声明 workspace_update，空白名字是类型化的 INVALID_PARAMS', async () => {
+    const { home } = await setup();
+    const { client } = await open(home);
+    expect(client.hello.features.workspace_update).toBe(true);
+    const { workspace } = await client.request('workspace.add', {
+      rootPath: workspaceDir(tempDir()),
+    });
+    const { workspace: renamed } = await client.request('workspace.update', {
+      workspaceId: workspace.id,
+      displayName: '新名字',
+    });
+    expect(renamed).toMatchObject({ id: workspace.id, rootPath: workspace.rootPath });
+    expect(renamed.displayName).toBe('新名字');
+    const { workspaces } = await client.request('workspace.list', {});
+    expect(workspaces.find((entry) => entry.id === workspace.id)?.displayName).toBe('新名字');
+    const blank = await client
+      .request('workspace.update', { workspaceId: workspace.id, displayName: '   ' })
+      .catch((e: unknown) => e);
+    expect(isRpcError(blank, 'INVALID_PARAMS')).toBe(true);
+  });
+
   it('流式输出中途强制断开连接：自动重连，以最大 seq 续订，事件完整、无重复', async () => {
     // 回复约 250 字，2 字一片、8 ms 一片：增量持续约 1 s。
     const { home } = await setup({ chunkSize: 2, stepDelayMs: 8 });

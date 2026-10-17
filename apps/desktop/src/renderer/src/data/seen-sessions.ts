@@ -31,6 +31,13 @@ export function markSeen(session: Session): void {
   seen.set((current) => ({ ...current, [session.id]: session.lastSeq }));
 }
 
+/** 标记为未读：记的位置退到最后一个事件之前，会话的 `lastSeq` 就比它大；会话再被打开时照常记为已读。 */
+export function markUnread(session: Session): void {
+  const before = Math.max(0, session.lastSeq - 1);
+  if (seen.get()[session.id] === before) return;
+  seen.set((current) => ({ ...current, [session.id]: before }));
+}
+
 export function isUnread(map: SeenMap, session: Session): boolean {
   const last = map[session.id];
   return last !== undefined && session.lastSeq > last;

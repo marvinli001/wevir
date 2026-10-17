@@ -121,7 +121,7 @@ interface Workspace {
 |---|---|---|---|
 | `id` | Host 分配 | `workspace.add` | 不可改 |
 | `rootPath` | 目录的 realpath（`fs.realpath` 之后的绝对路径）。Host 按它去重：同一路径（含经符号链接到达的同一目录）再次添加，返回已有的工作区 | `workspace.add` | 不可改。目录被移动或删除后工作区仍在，在其中建会话或 resume 会失败 |
-| `displayName` | 显示名，默认取目录名 | `workspace.add` | 用户改名（T5.4） |
+| `displayName` | 显示名，默认取目录名 | `workspace.add` | 用户改名（`workspace.update`，0.49.0；“对话”工作区不能改） |
 | `kind` | `chats`：Host 自己的“对话”工作区（0.39.0），见下；省略：用户添加的项目 | Host | 不可改 |
 | `createdAt` / `updatedAt` | 时间 | Host | Host |
 

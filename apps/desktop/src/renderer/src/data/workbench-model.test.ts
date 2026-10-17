@@ -5,11 +5,13 @@ import {
   groupByStatus,
   groupSessions,
   mergeSessions,
+  pinnedFirst,
   projectsOf,
   recentWorkspaces,
   resolveRoute,
   sessionMarker,
   type WorkbenchData,
+  type WorkspaceEntry,
 } from './workbench-model';
 
 const NOW = '2026-10-13T00:00:00.000Z';
@@ -228,5 +230,31 @@ describe('resolveRoute', () => {
       sessionId: 'ses_2',
       entry: { workspace: { id: 'ws_a' } },
     });
+  });
+});
+
+describe('pinnedFirst', () => {
+  const entries: WorkspaceEntry[] = ['ws_a', 'ws_b', 'ws_c', 'ws_d'].map((id) => ({
+    workspace: workspace(id as `ws_${string}`),
+    sessions: [],
+  }));
+  const ids = (list: WorkspaceEntry[]) => list.map((entry) => entry.workspace.id);
+
+  it('没有置顶时顺序不变，且不是同一个数组', () => {
+    expect(ids(pinnedFirst(entries, []))).toEqual(['ws_a', 'ws_b', 'ws_c', 'ws_d']);
+    expect(pinnedFirst(entries, [])).not.toBe(entries);
+  });
+
+  it('置顶的排在前面、按置顶的先后，其余保持原来的顺序', () => {
+    expect(ids(pinnedFirst(entries, ['ws_c', 'ws_b']))).toEqual(['ws_c', 'ws_b', 'ws_a', 'ws_d']);
+  });
+
+  it('置顶了但已经不在列表里的项目忽略', () => {
+    expect(ids(pinnedFirst(entries, ['ws_gone', 'ws_d']))).toEqual([
+      'ws_d',
+      'ws_a',
+      'ws_b',
+      'ws_c',
+    ]);
   });
 });

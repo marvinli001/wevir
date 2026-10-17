@@ -15,7 +15,7 @@ import { EmptyList, LIST_CARD, type Notice, NoticeBanner, SettingsSection } from
 import { archivedChatRows, deleteChats, worktreeRows } from './storage-model';
 
 /** 量过之后才改出来的工作树改动：Host 回 `RESOURCE_IN_USE` 带 `worktrees`（通用的说法是“仍有未关闭的会话”）。 */
-function describeDeleteError(reason: unknown): string {
+export function describeDeleteError(reason: unknown): string {
   return isRpcError(reason, 'RESOURCE_IN_USE') && (reason.data?.worktrees?.length ?? 0) > 0
     ? t('settings.storage.dirty')
     : describe(reason);

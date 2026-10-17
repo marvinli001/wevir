@@ -54,7 +54,13 @@ import {
   useFilesSupported,
   useFileUrl,
 } from '@/files/files-data';
-import { filePrefs, preferredEditor, useEditors, useFileReveal } from '@/files/files-store';
+import {
+  filePrefs,
+  openInEditor,
+  preferredEditor,
+  useEditors,
+  useFileReveal,
+} from '@/files/files-store';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
@@ -512,10 +518,7 @@ function OpenInMenu({ path, line }: { path: string; line?: number }) {
   const prefs = filePrefs.use();
   const preferred = preferredEditor(editors, prefs.editor);
   const reveal = () => void window.wevir.revealPath(path).catch(() => undefined);
-  const open = (id: string) => {
-    filePrefs.set((current) => ({ ...current, editor: id }));
-    void window.wevir.openInEditor(id, path, line).catch(() => undefined);
-  };
+  const open = (id: string) => openInEditor(id, path, line);
   const revealLabel = IS_MAC ? t('files.revealFinder') : t('files.revealFolder');
   return (
     <span className="flex shrink-0 items-center">

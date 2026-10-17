@@ -139,12 +139,18 @@ describe('不带 workspaceId 的 session.create', () => {
 });
 
 describe('“对话”工作区', () => {
-  it('不能移除、不能作为项目添加，也不能进环境', async () => {
+  it('不能移除、改名、作为项目添加，也不能进环境', async () => {
     const h = await setup();
     const { session } = await h.methods['session.create']({ providerId: 'mock' }, context);
     const root = join(h.dataDir, 'chats');
     expect(() =>
       h.methods['workspace.remove']({ workspaceId: session.workspaceId }, context),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_PARAMS' }));
+    expect(() =>
+      h.methods['workspace.update'](
+        { workspaceId: session.workspaceId, displayName: '别的名字' },
+        context,
+      ),
     ).toThrow(expect.objectContaining({ code: 'INVALID_PARAMS' }));
     await expect(h.methods['workspace.add']({ rootPath: root }, context)).rejects.toMatchObject({
       code: 'INVALID_PARAMS',

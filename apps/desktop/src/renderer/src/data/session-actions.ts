@@ -1,21 +1,28 @@
-// 会话的改名、归档与置顶（U34，0.23.0）：改名与归档经 Host（`session.rename`、`session.archive`），置顶只记在本机。左栏的行、
-// 斜杠命令与设置 → 已归档共用这里。改名的对话框由 `requestRename` 打开（rename-dialog.tsx 挂在根上）。
+// 会话行的动作（U34，0.23.0 起；右键菜单补全后）：改名、归档与删除经 Host（`session.rename`、`session.archive`、`session.delete`），
+// 分支经 `session.fork`，置顶与未读只记在本机。左栏的行（悬停的按钮与右键菜单）、斜杠命令与设置 → 已归档共用这里。改名与删除
+// 的对话框由 `requestRename`、`requestDelete` 打开（rename-dialog.tsx、delete-session-dialog.tsx 挂在根上）。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
-import type { Session, SessionId } from '@wevir/protocol';
-import { useHostConnection } from '@/host/host-connection';
+import type { HostFeatures, Session, SessionId } from '@wevir/protocol';
+import { describe, useHostConnection } from '@/host/host-connection';
+import { t } from '@/i18n';
 import { createPersistedStore, createStore } from '@/lib/store';
 import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
+import { engineFeaturesOf } from '@/session/handoff-model';
+import { reportActionFailure } from './action-notices';
+import { isUnread, markSeen, markUnread, useSeenSessions } from './seen-sessions';
+import { useWorkbenchData, useWorkbenchStore } from './workbench-data';
 import type { WorkbenchStore } from './workbench-store';
 
-/** Host 能改名、能归档（0.23.0）。 */
-export function useSessionManagement(): { rename: boolean; archive: boolean } {
+/** Host 能改名、能归档（0.23.0）、能永久删除（0.43.0）。 */
+export function useSessionManagement(): { rename: boolean; archive: boolean; remove: boolean } {
   const { view } = useHostConnection();
-  if (view.status !== 'connected') return { rename: false, archive: false };
+  if (view.status !== 'connected') return { rename: false, archive: false, remove: false };
   return {
     rename: hostSupports(view.hello.features, 'session_rename'),
     archive: hostSupports(view.hello.features, 'session_archive'),
+    remove: hostSupports(view.hello.features, 'session_delete'),
   };
 }
 
@@ -70,6 +77,19 @@ export async function renameSession(
 
 // ── 归档 ─────────────────────────────────────────────────────────
 
+/** 归档之后的收尾：取消置顶；正在看其中一个时回到首页；重读列表。 */
+async function afterArchive(
+  store: WorkbenchStore | undefined,
+  sessionIds: readonly SessionId[],
+): Promise<void> {
+  for (const sessionId of sessionIds) unpin(sessionId);
+  const viewing = router.state.matches.some((match) =>
+    sessionIds.includes(match.params.sessionId as SessionId),
+  );
+  if (viewing) void router.navigate(paths.home());
+  await store?.refresh();
+}
+
 /** 归档或取消归档；归档掉正在看的会话时回到首页，并取消置顶。 */
 export async function archiveSession(
   client: WevirClient,
@@ -78,10 +98,163 @@ export async function archiveSession(
   archived: boolean,
 ): Promise<void> {
   await client.request('session.archive', { sessionId, archived });
-  if (archived) {
-    unpin(sessionId);
-    const viewing = router.state.matches.some((match) => match.params.sessionId === sessionId);
-    if (viewing) void router.navigate(paths.home());
+  if (archived) await afterArchive(store, [sessionId]);
+  else await store?.refresh();
+}
+
+/** 依次归档一批会话（项目菜单的“归档会话”）；一个失败不影响其余的，返回第一个失败的原因与失败的个数。 */
+export async function archiveSessions(
+  client: WevirClient,
+  store: WorkbenchStore | undefined,
+  sessionIds: readonly SessionId[],
+): Promise<{ failed: number; firstError?: unknown }> {
+  const done: SessionId[] = [];
+  let failed = 0;
+  let firstError: unknown;
+  for (const sessionId of sessionIds) {
+    try {
+      await client.request('session.archive', { sessionId, archived: true });
+      done.push(sessionId);
+    } catch (error) {
+      failed += 1;
+      firstError ??= error;
+    }
   }
+  await afterArchive(store, done);
+  return { failed, ...(firstError !== undefined && { firstError }) };
+}
+
+// ── 分支 ─────────────────────────────────────────────────────────
+
+/**
+ * 会话能不能在菜单里分支到新会话（0.38.0）：Host 声明了 `session_branches`、会话当前的引擎能分支（`engineFeatures` 的 `branch`），
+ * 且是可写的顶层会话。有没有结束的回合只有 Host 知道，没有时 `session.fork` 报 `INVALID_STATE`，由调用方提示。
+ */
+export function canBranchSession(
+  session: Pick<Session, 'parentSessionId' | 'side' | 'readOnly'>,
+  features: HostFeatures,
+  engine: { branch?: boolean } | undefined,
+): boolean {
+  return (
+    hostSupports(features, 'session_branches') &&
+    engine?.branch === true &&
+    session.parentSessionId === undefined &&
+    !session.side &&
+    session.readOnly === undefined
+  );
+}
+
+/** 分支到新会话（到最近一个结束的回合）并打开它；出错或已关闭的会话先恢复。 */
+export async function branchSession(
+  client: WevirClient,
+  store: WorkbenchStore | undefined,
+  session: Pick<Session, 'id' | 'state'>,
+): Promise<void> {
+  if (session.state === 'error' || session.state === 'closed') {
+    await client.request('session.resume', { sessionId: session.id });
+  }
+  const { session: created } = await client.request('session.fork', { sessionId: session.id });
+  store?.upsertSession(created);
+  void router.navigate(paths.session(created.workspaceId, created.id));
+}
+
+// ── 永久删除 ─────────────────────────────────────────────────────
+
+export const deleteRequest = createStore<Session | undefined>(undefined);
+
+/** 打开永久删除的确认框（delete-session-dialog.tsx）。 */
+export function requestDelete(session: Session): void {
+  deleteRequest.set(session);
+}
+
+export interface DeleteResult {
+  keptBranches: string[];
+  engineDataKept: boolean;
+}
+
+/**
+ * 永久删除一个会话（`session.delete` 只收已归档的）：没归档的先归档，再删。`force`：量的时候工作树有没提交的改动，确认框已经
+ * 提醒过。删掉的会话取消置顶；归档那一步已经让正在看的会话回到首页。
+ */
+export async function deleteSessionPermanently(
+  client: WevirClient,
+  store: WorkbenchStore | undefined,
+  session: Pick<Session, 'id' | 'archivedAt'>,
+  force: boolean,
+): Promise<DeleteResult> {
+  const sessionId = session.id as SessionId;
+  if (session.archivedAt === undefined) await archiveSession(client, store, sessionId, true);
+  const result = await client.request('session.delete', {
+    sessionId,
+    ...(force && { force: true }),
+  });
+  unpin(sessionId);
   await store?.refresh();
+  return {
+    keptBranches: result.keptBranches ?? [],
+    engineDataKept: result.engineDataKept === true,
+  };
+}
+
+// ── 行上的动作（右键菜单与悬停的按钮共用） ──────────────────────────
+
+type ActionFailure = 'session.archiveFailed' | 'message.branchFailed';
+
+export interface SessionActions {
+  pinned: boolean;
+  unread: boolean;
+  togglePin(): void;
+  /** Host 不支持（旧版本）或没连上时没有。 */
+  rename?: () => void;
+  archive?: () => void;
+  branch?: () => void;
+  remove?: () => void;
+  toggleUnread(): void;
+  copyId(): void;
+  copyCwd(): void;
+  reveal(): void;
+}
+
+/** 把动作绑到一个会话上；失败的动作报到窗口右下角的通知（action-notices.ts），不再只写控制台。 */
+export function useSessionActions(session: Session): SessionActions {
+  const { client, view } = useHostConnection();
+  const store = useWorkbenchStore();
+  const workbench = useWorkbenchData();
+  const manage = useSessionManagement();
+  const pinned = usePinnedSessions().includes(session.id);
+  const unread = isUnread(useSeenSessions(), session);
+
+  const engine =
+    view.status === 'connected' && workbench.status === 'ready'
+      ? engineFeaturesOf(view.hello.engineFeatures, workbench.providers, session.providerId)
+      : undefined;
+  const branchable =
+    view.status === 'connected' && canBranchSession(session, view.hello.features, engine);
+
+  const guard = (failure: ActionFailure, task: () => Promise<unknown>) => () => {
+    task().catch((error: unknown) => reportActionFailure(t(failure, { error: describe(error) })));
+  };
+  const copy = (text: string) => () => void window.wevir.copyText(text).catch(() => undefined);
+
+  return {
+    pinned,
+    unread,
+    togglePin: () => togglePinned(session.id),
+    toggleUnread: () => (unread ? markSeen(session) : markUnread(session)),
+    ...(manage.rename && { rename: () => requestRename(session) }),
+    ...(manage.archive &&
+      client && {
+        archive: guard('session.archiveFailed', () =>
+          archiveSession(client, store, session.id as SessionId, true),
+        ),
+      }),
+    ...(branchable &&
+      client && {
+        branch: guard('message.branchFailed', () => branchSession(client, store, session)),
+      }),
+    ...(manage.remove && manage.archive && { remove: () => requestDelete(session) }),
+    copyId: copy(session.id),
+    copyCwd: copy(session.cwd),
+    reveal: () => void window.wevir.revealPath(session.cwd).catch(() => undefined),
+  };
 }

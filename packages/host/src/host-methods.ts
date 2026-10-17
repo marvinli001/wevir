@@ -337,6 +337,21 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
 
+    // 0.49.0：只改显示名（去掉首尾空白后不能是空的），rootPath 不可改；“对话”工作区不能改。
+    'workspace.update': ({ workspaceId, displayName }) => {
+      const workspace = storage.workspaces.get(workspaceId);
+      if (!workspace || workspace.removedAt !== undefined) {
+        throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+      }
+      if (options.chats?.isChats(workspace) === true) {
+        throw invalidParams(['workspaceId'], 'the chats workspace cannot be renamed');
+      }
+      const name = displayName.trim();
+      if (name === '') throw invalidParams(['displayName'], 'displayName must not be blank');
+      if (name !== workspace.displayName) storage.workspaces.rename(workspaceId, name, isoNow());
+      return { workspace: toWorkspace(mustGetWorkspace(storage, workspaceId)) };
+    },
+
     // 0.15.0（U22.1，domain-model §3.10）：保存的环境。
     'environment.list': () => ({
       environments: storage.environments.list().map(toEnvironment),

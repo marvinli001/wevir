@@ -1218,6 +1218,21 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ workspaceId: ids.workspace }], invalid: [{ workspaceId: ids.session }] },
     result: empty,
   },
+  'workspace.update': {
+    params: {
+      valid: [{ workspaceId: ids.workspace, displayName: 'Wevir 桌面端' }],
+      invalid: [
+        { workspaceId: ids.workspace, displayName: '' },
+        { workspaceId: ids.workspace, displayName: 'x'.repeat(201) },
+        { workspaceId: ids.session, displayName: 'A' },
+        { workspaceId: ids.workspace },
+      ],
+    },
+    result: {
+      valid: [{ workspace }, { workspace: chatsWorkspace }],
+      invalid: [{}, { workspace: { id: 'x' } }],
+    },
+  },
   'environment.list': {
     params: empty,
     result: {
