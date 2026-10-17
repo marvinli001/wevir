@@ -57,6 +57,7 @@ import { DeliverySwitch } from './delivery-switch';
 import { ComposerThumb, ImagePreview, readAsDataUrl, uploadImage } from './image-attachments';
 import { composerKeyAction, otherDelivery } from './pending-model';
 import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './prompt-history';
+import { appendQuote } from './selection-model';
 
 /** 有回合在进行（含正在取消）：没有字时按钮是“停止”；Host 不支持待发消息时不能再发送。 */
 export function isBusy(state: SessionState | undefined): boolean {
@@ -114,6 +115,27 @@ export function restoreDraft(draftKey: string, text: string): void {
 export function setDraft(draftKey: string, text: string): void {
   if (text) drafts.set(draftKey, text);
   else drafts.delete(draftKey);
+}
+
+/** 挂着的输入框：`insertQuote` 追加引用。 */
+const quoteListeners = new Map<string, (selected: string) => void>();
+/** 打开时要把光标放到末尾并获得焦点的输入框（`insertQuote` 时它还没挂上，如刚分出的支线窗格）。 */
+const focusOnOpen = new Set<string>();
+
+/**
+ * 把选中的文字作为引用追加到输入框（desktop-tokens §57，消息里选中文字的“添加到对话”）：输入框挂着时追加在已有内容后面、
+ * 获得焦点、光标落在引用后面可以接着写；还没挂上时（刚分出的支线窗格）写进草稿，打开时再聚焦。
+ */
+export function insertQuote(draftKey: string, selected: string): void {
+  const listener = quoteListeners.get(draftKey);
+  if (listener) {
+    listener(selected);
+    return;
+  }
+  const next = appendQuote(drafts.get(draftKey) ?? '', selected);
+  if (!next) return;
+  drafts.set(draftKey, next.text);
+  focusOnOpen.add(draftKey);
 }
 
 /**
@@ -227,6 +249,24 @@ export function Composer({
     listeners.add(restore);
     return () => {
       listeners.delete(restore);
+    };
+  }, [draftKey]);
+  // 消息里选中文字的“添加到对话”：追加引用、聚焦、光标放到末尾。
+  const latestText = useRef(text);
+  latestText.current = text;
+  useEffect(() => {
+    const quote = (selected: string) => {
+      const next = appendQuote(latestText.current, selected);
+      if (!next) return;
+      latestText.current = next.text;
+      setText(next.text);
+      setCursor(next.cursor);
+      pendingCursor.current = next.cursor;
+      setHistoryIndex(-1);
+    };
+    quoteListeners.set(draftKey, quote);
+    return () => {
+      if (quoteListeners.get(draftKey) === quote) quoteListeners.delete(draftKey);
     };
   }, [draftKey]);
   const updateImages = (update: (current: ComposerImage[]) => ComposerImage[]) =>
@@ -402,6 +442,8 @@ export function Composer({
     pendingCursor.current = undefined;
     textarea.focus();
     textarea.setSelectionRange(target, target);
+    // 光标在末尾时把末尾滚进视野（追加了一段长引用）。
+    if (target >= textarea.value.length) textarea.scrollTop = textarea.scrollHeight;
   });
 
   const replaceRange = (start: number, end: number, replacement: string) => {
@@ -490,11 +532,14 @@ export function Composer({
     return false;
   };
 
-  // 带着草稿打开时光标放到末尾、滚到底（基于历史新建的长草稿，接着写“接下来”）。
+  // 带着草稿打开时光标放到末尾、滚到底（基于历史新建的长草稿，接着写“接下来”）；`insertQuote` 先放了引用的输入框（支线窗格）
+  // 同样，并且获得焦点。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在挂载时。
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (!autoFocus || !textarea || textarea.value === '') return;
+    const requested = focusOnOpen.delete(draftKey);
+    if (!textarea || (!autoFocus && !requested) || textarea.value === '') return;
+    if (requested) textarea.focus();
     textarea.setSelectionRange(textarea.value.length, textarea.value.length);
     textarea.scrollTop = textarea.scrollHeight;
   }, []);

@@ -496,6 +496,8 @@ export const zhCN = {
   'worktree.notRepo': '非 Git 仓库',
 
   'transcript.label': '会话内容',
+  'selection.label': '选中文字的操作',
+  'selection.addToChat': '添加到对话',
   'transcript.loading': '正在加载会话…',
   'transcript.failed': '读取会话失败：{error}',
   'transcript.jumpToLatest': '回到底部',

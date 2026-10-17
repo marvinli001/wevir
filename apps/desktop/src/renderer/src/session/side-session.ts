@@ -32,6 +32,23 @@ export function sideTitle(question: string): string {
   return line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH)}…` : line;
 }
 
+/**
+ * 分出支线、开窗格，不发消息。`prepare` 在窗格打开之前拿到支线的 ID（消息里选中文字的“支线提问”借此把引用放进它的输入框）。
+ * 失败时抛出，调用方显示。
+ */
+export async function openSide(
+  client: WevirClient,
+  sessionId: SessionId,
+  title: string,
+  panes: PaneController | undefined,
+  prepare?: (sideId: SessionId) => void,
+): Promise<SessionId> {
+  const { session } = await client.request('session.fork', { sessionId, side: true });
+  prepare?.(session.id);
+  panes?.open({ kind: 'session', params: { sessionId: session.id, title: sideTitle(title) } });
+  return session.id;
+}
+
 /** 分出支线、开窗格、把问题发进支线。失败时抛出，调用方显示。 */
 export async function startSide(
   client: WevirClient,
@@ -39,9 +56,8 @@ export async function startSide(
   question: string,
   panes: PaneController | undefined,
 ): Promise<void> {
-  const { session } = await client.request('session.fork', { sessionId, side: true });
-  panes?.open({ kind: 'session', params: { sessionId: session.id, title: sideTitle(question) } });
-  await sendText(client, session.id, question);
+  const sideId = await openSide(client, sessionId, question, panes);
+  await sendText(client, sideId, question);
 }
 
 /** 关掉支线窗格时关闭支线会话（路由根上挂一次，routes/router.tsx 的 AppRoot）。 */

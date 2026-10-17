@@ -485,6 +485,8 @@ export const messages: Messages = {
   'worktree.notRepo': '非 Git 存放庫',
 
   'transcript.label': '工作階段內容',
+  'selection.label': '選取文字的操作',
+  'selection.addToChat': '加入對話',
   'transcript.loading': '正在載入工作階段…',
   'transcript.failed': '讀取工作階段失敗：{error}',
   'transcript.jumpToLatest': '回到底部',

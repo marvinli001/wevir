@@ -143,6 +143,7 @@ function UserBubble({ text }: { text: string }) {
         )}
         style={foldable ? { maxHeight: folded ? USER_FOLD_PX : height } : undefined}
         data-user-bubble={foldable ? (folded ? 'folded' : 'expanded') : undefined}
+        data-quotable=""
       >
         {text}
       </div>
@@ -368,7 +369,7 @@ export const SystemMessage = memo(function SystemMessage({
 const PartView = memo(function PartView({ part }: { part: ChatPart }) {
   switch (part.type) {
     case 'text':
-      return <MarkdownView text={part.text} streaming={part.state === 'streaming'} />;
+      return <MarkdownView text={part.text} streaming={part.state === 'streaming'} quotable />;
     case 'todo':
       return <TodoList part={part} />;
     case 'error':

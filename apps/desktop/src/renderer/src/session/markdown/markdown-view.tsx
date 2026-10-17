@@ -99,9 +99,12 @@ export const MarkdownView = memo(function MarkdownView({
   smooth = true,
   className,
   document: documentMode,
+  quotable = false,
 }: {
   text: string;
   streaming: boolean;
+  /** 选中里面的文字时可以引用（消息里选中文字的工具条，session/selection-toolbar.tsx）。 */
+  quotable?: boolean;
   /** 流式时缓冲放字并淡入新字；思考过程这类收着看的关掉。 */
   smooth?: boolean;
   className?: string;
@@ -227,7 +230,12 @@ export const MarkdownView = memo(function MarkdownView({
   }, []);
 
   return (
-    <div ref={rootRef} className={cn('markdown', className)} data-streaming={live || undefined}>
+    <div
+      ref={rootRef}
+      className={cn('markdown', className)}
+      data-streaming={live || undefined}
+      data-quotable={quotable ? '' : undefined}
+    >
       {blocks.map((block, index) => (
         // 块的身份就是它在文档里的位置：流式时只有末尾的块会换对象。
         // biome-ignore lint/suspicious/noArrayIndexKey: 见上。

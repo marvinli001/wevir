@@ -493,6 +493,8 @@ export const messages: Messages = {
   'worktree.notRepo': 'Kein Git-Repository',
 
   'transcript.label': 'Sitzungsverlauf',
+  'selection.label': 'Aktionen für die Auswahl',
+  'selection.addToChat': 'Zur Unterhaltung hinzufügen',
   'transcript.loading': 'Sitzung wird geladen…',
   'transcript.failed': 'Sitzung konnte nicht gelesen werden: {error}',
   'transcript.jumpToLatest': 'Zum Ende',
