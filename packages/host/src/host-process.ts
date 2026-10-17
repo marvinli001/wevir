@@ -38,6 +38,7 @@ import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
+import { TaskBoardStore } from './task-board.js';
 import { loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
 import type { WebService } from './web/service.js';
@@ -212,6 +213,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
     // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
     const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
+    // 共享任务清单（task-board.ts）：根会话已经不在的清单启动时清掉。
+    const taskBoards = new TaskBoardStore({ dir: homePath(home, 'tasksDir') });
+    void taskBoards
+      .sweep((sessionId) => sessionsDb.sessions.get(sessionId) !== undefined)
+      .catch((error: unknown) => logger.warn('task board sweep failed', { error }));
     const manager = new SessionManager({
       storage,
       events: store,
@@ -316,6 +322,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(lsp !== undefined && { lsp }),
         memory,
         roles,
+        tasks: taskBoards,
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;

@@ -31,6 +31,8 @@ export const HOME_LAYOUT = {
   memoryDir: 'memory',
   /** 预设角色（roles.ts）：用户自己的角色，每个一个 .md；项目的在项目里的 `.wevir/roles/`。 */
   rolesDir: 'roles',
+  /** 共享任务清单（task-board.ts）：每个会话树的根一个 `<根会话 ID>.json`（0600）。 */
+  tasksDir: 'tasks',
 } as const;
 
 export interface ResolveHomeOptions {

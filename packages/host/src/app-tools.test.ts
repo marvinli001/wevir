@@ -27,6 +27,7 @@ import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { RoleStore } from './roles.js';
 import { SessionManager } from './session-manager.js';
+import { TaskBoardStore } from './task-board.js';
 import { identity, useStorages, useTempDir, zip } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
 
@@ -120,6 +121,7 @@ async function setup(
   const projectRolesDir = join(workspace, '.wevir', 'roles');
   tools = new AppTools({
     roles: new RoleStore({ dir: rolesDir }),
+    tasks: new TaskBoardStore({ dir: join(root, 'data', 'tasks') }),
     ...(plugins && { plugins }),
     ...(processes && { processes }),
     storage,
@@ -286,6 +288,9 @@ describe('应用级工具的端点', () => {
       'wevir_session_read',
       'wevir_models',
       'wevir_roles',
+      'wevir_tasks',
+      'wevir_task_create',
+      'wevir_task_update',
       'wevir_session_create',
       'wevir_session_send',
       'wevir_session_wait',
@@ -357,7 +362,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(13);
+    expect(list.body.result.tools).toHaveLength(16);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -849,6 +854,153 @@ describe('应用级工具', () => {
       ],
       permissionModes: ['on_request', 'auto_review'],
     });
+  });
+});
+
+describe('共享任务清单', () => {
+  const tasks = async (h: Awaited<ReturnType<typeof setup>>, id: SessionId, args = {}) =>
+    (await h.call(id, 'wevir_tasks', args)) as {
+      board: string;
+      counts: Record<string, number>;
+      // biome-ignore lint/suspicious/noExplicitAny: 测试里读任意形状的工具结果。
+      tasks: Array<Record<string, any>>;
+      error?: string;
+    };
+
+  it('一棵会话树共用一张清单：建、认领、依赖、备注、做完；别棵树看不到', async () => {
+    const h = await setup();
+    const lead = await h.create();
+    const worker = (
+      await h.call(lead, 'wevir_session_create', { message: 'help', reportBack: false })
+    ).sessionId as SessionId;
+    const grand = (
+      await h.manager.create({ workspaceId: 'ws_1', providerId: 'mock' }, { openedBy: worker })
+    ).id;
+    const stranger = await h.create();
+
+    const first = await h.call(lead, 'wevir_task_create', {
+      subject: 'Write the parser',
+      description: 'Handle quoted fields.',
+    });
+    expect(first).toMatchObject({
+      board: lead,
+      task: { id: 't1', status: 'pending', ready: true },
+    });
+    const second = await h.call(lead, 'wevir_task_create', {
+      subject: 'Test the parser',
+      blockedBy: ['t1'],
+      owner: worker,
+    });
+    expect(second.task).toMatchObject({
+      id: 't2',
+      owner: worker,
+      blockedBy: ['t1'],
+      waitingFor: ['t1'],
+    });
+    expect(second.task).not.toHaveProperty('ready');
+
+    // 孙会话和子会话看到的是同一张清单；别的树是另一张。
+    const seen = await tasks(h, grand);
+    expect(seen.board).toBe(lead);
+    expect(seen.tasks.map((task) => task.id)).toEqual(['t1', 't2']);
+    expect(seen.tasks[0]).toMatchObject({ ready: true });
+    expect(seen.counts).toMatchObject({ pending: 2, completed: 0 });
+    expect((await tasks(h, stranger)).tasks).toEqual([]);
+
+    // 被依赖挡住的不能开始、不能完成；其他会话认领的只能加备注。
+    const early = await h.call(worker, 'wevir_task_update', { id: 't2', status: 'in_progress' });
+    expect(early.error).toMatch(/waits for t1 \(pending\)/);
+    const taken = await h.call(grand, 'wevir_task_update', { id: 't2', status: 'cancelled' });
+    expect(taken.error).toMatch(new RegExp(`owned by ${worker}`));
+    expect(
+      await h.call(grand, 'wevir_task_update', { id: 't2', note: 'I can pair on this' }),
+    ).toMatchObject({ task: { notes: [{ sessionId: grand, text: 'I can pair on this' }] } });
+
+    // 开始就认领（没人认领时）；认领后别人不能抢。
+    const claimed = await h.call(grand, 'wevir_task_update', { id: 't1', status: 'in_progress' });
+    expect(claimed.task).toMatchObject({ owner: grand, ownedByYou: true, status: 'in_progress' });
+    const stolen = await h.call(worker, 'wevir_task_update', { id: 't1', owner: 'me' });
+    expect(stolen.error).toMatch(new RegExp(`owned by ${grand}`));
+    // 建它的会话可以收回。
+    expect(await h.call(lead, 'wevir_task_update', { id: 't1', owner: 'none' })).toMatchObject({
+      task: { id: 't1' },
+    });
+    expect((await h.call(lead, 'wevir_tasks', { id: 't1' })).task).not.toHaveProperty('owner');
+
+    // 做完以后依赖解除，后一项可以开始。
+    await h.call(grand, 'wevir_task_update', { id: 't1', status: 'completed', owner: 'me' });
+    const ready = await tasks(h, worker, { owner: 'me' });
+    expect(ready.tasks).toEqual([
+      expect.objectContaining({ id: 't2', ready: true, ownedByYou: true }),
+    ]);
+    expect(
+      (await h.call(worker, 'wevir_task_update', { id: 't2', status: 'in_progress' })).task,
+    ).toMatchObject({
+      status: 'in_progress',
+    });
+    // 默认只列没做完的；all 全列；单个任务带说明与备注。
+    expect((await tasks(h, lead)).tasks.map((task) => task.id)).toEqual(['t2']);
+    expect((await tasks(h, lead, { status: 'all' })).tasks.map((task) => task.id)).toEqual([
+      't1',
+      't2',
+    ]);
+    expect((await h.call(lead, 'wevir_tasks', { id: 't1' })).task).toMatchObject({
+      description: 'Handle quoted fields.',
+      createdBy: lead,
+    });
+  });
+
+  it('参数与规则：自己依赖自己、成环、不存在的任务、树外的认领、空改动、删除', async () => {
+    const h = await setup();
+    const lead = await h.create();
+    const stranger = await h.create();
+    await h.call(lead, 'wevir_task_create', { subject: 'a' });
+    await h.call(lead, 'wevir_task_create', { subject: 'b', blockedBy: ['t1'] });
+    expect(
+      (await h.call(lead, 'wevir_task_update', { id: 't1', addBlockedBy: ['t1'] })).error,
+    ).toMatch(/cannot wait for itself/);
+    expect(
+      (await h.call(lead, 'wevir_task_update', { id: 't1', addBlockedBy: ['t2'] })).error,
+    ).toMatch(/loop/);
+    expect(
+      (await h.call(lead, 'wevir_task_create', { subject: 'c', blockedBy: ['t9'] })).error,
+    ).toMatch(/No task t9/);
+    expect((await h.call(lead, 'wevir_task_update', { id: 't7', note: 'x' })).error).toMatch(
+      /No task t7/,
+    );
+    expect(
+      (await h.call(lead, 'wevir_task_create', { subject: 'd', owner: stranger })).error,
+    ).toMatch(/not in this task list's session tree/);
+    expect((await h.call(lead, 'wevir_task_update', { id: 't1' })).error).toMatch(
+      /Nothing to change/,
+    );
+    expect((await h.call(lead, 'wevir_task_create', { subject: '   ' })).error).toMatch(/subject/);
+    expect((await h.call(lead, 'wevir_task_update', { id: 't1', status: 'done' })).error).toMatch(
+      /status must be/,
+    );
+
+    // 删掉 t1 后，t2 不再被它挡住；删除后编号不重用。
+    expect(await h.call(lead, 'wevir_task_update', { id: 't1', delete: true })).toEqual({
+      board: lead,
+      deleted: 't1',
+    });
+    const left = await tasks(h, lead);
+    expect(left.tasks).toEqual([expect.objectContaining({ id: 't2', ready: true })]);
+    expect(left.tasks[0]).not.toHaveProperty('blockedBy');
+    expect((await h.call(lead, 'wevir_task_create', { subject: 'e' })).task).toMatchObject({
+      id: 't3',
+    });
+  });
+
+  it('清单存在数据目录里：Host 重启后还在；根会话不在了的清单启动时清掉', async () => {
+    const h = await setup();
+    const lead = await h.create();
+    await h.call(lead, 'wevir_task_create', { subject: 'persisted' });
+    const store = new TaskBoardStore({ dir: join(h.workspace, '..', 'data', 'tasks') });
+    expect((await store.list(lead)).map((task) => task.subject)).toEqual(['persisted']);
+    expect(await store.sweep((id) => id === lead)).toBe(0);
+    expect(await store.sweep(() => false)).toBe(1);
+    expect(await store.list(lead)).toEqual([]);
   });
 });
 
