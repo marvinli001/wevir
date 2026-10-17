@@ -8,6 +8,10 @@
 // 是 GUI 的 PATH（macOS 上只有 /usr/bin:/bin:/usr/sbin:/sbin），官方安装脚本放的 ~/.local/bin 与 Homebrew、npm、bun 的目录
 // 都不在里面；T3 的桌面端为此读登录 shell 的环境，Wevir 不读，改为把这些位置一并找一遍，并补进交给 `claude` 的 PATH
 // （它的 Bash 工具跑的命令也要找得到用户的工具）。
+//
+// Windows 上 `claude` 还要 Git for Windows 的 bash.exe（没有就连 `--version` 都报错）：同样因为 GUI 的 PATH 短、Git 可能装在
+// 非标准的地方，所以由 `findGitBash` 找一遍，把 `CLAUDE_CODE_GIT_BASH_PATH` 放进交给 `claude` 的环境（env.ts）；找不到时
+// 账号检测报“需要 Git for Windows”（account.ts），不把 `claude` 的原始报错甩给用户。
 
 import { execFile } from 'node:child_process';
 import { statSync } from 'node:fs';
@@ -25,6 +29,12 @@ export const CLAUDE_LOGIN_COMMAND = 'claude auth login';
 
 /** 环境变量：指定 `claude` 的路径（开发与测试用，优先于自动查找，低于 `account.setPath`）。 */
 export const CLAUDE_BIN_ENV = 'WEVIR_CLAUDE_BIN';
+
+/** 环境变量：Windows 上 `claude` 用的 bash.exe（Git for Windows 带的）；它自己只认这个变量与 PATH 里的 git。 */
+export const GIT_BASH_ENV = 'CLAUDE_CODE_GIT_BASH_PATH';
+
+/** Git for Windows 的下载页。 */
+export const GIT_FOR_WINDOWS_URL = 'https://git-scm.com/downloads/win';
 
 /** 版本探测的时限（T3 的 `DEFAULT_TIMEOUT_MS`）。 */
 export const VERSION_TIMEOUT_MS = 10_000;
@@ -174,6 +184,89 @@ function isDirectory(dir: string): boolean {
     return false;
   }
 }
+
+/** 环境变量的值：Windows 上名字不分大小写，而拷出来的普通对象分，所以逐个比。 */
+function envValue(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  platform: NodeJS.Platform,
+): string | undefined {
+  const exact = env[name];
+  if (exact !== undefined || platform !== 'win32') return exact;
+  const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === name.toLowerCase());
+  return key === undefined ? undefined : env[key];
+}
+
+export interface FindGitBashOptions {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  home?: string;
+  exists?: (filePath: string) => boolean;
+}
+
+/**
+ * Windows 上找 Git Bash 的 bash.exe（Claude Code 要它跑 Bash 工具，没有就连 `--version` 都报错）：已设置且存在的
+ * `CLAUDE_CODE_GIT_BASH_PATH` → PATH 里的 `git.exe` 推出的 `<Git 根>\bin\bash.exe`（git 在 `cmd\`、`bin\` 或 `mingw64\bin\`）→
+ * 常见的安装位置。不直接在 PATH 里找 bash.exe：`System32\bash.exe` 是 WSL 的，不是它。其他平台返回 undefined。
+ */
+export function findGitBash(options: FindGitBashOptions = {}): string | undefined {
+  const platform = options.platform ?? process.platform;
+  if (platform !== 'win32') return undefined;
+  const env = options.env ?? process.env;
+  const exists = options.exists ?? isFile;
+  const win = path.win32;
+
+  const fromEnv = envValue(env, GIT_BASH_ENV, platform)?.trim();
+  if (fromEnv !== undefined && fromEnv !== '' && exists(fromEnv)) return fromEnv;
+
+  const pathDirs = (envValue(env, 'PATH', platform) ?? '')
+    .split(';')
+    .map((dir) => dir.trim().replace(/^"(.*)"$/, '$1'))
+    .filter((dir) => dir !== '');
+  for (const dir of pathDirs) {
+    if (!['git.exe', 'git.cmd'].some((name) => exists(win.join(dir, name)))) continue;
+    for (const candidate of [
+      win.join(dir, 'bash.exe'),
+      win.join(dir, '..', 'bin', 'bash.exe'),
+      win.join(dir, '..', '..', 'bin', 'bash.exe'),
+    ]) {
+      const normalized = win.normalize(candidate);
+      if (exists(normalized)) return normalized;
+    }
+  }
+
+  const localAppData = envValue(env, 'LOCALAPPDATA', platform);
+  const roots = [
+    envValue(env, 'ProgramFiles', platform),
+    envValue(env, 'ProgramFiles(x86)', platform),
+    localAppData === undefined || localAppData === ''
+      ? undefined
+      : win.join(localAppData, 'Programs'),
+  ];
+  for (const root of roots) {
+    if (root === undefined || root === '') continue;
+    const candidate = win.join(root, 'Git', 'bin', 'bash.exe');
+    if (exists(candidate)) return candidate;
+  }
+  const scoop = win.join(
+    options.home ?? homedir(),
+    'scoop',
+    'apps',
+    'git',
+    'current',
+    'bin',
+    'bash.exe',
+  );
+  return exists(scoop) ? scoop : undefined;
+}
+
+/** `claude` 因为缺 Git Bash 报的错（`Claude Code on Windows requires git-bash …`）。 */
+export function isGitBashError(message: string): boolean {
+  return /git[- ]bash/i.test(message);
+}
+
+/** 缺 Git for Windows 时账号状态的 `lastError`：给引擎自己的原文以外的、能照着做的说法。 */
+export const GIT_BASH_MISSING_MESSAGE = `Claude Code on Windows requires Git for Windows (git-bash): install it from ${GIT_FOR_WINDOWS_URL}, then check again`;
 
 /** 从 `claude --version` 的输出里取版本号（如 `2.1.287 (Claude Code)` → `2.1.287`；T3 的 `parseGenericCliVersion`）。 */
 export function parseClaudeVersion(output: string): string | undefined {

@@ -18,11 +18,15 @@ import {
   AdapterError,
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
-import { claudeEnv } from './env.js';
+import { type ClaudeEnvOptions, claudeEnv } from './env.js';
 import {
   CLAUDE_INSTALL_COMMAND,
   CLAUDE_LOGIN_COMMAND,
   findClaude,
+  findGitBash,
+  GIT_BASH_MISSING_MESSAGE,
+  GIT_FOR_WINDOWS_URL,
+  isGitBashError,
   probeClaudeVersion,
 } from './executable.js';
 import { claudeModels } from './model-catalog.js';
@@ -328,6 +332,8 @@ export interface ClaudeAccountsOptions {
   probeVersion?: typeof probeClaudeVersion;
   /** 测试用：替换可执行文件的查找。 */
   findExecutable?: (customPath: string | null) => string | undefined;
+  /** 测试用：换掉平台与文件系统，在别的平台上走 Windows 的分支（Git Bash 的查找与交给 `claude` 的环境）。 */
+  system?: ClaudeEnvOptions;
   now?: () => number;
 }
 
@@ -497,7 +503,31 @@ export class ClaudeAccounts implements EngineAccounts {
         ...(this.#customPath !== null && { lastError: `${this.#customPath} does not exist` }),
       };
     }
-    const env = claudeEnv(parentEnv, executablePath);
+    const system = this.#options.system ?? {};
+    const env = claudeEnv(parentEnv, executablePath, system);
+    // Windows 上 `claude` 要 Git Bash：找不到、`claude` 又因此报错时，说成要装 Git for Windows，不把原始报错给用户。
+    const platform = system.platform ?? process.platform;
+    const gitBash =
+      platform === 'win32'
+        ? findGitBash({
+            env: parentEnv,
+            platform,
+            ...(system.home !== undefined && { home: system.home }),
+            ...(system.exists !== undefined && { exists: system.exists }),
+          })
+        : undefined;
+    const needsGit = (message: string) =>
+      platform === 'win32' && gitBash === undefined && isGitBashError(message);
+    const gitMissing = (): AccountState => {
+      this.#installation = undefined;
+      return {
+        ...base,
+        installed: false,
+        executablePath,
+        installUrl: GIT_FOR_WINDOWS_URL,
+        lastError: GIT_BASH_MISSING_MESSAGE,
+      };
+    };
     const version = await (this.#options.probeVersion ?? probeClaudeVersion)(
       executablePath,
       env,
@@ -505,6 +535,7 @@ export class ClaudeAccounts implements EngineAccounts {
       this.#abort.signal,
     );
     if (!version.ok) {
+      if (version.reason === 'failed' && needsGit(version.message)) return gitMissing();
       this.#installation = undefined;
       return {
         ...base,
@@ -530,9 +561,11 @@ export class ClaudeAccounts implements EngineAccounts {
         this.#abort.signal,
       );
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (needsGit(message)) return gitMissing();
       return {
         ...installed,
-        lastError: `Could not verify Claude authentication: ${error instanceof Error ? error.message : String(error)}`,
+        lastError: `Could not verify Claude authentication: ${message}`,
       };
     }
     if (!claudeSignedIn(probe.account)) return installed;

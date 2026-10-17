@@ -1,6 +1,6 @@
 import type { AccountState, ProviderProfile } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { isPickable, pickerOrder, sourceOf, sourcePhase } from './sources';
+import { GIT_FOR_WINDOWS_URL, isPickable, pickerOrder, sourceOf, sourcePhase } from './sources';
 
 function provider(id: string, kind: ProviderProfile['kind'], extra: Partial<ProviderProfile> = {}) {
   return {
@@ -68,6 +68,24 @@ describe('订阅来源', () => {
         canInstall: true,
       }),
     ).toEqual({ kind: 'missing', canInstall: true });
+    // Claude 在 Windows 上缺 Git：没装、安装地址是 Git 的下载页。
+    expect(
+      sourcePhase({
+        kind: 'claude',
+        status: 'signed_out',
+        installed: false,
+        installUrl: GIT_FOR_WINDOWS_URL,
+        lastError: 'Claude Code on Windows requires Git for Windows (git-bash)',
+      }),
+    ).toEqual({ kind: 'missing', canInstall: false, requires: 'git' });
+    expect(
+      sourcePhase({
+        kind: 'cursor',
+        status: 'signed_out',
+        installed: false,
+        installUrl: GIT_FOR_WINDOWS_URL,
+      }),
+    ).toEqual({ kind: 'missing', canInstall: false });
     expect(sourcePhase({ kind: 'cursor', status: 'signing_in' })).toEqual({ kind: 'signing_in' });
     expect(
       sourcePhase({ kind: 'claude', status: 'signed_in', plan: 'max', planLabel: 'Max 20x' }),

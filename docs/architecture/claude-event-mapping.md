@@ -47,14 +47,15 @@ Windows 上 npm 装的 `claude.cmd` 换成旁边的包入口（新版 `node_modu
 
 - `PATH` 前面加上 `claude` 所在的目录，后面补上存在而不在其中的常见目录（它的 Bash 工具要找得到用户的工具）；
 - 去掉“正运行在另一个 Claude Code 会话里”的标记（`CLAUDECODE`、`CLAUDE_CODE_ENTRYPOINT`、`CLAUDE_CODE_SESSION_ID` 等，`NESTED_SESSION_ENV`）：Host 由 Claude Code 拉起时（开发时常见）这些变量会让 `claude` 当成嵌套会话；
-- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，见 §6.4。
+- `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`，见 §6.4；
+- Windows 上 `CLAUDE_CODE_GIT_BASH_PATH`：`claude` 在 Windows 上要 Git for Windows 的 bash.exe（Bash 工具用它，没有时连 `--version` 都报 `requires git-bash`），它自己只认这个变量与 PATH 里的 git，而 GUI 拉起的 Host 的 PATH 短、Git 也可能装在别处，所以 `findGitBash`（`executable.ts`）先找一遍：已设置且文件存在的 `CLAUDE_CODE_GIT_BASH_PATH` → PATH 里的 `git.exe`（或 `git.cmd`）推出的 `<Git 根>\bin\bash.exe`（git 在 `cmd\`、`bin\` 或 `mingw64\bin\`）→ `%ProgramFiles%`、`%ProgramFiles(x86)%`、`%LOCALAPPDATA%\Programs` 下的 `Git\bin\bash.exe` → `~\scoop\apps\git\current\bin\bash.exe`；不直接在 PATH 里找 bash.exe（`System32\bash.exe` 是 WSL 的）。找到就写进交给 `claude` 的环境。版本探测、SDK 探测会话、会话与标题生成的环境都出自 `claudeEnv`（`env.ts`），所以只在那里补；找不到时不编一个，原来的值照旧。
 
 ### 2.3 检测登录与套餐
 
 照 T3 的 `checkClaudeProviderStatus`：
 
 1. 找 `claude`，找不到 → `{ status: 'signed_out', installed: false, installCommand }`（安装命令是官方的 `curl -fsSL https://claude.ai/install.sh | bash`，Windows `irm https://claude.ai/install.ps1 | iex`）。
-2. `claude --version`（10 s）。跑不起来 → `installed: true` 而 `signed_out`，`lastError` 写原因。
+2. `claude --version`（10 s）。跑不起来 → `installed: true` 而 `signed_out`，`lastError` 写原因。例外：Windows 上没找到 Git Bash（§2.2）、`claude`（这一步或第 3 步的探测会话）又报 `git-bash` 缺失 → `installed: false`、`executablePath`、`installUrl: https://git-scm.com/downloads/win`、没有 `installCommand`，`lastError` 是一句说明（要装 Git for Windows、装好后重新检测），不转述 `claude` 的原文；协议没有专门的字段，客户端认 `kind: claude` 加这个 `installUrl`，界面显示“需要 Git for Windows”与下载、重新检测（桌面端 `data/sources.ts` 的 `sourcePhase`）。没找到但 `claude` 照样跑得起来时不拦；找到了 Git Bash `claude` 还是报缺失（`CLAUDE_CODE_GIT_BASH_PATH` 指到坏文件）时原文照给。会话在这种状态下报 `engine_unavailable`，原因同 `lastError`。
 3. 开一个 SDK 的探测会话读初始化结果的 `account`（T3 的 `probeClaudeCapabilities`）：prompt 是永远不产出的异步迭代，`claude` 只做本地的初始化、不向 Anthropic 发请求；`persistSession: false`、不跑 hooks（`disableAllHooks`）、不连 MCP（`mcpServers: {}` + `strictMcpConfig`，另关掉 claude.ai 上连接的 MCP 与 IDE 自动连接）、工作目录是 `<数据目录>/engines/claude`。等初始化 25 s（Bedrock 慢），再单独等 10 s 读一次套餐用量（SDK 的实验接口 `usage_EXPERIMENTAL_…`，`skipBehaviors`），读不到不影响登录状态。
 4. 只有 `tokenSource: "none"` 而且没有 API Key、邮箱与套餐时才算没登录（T3 的 `claudeAuthStatus`）；第三方后端（`apiProvider` 不是 `firstParty`）算已登录；太旧的 `claude` 什么都不报也算已登录。
 
@@ -263,7 +264,7 @@ Claude 默认把 Agent 工具放到后台（工具立即返回 “Async agent la
 
 | 层 | 文件 | 内容 |
 |---|---|---|
-| 单元 | `account.test.ts`、`units.test.ts` | 套餐与登录状态、用量与 `rate_limit_event`（录音里的真实消息）、检测的缓存与刷新、没装 / 跑不起来 / 没登录；找 `claude`（GUI 的短 PATH、Windows 启动脚本）、环境、模型目录（版本过滤、档位换算、`[1m]`）、结果归类、工具展示、清单与提问 |
+| 单元 | `account.test.ts`、`units.test.ts` | 套餐与登录状态、用量与 `rate_limit_event`（录音里的真实消息）、检测的缓存与刷新、没装 / 跑不起来 / 没登录；找 `claude`（GUI 的短 PATH、Windows 启动脚本）、Windows 上找 Git Bash 与缺 Git 的账号状态（假的 Windows 路径，在别的平台上跑）、环境、模型目录（版本过滤、档位换算、`[1m]`）、结果归类、工具展示、清单与提问 |
 | 映射回放 | `claude-adapter.test.ts` | 假的 SDK（`test-fixtures/fake-sdk.ts`）回放 `test-fixtures/sdk/` 的真实录音：增量与替换、工具、审批的四个选项、完全访问与自动批准、子 agent、换设置（进程里改与重起）、支线、补说明、标题、清单、提问、认证失败、进程中途退出；压缩上下文（0.24.0，照真实消息形状拼的 `status` 与 `compact_boundary`：manual、auto、压缩失败） |
 | 契约第 1 层 | `claude-adapter.contract.test.ts` | `runAdapterContract` 跑在假 SDK 上（审批按决定走对应录音的分支；中断、插话、子 agent 的审批与慢回合是照真实消息形状拼的脚本）：21 条通过，“引擎进程退出”两条跳过（§4.4） |
 | 契约真实层 | `claude-adapter.contract.real.integration.test.ts` | 本机真实的 `claude`（`WEVIR_TEST_CLAUDE=1`，`claude-haiku-4-5`，用掉订阅额度，命令见文件头）；2026-10-15 在 `claude` 2.1.287 上跑过 12 条：一问一答与多回合、增量替换、工具、审批允许 / 拒绝 / 挂起时取消、恢复、插话、子会话、子会话的审批、取消子会话 |

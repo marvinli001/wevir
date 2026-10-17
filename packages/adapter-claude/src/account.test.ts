@@ -10,7 +10,12 @@ import {
   claudeSubscriptionLabel,
   usageRateLimits,
 } from './account.js';
-import { CLAUDE_INSTALL_COMMAND } from './executable.js';
+import {
+  CLAUDE_INSTALL_COMMAND,
+  GIT_BASH_ENV,
+  GIT_BASH_MISSING_MESSAGE,
+  GIT_FOR_WINDOWS_URL,
+} from './executable.js';
 import { FakeClaudeSdk, recordedMessages } from './test-fixtures/fake-sdk.js';
 
 // 探测会话的工作目录（检测时会建它）。
@@ -166,6 +171,122 @@ describe('ClaudeAccounts', () => {
       status: 'signed_out',
       installed: true,
       lastError: '`claude --version` failed: boom',
+    });
+  });
+
+  describe('Windows 上的 Git Bash', () => {
+    const GIT_ERROR =
+      '`claude --version` failed: Claude Code on Windows requires git-bash (https://git-scm.com/downloads/win). If installed but not in PATH, set environment variable pointing to your bash.exe, similar to: CLAUDE_CODE_GIT_BASH_PATH=C:\\Program Files\\Git\\bin\\bash.exe';
+    const bash = 'C:\\Program Files\\Git\\bin\\bash.exe';
+    const windows = (installed: string[]) => ({
+      env: { Path: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' },
+      findExecutable: () => 'C:\\Users\\me\\.local\\bin\\claude.exe',
+      system: {
+        platform: 'win32' as const,
+        home: 'C:\\Users\\me',
+        exists: (file: string) => installed.includes(file),
+        isDir: () => false,
+      },
+    });
+
+    it('找到：版本探测与 SDK 探测会话的环境都带 CLAUDE_CODE_GIT_BASH_PATH', async () => {
+      const seen: Array<string | undefined> = [];
+      const { created, sdk } = accounts({
+        ...windows([bash]),
+        probeVersion: async (_executable, env) => {
+          seen.push(env[GIT_BASH_ENV]);
+          return { ok: true, version: '2.1.287' };
+        },
+      });
+      expect(await created.read('claude')).toMatchObject({ status: 'signed_in', installed: true });
+      expect(seen).toEqual([bash]);
+      expect(sdk.queries[0]?.options.env?.[GIT_BASH_ENV]).toBe(bash);
+      expect((await created.installation()).executablePath).toBe(
+        'C:\\Users\\me\\.local\\bin\\claude.exe',
+      );
+    });
+
+    it('找不到、claude 因此报错：说成要装 Git for Windows，不给原始报错；会话起不来', async () => {
+      const { created } = accounts({
+        ...windows([]),
+        probeVersion: async () => ({ ok: false, reason: 'failed', message: GIT_ERROR }),
+      });
+      const state = await created.read('claude');
+      expect(state).toMatchObject({
+        status: 'signed_out',
+        installed: false,
+        executablePath: 'C:\\Users\\me\\.local\\bin\\claude.exe',
+        installUrl: GIT_FOR_WINDOWS_URL,
+        lastError: GIT_BASH_MISSING_MESSAGE,
+      });
+      expect(state.installCommand).toBeUndefined();
+      expect(state.lastError).not.toContain('CLAUDE_CODE_GIT_BASH_PATH');
+      await expect(created.installation()).rejects.toMatchObject({
+        code: 'engine_unavailable',
+        message: GIT_BASH_MISSING_MESSAGE,
+      });
+    });
+
+    it('SDK 探测会话因缺 Git Bash 失败：同样报要装 Git', async () => {
+      const { created } = accounts({
+        ...windows([]),
+        sdk: new FakeClaudeSdk({ initError: new Error(GIT_ERROR) }),
+      });
+      expect(await created.read('claude')).toMatchObject({
+        installed: false,
+        installUrl: GIT_FOR_WINDOWS_URL,
+        lastError: GIT_BASH_MISSING_MESSAGE,
+      });
+    });
+
+    it('找不到但 claude 照样跑得起来：不拦（以后 Claude Code 不再要 Git 时不误报）', async () => {
+      const { created } = accounts({ ...windows([]) });
+      expect(await created.read('claude')).toMatchObject({
+        status: 'signed_in',
+        installed: true,
+      });
+    });
+
+    it('找到了 claude 还是报缺 Git Bash（变量指到坏文件）：原文照给，不改说法', async () => {
+      const { created } = accounts({
+        ...windows([bash]),
+        probeVersion: async () => ({ ok: false, reason: 'failed', message: GIT_ERROR }),
+      });
+      expect(await created.read('claude')).toMatchObject({
+        installed: true,
+        lastError: GIT_ERROR,
+      });
+    });
+
+    it('装好 Git 后重新检测：恢复正常', async () => {
+      const installed: string[] = [];
+      const { created } = accounts({
+        env: { Path: 'C:\\Windows', ProgramFiles: 'C:\\Program Files' },
+        findExecutable: () => 'C:\\Users\\me\\.local\\bin\\claude.exe',
+        system: {
+          platform: 'win32',
+          home: 'C:\\Users\\me',
+          exists: (file) => installed.includes(file),
+          isDir: () => false,
+        },
+        probeVersion: async (_executable, env) =>
+          env[GIT_BASH_ENV] === undefined
+            ? { ok: false, reason: 'failed', message: GIT_ERROR }
+            : { ok: true, version: '2.1.287' },
+      });
+      expect(await created.read('claude')).toMatchObject({ installed: false });
+      installed.push(bash);
+      expect(await created.read('claude', { refresh: true })).toMatchObject({
+        status: 'signed_in',
+        installed: true,
+      });
+    });
+
+    it('非 Windows：同样的报错不当作缺 Git', async () => {
+      const { created } = accounts({
+        probeVersion: async () => ({ ok: false, reason: 'failed', message: GIT_ERROR }),
+      });
+      expect(await created.read('claude')).toMatchObject({ installed: true, lastError: GIT_ERROR });
     });
   });
 
