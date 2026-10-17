@@ -330,7 +330,7 @@ function capRenderedSnapshot(
 }
 
 function buildFillScript(metadata: BrowserRefMetadata, value: string): string {
-  return String.raw`(() => {
+  return `(() => {
     const resolved = ${buildResolveExpression(metadata)};
     if (!resolved.ok) return resolved;
     const element = resolved.element;
@@ -350,7 +350,7 @@ function buildFillScript(metadata: BrowserRefMetadata, value: string): string {
 }
 
 function buildSelectScript(metadata: BrowserRefMetadata, value: string): string {
-  return String.raw`(() => {
+  return `(() => {
     const resolved = ${buildResolveExpression(metadata)};
     if (!resolved.ok) return resolved;
     const element = resolved.element;
@@ -368,7 +368,7 @@ function buildSelectScript(metadata: BrowserRefMetadata, value: string): string 
 }
 
 function buildRuntimeElementExpression(metadata: BrowserRefMetadata): string {
-  return String.raw`(() => {
+  return `(() => {
     const resolved = ${buildResolveExpression(metadata)};
     if (!resolved.ok) return null;
     return resolved.element;

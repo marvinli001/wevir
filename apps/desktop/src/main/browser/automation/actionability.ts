@@ -102,7 +102,7 @@ function buildActionabilityScript(input: {
   editable: boolean;
   timeoutMs: number;
 }): string {
-  return String.raw`(async () => {
+  return `(async () => {
     const deadline = performance.now() + ${JSON.stringify(input.timeoutMs)};
     const requiresEditable = ${JSON.stringify(input.editable)};
 

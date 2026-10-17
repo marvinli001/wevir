@@ -50,7 +50,7 @@ export function dialogAcceptValue(type: BrowserAutomationDialogEvent['type']): b
 }
 
 export function promptShimInstallScript(): string {
-  return String.raw`(() => {
+  return `(() => {
     const stateKey = "__WEVIR_BROWSER_AUTOMATION_DIALOG_STATE__";
     const state = window[stateKey] || { prompts: [], installed: false };
     window[stateKey] = state;
@@ -75,7 +75,7 @@ export function promptShimInstallScript(): string {
 }
 
 export function promptShimDrainScript(): string {
-  return String.raw`(() => {
+  return `(() => {
     const state = window.__WEVIR_BROWSER_AUTOMATION_DIALOG_STATE__;
     if (!state || !Array.isArray(state.prompts)) return [];
     return state.prompts.splice(0);
@@ -83,7 +83,7 @@ export function promptShimDrainScript(): string {
 }
 
 export function promptShimRestoreScript(): string {
-  return String.raw`(() => {
+  return `(() => {
     const stateKey = "__WEVIR_BROWSER_AUTOMATION_DIALOG_STATE__";
     const state = window[stateKey];
     if (!state || !state.installed) return true;

@@ -1326,7 +1326,7 @@ async function focusKeypressTarget(
   contents: TabContents,
   elementExpression: string,
 ): Promise<'editable' | 'focused' | 'stale_ref'> {
-  const result = await contents.executeJavaScript(String.raw`(() => {
+  const result = await contents.executeJavaScript(`(() => {
     const element = ${elementExpression};
     if (!element) return { staleRef: true };
     const tagName = element.tagName ? element.tagName.toLowerCase() : '';
@@ -1357,7 +1357,7 @@ function readNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-const NETWORK_PERFORMANCE_SCRIPT = String.raw`(() => {
+const NETWORK_PERFORMANCE_SCRIPT = `(() => {
   const entries = performance.getEntriesByType('resource')
     .concat(performance.getEntriesByType('navigation'))
     .slice(-200)
