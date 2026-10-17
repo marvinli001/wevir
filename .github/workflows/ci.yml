@@ -1,4 +1,4 @@
-# T6.2：macOS 与 Windows 上的 lint、typecheck、test，另跑一次 engines 下限 Node 22.19。
+# T6.2：macOS 上的 lint、typecheck，macOS 与 Windows 上的 test，另跑一次 engines 下限 Node 22.19。
 #
 # dsh 相关测试（packages/adapter-dsh 的三层契约测试与其余 *.integration.test.ts、packages/host 的
 # *.dsh.integration.test.ts）在 CI 里的取舍：
@@ -17,7 +17,9 @@
 name: CI
 
 on:
+  # 推 tag 不跑：tag 指向的提交在 master 上已经跑过，正式版的 Release 工作流取的就是那次的结果。
   push:
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -67,15 +69,19 @@ jobs:
 
       # 与 pnpm lint 里的同一组检查，单独成一步，失败时一眼看出是引擎边界（AGENTS.md 仓库规则第 2 条）。
       # --only 会把 spikes/ 里关掉的规则以 warning 打开，--diagnostic-level=error 只看真正的违规。
+      # 引擎边界、Lint、Typecheck 与平台无关，只在 macOS 上跑，Windows 的作业（最慢的一个）省下这半分钟。
       - name: 引擎边界（只有 packages/adapter-dsh 可以依赖 @deepseek-ai/*）
+        if: runner.os == 'macOS'
         run: |
           pnpm exec biome lint --only=style/noRestrictedImports --diagnostic-level=error --reporter=default --reporter=github .
           node scripts/check-engine-boundary.mjs
 
       - name: Lint
+        if: runner.os == 'macOS'
         run: pnpm exec biome check --reporter=default --reporter=github .
 
       - name: Typecheck
+        if: runner.os == 'macOS'
         run: pnpm typecheck
 
       # 部分测试启动 dist/ 里的 wevir-host 子进程（AGENTS.md「写代码的约定」），要先构建。

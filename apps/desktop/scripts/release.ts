@@ -7,17 +7,22 @@
  *     提交数（--first-parent，master 只有一条线，N 只增不减）；还没有 tag 时按 v0.0.0 算。提交正好是 tag 时
  *     skip=true（那是正式版的事）。
  *
- *   node scripts/release.ts publish --channel dev|stable --version <版本> --dir <目录> [--only <线路>]
+ *   node scripts/release.ts publish --channel dev|stable --version <版本> --dir <目录> [--only <线路>] [--skip-prune]
  *     <目录> 下每个子目录是一个平台（`darwin-arm64`、`darwin-x64`、`win32-x64`，与 src/main/updates/feed.ts 的
  *     `<平台>-<架构>` 一致），里面是 electron-builder 的产物与签过名的清单（`<清单>.sig`，update-signing.ts sign）。
  *     上传到每条线路的 `desktop/<平台>-<架构>/`（GitHub 线路是 tag `desktop-updates` 的 Release，见 githubAssetName）：
- *       1. 安装包与 blockmap 传到所有线路；全球线路再经 CDN 逐个下载核对，与本地一致才往下走（waitForCdn）；
+ *       1. 安装包与 blockmap 传到所有线路；全球线路最先传，经 CDN 逐个下载核对，与本地一致才往下走（waitForCdn），
+ *          再等 CDN_SETTLE_MS 让其他地区的存储副本跟上，这段时间里传其余线路（uploadInstallers）；
  *       2. 都成功后核对每条线路上同通道的现有清单，版本不比这次低就整个停下（只许更高的版本覆盖）；
  *       3. 逐条线路写清单与 `.sig`，全球线路随后清 CDN 缓存（Bunny 的 S3 接口不收 Cache-Control）并同样核对；
  *       4. 清理：开发版与正式版各留最新的 KEEP_VERSIONS 个版本，再加上清单正引用的；以前的固定名字安装包也删掉。
+ *          --skip-prune 时跳过，留给 prune 子命令（工作流先重建官网再清理）。
  *     安装包的名字都带版本，发出去就不再改写：Bunny 存储覆盖同名文件后，CDN 回源会在一段时间里拿到新旧混杂
  *     或不完整的内容（2026-10-16 固定名字的 dmg 就这样坏过），所以不再有覆盖写的安装包，下载页按清单链接。
  *     线路的连接信息来自环境变量（见 MIRRORS），用 AWS CLI（GitHub 的 Ubuntu runner 自带）；GitHub 线路用 gh 与 GH_TOKEN。
+ *
+ *   node scripts/release.ts prune --dir <目录> [--only <线路>]
+ *     只做 publish 的第 4 步，平台取 <目录> 下的子目录。
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -664,33 +669,75 @@ function bunnyCheck(apiKey: string): CdnCheck {
   };
 }
 
-async function publish(options: {
-  channel: Channel;
-  version: string;
-  dir: string;
-  only?: string;
-}): Promise<void> {
-  const releases: PlatformRelease[] = readdirSync(options.dir)
-    .filter((name) => statSync(join(options.dir, name)).isDirectory())
-    .sort()
-    .map((platformDir) => {
-      const names = readdirSync(join(options.dir, platformDir));
-      const manifest = manifestFile(channelName(options.channel), platformDir);
-      const text = names.includes(manifest)
-        ? readFileSync(join(options.dir, platformDir, manifest), 'utf8')
-        : '';
-      return checkPlatformDir(platformDir, names, text, options.channel, options.version);
-    });
-  if (releases.length === 0) throw new Error(`${options.dir} has no platform directories`);
-  const wanted = (id: string) => options.only === undefined || id === options.only;
-  const mirrors: Line[] = [
+/**
+ * 第 1 步：安装包传到所有线路。全球线路排最前：传完、经 CDN 核对过（`global.verify`）就开始等其他地区的存储副本
+ * （CDN_SETTLE_MS），这段等待与其余线路的上传同时进行，等满后清一次缓存（`global.purge`）才返回。等待从核对完算起，
+ * 与以前先传完所有线路再干等一样长，只是不再白等。没有 `global`（不是全球线路或没有 Bunny 密钥）时依次上传。
+ */
+export async function uploadInstallers<L extends { id: string }>(
+  lines: readonly L[],
+  steps: {
+    upload(line: L): void;
+    global?: { verify(): Promise<void>; purge(): Promise<void> };
+    sleep(ms: number): Promise<void>;
+    log(line: string): void;
+  },
+): Promise<void> {
+  const globalLine = steps.global && lines.find((line) => line.id === 'global');
+  let settled: Promise<void> | undefined;
+  if (globalLine && steps.global) {
+    steps.upload(globalLine);
+    await steps.global.verify();
+    steps.log(
+      `[global] waiting ${CDN_SETTLE_MS / 1000}s for the other storage regions (the other lines upload meanwhile)`,
+    );
+    settled = steps.sleep(CDN_SETTLE_MS);
+  }
+  for (const line of lines) if (line !== globalLine) steps.upload(line);
+  if (settled !== undefined && steps.global) {
+    await settled;
+    await steps.global.purge();
+  }
+}
+
+/** `<目录>` 下的平台子目录。 */
+function platformDirs(dir: string): string[] {
+  const dirs = readdirSync(dir)
+    .filter((name) => statSync(join(dir, name)).isDirectory())
+    .sort();
+  if (dirs.length === 0) throw new Error(`${dir} has no platform directories`);
+  return dirs;
+}
+
+/** 要传的线路：全部，或 `--only` 指定的那一条。 */
+function selectLines(only: string | undefined): Line[] {
+  const wanted = (id: string) => only === undefined || id === only;
+  const lines: Line[] = [
     ...MIRRORS.filter((mirror) => wanted(mirror.id)).map((mirror) =>
       s3Line(mirrorTarget(mirror, process.env)),
     ),
     ...(wanted('github') ? [githubLine(process.env)] : []),
   ];
-  if (mirrors.length === 0)
-    throw new Error(`unknown mirror ${options.only}; one of ${LINE_IDS.join(', ')}`);
+  if (lines.length === 0) throw new Error(`unknown mirror ${only}; one of ${LINE_IDS.join(', ')}`);
+  return lines;
+}
+
+async function publish(options: {
+  channel: Channel;
+  version: string;
+  dir: string;
+  only?: string;
+  skipPrune?: boolean;
+}): Promise<void> {
+  const releases: PlatformRelease[] = platformDirs(options.dir).map((platformDir) => {
+    const names = readdirSync(join(options.dir, platformDir));
+    const manifest = manifestFile(channelName(options.channel), platformDir);
+    const text = names.includes(manifest)
+      ? readFileSync(join(options.dir, platformDir, manifest), 'utf8')
+      : '';
+    return checkPlatformDir(platformDir, names, text, options.channel, options.version);
+  });
+  const mirrors = selectLines(options.only);
 
   // 只许更高的版本覆盖：哪条线路上已有不低于这次的清单，一份清单都不写。上传前查一次（免得白传），写清单前再查一次。
   const checkNewer = (): void => {
@@ -709,15 +756,7 @@ async function publish(options: {
   };
   checkNewer();
 
-  // 1. 安装包先到所有线路。
-  for (const mirror of mirrors) {
-    for (const release of releases) {
-      for (const name of release.payload)
-        mirror.upload(release.dir, name, join(options.dir, release.dir, name), false);
-    }
-  }
-
-  // 全球线路：经 CDN 取回每个安装包，与本地一致了才写清单；客户端与下载页只在清单出现后才会请求它们。
+  // 1. 安装包先到所有线路。全球线路：经 CDN 取回每个安装包，与本地一致了才写清单；客户端与下载页只在清单出现后才会请求它们。
   const bunnyKey = process.env.BUNNY_API_KEY?.trim();
   const globalLine = mirrors.find((mirror) => mirror.id === 'global');
   const publicFiles = async (mirror: Line, release: PlatformRelease, names: string[]) =>
@@ -727,22 +766,38 @@ async function publish(options: {
         expected: await fileDigest(join(options.dir, release.dir, name)),
       })),
     );
-  if (globalLine && bunnyKey) {
-    const files = (
-      await Promise.all(
-        releases.map((release) => publicFiles(globalLine, release, release.payload)),
-      )
-    ).flat();
-    await waitForCdn(files, bunnyCheck(bunnyKey));
-    console.log(`[global] waiting ${CDN_SETTLE_MS / 1000}s for the other storage regions`);
-    await new Promise((resolve) => setTimeout(resolve, CDN_SETTLE_MS));
-    await purgeBunny(
-      files.map((file) => file.url),
-      bunnyKey,
-    );
-  } else if (globalLine) {
+  if (globalLine && !bunnyKey) {
     console.warn('[global] BUNNY_API_KEY is not set: installers are not checked through the CDN');
   }
+  let installers: { url: string; expected: Digest }[] = [];
+  await uploadInstallers(mirrors, {
+    upload(mirror) {
+      for (const release of releases) {
+        for (const name of release.payload)
+          mirror.upload(release.dir, name, join(options.dir, release.dir, name), false);
+      }
+    },
+    global:
+      globalLine && bunnyKey
+        ? {
+            async verify() {
+              installers = (
+                await Promise.all(
+                  releases.map((release) => publicFiles(globalLine, release, release.payload)),
+                )
+              ).flat();
+              await waitForCdn(installers, bunnyCheck(bunnyKey));
+            },
+            purge: () =>
+              purgeBunny(
+                installers.map((file) => file.url),
+                bunnyKey,
+              ),
+          }
+        : undefined,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    log: (line) => console.log(line),
+  });
 
   // 2. 都传完了，再核对一次版本。
   checkNewer();
@@ -767,17 +822,24 @@ async function publish(options: {
     }
   }
 
-  // 4. 清理旧版本的安装包。
+  // 4. 清理旧版本的安装包（--skip-prune 时由之后的 prune 子命令做）。
+  if (!options.skipPrune)
+    prune(
+      mirrors,
+      releases.map((release) => release.dir),
+    );
+}
+
+function prune(mirrors: readonly Line[], platformDirs: readonly string[]): void {
   for (const mirror of mirrors) {
-    for (const release of releases) {
-      const names = mirror.list(release.dir);
+    for (const dir of platformDirs) {
+      const names = mirror.list(dir);
       const referenced = new Set<string>();
       for (const channel of ['latest', 'beta'] as const) {
-        const text = mirror.read(release.dir, manifestFile(channel, release.dir));
+        const text = mirror.read(dir, manifestFile(channel, dir));
         if (text !== undefined) referenced.add(readManifest(text).version);
       }
-      for (const name of filesToPrune(names, referenced, KEEP_VERSIONS))
-        mirror.remove(release.dir, name);
+      for (const name of filesToPrune(names, referenced, KEEP_VERSIONS)) mirror.remove(dir, name);
     }
   }
 }
@@ -838,19 +900,31 @@ async function main(): Promise<void> {
         version: { type: 'string' },
         dir: { type: 'string' },
         only: { type: 'string' },
+        'skip-prune': { type: 'boolean' },
       },
     });
     const { channel, version, dir, only } = values;
     if ((channel !== 'stable' && channel !== 'dev') || version === undefined || dir === undefined) {
       throw new Error(
-        'usage: release.ts publish --channel dev|stable --version <version> --dir <dir> [--only <mirror>]',
+        'usage: release.ts publish --channel dev|stable --version <version> --dir <dir> [--only <mirror>] [--skip-prune]',
       );
     }
-    await publish({ channel, version, dir, only });
+    await publish({ channel, version, dir, only, skipPrune: values['skip-prune'] });
+    return;
+  }
+  if (command === 'prune') {
+    const { values } = parseArgs({
+      args: rest,
+      options: { dir: { type: 'string' }, only: { type: 'string' } },
+    });
+    if (values.dir === undefined) {
+      throw new Error('usage: release.ts prune --dir <dir> [--only <mirror>]');
+    }
+    prune(selectLines(values.only), platformDirs(values.dir));
     return;
   }
   console.error(
-    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir>',
+    'usage: release.ts plan [<commit>] | publish --channel dev|stable --version <v> --dir <dir> | prune --dir <dir>',
   );
   process.exit(2);
 }

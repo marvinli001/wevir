@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CDN_RETRY_MS,
+  CDN_SETTLE_MS,
   type CdnCheck,
   checkPlatformDir,
   compareVersions,
@@ -14,6 +15,7 @@ import {
   platformDirOfFile,
   readManifest,
   stableVersionOfTag,
+  uploadInstallers,
   versionOfFile,
   waitForCdn,
 } from './release.js';
@@ -220,6 +222,69 @@ describe('waitForCdn', () => {
     await expect(
       waitForCdn([{ url: 'a', expected: good }], cdn.check, 2 * CDN_RETRY_MS),
     ).rejects.toThrow(/a still does not match the upload .*content differs/);
+  });
+});
+
+describe('uploadInstallers', () => {
+  const lines = [{ id: 'global' }, { id: 'optimized' }, { id: 'github' }];
+
+  function record(failVerify = false) {
+    const events: string[] = [];
+    let wake: () => void = () => {};
+    const steps = {
+      upload: (line: { id: string }) => events.push(`upload ${line.id}`),
+      global: {
+        async verify() {
+          events.push('verify');
+          if (failVerify) throw new Error('CDN mismatch');
+        },
+        async purge() {
+          events.push('purge');
+        },
+      },
+      sleep: (ms: number) =>
+        new Promise<void>((resolve) => {
+          events.push(`sleep ${ms}`);
+          wake = () => {
+            events.push('woke');
+            resolve();
+          };
+        }),
+      log: () => {},
+    };
+    return { events, steps, wake: () => wake() };
+  }
+
+  it('全球线路先传、核对，等副本的那段时间里传其余线路，等满再清缓存', async () => {
+    const { events, steps, wake } = record();
+    const done = uploadInstallers(lines, steps);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // 其余线路已经传完，仍在等。
+    expect(events).toEqual([
+      'upload global',
+      'verify',
+      `sleep ${CDN_SETTLE_MS}`,
+      'upload optimized',
+      'upload github',
+    ]);
+    wake();
+    await done;
+    expect(events.slice(-2)).toEqual(['woke', 'purge']);
+  });
+
+  it('全球线路核对失败时不传其余线路', async () => {
+    const { events, steps } = record(true);
+    await expect(uploadInstallers(lines, steps)).rejects.toThrow('CDN mismatch');
+    expect(events).toEqual(['upload global', 'verify']);
+  });
+
+  it('不核对全球线路（没有 Bunny 密钥）或没有全球线路时依次上传、不等', async () => {
+    const { events, steps } = record();
+    await uploadInstallers(lines, { ...steps, global: undefined });
+    expect(events).toEqual(['upload global', 'upload optimized', 'upload github']);
+    const second = record();
+    await uploadInstallers([{ id: 'optimized' }], second.steps);
+    expect(second.events).toEqual(['upload optimized']);
   });
 });
 

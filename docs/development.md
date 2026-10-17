@@ -12,7 +12,7 @@
 | Node | ≥ 22.19，推荐 24 LTS | 下限来自 dsh（`^22.19.0 \|\| >=24.0.0`）与 `node:sqlite`（ADR-0003）。`.node-version` 写的是 24，CI（T6.2）另跑一次 22.19。2026-10-14 在 24.21.0 与 26.10.0 上验证过 |
 | pnpm | 12.6.0 | 以根 `package.json` 的 `packageManager` 为准。较新的 Node（实测 26）不再自带 corepack，直接用 npm 装：`npm install -g pnpm@12.6.0` |
 | git | 任意近期版本 | 只有同步上游参考仓库（§7.4）时要用到 |
-| 操作系统 | macOS、Windows | 首版平台。本文的步骤在 macOS 上验证；Windows 的 lint、typecheck、test 由 CI（T6.2）覆盖，`pnpm dev` 还没在 Windows 上走过一遍 |
+| 操作系统 | macOS、Windows | 首版平台。本文的步骤在 macOS 上验证；Windows 的 test 由 CI（T6.2）覆盖（lint、typecheck 与平台无关，CI 只在 macOS 上跑），`pnpm dev` 还没在 Windows 上走过一遍 |
 | 磁盘 | 约 2 GB | pnpm store 约 1.5 GB；Electron 下载包约 129 MB，解压后约 307 MB |
 
 不需要 Python、Xcode 或 Visual Studio：需要编译的依赖（node-pty、koffi）在 macOS arm64 上都用预编译文件，安装时没有触发源码编译。
@@ -219,7 +219,7 @@ pnpm --filter @wevir/desktop package
 
   流水线核对这个提交在 master 上、CI 通过，发到 `latest` 通道，另建 GitHub Release（dmg 与 exe）。
 - 三个包并行打：macOS arm64、x64（macos-latest，签名、公证，检查 `codesign`、`stapler`、`spctl`），Windows x64（windows-latest，不签名）。版本经 `package --app-version` 写进安装包，electron-builder 按它写出更新清单（`latest-mac.yml` / `beta-mac.yml`，Windows 是 `latest.yml` / `beta.yml`，通道由版本的预发布标签决定）。
-- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到三条线路（两个域名与 GitHub Release `desktop-updates`）。先传安装包，所有线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路（Bunny）每个文件用一次 PutObject 整个传、不分片（Bunny 把分片上传的文件复制到其他地区的存储副本时会丢片：2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 少了一个 8 MiB 的分片，清缓存也没用）；传完安装包后经 CDN 逐个下载、与本地核对 sha512，对不上就清缓存重取（最多 20 分钟，超时整个停下、不写清单），都对上后再等 3 分钟让其他地区的存储副本跟上、清一次缓存，才写清单；写完清单同样清缓存并核对（`release.ts` 的 `waitForCdn`）。最后清理：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本，GitHub 线路的 Release 也一样（正式版的 dmg 与 exe 另在 `vX.Y.Z` 的 GitHub Release 上，不清理）。GitHub 线路用工作流的 `GITHUB_TOKEN`，不用另配 secret；Release 不存在时自动建（预发布、不标 Latest）。
+- 上传作业：`release-dir.ts` 把每个平台的产物整理成 `desktop/<平台>-<架构>/` 并签清单（签名私钥只在这个作业里），`release.ts publish` 把它们传到三条线路（两个域名与 GitHub Release `desktop-updates`）。先传安装包，所有线路都传完后再写清单与 `.sig`；线路上同通道的清单版本不低于这次时整个停下（上传前、写清单前各查一次）。全球线路（Bunny）每个文件用一次 PutObject 整个传、不分片（Bunny 把分片上传的文件复制到其他地区的存储副本时会丢片：2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 少了一个 8 MiB 的分片，清缓存也没用）；传完安装包后经 CDN 逐个下载、与本地核对 sha512，对不上就清缓存重取（最多 20 分钟，超时整个停下、不写清单），都对上后再等 3 分钟让其他地区的存储副本跟上、清一次缓存，才写清单（全球线路最先传，这 3 分钟里传另外两条线路，`release.ts` 的 `uploadInstallers`）；写完清单同样清缓存并核对（`release.ts` 的 `waitForCdn`）。最后清理（工作流里 `publish --skip-prune` 之后先重建官网，再单独跑 `release.ts prune`）：每个平台目录里开发版、正式版各留最新 2 个版本，再加上清单引用的版本，GitHub 线路的 Release 也一样（正式版的 dmg 与 exe 另在 `vX.Y.Z` 的 GitHub Release 上，不清理）。GitHub 线路用工作流的 `GITHUB_TOKEN`，不用另配 secret；Release 不存在时自动建（预发布、不标 Latest）。
 - 同一时间只跑一个发布，后来的排队，排队的只留最新一个。
 
 仓库要配的 secret 与 variable（Settings → Secrets and variables → Actions；`gh secret set` / `gh variable set`）：
