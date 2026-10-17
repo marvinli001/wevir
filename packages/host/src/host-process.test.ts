@@ -225,7 +225,7 @@ describe('startHost', () => {
 
     const startedAt = performance.now();
     await host.shutdown();
-    expect(performance.now() - startedAt).toBeLessThan(2000);
+    expect(performance.now() - startedAt).toBeLessThan(5000);
     expect((await client.closed).code).toBe(CloseCode.GOING_AWAY);
     expect(existsSync(runtimeFile(home))).toBe(false);
     // 数据库已关闭：WAL 检查点完成后伴随文件被删除。

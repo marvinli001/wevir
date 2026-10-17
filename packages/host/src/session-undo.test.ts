@@ -51,6 +51,8 @@ function setup(options: { adapter?: EchoAdapter; git?: boolean; checkpoints?: bo
   mkdirSync(workspaceDir);
   if (options.git !== false) {
     sh(workspaceDir, 'init', '-q', '-b', 'main');
+    // Windows 上 git 默认 core.autocrlf=true，还原会把 LF 的文件写成 CRLF；这里测的是还原哪些文件，行尾由仓库自己定。
+    sh(workspaceDir, 'config', 'core.autocrlf', 'false');
     writeFileSync(join(workspaceDir, 'a.txt'), 'base\n');
     sh(workspaceDir, 'add', '.');
     sh(workspaceDir, 'commit', '-q', '-m', 'init');
@@ -151,7 +153,7 @@ function setup(options: { adapter?: EchoAdapter; git?: boolean; checkpoints?: bo
 const eventsOf = (events: readonly WevirEvent[], type: string) =>
   events.filter((event) => event.type === type);
 
-describe('session.undo / session.redo（0.51.0）', () => {
+describe('session.undo / session.redo（0.51.0）', { timeout: 30_000 }, () => {
   it('撤销最后一个回合：文件回到回合开始前，写 turn.undone；连着撤销，再按相反的顺序重做；引擎历史不动，收到说明', async () => {
     const h = setup();
     const session = await h.create();

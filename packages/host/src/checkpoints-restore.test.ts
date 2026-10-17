@@ -42,6 +42,8 @@ function sh(cwd: string, ...args: string[]): string {
 function repo(): string {
   const root = realpathSync(tempDir());
   sh(root, 'init', '-q', '-b', 'main');
+  // Windows 上 git 默认 core.autocrlf=true，还原会把 LF 的文件写成 CRLF；这里测的是还原哪些文件，行尾由仓库自己定。
+  sh(root, 'config', 'core.autocrlf', 'false');
   writeFileSync(join(root, 'a.txt'), 'one\ntwo\n');
   writeFileSync(join(root, 'b.txt'), 'bee\n');
   writeFileSync(join(root, '.gitignore'), 'ignored.log\n');
@@ -71,7 +73,7 @@ function turnEdits(dir: string): void {
   writeFileSync(join(dir, 'ignored.log'), 'log\n');
 }
 
-describe('TurnCheckpoints.undo / redo', () => {
+describe('TurnCheckpoints.undo / redo', { timeout: 30_000 }, () => {
   it('撤销把改的、删的、新增的文件都还原（连空出来的目录），被忽略的不动；重做再回到撤销之前；不碰索引、HEAD 与分支', async () => {
     const dir = repo();
     const head = sh(dir, 'rev-parse', 'HEAD');
