@@ -487,6 +487,8 @@ export const messages: Messages = {
   'worktree.notRepo': 'Git 저장소 아님',
 
   'transcript.label': '세션 내용',
+  'selection.label': '선택 항목 작업',
+  'selection.addToChat': '대화에 추가',
   'transcript.loading': '세션 불러오는 중…',
   'transcript.failed': '세션 읽기 실패: {error}',
   'transcript.jumpToLatest': '맨 아래로',

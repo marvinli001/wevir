@@ -492,6 +492,8 @@ export const messages: Messages = {
   'worktree.notRepo': 'Git リポジトリではありません',
 
   'transcript.label': 'セッションの内容',
+  'selection.label': '選択範囲の操作',
+  'selection.addToChat': '会話に追加',
   'transcript.loading': 'セッションを読み込み中…',
   'transcript.failed': 'セッションの読み込みに失敗しました: {error}',
   'transcript.jumpToLatest': '最下部へ',

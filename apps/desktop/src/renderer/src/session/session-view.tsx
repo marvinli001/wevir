@@ -44,7 +44,14 @@ import { movePaneScope } from '@/layout/pane-store';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
-import { Composer, type ComposerPlan, isBusy, restoreDraft, setDraft } from './composer';
+import {
+  Composer,
+  type ComposerPlan,
+  insertQuote,
+  isBusy,
+  restoreDraft,
+  setDraft,
+} from './composer';
 import { ContextMeter } from './context-meter';
 import { EnvironmentBar } from './environment-bar';
 import { GoalBanner } from './goal-banner';
@@ -62,7 +69,8 @@ import { usePlanControl } from './plan-mode';
 import { planImplementationPrompt, proposedPlanTitle } from './proposed-plan';
 import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
-import { btwQuestion, hasFinishedTurn, startSide } from './side-session';
+import type { QuoteActions } from './selection-toolbar';
+import { btwQuestion, hasFinishedTurn, openSide, startSide } from './side-session';
 import {
   sendError,
   sendText,
@@ -569,6 +577,23 @@ export function SessionView({
     goalEnabled: goalsEnabled,
     ...(planCommand && { plan: planCommand }),
   });
+  // 选中消息里的文字（desktop-tokens §57）：“添加到对话”把引用放进这个会话的输入框，“支线提问”分出支线、引用放进支线窗格的
+  // 输入框；只读的会话没有输入框，也就没有工具条。
+  const quote = useMemo<QuoteActions | undefined>(() => {
+    if (!writable) return undefined;
+    return {
+      onAdd: (text) => insertQuote(session.id, text),
+      ...(sideEnabled &&
+        client && {
+          onSide: (text: string) => {
+            setNotice(undefined);
+            openSide(client, session.id as SessionId, text, panes, (sideId) =>
+              insertQuote(sideId, text),
+            ).catch((error: unknown) => setNotice(t('side.failed', { error: describe(error) })));
+          },
+        }),
+    };
+  }, [writable, sideEnabled, client, session.id, panes]);
   const fileScope = useMemo<FileScope | undefined>(
     () =>
       filesEnabled
@@ -626,6 +651,7 @@ export function SessionView({
                   cwd={session.cwd}
                   onReady={onReady}
                   compact={variant === 'pane'}
+                  {...(quote && { quote })}
                 />
               </MessageActionsContext>
             </OpenSessionFile>

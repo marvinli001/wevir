@@ -10,6 +10,7 @@ import { FoldScopeProvider } from './fold-state';
 import type { LiveState } from './live-indicator';
 import { SystemMessage } from './message-view';
 import { useStickToBottom } from './scroll-controller';
+import { type QuoteActions, SelectionToolbar } from './selection-toolbar';
 import { latestTodos } from './todo-model';
 import { groupTurns, isActiveTurn, turnStart } from './turn-model';
 import { TurnView } from './turn-view';
@@ -33,6 +34,7 @@ export function TranscriptView({
   cwd,
   onReady,
   compact = false,
+  quote,
 }: {
   sessionId: string;
   transcript: Transcript;
@@ -42,6 +44,8 @@ export function TranscriptView({
   onReady?: (handle: TranscriptViewHandle) => void;
   /** 窗格里（U23.1 的支线）：左右内边距收成 16 px。 */
   compact?: boolean;
+  /** 选中消息里的文字时工具条的操作（只读的会话没有）。 */
+  quote?: QuoteActions;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -150,6 +154,9 @@ export function TranscriptView({
           </FoldScopeProvider>
         </div>
       </section>
+      {quote && (
+        <SelectionToolbar containerRef={containerRef} sessionId={sessionId} actions={quote} />
+      )}
       {showJump && (
         <div className="rail-clear pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <button

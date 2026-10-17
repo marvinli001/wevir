@@ -496,6 +496,8 @@ export const messages: Messages = {
   'worktree.notRepo': 'Не репозиторий Git',
 
   'transcript.label': 'Содержимое сессии',
+  'selection.label': 'Действия с выделением',
+  'selection.addToChat': 'Добавить в диалог',
   'transcript.loading': 'Загрузка сессии…',
   'transcript.failed': 'Не удалось загрузить сессию: {error}',
   'transcript.jumpToLatest': 'К последним',

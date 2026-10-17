@@ -497,6 +497,8 @@ export const messages: Messages = {
   'worktree.notRepo': 'Pas un dépôt Git',
 
   'transcript.label': 'Contenu de la session',
+  'selection.label': 'Actions sur la sélection',
+  'selection.addToChat': 'Ajouter à la conversation',
   'transcript.loading': 'Chargement de la session…',
   'transcript.failed': 'Échec de la lecture de la session : {error}',
   'transcript.jumpToLatest': 'Aller en bas',

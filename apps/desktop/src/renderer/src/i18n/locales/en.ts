@@ -490,6 +490,8 @@ export const messages: Messages = {
   'worktree.notRepo': 'Not a Git repository',
 
   'transcript.label': 'Session transcript',
+  'selection.label': 'Selection actions',
+  'selection.addToChat': 'Add to chat',
   'transcript.loading': 'Loading session…',
   'transcript.failed': 'Failed to load session: {error}',
   'transcript.jumpToLatest': 'Jump to latest',
