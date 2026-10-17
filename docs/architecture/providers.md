@@ -75,7 +75,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 | 地址不是 `api.openai.com` | `supportsDeveloperRole: false`、`maxTokensField: max_tokens` |
 | 地址是 `deepseek.com` 及其子域（DeepSeek 的 OpenAI 兼容端点走 pi-ai 时） | 另加 `thinkingFormat: deepseek`、`requiresReasoningContentOnAssistantMessages: true`（T0.3 §6.2，取自 pi-ai 自带的 deepseek 目录） |
 
-Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI、百炼按量端点、DeepSeek 的 Responses / Chat 路由及 Ollama / Kimi Responses）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5；Kimi Responses 的非 data URL 图片过滤仅按开放平台地址生效，代理需自行满足 data URL 要求。
+Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI、百炼按量端点、DeepSeek 的 Responses / Chat 路由及 Ollama / Kimi / Z.ai / 智谱 Responses；Z.ai / 智谱 Chat 也默认 auto_only）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5；Kimi Responses 的非 data URL 图片过滤仅按开放平台地址生效，代理需自行满足 data URL 要求。
 
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
@@ -196,7 +196,7 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 ## 7. 服务示例
 
-以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。每个模型都填 `contextWindow`：Codex 引擎按它自动压缩（窗口的九成）并显示上下文用量，没填按 128k 估算（codex-event-mapping.md §3“上下文大小”）。2026-10-15 对照各家官方模型页核对过桌面端全部预设（`provider-presets.ts`）的上下文长度，后续复核日期以各节为准；本机 Ollama 取决于自己的运行配置（§7.5）。几处官方写法：OpenAI 与 Azure 的 GPT-6 系列 1,050,000 是输入加输出，输入上限 922,000、输出 128,000；百炼 qwen3.8 / 3.7 的 1,000,000 里输入上限 991,808（思考模式 983,616）；Kimi K3 按官方 Codex 指南填 1,048,576（§7.3）；DeepSeek 模型页写“1M”，2026-10-16 按官方 Codex 目录的明确数值 1,048,576 填（§7.1）；Anthropic 的 1M 是 Claude 5.5 系列的默认，不用 beta 头；gemini-4-argon 的 1,048,576 是输入输出共用。智谱文档标注 GLM-4.5 即将下线，换预设模型另行决定。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
+以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。每个模型都填 `contextWindow`：Codex 引擎按它自动压缩（窗口的九成）并显示上下文用量，没填按 128k 估算（codex-event-mapping.md §3“上下文大小”）。2026-10-15 对照各家官方模型页核对过桌面端全部预设（`provider-presets.ts`）的上下文长度，后续复核日期以各节为准；本机 Ollama 取决于自己的运行配置（§7.5）。几处官方写法：OpenAI 与 Azure 的 GPT-6 系列 1,050,000 是输入加输出，输入上限 922,000、输出 128,000；百炼 qwen3.8 / 3.7 的 1,000,000 里输入上限 991,808（思考模式 983,616）；Kimi K3 按官方 Codex 指南填 1,048,576（§7.3）；DeepSeek 模型页写“1M”，2026-10-16 按官方 Codex 目录的明确数值 1,048,576 填（§7.1）；Anthropic 的 1M 是 Claude 5.5 系列的默认，不用 beta 头；gemini-4-argon 的 1,048,576 是输入输出共用。智谱与 Z.ai 的 GLM-5.3 系列按官方 Codex 目录的 1,048,576 填（§7.4）。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
 
 ### 7.1 DeepSeek
 
@@ -320,24 +320,47 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 来源与核对日期：2026-10-17，[Responses](https://platform.kimi.com/docs/api/responses.md)、[Codex 指南](https://platform.kimi.com/docs/guide/codex-kimi.md)、[模型列表](https://platform.kimi.com/docs/models.md)、[思考模型](https://platform.kimi.com/docs/guide/use-thinking-models.md)、[Chat](https://platform.kimi.com/docs/api/chat.md)、[Messages](https://platform.kimi.com/docs/api/messages.md)。后两种接口仅用于核对协议差异，本次没有新增它们的模板或方言。
 
-### 7.4 智谱 GLM（BigModel 开放平台）
+### 7.4 智谱 GLM 与 Z.ai（按量 API）
+
+**2026-10-17 核对。** 两站接口相同、账号与 Key 分开。按两站官方 Codex 指南使用 `/api/v1/responses` 透传，保留原生 freeform apply_patch 与完整推理历史。指南本身以套餐为例；本接法只用标准 API Key，按量 Key 的 Responses 可用性仍待真实验证，不据此接入套餐。
+
+| 模板 | 分组与地域 | baseURL | 标准 API Key |
+|---|---|---|---|
+| Z.ai（`zai`） | 国际站；中国大陆直连未验证，建议使用国内智谱 | `https://api.z.ai/api/v1` | [Z.ai API Keys](https://z.ai/manage-apikey/apikey-list) 中的 Standard API Key |
+| 智谱 GLM（`zhipu`） | 国内站；中国大陆可直连 | `https://open.bigmodel.cn/api/v1` | [智谱标准 API Key](https://bigmodel.cn/usercenter/proj-mgmt/apikeys) |
+
+两模板共用下面的模型与 compat，默认 GLM-5.3；国内模板使用上表中的 id、displayName、baseURL 与国内 Key。
 
 ```json
 {
-  "id": "zhipu",
+  "id": "zai",
   "kind": "openai-compatible",
-  "displayName": "智谱 GLM",
-  "api": "openai-completions",
-  "baseURL": "https://open.bigmodel.cn/api/paas/v4",
-  "models": [{ "id": "glm-4.5", "contextWindow": 131072 }],
-  "defaultModelId": "glm-4.5",
-  "apiKey": "<智谱 API Key>"
+  "displayName": "Z.ai",
+  "api": "openai-responses",
+  "baseURL": "https://api.z.ai/api/v1",
+  "compat": {
+    "supportsCustomTools": true,
+    "supportsNamespaceTools": false,
+    "toolChoice": "auto_only"
+  },
+  "models": [
+    { "id": "glm-5.3", "contextWindow": 1048576, "maxTokens": 131072, "reasoningEfforts": ["low", "high", "max"] },
+    { "id": "glm-5.3-flash", "contextWindow": 1048576, "maxTokens": 131072, "supportsImages": true, "reasoningEfforts": ["low", "high", "max"] }
+  ],
+  "defaultModelId": "glm-5.3",
+  "apiKey": "<本站标准 API Key>"
 }
 ```
 
-- GLM Coding 套餐的地址是 `https://open.bigmodel.cn/api/coding/paas/v4`（pi-ai 目录 `zai-coding-cn`），与按量计费的地址不同。
-- 思考模式的模型按 pi-ai 目录的写法用 `"compat": {"thinkingFormat": "zai"}`。
-- 来源：[智谱 OpenAI 兼容说明](https://docs.bigmodel.cn/cn/guide/develop/openai/introduction)；pi-ai 目录 `providers/data/zai-coding-cn.json`。
+- **Key 类型的新规则。** 两站 2026-10-16 的 Key 管理说明明确：新建标准 Key 与套餐 Key 分开管理，在支持的端点上按 Key 类型计费，不能靠换地址把套餐 Key 变成按量 Key。历史兼容 Key 可能继续按账号的套餐状态计费；本模板要求新建标准 Key，不使用套餐 Key 或历史兼容 Key。国内标准 Key 的官方入口现为上表的新地址。不提供 Coding Plan 的地址、模型或 Key 示例。
+- **文档中的协议差异。** GLM-5.3 模型页列出 Responses，同时写明曾订阅 Coding Plan（含已过期）的账号暂时只能通过 Chat 调用模型 API；新 Key 管理页则说明标准 Key 的计费独立于套餐。没有真实标准 Key，不能断言该限制已解除。按 Codex 指南先提供 Responses 模板；若实际账号拒收 Responses，手动改为 Chat（下文），不要自动切换或迁移。
+- **模型与思考。** GLM-5.3 只收文本；Flash 收图片，文本参数同 GLM-5.3。两者均强制思考，low / high / max（默认 max），不列 off。1M 窗口按 Codex 目录的 1048576 记录；128K 最大输出按 Chat 参数的 131072 记录。目录 maxTokens 不会自动写入透传请求，Codex 当前不发 max_output_tokens；Responses 默认输出预算未实测。Flash 的 Responses 图片输入能力也待真实验证；不增加视频、文件或音频输入。
+- **工具与历史。** 按官方 Codex 目录保留 custom apply_patch；namespace 无官方声明、无真实 Key 证据，先保守摊平并还原，显式 supportsNamespaceTools: true 可覆盖。Responses / Chat 默认 toolChoice: auto_only；none 会被去掉而保留工具，不能保证禁止调用。地址识别只匹配 z.ai / bigmodel.cn 及子域的标准 `/api/v1`、`/api/paas/v4` 路径，套餐域名与路径不补默认值。反向代理需显式声明 compat。推理明文、summary、非空 encrypted_content、store 与缓存字段原样保留，仅清理通用 null 键；不把 Chat 的 thinking 参数注入 Responses。
+- **已有 Chat 与手动兜底。** Chat 的标准 baseURL 分别是 `https://api.z.ai/api/paas/v4`、`https://open.bigmodel.cn/api/paas/v4`，协议为 openai-completions，显式设置 `compat: {"thinkingFormat":"zai","toolChoice":"auto_only"}`。网关沿用既有 zai 格式：thinking.type: enabled、clear_thinking: false、顶层 reasoning_effort，完整原样带回每段 assistant 的 reasoning_content。GLM-5.3 系列的 none 降 low。Chat 只收 auto、最多 128 个函数、函数名 1–64 个字母数字下划线或连字符；摊平使用既有命名规则，不截断工具清单。
+- **旧 Provider 手动修改。** 已存的 zhipu Chat + glm-4.5 不自动迁移。在“设置 → 模型服务”编辑原 Profile：协议改 Responses、地址改为本站 `/api/v1`、模型与默认项改为上例，并换用本站标准 Key；经 provider.upsert 补上上述 compat。原有 thinkingFormat: zai 仅供 Chat 使用，可保留或手动移除。若继续使用 Chat，只更新模型、窗口、三档力度并按上段设置 compat。重新测试连接，再新建会话；显式 compat 优先于地址默认，不会被模板覆盖。
+- **验收边界。** `zai.test.ts` 使用四份录制请求，`zai.integration.test.ts` 的严格 HTTP mock 验证非 auto / namespace 的拒绝与修正、原生 apply_patch、推理与工具结果往返、同路由 provider.test。没有两站的标准 Key，真实契约第 3 层与 pnpm dev 的 apply_patch 对话未验收；namespace 原生支持、Flash 图片、缓存字段与 Responses 输出预算仍待验证。命令见 development.md §6.3。Z.ai 标志取自同版本 LobeHub 的 zai.svg，国内站沿用 zhipu-color.svg。
+
+来源（2026-10-17）：[Z.ai Codex](https://docs.z.ai/devpack/tool/codex)、[智谱 Codex](https://docs.bigmodel.cn/cn/coding-plan/tool/codex)、[Z.ai GLM-5.3](https://docs.z.ai/guides/llm/glm-5.3)、[智谱 GLM-5.3](https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3)、[Z.ai Flash](https://docs.z.ai/guides/vlm/glm-5.3-flash)、[智谱 Flash](https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash)、[Chat 参数](https://docs.z.ai/api-reference/llm/chat-completion)、[思考模式](https://docs.z.ai/guides/capabilities/thinking-mode)、[Z.ai Key 新规则](https://docs.z.ai/devpack/notice/api-key-management)、[智谱 Key 新规则](https://docs.bigmodel.cn/cn/coding-plan/notice/api-key-management)。当前没有独立的 Responses 参数参考，Chat 的限制不能视为 Responses 的实测能力。
 
 ### 7.5 Ollama 本机与 Ollama Cloud
 
@@ -492,7 +515,7 @@ Opus 5.5 / Haiku 5.5 的默认 effort 为 medium，Sonnet 5.5 / Fable 5.1 为 hi
 
 来源与核对日期：**2026-10-15 已核对** [模型目录](https://platform.claude.com/docs/en/models/overview)、[effort](https://platform.claude.com/docs/en/build-with-claude/effort)、[认证](https://platform.claude.com/docs/en/manage-claude/authentication)、[思考模式与限制](https://platform.claude.com/docs/en/build-with-claude/thinking)、[手动思考的兼容性](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)、[中途 system](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)、[思考前缀](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)。当前没有提供 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面端 apply_patch 对话未验收；本地录制请求与严格 HTTP mock 通过不代表真实服务通过。
 
-桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 使用服务账号（§7.11），Host 声明 google_vertex 后可选；旧 Host 的入口提示更新后台服务。
+桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI、Z.ai）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 使用服务账号（§7.11），Host 声明 google_vertex 后可选；旧 Host 的入口提示更新后台服务。
 
 ### 7.10 已有 Chat Provider 的思考配置
 

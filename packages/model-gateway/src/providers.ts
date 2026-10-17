@@ -35,6 +35,12 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   { matches: isDeepSeekHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
   { matches: isKimiHost, api: 'openai-responses', compat: { toolChoice: 'auto_only' } },
   {
+    matches: isZaiHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  { matches: isZaiHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
+  {
     matches: isOllamaCloud,
     api: 'openai-responses',
     compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
@@ -225,6 +231,20 @@ export function isDeepSeekHost(baseURL: string): boolean {
 /** Kimi 开放平台的国内 / 国际按量端点；不匹配 Kimi Code 会员域名（model-gateway.md §3.8）。 */
 export function isKimiHost(baseURL: string): boolean {
   return /(^|\.)moonshot\.(cn|ai)$/.test(hostnameOf(baseURL));
+}
+
+/** Z.ai / 智谱的标准 API 地址；只认已核对的路径，不为套餐域名或路径补值（model-gateway.md §3.9）。 */
+export function isZaiHost(baseURL: string): boolean {
+  try {
+    const url = new URL(baseURL);
+    return (
+      /(^|\.)(z\.ai|bigmodel\.cn)$/.test(url.hostname) &&
+      !/(^|\.)(coding|coding-plan|token-plan)(\.|$)/.test(url.hostname) &&
+      /^\/api\/(v1|paas\/v4)\/*$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**

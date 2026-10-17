@@ -87,6 +87,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://console.x.ai/',
   },
   {
+    id: 'zai',
+    name: 'provider.catalog.zai',
+    logo: 'zai',
+    group: 'global',
+    source: preset('zai'),
+    keyURL: 'https://z.ai/manage-apikey/apikey-list',
+  },
+  {
     id: 'deepseek',
     name: 'provider.catalog.deepseek',
     logo: 'deepseek',
@@ -125,7 +133,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     logo: 'zhipu',
     group: 'cn',
     source: preset('zhipu'),
-    keyURL: 'https://open.bigmodel.cn/usercenter/apikeys',
+    keyURL: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
   },
   {
     id: 'ollama-cloud',
@@ -173,6 +181,7 @@ const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/^(dashscope|dashscope-intl)\.aliyuncs\.com$/, 'qwen'],
   [/(^|\.)maas\.aliyuncs\.com$/, 'qwen'],
   [/(^|\.)moonshot\.(cn|ai)$/, 'kimi'],
+  [/(^|\.)z\.ai$/, 'zai'],
   [/(^|\.)bigmodel\.cn$/, 'zhipu'],
 ];
 

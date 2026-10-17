@@ -980,6 +980,7 @@ export const messages: Messages = {
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
+  'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.custom': 'OpenAI 호환 서비스',
@@ -990,8 +991,12 @@ export const messages: Messages = {
   'provider.preset.kimi': 'Kimi',
   'provider.preset.kimi.note':
     '기본값은 중국 본토 엔드포인트이며 본토에서 직접 연결할 수 있습니다. 중국 및 국제 사이트의 API 키는 별개입니다. 국제 사이트: https://api.moonshot.ai/v1',
+  'provider.preset.zai': 'Z.ai',
+  'provider.preset.zai.note':
+    '국제 사이트. 중국 본토에서 직접 연결은 미검증이므로 본토에서는 Zhipu를 권장합니다. 표준 API 키만 사용하며 Zhipu 키와 별개입니다.',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note': 'GLM Coding 요금제: https://open.bigmodel.cn/api/coding/paas/v4',
+  'provider.preset.zhipu.note':
+    '중국 본토 종량제 API로 본토에서 직접 연결할 수 있습니다. 표준 API 키만 사용하며 Z.ai 키와 별개입니다.',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 호환)',
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.gemini': 'Google AI Studio',

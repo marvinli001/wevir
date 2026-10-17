@@ -303,7 +303,7 @@ Paper Shaders 的许可证是 Apache License 2.0，全文见文末。Wevir 的�
 
 9. 模型服务的标志（LobeHub Icons）
 ------------------------------------------------------------------------------------------------
-apps/desktop/src/renderer/src/assets/provider-logos/ 下的服务标志 SVG（首次引导与 Provider 列表，含 azure-color.svg）原样取自
+apps/desktop/src/renderer/src/assets/provider-logos/ 下的服务标志 SVG（首次引导与 Provider 列表，含 azure-color.svg、zai.svg）原样取自
 npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 见同目录的 SOURCE.md。许可证是 MIT，
 全文见文末“MIT License”。各标志是对应公司的商标，只用来指认服务。
 

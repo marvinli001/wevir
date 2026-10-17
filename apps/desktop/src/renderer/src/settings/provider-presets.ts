@@ -49,6 +49,23 @@ export interface OpenAIPreset {
 /** OpenAI 与 Anthropic 模板共用的五档推理；支持关闭的模型另加 off。 */
 const FIVE_EFFORTS: ProviderModel['reasoningEfforts'] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
+/** 两站标准 API 共用的 GLM 目录（2026-10-17 核对，providers.md §7.4）；maxTokens 不改变透传预算。 */
+const GLM_MODELS: ProviderModel[] = [
+  {
+    id: 'glm-5.3',
+    contextWindow: 1048576,
+    maxTokens: 131072,
+    reasoningEfforts: ['low', 'high', 'max'],
+  },
+  {
+    id: 'glm-5.3-flash',
+    contextWindow: 1048576,
+    maxTokens: 131072,
+    supportsImages: true,
+    reasoningEfforts: ['low', 'high', 'max'],
+  },
+];
+
 /** Codex 官方接入指南的目录（2026-10-16）；新建时显式保存，已有 Profile 不套用。 */
 export const DEEPSEEK_OFFICIAL_PRESET: OpenAIPreset = {
   id: DEEPSEEK_OFFICIAL_ID,
@@ -255,14 +272,27 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://platform.kimi.com/docs/guide/codex-kimi.md',
   },
   {
+    // Codex 指南确认 freeform apply_patch；namespace 未实测，先保守摊平（providers.md §7.4）。
+    id: 'zai',
+    name: 'provider.preset.zai',
+    note: 'provider.preset.zai.note',
+    api: 'openai-responses',
+    baseURL: 'https://api.z.ai/api/v1',
+    compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    models: GLM_MODELS,
+    defaultModelId: 'glm-5.3',
+    docsURL: 'https://docs.z.ai/devpack/tool/codex',
+  },
+  {
     id: 'zhipu',
     name: 'provider.preset.zhipu',
     note: 'provider.preset.zhipu.note',
-    api: 'openai-completions',
-    baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-    models: [{ id: 'glm-4.5', contextWindow: 131072 }],
-    defaultModelId: 'glm-4.5',
-    docsURL: 'https://docs.bigmodel.cn/cn/guide/develop/openai/introduction',
+    api: 'openai-responses',
+    baseURL: 'https://open.bigmodel.cn/api/v1',
+    compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    models: GLM_MODELS,
+    defaultModelId: 'glm-5.3',
+    docsURL: 'https://docs.bigmodel.cn/cn/coding-plan/tool/codex',
   },
   {
     id: 'deepseek-openai',

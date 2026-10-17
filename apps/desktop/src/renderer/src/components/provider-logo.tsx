@@ -15,6 +15,7 @@ import opencode from '@/assets/provider-logos/opencode.svg';
 import qwen from '@/assets/provider-logos/qwen-color.svg';
 import vertex from '@/assets/provider-logos/vertexai-color.svg';
 import xai from '@/assets/provider-logos/xai.svg';
+import zai from '@/assets/provider-logos/zai.svg';
 import zhipu from '@/assets/provider-logos/zhipu-color.svg';
 
 /** 模型服务的标志（来源见 assets/provider-logos/SOURCE.md）。`mono` 的是单色字形，画成文字色。 */
@@ -28,6 +29,7 @@ const LOGOS = {
   qwen: { src: qwen, mono: false },
   kimi: { src: kimi, mono: false },
   zhipu: { src: zhipu, mono: false },
+  zai: { src: zai, mono: true },
   xai: { src: xai, mono: true },
   ollama: { src: ollama, mono: true },
   // 订阅来源的软件标志（0.19.0）：模型选择与设置里用它区分“来自哪个订阅”与 API。

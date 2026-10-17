@@ -452,6 +452,18 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_GROK=1 pnpm vitest run 
 
 ### 6.3 真实模型测试的环境变量
 
+Z.ai 与智谱标准 API 按官方 Codex 指南使用 Responses。先在进程环境提供**对应站点新建的标准** WEVIR_TEST_API_KEY，再分别运行（两站 Key 不通用，不写进命令或文件）：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://api.z.ai/api/v1 WEVIR_TEST_MODEL=glm-5.3 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://open.bigmodel.cn/api/v1 WEVIR_TEST_MODEL=glm-5.3 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+随后在 pnpm dev 里分别用 Z.ai / 智谱模板完成一次 apply_patch 改文件对话，并检查 low / high / max、Flash 图片与多步历史。2026-10-17 无两站标准 Key，真实契约与桌面对话未验收；`zai.test.ts` / `zai.integration.test.ts` 的录制请求和 HTTP mock 只证明本地兼容逻辑。拿到 Key 后另探测原生 namespace，再决定是否将 supportsNamespaceTools 改 true；当前第 3 层没有显式 compat 环境入口，原生 namespace 的对照需用进程内网关配置。2026-10-16 的 Key 类型与标准 Key 入口有变化，模型页仍保留曾订阅账号的 Chat 限制；若实际拒收 Responses，按 providers.md §7.4 手动设 Chat 与 zai 思考格式，不自动回退、不使用套餐或历史兼容 Key。
+
 Kimi 开放平台按官方 Codex 指南使用 Responses。先在进程环境提供国内站的 WEVIR_TEST_API_KEY，再运行（不把 Key 写进命令或文件）：
 
 ```bash

@@ -991,6 +991,7 @@ export const zhCN = {
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': '阿里云百炼',
   'provider.catalog.kimi': 'Kimi',
+  'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': '智谱 GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.custom': 'OpenAI 兼容服务',
@@ -1001,8 +1002,11 @@ export const zhCN = {
   'provider.preset.kimi': 'Kimi',
   'provider.preset.kimi.note':
     '默认国内站，中国大陆可直连。国内与国际站 Key 不通用；国际站：https://api.moonshot.ai/v1',
+  'provider.preset.zai': 'Z.ai',
+  'provider.preset.zai.note':
+    '国际站；中国大陆直连未验证，建议使用国内智谱。仅标准 API Key，与国内站不通用。',
   'provider.preset.zhipu': '智谱 GLM',
-  'provider.preset.zhipu.note': 'GLM Coding 套餐：https://open.bigmodel.cn/api/coding/paas/v4',
+  'provider.preset.zhipu.note': '国内按量 API，中国大陆可直连。仅标准 API Key，与 Z.ai 不通用。',
   'provider.preset.deepseekOpenai': 'DeepSeek（OpenAI 兼容）',
   'provider.preset.xai': 'xAI（Grok API）',
   'provider.preset.gemini': 'Google AI Studio',

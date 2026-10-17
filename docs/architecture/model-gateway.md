@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.11（含 Kimi Responses 方言）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.12（含 Z.ai / 智谱按量兼容）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -185,6 +185,16 @@ Responses 不存历史：store / include / previous_response_id 等静默忽略�
 
 当前 Responses 参数页明确只支持 kimi-k3，K2.7-code 与 K2.6 的 Chat 参数不能据此推断为 Responses 能力。锁定 Codex 不发 prompt_cache_breakpoint；若外部调用带入该项，网关保持原值，Kimi 按文档返回 400。`kimi.test.ts` 的录制请求与 `kimi.integration.test.ts` 的本机 HTTP mock 检查工具选择、原生工具、图片与推理往返及 provider.test，不替代真实服务验收。来源、模型范围与手动修改见 providers.md §7.3。
 
+### 3.9 Z.ai / 智谱标准 API
+
+2026-10-17 按两站官方 Codex 指南选择 `/api/v1/responses` 透传。目录声明 freeform apply_patch、并行工具、shell_command 与纯文本 GLM-5.3；不改 Codex。新建模板只列 GLM-5.3 与支持图片的 Flash，三档 low / high / max，没有 off。模型页与 Key 管理页的差异、按量 Key 尚未实测的边界见 [providers.md §7.4](./providers.md#74-智谱-glm-与-zai按量-api)。
+
+`isZaiHost` 只对 z.ai / bigmodel.cn 及子域的标准 `/api/v1`、`/api/paas/v4` 地址补值，排除套餐域名与路径。Responses 保留 custom，namespace 无实测证据，暂用已有 flatten-namespace-tools；Responses / Chat 均默认 auto_only，Messages 不变。每个显式 compat 字段仍优先，模板写明同样的值以供代理使用；没有新增协议字段。
+
+Responses 的 effort、完整推理、图片、缓存字段与 store 原样透传，只作通用 null 清理；不注入 Chat 的 thinking / reasoning_effort，也不从 maxTokens 目录字段补输出预算。Chat 兜底沿用 §4.4 的显式 zai 格式，不按地址新增思考默认值。没有 Key，不自动探测或回退协议。
+
+`zai.test.ts` 的四份录制请求与 `zai.integration.test.ts` 的本机严格 mock 覆盖工具选择、namespace 摊平 / 还原、原生 apply_patch 与三步推理历史、provider.test。mock 的拒收规则用于检验兼容流程，不证明上游实际拒收 namespace；两站标准 Key 的真实契约与桌面 apply_patch 仍待验收。
+
 ## 4. Chat Completions 转换
 
 ### 4.1 请求：Responses → Chat
@@ -263,12 +273,13 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 | `isDeepSeekHost`：`deepseek.com` 及子域的 Responses / Chat，含固定地址的 deepseek-official | `toolChoice: auto_only` | §3.6；Responses 两模型已实测思考时 required / 具名 400；Messages 保持原选择 |
 | `isOllamaHost`：回环主机的 11434 端口或精确 HTTPS ollama.com，仅 Responses | `supportsCustomTools: false`、`toolChoice: auto_only`；Cloud 另有 `supportsNamespaceTools: false` | §3.7；本机 namespace 保留，Cloud 保守摊平 |
 | `isKimiHost`：moonshot.cn / moonshot.ai 及子域，仅 Responses | `toolChoice: auto_only`；custom 与 namespace 保持支持 | §3.8；Kimi Code 域名不匹配 |
+| `isZaiHost`：z.ai / bigmodel.cn 及子域的标准 /api/v1、/api/paas/v4 路径，排除套餐 | Responses：`supportsCustomTools: true`、`supportsNamespaceTools: false`、`toolChoice: auto_only`；Chat：`toolChoice: auto_only` | §3.9；custom 按 Codex 指南，namespace 保守摊平、待真实验证 |
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
 | `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量与 Ollama 地址为 `false` |
-| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量与 Ollama Cloud 地址为 `false` |
-| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat、Ollama 与 Kimi Responses 为 `auto_only`；Messages 的模型默认见 §5.1 |
+| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量、Ollama Cloud 与 Z.ai / 智谱 Responses 地址为 `false` |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat、Ollama / Kimi Responses 与 Z.ai / 智谱 Responses / Chat 为 `auto_only`；Messages 的模型默认见 §5.1 |
 | `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -475,6 +486,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试：`__snapshots__/codex-requests/` 的变化就是转换结果的变化。根 `biome.json` 排除了这两个目录，保持录制原样。
 
 ## 10. 局限与没做的
+
+- Z.ai / 智谱：两站无标准 API Key，按量 Responses、namespace 原生能力、Flash 图片与桌面 apply_patch 未验收；namespace 暂保守摊平。2026-10-16 新 Key 分类与旧账号 Chat 限制仍需真实账号核对，不提供套餐地址或自动切换协议。Responses 默认输出预算、推理 / 缓存字段兼容性也待实测（§3.9、providers.md §7.4）。
 
 - Kimi：2026-10-17 官方 Responses 文档只支持 kimi-k3，模板不列 K2.7-code / K2.6；不新增 Chat / Messages 模板，不接 Kimi Code 会员端点。缺 WEVIR_TEST_API_KEY，K3 真实契约与桌面 apply_patch 尚未验收。非 data URL 图片会丢掉，不下载外部资源；代理地址需自行满足此限制。服务默认输出 131072，目录 maxTokens 不改变透传预算；完整推理回放与缓存字段仍需真实服务核对。见 §3.8、providers.md §7.3。
 

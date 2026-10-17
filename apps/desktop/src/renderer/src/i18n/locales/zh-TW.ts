@@ -978,6 +978,7 @@ export const messages: Messages = {
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': '阿里雲百煉',
   'provider.catalog.kimi': 'Kimi',
+  'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': '智譜 GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.custom': 'OpenAI 相容服務',
@@ -988,8 +989,11 @@ export const messages: Messages = {
   'provider.preset.kimi': 'Kimi',
   'provider.preset.kimi.note':
     '預設中國大陸站，中國大陸可直連。國內與國際站 Key 不通用；國際站：https://api.moonshot.ai/v1',
+  'provider.preset.zai': 'Z.ai',
+  'provider.preset.zai.note':
+    '國際站；中國大陸直連未驗證，建議使用國內智譜。僅標準 API Key，與國內站不通用。',
   'provider.preset.zhipu': '智譜 GLM',
-  'provider.preset.zhipu.note': 'GLM Coding 方案：https://open.bigmodel.cn/api/coding/paas/v4',
+  'provider.preset.zhipu.note': '中國大陸按量 API，可直接連線。僅標準 API Key，與 Z.ai 不通用。',
   'provider.preset.deepseekOpenai': 'DeepSeek（OpenAI 相容）',
   'provider.preset.xai': 'xAI（Grok API）',
   'provider.preset.gemini': 'Google AI Studio',

@@ -1003,6 +1003,7 @@ export const messages: Messages = {
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
+  'provider.catalog.zai': 'Z.ai',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.custom': 'Service compatible OpenAI',
@@ -1013,8 +1014,12 @@ export const messages: Messages = {
   'provider.preset.kimi': 'Kimi',
   'provider.preset.kimi.note':
     'Point d’accès de Chine continentale par défaut, accessible directement sur place. Les clés API des sites chinois et international sont distinctes. International : https://api.moonshot.ai/v1',
+  'provider.preset.zai': 'Z.ai',
+  'provider.preset.zai.note':
+    'Site international ; accès direct depuis la Chine continentale non vérifié. Privilégiez Zhipu en Chine. Clés API standard uniquement, distinctes de celles de Zhipu.',
   'provider.preset.zhipu': 'Zhipu GLM',
-  'provider.preset.zhipu.note': 'Forfait GLM Coding : https://open.bigmodel.cn/api/coding/paas/v4',
+  'provider.preset.zhipu.note':
+    'API à l’usage en Chine continentale, accessible directement sur place. Clés API standard uniquement, distinctes de celles de Z.ai.',
   'provider.preset.deepseekOpenai': 'DeepSeek (compatible OpenAI)',
   'provider.preset.xai': 'xAI (Grok API)',
   'provider.preset.gemini': 'Google AI Studio',

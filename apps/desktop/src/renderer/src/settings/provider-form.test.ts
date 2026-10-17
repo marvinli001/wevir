@@ -269,6 +269,76 @@ function profile(overrides: Partial<EditableProvider>): EditableProvider {
 }
 
 describe('预设模板（providers.md §7）', () => {
+  it.each([
+    ['zai', 'global', 'https://api.z.ai/api/v1', 'https://z.ai/manage-apikey/apikey-list'],
+    [
+      'zhipu',
+      'cn',
+      'https://open.bigmodel.cn/api/v1',
+      'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
+    ],
+  ])('%s 标准 API 模板保存 Responses、两款 GLM 与代理兼容值', (id, group, baseURL, keyURL) => {
+    const entry = catalogEntry(id);
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 GLM 模板');
+    expect(entry).toMatchObject({ group, logo: id, keyURL });
+    const preset = entry.source.preset;
+    const form = { ...newOpenAIForm(preset, []), apiKey: 'placeholder-not-a-real-key' };
+    expect(validateForm(form, [])).toEqual({});
+    const created = upsertSchema.parse(toUpsertParams(form));
+    if (created.kind !== 'openai-compatible') throw new Error('GLM 模板的 Provider 类型不对');
+    expect(created).toMatchObject({
+      api: 'openai-responses',
+      baseURL,
+      defaultModelId: 'glm-5.3',
+      compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    });
+    expect(created.models).toEqual([
+      {
+        id: 'glm-5.3',
+        contextWindow: 1048576,
+        maxTokens: 131072,
+        reasoningEfforts: ['low', 'high', 'max'],
+      },
+      {
+        id: 'glm-5.3-flash',
+        contextWindow: 1048576,
+        maxTokens: 131072,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'high', 'max'],
+      },
+    ]);
+    expect(toUpsertParams({ ...form, baseURL: 'https://proxy.example.com/v1' })).toHaveProperty(
+      'compat',
+      preset.compat,
+    );
+    expect(preset.docsURL).toContain('/tool/codex');
+    expect(preset.note).toBe(`provider.preset.${id}.note`);
+    expect(providerLogo({ kind: 'openai-compatible', baseURL })).toBe(id);
+  });
+
+  it('已有智谱 Chat Provider 不套用新模板或覆盖显式 compat', () => {
+    const old = profile({
+      id: 'zhipu',
+      displayName: '智谱 GLM',
+      baseURL: 'https://open.bigmodel.cn/api/paas/v4',
+      models: [{ id: 'glm-4.5', contextWindow: 131072 }],
+      defaultModelId: 'glm-4.5',
+      compat: { thinkingFormat: 'zai', toolChoice: 'any', supportsNamespaceTools: true },
+    });
+    const edited = upsertSchema.parse(toUpsertParams(editForm(old)));
+    expect(edited).toMatchObject({
+      api: old.api,
+      baseURL: old.baseURL,
+      models: old.models,
+      defaultModelId: old.defaultModelId,
+      compat: old.compat,
+    });
+    expect(edited).not.toHaveProperty('apiKey');
+    expect(
+      providerLogo({ kind: 'openai-compatible', baseURL: 'https://api.z.ai.example.com/api/v1' }),
+    ).toBeUndefined();
+  });
+
   it('Kimi 按量目录只列 Responses K3，保存图片、三档推理与代理的工具选择', () => {
     const entry = catalogEntry('kimi');
     if (entry?.source?.kind !== 'preset') throw new Error('缺少 Kimi 模板');

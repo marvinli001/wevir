@@ -12,6 +12,7 @@
 | `deepseek-color.svg` | DeepSeek | `deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439` |
 | `qwen-color.svg` | 通义千问 | `77f5768c66d08ce1d3d14e73373975c1bc0454be88c81523ddd0ffd7e2974029` |
 | `kimi-color.svg` | Kimi | `74a7292aeb0220445d14c5d397d75760e2e8c6ed6a9e5fe4f3023471bf62a9ff` |
+| `zai.svg` | Z.ai | `e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1` |
 | `zhipu-color.svg` | 智谱 GLM | `8174e65ff71647d5c705c920c953a82bd723d9e3e42887bdd4ffc9dfe51207a0` |
 | `xai.svg` | xAI | `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451` |
 | `ollama.svg` | Ollama | `3a268218fb2e6e81fa31df70f70b51331625047794db81db21d35359428fae7a` |
