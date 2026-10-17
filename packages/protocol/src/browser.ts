@@ -5,7 +5,8 @@
 // 由 Wevir 修改：命令按 Wevir 的取舍（去掉 evaluate、upload、resize，加上请界面显示标签页的 show）；schema 只做结构声明（host-api.md
 // §10 规则 6：不用 refine / transform / default，默认值与“恰好一个条件”由 Host 校验）；错误码、命令名与标签页的操作方是开放
 // 字符串，以后多出取值不算收窄；标签页加上操作方 `controller` 与所属会话；请求带会话与它的目录；打开与跳转的结果带主文档的
-// HTTP 状态码（0.44.0）。
+// HTTP 状态码（0.44.0）；快照可以分段读、带总行数，回答带命令引起的页面变化（跳转、新标签页、下载、选文件），日志带总数与
+// 进行中的请求，错误码多了对话框阻塞与参数不对（0.46.0）。
 //
 // 内置浏览器（0.33.0，domain-model §3.15）：浏览器在桌面端的主进程里，Host 是另一个进程。桌面端用 `browser.register` 把
 // 自己的连接登记为浏览器提供方，Host 经 `browser.request` 通知把会话里的 agent 调的浏览器工具交给它，提供方用
@@ -56,6 +57,12 @@ export const BROWSER_ERROR_CODES = [
   'browser_unsupported',
   /** 元素引用过期了，要重新取快照。 */
   'browser_stale_ref',
+  /** 页面弹出的对话框没被处理、挡住了页面（0.46.0）。 */
+  'browser_dialog_blocked',
+  /** 地址不能打开（0.46.0）：不是 http(s)，或根本不是地址。 */
+  'browser_invalid_url',
+  /** 参数不对（0.46.0）：引用的形状、按键名、互斥的参数等。 */
+  'browser_invalid_argument',
   'browser_unknown_error',
 ] as const;
 export type BrowserErrorCode = (typeof BROWSER_ERROR_CODES)[number];
@@ -90,7 +97,11 @@ export const BrowserCommandSchema = z.discriminatedUnion('command', [
     command: z.literal('show'),
     args: z.object({ browserId: BrowserTabIdSchema.optional(), url: HttpUrlSchema.optional() }),
   }),
-  z.object({ command: z.literal('snapshot'), args: z.object(tab) }),
+  /** `offset`（0.46.0）：从快照的第几行（从 0 起）开始给，页面长、一次给不完时分段读。 */
+  z.object({
+    command: z.literal('snapshot'),
+    args: z.object({ ...tab, offset: z.int().min(0).max(1_000_000).optional() }),
+  }),
   z.object({
     command: z.literal('screenshot'),
     args: z.object({ ...tab, fullPage: z.boolean().optional() }),
@@ -175,6 +186,10 @@ export const BrowserSnapshotStatsSchema = z.object({
   textLength: z.int().min(0),
   iframeCount: z.int().min(0).optional(),
   maxDepth: z.int().min(0).optional(),
+  /** 整个快照的行数、这次给出的第一行（从 0 起）与行数（0.46.0）。 */
+  totalLines: z.int().min(0).optional(),
+  startLine: z.int().min(0).optional(),
+  shownLines: z.int().min(0).optional(),
 });
 
 export const BrowserConsoleEntrySchema = z.object({
@@ -194,6 +209,10 @@ export const BrowserNetworkEntrySchema = z.object({
   startTime: z.number(),
   duration: z.number(),
   transferSize: z.number().optional(),
+  /** 还没结束（0.46.0）；有 `status` 的是响应头到了、正文还没读完（页面可能根本不读）。 */
+  pending: z.boolean().optional(),
+  /** 失败的原因（0.46.0），例如 `net::ERR_ABORTED`。 */
+  failed: z.string().optional(),
 });
 export type BrowserNetworkEntry = z.infer<typeof BrowserNetworkEntrySchema>;
 
@@ -275,11 +294,14 @@ export const BrowserResultSchema = z.discriminatedUnion('command', [
   z.object({ command: z.literal('reload'), ...tabResult }),
   /** `matched`：`text` 或 `url`，开放字符串。 */
   z.object({ command: z.literal('wait'), ...tabResult, matched: z.string() }),
+  /** 只含当前页面（最近一次整页载入以来）的记录；`consoleTotal` / `networkTotal`（0.46.0）是这期间的总数，多于返回的条数时前面的省略了。 */
   z.object({
     command: z.literal('logs'),
     ...tabResult,
     console: z.array(BrowserConsoleEntrySchema),
     network: z.array(BrowserNetworkEntrySchema),
+    consoleTotal: z.int().min(0).optional(),
+    networkTotal: z.int().min(0).optional(),
   }),
 ]);
 export type BrowserResult = z.infer<typeof BrowserResultSchema>;
@@ -292,7 +314,10 @@ export const BrowserErrorSchema = z.object({
 });
 export type BrowserError = z.infer<typeof BrowserErrorSchema>;
 
-/** 命令执行期间页面弹出、由提供方自动处理掉的对话框（alert 接受，其余取消）。 */
+/**
+ * 页面弹出、由提供方自动处理掉的对话框（alert 接受，confirm / prompt 取消，beforeunload 离开）。0.46.0 起包括两次命令之间
+ * （定时器、载入时）弹出的，在这个标签页的下一个命令里报。
+ */
 export const BrowserDialogEventSchema = z.object({
   /** `alert`、`confirm`、`prompt`、`beforeunload`，开放字符串。 */
   type: z.string().min(1),
@@ -304,6 +329,26 @@ export const BrowserDialogEventSchema = z.object({
 });
 export type BrowserDialogEvent = z.infer<typeof BrowserDialogEventSchema>;
 
+/**
+ * 命令引起的页面变化（0.46.0）：点击、按键之后主框架跳转到了哪里（`status` 是主文档的 HTTP 状态码）、页面开了哪些新标签页、
+ * 下载（内置浏览器一律拦下，`state` 是 `blocked`，开放字符串）、页面要用户选本机文件（不交给页面）。
+ */
+export const BrowserEffectsSchema = z.object({
+  navigation: z
+    .object({ url: z.string(), status: z.int().min(100).max(999).optional() })
+    .optional(),
+  openedTabs: z
+    .array(z.object({ browserId: BrowserTabIdSchema, url: z.string() }))
+    .max(20)
+    .optional(),
+  downloads: z
+    .array(z.object({ url: z.string(), filename: z.string(), state: z.string().min(1) }))
+    .max(20)
+    .optional(),
+  fileChooser: z.object({ multiple: z.boolean() }).optional(),
+});
+export type BrowserEffects = z.infer<typeof BrowserEffectsSchema>;
+
 /** 提供方对一个请求的回答（`browser.respond` 的参数）。 */
 export const BrowserResponseSchema = z.discriminatedUnion('ok', [
   z.object({
@@ -311,12 +356,14 @@ export const BrowserResponseSchema = z.discriminatedUnion('ok', [
     ok: z.literal(true),
     result: BrowserResultSchema,
     dialogs: z.array(BrowserDialogEventSchema).max(20).optional(),
+    effects: BrowserEffectsSchema.optional(),
   }),
   z.object({
     requestId: BrowserRequestIdSchema,
     ok: z.literal(false),
     error: BrowserErrorSchema,
     dialogs: z.array(BrowserDialogEventSchema).max(20).optional(),
+    effects: BrowserEffectsSchema.optional(),
   }),
 ]);
 export type BrowserResponse = z.infer<typeof BrowserResponseSchema>;
@@ -336,3 +383,8 @@ export type BrowserRequest = z.infer<typeof BrowserRequestSchema>;
 export const BROWSER_SCREENSHOT_MAX_BYTES = 4 * 1024 * 1024;
 /** 快照文本的上限（字符）。 */
 export const BROWSER_SNAPSHOT_MAX_LENGTH = 80_000;
+/**
+ * 一段快照的大小（UTF-8 字节，0.46.0）：经网关的模型在 Codex 里工具输出只留 10 000 字节（adapter-codex 的
+ * `truncation_policy`），超出的从中间删掉；快照按这个预算分段，剩下的用 `offset` 接着读。
+ */
+export const BROWSER_SNAPSHOT_PAGE_BYTES = 8_000;

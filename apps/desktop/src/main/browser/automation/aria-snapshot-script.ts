@@ -5,7 +5,10 @@
 // 其中的 ARIA 快照模型改编自 microsoft/playwright 注入脚本的 ARIA snapshot，Copyright (c) Microsoft Corporation，Apache License 2.0。
 // 由 Wevir 修改：标记与页面里的全局名改成 Wevir 的（`__WEVIR_ARIA_SNAPSHOT__`、`__WEVIR_BROWSER_AUTOMATION__`）；输入框带当前的
 // `value`（密码只说填了没有，也不再拿密码当名字），下拉框的名字不再拼接所有选项、带选中项；没有可操作角色、但能点的元素（on* 事件属性、tabindex、
-// 从它开始的 cursor:pointer）也给引用，标 `clickable`。
+// 从它开始的 cursor:pointer）也给引用，标 `clickable`。0.46.0：不再在 1500 个节点处停下（上限 20000，文字总量超出预算后只略过
+// 文字、元素照样走完，分段在 snapshot-engine.ts）；同源 iframe 的内容接在 iframe 下面（跨域的写明没包含）；判断元素用
+// nodeType 与元素自己的文档、窗口（iframe 是另一个 realm）；文本框的值不再当名字（textarea 的换行保留在 value 里），输入框
+// 标出非文本的 `type`，链接带 `url`。
 
 export const ARIA_SNAPSHOT_SCRIPT_MARKER = '__WEVIR_ARIA_SNAPSHOT__';
 
@@ -13,9 +16,10 @@ export const ARIA_SNAPSHOT_SCRIPT_MARKER = '__WEVIR_ARIA_SNAPSHOT__';
 // Copyright (c) Microsoft Corporation. Licensed under the Apache License, Version 2.0.
 export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
   const MARKER = ${JSON.stringify(ARIA_SNAPSHOT_SCRIPT_MARKER)};
-  const MAX_NODES = 1500;
+  const MAX_NODES = 20000;
   const MAX_REFS = 500;
-  const MAX_TEXT_LENGTH = 80000;
+  const MAX_TEXT_LENGTH = 400000;
+  const MAX_NODE_TEXT = 300;
   const ACTIONABLE_ROLES = new Set([
     'button',
     'checkbox',
@@ -37,9 +41,22 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     return String(value || '').replace(/[\u200b\u00ad]/g, '').replace(/[\r\n\s\t]+/g, ' ').trim();
   }
 
+  // iframe 里的节点属于另一个 realm，instanceof 不成立：按 nodeType 判断，样式用元素自己的窗口。
+  function isElement(node) {
+    return Boolean(node) && node.nodeType === 1;
+  }
+
+  function viewOf(element) {
+    return (element.ownerDocument && element.ownerDocument.defaultView) || window;
+  }
+
+  function styleOf(element) {
+    return viewOf(element).getComputedStyle(element);
+  }
+
   function visibilityFor(element) {
-    if (!(element instanceof Element)) return false;
-    const style = window.getComputedStyle(element);
+    if (!isElement(element)) return false;
+    const style = styleOf(element);
     if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0 ? 'box' : 'boxless';
@@ -58,7 +75,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     if (tag === 'button') return 'button';
     if (tag === 'select') return 'combobox';
     if (tag === 'textarea') return 'textbox';
-    if (element instanceof HTMLElement && element.isContentEditable) return 'textbox';
+    if (element.isContentEditable) return 'textbox';
     if (tag === 'summary') return 'button';
     if (tag === 'main') return 'main';
     if (tag === 'nav') return 'navigation';
@@ -76,7 +93,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
       const type = (element.getAttribute('type') || 'text').toLowerCase();
       if (type === 'checkbox') return 'checkbox';
       if (type === 'radio') return 'radio';
-      if (type === 'button' || type === 'submit' || type === 'reset') return 'button';
+      if (type === 'button' || type === 'submit' || type === 'reset' || type === 'image' || type === 'file') return 'button';
       if (type === 'range') return 'slider';
       if (type === 'number') return 'spinbutton';
       if (type === 'search') return 'searchbox';
@@ -94,13 +111,13 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
 
   // 页面里看不到 addEventListener 加的监听，只能认事件属性、tabindex 与从这个元素开始的 cursor:pointer（子元素继承的不算）。
   function isClickable(element) {
-    if (!(element instanceof HTMLElement)) return false;
+    if (!isElement(element) || !('style' in element)) return false;
     if (POINTER_HANDLERS.some((name) => element.hasAttribute(name) || typeof element[name] === 'function')) return true;
     const tabIndex = element.getAttribute('tabindex');
     if (tabIndex !== null && Number(tabIndex) >= 0) return true;
-    if (window.getComputedStyle(element).cursor !== 'pointer') return false;
+    if (styleOf(element).cursor !== 'pointer') return false;
     const parent = element.parentElement;
-    return !parent || window.getComputedStyle(parent).cursor !== 'pointer';
+    return !parent || styleOf(parent).cursor !== 'pointer';
   }
 
   function snapshotRoleFor(element) {
@@ -108,12 +125,12 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
   }
 
   function labelText(element) {
-    if (!(element instanceof HTMLElement)) return '';
+    if (!isElement(element)) return '';
     if (element.id) {
       const escapedId = window.CSS && typeof window.CSS.escape === 'function'
         ? window.CSS.escape(element.id)
         : String(element.id).replace(/"/g, '\\"');
-      const label = document.querySelector('label[for="' + escapedId + '"]');
+      const label = element.ownerDocument.querySelector('label[for="' + escapedId + '"]');
       if (label) return normalizeText(label.textContent);
     }
     const closestLabel = element.closest('label');
@@ -124,7 +141,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     const tag = element.tagName.toLowerCase();
     const labelledBy = element.getAttribute('aria-labelledby');
     if (labelledBy) {
-      const text = labelledBy.split(/\s+/).map((id) => document.getElementById(id)?.textContent || '').join(' ');
+      const text = labelledBy.split(/\s+/).map((id) => element.ownerDocument.getElementById(id)?.textContent || '').join(' ');
       const normalized = normalizeText(text);
       if (normalized) return normalized;
     }
@@ -134,7 +151,8 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
       element.getAttribute('alt'),
       element.getAttribute('title'),
       tag === 'input' || tag === 'textarea' ? element.getAttribute('placeholder') : null,
-      (tag === 'input' && String(element.getAttribute('type') || '').toLowerCase() !== 'password') || tag === 'textarea'
+      // 只有按钮类的输入框拿值当名字；文本框的值在 value 里，不当名字（否则 textarea 的内容成了它的名字）。
+      tag === 'input' && ['button', 'submit', 'reset'].includes(String(element.getAttribute('type') || '').toLowerCase())
         ? element.value
         : null,
       tag !== 'select' && (role === 'button' || role === 'link' || role === 'heading' || ACTIONABLE_ROLES.has(role))
@@ -154,7 +172,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
   }
 
   function inheritedDisabled(element) {
-    if (!(element instanceof Element)) return false;
+    if (!isElement(element)) return false;
     if (element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true') return true;
     if (element.closest('fieldset[disabled]')) return true;
     return element.closest('[aria-disabled="true"]') !== null;
@@ -221,6 +239,19 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     if (element.getAttribute('aria-expanded')) attrs.push('expanded=' + element.getAttribute('aria-expanded'));
     if (element.getAttribute('aria-pressed')) attrs.push('pressed=' + element.getAttribute('aria-pressed'));
     if (element.getAttribute('aria-selected')) attrs.push('selected=' + element.getAttribute('aria-selected'));
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'input') {
+      const type = String(element.getAttribute('type') || 'text').toLowerCase();
+      if (type !== 'text' && type !== 'checkbox' && type !== 'radio' && type !== 'button' && type !== 'submit') attrs.push('type=' + type);
+    }
+    if (role === 'link' && element.getAttribute('href')) {
+      const href = element.getAttribute('href');
+      attrs.push('url=' + JSON.stringify(href.length > 120 ? href.slice(0, 120) + '…' : href));
+    }
+    if (tag === 'iframe' && element.getAttribute('src')) {
+      const src = element.getAttribute('src');
+      attrs.push('src=' + JSON.stringify(src.length > 120 ? src.slice(0, 120) + '…' : src));
+    }
     const value = currentValue(element, name);
     if (value !== null) attrs.push(value);
     if (!ACTIONABLE_ROLES.has(role) && isClickable(element)) attrs.push('clickable');
@@ -278,15 +309,15 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     return true;
   }
 
+  // 一段文字最多 MAX_NODE_TEXT 个字符；总量用完后之后的文字略过，元素照样走（引用不丢）。
   function cappedText(text) {
-    if (text.length <= textBudget) {
-      textBudget -= text.length;
-      return text;
+    const clipped = text.length > MAX_NODE_TEXT ? text.slice(0, MAX_NODE_TEXT) + '…' : text;
+    if (clipped.length > textBudget) {
+      textBudget = 0;
+      return '';
     }
-    truncated = true;
-    const capped = text.slice(0, Math.max(0, textBudget));
-    textBudget = 0;
-    return capped;
+    textBudget -= clipped.length;
+    return clipped;
   }
 
   function visitNode(domNode, depth) {
@@ -296,7 +327,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
       if (!text) return null;
       return textNode(text);
     }
-    if (!(domNode instanceof Element)) return null;
+    if (!isElement(domNode)) return null;
     const visibility = visibilityFor(domNode);
     if (!visibility) return null;
     if (domNode.getAttribute('aria-hidden') === 'true') return null;
@@ -312,6 +343,23 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
 
     if (domNode.tagName.toLowerCase() === 'iframe') {
       iframeCount += 1;
+      // 同源的 iframe 能读到它的文档：内容接在 iframe 下面，里面的元素照样有引用。跨域的读不到，写明。
+      let frameDocument = null;
+      try {
+        frameDocument = domNode.contentDocument;
+      } catch {
+        frameDocument = null;
+      }
+      const frameRoot = frameDocument && (frameDocument.body || frameDocument.documentElement);
+      if (frameRoot) {
+        for (const child of Array.from(frameRoot.childNodes)) {
+          const childSnapshot = visitNode(child, depth + 1);
+          if (childSnapshot) children.push(childSnapshot);
+          if (truncated) break;
+        }
+      } else if (domNode.getAttribute('src')) {
+        children.push(textNode('(content from another site; not included in the snapshot)'));
+      }
     }
 
     if (visibility === 'boxless') {

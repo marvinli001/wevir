@@ -434,7 +434,16 @@ function requireSnapshotRefs(result: Awaited<ReturnType<BrowserAutomationHarness
         '  - button "Target" [ref=@e5]',
       ].join('\n'),
       truncated: false,
-      stats: { nodeCount: 6, refCount: 5, textLength: 187, iframeCount: 0, maxDepth: 1 },
+      stats: {
+        nodeCount: 6,
+        refCount: 5,
+        textLength: 187,
+        iframeCount: 0,
+        maxDepth: 1,
+        totalLines: 6,
+        startLine: 0,
+        shownLines: 6,
+      },
     },
   });
 }
@@ -516,7 +525,16 @@ describe('executeAutomationCommand', () => {
         format: 'aria-yaml',
         snapshot: '- document "Fixture"\n  - button "Submit" [ref=@e1]',
         truncated: false,
-        stats: { nodeCount: 2, refCount: 1, textLength: 50, iframeCount: 0, maxDepth: 1 },
+        stats: {
+          nodeCount: 2,
+          refCount: 1,
+          textLength: 50,
+          iframeCount: 0,
+          maxDepth: 1,
+          totalLines: 2,
+          startLine: 0,
+          shownLines: 2,
+        },
       },
     });
     expect(click).toEqual({
@@ -921,7 +939,8 @@ describe('executeAutomationCommand', () => {
       ok: false,
       error: {
         code: 'browser_timeout',
-        message: 'Timed out waiting for browser element @e2 to become actionable.',
+        message:
+          'Browser element @e2 did not become usable within 5 s (disabled). Take a new browser_snapshot to see its state.',
         retryable: true,
       },
     });
@@ -953,7 +972,8 @@ describe('executeAutomationCommand', () => {
       ok: false,
       error: {
         code: 'browser_timeout',
-        message: 'Timed out waiting for browser element @e2 to become actionable.',
+        message:
+          'Browser element @e2 did not become usable within 5 s (disabled). Take a new browser_snapshot to see its state.',
         retryable: true,
       },
       dialogs: [
@@ -998,7 +1018,8 @@ describe('executeAutomationCommand', () => {
       ok: false,
       error: {
         code: 'browser_timeout',
-        message: 'Timed out waiting for browser text: Ready',
+        message:
+          'The page did not show the text "Ready" within 0 s. Take a browser_snapshot to see what it shows.',
         retryable: true,
       },
     });
@@ -1310,6 +1331,55 @@ describe('executeAutomationCommand', () => {
             transferSize: 123,
           },
         ],
+        consoleTotal: 2,
+        networkTotal: 2,
+      },
+    });
+  });
+
+  test('logs prefer the tab network log and report totals', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.consoleMessages = [{ level: 'info', message: 'line 999', timestamp: 2 }];
+    Object.assign(browser.tab, {
+      getConsoleTotal: () => 1000,
+      getNetworkLog: () => ({
+        entries: [
+          { url: 'https://a.test/api', method: 'POST', startTime: 5, duration: 0, pending: true },
+        ],
+        total: 7,
+      }),
+    });
+
+    const result = await browser.execute({ command: 'logs', args: { browserId: BROWSER_A } });
+
+    expect(result).toMatchObject({
+      ok: true,
+      result: {
+        console: [{ message: 'line 999' }],
+        network: [{ url: 'https://a.test/api', method: 'POST', pending: true }],
+        consoleTotal: 1000,
+        networkTotal: 7,
+      },
+    });
+    expect(browser.tab.scripts.some((script) => script.includes('getEntriesByType'))).toBe(false);
+  });
+
+  test('fill on a file input explains that pages get no local files', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.snapshotNodes = formElements();
+    requireSnapshotRefs(await browser.snapshot());
+    browser.tab.actionScriptResult = { ok: false, reason: 'file_input' };
+
+    const result = await browser.execute({
+      command: 'fill',
+      args: { browserId: BROWSER_A, ref: '@e1', value: '/etc/hosts' },
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'browser_unsupported',
+        message: expect.stringContaining('@e1 is a file input'),
       },
     });
   });

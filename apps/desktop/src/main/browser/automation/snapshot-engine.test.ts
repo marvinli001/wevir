@@ -89,7 +89,16 @@ describe('BrowserSnapshotEngine', () => {
         '  - button "Save changes" [ref=@e1]',
       ].join('\n'),
       truncated: false,
-      stats: { nodeCount: 4, refCount: 1, textLength: 119, iframeCount: 0, maxDepth: 1 },
+      stats: {
+        nodeCount: 4,
+        refCount: 1,
+        textLength: 119,
+        iframeCount: 0,
+        maxDepth: 1,
+        totalLines: 4,
+        startLine: 0,
+        shownLines: 4,
+      },
     });
   });
 
@@ -116,21 +125,62 @@ describe('BrowserSnapshotEngine', () => {
     });
   });
 
-  it('marks rendered output truncation explicitly and deterministically', async () => {
+  it('clamps a very long line instead of dropping the snapshot', async () => {
     const page = new SnapshotFixture();
-    page.snapshotNodes = [
-      {
-        kind: 'text',
-        text: 'A'.repeat(81_000),
-      },
-    ];
+    page.snapshotNodes = [{ kind: 'text', text: 'A'.repeat(81_000) }];
     const engine = new BrowserSnapshotEngine();
 
     const snapshot = await engine.snapshot({ browserId: 'browser-1', page });
 
-    expect(snapshot.truncated).toBe(true);
-    expect(snapshot.snapshot.endsWith('- text: "Snapshot truncated."')).toBe(true);
-    expect(snapshot.stats.textLength).toBeLessThanOrEqual(80_000);
+    expect(snapshot.stats.textLength).toBeLessThanOrEqual(1_000);
+    expect(snapshot.snapshot).toContain('…');
+  });
+
+  it('splits a long page into parts and lists the refs further down', async () => {
+    const page = new SnapshotFixture();
+    const button = (page.snapshotNodes as unknown[])[2];
+    page.snapshotNodes = [
+      ...Array.from({ length: 300 }, (_, index) => ({
+        kind: 'text',
+        text: `row ${index} lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod`,
+      })),
+      button,
+    ];
+    const engine = new BrowserSnapshotEngine();
+
+    const first = await engine.snapshot({ browserId: 'browser-1', page, pageBytes: 4_000 });
+    expect(first.truncated).toBe(true);
+    expect(new TextEncoder().encode(first.snapshot).length).toBeLessThanOrEqual(4_000);
+    expect(first.stats).toMatchObject({ totalLines: 302, startLine: 0 });
+    const next = first.stats.shownLines ?? 0;
+    expect(first.snapshot).toContain(`Next part: browser_snapshot with offset=${next}.`);
+    expect(first.snapshot).toContain(
+      '# Elements with refs further down (usable now):\n- button "Save changes" [ref=@e1]',
+    );
+    // 列出来的引用马上能用。
+    expect(engine.runtimeElementExpression({ browserId: 'browser-1', ref: '@e1' })).toEqual(
+      expect.any(String),
+    );
+
+    let offset = next;
+    let last = first;
+    while (last.stats.startLine !== undefined && offset < 302) {
+      last = await engine.snapshot({ browserId: 'browser-1', page, offset, pageBytes: 4_000 });
+      offset = (last.stats.startLine ?? 0) + (last.stats.shownLines ?? 0);
+    }
+    expect(last.snapshot).toContain('- button "Save changes" [ref=@e1]');
+    expect(last.snapshot).not.toContain('Next part');
+    expect(last.snapshot).toContain('their refs stay valid');
+  });
+
+  it('says when an offset is past the end', async () => {
+    const page = new SnapshotFixture();
+    const engine = new BrowserSnapshotEngine();
+
+    const snapshot = await engine.snapshot({ browserId: 'browser-1', page, offset: 99 });
+
+    expect(snapshot.snapshot).toMatch(/offset 99 is past the end/);
+    expect(snapshot.stats.shownLines).toBe(0);
   });
 
   it('keeps the last rendered node when a short snapshot was capped by node count', async () => {
@@ -163,7 +213,7 @@ describe('BrowserSnapshotEngine', () => {
       [
         '- document "Fixture"',
         '  - button "Final action" [ref=@e1]',
-        '- text: "Snapshot truncated."',
+        '# The page is very large: the snapshot stops after its first 20000 nodes.',
       ].join('\n'),
     );
   });

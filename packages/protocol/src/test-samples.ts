@@ -2432,8 +2432,92 @@ export const methodSamples: MethodSamples = {
             retryable: false,
           },
         },
+        // 0.46.0：命令引起的页面变化、分段的快照、带总数与进行中请求的日志、对话框阻塞的错误。
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: { command: 'click', browserId: browserTab.browserId, ref: '@e2', x: 10, y: 20 },
+          effects: {
+            navigation: { url: 'http://localhost:5173/next', status: 200 },
+            openedTabs: [{ browserId: 'tab_m2k1_2', url: 'http://localhost:5173/help' }],
+            downloads: [
+              { url: 'http://localhost:5173/report.csv', filename: 'report.csv', state: 'blocked' },
+            ],
+            fileChooser: { multiple: false },
+          },
+          dialogs: [
+            { type: 'alert', message: 'Saved', action: 'accepted', timestamp: 1760256000000 },
+          ],
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'snapshot',
+            browserId: browserTab.browserId,
+            url: browserTab.url,
+            title: browserTab.title,
+            format: 'aria-yaml',
+            snapshot:
+              '- text: "row 80"\n# Showing lines 81–160 of 6402. Next part: browser_snapshot with offset=160.',
+            truncated: true,
+            stats: {
+              nodeCount: 6405,
+              refCount: 2,
+              textLength: 90,
+              totalLines: 6402,
+              startLine: 80,
+              shownLines: 80,
+            },
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'logs',
+            browserId: browserTab.browserId,
+            console: [{ level: 'info', message: 'line 999', timestamp: 1760256000000 }],
+            network: [
+              {
+                url: 'http://localhost:5173/api/items',
+                method: 'POST',
+                type: 'fetch',
+                startTime: 12.5,
+                duration: 0,
+                pending: true,
+              },
+              {
+                url: 'http://localhost:5173/api/old',
+                method: 'GET',
+                type: 'fetch',
+                startTime: 3,
+                duration: 4,
+                failed: 'net::ERR_ABORTED',
+              },
+            ],
+            consoleTotal: 1000,
+            networkTotal: 2,
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: false,
+          error: {
+            code: 'browser_dialog_blocked',
+            message: 'A confirm dialog ("Leave?") is blocking browser tab tab_m2k1_1.',
+            retryable: false,
+          },
+          effects: { navigation: { url: 'http://localhost:5173/' } },
+        },
       ],
       invalid: [
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: { command: 'click', browserId: browserTab.browserId, ref: '@e2' },
+          effects: { navigation: { url: 'http://localhost:5173/', status: 42 } },
+        },
         { requestId: 'r1', ok: false, error: { code: 'browser_timeout', message: 'x' } },
         {
           requestId: ids.browserRequest,
@@ -2521,6 +2605,12 @@ export const notificationSamples: NotificationSamples = {
         sessionId: ids.session,
         cwd: '/Users/me/projects/wevir',
         command: { command: 'wait', args: { browserId: browserTab.browserId, text: 'Saved' } },
+      },
+      {
+        requestId: ids.browserRequest,
+        sessionId: ids.session,
+        cwd: '/Users/me/projects/wevir',
+        command: { command: 'snapshot', args: { browserId: browserTab.browserId, offset: 160 } },
       },
       {
         requestId: ids.browserRequest,

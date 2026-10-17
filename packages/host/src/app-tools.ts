@@ -417,7 +417,8 @@ export class AppTools {
         'model, reasoning level and permission mode default to yours (see wevir_models); the permission mode cannot be ' +
         'broader than yours. worktree=true gives it its own git worktree. reportBack (default true) sends its answer ' +
         'back to you as a message when the turn ends; end your turn instead of polling. Only open sessions when the ' +
-        'user asked for separate or parallel work.',
+        'user asked for separate or parallel work. You cannot archive or delete sessions; sessions you open stay in ' +
+        'the sidebar until the user removes them, so tell the user about ones that are no longer needed.',
       inputSchema: objectSchema(
         {
           message: { type: 'string', description: 'The first message, a complete brief.' },

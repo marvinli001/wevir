@@ -4,7 +4,8 @@
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
 // 由 Wevir 修改：提供方是登记过的 RPC 连接（`browser.register`），请求经 `browser.request` 通知发出、`browser.respond` 回来；请求带
 // 调用的会话与它的目录，不再带 Paseo 的 agent / workspace；调用方中止（引擎取消了工具调用）时立即以失败结束；校验交给协议
-// 的 schema 与 RPC 层，不用 zod 再解析一遍。
+// 的 schema 与 RPC 层，不用 zod 再解析一遍；回答里的页面变化 `effects`（0.46.0）照样转交；没有提供方、提供方断开时的说明
+// 不再说“桌面端没开”（可能只是在重连），并说明过几秒再试。
 //
 // 内置浏览器（0.33.0，domain-model §3.15）：Host 与浏览器不在一个进程里，应用级工具的 `browser_*` 经这里交给桌面端。
 
@@ -43,11 +44,17 @@ export interface BrowserExecuteInput {
 
 /** 回答去掉 `requestId`：调用方不关心。 */
 export type BrowserPayload =
-  | { ok: true; result: BrowserResult; dialogs?: BrowserResponse['dialogs'] }
+  | {
+      ok: true;
+      result: BrowserResult;
+      dialogs?: BrowserResponse['dialogs'];
+      effects?: BrowserResponse['effects'];
+    }
   | {
       ok: false;
       error: { code: BrowserErrorCode | (string & {}); message: string; retryable?: boolean };
       dialogs?: BrowserResponse['dialogs'];
+      effects?: BrowserResponse['effects'];
     };
 
 /** 一个请求的默认时限：新开的标签页要等页面载入。 */
@@ -129,7 +136,7 @@ export class BrowserBroker {
         requestId,
         browserFailure(
           'browser_no_host',
-          'The Wevir desktop app disconnected before the browser answered.',
+          'The Wevir window providing the browser disconnected before it answered; it usually reconnects within a few seconds. Try again shortly.',
           true,
         ),
       );
@@ -157,11 +164,13 @@ export class BrowserBroker {
           ok: true,
           result: response.result,
           ...(response.dialogs && { dialogs: response.dialogs }),
+          ...(response.effects && { effects: response.effects }),
         }
       : {
           ok: false,
           error: response.error,
           ...(response.dialogs && { dialogs: response.dialogs }),
+          ...(response.effects && { effects: response.effects }),
         };
     if (pending.rememberAffinity) this.#remember(providerId, payload);
     this.#settle(response.requestId, payload);
@@ -333,7 +342,7 @@ function browserIdOf(command: BrowserCommand): string | undefined {
 function noProvider(): BrowserPayload {
   return browserFailure(
     'browser_no_host',
-    'The Wevir browser is not available: the Wevir desktop app is not open (or is too old to provide a browser).',
+    'The Wevir browser is not available right now: no Wevir window is connected to provide it (the app may be closed, still starting, reconnecting, or too old to have a browser). Try again in a few seconds; if it keeps failing, ask the user to open Wevir.',
     true,
   );
 }
@@ -341,7 +350,7 @@ function noProvider(): BrowserPayload {
 function stranded(browserId: string): BrowserPayload {
   return browserFailure(
     'browser_no_host',
-    `The Wevir window that holds browser tab ${browserId} disconnected.`,
+    `The Wevir window that holds browser tab ${browserId} is not connected right now; it usually reconnects within a few seconds. Try again shortly, or open a new tab with browser_new_tab.`,
     true,
   );
 }

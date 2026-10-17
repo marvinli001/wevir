@@ -1405,6 +1405,20 @@ const standaloneCases: Case[] = [
     valid: [{ type: 'alert', message: 'Hi', action: 'accepted', timestamp: 1 }],
     invalid: [{ type: 'alert', message: 'Hi', timestamp: 1 }],
   },
+  {
+    name: 'BrowserEffects',
+    schema: protocol.BrowserEffectsSchema,
+    valid: [
+      {},
+      { navigation: { url: 'http://localhost:5173/' } },
+      { openedTabs: [{ browserId: 'tab_a_1', url: '' }], fileChooser: { multiple: true } },
+    ],
+    invalid: [
+      { navigation: { url: 'http://localhost:5173/', status: 99 } },
+      { openedTabs: [{ browserId: 'bad id', url: '' }] },
+      { downloads: [{ url: 'x', filename: 'x', state: '' }] },
+    ],
+  },
 ];
 
 const registryCases: Case[] = [

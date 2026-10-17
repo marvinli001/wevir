@@ -35,6 +35,10 @@ const LOAD_FAILURE_HINTS: Array<[RegExp, string]> = [
   [/^ERR_UNSAFE_PORT$/, 'Chromium blocks this port; use another one.'],
   [/^ERR_NAME_NOT_RESOLVED$/, 'The host name did not resolve.'],
   [/^ERR_(CONNECTION_TIMED_OUT|TIMED_OUT|ADDRESS_UNREACHABLE)$/, 'The server did not answer.'],
+  [
+    /^ERR_SSL_PROTOCOL_ERROR$/,
+    'The TLS handshake failed: the server may not speak HTTPS on this port (try http://).',
+  ],
   [/^ERR_(CERT_|SSL_)/, "The site's TLS certificate or connection is not trusted."],
 ];
 

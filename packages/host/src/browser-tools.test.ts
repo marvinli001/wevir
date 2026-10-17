@@ -140,7 +140,9 @@ describe('浏览器工具', () => {
     const { call } = await setup();
     const result = await call('browser_list_tabs');
     expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toMatch(/^\[browser_no_host\] .*desktop app is not open/);
+    expect(result.content[0]?.text).toMatch(
+      /^\[browser_no_host\] .*no Wevir window is connected.*Try again in a few seconds/,
+    );
     expect(result.structuredContent).toBeUndefined();
   });
 
@@ -216,6 +218,24 @@ describe('浏览器工具', () => {
       const result = await call(name, args);
       expect(result.isError, name).toBe(true);
     }
+    expect(desktop.requests).toHaveLength(before);
+    // 参数错误也带错误码，说清楚哪里不对（0.46.0）。
+    const texts = await Promise.all(
+      (
+        [
+          ['browser_navigate', { browserId: 'tab_1', url: 'file:///etc/hosts' }],
+          ['browser_new_tab', { url: 'not a url' }],
+          ['browser_click', { browserId: 'tab_1', ref: 'garbage' }],
+          ['browser_wait', { browserId: 'tab_1', text: 'a', url: 'b' }],
+        ] as const
+      ).map(async ([name, args]) => (await call(name, args)).content[0]?.text),
+    );
+    expect(texts).toEqual([
+      '[browser_invalid_url] file: URLs are not supported: the Wevir browser only opens http and https pages, by design.',
+      '[browser_invalid_url] "not a url" is not a URL. Pass an http(s) URL, or a host like localhost:5173.',
+      '[browser_invalid_argument] ref must be a ref from browser_snapshot, like @e3 (got "garbage").',
+      '[browser_invalid_argument] browser_wait needs exactly one of text or url.',
+    ]);
     expect(desktop.requests).toHaveLength(before);
   });
 
@@ -297,10 +317,126 @@ describe('httpUrl', () => {
 });
 
 describe('browserToolResult', () => {
-  const text = (payload: Parameters<typeof browserToolResult>[0]) =>
-    browserToolResult(payload).content[0]?.type === 'text'
-      ? (browserToolResult(payload).content[0] as { text: string }).text
-      : '';
+  const text = (
+    payload: Parameters<typeof browserToolResult>[0],
+    command?: Parameters<typeof browserToolResult>[1],
+  ) => {
+    const first = browserToolResult(payload, command).content[0];
+    return first?.type === 'text' ? (first as { text: string }).text : '';
+  };
+
+  it('写出命令引起的跳转、新标签页、下载、选文件框与对话框（0.46.0）', () => {
+    const lines = text({
+      ok: true,
+      result: { command: 'click', browserId: 'tab_1', ref: '@e2' },
+      effects: {
+        navigation: { url: 'http://a.test/missing.json', status: 404 },
+        openedTabs: [{ browserId: 'tab_2', url: 'http://a.test/r3' }],
+        downloads: [{ url: 'http://a.test/download.bin', filename: 'smoke.bin', state: 'blocked' }],
+        fileChooser: { multiple: false },
+      },
+      dialogs: [{ type: 'alert', message: 'hi', action: 'accepted', timestamp: 1 }],
+    }).split('\n');
+    expect(lines).toEqual([
+      'Clicked @e2.',
+      'The page navigated to http://a.test/missing.json (HTTP 404, an error page); take a new browser_snapshot.',
+      'The page opened a new tab in the background: browserId=tab_2 url=http://a.test/r3.',
+      'The page started a download of "smoke.bin" (http://a.test/download.bin); the Wevir browser blocks downloads, nothing was saved.',
+      'The page asked to choose a file from this computer; the Wevir browser does not give pages local files, so nothing was chosen. Ask the user to do it in the browser pane if it is needed.',
+      'The page opened a dialog, handled automatically: accepted alert "hi".',
+    ]);
+  });
+
+  it('快照分段时写出行号；日志写出总数与省略了多少', () => {
+    const part = text({
+      ok: true,
+      result: {
+        command: 'snapshot',
+        browserId: 'tab_1',
+        url: 'http://a.test/big',
+        title: 'Big',
+        format: 'aria-yaml',
+        snapshot: '- text: "row 1"',
+        truncated: true,
+        stats: {
+          nodeCount: 6405,
+          refCount: 2,
+          textLength: 10,
+          totalLines: 6402,
+          startLine: 80,
+          shownLines: 70,
+        },
+      },
+    });
+    expect(part.split('\n')[0]).toBe(
+      'Snapshot part: lines 81–150 of 6402, 2 refs in the whole page.',
+    );
+    const logs = text({
+      ok: true,
+      result: {
+        command: 'logs',
+        browserId: 'tab_1',
+        console: [{ level: 'log', message: 'line 999', timestamp: 1 }],
+        network: [
+          {
+            url: 'http://a.test/api',
+            method: 'POST',
+            type: 'fetch',
+            startTime: 1,
+            duration: 0,
+            pending: true,
+          },
+          {
+            url: 'http://a.test/x',
+            method: 'GET',
+            startTime: 1,
+            duration: 2,
+            failed: 'net::ERR_ABORTED',
+          },
+          {
+            url: 'http://a.test/missing.json',
+            method: 'GET',
+            status: 404,
+            type: 'fetch',
+            startTime: 3,
+            duration: 0,
+            pending: true,
+          },
+        ],
+        consoleTotal: 1000,
+        networkTotal: 3,
+      },
+    });
+    expect(logs.split('\n')).toEqual([
+      '1 of 1000 console messages (the first 999 left out), 3 network entries since this page loaded.',
+      '[console.log] line 999',
+      '[network] POST http://a.test/api fetch pending',
+      '[network] GET http://a.test/x failed net::ERR_ABORTED',
+      '[network] GET http://a.test/missing.json 404 fetch body still loading',
+    ]);
+  });
+
+  it('超时的提示按命令给，快照超时不再建议取快照', () => {
+    const timeout = {
+      ok: false as const,
+      error: { code: 'browser_timeout', message: 'The browser did not answer within 30 s.' },
+    };
+    expect(text(timeout, 'snapshot')).toBe(
+      '[browser_timeout] The browser did not answer within 30 s. If the tab keeps not answering, close it with browser_close_tab and open the page again.',
+    );
+    expect(text(timeout, 'click')).toMatch(
+      /Take a browser_snapshot to see the page before trying again\.$/,
+    );
+    // 桌面端的说明里已经有下一步时不再补。
+    const busy = {
+      ok: false as const,
+      error: {
+        code: 'browser_timeout',
+        message: 'The page is not responding. Close the tab with browser_close_tab.',
+      },
+    };
+    expect(text(busy, 'snapshot')).toBe(`[browser_timeout] ${busy.error.message}`);
+  });
 
   it('打开与跳转写出 HTTP 状态码，出错的状态说明是错误页', () => {
     expect(

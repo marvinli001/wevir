@@ -9,11 +9,16 @@
 // 归用户，用户的标签页 agent 只读）；agent 的浏览器命令（Paseo 的自动化，automation/）在这里分发。不在屏幕上的标签页一律停在
 // 后台窗口里（OpenWork 只停别的会话的），这样同一会话里没选中的标签页也能截图。agent 打开、跳转的结果带主文档的 HTTP 状态码；
 // 打不开时报 Chromium 的错误名（`browser_load_failed`），新开的标签页打不开就关掉（超时的留着并说出它的 browserId）。
+// 0.46.0：标签页不弹原生对话框（`disableDialogs`，页面不会被 alert 卡住），对话框由 automation/contents.ts 记下、在命令结果里报，
+// beforeunload 直接离开；点击、按键之后报主框架跳到了哪里、页面开了哪些新标签页（agent 的标签页弹出的新标签页不抢当前标签页）、
+// 被拦下的下载与选文件框；每个 agent 命令有看门狗，页面卡住时说清楚原因（`browser_dialog_blocked` 或页面不响应），不再干等到
+// Host 的时限；还在载入的标签页列出目标地址。
 //
 // 内置浏览器（0.33.0，desktop-layout.md §21）：整个窗口一个浏览器表面，每个标签页属于开它的会话。
 
 import {
   type BrowserCommand,
+  type BrowserEffects,
   type BrowserRequest,
   BrowserRequestSchema,
   type BrowserTabInfo,
@@ -33,7 +38,13 @@ import type {
   BrowserStatePayload,
   BrowserTabState,
 } from '../../shared/desktop-api.js';
-import { adaptWebContents } from './automation/contents.js';
+import {
+  adaptWebContents,
+  interceptFileChooser,
+  recordBeforeUnload,
+  recordDownload,
+  watchTab,
+} from './automation/contents.js';
 import {
   type AutomationCommandPayload,
   executeAutomationCommand,
@@ -49,6 +60,25 @@ export const BROWSER_PARTITION = 'persist:wevir-browser';
 export const MAX_BROWSER_TABS = 12;
 /** agent 新开、跳转的标签页等页面载入的上限。 */
 const LOAD_TIMEOUT_MS = 20_000;
+/**
+ * agent 命令的看门狗（不含载入与 browser_wait 自己的时限）：要比 Host 等回答的 30 s 短，好让这里的说明先到。
+ */
+const COMMAND_BUDGET_MS = 24_000;
+/** 看门狗到点后问页面还响应不响应，最多等这么久。 */
+const RESPONSIVE_PROBE_MS = 1_000;
+/** 点击、按键之后等多久看页面有没有开始跳转。 */
+const NAVIGATION_SETTLE_MS = 150;
+/** 跳转开始后最多等它载完多久（之后照样返回，结果里是当时的地址）。 */
+const NAVIGATION_WAIT_MS = 8_000;
+/** 可能引起跳转、开新标签页的命令。 */
+const INTERACTIVE_COMMANDS = new Set<BrowserCommand['command']>([
+  'click',
+  'keypress',
+  'type',
+  'select',
+  'fill',
+  'drag',
+]);
 
 /** 网页里的安全设置（OpenWork 的 BROWSER_SECURITY_PREFERENCES，不挂 preload）。 */
 const TAB_PREFERENCES = Object.freeze({
@@ -62,6 +92,9 @@ const TAB_PREFERENCES = Object.freeze({
   webviewTag: false,
   backgroundThrottling: false,
   spellcheck: false,
+  // alert / confirm / prompt 不弹原生框：Chromium 立刻回答（alert 继续、confirm 为 false、prompt 为 null），页面不会被卡住；
+  // CDP 仍然报 Page.javascriptDialogOpening，contents.ts 据此记下来。
+  disableDialogs: true,
 });
 
 /** 只读的命令：用户正在用的标签页也可以。 */
@@ -86,6 +119,16 @@ interface Tab {
   /** 主框架最近一次导航的 HTTP 状态码（不是 HTTP 的页面没有）。 */
   httpStatus: number | undefined;
   emulation: Promise<void>;
+  /** 正在载入、还没提交的地址（列标签页时 getURL() 还是空的）。 */
+  pendingUrl: string | undefined;
+  /** 主框架开始跨文档跳转的次数（点击之后据此判断有没有跳转）。 */
+  navigations: number;
+  /** 主框架提交过的文档数：开始了的跳转没提交（被中止、变成下载）不算换了页面。 */
+  commits: number;
+  /** 这个标签页弹出、还没在命令结果里报过的新标签页。 */
+  openedTabs: Array<{ browserId: string; url: string }>;
+  /** 上一个命令时页面不响应：下一个命令先花 1 s 问一下，还不响应就直接报，不再等满看门狗。 */
+  unresponsive: boolean;
 }
 
 export interface BrowserHostOptions {
@@ -125,10 +168,16 @@ export function createBrowserHost(options: BrowserHostOptions) {
     created.setDevicePermissionHandler(() => false);
     created.setDisplayMediaRequestHandler((_request, callback) => callback({}));
     // 下载一律取消。
-    created.on('will-download', (event, item) => {
+    created.on('will-download', (event, item, contents) => {
       event.preventDefault();
       options.log('info', 'blocked a download in the built-in browser', {
         url: safeUrl(item.getURL()),
+      });
+      // 报给 agent：下一个命令（多半就是引起下载的点击）的结果里写明下载被拦下了。
+      recordDownload(contents.id, {
+        url: safeUrl(item.getURL()),
+        filename: item.getFilename(),
+        state: 'blocked',
       });
     });
     // 所有请求（导航、重定向、框架、脚本的 fetch、CDP 的跳转）的统一关口：只放行 http(s) 与页面内部的 data / blob / about。
@@ -149,7 +198,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
   function tabState(tab: Tab): BrowserTabState {
     const contents = tab.view.webContents;
     const failed = tab.loadError;
-    const url = failed?.url ?? contents.getURL();
+    const url = failed?.url ?? (contents.getURL() || tab.pendingUrl || '');
     return {
       id: tab.tabId,
       ownerSessionId: registry.ownerOf(tab.tabId),
@@ -212,22 +261,34 @@ export function createBrowserHost(options: BrowserHostOptions) {
       loadError: undefined,
       httpStatus: undefined,
       emulation: Promise.resolve(),
+      pendingUrl: undefined,
+      navigations: 0,
+      commits: 0,
+      openedTabs: [],
+      unresponsive: false,
     };
     tabs.set(tabId, tab);
     registry.add({ tabId, ownerSessionId });
     const contents = view.webContents;
     view.setBackgroundColor('#ffffff');
-    // 从一开始就记控制台消息（browser_logs）。
-    adaptWebContents(contents);
+    // 从一开始（第一次载入之前）就记对话框、控制台与网络请求（browser_logs）。
+    watchTab(contents);
+    interceptFileChooser(contents.id, controller === 'agent');
 
     // 弹窗：http(s) 的在同一会话里开新标签页（agent 开的归 agent），别的拒绝；不交给系统浏览器。
     contents.setWindowOpenHandler(({ url }) => {
       if (isAllowedNavigation(url)) {
         try {
           const popup = createTab(ownerSessionId, tab.controller);
+          popup.pendingUrl = url;
           void popup.view.webContents.loadURL(url).catch(() => {});
-          if (registry.surfacingFor(tabId) === 'foreground') selectTab(popup.tabId);
-          else place();
+          // 用户点开的新标签页显示出来；agent 的留在后台（同 browser_new_tab），在它下一个命令的结果里报。
+          if (tab.controller === 'user' && registry.surfacingFor(tabId) === 'foreground') {
+            selectTab(popup.tabId);
+          } else {
+            if (tab.openedTabs.length < 20) tab.openedTabs.push({ browserId: popup.tabId, url });
+            place();
+          }
         } catch (error) {
           options.log('warn', 'could not open a browser popup', { error: String(error) });
         }
@@ -245,13 +306,23 @@ export function createBrowserHost(options: BrowserHostOptions) {
       if (event.isMainFrame && !isAllowedNavigation(event.url)) event.preventDefault();
     });
     contents.on('will-attach-webview', (event) => event.preventDefault());
+    // beforeunload 想拦住离开：不弹框，直接离开（agent 要跳转、关标签页），记成一个处理掉的对话框。
+    contents.on('will-prevent-unload', (event) => {
+      event.preventDefault();
+      recordBeforeUnload(contents.id);
+    });
+    contents.on('did-start-navigation', (details) => {
+      if (details.isMainFrame && !details.isSameDocument) tab.navigations += 1;
+    });
 
     contents.once('dom-ready', () => {
       tab.domReady = true;
       if (tab.parked) emulateBackground(tab);
     });
     contents.on('did-navigate', (_event, _url, httpResponseCode) => {
+      tab.commits += 1;
       tab.loadError = undefined;
+      tab.pendingUrl = undefined;
       tab.httpStatus = httpResponseCode > 0 ? httpResponseCode : undefined;
       snapshotEngine.clearBrowser(tabId);
       place();
@@ -263,6 +334,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
       (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
         // 中止（含被取消的下载、被下一次导航替换）与子框架的失败不算页面打不开。
         if (!isMainFrame || errorCode === -3) return;
+        tab.pendingUrl = undefined;
         tab.loadError = { code: errorCode, description: errorDescription, url: validatedURL };
         place();
         sendState();
@@ -275,7 +347,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
     contents.on('input-event', (_event, input) => {
       if (tab.controller !== 'agent' || tab.agentBusy > 0 || tab.parked) return;
       if (input.type === 'mouseDown' || input.type === 'keyDown' || input.type === 'rawKeyDown') {
-        tab.controller = 'user';
+        setTabController(tab, 'user');
         sendState();
       }
     });
@@ -283,6 +355,14 @@ export function createBrowserHost(options: BrowserHostOptions) {
       if (tabs.get(tabId) === tab) closeTab(tabId);
     });
     return tab;
+  }
+
+  /** 换操作方：用户的标签页里选文件交给用户（原生文件框），agent 的拦下来报给 agent。 */
+  function setTabController(tab: Tab, controller: BrowserController): void {
+    tab.controller = controller;
+    if (!tab.view.webContents.isDestroyed()) {
+      interceptFileChooser(tab.view.webContents.id, controller === 'agent');
+    }
   }
 
   function closeTab(tabId: string): boolean {
@@ -462,7 +542,10 @@ export function createBrowserHost(options: BrowserHostOptions) {
   /** 用户开的标签页（窗格的 + 或地址栏）：归用户。 */
   function openForUser(sessionId: string, url: string | undefined): string {
     const tab = createTab(sessionId, 'user');
-    if (url !== undefined) void tab.view.webContents.loadURL(url).catch(() => {});
+    if (url !== undefined) {
+      tab.pendingUrl = url;
+      void tab.view.webContents.loadURL(url).catch(() => {});
+    }
     selectTab(tab.tabId);
     return tab.tabId;
   }
@@ -475,8 +558,9 @@ export function createBrowserHost(options: BrowserHostOptions) {
 
   function navigateForUser(tabId: string, url: string): void {
     const tab = userTab(tabId);
-    tab.controller = 'user';
+    setTabController(tab, 'user');
     tab.loadError = undefined;
+    tab.pendingUrl = url;
     void tab.view.webContents.loadURL(url).catch(() => {});
     sendState();
   }
@@ -499,7 +583,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
   }
 
   function setController(tabId: string, controller: BrowserController): void {
-    userTab(tabId).controller = controller;
+    setTabController(userTab(tabId), controller);
     sendState();
   }
 
@@ -563,44 +647,48 @@ export function createBrowserHost(options: BrowserHostOptions) {
         place();
         sendState();
         const url = command.args.url;
-        if (url !== undefined) await busy(tab, () => loadNewTab(tab, url));
-        return {
-          requestId,
-          ok: true,
-          result: {
-            command: 'new_tab',
-            browserId: tab.tabId,
-            url: tab.view.webContents.getURL() || 'about:blank',
-            ...statusOf(tab, url),
-          },
-        };
+        return guarded(tab, command, LOAD_TIMEOUT_MS + 4_000, () =>
+          withTabEvents(tab, requestId, async () => {
+            if (url !== undefined) await busy(tab, () => loadNewTab(tab, url));
+            return {
+              requestId,
+              ok: true,
+              result: {
+                command: 'new_tab',
+                browserId: tab.tabId,
+                url: tab.view.webContents.getURL() || 'about:blank',
+                ...statusOf(tab, url),
+              },
+            };
+          }),
+        );
       }
       case 'show': {
-        let tab: Tab;
-        if (command.args.url !== undefined) {
-          const created = createTab(sessionId, 'agent');
-          tab = created;
-          place();
-          await busy(created, () => loadNewTab(created, command.args.url as string));
-        } else {
-          tab = owned(sessionId, command.args.browserId ?? '');
-        }
-        registry.select(tab.tabId);
-        const shown = registry.visibleSessionId() === sessionId;
-        if (shown) options.sendReveal({ sessionId, tabId: tab.tabId });
-        place();
-        sendState();
-        return {
-          requestId,
-          ok: true,
-          result: {
-            command: 'show',
-            browserId: tab.tabId,
-            url: tab.view.webContents.getURL(),
-            shown,
-            ...statusOf(tab, command.args.url),
-          },
-        };
+        const url = command.args.url;
+        const tab = url !== undefined ? createTab(sessionId, 'agent') : undefined;
+        const target = tab ?? owned(sessionId, command.args.browserId ?? '');
+        if (tab) place();
+        return guarded(target, command, LOAD_TIMEOUT_MS + 4_000, () =>
+          withTabEvents(target, requestId, async () => {
+            if (tab && url !== undefined) await busy(tab, () => loadNewTab(tab, url));
+            registry.select(target.tabId);
+            const shown = registry.visibleSessionId() === sessionId;
+            if (shown) options.sendReveal({ sessionId, tabId: target.tabId });
+            place();
+            sendState();
+            return {
+              requestId,
+              ok: true,
+              result: {
+                command: 'show',
+                browserId: target.tabId,
+                url: target.view.webContents.getURL(),
+                shown,
+                ...statusOf(target, url),
+              },
+            };
+          }),
+        );
       }
       case 'close_tab': {
         owned(sessionId, command.args.browserId);
@@ -630,36 +718,191 @@ export function createBrowserHost(options: BrowserHostOptions) {
       );
     }
     if (command.command === 'navigate') {
-      tab.loadError = undefined;
-      snapshotEngine.clearBrowser(tab.tabId);
-      await busy(tab, () => load(tab, command.args.url));
-      return {
-        requestId,
-        ok: true,
-        result: {
-          command: 'navigate',
-          browserId: tab.tabId,
-          url: tab.view.webContents.getURL(),
-          ...statusOf(tab, command.args.url),
-        },
-      };
-    }
-    return busy(tab, async () => {
-      const payload = await executeAutomationCommand(
-        request,
-        {
-          getTabContents: (browserId) => {
-            const target = tabs.get(browserId);
-            return target && !target.view.webContents.isDestroyed()
-              ? adaptWebContents(target.view.webContents)
-              : null;
-          },
-          ownerOf: (browserId) => registry.ownerOf(browserId),
-        },
-        { snapshotEngine },
+      return guarded(tab, command, LOAD_TIMEOUT_MS + 4_000, () =>
+        withTabEvents(tab, requestId, async () => {
+          tab.loadError = undefined;
+          snapshotEngine.clearBrowser(tab.tabId);
+          await busy(tab, () => load(tab, command.args.url));
+          return {
+            requestId,
+            ok: true,
+            result: {
+              command: 'navigate',
+              browserId: tab.tabId,
+              url: tab.view.webContents.getURL(),
+              ...statusOf(tab, command.args.url),
+            },
+          };
+        }),
       );
-      return payload;
+    }
+    const budget =
+      command.command === 'wait' ? (command.args.timeoutMs ?? 5_000) + 3_000 : COMMAND_BUDGET_MS;
+    return guarded(tab, command, budget, () =>
+      busy(tab, async () => {
+        const before = {
+          url: tab.view.webContents.getURL(),
+          navigations: tab.navigations,
+          commits: tab.commits,
+        };
+        const payload = await executeAutomationCommand(
+          request,
+          {
+            getTabContents: (browserId) => {
+              const target = tabs.get(browserId);
+              return target && !target.view.webContents.isDestroyed()
+                ? adaptWebContents(target.view.webContents)
+                : null;
+            },
+            ownerOf: (browserId) => registry.ownerOf(browserId),
+          },
+          { snapshotEngine },
+        );
+        const navigation = INTERACTIVE_COMMANDS.has(command.command)
+          ? await settleNavigation(tab, before)
+          : undefined;
+        return withEffects(payload, {
+          ...(navigation && { navigation }),
+          ...takeOpenedTabs(tab),
+        });
+      }),
+    );
+  }
+
+  /**
+   * 点击、按键之后：页面开始跳转了就等它载完（有上限），报出最后的地址与 HTTP 状态码；只是地址变了（pushState、#）也报。
+   */
+  async function settleNavigation(
+    tab: Tab,
+    before: { url: string; navigations: number; commits: number },
+  ): Promise<BrowserEffects['navigation']> {
+    const contents = tab.view.webContents;
+    if (tab.navigations === before.navigations) await delay(NAVIGATION_SETTLE_MS);
+    if (contents.isDestroyed()) return undefined;
+    if (tab.navigations !== before.navigations) {
+      const deadline = Date.now() + NAVIGATION_WAIT_MS;
+      while (contents.isLoading() && Date.now() < deadline && !contents.isDestroyed()) {
+        await delay(50);
+      }
+      if (contents.isDestroyed()) return undefined;
+      const url = contents.getURL() || tab.pendingUrl || '';
+      // 跳转没提交新文档（被中止，或者成了下载）而地址也没变：没换页面。
+      if (tab.commits === before.commits && !tab.loadError && url === before.url) return undefined;
+      return { url, ...(tab.httpStatus !== undefined && { status: tab.httpStatus }) };
+    }
+    const url = contents.getURL();
+    return url !== before.url ? { url } : undefined;
+  }
+
+  function takeOpenedTabs(tab: Tab): Pick<BrowserEffects, 'openedTabs'> {
+    if (tab.openedTabs.length === 0) return {};
+    const openedTabs = tab.openedTabs.filter(({ browserId }) => tabs.has(browserId));
+    tab.openedTabs = [];
+    return openedTabs.length > 0 ? { openedTabs } : {};
+  }
+
+  /**
+   * 载入类的命令（新开、跳转、显示）：执行期间（以及上一个命令之后）页面弹出的对话框、开出的新标签页、被拦下的下载也报出来；
+   * 失败的照样带上。
+   */
+  async function withTabEvents(
+    tab: Tab,
+    requestId: string,
+    task: () => Promise<AutomationCommandPayload>,
+  ): Promise<AutomationCommandPayload> {
+    const contents = adaptWebContents(tab.view.webContents);
+    const run = async () => {
+      try {
+        return await task();
+      } catch (error) {
+        if (error instanceof BrowserHostError) return failure(requestId, error.code, error.message);
+        throw error;
+      }
+    };
+    if (!contents.captureDialogs || tab.view.webContents.isDestroyed()) return run();
+    const { result, dialogs, effects } = await contents.captureDialogs(run);
+    const payload = withEffects(result, { ...effects, ...takeOpenedTabs(tab) });
+    return dialogs.length > 0 ? { ...payload, dialogs } : payload;
+  }
+
+  /**
+   * 看门狗：命令在 `budgetMs` 内没完成就不再等，说清楚为什么（对话框挡着、页面不响应，或只是慢），标签页留着、可以关。
+   * 没完成的命令在后台继续，结果丢掉。
+   */
+  async function guarded(
+    tab: Tab,
+    command: BrowserCommand,
+    budgetMs: number,
+    task: () => Promise<AutomationCommandPayload>,
+  ): Promise<AutomationCommandPayload> {
+    if (tab.unresponsive) {
+      if (!(await responds(tab))) throw notResponding(tab, command, RESPONSIVE_PROBE_MS);
+      tab.unresponsive = false;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<'expired'>((resolve) => {
+      timer = setTimeout(() => resolve('expired'), budgetMs);
     });
+    const running = task();
+    // 超时之后才失败的命令不要变成未处理的拒绝。
+    running.catch(() => {});
+    try {
+      const outcome = await Promise.race([running, expired]);
+      if (outcome !== 'expired') return outcome;
+    } finally {
+      clearTimeout(timer);
+    }
+    throw await stuckError(tab, command, budgetMs);
+  }
+
+  /** 页面在 1 s 内能不能跑一个最简单的脚本。 */
+  async function responds(tab: Tab): Promise<boolean> {
+    const contents = tab.view.webContents;
+    if (contents.isDestroyed()) return false;
+    return Promise.race([
+      contents.executeJavaScript('1').then(
+        () => true,
+        () => false,
+      ),
+      delay(RESPONSIVE_PROBE_MS).then(() => false),
+    ]);
+  }
+
+  function notResponding(tab: Tab, command: BrowserCommand, waitedMs: number): BrowserHostError {
+    return new BrowserHostError(
+      'browser_timeout',
+      `The page in browser tab ${tab.tabId} is not responding (a script on it is still running, or it is stuck), so browser_${command.command} could not finish within ${Math.max(1, Math.round(waitedMs / 1000))} s. Close the tab with browser_close_tab, or try again later.`,
+    );
+  }
+
+  async function stuckError(
+    tab: Tab,
+    command: BrowserCommand,
+    budgetMs: number,
+  ): Promise<BrowserHostError> {
+    const contents = tab.view.webContents;
+    const name = `browser_${command.command}`;
+    if (contents.isDestroyed()) {
+      return new BrowserHostError(
+        'browser_tab_closed',
+        `Browser tab ${tab.tabId} has been closed.`,
+      );
+    }
+    const dialog = adaptWebContents(contents).openDialog?.();
+    if (dialog) {
+      return new BrowserHostError(
+        'browser_dialog_blocked',
+        `A ${dialog.type} dialog (${JSON.stringify(dialog.message)}) is blocking browser tab ${tab.tabId}, so ${name} could not finish. Close the tab with browser_close_tab.`,
+      );
+    }
+    if (!(await responds(tab))) {
+      tab.unresponsive = true;
+      return notResponding(tab, command, budgetMs);
+    }
+    return new BrowserHostError(
+      'browser_timeout',
+      `${name} did not finish within ${Math.round(budgetMs / 1000)} s; the page still responds. Try again, or take a browser_snapshot to see the page.`,
+    );
   }
 
   /** 这个会话的标签页；别的会话的当作不存在。 */
@@ -778,6 +1021,19 @@ export class BrowserHostError extends Error {
 
 function failure(requestId: string, code: string, message: string): AutomationCommandPayload {
   return { requestId, ok: false, error: { code, message, retryable: false } };
+}
+
+/** 把页面变化并进回答（空的不加）。 */
+function withEffects(
+  payload: AutomationCommandPayload,
+  effects: BrowserEffects,
+): AutomationCommandPayload {
+  if (Object.keys(effects).length === 0) return payload;
+  return { ...payload, effects: { ...(payload.effects ?? {}), ...effects } };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /** 结果里的 `status`：这次载入了地址、主文档是 HTTP 的才有。 */

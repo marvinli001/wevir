@@ -6,11 +6,14 @@
 // 去掉 evaluate 与 upload（Wevir 不提供在页面里跑任意脚本、把本机文件交给网页）以及 list_tabs、new_tab、resize、close_tab
 // （标签页的开关、列出与显示在 browser-host.ts）；截图有大小上限（`BROWSER_SCREENSHOT_MAX_BYTES`），整页截图的高度有上限；
 // 引用用不了时分开“快照里没有”与“页面变了”；网络记录带 Resource Timing 的状态码，不再给导航编一个 GET。
+// 0.46.0：网络记录改用 contents.ts 的 CDP 记录（Resource Timing 只作没有它时的退路），日志带总数；快照按字节预算分段
+// （`offset`）；结果带对话框之外的页面变化（下载、选文件框）；文件输入框不能填，直接说明。
 
 import {
   BROWSER_SCREENSHOT_MAX_BYTES,
   type BrowserCommand,
   type BrowserConsoleEntry,
+  type BrowserEffects,
   type BrowserErrorCode,
   type BrowserNetworkEntry,
   type BrowserRequest,
@@ -18,7 +21,7 @@ import {
 } from '@wevir/protocol';
 import { type ActionabilityResult, waitForActionableTarget } from './actionability.js';
 import type { BrowserAutomationDialogEvent } from './dialog-handling.js';
-import { BrowserSnapshotEngine } from './snapshot-engine.js';
+import { type BrowserRefActionResult, BrowserSnapshotEngine } from './snapshot-engine.js';
 import {
   type ClickInputOptions,
   dispatchTrustedClick,
@@ -50,9 +53,17 @@ export interface TabContents {
   // commit into whichever element has focus in the Paseo window instead.
   insertText(text: string): Promise<void>;
   getConsoleMessages?(): ConsoleLogEntry[];
-  captureDialogs?<T>(
-    task: () => Promise<T>,
-  ): Promise<{ result: T; dialogs: BrowserAutomationDialogEvent[] }>;
+  /** 当前页面一共有过多少条控制台消息（`getConsoleMessages` 只留最近的）。 */
+  getConsoleTotal?(): number;
+  /** 当前页面的网络记录与总数（CDP 的 Network 域）。 */
+  getNetworkLog?(): { entries: NetworkLogEntry[]; total: number };
+  /** 打开着、还没关的对话框。 */
+  openDialog?(): { type: string; message: string } | undefined;
+  captureDialogs?<T>(task: () => Promise<T>): Promise<{
+    result: T;
+    dialogs: BrowserAutomationDialogEvent[];
+    effects?: Pick<BrowserEffects, 'downloads' | 'fileChooser'>;
+  }>;
   sendDebugCommand?(command: string, params?: Record<string, unknown>): Promise<unknown>;
 }
 
@@ -104,8 +115,12 @@ async function withDialogCapture(
   if (!contents.captureDialogs) {
     return task();
   }
-  const { result, dialogs } = await contents.captureDialogs(task);
-  return dialogs.length > 0 ? { ...result, dialogs } : result;
+  const { result, dialogs, effects } = await contents.captureDialogs(task);
+  const withEffects =
+    effects && Object.keys(effects).length > 0
+      ? { ...result, effects: { ...(result.effects ?? {}), ...effects } }
+      : result;
+  return dialogs.length > 0 ? { ...withEffects, dialogs } : withEffects;
 }
 
 export class BrowserTabClosedError extends Error {
@@ -305,6 +320,7 @@ const commandHandlers: Record<
       requestId,
       sessionId,
       snapshotCommand.args.browserId,
+      snapshotCommand.args.offset ?? 0,
       registry,
       snapshotEngine,
     );
@@ -498,6 +514,7 @@ async function executeSnapshot(
   requestId: string,
   sessionId: string | undefined,
   browserId: string,
+  offset: number,
   registry: BrowserRegistry,
   snapshotEngine: BrowserSnapshotEngine,
 ): Promise<AutomationCommandPayload> {
@@ -515,6 +532,7 @@ async function executeSnapshot(
     const snapshot = await snapshotEngine.snapshot({
       browserId: target.browserId,
       page: target.contents,
+      offset,
     });
 
     return {
@@ -598,7 +616,7 @@ async function executeFill(
       value,
     });
     if (!result.ok) {
-      return staleRefFailure(requestId, ref, result.reason);
+      return refActionFailure(requestId, ref, result);
     }
     return { requestId, ok: true, result: { command: 'fill', browserId: target.browserId, ref } };
   });
@@ -625,7 +643,7 @@ async function executeSelect(
       value,
     });
     if (!result.ok) {
-      return staleRefFailure(requestId, ref, result.reason);
+      return refActionFailure(requestId, ref, result);
     }
     return {
       requestId,
@@ -760,9 +778,12 @@ async function executeLogs(
   }
   return withDialogCapture(target.contents, async () => {
     const consoleMessages = target.contents.getConsoleMessages?.() ?? [];
-    const networkEntries = parseNetworkEntries(
-      await target.contents.executeJavaScript(NETWORK_PERFORMANCE_SCRIPT),
-    );
+    const networkLog = target.contents.getNetworkLog?.() ?? {
+      entries: parseNetworkEntries(
+        await target.contents.executeJavaScript(NETWORK_PERFORMANCE_SCRIPT),
+      ),
+      total: undefined,
+    };
     return {
       requestId,
       ok: true,
@@ -770,7 +791,9 @@ async function executeLogs(
         command: 'logs',
         browserId: target.browserId,
         console: consoleMessages.slice(-maxEntries),
-        network: networkEntries.slice(-maxEntries),
+        network: networkLog.entries.slice(-maxEntries),
+        consoleTotal: target.contents.getConsoleTotal?.() ?? consoleMessages.length,
+        networkTotal: networkLog.total ?? networkLog.entries.length,
       },
     };
   });
@@ -866,6 +889,31 @@ function staleRefFailure(
   );
 }
 
+/** 文件输入框：Wevir 不把本机文件交给网页（没有 browser_upload）。 */
+function fileInputFailure(requestId: string, ref: string): FailurePayload {
+  return fail(
+    requestId,
+    'browser_unsupported',
+    `${ref} is a file input. The Wevir browser does not give pages files from this computer; ask the user to choose the file in the browser pane.`,
+  );
+}
+
+function refActionFailure(
+  requestId: string,
+  ref: string,
+  result: Exclude<BrowserRefActionResult, { ok: true }>,
+): FailurePayload {
+  if (result.reason === 'file_input') return fileInputFailure(requestId, ref);
+  if (result.reason === 'not_fillable') {
+    return fail(
+      requestId,
+      'browser_unsupported',
+      `${ref} cannot be filled${result.detail ? `: ${result.detail}` : ''}. Use browser_click, browser_type or browser_select instead.`,
+    );
+  }
+  return staleRefFailure(requestId, ref, result.reason);
+}
+
 function actionabilityFailure(
   requestId: string,
   ref: string,
@@ -874,10 +922,12 @@ function actionabilityFailure(
   if (result.reason === 'stale_ref') {
     return staleRefFailure(requestId, ref);
   }
+  if (result.reason === 'file_input') return fileInputFailure(requestId, ref);
+  const why = result.detail && result.detail !== 'not actionable' ? ` (${result.detail})` : '';
   return fail(
     requestId,
     'browser_timeout',
-    `Timed out waiting for browser element ${ref} to become actionable.`,
+    `Browser element ${ref} did not become usable within 5 s${why}. Take a new browser_snapshot to see its state.`,
     true,
   );
 }
@@ -925,11 +975,12 @@ async function executeWait(
       await delay(WAIT_POLL_INTERVAL_MS);
     } while (Date.now() < deadline);
 
+    const waited = `${Math.round(timeoutMs / 100) / 10} s`;
     if (condition.text) {
       return fail(
         requestId,
         'browser_timeout',
-        `Timed out waiting for browser text: ${condition.text}`,
+        `The page did not show the text ${JSON.stringify(condition.text)} within ${waited}. Take a browser_snapshot to see what it shows.`,
         true,
       );
     }
@@ -937,7 +988,7 @@ async function executeWait(
       return fail(
         requestId,
         'browser_timeout',
-        `Timed out waiting for browser URL: ${condition.url}`,
+        `The tab's URL did not contain ${JSON.stringify(condition.url)} within ${waited} (it is ${target.contents.getURL()}). Take a browser_snapshot to see the page.`,
         true,
       );
     }

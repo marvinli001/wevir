@@ -2,9 +2,11 @@
 // 改写自 getpaseo/paseo packages/desktop/src/features/browser-automation/dialog-handling.ts
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
-// 由 Wevir 修改：对话框事件的类型取自本文件（协议里是开放字符串）；页面里的全局名改成 Wevir 的。
+// 由 Wevir 修改：对话框事件的类型取自本文件（协议里是开放字符串）；页面里的全局名改成 Wevir 的；beforeunload 离开页面
+// （agent 要跳转、Electron 不弹原生框）；prompt 的替身在每个新文档里一直装着（contents.ts 用 Page.addScriptToEvaluateOnNewDocument），
+// 不再在命令结束时还原。
 
-/** 命令执行期间处理掉的一个对话框（协议的 `BrowserDialogEvent`，这里的取值是确定的）。 */
+/** 处理掉的一个对话框（协议的 `BrowserDialogEvent`，这里的取值是确定的）。 */
 export interface BrowserAutomationDialogEvent {
   type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
   message: string;
@@ -30,7 +32,7 @@ const DIALOG_POLICIES: Record<BrowserAutomationDialogEvent['type'], DialogPolicy
   alert: { action: 'accepted', accept: true },
   confirm: { action: 'dismissed', accept: false },
   prompt: { action: 'dismissed', accept: false },
-  beforeunload: { action: 'dismissed', accept: false },
+  beforeunload: { action: 'accepted', accept: true },
 };
 
 export function handledDialogEvent(opening: JavaScriptDialogOpening): BrowserAutomationDialogEvent {
@@ -79,19 +81,6 @@ export function promptShimDrainScript(): string {
     const state = window.__WEVIR_BROWSER_AUTOMATION_DIALOG_STATE__;
     if (!state || !Array.isArray(state.prompts)) return [];
     return state.prompts.splice(0);
-  })()`;
-}
-
-export function promptShimRestoreScript(): string {
-  return `(() => {
-    const stateKey = "__WEVIR_BROWSER_AUTOMATION_DIALOG_STATE__";
-    const state = window[stateKey];
-    if (!state || !state.installed) return true;
-    if (window.prompt === state.promptShim && typeof state.originalPrompt === "function") {
-      window.prompt = state.originalPrompt;
-    }
-    delete window[stateKey];
-    return true;
   })()`;
 }
 
