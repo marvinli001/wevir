@@ -2,7 +2,7 @@
 // 引擎改过的文件）、附在其他工具结果后的改动文件错误、崩溃次数上限、空闲关闭与退出回收；服务器的查找与项目根。
 
 import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SessionId } from '@wevir/protocol';
 import { type AgentEvent, APP_TOOLS_NO_APPROVAL } from '@wevir/runtime-adapter';
@@ -53,7 +53,7 @@ function setup(
     symlinkSync(cwd, sessionCwd, 'dir');
     cleanups.push(() => rmSync(sessionCwd));
   }
-  const log = join(cwd, '..', `${cwd.split('/').at(-1)}-lsp.log`);
+  const log = join(cwd, '..', `${basename(cwd)}-lsp.log`);
   const lsp = new LspManager({
     servers: [options.spec ?? fakeSpec()],
     env: { ...process.env, FAKE_LSP_LOG: log, ...options.env },
@@ -226,8 +226,9 @@ describe('LSP tools on a fake language server', () => {
     for (const event of edit('call_1', ['a.fake', join(cwd, 'b.fake')]))
       tools.observe(SESSION, event);
     await expect.poll(notifications).toContain(`change ${join(cwd, 'a.fake')} 2`);
-    expect(notifications()).toContain(`save ${join(cwd, 'a.fake')}`);
-    expect(notifications()).toContain(`watched ${join(cwd, 'b.fake')}:2`);
+    // 保存与文件监视的通知晚于 change 到达，也要等。
+    await expect.poll(notifications).toContain(`save ${join(cwd, 'a.fake')}`);
+    await expect.poll(notifications).toContain(`watched ${join(cwd, 'b.fake')}:2`);
 
     const hover = await call('lsp_hover', { path: 'a.fake', line: 1, symbol: 'alpha' });
     expect(hover).toContain('Errors in files you changed since the last LSP result:');
@@ -377,8 +378,8 @@ describe('language servers', () => {
   it("drops Wevir's own variables from the servers' environment and extends PATH", () => {
     const env = serverEnv({ PATH: '/usr/bin', HOME: '/home/u', WEVIR_GATEWAY_TOKEN: 'secret' });
     expect(env.WEVIR_GATEWAY_TOKEN).toBeUndefined();
-    expect(env.PATH?.split(':')[0]).toBe('/usr/bin');
-    expect(env.PATH).toContain('/home/u/.cargo/bin');
+    expect(env.PATH?.split(delimiter)[0]).toBe('/usr/bin');
+    expect(env.PATH).toContain(join('/home/u', '.cargo', 'bin'));
   });
 
   it('finds a symbol on a line by whole word first', () => {

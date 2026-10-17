@@ -304,6 +304,9 @@ describe('浏览器工具（0.48.0）', () => {
     const { connect, call, cwd } = await setup();
     writeFileSync(join(cwd, 'a.txt'), 'hello');
     mkdirSync(join(cwd, 'docs'));
+    // 会话文件夹外真实存在的文件（`/etc/hosts` 在 Windows 上不存在，会变成“不存在”而不是“越界”）。
+    const outside = join(realpathSync(tempDir()), 'outside.txt');
+    writeFileSync(outside, 'secret');
     const desktop = await fakeDesktop(connect, (request) => ({
       ok: true,
       result:
@@ -345,7 +348,7 @@ describe('浏览器工具（0.48.0）', () => {
     const refused = await Promise.all(
       (
         [
-          ['browser_upload', { browserId: 'tab_1', paths: ['/etc/hosts'] }],
+          ['browser_upload', { browserId: 'tab_1', paths: [outside] }],
           ['browser_upload', { browserId: 'tab_1', paths: ['../outside.txt'] }],
           ['browser_upload', { browserId: 'tab_1', paths: ['docs'] }],
           ['browser_upload', { browserId: 'tab_1', paths: ['missing.txt'] }],

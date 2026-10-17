@@ -2,7 +2,7 @@
 // 会话文件夹的 `downloads/`。这里是文件名、保存位置与等下载结束的部分；接住下载（`will-download`）在 browser-host.ts。
 
 import { existsSync, rmSync } from 'node:fs';
-import { basename, extname, join } from 'node:path';
+import { extname, join, posix } from 'node:path';
 import { BROWSER_DOWNLOAD_MAX_BYTES } from '@wevir/protocol';
 
 /** 保存在会话文件夹的哪个子目录。 */
@@ -21,7 +21,9 @@ export interface DownloadItemLike {
 
 /** 网站建议的文件名只留最后一段、去掉控制字符与路径分隔符；空的叫 `download`。 */
 export function downloadFilename(suggested: string): string {
-  const cleaned = basename(suggested.replace(/\\/g, '/'))
+  // 用 posix 的 basename：Windows 的会把 `a:b` 的 `a:` 当盘符丢掉。
+  const cleaned = posix
+    .basename(suggested.replace(/\\/g, '/'))
     // biome-ignore lint/suspicious/noControlCharactersInRegex: 去掉文件名里的控制字符
     .replace(/[\u0000-\u001f\u007f<>:"|?*]/g, '_')
     .replace(/^\.+/, '')
