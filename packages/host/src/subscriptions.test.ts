@@ -4,6 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { openStorage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAdapter } from './cli.js';
 import { type RunningHost, startHost } from './host-process.js';
@@ -21,8 +22,7 @@ afterEach(async () => {
 
 const FULL = { provider_kind_chatgpt: true, subscription_kinds: true };
 
-async function start(scenarios = '1') {
-  const home = join(tempDir(), 'home');
+async function start(scenarios = '1', home = join(tempDir(), 'home')) {
   const logger = createLogger({ mirror: () => {} });
   const adapter = createAdapter('echo', {
     home,
@@ -87,13 +87,13 @@ describe('订阅来源（0.19.0）', () => {
     expect(accounts[4]).toMatchObject({ kind: 'antigravity', installed: false, canInstall: true });
   });
 
-  it('已登录的种类由 Host 建 Provider（ID 与种类相同，Claude 叫 Claude Agent），会话交给订阅引擎', async () => {
+  it('已登录的种类由 Host 建 Provider（ID 与种类相同，Claude 叫 Claude），会话交给订阅引擎', async () => {
     const { connect } = await start();
     const { client } = await connect();
     const providers = await providersOf(client, ['claude', 'grok']);
     expect(providers.find((provider) => provider.id === 'claude')).toMatchObject({
       kind: 'claude',
-      displayName: 'Claude Agent',
+      displayName: 'Claude',
       defaultModelId: 'claude-opus-5-5',
     });
     expect(providers.some((provider) => provider.id === 'cursor')).toBe(false);
@@ -109,6 +109,28 @@ describe('订阅来源（0.19.0）', () => {
       content: [{ type: 'text', text: 'hello' }],
     });
     expect(sent.turnId).toMatch(/^trn_/);
+  });
+
+  it('以前建的 Claude Provider 还叫 Claude Agent 时，Host 刷新时改叫 Claude', async () => {
+    const first = await start();
+    await providersOf((await first.connect()).client, ['claude']);
+    for (const client of clients.splice(0)) client.ws.terminate();
+    for (const host of running.splice(0)) await host.shutdown();
+
+    const storage = openStorage({ dataDir: first.home });
+    const claude = storage.providers.get('claude');
+    expect(claude).toBeDefined();
+    if (claude !== undefined) storage.providers.update({ ...claude, displayName: 'Claude Agent' });
+    storage.close();
+
+    const { connect } = await start('1', first.home);
+    const { client } = await connect();
+    await vi.waitFor(async () => {
+      const { providers } = await client.request('provider.list');
+      expect(providers.find((provider: { id: string }) => provider.id === 'claude')).toMatchObject({
+        displayName: 'Claude',
+      });
+    });
   });
 
   it('没声明 subscription_kinds 的连接看不到订阅来源，也收不到它们的 account.updated', async () => {

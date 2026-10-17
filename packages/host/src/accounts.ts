@@ -9,16 +9,21 @@ export const CHATGPT_PROVIDER_ID = 'chatgpt';
 export const CHATGPT_DISPLAY_NAME = 'ChatGPT';
 
 /**
- * 账号登录后 Host 自己建的 Provider 的显示名（0.19.0，domain-model §3.6）：ID 与种类相同。Claude 照 Anthropic 的品牌要求
- * 叫 “Claude Agent”，不叫 “Claude Code”（ADR-0005 补记 14）。
+ * 账号登录后 Host 自己建的 Provider 的显示名（0.19.0，domain-model §3.6）：ID 与种类相同。Claude 2026-10-17 起叫 “Claude”
+ * （维护者定，原来是 “Claude Agent”），不叫 “Claude Code”（ADR-0005 补记 14）。
  */
 export const ACCOUNT_PROVIDER_NAMES: Readonly<Record<AccountKind, string>> = {
   chatgpt: CHATGPT_DISPLAY_NAME,
-  claude: 'Claude Agent',
+  claude: 'Claude',
   cursor: 'Cursor',
   opencode: 'OpenCode',
   grok: 'Grok',
   antigravity: 'Antigravity',
+};
+
+/** 以前的默认显示名：Provider 还叫它时刷新时换成 `ACCOUNT_PROVIDER_NAMES` 里现在的。 */
+const LEGACY_PROVIDER_NAMES: Readonly<Partial<Record<AccountKind, string>>> = {
+  claude: 'Claude Agent',
 };
 
 /** 读账号时刷新账号 Provider 的模型列表的最短间隔。 */
@@ -184,7 +189,10 @@ export class HostAccounts {
       const record: ProviderProfileRecord = {
         id,
         kind,
-        displayName: existing?.displayName ?? ACCOUNT_PROVIDER_NAMES[kind],
+        displayName:
+          existing === undefined || existing.displayName === LEGACY_PROVIDER_NAMES[kind]
+            ? ACCOUNT_PROVIDER_NAMES[kind]
+            : existing.displayName,
         models,
         defaultModelId: keep ? existing.defaultModelId : defaultModelId,
         createdAt: existing?.createdAt ?? now,
@@ -193,6 +201,7 @@ export class HostAccounts {
       if (existing?.enabled === false) record.enabled = false;
       if (
         existing !== undefined &&
+        existing.displayName === record.displayName &&
         JSON.stringify(existing.models) === JSON.stringify(record.models) &&
         existing.defaultModelId === record.defaultModelId
       ) {

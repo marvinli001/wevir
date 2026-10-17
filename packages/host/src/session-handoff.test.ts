@@ -179,7 +179,7 @@ describe('接力（0.25.0）', () => {
     expect(h2.payload.covered?.fromSeq).toBeLessThanOrEqual(h1.seq);
     const context2 = h2.payload.context as string;
     expect(context2).toContain('Context handoff (delta_since_target_last_seen)');
-    expect(context2).toContain('Model switch: Mock API · Mock Pro → Claude Agent');
+    expect(context2).toContain('Model switch: Mock API · Mock Pro → Claude');
     expect(context2).toContain('换到 Claude 接着做');
     expect(context2).toContain('Claude 的第二句');
     // 原来的引擎看过的不再补。

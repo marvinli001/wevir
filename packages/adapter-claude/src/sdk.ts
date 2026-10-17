@@ -20,9 +20,9 @@ import type {
 type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
 
 /**
- * 安装包不带 Claude Agent SDK（ADR-0007 补记 3：它的许可证是“All rights reserved”，维护者定不随应用再分发）。所以不能静态
- * import：没装时 Host 照常启动，只是不挂 Claude 引擎（`claudeSdkInstalled`，host 的 engines.ts）。只把“找不到这个模块”当成没装，
- * 别的加载错误照样抛出。
+ * 动态 import：没装 SDK 时 Host 照常启动，只是不挂 Claude 引擎（`claudeSdkInstalled`，host 的 engines.ts）。2026-10-16 起安装包
+ * 不带 SDK（ADR-0007 补记 3），2026-10-17 起又随安装包带上（补记 6）；留着这条路给只装了部分依赖的 Host。只把“找不到这个模块”
+ * 当成没装，别的加载错误照样抛出。
  */
 const sdkModule: SdkModule | undefined = await import('@anthropic-ai/claude-agent-sdk').catch(
   (error: unknown) => {
@@ -31,7 +31,7 @@ const sdkModule: SdkModule | undefined = await import('@anthropic-ai/claude-agen
   },
 );
 
-/** 这个 Host 能不能用 Claude Agent SDK（开发环境经 pnpm 装上；安装包里没有）。 */
+/** 这个 Host 能不能用 Claude Agent SDK（开发环境经 pnpm 装上，安装包里随 Host 带上）。 */
 export function claudeSdkInstalled(): boolean {
   return sdkModule !== undefined;
 }

@@ -864,7 +864,7 @@ export const messages: Messages = {
   'provider.summary': '{sources} 個來源 · {models} 個模型',
 
   'source.codex': 'Codex',
-  'source.claude': 'Claude Agent',
+  'source.claude': 'Claude',
   'source.cursor': 'Cursor',
   'source.opencode': 'OpenCode',
   'source.grok': 'Grok',

@@ -369,7 +369,7 @@ export class ClaudeAccounts implements EngineAccounts {
     this.#check(kind);
     throw new AdapterError(
       'invalid_input',
-      `Claude Agent uses your own claude login: run \`${CLAUDE_LOGIN_COMMAND}\` in a terminal, then check again`,
+      `Claude uses your own claude login: run \`${CLAUDE_LOGIN_COMMAND}\` in a terminal, then check again`,
     );
   }
 
@@ -381,7 +381,7 @@ export class ClaudeAccounts implements EngineAccounts {
     this.#check(kind);
     throw new AdapterError(
       'invalid_input',
-      'Claude Agent uses your own claude login: run `claude auth logout` in a terminal',
+      'Claude uses your own claude login: run `claude auth logout` in a terminal',
     );
   }
 

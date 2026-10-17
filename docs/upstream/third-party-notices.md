@@ -164,10 +164,10 @@ Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁�
 - [ ] Linux 包：`codex-resources/bwrap` 在声明里写明 LGPL-2.0-or-later 与源码位置（§2.5），随附 LGPL-2.0 全文；ADR-0005 未决事项 4 决定 Linux 不带它时，这一条不适用。
 - [ ] 不使用 OpenAI 或 Codex 的名称与商标，说明来源的署名除外（Apache-2.0 第 6 条）。
 
-### 3.2b Claude Agent
+### 3.2b Claude
 
-- [ ] `@anthropic-ai/claude-agent-sdk`（`@wevir/adapter-claude` 的依赖，2026-10-15）是 Anthropic 的商业条款（包内 `LICENSE.md`），不是开源许可证：打包前定能不能随安装包分发（T3 Code 随应用分发它），能分发时随附它的条款。只带 SDK 本身，不带各平台的 Claude Code 二进制（`ignoredOptionalDependencies`，Wevir 用用户自己装的 `claude`）。
-- [ ] 界面与安装包里不出现 “Claude Code” 的名字，只叫 “Claude Agent”（ADR-0005 补记 14）。
+- [ ] `@anthropic-ai/claude-agent-sdk`（`@wevir/adapter-claude` 的依赖，2026-10-15）是 Anthropic 的商业条款（包内 `LICENSE.md`），不是开源许可证。2026-10-17 起随安装包分发（ADR-0007 补记 6），包内 `LICENSE.md` 原样保留；第三方声明里写明它按 Anthropic 的条款使用。只带 SDK 本身，不带各平台的 Claude Code 二进制（`ignoredOptionalDependencies`，Wevir 用用户自己装的 `claude`）。
+- [ ] 界面与安装包里不出现 “Claude Code” 的名字；来源叫 “Claude”（2026-10-17 起，原来是 “Claude Agent”，ADR-0005 补记 14）。
 
 ### 3.2c OpenCode
 

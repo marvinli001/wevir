@@ -884,7 +884,7 @@ export const messages: Messages = {
     '{sources, plural, one {# source} other {# sources}} · {models, plural, one {# modèle} other {# modèles}}',
 
   'source.codex': 'Codex',
-  'source.claude': 'Claude Agent',
+  'source.claude': 'Claude',
   'source.cursor': 'Cursor',
   'source.opencode': 'OpenCode',
   'source.grok': 'Grok',

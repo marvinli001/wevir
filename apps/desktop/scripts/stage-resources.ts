@@ -77,14 +77,15 @@ export function nodePlatform(target: string): { os: NodeJS.Platform; cpu: string
  *   deploy 便带上了它和 Vite 那一串；
  * - `@deepseek-ai/dsh`：adapter-dsh 的开发依赖（ADR-0007 决策 6：可选组件推迟期间，dsh 只在开发环境经 pnpm 安装），
  *   这里再拦一次；
- * - `@anthropic-ai/claude-agent-sdk`、`@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007
- *   补记 3）。没有它们时 Host 不挂 Claude 与 Cursor 引擎（host 的 engines.ts）。
+ * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。没有它时 Host 不挂 Cursor
+ *   引擎（host 的 engines.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的 JS，不带原生的 `claude`；
+ * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.286 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）。
  */
 export const EXCLUDED_PACKAGES: readonly string[] = [
   'vitest',
   '@deepseek-ai/dsh',
-  '@anthropic-ai/claude-agent-sdk',
   '@cursor/sdk',
+  '@anthropic-ai/sdk',
 ];
 
 interface Manifest {

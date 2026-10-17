@@ -866,7 +866,7 @@ export const messages: Messages = {
   'provider.summary': '소스 {sources}개 · 모델 {models}개',
 
   'source.codex': 'Codex',
-  'source.claude': 'Claude Agent',
+  'source.claude': 'Claude',
   'source.cursor': 'Cursor',
   'source.opencode': 'OpenCode',
   'source.grok': 'Grok',

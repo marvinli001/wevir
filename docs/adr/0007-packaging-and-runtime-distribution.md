@@ -1,6 +1,6 @@
 # ADR-0007：第一个安装包与运行时分发
 
-- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）；补记 3：Claude 与 Cursor 的 SDK 不随安装包分发；补记 4：自动更新的客户端；2026-10-17 补记 5：加 GitHub Release 线路
+- 状态：Accepted（2026-10-14，R9 起草，维护者在对话中确认决策 1、2、3、6 的选项；决策 4 同日定为 Electron 自带的 Node 并实现。同日维护者决定先做好基础，决策 6 的可选组件推迟，见决策 6）。2026-10-16 补记 1：第一个安装包；补记 2：维护者改了决策 3（自动更新、两条下载线路、正式版与开发版）；补记 3：Claude 与 Cursor 的 SDK 不随安装包分发；补记 4：自动更新的客户端；2026-10-17 补记 5：加 GitHub Release 线路；补记 6：Claude Agent SDK 随安装包分发
 - 日期：2026-10-14
 - 任务：R9；影响：`apps/desktop` 的打包与资源目录、adapter-codex 的二进制解析；推迟的部分影响 adapter-dsh、Host 的组件管理、设置页的引擎列表、R8 的 Grok Build 与 Gemini CLI
 - 依据：[ADR-0005](./0005-agent-runtime-and-model-gateway.md) 决策 8、未决事项 2 与 4；[ADR-0002](./0002-host-transport-and-process-model.md) 未决事项 1；[ADR-0004](./0004-repo-tooling.md)（打包工具留到打包阶段）；[UPSTREAM.md](../upstream/UPSTREAM.md) §1.2、§2.1、§2.4；[third-party-notices.md](../upstream/third-party-notices.md)；本文“背景”里的本机实测
@@ -155,4 +155,9 @@
    - **客户端**（`feed.ts`）：`UPDATE_MIRRORS` 加 `{ id: 'github', layout: 'release' }`，地址 `https://github.com/marvinli001/wevir/releases/download/desktop-updates`；清单地址由 `manifestUrl` 按布局拼，安装包相对 Release 的下载地址。仍然先验签，下载经 GitHub 的跳转到 `release-assets.githubusercontent.com`（支持 Range，测速与差分照用）。`WEVIR_UPDATE_MIRRORS` 里地址带 `/releases/download/` 的按这个布局读。
    - **发布**（`release.ts`）：线路抽成 `Line`（S3 两条与 GitHub 一条），流程不变：安装包先传到所有线路，再核对版本、写清单，最后清理。GitHub 线路用 gh 与工作流的 `GITHUB_TOKEN`（发布作业本来就有 `contents: write`），没有这个 Release 时先建；传完核对附件的大小与 GitHub 给的 sha256。写清单是 `--clobber`（先删后传），有一两秒这条线路没有清单或清单与签名对不上，客户端这时会用另外两条线路。正式版另建的 `vX.Y.Z` Release（dmg 与 exe，给人下载）照旧，不清理。
    - **验证**：单元测试；用模拟的 gh 跑了 `publish --only github` 的五次发布（建 Release、清单前缀、拒绝更低版本、两个通道各留 2 个版本）。没有在真实仓库上发过，第一次开发版发布时看。
+6. **2026-10-17，Claude Agent SDK 随安装包分发（维护者定，改补记 3 中 Claude 的一半）。** Anthropic 2026-10-07 更新了 Agent SDK 的说明：第三方应用仍可经 Agent SDK 使用用户的订阅额度。维护者据此开放 Claude 订阅来源，并定 SDK 随应用带上，不做补记 3 里的按需下载。
+   - `stage-resources.ts` 的 `EXCLUDED_PACKAGES` 去掉 `@anthropic-ai/claude-agent-sdk`，加上 `@anthropic-ai/sdk`（0.3.286 的 peer，只在 `.d.ts` 里用它的类型，运行时不加载，14 MB）。SDK 只带 JS（5.2 MB，包内 `LICENSE.md` 一起），各平台的 Claude Code 二进制照旧不装（`ignoredOptionalDependencies`），用用户自己装的 `claude`。`@cursor/sdk` 照旧不带。
+   - 安装包里的 Host 从 21 MB 到 37 MB（另有 MCP SDK 与 zod 随 Claude Agent SDK 进来）。
+   - 界面与 Host 建的 Provider 叫 “Claude”（原来是 “Claude Agent”）；已有的 Provider 还叫 “Claude Agent” 时，Host 下次刷新模型列表时改名，用户自己改过的名字不动（`accounts.ts` 的 `LEGACY_PROVIDER_NAMES`）。
+   - 验收（2026-10-17，macOS arm64）：`pnpm --filter @wevir/desktop resources` 后资源目录的 Host 以 `ELECTRON_RUN_AS_NODE` 在 `env -i` 与临时 HOME 下启动，日志只有 Cursor 一条 `engine sdk not installed`，Host `ready`。没有用真实的 Claude 订阅跑会话。
 

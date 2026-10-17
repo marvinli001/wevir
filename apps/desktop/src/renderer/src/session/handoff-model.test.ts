@@ -17,7 +17,7 @@ function provider(id: string, kind: ProviderProfile['kind'], extra: Partial<Prov
 }
 
 const api = provider('mock', 'openai-compatible', { displayName: 'Mock API' });
-const claude = provider('claude', 'claude', { displayName: 'Claude Agent' });
+const claude = provider('claude', 'claude', { displayName: 'Claude' });
 const features: Record<string, EngineFeatures> = {
   'openai-compatible': { engine: 'codex', additionalRoots: true, fork: true },
   claude: { engine: 'claude', additionalRoots: true },
@@ -67,7 +67,7 @@ describe('接力的纯逻辑（0.25.0）', () => {
   });
 
   it('modelLabel：订阅写软件名，API 写服务名，后面是模型名', () => {
-    expect(modelLabel([api, claude], 'claude', 'm')).toBe('Claude Agent · Model M');
+    expect(modelLabel([api, claude], 'claude', 'm')).toBe('Claude · Model M');
     expect(modelLabel([api, claude], 'mock', 'm')).toBe('Mock API · Model M');
     expect(modelLabel([api], 'mock', 'other')).toBe('Mock API · other');
     expect(modelLabel([], 'gone', 'x')).toBe('x');

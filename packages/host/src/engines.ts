@@ -25,8 +25,8 @@ export interface EngineSdks {
 }
 
 /**
- * 现在挂上的订阅引擎。Claude Agent SDK 与 `@cursor/sdk` 不随安装包分发（ADR-0007 补记 3），没装时不挂那个引擎：Host 照常
- * 启动，桌面端的订阅来源里它显示为还不能用（没有这种账号）。开发环境里两个 SDK 都经 pnpm 装上。
+ * 现在挂上的订阅引擎。`@cursor/sdk` 不随安装包分发（ADR-0007 补记 3；Claude Agent SDK 2026-10-17 起随安装包，补记 6），SDK
+ * 没装时不挂那个引擎：Host 照常启动，桌面端的订阅来源里它显示为还不能用（没有这种账号）。开发环境里两个 SDK 都经 pnpm 装上。
  */
 export function subscriptionEngines(
   context: AdapterContext,
@@ -37,7 +37,7 @@ export function subscriptionEngines(
   }
   const routes: EngineRoute[] = [
     {
-      // Claude Agent（claude-event-mapping.md）：用户自己装的 `claude` 与他的登录，经 Claude Agent SDK 驱动。
+      // Claude（claude-event-mapping.md）：用户自己装的 `claude` 与他的登录，经 Claude Agent SDK 驱动。
       name: 'claude',
       adapter: new ClaudeAdapter({
         home: context.home,

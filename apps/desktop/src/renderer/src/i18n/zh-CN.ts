@@ -877,7 +877,7 @@ export const zhCN = {
   'provider.summary': '{sources} 个来源 · {models} 个模型',
 
   'source.codex': 'Codex',
-  'source.claude': 'Claude Agent',
+  'source.claude': 'Claude',
   'source.cursor': 'Cursor',
   'source.opencode': 'OpenCode',
   'source.grok': 'Grok',
