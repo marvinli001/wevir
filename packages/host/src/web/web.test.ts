@@ -599,6 +599,23 @@ describe('fetchPage 的上限与地址检查', () => {
     });
   });
 
+  it('<main> 里换语言的链接、菜单与 MediaWiki 的框架不算正文', async () => {
+    const article =
+      'Markdown is a lightweight markup language for creating formatted text. '.repeat(4);
+    page.handle((_request, _body, response) => {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      response.end(
+        `<!doctype html><html><head><title>Markdown</title></head><body><main><h1>Markdown</h1>
+<div class="vector-dropdown mw-portlet-lang"><ul><li><a href="https://de.wikipedia.org/wiki/Markdown" hreflang="de">Deutsch</a></li></ul></div>
+<ul><li><a href="https://fr.wikipedia.org/wiki/Markdown" hreflang="fr" lang="fr">Français</a></li><li><a href="https://ja.wikipedia.org/wiki/Markdown" hreflang="ja">日本語</a></li></ul>
+<div role="toolbar"><a href="/edit">Edit</a></div>
+<h2>History<span class="mw-editsection">[<a href="/edit?section=1">edit</a>]</span></h2><p>${article}</p></main></body></html>`,
+      );
+    });
+    const fetched = await fetchPage(`${page.url}/wiki`, allow);
+    expect(fetched).toMatchObject({ content: `# Markdown\n\n## History\n\n${article.trim()}` });
+  });
+
   it('formatPage：超出正文的 start、空网页', () => {
     const base = { url: 'https://e.com/', status: 200, contentType: 'text/html', truncated: false };
     expect(formatPage({ ...base, content: 'abc' }, 10, 1000)).toContain('start=10 is past the end');

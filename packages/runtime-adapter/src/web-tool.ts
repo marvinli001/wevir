@@ -89,7 +89,7 @@ export const WEB_FETCH_TOOL_DEFINITION = {
         type: 'integer',
         minimum: 1000,
         maximum: WEB_FETCH_MAX_CHARS,
-        description: `How many characters of content to return (default ${WEB_FETCH_DEFAULT_CHARS}).`,
+        description: `How many characters of content to return (default ${WEB_FETCH_DEFAULT_CHARS}, at least 1000: smaller values are raised to 1000).`,
       },
     },
     required: ['url'],

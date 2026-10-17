@@ -69,8 +69,8 @@
 - 整次（含重定向）20 s；解压后最多读 5 MB，多的不读、标成截断；重定向最多 5 次，每一跳都重新检查；
 - `Accept-Encoding: gzip, deflate, br`，按 `Content-Encoding` 解压；编码按响应头，HTML 没写时看前 4 KB 的 `<meta charset>`（国内不少站还是 GBK），认不出按 UTF-8；
 - HTML（含没写类型的）转正文 Markdown；`text/*`、JSON、XML、YAML 等原样；其余（PDF、图片、压缩包）回“不收这种内容”。
-- 转 Markdown 用 turndown 7.2.4 与它在 Node 里用的 DOM domino 2.2.0（ADR-0004 补记 12）：先删掉脚本、样式、导航、侧栏、页脚、表单、图片、隐藏元素，有 `<main>` / `<article>` 且里面至少 200 个字时只转它，链接改成绝对地址（`javascript:` / `data:` 链接只留文字），空链接去掉。
-- 给模型的结果：`URL`（最终地址）、`Title`、这一段在全文里的位置与下一段的 `start`，然后是正文；每段默认 1 万字符，`max_chars` 最多 3 万。
+- 转 Markdown 用 turndown 7.2.4 与它在 Node 里用的 DOM domino 2.2.0（ADR-0004 补记 12）：先删掉脚本、样式、导航、侧栏、页脚、表单、图片、隐藏元素、菜单与工具栏（`role` 为 menu / menubar / search / toolbar），以及换语言的链接（带 `hreflang` 的，连同所在的列表项）和 MediaWiki 放在 `<main>` 里的页面框架（下拉、编辑链接、导航框、分类；2026-10-17 冒烟测试里维基百科的正文前是整串语言列表），有 `<main>` / `<article>` 且里面至少 200 个字时只转它，链接改成绝对地址（`javascript:` / `data:` 链接只留文字），空链接去掉。
+- 给模型的结果：`URL`（最终地址）、`Title`、这一段在全文里的位置与下一段的 `start`，然后是正文；每段默认 1 万字符，`max_chars` 最少 1000（更小的按 1000，工具说明里写明）、最多 3 万。
 
 ### 4.1 本机与局域网地址：拦
 

@@ -2,8 +2,8 @@ import { createRequire } from 'node:module';
 import TurndownService from 'turndown';
 
 // 网页 → 正文 Markdown（docs/architecture/web-tools.md §4）：turndown 7.2.4（MIT，ADR-0004 补记 12）加它在 Node 里用的 DOM
-// domino。先去掉不是正文的部分（脚本、样式、导航、侧栏、页脚、表单、图片），有 `<main>` / `<article>` 且里面有足够的文字时只转
-// 它，链接改成绝对地址。
+// domino。先去掉不是正文的部分（脚本、样式、导航、侧栏、页脚、表单、图片、菜单与工具栏、换语言的链接、MediaWiki 页面框架），
+// 有 `<main>` / `<article>` 且里面有足够的文字时只转它，链接改成绝对地址。
 
 /**
  * domino（BSD-2-Clause，turndown 在 Node 里用的 DOM）自带的类型声明的是模块 `domino`、用的是浏览器的 DOM 类型，在 Node 的包里
@@ -11,6 +11,8 @@ import TurndownService from 'turndown';
  */
 interface DominoElement {
   textContent: string | null;
+  readonly tagName: string;
+  readonly parentNode: DominoElement | null;
   getAttribute(name: string): string | null;
   setAttribute(name: string, value: string): void;
   removeAttribute(name: string): void;
@@ -59,6 +61,20 @@ const NOISE = [
   '[role="navigation"]',
   '[role="banner"]',
   '[role="contentinfo"]',
+  '[role="menu"]',
+  '[role="menubar"]',
+  '[role="search"]',
+  '[role="toolbar"]',
+  // MediaWiki（维基百科等）放在 <main> 里的页面框架：换语言与工具的下拉、编辑链接、跳转链接、导航框、分类。
+  '.vector-dropdown',
+  '.vector-page-toolbar',
+  '.vector-header-container',
+  '.mw-portlet',
+  '.mw-editsection',
+  '.mw-jump-link',
+  '.navbox',
+  '.catlinks',
+  '.printfooter',
 ].join(',');
 
 /** `<main>` / `<article>` 里至少有这么多字才只转它，否则转整个 `<body>`（有的站把正文放在别处）。 */
@@ -87,6 +103,10 @@ export function htmlToMarkdown(html: string, baseUrl: string): HtmlPage {
   const document = createDocument(html, true);
   const title = document.title.replace(/\s+/g, ' ').trim();
   for (const element of Array.from(document.querySelectorAll(NOISE))) element.remove();
+  // 换语言的链接（hreflang）连同它所在的列表项一起去掉：一长串别的语言的名字不是正文。
+  for (const link of Array.from(document.querySelectorAll('a[hreflang]'))) {
+    (link.parentNode?.tagName === 'LI' ? link.parentNode : link).remove();
+  }
   absolutize(document.querySelectorAll('a[href]'), 'href', baseUrl);
   const root = mainContent(document.querySelector('main'), document.querySelector('article'));
   const source = root ?? document.body ?? document.documentElement;
