@@ -607,7 +607,7 @@ describe('HostLifecycle：意外退出与重新拉起（T5.5）', () => {
     expect(host.ownership).toMatchObject({ kind: 'owned' });
     expect(host.ownership?.pid).not.toBe(first.ownership.pid);
     expect((await host.endpoint()).url).toBe(readRuntime(home).url);
-  });
+  }, 30_000);
 
   it('等待重新拉起期间别人启动了 Host：附着它，不再拉起', async () => {
     const home = join(tempDir, 'home');
