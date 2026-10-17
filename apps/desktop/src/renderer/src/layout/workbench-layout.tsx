@@ -45,11 +45,13 @@ import {
   setSplitRatios,
 } from './pane-state';
 import { prunePaneScopes, updateScope, useScopePanes } from './pane-store';
+import { RoleLabel } from './role-label';
 import { Sidebar } from './sidebar';
 import { Splitter } from './splitter';
 import './rail-cards';
 import './usage-card';
 import './outputs-card';
+import './task-board-card';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';
@@ -351,6 +353,7 @@ export function WorkbenchLayout() {
                   {header.subtitle}
                 </span>
               )}
+              {header.role && <RoleLabel role={header.role} data-testid="header-role" />}
             </div>
             {panes && (
               <div className="flex shrink-0 items-center gap-0.5">
@@ -800,6 +803,8 @@ function movePaneFocus(panes: PaneController, current: string | undefined, delta
 interface Header {
   title: string;
   subtitle?: string;
+  /** agent 开这个会话时用的预设角色（0.52.0）。 */
+  role?: string;
   entry?: WorkspaceEntry;
   /** 会话页的会话（会话侧栏用）；草稿页没有。 */
   session?: Session;
@@ -819,6 +824,7 @@ function useHeader(workspaceId: string | undefined, sessionId: string | undefine
       return {
         title: target.session.title || t('session.untitled'),
         subtitle: workspaceLabel(target.entry.workspace),
+        ...(target.session.openedBy?.role !== undefined && { role: target.session.openedBy.role }),
         entry: target.entry,
         session: target.session,
         panes: true,

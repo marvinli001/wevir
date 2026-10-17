@@ -185,6 +185,11 @@ export const HOST_FEATURES = {
    */
   sessionUndo: 'session_undo',
   /**
+   * 共享任务清单（0.52.0，domain-model §3.15）：会话树的根会话里有 `tasks.board_updated` 事件与快照的 `taskBoard`，agent 用
+   * `wevir_tasks` 系列工具分工，界面只读。随应用级工具（`app_tools`）一起声明。
+   */
+  taskBoard: 'task_board',
+  /**
    * 不在项目里的会话（0.39.0，domain-model §3.1）：`session.create` 可以不带 `workspaceId`，会话建在 Host 的“对话”工作区
    * （`Workspace.kind` 是 `chats`），每个会话一个新建的文件夹。
    */
@@ -235,6 +240,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_branches: z.boolean().optional(),
   session_rewind: z.boolean().optional(),
   session_undo: z.boolean().optional(),
+  task_board: z.boolean().optional(),
   chat_sessions: z.boolean().optional(),
   shared_files: z.boolean().optional(),
 });

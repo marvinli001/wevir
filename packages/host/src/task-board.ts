@@ -8,7 +8,8 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { SessionId } from '@wevir/protocol';
+import type { BoardTask as ProtocolBoardTask, SessionId } from '@wevir/protocol';
+import type { EventStore } from './event-store.js';
 
 export const TASK_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
@@ -20,6 +21,8 @@ export const TASK_DESCRIPTION_MAX = 2000;
 /** 一项最多留几条备注、每条多少字符；旧的先丢。 */
 export const TASK_NOTES_MAX = 20;
 export const TASK_NOTE_MAX = 500;
+/** `tasks.board_updated` 事件里每项带最近几条备注（0.52.0）。 */
+export const TASK_EVENT_NOTES = 5;
 
 export interface TaskNote {
   sessionId: SessionId;
@@ -270,20 +273,57 @@ export function applyRemove(board: Board, id: string, by: SessionId): BoardTask 
   return task;
 }
 
+/** 清单在事件与快照里的样子（0.52.0 的 `tasks.board_updated`）：每项的备注只留最近 `TASK_EVENT_NOTES` 条。 */
+export function boardEventTasks(tasks: readonly BoardTask[]): ProtocolBoardTask[] {
+  return tasks.map((task) => ({
+    ...task,
+    blockedBy: [...task.blockedBy],
+    notes: task.notes.slice(-TASK_EVENT_NOTES).map((note) => ({ ...note })),
+  }));
+}
+
+/**
+ * `TaskBoardStoreOptions.onChange` 的实现：把改完的清单作为 `tasks.board_updated` 写进根会话的事件流。根会话已经不在、事件被
+ * 拒绝时只记一条警告，不让工具调用失败。
+ */
+export function boardEventRecorder(
+  events: Pick<EventStore, 'append'>,
+  onWarning?: (message: string, fields?: Record<string, unknown>) => void,
+): NonNullable<TaskBoardStoreOptions['onChange']> {
+  return (root, tasks) => {
+    try {
+      events.append(root, {
+        type: 'tasks.board_updated',
+        source: 'host',
+        payload: { tasks: boardEventTasks(tasks) },
+      });
+    } catch (error) {
+      onWarning?.('failed to record task board update', { sessionId: root, error });
+    }
+  };
+}
+
 export interface TaskBoardStoreOptions {
   /** `<数据目录>/tasks`。 */
   dir: string;
   now?: () => string;
+  /**
+   * 一次改动写盘之后调用（建、改、删各一次），带着改完的整张清单；Host 用它往根会话的事件流里写 `tasks.board_updated`。
+   * 回调抛错不影响改动本身。
+   */
+  onChange?: (root: SessionId, tasks: readonly BoardTask[]) => void;
 }
 
 export class TaskBoardStore {
   readonly #dir: string;
   readonly #now: () => string;
+  readonly #onChange: TaskBoardStoreOptions['onChange'];
   readonly #queues = new Map<string, Promise<unknown>>();
 
   constructor(options: TaskBoardStoreOptions) {
     this.#dir = options.dir;
     this.#now = options.now ?? (() => new Date().toISOString());
+    this.#onChange = options.onChange;
   }
 
   async list(root: SessionId): Promise<BoardTask[]> {
@@ -346,6 +386,11 @@ export class TaskBoardStore {
       const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
       await writeFile(tmp, `${JSON.stringify(board, null, 2)}\n`, { mode: 0o600 });
       await rename(tmp, file);
+      try {
+        this.#onChange?.(root, board.tasks);
+      } catch {
+        // 通知失败不算改动失败：清单已经写好了。
+      }
       return result;
     });
     const tail = run.catch(() => undefined);

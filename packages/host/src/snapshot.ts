@@ -1,6 +1,7 @@
 import type {
   ActiveTurn,
   ApprovalRequest,
+  BoardTask,
   EngineErrorInfo,
   EnvironmentId,
   IsoTime,
@@ -79,6 +80,8 @@ export interface SessionProjection {
   readonly usage?: Usage;
   /** 会话的目标（0.35.0）：最近一次 `session.goal_changed`，清除时没有。 */
   readonly goal?: SessionGoal;
+  /** 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有。 */
+  readonly taskBoard?: readonly BoardTask[];
   /** 最近一条 `user.message`；同一回合的 `turn.started` 从这里取 `clientMessageId`。 */
   readonly lastUserMessage?: { readonly turnId: TurnId; readonly clientMessageId?: string };
   /** 最近一条 `user.message` 的协作模式（0.36.0）；`plan` 以外省略。 */
@@ -166,6 +169,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  * - `subagents`（父会话）：`subagent.started` 追加，`subagent.updated` 按 `sessionId` 替换。
  * - `pendings`（R11）：`pending.added` 加入，`pending.updated` 按 `id` 替换。
  * - `suggestedTasks`（0.16.0）：`tasks.suggested` 加入，`task.started` 记下会话、`task.reported` 记下结局。
+ * - `taskBoard`（0.52.0）：`tasks.board_updated` 整份替换。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -380,6 +384,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     }
     case 'todo.updated':
       next.todos = event.payload.items;
+      break;
+    case 'tasks.board_updated':
+      next.taskBoard = event.payload.tasks;
       break;
     case 'usage.updated':
       next.usage = {
@@ -650,7 +657,10 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   }
   if (record.side) session.side = true;
   if (record.origin?.kind === 'agent') {
-    session.openedBy = { sessionId: record.origin.sessionId as SessionId };
+    session.openedBy = {
+      sessionId: record.origin.sessionId as SessionId,
+      ...(record.origin.role !== undefined && { role: record.origin.role }),
+    };
   } else if (record.origin?.taskId !== undefined) {
     session.origin = {
       kind: 'suggested_task',
@@ -669,6 +679,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     pendingApprovals: [...projection.pendingApprovals],
   };
   if (projection.todos) snapshot.todos = [...projection.todos];
+  if (projection.taskBoard) snapshot.taskBoard = [...projection.taskBoard];
   if (projection.usage) snapshot.usage = projection.usage;
   if (projection.subagents.length > 0) snapshot.subagents = [...projection.subagents];
   const pendingMessages = openPendings(projection);

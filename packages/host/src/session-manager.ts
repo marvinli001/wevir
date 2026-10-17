@@ -649,7 +649,9 @@ export class SessionManager {
           ...(engineSession.engineVersion !== undefined && {
             engineVersion: engineSession.engineVersion,
           }),
-          ...(openedBy !== undefined && { openedBy: { sessionId: openedBy } }),
+          ...(openedBy !== undefined && {
+            openedBy: { sessionId: openedBy, ...(role !== undefined && { role }) },
+          }),
         },
       });
     } catch (error) {

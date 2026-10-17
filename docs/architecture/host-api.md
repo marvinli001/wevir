@@ -357,6 +357,7 @@ Host → 客户端的通知：
 | `subagent.started` | host |
 | `subagent.updated` | host |
 | `tasks.suggested` | host |
+| `tasks.board_updated` | host |
 | `task.started` | host |
 | `task.reported` | host |
 | `pending.added` | host |
@@ -522,6 +523,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.49.0`：项目改名。新方法 `workspace.update { workspaceId, displayName }` → `{ workspace }`（只改显示名，1–200 字、去掉首尾空白，“对话”工作区不能改）；Host 功能 `workspace_update`。全是新增，没有新的错误码，冻结样本 compat/0.49.0.json = 0.48.0 的样本加 `workspace.update`。
 
+`0.52.0`：任务清单与角色在界面上可见（domain-model §3.15 的“任务清单”“角色”）。新事件 `tasks.board_updated { tasks }`：共享任务清单变了就写一条，写在会话树的根会话里（清单属于根），完整的清单，替换上一份，每项的备注只带最近 5 条；新类型 `BoardTask`（`id, subject, description?, status, owner?, blockedBy, notes, createdBy, createdAt, updatedAt`）、`BoardTaskStatus`（`pending`、`in_progress`、`completed`、`cancelled`）、`BoardTaskNote`；`SessionSnapshot` 加 optional 的 `taskBoard`（最近一次 `tasks.board_updated`，只有根会话有，清单从没改过时省略）；`SessionOpenedBy` 加 optional 的 `role`（`wevir_session_create` 用的预设角色名，`Session.openedBy` 与 `session.created` 共用）；Host 功能 `task_board`。全是新事件与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端忽略 `tasks.board_updated`（规则 5）与新字段，看不到清单与角色。新客户端连旧 Host：hello 结果里没有 `task_board`，收不到清单事件，桌面端不显示“任务清单”卡片；`openedBy` 没有 `role` 时不显示角色。冻结样本 `compat/0.52.0.json` = 0.51.0 的样本加一条 `tasks.board_updated`、带 `role` 的 `openedBy` 与带 `taskBoard` 的 `session.get` 结果。
+
 `0.51.0`：撤销与重做（domain-model §3.22，维护者 2026-10-17 定，照 opencode 的 `/undo`、`/redo`）。新方法 `session.undo`、`session.redo`（`turnId?`，结果 `seq, turnId, files`）；新事件 `turn.undone`、`turn.redone`（`turnId`、optional 的 `files`）；新类型 `FilesRestore`；`EngineFeatures` 加 optional 的 `undo`；Host 功能 `session_undo`；回合快照加 `undone`、`redone-from` 两种 ref。
 
 `0.50.0`：上下文的分布。`usage.updated` 与快照的 `usage` 加 optional 的 `breakdown { categories, groups? }`：`categories` 是 `{ name, tokens, kind }` 的行（`kind` 已见 `used`、`free`、`buffer`、`deferred`，其他值按 `used` 看；`name` 是引擎给的类别名，桌面端认得的按界面语言显示，其余照写，至多 32 行），`groups` 是 MCP 工具、记忆文件、自定义智能体、技能这几组细项 `{ group, count, items: { name, source?, tokens }[] }`（`group` 已见 `mcp_tools`、`memory_files`、`agents`、`skills`；`count` 是总数，`items` 只带占用最多的前 50 项，线缆上限 100）。Claude 引擎在每个回合结束后向 `claude` 要一份 `getContextUsage({ detail: 'summary' })`（与 `/context` 同口径，只用上一次响应的用量与本地估算，不额外调 token 计数接口），结果异步回来，所以回合结算之后还会收到一条带 `breakdown` 的 `usage.updated`（`contextUsed` 与它之前的那条相同）；旧版 `claude` 不认这个请求时就没有。Codex 引擎每次都带：按 `tokenUsage.last` 拆成 `Input`（新的）、`Cached input`、`Output`、`Reasoning`，再加 `Autocompact buffer`（窗口减自动压缩线）与 `Free space`。其他引擎不报。不带 `breakdown` 的 `usage.updated` 不清掉已有的：Host 的快照与客户端的投影都沿用上一次的，回合中间的分类名与数字可能比 `contextUsed` 旧一些。optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧 schema 忽略它。新客户端连旧 Host：收不到它，桌面端的“上下文”卡片只有用量条。冻结样本 `compat/0.50.0.json` = 0.49.0 的样本加一条带 `breakdown` 的 `usage.updated` 与 `session.get` 结果。
@@ -590,6 +593,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `session_branches` | 0.38.0 | 分支到新会话：`session.fork` 不带 `side`、可带 `turnId`（Codex、echo 引擎；`engineFeatures` 的 `branch` 说哪种 Provider 的引擎能分支，没有时 `INVALID_STATE`） |
 | `session_rewind` | 0.38.0 | 撤回最后一个回合：`session.rewind` 与 `turn.rewound` 事件（Codex、echo 引擎；`engineFeatures` 的 `rewind`，没有时 `INVALID_STATE`） |
 | `session_undo` | 0.51.0 | 撤销与重做：`session.undo`、`session.redo` 与 `turn.undone`、`turn.redone` 事件（引擎收得了补进上下文的说明时：Codex、Claude、OpenCode、echo；`engineFeatures` 的 `undo`，没有时 `INVALID_STATE`；还原文件要目录在 git 仓库里） |
+| `task_board` | 0.52.0 | 共享任务清单：会话树的根会话里有 `tasks.board_updated` 事件与快照的 `taskBoard`（有应用级工具时，同 `app_tools`；清单由 agent 改，界面只读） |
 | `session_worktree` | 0.18.0 | `session.create` 的 `worktree: 'new'`：不用环境，单独新开一个 worktree（与引擎无关，0.18.0 起的 Host 都有） |
 | `shared_files` | 0.40.0 | 交给用户的文件：应用级工具 `wevir_share_file` 与 `file.shared` 事件（有应用级工具时，同 `app_tools`） |
 | `plugins` | 0.41.0 | Host 全局连接器与 skills 注册表；注入支持另看 engineFeatures.mcpServers / skills |

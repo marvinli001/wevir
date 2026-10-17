@@ -9,7 +9,8 @@
 // 插话分出的每条助手消息都带回合的开始时刻。0.24.0：由命令开始的回合（`turn.started.command`，压缩上下文、代码审查）投影成
 // 一条带 `command`、没有文字的用户消息；上下文压缩（`context.*`）是回合里的 `compaction` 部件。0.35.0：为会话目标工作的回合
 // （`turn.started.trigger`）的用户消息带 `trigger`；引擎自己开的目标回合没有 `user.message`，投影成一条带 `trigger`、没有文字的
-// 用户消息。会话的目标（`session.goal_changed`）是 `Transcript.goal`。
+// 用户消息。会话的目标（`session.goal_changed`）是 `Transcript.goal`。0.52.0：共享任务清单（`tasks.board_updated`，写在会话树的
+// 根会话里）是 `Transcript.taskBoard`。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -20,6 +21,7 @@ import type {
   ApprovalRequest,
   ApprovalResolution,
   ApprovalStatus,
+  BoardTask,
   ClientIdentity,
   CollaborationMode,
   CompactionTrigger,
@@ -278,6 +280,11 @@ export interface Transcript {
    * 0.51.0：能重做的回合（`session.redo`），最近撤销的在最后；撤销之后会话又开始新回合时清空。被撤销的回合不在 `messages` 里。
    */
   redoTurnIds: readonly TurnId[];
+  /**
+   * 0.52.0：共享任务清单（最近一次 `tasks.board_updated`，整份替换），只有会话树的根会话有；没收到过时是空数组。规则同 Host 快照的
+   * `taskBoard`。
+   */
+  taskBoard: readonly BoardTask[];
   lastSeq: number;
 }
 
@@ -369,6 +376,7 @@ export class TranscriptProjection {
   #lastError: EngineErrorInfo | undefined;
   #usage: Usage | undefined;
   #goal: SessionGoal | undefined;
+  #taskBoard: readonly BoardTask[] = [];
   #subagents: SubagentSummary[] = [];
   /** 子会话 ID → 它的部件（开始与结束）所在的消息。 */
   #subagentParts = new Map<SessionId, MutableMessage[]>();
@@ -413,6 +421,7 @@ export class TranscriptProjection {
     this.#lastError = undefined;
     this.#usage = undefined;
     this.#goal = undefined;
+    this.#taskBoard = [];
     this.#subagents = [];
     this.#subagentParts.clear();
     this.#parent = undefined;
@@ -453,6 +462,9 @@ export class TranscriptProjection {
         return;
       case 'session.goal_changed':
         this.#goal = event.payload.goal ?? undefined;
+        return;
+      case 'tasks.board_updated':
+        this.#taskBoard = event.payload.tasks;
         return;
       case 'session.configured':
         return;
@@ -651,6 +663,7 @@ export class TranscriptProjection {
       collaborationMode: this.#collaborationMode,
       latestPlan: this.#latestPlan,
       redoTurnIds: this.#redo,
+      taskBoard: this.#taskBoard,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;

@@ -27,7 +27,7 @@ import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { RoleStore } from './roles.js';
 import { SessionManager } from './session-manager.js';
-import { TaskBoardStore } from './task-board.js';
+import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { identity, useStorages, useTempDir, zip } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
 
@@ -121,7 +121,10 @@ async function setup(
   const projectRolesDir = join(workspace, '.wevir', 'roles');
   tools = new AppTools({
     roles: new RoleStore({ dir: rolesDir }),
-    tasks: new TaskBoardStore({ dir: join(root, 'data', 'tasks') }),
+    tasks: new TaskBoardStore({
+      dir: join(root, 'data', 'tasks'),
+      onChange: boardEventRecorder(events, (message, fields) => errors.push({ message, fields })),
+    }),
     ...(plugins && { plugins }),
     ...(processes && { processes }),
     storage,
@@ -992,6 +995,62 @@ describe('共享任务清单', () => {
     });
   });
 
+  it('每次改动在根会话的事件流里写一条 tasks.board_updated（整张清单），快照带 taskBoard；失败的改动不写', async () => {
+    const h = await setup();
+    const lead = await h.create();
+    const worker = (
+      await h.call(lead, 'wevir_session_create', { message: 'help', reportBack: false })
+    ).sessionId as SessionId;
+    const boardEvents = () => h.all(lead).filter((event) => event.type === 'tasks.board_updated');
+    const latest = () => {
+      const event = boardEvents().at(-1);
+      return event?.type === 'tasks.board_updated' ? event.payload.tasks : [];
+    };
+    expect(boardEvents()).toHaveLength(0);
+    expect(h.events.snapshot(lead)?.taskBoard).toBeUndefined();
+
+    await h.call(lead, 'wevir_task_create', { subject: 'Write the parser' });
+    await h.call(worker, 'wevir_task_create', {
+      subject: 'Test the parser',
+      blockedBy: ['t1'],
+      owner: 'me',
+    });
+    // 子会话改的清单写在根会话里，子会话自己没有。
+    expect(boardEvents()).toHaveLength(2);
+    expect(h.all(worker).some((event) => event.type === 'tasks.board_updated')).toBe(false);
+    expect(h.events.snapshot(worker)?.taskBoard).toBeUndefined();
+    expect(latest()).toEqual([
+      expect.objectContaining({ id: 't1', status: 'pending', createdBy: lead, blockedBy: [] }),
+      expect.objectContaining({ id: 't2', owner: worker, blockedBy: ['t1'] }),
+    ]);
+    expect(h.events.snapshot(lead)?.taskBoard).toEqual(latest());
+
+    // 被拒绝的改动不写事件；备注在事件里只带最近 5 条。
+    expect(
+      (await h.call(worker, 'wevir_task_update', { id: 't2', status: 'in_progress' })).error,
+    ).toMatch(/waits for t1/);
+    expect(boardEvents()).toHaveLength(2);
+    for (let i = 1; i <= 7; i += 1) {
+      await h.call(worker, 'wevir_task_update', { id: 't2', note: `note ${i}` });
+    }
+    const t2 = latest().find((task) => task.id === 't2');
+    expect(t2?.notes.map((note) => note.text)).toEqual([
+      'note 3',
+      'note 4',
+      'note 5',
+      'note 6',
+      'note 7',
+    ]);
+    expect((await h.call(lead, 'wevir_tasks', { id: 't2' })).task.notes).toHaveLength(7);
+
+    // 删光以后是一张空清单，不是没有。
+    await h.call(lead, 'wevir_task_update', { id: 't1', delete: true });
+    await h.call(worker, 'wevir_task_update', { id: 't2', delete: true });
+    expect(latest()).toEqual([]);
+    expect(h.events.snapshot(lead)?.taskBoard).toEqual([]);
+    expect(h.errors).toEqual([]);
+  });
+
   it('清单存在数据目录里：Host 重启后还在；根会话不在了的清单启动时清掉', async () => {
     const h = await setup();
     const lead = await h.create();
@@ -1068,6 +1127,16 @@ describe('预设角色', () => {
     });
     expect(h.storage.sessions.get(child)?.origin).toEqual({
       kind: 'agent',
+      sessionId: caller,
+      role: 'planner',
+    });
+    // 角色名也在协议里（0.52.0）：session.created 的 openedBy 与快照的 Session.openedBy。
+    const created = h.all(child)[0];
+    expect(created?.type === 'session.created' && created.payload.openedBy).toEqual({
+      sessionId: caller,
+      role: 'planner',
+    });
+    expect(h.events.snapshot(child)?.session.openedBy).toEqual({
       sessionId: caller,
       role: 'planner',
     });

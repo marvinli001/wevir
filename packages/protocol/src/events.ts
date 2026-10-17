@@ -16,6 +16,7 @@ import {
 import {
   ApprovalRequestSchema,
   ApprovalResolutionSchema,
+  BoardTaskSchema,
   CollaborationModeSchema,
   CompactionTriggerSchema,
   EngineErrorCategorySchema,
@@ -394,6 +395,13 @@ export const EventPayloadSchemas = {
     turnId: TurnIdSchema.optional(),
     tasks: z.array(SuggestedTaskSchema).min(1),
   }),
+  /**
+   * 共享任务清单变了（0.52.0，domain-model §3.15）：写在会话树的根会话里（清单属于根，树里的会话共用）。完整的清单，替换上一份；
+   * 每项的备注只带最近 5 条。清单由 agent 用 `wevir_task_*` 工具改，用户在界面上只读。
+   */
+  'tasks.board_updated': z.object({
+    tasks: z.array(BoardTaskSchema),
+  }),
   /** 用户把一项建议开成了会话（0.16.0）。 */
   'task.started': z.object({
     taskId: TaskIdSchema,
@@ -508,6 +516,7 @@ export const EngineRawEventSchema = eventSchema('engine.raw');
 export const SubagentStartedEventSchema = eventSchema('subagent.started');
 export const SubagentUpdatedEventSchema = eventSchema('subagent.updated');
 export const TasksSuggestedEventSchema = eventSchema('tasks.suggested');
+export const TasksBoardUpdatedEventSchema = eventSchema('tasks.board_updated');
 export const TaskStartedEventSchema = eventSchema('task.started');
 export const TaskReportedEventSchema = eventSchema('task.reported');
 export const PendingAddedEventSchema = eventSchema('pending.added');
@@ -554,6 +563,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SubagentStartedEventSchema,
   SubagentUpdatedEventSchema,
   TasksSuggestedEventSchema,
+  TasksBoardUpdatedEventSchema,
   TaskStartedEventSchema,
   TaskReportedEventSchema,
   PendingAddedEventSchema,
