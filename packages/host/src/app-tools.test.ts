@@ -279,6 +279,7 @@ describe('应用级工具的端点', () => {
       'wevir_session_create',
       'wevir_session_send',
       'wevir_session_wait',
+      'wevir_session_progress',
       'wevir_session_interrupt',
       'wevir_session_close',
       'wevir_session_archive',
@@ -346,7 +347,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(11);
+    expect(list.body.result.tools).toHaveLength(12);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -556,6 +557,131 @@ describe('应用级工具', () => {
           (e.type === 'user.steered' && e.payload.pendingId === reports().at(-1)?.id),
       );
     expect(delivered).toEqual([]);
+  });
+
+  it('进度：进行中给现在在做什么、清单与已用时间，空闲的给上一个回合的结果；列表和等待超时也带', async () => {
+    const h = await setup(30);
+    const caller = await h.create();
+    const idle = await h.create();
+    expect(await h.call(caller, 'wevir_session_progress', { sessionId: idle })).not.toHaveProperty(
+      'progress',
+    );
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'slow plan tool',
+      reportBack: false,
+    });
+    const child = opened.sessionId as SessionId;
+    await vi.waitFor(() => expect(h.state(child)).toBe('running'));
+    await vi.waitFor(async () => {
+      const seen = await h.call(caller, 'wevir_session_progress', { sessionId: child });
+      expect(seen.progress?.todos).toMatchObject({ total: 3 });
+    });
+    const running = await h.call(caller, 'wevir_session_progress', { sessionId: child });
+    expect(running).toMatchObject({
+      sessionId: child,
+      state: 'running',
+      progress: { doing: expect.any(String), toolsFinished: expect.any(Number) },
+    });
+    expect(running.progress.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(running.progress.todos.done).toBeLessThan(3);
+    expect(running).not.toHaveProperty('lastTurn');
+
+    // 列表：进行中的带 doing；等待超时：带 progress，不打断对方。
+    const listed = await h.call(caller, 'wevir_session_list', { state: 'active' });
+    expect(listed.sessions).toEqual([
+      expect.objectContaining({ sessionId: child, doing: expect.any(String) }),
+    ]);
+    const waited = await h.call(caller, 'wevir_session_wait', { sessionId: child, timeoutMs: 0 });
+    expect(waited).toMatchObject({ timedOut: true, progress: { turnId: running.progress.turnId } });
+
+    // 做完以后没有 progress，有上一个回合的结局与回答。
+    await h.settle(child);
+    const done = await h.call(caller, 'wevir_session_progress', { sessionId: child });
+    expect(done).not.toHaveProperty('progress');
+    expect(done).toMatchObject({
+      state: 'idle',
+      lastTurn: { outcome: 'completed' },
+      answer: expect.stringContaining('Echo'),
+    });
+    const after = await h.call(caller, 'wevir_session_list', { state: 'any' });
+    expect(
+      (after.sessions as Array<Record<string, unknown>>).find((s) => s.sessionId === child),
+    ).not.toHaveProperty('doing');
+  });
+
+  it('请求方等着回报时，对方卡在等用户批准上：告诉请求方一次，用户批准后继续、结果照常回报', async () => {
+    const h = await setup();
+    // 请求方完全访问：它收到的通知里有 approve 一词，echo 不会因此自己请求审批；子会话收窄到请求批准。
+    const caller = await h.create({ permissionMode: 'full_access' });
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'approve please',
+      permissionMode: 'on_request',
+    });
+    const child = opened.sessionId as SessionId;
+    await vi.waitFor(() => expect(h.state(child)).toBe('awaiting_approval'));
+    // 子会话里的进度说明在等用户。
+    const blocked = await h.call(caller, 'wevir_session_progress', { sessionId: child });
+    expect(blocked.progress).toMatchObject({ waitingForUser: true });
+    expect(blocked.progress.doing).toContain('waiting for the user to approve');
+    // 请求方（空闲）收到一条 report，开了一个回合。
+    await vi.waitFor(() => {
+      const messages = h
+        .all(caller)
+        .filter((e) => e.type === 'user.message' && e.payload.from?.kind === 'report');
+      expect(messages).toHaveLength(1);
+    });
+    const notice = h
+      .all(caller)
+      .find((e) => e.type === 'user.message' && e.payload.from?.kind === 'report');
+    expect(notice?.type === 'user.message' && notice.payload.from).toMatchObject({
+      sessionId: child,
+      kind: 'report',
+    });
+    expect(
+      notice?.type === 'user.message' && notice.payload.content[0]?.type === 'text'
+        ? notice.payload.content[0].text
+        : '',
+    ).toMatch(/waiting for the user to approve/);
+    await h.settle(caller);
+
+    // 用户批准：子会话做完，最终结果照常回报（第二条 report），不再有“在等用户”的通知。
+    const approval = h.events.snapshot(child)?.pendingApprovals[0];
+    if (!approval) throw new Error('no approval');
+    const allow = approval.options.find((option) => option.category === 'allow');
+    if (!allow) throw new Error('no allow option');
+    await h.manager.respondToApproval(
+      { approvalId: approval.id, optionId: allow.optionId },
+      identity,
+    );
+    await h.settle(child);
+    await vi.waitFor(() => {
+      const reports = h
+        .all(caller)
+        .filter((e) => e.type === 'user.message' && e.payload.from?.kind === 'report');
+      expect(reports).toHaveLength(2);
+    });
+    const texts = h
+      .all(caller)
+      .flatMap((e) =>
+        e.type === 'user.message' && e.payload.from?.kind === 'report'
+          ? e.payload.content.flatMap((part) => (part.type === 'text' ? [part.text] : []))
+          : [],
+      );
+    expect(texts[1]).toContain('finished a turn you asked for');
+    expect(h.errors).toEqual([]);
+  });
+
+  it('不要求回报的会话卡在等用户上时，不打扰请求方', async () => {
+    const h = await setup();
+    const caller = await h.create();
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'approve please',
+      reportBack: false,
+    });
+    const child = opened.sessionId as SessionId;
+    await vi.waitFor(() => expect(h.state(child)).toBe('awaiting_approval'));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(h.all(caller).filter((e) => e.type === 'user.message')).toEqual([]);
   });
 
   it('停下别的会话的回合', async () => {
