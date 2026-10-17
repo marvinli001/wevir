@@ -237,6 +237,31 @@ describe('Host plugin registry', () => {
     },
   );
 
+  it('项目在用户目录下时，往上找到的 ~/.codex/skills 与 ~/.agents/skills 算用户的', async () => {
+    const home = join(temp(), 'home');
+    const userHome = join(temp(), 'user');
+    const project = join(userHome, 'work', 'app');
+    mkdirSync(project, { recursive: true });
+    const store = new PluginRegistry({
+      home,
+      userHome,
+      roots: () => [project],
+      adapter: new EchoAdapter({ stepDelayMs: 0 }),
+    });
+    await store.load();
+    skill(join(userHome, '.codex', 'skills'), 'codex-user-skill');
+    skill(join(userHome, '.agents', 'skills'), 'agents-user-skill');
+    skill(join(userHome, 'work', '.codex', 'skills'), 'parent-project-skill');
+    const sources = Object.fromEntries(
+      (await store.list()).skills.map((item) => [item.name, item.source]),
+    );
+    expect(sources).toEqual({
+      'codex-user-skill': 'user',
+      'agents-user-skill': 'user',
+      'parent-project-skill': 'project',
+    });
+  });
+
   it('用户 / 项目项默认关闭，按路径记选择，后来新增项仍关闭；不会删除外部原件', async () => {
     const h = await registry();
     skill(join(h.userHome, '.agents', 'skills'), 'user-skill');

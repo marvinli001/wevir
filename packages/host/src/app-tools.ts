@@ -6,7 +6,7 @@
 // 修改：工具按 Wevir 的会话模型重写（列出、读、新开、发消息、等待、停止、可选模型，加上请界面显示的 `wevir_show`），不用 Effect；
 // 取舍照 T3：读历史分页与长文本续读（`afterPosition` / `textOffset`）、新开的会话不能比发起的会话权限更宽、给别的会话发的消息不能
 // 发到权限更宽的会话、请它做事的会话在它做完时收到回报（T3 的 delegate_task 完成通知，Paseo 的 notifyOnFinish），等待超时不打断
-// 对方、等到的结果不再回报。T3 的子任务、定时任务、密钥、工作流与 worktree 移交没有搬。说明文字是 Wevir 自己的。
+// 对方、等到的结果不再回报（回报已在请求方的队列里等着时撤回）。T3 的子任务、定时任务、密钥、工作流与 worktree 移交没有搬。说明文字是 Wevir 自己的。
 //
 // 应用级工具（0.30.0，domain-model §3.15）：会话里的 agent 经 Host 的 `wevir` MCP 服务（app-mcp.ts）操作 Wevir 本身。
 
@@ -17,6 +17,7 @@ import type {
   HostId,
   MessageFrom,
   PendingDelivery,
+  PendingMessageId,
   PermissionMode,
   Session,
   SessionId,
@@ -50,6 +51,8 @@ export const WAIT_DEFAULT_MS = 30_000;
 export const WAIT_MAX_MS = 10 * 60_000;
 /** 列表一页最多几个会话。 */
 export const LIST_MAX = 100;
+/** 记着多少条还在请求方队列里的回报（够 `wevir_session_wait` 撤回最近的）。 */
+const QUEUED_REPORTS_MAX = 200;
 
 const ACTIVE = new Set(['running', 'awaiting_approval', 'cancelling']);
 const PERMISSION_RANK: Record<PermissionMode, number> = {
@@ -114,6 +117,11 @@ export class AppTools {
   readonly #waiters = new Map<SessionId, Map<SessionId, number>>();
   /** 已经由 `wevir_session_wait` 交给请求方的回合（`<会话>:<回合>`），不再回报。 */
   readonly #delivered = new Set<string>();
+  /**
+   * 排进了请求方队列的回报（`<会话>:<回合>` → 请求方与待发消息）：回合在请求方调 `wevir_session_wait` 之前就结束、请求方又
+   * 正忙时，回报先排了队；之后等到同一个回合的结果，就把排队的回报撤回。
+   */
+  readonly #queuedReports = new Map<string, { target: SessionId; pendingId: PendingMessageId }>();
 
   constructor(options: AppToolsOptions) {
     this.#options = options;
@@ -195,6 +203,14 @@ export class AppTools {
         this.#identity,
         { from: reportFrom },
       )
+      .then((sent) => {
+        if (sent.pendingId === undefined) return;
+        this.#queuedReports.set(key, { target, pendingId: sent.pendingId });
+        if (this.#queuedReports.size > QUEUED_REPORTS_MAX) {
+          const oldest = this.#queuedReports.keys().next().value;
+          if (oldest !== undefined) this.#queuedReports.delete(oldest);
+        }
+      })
       .catch((error: unknown) =>
         this.#options.onWarning?.('应用级工具的回报没能发给请求方', {
           sessionId: info.sessionId,
@@ -364,7 +380,7 @@ export class AppTools {
               };
               return {
                 id: value.id,
-                ...(value.displayName !== undefined && { name: value.displayName }),
+                name: value.displayName ?? value.id,
                 ...(value.reasoningEfforts !== undefined && {
                   reasoningEfforts: value.reasoningEfforts.map((level) =>
                     typeof level === 'string' ? level : (level.effort ?? level.id),
@@ -554,7 +570,8 @@ export class AppTools {
         const session = this.#session(target.id);
         const events = this.#options.events.readSince(target.id, 0);
         const last = lastTurn(events);
-        if (!timedOut && last !== undefined) this.#delivered.add(`${target.id}:${last.turnId}`);
+        if (!timedOut && last !== undefined)
+          this.#consumed(`${target.id}:${last.turnId}`, sessionId);
         const answer = last === undefined ? undefined : lastAnswer(events, last.turnId);
         return jsonResult({
           ...this.#describe(session, sessionId),
@@ -813,6 +830,30 @@ export class AppTools {
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     };
+  }
+
+  /**
+   * 请求方用 `wevir_session_wait` 拿到了这个回合的结果：之后不再回报；回报已经排在它的队列里的撤回（交出去的插话、已经开始的
+   * 回合撤不回）。
+   */
+  #consumed(key: string, caller: SessionId): void {
+    const queued = this.#queuedReports.get(key);
+    if (queued === undefined) {
+      this.#delivered.add(key);
+      return;
+    }
+    this.#queuedReports.delete(key);
+    if (queued.target !== caller) return;
+    const pending = this.#options.events.pending(caller, queued.pendingId);
+    if (pending?.status !== 'waiting' || pending.delivery !== 'queue') return;
+    try {
+      this.#options.sessions.cancelPending({ sessionId: caller, pendingId: queued.pendingId });
+    } catch (error) {
+      this.#options.onWarning?.('应用级工具没能撤回已排队的回报', {
+        sessionId: caller,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   /** 等会话不再工作；超时返回 `true`。调用方断开时提前返回。 */

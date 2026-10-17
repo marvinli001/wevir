@@ -476,6 +476,32 @@ describe('应用级工具', () => {
     ).toBe(false);
   });
 
+  it('回报已经排进请求方的队列、之后又被等到时，撤回排队的回报', async () => {
+    const h = await setup(20);
+    const parent = await h.create();
+    // 请求方正忙：回报只能排队（sendWhileBusy 是 queue）。
+    await h.send(parent, 'slow please');
+    const created = await h.call(parent, 'wevir_session_create', { message: 'hi' });
+    const child = created.sessionId as SessionId;
+    await h.settle(child);
+    const queued = () =>
+      h
+        .all(parent)
+        .flatMap((e) =>
+          e.type === 'pending.added' || e.type === 'pending.updated' ? [e.payload.pending] : [],
+        )
+        .filter((p) => p.from?.kind === 'report');
+    await vi.waitFor(() => expect(queued().length).toBeGreaterThan(0));
+    const waited = await h.call(parent, 'wevir_session_wait', { sessionId: child });
+    expect(waited).toMatchObject({ timedOut: false, lastTurn: { outcome: 'completed' } });
+    expect(queued().at(-1)?.status).toBe('cancelled');
+    await h.settle(parent);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      h.all(parent).some((e) => e.type === 'user.message' && e.payload.from?.kind === 'report'),
+    ).toBe(false);
+  });
+
   it('停下别的会话的回合', async () => {
     const h = await setup(30);
     const caller = await h.create();
@@ -560,7 +586,16 @@ describe('应用级工具', () => {
     const models = await h.call(a, 'wevir_models');
     expect(models).toMatchObject({
       current: { providerId: 'mock', modelId: 'm', permissionMode: 'auto_review' },
-      providers: [{ providerId: 'mock', models: [{ id: 'm' }, { id: 'm2' }] }],
+      // 没有显示名的模型用 ID 当名字，各家 Provider 的条目形状一样。
+      providers: [
+        {
+          providerId: 'mock',
+          models: [
+            { id: 'm', name: 'm' },
+            { id: 'm2', name: 'm2' },
+          ],
+        },
+      ],
       permissionModes: ['on_request', 'auto_review'],
     });
   });

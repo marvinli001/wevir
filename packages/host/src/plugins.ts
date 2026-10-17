@@ -161,12 +161,15 @@ export class PluginRegistry {
     const roots = new Map<string, Skill['source']>([
       [join(this.#userHome, '.agents', 'skills'), 'user'],
     ]);
+    const userHome = resolve(this.#userHome);
     for (const project of [...this.#roots(), ...(cwd === undefined ? [] : [cwd])]) {
       let dir = resolve(project);
       for (;;) {
-        if (!roots.has(join(dir, '.agents', 'skills')))
-          roots.set(join(dir, '.agents', 'skills'), 'project');
-        roots.set(join(dir, '.codex', 'skills'), 'project');
+        // 项目在用户目录下时往上会走到用户目录：那里的 skills 是用户的，不是项目的。
+        const source = dir === userHome ? 'user' : 'project';
+        for (const root of [join(dir, '.agents', 'skills'), join(dir, '.codex', 'skills')]) {
+          if (!roots.has(root)) roots.set(root, source);
+        }
         const parent = dirname(dir);
         if (parent === dir) break;
         dir = parent;
