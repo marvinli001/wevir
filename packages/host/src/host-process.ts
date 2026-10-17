@@ -29,6 +29,8 @@ import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import type { Logger } from './logger.js';
 import { LspManager } from './lsp/manager.js';
+import { MemoryStore } from './memory.js';
+import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { HostRpcServer } from './rpc-server.js';
@@ -205,6 +207,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
     await chats.load();
+    // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明。
+    const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
     const manager = new SessionManager({
       storage,
       events: store,
@@ -307,12 +311,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(browsers !== undefined && { browser: browsers }),
         ...(processes !== undefined && { processes }),
         ...(lsp !== undefined && { lsp }),
+        memory,
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       appMcp = new AppMcpServer({
         tools: appTools.tools,
         version: HOST_VERSION,
-        instructions: APP_TOOLS_INSTRUCTIONS,
+        instructions: instructionsWithMemory({
+          base: APP_TOOLS_INSTRUCTIONS,
+          memory,
+          storage: sessionsDb,
+          onWarning: (message, fields) => logger.warn(message, fields),
+        }),
         onError: (error) => logger.error('app tools error', { error }),
         engineSession: engineSessionResolver(storage, options.engine),
         spill: (sessionId, toolName, result) => toolOutput.spill(sessionId, toolName, result),

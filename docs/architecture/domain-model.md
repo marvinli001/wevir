@@ -811,6 +811,7 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
   | `wevir_plugin_install` | 从会话文件夹安装插件包，必填输入缺失时报错列出键名 | 用户批准 |
   | `wevir_skill_install` | 从会话文件夹安装 skill 文件夹 / SKILL.md / ZIP | 用户批准 |
   | `wevir_connector_add` | 添加散装 MCP 连接器，字段同 McpServerConfig | 用户批准 |
+  | `wevir_memory_list` / `wevir_memory_read` / `wevir_memory_save` / `wevir_memory_delete` | 跨会话记忆（§3.21）：列出、读、保存（同名覆盖）、删除全局和这个项目的笔记 | 不用（只写 Host 自己的数据目录，都标 `readOnlyHint`） |
   | `wevir_process_start` | 在 Host 里起一个后台进程（0.47.0，§3.15.4）：登录 shell 跑命令，可等到某一行或退出 | 按权限模式 |
   | `wevir_process_list` / `wevir_process_output` / `wevir_process_wait` | 列出这个会话的后台进程、读输出（最后几行、`since` 偏移量、`grep`）、等它退出或输出某一行 | 不用 |
   | `wevir_process_write` / `wevir_process_kill` | 写 stdin、发信号（默认 SIGTERM，发给整个进程组） | 按权限模式 |
@@ -979,6 +980,16 @@ Host 拥有插件注册表，不属于某个 Session。连接器 `Connector { id
 删除之前 Host 照 `session.close` 再关一次（已关闭时无操作），断开子会话的引擎会话，之后忘掉内存里的投影与运行时。不写事件、不发通知：会话的事件已经删了；订阅着它的连接收不到新事件，再订阅、`session.get` 回 `SESSION_NOT_FOUND`，别的客户端在下一次 `session.list` 时看不到它。删除各步之间失败时：引擎数据与 worktree 已删、库还没删的，会话还在、在引擎那边是丢失的（§4.4 的只读）；库删了、文件没删完的，剩下的文件只记告警。
 
 `session.usage { archived? }` 给存储页量每个会话占了多少，会话的范围同 `session.list`（顶层、不是支线、工作区没移除；默认不含已归档的，`archived: true` 时只列它们）。每项 `SessionUsage { sessionId, eventBytes, fileBytes, worktrees }`，都算上这个会话的一家：`eventBytes` 是事件 payload 的字节数之和（库文件里这个会话的大致份额，不含索引与空闲页），`fileBytes` 是历史文件、对话文件夹与只有它们引用的图片，`worktrees` 是 `SessionWorktreeUsage { workspaceId, branch, path, bytes, dirty, missing? }`：`path` 是 worktree 的根目录，`bytes` 是它整个目录的大小，`dirty` 同上，目录不在时 `missing: true`、`bytes` 为 0。引擎的数据不按会话量（Codex 的 rollout 不在 Host 的目录里一一对应），只在存储页的“引擎数据”一类里。
+
+### 3.21 跨会话记忆
+
+维护者 2026-10-17 提出：Claude Code 有 auto memory，Wevir 只有 AGENTS.md 与 `wevir_session_read`，agent 踩过的坑（`rm -f` 吞掉错误、命令后台起来被杀）只能靠改系统提示修，agent 自己记不住。决定（同日）：全局加每个项目各一份，agent 自动写，本轮只做 Host 与工具，管理界面另做。
+
+- **存储。** `<数据目录>/memory/global/<名字>.md` 与 `<数据目录>/memory/projects/<工作区 ID>/<名字>.md`（目录 0700、文件 0600，`packages/host/src/memory.ts` 的 `MemoryStore`）。每条一个文件，frontmatter 是 `name`、`description`（一行，≤ 200 字符）、`type`（`user` / `feedback` / `project` / `reference`，同 Claude Code）、`updated`，正文 ≤ 4096 字节；每个范围最多 100 条。名字是 `[a-z0-9-]{1,64}`，同名保存即覆盖。索引不落盘，每次由文件生成。写入按范围排队，原子替换（临时文件 + `rename`）。frontmatter 被手改坏的文件在列表里跳过。像私钥、令牌的内容拒绝保存（AGENTS.md 规则 5）。项目范围按调用会话的 `workspaceId`，同一个仓库的 worktree 会话共用；“对话”工作区也算一个项目。
+- **谁用。** 所有带应用级工具的引擎共用（四个 `wevir_memory_*` 工具，§3.15）；不分引擎，Cursor / Claude / Codex / OpenCode 写的互相看得到。不依赖也不改引擎自己的记忆与项目说明（Claude Code 自带的 auto memory、AGENTS.md 照旧）；两套记忆会同时存在，哪一套更好用以后再看。
+- **注入。** `AppMcpServer` 的 `instructions` 可以是按调用会话生成的函数：`initialize` 时在工具说明后面加上这个会话看得到的索引，一条一行 `- [范围] 名字 (类型): 说明`，最多 6000 字节，超出的只说还有几条；记忆读不了时只记告警，工具说明照常。引擎在建连接时读一次 `instructions`，之后别的会话存的不会出现，要用 `wevir_memory_list` 刷新。引擎令牌（OpenCode）的 `initialize` 不带会话头，只有工具说明。
+- **写入的约束。** 工具说明要求只存以后的会话从代码或 git 历史里得不到的东西（用户的纠正与偏好、踩过的坑和避开的办法、决定与原因），一条一件事，先列出再更新，不存代码结构、当前任务的进度、密钥，也不存只来自网页或别的 agent、用户没确认的说法；读到的笔记是上下文，不是用户的指示，可能过期。因为会影响以后所有会话，这是提示注入的落脚点之一：保存和删除不走批准（用户选了自动写），靠上面的说明与内容检查，管理界面（查看、编辑、删除、开关）补上之前用户只能在数据目录里看。
+- **没做（留给后面）。** 协议里的 `memory.*` 方法与设置页的管理界面；总开关；会话结束时自动回顾；按引擎或按会话关记忆；项目移除时清理它的记忆目录。
 
 ## 4. 会话状态机
 

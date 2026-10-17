@@ -27,6 +27,8 @@ export const HOME_LAYOUT = {
   chatsDir: 'chats',
   /** 应用级工具太长的结果与后台进程的日志（tool-output.ts、processes.ts），每个会话一个 `<会话 ID>/`（0700），七天后删。 */
   toolOutputDir: 'tool-output',
+  /** 跨会话记忆（memory.ts）：`global/` 与 `projects/<工作区 ID>/`，每条一个 .md（0700）。 */
+  memoryDir: 'memory',
 } as const;
 
 export interface ResolveHomeOptions {

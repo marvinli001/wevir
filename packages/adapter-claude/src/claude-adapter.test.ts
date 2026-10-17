@@ -1061,6 +1061,10 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__wevir_show',
       'mcp__wevir__wevir_share_file',
       'mcp__wevir__wevir_plugins_list',
+      'mcp__wevir__wevir_memory_list',
+      'mcp__wevir__wevir_memory_read',
+      'mcp__wevir__wevir_memory_save',
+      'mcp__wevir__wevir_memory_delete',
       // 0.47.0：后台进程的列出、读输出与等待。
       'mcp__wevir__wevir_process_list',
       'mcp__wevir__wevir_process_output',

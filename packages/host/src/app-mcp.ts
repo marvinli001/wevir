@@ -58,8 +58,13 @@ export interface AppMcpServerOptions {
   tools: readonly AppTool[];
   /** `initialize` 结果里的服务版本。 */
   version: string;
-  /** 给模型的说明（`initialize` 的 `instructions`）。 */
-  instructions?: string;
+  /**
+   * 给模型的说明（`initialize` 的 `instructions`）。给函数时按调用方生成（记忆索引每个会话不同）；调用方不明（引擎令牌的
+   * `initialize` 不带会话头）时 `sessionId` 是 `undefined`。
+   */
+  instructions?:
+    | string
+    | ((sessionId: SessionId | undefined) => string | undefined | Promise<string | undefined>);
   onError?: (error: unknown) => void;
   /**
    * 引擎令牌的调用方：引擎会话 ID → 由交给这个引擎的 Provider 种类（`kinds`）承载、还存在的 Wevir 会话；认不出时 `undefined`。
@@ -255,13 +260,20 @@ export class AppMcpServer {
         )
           ? requested
           : APP_MCP_PROTOCOL_VERSIONS[0];
+        const configured = this.#options.instructions;
+        let instructions: string | undefined;
+        try {
+          instructions =
+            typeof configured === 'function' ? await configured(sessionId) : configured;
+        } catch (error) {
+          // 说明生成不出来不该让引擎连不上工具：这次不带说明（Host 给的函数自己兜底，到这里是意外）。
+          this.#options.onError?.(error);
+        }
         return rpcResult(id, {
           protocolVersion,
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: 'wevir', title: 'Wevir', version: this.#options.version },
-          ...(this.#options.instructions !== undefined && {
-            instructions: this.#options.instructions,
-          }),
+          ...(instructions !== undefined && { instructions }),
         });
       }
       case 'ping':
