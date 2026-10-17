@@ -368,6 +368,22 @@ describe('逐条的一行', () => {
     });
   });
 
+  it('Codex 的补丁全是新建的文件时写“创建”，夹着修改或不是补丁（Claude 的 Write）时照旧', () => {
+    const changes = (...kinds: string[]) => ({
+      type: 'fileChange',
+      changes: kinds.map((type, index) => ({ path: `f${index}.md`, kind: { type }, diff: 'x\n' })),
+    });
+    const write = (input: unknown, status: ToolPart['status'] = 'completed') =>
+      toolLine(tool('a', 'write', { input, status }), true).label;
+    expect(write(changes('add'))).toBe('已创建');
+    expect(write(changes('add'), 'running')).toBe('正在创建');
+    expect(write(changes('add'), 'failed')).toBe('创建失败');
+    expect(write({ file_path: '/w/x.md', content: 'x' })).toBe('已写入');
+    expect(toolLine(tool('a', 'edit', { input: changes('add', 'update') }), true).label).toBe(
+      '已修改',
+    );
+  });
+
   it('读取与修改的路径相对工作目录显示，命令原样', () => {
     const root = '/Users/me/proj/';
     const read = tool('a', 'read', {

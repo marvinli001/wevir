@@ -488,6 +488,22 @@ export function isWebSearch(part: Pick<ToolPart, 'toolName' | 'display'>): boole
   return part.display.kind === 'search' && /web_?search$/i.test(part.toolName);
 }
 
+/**
+ * 一行的动词：Codex 的补丁里全是新建的文件时是“创建”（§56，照 Codex 的“文件已创建”；摘要同样分出新建，见 changedPaths），
+ * 其余同展示类型。
+ */
+function lineVerbKind(part: ToolPart): ToolDisplayKind | 'create' {
+  if (
+    part.display.kind !== 'write' ||
+    !isRecord(part.input) ||
+    !Array.isArray(part.input.changes)
+  ) {
+    return part.display.kind;
+  }
+  const changed = changedPaths(part);
+  return changed.create.length > 0 && changed.edit.length === 0 ? 'create' : 'write';
+}
+
 /** 命令跑了这么久才在行尾写用时。 */
 const SHELL_DURATION_WORTH_MENTIONING_MS = 2000;
 
@@ -497,7 +513,8 @@ const SHELL_DURATION_WORTH_MENTIONING_MS = 2000;
  */
 export function toolLine(part: ToolPart, turnActive: boolean, root?: string): WorkLineView {
   const lifecycle = toolLifecycle(part, turnActive);
-  const verb = t(`work.verb.${part.display.kind}`);
+  const verbKind = lineVerbKind(part);
+  const verb = t(`work.verb.${verbKind}`);
   const summary =
     part.display.kind === 'unknown'
       ? (part.display.summary ?? part.toolName)
@@ -522,9 +539,9 @@ export function toolLine(part: ToolPart, turnActive: boolean, root?: string): Wo
   return {
     label:
       lifecycle === 'running'
-        ? t(`work.running.${kind}`)
+        ? t(`work.running.${verbKind}`)
         : lifecycle === 'completed'
-          ? t(`work.done.${kind}`)
+          ? t(`work.done.${verbKind}`)
           : t(`work.line.${lifecycle}`, { verb }),
     ...(target && { target }),
     ...(targetTitle !== undefined && targetTitle !== target && { targetTitle }),

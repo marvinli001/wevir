@@ -550,6 +550,7 @@ export const messages: Messages = {
   'work.verb.search': 'поиск',
   'work.verb.edit': 'изменение',
   'work.verb.write': 'запись',
+  'work.verb.create': 'создание',
   'work.verb.shell': 'запуск',
   'work.verb.fetch': 'загрузка',
   'work.verb.plan': 'обновление плана',
@@ -559,6 +560,7 @@ export const messages: Messages = {
   'work.running.search': 'Идёт поиск',
   'work.running.edit': 'Идёт изменение',
   'work.running.write': 'Идёт запись',
+  'work.running.create': 'Идёт создание',
   'work.running.shell': 'Идёт запуск',
   'work.running.fetch': 'Идёт загрузка',
   'work.running.plan': 'Идёт обновление плана',
@@ -568,6 +570,7 @@ export const messages: Messages = {
   'work.done.search': 'Готово: поиск',
   'work.done.edit': 'Готово: изменение',
   'work.done.write': 'Готово: запись',
+  'work.done.create': 'Готово: создание',
   'work.done.shell': 'Готово: запуск',
   'work.done.fetch': 'Готово: загрузка',
   'work.done.plan': 'Готово: обновление плана',
@@ -584,6 +587,8 @@ export const messages: Messages = {
   'tool.noOutput': 'Нет вывода',
   'tool.outputTruncated': 'Обрезано (всего {length} симв.)',
   'tool.inputTruncated': 'Обрезано (всего {length} симв.)',
+  'tool.previewMore':
+    'Ещё {count, plural, one {# строка} few {# строки} many {# строк} other {# строки}}',
 
   'turn.header.completed': 'Обработано за {duration}',
   'turn.header.failed': 'Ошибка · {duration}',

@@ -14,10 +14,21 @@ import {
   SquareTerminal,
   Wrench,
 } from 'lucide-react';
-import { createContext, Fragment, useContext, useEffect, useId, useRef, useState } from 'react';
+import {
+  createContext,
+  Fragment,
+  type RefObject,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { Collapse } from '@/components/collapse';
 import { t } from '@/i18n';
 import { Elapsed } from './elapsed';
+import { livePreviewKey } from './file-preview-model';
 import { useFold } from './fold-state';
 import { formatJson } from './format';
 import { AWAITING_PILL, LiveIndicator, type LiveState } from './live-indicator';
@@ -99,7 +110,8 @@ const LIVE_ROWS = 8;
  * 标出）；展开是逐条的一行，有详情的那条可以再单独展开。进行中的回合里，排在最后的那一组显示当前动作（闪光文字、已用
  * 时间，前面是状态图标位）。U16 起进行中的那一组默认展开，下面列出已经做完的步骤（照 Codex 的进行中列表），正在做的那条
  * 由组头代表；这一组做完（后面有了正文或回合结束）就收回成摘要，用户点过的照用户的。§55 起进行中新列进来的一行与换了的
- * 当前动作从下方上浮进入；列表超过 LIVE_ROWS 行时只露出最后几行，顶上渐隐。
+ * 当前动作从下方上浮进入；列表超过 LIVE_ROWS 行时只露出最后几行，顶上渐隐。§56 起进行中的这一组里最近写完的文件那一行
+ * 默认展开预览（livePreviewKey），组做完就随默认收起。
  */
 export function WorkGroup({
   foldKey,
@@ -139,6 +151,9 @@ export function WorkGroup({
     for (const entry of shown) listed.current.add(entry.key);
   });
   const clipped = live !== undefined && shown.length > LIVE_ROWS;
+  const list = useRef<HTMLUListElement>(null);
+  useTailClip(list, clipped);
+  const previewKey = live ? livePreviewKey(shown) : undefined;
   return (
     <div className="my-1.5" data-work-group={live ? 'live' : 'done'}>
       <button
@@ -181,6 +196,7 @@ export function WorkGroup({
       </button>
       <Collapse open={open} id={id}>
         <ul
+          ref={list}
           className={cn(
             'mt-0.5 flex flex-col',
             clipped &&
@@ -195,12 +211,36 @@ export function WorkGroup({
               turnActive={turnActive}
               settled={entry !== entries.at(-1) || !tail}
               enter={fresh(entry.key)}
+              preview={entry.key === previewKey}
             />
           ))}
         </ul>
       </Collapse>
     </div>
   );
+}
+
+/**
+ * 进行中列表只露出最后 LIVE_ROWS 行：高度取这几行的实际高度（有展开的预览时连预览一起，§56），行与预览的高度变化（展开
+ * 收起的过渡）随时跟上；量不到时（没有布局）用 className 里的 max-h-48（每行 24 px）。
+ */
+function useTailClip(ref: RefObject<HTMLUListElement | null>, clipped: boolean) {
+  useLayoutEffect(() => {
+    const list = ref.current;
+    if (!list || !clipped || typeof ResizeObserver === 'undefined') return;
+    const fit = () => {
+      const rows = [...list.children].slice(-LIVE_ROWS) as HTMLElement[];
+      const height = rows.reduce((sum, row) => sum + row.offsetHeight, 0);
+      list.style.maxHeight = height > 0 ? `${height}px` : '';
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    for (const row of list.children) observer.observe(row);
+    return () => {
+      observer.disconnect();
+      list.style.maxHeight = '';
+    };
+  });
 }
 
 /** 摘要：说明文字色，只涉及一个文件时文件名用正文色（照 Claude Code 的“created style-nonce.ts”）。 */
@@ -233,15 +273,18 @@ function WorkLine({
   turnActive,
   settled,
   enter = false,
+  preview = false,
 }: {
   entry: WorkEntry;
   turnActive: boolean;
   settled: boolean;
   /** 进行中新列进来的一行：挂上时上浮进入（只看挂上那一刻的值）。 */
   enter?: boolean;
+  /** 进行中的这一组里最近写完的文件：默认展开预览（§56）。 */
+  preview?: boolean;
 }) {
   const [entering] = useState(enter);
-  const [open, setOpen] = useFold(`line:${entry.key}`, false);
+  const [open, setOpen] = useFold(`line:${entry.key}`, preview);
   const id = useId();
   const root = useContext(WorkspaceRoot);
   const view =
