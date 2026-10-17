@@ -76,6 +76,12 @@ export function useEditors(): readonly EditorInfo[] | undefined {
   return list;
 }
 
+/** 用外部编辑器打开文件或文件夹，并记下它作为首选；文件窗格的“打开方式”与侧栏菜单共用。 */
+export function openInEditor(editorId: string, path: string, line?: number): void {
+  filePrefs.set((current) => ({ ...current, editor: editorId }));
+  void window.wevir.openInEditor(editorId, path, line).catch(() => undefined);
+}
+
 /** 首选的编辑器：上次用的，没有就是表里的第一个。 */
 export function preferredEditor(
   list: readonly EditorInfo[] | undefined,

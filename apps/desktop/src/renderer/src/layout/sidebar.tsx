@@ -1,11 +1,10 @@
-import type { Session, SessionId } from '@wevir/protocol';
+import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   Blocks,
   ChevronDown,
   Folder,
   FolderOpen,
-  Pencil,
   Plus,
   Rows3,
   Settings,
@@ -18,27 +17,22 @@ import { IconButton } from '@/components/icon-button';
 import { ArchiveIcon, PinIcon } from '@/components/session-icons';
 import { StatusDot, type StatusTone } from '@/components/status-dot';
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { DropdownMenuItem } from '@/components/ui/dropdown-menu';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isUnread, useSeenSessions } from '@/data/seen-sessions';
-import {
-  archiveSession,
-  requestRename,
-  togglePinned,
-  usePinnedSessions,
-  useSessionManagement,
-} from '@/data/session-actions';
-import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { usePinnedSessions, useSessionActions } from '@/data/session-actions';
+import { useWorkbenchData } from '@/data/workbench-data';
 import {
   chatsOf,
   groupByStatus,
   isChats,
+  pinnedFirst,
   projectsOf,
   type SessionMarker,
   type StatusRow,
   sessionMarker,
   type WorkspaceEntry,
 } from '@/data/workbench-model';
+import { usePinnedWorkspaces } from '@/data/workspace-actions';
 import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { useHostConnection } from '@/host/host-connection';
@@ -51,6 +45,8 @@ import { paths } from '@/routes/paths';
 import { UpdateEntryButton } from '@/updates/update-entry';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
 import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-drag';
+import { ProjectContextMenuItems } from './project-context-menu';
+import { SessionContextMenuItems } from './session-context-menu';
 
 /** 侧栏的一行：悬停是表面色的淡底，当前项是表面色（照 Codex 桌面端，U5）。 */
 const ROW =
@@ -281,6 +277,7 @@ function ProjectTree() {
   const { collapsedWorkspaces } = layoutPrefs.use();
   const seen = useSeenSessions();
   const pinned = usePinnedSessions();
+  const pinnedProjects = usePinnedWorkspaces();
 
   if (data.status === 'loading') return null;
   if (data.status === 'error') {
@@ -290,7 +287,8 @@ function ProjectTree() {
       </p>
     );
   }
-  const projects = projectsOf(data.workspaces);
+  // 置顶的项目（本机）排在前面。
+  const projects = pinnedFirst(projectsOf(data.workspaces), pinnedProjects);
   // 不在项目里的会话（0.39.0）：项目下面单独一组“对话”。
   const chats = chatsOf(data.workspaces);
   const chatSessions = chats?.sessions ?? [];
@@ -319,6 +317,7 @@ function ProjectTree() {
             key={entry.workspace.id}
             entry={entry}
             expanded={!collapsedWorkspaces.includes(entry.workspace.id)}
+            pinned={pinnedProjects.includes(entry.workspace.id)}
             isUnread={(session) => isUnread(seen, session)}
           />
         ))}
@@ -410,10 +409,12 @@ function pinnedOf(workspaces: readonly WorkspaceEntry[], pinned: readonly string
 function ProjectItem({
   entry,
   expanded,
+  pinned,
   isUnread,
 }: {
   entry: WorkspaceEntry;
   expanded: boolean;
+  pinned: boolean;
   isUnread: (session: Session) => boolean;
 }) {
   const { workspace, sessions } = entry;
@@ -424,30 +425,44 @@ function ProjectItem({
 
   return (
     <li>
-      <div className="group/project relative">
-        <button
-          type="button"
-          className={cn(ROW, 'pr-8 text-sidebar-foreground')}
-          aria-expanded={expanded}
-          aria-controls={listId}
-          title={workspace.rootPath}
-          onClick={() => toggleWorkspace(workspace.id)}
+      <ContextMenu>
+        <ContextMenuTrigger
+          render={<div className="group/project relative" data-project-id={workspace.id} />}
         >
-          <FolderIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-left">{workspace.displayName}</span>
-        </button>
-        <IconButton
-          label={t('sidebar.newSessionIn', { name: workspace.displayName })}
-          size="icon-xs"
-          className="absolute top-1 right-1 text-muted-foreground opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
-          onClick={() => {
-            rememberWorkspace(workspace.id);
-            navigate(paths.home());
-          }}
-        >
-          <SquarePen />
-        </IconButton>
-      </div>
+          <button
+            type="button"
+            className={cn(ROW, 'pr-8 text-sidebar-foreground')}
+            aria-expanded={expanded}
+            aria-controls={listId}
+            title={workspace.rootPath}
+            onClick={() => toggleWorkspace(workspace.id)}
+          >
+            <FolderIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-left">{workspace.displayName}</span>
+            {pinned && (
+              <PinIcon
+                filled
+                data-pinned-project=""
+                className="size-3 shrink-0 text-muted-foreground group-hover/project:hidden"
+              />
+            )}
+          </button>
+          <IconButton
+            label={t('sidebar.newSessionIn', { name: workspace.displayName })}
+            size="icon-xs"
+            className="absolute top-1 right-1 text-muted-foreground opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
+            onClick={() => {
+              rememberWorkspace(workspace.id);
+              navigate(paths.home());
+            }}
+          >
+            <SquarePen />
+          </IconButton>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ProjectContextMenuItems entry={entry} pinned={pinned} />
+        </ContextMenuContent>
+      </ContextMenu>
       <Collapse open={expanded && sessions.length > 0} id={listId}>
         <MoreList
           items={sessions}
@@ -532,16 +547,9 @@ function SessionRow({
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';
   // 目标进行中（0.35.0，照 T3 Code 的侧栏）：回合之间也标着，agent 还会接着做。
   const goal = session.goal?.status === 'active';
-  const manage = useSessionManagement();
-  const { client } = useHostConnection();
-  const store = useWorkbenchStore();
-  const pinned = usePinnedSessions().includes(session.id);
-  const archive = () => {
-    if (!client) return;
-    archiveSession(client, store, session.id as SessionId, true).catch((error: unknown) =>
-      console.warn('归档失败', session.id, error),
-    );
-  };
+  // 右键菜单与悬停的按钮用同一套动作（data/session-actions.ts）。
+  const actions = useSessionActions(session);
+  const { pinned } = actions;
   const pinLabel = t(pinned ? 'session.unpin' : 'session.pin');
   const dragging = usePinDragId() === session.id;
   return (
@@ -621,17 +629,17 @@ function SessionRow({
             label={pinLabel}
             size="icon-xs"
             className={ROW_ACTION}
-            onClick={() => togglePinned(session.id)}
+            onClick={actions.togglePin}
             data-action="pin-session"
           >
             <PinIcon filled={pinned} className="size-3.5" />
           </IconButton>
-          {manage.archive && (
+          {actions.archive && (
             <IconButton
               label={t('session.archive')}
               size="icon-xs"
               className={ROW_ACTION}
-              onClick={archive}
+              onClick={actions.archive}
               data-action="archive-session"
             >
               <ArchiveIcon className="size-3.5" />
@@ -640,22 +648,7 @@ function SessionRow({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {manage.rename && (
-          <DropdownMenuItem onClick={() => requestRename(session)} data-action="rename-session">
-            <Pencil />
-            {t('session.rename')}
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onClick={() => togglePinned(session.id)}>
-          <PinIcon filled={pinned} />
-          {pinLabel}
-        </DropdownMenuItem>
-        {manage.archive && (
-          <DropdownMenuItem onClick={archive}>
-            <ArchiveIcon />
-            {t('session.archive')}
-          </DropdownMenuItem>
-        )}
+        <SessionContextMenuItems cwd={session.cwd} actions={actions} />
       </ContextMenuContent>
     </ContextMenu>
   );

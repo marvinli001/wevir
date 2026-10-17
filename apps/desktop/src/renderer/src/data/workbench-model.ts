@@ -23,6 +23,20 @@ export function projectsOf(entries: readonly WorkspaceEntry[]): WorkspaceEntry[]
   return entries.filter((entry) => !isChats(entry.workspace));
 }
 
+/** 置顶的项目排在前面，按置顶的先后（后置顶的在前）；其余保持原来的顺序。置顶了但已不在列表里的忽略。 */
+export function pinnedFirst(
+  entries: readonly WorkspaceEntry[],
+  pinned: readonly string[],
+): WorkspaceEntry[] {
+  if (pinned.length === 0) return [...entries];
+  const rank = (entry: WorkspaceEntry) => {
+    const index = pinned.indexOf(entry.workspace.id);
+    return index === -1 ? pinned.length : index;
+  };
+  // Array.prototype.sort 是稳定的：没置顶的保持原来的顺序。
+  return [...entries].sort((a, b) => rank(a) - rank(b));
+}
+
 /** “对话”工作区；还没有对话时没有。 */
 export function chatsOf(entries: readonly WorkspaceEntry[]): WorkspaceEntry | undefined {
   return entries.find((entry) => isChats(entry.workspace));
