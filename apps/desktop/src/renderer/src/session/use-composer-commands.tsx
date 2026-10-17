@@ -21,11 +21,11 @@ import {
   ScanSearch,
   Shield,
   SquarePen,
-  Target,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { openChanges } from '@/changes/changes-store';
+import { GoalIcon } from '@/components/command-icons';
 import { ProviderLogo } from '@/components/provider-logo';
 import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
@@ -225,7 +225,7 @@ export interface SessionCommandOptions {
 
 /** `/goal`（0.35.0）：选中后输入框里是 `/goal `，接着写目标；也在“+”菜单里。 */
 function goalCommand(): ComposerCommand {
-  return { name: 'goal', label: t('command.goal'), icon: Target, insert: '/goal ', plus: true };
+  return { name: 'goal', label: t('command.goal'), icon: GoalIcon, insert: '/goal ', plus: true };
 }
 
 /** 已有会话的命令。 */

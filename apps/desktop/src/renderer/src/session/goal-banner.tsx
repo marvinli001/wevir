@@ -2,7 +2,7 @@
 // 的目标横幅（apps/web/src/components/ChatView.tsx，MIT，ec1313c8）；按钮经 `session.updateGoal` / `session.clearGoal`。
 
 import type { SessionGoal } from '@wevir/protocol';
-import { Target } from 'lucide-react';
+import { GoalIcon } from '@/components/command-icons';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
 import { presentGoal } from './goal-model';
@@ -32,7 +32,7 @@ export function GoalBanner({
       className="mb-2 rounded-xl border border-border bg-background px-3 py-2 animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
     >
       <div className="flex min-h-6 items-center gap-1.5 text-xs text-muted-foreground">
-        <Target aria-hidden className="size-3.5 shrink-0" />
+        <GoalIcon aria-hidden className="size-3.5 shrink-0" />
         <span className="font-medium text-foreground">{title}</span>
         {usage && <span className="min-w-0 truncate tabular-nums">· {usage}</span>}
         <span className="ml-auto flex shrink-0 items-center gap-0.5">

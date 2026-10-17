@@ -9,10 +9,10 @@ import {
   Reply,
   ScanSearch,
   SquareTerminal,
-  Target,
 } from 'lucide-react';
 import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { GoalIcon } from '@/components/command-icons';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
 import { useWorkbenchData } from '@/data/workbench-data';
@@ -299,7 +299,7 @@ function GoalContinuation() {
   return (
     <div className="flex flex-col items-end" data-message-role="user" data-goal-continuation>
       <div className="flex max-w-[85%] min-w-0 items-center gap-2 rounded-xl bg-muted px-3.5 py-2 text-base text-muted-foreground">
-        <Target aria-hidden className="size-4 shrink-0" />
+        <GoalIcon aria-hidden className="size-4 shrink-0" />
         <span className="min-w-0 truncate">{t('goal.continuation')}</span>
       </div>
     </div>

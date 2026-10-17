@@ -106,7 +106,7 @@ export function PermissionPicker({
         </TooltipTrigger>
         <TooltipContent>{t('permission.change')}</TooltipContent>
       </Tooltip>
-      <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-80 p-1.5">
+      <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-52 p-1.5">
         <p className="px-2 pt-1 pb-1.5 text-xs text-muted-foreground">{t('permission.title')}</p>
         <DropdownMenuRadioGroup
           value={value}
