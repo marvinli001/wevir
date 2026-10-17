@@ -82,6 +82,8 @@ Z.ai / 智谱按量 API（2026-10-17）：桌面 `settings/provider-presets.ts` 
 
 Phala Private AI / RedPill（2026-10-17）：桌面 redpill 模板默认 api.redpill.ai/v1，列公开目录声明 tools 的三款编码模型（含普通转发模型）；providers.ts 的 isPhalaHost 限三个已核对 API 主机的 /v1，Responses 默认摊平 custom / namespace 与 auto_only。errors.ts 的路由标记经 provider.test 与 Codex 会话原文交给 host/phala-error.ts 本地化；不做证明校验或 Private AI Proxy，旧 Profile 不迁移，来源与真实验收缺口见 providers.md §7.13、model-gateway.md §3.10。
 
+Xiaomi MiMo 按量 API（2026-10-17）：桌面 mimo 模板使用 Responses，Pro / Flash 均为 1048576、131072、图片、off / high；providers.ts 的 isMimoHost 排除套餐域名，普通 Responses 默认摊平 custom / namespace 与 auto_only，显式 compat 优先。官方目录的 Responses Lite 未开启，工具请求差异见 model-gateway.md §3.11；来源、旧 Profile 手动更新与真实验收缺口见 providers.md §7.14、development.md §6.3。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

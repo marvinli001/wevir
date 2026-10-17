@@ -14,6 +14,7 @@
 | `kimi-color.svg` | Kimi | `74a7292aeb0220445d14c5d397d75760e2e8c6ed6a9e5fe4f3023471bf62a9ff` |
 | `zai.svg` | Z.ai | `e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1` |
 | `zhipu-color.svg` | 智谱 GLM | `8174e65ff71647d5c705c920c953a82bd723d9e3e42887bdd4ffc9dfe51207a0` |
+| `xiaomimimo.svg` | 小米 MiMo | `b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71` |
 | `xai.svg` | xAI | `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451` |
 | `ollama.svg` | Ollama | `3a268218fb2e6e81fa31df70f70b51331625047794db81db21d35359428fae7a` |
 | `codex-color.svg` | 订阅来源 Codex（ChatGPT 订阅） | `4a2f43ce46b5b6e3722c95088f88d26ef91e6a8c2e598e70642a1c54367386e4` |

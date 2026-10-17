@@ -79,6 +79,8 @@ Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 
 
 Phala / RedPill 的已核对地址在 Codex Responses 上也补保守的 custom / namespace 摊平与 auto_only（model-gateway.md §3.10）；显式 compat 优先。这里只影响网关，不改变 dsh 的默认值。
 
+MiMo 的 xiaomimimo.com 及子域仅在 Responses 上补 custom / namespace 摊平与 auto_only，排除 token-plan / token-plan-* 套餐主机名；显式 compat 优先。普通模式不支持原生 custom，Lite 请求与 namespace 的验收边界见 model-gateway.md §3.11；不改变 Chat / Messages 或 dsh。
+
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
 Codex 的 Chat 转换也读取 `thinkingFormat`（2026-10-15）：`openai` / `deepseek` / `qwen` / `zai` 使用与 pi-ai 同名格式相同的参数位置与开关语义；力度、none、强制思考模型与预算的映射见 [model-gateway.md §4.4](./model-gateway.md#44-网关的-compat-开关)。`minimax` / `tencent` 是网关扩展，当前只用于 Codex，dsh 上游的配置枚举不认这两个值。通过代理接入时必须显式写格式；DeepSeek 地址仍默认 deepseek。推理必填的默认值按格式补，显式 `requiresReasoningContentOnAssistantMessages: false` 可以停止补空串；模型已返回的推理不删除。只收 auto 的服务另设 `toolChoice: auto_only`。这些规则不更新模板、不自动改已有 Provider，桌面表单仍原样保存 compat。
@@ -519,7 +521,7 @@ Opus 5.5 / Haiku 5.5 的默认 effort 为 medium，Sonnet 5.5 / Fable 5.1 为 hi
 
 来源与核对日期：**2026-10-15 已核对** [模型目录](https://platform.claude.com/docs/en/models/overview)、[effort](https://platform.claude.com/docs/en/build-with-claude/effort)、[认证](https://platform.claude.com/docs/en/manage-claude/authentication)、[思考模式与限制](https://platform.claude.com/docs/en/build-with-claude/thinking)、[手动思考的兼容性](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)、[中途 system](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)、[思考前缀](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)。当前没有提供 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面端 apply_patch 对话未验收；本地录制请求与严格 HTTP mock 通过不代表真实服务通过。
 
-桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI、Z.ai）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 使用服务账号（§7.11），Host 声明 google_vertex 后可选；旧 Host 的入口提示更新后台服务。
+桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI、Z.ai）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM、小米 MiMo）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 使用服务账号（§7.11），Host 声明 google_vertex 后可选；旧 Host 的入口提示更新后台服务。
 
 ### 7.10 已有 Chat Provider 的思考配置
 
@@ -678,3 +680,37 @@ Claude 工具、思考签名与跨回合历史复用现有 Messages 规则（mod
 **手动修改与验收。** 已有 Provider 不自动迁移。可在设置 → 模型服务编辑原配置，手动选择 Responses、填所需地址与完整模型 ID；需要摊平的代理地址通过 provider.upsert 保存上述 compat（表单会保留已有字段），或使用新模板另建 Provider。同版本 LobeHub Icons 未找到 RedPill 标志，界面使用首字母。`phala.test.ts` / `phala.integration.test.ts` 覆盖录制 Codex 请求、本机严格 HTTP mock、工具与推理往返、错误分类和脱敏；这些不能代替真实服务。当前无 WEVIR_TEST_API_KEY，契约第 3 层与 pnpm dev 中的 apply_patch 对话未验收，命令见 development.md §6.3。
 
 来源：[Phala 按量 API](https://docs.phala.com/phala-cloud/confidential-ai/confidential-model/confidential-ai-api.md)、[RedPill Quickstart](https://docs.redpill.ai/get-started/quickstart)、[Agent 接入](https://docs.redpill.ai/get-started/use-in-agents)、[Responses](https://docs.redpill.ai/api-reference/responses)、[模型目录字段](https://docs.redpill.ai/api-reference/models)、[推理](https://docs.redpill.ai/guides/reasoning)。核对日期均为 2026-10-17。
+
+### 7.14 Xiaomi MiMo（按量 API）
+
+**2026-10-17 核对。** 按官方 Codex 指南使用 `https://api.xiaomimimo.com/v1/responses` 透传，保留 Responses 的完整推理历史，不经过 Chat / Messages 转换。指南当前同时给出按量 API 与套餐配置；本模板只接按量服务。国内分组显示“小米 MiMo”，中国大陆可直连，Key 从 [MiMo 开放平台](https://platform.xiaomimimo.com/#/console/api-keys)创建，使用按量 API Key，认证为 Authorization: Bearer。服务也接受 api-key 头，网关沿用现有 Bearer 方式。
+
+```json
+{
+  "id": "mimo",
+  "kind": "openai-compatible",
+  "displayName": "小米 MiMo",
+  "api": "openai-responses",
+  "baseURL": "https://api.xiaomimimo.com/v1",
+  "compat": {
+    "supportsCustomTools": false,
+    "supportsNamespaceTools": false,
+    "toolChoice": "auto_only"
+  },
+  "models": [
+    { "id": "mimo-v2.6-pro", "contextWindow": 1048576, "maxTokens": 131072, "supportsImages": true, "reasoningEfforts": ["off", "high"] },
+    { "id": "mimo-v2.6-flash", "contextWindow": 1048576, "maxTokens": 131072, "supportsImages": true, "reasoningEfforts": ["off", "high"] }
+  ],
+  "defaultModelId": "mimo-v2.6-pro",
+  "apiKey": "<MiMo 按量 API Key>"
+}
+```
+
+- **模型与思考。** 默认 Pro，另列 Flash；两者支持图片理解、1048576 上下文与 131072 最大输出，窗口取官方 Codex 目录的精确数值。Responses 的默认输出上限也是 131072，maxTokens 只记录能力，不改变透传请求。reasoning.effort: none 关闭思考，其他有效值全部开启、没有力度差别，所以只列 off / high 两档，off 经 Codex 适配器变为 none。不注入 Chat 的 thinking / reasoning_effort。官方将 Ultraspeed 列为定制服务，本模板不列；2.5 系列于北京时间 2026-10-21 10:00 下线，不加入模板。
+- **普通 Responses 与 Lite。** 官方 model-catalogs.json 的 V2.6 条目设置 use_responses_lite: true，并指定 code_mode_only 与 multi-agent V2；锁定 Codex 因此将工具目录放进 additional_tools 输入项，增加内部 Lite 请求头、reasoning.context: all_turns 并关闭 parallel_tool_calls。Wevir 生成的目录未启用 Lite，网关也不透传内部头，不能照搬这一配置。本接法使用普通 Responses，把 custom apply_patch 转成单个 input 字符串参数的函数，保留语法说明、回放调用与结果，再将响应还原给 Codex。不修改 Codex 或启用新的输入项，详见 model-gateway.md §3.11。
+- **工具与地址默认。** 按量 xiaomimimo.com 及子域的 Responses 补上上述三个 compat 字段，排除 token-plan / token-plan-* 套餐主机名，Chat / Messages 不变。显式 compat 优先，模板显式写明以供代理使用。官方声明非 Lite 不支持 custom；namespace 尚无真实 Key 验证，先保守摊平，不声称上游一定拒收。tool_choice 只有 auto 生效，其他值会被上游过滤；auto_only 将 required / 具名改 auto，none 去掉选择但保留工具，不能保证禁止调用。
+- **历史与未知字段。** 每次带回完整 input，保留明文 reasoning、summary、图片与工具历史，只清理通用 null 字段。官方推荐带回所有推理；Chat 上缺 reasoning_content 会 400 的限制不转换成 Responses 请求字段。store、include、缓存键与非空 encrypted_content 保持原值，文档未明确其语义，仍需真实验证。previous_response_id、background、context_management 不受支持，不依赖它们，不主动发送或伪造服务端状态。
+- **已有 Provider 手动更新。** 不迁移用户数据。可在设置 → 模型服务 → 添加里选择“小米 MiMo”，完整保存两款模型的能力与 compat，再测试连接、新建会话。沿用原 ID 时，经 provider.upsert 提交上例的 api、baseURL、models、defaultModelId 与 compat，保留自己的其他设置；使用同一按量 Key 时省略 apiKey，Host 会保留它。桌面编辑表单不能补齐 reasoningEfforts / maxTokens 或编辑 compat；仅改模型 ID 不会套用新能力。旧 2.5 模型应手动换成 2.6；套餐配置不得复用到此模板。
+- **验收边界。** 录制 Codex 请求与严格本机 HTTP mock 检查工具限制、摊平 / 还原、三步推理回放、off / high 与 provider.test；不把 mock 当成真实能力证明。当前无 WEVIR_TEST_API_KEY，Pro / Flash 的契约第 3 层、pnpm dev 的 apply_patch 对话、图片和原生 namespace 未验收，命令见 development.md §6.3。标志使用同版本 LobeHub 的 xiaomimimo.svg，来源与哈希见 assets/provider-logos/SOURCE.md、NOTICE 第 9 节。Token Plan、语音与图像生成接口不在本接法范围内。
+
+来源与核对日期：2026-10-17，[模型列表](https://mimo.mi.com/docs/zh-CN/quick-start/summary/model)、[深度思考](https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/text-generation/deep-thinking)、[Responses 参数](https://mimo.mi.com/docs/en-US/api/chat/responses)、[Chat 参数](https://mimo.mi.com/docs/zh-CN/api/chat/openai-api)、[Codex 配置](https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration)、[官方模型目录](https://example-files.cnbj1.mi-fds.com/example-files/configs/model-catalogs.json)。

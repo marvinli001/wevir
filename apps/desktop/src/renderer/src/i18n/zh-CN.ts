@@ -1005,6 +1005,8 @@ export const zhCN = {
   'provider.catalog.dashscope': '阿里云百炼',
   'provider.catalog.kimi': 'Kimi',
   'provider.catalog.zai': 'Z.ai',
+  'provider.catalog.mimo': '小米 MiMo',
+  'provider.preset.mimo.note': '国内按量 API，中国大陆可直连。请使用开放平台按量 API Key。',
   'provider.catalog.zhipu': '智谱 GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

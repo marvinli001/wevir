@@ -295,6 +295,24 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://docs.bigmodel.cn/cn/coding-plan/tool/codex',
   },
   {
+    // 普通 Responses 不支持 custom；不启用厂商目录的 Lite，namespace 待实测（providers.md §7.14）。
+    id: 'mimo',
+    name: 'provider.catalog.mimo',
+    note: 'provider.preset.mimo.note',
+    api: 'openai-responses',
+    baseURL: 'https://api.xiaomimimo.com/v1',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'].map((id) => ({
+      id,
+      contextWindow: 1048576,
+      maxTokens: 131072,
+      supportsImages: true,
+      reasoningEfforts: ['off', 'high'],
+    })),
+    defaultModelId: 'mimo-v2.6-pro',
+    docsURL: 'https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration',
+  },
+  {
     id: 'deepseek-openai',
     name: 'provider.preset.deepseekOpenai',
     api: 'openai-completions',

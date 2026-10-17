@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.13（含 Phala / RedPill Responses 兼容）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.14（含 Xiaomi MiMo 按量 Responses 兼容）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -207,6 +207,18 @@ Responses 的 effort、完整推理、图片、缓存字段与 store 原样透�
 
 模型 is_tee 只表示可机密运行，不能证明某一次请求使用了可证明的上游，也不表示零留存。Wevir 只更换 baseURL，不在本机验证 ACI、TLS 通道或收据，不接 Private AI Proxy；网关不会透传 x-receipt-id 等证明头给 Codex，也不以此作已验证标志。来源、模型与手动配置见 [providers.md §7.13](./providers.md#713-redpill--phala-private-ai)。
 
+### 3.11 Xiaomi MiMo 按量 API
+
+2026-10-17 按[官方 Codex 指南](https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration)选择 `https://api.xiaomimimo.com/v1/responses`。该页虽位于 Token Plan 目录，当前已明确提供独立的按量配置；只使用按量 Key 与地址，认证复用网关的 Bearer。`isMimoHost` 识别 xiaomimimo.com 及子域，排除 token-plan 及 token-plan-* 套餐主机名；仅给 Responses 补三个现有 compat 默认值，显式声明逐字段优先。
+
+**freeform Responses lite mode 的边界。** 官方链接的 [model-catalogs.json](https://example-files.cnbj1.mi-fds.com/example-files/configs/model-catalogs.json) 为 V2.6 设置 `use_responses_lite: true`、`apply_patch_tool_type: freeform`，同时指定 code_mode_only 与 multi-agent V2。锁定 Codex 的 `core/src/client.rs::build_responses_request` 在 Lite 下将工具目录放入 `input` 的 `additional_tools` 项、移除顶层 tools、设 `parallel_tool_calls: false` 与 `reasoning.context: all_turns`；HTTP 另带 `x-openai-internal-codex-responses-lite: true`（`add_responses_lite_header`）。Wevir 的 `adapter-codex/src/config.ts::catalogEntry` 不设置 use_responses_lite，serde 默认 false；网关重新构造请求头，也不转发这个内部头。因此当前生成的目录不能产生同样的 Lite 请求，不只差一个 apply_patch 声明。本接法保留 Wevir 的普通 Responses 与执行配置，复用 `flatten-custom-tools`：apply_patch 变为单个 input 字符串参数的函数，历史与响应成对还原；不启用 Lite 或复制厂商的提示词与代码模式配置。
+
+[Responses 参数](https://mimo.mi.com/docs/en-US/api/chat/responses)列出了 Custom / Namespace 类型，但没有给出普通模式的 namespace 验收证据，Codex 指南还明确说非 Lite 模式拒收 custom。无真实 Key，namespace 暂用 `flatten-namespace-tools` 保守摊平，不将本机 mock 当成上游拒收的证据。工具选择只支持 auto，复用 auto_only；none 去掉 tool_choice、工具保留，不能保证禁止调用。模板显式保存这三个开关，代理地址也沿用。
+
+Responses 的 reasoning.effort 只有开关两种效果：none 关闭，其余有效值全部开启。模板仅列 off / high，off 经适配器变为 none；不发 Chat 的 thinking / reasoning_effort。每步保留完整 input 中的明文 reasoning、summary、图片与工具历史，仅作通用 null 清理。store: false、include、缓存键和非空 encrypted_content 保持原值；官方未明确这些字段的支持，实际推理回放与缓存行为待真实验证，不伪造加密信封。Codex 当前不发 previous_response_id、background、context_management；外部请求带入时仍按上游的忽略或报错处理，不宣称支持。
+
+V2.6 Pro / Flash 的窗口按官方 Codex 目录为 1048576，最大输出与服务默认 max_output_tokens 均为 131072；模型目录 maxTokens 不会注入透传请求。两个模型支持图片理解，模板不接语音或图像生成接口。`mimo.test.ts` 的四份录制请求与 `mimo.integration.test.ts` 的严格 HTTP mock 覆盖普通模式 custom 限制、工具摊平 / 还原、推理历史、两档 effort、连接探测与显式覆盖。`adapter-codex/src/codex-adapter.mimo.integration.test.ts` 另用真实锁定 Codex + 本机 mock 确认生成的目录、普通请求及两档映射，函数调用还原为 apply_patch 后实际写文件并回放结果；不访问 MiMo、不替代真实服务验收。模型、来源和手动更新见 [providers.md §7.14](./providers.md#714-xiaomi-mimo按量-api)。
+
 ## 4. Chat Completions 转换
 
 ### 4.1 请求：Responses → Chat
@@ -287,12 +299,13 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 | `isKimiHost`：moonshot.cn / moonshot.ai 及子域，仅 Responses | `toolChoice: auto_only`；custom 与 namespace 保持支持 | §3.8；Kimi Code 域名不匹配 |
 | `isZaiHost`：z.ai / bigmodel.cn 及子域的标准 /api/v1、/api/paas/v4 路径，排除套餐 | Responses：`supportsCustomTools: true`、`supportsNamespaceTools: false`、`toolChoice: auto_only`；Chat：`toolChoice: auto_only` | §3.9；custom 按 Codex 指南，namespace 保守摊平、待真实验证 |
 | `isPhalaHost`：inference.phala.com、api.redpill.ai、tee.redpill.ai 的 /v1，仅 Responses | `supportsCustomTools: false`、`supportsNamespaceTools: false`、`toolChoice: auto_only` | §3.10；原生工具能力未明确，保守摊平，显式值优先 |
+| `isMimoHost`：xiaomimimo.com 及子域，排除 token-plan / token-plan-* 主机名，仅 Responses | `supportsCustomTools: false`、`supportsNamespaceTools: false`、`toolChoice: auto_only` | §3.11；普通模式不支持 custom，namespace 待真实验证、保守摊平 |
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
-| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量、Ollama 与 Phala / RedPill Responses 地址为 `false` |
-| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量、Ollama Cloud、Z.ai / 智谱与 Phala / RedPill Responses 地址为 `false` |
-| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat、Ollama / Kimi / Phala / RedPill Responses 与 Z.ai / 智谱 Responses / Chat 为 `auto_only`；Messages 的模型默认见 §5.1 |
+| `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量、Ollama、MiMo 与 Phala / RedPill Responses 地址为 `false` |
+| `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量、Ollama Cloud、Z.ai / 智谱、MiMo 与 Phala / RedPill Responses 地址为 `false` |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat、Ollama / Kimi / MiMo / Phala / RedPill Responses 与 Z.ai / 智谱 Responses / Chat 为 `auto_only`；Messages 的模型默认见 §5.1 |
 | `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -499,6 +512,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试：`__snapshots__/codex-requests/` 的变化就是转换结果的变化。根 `biome.json` 排除了这两个目录，保持录制原样。
 
 ## 10. 局限与没做的
+
+- MiMo：普通 Responses 不支持原生 custom，当前摊平为函数；没有开启官方目录的 Responses Lite（§3.11）。缺 WEVIR_TEST_API_KEY，Pro / Flash 的真实契约、桌面 apply_patch、namespace 原生能力、图片、关闭思考与完整推理 / 缓存回放尚未验收。include / store / 非空 encrypted_content 的语义没有官方明确说明，保留原值待实测；不接 Token Plan、语音或图像生成接口。
 
 - Phala / RedPill：公开文档和实时模型目录已核对；缺 WEVIR_TEST_API_KEY，真实契约与桌面 apply_patch 未验收。原生 custom / namespace / forced choice、逐模型推理档位、跨回合推理 / 缓存字段与实际输出预算仍待实测。多模型入口包含非 TEE 模型，默认不强制经证明的上游；更换地址不等于本机验证过 TLS；不做证明校验、收据展示或 Private AI Proxy，见 §3.10、providers.md §7.13。
 

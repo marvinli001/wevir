@@ -35,6 +35,11 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   { matches: isDeepSeekHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
   { matches: isKimiHost, api: 'openai-responses', compat: { toolChoice: 'auto_only' } },
   {
+    matches: isMimoHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
     matches: isZaiHost,
     api: 'openai-responses',
     compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
@@ -236,6 +241,14 @@ export function isDeepSeekHost(baseURL: string): boolean {
 /** Kimi 开放平台的国内 / 国际按量端点；不匹配 Kimi Code 会员域名（model-gateway.md §3.8）。 */
 export function isKimiHost(baseURL: string): boolean {
   return /(^|\.)moonshot\.(cn|ai)$/.test(hostnameOf(baseURL));
+}
+
+/** MiMo 按量 API；套餐主机名不补默认值（model-gateway.md §3.11）。 */
+export function isMimoHost(baseURL: string): boolean {
+  const host = hostnameOf(baseURL);
+  return (
+    /(^|\.)xiaomimimo\.com$/.test(host) && !/(^|\.)token-plan(?:-[a-z0-9-]+)?(\.|$)/.test(host)
+  );
 }
 
 /** 已核对的 Phala / RedPill 按量 API（model-gateway.md §3.10），不匹配其他子域或路径。 */

@@ -994,6 +994,9 @@ export const messages: Messages = {
   'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
   'provider.catalog.zai': 'Z.ai',
+  'provider.catalog.mimo': 'Xiaomi MiMo',
+  'provider.preset.mimo.note':
+    '중국 종량제 API로, 중국 본토에서 직접 연결할 수 있습니다. MiMo 플랫폼의 종량제 API 키를 사용하세요.',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

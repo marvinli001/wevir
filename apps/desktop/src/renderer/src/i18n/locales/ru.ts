@@ -1025,6 +1025,9 @@ export const messages: Messages = {
   'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
   'provider.catalog.zai': 'Z.ai',
+  'provider.catalog.mimo': 'Xiaomi MiMo',
+  'provider.preset.mimo.note':
+    'API с оплатой по использованию в Китае, доступен напрямую из материкового Китая. Используйте ключ API MiMo с оплатой по использованию.',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

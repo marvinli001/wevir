@@ -452,6 +452,16 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_GROK=1 pnpm vitest run 
 
 ### 6.3 真实模型测试的环境变量
 
+MiMo 按量 API 使用普通 Responses，custom apply_patch 与 namespace 由网关摊平。先在进程环境提供按量 WEVIR_TEST_API_KEY，再运行（不把 Key 写入命令、文件或日志）：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://api.xiaomimimo.com/v1 WEVIR_TEST_MODEL=mimo-v2.6-pro pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+Flash 用相同地址、WEVIR_TEST_MODEL=mimo-v2.6-flash。随后在 pnpm dev 里使用“小米 MiMo”模板完成一次 apply_patch 改文件对话，分别选择“关闭 / 高”，核对图片与多步推理回放。2026-10-17 未提供真实 Key，契约第 3 层与桌面真实对话均未验收；录制请求和本机 mock 不能替代它们。官方目录的 use_responses_lite 改变 additional_tools、内部请求头与 reasoning.context，当前 Wevir 未开启，详见 model-gateway.md §3.11。namespace 先保守摊平，拿到 Key 后需通过进程内显式 compat 对照探测（第 3 层无 compat 环境入口）；include / store / 非空 encrypted_content、缓存与实际工具能力仍待实测。只使用按量 Key，旧 Profile 的手动更新见 providers.md §7.14。
+
+不访问外网的补充检查：`pnpm vitest run --project adapter-codex codex-adapter.mimo.integration --maxWorkers=2`。它使用真实锁定的 codex-app-server + 本机 mock，检查普通模型目录不启用 Lite、off → none / high 的请求，以及摊平后实际执行 apply_patch 的完整往返；两项通过不表示 MiMo 真实验收完成。
+
 RedPill 多模型模板使用 Responses。先通过进程环境提供 RedPill 的 WEVIR_TEST_API_KEY，再运行（不把 Key 写入命令、文件或日志）：
 
 ```bash

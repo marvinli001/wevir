@@ -992,6 +992,8 @@ export const messages: Messages = {
   'provider.catalog.dashscope': '阿里雲百煉',
   'provider.catalog.kimi': 'Kimi',
   'provider.catalog.zai': 'Z.ai',
+  'provider.catalog.mimo': '小米 MiMo',
+  'provider.preset.mimo.note': '國內按量 API，中國大陸可直接連線。請使用開放平台按量 API Key。',
   'provider.catalog.zhipu': '智譜 GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

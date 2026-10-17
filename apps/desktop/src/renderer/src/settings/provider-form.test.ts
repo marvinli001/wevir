@@ -269,6 +269,72 @@ function profile(overrides: Partial<EditableProvider>): EditableProvider {
 }
 
 describe('预设模板（providers.md §7）', () => {
+  it('MiMo 按量模板保存普通 Responses、两档思考与代理兼容值', () => {
+    const entry = catalogEntry('mimo');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 MiMo 模板');
+    expect(entry).toMatchObject({
+      group: 'cn',
+      logo: 'mimo',
+      keyURL: 'https://platform.xiaomimimo.com/#/console/api-keys',
+    });
+    const preset = entry.source.preset;
+    const form = { ...newOpenAIForm(preset, []), apiKey: 'placeholder-not-a-real-key' };
+    expect(validateForm(form, [])).toEqual({});
+    const created = upsertSchema.parse(toUpsertParams(form));
+    expect(created).toMatchObject({
+      api: 'openai-responses',
+      baseURL: 'https://api.xiaomimimo.com/v1',
+      defaultModelId: 'mimo-v2.6-pro',
+      compat: {
+        supportsCustomTools: false,
+        supportsNamespaceTools: false,
+        toolChoice: 'auto_only',
+      },
+      models: ['mimo-v2.6-pro', 'mimo-v2.6-flash'].map((id) => ({
+        id,
+        contextWindow: 1048576,
+        maxTokens: 131072,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'high'],
+      })),
+    });
+    expect(toUpsertParams({ ...form, baseURL: 'https://proxy.example.org/v1' })).toHaveProperty(
+      'compat',
+      preset.compat,
+    );
+    expect(preset.note).toBe('provider.preset.mimo.note');
+    expect(preset.docsURL).toBe(
+      'https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration',
+    );
+    expect(providerLogo({ kind: 'openai-compatible', baseURL: preset.baseURL })).toBe('mimo');
+    expect(
+      providerLogo({
+        kind: 'openai-compatible',
+        baseURL: 'https://api.xiaomimimo.com.fake.org/v1',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('已有 MiMo Profile 保留旧模型、档位、协议与显式 compat', () => {
+    const old = profile({
+      id: 'mimo',
+      displayName: 'MiMo custom',
+      baseURL: 'https://api.xiaomimimo.com/v1',
+      models: [{ id: 'mimo-v2.5-pro', contextWindow: 262144, reasoningEfforts: ['low', 'high'] }],
+      defaultModelId: 'mimo-v2.5-pro',
+      compat: { supportsNamespaceTools: true, toolChoice: 'any' },
+    });
+    const edited = upsertSchema.parse(toUpsertParams(editForm(old)));
+    expect(edited).toMatchObject({
+      api: old.api,
+      baseURL: old.baseURL,
+      models: old.models,
+      defaultModelId: old.defaultModelId,
+      compat: old.compat,
+    });
+    expect(edited).not.toHaveProperty('apiKey');
+  });
+
   it.each([
     ['zai', 'global', 'https://api.z.ai/api/v1', 'https://z.ai/manage-apikey/apikey-list'],
     [

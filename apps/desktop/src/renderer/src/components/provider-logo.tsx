@@ -15,6 +15,7 @@ import opencode from '@/assets/provider-logos/opencode.svg';
 import qwen from '@/assets/provider-logos/qwen-color.svg';
 import vertex from '@/assets/provider-logos/vertexai-color.svg';
 import xai from '@/assets/provider-logos/xai.svg';
+import mimo from '@/assets/provider-logos/xiaomimimo.svg';
 import zai from '@/assets/provider-logos/zai.svg';
 import zhipu from '@/assets/provider-logos/zhipu-color.svg';
 
@@ -28,6 +29,7 @@ const LOGOS = {
   deepseek: { src: deepseek, mono: false },
   qwen: { src: qwen, mono: false },
   kimi: { src: kimi, mono: false },
+  mimo: { src: mimo, mono: true },
   zhipu: { src: zhipu, mono: false },
   zai: { src: zai, mono: true },
   xai: { src: xai, mono: true },

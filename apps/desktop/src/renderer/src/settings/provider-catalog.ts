@@ -136,6 +136,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
   },
   {
+    id: 'mimo',
+    name: 'provider.catalog.mimo',
+    logo: 'mimo',
+    group: 'cn',
+    source: preset('mimo'),
+    keyURL: 'https://platform.xiaomimimo.com/#/console/api-keys',
+  },
+  {
     id: 'ollama-cloud',
     name: 'provider.catalog.ollamaCloud',
     logo: 'ollama',
@@ -190,6 +198,7 @@ const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/(^|\.)moonshot\.(cn|ai)$/, 'kimi'],
   [/(^|\.)z\.ai$/, 'zai'],
   [/(^|\.)bigmodel\.cn$/, 'zhipu'],
+  [/(^|\.)xiaomimimo\.com$/, 'mimo'],
 ];
 
 /** 已有 Provider 的标志：DeepSeek 官方与 ChatGPT 按种类，其余按地址的主机名，本机 11434 端口当作 Ollama。 */
