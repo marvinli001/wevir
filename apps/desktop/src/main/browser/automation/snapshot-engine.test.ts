@@ -2,7 +2,7 @@
 // 改写自 getpaseo/paseo packages/desktop/src/features/browser-automation/snapshot-engine.test.ts
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
-// 由 Wevir 修改：页面里的全局名改成 Wevir 的。
+// 由 Wevir 修改：页面里的全局名改成 Wevir 的；加上省掉重复名字的文字子节点。
 
 import { describe, expect, it } from 'vitest';
 import { BrowserSnapshotEngine, type SnapshotPage } from './snapshot-engine.js';
@@ -164,6 +164,44 @@ describe('BrowserSnapshotEngine', () => {
         '- document "Fixture"',
         '  - button "Final action" [ref=@e1]',
         '- text: "Snapshot truncated."',
+      ].join('\n'),
+    );
+  });
+
+  it('omits text children that only repeat the node name', async () => {
+    const page = new SnapshotFixture();
+    page.snapshotNodes = [
+      {
+        kind: 'role',
+        role: 'heading',
+        name: 'Smoke test page',
+        tagName: 'h1',
+        attributes: ['level=1'],
+        children: [{ kind: 'group', children: [{ kind: 'text', text: 'Smoke test page' }] }],
+      },
+      {
+        kind: 'role',
+        role: 'listitem',
+        name: 'First',
+        tagName: 'li',
+        attributes: [],
+        children: [
+          { kind: 'text', text: 'First' },
+          { kind: 'text', text: 'and more' },
+        ],
+      },
+    ];
+    const engine = new BrowserSnapshotEngine();
+
+    const snapshot = await engine.snapshot({ browserId: 'browser-1', page });
+
+    expect(snapshot.snapshot).toBe(
+      [
+        '- document "Fixture"',
+        '  - heading "Smoke test page" [level=1]',
+        '  - listitem "First"',
+        '    - text: "First"',
+        '    - text: "and more"',
       ].join('\n'),
     );
   });

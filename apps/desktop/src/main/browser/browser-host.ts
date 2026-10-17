@@ -7,7 +7,8 @@
 // 原生右键菜单、挂起与恢复、关闭历史和快捷键。新增：Wevir 的安全基线（独立的 session 分区、只放行 http(s)、下载 / 权限 /
 // 外部协议一律拒绝、弹窗改成同一会话的新标签页）；标签页的操作方 `controller`（agent 开的归 agent，用户开的或用户在里面操作过的
 // 归用户，用户的标签页 agent 只读）；agent 的浏览器命令（Paseo 的自动化，automation/）在这里分发。不在屏幕上的标签页一律停在
-// 后台窗口里（OpenWork 只停别的会话的），这样同一会话里没选中的标签页也能截图。
+// 后台窗口里（OpenWork 只停别的会话的），这样同一会话里没选中的标签页也能截图。agent 打开、跳转的结果带主文档的 HTTP 状态码；
+// 打不开时报 Chromium 的错误名（`browser_load_failed`），新开的标签页打不开就关掉（超时的留着并说出它的 browserId）。
 //
 // 内置浏览器（0.33.0，desktop-layout.md §21）：整个窗口一个浏览器表面，每个标签页属于开它的会话。
 
@@ -39,6 +40,7 @@ import {
   isHostHandled,
 } from './automation/service.js';
 import { BrowserSnapshotEngine } from './automation/snapshot-engine.js';
+import { loadFailure, loadFailureMessage } from './load-failure.js';
 import { isAllowedNavigation, isAllowedRequest } from './url-policy.js';
 
 /** 内置浏览器的 session 分区：与默认 session（渲染进程）和用户自己的浏览器都分开，数据在 `<数据目录>/desktop/` 下。 */
@@ -81,6 +83,8 @@ interface Tab {
   /** 正在执行的 agent 命令数：期间页面收到的输入是 agent 的，不算用户接手。 */
   agentBusy: number;
   loadError: BrowserTabState['loadError'];
+  /** 主框架最近一次导航的 HTTP 状态码（不是 HTTP 的页面没有）。 */
+  httpStatus: number | undefined;
   emulation: Promise<void>;
 }
 
@@ -206,6 +210,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
       domReady: false,
       agentBusy: 0,
       loadError: undefined,
+      httpStatus: undefined,
       emulation: Promise.resolve(),
     };
     tabs.set(tabId, tab);
@@ -245,8 +250,9 @@ export function createBrowserHost(options: BrowserHostOptions) {
       tab.domReady = true;
       if (tab.parked) emulateBackground(tab);
     });
-    contents.on('did-navigate', () => {
+    contents.on('did-navigate', (_event, _url, httpResponseCode) => {
       tab.loadError = undefined;
+      tab.httpStatus = httpResponseCode > 0 ? httpResponseCode : undefined;
       snapshotEngine.clearBrowser(tabId);
       place();
       sendState();
@@ -344,11 +350,11 @@ export function createBrowserHost(options: BrowserHostOptions) {
   function queueEmulation(tab: Tab, operation: () => Promise<void>): void {
     const run = () =>
       tabs.get(tab.tabId) === tab && !tab.view.webContents.isDestroyed() ? operation() : undefined;
-    tab.emulation = tab.emulation
-      .then(run, run)
-      .catch((error: unknown) =>
-        options.log('warn', 'browser tab emulation failed', { error: String(error) }),
-      );
+    tab.emulation = tab.emulation.then(run, run).catch((error: unknown) => {
+      // 执行到一半标签页关了（例如新开的标签页打不开、随即关掉）：不算失败。
+      if (tabs.get(tab.tabId) !== tab || tab.view.webContents.isDestroyed()) return;
+      options.log('warn', 'browser tab emulation failed', { error: String(error) });
+    });
   }
 
   function emulateBackground(tab: Tab): void {
@@ -557,7 +563,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
         place();
         sendState();
         const url = command.args.url;
-        if (url !== undefined) await busy(tab, () => load(tab, url));
+        if (url !== undefined) await busy(tab, () => loadNewTab(tab, url));
         return {
           requestId,
           ok: true,
@@ -565,15 +571,17 @@ export function createBrowserHost(options: BrowserHostOptions) {
             command: 'new_tab',
             browserId: tab.tabId,
             url: tab.view.webContents.getURL() || 'about:blank',
+            ...statusOf(tab, url),
           },
         };
       }
       case 'show': {
         let tab: Tab;
         if (command.args.url !== undefined) {
-          tab = createTab(sessionId, 'agent');
+          const created = createTab(sessionId, 'agent');
+          tab = created;
           place();
-          await busy(tab, () => load(tab, command.args.url as string));
+          await busy(created, () => loadNewTab(created, command.args.url as string));
         } else {
           tab = owned(sessionId, command.args.browserId ?? '');
         }
@@ -590,6 +598,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
             browserId: tab.tabId,
             url: tab.view.webContents.getURL(),
             shown,
+            ...statusOf(tab, command.args.url),
           },
         };
       }
@@ -627,7 +636,12 @@ export function createBrowserHost(options: BrowserHostOptions) {
       return {
         requestId,
         ok: true,
-        result: { command: 'navigate', browserId: tab.tabId, url: tab.view.webContents.getURL() },
+        result: {
+          command: 'navigate',
+          browserId: tab.tabId,
+          url: tab.view.webContents.getURL(),
+          ...statusOf(tab, command.args.url),
+        },
       };
     }
     return busy(tab, async () => {
@@ -674,6 +688,22 @@ export function createBrowserHost(options: BrowserHostOptions) {
     }
   }
 
+  /** 新开的标签页载入：打不开就关掉，不留下 agent 拿不到 browserId 的空标签页；超时的留着（页面可能还在来）。 */
+  async function loadNewTab(tab: Tab, url: string): Promise<void> {
+    try {
+      await load(tab, url);
+    } catch (error) {
+      if (error instanceof BrowserHostError && error.code === 'browser_timeout') {
+        throw new BrowserHostError(
+          error.code,
+          `${error.message} Its browserId is ${tab.tabId}: use browser_wait or browser_snapshot on it, or close it with browser_close_tab.`,
+        );
+      }
+      closeTab(tab.tabId);
+      throw error;
+    }
+  }
+
   /** 载入页面并等它结束；打不开时抛出模型看得懂的原因。 */
   async function load(tab: Tab, url: string): Promise<void> {
     if (!isAllowedNavigation(url)) {
@@ -683,6 +713,7 @@ export function createBrowserHost(options: BrowserHostOptions) {
       );
     }
     tab.loadError = undefined;
+    tab.httpStatus = undefined;
     const loading = tab.view.webContents.loadURL(url);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<'timeout'>((resolve) => {
@@ -699,12 +730,9 @@ export function createBrowserHost(options: BrowserHostOptions) {
     } catch (error) {
       if (error instanceof BrowserHostError) throw error;
       // loadURL 在重定向、被下一次导航替换时以 ERR_ABORTED 结束，页面其实在载入。
-      const message = error instanceof Error ? error.message : String(error);
-      if (/ERR_ABORTED/.test(message)) return;
-      throw new BrowserHostError(
-        'browser_unknown_error',
-        `Could not load ${url}: ${message.replace(/^.*?\(-?\d+\)\s*/, '') || message}`,
-      );
+      const failure = loadFailure(error, tab.loadError);
+      if (failure.name === 'ERR_ABORTED') return;
+      throw new BrowserHostError('browser_load_failed', loadFailureMessage(url, failure));
     } finally {
       clearTimeout(timer);
     }
@@ -750,6 +778,11 @@ export class BrowserHostError extends Error {
 
 function failure(requestId: string, code: string, message: string): AutomationCommandPayload {
   return { requestId, ok: false, error: { code, message, retryable: false } };
+}
+
+/** 结果里的 `status`：这次载入了地址、主文档是 HTTP 的才有。 */
+function statusOf(tab: Tab, url: string | undefined): { status?: number } {
+  return url !== undefined && tab.httpStatus !== undefined ? { status: tab.httpStatus } : {};
 }
 
 function safeUrl(url: string): string {

@@ -3,7 +3,7 @@
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
 // 由 Wevir 修改：类型换成 Wevir 协议的；标签页按会话归属（假注册表的 ownerOf）；去掉 list_tabs、evaluate 与 upload 的用例（Wevir 不在
-// 这里处理或不提供）。
+// 这里处理或不提供）；Enter 带 char，快照里没有的引用与过期的引用分开报。
 
 import type {
   BrowserCommand as BrowserAutomationCommand,
@@ -854,7 +854,8 @@ describe('executeAutomationCommand', () => {
       ok: false,
       error: {
         code: 'browser_stale_ref',
-        message: 'Browser element reference @e1 is stale. Take a new snapshot and try again.',
+        message:
+          'Browser element reference @e1 is stale: the page changed after the snapshot, or no snapshot was taken since it loaded.',
         retryable: false,
       },
     });
@@ -876,7 +877,29 @@ describe('executeAutomationCommand', () => {
       ok: false,
       error: {
         code: 'browser_stale_ref',
-        message: 'Browser element reference @e1 is stale. Take a new snapshot and try again.',
+        message:
+          'Browser element reference @e1 is stale: the page changed after the snapshot, or no snapshot was taken since it loaded.',
+        retryable: false,
+      },
+    });
+  });
+
+  test('a ref that is not in the latest snapshot is reported as missing, not stale', async () => {
+    const browser = new BrowserAutomationHarness();
+    browser.tab.snapshotNodes = formElements();
+
+    requireSnapshotRefs(await browser.snapshot());
+    const click = await browser.execute({
+      command: 'click',
+      args: { browserId: BROWSER_A, ref: '@e99' },
+    });
+
+    expect(click).toEqual({
+      requestId: 'req-click',
+      ok: false,
+      error: {
+        code: 'browser_stale_ref',
+        message: 'Browser element reference @e99 is not in the latest snapshot of this tab.',
         retryable: false,
       },
     });
@@ -1040,6 +1063,7 @@ describe('executeAutomationCommand', () => {
         keyCode: 'Enter',
         skipIfUnhandled: true,
       },
+      { type: 'char', keyCode: '\r', skipIfUnhandled: true },
       {
         type: 'keyUp',
         keyCode: 'Enter',
@@ -1072,6 +1096,7 @@ describe('executeAutomationCommand', () => {
         keyCode: 'Enter',
         skipIfUnhandled: true,
       },
+      { type: 'char', keyCode: '\r', skipIfUnhandled: true },
       {
         type: 'keyUp',
         keyCode: 'Enter',

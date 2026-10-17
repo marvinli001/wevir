@@ -2,7 +2,7 @@
 // 改写自 getpaseo/paseo packages/desktop/src/features/browser-automation/trusted-input.ts
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
-// 由 Wevir 修改：只按 Wevir 的格式重排（Biome），逻辑未改。
+// 由 Wevir 修改：按 Wevir 的格式重排（Biome）；Enter 也发一个 `\r` 的 char（页面的 keypress），否则输入框不会隐式提交表单。
 
 import type { KeyboardInputEvent } from 'electron';
 import type { ActionablePoint } from './actionability.js';
@@ -165,6 +165,9 @@ export function dispatchTrustedKey(send: KeyboardInputSender, key: string): void
   let character: string | null = null;
   if (key === 'Space') {
     character = ' ';
+  } else if (key === 'Enter') {
+    // Chromium 在 keypress 上做隐式提交与换行，keyDown 之后要有 char。
+    character = '\r';
   } else if (key.length === 1) {
     character = key;
   }

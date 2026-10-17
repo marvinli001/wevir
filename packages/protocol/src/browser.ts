@@ -4,7 +4,8 @@
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
 // 由 Wevir 修改：命令按 Wevir 的取舍（去掉 evaluate、upload、resize，加上请界面显示标签页的 show）；schema 只做结构声明（host-api.md
 // §10 规则 6：不用 refine / transform / default，默认值与“恰好一个条件”由 Host 校验）；错误码、命令名与标签页的操作方是开放
-// 字符串，以后多出取值不算收窄；标签页加上操作方 `controller` 与所属会话；请求带会话与它的目录。
+// 字符串，以后多出取值不算收窄；标签页加上操作方 `controller` 与所属会话；请求带会话与它的目录；打开与跳转的结果带主文档的
+// HTTP 状态码（0.44.0）。
 //
 // 内置浏览器（0.33.0，domain-model §3.15）：浏览器在桌面端的主进程里，Host 是另一个进程。桌面端用 `browser.register` 把
 // 自己的连接登记为浏览器提供方，Host 经 `browser.request` 通知把会话里的 agent 调的浏览器工具交给它，提供方用
@@ -46,6 +47,8 @@ export const BROWSER_ERROR_CODES = [
   'browser_tab_not_found',
   'browser_tab_closed',
   'browser_timeout',
+  /** 页面打不开（0.44.0）：消息里是 Chromium 的网络错误名，例如 `ERR_CONNECTION_REFUSED (-102)`。 */
+  'browser_load_failed',
   /** 页面还没画出来，截不到图；可以重试。 */
   'screenshot_no_frame',
   /** 不允许：地址不是 http(s)、标签页不属于这个会话、用户正在操作这个标签页等。 */
@@ -196,13 +199,21 @@ export type BrowserNetworkEntry = z.infer<typeof BrowserNetworkEntrySchema>;
 
 const point = { x: z.number().optional(), y: z.number().optional() };
 const tabResult = { browserId: BrowserTabIdSchema };
+/** 这次载入的主文档的 HTTP 状态码（0.44.0）；没载入地址或不是 HTTP 时没有。404 之类照样是载入成功。 */
+const loaded = { status: z.int().min(100).max(999).optional() };
 
 export const BrowserResultSchema = z.discriminatedUnion('command', [
   z.object({ command: z.literal('list_tabs'), tabs: z.array(BrowserTabInfoSchema) }),
-  z.object({ command: z.literal('new_tab'), ...tabResult, url: z.string() }),
+  z.object({ command: z.literal('new_tab'), ...tabResult, url: z.string(), ...loaded }),
   z.object({ command: z.literal('close_tab'), ...tabResult }),
   /** `shown`：有人正看着这个会话、窗格打开了；没有时标签页照样开着，只是没显示。 */
-  z.object({ command: z.literal('show'), ...tabResult, url: z.string(), shown: z.boolean() }),
+  z.object({
+    command: z.literal('show'),
+    ...tabResult,
+    url: z.string(),
+    shown: z.boolean(),
+    ...loaded,
+  }),
   z.object({
     command: z.literal('snapshot'),
     ...tabResult,
@@ -258,7 +269,7 @@ export const BrowserResultSchema = z.discriminatedUnion('command', [
     deltaY: z.number(),
     ...point,
   }),
-  z.object({ command: z.literal('navigate'), ...tabResult, url: z.string() }),
+  z.object({ command: z.literal('navigate'), ...tabResult, url: z.string(), ...loaded }),
   z.object({ command: z.literal('back'), ...tabResult }),
   z.object({ command: z.literal('forward'), ...tabResult }),
   z.object({ command: z.literal('reload'), ...tabResult }),

@@ -4,7 +4,8 @@
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
 // 由 Wevir 修改：类型换成 Wevir 协议的（packages/protocol/src/browser.ts）；标签页按会话归属（`ownerOf`），不再按 Paseo 的 workspace；
 // 去掉 evaluate 与 upload（Wevir 不提供在页面里跑任意脚本、把本机文件交给网页）以及 list_tabs、new_tab、resize、close_tab
-// （标签页的开关、列出与显示在 browser-host.ts）；截图有大小上限（`BROWSER_SCREENSHOT_MAX_BYTES`），整页截图的高度有上限。
+// （标签页的开关、列出与显示在 browser-host.ts）；截图有大小上限（`BROWSER_SCREENSHOT_MAX_BYTES`），整页截图的高度有上限；
+// 引用用不了时分开“快照里没有”与“页面变了”；网络记录带 Resource Timing 的状态码，不再给导航编一个 GET。
 
 import {
   BROWSER_SCREENSHOT_MAX_BYTES,
@@ -552,7 +553,7 @@ async function executeClick(
       ref,
     });
     if (typeof elementExpression !== 'string') {
-      return staleRefFailure(requestId, ref);
+      return staleRefFailure(requestId, ref, elementExpression.reason);
     }
     const actionable = await waitForActionableTarget({
       page: target.contents,
@@ -597,7 +598,7 @@ async function executeFill(
       value,
     });
     if (!result.ok) {
-      return staleRefFailure(requestId, ref);
+      return staleRefFailure(requestId, ref, result.reason);
     }
     return { requestId, ok: true, result: { command: 'fill', browserId: target.browserId, ref } };
   });
@@ -624,7 +625,7 @@ async function executeSelect(
       value,
     });
     if (!result.ok) {
-      return staleRefFailure(requestId, ref);
+      return staleRefFailure(requestId, ref, result.reason);
     }
     return {
       requestId,
@@ -655,7 +656,7 @@ async function executeHover(
       ref,
     });
     if (typeof elementExpression !== 'string') {
-      return staleRefFailure(requestId, ref);
+      return staleRefFailure(requestId, ref, elementExpression.reason);
     }
     const actionable = await waitForActionableTarget({
       page: target.contents,
@@ -704,8 +705,11 @@ async function executeDrag(
       browserId: target.browserId,
       ref: targetRef,
     });
-    if (typeof sourceExpression !== 'string' || typeof targetExpression !== 'string') {
-      return staleRefFailure(requestId, `${sourceRef}/${targetRef}`);
+    if (typeof sourceExpression !== 'string') {
+      return staleRefFailure(requestId, sourceRef, sourceExpression.reason);
+    }
+    if (typeof targetExpression !== 'string') {
+      return staleRefFailure(requestId, targetRef, targetExpression.reason);
     }
     const source = await waitForActionableTarget({
       page: target.contents,
@@ -802,7 +806,7 @@ async function executeScroll(
         ref,
       });
       if (typeof elementExpression !== 'string') {
-        return staleRefFailure(requestId, ref);
+        return staleRefFailure(requestId, ref, elementExpression.reason);
       }
       const actionable = await waitForActionableTarget({
         page: target.contents,
@@ -847,11 +851,18 @@ async function readViewportCenter(contents: TabContents): Promise<{ x: number; y
   };
 }
 
-function staleRefFailure(requestId: string, ref: string): FailurePayload {
+/** 引用用不了：`missing_ref` 是最近一次快照里没有它，`stale_ref` 是页面在快照之后变了（或还没取过快照）。 */
+function staleRefFailure(
+  requestId: string,
+  ref: string,
+  reason: 'stale_ref' | 'missing_ref' = 'stale_ref',
+): FailurePayload {
   return fail(
     requestId,
     'browser_stale_ref',
-    `Browser element reference ${ref} is stale. Take a new snapshot and try again.`,
+    reason === 'missing_ref'
+      ? `Browser element reference ${ref} is not in the latest snapshot of this tab.`
+      : `Browser element reference ${ref} is stale: the page changed after the snapshot, or no snapshot was taken since it loaded.`,
   );
 }
 
@@ -958,7 +969,7 @@ async function executeType(
         ref,
       });
       if (typeof elementExpression !== 'string') {
-        return staleRefFailure(requestId, ref);
+        return staleRefFailure(requestId, ref, elementExpression.reason);
       }
       actionable = await waitForActionableTarget({
         page: target.contents,
@@ -1005,7 +1016,7 @@ async function executeKeypress(
         ref,
       });
       if (typeof elementExpression !== 'string') {
-        return staleRefFailure(requestId, ref);
+        return staleRefFailure(requestId, ref, elementExpression.reason);
       }
       actionable = await waitForActionableTarget({
         page: target.contents,
@@ -1352,7 +1363,8 @@ const NETWORK_PERFORMANCE_SCRIPT = String.raw`(() => {
     .slice(-200)
     .map((entry) => ({
       url: entry.name,
-      method: entry.initiatorType === 'navigation' ? 'GET' : undefined,
+      // Resource Timing 没有请求方法；状态码是 Chromium 109 起的 responseStatus（跨域没有 Timing-Allow-Origin 时为 0）。
+      status: entry.responseStatus > 0 ? entry.responseStatus : undefined,
       type: entry.initiatorType,
       startTime: entry.startTime,
       duration: entry.duration,

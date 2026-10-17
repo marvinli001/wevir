@@ -2381,9 +2381,39 @@ export const methodSamples: MethodSamples = {
             retryable: false,
           },
         },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'navigate',
+            browserId: browserTab.browserId,
+            url: 'http://localhost:5173/missing',
+            status: 404,
+          },
+        },
+        {
+          requestId: ids.browserRequest,
+          ok: false,
+          error: {
+            code: 'browser_load_failed',
+            message:
+              'Could not load http://localhost:5173/: ERR_CONNECTION_REFUSED (-102). Nothing accepted the connection: check that the server is running and the port is right.',
+            retryable: false,
+          },
+        },
       ],
       invalid: [
         { requestId: 'r1', ok: false, error: { code: 'browser_timeout', message: 'x' } },
+        {
+          requestId: ids.browserRequest,
+          ok: true,
+          result: {
+            command: 'navigate',
+            browserId: browserTab.browserId,
+            url: 'http://localhost:5173/',
+            status: 2.5,
+          },
+        },
         { requestId: ids.browserRequest, ok: true, result: { command: 'evaluate' } },
         { requestId: ids.browserRequest, ok: false, error: { code: '', message: 'x' } },
       ],

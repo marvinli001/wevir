@@ -502,6 +502,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.43.0`：删除会话与会话占用（domain-model §3.20）。新方法 `session.delete`、`session.usage`；新类型 `SessionUsage`、`SessionWorktreeUsage`；`RESOURCE_IN_USE` 的 data 加 optional 的 `worktrees`；Host 功能 `session_delete`；适配器接口加可选的 `deleteSession`（Codex 两个实现与 echo 有）。行为变化：已归档的会话可以被永久删掉，之后 `session.get`、`events.subscribe` 回 `SESSION_NOT_FOUND`，分支出去的会话的 `forkedFrom` 可能指向不存在的会话。新方法与 optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧客户端不调新方法，只是别的客户端删掉的已归档会话从“已归档”里消失。新客户端连旧 Host：hello 结果里没有 `session_delete`，存储页不显示按会话的占用与删除。冻结 compat/0.43.0.json 是 0.42.0 全部样本加新样本。
 
+`0.44.0`：内置浏览器给 agent 的结果（domain-model §3.15.1）。`BrowserResult` 的 `new_tab`、`show`、`navigate` 加 optional 的 `status`（这次载入的主文档的 HTTP 状态码，100–999）；`BROWSER_ERROR_CODES` 加 `browser_load_failed`（页面打不开，消息里是 Chromium 的错误名）。optional 字段与开放字符串的新取值，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端（旧桌面端）：回答里没有 `status`，工具结果照旧只写 “Loaded …”，打不开仍是 `browser_unknown_error`。新客户端连旧 Host：旧 Host 的 schema 忽略 `status`。冻结 compat/0.44.0.json 是 0.43.0 全部样本加 `browser.respond` 的两个新样本。
+
 `0.41.0`：全局连接器与 skills（[plugins.md](plugins.md)、domain-model §3.19）。新增 plugins.list、connector.add / update / remove / setEnabled、skill.install / remove / setEnabled，通知 plugins.changed，Host 功能 plugins；EngineFeatures 新增 optional 的 mcpServers / skills。所有方法权限 host.manage；新客户端先看功能位，旧 Host 不支持时不发请求，旧客户端忽略新通知。密钥输入与结果用不同 schema，结果只含键名 / true，更新省略保留、null 删除。兼容的新增方法与 optional 字段，不需要客户端能力位，最低版本仍为 0.1.0。冻结 compat/0.41.0.json 是 0.40.0 全部样本加新样本。
 
 **线缆契约（永远遵守）**

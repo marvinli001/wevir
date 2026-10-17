@@ -10,7 +10,7 @@ import type { AppToolsEndpoint, EngineSession, SessionConfig } from '@wevir/runt
 import { APP_TOOLS_NO_APPROVAL } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
-import { BROWSER_READ_ONLY_TOOLS, httpUrl } from './browser-tools.js';
+import { BROWSER_READ_ONLY_TOOLS, browserToolResult, httpUrl } from './browser-tools.js';
 import { type RunningHost, startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import { TestRpcClient, useTempDir } from './test-utils.js';
@@ -293,5 +293,81 @@ describe('httpUrl', () => {
     ]) {
       expect(() => httpUrl(bad), bad).toThrow();
     }
+  });
+});
+
+describe('browserToolResult', () => {
+  const text = (payload: Parameters<typeof browserToolResult>[0]) =>
+    browserToolResult(payload).content[0]?.type === 'text'
+      ? (browserToolResult(payload).content[0] as { text: string }).text
+      : '';
+
+  it('打开与跳转写出 HTTP 状态码，出错的状态说明是错误页', () => {
+    expect(
+      text({
+        ok: true,
+        result: { command: 'navigate', browserId: 'tab_1', url: 'http://a.test/x', status: 404 },
+      }),
+    ).toBe('Loaded http://a.test/x (HTTP 404, an error page).');
+    expect(
+      text({
+        ok: true,
+        result: { command: 'navigate', browserId: 'tab_1', url: 'http://a.test/' },
+      }),
+    ).toBe('Loaded http://a.test/.');
+    expect(
+      text({
+        ok: true,
+        result: { command: 'new_tab', browserId: 'tab_1', url: 'http://a.test/', status: 200 },
+      }),
+    ).toContain('url=http://a.test/ (HTTP 200).');
+  });
+
+  it('网络记录统一写成 地址 状态 类型 耗时，有方法时放在前面', () => {
+    const logs = text({
+      ok: true,
+      result: {
+        command: 'logs',
+        browserId: 'tab_1',
+        console: [],
+        network: [
+          {
+            url: 'http://a.test/missing.json',
+            status: 404,
+            type: 'fetch',
+            startTime: 1,
+            duration: 1.2,
+          },
+          { url: 'http://a.test/', type: 'navigation', startTime: 0, duration: 60 },
+          { url: 'http://a.test/old', method: 'GET', startTime: 0, duration: 3 },
+        ],
+      },
+    });
+    expect(logs.split('\n').slice(1)).toEqual([
+      '[network] http://a.test/missing.json 404 fetch 1ms',
+      '[network] http://a.test/ status=unknown navigation 60ms',
+      '[network] GET http://a.test/old status=unknown 3ms',
+    ]);
+  });
+
+  it('过期引用的提示只说一次（旧桌面端的消息里已经有）', () => {
+    const fresh = text({
+      ok: false,
+      error: {
+        code: 'browser_stale_ref',
+        message: 'Browser element reference @e9 is not in the latest snapshot of this tab.',
+      },
+    });
+    expect(fresh).toBe(
+      '[browser_stale_ref] Browser element reference @e9 is not in the latest snapshot of this tab. Take a new browser_snapshot and try again.',
+    );
+    const old = text({
+      ok: false,
+      error: {
+        code: 'browser_stale_ref',
+        message: 'Browser element reference @e9 is stale. Take a new snapshot and try again.',
+      },
+    });
+    expect(old.match(/try again/g)).toHaveLength(1);
   });
 });

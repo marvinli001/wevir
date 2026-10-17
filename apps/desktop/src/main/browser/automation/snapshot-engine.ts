@@ -2,7 +2,7 @@
 // 改写自 getpaseo/paseo packages/desktop/src/features/browser-automation/snapshot-engine.ts
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
-// 由 Wevir 修改：页面里的全局名改成 `__WEVIR_BROWSER_AUTOMATION__`。
+// 由 Wevir 修改：页面里的全局名改成 `__WEVIR_BROWSER_AUTOMATION__`；子节点只有与名字相同的文字时不再重复列出。
 
 import { ARIA_SNAPSHOT_SCRIPT, ARIA_SNAPSHOT_SCRIPT_MARKER } from './aria-snapshot-script.js';
 
@@ -294,8 +294,24 @@ function renderNode(node: SnapshotNode, depth: number): string[] {
   }
   const suffix = attrs.length > 0 ? ` [${attrs.join(' ')}]` : '';
   const ownLine = `${indent}- ${node.role ?? 'generic'}${node.name ? ` ${JSON.stringify(node.name)}` : ''}${suffix}`;
+  if (repeatsName(node)) return [ownLine];
   const childLines = (node.children ?? []).flatMap((child) => renderNode(child, depth + 1));
   return [ownLine, ...childLines];
+}
+
+/** 子节点（摊开分组后）全是文字、连起来就是名字：Playwright 的 ARIA 快照也省掉这种子节点。 */
+function repeatsName(node: SnapshotNode): boolean {
+  if (!node.name) return false;
+  const texts: string[] = [];
+  const collect = (children: SnapshotNode[]): boolean =>
+    children.every((child) => {
+      if (child.kind === 'group') return collect(child.children ?? []);
+      if (child.kind !== 'text') return false;
+      texts.push(child.text ?? '');
+      return true;
+    });
+  if (!collect(node.children ?? []) || texts.length === 0) return false;
+  return texts.join(' ').replace(/\s+/g, ' ').trim() === node.name;
 }
 
 function capRenderedSnapshot(

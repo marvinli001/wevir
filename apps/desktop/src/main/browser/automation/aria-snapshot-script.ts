@@ -3,7 +3,9 @@
 // 来源提交 dc7bc8db124e837ba909ffd3b4b20e16adaebe24
 // Copyright (c) 2025-present Mohamed Boudra，Apache License 2.0
 // 其中的 ARIA 快照模型改编自 microsoft/playwright 注入脚本的 ARIA snapshot，Copyright (c) Microsoft Corporation，Apache License 2.0。
-// 由 Wevir 修改：标记与页面里的全局名改成 Wevir 的（`__WEVIR_ARIA_SNAPSHOT__`、`__WEVIR_BROWSER_AUTOMATION__`）。
+// 由 Wevir 修改：标记与页面里的全局名改成 Wevir 的（`__WEVIR_ARIA_SNAPSHOT__`、`__WEVIR_BROWSER_AUTOMATION__`）；输入框带当前的
+// `value`（密码只说填了没有，也不再拿密码当名字），下拉框的名字不再拼接所有选项、带选中项；没有可操作角色、但能点的元素（on* 事件属性、tabindex、
+// 从它开始的 cursor:pointer）也给引用，标 `clickable`。
 
 export const ARIA_SNAPSHOT_SCRIPT_MARKER = '__WEVIR_ARIA_SNAPSHOT__';
 
@@ -88,6 +90,23 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     return explicitRole(element) || implicitRole(element);
   }
 
+  const POINTER_HANDLERS = ['onclick', 'ondblclick', 'onmousedown', 'onmouseup', 'onpointerdown', 'onpointerup', 'onmouseover', 'onmouseenter', 'oncontextmenu'];
+
+  // 页面里看不到 addEventListener 加的监听，只能认事件属性、tabindex 与从这个元素开始的 cursor:pointer（子元素继承的不算）。
+  function isClickable(element) {
+    if (!(element instanceof HTMLElement)) return false;
+    if (POINTER_HANDLERS.some((name) => element.hasAttribute(name) || typeof element[name] === 'function')) return true;
+    const tabIndex = element.getAttribute('tabindex');
+    if (tabIndex !== null && Number(tabIndex) >= 0) return true;
+    if (window.getComputedStyle(element).cursor !== 'pointer') return false;
+    const parent = element.parentElement;
+    return !parent || window.getComputedStyle(parent).cursor !== 'pointer';
+  }
+
+  function snapshotRoleFor(element) {
+    return roleFor(element) || (isClickable(element) ? 'generic' : null);
+  }
+
   function labelText(element) {
     if (!(element instanceof HTMLElement)) return '';
     if (element.id) {
@@ -115,10 +134,13 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
       element.getAttribute('alt'),
       element.getAttribute('title'),
       tag === 'input' || tag === 'textarea' ? element.getAttribute('placeholder') : null,
-      tag === 'input' || tag === 'textarea' ? element.value : null,
-      role === 'button' || role === 'link' || role === 'heading' || ACTIONABLE_ROLES.has(role)
+      (tag === 'input' && String(element.getAttribute('type') || '').toLowerCase() !== 'password') || tag === 'textarea'
+        ? element.value
+        : null,
+      tag !== 'select' && (role === 'button' || role === 'link' || role === 'heading' || ACTIONABLE_ROLES.has(role))
         ? element.textContent
-        : null
+        : null,
+      role === 'generic' ? normalizeText(element.textContent).slice(0, 80) : null
     ];
     return normalizeText(pieces.find((piece) => normalizeText(piece).length > 0) || '');
   }
@@ -139,7 +161,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
   }
 
   function isActionable(element, role) {
-    if (!role || !ACTIONABLE_ROLES.has(role)) return false;
+    if (!role || (!ACTIONABLE_ROLES.has(role) && !isClickable(element))) return false;
     if (visibilityFor(element) !== 'box') return false;
     if (inheritedDisabled(element)) return false;
     return true;
@@ -156,7 +178,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
   }
 
   function fingerprintMatches(element, fingerprint) {
-    const role = roleFor(element) || 'generic';
+    const role = snapshotRoleFor(element) || 'generic';
     const name = nameFor(element, role);
     const current = fingerprintFor(element, role, name);
     return current.role === fingerprint.role &&
@@ -185,7 +207,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     return runtime;
   }
 
-  function stateAttributes(element, role) {
+  function stateAttributes(element, role, name) {
     const attrs = [];
     if (role === 'heading') {
       const tag = element.tagName.toLowerCase();
@@ -199,7 +221,28 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     if (element.getAttribute('aria-expanded')) attrs.push('expanded=' + element.getAttribute('aria-expanded'));
     if (element.getAttribute('aria-pressed')) attrs.push('pressed=' + element.getAttribute('aria-pressed'));
     if (element.getAttribute('aria-selected')) attrs.push('selected=' + element.getAttribute('aria-selected'));
+    const value = currentValue(element, name);
+    if (value !== null) attrs.push(value);
+    if (!ACTIONABLE_ROLES.has(role) && isClickable(element)) attrs.push('clickable');
     return attrs;
+  }
+
+  const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'number', 'date', 'datetime-local', 'month', 'week', 'time', 'color', 'range']);
+
+  // 输入框、文本框与下拉框现在的值；和名字一样时不重复写。
+  function currentValue(element, name) {
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'select') {
+      const selected = Array.from(element.selectedOptions || []).map((option) => normalizeText(option.label || option.textContent));
+      return 'value=' + JSON.stringify(selected.join(', '));
+    }
+    if (tag !== 'input' && tag !== 'textarea') return null;
+    const type = tag === 'input' ? String(element.getAttribute('type') || '').toLowerCase() : '';
+    if (type === 'password') return element.value ? 'filled=true' : null;
+    if (tag === 'input' && !TEXT_INPUT_TYPES.has(type)) return null;
+    const value = String(element.value || '');
+    if (!value || normalizeText(value) === name) return null;
+    return 'value=' + JSON.stringify(value.length > 200 ? value.slice(0, 200) + '…' : value);
   }
 
   function textNode(text) {
@@ -212,7 +255,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
       role: role || 'generic',
       name,
       tagName: element.tagName.toLowerCase(),
-      attributes: stateAttributes(element, role),
+      attributes: stateAttributes(element, role, name),
       children: []
     };
   }
@@ -258,7 +301,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     if (!visibility) return null;
     if (domNode.getAttribute('aria-hidden') === 'true') return null;
 
-    const role = roleFor(domNode);
+    const role = snapshotRoleFor(domNode);
     const name = role ? nameFor(domNode, role) : '';
     const children = [];
     for (const child of Array.from(domNode.childNodes)) {
@@ -308,7 +351,7 @@ export const ARIA_SNAPSHOT_SCRIPT = String.raw`(() => {
     marker: MARKER,
     root,
     refs: Array.from(runtime.refs.entries()).map(([ref, element]) => {
-      const role = roleFor(element) || 'generic';
+      const role = snapshotRoleFor(element) || 'generic';
       const name = nameFor(element, role);
       return { ref, fingerprint: fingerprintFor(element, role, name) };
     }),
