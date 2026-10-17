@@ -6,6 +6,7 @@ import {
   isRpcError,
   rewindSupported,
   type UserChatMessage,
+  undoSupported,
 } from '@wevir/client-sdk';
 import type {
   CollaborationMode,
@@ -27,6 +28,7 @@ import { useBrowserReveal } from '@/browser/browser-store';
 import { openChanges } from '@/changes/changes-store';
 import { EmptyState } from '@/components/empty-state';
 import { Button } from '@/components/ui/button';
+import { reportActionFailure } from '@/data/action-notices';
 import { useHostSettings } from '@/data/host-settings';
 import { markSeen } from '@/data/seen-sessions';
 import { archiveSession, requestRename, useSessionManagement } from '@/data/session-actions';
@@ -84,6 +86,8 @@ import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
 import { lastTurnId } from './turn-model';
 import { useUiShow } from './ui-show';
+import { UndoBanner } from './undo-banner';
+import { filesNotice, promptOfTurn } from './undo-model';
 import { useDraftCommands, useSessionCommands } from './use-composer-commands';
 
 /**
@@ -548,6 +552,53 @@ export function SessionView({
         : undefined,
     [canReview, runCommand, client, session.id],
   );
+  // 撤销与重做（0.51.0，desktop-tokens §58）：撤销最后一个回合——文件回到回合开始前、回合从消息记录里隐藏；用户写的文字放回输入框。
+  // 之后会话没开始新回合时可以重做（横幅与 `/redo`）。文件没动时用提示说明原因。
+  const undoAvailable =
+    commandsEnabled &&
+    !session.side &&
+    view.status === 'connected' &&
+    undoSupported(view.hello.features, engine);
+  const redoCount = transcript?.redoTurnIds.length ?? 0;
+  const hasTurns = transcript !== undefined && lastTurnId(transcript) !== undefined;
+  const undoTurn = useCallback(async () => {
+    if (!client) return;
+    const messages = transcript?.messages ?? [];
+    setNotice(undefined);
+    try {
+      if (sessionState === 'error' || sessionState === 'closed') {
+        await client.request('session.resume', { sessionId: session.id });
+      }
+      const result = await client.request('session.undo', { sessionId: session.id });
+      const prompt = promptOfTurn(messages, result.turnId);
+      if (prompt !== undefined) restoreDraft(session.id, prompt);
+      const skipped = filesNotice(result.files);
+      if (skipped !== undefined) reportActionFailure(skipped);
+    } catch (error) {
+      setNotice(
+        isRpcError(error, 'SESSION_BUSY')
+          ? t('session.busy')
+          : t('undo.failed', { error: describe(error) }),
+      );
+    }
+  }, [client, session.id, sessionState, transcript]);
+  const redoTurn = useCallback(async () => {
+    if (!client) return;
+    setNotice(undefined);
+    try {
+      const result = await client.request('session.redo', { sessionId: session.id });
+      const skipped = filesNotice(result.files);
+      if (skipped !== undefined) reportActionFailure(skipped);
+    } catch (error) {
+      setNotice(
+        isRpcError(error, 'SESSION_BUSY')
+          ? t('session.busy')
+          : t('redo.failed', { error: describe(error) }),
+      );
+    }
+  }, [client, session.id]);
+  const onUndo = undoAvailable && hasTurns ? () => void undoTurn() : undefined;
+  const onRedo = undoAvailable && redoCount > 0 ? () => void redoTurn() : undefined;
   const commands = useSessionCommands({
     workspaceId: session.workspaceId,
     sessionId: session.id as SessionId,
@@ -574,6 +625,8 @@ export function SessionView({
     ...(onArchive && { onArchive }),
     ...(onCompact && { onCompact }),
     ...(onReview && { onReview }),
+    ...(onUndo && { onUndo }),
+    ...(onRedo && { onRedo }),
     goalEnabled: goalsEnabled,
     ...(planCommand && { plan: planCommand }),
   });
@@ -735,6 +788,9 @@ export function SessionView({
                 onResume={resumeGoal}
                 onClear={clearGoal}
               />
+            )}
+            {undoAvailable && redoCount > 0 && (
+              <UndoBanner count={redoCount} disabled={!client} onRedo={() => void redoTurn()} />
             )}
           </div>
           <Composer

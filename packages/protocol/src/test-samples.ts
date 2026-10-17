@@ -656,6 +656,14 @@ export const eventPayloads: PayloadSamples = {
     valid: { turnId: ids.turn },
     invalid: { turnId: 'turn-1' },
   },
+  'turn.undone': {
+    valid: { turnId: ids.turn, files: { status: 'restored', fileCount: 3 } },
+    invalid: { turnId: ids.turn, files: { status: 'done' } },
+  },
+  'turn.redone': {
+    valid: { turnId: ids.turn, files: { status: 'unavailable', reason: 'not_git' } },
+    invalid: { turnId: 'turn-1' },
+  },
   'assistant.delta': {
     valid: { turnId: ids.turn, streamId: ids.stream, blockIndex: 0, kind: 'text', text: '好的，' },
     invalid: { turnId: ids.turn, streamId: ids.stream, blockIndex: 0, kind: 'tool', text: 'x' },
@@ -1173,7 +1181,12 @@ export const methodSamples: MethodSamples = {
           hostVersion: '0.0.0',
           protocolVersion: '0.38.0',
           minProtocolVersion: '0.1.0',
-          features: { side_sessions: true, session_branches: true, session_rewind: true },
+          features: {
+            side_sessions: true,
+            session_branches: true,
+            session_rewind: true,
+            session_undo: true,
+          },
           engineFeatures: {
             'deepseek-official': {
               engine: 'codex',
@@ -2093,6 +2106,32 @@ export const methodSamples: MethodSamples = {
       invalid: [{ sessionId: ids.session }],
     },
     result: { valid: [{ seq: 12 }], invalid: [{}] },
+  },
+  'session.undo': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, turnId: ids.turn }],
+      invalid: [{}, { sessionId: ids.session, turnId: 'turn-1' }],
+    },
+    result: {
+      valid: [
+        { seq: 14, turnId: ids.turn, files: { status: 'restored', fileCount: 2 } },
+        { seq: 14, turnId: ids.turn, files: { status: 'unavailable', reason: 'head_moved' } },
+      ],
+      invalid: [
+        { seq: 14, turnId: ids.turn },
+        { seq: 14, files: { status: 'restored' } },
+      ],
+    },
+  },
+  'session.redo': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, turnId: ids.turn }],
+      invalid: [{}],
+    },
+    result: {
+      valid: [{ seq: 15, turnId: ids.turn, files: { status: 'unchanged' } }],
+      invalid: [{ seq: 15 }],
+    },
   },
   'session.fork': {
     params: {

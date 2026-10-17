@@ -14,10 +14,11 @@
 // 提交之间的 diff（`workspace.diff` 的 `turn`）。不碰用户的索引、工作树与分支，只往仓库里写对象与这些 ref。
 
 import { existsSync } from 'node:fs';
-import { copyFile, mkdtemp, rm, stat, utimes } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm, rmdir, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type {
+  FilesRestore,
   SessionCheckpointsResult,
   TurnCheckpoint,
   WorkspaceDiffResult,
@@ -40,6 +41,8 @@ export const CAPTURE_TIMEOUT_MS = 15_000;
 /** 未跟踪文件多于这么多或合计大于这么多字节时不打快照（`git add` 会把它们全部写进仓库）。 */
 export const CAPTURE_UNTRACKED_MAX_FILES = 5_000;
 export const CAPTURE_UNTRACKED_MAX_BYTES = 256 * 1024 * 1024;
+/** 一次还原（含它的全部 git 命令）的时限。 */
+export const RESTORE_TIMEOUT_MS = 60_000;
 /** 还没有提交的嵌套仓库最多排除这么多个（T3 CHECKPOINT_RECOVERY_MAX_CANDIDATES）。 */
 const NESTED_REPO_MAX = 64;
 
@@ -50,7 +53,7 @@ const AUTHOR = {
   GIT_COMMITTER_EMAIL: 'checkpoint@wevir.invalid',
 };
 
-type Stage = 'before' | 'after';
+type Stage = 'before' | 'after' | 'undone' | 'redone-from';
 
 export function checkpointRef(sessionId: string, turnId: string, stage: Stage): string {
   return `${CHECKPOINT_REF_PREFIX}/${sessionId}/${turnId}/${stage}`;
@@ -174,6 +177,33 @@ export class TurnCheckpoints {
   }
 
   /**
+   * `session.undo` 的文件部分（0.51.0）：目录还原到这个回合开始前的样子。先把现在的样子存成 `undone`。目录不在 git 仓库里、这个回合没有
+   * “前”快照、HEAD 动过、现在的样子存不了（`captureBlocker` 的原因）时什么都不动，结果说明原因；还原中途出错时把目录放回原样再抛错。
+   */
+  undo(sessionId: string, cwd: string, turnId: string): Promise<FilesRestore> {
+    return this.#exclusive(sessionId, () =>
+      this.#restore(sessionId, cwd, {
+        target: checkpointRef(sessionId, turnId, 'before'),
+        save: checkpointRef(sessionId, turnId, 'undone'),
+        stage: 'undone',
+        turnId,
+      }),
+    );
+  }
+
+  /** `session.redo` 的文件部分：目录还原到撤销之前存下的 `undone`；先把现在的样子存成 `redone-from`。其余同 `undo`。 */
+  redo(sessionId: string, cwd: string, turnId: string): Promise<FilesRestore> {
+    return this.#exclusive(sessionId, () =>
+      this.#restore(sessionId, cwd, {
+        target: checkpointRef(sessionId, turnId, 'undone'),
+        save: checkpointRef(sessionId, turnId, 'redone-from'),
+        stage: 'redone-from',
+        turnId,
+      }),
+    );
+  }
+
+  /**
    * Host 退出：停下进行中的 git 并等它们退出，之后的调用什么都不做。要等：Windows 上还在跑的 git 占着工作区目录，
    * Host 退出后马上删目录（测试的临时目录、用户删工作区）会失败。
    */
@@ -181,6 +211,66 @@ export class TurnCheckpoints {
     this.#disposed = true;
     for (const controller of this.#aborts) controller.abort();
     await Promise.all(this.#tails.values());
+  }
+
+  /** 排在这个会话的快照队列里跑 `task`，拿它的结果；`task` 抛的错原样抛给调用方（`#enqueue` 本身吞错）。 */
+  async #exclusive<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+    let outcome: { value: T } | { error: unknown } | undefined;
+    await this.#enqueue(sessionId, async () => {
+      try {
+        outcome = { value: await task() };
+      } catch (error) {
+        outcome = { error };
+      }
+    });
+    if (outcome === undefined) throw new RestoreError('checkpoints are shut down');
+    if ('error' in outcome) throw outcome.error;
+    return outcome.value;
+  }
+
+  async #restore(
+    sessionId: string,
+    cwd: string,
+    input: { target: string; save: string; stage: Stage; turnId: string },
+  ): Promise<FilesRestore> {
+    const unavailable = (reason: string): FilesRestore => ({ status: 'unavailable', reason });
+    if (!existsSync(cwd)) return unavailable('not_git');
+    const controller = new AbortController();
+    this.#aborts.add(controller);
+    const timer = setTimeout(() => controller.abort(), RESTORE_TIMEOUT_MS);
+    try {
+      const signal = controller.signal;
+      const repo = await repoInfo(cwd);
+      if (!repo) return unavailable('not_git');
+      const target = await resolveRef(repo, input.target);
+      if (target === undefined) return unavailable('no_checkpoint');
+      if ((await firstParent(repo, target, signal)) !== repo.head) return unavailable('head_moved');
+      const blocker = await captureBlocker(repo, signal);
+      if (blocker !== undefined) return unavailable(blocker);
+      const current = await captureCheckpoint(repo, {
+        ref: input.save,
+        signal,
+        message: () => Promise.resolve(commitMessage(sessionId, input.turnId, input.stage)),
+      });
+      const changes = await listChanges(repo, current, target, signal);
+      if (changes.length === 0) return { status: 'unchanged', fileCount: 0 };
+      try {
+        await applyChanges(repo, target, changes, 'forward', signal);
+      } catch (error) {
+        // 放回原样：按同一份清单从 `current` 写回（幂等，不管前面做到哪一步）。
+        await applyChanges(repo, current, changes, 'rollback').catch(() => undefined);
+        throw new RestoreError(
+          `restoring files failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return { status: 'restored', fileCount: changes.length };
+    } catch (error) {
+      if (error instanceof RestoreError) throw error;
+      throw new RestoreError(error instanceof Error ? error.message : String(error));
+    } finally {
+      clearTimeout(timer);
+      this.#aborts.delete(controller);
+    }
   }
 
   #enqueue(sessionId: string, task: () => Promise<void>): Promise<void> {
@@ -487,6 +577,128 @@ async function turnStats(
     added: files.reduce((total, file) => total + (file.added ?? 0), 0),
     removed: files.reduce((total, file) => total + (file.removed ?? 0), 0),
   };
+}
+
+// ── 还原（撤销与重做） ─────────────────────────────────────────────
+
+/** 还原文件失败（目录已尽力放回原样）。 */
+export class RestoreError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RestoreError';
+  }
+}
+
+/** 两个快照之间一个文件的变化：`A` 只在目标里，`D` 只在现在，`M` 内容或权限不同，`T` 类型变了（文件 ↔ 符号链接）。 */
+interface FileChange {
+  /** 相对仓库根目录，用 `/` 分隔。 */
+  path: string;
+  status: 'A' | 'D' | 'M' | 'T';
+}
+
+const GITLINK_MODE = '160000';
+
+/** `git diff --raw` 列出从 `from` 到 `to` 要改的文件；子模块（gitlink）不动，也不列。 */
+async function listChanges(
+  repo: RepoInfo,
+  from: string,
+  to: string,
+  signal: AbortSignal,
+): Promise<FileChange[]> {
+  const { stdout } = await runGit(
+    repo.cwd,
+    [
+      ...repo.config,
+      'diff',
+      '--raw',
+      '-z',
+      '--no-renames',
+      '--no-ext-diff',
+      '--no-textconv',
+      from,
+      to,
+      '--',
+    ],
+    { signal },
+  );
+  const tokens = stdout.toString('utf8').split('\0');
+  const changes: FileChange[] = [];
+  for (let index = 0; index + 1 < tokens.length; index += 2) {
+    // `:<旧权限> <新权限> <旧 sha> <新 sha> <状态>`，后面跟路径。
+    const meta = (tokens[index] ?? '').split(' ');
+    const path = tokens[index + 1] ?? '';
+    const status = meta[4]?.[0];
+    if (path === '' || (status !== 'A' && status !== 'D' && status !== 'M' && status !== 'T'))
+      continue;
+    if (meta[0] === `:${GITLINK_MODE}` || meta[1] === GITLINK_MODE) continue;
+    if (isEscapingPath(path)) throw new RestoreError(`unexpected path: ${path}`);
+    changes.push({ path, status });
+  }
+  return changes;
+}
+
+function isEscapingPath(path: string): boolean {
+  return path.startsWith('/') || path.split('/').includes('..') || /^[A-Za-z]:/.test(path);
+}
+
+/**
+ * 按 `changes` 把文件改成 `source` 提交里的样子：`forward` 时 `source` 是目标（`D` 删掉，其余写出），`rollback` 时 `source` 是
+ * 还原之前的样子（`A` 删掉，其余写出）。先删后写，删完把空出来的目录一并删掉（git 不记空目录）。写出用临时索引的
+ * `checkout-index -f`：保留权限和符号链接，覆盖已有的文件。
+ */
+async function applyChanges(
+  repo: RepoInfo,
+  source: string,
+  changes: readonly FileChange[],
+  direction: 'forward' | 'rollback',
+  signal?: AbortSignal,
+): Promise<void> {
+  const removeStatus = direction === 'forward' ? 'D' : 'A';
+  const removals = changes.filter((change) => change.status === removeStatus);
+  const writes = changes.filter((change) => change.status !== removeStatus);
+  for (const change of removals) {
+    await rm(join(repo.toplevel, change.path), { recursive: true, force: true });
+  }
+  const parents = new Set(removals.map((change) => dirname(change.path)));
+  for (const parent of [...parents].sort((a, b) => b.length - a.length)) {
+    let dir = parent;
+    while (dir !== '.' && dir !== '') {
+      try {
+        await rmdir(join(repo.toplevel, dir));
+      } catch {
+        break;
+      }
+      dir = dirname(dir);
+    }
+  }
+  if (writes.length === 0) return;
+  const tmp = await mkdtemp(join(tmpdir(), 'wevir-restore-'));
+  try {
+    const options = { env: { GIT_INDEX_FILE: join(tmp, 'index') }, ...(signal && { signal }) };
+    const config = [...repo.config, '-c', 'core.splitIndex=false'];
+    await runGit(repo.toplevel, [...config, 'read-tree', source], options);
+    await runGit(repo.toplevel, [...config, 'checkout-index', '-f', '-z', '--stdin'], {
+      ...options,
+      stdin: writes.map((change) => `${change.path}\0`).join(''),
+    });
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+}
+
+/** 提交的第一个父提交；根提交没有，是 undefined。 */
+async function firstParent(
+  repo: RepoInfo,
+  commit: string,
+  signal: AbortSignal,
+): Promise<string | undefined> {
+  const result = await runGit(
+    repo.cwd,
+    [...repo.config, 'rev-parse', '--verify', '--quiet', `${commit}^`],
+    { okCodes: [0, 1], signal },
+  );
+  const sha = result.stdout.toString('utf8').trim();
+  return result.code === 0 && sha !== '' ? sha : undefined;
 }
 
 // ── 回合里 git 带进来的文件（T3 listAuthoredPaths / isGitImport） ───────────

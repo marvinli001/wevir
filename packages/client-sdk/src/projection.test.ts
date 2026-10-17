@@ -1346,6 +1346,70 @@ describe('撤回回合（0.38.0）', () => {
   });
 });
 
+describe('撤销与重做回合（0.51.0）', () => {
+  /** 两个完成的回合：第一、第二。 */
+  function twoTurns() {
+    const e = events();
+    e.turn(TURN, '第一');
+    e.add('assistant.message', { turnId: TURN, messageId: 'm1', text: '答一', replaces: [] });
+    e.add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    e.add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    e.turn(TURN2, '第二');
+    e.add('assistant.message', { turnId: TURN2, messageId: 'm2', text: '答二', replaces: [] });
+    e.add('turn.finished', { turnId: TURN2, outcome: 'completed', durationMs: 5 });
+    e.add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    return e;
+  }
+  const turnsOf = (list: WevirEvent[]) =>
+    projectTranscript(list).messages.map((m) => (m.role === 'system' ? '' : m.turnId));
+
+  it('turn.undone 把回合从消息记录里隐藏，turn.redone 带回来；redoTurnIds 记着能重做的，最近撤销的在最后', () => {
+    const { list, add } = twoTurns();
+    expect(projectTranscript(list).redoTurnIds).toEqual([]);
+
+    add('turn.undone', { turnId: TURN2, files: { status: 'restored', fileCount: 2 } });
+    expect(turnsOf(list)).toEqual([TURN, TURN]);
+    expect(projectTranscript(list).redoTurnIds).toEqual([TURN2]);
+
+    add('turn.undone', { turnId: TURN });
+    expect(turnsOf(list)).toEqual([]);
+    expect(projectTranscript(list).redoTurnIds).toEqual([TURN2, TURN]);
+
+    add('turn.redone', { turnId: TURN });
+    expect(turnsOf(list)).toEqual([TURN, TURN]);
+    expect(projectTranscript(list).redoTurnIds).toEqual([TURN2]);
+    add('turn.redone', { turnId: TURN2 });
+    expect(turnsOf(list)).toEqual([TURN, TURN, TURN2, TURN2]);
+    expect(projectTranscript(list).redoTurnIds).toEqual([]);
+  });
+
+  it('撤销之后又开始新回合：撤销的回合一直隐藏，不能重做；新回合照常出现', () => {
+    const { list, add, turn } = twoTurns();
+    add('turn.undone', { turnId: TURN2 });
+    turn('trn_01JA2B3C4D5E6F7G8H9JKMNP03' as TurnId, '第三');
+    const transcript = projectTranscript(list);
+    expect(transcript.redoTurnIds).toEqual([]);
+    expect(transcript.messages.map((m) => [m.role, m.role === 'system' ? '' : m.turnId])).toEqual([
+      ['user', TURN],
+      ['assistant', TURN],
+      ['user', 'trn_01JA2B3C4D5E6F7G8H9JKMNP03'],
+      ['assistant', 'trn_01JA2B3C4D5E6F7G8H9JKMNP03'],
+    ]);
+  });
+
+  it('被撤销的回合又被撤回（编辑重发）：消息去掉，也不能再重做；没有变化的快照沿用同一个对象', () => {
+    const { list, add } = twoTurns();
+    add('turn.undone', { turnId: TURN2 });
+    add('turn.rewound', { turnId: TURN2 });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const transcript = projection.snapshot();
+    expect(transcript.redoTurnIds).toEqual([]);
+    expect(transcript.messages).toHaveLength(2);
+    expect(projection.snapshot()).toBe(transcript);
+  });
+});
+
 describe('交给用户的文件（0.40.0）', () => {
   const report = { path: 'out/周报.docx', name: '周报.docx', size: 10 };
   const chart = { path: 'chart.png', name: 'chart.png', size: 3, mimeType: 'image/png' };

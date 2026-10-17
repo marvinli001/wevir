@@ -18,9 +18,11 @@ import {
   type LucideIcon,
   MessagesSquare,
   Pencil,
+  Redo2,
   ScanSearch,
   Shield,
   SquarePen,
+  Undo2,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
@@ -217,6 +219,9 @@ export interface SessionCommandOptions {
   /** Host 能压缩上下文、审查代码（0.24.0）、会话当前的引擎会（0.27.0）且会话可写时给。 */
   onCompact?: () => void;
   onReview?: (target: ReviewTarget) => void;
+  /** 会话能撤销与重做（0.51.0）且可写时给；`onRedo` 只在有撤销的回合可重做时给。 */
+  onUndo?: () => void;
+  onRedo?: () => void;
   /** 会话能用目标（0.35.0）且可写：`/goal ` 放进输入框，接着写目标。 */
   goalEnabled?: boolean;
   /** 会话当前的引擎有计划模式（0.36.0）且会话可写时给。 */
@@ -251,6 +256,8 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    onUndo,
+    onRedo,
     goalEnabled,
     plan,
   } = options;
@@ -286,6 +293,8 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
       );
     }
     if (goalEnabled) commands.push(goalCommand());
+    if (onUndo) commands.push(simple('undo', t('command.undo'), Undo2, onUndo));
+    if (onRedo) commands.push(simple('redo', t('command.redo'), Redo2, onRedo));
     if (onCompact) commands.push(simple('compact', t('command.compact'), FoldVertical, onCompact));
     if (onReview) {
       commands.push({
@@ -311,6 +320,8 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    onUndo,
+    onRedo,
     goalEnabled,
     workspaceId,
     sessionId,

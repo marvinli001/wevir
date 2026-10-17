@@ -274,6 +274,10 @@ export interface Transcript {
    * （`plan.delta` 的 `restart`，0.37.0）时也清空。写的时候的预览不算。界面据此在输入框上方提供“实施”。
    */
   latestPlan: LatestPlan | undefined;
+  /**
+   * 0.51.0：能重做的回合（`session.redo`），最近撤销的在最后；撤销之后会话又开始新回合时清空。被撤销的回合不在 `messages` 里。
+   */
+  redoTurnIds: readonly TurnId[];
   lastSeq: number;
 }
 
@@ -377,6 +381,10 @@ export class TranscriptProjection {
   /** 最近一条用户消息的协作模式（0.36.0）。 */
   #collaborationMode: CollaborationMode = 'default';
   #latestPlan: LatestPlan | undefined;
+  /** 现在被撤销（`turn.undone`，0.51.0）、从 `messages` 里隐藏的回合；消息留在内部，重做时回来。 */
+  #hidden = new Set<TurnId>();
+  /** 能重做的回合，最近撤销的在最后。 */
+  #redo: readonly TurnId[] = [];
   #lastSeq = 0;
   #dirty = true;
   #snapshot: Transcript | undefined;
@@ -413,6 +421,8 @@ export class TranscriptProjection {
     this.#pending = [];
     this.#collaborationMode = 'default';
     this.#latestPlan = undefined;
+    this.#hidden.clear();
+    this.#redo = [];
     this.#lastSeq = 0;
     this.#dirty = true;
   }
@@ -481,6 +491,8 @@ export class TranscriptProjection {
           this.#touch(segment, event.seq).startedAt = event.ts;
         }
         this.#activeTurnId = event.payload.turnId;
+        // 新的回合开始，撤销的回合不能再重做了（它们一直隐藏）。
+        if (this.#redo.length > 0) this.#redo = [];
         return;
       }
       case 'turn.finished':
@@ -489,6 +501,19 @@ export class TranscriptProjection {
       case 'turn.rewound':
         this.#turnRewound(event.payload.turnId);
         return;
+      case 'turn.undone': {
+        const { turnId } = event.payload;
+        this.#hidden.add(turnId);
+        this.#redo = [...this.#redo.filter((id) => id !== turnId), turnId];
+        if (this.#latestPlan?.turnId === turnId) this.#latestPlan = undefined;
+        return;
+      }
+      case 'turn.redone': {
+        const { turnId } = event.payload;
+        this.#hidden.delete(turnId);
+        this.#redo = this.#redo.filter((id) => id !== turnId);
+        return;
+      }
       case 'assistant.delta':
         this.#delta(event);
         return;
@@ -587,10 +612,12 @@ export class TranscriptProjection {
   /** 当前投影。自上次调用以来没有新事件时返回同一个对象。 */
   snapshot(): Transcript {
     if (!this.#dirty && this.#snapshot) return this.#snapshot;
-    const messages = this.#messages.map((message) => {
-      message.snapshot ??= freeze(message);
-      return message.snapshot;
-    });
+    const messages = this.#messages
+      .filter((message) => message.turnId === undefined || !this.#hidden.has(message.turnId))
+      .map((message) => {
+        message.snapshot ??= freeze(message);
+        return message.snapshot;
+      });
     const previous = this.#snapshot;
     let approvals = previous?.approvals ?? EMPTY_APPROVALS;
     let pendingApprovals = previous?.pendingApprovals ?? [];
@@ -623,6 +650,7 @@ export class TranscriptProjection {
       goal: this.#goal,
       collaborationMode: this.#collaborationMode,
       latestPlan: this.#latestPlan,
+      redoTurnIds: this.#redo,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;
@@ -862,6 +890,9 @@ export class TranscriptProjection {
       );
     }
     if (this.#latestPlan?.turnId === turnId) this.#latestPlan = undefined;
+    // 撤销的回合被撤回（编辑重发退掉了它）：不再能重做。
+    this.#hidden.delete(turnId);
+    this.#redo = this.#redo.filter((id) => id !== turnId);
   }
 
   #turnFinished(event: WevirEventOf<'turn.finished'>): void {

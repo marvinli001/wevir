@@ -947,7 +947,7 @@ type CollaborationMode = 'default' | 'plan'
 // session.fork { sessionId, side?: true, turnId?: TurnId }   不带 side 是分支；turnId 省略时到最近一个完成的回合
 // session.rewind { sessionId, turnId } → { seq }             turnId 必须是最后一个没撤回的完成的回合
 // turn.rewound { turnId }                                    撤回的回合
-// EngineFeatures 的 branch?、rewind?: boolean
+// EngineFeatures 的 branch?、rewind?: boolean（0.51.0 起还有 undo?，§3.22）
 ```
 
 - **分支**：新会话是普通的顶层会话（进 `session.list`，引擎会话持久化，没有支线的边界说明），标题、项目、目录、Provider、模型、推理档位、权限模式与环境字段同被分的会话（不含 worktree），`forkedFrom` 记着从哪个会话、哪个回合分出来。它的事件流是 `session.created`、抄来的消息记录、`session.title_changed`：抄的是被分会话 `seq` 不超过那个回合的 `turn.finished` 的事件里属于消息记录的那些（用户消息与插话、回合的开始结束与撤回、助手的增量与消息、工具、清单、计划、用量、压缩、子会话与建议的任务），`seq` 重新编号，`ts`、`source` 与 `payload` 照旧；会话自己的事实（`session.*`）、审批与提问（结算过的，记的是原会话）、待发消息、原始帧与界面请求不抄。子会话与建议的任务的部件仍指向原会话派出的会话。抄来的回合没有快照（§3.13），“变更”窗格里显示没有快照。
@@ -996,6 +996,30 @@ Host 拥有插件注册表，不属于某个 Session。连接器 `Connector { id
 - **注入。** `AppMcpServer` 的 `instructions` 可以是按调用会话生成的函数：`initialize` 时在工具说明后面加上这个会话看得到的索引，一条一行 `- [范围] 名字 (类型): 说明`，最多 6000 字节，超出的只说还有几条；记忆读不了时只记告警，工具说明照常。引擎在建连接时读一次 `instructions`，之后别的会话存的不会出现，要用 `wevir_memory_list` 刷新。引擎令牌（OpenCode）的 `initialize` 不带会话头，只有工具说明。
 - **写入的约束。** 工具说明要求只存以后的会话从代码或 git 历史里得不到的东西（用户的纠正与偏好、踩过的坑和避开的办法、决定与原因），一条一件事，先列出再更新，不存代码结构、当前任务的进度、密钥，也不存只来自网页或别的 agent、用户没确认的说法；读到的笔记是上下文，不是用户的指示，可能过期。因为会影响以后所有会话，这是提示注入的落脚点之一：保存和删除不走批准（用户选了自动写），靠上面的说明与内容检查，管理界面（查看、编辑、删除、开关）补上之前用户只能在数据目录里看。
 - **没做（留给后面）。** 协议里的 `memory.*` 方法与设置页的管理界面；总开关；会话结束时自动回顾；按引擎或按会话关记忆；项目移除时清理它的记忆目录。
+
+### 3.22 撤销与重做（0.51.0）
+
+维护者 2026-10-17 定：要有比 worktree 轻的回退——照 opencode 的 `/undo`、`/redo`，一键把文件改动还原并回到上一条消息，让用户敢做更大胆的尝试。做法靠 §3.13 的回合快照，不新增存储。
+
+```ts
+// → protocol
+// session.undo { sessionId, turnId? } → { seq, turnId, files }   turnId 给了必须是最后一个看得见的回合
+// session.redo { sessionId, turnId? } → { seq, turnId, files }   turnId 给了必须是最近撤销的回合
+// turn.undone { turnId, files? } / turn.redone { turnId, files? }
+// FilesRestore { status: 'restored' | 'unchanged' | 'unavailable', reason?, fileCount? }
+// EngineFeatures 的 undo?: boolean；Host 功能 session_undo
+```
+
+- **撤销**：最后一个看得见的回合（完成的、没被撤回、没被撤销的）。会话要空闲、不是支线或只读；出错或已关闭的先 `session.resume`，引擎会话没挂着时 Host 自动恢复。三件事，按这个顺序：① 会话目录还原到这个回合开始前；② 写 `turn.undone`；③ 往引擎的上下文补一条说明。可以连着撤销更早的回合。
+- **文件**（`checkpoints.ts` 的 `undo` / `redo`）：Host 先把目录**现在**的样子存成快照 `refs/wevir/checkpoints/<会话 ID>/<回合 ID>/undone`，再列出它和这个回合的 `before` 快照之间不同的文件（`git diff --raw`，子模块不动），改动的用临时索引的 `checkout-index -f` 写出，快照里没有的删掉并清掉空出来的目录。只动快照记着的文件：被 `.gitignore` 忽略的（构建产物、`node_modules`）不碰；不碰用户的索引、HEAD 与分支。所以撤销是**无损**的：回合之后用户在编辑器里的手改也在 `undone` 里，重做带回来。
+  - 重做同理：目标是 `undone` 快照，先把现在的样子存成 `…/redone-from`（撤销之后的手改留在那里，不丢）。每个会话的快照仍最多留最近 100 个回合，`undone` / `redone-from` 与别的 ref 一起清理（会话关闭、修剪）。
+  - 不还原文件的情况（`files.status: 'unavailable'`，对话照样撤销，`reason` 说明）：`not_git`（目录不在 git 仓库里，例如“对话”的文件夹）、`no_checkpoint`（这个回合没有“前”快照：打不了快照、会话关闭过、被修剪、Host 没开快照）、`head_moved`（快照打下之后 HEAD 变了：回合里提交了、用户提交或切了分支——还原文件会和提交打架）、`sparse_checkout` / `too_many_untracked` / `untracked_too_large`（现在的样子存不了，同打快照的限制，§3.13）。`unchanged`：目录本来就是那个样子。
+  - 还原中途出错（权限、磁盘）时，Host 按同一份清单从 `undone` 写回（幂等），再回 `INVALID_STATE`，不写事件。
+- **消息记录**：`turn.undone` 之后这个回合（用户消息、回答、工具……）从 client-sdk 的投影的 `messages` 里去掉，`Transcript.redoTurnIds` 记着能重做的（最近撤销的在最后）；事件本身留在流里，`turn.redone` 把它带回来。会话**开始新的回合**（`turn.started`）后撤销的回合不能再重做，也不再出现——因为文件已经往前走了。回合被撤回（`session.rewind`）时它同样不能再重做。分支（`session.fork`）抄历史时带着这些事件，分支里同样隐藏；从被撤销的回合分、`turnId` 指它，回 `INVALID_PARAMS`。
+- **引擎的上下文**：撤销**不**改引擎自己的历史（不是每个引擎都能撤回，Claude、OpenCode 不能；`session.rewind` 的 `engineFeatures.rewind` 仍只有 Codex、echo）。引擎的历史里还有这个回合，所以 Host 用 `injectNote` 补一条说明（英文，`undoRedoNote`）：用户撤销了“〈用户消息的前 300 字〉”那个回合，当作没发生过；文件改动已自动还原（几个文件）/ **没能**自动还原，要先核对文件。重做补相反的说明。`engineFeatures` 的 `undo` 就是“引擎有 `injectNote`”（Codex、Claude、OpenCode、echo；Cursor、Grok、Antigravity、dsh 没有，`session.undo` 回 `INVALID_STATE`，Host 功能 `session_undo` 在没有任何引擎有 `injectNote` 时不声明）。说明补不进去（引擎拒绝）只记告警，撤销照样成立。
+- **与撤回、分支的配合**：Host 数引擎的回合（`#finishedTurns`）时，被撤销的回合仍算引擎的回合（它们还在引擎的历史里），看得见的回合是去掉 `hidden` 的。`session.rewind`（编辑重发）撤的是最后一个**看得见**的回合，同时把它后面被撤销的回合一起从引擎退掉（从后往前每个一次 `rewind`，各写一条 `turn.rewound`）；分支的 `dropTurns` 同样把被撤销的算进去。
+- **客户端**：桌面端输入框的 `/undo`、`/redo`（`/redo` 只在有可重做的回合时列出），撤销之后用户写的那段文字放回输入框（空着时直接显示，否则留作草稿，同编辑），输入框上方有“已撤销 N 个回合 · 重做”横幅（`undo-banner.tsx`），文件没还原时右下角提示原因（`undo-model.ts` 的 `filesNotice`）。desktop-tokens §58。
+- **没做（留给后面）**：协议里按回合单独“还原这个回合的文件”（不隐藏回合）；撤销时引擎自己的上下文也回退（等 Claude、OpenCode 能撤回）；撤销之后提示哪些文件会被重做覆盖；CLI 的 `/undo`；Host 重启后 `undone` 快照因会话关闭被清掉时，已撤销的回合只剩对话能重做。
 
 ## 4. 会话状态机
 
@@ -1220,6 +1244,8 @@ stateDiagram-v2
 | `turn.started` | host | 回合开始；由命令开始的回合带 `command`、没有 `user.message`（0.24.0，§4.7）；为目标工作的回合带 `trigger: 'goal'`，引擎自己开的没有 `user.message`（0.35.0，§3.16） | `session.send` 被接受，Host 发出 `session/prompt`；`session.compact`、`session.review`、`session.setGoal`；引擎开始的目标回合 |
 | `turn.finished` | host | 回合结束 | `session/prompt` 的结果或失败；进程退出；Host 重启 |
 | `turn.rewound` | host | 会话最后一个完成的回合被撤回（0.38.0，§3.18），它的消息从消息记录里去掉 | `session.rewind` |
+| `turn.undone` | host | 回合被撤销（0.51.0，§3.22）：从消息记录里隐藏，文件回到回合开始前（`files`），引擎的上下文补了一条说明；会话开始新回合前可以重做 | `session.undo` |
+| `turn.redone` | host | 撤销的回合被重做（0.51.0，§3.22）：回到消息记录里，文件回到撤销之前 | `session.redo` |
 | `assistant.delta` | engine | 助手文本或思考的增量 | stream-tap 旁路的 `text-delta` / `reasoning-delta`（T3.2a） |
 | `assistant.stream_ended` | engine | 一个 LLM attempt 的增量流结束 | stream-tap 的 `end` 帧 |
 | `assistant.message` | engine | 已提交的助手消息，替换对应增量 | ACP `agent_message_chunk` |
@@ -1345,6 +1371,8 @@ type WevirEvent =
       durationMs: number
     }>
   | WevirEventEnvelope<'turn.rewound', { turnId: TurnId }>   // 0.38.0，§3.18
+  | WevirEventEnvelope<'turn.undone', { turnId: TurnId; files?: FilesRestore }>   // 0.51.0，§3.22
+  | WevirEventEnvelope<'turn.redone', { turnId: TurnId; files?: FilesRestore }>   // 0.51.0，§3.22
   | WevirEventEnvelope<'assistant.delta', {
       turnId: TurnId
       streamId: StreamId

@@ -502,3 +502,13 @@ agent 用 `wevir_share_file` 交出的文件（desktop-layout §20）。照建�
 - **外观**：同菜单——`bg-popover`、`ring-foreground/10`、`shadow-md`、`rounded-xl`、4 px 内边距，两个 `text-sm` 的文字按钮中间一道 1 px 分隔线；暗色是深色小条，浅色是白底（不另做反色）。出现时 150 ms 的淡入加 `zoom-in-95`，消失即时；减弱动效由 `index.css` 的全局规则缩成瞬时。
 - **键盘**：`role="toolbar"`。焦点在消息流上时 Tab 进入第一个按钮，Tab / Shift+Tab / ←→ 在按钮之间循环，Enter 与空格触发，Esc 收起并把焦点还给消息流。
 - **操作**：“添加到对话”经 `composer.tsx` 的 `insertQuote` 把选中的文字作为 Markdown 块引用（每行 `> `，文字照选中的原样，不加任何渲染产物）追加在输入框已有内容后面（隔一个空行），后面留一个空行，输入框获得焦点、光标在末尾（`selection-model.ts` 的 `appendQuote`）。“支线提问”是 `/btw`（§30）的另一个入口：分出支线、开支线窗格，引用放进支线窗格输入框的草稿并聚焦，**不**自动发送——要问什么由用户接着写；Host 或当前引擎不能分支、会话本身是支线时没有这个按钮。文案复用 `command.btw`。
+
+## 58. 撤销与重做
+
+照 opencode 的 `/undo`、`/redo`（维护者 2026-10-17：比 worktree 轻的回退，敢做更大胆的尝试）。语义见 domain-model §3.22，协议 0.51.0。
+
+- **入口**：输入框的斜杠命令 `/undo`（撤销，`command.undo`，图标 `Undo2`）与 `/redo`（重做，`command.redo`，图标 `Redo2`）；`/redo` 只在有可重做的回合（`Transcript.redoTurnIds` 非空）时列出。命令表在 `session/use-composer-commands.tsx`，不进“+”菜单。出现条件：Host 声明 `session_undo` 且会话当前的引擎有 `undo`（`undoSupported`，接力后跟着变）、顶层会话、可写；没有回合时不列 `/undo`。
+- **撤销之后**：最后一个看得见的回合从消息流里消失；用户写的那段文字放回输入框（`undo-model.ts` 的 `promptOfTurn`，`restoreDraft`：输入框空着直接显示，否则留作草稿，同编辑 §50）；只有图片、命令与目标回合没有文字可放。文件没还原（`files.status` 为 `unavailable`）时右下角出一条通知“文件未还原：〈原因〉”（`filesNotice`，走 `reportActionFailure`），原因写成人话：目录不在 Git 仓库中、此回合无快照、此回合之后 HEAD 已变化，其余“无法还原”；文件还原了或本来就一样时不提示，结果直接看得到。
+- **横幅**（`session/undo-banner.tsx`）：撤销之后、会话没开始新回合之前，输入框上方有一条同目标横幅（§48）样式的窄条：撤销图标、“已撤销 N 个回合”（`undo.banner`，各语言按复数写法）、右边是“重做”（`command.redo`）。开始新的回合后横幅消失，被撤销的回合从此不再出现。
+- **失败**：撤销 / 重做被拒（回合进行中 `SESSION_BUSY` 写“会话忙”，其余“撤销失败：…”/“重做失败：…”）写在输入框上方的提示条里，同别的命令；出错或已关闭的会话撤销前先 `session.resume`。
+- **不做**：没有快捷键（⌘Z 留给输入框的文字撤销）、没有消息气泡上的按钮。

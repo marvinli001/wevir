@@ -179,6 +179,12 @@ export const HOST_FEATURES = {
    */
   sessionRewind: 'session_rewind',
   /**
+   * 撤销与重做（0.51.0，domain-model §3.22）：`session.undo` / `session.redo` 与 `turn.undone` / `turn.redone` 事件。撤销把会话目录里的
+   * 文件还原到最后一个回合开始前（靠回合快照，目录要在 git 仓库里），消息记录隐藏这个回合，引擎的上下文里补一条说明。取决于引擎
+   * （看 `engineFeatures` 的 `undo`）；会话所在的引擎不行时 `INVALID_STATE`。
+   */
+  sessionUndo: 'session_undo',
+  /**
    * 不在项目里的会话（0.39.0，domain-model §3.1）：`session.create` 可以不带 `workspaceId`，会话建在 Host 的“对话”工作区
    * （`Workspace.kind` 是 `chats`），每个会话一个新建的文件夹。
    */
@@ -228,6 +234,7 @@ export const HostFeaturesSchema = z.looseObject({
   plan_mode: z.boolean().optional(),
   session_branches: z.boolean().optional(),
   session_rewind: z.boolean().optional(),
+  session_undo: z.boolean().optional(),
   chat_sessions: z.boolean().optional(),
   shared_files: z.boolean().optional(),
 });

@@ -491,6 +491,12 @@ export function checkEvent(
         reject(`会话是 ${projection.state}，回合进行中不能撤回`);
       }
       break;
+    case 'turn.undone':
+    case 'turn.redone':
+      if (projection.activeTurn !== undefined || projection.state !== 'idle') {
+        reject(`会话是 ${projection.state}，回合进行中不能撤销或重做`);
+      }
+      break;
     case 'session.resumed':
       if (
         projection.state !== 'idle' &&

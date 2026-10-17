@@ -13,6 +13,7 @@ import {
   type EngineErrorInfo,
   type EngineFeatures,
   type EnvironmentId,
+  type FilesRestore,
   IMAGE_MAX_PER_MESSAGE,
   type MessageFrom,
   type MethodParams,
@@ -268,6 +269,8 @@ const BRANCH_HISTORY_EVENTS: ReadonlySet<string> = new Set<WevirEventType>([
   'turn.started',
   'turn.finished',
   'turn.rewound',
+  'turn.undone',
+  'turn.redone',
   'assistant.delta',
   'assistant.stream_ended',
   'assistant.message',
@@ -2129,16 +2132,17 @@ export class SessionManager {
       if (session.state === 'error' || session.state === 'closed') {
         throw refuse(`session is ${session.state}; resume it first`);
       }
-      const { turns, handoffSeq } = this.#finishedTurns(source.id);
-      if (turns.length === 0) throw refuse('session has no finished turn to fork from');
-      const index =
+      const { turns, handoffSeq, hidden } = this.#finishedTurns(source.id);
+      const visibleTurns = turns.filter((turn) => !hidden.has(turn.turnId));
+      if (visibleTurns.length === 0) throw refuse('session has no finished turn to fork from');
+      const target =
         params.turnId === undefined
-          ? turns.length - 1
-          : turns.findIndex((turn) => turn.turnId === params.turnId);
-      const target = turns[index];
+          ? visibleTurns.at(-1)
+          : visibleTurns.find((turn) => turn.turnId === params.turnId);
       if (target === undefined) {
         throw invalidContent(['turnId'], 'turnId is not a finished turn of the session');
       }
+      const index = turns.indexOf(target);
       // 刚接力（0.25.0）、新引擎还没跑过回合时，它的会话里没有可分的内容；接力之前的回合不在新引擎里。
       if (this.#events.handoffState(source.id)?.context !== undefined) {
         throw refuse('the session just switched models; send a message before forking');
@@ -2262,8 +2266,8 @@ export class SessionManager {
       if (session.state !== 'idle') {
         throw new HostError('SESSION_BUSY', 'a turn is running', { state: session.state });
       }
-      const { turns, handoffSeq } = this.#finishedTurns(runtime.id);
-      const last = turns.at(-1);
+      const { turns, handoffSeq, hidden } = this.#finishedTurns(runtime.id);
+      const last = turns.filter((turn) => !hidden.has(turn.turnId)).at(-1);
       if (last === undefined || last.turnId !== params.turnId) {
         throw refuse('only the last finished turn can be rewound');
       }
@@ -2274,30 +2278,147 @@ export class SessionManager {
       if (this.#adapter.supports?.(runtime.engineSessionId, 'rewind') === false) {
         throw refuse("the session's engine cannot rewind turns");
       }
-      try {
-        await rewind(runtime.engineSessionId);
-      } catch (error) {
-        const info = engineErrorInfo(error);
-        throw new HostError('ENGINE_ERROR', info.message, info);
+      // 引擎的历史里还留着最后一个看得见的回合之后被撤销的回合（0.51.0）：一并退掉，从后往前，每退一个写一条 `turn.rewound`。
+      const dropped = turns.slice(turns.findIndex((turn) => turn.turnId === last.turnId)).reverse();
+      let seq = 0;
+      for (const turn of dropped) {
+        try {
+          await rewind(runtime.engineSessionId);
+        } catch (error) {
+          const info = engineErrorInfo(error);
+          throw new HostError('ENGINE_ERROR', info.message, info);
+        }
+        seq = this.#events.append(runtime.id, {
+          type: 'turn.rewound',
+          source: 'host',
+          payload: { turnId: turn.turnId },
+        }).seq;
       }
-      const event = this.#events.append(runtime.id, {
-        type: 'turn.rewound',
-        source: 'host',
-        payload: { turnId: last.turnId },
-      });
-      return { seq: event.seq };
+      return { seq };
     });
   }
 
   /**
-   * 会话里完成、没被撤回的回合（`turn.finished` 的 `seq`），按先后；`handoffSeq` 是最近一次接力（`session.handoff`）的 `seq`，没有时
-   * 0。分支与撤回按它数引擎的回合（0.38.0）。
+   * `session.undo`（0.51.0，domain-model §3.22）：撤销会话最后一个看得见的回合——目录里的文件还原到这个回合开始前（回合快照，
+   * §3.13），消息记录隐藏它，引擎的上下文里补一条说明。引擎自己的历史不动，所以不要求引擎能撤回；会话要空闲、不是支线或只读、
+   * 引擎收得了说明（`injectNote`）。文件不能还原（不在 git 仓库、没有快照、HEAD 动过）时对话照样撤销，结果的 `files` 说明；还原
+   * 中途出错回 `INVALID_STATE`，目录已放回原样、不写事件。
+   */
+  async undo(params: MethodParams<'session.undo'>): Promise<MethodResult<'session.undo'>> {
+    return this.#undoRedo(params, 'undo');
+  }
+
+  /** `session.redo`：重做最近撤销的回合；撤销之后会话开始过新回合就没有可重做的了。其余同 `session.undo`。 */
+  async redo(params: MethodParams<'session.redo'>): Promise<MethodResult<'session.redo'>> {
+    return this.#undoRedo(params, 'redo');
+  }
+
+  async #undoRedo(
+    params: { sessionId: SessionId; turnId?: TurnId | undefined },
+    kind: 'undo' | 'redo',
+  ): Promise<{ seq: number; turnId: TurnId; files: FilesRestore }> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    return this.#serial(runtime, async () => {
+      const record = this.#record(runtime);
+      const { session } = this.#snapshot(runtime);
+      const refuse = (message: string) =>
+        new HostError('INVALID_STATE', message, { state: session.state });
+      if (this.#adapter.injectNote === undefined) {
+        throw refuse(`this host engine cannot ${kind} turns`);
+      }
+      if (record.side) throw refuse(`a side session cannot ${kind} turns`);
+      if (session.readOnly !== undefined) throw refuse('session is read-only');
+      if (session.state === 'error' || session.state === 'closed') {
+        throw refuse(`session is ${session.state}; resume it first`);
+      }
+      if (session.state !== 'idle') {
+        throw new HostError('SESSION_BUSY', 'a turn is running', { state: session.state });
+      }
+      const { turns, hidden, redo } = this.#finishedTurns(runtime.id);
+      const targetId =
+        kind === 'undo'
+          ? turns.filter((turn) => !hidden.has(turn.turnId)).at(-1)?.turnId
+          : redo.at(-1);
+      if (targetId === undefined) {
+        throw refuse(kind === 'undo' ? 'there is no turn to undo' : 'there is no turn to redo');
+      }
+      if (params.turnId !== undefined && params.turnId !== targetId) {
+        throw refuse(
+          kind === 'undo'
+            ? 'only the last turn can be undone'
+            : 'only the most recently undone turn can be redone',
+        );
+      }
+      if (!runtime.attachment) await this.#autoResume(runtime);
+      if (this.#adapter.supports?.(runtime.engineSessionId, 'injectNote') === false) {
+        throw refuse(`the session's engine cannot ${kind} turns`);
+      }
+
+      const cwd = this.#checkpointCwd(runtime);
+      let files: FilesRestore = { status: 'unavailable', reason: 'no_checkpoint' };
+      if (cwd !== undefined && this.#checkpoints !== undefined) {
+        try {
+          files = await (kind === 'undo' ? this.#checkpoints.undo : this.#checkpoints.redo).call(
+            this.#checkpoints,
+            runtime.id,
+            cwd,
+            targetId,
+          );
+        } catch (error) {
+          throw refuse(`could not ${kind} the files of the turn: ${errorText(error)}`);
+        }
+      }
+      const event = this.#events.append(runtime.id, {
+        type: kind === 'undo' ? 'turn.undone' : 'turn.redone',
+        source: 'host',
+        payload: { turnId: targetId, files },
+      });
+      const note = undoRedoNote(kind, this.#turnPrompt(runtime.id, targetId), files);
+      this.#adapter.injectNote(runtime.engineSessionId, note).catch((error) =>
+        this.#onWarning('撤销或重做的说明没能补进引擎的上下文', {
+          sessionId: runtime.id,
+          error: errorText(error),
+        }),
+      );
+      return { seq: event.seq, turnId: targetId, files };
+    });
+  }
+
+  /** 一个回合的用户消息文字（前 `UNDO_NOTE_PROMPT_MAX_LENGTH` 字，折叠空白）；命令或目标回合没有，是 `undefined`。 */
+  #turnPrompt(sessionId: SessionId, turnId: TurnId): string | undefined {
+    for (const event of this.#events.readSince(sessionId, 0)) {
+      if (event.type !== 'user.message' || event.payload.turnId !== turnId) continue;
+      const text = event.payload.content
+        .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (text === '') return undefined;
+      return text.length > UNDO_NOTE_PROMPT_MAX_LENGTH
+        ? `${text.slice(0, UNDO_NOTE_PROMPT_MAX_LENGTH)}…`
+        : text;
+    }
+    return undefined;
+  }
+
+  /**
+   * 会话里完成、没被撤回的回合（`turn.finished` 的 `seq`），按先后——这些回合都还在引擎的历史里；`handoffSeq` 是最近一次接力
+   * （`session.handoff`）的 `seq`，没有时 0。分支与撤回按它数引擎的回合（0.38.0）。
+   *
+   * 撤销（0.51.0，§3.22）不改引擎的历史，只让回合在消息记录里隐藏：`hidden` 是现在被撤销的回合，`redo` 是还能重做的（撤销的先后，
+   * 最后一个先重做；会话一开始新回合，栈就清空，那些回合从此只是隐藏）。看得见的回合是 `turns` 去掉 `hidden`。
    */
   #finishedTurns(sessionId: SessionId): {
     turns: Array<{ turnId: TurnId; seq: number }>;
     handoffSeq: number;
+    hidden: Set<TurnId>;
+    redo: TurnId[];
   } {
     const turns: Array<{ turnId: TurnId; seq: number }> = [];
+    const hidden = new Set<TurnId>();
+    let redo: TurnId[] = [];
     let handoffSeq = 0;
     for (const event of this.#events.readSince(sessionId, 0)) {
       if (event.type === 'turn.finished')
@@ -2305,9 +2426,18 @@ export class SessionManager {
       else if (event.type === 'turn.rewound') {
         const index = turns.findIndex((turn) => turn.turnId === event.payload.turnId);
         if (index >= 0) turns.splice(index, 1);
-      } else if (event.type === 'session.handoff') handoffSeq = event.seq;
+        hidden.delete(event.payload.turnId);
+        redo = redo.filter((turnId) => turnId !== event.payload.turnId);
+      } else if (event.type === 'turn.undone') {
+        hidden.add(event.payload.turnId);
+        redo.push(event.payload.turnId);
+      } else if (event.type === 'turn.redone') {
+        hidden.delete(event.payload.turnId);
+        redo = redo.filter((turnId) => turnId !== event.payload.turnId);
+      } else if (event.type === 'turn.started') redo = [];
+      else if (event.type === 'session.handoff') handoffSeq = event.seq;
     }
-    return { turns, handoffSeq };
+    return { turns, handoffSeq, hidden, redo };
   }
 
   /**
@@ -4069,6 +4199,54 @@ export function taskReportNote(
   ];
   lines.push(summary === undefined ? 'It gave no final answer.' : `Its final answer:\n${summary}`);
   lines.push('This is for your information; do not redo that task here unless the user asks.');
+  return lines.join('\n\n');
+}
+
+/** 撤销 / 重做的说明里引用用户消息的字数上限。 */
+const UNDO_NOTE_PROMPT_MAX_LENGTH = 300;
+
+/**
+ * 撤销或重做之后补进引擎上下文的说明（`injectNote`，0.51.0）：引擎的历史里还有这个回合，要告诉模型它的文件改动现在是什么状态。
+ * 文件没能还原（`files.status` 是 `unavailable`）时明说，让模型别当作已还原。
+ */
+export function undoRedoNote(
+  kind: 'undo' | 'redo',
+  prompt: string | undefined,
+  files: FilesRestore,
+): string {
+  const turn =
+    prompt === undefined ? 'one of your earlier turns' : `your earlier turn for "${prompt}"`;
+  const count = files.fileCount ?? 0;
+  const lines: string[] = [];
+  if (kind === 'undo') {
+    lines.push(`The user undid ${turn}. Treat that turn as if it had not happened.`);
+    if (files.status === 'restored') {
+      lines.push(
+        `Its file changes were reverted automatically (${count} file${count === 1 ? '' : 's'}); the working directory is back to how it was before that turn.`,
+      );
+    } else if (files.status === 'unchanged') {
+      lines.push(
+        'The working directory already matched its state before that turn, so nothing needed reverting.',
+      );
+    } else {
+      lines.push(
+        'Its file changes could NOT be reverted automatically; check the files before relying on them.',
+      );
+    }
+  } else {
+    lines.push(`The user redid ${turn}, which they had undone before. It counts again.`);
+    if (files.status === 'restored') {
+      lines.push(
+        `Its file changes were restored (${count} file${count === 1 ? '' : 's'}); the working directory is back to how it was after that turn.`,
+      );
+    } else if (files.status === 'unchanged') {
+      lines.push('The working directory already matched its state after that turn.');
+    } else {
+      lines.push(
+        'Its file changes could NOT be restored automatically; check the files before relying on them.',
+      );
+    }
+  }
   return lines.join('\n\n');
 }
 

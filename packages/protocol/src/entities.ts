@@ -871,8 +871,22 @@ export const EngineFeaturesSchema = z.object({
   branch: z.boolean().optional(),
   /** 撤回最后一个回合（0.38.0，`session.rewind`，还要 Host 声明 `session_rewind`）。 */
   rewind: z.boolean().optional(),
+  /** 撤销 / 重做回合（0.51.0，`session.undo` / `session.redo`，还要 Host 声明 `session_undo`）：引擎能收到补进上下文的说明（`injectNote`）。 */
+  undo: z.boolean().optional(),
 });
 export type EngineFeatures = z.infer<typeof EngineFeaturesSchema>;
+
+/**
+ * 撤销 / 重做时会话目录里的文件怎么样了（0.51.0，domain-model §3.22）：`restored` 还原了 `fileCount` 个文件，`unchanged` 目录本来就是
+ * 那个样子，`unavailable` 没动文件，`reason`（开放字符串）说为什么：`not_git`（目录不在 git 仓库里）、`no_checkpoint`（这个回合没有快照）、
+ * `head_moved`（回合之后 HEAD 动过，还原文件会和提交打架）、`failed`（还原失败，目录已按原样放回）。
+ */
+export const FilesRestoreSchema = z.object({
+  status: z.enum(['restored', 'unchanged', 'unavailable']),
+  reason: z.string().min(1).optional(),
+  fileCount: z.int().min(0).optional(),
+});
+export type FilesRestore = z.infer<typeof FilesRestoreSchema>;
 
 /**
  * 接力的方式（0.25.0，开放字符串）：`full_thread_summary`：第一次用这个来源，交给它整段对话的摘要；

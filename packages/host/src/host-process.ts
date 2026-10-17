@@ -412,6 +412,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.planMode === true && { plan_mode: true }),
         ...(adapter.fork !== undefined && adapter.branches === true && { session_branches: true }),
         ...(adapter.rewind !== undefined && { session_rewind: true }),
+        ...(adapter.injectNote !== undefined && { session_undo: true }),
       },
       engineFeatures,
       plugins,

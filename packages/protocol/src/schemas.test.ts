@@ -34,6 +34,7 @@ import {
   ErrorDataSchemas,
   EventPayloadSchemas,
   EventSourceSchema,
+  FilesRestoreSchema,
   GitFileChangeSchema,
   GitObjectIdSchema,
   GoalStatusSchema,
@@ -643,6 +644,21 @@ const standaloneCases: Case[] = [
         count: 101,
         items: Array.from({ length: 101 }, () => ({ name: 'a', tokens: 1 })),
       },
+    ],
+  },
+  {
+    name: 'FilesRestore',
+    schema: FilesRestoreSchema,
+    valid: [
+      { status: 'restored', fileCount: 2 },
+      { status: 'unchanged' },
+      { status: 'unavailable', reason: 'head_moved' },
+    ],
+    invalid: [
+      {},
+      { status: 'done' },
+      { status: 'restored', fileCount: -1 },
+      { status: 'unavailable', reason: '' },
     ],
   },
   {

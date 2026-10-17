@@ -775,6 +775,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.fork': async (params) => ({ session: await sessions.fork(params) }),
     'session.rewind': (params) => sessions.rewind(params),
+    'session.undo': (params) => sessions.undo(params),
+    'session.redo': (params) => sessions.redo(params),
 
     // 0.24.0：由命令开始的回合，没有 user.message（domain-model §4.7）。
     'session.compact': ({ sessionId }) => sessions.compact(sessionId),

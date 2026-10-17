@@ -33,6 +33,7 @@ import {
   EngineFeaturesSchema,
   EnvironmentFolderSchema,
   EnvironmentSchema,
+  FilesRestoreSchema,
   GOAL_OBJECTIVE_MAX_CHARS,
   HostSettingsSchema,
   HttpUrlSchema,
@@ -718,6 +719,29 @@ export const SessionRewindResultSchema = z.object({
   seq: SeqSchema,
 });
 
+/**
+ * `session.undo`（0.51.0，Host 功能 `session_undo`，domain-model §3.22）：撤销会话最后一个看得见的回合——会话目录里的文件还原到这个
+ * 回合开始前（靠回合快照，§3.13），消息记录隐藏这个回合，引擎的上下文里补一条说明（引擎自己的历史不动）。`turnId` 给了就必须是那个
+ * 回合。写一条 `turn.undone`。可以连着撤销更早的回合。
+ */
+export const SessionUndoParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  turnId: TurnIdSchema.optional(),
+});
+
+export const SessionUndoResultSchema = z.object({
+  seq: SeqSchema,
+  turnId: TurnIdSchema,
+  files: FilesRestoreSchema,
+});
+
+/**
+ * `session.redo`（0.51.0，Host 功能 `session_undo`）：重做最近撤销的回合——文件回到撤销之前的样子，回合回到消息记录里，引擎的上下文里
+ * 补一条说明。要在撤销之后、会话没开始新回合时才行（否则 `INVALID_STATE`）。`turnId` 给了就必须是那个回合。写一条 `turn.redone`。
+ */
+export const SessionRedoParamsSchema = SessionUndoParamsSchema;
+export const SessionRedoResultSchema = SessionUndoResultSchema;
+
 /** 会话标题的最大长度（`session.rename`，0.23.0）。 */
 export const SESSION_TITLE_MAX_LENGTH = 200;
 
@@ -1348,6 +1372,16 @@ export const MethodSchemas = {
   'session.rewind': {
     params: SessionRewindParamsSchema,
     result: SessionRewindResultSchema,
+    permission: 'session.write',
+  },
+  'session.undo': {
+    params: SessionUndoParamsSchema,
+    result: SessionUndoResultSchema,
+    permission: 'session.write',
+  },
+  'session.redo': {
+    params: SessionRedoParamsSchema,
+    result: SessionRedoResultSchema,
     permission: 'session.write',
   },
   'session.compact': {

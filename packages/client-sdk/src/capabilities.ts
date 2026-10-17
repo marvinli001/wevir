@@ -97,3 +97,11 @@ export function rewindSupported(
 ): boolean {
   return hostSupports(features, 'session_rewind') && engine?.rewind === true;
 }
+
+/**
+ * 会话能不能撤销与重做回合（0.51.0，`session.undo` / `session.redo`）：Host 声明了 `session_undo`，且会话当前的引擎收得了补进上下文的
+ * 说明（`engineFeatures` 的 `undo`）。
+ */
+export function undoSupported(features: HostFeatures, engine: EngineFeatures | undefined): boolean {
+  return hostSupports(features, 'session_undo') && engine?.undo === true;
+}

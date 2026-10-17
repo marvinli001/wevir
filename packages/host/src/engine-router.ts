@@ -386,6 +386,7 @@ export function engineFeaturesOf(name: string, adapter: AgentRuntimeAdapter): En
     ...(adapter.startGoal !== undefined && { goals: true }),
     ...(adapter.fork !== undefined && adapter.branches === true && { branch: true }),
     ...(adapter.rewind !== undefined && { rewind: true }),
+    ...(adapter.injectNote !== undefined && { undo: true }),
   };
 }
 

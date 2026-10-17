@@ -19,6 +19,7 @@ import {
   CollaborationModeSchema,
   CompactionTriggerSchema,
   EngineErrorCategorySchema,
+  FilesRestoreSchema,
   HandoffStrategySchema,
   MessageFromSchema,
   PendingMessageSchema,
@@ -209,6 +210,19 @@ export const EventPayloadSchemas = {
    */
   'turn.rewound': z.object({
     turnId: TurnIdSchema,
+  }),
+  /**
+   * 回合被撤销（0.51.0，`session.undo`，domain-model §3.22）：这个回合（会话最后一个看得见的回合）从消息记录里隐藏，会话目录里的文件
+   * 回到回合开始前（`files` 说文件怎么样了）。引擎的上下文不变，Host 往里补了一条说明；回合还能 `session.redo`，直到会话开始新的回合。
+   */
+  'turn.undone': z.object({
+    turnId: TurnIdSchema,
+    files: FilesRestoreSchema.optional(),
+  }),
+  /** 撤销的回合被重做（0.51.0，`session.redo`）：它回到消息记录里，文件回到撤销之前的样子。 */
+  'turn.redone': z.object({
+    turnId: TurnIdSchema,
+    files: FilesRestoreSchema.optional(),
   }),
   'assistant.delta': z.object({
     turnId: TurnIdSchema,
@@ -470,6 +484,8 @@ export const UserMessageEventSchema = eventSchema('user.message');
 export const TurnStartedEventSchema = eventSchema('turn.started');
 export const TurnFinishedEventSchema = eventSchema('turn.finished');
 export const TurnRewoundEventSchema = eventSchema('turn.rewound');
+export const TurnUndoneEventSchema = eventSchema('turn.undone');
+export const TurnRedoneEventSchema = eventSchema('turn.redone');
 export const AssistantDeltaEventSchema = eventSchema('assistant.delta');
 export const AssistantStreamEndedEventSchema = eventSchema('assistant.stream_ended');
 export const AssistantMessageEventSchema = eventSchema('assistant.message');
@@ -514,6 +530,8 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   TurnStartedEventSchema,
   TurnFinishedEventSchema,
   TurnRewoundEventSchema,
+  TurnUndoneEventSchema,
+  TurnRedoneEventSchema,
   AssistantDeltaEventSchema,
   AssistantStreamEndedEventSchema,
   AssistantMessageEventSchema,

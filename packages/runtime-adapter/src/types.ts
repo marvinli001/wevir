@@ -202,8 +202,13 @@ export interface GoalStartRequest {
   input: AgentInput;
 }
 
-/** `supports` 能问的：可选方法，计划模式（0.36.0，`planMode`），分支与撤回（0.38.0，`branch` 是 `fork` 的 `{ kind: 'branch' }`）。 */
-export type SessionCapability = SessionCommandMethod | 'planMode' | 'branch' | 'rewind';
+/** `supports` 能问的：可选方法，计划模式（0.36.0，`planMode`），分支与撤回（0.38.0，`branch` 是 `fork` 的 `{ kind: 'branch' }`），补说明（0.51.0，撤销与重做靠它告诉引擎）。 */
+export type SessionCapability =
+  | SessionCommandMethod
+  | 'planMode'
+  | 'branch'
+  | 'rewind'
+  | 'injectNote';
 
 /** `generateTitle` 的请求（prompts/README.md「会话标题」）。 */
 export interface TitleRequest {
