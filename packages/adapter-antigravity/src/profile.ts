@@ -246,7 +246,8 @@ async function verifyBrowserHelper(executable: string, env: NodeJS.ProcessEnv): 
 /**
  * 运行体在 GEMINI_HOME 下读用户全局的 skills，而 GEMINI_HOME 是私有 profile：把这两个目录链回用户真正的 `~/.gemini`，
  * 全局 skills 照常加载，MCP 服务、hooks 与凭据仍然隔离。尽力而为：链不上只少了全局 skills；链接位置已有真目录时那是
- * 用户自己的内容，不动。
+ * 用户自己的内容，不动。用户那边没有这个目录（没装 `agy` CLI 时 `antigravity-cli/skills` 通常不存在）就不链，以前链过的
+ * 删掉：悬空的链接会被运行体解析成真实路径交给模型，模型拿它当工作目录，命令就起不来。
  */
 async function linkUserSkills(
   geminiHome: string,
@@ -266,6 +267,14 @@ async function linkUserSkills(
           if (error.code === 'ENOENT') return undefined;
           throw error;
         });
+      const present = await fsp.stat(target).then(
+        (stats) => stats.isDirectory(),
+        () => false,
+      );
+      if (!present) {
+        if (existing !== undefined) await fsp.rm(link, { force: true });
+        continue;
+      }
       if (existing === target) continue;
       if (existing !== undefined) await fsp.rm(link, { force: true });
       await fsp.mkdir(path.dirname(link), { recursive: true });

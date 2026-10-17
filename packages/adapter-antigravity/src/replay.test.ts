@@ -92,6 +92,50 @@ describe('Antigravity 样本回放', () => {
     expect(JSON.stringify(events)).not.toContain('BBBBBBBBBB');
   });
 
+  it('失败的原因在 rawOutput 里（字符串或 error 字段）时作为工具输出，不再是“无输出”', async () => {
+    const failed = (toolCallId: string, title: string, rawOutput: unknown, content?: unknown) => [
+      {
+        sessionId: SESSION,
+        update: { sessionUpdate: 'tool_call', toolCallId, title, kind: 'other', status: 'pending' },
+      },
+      {
+        sessionId: SESSION,
+        update: {
+          sessionUpdate: 'tool_call_update',
+          toolCallId,
+          status: 'failed',
+          rawOutput,
+          ...(content !== undefined && { content }),
+        },
+      },
+    ];
+    const events = await replay([
+      // T3 的 antigravitySubagentOutput 按字符串读 start_subagent 的 rawOutput。
+      ...failed('sub-1', 'Running start_subagent', 'missing required argument: Prompt'),
+      ...failed('read-1', 'view_file', {
+        error: { message: 'open instructions.md: no such file' },
+      }),
+      ...failed('cmd-1', 'run_command', { exitCode: 1, error: 'chdir: no such file or directory' }),
+      // 已有文本内容时以它为准。
+      ...failed('mcp-1', 'Running wevir_models', 'raw text', [
+        { type: 'content', content: { type: 'text', text: 'from content' } },
+      ]),
+      ...failed('empty-1', 'run_command', { exitCode: 1 }),
+    ]);
+    const outputs = Object.fromEntries(
+      events.flatMap((event) =>
+        event.type === 'tool.finished' ? [[event.toolCallId, event.output]] : [],
+      ),
+    );
+    expect(outputs).toEqual({
+      'sub-1': 'missing required argument: Prompt',
+      'read-1': 'open instructions.md: no such file',
+      'cmd-1': 'chdir: no such file or directory',
+      'mcp-1': 'from content',
+      'empty-1': undefined,
+    });
+  });
+
   it('模型列表来自 configOptions 的 model 选项：分组摊平、去重、当前值是默认', () => {
     expect(antigravityModelsFromSetup(SESSION_SETUP)).toEqual({
       models: [
@@ -148,8 +192,32 @@ describe('Antigravity 样本回放', () => {
     expect(
       antigravityToolDisplay('Read file', {}, { kind: 'read', locations: [{ path: 'a.ts' }] }),
     ).toEqual({ kind: 'read', paths: ['a.ts'], summary: 'a.ts' });
-    expect(antigravityToolDisplay('Running start_subagent', {}, { kind: 'other' })).toMatchObject({
+    expect(antigravityToolDisplay('Running start_subagent', {}, { kind: 'other' })).toEqual({
       kind: 'sub_agent',
+      summary: 'start_subagent',
+    });
+    expect(
+      antigravityToolDisplay(
+        'Running start_subagent',
+        { Description: 'Verify the smoke test\nthen report', Prompt: 'long prompt' },
+        { kind: 'other' },
+      ),
+    ).toEqual({ kind: 'sub_agent', summary: 'Verify the smoke test' });
+    // 标题是“Running <工具>”的句子：摘要只写工具名；涉及的路径放在 paths，不顶替工具名。
+    expect(
+      antigravityToolDisplay(
+        'Running wevir_share_file',
+        { path: 'a.md' },
+        { kind: 'other', _meta: { is_mcp_tool_call: true }, locations: [{ path: '/w/a.md' }] },
+      ),
+    ).toEqual({ kind: 'unknown', summary: 'wevir_share_file', paths: ['/w/a.md'] });
+    expect(antigravityToolDisplay('Run generate_image?', {}, { kind: 'other' })).toEqual({
+      kind: 'unknown',
+      summary: 'generate_image',
+    });
+    expect(antigravityToolDisplay('Running the tests', {}, { kind: 'other' })).toEqual({
+      kind: 'unknown',
+      summary: 'Running the tests',
     });
     expect(
       antigravityToolDisplay(

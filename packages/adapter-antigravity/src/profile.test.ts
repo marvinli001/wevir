@@ -1,6 +1,15 @@
 // 私有 profile、环境与登录网址（profile.ts）：照 T3 的 antigravityAuthSupport 测试挑的情形。
 
-import { mkdirSync, readFileSync, readlinkSync, statSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readlinkSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -132,6 +141,36 @@ describe.skipIf(process.platform === 'win32')('prepareAntigravityProfile', () =>
       readFileSync(path.join(profileDirectory, 'antigravity-cli', 'skills', 'mine.md'), 'utf8'),
     ).toBe('x');
     expect(warnings).toHaveLength(1);
+  });
+
+  it('用户没有的 skills 目录不链，以前留下的悬空链接删掉；目录出现后下次启动再链上', async () => {
+    const userHome = path.join(dir, 'home');
+    const configSkills = path.join(userHome, '.gemini', 'config', 'skills');
+    mkdirSync(configSkills, { recursive: true });
+    const cliSkills = path.join(userHome, '.gemini', 'antigravity-cli', 'skills');
+    const profileDirectory = path.join(dir, 'profile');
+    const cliLink = path.join(profileDirectory, 'antigravity-cli', 'skills');
+    mkdirSync(path.dirname(cliLink), { recursive: true });
+    symlinkSync(cliSkills, cliLink, 'dir');
+    const prepare = (warnings: string[]) =>
+      prepareAntigravityProfile({
+        profileDirectory,
+        tempDirectory: path.join(dir, 'tmp'),
+        baseEnv: { PATH: process.env.PATH },
+        userHome,
+        warn: (message) => warnings.push(message),
+      });
+    const warnings: string[] = [];
+    await prepare(warnings);
+    expect(readlinkSync(path.join(profileDirectory, 'config', 'skills'))).toBe(configSkills);
+    expect(() => lstatSync(cliLink)).toThrow();
+    expect(warnings).toEqual([]);
+
+    mkdirSync(cliSkills, { recursive: true });
+    await prepare(warnings);
+    expect(readlinkSync(cliLink)).toBe(cliSkills);
+    expect(existsSync(cliLink)).toBe(true);
+    expect(warnings).toEqual([]);
   });
 
   it('BROWSER 钩子跑不起来时拒绝启动，避免运行体去开系统浏览器', async () => {

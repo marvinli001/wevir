@@ -200,10 +200,40 @@ export function normalizeAntigravityUpdate(
   };
 }
 
+/** `rawOutput` 里报失败原因的字段（按先后取第一个有文字的）。 */
+const RAW_OUTPUT_TEXT_FIELDS = [
+  'error',
+  'Error',
+  'errorMessage',
+  'error_message',
+  'message',
+  'output',
+  'stderr',
+] as const;
+
+/**
+ * 运行体放在 `rawOutput` 里的输出：命令的 `combinedOutput`；失败的工具（`start_subagent`、读不到的文件、起不来的命令）把原因
+ * 写成字符串（T3 的 `antigravitySubagentOutput` 也按字符串读）或 `error` / `message` 等字段。没有文本内容时它就是工具输出，
+ * 否则失败的调用在界面上只剩“无输出”。
+ */
 function nativeOutput(rawOutput: unknown): string | undefined {
+  if (typeof rawOutput === 'string') {
+    return rawOutput.trim() === '' ? undefined : boundText(rawOutput);
+  }
   if (!isRecord(rawOutput)) return undefined;
-  const output = rawOutput.combinedOutput ?? rawOutput.combined_output;
-  return typeof output === 'string' ? boundText(output) : undefined;
+  const command = rawOutput.combinedOutput ?? rawOutput.combined_output;
+  if (typeof command === 'string') return boundText(command);
+  for (const field of RAW_OUTPUT_TEXT_FIELDS) {
+    const value = rawOutput[field];
+    const text =
+      typeof value === 'string'
+        ? value
+        : isRecord(value) && typeof value.message === 'string'
+          ? value.message
+          : undefined;
+    if (text !== undefined && text.trim() !== '') return boundText(text);
+  }
+  return undefined;
 }
 
 /** 原生命令工具的命令行（不同版本的字段名不一样）。 */
@@ -218,6 +248,43 @@ export function antigravityCommand(rawInput: unknown, rawOutput?: unknown): stri
     str(output.commandLine) ??
     str(output.command_line);
   return command === undefined ? undefined : boundText(command);
+}
+
+/**
+ * 工具的名字：运行体给的标题是 `Running wevir_models`、`Run start_subagent?` 这类句子（`run_command` 等原生工具只有名字），
+ * 摘要里只写工具名。
+ */
+export function antigravityToolName(title: string): string {
+  const match = /^(?:Running\s+(\S+)|Run\s+(\S+)\?)$/u.exec(title.trim());
+  return match?.[1] ?? match?.[2] ?? title;
+}
+
+/** 子 agent 的输入里说明它做什么的字段（字段名随版本变），按先后取第一个。 */
+const SUBAGENT_SUMMARY_FIELDS = [
+  'description',
+  'Description',
+  'TaskName',
+  'task_name',
+  'taskName',
+  'task',
+  'Task',
+  'SubagentName',
+  'subagent_name',
+  'name',
+  'Name',
+  'prompt',
+  'Prompt',
+] as const;
+
+function subagentSummary(rawInput: unknown): string | undefined {
+  if (!isRecord(rawInput)) return undefined;
+  for (const field of SUBAGENT_SUMMARY_FIELDS) {
+    const value = str(rawInput[field]);
+    if (value === undefined) continue;
+    const line = value.split('\n')[0]?.trim() || value;
+    return line.length > 200 ? `${line.slice(0, 199)}…` : line;
+  }
+  return undefined;
 }
 
 /** ACP 1.1.1 起子 agent 是普通工具（`start_subagent`），没有子会话 ID；MCP 的同名工具不算。 */
@@ -242,13 +309,14 @@ export function antigravityToolDisplay(
     : [];
   const withPaths = paths.length > 0 ? { paths, summary: paths.join(', ') } : {};
   const command = antigravityCommand(rawInput, update.rawOutput);
+  const name = antigravityToolName(toolName);
   if (isAntigravitySubagentTool(toolName, update.kind, update._meta)) {
-    return { kind: 'sub_agent', summary: toolName };
+    return { kind: 'sub_agent', summary: subagentSummary(rawInput) ?? name };
   }
   switch (update.kind) {
     case 'execute':
       return command === undefined
-        ? { kind: 'shell', summary: toolName }
+        ? { kind: 'shell', summary: name }
         : { kind: 'shell', summary: command, command };
     case 'read':
       return { kind: 'read', ...withPaths };
@@ -261,12 +329,13 @@ export function antigravityToolDisplay(
     case 'fetch': {
       const url = isRecord(rawInput) ? (str(rawInput.url) ?? str(rawInput.Url)) : undefined;
       return url === undefined
-        ? { kind: 'fetch', summary: toolName }
+        ? { kind: 'fetch', summary: name }
         : { kind: 'fetch', summary: url, url };
     }
+    // 别的工具摘要写工具名，涉及的路径只放在 `paths` 里（否则一行里只剩文件名，看不出调了什么）。
     default:
       return command === undefined
-        ? { kind: 'unknown', summary: toolName, ...withPaths }
+        ? { kind: 'unknown', ...withPaths, summary: name }
         : { kind: 'shell', summary: command, command };
   }
 }

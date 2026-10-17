@@ -34,7 +34,7 @@
 - **私有 profile。** `GEMINI_HOME=<数据目录>/engines/antigravity/profile`，`AGY_ACP_FORCE_FILE_STORAGE=1`（不用系统钥匙串）。登录存在 `profile/antigravity-acp/acp_token.json`，由运行体自己读写；**Wevir 不读这个文件的内容**（AGENTS.md 规则 5），只看它在不在（§6）。每次启动重写 `antigravity-acp/settings.json`（只有 `{"auth":{"type":"oauth-personal"}}`）。目录权限 0700。
 - **去掉会盖过 profile 登录的环境变量**：`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`GOOGLE_CLOUD_*`、`GCLOUD_PROJECT` 等（Windows 上不分大小写），以及外面带进来的 `GEMINI_HOME`、`BROWSER`、`TMPDIR` 相关项。只支持个人 Google 账号（`oauth-personal`）；T3 的 Gemini API Key、Gemini Enterprise、Vertex 方式没有移植（Wevir 不保存这类密钥）。
 - **自己的临时目录。** 每个进程一个 `tmp/run-*`（`TMPDIR`，Windows 是 `TEMP` / `TMP`），进程退出、适配器 dispose 时删掉；第一次启动任何进程之前清掉上一个 Host 被杀时留下的。
-- **全局 skills。** 运行体在 `GEMINI_HOME` 下读 `config/skills` 与 `antigravity-cli/skills`，profile 里这两个位置链接到用户的 `~/.gemini/…`（链不上只告警；已有真目录不动）。MCP 服务、hooks 与凭据仍然隔离。
+- **全局 skills。** 运行体在 `GEMINI_HOME` 下读 `config/skills` 与 `antigravity-cli/skills`，profile 里这两个位置链接到用户的 `~/.gemini/…`（链不上只告警；已有真目录不动）。用户那边没有的目录不链，以前链过的删掉：运行体会把悬空的链接解析成真实路径交给模型，模型拿它当命令的工作目录，命令起不来（没装 `agy` CLI 时 `antigravity-cli/skills` 通常不存在）。每次启动都重新核对，目录出现后下次启动链上。MCP 服务、hooks 与凭据仍然隔离。
 - **其他。** Linux 上带 `--uid=`；`ANTIGRAVITY_HARNESS_PATH` 指向同目录的 harness；`PYTHONUNBUFFERED=1`；POSIX 上 detached 启动，回收时信号发给整个进程组。
 - **adapter-acp 的钩子**（acp-event-mapping.md §0.2）：接受协议版本 1 与 2（1.1.1 报 2，线上仍是 v1 格式）；stdout 上以登录提示开头的行不是 JSON-RPC，在 ACP 解码之前去掉；stderr 上认 BROWSER 钩子写的网址；会话进程在 `initialize` 之后先 `authenticate`（§6）。
 
@@ -45,8 +45,8 @@
 | 项 | Antigravity |
 |---|---|
 | `messageChunks` | `streamed`：`agent_message_chunk` / `agent_thought_chunk` 是逐字增量、没有 `messageId`（T3 的样本），适配器把连续的增量合成一块，发 `assistant.delta`，块结束时补 `assistant.message` / `assistant.thought`（`replaces` 指向这些增量）与 `assistant.stream_ended`（acp-event-mapping.md §1.5）。契约能力 `incrementalStream: true` |
-| `tools.display` | 按 ACP 的 `kind`：`execute` → shell（命令取原生字段 `CommandLine` / `command_line` / `commandLine` / `command`），`read`、`edit`（含 `delete`、`move`）、`search`、`fetch`（`url`），路径取 `locations`；标题为 `Running start_subagent` / `Run start_subagent?` 的 `other` 工具是子 agent（MCP 的同名工具不算，`_meta.is_mcp_tool_call`），只作工具卡片，没有子会话 |
-| `normalizeUpdate` | `tool_call` / `tool_call_update` 进映射之前给标题、`rawInput`、`rawOutput`、`content`、`_meta` 设上限（文本只留最后 8000 字、去掉图片数据，T3 的 sanitize）；命令的 `rawOutput.combinedOutput` 放进文本内容，作为 `tool.finished.output` |
+| `tools.display` | 按 ACP 的 `kind`：`execute` → shell（命令取原生字段 `CommandLine` / `command_line` / `commandLine` / `command`），`read`、`edit`（含 `delete`、`move`）、`search`、`fetch`（`url`），路径取 `locations`；标题为 `Running start_subagent` / `Run start_subagent?` 的 `other` 工具是子 agent（MCP 的同名工具不算，`_meta.is_mcp_tool_call`），只作工具卡片，没有子会话，摘要取输入里的说明（`description`、`TaskName`、`prompt` 等第一个有文字的字段）。别的工具（含 MCP 工具）的标题是 `Running wevir_models` / `Run generate_image?` 这类句子，摘要只写工具名（事件的 `toolName` 仍是原标题）；`locations` 只进 `paths`，不顶替工具名 |
+| `normalizeUpdate` | `tool_call` / `tool_call_update` 进映射之前给标题、`rawInput`、`rawOutput`、`content`、`_meta` 设上限（文本只留最后 8000 字、去掉图片数据，T3 的 sanitize）；没有文本内容时，`rawOutput` 里的输出放进文本内容，作为 `tool.finished.output`：命令的 `combinedOutput`，否则是字符串的 `rawOutput`（失败的 `start_subagent` 等，T3 的 `antigravitySubagentOutput` 也这样读）或 `error` / `message` / `output` / `stderr` 字段的文字。失败的调用因此带着原因，而不是“无输出” |
 | `route` | 模型选项 `model` 的值就是模型 ID（Google 账号能用的原生 ID，思考档位在 ID 里，例如 `gemini-3.7-flash-high`），没有推理强度选项 |
 | `classifyTurnError` | `-32000` 或要登录的措辞 → `missing_credentials`（账号同时改为未登录，§6）；`SUBSCRIPTION_REQUIRED`、`RESOURCE_EXHAUSTED`、额度、限流、429 → `provider`；其余 `unknown` |
 | `classifyResumeError` | 找不到会话的措辞 → `lost`（`not_found`）；`already active` → `already_active`；其余 `unknown`。Antigravity 的原文没有录过，待真机核对 |
