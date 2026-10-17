@@ -79,8 +79,10 @@ export interface UpdateControllerOptions {
   log: UpdateLog;
   /** 启动后第一次检查的延迟，默认 30 s。 */
   firstCheckMs?: number;
-  /** 之后每隔多久检查一次，默认 4 h。 */
+  /** 之后每隔多久检查一次，默认 1 h。 */
   intervalMs?: number;
+  /** 唤醒或回到前台时，上次检查早于这么久就补查一次（checkIfStale），默认 15 min。 */
+  staleAfterMs?: number;
   /** 取清单的整体超时，默认 15 s。 */
   checkTimeoutMs?: number;
   /** 测速的超时，默认 8 s。 */
@@ -164,6 +166,19 @@ export class UpdateController implements FeedSource {
   stop(): void {
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#timer = undefined;
+  }
+
+  /**
+   * 唤醒或回到前台时调用：上次检查已过去 `staleAfterMs` 以上就马上补查，并从现在重新计时。睡眠时计时器不走（macOS 的单调
+   * 时钟睡眠时停住），只靠定时检查的话，常合盖的机器要隔很久才查到。第一次检查之前不补查（启动后的 30 s 延迟照旧）。
+   */
+  checkIfStale(): void {
+    if (this.#timer === undefined) return;
+    const { lastCheckedAt } = this.#state;
+    if (lastCheckedAt === undefined) return;
+    const staleAfterMs = this.#options.staleAfterMs ?? 15 * 60 * 1000;
+    if (this.#now() - Date.parse(lastCheckedAt) < staleAfterMs) return;
+    this.#schedule(0);
   }
 
   /** 检查更新。下载中、已下载或正在安装时不做（不打断）。每次从头来：之前失败过的线路重新参加竞速。 */
@@ -341,9 +356,7 @@ export class UpdateController implements FeedSource {
   #schedule(delayMs: number): void {
     this.stop();
     this.#timer = setTimeout(() => {
-      void this.check().finally(() =>
-        this.#schedule(this.#options.intervalMs ?? 4 * 60 * 60 * 1000),
-      );
+      void this.check().finally(() => this.#schedule(this.#options.intervalMs ?? 60 * 60 * 1000));
     }, delayMs);
     this.#timer.unref?.();
   }

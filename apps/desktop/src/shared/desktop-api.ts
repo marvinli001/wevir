@@ -128,6 +128,46 @@ export interface WindowChrome {
 /** 更新通道（ADR-0007 补记 2）：正式版只收正式版，开发版也收正式版。 */
 export type UpdateChannel = 'stable' | 'dev';
 
+/** macOS 应用菜单（main/app-menu.ts）各项的文字，渲染进程按界面语言送来。 */
+export const APP_MENU_LABEL_KEYS = [
+  'about',
+  'settings',
+  'checkForUpdates',
+  'services',
+  'hide',
+  'hideOthers',
+  'showAll',
+  'quit',
+  'file',
+  'closeWindow',
+  'edit',
+  'undo',
+  'redo',
+  'cut',
+  'copy',
+  'paste',
+  'pasteAndMatchStyle',
+  'delete',
+  'selectAll',
+  'view',
+  'reload',
+  'forceReload',
+  'toggleDevTools',
+  'resetZoom',
+  'zoomIn',
+  'zoomOut',
+  'toggleFullScreen',
+  'window',
+  'minimize',
+  'zoom',
+  'bringAllToFront',
+] as const;
+
+export type AppMenuLabels = Record<(typeof APP_MENU_LABEL_KEYS)[number], string>;
+
+/** 应用菜单要求打开的设置页：设置…打开常规，检查更新…打开关于（更新状态在那里）。 */
+export type MenuSettingsTab = 'general' | 'about';
+
 /** 自动更新出错的原因码，由渲染进程说成话；`detail` 是原文。 */
 export type UpdateErrorCode =
   /** 所有线路都连不上或没有清单。 */
@@ -283,6 +323,10 @@ export interface DesktopApi {
    * 从这个菜单打开或退出。
    */
   setTrayLabels(labels: { open: string; quit: string }): Promise<void>;
+  /** macOS 应用菜单的文字，按界面语言（main/app-menu.ts）；其他平台不做事。 */
+  setAppMenuLabels(labels: AppMenuLabels): Promise<void>;
+  /** 订阅应用菜单的“设置…”与“检查更新…”：主进程已显示窗口，渲染进程跳到对应的设置页。返回取消订阅的函数。 */
+  onOpenSettings(listener: (tab: MenuSettingsTab) => void): () => void;
   /** 设置 → 存储：数据目录各类占了多少（shared/storage.ts）。要把整个目录走一遍，大的 worktree 会慢。 */
   getStorageUsage(): Promise<StorageUsage>;
   /** 清理所选的几类（缓存、内置浏览器的数据、日志），返回清完之后重新量的结果。 */
@@ -363,6 +407,9 @@ export const IPC_CHANNELS = {
   setUpdateChannel: 'wevir:set-update-channel',
   moveToApplications: 'wevir:move-to-applications',
   setTrayLabels: 'wevir:set-tray-labels',
+  setAppMenuLabels: 'wevir:set-app-menu-labels',
+  /** 主进程 → 渲染进程的推送。 */
+  openSettings: 'wevir:open-settings',
   getStorageUsage: 'wevir:get-storage-usage',
   cleanStorage: 'wevir:clean-storage',
   browserExecute: 'wevir:browser-execute',

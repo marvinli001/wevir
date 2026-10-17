@@ -268,7 +268,7 @@ pnpm --filter @wevir/desktop package
   ```
 
   后者把 `apps/desktop/release/` 里的清单、它列出的文件与 blockmap 复制到 `<out>/desktop/<平台>-<架构>/`，写签名并用内置公钥核对。把 `<out>` 同步到每条线路的根即可：先传安装包，最后传清单与签名。
-- **本机验收**：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,optimized=http://127.0.0.1:8702` 换掉两条线路（照样验签），`WEVIR_UPDATE_FIRST_CHECK_MS` 改启动后第一次检查的延迟（默认 30 s，之后每 4 小时）。服务器要支持 Range（测速与差分下载）。
+- **本机验收**：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,optimized=http://127.0.0.1:8702` 换掉两条线路（照样验签），`WEVIR_UPDATE_FIRST_CHECK_MS` 改启动后第一次检查的延迟（默认 30 s，之后每小时；唤醒、回到前台时上次检查早于 15 分钟就补查）。服务器要支持 Range（测速与差分下载）。
 
 ## 4. 离线开发：echo 假引擎
 

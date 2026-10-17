@@ -14,6 +14,7 @@ import {
   dialog,
   type IpcMainInvokeEvent,
   ipcMain,
+  Menu,
   Notification,
   nativeTheme,
   powerMonitor,
@@ -26,6 +27,7 @@ import {
   type HostConnection,
   type HostProcessStatus,
   IPC_CHANNELS,
+  type MenuSettingsTab,
   type UpdateState,
   type WindowChrome,
 } from '../shared/desktop-api.js';
@@ -40,6 +42,7 @@ import {
 import { isCleanableCategory, type StorageUsage } from '../shared/storage.js';
 import { isThemeMode, THEME_BACKGROUND } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
+import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './app-menu.js';
 import { BROWSER_PARTITION } from './browser/browser-host.js';
 import { registerBrowserIpc } from './browser/browser-ipc.js';
 import { Editors, isLineNumber } from './editors.js';
@@ -410,6 +413,34 @@ function run(): void {
     if (!labels) throw new Error('tray labels must be two short strings');
     tray?.setLabels(labels);
   });
+  // macOS 应用菜单（app-menu.ts）：设置…与检查更新…先把窗口叫出来（可能藏在后台），再让渲染进程跳到设置页；检查更新
+  // 打开设置 → 关于，结果在那里显示。
+  const openSettingsFromMenu = (tab: MenuSettingsTab) => {
+    showMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC_CHANNELS.openSettings, tab);
+    }
+  };
+  const setAppMenu = (labels = DEFAULT_APP_MENU_LABELS) => {
+    if (process.platform !== 'darwin') return;
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate(
+        appMenuTemplate(labels, {
+          openSettings: () => openSettingsFromMenu('general'),
+          checkForUpdates: () => {
+            openSettingsFromMenu('about');
+            void updates.check();
+          },
+        }),
+      ),
+    );
+  };
+  ipcMain.handle(IPC_CHANNELS.setAppMenuLabels, async (event, value: unknown): Promise<void> => {
+    assertSender(event);
+    const labels = parseAppMenuLabels(value);
+    if (!labels) throw new Error('app menu labels must all be short strings');
+    setAppMenu(labels);
+  });
   ipcMain.handle(IPC_CHANNELS.setUpdateChannel, async (event, channel: unknown): Promise<void> => {
     assertSender(event);
     if (channel !== 'stable' && channel !== 'dev') throw new Error('unknown update channel');
@@ -566,7 +597,11 @@ function run(): void {
       tray = undefined;
     });
     tray = createAppTray({ onOpen: showMainWindow, onQuit: () => app.quit() });
+    setAppMenu();
     updates.start();
+    // 定时检查的计时器在睡眠时不走：唤醒、回到前台时，上次检查过久就补查（updater.ts 的 checkIfStale）。
+    powerMonitor.on('resume', () => updates.checkIfStale());
+    app.on('browser-window-focus', () => updates.checkIfStale());
   });
 }
 

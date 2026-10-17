@@ -9,6 +9,7 @@ import {
   type DesktopApi,
   type HostProcessStatus,
   IPC_CHANNELS,
+  type MenuSettingsTab,
   type UpdateState,
   type WindowChrome,
 } from '../shared/desktop-api.js';
@@ -55,6 +56,14 @@ const api: DesktopApi = {
   closeNotifications: (tag) => ipcRenderer.invoke(IPC_CHANNELS.closeNotifications, tag),
   setBadgeCount: (count) => ipcRenderer.invoke(IPC_CHANNELS.setBadgeCount, count),
   setTrayLabels: (labels) => ipcRenderer.invoke(IPC_CHANNELS.setTrayLabels, labels),
+  setAppMenuLabels: (labels) => ipcRenderer.invoke(IPC_CHANNELS.setAppMenuLabels, labels),
+  onOpenSettings: (listener) => {
+    const handler = (_event: IpcRendererEvent, tab: MenuSettingsTab) => listener(tab);
+    ipcRenderer.on(IPC_CHANNELS.openSettings, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.openSettings, handler);
+    };
+  },
   getStorageUsage: () => ipcRenderer.invoke(IPC_CHANNELS.getStorageUsage),
   cleanStorage: (categories) => ipcRenderer.invoke(IPC_CHANNELS.cleanStorage, categories),
   onNotificationClick: (listener) => {

@@ -104,7 +104,18 @@ function AppRoot() {
       }
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    // macOS 应用菜单的设置…与检查更新…（main/app-menu.ts）：已在设置里时只换分页，保留返回的去处。
+    const offOpenSettings = window.wevir?.onOpenSettings((tab) => {
+      if (location.pathname.startsWith(ROUTE_PATTERNS.settings)) {
+        navigate(paths.settings(tab), { replace: true, state: location.state });
+      } else {
+        navigate(paths.settings(tab), { state: { from: location } });
+      }
+    });
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      offOpenSettings?.();
+    };
   }, [history, navigate, location, workspaceId]);
   return (
     <>

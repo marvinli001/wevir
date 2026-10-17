@@ -2,6 +2,7 @@
 import './lib/style-nonce.js';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { APP_MENU_LABEL_KEYS, type AppMenuLabels } from '../../shared/desktop-api.js';
 import { App } from './App.js';
 import { initI18n, t } from './i18n/index.js';
 import { bootstrapWindowChrome } from './layout/window-chrome.js';
@@ -18,6 +19,14 @@ void initI18n().then(() => {
   // 菜单栏 / 通知区域图标的菜单按界面语言（main/tray.ts）。
   window.wevir
     ?.setTrayLabels({ open: t('tray.open'), quit: t('tray.quit') })
+    .catch(() => undefined);
+  // macOS 应用菜单同样按界面语言（main/app-menu.ts）。
+  window.wevir
+    ?.setAppMenuLabels(
+      Object.fromEntries(
+        APP_MENU_LABEL_KEYS.map((key) => [key, t(`appMenu.${key}`)]),
+      ) as AppMenuLabels,
+    )
     .catch(() => undefined);
   createRoot(root).render(
     <StrictMode>

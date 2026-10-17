@@ -4,7 +4,12 @@ import type { UpdateState } from '../../shared/desktop-api.js';
 import { fakeServer, manifestText, signText, testKeyPair } from '../test-fixtures/update-feed.js';
 import { PROBE_BYTES } from './feed.js';
 import type { FeedSource } from './mirror-provider.js';
-import { defaultChannel, UpdateController, type UpdatePrefs } from './updater.js';
+import {
+  defaultChannel,
+  UpdateController,
+  type UpdateControllerOptions,
+  type UpdatePrefs,
+} from './updater.js';
 
 const GLOBAL = { id: 'global', url: 'https://download.example' };
 const OPTIMIZED = { id: 'optimized', url: 'https://download2.example' };
@@ -71,6 +76,7 @@ function controller(options: {
   packaged?: boolean;
   keys?: string[];
   readOnlyLocation?: boolean;
+  timing?: Pick<UpdateControllerOptions, 'firstCheckMs' | 'staleAfterMs' | 'now'>;
 }) {
   let prefs: UpdatePrefs = options.prefs ?? {};
   const states: UpdateState[] = [];
@@ -89,6 +95,7 @@ function controller(options: {
       prefs = next;
     },
     log: () => {},
+    ...options.timing,
   });
   ctl.onState((state) => states.push(state));
   return { ctl, states, prefs: () => prefs };
@@ -224,5 +231,41 @@ describe('UpdateController', () => {
     expect(prefs()).toEqual({ channel: 'dev' });
     // 还没有 beta 的清单：只看正式版的，照样是最新。
     expect(ctl.state).toMatchObject({ channel: 'dev', phase: 'latest' });
+  });
+
+  it('唤醒或回到前台：上次检查过久才补查，第一次检查之前与刚查过时不查', async () => {
+    const updater = new FakeUpdater('0.2.0');
+    let checks = 0;
+    const check = updater.checkForUpdates.bind(updater);
+    updater.checkForUpdates = () => {
+      checks += 1;
+      return check();
+    };
+    let offset = 0;
+    const { ctl } = controller({
+      updater,
+      fetcher: serve('0.2.0').fetcher,
+      timing: { firstCheckMs: 60_000, staleAfterMs: 1_000, now: () => Date.now() + offset },
+    });
+    // 还没 start：不补查。
+    ctl.checkIfStale();
+    ctl.start();
+    // 第一次定时检查之前：不补查。
+    ctl.checkIfStale();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(checks).toBe(0);
+    await ctl.check();
+    expect(checks).toBe(1);
+    // 刚查过：不补查。
+    ctl.checkIfStale();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(checks).toBe(1);
+    // 过了 staleAfterMs（例如合盖睡了一夜）：补查一次。
+    offset = 5_000;
+    ctl.checkIfStale();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(checks).toBe(2);
+    expect(ctl.state.phase).toBe('latest');
+    ctl.stop();
   });
 });
