@@ -15,7 +15,7 @@ import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { HostId, SessionId, SessionState, WevirEvent } from '@wevir/protocol';
+import type { HostId, PendingDelivery, SessionId, SessionState, WevirEvent } from '@wevir/protocol';
 import type { AppToolsEndpoint, EngineSession, SessionConfig } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -48,7 +48,12 @@ class ToolEcho extends EchoAdapter {
   }
 }
 
-async function setup(stepDelayMs = 0, withPlugins = false, withProcesses = false) {
+async function setup(
+  stepDelayMs = 0,
+  withPlugins = false,
+  withProcesses = false,
+  busyDelivery: PendingDelivery = 'queue',
+) {
   const root = realpathSync(tempDir());
   const storage = storages.open(join(root, 'data'));
   const workspace = join(root, 'project');
@@ -116,7 +121,7 @@ async function setup(stepDelayMs = 0, withPlugins = false, withProcesses = false
     events,
     sessions: manager,
     hostId: 'host_test' as HostId,
-    sendWhileBusy: () => 'queue',
+    sendWhileBusy: () => busyDelivery,
     onWarning: (message, fields) => errors.push({ message, fields }),
   });
   mcp = new AppMcpServer({
@@ -517,6 +522,38 @@ describe('应用级工具', () => {
     expect(
       h.all(parent).some((e) => e.type === 'user.message' && e.payload.from?.kind === 'report'),
     ).toBe(false);
+  });
+
+  it('Host 设置为插话时，回报也排队（排队的才撤得回），等到后不再送达', async () => {
+    const h = await setup(20, false, false, 'steer');
+    const parent = await h.create();
+    // 请求方正忙：Host 默认的 sendWhileBusy 是 steer，但交给引擎的插话撤不回，回报不能走它。
+    await h.send(parent, 'slow please');
+    const created = await h.call(parent, 'wevir_session_create', { message: 'hi' });
+    const child = created.sessionId as SessionId;
+    await h.settle(child);
+    const reports = () =>
+      h
+        .all(parent)
+        .flatMap((e) =>
+          e.type === 'pending.added' || e.type === 'pending.updated' ? [e.payload.pending] : [],
+        )
+        .filter((p) => p.from?.kind === 'report');
+    await vi.waitFor(() => expect(reports().length).toBeGreaterThan(0));
+    expect(reports().at(-1)).toMatchObject({ delivery: 'queue', status: 'waiting' });
+    const waited = await h.call(parent, 'wevir_session_wait', { sessionId: child });
+    expect(waited).toMatchObject({ timedOut: false, lastTurn: { outcome: 'completed' } });
+    expect(reports().at(-1)?.status).toBe('cancelled');
+    await h.settle(parent);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const delivered = h
+      .all(parent)
+      .filter(
+        (e) =>
+          (e.type === 'user.message' && e.payload.from?.kind === 'report') ||
+          (e.type === 'user.steered' && e.payload.pendingId === reports().at(-1)?.id),
+      );
+    expect(delivered).toEqual([]);
   });
 
   it('停下别的会话的回合', async () => {

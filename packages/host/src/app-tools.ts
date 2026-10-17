@@ -259,13 +259,20 @@ export class AppTools {
         {
           sessionId: target,
           content: [{ type: 'text', text }],
-          delivery: this.#options.sendWhileBusy(),
+          // 一律排队，不跟 `sendWhileBusy`：交给引擎的插话撤不回，请求方随后 `wevir_session_wait` 到同一个结果时
+          // 就会收到两次（回合里被插进来，或没插进去、回合结束后又开一个回合）。
+          delivery: 'queue',
         },
         this.#identity,
         { from: reportFrom },
       )
       .then((sent) => {
         if (sent.pendingId === undefined) return;
+        // 发送期间请求方已经等到了这个结果：直接撤回。
+        if (this.#delivered.delete(key)) {
+          this.#retract(target, sent.pendingId);
+          return;
+        }
         this.#queuedReports.set(key, { target, pendingId: sent.pendingId });
         if (this.#queuedReports.size > QUEUED_REPORTS_MAX) {
           const oldest = this.#queuedReports.keys().next().value;
@@ -906,13 +913,18 @@ export class AppTools {
     }
     this.#queuedReports.delete(key);
     if (queued.target !== caller) return;
-    const pending = this.#options.events.pending(caller, queued.pendingId);
+    this.#retract(caller, queued.pendingId);
+  }
+
+  /** 撤回还在对方队列里等着的回报；已经发出去的（开了回合）撤不回。 */
+  #retract(sessionId: SessionId, pendingId: PendingMessageId): void {
+    const pending = this.#options.events.pending(sessionId, pendingId);
     if (pending?.status !== 'waiting' || pending.delivery !== 'queue') return;
     try {
-      this.#options.sessions.cancelPending({ sessionId: caller, pendingId: queued.pendingId });
+      this.#options.sessions.cancelPending({ sessionId, pendingId });
     } catch (error) {
       this.#options.onWarning?.('应用级工具没能撤回已排队的回报', {
-        sessionId: caller,
+        sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
     }
