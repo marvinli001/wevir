@@ -38,7 +38,7 @@ import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
-import { TaskBoardStore } from './task-board.js';
+import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
 import type { WebService } from './web/service.js';
@@ -214,7 +214,11 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
     const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
     // 共享任务清单（task-board.ts）：根会话已经不在的清单启动时清掉。
-    const taskBoards = new TaskBoardStore({ dir: homePath(home, 'tasksDir') });
+    // 改动写进根会话的事件流（0.52.0 的 tasks.board_updated），桌面端据此显示清单。
+    const taskBoards = new TaskBoardStore({
+      dir: homePath(home, 'tasksDir'),
+      onChange: boardEventRecorder(store, (message, fields) => logger.warn(message, fields)),
+    });
     void taskBoards
       .sweep((sessionId) => sessionsDb.sessions.get(sessionId) !== undefined)
       .catch((error: unknown) => logger.warn('task board sweep failed', { error }));
@@ -407,6 +411,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.acceptsImages !== undefined && { user_images: true }),
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),
+        ...(mcp !== undefined && { task_board: true }),
         ...(browsers !== undefined && { browser_tools: true }),
         ...(options.web !== undefined && { web_tools: true }),
         ...(adapter.planMode === true && { plan_mode: true }),

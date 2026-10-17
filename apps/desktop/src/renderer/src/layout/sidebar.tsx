@@ -46,6 +46,7 @@ import { UpdateEntryButton } from '@/updates/update-entry';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
 import { beginPinDrag, PinDragGhost, PinnedGroup, usePinDragId } from './pin-drag';
 import { ProjectContextMenuItems } from './project-context-menu';
+import { RoleLabel } from './role-label';
 import { SessionContextMenuItems } from './session-context-menu';
 
 /** 侧栏的一行：悬停是表面色的淡底，当前项是表面色（照 Codex 桌面端，U5）。 */
@@ -597,6 +598,12 @@ function SessionRow({
           >
             {session.title || t('session.untitled')}
           </span>
+          {session.openedBy?.role !== undefined && (
+            <RoleLabel
+              role={session.openedBy.role}
+              className="group-focus-within/session:hidden group-hover/session:hidden"
+            />
+          )}
           {/* 悬停时让出位置给置顶与归档（U34）。 */}
           <span className="flex shrink-0 items-center group-focus-within/session:hidden group-hover/session:hidden">
             {badge ? (

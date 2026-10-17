@@ -1257,6 +1257,53 @@ describe('会话目标（0.35.0）', () => {
   });
 });
 
+describe('共享任务清单（0.52.0）', () => {
+  const OTHER = 'ses_01JA2B3C4D5E6F7G8H9JKMNPR1' as const;
+  const task = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    subject: `任务 ${id}`,
+    status: 'pending' as const,
+    blockedBy: [],
+    notes: [],
+    createdBy: SES,
+    createdAt: '2026-10-17T08:00:00.000Z',
+    updatedAt: '2026-10-17T08:00:00.000Z',
+    ...extra,
+  });
+
+  it('没收到过是空数组；每条 tasks.board_updated 整份替换，不并入上一份', () => {
+    const { list, add, turn } = events();
+    turn();
+    expect(projectTranscript(list).taskBoard).toEqual([]);
+    add('tasks.board_updated', { tasks: [task('t1'), task('t2', { blockedBy: ['t1'] })] });
+    expect(projectTranscript(list).taskBoard.map((item) => item.id)).toEqual(['t1', 't2']);
+    add('tasks.board_updated', {
+      tasks: [task('t2', { status: 'in_progress', owner: OTHER })],
+    });
+    expect(projectTranscript(list).taskBoard).toEqual([
+      expect.objectContaining({ id: 't2', status: 'in_progress', owner: OTHER }),
+    ]);
+    add('tasks.board_updated', { tasks: [] });
+    expect(projectTranscript(list).taskBoard).toEqual([]);
+  });
+
+  it('不产生消息；没有新事件时快照里的清单是同一个数组；reset 清掉', () => {
+    const { list, add, turn } = events();
+    turn();
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const before = projection.snapshot().messages;
+    add('tasks.board_updated', { tasks: [task('t1')] });
+    projection.apply(list[list.length - 1] as WevirEvent);
+    const first = projection.snapshot();
+    expect(first.messages).toEqual(before);
+    expect(first.taskBoard).toHaveLength(1);
+    expect(projection.snapshot().taskBoard).toBe(first.taskBoard);
+    projection.reset();
+    expect(projection.snapshot().taskBoard).toEqual([]);
+  });
+});
+
 describe('消息里的图片（0.28.0）', () => {
   const image = {
     type: 'image' as const,

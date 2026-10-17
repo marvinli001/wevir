@@ -2,6 +2,9 @@ import { join } from 'node:path';
 import type { SessionId } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  boardEventRecorder,
+  boardEventTasks,
+  TASK_EVENT_NOTES,
   TASK_NOTE_MAX,
   TASK_NOTES_MAX,
   TASK_SUBJECT_MAX,
@@ -136,5 +139,61 @@ describe('TaskBoardStore', () => {
       await code(tasks.update(ROOT, 't1', { status: 'in_progress', addBlockedBy: ['nope'] }, A)),
     ).toBe('not_found');
     expect((await tasks.list(ROOT))[0]?.status).toBe('pending');
+  });
+
+  it('onChange：建、改、删各通知一次，带改完的整张清单；失败的改动不通知；回调抛错不影响改动', async () => {
+    const seen: string[][] = [];
+    const tasks = new TaskBoardStore({
+      dir: join(tempDir(), 'tasks'),
+      onChange: (root, list) => {
+        expect(root).toBe(ROOT);
+        seen.push(list.map((task) => `${task.id}:${task.status}`));
+        if (seen.length === 2) throw new Error('listener broke');
+      },
+    });
+    await tasks.create(ROOT, { subject: 'a' }, A);
+    await tasks.update(ROOT, 't1', { status: 'in_progress' }, A);
+    expect(await code(tasks.update(ROOT, 't9', { note: 'x' }, A))).toBe('not_found');
+    expect((await tasks.list(ROOT))[0]?.status).toBe('in_progress');
+    await tasks.remove(ROOT, 't1', A);
+    expect(seen).toEqual([['t1:pending'], ['t1:in_progress'], []]);
+  });
+
+  it('事件里的清单：每项只带最近几条备注，不改存储里的', async () => {
+    const tasks = store();
+    await tasks.create(ROOT, { subject: 'a' }, A);
+    for (let index = 1; index <= TASK_EVENT_NOTES + 2; index += 1) {
+      await tasks.update(ROOT, 't1', { note: `n${index}` }, B);
+    }
+    const stored = await tasks.list(ROOT);
+    const event = boardEventTasks(stored);
+    expect(event[0]?.notes.map((note) => note.text)).toEqual(['n3', 'n4', 'n5', 'n6', 'n7']);
+    expect(stored[0]?.notes).toHaveLength(TASK_EVENT_NOTES + 2);
+    // 是副本：改事件里的不影响存储里的。
+    event[0]?.blockedBy.push('t9');
+    expect(stored[0]?.blockedBy).toEqual([]);
+  });
+
+  it('boardEventRecorder：写 tasks.board_updated，写不进去（会话不在了）只记警告', () => {
+    const appended: unknown[] = [];
+    const warnings: string[] = [];
+    const record = boardEventRecorder(
+      {
+        append: ((sessionId: SessionId, input: unknown) => {
+          if (sessionId === A) throw new Error('no such session');
+          appended.push({ sessionId, input });
+        }) as never,
+      },
+      (message) => warnings.push(message),
+    );
+    record(ROOT, []);
+    record(A, []);
+    expect(appended).toEqual([
+      {
+        sessionId: ROOT,
+        input: { type: 'tasks.board_updated', source: 'host', payload: { tasks: [] } },
+      },
+    ]);
+    expect(warnings).toEqual(['failed to record task board update']);
   });
 });

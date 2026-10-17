@@ -7,6 +7,7 @@ import type {
   AccountState,
   ApprovalRequest,
   ApprovalResolution,
+  BoardTask,
   Environment,
   PendingMessage,
   ProviderProfile,
@@ -132,6 +133,31 @@ export const suggestedTask: SuggestedTask = {
   toolCallId: 'call_suggest_1',
   turnId: ids.turn,
   status: 'suggested',
+};
+
+/** 共享任务清单里的任务（0.52.0）：一项在做、带备注，一项等它做完。 */
+export const boardTask: BoardTask = {
+  id: 't1',
+  subject: '补齐导出接口的测试',
+  description: '给 src/export.ts 的三个导出函数补单元测试，跑通 pnpm test。',
+  status: 'in_progress',
+  owner: ids.childSession,
+  blockedBy: [],
+  notes: [{ sessionId: ids.childSession, text: '两个函数已覆盖', at: TS2 }],
+  createdBy: ids.session,
+  createdAt: TS,
+  updatedAt: TS2,
+};
+
+export const waitingBoardTask: BoardTask = {
+  id: 't2',
+  subject: '汇总测试结果',
+  status: 'pending',
+  blockedBy: ['t1'],
+  notes: [],
+  createdBy: ids.session,
+  createdAt: TS,
+  updatedAt: TS,
 };
 
 export const reportedTask: SuggestedTask = {
@@ -569,7 +595,7 @@ export const eventPayloads: PayloadSamples = {
           branch: 'wevir/jkmnpqr0',
         },
       ],
-      openedBy: { sessionId: ids.childSession },
+      openedBy: { sessionId: ids.childSession, role: 'explorer' },
     },
     invalid: { workspaceId: ids.workspace, cwd: '/x', providerId: 'DeepSeek', modelId: 'm' },
   },
@@ -837,6 +863,10 @@ export const eventPayloads: PayloadSamples = {
   'tasks.suggested': {
     valid: { toolCallId: 'call_suggest_1', turnId: ids.turn, tasks: [suggestedTask] },
     invalid: { toolCallId: 'call_suggest_1', tasks: [] },
+  },
+  'tasks.board_updated': {
+    valid: { tasks: [boardTask, waitingBoardTask] },
+    invalid: { tasks: [{ ...boardTask, status: 'blocked' }] },
   },
   'task.started': {
     valid: { taskId: ids.task, sessionId: ids.childSession },
@@ -1969,11 +1999,15 @@ export const methodSamples: MethodSamples = {
         { sessions: [childSession] },
         { sessions: [{ ...session, state: 'closed', archivedAt: TS2 }] },
         { sessions: [{ ...session, openedBy: { sessionId: ids.childSession } }] },
+        {
+          sessions: [{ ...session, openedBy: { sessionId: ids.childSession, role: 'reviewer' } }],
+        },
         { sessions: [{ ...session, state: 'idle', goal: { ...sessionGoal, status: 'paused' } }] },
       ],
       invalid: [
         { sessions: [{ ...session, lastSeq: -1 }] },
         { sessions: [{ ...session, openedBy: { sessionId: ids.workspace } }] },
+        { sessions: [{ ...session, openedBy: { sessionId: ids.childSession, role: '' } }] },
         { sessions: [{ ...session, archivedAt: 'yesterday' }] },
       ],
     },
@@ -1989,10 +2023,13 @@ export const methodSamples: MethodSamples = {
         { ...snapshot, subagents: [subagentSummary] },
         { session: childSession, pendingApprovals: [childApproval] },
         { ...snapshot, suggestedTasks: [suggestedTask, reportedTask] },
+        { ...snapshot, taskBoard: [boardTask, waitingBoardTask] },
+        { ...snapshot, taskBoard: [] },
       ],
       invalid: [
         { session },
         { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] },
+        { ...snapshot, taskBoard: [{ ...boardTask, blockedBy: [''] }] },
         { session: { ...session, collaborationMode: 'ask' }, pendingApprovals: [] },
       ],
     },

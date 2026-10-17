@@ -83,6 +83,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.subagent.status;
     case 'tasks.suggested':
       return event.payload.tasks[0]?.title ?? '';
+    case 'tasks.board_updated':
+      return event.payload.tasks[0]?.subject ?? '';
     case 'task.started':
       return event.payload.sessionId;
     case 'task.reported':

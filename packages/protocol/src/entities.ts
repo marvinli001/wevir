@@ -1049,8 +1049,44 @@ export type SuggestedTask = z.infer<typeof SuggestedTaskSchema>;
 export const SessionOpenedBySchema = z.object({
   /** 开出它的会话。 */
   sessionId: SessionIdSchema,
+  /** 开它时用的预设角色名（0.52.0，`wevir_session_create` 的 `role`，domain-model §3.15）；没用角色时省略。 */
+  role: z.string().min(1).optional(),
 });
 export type SessionOpenedBy = z.infer<typeof SessionOpenedBySchema>;
+
+// ── 共享任务清单（0.52.0，domain-model §3.15） ───────────────────────────
+
+/** 任务清单里一项的状态。 */
+export const BoardTaskStatusSchema = z.enum(['pending', 'in_progress', 'completed', 'cancelled']);
+export type BoardTaskStatus = z.infer<typeof BoardTaskStatusSchema>;
+
+/** 一项任务上的备注（谁在什么时候写的）。 */
+export const BoardTaskNoteSchema = z.object({
+  sessionId: SessionIdSchema,
+  text: z.string(),
+  at: IsoTimeSchema,
+});
+export type BoardTaskNote = z.infer<typeof BoardTaskNoteSchema>;
+
+/**
+ * 共享任务清单里的一项：一个会话和它开出来的所有会话（再加引擎派出的子 agent）共用一张清单，agent 用 `wevir_tasks`、
+ * `wevir_task_create`、`wevir_task_update` 分工。`id` 在清单里唯一（`t1`、`t2`……，不重用）；`owner` 是认领的会话（同一棵会话树里
+ * 的），没人认领时省略；`blockedBy` 是要先做完（完成或取消）的几项的 `id`。
+ */
+export const BoardTaskSchema = z.object({
+  id: z.string().min(1),
+  subject: z.string().min(1),
+  description: z.string().optional(),
+  status: BoardTaskStatusSchema,
+  owner: SessionIdSchema.optional(),
+  blockedBy: z.array(z.string().min(1)),
+  /** 最近的备注，旧的在前；Host 在事件与快照里最多带最近 5 条。 */
+  notes: z.array(BoardTaskNoteSchema),
+  createdBy: SessionIdSchema,
+  createdAt: IsoTimeSchema,
+  updatedAt: IsoTimeSchema,
+});
+export type BoardTask = z.infer<typeof BoardTaskSchema>;
 
 /**
  * 请界面显示的东西（0.30.0，`ui.show`）：会话目录里的文件（`path` 相对会话目录，`line` 从 1 开始）、“变更”窗格、“文件”窗格、
@@ -1186,5 +1222,9 @@ export const SessionSnapshotSchema = z.object({
   pendingQuestions: z.array(QuestionRequestSchema).optional(),
   /** 这个会话里 Agent 建议的后续任务（0.16.0），按提出的先后；没有时省略。 */
   suggestedTasks: z.array(SuggestedTaskSchema).optional(),
+  /**
+   * 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有；清单从没改过时省略，任务都删光后是空数组。
+   */
+  taskBoard: z.array(BoardTaskSchema).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

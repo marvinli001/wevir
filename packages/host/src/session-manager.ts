@@ -512,10 +512,10 @@ export class SessionManager {
         permissionMode,
         origin,
         options.openedBy,
+        options.role,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
-        options.role,
     }
   }
 
@@ -580,10 +580,10 @@ export class SessionManager {
     permissionMode: PermissionMode | undefined,
     origin: MethodParams<'session.create'>['origin'],
     openedBy: SessionId | undefined,
+    role: string | undefined,
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
-    role: string | undefined,
     const prepared = chat
       ? await this.#chatDirectory(sessionId)
       : await this.#prepareEnvironment(params, sessionId, workspace);
@@ -649,7 +649,9 @@ export class SessionManager {
           ...(engineSession.engineVersion !== undefined && {
             engineVersion: engineSession.engineVersion,
           }),
-          ...(openedBy !== undefined && { openedBy: { sessionId: openedBy } }),
+          ...(openedBy !== undefined && {
+            openedBy: { sessionId: openedBy, ...(role !== undefined && { role }) },
+          }),
         },
       });
     } catch (error) {

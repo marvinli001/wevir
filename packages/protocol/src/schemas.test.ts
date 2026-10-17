@@ -15,6 +15,9 @@ import {
   ApprovalResolutionReasonSchema,
   ApprovalResolutionSchema,
   ApprovalStatusSchema,
+  BoardTaskNoteSchema,
+  BoardTaskSchema,
+  BoardTaskStatusSchema,
   ClientCapabilitiesSchema,
   ClientFrameSchema,
   ClientIdentitySchema,
@@ -148,6 +151,7 @@ import {
   WorktreeModeSchema,
 } from './index.js';
 import {
+  boardTask,
   browserTab,
   childSession,
   compatibleProvider,
@@ -178,6 +182,7 @@ import {
   toolDisplay,
   ULID,
   userResolution,
+  waitingBoardTask,
   workspace,
 } from './test-samples.js';
 
@@ -1011,8 +1016,43 @@ const standaloneCases: Case[] = [
   {
     name: 'SessionOpenedBy',
     schema: SessionOpenedBySchema,
-    valid: [{ sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR' }],
-    invalid: [{ sessionId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' }],
+    valid: [
+      { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+      { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', role: 'explorer' },
+    ],
+    invalid: [
+      { sessionId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+      { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', role: '' },
+    ],
+  },
+  {
+    name: 'BoardTaskStatus',
+    schema: BoardTaskStatusSchema,
+    valid: ['pending', 'in_progress', 'completed', 'cancelled'],
+    invalid: ['blocked', 'done', ''],
+  },
+  {
+    name: 'BoardTaskNote',
+    schema: BoardTaskNoteSchema,
+    valid: [boardTask.notes[0]],
+    invalid: [
+      { ...boardTask.notes[0], sessionId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+      { ...boardTask.notes[0], at: 'now' },
+      { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', at: TS },
+    ],
+  },
+  {
+    name: 'BoardTask',
+    schema: BoardTaskSchema,
+    valid: [boardTask, waitingBoardTask],
+    invalid: [
+      { ...boardTask, subject: '' },
+      { ...boardTask, status: 'blocked' },
+      { ...boardTask, owner: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+      { ...boardTask, blockedBy: undefined },
+      { ...boardTask, notes: [{ sessionId: 'x', text: 'a', at: TS }] },
+      { ...boardTask, createdAt: 'yesterday' },
+    ],
   },
   {
     name: 'MessageFrom',
