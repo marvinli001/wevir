@@ -4,8 +4,9 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 EngineAccounts。只有个人 Google 账号；回调落在 Host 这台机器的 127.0.0.1，浏览器要在
-// 本机，不做 T3 的远程粘贴回调网址（协议里没有这个方法）；登录状态不启动运行体，只看 profile 里登录文件在不在（不读内容），
-// 会话或刷新报要登录时改为未登录；不做 T3 读令牌查用量（Wevir 不读令牌）；安装经 account.install，进度与失败进状态。
+// 本机，不做 T3 的远程粘贴回调网址（协议里没有这个方法）；登录状态不启动运行体，只看 profile 里登录文件在不在，
+// 会话或刷新报要登录时改为未登录；用量照 T3 读 profile 里的登录文件换 access token 去查（只读、令牌只在内存里，见 usage.ts），
+// 已登录时每 5 分钟最多读一次，在后台读完经 onChange 报，读不到时留着上一次的；安装经 account.install，进度与失败进状态。
 //
 // Antigravity 的账号（订阅来源 `antigravity`，domain-model §3.6，docs/architecture/antigravity-event-mapping.md §2、§6）。
 
@@ -40,6 +41,7 @@ import {
   antigravityTokenPath,
 } from './profile.js';
 import { removeAntigravitySessionFiles } from './session-files.js';
+import { AntigravityUsage } from './usage.js';
 
 /** 一次登录最长等多久（T3 的 AUTH_TIMEOUT_MS）。 */
 export const LOGIN_TIMEOUT_MS = 300_000;
@@ -48,6 +50,8 @@ export const LOGIN_URL_WAIT_MS = 40_000;
 /** 登出与刷新的时限（T3：90 s）。 */
 export const LOGOUT_TIMEOUT_MS = 90_000;
 export const REFRESH_TIMEOUT_MS = 90_000;
+/** 用量最多多久读一次（同其他订阅的账号缓存）；`read` 带 `refresh` 时马上读。 */
+export const USAGE_TTL_MS = 5 * 60_000;
 
 const KIND = 'antigravity' as const;
 const BASE: AccountState = {
@@ -76,6 +80,9 @@ export interface AntigravityAccountsOptions {
   onSignedOut?: () => Promise<void>;
   loginTimeoutMs?: number;
   loginUrlWaitMs?: number;
+  /** 读用量的 fetch（测试换成假的）；省略时用全局的。 */
+  fetch?: typeof fetch;
+  now?: () => number;
 }
 
 export class AntigravityAccounts implements EngineAccounts {
@@ -100,10 +107,22 @@ export class AntigravityAccounts implements EngineAccounts {
    */
   #stateSeq = 0;
   #appliedSeq = 0;
+  readonly #usage: AntigravityUsage;
+  /** 最近一次读到的用量（已登录时放进状态）。 */
+  #rateLimits: AccountState['rateLimits'];
+  #usageAt: number | undefined;
+  #usageRun: Promise<void> | undefined;
+  /** 每次忘掉用量加一：之前开始的读取的结果不再采用。 */
+  #usageGeneration = 0;
 
   constructor(options: AntigravityAccountsOptions) {
     this.#options = options;
     this.#context = options.context;
+    this.#usage = new AntigravityUsage({
+      tokenPath: antigravityTokenPath(options.context.paths.profile),
+      ...(options.fetch !== undefined && { fetch: options.fetch }),
+      ...(options.now !== undefined && { now: options.now }),
+    });
   }
 
   /** account.setPath 指定的可执行文件（会话进程的启动器读它）。 */
@@ -116,6 +135,11 @@ export class AntigravityAccounts implements EngineAccounts {
     if (this.#flow !== undefined) return this.#state;
     const seq = ++this.#stateSeq;
     const state = await this.#snapshot();
+    if (state.status === 'signed_in') {
+      const usage = this.#refreshUsage(options?.refresh === true);
+      // 重新检测时等新的用量；平时在后台读，读完经 onChange 报。
+      if (options?.refresh === true) await usage;
+    }
     if (options?.refresh === true && state.installed === true && state.status === 'signed_in') {
       await this.#refresh();
       return this.#update();
@@ -236,6 +260,7 @@ export class AntigravityAccounts implements EngineAccounts {
       }
       this.#models = undefined;
       await clearModels(this.#context.paths.models);
+      this.#forgetUsage();
       this.#authRejected = false;
       this.#lastError = undefined;
     } finally {
@@ -350,8 +375,37 @@ export class AntigravityAccounts implements EngineAccounts {
       ...BASE,
       ...fields,
       ...(signedIn ? { status: 'signed_in' as const } : {}),
+      ...(signedIn && this.#rateLimits !== undefined && { rateLimits: this.#rateLimits }),
       ...(!signedIn && lastError !== undefined && { lastError }),
     };
+  }
+
+  /** 读用量（usage.ts），`force` 以外 5 分钟内读过就不读；有变化时发布。不抛错。 */
+  #refreshUsage(force: boolean): Promise<void> {
+    if (this.#usageRun !== undefined) return this.#usageRun;
+    const now = (this.#options.now ?? Date.now)();
+    if (!force && this.#usageAt !== undefined && now - this.#usageAt < USAGE_TTL_MS) {
+      return Promise.resolve();
+    }
+    const generation = this.#usageGeneration;
+    const run = this.#usage.read().then((read) => {
+      if (this.#usageRun === run) this.#usageRun = undefined;
+      if (generation !== this.#usageGeneration) return;
+      this.#usageAt = (this.#options.now ?? Date.now)();
+      if (!read.ok || JSON.stringify(read.rateLimits) === JSON.stringify(this.#rateLimits)) return;
+      this.#rateLimits = read.rateLimits;
+      void this.#publish();
+    });
+    this.#usageRun = run;
+    return run;
+  }
+
+  #forgetUsage(): void {
+    this.#usageGeneration++;
+    this.#usageRun = undefined;
+    this.#rateLimits = undefined;
+    this.#usageAt = undefined;
+    this.#usage.clear();
   }
 
   /** 安装字段；找不到运行体且不只是“没装”（指定的路径不对、记录坏了、本平台没有发布）时另给原因。 */
@@ -444,6 +498,8 @@ export class AntigravityAccounts implements EngineAccounts {
       this.#models = models;
       await saveModels(this.#context.paths.models, models).catch(() => {});
     }
+    // 可能换了账号：之前的用量与令牌不再算数，下次读账号时重读。
+    this.#forgetUsage();
     this.#authRejected = false;
     this.#lastError = undefined;
     await this.#publish();

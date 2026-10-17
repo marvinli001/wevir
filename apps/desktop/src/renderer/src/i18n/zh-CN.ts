@@ -964,6 +964,7 @@ export const zhCN = {
   'account.chatgpt.usage.used': '已用 {percent}%',
   'account.chatgpt.usage.window': '用量',
   'account.chatgpt.usage.weekly': '每周用量',
+  'account.chatgpt.usage.monthly': '每月用量',
   'account.chatgpt.usage.days': '{count} 天用量',
   'account.chatgpt.usage.hours': '{count} 小时用量',
   'account.chatgpt.usage.minutes': '{count} 分钟用量',

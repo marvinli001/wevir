@@ -3,12 +3,13 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：Effect 改写成普通 TS 的 EngineAccounts：登录先写内存、确认后才落盘，5 分钟超时，取消，替换进行中的登录，登出清掉凭据并停掉用着它的会话，
-// 模型列表缓存 30 分钟，15 s 超时；状态报成 Wevir 的 AccountState。不读 Cursor CLI 的登录，所以没有 T3 的用量。
+// 模型列表缓存 30 分钟，15 s 超时；状态报成 Wevir 的 AccountState。用量不读 Cursor CLI 的登录，用这把 API Key 读（usage.ts）。
 //
 // Cursor 的账号（订阅来源 `cursor`，domain-model §3.6，docs/architecture/cursor-event-mapping.md §2）：在应用里登录。
 // `Cursor.auth.login` 给出浏览器网址，用户在浏览器里登录后 SDK 铸一把有期限的 API Key（90 天，Cursor 后台的 API Keys 里看得到、
 // 能吊销），存进 Wevir 的数据目录（credentials.ts）。环境变量 `CURSOR_API_KEY` 优先，这时不能在应用里登录或登出。账号的
-// 邮箱与模型来自 `Cursor.me` 与 `Cursor.models.list`。
+// 邮箱与模型来自 `Cursor.me` 与 `Cursor.models.list`，本计费周期的用量来自 `DashboardService/GetCurrentPeriodUsage`（与读账号
+// 同时读、同样缓存 5 分钟；读不到时留着上一次的）。
 
 import { randomUUID } from 'node:crypto';
 import type { SDKModel, SDKUser } from '@cursor/sdk';
@@ -24,6 +25,7 @@ import { CursorCredentialFile, MemoryCredentials } from './credentials.js';
 import { errorMessage, isAuthenticationFailure } from './errors.js';
 import { accountModels } from './models.js';
 import type { CursorSdk } from './sdk.js';
+import { DEFAULT_CURSOR_BACKEND_URL, readCursorUsage } from './usage.js';
 
 /** 一次登录最长等多久（T3 的 AUTH_TIMEOUT_MS）。 */
 export const LOGIN_TIMEOUT_MS = 300_000;
@@ -57,6 +59,8 @@ export interface CursorAccountsOptions {
   addSecret?: (value: string) => void;
   /** 登出或凭据被拒：用着旧 Key 的会话要停下（cursor-adapter.ts）。 */
   onSignedOut?: () => void;
+  /** 读用量的 fetch（测试换成假的）；省略时用全局的。 */
+  fetch?: typeof fetch;
   now?: () => number;
   loginTimeoutMs?: number;
 }
@@ -100,11 +104,12 @@ export class CursorAccounts implements EngineAccounts {
   async read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
     this.#check(kind);
     if (this.#flow !== undefined) return this.#state;
-    const apiKey = await this.readApiKey();
-    if (apiKey === undefined) {
+    const credential = await this.#credential();
+    if (credential === undefined) {
       this.#catalog = undefined;
       return this.#set({ ...BASE, ...lastError(this.#state) });
     }
+    const { apiKey } = credential;
     const cached = this.#catalog;
     if (
       options?.refresh !== true &&
@@ -114,6 +119,8 @@ export class CursorAccounts implements EngineAccounts {
     ) {
       return this.#state;
     }
+    // 用量与账号同时读；读不到用量不影响登录状态。
+    const usage = this.#readUsage(credential);
     let user: SDKUser;
     try {
       const sdk = await this.#options.sdk();
@@ -136,9 +143,20 @@ export class CursorAccounts implements EngineAccounts {
         { cause: error },
       );
     }
+    const previous =
+      cached?.apiKey === apiKey && this.#state.status === 'signed_in'
+        ? this.#state.rateLimits
+        : undefined;
     this.#catalog = { apiKey, user, at: this.#now() };
     const email = user.userEmail?.trim();
-    return this.#set({ ...BASE, status: 'signed_in', ...(email && { email }) });
+    const read = await usage;
+    const rateLimits = read.ok ? read.rateLimits : previous;
+    return this.#set({
+      ...BASE,
+      status: 'signed_in',
+      ...(email && { email }),
+      ...(rateLimits !== undefined && { rateLimits }),
+    });
   }
 
   async login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState> {
@@ -293,10 +311,20 @@ export class CursorAccounts implements EngineAccounts {
 
   /** 现在能用的 API Key：`CURSOR_API_KEY`，否则是登录存下的、没过期的那把。 */
   async readApiKey(): Promise<string | undefined> {
+    return (await this.#credential())?.apiKey;
+  }
+
+  /**
+   * API Key 与它所在的后端：`CURSOR_API_KEY` 用 `CURSOR_BACKEND_URL` 或默认后端（同 SDK），登录存下的用铸它的那个后端。
+   */
+  async #credential(): Promise<{ apiKey: string; backendUrl: string } | undefined> {
     const envKey = this.#envKey();
     if (envKey !== undefined) {
       this.#options.addSecret?.(envKey);
-      return envKey;
+      return {
+        apiKey: envKey,
+        backendUrl: this.#options.env?.CURSOR_BACKEND_URL?.trim() || DEFAULT_CURSOR_BACKEND_URL,
+      };
     }
     const credentials = await this.#store.load();
     if (credentials === undefined) return undefined;
@@ -307,7 +335,7 @@ export class CursorAccounts implements EngineAccounts {
       return undefined;
     }
     this.#options.addSecret?.(credentials.apiKey);
-    return credentials.apiKey;
+    return { apiKey: credentials.apiKey, backendUrl: credentials.backendUrl };
   }
 
   /** 开会话要的 API Key；没有时报 `missing_credentials`（T3 的 requireApiKey）。 */
@@ -404,6 +432,22 @@ export class CursorAccounts implements EngineAccounts {
           cause: error,
         },
       );
+    }
+  }
+
+  /** 读本周期的用量（usage.ts）；不抛错，失败时 `ok: false`。 */
+  async #readUsage(credential: {
+    apiKey: string;
+    backendUrl: string;
+  }): Promise<{ ok: true; rateLimits: AccountState['rateLimits'] } | { ok: false }> {
+    try {
+      const rateLimits = await readCursorUsage({
+        ...credential,
+        ...(this.#options.fetch !== undefined && { fetch: this.#options.fetch }),
+      });
+      return { ok: true, rateLimits };
+    } catch {
+      return { ok: false };
     }
   }
 

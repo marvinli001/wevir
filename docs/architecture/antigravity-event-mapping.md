@@ -31,7 +31,7 @@
 
 照 T3 的 `buildAntigravityAcpSpawnInput` 与 `prepareAntigravityProfile`：
 
-- **私有 profile。** `GEMINI_HOME=<数据目录>/engines/antigravity/profile`，`AGY_ACP_FORCE_FILE_STORAGE=1`（不用系统钥匙串）。登录存在 `profile/antigravity-acp/acp_token.json`，由运行体自己读写；**Wevir 不读这个文件的内容**（AGENTS.md 规则 5），只看它在不在（§6）。每次启动重写 `antigravity-acp/settings.json`（只有 `{"auth":{"type":"oauth-personal"}}`）。目录权限 0700。
+- **私有 profile。** `GEMINI_HOME=<数据目录>/engines/antigravity/profile`，`AGY_ACP_FORCE_FILE_STORAGE=1`（不用系统钥匙串）。登录存在 `profile/antigravity-acp/acp_token.json`，由运行体自己读写；Wevir 不改它，登录状态只看它在不在，查用量时只读（§6）。每次启动重写 `antigravity-acp/settings.json`（只有 `{"auth":{"type":"oauth-personal"}}`）。目录权限 0700。
 - **去掉会盖过 profile 登录的环境变量**：`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_APPLICATION_CREDENTIALS`、`GOOGLE_CLOUD_*`、`GCLOUD_PROJECT` 等（Windows 上不分大小写），以及外面带进来的 `GEMINI_HOME`、`BROWSER`、`TMPDIR` 相关项。只支持个人 Google 账号（`oauth-personal`）；T3 的 Gemini API Key、Gemini Enterprise、Vertex 方式没有移植（Wevir 不保存这类密钥）。
 - **自己的临时目录。** 每个进程一个 `tmp/run-*`（`TMPDIR`，Windows 是 `TEMP` / `TMP`），进程退出、适配器 dispose 时删掉；第一次启动任何进程之前清掉上一个 Host 被杀时留下的。
 - **全局 skills。** 运行体在 `GEMINI_HOME` 下读 `config/skills` 与 `antigravity-cli/skills`，profile 里这两个位置链接到用户的 `~/.gemini/…`（链不上只告警；已有真目录不动）。用户那边没有的目录不链，以前链过的删掉：运行体会把悬空的链接解析成真实路径交给模型，模型拿它当命令的工作目录，命令起不来（没装 `agy` CLI 时 `antigravity-cli/skills` 通常不存在）。每次启动都重新核对，目录出现后下次启动链上。MCP 服务、hooks 与凭据仍然隔离。
@@ -65,7 +65,8 @@
 
 状态是 `signIn: 'in_app'`、`loginMethods: ['browser']`，加安装字段（§2）。
 
-- **不启动运行体的状态**（T3 的健康检查也不启动）：装没装看 `resolve`；**已登录 = 运行体找得到、profile 里的登录文件在、最近没有报过要登录**。会话或刷新报要登录（`-32000`、或运行体又要去浏览器登录）时改为未登录，`lastError` 写“登录过期或被撤销”，直到重新登录或刷新成功。不读令牌，所以没有邮箱、套餐与用量（T3 读令牌查用量，Wevir 不做）。
+- **不启动运行体的状态**（T3 的健康检查也不启动）：装没装看 `resolve`；**已登录 = 运行体找得到、profile 里的登录文件在、最近没有报过要登录**。会话或刷新报要登录（`-32000`、或运行体又要去浏览器登录）时改为未登录，`lastError` 写“登录过期或被撤销”，直到重新登录或刷新成功。没有邮箱与套餐。
+- **用量**（2026-10-17，协议 0.45.0，`usage.ts`，照 T3 的 `makeAntigravityUsageProbe`）：已登录时读，每 5 分钟最多一次，在后台读完经 `onChange` 报（`account.get` 带 `refresh` 时等它读完）。只读登录文件里的 `client_id`、`client_secret`、`refresh_token` 与 `project_id`，向 `oauth2.googleapis.com/token` 换 access token（只在内存里，按文件内容缓存到过期前 1 分钟，不写回文件），再 POST Cloud Code 的 `v1internal:retrieveUserQuotaSummary`（先 `daily-cloudcode-pa`，失败换 `cloudcode-pa`，不跟随重定向，每个请求 10 s、整次 30 s）：每个没停用的桶一个窗口，用量是 1 减 `remainingFraction`，`window` 是 `5h` / `weekly` 时给长度，`gemini-` 开头的桶额度名（`scope`）是 Gemini、`3p-` 开头的是 Claude & GPT（两家共用一份），别的用组名。汇总没有窗口时退回 `fetchAvailableModels` 里按模型的 `quotaInfo`（没有长度）与 `weeklyQuotaInfo`，同一家族取用得最多的。两个都没给、换令牌失败、文件坏了时留着上一次的；登出、重新登录时清掉。没有真实账号验证过，接口形状取自 T3。
 - **登录**（T3 的 `makeAntigravityAuth`）：起一个一次性的登录进程，`authenticate { methodId: 'oauth-personal' }`。运行体用 Python 的 webbrowser 打开 Google 的登录页；`BROWSER` 设成 `<Host 的 Node> -e <脚本> -- %s`，脚本不开浏览器，只把网址带标记写到 stderr（命令里不能有冒号或分号，启动前先试跑一次核对，钩子不对就不启动，免得运行体去开系统浏览器）。1.1.1 也可能把网址写在 stdout 的提示行上，同样认出。网址必须是 `https://accounts.google.com/o/oauth2/v2/auth`、`response_type=code`、单个 `state`、回调 `http://127.0.0.1:<≥1024>/`。`login` 最多等 40 s 拿到网址再返回（`signing_in`，带 `login.authUrl`，桌面端随即打开浏览器）；没等到就先返回，网址随后经 `account.updated` 送达。用户在浏览器里登录后 Google 回调本机 127.0.0.1，`authenticate` 完成，再开一个一次性会话确认账号能用并读模型列表（T3 的 verifying），然后关掉登录进程、删掉一次性会话的文件与临时目录，报 `signed_in`。5 分钟没完成算过期。拒绝授权、订阅不符等照 T3 的 `safeAuthFailure` 写成 `lastError`（引擎原文进日志）。
 - **回调必须落在 Host 这台机器上。** 浏览器要在本机；T3 支持从别的设备把回调网址粘贴回来（`complete`），Wevir 的协议没有这个方法，没有移植。
 - **取消与替换。** `cancelLogin` 停掉登录进程；新的 `login` 替换进行中的那次。
@@ -81,7 +82,7 @@
 | 四种登录方式（个人、Enterprise、API Key、Vertex），API Key 明文存在设置里 | 只有个人 Google 账号 |
 | 远程设备粘贴回调网址 | 没有（协议没有这个方法），浏览器要在 Host 这台机器上 |
 | 声明 `fs` 能力，编辑经 T3 的文件接口与审批 | 不声明，工具在运行体自己的环境里执行，审批照 ACP 转交 |
-| 读令牌查 5 小时与每周用量 | 不读令牌，没有用量 |
+| 读令牌查用量，另读 Google 账号 ID 跨环境合并账号 | 读令牌查用量（§6），不读账号 ID |
 | 下载失败就从头来 | 断线后用 Range 接着下，卡住有超时，连不上时说明镜像与手填路径（§2） |
 | 运行体的租约与删除 | 没有删除运行体的方法，也就没有租约 |
 | T3 自己的 MCP 服务（Antigravity 不挂，`mcpServers` 恒为空） | 应用级工具（0.30.0，domain-model §3.15）：会话带 `SessionConfig.appTools` 时 `session/new` 与 `session/resume` 带一项 stdio 的 `wevir`（同 Grok 的桥，grok-event-mapping.md §7）；运行体对 MCP 的支持与审批没有用真实运行体核对 |

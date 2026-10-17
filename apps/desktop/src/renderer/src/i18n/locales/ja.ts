@@ -964,6 +964,7 @@ export const messages: Messages = {
   'account.chatgpt.usage.used': '{percent}% 使用',
   'account.chatgpt.usage.window': '使用量',
   'account.chatgpt.usage.weekly': '週間使用量',
+  'account.chatgpt.usage.monthly': '月間使用量',
   'account.chatgpt.usage.days': '{count} 日間の使用量',
   'account.chatgpt.usage.hours': '{count} 時間の使用量',
   'account.chatgpt.usage.minutes': '{count} 分間の使用量',

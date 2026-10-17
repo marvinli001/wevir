@@ -3,13 +3,14 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；ACP 的探测经 `@wevir/adapter-acp`
-// 的 `AcpProcess`；不读 Grok 存的凭据（T3 读 ~/.grok 的 auth.json 取邮箱与用量，Wevir 不读，所以没有邮箱、套餐与用量）；
-// 不做 skills 与斜杠命令；结果缓存 5 分钟，`read` 带 `refresh` 时重新检测。
+// 的 `AcpProcess`；邮箱与用量照 T3 读 ~/.grok 的 auth.json（只读，见 usage.ts），没有套餐；不做 skills 与斜杠命令；结果缓存
+// 5 分钟，`read` 带 `refresh` 时重新检测。
 //
 // Grok 的账号（grok-event-mapping.md §2）：Wevir 自己不登录，只检测用户在终端里 `grok login` 的结果，或用户环境里的
 // `XAI_API_KEY`。照 T3：找 `grok` 并跑 `--version`；跑 `grok models`（不起 agent，输出里说有没有登录，并列出模型）；再起一次
 // `grok agent stdio` 只做 ACP `initialize` 读 `_meta.modelState`（带上下文窗口与推理档位）。探测不调 `authenticate`、不建
-// 会话，所以不会打开浏览器登录，也不会启动工作区的 MCP 服务器。
+// 会话，所以不会打开浏览器登录，也不会启动工作区的 MCP 服务器。同时读 `grok login` 的账号的邮箱与本周期的额度（usage.ts），
+// 读不到额度时留着上一次的。
 
 import { mkdirSync } from 'node:fs';
 import { AcpProcess } from '@wevir/adapter-acp';
@@ -18,6 +19,7 @@ import {
   type AccountModels,
   type AccountState,
   AdapterError,
+  accountRateLimits,
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
 import { GROK_ENGINE } from './engine.js';
@@ -39,6 +41,7 @@ import {
   modelsFromInitialize,
   parseGrokModelsOutput,
 } from './models.js';
+import { readGrokUsage } from './usage.js';
 
 /** 检测结果的有效期（同 Claude Agent 的 `PROBE_TTL_MS`）。 */
 export const PROBE_TTL_MS = 5 * 60_000;
@@ -61,6 +64,10 @@ export interface GrokAccountsOptions {
     signal: AbortSignal,
     workDir: string,
   ) => Promise<unknown>;
+  /** 读用量的 fetch（测试换成假的）；省略时用全局的。 */
+  fetch?: typeof fetch;
+  /** 读 ~/.grok 下的文件（测试换成假的）。 */
+  readFile?: (file: string) => Promise<string>;
   now?: () => number;
 }
 
@@ -161,7 +168,7 @@ export class GrokAccounts implements EngineAccounts {
   markSignedOut(message: string): void {
     const state = this.#state;
     if (state === undefined || state.status !== 'signed_in') return;
-    const { planLabel: _label, ...rest } = state;
+    const { planLabel: _label, email: _email, rateLimits: _limits, ...rest } = state;
     this.#checkedAt = 0;
     this.#publish({ ...rest, status: 'signed_out', lastError: message });
   }
@@ -260,6 +267,13 @@ export class GrokAccounts implements EngineAccounts {
       ...(version !== undefined && { version }),
     };
 
+    // 邮箱与用量和下面的探测同时读（不抛错）。
+    const usage = readGrokUsage({
+      env: parentEnv,
+      ...(this.#options.fetch !== undefined && { fetch: this.#options.fetch }),
+      ...(this.#options.readFile !== undefined && { readFile: this.#options.readFile }),
+    });
+
     // `grok models`：只解析干净退出的输出（失败时打印的是帮助或错误，不能当模型或登录结论，T3）。
     const modelsRun = await runGrok(executablePath, ['models'], env, MODELS_TIMEOUT_MS, signal);
     const cli: GrokModelsCliOutput =
@@ -286,9 +300,22 @@ export class GrokAccounts implements EngineAccounts {
       return { ...installed, status: 'signed_in', plan: 'apiKey', planLabel: 'xAI API Key' };
     }
     if (cli.authenticated === false) return installed;
+    const account = await usage;
+    // 读失败时留着上一次的，只要还是同一个账号。
+    const previous = this.#state?.status === 'signed_in' ? this.#state : undefined;
+    const rateLimits =
+      account === undefined
+        ? undefined
+        : account.usage.ok
+          ? account.usage.rateLimits && accountRateLimits(account.usage.rateLimits)
+          : previous?.email === account.email
+            ? previous?.rateLimits
+            : undefined;
     return {
       ...installed,
       status: 'signed_in',
+      ...(account?.email !== undefined && { email: account.email }),
+      ...(rateLimits !== undefined && { rateLimits }),
       // 看不出来有没有登录（输出的措辞变了、`grok models` 失败）：照样当作已登录，回合里 Grok 要认证时再标回去。
       ...(cli.authenticated === null && {
         lastError: modelsRun.ok

@@ -63,10 +63,32 @@ export function planLabel(plan: string | undefined): string | undefined {
   return PLAN_LABELS[plan] ?? plan;
 }
 
-/** 用量窗口的名字：5 小时、每周，其余按长度说。 */
+/**
+ * 账号的全部用量窗口：0.45.0 起引擎给 `windows`（三个以上、按月的窗口），旧 Host 与只有两个窗口的引擎只有主窗口与次窗口。
+ */
+export function usageWindows(
+  rateLimits: AccountState['rateLimits'] | undefined,
+): AccountRateLimitWindow[] {
+  if (rateLimits === undefined) return [];
+  if (rateLimits.windows !== undefined && rateLimits.windows.length > 0) return rateLimits.windows;
+  return [rateLimits.primary, rateLimits.secondary].filter(
+    (window): window is AccountRateLimitWindow => window !== undefined,
+  );
+}
+
+/** 用量窗口的名字：5 小时、每周、每月，其余按长度说；有额度名（0.45.0 的 `scope`）时写在前面，如“Gemini · 每周用量”。 */
 export function windowName(window: AccountRateLimitWindow): string {
+  const name = periodName(window);
+  return window.scope === undefined ? name : `${window.scope} · ${name}`;
+}
+
+function periodName(window: AccountRateLimitWindow): string {
   const minutes = window.windowMinutes;
-  if (minutes === undefined) return t('account.chatgpt.usage.window');
+  if (minutes === undefined) {
+    return window.period === 'monthly'
+      ? t('account.chatgpt.usage.monthly')
+      : t('account.chatgpt.usage.window');
+  }
   if (minutes === 10080) return t('account.chatgpt.usage.weekly');
   if (minutes % 1440 === 0) return t('account.chatgpt.usage.days', { count: minutes / 1440 });
   if (minutes % 60 === 0) return t('account.chatgpt.usage.hours', { count: minutes / 60 });

@@ -1,5 +1,5 @@
 // 会话侧栏“用量”卡片（desktop-layout.md §12）的纯逻辑：会话的模型来自哪个订阅、那个账号的用量窗口，与重置时间的说法。
-// 用量是账号级的（AccountState.rateLimits，0.19.0），Codex 与 Claude Agent 在回合里推送更新，侧栏只读。
+// 用量是账号级的（AccountState.rateLimits，0.19.0；0.45.0 起有 `windows`），Codex 与 Claude 在回合里推送更新，侧栏只读。
 
 import type {
   AccountKind,
@@ -10,13 +10,13 @@ import type {
 } from '@wevir/protocol';
 import { sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
-import { planLabel, resetLabel, usageTone } from '@/settings/chatgpt-account-model';
+import { planLabel, resetLabel, usageTone, usageWindows } from '@/settings/chatgpt-account-model';
 
 export interface SubscriptionUsage {
   kind: AccountKind;
   /** 套餐给人看的说法，引擎没给时是原值。 */
   plan?: string;
-  /** 主窗口在前（5 小时），次窗口在后（每周）。 */
+  /** 短的在前（5 小时、每周、每月）；0.45.0 起可以多于两个。 */
   windows: AccountRateLimitWindow[];
   /** 用得最多的那个窗口：收起时的摘要显示它。 */
   peak: AccountRateLimitWindow;
@@ -35,10 +35,7 @@ export function subscriptionUsage(
   if (!source) return undefined;
   const account = accounts?.find((candidate) => candidate.kind === source.kind);
   if (account?.status !== 'signed_in') return undefined;
-  const { primary, secondary } = account.rateLimits ?? {};
-  const windows = [primary, secondary].filter(
-    (window): window is AccountRateLimitWindow => window !== undefined,
-  );
+  const windows = usageWindows(account.rateLimits);
   const [first] = windows;
   if (first === undefined) return undefined;
   const peak = windows.reduce(

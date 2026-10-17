@@ -54,7 +54,13 @@ export function tempRoot(name: string): { dir: (sub: string) => string; remove: 
 /** 驱动假 grok 的环境：`WEVIR_GROK_BIN` 指向它，其余 `FAKE_GROK_*` 由调用方给。 */
 export function fakeGrokEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const { XAI_API_KEY: _key, ...parent } = process.env;
-  return { ...parent, WEVIR_GROK_BIN: FAKE_GROK, ...extra };
+  // GROK_HOME 指向不存在的目录：不读这台机器上真的 grok 登录（usage.ts）。
+  return {
+    ...parent,
+    WEVIR_GROK_BIN: FAKE_GROK,
+    GROK_HOME: '/nonexistent/wevir-test-grok-home',
+    ...extra,
+  };
 }
 
 export interface Warning {

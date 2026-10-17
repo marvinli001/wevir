@@ -967,6 +967,7 @@ export const messages: Messages = {
   'account.chatgpt.usage.used': '{percent} % genutzt',
   'account.chatgpt.usage.window': 'Nutzung',
   'account.chatgpt.usage.weekly': 'Wöchentliche Nutzung',
+  'account.chatgpt.usage.monthly': 'Monatliche Nutzung',
   'account.chatgpt.usage.days': '{count, plural, one {Nutzung (# Tag)} other {Nutzung (# Tage)}}',
   'account.chatgpt.usage.hours': 'Nutzung ({count} Std.)',
   'account.chatgpt.usage.minutes': 'Nutzung ({count} Min.)',

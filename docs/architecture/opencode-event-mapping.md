@@ -27,7 +27,9 @@
 2. `opencode --version`（10 s 时限）。跑不起来是 `installed: true` 带原因（macOS 隔离、签名损坏给出处理办法，T3 的 `formatOpenCodeProbeError`）；版本低于 1.14.19（T3 的 `MINIMUM_OPENCODE_VERSION`）或是 2.x 也是 `installed: true` 带原因、不往下走。
 3. 借本机服务器（§3），在 `<数据目录>/engines/opencode` 这个目录上读 `provider.list`。`connected` 里有上游就是 `signed_in`：`planLabel` 是这些上游的名字，按 `connected` 的顺序用 “, ” 连起来（例如 “Anthropic, OpenAI”，界面有十种语言，不用中文顿号），`plan` 是它们的 ID；没有就是 `signed_out`（不带 `lastError`，界面给登录命令）。读失败是 `signed_out` 带原因。
 
-结果缓存 5 分钟，`read` 带 `refresh` 时重新检测（用户在终端里登录之后桌面端点“重新检测”）。`login` / `logout` 报 `invalid_input`，提示在终端里做（`opencode auth login` / `opencode auth logout`）；没有 `install`。opencode 自己存的凭据 Wevir 不读（ADR-0005 补记 14）。
+结果缓存 5 分钟，`read` 带 `refresh` 时重新检测（用户在终端里登录之后桌面端点“重新检测”）。`login` / `logout` 报 `invalid_input`，提示在终端里做（`opencode auth login` / `opencode auth logout`）；没有 `install`。opencode 自己存的凭据 Wevir 不读，只有 OpenCode Go 的 Key 例外（下面）。
+
+**OpenCode Go 的用量**（2026-10-17，协议 0.45.0，`usage.ts`，照 T3 的 `readOpenCodeGoUsageLimits`）：`connected` 里有 `opencode-go` 时，检测顺带读用量。Key 取 opencode 的 auth.json（`$XDG_DATA_HOME/opencode/auth.json`，默认 `~/.local/share/opencode/auth.json`；`OPENCODE_AUTH_CONTENT` 可以代替文件）里 `opencode-go` 的 `api` 凭据，没有时 `OPENCODE_API_KEY`，只读；`GET https://opencode.ai/zen/go/v1/usage`（Bearer，5 s 时限）的 `usage.rolling` / `weekly` / `monthly` 各是 `{ percent, resetsAt }`，报成 5 小时、每周与按月（`period: 'monthly'`）三个窗口，缺哪个少报哪个。403（Key 没有 Go 订阅）与没有 Key 时不报；读文件、网络等别的失败留着上一次的。没有真实账号验证过，接口形状取自 T3。
 
 ### 2.2 模型
 
@@ -219,7 +221,7 @@ T3 的 `textGeneration.ts`：在会话的工作目录里建一个临时 opencode
 - Effect 改写成普通 TS，没有引入 `effect`；SDK 动态 import。
 - 一个 Host 一个服务器、按目录分客户端（T3 每个会话一个服务器，账号检测另用一个共享的）；服务器总带随机密码；台账记在 Wevir 的数据目录。
 - 不支持 OpenCode 2.x、不支持连外部服务器的网址与密码（T3 的设置里有 `serverUrl` / `serverPassword`）。
-- 不搬：回滚、按指定回合分支（T3 的 `forkThread` 带 `providerTurnId`）、`/compact` 与 slash 命令、skills、附件、agent 选择（build / plan）、T3 自己的 MCP 服务、OpenCode Go 的用量。
+- 不搬：回滚、按指定回合分支（T3 的 `forkThread` 带 `providerTurnId`）、`/compact` 与 slash 命令、skills、附件、agent 选择（build / plan）、T3 自己的 MCP 服务、OpenCode Go 用量的凭据指纹（T3 跨环境合并账号用）。
 - 应用级工具（§4.4）照 Paseo 用插件挂，不照 T3（T3 给每个会话一个绑在目录上的服务器，MCP 服务能按会话登记）。与 Paseo 的差异：工具定义与调用走 Host 的 `/mcp`（JSON-RPC）而不是另开一个桥；只读的工具不问；没有 `shell.env` 与按父会话找上下文；`isError` 时抛错。
 - 插话（§5.10）：T3 的 `steerTurn` 与 admission 状态机里交接期间压着 idle 的那一段；变体同会话（T3 的插话不带变体）；没用上的插话从 opencode 的历史里删掉（T3 留着）；插话以回答它的 assistant 消息报 `turn.steered`（T3 的编排节点没有对应的事件）。
 - 标题（§5.11）：说明经 `system`、输出经 `format: json_schema` 约束、取 `structured`，临时会话放行 `StructuredOutput`（T3 把说明与输入拼成一段文本、自己解析 JSON）；变体取最低的一档（T3 用选的那一档）；用完删掉临时会话。只做会话标题（T3 还生成提交信息、PR、分支名与审阅指南）。

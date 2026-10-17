@@ -540,7 +540,11 @@ interface AccountState {
     startedAt: IsoTime
   }
   lastError?: string       // signed_out 时：最近一次登录失败的原因（引擎原文）；取消的、被替换的不算
-  rateLimits?: { primary?: AccountRateLimitWindow; secondary?: AccountRateLimitWindow } // 5 小时与每周的用量，尽力而为
+  rateLimits?: {            // 用量，尽力而为（引擎读不到时留着上一次的）
+    primary?: AccountRateLimitWindow   // 5 小时（ChatGPT、Claude），或最短的那个窗口
+    secondary?: AccountRateLimitWindow // 每周，或第二短的
+    windows?: AccountRateLimitWindow[] // 0.45.0：全部窗口，短的在前；有它时客户端显示它，前两个同时是 primary / secondary
+  }
   // 0.19.0，订阅来源用：
   planLabel?: string        // 套餐给人看的说法（Max 20x…）
   signIn?: 'in_app' | 'command' // in_app：account.login；command：用户在终端里运行 loginCommand，再 account.get { refresh }
@@ -560,8 +564,12 @@ interface AccountRateLimitWindow {
   usedPercent: number       // 0–100
   windowMinutes?: number    // 300、10080…
   resetsAt?: IsoTime
+  period?: 'monthly'        // 0.45.0：按月（计费周期，长度不固定）；有 windowMinutes 时以它为准
+  scope?: string            // 0.45.0：几份额度里的哪一份（Gemini、Claude & GPT、Auto + Composer、API），原样显示
 }
 ```
+
+报用量的引擎（0.45.0）：Codex（ChatGPT，5 小时与每周，回合里推送）、Claude（同，`rate_limit_event`）、Cursor（本计费周期的总用量与 Auto + Composer、API 两份额度，按月）、OpenCode（接上 OpenCode Go 时：5 小时、每周、每月）、Grok（本周期的额度，每周或每月）、Antigravity（Gemini 与 Claude & GPT 两份额度各自的 5 小时与每周）。后四种只在读账号时读（缓存 5 分钟），回合里不推送；读不到时留着上一次的。各自读什么见各引擎映射文档的 §2。
 
 与 Provider 的关系：
 

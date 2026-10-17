@@ -207,6 +207,10 @@ export const AccountRateLimitWindowSchema = z.object({
   windowMinutes: z.int().min(1).optional(),
   /** 窗口重置的时间。 */
   resetsAt: IsoTimeSchema.optional(),
+  /** 0.45.0：长度不固定的周期，`monthly` 是按月（计费周期）；有 `windowMinutes` 时以它为准。 */
+  period: z.enum(['monthly']).optional(),
+  /** 0.45.0：账号有几份额度时这个窗口算的是哪一份（如 `Gemini`、`Auto + Composer`），产品名，界面原样显示。 */
+  scope: z.string().min(1).optional(),
 });
 export type AccountRateLimitWindow = z.infer<typeof AccountRateLimitWindowSchema>;
 
@@ -224,11 +228,15 @@ export const AccountStateSchema = z.object({
   login: AccountLoginSchema.optional(),
   /** 引擎原文。 */
   lastError: z.string().optional(),
-  /** 主窗口（ChatGPT：5 小时）与次窗口（每周）的用量。 */
+  /**
+   * 主窗口（ChatGPT：5 小时）与次窗口（每周）的用量。0.45.0 起 `windows` 是全部窗口（按显示的先后），有它时客户端显示它；
+   * 引擎同时把前两个放进 `primary` / `secondary`，给旧客户端。
+   */
   rateLimits: z
     .object({
       primary: AccountRateLimitWindowSchema.optional(),
       secondary: AccountRateLimitWindowSchema.optional(),
+      windows: z.array(AccountRateLimitWindowSchema).optional(),
     })
     .optional(),
   // 以下是订阅来源（0.19.0）的字段，`chatgpt` 只用到 `planLabel`、`signIn`、`loginMethods`。

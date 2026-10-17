@@ -33,7 +33,8 @@
 
 - **`CURSOR_API_KEY` 优先**（T3 相同）：设了它就用它，应用里的登录与登出报 `invalid_input`，提示先去掉这个环境变量。
 - **密钥不落地**（AGENTS.md 规则 5）：Key 只在凭据文件与内存里；每次读到都交给 Host 日志的 `addSecret`，不进事件、`account.updated` 与日志。凭据文件不是 Host 的 `secrets.json`：适配器在 Host 进程里，但拿不到 Host 的 `SecretStore`；放在引擎目录下与 Codex 的 `engines/codex-chatgpt/auth.json` 同一保护级别。
-- **没有套餐与用量。** SDK 的 `Cursor.me` 不给套餐，所以没有 `plan` / `planLabel`。T3 的用量读的是 Cursor CLI 自己的登录（macOS 钥匙串的 `cursor-access-token`，用户在 T3 里打开开关才读）；Wevir 不读其他软件存的凭据（ADR-0005 补记 14），没有 `rateLimits`。
+- **没有套餐。** SDK 的 `Cursor.me` 不给套餐，所以没有 `plan` / `planLabel`。
+- **用量**（2026-10-17，协议 0.45.0，`usage.ts`，照 T3 的 `readCursorUsageLimits`）：与 `Cursor.me` 同时读、同样缓存 5 分钟。T3 读的是 Cursor CLI 自己的登录（`~/.cursor/auth.json` 或 macOS 钥匙串，用户打开开关才读）；Wevir 不读，而是像 SDK 自己那样用这把 API Key `POST <后端>/auth/exchange_user_api_key` 换一个短期 accessToken（只在内存里），再 `POST <后端>/aiserver.v1.DashboardService/GetCurrentPeriodUsage`（Connect 协议的 JSON，10 s 时限）。后端是铸 Key 的那个（凭据文件的 `backendUrl`），`CURSOR_API_KEY` 用 `CURSOR_BACKEND_URL` 或默认的 `https://api2.cursor.sh`（同 SDK）。`planUsage` 的 `totalPercentUsed`、`autoPercentUsed`、`apiPercentUsed` 报成三个按月的窗口（总的没有额度名，另两个是 `Auto + Composer` 与 `API`，Cursor 后台的两份额度；总的不是第三份），`billingCycleEnd` 是重置时间；百分比含赠送的额度。没有百分比的账号不报；换令牌或读用量失败时同一把 Key 留着上一次的。没有真实账号验证过：接口取自 T3 与 SDK 1.0.35 里的 proto，用 API Key 换来的令牌能不能读这个接口要真实账号确认。
 - **不读 SDK 的默认凭据位置**：Wevir 总是显式传 `apiKey`，SDK 自己的 `~/.cursor/sdk/auth.json` 不读也不写。
 
 ## 3. 会话、模型与权限（`models.ts`、`cursor-adapter.ts`）
@@ -148,7 +149,7 @@ SDK 的错误类带自己的 `name`（打包后类名被压缩，但实例的 `n
 - Effect 改写成普通 TS，没有引入 `effect`；SDK 用动态 import 而不是 `createRequire`（T3 为了 Node SEA）。
 - 凭据存在 Wevir 的数据目录（§2），不进 Host 的 `secrets.json`；T3 存在自己的密钥库，并迁移旧版的文件。
 - T3 自己的 MCP 服务（`t3-code`）换成 Wevir 的应用级工具（0.30.0，domain-model §3.15）：会话带 `SessionConfig.appTools` 时 `Agent.create` / `Agent.resume` 的选项里有 `mcpServers.wevir`（`type: 'http'`、`url`、`Authorization` 头），重新打开 agent 时照样带上；Cursor 没有审批，工具直接调用。只验证了选项（`cursor-adapter.test.ts`），没有用真实账号跑。
-- 不接 skills 的 `$提及` 改写、图片附件、计划模式（`mode: 'plan'` 与 `createPlan` 的计划视图）、`/compress`、`readThreadSnapshot`、用量；子 agent 不建子线程。
+- 不接 skills 的 `$提及` 改写、图片附件、计划模式（`mode: 'plan'` 与 `createPlan` 的计划视图）、`/compress`、`readThreadSnapshot`；子 agent 不建子线程。
 - 权限模式按 §3.2 映射到 Wevir 的三种；换权限模式时重新打开 agent（T3 的会话中不能换）。
 - 取消确认不了时 T3 记为 interrupted，Wevir 记为 cancelled。
 

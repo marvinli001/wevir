@@ -57,6 +57,8 @@ export interface AntigravityAdapterOptions {
   cancelTimeoutMs?: number;
   /** 应用级工具的 stdio 桥（0.30.0）：会话带 `appTools` 时经 ACP 挂上。 */
   appToolsBridge?: AppToolsBridge;
+  /** 测试用：读用量的 fetch（accounts.ts、usage.ts）。 */
+  usageFetch?: typeof fetch;
 }
 
 interface SessionSettings {
@@ -137,6 +139,7 @@ export class AntigravityAdapter extends AcpAdapter {
         await this.stopEngine('config_changed');
         await this.#launcher.cleanup();
       },
+      ...(options.usageFetch !== undefined && { fetch: options.usageFetch }),
     });
     this.accounts = accounts;
   }

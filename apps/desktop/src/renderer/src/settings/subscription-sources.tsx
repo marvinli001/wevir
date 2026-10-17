@@ -30,7 +30,7 @@ import { useAccounts, useAccountsStore, useWorkbenchStore } from '@/data/workben
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
-import { planLabel } from './chatgpt-account-model';
+import { planLabel, usageWindows } from './chatgpt-account-model';
 import { NoticeBanner } from './settings-ui';
 
 /**
@@ -663,7 +663,7 @@ function SignedIn({
   onRun: (label: string, op: () => Promise<{ account: AccountState }>) => Promise<unknown>;
   onRefresh: () => void;
 }) {
-  const { primary, secondary } = account.rateLimits ?? {};
+  const windows = usageWindows(account.rateLimits);
   const facts: [string, ReactNode][] = [];
   const plan = account.planLabel ?? account.plan;
   if (plan !== undefined) facts.push([t('source.fact.plan'), plan]);
@@ -688,10 +688,12 @@ function SignedIn({
           ))}
         </dl>
       )}
-      {(primary !== undefined || secondary !== undefined) && (
+      {windows.length > 0 && (
         <div className="grid gap-2 sm:grid-cols-2" data-usage>
-          {primary !== undefined && <UsageBar window={primary} />}
-          {secondary !== undefined && <UsageBar window={secondary} />}
+          {windows.map((window, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 窗口没有 ID，顺序由引擎给出
+            <UsageBar key={index} window={window} />
+          ))}
         </div>
       )}
       {provider !== undefined && provider.models.length > 0 && (

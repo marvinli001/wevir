@@ -5,6 +5,7 @@ import { resetText, subscriptionUsage, usageBar } from './usage-model';
 const providers = [
   { id: 'chatgpt', kind: 'chatgpt', models: [] },
   { id: 'claude', kind: 'claude', models: [] },
+  { id: 'opencode', kind: 'opencode', models: [] },
   { id: 'deepseek', kind: 'deepseek', models: [] },
 ] as unknown as ProviderProfile[];
 
@@ -41,6 +42,24 @@ describe('subscriptionUsage', () => {
       plan: 'Max 20x',
       windows: [{ usedPercent: 3 }],
       peak: { usedPercent: 3 },
+    });
+  });
+
+  it('0.45.0 的 windows 有时显示全部窗口（OpenCode Go 的 5 小时、每周、每月）', () => {
+    const windows = [
+      { usedPercent: 10, windowMinutes: 300 },
+      { usedPercent: 20, windowMinutes: 10080 },
+      { usedPercent: 60, period: 'monthly' as const },
+    ];
+    const opencode: AccountState = {
+      kind: 'opencode',
+      status: 'signed_in',
+      rateLimits: { primary: windows[0], secondary: windows[1], windows },
+    };
+    expect(subscriptionUsage({ providerId: 'opencode' }, providers, [opencode])).toEqual({
+      kind: 'opencode',
+      windows,
+      peak: windows[2],
     });
   });
 

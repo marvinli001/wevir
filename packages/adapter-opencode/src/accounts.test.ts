@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AccountState } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
-import { OpenCodeAccounts } from './accounts.js';
+import { OpenCodeAccounts, type OpenCodeAccountsOptions } from './accounts.js';
 import { OPENCODE_INSTALL_COMMAND, OPENCODE_LOGIN_COMMAND } from './executable.js';
 import { OpenCodeRuntime } from './runtime.js';
 import { FAKE_OPENCODE_VERSION, FakeOpenCode } from './test-fixtures/fake-opencode.js';
@@ -23,6 +23,7 @@ function setup(
     version?: string;
     probeFails?: 'missing' | 'failed';
     now?: () => number;
+    accounts?: Partial<OpenCodeAccountsOptions>;
   } = {},
 ) {
   const fake = new FakeOpenCode();
@@ -50,7 +51,9 @@ function setup(
   runtimes.push(runtime);
   const accounts = new OpenCodeAccounts({
     runtime,
+    env: {},
     ...(options.now !== undefined && { now: options.now }),
+    ...options.accounts,
   });
   return { fake, runtime, accounts };
 }

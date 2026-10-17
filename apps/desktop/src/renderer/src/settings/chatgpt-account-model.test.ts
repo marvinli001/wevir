@@ -62,6 +62,13 @@ describe('ChatGPT 账号的界面阶段（R6）', () => {
     expect(windowName({ usedPercent: 1, windowMinutes: 10080 })).toBe('每周用量');
     expect(windowName({ usedPercent: 1, windowMinutes: 2880 })).toBe('2 天用量');
     expect(windowName({ usedPercent: 1 })).toBe('用量');
+    expect(windowName({ usedPercent: 1, period: 'monthly' })).toBe('每月用量');
+    expect(windowName({ usedPercent: 1, period: 'monthly', windowMinutes: 300 })).toBe(
+      '5 小时用量',
+    );
+    expect(windowName({ usedPercent: 1, windowMinutes: 10080, scope: 'Gemini' })).toBe(
+      'Gemini · 每周用量',
+    );
     const now = new Date('2026-10-14T08:00:00');
     expect(resetLabel('2026-10-14T10:30:00', now)).toBe('今天 10:30 重置');
     expect(resetLabel('2026-10-20T09:05:00', now)).toBe('10月20日 09:05 重置');

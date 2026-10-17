@@ -332,7 +332,10 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ...(options.startServer !== undefined && { startServer: options.startServer }),
       ...(options.idleTtlMs !== undefined && { idleTtlMs: options.idleTtlMs }),
     });
-    this.accounts = new OpenCodeAccounts({ runtime: this.#runtime });
+    this.accounts = new OpenCodeAccounts({
+      runtime: this.#runtime,
+      ...(options.env !== undefined && { env: options.env }),
+    });
     this.#unsubscribeExit = this.#runtime.onServerExit((exit) => this.#onServerExit(exit));
   }
 

@@ -247,6 +247,24 @@ export const signedInAccount: AccountState = {
   },
 };
 
+/** 0.45.0：三个以上的窗口、按月的窗口与额度的名字（OpenCode Go、Cursor 的用量）。 */
+export const multiWindowAccount: AccountState = {
+  kind: 'cursor',
+  status: 'signed_in',
+  email: 'me@example.com',
+  signIn: 'in_app',
+  loginMethods: ['browser'],
+  rateLimits: {
+    primary: { usedPercent: 12, period: 'monthly', resetsAt: TS2 },
+    secondary: { usedPercent: 4, period: 'monthly', resetsAt: TS2, scope: 'Auto + Composer' },
+    windows: [
+      { usedPercent: 12, period: 'monthly', resetsAt: TS2 },
+      { usedPercent: 4, period: 'monthly', resetsAt: TS2, scope: 'Auto + Composer' },
+      { usedPercent: 37.5, period: 'monthly', resetsAt: TS2, scope: 'API' },
+    ],
+  },
+};
+
 export const signingInAccount: AccountState = {
   kind: 'chatgpt',
   status: 'signing_in',
@@ -1722,10 +1740,23 @@ export const methodSamples: MethodSamples = {
         { account: signingInAccount },
         { account: { kind: 'chatgpt', status: 'signed_out', lastError: 'Login timed out' } },
         { account: claudeAccount },
+        { account: multiWindowAccount },
       ],
       invalid: [
         { account: { kind: 'chatgpt', status: 'expired' } },
         { account: { ...claudeAccount, installUrl: 'x.ai/cli' } },
+        {
+          account: {
+            ...multiWindowAccount,
+            rateLimits: { windows: [{ usedPercent: 1, period: 'yearly' }] },
+          },
+        },
+        {
+          account: {
+            ...multiWindowAccount,
+            rateLimits: { windows: [{ usedPercent: 1, scope: '' }] },
+          },
+        },
         {},
       ],
     },

@@ -3,12 +3,12 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；“已登录”与套餐显示接上了哪些上游；
-// 不读 skills、slash 命令与 agent 列表；不支持外部服务器的网址与密码（只用本机起的服务器）。
+// 不读 skills、slash 命令与 agent 列表；不支持外部服务器的网址与密码（只用本机起的服务器）。另移植了 usageLimits.ts（见 usage.ts）。
 //
 // OpenCode 的账号（opencode-event-mapping.md §2）：Wevir 自己不登录，用户在终端里 `opencode auth login` 接上游（Anthropic、
-// OpenAI、OpenCode Zen、GitHub Copilot…，凭据在 opencode 自己的数据目录里，Wevir 不读）。照 T3：先找 `opencode` 跑 `--version`，
-// 再起本机服务器读 `provider.list`——`connected` 里有上游就算已登录，套餐写接上了哪些。结果缓存 5 分钟，`read` 带 `refresh` 时
-// 重新检测。
+// OpenAI、OpenCode Zen、GitHub Copilot…，凭据在 opencode 自己的数据目录里，Wevir 只读 OpenCode Go 的 Key 查用量）。照 T3：先找 `opencode` 跑 `--version`，
+// 再起本机服务器读 `provider.list`——`connected` 里有上游就算已登录，套餐写接上了哪些。接上了 OpenCode Go 时顺带读它的用量
+// （usage.ts：读 auth.json 里 Go 的 Key，只读；读不到时留着上一次的）。结果缓存 5 分钟，`read` 带 `refresh` 时重新检测。
 
 import { mkdirSync } from 'node:fs';
 import {
@@ -23,12 +23,19 @@ import { OPENCODE_INSTALL_COMMAND, OPENCODE_LOGIN_COMMAND } from './executable.j
 import { accountModels, contextWindowOf, planLabel, variantsOf } from './models.js';
 import type { OpenCodeRuntime } from './runtime.js';
 import { errorMessage, type ProviderListResponse } from './sdk.js';
+import { OPENCODE_GO_PROVIDER, readOpenCodeGoUsage } from './usage.js';
 
 /** 检测结果的有效期（同 adapter-claude 的 PROBE_TTL_MS）。 */
 export const PROBE_TTL_MS = 5 * 60_000;
 
 export interface OpenCodeAccountsOptions {
   runtime: OpenCodeRuntime;
+  /** Host 的环境变量（找 opencode 的 auth.json、`OPENCODE_API_KEY`）；省略时用 process.env。 */
+  env?: NodeJS.ProcessEnv;
+  /** 读 OpenCode Go 用量的 fetch（测试换成假的）；省略时用全局的。 */
+  fetch?: typeof fetch;
+  /** 读 auth.json（测试换成假的）。 */
+  readFile?: (file: string) => Promise<string>;
   now?: () => number;
 }
 
@@ -211,12 +218,29 @@ export class OpenCodeAccounts implements EngineAccounts {
     this.#providers = providers;
     const label = planLabel(providers);
     if (label === undefined) return installed;
+    const rateLimits = providers.connected.includes(OPENCODE_GO_PROVIDER)
+      ? await this.#readUsage()
+      : undefined;
     return {
       ...installed,
       status: 'signed_in',
       plan: providers.connected.join(','),
       planLabel: label,
+      ...(rateLimits !== undefined && { rateLimits }),
     };
+  }
+
+  /** OpenCode Go 的用量；读不到时是上一次的（usage.ts）。 */
+  async #readUsage(): Promise<AccountState['rateLimits']> {
+    try {
+      return await readOpenCodeGoUsage({
+        env: this.#options.env ?? process.env,
+        ...(this.#options.fetch !== undefined && { fetch: this.#options.fetch }),
+        ...(this.#options.readFile !== undefined && { readFile: this.#options.readFile }),
+      });
+    } catch {
+      return this.#state?.status === 'signed_in' ? this.#state.rateLimits : undefined;
+    }
   }
 
   #publish(state: AccountState): void {

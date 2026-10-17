@@ -1,4 +1,4 @@
-// 会话侧栏的“用量”卡片（desktop-layout.md §12）：会话的模型来自订阅时，显示那个订阅账号的用量窗口（5 小时、每周）。
+// 会话侧栏的“用量”卡片（desktop-layout.md §12）：会话的模型来自订阅时，显示那个订阅账号的用量窗口（5 小时、每周、每月）。
 // 数据是账号表（accounts-store.ts）里的 `rateLimits`，引擎在回合里推送更新；侧栏看得见时另外每 5 分钟读一次账号，
 // 别处（其他设备、终端里的 CLI）用掉的额度也跟得上。
 
@@ -67,11 +67,12 @@ function useUsageCard({ session, providers, visible }: RailContext) {
     details: (
       <div data-testid="rail-usage">
         <ul className="space-y-3">
-          {usage.windows.map((window) => {
+          {usage.windows.map((window, index) => {
             const bar = usageBar(window);
             const resets = resetText(window.resetsAt, new Date(now));
             return (
-              <li key={window.windowMinutes ?? windowName(window)}>
+              // biome-ignore lint/suspicious/noArrayIndexKey: 窗口没有 ID，名字可能相同（长度不明的窗口）
+              <li key={index}>
                 <div className="flex items-baseline justify-between gap-2">
                   <span>{windowName(window)}</span>
                   <span className="text-xs text-muted-foreground tabular-nums">

@@ -980,6 +980,7 @@ export const messages: Messages = {
   'account.chatgpt.usage.used': 'Использовано {percent}%',
   'account.chatgpt.usage.window': 'Использование',
   'account.chatgpt.usage.weekly': 'За неделю',
+  'account.chatgpt.usage.monthly': 'За месяц',
   'account.chatgpt.usage.days':
     'За {count, plural, one {# день} few {# дня} many {# дней} other {# дня}}',
   'account.chatgpt.usage.hours':

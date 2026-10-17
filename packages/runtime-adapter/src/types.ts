@@ -385,6 +385,8 @@ export interface AccountState {
   rateLimits?: {
     primary?: AccountRateLimitWindow;
     secondary?: AccountRateLimitWindow;
+    /** 0.45.0：全部窗口；用 `accountRateLimits` 生成，前两个同时放进 primary / secondary。 */
+    windows?: AccountRateLimitWindow[];
   };
   // 订阅来源（0.19.0）的字段，含义见 @wevir/protocol 的 `AccountState`。
   planLabel?: string;
@@ -405,6 +407,8 @@ export interface AccountRateLimitWindow {
   usedPercent: number;
   windowMinutes?: number;
   resetsAt?: string;
+  period?: 'monthly';
+  scope?: string;
 }
 
 /** 账号能用的模型（ChatGPT：Codex 的 `model/list`）。 */

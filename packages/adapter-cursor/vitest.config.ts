@@ -5,5 +5,6 @@ export default defineProject({
   ssr: { resolve: { conditions: ['@wevir/source'] } },
   test: {
     name: 'adapter-cursor',
+    setupFiles: ['src/test-fixtures/no-network.ts'],
   },
 });

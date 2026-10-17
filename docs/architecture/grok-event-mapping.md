@@ -21,7 +21,7 @@
 
   命令行上的 `--permission-mode` 压过用户 Grok 配置里的设置，所以“请求批准”不会继承配置里的 always-approve。
 - **每种权限模式一个进程。** T3 每个会话一个 `grok` 进程；Wevir 的通用 ACP 适配器是一个进程承载多个会话（dsh 也这样），Grok 的 ACP 支持一个连接多个会话（`sessionCapabilities` 有 `list` / `resume` / `close`，`_x.ai/sessions/changed` 报全部会话），所以 `GrokAdapter` 按权限模式各开一个 `GrokModeAdapter`（`AcpAdapter` 的子类，一个 `AcpProcess`），会话交给它所在模式的那个。进程懒启动：构造时不起，第一次建会话或恢复时才起。Host 订阅的是 `GrokAdapter` 的每会话事件流，会话在进程之间挪动时订阅不断（§6）。
-- **工作目录与环境。** 进程的工作目录是 `<数据目录>/engines/grok`（空目录，每个会话的 cwd 在 `session/new` 里给）。环境照 T3 继承 Host 的环境（用户的 `XAI_API_KEY` 照常生效）。**不设 `GROK_HOME`**：`grok` 用用户自己的 `~/.grok`，登录（`authMethods` 的说明是 “Cached token from ~/.grok/auth.json”）、设置与会话记录都在那里，`session/resume` 也靠这些会话记录（T3 的 `isGrokPlanMarkdownPath` 按 `~/.grok/sessions/<编码后的 cwd>/<会话>/` 与 `$GROK_HOME/sessions/…` 找计划文件，说明 `GROK_HOME` 改的是这个根）。Wevir 不读 `~/.grok` 里的任何文件。也不设 T3 的 `GROK_OAUTH2_REFERRER`：Wevir 不在应用里登录。
+- **工作目录与环境。** 进程的工作目录是 `<数据目录>/engines/grok`（空目录，每个会话的 cwd 在 `session/new` 里给）。环境照 T3 继承 Host 的环境（用户的 `XAI_API_KEY` 照常生效）。**不设 `GROK_HOME`**：`grok` 用用户自己的 `~/.grok`，登录（`authMethods` 的说明是 “Cached token from ~/.grok/auth.json”）、设置与会话记录都在那里，`session/resume` 也靠这些会话记录（T3 的 `isGrokPlanMarkdownPath` 按 `~/.grok/sessions/<编码后的 cwd>/<会话>/` 与 `$GROK_HOME/sessions/…` 找计划文件，说明 `GROK_HOME` 改的是这个根）。Wevir 只为查用量只读 `~/.grok/auth.json` 与几个配置文件（§2.1，不复制、不改）。也不设 T3 的 `GROK_OAUTH2_REFERRER`：Wevir 不在应用里登录。
 - **进程组。** POSIX 上以 detached 启动，`grok` 是进程组组长，回收（关 stdin → SIGTERM → SIGKILL，acp-event-mapping.md §0.2）的信号连同它起的工具进程一起（T3 的 `ownDetachedProcessGroup`）。
 - **`initialize`**：协议版本 1（Grok 回 1，与 SDK 1.4.0 的 `PROTOCOL_VERSION` 相同），`clientCapabilities` 为 `{}`，`_meta` 为 `{ clientType: 'extension' }`（T3 的 `GROK_ACP_INITIALIZE_META`：自动模式下分类器拦下的操作，Grok 只在客户端声明自己能弹出询问时才问，默认的 `generic` 直接拒绝）。会话的 `engineVersion` 取 `initialize` 的 `_meta.agentVersion`（没有时用账号检测到的版本）。
 
@@ -40,7 +40,9 @@
 
 登录状态：环境里有 `XAI_API_KEY` 时算已登录（`plan: 'apiKey'`、`planLabel: 'xAI API Key'`）；否则看 `grok models`：没登录是 `signed_out`；看不出来时当作已登录并在 `lastError` 说明（同 Claude Agent：措辞变了不该把用户挡在外面，回合里 Grok 要认证时再标回没登录，§2.3）。结果缓存 5 分钟，`read` 带 `refresh`、`setExecutablePath` 时重新检测；`dispose` 中止进行中的检测，不留下 `grok` 进程。
 
-`login` / `logout` 报 `invalid_input`（让用户在终端里做）。**没有邮箱、套餐与用量**：T3 读 `~/.grok` 里存的凭据去问 xAI 的用量接口，Wevir 不读别的软件存的凭据（ADR-0005 补记 14）。
+`login` / `logout` 报 `invalid_input`（让用户在终端里做）。没有套餐。
+
+**邮箱与用量**（2026-10-17，协议 0.45.0，`usage.ts`，照 T3 的 `readGrokAccount`）：与上面的探测同时读 `grok login` 存的 grok.com 登录——`$GROK_HOME/auth.json`（默认 `~/.grok/auth.json`，环境变量 `GROK_AUTH` 可以代替文件）里默认那一项（`https://auth.x.ai::b1a00492-073a-47ea-816f-4c329264a828` 或 `https://accounts.x.ai/sign-in`）的令牌与邮箱，只读、令牌只在内存里；再用这个令牌 `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`（10 s 时限）：`config.creditUsagePercent` 是本周期用掉的百分比，`currentPeriod.type` 是每周时报 `windowMinutes: 10080`、每月时 `period: 'monthly'`，`currentPeriod.end` 是重置时间。还没用过的账号 xAI 不给百分比，这时不报窗口。CLI 用的可能不是这个账号时不读（T3）：设了 `XAI_API_KEY`、换登录方式或端点的环境变量（`GROK_OIDC_*`、`GROK_OAUTH2_*`、`GROK_AUTH_PROVIDER_COMMAND`、`GROK_LOCAL_AUTH`、`GROK_CLI_CHAT_PROXY_BASE_URL`、`GROK_MODELS_BASE_URL`、`GROK_CONFIG(_PATH)`），`config.toml` / `managed_config.toml` / `requirements.toml`（含 `/etc/grok/` 下的）里有 `auth`、`grok_com_config`、`endpoints` 段，或那一项是 API Key 登录。读失败（文件读不了、网络、非 2xx）时同一个邮箱留着上一次的用量。没有真实账号验证过，接口形状取自 T3。
 
 ### 2.2 模型
 
@@ -103,7 +105,7 @@ Grok 有时给 `Tool` 这样不说明问题的标题（T3 的 `isGenericAcpToolT
 - **每种权限模式一个进程**，不是每个会话一个（§1）；用户点停止后不杀进程组，已放到后台的命令继续跑。
 - **后台任务与唤醒回合**：模型可以把命令放到后台（`run_terminal_command` 的 `background: true`、`monitor`）。命令结束后 Grok 自己开一个回合（`task-completed-*`）回答；Wevir 的顶层会话没有引擎开的回合（Claude Agent 同，claude-event-mapping.md），这个回合的消息与工具更新在回合之外到达，保留为 `engine.raw` 并告警，界面上看不到。T3 推迟回合的结束、并把唤醒回合接成续写，Wevir 没做。用户下一条消息时 Grok 的上下文里有这些内容。
 - **子 agent**（`spawn_subagent`、`subagent_*` 通知）：只作为一次 `sub_agent` 工具调用显示，没有子会话（ACP 引擎的能力 `subagents: false`）。
-- **没做**：计划卡片、斜杠命令（`initialize` 的 `availableCommands`）、对话压缩、skills、用户自己的 MCP 服务器、用量与邮箱（§2.1）、图片输入（Wevir 的输入只有文本）、会话标题（Grok 的 `session_info_update` 保留为 `engine.raw`，标题由 Host 生成）、插话（ACP 不能往进行中的回合追加输入，Host 排队）。
+- **没做**：计划卡片、斜杠命令（`initialize` 的 `availableCommands`）、对话压缩、skills、用户自己的 MCP 服务器、图片输入（Wevir 的输入只有文本）、会话标题（Grok 的 `session_info_update` 保留为 `engine.raw`，标题由 Host 生成）、插话（ACP 不能往进行中的回合追加输入，Host 排队）。
 
 - **应用级工具**（0.30.0，domain-model §3.15）：会话带 `SessionConfig.appTools` 时，`session/new` 与 `session/resume` 的 `mcpServers` 里除了读历史的工具还有一项 stdio 的 `wevir`：Host 的 Node 跑 `<数据目录>/mcp/wevir-app-tools.mjs`（`@wevir/runtime-adapter/app-tools-bridge`），把每条 JSON-RPC 转给 Host 的 `/mcp`，地址与令牌在这一项的 `env` 里（T3 对 ACP 引擎也用 stdio 桥，HTTP 的服务 ACP 引擎常常接不上）。会话挪到别的权限模式的进程时照样带上。工具要不要批准由 Grok 自己定（`session/request_permission` 照常转成审批）。只用假 grok 验证了 `session/new` 的参数（`grok-adapter.test.ts`）与桥本身（`app-tools-bridge.test.ts`），本机没有 grok。
 

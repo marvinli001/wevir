@@ -504,6 +504,8 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 
 `0.44.0`：内置浏览器给 agent 的结果（domain-model §3.15.1）。`BrowserResult` 的 `new_tab`、`show`、`navigate` 加 optional 的 `status`（这次载入的主文档的 HTTP 状态码，100–999）；`BROWSER_ERROR_CODES` 加 `browser_load_failed`（页面打不开，消息里是 Chromium 的错误名）。optional 字段与开放字符串的新取值，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端（旧桌面端）：回答里没有 `status`，工具结果照旧只写 “Loaded …”，打不开仍是 `browser_unknown_error`。新客户端连旧 Host：旧 Host 的 schema 忽略 `status`。冻结 compat/0.44.0.json 是 0.43.0 全部样本加 `browser.respond` 的两个新样本。
 
+`0.45.0`：订阅账号的多个用量窗口（domain-model §3.6）。`AccountState.rateLimits` 加 optional 的 `windows`（全部窗口，短的在前）；`AccountRateLimitWindow` 加 optional 的 `period`（`monthly`：按月，长度不固定的计费周期）与 `scope`（账号有几份额度时这个窗口算哪一份，如 `Gemini`、`Auto + Composer`，产品名、原样显示）。Cursor、OpenCode（OpenCode Go）、Grok、Antigravity 的账号从此报用量，窗口可以多于两个。optional 字段，不需要能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：引擎同时把前两个窗口放进 `primary` / `secondary`，旧客户端只显示这两个，按月或长度不明的窗口名字是通用的“用量”，看不到额度名与第三个以后的窗口。新客户端连旧 Host：没有 `windows`，照旧显示 `primary` / `secondary`。冻结 compat/0.45.0.json 是 0.44.0 全部样本加 `account.get` 的一个三窗口样本。
+
 `0.41.0`：全局连接器与 skills（[plugins.md](plugins.md)、domain-model §3.19）。新增 plugins.list、connector.add / update / remove / setEnabled、skill.install / remove / setEnabled，通知 plugins.changed，Host 功能 plugins；EngineFeatures 新增 optional 的 mcpServers / skills。所有方法权限 host.manage；新客户端先看功能位，旧 Host 不支持时不发请求，旧客户端忽略新通知。密钥输入与结果用不同 schema，结果只含键名 / true，更新省略保留、null 删除。兼容的新增方法与 optional 字段，不需要客户端能力位，最低版本仍为 0.1.0。冻结 compat/0.41.0.json 是 0.40.0 全部样本加新样本。
 
 **线缆契约（永远遵守）**

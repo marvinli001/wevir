@@ -16,6 +16,7 @@ import {
   planLabel,
   resetLabel,
   usageTone,
+  usageWindows,
   windowName,
 } from './chatgpt-account-model';
 import { NoticeBanner } from './settings-ui';
@@ -319,7 +320,7 @@ function SignedIn({
   const modelSelect = useId();
   const [saving, setSaving] = useState(false);
   const plan = planLabel(phase.plan);
-  const { primary, secondary } = account?.rateLimits ?? {};
+  const windows = usageWindows(account?.rateLimits);
 
   const setDefaultModel = async (defaultModelId: string) => {
     if (provider === undefined) return;
@@ -361,10 +362,12 @@ function SignedIn({
           {t('account.chatgpt.logout')}
         </Button>
       </div>
-      {(primary !== undefined || secondary !== undefined) && (
+      {windows.length > 0 && (
         <div className="grid gap-2 sm:grid-cols-2" data-usage>
-          {primary !== undefined && <UsageBar window={primary} />}
-          {secondary !== undefined && <UsageBar window={secondary} />}
+          {windows.map((window, index) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: 窗口没有 ID，顺序由引擎给出
+            <UsageBar key={index} window={window} />
+          ))}
         </div>
       )}
       <div className="flex items-center gap-3 text-sm">
