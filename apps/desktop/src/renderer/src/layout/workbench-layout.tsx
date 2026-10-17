@@ -48,6 +48,7 @@ import { prunePaneScopes, updateScope, useScopePanes } from './pane-store';
 import { Sidebar } from './sidebar';
 import { Splitter } from './splitter';
 import './rail-cards';
+import './usage-card';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';

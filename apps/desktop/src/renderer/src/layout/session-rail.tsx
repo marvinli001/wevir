@@ -10,13 +10,15 @@ import { useWorkspaceGit, type WorkspaceGitState } from '@/data/workspace-git';
 import { t } from '@/i18n';
 import { layoutPrefs, toggleRailCard } from './layout-state';
 
-/** 卡片拿到的上下文：当前会话、它的项目、Provider 列表与项目的 git 状态。 */
+/** 卡片拿到的上下文：当前会话、它的项目、Provider 列表、项目的 git 状态，与侧栏现在是否看得见。 */
 export interface RailContext {
   sessionId: SessionId;
   session: Session;
   entry: WorkspaceEntry;
   providers: readonly ProviderProfile[];
   git: WorkspaceGitState;
+  /** 收起着、浮层关着时为 false：卡片照样渲染，但不该去 Host 读东西。 */
+  visible: boolean;
 }
 
 export interface RailCardContent {
@@ -32,7 +34,7 @@ export interface RailCardContent {
  */
 export interface RailCard {
   id: string;
-  /** 从上到下：环境 10、上下文 20、变更 30、后台任务 40。 */
+  /** 从上到下：环境 10、上下文 20、用量 25、变更 30、后台任务 40。 */
   order: number;
   title: () => string;
   useCard: (context: RailContext) => RailCardContent | null;
@@ -84,6 +86,7 @@ export function SessionRail({
     entry,
     providers: data.status === 'ready' ? data.providers : [],
     git,
+    visible,
   };
   const items: { card: RailCard; content: RailCardContent }[] = [];
   for (const card of cards) {

@@ -108,6 +108,24 @@ const PLANS: Readonly<Record<SubscriptionKind, { plan: string; planLabel: string
 };
 
 /**
+ * 已登录时报的用量（会话侧栏的“用量”卡片、设置里订阅详情的用量条）：只有 Claude 报，照它的 5 小时与 7 天两个窗口；重置时间
+ * 从现在算起，5 小时窗口约 4.5 小时后、每周窗口 4 天后。
+ */
+function echoRateLimits(
+  kind: SubscriptionKind,
+  now = Date.now(),
+): Pick<AccountState, 'rateLimits'> {
+  if (kind !== 'claude') return {};
+  const at = (ms: number) => new Date(now + ms).toISOString();
+  return {
+    rateLimits: {
+      primary: { usedPercent: 37, windowMinutes: 300, resetsAt: at((4 * 60 + 29.5) * 60_000) },
+      secondary: { usedPercent: 90, windowMinutes: 10080, resetsAt: at(4 * 24 * 3_600_000) },
+    },
+  };
+}
+
+/**
  * 解析 `WEVIR_ECHO_SUBSCRIPTIONS`：`1` 用默认情形；也可以逐项写 `claude=signed_out,antigravity=signed_in`，没写的用默认。
  * 认不出的项忽略。
  */
@@ -178,6 +196,7 @@ export class EchoAccounts implements EngineAccounts {
         status: 'signed_in',
         email: 'me@example.com',
         ...PLANS[kind as SubscriptionKind],
+        ...echoRateLimits(kind as SubscriptionKind),
       });
     });
     return next;
@@ -196,6 +215,7 @@ export class EchoAccounts implements EngineAccounts {
       email: _email,
       plan: _plan,
       planLabel: _label,
+      rateLimits: _limits,
       ...rest
     } = withoutLogin(this.#get(kind));
     return this.#set({ ...rest, status: 'signed_out' });
@@ -300,6 +320,7 @@ function initialState(kind: SubscriptionKind, scenario: EchoAccountScenario): Ac
         status: 'signed_in',
         email: 'me@example.com',
         ...PLANS[kind],
+        ...echoRateLimits(kind),
         installed: true,
         version: '0.0.0-echo',
         executablePath: `/echo/bin/${kind}`,

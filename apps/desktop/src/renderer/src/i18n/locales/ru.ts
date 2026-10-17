@@ -136,6 +136,11 @@ export const messages: Messages = {
   'rail.context.total': 'Всего использовано',
   'rail.context.autoCompact': 'Автосжатие при',
   'rail.context.meter': 'Контекст: использовано {percent}%',
+  'rail.usage': 'Использование',
+  'rail.usage.resetsIn': 'Сброс через {duration}',
+  'rail.usage.hoursMinutes': '{hours} ч {minutes} мин',
+  'rail.usage.hours': '{hours} ч',
+  'rail.usage.minutes': '{minutes} мин',
   'rail.changes': 'Изменения',
   'rail.changes.none': 'Нет изменений',
   'rail.changes.files':

@@ -9,13 +9,16 @@ const TONE_FILL: Record<ContextUsage['tone'], string> = {
   danger: 'bg-destructive',
 };
 
-/** 用量条；有自动压缩的线时在条上画一道竖线。会话侧栏的“上下文”卡片与输入框底栏的用量表（session/context-meter.tsx）共用。 */
+/**
+ * 用量条；有自动压缩的线时在条上画一道竖线。会话侧栏的“上下文”“用量”卡片与输入框底栏的用量表（session/context-meter.tsx）
+ * 共用。
+ */
 export function ContextBar({
   usage,
   mark = true,
   className,
 }: {
-  usage: ContextUsage;
+  usage: Pick<ContextUsage, 'percent' | 'tone' | 'autoCompactPercent'>;
   /** 画自动压缩的线（太窄的条不画）。 */
   mark?: boolean;
   className?: string;
