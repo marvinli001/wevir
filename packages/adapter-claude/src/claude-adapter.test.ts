@@ -1024,6 +1024,14 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__browser_screenshot',
       'mcp__wevir__browser_wait',
       'mcp__wevir__browser_logs',
+      // 代码智能：只读的 LSP 工具。
+      'mcp__wevir__lsp_definition',
+      'mcp__wevir__lsp_references',
+      'mcp__wevir__lsp_hover',
+      'mcp__wevir__lsp_document_symbols',
+      'mcp__wevir__lsp_workspace_symbols',
+      'mcp__wevir__lsp_call_hierarchy',
+      'mcp__wevir__lsp_diagnostics',
     ]);
   });
 });

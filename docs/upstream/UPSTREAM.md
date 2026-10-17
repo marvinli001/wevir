@@ -2,7 +2,7 @@
 
 > 建立于 T0.2（2026-10-12）。锁定提交以 [`upstream.lock`](./upstream.lock) 为准，本文件记录对应的核实结论。
 
-`upstream/` 是五个上游仓库的只读浅克隆，已被 gitignore。不修改、不提交其中任何文件。复现或更新：
+`upstream/` 是六个上游仓库的只读浅克隆，已被 gitignore。不修改、不提交其中任何文件。复现或更新：
 
 ```bash
 bash scripts/upstream-sync.sh
@@ -19,6 +19,7 @@ bash scripts/upstream-sync.sh
 | `paseo` | https://github.com/getpaseo/paseo | `main` | `dc7bc8db124e837ba909ffd3b4b20e16adaebe24` | 2026-10-12 | 2026-10-12 | **Apache-2.0**（少数第三方组件 MIT） |
 | `codex`（OpenAI Codex） | https://github.com/openai/codex | tag `rust-v0.162.1` | `092d3acd6bec3e3a14bdc7e7a2810ab628ab759d` | 2026-10-09 | 2026-10-14 | **Apache-2.0**，带 `NOTICE`（见 §2.4） |
 | `t3code`（T3 Code） | https://github.com/pingdotgg/t3code | `main` | `ec1313c8f8333292506f05a355bb72d308a455d8` | 2026-10-15 | 2026-10-15 | **MIT**（见 §2.5） |
+| `opencode` | https://github.com/sst/opencode（现为 anomalyco/opencode） | tag `v1.19.3` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | 2026-10-16 | 2026-10-17 | **MIT**（见 §2.6） |
 
 补充：
 
@@ -37,6 +38,8 @@ bash scripts/upstream-sync.sh
 | `@cursor/sdk` | `1.0.35`（2026-10-01 发布） | `1.0.37`（2026-10-15） | **非开源**：`SEE LICENSE IN LICENSE.md`，`© Anysphere Inc. All rights reserved. Use is subject to Cursor's Terms of Service.` | 订阅来源 Cursor 的引擎（ADR-0005 补记 14），只在 `packages/adapter-cursor` 声明，与 T3 Code 锁定的版本相同（§2.5）；`packages/adapter-cursor/src/sdk.ts` 的 `CURSOR_SDK_VERSION` 与之相同（测试核对）。依赖 `zod@3`、`@bufbuild/protobuf`、`@connectrpc/connect(-web)`、`@statsig/js-client`；平台包 `@cursor/sdk-<平台>`（`cursorsandbox`、`rg`、tree-sitter 的原生模块）没有安装脚本。Wevir 不复制它的代码，作为依赖安装运行；随安装包分发前要按它的条款核对能否再分发（[cursor-event-mapping.md](../architecture/cursor-event-mapping.md) §1） |
 | `yauzl` | `3.4.0` | `3.4.0` | MIT（Josh Wolfe），唯一依赖 `pend@1.2.0` 也是 MIT | 解开下载的 Antigravity 运行体压缩包（`packages/adapter-antigravity/src/zip.ts`），与 T3 Code 用的相同；Host 的 `packages/host/src/plugin-install.ts` 用它解开插件包与 Skills 的 ZIP；桌面主进程的 `apps/desktop/src/main/plugin-source.ts`（插件页，0.42.0）只读 ZIP 的目录与清单，判断“添加”的来源是插件包还是 Skills（桌面端的 devDependency，随 electron-vite 打进主进程）；类型 `@types/yauzl@3.4.0`（MIT，devDependency）。纯 JS，没有安装脚本 |
 | `@opencode-ai/sdk` | `1.18.34`（2026-09-30 发布） | `1.19.0`（2026-10-11） | MIT（包里没有 LICENSE 文件；源码在 [anomalyco/opencode](https://github.com/anomalyco/opencode)，`Copyright (c) 2025 opencode`） | 订阅来源 OpenCode 的引擎（ADR-0005 补记 14），只在 `packages/adapter-opencode` 声明，只用 `v2/client` 入口（`opencode serve` 的 HTTP 客户端，T3 Code 声明的是 `^1.3.15`）；`packages/adapter-opencode/src/sdk.ts` 的 `OPENCODE_SDK_VERSION` 与之相同（测试核对）。唯一的依赖 `cross-spawn` 7.0.6（MIT）工作区里本来就有，只有 SDK 的 `server` 入口用它，Wevir 不用。引擎是用户自己装的 `opencode`（`opencode-ai` 1.x，MIT），Wevir 不带它（[opencode-event-mapping.md](../architecture/opencode-event-mapping.md) §1） |
+
+| `vscode-languageserver-protocol` | `3.18.4`（2026-09-25 发布） | `3.18.4`（2026-10-17） | MIT，`Copyright (c) Microsoft Corporation`；依赖 `vscode-jsonrpc@9.0.3` 与 `vscode-languageserver-types@3.18.4`（同为 MIT、Microsoft），都没有安装脚本 | 代码智能（domain-model §3.15.5）：Host 与语言服务器之间的 LSP 连接（`packages/host/src/lsp/client.ts`）与协议类型，只在 `packages/host/package.json` 声明 |
 
 ### 1.2 作为二进制运行的上游程序
 
@@ -189,6 +192,14 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 - Grok 引擎移植的是 `packages/provider-grok/src/server/` 与 `packages/provider-acp/src/server/` 的两处（§4），同样改写成普通 TS；另原样复制了 T3 录的 7 个 Grok ACP 样本作测试数据（§4.1）。T3 不依赖、Wevir 也不声明 Grok 的 npm 包 `@xai-official/grok`：用户自己装的 CLI，只启动它。
 - Antigravity 引擎移植自 `apps/server/src/provider/`（安装、登录、profile、ACP 约定）与 `orchestration-v2/Adapters/AntigravityAdapterV2.ts`（§4），同样改写成普通 TS；`packages/adapter-antigravity/src/test-fixtures/acp-samples.ts` 的样本取自 T3 测试里的 Antigravity 样本。Google 的 Antigravity 运行体不是 T3 的代码，见 §1.2。
 
+### 2.6 opencode：MIT
+
+| 原文 | 内容 |
+|---|---|
+| [`upstream/opencode/LICENSE`](https://github.com/sst/opencode/blob/e3c4eb242585dcd77be1a867391b7c25fd47ce52/LICENSE) | 标准 MIT，`Copyright (c) 2025 opencode` |
+
+结论与义务：代码智能（domain-model §3.15.5）改写了 v1.19.3 的 `packages/opencode/src/lsp/` 与 `src/tool/lsp.ts`（§4）。opencode 的 `dev` 分支后来去掉了这套实现（2026-10 的重构），所以锁定的是还带着它的最后一个 tag v1.19.3，不追 `dev`。按 MIT 在文件头保留版权与许可证，根目录 `NOTICE` 第 12 节列出文件。opencode 的 Effect 写法没有搬，Wevir 不引入 `effect`。
+
 ## 3. 各仓库的参考重点
 
 与 SKELETON_PLAN §3 保持一致，以下路径在锁定提交下均已确认存在。
@@ -200,6 +211,8 @@ T0.5 复核（[openwork-notes.md §7](../research/openwork-notes.md)）确认以
 - **Codex**（Agent 运行时候选，作为二进制运行，读协议与源码，不移植）：`codex-rs/app-server/README.md` 与 `codex-rs/app-server-protocol/`（`schema/typescript/`、`schema/json/` 是这个版本生成的协议类型）、`codex-rs/model-provider-info/`（`[model_providers]` 配置）、`codex-rs/codex-api/src/sse/responses.rs`（解析模型流的事件）、`codex-rs/core/tests/common/responses.rs`（Responses SSE 的测试帮手）、`codex-rs/models-manager/`（模型目录）、`codex-rs/config/`（配置键）、`codex-rs/linux-sandbox/README.md`、`codex-rs/mxc-sandbox/README.md`。研读结论见 [docs/research/codex-notes.md](../research/codex-notes.md)。
 - **T3 Code**（接力，维护者 2026-10-15 定照 T3 做）：`apps/server/src/orchestration-v2/ProviderSessionTransitionPolicy.ts`（何时接力：不能接着用原生会话或 driver 不同时 `create_with_handoff`；Wevir 跨 Provider 一律接力，不做同一 driver 的 `restart_and_resume`，domain-model §3.14）、`ContextHandoffService.ts`、`ContextHandoffDelivery.ts`、`packages/provider-core/src/server/handoffBudget.ts`、`docs/internals/context-handoffs.md`；读历史的工具参考了 `apps/server/src/mcp/toolkits/orchestrator/tools.ts` 的 `t3_thread_read`（只取作用，不移植代码）。
 - **T3 Code**（diff 右栏与回合快照，维护者 2026-10-15 定照搬）：`apps/web/src/components/DiffPanel.tsx`、`apps/web/src/components/diffs/`、`apps/web/src/components/DiffWorkerPoolProvider.tsx`、`apps/web/src/lib/diffRendering.ts`、`apps/server/src/vcs/GitVcsDriver.ts`（captureCheckpoint 等）、`apps/server/src/vcs/GitVcsDriverCore.ts`（未提交与本分支的 diff）、`apps/server/src/orchestration-v2/CheckpointService.ts`。订阅来源的设计另见 ADR-0005 补记 14。
+
+- **opencode**（代码智能，维护者 2026-10-17 定）：`packages/opencode/src/lsp/client.ts`（连接、文档同步、推送与拉取的诊断）、`lsp.ts`（按扩展名与项目根找服务器、起动中的复用）、`server.ts`（各语言服务器的查找与项目根）、`language.ts`、`diagnostic.ts`、`src/tool/lsp.ts` 与 `lsp.txt`（工具）；`packages/web/src/content/docs/lsp.mdx` 与 `tools.mdx`（文档）。
 
 ## 4. 移植登记表
 
@@ -327,6 +340,15 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 | `packages/adapter-antigravity/src/antigravity-adapter.ts` | T3 Code `apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.ts`、`acp/AntigravityAcpSupport.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 改写：建在 Wevir 的 `AcpAdapter` 上，一个进程承载全部会话；权限模式 default / auto_edit / yolo 与模型选择照 T3，会话中改的下一个回合生效；`interaction_*` 经 `requestAnswers` 问用户；不声明 fs 能力，没有附件、子 agent 批次与文本生成 |
 | `packages/adapter-antigravity/src/test-fixtures/acp-samples.ts` | T3 Code T3 测试里的 Antigravity 样本：`apps/server/src/provider/acp/AntigravityProtocol.test.ts`、`AntigravityProvider.test.ts`、`packages/effect-acp/test/fixtures/antigravity-initialize.json`、`apps/server/src/textGeneration/AntigravityTextGeneration.test.ts` | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 摘录：样本数据原样转成 TS 常量，用于回放 |
 | `packages/adapter-grok/src/test-fixtures/acp/*.ndjson` | T3 Code `apps/server/src/orchestration-v2/testkit/fixtures/<场景>/grok_transcript.ndjson`（simple、tool_call_read_only_on_request、todo_list、grok_prompt_error、message_steering、plan_questions、grok_background_bash） | `ec1313c8f8333292506f05a355bb72d308a455d8` | MIT | 原样复制，文件名改成场景名；是 T3 录的真实 Grok Build 1.0.41 / 1.0.44 的 ACP 往返（见 §4.1） |
+
+代码智能（2026-10-17，domain-model §3.15.5）改写自 opencode，MIT，`Copyright (c) 2025 opencode`：
+
+| Wevir 文件 | 来源路径（sst/opencode） | 来源提交 | 许可证 | 修改说明 |
+|---|---|---|---|---|
+| `packages/host/src/lsp/servers.ts` | `packages/opencode/src/lsp/server.ts`（Typescript、Pyright、Gopls、RustAnalyzer、Clangd、SourceKit、NearestRoot）、`lsp/language.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：只留六种语言，不自动下载与安装，找不到时给出安装命令；TypeScript 7 用原生 `tsc --lsp`；PATH 之外找常见的安装位置；项目根到会话目录为止 |
+| `packages/host/src/lsp/client.ts` | `packages/opencode/src/lsp/client.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写成类，不用 Effect；加 didSave、打开文档上限、递归监视转发 didChangeWatchedFiles、stderr 末尾、拒绝 applyEdit、shutdown / exit 后结束进程 |
+| `packages/host/src/lsp/manager.ts` | `packages/opencode/src/lsp/lsp.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：失败 3 次的窗口代替永久的 `broken`，加空闲关闭、上限、回收与引擎改动文件的记录 |
+| `packages/host/src/lsp-tools.ts` | `packages/opencode/src/tool/lsp.ts`、`tool/lsp.txt`、`lsp/diagnostic.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：一个 `lsp` 工具拆成七个应用级工具，结果写成路径:行:列加那一行，位置可给符号名，加诊断工具与改动文件的错误反馈，说明文字重写 |
 
 ### 4.1 其他第三方来源的文件
 

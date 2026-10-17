@@ -73,7 +73,7 @@ export const APP_TOOLS_SERVER = 'wevir';
  * 不用批准的应用级工具（0.30.0）：只读的，加上只请界面显示的 `wevir_show` 与（0.40.0）交文件卡片的 `wevir_share_file`；0.33.0 起还有只读的浏览器工具（列标签页、快照、
  * 截图、等待、日志，Host 的 `BROWSER_READ_ONLY_TOOLS`）。其余（新开会话、给别的会话发消息、停别的会话、在网页上点击填写与跳转）
  * 按会话的权限模式走引擎自己的审批。P3 的 wevir_plugins_list 也只读；三个插件写工具由 Host 核对用户批准，不在这张表里。0.47.0 起
- * 还有后台进程的列出、读输出与等待（起进程、写 stdin、发信号按权限模式）。
+ * 还有后台进程的列出、读输出与等待（起进程、写 stdin、发信号按权限模式）；代码智能的 `lsp_*` 只读（Host 的 `LSP_TOOLS`，会按需启动项目的语言服务器）。
  * 引擎要按名字放行时用它（Claude 的 `allowedTools`）；Codex 看工具的 annotations。
  */
 export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
@@ -92,6 +92,13 @@ export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
   'browser_screenshot',
   'browser_wait',
   'browser_logs',
+  'lsp_definition',
+  'lsp_references',
+  'lsp_hover',
+  'lsp_document_symbols',
+  'lsp_workspace_symbols',
+  'lsp_call_hierarchy',
+  'lsp_diagnostics',
 ]);
 
 /** `createSession` / `resumeSession` 的结果。 */

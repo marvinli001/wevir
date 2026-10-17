@@ -855,6 +855,28 @@ Host 的 `plugin-app-tools.ts` 通过 `AppTools` 提供四个工具，复用 P1/
 - **结束。** `wevir_process_kill { id, signal? }`：`SIGTERM`（默认）、`SIGINT`、`SIGKILL`、`SIGHUP`、`SIGQUIT`、`SIGUSR1`、`SIGUSR2`，POSIX 上发给进程组，Windows 上一律 `taskkill /T /F`；结束类信号等最多 5 秒并报结果。`wevir_process_write { id, input, eof? }` 写 stdin（同 Codex 的 `write_stdin`，起进程时批准过就不再问）。回合结束、取消都不结束后台进程；删除会话时结束这一家会话的进程（`SessionManagerOptions.appTools.forget`），Host 退出时结束全部（SIGTERM，3 秒后 SIGKILL，退出流程的 `stop_processes` 一步）。进程只在内存里登记，Host 重启后列表是空的；Host 崩溃时 POSIX 上自成进程组的进程会留下来成为孤儿（缺口）。
 - **批准与边界。** 起进程、写 stdin、发信号不是只读的，按会话的权限模式走引擎的审批（同上表）；列出、读、等待只读，进 `APP_TOOLS_NO_APPROVAL`。进程不在引擎的沙箱里，以 Host（用户）的身份运行，见安全说明 §2。只看得到、只操作得了自己会话的进程。
 
+#### 3.15.5 代码智能：语言服务器（LSP 工具）
+
+维护者 2026-10-17 定：agent 只有 rg 和读文件，大范围重构容易漏引用，改完也拿不到类型错误；照 opencode 的实验性 `lsp` 工具（MIT，v1.19.3 的 `packages/opencode/src/lsp/` 与 `tool/lsp.ts`）给应用级工具加上代码智能。不改 Host API 协议、不加界面。代码在 `packages/host/src/lsp/`（服务器的查找 `servers.ts`、一个服务器进程与连接 `client.ts`、管理 `manager.ts`）与 `lsp-tools.ts`（工具）。
+
+- **语言与服务器。** 只用用户机器上已有的，不下载、不安装（opencode 会自动 `npm install` / `go install` / 下载 clangd，Wevir 不做）：TypeScript/JavaScript 优先用项目里 TypeScript 7 自带的原生服务器（`node_modules/typescript` 是 7.x 时运行同一棵依赖树里 `@typescript/typescript-<平台>-<架构>/lib/tsc --lsp --stdio`，不执行 typescript 包里的 JS），其次 `@typescript/native-preview` 的 `tsgo --lsp`，TypeScript 5/6 用 `typescript-language-server --stdio`（项目 `node_modules/.bin` 或 PATH，`tsserver.path` 指向项目的 TypeScript）；Python 是 basedpyright 或 pyright（项目虚拟环境的 bin、PATH，`python.pythonPath` 指向虚拟环境的解释器）；Go 是 gopls；Rust 是 rust-analyzer；C/C++/Objective-C 是 clangd；Swift 是 sourcekit-lsp。PATH 之外还找常见的安装位置（Homebrew、`~/.cargo/bin`、`~/go/bin`、npm / pnpm / bun / volta 的全局目录等：Host 由桌面端拉起时只有 GUI 的 PATH），交给服务器的 PATH 也补上这些目录。找不到、或起不来（例如 rustup 的代理在没装组件时退出）时工具结果写明缺什么、怎么装。
+- **项目根与生命周期。** 项目根从文件所在目录往上找标记文件，到会话目录为止，找不到用会话目录：TypeScript 只认锁文件（monorepo 一个服务器，跨包的引用才全），Python 认 pyproject.toml 等，Go 先 go.work 再 go.mod，Rust 是最近的 crate、往上有 `[workspace]` 时用工作区，C 认 compile_commands.json 等，Swift 认 Package.swift。同一种服务器同一个根只起一个，所有会话共用；第一次用到时启动（`initialize` 时限 45 秒），10 分钟没用关掉，同时最多 8 个（超出关最久没用的）；5 分钟内崩溃或起不来 3 次就不再重启，过了窗口再试，错误里带 stderr 的末尾；Host 退出时（`close_lsp` 一步）先 `shutdown` / `exit`，2 秒不退出的结束进程。`initialize` 的 `processId` 是 Host 的，Host 崩溃时服务器按协议自己退出。
+- **文件同步。** 文件按磁盘内容交给服务器：没打开的 didOpen，修改时间或大小变了的 didChange（整篇；服务器支持保存通知时补 didSave，rust-analyzer 等在保存时才检查），同时打开最多 300 个。每次位置类请求前重新同步打开着的文档。服务器注册了文件监视（TypeScript 7 自己不监视文件）时，macOS 与 Windows 上递归监视项目根（`.git` 除外）转发 `workspace/didChangeWatchedFiles`；Linux 上不开（Node 的递归监视逐目录建 inotify），没打开的文件靠下面的引擎改动事件。服务器要求改文件（`workspace/applyEdit`）一律拒绝。
+- **工具**（同在 `wevir` 服务里，都只读、不用批准，`APP_TOOLS_NO_APPROVAL` 列了；位置是会话文件夹里的文件 + 1 起的行，加 1 起的列（UTF-16）或这一行上的符号名；结果是相对会话目录的 `路径:行:列` 加那一行，目录外的写绝对路径、不带上下文；长的引用列表等超过约 8 KB 的结果由 app-mcp.ts 统一落盘，只回开头、结尾与路径，LSP 这边不自己落盘）：
+
+  | 工具 | 做什么 |
+  |---|---|
+  | `lsp_definition` | 定义；`kind` 为 `type` 时是类型的定义，`implementation` 是接口或抽象方法的实现 |
+  | `lsp_references` | 全部引用（默认含声明，默认 200 条、最多 2000） |
+  | `lsp_hover` | 类型、签名与文档 |
+  | `lsp_document_symbols` | 文件大纲（函数、方法、变量里面的局部符号不展开） |
+  | `lsp_workspace_symbols` | 按名字搜符号；`path` 选语言，不给时搜这个会话已在运行的服务器；默认只列会话文件夹里的，`includeExternal` 才列依赖与标准库 |
+  | `lsp_call_hierarchy` | `incoming` 调用方或 `outgoing` 被调用方，带每个调用点 |
+  | `lsp_diagnostics` | 文件的诊断；不给 `paths` 时是这个会话改过、还没报过的文件；拉取式的服务器发 `textDocument/diagnostic`，只推送的等文档当前版本的推送（150 ms 不再变化），`timeoutMs` 默认 15 秒、最多 120 秒，没等到的标明可能不全 |
+
+- **改完即得的错误。** Host 在引擎事件落库前（SessionManager 的 `prepareEvent`）看修改 / 写文件的工具调用（展示的 `kind` 是 `edit` / `write`、带 `paths`：Codex 的 fileChange 与其他引擎的修改、写文件工具），成功结束时记下这个会话改过的文件（最多 200 个），250 ms 去抖后交给已在运行的服务器（打开着的 didChange，没打开的 didChangeWatchedFiles），不为此启动服务器。之后这个会话调任何别的 LSP 工具时，结果末尾附上这些文件里的错误（每个最多等 4 秒，只看已在运行的服务器），报过就不再附；`lsp_diagnostics` 不带参数时检查它们（这时会启动服务器）。附到非 LSP 工具（比如 `apply_patch` 本身）的结果要改引擎的工具输出或 app-mcp.ts，没有做。命令行改的文件（`sed -i` 等）不在事件里：打开着的在下次请求前重新同步，没打开的靠文件监视（Linux 上没有）。
+- **边界。** 输入的文件按 realpath 限会话文件夹（指到外面的符号链接不认），不认的扩展名回“没有对应的服务器”与支持的语言。启动语言服务器等于在项目里运行它：rust-analyzer 会跑 build.rs 与过程宏，TypeScript 7 的服务器来自项目的 node_modules；取舍见 security.md §5a。
+
 ### 3.16 会话目标（0.35.0）
 
 维护者 2026-10-15 定：照 T3 Code 移植 `/goal`，用 Codex 原生的目标（ADR-0005 补记 20）。会话可以有一个目标：用户设下要一直做到的结果，agent 一个回合接一个回合地做，直到目标达成、暂停或受阻。
