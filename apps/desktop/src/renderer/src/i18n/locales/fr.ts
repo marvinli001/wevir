@@ -1005,7 +1005,8 @@ export const messages: Messages = {
   'provider.catalog.group.local': 'Local et personnalisé',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note': 'International : https://api.moonshot.ai/v1',
+  'provider.preset.kimi.note':
+    'Point d’accès de Chine continentale par défaut, accessible directement sur place. Les clés API des sites chinois et international sont distinctes. International : https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
   'provider.preset.zhipu.note': 'Forfait GLM Coding : https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (compatible OpenAI)',

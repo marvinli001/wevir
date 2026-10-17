@@ -980,7 +980,8 @@ export const messages: Messages = {
   'provider.catalog.group.local': '本機與自訂',
   'provider.preset.dashscope': '阿里雲百煉',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note': '國際站：https://api.moonshot.ai/v1',
+  'provider.preset.kimi.note':
+    '預設中國大陸站，中國大陸可直連。國內與國際站 Key 不通用；國際站：https://api.moonshot.ai/v1',
   'provider.preset.zhipu': '智譜 GLM',
   'provider.preset.zhipu.note': 'GLM Coding 方案：https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek（OpenAI 相容）',

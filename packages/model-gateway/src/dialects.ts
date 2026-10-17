@@ -1,7 +1,7 @@
 // Responses 透传的方言修正（docs/architecture/model-gateway.md §3.2）：各家 Responses 实现与 OpenAI 的差异，
 // 只在网关里改，不碰 Codex（codex-notes §5.3）。每条修正声明对哪些 Provider 生效，改请求体，必要时再改响应事件。
 
-import { effectiveCompat, isAzureHost } from './providers.js';
+import { effectiveCompat, isAzureHost, isKimiHost } from './providers.js';
 import {
   CUSTOM_TOOL_PARAMETERS,
   compatibleToolChoice,
@@ -131,6 +131,38 @@ export const azureEncryptedReasoning: DialectFix = {
     const include = Array.isArray(body.include) ? body.include : [];
     if (body.store !== false || include.includes('reasoning.encrypted_content')) return { body };
     return { body: { ...body, include: [...include, 'reasoning.encrypted_content'] } };
+  },
+};
+
+/** Kimi Responses 只收 data URL：过滤用户消息和工具结果中的其他图片，不下载外部资源（§3.8）。 */
+export const kimiDataImagesOnly: DialectFix = {
+  id: 'kimi-data-images-only',
+  applies: (provider) =>
+    provider.kind === 'openai-compatible' &&
+    provider.api === 'openai-responses' &&
+    isKimiHost(provider.baseURL ?? ''),
+  apply(body) {
+    if (!Array.isArray(body.input)) return { body };
+    const input = body.input.map((item) => {
+      const field =
+        item.type === 'message'
+          ? 'content'
+          : item.type === 'function_call_output' || item.type === 'custom_tool_call_output'
+            ? 'output'
+            : undefined;
+      const parts = field === undefined ? undefined : item[field];
+      if (field === undefined || !Array.isArray(parts)) return item;
+      const filtered = parts.filter(
+        (part) =>
+          !isObject(part) ||
+          part.type !== 'input_image' ||
+          (typeof part.image_url === 'string' && part.image_url.startsWith('data:')),
+      );
+      return filtered.length === parts.length ? item : { ...item, [field]: filtered };
+    });
+    return input.some((item, index) => item !== body.input[index])
+      ? { body: { ...body, input } }
+      : { body };
   },
 };
 
@@ -272,6 +304,7 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   stripNullReasoningEncryptedContent,
   azureNamespaceDescription,
   azureEncryptedReasoning,
+  kimiDataImagesOnly,
   autoOnlyToolChoice,
   flattenCustomTools,
   flattenNamespaceTools,

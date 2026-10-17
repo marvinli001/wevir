@@ -452,6 +452,14 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_GROK=1 pnpm vitest run 
 
 ### 6.3 真实模型测试的环境变量
 
+Kimi 开放平台按官方 Codex 指南使用 Responses。先在进程环境提供国内站的 WEVIR_TEST_API_KEY，再运行（不把 Key 写进命令或文件）：
+
+```bash
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://api.moonshot.cn/v1 WEVIR_TEST_MODEL=kimi-k3 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
+```
+
+国际站使用 https://api.moonshot.ai/v1，并提供国际站 Key，两站不通用。2026-10-17 官方 Responses 参数页只确认 kimi-k3，模板因此只列 K3，不运行 K2.7-code / K2.6 的 Responses 契约。当前没有 WEVIR_TEST_API_KEY，真实契约与 pnpm dev 中使用 Kimi 模板、经 apply_patch 改文件的对话未验收；`kimi.test.ts` / `kimi.integration.test.ts` 的录制请求和本机 HTTP mock 只验证方言。另需在桌面对话检查图片输入与 low / high / max 档位；配置和旧 Provider 的手动修改见 providers.md §7.3。
+
 Ollama 使用 Responses（至少 0.13.3）。先自行安装 Ollama 与支持工具的模型，并确认实际上下文至少 65536；模型下载可能十几 GB，不由 Wevir 自动执行。设置进程环境中的 WEVIR_TEST_API_KEY 为本机占位值 ollama（Cloud 则是真实 Key，不写文件），再运行：
 
 ```bash

@@ -269,6 +269,64 @@ function profile(overrides: Partial<EditableProvider>): EditableProvider {
 }
 
 describe('预设模板（providers.md §7）', () => {
+  it('Kimi 按量目录只列 Responses K3，保存图片、三档推理与代理的工具选择', () => {
+    const entry = catalogEntry('kimi');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 Kimi 模板');
+    expect(entry).toMatchObject({
+      group: 'cn',
+      logo: 'kimi',
+      keyURL: 'https://platform.kimi.com/console/api-keys',
+    });
+    const preset = entry.source.preset;
+    expect(preset.docsURL).toBe('https://platform.kimi.com/docs/guide/codex-kimi.md');
+    const form = { ...newOpenAIForm(preset, []), apiKey: 'placeholder-not-a-real-key' };
+    expect(validateForm(form, [])).toEqual({});
+    const created = upsertSchema.parse(toUpsertParams(form));
+    if (created.kind !== 'openai-compatible') throw new Error('Kimi 模板的 Provider 类型不对');
+    expect(created).toMatchObject({
+      api: 'openai-responses',
+      baseURL: 'https://api.moonshot.cn/v1',
+      defaultModelId: 'kimi-k3',
+      compat: { toolChoice: 'auto_only' },
+    });
+    expect(created.models).toEqual([
+      {
+        id: 'kimi-k3',
+        contextWindow: 1048576,
+        maxTokens: 1048576,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'high', 'max'],
+      },
+    ]);
+    expect(toUpsertParams({ ...form, baseURL: 'https://proxy.example.com/v1' })).toHaveProperty(
+      'compat',
+      { toolChoice: 'auto_only' },
+    );
+  });
+
+  it('已有 Kimi Chat Provider 保留旧协议、模型和 compat，国内国际标志一致', () => {
+    const old = profile({ compat: { thinkingFormat: 'deepseek', toolChoice: 'any' } });
+    const edited = upsertSchema.parse(toUpsertParams(editForm(old)));
+    expect(edited).toMatchObject({
+      api: old.api,
+      baseURL: old.baseURL,
+      models: old.models,
+      defaultModelId: old.defaultModelId,
+      compat: old.compat,
+    });
+    expect(edited).not.toHaveProperty('apiKey');
+    for (const host of ['api.moonshot.cn', 'api.moonshot.ai'])
+      expect(providerLogo({ kind: 'openai-compatible', baseURL: `https://${host}/v1` })).toBe(
+        'kimi',
+      );
+    expect(
+      providerLogo({
+        kind: 'openai-compatible',
+        baseURL: 'https://api.moonshot.cn.example.com/v1',
+      }),
+    ).toBeUndefined();
+  });
+
   it('百炼按量目录保存 Responses、三款 Qwen、明确档位与代理所需的工具 compat', () => {
     const entry = catalogEntry('dashscope');
     if (entry?.source?.kind !== 'preset') throw new Error('缺少百炼模板');

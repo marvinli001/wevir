@@ -993,7 +993,8 @@ export const zhCN = {
   'provider.catalog.group.local': '本地与自定义',
   'provider.preset.dashscope': '阿里云百炼',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note': '国际站：https://api.moonshot.ai/v1',
+  'provider.preset.kimi.note':
+    '默认国内站，中国大陆可直连。国内与国际站 Key 不通用；国际站：https://api.moonshot.ai/v1',
   'provider.preset.zhipu': '智谱 GLM',
   'provider.preset.zhipu.note': 'GLM Coding 套餐：https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek（OpenAI 兼容）',

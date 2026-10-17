@@ -75,7 +75,7 @@ pi-ai 按地址决定请求格式，不认识的地址一律按 OpenAI 官方的
 | 地址不是 `api.openai.com` | `supportsDeveloperRole: false`、`maxTokensField: max_tokens` |
 | 地址是 `deepseek.com` 及其子域（DeepSeek 的 OpenAI 兼容端点走 pi-ai 时） | 另加 `thinkingFormat: deepseek`、`requiresReasoningContentOnAssistantMessages: true`（T0.3 §6.2，取自 pi-ai 自带的 deepseek 目录） |
 
-Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI、百炼按量端点与 DeepSeek 的 Responses / Chat 路由）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5，不改变这些工具开关。
+Codex 网关的工具方言默认值是 Provider 显式 compat > 地址默认 > 全局默认（model-gateway.md §4.4；地址表含 xAI、百炼按量端点、DeepSeek 的 Responses / Chat 路由及 Ollama / Kimi Responses）。模板是新建 Provider 的初始值，已存的 Profile 不自动迁移；使用反向代理时可手动在 `provider.upsert` 的 compat 写 `supportsNamespaceTools: false`、`supportsCustomTools: false` 或 `toolChoice: auto_only`（工具选择的 none 规则见 model-gateway.md §3.2），桌面表单原样保留、暂不提供开关控件。Azure 的按地址请求修正见 model-gateway.md §3.5；Kimi Responses 的非 data URL 图片过滤仅按开放平台地址生效，代理需自行满足 data URL 要求。
 
 每个开关只写给认它的协议：`supportsDeveloperRole` 用于 `openai-completions` 与 `openai-responses`，其余三个只用于 `openai-completions`。`supportsCustomTools` 与 `systemMessageMode`（协议 0.4.0）、`supportsNamespaceTools` 与 `toolChoice`（协议 0.12.0）、`geminiToolSchema`（协议 0.26.0，默认关闭）只有 Codex 引擎的模型网关读（model-gateway.md §4.4），adapter-dsh 不检查、不写进 overlay，同一个 Provider 可以在两个引擎之间共用。路由上写了一个所有模型都读不了的开关，dsh 会拒绝整份配置，所以 `openai-responses` 只补 `supportsDeveloperRole`，用户给了不匹配的开关时 `validateProvider` 拒绝。
 
@@ -196,7 +196,7 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 ## 7. 服务示例
 
-以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。每个模型都填 `contextWindow`：Codex 引擎按它自动压缩（窗口的九成）并显示上下文用量，没填按 128k 估算（codex-event-mapping.md §3“上下文大小”）。2026-10-15 对照各家官方模型页核对过桌面端全部预设（`provider-presets.ts`）的上下文长度，后续复核日期以各节为准；本机 Ollama 取决于自己的运行配置（§7.5）。几处官方写法：OpenAI 与 Azure 的 GPT-6 系列 1,050,000 是输入加输出，输入上限 922,000、输出 128,000；百炼 qwen3.8 / 3.7 的 1,000,000 里输入上限 991,808（思考模式 983,616）；Kimi 写“256k”（按 262,144 填）；DeepSeek 模型页写“1M”，2026-10-16 按官方 Codex 目录的明确数值 1,048,576 填（§7.1）；Anthropic 的 1M 是 Claude 5.5 系列的默认，不用 beta 头；gemini-4-argon 的 1,048,576 是输入输出共用。智谱文档标注 GLM-4.5 即将下线，换预设模型另行决定。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
+以下是 `provider.upsert` 的参数。**`baseURL` 与模型 ID 以各服务当前的官方文档为准**，这里的值是 2026-10 核对的（来源见每节），上下文与最大输出按各节的模型文档填写。每个模型都填 `contextWindow`：Codex 引擎按它自动压缩（窗口的九成）并显示上下文用量，没填按 128k 估算（codex-event-mapping.md §3“上下文大小”）。2026-10-15 对照各家官方模型页核对过桌面端全部预设（`provider-presets.ts`）的上下文长度，后续复核日期以各节为准；本机 Ollama 取决于自己的运行配置（§7.5）。几处官方写法：OpenAI 与 Azure 的 GPT-6 系列 1,050,000 是输入加输出，输入上限 922,000、输出 128,000；百炼 qwen3.8 / 3.7 的 1,000,000 里输入上限 991,808（思考模式 983,616）；Kimi K3 按官方 Codex 指南填 1,048,576（§7.3）；DeepSeek 模型页写“1M”，2026-10-16 按官方 Codex 目录的明确数值 1,048,576 填（§7.1）；Anthropic 的 1M 是 Claude 5.5 系列的默认，不用 beta 头；gemini-4-argon 的 1,048,576 是输入输出共用。智谱文档标注 GLM-4.5 即将下线，换预设模型另行决定。非 `api.openai.com` 的地址会按 §2.3 补默认 compat；Codex 网关的开关另见 model-gateway.md §4.4。
 
 ### 7.1 DeepSeek
 
@@ -284,24 +284,41 @@ Messages 的 Anthropic 官方地址按当前 Claude 型号处理 forced choice�
 
 来源（2026-10-15）：[Codex](https://help.aliyun.com/zh/model-studio/codex)、[Responses 兼容指南](https://help.aliyun.com/zh/model-studio/compatibility-with-openai-responses-api)、[Responses 参数](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)（旧的 /api/v2/apps/protocols/compatible-mode/v1/responses 已停止维护）、[深度思考](https://help.aliyun.com/zh/model-studio/deep-thinking)、[Function Calling](https://help.aliyun.com/zh/model-studio/qwen-function-calling)、[模型列表](https://www.alibabacloud.com/help/en/model-studio/text-generation-model)、[API Key](https://help.aliyun.com/zh/model-studio/get-api-key)。
 
-### 7.3 Kimi（月之暗面）
+### 7.3 Kimi（月之暗面开放平台，按量计费）
+
+2026-10-17 对照[官方 Codex 指南](https://platform.kimi.com/docs/guide/codex-kimi.md)，模板改用 Responses 透传，保留原生 apply_patch 与 namespace，无需经过 Chat 或 Messages 转换。国内站 API 地址未变，控制台与文档已经迁到 platform.kimi.com。
 
 ```json
 {
   "id": "kimi",
   "kind": "openai-compatible",
   "displayName": "Kimi",
-  "api": "openai-completions",
+  "api": "openai-responses",
   "baseURL": "https://api.moonshot.cn/v1",
-  "models": [{ "id": "kimi-k2.6", "contextWindow": 262144, "supportsImages": true }],
-  "defaultModelId": "kimi-k2.6",
+  "compat": { "toolChoice": "auto_only" },
+  "models": [
+    {
+      "id": "kimi-k3",
+      "contextWindow": 1048576,
+      "maxTokens": 1048576,
+      "supportsImages": true,
+      "reasoningEfforts": ["low", "high", "max"]
+    }
+  ],
+  "defaultModelId": "kimi-k3",
   "apiKey": "<Kimi 开放平台 API Key>"
 }
 ```
 
-- 国内站（platform.moonshot.cn）的 Key 只能用 `api.moonshot.cn`，国际站的 Key 用 `https://api.moonshot.ai/v1`，两边不通用。
-- pi-ai 目录里 Kimi 的条目带 `thinkingFormat: deepseek`；要声明推理档位时一并写上。
-- 来源：pi-ai 目录 `providers/data/moonshotai-cn.json`；[Kimi 开放平台 API 文档](https://platform.kimi.ai/docs/api/overview.md)。
+- **地域与 Key。** 默认国内站，中国大陆可直连；在 [platform.kimi.com](https://platform.kimi.com/console/api-keys) 创建 Key。国际站控制台是 [platform.kimi.ai](https://platform.kimi.ai)，API 为 `https://api.moonshot.ai/v1`。国内与国际站 Key 不通用，切换地址时必须换成对应站点的 Key。只接开放平台按量计费服务，不接 Kimi Code 会员的 Key、模型或地址；dsh 的 pi-ai 目录条目不变。
+- **模型范围。** 当前 Responses 参数页明确写着“本接口当前支持 kimi-k3”，因此本模板只列 K3。模型列表中的 K2.7-code、K2.7-code-highspeed 与 K2.6 仍可用于各自支持的接口，不能从 Chat 的 thinking 参数推断为 Responses 支持。K2.5、moonshot-v1 系列已于 2026-08-31 下线。
+- **思考与输出。** K3 始终思考，Responses 使用 reasoning.effort: low / high / max，默认 max；没有 off，也不发送 Chat 的 thinking / reasoning_effort。上下文按官方 Codex 指南填 1048576。maxTokens 记录服务允许设置的最大输出 1048576；Codex 当前不发送 max_output_tokens，网关不从目录补它，实际服务默认输出上限仍为 131072。Chat 的“带工具时 max_tokens 至少 16000”不套用于 Responses 的连接探测。
+- **工具与历史。** 官方支持 function、custom（仅 Lark 语法的 apply_patch）、namespace 与一个 web_search。网关仅按地址补 toolChoice: auto_only，不摊平 custom 或 namespace；模板显式写同一选择，反向代理仍可用。显式 compat 优先，none 只去掉 tool_choice、保留工具，不能保证禁止调用。每步携带完整历史，reasoning 的 content / summary 原样保留，由服务按 content 优先回放；encrypted_content 固定 null，Codex 带回的 null 键由通用修正去掉。不依赖服务端存储或 previous_response_id。
+- **图片与缓存限制。** 仅支持 data URL。锁定 Codex 的本地附件与 view_image 输出均为 data URL；网址图片与 file_id 图片由 Kimi Responses 方言从用户消息和工具输出数组中丢掉，网关不下载外部资源。只含这些图片的数组会变空，需改为内嵌图片再发；代理地址没有这项过滤。prompt_cache_key 与自动缓存配置原样保留；不注入 prompt_cache_breakpoint，外部请求带入该项时仍会收到官方规定的 400。详见 model-gateway.md §3.8。
+- **旧 Provider 手动修改。** 已存的 Chat + kimi-k2.6 配置不会套新模板。可在“设置 → 模型服务 → 添加”重新选择 Kimi 模板，以完整保存 K3 的图片、上下文与三档推理，再测试连接并新建会话。若需沿用原 Provider ID，经 provider.upsert 按上例更新 api、baseURL、models、defaultModelId 与 compat；使用同站已存 Key 时省略 apiKey，Host 会保留它，换站则提供对应站点的 Key。桌面编辑表单只编辑模型 ID、上下文和图片，不能补齐 reasoningEfforts / maxTokens 或编辑 compat。旧的 thinkingFormat: deepseek 只供 Chat 使用，手动更新 compat 为上例即可移除；显式 toolChoice: any 会覆盖地址默认。保留原 Chat Profile 也不会被自动改动。
+- **验收边界。** 录制 Codex 请求与本机 HTTP mock 覆盖两站地址、非 auto 的 400 与默认修正、原生工具和多步推理回放、图片过滤、响应字节透传及 provider.test。没有 WEVIR_TEST_API_KEY，K3 的契约第 3 层与桌面 apply_patch 未验收；不对未确认支持的 K2.7-code 运行 Responses 契约。命令见 development.md §6.3。
+
+来源与核对日期：2026-10-17，[Responses](https://platform.kimi.com/docs/api/responses.md)、[Codex 指南](https://platform.kimi.com/docs/guide/codex-kimi.md)、[模型列表](https://platform.kimi.com/docs/models.md)、[思考模型](https://platform.kimi.com/docs/guide/use-thinking-models.md)、[Chat](https://platform.kimi.com/docs/api/chat.md)、[Messages](https://platform.kimi.com/docs/api/messages.md)。后两种接口仅用于核对协议差异，本次没有新增它们的模板或方言。
 
 ### 7.4 智谱 GLM（BigModel 开放平台）
 

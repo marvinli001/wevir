@@ -993,7 +993,8 @@ export const messages: Messages = {
   'provider.catalog.group.local': 'ローカルとカスタム',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note': '国際版: https://api.moonshot.ai/v1',
+  'provider.preset.kimi.note':
+    '既定は中国本土向けの接続先で、本土から直接接続できます。中国向けと国際版の API キーは別です。国際版: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
   'provider.preset.zhipu.note': 'GLM Coding プラン: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 互換)',

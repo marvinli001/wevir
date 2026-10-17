@@ -33,6 +33,7 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
   },
   { matches: isDeepSeekHost, api: 'openai-responses', compat: { toolChoice: 'auto_only' } },
   { matches: isDeepSeekHost, api: 'openai-completions', compat: { toolChoice: 'auto_only' } },
+  { matches: isKimiHost, api: 'openai-responses', compat: { toolChoice: 'auto_only' } },
   {
     matches: isOllamaCloud,
     api: 'openai-responses',
@@ -219,6 +220,11 @@ export function isAnthropicHost(baseURL: string): boolean {
 
 export function isDeepSeekHost(baseURL: string): boolean {
   return /(^|\.)deepseek\.com$/.test(hostnameOf(baseURL));
+}
+
+/** Kimi 开放平台的国内 / 国际按量端点；不匹配 Kimi Code 会员域名（model-gateway.md §3.8）。 */
+export function isKimiHost(baseURL: string): boolean {
+  return /(^|\.)moonshot\.(cn|ai)$/.test(hostnameOf(baseURL));
 }
 
 /**

@@ -117,7 +117,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     logo: 'kimi',
     group: 'cn',
     source: preset('kimi'),
-    keyURL: 'https://platform.moonshot.cn/console/api-keys',
+    keyURL: 'https://platform.kimi.com/console/api-keys',
   },
   {
     id: 'zhipu',

@@ -235,14 +235,24 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://help.aliyun.com/zh/model-studio/codex',
   },
   {
+    // 官方 Responses 当前只支持 K3（2026-10-17 核对，providers.md §7.3）。
     id: 'kimi',
     name: 'provider.preset.kimi',
     note: 'provider.preset.kimi.note',
-    api: 'openai-completions',
+    api: 'openai-responses',
     baseURL: 'https://api.moonshot.cn/v1',
-    models: [{ id: 'kimi-k2.6', contextWindow: 262144, supportsImages: true }],
-    defaultModelId: 'kimi-k2.6',
-    docsURL: 'https://platform.kimi.ai/docs/api/overview.md',
+    compat: { toolChoice: 'auto_only' },
+    models: [
+      {
+        id: 'kimi-k3',
+        contextWindow: 1048576,
+        maxTokens: 1048576,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'high', 'max'],
+      },
+    ],
+    defaultModelId: 'kimi-k3',
+    docsURL: 'https://platform.kimi.com/docs/guide/codex-kimi.md',
   },
   {
     id: 'zhipu',

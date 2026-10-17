@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.10（含 Ollama Responses 与模型发现）· 日期：2026-10-16 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.11（含 Kimi Responses 方言）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -110,6 +110,7 @@ Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 c
 | `strip-null-reasoning-encrypted-content` | 所有 Provider | 历史里 reasoning 项的 `encrypted_content: null` 去掉这个键，明文 `content`、`summary` 保留 | — | 锁定 Codex 的 `ResponseItem::Reasoning.encrypted_content` 是 `Option<String>`，没有 skip-serialize：上游省略或给 null，下一步都写 null（`protocol/src/models.rs:1051–1063`）。不把它当成可带回的加密推理 |
 | `azure-namespace-description` | Azure 全球三个资源域名的 Responses（§3.5） | 顶层 tools 中 namespace 的 description 缺失、空串或纯空白时补 `Tools in this namespace.`；已有描述不变 | — | [Codex #37952](https://github.com/openai/codex/issues/37952) 报告 Azure 拒收缺失或空的 namespace 描述；锁定配置不开 Responses Lite，修正普通 tools，不处理尚不发出的 additional_tools |
 | `azure-encrypted-reasoning` | 同上，store 为 false | include 缺少 reasoning.encrypted_content 时追加，保留其他 include 项且不重复 | — | [Azure Responses 无状态推理](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses#encrypted-reasoning-items)要求显式 include；正式请求与 testProvider 共用 |
+| `kimi-data-images-only` | moonshot.cn / moonshot.ai 及子域的 Responses（§3.8） | message.content 与工具结果 output 数组里的 input_image 只保留 data URL，丢掉网址与 file_id 图片；其他部件、工具调用和推理不变，不下载图片 | — | [Kimi Responses](https://platform.kimi.com/docs/api/responses.md)只收 data URL |
 | `auto-only-tool-choice` | 生效的 `compat.toolChoice === auto_only`（§4.4） | 有工具时 `required`、具名与其他非 auto 值改为 `auto`；`none` 去掉 `tool_choice`，工具保留；没有 `tool_choice` 时不补 | — | [Kimi Responses](https://platform.kimi.com/docs/api/responses.md) 的枚举只有 auto；[MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create) 认 none / auto（2026-10-15 重核）。用共同的 auto_only 规则兼容两种；去掉 none 后允许模型自行调用工具 |
 | `flatten-custom-tools` | 生效的 `compat.supportsCustomTools === false`（§4.4：声明优先，其次地址默认） | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现。xAI（R8 核实）：OpenAPI（docs.x.ai/openapi.json）的 `tools` 只有 function 与托管工具，没有 `custom`；第三方 2026-08 的现网对照也是 custom 被拒、摊平后通过。国内服务模板里 xAI 显式写了 `false`（经代理改了地址也生效）。规则与 Chat 转换的摊平相同（§4.3） |
 | `flatten-namespace-tools` | 生效的 `compat.supportsNamespaceTools === false`（§4.4） | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；具名 `tool_choice` 同样改名并去掉 `namespace`；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | xAI 的 OpenAPI 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段，而 Codex 的子 agent 工具在 `multi_agent_v1` 里（样本 `1-first-turn`）。没找到直接的 400 报告（R8 没有 xAI 的 Key），但摊平对认命名空间的上游同样可用，所以地址默认仍是 false；P0a 加了显式开关，经代理换地址也能生效，true 可覆盖地址默认 |
@@ -173,6 +174,16 @@ Responses 不存历史：store / include / previous_response_id 等静默忽略�
 [0.40.4 源码](https://github.com/ollama/ollama/blob/v0.40.4/openai/responses.go)支持 namespace 的声明与调用还原，但 custom 工具声明没有 format / grammar 支持；历史能解析 custom 调用不等于能声明 freeform 工具。故本机只摊平 custom，保留 namespace；Cloud 官方明确不支持 custom/freeform 回放，namespace 尚未真实验证，保守摊平两者。两种地址的 Responses 默认 toolChoice: auto_only，Provider 显式 compat 逐字段优先；只识别本机 11434 端口及精确的 ollama.com，不识别套餐或其他域名。当前 OpenAI 兼容文档已经列出 Chat 的 tool_choice，与旧调研不同，Chat 路由不加这个默认值。
 
 模型发现由 Host 的 provider.discoverModels 读取固定的 /api/tags、/api/show 与本机 /api/ps，不经过渲染进程。只允许回环地址或 HTTPS ollama.com，禁止凭据、查询串、非 /v1 路径与重定向；不会访问 tags 返回的 remote_host。响应体、模型数、并发数与请求时限均受限，Key 与上游原文不返回客户端。详情缺失时仍列出模型，但不猜思考档位或实际窗口。model_info 的 context_length 只是模型上限；运行中 /api/ps 的 context_length 优先，其次 /api/show 的 num_ctx。Cloud 使用模型上限；本机未知实际值时提醒核对，已知小于 65536 时提示 OLLAMA_CONTEXT_LENGTH。只提示、不修改服务或已存 Provider。
+
+### 3.8 Kimi 开放平台
+
+2026-10-17 核对[官方 Codex 指南](https://platform.kimi.com/docs/guide/codex-kimi.md)，使用国内按量端点 `https://api.moonshot.cn/v1/responses` 透传；国际端点为 `https://api.moonshot.ai/v1/responses`，两站 Key 不通用。地址识别只匹配 moonshot.cn / moonshot.ai 及子域，不匹配 Kimi Code 会员域名。默认 `toolChoice: auto_only` 仅用于 Responses，显式 compat 优先；保留原生 custom apply_patch（Lark 语法）与 namespace，不摊平。
+
+图片只收 data URL。锁定 Codex 的 `core/src/tools/handlers/view_image.rs` 将 view_image 结果写成工具 output 中的 input_image，`protocol/src/models.rs` 的本地图片路径同样编码为 data URL；Wevir 的附件经 localImage 交给 Codex（`adapter-codex/src/codex-adapter.images.integration.test.ts`）。网关只在 Kimi Responses 上过滤 message.content 与工具 output 数组中的非 data URL 图片，不访问外部地址；只含被过滤图片的数组会变空，其他文本与工具结果保留。普通 Chat / Messages 路由的图片规则不变。
+
+完整历史每步带回：reasoning 的明文 content 与 summary 保留，上游回放时 content 优先于 summary；encrypted_content 固定为 null，Codex 带回的两个 null 键由通用方言清理，不生成网关推理信封。store: false 原样保留，不依赖 previous_response_id。K3 的 reasoning.effort 仅 low / high / max（默认 max），不发 Chat 的 thinking 或 reasoning_effort。不注入 max_output_tokens，服务默认 131072、可设置的最大值为 1048576；模型目录的 maxTokens 不会改变透传请求的输出预算。
+
+当前 Responses 参数页明确只支持 kimi-k3，K2.7-code 与 K2.6 的 Chat 参数不能据此推断为 Responses 能力。锁定 Codex 不发 prompt_cache_breakpoint；若外部调用带入该项，网关保持原值，Kimi 按文档返回 400。`kimi.test.ts` 的录制请求与 `kimi.integration.test.ts` 的本机 HTTP mock 检查工具选择、原生工具、图片与推理往返及 provider.test，不替代真实服务验收。来源、模型范围与手动修改见 providers.md §7.3。
 
 ## 4. Chat Completions 转换
 
@@ -251,12 +262,13 @@ Chat 的函数名要符合 `^[A-Za-z0-9_-]{1,64}$`（OpenAI 的规则，多数�
 | `isBailianHost`：`dashscope.aliyuncs.com`、`dashscope-intl.aliyuncs.com`、`*.maas.aliyuncs.com`（排除 coding / token-plan 套餐域名） | `supportsCustomTools: false`、`supportsNamespaceTools: false`、`toolChoice: auto_only` | §3.4；未有真实 Key，保守默认 |
 | `isDeepSeekHost`：`deepseek.com` 及子域的 Responses / Chat，含固定地址的 deepseek-official | `toolChoice: auto_only` | §3.6；Responses 两模型已实测思考时 required / 具名 400；Messages 保持原选择 |
 | `isOllamaHost`：回环主机的 11434 端口或精确 HTTPS ollama.com，仅 Responses | `supportsCustomTools: false`、`toolChoice: auto_only`；Cloud 另有 `supportsNamespaceTools: false` | §3.7；本机 namespace 保留，Cloud 保守摊平 |
+| `isKimiHost`：moonshot.cn / moonshot.ai 及子域，仅 Responses | `toolChoice: auto_only`；custom 与 namespace 保持支持 | §3.8；Kimi Code 域名不匹配 |
 
 | 开关 | 用于 | 含义 | 默认 |
 |---|---|---|---|
 | `supportsCustomTools` | Responses 透传 | `false`：上游不支持 `custom` 工具，打开 §3.2 的 `flatten-custom-tools` | `true`；xAI、百炼按量与 Ollama 地址为 `false` |
 | `supportsNamespaceTools` | Responses 透传 | `false`：打开 §3.2 的 `flatten-namespace-tools`；Chat / Messages 始终摊平 | `true`；xAI、百炼按量与 Ollama Cloud 地址为 `false` |
-| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat 与 Ollama Responses 为 `auto_only`；Messages 的模型默认见 §5.1 |
+| `toolChoice` | 三种处理方式 | `any` 保持原有选择；`auto_only` 按 §3.2 限制到 auto（none 只去掉 tool_choice、保留 tools）。这不是禁止工具调用的保证。Messages 未声明时还按模型限制 forced choice（§5.1） | `any`；百炼按量、DeepSeek Responses / Chat、Ollama 与 Kimi Responses 为 `auto_only`；Messages 的模型默认见 §5.1 |
 | `systemMessageMode` | Chat、Messages 转换 | Chat：`inline` 原位转 system；`merge` 全部并进开头的一条 system；`user` 开头连续的并成一条 system，之后的转成注明应用来源的 user 消息。Messages：当前四款 Claude 的 `inline` 在 user 输入之后追加 system（§5.1），旧模型仍按 user；merge 会改变顶层前缀 | Chat 为 `inline`；Messages 按 §5.1 的地址与模型判断 |
 | `supportsDeveloperRole` | Chat 转换 | `true` 且 `inline` 时 developer 消息保持 developer 角色 | system |
 | `maxTokensField` | Chat 转换 | `max_output_tokens` 写成哪个字段 | 见 §4.1 |
@@ -463,6 +475,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试：`__snapshots__/codex-requests/` 的变化就是转换结果的变化。根 `biome.json` 排除了这两个目录，保持录制原样。
 
 ## 10. 局限与没做的
+
+- Kimi：2026-10-17 官方 Responses 文档只支持 kimi-k3，模板不列 K2.7-code / K2.6；不新增 Chat / Messages 模板，不接 Kimi Code 会员端点。缺 WEVIR_TEST_API_KEY，K3 真实契约与桌面 apply_patch 尚未验收。非 data URL 图片会丢掉，不下载外部资源；代理地址需自行满足此限制。服务默认输出 131072，目录 maxTokens 不改变透传预算；完整推理回放与缓存字段仍需真实服务核对。见 §3.8、providers.md §7.3。
 
 - Ollama：本机未安装服务与模型，真实契约第 3 层及桌面 apply_patch 未验收；Cloud 没有真实 Key，namespace 采用保守摊平。发现只列前 64 个模型，详情失败时不猜实际上下文与推理档位；未知自定义思考枚举不映射。会话提醒只针对标准回环 11434 或 local-ollama 模板 ID，其他端口可在表单中读取、核对；发现不会自动修改已存目录。见 §3.7、providers.md §7.5。
 

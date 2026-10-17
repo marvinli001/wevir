@@ -982,7 +982,8 @@ export const messages: Messages = {
   'provider.catalog.group.local': '로컬 및 사용자 지정',
   'provider.preset.dashscope': 'Alibaba Cloud Model Studio',
   'provider.preset.kimi': 'Kimi',
-  'provider.preset.kimi.note': '국제 사이트: https://api.moonshot.ai/v1',
+  'provider.preset.kimi.note':
+    '기본값은 중국 본토 엔드포인트이며 본토에서 직접 연결할 수 있습니다. 중국 및 국제 사이트의 API 키는 별개입니다. 국제 사이트: https://api.moonshot.ai/v1',
   'provider.preset.zhipu': 'Zhipu GLM',
   'provider.preset.zhipu.note': 'GLM Coding 요금제: https://open.bigmodel.cn/api/coding/paas/v4',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 호환)',
