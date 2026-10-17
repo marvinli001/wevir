@@ -498,6 +498,9 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Task from parent agent',
   'transcript.fromSession': 'From “{title}”',
   'transcript.reportFrom': 'Report from “{title}”',
+  'transcript.processExited': 'Background process “{name}” exited (code {code})',
+  'transcript.processStopped': 'Background process “{name}” stopped by {signal}',
+  'transcript.processMatched': 'Background process “{name}” output matched',
   'transcript.steered': 'Steered',
 
   'time.seconds': '{n}s',

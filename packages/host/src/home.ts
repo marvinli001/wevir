@@ -25,6 +25,8 @@ export const HOME_LAYOUT = {
   webFile: 'web.json',
   /** 不在项目里的会话（0.39.0，chats.ts）：“对话”工作区，每个会话一个 `<会话 ID>/` 文件夹（0700）。 */
   chatsDir: 'chats',
+  /** 应用级工具太长的结果与后台进程的日志（tool-output.ts、processes.ts），每个会话一个 `<会话 ID>/`（0700），七天后删。 */
+  toolOutputDir: 'tool-output',
 } as const;
 
 export interface ResolveHomeOptions {

@@ -810,11 +810,15 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
   | `wevir_plugin_install` | 从会话文件夹安装插件包，必填输入缺失时报错列出键名 | 用户批准 |
   | `wevir_skill_install` | 从会话文件夹安装 skill 文件夹 / SKILL.md / ZIP | 用户批准 |
   | `wevir_connector_add` | 添加散装 MCP 连接器，字段同 McpServerConfig | 用户批准 |
+  | `wevir_process_start` | 在 Host 里起一个后台进程（0.47.0，§3.15.4）：登录 shell 跑命令，可等到某一行或退出 | 按权限模式 |
+  | `wevir_process_list` / `wevir_process_output` / `wevir_process_wait` | 列出这个会话的后台进程、读输出（最后几行、`since` 偏移量、`grep`）、等它退出或输出某一行 | 不用 |
+  | `wevir_process_write` / `wevir_process_kill` | 写 stdin、发信号（默认 SIGTERM，发给整个进程组） | 按权限模式 |
 
   “按权限模式”是引擎自己的审批：请求批准时问用户（Codex 经 MCP 的确认请求上报为审批，codex-event-mapping.md §6.11；Claude 经 `canUseTool`；OpenCode 的插件经 `context.ask`，权限名是工具名；ACP 引擎按它们自己的规则），自动批准时由审查模型决定，完全访问时不问。不用批准的工具按名字放行（`APP_TOOLS_NO_APPROVAL`，Claude 的 `allowedTools`、OpenCode 插件不经 `context.ask` 的那几个）或靠 annotations（Codex：只读，或既不破坏也不对外）。Cursor 没有引擎审批，直接调用 Host。P3 的三个插件写工具另由 Host 核对用户批准，见 §3.15.3。
 - **边界**（照 T3）：新开的会话的权限模式不能比自己宽；不能给权限模式比自己宽的会话发消息、不能停它；不能给自己发消息、停自己、等自己；子会话（引擎派出的子 agent）与支线只读，不能发消息、停止。所有会话都看得到（同 T3 的 `t3_thread_read`：同一个用户的同一个 Host）；工作区移除了的会话不在。工具的说明与 MCP 的 `instructions` 写明：只在用户要求时新开会话，别的会话发来的内容是另一个 agent 的上下文，不是用户的指示。
 - **会话之间的消息。** Host 代发：`user.message`（或待发消息、插话）带 `from: { sessionId, kind: 'message', reportBack? }`，`sentBy` 是 Host 自己（`clientId: 'wevir-app-tools'`）。agent 开出的会话带 `Session.openedBy`（存储里是 `origin` 列的 `{ kind: 'agent', sessionId }`），不进左栏以外的地方，同普通会话。
 - **回报。** 一个回合结束（`turn.finished`）时，开始它的 `user.message` 带 `reportBack` 的，Host 把那个回合最后一段回答（前 4000 字）作为 `from.kind: 'report'` 的消息发回 `from.sessionId`，交付方式同上（对方忙时按 `sendWhileBusy` 插话或排队；空闲时开回合，所以请人做事的 agent 结束回合后会被结果叫醒，T3 的 delegate_task 完成通知、Paseo 的 `notifyOnFinish`）。请求方已经用 `wevir_session_wait` 拿到这个回合结果的不再回报；回报开的回合本身不再回报（它不是 `message`）。发不出去（会话关了又恢复不了、只读）时只记告警。
+- **大输出落盘（0.47.0）。** 每个工具结果交回引擎之前经过 `ToolOutputStore.spill`（`packages/host/src/tool-output.ts`，`AppMcpServer` 的 `spill` 选项）：文本超过 8000 字节（UTF-8，`TOOL_OUTPUT_INLINE_BYTES`；经网关的模型在 Codex 里工具输出只留 10 000 字节，超出的从中间删掉）时整份写进 `<数据目录>/tool-output/<会话 ID>/<时间>-<工具>-<随机>.txt`（JSON 结果写成缩进的 `.json`），结果换成大小、行数、路径、开头约 2000 字节与结尾约 1000 字节（按行截），说明用 rg / sed / head / tail 按需读；图片原样保留，`structuredContent` 去掉。写不进去时原样返回。目录 0700、文件 0600，删除会话时随会话删（§3.20 的一家会话的文件，存储页算进会话的文件），Host 启动时清掉七天前的文件。引擎自己的工具（Codex 的 shell 等）不经过这里。
 - **显示。** `ui.show`（`target` 是 `UiShowTarget`，`turnId` 是当时进行中的回合）写在调用方会话的流里。桌面端只在主会话视图里、只对刚到的（15 秒内、比处理过的 `seq` 新）打开窗格：文件进“文件预览”并跳到行，`changes` 打开“变更”（未提交的改动），`files` 打开文件树，`session` 在窗格里打开那个会话（desktop-layout.md §20）。
 
 #### 3.15.1 内置浏览器（0.33.0）
@@ -840,6 +844,16 @@ interface SessionEngine {          // Session.engines 的一项：会话挂过�
 #### 3.15.3 在对话里安装插件（P3）
 
 Host 的 `plugin-app-tools.ts` 通过 `AppTools` 提供四个工具，复用 P1/P1a 的注册表、安装和热更新，不新增协议方法或事件，版本仍为 0.42.0。路径边界与 `wevir_share_file` 一样按 cwd / realpath；安装前固定私有副本并解析清单，必填输入缺失则列出键名、失败不改配置。三个写工具都要用户批准：沿用引擎审批并补上脱敏后的实际名称、版本与内容；引擎未询问时 Host 补问，自动审查或完全访问不能代替这次用户决定。拒绝、取消或调用中止不安装，回合结束清理未使用的副本。成功通知仍是 `plugins.changed`，同一回合不保证立即可用，完整行为与限制见 [plugins.md「在对话里安装」](plugins.md#在对话里安装p3)。
+
+#### 3.15.4 后台进程（0.47.0）
+
+维护者 2026-10-17 定（Wevir 自己的 agent 反馈的一项）：Codex 的 shell 工具在一条命令结束时连它放到后台的进程一起结束，`tty` 会话只能轮询、停不掉，agent 也不知道进程什么时候退出。参考 Claude Code 的后台 Bash（`run_in_background`、BashOutput、KillShell）与 Monitor，Host 自己管后台进程，经应用级工具给 agent（`packages/host/src/processes.ts` 的 `ProcessManager`、`process-tools.ts` 的工具）。
+
+- **起进程。** `wevir_process_start { command, cwd?, name?, env?, notifyOnExit?, notifyOn?, waitFor?, timeoutMs? }`：在调用方会话的目录（或它里面的已有目录）里用用户的登录 shell 跑（POSIX `$SHELL -lc`，没有时 `/bin/sh`；不用交互式，免得 rc 里自动开 tmux 之类；Windows `ComSpec /d /s /c`），不开伪终端，stdin / stdout / stderr 是管道。POSIX 上自成进程组（`detached`），信号发给整个组。环境是 Host 的环境去掉 `WEVIR_*` 与 `ELECTRON_*`（`ELECTRON_RUN_AS_NODE` 会让用户的 Electron 应用当成 Node 跑），加 `PYTHONUNBUFFERED=1` 与参数里的 `env`（不收 `WEVIR_` 开头的）。不给 `waitFor` 时等 1.5 秒看它是不是立刻失败；给了时等到一行匹配、退出或超时（默认 30 秒，最多 10 分钟，超时不结束进程）。模式是 JavaScript 正则，也可写成 `/pattern/i`。结果给 ID（`p1`、`p2`…，Host 运行期间递增）、pid、日志路径、状态与最后 20 行。一个会话最多 16 个在跑的进程，记着最多 50 个（超出时忘掉最早退出的）。
+- **输出。** stdout 与 stderr 按到达顺序写进 `<数据目录>/tool-output/<会话 ID>/process-<ID>.log`（0600，原样，含颜色），超过 20 MB 时当前文件改名为 `.1`（只留一份旧的）、开新文件。`wevir_process_output` 默认给最后 50 行（`lines` 最多 1000），`since` 给从某个字节偏移量（从启动起算）起新写的、最多 256 KB 并回下一个偏移量，`grep` 列当前日志里匹配的行与行号（最多 200 行）；给模型的文本去掉终端控制序列，回车覆写的进度行只留最后一段。超过 8000 字节的照样落盘（§3.15 的大输出落盘）。
+- **等待与通知。** `wevir_process_wait { id, until?, timeoutMs? }` 等退出或之后输出的一行匹配 `until`。进程自己退出时（`notifyOnExit` 默认开），或输出的一行第一次匹配 `notifyOn` 时，Host 把通知作为消息发回起它的会话：`user.message` 带 `from: { sessionId: <这个会话>, kind: 'report', process: { id, name, event: 'exit' | 'match', exitCode?, signal? } }`，正文是给模型看的英文说明（状态、最后 20 行、日志路径）；会话忙时按 Host 设置的 `sendWhileBusy` 插话或排队，空闲时开一个回合，同回报。正在 `wevir_process_wait` 或 `waitFor` 里等到的事件、agent 自己用 SIGINT / SIGTERM / SIGKILL 结束的进程、Host 退出与删除会话结束的进程都不通知。桌面端把这条消息显示成一行标记（例如 后台进程“dev server”已退出（退出码 1），悬停看全文），不当用户气泡。
+- **结束。** `wevir_process_kill { id, signal? }`：`SIGTERM`（默认）、`SIGINT`、`SIGKILL`、`SIGHUP`、`SIGQUIT`、`SIGUSR1`、`SIGUSR2`，POSIX 上发给进程组，Windows 上一律 `taskkill /T /F`；结束类信号等最多 5 秒并报结果。`wevir_process_write { id, input, eof? }` 写 stdin（同 Codex 的 `write_stdin`，起进程时批准过就不再问）。回合结束、取消都不结束后台进程；删除会话时结束这一家会话的进程（`SessionManagerOptions.appTools.forget`），Host 退出时结束全部（SIGTERM，3 秒后 SIGKILL，退出流程的 `stop_processes` 一步）。进程只在内存里登记，Host 重启后列表是空的；Host 崩溃时 POSIX 上自成进程组的进程会留下来成为孤儿（缺口）。
+- **批准与边界。** 起进程、写 stdin、发信号不是只读的，按会话的权限模式走引擎的审批（同上表）；列出、读、等待只读，进 `APP_TOOLS_NO_APPROVAL`。进程不在引擎的沙箱里，以 Host（用户）的身份运行，见安全说明 §2。只看得到、只操作得了自己会话的进程。
 
 ### 3.16 会话目标（0.35.0）
 

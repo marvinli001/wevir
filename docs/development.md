@@ -335,6 +335,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `history/` | 接力过的会话的完整历史（0.25.0，domain-model §3.14）：`<会话 ID>.json`（0600），会话换到挂了读历史工具的引擎时由 Host 写，读历史的 MCP 服务只读这里 |
 | `mcp/` | Host 给引擎挂的本机 MCP 服务的脚本（0.25.0 的 `wevir-history.mjs`、0.34.0 的联网工具 `wevir-web.mjs`），引擎第一次启动前写，每次覆盖 |
 | `images/` | 消息里的图片（0.28.0）：`<图片 ID>.<扩展名>` 与旁边的 `<图片 ID>.json`（Host 认定的格式、大小与像素），0600；`staged/` 里是上传了还没发出去的，过一天删掉 |
+| `tool-output/` | 应用级工具太长的结果与后台进程的日志（0.47.0，domain-model §3.15、§3.15.4）：每个会话一个 `<会话 ID>/`（0700），`<时间>-<工具>-<随机>.txt` / `.json` 与 `process-<ID>.log`（超过 20 MB 时旧的在 `.log.1`），0600；删除会话时随会话删，Host 启动时清掉七天前的文件 |
 | `engines/cursor/` | Cursor 引擎：应用内登录铸出的 API Key `auth.json`（0600，见[安全说明](./security.md) §3）。第一次登录 Cursor 时才出现；agent 的对话由 Cursor 的 SDK 存在它自己的位置（`~/.cursor/projects/`） |
 | `engines/opencode/` | OpenCode 引擎：读账号时 `opencode serve` 的工作目录，`servers/` 是本机服务器的台账（0600，进程身份与端口）。登录、配置与会话都在用户自己的 opencode 目录（`~/.config/opencode`、`~/.local/share/opencode`），Wevir 不读不改，见 [opencode-event-mapping.md](./architecture/opencode-event-mapping.md) §1 |
 | `engines/antigravity/` | Antigravity 引擎：`runtime/<平台>-<架构>/`（设置里下载的运行体，`active.json` 指向装好的版本，没下完的在 `downloads/`）、`profile/`（运行体的 `GEMINI_HOME`：Google 登录 `antigravity-acp/acp_token.json` 与对话，Wevir 不读登录的内容）、`tmp/`（每个进程的解包目录，约 1 GB，进程退出后删掉）、`models.json`（模型列表）。第一次下载或登录时才出现 |

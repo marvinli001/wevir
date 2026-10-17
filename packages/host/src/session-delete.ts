@@ -32,6 +32,8 @@ export interface SessionDataOptions {
   historyDir?: string | undefined;
   /** `<数据目录>/worktrees`。 */
   worktreesDir?: string | undefined;
+  /** `<数据目录>/tool-output`：每个会话一个 `<会话 ID>/`（大输出与后台进程的日志）。 */
+  toolOutputDir?: string | undefined;
 }
 
 export interface DeleteSessionDeps extends SessionDataOptions {
@@ -79,7 +81,7 @@ export function worktreeRoots(
   return [...roots.values()];
 }
 
-/** 一家会话自己的文件（不含 worktree）：历史文件、对话文件夹，以及只有它们引用的图片。 */
+/** 一家会话自己的文件（不含 worktree）：历史文件、大输出与进程日志、对话文件夹，以及只有它们引用的图片。 */
 function ownedFiles(
   options: SessionDataOptions,
   family: readonly SessionRecord[],
@@ -90,6 +92,7 @@ function ownedFiles(
   for (const record of family) {
     if (options.historyDir !== undefined)
       paths.push(historyFilePath(options.historyDir, record.id));
+    if (options.toolOutputDir !== undefined) paths.push(join(options.toolOutputDir, record.id));
     const chatDir = options.chats?.sessionDir(record.id);
     const workspace = options.storage.workspaces.get(record.workspaceId);
     // 只有“对话”里的会话、cwd 正是它自己的文件夹时：项目里的会话的 cwd 是用户的目录。

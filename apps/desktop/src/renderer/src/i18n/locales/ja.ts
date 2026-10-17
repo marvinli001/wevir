@@ -499,6 +499,9 @@ export const messages: Messages = {
   'transcript.fromParentAgent': '親エージェントからのタスク',
   'transcript.fromSession': '「{title}」から',
   'transcript.reportFrom': '「{title}」からの報告',
+  'transcript.processExited': 'バックグラウンドプロセス「{name}」終了（終了コード {code}）',
+  'transcript.processStopped': 'バックグラウンドプロセス「{name}」が {signal} で停止',
+  'transcript.processMatched': '「{name}」の出力が一致',
   'transcript.steered': '割り込み',
 
   'time.seconds': '{n} 秒',

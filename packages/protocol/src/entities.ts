@@ -682,6 +682,21 @@ export const MessageFromSchema = z.object({
   kind: z.enum(['message', 'report']),
   /** `message` 的发送方要回报：这条消息开始的回合结束后，Host 把结果作为 `report` 发回 `sessionId`。 */
   reportBack: z.literal(true).optional(),
+  /**
+   * 后台进程的通知（0.47.0）：agent 用 `wevir_process_start` 起的进程退出或输出匹配时，Host 发回起它的会话的消息。`kind` 是
+   * `report`、`sessionId` 是这个会话自己（旧客户端照回报显示）。
+   */
+  process: z
+    .object({
+      /** 会话里的进程 ID（`p1`）。 */
+      id: z.string(),
+      name: z.string(),
+      /** `exit` 退出、`match` 输出的一行匹配了 agent 给的模式；开放字符串。 */
+      event: z.string(),
+      exitCode: z.number().int().optional(),
+      signal: z.string().optional(),
+    })
+    .optional(),
 });
 export type MessageFrom = z.infer<typeof MessageFromSchema>;
 

@@ -932,9 +932,25 @@ const standaloneCases: Case[] = [
     valid: [
       { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', kind: 'message', reportBack: true },
       { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', kind: 'report' },
+      // 0.47.0：后台进程的通知。
+      {
+        sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        kind: 'report',
+        process: { id: 'p1', name: 'dev server', event: 'exit', exitCode: 1 },
+      },
+      {
+        sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        kind: 'report',
+        process: { id: 'p2', name: 'watch', event: 'match' },
+      },
     ],
     invalid: [
       { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', kind: 'reply' },
+      {
+        sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        kind: 'report',
+        process: { id: 'p1', event: 'exit', exitCode: 1.5 },
+      },
       { sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPQR', kind: 'message', reportBack: false },
     ],
   },

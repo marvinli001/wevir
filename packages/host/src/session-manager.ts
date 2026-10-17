@@ -157,6 +157,8 @@ export interface SessionManagerOptions {
    * `<会话 ID>.json`。没给时不写，摘要里也不提这个工具。
    */
   historyDir?: string;
+  /** 大输出与后台进程的日志（tool-output.ts，`<数据目录>/tool-output`）：删除会话时随会话删，存储页算进会话的文件。 */
+  toolOutputDir?: string;
   /**
    * 消息里的图片（0.28.0，images.ts）。没给时、或适配器没有 `acceptsImages` 时，带图片的消息回 `INVALID_PARAMS`。
    */
@@ -170,6 +172,8 @@ export interface SessionManagerOptions {
     /** P3：插件工具事件落库前固定安装内容并脱敏，审批沿用同一详情。 */
     prepareEvent?(sessionId: SessionId, event: AgentEvent): Promise<AgentEvent>;
     resolved?(sessionId: SessionId, toolCallId: string, approvedByUser: boolean): void;
+    /** 删除会话：结束这一家会话的后台进程（processes.ts）。 */
+    forget?(sessionIds: readonly SessionId[]): void;
     dispose?(): void;
   };
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
@@ -347,6 +351,7 @@ export class SessionManager {
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
   readonly #worktreesDir: string | undefined;
+  readonly #toolOutputDir: string | undefined;
   readonly #chats: ChatFolders | undefined;
   readonly #checkpoints: TurnCheckpoints | undefined;
   readonly #engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined;
@@ -381,6 +386,7 @@ export class SessionManager {
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
     this.#titleInstructions = options.titleInstructions;
     this.#worktreesDir = options.worktreesDir;
+    this.#toolOutputDir = options.toolOutputDir;
     this.#chats = options.chats;
     this.#checkpoints = options.checkpoints;
     this.#engineFeatures = options.engineFeatures;
@@ -1933,8 +1939,12 @@ export class SessionManager {
           chats: this.#chats,
           historyDir: this.#historyDir,
           worktreesDir: this.#worktreesDir,
+          toolOutputDir: this.#toolOutputDir,
           onWarning: this.#onWarning,
-          detach: (ids) => this.#forget(ids),
+          detach: (ids) => {
+            this.#forget(ids);
+            this.#appTools?.forget?.(ids);
+          },
         },
         record,
         options.force === true,
@@ -1953,6 +1963,7 @@ export class SessionManager {
         chats: this.#chats,
         historyDir: this.#historyDir,
         worktreesDir: this.#worktreesDir,
+        toolOutputDir: this.#toolOutputDir,
       },
       records,
     );

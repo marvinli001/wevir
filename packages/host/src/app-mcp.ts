@@ -66,6 +66,10 @@ export interface AppMcpServerOptions {
    * 不给时 `grantEngine` 不发令牌。
    */
   engineSession?: (kinds: readonly string[], engineSessionId: string) => SessionId | undefined;
+  /**
+   * 大输出落盘（tool-output.ts）：每个工具结果交回引擎之前经过它，太长的换成摘要与文件路径。不给时原样返回。
+   */
+  spill?: (sessionId: SessionId, toolName: string, result: AppToolResult) => Promise<AppToolResult>;
 }
 
 type JsonRpcId = string | number;
@@ -282,12 +286,18 @@ export class AppMcpServer {
           params.arguments !== null && typeof params.arguments === 'object'
             ? (params.arguments as Record<string, unknown>)
             : {};
+        let result: AppToolResult;
         try {
-          return rpcResult(id, await tool.call(args, { sessionId, signal }));
+          result = await tool.call(args, { sessionId, signal });
         } catch (error) {
           if (!(error instanceof AppToolError)) this.#options.onError?.(error);
-          return rpcResult(id, errorResult(error));
+          result = errorResult(error);
         }
+        const spill = this.#options.spill;
+        return rpcResult(
+          id,
+          spill === undefined ? result : await spill(sessionId, tool.name, result),
+        );
       }
       default:
         return rpcError(id, -32601, `method not found: ${message.method}`);

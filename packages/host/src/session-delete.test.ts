@@ -66,6 +66,8 @@ async function setup(adapter: EchoAdapter = new EchoAdapter({ stepDelayMs: 0 }))
   const events = new EventStore({ storage, deltaWindowMs: 5 });
   const worktreesDir = join(dataDir, 'worktrees');
   const historyDir = join(dataDir, 'history');
+  const toolOutputDir = join(dataDir, 'tool-output');
+  const forgotten: SessionId[][] = [];
   const chats = new ChatFolders({ dir: join(dataDir, 'chats') });
   await chats.load();
   const images = new ImageStore({ dir: join(dataDir, 'images') });
@@ -75,6 +77,8 @@ async function setup(adapter: EchoAdapter = new EchoAdapter({ stepDelayMs: 0 }))
     adapter,
     worktreesDir,
     historyDir,
+    toolOutputDir,
+    appTools: { grant: () => undefined, forget: (ids) => forgotten.push([...ids]) },
     chats,
     images,
   });
@@ -136,6 +140,8 @@ async function setup(adapter: EchoAdapter = new EchoAdapter({ stepDelayMs: 0 }))
     adapter,
     worktreesDir,
     historyDir,
+    toolOutputDir,
+    forgotten,
     project,
     send,
     archive,
@@ -151,6 +157,8 @@ describe('session.delete', () => {
     writeFileSync(join(session.cwd, 'notes.md'), 'x'.repeat(2048));
     mkdirSync(h.historyDir, { recursive: true });
     writeFileSync(join(h.historyDir, `${sessionId}.json`), '{}');
+    mkdirSync(join(h.toolOutputDir, sessionId), { recursive: true });
+    writeFileSync(join(h.toolOutputDir, sessionId, 'process-p1.log'), 'y'.repeat(4096));
     const imageFiles = readdirImages(h.dataDir);
     expect(imageFiles).toHaveLength(2);
     const engineSessionId = h.storage.sessions.get(sessionId)?.engineSessionId as string;
@@ -159,8 +167,8 @@ describe('session.delete', () => {
     const [usage] = (await h.methods['session.usage']({ archived: true }, context)).sessions;
     expect(usage).toMatchObject({ sessionId, worktrees: [] });
     expect(usage?.eventBytes).toBeGreaterThan(0);
-    // 对话文件夹里的 2 KiB、历史文件与图片的两份文件。
-    expect(usage?.fileBytes).toBeGreaterThan(2048 + 64);
+    // 对话文件夹里的 2 KiB、进程日志的 4 KiB、历史文件与图片的两份文件。
+    expect(usage?.fileBytes).toBeGreaterThan(2048 + 4096 + 64);
     expect(MethodSchemas['session.usage'].result.safeParse({ sessions: [usage] }).success).toBe(
       true,
     );
@@ -172,6 +180,9 @@ describe('session.delete', () => {
     expect(h.storage.events.lastSeq(sessionId)).toBe(0);
     expect(existsSync(session.cwd)).toBe(false);
     expect(existsSync(join(h.historyDir, `${sessionId}.json`))).toBe(false);
+    expect(existsSync(join(h.toolOutputDir, sessionId))).toBe(false);
+    // 后台进程随会话结束。
+    expect(h.forgotten).toEqual([[sessionId]]);
     expect(readdirImages(h.dataDir)).toEqual([]);
     await expect(
       h.adapter.resumeSession(engineSessionId, {

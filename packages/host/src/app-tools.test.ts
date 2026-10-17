@@ -23,8 +23,10 @@ import { AppMcpServer } from './app-mcp.js';
 import { AppTools, engineSessionResolver, reportText } from './app-tools.js';
 import { EventStore } from './event-store.js';
 import { PluginRegistry } from './plugins.js';
+import { ProcessManager } from './processes.js';
 import { SessionManager } from './session-manager.js';
 import { identity, useStorages, useTempDir, zip } from './test-utils.js';
+import { ToolOutputStore } from './tool-output.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -46,7 +48,7 @@ class ToolEcho extends EchoAdapter {
   }
 }
 
-async function setup(stepDelayMs = 0, withPlugins = false) {
+async function setup(stepDelayMs = 0, withPlugins = false, withProcesses = false) {
   const root = realpathSync(tempDir());
   const storage = storages.open(join(root, 'data'));
   const workspace = join(root, 'project');
@@ -99,8 +101,17 @@ async function setup(stepDelayMs = 0, withPlugins = false) {
       })
     : undefined;
   await plugins?.load();
+  const toolOutput = new ToolOutputStore(join(root, 'data', 'tool-output'));
+  const processes = withProcesses
+    ? new ProcessManager({
+        output: toolOutput,
+        onNotice: (notice) => tools?.onProcessNotice(notice),
+        env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
+      })
+    : undefined;
   tools = new AppTools({
     ...(plugins && { plugins }),
+    ...(processes && { processes }),
     storage,
     events,
     sessions: manager,
@@ -113,6 +124,9 @@ async function setup(stepDelayMs = 0, withPlugins = false) {
     version: '0.0.0',
     onError: (e) => errors.push(e),
     engineSession: engineSessionResolver(storage, 'dsh'),
+    ...(withProcesses && {
+      spill: (sessionId, toolName, result) => toolOutput.spill(sessionId, toolName, result),
+    }),
   });
   const appMcp = mcp;
   const http: Server = createServer((req, res) => {
@@ -123,6 +137,7 @@ async function setup(stepDelayMs = 0, withPlugins = false) {
   appMcp.setPort(port);
   cleanups.push(async () => {
     appMcp.close();
+    await processes?.close();
     await manager.dispose();
     await adapter.dispose();
     await new Promise<void>((resolve) => http.close(() => resolve()));
@@ -187,6 +202,8 @@ async function setup(stepDelayMs = 0, withPlugins = false) {
     errors,
     port,
     grantEngine: (kinds: readonly string[]) => appMcp.grantEngine(kinds),
+    processes,
+    toolOutput,
     workspace,
     create,
     tokenOf,
@@ -598,6 +615,149 @@ describe('应用级工具', () => {
       ],
       permissionModes: ['on_request', 'auto_review'],
     });
+  });
+});
+
+describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', () => {
+  /** 调工具，返回文本与 isError。 */
+  const callText = async (
+    h: Awaited<ReturnType<typeof setup>>,
+    sessionId: SessionId,
+    name: string,
+    args: Record<string, unknown> = {},
+  ) => {
+    const { body } = await h.rpc(sessionId, 'tools/call', { name, arguments: args });
+    const result = body.result as { isError?: boolean; content: Array<{ text: string }> };
+    return {
+      text: result.content.map((part) => part.text).join('\n'),
+      isError: result.isError === true,
+    };
+  };
+
+  it('工具列表与注解：起进程、写、结束要审批，列出、读、等待不用', async () => {
+    const h = await setup(0, false, true);
+    const a = await h.create();
+    const list = await h.rpc(a, 'tools/list');
+    const tools = list.body.result.tools as Array<{
+      name: string;
+      annotations: { readOnlyHint?: boolean };
+    }>;
+    const processTools = tools.filter((tool) => tool.name.startsWith('wevir_process_'));
+    expect(
+      Object.fromEntries(processTools.map((tool) => [tool.name, tool.annotations.readOnlyHint])),
+    ).toEqual({
+      wevir_process_start: false,
+      wevir_process_list: true,
+      wevir_process_output: true,
+      wevir_process_wait: true,
+      wevir_process_write: false,
+      wevir_process_kill: false,
+    });
+    // 按名字放行的引擎（Claude、OpenCode）用同一张表。
+    const { APP_TOOLS_NO_APPROVAL } = await import('@wevir/runtime-adapter');
+    for (const tool of processTools) {
+      expect(APP_TOOLS_NO_APPROVAL.includes(tool.name), tool.name).toBe(
+        tool.annotations.readOnlyHint === true,
+      );
+    }
+  });
+
+  it('起进程等到某一行；退出时作为消息发回会话并开一个回合；目录外拒绝', async () => {
+    const h = await setup(0, false, true);
+    const a = await h.create();
+    const outside = await callText(h, a, 'wevir_process_start', { command: 'true', cwd: '..' });
+    expect(outside).toMatchObject({ isError: true });
+    expect(outside.text).toContain("not inside this session's folder");
+
+    const started = await callText(h, a, 'wevir_process_start', {
+      command: 'echo "Local: http://localhost:5173"; sleep 0.5; echo stopping; exit 2',
+      name: 'dev server',
+      waitFor: 'Local:.*http',
+    });
+    expect(started.isError).toBe(false);
+    expect(started.text).toContain('Started p1 "dev server"');
+    expect(started.text).toContain('Matched /Local:.*http/: Local: http://localhost:5173');
+    expect(started.text).toContain('Wevir will message you when it exits.');
+
+    await vi.waitFor(
+      () =>
+        expect(
+          h.all(a).some((e) => e.type === 'user.message' && e.payload.from?.process !== undefined),
+        ).toBe(true),
+      { timeout: 5000 },
+    );
+    const notice = h
+      .all(a)
+      .find((e) => e.type === 'user.message' && e.payload.from?.process !== undefined);
+    expect(notice?.payload).toMatchObject({
+      from: {
+        sessionId: a,
+        kind: 'report',
+        process: { id: 'p1', name: 'dev server', event: 'exit', exitCode: 2 },
+      },
+    });
+    const text = notice?.type === 'user.message' ? notice.payload.content[0] : undefined;
+    expect((text as { text: string }).text).toMatch(
+      /exited with code 2[\s\S]*stopping[\s\S]*Full log: /,
+    );
+    await h.settle(a);
+
+    const listed = await callText(h, a, 'wevir_process_list');
+    expect(listed.text).toContain('p1 "dev server"');
+    expect(listed.text).toContain('exited with code 2');
+  });
+
+  it('读输出：最后几行、since、grep；大输出落盘后只回开头结尾与路径', async () => {
+    const h = await setup(0, false, true);
+    const a = await h.create();
+    await callText(h, a, 'wevir_process_start', {
+      command: 'i=1; while [ $i -le 3000 ]; do echo "row $i"; i=$((i+1)); done',
+      notifyOnExit: false,
+    });
+    await callText(h, a, 'wevir_process_wait', { id: 'p1' });
+    const tail = await callText(h, a, 'wevir_process_output', { id: 'p1', lines: 3 });
+    expect(tail.text).toMatch(/row 2998\nrow 2999\nrow 3000$/);
+    const grep = await callText(h, a, 'wevir_process_output', { id: 'p1', grep: '^row 29[0-9]9$' });
+    expect(grep.text).toContain('10 matching lines:');
+    expect(grep.text).toContain('2999: row 2999');
+
+    const all = await callText(h, a, 'wevir_process_output', { id: 'p1', lines: 1000 });
+    expect(all.text).toContain('too large to show here, so Wevir saved it to:');
+    const path = all.text.split('\n')[1] as string;
+    expect(path.startsWith(join(h.toolOutput.dir, a))).toBe(true);
+    expect(readFileSync(path, 'utf8')).toContain('row 2001\n');
+    expect(all.text).toContain('row 3000');
+
+    const since = await callText(h, a, 'wevir_process_output', { id: 'p1', since: 0 });
+    expect(since.text).toContain('saved it to:');
+  });
+
+  it('写 stdin、结束（不发退出消息）、等待超时不结束进程', async () => {
+    const h = await setup(0, false, true);
+    const a = await h.create();
+    await callText(h, a, 'wevir_process_start', { command: 'cat' });
+    expect((await callText(h, a, 'wevir_process_write', { id: 'p1', input: 'ping\n' })).text).toBe(
+      'Wrote 5 bytes to p1.',
+    );
+    const waited = await callText(h, a, 'wevir_process_wait', {
+      id: 'p1',
+      until: '/PING/i',
+      timeoutMs: 2000,
+    });
+    expect(waited.text).toMatch(/Matched \/PING\/i: ping|Timed out/);
+    const timedOut = await callText(h, a, 'wevir_process_wait', { id: 'p1', timeoutMs: 100 });
+    expect(timedOut.text).toContain('Timed out waiting for it to exit; it is still running.');
+    const killed = await callText(h, a, 'wevir_process_kill', { id: 'p1' });
+    expect(killed.text).toMatch(/Sent SIGTERM; p1 was stopped by SIGTERM/);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(
+      h.all(a).some((e) => e.type === 'user.message' && e.payload.from?.process !== undefined),
+    ).toBe(false);
+    const bad = await callText(h, a, 'wevir_process_kill', { id: 'p9' });
+    expect(bad).toMatchObject({ isError: true });
+    expect((await callText(h, a, 'wevir_process_output', { id: 'p1', grep: '(' })).isError).toBe(
+      true,
+    );
   });
 });
 

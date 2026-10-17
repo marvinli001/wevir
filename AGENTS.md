@@ -84,6 +84,8 @@ Phala Private AI / RedPill（2026-10-17）：桌面 redpill 模板默认 api.red
 
 Xiaomi MiMo 按量 API（2026-10-17）：桌面 mimo 模板使用 Responses，Pro / Flash 均为 1048576、131072、图片、off / high；providers.ts 的 isMimoHost 排除套餐域名，普通 Responses 默认摊平 custom / namespace 与 auto_only，显式 compat 优先。官方目录的 Responses Lite 未开启，工具请求差异见 model-gateway.md §3.11；来源、旧 Profile 手动更新与真实验收缺口见 providers.md §7.14、development.md §6.3。
 
+后台进程与大输出落盘（0.47.0）：Host 的 `processes.ts`（ProcessManager：登录 shell、进程组、日志、匹配与通知、退出时回收）与 `process-tools.ts`（六个 `wevir_process_*` 工具），通知经 `app-tools.ts` 的 `onProcessNotice` 以带 `from.process` 的消息发回会话，桌面 `session/message-view.tsx` 显示成一行标记；`tool-output.ts` 把超过 8000 字节的应用级工具结果写进 `<数据目录>/tool-output/<会话 ID>/`，`app-mcp.ts` 的 `spill` 接入，删除会话随会话删。行为、批准与缺口见 domain-model §3.15、§3.15.4，安全取舍见 security.md §2。
+
 ## 常用命令
 
 环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。

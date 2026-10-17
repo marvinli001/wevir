@@ -494,6 +494,9 @@ export const messages: Messages = {
   'transcript.fromParentAgent': '상위 에이전트의 작업',
   'transcript.fromSession': '“{title}”에서 보냄',
   'transcript.reportFrom': '“{title}”의 보고',
+  'transcript.processExited': '백그라운드 프로세스 “{name}” 종료(종료 코드 {code})',
+  'transcript.processStopped': '백그라운드 프로세스 “{name}”이(가) {signal}(으)로 중지됨',
+  'transcript.processMatched': '“{name}” 출력 일치',
   'transcript.steered': '끼어들기',
 
   'time.seconds': '{n}초',

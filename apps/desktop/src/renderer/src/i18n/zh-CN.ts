@@ -503,6 +503,9 @@ export const zhCN = {
   'transcript.fromParentAgent': '来自父智能体的任务',
   'transcript.fromSession': '来自“{title}”',
   'transcript.reportFrom': '“{title}”的回报',
+  'transcript.processExited': '后台进程“{name}”已退出（退出码 {code}）',
+  'transcript.processStopped': '后台进程“{name}”已被 {signal} 结束',
+  'transcript.processMatched': '后台进程“{name}”输出匹配',
   'transcript.steered': '插话',
 
   'time.seconds': '{n} 秒',

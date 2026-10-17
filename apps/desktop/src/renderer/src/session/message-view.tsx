@@ -8,6 +8,7 @@ import {
   Info,
   Reply,
   ScanSearch,
+  SquareTerminal,
   Target,
 } from 'lucide-react';
 import { memo, useLayoutEffect, useRef, useState } from 'react';
@@ -44,6 +45,7 @@ export function UserMessage({ message }: { message: UserChatMessage }) {
 function PlainUserMessage({ message }: { message: UserChatMessage }) {
   const actions = useMessageActions();
   const [editing, setEditing] = useState(false);
+  if (message.from?.process !== undefined) return <ProcessReport message={message} />;
   if (message.from?.kind === 'report') return <SessionReport message={message} />;
   // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
@@ -235,6 +237,38 @@ function SessionReport({ message }: { message: UserChatMessage }) {
           {content}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * 后台进程的通知（0.47.0）：agent 用 `wevir_process_start` 起的进程退出或输出匹配时 Host 发回的消息。同回报一行标记，悬停看
+ * 发给模型的全文（最后几行与日志路径）。
+ */
+function ProcessReport({ message }: { message: UserChatMessage }) {
+  const process = message.from?.process;
+  if (process === undefined) return null;
+  const text = message.parts
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join('\n');
+  const label =
+    process.event !== 'exit'
+      ? t('transcript.processMatched', { name: process.name })
+      : process.signal !== undefined
+        ? t('transcript.processStopped', { name: process.name, signal: process.signal })
+        : t('transcript.processExited', {
+            name: process.name,
+            code: String(process.exitCode ?? '?'),
+          });
+  return (
+    <div className="my-2 flex" data-message-role="user" data-process-report={process.id}>
+      <span
+        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
+        title={text}
+      >
+        <SquareTerminal aria-hidden className="size-4 shrink-0" />
+        <span className="truncate">{label}</span>
+      </span>
     </div>
   );
 }

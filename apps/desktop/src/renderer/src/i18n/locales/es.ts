@@ -505,6 +505,9 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Tarea del agente principal',
   'transcript.fromSession': 'De «{title}»',
   'transcript.reportFrom': 'Informe de «{title}»',
+  'transcript.processExited': 'Proceso en segundo plano «{name}» finalizado (código {code})',
+  'transcript.processStopped': 'Proceso en segundo plano «{name}» detenido por {signal}',
+  'transcript.processMatched': 'Coincidencia en la salida de «{name}»',
   'transcript.steered': 'Intervención',
 
   'time.seconds': '{n} s',

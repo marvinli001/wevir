@@ -492,6 +492,9 @@ export const messages: Messages = {
   'transcript.fromParentAgent': '來自上層代理的工作',
   'transcript.fromSession': '來自「{title}」',
   'transcript.reportFrom': '「{title}」的回報',
+  'transcript.processExited': '背景程序「{name}」已結束（結束代碼 {code}）',
+  'transcript.processStopped': '背景程序「{name}」已被 {signal} 終止',
+  'transcript.processMatched': '背景程序「{name}」輸出符合',
   'transcript.steered': '插話',
 
   'time.seconds': '{n} 秒',

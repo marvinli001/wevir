@@ -29,11 +29,13 @@ import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import type { Logger } from './logger.js';
 import { PluginRegistry } from './plugins.js';
+import { ProcessManager } from './processes.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import { loadTitleInstructions } from './title.js';
+import { ToolOutputStore } from './tool-output.js';
 import type { WebService } from './web/service.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
@@ -136,6 +138,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let events: EventStore | undefined;
   let sessions: SessionManager | undefined;
   let rpc: HostRpcServer | undefined;
+  let backgroundProcesses: ProcessManager | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   try {
@@ -184,6 +187,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 与 Host 设置，下面建好之后再接上。
     let appMcp: AppMcpServer | undefined;
     let appTools: AppTools | undefined;
+    // 大输出落盘与后台进程（tool-output.ts、processes.ts）：过期的文件启动时在后台清掉。
+    const toolOutput = new ToolOutputStore(homePath(home, 'toolOutputDir'));
+    void toolOutput
+      .prune()
+      .catch((error: unknown) => logger.warn('failed to prune tool output', { error }));
+    const processes =
+      adapter.appTools === true
+        ? new ProcessManager({
+            output: toolOutput,
+            onNotice: (notice) => appTools?.onProcessNotice(notice),
+            onWarning: (message, fields) => logger.warn(message, fields),
+          })
+        : undefined;
+    backgroundProcesses = processes;
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
     await chats.load();
@@ -197,6 +214,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           appTools?.plugins?.prepareEvent(sessionId, event) ?? Promise.resolve(event),
         resolved: (sessionId, toolCallId, approved) =>
           appTools?.plugins?.resolved(sessionId, toolCallId, approved),
+        forget: (sessionIds) => void processes?.removeSessions(sessionIds),
         dispose: () => appTools?.plugins?.close(),
       },
       onTurnFinished: (info) => appTools?.onTurnFinished(info),
@@ -210,6 +228,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       checkpoints,
       engineFeatures,
       historyDir: homePath(home, 'historyDir'),
+      toolOutputDir: toolOutput.dir,
       images,
     });
     sessions = manager;
@@ -277,6 +296,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         hostId,
         sendWhileBusy: () => settings.get().sendWhileBusy,
         ...(browsers !== undefined && { browser: browsers }),
+        ...(processes !== undefined && { processes }),
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       appMcp = new AppMcpServer({
@@ -285,6 +305,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         instructions: APP_TOOLS_INSTRUCTIONS,
         onError: (error) => logger.error('app tools error', { error }),
         engineSession: engineSessionResolver(storage, options.engine),
+        spill: (sessionId, toolName, result) => toolOutput.spill(sessionId, toolName, result),
       });
     }
     const mcp = appMcp;
@@ -391,6 +412,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           logger,
           rpc: server,
           appMcp: mcp,
+          processes,
           sessions: manager,
           adapter,
           accounts,
@@ -417,6 +439,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   } catch (error) {
     // 回收已建好的部分；这里的失败不掩盖原始错误。
     await rpc?.close().catch(() => {});
+    await backgroundProcesses?.close().catch(() => {});
     accounts?.dispose();
     await turnCheckpoints?.dispose();
     await sessions?.dispose().catch(() => {});
@@ -440,6 +463,8 @@ interface ShutdownParts {
   rpc: HostRpcServer;
   /** 应用级工具的 MCP 端点（0.30.0）；引擎挂不上时没有。 */
   appMcp: AppMcpServer | undefined;
+  /** 后台进程（processes.ts）；没有应用级工具时没有。 */
+  processes: ProcessManager | undefined;
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
@@ -474,6 +499,10 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   };
   // 应用级工具不再接新调用，进行中的等待（wevir_session_wait）随即返回。
   parts.appMcp?.close();
+  // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
+  if (parts.processes !== undefined) {
+    await step('stop_processes', () => parts.processes?.close(), true);
+  }
   // 新连接回 503、新请求回 HOST_SHUTTING_DOWN，等在途请求结束；已连上的客户端继续收事件。
   await step('stop_accepting', () => parts.rpc.stopAccepting(), true);
   // 取消回合的事件经订阅推送出去，所以连接要留到后面再关。

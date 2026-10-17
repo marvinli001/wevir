@@ -503,6 +503,9 @@ export const messages: Messages = {
   'transcript.fromParentAgent': 'Задача от родительского агента',
   'transcript.fromSession': 'От «{title}»',
   'transcript.reportFrom': 'Отчёт от «{title}»',
+  'transcript.processExited': 'Фоновый процесс «{name}» завершён (код {code})',
+  'transcript.processStopped': 'Фоновый процесс «{name}» остановлен сигналом {signal}',
+  'transcript.processMatched': 'Совпадение в выводе «{name}»',
   'transcript.steered': 'Вмешательство',
 
   'time.seconds': '{n} с',
