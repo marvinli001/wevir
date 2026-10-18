@@ -36,7 +36,7 @@
 - 功能图标为 24 单位网格、2 单位线宽，统一软方角与端点。品牌主标保留实心结构以便区分；功能图标不添加金属纹理。`current-color/` 与 sprite 由调用方设置 `color`。
 - 桌面端界面里的主标组件（`apps/desktop/src/renderer/src/components/brand-mark.tsx`；左栏不放主标与产品名，界面上只有首页的品牌行用它）用 `source/mark.svg` 的几何、颜色取 `currentColor`，由设计变量 `--brand` 给出浅色金 `#9B7840`、深色铂金 `#DFDED8`；旁边的字标与界面里的功能图标用文字色，首页品牌行的金属字标除外（desktop-tokens.md §5）。
 - macOS 正式模板始终是黑色透明图，系统负责显示深浅色；白色稿仅位于 `previews/`，不要作为正式模板使用。原生调用需设置 `isTemplate`，Electron 使用 `setTemplateImage(true)`。
-- ICNS 与 ICO 本身不根据系统主题自动切换。由客户端或打包配置选择浅/深文件。桌面端（Electron，还没有打包配置）在主进程运行时选择：macOS 用 `macos/{light,dark}/AppIcon.appiconset/icon_512x512@2x.png` 设程序坞图标，跟随应用的深浅色；Windows 用 `windows/{light,dark}/Wevir.ico` 设窗口与任务栏图标，跟随系统的 Windows 模式（`apps/desktop/src/main/app-icon.ts`）。iOS / Android 还没有客户端，签名配置与安装包也未涉及。
+- ICNS 与 ICO 本身不根据系统主题自动切换。macOS 安装包用 `source/Wevir.icon`（`apps/desktop/electron-builder.yml` 的 `mac.icon`），由 electron-builder 调 Xcode 26 起的 `actool` 编译成 `Assets.car` 并写入 `CFBundleIconName`，macOS 26 起图标由系统按系统外观画，应用没启动时也跟随；旧系统用同时生成的 ICNS。没有 Xcode 26 的机器上打包改用 `macos/light/Wevir.icns`（`apps/desktop/scripts/package.ts`），这时与开发模式一样由主进程在运行时用 `macos/{light,dark}/AppIcon.appiconset/icon_512x512@2x.png` 设程序坞图标，跟随系统外观。Windows 用 `windows/{light,dark}/Wevir.ico` 设窗口与任务栏图标，跟随系统的 Windows 模式（`apps/desktop/src/main/app-icon.ts`）。iOS / Android 还没有客户端，签名配置与安装包也未涉及。
 - iOS/iPadOS 的默认主图与 tinted 主图为完整方形；系统施加圆角。Xcode 的深色槽使用透明前景，保留完整石墨底色的稿在 `ios/dark/`。两个额外 tinted 主图用于比较，资源目录中的 tinted 槽只指向一个中性灰度稿。Apple 当前推荐 Icon Composer 的分层工作流；这里同时保留按需求交付的传统资源和可导入的基础图层，系统实时材质需在项目接入时检查。
 - Android 前景层保持在中心直径 66dp 的安全圆内，背景完整覆盖 108dp，不预先写入系统遮罩。`res/` 可复制进 Android 项目，Manifest 选择 `@mipmap/ic_launcher`；需要 roundIcon 时使用 `@mipmap/ic_launcher_round`。颜色随默认/`night` 资源变化，单色主题颜色由启动器控制。
 - Linux hicolor 的两个主题目录择一安装，文件名都为 `wevir`。Web 两个 manifest 是资源片段；接入网站时补充网站的 `start_url`、`id` 与 `scope`。
@@ -54,7 +54,7 @@
 - Liquid Glass 在 Group 上：Mode Individual，Specular 开，Blur 50%，Translucency 30%，Shadow Neutral 30%。Tinted / Clear 外观由系统从这些图层生成，没有单独覆盖。
 - 主标几何或配色改动后，先 `pnpm icons:build`，再把新的 `light/foreground.svg` 复制成 `Assets/mark.svg`，在 Icon Composer 里检查后保存。`icons:check` 会核对这份副本、两个背景色和深色主标色与 `manifest.json` 的调色板一致。
 - `icon.json` 保持 Icon Composer 保存时的原样（它的写法是 `"key" : value`），所以 `biome.json` 把整个 `Wevir.icon` 排除在格式检查之外；别用 `pnpm lint:fix` 或手工改它，改参数回 Icon Composer。
-- Xcode 工程把 `Wevir.icon` 加入目标、App Icon 名称填 `Wevir` 即可；`actool` 会同时输出 `Assets.car` 和给旧系统用的 ICNS / PNG。桌面端还没有打包配置，接入时由打包步骤用 `actool` 编译并在 Info.plist 写入 `CFBundleIconName`。
+- Xcode 工程把 `Wevir.icon` 加入目标、App Icon 名称填 `Wevir` 即可；`actool` 会同时输出 `Assets.car` 和给旧系统用的 ICNS / PNG。桌面端的打包由 electron-builder 用 `actool` 编译它（App Icon 名称是 `Icon`），在 Info.plist 写入 `CFBundleIconName`。
 
 ## 重建与检查
 

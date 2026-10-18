@@ -41,7 +41,7 @@ import {
   rendererOriginOf,
 } from '../shared/renderer-origin.js';
 import { isCleanableCategory, type StorageUsage } from '../shared/storage.js';
-import { isThemeMode, THEME_BACKGROUND } from '../shared/theme.js';
+import { isThemeMode } from '../shared/theme.js';
 import { applyAppIcon, windowIcon } from './app-icon.js';
 import { appMenuTemplate, DEFAULT_APP_MENU_LABELS, parseAppMenuLabels } from './app-menu.js';
 import { BROWSER_PARTITION } from './browser/browser-host.js';
@@ -63,6 +63,13 @@ import { serveRendererFile } from './renderer-files.js';
 import { BROWSER_PARTITION_DIR, cleanLogs, measureStorage } from './storage.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
+import {
+  DEFAULT_WINDOW_APPEARANCE,
+  loadWindowAppearance,
+  parseWindowAppearanceInput,
+  saveWindowAppearance,
+  type WindowAppearance,
+} from './window-appearance.js';
 import {
   fitWindowState,
   loadWindowState,
@@ -267,18 +274,19 @@ function run(): void {
     if (!isThemeMode(mode)) throw new Error('theme mode must be system, light or dark');
     nativeTheme.themeSource = mode;
     window.setBackgroundColor(windowBackground());
+    rememberWindowAppearance({ ...windowAppearance, themeMode: mode });
   });
-  ipcMain.handle(
-    IPC_CHANNELS.setTranslucentSidebar,
-    async (event, enabled: unknown): Promise<void> => {
-      const window = assertSender(event);
-      if (typeof enabled !== 'boolean') throw new Error('enabled must be a boolean');
-      if (process.platform !== 'darwin' || translucentSidebar === enabled) return;
-      translucentSidebar = enabled;
-      window.setVibrancy(enabled ? 'sidebar' : null);
-      window.setBackgroundColor(windowBackground());
-    },
-  );
+  ipcMain.handle(IPC_CHANNELS.setWindowAppearance, async (event, value: unknown): Promise<void> => {
+    const window = assertSender(event);
+    const input = parseWindowAppearanceInput(value);
+    if (!input) throw new Error('invalid window appearance');
+    const translucent = process.platform === 'darwin' && input.translucentSidebar;
+    if (translucent !== windowAppearance.translucentSidebar) {
+      window.setVibrancy(translucent ? 'sidebar' : null);
+    }
+    rememberWindowAppearance({ ...windowAppearance, ...input, translucentSidebar: translucent });
+    window.setBackgroundColor(windowBackground());
+  });
   // 运行时防止系统休眠（设置 → 常规）：渲染进程在“有回合在跑且打开了这一项”变化时告诉这里。
   let sleepBlocker: number | undefined;
   ipcMain.handle(IPC_CHANNELS.setPreventSleep, async (event, active: unknown): Promise<void> => {
@@ -590,6 +598,9 @@ function run(): void {
     );
     const rendererDir = fileURLToPath(new URL('../renderer/', import.meta.url));
     protocol.handle(APP_SCHEME, (request) => serveRendererFile(request, rendererDir));
+    // 上次的主题模式与底色：窗口一出现就是对的深浅色与底色，不等页面加载完再换。
+    windowAppearance = loadWindowAppearance(app.getPath('userData'));
+    nativeTheme.themeSource = windowAppearance.themeMode;
     applyAppIcon();
     mainWindow = createWindow();
     // 关窗口（红绿灯、Alt+F4、⌘W）只是隐藏，留在后台；真正退出时才关。
@@ -629,17 +640,32 @@ function run(): void {
   });
 }
 
-/** 渲染进程打开了半透明侧栏（macOS，setTranslucentSidebar）。 */
-let translucentSidebar = false;
+/**
+ * 窗口的外观（window-appearance.ts）：主题模式、两种深浅色下的底色、半透明侧栏。app ready 时从上次记下的读回来，在创建窗口
+ * 之前设好 themeSource；之后跟着渲染进程的 setThemeSource / setWindowAppearance 更新，停下 500 ms 后写回文件。
+ */
+let windowAppearance: WindowAppearance = DEFAULT_WINDOW_APPEARANCE;
+let saveAppearanceTimer: NodeJS.Timeout | undefined;
+
+function rememberWindowAppearance(next: WindowAppearance): void {
+  if (JSON.stringify(next) === JSON.stringify(windowAppearance)) return;
+  windowAppearance = next;
+  clearTimeout(saveAppearanceTimer);
+  saveAppearanceTimer = setTimeout(() => {
+    saveWindowAppearance(app.getPath('userData'), windowAppearance).catch((error: unknown) =>
+      log('warn', 'failed to save the window appearance', { error: String(error) }),
+    );
+  }, 500);
+}
 
 /**
- * 窗口底色，与渲染进程的 --background（tokens.css）一致，窗口缩放露出未绘制区域时不闪色。
- * 启动时 themeSource 是 'system'，渲染进程按存储的主题模式调用 setThemeSource 后再更新。
+ * 窗口底色，与渲染进程的 --background（tokens.css 或设置 → 外观里自定义的背景）一致，窗口缩放露出未绘制区域时不闪色；
+ * 启动时用上次记下的，页面加载之前就是对的。
  */
 function windowBackground(): string {
   // 半透明侧栏：窗口底色透明，露出 vibrancy 的材质（页面的内容区自己画不透明的底色）。
-  if (translucentSidebar) return '#00000000';
-  return THEME_BACKGROUND[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
+  if (windowAppearance.translucentSidebar) return '#00000000';
+  return windowAppearance.background[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
 }
 
 /**
@@ -714,6 +740,7 @@ function createWindow(): BrowserWindow {
       trafficLightPosition: TRAFFIC_LIGHT_POSITION,
     }),
     backgroundColor: windowBackground(),
+    ...(windowAppearance.translucentSidebar && { vibrancy: 'sidebar' }),
     show: false,
     webPreferences: {
       // 沙箱里的 preload 不能是 ESM，electron-vite 把它打成单个 CJS 文件（ADR-0004 §3）。

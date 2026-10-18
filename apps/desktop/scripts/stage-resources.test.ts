@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { builderArgs } from './package.js';
+import { actoolVersion, builderArgs, MAC_FALLBACK_ICON, macIconArgs } from './package.js';
 import {
   checkHostTree,
   EXCLUDED_PACKAGES,
@@ -47,6 +47,20 @@ describe('hostTarget', () => {
     expect(builderArgs('aarch64-apple-darwin')).toEqual(['--mac', '--arm64']);
     expect(builderArgs('x86_64-pc-windows-msvc')).toEqual(['--win', '--x64']);
     expect(builderArgs('x86_64-unknown-linux-musl')).toEqual(['--linux', '--x64']);
+  });
+
+  it('macOS 图标：actool 26 起用 Icon Composer 工程，否则改用浅色 ICNS', () => {
+    const plist = `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>com.apple.actool.version</key><dict>
+<key>bundle-version</key><string>24127</string>
+<key>short-bundle-version</key><string>26.1</string>
+</dict></dict></plist>`;
+    expect(actoolVersion(plist)).toBe('26.1');
+    expect(actoolVersion('xcrun: error: unable to find utility "actool"')).toBeUndefined();
+    expect(macIconArgs('26.1')).toEqual([]);
+    expect(macIconArgs('16.4')).toEqual([`-c.mac.icon=${MAC_FALLBACK_ICON}`]);
+    expect(macIconArgs(undefined)).toEqual([`-c.mac.icon=${MAC_FALLBACK_ICON}`]);
+    expect(existsSync(new URL(`../${MAC_FALLBACK_ICON}`, import.meta.url))).toBe(true);
   });
 });
 

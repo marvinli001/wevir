@@ -45,8 +45,8 @@ const api: DesktopApi = {
   openExternal: (url) => ipcRenderer.invoke(IPC_CHANNELS.openExternal, url),
   copyText: (text) => ipcRenderer.invoke(IPC_CHANNELS.copyText, text),
   setThemeSource: (mode) => ipcRenderer.invoke(IPC_CHANNELS.setThemeSource, mode),
-  setTranslucentSidebar: (enabled) =>
-    ipcRenderer.invoke(IPC_CHANNELS.setTranslucentSidebar, enabled),
+  setWindowAppearance: (appearance) =>
+    ipcRenderer.invoke(IPC_CHANNELS.setWindowAppearance, appearance),
   setPreventSleep: (active) => ipcRenderer.invoke(IPC_CHANNELS.setPreventSleep, active),
   getWindowChrome: () => windowChrome,
   onWindowChrome: (listener) => {

@@ -12,20 +12,47 @@
 // 解析规则必须与 src/theme/theme.ts 一致，存储 key 是 src/shared/theme.ts 的 THEME_STORAGE_KEY：
 // 'dark' / 'light' 照用，其他值（含没有存过）按跟随系统处理。
 //
-// 首帧的底色：样式表生效之前页面是透明的，露出主进程按系统深浅色设的窗口底色；存储的模式与系统不同时会先闪一下另一种
+// 首帧的底色：样式表生效之前页面是透明的，露出主进程设的窗口底色；存储的模式与系统不同时会先闪一下另一种
 // 底色。所以这里按解析出的主题先给 <html> 涂上 tokens.css 的 --background（值同 src/shared/theme.ts 的
 // THEME_BACKGROUND）。这是 CSSOM 写入，不受 CSP 的 style-src 限制；样式表加载后由 theme.ts 的 bootstrapTheme 去掉，
 // 之后切换主题只看 CSS。src/shared/theme.test.ts 在 node:vm 里执行本文件核对存储 key、解析规则与底色。
+//
+// 设置 → 外观里自定义了这个主题的背景（APPEARANCE_STORAGE_KEY，src/theme/appearance-model.ts 只存 #rrggbb）时，首帧与启动
+// 画面用它：底色换成它，启动画面的底色与主标色经 --splash-custom-bg / --splash-custom-mark 给 splash.css（主标是背景往
+// 前景色偏 14%，前景没改时取默认的前景色）。
 (() => {
   let theme = 'light';
+  let custom = {};
   try {
     const mode = localStorage.getItem('wevir.theme-mode');
     const systemDark = matchMedia('(prefers-color-scheme: dark)').matches;
     theme = mode === 'dark' || (mode !== 'light' && systemDark) ? 'dark' : 'light';
+    const appearance = JSON.parse(localStorage.getItem('wevir.appearance.v1') || '{}');
+    if (appearance && typeof appearance[theme] === 'object' && appearance[theme] !== null) {
+      custom = appearance[theme];
+    }
   } catch {
-    // localStorage 不可用时按亮色渲染，theme.ts 启动后会再算一次。
+    // localStorage 不可用或内容坏了时按亮色、默认底色渲染，theme.ts 与 appearance.ts 启动后会再算一次。
   }
+  const hex = (value) => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+  const background = hex(custom.background)
+    ? custom.background
+    : theme === 'dark'
+      ? '#101114'
+      : '#fcfbfa';
   const root = document.documentElement;
   root.dataset.theme = theme;
-  root.style.backgroundColor = theme === 'dark' ? '#101114' : '#fcfbfa';
+  root.style.backgroundColor = background;
+  if (hex(custom.background)) {
+    const foreground = hex(custom.foreground)
+      ? custom.foreground
+      : theme === 'dark'
+        ? '#eeede8'
+        : '#1a1a17';
+    root.style.setProperty('--splash-custom-bg', background);
+    root.style.setProperty(
+      '--splash-custom-mark',
+      `color-mix(in oklab, ${background}, ${foreground} 14%)`,
+    );
+  }
 })();

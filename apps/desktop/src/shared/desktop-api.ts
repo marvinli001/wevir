@@ -3,7 +3,7 @@
 
 import type { BrowserRequest, BrowserResponse, ClientIdentity } from '@wevir/protocol';
 import type { CleanableCategory, StorageUsage } from './storage.js';
-import type { ThemeMode } from './theme.js';
+import type { ResolvedTheme, ThemeMode } from './theme.js';
 
 /** 连接 Host 需要的全部信息。令牌只放在渲染进程的内存里，不写 localStorage 等任何持久化位置。 */
 export interface HostConnection {
@@ -270,6 +270,13 @@ export interface DesktopBrowserApi {
   setController(tabId: string, controller: BrowserController): Promise<void>;
 }
 
+/** 渲染进程告诉主进程的窗口外观（setWindowAppearance）。 */
+export interface WindowAppearanceInput {
+  /** `#rrggbb`。 */
+  background: Record<ResolvedTheme, string>;
+  translucentSidebar: boolean;
+}
+
 export interface DesktopApi {
   /**
    * 当前 Host 的连接信息。首次启动时等 Host 就绪（附着或拉起）；之后每次重读 `run/host.json`，所以 Host 换了
@@ -311,10 +318,11 @@ export interface DesktopApi {
    */
   setThemeSource(mode: ThemeMode): Promise<void>;
   /**
-   * 半透明侧栏（设置 → 外观，macOS）：给窗口加上 sidebar 材质（vibrancy）并把窗口底色设成透明，页面里只有侧栏是半透明的。
-   * 其他平台不做事。
+   * 窗口的底色与半透明侧栏（设置 → 外观）：底色是浅色、深色下的 --background（自定义的背景，没改时是默认值），窗口缩放露出
+   * 未绘制的区域时用它；半透明侧栏（macOS）给窗口加上 sidebar 材质（vibrancy）并把窗口底色设成透明，页面里只有侧栏是半透明的。
+   * 主进程记下来（连同 setThemeSource 的模式），下次启动时窗口一创建就用上，不闪默认的底色。
    */
-  setTranslucentSidebar(enabled: boolean): Promise<void>;
+  setWindowAppearance(appearance: WindowAppearanceInput): Promise<void>;
   /** 运行时防止系统休眠（设置 → 常规）：有回合在跑且打开了这一项时为 true，系统不会因空闲而睡眠。 */
   setPreventSleep(active: boolean): Promise<void>;
   /** 当前的窗口标题栏形态。同步取值：preload 按平台给出初值，之后跟着主进程的推送更新。 */
@@ -392,7 +400,7 @@ export const IPC_CHANNELS = {
   openExternal: 'wevir:open-external',
   copyText: 'wevir:copy-text',
   setThemeSource: 'wevir:set-theme-source',
-  setTranslucentSidebar: 'wevir:set-translucent-sidebar',
+  setWindowAppearance: 'wevir:set-window-appearance',
   setPreventSleep: 'wevir:set-prevent-sleep',
   /** 主进程 → 渲染进程的推送。 */
   windowChrome: 'wevir:window-chrome',

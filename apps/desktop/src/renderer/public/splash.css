@@ -12,7 +12,8 @@
   z-index: 2147483647;
   display: grid;
   place-items: center;
-  background: var(--splash-bg);
+  /* 设置 → 外观自定义了背景时，theme-init.js 在 <html> 上给出 --splash-custom-*。 */
+  background: var(--splash-custom-bg, var(--splash-bg));
   /* 盖住顶栏时也能拖动窗口。 */
   -webkit-app-region: drag;
   transition: opacity 260ms ease;
@@ -42,7 +43,7 @@
 }
 
 #splash .splash-base {
-  fill: var(--splash-mark);
+  fill: var(--splash-custom-mark, var(--splash-mark));
 }
 
 #splash .splash-sheen-stop {
