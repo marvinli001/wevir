@@ -21,8 +21,6 @@
 
 Wevir is an open-source, local-first workspace for AI coding agents. Agent sessions, approvals, code review, files, and a browser the agent can drive all live in one desktop app, backed by a local Host that the `wevir` CLI shares.
 
-Wevir ships with its own agent runtime, built on the OpenAI Codex runtime. A pinned, checksum-verified Codex app-server is bundled in the installer and runs with Wevir's prompts, a hardened configuration, and Wevir's own tools. A model gateway inside the Host lets the runtime work with most model providers, not just OpenAI. The Codex runtime is the foundation: Wevir will keep modifying and extending it.
-
 ## Features
 
 ### Models and accounts

@@ -21,8 +21,6 @@
 
 Wevir 是开源、本地优先的 AI 编程 Agent 工作台。Agent 会话、审批、代码审阅、项目文件，以及 Agent 可以操作的内置浏览器，都在同一个桌面应用里；背后是本地 Host，`wevir` 命令行与桌面端共用它。
 
-Wevir 自带 Agent 运行时，以 OpenAI 的 Codex 运行时为底座：安装包内置锁定版本、经 sha256 校验的 Codex app-server，配上 Wevir 自己的提示词、加固配置与工具运行。Host 内置的模型协议网关让这套运行时能接大多数模型服务，而不只是 OpenAI。Codex 运行时是起点，Wevir 会在它之上持续修改、扩展。
-
 ## 能力
 
 ### 模型与账号
