@@ -573,7 +573,7 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
           listInBShowsProjectA:
             listOutputB.includes('invoice-cents') || listOutputB.includes(STALE_NOTE.name),
           staleNoteReadable: staleOutput.includes('npm run test:unit'),
-          noIndexBytes: memoryIndexOf(saved.requests[0]?.body).bytes,
+          indexBeforeSave: memoryIndexOf(saved.requests[0]?.body),
           disableNote: disable,
           indexAfterDisable: afterDisable.names,
           autoMemoryOff: {
