@@ -1783,6 +1783,87 @@ describe('SessionManager：Codex 引擎的事件（R3）', () => {
   });
 });
 
+describe('SessionManager：自动压缩降不下用量时停下回合', () => {
+  /** 一个持续一阵的回合，测试往它的事件流里注入用量与压缩。 */
+  async function running() {
+    const injected = new EventHub<AgentEvent>();
+    const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 5 }) });
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      withInjected(subscribe(engineSessionId), injected, engineSessionId),
+    );
+    const id = await create(h);
+    // 回复的分片之间隔 50 ms，一共大约一秒；引擎的事件稀疏，注入的事件随即处理。
+    await send(h, id, `slow ${'x'.repeat(60)}`);
+    await waitForState(h, id, 'running');
+    const engineSessionId = h.storage.sessions.get(id)?.engineSessionId as string;
+    let compactions = 0;
+    /** `autoCompactAt` 为 null：引擎这次不报压缩线。 */
+    const usage = (contextUsed: number, autoCompactAt: number | null = 115_200) =>
+      injected.emit({
+        type: 'usage.updated',
+        engineSessionId,
+        contextUsed,
+        contextSize: 128_000,
+        ...(autoCompactAt !== null && { autoCompactAt }),
+      });
+    const compacted = (trigger: 'auto' | 'manual' = 'auto') => {
+      compactions += 1;
+      const compactionId = `compact_${compactions}`;
+      injected.emit({ type: 'context.compacting', engineSessionId, compactionId, trigger });
+      injected.emit({ type: 'context.compacted', engineSessionId, compactionId, trigger });
+    };
+    /** 等 Host 写下第 n 次压缩（注入的事件按顺序处理）。 */
+    const written = (count: number) =>
+      vi.waitFor(() => expect(ofType(h, id, 'context.compacted')).toHaveLength(count));
+    return { h, id, usage, compacted, written };
+  }
+
+  it('连续两次自动压缩之后用量仍在压缩线以上：说明原因并取消回合', async () => {
+    const { h, id, usage, compacted, written } = await running();
+    // 像 Codex：请求的用量过线 → 压缩（期间是压缩请求与估算的用量）→ 下一个请求的用量。
+    usage(124_000);
+    compacted();
+    usage(124_500);
+    compacted();
+    usage(124_300);
+    await written(2);
+    await waitForState(h, id, 'idle');
+    const [error] = ofType(h, id, 'engine.error');
+    expect(error?.payload).toMatchObject({ category: 'provider', fatal: false });
+    expect(error?.payload.turnId).toBe(ofType(h, id, 'turn.started')[0]?.payload.turnId);
+    expect(error?.payload.message).toMatch(
+      /^Stopped the turn: after 2 automatic context compactions in a row the model service still reported 124300 tokens in use, at or above the compaction threshold of 115200 for a 128000-token context window/,
+    );
+    expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('cancelled');
+    expect(transitions(h, id)).toContain('running→cancelling:cancel_requested');
+  });
+
+  it('压缩管用（之后用量降到线下）、手动压缩、不报压缩线时都不停', async () => {
+    const { h, id, usage, compacted, written } = await running();
+    usage(124_000);
+    compacted();
+    usage(124_000);
+    // 降下来了：重新计数。
+    compacted();
+    usage(30_000);
+    compacted();
+    usage(124_000);
+    // 手动压缩不算。
+    compacted('manual');
+    usage(124_000);
+    // 引擎这次不报压缩线：不算。
+    compacted();
+    usage(124_000, null);
+    compacted();
+    usage(124_000);
+    await written(6);
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'engine.error')).toEqual([]);
+    expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('completed');
+  });
+});
+
 describe('SessionManager：子会话（R4）', () => {
   /** 父会话的唯一一个子会话。 */
   async function childOf(h: Harness, parent: SessionId): Promise<SessionId> {

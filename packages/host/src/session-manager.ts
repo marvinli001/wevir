@@ -75,6 +75,7 @@ import {
   type SubagentUpdatedEvent,
   type TurnStartedEvent,
   type TurnSteeredEvent,
+  type UsageUpdatedEvent,
 } from '@wevir/runtime-adapter';
 import { writeHistoryFile } from '@wevir/runtime-adapter/history-tool';
 import {
@@ -130,6 +131,12 @@ import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput 
  * 事件，就当作无法确认已停止。
  */
 export const CANCEL_TIMEOUT_MS = 5000;
+
+/**
+ * 连续几次自动压缩之后用量仍不低于压缩线，Host 就停下回合（`#checkAutoCompaction`）：这时再压缩也降不下来，引擎却会在每个
+ * 请求之后接着压缩，一直花额度。
+ */
+export const FRUITLESS_AUTO_COMPACTIONS = 2;
 
 /** 标题取首条用户消息的前多少个字符（按码点计，空白折叠成一个空格）。 */
 export const TITLE_MAX_LENGTH = 50;
@@ -262,6 +269,11 @@ interface TurnRuntime {
   readonly addedWhileCancelling: Set<PendingMessageId>;
   /** 由命令开始的回合（0.24.0，domain-model §4.7）：不能插话，插话一律排队。 */
   readonly command?: TurnCommand;
+  /**
+   * 这个回合里的自动压缩（`#checkAutoCompaction`）：`pending` 是刚压缩完、还没看到之后的第一次用量；`fruitless` 是连续几次
+   * 自动压缩之后的第一次用量仍不低于压缩线。
+   */
+  autoCompaction?: { pending: boolean; fruitless: number };
 }
 
 /** 一次对引擎事件流的订阅。 */
@@ -3136,6 +3148,7 @@ export class SessionManager {
             },
           },
         ]);
+        this.#checkAutoCompaction(runtime, event);
         return;
       case 'subagent.started':
         this.#subagentStarted(runtime, event);
@@ -3263,6 +3276,9 @@ export class SessionManager {
             payload: { turnId, compactionId: event.compactionId, trigger: event.trigger },
           },
         ]);
+        if (event.type === 'context.compacted' && event.trigger === 'auto') {
+          turn.autoCompaction = { pending: true, fruitless: turn.autoCompaction?.fruitless ?? 0 };
+        }
         return;
       case 'todo.updated':
         this.#write(runtime, [
@@ -3337,6 +3353,45 @@ export class SessionManager {
         });
         return;
     }
+  }
+
+  /**
+   * 压缩不管用时停下回合：自动压缩之后的第一次用量仍不低于压缩线（`autoCompactAt`）时，引擎在下一个请求之后又会压缩，而再
+   * 压缩也降不下来——上下文里压不掉的部分（工具与说明）已经到了压缩线，或模型服务回报的用量与实际不符。引擎不会自己停，
+   * 回合一直压缩、每次都花额度（Codex 按 128k 登记 DeepSeek 时测到过）。连续 `FRUITLESS_AUTO_COMPACTIONS` 次这样，就写一条
+   * 说明原因的 `engine.error`（不致命）并取消回合。引擎不报压缩线时不管。
+   */
+  #checkAutoCompaction(runtime: SessionRuntime, usage: UsageUpdatedEvent): void {
+    const turn = runtime.turn;
+    const compaction = turn?.autoCompaction;
+    if (turn === undefined || compaction === undefined || !compaction.pending) return;
+    compaction.pending = false;
+    const { autoCompactAt, contextUsed, contextSize } = usage;
+    if (autoCompactAt === undefined || contextUsed < autoCompactAt) {
+      compaction.fruitless = 0;
+      return;
+    }
+    compaction.fruitless += 1;
+    if (compaction.fruitless < FRUITLESS_AUTO_COMPACTIONS) return;
+    if (this.#shuttingDown || this.#disposed) return;
+    const { state } = this.#snapshot(runtime).session;
+    if (state !== 'running' && state !== 'awaiting_approval') return;
+    this.#write(runtime, [
+      engineError(
+        {
+          category: 'provider',
+          message:
+            `Stopped the turn: after ${compaction.fruitless} automatic context compactions in a row the model ` +
+            `service still reported ${contextUsed} tokens in use, at or above the compaction threshold of ` +
+            `${autoCompactAt} for a ${contextSize}-token context window, so compacting again would not help ` +
+            `and every attempt costs tokens. If the model's context window is larger than ${contextSize}, ` +
+            'set it in the model service settings; otherwise start a new session.',
+        },
+        false,
+        turn.turnId,
+      ),
+    ]);
+    this.cancel(runtime.id).catch(this.#onError);
   }
 
   /** #3：分配 ApprovalId，详情取自同一 toolCallId 的 `tool.started`。 */
