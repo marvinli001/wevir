@@ -46,12 +46,14 @@ describe('Host 设置（settings.*）', () => {
     const { client: watcher, hello } = await connect();
     expect(hello.features).toMatchObject({ pending_messages: true, host_settings: true });
     const other = (await connect()).client;
-    expect(await watcher.request('settings.get')).toEqual({ settings: { sendWhileBusy: 'steer' } });
+    expect(await watcher.request('settings.get')).toEqual({
+      settings: { sendWhileBusy: 'steer', sessionRecap: true },
+    });
 
     const updater = (await connect()).client;
     expect(
       await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } }),
-    ).toEqual({ settings: { sendWhileBusy: 'queue' } });
+    ).toEqual({ settings: { sendWhileBusy: 'queue', sessionRecap: true } });
     await watcher.until(
       () =>
         watcher.notifications('settings.updated').find((p) => p.settings.sendWhileBusy === 'queue'),
@@ -60,17 +62,29 @@ describe('Host 设置（settings.*）', () => {
     expect(other.notifications('settings.updated')).toEqual([]);
     expect(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))).toEqual({
       sendWhileBusy: 'queue',
+      sessionRecap: true,
     });
     // 值没变不通知。
     await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } });
     expect(watcher.notifications('settings.updated')).toHaveLength(1);
+
+    // 离开后摘要的开关（0.54.0）：默认开，关掉后写进文件，只改给出的字段。
+    expect(await updater.request('settings.update', { settings: { sessionRecap: false } })).toEqual(
+      { settings: { sendWhileBusy: 'queue', sessionRecap: false } },
+    );
+    expect(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))).toEqual({
+      sendWhileBusy: 'queue',
+      sessionRecap: false,
+    });
 
     // Host 重启后从文件读回。
     await host.shutdown();
     running.splice(running.indexOf(host), 1);
     const again = await start(home);
     const { client } = await again.connect();
-    expect(await client.request('settings.get')).toEqual({ settings: { sendWhileBusy: 'queue' } });
+    expect(await client.request('settings.get')).toEqual({
+      settings: { sendWhileBusy: 'queue', sessionRecap: false },
+    });
   });
 });
 

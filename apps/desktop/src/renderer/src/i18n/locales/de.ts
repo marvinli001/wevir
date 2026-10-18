@@ -442,6 +442,7 @@ export const messages: Messages = {
   'review.uncommitted': 'Nicht committete Änderungen',
   'review.baseBranch': 'Gegen Basis-Branch',
   'review.branch': 'Gegen {branch}',
+  'recap.title': 'Rückblick',
   'undo.banner':
     '{count, plural, one {# Runde rückgängig gemacht} other {# Runden rückgängig gemacht}}',
   'undo.failed': 'Rückgängig fehlgeschlagen: {error}',
@@ -924,6 +925,7 @@ export const messages: Messages = {
   'settings.chat.sendWhileBusy.queueHint': 'Nach dieser Runde senden',
   'settings.chat.unsupported': 'Von dieser Version des Hintergrunddienstes nicht unterstützt',
   'settings.chat.saveFailed': 'Speichern fehlgeschlagen: {error}',
+  'settings.chat.recap': 'Rückblick nach Abwesenheit',
   'settings.appearance.theme': 'Design',
   'settings.appearance.theme.system': 'System',
   'settings.appearance.theme.light': 'Hell',

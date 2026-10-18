@@ -1274,14 +1274,25 @@ export const methodSamples: MethodSamples = {
   'settings.get': {
     params: empty,
     result: {
-      valid: [{ settings: { sendWhileBusy: 'steer' } }],
-      invalid: [{ settings: { sendWhileBusy: 'interrupt' } }, {}],
+      valid: [
+        { settings: { sendWhileBusy: 'steer' } },
+        { settings: { sendWhileBusy: 'steer', sessionRecap: false } },
+      ],
+      invalid: [
+        { settings: { sendWhileBusy: 'interrupt' } },
+        { settings: { sendWhileBusy: 'steer', sessionRecap: 'off' } },
+        {},
+      ],
     },
   },
   'settings.update': {
     params: {
-      valid: [{ settings: { sendWhileBusy: 'queue' } }, { settings: {} }],
-      invalid: [{ settings: { sendWhileBusy: 'later' } }, {}],
+      valid: [
+        { settings: { sendWhileBusy: 'queue' } },
+        { settings: { sessionRecap: false } },
+        { settings: {} },
+      ],
+      invalid: [{ settings: { sendWhileBusy: 'later' } }, { settings: { sessionRecap: 1 } }, {}],
     },
     result: { valid: [{ settings: { sendWhileBusy: 'queue' } }], invalid: [{ settings: {} }] },
   },
@@ -2168,6 +2179,40 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ seq: 15, turnId: ids.turn, files: { status: 'unchanged' } }],
       invalid: [{ seq: 15 }],
+    },
+  },
+  'session.recap': {
+    params: {
+      valid: [
+        { sessionId: ids.session, seenSeq: 12, awayMs: 600_000 },
+        { sessionId: ids.session, seenSeq: 0, awayMs: 0 },
+      ],
+      invalid: [
+        {},
+        { sessionId: ids.session, seenSeq: 12 },
+        { sessionId: ids.session, seenSeq: -1, awayMs: 1000 },
+        { sessionId: ids.session, seenSeq: 12, awayMs: -5 },
+        { sessionId: ids.session, seenSeq: 12, awayMs: 1.5 },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          recap: {
+            text: '在修复登录接口的 500 错误。请在本地登录一次，确认不再报错。',
+            generatedAt: '2026-10-18T09:30:00.000Z',
+            throughSeq: 41,
+          },
+        },
+        { reason: 'running' },
+        {},
+      ],
+      invalid: [
+        { recap: { text: '', generatedAt: '2026-10-18T09:30:00.000Z', throughSeq: 41 } },
+        { recap: { text: '摘要', generatedAt: 'yesterday', throughSeq: 41 } },
+        { recap: { text: '摘要', generatedAt: '2026-10-18T09:30:00.000Z', throughSeq: 0 } },
+        { reason: '' },
+      ],
     },
   },
   'session.fork': {

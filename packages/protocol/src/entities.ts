@@ -9,6 +9,7 @@ import {
   ProviderIdSchema,
   QuestionIdSchema,
   SeqCursorSchema,
+  SeqSchema,
   SessionIdSchema,
   StreamIdSchema,
   TaskIdSchema,
@@ -780,10 +781,18 @@ export type PendingMessage = z.infer<typeof PendingMessageSchema>;
 export const HostSettingsSchema = z.object({
   /** 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab（桌面端输入框里的切换改的就是它）。 */
   sendWhileBusy: PendingDeliverySchema,
+  /**
+   * 离开后摘要（0.54.0，`session.recap`，domain-model §3.24）：关掉后 Host 不再生成，也不请求模型。省略按开着（默认）。
+   * 新字段，旧客户端的更新与旧 Host 的结果里都可能没有它。
+   */
+  sessionRecap: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
-export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({ sendWhileBusy: 'steer' });
+export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({
+  sendWhileBusy: 'steer',
+  sessionRecap: true,
+});
 
 // ── 联网工具（0.34.0） ──────────────────────────────────────────────────
 
@@ -887,6 +896,17 @@ export const FilesRestoreSchema = z.object({
   fileCount: z.int().min(0).optional(),
 });
 export type FilesRestore = z.infer<typeof FilesRestoreSchema>;
+
+/**
+ * 离开后摘要（0.54.0，`session.recap`，domain-model §3.24）：一到三句话，说会话在做什么、接下来该做什么。纯文本，用户的语言。
+ * `throughSeq` 是生成时会话最后一个回合结束事件的 `seq`：摘要对应的就是这个位置之前的内容，之后会话有新回合，摘要就旧了。
+ */
+export const SessionRecapSchema = z.object({
+  text: z.string().min(1).max(1000),
+  generatedAt: IsoTimeSchema,
+  throughSeq: SeqSchema,
+});
+export type SessionRecap = z.infer<typeof SessionRecapSchema>;
 
 /**
  * 接力的方式（0.25.0，开放字符串）：`full_thread_summary`：第一次用这个来源，交给它整段对话的摘要；

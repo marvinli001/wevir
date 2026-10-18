@@ -27,10 +27,12 @@ import {
   type QuestionResolution,
   type ResolvedApprovalStatus,
   type ReviewTarget,
+  SESSION_RECAP_MIN_AWAY_MS,
   type Session,
   type SessionGoal,
   type SessionId,
   type SessionReadOnlyReason,
+  type SessionRecap,
   type SessionSnapshot,
   type SessionState,
   type SessionWorktree,
@@ -101,6 +103,15 @@ import {
 } from './handoff.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import {
+  analyzeSession,
+  parseRecap,
+  RECAP_MIN_TURNS,
+  RECAP_OUTPUT_SCHEMA,
+  RECAP_TIMEOUT_MS,
+  RecapCache,
+  recapInput,
+} from './recap.js';
 import { deleteSessionData, measureUsage } from './session-delete.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
@@ -131,6 +142,13 @@ export interface SessionManagerOptions {
    * `generateTitle` 时，第一个回合开始后用会话的模型生成标题；否则只有首条消息截断的标题。
    */
   titleInstructions?: string;
+  /**
+   * 离开后摘要用的说明（prompts/session-recap.md，`loadRecapInstructions`）。给了、并且适配器实现了 `generateTitle` 时，
+   * `session.recap` 才会生成；否则回 `reason: 'unsupported'`。
+   */
+  recapInstructions?: string;
+  /** 设置里的“离开后摘要”开着没有（0.54.0，`HostSettings.sessionRecap`）；每次请求时读，不给就当开着。 */
+  recapEnabled?: () => boolean;
   /** 不影响状态的告警（生成标题失败等）。默认打到 stderr。 */
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
   /**
@@ -353,6 +371,10 @@ export class SessionManager {
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
+  readonly #recapInstructions: string | undefined;
+  readonly #recapEnabled: (() => boolean) | undefined;
+  /** 离开后摘要的缓存（0.54.0）：只在内存里，不写事件库。 */
+  readonly #recaps = new RecapCache();
   readonly #worktreesDir: string | undefined;
   readonly #toolOutputDir: string | undefined;
   readonly #chats: ChatFolders | undefined;
@@ -388,6 +410,8 @@ export class SessionManager {
       options.onWarning ??
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
     this.#titleInstructions = options.titleInstructions;
+    this.#recapInstructions = options.recapInstructions;
+    this.#recapEnabled = options.recapEnabled;
     this.#worktreesDir = options.worktreesDir;
     this.#toolOutputDir = options.toolOutputDir;
     this.#chats = options.chats;
@@ -2000,6 +2024,7 @@ export class SessionManager {
       if (runtime === undefined) continue;
       this.#detach(runtime);
       this.#runtimes.delete(id);
+      this.#recaps.forget(id);
     }
     for (const [questionId, sessionId] of this.#questionSessions) {
       if (ids.has(sessionId)) this.#questionSessions.delete(questionId);
@@ -2606,6 +2631,7 @@ export class SessionManager {
     for (const settle of this.#appApprovals.values()) settle(false);
     this.#appApprovals.clear();
     this.#appTools?.dispose?.();
+    this.#recaps.clear();
     for (const runtime of this.#runtimes.values()) this.#detach(runtime);
     await Promise.all([...this.#runtimes.values()].map((runtime) => runtime.tail));
   }
@@ -2664,6 +2690,86 @@ export class SessionManager {
         });
       })
       .finally(() => clearTimeout(timer));
+  }
+
+  /**
+   * `session.recap`（0.54.0，domain-model §3.24）：用户回到离开过的会话时，客户端报告 `seenSeq`（离开时看到的最后一个事件）与
+   * `awayMs`，这里判断要不要生成离开后摘要，要的话用会话的模型发一次不带工具的请求（适配器的 `generateTitle`，同会话标题）。
+   * 不排进会话的命令队列、不写事件、不影响状态机；摘要只缓存在内存里，同一个位置（最后一个看得见的回合的结束事件）只生成
+   * 一次，并发的请求共用同一次生成。不生成时回 `reason`；生成失败或超时静默，只记告警，回 `failed`。
+   */
+  async recap(params: MethodParams<'session.recap'>): Promise<MethodResult<'session.recap'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    const skip = (reason: string): MethodResult<'session.recap'> => ({ reason });
+    if (this.#recapEnabled?.() === false) return skip('disabled');
+    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
+    const instructions = this.#recapInstructions;
+    if (generate === undefined || instructions === undefined) return skip('unsupported');
+    if (params.awayMs < SESSION_RECAP_MIN_AWAY_MS) return skip('too_short');
+    if (runtime.parentId !== undefined || this.#record(runtime).side) return skip('sub_session');
+    const { session } = this.#snapshot(runtime);
+    if (session.state === 'running' || session.state === 'cancelling') return skip('running');
+    if (session.state === 'awaiting_approval' || session.awaitingInput === true) {
+      return skip('waiting');
+    }
+    if (session.state === 'closed' || runtime.attachment === undefined) return skip('detached');
+    const analysis = analyzeSession(this.#events.readSince(runtime.id, 0));
+    if (analysis.turns < RECAP_MIN_TURNS) return skip('few_turns');
+    const marker = analysis.marker;
+    if (marker === undefined || marker <= params.seenSeq) return skip('no_activity');
+    const cached = this.#recaps.get(runtime.id, marker);
+    if (cached !== undefined) return { recap: cached };
+    const pending =
+      this.#recaps.pending(runtime.id, marker) ??
+      this.#recaps.track(
+        runtime.id,
+        marker,
+        this.#generateRecap(runtime, marker, instructions, recapInput(analysis), generate),
+      );
+    const recap = await pending;
+    return recap === undefined ? skip('failed') : { recap };
+  }
+
+  async #generateRecap(
+    runtime: SessionRuntime,
+    marker: number,
+    instructions: string,
+    input: string,
+    generate: NonNullable<AgentRuntimeAdapter['generateTitle']>,
+  ): Promise<SessionRecap | undefined> {
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), RECAP_TIMEOUT_MS);
+    const stop = () => abort.abort();
+    void this.#whenDisposed.promise.then(stop);
+    try {
+      const output = await generate(runtime.engineSessionId, {
+        instructions,
+        input,
+        outputSchema: { ...RECAP_OUTPUT_SCHEMA },
+        signal: abort.signal,
+      });
+      if (this.#disposed || abort.signal.aborted) return undefined;
+      const text = parseRecap(output);
+      if (text === undefined) {
+        this.#onWarning('生成的离开后摘要无法解析，不显示', {
+          sessionId: runtime.id,
+          output: output.slice(0, 500),
+        });
+        return undefined;
+      }
+      return { text, generatedAt: new Date().toISOString(), throughSeq: marker };
+    } catch (error) {
+      if (!this.#disposed) {
+        this.#onWarning('生成离开后摘要失败', {
+          sessionId: runtime.id,
+          error: abort.signal.aborted ? `${RECAP_TIMEOUT_MS} ms 内没有结果` : errorText(error),
+        });
+      }
+      return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // ── 命令的组成部分 ──────────────────────────────────────────────────

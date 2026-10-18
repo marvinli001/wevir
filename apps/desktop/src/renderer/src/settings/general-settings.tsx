@@ -1,10 +1,12 @@
-import type { PendingDelivery } from '@wevir/protocol';
+import { hostSupports } from '@wevir/client-sdk';
+import type { HostSettings, PendingDelivery } from '@wevir/protocol';
 import { CornerDownRight, ListPlus } from 'lucide-react';
 import { useState } from 'react';
+import { Switch } from '@/components/switch';
 import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';
-import { describe } from '@/host/host-connection';
+import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { composerPrefs, type SendShortcut, sendKeyLabel } from '@/session/composer-prefs';
 import { LanguagePicker } from './language-picker';
@@ -20,20 +22,28 @@ export function GeneralSettings() {
   const composer = composerPrefs.use();
   const editors = useEditors();
   const preferred = preferredEditor(editors, filePrefs.use().editor);
+  const { view } = useHostConnection();
+  // 离开后回顾（0.54.0）：Host 能生成（有 `session_recap`）时才有这一行。
+  const recapAvailable =
+    supported && view.status === 'connected' && hostSupports(view.hello.features, 'session_recap');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
 
-  const choose = async (delivery: PendingDelivery) => {
-    if (delivery === settings.sendWhileBusy || saving) return;
+  const save = async (patch: Partial<HostSettings>) => {
     setSaving(true);
     setError(undefined);
     try {
-      await update({ sendWhileBusy: delivery });
+      await update(patch);
     } catch (reason) {
       setError(t('settings.chat.saveFailed', { error: describe(reason) }));
     } finally {
       setSaving(false);
     }
+  };
+
+  const choose = (delivery: PendingDelivery) => {
+    if (delivery === settings.sendWhileBusy || saving) return;
+    void save({ sendWhileBusy: delivery });
   };
 
   return (
@@ -74,6 +84,20 @@ export function GeneralSettings() {
             />
           }
         />
+        {recapAvailable && (
+          <SettingsRow
+            title={t('settings.chat.recap')}
+            data-setting="recap"
+            control={
+              <Switch
+                checked={settings.sessionRecap !== false}
+                label={t('settings.chat.recap')}
+                disabled={saving}
+                onChange={(sessionRecap) => void save({ sessionRecap })}
+              />
+            }
+          />
+        )}
         <SettingsRow
           title={t('settings.composer.send')}
           data-setting="send-shortcut"

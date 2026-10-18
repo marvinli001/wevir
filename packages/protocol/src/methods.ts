@@ -50,6 +50,7 @@ import {
   ReviewTargetSchema,
   SessionGoalSchema,
   SessionOriginSchema,
+  SessionRecapSchema,
   SessionSchema,
   SessionSnapshotSchema,
   UserContentPartSchema,
@@ -742,6 +743,31 @@ export const SessionUndoResultSchema = z.object({
 export const SessionRedoParamsSchema = SessionUndoParamsSchema;
 export const SessionRedoResultSchema = SessionUndoResultSchema;
 
+/** 离开后摘要（0.54.0）的最短离开时间：客户端离开不足这么久不请求，Host 也不生成。 */
+export const SESSION_RECAP_MIN_AWAY_MS = 3 * 60_000;
+
+/**
+ * `session.recap`（0.54.0，Host 功能 `session_recap`，domain-model §3.24）：用户回到一个离开过的会话时，客户端报告离开的情况，
+ * Host 判断要不要生成一段摘要（用会话的模型，一次不带工具的请求）。`seenSeq` 是离开时客户端看到的最后一个事件，`awayMs` 是离开
+ * 了多久。不写事件、不改会话：摘要只缓存在 Host 内存里，同一个位置只生成一次，并发的请求共用同一次生成。失败不抛错，回
+ * `reason: 'failed'`。
+ */
+export const SessionRecapParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  seenSeq: SeqCursorSchema,
+  awayMs: z.int().min(0),
+});
+
+/**
+ * 有 `recap` 就是有摘要（刚生成的或缓存的）；没有时 `reason` 说为什么（开放字符串，已见：`disabled` 设置里关了、`too_short`
+ * 离开得不够久、`no_activity` 离开期间没有新的助手输出、`running` 回合还在跑、`waiting` 有待审批或待回答的提问、`sub_session`
+ * 子智能体或支线会话、`few_turns` 完整的回合不到 2 个、`detached` 引擎会话没挂着、`unsupported` 引擎不能生成、`failed` 生成失败或超时）。
+ */
+export const SessionRecapResultSchema = z.object({
+  recap: SessionRecapSchema.optional(),
+  reason: z.string().min(1).optional(),
+});
+
 /** 会话标题的最大长度（`session.rename`，0.23.0）。 */
 export const SESSION_TITLE_MAX_LENGTH = 200;
 
@@ -1383,6 +1409,11 @@ export const MethodSchemas = {
     params: SessionRedoParamsSchema,
     result: SessionRedoResultSchema,
     permission: 'session.write',
+  },
+  'session.recap': {
+    params: SessionRecapParamsSchema,
+    result: SessionRecapResultSchema,
+    permission: 'session.read',
   },
   'session.compact': {
     params: SessionIdParamsSchema,
