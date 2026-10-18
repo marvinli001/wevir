@@ -17,6 +17,7 @@ import { execFile } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import type { NpmPackageSpec } from '@wevir/runtime-adapter/npm-package';
 
 /** 官方的安装命令（T3 的引导页同样给这两条）。 */
 export const CLAUDE_INSTALL_COMMAND =
@@ -24,8 +25,45 @@ export const CLAUDE_INSTALL_COMMAND =
     ? 'irm https://claude.ai/install.ps1 | iex'
     : 'curl -fsSL https://claude.ai/install.sh | bash';
 
-/** 用户自己在终端里登录（Wevir 不登录，ADR-0005 补记 14）。 */
+/** 用户自己在终端里登录（Wevir 不登录，ADR-0005 补记 14）；macOS 与 Linux 上设置里的“登录”按钮替用户运行它（login.ts）。 */
 export const CLAUDE_LOGIN_COMMAND = 'claude auth login';
+
+/**
+ * 登录命令：Wevir 替用户装的 `claude` 不在 PATH 里，终端里要写全路径。
+ */
+export function claudeLoginCommand(executablePath: string | undefined, managed: boolean): string {
+  return managed && executablePath !== undefined
+    ? `"${executablePath}" auth login`
+    : CLAUDE_LOGIN_COMMAND;
+}
+
+/** 是不是 musl 的 Linux（Alpine 等）：glibc 的 Node 在诊断报告里有 `glibcVersionRuntime`，musl 的没有。 */
+function isMusl(): boolean {
+  if (process.platform !== 'linux') return false;
+  const report = process.report?.getReport() as
+    | { header?: { glibcVersionRuntime?: string } }
+    | undefined;
+  return report?.header?.glibcVersionRuntime === undefined;
+}
+
+/**
+ * Wevir 替用户装 `claude` 时下载的 npm 平台包（`@anthropic-ai/claude-code` 的 `optionalDependencies`）：tgz 里只有一个原生程序
+ * （Windows 是 `claude.exe`）。本平台没有对应的包时 undefined。
+ */
+export function claudeNpmPackage(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+  musl: boolean = isMusl(),
+): NpmPackageSpec | undefined {
+  if (platform !== 'darwin' && platform !== 'linux' && platform !== 'win32') return undefined;
+  if (arch !== 'x64' && arch !== 'arm64') return undefined;
+  const fileName = platform === 'win32' ? 'claude.exe' : 'claude';
+  return {
+    packageName: `@anthropic-ai/claude-code-${platform}-${arch}${platform === 'linux' && musl ? '-musl' : ''}`,
+    entry: fileName,
+    fileName,
+  };
+}
 
 /** 环境变量：指定 `claude` 的路径（开发与测试用，优先于自动查找，低于 `account.setPath`）。 */
 export const CLAUDE_BIN_ENV = 'WEVIR_CLAUDE_BIN';
@@ -109,6 +147,8 @@ export function resolveWindowsShim(
 export interface FindClaudeOptions {
   /** `account.setPath` 指定的路径，`~` 开头的按家目录展开。 */
   customPath?: string | null;
+  /** Wevir 自己装的 `claude`：用户的 PATH 与常见位置里都没有时才用。 */
+  managedPath?: string | undefined;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   home?: string;
@@ -116,7 +156,8 @@ export interface FindClaudeOptions {
 }
 
 /**
- * 找 `claude`：用户指定的路径（存在才用，不存在返回 undefined，不再自动找）→ `WEVIR_CLAUDE_BIN` → PATH → `commonClaudeDirs`。
+ * 找 `claude`：用户指定的路径（存在才用，不存在返回 undefined，不再自动找）→ `WEVIR_CLAUDE_BIN` → PATH → `commonClaudeDirs` →
+ * Wevir 自己装的。
  * Windows 上的 npm 启动脚本换成包入口。返回能交给 SDK 的路径；找不到时 undefined。
  */
 export function findClaude(options: FindClaudeOptions = {}): string | undefined {
@@ -150,7 +191,8 @@ export function findClaude(options: FindClaudeOptions = {}): string | undefined 
       if (exists(candidate)) return finish(candidate);
     }
   }
-  return undefined;
+  const managed = options.managedPath?.trim();
+  return managed !== undefined && managed !== '' && exists(managed) ? managed : undefined;
 }
 
 /**

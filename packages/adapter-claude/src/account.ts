@@ -4,12 +4,16 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：改写成不依赖 `effect` 的普通 TS，输出 Wevir 的 `AccountState`（`EngineAccounts`）；用量只留 5 小时与 7 天两个窗口，另认 `rate_limit_event` 的 `unifiedWindows`；去掉 slash 命令、skills 与重置额度。
 //
-// Claude Agent 的账号（claude-event-mapping.md §2）：Wevir 自己不登录，只检测用户在终端里 `claude auth login` 的结果。照 T3：
+// Claude Agent 的账号（claude-event-mapping.md §2）：Wevir 自己不碰令牌。`claude` 找用户自己装的，没有就由 Wevir 从 npm 下载
+// 一份（install.ts 的 `NpmPackageInstaller`，`account.install`）；登录在 macOS 与 Linux 上由设置里的按钮替用户启动
+// `claude auth login`（login.ts），其余平台给命令，用户在终端里登录后重新检测。检测照 T3：
 // 先找 `claude` 并跑 `--version`，再开一个 SDK 的探测会话读初始化结果里的 `account`——探测的 prompt 永远不产出，`claude`
 // 只做本地的初始化，不向 Anthropic 发请求——顺带读一次套餐用量（SDK 的实验接口，失败不影响登录状态）。结果缓存 5 分钟
 // （T3 的 `CAPABILITIES_PROBE_TTL`），`read` 带 `refresh` 时重新检测；回合里的 `rate_limit_event` 更新用量。
 
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import {
   type AccountKind,
   type AccountModels,
@@ -18,17 +22,27 @@ import {
   AdapterError,
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
+import { NpmInstallCancelled, NpmPackageInstaller } from '@wevir/runtime-adapter/npm-package';
 import { type ClaudeEnvOptions, claudeEnv } from './env.js';
 import {
   CLAUDE_INSTALL_COMMAND,
   CLAUDE_LOGIN_COMMAND,
+  claudeLoginCommand,
+  claudeNpmPackage,
   findClaude,
   findGitBash,
   GIT_BASH_MISSING_MESSAGE,
   GIT_FOR_WINDOWS_URL,
   isGitBashError,
   probeClaudeVersion,
+  VERSION_TIMEOUT_MS,
 } from './executable.js';
+import {
+  type ClaudeLoginFlow,
+  inAppLoginSupported,
+  runClaudeCommand,
+  startClaudeLogin,
+} from './login.js';
 import { claudeModels } from './model-catalog.js';
 import type {
   ClaudeSdk,
@@ -44,6 +58,8 @@ export const PROBE_TTL_MS = 5 * 60_000;
 export const PROBE_TIMEOUT_MS = 25_000;
 /** 读用量的时限，单独计（T3：慢的可选请求不能拖掉初始化结果）。 */
 export const USAGE_TIMEOUT_MS = 10_000;
+/** `claude auth logout` 的时限。 */
+export const LOGOUT_TIMEOUT_MS = 20_000;
 
 const FIVE_HOURS = 5 * 60;
 const ONE_WEEK = 7 * 24 * 60;
@@ -330,8 +346,16 @@ export interface ClaudeAccountsOptions {
   env?: NodeJS.ProcessEnv;
   /** 测试用：替换版本探测。 */
   probeVersion?: typeof probeClaudeVersion;
-  /** 测试用：替换可执行文件的查找。 */
-  findExecutable?: (customPath: string | null) => string | undefined;
+  /** 测试用：覆盖“能不能在应用内登录”（默认只有 macOS 与 Linux）。 */
+  inAppLogin?: boolean;
+  /** 测试用：替换可执行文件的查找（第二个参数是 Wevir 自己装的 `claude`）。 */
+  findExecutable?: (customPath: string | null, managedPath?: string) => string | undefined;
+  /** 替用户下载安装 `claude`；省略时按本平台建，`null` 表示不能装（测试）。 */
+  installer?: NpmPackageInstaller | null;
+  /** 测试用：替换启动 `claude auth login`。 */
+  startLogin?: typeof startClaudeLogin;
+  /** 测试用：替换跑 `claude` 的一次性命令（`auth logout`）。 */
+  runCommand?: typeof runClaudeCommand;
   /** 测试用：换掉平台与文件系统，在别的平台上走 Windows 的分支（Git Bash 的查找与交给 `claude` 的环境）。 */
   system?: ClaudeEnvOptions;
   now?: () => number;
@@ -341,6 +365,12 @@ export interface ClaudeAccountsOptions {
 export interface ClaudeInstallation {
   executablePath: string;
   version: string | undefined;
+}
+
+/** 进行中的一次应用内登录。 */
+interface ActiveLogin {
+  info: NonNullable<AccountState['login']>;
+  flow: ClaudeLoginFlow;
 }
 
 /** Claude Agent 的 `EngineAccounts`：只有一种 `claude`。 */
@@ -353,12 +383,18 @@ export class ClaudeAccounts implements EngineAccounts {
   #installation: ClaudeInstallation | undefined;
   #checkedAt = 0;
   #probing: Promise<AccountState> | undefined;
+  readonly #installer: NpmPackageInstaller | undefined;
+  #installing: { completedBytes: number; totalBytes?: number } | undefined;
+  #installError: string | undefined;
+  #login: ActiveLogin | undefined;
   /** 进行中的检测（dispose 时中止，不留下 `claude` 进程）。 */
   readonly #abort = new AbortController();
   #disposed = false;
 
   constructor(options: ClaudeAccountsOptions) {
     this.#options = options;
+    this.#installer =
+      options.installer === undefined ? this.#defaultInstaller() : (options.installer ?? undefined);
   }
 
   async read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
@@ -367,28 +403,97 @@ export class ClaudeAccounts implements EngineAccounts {
       this.#state !== undefined &&
       this.#now() - this.#checkedAt < PROBE_TTL_MS &&
       this.#probing === undefined;
-    if (fresh && options?.refresh !== true) return this.#state as AccountState;
-    return this.#probe(options?.refresh === true);
+    if (fresh && options?.refresh !== true) return this.#view(this.#state as AccountState);
+    if (options?.refresh === true) this.#installError = undefined;
+    return this.#view(await this.#probe(options?.refresh === true));
   }
 
+  /**
+   * 登录。macOS 与 Linux 上启动 `claude auth login`，拿到浏览器要打开的授权地址就返回 `signing_in`（带 `login.authUrl`），用户在
+   * 浏览器里同意后 claude 退出，再检测一次账号并通知；其余平台给命令（`signIn: command`）。
+   */
   async login(kind: AccountKind): Promise<AccountState> {
     this.#check(kind);
-    throw new AdapterError(
-      'invalid_input',
-      `Claude uses your own claude login: run \`${CLAUDE_LOGIN_COMMAND}\` in a terminal, then check again`,
-    );
+    const state = await this.read(kind);
+    if (!this.#inAppLogin()) {
+      throw new AdapterError(
+        'invalid_input',
+        `Claude uses your own claude login: run \`${state.loginCommand ?? CLAUDE_LOGIN_COMMAND}\` in a terminal, then check again`,
+      );
+    }
+    const executablePath = this.#installation?.executablePath;
+    if (executablePath === undefined) {
+      throw new AdapterError(
+        'engine_unavailable',
+        state.lastError ?? 'claude is not installed: install it first, then sign in',
+      );
+    }
+    const system = this.#options.system ?? {};
+    const env = claudeEnv(this.#options.env ?? process.env, executablePath, system);
+    this.#login?.flow.cancel();
+    this.#login = undefined;
+    let flow: ClaudeLoginFlow;
+    try {
+      flow = await (this.#options.startLogin ?? startClaudeLogin)({
+        executablePath,
+        env,
+        directory: path.join(this.#options.workDir, 'login'),
+      });
+    } catch (error) {
+      throw new AdapterError(
+        'engine_unavailable',
+        `Could not start the Claude sign-in: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const login = {
+      flow,
+      info: {
+        loginId: randomUUID(),
+        method: 'browser' as const,
+        authUrl: flow.authUrl,
+        startedAt: new Date(this.#now()).toISOString(),
+      },
+    };
+    this.#login = login;
+    void flow.done.then((result) => this.#loginEnded(login, result));
+    this.#emit();
+    return this.#view(this.#state as AccountState);
   }
 
-  async cancelLogin(kind: AccountKind): Promise<AccountState> {
+  async cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState> {
+    this.#check(kind);
+    const login = this.#login;
+    if (login !== undefined && (loginId === undefined || loginId === login.info.loginId)) {
+      this.#login = undefined;
+      login.flow.cancel();
+      this.#emit();
+    }
     return this.read(kind);
   }
 
   async logout(kind: AccountKind): Promise<AccountState> {
     this.#check(kind);
-    throw new AdapterError(
-      'invalid_input',
-      'Claude uses your own claude login: run `claude auth logout` in a terminal',
+    if (!this.#inAppLogin()) {
+      throw new AdapterError(
+        'invalid_input',
+        'Claude uses your own claude login: run `claude auth logout` in a terminal',
+      );
+    }
+    await this.read(kind);
+    const executablePath = this.#installation?.executablePath;
+    if (executablePath === undefined) {
+      throw new AdapterError('engine_unavailable', 'claude is not installed');
+    }
+    const env = claudeEnv(this.#options.env ?? process.env, executablePath, this.#options.system);
+    const result = await (this.#options.runCommand ?? runClaudeCommand)(
+      executablePath,
+      ['auth', 'logout'],
+      env,
+      LOGOUT_TIMEOUT_MS,
+      this.#abort.signal,
     );
+    if (!result.ok) throw new AdapterError('engine_unavailable', result.message);
+    return this.read(kind, { refresh: true });
   }
 
   async models(kind: AccountKind): Promise<AccountModels> {
@@ -402,6 +507,54 @@ export class ClaudeAccounts implements EngineAccounts {
     const trimmed = path?.trim();
     this.#customPath = trimmed === undefined || trimmed === '' ? null : trimmed;
     return this.#probe(true);
+  }
+
+  /**
+   * 替用户下载安装 `claude`（`account.install`）：立即返回带 `installing` 的状态，进度、完成（再检测一次账号）与失败（原因在
+   * `lastError`）经 `onChange` 报告；已在安装时返回当前状态。
+   */
+  async install(kind: AccountKind): Promise<AccountState> {
+    this.#check(kind);
+    const installer = this.#installer;
+    if (installer === undefined) {
+      throw new AdapterError(
+        'invalid_input',
+        `Wevir has no claude build for ${process.platform}-${process.arch}: install it yourself with \`${CLAUDE_INSTALL_COMMAND}\` or set a custom executable path`,
+      );
+    }
+    const state = await this.read(kind);
+    if (installer.installing) return state;
+    this.#installing = { completedBytes: 0 };
+    this.#installError = undefined;
+    this.#emit();
+    installer
+      .install((progress) => {
+        if (this.#installing === undefined) return;
+        this.#installing = {
+          completedBytes: progress.completedBytes,
+          ...(progress.totalBytes !== undefined && { totalBytes: progress.totalBytes }),
+        };
+        this.#emit();
+      })
+      .then(
+        async () => {
+          this.#installing = undefined;
+          await this.#probe(true).catch((error: unknown) => {
+            this.#installError = error instanceof Error ? error.message : String(error);
+            this.#emit();
+          });
+        },
+        (error: unknown) => {
+          this.#installing = undefined;
+          if (!(error instanceof NpmInstallCancelled)) {
+            this.#installError =
+              error instanceof Error ? error.message : 'Could not install claude.';
+          }
+          this.#emit();
+        },
+      )
+      .catch(() => {});
+    return this.#view(this.#state as AccountState);
   }
 
   onChange(listener: (state: AccountState) => void): () => void {
@@ -450,6 +603,9 @@ export class ClaudeAccounts implements EngineAccounts {
 
   dispose(): void {
     this.#disposed = true;
+    this.#installer?.cancel();
+    this.#login?.flow.cancel();
+    this.#login = undefined;
     this.#abort.abort();
     this.#listeners.clear();
   }
@@ -462,6 +618,63 @@ export class ClaudeAccounts implements EngineAccounts {
 
   #now(): number {
     return (this.#options.now ?? Date.now)();
+  }
+
+  /** 状态里加上不属于检测结果的部分：正在安装的进度、安装失败的原因、进行中的登录。 */
+  #view(state: AccountState): AccountState {
+    let view = state;
+    if (this.#installing !== undefined) {
+      view = { ...view, installing: this.#installing };
+    } else if (this.#installError !== undefined && view.installed === false) {
+      view = { ...view, lastError: this.#installError };
+    }
+    if (this.#login !== undefined && view.status !== 'signed_in') {
+      const { lastError: _stale, ...rest } = view;
+      view = { ...rest, status: 'signing_in', login: this.#login.info };
+    }
+    return view;
+  }
+
+  #inAppLogin(): boolean {
+    return (
+      this.#options.inAppLogin ??
+      inAppLoginSupported(this.#options.system?.platform ?? process.platform)
+    );
+  }
+
+  #defaultInstaller(): NpmPackageInstaller | undefined {
+    const system = this.#options.system ?? {};
+    const spec = claudeNpmPackage(system.platform ?? process.platform);
+    if (spec === undefined) return undefined;
+    return new NpmPackageInstaller({
+      directory: path.join(this.#options.workDir, 'runtime'),
+      spec,
+      // 下载来的程序要能跑：`claude --version` 有答复。
+      validate: async (file, _version, signal) => {
+        const probe = await (this.#options.probeVersion ?? probeClaudeVersion)(
+          file,
+          claudeEnv(this.#options.env ?? process.env, file, system),
+          VERSION_TIMEOUT_MS,
+          signal,
+        );
+        if (!probe.ok) throw new Error(probe.message);
+      },
+    });
+  }
+
+  /** `claude auth login` 退出了：成功就重新检测账号，失败带上它的输出；被取消或被新的登录替换的不管。 */
+  async #loginEnded(login: ActiveLogin, result: Awaited<ClaudeLoginFlow['done']>): Promise<void> {
+    if (this.#login !== login) return;
+    this.#login = undefined;
+    if (this.#disposed) return;
+    if (result.ok) {
+      await this.#probe(true).catch(() => this.#emit());
+      return;
+    }
+    if (!result.cancelled && this.#state !== undefined) {
+      this.#state = { ...this.#state, lastError: result.message };
+    }
+    this.#emit();
   }
 
   #probe(force: boolean): Promise<AccountState> {
@@ -483,23 +696,33 @@ export class ClaudeAccounts implements EngineAccounts {
   }
 
   async #detect(): Promise<AccountState> {
+    const parentEnv = this.#options.env ?? process.env;
+    const managed = await this.#installer?.active();
+    const find =
+      this.#options.findExecutable ??
+      ((customPath, managedPath) => findClaude({ customPath, env: parentEnv, managedPath }));
+    const executablePath = find(this.#customPath, managed?.path);
+    const isManaged = managed !== undefined && executablePath === managed.path;
+    const canInstall = this.#installer !== undefined;
+    const inApp = this.#inAppLogin();
     const base: AccountState = {
       kind: 'claude',
       status: 'signed_out',
-      signIn: 'command',
-      loginCommand: CLAUDE_LOGIN_COMMAND,
+      ...(inApp
+        ? { signIn: 'in_app' as const, loginMethods: ['browser' as const] }
+        : {
+            signIn: 'command' as const,
+            loginCommand: claudeLoginCommand(executablePath, isManaged),
+          }),
       ...(this.#customPath !== null && { customPath: this.#customPath }),
     };
-    const parentEnv = this.#options.env ?? process.env;
-    const find =
-      this.#options.findExecutable ?? ((customPath) => findClaude({ customPath, env: parentEnv }));
-    const executablePath = find(this.#customPath);
     if (executablePath === undefined) {
       this.#installation = undefined;
       return {
         ...base,
         installed: false,
         installCommand: CLAUDE_INSTALL_COMMAND,
+        ...(canInstall && { canInstall }),
         ...(this.#customPath !== null && { lastError: `${this.#customPath} does not exist` }),
       };
     }
@@ -539,9 +762,11 @@ export class ClaudeAccounts implements EngineAccounts {
       this.#installation = undefined;
       return {
         ...base,
-        installed: version.reason !== 'missing',
+        // Wevir 装的这份跑不起来：当作没装，设置里重新下载。
+        installed: version.reason !== 'missing' && !isManaged,
         executablePath,
         installCommand: CLAUDE_INSTALL_COMMAND,
+        ...(isManaged && canInstall && { canInstall }),
         lastError: version.message,
       };
     }
@@ -582,6 +807,12 @@ export class ClaudeAccounts implements EngineAccounts {
 
   #publish(state: AccountState): void {
     this.#state = state;
+    this.#emit();
+  }
+
+  #emit(): void {
+    if (this.#state === undefined) return;
+    const state = this.#view(this.#state);
     for (const listener of [...this.#listeners]) {
       try {
         listener(state);

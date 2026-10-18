@@ -29,6 +29,8 @@ export {
   CLAUDE_BIN_ENV,
   CLAUDE_INSTALL_COMMAND,
   CLAUDE_LOGIN_COMMAND,
+  claudeLoginCommand,
+  claudeNpmPackage,
   claudePath,
   commonClaudeDirs,
   findClaude,
@@ -39,6 +41,14 @@ export {
   probeClaudeVersion,
   resolveWindowsShim,
 } from './executable.js';
+export {
+  type ClaudeLoginFlow,
+  type ClaudeLoginResult,
+  inAppLoginSupported,
+  LOGIN_URL_ENV,
+  runClaudeCommand,
+  startClaudeLogin,
+} from './login.js';
 export {
   canonicalClaudeModel,
   claudeApiModelId,

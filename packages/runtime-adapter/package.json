@@ -32,6 +32,11 @@
       "types": "./dist/web-tool.d.ts",
       "default": "./dist/web-tool.js"
     },
+    "./npm-package": {
+      "@wevir/source": "./src/npm-package.ts",
+      "types": "./dist/npm-package.d.ts",
+      "default": "./dist/npm-package.js"
+    },
     "./contract": {
       "@wevir/source": "./src/contract.ts",
       "types": "./dist/contract.d.ts",

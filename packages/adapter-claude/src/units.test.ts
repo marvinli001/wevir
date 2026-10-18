@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { claudeEnv, NESTED_SESSION_ENV } from './env.js';
 import {
+  claudeLoginCommand,
+  claudeNpmPackage,
   claudePath,
   findClaude,
   findGitBash,
@@ -111,6 +113,57 @@ describe('找 claude', () => {
     ).toBe(
       'C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe',
     );
+  });
+
+  it('Wevir 自己装的排在最后：用户的 PATH 与常见位置里没有才用，指定的路径不存在时不退回它', () => {
+    const managed = '/data/engines/claude/runtime/versions/2.1.302/claude';
+    const base = { home: '/Users/me', platform: 'darwin' as const, env: { PATH: '/usr/bin' } };
+    expect(findClaude({ ...base, managedPath: managed, exists: files([managed]) })).toBe(managed);
+    expect(
+      findClaude({
+        ...base,
+        managedPath: managed,
+        exists: files([managed, '/usr/bin/claude']),
+      }),
+    ).toBe('/usr/bin/claude');
+    expect(findClaude({ ...base, managedPath: managed, exists: files([]) })).toBeUndefined();
+    expect(
+      findClaude({
+        ...base,
+        customPath: '/nowhere/claude',
+        managedPath: managed,
+        exists: files([managed]),
+      }),
+    ).toBeUndefined();
+  });
+
+  it('登录命令：Wevir 装的不在 PATH 里，写全路径', () => {
+    expect(claudeLoginCommand('/usr/local/bin/claude', false)).toBe('claude auth login');
+    expect(claudeLoginCommand(undefined, true)).toBe('claude auth login');
+    expect(claudeLoginCommand('/data/runtime/claude', true)).toBe(
+      '"/data/runtime/claude" auth login',
+    );
+  });
+
+  it('npm 平台包：系统、架构、musl', () => {
+    expect(claudeNpmPackage('darwin', 'arm64', false)).toEqual({
+      packageName: '@anthropic-ai/claude-code-darwin-arm64',
+      entry: 'claude',
+      fileName: 'claude',
+    });
+    expect(claudeNpmPackage('linux', 'x64', true)?.packageName).toBe(
+      '@anthropic-ai/claude-code-linux-x64-musl',
+    );
+    expect(claudeNpmPackage('linux', 'arm64', false)?.packageName).toBe(
+      '@anthropic-ai/claude-code-linux-arm64',
+    );
+    expect(claudeNpmPackage('win32', 'x64', false)).toEqual({
+      packageName: '@anthropic-ai/claude-code-win32-x64',
+      entry: 'claude.exe',
+      fileName: 'claude.exe',
+    });
+    expect(claudeNpmPackage('darwin', 'ia32', false)).toBeUndefined();
+    expect(claudeNpmPackage('freebsd', 'x64', false)).toBeUndefined();
   });
 
   it('版本号与交给 claude 的 PATH', () => {

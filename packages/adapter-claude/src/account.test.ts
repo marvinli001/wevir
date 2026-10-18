@@ -1,7 +1,15 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import type { AccountState } from '@wevir/runtime-adapter';
+import {
+  type ManagedExecutable,
+  NpmInstallCancelled,
+  NpmInstallError,
+  type NpmInstallProgress,
+  type NpmPackageInstaller,
+} from '@wevir/runtime-adapter/npm-package';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import {
   applyRateLimitEvent,
   ClaudeAccounts,
@@ -16,6 +24,7 @@ import {
   GIT_BASH_MISSING_MESSAGE,
   GIT_FOR_WINDOWS_URL,
 } from './executable.js';
+import type { ClaudeLoginFlow, ClaudeLoginResult } from './login.js';
 import { FakeClaudeSdk, recordedMessages } from './test-fixtures/fake-sdk.js';
 
 // 探测会话的工作目录（检测时会建它）。
@@ -101,6 +110,7 @@ describe('ClaudeAccounts', () => {
       workDir: WORK_DIR,
       findExecutable: () => '/opt/claude',
       probeVersion: async () => ({ ok: true, version: '2.1.287' }),
+      inAppLogin: false,
       now: () => now,
       ...options,
     });
@@ -297,6 +307,7 @@ describe('ClaudeAccounts', () => {
       workDir: WORK_DIR,
       findExecutable: () => '/opt/claude',
       probeVersion: async () => ({ ok: true, version: '2.1.287' }),
+      inAppLogin: false,
     });
     expect(await created.read('claude')).toMatchObject({ status: 'signed_out', installed: true });
     await expect(created.login('claude')).rejects.toMatchObject({ code: 'invalid_input' });
@@ -313,5 +324,331 @@ describe('ClaudeAccounts', () => {
     await created.read('claude');
     created.applyRateLimit({ status: 'allowed', rateLimitType: 'five_hour', utilization: 0.5 });
     expect(seen).toEqual(['signed_in:3', 'signed_in:50']);
+  });
+});
+
+// Wevir 替用户装的 claude 与设置里的应用内登录（假的安装器与登录流程，不碰网络和浏览器）。
+describe('ClaudeAccounts：下载安装与应用内登录', () => {
+  const MANAGED: ManagedExecutable = {
+    path: '/data/engines/claude/runtime/versions/2.1.302/claude',
+    version: '2.1.302',
+  };
+
+  /** 受控的安装器：测试决定什么时候给进度、什么时候结束。 */
+  function controlledInstaller(initial?: ManagedExecutable) {
+    let active = initial;
+    let onProgress: (progress: NpmInstallProgress) => void = () => {};
+    let settle: (result: 'ok' | Error) => void = () => {};
+    const state = { installing: false, started: 0, cancelled: 0 };
+    const installer = {
+      get installing() {
+        return state.installing;
+      },
+      active: async () => active,
+      install(callback: (progress: NpmInstallProgress) => void) {
+        state.installing = true;
+        state.started += 1;
+        onProgress = callback;
+        return new Promise<ManagedExecutable>((resolve, reject) => {
+          settle = (result) => {
+            state.installing = false;
+            if (result instanceof Error) {
+              reject(result);
+              return;
+            }
+            active = MANAGED;
+            resolve(MANAGED);
+          };
+        });
+      },
+      cancel() {
+        state.cancelled += 1;
+      },
+    };
+    return {
+      installer: installer as unknown as NpmPackageInstaller,
+      state,
+      progress: (progress: NpmInstallProgress) => onProgress(progress),
+      finish: (result: 'ok' | Error) => settle(result),
+    };
+  }
+
+  function make(options: Partial<ConstructorParameters<typeof ClaudeAccounts>[0]> = {}) {
+    const account: Record<string, unknown> = { tokenSource: 'none', apiKeySource: 'none' };
+    const sdk = new FakeClaudeSdk({ account });
+    const created = new ClaudeAccounts({
+      sdk,
+      workDir: WORK_DIR,
+      probeVersion: async () => ({ ok: true, version: '2.1.302' }),
+      findExecutable: (_custom, managed) => managed,
+      inAppLogin: true,
+      ...options,
+    });
+    const seen: AccountState[] = [];
+    created.onChange((state) => seen.push(state));
+    const signIn = () => {
+      account.tokenSource = 'claude.ai';
+      account.email = 'me@example.com';
+      account.subscriptionType = 'max20';
+    };
+    const signOut = () => {
+      account.tokenSource = 'none';
+      delete account.email;
+      delete account.subscriptionType;
+    };
+    return { created, seen, sdk, signIn, signOut };
+  }
+
+  /** 假的 `claude auth login`：测试决定什么时候退出。 */
+  function loginFlow(authUrl = 'http://localhost:51274/callback-auth') {
+    let finish: (result: ClaudeLoginResult) => void = () => {};
+    const done = new Promise<ClaudeLoginResult>((resolve) => {
+      finish = resolve;
+    });
+    const flow: ClaudeLoginFlow = {
+      authUrl,
+      done,
+      cancel: vi.fn(() => finish({ ok: false, cancelled: true, message: 'cancelled' })),
+    };
+    return { flow, finish };
+  }
+
+  it('没装：带下载（canInstall）和自己安装的命令；没有本平台的包时不给下载', async () => {
+    const { installer } = controlledInstaller();
+    const { created } = make({ installer });
+    expect(await created.read('claude')).toMatchObject({
+      installed: false,
+      canInstall: true,
+      installCommand: CLAUDE_INSTALL_COMMAND,
+      signIn: 'in_app',
+      loginMethods: ['browser'],
+    });
+    const { created: unsupported } = make({ installer: null });
+    expect((await unsupported.read('claude')).canInstall).toBeUndefined();
+    await expect(unsupported.install('claude')).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+
+  it('下载安装：先报 installing 和进度，装好后重新检测，找到装好的那份', async () => {
+    const control = controlledInstaller();
+    const { created, seen } = make({ installer: control.installer });
+    const started = await created.install('claude');
+    expect(started).toMatchObject({ installed: false, installing: { completedBytes: 0 } });
+    // 安装中再点一次：不再开始新的。
+    expect(await created.install('claude')).toMatchObject({ installing: expect.anything() });
+    expect(control.state.started).toBe(1);
+    control.progress({ phase: 'downloading', completedBytes: 50, totalBytes: 100 });
+    expect(seen.at(-1)?.installing).toEqual({ completedBytes: 50, totalBytes: 100 });
+    control.finish('ok');
+    await vi.waitFor(() =>
+      expect(seen.at(-1)).toMatchObject({
+        installed: true,
+        executablePath: MANAGED.path,
+        version: '2.1.302',
+        status: 'signed_out',
+      }),
+    );
+    expect(seen.at(-1)?.installing).toBeUndefined();
+    expect(seen.at(-1)?.canInstall).toBeUndefined();
+    expect((await created.read('claude')).executablePath).toBe(MANAGED.path);
+  });
+
+  it('下载失败：原因进 lastError，仍可再下；重新检测后清掉；取消不算失败', async () => {
+    const control = controlledInstaller();
+    const { created, seen } = make({ installer: control.installer });
+    await created.install('claude');
+    control.finish(new NpmInstallError('download', 'Could not download claude: boom'));
+    await vi.waitFor(() =>
+      expect(seen.at(-1)).toMatchObject({
+        installed: false,
+        canInstall: true,
+        lastError: 'Could not download claude: boom',
+      }),
+    );
+    expect(seen.at(-1)?.installing).toBeUndefined();
+    expect(await created.read('claude')).toMatchObject({
+      lastError: 'Could not download claude: boom',
+    });
+    expect((await created.read('claude', { refresh: true })).lastError).toBeUndefined();
+
+    await created.install('claude');
+    control.finish(new NpmInstallCancelled('Installation cancelled.'));
+    await vi.waitFor(() => expect(seen.at(-1)?.installing).toBeUndefined());
+    expect(seen.at(-1)?.lastError).toBeUndefined();
+  });
+
+  it('Wevir 装的那份跑不起来：当作没装，可以重新下载；用户自己的跑不起来照旧是 installed', async () => {
+    const control = controlledInstaller(MANAGED);
+    const failing = async () => ({
+      ok: false as const,
+      reason: 'failed' as const,
+      message: 'exec format error',
+    });
+    const { created } = make({ installer: control.installer, probeVersion: failing });
+    expect(await created.read('claude')).toMatchObject({
+      installed: false,
+      canInstall: true,
+      executablePath: MANAGED.path,
+      lastError: 'exec format error',
+    });
+    const { created: own } = make({
+      installer: control.installer,
+      findExecutable: () => '/opt/claude',
+      probeVersion: failing,
+    });
+    expect(await own.read('claude')).toMatchObject({
+      installed: true,
+      lastError: 'exec format error',
+    });
+  });
+
+  it('命令登录的平台：Wevir 装的写全路径，用户自己的写 claude', async () => {
+    const control = controlledInstaller(MANAGED);
+    const { created } = make({ installer: control.installer, inAppLogin: false });
+    expect(await created.read('claude')).toMatchObject({
+      signIn: 'command',
+      loginCommand: `"${MANAGED.path}" auth login`,
+    });
+    const { created: own } = make({
+      installer: control.installer,
+      inAppLogin: false,
+      findExecutable: () => '/opt/claude',
+    });
+    expect((await own.read('claude')).loginCommand).toBe('claude auth login');
+  });
+
+  it('应用内登录：signing_in 带授权地址，登录完成后重新检测成 signed_in', async () => {
+    const { flow, finish } = loginFlow();
+    const startLogin = vi.fn(async () => flow);
+    const { installer } = controlledInstaller(MANAGED);
+    const { created, seen, signIn } = make({ installer, startLogin });
+    expect(await created.read('claude')).toMatchObject({ status: 'signed_out', installed: true });
+
+    const state = await created.login('claude');
+    expect(state).toMatchObject({
+      status: 'signing_in',
+      login: { method: 'browser', authUrl: 'http://localhost:51274/callback-auth' },
+    });
+    expect(startLogin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        executablePath: MANAGED.path,
+        directory: expect.stringContaining('login'),
+      }),
+    );
+    expect(await created.read('claude')).toMatchObject({ status: 'signing_in' });
+
+    signIn();
+    finish({ ok: true });
+    await vi.waitFor(() =>
+      expect(seen.at(-1)).toMatchObject({
+        status: 'signed_in',
+        email: 'me@example.com',
+        planLabel: 'Max 20x',
+      }),
+    );
+    expect(seen.at(-1)?.login).toBeUndefined();
+  });
+
+  it('登录失败：回到 signed_out，带 claude 的输出', async () => {
+    const { flow, finish } = loginFlow();
+    const { installer } = controlledInstaller(MANAGED);
+    const { created, seen } = make({ installer, startLogin: async () => flow });
+    await created.login('claude');
+    finish({ ok: false, cancelled: false, message: 'OAuth error: access_denied' });
+    await vi.waitFor(() =>
+      expect(seen.at(-1)).toMatchObject({
+        status: 'signed_out',
+        lastError: 'OAuth error: access_denied',
+      }),
+    );
+    expect(seen.at(-1)?.login).toBeUndefined();
+  });
+
+  it('取消登录：停掉 claude，回到 signed_out，没有错误；新的登录替换旧的', async () => {
+    const first = loginFlow('http://localhost:1/first');
+    const second = loginFlow('http://localhost:2/second');
+    const third = loginFlow('http://localhost:3/third');
+    const flows = [first.flow, second.flow, third.flow];
+    const { installer } = controlledInstaller(MANAGED);
+    const { created, seen } = make({
+      installer,
+      startLogin: async () => flows.shift() as ClaudeLoginFlow,
+    });
+    const started = await created.login('claude');
+    const cancelled = await created.cancelLogin('claude', started.login?.loginId);
+    expect(first.flow.cancel).toHaveBeenCalled();
+    expect(cancelled).toMatchObject({ status: 'signed_out' });
+    expect(cancelled.lastError).toBeUndefined();
+
+    await created.login('claude');
+    const replaced = await created.login('claude');
+    expect(second.flow.cancel).toHaveBeenCalledTimes(1);
+    expect(replaced.login?.authUrl).toBe('http://localhost:3/third');
+    // 被换掉的流程退出（cancel 让它兑现 cancelled）不影响现在的状态。
+    await Promise.resolve();
+    expect(seen.at(-1)?.status).toBe('signing_in');
+    expect(seen.at(-1)?.login?.authUrl).toBe('http://localhost:3/third');
+    // loginId 不是当前的：什么都不做。
+    expect((await created.cancelLogin('claude', 'other')).status).toBe('signing_in');
+  });
+
+  it('不能登录的情形：没装、启动不了', async () => {
+    const { created } = make({ installer: controlledInstaller().installer });
+    await expect(created.login('claude')).rejects.toMatchObject({ code: 'engine_unavailable' });
+    const { installer } = controlledInstaller(MANAGED);
+    const { created: broken } = make({
+      installer,
+      startLogin: async () => {
+        throw new Error('claude did not report a sign-in address within 15 s');
+      },
+    });
+    await expect(broken.login('claude')).rejects.toMatchObject({
+      code: 'engine_unavailable',
+      message: expect.stringContaining('did not report a sign-in address'),
+    });
+    expect((await broken.read('claude')).status).toBe('signed_out');
+  });
+
+  it('应用内登出：跑 claude auth logout，再检测', async () => {
+    const { installer } = controlledInstaller(MANAGED);
+    let signOutNow: () => void = () => {};
+    const runCommand = vi.fn(async () => {
+      signOutNow();
+      return { ok: true as const, stdout: '', stderr: '' };
+    });
+    const { created, signIn, signOut } = make({ installer, runCommand });
+    signOutNow = signOut;
+    signIn();
+    expect(await created.read('claude')).toMatchObject({ status: 'signed_in' });
+    expect(await created.logout('claude')).toMatchObject({ status: 'signed_out' });
+    expect(runCommand).toHaveBeenCalledWith(
+      MANAGED.path,
+      ['auth', 'logout'],
+      expect.any(Object),
+      expect.any(Number),
+      expect.anything(),
+    );
+
+    const { created: failing } = make({
+      installer,
+      runCommand: async () => ({ ok: false as const, message: 'not logged in' }),
+    });
+    await expect(failing.logout('claude')).rejects.toMatchObject({
+      code: 'engine_unavailable',
+      message: 'not logged in',
+    });
+  });
+
+  it('dispose：取消安装与登录', async () => {
+    const control = controlledInstaller();
+    const { flow } = loginFlow();
+    const { created } = make({
+      installer: control.installer,
+      startLogin: async () => flow,
+      findExecutable: () => '/opt/claude',
+    });
+    await created.login('claude');
+    created.dispose();
+    expect(flow.cancel).toHaveBeenCalled();
+    expect(control.state.cancelled).toBe(1);
   });
 });
