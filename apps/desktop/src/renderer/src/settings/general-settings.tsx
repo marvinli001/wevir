@@ -5,18 +5,26 @@ import { useState } from 'react';
 import { Switch } from '@/components/switch';
 import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
+import { preventSleepPref } from '@/data/prevent-sleep';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { composerPrefs, type SendShortcut, sendKeyLabel } from '@/session/composer-prefs';
+import {
+  PERMISSION_META,
+  PERMISSION_MODES,
+  permissionModePrefs,
+} from '@/session/permission-picker';
 import { suggestionsEnabled } from '@/session/prompt-suggestion';
+import { usePermissionModes } from '@/session/start-session';
 import { LanguagePicker } from './language-picker';
 import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from './settings-ui';
 
 /**
  * 设置 → 常规（U7，原来的“对话”并进来）：界面语言（本机，language-picker.tsx），回合进行中按回车的默认方式（R11：存在 Host，`settings.update`，
  * domain-model §3.7，桌面与 CLI 共用；别的客户端改了，这里经 `settings.updated` 跟上）。U35 起还有发送消息的按键与外部编辑器
- * （文件预览的“打开方式”默认用它），都只存在本机。
+ * （文件预览的“打开方式”默认用它），都只存在本机。U36 起照 Codex 桌面端加了“运行时防止系统休眠”与“权限”一组（输入框的权限
+ * 菜单里出现哪几种模式，请求批准一直在），也只存在本机。
  */
 export function GeneralSettings() {
   const { supported, settings, update } = useHostSettings();
@@ -32,6 +40,9 @@ export function GeneralSettings() {
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'session_recap');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const preventSleep = preventSleepPref.use();
+  const permissionsSupported = usePermissionModes();
+  const permissionPrefs = permissionModePrefs.use();
 
   const save = async (patch: Partial<HostSettings>) => {
     setSaving(true);
@@ -51,104 +62,141 @@ export function GeneralSettings() {
   };
 
   return (
-    <SettingsSection>
-      {error && (
-        <div className="mb-3">
-          <NoticeBanner notice={{ tone: 'error', text: error }} />
-        </div>
-      )}
-      <div className={LIST_CARD}>
-        <SettingsRow
-          title={t('settings.appearance.language')}
-          data-setting="language"
-          control={<LanguagePicker />}
-        />
-        <SettingsRow
-          title={t('settings.chat.sendWhileBusy')}
-          description={supported ? undefined : t('settings.chat.unsupported')}
-          data-setting="send-while-busy"
-          control={
-            <Segmented
-              label={t('settings.chat.sendWhileBusy')}
-              value={settings.sendWhileBusy}
-              disabled={!supported || saving}
-              onChange={(delivery) => void choose(delivery)}
-              options={[
-                {
-                  value: 'steer',
-                  label: t('settings.chat.sendWhileBusy.steer'),
-                  icon: <CornerDownRight />,
-                },
-                {
-                  value: 'queue',
-                  label: t('settings.chat.sendWhileBusy.queue'),
-                  icon: <ListPlus />,
-                },
-              ]}
-            />
-          }
-        />
-        {suggestionsSupported && (
+    <>
+      <SettingsSection>
+        {error && (
+          <div className="mb-3">
+            <NoticeBanner notice={{ tone: 'error', text: error }} />
+          </div>
+        )}
+        <div className={LIST_CARD}>
           <SettingsRow
-            title={t('settings.chat.suggestions')}
-            data-setting="prompt-suggestions"
+            title={t('settings.appearance.language')}
+            data-setting="language"
+            control={<LanguagePicker />}
+          />
+          <SettingsRow
+            title={t('settings.chat.sendWhileBusy')}
+            description={supported ? undefined : t('settings.chat.unsupported')}
+            data-setting="send-while-busy"
             control={
-              <Switch
-                label={t('settings.chat.suggestions')}
-                checked={suggestionsEnabled(settings)}
+              <Segmented
+                label={t('settings.chat.sendWhileBusy')}
+                value={settings.sendWhileBusy}
                 disabled={!supported || saving}
-                onChange={(promptSuggestions) => void save({ promptSuggestions })}
+                onChange={(delivery) => void choose(delivery)}
+                options={[
+                  {
+                    value: 'steer',
+                    label: t('settings.chat.sendWhileBusy.steer'),
+                    icon: <CornerDownRight />,
+                  },
+                  {
+                    value: 'queue',
+                    label: t('settings.chat.sendWhileBusy.queue'),
+                    icon: <ListPlus />,
+                  },
+                ]}
               />
             }
           />
-        )}
-        {recapAvailable && (
+          {suggestionsSupported && (
+            <SettingsRow
+              title={t('settings.chat.suggestions')}
+              data-setting="prompt-suggestions"
+              control={
+                <Switch
+                  label={t('settings.chat.suggestions')}
+                  checked={suggestionsEnabled(settings)}
+                  disabled={!supported || saving}
+                  onChange={(promptSuggestions) => void save({ promptSuggestions })}
+                />
+              }
+            />
+          )}
+          {recapAvailable && (
+            <SettingsRow
+              title={t('settings.chat.recap')}
+              data-setting="recap"
+              control={
+                <Switch
+                  checked={settings.sessionRecap !== false}
+                  label={t('settings.chat.recap')}
+                  disabled={saving}
+                  onChange={(sessionRecap) => void save({ sessionRecap })}
+                />
+              }
+            />
+          )}
           <SettingsRow
-            title={t('settings.chat.recap')}
-            data-setting="recap"
+            title={t('settings.composer.send')}
+            data-setting="send-shortcut"
+            control={
+              <Segmented<SendShortcut>
+                label={t('settings.composer.send')}
+                value={composer.sendShortcut}
+                onChange={(sendShortcut) =>
+                  composerPrefs.set((current) => ({ ...current, sendShortcut }))
+                }
+                options={[
+                  { value: 'enter', label: sendKeyLabel('enter') },
+                  { value: 'mod-enter', label: sendKeyLabel('mod-enter') },
+                ]}
+              />
+            }
+          />
+          <SettingsRow
+            title={t('settings.preventSleep')}
+            data-setting="prevent-sleep"
             control={
               <Switch
-                checked={settings.sessionRecap !== false}
-                label={t('settings.chat.recap')}
-                disabled={saving}
-                onChange={(sessionRecap) => void save({ sessionRecap })}
+                label={t('settings.preventSleep')}
+                checked={preventSleep}
+                onChange={(next) => preventSleepPref.set(next)}
               />
             }
           />
-        )}
-        <SettingsRow
-          title={t('settings.composer.send')}
-          data-setting="send-shortcut"
-          control={
-            <Segmented<SendShortcut>
-              label={t('settings.composer.send')}
-              value={composer.sendShortcut}
-              onChange={(sendShortcut) =>
-                composerPrefs.set((current) => ({ ...current, sendShortcut }))
+          {editors !== undefined && editors.length > 0 && (
+            <SettingsRow
+              title={t('settings.editor')}
+              data-setting="editor"
+              control={
+                <Select
+                  className="w-48"
+                  aria-label={t('settings.editor')}
+                  value={preferred?.id ?? ''}
+                  onValueChange={(editor) => filePrefs.set((current) => ({ ...current, editor }))}
+                  options={editors.map((editor) => ({ value: editor.id, label: editor.name }))}
+                />
               }
-              options={[
-                { value: 'enter', label: sendKeyLabel('enter') },
-                { value: 'mod-enter', label: sendKeyLabel('mod-enter') },
-              ]}
             />
-          }
-        />
-        {editors !== undefined && editors.length > 0 && (
-          <SettingsRow
-            title={t('settings.editor')}
-            data-setting="editor"
-            control={
-              <Select
-                className="w-48"
-                aria-label={t('settings.editor')}
-                value={preferred?.id ?? ''}
-                onValueChange={(editor) => filePrefs.set((current) => ({ ...current, editor }))}
-                options={editors.map((editor) => ({ value: editor.id, label: editor.name }))}
+          )}
+        </div>
+      </SettingsSection>
+      {permissionsSupported && (
+        <SettingsSection title={t('settings.section.permissions')}>
+          <div className={LIST_CARD}>
+            {PERMISSION_MODES.map((mode) => (
+              <SettingsRow
+                key={mode}
+                title={t(PERMISSION_META[mode].label)}
+                data-setting={`permission-${mode}`}
+                control={
+                  <Switch
+                    label={t(PERMISSION_META[mode].label)}
+                    checked={mode === 'on_request' || permissionPrefs[mode]}
+                    disabled={mode === 'on_request'}
+                    onChange={(enabled) =>
+                      mode !== 'on_request' &&
+                      permissionModePrefs.set((current) => ({ ...current, [mode]: enabled }))
+                    }
+                  />
+                }
               />
-            }
-          />
-        )}
-      </div>
-    </SettingsSection>
+            ))}
+          </div>
+        </SettingsSection>
+      )}
+    </>
   );
 }

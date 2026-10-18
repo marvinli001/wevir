@@ -40,7 +40,7 @@ import type { ComposerCommand, ComposerCommandItem } from './composer-commands';
 import { composerPrefs, toggleContextMeter } from './composer-prefs';
 import { initPrompt } from './init-prompt';
 import { effortLabel, type ModelChoice, modelsOf } from './model-picker';
-import { PERMISSION_META, PERMISSION_MODES } from './permission-picker';
+import { allowedPermissionModes, PERMISSION_META, PERMISSION_MODES } from './permission-picker';
 
 function modelCommand(
   providers: readonly ProviderProfile[],
@@ -134,7 +134,9 @@ function permissionCommand(
     detail: t(PERMISSION_META[mode].label),
     plus: true,
     items: () =>
-      PERMISSION_MODES.map((candidate) => {
+      PERMISSION_MODES.filter(
+        (candidate) => candidate === mode || allowedPermissionModes().includes(candidate),
+      ).map((candidate) => {
         const { icon: Icon, label } = PERMISSION_META[candidate];
         return {
           id: candidate,

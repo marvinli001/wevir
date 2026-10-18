@@ -10,12 +10,9 @@ import {
   Info,
   Keyboard,
   type LucideIcon,
-  Monitor,
-  Moon,
   Palette,
   Search,
   Settings2,
-  Sun,
   X,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -25,19 +22,18 @@ import { useHostConnection } from '@/host/host-connection';
 import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
 import { WindowControls } from '@/layout/window-controls';
+import { AppearanceSettings } from '@/settings/appearance-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
 import { GeneralSettings } from '@/settings/general-settings';
 import { MemorySettings } from '@/settings/memory-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { ProviderSettings } from '@/settings/provider-settings';
-import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
+import { LIST_CARD, SettingsSection } from '@/settings/settings-ui';
 import { ShortcutsSettings } from '@/settings/shortcuts-settings';
 import { StorageSettings } from '@/settings/storage-settings';
 import { WebSettingsPage } from '@/settings/web-settings';
 import { WorkspaceSettings } from '@/settings/workspace-settings';
-import { setThemeMode, useTheme } from '@/theme/theme';
 import { AppUpdateSettings } from '@/updates/update-settings';
-import type { ThemeMode } from '../../../shared/theme.js';
 import { NotFound } from './not-found';
 import { isSettingsTab, paths, type SettingsTab } from './paths';
 
@@ -54,6 +50,9 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Settings2,
     keywords: [
       'settings.appearance.language',
+      'settings.section.permissions',
+      'permission.full_access',
+      'settings.preventSleep',
       'settings.chat.sendWhileBusy',
       'settings.composer.send',
       'settings.editor',
@@ -62,7 +61,16 @@ const TABS: Record<SettingsTab, TabInfo> = {
   appearance: {
     label: 'settings.tab.appearance',
     icon: Palette,
-    keywords: ['settings.appearance.theme'],
+    keywords: [
+      'settings.appearance.mode',
+      'settings.appearance.theme',
+      'settings.appearance.accent',
+      'settings.appearance.background',
+      'settings.appearance.font',
+      'settings.appearance.uiFontSize',
+      'settings.appearance.codeFontSize',
+      'settings.appearance.contrast',
+    ],
   },
   notifications: {
     label: 'settings.tab.notifications',
@@ -153,10 +161,10 @@ export function SettingsRoute() {
   const [query, setQuery] = useState('');
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full" data-translucent-root>
       <nav
         aria-label={t('settings.title')}
-        className="flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground max-md:w-48"
+        className="translucent-sidebar flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground max-md:w-48"
       >
         <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
           <WindowControls onBack={() => navigate(from ?? paths.home())} />
@@ -191,7 +199,7 @@ export function SettingsRoute() {
           <TabList query={query} state={location.state} />
         </ScrollArea>
       </nav>
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="translucent-content flex min-w-0 flex-1 flex-col">
         {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动。 */}
         <div className="app-drag h-11 shrink-0" />
         {isSettingsTab(tab) ? (
@@ -288,35 +296,6 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
     case 'storage':
       return <StorageSettings />;
   }
-}
-
-function AppearanceSettings() {
-  const { mode } = useTheme();
-  return (
-    <SettingsSection title={t('settings.section.theme')}>
-      <div className={LIST_CARD}>
-        <SettingsRow
-          title={t('settings.appearance.theme')}
-          control={
-            <Segmented<ThemeMode>
-              label={t('settings.appearance.theme')}
-              value={mode}
-              onChange={setThemeMode}
-              options={[
-                {
-                  value: 'system',
-                  label: t('settings.appearance.theme.system'),
-                  icon: <Monitor />,
-                },
-                { value: 'light', label: t('settings.appearance.theme.light'), icon: <Sun /> },
-                { value: 'dark', label: t('settings.appearance.theme.dark'), icon: <Moon /> },
-              ]}
-            />
-          }
-        />
-      </div>
-    </SettingsSection>
-  );
 }
 
 function AboutSettings() {

@@ -213,7 +213,7 @@ export const DIFF_SURFACE_THEME_UNSAFE_CSS = `
 [data-virtualizer-buffer] {
   --diffs-header-font-family: var(--font-ui) !important;
   --diffs-font-family: var(--font-code) !important;
-  --diffs-font-size: 12px;
+  --diffs-font-size: calc(var(--text-code, 0.8125rem) - 1px);
   --diffs-line-height: 20px;
   --diffs-bg: var(--code-background) !important;
   --diffs-light-bg: var(--code-background) !important;

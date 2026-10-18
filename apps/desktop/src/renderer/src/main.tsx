@@ -6,10 +6,12 @@ import { APP_MENU_LABEL_KEYS, type AppMenuLabels } from '../../shared/desktop-ap
 import { App } from './App.js';
 import { initI18n, t } from './i18n/index.js';
 import { bootstrapWindowChrome } from './layout/window-chrome.js';
+import { bootstrapAppearance } from './theme/appearance.js';
 import { bootstrapTheme } from './theme/theme.js';
 import './index.css';
 
 bootstrapTheme();
+bootstrapAppearance();
 bootstrapWindowChrome();
 
 const root = document.getElementById('root');

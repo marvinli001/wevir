@@ -103,10 +103,18 @@ function getSnapshot(): ThemeState {
   return snapshot;
 }
 
-function subscribe(listener: () => void): () => void {
+/** 订阅主题的变化（换模式、跟随系统时系统深浅色变了）。 */
+export function subscribeTheme(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
+
+/** 当前实际用的主题。 */
+export function resolvedTheme(): ResolvedTheme {
+  return currentResolved;
+}
+
+const subscribe = subscribeTheme;
 
 export function useTheme(): ThemeState {
   return useSyncExternalStore(subscribe, getSnapshot);

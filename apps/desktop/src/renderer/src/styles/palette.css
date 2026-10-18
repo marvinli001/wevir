@@ -42,4 +42,20 @@
   --green-pale: #86c597;
   --red-deep: #a23b30;
   --red-pale: #ee8f84;
+
+  /* 图表（设置 → 存储的占用条，U36）：各类一种颜色，浅色主题用 vivid、深色用 soft。只用于图形，不用作文字。 */
+  --amber-vivid: #f2b23a;
+  --amber-soft: #e8b450;
+  --violet-vivid: #7c5cf6;
+  --violet-soft: #9d88fa;
+  --sky-vivid: #3b82f6;
+  --sky-soft: #6aa2f8;
+  --coral-vivid: #ef6c3a;
+  --coral-soft: #f08a5d;
+  --jade-vivid: #2fa36b;
+  --jade-soft: #4fbf87;
+  --rose-vivid: #e0457b;
+  --rose-soft: #ea7099;
+  --stone-vivid: #a8a59d;
+  --stone-soft: #5d5f66;
 }

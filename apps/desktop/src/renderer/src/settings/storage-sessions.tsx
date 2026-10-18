@@ -5,13 +5,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import { workspaceLabel } from '@/projects/chats';
 import { formatFileSize } from '@/session/shared-files-model';
-import { EmptyList, LIST_CARD, type Notice, NoticeBanner, SettingsSection } from './settings-ui';
+import { EmptyList, LIST_CARD, type Notice, NoticeBanner, SettingsRow } from './settings-ui';
 import { archivedChatRows, deleteChats, worktreeRows } from './storage-model';
 
 /** 量过之后才改出来的工作树改动：Host 回 `RESOURCE_IN_USE` 带 `worktrees`（通用的说法是“仍有未关闭的会话”）。 */
@@ -28,11 +35,18 @@ interface Loaded {
 }
 
 /**
- * 设置 → 存储里按会话的两组（0.43.0，Host 的 `session.usage` / `session.delete`，desktop-layout §24）：已归档的会话各占多少、
- * 勾选后永久删除（照 Codex 桌面端的 Clean up old chats）；Host 为会话开的工作树各占多少（Manage worktrees）。Host 没有
- * `session_delete` 时不显示。删完之后 `onDeleted` 让上面重新量一遍。
+ * 设置 → 存储最下面的卡片：按会话的两行（0.43.0，Host 的 `session.usage` / `session.delete`，desktop-layout §24）与“已归档的
+ * 会话”的入口。“清理已归档的会话”在对话框里列出各占多少、勾选后永久删除（照 Codex 桌面端的 Clean up old chats）；“管理工作树”
+ * 在对话框里列出 Host 为会话开的工作树（Manage worktrees）。Host 没有 `session_delete` 时只有入口一行。删完之后 `onDeleted`
+ * 让上面重新量一遍。
  */
-export function SessionStorageSections({ onDeleted }: { onDeleted: () => void }) {
+export function SessionStorageCard({
+  onDeleted,
+  onOpenArchived,
+}: {
+  onDeleted: () => void;
+  onOpenArchived: () => void;
+}) {
   const { client, view } = useHostConnection();
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'session_delete');
@@ -42,6 +56,8 @@ export function SessionStorageSections({ onDeleted }: { onDeleted: () => void })
   const [notice, setNotice] = useState<Notice>();
   const [selected, setSelected] = useState<ReadonlySet<SessionId>>(new Set());
   const [confirming, setConfirming] = useState(false);
+  const [chatsOpen, setChatsOpen] = useState(false);
+  const [worktreesOpen, setWorktreesOpen] = useState(false);
   const locale = currentLocale();
   const size = useCallback((bytes: number) => formatFileSize(bytes, locale), [locale]);
   const date = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }), [locale]);
@@ -136,159 +152,241 @@ export function SessionStorageSections({ onDeleted }: { onDeleted: () => void })
     }
     setNotice({ tone: outcome.failed.length > 0 ? 'warning' : 'success', text: parts.join(' ') });
     setSelected(new Set());
+    setChatsOpen(false);
     onDeleted();
     await load().catch((reason: unknown) =>
       setError(t('settings.storage.failed', { error: describe(reason) })),
     );
   };
 
-  if (!supported) return null;
+  const chatsBytes = chats.reduce((sum, row) => sum + row.bytes, 0);
+  const worktreesBytes = worktrees.reduce((sum, row) => sum + row.bytes, 0);
 
   return (
     <>
-      <SettingsSection
-        title={t('settings.storage.chats')}
-        action={
-          <Button
-            size="sm"
-            disabled={chosen.length === 0}
-            onClick={() => setConfirming(true)}
-            data-action="delete-chats"
-          >
-            {t('settings.storage.deleteSelected')}
-          </Button>
-        }
-      >
-        {(notice || error) && (
-          <div className="mb-3 space-y-2">
-            {notice && <NoticeBanner notice={notice} />}
-            {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
-          </div>
+      {(notice || error) && (
+        <div className="space-y-2">
+          {notice && <NoticeBanner notice={notice} />}
+          {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
+        </div>
+      )}
+      <div className={LIST_CARD} data-testid="storage-manage">
+        {supported && (
+          <>
+            <SettingsRow
+              title={t('settings.storage.cleanChats')}
+              data-storage-row="chats"
+              control={
+                <>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {loaded
+                      ? t('settings.storage.chatsSummary', {
+                          count: chats.length,
+                          size: size(chatsBytes),
+                        })
+                      : '—'}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={loaded === undefined}
+                    onClick={() => setChatsOpen(true)}
+                    data-action="view-chats"
+                  >
+                    {t('settings.storage.view')}
+                  </Button>
+                </>
+              }
+            />
+            <SettingsRow
+              title={t('settings.storage.manageWorktrees')}
+              data-storage-row="worktrees"
+              control={
+                <>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {loaded
+                      ? t('settings.storage.worktreesSummary', {
+                          count: worktrees.length,
+                          size: size(worktreesBytes),
+                        })
+                      : '—'}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={loaded === undefined}
+                    onClick={() => setWorktreesOpen(true)}
+                    data-action="view-worktrees"
+                  >
+                    {t('settings.storage.open')}
+                  </Button>
+                </>
+              }
+            />
+          </>
         )}
-        {loaded === undefined ? (
-          !error && <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
-        ) : chats.length === 0 ? (
-          <EmptyList>{t('settings.storage.chatsEmpty')}</EmptyList>
-        ) : (
-          <div className={LIST_CARD} data-testid="storage-chats">
-            <label className="flex min-h-11 cursor-default items-center gap-3 px-4 py-2 text-sm">
+        <SettingsRow
+          title={t('settings.tab.archived')}
+          control={
+            <Button variant="secondary" size="sm" onClick={onOpenArchived}>
+              {t('settings.storage.open')}
+            </Button>
+          }
+        />
+      </div>
+
+      <Dialog open={chatsOpen} onOpenChange={setChatsOpen}>
+        <DialogContent className="gap-3 sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t('settings.storage.cleanChats')}</DialogTitle>
+          </DialogHeader>
+          {chats.length === 0 ? (
+            <EmptyList>{t('settings.storage.chatsEmpty')}</EmptyList>
+          ) : (
+            <div
+              className="-mx-1 max-h-[min(60vh,28rem)] overflow-y-auto rounded-lg border border-border"
+              data-testid="storage-chats"
+            >
+              <div className="divide-y divide-border">
+                {chats.map((row) => (
+                  <label
+                    key={row.session.id}
+                    className="flex min-h-14 cursor-default items-center gap-3 px-3.5 py-2.5 text-sm transition-colors hover:bg-muted/50"
+                    data-storage-chat={row.session.id}
+                  >
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-primary"
+                      checked={selected.has(row.session.id as SessionId)}
+                      onChange={() => toggle(row.session.id as SessionId)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">
+                        {row.session.title || t('session.untitled')}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[
+                          projectName.get(row.session.workspaceId),
+                          row.session.archivedAt && date.format(new Date(row.session.archivedAt)),
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                        {row.dirtyWorktrees > 0 && (
+                          <span className="text-warning">
+                            {' · '}
+                            {t('settings.storage.dirty')}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                      {size(row.bytes)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="items-center sm:justify-between">
+            <label className="flex cursor-default items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 className="size-4 accent-primary"
                 checked={allSelected}
+                disabled={chats.length === 0}
                 onChange={toggleAll}
                 data-select-all
               />
-              <span className="min-w-0 flex-1 text-muted-foreground">
-                {t('settings.storage.selectAll')}
-              </span>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {size(chats.reduce((sum, row) => sum + row.bytes, 0))}
-              </span>
+              <span className="text-muted-foreground">{t('settings.storage.selectAll')}</span>
+              {chosen.length > 0 && (
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {t('settings.storage.deleteSize', { size: size(chosenBytes) })}
+                </span>
+              )}
             </label>
-            {chats.map((row) => (
-              <label
-                key={row.session.id}
-                className="flex min-h-14 cursor-default items-center gap-3 px-4 py-2.5 text-sm"
-                data-storage-chat={row.session.id}
-              >
-                <input
-                  type="checkbox"
-                  className="size-4 accent-primary"
-                  checked={selected.has(row.session.id as SessionId)}
-                  onChange={() => toggle(row.session.id as SessionId)}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate">
-                    {row.session.title || t('session.untitled')}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {[
-                      projectName.get(row.session.workspaceId),
-                      row.session.archivedAt && date.format(new Date(row.session.archivedAt)),
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                    {row.dirtyWorktrees > 0 && (
-                      <span className="text-warning">
-                        {' · '}
-                        {t('settings.storage.dirty')}
-                      </span>
-                    )}
-                  </span>
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {size(row.bytes)}
-                </span>
-              </label>
-            ))}
-          </div>
-        )}
-      </SettingsSection>
+            <Button
+              variant="destructive"
+              disabled={chosen.length === 0}
+              onClick={() => setConfirming(true)}
+              data-action="delete-chats"
+            >
+              {t('settings.storage.deleteSelected')}
+            </Button>
+          </DialogFooter>
+          <ConfirmDialog
+            open={confirming}
+            onOpenChange={setConfirming}
+            title={t('settings.storage.deleteTitle', { count: chosen.length })}
+            confirmLabel={t('settings.storage.deleteSelected')}
+            onConfirm={remove}
+            failure={(reason) => t('settings.storage.deleteError', { error: reason })}
+          >
+            <p>{t('settings.storage.deleteSize', { size: size(chosenBytes) })}</p>
+            {chosenDirty > 0 && (
+              <p className="text-warning">
+                {t('settings.storage.deleteDirty', { count: chosenDirty })}
+              </p>
+            )}
+            <p>{t('settings.storage.deleteIrreversible')}</p>
+          </ConfirmDialog>
+        </DialogContent>
+      </Dialog>
 
-      <SettingsSection title={t('settings.storage.worktrees')}>
-        {loaded === undefined ? null : worktrees.length === 0 ? (
-          <EmptyList>{t('settings.storage.worktreesEmpty')}</EmptyList>
-        ) : (
-          <ul className={LIST_CARD} data-testid="storage-worktrees">
-            {worktrees.map((row) => (
-              <li
-                key={row.path}
-                className="flex min-h-14 items-center gap-3 px-4 py-2.5 text-sm"
-                data-storage-worktree={row.path}
-              >
-                <GitBranch aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-xs">{row.branch}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {[
-                      row.title || t('session.untitled'),
-                      projectName.get(row.workspaceId),
-                      row.archived && t('settings.storage.archived'),
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                    {(row.dirty || row.missing) && (
-                      <span className="text-warning">
-                        {' · '}
-                        {t(row.missing ? 'settings.storage.missing' : 'settings.storage.dirty')}
-                      </span>
-                    )}
+      <Dialog open={worktreesOpen} onOpenChange={setWorktreesOpen}>
+        <DialogContent className="gap-3 sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t('settings.storage.manageWorktrees')}</DialogTitle>
+          </DialogHeader>
+          {worktrees.length === 0 ? (
+            <EmptyList>{t('settings.storage.worktreesEmpty')}</EmptyList>
+          ) : (
+            <ul
+              className="-mx-1 max-h-[min(60vh,28rem)] divide-y divide-border overflow-y-auto rounded-lg border border-border"
+              data-testid="storage-worktrees"
+            >
+              {worktrees.map((row) => (
+                <li
+                  key={row.path}
+                  className="flex min-h-14 items-center gap-3 px-3.5 py-2.5 text-sm"
+                  data-storage-worktree={row.path}
+                >
+                  <GitBranch aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-mono text-xs">{row.branch}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[
+                        row.title || t('session.untitled'),
+                        projectName.get(row.workspaceId),
+                        row.archived && t('settings.storage.archived'),
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                      {(row.dirty || row.missing) && (
+                        <span className="text-warning">
+                          {' · '}
+                          {t(row.missing ? 'settings.storage.missing' : 'settings.storage.dirty')}
+                        </span>
+                      )}
+                    </span>
                   </span>
-                </span>
-                <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                  {size(row.bytes)}
-                </span>
-                {!row.missing && (
-                  <IconButton
-                    label={t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
-                    onClick={() => void window.wevir.revealPath(row.path).catch(() => undefined)}
-                  >
-                    <FolderOpen />
-                  </IconButton>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </SettingsSection>
-
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={t('settings.storage.deleteTitle', { count: chosen.length })}
-        confirmLabel={t('settings.storage.deleteSelected')}
-        onConfirm={remove}
-        failure={(reason) => t('settings.storage.deleteError', { error: reason })}
-      >
-        <p>{t('settings.storage.deleteSize', { size: size(chosenBytes) })}</p>
-        {chosenDirty > 0 && (
-          <p className="text-warning">
-            {t('settings.storage.deleteDirty', { count: chosenDirty })}
-          </p>
-        )}
-        <p>{t('settings.storage.deleteIrreversible')}</p>
-      </ConfirmDialog>
+                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                    {size(row.bytes)}
+                  </span>
+                  {!row.missing && (
+                    <IconButton
+                      label={t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
+                      onClick={() => void window.wevir.revealPath(row.path).catch(() => undefined)}
+                    >
+                      <FolderOpen />
+                    </IconButton>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter showCloseButton />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

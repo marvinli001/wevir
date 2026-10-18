@@ -18,6 +18,7 @@ import {
   Notification,
   nativeTheme,
   powerMonitor,
+  powerSaveBlocker,
   protocol,
   screen,
   session,
@@ -266,6 +267,29 @@ function run(): void {
     if (!isThemeMode(mode)) throw new Error('theme mode must be system, light or dark');
     nativeTheme.themeSource = mode;
     window.setBackgroundColor(windowBackground());
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.setTranslucentSidebar,
+    async (event, enabled: unknown): Promise<void> => {
+      const window = assertSender(event);
+      if (typeof enabled !== 'boolean') throw new Error('enabled must be a boolean');
+      if (process.platform !== 'darwin' || translucentSidebar === enabled) return;
+      translucentSidebar = enabled;
+      window.setVibrancy(enabled ? 'sidebar' : null);
+      window.setBackgroundColor(windowBackground());
+    },
+  );
+  // 运行时防止系统休眠（设置 → 常规）：渲染进程在“有回合在跑且打开了这一项”变化时告诉这里。
+  let sleepBlocker: number | undefined;
+  ipcMain.handle(IPC_CHANNELS.setPreventSleep, async (event, active: unknown): Promise<void> => {
+    assertSender(event);
+    if (typeof active !== 'boolean') throw new Error('active must be a boolean');
+    if (active && sleepBlocker === undefined) {
+      sleepBlocker = powerSaveBlocker.start('prevent-app-suspension');
+    } else if (!active && sleepBlocker !== undefined) {
+      powerSaveBlocker.stop(sleepBlocker);
+      sleepBlocker = undefined;
+    }
   });
 
   // 系统通知（U31）：显示中的通知按 tag 留着引用，否则可能被回收，点击就没有回调了。同一个 tag 的新通知替换旧的。
@@ -605,11 +629,16 @@ function run(): void {
   });
 }
 
+/** 渲染进程打开了半透明侧栏（macOS，setTranslucentSidebar）。 */
+let translucentSidebar = false;
+
 /**
  * 窗口底色，与渲染进程的 --background（tokens.css）一致，窗口缩放露出未绘制区域时不闪色。
  * 启动时 themeSource 是 'system'，渲染进程按存储的主题模式调用 setThemeSource 后再更新。
  */
 function windowBackground(): string {
+  // 半透明侧栏：窗口底色透明，露出 vibrancy 的材质（页面的内容区自己画不透明的底色）。
+  if (translucentSidebar) return '#00000000';
   return THEME_BACKGROUND[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
 }
 

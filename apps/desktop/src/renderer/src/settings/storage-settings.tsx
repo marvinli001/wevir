@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { describe } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
@@ -17,23 +18,30 @@ import {
   type StorageUsage,
 } from '../../../shared/storage.js';
 import { LIST_CARD, NoticeBanner, SettingsRow, SettingsSection } from './settings-ui';
-import { SessionStorageSections } from './storage-sessions';
+import { SessionStorageCard } from './storage-sessions';
 
-/** 条形图与图例的颜色：静器没有彩色的强调色，各类是同一种墨色的深浅（desktop-tokens.md §53）。 */
+/** 占用条与图例的颜色：每类一种图表色（tokens.css 的 --chart-*，照 Codex 桌面端的存储页）。 */
 const TONE: Record<StorageCategory, string> = {
-  sessions: 'bg-foreground/85',
-  worktrees: 'bg-foreground/65',
-  engines: 'bg-foreground/48',
-  cache: 'bg-foreground/34',
-  browser: 'bg-foreground/24',
-  logs: 'bg-foreground/16',
-  other: 'bg-foreground/10',
+  sessions: 'bg-chart-1',
+  worktrees: 'bg-chart-2',
+  engines: 'bg-chart-3',
+  cache: 'bg-chart-4',
+  browser: 'bg-chart-5',
+  logs: 'bg-chart-6',
+  other: 'bg-chart-7',
 };
 
+function Dot({ category, className }: { category: StorageCategory; className?: string }) {
+  return (
+    <span aria-hidden className={cn('size-2 shrink-0 rounded-full', TONE[category], className)} />
+  );
+}
+
 /**
- * 设置 → 存储（照 Codex 桌面端的 Storage）：数据目录一共占了多少、分在哪几类（条形图加图例）、目录在哪；下面勾选缓存、
- * 内置浏览器的数据与日志清理；Host 有 `session_delete`（0.43.0）时再列已归档的会话（勾选后永久删除）与工作树
- * （storage-sessions.tsx）。量数据目录与清理在主进程（main/storage.ts），按会话的占用与删除经 Host。
+ * 设置 → 存储（照 Codex 桌面端的 Storage）：“此设备”下面是 Wevir 一共占了多少、彩色的占用条（悬停一段或图例看这一类）、
+ * 每类的图例与大小、数据目录在哪；然后一张卡片逐类清理缓存、内置浏览器的数据与日志；最后一张卡片是按会话的清理与工作树
+ * （Host 有 `session_delete` 时，storage-sessions.tsx，在对话框里看和删）与“已归档的会话”的入口。量数据目录与清理在主进程
+ * （main/storage.ts），按会话的占用与删除经 Host。
  */
 export function StorageSettings() {
   const navigate = useNavigate();
@@ -41,10 +49,15 @@ export function StorageSettings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [selected, setSelected] = useState<ReadonlySet<CleanableCategory>>(new Set());
+  const [cleaning, setCleaning] = useState<CleanableCategory>();
   const [confirming, setConfirming] = useState(false);
+  const [hovered, setHovered] = useState<StorageCategory>();
   const locale = currentLocale();
   const size = useCallback((bytes: number) => formatFileSize(bytes, locale), [locale]);
+  const percent = useMemo(
+    () => new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }),
+    [locale],
+  );
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -71,81 +84,100 @@ export function StorageSettings() {
     const map = new Map(usage?.categories.map((category) => [category.id, category.bytes]));
     return (id: StorageCategory) => map.get(id) ?? 0;
   }, [usage]);
-  const selectedBytes = [...selected].reduce((sum, id) => sum + bytesOf(id), 0);
 
-  const toggle = (id: CleanableCategory) =>
-    setSelected((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
-  const clean = async () => {
+  const clean = async (category: CleanableCategory) => {
     const before = usage?.total ?? 0;
-    const next = await window.wevir.cleanStorage([...selected]);
+    const next = await window.wevir.cleanStorage([category]);
     setUsage(next);
-    setSelected(new Set());
     setNotice(t('settings.storage.cleaned', { size: size(Math.max(0, before - next.total)) }));
   };
 
+  const segments =
+    usage && usage.total > 0 ? usage.categories.filter((category) => category.bytes > 0) : [];
+
   return (
     <>
-      <SettingsSection
-        title={t('settings.storage.device')}
-        action={
-          <Button variant="outline" size="sm" onClick={refresh} disabled={loading}>
-            <RotateCw aria-hidden className={cn(loading && 'animate-spin')} />
-            {t('settings.storage.refresh')}
-          </Button>
-        }
-      >
-        {error && <NoticeBanner notice={{ tone: 'error', text: error }} />}
-        <div className="rounded-xl border border-border bg-card p-4" data-testid="storage-usage">
-          <div className="text-sm font-medium tabular-nums">
-            {usage
-              ? t('settings.storage.used', { size: size(usage.total) })
-              : t('settings.storage.measuring')}
+      <SettingsSection title={t('settings.storage.device')}>
+        {error && (
+          <div className="mb-3">
+            <NoticeBanner notice={{ tone: 'error', text: error }} />
+          </div>
+        )}
+        <div data-testid="storage-usage">
+          <div className="flex items-center gap-3">
+            <span className="min-w-0 flex-1 truncate text-sm font-semibold tabular-nums">
+              {usage
+                ? t('settings.storage.used', { size: size(usage.total) })
+                : t('settings.storage.measuring')}
+            </span>
+            <Button variant="secondary" size="sm" onClick={refresh} disabled={loading}>
+              <RotateCw aria-hidden className={cn(loading && 'animate-spin')} />
+              {t('settings.storage.refresh')}
+            </Button>
           </div>
           <div
-            className="mt-3 flex h-2.5 gap-0.5 overflow-hidden rounded-full bg-muted"
-            aria-hidden
+            className={cn(
+              'mt-3 flex h-3.5 gap-0.5 overflow-hidden rounded-full',
+              segments.length === 0 && 'bg-muted',
+              segments.length === 0 && loading && 'animate-pulse',
+            )}
+            onPointerLeave={() => setHovered(undefined)}
           >
             {usage &&
-              usage.total > 0 &&
-              usage.categories
-                .filter((category) => category.bytes > 0)
-                .map((category) => (
-                  <div
-                    key={category.id}
-                    className={cn(
-                      'h-full min-w-1 transition-[flex-grow] duration-500 ease-smooth',
-                      TONE[category.id],
-                    )}
-                    style={{ flexGrow: category.bytes / usage.total }}
+              segments.map((category) => (
+                <Tooltip key={category.id}>
+                  <TooltipTrigger
+                    render={
+                      <div
+                        role="img"
+                        aria-label={`${t(`settings.storage.category.${category.id}`)} ${size(category.bytes)}`}
+                        data-storage-segment={category.id}
+                        onPointerEnter={() => setHovered(category.id)}
+                        className={cn(
+                          'h-full min-w-1 transition-[flex-grow,opacity] duration-500 ease-smooth first:rounded-l-full last:rounded-r-full',
+                          TONE[category.id],
+                          hovered !== undefined && hovered !== category.id && 'opacity-35',
+                        )}
+                        style={{ flexGrow: category.bytes / usage.total }}
+                      />
+                    }
                   />
-                ))}
+                  <TooltipContent>
+                    {t(`settings.storage.category.${category.id}`)} · {size(category.bytes)} ·{' '}
+                    {percent.format(category.bytes / usage.total)}
+                  </TooltipContent>
+                </Tooltip>
+              ))}
           </div>
-          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-4">
+          <dl className="mt-4 flex flex-wrap gap-x-7 gap-y-3">
             {(usage?.categories ?? []).map((category) => (
-              <div key={category.id} className="min-w-0" data-storage-category={category.id}>
-                <dt className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <span
-                    aria-hidden
-                    className={cn('size-2 shrink-0 rounded-full', TONE[category.id])}
-                  />
+              <div
+                key={category.id}
+                className={cn(
+                  'min-w-0 transition-opacity duration-200',
+                  hovered !== undefined && hovered !== category.id && 'opacity-45',
+                )}
+                data-storage-category={category.id}
+                onPointerEnter={() => category.bytes > 0 && setHovered(category.id)}
+                onPointerLeave={() => setHovered(undefined)}
+              >
+                <dt className="flex items-center gap-1.5 text-xs text-soft-foreground">
+                  <Dot category={category.id} />
                   <span className="truncate">{t(`settings.storage.category.${category.id}`)}</span>
                 </dt>
-                <dd className="mt-0.5 pl-3.5 text-xs tabular-nums">{size(category.bytes)}</dd>
+                <dd className="mt-0.5 pl-3.5 text-xs text-muted-foreground tabular-nums">
+                  {size(category.bytes)}
+                </dd>
               </div>
             ))}
           </dl>
           {usage && (
-            <div className="mt-3 flex items-center gap-1 border-t border-border pt-3">
-              <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+            <div className="mt-3 flex items-center gap-1">
+              <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">
                 {usage.root}
               </span>
               <IconButton
+                size="icon-xs"
                 label={t(IS_MAC ? 'files.revealFinder' : 'files.revealFolder')}
                 onClick={() => void window.wevir.revealPath(usage.root).catch(() => undefined)}
               >
@@ -156,78 +188,57 @@ export function StorageSettings() {
         </div>
       </SettingsSection>
 
-      <SettingsSection
-        title={t('settings.storage.clean')}
-        action={
-          <Button
-            size="sm"
-            disabled={selected.size === 0 || loading}
-            onClick={() => setConfirming(true)}
-            data-action="clean-storage"
-          >
-            {t('settings.storage.cleanSelected')}
-          </Button>
-        }
-      >
+      <section className="mb-9 space-y-3 last:mb-0">
         {notice && <NoticeBanner notice={{ tone: 'success', text: notice }} />}
         <div className={LIST_CARD}>
           {CLEANABLE_CATEGORIES.map((id) => (
-            <label
+            <SettingsRow
               key={id}
-              className="flex min-h-12 cursor-default items-center gap-3 px-4 py-2.5 text-sm"
               data-clean-category={id}
-            >
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
-                checked={selected.has(id)}
-                disabled={loading}
-                onChange={() => toggle(id)}
-              />
-              <span className="min-w-0 flex-1 font-medium">
-                {t(`settings.storage.category.${id}`)}
-              </span>
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {usage ? size(bytesOf(id)) : '—'}
-              </span>
-            </label>
+              title={
+                <span className="flex items-center gap-2">
+                  <Dot category={id} />
+                  {t(`settings.storage.category.${id}`)}
+                </span>
+              }
+              control={
+                <>
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {usage ? size(bytesOf(id)) : '—'}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={loading || !usage || bytesOf(id) === 0}
+                    onClick={() => {
+                      setCleaning(id);
+                      setConfirming(true);
+                    }}
+                    data-action="clean-storage"
+                  >
+                    {t('settings.storage.clean')}
+                  </Button>
+                </>
+              }
+            />
           ))}
         </div>
-      </SettingsSection>
-
-      <SessionStorageSections onDeleted={refresh} />
-
-      <SettingsSection title={t('settings.storage.manage')}>
-        <div className={LIST_CARD}>
-          <SettingsRow
-            title={t('settings.tab.archived')}
-            control={
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => navigate(paths.settings('archived'), { replace: true })}
-              >
-                {t('settings.storage.open')}
-              </Button>
-            }
-          />
-        </div>
-      </SettingsSection>
+        <SessionStorageCard
+          onDeleted={refresh}
+          onOpenArchived={() => navigate(paths.settings('archived'), { replace: true })}
+        />
+      </section>
 
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title={t('settings.storage.cleanTitle', { size: size(selectedBytes) })}
-        confirmLabel={t('settings.storage.cleanSelected')}
-        onConfirm={clean}
+        title={t('settings.storage.cleanTitle', { size: size(cleaning ? bytesOf(cleaning) : 0) })}
+        confirmLabel={t('settings.storage.clean')}
+        onConfirm={() => (cleaning ? clean(cleaning) : Promise.resolve())}
         failure={(reason) => t('settings.storage.cleanFailed', { error: reason })}
       >
-        <p>
-          {CLEANABLE_CATEGORIES.filter((id) => selected.has(id))
-            .map((id) => t(`settings.storage.category.${id}`))
-            .join(t('common.listSeparator'))}
-        </p>
-        {selected.has('browser') && <p>{t('settings.storage.browserWarning')}</p>}
+        {cleaning && <p>{t(`settings.storage.category.${cleaning}`)}</p>}
+        {cleaning === 'browser' && <p>{t('settings.storage.browserWarning')}</p>}
       </ConfirmDialog>
     </>
   );

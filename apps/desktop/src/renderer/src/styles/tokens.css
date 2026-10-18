@@ -49,6 +49,15 @@
   --code-number: var(--ochre-deep);
   --code-title: var(--red-deep);
 
+  /* 图表的分类色（设置 → 存储的占用条）：只用于图形。 */
+  --chart-1: var(--amber-vivid);
+  --chart-2: var(--violet-vivid);
+  --chart-3: var(--sky-vivid);
+  --chart-4: var(--coral-vivid);
+  --chart-5: var(--jade-vivid);
+  --chart-6: var(--rose-vivid);
+  --chart-7: var(--stone-vivid);
+
   /* 遮罩与阴影。静器只有一档阴影，卡片默认不带，浮起的东西（输入框、浮层、菜单）才带。 */
   --overlay: color-mix(in oklab, var(--ivory-9) 25%, transparent);
   --elevation: 0 1px 2px rgba(26, 26, 23, 0.05), 0 10px 30px -16px rgba(26, 26, 23, 0.18);
@@ -88,6 +97,14 @@
   --code-string: var(--green-pale);
   --code-number: var(--ochre-pale);
   --code-title: var(--red-pale);
+
+  --chart-1: var(--amber-soft);
+  --chart-2: var(--violet-soft);
+  --chart-3: var(--sky-soft);
+  --chart-4: var(--coral-soft);
+  --chart-5: var(--jade-soft);
+  --chart-6: var(--rose-soft);
+  --chart-7: var(--stone-soft);
 
   --overlay: color-mix(in oklab, var(--graphite-1) 60%, transparent);
   --elevation: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
@@ -134,6 +151,11 @@
     "Microsoft YaHei", "Noto Sans CJK SC", monospace;
   --font-display:
     "Wevir Display", "Noto Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", "SimSun", serif;
+  /* 消息正文的字体，默认同界面；设置 → 外观的“内容字体”会盖掉它（theme/appearance-model.ts）。 */
+  --font-content: var(--font-ui);
+
+  /* 消息里的代码（代码块、行内代码、工具输出）的字号，设置 → 外观的“代码字体大小”会盖掉它；差异视图比它小 1px。 */
+  --text-code: 0.8125rem;
 }
 
 /* 界面语言（<html lang>，i18n/index.ts 设置）换字体栈：汉字按语言用对应地区的字形（日文、韩文、繁体不落到简体字形），

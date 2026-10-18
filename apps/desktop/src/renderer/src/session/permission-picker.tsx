@@ -43,8 +43,38 @@ const lastMode = createPersistedStore<PermissionMode>(
   (raw) => (MODES.includes(raw as PermissionMode) ? (raw as PermissionMode) : undefined),
 );
 
+/** 可以关掉的权限模式（请求批准一直在）。 */
+export type OptionalPermissionMode = Exclude<PermissionMode, 'on_request'>;
+
+/**
+ * 设置 → 常规 → 权限（照 Codex 桌面端）：输入框的权限菜单里出现哪几种模式，只存在本机，默认都有。关掉的模式不再能选；
+ * 已经在用它的会话照样显示。
+ */
+export const permissionModePrefs = createPersistedStore<Record<OptionalPermissionMode, boolean>>(
+  'wevir.permission-modes.v1',
+  { auto_review: true, full_access: true },
+  (raw) =>
+    typeof raw === 'object' && raw !== null
+      ? {
+          auto_review: (raw as Record<string, unknown>).auto_review !== false,
+          full_access: (raw as Record<string, unknown>).full_access !== false,
+        }
+      : undefined,
+);
+
+/** 现在能选的模式（按菜单里的先后）。 */
+export function allowedPermissionModes(
+  prefs = permissionModePrefs.get(),
+): readonly PermissionMode[] {
+  return MODES.filter((mode) => mode === 'on_request' || prefs[mode]);
+}
+
 export function usePermissionChoice() {
-  return { mode: lastMode.use(), choose: (next: PermissionMode) => lastMode.set(next) };
+  const prefs = permissionModePrefs.use();
+  const last = lastMode.use();
+  // 上次选的模式在设置里关掉了：新会话回到请求批准。
+  const mode = allowedPermissionModes(prefs).includes(last) ? last : 'on_request';
+  return { mode, choose: (next: PermissionMode) => lastMode.set(next) };
 }
 
 /**
@@ -65,6 +95,7 @@ export function PermissionPicker({
   onChange: (next: PermissionMode) => void;
 }) {
   const { icon: Icon, label } = PERMISSION_META[value];
+  const allowed = allowedPermissionModes(permissionModePrefs.use());
   const warning = value === 'full_access';
   const chipClass = cn(
     'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-colors duration-150',
@@ -112,7 +143,9 @@ export function PermissionPicker({
           value={value}
           onValueChange={(next: PermissionMode) => onChange(next)}
         >
-          {MODES.filter((mode) => mode === value || modes.includes(mode)).map((mode) => {
+          {MODES.filter(
+            (mode) => mode === value || (modes.includes(mode) && allowed.includes(mode)),
+          ).map((mode) => {
             const meta = PERMISSION_META[mode];
             const ModeIcon = meta.icon;
             return (

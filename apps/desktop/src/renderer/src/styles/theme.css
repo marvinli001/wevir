@@ -10,18 +10,19 @@
   --color-*: initial;
   --shadow-*: initial;
 
-  /* 字号阶梯：沿用 Tailwind 的名字、改掉数值（根字号仍是 16px，间距的 4px 网格不变）。 */
-  --text-xs: 0.75rem;
+  /* 字号阶梯：沿用 Tailwind 的名字、改掉数值（根字号仍是 16px，间距的 4px 网格不变）。--font-scale 是设置 → 外观的
+   * 界面字号（theme/appearance-model.ts，默认 14px 即 1），只缩放文字，不缩放间距。 */
+  --text-xs: calc(0.75rem * var(--font-scale, 1));
   --text-xs--line-height: 1.5;
-  --text-sm: 0.8125rem;
+  --text-sm: calc(0.8125rem * var(--font-scale, 1));
   --text-sm--line-height: 1.5;
-  --text-base: 0.875rem;
+  --text-base: calc(0.875rem * var(--font-scale, 1));
   --text-base--line-height: 1.55;
-  --text-lg: 1rem;
+  --text-lg: calc(1rem * var(--font-scale, 1));
   --text-lg--line-height: 1.5;
-  --text-xl: 1.125rem;
+  --text-xl: calc(1.125rem * var(--font-scale, 1));
   --text-xl--line-height: 1.4;
-  --text-2xl: 1.25rem;
+  --text-2xl: calc(1.25rem * var(--font-scale, 1));
   --text-2xl--line-height: 1.35;
 
   /* 中栏内容的最大宽度（max-w-content）。 */
@@ -176,6 +177,13 @@
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-chart-6: var(--chart-6);
+  --color-chart-7: var(--chart-7);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);

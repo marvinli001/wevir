@@ -310,6 +310,13 @@ export interface DesktopApi {
    * 渲染进程里 `prefers-color-scheme` 的取值。界面主题本身由渲染进程的 data-theme 决定（T5.2）。
    */
   setThemeSource(mode: ThemeMode): Promise<void>;
+  /**
+   * 半透明侧栏（设置 → 外观，macOS）：给窗口加上 sidebar 材质（vibrancy）并把窗口底色设成透明，页面里只有侧栏是半透明的。
+   * 其他平台不做事。
+   */
+  setTranslucentSidebar(enabled: boolean): Promise<void>;
+  /** 运行时防止系统休眠（设置 → 常规）：有回合在跑且打开了这一项时为 true，系统不会因空闲而睡眠。 */
+  setPreventSleep(active: boolean): Promise<void>;
   /** 当前的窗口标题栏形态。同步取值：preload 按平台给出初值，之后跟着主进程的推送更新。 */
   getWindowChrome(): WindowChrome;
   /** 订阅窗口标题栏形态的变化（进出全屏、页面重新加载），返回取消订阅的函数。 */
@@ -385,6 +392,8 @@ export const IPC_CHANNELS = {
   openExternal: 'wevir:open-external',
   copyText: 'wevir:copy-text',
   setThemeSource: 'wevir:set-theme-source',
+  setTranslucentSidebar: 'wevir:set-translucent-sidebar',
+  setPreventSleep: 'wevir:set-prevent-sleep',
   /** 主进程 → 渲染进程的推送。 */
   windowChrome: 'wevir:window-chrome',
   notify: 'wevir:notify',

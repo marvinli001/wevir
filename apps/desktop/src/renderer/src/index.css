@@ -25,9 +25,12 @@
   }
 
   code,
-  kbd,
   samp,
   pre {
+    font-size: var(--text-code);
+  }
+
+  kbd {
     font-size: var(--text-sm);
   }
 }
@@ -130,6 +133,20 @@
 [data-slot="context-menu-content"] {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+/* 半透明侧栏（设置 → 外观，macOS）：主进程给窗口加上 sidebar 材质、窗口底色透明（theme/appearance.ts）；页面只让侧栏
+ * 半透明，内容区仍是不透明的画布色。只在挂着支持它的布局（data-translucent-root：工作台、设置页）时生效，欢迎页等照常。 */
+:root[data-translucent-sidebar]:has([data-translucent-root]) body {
+  background-color: transparent;
+}
+
+:root[data-translucent-sidebar] [data-translucent-root] .translucent-sidebar {
+  background-color: color-mix(in oklab, var(--sidebar) 55%, transparent);
+}
+
+:root[data-translucent-sidebar] [data-translucent-root] .translucent-content {
+  background-color: var(--background);
 }
 
 /* Base UI 的 ScrollArea 靠这个类隐藏原生滚动条。它原本以内联 <style> 插入，被 CSP 拦下，所以 App.tsx 用

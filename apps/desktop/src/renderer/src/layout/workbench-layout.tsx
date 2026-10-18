@@ -254,6 +254,7 @@ export function WorkbenchLayout() {
     <PaneControllerProvider value={panes}>
       <div
         className="layout-transition relative flex h-full overflow-hidden"
+        data-translucent-root
         data-layout-sidebar={sidebarPlan.sidebar}
         data-resizing={sidebarDrag !== undefined || undefined}
         data-snapping={sidebarSnapping || undefined}
@@ -266,7 +267,7 @@ export function WorkbenchLayout() {
           aria-hidden={!docked}
           inert={!docked}
           aria-label={t('sidebar.label')}
-          className="relative shrink-0 overflow-hidden bg-sidebar text-sidebar-foreground"
+          className="translucent-sidebar relative shrink-0 overflow-hidden bg-sidebar text-sidebar-foreground"
           style={{ width: 'var(--sidebar-shown)' }}
         >
           <div
@@ -331,7 +332,7 @@ export function WorkbenchLayout() {
           </SheetContent>
         </Sheet>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="translucent-content flex min-w-0 flex-1 flex-col">
           <header
             className={cn(
               'app-drag flex h-11 shrink-0 items-center gap-2 pr-3',
