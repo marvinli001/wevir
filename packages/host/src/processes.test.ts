@@ -27,13 +27,17 @@ afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.close()));
 });
 
-function setup(env: NodeJS.ProcessEnv = { PATH: process.env.PATH, SHELL: '/bin/sh' }) {
+function setup(
+  env: NodeJS.ProcessEnv = { PATH: process.env.PATH, SHELL: '/bin/sh' },
+  extra: { logRotateBytes?: number } = {},
+) {
   const root = tempDir();
   const notices: ProcessNotice[] = [];
   const manager = new ProcessManager({
     output: new ToolOutputStore(join(root, 'tool-output')),
     onNotice: (notice) => notices.push(notice),
     env,
+    ...extra,
   });
   managers.push(manager);
   const never = new AbortController().signal;
@@ -77,6 +81,43 @@ describe.runIf(posix)('ProcessManager', () => {
     const since = await h.manager.read(A, 'p1', read.next - 5);
     expect(since.text).toBe('oops\n');
     expect(h.manager.tail(A, 'p1')).toBe('first\nred\noops');
+  });
+
+  it('日志换过几次文件之后，从偏移量读到的结尾还是真正的结尾', async () => {
+    const h = setup(undefined, { logRotateBytes: 256 * 1024 });
+    // 突发写 900 KB（超过一次换文件），中间不给换文件的间隙留喘息。
+    await h.manager.start(A, {
+      command: 'yes 0123456789abcdef0123456789abcdef | head -c 900000; echo; echo FINISHED-BIG',
+      cwd: h.root,
+      notifyOnExit: false,
+    });
+    expect(await h.manager.wait(A, 'p1', undefined, 10_000, h.never)).toEqual({ reason: 'exit' });
+    const info = h.manager.info(A, 'p1');
+    // 换文件是异步的：read 等它做完。
+    await h.manager.read(A, 'p1');
+    const rotated = readFileSync(`${info.logPath}.1`).length;
+    const current = readFileSync(info.logPath).length;
+    // 只留一份旧的：最早的一次换出去的被盖掉，所以只能核对“当前的 + 上一份”不比总数多、且当前的连着上一份。
+    expect(current).toBeLessThanOrEqual(info.bytes);
+    expect(rotated + current).toBeLessThanOrEqual(info.bytes);
+    const read = await h.manager.read(A, 'p1', Math.max(0, info.bytes - 64 * 1024));
+    expect(read.text.trimEnd().endsWith('FINISHED-BIG')).toBe(true);
+    expect(read.next).toBe(info.bytes);
+  });
+
+  it('日志只换一次时 .1 加当前的正好等于写过的总数', async () => {
+    const h = setup(undefined, { logRotateBytes: 600 * 1024 });
+    await h.manager.start(A, {
+      command: 'yes 0123456789abcdef0123456789abcdef | head -c 900000; echo; echo FINISHED-BIG',
+      cwd: h.root,
+      notifyOnExit: false,
+    });
+    expect(await h.manager.wait(A, 'p1', undefined, 10_000, h.never)).toEqual({ reason: 'exit' });
+    const info = h.manager.info(A, 'p1');
+    await h.manager.read(A, 'p1');
+    expect(readFileSync(`${info.logPath}.1`).length + readFileSync(info.logPath).length).toBe(
+      info.bytes,
+    );
   });
 
   it('notifyPattern 只通知一次；wait 的模式不算之前的输出；等到的匹配不另通知', async () => {

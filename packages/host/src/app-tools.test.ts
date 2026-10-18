@@ -689,6 +689,25 @@ describe('应用级工具', () => {
     expect(h.errors).toEqual([]);
   });
 
+  it('请求方的 wait 已经因为对方在等批准而返回：不再另发一条“在等用户”的回报', async () => {
+    // 每一步慢一点，保证 wait 先挂上、对方后卡住（反过来的次序里请求方早被通知过，没有要抑制的）。
+    const h = await setup(80);
+    const caller = await h.create({ permissionMode: 'full_access' });
+    const opened = await h.call(caller, 'wevir_session_create', {
+      message: 'approve please',
+      permissionMode: 'on_request',
+    });
+    const child = opened.sessionId as SessionId;
+    // wait 在对方卡住的那一刻返回（也可能对方已经卡住，立刻返回）。
+    const waited = await h.call(caller, 'wevir_session_wait', { sessionId: child });
+    expect(waited).toMatchObject({ timedOut: false });
+    expect(h.state(child)).toBe('awaiting_approval');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(
+      h.all(caller).filter((e) => e.type === 'user.message' && e.payload.from?.kind === 'report'),
+    ).toEqual([]);
+  });
+
   it('不要求回报的会话卡在等用户上时，不打扰请求方', async () => {
     const h = await setup();
     const caller = await h.create();

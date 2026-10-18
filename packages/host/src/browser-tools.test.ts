@@ -529,9 +529,10 @@ describe('browserToolResult（0.48.0）', () => {
     expect(download('too_large')).toBe(
       'The download of "r.csv" from http://a.test/r.csv was cancelled: it is larger than 500 MB.',
     );
-    expect(download('interrupted')).toBe(
-      'The download of "r.csv" from http://a.test/r.csv ended as interrupted after 2 KB; nothing was saved.',
+    expect(download('interrupted')).toContain(
+      'The download of "r.csv" from http://a.test/r.csv ended as interrupted after 2 KB; nothing was saved. The server probably refused it',
     );
+    expect(download('interrupted')).toContain('browser_network');
   });
 });
 

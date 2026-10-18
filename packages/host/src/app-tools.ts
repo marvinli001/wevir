@@ -162,6 +162,11 @@ export class AppTools {
    * 正忙时，回报先排了队；之后等到同一个回合的结果，就把排队的回报撤回。
    */
   readonly #queuedReports = new Map<string, { target: SessionId; pendingId: PendingMessageId }>();
+  /**
+   * 请求方的 `wevir_session_wait` 刚因为对方在等用户而返回：`目标\0请求方` → 当时的时刻。接着到的“对方在等用户”回报就不再发
+   * （请求方已经从 wait 得知）。
+   */
+  readonly #waitSawBlocked = new Map<string, number>();
 
   constructor(options: AppToolsOptions) {
     this.#options = options;
@@ -1328,14 +1333,22 @@ export class AppTools {
       open.add(blocked.id);
       if (!first || notices >= BLOCKED_NOTICES_MAX) return;
       notices += 1;
-      setImmediate(() => this.#reportBlocked(target, requester, blocked.what));
+      const blockedAt = Date.now();
+      setImmediate(() => this.#reportBlocked(target, requester, blocked.what, blockedAt));
     });
     watch.stop = () => subscription.unsubscribe();
   }
 
-  #reportBlocked(target: SessionId, requester: SessionId, what: string): void {
+  #reportBlocked(target: SessionId, requester: SessionId, what: string, blockedAt: number): void {
     try {
       if (this.#waiters.get(target)?.has(requester)) return;
+      // 请求方的 wait 在这次卡住时就返回了（`awaiting_approval`）：它已经知道，不再说一遍。
+      const seenKey = `${target}\u0000${requester}`;
+      const seen = this.#waitSawBlocked.get(seenKey);
+      if (seen !== undefined) {
+        this.#waitSawBlocked.delete(seenKey);
+        if (seen >= blockedAt - 1000) return;
+      }
       const session = this.#options.events.snapshot(target)?.session;
       if (session?.activeTurn === undefined) return;
       const title = session.title === '' ? '' : ` "${session.title}"`;
@@ -1394,6 +1407,20 @@ export class AppTools {
     }
   }
 
+  /** wait 因为对方在等批准或回答而返回时记一笔（见 `#waitSawBlocked`）。 */
+  #noteBlockedWait(target: SessionId, caller: SessionId): void {
+    const session = this.#options.events.snapshot(target)?.session;
+    if (session === undefined) return;
+    if (session.state !== 'awaiting_approval' && session.awaitingInput !== true) return;
+    const now = Date.now();
+    this.#waitSawBlocked.set(`${target}\u0000${caller}`, now);
+    if (this.#waitSawBlocked.size > 100) {
+      for (const [key, at] of this.#waitSawBlocked) {
+        if (now - at > 60_000) this.#waitSawBlocked.delete(key);
+      }
+    }
+  }
+
   /** 等会话不再工作；超时返回 `true`。调用方断开时提前返回。 */
   #waitFor(
     target: SessionId,
@@ -1410,7 +1437,10 @@ export class AppTools {
         session.awaitingInput === true
       );
     };
-    if (settled()) return Promise.resolve(false);
+    if (settled()) {
+      this.#noteBlockedWait(target, caller);
+      return Promise.resolve(false);
+    }
     const waiting = this.#waiters.get(target) ?? new Map<SessionId, number>();
     this.#waiters.set(target, waiting);
     waiting.set(caller, (waiting.get(caller) ?? 0) + 1);
@@ -1426,6 +1456,7 @@ export class AppTools {
         if (count > 0) waiting.set(caller, count);
         else waiting.delete(caller);
         if (waiting.size === 0) this.#waiters.delete(target);
+        if (!timedOut) this.#noteBlockedWait(target, caller);
         done(timedOut);
       };
       const onAbort = () => finish(true);

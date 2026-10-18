@@ -8,6 +8,7 @@ import {
   isObject,
   ToolNames,
   toChatTools,
+  withMcpNotes,
 } from '../tools.js';
 import type {
   ChatContentPart,
@@ -110,7 +111,11 @@ const DROPPED_FIELDS = [
   'user',
 ] as const;
 
-export function toChatRequest(body: ResponsesRequest, provider: GatewayProvider): ChatTranslation {
+export function toChatRequest(
+  original: ResponsesRequest,
+  provider: GatewayProvider,
+): ChatTranslation {
+  const body = withMcpNotes(original);
   const compat = effectiveCompat(provider);
   const baseURL = provider.baseURL ?? '';
   const names = new ToolNames();

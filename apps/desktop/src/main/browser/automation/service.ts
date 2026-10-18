@@ -917,12 +917,12 @@ function staleRefFailure(
   );
 }
 
-/** 文件输入框：Wevir 不把本机文件交给网页（没有 browser_upload）。 */
+/** 文件输入框填不了字：文件经 browser_upload 交给它（只许会话文件夹里的）。 */
 function fileInputFailure(requestId: string, ref: string): FailurePayload {
   return fail(
     requestId,
     'browser_unsupported',
-    `${ref} is a file input. The Wevir browser does not give pages files from this computer; ask the user to choose the file in the browser pane.`,
+    `${ref} is a file input; browser_fill cannot set files. Use browser_upload with this ref and the paths of files in this session's folder.`,
   );
 }
 
@@ -1801,13 +1801,24 @@ async function executeEvaluate(
 
 const EVALUATE_TIMED_OUT = Symbol('timed out');
 
-/** 用主进程的 V8 检查语法（`vm.Script` 只编译、不运行）；没问题时返回 undefined。 */
+/**
+ * 用主进程的 V8 检查语法（`vm.Script` 只编译、不运行）；没问题时返回 undefined。包着源码的外壳会改变错误的样子（`() => {`
+ * 少了一半时报 `Unexpected token ')'`，真正的问题是 `Unexpected end of input`），所以包着编译失败时再单独编译一次源码，
+ * 取它的说法；单独编译只因为 `await` 失败时仍用包着的那条。
+ */
 export function syntaxError(source: string): string | undefined {
   try {
     new Script(`(async () => (\n${source}\n))`);
     return undefined;
   } catch (error) {
-    return error instanceof Error ? error.message : String(error);
+    const wrapped = error instanceof Error ? error.message : String(error);
+    try {
+      new Script(source);
+    } catch (alone) {
+      const message = alone instanceof Error ? alone.message : String(alone);
+      if (!/\bawait\b/.test(message)) return message;
+    }
+    return wrapped;
   }
 }
 

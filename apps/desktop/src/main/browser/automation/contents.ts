@@ -699,7 +699,30 @@ class TabMonitor {
         return;
       case 'Network.responseReceived': {
         const record = this.#find(params.requestId);
-        if (record) applyResponse(record, params.response);
+        if (record) {
+          applyResponse(record, params.response);
+          const extra = this.#takeExtra(record.cdpRequestId, 'response');
+          if (extra) mergeHeaders(record, 'responseHeaders', extra);
+        }
+        return;
+      }
+      case 'Network.requestWillBeSentExtraInfo': {
+        // 页面能看到的头之外，浏览器实际发出的（Cookie 等）在这里；可能比 requestWillBeSent 先到。
+        if (typeof params.requestId !== 'string' || !isRecord(params.headers)) return;
+        const record = this.#find(params.requestId);
+        if (record) mergeHeaders(record, 'requestHeaders', params.headers);
+        else this.#stashExtra(params.requestId, 'request', params.headers);
+        return;
+      }
+      case 'Network.responseReceivedExtraInfo': {
+        // 同上：响应的 Set-Cookie 等只在这里。
+        if (typeof params.requestId !== 'string' || !isRecord(params.headers)) return;
+        const record = this.#find(params.requestId);
+        if (record?.status === undefined) {
+          this.#stashExtra(params.requestId, 'response', params.headers);
+        } else if (params.statusCode === undefined || params.statusCode === record.status) {
+          mergeHeaders(record, 'responseHeaders', params.headers);
+        }
         return;
       }
       case 'Network.requestServedFromCache': {
@@ -766,9 +789,40 @@ class TabMonitor {
       ...(request.hasPostData === true && { hasPostData: true }),
     });
     this.#networkTotal += 1;
+    const extra = this.#takeExtra(params.requestId, 'request');
+    const added = this.#network[this.#network.length - 1];
+    if (extra && added) mergeHeaders(added, 'requestHeaders', extra);
     if (this.#network.length > MAX_NETWORK_ENTRIES_PER_TAB) {
       this.#network = this.#network.slice(-MAX_NETWORK_ENTRIES_PER_TAB);
     }
+  }
+
+  /** 比主事件先到的额外头先放着，主事件到了再合并（每个标签页最多记着 200 条）。 */
+  #extraHeaders = new Map<
+    string,
+    { request?: Record<string, unknown>; response?: Record<string, unknown> }
+  >();
+
+  #stashExtra(requestId: string, kind: 'request' | 'response', headers: Record<string, unknown>) {
+    const entry = this.#extraHeaders.get(requestId) ?? {};
+    entry[kind] = headers;
+    this.#extraHeaders.delete(requestId);
+    this.#extraHeaders.set(requestId, entry);
+    if (this.#extraHeaders.size > 200) {
+      const oldest = this.#extraHeaders.keys().next().value;
+      if (oldest !== undefined) this.#extraHeaders.delete(oldest);
+    }
+  }
+
+  #takeExtra(requestId: string, kind: 'request' | 'response'): Record<string, unknown> | undefined {
+    const entry = this.#extraHeaders.get(requestId);
+    const headers = entry?.[kind];
+    if (entry === undefined || headers === undefined) return undefined;
+    delete entry[kind];
+    if (entry.request === undefined && entry.response === undefined) {
+      this.#extraHeaders.delete(requestId);
+    }
+    return headers;
   }
 
   #find(requestId: unknown): NetworkRecord | undefined {
@@ -779,6 +833,22 @@ class TabMonitor {
     }
     return undefined;
   }
+}
+
+/** 把 ExtraInfo 里的头并进记录：它是实际收发的完整一份，同名（不分大小写）的以它为准。 */
+function mergeHeaders(
+  record: NetworkRecord,
+  field: 'requestHeaders' | 'responseHeaders',
+  extra: Record<string, unknown>,
+): void {
+  const merged: Record<string, unknown> = { ...record[field] };
+  for (const [name, value] of Object.entries(extra)) {
+    for (const key of Object.keys(merged)) {
+      if (key.toLowerCase() === name.toLowerCase()) delete merged[key];
+    }
+    merged[name] = value;
+  }
+  record[field] = merged;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -234,6 +234,52 @@ describe('对话中间的 developer 消息（compat.systemMessageMode）', () =>
   });
 });
 
+describe('MCP 服务的说明', () => {
+  const namespace = (name: string, description: string | undefined) => ({
+    type: 'namespace',
+    name,
+    ...(description === undefined ? {} : { description }),
+    tools: [{ type: 'function', name: 'ping', parameters: { type: 'object' } }],
+  });
+
+  it('命名空间工具的说明（Codex 放 MCP 服务的 instructions 的地方）接在 system 消息后面，不随摊平丢掉', () => {
+    const { request: chat } = toChatRequest(
+      request([user('u')], {
+        instructions: 'base',
+        tools: [
+          namespace('mcp__wevir__', 'Use wevir_process_start for dev servers.'),
+          namespace('mcp__other__', 'Tools in the mcp__other__ namespace.'),
+          namespace('mcp__empty__', ' \n '),
+          namespace('multi_agent_v1', 'Tools for spawning and managing sub-agents.'),
+        ],
+      }),
+      provider(),
+    );
+    const system = chat.messages[0]?.content as string;
+    expect(chat.messages[0]?.role).toBe('system');
+    expect(system.startsWith('base\n\n# Instructions from MCP servers')).toBe(true);
+    expect(system).toContain('## mcp__wevir__\nUse wevir_process_start for dev servers.');
+    // 默认句、空白、Codex 自带的命名空间都不加。
+    expect(system).not.toContain('mcp__other__');
+    expect(system).not.toContain('mcp__empty__');
+    expect(system).not.toContain('sub-agents');
+  });
+
+  it('没有 instructions 时说明自己成为第一条 system 消息；没有说明时请求不变', () => {
+    const withNotes = toChatRequest(
+      request([user('u')], { tools: [namespace('mcp__a__', 'Note A.')] }),
+      provider(),
+    ).request;
+    expect(withNotes.messages[0]).toMatchObject({ role: 'system' });
+    expect(withNotes.messages[0]?.content).toContain('Note A.');
+    const plain = toChatRequest(
+      request([user('u')], { tools: [namespace('mcp__a__', undefined)] }),
+      provider(),
+    ).request;
+    expect(roles(plain.messages)).toEqual(['user']);
+  });
+});
+
 describe('工具名', () => {
   it('namespace 摊平后超过 64 个字符或含非法字符：改成截断加哈希，历史调用与工具定义得到同一个名字', () => {
     const namespace = 'mcp__a_really_long_server_name_for_testing.example';

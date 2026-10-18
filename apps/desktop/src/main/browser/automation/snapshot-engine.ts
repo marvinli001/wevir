@@ -137,21 +137,53 @@ const PAGE_BODY_SHARE = 0.75;
 /** 一行最长多少字节（超长的文字截断）。 */
 const MAX_LINE_BYTES = 600;
 
+export type SnapshotInput = {
+  browserId: string;
+  page: SnapshotPage;
+  /** 从第几行开始（从 0 起）。 */
+  offset?: number;
+  /** 一段的字节预算，默认 `BROWSER_SNAPSHOT_PAGE_BYTES`。 */
+  pageBytes?: number;
+  /** 列出子 frame：接跨域 frame、按引用找它所在的 frame 时用。 */
+  frames?: () => Promise<TabFrame[]>;
+} & SnapshotScope;
+
+export interface QueryInput {
+  browserId: string;
+  page: SnapshotPage;
+  /** 元素所在 frame 的编号；顶层是空串。 */
+  frame: string;
+  selector: string;
+  maxResults: number;
+  attributes?: readonly string[];
+}
+
+export type QueryResult =
+  | { ok: true; count: number; elements: QueriedElement[] }
+  | { ok: false; reason: 'invalid_selector'; message: string };
+
 export class BrowserSnapshotEngine {
   private readonly statesByBrowserId = new Map<string, BrowserRefState>();
+  /** 每个标签页上快照与查询排队做：引用的编号一次只发一批（并行的 browser_query 以前会拿到同一个编号）。 */
+  private readonly serialByBrowserId = new Map<string, Promise<unknown>>();
 
-  async snapshot(
-    input: {
-      browserId: string;
-      page: SnapshotPage;
-      /** 从第几行开始（从 0 起）。 */
-      offset?: number;
-      /** 一段的字节预算，默认 `BROWSER_SNAPSHOT_PAGE_BYTES`。 */
-      pageBytes?: number;
-      /** 列出子 frame：接跨域 frame、按引用找它所在的 frame 时用。 */
-      frames?: () => Promise<TabFrame[]>;
-    } & SnapshotScope,
-  ): Promise<BrowserAriaSnapshot | SnapshotFailure> {
+  private async serial<T>(browserId: string, run: () => Promise<T>): Promise<T> {
+    const previous = this.serialByBrowserId.get(browserId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(run);
+    this.serialByBrowserId.set(browserId, current);
+    try {
+      return await current;
+    } finally {
+      if (this.serialByBrowserId.get(browserId) === current)
+        this.serialByBrowserId.delete(browserId);
+    }
+  }
+
+  snapshot(input: SnapshotInput): Promise<BrowserAriaSnapshot | SnapshotFailure> {
+    return this.serial(input.browserId, () => this.takeSnapshot(input));
+  }
+
+  private async takeSnapshot(input: SnapshotInput): Promise<BrowserAriaSnapshot | SnapshotFailure> {
     const maxNodes = Math.min(
       Math.max(1, input.maxNodes ?? BROWSER_SNAPSHOT_DEFAULT_NODES),
       BROWSER_SNAPSHOT_MAX_NODES,
@@ -288,18 +320,11 @@ export class BrowserSnapshotEngine {
   /**
    * 按 CSS 选择器找元素（browser_query），前 `maxResults` 个给引用，接着这个标签页现有的编号（之前快照的引用照样有效）。
    */
-  async query(input: {
-    browserId: string;
-    page: SnapshotPage;
-    /** 元素所在 frame 的编号；顶层是空串。 */
-    frame: string;
-    selector: string;
-    maxResults: number;
-    attributes?: readonly string[];
-  }): Promise<
-    | { ok: true; count: number; elements: QueriedElement[] }
-    | { ok: false; reason: 'invalid_selector'; message: string }
-  > {
+  query(input: QueryInput): Promise<QueryResult> {
+    return this.serial(input.browserId, () => this.queryNow(input));
+  }
+
+  private async queryNow(input: QueryInput): Promise<QueryResult> {
     await input.page.executeJavaScript(ariaSnapshotScript({ mode: 'install' }));
     const state = this.statesByBrowserId.get(input.browserId) ?? { refs: new Map(), nextRef: 1 };
     const refs = Array.from(

@@ -7,7 +7,13 @@
 // 并在每个请求的 `ToolNames` 里登记，响应里按它还原成原来的工具类型、名字与命名空间。
 
 import { createHash } from 'node:crypto';
-import type { ChatTool, JsonObject, ResponsesItem, ResponsesTool } from './types.js';
+import type {
+  ChatTool,
+  JsonObject,
+  ResponsesItem,
+  ResponsesRequest,
+  ResponsesTool,
+} from './types.js';
 
 export const NAMESPACE_SEPARATOR = '__';
 
@@ -101,6 +107,37 @@ export function customToolDescription(tool: ResponsesTool): string {
       ? `Put the raw tool input in the \`input\` string. It must match this ${format.syntax ?? ''} grammar:\n${format.definition}`
       : 'Put the raw tool input in the `input` string.';
   return base === '' ? how : `${base}\n\n${how}`;
+}
+
+/** Codex 给没写说明的命名空间补的默认说明（`default_namespace_description`）；这样的不用转给模型。 */
+const defaultNamespaceDescription = (name: string) => `Tools in the ${name} namespace.`;
+
+/**
+ * MCP 服务的 `instructions`：Codex 把它写进这个服务的命名空间工具（`mcp__<服务>__`）的 `description` 里，不在 `instructions` 或
+ * developer 消息里。命名空间摊平成函数工具时这段说明就丢了——经网关的模型从来看不到应用级工具与用户连接器的使用说明、记忆索引。
+ * 这里把它们取出来，调用方接在请求的 `instructions` 后面。只管 `mcp__` 开头的命名空间且说明不是 Codex 的默认句；子智能体
+ * （`multi_agent_v1`）之类 Codex 自带的命名空间，说明早就写在它们的工具描述里。
+ */
+export function mcpNamespaceNotes(tools: readonly ResponsesTool[] | undefined): string | undefined {
+  const notes: string[] = [];
+  for (const tool of tools ?? []) {
+    if (tool.type !== 'namespace' || typeof tool.name !== 'string') continue;
+    if (!tool.name.startsWith('mcp__')) continue;
+    const description = typeof tool.description === 'string' ? tool.description.trim() : '';
+    if (description === '' || description === defaultNamespaceDescription(tool.name)) continue;
+    notes.push(`## ${tool.name}\n${description}`);
+  }
+  return notes.length === 0
+    ? undefined
+    : `# Instructions from MCP servers\n\n${notes.join('\n\n')}`;
+}
+
+/** `instructions` 接上 MCP 服务的说明（没有说明时原样返回）。 */
+export function withMcpNotes(body: ResponsesRequest): ResponsesRequest {
+  const notes = mcpNamespaceNotes(body.tools);
+  if (notes === undefined) return body;
+  const base = typeof body.instructions === 'string' ? body.instructions.trim() : '';
+  return { ...body, instructions: base === '' ? notes : `${base}\n\n${notes}` };
 }
 
 /**

@@ -195,7 +195,8 @@ const SPECS: ToolSpec[] = [
         type: 'integer',
         minimum: 100,
         maximum: BROWSER_SNAPSHOT_MAX_NODES,
-        description: 'Stop after this many nodes (default 20000). The end says where it stopped.',
+        description:
+          'Stop after this many nodes (at least 100, default 20000). The end says where it stopped.',
       },
     },
     required: ['browserId'],
@@ -1203,7 +1204,12 @@ function downloadText(result: Extract<BrowserResult, { command: 'download' }>): 
     case 'too_large':
       return `The download of ${from} was cancelled: it is larger than ${bytes(BROWSER_DOWNLOAD_MAX_BYTES)}.`;
     default:
-      return `The download of ${from} ended as ${result.state} after ${bytes(result.size)}; nothing was saved.`;
+      // Electron 的下载项不给 HTTP 状态码：只能说“多半是服务器拒绝或没有这个文件”，让 agent 去页面里看状态。
+      return `The download of ${from} ended as ${result.state} after ${bytes(result.size)}; nothing was saved.${
+        result.state === 'interrupted'
+          ? ' The server probably refused it or does not have the file (for example HTTP 403 or 404), or the connection dropped. The browser does not report the status code: open the URL in a tab (browser_navigate) and read the status with browser_network.'
+          : ''
+      }`;
   }
 }
 

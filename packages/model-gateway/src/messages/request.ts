@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { SYSTEM_AS_USER_NOTE, textOf } from '../chat/request.js';
 import { isAnthropicHost, isAzureHost } from '../providers.js';
-import { compatibleToolChoice, isObject, ToolNames, toChatTools } from '../tools.js';
+import { compatibleToolChoice, isObject, ToolNames, toChatTools, withMcpNotes } from '../tools.js';
 import type {
   GatewayProvider,
   JsonObject,
@@ -122,9 +122,10 @@ function fixedSampling(model: string): boolean {
 }
 
 export function toMessagesRequest(
-  body: ResponsesRequest,
+  original: ResponsesRequest,
   provider: GatewayProvider,
 ): MessagesTranslation {
+  const body = withMcpNotes(original);
   const compat = provider.compat ?? {};
   const azure = isAzureHost(provider.baseURL ?? '');
   const official =

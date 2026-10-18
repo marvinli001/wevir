@@ -242,7 +242,7 @@ V2.6 Pro / Flash 的窗口按官方 Codex 目录为 1048576，最大输出与服
 | `function_call_output` / `custom_tool_call_output` | tool 消息（`tool_call_id` = `call_id`）。输出是部件数组时文本用换行拼接；图片（`view_image`）Chat 的 tool 消息放不了，**在这一批 tool 消息之后**补一条 user 消息：`[Images returned by the preceding tool call]` + 图片 parts，tool 消息只有图时内容就是这句说明 |
 | 工具 `function` | `{type: function, function: {name, description, parameters}}`（`strict` 不发：有的上游不认） |
 | 工具 `custom`（apply_patch，Lark 语法） | 只有一个字符串参数 `input` 的函数，描述 = 原描述 + `Put the raw tool input in the input string. It must match this lark grammar:` + 语法全文 |
-| 工具 `namespace`（multi_agent_v1） | 里面的工具摊平成 `<ns>__<name>` 的函数 |
+| 工具 `namespace`（multi_agent_v1、`mcp__<服务>__`） | 里面的工具摊平成 `<ns>__<name>` 的函数。`mcp__` 开头的命名空间的 `description`（Codex 把 MCP 服务的 `instructions` 放在这里，摊平会丢掉）接在 `instructions` 后面，成为 system 消息的一节：`# Instructions from MCP servers`，每个服务 `## <命名空间>` 加它的说明；空说明和 Codex 的默认句 `Tools in the <ns> namespace.` 不加，Codex 自带的命名空间（`multi_agent_v1`）不加（`withMcpNotes`，2026-10-18：此前经网关的模型看不到应用级工具的使用说明与记忆索引） |
 | 托管工具（web_search、image_generation 等） | 丢掉 |
 | `tools` 为空或全被丢掉 | 不发 `tools` 与 `tool_choice` |
 | `tool_choice`：`auto` / `none` / `required` / `{type: function \| custom, name}` | 同名；对象形式换成 `{type: function, function: {name: 摊平后的名字}}`；其他值按 `auto`；`compat.toolChoice: auto_only` 时 required / 具名改 auto，none 只去掉 tool_choice、保留 tools（与透传相同） |
@@ -381,7 +381,7 @@ Gemini API 没有 Responses，按 ADR-0005 决策 2.3 走它的 OpenAI 兼容端
 | 相邻的同角色消息 | 合并成一条（不是每家兼容服务都自己合并）；同一条 user 消息里 `tool_result` 排在最前面（Anthropic 的规则） |
 | 工具 `function` | `{name, description, input_schema: parameters}`（没有 `parameters` 时 `{type: object, properties: {}}`；`strict` 不发） |
 | 工具 `custom` | 只有一个字符串参数 `input` 的工具，描述 = 原描述 + 语法全文（与 Chat 相同） |
-| 工具 `namespace` | 摊平成 `<ns>__<name>`（与 Chat 相同，名字规则同 §4.3，64 个字符以内也满足 Anthropic 的限制） |
+| 工具 `namespace` | 摊平成 `<ns>__<name>`（与 Chat 相同，名字规则同 §4.3，64 个字符以内也满足 Anthropic 的限制）；`mcp__` 命名空间的说明同样接进 system（与 Chat 相同，见 §4.1） |
 | 托管工具 | 丢掉 |
 | `tools` 为空、但历史里有工具调用（压缩请求，样本 `4-compact`） | Anthropic 要求历史里有 `tool_use` / `tool_result` 的请求必须定义工具：按历史里用过的名字补占位工具（`input_schema: {type: object, properties: {}}`，描述写明本次不可用），`tool_choice: {type: none}` |
 | `tool_choice`：`auto` / `none` / `required` / `{type: function \| custom, name}` | `auto` 是默认，不发；`none` → `{type: none}`；`required` → `{type: any}`；指定工具 → `{type: tool, name: 摊平后的名字}`。Opus 5.5、Sonnet 5.5、Fable 5.1 的 required / 具名改 auto（不改变 none）；Haiku 5.5 与旧模型保持原映射。显式 compat.toolChoice 优先（auto_only 的 none 规则同 §3.2），仅有历史工具的占位工具仍禁止调用 |

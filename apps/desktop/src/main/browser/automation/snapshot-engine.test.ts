@@ -526,5 +526,50 @@ describe('BrowserSnapshotEngine', () => {
         expect.any(String),
       );
     });
+
+    it('parallel queries on one tab get different refs and both stay usable', async () => {
+      const page = scripted(() => result([], []));
+      page.executeJavaScript = async (code: string) => {
+        page.scripts.push(code);
+        if (code.includes('document.querySelectorAll')) {
+          // 第一个查询慢，第二个不等它就回来：以前两个都从同一个编号起。
+          const refs = JSON.parse(/\["@e\d+"(?:,"@e\d+")*\]/.exec(code)?.[0] ?? '[]') as string[];
+          if (code.includes('first')) await new Promise((resolve) => setTimeout(resolve, 20));
+          return {
+            count: 1,
+            elements: [
+              {
+                ref: refs[0],
+                fingerprint: fingerprint('x'),
+                tag: 'button',
+                text: 'x',
+                visible: true,
+                box: { x: 0, y: 0, width: 1, height: 1 },
+              },
+            ],
+          };
+        }
+        return true;
+      };
+      const engine = new BrowserSnapshotEngine();
+      const [one, two] = await Promise.all(
+        ['first', 'second'].map((selector) =>
+          engine.query({
+            browserId: 'b',
+            page,
+            frame: selector === 'first' ? '0' : '1',
+            selector,
+            maxResults: 3,
+          }),
+        ),
+      );
+      if (!one?.ok || !two?.ok) throw new Error('query failed');
+      expect(one.elements[0]?.ref).not.toBe(two.elements[0]?.ref);
+      for (const element of [...one.elements, ...two.elements]) {
+        expect(engine.refFrame({ browserId: 'b', ref: element.ref })).toBe(
+          element === one.elements[0] ? '0' : '1',
+        );
+      }
+    });
   });
 });

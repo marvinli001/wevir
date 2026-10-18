@@ -21,7 +21,7 @@ describe('syntaxError', () => {
   });
 
   it('reports what does not parse', () => {
-    expect(syntaxError('() => {')).toMatch(/Unexpected|missing/);
+    expect(syntaxError('() => {')).toMatch(/Unexpected end of input/);
     expect(syntaxError('return 1')).toBeDefined();
   });
 });

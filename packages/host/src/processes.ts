@@ -95,6 +95,8 @@ export interface ProcessManagerOptions {
   env?: NodeJS.ProcessEnv;
   /** 默认 `process.platform`。 */
   platform?: NodeJS.Platform;
+  /** 日志换文件的大小，默认 `PROCESS_LOG_ROTATE_BYTES`（测试用小值）。 */
+  logRotateBytes?: number;
 }
 
 interface Waiter {
@@ -110,6 +112,8 @@ interface Managed {
   logStart: number;
   /** 写日志的队列：换文件时等前面的写完。 */
   writing: Promise<void>;
+  /** 正在换文件时到达的输出：新文件开好后接着写，不丢。 */
+  rotation: Buffer[] | undefined;
   decoder: StringDecoder;
   partial: string;
   /** 最后几行（已去掉控制序列）。 */
@@ -174,6 +178,7 @@ export class ProcessManager {
       log: createWriteStream(logPath, { mode: 0o600 }),
       logStart: 0,
       writing: Promise.resolve(),
+      rotation: undefined,
       decoder: new StringDecoder('utf8'),
       partial: '',
       tail: [],
@@ -255,7 +260,9 @@ export class ProcessManager {
     const managed = this.#get(sessionId, id);
     await managed.writing;
     await flush(managed.log);
-    const end = managed.info.bytes;
+    // 以文件里实际有的为准：写日志出过错（磁盘满、文件被删）时偏移量不再对得上，别读到文件之外。
+    const size = (await stat(managed.info.logPath).catch(() => undefined))?.size ?? 0;
+    const end = Math.min(managed.info.bytes, managed.logStart + size);
     const from = Math.max(since ?? managed.logStart, managed.logStart);
     const dropped = since !== undefined && since < managed.logStart ? managed.logStart - since : 0;
     const length = Math.min(end - from, PROCESS_READ_MAX_BYTES);
@@ -440,13 +447,25 @@ export class ProcessManager {
   }
 
   #writeLog(managed: Managed, chunk: Buffer): void {
+    // 换文件的间隙里到达的输出先攒着，新文件开好后接着写（以前这段直接丢了，日志比 `bytes` 少 1–4 MB）。
+    if (managed.rotation !== undefined) {
+      managed.rotation.push(chunk);
+      return;
+    }
     const log = managed.log;
     if (log === undefined) return;
     log.write(chunk);
-    if (managed.info.bytes - managed.logStart < PROCESS_LOG_ROTATE_BYTES) return;
+    if (
+      managed.info.bytes - managed.logStart <
+      (this.#options.logRotateBytes ?? PROCESS_LOG_ROTATE_BYTES)
+    ) {
+      return;
+    }
     // 换文件：当前的改名为 .1（覆盖更早的），新开一个。
     managed.logStart = managed.info.bytes;
     managed.log = undefined;
+    const held: Buffer[] = [];
+    managed.rotation = held;
     const path = managed.info.logPath;
     managed.writing = managed.writing.then(async () => {
       await new Promise<void>((resolve) => log.end(resolve));
@@ -455,6 +474,8 @@ export class ProcessManager {
       next.on('error', () => {
         managed.log = undefined;
       });
+      for (const chunk of held) next.write(chunk);
+      managed.rotation = undefined;
       managed.log = next;
     });
   }
@@ -475,8 +496,8 @@ export class ProcessManager {
     info.signal = signal;
     info.endedAt = Date.now();
     if (error !== undefined) info.error = error;
-    const log = managed.log;
-    void managed.writing.then(() => log?.end());
+    // 退出时可能正在换文件：等换完再关新的那个。
+    void managed.writing.then(() => managed.log?.end());
     let delivered = false;
     for (const waiter of [...managed.waiters]) {
       waiter.resolve({ reason: 'exit' });
@@ -534,8 +555,16 @@ function test(pattern: RegExp, line: string): boolean {
   return pattern.test(line);
 }
 
+/** 等已经交给日志流的字节落到文件里；流已经 `end()` 了（进程退出后）就等它 finish，不能再往里写。 */
 function flush(log: WriteStream | undefined): Promise<void> {
   if (log === undefined || log.writableLength === 0) return Promise.resolve();
+  if (log.writableEnded) {
+    return new Promise((resolve) => {
+      log.once('finish', () => resolve());
+      log.once('error', () => resolve());
+      log.once('close', () => resolve());
+    });
+  }
   return new Promise((resolve) => log.write('', () => resolve()));
 }
 
