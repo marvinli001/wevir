@@ -110,6 +110,8 @@ interface Managed {
   log: WriteStream | undefined;
   /** 当前日志文件从第几个字节开始（换过文件后大于 0）。 */
   logStart: number;
+  /** 从第几个字节起算“当前日志文件写了多少”：换文件时攒下的输出不算，免得新文件一开就又超限、马上再换一次。 */
+  rotateFrom: number;
   /** 写日志的队列：换文件时等前面的写完。 */
   writing: Promise<void>;
   /** 正在换文件时到达的输出：新文件开好后接着写，不丢。 */
@@ -177,6 +179,7 @@ export class ProcessManager {
       child: undefined,
       log: createWriteStream(logPath, { mode: 0o600 }),
       logStart: 0,
+      rotateFrom: 0,
       writing: Promise.resolve(),
       rotation: undefined,
       decoder: new StringDecoder('utf8'),
@@ -456,7 +459,7 @@ export class ProcessManager {
     if (log === undefined) return;
     log.write(chunk);
     if (
-      managed.info.bytes - managed.logStart <
+      managed.info.bytes - managed.rotateFrom <
       (this.#options.logRotateBytes ?? PROCESS_LOG_ROTATE_BYTES)
     ) {
       return;
@@ -475,6 +478,8 @@ export class ProcessManager {
         managed.log = undefined;
       });
       for (const chunk of held) next.write(chunk);
+      // 换文件的间隙里到的输出已经在新文件里：从这里起重新算，不然下一次写入（哪怕一行）就再换一次，结尾全进了 .1。
+      managed.rotateFrom = managed.info.bytes;
       managed.rotation = undefined;
       managed.log = next;
     });

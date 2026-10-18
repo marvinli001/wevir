@@ -105,6 +105,21 @@ describe.runIf(posix)('ProcessManager', () => {
     expect(read.next).toBe(info.bytes);
   });
 
+  it('换文件的间隙里攒下的输出不算进新文件的大小：之后写一行不会再换一次文件，结尾留在当前文件里', async () => {
+    const h = setup(undefined, { logRotateBytes: 1024 });
+    // 先突发写一批（头一次换文件时后面的块攒在 held 里，远超 1 KB），停一下，再写最后一行。
+    await h.manager.start(A, {
+      command: 'head -c 200000 /dev/zero | tr "\\0" x; echo; sleep 0.3; echo FINISHED-BIG',
+      cwd: h.root,
+      notifyOnExit: false,
+    });
+    expect(await h.manager.wait(A, 'p1', undefined, 10_000, h.never)).toEqual({ reason: 'exit' });
+    const info = h.manager.info(A, 'p1');
+    const read = await h.manager.read(A, 'p1', 0);
+    expect(read.text.trimEnd().endsWith('FINISHED-BIG')).toBe(true);
+    expect(read.next).toBe(info.bytes);
+  });
+
   it('日志只换一次时 .1 加当前的正好等于写过的总数', async () => {
     const h = setup(undefined, { logRotateBytes: 600 * 1024 });
     await h.manager.start(A, {
