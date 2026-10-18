@@ -1,6 +1,14 @@
 import type { AccountState, ProviderProfile } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { GIT_FOR_WINDOWS_URL, isPickable, pickerOrder, sourceOf, sourcePhase } from './sources';
+import {
+  GIT_FOR_WINDOWS_URL,
+  isPickable,
+  pickerOrder,
+  SOURCE_KINDS,
+  sourceOf,
+  sourcePhase,
+  tileFillers,
+} from './sources';
 
 function provider(id: string, kind: ProviderProfile['kind'], extra: Partial<ProviderProfile> = {}) {
   return {
@@ -17,6 +25,21 @@ function provider(id: string, kind: ProviderProfile['kind'], extra: Partial<Prov
 }
 
 describe('订阅来源', () => {
+  it('tileFillers：两列、三列各补满最后一行，排满了不补', () => {
+    expect(tileFillers(6)).toEqual([]);
+    // 七个来源：两列缺 1 格，三列缺 2 格。
+    expect(tileFillers(7)).toEqual([
+      { slot: 1, base: true, sm: true },
+      { slot: 2, base: false, sm: true },
+    ]);
+    expect(tileFillers(8)).toEqual([{ slot: 1, base: false, sm: true }]);
+    expect(tileFillers(9)).toEqual([{ slot: 1, base: true, sm: false }]);
+    // 当前的来源个数加补位格，两列、三列都正好排满，不会露出分隔线色的空位。
+    const fillers = tileFillers(SOURCE_KINDS.length);
+    expect((SOURCE_KINDS.length + fillers.filter((filler) => filler.base).length) % 2).toBe(0);
+    expect((SOURCE_KINDS.length + fillers.filter((filler) => filler.sm).length) % 3).toBe(0);
+  });
+
   it('sourceOf：ChatGPT 是 Codex，订阅来源各有软件标志，API 类没有', () => {
     expect(sourceOf({ kind: 'chatgpt' })?.logo).toBe('codex');
     expect(sourceOf({ kind: 'claude' })?.logo).toBe('claude');

@@ -25,6 +25,7 @@ import {
   type SourceInfo,
   type SourcePhase,
   sourcePhase,
+  tileFillers,
 } from '@/data/sources';
 import { useAccounts, useAccountsStore, useWorkbenchStore } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
@@ -34,7 +35,7 @@ import { planLabel, usageWindows } from './chatgpt-account-model';
 import { NoticeBanner } from './settings-ui';
 
 /**
- * 设置 → 模型服务的“订阅”（0.19.0，照 T3 Code 的 Bring your own sub，desktop-tokens.md §32）：六种订阅排成一张三列的格子卡，
+ * 设置 → 模型服务的“订阅”（0.19.0，照 T3 Code 的 Bring your own sub，desktop-tokens.md §32）：各种订阅排成一张三列的格子卡（最后一行补空格），
  * 每格是软件标志（放在内凹的“器皿”里）、名称与一行状态；点一格，卡片下半部展开它的详情——登录（应用内，或给出终端命令再
  * 重新检测）、安装（命令、下载、指定路径）、账号与套餐、用量、模型、在模型选择里显示的开关。这个 Host 还没有引擎的种类写
  * “即将支持”，不能点。
@@ -72,6 +73,17 @@ export function SubscriptionSources({
             provider={providerOf(kind)}
             selected={selected === kind}
             onSelect={() => setSelected((current) => (current === kind ? undefined : kind))}
+          />
+        ))}
+        {tileFillers(SOURCE_KINDS.length).map((filler) => (
+          <li
+            key={filler.slot}
+            aria-hidden
+            className={cn(
+              'bg-card',
+              filler.base ? 'block' : 'hidden',
+              filler.sm ? 'sm:block' : 'sm:hidden',
+            )}
           />
         ))}
       </ul>

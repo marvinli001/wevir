@@ -38,6 +38,20 @@ export const SOURCES: Readonly<Record<AccountKind, SourceInfo>> = {
   },
 };
 
+/**
+ * 设置里的格子卡窄时两列、宽时三列，网格底是分隔线色：最后一行没排满，空位会露出这个底色。按来源个数补几格同底色的空格——
+ * 两列与三列各缺几格不同，每个补位格带着它在哪个宽度下显示。
+ */
+export function tileFillers(count: number): { slot: number; base: boolean; sm: boolean }[] {
+  const base = count % 2 === 0 ? 0 : 1;
+  const sm = count % 3 === 0 ? 0 : 3 - (count % 3);
+  return Array.from({ length: Math.max(base, sm) }, (_, index) => ({
+    slot: index + 1,
+    base: index < base,
+    sm: index < sm,
+  }));
+}
+
 export function isSourceKind(kind: string): kind is AccountKind {
   return (SOURCE_KINDS as readonly string[]).includes(kind);
 }
