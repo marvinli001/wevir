@@ -121,15 +121,22 @@ const defaultNamespaceDescription = (name: string) => `Tools in the ${name} name
 export function mcpNamespaceNotes(tools: readonly ResponsesTool[] | undefined): string | undefined {
   const notes: string[] = [];
   for (const tool of tools ?? []) {
-    if (tool.type !== 'namespace' || typeof tool.name !== 'string') continue;
-    if (!tool.name.startsWith('mcp__')) continue;
-    const description = typeof tool.description === 'string' ? tool.description.trim() : '';
-    if (description === '' || description === defaultNamespaceDescription(tool.name)) continue;
-    notes.push(`## ${tool.name}\n${description}`);
+    const description = mcpNamespaceNote(tool);
+    if (description !== undefined) notes.push(`## ${tool.name}\n${description}`);
   }
   return notes.length === 0
     ? undefined
     : `# Instructions from MCP servers\n\n${notes.join('\n\n')}`;
+}
+
+/** `mcpNamespaceNotes` 取的那段说明：`mcp__` 开头的命名空间、说明不空也不是 Codex 的默认句；别的工具 `undefined`。 */
+export function mcpNamespaceNote(tool: ResponsesTool): string | undefined {
+  if (tool.type !== 'namespace' || typeof tool.name !== 'string') return undefined;
+  if (!tool.name.startsWith('mcp__')) return undefined;
+  const description = typeof tool.description === 'string' ? tool.description.trim() : '';
+  if (description === '' || description === defaultNamespaceDescription(tool.name))
+    return undefined;
+  return description;
 }
 
 /** `instructions` 接上 MCP 服务的说明（没有说明时原样返回）。 */

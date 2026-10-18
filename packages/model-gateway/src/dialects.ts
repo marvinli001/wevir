@@ -1,7 +1,13 @@
 // Responses 透传的方言修正（docs/architecture/model-gateway.md §3.2）：各家 Responses 实现与 OpenAI 的差异，
 // 只在网关里改，不碰 Codex（codex-notes §5.3）。每条修正声明对哪些 Provider 生效，改请求体，必要时再改响应事件。
 
-import { effectiveCompat, isAzureHost, isKimiHost, isXaiHost } from './providers.js';
+import {
+  effectiveCompat,
+  isAzureHost,
+  isDeepSeekHost,
+  isKimiHost,
+  isXaiHost,
+} from './providers.js';
 import {
   CUSTOM_TOOL_PARAMETERS,
   compatibleToolChoice,
@@ -9,7 +15,9 @@ import {
   customCallInput,
   customToolDescription,
   isObject,
+  mcpNamespaceNote,
   ToolNames,
+  withMcpNotes,
 } from './tools.js';
 import type {
   GatewayProvider,
@@ -101,6 +109,31 @@ export const xaiReasoningEffort: DialectFix = {
     return mapped === effort
       ? { body }
       : { body: { ...body, reasoning: { ...body.reasoning, effort: mapped } } };
+  },
+};
+
+/**
+ * DeepSeek 的 Responses 把命名空间的描述在其中每个工具上各算一遍（2026-10-19 实测 deepseek-flash：约 385 token 的描述，10 个
+ * 工具多算 3,840 token，20 个多算 7,680）。Codex 把 MCP 服务的说明写在它的命名空间描述里，Wevir 的应用级工具一个命名空间
+ * 62 个，每个请求因此多出约 9 万 token：额度多花几倍，按 128k 登记窗口时 Codex 每个请求后都自动压缩。把这些说明接到
+ * `instructions` 后面（同 Chat / Messages 转换），只算一次；这些命名空间去掉描述（DeepSeek 接受没有描述的命名空间）。
+ * 别的命名空间与工具不动。
+ */
+export const deepseekNamespaceDescription: DialectFix = {
+  id: 'deepseek-namespace-description',
+  applies: (provider) =>
+    provider.kind === 'deepseek-official' ||
+    (provider.kind === 'openai-compatible' &&
+      provider.api === 'openai-responses' &&
+      isDeepSeekHost(provider.baseURL ?? '')),
+  apply(body) {
+    if (!body.tools?.some((tool) => mcpNamespaceNote(tool) !== undefined)) return { body };
+    const tools = body.tools.map((tool) => {
+      if (mcpNamespaceNote(tool) === undefined) return tool;
+      const { description: _moved, ...rest } = tool;
+      return rest as ResponsesTool;
+    });
+    return { body: { ...withMcpNotes(body), tools } };
   },
 };
 
@@ -324,6 +357,7 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   azureNamespaceDescription,
   azureEncryptedReasoning,
   kimiDataImagesOnly,
+  deepseekNamespaceDescription,
   autoOnlyToolChoice,
   flattenCustomTools,
   flattenNamespaceTools,

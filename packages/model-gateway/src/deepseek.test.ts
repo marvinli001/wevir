@@ -70,6 +70,91 @@ describe('DeepSeek Responses 的录制请求', () => {
   );
 });
 
+describe('DeepSeek Responses 的 MCP 命名空间说明', () => {
+  const NOTES = 'You are running inside Wevir.\n- wevir_session_list: see the sessions.';
+  const inner = (name: string) => ({
+    type: 'function',
+    name,
+    description: `${name} tool.`,
+    parameters: { type: 'object', properties: {} },
+    strict: false,
+  });
+  /** 录制的第一个请求加上两个 MCP 命名空间：一个有服务说明，一个是 Codex 的默认句。 */
+  const withMcp = (patch: Partial<ResponsesRequest> = {}): ResponsesRequest => {
+    const recorded = codexRequest('1-first-turn').body;
+    return {
+      ...recorded,
+      model: 'deepseek-flash',
+      tools: [
+        ...(recorded.tools ?? []),
+        {
+          type: 'namespace',
+          name: 'mcp__wevir',
+          description: `  ${NOTES}\n`,
+          tools: [inner('wevir_session_list'), inner('wevir_session_read')],
+        },
+        {
+          type: 'namespace',
+          name: 'mcp__wevir_tasks',
+          description: 'Tools in the mcp__wevir_tasks namespace.',
+          tools: [inner('wevir_tasks')],
+        },
+      ],
+      ...patch,
+    };
+  };
+
+  for (const kind of ['deepseek-official', 'openai-compatible'] as const) {
+    it(`${kind}：说明接到 instructions 后面，只算一次；那个命名空间去掉描述，别的不动`, () => {
+      const body = withMcp();
+      const original = structuredClone(body);
+      const prepared = prepareUpstream(deepseek({ kind }), body);
+      if (!prepared.ok) throw new Error(prepared.message);
+      expect(prepared.dialects).toContain('deepseek-namespace-description');
+      const forwarded = prepared.payload as ResponsesRequest;
+      expect(forwarded.instructions).toBe(
+        `# Instructions from MCP servers\n\n## mcp__wevir\n${NOTES}`,
+      );
+      const wevir = forwarded.tools?.find((tool) => tool.name === 'mcp__wevir');
+      expect(wevir).not.toHaveProperty('description');
+      expect(wevir).toEqual(
+        Object.fromEntries(
+          Object.entries(body.tools?.find((tool) => tool.name === 'mcp__wevir') ?? {}).filter(
+            ([key]) => key !== 'description',
+          ),
+        ),
+      );
+      const untouched = (tools: ResponsesRequest['tools']) =>
+        tools?.filter((tool) => tool.name !== 'mcp__wevir');
+      expect(untouched(forwarded.tools)).toEqual(untouched(body.tools));
+      expect(forwarded.input).toHaveLength((body.input as ResponsesItem[]).length);
+      expect(body).toEqual(original);
+    });
+  }
+
+  it('已有 instructions 时接在后面；没有服务说明、别家的 Responses 或代理地址不改', () => {
+    const appended = prepareUpstream(deepseek(), withMcp({ instructions: 'Be brief.' }));
+    if (!appended.ok) throw new Error(appended.message);
+    expect((appended.payload as ResponsesRequest).instructions).toBe(
+      `Be brief.\n\n# Instructions from MCP servers\n\n## mcp__wevir\n${NOTES}`,
+    );
+
+    const plain = prepareUpstream(deepseek(), {
+      ...codexRequest('1-first-turn').body,
+      model: 'deepseek-flash',
+    });
+    if (!plain.ok) throw new Error(plain.message);
+    expect(plain.dialects).not.toContain('deepseek-namespace-description');
+
+    for (const baseURL of ['https://api.openai.com/v1', 'https://proxy.example.com/v1']) {
+      const other = prepareUpstream(deepseek({ baseURL }), withMcp());
+      if (!other.ok) throw new Error(other.message);
+      expect(other.dialects).not.toContain('deepseek-namespace-description');
+      expect((other.payload as ResponsesRequest).tools).toEqual(withMcp().tools);
+    }
+  });
+});
+
 describe('DeepSeek Chat 的地址默认与显式覆盖', () => {
   it.each(['deepseek-flash', 'deepseek-v4-pro'])(
     '%s 的四份录制请求按 Chat 修正工具选择，保留全部 assistant 推理',
