@@ -364,7 +364,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         instructions: instructionsWithMemory({
           base: APP_TOOLS_INSTRUCTIONS,
           memory,
-          storage: sessionsDb,
+          workspaceOf: (sessionId) => manager.workspaceOf(sessionId),
           onWarning: (message, fields) => logger.warn(message, fields),
         }),
         onError: (error) => logger.error('app tools error', { error }),

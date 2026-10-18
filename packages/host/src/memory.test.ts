@@ -1,11 +1,16 @@
 // 跨会话记忆（memory.ts）与它的应用级工具（memory-tools.ts）。
 
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import type { HostId, SessionId } from '@wevir/protocol';
-import { APP_TOOLS_NO_APPROVAL } from '@wevir/runtime-adapter';
+import type { HostId, SessionId, WorkspaceId } from '@wevir/protocol';
+import {
+  APP_TOOLS_NO_APPROVAL,
+  type EngineSession,
+  type SessionConfig,
+} from '@wevir/runtime-adapter';
+import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AppMcpServer, AppToolError } from './app-mcp.js';
 import { APP_TOOLS_INSTRUCTIONS, AppTools } from './app-tools.js';
@@ -18,8 +23,8 @@ import {
   MemoryStore,
 } from './memory.js';
 import { instructionsWithMemory, MEMORY_TOOLS, memoryTools } from './memory-tools.js';
-import type { SessionManager } from './session-manager.js';
-import { SES, SES2, seedSession, useStorages, useTempDir } from './test-utils.js';
+import { SessionManager } from './session-manager.js';
+import { SES, SES2, seedSession, T0, useStorages, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -293,7 +298,7 @@ describe('记忆经 MCP 端点', () => {
       instructions: instructionsWithMemory({
         base: APP_TOOLS_INSTRUCTIONS,
         memory,
-        storage,
+        workspaceOf: (sessionId) => storage.sessions.get(sessionId)?.workspaceId,
         onWarning: (message) => warnings.push(message),
       }),
     });
@@ -364,5 +369,81 @@ describe('记忆经 MCP 端点', () => {
     const gone = await call('ses_missing' as SessionId, 'wevir_memory_list', {});
     expect(gone.isError).toBe(true);
     expect(gone.content[0].text).toMatch(/no longer exists/);
+  });
+});
+
+describe('新会话的记忆索引', () => {
+  const managers: SessionManager[] = [];
+  afterEach(async () => {
+    await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
+  });
+
+  it('引擎在会话写进存储之前取说明（Codex 起 thread 时连 MCP）也认得项目，带上项目的笔记', async () => {
+    const root = tempDir();
+    const storage = storages.open(join(root, 'data'));
+    const project = join(root, 'project');
+    mkdirSync(project);
+    storage.workspaces.insert({
+      id: 'ws_1',
+      rootPath: realpathSync(project),
+      displayName: 'project',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    storage.providers.insert({
+      id: 'mock',
+      kind: 'openai-compatible',
+      displayName: 'Mock',
+      api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:9/v1',
+      models: [{ id: 'm' }],
+      defaultModelId: 'm',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const memory = new MemoryStore({ dir: join(root, 'memory') });
+    await memory.save('project', 'ws_1', note({ name: 'dev-server', type: 'project' }));
+    let manager: SessionManager | undefined;
+    const instructions = instructionsWithMemory({
+      base: APP_TOOLS_INSTRUCTIONS,
+      memory,
+      workspaceOf: (sessionId) => manager?.workspaceOf(sessionId),
+    });
+    let granted: SessionId | undefined;
+    const seen: { stored: boolean; text: string }[] = [];
+    class ConnectingEcho extends EchoAdapter {
+      readonly appTools = true;
+      override async createSession(config: SessionConfig): Promise<EngineSession> {
+        // 同 Codex：建会话的过程中就连上应用级工具、取说明。
+        if (granted !== undefined) {
+          seen.push({
+            stored: storage.sessions.get(granted) !== undefined,
+            text: await instructions(granted),
+          });
+        }
+        return super.createSession(config);
+      }
+    }
+    manager = new SessionManager({
+      storage,
+      events: new EventStore({ storage, deltaWindowMs: 5 }),
+      adapter: new ConnectingEcho({ stepDelayMs: 0 }),
+      appTools: {
+        grant: (sessionId) => {
+          granted = sessionId;
+          return { url: 'http://127.0.0.1:9/mcp', token: 'not-a-secret' };
+        },
+      },
+    });
+    managers.push(manager);
+    const session = await manager.create({
+      workspaceId: 'ws_1' as WorkspaceId,
+      providerId: 'mock',
+    });
+    expect(seen).toEqual([
+      { stored: false, text: expect.stringContaining('[project] dev-server (project)') },
+    ]);
+    expect(manager.workspaceOf(session.id)).toBe('ws_1');
+    expect(manager.workspaceOf('ses_01JA2B3C4D5E6F7G8H9JKMNPQZ' as SessionId)).toBeUndefined();
   });
 });

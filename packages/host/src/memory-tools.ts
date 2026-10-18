@@ -3,7 +3,6 @@
 // 批准方式不拦，Claude 按名字放行）。用户在设置里能看到和删除（界面另做）。
 
 import type { SessionId } from '@wevir/protocol';
-import type { Storage } from '@wevir/storage';
 import { type AppTool, AppToolError, jsonResult } from './app-mcp.js';
 import { objectSchema, requiredString } from './app-tools.js';
 import {
@@ -164,18 +163,19 @@ export function memoryTools({ memory, workspaceOf }: MemoryToolsOptions): AppToo
 
 /**
  * `AppMcpServer` 的 `instructions`：工具说明加上这个会话能看到的记忆索引（全局和它所在项目的）。调用方不明或没有记忆时只有
- * 工具说明；记忆读不了只记一条警告，不影响引擎连上工具。
+ * 工具说明；记忆读不了只记一条警告，不影响引擎连上工具。会话所在的项目经 `workspaceOf` 问：引擎在会话写进存储之前就会来取
+ * 说明（Codex 起 thread 时连 MCP），只查存储会认不出项目、漏掉项目的笔记（SessionManager 的 `workspaceOf` 也认正在建的会话）。
  */
 export function instructionsWithMemory(options: {
   base: string;
   memory: MemoryStore;
-  storage: Storage;
+  workspaceOf: (sessionId: SessionId) => string | undefined;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }): (sessionId: SessionId | undefined) => Promise<string> {
   return async (sessionId) => {
     try {
-      const record = sessionId === undefined ? undefined : options.storage.sessions.get(sessionId);
-      const index = await options.memory.indexText(record?.workspaceId);
+      const workspaceId = sessionId === undefined ? undefined : options.workspaceOf(sessionId);
+      const index = await options.memory.indexText(workspaceId);
       return index === undefined ? options.base : `${options.base}\n\n${index}`;
     } catch (error) {
       options.onWarning?.('failed to read saved memory for the tool instructions', { error });

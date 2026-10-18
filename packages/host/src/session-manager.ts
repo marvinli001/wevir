@@ -409,6 +409,11 @@ export class SessionManager {
   readonly #questionSessions = new Map<QuestionId, SessionId>();
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
+  /**
+   * 正在建的会话（新建、分支与支线）所在的工作区：引擎会话建好之后才写进存储，而引擎在建的时候就会连应用级工具（Codex 起
+   * thread 时连 MCP、取说明），那时要靠它认出会话属于哪个项目（`workspaceOf`）。
+   */
+  readonly #creating = new Map<SessionId, string>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
   readonly #whenDisposed = deferred();
   /** `shutdown()` 开始后为 true：新命令一律 `HOST_SHUTTING_DOWN`，已排队的照常执行。 */
@@ -532,6 +537,11 @@ export class SessionManager {
    * `session.create`：先建引擎会话，成功后才写 `session.created`（#1）。返回的会话是 `idle`、
    * `lastSeq` 为 1。
    */
+  /** 会话所在的工作区：存储里的，或正在建、还没写进存储的；都不是时 `undefined`。 */
+  workspaceOf(sessionId: SessionId): string | undefined {
+    return this.#storage.sessions.get(sessionId)?.workspaceId ?? this.#creating.get(sessionId);
+  }
+
   async create(
     params: MethodParams<'session.create'>,
     options: { openedBy?: SessionId; role?: string } = {},
@@ -639,9 +649,11 @@ export class SessionManager {
     if (permissionMode !== undefined) config.permissionMode = permissionMode;
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
+    this.#creating.set(sessionId, workspace.id);
     try {
       engineSession = await this.#adapter.createSession(this.#engineConfig(sessionId, config));
     } catch (error) {
+      this.#creating.delete(sessionId);
       await prepared.undo();
       const info = engineErrorInfo(error);
       throw new HostError('ENGINE_ERROR', info.message, info);
@@ -702,6 +714,8 @@ export class SessionManager {
       await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
       await prepared.undo();
       throw error;
+    } finally {
+      this.#creating.delete(sessionId);
     }
 
     if (origin !== undefined) {
@@ -2203,6 +2217,7 @@ export class SessionManager {
       const config = sessionConfig(record);
       const sessionId = newId('ses');
       let engineSession: EngineSession;
+      this.#creating.set(sessionId, record.workspaceId);
       try {
         engineSession = await fork(
           source.engineSessionId,
@@ -2210,6 +2225,7 @@ export class SessionManager {
           side ? { kind: 'side' } : { kind: 'branch', dropTurns: turns.length - 1 - index },
         );
       } catch (error) {
+        this.#creating.delete(sessionId);
         const info = engineErrorInfo(error);
         throw new HostError('ENGINE_ERROR', info.message, info);
       }
@@ -2277,6 +2293,8 @@ export class SessionManager {
       } catch (error) {
         await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
         throw error;
+      } finally {
+        this.#creating.delete(sessionId);
       }
       const runtime = this.#runtime(sessionId);
       try {
