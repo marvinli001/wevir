@@ -1,7 +1,7 @@
 // Responses 透传的方言修正（docs/architecture/model-gateway.md §3.2）：各家 Responses 实现与 OpenAI 的差异，
 // 只在网关里改，不碰 Codex（codex-notes §5.3）。每条修正声明对哪些 Provider 生效，改请求体，必要时再改响应事件。
 
-import { effectiveCompat, isAzureHost, isKimiHost } from './providers.js';
+import { effectiveCompat, isAzureHost, isKimiHost, isXaiHost } from './providers.js';
 import {
   CUSTOM_TOOL_PARAMETERS,
   compatibleToolChoice,
@@ -83,6 +83,24 @@ export const stripNullReasoningEncryptedContent: DialectFix = {
       return rest as ResponsesItem;
     });
     return { body: { ...body, input } };
+  },
+};
+
+/** SpaceXAI 不能关闭推理：只按 x.ai Responses 地址归一化旧配置或外部请求的档位（§3.2）。 */
+export const xaiReasoningEffort: DialectFix = {
+  id: 'xai-reasoning-effort',
+  applies: (provider) =>
+    provider.kind === 'openai-compatible' &&
+    provider.api === 'openai-responses' &&
+    isXaiHost(provider.baseURL ?? ''),
+  apply(body) {
+    if (!isObject(body.reasoning)) return { body };
+    const effort = body.reasoning.effort;
+    const mapped =
+      effort === 'none' || effort === 'minimal' ? 'low' : effort === 'max' ? 'xhigh' : effort;
+    return mapped === effort
+      ? { body }
+      : { body: { ...body, reasoning: { ...body.reasoning, effort: mapped } } };
   },
 };
 
@@ -302,6 +320,7 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   dropToolChoiceWithoutTools,
   stripNullReasoningContent,
   stripNullReasoningEncryptedContent,
+  xaiReasoningEffort,
   azureNamespaceDescription,
   azureEncryptedReasoning,
   kimiDataImagesOnly,

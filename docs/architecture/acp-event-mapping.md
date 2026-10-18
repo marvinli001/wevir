@@ -5,7 +5,7 @@
 > 代码：第一部分在 `packages/adapter-acp/src/`（`acp-process.ts`、`acp-mapping.ts`、`session-events.ts`、`chunk-stream.ts`、`acp-adapter.ts`，引擎描述的类型在 `engine.ts`，用户自己装的引擎的查找在 `external.ts`）；第二部分在 `packages/adapter-dsh/src/`（引擎描述 `engine.ts`，以及 `dsh-process.ts`、`tool-display.ts`、`turn-error.ts`、`resume-error.ts`、`stream-tap.ts`、`delta-merge.ts`、`dsh-adapter.ts`）
 > 样本：`packages/adapter-dsh/src/test-fixtures/acp/`，是 `spikes/dsh-acp/fixtures/acp/`（T0.3，`2ce30c0`）的副本，另加 T3.2 录的 5 个 Provider 错误；下文的样本路径都相对这个目录
 
-本文件写 ACP 引擎的消息怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。分两部分：
+本文件写 ACP 引擎的消息怎样变成 `AgentEvent`（`packages/runtime-adapter/src/events.ts`），Host 再照 domain-model.md §6 写成 `WevirEvent`。下文 xAI 现名为 SpaceXAI，ACP 的 x.ai 扩展方法名保持原样。分两部分：
 
 - **第一部分：通用 ACP 映射**（§0、§1），`@wevir/adapter-acp` 对任何 ACP 引擎都一样的部分：进程与事件路径、`session/update` 与其他 ACP 消息的映射、审批桥接、会话恢复与取消的兜底。引擎之间的差异只经引擎描述注入（§0.2）。
 - **第二部分：dsh 专属补充**（§2–§6），`@wevir/adapter-dsh` 给出的那份引擎描述与 dsh 自己的行为：工具名表、回合失败的归类、增量与已提交消息的对齐（stream-tap）、什么时候会有审批、resume 失败的归类。

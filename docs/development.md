@@ -571,11 +571,13 @@ WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=anthropic-messages WEVIR_TE
 
 两条路的 model 都是部署名。2026-10-15 未提供 Azure Key、资源端点与部署名，真实契约与 pnpm dev 中通过两个模板、经 apply_patch 改文件均未验收。Responses 的 Bearer API Key 目前仅按微软 SDK 与 Codex 示例推断；第三种 cognitiveservices.azure.com 地址须以部署详情确认为准。网关录制请求与本机 HTTP mock 只证明兼容修正、认证头构造、工具和推理往返及 provider.test；不能证明真实服务通过。配置与 Claude 自定义别名的局限见 providers.md §7.12 和 model-gateway.md §3.5。
 
-xAI 与 Gemini 的 API Key 经 Codex 的契约第 3 层验证（网关按地址套用它们的方言，model-gateway.md §3.2、§4.5；模型 ID 以 providers.md §7.6、§7.7 为准）：
+SpaceXAI（原 xAI）与 Gemini 的 API Key 经 Codex 的契约第 3 层验证（网关按地址套用它们的方言，model-gateway.md §3.2、§4.5；模型 ID 以 providers.md §7.6、§7.7 为准）。先在进程环境提供 WEVIR_TEST_API_KEY，不把 Key 写入命令、文件或日志：
 
 ```bash
-WEVIR_TEST_API_KEY=<xAI Key> WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://api.x.ai/v1 WEVIR_TEST_MODEL=grok-4.7 pnpm vitest run --project adapter-codex codex-adapter.contract.real
+WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-responses WEVIR_TEST_BASE_URL=https://api.x.ai/v1 WEVIR_TEST_MODEL=grok-4.7 pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2
 ```
+
+有权限时再以相同地址、WEVIR_TEST_MODEL=grok-build-0.1 重跑。随后在 pnpm dev 中使用 SpaceXAI 模板完成一次 apply_patch 改文件；另需直接对比原生 namespace 与摊平请求，核对真实错误体的顶层 code、low / medium / high / xhigh、加密推理回放、prompt_cache_key 与 store:false。官方地域端点文档给出的 `{code, error: string}` 已作为本机错误回归样本，x.ai 地址的 code 会保留给 Codex 与 provider.test。2026-10-18 无 Key，真实契约和桌面对话未验收；`xai.test.ts` / `xai.integration.test.ts` 只证明本地兼容逻辑。改名不迁移旧 Provider，详见 providers.md §7.6。
 
 ```bash
 WEVIR_TEST_PROVIDER=openai-compatible WEVIR_TEST_API=openai-completions WEVIR_TEST_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ WEVIR_TEST_MODEL=gemini-3.8-flash pnpm vitest run --project adapter-codex codex-adapter.contract.real --maxWorkers=2

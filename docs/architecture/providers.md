@@ -399,28 +399,37 @@ Cloud 另有模板 `ollama-cloud`，国际分组、复用 Ollama 标志，地址
 
 来源（2026-10-16）：[OpenAI 兼容](https://docs.ollama.com/api/openai-compatibility)、[Anthropic 兼容](https://docs.ollama.com/api/anthropic-compatibility)、[Codex](https://docs.ollama.com/integrations/codex)、[上下文](https://docs.ollama.com/context-length)、[Cloud](https://docs.ollama.com/cloud)、[思考](https://docs.ollama.com/capabilities/thinking)、[模型列表](https://docs.ollama.com/api/tags)、[模型详情](https://docs.ollama.com/api-reference/show-model-details)、[运行模型](https://docs.ollama.com/api/ps)、[0.40.4 Responses 源码](https://github.com/ollama/ollama/blob/v0.40.4/openai/responses.go)。当前 Chat 文档已列 tool_choice；本次只给 Responses 配置 auto_only，不据旧调研修改 Chat。
 
-### 7.6 xAI（Grok API Key，R8）
+<a id="76-xaigrok-api-keyr8"></a>
 
-只经 Codex 引擎（网关的 Responses 透传，model-gateway.md §3.2）；dsh 不适用。大陆无法直连。这是 ADR-0005 决策 4 第 ②′ 行；Grok 订阅经 Grok Build 的第 ② 行还没做。
+### 7.6 SpaceXAI（原 xAI，Grok 按量 API）
+
+**2026-10-18 核对。** 界面使用 SpaceXAI；官方文档当前使用 SpaceXSI 品牌，API、控制台与 XAI_API_KEY 名称仍沿用 xAI。Provider / 模板 / 标志 ID 保持 xai，只经 Codex 网关的 Responses 透传（model-gateway.md §3.2），dsh 不适用。官方主推 Responses，Chat 已标 legacy；直接透传可保留加密推理与缓存键，不需要 Chat 转换。国际按量 API，中国大陆通常无法直连；本轮没有大陆网络实测。Key 从 [API 控制台](https://console.x.ai/team/default/api-keys)创建，不使用 Grok 订阅。
 
 ```json
 {
   "id": "xai",
   "kind": "openai-compatible",
-  "displayName": "xAI（Grok API）",
+  "displayName": "SpaceXAI（Grok API）",
   "api": "openai-responses",
   "baseURL": "https://api.x.ai/v1",
-  "compat": { "supportsCustomTools": false },
+  "compat": { "supportsCustomTools": false, "supportsNamespaceTools": false },
   "models": [
     { "id": "grok-4.7", "contextWindow": 500000, "supportsImages": true, "reasoningEfforts": ["low", "medium", "high", "xhigh"] },
     { "id": "grok-build-0.1", "contextWindow": 256000 }
   ],
   "defaultModelId": "grok-4.7",
-  "apiKey": "<xAI API Key，xai- 开头>"
+  "apiKey": "<SpaceXAI 按量 API Key>"
 }
 ```
 
-来源：docs.x.ai 的 models 页与各模型页（2026-10-14）。`supportsCustomTools: false` 让网关把 apply_patch 摊平成函数（xAI 的地址不写也会默认摊平，写明是为了经代理改地址后仍然生效）。
+- **工具与力度。** custom / namespace 在官方 OpenAPI 中均未声明，继续保守摊平；模板显式保存两个 false，经代理也生效，显式 true 可覆盖地址默认。没有真实 Key，不将 mock 的拒收当成上游实测。grok-4.7 的四档不变，不能关闭；x.ai 及子域的 Responses 请求将 none / minimal 改为 low、max 改为 xhigh，未设置时由服务默认 high。映射不作用于代理、Chat / Messages 或其他 Provider；grok-build-0.1 没有已确认的档位枚举，模板继续不列。
+- **历史、缓存与输出。** grok-4.7 始终返回加密推理，每步原样带回；Codex 的 store:false、include 与 prompt_cache_key 保留。prompt_cache_key 由服务映射到 x-grok-conv-id，用于会话路由；网关不转发 Codex 的其他内部头。OpenAPI 的 max_output_tokens 默认 128000，只计可见输出、不计推理和函数调用；指南同时写“无文本输出上限”，可设置更大预算，不能理解成默认无限。模板不填 maxTokens，也不向请求补预算。
+- **地域。** 默认 `https://api.x.ai/v1`，不保证处理地域。可自行改为 `https://us.api.x.ai/v1`，现仅支持 grok-4.7 / grok-4.6，token 费用加 10%；不能把 grok-build-0.1 放到该地址。两个地址使用相同的按量 Key。没有新增地域模板或订阅端点。
+- **标志。** 2026-10-18 核对 LobeHub Icons，尚无独立 SpaceXAI / SpaceXSI 标志，保留现有 xai.svg 与标志 ID；文件来源与哈希不变。
+- **已有 Provider 手动更新。** 不迁移已存 Profile，原显示名、ID、地址、模型与 Key 继续保留。需要新名称时在设置 → 模型服务编辑显示名；官方地址自动获得网关力度映射与原有工具默认值。经代理的旧配置可通过 provider.upsert 合并 supportsNamespaceTools:false（保留其他 compat，省略 apiKey 以保留 Key），并手动选择有效力度；代理不会获得按地址的 effort 映射。更新后测试连接并新建会话。
+- **验收边界。** 录制 Codex 请求与严格本机 HTTP mock 覆盖力度映射、工具还原、加密推理、缓存键、store:false、连接探测和顶层错误 code；真实 Key 的契约第 3 层、namespace 拒收、错误体及 pnpm dev 中的 apply_patch 对话仍待验收。
+
+来源（2026-10-18）：[文档索引](https://docs.x.ai/llms.txt)、[Grok 4.7 指南](https://docs.x.ai/developers/grok-4-7)、[模型](https://docs.x.ai/developers/models)、[Grok 4.7 模型页](https://docs.x.ai/developers/models/grok-4.7)、[Grok Build 0.1 模型页](https://docs.x.ai/developers/models/grok-build-0.1)、[推理](https://docs.x.ai/developers/model-capabilities/text/reasoning)、[Responses](https://docs.x.ai/developers/rest-api-reference/inference/responses)、[OpenAPI](https://docs.x.ai/openapi.json)、[地域端点与错误样本](https://docs.x.ai/developers/advanced-api-usage/regions)、[LobeHub 标志目录](https://github.com/lobehub/lobe-icons/tree/master/src)。Responses 参考的工具上限现为 1000，旧调研的 350 不再使用。
 
 ### 7.7 Google AI Studio（Gemini API Key）
 
@@ -521,7 +530,7 @@ Opus 5.5 / Haiku 5.5 的默认 effort 为 medium，Sonnet 5.5 / Fable 5.1 为 hi
 
 来源与核对日期：**2026-10-15 已核对** [模型目录](https://platform.claude.com/docs/en/models/overview)、[effort](https://platform.claude.com/docs/en/build-with-claude/effort)、[认证](https://platform.claude.com/docs/en/manage-claude/authentication)、[思考模式与限制](https://platform.claude.com/docs/en/build-with-claude/thinking)、[手动思考的兼容性](https://platform.claude.com/docs/en/build-with-claude/extended-thinking)、[中途 system](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages)、[思考前缀](https://platform.claude.com/docs/en/build-with-claude/preserved-thinking)。当前没有提供 `WEVIR_TEST_API_KEY`，Sonnet / Opus 的契约第 3 层与桌面端 apply_patch 对话未验收；本地录制请求与严格 HTTP mock 通过不代表真实服务通过。
 
-桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、xAI、Z.ai）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM、小米 MiMo）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 使用服务账号（§7.11），Host 声明 google_vertex 后可选；旧 Host 的入口提示更新后台服务。
+桌面端的首次引导（U6，`apps/desktop/src/renderer/src/onboarding/`）与“更多”对话框按 `settings/provider-catalog.ts` 列出服务：国际（OpenAI、Anthropic、Google AI Studio、Google Vertex AI、SpaceXAI（原 xAI）、Z.ai）、国内（DeepSeek 官方、通义千问、Kimi、智谱 GLM、小米 MiMo）、本地与自定义（Ollama、空白的 OpenAI 兼容表单）。Google Vertex AI 使用服务账号（§7.11），Host 声明 google_vertex 后可选；旧 Host 的入口提示更新后台服务。
 
 ### 7.10 已有 Chat Provider 的思考配置
 

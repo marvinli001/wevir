@@ -2,6 +2,30 @@ import { describe, expect, it } from 'vitest';
 import { normalizeErrorBody } from './errors.js';
 
 describe('normalizeErrorBody', () => {
+  it('SpaceXAI 官方字符串 error 样本按地址保留顶层 code，两者都脱敏', () => {
+    const text = JSON.stringify({ code: 'not-found', error: 'The model missing does not exist' });
+    for (const baseURL of ['https://api.x.ai/v1', 'https://us.api.x.ai/v1']) {
+      expect(normalizeErrorBody(text, 404, undefined, baseURL)).toEqual({
+        error: { message: 'The model missing does not exist', code: 'not-found' },
+      });
+      expect(
+        normalizeErrorBody('{"code":123,"error":"bad model"}', 400, undefined, baseURL),
+      ).toEqual({ error: { message: 'bad model' } });
+      expect(
+        normalizeErrorBody(
+          '{"code":"placeholder-key","error":"Invalid placeholder-key"}',
+          401,
+          'placeholder-key',
+          baseURL,
+        ),
+      ).toEqual({ error: { message: 'Invalid ***', code: '***' } });
+    }
+    for (const baseURL of ['', 'https://proxy.example.org/v1', 'https://api.x.ai.example.org/v1'])
+      expect(normalizeErrorBody(text, 404, undefined, baseURL)).toEqual({
+        error: { message: 'The model missing does not exist' },
+      });
+  });
+
   it('OpenAI 风格：保留 message、type、code（Codex 按 code 认出额度用完等）', () => {
     const body = JSON.stringify({
       error: {

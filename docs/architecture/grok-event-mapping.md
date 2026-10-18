@@ -6,7 +6,7 @@
 > 来源：移植自 T3 Code（[pingdotgg/t3code](https://github.com/pingdotgg/t3code)，MIT，提交 `ec1313c8f8333292506f05a355bb72d308a455d8`）的 `packages/provider-grok`，逐文件的登记见 [UPSTREAM.md](../upstream/UPSTREAM.md) §4
 > 样本：`packages/adapter-grok/src/test-fixtures/acp/`，T3 Code 录的真实 Grok Build 1.0.41（`grok_prompt_error` 是 1.0.44）ACP 往返，原样复制
 
-本文件写 Grok Build 怎样被 Wevir 驱动，以及它的 ACP 消息与 xAI 扩展怎样变成 `AgentEvent`。通用的 ACP 映射（`session/update` 的类型表、审批桥接、取消与恢复的兜底）见 [acp-event-mapping.md](./acp-event-mapping.md) 第一部分；这里只写 Grok 的那份引擎描述（`GROK_ENGINE`）与它特有的行为。
+本文件写 Grok Build 怎样被 Wevir 驱动，以及它的 ACP 消息与 xAI（现 SpaceXAI）扩展怎样变成 `AgentEvent`。通用的 ACP 映射（`session/update` 的类型表、审批桥接、取消与恢复的兜底）见 [acp-event-mapping.md](./acp-event-mapping.md) 第一部分；这里只写 Grok 的那份引擎描述（`GROK_ENGINE`）与它特有的行为。改名不改变包名、XAI_API_KEY 或 x.ai 扩展方法。
 
 ## 1. 引擎的形态（`launch.ts`、`grok-adapter.ts`）
 

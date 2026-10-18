@@ -84,7 +84,7 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     logo: 'xai',
     group: 'global',
     source: preset('xai'),
-    keyURL: 'https://console.x.ai/',
+    keyURL: 'https://console.x.ai/team/default/api-keys',
   },
   {
     id: 'zai',

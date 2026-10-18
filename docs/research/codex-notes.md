@@ -10,6 +10,7 @@
 
 ## 0. 怎么读
 
+- 名称说明（2026-10-18）：下文历史记录中的 xAI 现显示为 SpaceXAI，官方文档当前使用 SpaceXSI；API、包名与扩展方法名仍沿用 xAI。当前按量 API 接法见 [providers.md §7.6](../architecture/providers.md#76-spacexai原-xaigrok-按量-api)。
 - 路径不带仓库名的，都相对于 `upstream/codex/codex-rs/`（锁定提交下）；“Spike”指 `spikes/codex-app-server/`，每项检查的原始结果在 `fixtures/results.json`。
 - 网上资料都在 2026-10-14 读取，来源列在 §12。没能确认的写“未核实”。
 - 上一个会话的英文报告（`815ef9b`，`main` 上 10-13 的提交）在本次锁定的 release 提交上重新核对过；两者有出入的地方以本文为准。

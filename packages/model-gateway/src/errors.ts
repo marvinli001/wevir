@@ -2,7 +2,7 @@
 // Codex 按状态码决定重试，按 `error.code` / `error.type` 认出额度用完等情况（codex-api/src/api_bridge.rs），
 // 所以上游给了 type / code 就保留。
 
-import { isPhalaHost } from './providers.js';
+import { isPhalaHost, isXaiHost } from './providers.js';
 import { isObject } from './tools.js';
 
 /** 上游错误原文最多保留这么多字符。 */
@@ -37,9 +37,14 @@ export function phalaRoutingError(
 /**
  * 解析上游的错误正文：OpenAI 风格 `{error: {message, type, code}}`、`{error: "…"}`、Anthropic 风格
  * `{type: "error", error: {type, message}}`、`{message}` / `{detail}`，都不是时用原文。`secret` 出现在原文里的地方
- * 换成 `***`（有的服务会在报错里回显 Key）。
+ * 换成 `***`（有的服务会在报错里回显 Key）。`baseURL` 为 x.ai 地址时另保留字符串 error 旁的顶层 code。
  */
-export function normalizeErrorBody(text: string, status: number, secret?: string): ErrorBody {
+export function normalizeErrorBody(
+  text: string,
+  status: number,
+  secret?: string,
+  baseURL = '',
+): ErrorBody {
   const redact = (s: string) =>
     (secret === undefined || secret === '' ? s : s.replaceAll(secret, '***')).slice(
       0,
@@ -54,7 +59,14 @@ export function normalizeErrorBody(text: string, status: number, secret?: string
   const fallback = text.trim() === '' ? `上游返回 HTTP ${status}` : text.trim();
   if (!isObject(data)) return { error: { message: redact(fallback) } };
   const error = data.error;
-  if (typeof error === 'string') return { error: { message: redact(error) } };
+  if (typeof error === 'string')
+    return {
+      error: {
+        message: redact(error),
+        // SpaceXAI 官方地域端点的错误样本；只按地址补顶层 code，其他服务保持原有行为。
+        ...(isXaiHost(baseURL) && typeof data.code === 'string' ? { code: redact(data.code) } : {}),
+      },
+    };
   const source = isObject(error) ? error : data;
   const message =
     typeof source.message === 'string' && source.message !== ''

@@ -6,7 +6,7 @@
 import type { ProviderTestFailure, ProviderTestResult } from '@wevir/runtime-adapter';
 import { normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { UPSTREAM_PROTOCOL_ERROR } from './messages/response.js';
-import { describeIssues, isOllamaHost, validateProvider } from './providers.js';
+import { describeIssues, isOllamaHost, isXaiHost, validateProvider } from './providers.js';
 import { SseParser } from './sse.js';
 import { isObject } from './tools.js';
 import type { GatewayProvider, ResponsesRequest } from './types.js';
@@ -102,11 +102,8 @@ export async function testProvider(
     const status = response.status;
     if (!response.ok) {
       const body = await readText(response, controller.signal).catch(() => '');
-      const routingError = phalaRoutingError(
-        normalizeErrorBody(body, status, credential),
-        status,
-        provider.baseURL ?? '',
-      );
+      const normalized = normalizeErrorBody(body, status, credential, provider.baseURL);
+      const routingError = phalaRoutingError(normalized, status, provider.baseURL ?? '');
       if (routingError !== undefined) {
         return {
           ok: false,
@@ -121,6 +118,8 @@ export async function testProvider(
         };
       }
       const result = httpFailure(status, body, modelId, prepared.url, redact);
+      if (isXaiHost(provider.baseURL ?? '') && normalized.error.code !== undefined && result.error)
+        result.error.code = normalized.error.code;
       if (
         status === 404 &&
         result.reason === 'protocol' &&

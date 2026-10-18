@@ -1054,7 +1054,7 @@ export const messages: Messages = {
   'provider.vertex.locationInvalid': '無効なロケーション（例: global、us、eu）',
   'provider.vertex.modelInvalid': 'google/gemini- または claude- で始まる必要あり',
   'welcome.upgradeHost': 'バックグラウンド サービスの更新が必要です',
-  'provider.catalog.xai': 'xAI',
+  'provider.catalog.xai': 'SpaceXAI',
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
@@ -1088,7 +1088,9 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     '中国本土向け従量課金 API。本土から直接接続できます。標準 API キー専用で、Z.ai のキーとは別です。',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 互換)',
-  'provider.preset.xai': 'xAI (Grok API)',
+  'provider.preset.xai': 'SpaceXAI (Grok API)',
+  'provider.preset.xai.note':
+    '旧 xAI。国際向けの従量課金 API で、中国本土からは通常直接接続できません。',
   'provider.preset.gemini': 'Google AI Studio',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',

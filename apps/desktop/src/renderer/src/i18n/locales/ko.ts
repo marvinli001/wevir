@@ -1043,7 +1043,7 @@ export const messages: Messages = {
   'provider.vertex.locationInvalid': '잘못된 위치(예: global, us, eu)',
   'provider.vertex.modelInvalid': 'google/gemini- 또는 claude-로 시작해야 함',
   'welcome.upgradeHost': '백그라운드 서비스를 업데이트하세요',
-  'provider.catalog.xai': 'xAI',
+  'provider.catalog.xai': 'SpaceXAI',
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
@@ -1078,7 +1078,9 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     '중국 본토 종량제 API로 본토에서 직접 연결할 수 있습니다. 표준 API 키만 사용하며 Z.ai 키와 별개입니다.',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI 호환)',
-  'provider.preset.xai': 'xAI (Grok API)',
+  'provider.preset.xai': 'SpaceXAI (Grok API)',
+  'provider.preset.xai.note':
+    '구 xAI. 국제 종량제 API로, 중국 본토에서는 일반적으로 직접 연결할 수 없습니다.',
   'provider.preset.gemini': 'Google AI Studio',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',

@@ -187,7 +187,7 @@ export async function startModelGateway(options: ModelGatewayOptions = {}): Prom
         const normalized =
           provider.kind === 'google-vertex'
             ? normalizeErrorBody(redact(text), upstream.status)
-            : normalizeErrorBody(text, upstream.status, provider.apiKey);
+            : normalizeErrorBody(text, upstream.status, provider.apiKey, provider.baseURL);
         send(
           res,
           upstream.status,

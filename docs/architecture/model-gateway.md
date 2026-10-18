@@ -1,6 +1,6 @@
 # 模型协议网关
 
-> 状态：v0.14（含 Xiaomi MiMo 按量 Responses 兼容）· 日期：2026-10-17 · Codex `rust-v0.162.1`（`092d3ac`）
+> 状态：v0.15（含 SpaceXAI 推理档位与错误兼容）· 日期：2026-10-18 · Codex `rust-v0.162.1`（`092d3ac`）
 > 依据：[ADR-0005](../adr/0005-agent-runtime-and-model-gateway.md) 决策 2 与补记 3、4；[Codex 研读与 Spike](../research/codex-notes.md) §3、§5、§6.3、§7.3；[Provider 配置桥接](./providers.md) §2.3、§6；Anthropic Messages API 的流式、思考、工具使用文档（2026-10 版）；xAI 的 Responses 参考与 OpenAPI、Gemini 的 OpenAI 兼容与 thought signature 文档（2026-10-13 版，R8）
 > 代码：`packages/model-gateway/src/`（`gateway.ts`、`upstream.ts`、`providers.ts`、`dialects.ts`、`tools.ts`、`chat/request.ts`、`chat/response.ts`、`messages/request.ts`、`messages/response.ts`、`errors.ts`、`provider-test.ts`）；原型是 `spikes/codex-app-server/src/gateway.ts`
 > 样本：`packages/model-gateway/src/test-fixtures/codex-requests/`（真实 `codex-app-server` 发出的请求，§9）
@@ -103,19 +103,24 @@ Vertex 专用方言登记（只在生成的 Google 官方地址生效，显式 c
 
 `dialects.ts` 的 `RESPONSES_DIALECTS` 是一个有序清单，每条声明对哪些 Provider 生效（`applies`），改请求体，必要时返回响应事件的改写函数。新的修正加在清单里，并在下表登记。
 
+本文沿用的 xAI 名称现显示为 **SpaceXAI（原 xAI）**；官方文档当前使用 SpaceXSI 品牌。`x.ai` 地址、Provider / 模板 / 标志 ID 与 `isXaiHost` 不改。
+
 | ID | 对谁生效 | 请求 | 响应 | 依据 |
 |---|---|---|---|---|
 | `drop-tool-choice-without-tools` | 所有 Provider | `tools` 是空数组或没有时去掉 `tool_choice` | — | Codex 的压缩请求发 `tools: []` + `tool_choice: "auto"`（样本 `4-compact`），xAI 报 400（codex-notes §3.4）。没有工具时 `tool_choice` 本来就没有意义，所以不设开关 |
 | `strip-null-reasoning-content` | 所有 Provider | 历史里 reasoning 项的 `content: null` 去掉这个键 | — | Codex 回放上游没给 `content` 的推理项（xAI 只给 `encrypted_content`）时写 `"content": null`，xAI 回 422 `expected a sequence`，去掉就是 200（openai/codex#47733，2026-09）。schema 里 `content` 是数组，null 对谁都不合法 |
 | `strip-null-reasoning-encrypted-content` | 所有 Provider | 历史里 reasoning 项的 `encrypted_content: null` 去掉这个键，明文 `content`、`summary` 保留 | — | 锁定 Codex 的 `ResponseItem::Reasoning.encrypted_content` 是 `Option<String>`，没有 skip-serialize：上游省略或给 null，下一步都写 null（`protocol/src/models.rs:1051–1063`）。不把它当成可带回的加密推理 |
+| `xai-reasoning-effort` | x.ai 及子域的 Responses，仅 openai-compatible | reasoning.effort 的 none / minimal → low、max → xhigh；其他值、未设置时及 reasoning 里的其他字段不动 | — | [官方推理文档](https://docs.x.ai/developers/model-capabilities/text/reasoning)只列 low / medium / high / xhigh，不能关闭；这是网关的兼容映射，不表示上游接受原值。代理地址不套用 |
 | `azure-namespace-description` | Azure 全球三个资源域名的 Responses（§3.5） | 顶层 tools 中 namespace 的 description 缺失、空串或纯空白时补 `Tools in this namespace.`；已有描述不变 | — | [Codex #37952](https://github.com/openai/codex/issues/37952) 报告 Azure 拒收缺失或空的 namespace 描述；锁定配置不开 Responses Lite，修正普通 tools，不处理尚不发出的 additional_tools |
 | `azure-encrypted-reasoning` | 同上，store 为 false | include 缺少 reasoning.encrypted_content 时追加，保留其他 include 项且不重复 | — | [Azure Responses 无状态推理](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/responses#encrypted-reasoning-items)要求显式 include；正式请求与 testProvider 共用 |
 | `kimi-data-images-only` | moonshot.cn / moonshot.ai 及子域的 Responses（§3.8） | message.content 与工具结果 output 数组里的 input_image 只保留 data URL，丢掉网址与 file_id 图片；其他部件、工具调用和推理不变，不下载图片 | — | [Kimi Responses](https://platform.kimi.com/docs/api/responses.md)只收 data URL |
 | `auto-only-tool-choice` | 生效的 `compat.toolChoice === auto_only`（§4.4） | 有工具时 `required`、具名与其他非 auto 值改为 `auto`；`none` 去掉 `tool_choice`，工具保留；没有 `tool_choice` 时不补 | — | [Kimi Responses](https://platform.kimi.com/docs/api/responses.md) 的枚举只有 auto；[MiniMax Responses](https://platform.minimax.io/docs/api-reference/responses-create) 认 none / auto（2026-10-15 重核）。用共同的 auto_only 规则兼容两种；去掉 none 后允许模型自行调用工具 |
-| `flatten-custom-tools` | 生效的 `compat.supportsCustomTools === false`（§4.4：声明优先，其次地址默认） | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现。xAI（R8 核实）：OpenAPI（docs.x.ai/openapi.json）的 `tools` 只有 function 与托管工具，没有 `custom`；第三方 2026-08 的现网对照也是 custom 被拒、摊平后通过。国内服务模板里 xAI 显式写了 `false`（经代理改了地址也生效）。规则与 Chat 转换的摊平相同（§4.3） |
-| `flatten-namespace-tools` | 生效的 `compat.supportsNamespaceTools === false`（§4.4） | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；具名 `tool_choice` 同样改名并去掉 `namespace`；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | xAI 的 OpenAPI 没有 `namespace` 类型的工具，函数调用也没有 `namespace` 字段，而 Codex 的子 agent 工具在 `multi_agent_v1` 里（样本 `1-first-turn`）。没找到直接的 400 报告（R8 没有 xAI 的 Key），但摊平对认命名空间的上游同样可用，所以地址默认仍是 false；P0a 加了显式开关，经代理换地址也能生效，true 可覆盖地址默认 |
+| `flatten-custom-tools` | 生效的 `compat.supportsCustomTools === false`（§4.4：声明优先，其次地址默认） | `custom` 工具（apply_patch）→ `{type: function, name, description: 原描述 + 语法全文, parameters: {input: string}, strict: false}`，namespace 里的同样处理、namespace 本身不动；`tool_choice: {type: custom}` → `function`；历史里的 `custom_tool_call` → `function_call`（`arguments: {"input": …}`，不带 `id`：上游可能按前缀校验），`custom_tool_call_output` → `function_call_output` | `output_item.added` / `.done` 与 `response.completed.response.output` 里同名（同命名空间）的 `function_call` → `custom_tool_call`（`input` 从参数里取，取不到时原样当输入）；其余事件不动。`function_call_arguments.*` 增量 Codex 本来就忽略 | 不支持自定义工具的 Responses 实现。SpaceXAI 的 [Responses 参考](https://docs.x.ai/developers/rest-api-reference/inference/responses)与 [OpenAPI](https://docs.x.ai/openapi.json)没有 custom；模板显式 false，改用代理后仍生效。规则与 Chat 转换相同（§4.3） |
+| `flatten-namespace-tools` | 生效的 `compat.supportsNamespaceTools === false`（§4.4） | `namespace` 工具里的每个工具摊平成 `<ns>__<name>`（与 §4.3 同一套命名，`ToolNames`），工具类型不变；具名 `tool_choice` 同样改名并去掉 `namespace`；历史里带 `namespace` 的 `function_call` / `custom_tool_call` 换成摊平的名字、去掉 `namespace`。排在 `flatten-custom-tools` 之后 | 同名的调用还原名字与 `namespace`。响应的改写按清单的**相反顺序**套用：先还原命名空间，`flatten-custom-tools` 才认得出 namespace 里的 custom 工具 | SpaceXAI 的 OpenAPI 没有 namespace 工具与调用字段，Codex 的子 agent 工具在 multi_agent_v1 中。没有真实 Key，拒收仍是文档推断；地址与模板保守设 false，显式 true 可覆盖 |
 
-还没做、留给以后按服务加的：MiniMax 的 `effort: none` 报 400；各家思考开关与 `reasoning.effort` 取值不同（codex-notes §5.3；xAI 的模型目录只列它认的档位，见国内服务模板）；DeepSeek 的 namespace 工具已实测支持（§7.3），不用摊平；Chat / Messages 转换写的推理信封（`wevir-gw:` 开头的 `encrypted_content`）在会话中途换成 Responses 上游时原样透传（跨来源接力通过历史摘要衔接，不保证原始信封在 Responses 上游可用，仍未做通用解封）；xAI 错误体顶层的 `code`（`{"code","error":"…"}`）经 §6 的整理会丢掉。
+**SpaceXAI，2026-10-18 复核。** 继续使用 `https://api.x.ai/v1/responses`，Chat 为 legacy。官方现在列最多 1000 个工具，未声明 custom / namespace；真实拒收情况仍待 Key 验证。`grok-4.7` 默认 high，模板保持 low / medium / high / xhigh；不对 grok-build-0.1 猜测力度。每步的非空 encrypted_content 与 summary 原样带回，只清理通用 null 键。prompt_cache_key 原样发送，官方将其映射到 x-grok-conv-id 做路由，网关不另加该请求头；store:false 保留。max_output_tokens 不注入：OpenAPI 写明默认 128000、只限可见输出，不含推理与工具调用；模型指南的“无文本输出上限”不代表未设置预算时无限输出。模型、地域、手动更新与来源见 providers.md §7.6。
+
+还没做、留给以后按服务加的：MiniMax 的 `effort: none` 报 400；各家思考开关与取值见 §4.4；DeepSeek 的 namespace 已实测支持，不摊平；Chat / Messages 转换的推理信封（`wevir-gw:` 开头的 encrypted_content）在换成 Responses 上游后仍原样透传，未做通用解封，跨来源接力经摘要衔接。
 
 ### 3.3 OpenAI 官方 API 核对
 
@@ -462,6 +467,7 @@ Anthropic 官方只缓存显式标注的前缀。网关放两个断点：顶层 
 
 ## 6. 错误与取消
 
+- **SpaceXAI 顶层 code**：只对 x.ai 及子域，将官方地域端点文档的 `{code: "not-found", error: "…"}` 整理为嵌套 error.message / error.code；code 与原文都脱敏。其他地址维持原有字符串 error 处理。HTTP 请求与 provider.test 共用该解析；当前依据官方样本与本机 mock，真实 Key 返回的错误形状仍待核对。
 - **上游非 2xx**：状态码原样转给 Codex（429、5xx 由 Codex 自己的重试策略处理：5xx 与传输错误重试，429 不重试，codex-notes §3.1；Anthropic 过载的 529 也是 5xx），正文整理成 `{"error": {"message", "type"?, "code"?}}`：认 OpenAI 风格 `{error: {message, type, code}}`、`{error: "…"}`、Anthropic 风格 `{type: "error", error: {type, message}}`、`{message}`、`{detail}`，都不是时用原文，空正文写 `上游返回 HTTP <状态码>`；原文最多 4000 字符，**原文里出现的上游 Key 换成 `***`**（有的服务回显 Key）。保留 `type` / `code`，因为 Codex 靠它们认出额度用完、上下文超长等（`codex-api/src/api_bridge.rs`）。三种处理方式相同。
 - **Responses 上游流里的 `response.failed`**：原样转回。Chat、Messages 流里的错误见 §4.2、§5.2。
 - **Codex 断开**（读到 `response.completed` 就断开，`responses.rs:631-637`；取消回合时也断开）：网关中断上游请求，按正常结束处理，日志记 `client_closed`。Spike 与集成测试都核对了 mock 上游看到连接被中断（三种处理方式）。
@@ -512,6 +518,8 @@ Chat 上游收到的是 `{model, messages: [{role: user, content: ping}], stream
 Codex 升级时重录（`node src/record-requests.ts`），再跑本包的测试：`__snapshots__/codex-requests/` 的变化就是转换结果的变化。根 `biome.json` 排除了这两个目录，保持录制原样。
 
 ## 10. 局限与没做的
+
+- SpaceXAI（原 xAI）：2026-10-18 无 WEVIR_TEST_API_KEY，grok-4.7 / grok-build-0.1 的真实契约、桌面 apply_patch、原生 namespace 拒收、实际错误体与加密推理 / 缓存路由尚未验收。xai-reasoning-effort 仅按 x.ai 地址生效，代理需自行使用有效档位；没有新增协议字段或自动迁移。
 
 - MiMo：普通 Responses 不支持原生 custom，当前摊平为函数；没有开启官方目录的 Responses Lite（§3.11）。缺 WEVIR_TEST_API_KEY，Pro / Flash 的真实契约、桌面 apply_patch、namespace 原生能力、图片、关闭思考与完整推理 / 缓存回放尚未验收。include / store / 非空 encrypted_content 的语义没有官方明确说明，保留原值待实测；不接 Token Plan、语音或图像生成接口。
 

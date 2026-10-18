@@ -327,10 +327,10 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://api-docs.deepseek.com/guides/thinking_mode',
   },
   {
-    // xAI 的 Responses 是主接口（Chat 已标 Legacy），网关透传；不支持自定义工具，apply_patch 由网关摊平成函数
-    // （按地址也会默认摊平，这里写明，经代理改了地址时仍然生效）。大陆不可达，要用户自己的网络环境。
+    // SpaceXAI（原 xAI）的按量 Responses；工具兼容值显式保存，改成代理地址后也保留（providers.md §7.6）。
     id: 'xai',
     name: 'provider.preset.xai',
+    note: 'provider.preset.xai.note',
     api: 'openai-responses',
     baseURL: 'https://api.x.ai/v1',
     models: [
@@ -343,7 +343,7 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
       { id: 'grok-build-0.1', contextWindow: 256000 },
     ],
     defaultModelId: 'grok-4.7',
-    compat: { supportsCustomTools: false },
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false },
     docsURL: 'https://docs.x.ai/developers/models',
   },
   {

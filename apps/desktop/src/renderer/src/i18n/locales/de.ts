@@ -1059,7 +1059,7 @@ export const messages: Messages = {
   'provider.vertex.locationInvalid': 'Ungültiger Standort (z. B. global, us, eu)',
   'provider.vertex.modelInvalid': 'Muss mit google/gemini- oder claude- beginnen',
   'welcome.upgradeHost': 'Hintergrunddienst aktualisieren',
-  'provider.catalog.xai': 'xAI',
+  'provider.catalog.xai': 'SpaceXAI',
   'provider.catalog.deepseek': 'DeepSeek',
   'provider.catalog.dashscope': 'Alibaba Cloud Model Studio',
   'provider.catalog.kimi': 'Kimi',
@@ -1094,7 +1094,9 @@ export const messages: Messages = {
   'provider.preset.zhipu.note':
     'API nach Verbrauch in Festlandchina, dort direkt erreichbar. Nur Standard-API-Schlüssel; getrennt von Z.ai.',
   'provider.preset.deepseekOpenai': 'DeepSeek (OpenAI-kompatibel)',
-  'provider.preset.xai': 'xAI (Grok API)',
+  'provider.preset.xai': 'SpaceXAI (Grok API)',
+  'provider.preset.xai.note':
+    'Ehemals xAI. Internationale API mit nutzungsabhängiger Abrechnung; vom chinesischen Festland meist nicht direkt erreichbar.',
   'provider.preset.gemini': 'Google AI Studio',
   'provider.catalog.ollamaCloud': 'Ollama Cloud',
   'provider.preset.ollamaCloud': 'Ollama Cloud',

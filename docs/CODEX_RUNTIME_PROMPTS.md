@@ -52,6 +52,8 @@
 
 ## 通用前缀
 
+名称说明（2026-10-18）：下文历史任务中的 xAI 现显示为 SpaceXAI；API 域名、Provider ID、包名与扩展方法名保留原样。当前按量 API 接法见 [providers.md §7.6](architecture/providers.md#76-spacexai原-xaigrok-按量-api)。
+
 ````text
 你在 Wevir 仓库（/Users/marvin/Developer/wevir）工作。Wevir 是面向中国大陆用户的本地优先、开源、多模型、可跨设备接续的 Agent 工作台，Wevir 自己拥有 Local Agent Host、会话协议和客户端。引擎方向已经定了（ADR-0005，Accepted）：默认引擎是 OpenAI Codex 的 codex-app-server，Host 内置模型协议网关；dsh 保留为可选引擎，不再加新能力。目前代码里的引擎仍是 dsh，本系列任务（docs/CODEX_RUNTIME_PROMPTS.md 的 R1–R10）把它迁过去。方向与范围由维护者决定，你负责实现、补充遗漏，遇到需要拍板的事先问。
 
