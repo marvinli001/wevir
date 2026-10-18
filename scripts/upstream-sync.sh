@@ -37,7 +37,7 @@ fetch_commit() {
   git -C "$dir" fetch --quiet --depth 1 --no-tags origin "$branch"
   until git -C "$dir" cat-file -e "$sha^{commit}" 2>/dev/null; do
     i=$((i + 1))
-    [ "$i" -le 10 ] || die "$dir：分支 $branch 最近的提交里找不到 $sha"
+    [ "$i" -le 10 ] || die "${dir}：分支 $branch 最近的提交里找不到 $sha"
     git -C "$dir" fetch --quiet --deepen 100 --no-tags origin "$branch"
   done
 }
@@ -47,7 +47,7 @@ while read -r name url branch sha extra <&3 || [ -n "${name:-}" ]; do
   case "${name:-}" in '' | '#'*) continue ;; esac
   [ -n "${sha:-}" ] && [ -z "${extra:-}" ] || die "lock 行格式应为「名称 仓库URL 分支 提交SHA」：$name"
   [[ "$name" =~ ^[A-Za-z0-9._-]+$ ]] && [ "$name" != . ] && [ "$name" != .. ] || die "非法名称：$name"
-  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "$name：提交 SHA 必须是 40 位小写十六进制：$sha"
+  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || die "${name}：提交 SHA 必须是 40 位小写十六进制：$sha"
 
   fetch_url="$url"
   if [ -n "$mirror" ]; then
@@ -77,7 +77,7 @@ while read -r name url branch sha extra <&3 || [ -n "${name:-}" ]; do
   fi
 
   head="$(git -C "$dir" rev-parse HEAD)"
-  [ "$head" = "$sha" ] || die "$name：HEAD 是 $head，与 lock 中的 $sha 不一致"
+  [ "$head" = "$sha" ] || die "${name}：HEAD 是 ${head}，与 lock 中的 $sha 不一致"
   if [ -n "$(git -C "$dir" status --porcelain)" ]; then
     echo "  警告：$dir 有本地改动；upstream/ 应保持只读" >&2
   fi

@@ -137,4 +137,4 @@ if [ -n "$bwrap_sha" ]; then
   chmod 0755 "$bwrap_out"
 fi
 echo "$version $target" >"$stamp"
-echo "完成：$out（$(du -h "$out" | cut -f1)）"
+echo "完成：${out}（$(du -h "$out" | cut -f1)）"
