@@ -38,7 +38,7 @@ import { historyItems } from './handoff.js';
 import type { LspManager } from './lsp/manager.js';
 import { LspTools } from './lsp-tools.js';
 import type { MemoryStore } from './memory.js';
-import { memoryTools } from './memory-tools.js';
+import { MEMORY_TOOLS, memoryTools } from './memory-tools.js';
 import { PluginAppTools } from './plugin-app-tools.js';
 import type { PluginRegistry } from './plugins.js';
 import { noticeText, processTools } from './process-tools.js';
@@ -137,6 +137,8 @@ export interface AppToolsOptions {
   lsp?: LspManager;
   /** 跨会话记忆：有它时加上 `wevir_memory_*` 工具。 */
   memory?: MemoryStore;
+  /** Host 设置的 `autoMemory`（0.57.0）：返回 false 时 `filterTools` 去掉记忆工具，调用也被拒绝。省略当作开着。 */
+  memoryEnabled?: () => boolean;
   /** 预设角色：有它时加上 `wevir_roles`，`wevir_session_create` 认 `role`，角色限制的工具由 `filterTools` 过滤。 */
   roles?: RoleStore;
   /** 共享任务清单：有它时加上 `wevir_tasks`、`wevir_task_create`、`wevir_task_update`。 */
@@ -228,6 +230,7 @@ export class AppTools {
         ? []
         : memoryTools({
             memory: options.memory,
+            ...(options.memoryEnabled !== undefined && { enabled: options.memoryEnabled }),
             workspaceOf: (sessionId) => {
               callerCwd(options.storage, sessionId); // 会话或工作区不在了时拒绝
               const record = options.storage.sessions.get(sessionId);
@@ -1249,13 +1252,20 @@ export class AppTools {
     return all.find((role) => role.name === name) ?? { tools: [ROLE_READONLY_TOOLS] };
   }
 
-  /** 预设角色限制的工具（app-mcp.ts 的 `filterTools`）：没有角色的会话都能用。 */
+  /**
+   * 这个会话能用的工具（app-mcp.ts 的 `filterTools`）：预设角色限制的去掉，没有角色的会话（调用方不明时也一样）不限；自动记忆
+   * 关着（Host 设置的 `autoMemory`）时记忆工具一律去掉。
+   */
   async filterTools(
     sessionId: SessionId | undefined,
     tools: readonly AppTool[],
   ): Promise<readonly AppTool[]> {
+    const memoryOff = this.#options.memoryEnabled?.() === false;
+    const allowed = memoryOff
+      ? tools.filter((tool) => !(MEMORY_TOOLS as readonly string[]).includes(tool.name))
+      : tools;
     const role = sessionId === undefined ? undefined : await this.#roleOf(sessionId);
-    return role === undefined ? tools : tools.filter((tool) => roleAllowsTool(role, tool));
+    return role === undefined ? allowed : allowed.filter((tool) => roleAllowsTool(role, tool));
   }
 
   #describe(session: Session, callerId: SessionId): Record<string, unknown> {

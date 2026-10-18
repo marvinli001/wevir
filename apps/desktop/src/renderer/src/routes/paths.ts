@@ -34,6 +34,7 @@ export const SETTINGS_TABS = [
   'storage',
   'providers',
   'web',
+  'memory',
   'workspaces',
   'archived',
   'about',

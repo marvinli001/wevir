@@ -47,14 +47,24 @@ describe('Host 设置（settings.*）', () => {
     expect(hello.features).toMatchObject({ pending_messages: true, host_settings: true });
     const other = (await connect()).client;
     expect(await watcher.request('settings.get')).toEqual({
-      settings: { sendWhileBusy: 'steer', promptSuggestions: true, sessionRecap: true },
+      settings: {
+        sendWhileBusy: 'steer',
+        promptSuggestions: true,
+        sessionRecap: true,
+        autoMemory: true,
+      },
     });
 
     const updater = (await connect()).client;
     expect(
       await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } }),
     ).toEqual({
-      settings: { sendWhileBusy: 'queue', promptSuggestions: true, sessionRecap: true },
+      settings: {
+        sendWhileBusy: 'queue',
+        promptSuggestions: true,
+        sessionRecap: true,
+        autoMemory: true,
+      },
     });
     await watcher.until(
       () =>
@@ -66,6 +76,7 @@ describe('Host 设置（settings.*）', () => {
       sendWhileBusy: 'queue',
       promptSuggestions: true,
       sessionRecap: true,
+      autoMemory: true,
     });
     // 值没变不通知。
     await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } });
@@ -75,7 +86,12 @@ describe('Host 设置（settings.*）', () => {
     expect(
       await updater.request('settings.update', { settings: { promptSuggestions: false } }),
     ).toEqual({
-      settings: { sendWhileBusy: 'queue', promptSuggestions: false, sessionRecap: true },
+      settings: {
+        sendWhileBusy: 'queue',
+        promptSuggestions: false,
+        sessionRecap: true,
+        autoMemory: true,
+      },
     });
     await watcher.until(
       () =>
@@ -88,16 +104,27 @@ describe('Host 设置（settings.*）', () => {
       sendWhileBusy: 'queue',
       promptSuggestions: false,
       sessionRecap: true,
+      autoMemory: true,
     });
 
     // 离开后摘要的开关（0.54.0）：默认开，关掉后写进文件，只改给出的字段。
-    expect(await updater.request('settings.update', { settings: { sessionRecap: false } })).toEqual(
-      { settings: { sendWhileBusy: 'queue', promptSuggestions: false, sessionRecap: false } },
-    );
+    expect(
+      await updater.request('settings.update', {
+        settings: { sessionRecap: false, autoMemory: true },
+      }),
+    ).toEqual({
+      settings: {
+        sendWhileBusy: 'queue',
+        promptSuggestions: false,
+        sessionRecap: false,
+        autoMemory: true,
+      },
+    });
     expect(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))).toEqual({
       sendWhileBusy: 'queue',
       promptSuggestions: false,
       sessionRecap: false,
+      autoMemory: true,
     });
 
     // Host 重启后从文件读回。
@@ -106,7 +133,12 @@ describe('Host 设置（settings.*）', () => {
     const again = await start(home);
     const { client } = await again.connect();
     expect(await client.request('settings.get')).toEqual({
-      settings: { sendWhileBusy: 'queue', promptSuggestions: false, sessionRecap: false },
+      settings: {
+        sendWhileBusy: 'queue',
+        promptSuggestions: false,
+        sessionRecap: false,
+        autoMemory: true,
+      },
     });
   });
 });

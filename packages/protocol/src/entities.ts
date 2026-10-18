@@ -846,6 +846,11 @@ export const HostSettingsSchema = z.object({
    * 新字段，旧客户端的更新与旧 Host 的结果里都可能没有它。
    */
   sessionRecap: z.boolean().optional(),
+  /**
+   * 自动记忆（0.57.0，Host 功能 `memory`，domain-model §3.21）：Agent 读写跨会话记忆。关掉后 Host 不再把记忆清单放进新会话的
+   * 说明，`wevir_memory_*` 工具不再列出，调用也被拒绝；用户照样能用 `memory.*` 管理已有笔记。省略按开着（默认）。
+   */
+  autoMemory: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
@@ -853,7 +858,51 @@ export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({
   sendWhileBusy: 'steer',
   promptSuggestions: true,
   sessionRecap: true,
+  autoMemory: true,
 });
+
+// ── 跨会话记忆（0.57.0） ────────────────────────────────────────────────
+
+/**
+ * 笔记的种类（domain-model §3.21，同 Claude Code 的 auto memory）：`user` 用户是谁、偏好；`feedback` 怎么做事（纠正、确认过的
+ * 做法、坑）；`project` 目标、决定、约束；`reference` 东西在哪。
+ */
+export const MemoryTypeSchema = z.enum(['user', 'feedback', 'project', 'reference']);
+export type MemoryType = z.infer<typeof MemoryTypeSchema>;
+
+/** `global`：所有项目的会话都看得到；`project`：只有这个项目（工作区）的会话看得到。 */
+export const MemoryScopeSchema = z.enum(['global', 'project']);
+export type MemoryScope = z.infer<typeof MemoryScopeSchema>;
+
+/** 名字：小写字母、数字、连字符，1–64 个字符，以字母或数字开头。同一个范围里唯一。 */
+export const MemoryNameSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+
+/** 说明的上限（字符，一行）。 */
+export const MEMORY_DESCRIPTION_MAX = 200;
+/** 正文的上限（UTF-8 字节）。 */
+export const MEMORY_CONTENT_MAX_BYTES = 4096;
+/** 每个范围最多几条：`memory.list` 不分页，一个范围的笔记一次给全。 */
+export const MEMORY_MAX_PER_SCOPE = 100;
+
+/** 一条笔记，不含正文（`memory.list`）。 */
+export const MemorySummarySchema = z.object({
+  scope: MemoryScopeSchema,
+  name: MemoryNameSchema,
+  type: MemoryTypeSchema,
+  description: z.string(),
+  /** 最近一次改正文、说明或种类的时刻；手写的旧文件没有时是空字符串。启用、停用不改它。 */
+  updatedAt: z.string(),
+  /** 停用的笔记还在，但 Agent 看不到、读不到，也不能用同名保存把它换掉；只有用户能重新启用。 */
+  enabled: z.boolean(),
+  /** 这一版的标识（不透明）：文件每次改动都会变。`memory.update` / `memory.delete` 带着它检查有没有被别人改过。 */
+  revision: z.string().min(1),
+});
+export type MemorySummary = z.infer<typeof MemorySummarySchema>;
+
+export const MemoryNoteSchema = MemorySummarySchema.extend({
+  content: z.string(),
+});
+export type MemoryNote = z.infer<typeof MemoryNoteSchema>;
 
 // ── 联网工具（0.34.0） ──────────────────────────────────────────────────
 

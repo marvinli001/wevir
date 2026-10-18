@@ -725,6 +725,45 @@ describe('全局插件（0.41.0）', () => {
   });
 });
 
+describe('跨会话记忆（0.57.0）', () => {
+  it('watchMemory：首次与重连读一次；全局的与这个项目的 memory.changed 重读，别的项目的不读；退订与旧 Host 不再读取', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { memory: true } } }));
+    const workspaceId = 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR';
+    host.on('memory.list', () => ({ result: { notes: [], unreadable: [] } }));
+    const { client, warnings } = await connect(host);
+    const seen: unknown[] = [];
+    const stop = client.watchMemory(workspaceId, (value) => seen.push(value));
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    expect(host.last.requests('memory.list')[0]?.params).toEqual({ workspaceId });
+    host.last.notify('memory.changed', { scope: 'project', workspaceId, name: 'a' });
+    host.last.notify('memory.changed', { scope: 'global', name: 'b' });
+    host.last.notify('memory.changed', {
+      scope: 'project',
+      workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQS',
+      name: 'c',
+    });
+    host.last.notify('memory.changed', { scope: 'team' });
+    await vi.waitFor(() => expect(host.last.requests('memory.list')).toHaveLength(3));
+    await tick();
+    expect(host.last.requests('memory.list')).toHaveLength(3);
+    expect(warnings).toContain('ignored a malformed memory.changed notification');
+    host.last.drop();
+    await vi.waitFor(() => expect(host.sockets).toHaveLength(2));
+    await vi.waitFor(() => expect(host.last.requests('memory.list')).toHaveLength(1));
+    stop();
+    host.last.notify('memory.changed', { scope: 'global' });
+    await tick();
+    expect(host.last.requests('memory.list')).toHaveLength(1);
+
+    const plain = new FakeHost();
+    const { client: old } = await connect(plain);
+    old.watchMemory(undefined, (value) => seen.push(value));
+    await tick();
+    expect(plain.last.requests('memory.list')).toEqual([]);
+  });
+});
+
 describe('浏览器提供方（0.33.0）', () => {
   const request = {
     requestId: 'brq_01JA2B3C4D5E6F7G8H9JKMNPQR',

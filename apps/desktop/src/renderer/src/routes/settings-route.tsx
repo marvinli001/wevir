@@ -2,6 +2,7 @@ import { cn } from 'cn';
 import {
   Archive,
   Bell,
+  Brain,
   Cpu,
   Folder,
   Globe,
@@ -26,6 +27,7 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { WindowControls } from '@/layout/window-controls';
 import { ArchivedSettings } from '@/settings/archived-settings';
 import { GeneralSettings } from '@/settings/general-settings';
+import { MemorySettings } from '@/settings/memory-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { ProviderSettings } from '@/settings/provider-settings';
 import { LIST_CARD, Segmented, SettingsRow, SettingsSection } from '@/settings/settings-ui';
@@ -98,6 +100,11 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Globe,
     keywords: ['settings.web.enabled', 'settings.web.service'],
   },
+  memory: {
+    label: 'settings.tab.memory',
+    icon: Brain,
+    keywords: ['settings.memory.auto', 'settings.memory.global'],
+  },
   workspaces: {
     label: 'settings.tab.workspaces',
     icon: Folder,
@@ -126,7 +133,7 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
     label: 'settings.group.app',
     tabs: ['general', 'appearance', 'notifications', 'shortcuts', 'storage', 'about'],
   },
-  { label: 'settings.group.work', tabs: ['providers', 'web', 'workspaces', 'archived'] },
+  { label: 'settings.group.work', tabs: ['providers', 'web', 'memory', 'workspaces', 'archived'] },
 ];
 
 /** 打开设置前所在的位置（左栏“设置”链接带上），历史里退无可退时后退回到那里。 */
@@ -272,6 +279,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <ProviderSettings />;
     case 'web':
       return <WebSettingsPage />;
+    case 'memory':
+      return <MemorySettings />;
     case 'workspaces':
       return <WorkspaceSettings />;
     case 'archived':

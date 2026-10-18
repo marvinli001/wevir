@@ -22,7 +22,12 @@ import {
   MemoryError,
   MemoryStore,
 } from './memory.js';
-import { instructionsWithMemory, MEMORY_TOOLS, memoryTools } from './memory-tools.js';
+import {
+  instructionsWithMemory,
+  MEMORY_OFF_MESSAGE,
+  MEMORY_TOOLS,
+  memoryTools,
+} from './memory-tools.js';
 import { SessionManager } from './session-manager.js';
 import { SES, SES2, seedSession, T0, useStorages, useTempDir } from './test-utils.js';
 
@@ -183,6 +188,148 @@ describe('MemoryStore', () => {
   });
 });
 
+describe('MemoryStore 的管理（0.57.0）', () => {
+  it('停用：Agent 列不出、读不到、删不到，索引里没有；同名保存被拒，不会悄悄恢复；用户能看到并重新启用', async () => {
+    const dir = join(tempDir(), 'memory');
+    const store = new MemoryStore({ dir, now: () => new Date('2026-10-17T00:00:00.000Z') });
+    await store.save('project', 'ws_1', note());
+    const off = await store.setEnabled('project', 'ws_1', 'avoid-rm-f', false);
+    expect(off.enabled).toBe(false);
+    expect(off.updatedAt).toBe('2026-10-17T00:00:00.000Z');
+    expect(readFileSync(join(dir, 'projects', 'ws_1', 'avoid-rm-f.md'), 'utf8')).toContain(
+      '\ndisabled: true\n',
+    );
+    expect(await store.list('ws_1')).toEqual([]);
+    expect(await store.indexText('ws_1')).toBeUndefined();
+    await expect(store.read('project', 'ws_1', 'avoid-rm-f')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(store.delete('project', 'ws_1', 'avoid-rm-f')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(
+      store.save('project', 'ws_1', note({ content: 'sneaky rewrite' })),
+    ).rejects.toMatchObject({ code: 'disabled' });
+    const still = await store.read('project', 'ws_1', 'avoid-rm-f', { includeDisabled: true });
+    expect(still).toMatchObject({ enabled: false, content: expect.stringContaining('without -f') });
+    expect((await store.listAll('ws_1')).notes).toEqual([
+      expect.objectContaining({ name: 'avoid-rm-f', enabled: false }),
+    ]);
+
+    await store.setEnabled('project', 'ws_1', 'avoid-rm-f', true);
+    expect((await store.list('ws_1')).map((entry) => entry.name)).toEqual(['avoid-rm-f']);
+    expect(readFileSync(join(dir, 'projects', 'ws_1', 'avoid-rm-f.md'), 'utf8')).not.toContain(
+      'disabled',
+    );
+  });
+
+  it('用户修改带版本：期间被 Agent 改过就不写、返回现在的版本；没有改动不写；规则同 Agent 保存', async () => {
+    let tick = 0;
+    const store = new MemoryStore({
+      dir: join(tempDir(), 'memory'),
+      now: () => new Date(Date.UTC(2026, 9, 17, 0, 0, tick++)),
+    });
+    const { note: first } = await store.save('global', undefined, note());
+    // Agent 在用户编辑期间又存了一次。
+    const { note: agent } = await store.save('global', undefined, note({ content: 'agent v2' }));
+    expect(agent.revision).not.toBe(first.revision);
+    const stale = await store.update('global', undefined, 'avoid-rm-f', first.revision, {
+      content: 'user edit',
+    });
+    expect(stale).toEqual({ note: agent, conflict: true });
+    expect((await store.read('global', undefined, 'avoid-rm-f')).content).toBe('agent v2');
+
+    const saved = await store.update('global', undefined, 'avoid-rm-f', agent.revision, {
+      content: 'user edit',
+      type: 'project',
+    });
+    expect(saved.conflict).toBeUndefined();
+    expect(saved.note).toMatchObject({ content: 'user edit', type: 'project', enabled: true });
+    expect(saved.note.updatedAt > agent.updatedAt).toBe(true);
+    expect(saved.note.revision).not.toBe(agent.revision);
+    expect(await store.read('global', undefined, 'avoid-rm-f')).toEqual(saved.note);
+
+    const same = await store.update('global', undefined, 'avoid-rm-f', saved.note.revision, {
+      content: 'user edit',
+    });
+    expect(same).toEqual({ note: saved.note });
+    await expect(
+      store.update('global', undefined, 'avoid-rm-f', saved.note.revision, {
+        content: 'token sk-abcdefghijklmnopqrstuvwxyz0123',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.update('global', undefined, 'missing', saved.note.revision, { content: 'x' }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('删除可带版本；读不出来的文件列在 unreadable 里，改不了但能按名字删', async () => {
+    const dir = join(tempDir(), 'memory');
+    const store = new MemoryStore({ dir });
+    const { note: saved } = await store.save('global', undefined, note());
+    await store.save('global', undefined, note({ content: 'newer' }));
+    expect(
+      await store.delete('global', undefined, 'avoid-rm-f', {
+        includeDisabled: true,
+        revision: saved.revision,
+      }),
+    ).toEqual({ conflict: expect.objectContaining({ content: 'newer' }) });
+    writeFileSync(join(dir, 'global', 'broken.md'), 'no frontmatter here');
+    expect((await store.listAll()).unreadable).toEqual([{ scope: 'global', name: 'broken' }]);
+    await expect(
+      store.update('global', undefined, 'broken', 'r', { content: 'x' }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect(await store.delete('global', undefined, 'broken', { includeDisabled: true })).toEqual(
+      {},
+    );
+    expect((await store.listAll()).unreadable).toEqual([]);
+    expect((await store.listAll()).notes).toHaveLength(1);
+  });
+
+  it('旧格式（没有 updated）照样读；认不出的 frontmatter 字段改写时留着', async () => {
+    const dir = join(tempDir(), 'memory');
+    mkdirSync(join(dir, 'global'), { recursive: true });
+    writeFileSync(
+      join(dir, 'global', 'old-note.md'),
+      '---\nname: old-note\ndescription: Written by hand\ntype: reference\nsource: future-field\n---\n\nDocs live in the wiki.\n',
+    );
+    const store = new MemoryStore({ dir });
+    const old = await store.read('global', undefined, 'old-note');
+    expect(old).toMatchObject({ updatedAt: '', enabled: true, content: 'Docs live in the wiki.' });
+    await store.setEnabled('global', undefined, 'old-note', false);
+    const text = readFileSync(join(dir, 'global', 'old-note.md'), 'utf8');
+    expect(text).toContain('source: future-field');
+    expect(text).toContain('disabled: true');
+  });
+
+  it('改动通知：存、改、启停、删各一次；冲突与没有改动的不通知', async () => {
+    const store = new MemoryStore({ dir: join(tempDir(), 'memory') });
+    const changes: unknown[] = [];
+    const stop = store.watch((change) => changes.push(change));
+    const { note: saved } = await store.save('project', 'ws_1', note());
+    await store.update('project', 'ws_1', 'avoid-rm-f', 'stale', { content: 'x' });
+    await store.update('project', 'ws_1', 'avoid-rm-f', saved.revision, {});
+    const { note: edited } = await store.update('project', 'ws_1', 'avoid-rm-f', saved.revision, {
+      content: 'edited',
+    });
+    await store.setEnabled('project', 'ws_1', 'avoid-rm-f', false);
+    await store.setEnabled('project', 'ws_1', 'avoid-rm-f', false);
+    await store.delete('project', 'ws_1', 'avoid-rm-f', { includeDisabled: true });
+    await store.save('global', undefined, note());
+    stop();
+    await store.save('global', undefined, note({ content: 'after stop' }));
+    const change = { scope: 'project', workspaceId: 'ws_1', name: 'avoid-rm-f' };
+    expect(changes).toEqual([
+      change,
+      change,
+      change,
+      change,
+      { scope: 'global', name: 'avoid-rm-f' },
+    ]);
+    expect(edited.content).toBe('edited');
+  });
+});
+
 describe('memoryTools', () => {
   const sessionId = 'ses_1' as SessionId;
   const signal = new AbortController().signal;
@@ -252,6 +399,43 @@ describe('memoryTools', () => {
     });
     await expect(call('wevir_memory_list', {})).rejects.toThrow(/no longer exists/);
   });
+
+  it('给 Agent 的结果里没有启用状态与版本', async () => {
+    const { call } = setup();
+    await call('wevir_memory_save', { scope: 'project', ...note() });
+    const listed = (await call('wevir_memory_list', {})).structuredContent as {
+      notes: Record<string, unknown>[];
+    };
+    expect(Object.keys(listed.notes[0] ?? {}).sort()).toEqual([
+      'description',
+      'name',
+      'scope',
+      'type',
+      'updatedAt',
+    ]);
+    const read = (await call('wevir_memory_read', { scope: 'project', name: 'avoid-rm-f' }))
+      .structuredContent as Record<string, unknown>;
+    expect(read).not.toHaveProperty('revision');
+    expect(read).not.toHaveProperty('enabled');
+  });
+
+  it('自动记忆关着时每个工具都拒绝，不碰文件', async () => {
+    const memory = new MemoryStore({ dir: join(tempDir(), 'memory') });
+    let enabled = false;
+    const tools = memoryTools({ memory, workspaceOf: () => 'ws_1', enabled: () => enabled });
+    const call = (name: string, args: Record<string, unknown>) =>
+      (tools.find((tool) => tool.name === name) as (typeof tools)[number]).call(args, {
+        sessionId,
+        signal,
+      });
+    await expect(call('wevir_memory_save', { scope: 'project', ...note() })).rejects.toThrow(
+      MEMORY_OFF_MESSAGE,
+    );
+    await expect(call('wevir_memory_list', {})).rejects.toThrow(MEMORY_OFF_MESSAGE);
+    expect(await memory.list('ws_1')).toEqual([]);
+    enabled = true;
+    await expect(call('wevir_memory_list', {})).resolves.toBeDefined();
+  });
 });
 
 describe('记忆经 MCP 端点', () => {
@@ -264,7 +448,7 @@ describe('记忆经 MCP 端点', () => {
     mcp = undefined;
   });
 
-  async function setup() {
+  async function setup(memoryEnabled: () => boolean = () => true) {
     const root = tempDir();
     const storage = storages.open(join(root, 'data'));
     seedSession(storage, SES);
@@ -290,15 +474,18 @@ describe('记忆经 MCP 端点', () => {
       hostId: 'host_test' as HostId,
       sendWhileBusy: () => 'queue',
       memory,
+      memoryEnabled,
     });
     const warnings: string[] = [];
     mcp = new AppMcpServer({
       tools: tools.tools,
+      filterTools: (sessionId, list) => tools.filterTools(sessionId, list),
       version: '0.0.0',
       instructions: instructionsWithMemory({
         base: APP_TOOLS_INSTRUCTIONS,
         memory,
         workspaceOf: (sessionId) => storage.sessions.get(sessionId)?.workspaceId,
+        enabled: memoryEnabled,
         onWarning: (message) => warnings.push(message),
       }),
     });
@@ -369,6 +556,38 @@ describe('记忆经 MCP 端点', () => {
     const gone = await call('ses_missing' as SessionId, 'wevir_memory_list', {});
     expect(gone.isError).toBe(true);
     expect(gone.content[0].text).toMatch(/no longer exists/);
+  });
+
+  it('自动记忆关着：新连接的说明里没有索引，工具不列出、调用被拒；停用的笔记也不进索引', async () => {
+    let enabled = true;
+    const { memory, rpc } = await setup(() => enabled);
+    await memory.save('global', undefined, note());
+    await memory.save('global', undefined, note({ name: 'turned-off', description: 'hidden' }));
+    await memory.setEnabled('global', undefined, 'turned-off', false);
+    const on = await rpc(SES, 'initialize', { protocolVersion: '2025-06-18' });
+    expect(on.instructions).toContain('[global] avoid-rm-f');
+    expect(on.instructions).not.toContain('turned-off');
+
+    enabled = false;
+    const off = await rpc(SES2, 'initialize', { protocolVersion: '2025-06-18' });
+    expect(off.instructions).not.toContain('wevir_memory_');
+    expect(off.instructions).not.toContain('avoid-rm-f');
+    expect(off.instructions).toContain('wevir_session_');
+    const listed = await rpc(SES2, 'tools/list');
+    const names = listed.tools.map((tool: { name: string }) => tool.name);
+    expect(names).not.toEqual(expect.arrayContaining(['wevir_memory_list']));
+    for (const name of MEMORY_TOOLS) expect(names).not.toContain(name);
+    expect(names).toContain('wevir_session_list');
+    const refused = await rpc(SES2, 'tools/call', {
+      name: 'wevir_memory_save',
+      arguments: { scope: 'global', ...note({ name: 'while-off' }) },
+    });
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0].text).toMatch(/not available/);
+    expect((await memory.listAll()).notes.map((entry) => entry.name).sort()).toEqual([
+      'avoid-rm-f',
+      'turned-off',
+    ]);
   });
 });
 

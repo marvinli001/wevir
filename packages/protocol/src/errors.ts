@@ -41,6 +41,8 @@ export const ErrorCode = {
   ENVIRONMENT_NOT_FOUND: -32016,
   /** 没有这张图片（0.28.0）。 */
   IMAGE_NOT_FOUND: -32017,
+  /** 这个范围里没有这个名字的笔记（0.57.0，`memory.*`）。 */
+  MEMORY_NOT_FOUND: -32018,
 
   INVALID_STATE: -32020,
   SESSION_BUSY: -32021,

@@ -38,6 +38,11 @@ import {
   GOAL_OBJECTIVE_MAX_CHARS,
   HostSettingsSchema,
   HttpUrlSchema,
+  MemoryNameSchema,
+  MemoryNoteSchema,
+  MemoryScopeSchema,
+  MemorySummarySchema,
+  MemoryTypeSchema,
   PendingDeliverySchema,
   PendingMessageSchema,
   PermissionModeSchema,
@@ -1086,6 +1091,86 @@ export const WebTestResultSchema = z.object({
 });
 export type WebTestResult = z.infer<typeof WebTestResultSchema>;
 
+// ── memory.*（0.57.0） ──────────────────────────────────────────────
+
+/**
+ * 用户管理跨会话记忆（Host 功能 `memory`，domain-model §3.21）：全局的与某个项目（工作区）的笔记。笔记按名字认，范围是
+ * `project` 时要给 `workspaceId`（工作区要在、没被移除，“对话”工作区也算），`global` 时不看它。不暴露文件路径。
+ */
+const MemoryTarget = {
+  scope: MemoryScopeSchema,
+  workspaceId: WorkspaceIdSchema.optional(),
+  name: MemoryNameSchema,
+};
+
+export const MemoryListParamsSchema = z.object({
+  /** 省略时只列全局的。 */
+  workspaceId: WorkspaceIdSchema.optional(),
+});
+
+/** 不分页：每个范围最多 `MEMORY_MAX_PER_SCOPE` 条，一次给全，启用的与停用的都在。最近更新的在前。 */
+export const MemoryListResultSchema = z.object({
+  notes: z.array(MemorySummarySchema),
+  /** 读不出来的笔记文件（格式坏了）：Agent 用不到它们，用户可以按名字删掉。 */
+  unreadable: z.array(z.object({ scope: MemoryScopeSchema, name: MemoryNameSchema })),
+});
+
+export const MemoryReadParamsSchema = z.object(MemoryTarget);
+
+export const MemoryNoteResultSchema = z.object({
+  note: MemoryNoteSchema,
+});
+
+/**
+ * 用户改一条笔记：只改给出的字段，`updatedAt` 换成现在。`revision` 是编辑基于的那一版；笔记在那之后被改过（Agent 存了、
+ * 另一个窗口改了）就不写，结果带 `conflict` 与现在的版本，客户端留着草稿让用户决定。字段的规则同 Agent 保存：说明一行、
+ * 不超过 `MEMORY_DESCRIPTION_MAX` 字，正文不空、不超过 `MEMORY_CONTENT_MAX_BYTES` 字节，像密钥的内容拒绝（`INVALID_PARAMS`）。
+ */
+export const MemoryUpdateParamsSchema = z.object({
+  ...MemoryTarget,
+  revision: z.string().min(1),
+  type: MemoryTypeSchema.optional(),
+  description: z.string().optional(),
+  content: z.string().optional(),
+});
+
+export const MemoryUpdateResultSchema = z.object({
+  /** 写好的这一版；冲突时是现在的版本（没写）。 */
+  note: MemoryNoteSchema,
+  conflict: z.literal(true).optional(),
+});
+
+/** 启用或停用：不改正文与 `updatedAt`。停用后新会话的清单与 Agent 的工具都看不到它。 */
+export const MemorySetEnabledParamsSchema = z.object({
+  ...MemoryTarget,
+  enabled: z.boolean(),
+});
+
+/**
+ * 删掉一条笔记。带 `revision` 时笔记在那之后被改过就不删，结果带 `conflict` 与现在的版本；读不出来的文件没有版本，不带
+ * `revision` 删。
+ */
+export const MemoryDeleteParamsSchema = z.object({
+  ...MemoryTarget,
+  revision: z.string().min(1).optional(),
+});
+
+export const MemoryDeleteResultSchema = z.object({
+  conflict: z.literal(true).optional(),
+  note: MemoryNoteSchema.optional(),
+});
+
+/**
+ * `memory.changed` 通知：某个范围的笔记变了（用户或 Agent 存、改、启停、删）。发给调用过 `memory.*` 的连接，客户端重读它在看的
+ * 范围。手改笔记文件不会触发。
+ */
+export const MemoryChangedParamsSchema = z.object({
+  scope: MemoryScopeSchema,
+  /** 范围是 `project` 时有。 */
+  workspaceId: WorkspaceIdSchema.optional(),
+  name: MemoryNameSchema.optional(),
+});
+
 // ── image.*（0.28.0） ───────────────────────────────────────────────
 
 /** 一张图片的字节上限（同 T3 Code 的 `PROVIDER_SEND_TURN_MAX_IMAGE_BYTES`）。 */
@@ -1540,6 +1625,32 @@ export const MethodSchemas = {
     permission: 'host.manage',
   },
 
+  'memory.list': {
+    params: MemoryListParamsSchema,
+    result: MemoryListResultSchema,
+    permission: 'session.read',
+  },
+  'memory.read': {
+    params: MemoryReadParamsSchema,
+    result: MemoryNoteResultSchema,
+    permission: 'session.read',
+  },
+  'memory.update': {
+    params: MemoryUpdateParamsSchema,
+    result: MemoryUpdateResultSchema,
+    permission: 'host.manage',
+  },
+  'memory.setEnabled': {
+    params: MemorySetEnabledParamsSchema,
+    result: MemoryNoteResultSchema,
+    permission: 'host.manage',
+  },
+  'memory.delete': {
+    params: MemoryDeleteParamsSchema,
+    result: MemoryDeleteResultSchema,
+    permission: 'host.manage',
+  },
+
   'question.respond': {
     params: QuestionRespondParamsSchema,
     result: QuestionRespondResultSchema,
@@ -1597,6 +1708,8 @@ export const NotificationSchemas = {
   'account.updated': { params: AccountUpdatedParamsSchema },
   /** 发给调用过 `settings.*` 的连接（0.8.0）。 */
   'settings.updated': { params: SettingsUpdatedParamsSchema },
+  /** 发给调用过 `memory.*` 的连接（0.57.0）。 */
+  'memory.changed': { params: MemoryChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;

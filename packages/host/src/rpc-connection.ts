@@ -44,6 +44,7 @@ import { HostError, isHostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
 import { newId } from './ids.js';
+import type { MemoryChange } from './memory.js';
 
 /** 一条连接的时限与容量。默认值见 `HostRpcServer`。 */
 export interface ConnectionLimits {
@@ -74,6 +75,8 @@ export interface ConnectionHost {
   /** Host 设置（R11）：调过 `settings.*` 的连接用它收 `settings.updated`。 */
   readonly settings?: { watch(listener: (settings: HostSettings) => void): () => void };
   readonly plugins?: { watch(listener: () => void): () => void };
+  /** 跨会话记忆（0.57.0）：调过 `memory.*` 的连接用它收 `memory.changed`。 */
+  readonly memory?: { watch(listener: (change: MemoryChange) => void): () => void };
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
   readonly limits: ConnectionLimits;
@@ -145,6 +148,8 @@ export class RpcConnection {
   /** 调过 `settings.*` 之后：退订 `settings.updated`。 */
   #unwatchSettings: (() => void) | undefined;
   #unwatchPlugins: (() => void) | undefined;
+  /** 调过 `memory.*` 之后：退订 `memory.changed`。 */
+  #unwatchMemory: (() => void) | undefined;
   /** `browser.register` 之后：注销这条连接的浏览器提供方。 */
   #unregisterBrowser: (() => void) | undefined;
   /** 这条连接作为浏览器提供方的标识。 */
@@ -441,6 +446,7 @@ export class RpcConnection {
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
+        if (method.startsWith('memory.')) this.#watchMemory();
       }
     }
   }
@@ -622,6 +628,20 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `memory.*` 的连接之后收 `memory.changed`（0.57.0），连接关闭即止。 */
+  #watchMemory(): void {
+    if (this.#unwatchMemory !== undefined || this.#host.memory === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchMemory = this.#host.memory.watch((change) => {
+      const parsed = NotificationSchemas['memory.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(new Error(`memory.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'memory.changed', params: parsed.data });
+    });
+  }
+
   #drop(subscription: Subscription): void {
     if (!subscription.active) return;
     subscription.active = false;
@@ -714,6 +734,8 @@ export class RpcConnection {
     this.#unwatchPlugins?.();
     this.#unwatchPlugins = undefined;
     this.#unwatchSettings = undefined;
+    this.#unwatchMemory?.();
+    this.#unwatchMemory = undefined;
     this.#unregisterBrowser?.();
     this.#unregisterBrowser = undefined;
   }

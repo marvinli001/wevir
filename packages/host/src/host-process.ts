@@ -235,7 +235,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
     await chats.load();
-    // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明。
+    // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
+    // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
     // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
     const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
@@ -352,6 +353,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(processes !== undefined && { processes }),
         ...(lsp !== undefined && { lsp }),
         memory,
+        memoryEnabled: () => settings.get().autoMemory !== false,
         roles,
         tasks: taskBoards,
         onWarning: (message, fields) => logger.warn(message, fields),
@@ -365,6 +367,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           base: APP_TOOLS_INSTRUCTIONS,
           memory,
           workspaceOf: (sessionId) => manager.workspaceOf(sessionId),
+          enabled: () => settings.get().autoMemory !== false,
           onWarning: (message, fields) => logger.warn(message, fields),
         }),
         onError: (error) => logger.error('app tools error', { error }),
@@ -401,6 +404,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         images,
         fileUrls,
         chats,
+        memory,
         ...(options.web !== undefined && { web: options.web }),
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
@@ -424,6 +428,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_worktree: true,
         provider_enabled: true,
         chat_sessions: true,
+        memory: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),
@@ -453,6 +458,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       plugins,
       ...(accounts !== undefined && { accounts }),
       settings,
+      memory,
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。

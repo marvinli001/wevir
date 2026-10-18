@@ -67,8 +67,9 @@ export interface AppMcpServerOptions {
     | ((sessionId: SessionId | undefined) => string | undefined | Promise<string | undefined>);
   onError?: (error: unknown) => void;
   /**
-   * 这个会话能用哪些工具（预设角色的限制，roles.ts）：`tools/list` 只列留下的，`tools/call` 拒绝没留下的。调用方不明（引擎令牌
-   * 的 `tools/list` 不带会话头）时 `sessionId` 是 `undefined`，不过滤。不给时都能用。
+   * 这个会话能用哪些工具（预设角色的限制，roles.ts；Host 设置关掉的记忆工具）：`tools/list` 只列留下的，`tools/call` 拒绝没留下
+   * 的。调用方不明（引擎令牌的 `tools/list` 不带会话头）时 `sessionId` 是 `undefined`，照样经过它（角色不限，Host 设置照样算）。
+   * 不给时都能用。
    */
   filterTools?: (
     sessionId: SessionId | undefined,
@@ -252,7 +253,7 @@ export class AppMcpServer {
     tools: readonly AppTool[],
   ): Promise<readonly AppTool[]> {
     const filter = this.#options.filterTools;
-    if (filter === undefined || sessionId === undefined) return tools;
+    if (filter === undefined) return tools;
     try {
       return await filter(sessionId, tools);
     } catch (error) {

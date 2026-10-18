@@ -35,6 +35,7 @@ import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from '.
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import { MemoryError, type MemoryNote, type MemoryScope, type MemoryStore } from './memory.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
 import type { SessionManager } from './session-manager.js';
@@ -106,6 +107,8 @@ export interface HostMethodsOptions {
   web?: WebService;
   /** 不在项目里的会话（0.39.0）：认出“对话”工作区（`kind: 'chats'`）；与 SessionManager 用同一个。 */
   chats?: ChatFolders;
+  /** 跨会话记忆（0.57.0，`memory.*`）；省略时 `memory.*` 回 `INVALID_PARAMS`（测试）。 */
+  memory?: MemoryStore;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -208,6 +211,38 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   };
   // 0.22.0：@ 提及与文件窗格的名字搜索，按目录缓存几秒。
   const fileIndex = new FileIndex();
+  const memoryStore = (): MemoryStore => {
+    if (options.memory === undefined) throw invalidParams([], 'this host has no memory store');
+    return options.memory;
+  };
+  /**
+   * `memory.*` 的范围：`project` 要有 `workspaceId`，工作区要在、没被移除（“对话”工作区也算）；`global` 不看 `workspaceId`。
+   * 返回交给 MemoryStore 的工作区 ID。
+   */
+  const memoryWorkspace = (
+    scope: MemoryScope,
+    workspaceId: string | undefined,
+  ): string | undefined => {
+    if (scope === 'global') return undefined;
+    if (workspaceId === undefined) {
+      throw invalidParams(['workspaceId'], 'project memory needs workspaceId');
+    }
+    const workspace = storage.workspaces.get(workspaceId);
+    if (!workspace || workspace.removedAt !== undefined) {
+      throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+    }
+    return workspaceId;
+  };
+  /** MemoryStore 的错误换成 Host API 的：找不到是 `MEMORY_NOT_FOUND`，其余（不合规、超出上限）是 `INVALID_PARAMS`。 */
+  const memoryCall = async <T>(run: () => Promise<T>): Promise<T> => {
+    try {
+      return await run();
+    } catch (error) {
+      if (!(error instanceof MemoryError)) throw error;
+      if (error.code === 'not_found') throw new HostError('MEMORY_NOT_FOUND', error.message);
+      throw invalidParams([], error.message);
+    }
+  };
   const requireAccounts = (): HostAccounts => {
     if (accounts === undefined) {
       const message = 'this host has no engine with accounts (use the Codex engine)';
@@ -817,6 +852,66 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'settings.update': async (params) => ({ settings: await settings.update(params.settings) }),
 
+    // 0.57.0：用户管理跨会话记忆（domain-model §3.21）。
+    'memory.list': async ({ workspaceId }) => {
+      const memory = memoryStore();
+      return memoryCall(() =>
+        memory.listAll(
+          workspaceId === undefined ? undefined : memoryWorkspace('project', workspaceId),
+        ),
+      );
+    },
+
+    'memory.read': async ({ scope, workspaceId, name }) => {
+      const memory = memoryStore();
+      const workspace = memoryWorkspace(scope, workspaceId);
+      return {
+        note: toMemoryNote(
+          await memoryCall(() => memory.read(scope, workspace, name, { includeDisabled: true })),
+        ),
+      };
+    },
+
+    'memory.update': async ({ scope, workspaceId, name, revision, type, description, content }) => {
+      const memory = memoryStore();
+      const workspace = memoryWorkspace(scope, workspaceId);
+      const result = await memoryCall(() =>
+        memory.update(scope, workspace, name, revision, {
+          ...(type !== undefined && { type }),
+          ...(description !== undefined && { description }),
+          ...(content !== undefined && { content }),
+        }),
+      );
+      return {
+        note: toMemoryNote(result.note),
+        ...(result.conflict === true && { conflict: true as const }),
+      };
+    },
+
+    'memory.setEnabled': async ({ scope, workspaceId, name, enabled }) => {
+      const memory = memoryStore();
+      const workspace = memoryWorkspace(scope, workspaceId);
+      return {
+        note: toMemoryNote(
+          await memoryCall(() => memory.setEnabled(scope, workspace, name, enabled)),
+        ),
+      };
+    },
+
+    'memory.delete': async ({ scope, workspaceId, name, revision }) => {
+      const memory = memoryStore();
+      const workspace = memoryWorkspace(scope, workspaceId);
+      const result = await memoryCall(() =>
+        memory.delete(scope, workspace, name, {
+          includeDisabled: true,
+          ...(revision !== undefined && { revision }),
+        }),
+      );
+      return result.conflict === undefined
+        ? {}
+        : { conflict: true as const, note: toMemoryNote(result.conflict) };
+    },
+
     'web.get': async () => ({ web: webService().settings() }),
     'web.update': async (params) => ({ web: await webService().update(params) }),
     'web.test': (params) => webService().test(params),
@@ -969,6 +1064,12 @@ function toEnvironment(record: EnvironmentRecord): Environment {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+/** 线缆上的笔记：只有协议里的字段。 */
+function toMemoryNote(note: MemoryNote): MemoryNote {
+  const { scope, name, type, description, content, updatedAt, enabled, revision } = note;
+  return { scope, name, type, description, content, updatedAt, enabled, revision };
 }
 
 function invalidParams(path: string[], message: string): HostError<'INVALID_PARAMS'> {

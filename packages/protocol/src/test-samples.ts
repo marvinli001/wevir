@@ -9,6 +9,8 @@ import type {
   ApprovalResolution,
   BoardTask,
   Environment,
+  MemoryNote,
+  MemorySummary,
   PendingMessage,
   PromptSuggestion,
   ProviderProfile,
@@ -1054,6 +1056,21 @@ const pluginList042 = {
   plugins: [plugin],
 };
 
+/** 0.57.0：一条项目笔记。 */
+const memorySummary: MemorySummary = {
+  scope: 'project',
+  name: 'invoice-cents',
+  type: 'feedback',
+  description: 'Discounts are computed in integer cents',
+  updatedAt: TS,
+  enabled: true,
+  revision: '3f1c2a9b7d4e6f10',
+};
+const memoryNote: MemoryNote = {
+  ...memorySummary,
+  content: 'Compute discounts in integer cents and round once.\nWhy: the user corrected this.',
+};
+
 export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
@@ -1339,11 +1356,14 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer' } },
         { settings: { sendWhileBusy: 'steer', promptSuggestions: true } },
         { settings: { sendWhileBusy: 'steer', sessionRecap: false } },
+        // 0.57.0：自动记忆的开关。
+        { settings: { sendWhileBusy: 'steer', autoMemory: false } },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
         { settings: { sendWhileBusy: 'steer', promptSuggestions: 'yes' } },
         { settings: { sendWhileBusy: 'steer', sessionRecap: 'off' } },
+        { settings: { sendWhileBusy: 'steer', autoMemory: 'off' } },
         {},
       ],
     },
@@ -1354,12 +1374,14 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'queue' } },
         { settings: { promptSuggestions: false } },
         { settings: { sessionRecap: false } },
+        { settings: { autoMemory: false } },
         { settings: {} },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'later' } },
         { settings: { promptSuggestions: 0 } },
         { settings: { sessionRecap: 1 } },
+        { settings: { autoMemory: 'no' } },
         {},
       ],
     },
@@ -2699,6 +2721,106 @@ export const methodSamples: MethodSamples = {
       invalid: [{}],
     },
   },
+  'memory.list': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace }],
+      invalid: [{ workspaceId: 'x' }],
+    },
+    result: {
+      valid: [
+        { notes: [], unreadable: [] },
+        {
+          notes: [
+            memorySummary,
+            {
+              ...memorySummary,
+              scope: 'global',
+              name: 'reply-language',
+              type: 'user',
+              enabled: false,
+            },
+          ],
+          unreadable: [{ scope: 'project', name: 'broken-note' }],
+        },
+        { notes: [{ ...memorySummary, updatedAt: '' }], unreadable: [] },
+      ],
+      invalid: [
+        { notes: [] },
+        { notes: [{ ...memorySummary, type: 'secret' }], unreadable: [] },
+        { notes: [{ ...memorySummary, name: 'Bad Name' }], unreadable: [] },
+        { notes: [{ ...memorySummary, revision: '' }], unreadable: [] },
+      ],
+    },
+  },
+  'memory.read': {
+    params: {
+      valid: [
+        { scope: 'project', workspaceId: ids.workspace, name: 'invoice-cents' },
+        { scope: 'global', name: 'reply-language' },
+      ],
+      invalid: [{ scope: 'team', name: 'x' }, { scope: 'global', name: '-x' }, { scope: 'global' }],
+    },
+    result: {
+      valid: [{ note: memoryNote }],
+      invalid: [{ note: memorySummary }, {}],
+    },
+  },
+  'memory.update': {
+    params: {
+      valid: [
+        {
+          scope: 'project',
+          workspaceId: ids.workspace,
+          name: 'invoice-cents',
+          revision: memorySummary.revision,
+          description: 'Discounts use integer cents',
+          content: 'Round once, at the end.',
+        },
+        { scope: 'global', name: 'reply-language', revision: 'r2', type: 'feedback' },
+      ],
+      invalid: [
+        { scope: 'global', name: 'reply-language' },
+        { scope: 'global', name: 'reply-language', revision: '' },
+        { scope: 'global', name: 'reply-language', revision: 'r2', type: 'secret' },
+      ],
+    },
+    result: {
+      valid: [{ note: memoryNote }, { note: memoryNote, conflict: true }],
+      invalid: [{ note: memoryNote, conflict: false }, {}],
+    },
+  },
+  'memory.setEnabled': {
+    params: {
+      valid: [
+        { scope: 'project', workspaceId: ids.workspace, name: 'invoice-cents', enabled: false },
+        { scope: 'global', name: 'reply-language', enabled: true },
+      ],
+      invalid: [
+        { scope: 'global', name: 'reply-language' },
+        { scope: 'global', name: 'x', enabled: 'no' },
+      ],
+    },
+    result: {
+      valid: [{ note: { ...memoryNote, enabled: false } }],
+      invalid: [{}],
+    },
+  },
+  'memory.delete': {
+    params: {
+      valid: [
+        { scope: 'project', workspaceId: ids.workspace, name: 'invoice-cents', revision: 'r1' },
+        { scope: 'project', workspaceId: ids.workspace, name: 'broken-note' },
+      ],
+      invalid: [
+        { scope: 'project', name: 'Broken' },
+        { scope: 'global', name: 'x', revision: '' },
+      ],
+    },
+    result: {
+      valid: [{}, { conflict: true, note: memoryNote }],
+      invalid: [{ conflict: false }],
+    },
+  },
   'question.respond': {
     params: {
       valid: [
@@ -3136,8 +3258,17 @@ export const notificationSamples: NotificationSamples = {
     valid: [
       { settings: { sendWhileBusy: 'queue' } },
       { settings: { sendWhileBusy: 'queue', promptSuggestions: true } },
+      { settings: { sendWhileBusy: 'queue', autoMemory: false } },
     ],
     invalid: [{ settings: {} }],
+  },
+  'memory.changed': {
+    valid: [
+      { scope: 'global', name: 'reply-language' },
+      { scope: 'project', workspaceId: ids.workspace, name: 'invoice-cents' },
+      { scope: 'project', workspaceId: ids.workspace },
+    ],
+    invalid: [{}, { scope: 'team' }, { scope: 'global', name: 'Bad Name' }],
   },
   'browser.request': {
     valid: [

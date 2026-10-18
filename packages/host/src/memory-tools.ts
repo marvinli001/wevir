@@ -1,6 +1,7 @@
 // 跨会话记忆的应用级工具（domain-model §3.21）：`wevir_memory_*` 交给 memory.ts 的 MemoryStore。agent 自己存取，不走批准：
 // 记忆只写 Host 数据目录里 Wevir 自己的文件，不碰用户的项目，所以四个都标 `readOnlyHint`（同 `wevir_share_file`，Codex 的 `auto`
-// 批准方式不拦，Claude 按名字放行）。用户在设置里能看到和删除（界面另做）。
+// 批准方式不拦，Claude 按名字放行）。用户在设置 → 记忆里管理（0.57.0 的 `memory.*`）：停用的笔记这里看不到；Host 设置的
+// `autoMemory` 关掉时工具不列出、调用被拒绝（`AppTools.filterTools` 与这里各挡一道），新会话的说明里也没有索引。
 
 import type { SessionId } from '@wevir/protocol';
 import { type AppTool, AppToolError, jsonResult } from './app-mcp.js';
@@ -35,10 +36,17 @@ export interface MemoryToolsOptions {
   memory: MemoryStore;
   /** 调工具的会话所在的项目；会话不在了时抛 AppToolError。 */
   workspaceOf: (sessionId: SessionId) => string;
+  /** Host 设置的 `autoMemory`；返回 false 时每个工具都拒绝。省略当作开着。 */
+  enabled?: () => boolean;
 }
 
-export function memoryTools({ memory, workspaceOf }: MemoryToolsOptions): AppTool[] {
+/** 自动记忆关掉时给模型看的话。 */
+export const MEMORY_OFF_MESSAGE =
+  'Saved memory is turned off in Wevir settings; do not read or save memory in this session.';
+
+export function memoryTools({ memory, workspaceOf, enabled }: MemoryToolsOptions): AppTool[] {
   const guard = async <T>(run: () => Promise<T>): Promise<T> => {
+    if (enabled?.() === false) throw new AppToolError(MEMORY_OFF_MESSAGE);
     try {
       return await run();
     } catch (error) {
@@ -71,7 +79,15 @@ export function memoryTools({ memory, workspaceOf }: MemoryToolsOptions): AppToo
       annotations: ANNOTATIONS,
       call: async (_args, { sessionId }) => {
         const notes = await guard(() => memory.list(workspaceOf(sessionId)));
-        return jsonResult({ notes });
+        return jsonResult({
+          notes: notes.map(({ scope, name, type, description, updatedAt }) => ({
+            scope,
+            name,
+            type,
+            description,
+            updatedAt,
+          })),
+        });
       },
     },
     {
@@ -88,7 +104,11 @@ export function memoryTools({ memory, workspaceOf }: MemoryToolsOptions): AppToo
       call: async (args, { sessionId }) => {
         const scope = scopeOf(args);
         const name = requiredString(args, 'name');
-        const note = await guard(() => memory.read(scope, workspaceOf(sessionId), name));
+        const {
+          enabled: _enabled,
+          revision: _revision,
+          ...note
+        } = await guard(() => memory.read(scope, workspaceOf(sessionId), name));
         return jsonResult({ ...note });
       },
     },
@@ -162,17 +182,27 @@ export function memoryTools({ memory, workspaceOf }: MemoryToolsOptions): AppToo
 }
 
 /**
- * `AppMcpServer` 的 `instructions`：工具说明加上这个会话能看到的记忆索引（全局和它所在项目的）。调用方不明或没有记忆时只有
- * 工具说明；记忆读不了只记一条警告，不影响引擎连上工具。会话所在的项目经 `workspaceOf` 问：引擎在会话写进存储之前就会来取
- * 说明（Codex 起 thread 时连 MCP），只查存储会认不出项目、漏掉项目的笔记（SessionManager 的 `workspaceOf` 也认正在建的会话）。
+ * `AppMcpServer` 的 `instructions`：工具说明加上这个会话能看到的记忆索引（全局和它所在项目里启用的）。调用方不明、没有记忆
+ * 或自动记忆关着时只有工具说明；记忆读不了只记一条警告，不影响引擎连上工具。会话所在的项目经 `workspaceOf` 问：引擎在会话写进
+ * 存储之前就会来取说明（Codex 起 thread 时连 MCP），只查存储会认不出项目、漏掉项目的笔记（SessionManager 的 `workspaceOf` 也认
+ * 正在建的会话）。
  */
 export function instructionsWithMemory(options: {
   base: string;
   memory: MemoryStore;
   workspaceOf: (sessionId: SessionId) => string | undefined;
+  /** Host 设置的 `autoMemory`；返回 false 时不加索引。省略当作开着。 */
+  enabled?: () => boolean;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }): (sessionId: SessionId | undefined) => Promise<string> {
   return async (sessionId) => {
+    // 关着时连工具说明里讲记忆工具的那一行也去掉：工具不列出，说明不该再提它们。
+    if (options.enabled?.() === false) {
+      return options.base
+        .split('\n')
+        .filter((line) => !line.startsWith('- wevir_memory_'))
+        .join('\n');
+    }
     try {
       const workspaceId = sessionId === undefined ? undefined : options.workspaceOf(sessionId);
       const index = await options.memory.indexText(workspaceId);

@@ -214,6 +214,11 @@ export const HOST_FEATURES = {
    * 工具时声明（同 `app_tools`）。
    */
   sharedFiles: 'shared_files',
+  /**
+   * 记忆管理（0.57.0，domain-model §3.21）：`memory.*` 方法、`memory.changed` 通知与 Host 设置的 `autoMemory`；笔记带 `enabled`，
+   * 停用的 Agent 看不到。与引擎无关。
+   */
+  memory: 'memory',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -261,6 +266,7 @@ export const HostFeaturesSchema = z.looseObject({
   prompt_suggestions: z.boolean().optional(),
   chat_sessions: z.boolean().optional(),
   shared_files: z.boolean().optional(),
+  memory: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

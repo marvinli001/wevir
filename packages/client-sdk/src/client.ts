@@ -10,6 +10,7 @@ import {
   type HostFeature,
   HostHelloResultSchema,
   type HostSettings,
+  MemoryChangedParamsSchema,
   type MethodName,
   type MethodParams,
   type MethodResult,
@@ -20,6 +21,7 @@ import {
   type SessionId,
   SettingsUpdatedParamsSchema,
   WevirEventEnvelopeSchema,
+  type WorkspaceId,
 } from '@wevir/protocol';
 import { DEFAULT_CLIENT_CAPABILITIES, hostSupports } from './capabilities.js';
 import {
@@ -88,6 +90,16 @@ interface SettingsWatcher {
 interface PluginsWatcher {
   readonly listener: (plugins: MethodResult<'plugins.list'>) => void;
   readonly onError?: (error: unknown) => void;
+  updates: number;
+}
+
+/** `watchMemory` 的一个监听器（0.57.0）。 */
+interface MemoryWatcher {
+  /** 在看的项目；省略时只看全局的。 */
+  readonly workspaceId: WorkspaceId | undefined;
+  readonly listener: (memory: MethodResult<'memory.list'>) => void;
+  readonly onError?: (error: unknown) => void;
+  /** 发出的读取次数：晚到的旧结果丢掉。 */
   updates: number;
 }
 
@@ -233,6 +245,7 @@ export class WevirClient {
   readonly #accountListWatchers = new Set<AccountListWatcher>();
   readonly #settingsWatchers = new Set<SettingsWatcher>();
   readonly #pluginsWatchers = new Set<PluginsWatcher>();
+  readonly #memoryWatchers = new Set<MemoryWatcher>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
   #browserProvider: BrowserProviderEntry | undefined;
   #state: ConnectionState = { status: 'connecting' };
@@ -431,6 +444,48 @@ export class WevirClient {
       },
       (error: unknown) => {
         if (this.#pluginsWatchers.has(watcher)) watcher.onError?.(error);
+      },
+    );
+  }
+
+  /**
+   * 跟着跨会话记忆（0.57.0，`memory.list`）：全局的与 `workspaceId` 这个项目的笔记。现在、每次（重）连上之后，以及收到相关的
+   * `memory.changed`（全局的，或这个项目的）时读一次，结果交给 `listener`（Host 只给调过 `memory.*` 的连接发通知）。Host 没有
+   * `memory` 功能时什么都不做。读失败交给 `onError`。返回取消函数。
+   */
+  watchMemory(
+    workspaceId: WorkspaceId | undefined,
+    listener: MemoryWatcher['listener'],
+    onError?: MemoryWatcher['onError'],
+  ): () => void {
+    const watcher: MemoryWatcher = {
+      workspaceId,
+      listener,
+      updates: 0,
+      ...(onError !== undefined && { onError }),
+    };
+    this.#memoryWatchers.add(watcher);
+    if (this.#connection !== undefined) this.#readMemory(watcher);
+    return () => this.#memoryWatchers.delete(watcher);
+  }
+
+  #readMemory(watcher: MemoryWatcher): void {
+    if (!this.supports('memory')) return;
+    const before = ++watcher.updates;
+    this.request(
+      'memory.list',
+      watcher.workspaceId === undefined ? {} : { workspaceId: watcher.workspaceId },
+    ).then(
+      (memory) => {
+        if (!this.#memoryWatchers.has(watcher) || before !== watcher.updates) return;
+        try {
+          watcher.listener(memory);
+        } catch (error) {
+          this.#warn('a memory listener threw', { error });
+        }
+      },
+      (error: unknown) => {
+        if (this.#memoryWatchers.has(watcher)) watcher.onError?.(error);
       },
     );
   }
@@ -694,6 +749,7 @@ export class WevirClient {
         for (const watcher of this.#accountListWatchers) this.#readAccountList(watcher);
         for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
         for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
+        for (const watcher of this.#memoryWatchers) this.#readMemory(watcher);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         return;
       }
@@ -923,6 +979,18 @@ export class WevirClient {
     }
     if (method === 'plugins.changed') {
       for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
+      return;
+    }
+    if (method === 'memory.changed') {
+      const parsed = MemoryChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed memory.changed notification');
+        return;
+      }
+      const { scope, workspaceId } = parsed.data;
+      for (const watcher of [...this.#memoryWatchers]) {
+        if (scope === 'global' || watcher.workspaceId === workspaceId) this.#readMemory(watcher);
+      }
       return;
     }
     if (method === 'browser.request') {
