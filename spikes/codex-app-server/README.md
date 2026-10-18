@@ -1,6 +1,6 @@
 # spikes/codex-app-server：以 codex app-server 为运行时，直连 Responses 或经网关转 Chat Completions
 
-一次性验证代码，不属于 pnpm workspace，不进入产品构建，没有 npm 依赖（Node ≥ 22.19 直接跑 `.ts`）。结论见 [docs/research/codex-notes.md](../../docs/research/codex-notes.md) §7，设计见 [ADR-0005 草案](../../docs/adr/0005-agent-runtime-and-model-gateway.md)。
+一次性验证代码，不属于 pnpm workspace，不进入产品构建，没有 npm 依赖（Node ≥ 22.19 直接跑 `.ts`）。验证结论属于内部文档，不在公开仓库里。
 
 ## 运行
 

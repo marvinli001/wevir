@@ -1,6 +1,6 @@
 # spikes/dsh-acp — T0.3：Wevir 以 ACP 接入 DeepSeek Harness
 
-一次性验证代码，不属于 pnpm workspace，不进入产品构建。结论见 [docs/research/dsh-integration-spike.md](../../docs/research/dsh-integration-spike.md)。
+一次性验证代码，不属于 pnpm workspace，不进入产品构建。验证报告属于内部文档，不在公开仓库里。
 
 ## 运行
 

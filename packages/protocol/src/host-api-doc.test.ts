@@ -1,5 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import hostApiDoc from '../../../docs/architecture/host-api.md?raw';
 import {
   CloseCode,
   DESKTOP_RENDERER_ORIGINS,
@@ -13,6 +13,9 @@ import {
 import * as limits from './limits.js';
 
 // docs/architecture/host-api.md 里以 `<!-- registry:<名字> -->` 标记的表格必须与代码一致。
+// 这份文档只在维护者本机（不在公开仓库里），克隆下来没有它时整组测试跳过。
+const docPath = new URL('../../../docs/architecture/host-api.md', import.meta.url);
+const hostApiDoc = existsSync(docPath) ? readFileSync(docPath, 'utf8') : '';
 
 function registryTable(name: string): string[][] {
   const lines = hostApiDoc.split('\n');
@@ -40,7 +43,7 @@ function code(cell: string | undefined): string {
   return match?.[1] ?? cell ?? '';
 }
 
-describe('host-api.md 与代码一致', () => {
+describe.skipIf(hostApiDoc === '')('host-api.md 与代码一致', () => {
   it('方法表：名字、顺序与权限', () => {
     const rows = registryTable('methods');
     expect(rows.map((row) => code(row[0]))).toEqual(METHOD_NAMES);

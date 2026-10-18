@@ -1,6 +1,6 @@
 # 随应用打包的字体
 
-由 `apps/desktop/scripts/build-fonts.py` 生成，不要手改；用法、子集文字与来源的 sha256 写在脚本里。用途与字体栈见 [docs/design/desktop-tokens.md](../../../../../../docs/design/desktop-tokens.md) §4，许可证全文在 `apps/desktop/licenses/fonts/`，署名在仓库根目录的 `NOTICE` 第 7 节。
+由 `apps/desktop/scripts/build-fonts.py` 生成，不要手改；用法、子集文字与来源的 sha256 写在脚本里。用途与字体栈见 docs/design/desktop-tokens.md §4，许可证全文在 `apps/desktop/licenses/fonts/`，署名在仓库根目录的 `NOTICE` 第 7 节。
 
 | 文件 | 来源 | 版本 | 处理 | 许可证与版权 |
 |---|---|---|---|---|

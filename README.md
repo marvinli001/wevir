@@ -52,16 +52,6 @@ bash scripts/fetch-codex.sh
 pnpm dev
 ```
 
-详见[开发指南](docs/development.md)。
-
-## 文档
-
-- [桌面工作台布局](docs/architecture/desktop-layout.md)
-- [模型协议网关](docs/architecture/model-gateway.md)
-- [安全说明](docs/security.md)
-- [架构决策记录](docs/adr/README.md)
-- [开发指南](docs/development.md)
-
 ## 许可证
 
 [MIT License](LICENSE)。上游移植与第三方版权声明见 [NOTICE](NOTICE)。

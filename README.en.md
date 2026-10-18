@@ -52,16 +52,6 @@ bash scripts/fetch-codex.sh
 pnpm dev
 ```
 
-See the [development guide](docs/development.md).
-
-## Documentation
-
-- [Desktop workspace layout](docs/architecture/desktop-layout.md)
-- [Model protocol gateway](docs/architecture/model-gateway.md)
-- [Security](docs/security.md)
-- [Architecture decision records](docs/adr/README.md)
-- [Development guide](docs/development.md)
-
 ## License
 
 [MIT License](LICENSE). Upstream code and third-party attributions: [NOTICE](NOTICE).

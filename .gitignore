@@ -42,3 +42,10 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 .idea/
+
+# 内部开发文档只在维护者本机，不进公开仓库：docs/ 里只有 upstream/（NOTICE 引用的上游登记与第三方声明）公开。
+# 要公开新的文档时用 git add -f。
+/docs/*
+!/docs/upstream/
+/TODO.md
+/CLAUDE.local.md
