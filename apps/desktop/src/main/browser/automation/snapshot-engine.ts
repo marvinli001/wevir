@@ -123,6 +123,9 @@ const MAX_REFS = 500;
 /** 在一个跨域 frame 里跑快照脚本最多等多久（frame 卡住时不拖住整个快照）。 */
 const FRAME_SCRIPT_TIMEOUT_MS = 3_000;
 const FRAME_UNREADABLE = '(content from another site could not be read)';
+/** 节点数到了上限、没轮到读的跨域 frame：不是读不了，让它自己取一次快照。 */
+const frameSkipped = (frameId: string) =>
+  `(content from another site left out: the snapshot reached its node limit; snapshot it with frame=${frameId})`;
 
 export type BrowserRefActionResult =
   | { ok: true }
@@ -247,8 +250,11 @@ export class BrowserSnapshotEngine {
       const frameId = node.frame ?? '';
       node.kind = 'group';
       node.frame = undefined;
+      if (truncated || nodeCount >= maxNodes) {
+        node.children = [{ kind: 'text', text: frameSkipped(frameId) }];
+        continue;
+      }
       node.children = [{ kind: 'text', text: FRAME_UNREADABLE }];
-      if (truncated || nodeCount >= maxNodes) continue;
       const frame = (await frames()).find((candidate) => candidate.id === frameId);
       if (!frame) continue;
       const raw = await withTimeout(

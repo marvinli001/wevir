@@ -359,6 +359,7 @@ describe('浏览器工具（0.48.0）', () => {
           ['browser_evaluate', { browserId: 'tab_1' }],
           ['browser_wait', { browserId: 'tab_1', urlRegex: 'a', networkIdle: true }],
           ['browser_snapshot', { browserId: 'tab_1', selector: 'main', ref: '@e1' }],
+          ['browser_snapshot', { browserId: 'tab_1', maxNodes: 6 }],
         ] as const
       ).map(async ([name, args]) => {
         const result = await call(name, args);
@@ -370,6 +371,7 @@ describe('浏览器工具（0.48.0）', () => {
     expect(refused[1]).toMatch(/^\[browser_denied\]|does not exist/);
     expect(refused[2]).toMatch(/is not a file/);
     expect(refused[3]).toMatch(/does not exist/);
+    expect(refused[11]).toMatch(/maxNodes must be at least 100 \(got 6\)/);
     expect(desktop.requests).toHaveLength(3);
   });
 });

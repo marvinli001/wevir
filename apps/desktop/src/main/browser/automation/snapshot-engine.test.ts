@@ -392,6 +392,41 @@ describe('BrowserSnapshotEngine', () => {
       expect(snapshot.snapshot).toContain('(content from another site could not be read)');
     });
 
+    it('says a frame was left out, not unreadable, when the node limit is reached first', async () => {
+      const top = scripted(() =>
+        result(
+          [
+            {
+              kind: 'role',
+              role: 'iframe',
+              name: '',
+              tagName: 'iframe',
+              attributes: ['frame=1'],
+              children: [{ kind: 'frame', frame: '1' }],
+            },
+          ],
+          [],
+          { truncated: true, stoppedAt: 'body > p:nth-of-type(100)' },
+        ),
+      );
+      const inner = scripted(() => {
+        throw new Error('a frame past the node limit must not be read');
+      });
+
+      const snapshot = await snap(new BrowserSnapshotEngine(), {
+        browserId: 'b',
+        page: top,
+        maxNodes: 100,
+        frames: async () => [{ id: '1', url: 'https://b.test/', name: '', page: inner }],
+      });
+
+      expect(inner.scripts).toEqual([]);
+      expect(snapshot.snapshot).toContain(
+        '- text: "(content from another site left out: the snapshot reached its node limit; snapshot it with frame=1)"',
+      );
+      expect(snapshot.snapshot).not.toContain('could not be read');
+    });
+
     it('passes the scope to the page script and reports selector failures', async () => {
       let answer: unknown = result([], []);
       const page = scripted(() => answer);

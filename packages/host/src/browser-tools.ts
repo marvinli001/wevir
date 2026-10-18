@@ -207,6 +207,11 @@ const SPECS: ToolSpec[] = [
       const ref = optionalString(args, 'ref');
       const frame = optionalString(args, 'frame');
       const maxNodes = optionalInt(args, 'maxNodes', 100, BROWSER_SNAPSHOT_MAX_NODES);
+      if (typeof args.maxNodes === 'number' && args.maxNodes < 100) {
+        throw new AppToolError(
+          `maxNodes must be at least 100 (got ${args.maxNodes}). To read less of the page, use selector, ref, frame or viewportOnly.`,
+        );
+      }
       if (selector !== undefined && ref !== undefined) {
         throw new AppToolError('browser_snapshot takes selector or ref, not both.');
       }
