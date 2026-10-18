@@ -9,6 +9,11 @@ const env = process.env;
 const args = process.argv.slice(2);
 if (env.FAKE_WORKBUDDY_ARGV_LOG)
   appendFileSync(env.FAKE_WORKBUDDY_ARGV_LOG, `${JSON.stringify(args)}\n`);
+if (env.FAKE_WORKBUDDY_ENV_LOG)
+  appendFileSync(
+    env.FAKE_WORKBUDDY_ENV_LOG,
+    `${JSON.stringify({ autoupdate: env.DISABLE_AUTOUPDATER ?? null, args })}\n`,
+  );
 if (args.includes('--version')) {
   process.stdout.write(`${env.FAKE_WORKBUDDY_VERSION ?? '2.168.2'}\n`);
   process.exit(Number(env.FAKE_WORKBUDDY_VERSION_EXIT ?? 0));
@@ -76,14 +81,13 @@ function configs(state) {
   return result;
 }
 function checkAuth() {
-  if (env.FAKE_WORKBUDDY_SIGNED_OUT === '1')
+  // 假登录：FAKE_WORKBUDDY_AUTH_STATE 文件存在就算已登录（authenticate 成功时写下它）。
+  const signedIn = env.FAKE_WORKBUDDY_AUTH_STATE && existsSync(env.FAKE_WORKBUDDY_AUTH_STATE);
+  if (env.FAKE_WORKBUDDY_SIGNED_OUT === '1' && !signedIn)
     throw { code: -32000, message: 'Authentication required', data: { category: 'auth' } };
 }
 const handlers = {
   initialize: () => sample('initialize'),
-  authenticate: () => {
-    throw { code: -32602, message: 'Tests must never authenticate' };
-  },
   'session/new': (params) => {
     checkAuth();
     if (env.FAKE_WORKBUDDY_PROBE_ERROR === '1')
@@ -140,6 +144,37 @@ const handlers = {
     return { resolved: true };
   },
 };
+
+// 只在 FAKE_WORKBUDDY_ALLOW_AUTH=1 时才认 authenticate：像真的一样先给 _codebuddy.ai/authUrl 通知（也自己去开 $BROWSER），
+// 等 FAKE_WORKBUDDY_AUTH_DONE 文件出现（用户“在浏览器里同意”）再成功，或按 FAKE_WORKBUDDY_AUTH_FAIL 失败。
+async function authenticate(id, params) {
+  if (env.FAKE_WORKBUDDY_ALLOW_AUTH !== '1')
+    return send({ id, error: { code: -32602, message: 'Tests must never authenticate' } });
+  if (env.FAKE_WORKBUDDY_AUTH_LOG)
+    appendFileSync(
+      env.FAKE_WORKBUDDY_AUTH_LOG,
+      `${JSON.stringify({ methodId: params.methodId, browser: env.BROWSER ?? null })}\n`,
+    );
+  if (env.FAKE_WORKBUDDY_AUTH_NO_URL !== '1')
+    send({
+      method: '_codebuddy.ai/authUrl',
+      params: {
+        authUrl: env.FAKE_WORKBUDDY_AUTH_URL ?? 'https://www.codebuddy.cn/login?state=fixture',
+        provider: 'external',
+      },
+    });
+  if (env.FAKE_WORKBUDDY_AUTH_FAIL === '1') {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return send({ id, error: { code: -32000, message: 'Authentication required' } });
+  }
+  while (!env.FAKE_WORKBUDDY_AUTH_DONE || !existsSync(env.FAKE_WORKBUDDY_AUTH_DONE))
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  if (env.FAKE_WORKBUDDY_AUTH_STATE) writeFileSync(env.FAKE_WORKBUDDY_AUTH_STATE, 'signed-in');
+  send({
+    id,
+    result: { _meta: { 'codebuddy.ai/userinfo': { userId: 'u1', userName: 'fixture' } } },
+  });
+}
 
 async function prompt(id, params) {
   const sessionId = params.sessionId;
@@ -303,6 +338,10 @@ rl.on('line', (line) => {
     return;
   }
   if (message.id === undefined) return;
+  if (message.method === 'authenticate') {
+    void authenticate(message.id, message.params ?? {});
+    return;
+  }
   if (message.method === 'session/prompt') {
     void prompt(message.id, message.params);
     return;

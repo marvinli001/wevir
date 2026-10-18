@@ -30,11 +30,7 @@ import {
   historyToolCommand,
   writeHistoryToolScript,
 } from '@wevir/runtime-adapter/history-tool';
-import {
-  WORKBUDDY_SIGN_IN_HINT,
-  WorkBuddyAccounts,
-  type WorkBuddyAccountsOptions,
-} from './accounts.js';
+import { WorkBuddyAccounts, type WorkBuddyAccountsOptions } from './accounts.js';
 import {
   isWorkBuddyAuthRequired,
   WORKBUDDY_AUTH_URL,
@@ -59,7 +55,10 @@ export interface WorkBuddyAdapterOptions {
   env?: NodeJS.ProcessEnv;
   logger?: AdapterLogger;
   cancelTimeoutMs?: number;
-  accounts?: Pick<WorkBuddyAccountsOptions, 'findExecutable' | 'probeSession' | 'now'>;
+  accounts?: Pick<
+    WorkBuddyAccountsOptions,
+    'findExecutable' | 'probeSession' | 'installer' | 'startLogin' | 'now'
+  >;
   process?: Partial<Pick<AcpProcessOptions, 'initializeTimeoutMs' | 'restart' | 'disposeTimeouts'>>;
   historyTool?: HistoryToolServer;
   appToolsBridge?: AppToolsBridge;
@@ -208,7 +207,7 @@ export class WorkBuddyAdapter extends AcpAdapter {
     if (!isWorkBuddyAuthRequired(error)) return false;
     this.accounts.markSignedOut();
     // CodeBuddy authenticate 会撤销已有登录；绝不能用它作检测或“重试”。
-    throw new AdapterError('missing_credentials', WORKBUDDY_SIGN_IN_HINT);
+    throw new AdapterError('missing_credentials', this.accounts.signInHint());
   }
 
   protected override async afterActivation(
@@ -314,7 +313,7 @@ export class WorkBuddyAdapter extends AcpAdapter {
     } catch (cause) {
       if (isWorkBuddyAuthRequired(cause)) {
         this.accounts.markSignedOut();
-        throw new AdapterError('missing_credentials', WORKBUDDY_SIGN_IN_HINT, { cause });
+        throw new AdapterError('missing_credentials', this.accounts.signInHint(), { cause });
       }
       throw new AdapterError(
         'invalid_input',

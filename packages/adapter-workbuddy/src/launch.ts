@@ -16,11 +16,21 @@ import {
   resolveExternalExecutable,
 } from '@wevir/adapter-acp';
 
-/** 用户自行安装官方 CLI；Wevir 不安装或分发它。 */
+/** 用户自己装官方 CLI 的命令；设置里的“下载”（install.ts）装的是官方的独立版本，不依赖 Node，也不随应用分发。 */
 export const WORKBUDDY_INSTALL_COMMAND = 'npm install -g @tencent-ai/codebuddy-code';
 
-/** 用户自己在终端里登录（ADR-0005 补记 14）。 */
+/** 用户自己在终端里登录；设置里的“登录”（login.ts）替用户做同样的事（ADR-0005 补记 14）。 */
 export const WORKBUDDY_LOGIN_COMMAND = 'codebuddy';
+
+/**
+ * 登录命令：Wevir 替用户装的 `codebuddy` 不在 PATH 里，终端里要写全路径。
+ */
+export function workbuddyLoginCommand(
+  executablePath: string | undefined,
+  managed: boolean,
+): string {
+  return managed && executablePath !== undefined ? `"${executablePath}"` : WORKBUDDY_LOGIN_COMMAND;
+}
 
 /** 指定 `codebuddy` 的路径（开发与测试用，优先于 `account.setPath`）。 */
 export const WORKBUDDY_BIN_ENV = 'WEVIR_WORKBUDDY_BIN';
@@ -64,12 +74,17 @@ export function commonWorkBuddyDirs(
 export interface FindWorkBuddyOptions {
   /** `account.setPath` 指定的路径。 */
   customPath?: string | null;
+  /** Wevir 自己装的 `codebuddy`：用户的 PATH 与常见位置里都没有时才用，所以不会换掉用户自己装的。 */
+  managedPath?: string | undefined;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   home?: string;
 }
 
-/** 找 `codebuddy`；找不到或指定的路径不对时抛错（`resolveExternalExecutable` 的原文）。 */
+/**
+ * 找 `codebuddy`：`WEVIR_WORKBUDDY_BIN` → 设置里填的路径（显式的必须有效，不换别处）→ PATH → 常见安装目录 → Wevir 自己
+ * 装的。找不到时抛错（`resolveExternalExecutable` 的原文）。
+ */
 export function findWorkBuddy(options: FindWorkBuddyOptions = {}): ResolvedExecutable {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
@@ -100,7 +115,19 @@ export function findWorkBuddy(options: FindWorkBuddyOptions = {}): ResolvedExecu
       }
     }
   }
+  const managed = options.managedPath?.trim();
+  if (managed !== undefined && managed !== '' && isFile(managed)) {
+    return { path: managed, source: 'component' };
+  }
   throw missing;
+}
+
+function isFile(file: string): boolean {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function isDirectory(dir: string): boolean {
@@ -137,6 +164,14 @@ export function workbuddyEnv(
   delete env.CODEBUDDY_IS_SANDBOX;
   if (platform === 'win32') delete env.Path;
   return env;
+}
+
+/**
+ * Wevir 装的 `codebuddy` 的环境：由 Wevir 负责升级（重新下载），不让它自己更新——自更新写到别处，还可能让会话中途的 ACP 进程
+ * 退出。用户自己设了就照用户的。
+ */
+export function managedWorkBuddyEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return env.DISABLE_AUTOUPDATER === undefined ? { ...env, DISABLE_AUTOUPDATER: '1' } : env;
 }
 
 /** Windows 上 npm 装的是 `.cmd` 启动脚本，不经 shell 起不了（Node 20.12 起 `spawn EINVAL`）。 */

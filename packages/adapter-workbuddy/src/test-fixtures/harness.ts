@@ -53,7 +53,13 @@ export function tempRoot(name: string): { dir: (sub: string) => string; remove: 
 
 /** 驱动假 codebuddy 的环境：`WEVIR_WORKBUDDY_BIN` 指向它，其余 `FAKE_WORKBUDDY_*` 由调用方给。 */
 export function fakeWorkBuddyEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const { CODEBUDDY_API_KEY: _key, CODEBUDDY_AUTH_TOKEN: _token, ...parent } = process.env;
+  const {
+    CODEBUDDY_API_KEY: _key,
+    CODEBUDDY_AUTH_TOKEN: _token,
+    CODEBUDDY_INTERNET_ENVIRONMENT: _environment,
+    DISABLE_AUTOUPDATER: _updater,
+    ...parent
+  } = process.env;
   return {
     ...parent,
     WEVIR_WORKBUDDY_BIN: FAKE_WORKBUDDY,
