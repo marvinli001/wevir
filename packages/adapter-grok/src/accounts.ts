@@ -6,13 +6,17 @@
 // 的 `AcpProcess`；邮箱与用量照 T3 读 ~/.grok 的 auth.json（只读，见 usage.ts），没有套餐；不做 skills 与斜杠命令；结果缓存
 // 5 分钟，`read` 带 `refresh` 时重新检测。
 //
-// Grok 的账号（grok-event-mapping.md §2）：Wevir 自己不登录，只检测用户在终端里 `grok login` 的结果，或用户环境里的
-// `XAI_API_KEY`。照 T3：找 `grok` 并跑 `--version`；跑 `grok models`（不起 agent，输出里说有没有登录，并列出模型）；再起一次
+// Grok 的账号（grok-event-mapping.md §2）：Wevir 自己不碰令牌。`grok` 找用户自己装的，没有就由 Wevir 从 npm 下载一份
+// （install.ts 的 `NpmPackageInstaller`，`account.install`）；登录由设置里的按钮替用户启动 `grok login --device-auth`
+// （login.ts），登出跑 `grok logout`；用户环境里的 `XAI_API_KEY` 也算已登录。检测照 T3：找 `grok` 并跑 `--version`；跑
+// `grok models`（不起 agent，输出里说有没有登录，并列出模型）；再起一次
 // `grok agent stdio` 只做 ACP `initialize` 读 `_meta.modelState`（带上下文窗口与推理档位）。探测不调 `authenticate`、不建
 // 会话，所以不会打开浏览器登录，也不会启动工作区的 MCP 服务器。同时读 `grok login` 的账号的邮箱与本周期的额度（usage.ts），
 // 读不到额度时留着上一次的。
 
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import { AcpProcess } from '@wevir/adapter-acp';
 import {
   type AccountKind,
@@ -22,7 +26,9 @@ import {
   accountRateLimits,
   type EngineAccounts,
 } from '@wevir/runtime-adapter';
+import { NpmInstallCancelled, NpmPackageInstaller } from '@wevir/runtime-adapter/npm-package';
 import { GROK_ENGINE } from './engine.js';
+import { grokNpmPackage, pinnedGrokFetch } from './install.js';
 import {
   findGrok,
   GROK_BIN_ENV,
@@ -35,6 +41,7 @@ import {
   runGrok,
   XAI_API_KEY_ENV,
 } from './launch.js';
+import { type GrokLoginFlow, type GrokLoginResult, startGrokLogin } from './login.js';
 import {
   GROK_DEFAULT_MODELS,
   type GrokModelsCliOutput,
@@ -51,13 +58,23 @@ export const VERSION_TIMEOUT_MS = 10_000;
 export const MODELS_TIMEOUT_MS = 10_000;
 /** 只做 `initialize` 的探测的时限（T3 的 `GROK_ACP_INITIALIZE_TIMEOUT_MS`）。 */
 export const INITIALIZE_PROBE_TIMEOUT_MS = 8_000;
+/** `grok logout` 的时限。 */
+export const LOGOUT_TIMEOUT_MS = 20_000;
+/** 交给 Wevir 装的 `grok` 的环境变量：更新只经设置里的下载，不让它自己下载新版换掉（文档：Process 级开关）。 */
+export const GROK_DISABLE_AUTOUPDATER_ENV = 'GROK_DISABLE_AUTOUPDATER';
 
 export interface GrokAccountsOptions {
   /** 探测进程的工作目录（数据目录下的 engines/grok）。 */
   workDir: string;
   env?: NodeJS.ProcessEnv;
-  /** 测试用：替换可执行文件的查找。 */
-  findExecutable?: (customPath: string | null) => string;
+  /** 测试用：替换可执行文件的查找（第二个参数是 Wevir 自己装的 `grok`）。 */
+  findExecutable?: (customPath: string | null, managedPath?: string) => string;
+  /** 替用户下载安装 `grok`；省略时按本平台建，`null` 表示不能装（测试）。 */
+  installer?: NpmPackageInstaller | null;
+  /** 测试用：替换启动 `grok login --device-auth`。 */
+  startLogin?: typeof startGrokLogin;
+  /** 测试用：替换跑 `grok` 的一次性命令（`logout`）。 */
+  runCommand?: typeof runGrok;
   /** 测试用：替换 `initialize` 探测（返回 `initialize` 的结果）。 */
   probeInitialize?: (
     executable: GrokExecutable,
@@ -71,6 +88,12 @@ export interface GrokAccountsOptions {
   now?: () => number;
 }
 
+/** 进行中的一次应用内登录。 */
+interface ActiveLogin {
+  info: NonNullable<AccountState['login']>;
+  flow: GrokLoginFlow;
+}
+
 /** Grok Build 的 `EngineAccounts`：只有一种 `grok`。 */
 export class GrokAccounts implements EngineAccounts {
   readonly kinds: readonly AccountKind[] = Object.freeze(['grok' as const]);
@@ -82,12 +105,18 @@ export class GrokAccounts implements EngineAccounts {
   #models: AccountModels = GROK_DEFAULT_MODELS;
   #checkedAt = 0;
   #probing: Promise<AccountState> | undefined;
+  readonly #installer: NpmPackageInstaller | undefined;
+  #installing: { completedBytes: number; totalBytes?: number } | undefined;
+  #installError: string | undefined;
+  #login: ActiveLogin | undefined;
   /** 进行中的检测（dispose 时中止，不留下 `grok` 进程）。 */
   readonly #abort = new AbortController();
   #disposed = false;
 
   constructor(options: GrokAccountsOptions) {
     this.#options = options;
+    this.#installer =
+      options.installer === undefined ? this.#defaultInstaller() : (options.installer ?? undefined);
   }
 
   async read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
@@ -96,28 +125,90 @@ export class GrokAccounts implements EngineAccounts {
       this.#state !== undefined &&
       this.#now() - this.#checkedAt < PROBE_TTL_MS &&
       this.#probing === undefined;
-    if (fresh && options?.refresh !== true) return this.#state as AccountState;
-    return this.#probe(options?.refresh === true);
+    if (fresh && options?.refresh !== true) return this.#view(this.#state as AccountState);
+    if (options?.refresh === true) this.#installError = undefined;
+    return this.#view(await this.#probe(options?.refresh === true));
   }
 
+  /**
+   * 登录：启动 `grok login --device-auth`，拿到登录地址与码就返回 `signing_in`（带 `login`）。grok 自己会打开浏览器；它说打不
+   * 开时才在 `login.authUrl` 里给地址，由桌面端替它打开。用户在浏览器里确认后 grok 退出，再检测一次账号并通知。
+   */
   async login(kind: AccountKind): Promise<AccountState> {
     this.#check(kind);
-    throw new AdapterError(
-      'invalid_input',
-      `Grok Build uses your own grok login: run \`${GROK_LOGIN_COMMAND}\` in a terminal, then check again`,
-    );
+    const state = await this.read(kind);
+    const executable = this.#executable;
+    if (executable === undefined) {
+      throw new AdapterError(
+        'engine_unavailable',
+        state.lastError ?? 'grok is not installed: install it first, then sign in',
+      );
+    }
+    this.#login?.flow.cancel();
+    this.#login = undefined;
+    let flow: GrokLoginFlow;
+    try {
+      flow = await (this.#options.startLogin ?? startGrokLogin)({
+        executablePath: executable.path,
+        env: executable.env,
+      });
+    } catch (error) {
+      throw new AdapterError(
+        'engine_unavailable',
+        `Could not start the Grok sign-in: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const login: ActiveLogin = {
+      flow,
+      info: {
+        loginId: randomUUID(),
+        method: 'device_code',
+        verificationUrl: flow.verificationUrl,
+        ...(flow.userCode !== undefined && { userCode: flow.userCode }),
+        ...(!flow.browserOpened && { authUrl: flow.verificationUrl }),
+        startedAt: new Date(this.#now()).toISOString(),
+      },
+    };
+    this.#login = login;
+    void flow.done.then((result) => this.#loginEnded(login, result));
+    this.#emit();
+    return this.#view(this.#state as AccountState);
   }
 
-  async cancelLogin(kind: AccountKind): Promise<AccountState> {
+  async cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState> {
+    this.#check(kind);
+    const login = this.#login;
+    if (login !== undefined && (loginId === undefined || loginId === login.info.loginId)) {
+      this.#login = undefined;
+      login.flow.cancel();
+      this.#emit();
+    }
     return this.read(kind);
   }
 
+  /** 登出：跑 `grok logout`（清掉 `grok login` 存的登录）再检测；环境里的 `XAI_API_KEY` 不归它管。 */
   async logout(kind: AccountKind): Promise<AccountState> {
     this.#check(kind);
-    throw new AdapterError(
-      'invalid_input',
-      'Grok Build uses your own grok login: sign out with the grok CLI in a terminal',
+    await this.read(kind);
+    const executable = this.#executable;
+    if (executable === undefined) {
+      throw new AdapterError('engine_unavailable', 'grok is not installed');
+    }
+    const result = await (this.#options.runCommand ?? runGrok)(
+      executable.path,
+      ['logout'],
+      executable.env,
+      LOGOUT_TIMEOUT_MS,
+      this.#abort.signal,
     );
+    if (!result.ok) throw new AdapterError('engine_unavailable', result.message);
+    if (result.code !== 0) {
+      throw new AdapterError(
+        'engine_unavailable',
+        `\`grok logout\` failed: ${`${result.stdout}\n${result.stderr}`.trim().slice(-500) || `exit code ${result.code}`}`,
+      );
+    }
+    return this.read(kind, { refresh: true });
   }
 
   async models(kind: AccountKind): Promise<AccountModels> {
@@ -131,6 +222,53 @@ export class GrokAccounts implements EngineAccounts {
     const trimmed = path?.trim();
     this.#customPath = trimmed === undefined || trimmed === '' ? null : trimmed;
     return this.#probe(true);
+  }
+
+  /**
+   * 替用户下载安装 `grok`（`account.install`）：立即返回带 `installing` 的状态，进度、完成（再检测一次账号）与失败（原因在
+   * `lastError`）经 `onChange` 报告；已在安装时返回当前状态。
+   */
+  async install(kind: AccountKind): Promise<AccountState> {
+    this.#check(kind);
+    const installer = this.#installer;
+    if (installer === undefined) {
+      throw new AdapterError(
+        'invalid_input',
+        `Wevir has no grok build for ${process.platform}-${process.arch}: install it yourself with \`${GROK_INSTALL_COMMAND}\` or set a custom executable path`,
+      );
+    }
+    const state = await this.read(kind);
+    if (installer.installing) return state;
+    this.#installing = { completedBytes: 0 };
+    this.#installError = undefined;
+    this.#emit();
+    installer
+      .install((progress) => {
+        if (this.#installing === undefined) return;
+        this.#installing = {
+          completedBytes: progress.completedBytes,
+          ...(progress.totalBytes !== undefined && { totalBytes: progress.totalBytes }),
+        };
+        this.#emit();
+      })
+      .then(
+        async () => {
+          this.#installing = undefined;
+          await this.#probe(true).catch((error: unknown) => {
+            this.#installError = error instanceof Error ? error.message : String(error);
+            this.#emit();
+          });
+        },
+        (error: unknown) => {
+          this.#installing = undefined;
+          if (!(error instanceof NpmInstallCancelled)) {
+            this.#installError = error instanceof Error ? error.message : 'Could not install grok.';
+          }
+          this.#emit();
+        },
+      )
+      .catch(() => {});
+    return this.#view(this.#state as AccountState);
   }
 
   onChange(listener: (state: AccountState) => void): () => void {
@@ -153,7 +291,7 @@ export class GrokAccounts implements EngineAccounts {
     if (state.status !== 'signed_in') {
       throw new AdapterError(
         'missing_credentials',
-        `Grok is not signed in: run \`${GROK_LOGIN_COMMAND}\` in a terminal, then check again`,
+        `Grok is not signed in: sign in from Settings, or run \`${GROK_LOGIN_COMMAND}\` in a terminal and check again`,
       );
     }
     return this.#executable;
@@ -175,6 +313,9 @@ export class GrokAccounts implements EngineAccounts {
 
   dispose(): void {
     this.#disposed = true;
+    this.#installer?.cancel();
+    this.#login?.flow.cancel();
+    this.#login = undefined;
     this.#abort.abort();
     this.#listeners.clear();
   }
@@ -187,6 +328,66 @@ export class GrokAccounts implements EngineAccounts {
 
   #now(): number {
     return (this.#options.now ?? Date.now)();
+  }
+
+  /** 状态里加上不属于检测结果的部分：正在安装的进度、安装失败的原因、进行中的登录。 */
+  #view(state: AccountState): AccountState {
+    let view = state;
+    if (this.#installing !== undefined) {
+      view = { ...view, installing: this.#installing };
+    } else if (this.#installError !== undefined && view.installed === false) {
+      view = { ...view, lastError: this.#installError };
+    }
+    if (this.#login !== undefined && view.status !== 'signed_in') {
+      const { lastError: _stale, ...rest } = view;
+      view = { ...rest, status: 'signing_in', login: this.#login.info };
+    }
+    return view;
+  }
+
+  #defaultInstaller(): NpmPackageInstaller | undefined {
+    const spec = grokNpmPackage();
+    if (spec === undefined) return undefined;
+    return new NpmPackageInstaller({
+      directory: path.join(this.#options.workDir, 'runtime'),
+      spec,
+      fetch: pinnedGrokFetch(spec.packageName),
+      // 下载来的程序要能跑：`grok --version` 正常退出。
+      validate: async (file, _version, signal) => {
+        const run = await runGrok(
+          file,
+          ['--version'],
+          this.#managedEnv(file),
+          VERSION_TIMEOUT_MS,
+          signal,
+        );
+        if (!run.ok) throw new Error(run.message);
+        if (run.code !== 0) throw new Error(`\`grok --version\` exited with code ${run.code}`);
+      },
+    });
+  }
+
+  /** Wevir 装的 `grok` 的环境：继承 Host 的，加上关掉它自己的自动更新。 */
+  #managedEnv(executablePath: string): NodeJS.ProcessEnv {
+    return {
+      ...grokEnv(this.#options.env ?? process.env, executablePath),
+      [GROK_DISABLE_AUTOUPDATER_ENV]: '1',
+    };
+  }
+
+  /** `grok login` 退出了：成功就重新检测账号，失败带上它的输出；被取消或被新的登录替换的不管。 */
+  async #loginEnded(login: ActiveLogin, result: GrokLoginResult): Promise<void> {
+    if (this.#login !== login) return;
+    this.#login = undefined;
+    if (this.#disposed) return;
+    if (result.ok) {
+      await this.#probe(true).catch(() => this.#emit());
+      return;
+    }
+    if (!result.cancelled && this.#state !== undefined) {
+      this.#state = { ...this.#state, lastError: result.message };
+    }
+    this.#emit();
   }
 
   #probe(force: boolean): Promise<AccountState> {
@@ -208,25 +409,28 @@ export class GrokAccounts implements EngineAccounts {
   }
 
   async #detect(): Promise<AccountState> {
+    const parentEnv = this.#options.env ?? process.env;
+    const managed = await this.#installer?.active();
+    const canInstall = this.#installer !== undefined;
     const base: AccountState = {
       kind: 'grok',
       status: 'signed_out',
-      signIn: 'command',
-      loginCommand: GROK_LOGIN_COMMAND,
+      signIn: 'in_app',
+      loginMethods: ['device_code'],
       ...(this.#customPath !== null && { customPath: this.#customPath }),
     };
-    const parentEnv = this.#options.env ?? process.env;
     let executablePath: string;
     try {
       executablePath =
-        this.#options.findExecutable?.(this.#customPath) ??
-        findGrok({ customPath: this.#customPath, env: parentEnv }).path;
+        this.#options.findExecutable?.(this.#customPath, managed?.path) ??
+        findGrok({ customPath: this.#customPath, env: parentEnv, managedPath: managed?.path }).path;
     } catch (error) {
       this.#executable = undefined;
       return {
         ...base,
         installed: false,
         installCommand: GROK_INSTALL_COMMAND,
+        ...(canInstall && { canInstall }),
         ...(this.#customPath !== null && {
           lastError: `${this.#customPath} does not exist or is not executable`,
         }),
@@ -236,7 +440,8 @@ export class GrokAccounts implements EngineAccounts {
           parentEnv[GROK_BIN_ENV] !== undefined && { lastError: error.message }),
       };
     }
-    const env = grokEnv(parentEnv, executablePath);
+    const isManaged = managed !== undefined && executablePath === managed.path;
+    const env = isManaged ? this.#managedEnv(executablePath) : grokEnv(parentEnv, executablePath);
     const signal = this.#abort.signal;
     const versionRun = await runGrok(
       executablePath,
@@ -249,9 +454,11 @@ export class GrokAccounts implements EngineAccounts {
       this.#executable = undefined;
       return {
         ...base,
-        installed: !(!versionRun.ok && versionRun.reason === 'missing'),
+        // Wevir 装的这份跑不起来：当作没装，设置里重新下载。
+        installed: !(!versionRun.ok && versionRun.reason === 'missing') && !isManaged,
         executablePath,
         installCommand: GROK_INSTALL_COMMAND,
+        ...(isManaged && canInstall && { canInstall }),
         lastError: versionRun.ok
           ? `\`grok --version\` exited with code ${versionRun.code}`
           : versionRun.message,
@@ -327,6 +534,12 @@ export class GrokAccounts implements EngineAccounts {
 
   #publish(state: AccountState): void {
     this.#state = state;
+    this.#emit();
+  }
+
+  #emit(): void {
+    if (this.#state === undefined) return;
+    const state = this.#view(this.#state);
     for (const listener of [...this.#listeners]) {
       try {
         listener(state);

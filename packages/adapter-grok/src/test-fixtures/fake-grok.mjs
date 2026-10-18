@@ -2,7 +2,9 @@
 // 假 grok（adapter-grok 的测试用）：按子命令回应，ACP 部分回放 T3 Code 录的真实 Grok Build 样本（./acp/，见 README.md）。
 //
 //   grok --version                       打印 FAKE_GROK_VERSION（默认 `grok 1.0.41`）
-//   grok models                          打印 FAKE_GROK_MODELS（默认已登录与三个模型）；FAKE_GROK_MODELS_EXIT 是退出码
+//   grok models                          打印 FAKE_GROK_MODELS（默认已登录与三个模型）；FAKE_GROK_MODELS_EXIT 是退出码；
+//                                        FAKE_GROK_MODELS_FILE 指向的文件有内容时打印它（测试中途改它来换登录状态）
+//   grok logout                          FAKE_GROK_MODELS_FILE 有值时把它改成“没登录”；FAKE_GROK_LOGOUT_EXIT 是退出码
 //   grok [--permission-mode M] agent [--always-approve] stdio
 //                                        说 ACP（NDJSON），`initialize` 与 `session/new` 的结果取自 simple 样本
 //
@@ -16,6 +18,7 @@
 //
 // 环境变量：FAKE_GROK_FIXTURES（样本目录，默认 ./acp）、FAKE_GROK_STORE（会话记在这个目录，重启后的进程能 resume）、
 // FAKE_GROK_LOG（把收到的每条消息追加成一行 JSON）、FAKE_GROK_ARGV_LOG（每次启动追加一行 argv）、
+// FAKE_GROK_ENV_LOG（每次启动追加一行 JSON：argv 与 GROK_DISABLE_AUTOUPDATER）、
 // FAKE_GROK_REQUIRE_AUTH=1（`authenticate` 之前 `session/new` / `session/resume` 报 -32000 Authentication required）、
 // FAKE_GROK_PROMPT_RESPONSE=never（只发 `prompt_complete`，不回 `session/prompt`）。
 
@@ -43,14 +46,31 @@ const here = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = env.FAKE_GROK_FIXTURES ?? join(here, 'acp');
 
 if (env.FAKE_GROK_ARGV_LOG) appendFileSync(env.FAKE_GROK_ARGV_LOG, `${JSON.stringify(args)}\n`);
+if (env.FAKE_GROK_ENV_LOG) {
+  appendFileSync(
+    env.FAKE_GROK_ENV_LOG,
+    `${JSON.stringify({ argv: args, autoupdater: env.GROK_DISABLE_AUTOUPDATER ?? null })}\n`,
+  );
+}
 
 if (args[0] === '--version') {
   process.stdout.write(`${env.FAKE_GROK_VERSION ?? 'grok 1.0.41'}\n`);
   process.exit(0);
 }
+if (args[0] === 'logout') {
+  if (env.FAKE_GROK_MODELS_FILE)
+    writeFileSync(env.FAKE_GROK_MODELS_FILE, 'You are not authenticated.\n');
+  process.stdout.write('Logged out.\n');
+  process.exit(Number(env.FAKE_GROK_LOGOUT_EXIT ?? 0));
+}
 if (args[0] === 'models') {
+  const fromFile =
+    env.FAKE_GROK_MODELS_FILE && existsSync(env.FAKE_GROK_MODELS_FILE)
+      ? readFileSync(env.FAKE_GROK_MODELS_FILE, 'utf8')
+      : undefined;
   process.stdout.write(
-    env.FAKE_GROK_MODELS ??
+    fromFile ??
+      env.FAKE_GROK_MODELS ??
       [
         'You are logged in with grok.com.',
         'Default model: grok-4.7',

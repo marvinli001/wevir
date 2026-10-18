@@ -1,6 +1,8 @@
 export {
+  GROK_DISABLE_AUTOUPDATER_ENV,
   GrokAccounts,
   type GrokAccountsOptions,
+  LOGOUT_TIMEOUT_MS,
   PROBE_TTL_MS,
   probeInitialize,
 } from './accounts.js';
@@ -22,6 +24,12 @@ export {
   type GrokProcessOptions,
 } from './grok-adapter.js';
 export {
+  GROK_PLATFORM_PACKAGE_PREFIX,
+  grokNpmPackage,
+  pickGrokVersion,
+  pinnedGrokFetch,
+} from './install.js';
+export {
   commonGrokDirs,
   findGrok,
   GROK_BIN_ENV,
@@ -32,6 +40,12 @@ export {
   grokEnv,
   parseGrokVersion,
 } from './launch.js';
+export {
+  type GrokLoginFlow,
+  type GrokLoginResult,
+  parseDeviceLogin,
+  startGrokLogin,
+} from './login.js';
 export {
   GROK_DEFAULT_MODEL,
   GROK_DEFAULT_MODELS,

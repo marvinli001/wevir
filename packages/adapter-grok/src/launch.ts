@@ -3,11 +3,12 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：可执行文件经 `@wevir/adapter-acp` 的 `resolveExternalExecutable` 找（`WEVIR_GROK_BIN` → `account.setPath` → PATH →
-// 常见的安装目录），PATH 补上这些目录；不设 T3 的 `GROK_OAUTH2_REFERRER`（Wevir 不在应用里登录）；启动器按
-// `AcpLauncher` 给出 spawn 参数，工作目录是数据目录下的 engines/grok。
+// 常见的安装目录 → Wevir 自己装的），PATH 补上这些目录；不设 T3 的 `GROK_OAUTH2_REFERRER`（登录由 `grok login` 自己完成，
+// login.ts）；启动器按 `AcpLauncher` 给出 spawn 参数，工作目录是数据目录下的 engines/grok。
 //
-// 启动用户自己装的 `grok`（grok-event-mapping.md §1）。Wevir 不随包带 Grok，也不声明它的 npm 包（AGENTS.md 规则 2）；不设
-// `GROK_HOME`，`grok` 用用户自己的 ~/.grok（登录、会话记录与设置都在那里，`session/resume` 也靠它）。
+// 启动 `grok`（grok-event-mapping.md §1）：用户自己装的，或设置里点“下载”由 Wevir 从 npm registry 下载的那份（install.ts，
+// 排在最后找）。Wevir 不随包带 Grok，也不声明它的 npm 包（AGENTS.md 规则 2）；不设 `GROK_HOME`，`grok` 用用户自己的 ~/.grok
+// （登录、会话记录与设置都在那里，`session/resume` 也靠它）。
 
 import { execFile } from 'node:child_process';
 import { mkdirSync, statSync } from 'node:fs';
@@ -26,7 +27,7 @@ import { grokSpawnArgs } from './xai.js';
 /** 用户自己安装（T3 的 maintenance 用的 npm 包；x.ai 另有安装脚本，会改 shell 配置，Wevir 不替用户跑）。 */
 export const GROK_INSTALL_COMMAND = 'npm install -g @xai-official/grok';
 
-/** 用户自己在终端里登录（ADR-0005 补记 14）。 */
+/** 用户自己在终端里登录（ADR-0005 补记 14）；设置里的“登录”按钮替用户运行 `grok login --device-auth`（login.ts）。 */
 export const GROK_LOGIN_COMMAND = 'grok login';
 
 /** 指定 `grok` 的路径（开发与测试用，优先于 `account.setPath`）。 */
@@ -74,23 +75,47 @@ export function commonGrokDirs(
 export interface FindGrokOptions {
   /** `account.setPath` 指定的路径。 */
   customPath?: string | null;
+  /** Wevir 自己装的 `grok`：环境变量与设置里都没指定、用户的 PATH 与常见位置里也没有时才用。 */
+  managedPath?: string | undefined;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   home?: string;
 }
 
-/** 找 `grok`；找不到或指定的路径不对时抛错（`resolveExternalExecutable` 的原文）。 */
+/**
+ * 找 `grok`；找不到或指定的路径不对时抛错（`resolveExternalExecutable` 的原文）。指定了路径（环境变量或设置）就只认它，
+ * 不回退；否则用户的 PATH 与常见位置在前，Wevir 自己装的最后。
+ */
 export function findGrok(options: FindGrokOptions = {}): ResolvedExecutable {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
   const home = options.home ?? homedir();
-  return resolveExternalExecutable(GROK_EXECUTABLE, {
-    ...(options.customPath != null && { configuredPath: options.customPath }),
-    extraDirs: commonGrokDirs(home, platform, env),
-    env,
-    platform,
-    home,
-  });
+  const resolve = () =>
+    resolveExternalExecutable(GROK_EXECUTABLE, {
+      ...(options.customPath != null && { configuredPath: options.customPath }),
+      extraDirs: commonGrokDirs(home, platform, env),
+      env,
+      platform,
+      home,
+    });
+  const explicit =
+    (options.customPath?.trim() ?? '') !== '' || (env[GROK_BIN_ENV]?.trim() ?? '') !== '';
+  const managed = options.managedPath?.trim();
+  if (explicit || managed === undefined || managed === '') return resolve();
+  try {
+    return resolve();
+  } catch (error) {
+    if (!isFile(managed)) throw error;
+    return { path: managed, source: 'component' };
+  }
+}
+
+function isFile(file: string): boolean {
+  try {
+    return statSync(file).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function isDirectory(dir: string): boolean {

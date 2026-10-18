@@ -1,9 +1,13 @@
 // 移植的纯函数：启动参数、审批选项、回合结束、提问与退出计划模式（xai.ts），模型（models.ts），工具展示（tool-display.ts），
 // 回合失败的归类（engine.ts）。期望值取自 T3 Code 的同名测试与录制的样本。
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import type { ApprovalOption } from '@wevir/runtime-adapter';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { classifyResumeError, classifyTurnError } from './engine.js';
+import { findGrok } from './launch.js';
 import { displayNameFromSlug, modelsFromInitialize, parseGrokModelsOutput } from './models.js';
 import { readTranscript } from './test-fixtures/harness.js';
 import { grokToolDisplay, resolveToolTitle } from './tool-display.js';
@@ -312,5 +316,65 @@ describe('工具展示（录制的 tool_call 与 tool_call_update）', () => {
       mcpServer: 'github',
       summary: 'x',
     });
+  });
+});
+
+describe('findGrok：Wevir 自己装的排最后', () => {
+  const root = mkdtempSync(join(tmpdir(), 'wevir-grok-find-'));
+  afterAll(() => rmSync(root, { recursive: true, force: true }));
+  const file = (...parts: string[]) => {
+    const target = join(root, ...parts);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, '#!/bin/sh\n', { mode: 0o755 });
+    return target;
+  };
+
+  // `win32` 让常见安装目录变成不存在的 Windows 路径，没找到时的分支与这台机器上有没有 grok 无关。
+  const windows = { platform: 'win32' as const, home: join(root, 'home') };
+
+  it('用户的 PATH 在前；没找到才用 Wevir 装的', () => {
+    const managed = file('runtime', 'versions', '1.0.62', 'grok');
+    const own = file('bin', 'grok');
+    const found = findGrok({
+      env: { PATH: dirname(own) },
+      managedPath: managed,
+      platform: process.platform,
+    });
+    expect(found).toEqual({ path: own, source: 'path' });
+
+    expect(findGrok({ env: { PATH: '' }, managedPath: managed, ...windows })).toEqual({
+      path: managed,
+      source: 'component',
+    });
+  });
+
+  it('指定了路径（环境变量或设置）就只认它，指错不回退到 Wevir 装的', () => {
+    const managed = file('runtime', 'versions', '1.0.62', 'grok');
+    expect(() =>
+      findGrok({
+        env: { PATH: '', WEVIR_GROK_BIN: join(root, 'missing') },
+        managedPath: managed,
+        ...windows,
+      }),
+    ).toThrow(/不存在或不能执行/u);
+    expect(() =>
+      findGrok({
+        customPath: join(root, 'missing'),
+        env: { PATH: '' },
+        managedPath: managed,
+        ...windows,
+      }),
+    ).toThrow(/不存在或不能执行/u);
+  });
+
+  it('Wevir 装的文件不在了：原来的“找不到”报错', () => {
+    expect(() =>
+      findGrok({
+        env: { PATH: '' },
+        managedPath: join(root, 'gone', 'grok'),
+        ...windows,
+      }),
+    ).toThrow(/找不到 Grok Build/u);
+    expect(() => findGrok({ env: { PATH: '' }, ...windows })).toThrow(/找不到 Grok Build/u);
   });
 });
