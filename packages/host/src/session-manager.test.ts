@@ -1784,22 +1784,25 @@ describe('SessionManager：Codex 引擎的事件（R3）', () => {
 });
 
 describe('SessionManager：自动压缩降不下用量时停下回合', () => {
-  /** 一个持续一阵的回合，测试往它的事件流里注入用量与压缩。 */
-  async function running() {
+  /**
+   * 停在审批上的回合（不靠计时，各平台一样），测试往它的事件流里注入用量与压缩：引擎这时不发别的事件，注入的按顺序处理。
+   */
+  async function parked() {
     const injected = new EventHub<AgentEvent>();
-    const h = setup({ adapter: new EchoAdapter({ stepDelayMs: 5 }) });
+    const h = setup();
     const subscribe = h.adapter.subscribe.bind(h.adapter);
     vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
       withInjected(subscribe(engineSessionId), injected, engineSessionId),
     );
     const id = await create(h);
-    // 回复的分片之间隔 50 ms，一共大约一秒；引擎的事件稀疏，注入的事件随即处理。
-    await send(h, id, `slow ${'x'.repeat(60)}`);
-    await waitForState(h, id, 'running');
+    await send(h, id, 'please approve');
+    const approval = await waitForApproval(h, id);
     const engineSessionId = h.storage.sessions.get(id)?.engineSessionId as string;
     let compactions = 0;
+    let usages = 0;
     /** `autoCompactAt` 为 null：引擎这次不报压缩线。 */
-    const usage = (contextUsed: number, autoCompactAt: number | null = 115_200) =>
+    const usage = (contextUsed: number, autoCompactAt: number | null = 115_200) => {
+      usages += 1;
       injected.emit({
         type: 'usage.updated',
         engineSessionId,
@@ -1807,40 +1810,45 @@ describe('SessionManager：自动压缩降不下用量时停下回合', () => {
         contextSize: 128_000,
         ...(autoCompactAt !== null && { autoCompactAt }),
       });
+    };
     const compacted = (trigger: 'auto' | 'manual' = 'auto') => {
       compactions += 1;
       const compactionId = `compact_${compactions}`;
       injected.emit({ type: 'context.compacting', engineSessionId, compactionId, trigger });
       injected.emit({ type: 'context.compacted', engineSessionId, compactionId, trigger });
     };
-    /** 等 Host 写下第 n 次压缩（注入的事件按顺序处理）。 */
-    const written = (count: number) =>
-      vi.waitFor(() => expect(ofType(h, id, 'context.compacted')).toHaveLength(count));
-    return { h, id, usage, compacted, written };
+    /** 等 Host 处理完注入的全部用量与压缩。 */
+    const processed = () =>
+      vi.waitFor(() => {
+        expect(ofType(h, id, 'context.compacted')).toHaveLength(compactions);
+        expect(ofType(h, id, 'usage.updated')).toHaveLength(usages);
+      });
+    return { h, id, approval, usage, compacted, processed };
   }
 
   it('连续两次自动压缩之后用量仍在压缩线以上：说明原因并取消回合', async () => {
-    const { h, id, usage, compacted, written } = await running();
+    const { h, id, approval, usage, compacted, processed } = await parked();
     // 像 Codex：请求的用量过线 → 压缩（期间是压缩请求与估算的用量）→ 下一个请求的用量。
     usage(124_000);
     compacted();
     usage(124_500);
     compacted();
     usage(124_300);
-    await written(2);
+    await processed();
     await waitForState(h, id, 'idle');
     const [error] = ofType(h, id, 'engine.error');
     expect(error?.payload).toMatchObject({ category: 'provider', fatal: false });
-    expect(error?.payload.turnId).toBe(ofType(h, id, 'turn.started')[0]?.payload.turnId);
+    expect(error?.payload.turnId).toBe(approval.turnId);
     expect(error?.payload.message).toMatch(
       /^Stopped the turn: after 2 automatic context compactions in a row the model service still reported 124300 tokens in use, at or above the compaction threshold of 115200 for a 128000-token context window/,
     );
     expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('cancelled');
-    expect(transitions(h, id)).toContain('running→cancelling:cancel_requested');
+    expect(transitions(h, id)).toContain('awaiting_approval→cancelling:cancel_requested');
+    expect(ofType(h, id, 'approval.resolved')[0]?.payload.status).toBe('cancelled');
   });
 
   it('压缩管用（之后用量降到线下）、手动压缩、不报压缩线时都不停', async () => {
-    const { h, id, usage, compacted, written } = await running();
+    const { h, id, approval, usage, compacted, processed } = await parked();
     usage(124_000);
     compacted();
     usage(124_000);
@@ -1857,9 +1865,11 @@ describe('SessionManager：自动压缩降不下用量时停下回合', () => {
     usage(124_000, null);
     compacted();
     usage(124_000);
-    await written(6);
-    await waitForState(h, id, 'idle');
+    await processed();
     expect(ofType(h, id, 'engine.error')).toEqual([]);
+    expect(state(h, id)).toBe('awaiting_approval');
+    await h.manager.respondToApproval({ approvalId: approval.id, optionId: 'allow-once' }, desktop);
+    await waitForState(h, id, 'idle');
     expect(ofType(h, id, 'turn.finished')[0]?.payload.outcome).toBe('completed');
   });
 });
