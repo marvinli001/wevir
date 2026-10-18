@@ -1,8 +1,8 @@
 # Wevir 提示词
 
-这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
+这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
@@ -12,6 +12,7 @@
 | [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | adapter-codex（0.36.0，ADR-0005 补记 21）：经网关的第三方模型在计划模式的回合里，作为 `turn/start` 的协作模式（`collaborationMode.settings.developer_instructions`）下发；ChatGPT 登录的 OpenAI 模型用 Codex 内置的模板 | 已接入（Codex 引擎） |
 | [`auto-review.md`](auto-review.md) | 审批自动复核员 | Host（新功能），与引擎无关 | 可用；只读工具是占位 |
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
+| [`prompt-suggestion.md`](prompt-suggestion.md) | 输入建议：预测用户接着会发的一句话 | Host（0.53.0，`packages/host/src/prompt-suggestion.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发（不带工具的单次生成，不另开引擎连接） | 已接入（有 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
@@ -23,7 +24,7 @@
 - **Codex 引擎 + 经网关的第三方模型**（DeepSeek、通义、Kimi、GLM、自定义服务等）：`base.md`。
 - **ChatGPT 订阅登录 + OpenAI 模型**：继续用 Codex 模型目录里按模型调好的提示词（ADR-0005 未决事项 1 原先的建议）。那些提示词针对 OpenAI 模型调过，Wevir 不替换。
 - **dsh、Grok Build、Gemini CLI 等通用 ACP 引擎**：用各自的提示词。`base.md` 里的工具名都是 Codex 的，不适用。
-- **`auto-review.md` 与 `thread-title.md`**：与引擎无关，由 Host 直接调模型。
+- **`auto-review.md`、`thread-title.md` 与 `prompt-suggestion.md`**：与引擎无关，由 Host 直接调模型。
 
 ## Codex 一回合里模型看到的说明
 
@@ -74,6 +75,14 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 - 输出：`{"title", "description"}`（支持结构化输出的路径用 JSON Schema 约束）。Host 取第一个 `{` 到最后一个 `}` 之间的 JSON，去掉首尾引号与结尾标点、折叠空白，标题截到 36 个字符、摘要截到 100 个字符；`description` 存在 `session.title_changed` 事件里，等有会话搜索时用。
 - 模型：用当前会话的模型（维护者 2026-10-14 定），推理档位取最低。经网关的会话由适配器经网关直接发一次不带工具的请求；ChatGPT 登录的会话（R6）用 Codex 的临时 thread（`ephemeral` + `outputSchema`）。
 
+## 输入建议
+
+- 触发：会话的一个回合以 `completed` 结束后（`turn.finished` 写入之后，异步），Host 设置 `promptSuggestions` 开着（默认开）。顶层的会话才生成：子会话、支线、agent 开的会话、计划模式的回合、命令开的回合（压缩、审查）与目标续跑不生成；会话不空闲，或有待审批、待回答、排着的消息时也不生成；这个回合没有助手的回答时省掉请求。同一个回合只生成一次。
+- 输入：一条用户消息，内含 `<conversation>`——最近至多 8 条（用户消息、助手回答、`<action>` 命令 / 文件改动 / 错误），`<`、`>`、`&` 转义，单条至多 700 个字符（助手的回答留结尾，其余留开头），总长约 3 KB 以内。
+- 输出：`{"suggestion": "…"}`，没有合适的建议时 `suggestion` 为空串（服务支持结构化输出时用 JSON Schema 约束）。Host 取第一个 `{` 到最后一个 `}` 之间的 JSON，折叠空白、去掉首尾引号；空、占位词（“无”“none”）、过长（80 个字符或 15 个词）、提问、助手的口吻、评价与致谢、带 Markdown 的一律丢弃，不显示、不记告警。
+- 成功后写 `suggestion.updated`；用户有了新消息、回合重新开始或被撤回 / 撤销 / 重做时作废（生成到一半的请求被中止）。请求失败、超时（30 s）只记告警，不影响会话。
+- 模型：用当前会话的模型，推理档位取最低——与会话标题同一条路径，所以订阅来源（Claude）每个回合会多一次轻量请求；用户可以在设置 → 常规里关掉。
+
 ## 来源与许可
 
 改写自 OpenAI Codex 开源仓库（Apache-2.0，`rust-v0.162.1` = `092d3ac`）的部分，文件头写明了来源与修改，并登记在 [UPSTREAM.md §4](../docs/upstream/UPSTREAM.md) 与根目录 [`NOTICE`](../NOTICE)：
@@ -85,11 +94,11 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `auto-review.md` | `codex-rs/prompts/templates/guardian/{policy_template,policy,node_repl_policy}.md` |
 | `thread-title.md` | `codex-rs/tui/src/app/thread_title.rs` 里的说明文字 |
 
-`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的四个文件按 Apache-2.0。
+`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。`prompt-suggestion.md` 也是 Wevir 自己写的，参考了网上流传的 Claude Code 输入建议提示词（asgeirtj/system_prompts_leaks，没有许可证）的做法——预测用户而不是助手、简短、拿不准就不输出、不评价不提问——只借鉴做法，没有摘抄原文。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的四个文件按 Apache-2.0。
 
 ## 改提示词时
 
-- 改 `base.md` 或 `plan-mode.md` 要在至少一家真实模型上跑一遍 adapter-codex 的第三层契约测试（随 adapter-codex 建立）；改 `auto-review.md` 与 `thread-title.md` 要跑各自的用例集（随 Host 的实现建立）。
+- 改 `base.md` 或 `plan-mode.md` 要在至少一家真实模型上跑一遍 adapter-codex 的第三层契约测试（随 adapter-codex 建立）；改 `auto-review.md`、`thread-title.md` 与 `prompt-suggestion.md` 要跑各自的用例集（随 Host 的实现建立）。
 - 改了 Codex 来源的文件，更新文件头的“由 Wevir 修改”；升级 Codex 时对照上面四个来源的变化，决定要不要跟进。
 - 新增引擎配置（打开某个工具或功能）时，同步改 `base.md` 的“工具”一节，并删掉对应的占位。
 

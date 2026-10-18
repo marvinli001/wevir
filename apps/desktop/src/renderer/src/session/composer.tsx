@@ -57,6 +57,7 @@ import { DeliverySwitch } from './delivery-switch';
 import { ComposerThumb, ImagePreview, readAsDataUrl, uploadImage } from './image-attachments';
 import { composerKeyAction, otherDelivery } from './pending-model';
 import { caretOnFirstLine, caretOnLastLine, promptAt, rememberPrompt } from './prompt-history';
+import { ghostText, isAcceptKey } from './prompt-suggestion';
 import { appendQuote } from './selection-model';
 
 /** 有回合在进行（含正在取消）：没有字时按钮是“停止”；Host 不支持待发消息时不能再发送。 */
@@ -181,6 +182,7 @@ export function Composer({
   fileScope,
   acceptImages = false,
   plan,
+  suggestion,
 }: {
   /** 草稿归属（会话 ID，或新会话草稿的工作区）。 */
   draftKey: string;
@@ -217,6 +219,11 @@ export function Composer({
   acceptImages?: boolean;
   /** 计划模式（0.36.0）；省略时没有（Host 或引擎不支持）。 */
   plan?: ComposerPlan;
+  /**
+   * 输入建议（0.53.0，`visibleSuggestion` 已挑过：会话空闲、设置开着……）。输入框完全空着时以灰色文字显示，Tab 或 → 填进输入框，
+   * 打字、选命令、贴图片就消失。窄屏不显示 Tab 提示，点建议文字接受。
+   */
+  suggestion?: string;
 }) {
   const [text, setText] = useState(() => drafts.get(draftKey) ?? '');
   const [sending, setSending] = useState(false);
@@ -371,6 +378,8 @@ export function Composer({
       ? `mention:${mention.rangeStart}`
       : undefined;
   const menuOpen = menuKey !== undefined && menuKey !== dismissed && focused && !disabled;
+  const ghost = ghostText(suggestion, { text, imageCount: images.length, menuOpen });
+  const ghostId = useId();
   // 触发没了（删掉了 `/` 或 `@`、发出去了）：下一次照常弹出。
   useEffect(() => {
     if (menuKey === undefined) setDismissed(undefined);
@@ -605,7 +614,27 @@ export function Composer({
     return true;
   };
 
+  /** 接受输入建议：填进输入框（光标在末尾），不直接发送，用户可以改。 */
+  const acceptGhost = () => {
+    if (ghost !== undefined) replaceRange(0, 0, ghost);
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (
+      ghost !== undefined &&
+      isAcceptKey({
+        key: event.key,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        composing: event.nativeEvent.isComposing || event.keyCode === 229,
+      })
+    ) {
+      event.preventDefault();
+      acceptGhost();
+      return;
+    }
     if (onMenuKey(event) || (!menuOpen && onHistoryKey(event))) {
       event.preventDefault();
       return;
@@ -708,35 +737,65 @@ export function Composer({
               )}
             </div>
           )}
-          <Textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(event) => {
-              setText(event.target.value);
-              setCursor(event.target.selectionStart);
-              setHistoryIndex(-1);
-            }}
-            onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-            role={menuOpen ? 'combobox' : undefined}
-            aria-expanded={menuOpen || undefined}
-            aria-controls={menuOpen ? listId : undefined}
-            aria-activedescendant={
-              menuOpen && entries[active] ? menuOptionId(listId, entries[active].key) : undefined
-            }
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            disabled={disabled}
-            autoFocus={autoFocus}
-            aria-label={t('session.composerPlaceholder')}
-            placeholder={disabledReason ?? placeholder ?? t('session.composerPlaceholder')}
-            className={cn(
-              'max-h-60 resize-none rounded-none border-0 bg-transparent px-4 pb-1 shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent',
-              // 原语在 md 以上是 text-sm；首页大一档（方向稿 composer-big 比会话的输入框大 1px）。
-              home ? 'min-h-19 pt-4 text-base md:text-base' : 'min-h-13 pt-3.5 text-base',
+          <div className="relative">
+            <Textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+                setCursor(event.target.selectionStart);
+                setHistoryIndex(-1);
+              }}
+              onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+              onKeyDown={onKeyDown}
+              onPaste={onPaste}
+              role={menuOpen ? 'combobox' : undefined}
+              aria-expanded={menuOpen || undefined}
+              aria-controls={menuOpen ? listId : undefined}
+              aria-activedescendant={
+                menuOpen && entries[active] ? menuOptionId(listId, entries[active].key) : undefined
+              }
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              disabled={disabled}
+              autoFocus={autoFocus}
+              aria-label={t('session.composerPlaceholder')}
+              aria-describedby={ghost !== undefined ? ghostId : undefined}
+              placeholder={
+                ghost !== undefined
+                  ? ''
+                  : (disabledReason ?? placeholder ?? t('session.composerPlaceholder'))
+              }
+              className={cn(
+                'max-h-60 resize-none rounded-none border-0 bg-transparent px-4 pb-1 shadow-none focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent',
+                // 原语在 md 以上是 text-sm；首页大一档（方向稿 composer-big 比会话的输入框大 1px）。
+                home ? 'min-h-19 pt-4 text-base md:text-base' : 'min-h-13 pt-3.5 text-base',
+              )}
+            />
+            {ghost !== undefined && (
+              <div
+                id={ghostId}
+                data-testid="composer-suggestion"
+                className={cn(
+                  'pointer-events-none absolute inset-x-0 top-0 flex items-start gap-2 px-4 text-base leading-6 text-muted-foreground',
+                  home ? 'pt-4' : 'pt-3.5',
+                )}
+              >
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={t('composer.suggestionAccept', { text: ghost })}
+                  onClick={acceptGhost}
+                  className="min-w-0 truncate text-left max-sm:pointer-events-auto"
+                >
+                  {ghost}
+                </button>
+                <kbd className="hidden shrink-0 self-center rounded border border-border px-1.5 text-[11px] leading-4 sm:inline-flex">
+                  Tab
+                </kbd>
+              </div>
             )}
-          />
+          </div>
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
             <div className="flex min-w-0 flex-1 items-center gap-1.5 text-xs">
               {(canMention || imagesEnabled || (commands?.length ?? 0) > 0) && (

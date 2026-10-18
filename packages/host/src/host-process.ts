@@ -33,6 +33,7 @@ import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
+import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
@@ -163,6 +164,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         logger.warn('failed to load the session title prompt; titles stay truncated', { error });
       }
     }
+    // 输入建议（0.53.0）：同样要适配器能发一次不带工具的请求，读不到提示词就没有这个功能，不阻止 Host 启动。
+    let suggestionInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        suggestionInstructions = loadSuggestionInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the prompt suggestion prompt; no input suggestions', { error });
+      }
+    }
+    // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
+    const settings = new HostSettingsStore({
+      path: homePath(home, 'settingsFile'),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    await settings.load();
     // 回合快照（0.20.0）：只认还开着的会话，清理时删掉别的会话留下的 ref。
     const sessionsDb = storage;
     const plugins = new PluginRegistry({
@@ -243,6 +259,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
       ...(titleInstructions !== undefined && { titleInstructions }),
+      ...(suggestionInstructions !== undefined && {
+        suggestion: {
+          instructions: suggestionInstructions,
+          enabled: () => settings.get().promptSuggestions !== false,
+        },
+      }),
       // 环境会话新开的 worktree（0.15.0，domain-model §3.10）。
       worktreesDir: join(home, 'worktrees'),
       chats,
@@ -298,13 +320,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           .map((kind) => subscriptions.read(kind).catch(() => undefined)),
       );
     }
-
-    // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
-    const settings = new HostSettingsStore({
-      path: homePath(home, 'settingsFile'),
-      onWarning: (message, fields) => logger.warn(message, fields),
-    });
-    await settings.load();
 
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
@@ -412,6 +427,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),
         ...(mcp !== undefined && { task_board: true }),
+        ...(suggestionInstructions !== undefined && { prompt_suggestions: true }),
         ...(browsers !== undefined && { browser_tools: true }),
         ...(options.web !== undefined && { web_tools: true }),
         ...(adapter.planMode === true && { plan_mode: true }),

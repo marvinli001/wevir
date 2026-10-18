@@ -1,12 +1,15 @@
+import { hostSupports } from '@wevir/client-sdk';
 import type { PendingDelivery } from '@wevir/protocol';
 import { CornerDownRight, ListPlus } from 'lucide-react';
 import { useState } from 'react';
+import { Switch } from '@/components/switch';
 import { Select } from '@/components/ui/select';
 import { useHostSettings } from '@/data/host-settings';
 import { filePrefs, preferredEditor, useEditors } from '@/files/files-store';
-import { describe } from '@/host/host-connection';
+import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { composerPrefs, type SendShortcut, sendKeyLabel } from '@/session/composer-prefs';
+import { suggestionsEnabled } from '@/session/prompt-suggestion';
 import { LanguagePicker } from './language-picker';
 import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from './settings-ui';
 
@@ -17,6 +20,10 @@ import { LIST_CARD, NoticeBanner, Segmented, SettingsRow, SettingsSection } from
  */
 export function GeneralSettings() {
   const { supported, settings, update } = useHostSettings();
+  const { view } = useHostConnection();
+  // 输入建议（0.53.0）：Host 声明了 `prompt_suggestions` 才有这一行。
+  const suggestionsSupported =
+    view.status === 'connected' && hostSupports(view.hello.features, 'prompt_suggestions');
   const composer = composerPrefs.use();
   const editors = useEditors();
   const preferred = preferredEditor(editors, filePrefs.use().editor);
@@ -29,6 +36,19 @@ export function GeneralSettings() {
     setError(undefined);
     try {
       await update({ sendWhileBusy: delivery });
+    } catch (reason) {
+      setError(t('settings.chat.saveFailed', { error: describe(reason) }));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleSuggestions = async (enabled: boolean) => {
+    if (saving) return;
+    setSaving(true);
+    setError(undefined);
+    try {
+      await update({ promptSuggestions: enabled });
     } catch (reason) {
       setError(t('settings.chat.saveFailed', { error: describe(reason) }));
     } finally {
@@ -74,6 +94,20 @@ export function GeneralSettings() {
             />
           }
         />
+        {suggestionsSupported && (
+          <SettingsRow
+            title={t('settings.chat.suggestions')}
+            data-setting="prompt-suggestions"
+            control={
+              <Switch
+                label={t('settings.chat.suggestions')}
+                checked={suggestionsEnabled(settings)}
+                disabled={!supported || saving}
+                onChange={(enabled) => void toggleSuggestions(enabled)}
+              />
+            }
+          />
+        )}
         <SettingsRow
           title={t('settings.composer.send')}
           data-setting="send-shortcut"

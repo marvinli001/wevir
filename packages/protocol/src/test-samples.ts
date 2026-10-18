@@ -10,6 +10,7 @@ import type {
   BoardTask,
   Environment,
   PendingMessage,
+  PromptSuggestion,
   ProviderProfile,
   QuestionRequest,
   Session,
@@ -159,6 +160,9 @@ export const waitingBoardTask: BoardTask = {
   createdAt: TS,
   updatedAt: TS,
 };
+
+/** 输入建议（0.53.0）：刚结束的回合预测出的一句话。 */
+export const promptSuggestion: PromptSuggestion = { turnId: ids.turn, text: '跑一下测试' };
 
 export const reportedTask: SuggestedTask = {
   ...suggestedTask,
@@ -868,6 +872,10 @@ export const eventPayloads: PayloadSamples = {
     valid: { tasks: [boardTask, waitingBoardTask] },
     invalid: { tasks: [{ ...boardTask, status: 'blocked' }] },
   },
+  'suggestion.updated': {
+    valid: { turnId: ids.turn, text: '跑一下测试' },
+    invalid: { turnId: ids.turn, text: '' },
+  },
   'task.started': {
     valid: { taskId: ids.task, sessionId: ids.childSession },
     invalid: { taskId: 'tsk_', sessionId: ids.childSession },
@@ -1274,16 +1282,37 @@ export const methodSamples: MethodSamples = {
   'settings.get': {
     params: empty,
     result: {
-      valid: [{ settings: { sendWhileBusy: 'steer' } }],
-      invalid: [{ settings: { sendWhileBusy: 'interrupt' } }, {}],
+      valid: [
+        { settings: { sendWhileBusy: 'steer' } },
+        { settings: { sendWhileBusy: 'steer', promptSuggestions: true } },
+      ],
+      invalid: [
+        { settings: { sendWhileBusy: 'interrupt' } },
+        { settings: { sendWhileBusy: 'steer', promptSuggestions: 'yes' } },
+        {},
+      ],
     },
   },
   'settings.update': {
     params: {
-      valid: [{ settings: { sendWhileBusy: 'queue' } }, { settings: {} }],
-      invalid: [{ settings: { sendWhileBusy: 'later' } }, {}],
+      valid: [
+        { settings: { sendWhileBusy: 'queue' } },
+        { settings: { promptSuggestions: false } },
+        { settings: {} },
+      ],
+      invalid: [
+        { settings: { sendWhileBusy: 'later' } },
+        { settings: { promptSuggestions: 0 } },
+        {},
+      ],
     },
-    result: { valid: [{ settings: { sendWhileBusy: 'queue' } }], invalid: [{ settings: {} }] },
+    result: {
+      valid: [
+        { settings: { sendWhileBusy: 'queue' } },
+        { settings: { sendWhileBusy: 'queue', promptSuggestions: false } },
+      ],
+      invalid: [{ settings: {} }],
+    },
   },
   'workspace.list': {
     params: empty,
@@ -2025,8 +2054,11 @@ export const methodSamples: MethodSamples = {
         { ...snapshot, suggestedTasks: [suggestedTask, reportedTask] },
         { ...snapshot, taskBoard: [boardTask, waitingBoardTask] },
         { ...snapshot, taskBoard: [] },
+        { ...snapshot, promptSuggestion },
       ],
       invalid: [
+        { ...snapshot, promptSuggestion: { turnId: ids.turn, text: '' } },
+        { ...snapshot, promptSuggestion: { text: '跑一下测试' } },
         { session },
         { ...snapshot, subagents: [{ ...subagentSummary, sessionId: 'x' }] },
         { ...snapshot, taskBoard: [{ ...boardTask, blockedBy: [''] }] },
@@ -2905,7 +2937,10 @@ export const notificationSamples: NotificationSamples = {
     invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },
   'settings.updated': {
-    valid: [{ settings: { sendWhileBusy: 'queue' } }],
+    valid: [
+      { settings: { sendWhileBusy: 'queue' } },
+      { settings: { sendWhileBusy: 'queue', promptSuggestions: true } },
+    ],
     invalid: [{ settings: {} }],
   },
   'browser.request': {

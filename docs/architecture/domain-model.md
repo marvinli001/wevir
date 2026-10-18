@@ -595,6 +595,7 @@ interface AccountRateLimitWindow {
 // → protocol
 interface HostSettings {
   sendWhileBusy: 'steer' | 'queue' // 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab（桌面端输入框里的“插话 | 排队”切换改的就是这一项，U3）。默认 steer
+  promptSuggestions?: boolean // 输入建议的开关（0.53.0，§3.23）；缺省当作开
 }
 ```
 
@@ -1020,6 +1021,27 @@ Host 拥有插件注册表，不属于某个 Session。连接器 `Connector { id
 - **与撤回、分支的配合**：Host 数引擎的回合（`#finishedTurns`）时，被撤销的回合仍算引擎的回合（它们还在引擎的历史里），看得见的回合是去掉 `hidden` 的。`session.rewind`（编辑重发）撤的是最后一个**看得见**的回合，同时把它后面被撤销的回合一起从引擎退掉（从后往前每个一次 `rewind`，各写一条 `turn.rewound`）；分支的 `dropTurns` 同样把被撤销的算进去。
 - **客户端**：桌面端输入框的 `/undo`、`/redo`（`/redo` 只在有可重做的回合时列出），撤销之后用户写的那段文字放回输入框（空着时直接显示，否则留作草稿，同编辑），输入框上方有“已撤销 N 个回合 · 重做”横幅（`undo-banner.tsx`），文件没还原时右下角提示原因（`undo-model.ts` 的 `filesNotice`）。desktop-tokens §58。
 - **没做（留给后面）**：协议里按回合单独“还原这个回合的文件”（不隐藏回合）；撤销时引擎自己的上下文也回退（等 Claude、OpenCode 能撤回）；撤销之后提示哪些文件会被重做覆盖；CLI 的 `/undo`；Host 重启后 `undone` 快照因会话关闭被清掉时，已撤销的回合只剩对话能重做。
+
+### 3.23 输入建议（0.53.0）
+
+维护者 2026-10-18 定：回合结束后，输入框里用灰色文字显示用户最可能接着发的一句话，Tab 接受（照 Claude Code 的 prompt suggestion）。提示词是 `prompts/prompt-suggestion.md`，细则在 `prompts/README.md`「输入建议」。
+
+```ts
+// → protocol
+// event suggestion.updated { turnId, text }    text：1–200 字，用户的口气与语言
+// PromptSuggestion { turnId, text }
+// SessionSnapshot.promptSuggestion?: PromptSuggestion
+// HostSettings.promptSuggestions?: boolean      缺省开
+// Host 功能 prompt_suggestions
+```
+
+- **生成**（`session-manager.ts` 的 `#suggest`，`prompt-suggestion.ts` 是与引擎无关的部分）：会话的回合以 `completed` 结束后异步进行，与会话标题同一条路——适配器的 `generateTitle`，用会话当前的模型发一次不带工具的请求，不新开引擎连接，不排进会话的命令队列，不改状态机。输入是最近几条消息、命令与文件改动（截断），输出 `{"suggestion": "…"}`，整理后（去引号、折叠空白，丢掉空、过长、提问、助手口吻、评价与 Markdown）写一条 `suggestion.updated`。同一回合只生成一次。
+- **不生成**：设置 `promptSuggestions` 关着；子会话、支线会话、agent 开的会话；会话不空闲，或有待审批、待回答、排着的消息；计划模式的回合；命令开的回合（压缩、审查）与目标续跑；这个回合没有助手的回答；适配器没有 `generateTitle`（dsh）或读不到提示词（不声明 `prompt_suggestions`）。Host 看不到客户端的输入框是不是空的，所以只按会话的状态判断，“输入框为空才显示”由客户端管。
+- **作废**：`user.message`、`user.steered`、`turn.started`、`turn.rewound`、`turn.undone`、`turn.redone`（`PROMPT_SUGGESTION_VOIDING_EVENTS`）任何一条出现，当前建议就没有了——Host 的快照与 client-sdk 的投影在这些事件上自己清掉，不另写“清除”事件；Host 同时中止还在生成的请求（`AbortSignal`），晚到的结果不写。
+- **失败静默**：请求失败、超时（30 s）、输出解析不出来都只记 Host 的告警，不发错误事件，不影响会话。
+- **用量**：每个正常结束的回合多一次轻量请求（输入 3 KB 以内、推理档位取最低）。订阅来源（Claude 用本机登录的 `claude`）也走这条路，每次是一次一次性的 `claude` 调用，所以设置里有开关，默认开。
+- **客户端**：桌面端的输入框（desktop-tokens §60）。Host 重启后快照从事件重放，最近一条建议还在，直到被上面的事件作废。
+- **没做（留给后面）**：Enter 直接发送建议；按输入框是否有焦点 / 是否为空去省请求（Host 看不到）；多条候选；dsh 与 echo 引擎的生成。
 
 ## 4. 会话状态机
 

@@ -190,6 +190,11 @@ export const HOST_FEATURES = {
    */
   taskBoard: 'task_board',
   /**
+   * 输入建议（0.53.0，domain-model §3.23）：`suggestion.updated` 事件与快照的 `promptSuggestion`，Host 设置 `promptSuggestions`
+   * 开着时每个正常结束的回合后生成一条。需要引擎能发一次不带工具的请求（`generateTitle`，dsh 没有）并且读得到提示词。
+   */
+  promptSuggestions: 'prompt_suggestions',
+  /**
    * 不在项目里的会话（0.39.0，domain-model §3.1）：`session.create` 可以不带 `workspaceId`，会话建在 Host 的“对话”工作区
    * （`Workspace.kind` 是 `chats`），每个会话一个新建的文件夹。
    */
@@ -241,6 +246,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_rewind: z.boolean().optional(),
   session_undo: z.boolean().optional(),
   task_board: z.boolean().optional(),
+  prompt_suggestions: z.boolean().optional(),
   chat_sessions: z.boolean().optional(),
   shared_files: z.boolean().optional(),
 });

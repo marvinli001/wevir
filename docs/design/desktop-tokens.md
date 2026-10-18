@@ -519,3 +519,14 @@ agent 用 `wevir_share_file` 交出的文件（desktop-layout §20）。照建�
 
 - **任务清单卡片**（会话侧栏 order 37，desktop-layout §12）：卡片框架与别的卡片一样（圆角 12、分隔线描边、画布底）；组名 12 px 半粗、说明文字色，后面是项数；一行高 28 px，图标 16 px（进行中 `CircleDot` 用运行色、已完成 `CircleCheck` 用成功色、待办 `Circle`、已取消 `CircleSlash` 加主题划线，其余说明文字色），主题截断，已完成与已取消的主题用说明文字色；“可开始”是 12 px 成功色文字，“等待 t1”是 12 px 说明文字色；认领的会话在下一行、缩进到主题处、12 px 说明文字色，是链接（悬停下划线、悬停变正文色）；展开的说明与备注同缩进、12 px，说明用次要文字色、备注前面是作者（说明文字色）；展开收起用 `Collapse`，› 转成向下；列表最高 320 px，再多在卡片里滚动。
 - **角色标签**（`layout/role-label.tsx`）：圆角 4、`muted` 底、12 px 说明文字色的一枚小标签，最宽 96 px 截断，写角色名（内置的 explorer、reviewer、worker 或用户自己的，原样写，不翻译），悬停提示与读屏文字是“角色 〈名〉”（`session.role`）。左栏会话行里在标题与右侧标记之间，悬停显示置顶与归档按钮时随右侧标记一起让位；顶栏里在项目名之后。没有 `openedBy.role` 的会话没有标签。
+
+## 60. 输入建议
+
+协议 0.53.0（domain-model §3.23，维护者 2026-10-18 定，照 Claude Code 的 prompt suggestion）：回合正常结束后，输入框里用灰色文字显示用户最可能接着发的一句话。
+
+- **位置与字**：叠在空输入框的第一行（`session/composer.tsx` 的 `composer-suggestion`），和输入框同字号、同内边距（会话页 `px-4 pt-3.5`，首页 `pt-4`），文字色 `muted-foreground`（与占位文字同色，显示时占位文字让位）；单行，过长截断。`pointer-events-none`，点击仍是聚焦输入框。
+- **Tab 提示**：文字后面一枚 `Tab` 小键帽（圆角 4、`border` 描边、11 px），`sm`（640 px）以下不显示；窄屏改为点建议文字接受（文字这时 `pointer-events-auto`）。
+- **键**：Tab 或 → 接受，把建议填进输入框、光标在末尾，不直接发送；Shift+Tab 仍是计划模式开关，带修饰键与输入法合成中不接受。打字、选斜杠命令、贴图片、输入框不再为空时建议消失，清空输入框后还在。
+- **什么时候显示**（`session/prompt-suggestion.ts`）：Host 声明 `prompt_suggestions`、设置开着、会话空闲、能发消息、不在计划流程里（计划模式开着）、没有待回答的问题。会话有新消息、新回合、回合被撤回 / 撤销 / 重做时投影自己清掉。首页与草稿页没有。
+- **设置**：设置 → 常规的“输入建议”开关（`components/switch.tsx`），存在 Host 的 `promptSuggestions`，Host 没有 `prompt_suggestions` 时这一行不出现。
+- 读屏：输入框的 `aria-describedby` 指向建议，建议按钮的名称是“接受建议：〈文字〉”。

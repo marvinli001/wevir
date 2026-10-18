@@ -21,6 +21,7 @@ import {
   type PendingMessage,
   type PendingMessageId,
   type PermissionMode,
+  PROMPT_SUGGESTION_VOIDING_EVENTS,
   type ProviderId,
   type QuestionId,
   type QuestionRequest,
@@ -101,6 +102,14 @@ import {
 } from './handoff.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import {
+  parseSuggestion,
+  SUGGESTION_EVENT_WINDOW,
+  SUGGESTION_OUTPUT_SCHEMA,
+  SUGGESTION_TIMEOUT_MS,
+  suggestionInput,
+  suggestionItems,
+} from './prompt-suggestion.js';
 import { deleteSessionData, measureUsage } from './session-delete.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
@@ -131,6 +140,12 @@ export interface SessionManagerOptions {
    * `generateTitle` 时，第一个回合开始后用会话的模型生成标题；否则只有首条消息截断的标题。
    */
   titleInstructions?: string;
+  /**
+   * 输入建议（0.53.0，domain-model §3.23）：给了、并且适配器实现了 `generateTitle` 时，会话的回合正常结束后用会话的模型预测
+   * 用户接着会发的一句话（prompts/prompt-suggestion.md，`loadSuggestionInstructions`）。`enabled` 每次回合结束时问一次（Host
+   * 设置 `promptSuggestions`），关着就不发请求。没给时没有输入建议。
+   */
+  suggestion?: { instructions: string; enabled: () => boolean };
   /** 不影响状态的告警（生成标题失败等）。默认打到 stderr。 */
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
   /**
@@ -255,6 +270,8 @@ interface SessionRuntime {
   /** 引擎的提问 requestId ↔ Host 的 QuestionId（0.10.0），只保留未结束的。 */
   readonly questionIds: Map<string, QuestionId>;
   readonly questionRequests: Map<QuestionId, string>;
+  /** 正在为这个回合生成输入建议（0.53.0）；用户有了新消息、回合重新开始或回合被撤回时中止并清掉。 */
+  suggestion?: { readonly turnId: TurnId; readonly abort: AbortController };
 }
 
 const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
@@ -353,6 +370,7 @@ export class SessionManager {
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
+  readonly #suggestion: SessionManagerOptions['suggestion'];
   readonly #worktreesDir: string | undefined;
   readonly #toolOutputDir: string | undefined;
   readonly #chats: ChatFolders | undefined;
@@ -388,6 +406,7 @@ export class SessionManager {
       options.onWarning ??
       ((message, fields) => console.warn('[wevir-host] session manager:', message, fields ?? ''));
     this.#titleInstructions = options.titleInstructions;
+    this.#suggestion = options.suggestion;
     this.#worktreesDir = options.worktreesDir;
     this.#toolOutputDir = options.toolOutputDir;
     this.#chats = options.chats;
@@ -2666,6 +2685,94 @@ export class SessionManager {
       .finally(() => clearTimeout(timer));
   }
 
+  /** 中止还在生成的输入建议（它的结果已经没有用了）。 */
+  #voidSuggestion(runtime: SessionRuntime): void {
+    runtime.suggestion?.abort.abort();
+    runtime.suggestion = undefined;
+  }
+
+  /**
+   * 输入建议（0.53.0，domain-model §3.23）：回合 `turnId` 正常结束后，用会话的模型发一次不带工具的请求，预测用户接着会发的一句话，
+   * 写 `suggestion.updated`。只在值得的时候生成——设置开着，会话是顶层的、不是支线、不是 agent 开的、空闲、不在计划模式、没有
+   * 待审批 / 待回答 / 排着的消息，回合是用户的消息开的（不是命令、不是目标续跑）并且有回答——同一个回合只生成一次。等待期间
+   * 用户发了消息、开始了新回合或回合被撤回，结果丢弃。失败、超时、解析不出来都只记告警：建议只是锦上添花，不影响会话。
+   * 不排进会话的命令队列，也不影响状态机。
+   */
+  #suggest(runtime: SessionRuntime, turnId: TurnId): void {
+    const options = this.#suggestion;
+    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
+    if (options === undefined || generate === undefined || this.#disposed) return;
+    if (runtime.parentId !== undefined || runtime.suggestion !== undefined) return;
+    let input: string;
+    try {
+      if (!options.enabled()) return;
+      const record = this.#record(runtime);
+      if (record.side || record.origin?.kind === 'agent') return;
+      const snapshot = this.#snapshot(runtime);
+      const { session } = snapshot;
+      if (
+        session.state !== 'idle' ||
+        session.activeTurn !== undefined ||
+        session.readOnly !== undefined ||
+        session.archivedAt !== undefined ||
+        session.collaborationMode === 'plan' ||
+        snapshot.pendingApprovals.length > 0 ||
+        (snapshot.pendingQuestions?.length ?? 0) > 0 ||
+        (snapshot.pendingMessages ?? []).some((pending) => pending.status === 'waiting')
+      ) {
+        return;
+      }
+      const events = this.#events.readSince(
+        runtime.id,
+        Math.max(0, session.lastSeq - SUGGESTION_EVENT_WINDOW),
+      );
+      // 命令开的回合（压缩、审查）与目标续跑不是用户在对话。
+      const started = events.find(
+        (event) => event.type === 'turn.started' && event.payload.turnId === turnId,
+      );
+      if (
+        started?.type === 'turn.started' &&
+        (started.payload.command !== undefined || started.payload.trigger === 'goal')
+      ) {
+        return;
+      }
+      const items = suggestionItems(events, turnId);
+      if (items === undefined) return;
+      input = suggestionInput(items);
+    } catch (error) {
+      // 会话在这期间被删了，等等：没有建议就是了。
+      this.#onWarning('准备输入建议失败', { sessionId: runtime.id, error: errorText(error) });
+      return;
+    }
+    const abort = new AbortController();
+    const mine = { turnId, abort };
+    runtime.suggestion = mine;
+    const timer = setTimeout(() => abort.abort(), SUGGESTION_TIMEOUT_MS);
+    void this.#whenDisposed.promise.then(() => abort.abort());
+    generate(runtime.engineSessionId, {
+      instructions: options.instructions,
+      input,
+      outputSchema: { ...SUGGESTION_OUTPUT_SCHEMA },
+      signal: abort.signal,
+    })
+      .then((output) => {
+        if (this.#disposed || abort.signal.aborted || runtime.suggestion !== mine) return;
+        const text = parseSuggestion(output);
+        if (text === undefined) return;
+        this.#write(runtime, [
+          { type: 'suggestion.updated', source: 'host', payload: { turnId, text } },
+        ]);
+      })
+      .catch((error: unknown) => {
+        if (this.#disposed || abort.signal.aborted) return;
+        this.#onWarning('生成输入建议失败', { sessionId: runtime.id, error: errorText(error) });
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        if (runtime.suggestion === mine) runtime.suggestion = undefined;
+      });
+  }
+
   // ── 命令的组成部分 ──────────────────────────────────────────────────
 
   /** `clientMessageId` 已有回执时：内容相同返回原结果，不同抛 `CLIENT_MESSAGE_CONFLICT`。 */
@@ -3794,6 +3901,7 @@ export class SessionManager {
     if (this.#disposed) throw new HostError('HOST_SHUTTING_DOWN', 'host is shutting down');
     const events = this.#events.appendMany(runtime.id, inputs, options);
     for (const event of events) {
+      if (PROMPT_SUGGESTION_VOIDING_EVENTS.has(event.type)) this.#voidSuggestion(runtime);
       if (event.type === 'turn.finished') {
         const turn = runtime.turn;
         if (turn?.turnId === event.payload.turnId) {
@@ -3819,6 +3927,10 @@ export class SessionManager {
         const checkpointCwd = this.#checkpointCwd(runtime);
         if (checkpointCwd !== undefined) {
           this.#checkpoints?.afterTurn(runtime.id, checkpointCwd, event.payload.turnId);
+        }
+        if (event.payload.outcome === 'completed') {
+          const { turnId } = event.payload;
+          queueMicrotask(() => this.#suggest(runtime, turnId));
         }
       } else if (event.type === 'approval.resolved') {
         const requestId = runtime.requestIds.get(event.payload.approvalId);

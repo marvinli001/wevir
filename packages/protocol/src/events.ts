@@ -25,6 +25,7 @@ import {
   MessageFromSchema,
   PendingMessageSchema,
   PermissionModeSchema,
+  PromptSuggestionSchema,
   QuestionRequestSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
@@ -402,6 +403,13 @@ export const EventPayloadSchemas = {
   'tasks.board_updated': z.object({
     tasks: z.array(BoardTaskSchema),
   }),
+  /**
+   * 输入建议（0.53.0，domain-model §3.23）：回合正常结束后，Host 用会话的模型预测出用户接着会发的一句话。每个回合至多一条，晚于
+   * `turn.finished` 到达（几秒内）。它是会话的“当前建议”，客户端只在会话空闲、输入框为空时灰着显示；`user.message`、
+   * `user.steered`、`turn.started`、`turn.rewound`、`turn.undone`、`turn.redone` 任何一条出现就作废（投影在这些事件上自己清掉，
+   * Host 不再另写一条“清除”）。Host 设置 `promptSuggestions` 关着时不会有。
+   */
+  'suggestion.updated': PromptSuggestionSchema,
   /** 用户把一项建议开成了会话（0.16.0）。 */
   'task.started': z.object({
     taskId: TaskIdSchema,
@@ -452,6 +460,19 @@ export const EventPayloadSchemas = {
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
+
+/**
+ * 出现就让会话当前的输入建议作废的事件类型（0.53.0，`suggestion.updated`）：用户有了新消息、回合重新开始、回合被撤回 / 撤销 / 重做。
+ * Host 的快照与 client-sdk 的投影都按它清掉建议，协议里没有“清除”事件。
+ */
+export const PROMPT_SUGGESTION_VOIDING_EVENTS: ReadonlySet<string> = new Set<WevirEventType>([
+  'user.message',
+  'user.steered',
+  'turn.started',
+  'turn.rewound',
+  'turn.undone',
+  'turn.redone',
+]);
 export type WevirEventPayload<T extends WevirEventType> = z.infer<(typeof EventPayloadSchemas)[T]>;
 
 export const WEVIR_EVENT_TYPES = Object.keys(EventPayloadSchemas) as WevirEventType[];
@@ -517,6 +538,7 @@ export const SubagentStartedEventSchema = eventSchema('subagent.started');
 export const SubagentUpdatedEventSchema = eventSchema('subagent.updated');
 export const TasksSuggestedEventSchema = eventSchema('tasks.suggested');
 export const TasksBoardUpdatedEventSchema = eventSchema('tasks.board_updated');
+export const SuggestionUpdatedEventSchema = eventSchema('suggestion.updated');
 export const TaskStartedEventSchema = eventSchema('task.started');
 export const TaskReportedEventSchema = eventSchema('task.reported');
 export const PendingAddedEventSchema = eventSchema('pending.added');
@@ -564,6 +586,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   SubagentUpdatedEventSchema,
   TasksSuggestedEventSchema,
   TasksBoardUpdatedEventSchema,
+  SuggestionUpdatedEventSchema,
   TaskStartedEventSchema,
   TaskReportedEventSchema,
   PendingAddedEventSchema,

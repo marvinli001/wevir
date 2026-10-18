@@ -780,10 +780,18 @@ export type PendingMessage = z.infer<typeof PendingMessageSchema>;
 export const HostSettingsSchema = z.object({
   /** 回合进行中按发送（回车、发送按钮）的默认方式；另一种用 Tab（桌面端输入框里的切换改的就是它）。 */
   sendWhileBusy: PendingDeliverySchema,
+  /**
+   * 输入建议（0.53.0）：回合正常结束后，Host 用会话的模型预测用户接着会发的一句话（`suggestion.updated`）。关掉就不再生成，
+   * 也不再有额外的请求；旧 Host 的设置里没有这一项，当作开着。
+   */
+  promptSuggestions: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
-export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({ sendWhileBusy: 'steer' });
+export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({
+  sendWhileBusy: 'steer',
+  promptSuggestions: true,
+});
 
 // ── 联网工具（0.34.0） ──────────────────────────────────────────────────
 
@@ -1206,6 +1214,19 @@ export const SessionSchema = z.object({
 });
 export type Session = z.infer<typeof SessionSchema>;
 
+/** 输入建议的长度上限（按 UTF-16 code unit）：一句话，Host 整理后不会超过它。 */
+export const PROMPT_SUGGESTION_MAX_LENGTH = 200;
+
+/**
+ * 输入建议（0.53.0，domain-model §3.23）：`turnId` 是它所预测的那个回合（刚正常结束的回合），`text` 是一句话，用用户的口气与语言，
+ * 不为空。客户端把它灰着放在空的输入框里，接受就是把 `text` 当作用户消息发出。
+ */
+export const PromptSuggestionSchema = z.object({
+  turnId: TurnIdSchema,
+  text: z.string().min(1).max(PROMPT_SUGGESTION_MAX_LENGTH),
+});
+export type PromptSuggestion = z.infer<typeof PromptSuggestionSchema>;
+
 /** `session.get` 的结果：由事件推导的快照（ADR-0002 §3）。 */
 export const SessionSnapshotSchema = z.object({
   session: SessionSchema,
@@ -1226,5 +1247,9 @@ export const SessionSnapshotSchema = z.object({
    * 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有；清单从没改过时省略，任务都删光后是空数组。
    */
   taskBoard: z.array(BoardTaskSchema).optional(),
+  /**
+   * 输入建议（0.53.0）：最近一次 `suggestion.updated`，用户有了新消息、回合重新开始或回合被撤回 / 撤销 / 重做后就没有了；没有时省略。
+   */
+  promptSuggestion: PromptSuggestionSchema.optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

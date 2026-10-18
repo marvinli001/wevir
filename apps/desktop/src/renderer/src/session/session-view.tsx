@@ -68,6 +68,7 @@ import { OllamaContextNotice } from './ollama-context-notice';
 import { PendingArea } from './pending-area';
 import { PermissionPicker, usePermissionChoice } from './permission-picker';
 import { usePlanControl } from './plan-mode';
+import { suggestionsEnabled, visibleSuggestion } from './prompt-suggestion';
 import { planImplementationPrompt, proposedPlanTitle } from './proposed-plan';
 import { QuestionDock } from './question-card';
 import { RecoveryPanel } from './recovery-panel';
@@ -312,6 +313,16 @@ export function SessionView({
     latestPlan !== undefined &&
     sessionState === 'idle' &&
     (transcript?.pendingQuestions.length ?? 0) === 0;
+  // 输入建议（0.53.0）：Host 在回合结束后给的“下一句”，空输入框里灰着显示，Tab 或 → 接受。
+  const suggestion = visibleSuggestion(transcript?.promptSuggestion, {
+    supported:
+      view.status === 'connected' && hostSupports(view.hello.features, 'prompt_suggestions'),
+    enabled: suggestionsEnabled(settings),
+    state: sessionState,
+    disabled: !client || readOnly !== undefined,
+    planBusy: planEnabled && plan.active,
+    awaitingInput: (transcript?.pendingQuestions.length ?? 0) > 0,
+  });
   const navigate = useNavigate();
   const store = useWorkbenchStore();
   const permissionModes = usePermissionModes();
@@ -821,6 +832,7 @@ export function SessionView({
             commands={readOnly === undefined ? commands : undefined}
             {...(fileScope && { fileScope })}
             {...(composerPlan && { plan: composerPlan })}
+            {...(suggestion !== undefined && { suggestion })}
           />
         </div>
       </div>
