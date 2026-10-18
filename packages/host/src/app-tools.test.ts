@@ -1111,7 +1111,7 @@ describe('预设角色', () => {
         r,
       ]),
     );
-    expect(Object.keys(byName)).toEqual(['explorer', 'planner', 'reviewer', 'worker']);
+    expect(Object.keys(byName)).toEqual(['advisor', 'explorer', 'planner', 'reviewer', 'worker']);
     expect(byName.explorer).toMatchObject({ source: 'builtin', tools: ['readonly'] });
     expect(byName.planner).toMatchObject({ source: 'user', modelId: 'm2' });
     expect(byName.worker).toMatchObject({ source: 'project', description: 'Project worker' });
@@ -1165,6 +1165,8 @@ describe('预设角色', () => {
         ? first.payload.content[0].text
         : '';
     expect(text).toMatch(/^You are working as the "planner" role \(Plans work\)/);
+    // 开它的会话的 ID 写在说明里，角色（比如 advisor）要读它的对话。
+    expect(text).toContain(`The session that opened you is ${caller};`);
     expect(text).toContain('Plan first, then write the plan to PLAN.md.');
     expect(text.endsWith('Your task:\n\nplan the migration')).toBe(true);
 
@@ -1184,7 +1186,7 @@ describe('预设角色', () => {
     expect(wider.error).toMatch(/broader than role planner allows/);
     const missing = await h.call(caller, 'wevir_session_create', { message: 'x', role: 'nope' });
     expect(missing.error).toMatch(
-      /No role "nope"\. Available: explorer, planner, reviewer, worker/,
+      /No role "nope"\. Available: advisor, explorer, planner, reviewer, worker/,
     );
     // 角色用的 Provider 不可用时说清楚。
     writeFileSync(

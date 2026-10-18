@@ -10,6 +10,7 @@
 |---|---|---|---|
 | [`base.md`](base.md) | Codex 引擎的基础提示词，给经网关的第三方模型用 | adapter-codex（R2）：渲染后写进生成的模型目录的 `base_instructions`，并按会话的 Provider 与模型写进 `thread/start` 的 `baseInstructions`（两者都是稳定面，docs/architecture/codex-event-mapping.md §3） | 已接入；skills 与 MCP 0.41.0 起由 Host 注册表交给 Codex（联网搜索 0.34.0 起是 `wevir_web`） |
 | [`plan-mode.md`](plan-mode.md) | 计划模式的协作说明 | adapter-codex（0.36.0，ADR-0005 补记 21）：经网关的第三方模型在计划模式的回合里，作为 `turn/start` 的协作模式（`collaborationMode.settings.developer_instructions`）下发；ChatGPT 登录的 OpenAI 模型用 Codex 内置的模板 | 已接入（Codex 引擎） |
+| [`compact.md`](compact.md) | 上下文压缩说明（交接摘要） | adapter-codex（2026-10-18）：经网关的第三方模型的 thread 在 `thread/start` / `resume` / `fork` 时带 `config.compact_prompt`，替换 Codex 自带的那条短说明；用户的 `/compact` 与自动压缩读同一个配置；ChatGPT 登录的 OpenAI 模型仍用 Codex 内置的说明 | 已接入（Codex 引擎） |
 | [`auto-review.md`](auto-review.md) | 审批自动复核员 | Host（新功能），与引擎无关 | 可用；只读工具是占位 |
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
@@ -24,6 +25,7 @@
 - **ChatGPT 订阅登录 + OpenAI 模型**：继续用 Codex 模型目录里按模型调好的提示词（ADR-0005 未决事项 1 原先的建议）。那些提示词针对 OpenAI 模型调过，Wevir 不替换。
 - **dsh、Grok Build、Gemini CLI 等通用 ACP 引擎**：用各自的提示词。`base.md` 里的工具名都是 Codex 的，不适用。
 - **`auto-review.md` 与 `thread-title.md`**：与引擎无关，由 Host 直接调模型。
+- **`compact.md`**：只在 Codex 引擎 + 经网关的第三方模型的 thread 上生效，用 `compact_prompt` 下发。
 
 ## Codex 一回合里模型看到的说明
 
@@ -36,6 +38,8 @@
 5. Codex 生成的 skills 列表：0.41.0 起 Host 绑定注册表时打开 skills.include_instructions，逐路径禁用未获 Host 启用的外部 skills（codex-event-mapping.md §10）；未绑定注册表的独立适配器保留关闭默认值。
 6. AGENTS.md 内容与 `<environment_context>`（Codex 生成）。
 7. 用户消息。
+
+经网关的第三方模型有一个额外的坑：Codex 只把 MCP 服务的 `instructions`（`wevir` 的应用级工具说明与跨会话记忆索引都在里面）写进该服务命名空间工具的 `description`，网关摊平命名空间时会丢掉它。所以网关把 `mcp__` 开头的命名空间的说明接进请求的 system 消息，一节 `# Instructions from MCP servers`（docs/architecture/model-gateway.md §4.1）；ChatGPT 登录的模型走原生 Responses，不受影响。
 
 `base.md` 按 Wevir 给 Codex 的配置写：Codex 托管的联网搜索、插件都是关的（ADR-0005 决策 5 与补记），联网用 Wevir 自己的 `wevir_web`（0.34.0，docs/architecture/web-tools.md），目标（goals，0.35.0 起，补记 20）与 `update_plan` 是开的，子智能体用 `multi_agent_v1`。配置变了要同步改 `base.md` 的“工具”一节。
 
@@ -85,7 +89,7 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `auto-review.md` | `codex-rs/prompts/templates/guardian/{policy_template,policy,node_repl_policy}.md` |
 | `thread-title.md` | `codex-rs/tui/src/app/thread_title.rs` 里的说明文字 |
 
-`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的四个文件按 Apache-2.0。
+`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。2026-10-18 起，`compact.md`、`plan-mode.md`、`thread-title.md`、`base.md` 的子智能体与 `update_plan` 两节，以及 Host 内置角色（`packages/host/src/roles.ts`）的说明，参考了同一个仓库里网上流传的 Claude Code 压缩、计划模式、会话标题与重命名、Explore / Plan / general-purpose 子智能体、advisor 工具、`/btw` 的提示词，也只借鉴做法（分节的交接摘要、先找可复用的、标题写成名词短语、只读探查角色的边界、第二意见的用法等）、用自己的话写，没有摘抄。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的文件（`base.md`、`plan-mode.md`、`auto-review.md`、`thread-title.md`）按 Apache-2.0。
 
 ## 改提示词时
 

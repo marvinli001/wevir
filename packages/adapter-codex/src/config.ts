@@ -430,6 +430,7 @@ export function threadConfig(
   gatewayBaseURL: string,
   reasoningEffort: string | undefined,
   providerExtra: Readonly<Record<string, unknown>> = {},
+  compactPrompt?: string,
 ): Record<string, unknown> {
   return {
     [`model_providers.${codexProviderId(provider.id)}`]: modelProviderEntry(
@@ -438,6 +439,8 @@ export function threadConfig(
       providerExtra,
     ),
     model_context_window: contextWindowOf(model),
+    // 压缩上下文时给模型的说明（Wevir 的 compact.md）；不给时用 Codex 自带的那条短说明。
+    ...(compactPrompt !== undefined && { compact_prompt: compactPrompt }),
     ...(reasoningEffort !== undefined && {
       model_reasoning_effort: toCodexEffort(reasoningEffort),
     }),

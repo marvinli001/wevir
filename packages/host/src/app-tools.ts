@@ -92,7 +92,7 @@ export const APP_TOOLS_INSTRUCTIONS = `You are running inside Wevir, a desktop a
 - wevir_session_interrupt: stop the running turn of another session.
 - wevir_session_close / wevir_session_archive: close or archive a session you opened (or one it opened) once its work is done, so it stops running and leaves the user's active list. Archived sessions stay in the user's archive; you cannot delete them.
 - wevir_models: providers and models you can choose for a new session.
-- wevir_roles: preset roles for new sessions (wevir_session_create role=...): a role sets the model, a ceiling on the permission mode, a task brief and which Wevir tools the session may use, for example an explorer that only investigates, a reviewer, or a worker that cannot open other sessions. Pick one when the job fits it.
+- wevir_roles: preset roles for new sessions (wevir_session_create role=...): a role sets the model, a ceiling on the permission mode, a task brief and which Wevir tools the session may use. Built in: explorer (read-only search that answers where things are; say how thorough: quick, medium or very thorough), planner (read-only; explores and returns a plan and the critical files), reviewer (read-only; ranks the problems in a change), worker (does one well-scoped task and reports) and advisor (a second opinion on a session's work in progress, which it reads with wevir_session_read). Pick one when the job fits it. On a long task, consider asking an advisor to look at your own session before you commit to an approach, when you are stuck or about to change approach, and before you call the work done (save the result first: the advisor takes time). Weigh its advice seriously; if you have direct evidence against a specific claim, say so in a follow-up instead of silently dropping it.
 - wevir_show: open a file, the changes view, the file tree, another session or a local web page in the Wevir window next to this conversation, when showing it is clearer than describing it.
 - wevir_share_file: hand files you made to the user (documents, spreadsheets, images, archives). They appear as file cards in this conversation, where the user can open them or save a copy anywhere. Save the file in this session's folder first; when the session has no project, that folder is the only place the user will find your output.
 - wevir_plugins_list: inspect global plugins, MCP connectors and skills without secrets. To install one, first write or download its files into this session's folder, then use wevir_plugin_install (Wevir/Claude/Codex package), wevir_skill_install (skill folder/SKILL.md/ZIP), or wevir_connector_add (MCP configuration). The three changes require the user's approval. Missing required plugin inputs are returned as an error: ask the user for them and retry. Changes are global; Codex uses them on subsequent turns after hot reload or in the next new session, with no guarantee for this current turn. Other engines need MCP/skills support to use them.
@@ -694,7 +694,10 @@ export class AppTools {
             {
               sessionId: session.id,
               content: [
-                { type: 'text', text: role === undefined ? message : roleBrief(role, message) },
+                {
+                  type: 'text',
+                  text: role === undefined ? message : roleBrief(role, message, sessionId),
+                },
               ],
             },
             this.#identity,
@@ -1493,10 +1496,14 @@ export function reportText(
 }
 
 /** 用角色开的会话的第一条消息：先是角色的说明，再是开它的会话交代的任务。 */
-export function roleBrief(role: RoleDefinition, task: string): string {
+export function roleBrief(role: RoleDefinition, task: string, opener?: SessionId): string {
   const head = `You are working as the "${role.name}" role (${role.description})`;
+  const from =
+    opener === undefined
+      ? ''
+      : `\nThe session that opened you is ${opener}; read its conversation with wevir_session_read when you need its context.`;
   const body = role.instructions === '' ? '' : `\n\n${role.instructions}`;
-  return `${head}${body}\n\nYour task:\n\n${task}`;
+  return `${head}${from}${body}\n\nYour task:\n\n${task}`;
 }
 
 /** 一行文字，空白折成一个空格，太长的截断。 */

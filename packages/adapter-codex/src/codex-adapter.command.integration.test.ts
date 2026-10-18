@@ -29,8 +29,8 @@ let mock: MockModel;
 let script: MockScript = () => ({ text: ['?'] });
 const adapters: CodexAdapter[] = [];
 
-/** Codex 本地压缩的提示词开头（core/templates/compact/prompt.md）。 */
-const COMPACT_PROMPT = 'You are performing a CONTEXT CHECKPOINT COMPACTION';
+/** 压缩上下文时发给模型的说明的开头：经网关的第三方模型用 Wevir 的 prompts/compact.md（作为 thread 的 `compact_prompt`）。 */
+const COMPACT_PROMPT = '你现在要为这段对话做一次上下文压缩';
 
 function git(cwd: string, ...args: string[]): void {
   execFileSync('git', args, {

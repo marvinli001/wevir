@@ -2469,6 +2469,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
           gateway.baseURL(provider.id),
           reasoningEffort,
           this.#options.providerExtra,
+          this.#prompt.compact(),
         ),
         ...tools,
         // 联网工具（0.34.0）：按这一刻的设置登记（关着不起，没配搜索的 Key 只有抓取）。

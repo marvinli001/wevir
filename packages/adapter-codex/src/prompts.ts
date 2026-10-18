@@ -92,6 +92,7 @@ export class BasePrompt {
   readonly #read: (path: string) => string;
   #source: string | undefined;
   #planMode: string | undefined;
+  #compact: string | undefined;
 
   constructor(dir: string = defaultPromptsDir()) {
     this.#read = promptReader(dir);
@@ -109,6 +110,15 @@ export class BasePrompt {
   planMode(): string {
     this.#planMode ??= renderPromptTemplate(this.#read('plan-mode.md'), {}, this.#read);
     return this.#planMode;
+  }
+
+  /**
+   * 压缩上下文的说明（`compact.md`，2026-10-18）：经网关的第三方模型作为 thread 的 `compact_prompt` 下发，替换 Codex 自带的
+   * 那条很短的说明。没有变量；只读、只渲染一次。
+   */
+  compact(): string {
+    this.#compact ??= renderPromptTemplate(this.#read('compact.md'), {}, this.#read);
+    return this.#compact;
   }
 }
 

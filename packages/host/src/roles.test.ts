@@ -99,9 +99,12 @@ describe('roleAllowsTool', () => {
 
   it('内置角色：explorer / reviewer 只许只读，worker 不能开或指挥别的会话', () => {
     const byName = Object.fromEntries(BUILTIN_ROLES.map((role) => [role.name, role]));
-    for (const name of ['explorer', 'reviewer']) {
+    for (const name of ['advisor', 'explorer', 'planner', 'reviewer']) {
       expect(byName[name]?.tools).toEqual(['readonly']);
       expect(byName[name]?.permissionMode).toBe('on_request');
+      // 只读角色不写跨会话记忆。
+      expect(roleAllowsTool(byName[name], tool('wevir_memory_save', true))).toBe(false);
+      expect(roleAllowsTool(byName[name], tool('wevir_session_read', true))).toBe(true);
     }
     const worker = byName.worker;
     expect(roleAllowsTool(worker, tool('wevir_session_create'))).toBe(false);
@@ -119,7 +122,9 @@ describe('RoleStore', () => {
     const store = new RoleStore({ dir });
     // 目录都不存在：只有内置的。
     expect((await store.list(project)).roles.map((role) => role.name)).toEqual([
+      'advisor',
       'explorer',
+      'planner',
       'reviewer',
       'worker',
     ]);
@@ -136,8 +141,10 @@ describe('RoleStore', () => {
     const listed = await store.list(project);
     expect(listed.problems).toEqual([]);
     expect(listed.roles.map((role) => `${role.name}:${role.source}`)).toEqual([
+      'advisor:builtin',
       'docs:project',
       'explorer:builtin',
+      'planner:builtin',
       'reviewer:builtin',
       'worker:project',
     ]);
