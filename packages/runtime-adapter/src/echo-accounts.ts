@@ -19,6 +19,7 @@ export const ECHO_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = [
   'opencode',
   'grok',
   'antigravity',
+  'workbuddy',
 ];
 
 const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>> = {
@@ -27,6 +28,7 @@ const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>>
   opencode: 'missing',
   grok: 'signed_in',
   antigravity: 'installable',
+  workbuddy: 'signed_out',
 };
 
 /** 每种订阅的登录方式与安装说明，照各自 CLI 的真实做法（T3 Code 的调研）。 */
@@ -53,6 +55,11 @@ const PROFILES: Readonly<
     installCommand: 'npm install -g @xai-official/grok',
   },
   antigravity: { signIn: 'in_app', loginMethods: ['browser'] },
+  workbuddy: {
+    signIn: 'command',
+    loginCommand: 'codebuddy',
+    installCommand: 'npm install -g @tencent-ai/codebuddy-code',
+  },
 };
 
 const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
@@ -90,6 +97,10 @@ const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
     ],
     defaultModelId: 'grok-code',
   },
+  workbuddy: {
+    models: [{ id: 'workbuddy-auto', displayName: 'Auto' }],
+    defaultModelId: 'workbuddy-auto',
+  },
   antigravity: {
     models: [
       { id: 'gemini-pro', displayName: 'Gemini Pro' },
@@ -99,7 +110,7 @@ const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
   },
 };
 
-const PLANS: Readonly<Record<SubscriptionKind, { plan: string; planLabel: string }>> = {
+const PLANS: Readonly<Partial<Record<SubscriptionKind, { plan: string; planLabel: string }>>> = {
   claude: { plan: 'max', planLabel: 'Max 20x' },
   cursor: { plan: 'pro', planLabel: 'Pro' },
   opencode: { plan: 'zen', planLabel: 'Zen' },

@@ -6,6 +6,7 @@ import {
   type ClientIdentity,
   CloseCode,
   type CloseCodeName,
+  compareProtocolVersions,
   type EngineFeatures,
   ErrorCode,
   type ErrorCodeName,
@@ -136,6 +137,7 @@ export class RpcConnection {
   #phase: Phase = 'hello';
   #client: ClientIdentity | undefined;
   #capabilities: ClientCapabilities = {};
+  #protocolVersion: string = PROTOCOL_VERSION;
   readonly #subscriptions = new Map<SubscriptionId, Subscription>();
   readonly #inflight = new Set<Promise<void>>();
   /** 调过 `account.*` 之后：退订 `account.updated`。 */
@@ -285,6 +287,7 @@ export class RpcConnection {
       clientKind: hello.clientKind,
     };
     this.#capabilities = hello.capabilities;
+    this.#protocolVersion = negotiation.protocolVersion;
     this.#phase = 'ready';
     clearTimeout(this.#helloTimer);
     this.#respond(id, 'host.hello', {
@@ -430,7 +433,11 @@ export class RpcConnection {
           context: RequestContext,
         ) => unknown;
         const result = await handler(params, { client, capabilities: this.#capabilities });
-        this.#respond(id, method, adaptResultForClient(method, result, this.#capabilities));
+        this.#respond(
+          id,
+          method,
+          adaptResultForClient(method, result, this.#capabilities, this.#protocolVersion),
+        );
         if (method.startsWith('account.')) this.#watchAccounts();
         if (method.startsWith('settings.')) this.#watchSettings();
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
@@ -581,7 +588,7 @@ export class RpcConnection {
     if (this.#phase !== 'ready') return;
     this.#unwatchAccounts = this.#host.accounts.watch((account) => {
       // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
-      if (isSubscriptionKind(account.kind) && this.#capabilities.subscription_kinds !== true)
+      if (!subscriptionKindSupported(account.kind, this.#capabilities, this.#protocolVersion))
         return;
       const parsed = NotificationSchemas['account.updated'].params.safeParse({ account });
       if (!parsed.success) {
@@ -775,16 +782,18 @@ export function adaptResultForClient(
   method: MethodName,
   result: unknown,
   capabilities: ClientCapabilities,
+  protocolVersion: string = PROTOCOL_VERSION,
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   const value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
-  return adaptKindsAndTitles(method, value, capabilities);
+  return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
 }
 
 function adaptKindsAndTitles(
   method: MethodName,
   result: unknown,
   capabilities: ClientCapabilities,
+  protocolVersion: string,
 ): unknown {
   // COMPAT(providerKindChatgpt): added in 0.7.0, remove gate after 2027-06-01
   // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
@@ -793,6 +802,7 @@ function adaptKindsAndTitles(
     method === 'provider.list' &&
     (capabilities.provider_kind_chatgpt !== true ||
       capabilities.subscription_kinds !== true ||
+      compareProtocolVersions(protocolVersion, '0.55.0') < 0 ||
       capabilities.provider_kind_google_vertex !== true)
   ) {
     const value = result as MethodResult<'provider.list'>;
@@ -802,13 +812,18 @@ function adaptKindsAndTitles(
         (p) =>
           (p.kind !== 'chatgpt' || capabilities.provider_kind_chatgpt === true) &&
           (p.kind !== 'google-vertex' || capabilities.provider_kind_google_vertex === true) &&
-          (!isSubscriptionKind(p.kind) || capabilities.subscription_kinds === true),
+          subscriptionKindSupported(p.kind, capabilities, protocolVersion),
       ),
     };
   }
-  if (method === 'account.list' && capabilities.subscription_kinds !== true) {
+  if (method === 'account.list') {
     const value = result as MethodResult<'account.list'>;
-    return { ...value, accounts: value.accounts.filter((a) => !isSubscriptionKind(a.kind)) };
+    return {
+      ...value,
+      accounts: value.accounts.filter((a) =>
+        subscriptionKindSupported(a.kind, capabilities, protocolVersion),
+      ),
+    };
   }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (capabilities.title_source_generated === true) return result;
@@ -911,6 +926,19 @@ function toIssues(
 function unref<T extends ReturnType<typeof setTimeout>>(timer: T): T {
   timer.unref?.();
   return timer;
+}
+
+/** subscription_kinds 早于 WorkBuddy；旧版已声明该能力也不认识这个新枚举值。 */
+function subscriptionKindSupported(
+  kind: string,
+  capabilities: ClientCapabilities,
+  protocolVersion: string,
+): boolean {
+  return (
+    !isSubscriptionKind(kind) ||
+    (capabilities.subscription_kinds === true &&
+      (kind !== 'workbuddy' || compareProtocolVersions(protocolVersion, '0.55.0') >= 0))
+  );
 }
 
 function isSubscriptionKind(kind: string): boolean {

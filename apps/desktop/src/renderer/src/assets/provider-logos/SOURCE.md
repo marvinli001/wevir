@@ -22,6 +22,7 @@
 | `cursor.svg` | 订阅来源 Cursor | `0cb51bddf264ae108926fd554c063ef40fc1aac3c5c921ddb39ad184e4e5d0ef` |
 | `opencode.svg` | 订阅来源 OpenCode | `7cfa6e9d6726f7c9fa26c7d9aef0dfec52d20a137380454340f30f12ccbfd302` |
 | `grok.svg` | 订阅来源 Grok | `9175fc90c22655160231976c849f25a03b888d7cc0e04c5f1b987b659bb07c95` |
+| `codebuddy-color.svg` | 订阅来源 WorkBuddy（CodeBuddy CLI） | `033d5da624460e686046f22b4e242b6b86484ad84ec4877e4efa15a9fb642b97` |
 | `antigravity-color.svg` | 订阅来源 Antigravity | `652128cf55a28bb958563ee372d0bd00208d9e6fd446f523f77aafd811eef8ca` |
 
 订阅来源的标志（0.19.0）是软件本身的标志（Claude 用 Claude 的标志，不用 Claude Code 的，照 Anthropic 对第三方的品牌要求）。

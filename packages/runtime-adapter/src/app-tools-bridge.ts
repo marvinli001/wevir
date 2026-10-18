@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { APP_TOOLS_SERVER, type AppToolsEndpoint } from './types.js';
 
-// 应用级工具的 stdio 桥（0.30.0，domain-model §3.15）：ACP 的引擎（Grok、Antigravity、dsh）都会接 stdio 的 MCP 服务，HTTP 的不一定
+// 应用级工具的 stdio 桥（0.30.0，domain-model §3.15）：ACP 的引擎（Grok、Antigravity、WorkBuddy、dsh）都会接 stdio 的 MCP 服务，HTTP 的不一定
 // 接得上（T3 Code 的 AcpMcpStdioBridge 也是因此用桥），所以给它们一个 stdio 服务，把每条 JSON-RPC 原样转发给 Host 的 `/mcp`。
 // 地址与这个会话的令牌经这个服务自己的环境变量给（ACP `McpServer` 的 `env`），不进引擎进程的环境。脚本只用 Node 内置模块，由
 // 适配器在引擎第一次启动前写进数据目录，用 Host 自己的 Node 运行（Electron 里带 `ELECTRON_RUN_AS_NODE=1`），同读历史的工具。

@@ -398,7 +398,13 @@ export interface ProviderTestResult {
 // ── 账号（R6）──────────────────────────────────────────────────────────────
 
 /** 与 @wevir/protocol 的 `SubscriptionKind` 同形（0.19.0，订阅来源，ADR-0005 补记 14）。 */
-export type SubscriptionKind = 'claude' | 'cursor' | 'opencode' | 'grok' | 'antigravity';
+export type SubscriptionKind =
+  | 'claude'
+  | 'cursor'
+  | 'opencode'
+  | 'grok'
+  | 'antigravity'
+  | 'workbuddy';
 
 /** 与 @wevir/protocol 的 `AccountKind` 同形。 */
 export type AccountKind = 'chatgpt' | SubscriptionKind;

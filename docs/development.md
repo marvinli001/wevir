@@ -64,6 +64,7 @@ pnpm dev
 | `WEVIR_DESKTOP_DEBUG_PORT` | 渲染进程的 Chrome 远程调试端口，默认 9339，只在开发模式打开、只监听 127.0.0.1 |
 | `ELECTRON_MIRROR` | Electron 二进制的下载地址（§7.3） |
 | `WEVIR_ANTIGRAVITY_MIRROR` | 在设置里下载 Antigravity 运行体时替换 `https://dl.google.com` 前缀（§7.4） |
+| `WEVIR_WORKBUDDY_BIN` | 用户自己安装的 `codebuddy` 可执行文件路径，优先于设置中的路径和自动查找；认证环境由用户自己配置（见 §6.2c） |
 
 **调试。** 渲染进程：Chrome 打开 `chrome://inspect`，在 Configure 里加 `localhost:9339`，或直接用 `http://127.0.0.1:9339/json` 走 DevTools 协议。主进程的日志带 `[wevir-desktop]` 前缀，打在运行 `pnpm dev` 的终端里。Host 的日志在数据目录的 `logs/host.log`（§5.2）。
 
@@ -143,6 +144,7 @@ Codex 引擎要先有 `codex-app-server`（§2 的 `fetch-codex.sh` 或 `WEVIR_C
 | `packages/adapter-opencode` | OpenCode 引擎（订阅来源）：用户的 `opencode`、本机服务器、账号与模型、规则集与审批、子 agent、流式事件 → AgentEvent、插话、标题、支线、取消与恢复（[opencode-event-mapping.md](./architecture/opencode-event-mapping.md)） | `pnpm vitest run --project adapter-opencode`（假 opencode 回放真实录音，不需要 opencode）；装了 opencode 时 `WEVIR_TEST_OPENCODE=1 WEVIR_TEST_OPENCODE_BIN="$(which opencode)" pnpm vitest run --project adapter-opencode contract.real`（真实 opencode + 本机假模型，不用订阅、不联网）；用订阅的手动步骤见映射文档 §9 |
 | `packages/adapter-grok` | Grok Build 引擎（订阅来源）：用户自己的 `grok` 的账号检测、按权限模式分进程的 ACP 会话、xAI 扩展（[grok-event-mapping.md](./architecture/grok-event-mapping.md)） | `pnpm vitest run --project adapter-grok`（假 grok 回放 T3 录的真实样本，不需要 Grok 账号、不联网；真实 `grok` 见 §6.2b） |
 | `packages/adapter-antigravity` | Antigravity 引擎（订阅来源）：钉住版本的下载安装、私有 profile、应用内 Google 登录、经通用 ACP 适配器的会话（[antigravity-event-mapping.md](./architecture/antigravity-event-mapping.md)） | `pnpm vitest run --project adapter-antigravity`（本机假下载服务器与假运行体，不下载真实运行体、不联网；真实运行体的手动步骤见映射文档 §8） |
+| `packages/adapter-workbuddy` | WorkBuddy 订阅：用户自己的 `codebuddy --acp` 与登录，复用通用 ACP（[映射](./architecture/workbuddy-event-mapping.md)） | `pnpm vitest run --project adapter-workbuddy --maxWorkers=2`，假 CLI，无账号 / 网络；真实契约默认跳过（§6.2c） |
 | `packages/model-gateway` | Codex 用的模型协议网关：Responses 透传与 Chat、Anthropic Messages 转换（[model-gateway.md](./architecture/model-gateway.md)） | `pnpm --filter @wevir/model-gateway test`（本地 mock 上游，不需要 Key）；真实 `codex-app-server` 经它跑 Spike 场景见 model-gateway.md §9 |
 | `packages/host` | 会话管理、事件库、RPC 服务、进程入口 | `pnpm dev:host`；`pnpm gate:m2`（Gate M2 端到端验收） |
 | `packages/client-sdk` | 连接、订阅、重连、消息投影 | `pnpm vitest run --project client-sdk` |
@@ -339,6 +341,7 @@ WEVIR_HOME="$PWD/.wevir-dev" pnpm dev
 | `engines/cursor/` | Cursor 引擎：应用内登录铸出的 API Key `auth.json`（0600，见[安全说明](./security.md) §3）。第一次登录 Cursor 时才出现；agent 的对话由 Cursor 的 SDK 存在它自己的位置（`~/.cursor/projects/`） |
 | `engines/opencode/` | OpenCode 引擎：读账号时 `opencode serve` 的工作目录，`servers/` 是本机服务器的台账（0600，进程身份与端口）。登录、配置与会话都在用户自己的 opencode 目录（`~/.config/opencode`、`~/.local/share/opencode`），Wevir 不读不改，见 [opencode-event-mapping.md](./architecture/opencode-event-mapping.md) §1 |
 | `engines/antigravity/` | Antigravity 引擎：`runtime/<平台>-<架构>/`（设置里下载的运行体，`active.json` 指向装好的版本，没下完的在 `downloads/`）、`profile/`（运行体的 `GEMINI_HOME`：Google 登录 `antigravity-acp/acp_token.json` 与对话，Wevir 不读登录的内容）、`tmp/`（每个进程的解包目录，约 1 GB，进程退出后删掉）、`models.json`（模型列表）。第一次下载或登录时才出现 |
+| `engines/workbuddy/` | 官方 `codebuddy --acp` 的工作目录与空的账号探测目录 `probe/`；不存凭据，CLI 的用户目录由它自己管理 |
 | `desktop/` | Electron 的 userData（Chromium 配置、localStorage） |
 
 数据目录及其子目录新建时为 0700；`secrets.json`、`run/host.json`、`logs/host.log` 与各身份文件为 0600，`wevir.db` 按默认 umask 创建，靠所在目录的 0700 挡住其他用户。dsh 在第一个会话需要它时才启动，`engines/dsh-agents/` 和 dsh 的会话日志到那时才出现。
@@ -450,6 +453,24 @@ env -i HOME="$HOME" PATH="$PATH" USER="$USER" WEVIR_TEST_GROK=1 pnpm vitest run 
 ```
 
 `WEVIR_GROK_BIN` 可指定 `grok` 的路径（优先于设置里指定的路径与自动查找）。真实 `grok` 上的手工步骤与要顺手核对的几项见 [grok-event-mapping.md](./architecture/grok-event-mapping.md) §8。
+
+### 6.2c WorkBuddy 适配器的测试
+
+用户自行安装官方 CLI：`npm install -g @tencent-ai/codebuddy-code`（Node 18.20.8+，2.168.2 无账号核对），在终端运行 `codebuddy` 完成国内 / 国际版本选择和登录。Wevir 不代为登录、不调用 authenticate；Host 的 `CODEBUDDY_INTERNET_ENVIRONMENT` 等环境要与终端所选版本一致，不自行切换。`WEVIR_WORKBUDDY_BIN` 或设置里的可执行文件路径可指定用户已装的版本，Wevir 不关闭其自动更新。
+
+```bash
+pnpm vitest run --project adapter-workbuddy --maxWorkers=2
+```
+
+普通测试只启动假 CLI，覆盖版本、账号缓存、模型和档位、权限、工具、审批 / 提问、取消、恢复、用量与适配器契约。`src/test-fixtures/acp.ndjson` 是合成样本，不能代替真实账号验收。
+
+真实契约由维护者手动启用（会消费订阅额度，保留用户原有的国内 / 国际环境）：
+
+```bash
+WEVIR_TEST_WORKBUDDY=1 pnpm vitest run --project adapter-workbuddy contract.real --maxWorkers=2
+```
+
+`WEVIR_TEST_WORKBUDDY_MODEL` 可换模型，默认 Auto（CLI 当前模型）。CLI 自己记在用户目录的临时测试会话不会由 Wevir 删除。登录检测、模型 / set_config_option、带工具的对话、审批、取消、Host 重启续接与 usage_update 等步骤见 [workbuddy-event-mapping.md](./architecture/workbuddy-event-mapping.md) §8。
 
 ### 6.3 真实模型测试的环境变量
 

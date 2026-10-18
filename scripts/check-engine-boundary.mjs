@@ -58,6 +58,14 @@ const ENGINES = [
     matches: (name, spec) =>
       name === '@xai-official/grok' || /^npm:@xai-official\/grok(@|$)/.test(spec),
   },
+  {
+    // 用户自己装，适配器只启动它，没有 npm 依赖。
+    owner: 'packages/adapter-workbuddy',
+    label: '@tencent-ai/codebuddy-code、@tencent-ai/agent-sdk',
+    matches: (name, spec) =>
+      /^@tencent-ai\/(codebuddy-code|agent-sdk)(-|$)/.test(name) ||
+      /^npm:@tencent-ai\/(codebuddy-code|agent-sdk)(-[^@]*)?(@|$)/.test(spec),
+  },
 ];
 const DEP_FIELDS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 

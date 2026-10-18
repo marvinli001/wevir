@@ -15,6 +15,7 @@ import {
 } from '@wevir/adapter-cursor';
 import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
+import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
 import type { AdapterContext } from './cli.js';
 import type { EngineRoute } from './engine-router.js';
 
@@ -92,6 +93,18 @@ export function subscriptionEngines(
         ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
       }),
       kinds: ['antigravity'],
+    },
+    // WorkBuddy：用户自己的 codebuddy --acp 与登录，复用通用 ACP 与 MCP 桥，按会话切权限。
+    {
+      name: 'workbuddy',
+      adapter: new WorkBuddyAdapter({
+        home: context.home,
+        logger: context.logger,
+        env: context.env ?? process.env,
+        ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
+        ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+      kinds: ['workbuddy'],
     },
   ];
   return routes.filter(

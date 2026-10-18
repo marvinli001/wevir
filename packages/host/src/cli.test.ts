@@ -11,6 +11,7 @@ import { CursorAdapter } from '@wevir/adapter-cursor';
 import { DshAdapter } from '@wevir/adapter-dsh';
 import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
+import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
 import { CloseCode } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { describe, expect, it, vi } from 'vitest';
@@ -175,6 +176,7 @@ describe('runHostCli', () => {
         ['opencode', ['opencode']],
         ['grok', ['grok']],
         ['antigravity', ['antigravity']],
+        ['workbuddy', ['workbuddy']],
       ]);
       expect(router.routes[0]?.adapter).toBeInstanceOf(CodexRuntime);
       expect(router.routes[1]?.adapter).toBeInstanceOf(ClaudeAdapter);
@@ -184,6 +186,10 @@ describe('runHostCli', () => {
       expect((router.routes[4]?.adapter as GrokAdapter | undefined)?.engines).toEqual([]);
       expect(router.routes[5]?.adapter).toBeInstanceOf(AntigravityAdapter);
       expect((router.routes[5]?.adapter as AntigravityAdapter | undefined)?.process.state).toBe(
+        'stopped',
+      );
+      expect(router.routes[6]?.adapter).toBeInstanceOf(WorkBuddyAdapter);
+      expect((router.routes[6]?.adapter as WorkBuddyAdapter | undefined)?.process.state).toBe(
         'stopped',
       );
       const codex = router.routes[0]?.adapter as CodexRuntime;
@@ -198,6 +204,7 @@ describe('runHostCli', () => {
         'opencode',
         'grok',
         'antigravity',
+        'workbuddy',
       ]);
       expect(existsSync(home)).toBe(false);
     } finally {

@@ -39,6 +39,7 @@
     "@wevir/adapter-dsh": "workspace:*",
     "@wevir/adapter-grok": "workspace:*",
     "@wevir/adapter-opencode": "workspace:*",
+    "@wevir/adapter-workbuddy": "workspace:*",
     "@wevir/protocol": "workspace:*",
     "@wevir/runtime-adapter": "workspace:*",
     "@wevir/storage": "workspace:*",

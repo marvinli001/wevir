@@ -256,6 +256,26 @@ export const claudeAccount: AccountState = {
 };
 
 /** 订阅来源（0.19.0）：Wevir 正在替用户下载 Antigravity。 */
+/** WorkBuddy（0.55.0）：用户自己安装并登录 codebuddy。 */
+export const workbuddyAccount: AccountState = {
+  kind: 'workbuddy',
+  status: 'signed_in',
+  signIn: 'command',
+  loginCommand: 'codebuddy',
+  installed: true,
+  version: '2.168.2',
+};
+export const workbuddyProvider: ProviderProfile = {
+  id: 'workbuddy',
+  kind: 'workbuddy',
+  displayName: 'WorkBuddy',
+  models: [{ id: 'workbuddy-auto', displayName: 'Auto' }],
+  defaultModelId: 'workbuddy-auto',
+  hasSecret: false,
+  createdAt: TS,
+  updatedAt: TS,
+};
+
 export const antigravityInstalling: AccountState = {
   kind: 'antigravity',
   status: 'signed_out',
@@ -1685,7 +1705,9 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [
         { providers: [deepseekProvider, compatibleProvider, chatgptProvider] },
-        { providers: [{ ...compatibleProvider, enabled: true }, claudeProvider] },
+        {
+          providers: [{ ...compatibleProvider, enabled: true }, claudeProvider, workbuddyProvider],
+        },
       ],
       invalid: [
         { providers: [{ ...compatibleProvider, hasSecret: undefined }] },
@@ -1845,7 +1867,7 @@ export const methodSamples: MethodSamples = {
     params: empty,
     result: {
       valid: [
-        { accounts: [signedInAccount, claudeAccount, antigravityInstalling] },
+        { accounts: [signedInAccount, claudeAccount, antigravityInstalling, workbuddyAccount] },
         {
           accounts: [
             {
@@ -1870,7 +1892,12 @@ export const methodSamples: MethodSamples = {
   },
   'account.get': {
     params: {
-      valid: [{ kind: 'chatgpt' }, { kind: 'claude', refresh: true }, { kind: 'grok' }],
+      valid: [
+        { kind: 'chatgpt' },
+        { kind: 'claude', refresh: true },
+        { kind: 'grok' },
+        { kind: 'workbuddy', refresh: true },
+      ],
       invalid: [{}, { kind: 'gemini' }, { kind: 'claude', refresh: 'yes' }],
     },
     result: {
@@ -2971,6 +2998,7 @@ export const notificationSamples: NotificationSamples = {
       { account: signingInAccount },
       { account: claudeAccount },
       { account: antigravityInstalling },
+      { account: workbuddyAccount },
     ],
     invalid: [{}, { account: { ...signedInAccount, kind: 'gemini' } }],
   },

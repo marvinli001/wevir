@@ -113,6 +113,7 @@ Codex 托管的 `web_search` 保持关闭（`web_search = "disabled"`）：它�
 | OpenCode | `websearch`、`webfetch` | 不挂 |
 | Cursor | `webSearch`、`webFetch` | 不挂 |
 | Grok Build | `websearch`、`webfetch` | 不挂 |
+| WorkBuddy | CLI 自带的 WebSearch / WebFetch | 不挂 |
 | Antigravity | 运行体自带、按 ACP 的 `search` / `fetch` 报的联网工具 | 不挂 |
 
 能挂 MCP 的（Claude、Grok、ACP）以后需要时照 `wevir_history` 的做法挂上即可；那时注意不要和自带的工具同时开。Wevir 的联网开关与 Key 只管 `wevir_web` 与 ChatGPT 会话的托管搜索，不管这些引擎自带的工具。

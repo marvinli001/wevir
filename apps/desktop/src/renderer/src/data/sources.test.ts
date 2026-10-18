@@ -20,6 +20,10 @@ describe('订阅来源', () => {
   it('sourceOf：ChatGPT 是 Codex，订阅来源各有软件标志，API 类没有', () => {
     expect(sourceOf({ kind: 'chatgpt' })?.logo).toBe('codex');
     expect(sourceOf({ kind: 'claude' })?.logo).toBe('claude');
+    expect(sourceOf({ kind: 'workbuddy' })).toMatchObject({
+      name: 'source.workbuddy',
+      logo: 'codebuddy',
+    });
     expect(sourceOf({ kind: 'openai-compatible' })).toBeUndefined();
     expect(sourceOf({ kind: 'deepseek-official' })).toBeUndefined();
   });
@@ -28,6 +32,7 @@ describe('订阅来源', () => {
     const accounts: AccountState[] = [
       { kind: 'claude', status: 'signed_in' },
       { kind: 'grok', status: 'signed_out' },
+      { kind: 'workbuddy', status: 'signed_out' },
     ];
     expect(isPickable(provider('local', 'openai-compatible'), accounts)).toBe(true);
     expect(isPickable(provider('local', 'openai-compatible', { enabled: false }), accounts)).toBe(
@@ -35,6 +40,7 @@ describe('订阅来源', () => {
     );
     expect(isPickable(provider('claude', 'claude'), accounts)).toBe(true);
     expect(isPickable(provider('grok', 'grok'), accounts)).toBe(false);
+    expect(isPickable(provider('workbuddy', 'workbuddy'), accounts)).toBe(false);
     expect(isPickable(provider('cursor', 'cursor'), accounts)).toBe(true);
     expect(isPickable(provider('claude', 'claude', { enabled: false }), accounts)).toBe(false);
   });
@@ -43,11 +49,12 @@ describe('订阅来源', () => {
     const order = pickerOrder([
       provider('b-api', 'openai-compatible'),
       provider('grok', 'grok'),
+      provider('workbuddy', 'workbuddy'),
       provider('a-api', 'deepseek-official'),
       provider('chatgpt', 'chatgpt'),
       provider('claude', 'claude'),
     ]).map((item) => item.id);
-    expect(order).toEqual(['chatgpt', 'claude', 'grok', 'b-api', 'a-api']);
+    expect(order).toEqual(['chatgpt', 'claude', 'grok', 'workbuddy', 'b-api', 'a-api']);
   });
 
   it('sourcePhase：没有账号是即将支持；安装中算百分比；没装、登录中、已登录带套餐', () => {

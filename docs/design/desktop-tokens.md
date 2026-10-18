@@ -256,7 +256,7 @@ T5.2 的 `--faint-foreground`（比说明文字更淡一级的提示色）已去
 
 照 T3 Code 的 Bring your own sub（ADR-0005 补记 14）。静器没有彩色强调色，订阅来源靠软件标志与层次区分，不加品牌色。
 
-- **标志的“器皿”**（`settings/subscription-sources.tsx` 的 `LogoWell`）：36 px（详情头 28 px）、10 px 圆角、画布底、分隔线描边、1 px 的内阴影，标志 20 px（16 px）放在中间；API Key 列表的标志格同样内凹。软件标志在 `assets/provider-logos/`（Codex、Claude、Cursor、OpenCode、Grok、Antigravity，来源见 SOURCE.md；Claude 用 Claude 的标志，不用 Claude Code 的）。
+- **标志的“器皿”**（`settings/subscription-sources.tsx` 的 `LogoWell`）：36 px（详情头 28 px）、10 px 圆角、画布底、分隔线描边、1 px 的内阴影，标志 20 px（16 px）放在中间；API Key 列表的标志格同样内凹。软件标志在 `assets/provider-logos/`（Codex、Claude、Cursor、OpenCode、Grok、Antigravity、WorkBuddy，来源见 SOURCE.md；Claude 用 Claude 的标志，不用 Claude Code 的）。
 - **订阅格子**：一张卡片里三列（窄时两列）的格子，格子之间 1 px 分隔线（网格底是分隔线色、`gap-px`）。每格上面是器皿与右上角的状态（已登录：成功色的 8 px 点，停用时空心；登录中、下载中：转圈），下面 14 px 名称、12 px 说明文字色的状态（套餐 / 未登录 / 未安装 / 可下载 / 正在下载 N% / 即将支持）。悬停表面色的淡底、器皿上移 1 px；选中是更深一档的底，下沿一道 2 px 墨线从中间展开（200 ms，`ease-smooth`）。Host 没有这种订阅的引擎时写“即将支持”、标志去色半透明、不能点。
 - **详情**：同一张卡片的下半部用 `Collapse` 展开（§14），上面一道分隔线，底是画布色 40%。头部是小器皿、名称、账号邮箱，右边“在模型选择里显示”的开关；下面按状态是一步（标题、右侧按钮）：终端登录给出命令行（等宽字、内凹的次表面底、`$` 提示符、复制）与“重新检测”，应用内登录是“登录”与等待浏览器，没装是安装命令或“下载”（进度条 4 px、墨色）与“指定可执行文件”，已登录是套餐 / 版本 / 位置、用量条（同 ChatGPT）、模型的小标签、重新检测与登出。文案只用简短的名词短语，不写说明句（与全局的文案规则一致）。Codex 的详情就是 ChatGPT 账号那一节（不画自己的卡片与标题）。
 - **开关**（`components/switch.tsx`）：32 × 18 px，关时次表面底加强分隔线的内描边，开时墨色；圆钮 14 px 滑块色，150 ms 滑动。API Key 列表每行最右边一个，停用的行标志与文字降到 50% / 60%。

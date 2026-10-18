@@ -4,6 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { PROTOCOL_VERSION } from '@wevir/protocol';
 import { openStorage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAdapter } from './cli.js';
@@ -34,10 +35,20 @@ async function start(scenarios = '1', home = join(tempDir(), 'home')) {
   const token = (
     JSON.parse(readFileSync(join(home, 'run', 'host.json'), 'utf8')) as { token: string }
   ).token;
-  const connect = async (capabilities: Record<string, boolean> = FULL) => {
+  const connect = async (
+    capabilities: Record<string, boolean> = FULL,
+    protocolVersion = PROTOCOL_VERSION,
+  ) => {
     const client = await TestRpcClient.connect(host.url);
     clients.push(client);
-    const frame = await client.hello(token, undefined, capabilities);
+    const frame = await client.call('host.hello', {
+      token,
+      protocolVersion,
+      clientKind: 'desktop',
+      deviceId: 'dev-aabbee',
+      clientId: 'desk-ffeecc',
+      capabilities,
+    });
     expect(frame.error).toBeUndefined();
     return { client, hello: frame.result };
   };
@@ -61,7 +72,7 @@ async function providersOf(client: TestRpcClient, ids: string[]) {
 }
 
 describe('订阅来源（0.19.0）', () => {
-  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 列出五种', async () => {
+  it('hello 声明 subscription_sources 与 provider_enabled，不声明 chatgpt_account；account.list 列出六种', async () => {
     const { connect } = await start();
     const { client, hello } = await connect();
     expect(hello.features).toMatchObject({ subscription_sources: true, provider_enabled: true });
@@ -74,6 +85,7 @@ describe('订阅来源（0.19.0）', () => {
       'opencode',
       'grok',
       'antigravity',
+      'workbuddy',
     ]);
     expect(accounts[0]).toMatchObject({
       kind: 'claude',
@@ -146,6 +158,38 @@ describe('订阅来源（0.19.0）', () => {
     await full.request('account.logout', { kind: 'claude' });
     await vi.waitFor(() => expect(full.notifications('account.updated')).toHaveLength(1));
     expect(old.notifications('account.updated')).toEqual([]);
+  });
+
+  it('WorkBuddy 沿用订阅能力位，0.55.0 之前即使声明它也不收到新枚举值', async () => {
+    const { connect } = await start('workbuddy=signed_in');
+    const full = (await connect()).client;
+    await providersOf(full, ['workbuddy']);
+    expect((await full.request('account.list')).accounts).toContainEqual(
+      expect.objectContaining({ kind: 'workbuddy' }),
+    );
+    const old = (await connect(FULL, '0.54.0')).client;
+    expect(
+      (await old.request('provider.list')).providers.some(
+        (p: { kind: string }) => p.kind === 'workbuddy',
+      ),
+    ).toBe(false);
+    expect(
+      (await old.request('account.list')).accounts.some(
+        (a: { kind: string }) => a.kind === 'workbuddy',
+      ),
+    ).toBe(false);
+    const unaware = (await connect({ provider_kind_chatgpt: true })).client;
+    expect((await unaware.request('account.list')).accounts).toEqual([]);
+    await full.request('account.setPath', { kind: 'workbuddy', path: '/fixture/codebuddy' });
+    await vi.waitFor(() =>
+      expect(
+        full
+          .notifications('account.updated')
+          .some((n: { account: { kind: string } }) => n.account.kind === 'workbuddy'),
+      ).toBe(true),
+    );
+    expect(old.notifications('account.updated')).toEqual([]);
+    expect(unaware.notifications('account.updated')).toEqual([]);
   });
 
   it('应用内登录：signing_in 带 authUrl，完成后 account.updated 是 signed_in，并建出 Provider', async () => {

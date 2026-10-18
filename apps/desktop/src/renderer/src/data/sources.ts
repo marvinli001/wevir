@@ -29,6 +29,7 @@ export const SOURCES: Readonly<Record<AccountKind, SourceInfo>> = {
     name: 'source.opencode',
     logo: 'opencode',
   },
+  workbuddy: { kind: 'workbuddy', name: 'source.workbuddy', logo: 'codebuddy' },
   grok: { kind: 'grok', name: 'source.grok', logo: 'grok' },
   antigravity: {
     kind: 'antigravity',

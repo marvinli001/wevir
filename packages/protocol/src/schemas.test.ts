@@ -468,7 +468,16 @@ const standaloneCases: Case[] = [
   {
     name: 'ProviderKind',
     schema: ProviderKindSchema,
-    valid: ['openai-compatible', 'chatgpt', 'claude', 'cursor', 'opencode', 'grok', 'antigravity'],
+    valid: [
+      'openai-compatible',
+      'chatgpt',
+      'claude',
+      'cursor',
+      'opencode',
+      'grok',
+      'antigravity',
+      'workbuddy',
+    ],
     invalid: ['anthropic', 'gemini'],
   },
   {
@@ -867,13 +876,13 @@ const standaloneCases: Case[] = [
   {
     name: 'AccountKind',
     schema: AccountKindSchema,
-    valid: ['chatgpt', 'claude', 'antigravity'],
+    valid: ['chatgpt', 'claude', 'antigravity', 'workbuddy'],
     invalid: ['ChatGPT', 'gemini'],
   },
   {
     name: 'SubscriptionKind',
     schema: SubscriptionKindSchema,
-    valid: ['claude', 'cursor', 'opencode', 'grok', 'antigravity'],
+    valid: ['claude', 'cursor', 'opencode', 'grok', 'antigravity', 'workbuddy'],
     invalid: ['chatgpt', 'Claude'],
   },
   {

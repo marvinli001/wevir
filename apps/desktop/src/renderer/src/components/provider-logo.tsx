@@ -3,6 +3,7 @@ import anthropic from '@/assets/provider-logos/anthropic.svg';
 import antigravity from '@/assets/provider-logos/antigravity-color.svg';
 import azure from '@/assets/provider-logos/azure-color.svg';
 import claude from '@/assets/provider-logos/claude-color.svg';
+import codebuddy from '@/assets/provider-logos/codebuddy-color.svg';
 import codex from '@/assets/provider-logos/codex-color.svg';
 import cursor from '@/assets/provider-logos/cursor.svg';
 import deepseek from '@/assets/provider-logos/deepseek-color.svg';
@@ -36,6 +37,7 @@ const LOGOS = {
   ollama: { src: ollama, mono: true },
   // 订阅来源的软件标志（0.19.0）：模型选择与设置里用它区分“来自哪个订阅”与 API。
   codex: { src: codex, mono: false },
+  codebuddy: { src: codebuddy, mono: false },
   claude: { src: claude, mono: false },
   cursor: { src: cursor, mono: true },
   opencode: { src: opencode, mono: true },

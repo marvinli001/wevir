@@ -440,6 +440,15 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
 
+  packages/adapter-workbuddy:
+    dependencies:
+      '@wevir/adapter-acp':
+        specifier: workspace:*
+        version: link:../adapter-acp
+      '@wevir/runtime-adapter':
+        specifier: workspace:*
+        version: link:../runtime-adapter
+
   packages/client-sdk:
     dependencies:
       '@wevir/protocol':
@@ -485,6 +494,9 @@ importers:
       '@wevir/adapter-opencode':
         specifier: workspace:*
         version: link:../adapter-opencode
+      '@wevir/adapter-workbuddy':
+        specifier: workspace:*
+        version: link:../adapter-workbuddy
       '@wevir/protocol':
         specifier: workspace:*
         version: link:../protocol

@@ -19,6 +19,7 @@ export const ACCOUNT_PROVIDER_NAMES: Readonly<Record<AccountKind, string>> = {
   opencode: 'OpenCode',
   grok: 'Grok',
   antigravity: 'Antigravity',
+  workbuddy: 'WorkBuddy',
 };
 
 /** 以前的默认显示名：Provider 还叫它时刷新时换成 `ACCOUNT_PROVIDER_NAMES` 里现在的。 */

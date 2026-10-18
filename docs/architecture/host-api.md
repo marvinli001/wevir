@@ -457,6 +457,8 @@ Host 生成的 ID 形如 `<前缀>_<ULID>`。ULID 是 26 位 Crockford Base32：
 
 ## 10. 兼容规则
 
+`0.55.0`：WorkBuddy 订阅来源。`SubscriptionKind`（连同 `ProviderKind`、`AccountKind`）新增 `workbuddy`，显示名 WorkBuddy；其余方法、字段与错误码不变，最低版本仍为 0.1.0。沿用 `subscription_kinds` 门控 provider.list、account.list 和 account.updated。该能力早于新枚举值，Host 还检查协商版本：低于 0.55.0 的连接即使声明 subscription_kinds 也看不到 workbuddy，其他已认识的订阅照常返回。新客户端连旧 Host：账号列表没有 workbuddy，来源详情显示当前 Host 不支持，不发该 kind。冻结样本 `compat/0.55.0.json` 合并 0.53.0 / 0.54.0 的样本并新增 WorkBuddy 报文；旧冻结文件不改。引擎和验收边界见 [workbuddy-event-mapping.md](./workbuddy-event-mapping.md)。
+
 `0.26.0`：`ProviderCompat` 加 optional 的布尔字段 `geminiToolSchema`，只有 Codex 网关的 Chat 转换使用，默认关闭，dsh 接受但忽略（model-gateway.md §4.5）。不加能力位，最低版本仍为 0.1.0。新 Host 服务旧客户端：旧 schema 忽略此字段，编辑 Provider 时整体替换 compat 会清掉它，回到关闭状态；新客户端连旧 Host：旧 Host 丢掉此字段，不能启用清洗，仍可连接。冻结样本 `compat/0.26.0.json`，旧样本不改。
 
 `0.21.0`：服务账号认证的 `google-vertex` Provider。`ProviderProfile.vertex` 与新 upsert 分支的 `vertex`、`serviceAccountJson` 都是 optional；vertex 内 project 必填、location optional（默认 global）。Host 写入时要求有效 project、Chat 或 Messages 协议、至少一个匹配发布方的模型；不使用自定义 baseURL，地址由网关生成。serviceAccountJson 只进 SecretStore，响应、日志、事件不返回它；省略保留、字符串替换、null 删除，hasSecret 沿用。新 Host 服务旧客户端：未声明 provider_kind_google_vertex 时 provider.list 隐藏此 kind，已有会话照常列出；新客户端连旧 Host：没有 google_vertex 功能就禁用 Vertex 入口，不发送新 kind。最低版本仍为 0.1.0，冻结样本 compat/0.21.0.json，旧样本不改。
@@ -557,7 +559,7 @@ models 每项有 model（ProviderModel）及可选 capabilities、sizeBytes、pa
 | `title_source_generated` | 0.5.0 | `TitleSource` 的 `generated` | 换成 `first_prompt`（事件与会话的结果都换），标题本身不变 |
 | `provider_kind_chatgpt` | 0.7.0 | `ProviderKind` 的 `chatgpt` | `provider.list` 的结果里去掉 `chatgpt` 类 Provider |
 | `provider_kind_google_vertex` | 0.21.0 | `ProviderKind` 的 `google-vertex` | `provider.list` 隐藏这类 Provider |
-| `subscription_kinds` | 0.19.0 | `ProviderKind` 与 `AccountKind` 的订阅来源（`claude`、`cursor`、`opencode`、`grok`、`antigravity`） | `provider.list` 与 `account.list` 的结果里去掉这些种类，不发它们的 `account.updated` |
+| `subscription_kinds` | 0.19.0 | `ProviderKind` 与 `AccountKind` 的订阅来源（`claude`、`cursor`、`opencode`、`grok`、`antigravity`、`workbuddy`（0.55.0 起，另看协商版本）） | `provider.list` 与 `account.list` 的结果里去掉这些种类，不发它们的 `account.updated` |
 | `user_images` | 0.28.0 | `UserContentPart` 的 `image` | `user.message`、`user.steered`、`turn.started.input`、`pending.added` / `pending.updated` 与 `session.get`、`pending.*` 结果里的图片换成文本 `[image]` |
 
 **Host 功能（`features`）**

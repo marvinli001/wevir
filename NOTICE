@@ -303,7 +303,7 @@ Paper Shaders 的许可证是 Apache License 2.0，全文见文末。Wevir 的�
 
 9. 模型服务的标志（LobeHub Icons）
 ------------------------------------------------------------------------------------------------
-apps/desktop/src/renderer/src/assets/provider-logos/ 下的服务标志 SVG（首次引导与 Provider 列表，含 azure-color.svg、zai.svg、xiaomimimo.svg）原样取自
+apps/desktop/src/renderer/src/assets/provider-logos/ 下的服务标志 SVG（首次引导与 Provider 列表，含 azure-color.svg、zai.svg、xiaomimimo.svg、codebuddy-color.svg）原样取自
 npm 包 @lobehub/icons-static-svg 1.95.1 的 icons/ 目录，文件与 sha256 见同目录的 SOURCE.md。许可证是 MIT，
 全文见文末“MIT License”。各标志是对应公司的商标，只用来指认服务。
 
@@ -485,6 +485,10 @@ Effect 的 TypeScript，建在 @wevir/adapter-acp 上：
 
 packages/adapter-grok/src/test-fixtures/acp/ 是 T3 Code 的 apps/server/src/orchestration-v2/testkit/fixtures/ 里 7 个
 grok_transcript.ndjson 的原样副本：T3 录的 xAI Grok Build 1.0.41 / 1.0.44 的 ACP 往返，其中 Grok 的输出受 xAI 的条款约束。
+
+WorkBuddy 适配器复用上述 Grok 启动器与 ACP / 历史工具接法，T3 的署名同样覆盖
+packages/adapter-workbuddy/src/launch.ts 与 packages/adapter-workbuddy/src/workbuddy-adapter.ts。
+其余 WorkBuddy 实现及合成夹具为 Wevir 新写，不包含腾讯 CLI 源码。
 
 订阅来源 Antigravity 的引擎（packages/adapter-antigravity）移植的文件（左边是 Wevir 文件，右边是 T3 Code 的来源路径），
 改写成不依赖 Effect 的 TypeScript，修改说明在各文件头：

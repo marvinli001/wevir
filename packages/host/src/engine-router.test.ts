@@ -220,7 +220,14 @@ describe('EngineRouter', () => {
       { name: 'subs', adapter: new WithAccounts(), kinds: ['claude', 'cursor'] },
     ]);
     routers.push(router);
-    expect(router.accounts?.kinds).toEqual(['claude', 'cursor', 'opencode', 'grok', 'antigravity']);
+    expect(router.accounts?.kinds).toEqual([
+      'claude',
+      'cursor',
+      'opencode',
+      'grok',
+      'antigravity',
+      'workbuddy',
+    ]);
     const seen: string[] = [];
     router.accounts?.onChange((state) => seen.push(`${state.kind}:${state.status}`));
     await router.accounts?.logout('claude');

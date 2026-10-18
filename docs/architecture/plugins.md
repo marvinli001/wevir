@@ -26,7 +26,7 @@ Codex 两种适配实现（直接 CodexAdapter 与双进程 CodexRuntime）都�
 
 ## 支持与协议
 
-Host feature `plugins` 表示注册表 API 可用，与引擎分开；EngineFeatures.mcpServers / skills 表示是否注入。Codex 两者支持；echo 支持最小测试实现，可在含 plugins 的回答里报告收到的启用连接器与 skills；Claude、OpenCode、Grok、Antigravity、Cursor、dsh 本期均为 false，后续见 TODO.md。
+Host feature `plugins` 表示注册表 API 可用，与引擎分开；EngineFeatures.mcpServers / skills 表示是否注入。Codex 两者支持；echo 支持最小测试实现，可在含 plugins 的回答里报告收到的启用连接器与 skills；Claude、OpenCode、Grok、Antigravity、Cursor、dsh 本期均为 false，后续见 TODO.md。WorkBuddy 的这两项同样为 false；应用级 MCP 桥不代表全局连接器与 skills 注入。
 
 方法：plugins.list；connector.add / update / remove / setEnabled；skill.install / remove / setEnabled。读需要 host.manage（包含目录与命令配置），写同样需要 host.manage。plugins.changed 是无负载的全局通知，发给调过插件方法的连接；client-sdk 的 watchPlugins 在首次连接、重连与通知后重读，并避免旧响应覆盖新结果。注册表变化不写会话事件流。
 

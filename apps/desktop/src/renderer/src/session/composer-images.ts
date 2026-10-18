@@ -106,7 +106,7 @@ export function imagesOf(content: readonly UserContentPart[]): UserImagePart[] {
 
 /**
  * 这个模型能不能发图片（界面只看模型列表，Host 发送时再按引擎核对）：标了 `supportsImages` 的看它；没标的，订阅来源
- * （Claude、Cursor、OpenCode、Grok、Antigravity，由引擎自己判断）算能，经网关的 Provider 不算（Codex 只给标了的模型
+ * （Claude、Cursor、OpenCode、Grok、Antigravity、WorkBuddy，由引擎自己判断）算能，经网关的 Provider 不算（Codex 只给标了的模型
  * 开图片输入）。
  */
 export function modelAcceptsImages(

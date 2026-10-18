@@ -964,6 +964,7 @@ export const messages: Messages = {
   'source.opencode': 'OpenCode',
   'source.grok': 'Grok',
   'source.antigravity': 'Antigravity',
+  'source.workbuddy': 'WorkBuddy',
   'source.status.soon': 'Скоро',
   'source.status.missing': 'Не установлен',
   'source.status.requiresGit': 'Нужен Git',
