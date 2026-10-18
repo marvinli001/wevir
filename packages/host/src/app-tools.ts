@@ -28,7 +28,7 @@ import type {
   WevirEvent,
 } from '@wevir/protocol';
 import { DEFAULT_PERMISSION_MODE, SHARED_FILES_MAX } from '@wevir/protocol';
-import type { Storage } from '@wevir/storage';
+import type { SessionRecord, Storage } from '@wevir/storage';
 import { type AppTool, AppToolError, type AppToolResult, jsonResult } from './app-mcp.js';
 import type { BrowserBroker } from './browser-broker.js';
 import { browserToolResult, browserTools, callerCwd, httpUrl } from './browser-tools.js';
@@ -1233,8 +1233,9 @@ export class AppTools {
   }
 
   /**
-   * 这个会话开出来时用的角色：自己的记录里有 `origin.role`，子会话（引擎派出的子 agent）沿用父会话的。角色文件之后被删、改坏
-   * 了找不到时，按“只读工具”收紧，不放开。
+   * 这个会话开出来时用的角色：自己的记录里有 `origin.role`，子会话（引擎派出的子 agent）沿用父会话的。引擎在会话写进存储之前
+   * 就可能列工具（Codex 起 thread 时连 MCP），这时问 SessionManager 正在建的会话。角色文件之后被删、改坏了找不到时，按“只读
+   * 工具”收紧，不放开。
    */
   async #roleOf(
     sessionId: SessionId,
@@ -1242,7 +1243,8 @@ export class AppTools {
     const roles = this.#options.roles;
     if (roles === undefined) return undefined;
     const { storage } = this.#options;
-    let record = storage.sessions.get(sessionId);
+    let record: Pick<SessionRecord, 'workspaceId' | 'origin' | 'parentSessionId'> | undefined =
+      storage.sessions.get(sessionId) ?? this.#options.sessions.creating(sessionId);
     for (let depth = 0; depth < 8 && record?.parentSessionId !== undefined; depth += 1) {
       record = storage.sessions.get(record.parentSessionId);
     }

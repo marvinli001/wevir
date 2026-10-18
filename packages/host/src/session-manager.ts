@@ -230,6 +230,9 @@ export interface RecoveryReport {
   unknownSends: number;
 }
 
+/** 正在建、还没写进存储的会话（`SessionManager.creating`）：以后会写进它的记录的这两项。 */
+export type CreatingSession = Pick<SessionRecord, 'workspaceId' | 'origin'>;
+
 interface ToolInfo {
   toolName: string;
   display: ToolDisplay;
@@ -410,10 +413,11 @@ export class SessionManager {
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
   /**
-   * 正在建的会话（新建、分支与支线）所在的工作区：引擎会话建好之后才写进存储，而引擎在建的时候就会连应用级工具（Codex 起
-   * thread 时连 MCP、取说明），那时要靠它认出会话属于哪个项目（`workspaceOf`）。
+   * 正在建的会话（新建、分支与支线）所在的工作区与来历（`origin`，Agent 开的会话的预设角色在里面）：引擎会话建好之后才写进
+   * 存储，而引擎在建的时候就会连应用级工具（Codex 起 thread 时连 MCP、取说明，也可能列工具），那时要靠它认出会话属于哪个项目
+   * （`workspaceOf`）、受哪个角色限制（`creating`）。
    */
-  readonly #creating = new Map<SessionId, string>();
+  readonly #creating = new Map<SessionId, CreatingSession>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
   readonly #whenDisposed = deferred();
   /** `shutdown()` 开始后为 true：新命令一律 `HOST_SHUTTING_DOWN`，已排队的照常执行。 */
@@ -533,15 +537,23 @@ export class SessionManager {
     return report;
   }
 
+  /** 会话所在的工作区：存储里的，或正在建、还没写进存储的；都不是时 `undefined`。 */
+  workspaceOf(sessionId: SessionId): string | undefined {
+    return (
+      this.#storage.sessions.get(sessionId)?.workspaceId ??
+      this.#creating.get(sessionId)?.workspaceId
+    );
+  }
+
+  /** 正在建、还没写进存储的会话的工作区与来历；不是正在建的会话时 `undefined`。 */
+  creating(sessionId: SessionId): CreatingSession | undefined {
+    return this.#creating.get(sessionId);
+  }
+
   /**
    * `session.create`：先建引擎会话，成功后才写 `session.created`（#1）。返回的会话是 `idle`、
    * `lastSeq` 为 1。
    */
-  /** 会话所在的工作区：存储里的，或正在建、还没写进存储的；都不是时 `undefined`。 */
-  workspaceOf(sessionId: SessionId): string | undefined {
-    return this.#storage.sessions.get(sessionId)?.workspaceId ?? this.#creating.get(sessionId);
-  }
-
   async create(
     params: MethodParams<'session.create'>,
     options: { openedBy?: SessionId; role?: string } = {},
@@ -648,8 +660,16 @@ export class SessionManager {
     if (params.reasoningEffort !== undefined) config.reasoningEffort = params.reasoningEffort;
     if (permissionMode !== undefined) config.permissionMode = permissionMode;
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
+    const recordOrigin: SessionRecord['origin'] =
+      origin ??
+      (openedBy === undefined
+        ? undefined
+        : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
-    this.#creating.set(sessionId, workspace.id);
+    this.#creating.set(sessionId, {
+      workspaceId: workspace.id,
+      ...(recordOrigin !== undefined && { origin: recordOrigin }),
+    });
     try {
       engineSession = await this.#adapter.createSession(this.#engineConfig(sessionId, config));
     } catch (error) {
@@ -683,10 +703,7 @@ export class SessionManager {
       if (prepared.environmentId !== undefined) record.environmentId = prepared.environmentId;
       if (prepared.extraRoots.length > 0) record.extraRoots = prepared.extraRoots;
       if (prepared.worktrees.length > 0) record.worktrees = prepared.worktrees;
-      if (origin !== undefined) record.origin = origin;
-      else if (openedBy !== undefined) {
-        record.origin = { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) };
-      }
+      if (recordOrigin !== undefined) record.origin = recordOrigin;
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',
@@ -2217,7 +2234,7 @@ export class SessionManager {
       const config = sessionConfig(record);
       const sessionId = newId('ses');
       let engineSession: EngineSession;
-      this.#creating.set(sessionId, record.workspaceId);
+      this.#creating.set(sessionId, { workspaceId: record.workspaceId });
       try {
         engineSession = await fork(
           source.engineSessionId,

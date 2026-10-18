@@ -43,8 +43,11 @@ afterEach(async () => {
 class ToolEcho extends EchoAdapter {
   readonly appTools = true;
   readonly endpoints = new Map<string, AppToolsEndpoint | undefined>();
+  /** 建会话的过程中先调它（同 Codex：起 thread 时就连上应用级工具）。 */
+  onCreate: ((config: SessionConfig) => Promise<void>) | undefined;
 
   override async createSession(config: SessionConfig): Promise<EngineSession> {
+    await this.onCreate?.(config);
     const session = await super.createSession(config);
     this.endpoints.set(session.engineSessionId, config.appTools);
     return session;
@@ -1249,6 +1252,36 @@ describe('预设角色', () => {
     expect(after).toContain('wevir_session_list');
     expect(after).not.toContain('wevir_session_send');
     expect(after).not.toContain('wevir_session_create');
+  });
+
+  it('引擎在会话写进存储之前就列工具，也按角色过滤', async () => {
+    const h = await setup();
+    const caller = await h.create();
+    const listed: string[][] = [];
+    h.adapter.onCreate = async (config) => {
+      const response = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          Authorization: `Bearer ${config.appTools?.token}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      const body = (await response.json()) as { result: { tools: Array<{ name: string }> } };
+      listed.push(body.result.tools.map((tool) => tool.name));
+    };
+    const explorer = (
+      await h.call(caller, 'wevir_session_create', {
+        message: 'look around',
+        role: 'explorer',
+        reportBack: false,
+      })
+    ).sessionId as SessionId;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toContain('wevir_session_list');
+    expect(listed[0]).not.toContain('wevir_session_create');
+    expect(listed[0]).toEqual(await visible(h, explorer));
   });
 });
 
