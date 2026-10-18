@@ -10,7 +10,8 @@
 // 一条带 `command`、没有文字的用户消息；上下文压缩（`context.*`）是回合里的 `compaction` 部件。0.35.0：为会话目标工作的回合
 // （`turn.started.trigger`）的用户消息带 `trigger`；引擎自己开的目标回合没有 `user.message`，投影成一条带 `trigger`、没有文字的
 // 用户消息。会话的目标（`session.goal_changed`）是 `Transcript.goal`。0.52.0：共享任务清单（`tasks.board_updated`，写在会话树的
-// 根会话里）是 `Transcript.taskBoard`。
+// 根会话里）是 `Transcript.taskBoard`。0.53.0：输入建议（`suggestion.updated`）是 `Transcript.promptSuggestion`，用户有了新消息、
+// 回合重新开始或被撤回 / 撤销 / 重做时清掉。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -58,6 +59,7 @@ import type {
   WevirEvent,
   WevirEventOf,
 } from '@wevir/protocol';
+import { PROMPT_SUGGESTION_VOIDING_EVENTS, type PromptSuggestion } from '@wevir/protocol';
 
 /** 工具部件的状态。`awaiting_approval`：同一 `toolCallId` 有未决审批。 */
 export type ToolPartStatus =
@@ -285,6 +287,11 @@ export interface Transcript {
    * `taskBoard`。
    */
   taskBoard: readonly BoardTask[];
+  /**
+   * 0.53.0：输入建议（最近一次 `suggestion.updated`）；`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件（用户有了新消息、回合重新
+   * 开始、回合被撤回 / 撤销 / 重做）出现后没有。规则同 Host 快照的 `promptSuggestion`。
+   */
+  promptSuggestion: PromptSuggestion | undefined;
   lastSeq: number;
 }
 
@@ -377,6 +384,7 @@ export class TranscriptProjection {
   #usage: Usage | undefined;
   #goal: SessionGoal | undefined;
   #taskBoard: readonly BoardTask[] = [];
+  #promptSuggestion: PromptSuggestion | undefined;
   #subagents: SubagentSummary[] = [];
   /** 子会话 ID → 它的部件（开始与结束）所在的消息。 */
   #subagentParts = new Map<SessionId, MutableMessage[]>();
@@ -422,6 +430,7 @@ export class TranscriptProjection {
     this.#usage = undefined;
     this.#goal = undefined;
     this.#taskBoard = [];
+    this.#promptSuggestion = undefined;
     this.#subagents = [];
     this.#subagentParts.clear();
     this.#parent = undefined;
@@ -440,6 +449,7 @@ export class TranscriptProjection {
     this.#sessionId = event.sessionId;
     this.#lastSeq = event.seq;
     this.#dirty = true;
+    if (PROMPT_SUGGESTION_VOIDING_EVENTS.has(event.type)) this.#promptSuggestion = undefined;
     switch (event.type) {
       case 'session.created': {
         this.#state = 'idle';
@@ -465,6 +475,9 @@ export class TranscriptProjection {
         return;
       case 'tasks.board_updated':
         this.#taskBoard = event.payload.tasks;
+        return;
+      case 'suggestion.updated':
+        this.#promptSuggestion = event.payload;
         return;
       case 'session.configured':
         return;
@@ -664,6 +677,7 @@ export class TranscriptProjection {
       latestPlan: this.#latestPlan,
       redoTurnIds: this.#redo,
       taskBoard: this.#taskBoard,
+      promptSuggestion: this.#promptSuggestion,
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;

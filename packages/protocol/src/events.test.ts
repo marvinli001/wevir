@@ -85,6 +85,8 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.tasks[0]?.title ?? '';
     case 'tasks.board_updated':
       return event.payload.tasks[0]?.subject ?? '';
+    case 'suggestion.updated':
+      return event.payload.text;
     case 'task.started':
       return event.payload.sessionId;
     case 'task.reported':

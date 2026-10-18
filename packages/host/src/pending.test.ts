@@ -46,12 +46,14 @@ describe('Host 设置（settings.*）', () => {
     const { client: watcher, hello } = await connect();
     expect(hello.features).toMatchObject({ pending_messages: true, host_settings: true });
     const other = (await connect()).client;
-    expect(await watcher.request('settings.get')).toEqual({ settings: { sendWhileBusy: 'steer' } });
+    expect(await watcher.request('settings.get')).toEqual({
+      settings: { sendWhileBusy: 'steer', promptSuggestions: true },
+    });
 
     const updater = (await connect()).client;
     expect(
       await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } }),
-    ).toEqual({ settings: { sendWhileBusy: 'queue' } });
+    ).toEqual({ settings: { sendWhileBusy: 'queue', promptSuggestions: true } });
     await watcher.until(
       () =>
         watcher.notifications('settings.updated').find((p) => p.settings.sendWhileBusy === 'queue'),
@@ -60,17 +62,36 @@ describe('Host 设置（settings.*）', () => {
     expect(other.notifications('settings.updated')).toEqual([]);
     expect(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))).toEqual({
       sendWhileBusy: 'queue',
+      promptSuggestions: true,
     });
     // 值没变不通知。
     await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } });
     expect(watcher.notifications('settings.updated')).toHaveLength(1);
+
+    // 输入建议的开关（0.53.0）：关掉也通知、也写文件。
+    expect(
+      await updater.request('settings.update', { settings: { promptSuggestions: false } }),
+    ).toEqual({ settings: { sendWhileBusy: 'queue', promptSuggestions: false } });
+    await watcher.until(
+      () =>
+        watcher
+          .notifications('settings.updated')
+          .find((p) => p.settings.promptSuggestions === false),
+      'settings.updated',
+    );
+    expect(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))).toEqual({
+      sendWhileBusy: 'queue',
+      promptSuggestions: false,
+    });
 
     // Host 重启后从文件读回。
     await host.shutdown();
     running.splice(running.indexOf(host), 1);
     const again = await start(home);
     const { client } = await again.connect();
-    expect(await client.request('settings.get')).toEqual({ settings: { sendWhileBusy: 'queue' } });
+    expect(await client.request('settings.get')).toEqual({
+      settings: { sendWhileBusy: 'queue', promptSuggestions: false },
+    });
   });
 });
 

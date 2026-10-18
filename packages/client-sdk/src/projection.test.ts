@@ -1304,6 +1304,74 @@ describe('共享任务清单（0.52.0）', () => {
   });
 });
 
+describe('输入建议（0.53.0）', () => {
+  it('没收到过是 undefined；suggestion.updated 设置，不产生消息；同一回合再来一条是替换', () => {
+    const { list, add, turn } = events();
+    turn();
+    expect(projectTranscript(list).promptSuggestion).toBeUndefined();
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 10 });
+    const before = projectTranscript(list).messages;
+    add('suggestion.updated', { turnId: TURN, text: '跑一下测试' });
+    expect(projectTranscript(list).promptSuggestion).toEqual({ turnId: TURN, text: '跑一下测试' });
+    expect(projectTranscript(list).messages).toEqual(before);
+    add('suggestion.updated', { turnId: TURN, text: '提交吧' });
+    expect(projectTranscript(list).promptSuggestion?.text).toBe('提交吧');
+  });
+
+  it('用户的新消息、回合重新开始、回合被撤回 / 撤销 / 重做：清掉；别的事件不动它', () => {
+    const suggest = (add: ReturnType<typeof events>['add']) =>
+      add('suggestion.updated', { turnId: TURN, text: '跑一下测试' });
+    const cases: Array<[string, (add: ReturnType<typeof events>['add']) => void]> = [
+      [
+        'user.message',
+        (add) =>
+          add('user.message', {
+            turnId: TURN2,
+            content: [{ type: 'text', text: '好' }],
+            sentBy: identity,
+          }),
+      ],
+      [
+        'user.steered',
+        (add) =>
+          add('user.steered', {
+            turnId: TURN,
+            pendingId: 'pnd_01JA2B3C4D5E6F7G8H9JKMNPQR',
+            content: [{ type: 'text', text: '等等' }],
+            sentBy: identity,
+          }),
+      ],
+      ['turn.started', (add) => add('turn.started', { turnId: TURN2 })],
+      ['turn.rewound', (add) => add('turn.rewound', { turnId: TURN })],
+      ['turn.undone', (add) => add('turn.undone', { turnId: TURN })],
+      ['turn.redone', (add) => add('turn.redone', { turnId: TURN })],
+    ];
+    for (const [name, voiding] of cases) {
+      const { list, add, turn } = events();
+      turn();
+      add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 10 });
+      suggest(add);
+      add('usage.updated', { contextUsed: 1, contextSize: 2 });
+      expect(projectTranscript(list).promptSuggestion, name).toBeDefined();
+      voiding(add);
+      expect(projectTranscript(list).promptSuggestion, name).toBeUndefined();
+    }
+  });
+
+  it('没有新事件时快照里是同一个对象；reset 清掉', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 10 });
+    add('suggestion.updated', { turnId: TURN, text: '跑一下测试' });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const first = projection.snapshot();
+    expect(projection.snapshot().promptSuggestion).toBe(first.promptSuggestion);
+    projection.reset();
+    expect(projection.snapshot().promptSuggestion).toBeUndefined();
+  });
+});
+
 describe('消息里的图片（0.28.0）', () => {
   const image = {
     type: 'image' as const,

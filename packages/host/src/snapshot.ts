@@ -9,6 +9,7 @@ import type {
   PendingMessageId,
   PendingStatus,
   PermissionMode,
+  PromptSuggestion,
   QuestionId,
   QuestionRequest,
   Session,
@@ -32,6 +33,7 @@ import type {
   WevirEvent,
   WorkspaceId,
 } from '@wevir/protocol';
+import { PROMPT_SUGGESTION_VOIDING_EVENTS } from '@wevir/protocol';
 import type { SessionCachePatch, SessionRecord } from '@wevir/storage';
 
 // 会话快照：由事件序列推导出的产品状态（domain-model §3.3、§4；ADR-0002 §3）。`applyEvent` 是纯函数，
@@ -82,6 +84,8 @@ export interface SessionProjection {
   readonly goal?: SessionGoal;
   /** 共享任务清单（0.52.0）：最近一次 `tasks.board_updated`，只有会话树的根会话有。 */
   readonly taskBoard?: readonly BoardTask[];
+  /** 输入建议（0.53.0）：最近一次 `suggestion.updated`，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件出现后没有。 */
+  readonly promptSuggestion?: PromptSuggestion;
   /** 最近一条 `user.message`；同一回合的 `turn.started` 从这里取 `clientMessageId`。 */
   readonly lastUserMessage?: { readonly turnId: TurnId; readonly clientMessageId?: string };
   /** 最近一条 `user.message` 的协作模式（0.36.0）；`plan` 以外省略。 */
@@ -170,6 +174,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  * - `pendings`（R11）：`pending.added` 加入，`pending.updated` 按 `id` 替换。
  * - `suggestedTasks`（0.16.0）：`tasks.suggested` 加入，`task.started` 记下会话、`task.reported` 记下结局。
  * - `taskBoard`（0.52.0）：`tasks.board_updated` 整份替换。
+ * - `promptSuggestion`（0.53.0）：`suggestion.updated` 设置，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件清空。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -177,6 +182,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     lastSeq: event.seq,
     updatedAt: event.ts,
   };
+  if (PROMPT_SUGGESTION_VOIDING_EVENTS.has(event.type)) next.promptSuggestion = undefined;
   switch (event.type) {
     case 'session.created': {
       const parent = event.payload.parent;
@@ -387,6 +393,9 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'tasks.board_updated':
       next.taskBoard = event.payload.tasks;
+      break;
+    case 'suggestion.updated':
+      next.promptSuggestion = event.payload;
       break;
     case 'usage.updated':
       next.usage = {
@@ -680,6 +689,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   };
   if (projection.todos) snapshot.todos = [...projection.todos];
   if (projection.taskBoard) snapshot.taskBoard = [...projection.taskBoard];
+  if (projection.promptSuggestion) snapshot.promptSuggestion = { ...projection.promptSuggestion };
   if (projection.usage) snapshot.usage = projection.usage;
   if (projection.subagents.length > 0) snapshot.subagents = [...projection.subagents];
   const pendingMessages = openPendings(projection);
