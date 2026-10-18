@@ -1,7 +1,6 @@
 // provider.test 改由网关实现（ADR-0005 决策 2.5）：用与正式请求相同的处理方式（prepareUpstream：透传加方言修正，
 // 或 Chat / Messages 转换）发一次最小的流式请求，收到第一条合乎协议的流式数据就断开。
-// 失败归类的口径与 packages/adapter-dsh/src/provider-test.ts 相同（providers.md §6.2），这里复制了它的判断，
-// 因为网关不能依赖 adapter-dsh（会把 dsh 带进依赖）。
+// 失败归类的口径见 providers.md §6.2。
 
 import type { ProviderTestFailure, ProviderTestResult } from '@wevir/runtime-adapter';
 import { normalizeErrorBody, phalaRoutingError } from './errors.js';

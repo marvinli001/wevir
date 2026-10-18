@@ -1,4 +1,4 @@
-// 脚本化的 OpenAI Responses 流式服务（POST …/responses，SSE），仿 adapter-dsh 的 startMockModel：
+// 脚本化的 OpenAI Responses 流式服务（POST …/responses，SSE）：
 // 只看请求体决定回复，不需要 Key。事件格式照 upstream/codex/codex-rs/core/tests/common/responses.rs:753+ 的 ev_* 帮手。
 
 import { createServer, type IncomingHttpHeaders } from 'node:http';

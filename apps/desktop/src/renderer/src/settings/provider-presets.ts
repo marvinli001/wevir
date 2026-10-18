@@ -7,17 +7,14 @@ import type { PlainMessageKey } from '@/i18n';
 /** `deepseek-official` 的路由名与 Profile ID 固定（providers.md §2.1）。 */
 export const DEEPSEEK_OFFICIAL_ID = 'deepseek-official';
 
-/**
- * 不列模型时 dsh 自带的 DeepSeek 目录（`@wevir/adapter-dsh` 的 `DSH_DEEPSEEK_MODELS`，providers.md §2.2）。
- * 桌面端不能依赖适配器包，这里抄一份；dsh 升级改了目录时一起改。
- */
-export const DSH_DEEPSEEK_MODELS: readonly string[] = ['deepseek-flash', 'deepseek-v4-pro'];
+/** DeepSeek 官方 Provider 不列模型时的默认模型（providers.md §2.2）；DeepSeek 换了模型名时一起改。 */
+export const DEEPSEEK_DEFAULT_MODELS: readonly string[] = ['deepseek-flash', 'deepseek-v4-pro'];
 
-/** `openai-compatible` 不能用的 ID：已被 dsh 的其他适配器占用（providers.md §2.1）。 */
+/** `openai-compatible` 不能用的 ID：已被 DeepSeek 官方 Provider 占用（providers.md §2.1）。 */
 export const RESERVED_PROVIDER_IDS: readonly string[] = [DEEPSEEK_OFFICIAL_ID, 'deepseek-account'];
 
 /**
- * 界面上能选的协议。`anthropic-messages` 只有 Codex 引擎（经模型网关，R10）支持，dsh 引擎拒绝（providers.md §4）；
+ * 界面上能选的协议。`anthropic-messages` 只有 Codex 引擎（经模型网关，R10）支持（providers.md §4）；
  * U6 起 Codex 是默认引擎，表单里也能选。
  */
 export const FORM_APIS = [

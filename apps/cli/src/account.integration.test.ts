@@ -159,7 +159,7 @@ describe('wevir provider login / status / logout（ChatGPT 账号）', () => {
     expect(failing.err()).toContain('登录失败：device auth timed out');
   });
 
-  it('引擎没有账号（echo、dsh）：说明只有 Codex 引擎有', async () => {
+  it('引擎没有账号（echo）：说明只有 Codex 引擎有', async () => {
     const home = join(tempDir(), 'home');
     hosts.push(await startEchoHost(home));
     const result = await run(['provider', 'status'], { home });

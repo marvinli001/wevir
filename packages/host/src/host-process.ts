@@ -73,7 +73,7 @@ export interface StartHostOptions {
   home: string;
   /** 引擎适配器，由 Host 独占，退出时 `dispose`。 */
   adapter: AgentRuntimeAdapter;
-  /** 写进 `sessions.engine` 列与会话快照的 `engine.kind`，例如 `dsh`、`echo`。 */
+  /** 写进 `sessions.engine` 列与会话快照的 `engine.kind`，例如 `codex`、`echo`。 */
   engine: string;
   logger: Logger;
   /** 仅调试用，默认 0（系统分配）。 */
@@ -587,7 +587,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   parts.accounts?.dispose();
   // 回合结束后的快照不再等：没打完的回合，diff 对着工作树（live）。进行中的 git 停下后等它退出（不超过预算）。
   await beforeDeadline(parts.checkpoints.dispose(), deadline);
-  // 超时的话引擎进程留给适配器自己回收（dsh 读到 stdin EOF 即退出，T3.1）。
+  // 超时的话引擎进程留给适配器自己回收（ACP 引擎读到 stdin EOF 即退出）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
   // 语言服务器：先 shutdown / exit，不退出的结束进程。
   if (parts.lsp !== undefined) await step('close_lsp', () => parts.lsp?.close(), true);
@@ -674,7 +674,7 @@ async function loadHostId(home: string, logger: Logger): Promise<HostId> {
 }
 
 /**
- * 每种 Provider 的引擎能做什么（0.25.0）：多引擎的路由按各自的引擎给；只有一个引擎（dsh、没挂假订阅的 echo）时每种都是它。
+ * 每种 Provider 的引擎能做什么（0.25.0）：多引擎的路由按各自的引擎给；只有一个引擎（没挂订阅来源的 Codex、没挂假订阅的 echo）时每种都是它。
  */
 export function hostEngineFeatures(
   adapter: AgentRuntimeAdapter,

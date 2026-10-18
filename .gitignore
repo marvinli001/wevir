@@ -17,14 +17,12 @@ coverage/
 
 # 本地运行时数据
 .wevir-dev/
-spikes/**/.dsh-home/
 # codex-app-server spike：下载的二进制与审批用例的工作区外目录
 spikes/**/.bin/
 spikes/**/.run/
 
 # 维护者给的界面参考截图（Codex、Claude Code 桌面端，第三方产品的界面）与视觉方向稿，只在本机
 /design-refs/
-packages/adapter-dsh/.test-outside/
 packages/adapter-codex/.test-outside/
 packages/host/.test-outside/
 

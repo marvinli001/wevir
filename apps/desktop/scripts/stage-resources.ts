@@ -75,18 +75,11 @@ export function nodePlatform(target: string): { os: NodeJS.Platform; cpu: string
  * 不进安装包的依赖。它们与只被它们用到的依赖由 `pruneDependencies` 删掉：
  * - `vitest`：`@wevir/runtime-adapter` 的可选 peer（只有 `./contract` 的契约测试用），pnpm 从工作区根的开发依赖解析到它，
  *   deploy 便带上了它和 Vite 那一串；
- * - `@deepseek-ai/dsh`：adapter-dsh 的开发依赖（ADR-0007 决策 6：可选组件推迟期间，dsh 只在开发环境经 pnpm 安装），
- *   这里再拦一次；
  * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。没有它时 Host 不挂 Cursor
  *   引擎（host 的 engines.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的 JS，不带原生的 `claude`；
  * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.286 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）。
  */
-export const EXCLUDED_PACKAGES: readonly string[] = [
-  'vitest',
-  '@deepseek-ai/dsh',
-  '@cursor/sdk',
-  '@anthropic-ai/sdk',
-];
+export const EXCLUDED_PACKAGES: readonly string[] = ['vitest', '@cursor/sdk', '@anthropic-ai/sdk'];
 
 interface Manifest {
   name?: string;

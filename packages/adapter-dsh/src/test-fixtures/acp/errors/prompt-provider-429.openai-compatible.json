@@ -1,8 +1,0 @@
-{
-  "recordedBy": "T3.2 turn-error.integration.test.ts：真实 dsh 0.2.1-alpha.2 + 本地 mock Provider（响应体由 mock 给出），retryPolicy.maxRetries = 0；HTTP 429",
-  "error": {
-    "name": "RequestError",
-    "message": "Internal error: turn failed: 429: {\"message\":\"Rate limit reached for requests\",\"type\":\"rate_limit_error\"}",
-    "code": -32603
-  }
-}

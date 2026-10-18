@@ -25,17 +25,16 @@ bash scripts/upstream-sync.sh
 
 补充：
 
-- dsh 的锁定提交就是 tag `dsh-v0.2.1-alpha.2` 指向的提交（GitHub compare 结果 `identical`），与 T0.3 锁定的 npm 版本 `@deepseek-ai/dsh@0.2.1-alpha.2` 是同一份源码。
+- dsh 不再作为依赖或引擎使用：Wevir 的运行时以 Codex 为底，吸收了 dsh 的长处；这份只读克隆只留作设计参考，不移植源码。锁定提交是 tag `dsh-v0.2.1-alpha.2` 指向的提交。
 - codex 锁定的是 release tag `rust-v0.162.1` 指向的提交（2026-10-14 时的最新 release），与 `spikes/codex-app-server` 下载的二进制同一版本，源码与运行的程序一致。Codex 的 release 提交不在任何分支上（与 `main` 分叉：领先 4 个版本号提交，落后 245 个），所以 lock 的“分支”一栏写 tag，`upstream-sync.sh` 的回退路径按 tag 浅拉取。
 
 ### 1.1 作为依赖运行的 npm 包
 
-写精确版本（ADR-0001 §1、ADR-0004 §2）。dsh 只在 `packages/adapter-dsh/package.json` 声明；ACP SDK 从 R7 起只在 `packages/adapter-acp/package.json` 声明（通用 ACP 适配器），adapter-dsh 与它的测试经 `@wevir/adapter-acp` 及其子路径 `./sdk` 使用。
+写精确版本（ADR-0001 §1、ADR-0004 §2）。ACP SDK 只在 `packages/adapter-acp/package.json` 声明（通用 ACP 适配器），其他适配器与测试经 `@wevir/adapter-acp` 及其子路径 `./sdk` 使用。
 
 | npm 包 | 锁定版本 | npm `latest`（2026-10-12） | 许可证 | 说明 |
 |---|---|---|---|---|
-| `@deepseek-ai/dsh` | `0.2.1-alpha.2` | `0.2.0-rc.2` | MIT | 与上表 dsh 锁定提交同源；`packages/adapter-dsh/src/paths.ts` 的 `DSH_VERSION` 与之相同，解析到别的版本时启动报错 |
-| `@agentclientprotocol/sdk` | `1.4.0` | `1.8.0` | Apache-2.0（Zed Industries） | 与 dsh-acp 自己锁定的版本相同；peer `zod` 由 pnpm 自动安装为工作区里的 4.6.x |
+| `@agentclientprotocol/sdk` | `1.4.0` | `1.8.0` | Apache-2.0（Zed Industries） | peer `zod` 由 pnpm 自动安装为工作区里的 4.6.x |
 | `@anthropic-ai/claude-agent-sdk` | `0.3.286`（2026-09-30 发布） | `0.3.300`（2026-10-15） | Anthropic 商业条款（包内 `LICENSE.md`，`© Anthropic PBC`），不是开源许可证 | 只在 `packages/adapter-claude/package.json` 声明（2026-10-15，ADR-0005 补记 14）。驱动用户自己装的 `claude`，各平台带 Claude Code 原生二进制的可选包由 `pnpm-workspace.yaml` 的 `ignoredOptionalDependencies` 跳过；peer `@modelcontextprotocol/sdk` 由 `packageExtensions` 标成可选（只用到类型），`@anthropic-ai/sdk` 与 `zod` 由 pnpm 自动安装为工作区里已有的版本（claude-event-mapping.md §1）。随安装包分发前要定能不能分发（third-party-notices.md §3.2b） |
 | `@cursor/sdk` | `1.0.35`（2026-10-01 发布） | `1.0.37`（2026-10-15） | **非开源**：`SEE LICENSE IN LICENSE.md`，`© Anysphere Inc. All rights reserved. Use is subject to Cursor's Terms of Service.` | 订阅来源 Cursor 的引擎（ADR-0005 补记 14），只在 `packages/adapter-cursor` 声明，与 T3 Code 锁定的版本相同（§2.5）；`packages/adapter-cursor/src/sdk.ts` 的 `CURSOR_SDK_VERSION` 与之相同（测试核对）。依赖 `zod@3`、`@bufbuild/protobuf`、`@connectrpc/connect(-web)`、`@statsig/js-client`；平台包 `@cursor/sdk-<平台>`（`cursorsandbox`、`rg`、tree-sitter 的原生模块）没有安装脚本。Wevir 不复制它的代码，作为依赖安装运行；随安装包分发前要按它的条款核对能否再分发（cursor-event-mapping.md §1） |
 | `yauzl` | `3.4.0` | `3.4.0` | MIT（Josh Wolfe），唯一依赖 `pend@1.2.0` 也是 MIT | 解开下载的 Antigravity 运行体压缩包（`packages/adapter-antigravity/src/zip.ts`），与 T3 Code 用的相同；Host 的 `packages/host/src/plugin-install.ts` 用它解开插件包与 Skills 的 ZIP；桌面主进程的 `apps/desktop/src/main/plugin-source.ts`（插件页，0.42.0）只读 ZIP 的目录与清单，判断“添加”的来源是插件包还是 Skills（桌面端的 devDependency，随 electron-vite 打进主进程）；类型 `@types/yauzl@3.4.0`（MIT，devDependency）。纯 JS，没有安装脚本 |
@@ -83,26 +82,7 @@ R2（2026-10-14）起产品开始用它：`packages/adapter-codex` 以子进程�
 
 结论与义务：
 
-- Wevir 把 dsh **作为锁定版本的依赖运行，不移植源码**（SKELETON_PLAN §1.2）。分发 dsh 时随附它的 `LICENSE` 和 `THIRD_PARTY_NOTICES.md`。
-- `THIRD_PARTY_NOTICES.md` 里有不属于宽松许可证的运行时依赖：`@deepseek-ai/libreoffice-kit*`（MPL-2.0，需让接收者能拿到对应源码）、`@anthropic-ai/claude-agent-sdk` 及其平台包（`SEE LICENSE IN README.md` / `LICENSE.md`，专有条款）。
-- **npm 依赖闭包的初步核对**（T0.6，依据 `spikes/dsh-acp/package-lock.json`：`@deepseek-ai/dsh@0.2.1-alpha.2` 加 `dsh-sdk-client`、`@agentclientprotocol/sdk@1.4.0`，npm 11 安装，共 632 个包，含各平台的可选包条目）：
-  - **没有** `@anthropic-ai/claude-agent-sdk`；`@anthropic-ai/sdk` 0.129.0 是 MIT。
-  - MPL-2.0：`@deepseek-ai/libreoffice-kit` 0.1.5 及其 5 个平台 / wasm 可选包，由 `dsh-office-to-pdf`、`dsh-skill-office` 引入。分发时要让接收者能拿到对应源码。
-  - LGPL-3.0-or-later：`sharp` 0.35.5（本身 Apache-2.0，由 `dsh-attachment-local` 引入）的预编译 libvips 包 `@img/sharp-libvips-*`，以及 `@img/sharp-win32-*`（`Apache-2.0 AND LGPL-3.0-or-later`）、`@img/sharp-wasm32`。分发时要满足 LGPL-3.0 对所用库的义务（随附许可证、提供对应源码或获取方式、以用户可替换的共享库形式使用），具体条款由 T6.3 按 LGPL-3.0 第 4 条逐项核对。
-  - 其余均为宽松许可证（MIT、ISC、Apache-2.0、BSD、0BSD、BlueOak、CC0、CC-BY-4.0、Python-2.0 等）。
-  - 这只是 Spike 环境下的结果。T3.1 改用 pnpm 安装后重新核对一次；桌面端打包 dsh 前（T6.3 / 打包阶段）按实际打进安装包的文件再核对，并据此生成第三方声明。
-- **pnpm 安装后的复核**（T3.1，2026-10-13，依据 `pnpm-lock.yaml`）：从 importer `packages/adapter-dsh` 沿 `snapshots` 的 `dependencies` 与 `optionalDependencies` 走出生产依赖闭包，含所有平台的可选包，共 622 个 name@version（Spike 的 632 个里多了 `dsh-sdk-client` 及其依赖）。已安装的 552 个读各自 `package.json` 的 `license`，其他平台的 70 个用 `npm view <包>@<版本> license` 查。结论与 T0.6 一致：
-  - 计数：MIT 497、Apache-2.0 71、BSD-3-Clause 18、ISC 10、BSD-2-Clause 2，以及 0BSD、Unlicense（`fast-sha256`）、Python-2.0（`argparse`）、`(MIT OR CC0-1.0)`（`type-fest`）各 1。
-  - MPL-2.0（6 个）：`@deepseek-ai/libreoffice-kit` 0.1.5 及其 `darwin-arm64`、`darwin-x64`、`win32-arm64`、`win32-x64`、`wasm` 可选包。
-  - 含 LGPL-3.0-or-later（14 个）：`@img/sharp-libvips-*` 1.3.4 共 10 个（LGPL-3.0-or-later），`@img/sharp-win32-{arm64,ia32,x64}` 0.35.5（`Apache-2.0 AND LGPL-3.0-or-later`），`@img/sharp-wasm32` 0.35.5（`Apache-2.0 AND LGPL-3.0-or-later AND MIT`）。
-  - 仍然**没有** `@anthropic-ai/claude-agent-sdk`；`@anthropic-ai/sdk` 0.129.0 为 MIT。`sherpa-onnx-node` 1.13.8 及其平台包为 Apache-2.0。
-  - `pnpm licenses list --prod` 不列出可选的平台包（本机已安装的 `@img/sharp-libvips-darwin-arm64`、`libreoffice-kit-darwin-arm64` 也不在其中），所以不能用它代替上面的闭包核对。
-- **T6.3 复核**（2026-10-14，同一方法，依据当时工作区的 `pnpm-lock.yaml`）：闭包仍是 622 个 name@version（已安装 554 个、`npm view` 68 个），各许可证计数、MPL-2.0 的 6 个与含 LGPL-3.0-or-later 的 14 个都与 T3.1 相同，仍然没有 `@anthropic-ai/claude-agent-sdk`。看了已安装的包的实际内容，补充四点，分发时的做法见 [third-party-notices.md](./third-party-notices.md)：
-  - `@deepseek-ai/dsh` 的 npm 包里只有 `LICENSE`，**没有** `THIRD_PARTY_NOTICES.md`，分发时从锁定提交的上游仓库取。
-  - `@img/sharp-libvips-*` 包里没有 LGPL 许可证全文，只有 README 里的许可证表：libvips 与 glib、pango、fribidi、libheif、librsvg、libexif、proxy-libintl 为 LGPLv3，cairo 为 MPL-1.1，aom 为 BSD-2-Clause 加 AOM 专利许可，其余为宽松许可证；各库版本在包内 `versions.json`。macOS 上 `sharp-*.node` 经 `@rpath` 动态链接 `libvips-cpp.*.dylib`；`@img/sharp-wasm32` 把 libvips 编进了 wasm，不是可替换的共享库。
-  - `@deepseek-ai/libreoffice-kit-<平台>` 自带 `licenses/`（LibreOffice 的 MPL-2.0 与第三方声明、dsh 的 MIT）与 `sources/`（LibreOffice core 的上游提交、改动补丁与构建脚本），这就是 MPL-2.0 要求的源码获取途径；`@deepseek-ai/libreoffice-kit` 另有 `NOTICE`。
-  - 已安装的 554 个包里只有 `@deepseek-ai/libreoffice-kit` 带 `NOTICE` 文件；71 个 Apache-2.0 包中已安装的都没有，Apache-2.0 第 4(d) 条的 NOTICE 义务目前不涉及。没装的平台包（`@img/sharp-*`、`sherpa-onnx-*` 等）按同系列已安装的包推断，打包时按实际打进的文件再看一次。
-- **构建脚本**（T3.1，`pnpm-workspace.yaml` 的 `allowBuilds`，键带精确版本）：pnpm 报出的与 T0.3 在 npm 下相同的 5 个包。放行 `@deepseek-ai/dsh-subprocess-local`（给 node-pty 的 `spawn-helper` 恢复执行位）、`node-pty`（缺预编译时 node-gyp 编译；Windows 上放置 ConPTY 的 DLL）、`koffi`（验证预编译可加载，否则 CMake 编译）；拒绝 `@google/genai`（只有 `echo` 的 preinstall）与 `protobufjs`（只打印版本前缀警告）。与上游 dsh 仓库自己的 `allowBuilds` 取舍一致。
+- Wevir **不依赖也不分发 dsh，不移植它的源码**（只作设计参考，见 §1 补充）。这一节的许可证原文留作参考。
 - 万一需要移植 dsh 源码，按 MIT 处理（见 §5）；碰到上表子目录时，按该目录自己的许可证处理。
 
 ### 2.2 OpenWork：`ee/` 之外 MIT，`ee/` 禁止参考和移植
@@ -206,7 +186,7 @@ T0.5 复核（openwork-notes.md §7）确认以上结论成立，并补充三点
 
 与 SKELETON_PLAN §3 保持一致，以下路径在锁定提交下均已确认存在。
 
-- **dsh**（作为依赖，读文档和接口，不移植）：`docs/architecture.zh.md`、`docs/agent-lifecycle.zh.md`、`docs/capability-seams.zh.md`、`packages/acp/acp/README.zh.md`、`packages/sdk/{client,protocol,server}/README.zh.md`、`docs/user/guide/providers.md`。
+- **dsh**（只读参考，不移植）：`docs/architecture.zh.md`、`docs/agent-lifecycle.zh.md`、`docs/capability-seams.zh.md`、`packages/acp/acp/README.zh.md`、`packages/sdk/{client,protocol,server}/README.zh.md`、`docs/user/guide/providers.md`。
 - **OpenWork**（桌面产品与交互参考，仅 MIT 区域）：`apps/app`（React + Vite + Tailwind v4 主界面）、`apps/desktop`（Electron 壳）、`apps/server`、`packages/ui`、`packages/sdk`、`packages/types`、`docs/architecture`。**`ee/` 排除**。
 - **Paseo**（多端与远程架构参考；0.32.0 起移植了 HTML 预览的 CSP，`packages/host/src/html-preview-csp.ts`；0.33.0 起移植了浏览器自动化与浏览器工具）：`packages/server`（daemon）、`packages/protocol`（`@getpaseo/protocol`）、`packages/client`、`packages/relay`、`packages/app`（Expo）、`packages/desktop`、`packages/cli`、`public-docs/sdk`。
 - **T3 Code**（订阅来源的做法，移植代码，补记 14）：`apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts`（Claude 引擎的主体）、`apps/server/src/provider/ClaudeProvider.ts`、`ClaudeModelCatalog.ts`、`ClaudeModelManifest.ts`、`model-manifest.json`、`claudeUsageLimits.ts`、`Drivers/ClaudeExecutable.ts`、`Drivers/ClaudeHome.ts`、`apps/server/src/claudeModelOptions.ts`、`apps/server/src/textGeneration/ClaudeTextGeneration.ts`。T3 的服务端是 Effect 写的，移植时改写成普通 TS，不引入 `effect`。 Antigravity：`apps/server/src/provider/antigravityRelease.ts`、`AntigravityInstallation.ts`、`antigravityAuthSupport.ts`、`AntigravityAuth.ts`、`AntigravityProvider.ts`、`Drivers/AntigravityDriver.ts`、`Drivers/AntigravitySkills.ts`、`acp/AntigravityProtocol.ts`、`acp/AntigravityAcpSupport.ts`、`acp/AntigravitySessionFiles.ts`、`apps/server/src/zipArchive.ts`、`apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.ts`，以及 `docs/user/providers-antigravity.md`。
@@ -364,7 +344,6 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 | `packages/adapter-codex/src/test-fixtures/app-server/**` | OpenAI Codex `rust-v0.162.1`（`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`）的 `codex-app-server` 运行输出的录制（R2 起，`record-app-server.test.ts`）：通知序列、审批对话、回合与恢复的错误 | Apache-2.0，`Copyright 2025 OpenAI` | 录的是 app-server 发给客户端的消息，不是源码。含 Codex 的 item 结构、内置工具名、错误措辞（如 500 时的“We’re currently experiencing high demand…”）；本机路径换成占位符，审批对话里的 ID 换成占位符 |
 | `packages/adapter-claude/src/test-fixtures/sdk/**` | Claude Code 2.1.287（本机 `claude`，`claude-haiku-4-5`）经 Claude Agent SDK 0.3.286 交出的消息的录制（2026-10-15，`record-sdk.test.ts`） | Claude Code 与 Claude Agent SDK 是 Anthropic 的商业条款（`© Anthropic PBC`） | 录的是 `claude` 发给 SDK 的消息与模型的回答，不是源码。含 Claude Code 的内置工具名与几段固定措辞（工具结果、“[Subagent hand-back] …” 等）；不读用户的设置，本机路径、用户的插件与命令清单抹掉 |
 | `packages/adapter-opencode/src/test-fixtures/events/**` | opencode 1.18.34（`opencode-ai`，本机的 `opencode serve`，模型是 `test-fixtures/mock-model.ts` 的本机假服务）交出的事件流的录制（2026-10-15，`record-events.test.ts`） | MIT，`Copyright (c) 2025 opencode` | 录的是 opencode 服务器发给客户端的事件，不是源码；回答都是假模型的固定文字。含 opencode 的内置工具名、工具结果的几段固定措辞（拒绝审批时的 “The user rejected permission …”、task 的 `<task …>` 结果等）与它给子会话的权限规则；路径换成了占位符 |
-| `spikes/dsh-acp/fixtures/**`、`packages/adapter-dsh/src/test-fixtures/acp/**` | dsh 0.2.1-alpha.2 运行时输出的录制（T0.3 起） | MIT，`Copyright (c) 2026 DeepSeek` | 录的是 dsh 发出的协议消息与事件，不是源码。`spikes/dsh-acp/fixtures/sdk/mock/events/session.event_request_header.json` 含 dsh 内置工具的 schema 与描述文本，与上游 `snapshots/sdk/bash-tool/tool-schemas.expected.json` 相同 |
 | `packages/adapter-grok/src/test-fixtures/acp/*.ndjson` | T3 Code（MIT，`ec1313c8`）录的 xAI Grok Build 1.0.41 / 1.0.44 的 ACP 往返（`live-grok-recorder` 与 `live-grok-shape-probe`；T3 已把会话 ID、工作区、HOME 与 T3 的提示词换成占位符） | 文件以 MIT 随 T3 Code 发布；其中 Grok 的输出受 xAI 的条款约束 | adapter-grok 的样本回放与契约测试用（`../../packages/adapter-grok/src/test-fixtures/fake-grok.mjs`），产品代码不读 |
 
 ### 4.2 字体
@@ -377,7 +356,7 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 
 ## 5. 移植文件的文件头
 
-MIT 来源（dsh、OpenWork 的 MIT 区域）：
+MIT 来源（OpenWork 的 MIT 区域）：
 
 ```ts
 // SPDX-License-Identifier: MIT
@@ -427,7 +406,6 @@ Copyright 2025 OpenAI
    ```
 2. **同步**：`bash scripts/upstream-sync.sh`，确认每个仓库的 `git rev-parse HEAD` 与 lock 一致。
 3. **看上游变更**：
-   - dsh：GitHub Releases（tag `dsh-v*`）和 `docs/persistence-changes/releases/`（会话持久化格式变化）；
    - OpenWork：`changelog/release-tracker-*.md`；
    - Paseo：根目录 `CHANGELOG.md`；
    - Codex：GitHub Releases（tag `rust-v*`）与根目录 `CHANGELOG.md`；协议面另用新版本的 `codex app-server generate-ts` 输出（或 `codex-rs/app-server-protocol/schema/`）与旧版本做 diff。
@@ -437,63 +415,11 @@ Copyright 2025 OpenAI
    git -C upstream/<名称> diff <旧SHA> HEAD --stat -- LICENSE LICENSES NOTICE THIRD_PARTY_NOTICES.md ee/LICENSE
    ```
    许可证有变化，先更新本文件 §2 的结论。
-4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”（文件头与 `NOTICE` 一起改）。然后按 §9 再做一次来源核查。
-5. **跑契约测试**：`pnpm test`（M1 起包含 AgentRuntimeAdapter 契约测试，M3 起包含 dsh 适配器的回放与真实 dsh 两层契约测试）。升级 dsh 时按 §7 的检查清单逐项做。
+4. **核对移植登记表**：§4 里每个来源文件在新提交下是否改动、移动或删除，需要的话同步修改 Wevir 文件并更新“来源提交”（文件头与 `NOTICE` 一起改）。然后按 §8 再做一次来源核查。
+5. **跑契约测试**：`pnpm test`（包含 AgentRuntimeAdapter 契约测试）。升级 Codex 时按 §7 的检查清单逐项做。
 6. **更新本文件 §1 仓库表**（提交、日期、结论），与 lock 改动放在同一个 commit 里。
 
-## 7. dsh 升级检查清单
-
-T3.6 建立。dsh 是 developer preview，会有不兼容变更（SKELETON_PLAN §1.2）。Wevir 碰 dsh 的代码都在 `packages/adapter-dsh`，升级只改这个包、§1 的表和下面列到的文档。按顺序做，每一步的结论写进提交说明。哪一步发现不兼容，先改 ADR-0001 补记与对应的架构文档，再改代码（AGENTS.md）。下文的“旧 SHA / 新 SHA”是 `upstream.lock` 里 dsh 的旧锁定提交与新 tag `dsh-v<版本>` 指向的提交，先按 §6 第 1、2 步把 `upstream/deepseek-harness` 同步到新 SHA。
-
-1. **读上游变更。** dsh 仓库没有 CHANGELOG 文件，变更记录分在三处，再加上旁路依赖的一处内部接口：
-   - GitHub Releases 里 `dsh-v*` 的发布说明。
-   - `docs/persistence-changes/releases/`：各版本的会话日志格式变化。格式不兼容时，旧会话 resume 报 `session_lost`（`incompatible`，ADR-0001 补记 6），会话变成只读；发版说明里要告诉用户。
-   - `packages/acp/acp/README.zh.md` 的“已知限制与延期工作”：与 SKELETON_PLAN §3.1 的缺口表、ADR-0001 逐条对照。缺口补上了（例如 ACP 自己发增量、工具带 `locations` / `diff`、支持 `session/load`），Wevir 的补偿（旁路、Host 侧的历史与列表）可能变得重复或冲突；多了新限制，先补 ADR。
-   - 旁路依赖的进程内事件 `agent/assistant-stream`：帧的形状在 `packages/core/agent/src/runtime-types.ts`（`AssistantStreamFrame`）。它不是 dsh 的公开契约（ADR-0001“后果”），改名、改形状都不会写进发布说明。
-
-   ```bash
-   git -C upstream/deepseek-harness diff <旧SHA> <新SHA> --stat -- \
-     docs/persistence-changes/releases packages/acp/acp packages/core/agent/src/runtime-types.ts
-   ```
-
-2. **更新锁定版本，dsh 与 `@agentclientprotocol/sdk` 一起核对。** ACP SDK 取新 dsh 的 `packages/acp/acp/package.json` 锁定的版本（当前两者是 `0.2.1-alpha.2` 与 `1.4.0`），不单独追 npm 的 `latest`。npm 上 dsh 的 `latest` 标签可能落后于要用的版本（§1.1），一律写精确版本。要改的地方：
-   - `packages/adapter-dsh/package.json`（dsh）与 `packages/adapter-acp/package.json`（ACP SDK），都写精确版本；`packages/adapter-dsh/src/paths.ts` 的 `DSH_VERSION`；
-   - `docs/upstream/upstream.lock` 与本文件 §1、§1.1 的表；
-   - SKELETON_PLAN §1.4 与 §3.1 里的版本号。
-
-   然后 `pnpm install`。换了版本的构建脚本会报 `ERR_PNPM_IGNORED_BUILDS`，留到第 6 步审查。
-
-3. **重新录制 fixtures。** 样本来源见 `packages/adapter-dsh/src/test-fixtures/README.md`。
-   - T0.3 的 ACP 样本：把 `spikes/dsh-acp/package.json` 里三个包的版本改成新的，`npm install` 后运行 `npm run spike:mock`（不需要 Key，约 25 秒）。用 `spikes/dsh-acp/fixtures/acp/` 替换 `packages/adapter-dsh/src/test-fixtures/acp/` 中来自 T0.3 的文件，`errors/` 下 T3.2、T3.5 补录的 8 个除外；`stream-tap/frames.sample.json` 同样从 `spikes/dsh-acp/fixtures/stream-tap/mock/` 取。有 Key 时再跑一次 `npm run spike`，真实模型的结论补记到 ADR-0001 未决事项 3。
-   - T3.5 的 resume 错误：`WEVIR_RECORD_FIXTURES=1` 运行 `dsh-adapter.resume.integration.test.ts`，改写 `errors/resume-*.json`。
-   - T3.2 的 Provider 错误：`turn-error.integration.test.ts` 用新 dsh 复现 `errors/prompt-provider-*.json` 并逐字比对，不一致时按失败输出更新样本。
-   - 运行 `acp-mapping.test.ts`：快照的变化就是映射结果的变化，逐条确认后再更新快照（`vitest -u`）。新增的样本文件要在该测试里归到某条用例。
-
-4. **跑三层契约测试，必须包含增量旁路。**
-
-   ```bash
-   pnpm vitest run --project adapter-dsh dsh-adapter.contract
-   ```
-
-   - 第 1 层回放（`dsh-adapter.contract.test.ts`，用第 3 步新录的样本）：除增量条款外全部通过。
-   - 第 2 层真实 dsh + mock Provider（`dsh-adapter.contract.integration.test.ts`）：全部通过，**增量条款要显示为通过，不能是跳过**。它失败说明 stream-tap 没装上、没加载或帧的形状变了；跑 `stream-tap.integration.test.ts` 与 `dsh-adapter.integration.test.ts`，看适配器告警的 `kind` 是 `stream_tap_install_failed`、`stream_tap_not_loaded`，还是 `stream_tap_malformed` 这类解码问题。
-   - 第 3 层真实模型（`dsh-adapter.contract.real.integration.test.ts`）：设 `WEVIR_TEST_API_KEY` 与 `WEVIR_TEST_PROVIDER`（见 ADR-0001 补记 7）在本机跑一次，结果贴进提交说明。
-   - 之后跑全仓 `pnpm test`（含其余 `*.integration.test.ts` 与 Host + 真实 dsh 的 `*.dsh.integration.test.ts`）和 `pnpm gate:m2`。设了 Key 时，`*.integration.test.ts` 里的真实模型用例一并运行。
-
-5. **对比事件映射表与错误文本归类。**
-   - acp-event-mapping.md 的三张表与代码由 `acp-event-mapping.test.ts` 核对。新出现或改了形状的 `sessionUpdate` 落成 `engine.raw`，每种告警一次（“ACP session/update 无法映射，保留为 engine.raw”，字段带 `sessionUpdate` 与 `reason`），逐个决定要不要映射。
-   - 工具名表 `DSH_TOOLS`（`tool-display.ts`）与新 dsh 的内置工具对照，没登记的工具展示类型是 `unknown`。
-   - 错误文本：`turn-error.ts` 的 `TURN_ERROR_RULES`（`-32603` 的前缀）与 `resume-error.ts`（acp-event-mapping.md §6）按第 3 步的新样本核对。dsh 改了措辞时原文仍然保留，但会归到 `unknown` 或 `engine_unavailable`，`session_lost` 也可能认不出来。
-   - 发给 Provider 的附加数据：`git -C upstream/deepseek-harness grep -n "deepseekLlmApiExtensions.register\|x-deepseek-harness-" <新SHA> -- packages ':!**/tests/**'` 列出 `llm-deepseek` 请求体的扩展字段与请求头，与 security.md §4 的清单对照：新字段先决定关不关（关的话写进 `provider-config.ts` 的 overlay），再更新清单；`session-log-deepseek`、`plugin-package-inventory-deepseek` 的 `enabled` 开关改名或去掉时，overlay 会被 dsh 拒绝或悄悄失效，`dsh-adapter.providers.integration.test.ts` 的 DeepSeek 用例会失败。
-   - 审批：选项仍是 `allow_once` / `reject_once`、审批仍只来自沙箱升级（ADR-0001 §6），第 2 层的审批条款与 `dsh-adapter.approval.integration.test.ts` 覆盖。`DSH_PERMISSION_MODE` 等进程环境变量的名字按 dsh-base 的 `cordis.patch.yml` 再核对一次（ADR-0001 补记 1）。
-
-6. **重新核对依赖闭包的许可证与 `allowBuilds`。**
-   - 许可证：按 §2.1“pnpm 安装后的复核”的方法，从 `pnpm-lock.yaml` 的 importer `packages/adapter-dsh` 与 `packages/adapter-acp`（R7 起 ACP SDK 在后者，两者合起来才与 §2.1 的计数可比）沿 `dependencies` 与 `optionalDependencies` 走出生产依赖闭包（含各平台的可选包），已安装的读 `package.json`，其他平台的用 `npm view <包>@<版本> license`。与 §2.1 的计数对比，新出现的非宽松许可证（MPL、LGPL、GPL、专有条款）写进 §2.1 的结论。`pnpm licenses list --prod` 不列可选的平台包，不能代替。
-   - `allowBuilds`：第 2 步报出的每个构建脚本，读过脚本内容再决定放行还是拒绝；键带新版本，取舍与理由记在 §2.1“构建脚本”。旧版本的键删掉。
-
-7. **收尾。** ADR-0001 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试的结果。`DSH_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，这是预期的，正好用来排查跨版本问题（ADR-0001 补记 6）。
-
-## 8. Codex 升级检查清单
+## 7. Codex 升级检查清单
 
 R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），每个版本都可能改协议、通知与措辞。Wevir 碰 Codex 的代码都在 `packages/adapter-codex`（网关在 `packages/model-gateway`，与 Codex 版本无关，但它解析的是 Codex 发的请求），升级只改这两个包、§1 的表、`upstream.lock`、`scripts/fetch-codex.sh` 与下面列到的文档（ADR-0005 决策 7）。按顺序做，每一步的结论写进提交说明；哪一步发现不兼容，先在 ADR-0005 补记与 codex-event-mapping.md 写清楚，再改代码。下文的“旧 SHA / 新 SHA”是 `upstream.lock` 里 codex 行的旧锁定提交与新 tag `rust-v<版本>` 指向的提交，先按 §6 第 1、2 步把 `upstream/codex` 同步到新 SHA（tag 不在任何分支上，同步脚本按 tag 浅拉取）。
 
@@ -543,7 +469,7 @@ R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），�
 
 10. **收尾。** ADR-0005 补记一条升级记录：版本、上游变化、映射或归类的改动、三层契约测试、外连与密钥检查的结果。`CODEX_VERSION` 变了以后，旧会话 `session.created` 里的 `engineVersion` 与之后 `session.resumed` 的不同，是预期的；rollout 格式不兼容时旧会话恢复会报 `session_lost`（会话只读），发版说明里要告诉用户。
 
-## 9. 来源核查
+## 8. 来源核查
 
 T6.3 建立。登记表（§4、§4.1）、文件头与根目录 `NOTICE` 三处要一致。升级上游锁定提交（§6 第 4 步）、移植新文件的任务收尾、打包前各做一次：
 

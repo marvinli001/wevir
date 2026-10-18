@@ -23,8 +23,8 @@ import type {
 } from './types.js';
 
 /**
- * 引擎适配接口。Host 只通过它驱动 Agent 引擎；dsh 只出现在它的一个实现（packages/adapter-dsh）里。
- * 一个实例对应一个引擎（dsh：一个进程承载全部会话，ADR-0001 §2），由 Host 独占使用。
+ * 引擎适配接口。Host 只通过它驱动 Agent 引擎；每个引擎只出现在它自己的适配器包里。
+ * 一个实例对应一个引擎（Codex：一个进程承载全部会话，ADR-0005 决策 1），由 Host 独占使用。
  *
  * 失败一律抛 `AdapterError`（errors.ts），各方法注明可能的错误码。`dispose` 之后除 `cancel` 与
  * `dispose` 外的方法都报 `disposed`。

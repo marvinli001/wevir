@@ -1,6 +1,0 @@
-{"t":1086,"dir":"c2a","msg":{"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351","prompt":[{"type":"text","text":"[wevir:SLEEP] 用 bash 执行命令 `sleep 45 && echo finished`，等它结束后把输出告诉我。"}]}}}
-{"t":1105,"dir":"a2c","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351","update":{"sessionUpdate":"usage_update","used":7122,"size":262144}}}}
-{"t":1105,"dir":"a2c","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351","update":{"sessionUpdate":"tool_call","toolCallId":"call_mv4pwxuw_0","title":"bash","kind":"other","status":"in_progress","rawInput":{"command":"sleep 45 && echo finished","description":"Sleep 45s"}}}}}
-{"t":2671,"dir":"c2a","msg":{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351"}}}
-{"t":2674,"dir":"a2c","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_mv4pwxuw_0","status":"failed","content":[{"type":"content","content":{"type":"text","text":"Error: tool call aborted"}}]}}}}
-{"t":2674,"dir":"a2c","msg":{"jsonrpc":"2.0","id":7,"result":{"stopReason":"cancelled"}}}

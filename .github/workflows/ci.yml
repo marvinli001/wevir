@@ -1,13 +1,6 @@
 # T6.2：macOS 上的 lint、typecheck，macOS 与 Windows 上的 test，另跑一次 engines 下限 Node 22.19。
 #
-# dsh 相关测试（packages/adapter-dsh 的三层契约测试与其余 *.integration.test.ts、packages/host 的
-# *.dsh.integration.test.ts）在 CI 里的取舍：
-# - 回放（fake-dsh 回放 T0.3 样本）：照常跑，约 1 s。
-# - 真实 dsh + mock Provider（T3.6）：进 CI。不需要 Key；耗时可以接受：本机（macOS）这类测试合计约 28 s，
-#   CI 的 Windows runner 上最慢的契约套件 60–75 s，与其他文件并行，整个 test 步骤 95–115 s，一个 job 约
-#   3 分钟。而 dsh 进程的启动与回收、路径与沙箱只有这一层在 Windows 上真正跑到，正是 Windows CI 要覆盖的东西
-#   （T6.2 首跑在 Windows 上发现的问题多数出在这一层）。
-# - 真实模型：不跑。下面把 WEVIR_TEST_API_KEY 显式置空，相关用例按设计跳过并打印原因；仓库 secret 也不传进来。
+# 真实模型的测试不跑：下面把 WEVIR_TEST_API_KEY 显式置空，相关用例按设计跳过并打印原因；仓库 secret 也不传进来。
 #
 # codex-app-server（R2，packages/adapter-codex 与 packages/host 的 *codex*.integration.test.ts）：按
 # scripts/fetch-codex.sh 下载锁定版本并校验 sha256，以脚本内容为键缓存在 .wevir-dev/bin（每个平台约 72–82 MiB 的
@@ -70,7 +63,7 @@ jobs:
       # 与 pnpm lint 里的同一组检查，单独成一步，失败时一眼看出是引擎边界（AGENTS.md 仓库规则第 2 条）。
       # --only 会把 spikes/ 里关掉的规则以 warning 打开，--diagnostic-level=error 只看真正的违规。
       # 引擎边界、Lint、Typecheck 与平台无关，只在 macOS 上跑，Windows 的作业（最慢的一个）省下这半分钟。
-      - name: 引擎边界（只有 packages/adapter-dsh 可以依赖 @deepseek-ai/*）
+      - name: 引擎边界（每个引擎的 npm 包只能由它的适配器包依赖）
         if: runner.os == 'macOS'
         run: |
           pnpm exec biome lint --only=style/noRestrictedImports --diagnostic-level=error --reporter=default --reporter=github .

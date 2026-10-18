@@ -126,7 +126,7 @@ import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
 
 /**
- * 取消后等回合结算的时限（domain-model §4.1 #9）。T0.3 实测 dsh 3–64 ms 结算；超过它仍没有终结
+ * 取消后等回合结算的时限（domain-model §4.1 #9）。T0.3 实测 ACP 引擎 3–64 ms 结算；超过它仍没有终结
  * 事件，就当作无法确认已停止。
  */
 export const CANCEL_TIMEOUT_MS = 5000;
@@ -140,7 +140,7 @@ export interface SessionManagerOptions {
   events: EventStore;
   /** 由 Host 独占的引擎适配器。SessionManager 不 `dispose` 它。 */
   adapter: AgentRuntimeAdapter;
-  /** `sessions.engine` 列的值（`codex`、`dsh`、`echo`），默认 `dsh`（测试沿用）。 */
+  /** `sessions.engine` 列的值（`codex`、`echo`），默认 `echo`（测试沿用）。 */
   engine?: string;
   /** 默认 `CANCEL_TIMEOUT_MS`。 */
   cancelTimeoutMs?: number;
@@ -420,7 +420,7 @@ export class SessionManager {
     this.#storage = options.storage;
     this.#events = options.events;
     this.#adapter = options.adapter;
-    this.#engine = options.engine ?? 'dsh';
+    this.#engine = options.engine ?? 'echo';
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] session manager:', error));

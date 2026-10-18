@@ -51,7 +51,7 @@ export const zh = {
   'cmd.host.start.summary': '在后台启动 Host',
   'cmd.host.start.usage': 'wevir host start [选项]',
   'cmd.host.start.help': `选项：
-  --adapter <codex|dsh|echo>
+  --adapter <codex|echo>
                          引擎适配器，默认 codex（需先在仓库根目录运行 bash scripts/fetch-codex.sh，
                          或设置 WEVIR_CODEX_BIN）；echo 为开发用假引擎
   --log-level <级别>     debug | info | warn | error，默认 info；日志：<数据目录>/logs/host.log`,
@@ -429,7 +429,7 @@ export const zh = {
   'provider.ask.key': 'API Key（输入不显示）：',
   'provider.ask.keyKeep': 'API Key（输入不显示；回车保留已存的 Key）：',
   'provider.badId': '仅限小写字母、数字与 -，以字母开头，最长 32 个字符',
-  'provider.reservedId': '{id} 为 dsh 保留，需换用其他 ID',
+  'provider.reservedId': '{id} 为保留 ID，需换用其他 ID',
   'provider.idTaken': 'ID {id} 已被 {kind} 类型的 Provider 使用',
   'provider.badApi': '只能是 openai-completions 或 openai-responses',
   'provider.engineFailed': 'Provider 已保存，但引擎未能应用新配置：{error}',

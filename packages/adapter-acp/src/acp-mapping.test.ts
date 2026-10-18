@@ -1,5 +1,4 @@
-// 通用映射里由引擎描述注入的部分：工具展示与待办、路由解码、能力表，以及没有增量旁路的会话队列。dsh 的那一份
-// 由 packages/adapter-dsh 用 T0.3 的样本覆盖（acp-mapping.test.ts、delta-merge.test.ts 等）。
+// 通用映射里由引擎描述注入的部分：工具展示与待办、路由解码、能力表，以及没有增量旁路的会话队列。
 
 import type { AgentEvent, ToolDisplay } from '@wevir/runtime-adapter';
 import { describe, expect, it } from 'vitest';

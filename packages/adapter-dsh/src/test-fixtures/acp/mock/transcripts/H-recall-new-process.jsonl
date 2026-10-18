@@ -1,4 +1,0 @@
-{"t":1235,"dir":"c2a","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351","prompt":[{"type":"text","text":"[wevir:RECALL] 不要调用任何工具，只凭记忆回答：1）我让你记住的暗号；2）你之前写入 summary.md 的内容；3）哪些写入请求被拒绝或取消了。"}]}}}
-{"t":1428,"dir":"a2c","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351","update":{"sessionUpdate":"agent_message_chunk","messageId":"98e9f4a6-6466-4015-b9c2-b3c0295a7d40","content":{"type":"text","text":"暗号：wevir-ff9df8；summary.md：total=15；历史消息数：38"}}}}}
-{"t":1428,"dir":"a2c","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"a96a4101-fee3-411e-b638-d9e25710d351","update":{"sessionUpdate":"usage_update","used":7407,"size":262144}}}}
-{"t":1429,"dir":"a2c","msg":{"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}}}

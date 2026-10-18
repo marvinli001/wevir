@@ -100,7 +100,7 @@ describe('wevir host（分离启动的 Host 子进程）', () => {
     const result = await run(['host', 'start', '--adapter', 'nope'], { home, env: process.env });
     expect(result.code).toBe(1);
     expect(result.err).toContain('Host 启动失败（退出码 2）');
-    expect(result.err).toContain('--adapter 只能是 echo | dsh');
+    expect(result.err).toContain('--adapter 只能是 echo | codex');
     expect(result.err).toContain('host-stdio.log');
   });
 });

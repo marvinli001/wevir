@@ -1,9 +1,0 @@
-{
-  "name": "wevir-spike-stream-tap",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "description": "T0.3 原型：把 dsh 进程内的 agent/assistant-stream 分片写到 Wevir 给的额外 fd，补上 ACP 没有的增量流式输出。",
-  "license": "MIT",
-  "main": "index.js"
-}

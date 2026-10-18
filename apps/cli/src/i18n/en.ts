@@ -46,7 +46,7 @@ Environment:
   'cmd.host.start.summary': 'Start the Host in the background',
   'cmd.host.start.usage': 'wevir host start [options]',
   'cmd.host.start.help': `Options:
-  --adapter <codex|dsh|echo>
+  --adapter <codex|echo>
                          Engine adapter, default codex (first run bash scripts/fetch-codex.sh at the
                          repository root, or set WEVIR_CODEX_BIN); echo is a fake engine for development
   --log-level <level>    debug | info | warn | error, default info; log: <data dir>/logs/host.log`,
@@ -434,7 +434,7 @@ Keys:
   'provider.ask.keyKeep': 'API key (input hidden; Enter keeps the stored key): ',
   'provider.badId':
     'Lowercase letters, digits and - only, starting with a letter, up to 32 characters',
-  'provider.reservedId': '{id} is reserved by dsh; choose another ID',
+  'provider.reservedId': '{id} is a reserved ID; choose another',
   'provider.idTaken': 'ID {id} is already used by a {kind} provider',
   'provider.badApi': 'Must be openai-completions or openai-responses',
   'provider.engineFailed':

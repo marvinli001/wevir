@@ -10,7 +10,7 @@ import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
 import { type PlainMessageKey, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
-import { DSH_DEEPSEEK_MODELS } from '@/settings/provider-presets';
+import { DEEPSEEK_DEFAULT_MODELS } from '@/settings/provider-presets';
 
 /** 选中的模型：哪个 Provider 的哪个模型，推理档位（省略表示模型的默认档位）。 */
 export interface ModelChoice {
@@ -19,10 +19,10 @@ export interface ModelChoice {
   reasoningEffort?: string;
 }
 
-/** Provider 能选的模型：DeepSeek 官方没列模型时是 dsh 自带的目录（providers.md §2.2）。 */
+/** Provider 能选的模型：DeepSeek 官方没列模型时是默认模型（providers.md §2.2）。 */
 export function modelsOf(provider: ProviderProfile): ProviderModel[] {
   if (provider.models.length > 0) return provider.models;
-  return DSH_DEEPSEEK_MODELS.map((id) => ({ id }));
+  return DEEPSEEK_DEFAULT_MODELS.map((id) => ({ id }));
 }
 
 function modelName(model: ProviderModel | undefined, fallback: string): string {

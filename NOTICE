@@ -87,20 +87,10 @@ Radix Colors。
 许可证全文见文末“MIT License”。
 
 
-3. DeepSeek Harness（dsh）
+3. （已移除）
 ------------------------------------------------------------------------------------------------
-仓库：https://github.com/deepseek-ai/deepseek-harness
-来源提交：d743267388641bc76f17c45ce8b4c231aed1d32c（tag dsh-v0.2.1-alpha.2）
-许可证：MIT
-版权：Copyright (c) 2026 DeepSeek
-
-Wevir 不移植 dsh 的源码，而是把 npm 包 @deepseek-ai/dsh 0.2.1-alpha.2 作为依赖运行。下面两处测试
-样本是 dsh 运行时输出的录制，其中含 dsh 内置工具的 schema 与描述文本：
-
-  spikes/dsh-acp/fixtures/
-  packages/adapter-dsh/src/test-fixtures/acp/
-
-许可证全文见文末“MIT License”。
+Wevir 不再含有 DeepSeek Harness（dsh）的任何代码或测试样本，也不再依赖它的 npm 包。此编号保留，
+其余各节的编号不变。
 
 
 4. Paseo

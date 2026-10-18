@@ -24,7 +24,7 @@ export interface ProviderAddFlags {
 }
 
 const DEEPSEEK_ID = 'deepseek-official';
-/** dsh 里已被其他适配器占用的路由名，`openai-compatible` 不能用（providers.md §2.1）。 */
+/** `openai-compatible` 不能用的 ID：已被 DeepSeek 官方 Provider 占用（providers.md §2.1）。 */
 const RESERVED_IDS = new Set([DEEPSEEK_ID, 'deepseek-account']);
 const APIS: readonly ProviderApi[] = ['openai-completions', 'openai-responses'];
 

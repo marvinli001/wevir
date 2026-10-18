@@ -1,5 +1,5 @@
 // CodexAdapter 三层契约测试（codex-adapter.contract*.test.ts）共用：引擎退出与资源释放的钩子、提示词与 mock 模型的
-// 审批脚本。照 packages/adapter-dsh/src/test-fixtures/contract.ts。
+// 审批脚本。
 
 import type { ContractOptions, ContractPrompts } from '@wevir/runtime-adapter/contract';
 import type { CodexAdapter } from '../codex-adapter.js';

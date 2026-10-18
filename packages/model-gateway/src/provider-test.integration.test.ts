@@ -129,7 +129,7 @@ describe('testProvider：与正式请求同一条路', () => {
   });
 });
 
-describe('testProvider：失败归类（口径同 adapter-dsh，providers.md §6.2）', () => {
+describe('testProvider：失败归类（providers.md §6.2）', () => {
   it('没有 Key → missing_key，不发请求', async () => {
     const mock = await chat({ text: ['x'] });
     const result = await testProvider(

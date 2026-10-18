@@ -1,5 +1,5 @@
 // T2.5：wevir-host 的参数解析与主流程。runHostCli 在进程内运行，信号、stdin 与 stdout 换成假的；
-// 真正的子进程（SIGKILL 后重启等）见 scripts/gate-m2.ts，--adapter dsh 接真实 dsh 见 cli.dsh.integration.test.ts，
+// 真正的子进程（SIGKILL 后重启等）见 scripts/gate-m2.ts，
 // --adapter codex 接真实 codex-app-server 见 cli.codex.integration.test.ts。
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -8,7 +8,6 @@ import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter } from '@wevir/adapter-claude';
 import { CodexRuntime } from '@wevir/adapter-codex';
 import { CursorAdapter } from '@wevir/adapter-cursor';
-import { DshAdapter } from '@wevir/adapter-dsh';
 import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
@@ -148,17 +147,6 @@ describe('runHostCli', () => {
     );
   });
 
-  it('--adapter dsh：DshAdapter 用数据目录下的 engines/，dsh 进程等到第一个会话才启动', () => {
-    const home = join(tempDir(), 'home');
-    const adapter = createAdapter('dsh', { home, logger: createLogger({ mirror: () => {} }) });
-    expect(adapter).toBeInstanceOf(DshAdapter);
-    const { process: dsh } = adapter as DshAdapter;
-    expect(dsh.paths.dshHome).toBe(join(home, 'engines', 'dsh'));
-    expect(dsh.state).toBe('stopped');
-    expect(existsSync(home)).toBe(false);
-    // 真实 dsh 上的端到端见 cli.dsh.integration.test.ts。
-  });
-
   it('--adapter codex：CodexRuntime 的两个进程用数据目录下的 engines/codex 与 engines/codex-chatgpt，都等到用到时才启动；订阅引擎（Claude Agent、Cursor、OpenCode、Grok、Antigravity）经 EngineRouter 挂在后面，同样不起进程', () => {
     const home = join(tempDir(), 'home');
     // 二进制只解析路径（WEVIR_CODEX_BIN），版本在第一次启动前才核对，这里不会运行它。
@@ -223,18 +211,18 @@ describe('runHostCli', () => {
     }
   });
 
-  it('适配器建不起来（例如 dsh 的依赖没装好）：报错并以 1 退出，日志里有原因', async () => {
+  it('适配器建不起来（例如 Codex 二进制没下载）：报错并以 1 退出，日志里有原因', async () => {
     const home = join(tempDir(), 'home');
-    const fake = fakeProcess(['--home', home, '--adapter', 'dsh'], { WEVIR_LANG: 'zh' });
+    const fake = fakeProcess(['--home', home, '--adapter', 'codex'], { WEVIR_LANG: 'zh' });
     const code = await runHostCli(fake.proc, {
       createAdapter: () => {
-        throw new Error('找不到 @deepseek-ai/dsh');
+        throw new Error('找不到 codex-app-server');
       },
     });
     expect(code).toBe(EXIT_CODE.failure);
-    expect(fake.out.stderr).toContain('无法创建 dsh 适配器：找不到 @deepseek-ai/dsh');
+    expect(fake.out.stderr).toContain('无法创建 codex 适配器：找不到 codex-app-server');
     expect(logLines(home).find((l) => l.msg === 'failed to create adapter')).toMatchObject({
-      adapter: 'dsh',
+      adapter: 'codex',
     });
     expect(existsSync(join(home, 'run', 'host.json'))).toBe(false);
   });

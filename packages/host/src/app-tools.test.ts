@@ -140,7 +140,7 @@ async function setup(
     filterTools: (sessionId, list) => appTools.filterTools(sessionId, list),
     version: '0.0.0',
     onError: (e) => errors.push(e),
-    engineSession: engineSessionResolver(storage, 'dsh'),
+    engineSession: engineSessionResolver(storage, 'echo'),
     ...(withProcesses && {
       spill: (sessionId, toolName, result) => toolOutput.spill(sessionId, toolName, result),
     }),

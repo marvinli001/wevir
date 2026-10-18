@@ -1,6 +1,5 @@
 // 审批测试要写的“工作区之外、且不在系统临时目录”的目录。Codex 的 workspace-write 可写根是工作区、`$TMPDIR` 与
 // `/tmp`（codex-notes §2.3），写在那里不会触发审批，所以建在本包的 .test-outside/ 下（gitignore），用完删掉。
-// 照 packages/adapter-dsh/src/test-fixtures/outside-dir.ts。
 
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

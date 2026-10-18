@@ -87,7 +87,7 @@ export function effectiveCompat(provider: GatewayProvider): GatewayCompat {
  * - `openai-compatible` + `openai-responses`：透传到 `<baseURL>/responses`。
  * - `openai-compatible` + `openai-completions`：转换后发往 `<baseURL>/chat/completions`。
  * - `openai-compatible` + `anthropic-messages`：转换后发往 `<baseURL>/v1/messages`（`baseURL` 已以 `/v1` 结尾时
- *   只加 `/messages`，与 adapter-dsh 对 DeepSeek 的 Messages 地址同一拼法）。
+ *   只加 `/messages`）。
  * - 其余（缺字段、取值不对）：不支持，原因在 `message` 里。
  */
 export function routeOf(
@@ -224,7 +224,7 @@ function baseURLProblem(baseURL: string): string | undefined {
   return undefined;
 }
 
-/** 与 adapter-dsh 的 compat 默认值同一判断（providers.md §2.3）。 */
+/** compat 默认值按它判断（providers.md §2.3）。 */
 export function isOpenAIOfficial(baseURL: string): boolean {
   return hostnameOf(baseURL) === 'api.openai.com';
 }

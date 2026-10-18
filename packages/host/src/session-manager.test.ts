@@ -113,7 +113,7 @@ function setup(
 
 /**
  * 模拟 Host 被杀后重启：旧管理器不再消费引擎事件、不写任何事件（命令可能还挂着），换一个数据库连接
- * 和新的管理器，然后启动对账。默认换一个新的引擎（dsh 随 Host 一起消失）。
+ * 和新的管理器，然后启动对账。默认换一个新的引擎（旧引擎随 Host 一起消失）。
  */
 function restart(h: Harness, adapter = new EchoAdapter({ stepDelayMs: 1 })) {
   void h.manager.dispose();
@@ -224,7 +224,7 @@ describe('SessionManager：建会话（#1）', () => {
     });
     expect(session.id).toMatch(/^ses_[0-9A-Z]{26}$/);
     expect(all(h, session.id).map((e) => e.type)).toEqual(['session.created']);
-    const record = h.storage.sessions.getByEngineSessionId('dsh', session.engine.sessionId);
+    const record = h.storage.sessions.getByEngineSessionId('echo', session.engine.sessionId);
     expect(record?.id).toBe(session.id);
   });
 
@@ -250,13 +250,13 @@ describe('SessionManager：建会话（#1）', () => {
   it('引擎建会话失败时返回 ENGINE_ERROR，不建会话', async () => {
     const h = setup();
     vi.spyOn(h.adapter, 'createSession').mockRejectedValueOnce(
-      new AdapterError('engine_unavailable', 'dsh failed to start'),
+      new AdapterError('engine_unavailable', 'engine failed to start'),
     );
     await expect(
       h.manager.create({ workspaceId: 'ws_1', providerId: 'deepseek-official' }),
     ).rejects.toMatchObject({
       code: 'ENGINE_ERROR',
-      data: { category: 'unknown', message: 'dsh failed to start' },
+      data: { category: 'unknown', message: 'engine failed to start' },
     });
     expect(h.storage.sessions.list()).toEqual([]);
   });

@@ -1,6 +1,5 @@
 import { parseArgs } from 'node:util';
 import { CodexRuntime, resolveCodexBinary, resolvePromptsDir } from '@wevir/adapter-codex';
-import { DshAdapter, resolveDshEntry } from '@wevir/adapter-dsh';
 import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { type AppToolsBridge, appToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
@@ -23,7 +22,7 @@ import { createLogger, isLogLevel, type Logger, type LogLevel } from './logger.j
 import { HostAlreadyRunningError } from './runtime-file.js';
 import { WebService } from './web/service.js';
 
-export const ADAPTER_KINDS = ['echo', 'dsh', 'codex'] as const;
+export const ADAPTER_KINDS = ['echo', 'codex'] as const;
 export type AdapterKind = (typeof ADAPTER_KINDS)[number];
 
 export { type HostCliLocale, hostCliLocale } from './cli-text.js';
@@ -106,7 +105,7 @@ function parse(argv: readonly string[]) {
 
 /** 构造适配器时可用的东西。 */
 export interface AdapterContext {
-  /** 数据目录（绝对路径）；dsh 与 Codex 适配器用其中的 `engines/`（ADR-0001 §4、ADR-0005 决策 5）。 */
+  /** 数据目录（绝对路径）；Codex 适配器用其中的 `engines/`（ADR-0005 决策 5）。 */
   home: string;
   /** Host 的日志；适配器的告警（旁路失效、映射不了的更新等）与网关的请求日志写进来。 */
   logger: Logger;
@@ -114,13 +113,13 @@ export interface AdapterContext {
   env?: NodeJS.ProcessEnv;
   /** 读历史的本机 MCP 服务（0.25.0，接力）；`createAdapter` 为 Codex 与订阅引擎写好脚本后填上。 */
   historyTool?: HistoryToolServer;
-  /** 应用级工具的 stdio 桥（0.30.0）：ACP 的引擎（Grok、Antigravity、dsh）经它连 Host 的 `/mcp`。 */
+  /** 应用级工具的 stdio 桥（0.30.0）：ACP 的引擎（Grok、Antigravity、WorkBuddy）经它连 Host 的 `/mcp`。 */
   appToolsBridge?: AppToolsBridge;
   /** 联网工具的本机 MCP 服务（0.34.0，web/service.ts）；`runHostCli` 建好 Host 的联网服务后填上。 */
   webTool?: WebToolServer;
 }
 
-/** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex、dsh 或 echo）。 */
+/** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex 或 echo）。 */
 const GATEWAY_KINDS = [
   'deepseek-official',
   'openai-compatible',
@@ -161,16 +160,6 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         },
       ]);
     }
-    case 'dsh':
-      // dsh 进程在第一个会话时才启动（Provider 只写 overlay）。可执行入口在这里就解析：依赖没装好或版本不对时
-      // Host 直接启动失败，而不是等到建会话才报错。增量旁路默认开启（T3.2a）。
-      return new DshAdapter({
-        home: context.home,
-        entry: resolveDshEntry().entry,
-        clientInfo: { name: 'wevir', version: HOST_VERSION },
-        logger: context.logger,
-        appToolsBridge: appToolsBridge(homePath(context.home, 'mcpDir')),
-      });
     case 'codex': {
       // 两个 codex-app-server 进程（网关进程与 ChatGPT 进程，ADR-0005 补记 10）都在第一次用到时才启动（Provider 只交给
       // 网关与下一次启动的配置）。二进制在这里就解析：没下载时 Host 直接启动失败并给出下载命令，而不是等到建会话才报错；

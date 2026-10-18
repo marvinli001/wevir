@@ -37,7 +37,7 @@ export const T0 = '2026-10-13T00:00:00.000Z';
 
 /**
  * `TestRpcClient.until` 与 `waitReady` 的时限。Windows 上起进程慢一个数量级：Host 启动、`session.create` 冷启动引擎
- * （dsh 是一整个 Node bundle）在 CI 的 runner 上会超过 5 s。
+ * （Codex 与订阅引擎的进程）在 CI 的 runner 上会超过 5 s。
  */
 const UNTIL_TIMEOUT_MS = process.platform === 'win32' ? 20_000 : 5000;
 

@@ -10,7 +10,7 @@
 // A. Gate M2 主流程：hello → workspace.add → provider.upsert → session.create → events.subscribe →
 //    session.send（流式增量）→ 审批并允许 → 再发一条并 cancel → SIGKILL 杀掉 Host → 重启 →
 //    events.subscribe(sinceSeq=0) 回放的事件与之前逐条完全一致 → host.shutdown。
-// B. T2.5 补充：--adapter dsh 能启动（T3.6 接通）、同一数据目录拒绝第二个 Host、SIGTERM 时取消运行中的回合
+// B. T2.5 补充：同一数据目录拒绝第二个 Host、SIGTERM 时取消运行中的回合
 //    并把未决审批结为 cancelled（host_shutdown）、退出步骤顺序、stdin 归属管道 EOF 退出、日志脱敏。
 
 import { type ChildProcess, spawn } from 'node:child_process';
@@ -641,18 +641,7 @@ async function mainFlow(home: string, workspaceDir: string): Promise<MainFlowRes
 async function processChecks(home: string, flow: MainFlowResult): Promise<void> {
   section('B. T2.5 进程入口补充检查');
 
-  // B1 --adapter dsh 能启动（T3.6）：dsh 进程等到第一个会话才拉起，这里只确认 Host 起得来、退得干净。
-  const dsh = spawnHost(home, ['--adapter', 'dsh']);
-  await dsh.ready;
-  dsh.child.kill('SIGTERM');
-  const dshExit = await withTimeout(dsh.exited, TIMEOUT_MS, '--adapter dsh 的 Host 退出');
-  const dshStarting = readLog(home).findLast((line) => line.msg === 'starting');
-  assert(dshStarting?.adapter === 'dsh', `日志里最后一次启动的适配器是 ${dshStarting?.adapter}`);
-  assert(dshExit.code === 0, `--adapter dsh：退出码 ${dshExit.code}，${dsh.stderr()}`);
-  assert(!existsSync(runtimeFilePath(home)), '--adapter dsh 的 Host 退出后 host.json 仍在');
-  ok('--adapter dsh 能启动', 'SIGTERM 后退出码 0，host.json 已删除');
-
-  // B2 第二个 Host 被拒
+  // B1 第二个 Host 被拒
   const host3 = spawnHost(home, ['--adapter', 'echo']);
   const ready3 = await host3.ready;
   const info3 = readRuntimeInfo(home);
@@ -662,7 +651,7 @@ async function processChecks(home: string, flow: MainFlowResult): Promise<void> 
   assert(readRuntimeInfo(home).pid === ready3.pid, '第二个 Host 动了第一个的 host.json');
   ok('同一数据目录拒绝第二个 Host', `退出码 3，host.json 仍属于 pid ${ready3.pid}`);
 
-  // B3 SIGTERM：取消运行中的回合，未决审批结为 cancelled（host_shutdown）
+  // B2 SIGTERM：取消运行中的回合，未决审批结为 cancelled（host_shutdown）
   const client = await RpcClient.connect(info3.url as string);
   await client.hello(info3, 'gate-m2-b');
   const { session } = await client.request<{ session: { id: string } }>('session.create', {
@@ -729,7 +718,7 @@ async function processChecks(home: string, flow: MainFlowResult): Promise<void> 
   );
   ok('退出步骤顺序（ADR-0002 §6）', steps.join(' → '));
 
-  // B4 stdin 归属管道
+  // B3 stdin 归属管道
   const host5 = spawnHost(home, ['--adapter', 'echo', '--exit-on-stdin-eof'], 'pipe');
   const ready5 = await host5.ready;
   seenTokens.push(readRuntimeInfo(home).token as string);
@@ -747,7 +736,7 @@ async function processChecks(home: string, flow: MainFlowResult): Promise<void> 
     `${Math.round(performance.now() - startedAt)} ms 内退出码 0，host.json 已删除`,
   );
 
-  // B5 日志脱敏
+  // B4 日志脱敏
   const log = readFileSync(join(home, 'logs', 'host.log'), 'utf8');
   const lines = readLog(home);
   const leaked = [...seenTokens, API_KEY].filter((secret) => log.includes(secret));

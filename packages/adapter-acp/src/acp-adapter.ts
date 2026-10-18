@@ -132,7 +132,7 @@ interface PendingQuestion {
 
 /**
  * ACP 引擎的 `AgentRuntimeAdapter`（ADR-0005 决策 1.3）：一个 `AcpProcess` 承载全部会话，经 ACP 驱动；引擎之间的
- * 差异都在引擎描述里（engine.ts）。dsh 的 `DshAdapter` 是它的子类，另加 Provider 桥接与配置变更时的重启。
+ * 差异都在引擎描述里（engine.ts）。
  *
  * 事件路径（docs/architecture/acp-event-mapping.md 第一部分）：AcpProcess 按引擎写出的顺序交来原始的
  * `session/update`，增量旁路（有的话）交来增量；两者按 `sessionId` 路由到各会话的 `SessionEventQueue`，在那里

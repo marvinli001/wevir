@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // 假的 codex-app-server（契约测试第 1 层，codex-adapter.contract.test.ts）：说 app-server 的逐行 JSON，回放
-// app-server/*.jsonl 里真实二进制录下的通知与审批请求，不需要二进制、模型或 Key。照
-// packages/adapter-dsh/src/test-fixtures/fake-dsh.mjs 的思路：样本按提示词选（`replay:<样本名>`，其余用 `stream`），
+// app-server/*.jsonl 里真实二进制录下的通知与审批请求，不需要二进制、模型或 Key。样本按提示词选（`replay:<样本名>`，其余用 `stream`），
 // 样本里的 thread、回合、item 与服务端请求的 ID 换成当前的。只用 Node 内置模块。
 //
 //   node fake-app-server.mjs [--fixtures <目录>] [--version] [--strict-config] [--thread-read-empty <n>]

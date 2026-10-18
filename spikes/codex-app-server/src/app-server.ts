@@ -190,7 +190,7 @@ export class AppServer {
     );
   }
 
-  /** 先关 stdin，等不到退出再 SIGTERM、SIGKILL（与 adapter-dsh 的回收顺序相同）。 */
+  /** 先关 stdin，等不到退出再 SIGTERM、SIGKILL。 */
   async close(timeoutMs = 3000): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
     if (this.child.exitCode !== null || this.child.signalCode !== null) return this.exited;
     this.child.stdin.end();

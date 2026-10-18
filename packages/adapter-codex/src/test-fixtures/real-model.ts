@@ -1,6 +1,6 @@
 // 真实模型的 Provider：设了 WEVIR_TEST_API_KEY 的测试共用（契约第 3 层）。Key 只进网关的内存（ProviderConfig），
-// 不进 Codex 的环境与 CODEX_HOME，不打印。照 packages/adapter-dsh/src/test-fixtures/real-model.ts 的
-// `realProviderFromEnv`，Provider 的形状换成经网关的（模型列表不能为空）。
+// 不进 Codex 的环境与 CODEX_HOME，不打印。
+// Provider 的形状是经网关的（模型列表不能为空）。
 
 import { readFileSync } from 'node:fs';
 import type { ProviderConfig } from '@wevir/runtime-adapter';

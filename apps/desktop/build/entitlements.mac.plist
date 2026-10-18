@@ -4,7 +4,7 @@
   Hardened Runtime 的例外（ADR-0007 决策 2），主程序与包内其余可执行文件共用（electron-builder.yml 的 entitlements
   与 entitlementsInherit）。只开 V8 的 JIT：主程序既是 Electron，也以 ELECTRON_RUN_AS_NODE 跑 Host。
   不开 disable-library-validation：包里的原生模块（如果有）随应用一起用 Wevir 的 Developer ID 重签，同一个 Team ID
-  能通过库验证。以后加载用户选用时才下载的原生模块（dsh、Cursor SDK 的平台包）时才需要它（ADR-0007 决策 2、补记 3）。
+  能通过库验证。以后加载用户选用时才下载的原生模块（如 Cursor SDK 的平台包）时才需要它（ADR-0007 决策 2、补记 3）。
 -->
 <plist version="1.0">
   <dict>

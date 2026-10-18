@@ -35,9 +35,9 @@ const zh: HostCliText = {
 选项：
   --home <目录>          数据目录；默认 macOS ~/Library/Application Support/Wevir、
                          Windows %APPDATA%\\Wevir、Linux $XDG_DATA_HOME/wevir
-  --adapter <codex|dsh|echo>
+  --adapter <codex|echo>
                          引擎适配器，默认 codex（需先在仓库根目录运行 bash scripts/fetch-codex.sh，
-                         或设置 WEVIR_CODEX_BIN）；dsh 为 DeepSeek Harness，echo 为开发用假引擎
+                         或设置 WEVIR_CODEX_BIN）；echo 为开发用假引擎
   --port <端口>          监听端口，默认 0（系统分配）
   --log-level <级别>     debug | info | warn | error，默认 info；日志：<数据目录>/logs/host.log
   --exit-on-stdin-eof    stdin 读到 EOF 时退出
@@ -70,10 +70,9 @@ const en: HostCliText = {
 Options:
   --home <dir>           Data directory. Default: macOS ~/Library/Application Support/Wevir,
                          Windows %APPDATA%\\Wevir, Linux $XDG_DATA_HOME/wevir
-  --adapter <codex|dsh|echo>
+  --adapter <codex|echo>
                          Engine adapter, default codex (first run bash scripts/fetch-codex.sh at the
-                         repository root, or set WEVIR_CODEX_BIN); dsh is the DeepSeek Harness; echo is a
-                         fake engine for development
+                         repository root, or set WEVIR_CODEX_BIN); echo is a fake engine for development
   --port <port>          Listening port, default 0 (system-assigned)
   --log-level <level>    debug | info | warn | error, default info; log: <data dir>/logs/host.log
   --exit-on-stdin-eof    Exit on stdin EOF

@@ -3,36 +3,18 @@ packages:
   - packages/*
 
 # 引擎边界（AGENTS.md 规则 2，ADR-0004 补记 3）：node_modules/.bin 里的命令 shim 默认把
-# node_modules/.pnpm/node_modules（所有依赖的私有提升目录，含 @deepseek-ai/*）写进 NODE_PATH，
+# node_modules/.pnpm/node_modules（所有依赖的私有提升目录）写进 NODE_PATH，
 # 经 shim 启动的 Vitest 等进程里 require()/createRequire() 能解析到包内没声明的依赖，生产里则解析不到。
 # 关掉它让 shim 启动的进程与纯 node 一致。只在创建 shim 时生效：改了这一行要 pnpm install --force。
 extendNodePath: false
 
 # 依赖的构建脚本逐个审查（ADR-0004 §2）：strictDepBuilds 保持默认开启，未登记的构建脚本让安装失败；
 # 不用 dangerouslyAllowAllBuilds。键带精确版本，依赖升级换了版本就要重新审查一次。
-# 下面 5 个都来自 @deepseek-ai/dsh@0.2.1-alpha.2（T3.1，pnpm install 的 ERR_PNPM_IGNORED_BUILDS
-# 输出），与上游 dsh 仓库自己 pnpm-workspace.yaml 的取舍一致。
 allowBuilds:
-  # 允许：dsh 自己的 postinstall，只给 node-pty 预编译的 spawn-helper 恢复执行位（chmod 0755）。
-  # npm 解包会去掉这个执行位（T0.3），没有它 POSIX 上的 PTY 命令报 EACCES。
-  '@deepseek-ai/dsh-subprocess-local@0.2.1-alpha.2': true
-  # 允许：dsh 的 PTY 后端（shell 工具）。install 在 prebuilds/ 缺当前平台时用 node-gyp 从源码编译；
-  # postinstall 在 Windows 上把 ConPTY 的 conpty.dll / OpenConsole.exe 放进 build/Release，
-  # 其他平台只清理 build/Release。Windows 是首版平台，需要它。
-  node-pty@1.2.0-beta.15: true
-  # 允许：dsh-fs-local、会话 JSONL 持久化等用的 FFI 库（Windows 上调用 MoveFileExW）。install 先验证
-  # @koromix/koffi-<平台> 可选包里的预编译文件能加载，加载不了（可选包被省略或平台没有预编译）
-  # 才用 CMake 从源码编译。
-  koffi@3.1.1: true
-  # 拒绝：pi-ai 的间接依赖。preinstall 只有 echo 'preinstall: no-op'；prepare 不对 registry 安装执行，
-  # 引用的 scripts/ 也不在发布包里。
-  '@google/genai@2.21.0': false
-  # 拒绝：postinstall 只检查依赖方声明的版本前缀并打印警告，不生成任何文件。
-  protobufjs@7.6.6: false
   # 下面 2 个来自桌面端的构建工具（T5.1）：0.25.12 是 electron-vite 5 的依赖（打包 main / preload 的配置），
   # 0.28.2 是 Vite 7（桌面端）与 Vite 8（Vitest）的依赖。
   # 允许：postinstall 核对平台可选包 @esbuild/<平台> 里的二进制版本，非 Windows 上用它替换 bin/esbuild
-  # 的 JS 转发脚本；可选包缺失时才从 npm registry 下载同版本的二进制。与上游 dsh、OpenWork 的取舍一致。
+  # 的 JS 转发脚本；可选包缺失时才从 npm registry 下载同版本的二进制。与 OpenWork 的取舍一致。
   esbuild@0.25.12: true
   esbuild@0.28.2: true
   # 拒绝：electron-builder 26.17.0 经 electron-builder-squirrel-windows 带进来，install 只把本机架构的
@@ -46,8 +28,8 @@ ignoredOptionalDependencies:
   - '@anthropic-ai/claude-agent-sdk-*'
 
 # 依赖声明的修正。Claude Agent SDK 的 sdk.mjs 不 import @modelcontextprotocol/sdk，只在 sdk.d.ts 里用它的类型（Wevir 不给 SDK
-# 传 MCP 服务器）；当作必需的 peer 时 pnpm 会自动装上它，dsh 依赖树里 @google/genai 的可选 peer 随之解析到它，改动 dsh 的
-# 依赖。标成可选，引擎之间互不影响（AGENTS.md 规则 2）。
+# 传 MCP 服务器）；当作必需的 peer 时 pnpm 会自动装上它，其他包里同名的可选 peer 随之解析到它，改动那些包的依赖。
+# 标成可选，引擎之间互不影响（AGENTS.md 规则 2）。
 packageExtensions:
   '@anthropic-ai/claude-agent-sdk@0.3.286':
     peerDependenciesMeta:

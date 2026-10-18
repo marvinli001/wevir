@@ -1,7 +1,0 @@
-{
-  "method": "subagent.started",
-  "params": {
-    "parentSessionId": "e32028a6-5ca6-48f7-a88e-35db0c57aad9",
-    "childSessionId": "54d329d5-b4f7-4a5a-9ddb-f5717d787df5"
-  }
-}

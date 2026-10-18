@@ -24,11 +24,6 @@ import { fileURLToPath } from 'node:url';
 
 const ENGINES = [
   {
-    owner: 'packages/adapter-dsh',
-    label: '@deepseek-ai/*',
-    matches: (name, spec) => name.startsWith('@deepseek-ai/') || /^npm:@deepseek-ai\//.test(spec),
-  },
-  {
     owner: 'packages/adapter-codex',
     label: '@openai/codex*',
     matches: (name, spec) =>

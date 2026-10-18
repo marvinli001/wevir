@@ -1,8 +1,0 @@
-{
-  "recordedBy": "T3.5 dsh-adapter.resume.integration.test.ts：真实 dsh 0.2.1-alpha.2，会话关闭后删掉它的日志目录",
-  "error": {
-    "name": "RequestError",
-    "message": "Invalid params: session is not resumable: <SESSION_ID>",
-    "code": -32602
-  }
-}

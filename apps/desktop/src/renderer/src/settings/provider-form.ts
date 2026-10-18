@@ -14,9 +14,9 @@ import {
 } from '@wevir/protocol';
 import { t } from '@/i18n';
 import {
+  DEEPSEEK_DEFAULT_MODELS,
   DEEPSEEK_OFFICIAL_ID,
   DEEPSEEK_OFFICIAL_PRESET,
-  DSH_DEEPSEEK_MODELS,
   FORM_APIS,
   type FormApi,
   type OpenAIPreset,
@@ -167,9 +167,9 @@ function uniqueId(base: string, taken: string[]): string {
   }
 }
 
-/** `deepseek-official` 默认模型的可选项：列了自定义模型就是它们，否则是 dsh 自带目录（providers.md §2.2）。 */
+/** `deepseek-official` 默认模型的可选项：列了自定义模型就是它们，否则是默认模型（providers.md §2.2）。 */
 export function deepseekModelChoices(form: ProviderForm): string[] {
-  return form.models.length > 0 ? form.models.map((row) => row.id) : [...DSH_DEEPSEEK_MODELS];
+  return form.models.length > 0 ? form.models.map((row) => row.id) : [...DEEPSEEK_DEFAULT_MODELS];
 }
 
 /**
@@ -255,7 +255,7 @@ function baseURLProblem(value: string): string | undefined {
   if (hasProviderPlaceholder(value)) return t('provider.form.error.placeholder');
   if (!HttpUrlSchema.safeParse(value).success) return t('provider.form.error.url');
   const url = new URL(value);
-  // 地址会原样写进 dsh 的配置文件（providers.md §2.2），凭据要单独填在 Key 里。
+  // 地址会原样写进配置文件（providers.md §2.2），凭据要单独填在 Key 里。
   if (url.username !== '' || url.password !== '' || url.search !== '' || url.hash !== '') {
     return t('provider.form.error.urlExtras');
   }

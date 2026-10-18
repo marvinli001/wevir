@@ -1,5 +1,5 @@
 // Host 侧的 Provider 桥接（T3.4）：写库前经适配器检查、每次变更后把整套 Provider（含 Key）交给引擎、
-// provider.test 带上已存的 Key。引擎侧换成记录调用的假桥接；dsh 的实现见 packages/adapter-dsh。
+// provider.test 带上已存的 Key。引擎侧换成记录调用的假桥接。
 
 import { type MethodParams, MethodSchemas } from '@wevir/protocol';
 import type { ProviderConfig, ProviderIssue, ProviderTestResult } from '@wevir/runtime-adapter';
@@ -346,11 +346,11 @@ describe('Provider 桥接（Host 侧）', () => {
 
   it('引擎没能用上新配置：ENGINE_ERROR，但 Profile 已保存', async () => {
     const bridge = fakeBridge();
-    bridge.failApply = new Error('dsh 启动失败：配置不合法');
+    bridge.failApply = new Error('引擎启动失败：配置不合法');
     const { methods, storage } = setup(bridge);
     const error = await hostError(Promise.resolve(methods['provider.upsert'](qwen, context)));
     expect(error.code).toBe('ENGINE_ERROR');
-    expect(error.message).toContain('dsh 启动失败');
+    expect(error.message).toContain('引擎启动失败');
     expect(storage.providers.get('qwen')).toBeDefined();
   });
 
