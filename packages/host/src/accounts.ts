@@ -1,5 +1,10 @@
-import type { AccountKind, AccountLoginMethod, AccountState } from '@wevir/protocol';
-import type { AccountModels, EngineAccounts } from '@wevir/runtime-adapter';
+import type {
+  AccountKind,
+  AccountLoginMethod,
+  AccountState,
+  AccountUpstream,
+} from '@wevir/protocol';
+import type { AccountLoginOptions, AccountModels, EngineAccounts } from '@wevir/runtime-adapter';
 import type { ProviderProfileRecord, Storage } from '@wevir/storage';
 import type { EnginePathStore } from './engine-paths.js';
 import { HostError } from './errors.js';
@@ -70,6 +75,11 @@ export class HostAccounts {
     return this.kinds.some((kind) => kind !== 'chatgpt');
   }
 
+  /** 有没有引擎的账号后面接着好几家上游（Host 据此声明 `subscription_upstreams`）。 */
+  get hasUpstreams(): boolean {
+    return this.#options.accounts.upstreams !== undefined;
+  }
+
   /** 把 `engines.json` 里记下的路径交给引擎。Host 启动时调用一次；失败只告警。 */
   async applySavedPaths(): Promise<void> {
     const store = this.#options.paths;
@@ -113,16 +123,29 @@ export class HostAccounts {
     );
   }
 
-  login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState> {
-    return this.#call(() => this.#options.accounts.login(kind, method));
+  login(
+    kind: AccountKind,
+    method: AccountLoginMethod,
+    options?: AccountLoginOptions,
+  ): Promise<AccountState> {
+    return this.#call(() => this.#options.accounts.login(kind, method, options));
+  }
+
+  /** 订阅来源后面能在应用内接的上游（`account.upstreams`）。 */
+  upstreams(kind: AccountKind): Promise<AccountUpstream[]> {
+    return this.#call(async () => {
+      const { accounts } = this.#options;
+      if (accounts.upstreams === undefined) throw new Error(`the ${kind} account has no upstreams`);
+      return accounts.upstreams(kind);
+    });
   }
 
   cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState> {
     return this.#call(() => this.#options.accounts.cancelLogin(kind, loginId));
   }
 
-  logout(kind: AccountKind): Promise<AccountState> {
-    return this.#call(() => this.#options.accounts.logout(kind));
+  logout(kind: AccountKind, options?: { upstream?: string }): Promise<AccountState> {
+    return this.#call(() => this.#options.accounts.logout(kind, options));
   }
 
   /** 指定可执行文件（`account.setPath`）：先交给引擎（它重新检测），再记进 `engines.json`。 */

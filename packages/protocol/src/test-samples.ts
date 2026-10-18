@@ -276,6 +276,20 @@ export const workbuddyProvider: ProviderProfile = {
   updatedAt: TS,
 };
 
+/** 0.56.0：WorkBuddy 未登录，应用内有国内 / 国际两种登录方式可选。 */
+export const workbuddyLoginAccount: AccountState = {
+  kind: 'workbuddy',
+  status: 'signed_out',
+  signIn: 'in_app',
+  loginMethods: ['browser'],
+  loginOptions: [
+    { id: 'internal', label: 'WeChat' },
+    { id: 'external', label: 'Google / GitHub' },
+  ],
+  installed: true,
+  version: '2.168.2',
+};
+
 export const antigravityInstalling: AccountState = {
   kind: 'antigravity',
   status: 'signed_out',
@@ -312,6 +326,25 @@ export const multiWindowAccount: AccountState = {
       { usedPercent: 4, period: 'monthly', resetsAt: TS2, scope: 'Auto + Composer' },
       { usedPercent: 37.5, period: 'monthly', resetsAt: TS2, scope: 'API' },
     ],
+  },
+};
+
+/** 0.56.0：OpenCode 装好就已登录（Zen 的免登录模型），再接一家上游时是 signing_in，设备码在 login 里。 */
+export const connectingUpstreamAccount: AccountState = {
+  kind: 'opencode',
+  status: 'signing_in',
+  plan: 'opencode',
+  planLabel: 'OpenCode',
+  signIn: 'in_app',
+  loginMethods: ['browser', 'device_code'],
+  installed: true,
+  version: '1.19.3',
+  login: {
+    loginId: '9d1f64f2-3a0b-4e0e-8a53-b8f1f1a6d3c1',
+    method: 'device_code',
+    verificationUrl: 'https://github.com/login/device',
+    userCode: 'FE5D-F5E4',
+    startedAt: TS,
   },
 };
 
@@ -1932,11 +1965,33 @@ export const methodSamples: MethodSamples = {
       valid: [
         { kind: 'chatgpt', method: 'browser' },
         { kind: 'chatgpt', method: 'device_code' },
+        // 0.56.0：选上游、方式与 Key（给了 upstream 时 method 被忽略）。
+        { kind: 'opencode', method: 'browser', upstream: 'github-copilot' },
+        { kind: 'opencode', method: 'device_code', upstream: 'openai', option: '1' },
+        {
+          kind: 'opencode',
+          method: 'browser',
+          upstream: 'opencode-go',
+          apiKey: 'sk-test-not-real',
+        },
+        { kind: 'opencode', method: 'browser', upstream: 'openai', option: 'default' },
+        // 没有 upstream 时 option 是 loginOptions 里的一项。
+        { kind: 'workbuddy', method: 'browser', option: 'external' },
       ],
-      invalid: [{ kind: 'chatgpt' }, { kind: 'chatgpt', method: 'api_key' }],
+      invalid: [
+        { kind: 'chatgpt' },
+        { kind: 'chatgpt', method: 'api_key' },
+        { kind: 'opencode', method: 'browser', upstream: '' },
+        { kind: 'opencode', method: 'browser', upstream: 'openai', option: '' },
+        { kind: 'opencode', method: 'browser', upstream: 'openai', option: 1 },
+        { kind: 'opencode', method: 'browser', upstream: 'openai', apiKey: '' },
+        { kind: 'opencode', method: 'browser', upstream: 'openai', apiKey: 'k'.repeat(8193) },
+      ],
     },
     result: {
       valid: [
+        { account: connectingUpstreamAccount },
+        { account: workbuddyLoginAccount },
         {
           account: {
             kind: 'chatgpt',
@@ -1974,8 +2029,83 @@ export const methodSamples: MethodSamples = {
       invalid: [{ account: { status: 'signed_out' } }],
     },
   },
+  'account.upstreams': {
+    params: { valid: [{ kind: 'opencode' }], invalid: [{}, { kind: 'gemini' }] },
+    result: {
+      valid: [
+        { upstreams: [] },
+        {
+          upstreams: [
+            {
+              id: 'opencode',
+              name: 'OpenCode',
+              connected: true,
+              featured: true,
+              methods: [{ type: 'api_key', label: 'API key', option: 'default' }],
+            },
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              connected: false,
+              featured: true,
+              methods: [
+                { type: 'oauth', label: 'ChatGPT Pro/Plus (browser)', option: '0' },
+                { type: 'oauth', label: 'ChatGPT Pro/Plus (headless)', option: '1' },
+                { type: 'api_key', label: 'Manually enter API Key', option: '2' },
+              ],
+            },
+          ],
+        },
+      ],
+      invalid: [
+        {},
+        { upstreams: [{ id: 'openai', name: 'OpenAI', connected: false, featured: true }] },
+        {
+          upstreams: [
+            { id: 'openai', name: 'OpenAI', connected: false, featured: true, methods: [] },
+          ],
+        },
+        {
+          upstreams: [
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              connected: false,
+              featured: true,
+              methods: [{ type: 'password', label: 'x', option: '0' }],
+            },
+          ],
+        },
+        {
+          upstreams: [
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              connected: false,
+              featured: true,
+              methods: [{ type: 'oauth', label: '', option: '0' }],
+            },
+          ],
+        },
+        {
+          upstreams: [
+            {
+              id: 'openai',
+              name: 'OpenAI',
+              connected: false,
+              featured: true,
+              methods: [{ type: 'oauth', label: 'x', option: 0 }],
+            },
+          ],
+        },
+      ],
+    },
+  },
   'account.logout': {
-    params: { valid: [{ kind: 'chatgpt' }], invalid: [{ kind: 1 }] },
+    params: {
+      valid: [{ kind: 'chatgpt' }, { kind: 'opencode', upstream: 'opencode-go' }],
+      invalid: [{ kind: 1 }, { kind: 'opencode', upstream: '' }],
+    },
     result: {
       valid: [{ account: { kind: 'chatgpt', status: 'signed_out' } }],
       invalid: [

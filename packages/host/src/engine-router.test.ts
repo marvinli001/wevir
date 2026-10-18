@@ -234,4 +234,55 @@ describe('EngineRouter', () => {
     expect(seen).toEqual(['claude:signed_out']);
     accounts.dispose();
   });
+
+  it('上游（0.56.0）：实现了上游的账号才有 upstreams；没有上游的引擎收到 upstream / apiKey 拒绝，option 单独给则交给引擎', async () => {
+    const logins: unknown[] = [];
+    class Plain extends EchoAdapter {
+      readonly accounts = {
+        kinds: ['workbuddy' as const],
+        read: async () => ({ kind: 'workbuddy' as const, status: 'signed_out' as const }),
+        login: async (_kind: string, _method: string, options?: unknown) => {
+          logins.push(options);
+          return { kind: 'workbuddy' as const, status: 'signed_out' as const };
+        },
+        cancelLogin: async () => ({ kind: 'workbuddy' as const, status: 'signed_out' as const }),
+        logout: async () => ({ kind: 'workbuddy' as const, status: 'signed_out' as const }),
+        models: async () => ({ models: [] }),
+        onChange: () => () => {},
+      };
+    }
+    const plainOnly = new EngineRouter([
+      { name: 'echo', adapter: new EchoAdapter(), kinds: ['openai-compatible'] },
+      // biome-ignore lint/suspicious/noExplicitAny: 只实现了测试用到的账号方法。
+      { name: 'wb', adapter: new Plain() as any, kinds: ['workbuddy'] },
+    ]);
+    routers.push(plainOnly);
+    expect(plainOnly.accounts?.upstreams).toBeUndefined();
+    await plainOnly.accounts?.login('workbuddy', 'browser', { option: 'external' });
+    expect(logins).toEqual([{ option: 'external' }]);
+    await expect(
+      plainOnly.accounts?.login('workbuddy', 'browser', { upstream: 'openai' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(
+      plainOnly.accounts?.login('workbuddy', 'browser', { apiKey: 'sk-1' }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(
+      plainOnly.accounts?.logout('workbuddy', { upstream: 'openai' }),
+    ).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+
+    const echo = new EchoAccounts({ delayMs: 1 });
+    class WithUpstreams extends EchoAdapter {
+      readonly accounts = echo;
+    }
+    const mixed = new EngineRouter([
+      { name: 'echo', adapter: new EchoAdapter(), kinds: ['openai-compatible'] },
+      { name: 'subs', adapter: new WithUpstreams(), kinds: ['opencode'] },
+    ]);
+    routers.push(mixed);
+    expect(mixed.accounts?.upstreams).toBeDefined();
+    expect((await mixed.accounts?.upstreams?.('opencode'))?.[0]).toMatchObject({ id: 'opencode' });
+    echo.dispose();
+  });
 });

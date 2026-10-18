@@ -47,6 +47,8 @@ function setup(
         : { ok: false, reason: options.probeFails, message: 'probe failed' },
     startServer: fake.start,
     idleTtlMs: 20,
+    // 下载安装见 install.test.ts。
+    installer: null,
   });
   runtimes.push(runtime);
   const accounts = new OpenCodeAccounts({
@@ -67,7 +69,8 @@ describe('OpenCodeAccounts', () => {
     expect(state).toEqual({
       kind: 'opencode',
       status: 'signed_in',
-      signIn: 'command',
+      signIn: 'in_app',
+      loginMethods: ['browser', 'device_code'],
       loginCommand: OPENCODE_LOGIN_COMMAND,
       installed: true,
       executablePath: '/fake/bin/opencode',
@@ -125,7 +128,8 @@ describe('OpenCodeAccounts', () => {
     expect(state).toEqual({
       kind: 'opencode',
       status: 'signed_out',
-      signIn: 'command',
+      signIn: 'in_app',
+      loginMethods: ['browser', 'device_code'],
       loginCommand: OPENCODE_LOGIN_COMMAND,
       installed: false,
       installCommand: OPENCODE_INSTALL_COMMAND,

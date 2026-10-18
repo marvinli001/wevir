@@ -2,8 +2,10 @@ import type { AgentEvent } from './events.js';
 import type {
   AccountKind,
   AccountLoginMethod,
+  AccountLoginOptions,
   AccountModels,
   AccountState,
+  AccountUpstream,
   AgentInput,
   ApprovalDecision,
   EngineAppToolsGrant,
@@ -368,12 +370,25 @@ export interface EngineAccounts {
    * （订阅来源的检测可能要起进程，引擎自己决定缓存多久）。
    */
   read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState>;
-  /** 开始登录，返回 `signing_in` 的状态（带 `login`）；已有进行中的登录时替换它。 */
-  login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState>;
+  /**
+   * 开始登录，返回 `signing_in` 的状态（带 `login`）；已有进行中的登录时替换它。后面接着好几家上游的引擎（OpenCode，0.56.0）
+   * 另认 `options`：`upstream` 选接哪一家，`option` 选方式，`apiKey` 是填 Key 的方式用的 Key（立即返回重新检测后的状态）；
+   * 实现了 `upstreams` 的引擎才会收到 `options`。
+   */
+  login(
+    kind: AccountKind,
+    method: AccountLoginMethod,
+    options?: AccountLoginOptions,
+  ): Promise<AccountState>;
   /** 取消进行中的登录；`loginId` 不是当前的时什么都不做。返回取消之后的状态。 */
   cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState>;
-  /** 登出，没登录时同样成功。 */
-  logout(kind: AccountKind): Promise<AccountState>;
+  /** 登出，没登录时同样成功。`options.upstream`（0.56.0）：只断开这一家上游。 */
+  logout(kind: AccountKind, options?: { upstream?: string }): Promise<AccountState>;
+  /**
+   * 后面接着好几家上游的引擎（OpenCode，0.56.0，Host 功能 `subscription_upstreams`）：能在应用内接的上游，常用的在前。不实现
+   * 表示这类账号没有上游。
+   */
+  upstreams?(kind: AccountKind): Promise<AccountUpstream[]>;
   /** 账号能用的模型（Host 用它填 `chatgpt` 与订阅来源的 Provider 的模型列表）。 */
   models(kind: AccountKind): Promise<AccountModels>;
   /**

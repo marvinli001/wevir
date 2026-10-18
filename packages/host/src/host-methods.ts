@@ -671,15 +671,25 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'account.install': async ({ kind }) => ({ account: await requireAccounts().install(kind) }),
 
-    'account.login': async ({ kind, method }) => ({
-      account: await requireAccounts().login(kind, method),
+    'account.login': async ({ kind, method, upstream, option, apiKey }) => ({
+      account: await requireAccounts().login(kind, method, {
+        ...(upstream !== undefined && { upstream }),
+        ...(option !== undefined && { option }),
+        ...(apiKey !== undefined && { apiKey }),
+      }),
+    }),
+
+    'account.upstreams': async ({ kind }) => ({
+      upstreams: await requireAccounts().upstreams(kind),
     }),
 
     'account.cancelLogin': async ({ kind, loginId }) => ({
       account: await requireAccounts().cancelLogin(kind, loginId),
     }),
 
-    'account.logout': async ({ kind }) => ({ account: await requireAccounts().logout(kind) }),
+    'account.logout': async ({ kind, upstream }) => ({
+      account: await requireAccounts().logout(kind, upstream === undefined ? {} : { upstream }),
+    }),
 
     'session.create': async (params) => ({ session: await sessions.create(params) }),
 

@@ -33,6 +33,7 @@ import { t } from '@/i18n';
 import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
 import { planLabel, usageWindows } from './chatgpt-account-model';
 import { NoticeBanner } from './settings-ui';
+import { UpstreamList } from './subscription-upstreams';
 
 /**
  * 设置 → 模型服务的“订阅”（0.19.0，照 T3 Code 的 Bring your own sub，desktop-tokens.md §32）：各种订阅排成一张三列的格子卡（最后一行补空格），
@@ -360,6 +361,11 @@ function SubscriptionBody({
   };
   const refresh = () =>
     run('refresh', () => client.request('account.get', { kind, refresh: true }));
+  // OpenCode 后面接着好几家上游（0.56.0）：已登录与否都列出来，在这里接上、断开。
+  const upstreams =
+    kind === 'opencode' &&
+    account?.signIn === 'in_app' &&
+    client.supports('subscription_upstreams');
   const login = async () => {
     const next = await run('login', () =>
       client.request('account.login', { kind, method: 'browser' }),
@@ -387,6 +393,22 @@ function SubscriptionBody({
           busy={busy}
           onRun={run}
         />
+      ) : upstreams ? (
+        <>
+          <UpstreamList client={client} kind={kind} account={account} busy={busy} onRun={run} />
+          {phase.kind === 'signed_in' && (
+            <SignedIn
+              client={client}
+              kind={kind}
+              account={account}
+              provider={provider}
+              busy={busy}
+              onRun={run}
+              onRefresh={() => void refresh()}
+              signOut={false}
+            />
+          )}
+        </>
       ) : phase.kind === 'signed_out' && phase.signIn === 'command' ? (
         <Step
           title={t('source.command.title')}
@@ -702,6 +724,7 @@ function SignedIn({
   busy,
   onRun,
   onRefresh,
+  signOut = true,
 }: {
   client: WevirClient;
   kind: AccountKind;
@@ -710,6 +733,8 @@ function SignedIn({
   busy: string | undefined;
   onRun: (label: string, op: () => Promise<{ account: AccountState }>) => Promise<unknown>;
   onRefresh: () => void;
+  /** 账号整体登出；上游各自断开的来源（OpenCode）不给。 */
+  signOut?: boolean;
 }) {
   const windows = usageWindows(account.rateLimits);
   const facts: [string, ReactNode][] = [];
@@ -772,7 +797,7 @@ function SignedIn({
           {busy === 'refresh' ? <LoaderCircle className="animate-spin" /> : <RotateCw />}
           {t('source.recheck')}
         </Button>
-        {account.signIn === 'in_app' ? (
+        {!signOut ? null : account.signIn === 'in_app' ? (
           <Button
             variant="ghost"
             size="sm"

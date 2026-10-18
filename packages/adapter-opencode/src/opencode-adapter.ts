@@ -101,6 +101,8 @@ export interface OpenCodeAdapterOptions {
   findExecutable?: OpenCodeRuntimeOptions['findExecutable'];
   probeVersion?: OpenCodeRuntimeOptions['probeVersion'];
   startServer?: OpenCodeRuntimeOptions['startServer'];
+  /** 测试用：换掉 Wevir 替用户装 `opencode` 的安装器（`null` 表示不能装）。 */
+  installer?: OpenCodeRuntimeOptions['installer'];
   idleTtlMs?: number;
   cancelTimeoutMs?: number;
 }
@@ -330,6 +332,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ...(options.findExecutable !== undefined && { findExecutable: options.findExecutable }),
       ...(options.probeVersion !== undefined && { probeVersion: options.probeVersion }),
       ...(options.startServer !== undefined && { startServer: options.startServer }),
+      ...(options.installer !== undefined && { installer: options.installer }),
       ...(options.idleTtlMs !== undefined && { idleTtlMs: options.idleTtlMs }),
     });
     this.accounts = new OpenCodeAccounts({

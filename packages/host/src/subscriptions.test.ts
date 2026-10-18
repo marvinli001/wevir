@@ -269,3 +269,82 @@ describe('订阅来源（0.19.0）', () => {
     expect(missing.error).toMatchObject({ code: -32011 });
   });
 });
+
+describe('订阅上游（0.56.0）', () => {
+  it('hello 声明 subscription_upstreams；account.upstreams 列出上游，Key 立即接上，退出时去掉', async () => {
+    const { connect } = await start('opencode=signed_in');
+    const { client, hello } = await connect();
+    expect(hello.features).toMatchObject({
+      subscription_sources: true,
+      subscription_upstreams: true,
+    });
+
+    const { upstreams } = await client.request('account.upstreams', { kind: 'opencode' });
+    expect(upstreams[0]).toMatchObject({ id: 'opencode', connected: true, featured: true });
+    const anthropic = upstreams.find((entry: { id: string }) => entry.id === 'anthropic');
+    expect(anthropic).toMatchObject({
+      connected: false,
+      methods: [{ type: 'api_key', option: 'default' }],
+    });
+
+    const missingKey = await client.call('account.login', {
+      kind: 'opencode',
+      method: 'browser',
+      upstream: 'anthropic',
+    });
+    expect(missingKey.error).toMatchObject({ code: -32041 });
+
+    const key = 'sk-ant-host-test-key';
+    const { account } = await client.request('account.login', {
+      kind: 'opencode',
+      method: 'browser',
+      upstream: 'anthropic',
+      apiKey: key,
+    });
+    expect(account).toMatchObject({ kind: 'opencode', status: 'signed_in' });
+    expect(JSON.stringify(account)).not.toContain(key);
+    const after = await client.request('account.upstreams', { kind: 'opencode' });
+    expect(
+      after.upstreams.find((entry: { id: string }) => entry.id === 'anthropic').connected,
+    ).toBe(true);
+
+    await client.request('account.logout', { kind: 'opencode', upstream: 'anthropic' });
+    const removed = await client.request('account.upstreams', { kind: 'opencode' });
+    expect(
+      removed.upstreams.find((entry: { id: string }) => entry.id === 'anthropic').connected,
+    ).toBe(false);
+  });
+
+  it('OAuth：返回 signing_in 带授权网址或设备码，完成后 account.updated 报新状态；别的订阅没有上游', async () => {
+    const { connect } = await start('opencode=signed_in');
+    const { client } = await connect();
+    const browser = await client.request('account.login', {
+      kind: 'opencode',
+      method: 'browser',
+      upstream: 'github-copilot',
+      option: '0',
+    });
+    expect(browser.account.login.authUrl).toContain('github-copilot');
+    await vi.waitFor(
+      () =>
+        expect(client.notifications('account.updated').at(-1)?.account).toMatchObject({
+          kind: 'opencode',
+          status: 'signed_in',
+        }),
+      { timeout: 4000 },
+    );
+    const headless = await client.request('account.login', {
+      kind: 'opencode',
+      method: 'device_code',
+      upstream: 'openai',
+      option: '1',
+    });
+    expect(headless.account.login).toMatchObject({
+      method: 'device_code',
+      userCode: 'ECHO-1234',
+    });
+
+    const none = await client.call('account.upstreams', { kind: 'claude' });
+    expect(none.error).toMatchObject({ code: -32041 });
+  });
+});

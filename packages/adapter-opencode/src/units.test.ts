@@ -5,8 +5,13 @@ import { describe, expect, it } from 'vitest';
 import {
   commonOpenCodeDirs,
   compareVersions,
+  detectAvx2,
   findOpenCode,
   OPENCODE_BIN_ENV,
+  OPENCODE_LOGIN_COMMAND,
+  openCodeLoginCommand,
+  openCodeNpmPackage,
+  openCodePackageNames,
   openCodePath,
   parseOpenCodeVersion,
 } from './executable.js';
@@ -107,6 +112,122 @@ describe('executable', () => {
     expect(compareVersions('1.18.34-beta', '1.18.34')).toBe(0);
     expect(unsupportedVersion('1.18.34')).toBeUndefined();
     expect(unsupportedVersion(undefined)).toMatch(/Unable to determine/);
+  });
+});
+
+describe('executable: Wevir 自己装的 opencode', () => {
+  it('找的顺序：指定路径 → 环境变量 → PATH → 常见位置 → Wevir 装的（最后才用）', () => {
+    const managed = '/data/engines/opencode/runtime/versions/1.19.3/opencode';
+    const exists = (files: string[]) => (file: string) => files.includes(file);
+    const find = (files: string[], options: Parameters<typeof findOpenCode>[0] = {}) =>
+      findOpenCode({
+        env: { PATH: '/usr/bin' },
+        home: '/home/me',
+        platform: 'linux',
+        managedPath: managed,
+        exists: exists(files),
+        ...options,
+      });
+    expect(find([managed])).toBe(managed);
+    // 用户自己装的在 PATH 里或常见位置里时，不动它。
+    expect(find([managed, '/usr/bin/opencode'])).toBe('/usr/bin/opencode');
+    expect(find([managed, '/home/me/.opencode/bin/opencode'])).toBe(
+      '/home/me/.opencode/bin/opencode',
+    );
+    expect(find([managed], { env: { PATH: '/usr/bin', [OPENCODE_BIN_ENV]: managed } })).toBe(
+      managed,
+    );
+    // 指定的路径不存在：不再自动找，也不退到 Wevir 装的。
+    expect(find([managed], { customPath: '/nope/opencode' })).toBeUndefined();
+    // Wevir 装的那份文件没了。
+    expect(find([])).toBeUndefined();
+  });
+
+  it('平台包：darwin / linux / windows × x64 / arm64，Windows 是 opencode.exe', () => {
+    expect(openCodeNpmPackage({ platform: 'darwin', arch: 'arm64' })).toEqual({
+      packageName: 'opencode-darwin-arm64',
+      entry: 'bin/opencode',
+      fileName: 'opencode',
+    });
+    expect(openCodeNpmPackage({ platform: 'win32', arch: 'arm64' })).toEqual({
+      packageName: 'opencode-windows-arm64',
+      entry: 'bin/opencode.exe',
+      fileName: 'opencode.exe',
+    });
+    expect(openCodeNpmPackage({ platform: 'win32', arch: 'x64', avx2: true })?.packageName).toBe(
+      'opencode-windows-x64',
+    );
+    expect(openCodeNpmPackage({ platform: 'freebsd', arch: 'x64' })).toBeUndefined();
+    expect(openCodeNpmPackage({ platform: 'linux', arch: 'ia32' })).toBeUndefined();
+    expect(openCodePackageNames({ platform: 'linux', arch: 'riscv64' })).toEqual([]);
+  });
+
+  it('变体的优先顺序同 opencode-ai 的 postinstall：x64 没有 AVX2 用 baseline，musl 用 musl', () => {
+    const names = (platform: NodeJS.Platform, arch: string, avx2: boolean, musl = false) =>
+      openCodePackageNames({ platform, arch, avx2, musl });
+    expect(names('darwin', 'x64', true)).toEqual([
+      'opencode-darwin-x64',
+      'opencode-darwin-x64-baseline',
+    ]);
+    expect(names('darwin', 'x64', false)).toEqual([
+      'opencode-darwin-x64-baseline',
+      'opencode-darwin-x64',
+    ]);
+    expect(names('darwin', 'arm64', false)).toEqual(['opencode-darwin-arm64']);
+    expect(names('linux', 'x64', true)).toEqual([
+      'opencode-linux-x64',
+      'opencode-linux-x64-baseline',
+      'opencode-linux-x64-musl',
+      'opencode-linux-x64-baseline-musl',
+    ]);
+    expect(names('linux', 'x64', false)[0]).toBe('opencode-linux-x64-baseline');
+    expect(names('linux', 'x64', true, true)[0]).toBe('opencode-linux-x64-musl');
+    expect(names('linux', 'x64', false, true)[0]).toBe('opencode-linux-x64-baseline-musl');
+    expect(names('linux', 'arm64', true, true)).toEqual([
+      'opencode-linux-arm64-musl',
+      'opencode-linux-arm64',
+    ]);
+    expect(names('linux', 'arm64', false)).toEqual([
+      'opencode-linux-arm64',
+      'opencode-linux-arm64-musl',
+    ]);
+  });
+
+  it('AVX2：Linux 读 cpuinfo，macOS 问 sysctl，Windows 问 PowerShell，查不出算没有', async () => {
+    const cpu = (flags: string) => async () => `processor : 0\nflags : ${flags}\n`;
+    expect(await detectAvx2('linux', 'x64', { readFile: cpu('fpu avx avx2 bmi1') })).toBe(true);
+    expect(await detectAvx2('linux', 'x64', { readFile: cpu('fpu avx512f') })).toBe(false);
+    expect(
+      await detectAvx2('linux', 'x64', {
+        readFile: async () => {
+          throw new Error('no /proc');
+        },
+      }),
+    ).toBe(false);
+    expect(await detectAvx2('linux', 'arm64', { readFile: cpu('avx2') })).toBe(false);
+    const sysctl = (ok: boolean, stdout: string) => async () => ({ ok, stdout });
+    expect(await detectAvx2('darwin', 'x64', { run: sysctl(true, '1\n') })).toBe(true);
+    expect(await detectAvx2('darwin', 'x64', { run: sysctl(true, '0\n') })).toBe(false);
+    expect(await detectAvx2('darwin', 'x64', { run: sysctl(false, '') })).toBe(false);
+    // Windows：第一个 shell 不在就试下一个。
+    const calls: string[] = [];
+    expect(
+      await detectAvx2('win32', 'x64', {
+        run: async (shell) => {
+          calls.push(shell);
+          return shell === 'pwsh.exe'
+            ? { ok: true, stdout: 'True\r\n' }
+            : { ok: false, stdout: '' };
+        },
+      }),
+    ).toBe(true);
+    expect(calls).toEqual(['powershell.exe', 'pwsh.exe']);
+  });
+
+  it('登录命令：Wevir 装的写全路径，用户自己的写 opencode', () => {
+    expect(openCodeLoginCommand('/data/opencode', true)).toBe('"/data/opencode" auth login');
+    expect(openCodeLoginCommand('/usr/bin/opencode', false)).toBe(OPENCODE_LOGIN_COMMAND);
+    expect(openCodeLoginCommand(undefined, true)).toBe(OPENCODE_LOGIN_COMMAND);
   });
 });
 

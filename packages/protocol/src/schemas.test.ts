@@ -4,9 +4,12 @@ import * as protocol from './index.js';
 import {
   AccountKindSchema,
   AccountLoginMethodSchema,
+  AccountLoginOptionSchema,
   AccountLoginSchema,
   AccountRateLimitWindowSchema,
   AccountStateSchema,
+  AccountUpstreamMethodSchema,
+  AccountUpstreamSchema,
   ActiveTurnSchema,
   ApprovalDetailSchema,
   ApprovalIdSchema,
@@ -158,6 +161,7 @@ import {
   browserTab,
   childSession,
   compatibleProvider,
+  connectingUpstreamAccount,
   deepseekProvider,
   environment,
   errorDataSamples,
@@ -187,6 +191,7 @@ import {
   ULID,
   userResolution,
   waitingBoardTask,
+  workbuddyLoginAccount,
   workspace,
 } from './test-samples.js';
 
@@ -904,10 +909,86 @@ const standaloneCases: Case[] = [
     invalid: [{ usedPercent: 10, windowMinutes: 0 }],
   },
   {
+    name: 'AccountLoginOption',
+    schema: AccountLoginOptionSchema,
+    valid: [
+      { id: 'internal', label: 'WeChat' },
+      { id: 'external', label: 'Google / GitHub' },
+    ],
+    invalid: [
+      { id: '', label: 'x' },
+      { id: 'x'.repeat(65), label: 'x' },
+      { id: 'internal', label: '' },
+      { id: 'internal' },
+      { label: 'x' },
+    ],
+  },
+  {
+    name: 'AccountUpstreamMethod',
+    schema: AccountUpstreamMethodSchema,
+    valid: [
+      { type: 'oauth', label: 'ChatGPT Pro/Plus (headless)', option: '1' },
+      { type: 'api_key', label: 'API key', option: 'default' },
+    ],
+    invalid: [
+      { type: 'password', label: 'x', option: 0 },
+      { type: 'oauth', label: '', option: 0 },
+      { type: 'oauth', label: 'x', option: '' },
+      { type: 'oauth', label: 'x', option: 0 },
+      { type: 'oauth', label: 'x' },
+    ],
+  },
+  {
+    name: 'AccountUpstream',
+    schema: AccountUpstreamSchema,
+    valid: [
+      {
+        id: 'github-copilot',
+        name: 'GitHub Copilot',
+        connected: false,
+        featured: true,
+        methods: [{ type: 'oauth', label: 'Login with GitHub Copilot', option: '0' }],
+      },
+    ],
+    invalid: [
+      { id: 'x', name: 'X', connected: false, featured: false, methods: [] },
+      {
+        id: '',
+        name: 'X',
+        connected: false,
+        featured: false,
+        methods: [{ type: 'api_key', label: 'k', option: 'default' }],
+      },
+      {
+        id: 'x',
+        name: 'X',
+        connected: 'no',
+        featured: false,
+        methods: [{ type: 'api_key', label: 'k', option: 'default' }],
+      },
+      {
+        id: 'x',
+        name: 'X',
+        connected: false,
+        methods: [{ type: 'api_key', label: 'k', option: 'default' }],
+      },
+    ],
+  },
+  {
     name: 'AccountState',
     schema: AccountStateSchema,
-    valid: [signedInAccount, signingInAccount, { kind: 'chatgpt', status: 'signed_out' }],
-    invalid: [{ kind: 'chatgpt', status: 'signed_in', rateLimits: { primary: {} } }],
+    valid: [
+      signedInAccount,
+      signingInAccount,
+      connectingUpstreamAccount,
+      workbuddyLoginAccount,
+      { kind: 'chatgpt', status: 'signed_out' },
+    ],
+    invalid: [
+      { kind: 'chatgpt', status: 'signed_in', rateLimits: { primary: {} } },
+      { kind: 'workbuddy', status: 'signed_out', loginOptions: [] },
+      { kind: 'workbuddy', status: 'signed_out', loginOptions: [{ id: 'internal' }] },
+    ],
   },
   { name: 'PendingDelivery', schema: PendingDeliverySchema, valid: ['queue'], invalid: ['now'] },
   {

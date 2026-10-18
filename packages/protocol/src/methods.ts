@@ -27,6 +27,7 @@ import {
   AccountKindSchema,
   AccountLoginMethodSchema,
   AccountStateSchema,
+  AccountUpstreamSchema,
   ApprovalResolutionSchema,
   CollaborationModeSchema,
   EngineErrorInfoSchema,
@@ -663,9 +664,35 @@ export const AccountSetPathParamsSchema = z.object({
   path: z.string().min(1).nullable(),
 });
 
+/** `account.login` 的 `apiKey` 最长多少字符（同 Provider 的 Key）。 */
+export const ACCOUNT_API_KEY_MAX_LENGTH = 8192;
+
+/**
+ * `account.login`。0.56.0（Host 功能 `subscription_upstreams`）起订阅来源后面接着好几家上游的（OpenCode），用 `upstream`
+ * 选接哪一家、`option` 选哪种方式（`account.upstreams` 给的，上游只有一种方式时可省略）：给了 `upstream` 时 `method` 被忽略
+ * （引擎按方式决定是浏览器授权还是设备码，看返回的 `login`），`apiKey` 只在方式是 `api_key` 时给。**Key 只交给引擎，不进
+ * 日志、事件与任何响应**。没有 `upstream` 时，`option` 是 `AccountState.loginOptions` 里的一项（WorkBuddy 的国内 / 国际站），
+ * 省略取第一项。
+ */
 export const AccountLoginParamsSchema = z.object({
   kind: AccountKindSchema,
   method: AccountLoginMethodSchema,
+  upstream: z.string().min(1).optional(),
+  option: z.string().min(1).max(64).optional(),
+  apiKey: z.string().min(1).max(ACCOUNT_API_KEY_MAX_LENGTH).optional(),
+});
+
+/** `account.logout`；0.56.0 起可带 `upstream`，只断开这一家（省略时同以前：整个账号）。 */
+export const AccountLogoutParamsSchema = AccountKindParamsSchema.extend({
+  upstream: z.string().min(1).optional(),
+});
+
+/**
+ * `account.upstreams`（0.56.0，Host 功能 `subscription_upstreams`）：订阅来源后面能在应用内接的上游，常用的在前。引擎要起进程
+ * 读，没装时报 `ENGINE_ERROR`。
+ */
+export const AccountUpstreamsResultSchema = z.object({
+  upstreams: z.array(AccountUpstreamSchema),
 });
 
 export const AccountCancelLoginParamsSchema = z.object({
@@ -1335,9 +1362,14 @@ export const MethodSchemas = {
     permission: 'provider.write',
   },
   'account.logout': {
-    params: AccountKindParamsSchema,
+    params: AccountLogoutParamsSchema,
     result: AccountResultSchema,
     permission: 'provider.write',
+  },
+  'account.upstreams': {
+    params: AccountKindParamsSchema,
+    result: AccountUpstreamsResultSchema,
+    permission: 'provider.read',
   },
   'account.setPath': {
     params: AccountSetPathParamsSchema,

@@ -6,20 +6,155 @@
 // 修改：改写成不依赖 `effect` 的普通 TS；T3 的桌面端读登录 shell 的环境，Wevir 改为在 PATH 之外再找常见的安装位置（同
 // adapter-claude 的 executable.ts），并补进交给 opencode 的 PATH；2.x 不支持，按版本号认出来后提示。
 //
-// 找用户自己装的 `opencode`（opencode-event-mapping.md §2）：用户指定的路径 → `WEVIR_OPENCODE_BIN` → PATH → 常见的安装位置。
-// 官方安装脚本放在 ~/.opencode/bin，npm / bun / Homebrew 各有自己的目录；桌面端拉起的 Host 继承的是 GUI 的短 PATH，所以这些
-// 位置都要找一遍。
+// 找用户自己装的 `opencode`（opencode-event-mapping.md §2）：用户指定的路径 → `WEVIR_OPENCODE_BIN` → PATH → 常见的安装位置 →
+// Wevir 自己装的（§2.3，最后才用：用户已经有 `opencode` 时不动它）。官方安装脚本放在 ~/.opencode/bin，npm / bun / Homebrew
+// 各有自己的目录；桌面端拉起的 Host 继承的是 GUI 的短 PATH，所以这些位置都要找一遍。
+//
+// Wevir 替用户装时（`account.install`）下载 npm 上的平台包 `opencode-<darwin|linux|windows>-<x64|arm64>`（另有 `-baseline`
+// 与 `-musl` 变体，选哪个照 `opencode-ai` 主包 postinstall.mjs 的顺序）：tgz 里只有 `bin/opencode`（Windows 是 `bin/opencode.exe`）。
 
 import { execFile } from 'node:child_process';
 import { statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import type { NpmPackageSpec } from '@wevir/runtime-adapter/npm-package';
 
 /** 官方的安装命令之一（opencode 的 README：`npm i -g opencode-ai@latest`；另有 `curl -fsSL https://opencode.ai/install | bash`）。 */
 export const OPENCODE_INSTALL_COMMAND = 'npm install -g opencode-ai';
 
-/** 用户自己在终端里登录上游（Wevir 不登录，ADR-0005 补记 14）。 */
+/** 用户自己在终端里登录上游（应用内登录见 opencode-event-mapping.md §2.4）。 */
 export const OPENCODE_LOGIN_COMMAND = 'opencode auth login';
+
+/** 登录命令：Wevir 替用户装的 `opencode` 不在 PATH 里，终端里要写全路径。 */
+export function openCodeLoginCommand(executablePath: string | undefined, managed: boolean): string {
+  return managed && executablePath !== undefined
+    ? `"${executablePath}" auth login`
+    : OPENCODE_LOGIN_COMMAND;
+}
+
+export interface OpenCodePackageTarget {
+  platform?: NodeJS.Platform;
+  arch?: string;
+  /** Linux 上是不是 musl（Alpine 等）。 */
+  musl?: boolean;
+  /** x64 的 CPU 有没有 AVX2；没有（或查不出）时用 baseline 构建。 */
+  avx2?: boolean;
+}
+
+/** 是不是 musl 的 Linux：glibc 的 Node 在诊断报告里有 `glibcVersionRuntime`，musl 的没有（主包 postinstall 另认 /etc/alpine-release）。 */
+function isMusl(): boolean {
+  if (process.platform !== 'linux') return false;
+  try {
+    statSync('/etc/alpine-release');
+    return true;
+  } catch {
+    // 不是 Alpine。
+  }
+  const report = process.report?.getReport() as
+    | { header?: { glibcVersionRuntime?: string } }
+    | undefined;
+  return report?.header?.glibcVersionRuntime === undefined;
+}
+
+/**
+ * 本平台要下载的平台包，按优先顺序（`opencode-ai` 主包 postinstall.mjs 的 `packageNames()`：x64 没有 AVX2 时 baseline 优先，
+ * Linux 的 musl 优先 musl 构建）。本平台没有包时是空数组。
+ */
+export function openCodePackageNames(target: OpenCodePackageTarget = {}): string[] {
+  const platform = target.platform ?? process.platform;
+  const arch = target.arch ?? process.arch;
+  const system = platform === 'win32' ? 'windows' : platform;
+  if (system !== 'darwin' && system !== 'linux' && system !== 'windows') return [];
+  if (arch !== 'x64' && arch !== 'arm64') return [];
+  const base = `opencode-${system}-${arch}`;
+  const baseline = arch === 'x64' && target.avx2 !== true;
+  if (system === 'linux') {
+    const musl = target.musl ?? isMusl();
+    if (musl) {
+      if (arch === 'x64') {
+        return baseline
+          ? [`${base}-baseline-musl`, `${base}-musl`, `${base}-baseline`, base]
+          : [`${base}-musl`, `${base}-baseline-musl`, base, `${base}-baseline`];
+      }
+      return [`${base}-musl`, base];
+    }
+    if (arch === 'x64') {
+      return baseline
+        ? [`${base}-baseline`, base, `${base}-baseline-musl`, `${base}-musl`]
+        : [base, `${base}-baseline`, `${base}-musl`, `${base}-baseline-musl`];
+    }
+    return [base, `${base}-musl`];
+  }
+  if (arch === 'x64') return baseline ? [`${base}-baseline`, base] : [base, `${base}-baseline`];
+  return [base];
+}
+
+/** 要下载的平台包：优先顺序里的第一个。本平台没有对应的包时 undefined。 */
+export function openCodeNpmPackage(target: OpenCodePackageTarget = {}): NpmPackageSpec | undefined {
+  const packageName = openCodePackageNames(target)[0];
+  if (packageName === undefined) return undefined;
+  const fileName = (target.platform ?? process.platform) === 'win32' ? 'opencode.exe' : 'opencode';
+  return { packageName, entry: `bin/${fileName}`, fileName };
+}
+
+function run(
+  executable: string,
+  args: string[],
+  timeout: number,
+): Promise<{ ok: boolean; stdout: string }> {
+  return new Promise((resolve) => {
+    execFile(executable, args, { timeout, windowsHide: true }, (error, stdout) =>
+      resolve({ ok: error === null, stdout: String(stdout) }),
+    );
+  });
+}
+
+/**
+ * x64 的 CPU 有没有 AVX2（主包 postinstall 的 `supportsAvx2`）：Linux 读 /proc/cpuinfo，macOS 问 sysctl，Windows 问 PowerShell
+ * 的 `IsProcessorFeaturePresent(40)`；别的架构、查不出时 false（用 baseline 构建，哪里都能跑）。
+ */
+export async function detectAvx2(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+  system: {
+    readFile?: (file: string) => Promise<string>;
+    run?: typeof run;
+  } = {},
+): Promise<boolean> {
+  if (arch !== 'x64') return false;
+  const exec = system.run ?? run;
+  try {
+    if (platform === 'linux') {
+      const cpuinfo = await (system.readFile ?? ((file) => readFile(file, 'utf8')))(
+        '/proc/cpuinfo',
+      );
+      return /(^|\s)avx2(\s|$)/iu.test(cpuinfo);
+    }
+    if (platform === 'darwin') {
+      const result = await exec('sysctl', ['-n', 'hw.optional.avx2_0'], 1_500);
+      return result.ok && result.stdout.trim() === '1';
+    }
+    if (platform === 'win32') {
+      const command =
+        '(Add-Type -MemberDefinition "[DllImport(""kernel32.dll"")] public static extern bool IsProcessorFeaturePresent(int ProcessorFeature);" -Name Kernel32 -Namespace Win32 -PassThru)::IsProcessorFeaturePresent(40)';
+      for (const shell of ['powershell.exe', 'pwsh.exe', 'pwsh', 'powershell']) {
+        const result = await exec(
+          shell,
+          ['-NoProfile', '-NonInteractive', '-Command', command],
+          3_000,
+        );
+        if (!result.ok) continue;
+        const answer = result.stdout.trim().toLowerCase();
+        if (answer === 'true' || answer === '1') return true;
+        if (answer === 'false' || answer === '0') return false;
+      }
+    }
+  } catch {
+    // 查不出：当作没有。
+  }
+  return false;
+}
 
 /** 环境变量：指定 `opencode` 的路径（开发与测试用，优先于自动查找，低于 `account.setPath`）。 */
 export const OPENCODE_BIN_ENV = 'WEVIR_OPENCODE_BIN';
@@ -88,6 +223,8 @@ function executableNames(platform: NodeJS.Platform): string[] {
 export interface FindOpenCodeOptions {
   /** `account.setPath` 指定的路径，`~` 开头的按家目录展开。 */
   customPath?: string | null;
+  /** Wevir 自己装的 `opencode`：用户的 PATH 与常见位置里都没有时才用。 */
+  managedPath?: string | undefined;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
   home?: string;
@@ -96,7 +233,7 @@ export interface FindOpenCodeOptions {
 
 /**
  * 找 `opencode`：用户指定的路径（存在才用，不存在返回 undefined，不再自动找）→ `WEVIR_OPENCODE_BIN` → PATH →
- * `commonOpenCodeDirs`。找不到时 undefined。
+ * `commonOpenCodeDirs` → Wevir 自己装的。找不到时 undefined。
  */
 export function findOpenCode(options: FindOpenCodeOptions = {}): string | undefined {
   const env = options.env ?? process.env;
@@ -125,7 +262,8 @@ export function findOpenCode(options: FindOpenCodeOptions = {}): string | undefi
       if (exists(candidate)) return candidate;
     }
   }
-  return undefined;
+  const managed = options.managedPath?.trim();
+  return managed !== undefined && managed !== '' && exists(managed) ? managed : undefined;
 }
 
 /**

@@ -6,7 +6,9 @@
 import type { EngineFeatures, SessionCommand } from '@wevir/protocol';
 import type {
   AccountKind,
+  AccountLoginOptions,
   AccountState,
+  AccountUpstream,
   AgentEvent,
   AgentInput,
   AgentRuntimeAdapter,
@@ -419,22 +421,51 @@ class MergedAccounts implements EngineAccounts {
       for (const kind of part.kinds) if (!this.#byKind.has(kind)) this.#byKind.set(kind, part);
     }
     this.kinds = [...this.#byKind.keys()];
+    if (parts.some((part) => part.upstreams !== undefined)) {
+      this.upstreams = async (kind) => {
+        const part = this.#part(kind);
+        if (part.upstreams === undefined) {
+          throw new AdapterError('invalid_input', `the ${kind} account has no upstreams`);
+        }
+        return part.upstreams(kind);
+      };
+    }
   }
 
   async read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
     return this.#part(kind).read(kind, options);
   }
 
-  async login(kind: AccountKind, method: 'browser' | 'device_code'): Promise<AccountState> {
-    return this.#part(kind).login(kind, method);
+  async login(
+    kind: AccountKind,
+    method: 'browser' | 'device_code',
+    options?: AccountLoginOptions,
+  ): Promise<AccountState> {
+    const part = this.#part(kind);
+    // 只有实现了上游的引擎认 `upstream` 与 `apiKey`；别的引擎收到会悄悄忽略（用户以为 Key 存下了），所以在这里拒绝。
+    // `option` 单独给时是 `loginOptions` 里的一项（WorkBuddy），由引擎自己核对。
+    if (
+      (options?.upstream !== undefined || options?.apiKey !== undefined) &&
+      part.upstreams === undefined
+    ) {
+      throw new AdapterError('invalid_input', `the ${kind} account has no upstreams`);
+    }
+    return part.login(kind, method, options);
   }
+
+  /** 有一个引擎的账号实现了上游，合并后的就实现（构造时定下）。 */
+  upstreams?: (kind: AccountKind) => Promise<AccountUpstream[]>;
 
   async cancelLogin(kind: AccountKind, loginId?: string): Promise<AccountState> {
     return this.#part(kind).cancelLogin(kind, loginId);
   }
 
-  async logout(kind: AccountKind): Promise<AccountState> {
-    return this.#part(kind).logout(kind);
+  async logout(kind: AccountKind, options?: { upstream?: string }): Promise<AccountState> {
+    const part = this.#part(kind);
+    if (options?.upstream !== undefined && part.upstreams === undefined) {
+      throw new AdapterError('invalid_input', `the ${kind} account has no upstreams`);
+    }
+    return part.logout(kind, options);
   }
 
   async models(kind: AccountKind) {

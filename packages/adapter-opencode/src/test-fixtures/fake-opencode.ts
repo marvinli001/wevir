@@ -21,6 +21,8 @@ import type {
   Part,
   PermissionRuleset,
   PromptInput,
+  ProviderAuthAuthorization,
+  ProviderAuthMethod,
   ProviderListResponse,
   QuestionAnswer,
   Session,
@@ -161,6 +163,26 @@ export class FakeOpenCode implements OpenCodeSdk {
   titleReply: { structured?: unknown; text?: string; error?: AssistantMessage['error'] } = {
     structured: MOCK_STRUCTURED_TITLE,
   };
+  /** 各上游的登录方式（`provider.auth`）。 */
+  authMethods: Record<string, ProviderAuthMethod[]> = {};
+  /** `oauthAuthorize` 的回答；`Error` 表示服务器回了错误。 */
+  authorizeReply: ProviderAuthAuthorization | Error = {
+    url: 'https://auth.example/authorize?state=1',
+    method: 'auto',
+    instructions: 'Complete authorization in your browser. This window will close automatically.',
+  };
+  /** 挂着的 `oauthCallback`：测试决定什么时候结束（`true` 同时把上游算作已接上）。 */
+  readonly callbacks: Array<{
+    providerID: string;
+    method: number;
+    code: string | undefined;
+    aborted: boolean;
+    settle: (result: boolean | Error) => void;
+  }> = [];
+  /** 存下的 Key（上游 ID → Key）。 */
+  readonly keys = new Map<string, string>();
+  /** `removeAuth` 之后上游仍然算接着的（环境变量、OpenCode Zen 的免登录模型）。 */
+  removeAuthKeepsConnected = false;
   /** 同步 prompt 卡住不返回（测试中止）。 */
   holdPrompt = false;
   /** 每个会话存下的 `noReply` 说明。 */
@@ -186,6 +208,57 @@ export class FakeOpenCode implements OpenCodeSdk {
       providers: async () => {
         record('providers');
         return this.providerList;
+      },
+      providerAuth: async () => {
+        record('providerAuth');
+        return this.authMethods;
+      },
+      oauthAuthorize: async (body) => {
+        record('oauthAuthorize', body);
+        if (this.authorizeReply instanceof Error) throw this.authorizeReply;
+        return this.authorizeReply;
+      },
+      oauthCallback: (body, signal) => {
+        record('oauthCallback', body);
+        return new Promise<boolean>((resolve, reject) => {
+          const entry = {
+            providerID: body.providerID,
+            method: body.method,
+            code: body.code,
+            aborted: false,
+            settle: (result: boolean | Error) => {
+              if (result instanceof Error) {
+                reject(result);
+                return;
+              }
+              if (result) this.#connect(body.providerID);
+              resolve(result);
+            },
+          };
+          this.callbacks.push(entry);
+          signal?.addEventListener(
+            'abort',
+            () => {
+              entry.aborted = true;
+              reject(new DOMException('This operation was aborted', 'AbortError'));
+            },
+            { once: true },
+          );
+        });
+      },
+      setApiKey: async (providerID, key) => {
+        record('setApiKey', providerID, '(key)');
+        this.keys.set(providerID, key);
+        this.#connect(providerID);
+      },
+      removeAuth: async (providerID) => {
+        record('removeAuth', providerID);
+        this.keys.delete(providerID);
+        if (this.removeAuthKeepsConnected) return;
+        this.providerList = {
+          ...this.providerList,
+          connected: this.providerList.connected.filter((id) => id !== providerID),
+        };
       },
       createSession: async (body) => {
         record('createSession', body);
@@ -303,6 +376,14 @@ export class FakeOpenCode implements OpenCodeSdk {
   /** 直接发一条事件给所有订阅者（测试用）。 */
   emit(event: Event): void {
     for (const subscriber of this.#subscribers) subscriber.push(event);
+  }
+
+  #connect(providerID: string): void {
+    if (this.providerList.connected.includes(providerID)) return;
+    this.providerList = {
+      ...this.providerList,
+      connected: [...this.providerList.connected, providerID],
+    };
   }
 
   #createSession(

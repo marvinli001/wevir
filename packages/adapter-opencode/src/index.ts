@@ -1,11 +1,16 @@
 export { OpenCodeAccounts, type OpenCodeAccountsOptions, PROBE_TTL_MS } from './accounts.js';
 export {
+  detectAvx2,
   findOpenCode,
   MINIMUM_OPENCODE_VERSION,
   OPENCODE_BIN_ENV,
   OPENCODE_INSTALL_COMMAND,
   OPENCODE_LOGIN_COMMAND,
+  openCodeLoginCommand,
+  openCodeNpmPackage,
+  openCodePackageNames,
 } from './executable.js';
+export { type ManagedInstaller, OpenCodeInstaller, openCodeInstallSupported } from './install.js';
 export { ENGINE_RAW_PROTOCOL, OpenCodeTurnMapper } from './mapping.js';
 export { accountModels, lowestVariant, parseModelId, planLabel } from './models.js';
 export {

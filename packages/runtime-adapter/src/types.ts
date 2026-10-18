@@ -412,6 +412,38 @@ export type AccountKind = 'chatgpt' | SubscriptionKind;
 /** 与 @wevir/protocol 的 `AccountLoginMethod` 同形。 */
 export type AccountLoginMethod = 'browser' | 'device_code';
 
+/** 与 @wevir/protocol 的 `AccountLoginOption` 同形（0.56.0）。 */
+export interface AccountLoginOption {
+  id: string;
+  label: string;
+}
+
+/** 与 @wevir/protocol 的 `AccountUpstreamMethod` 同形（0.56.0）。 */
+export interface AccountUpstreamMethod {
+  type: 'oauth' | 'api_key';
+  label: string;
+  option: string;
+}
+
+/** 与 @wevir/protocol 的 `AccountUpstream` 同形（0.56.0）：订阅来源后面接着的一家上游。 */
+export interface AccountUpstream {
+  id: string;
+  name: string;
+  connected: boolean;
+  featured: boolean;
+  methods: AccountUpstreamMethod[];
+}
+
+/**
+ * `account.login` 的附加参数（0.56.0）：`upstream` 与 `option` 选订阅来源后面的哪一家上游、哪种方式（`upstreams()` 给的）；没有
+ * `upstream` 时 `option` 是 `AccountState.loginOptions` 里的一项。`apiKey` 只交给引擎，不进日志与状态。
+ */
+export interface AccountLoginOptions {
+  upstream?: string;
+  option?: string;
+  apiKey?: string;
+}
+
 /** 与 @wevir/protocol 的 `AccountState` 同形（domain-model §3.6）。 */
 export interface AccountState {
   kind: AccountKind;
@@ -437,6 +469,8 @@ export interface AccountState {
   planLabel?: string;
   signIn?: 'in_app' | 'command';
   loginMethods?: AccountLoginMethod[];
+  /** 0.56.0：未登录时可选的登录方式（WorkBuddy 的国内 / 国际站），第一项是缺省。 */
+  loginOptions?: AccountLoginOption[];
   loginCommand?: string;
   installed?: boolean;
   version?: string;

@@ -207,6 +207,49 @@ export const AccountLoginSchema = z.object({
 });
 export type AccountLogin = z.infer<typeof AccountLoginSchema>;
 
+/**
+ * 应用内登录可选的方式（0.56.0，WorkBuddy 的国内 / 国际站）：未登录且 `signIn` 是 `in_app` 时由引擎在 `AccountState.loginOptions`
+ * 里列出，用户选了哪一项，`account.login` 的 `option` 就带回它的 `id`。
+ */
+export const AccountLoginOptionSchema = z.object({
+  /** 引擎认的 ID，不透明字符串，`option` 原样带回。 */
+  id: z.string().min(1).max(64),
+  /** 引擎给的名称（如 `WeChat`、`Google / GitHub`），产品名，界面原样显示。 */
+  label: z.string().min(1),
+});
+export type AccountLoginOption = z.infer<typeof AccountLoginOptionSchema>;
+
+/** 订阅来源后面接着的一家上游的一种接入方式（0.56.0，OpenCode）。 */
+export const AccountUpstreamMethodSchema = z.object({
+  /**
+   * `oauth`：浏览器授权或设备码，`account.login` 返回 `signing_in`，授权网址或设备码在 `login`；`api_key`：填 API Key，
+   * `account.login` 带 `apiKey`，立即返回重新检测后的状态。
+   */
+  type: z.enum(['oauth', 'api_key']),
+  /** 引擎给的方式名（如 “ChatGPT Pro/Plus (headless)”），产品名，界面原样显示。 */
+  label: z.string().min(1),
+  /** 这种方式在这家上游里的 ID，`account.login` 的 `option` 原样带回（OpenCode：方式的序号，默认的 API Key 方式是 `default`）。 */
+  option: z.string().min(1).max(64),
+});
+export type AccountUpstreamMethod = z.infer<typeof AccountUpstreamMethodSchema>;
+
+/**
+ * 订阅来源后面接着的一家上游（0.56.0，OpenCode：OpenCode Zen / Go、OpenAI、GitHub Copilot…，一个 opencode 同时接着好几家）。
+ * 只列在应用内能接的：要自己填实例地址、账号 ID 的方式引擎不提供，用户仍可在终端里登录。
+ */
+export const AccountUpstreamSchema = z.object({
+  /** 引擎的上游 ID（`openai`、`github-copilot`…），`account.login` 的 `upstream`。 */
+  id: z.string().min(1),
+  name: z.string().min(1),
+  /** 已接上：凭据在引擎里、环境变量里，或是引擎自带的免登录模型（OpenCode Zen）。 */
+  connected: z.boolean(),
+  /** 常用的（引擎自己列在最前面的几家，和有 OAuth 登录的）：界面可以先只列这些，其余放在“更多”里。 */
+  featured: z.boolean(),
+  /** 能用的接入方式，至少一种。 */
+  methods: z.array(AccountUpstreamMethodSchema).min(1),
+});
+export type AccountUpstream = z.infer<typeof AccountUpstreamSchema>;
+
 /** 一个用量窗口（Codex 的 `RateLimitWindow`）。 */
 export const AccountRateLimitWindowSchema = z.object({
   /** 已用的百分比，0–100。 */
@@ -257,6 +300,11 @@ export const AccountStateSchema = z.object({
   signIn: z.enum(['in_app', 'command']).optional(),
   /** `in_app` 支持的登录方式。 */
   loginMethods: z.array(AccountLoginMethodSchema).optional(),
+  /**
+   * 0.56.0：`in_app` 且未登录时，引擎有几种登录方式可选（WorkBuddy：国内版微信、国际版 Google / GitHub）就列在这里，第一项是
+   * 缺省；`account.login` 不带 `option` 时用缺省。只有一项或没有时客户端不必让用户选。
+   */
+  loginOptions: z.array(AccountLoginOptionSchema).min(1).optional(),
   /** `command`：要在终端里运行的登录命令，如 `claude auth login`。 */
   loginCommand: z.string().min(1).optional(),
   /** 引擎的运行体（CLI 或下载的程序）找不找得到；false 时登录字段没有意义，界面给安装方法。省略：随包，总是在。 */

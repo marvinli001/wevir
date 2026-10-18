@@ -2,11 +2,14 @@
 // （Host 的 `--adapter echo` 在环境变量 WEVIR_ECHO_SUBSCRIPTIONS 设了时挂上），不碰任何真实凭据、不联网。
 
 import type { EngineAccounts } from './adapter.js';
+import { AdapterError } from './errors.js';
 import type {
   AccountKind,
   AccountLoginMethod,
+  AccountLoginOptions,
   AccountModels,
   AccountState,
+  AccountUpstream,
   SubscriptionKind,
 } from './types.js';
 
@@ -25,7 +28,7 @@ export const ECHO_SUBSCRIPTION_KINDS: readonly SubscriptionKind[] = [
 const DEFAULT_SCENARIOS: Readonly<Record<SubscriptionKind, EchoAccountScenario>> = {
   claude: 'signed_in',
   cursor: 'signed_out',
-  opencode: 'missing',
+  opencode: 'installable',
   grok: 'signed_in',
   antigravity: 'installable',
   workbuddy: 'signed_out',
@@ -45,7 +48,8 @@ const PROFILES: Readonly<
   },
   cursor: { signIn: 'in_app', loginMethods: ['browser'] },
   opencode: {
-    signIn: 'command',
+    signIn: 'in_app',
+    loginMethods: ['browser', 'device_code'],
     loginCommand: 'opencode auth login',
     installCommand: 'npm install -g opencode-ai',
   },
@@ -110,6 +114,35 @@ const MODELS: Readonly<Record<SubscriptionKind, AccountModels>> = {
   },
 };
 
+const API_KEY = { type: 'api_key', label: 'API key', option: 'default' } as const;
+
+/** 假的 OpenCode 上游（`account.upstreams`）：常用的几家，各种登录方式都有，另有几家不常用的。 */
+const ECHO_UPSTREAMS: readonly AccountUpstream[] = [
+  { id: 'opencode', name: 'OpenCode Zen', connected: true, featured: true, methods: [API_KEY] },
+  { id: 'anthropic', name: 'Anthropic', connected: false, featured: true, methods: [API_KEY] },
+  {
+    id: 'github-copilot',
+    name: 'GitHub Copilot',
+    connected: false,
+    featured: true,
+    methods: [{ type: 'oauth', label: 'Login with GitHub Copilot', option: '0' }],
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    connected: false,
+    featured: true,
+    methods: [
+      { type: 'oauth', label: 'ChatGPT Pro/Plus (browser)', option: '0' },
+      { type: 'oauth', label: 'ChatGPT Pro/Plus (headless)', option: '1' },
+      { type: 'api_key', label: 'Manually enter API Key', option: '2' },
+    ],
+  },
+  { id: 'groq', name: 'Groq', connected: false, featured: false, methods: [API_KEY] },
+  { id: 'mistral', name: 'Mistral', connected: false, featured: false, methods: [API_KEY] },
+  { id: 'xai', name: 'xAI', connected: false, featured: false, methods: [API_KEY] },
+];
+
 const PLANS: Readonly<Partial<Record<SubscriptionKind, { plan: string; planLabel: string }>>> = {
   claude: { plan: 'max', planLabel: 'Max 20x' },
   cursor: { plan: 'pro', planLabel: 'Pro' },
@@ -171,6 +204,8 @@ export class EchoAccounts implements EngineAccounts {
   readonly #listeners = new Set<(state: AccountState) => void>();
   readonly #timers = new Set<ReturnType<typeof setTimeout>>();
   readonly #delayMs: number;
+  /** 假的 OpenCode 里接上的上游。 */
+  readonly #connected = new Set<string>(['opencode']);
 
   constructor(options: EchoAccountsOptions = {}) {
     this.#delayMs = options.delayMs ?? 1500;
@@ -184,10 +219,23 @@ export class EchoAccounts implements EngineAccounts {
     return this.#get(kind);
   }
 
-  async login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState> {
+  async upstreams(kind: AccountKind): Promise<AccountUpstream[]> {
+    if (kind !== 'opencode') throw new Error(`the ${kind} account has no upstreams`);
+    return ECHO_UPSTREAMS.map((upstream) => ({
+      ...upstream,
+      connected: this.#connected.has(upstream.id),
+    }));
+  }
+
+  async login(
+    kind: AccountKind,
+    method: AccountLoginMethod,
+    options?: AccountLoginOptions,
+  ): Promise<AccountState> {
     const state = this.#get(kind);
     if (state.signIn !== 'in_app') throw new Error(`run \`${state.loginCommand}\` in a terminal`);
     if (state.installed === false) throw new Error(`${kind} is not installed`);
+    if (options?.upstream !== undefined) return this.#connect(state, options.upstream, options);
     const loginId = `echo-${kind}-${Date.now()}`;
     const next = this.#set({
       ...withoutLogin(state),
@@ -221,7 +269,14 @@ export class EchoAccounts implements EngineAccounts {
     return this.#set({ ...withoutLogin(state), status: 'signed_out' });
   }
 
-  async logout(kind: AccountKind): Promise<AccountState> {
+  async logout(kind: AccountKind, options?: { upstream?: string }): Promise<AccountState> {
+    if (options?.upstream !== undefined) {
+      if (!this.#connected.has(options.upstream) || options.upstream === 'opencode') {
+        throw new AdapterError('invalid_input', `${options.upstream} cannot be disconnected here`);
+      }
+      this.#connected.delete(options.upstream);
+      return this.#set(this.#withUpstreams(this.#get(kind)));
+    }
     const {
       email: _email,
       plan: _plan,
@@ -270,12 +325,14 @@ export class EchoAccounts implements EngineAccounts {
             return;
           }
           const { installing: _done, canInstall: _can, ...rest } = current;
-          this.#set({
+          const installed: AccountState = {
             ...rest,
             installed: true,
             version: '1.3.0',
             executablePath: `/echo/${kind}`,
-          });
+          };
+          // 真的 opencode 一装好就接着 OpenCode Zen 的免登录模型，是已登录。
+          this.#set(kind === 'opencode' ? this.#withUpstreams(installed) : installed);
         },
         (this.#delayMs * step) / steps,
       );
@@ -292,6 +349,58 @@ export class EchoAccounts implements EngineAccounts {
     for (const timer of this.#timers) clearTimeout(timer);
     this.#timers.clear();
     this.#listeners.clear();
+  }
+
+  /** 接上假的上游：Key 立即接上；OAuth 给授权网址（headless 给设备码），过一会儿自己完成。 */
+  #connect(state: AccountState, id: string, options: AccountLoginOptions): AccountState {
+    const upstream = ECHO_UPSTREAMS.find((entry) => entry.id === id);
+    if (upstream === undefined) throw new AdapterError('invalid_input', `no upstream "${id}"`);
+    const method =
+      upstream.methods.find((entry) => entry.option === options.option) ??
+      (upstream.methods.length === 1 ? upstream.methods[0] : undefined);
+    if (method === undefined)
+      throw new AdapterError('invalid_input', `${upstream.name}: pick a method`);
+    if (method.type === 'api_key') {
+      if ((options.apiKey ?? '').trim() === '') {
+        throw new AdapterError('invalid_input', `An API key is required for ${upstream.name}`);
+      }
+      this.#connected.add(id);
+      return this.#set(this.#withUpstreams(state));
+    }
+    const loginId = `echo-opencode-${id}-${Date.now()}`;
+    const headless = method.label.includes('headless');
+    const next = this.#set({
+      ...withoutLogin(state),
+      status: state.status === 'signed_in' ? 'signed_in' : 'signing_in',
+      login: {
+        loginId,
+        method: headless ? 'device_code' : 'browser',
+        ...(headless
+          ? { verificationUrl: 'https://example.com/echo-device', userCode: 'ECHO-1234' }
+          : { authUrl: `https://example.com/echo-login/${id}` }),
+        startedAt: new Date().toISOString(),
+      },
+    });
+    this.#later(() => {
+      const current = this.#get(state.kind);
+      if (current.login?.loginId !== loginId) return;
+      this.#connected.add(id);
+      this.#set(this.#withUpstreams(withoutLogin(current)));
+    });
+    return next;
+  }
+
+  /** 接上的上游变了：套餐写上游的名字，有一家就算已登录。 */
+  #withUpstreams(state: AccountState): AccountState {
+    const names = ECHO_UPSTREAMS.filter((entry) => this.#connected.has(entry.id)).map(
+      (entry) => entry.name,
+    );
+    return {
+      ...state,
+      status: 'signed_in',
+      plan: [...this.#connected].join(','),
+      planLabel: names.join(', '),
+    };
   }
 
   #get(kind: AccountKind): AccountState {

@@ -17,6 +17,8 @@ import type {
   Part,
   PermissionRule,
   PermissionRuleset,
+  ProviderAuthAuthorization,
+  ProviderAuthMethod,
   ProviderListResponse,
   QuestionAnswer,
   Session,
@@ -61,6 +63,22 @@ export interface SyncPromptInput {
 export interface OpenCodeClient {
   health(signal?: AbortSignal): Promise<{ healthy: true; version: string }>;
   providers(signal?: AbortSignal): Promise<ProviderListResponse>;
+  /** 各上游的登录方式（`provider.auth`）：上游 ID → 方式；只有 OAuth 或要填额外信息的上游才有条目。 */
+  providerAuth(signal?: AbortSignal): Promise<Record<string, ProviderAuthMethod[]>>;
+  /** 开始一次 OAuth 登录（`provider.oauth.authorize`）：服务器起好回调的监听，返回要打开的网址。 */
+  oauthAuthorize(
+    input: { providerID: string; method: number; inputs?: Record<string, string> },
+    signal?: AbortSignal,
+  ): Promise<ProviderAuthAuthorization>;
+  /** 等 OAuth 登录完成（`provider.oauth.callback`）：`auto` 的方式不带 `code`，请求一直挂到用户在浏览器里同意。 */
+  oauthCallback(
+    input: { providerID: string; method: number; code?: string },
+    signal?: AbortSignal,
+  ): Promise<boolean>;
+  /** 存下上游的 API Key（`auth.set`）；Key 只经这里交给 opencode，Wevir 不留。 */
+  setApiKey(providerID: string, key: string): Promise<void>;
+  /** 删掉 opencode 存下的这个上游的凭据（`auth.remove`）。 */
+  removeAuth(providerID: string): Promise<void>;
   createSession(input: { permission: PermissionRuleset; title?: string }): Promise<Session>;
   getSession(sessionID: string): Promise<Session>;
   deleteSession(sessionID: string): Promise<void>;
@@ -107,6 +125,8 @@ export type {
   Part,
   PermissionRule,
   PermissionRuleset,
+  ProviderAuthAuthorization,
+  ProviderAuthMethod,
   ProviderListResponse,
   QuestionAnswer,
   Session,
@@ -143,6 +163,32 @@ export function loadOpenCodeSdk(): Promise<OpenCodeSdk> {
             required('global.health', (await client.global.health({ signal })).data),
           providers: async (signal) =>
             required('provider.list', (await client.provider.list(undefined, { signal })).data),
+          providerAuth: async (signal) =>
+            required('provider.auth', (await client.provider.auth(undefined, { signal })).data),
+          oauthAuthorize: async (body, signal) =>
+            required(
+              'provider.oauth.authorize',
+              (
+                await client.provider.oauth.authorize(body, {
+                  ...(signal !== undefined && { signal }),
+                })
+              ).data,
+            ),
+          oauthCallback: async (body, signal) =>
+            required(
+              'provider.oauth.callback',
+              (
+                await client.provider.oauth.callback(body, {
+                  ...(signal !== undefined && { signal }),
+                })
+              ).data,
+            ),
+          setApiKey: async (providerID, key) => {
+            await client.auth.set({ providerID, auth: { type: 'api', key } });
+          },
+          removeAuth: async (providerID) => {
+            await client.auth.remove({ providerID });
+          },
           createSession: async (body) =>
             required('session.create', (await client.session.create(body)).data),
           getSession: async (sessionID) =>
@@ -223,6 +269,31 @@ export function errorMessage(error: unknown): string {
     }
   }
   return String(error);
+}
+
+/** 登录接口的错误原文：`ProviderAuthError` 的 `data.message`，其次是错误自己的信息。 */
+export function authErrorMessage(error: unknown): string {
+  const seen = new Set<unknown>();
+  const queue: unknown[] = [error];
+  for (let steps = 0; queue.length > 0 && steps < 16; steps += 1) {
+    const node = queue.shift();
+    if (node === null || typeof node !== 'object' || seen.has(node)) continue;
+    seen.add(node);
+    const record = node as Record<string, unknown>;
+    const data = record.data;
+    if (data !== null && typeof data === 'object') {
+      const message = (data as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim() !== '') return message.trim();
+    }
+    if (node instanceof Error && node.message.trim() !== '') return node.message.trim();
+    if (typeof record.message === 'string' && record.message.trim() !== '') {
+      return record.message.trim();
+    }
+    for (const key of ['cause', 'body', 'error'] as const) {
+      if (record[key] !== undefined) queue.push(record[key]);
+    }
+  }
+  return errorMessage(error);
 }
 
 /** opencode 回 404 或 NotFoundError（T3 的 `isOpenCodeNotFound`：沿 cause / body / error / data 找）。 */

@@ -21,6 +21,13 @@ import {
   openCodeEnv,
   probeOpenCodeVersion,
 } from './executable.js';
+import {
+  type ManagedInstaller,
+  OpenCodeInstaller,
+  type OpenCodeInstallerOptions,
+  openCodeInstallDirectory,
+  openCodeInstallSupported,
+} from './install.js';
 import { errorMessage, loadOpenCodeSdk, type OpenCodeClient, type OpenCodeSdk } from './sdk.js';
 import {
   type OpenCodeServerHandle,
@@ -40,7 +47,12 @@ export interface OpenCodeInstallation {
 }
 
 export type Detection =
-  | { ok: true; installation: OpenCodeInstallation }
+  | {
+      ok: true;
+      installation: OpenCodeInstallation;
+      /** 用的是 Wevir 自己装的那份。 */
+      managed: boolean;
+    }
   | {
       ok: false;
       /** missing：找不到；unusable：找到了但跑不起来或版本不支持。 */
@@ -48,6 +60,7 @@ export type Detection =
       executablePath?: string;
       version?: string;
       message?: string;
+      managed?: boolean;
     };
 
 /** 借来的服务器：用完 `release`。 */
@@ -63,8 +76,15 @@ export interface OpenCodeRuntimeOptions {
   env?: NodeJS.ProcessEnv;
   sdk?: () => Promise<OpenCodeSdk>;
   warn?: (message: string, fields?: Record<string, unknown>) => void;
-  /** 测试用：替换可执行文件的查找、版本探测与起服务器。 */
-  findExecutable?: (customPath: string | null) => string | undefined;
+  /**
+   * Wevir 替用户装的 `opencode`（`<engineDir>/runtime`）。省略时按本平台建，本平台没有构建时没有；`null` 表示不能装
+   * （测试）。
+   */
+  installer?: ManagedInstaller | null;
+  /** 测试用：默认安装器的选项（registry 与 fetch、平台、AVX2 与 musl 的探测）。 */
+  installerOptions?: Partial<OpenCodeInstallerOptions>;
+  /** 测试用：替换可执行文件的查找（第二个参数是 Wevir 自己装的 `opencode`）、版本探测与起服务器。 */
+  findExecutable?: (customPath: string | null, managedPath?: string) => string | undefined;
   probeVersion?: typeof probeOpenCodeVersion;
   startServer?: (options: StartServerOptions) => Promise<OpenCodeServerHandle>;
   idleTtlMs?: number;
@@ -85,6 +105,7 @@ export class OpenCodeRuntime {
   #leases = 0;
   #idleTimer: ReturnType<typeof setTimeout> | undefined;
   #disposed = false;
+  readonly installer: ManagedInstaller | undefined;
 
   constructor(options: OpenCodeRuntimeOptions) {
     this.#options = options;
@@ -92,6 +113,8 @@ export class OpenCodeRuntime {
       engineDir: options.engineDir,
       ...(options.warn !== undefined && { warn: options.warn }),
     });
+    this.installer =
+      options.installer === undefined ? this.#defaultInstaller() : (options.installer ?? undefined);
   }
 
   get engineDir(): string {
@@ -147,10 +170,12 @@ export class OpenCodeRuntime {
   /** 找 `opencode` 并跑 `--version`（T3 的版本探测；2.x 与太旧的版本不能用）。 */
   async detect(): Promise<Detection> {
     const parentEnv = this.#options.env ?? process.env;
+    const managed = await this.installer?.active();
     const find =
       this.#options.findExecutable ??
-      ((customPath) => findOpenCode({ customPath, env: parentEnv }));
-    const executablePath = find(this.#customPath);
+      ((customPath, managedPath) => findOpenCode({ customPath, env: parentEnv, managedPath }));
+    const executablePath = find(this.#customPath, managed?.path);
+    const isManaged = managed !== undefined && executablePath === managed.path;
     if (executablePath === undefined) {
       this.#installation = undefined;
       return {
@@ -172,6 +197,7 @@ export class OpenCodeRuntime {
         reason: probe.reason === 'missing' ? 'missing' : 'unusable',
         executablePath,
         message: probe.message,
+        managed: isManaged,
       };
     }
     const version = probe.version;
@@ -184,6 +210,7 @@ export class OpenCodeRuntime {
         executablePath,
         ...(version !== undefined && { version }),
         message: unsupported,
+        managed: isManaged,
       };
     }
     const installation = { executablePath, version };
@@ -196,7 +223,7 @@ export class OpenCodeRuntime {
       this.#scheduleIdleStop(0);
     }
     this.#installation = installation;
-    return { ok: true, installation };
+    return { ok: true, installation, managed: isManaged };
   }
 
   /** 借服务器：没有在跑的就起一个（要先 `detect` 成功过）。 */
@@ -241,6 +268,7 @@ export class OpenCodeRuntime {
   async dispose(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.installer?.cancel();
     this.#abort.abort();
     this.#exitListeners.clear();
     this.#cancelIdleStop();
@@ -248,6 +276,28 @@ export class OpenCodeRuntime {
     await this.#stopServer();
     // 正在起的那个起来之后也停掉。
     await starting?.then((server) => server.stop()).catch(() => {});
+  }
+
+  /** 默认的安装器：下载的程序要能跑，`opencode --version` 有答复而且是支持的版本。 */
+  #defaultInstaller(): ManagedInstaller | undefined {
+    const extra = this.#options.installerOptions;
+    if (!openCodeInstallSupported(extra?.platform, extra?.arch)) return undefined;
+    return new OpenCodeInstaller({
+      directory: openCodeInstallDirectory(this.#options.engineDir),
+      ...extra,
+      validate: async (file, _version, signal) => {
+        const parentEnv = this.#options.env ?? process.env;
+        const probe = await (this.#options.probeVersion ?? probeOpenCodeVersion)(
+          file,
+          openCodeEnv(parentEnv, file),
+          undefined,
+          signal,
+        );
+        if (!probe.ok) throw new Error(probe.message);
+        const unsupported = unsupportedVersion(probe.version);
+        if (unsupported !== undefined) throw new Error(unsupported);
+      },
+    });
   }
 
   async #ensureServer(installation: OpenCodeInstallation): Promise<OpenCodeServerHandle> {

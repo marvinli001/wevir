@@ -190,6 +190,11 @@ export const HOST_FEATURES = {
    */
   sessionRecap: 'session_recap',
   /**
+   * 订阅来源的上游（0.56.0，domain-model §3.6）：`account.upstreams`，`account.login` 的 `upstream` / `option` / `apiKey`，
+   * `account.logout` 的 `upstream`。取决于引擎（OpenCode 有，别的订阅来源没有）。
+   */
+  subscriptionUpstreams: 'subscription_upstreams',
+  /**
    * 共享任务清单（0.52.0，domain-model §3.15）：会话树的根会话里有 `tasks.board_updated` 事件与快照的 `taskBoard`，agent 用
    * `wevir_tasks` 系列工具分工，界面只读。随应用级工具（`app_tools`）一起声明。
    */
@@ -251,6 +256,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_rewind: z.boolean().optional(),
   session_undo: z.boolean().optional(),
   session_recap: z.boolean().optional(),
+  subscription_upstreams: z.boolean().optional(),
   task_board: z.boolean().optional(),
   prompt_suggestions: z.boolean().optional(),
   chat_sessions: z.boolean().optional(),
