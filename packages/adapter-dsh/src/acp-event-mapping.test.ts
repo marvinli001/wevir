@@ -2,7 +2,7 @@
 // §2 工具名 → 展示类型（与 DSH_TOOLS 双向一致）、§3 错误归类（与 TURN_ERROR_RULES 逐条一致，样本归到所在行）、
 // §6 resume 失败的归类（与 RESUME_ERROR_RULES 逐条一致，样本归到所在行）。
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   type AcpSessionNotification,
@@ -18,10 +18,11 @@ import { mapAcpUpdate } from './test-fixtures/dsh-mapping.js';
 import { DSH_TOOLS, toolDisplay } from './tool-display.js';
 import { classifyTurnError, TURN_ERROR_RULES } from './turn-error.js';
 
-const DOC = readFileSync(
-  fileURLToPath(new URL('../../../docs/architecture/acp-event-mapping.md', import.meta.url)),
-  'utf8',
+// 这份文档只在维护者本机（不在公开仓库里），克隆下来没有它时整组测试跳过。
+const docPath = fileURLToPath(
+  new URL('../../../docs/architecture/acp-event-mapping.md', import.meta.url),
 );
+const DOC = existsSync(docPath) ? readFileSync(docPath, 'utf8') : '';
 
 /** 某一节（`## <n>.`）里第一张表的数据行，每行按列切开；`\|` 是单元格里的竖线。 */
 function table(section: number): string[][] {
@@ -45,7 +46,7 @@ function table(section: number): string[][] {
 /** 单元格里所有反引号包住的片段。 */
 const codes = (cell: string) => [...cell.matchAll(/`([^`]+)`/g)].map((m) => m[1] as string);
 
-describe('acp-event-mapping.md 与代码一致', () => {
+describe.skipIf(DOC === '')('acp-event-mapping.md 与代码一致', () => {
   it('§1：类型表覆盖映射的全部类型，样本跑出来的事件类型都在表里写着', () => {
     const rows = table(1);
     const kinds = rows.map(([kind]) => codes(kind ?? '')[0]);
