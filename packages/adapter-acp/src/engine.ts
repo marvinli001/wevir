@@ -1,8 +1,5 @@
 import type {
   ApprovalOption,
-  AssistantDeltaEvent,
-  AssistantStreamEndedEvent,
-  DeltaBlockRef,
   SessionLostReason,
   TodoItem,
   ToolDisplay,
@@ -22,7 +19,7 @@ export interface AcpEngine {
   readonly name: string;
   /** 适配器锁定的引擎版本，记进 `EngineSession.engineVersion`（ACP 的 `agentInfo.version` 不可靠）。 */
   readonly version: string;
-  /** 契约测试的能力声明里与增量旁路无关的部分；`incrementalStream` 由旁路的状态决定（`acpAdapterCapabilities`）。 */
+  /** 契约测试的能力声明里与增量无关的部分；`incrementalStream` 由 `messageChunks` 决定（`acpAdapterCapabilities`）。 */
   readonly capabilities: AcpEngineCapabilities;
   /** 工具调用的展示类型与待办。 */
   readonly tools: AcpToolPresentation;
@@ -32,12 +29,10 @@ export interface AcpEngine {
   classifyTurnError(error: unknown): ClassifiedTurnError;
   /** `session/resume` 失败的归类。不是 ACP 错误（连接断开等）的归 `unknown`。 */
   classifyResumeError(error: unknown): ClassifiedResumeError;
-  /** 可选的增量旁路：ACP 只有已提交消息的引擎，另开一个 fd 送逐字增量（dsh 的 stream-tap）。 */
-  readonly incremental?: AcpIncrementalChannel;
   /**
-   * `agent_message_chunk` / `agent_thought_chunk` 的语义（acp-event-mapping.md §1.5）。`committed`（默认，dsh）：每条是
-   * 一块已提交的完整内容，必须带 `messageId`；`streamed`（Grok Build、Gemini CLI）：每条是一段逐字增量，适配器自己
-   * 把连续的增量合成一块再提交（chunk-stream.ts）。`streamed` 的引擎不能再配增量旁路。
+   * `agent_message_chunk` / `agent_thought_chunk` 的语义（acp-event-mapping.md §1.5）。`committed`（默认）：每条是一块已提交的
+   * 完整内容，必须带 `messageId`，没有逐字增量；`streamed`（Grok Build、Gemini CLI）：每条是一段逐字增量，适配器自己
+   * 把连续的增量合成一块再提交（chunk-stream.ts）。
    */
   readonly messageChunks?: 'committed' | 'streamed';
   /** `initialize` 请求的 `_meta`（Grok：`clientType: extension`，自动模式拦下的操作才会问客户端）。 */
@@ -139,54 +134,4 @@ export interface ClassifiedResumeError {
   /** 引擎原文，不截断、不改写；进 `AdapterError.message`。 */
   message: string;
   code?: number;
-}
-
-/** 旁路产出的 AgentEvent：文本与推理的增量（分开），以及一个 attempt 的增量流结束。 */
-export type IncrementalEvent = AssistantDeltaEvent | AssistantStreamEndedEvent;
-
-export interface IncrementalWarning {
-  /**
-   * malformed：不是合法的记录；too_long：单行太长；truncated：fd 关闭时最后一行没有换行（这三种由解码器报）；
-   * install_failed：启动器没能准备好旁路，本次启动没有旁路；not_loaded：启动后旁路没有报到（`AcpProcess` 报）。
-   */
-  kind: 'malformed' | 'too_long' | 'truncated' | 'install_failed' | 'not_loaded';
-  message: string;
-  /** 出问题的行的开头，供诊断。 */
-  line?: string;
-}
-
-export interface AcpIncrementalChannel {
-  /** 告警里的名字（dsh：`stream-tap 插件`）。 */
-  readonly name: string;
-  /** 旁路的 fd。启动器在 spawn 参数里打开它（`AcpPreparedLaunch.incremental` 为 waiting 时）。 */
-  readonly fd: number;
-  /** initialize 完成后等旁路报到的默认时间（ms），超时按没有旁路处理。 */
-  readonly readyGraceMs: number;
-  /** 每个进程一个解码器：fd 上的字节 → 事件。回调同步调用。 */
-  createDecoder(handlers: IncrementalDecoderHandlers): IncrementalDecoder;
-  /** 每个会话一个：增量与 ACP 已提交消息的对齐，按回合重置。 */
-  createMerger(): IncrementalMerger;
-}
-
-export interface IncrementalDecoderHandlers {
-  onEvent: (event: IncrementalEvent) => void;
-  /** 旁路报到：引擎那一侧已加载。 */
-  onReady?: () => void;
-  onWarning: (warning: IncrementalWarning) => void;
-}
-
-export interface IncrementalDecoder {
-  push(chunk: Uint8Array): void;
-  /** fd 关闭。 */
-  end(): void;
-}
-
-/** 增量与已提交消息的对齐（domain-model.md §6.3）。返回 undefined 的事件不发出。 */
-export interface IncrementalMerger {
-  delta(event: AssistantDeltaEvent): AssistantDeltaEvent | undefined;
-  ended(event: AssistantStreamEndedEvent): AssistantStreamEndedEvent | undefined;
-  /** 一条已提交的块（`agent_message_chunk` / `agent_thought_chunk`）替换哪些增量块。 */
-  commit(kind: AssistantDeltaEvent['kind'], messageId: string, text: string): DeltaBlockRef[];
-  /** 回合结束。 */
-  reset(): void;
 }

@@ -39,7 +39,7 @@ runAdapterContract<WorkBuddyAdapter>(
     return adapter;
   },
   // 逐字增量由适配器合成，所以有增量；没有子会话与插话（ACP）。
-  { ...acpAdapterCapabilities(WORKBUDDY_ENGINE, 'off'), incrementalStream: true },
+  acpAdapterCapabilities(WORKBUDDY_ENGINE),
   {
     name: 'WorkBuddyAdapter 契约（假 codebuddy 合成 ACP 样本）',
     sessionConfig: () => ({

@@ -31,7 +31,7 @@ import {
 } from '@wevir/runtime-adapter/app-tools-bridge';
 import { isAcpSessionNotification, sessionConfigInfo } from './acp-mapping.js';
 import { type AcpExit, type AcpProcess, settledWithin } from './acp-process.js';
-import type { AcpEngine, IncrementalEvent } from './engine.js';
+import type { AcpEngine } from './engine.js';
 import {
   type AdapterLogger,
   SessionEventQueue,
@@ -54,8 +54,7 @@ export interface AcpAdapterOptions<P extends AcpProcess> {
   engine: AcpEngine;
   /**
    * 建引擎进程（构造时调用一次）。`hooks` 里的回调要接到进程上：`onSessionUpdate`、`onRequestPermission`、
-   * `onExtNotification` 与 `onExtRequest` 原样作 `AcpProcessOptions` 的同名项，`onIncrementalEvent` 作增量旁路的
-   * `onEvent`。`logger` 是适配器最终用的告警出口（旁路的告警写这里）。
+   * `onExtNotification` 与 `onExtRequest` 原样作 `AcpProcessOptions` 的同名项。`logger` 是适配器最终用的告警出口。
    */
   createProcess(hooks: AcpProcessHooks): P;
   /** 告警日志（Host 的 Logger 满足这个接口），默认写 stderr。 */
@@ -80,7 +79,6 @@ export interface AcpProcessHooks {
   ) => Promise<RequestPermissionResponse>;
   onExtNotification: (method: string, params: unknown) => void;
   onExtRequest: (method: string, params: unknown, signal: AbortSignal) => Promise<unknown>;
-  onIncrementalEvent: (event: IncrementalEvent) => void;
   logger: AdapterLogger;
 }
 
@@ -135,9 +133,8 @@ interface PendingQuestion {
  * 差异都在引擎描述里（engine.ts）。
  *
  * 事件路径（docs/architecture/acp-event-mapping.md 第一部分）：AcpProcess 按引擎写出的顺序交来原始的
- * `session/update`，增量旁路（有的话）交来增量；两者按 `sessionId` 路由到各会话的 `SessionEventQueue`，在那里
- * 映射、对齐，再扇出给订阅者。`session/prompt` 的结果在它之前的更新全部入队之后才兑现，所以回合终结事件总在
- * 该回合的其他事件之后。旁路里不属于任何 ACP 会话的帧（dsh 子 agent 的会话）丢弃。
+ * `session/update`，按 `sessionId` 路由到各会话的 `SessionEventQueue`，在那里映射，再扇出给订阅者。
+ * `session/prompt` 的结果在它之前的更新全部入队之后才兑现，所以回合终结事件总在该回合的其他事件之后。
  *
  * 审批（§1.3）：`session/request_permission` 变成 `approval.requested`（适配器分配 `requestId`，选项原样），
  * 挂起到 `respondToApproval` 回复 `selected`，或以 `cancelled` 回复并发 `approval.cancelled`：取消与关闭
@@ -205,7 +202,6 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
         }
       },
       onExtRequest: (method, params, signal) => this.extRequest(method, params, signal),
-      onIncrementalEvent: (event) => this.#onIncremental(event),
       logger: this.#logger,
     });
     this.process.on('exit', (exit) => this.#onExit(exit));
@@ -916,11 +912,6 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     } catch {
       return Promise.resolve();
     }
-  }
-
-  #onIncremental(event: IncrementalEvent): void {
-    const session = this.#sessions.get(event.engineSessionId);
-    if (session?.status === 'open') session.queue.incremental(event);
   }
 
   #settle(session: AcpSession, turn: Turn, event: TurnSettledEvent | TurnFailedEvent): void {

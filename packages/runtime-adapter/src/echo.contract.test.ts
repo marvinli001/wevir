@@ -22,7 +22,7 @@ runAdapterContract(() => new EchoAdapter(), ALL_CAPABILITIES, {
   ...hooks,
 });
 
-// 模拟 stream-tap 旁路缺失：增量条款按开关跳过，其余条款照跑。
+// 模拟只产出已提交消息的引擎：增量条款按开关跳过，其余条款照跑。
 runAdapterContract(
   () => new EchoAdapter({ incrementalStream: false }),
   { ...ALL_CAPABILITIES, incrementalStream: false },

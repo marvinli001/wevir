@@ -6,7 +6,7 @@ import type { AcpRouteCodec, AcpToolPresentation } from './engine.js';
 // 不认识的 `sessionUpdate` 类型、删掉不认识的字段，而不认识的内容要以 `engine.raw` 原样保留。所以这里自己
 // 检查要读的字段，其余字段不管。工具的展示类型与待办由引擎描述给出（engine.ts 的 `AcpToolPresentation`）。
 //
-// 本文件只做单条通知的翻译；增量与已提交消息的对齐（`replaces`）、回合边界由 session-events.ts 处理。
+// 本文件只做单条通知的翻译；回合边界由 session-events.ts 处理。
 
 /** `session/update` 的参数（只检查了 `sessionId` 与 `update.sessionUpdate`）。 */
 export interface AcpSessionNotification {
@@ -57,7 +57,7 @@ export const RAW_BY_DESIGN_ACP_UPDATES = Object.freeze([
 
 /**
  * 一条 `session/update` 对应的 AgentEvent，按发出顺序。纯函数：`assistant.message` / `assistant.thought` 的
- * `replaces` 恒为空，由调用方对齐增量后填上。不认识的内容映射为一条 `engine.raw`（`params` 是整条通知的
+ * `replaces` 恒为空。不认识的内容映射为一条 `engine.raw`（`params` 是整条通知的
  * 原样参数），并经 `onRaw` 说明原因；不丢弃任何通知。
  */
 export function mapAcpUpdate(

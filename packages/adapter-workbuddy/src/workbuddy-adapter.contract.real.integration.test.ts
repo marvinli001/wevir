@@ -46,7 +46,7 @@ if (!ENABLED) {
 
   runAdapterContract(
     () => new WorkBuddyAdapter({ home: join(root, 'home') }),
-    { ...acpAdapterCapabilities(WORKBUDDY_ENGINE, 'off'), incrementalStream: true },
+    acpAdapterCapabilities(WORKBUDDY_ENGINE),
     {
       name: `WorkBuddy 适配器契约（真实 codebuddy，${MODEL}）`,
       sessionConfig: { cwd, providerId: 'workbuddy', modelId: MODEL },

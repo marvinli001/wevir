@@ -230,7 +230,6 @@ export class WorkBuddyLauncher implements AcpLauncher {
     const executable = await this.#resolve();
     mkdirSync(this.#workDir, { recursive: true });
     return {
-      incremental: 'off',
       spawnSpec: () => ({
         command: executable.path,
         args: ['--acp'],

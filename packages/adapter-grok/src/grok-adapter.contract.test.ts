@@ -46,7 +46,7 @@ runAdapterContract<GrokAdapter>(
     return adapter;
   },
   // 逐字增量由适配器合成，所以有增量；没有子会话与插话（ACP）。
-  { ...acpAdapterCapabilities(GROK_ENGINE, 'off'), incrementalStream: true },
+  acpAdapterCapabilities(GROK_ENGINE),
   {
     name: 'GrokAdapter 契约（假 grok 回放 Grok Build 样本）',
     sessionConfig: () => ({ cwd: temp.dir('ws'), providerId: 'grok', modelId: 'grok-4.7' }),

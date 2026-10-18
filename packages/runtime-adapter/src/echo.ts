@@ -27,7 +27,7 @@ export interface EchoAdapterOptions {
    * 事件循环。计时器都走全局 setTimeout，测试里可以用 `vi.useFakeTimers()` 逐步推进。
    */
   stepDelayMs?: number;
-  /** false 时不发 `assistant.delta`，只发已提交消息（模拟 stream-tap 旁路缺失）。默认 true。 */
+  /** false 时不发 `assistant.delta`，只发已提交消息（模拟只产出已提交消息的引擎）。默认 true。 */
   incrementalStream?: boolean;
   /** `createSession` / `resumeSession` 报的引擎版本（`EngineSession.engineVersion`）；默认不报。 */
   engineVersion?: string;

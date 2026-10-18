@@ -16,12 +16,7 @@ import {
   rawEvent,
 } from './acp-mapping.js';
 import { ChunkStream } from './chunk-stream.js';
-import type {
-  AcpEngine,
-  AcpToolPresentation,
-  IncrementalEvent,
-  IncrementalMerger,
-} from './engine.js';
+import type { AcpEngine, AcpToolPresentation } from './engine.js';
 
 /** 适配器的告警出口；Host 的 Logger 满足这个接口。 */
 export interface AdapterLogger {
@@ -32,19 +27,16 @@ export interface AdapterLogger {
  * 一个引擎会话的有序事件队列。各路输入都是同步调用，按调用顺序产出事件：
  * - ACP `session/update`：AcpProcess 在 SDK 之前按引擎写出的顺序交来（acp-process.ts），所以本队列里的
  *   ACP 事件与 ACP 交付顺序一致，并且排在同一条流里后到的 `session/prompt` 结果（回合终结事件）之前；
- * - 增量旁路（引擎描述有 `incremental` 时，另一条管道）：实时转发，由引擎给的对齐器与已提交消息对齐；
  * - 审批与提问：适配器收到 `session/request_permission`（或引擎的扩展请求）与结束未决的审批、提问时交来；
  * - 回合边界：适配器发出 `session/prompt` 时 `beginTurn`，拿到结果时 `endTurn`。
  *
  * 回合之外只发 `engine.raw` 与 `engine.exited`（events.ts 的顺序约定）：回合外到达的其他 ACP 更新改发
- * `engine.raw` 并告警，增量与 stream_ended 丢弃（dsh 的 committed end 帧可能晚于 `session/prompt` 的结果，
- * T3.2a 实测）。
+ * `engine.raw` 并告警。
  */
 export class SessionEventQueue {
   readonly engineSessionId: string;
   readonly #hub = new EventHub<AgentEvent>();
   readonly #tools: AcpToolPresentation;
-  readonly #merger: IncrementalMerger | undefined;
   /** 逐字流式的引擎（`messageChunks: 'streamed'`）才有。 */
   readonly #chunks: ChunkStream | undefined;
   readonly #warnOnce: WarnOnce;
@@ -56,12 +48,11 @@ export class SessionEventQueue {
   constructor(
     engineSessionId: string,
     warnOnce: WarnOnce,
-    engine: Pick<AcpEngine, 'tools' | 'incremental' | 'messageChunks'>,
+    engine: Pick<AcpEngine, 'tools' | 'messageChunks'>,
   ) {
     this.engineSessionId = engineSessionId;
     this.#warnOnce = warnOnce;
     this.#tools = engine.tools;
-    this.#merger = engine.incremental?.createMerger();
     this.#chunks =
       engine.messageChunks === 'streamed' ? new ChunkStream(engineSessionId) : undefined;
   }
@@ -134,22 +125,8 @@ export class SessionEventQueue {
       if (event.type === 'tool.started' && this.#tools.isPlanTool?.(event.toolName) === true) {
         this.#planToolCallId = event.toolCallId;
       }
-      if (event.type === 'assistant.message' || event.type === 'assistant.thought') {
-        const blockKind = event.type === 'assistant.message' ? 'text' : 'reasoning';
-        const replaces = this.#merger?.commit(blockKind, event.messageId, event.text) ?? [];
-        this.#hub.emit({ ...event, replaces });
-      } else {
-        this.#hub.emit(event);
-      }
+      this.#hub.emit(event);
     }
-  }
-
-  /** 增量旁路的增量与 stream_ended。引擎没有旁路、或不在回合中时忽略。 */
-  incremental(event: IncrementalEvent): void {
-    if (!this.#inTurn || this.#merger === undefined) return;
-    const out =
-      event.type === 'assistant.delta' ? this.#merger.delta(event) : this.#merger.ended(event);
-    if (out !== undefined) this.#hub.emit(out);
   }
 
   /**
@@ -184,7 +161,6 @@ export class SessionEventQueue {
     // 取消或出错时停在半途的一块内容按已生成的部分提交（与 dsh 取消时补发已生成部分的做法一致）。
     this.#flushChunks();
     this.#inTurn = false;
-    this.#merger?.reset();
     this.#hub.emit(event);
   }
 

@@ -39,7 +39,7 @@ export interface DeltaBlockRef {
 }
 
 /**
- * 助手文本或思考的增量（dsh：stream-tap 旁路的 text-delta / reasoning-delta，T3.2a）。只是预览，
+ * 助手文本或思考的增量。只是预览，
  * 最终以替换它的 `assistant.message` / `assistant.thought` 为准。
  */
 export interface AssistantDeltaEvent {

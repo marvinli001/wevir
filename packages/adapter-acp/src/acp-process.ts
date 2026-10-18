@@ -14,7 +14,7 @@ import {
   type RequestPermissionResponse,
 } from '@agentclientprotocol/sdk';
 import { AdapterError, isAdapterError } from '@wevir/runtime-adapter';
-import type { AcpEngine, IncrementalEvent, IncrementalWarning } from './engine.js';
+import type { AcpEngine } from './engine.js';
 
 /** `initialize` 的时限。dsh 实测冷启动到 initialize 完成中位约 0.5 s，最大 0.61 s（T0.3）。 */
 export const INITIALIZE_TIMEOUT_MS = 15_000;
@@ -117,12 +117,6 @@ export interface AcpProcessEventMap {
   failed: [AcpFailed];
 }
 
-/**
- * 当前进程的增量旁路状态。off：没有配置旁路；unavailable：旁路准备失败或启动后没有报到，本进程只有已提交消息；
- * waiting：已打开旁路，还没收到它的 ready；active：旁路已加载，增量从它的 fd 到达。
- */
-export type IncrementalState = 'off' | 'unavailable' | 'waiting' | 'active';
-
 export interface AcpSpawnSpec {
   command: string;
   args: string[];
@@ -134,16 +128,11 @@ export interface AcpSpawnSpec {
  * 计划重启之前调用 `prepare`。
  */
 export interface AcpLauncher {
-  /** 建目录、解析可执行入口、准备增量旁路等可能耗时的步骤。抛错即这次启动失败（`engine_unavailable`）。 */
+  /** 建目录、解析可执行入口等可能耗时的步骤。抛错即这次启动失败（`engine_unavailable`）。 */
   prepare(): Promise<AcpPreparedLaunch>;
 }
 
 export interface AcpPreparedLaunch {
-  /**
-   * 这次启动的增量旁路：waiting 表示 spawn 参数里打开了旁路的 fd；unavailable 表示配了旁路但没准备好（启动器
-   * 已经告警）；off 表示没有配置旁路。
-   */
-  incremental: Exclude<IncrementalState, 'active'>;
   /**
    * 这次的 spawn 参数。`prepare` 完成后由 `AcpProcess` 立即同步调用；这时读到的启动配置就是这个进程用的
    * （`launchConfigStale` 据此判断）。可以抛错（例如环境变量不合法），同样算启动失败。
@@ -152,17 +141,9 @@ export interface AcpPreparedLaunch {
 }
 
 export interface AcpProcessOptions {
-  /**
-   * 引擎描述：名字进错误与告警，增量旁路（fd、解码器、报到时限）、`initialize` 的 `_meta` 与扩展方法的名单也取自
-   * 这里。
-   */
-  engine: Pick<AcpEngine, 'name' | 'incremental' | 'initializeMeta' | 'extensions'>;
+  /** 引擎描述：名字进错误与告警，`initialize` 的 `_meta` 与扩展方法的名单也取自这里。 */
+  engine: Pick<AcpEngine, 'name' | 'initializeMeta' | 'extensions'>;
   launcher: AcpLauncher;
-  /**
-   * 增量旁路的出口。引擎描述有旁路、且这次启动打开了它（`AcpPreparedLaunch.incremental` 为 waiting）时，
-   * 解码出的增量交给 `onEvent`；畸形数据、旁路没有报到等只告警，不影响进程。
-   */
-  incremental?: AcpIncrementalOptions;
   /**
    * ACP `session/update` 通知的原始参数，按引擎写出的顺序同步调用，不得抛错。在 ACP SDK 之前截下、不经它的
    * 校验（T3.2）：SDK 的 zod 校验会丢掉不认识的 `sessionUpdate` 类型、删掉不认识的字段，而这些要以
@@ -212,14 +193,6 @@ export interface AcpProcessOptions {
   disposeTimeouts?: Partial<DisposeTimeouts>;
 }
 
-export interface AcpIncrementalOptions {
-  /** 文本与推理的增量、attempt 结束（按引擎写出的顺序，带引擎的会话 ID）。同步调用，不得抛错。 */
-  onEvent: (event: IncrementalEvent) => void;
-  onWarning: (warning: IncrementalWarning) => void;
-  /** initialize 完成后等旁路报到的时间，超时报 `not_loaded`。默认取引擎描述的 `incremental.readyGraceMs`。 */
-  readyGraceMs?: number;
-}
-
 interface Launch {
   generation: number;
   child: ChildProcess;
@@ -232,9 +205,6 @@ interface Launch {
   readyAt?: number;
   /** 回收阶梯，每个进程只跑一次。 */
   stopping?: Promise<AcpExit | undefined>;
-  incremental: IncrementalState;
-  /** initialize 之后等旁路报到的计时器。 */
-  incrementalGrace?: NodeJS.Timeout;
   /** spawn 时用的启动配置版本（`launchConfigChanged` 每调用一次加一）。 */
   configRevision: number;
 }
@@ -299,11 +269,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
   /** 当前进程的 `initialize` 结果；没有就绪的进程时为 undefined。 */
   get initializeResponse(): InitializeResponse | undefined {
     return this.#state === 'ready' ? this.#current?.initialize : undefined;
-  }
-
-  /** 当前（或最近一个）进程的增量旁路状态；还没启动过或没有配置旁路时为 `off`。 */
-  get incrementalState(): IncrementalState {
-    return this.#current?.incremental ?? 'off';
   }
 
   /**
@@ -441,7 +406,7 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       const prepared = await this.#options.launcher.prepare();
       if (this.#disposing !== undefined) throw this.#disposedError();
       const configRevision = this.#configRevision;
-      launch = this.#spawn(prepared.spawnSpec(), generation, prepared.incremental, configRevision);
+      launch = this.#spawn(prepared.spawnSpec(), generation, configRevision);
     } catch (error) {
       if (this.#disposing !== undefined) throw this.#disposedError();
       this.#state = 'stopped';
@@ -487,7 +452,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       }
       launch.initialize = response;
       launch.readyAt = Date.now();
-      if (launch.incremental === 'waiting') this.#awaitIncremental(launch);
       this.#state = 'ready';
       this.emit('ready', {
         generation,
@@ -512,32 +476,7 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
     }
   }
 
-  /** initialize 之后旁路迟迟不报到（没装上、加载失败）：告警，本进程按没有旁路处理。 */
-  #awaitIncremental(launch: Launch): void {
-    const channel = this.#options.engine.incremental;
-    const sink = this.#options.incremental;
-    if (channel === undefined || sink === undefined) return;
-    const graceMs = sink.readyGraceMs ?? channel.readyGraceMs;
-    launch.incrementalGrace = setTimeout(() => {
-      if (launch.incremental !== 'waiting' || launch.exit !== undefined) return;
-      launch.incremental = 'unavailable';
-      const tail = launch.stderrTail.trim().slice(-1000);
-      sink.onWarning({
-        kind: 'not_loaded',
-        message:
-          `${this.#name} 就绪后 ${graceMs} ms 内 ${channel.name}没有报到，本进程只有已提交消息` +
-          (tail === '' ? '' : `；stderr 尾部：${tail}`),
-      });
-    }, graceMs);
-    launch.incrementalGrace.unref();
-  }
-
-  #spawn(
-    spec: AcpSpawnSpec,
-    generation: number,
-    incremental: IncrementalState,
-    configRevision: number,
-  ): Launch {
+  #spawn(spec: AcpSpawnSpec, generation: number, configRevision: number): Launch {
     const child = nodeSpawn(spec.command, spec.args, spec.options);
     const { stdin, stdout, stderr } = child;
     if (stdin === null || stdout === null || stderr === null) {
@@ -607,7 +546,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
       connection,
       stderrTail: '',
       exited,
-      incremental,
       configRevision,
     };
 
@@ -620,28 +558,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
         // 回调约定不抛错。
       }
     });
-    const channel = this.#options.engine.incremental;
-    const sink = this.#options.incremental;
-    const fd = channel === undefined ? undefined : child.stdio[channel.fd];
-    if (
-      incremental === 'waiting' &&
-      channel !== undefined &&
-      sink !== undefined &&
-      fd instanceof Readable
-    ) {
-      // 一个进程一个解码器：上一个进程留下的半行不会接到新进程的数据上。
-      const decoder = channel.createDecoder({
-        onEvent: sink.onEvent,
-        onReady: () => {
-          clearTimeout(launch.incrementalGrace);
-          launch.incremental = 'active';
-        },
-        onWarning: sink.onWarning,
-      });
-      fd.on('data', (chunk: Buffer) => decoder.push(chunk));
-      fd.on('end', () => decoder.end());
-    }
-
     const finish = (exitCode: number | null, signal: NodeJS.Signals | null, error?: Error) => {
       if (launch.exit !== undefined) return;
       const exit: AcpExit = {
@@ -653,7 +569,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
         ...(error === undefined ? {} : { error }),
       };
       launch.exit = exit;
-      clearTimeout(launch.incrementalGrace);
       // 关掉我们这端的 stdin：引擎经启动脚本起时（Windows 上 npm 的 .cmd 经 cmd.exe），退出的可能只是启动脚本，
       // 还拿着管道的引擎读到 EOF 才会退出。
       stdin.destroy();
@@ -707,7 +622,6 @@ export class AcpProcess extends EventEmitter<AcpProcessEventMap> {
   /** 回收阶梯：关连接（进行中的请求以 `reason` 失败）→ 关 stdin → SIGTERM → SIGKILL。 */
   #stop(launch: Launch, reason: unknown): Promise<AcpExit | undefined> {
     launch.stopping ??= (async () => {
-      clearTimeout(launch.incrementalGrace);
       launch.connection.close(reason);
       if (launch.exit !== undefined) return launch.exit;
       const t = this.#disposeTimeouts;

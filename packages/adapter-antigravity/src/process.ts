@@ -121,7 +121,6 @@ export class AntigravityLauncher implements AcpLauncher {
     this.#runTemp = runTemp;
     const cwd = this.#cwd ?? context.paths.root;
     return {
-      incremental: 'off',
       spawnSpec: () =>
         antigravitySpawnSpec({
           installation: executable,

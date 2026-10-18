@@ -54,7 +54,7 @@ if (!ENABLED) {
 
   runAdapterContract(
     () => new GrokAdapter({ home: join(root, 'home') }),
-    { ...acpAdapterCapabilities(GROK_ENGINE, 'off'), incrementalStream: true },
+    acpAdapterCapabilities(GROK_ENGINE),
     {
       name: `Grok 适配器契约（真实 grok，${MODEL}）`,
       sessionConfig: { cwd, providerId: 'grok', modelId: MODEL },

@@ -21,7 +21,7 @@ import type { AgentInput, ApprovalOption, SessionConfig } from './types.js';
 
 /** 适配器声明的能力。为 false 的能力对应的条款跳过。 */
 export interface AdapterCapabilities {
-  /** 先发 `assistant.delta`，再发替换它们的已提交消息（dsh 依赖 stream-tap 旁路，T3.2a）。 */
+  /** 先发 `assistant.delta`，再发替换它们的已提交消息。只产出已提交消息的引擎为 false。 */
   incrementalStream: boolean;
   /** 能按 `prompts.toolCall` 发起一次不需要审批的工具调用。 */
   toolCalls: boolean;

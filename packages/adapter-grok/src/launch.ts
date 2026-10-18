@@ -220,7 +220,6 @@ export class GrokLauncher implements AcpLauncher {
     const executable = await this.#resolve();
     mkdirSync(this.#workDir, { recursive: true });
     return {
-      incremental: 'off',
       spawnSpec: () => ({
         command: executable.path,
         args: grokSpawnArgs(this.#mode),
