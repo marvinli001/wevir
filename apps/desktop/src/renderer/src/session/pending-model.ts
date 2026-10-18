@@ -1,4 +1,4 @@
-import type { PendingDelivery, PendingMessage, SessionState } from '@wevir/protocol';
+import type { MessageFrom, PendingDelivery, PendingMessage, SessionState } from '@wevir/protocol';
 import { t } from '@/i18n';
 
 // 回合进行中发消息（R11，domain-model §3.3.2、§4.6）的纯逻辑：待发区的分组、说法与输入框的按键。
@@ -10,18 +10,42 @@ export interface PendingGroups {
   queue: PendingMessage[];
   /** 回合没有正常结束而暂停的，等用户继续发送。 */
   held: PendingMessage[];
+  /**
+   * 别的会话的 agent 发来的消息、回报，和后台进程的通知（`from` 不是空的）：不是用户写的，不能改，也不算用户的排队消息，
+   * 单独成组、只显示一行说明。回合没有正常结束而暂停的仍在 `held` 里（那里有“继续发送”）。
+   */
+  notices: PendingMessage[];
 }
 
 /** 按 Codex 终端界面的三段分组（`bottom_pane/pending_input_preview.rs`），组内按加入的先后。 */
 export function groupPending(pending: readonly PendingMessage[]): PendingGroups {
-  const groups: PendingGroups = { steer: [], queue: [], held: [] };
+  const groups: PendingGroups = { steer: [], queue: [], held: [], notices: [] };
   for (const message of pending) {
     if (message.status === 'held') groups.held.push(message);
     else if (message.status === 'waiting') {
-      (message.delivery === 'steer' ? groups.steer : groups.queue).push(message);
+      if (message.from !== undefined) groups.notices.push(message);
+      else (message.delivery === 'steer' ? groups.steer : groups.queue).push(message);
     }
   }
   return groups;
+}
+
+/** 后台进程的通知（0.47.0）的一行说明：退出（带退出码或信号）或输出匹配。 */
+export function processNoticeLabel(process: NonNullable<MessageFrom['process']>): string {
+  if (process.event !== 'exit') return t('transcript.processMatched', { name: process.name });
+  if (process.signal !== undefined) {
+    return t('transcript.processStopped', { name: process.name, signal: process.signal });
+  }
+  return t('transcript.processExited', {
+    name: process.name,
+    code: String(process.exitCode ?? '?'),
+  });
+}
+
+/** 别的会话或 Host 发来的消息的一行说明；`title` 是发来的会话的标题。 */
+export function noticeLabel(from: MessageFrom, title: string): string {
+  if (from.process !== undefined) return processNoticeLabel(from.process);
+  return t(from.kind === 'report' ? 'transcript.reportFrom' : 'transcript.fromSession', { title });
 }
 
 export function otherDelivery(delivery: PendingDelivery): PendingDelivery {

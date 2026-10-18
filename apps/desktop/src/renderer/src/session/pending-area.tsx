@@ -1,7 +1,18 @@
 import type { WevirClient } from '@wevir/client-sdk';
 import type { PendingMessage, SessionId, SessionState } from '@wevir/protocol';
 import { cn } from 'cn';
-import { CornerDownRight, ListPlus, Lock, Pause, Pencil, Play, Trash2 } from 'lucide-react';
+import {
+  CornerDownRight,
+  ListPlus,
+  Lock,
+  MessageSquare,
+  Pause,
+  Pencil,
+  Play,
+  Reply,
+  SquareTerminal,
+  Trash2,
+} from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
@@ -13,13 +24,16 @@ import {
   canSteerNow,
   fallbackNote,
   groupPending,
+  noticeLabel,
   pendingImageCount,
   pendingText,
 } from './pending-model';
+import { useSessions } from './suggested-tasks';
 
 /**
  * 输入框上方的待发区（R11，domain-model §3.3.2）：插话（等这一步结束）、排队（回合结束后）、已暂停三组。排队的与暂停的
- * 可以编辑、删除，排队的在回合进行中可以改为插话；交给模型的插话只能看。暂停的有“继续发送”。没有待发消息时不显示。
+ * 可以编辑、删除，排队的在回合进行中可以改为插话；交给模型的插话只能看。暂停的有“继续发送”。别的会话的 agent 发来的回报与
+ * 消息、后台进程的通知（`from` 不是空的）不是用户写的：单独一行说明，不当作用户的排队消息，不能编辑。没有待发消息时不显示。
  */
 export function PendingArea({
   sessionId,
@@ -46,8 +60,19 @@ export function PendingArea({
       onError(t('pending.failed', { error: describeError(error) }));
     }
   };
+  const remove = (message: PendingMessage) => (
+    <IconButton
+      label={t('pending.remove')}
+      size="icon-xs"
+      onClick={() => run((c) => c.request('pending.cancel', { sessionId, pendingId: message.id }))}
+    >
+      <Trash2 />
+    </IconButton>
+  );
   const item = (message: PendingMessage, actions: ReactNode) =>
-    editing === message.id ? (
+    message.from !== undefined ? (
+      <PendingNotice key={message.id} message={message} actions={remove(message)} />
+    ) : editing === message.id ? (
       <PendingEditor
         key={message.id}
         message={message}
@@ -103,6 +128,11 @@ export function PendingArea({
       className="mb-2 space-y-2 rounded-xl border border-border bg-muted/40 px-3 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300 ease-smooth"
       data-testid="pending-area"
     >
+      {groups.notices.length > 0 && (
+        <ul className="space-y-1" data-pending-group="notice">
+          {groups.notices.map((message) => item(message, null))}
+        </ul>
+      )}
       {groups.steer.length > 0 && (
         <PendingGroup icon={<CornerDownRight />} title={t('pending.group.steer')} delivery="steer">
           {groups.steer.map((message) =>
@@ -170,6 +200,30 @@ function PendingGroup({
       {hint && <p className="mt-0.5 text-xs text-muted-foreground">{hint}</p>}
       <ul className="mt-1 space-y-1">{children}</ul>
     </div>
+  );
+}
+
+/** 别的会话或后台进程发来的、还没交给模型的消息：一行说明（同消息流里的回报标记），悬停看全文。 */
+function PendingNotice({ message, actions }: { message: PendingMessage; actions: ReactNode }) {
+  const sessions = useSessions();
+  const from = message.from;
+  if (from === undefined) return null;
+  const title = sessions.get(from.sessionId)?.title || t('session.untitled');
+  const Icon =
+    from.process !== undefined ? SquareTerminal : from.kind === 'report' ? Reply : MessageSquare;
+  return (
+    <li
+      className="group flex items-center gap-2 rounded-lg bg-background/70 px-2.5 py-1 animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
+      data-pending-id={message.id}
+      data-pending-notice={from.process !== undefined ? 'process' : from.kind}
+      title={pendingText(message)}
+    >
+      <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1 truncate text-sm text-soft-foreground">
+        {noticeLabel(from, title)}
+      </span>
+      <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
+    </li>
   );
 }
 

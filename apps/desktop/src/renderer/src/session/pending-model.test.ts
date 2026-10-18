@@ -6,6 +6,7 @@ import {
   composerKeyAction,
   fallbackNote,
   groupPending,
+  noticeLabel,
   otherDelivery,
 } from './pending-model';
 
@@ -44,6 +45,33 @@ describe('待发区（R11）', () => {
     expect(groups.steer.map((p) => p.id.at(-1))).toEqual(['1']);
     expect(groups.queue.map((p) => p.id.at(-1))).toEqual(['2', '4']);
     expect(groups.held.map((p) => p.id.at(-1))).toEqual(['3']);
+  });
+
+  it('别的会话与后台进程发来的消息不算用户的排队消息：单独成组，暂停的留在已暂停里', () => {
+    const report = { sessionId: 'ses_X', kind: 'report' } as const;
+    const groups = groupPending([
+      pending(1),
+      pending(2, { from: report }),
+      pending(3, { delivery: 'steer', from: { sessionId: 'ses_X', kind: 'message' } }),
+      pending(4, { status: 'held', from: report }),
+    ]);
+    expect(groups.queue.map((p) => p.id.at(-1))).toEqual(['1']);
+    expect(groups.steer).toEqual([]);
+    expect(groups.notices.map((p) => p.id.at(-1))).toEqual(['2', '3']);
+    expect(groups.held.map((p) => p.id.at(-1))).toEqual(['4']);
+  });
+
+  it('通知的说明：回报、来自会话、进程退出与匹配', () => {
+    const base = { sessionId: 'ses_X' } as const;
+    expect(noticeLabel({ ...base, kind: 'report' }, '子任务')).toBe('“子任务”的回报');
+    expect(noticeLabel({ ...base, kind: 'message' }, '子任务')).toBe('来自“子任务”');
+    const process = { id: 'p1', name: 'dev', event: 'exit', exitCode: 3 };
+    expect(noticeLabel({ ...base, kind: 'report', process }, 'x')).toBe(
+      '后台进程“dev”已退出（退出码 3）',
+    );
+    expect(
+      noticeLabel({ ...base, kind: 'report', process: { ...process, event: 'match' } }, 'x'),
+    ).toBe('后台进程“dev”输出匹配');
   });
 
   it('“已转为排队”的说明按原因', () => {

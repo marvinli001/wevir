@@ -22,12 +22,18 @@ const user = (turnId: TurnId): ChatMessage => ({
   seqRange: [1, 1],
   ts: TS,
 });
-const assistant = (turnId: TurnId, parts: ChatPart[], id = `a:${turnId}`): ChatMessage => ({
+const assistant = (
+  turnId: TurnId,
+  parts: ChatPart[],
+  id = `a:${turnId}`,
+  outcome?: 'completed' | 'interrupted' | 'cancelled',
+): ChatMessage => ({
   id,
   role: 'assistant',
   turnId,
   parts,
   seqRange: [2, 3],
+  ...(outcome !== undefined && { finished: { outcome, durationMs: 1000 } }),
 });
 const todo = (...statuses: string[]): ChatPart => ({
   type: 'todo',
@@ -71,6 +77,19 @@ describe('latestTodos', () => {
     ).toBeUndefined();
   });
 
+  it('回合自己做完收了尾（completed）才算 finishedWell：进行中、被停、中断的都不算', () => {
+    const run = (outcome: 'completed' | 'interrupted' | 'cancelled' | undefined, active?: TurnId) =>
+      latestTodos({
+        messages: [user(T1), assistant(T1, [todo('completed', 'in_progress')], 'a', outcome)],
+        activeTurnId: active,
+      })?.finishedWell;
+    expect(run('completed')).toBe(true);
+    expect(run('cancelled')).toBe(false);
+    expect(run('interrupted')).toBe(false);
+    expect(run(undefined)).toBe(false);
+    expect(run('completed', T1)).toBe(false);
+  });
+
   it('插话分出的后一条助手消息也算同一个回合', () => {
     const messages = [
       user(T1),
@@ -91,13 +110,26 @@ describe('进度与收起', () => {
   });
 
   it('回合结束（做没做完都算）或在等用户时收起', () => {
-    const done = { turnId: T1, items: items('completed', 'completed') };
-    const partial = { turnId: T1, items: items('completed', 'pending') };
+    const done = { turnId: T1, items: items('completed', 'completed'), finishedWell: false };
+    const partial = { turnId: T1, items: items('completed', 'pending'), finishedWell: false };
     expect(todoCollapsedByDefault({ ...done, active: false }, false)).toBe(true);
     expect(todoCollapsedByDefault({ ...done, active: true }, false)).toBe(false);
     expect(todoCollapsedByDefault({ ...partial, active: false }, false)).toBe(true);
     expect(todoCollapsedByDefault({ ...partial, active: true }, false)).toBe(false);
     expect(todoCollapsedByDefault({ ...partial, active: true }, true)).toBe(true);
+  });
+
+  it('回合自己做完收了尾：没标完的项显示成做完，进度也算做完；真正标完的不变', () => {
+    expect(todoRowState({ status: 'in_progress' }, false, true)).toBe('settled');
+    expect(todoRowState({ status: 'pending' }, false, true)).toBe('settled');
+    expect(todoRowState({ status: 'completed' }, false, true)).toBe('completed');
+    // 回合还在进行时不改。
+    expect(todoRowState({ status: 'in_progress' }, true, true)).toBe('in_progress');
+    expect(todoProgress(items('completed', 'in_progress', 'pending'), true)).toEqual({
+      done: 3,
+      total: 3,
+      current: undefined,
+    });
   });
 
   it('回合结束后还在“进行中”的一项不再转圈，没开始的照旧', () => {

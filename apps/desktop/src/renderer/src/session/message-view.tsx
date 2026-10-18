@@ -27,6 +27,7 @@ import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
+import { processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
@@ -252,15 +253,7 @@ function ProcessReport({ message }: { message: UserChatMessage }) {
   const text = message.parts
     .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join('\n');
-  const label =
-    process.event !== 'exit'
-      ? t('transcript.processMatched', { name: process.name })
-      : process.signal !== undefined
-        ? t('transcript.processStopped', { name: process.name, signal: process.signal })
-        : t('transcript.processExited', {
-            name: process.name,
-            code: String(process.exitCode ?? '?'),
-          });
+  const label = processNoticeLabel(process);
   return (
     <div className="my-2 flex" data-message-role="user" data-process-report={process.id}>
       <span

@@ -21,6 +21,11 @@ export interface TurnTodos {
   items: readonly TodoItem[];
   /** 这个回合还在进行。 */
   active: boolean;
+  /**
+   * 这个回合自己做完收了尾（`completed`，不是被停、出错或中断）：模型常常忙完了不再回头更新清单，没标完的项这时按“已做完”
+   * 显示（`settled`）。回合没正常结束时仍照原样，不替模型改。
+   */
+  finishedWell: boolean;
 }
 
 function lastTurnId(messages: readonly ChatMessage[]): TurnId | undefined {
@@ -41,7 +46,20 @@ export function latestTodos(
     if (message.role === 'system' || message.turnId !== turnId) continue;
     const part = message.parts.find((candidate) => candidate.type === 'todo');
     if (part?.type === 'todo' && part.items.length > 0) {
-      return { turnId, items: part.items, active: transcript.activeTurnId === turnId };
+      const active = transcript.activeTurnId === turnId;
+      return {
+        turnId,
+        items: part.items,
+        active,
+        finishedWell:
+          !active &&
+          transcript.messages.some(
+            (candidate) =>
+              candidate.role === 'assistant' &&
+              candidate.turnId === turnId &&
+              candidate.finished?.outcome === 'completed',
+          ),
+      };
     }
   }
   return undefined;
@@ -54,11 +72,12 @@ export interface TodoProgress {
   current: TodoItem | undefined;
 }
 
-export function todoProgress(items: readonly TodoItem[]): TodoProgress {
+/** `settled`：回合自己做完收了尾，没标完的也算做完（见 `TurnTodos.finishedWell`）。 */
+export function todoProgress(items: readonly TodoItem[], settled = false): TodoProgress {
   return {
-    done: items.filter((item) => todoStatus(item) === 'completed').length,
+    done: settled ? items.length : items.filter((item) => todoStatus(item) === 'completed').length,
     total: items.length,
-    current: items.find((item) => todoStatus(item) === 'in_progress'),
+    current: settled ? undefined : items.find((item) => todoStatus(item) === 'in_progress'),
   };
 }
 
@@ -71,14 +90,18 @@ export function todoCollapsedByDefault(todos: TurnTodos, waiting: boolean): bool
 }
 
 /**
- * 一项在卡片上的样子：回合结束后还是“进行中”的不再转圈（`stalled`），照原样显示没标完，不替模型改成完成。
+ * 一项在卡片上的样子：回合自己做完收了尾（`finishedWell`）时没标完的显示成做完（`settled`，比真正标完的淡一点）；回合是被停、
+ * 出错或中断的，还是“进行中”的不再转圈（`stalled`），没开始的照旧，不替模型改成完成。
  */
 export function todoRowState(
   item: Pick<TodoItem, 'status'>,
   turnActive: boolean,
-): TodoStatus | 'stalled' {
+  finishedWell = false,
+): TodoStatus | 'stalled' | 'settled' {
   const status = todoStatus(item);
-  return status === 'in_progress' && !turnActive ? 'stalled' : status;
+  if (status === 'completed' || turnActive) return status;
+  if (finishedWell) return 'settled';
+  return status === 'in_progress' ? 'stalled' : status;
 }
 
 /** 回顾的素材：有清单时是进度，没有时是这一轮最近一个工作组的摘要；都没有时是 undefined。 */

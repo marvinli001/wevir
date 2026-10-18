@@ -16,7 +16,7 @@ import {
 
 /**
  * 输入框上方的实时清单（U20，desktop-tokens.md §25；截图 05–07）：会话最近一个回合有清单时显示，回合结束或会话在等用户时
- * 收成一行；回合结束后没标完的项不再转圈。
+ * 收成一行；回合结束后没标完的项不再转圈，回合自己做完收了尾的，没标完的按做完显示。
  */
 export function TodoDock({ transcript }: { transcript: Transcript }) {
   const todos = latestTodos(transcript);
@@ -38,7 +38,7 @@ function TodoCard({
 }) {
   const [choice, setChoice] = useState<boolean>();
   const open = choice ?? !todoCollapsedByDefault(todos, waiting);
-  const { done, total } = todoProgress(todos.items);
+  const { done, total } = todoProgress(todos.items, todos.finishedWell);
   return (
     <section
       aria-label={t('todo.title')}
@@ -77,6 +77,7 @@ function TodoCard({
               key={index}
               item={item}
               turnActive={todos.active}
+              finishedWell={todos.finishedWell}
               running={todos.active ? running : 0}
             />
           ))}
@@ -89,19 +90,23 @@ function TodoCard({
 function TodoRow({
   item,
   turnActive,
+  finishedWell,
   running,
 }: {
   item: TodoItem;
   turnActive: boolean;
+  finishedWell: boolean;
   running: number;
 }) {
-  const state = todoRowState(item, turnActive);
+  const state = todoRowState(item, turnActive, finishedWell);
   return (
     <li data-todo-status={state} className="text-sm">
       <div className="flex min-h-6 items-start gap-2 py-0.5">
         <span className="mt-0.5 shrink-0" aria-hidden>
           {state === 'completed' ? (
             <CircleCheck className="size-4 fill-foreground text-background" />
+          ) : state === 'settled' ? (
+            <CircleCheck className="size-4 text-muted-foreground" />
           ) : state === 'in_progress' ? (
             <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
           ) : state === 'stalled' ? (
@@ -110,8 +115,15 @@ function TodoRow({
             <CircleDashed className="size-4 text-muted-foreground" />
           )}
         </span>
-        <span className={cn('min-w-0', state === 'completed' && 'text-soft-foreground')}>
-          <span className="sr-only">{t(`todo.status.${state}`)}：</span>
+        <span
+          className={cn(
+            'min-w-0',
+            (state === 'completed' || state === 'settled') && 'text-soft-foreground',
+          )}
+        >
+          <span className="sr-only">
+            {t(`todo.status.${state === 'settled' ? 'completed' : state}`)}：
+          </span>
           {item.content}
         </span>
       </div>
