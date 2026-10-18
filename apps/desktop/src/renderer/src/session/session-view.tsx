@@ -71,6 +71,9 @@ import { usePlanControl } from './plan-mode';
 import { suggestionsEnabled, visibleSuggestion } from './prompt-suggestion';
 import { planImplementationPrompt, proposedPlanTitle } from './proposed-plan';
 import { QuestionDock } from './question-card';
+import { RecapCard } from './recap-card';
+import { recapEnabled } from './recap-model';
+import { useSessionRecap } from './recap-store';
 import { RecoveryPanel } from './recovery-panel';
 import type { QuoteActions } from './selection-toolbar';
 import { btwQuestion, hasFinishedTurn, openSide, startSide } from './side-session';
@@ -150,6 +153,21 @@ export function SessionView({
   useBrowserReveal(session.id, variant === 'main' ? panes : undefined);
   const sessionState = transcript?.state ?? session.state;
   const readOnly = transcript?.readOnly ?? session.readOnly;
+  // 离开一阵再回到会话时的“回顾”（0.54.0）：只在主窗格的顶层会话里，Host 有功能、设置里没关。
+  const sessionRecap = useSessionRecap({
+    sessionId: session.id,
+    client,
+    enabled: recapEnabled({
+      featureSupported:
+        view.status === 'connected' && hostSupports(view.hello.features, 'session_recap'),
+      settingOn: settings.sessionRecap,
+      variant,
+      side: session.side,
+      parentSessionId: session.parentSessionId,
+    }),
+    state: sessionState,
+    seq: transcript?.lastSeq ?? session.lastSeq,
+  });
   const acceptImages = useAcceptsImages(session);
 
   // 当前的引擎能做什么（0.25.0）：接力到别的来源后跟着变；旧 Host 没有时只看 Host 的功能。
@@ -736,6 +754,9 @@ export function SessionView({
         >
           {/* 输入框上方的清单（U20）、提问、审批、恢复、提示与待发区（U14）：最多占窗口高的 55%，再多在这一块里滚动，消息流不被挤没。 */}
           <div className="-mx-1 max-h-[55vh] overflow-y-auto px-1 pt-1 empty:hidden">
+            {sessionRecap && (
+              <RecapCard text={sessionRecap.text} onDismiss={sessionRecap.dismiss} />
+            )}
             {transcript && <TodoDock transcript={transcript} />}
             <OllamaContextNotice
               client={client}

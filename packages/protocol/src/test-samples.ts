@@ -1285,10 +1285,12 @@ export const methodSamples: MethodSamples = {
       valid: [
         { settings: { sendWhileBusy: 'steer' } },
         { settings: { sendWhileBusy: 'steer', promptSuggestions: true } },
+        { settings: { sendWhileBusy: 'steer', sessionRecap: false } },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
         { settings: { sendWhileBusy: 'steer', promptSuggestions: 'yes' } },
+        { settings: { sendWhileBusy: 'steer', sessionRecap: 'off' } },
         {},
       ],
     },
@@ -1298,11 +1300,13 @@ export const methodSamples: MethodSamples = {
       valid: [
         { settings: { sendWhileBusy: 'queue' } },
         { settings: { promptSuggestions: false } },
+        { settings: { sessionRecap: false } },
         { settings: {} },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'later' } },
         { settings: { promptSuggestions: 0 } },
+        { settings: { sessionRecap: 1 } },
         {},
       ],
     },
@@ -2200,6 +2204,40 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ seq: 15, turnId: ids.turn, files: { status: 'unchanged' } }],
       invalid: [{ seq: 15 }],
+    },
+  },
+  'session.recap': {
+    params: {
+      valid: [
+        { sessionId: ids.session, seenSeq: 12, awayMs: 600_000 },
+        { sessionId: ids.session, seenSeq: 0, awayMs: 0 },
+      ],
+      invalid: [
+        {},
+        { sessionId: ids.session, seenSeq: 12 },
+        { sessionId: ids.session, seenSeq: -1, awayMs: 1000 },
+        { sessionId: ids.session, seenSeq: 12, awayMs: -5 },
+        { sessionId: ids.session, seenSeq: 12, awayMs: 1.5 },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          recap: {
+            text: '在修复登录接口的 500 错误。请在本地登录一次，确认不再报错。',
+            generatedAt: '2026-10-18T09:30:00.000Z',
+            throughSeq: 41,
+          },
+        },
+        { reason: 'running' },
+        {},
+      ],
+      invalid: [
+        { recap: { text: '', generatedAt: '2026-10-18T09:30:00.000Z', throughSeq: 41 } },
+        { recap: { text: '摘要', generatedAt: 'yesterday', throughSeq: 41 } },
+        { recap: { text: '摘要', generatedAt: '2026-10-18T09:30:00.000Z', throughSeq: 0 } },
+        { reason: '' },
+      ],
     },
   },
   'session.fork': {

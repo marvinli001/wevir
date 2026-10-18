@@ -1042,6 +1042,24 @@ Host 拥有插件注册表，不属于某个 Session。连接器 `Connector { id
 - **用量**：每个正常结束的回合多一次轻量请求（输入 3 KB 以内、推理档位取最低）。订阅来源（Claude 用本机登录的 `claude`）也走这条路，每次是一次一次性的 `claude` 调用，所以设置里有开关，默认开。
 - **客户端**：桌面端的输入框（desktop-tokens §60）。Host 重启后快照从事件重放，最近一条建议还在，直到被上面的事件作废。
 - **没做（留给后面）**：Enter 直接发送建议；按输入框是否有焦点 / 是否为空去省请求（Host 看不到）；多条候选；dsh 与 echo 引擎的生成。
+### 3.24 离开后摘要（0.54.0）
+
+维护者 2026-10-18 定：借鉴网上流传的 Claude Code 提示词，用户离开一阵再回到会话时，给一张一到三句话的小结——这个会话在做什么、接下来该干什么。做法靠已有的“用会话的模型发一次不带工具的请求”（会话标题那条路），不新开引擎连接。
+
+```ts
+// → protocol
+// session.recap { sessionId, seenSeq, awayMs } → { recap?: SessionRecap, reason?: string }
+// SessionRecap { text, generatedAt, throughSeq }
+// HostSettings.sessionRecap?: boolean（默认开）；Host 功能 session_recap；常量 SESSION_RECAP_MIN_AWAY_MS = 3 分钟
+```
+
+- **谁来判断“离开”**：客户端。桌面端在会话显示期间监听窗口失焦 / 隐藏，会话卸载（切到别的会话）也算离开，记下时刻和离开时看到的最后一个事件 `seenSeq`；回来时（会话重新显示且窗口在前台）离开了至少 3 分钟，就发 `session.recap`。Host 不跟踪客户端在不在，只信请求里的 `seenSeq` 与 `awayMs`，并自己再核对一遍。
+- **Host 什么时候生成**（`SessionManager.recap`，判断顺序就是下面的顺序，不生成时 `reason` 写第一个不满足的）：设置 `sessionRecap` 没关（`disabled`）；适配器实现了 `generateTitle` 且读到了 `prompts/session-recap.md`（`unsupported`）；`awayMs` ≥ 3 分钟（`too_short`）；不是子智能体或支线会话（`sub_session`）；会话不在回合里（`running`），也没有待审批或待回答的提问（`waiting`，那时直接看审批更重要）；会话不是已关闭、引擎会话挂着（`detached`，不为摘要去恢复引擎）；看得见的完整回合至少 2 个（`few_turns`，撤回、撤销的不算）；最后一个看得见的回合的 `turn.finished` 在 `seenSeq` 之后（`no_activity`，离开期间助手没有新输出）。
+- **输入与输出**：`analyzeSession` 从事件里取看得见的回合里最近至多 8 条用户与助手消息（用户消息留开头 400 字符、助手消息留结尾 700 字符，总长约 6 KB 以内，转义），加 `<state>`：最近一个回合的结局和清单里没做完的几项。输出 `{"recap": "…"}`，`parseRecap` 去掉代码块、前缀、Markdown 记号和首尾引号，最多留三句 240 个字符。提示词见 prompts/README.md「离开后摘要」。
+- **缓存与去重**：摘要只放在 Host 内存里（`RecapCache`，最多 64 个会话，会话删除时丢掉），不写事件库，Host 重启就没了。键是“最后一个看得见的回合的结束事件的 `seq`”（`throughSeq`）：同一个位置只生成一次，并发的请求共用同一个 promise，之后的请求直接拿缓存；会话有了新回合，位置变了才重新生成。
+- **失败静默**：请求失败、超时（30 s）、输出解析不了，都回 `reason: 'failed'`（不抛错），只记告警，不缓存，下次回来再试。不排进会话的命令队列、不写事件、不影响状态机和 `lastSeq`。
+- **客户端**：桌面端 `session/recap-model.ts`（离开 / 回来的登记、摘要的显示与关闭，纯逻辑）、`recap-store.ts`（进程内存里的状态与窗口事件）、`recap-card.tsx`（输入框上方的“回顾”卡片），desktop-tokens §61。一段离开一张卡片：用户关闭、会话开始新回合、下一段离开要摘要时，旧的都不再显示。设置 → 常规里有开关（只有 Host 声明了 `session_recap` 才显示）。
+- **没做（留给后面）**：CLI 的离开后摘要；Cursor、Grok、Antigravity、dsh 没有 `generateTitle`，也就没有摘要；回来时回合还在跑、结束后补一张；Host 重启后丢摘要（不落盘）。
 
 ## 4. 会话状态机
 

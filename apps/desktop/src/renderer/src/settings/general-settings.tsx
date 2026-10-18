@@ -1,5 +1,5 @@
 import { hostSupports } from '@wevir/client-sdk';
-import type { PendingDelivery } from '@wevir/protocol';
+import type { HostSettings, PendingDelivery } from '@wevir/protocol';
 import { CornerDownRight, ListPlus } from 'lucide-react';
 import { useState } from 'react';
 import { Switch } from '@/components/switch';
@@ -27,15 +27,17 @@ export function GeneralSettings() {
   const composer = composerPrefs.use();
   const editors = useEditors();
   const preferred = preferredEditor(editors, filePrefs.use().editor);
+  // 离开后回顾（0.54.0）：Host 能生成（有 `session_recap`）时才有这一行。
+  const recapAvailable =
+    supported && view.status === 'connected' && hostSupports(view.hello.features, 'session_recap');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
 
-  const choose = async (delivery: PendingDelivery) => {
-    if (delivery === settings.sendWhileBusy || saving) return;
+  const save = async (patch: Partial<HostSettings>) => {
     setSaving(true);
     setError(undefined);
     try {
-      await update({ sendWhileBusy: delivery });
+      await update(patch);
     } catch (reason) {
       setError(t('settings.chat.saveFailed', { error: describe(reason) }));
     } finally {
@@ -43,17 +45,9 @@ export function GeneralSettings() {
     }
   };
 
-  const toggleSuggestions = async (enabled: boolean) => {
-    if (saving) return;
-    setSaving(true);
-    setError(undefined);
-    try {
-      await update({ promptSuggestions: enabled });
-    } catch (reason) {
-      setError(t('settings.chat.saveFailed', { error: describe(reason) }));
-    } finally {
-      setSaving(false);
-    }
+  const choose = (delivery: PendingDelivery) => {
+    if (delivery === settings.sendWhileBusy || saving) return;
+    void save({ sendWhileBusy: delivery });
   };
 
   return (
@@ -103,7 +97,21 @@ export function GeneralSettings() {
                 label={t('settings.chat.suggestions')}
                 checked={suggestionsEnabled(settings)}
                 disabled={!supported || saving}
-                onChange={(enabled) => void toggleSuggestions(enabled)}
+                onChange={(promptSuggestions) => void save({ promptSuggestions })}
+              />
+            }
+          />
+        )}
+        {recapAvailable && (
+          <SettingsRow
+            title={t('settings.chat.recap')}
+            data-setting="recap"
+            control={
+              <Switch
+                checked={settings.sessionRecap !== false}
+                label={t('settings.chat.recap')}
+                disabled={saving}
+                onChange={(sessionRecap) => void save({ sessionRecap })}
               />
             }
           />

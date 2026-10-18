@@ -447,6 +447,7 @@ export const messages: Messages = {
   'review.uncommitted': 'Незафиксированные изменения',
   'review.baseBranch': 'Относительно базовой ветки',
   'review.branch': 'Относительно {branch}',
+  'recap.title': 'Итоги',
   'undo.banner':
     '{count, plural, one {Отменён # ход} few {Отменено # хода} many {Отменено # ходов} other {Отменено # хода}}',
   'undo.failed': 'Не удалось отменить: {error}',
@@ -939,6 +940,7 @@ export const messages: Messages = {
   'settings.chat.unsupported': 'Не поддерживается версией фоновой службы',
   'settings.chat.saveFailed': 'Не удалось сохранить: {error}',
   'settings.chat.suggestions': 'Подсказки ввода',
+  'settings.chat.recap': 'Итоги после отсутствия',
   'settings.appearance.theme': 'Тема',
   'settings.appearance.theme.system': 'Как в системе',
   'settings.appearance.theme.light': 'Светлая',

@@ -185,6 +185,11 @@ export const HOST_FEATURES = {
    */
   sessionUndo: 'session_undo',
   /**
+   * 离开后摘要（0.54.0，domain-model §3.24）：`session.recap`，用户离开一阵再回到会话时，Host 用会话的模型生成一到三句话的小结。
+   * 取决于引擎能不能生成文字（同会话标题的 `generateTitle`），设置 `sessionRecap` 可以关掉。
+   */
+  sessionRecap: 'session_recap',
+  /**
    * 共享任务清单（0.52.0，domain-model §3.15）：会话树的根会话里有 `tasks.board_updated` 事件与快照的 `taskBoard`，agent 用
    * `wevir_tasks` 系列工具分工，界面只读。随应用级工具（`app_tools`）一起声明。
    */
@@ -245,6 +250,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_branches: z.boolean().optional(),
   session_rewind: z.boolean().optional(),
   session_undo: z.boolean().optional(),
+  session_recap: z.boolean().optional(),
   task_board: z.boolean().optional(),
   prompt_suggestions: z.boolean().optional(),
   chat_sessions: z.boolean().optional(),

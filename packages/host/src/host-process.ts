@@ -34,6 +34,7 @@ import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
+import { loadRecapInstructions } from './recap.js';
 import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
@@ -173,6 +174,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         logger.warn('failed to load the prompt suggestion prompt; no input suggestions', { error });
       }
     }
+    // 离开后摘要（0.54.0）：同标题，适配器能生成才读提示词；读不到只是没有这个功能。
+    let recapInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        recapInstructions = loadRecapInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the session recap prompt; recaps are unavailable', { error });
+      }
+    }
     // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
     const settings = new HostSettingsStore({
       path: homePath(home, 'settingsFile'),
@@ -265,6 +275,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           enabled: () => settings.get().promptSuggestions !== false,
         },
       }),
+      ...(recapInstructions !== undefined && { recapInstructions }),
+      recapEnabled: () => settings.get().sessionRecap !== false,
       // 环境会话新开的 worktree（0.15.0，domain-model §3.10）。
       worktreesDir: join(home, 'worktrees'),
       chats,
@@ -434,6 +446,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.fork !== undefined && adapter.branches === true && { session_branches: true }),
         ...(adapter.rewind !== undefined && { session_rewind: true }),
         ...(adapter.injectNote !== undefined && { session_undo: true }),
+        ...(recapInstructions !== undefined && { session_recap: true }),
       },
       engineFeatures,
       plugins,

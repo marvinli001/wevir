@@ -9,7 +9,7 @@ import { z } from 'zod';
  *   （新字段一律 optional）。
  * - 修订号只用于文档与 schema 的修正，不改变线缆形状。
  */
-export const PROTOCOL_VERSION = '0.53.0';
+export const PROTOCOL_VERSION = '0.54.0';
 
 /** Host 仍接受的最低客户端协议版本。与 `PROTOCOL_VERSION` 主版本相同。 */
 export const MIN_PROTOCOL_VERSION = '0.1.0';

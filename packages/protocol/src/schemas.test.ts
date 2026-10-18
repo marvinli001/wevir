@@ -97,6 +97,7 @@ import {
   SessionOriginSchema,
   SessionReadOnlyReasonSchema,
   SessionReadOnlySchema,
+  SessionRecapSchema,
   SessionSchema,
   SessionSnapshotSchema,
   SessionStateSchema,
@@ -653,6 +654,30 @@ const standaloneCases: Case[] = [
         items: Array.from({ length: 101 }, () => ({ name: 'a', tokens: 1 })),
       },
     ],
+  },
+  {
+    name: 'SessionRecap',
+    schema: SessionRecapSchema,
+    valid: [
+      {
+        text: '在修复登录接口的 500 错误。请在本地登录一次。',
+        generatedAt: '2026-10-18T09:30:00.000Z',
+        throughSeq: 41,
+      },
+    ],
+    invalid: [
+      {},
+      { text: '', generatedAt: '2026-10-18T09:30:00.000Z', throughSeq: 41 },
+      { text: 'x', generatedAt: '2026-10-18 09:30', throughSeq: 41 },
+      { text: 'x', generatedAt: '2026-10-18T09:30:00.000Z', throughSeq: 0 },
+      { text: 'x'.repeat(1001), generatedAt: '2026-10-18T09:30:00.000Z', throughSeq: 41 },
+    ],
+  },
+  {
+    name: 'HostSettings（离开后摘要开关可省略）',
+    schema: HostSettingsSchema,
+    valid: [{ sendWhileBusy: 'steer' }, { sendWhileBusy: 'queue', sessionRecap: false }],
+    invalid: [{ sessionRecap: true }, { sendWhileBusy: 'steer', sessionRecap: 'yes' }],
   },
   {
     name: 'FilesRestore',
