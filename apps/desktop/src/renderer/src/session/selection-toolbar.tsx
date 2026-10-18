@@ -282,7 +282,9 @@ export function SelectionToolbar({
       // 按下时不让选区与焦点离开原处。
       onMouseDown={(event) => event.preventDefault()}
       onKeyDown={onKeyDown}
-      className="fixed top-0 left-0 z-40 flex items-center gap-0.5 rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 animate-in fade-in-0 zoom-in-95 duration-150 ease-smooth"
+      // duration-150 也设了 transition-duration，transition-property 默认是 all：量过尺寸再写 left / top 会从左上角的
+      // 0, 0 过渡过来，跟随滚动时也慢半拍。位置只能跳变，所以关掉过渡，入场只用 animate-in。
+      className="fixed top-0 left-0 z-40 flex items-center gap-0.5 rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 transition-none animate-in fade-in-0 zoom-in-95 duration-150 ease-smooth"
     >
       <ToolbarButton action="quote-add" onClick={() => run(onAdd)}>
         {t('selection.addToChat')}
