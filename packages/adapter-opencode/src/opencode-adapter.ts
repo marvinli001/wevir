@@ -45,7 +45,7 @@ import {
   type UserQuestion,
 } from '@wevir/runtime-adapter';
 import { OpenCodeAccounts } from './accounts.js';
-import { engineToolName } from './app-tools.js';
+import { engineToolName, hiddenToolRules, listAppToolNames } from './app-tools.js';
 import { ENGINE_RAW_PROTOCOL, OpenCodeTurnMapper } from './mapping.js';
 import { newMessageId } from './message-id.js';
 import { lowestVariant, type ParsedModelId, parseModelId } from './models.js';
@@ -117,6 +117,8 @@ interface SessionSettings {
   reasoningEffort?: string;
   permissionMode?: PermissionMode;
   additionalRoots?: string[];
+  /** 这个会话看不到的应用级工具（Host 按角色与工具预设去掉的，`#hiddenAppTools`），在规则末尾写成 deny。 */
+  hiddenTools?: string[];
 }
 
 /** 交给进行中回合的一次插话。 */
@@ -347,13 +349,35 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
     return this.#runtime.serverPid;
   }
 
+  /**
+   * 会话的设置，加上它看不到的应用级工具：插件在服务器上挂的是所有会话共用的一份，Host 按会话（角色、工具预设）过滤的结果要经会话
+   * 自己的令牌列一次才知道（建会话时 Host 已经认得这个正在建的会话）。列不出来时不藏，只记一条警告：调用仍由 Host 按会话拒绝。
+   */
+  async #settings(config: SessionConfig): Promise<SessionSettings> {
+    const settings = settingsOf(config);
+    const own = config.appTools;
+    const engine = this.#runtime.appToolsEndpoint();
+    if (own === undefined || engine === undefined) return settings;
+    try {
+      const [visible, all] = await Promise.all([listAppToolNames(own), listAppToolNames(engine)]);
+      const allowed = new Set(visible);
+      const hidden = all.filter((name) => !allowed.has(name));
+      return hidden.length === 0 ? settings : { ...settings, hiddenTools: hidden };
+    } catch (error) {
+      this.#options.logger?.warn('could not list the Wevir tools for an OpenCode session', {
+        error: errorMessage(error),
+      });
+      return settings;
+    }
+  }
+
   async createSession(config: SessionConfig): Promise<EngineSession> {
     this.#alive();
     await checkCwd(config.cwd);
-    const settings = settingsOf(config);
+    const settings = await this.#settings(config);
     await this.accounts.requireReady();
     const stream = await this.#stream(config.cwd);
-    const rules = permissionRules(settings.permissionMode, settings.additionalRoots);
+    const rules = sessionRules(settings);
     let info: OpenCodeSessionInfo;
     try {
       info = await stream.client.createSession({ permission: rules });
@@ -377,10 +401,10 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       });
     }
     await checkCwd(config.cwd);
-    const settings = settingsOf(config);
+    const settings = await this.#settings(config);
     await this.accounts.requireReady();
     const stream = await this.#stream(config.cwd);
-    const rules = permissionRules(settings.permissionMode, settings.additionalRoots);
+    const rules = sessionRules(settings);
     try {
       await stream.client.getSession(engineSessionId);
       // 权限模式可能换过：恢复时按现在的配置重装规则。
@@ -530,12 +554,12 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('invalid_input', 'the session has no finished turn to fork from');
     }
     await checkCwd(config.cwd);
-    const settings = settingsOf(config);
+    const settings = await this.#settings(config);
     const model = modelOf(settings.modelId);
     await this.accounts.requireReady();
     const running = source.turn !== undefined && !source.turn.done ? source.turn : undefined;
     const stream = await this.#stream(config.cwd);
-    const rules = permissionRules(settings.permissionMode, settings.additionalRoots);
+    const rules = sessionRules(settings);
     let info: OpenCodeSessionInfo | undefined;
     try {
       if (running === undefined) await this.#dropStaleSteers(source);
@@ -633,11 +657,11 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ...(session.settings.additionalRoots !== undefined && {
         additionalRoots: session.settings.additionalRoots,
       }),
+      ...(session.settings.hiddenTools !== undefined && {
+        hiddenTools: session.settings.hiddenTools,
+      }),
     };
-    const rules = permissionRules(
-      session.settings.permissionMode,
-      session.settings.additionalRoots,
-    );
+    const rules = sessionRules(session.settings);
     if (JSON.stringify(rules) === JSON.stringify(session.rules)) return;
     session.rules = rules;
     if (session.attached && session.stream !== undefined) {
@@ -879,7 +903,11 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       cwd: parent.cwd,
       parent,
       settings: { ...root.settings },
-      rules: childPermissionRules(root.rules, info.permission ?? []),
+      // 父会话藏掉的应用级工具再接在最后，免得 opencode 给子会话的规则里排在后面的放行盖过它们。
+      rules: [
+        ...childPermissionRules(root.rules, info.permission ?? []),
+        ...hiddenToolRules(root.settings.hiddenTools ?? []),
+      ],
       hub: new EventHub({ bufferUntilSubscribed: true }),
       attached: true,
       stream: parent.stream,
@@ -1731,6 +1759,13 @@ function settingsOf(config: {
     ...(config.additionalRoots !== undefined &&
       config.additionalRoots.length > 0 && { additionalRoots: [...config.additionalRoots] }),
   };
+}
+
+/** 会话的规则集：权限模式的规则，末尾接上它看不到的应用级工具的 deny（最后命中的规则生效）。 */
+function sessionRules(settings: SessionSettings): PermissionRuleset {
+  const rules = permissionRules(settings.permissionMode, settings.additionalRoots);
+  const hidden = settings.hiddenTools ?? [];
+  return hidden.length === 0 ? rules : [...rules, ...hiddenToolRules(hidden)];
 }
 
 async function checkCwd(cwd: string): Promise<void> {

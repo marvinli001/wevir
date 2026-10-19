@@ -319,6 +319,61 @@ describe('适配器', () => {
     expect(h.fake.starts).toBe(2);
   });
 
+  it('会话看不到的应用级工具（Host 按角色、工具预设去掉的）写成规则末尾的 deny：建会话与换权限模式重装规则时都在最后', async () => {
+    // 假 Host：引擎令牌列出全部（插件挂的那份），会话令牌只列出按会话过滤后的。
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(chunk as Buffer);
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const tools =
+        req.headers.authorization === 'Bearer engine-token'
+          ? TOOLS
+          : TOOLS.filter((tool) => tool.name === 'wevir_session_list');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { tools } }));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
+    harness = fakeHarness();
+    const h = harness;
+    h.adapter.bindEngineAppTools(() => ({ url, token: 'engine-token' }));
+    const deny = { permission: 'wevir_session_create', pattern: '*', action: 'deny' };
+    const calls = (method: string) =>
+      h.fake.calls.filter((call) => call.method === method).map((call) => call.args);
+
+    const session = await h.adapter.createSession({
+      cwd: h.home,
+      providerId: 'opencode',
+      modelId: 'mock/echo',
+      appTools: { url, token: 'session-token' },
+    });
+    const created = calls('createSession').at(-1)?.[0] as { permission: unknown[] };
+    expect(created.permission.at(-1)).toEqual(deny);
+    expect(
+      created.permission.filter((rule) => JSON.stringify(rule) === JSON.stringify(deny)),
+    ).toHaveLength(1);
+
+    // 换权限模式重装规则时还在最后。
+    await h.adapter.configureSession(session.engineSessionId, {
+      modelId: 'mock/echo',
+      permissionMode: 'full_access',
+    });
+    const updated = calls('updateSession').at(-1)?.[1] as { permission: unknown[] };
+    expect(updated.permission).toContainEqual({ permission: '*', pattern: '*', action: 'allow' });
+    expect(updated.permission.at(-1)).toEqual(deny);
+
+    // 没有会话令牌（别的引擎的老路径）或什么都不用藏时，规则与以前一样。
+    const plain = await h.adapter.createSession({
+      cwd: h.home,
+      providerId: 'opencode',
+      modelId: 'mock/echo',
+    });
+    const plainRules = calls('createSession').at(-1)?.[0] as { permission: unknown[] };
+    expect(plainRules.permission).not.toContainEqual(deny);
+    expect(plain.engineSessionId).not.toBe(session.engineSessionId);
+  });
+
   it('Host 还给不出令牌时照常起，不挂插件', async () => {
     harness = fakeHarness();
     const h = harness;

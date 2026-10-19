@@ -160,6 +160,11 @@ export class OpenCodeRuntime {
     if (this.#server !== undefined && !this.#serverHasAppTools) this.#scheduleIdleStop(0);
   }
 
+  /** 插件用的引擎令牌（Host 还没监听或没有应用级工具时 `undefined`）。 */
+  appToolsEndpoint(): AppToolsEndpoint | undefined {
+    return this.#appTools?.();
+  }
+
   /** 正在跑的服务器缺应用级工具，换一个起。 */
   get #outdated(): boolean {
     return (
