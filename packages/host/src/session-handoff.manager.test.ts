@@ -416,8 +416,10 @@ describe('接力（SessionManager）', () => {
       const first = await env.manager.send(message, identity);
       const again = await env.manager.send(message, identity);
       expect(again).toEqual(first);
-      await vi.waitFor(() =>
-        expect(env.events.snapshot(env.sessionId)?.session.state).toBe('idle'),
+      // 同 `turn`：echo 按块回显，材料长时 Windows 上（定时器约 15 ms）要一秒多。
+      await vi.waitFor(
+        () => expect(env.events.snapshot(env.sessionId)?.session.state).toBe('idle'),
+        { timeout: 5000 },
       );
       const answers = env.events
         .readSince(env.sessionId, 0)
