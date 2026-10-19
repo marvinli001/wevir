@@ -52,7 +52,6 @@ import './rail-cards';
 import './usage-card';
 import './outputs-card';
 import './task-board-card';
-import './tool-preset-card';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';

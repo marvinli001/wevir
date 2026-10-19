@@ -8,11 +8,10 @@ import type {
   PermissionMode,
   ProviderProfile,
   Session,
-  ToolPreset,
   UserImagePart,
   WorkspaceId,
 } from '@wevir/protocol';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { isPickable, pickerOrder } from '@/data/sources';
 import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
@@ -25,7 +24,6 @@ import { parseGoalCommand } from './goal-command';
 import { engineFeaturesOf } from './handoff-model';
 import { type ModelChoice, modelsOf } from './model-picker';
 import { setPlanMode } from './plan-mode';
-import { createToolPreset } from './tool-preset-model';
 
 export async function sendText(
   client: WevirClient,
@@ -139,8 +137,6 @@ export function useStartSession(
   environmentId?: EnvironmentId,
   /** 选了“新工作树”（0.18.0）：在 `workspaceId` 的仓库里新开一个 worktree。 */
   newWorktree?: boolean,
-  /** 工具预设（0.61.0）：`full` 不带；只在 Host 有 `tool_presets` 时带。 */
-  toolPreset?: ToolPreset,
 ) {
   const { client, view } = useHostConnection();
   const permissions = usePermissionModes();
@@ -149,11 +145,6 @@ export function useStartSession(
   const [error, setError] = useState<string>();
   const primary = workspaceId;
   const chats = view.status === 'connected' && hostSupports(view.hello.features, 'chat_sessions');
-  const presets = view.status === 'connected' && hostSupports(view.hello.features, 'tool_presets');
-  const preset = useMemo(
-    () => (toolPreset === undefined ? undefined : createToolPreset(toolPreset)),
-    [toolPreset],
-  );
   // 选的模型能用目标（0.35.0）：`/goal 〈目标〉` 建会话后设目标，第一个回合以目标为消息。
   const data = useWorkbenchData();
   const goals =
@@ -196,7 +187,6 @@ export function useStartSession(
             workspaceId &&
             target === primary && { environmentId }),
           ...(newWorktree && workspaceId && target === primary && { worktree: 'new' as const }),
-          ...(presets && preset !== undefined && { toolPreset: preset }),
         }));
       } catch (reason) {
         setError(t('session.createFailed', { error: describe(reason) }));
@@ -238,8 +228,6 @@ export function useStartSession(
       primary,
       goals,
       chats,
-      presets,
-      preset,
     ],
   );
 
