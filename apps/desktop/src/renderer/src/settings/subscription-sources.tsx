@@ -118,7 +118,7 @@ export function LogoWell({
   return (
     <span
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-[10px] border border-border bg-background shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)]',
+        'flex shrink-0 items-center justify-center rounded-lg border border-border bg-background inset-well',
         size === 'md' ? 'size-9' : 'size-7 rounded-lg',
         className,
       )}
@@ -523,7 +523,7 @@ function CommandLine({ command }: { command: string }) {
     return () => clearTimeout(timer);
   }, [copied]);
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 py-1 pr-1 pl-3 shadow-[inset_0_1px_2px_rgb(0_0_0/0.04)]">
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 py-1 pr-1 pl-3 inset-well">
       <span aria-hidden className="font-mono text-xs text-muted-foreground select-none">
         $
       </span>

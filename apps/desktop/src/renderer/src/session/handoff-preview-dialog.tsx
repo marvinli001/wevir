@@ -9,6 +9,7 @@ import { Plus, X } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -301,15 +302,14 @@ export function HandoffPreviewDialog({
                   return (
                     <label
                       key={noteKey(note)}
-                      className="flex cursor-default items-start gap-2.5 px-3 py-2 text-sm hover:bg-muted/50"
+                      className="flex cursor-default items-start gap-2.5 px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted/50 has-data-checked:bg-muted"
                       data-handoff-note={noteKey(note)}
                     >
-                      <input
-                        type="checkbox"
-                        className="mt-0.5 size-4 accent-primary"
+                      <Checkbox
+                        className="mt-0.5"
                         checked={checked}
                         disabled={!checked && notes.length >= HANDOFF_MAX_NOTES}
-                        onChange={() => toggleNote(note)}
+                        onCheckedChange={() => toggleNote(note)}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{note.description || note.name}</span>

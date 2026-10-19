@@ -3,6 +3,7 @@ import { cn } from 'cn';
 import { ArrowUp, Folder, Layers } from 'lucide-react';
 import { type FormEvent, useId, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { projectsOf } from '@/data/workbench-model';
@@ -143,14 +144,12 @@ function EnvironmentForm({
               return (
                 <li
                   key={workspace.id}
-                  className="flex min-h-10 items-center gap-2.5 rounded-lg px-2 hover:bg-muted"
+                  className="flex min-h-10 items-center gap-2.5 rounded-lg px-2 transition-colors duration-150 hover:bg-muted"
                 >
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={index >= 0}
-                    onChange={() => toggle(workspace.id)}
+                    onCheckedChange={() => toggle(workspace.id)}
                     aria-label={workspace.displayName}
-                    className="size-4 shrink-0 accent-foreground"
                   />
                   <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1">
@@ -172,11 +171,10 @@ function EnvironmentForm({
                   {folder && (
                     <>
                       <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
-                        <input
-                          type="checkbox"
+                        <Checkbox
+                          size="sm"
                           checked={folder.worktree === 'new'}
-                          onChange={(event) => setWorktree(workspace.id, event.target.checked)}
-                          className="size-3.5 accent-foreground"
+                          onCheckedChange={(checked) => setWorktree(workspace.id, checked)}
                         />
                         {t('env.newWorktree')}
                       </label>

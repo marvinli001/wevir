@@ -2,6 +2,7 @@ import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type { MethodResult } from '@wevir/protocol';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
 import {
@@ -92,12 +93,11 @@ export function OllamaModels({
                 return (
                   <div key={entry.model.id} className="text-sm">
                     <label className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-1 accent-primary"
+                      <Checkbox
+                        className="mt-0.5"
                         disabled={incapable}
                         checked={form.models.some((row) => row.id === entry.model.id)}
-                        onChange={() => onChange(toggleDiscoveredModel(form, entry))}
+                        onCheckedChange={() => onChange(toggleDiscoveredModel(form, entry))}
                       />
                       <span className="min-w-0 break-words">
                         <span className="font-mono">{entry.model.id}</span>
