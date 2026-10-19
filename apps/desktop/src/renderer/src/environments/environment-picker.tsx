@@ -25,9 +25,12 @@ import {
 export function EnvironmentPicker({
   current,
   onSelect,
+  className,
 }: {
   current: WorkspaceEntry | undefined;
   onSelect: (workspaceId: string) => void;
+  /** 触发按钮的额外样式（新会话页的卡片里占满一行）。 */
+  className?: string;
 }) {
   const { supported, environments } = useEnvironments();
   const active = useActiveEnvironment(current?.workspace.id);
@@ -36,12 +39,15 @@ export function EnvironmentPicker({
     <DropdownMenu>
       <DropdownMenuTrigger
         data-testid="environment-picker"
-        className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:text-foreground"
+        className={cn(
+          'inline-flex h-7 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:text-foreground',
+          className,
+        )}
       >
         {active ? active.name : t('env.choose')}
         <ChevronDown aria-hidden className="size-3.5" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="center" className="w-auto max-w-80 min-w-56">
+      <DropdownMenuContent align="start" className="w-auto max-w-80 min-w-56">
         {environments.map((environment) => (
           <DropdownMenuItem
             key={environment.id}
