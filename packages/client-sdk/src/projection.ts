@@ -28,6 +28,7 @@ import type {
   CompactionTrigger,
   EngineErrorCategory,
   EngineErrorInfo,
+  HandoffStrategy,
   IsoTime,
   MessageFrom,
   PendingMessage,
@@ -91,7 +92,34 @@ export type SessionNotice =
       fromModelId: string;
       /** 接着用这个来源以前的引擎会话。 */
       resumed: boolean;
+      /** 整段对话，还是只补这个来源错过的那段。 */
+      strategy: HandoffStrategy;
+      /** 摘要覆盖的事件（含两端）；没有要补的历史时省略。 */
+      covered?: { fromSeq: number; toSeq: number };
+      /** 选进摘要的条目数与因预算省掉的条目数。 */
+      items: number;
+      omittedItems: number;
+      /** 交给新来源的摘要正文；没有要补的历史时省略。 */
+      context?: string;
+      /** 新来源能不能用读历史的工具拿全文；没有摘要时省略（这时不需要）。 */
+      historyTool?: boolean;
+      delivery: HandoffDelivery;
     };
+
+/**
+ * 接力摘要交出去了没有，与 Host 的规则一致（domain-model §3.14 的“交付”）：摘要随下一条消息交给新引擎，由消息（或目标）开始的
+ * 回合以 `interrupted` 以外的结局结束才算交出去；`interrupted`（引擎没开始这个回合）与由命令开始的回合不算，摘要留给下一条
+ * 消息。只说明 Host 交给了引擎，不说明模型读懂了。
+ */
+export type HandoffDelivery =
+  /** 没有要补的历史，没有摘要。 */
+  | { status: 'none' }
+  /** 摘要已备好，等下一条消息带过去。 */
+  | { status: 'prepared' }
+  /** 随这个回合的消息交给了新引擎。 */
+  | { status: 'delivered'; turnId: TurnId }
+  /** 交出去之前又换了来源，这份摘要不会再交（下一次接力按当时的情况另算）。 */
+  | { status: 'failed'; reason: 'superseded' };
 
 /**
  * 消息的部件。`key` 在部件的一生中不变（增量块被已提交消息替换时沿用增量块的 key），渲染层拿它做 React key。
@@ -341,6 +369,12 @@ interface MutableMessage {
 
 const EMPTY_APPROVALS: ReadonlyMap<ApprovalId, ApprovalRequest> = new Map();
 
+/**
+ * 接力摘要的开头说明里讲读历史工具的那一行（Host 的 `handoff.ts`，0.25.0 起不变）：只在新来源挂了这个工具时写，事件里没有单独的
+ * 字段，由它判断。
+ */
+const HISTORY_TOOL_LINE = 'Read the full history with the read_session_history tool';
+
 /** 一个回合在投影里的消息：用户消息，与按插话分开的几条助手消息（最后一条是当前的）。 */
 interface TurnMessages {
   user?: MutableMessage;
@@ -401,6 +435,10 @@ export class TranscriptProjection {
   #hidden = new Set<TurnId>();
   /** 能重做的回合，最近撤销的在最后。 */
   #redo: readonly TurnId[] = [];
+  /** 摘要还没交出去的那次接力的提示部件（`key`）。 */
+  #pendingHandoff: string | undefined;
+  /** 进行中的回合由命令开始（0.24.0）：它不带接力摘要。 */
+  #commandTurnId: TurnId | undefined;
   #lastSeq = 0;
   #dirty = true;
   #snapshot: Transcript | undefined;
@@ -441,6 +479,8 @@ export class TranscriptProjection {
     this.#latestPlan = undefined;
     this.#hidden.clear();
     this.#redo = [];
+    this.#pendingHandoff = undefined;
+    this.#commandTurnId = undefined;
     this.#lastSeq = 0;
     this.#dirty = true;
   }
@@ -482,8 +522,11 @@ export class TranscriptProjection {
       case 'session.configured':
         return;
       case 'session.handoff': {
-        const { from, to, resumed } = event.payload;
+        const { from, to, resumed, strategy, covered, items, omittedItems, context } =
+          event.payload;
         this.#readOnly = undefined;
+        // 上一份摘要还没交出去就又换了来源：它不会再交了。
+        this.#setHandoffDelivery({ status: 'failed', reason: 'superseded' });
         this.#notice(event, {
           kind: 'handoff',
           providerId: to.providerId,
@@ -491,7 +534,17 @@ export class TranscriptProjection {
           fromProviderId: from.providerId,
           fromModelId: from.modelId,
           resumed,
+          strategy,
+          ...(covered !== undefined && { covered: { ...covered } }),
+          items,
+          omittedItems,
+          ...(context !== undefined && {
+            context,
+            historyTool: context.includes(HISTORY_TOOL_LINE),
+          }),
+          delivery: context === undefined ? { status: 'none' } : { status: 'prepared' },
         });
+        if (context !== undefined) this.#pendingHandoff = `n:${event.seq}`;
         return;
       }
       case 'session.state_changed': {
@@ -516,13 +569,21 @@ export class TranscriptProjection {
           this.#touch(segment, event.seq).startedAt = event.ts;
         }
         this.#activeTurnId = event.payload.turnId;
+        this.#commandTurnId =
+          event.payload.command === undefined ? undefined : event.payload.turnId;
         // 新的回合开始，撤销的回合不能再重做了（它们一直隐藏）。
         if (this.#redo.length > 0) this.#redo = [];
         return;
       }
-      case 'turn.finished':
+      case 'turn.finished': {
         this.#turnFinished(event);
+        const { turnId, outcome } = event.payload;
+        if (outcome !== 'interrupted' && this.#commandTurnId !== turnId) {
+          this.#setHandoffDelivery({ status: 'delivered', turnId });
+        }
+        if (this.#commandTurnId === turnId) this.#commandTurnId = undefined;
         return;
+      }
       case 'turn.rewound':
         this.#turnRewound(event.payload.turnId);
         return;
@@ -892,6 +953,24 @@ export class TranscriptProjection {
       key: `n:${event.seq}`,
       notice,
     });
+  }
+
+  /** 还没交出去的那份接力摘要有了结果（交出去了，或被下一次接力取代）。 */
+  #setHandoffDelivery(delivery: HandoffDelivery): void {
+    const key = this.#pendingHandoff;
+    if (key === undefined) return;
+    this.#pendingHandoff = undefined;
+    for (let index = this.#messages.length - 1; index >= 0; index--) {
+      const message = this.#messages[index];
+      const at = message?.parts.findIndex((part) => part.key === key) ?? -1;
+      const part = message?.parts[at];
+      if (message === undefined || part?.type !== 'notice' || part.notice.kind !== 'handoff') {
+        continue;
+      }
+      this.#touch(message, this.#lastSeq);
+      message.parts[at] = { ...part, notice: { ...part.notice, delivery } };
+      return;
+    }
   }
 
   // ── 回合 ─────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 // 接力（0.25.0，domain-model §3.14）的纯逻辑：已有会话能换到哪些来源、当前的引擎能做什么、切换处那一行写什么。
 
+import type { SessionNotice } from '@wevir/client-sdk';
 import type { EngineFeatures, ProviderProfile, Session, SessionState } from '@wevir/protocol';
 import { sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
@@ -37,6 +38,78 @@ export function canHandoffTo(
     return engineFeatures?.[target.kind]?.additionalRoots === true;
   }
   return true;
+}
+
+export type HandoffNoticeOf = Extract<SessionNotice, { kind: 'handoff' }>;
+
+/** 接力详情里的一行：名称与值，`tone` 给状态上色。 */
+export interface HandoffDetailRow {
+  key: string;
+  label: string;
+  value: string;
+  tone?: 'success' | 'warning' | 'muted';
+}
+
+/**
+ * 接力详情（只读）：方式、引擎会话、覆盖范围、条目、能不能读历史与递交状态，全部来自 `session.handoff` 与之后的回合。状态只说 Host
+ * 有没有把摘要交给新来源，不说模型理解了没有。
+ */
+export function handoffDetailRows(notice: HandoffNoticeOf): HandoffDetailRow[] {
+  const strategy =
+    notice.strategy === 'full_thread_summary'
+      ? t('handoff.detail.strategy.full')
+      : notice.strategy === 'delta_since_target_last_seen'
+        ? t('handoff.detail.strategy.delta')
+        : notice.strategy;
+  const rows: HandoffDetailRow[] = [
+    { key: 'strategy', label: t('handoff.detail.strategy'), value: strategy },
+    {
+      key: 'engine',
+      label: t('handoff.detail.engine'),
+      value: notice.resumed ? t('handoff.detail.engine.resumed') : t('handoff.detail.engine.new'),
+    },
+    {
+      key: 'covered',
+      label: t('handoff.detail.covered'),
+      value:
+        notice.covered === undefined
+          ? t('handoff.detail.none')
+          : t('handoff.detail.coveredRange', {
+              from: notice.covered.fromSeq,
+              to: notice.covered.toSeq,
+            }),
+    },
+    {
+      key: 'items',
+      label: t('handoff.detail.items'),
+      value: t('handoff.detail.itemCounts', {
+        items: notice.items,
+        omitted: notice.omittedItems,
+      }),
+      ...(notice.omittedItems > 0 && { tone: 'warning' as const }),
+    },
+  ];
+  if (notice.historyTool !== undefined) {
+    rows.push({
+      key: 'history',
+      label: t('handoff.detail.history'),
+      value: notice.historyTool ? t('handoff.detail.history.yes') : t('handoff.detail.history.no'),
+      ...(!notice.historyTool && { tone: 'warning' as const }),
+    });
+  }
+  const { delivery } = notice;
+  rows.push({
+    key: 'status',
+    label: t('handoff.detail.status'),
+    value: `${t(`handoff.detail.status.${delivery.status}`)} · ${t(`handoff.detail.statusHint.${delivery.status}`)}`,
+    tone:
+      delivery.status === 'delivered'
+        ? 'success'
+        : delivery.status === 'failed'
+          ? 'warning'
+          : 'muted',
+  });
+  return rows;
 }
 
 /** “来源 · 模型”：订阅写软件名，API 写服务的名字；认不出的照原样。 */

@@ -1,6 +1,12 @@
 import type { EngineFeatures, ProviderProfile, Session } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { canHandoffTo, engineFeaturesOf, modelLabel } from './handoff-model';
+import {
+  canHandoffTo,
+  engineFeaturesOf,
+  type HandoffNoticeOf,
+  handoffDetailRows,
+  modelLabel,
+} from './handoff-model';
 
 function provider(id: string, kind: ProviderProfile['kind'], extra: Partial<ProviderProfile> = {}) {
   return {
@@ -71,5 +77,56 @@ describe('接力的纯逻辑（0.25.0）', () => {
     expect(modelLabel([api, claude], 'mock', 'm')).toBe('Mock API · Model M');
     expect(modelLabel([api], 'mock', 'other')).toBe('Mock API · other');
     expect(modelLabel([], 'gone', 'x')).toBe('x');
+  });
+
+  it('handoffDetailRows：方式、引擎会话、范围、条目、读历史与递交状态都来自事件；没有摘要时不说读历史', () => {
+    const notice: HandoffNoticeOf = {
+      kind: 'handoff',
+      providerId: 'claude',
+      modelId: 'm',
+      fromProviderId: 'mock',
+      fromModelId: 'm',
+      resumed: true,
+      strategy: 'delta_since_target_last_seen',
+      covered: { fromSeq: 7, toSeq: 12 },
+      items: 3,
+      omittedItems: 2,
+      context: 'Context handoff',
+      historyTool: false,
+      delivery: { status: 'delivered', turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR' },
+    };
+    expect(handoffDetailRows(notice).map((row) => [row.key, row.value, row.tone])).toEqual([
+      ['strategy', '增量：只补这个来源错过的部分', undefined],
+      ['engine', '沿用以前的', undefined],
+      ['covered', '事件 7–12', undefined],
+      ['items', '选入 3 条，省略 2 条', 'warning'],
+      ['history', '只有摘要', 'warning'],
+      ['status', '已递交 · 已随消息交给新来源', 'success'],
+    ]);
+    const none = handoffDetailRows({
+      ...notice,
+      resumed: false,
+      strategy: 'full_thread_summary',
+      items: 0,
+      omittedItems: 0,
+      covered: undefined,
+      context: undefined,
+      historyTool: undefined,
+      delivery: { status: 'none' },
+    });
+    expect(none.map((row) => row.value)).toEqual([
+      '完整：整段对话',
+      '新建',
+      '无',
+      '选入 0 条，省略 0 条',
+      '无需材料 · 新来源没有错过的内容',
+    ]);
+    const failed = handoffDetailRows({
+      ...notice,
+      delivery: { status: 'failed', reason: 'superseded' },
+    });
+    expect(failed.at(-1)).toMatchObject({ value: '失败 · 交出之前又切换了来源', tone: 'warning' });
+    // 不说“模型已理解”。
+    expect(JSON.stringify(handoffDetailRows(notice))).not.toMatch(/理解/);
   });
 });

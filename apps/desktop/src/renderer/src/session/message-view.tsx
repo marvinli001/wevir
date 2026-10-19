@@ -22,7 +22,8 @@ import { paths } from '@/routes/paths';
 import { providerLogo } from '@/settings/provider-catalog';
 import { CopyButton } from './copy-button';
 import { formatMessageTime } from './format';
-import { modelLabel } from './handoff-model';
+import { HandoffDetailDialog } from './handoff-detail';
+import { type HandoffNoticeOf, modelLabel } from './handoff-model';
 import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
@@ -512,33 +513,43 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
   );
 }
 
-/** 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”。 */
-function HandoffNotice({
-  notice,
-}: {
-  notice: Extract<ChatPartOf<'notice'>['notice'], { kind: 'handoff' }>;
-}) {
+/** 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”，点开是这次接力的详情。 */
+function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
   const data = useWorkbenchData();
+  const [open, setOpen] = useState(false);
   const providers = data.status === 'ready' ? data.providers : [];
   const provider = providers.find((candidate) => candidate.id === notice.providerId);
   const source = provider && sourceOf(provider);
   const label = modelLabel(providers, notice.providerId, notice.modelId);
   return (
-    <p
-      className="my-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
-      data-testid="handoff-notice"
-      data-provider={notice.providerId}
-    >
-      {provider ? (
-        <ProviderLogo
-          logo={source?.logo ?? providerLogo(provider)}
-          fallback={label}
-          className="size-3.5"
-        />
-      ) : (
-        <ArrowLeftRight aria-hidden className="size-3.5" />
-      )}
-      {t('notice.handoff', { model: label })}
-    </p>
+    <div className="my-3 flex justify-center">
+      <button
+        type="button"
+        className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        title={t('handoff.detail.open')}
+        onClick={() => setOpen(true)}
+        data-testid="handoff-notice"
+        data-provider={notice.providerId}
+        data-delivery={notice.delivery.status}
+      >
+        {provider ? (
+          <ProviderLogo
+            logo={source?.logo ?? providerLogo(provider)}
+            fallback={label}
+            className="size-3.5"
+          />
+        ) : (
+          <ArrowLeftRight aria-hidden className="size-3.5" />
+        )}
+        {t('notice.handoff', { model: label })}
+      </button>
+      <HandoffDetailDialog
+        notice={notice}
+        target={label}
+        from={modelLabel(providers, notice.fromProviderId, notice.fromModelId)}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </div>
   );
 }

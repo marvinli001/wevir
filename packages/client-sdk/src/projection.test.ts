@@ -470,8 +470,66 @@ describe('TranscriptProjection：会话级事件', () => {
           fromProviderId: 'deepseek-official',
           fromModelId: 'deepseek-chat',
           resumed: false,
+          strategy: 'full_thread_summary',
+          covered: { fromSeq: 1, toSeq: 6 },
+          items: 2,
+          omittedItems: 0,
+          context: 'Context handoff (full_thread_summary):\n…',
+          historyTool: false,
+          delivery: { status: 'prepared' },
         },
       },
+    ]);
+  });
+
+  it('接力摘要的递交状态：interrupted 与命令开的回合不算，由消息开始的回合结束才算；没交出去又换来源时失败', () => {
+    const { list, add, turn } = events();
+    const handoff = (context?: string) =>
+      add('session.handoff', {
+        from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'e1' },
+        to: { providerId: 'claude', modelId: 'claude-opus-5-5', engineSessionId: 'e2' },
+        resumed: false,
+        strategy: 'full_thread_summary',
+        items: context === undefined ? 0 : 1,
+        omittedItems: 0,
+        ...(context !== undefined && { covered: { fromSeq: 1, toSeq: 2 }, context }),
+      });
+    const deliveries = () =>
+      projectTranscript(list).messages.flatMap((message) =>
+        message.parts.flatMap((part) =>
+          part.type === 'notice' && part.notice.kind === 'handoff'
+            ? [{ key: part.key, delivery: part.notice.delivery, tool: part.notice.historyTool }]
+            : [],
+        ),
+      );
+    const first = handoff(
+      'Context handoff (full_thread_summary):\nRead the full history with the read_session_history tool: {}',
+    );
+    expect(deliveries()).toEqual([
+      { key: `n:${first.seq}`, delivery: { status: 'prepared' }, tool: true },
+    ]);
+    // 引擎没开始这个回合：摘要留给下一条消息。
+    turn(TURN, '一');
+    add('turn.finished', { turnId: TURN, outcome: 'interrupted', durationMs: 1 });
+    expect(deliveries()[0]?.delivery).toEqual({ status: 'prepared' });
+    // 压缩（命令开的回合）不带摘要。
+    const COMPACT = 'trn_01JA2B3C4D5E6F7G8H9JKMNPQT' as TurnId;
+    add('turn.started', { turnId: COMPACT, command: { kind: 'compact' } });
+    add('turn.finished', { turnId: COMPACT, outcome: 'completed', durationMs: 1 });
+    expect(deliveries()[0]?.delivery).toEqual({ status: 'prepared' });
+    turn(TURN2, '二');
+    add('turn.finished', { turnId: TURN2, outcome: 'failed', durationMs: 1 });
+    expect(deliveries()[0]?.delivery).toEqual({ status: 'delivered', turnId: TURN2 });
+
+    // 没有要补的历史：没有摘要。再一次有摘要的接力，交出去之前又换了来源。
+    handoff();
+    handoff('Context handoff (delta_since_target_last_seen):\n…');
+    handoff('Context handoff (full_thread_summary):\n…');
+    expect(deliveries().map((entry) => [entry.delivery, entry.tool])).toEqual([
+      [{ status: 'delivered', turnId: TURN2 }, true],
+      [{ status: 'none' }, undefined],
+      [{ status: 'failed', reason: 'superseded' }, false],
+      [{ status: 'prepared' }, false],
     ]);
   });
 
