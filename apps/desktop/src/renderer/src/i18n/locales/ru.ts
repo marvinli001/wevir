@@ -132,6 +132,7 @@ export const messages: Messages = {
   'rail.hide': 'Скрыть панель сессии',
   'rail.environment': 'Окружение',
   'rail.environment.detached': 'Отделён на {sha}',
+  'rail.tools': 'Инструменты Wevir',
   'rail.context': 'Контекст',
   'rail.context.used': 'Использовано {percent}%',
   'rail.context.approx': '≈ {size}',
@@ -531,6 +532,37 @@ export const messages: Messages = {
   'permission.auto_review': 'Автоподтверждение',
   'permission.full_access': 'Полный доступ',
   'permission.configureFailed': 'Не удалось сменить разрешения: {error}',
+
+  'toolPreset.title': 'Набор инструментов Wevir',
+  'toolPreset.label': 'Инструменты Wevir: {preset}',
+  'toolPreset.chip': 'Инструменты: {preset}',
+  'toolPreset.change': 'Выберите, какие инструменты Wevir видит модель',
+  'toolPreset.full': 'Все',
+  'toolPreset.core': 'Основные',
+  'toolPreset.coreWith':
+    'Основные + {count, plural, one {# группа} few {# группы} many {# групп} other {# группы}}',
+  'toolPreset.fullHint': 'Все инструменты Wevir, как раньше (по умолчанию)',
+  'toolPreset.coreHint':
+    'Совместная работа сессий, память, список задач, модели и роли, показ и передача файлов',
+  'toolPreset.addGroups': 'Добавить к основным',
+  'toolPreset.group.sessions': 'Совместная работа сессий',
+  'toolPreset.group.catalog': 'Модели и роли',
+  'toolPreset.group.tasks': 'Список задач',
+  'toolPreset.group.memory': 'Память',
+  'toolPreset.group.workbench': 'Показ и передача файлов',
+  'toolPreset.group.browser': 'Браузер',
+  'toolPreset.group.lsp': 'Анализ кода (LSP)',
+  'toolPreset.group.processes': 'Фоновые процессы',
+  'toolPreset.group.plugins': 'Управление плагинами',
+  'toolPreset.count':
+    '{count, plural, one {# инструмент} few {# инструмента} many {# инструментов} other {# инструмента}}',
+  'toolPreset.summary': 'Модель получает {count} из {total} инструментов Wevir',
+  'toolPreset.scope':
+    'Влияет только на инструменты, которые даёт Wevir; собственные инструменты движка и MCP-серверы, подключённые вами, этой настройкой не управляются.',
+  'toolPreset.always': 'Чтение истории сессий и веб-инструменты доступны при любом наборе.',
+  'toolPreset.fixed':
+    'После создания сессии изменить нельзя; чтобы выбрать другой набор, создайте новую сессию.',
+  'toolPreset.roleNote': 'Роль этой сессии может убрать ещё часть инструментов.',
 
   'environment.local': 'Этот компьютер',
   'environment.settings': 'Локальное окружение',

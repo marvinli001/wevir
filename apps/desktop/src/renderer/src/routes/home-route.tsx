@@ -20,6 +20,7 @@ import { NewSessionHero, NewSessionLayout } from '@/session/new-session';
 import { PermissionPicker, usePermissionChoice } from '@/session/permission-picker';
 import { usePlanControl } from '@/session/plan-mode';
 import { useModelChoice, usePermissionModes, useStartSession } from '@/session/start-session';
+import { ToolPresetPicker, useToolPresetChoice } from '@/session/tool-preset-picker';
 import { useDraftCommands } from '@/session/use-composer-commands';
 import { homeWorkspace, rememberWorkspace, useLastLocation } from './last-location';
 import { paths } from './paths';
@@ -66,6 +67,7 @@ function Home({
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspace?.id);
   const worktree = useWorktreeChoice(workspace?.id);
+  const tools = useToolPresetChoice();
   const { start, error, goals, ready } = useStartSession(
     workspace?.id,
     choice,
@@ -73,6 +75,7 @@ function Home({
     permission.mode,
     environment?.id,
     worktree.active,
+    tools.choice,
   );
   const noProvider = providers !== undefined && providers.length === 0;
   // 计划模式（0.36.0）：按选的模型所在的引擎；第一条消息带上它。
@@ -155,6 +158,7 @@ function Home({
                 {permissions && (
                   <PermissionPicker value={permission.mode} onChange={permission.choose} />
                 )}
+                <ToolPresetPicker value={tools.choice} onChange={tools.choose} />
                 {noProvider && <AddProviderChip />}
               </>
             }

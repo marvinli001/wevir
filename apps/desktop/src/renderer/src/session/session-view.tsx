@@ -87,6 +87,7 @@ import {
 } from './start-session';
 import { useSessions } from './suggested-tasks';
 import { TodoDock, TurnRecap } from './todo-card';
+import { ToolPresetPicker, useToolPresetChoice } from './tool-preset-picker';
 import { TranscriptView, type TranscriptViewHandle } from './transcript-view';
 import { OpenTurnChanges } from './turn-changes';
 import { lastTurnId } from './turn-model';
@@ -1049,6 +1050,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
   const permissions = usePermissionModes();
   const environment = useActiveEnvironment(workspaceId);
   const worktree = useWorktreeChoice(workspaceId);
+  const tools = useToolPresetChoice();
   const {
     start: send,
     error,
@@ -1060,6 +1062,7 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
     permission.mode,
     environment?.id,
     worktree.active,
+    tools.choice,
   );
   const acceptImages = useAcceptsImages(choice);
 
@@ -1167,9 +1170,12 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
             {...(planCommand && { plan: planCommand })}
             acceptImages={acceptImages}
             leading={
-              permissions && (
-                <PermissionPicker value={permission.mode} onChange={permission.choose} />
-              )
+              <>
+                {permissions && (
+                  <PermissionPicker value={permission.mode} onChange={permission.choose} />
+                )}
+                <ToolPresetPicker value={tools.choice} onChange={tools.choose} />
+              </>
             }
             model={
               providers &&
