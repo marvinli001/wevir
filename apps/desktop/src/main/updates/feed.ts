@@ -14,40 +14,47 @@ import type { UpdateChannel } from '../../shared/desktop-api.js';
 
 /** 一条下载线路。Wevir 自己的线路只认自己的域名，后面换服务商只改 DNS；GitHub 线路是 Release 的下载地址。 */
 export interface UpdateMirror {
-  /** 稳定的 ID，记在状态里给界面显示（`global` / `github`）。 */
+  /** 稳定的 ID，记在状态里给界面显示（`github` / `r2` / `global`）。 */
   id: string;
   /** 线路的根地址，不带末尾的 `/`。 */
   url: string;
   /** `release`：GitHub Release 的附件，没有目录（见文件头）。不写时是 `desktop/<平台>-<架构>/` 的发布目录。 */
   layout?: 'release';
+  /** 后备线路：主线路（没有这个标记的）都没给出可用的清单时才问它，下载时也排在主线路之后。 */
+  fallback?: true;
 }
 
 /** GitHub 线路：仓库里 tag `desktop-updates` 的 Release，发布作业（scripts/release.ts）往里传。 */
 export const GITHUB_MIRROR_URL =
   'https://github.com/marvinli001/wevir/releases/download/desktop-updates';
 
-/** 内置的两条线路：Bunny CDN 与 GitHub Release（2026-10-20 去掉自建的 download2.wevir.si，国内实测比 Bunny 慢）。 */
+/**
+ * 内置的线路。主线路是 GitHub Release 与 Cloudflare R2（自定义域名 dl.edgeweir.com），两条竞速、按速度选；Bunny CDN
+ * （download.wevir.si）是后备，主线路都不行时才用（Bunny 流量贵）。2026-10-20 去掉了自建的 download2.wevir.si。
+ */
 export const UPDATE_MIRRORS: readonly UpdateMirror[] = [
-  { id: 'global', url: 'https://download.wevir.si' },
   { id: 'github', url: GITHUB_MIRROR_URL, layout: 'release' },
+  { id: 'r2', url: 'https://dl.edgeweir.com' },
+  { id: 'global', url: 'https://download.wevir.si', fallback: true },
 ];
 
 /**
  * 排查与本机验收用：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,local2=http://127.0.0.1:8702` 换掉内置线路。
- * 地址里有 `/releases/download/` 的按 GitHub Release 的布局读。清单照样要验签，换线路换不掉签名检查。格式不对时返回
- * undefined（用内置的）。
+ * 地址里有 `/releases/download/` 的按 GitHub Release 的布局读；ID 后加 `?`（`global?=…`）是后备线路。清单照样要验签，
+ * 换线路换不掉签名检查。格式不对时返回 undefined（用内置的）。
  */
 export function mirrorsFromEnv(value: string | undefined): UpdateMirror[] | undefined {
   if (value === undefined || value.trim() === '') return undefined;
   const mirrors: UpdateMirror[] = [];
   for (const part of value.split(',')) {
-    const match = /^\s*([a-z][a-z0-9-]*)=(https?:\/\/[^\s,]+?)\/?\s*$/.exec(part);
+    const match = /^\s*([a-z][a-z0-9-]*)(\??)=(https?:\/\/[^\s,]+?)\/?\s*$/.exec(part);
     if (match === null) return undefined;
-    const url = match[2] as string;
+    const url = match[3] as string;
     mirrors.push({
       id: match[1] as string,
       url,
       ...(url.includes('/releases/download/') && { layout: 'release' as const }),
+      ...(match[2] === '?' && { fallback: true as const }),
     });
   }
   return mirrors.length > 0 ? mirrors : undefined;
@@ -244,22 +251,37 @@ function failureOf(mirror: UpdateMirror, error: unknown): MirrorFailure {
 }
 
 /**
- * 同时问所有线路，第一条给出验过签的清单的胜出；其余的继续在后台跑完（`rest`，选下载线路时要用），整体超时 `timeoutMs`。
- * 都失败时抛出 `UpdateFeedError`，带上每条线路的原因。
+ * 先同时问所有主线路，第一条给出验过签的清单的胜出；其余的继续在后台跑完（`rest`，选下载线路时要用）。主线路都不行时
+ * 再同样问后备线路。每一批各有 `timeoutMs`。都失败时抛出 `UpdateFeedError`，带上每条线路的原因。
  */
 export async function raceMirrors(options: {
   mirrors: readonly UpdateMirror[];
   read: (mirror: UpdateMirror, signal: AbortSignal) => Promise<MirrorManifest>;
   timeoutMs: number;
 }): Promise<{ first: MirrorManifest; rest: Promise<MirrorManifest[]> }> {
-  const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error('update check timed out')),
-    options.timeoutMs,
-  );
   const failures: MirrorFailure[] = [];
-  const attempts = options.mirrors.map((mirror) =>
-    options.read(mirror, controller.signal).catch((error: unknown) => {
+  const tiers = [
+    options.mirrors.filter((mirror) => mirror.fallback !== true),
+    options.mirrors.filter((mirror) => mirror.fallback === true),
+  ];
+  for (const tier of tiers) {
+    if (tier.length === 0) continue;
+    const won = await raceTier(tier, options.read, options.timeoutMs, failures);
+    if (won !== undefined) return won;
+  }
+  throw new UpdateFeedError(failures);
+}
+
+async function raceTier(
+  mirrors: readonly UpdateMirror[],
+  read: (mirror: UpdateMirror, signal: AbortSignal) => Promise<MirrorManifest>,
+  timeoutMs: number,
+  failures: MirrorFailure[],
+): Promise<{ first: MirrorManifest; rest: Promise<MirrorManifest[]> } | undefined> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('update check timed out')), timeoutMs);
+  const attempts = mirrors.map((mirror) =>
+    read(mirror, controller.signal).catch((error: unknown) => {
       failures.push(failureOf(mirror, error));
       throw error;
     }),
@@ -275,7 +297,7 @@ export async function raceMirrors(options: {
     return { first, rest };
   } catch {
     clearTimeout(timer);
-    throw new UpdateFeedError(failures);
+    return undefined;
   }
 }
 

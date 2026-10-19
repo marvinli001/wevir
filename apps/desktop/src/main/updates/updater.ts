@@ -1,5 +1,6 @@
 // 自动更新的状态机（ADR-0007 补记 4）。检查：所有线路竞速取清单并验签（feed.ts），有新版本时在给出同一版本的线路之间按下载
-// 速度选一条；下载与安装交给 electron-updater（mirror-provider.ts）。下载失败时换另一条线路重试一次。状态经 `onState` 推给
+// 速度选一条；下载与安装交给 electron-updater（mirror-provider.ts）。下载失败时换下一条线路重试（先换主线路，最后是后备
+// 线路），每条线路一轮里只试一次。状态经 `onState` 推给
 // 渲染进程，界面在侧栏左下角与设置 → 关于里显示。
 //
 // 不依赖 Electron 本身：electron-updater 的实例、网络请求、偏好的读写与计时器都从参数注入（index.ts 接上真实的），单元测试
@@ -102,6 +103,7 @@ export class UpdateController implements FeedSource {
   #timer: ReturnType<typeof setTimeout> | undefined;
   /** 本轮下载失败过的线路，重试时不再选它。 */
   readonly #failedMirrors = new Set<string>();
+  /** 正在换线路重试下载：这时的检查不清掉 `#failedMirrors`。 */
   #retried = false;
   #chosen: MirrorManifest | undefined;
   #checking: Promise<void> | undefined;
@@ -304,10 +306,15 @@ export class UpdateController implements FeedSource {
   #onUpdaterError(error: Error): void {
     const phase = this.#state.phase;
     const version = 'version' in this.#state ? this.#state.version : undefined;
-    if (phase === 'downloading' && this.#chosen !== undefined && !this.#retried) {
-      // 下载失败：这条线路记为失败，重新检查（换到另一条），再下载一次。
-      this.#retried = true;
+    if (phase === 'downloading' && this.#chosen !== undefined)
       this.#failedMirrors.add(this.#chosen.mirror.id);
+    if (
+      phase === 'downloading' &&
+      this.#chosen !== undefined &&
+      this.#options.mirrors.some((mirror) => !this.#failedMirrors.has(mirror.id))
+    ) {
+      // 下载失败：这条线路记为失败，重新检查（换到还没失败过的线路），再下载。
+      this.#retried = true;
       this.#options.log('warn', 'update download failed; retrying on another mirror', {
         mirror: this.#chosen.mirror.id,
         error: error.message,

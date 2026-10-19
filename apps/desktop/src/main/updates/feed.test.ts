@@ -30,10 +30,11 @@ const GITHUB = {
 };
 
 describe('线路与清单的位置', () => {
-  it('内置两条线路：Bunny 的域名与 GitHub Release，内置了公钥', () => {
-    expect(UPDATE_MIRRORS.map((m) => m.url)).toEqual([
-      'https://download.wevir.si',
-      'https://github.com/marvinli001/wevir/releases/download/desktop-updates',
+  it('内置线路：主线路 GitHub Release 与 R2，Bunny 是后备；内置了公钥', () => {
+    expect(UPDATE_MIRRORS.map((m) => [m.url, m.fallback === true])).toEqual([
+      ['https://github.com/marvinli001/wevir/releases/download/desktop-updates', false],
+      ['https://dl.edgeweir.com', false],
+      ['https://download.wevir.si', true],
     ]);
     expect(UPDATE_MIRRORS.find((m) => m.url === GITHUB_MIRROR_URL)?.layout).toBe('release');
     expect(UPDATE_PUBLIC_KEYS.length).toBeGreaterThan(0);
@@ -70,6 +71,10 @@ describe('线路与清单的位置', () => {
     ]);
     expect(mirrorsFromEnv('github=http://127.0.0.1:8703/o/r/releases/download/x')).toEqual([
       { id: 'github', url: 'http://127.0.0.1:8703/o/r/releases/download/x', layout: 'release' },
+    ]);
+    expect(mirrorsFromEnv('second=http://127.0.0.1:8702,global?=http://127.0.0.1:8701')).toEqual([
+      { id: 'second', url: 'http://127.0.0.1:8702' },
+      { id: 'global', url: 'http://127.0.0.1:8701', fallback: true },
     ]);
     expect(mirrorsFromEnv(undefined)).toBeUndefined();
     expect(mirrorsFromEnv('global=ftp://x')).toBeUndefined();
@@ -254,6 +259,41 @@ describe('readMirror / raceMirrors', () => {
     expect((error as UpdateFeedError).failures.map((f) => [f.mirror.id, f.reason]).sort()).toEqual([
       ['global', 'signature'],
       ['second', 'empty'],
+    ]);
+  });
+
+  it('后备线路只在主线路都没给出可用的清单时才问，原因一并报出', async () => {
+    const backup = { ...GLOBAL, fallback: true as const };
+    const both = fakeServer({ ...routes(GLOBAL, '0.2.0'), ...routes(SECOND, '0.2.0') });
+    const { first, rest } = await raceMirrors({
+      mirrors: [backup, SECOND],
+      timeoutMs: 1000,
+      read: read(both.fetcher, 'stable'),
+    });
+    expect(first.mirror.id).toBe('second');
+    expect(await rest).toEqual([]);
+    expect(both.requests.some((r) => r.url.startsWith(GLOBAL.url))).toBe(false);
+
+    const down: Fetcher = (url, init) =>
+      url.startsWith(SECOND.url)
+        ? Promise.reject(new Error('connect ECONNREFUSED'))
+        : both.fetcher(url, init);
+    const fallen = await raceMirrors({
+      mirrors: [backup, SECOND],
+      timeoutMs: 1000,
+      read: read(down, 'stable'),
+    });
+    expect(fallen.first.mirror.id).toBe('global');
+
+    const none: Fetcher = () => Promise.reject(new Error('connect ECONNREFUSED'));
+    const error = await raceMirrors({
+      mirrors: [backup, SECOND],
+      timeoutMs: 1000,
+      read: read(none, 'stable'),
+    }).catch((e: unknown) => e);
+    expect((error as UpdateFeedError).failures.map((f) => f.mirror.id)).toEqual([
+      'second',
+      'global',
     ]);
   });
 

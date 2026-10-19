@@ -19,6 +19,7 @@
  *          --skip-prune 时跳过，留给 prune 子命令（工作流先重建官网再清理）。
  *     安装包的名字都带版本，发出去就不再改写：Bunny 存储覆盖同名文件后，CDN 回源会在一段时间里拿到新旧混杂
  *     或不完整的内容（2026-10-16 固定名字的 dmg 就这样坏过），所以不再有覆盖写的安装包，下载页按清单链接。
+ *     主线路是 GitHub Release 与 Cloudflare R2，Bunny（global）是后备（客户端主线路都不行时才用，见 feed.ts）；三条都传。
  *     线路的连接信息来自环境变量（见 MIRRORS），用 AWS CLI（GitHub 的 Ubuntu runner 自带）；GitHub 线路用 gh 与 GH_TOKEN。
  *
  *   node scripts/release.ts prune --dir <目录> [--only <线路>]
@@ -195,14 +196,19 @@ export interface Mirror {
   publicUrl: string;
   /** 环境变量前缀，`<前缀>_S3_ENDPOINT` 等。 */
   env: string;
+  /** 这条线路的 S3 接口收 Cache-Control（R2 收，Bunny 不收）：清单与签名写 no-cache，安装包按不变的文件长期缓存。 */
+  cacheControl?: true;
 }
 
 /**
  * S3 线路。要 `<前缀>_S3_ENDPOINT`、`_S3_BUCKET`、`_S3_ACCESS_KEY_ID`、`_S3_SECRET_ACCESS_KEY`，可选 `_S3_REGION`。
- * 全球线路是 Bunny Storage 的 S3 接口（拉取区 download.wevir.si），桶是公网地址的根，键是
- * `desktop/<平台>-<架构>/<文件>`；设了 BUNNY_API_KEY 时写完清单清 CDN 缓存。
+ * 两条线路的桶都是公网地址的根，键是 `desktop/<平台>-<架构>/<文件>`：
+ *   - r2：Cloudflare R2（自定义域名 dl.edgeweir.com），与 GitHub 线路同为主线路。接口
+ *     `https://<账户 ID>.r2.cloudflarestorage.com`，区域 auto（us-east-1 是它的别名）；R2 强一致，不用经 CDN 核对。
+ *   - global：Bunny Storage 的 S3 接口（拉取区 download.wevir.si），后备线路；设了 BUNNY_API_KEY 时经 CDN 核对并清缓存。
  */
 export const MIRRORS: readonly Mirror[] = [
+  { id: 'r2', publicUrl: 'https://dl.edgeweir.com', env: 'WEVIR_R2', cacheControl: true },
   { id: 'global', publicUrl: 'https://download.wevir.si', env: 'WEVIR_GLOBAL' },
 ];
 
@@ -227,7 +233,7 @@ function mirrorTarget(mirror: Mirror, env: NodeJS.ProcessEnv): MirrorTarget {
       AWS_SECRET_ACCESS_KEY: read('S3_SECRET_ACCESS_KEY'),
       AWS_ENDPOINT_URL: read('S3_ENDPOINT'),
       AWS_REGION: read('S3_REGION', false) || 'us-east-1',
-      // AWS CLI 2.23 起默认给每个请求加 CRC32 校验，Bunny 只认 SHA256；只在接口要求时才算。
+      // AWS CLI 2.23 起默认给每个请求加 CRC32 校验，Bunny 只认 SHA256；只在接口要求时才算（R2 两样都认）。
       AWS_REQUEST_CHECKSUM_CALCULATION: 'when_required',
       AWS_RESPONSE_CHECKSUM_VALIDATION: 'when_required',
       AWS_EC2_METADATA_DISABLED: 'true',
@@ -247,6 +253,13 @@ function aws(mirror: MirrorTarget, args: readonly string[]): string {
   });
 }
 
+/** 清单与签名每次发布都改写，不许缓存；安装包与 blockmap 的名字带版本，发出去就不再变。 */
+export function cacheControlOf(name: string): string {
+  return name.endsWith('.yml') || name.endsWith('.sig')
+    ? 'no-cache'
+    : 'public, max-age=31536000, immutable';
+}
+
 function contentType(name: string): string {
   if (name.endsWith('.yml')) return 'text/yaml; charset=utf-8';
   if (name.endsWith('.sig')) return 'text/plain; charset=utf-8';
@@ -259,7 +272,7 @@ function contentType(name: string): string {
 /**
  * 每个文件都用一次 PutObject 整个传（S3 单次上限 5 GB），不分片：Bunny 把分片上传的文件复制到其他地区的存储副本时
  * 会丢片或混进旧的分片（2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 正好少了一个 8 MiB 的分片，CDN 清缓存后回源
- * 仍是坏的）。Bunny 的 S3 接口不收 Cache-Control，清单靠写完后清 CDN 缓存。
+ * 仍是坏的）。R2 也照这样传。Bunny 的 S3 接口不收 Cache-Control，清单靠写完后清 CDN 缓存。
  */
 function upload(mirror: MirrorTarget, file: string, key: string): void {
   const name = key.slice(key.lastIndexOf('/') + 1);
@@ -274,6 +287,7 @@ function upload(mirror: MirrorTarget, file: string, key: string): void {
     file,
     '--content-type',
     contentType(name),
+    ...(mirror.cacheControl ? ['--cache-control', cacheControlOf(name)] : []),
     '--output',
     'json',
   ]);

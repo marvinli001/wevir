@@ -3,6 +3,7 @@ import {
   CDN_RETRY_MS,
   CDN_SETTLE_MS,
   type CdnCheck,
+  cacheControlOf,
   checkPlatformDir,
   compareVersions,
   type Digest,
@@ -11,6 +12,8 @@ import {
   githubAssetName,
   githubDirListing,
   isLegacyAlias,
+  LINE_IDS,
+  MIRRORS,
   manifestFile,
   platformDirOfFile,
   readManifest,
@@ -285,6 +288,21 @@ describe('uploadInstallers', () => {
     const second = record();
     await uploadInstallers([{ id: 'second' }], second.steps);
     expect(second.events).toEqual(['upload second']);
+  });
+});
+
+describe('线路', () => {
+  it('传 R2、Bunny 与 GitHub；R2 带 Cache-Control，清单不缓存、安装包长期缓存', () => {
+    expect(LINE_IDS).toEqual(['r2', 'global', 'github']);
+    expect(MIRRORS.map((m) => [m.publicUrl, m.env, m.cacheControl === true])).toEqual([
+      ['https://dl.edgeweir.com', 'WEVIR_R2', true],
+      ['https://download.wevir.si', 'WEVIR_GLOBAL', false],
+    ]);
+    expect(cacheControlOf('beta-mac.yml')).toBe('no-cache');
+    expect(cacheControlOf('beta-mac.yml.sig')).toBe('no-cache');
+    expect(cacheControlOf('Wevir-0.1.1-beta.3-mac-arm64.zip')).toBe(
+      'public, max-age=31536000, immutable',
+    );
   });
 });
 

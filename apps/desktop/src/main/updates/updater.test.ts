@@ -13,6 +13,7 @@ import {
 
 const GLOBAL = { id: 'global', url: 'https://download.example' };
 const SECOND = { id: 'second', url: 'https://second.example' };
+const BACKUP = { id: 'backup', url: 'https://backup.example', fallback: true as const };
 const { privateKey, publicKey } = testKeyPair();
 
 /** 照 electron-updater 的事件顺序：检查时向 provider 要清单，比当前版本新就 update-available。 */
@@ -73,6 +74,7 @@ function controller(options: {
   keys?: string[];
   readOnlyLocation?: boolean;
   timing?: Pick<UpdateControllerOptions, 'firstCheckMs' | 'staleAfterMs' | 'now'>;
+  mirrors?: UpdateControllerOptions['mirrors'];
 }) {
   let prefs: UpdatePrefs = options.prefs ?? {};
   const states: UpdateState[] = [];
@@ -81,7 +83,7 @@ function controller(options: {
     currentVersion: options.updater.currentVersion,
     platform: 'darwin',
     arch: 'arm64',
-    mirrors: [GLOBAL, SECOND],
+    mirrors: options.mirrors ?? [GLOBAL, SECOND],
     publicKeys: options.keys ?? [publicKey],
     fetcher: options.fetcher,
     packaged: options.packaged ?? true,
@@ -194,6 +196,23 @@ describe('UpdateController', () => {
     expect(updater.downloads).toHaveLength(2);
     expect(ctl.state).toMatchObject({ phase: 'downloaded' });
     expect(ctl.state.mirror?.id).not.toBe(first);
+  });
+
+  it('主线路都给出清单时不问后备线路；主线路都下载失败时依次换到后备线路', async () => {
+    const updater = new FakeUpdater('0.1.0');
+    const mirrors = [GLOBAL, SECOND, BACKUP];
+    const server = serve('0.2.0', mirrors);
+    const { ctl } = controller({ updater, fetcher: server.fetcher, mirrors });
+    await ctl.check();
+    expect(ctl.state).toMatchObject({ phase: 'available', version: '0.2.0' });
+    expect(server.requests.some((r) => r.url.startsWith(BACKUP.url))).toBe(false);
+
+    updater.failDownloadsFrom.add(GLOBAL.url).add(SECOND.url);
+    await ctl.download();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(updater.downloads).toHaveLength(3);
+    expect(updater.downloads[2]?.startsWith(BACKUP.url)).toBe(true);
+    expect(ctl.state).toMatchObject({ phase: 'downloaded', mirror: { id: 'backup' } });
   });
 
   it('两条线路都下载失败：报 download', async () => {
