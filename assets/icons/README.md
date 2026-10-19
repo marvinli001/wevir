@@ -17,7 +17,7 @@
 | `exports/windows/{light,dark}/` | 应用 ICO（含 16/20/24/30/32/36/40/48/60/64/72/80/96/128/256px）、托盘 ICO（16/20/24/32/40/48/64px）与单独 PNG；另有 AppList targetsize 资源 |
 | `exports/ios/Assets.xcassets/` | 可导入的单尺寸 AppIcon：默认、深色、tinted 各 1024px；深色为透明前景，tinted 为中性灰度 |
 | `exports/ios/{light,dark}/` | 完整底色的 1024 主图、浅深灰度 tinted 补充稿、20–180px 的 iPhone/iPad 尺寸位图 |
-| `exports/apple-layers/{light,dark}/` | 给当前 Icon Composer 使用的无预烘焙高光前景和完整方形背景；SVG 与 PNG 分层；`source/Wevir.icon` 用的是 `light/foreground.svg` |
+| `exports/apple-layers/{light,dark}/` | 给当前 Icon Composer 使用的无预烘焙高光前景和完整方形背景；SVG 与 PNG 分层；另有与 macOS 应用图标同款的金属主标 `foreground-metal` 和渐变底板 `background-tile`，`source/Wevir.icon` 用的是这两组 |
 | `exports/android/res/` | v26 双层、v33 含单色层的 adaptive-icon XML；108dp 前景/背景的 mdpi–xxxhdpi 位图；默认/夜间资源、legacy launcher 图标与单色 VectorDrawable |
 | `exports/android/{light,dark}/` | 单色主题图标、512px Play 主图、三种系统遮罩预览；遮罩没有写入前景/背景源层 |
 | `exports/linux/` | 浅深色 hicolor 16–1024px、scalable SVG |
@@ -43,16 +43,17 @@
 
 ## Icon Composer 工程
 
-`source/Wevir.icon` 在 Icon Composer（Xcode 26 自带）里手工组装，不由 `icons:build` 生成。它只有一个图层，参数如下：
+`source/Wevir.icon` 在 Icon Composer（Xcode 26 自带）里组装，不由 `icons:build` 生成。它让系统画出与 `exports/macos/` 的 ICNS 相同的图标（金属主标、渐变底板），同时在系统深色外观下换成深色版；macOS 26 再给它套上系统的圆角与边缘高光。两个图层，参数如下：
 
 | 项 | 默认 | 深色 |
 | --- | --- | --- |
 | 背景 Fill（Solid） | `#F4F3ED` | `#101114` |
-| 图层 `mark`（`Assets/mark.svg`） | SVG 自带的香槟金 `#9B7840` | Fill 覆盖为铂金白 `#E9E8E2` |
+| 图层 `mark` | `Assets/mark-light.svg`（香槟金） | `Assets/mark-dark.svg`（铂金） |
+| 图层 `tile` | `Assets/tile-light.svg`（象牙白渐变） | `Assets/tile-dark.svg`（石墨渐变） |
 
-- `Assets/mark.svg` 与 `svg/apple-layers/light/foreground.svg` 逐字节相同（1024 画布，主标 560px 居中、平涂无高光）；工程里的图层缩放为 125%。背景直接用 Fill 纯色，不导入 `background.svg`。
-- Liquid Glass 在 Group 上：Mode Individual，Specular 开，Blur 50%，Translucency 30%，Shadow Neutral 30%。Tinted / Clear 外观由系统从这些图层生成，没有单独覆盖。
-- 主标几何或配色改动后，先 `pnpm icons:build`，再把新的 `light/foreground.svg` 复制成 `Assets/mark.svg`，在 Icon Composer 里检查后保存。`icons:check` 会核对这份副本、两个背景色和深色主标色与 `manifest.json` 的调色板一致。
+- `Assets/mark-{light,dark}.svg` 与 `svg/apple-layers/{light,dark}/foreground-metal.svg`、`Assets/tile-{light,dark}.svg` 与 `background-tile.svg` 逐字节相同（1024 画布；主标 560px 居中，金属渐变、拉丝纹与边线同 macOS 应用图标）。图层用 Image 的外观变体按浅深色换图，不用 Fill 覆盖；`mark` 缩放 125%，与 ICNS 里主标占底板的比例一致。背景直接用 Fill 纯色，不导入 `background.svg`。
+- 两个图层都关了 Liquid Glass，两个 Group 的 Specular、Translucency、Shadow 也都关着，反光全靠烘焙的金属渐变。Tinted / Clear 外观由系统从这两个图层生成，底板是不透明的，所以 Clear 下整块偏白。
+- 主标几何或配色改动后，先 `pnpm icons:build`，再把新的 `{light,dark}/foreground-metal.svg`、`background-tile.svg` 复制成 `Assets/mark-*.svg`、`Assets/tile-*.svg`，在 Icon Composer 里检查后保存。`icons:check` 会核对这四份副本、图层的外观变体与玻璃开关，以及两个背景色与 `manifest.json` 的调色板一致。
 - `icon.json` 保持 Icon Composer 保存时的原样（它的写法是 `"key" : value`），所以 `biome.json` 把整个 `Wevir.icon` 排除在格式检查之外；别用 `pnpm lint:fix` 或手工改它，改参数回 Icon Composer。
 - Xcode 工程把 `Wevir.icon` 加入目标、App Icon 名称填 `Wevir` 即可；`actool` 会同时输出 `Assets.car` 和给旧系统用的 ICNS / PNG。桌面端的打包由 electron-builder 用 `actool` 编译它（App Icon 名称是 `Icon`），在 Info.plist 写入 `CFBundleIconName`。
 

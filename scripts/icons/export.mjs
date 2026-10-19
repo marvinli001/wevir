@@ -282,6 +282,25 @@ for (const mode of Object.keys(modes)) {
       '0 0 1024 1024',
     ),
   );
+  // Baked layers used by source/Wevir.icon: the macOS app icon's metal mark and gradient tile, so
+  // the system-drawn icon matches the ICNS (glass stays off on both layers).
+  await asset(
+    `exports/apple-layers/${mode}/foreground-metal.png`,
+    xml(
+      `${defs()}<g transform="translate(232 232) scale(17.5)">${logoBody(mode, { carrier: true })}</g>`,
+      1024,
+      '0 0 1024 1024',
+    ),
+  );
+  await asset(
+    `exports/apple-layers/${mode}/background-tile.png`,
+    xml(
+      `${defs()}<rect width="1024" height="1024" fill="url(#${mode === 'light' ? 'tile-warm' : 'tile'})"/>`,
+      1024,
+      '0 0 1024 1024',
+    ),
+    { opaque: true },
+  );
   await asset(
     `exports/apple-layers/${mode}/background.png`,
     xml(`<rect width="1024" height="1024" fill="${modes[mode].bg}"/>`, 1024, '0 0 1024 1024'),

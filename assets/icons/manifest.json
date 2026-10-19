@@ -27,7 +27,7 @@
     "cy": 54,
     "radius": 33
   },
-  "rasterCount": 407,
+  "rasterCount": 411,
   "rasters": [
     {
       "path": "exports/brand/light/mark-16.png",
@@ -1702,6 +1702,28 @@
       "sha256": "5da4b795aafe0b1b8dd751be6cd4f94dd37acb0efd1c00742ff2e07aaa9aebc1"
     },
     {
+      "path": "exports/apple-layers/light/foreground-metal.png",
+      "source": "svg/apple-layers/light/foreground-metal.svg",
+      "width": 1024,
+      "height": 1024,
+      "alpha": true,
+      "opaque": false,
+      "grayscale": false,
+      "logicalSize": 1024,
+      "sha256": "3a2b6dc84bd6ec16c396166a5defae40110547a9d210049f346b5b998e0ebbee"
+    },
+    {
+      "path": "exports/apple-layers/light/background-tile.png",
+      "source": "svg/apple-layers/light/background-tile.svg",
+      "width": 1024,
+      "height": 1024,
+      "alpha": false,
+      "opaque": true,
+      "grayscale": false,
+      "logicalSize": 1024,
+      "sha256": "f3efe38c727211d9c109ad1ee1faa7cbdd32943243e6f6eb3de4ba1a832e5726"
+    },
+    {
       "path": "exports/apple-layers/light/background.png",
       "source": "svg/apple-layers/light/background.svg",
       "width": 1024,
@@ -1876,6 +1898,28 @@
       "grayscale": false,
       "logicalSize": 1024,
       "sha256": "b959ee96a4bde45f8ed159b04f4fa50671f398fb7e085f5b99d595e798017f5f"
+    },
+    {
+      "path": "exports/apple-layers/dark/foreground-metal.png",
+      "source": "svg/apple-layers/dark/foreground-metal.svg",
+      "width": 1024,
+      "height": 1024,
+      "alpha": true,
+      "opaque": false,
+      "grayscale": false,
+      "logicalSize": 1024,
+      "sha256": "6ec40799818a0e94b207175c2bfc6b8be5fac765c193f1da36548b0cb1f85bfe"
+    },
+    {
+      "path": "exports/apple-layers/dark/background-tile.png",
+      "source": "svg/apple-layers/dark/background-tile.svg",
+      "width": 1024,
+      "height": 1024,
+      "alpha": false,
+      "opaque": true,
+      "grayscale": false,
+      "logicalSize": 1024,
+      "sha256": "d2052725dc90d706f6ca339b0981a485c349a306428f2eb033db2c33a529aa1b"
     },
     {
       "path": "exports/apple-layers/dark/background.png",

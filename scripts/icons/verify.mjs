@@ -177,21 +177,41 @@ await check('Icon Composer document', async () => {
   const doc = JSON.parse(await fs.readFile(path.join(iconDocument, 'icon.json'), 'utf8'));
   assert.equal(solid(doc['fill-specializations'], undefined), srgb(manifest.palette.light.bg));
   assert.equal(solid(doc['fill-specializations'], 'dark'), srgb(manifest.palette.dark.bg));
+  // Two baked layers (metal mark over the gradient tile) with Liquid Glass off, so the system-drawn
+  // icon matches the macOS ICNS and still switches to the dark variant.
   const layers = doc.groups.flatMap((group) => group.layers);
+  const variants = (name) => [
+    { value: `${name}-light.svg` },
+    { appearance: 'dark', value: `${name}-dark.svg` },
+  ];
   assert.deepEqual(
-    layers.map((layer) => layer['image-name']),
-    ['mark.svg'],
+    layers.map((layer) => layer['image-name-specializations']),
+    [variants('mark'), variants('tile')],
   );
-  assert.equal(solid(layers[0]['fill-specializations'], 'dark'), srgb(manifest.palette.dark.flat));
+  for (const layer of layers) {
+    assert.equal(layer.glass, false, `${layer.name} must not get Liquid Glass`);
+    assert.equal(layer['fill-specializations'], undefined, `${layer.name} keeps its own colours`);
+  }
+  for (const group of doc.groups) assert.equal(group.specular, false);
   const assets = (await fs.readdir(path.join(iconDocument, 'Assets'))).filter(
     (name) => !name.startsWith('.'),
   );
-  assert.deepEqual(assets, ['mark.svg']);
-  assert.equal(
-    await fs.readFile(path.join(iconDocument, 'Assets/mark.svg'), 'utf8'),
-    await fs.readFile(path.join(root, 'svg/apple-layers/light/foreground.svg'), 'utf8'),
-    'Wevir.icon must use the exported light foreground layer unchanged',
-  );
+  assert.deepEqual(assets.sort(), [
+    'mark-dark.svg',
+    'mark-light.svg',
+    'tile-dark.svg',
+    'tile-light.svg',
+  ]);
+  for (const mode of ['light', 'dark'])
+    for (const [asset, exported] of [
+      ['mark', 'foreground-metal'],
+      ['tile', 'background-tile'],
+    ])
+      assert.equal(
+        await fs.readFile(path.join(iconDocument, `Assets/${asset}-${mode}.svg`), 'utf8'),
+        await fs.readFile(path.join(root, `svg/apple-layers/${mode}/${exported}.svg`), 'utf8'),
+        `Wevir.icon must use the exported ${mode} ${exported} layer unchanged`,
+      );
 });
 // actool ships with Xcode, so the compile check only runs on macOS with Xcode 26 or later.
 let actool = false;

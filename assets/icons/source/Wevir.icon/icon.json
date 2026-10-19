@@ -14,19 +14,19 @@
   ],
   "groups" : [
     {
-      "blur-material" : 0.5,
       "layers" : [
         {
-          "fill-specializations" : [
+          "glass" : false,
+          "hidden" : false,
+          "image-name-specializations" : [
+            {
+              "value" : "mark-light.svg"
+            },
             {
               "appearance" : "dark",
-              "value" : {
-                "solid" : "srgb:0.91373,0.90980,0.88627,1.00000"
-              }
+              "value" : "mark-dark.svg"
             }
           ],
-          "hidden" : false,
-          "image-name" : "mark.svg",
           "name" : "mark",
           "position" : {
             "scale" : 1.25,
@@ -38,13 +38,40 @@
         }
       ],
       "shadow" : {
-        "kind" : "neutral",
-        "opacity" : 0.3
+        "kind" : "none",
+        "opacity" : 0.5
       },
-      "specular" : true,
+      "specular" : false,
       "translucency" : {
-        "enabled" : true,
-        "value" : 0.3
+        "enabled" : false,
+        "value" : 0.5
+      }
+    },
+    {
+      "layers" : [
+        {
+          "glass" : false,
+          "hidden" : false,
+          "image-name-specializations" : [
+            {
+              "value" : "tile-light.svg"
+            },
+            {
+              "appearance" : "dark",
+              "value" : "tile-dark.svg"
+            }
+          ],
+          "name" : "tile"
+        }
+      ],
+      "shadow" : {
+        "kind" : "none",
+        "opacity" : 0.5
+      },
+      "specular" : false,
+      "translucency" : {
+        "enabled" : false,
+        "value" : 0.5
       }
     }
   ],
