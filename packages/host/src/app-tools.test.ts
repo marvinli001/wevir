@@ -1283,6 +1283,65 @@ describe('预设角色', () => {
     expect(listed[0]).not.toContain('wevir_session_create');
     expect(listed[0]).toEqual(await visible(h, explorer));
   });
+
+  it('角色会话分出的支线与分支带着同一个角色，建的过程中列工具也受限；被分的会话删了也不放开', async () => {
+    const h = await setup();
+    const caller = await h.create();
+    const explorer = (
+      await h.call(caller, 'wevir_session_create', {
+        message: 'look around',
+        role: 'explorer',
+        reportBack: false,
+      })
+    ).sessionId as SessionId;
+    await h.settle(explorer);
+    const expected = await visible(h, explorer);
+    expect(expected).not.toContain('wevir_session_create');
+    const listed: string[][] = [];
+    h.adapter.onCreate = undefined;
+    const fork = h.adapter.fork.bind(h.adapter);
+    h.adapter.fork = async (engineSessionId, config, options) => {
+      const response = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.appTools?.token}`,
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      const body = (await response.json()) as { result: { tools: Array<{ name: string }> } };
+      listed.push(body.result.tools.map((tool) => tool.name));
+      const forked = await fork(engineSessionId, config, options);
+      h.adapter.endpoints.set(forked.engineSessionId, config.appTools);
+      return forked;
+    };
+    const side = (await h.manager.fork({ sessionId: explorer, side: true })).id;
+    const branch = (await h.manager.fork({ sessionId: explorer })).id;
+    expect(listed).toEqual([expected, expected]);
+    expect(await visible(h, side)).toEqual(expected);
+    expect(await visible(h, branch)).toEqual(expected);
+    expect(h.storage.sessions.get(branch)?.origin).toEqual({
+      kind: 'fork',
+      sessionId: explorer,
+      role: 'explorer',
+    });
+    const blocked = await h.call(branch, 'wevir_session_create', { message: 'spawn' });
+    expect(blocked.error).toBe('wevir_session_create is not available to this session.');
+    // 分支不是 Agent 开的会话：快照里没有 openedBy。
+    expect(h.events.snapshot(branch)?.session.openedBy).toBeUndefined();
+    // 被分的会话删了，分支仍然受同一个角色限制。
+    await h.manager.close(explorer);
+    h.storage.sessions.setArchived(explorer, T0);
+    await h.manager.delete(explorer);
+    expect(h.storage.sessions.get(explorer)).toBeUndefined();
+    expect(await visible(h, branch)).toEqual(expected);
+    // 没有角色的会话分出来的照常不限。
+    await h.send(caller, 'hello');
+    await h.settle(caller);
+    const plainBranch = (await h.manager.fork({ sessionId: caller })).id;
+    expect(h.storage.sessions.get(plainBranch)?.origin).toBeUndefined();
+    expect(await visible(h, plainBranch)).toContain('wevir_session_create');
+  });
 });
 
 describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', () => {

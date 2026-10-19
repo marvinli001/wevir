@@ -2482,7 +2482,8 @@ export class SessionManager {
   /**
    * `session.fork`：从顶层会话分出一个新会话。被分的会话不能是子会话、支线、只读、出错或已关闭，要有完成的回合；引擎会话没挂上时
    * 先自动恢复。排在被分会话的命令队列里；它的回合进行中也可以（只分到完成的回合）。新会话沿用它的项目、目录、Provider、模型、推理
-   * 档位、权限模式与环境字段（不含 worktree），事件流从 `session.created`（带 `forkedFrom`）开始。
+   * 档位、权限模式与环境字段（不含 worktree），事件流从 `session.created`（带 `forkedFrom`）开始。被分的会话是用预设角色开的时，
+   * 新会话的记录带 `origin: { kind: 'fork', role }`，受同一个角色的工具限制。
    *
    * - 支线（`side: true`，0.17.0，domain-model §3.12）：到最近一个完成的回合，带 `side`，不进 `session.list`。
    * - 分支（不带 `side`，0.38.0，§3.18）：到 `turnId`（省略时最近一个完成的回合），普通的顶层会话，标题同被分的会话；
@@ -2535,8 +2536,15 @@ export class SessionManager {
       }
       const config = sessionConfig(record);
       const sessionId = newId('ses');
+      // 角色会话分出来的会话带着同一个角色（工具限制跟着走）；记在自己的记录里，被分的会话之后删了也不丢。
+      const role = record.origin?.role;
+      const origin: SessionRecord['origin'] =
+        role === undefined ? undefined : { kind: 'fork', sessionId: source.id, role };
       let engineSession: EngineSession;
-      this.#creating.set(sessionId, { workspaceId: record.workspaceId });
+      this.#creating.set(sessionId, {
+        workspaceId: record.workspaceId,
+        ...(origin !== undefined && { origin }),
+      });
       try {
         engineSession = await fork(
           source.engineSessionId,
@@ -2575,6 +2583,7 @@ export class SessionManager {
         if (record.permissionMode !== undefined) forked.permissionMode = record.permissionMode;
         if (record.environmentId !== undefined) forked.environmentId = record.environmentId;
         if (record.extraRoots !== undefined) forked.extraRoots = record.extraRoots;
+        if (origin !== undefined) forked.origin = origin;
         this.#storage.sessions.insert(forked);
         this.#events.append(sessionId, {
           type: 'session.created',
