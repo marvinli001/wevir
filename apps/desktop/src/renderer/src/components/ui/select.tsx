@@ -1,6 +1,8 @@
 // 下拉选择（设置页与引导页的 <select> 换成它）：Base UI 的 Select，外形与 dropdown-menu.tsx 同一套——触发按钮照
 // components/ui/input.tsx 的输入框（表面色、强分隔线的边框、运行色的焦点环），弹层 rounded-xl、选项 rounded-lg，
 // 选中项右边打勾（照 Codex 桌面端的筛选下拉）。弹层落在按钮下方、与按钮同宽（至少 10rem），不像 macOS 原生那样盖住按钮。
+// 弹层加 transition-none：duration-* 同时设置 transition-duration，打开时换主题会让弹层的颜色过渡 410 ms，Base UI 等它播完才
+// 隐藏弹层，退场动画先播完，弹层又露出来闪一下。
 
 import { Select as SelectPrimitive } from '@base-ui/react/select';
 import { cn } from 'cn';
@@ -77,7 +79,7 @@ export function Select<Value extends string>({
           <SelectPrimitive.Popup
             data-slot="select-content"
             className={cn(
-              'z-50 max-h-(--available-height) w-(--anchor-width) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:slide-in-from-top-2 data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-110 data-closed:ease-smooth',
+              'z-50 max-h-(--available-height) w-(--anchor-width) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-xl bg-popover p-1 text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-none data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-open:slide-in-from-top-2 transition-none data-open:duration-(--spring-reveal-duration) data-open:ease-spring-reveal data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 data-closed:duration-110 data-closed:ease-smooth',
               popupClassName,
             )}
           >
