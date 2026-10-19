@@ -1,12 +1,13 @@
 // 工具预设（0.61.0，Host 功能 `tool_presets`）的纯逻辑：新会话选的预设带来哪些组、几个 Wevir 工具，`session.create` 带什么。
 // 数目来自 Host 的 `tools.presets`（这个 Host 上每组实际有的工具），只是 Wevir 应用级工具；引擎自带的工具与用户接入的 MCP 不在里面。
 
-import type {
-  MethodResult,
-  ToolGroup,
-  ToolGroupInfo,
-  ToolPreset,
-  ToolPresetId,
+import {
+  type MethodResult,
+  TOOL_GROUPS,
+  type ToolGroup,
+  type ToolGroupInfo,
+  type ToolPreset,
+  type ToolPresetId,
 } from '@wevir/protocol';
 
 export type ToolPresetsInfo = MethodResult<'tools.presets'>;
@@ -75,4 +76,23 @@ export function createToolPreset(choice: ToolPreset): ToolPreset | undefined {
 /** 会话的预设：没有这一项（以前建的会话、旧客户端建的）等同 `full`。 */
 export function sessionToolPreset(preset: ToolPreset | undefined): ToolPreset {
   return preset ?? FULL_PRESET;
+}
+
+/** 本机记下的上次选择（`wevir.tool-preset.v1`）：认不出的写法当没记过，认不出的组丢掉。 */
+export function parseStoredPreset(raw: unknown): ToolPreset | undefined {
+  if (raw === null || typeof raw !== 'object') return undefined;
+  const { id, groups } = raw as Record<string, unknown>;
+  if (id === 'full') return FULL_PRESET;
+  if (id !== 'core') return undefined;
+  const known = Array.isArray(groups) ? TOOL_GROUPS.filter((group) => groups.includes(group)) : [];
+  return known.length === 0 ? { id: 'core' } : { id: 'core', groups: known };
+}
+
+/** 记下的选择放到这个 Host 上：另加的组只留这里能选的（没有浏览器的 Host 上去掉浏览器）。 */
+export function availablePreset(choice: ToolPreset, info: ToolPresetsInfo): ToolPreset {
+  if (choice.id !== 'core' || choice.groups === undefined) return choice;
+  const offered = new Set(optionalGroups(info).map((group) => group.id));
+  const groups = choice.groups.filter((group) => offered.has(group));
+  if (groups.length === choice.groups.length) return choice;
+  return groups.length === 0 ? { id: 'core' } : { id: 'core', groups };
 }

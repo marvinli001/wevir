@@ -1,6 +1,6 @@
 // 新会话的工具预设（0.61.0，Host 功能 `tool_presets`）：输入框左下角权限芯片旁边的“工具”芯片。点开选“全部”或“核心”，核心之上
 // 可另加浏览器、LSP 等组，下面写着给模型几个 Wevir 工具与这个设置管什么、不管什么。建会话时带上（session/start-session.ts），建好后
-// 不能改，会话侧栏的“Wevir 工具”卡片显示它（layout/tool-preset-card.tsx）。Host 没有这个功能时不显示。
+// 不能改，会话侧栏的“Wevir 工具”卡片显示它（layout/tool-preset-card.tsx）。本机记住上次选的。Host 没有这个功能时不显示。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import { hostSupports } from '@wevir/client-sdk';
@@ -20,10 +20,13 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useHostConnection } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
+import { createPersistedStore } from '@/lib/store';
 import {
+  availablePreset,
   choosePreset,
   FULL_PRESET,
   optionalGroups,
+  parseStoredPreset,
   presetToolCount,
   type ToolPresetsInfo,
   toggleGroup,
@@ -88,10 +91,19 @@ export function useToolPresets(): ToolPresetsInfo | undefined {
   return supported && info !== undefined && info.client === client ? info.value : undefined;
 }
 
-/** 新会话选的预设：每次打开新会话都从“全部”开始（不记上次的，也没有设置里的默认值）。 */
+/** 新会话用的工具预设：本机记住上次选的，首页与草稿页共用；没选过时是“全部”。 */
+const lastPreset = createPersistedStore<ToolPreset>(
+  'wevir.tool-preset.v1',
+  FULL_PRESET,
+  parseStoredPreset,
+);
+
+/** 新会话选的预设：上次选的，另加的组只留这个 Host 上能选的。 */
 export function useToolPresetChoice() {
-  const [choice, setChoice] = useState<ToolPreset>(FULL_PRESET);
-  return { choice, choose: setChoice };
+  const stored = lastPreset.use();
+  const info = useToolPresets();
+  const choice = info === undefined ? stored : availablePreset(stored, info);
+  return { choice, choose: (next: ToolPreset) => lastPreset.set(next) };
 }
 
 /**

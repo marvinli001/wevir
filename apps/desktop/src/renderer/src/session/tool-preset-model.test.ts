@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  availablePreset,
   createToolPreset,
   FULL_PRESET,
   optionalGroups,
+  parseStoredPreset,
   presetGroups,
   presetToolCount,
   sessionToolPreset,
@@ -90,5 +92,23 @@ describe('工具预设的选择', () => {
   it('会话没有这一项时是 full', () => {
     expect(sessionToolPreset(undefined)).toEqual(FULL_PRESET);
     expect(sessionToolPreset({ id: 'core' })).toEqual({ id: 'core' });
+  });
+
+  it('记下的上次选择：认不出的写法当没记过，认不出的组丢掉；放到这个 Host 上只留能选的组', () => {
+    expect(parseStoredPreset({ id: 'full', groups: ['lsp'] })).toEqual(FULL_PRESET);
+    expect(parseStoredPreset({ id: 'core' })).toEqual({ id: 'core' });
+    expect(parseStoredPreset({ id: 'core', groups: ['plugins', 'terminal', 'lsp'] })).toEqual({
+      id: 'core',
+      groups: ['lsp', 'plugins'],
+    });
+    expect(parseStoredPreset({ id: 'minimal' })).toBeUndefined();
+    expect(parseStoredPreset('core')).toBeUndefined();
+    // 这个 Host 没有浏览器：记下的浏览器去掉，别的留着。
+    const stored = { id: 'core' as const, groups: ['browser' as const, 'lsp' as const] };
+    expect(availablePreset(stored, info)).toEqual({ id: 'core', groups: ['lsp'] });
+    expect(availablePreset({ id: 'core', groups: ['browser'] }, info)).toEqual({ id: 'core' });
+    const kept = { id: 'core' as const, groups: ['lsp' as const] };
+    expect(availablePreset(kept, info)).toBe(kept);
+    expect(availablePreset(FULL_PRESET, info)).toBe(FULL_PRESET);
   });
 });
