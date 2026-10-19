@@ -427,6 +427,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_delete: true,
         session_handoff: true,
         handoff_material: true,
+        handoff_preview: true,
         subagent_cancel: true,
         environments: true,
         session_worktree: true,

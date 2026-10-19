@@ -81,6 +81,7 @@ export const messages: Messages = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Konflikt bei Nachrichten-ID',
   'rpcError.RESOURCE_IN_USE': 'Noch offene Sitzungen',
   'rpcError.PENDING_NOT_EDITABLE': 'Ausstehende Nachricht nicht mehr bearbeitbar',
+  'rpcError.HANDOFF_STALE': 'Die Übergabe hat sich geändert; bitte erneut prüfen',
   'rpcError.WORKSPACE_PATH_INVALID': 'Projektpfad nicht verwendbar',
 
   'clientError.request_timeout': 'Zeitüberschreitung der Anfrage',

@@ -1100,6 +1100,56 @@ export type HandoffOmittedRange = z.infer<typeof HandoffOmittedRangeSchema>;
 /** 材料的散列（0.59.0）：`context` 的 UTF-8 字节的 SHA-256，小写十六进制。 */
 export const HandoffHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
+/**
+ * 预览绑定的版本（0.60.0，`session.handoffPreview` 给出，`session.configure` 的 `handoff.binding` 带回）：材料算到的事件、目标
+ * 来源、方式、选入的笔记各是哪一版、材料的散列（没有材料时省略）。正式切换时 Host 按当时的情况重算，任何一项不同都回
+ * `HANDOFF_STALE`，不递交用户没看过的版本。
+ */
+export const HandoffBindingSchema = z.object({
+  providerId: ProviderIdSchema,
+  /** 会话在预览时的 `lastSeq`。 */
+  throughSeq: z.int().min(0),
+  strategy: HandoffStrategySchema,
+  notes: z.array(HandoffNoteRefSchema),
+  hash: HandoffHashSchema.optional(),
+});
+export type HandoffBinding = z.infer<typeof HandoffBindingSchema>;
+
+/** `session.configure` 的 `handoff`：材料（0.59.0）与预览的绑定（0.60.0）。 */
+export const HandoffConfigureSchema = HandoffMaterialRequestSchema.extend({
+  binding: HandoffBindingSchema.optional(),
+});
+export type HandoffConfigure = z.infer<typeof HandoffConfigureSchema>;
+
+/**
+ * 接力预览（0.60.0，`session.handoffPreview`）：照正式切换的算法、此刻的事件与笔记算出的材料，不改任何东西。`resumed` 是按
+ * 接着用这个来源以前的引擎会话算的（它恢复过一次失败时按新建算）；正式切换时恢复失败，带绑定的切换回 `HANDOFF_STALE`，
+ * 再预览就是新建、整段。`overBudget` 时没有材料，要用户缩减约束或少选笔记。
+ */
+export const HandoffPreviewSchema = z.object({
+  providerId: ProviderIdSchema,
+  strategy: HandoffStrategySchema,
+  resumed: z.boolean(),
+  /** 新来源能不能用读历史的工具拿全文。 */
+  historyTool: z.boolean(),
+  /** 历史条目覆盖的事件；没有历史条目时省略。 */
+  covered: z.object({ fromSeq: SeqSchema, toSeq: SeqSchema }).optional(),
+  budgetBytes: z.int().min(1),
+  /** 选进材料的历史条目数、因预算省掉的条目数与是哪几段（超出预算时都是 0、空）。 */
+  items: z.int().min(0),
+  omittedItems: z.int().min(0),
+  omitted: z.array(HandoffOmittedRangeSchema),
+  /** 材料正文、UTF-8 字节数与散列；没有要交的或超出预算时省略。 */
+  context: z.string().min(1).optional(),
+  bytes: z.int().min(1).optional(),
+  hash: HandoffHashSchema.optional(),
+  /** 必须项、笔记与开头说明就已超出预算：一条历史都不放时的字节数。 */
+  overBudget: z.object({ bytes: z.int().min(1) }).optional(),
+  constraints: z.int().min(0),
+  notes: z.array(HandoffNoteRefSchema),
+});
+export type HandoffPreview = z.infer<typeof HandoffPreviewSchema>;
+
 // ── 环境（0.15.0，U22.1） ──────────────────────────────────────────────
 
 /**

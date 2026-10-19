@@ -36,7 +36,10 @@ import {
   EnvironmentSchema,
   FilesRestoreSchema,
   GOAL_OBJECTIVE_MAX_CHARS,
+  HandoffBindingSchema,
+  HandoffConfigureSchema,
   HandoffMaterialRequestSchema,
+  HandoffPreviewSchema,
   HostSettingsSchema,
   HttpUrlSchema,
   MemoryNameSchema,
@@ -958,9 +961,26 @@ export const SessionConfigureParamsSchema = z.object({
   permissionMode: PermissionModeSchema.optional(),
   /**
    * 接力时额外交给新来源的材料（0.59.0，Host 功能 `handoff_material`）：必须携带的约束与选入的笔记。只在换到别的 Provider 时起作用；
-   * 旧 Host 不认这个字段（会忽略），客户端要先看功能位。
+   * 旧 Host 不认这个字段（会忽略），客户端要先看功能位。0.60.0（Host 功能 `handoff_preview`）起可带预览的 `binding`：Host 重算的
+   * 材料与它不符（之后有了新事件、笔记改了或停用、目标或方式变了），或要接着用的引擎会话恢复不了时回 `HANDOFF_STALE`，不切换。
    */
+  handoff: HandoffConfigureSchema.optional(),
+});
+
+/**
+ * 接力预览（0.60.0，Host 功能 `handoff_preview`）：会话换到 `providerId` 时会交出的材料，只读。前提与 `session.configure` 的接力
+ * 相同（同一个 Provider、回合进行中、支线、子会话、额外目录与笔记的限制照样报错）。
+ */
+export const SessionHandoffPreviewParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  providerId: ProviderIdSchema,
   handoff: HandoffMaterialRequestSchema.optional(),
+});
+
+export const SessionHandoffPreviewResultSchema = z.object({
+  preview: HandoffPreviewSchema,
+  /** 正式切换时放进 `handoff.binding`；超出预算时没有。 */
+  binding: HandoffBindingSchema.optional(),
 });
 
 export const SessionListParamsSchema = z.object({
@@ -1493,6 +1513,11 @@ export const MethodSchemas = {
     params: SessionConfigureParamsSchema,
     result: SessionResultSchema,
     permission: 'session.write',
+  },
+  'session.handoffPreview': {
+    params: SessionHandoffPreviewParamsSchema,
+    result: SessionHandoffPreviewResultSchema,
+    permission: 'session.read',
   },
   'session.send': {
     params: SessionSendParamsSchema,

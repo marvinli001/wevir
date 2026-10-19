@@ -2283,6 +2283,22 @@ export const methodSamples: MethodSamples = {
             ],
           },
         },
+        // 0.60.0：带预览的绑定。
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          handoff: {
+            constraints: ['金额一律用整数分。'],
+            notes: [{ scope: 'project', name: 'invoice-cents' }],
+            binding: {
+              providerId: 'claude',
+              throughSeq: 11,
+              strategy: 'full_thread_summary',
+              notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+              hash: '9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a',
+            },
+          },
+        },
       ],
       invalid: [
         { modelId: 'deepseek-v4-pro' },
@@ -2321,6 +2337,110 @@ export const methodSamples: MethodSamples = {
             ...handedOffSession,
             engines: [{ providerId: 'claude', modelId: 'm', sessionId: 'e', seenSeq: -1 }],
           },
+        },
+      ],
+    },
+  },
+  'session.handoffPreview': {
+    params: {
+      valid: [
+        { sessionId: ids.session, providerId: 'claude' },
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          handoff: {
+            constraints: ['金额一律用整数分。'],
+            notes: [{ scope: 'project', name: 'invoice-cents' }],
+          },
+        },
+      ],
+      invalid: [
+        { sessionId: ids.session },
+        { sessionId: ids.session, providerId: 'claude', handoff: { constraints: [''] } },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          preview: {
+            providerId: 'claude',
+            strategy: 'full_thread_summary',
+            resumed: false,
+            historyTool: true,
+            covered: { fromSeq: 1, toSeq: 11 },
+            budgetBytes: 16000,
+            items: 2,
+            omittedItems: 1,
+            omitted: [{ first: 'e4', last: 'e4', count: 1 }],
+            context: 'Context handoff (full_thread_summary):\n…',
+            bytes: 2336,
+            hash: '9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a',
+            constraints: 1,
+            notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+          },
+          binding: {
+            providerId: 'claude',
+            throughSeq: 11,
+            strategy: 'full_thread_summary',
+            notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+            hash: '9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a',
+          },
+        },
+        // 换回去时对方什么都没错过：没有材料，绑定里没有散列。
+        {
+          preview: {
+            providerId: 'deepseek-official',
+            strategy: 'delta_since_target_last_seen',
+            resumed: true,
+            historyTool: false,
+            budgetBytes: 16000,
+            items: 0,
+            omittedItems: 0,
+            omitted: [],
+            constraints: 0,
+            notes: [],
+          },
+          binding: {
+            providerId: 'deepseek-official',
+            throughSeq: 12,
+            strategy: 'delta_since_target_last_seen',
+            notes: [],
+          },
+        },
+        // 必须项放不下：没有材料，也没有绑定。
+        {
+          preview: {
+            providerId: 'claude',
+            strategy: 'full_thread_summary',
+            resumed: false,
+            historyTool: true,
+            covered: { fromSeq: 1, toSeq: 11 },
+            budgetBytes: 16000,
+            items: 0,
+            omittedItems: 0,
+            omitted: [],
+            overBudget: { bytes: 18311 },
+            constraints: 3,
+            notes: [],
+          },
+        },
+      ],
+      invalid: [
+        {},
+        {
+          preview: {
+            providerId: 'claude',
+            strategy: 'full_thread_summary',
+            resumed: false,
+            historyTool: true,
+            budgetBytes: 16000,
+            items: 0,
+            omittedItems: 0,
+            omitted: [],
+            constraints: 0,
+            notes: [],
+          },
+          binding: { providerId: 'claude', throughSeq: -1, strategy: 'x', notes: [] },
         },
       ],
     },
@@ -3593,6 +3713,10 @@ export const errorDataSamples: ErrorDataSamples = {
   PENDING_NOT_EDITABLE: {
     valid: { pendingId: ids.pending, status: 'waiting', delivery: 'steer' },
     invalid: { pendingId: ids.pending, status: 'waiting' },
+  },
+  HANDOFF_STALE: {
+    valid: { reasons: ['events', 'notes'] },
+    invalid: { reasons: [] },
   },
   WORKSPACE_PATH_INVALID: {
     valid: { path: '/Users/me/gone', reason: 'not_found' },

@@ -44,10 +44,13 @@ import {
   GitFileChangeSchema,
   GitObjectIdSchema,
   GoalStatusSchema,
+  HandoffBindingSchema,
+  HandoffConfigureSchema,
   HandoffHashSchema,
   HandoffMaterialRequestSchema,
   HandoffNoteRefSchema,
   HandoffOmittedRangeSchema,
+  HandoffPreviewSchema,
   HandoffStrategySchema,
   HostFeaturesSchema,
   HostFrameSchema,
@@ -1457,6 +1460,74 @@ const standaloneCases: Case[] = [
     invalid: [
       { first: 'e2', last: 'e2', count: 0 },
       { first: '', last: 'e2', count: 1 },
+    ],
+  },
+  {
+    name: 'HandoffBinding',
+    schema: HandoffBindingSchema,
+    valid: [
+      { providerId: 'claude', throughSeq: 0, strategy: 'full_thread_summary', notes: [] },
+      {
+        providerId: 'claude',
+        throughSeq: 12,
+        strategy: 'delta_since_target_last_seen',
+        notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+        hash: '0'.repeat(64),
+      },
+    ],
+    invalid: [
+      { providerId: 'claude', throughSeq: 1, strategy: 'full_thread_summary' },
+      { providerId: 'Claude', throughSeq: 1, strategy: 'full_thread_summary', notes: [] },
+      { providerId: 'claude', throughSeq: 1, strategy: '', notes: [] },
+    ],
+  },
+  {
+    name: 'HandoffConfigure',
+    schema: HandoffConfigureSchema,
+    valid: [
+      {},
+      {
+        constraints: ['只改 src/'],
+        binding: {
+          providerId: 'claude',
+          throughSeq: 3,
+          strategy: 'full_thread_summary',
+          notes: [],
+        },
+      },
+    ],
+    invalid: [{ binding: { providerId: 'claude' } }, { constraints: [''] }],
+  },
+  {
+    name: 'HandoffPreview',
+    schema: HandoffPreviewSchema,
+    valid: [
+      {
+        providerId: 'claude',
+        strategy: 'full_thread_summary',
+        resumed: false,
+        historyTool: false,
+        budgetBytes: 16000,
+        items: 0,
+        omittedItems: 0,
+        omitted: [],
+        constraints: 0,
+        notes: [],
+      },
+    ],
+    invalid: [
+      {
+        providerId: 'claude',
+        strategy: 'full_thread_summary',
+        resumed: false,
+        historyTool: false,
+        budgetBytes: 0,
+        items: 0,
+        omittedItems: 0,
+        omitted: [],
+        constraints: 0,
+        notes: [],
+      },
     ],
   },
   {

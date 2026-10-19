@@ -14,7 +14,9 @@ import {
   type EngineFeatures,
   type EnvironmentId,
   type FilesRestore,
+  type HandoffBinding,
   type HandoffMaterialRequest,
+  type HandoffNoteRef,
   IMAGE_MAX_PER_MESSAGE,
   type MessageFrom,
   type MethodParams,
@@ -101,6 +103,7 @@ import {
   assembleHandoff,
   DELTA_SINCE_TARGET_LAST_SEEN,
   FULL_THREAD_SUMMARY,
+  HANDOFF_BUDGET_BYTES,
   type HandoffAssembly,
   type HandoffNote,
   historyItems,
@@ -337,6 +340,92 @@ interface HandoffPlan {
   assembly: HandoffAssembly;
 }
 
+/** 接力的前提（0.25.0）：支线不能换来源，回合进行中要等它结束。 */
+function assertHandoffAllowed(record: SessionRecord, session: Session): void {
+  if (record.side) {
+    throw new HostError('INVALID_STATE', 'a side session cannot switch to another provider', {
+      state: session.state,
+    });
+  }
+  if (ACTIVE_STATES.includes(session.state)) {
+    throw new HostError('SESSION_BUSY', 'wait for the turn to finish before switching models', {
+      state: session.state,
+      ...(session.activeTurn !== undefined && { activeTurn: session.activeTurn }),
+    });
+  }
+}
+
+/** 选入的笔记各是哪一版（0.59.0）。 */
+function noteRefs(notes: readonly HandoffNote[]): HandoffNoteRef[] {
+  return notes.map(({ scope, name, revision }) => ({ scope, name, revision }));
+}
+
+/**
+ * 预览的绑定和此刻重算的材料比（0.60.0）：目标来源、事件上界、方式、笔记的版本，都一样时再比散列（约束改了一类）。不符时
+ * `HANDOFF_STALE`，带上不同的是哪几项。
+ */
+function assertBinding(binding: HandoffBinding, plan: HandoffPlan, providerId: string): void {
+  const reasons: string[] = [];
+  if (binding.providerId !== providerId) reasons.push('target');
+  if (binding.throughSeq !== plan.toSeq) reasons.push('events');
+  if (binding.strategy !== plan.strategy) reasons.push('strategy');
+  if (!isDeepStrictEqual(binding.notes, noteRefs(plan.extras.notes))) reasons.push('notes');
+  const hash = plan.assembly.kind === 'material' ? plan.assembly.hash : undefined;
+  if (reasons.length === 0 && binding.hash !== hash) reasons.push('material');
+  if (reasons.length === 0) return;
+  throw new HostError(
+    'HANDOFF_STALE',
+    `the handoff changed since it was previewed (${reasons.join(', ')}); preview it again`,
+    { reasons },
+  );
+}
+
+/** 预览的结果（0.60.0）：材料、递交记录里会有的各项，与正式切换时带回的绑定（超出预算时没有）。 */
+function handoffPreviewOf(
+  providerId: string,
+  plan: HandoffPlan,
+): MethodResult<'session.handoffPreview'> {
+  const { assembly, extras } = plan;
+  const notes = noteRefs(extras.notes);
+  const preview = {
+    providerId,
+    strategy: plan.strategy,
+    resumed: plan.resumed,
+    historyTool: plan.historyTool,
+    ...(plan.covered !== undefined && { covered: plan.covered }),
+    budgetBytes: assembly.kind === 'empty' ? HANDOFF_BUDGET_BYTES : assembly.budgetBytes,
+    constraints: extras.constraints.length,
+    notes,
+  };
+  if (assembly.kind === 'over_budget') {
+    return {
+      preview: {
+        ...preview,
+        items: 0,
+        omittedItems: 0,
+        omitted: [],
+        overBudget: { bytes: assembly.bytes },
+      },
+    };
+  }
+  const binding = { providerId, throughSeq: plan.toSeq, strategy: plan.strategy, notes };
+  if (assembly.kind === 'empty') {
+    return { preview: { ...preview, items: 0, omittedItems: 0, omitted: [] }, binding };
+  }
+  return {
+    preview: {
+      ...preview,
+      items: assembly.items,
+      omittedItems: assembly.omittedItems,
+      omitted: assembly.omitted,
+      context: assembly.context,
+      bytes: assembly.bytes,
+      hash: assembly.hash,
+    },
+    binding: { ...binding, hash: assembly.hash },
+  };
+}
+
 /** 材料（必须项、笔记与开头说明）放不下（0.59.0）：要用户缩减，不截短、不省掉。 */
 function handoffOverBudget(assembly: { bytes: number; budgetBytes: number }): HostError {
   const message = `the handoff material is ${assembly.bytes} bytes, over the budget of ${assembly.budgetBytes} bytes; shorten the constraints or select fewer notes`;
@@ -358,9 +447,7 @@ function handoffReceipt(plan: HandoffPlan) {
     ...(assembly.omitted.length > 0 && { omitted: assembly.omitted }),
     historyTool: plan.historyTool,
     ...(extras.constraints.length > 0 && { constraints: extras.constraints.length }),
-    ...(extras.notes.length > 0 && {
-      notes: extras.notes.map(({ scope, name, revision }) => ({ scope, name, revision })),
-    }),
+    ...(extras.notes.length > 0 && { notes: noteRefs(extras.notes) }),
   };
 }
 
@@ -1801,17 +1888,7 @@ export class SessionManager {
       const record = this.#record(runtime);
       const { session } = this.#snapshot(runtime);
       if (session.providerId === target.id) return session;
-      if (record.side) {
-        throw new HostError('INVALID_STATE', 'a side session cannot switch to another provider', {
-          state: session.state,
-        });
-      }
-      if (ACTIVE_STATES.includes(session.state)) {
-        throw new HostError('SESSION_BUSY', 'wait for the turn to finish before switching models', {
-          state: session.state,
-          ...(session.activeTurn !== undefined && { activeTurn: session.activeTurn }),
-        });
-      }
+      assertHandoffAllowed(record, session);
       const invalid = (path: string, message: string) =>
         new HostError('INVALID_PARAMS', message, { issues: [{ path: [path], message }] });
       const modelId = params.modelId ?? target.defaultModelId;
@@ -1832,28 +1909,22 @@ export class SessionManager {
       await assertDirectory(record.cwd);
       // 用户为这次接力选的材料（0.59.0）：先读好笔记，材料放不下时在动原来的引擎会话之前就拒绝。
       const extras = await this.#handoffExtras(runtime, params.handoff);
-      // 子会话跟着原来的引擎：还在跑的先停下（父会话空闲时一般没有）。
-      await this.#cancelChildren(runtime, 'turn_cancelled');
-
       // 当前的引擎会话先放下：之后换回这个来源时再恢复它。
       const from = {
         providerId: session.providerId,
         modelId: session.modelId,
         engineSessionId: runtime.engineSessionId,
       };
-      const previous = this.#events
-        .handoffState(runtime.id)
-        ?.engines?.find((engine) => engine.providerId === target.id);
-      // 这个来源以前的引擎会话恢复过一次失败的，不再试（Host 重启后重新试）。
-      const resumable = previous !== undefined && !this.#unresumable.has(previous.engineSessionId);
-      const plan = this.#handoffPlan(
-        runtime,
-        from,
-        resumable ? previous : undefined,
-        features,
-        extras,
-      );
-      if (plan.assembly.kind === 'over_budget') throw handoffOverBudget(plan.assembly);
+      const previous = this.#previousEngine(runtime, target.id);
+      const plan = () => this.#handoffPlan(runtime, from, previous, features, extras);
+      // 预览的绑定（0.60.0）：和此刻重算的不符就不切换，先查一次，什么都还没动。
+      const binding = params.handoff?.binding;
+      if (binding !== undefined) assertBinding(binding, plan(), target.id);
+      // 子会话跟着原来的引擎：还在跑的先停下（父会话空闲时一般没有）。停下时写的事件也让绑定过期。
+      await this.#cancelChildren(runtime, 'turn_cancelled');
+      const planned = plan();
+      if (binding !== undefined) assertBinding(binding, planned, target.id);
+      if (planned.assembly.kind === 'over_budget') throw handoffOverBudget(planned.assembly);
 
       const config: SessionConfig = { cwd: record.cwd, providerId: target.id, modelId };
       if (reasoningEffort !== undefined) config.reasoningEffort = reasoningEffort;
@@ -1873,20 +1944,29 @@ export class SessionManager {
       }
 
       let engine: EngineSession | undefined;
-      if (resumable) {
+      if (previous !== undefined) {
         try {
           engine = await this.#adapter.resumeSession(
             previous.engineSessionId,
             this.#engineConfig(runtime.id, config),
           );
         } catch (error) {
-          // 以前的引擎会话恢复不了：新建一个，交给它整段对话。
           this.#unresumable.add(previous.engineSessionId);
           this.#onWarning('接力时恢复以前的引擎会话失败，改为新建', {
             sessionId: runtime.id,
             providerId: target.id,
             error: errorText(error),
           });
+          // 用户预览的是只补错过的那段：不新建、不交没看过的整段，回去重新预览（再预览就按新建算）。原来的引擎会话已经放下，
+          // 下次发消息时自动恢复，同新引擎挂不上时。
+          if (binding !== undefined) {
+            throw new HostError(
+              'HANDOFF_STALE',
+              `the earlier engine session of ${target.id} could not be resumed; preview the handoff again`,
+              { reasons: ['resume_failed'] },
+            );
+          }
+          // 以前的引擎会话恢复不了：新建一个，交给它整段对话。
         }
       }
       const resumed = engine !== undefined;
@@ -1902,8 +1982,8 @@ export class SessionManager {
 
       // 材料：新引擎没看到的那段（第一次用这个来源、或以前的恢复不了时是整段对话），加上用户选的。
       const final =
-        resumed === plan.resumed
-          ? plan
+        resumed === planned.resumed
+          ? planned
           : this.#handoffPlan(runtime, from, undefined, features, extras);
       if (final.assembly.kind === 'over_budget') {
         await this.#adapter.close(engine.engineSessionId).catch(() => {});
@@ -1948,6 +2028,60 @@ export class SessionManager {
       }
       return this.#snapshot(runtime).session;
     });
+  }
+
+  /**
+   * 接力预览（0.60.0，`session.handoffPreview`，只读）：会话换到 `providerId` 时会交出的材料与绑定，算法、事件与笔记都和正式切换
+   * 相同，所以同样的情况下预览与递交的材料逐字节一致。前提同接力：同一个 Provider、回合进行中、支线、子会话、额外目录与笔记的限制照样
+   * 报错。排在会话的命令队列里，看到的是前面的命令做完之后的状态。
+   */
+  async handoffPreview(
+    params: MethodParams<'session.handoffPreview'>,
+  ): Promise<MethodResult<'session.handoffPreview'>> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    this.#assertNotChild(runtime);
+    const target = this.#storage.providers.get(params.providerId);
+    if (!target) {
+      throw new HostError('PROVIDER_NOT_FOUND', `provider ${params.providerId} not found`);
+    }
+    return this.#serial(runtime, async () => {
+      const record = this.#record(runtime);
+      const { session } = this.#snapshot(runtime);
+      const invalid = (message: string) =>
+        new HostError('INVALID_PARAMS', message, { issues: [{ path: ['providerId'], message }] });
+      if (session.providerId === target.id) {
+        throw invalid(`the session already uses provider ${target.id}`);
+      }
+      assertHandoffAllowed(record, session);
+      const features = this.#featuresOf(target.kind);
+      if ((record.extraRoots?.length ?? 0) > 0 && features?.additionalRoots !== true) {
+        throw invalid(`the engine of ${target.id} has no additional folders`);
+      }
+      const extras = await this.#handoffExtras(runtime, params.handoff);
+      const from = { providerId: session.providerId, modelId: session.modelId };
+      const plan = this.#handoffPlan(
+        runtime,
+        from,
+        this.#previousEngine(runtime, target.id),
+        features,
+        extras,
+      );
+      return handoffPreviewOf(target.id, plan);
+    });
+  }
+
+  /** 接力时要接着用的这个来源以前的引擎会话；没用过、或恢复过一次失败（`#unresumable`）时没有，新建。 */
+  #previousEngine(
+    runtime: SessionRuntime,
+    providerId: string,
+  ): { engineSessionId: string; seenSeq: number } | undefined {
+    const previous = this.#events
+      .handoffState(runtime.id)
+      ?.engines?.find((engine) => engine.providerId === providerId);
+    return previous === undefined || this.#unresumable.has(previous.engineSessionId)
+      ? undefined
+      : previous;
   }
 
   /**

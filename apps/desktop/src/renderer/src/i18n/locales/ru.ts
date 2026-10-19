@@ -79,6 +79,7 @@ export const messages: Messages = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Конфликт ID сообщения',
   'rpcError.RESOURCE_IN_USE': 'Есть открытые сессии',
   'rpcError.PENDING_NOT_EDITABLE': 'Ожидающее сообщение больше нельзя изменить',
+  'rpcError.HANDOFF_STALE': 'Передача изменилась; проверьте её снова',
   'rpcError.WORKSPACE_PATH_INVALID': 'Путь проекта недоступен',
 
   'clientError.request_timeout': 'Время ожидания запроса истекло',

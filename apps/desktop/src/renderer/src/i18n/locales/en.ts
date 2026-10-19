@@ -80,6 +80,7 @@ export const messages: Messages = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Message ID conflict',
   'rpcError.RESOURCE_IN_USE': 'Sessions still open',
   'rpcError.PENDING_NOT_EDITABLE': 'Pending message can no longer be edited',
+  'rpcError.HANDOFF_STALE': 'The handoff changed; review it again',
   'rpcError.WORKSPACE_PATH_INVALID': 'Project path unavailable',
 
   'clientError.request_timeout': 'Request timed out',

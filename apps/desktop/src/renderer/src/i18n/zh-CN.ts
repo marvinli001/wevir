@@ -86,6 +86,7 @@ export const zhCN = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': '消息 ID 冲突',
   'rpcError.RESOURCE_IN_USE': '仍有未关闭的会话',
   'rpcError.PENDING_NOT_EDITABLE': '待发消息已无法修改',
+  'rpcError.HANDOFF_STALE': '接力内容已变化，请重新查看',
   'rpcError.WORKSPACE_PATH_INVALID': '项目路径不可用',
 
   'clientError.request_timeout': '请求超时',

@@ -816,6 +816,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }),
 
     'session.configure': async (params) => ({ session: await sessions.configure(params) }),
+    'session.handoffPreview': (params) => sessions.handoffPreview(params),
 
     'session.send': (params, { client }) => sessions.send(params, client),
 

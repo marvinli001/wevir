@@ -78,6 +78,7 @@ export const messages: Messages = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': '메시지 ID 충돌',
   'rpcError.RESOURCE_IN_USE': '열려 있는 세션이 있음',
   'rpcError.PENDING_NOT_EDITABLE': '대기 중인 메시지를 더 이상 편집할 수 없음',
+  'rpcError.HANDOFF_STALE': '인계 내용이 바뀌었습니다. 다시 확인하세요',
   'rpcError.WORKSPACE_PATH_INVALID': '프로젝트 경로를 사용할 수 없음',
 
   'clientError.request_timeout': '요청 시간 초과',

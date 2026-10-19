@@ -50,6 +50,8 @@ export const ErrorCode = {
   CLIENT_MESSAGE_CONFLICT: -32023,
   RESOURCE_IN_USE: -32024,
   PENDING_NOT_EDITABLE: -32025,
+  /** 接力预览的绑定过期了（0.60.0，`session.configure` 的 `handoff.binding`）：重新预览后再切换。 */
+  HANDOFF_STALE: -32026,
 
   WORKSPACE_PATH_INVALID: -32040,
   ENGINE_ERROR: -32041,
@@ -114,6 +116,13 @@ export const ErrorDataSchemas = {
     pendingId: PendingMessageIdSchema,
     status: PendingStatusSchema,
     delivery: PendingDeliverySchema,
+  }),
+  /**
+   * 哪几项和预览时不同（开放字符串）：`events` 之后有了新事件，`notes` 笔记改了、停用或删了，`target` 目标来源，`strategy` 方式，
+   * `material` 材料的其余部分，`resume_failed` 要接着用的引擎会话恢复不了（再预览就是新建、整段）。
+   */
+  HANDOFF_STALE: z.object({
+    reasons: z.array(z.string().min(1)).min(1),
   }),
   WORKSPACE_PATH_INVALID: z.object({
     path: z.string(),

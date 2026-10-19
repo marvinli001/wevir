@@ -453,4 +453,237 @@ describe('接力（SessionManager）', () => {
       resume.mockRestore();
     });
   });
+
+  describe('预览与绑定（0.60.0）', () => {
+    async function started() {
+      const env = setup();
+      await env.memory.save('project', 'ws_1', {
+        name: 'invoice-cents',
+        type: 'feedback',
+        description: 'Discounts are computed in integer cents',
+        content: 'Compute discounts in integer cents and round once.',
+      });
+      const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+      const sessionId = id as SessionId;
+      await turn(env, sessionId, '第一句');
+      return { ...env, sessionId };
+    }
+    const handoff = {
+      constraints: ['只改 src/，金额用整数分'],
+      notes: [{ scope: 'project' as const, name: 'invoice-cents' }],
+    };
+
+    it('预览只读；带着它的绑定切换，递交的材料与预览逐字节一致', async () => {
+      const env = await started();
+      const before = env.events.readSince(env.sessionId, 0).length;
+      const { preview, binding } = await env.manager.handoffPreview({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff,
+      });
+      expect(env.events.readSince(env.sessionId, 0)).toHaveLength(before);
+      expect(env.events.snapshot(env.sessionId)?.session.providerId).toBe('mock');
+      expect(preview).toMatchObject({
+        providerId: 'claude',
+        strategy: 'full_thread_summary',
+        resumed: false,
+        historyTool: true,
+        constraints: 1,
+        items: 2,
+        omittedItems: 0,
+      });
+      expect(binding).toMatchObject({
+        providerId: 'claude',
+        throughSeq: env.events.snapshot(env.sessionId)?.session.lastSeq,
+        hash: preview.hash,
+      });
+      await env.manager.configure({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff: { ...handoff, ...(binding && { binding }) },
+      });
+      const payload = handoffs(env, env.sessionId)[0]?.payload;
+      expect(payload?.context).toBe(preview.context);
+      expect(payload).toMatchObject({
+        hash: preview.hash,
+        bytes: preview.bytes,
+        notes: preview.notes,
+      });
+      await turn(env, env.sessionId, '接着做');
+      expect(lastAnswer(env, env.sessionId)).toBe(
+        `Echo: ${preview.context}\n\nUser message:\n接着做`,
+      );
+
+      // 再点一次确认（同样的请求）：已经在 Claude 上，什么都不做，不重复附加。
+      await env.manager.configure({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff: { ...handoff, ...(binding && { binding }) },
+      });
+      expect(handoffs(env, env.sessionId)).toHaveLength(1);
+      await turn(env, env.sessionId, '第三句');
+      expect(lastAnswer(env, env.sessionId)).toBe('Echo: 第三句');
+    });
+
+    it('预览之后有新事件、笔记被改、约束不同或目标不同：旧预览不能原样通过，什么都不动', async () => {
+      const env = await started();
+      const take = () =>
+        env.manager.handoffPreview({ sessionId: env.sessionId, providerId: 'claude', handoff });
+      const commit = (binding: unknown, extra: object = {}) =>
+        env.manager.configure({
+          sessionId: env.sessionId,
+          providerId: 'claude',
+          handoff: { ...handoff, ...extra, binding: binding as never },
+        });
+
+      const stale = (await take()).binding;
+      await turn(env, env.sessionId, '又说了一句');
+      await expect(commit(stale)).rejects.toMatchObject({
+        code: 'HANDOFF_STALE',
+        data: { reasons: ['events'] },
+      });
+
+      const beforeNote = (await take()).binding;
+      // 用户在设置里改了正文。
+      const current = await env.memory.read('project', 'ws_1', 'invoice-cents');
+      await env.memory.update('project', 'ws_1', 'invoice-cents', current.revision, {
+        content: 'Round discounts once, at the end.',
+      });
+      await expect(commit(beforeNote)).rejects.toMatchObject({
+        code: 'HANDOFF_STALE',
+        data: { reasons: ['notes'] },
+      });
+
+      const fresh = (await take()).binding;
+      await expect(commit(fresh, { constraints: ['只改 src/'] })).rejects.toMatchObject({
+        code: 'HANDOFF_STALE',
+        data: { reasons: ['material'] },
+      });
+      await expect(
+        env.manager.configure({
+          sessionId: env.sessionId,
+          providerId: 'claude',
+          handoff: { ...handoff, binding: { ...(fresh as object), providerId: 'mock' } as never },
+        }),
+      ).rejects.toMatchObject({ code: 'HANDOFF_STALE', data: { reasons: ['target'] } });
+
+      // 笔记停用了：拒绝（不能选停用的）。
+      await env.memory.setEnabled('project', 'ws_1', 'invoice-cents', false);
+      await expect(commit(fresh)).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+      await env.memory.setEnabled('project', 'ws_1', 'invoice-cents', true);
+
+      // 上面都没动原来的引擎会话：照常回答。
+      expect(handoffs(env, env.sessionId)).toHaveLength(0);
+      await turn(env, env.sessionId, '还在');
+      expect(lastAnswer(env, env.sessionId)).toBe('Echo: 还在');
+
+      // 刷新预览后照常切换。
+      const last = (await take()).binding;
+      await commit(last);
+      expect(handoffs(env, env.sessionId)).toHaveLength(1);
+    });
+
+    it('预览按恢复以前的引擎会话算出增量，切换时恢复失败：回 HANDOFF_STALE、不新建不切换；再预览是新建整段，确认后切换', async () => {
+      const env = await started();
+      await env.manager.configure({ sessionId: env.sessionId, providerId: 'claude' });
+      await turn(env, env.sessionId, '在 Claude 上');
+      await env.manager.configure({ sessionId: env.sessionId, providerId: 'mock' });
+      await turn(env, env.sessionId, '回到 API');
+
+      const first = await env.manager.handoffPreview({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+      });
+      expect(first.preview).toMatchObject({
+        strategy: 'delta_since_target_last_seen',
+        resumed: true,
+      });
+      const resume = vi
+        .spyOn(env.claude, 'resumeSession')
+        .mockRejectedValue(new Error('session_lost'));
+      const create = vi.spyOn(env.claude, 'createSession');
+      await expect(
+        env.manager.configure({
+          sessionId: env.sessionId,
+          providerId: 'claude',
+          handoff: { ...(first.binding && { binding: first.binding }) },
+        }),
+      ).rejects.toMatchObject({ code: 'HANDOFF_STALE', data: { reasons: ['resume_failed'] } });
+      expect(create).not.toHaveBeenCalled();
+      expect(handoffs(env, env.sessionId)).toHaveLength(2);
+      expect(env.events.snapshot(env.sessionId)?.session.providerId).toBe('mock');
+      // 原来的引擎会话下次发消息时恢复。
+      await turn(env, env.sessionId, '还在 API');
+      expect(lastAnswer(env, env.sessionId)).toBe('Echo: 还在 API');
+
+      const second = await env.manager.handoffPreview({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+      });
+      expect(second.preview).toMatchObject({ strategy: 'full_thread_summary', resumed: false });
+      await env.manager.configure({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff: { ...(second.binding && { binding: second.binding }) },
+      });
+      expect(resume).toHaveBeenCalledTimes(1);
+      expect(create).toHaveBeenCalledTimes(1);
+      const payload = handoffs(env, env.sessionId).at(-1)?.payload;
+      expect(payload).toMatchObject({ resumed: false, strategy: 'full_thread_summary' });
+      expect(payload?.context).toBe(second.preview.context);
+      resume.mockRestore();
+      create.mockRestore();
+    });
+
+    it('换回旧来源的预览仍是增量，带绑定切换照样是增量', async () => {
+      const env = await started();
+      await env.manager.configure({ sessionId: env.sessionId, providerId: 'claude' });
+      await turn(env, env.sessionId, '在 Claude 上');
+      const { preview, binding } = await env.manager.handoffPreview({
+        sessionId: env.sessionId,
+        providerId: 'mock',
+      });
+      expect(preview).toMatchObject({ strategy: 'delta_since_target_last_seen', resumed: true });
+      await env.manager.configure({
+        sessionId: env.sessionId,
+        providerId: 'mock',
+        handoff: { ...(binding && { binding }) },
+      });
+      expect(handoffs(env, env.sessionId).at(-1)?.payload).toMatchObject({
+        resumed: true,
+        strategy: 'delta_since_target_last_seen',
+        context: preview.context,
+      });
+    });
+
+    it('超出预算的预览没有材料与绑定；预览与切换的限制相同', async () => {
+      const env = await started();
+      const over = await env.manager.handoffPreview({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff: { constraints: ['约'.repeat(2000), '定'.repeat(2000), '束'.repeat(2000)] },
+      });
+      expect(over.binding).toBeUndefined();
+      expect(over.preview.context).toBeUndefined();
+      expect(over.preview.overBudget?.bytes).toBeGreaterThan(over.preview.budgetBytes);
+
+      await expect(
+        env.manager.handoffPreview({ sessionId: env.sessionId, providerId: 'mock' }),
+      ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+      await expect(
+        env.manager.handoffPreview({ sessionId: env.sessionId, providerId: 'gone' }),
+      ).rejects.toMatchObject({ code: 'PROVIDER_NOT_FOUND' });
+      const side = await env.manager.fork({ sessionId: env.sessionId, side: true });
+      await expect(
+        env.manager.handoffPreview({ sessionId: side.id as SessionId, providerId: 'claude' }),
+      ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+      await env.manager.send(
+        { sessionId: env.sessionId, content: [{ type: 'text', text: 'slow 慢慢说' }] },
+        identity,
+      );
+      await expect(
+        env.manager.handoffPreview({ sessionId: env.sessionId, providerId: 'claude' }),
+      ).rejects.toMatchObject({ code: 'SESSION_BUSY' });
+    });
+  });
 });

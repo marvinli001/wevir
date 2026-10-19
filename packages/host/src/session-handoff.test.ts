@@ -97,6 +97,7 @@ describe('接力（0.25.0）', () => {
     const { hello } = await start();
     expect(hello.features.session_handoff).toBe(true);
     expect(hello.features.handoff_material).toBe(true);
+    expect(hello.features.handoff_preview).toBe(true);
     expect(hello.engineFeatures['openai-compatible']).toMatchObject({ engine: 'echo' });
     expect(hello.engineFeatures.claude).toMatchObject({
       engine: 'echo-subscriptions',
@@ -271,5 +272,47 @@ describe('接力（0.25.0）', () => {
     const issues = (badModel.error?.data as { issues?: { path: string[] }[] } | undefined)?.issues;
     expect(issues?.[0]?.path).toEqual(['modelId']);
     expect(handoffs(events())).toHaveLength(0);
+  });
+
+  it('0.60.0：经 RPC 预览、带绑定切换；预览之后有新消息时回 HANDOFF_STALE（-32026）', async () => {
+    const { client, workspaceId } = await start();
+    const { session } = await client.request('session.create', {
+      workspaceId,
+      providerId: 'mock',
+    });
+    const sessionId = session.id as string;
+    const events = await watch(client, sessionId);
+    await turn(client, events, sessionId, '第一个问题');
+    const handoff = { constraints: ['金额一律用整数分'] };
+    const old = await client.request('session.handoffPreview', {
+      sessionId,
+      providerId: 'claude',
+      handoff,
+    });
+    await turn(client, events, sessionId, '第二个问题');
+    const stale = await client.call('session.configure', {
+      sessionId,
+      providerId: 'claude',
+      handoff: { ...handoff, binding: old.binding },
+    });
+    expect(stale.error).toMatchObject({ code: -32026, data: { reasons: ['events'] } });
+
+    const fresh = await client.request('session.handoffPreview', {
+      sessionId,
+      providerId: 'claude',
+      handoff,
+    });
+    await client.request('session.configure', {
+      sessionId,
+      providerId: 'claude',
+      handoff: { ...handoff, binding: fresh.binding },
+    });
+    await client.until(() => handoffs(events())[0], 'handoff');
+    const payload = (handoffs(events())[0] as Extract<WevirEvent, { type: 'session.handoff' }>)
+      .payload;
+    expect(payload.context).toBe(fresh.preview.context);
+    expect(payload.hash).toBe(fresh.binding?.hash);
+    const answer = await turn(client, events, sessionId, '接着做');
+    expect(answer).toContain(`${fresh.preview.context}\n\nUser message:\n接着做`);
   });
 });

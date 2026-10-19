@@ -224,6 +224,11 @@ export const HOST_FEATURES = {
    * 事件带递交记录（字节数、散列、省掉的条目、笔记的版本）。有 `session_handoff` 时声明。
    */
   handoffMaterial: 'handoff_material',
+  /**
+   * 接力预览（0.60.0）：`session.handoffPreview`、`session.configure` 的 `handoff.binding` 与 `HANDOFF_STALE`。有
+   * `handoff_material` 时声明。
+   */
+  handoffPreview: 'handoff_preview',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -273,6 +278,7 @@ export const HostFeaturesSchema = z.looseObject({
   shared_files: z.boolean().optional(),
   memory: z.boolean().optional(),
   handoff_material: z.boolean().optional(),
+  handoff_preview: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

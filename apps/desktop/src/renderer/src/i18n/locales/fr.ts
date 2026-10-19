@@ -82,6 +82,7 @@ export const messages: Messages = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'Conflit d’identifiant de message',
   'rpcError.RESOURCE_IN_USE': 'Des sessions sont encore ouvertes',
   'rpcError.PENDING_NOT_EDITABLE': 'Le message en attente n’est plus modifiable',
+  'rpcError.HANDOFF_STALE': 'Le relais a changé ; vérifiez-le à nouveau',
   'rpcError.WORKSPACE_PATH_INVALID': 'Chemin du projet inutilisable',
 
   'clientError.request_timeout': 'Délai de la requête dépassé',

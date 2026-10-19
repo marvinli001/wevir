@@ -81,6 +81,7 @@ export const messages: Messages = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': 'メッセージ ID の競合',
   'rpcError.RESOURCE_IN_USE': '開いているセッションがあります',
   'rpcError.PENDING_NOT_EDITABLE': '送信待ちメッセージは編集できなくなりました',
+  'rpcError.HANDOFF_STALE': '引き継ぎ内容が変わりました。もう一度確認してください',
   'rpcError.WORKSPACE_PATH_INVALID': 'プロジェクトのパスを使用できません',
 
   'clientError.request_timeout': 'リクエストがタイムアウトしました',

@@ -76,6 +76,7 @@ export const messages: Messages = {
   'rpcError.CLIENT_MESSAGE_CONFLICT': '訊息 ID 衝突',
   'rpcError.RESOURCE_IN_USE': '仍有未關閉的工作階段',
   'rpcError.PENDING_NOT_EDITABLE': '待傳訊息已無法修改',
+  'rpcError.HANDOFF_STALE': '接力內容已變化，請重新查看',
   'rpcError.WORKSPACE_PATH_INVALID': '專案路徑無法使用',
 
   'clientError.request_timeout': '請求逾時',
