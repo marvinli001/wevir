@@ -10,10 +10,8 @@ WEVIR_GITHUB_MIRROR replaces the https://github.com prefix, same as scripts/fetc
 
 - Mona Sans and JetBrains Mono: the variable TTFs converted to WOFF2 without any other change. Mona
   Sans has the Reserved Font Name "Mona", so it must not be subset or otherwise modified (OFL §3).
-- Noto Serif SC: subset to DISPLAY_TEXT. The copyright line has no Reserved Font Name, so the subset
-  may keep its name; the CSS family is "Wevir Display" anyway (styles/fonts.css).
 
-Run it again after changing a version or DISPLAY_TEXT, and update NOTICE §7 and
+Run it again after changing a version, and update NOTICE §7 and
 src/renderer/src/assets/fonts/SOURCE.md with it.
 """
 
@@ -25,29 +23,7 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-from fontTools import subset
 from fontTools.ttLib import TTFont
-
-# The fixed copy of the home title, one of its variants picked at random (zh-CN.ts, home.title.N.before / after;
-# direction A's HomeA had only 今天在 <workspace> 里做什么？). The workspace name is in the UI font. Change this with the copy.
-DISPLAY_TEXT = [
-    "今天在",
-    "里做什么？",
-    "你想让我们在",
-    "中构建什么？",
-    "想在",
-    "里实现什么？",
-    "接下来要在",
-    "里做什么？",
-    "在",
-    "里有什么要改的？",
-    "今天想为",
-    "写点什么？",
-    "在",
-    "里，想先解决什么？",
-    "有什么想在",
-    "里试试的？",
-]
 
 MONA = {
     "url": "https://github.com/github/mona-sans/releases/download/v2.0.27/mona-sans-variable-v2.0.27.zip",
@@ -57,17 +33,6 @@ JETBRAINS = {
     "url": "https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip",
     "sha256": "6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf",
 }
-# notofonts/noto-cjk, tag Serif2.003.
-NOTO_COMMIT = "9b0f1436e455d902de067a2501422e5dc71ad16b"
-NOTO_SERIF = {
-    "url": f"https://github.com/notofonts/noto-cjk/raw/{NOTO_COMMIT}/Serif/SubsetOTF/SC/NotoSerifSC-Medium.otf",
-    "sha256": "e4e9beb5aaeb951e101aa8f122e2a6801ea9e48ac9f9b6bdfeef2436b55bc8ee",
-}
-NOTO_LICENSE = {
-    "url": f"https://github.com/notofonts/noto-cjk/raw/{NOTO_COMMIT}/Serif/LICENSE",
-    "sha256": "6a73f9541c2de74158c0e7cf6b0a58ef774f5a780bf191f2d7ec9cc53efe2bf2",
-}
-
 DESKTOP = Path(__file__).resolve().parents[1]
 REPO = DESKTOP.parents[1]
 CACHE = REPO / ".wevir-dev" / "fonts"
@@ -108,25 +73,6 @@ def to_woff2(data: bytes, target: str) -> None:
     font.save(OUT / target)
 
 
-def subset_to_woff2(data: bytes, text: str, target: str) -> None:
-    font = TTFont(io.BytesIO(data), recalcTimestamp=False)
-    cmap = font.getBestCmap()
-    missing = sorted({ch for ch in text if ord(ch) not in cmap})
-    if missing:
-        sys.exit(f"{target}：源字体里没有 {''.join(missing)}")
-    options = subset.Options()
-    options.flavor = "woff2"
-    options.layout_features = ["*"]
-    options.name_IDs = ["*"]
-    options.name_languages = ["*"]
-    options.notdef_outline = True
-    subsetter = subset.Subsetter(options)
-    subsetter.populate(text=text)
-    subsetter.subset(font)
-    font.flavor = "woff2"
-    font.save(OUT / target)
-
-
 def write_license(folder: str, data: bytes) -> None:
     (LICENSES / folder).mkdir(parents=True, exist_ok=True)
     (LICENSES / folder / "OFL.txt").write_bytes(data)
@@ -144,10 +90,6 @@ def main() -> None:
     to_woff2(member(jetbrains, "fonts/variable/JetBrainsMono[wght].ttf"), "jetbrains-mono.woff2")
     to_woff2(member(jetbrains, "fonts/variable/JetBrainsMono-Italic[wght].ttf"), "jetbrains-mono-italic.woff2")
     write_license("jetbrains-mono", member(jetbrains, "OFL.txt"))
-
-    text = " " + "".join(DISPLAY_TEXT)
-    subset_to_woff2(fetch(NOTO_SERIF), text, "noto-serif-sc-display.woff2")
-    write_license("noto-serif-sc", fetch(NOTO_LICENSE))
 
     for path in sorted(OUT.glob("*.woff2")):
         print(f"{path.relative_to(REPO)}  {path.stat().st_size / 1024:.1f} KiB")

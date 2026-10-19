@@ -140,17 +140,13 @@
 
   /* 字体（styles/fonts.css 声明随应用打包的字体，不从网络加载）：
    * - 界面：拉丁字母用 Mona Sans（品牌字标的字体），中文用系统字体，不打包。
-   * - 代码：JetBrains Mono，中文同样回落到系统字体。
-   * - 标题宋体：Noto Serif SC 按固定文案做的子集（"Wevir Display"），只用在那些文案上（U4 的首页标题）；
-   *   子集里没有的字回落到系统宋体。 */
+   * - 代码：JetBrains Mono，中文同样回落到系统字体。 */
   --font-ui:
     "Mona Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei",
     "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei", system-ui, sans-serif;
   --font-code:
     "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", "Noto Sans CJK SC", monospace;
-  --font-display:
-    "Wevir Display", "Noto Serif SC", "Noto Serif CJK SC", "Songti SC", "STSong", "SimSun", serif;
   /* 消息正文的字体，默认同界面；设置 → 外观的“内容字体”会盖掉它（theme/appearance-model.ts）。 */
   --font-content: var(--font-ui);
 
@@ -158,8 +154,8 @@
   --text-code: 0.8125rem;
 }
 
-/* 界面语言（<html lang>，i18n/index.ts 设置）换字体栈：汉字按语言用对应地区的字形（日文、韩文、繁体不落到简体字形），
- * 西文与俄文的标题宋体用系统衬线体（"Wevir Display" 只有简体中文首页标题的字）；拉丁字母仍是 Mona Sans。 */
+/* 界面语言（<html lang>，i18n/index.ts 设置）换字体栈：汉字按语言用对应地区的字形（日文、韩文、繁体不落到简体字形）；
+ * 拉丁字母仍是 Mona Sans。 */
 :root:lang(zh-TW) {
   --font-ui:
     "Mona Sans", "PingFang TC", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans CJK TC",
@@ -167,7 +163,6 @@
   --font-code:
     "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "PingFang TC",
     "Microsoft JhengHei UI", "Noto Sans CJK TC", monospace;
-  --font-display: "Noto Serif TC", "Noto Serif CJK TC", "Songti TC", "PMingLiU", serif;
 }
 
 :root:lang(ja) {
@@ -177,7 +172,6 @@
   --font-code:
     "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Hiragino Sans", "Yu Gothic UI",
     "Noto Sans CJK JP", monospace;
-  --font-display: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif CJK JP", "Noto Serif JP", serif;
 }
 
 :root:lang(ko) {
@@ -187,7 +181,6 @@
   --font-code:
     "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Apple SD Gothic Neo",
     "Malgun Gothic", "Noto Sans CJK KR", monospace;
-  --font-display: "AppleMyungjo", "Noto Serif CJK KR", "Noto Serif KR", "Batang", serif;
 }
 
 :root:lang(en),
@@ -199,5 +192,4 @@
   --font-ui:
     "Mona Sans", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei UI",
     "Noto Sans CJK SC", sans-serif;
-  --font-display: ui-serif, "New York", Georgia, "Times New Roman", serif;
 }

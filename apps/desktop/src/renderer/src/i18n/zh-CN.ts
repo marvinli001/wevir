@@ -841,9 +841,6 @@ export const zhCN = {
   'history.next': '接下来：',
   'history.draftNotice': '已载入“{title}”的对话记录',
 
-  // 首页标题有几种句式，打开首页时随机取一种（session/new-session.tsx 的 TITLE_VARIANTS）。每种拆成前后两段，中间是
-  // 项目下拉，前半段可以为空。字都要在标题宋体的子集里（apps/desktop/scripts/build-fonts.py 的 DISPLAY_TEXT），
-  // 改了要重新生成字体。
   'home.createProject': '创建项目…',
   'home.recentFolders': '最近的文件夹',
   'home.addFolder': '添加文件夹…',

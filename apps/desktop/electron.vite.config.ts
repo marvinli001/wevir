@@ -45,7 +45,7 @@ export default defineConfig(({ command }) => {
       // 构建时写占位符，主进程每次提供 index.html 时换成新的 nonce（src/shared/csp.ts）。Vite 同时生成
       // <meta property="csp-nonce">，渲染进程从它读 nonce（lib/style-nonce.ts）。
       html: { cspNonce: command === 'serve' ? nonce : CSP_NONCE_PLACEHOLDER },
-      // 字体总是单独成文件：Vite 默认把小于 4 KiB 的资源内联成 data: URI（标题宋体的子集只有几 KiB），而 CSP 的
+      // 字体总是单独成文件：Vite 默认把小于 4 KiB 的资源内联成 data: URI，而 CSP 的
       // font-src 只放行 'self'（src/shared/csp.ts）。其他资源仍按默认规则。
       build: { assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined) },
       // “变更”窗格的高亮 worker（@pierre/diffs 的 worker.js）里有动态 import（Shiki 的语法与 WASM 引擎），默认的 iife 格式不能

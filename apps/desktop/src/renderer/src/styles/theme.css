@@ -3,7 +3,7 @@
  * - 颜色、阴影：先清空 Tailwind 自带的调色板与阴影，只留语义的，`bg-red-500`、`text-white`、`shadow-xl` 这类类名不再
  *   生成 CSS，界面里的颜色与阴影只能经语义变量取。
  * - `@theme inline`：工具类直接写 `var(--background)` 这类引用，切换主题只改变量，不需要重新生成 CSS。
- * - 字体与字号：字体栈在 tokens.css（--font-ui / --font-code / --font-display）；正文 14px / 行高 1.55，代码与控件
+ * - 字体与字号：字体栈在 tokens.css（--font-ui / --font-code）；正文 14px / 行高 1.55，代码与控件
  *   13px。 */
 
 @theme {
@@ -165,8 +165,7 @@
 }
 
 @theme inline {
-  /* font-sans / font-mono 与 Tailwind 预检的默认字体都取 tokens.css 的字体栈。标题宋体的 font-display 见下面的
-   * @utility：tokens.css 的变量与 Tailwind 的主题变量同名会互相引用。 */
+  /* font-sans / font-mono 与 Tailwind 预检的默认字体都取 tokens.css 的字体栈。 */
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
 
@@ -297,11 +296,6 @@
     translate: 0 8px;
     filter: blur(4px);
   }
-}
-
-/* 标题宋体（U4 的首页标题等固定文案）：子集里只有那些文案的字，见 styles/fonts.css。 */
-@utility font-display {
-  font-family: var(--font-display);
 }
 
 /* 暗色只认 <html data-theme="dark">，不认 .dark 类，也不直接跟 prefers-color-scheme（跟随系统由

@@ -239,12 +239,6 @@ apps/desktop/licenses/fonts/。许可证都是 SIL Open Font License 1.1，全�
     文件：jetbrains-mono.woff2、jetbrains-mono-italic.woff2（由 fonts/variable/JetBrainsMono[wght].ttf 与
           JetBrainsMono-Italic[wght].ttf 转为 WOFF2，字形与名称不变）
 
-  Noto Serif SC 2.003
-    仓库：https://github.com/notofonts/noto-cjk（标签 Serif2.003，提交 9b0f1436e455d902de067a2501422e5dc71ad16b）
-    版权：© 2017-2024 Adobe (http://www.adobe.com/)，没有保留字体名
-    文件：noto-serif-sc-display.woff2（由 Serif/SubsetOTF/SC/NotoSerifSC-Medium.otf 按界面里的几句固定文案
-          子集化后转为 WOFF2，是修改过的版本；名称记录原样保留）
-
 
 8. 桌面端的动效库（libraries.dev）
 ------------------------------------------------------------------------------------------------

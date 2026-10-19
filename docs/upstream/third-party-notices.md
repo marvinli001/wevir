@@ -99,13 +99,12 @@ Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁�
 
 ### 2.5 字体（U1）
 
-渲染进程的产物里带三种字体的 WOFF2（`apps/desktop/src/renderer/src/assets/fonts/`，Vite 打进 `out/renderer/assets/`），都是 SIL OFL-1.1，来源、版本与处理方式见根目录 `NOTICE` 第 7 节与同目录的 `SOURCE.md`：
+渲染进程的产物里带两种字体的 WOFF2（`apps/desktop/src/renderer/src/assets/fonts/`，Vite 打进 `out/renderer/assets/`），都是 SIL OFL-1.1，来源、版本与处理方式见根目录 `NOTICE` 第 7 节与同目录的 `SOURCE.md`：
 
 | 字体 | 版本 | 版权 | 处理 |
 |---|---|---|---|
 | Mona Sans | 2.0.27 | Copyright 2022 The Mona Sans Project Authors，保留字体名 “Mona” | TTF 转 WOFF2，不改字形与名称 |
 | JetBrains Mono | 2.304 | Copyright 2020 The JetBrains Mono Project Authors | TTF 转 WOFF2，不改字形与名称 |
-| Noto Serif SC | 2.003 | © 2017-2024 Adobe，没有保留字体名 | 按固定文案子集化（修改过的版本） |
 
 各字体的 OFL 原文在 `apps/desktop/licenses/fonts/`。
 
@@ -124,7 +123,7 @@ Linux 包另带 `bwrap`：bubblewrap，LGPL-2.0-or-later，源码在 Codex 锁�
 - [ ] 每个平台的安装包只带本平台的可选包，声明按实际带的写。
 - [ ] 不使用 OpenWork、Paseo、DeepSeek 的名称与 logo，说明来源的署名除外（UPSTREAM.md §2.2、§2.3）。
 - [ ] 如果随安装包带 Node.js，加上它的 `LICENSE`。
-- [ ] 字体（§2.5）：OFL 要求每份副本带版权声明与许可证全文。`apps/desktop/licenses/fonts/` 放进安装包，或由第三方声明文件收进三份版权行与一次 OFL 全文；不单独出售字体文件（OFL 第 1 条）。
+- [ ] 字体（§2.5）：OFL 要求每份副本带版权声明与许可证全文。`apps/desktop/licenses/fonts/` 放进安装包，或由第三方声明文件收进各字体的版权行与一次 OFL 全文；不单独出售字体文件（OFL 第 1 条）。
 
 ### 3.2 Codex
 

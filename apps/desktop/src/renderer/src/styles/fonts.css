@@ -38,12 +38,3 @@
   font-weight: 100 800;
   font-display: swap;
 }
-
-/* 标题宋体：Noto Serif SC Medium 按固定文案做的子集（build-fonts.py 的 DISPLAY_TEXT），只有那几个字。 */
-@font-face {
-  font-family: "Wevir Display";
-  src: url("../assets/fonts/noto-serif-sc-display.woff2") format("woff2");
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-}
