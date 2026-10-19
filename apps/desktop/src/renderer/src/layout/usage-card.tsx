@@ -1,15 +1,13 @@
 // 会话侧栏的“用量”卡片（desktop-layout.md §12）：会话的模型来自订阅时，显示那个订阅账号的用量窗口（5 小时、每周、每月）。
-// 数据是账号表（accounts-store.ts）里的 `rateLimits`，引擎在回合里推送更新；侧栏看得见时另外每 5 分钟读一次账号，
-// 别处（其他设备、终端里的 CLI）用掉的额度也跟得上。
+// 数据是账号表（accounts-store.ts）里的 `rateLimits`：Host 定时重读已登录账号的用量（回合结束后、重置时间到了、每 5 分钟），
+// 经 account.updated 推过来，别处（其他设备、终端里的 CLI）用掉的额度也跟得上；这里不读、也没有刷新按钮。
 
 import { Settings } from 'lucide-react';
-import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { SOURCES } from '@/data/sources';
-import { useAccounts, useAccountsStore } from '@/data/workbench-data';
-import { useHostConnection } from '@/host/host-connection';
+import { useAccounts } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { useNow } from '@/session/subagent-view';
@@ -18,41 +16,14 @@ import { ContextBar } from './context-bar';
 import { type RailContext, registerRailCard } from './session-rail';
 import { resetText, subscriptionUsage, usageBar } from './usage-model';
 
-/** 侧栏看得见时多久重读一次账号。 */
-const REFRESH_MS = 5 * 60_000;
-/** 刚读过（别的会话的侧栏、换会话）就不再读。 */
-const FRESH_MS = 60_000;
 /** 重置时间是“还有多久”，每分钟重画。 */
 const TICK_MS = 60_000;
 
-/** 每种账号上次读的时间：几个窗格的侧栏同时开着时只读一次。 */
-const lastRead = new Map<string, number>();
-
 function useUsageCard({ session, providers, visible }: RailContext) {
   const accounts = useAccounts();
-  const store = useAccountsStore();
-  const { client } = useHostConnection();
   const navigate = useNavigate();
   const usage = subscriptionUsage(session, providers, accounts);
-  const kind = usage?.kind;
   const now = useNow(visible && usage !== undefined ? TICK_MS : undefined);
-
-  useEffect(() => {
-    if (!visible || kind === undefined || client === undefined) return;
-    const read = () => {
-      const last = lastRead.get(kind);
-      if (last !== undefined && Date.now() - last < FRESH_MS) return;
-      lastRead.set(kind, Date.now());
-      client
-        .request('account.get', { kind })
-        .then(({ account }) => store?.merge(account))
-        // 用量只是附带的，读不到就留着上次的。
-        .catch(() => {});
-    };
-    read();
-    const timer = window.setInterval(read, REFRESH_MS);
-    return () => window.clearInterval(timer);
-  }, [visible, kind, client, store]);
 
   if (usage === undefined) return null;
   const source = SOURCES[usage.kind];

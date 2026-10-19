@@ -328,6 +328,17 @@ export class ChatgptAccount {
     this.#publish();
   }
 
+  /** 只重读用量（Host 定时刷新）；没登录、正在登录或读不到时什么都不做。 */
+  async refreshUsage(): Promise<void> {
+    if (this.#base?.signedIn !== true || this.#login !== undefined) return;
+    const rpc = await this.#options.rpc().catch(() => undefined);
+    if (rpc === undefined) return;
+    const limits = await this.#readRateLimits(rpc);
+    if (limits === undefined || this.#base?.signedIn !== true) return;
+    this.#base = { ...this.#base, limits };
+    this.#publish();
+  }
+
   #reread(): void {
     this.read().catch((error: unknown) =>
       this.#options.warn('登录后读 ChatGPT 账号失败', { error: errorText(error) }),

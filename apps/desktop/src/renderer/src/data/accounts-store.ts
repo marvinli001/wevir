@@ -1,17 +1,45 @@
 // 全部账号（0.19.0，client-sdk 的 watchAccounts）：ChatGPT 与订阅来源的状态，设置页与模型选择共用一份。连上与重连时读全部，
 // 之后跟着 account.updated。某个账号刚变成已登录时 Host 会在后台建（或刷新）它的 Provider，所以这时重读工作台的列表。
+// 窗口回到前台时再读一次全部（至多每分钟一次）：Host 顺带在后台重读过期的用量，结果跟着 account.updated 到（usage-refresh.ts）。
 
 import type { WevirClient } from '@wevir/client-sdk';
 import type { AccountState } from '@wevir/protocol';
 import type { WorkbenchStore } from './workbench-store';
+
+/** 回到前台时至多多久读一次。 */
+const FOCUS_READ_MIN_MS = 60_000;
 
 export class AccountsStore {
   #accounts: AccountState[] | undefined;
   #error: unknown;
   readonly #listeners = new Set<() => void>();
   readonly #stop: () => void;
+  readonly #stopFocus: () => void;
+  #focusReadAt = 0;
 
   constructor(client: WevirClient, workbench: WorkbenchStore) {
+    const onFocus = () => {
+      if (document.visibilityState !== 'visible' || this.#accounts === undefined) return;
+      if (Date.now() - this.#focusReadAt < FOCUS_READ_MIN_MS) return;
+      this.#focusReadAt = Date.now();
+      const read: Promise<AccountState[]> = client.supports('subscription_sources')
+        ? client.request('account.list').then(({ accounts }) => accounts)
+        : client.supports('chatgpt_account')
+          ? client.request('account.get', { kind: 'chatgpt' }).then(({ account }) => [account])
+          : Promise.resolve([]);
+      read
+        .then((accounts) => {
+          for (const account of accounts) this.merge(account);
+        })
+        // 只是顺带的，读不到等下次。
+        .catch(() => {});
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    this.#stopFocus = () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
     this.#stop = client.watchAccounts(
       (accounts) => {
         const before = new Map(this.#accounts?.map((account) => [account.kind, account.status]));
@@ -58,6 +86,7 @@ export class AccountsStore {
   };
 
   dispose(): void {
+    this.#stopFocus();
     this.#stop();
     this.#listeners.clear();
   }

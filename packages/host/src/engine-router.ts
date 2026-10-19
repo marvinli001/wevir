@@ -488,6 +488,12 @@ class MergedAccounts implements EngineAccounts {
     return part.install(kind);
   }
 
+  async refreshUsage(kind: AccountKind): Promise<void> {
+    const part = this.#part(kind);
+    if (part.refreshUsage !== undefined) await part.refreshUsage(kind);
+    else await part.read(kind);
+  }
+
   onChange(listener: (state: AccountState) => void): () => void {
     const offs = this.#parts.map((part) => part.onChange(listener));
     return () => {

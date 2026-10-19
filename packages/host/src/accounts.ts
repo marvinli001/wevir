@@ -8,6 +8,7 @@ import type { AccountLoginOptions, AccountModels, EngineAccounts } from '@wevir/
 import type { ProviderProfileRecord, Storage } from '@wevir/storage';
 import type { EnginePathStore } from './engine-paths.js';
 import { HostError } from './errors.js';
+import { UsageRefresher } from './usage-refresh.js';
 
 /** ChatGPT 登录成功后 Host 自己建的 Provider（protocol `provider.upsert` 的 `chatgpt` 一支，ID 固定）。 */
 export const CHATGPT_PROVIDER_ID = 'chatgpt';
@@ -56,14 +57,23 @@ export interface HostAccountsOptions {
 export class HostAccounts {
   readonly #options: HostAccountsOptions;
   readonly #watchers = new Set<(state: AccountState) => void>();
+  /** Host 自己的监听（用量的自动刷新），不算“有客户端看着”。 */
+  readonly #observers = new Set<(state: AccountState) => void>();
   readonly #unsubscribe: () => void;
   readonly #lastStatus = new Map<AccountKind, AccountState['status']>();
   readonly #modelsRefreshedAt = new Map<AccountKind, number>();
   readonly #refreshing = new Map<AccountKind, Promise<void>>();
+  /** 用量的自动刷新（usage-refresh.ts）；`startUsageRefresh` 之后才定时读。 */
+  readonly usage: UsageRefresher;
 
   constructor(options: HostAccountsOptions) {
     this.#options = options;
     this.#unsubscribe = options.accounts.onChange((state) => this.#onChange(state));
+    this.usage = new UsageRefresher({
+      target: this,
+      onWarning: options.onWarning,
+      ...(options.now !== undefined && { now: options.now }),
+    });
   }
 
   get kinds(): readonly AccountKind[] {
@@ -101,11 +111,33 @@ export class HostAccounts {
     return () => this.#watchers.delete(listener);
   }
 
+  /** 有没有连接在收 `account.updated`（用量的自动刷新据此决定读不读）。 */
+  get watching(): boolean {
+    return this.#watchers.size > 0;
+  }
+
+  /** Host 内部看账号状态：读到的结果与引擎报的变化都给。返回退订函数。 */
+  observe(listener: (state: AccountState) => void): () => void {
+    this.#observers.add(listener);
+    return () => this.#observers.delete(listener);
+  }
+
   async read(kind: AccountKind, options?: { refresh?: boolean }): Promise<AccountState> {
     const state = await this.#call(() => this.#options.accounts.read(kind, options));
     this.#lastStatus.set(kind, state.status);
+    this.#notifyObservers(state);
     if (state.status === 'signed_in' && this.#modelsStale(kind)) this.#refreshInBackground(kind);
     return state;
+  }
+
+  /**
+   * 只重读用量（usage-refresh.ts 定时调）：引擎实现了 `refreshUsage` 用它，否则用不带 `refresh` 的 `read`（引擎的缓存过期才
+   * 真的去读）。变化经 `account.updated` 推给客户端。
+   */
+  async refreshUsage(kind: AccountKind): Promise<void> {
+    const { accounts } = this.#options;
+    if (accounts.refreshUsage !== undefined) await accounts.refreshUsage(kind);
+    else await this.read(kind);
   }
 
   /** 全部种类的状态（`account.list`）；读不到的种类是 `signed_out` 带 `lastError`，不让一个引擎拖垮整张表。 */
@@ -189,8 +221,10 @@ export class HostAccounts {
   }
 
   dispose(): void {
+    this.usage.dispose();
     this.#unsubscribe();
     this.#watchers.clear();
+    this.#observers.clear();
   }
 
   async #refreshProvider(kind: AccountKind): Promise<void> {
@@ -245,11 +279,22 @@ export class HostAccounts {
       this.#modelsRefreshedAt.delete(state.kind);
       this.#refreshInBackground(state.kind);
     }
+    this.#notifyObservers(state);
     for (const watcher of [...this.#watchers]) {
       try {
         watcher(state);
       } catch (error) {
         this.#options.onWarning('account watcher failed', { error });
+      }
+    }
+  }
+
+  #notifyObservers(state: AccountState): void {
+    for (const observer of [...this.#observers]) {
+      try {
+        observer(state);
+      } catch (error) {
+        this.#options.onWarning('account observer failed', { error });
       }
     }
   }

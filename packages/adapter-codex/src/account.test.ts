@@ -274,6 +274,31 @@ describe('ChatgptAccount', () => {
     });
   });
 
+  it('refreshUsage 只重读用量；没登录时不发请求', async () => {
+    let percent = 23;
+    const { account, calls, states } = setup({
+      'account/read': signedIn,
+      'account/rateLimits/read': () => ({
+        rateLimits: {
+          primary: { usedPercent: percent, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+          planType: 'plus',
+        },
+      }),
+    });
+    await account.refreshUsage();
+    expect(calls).toEqual([]);
+    await account.read();
+    percent = 60;
+    await account.refreshUsage();
+    expect(calls.map((call) => call.method)).toEqual([
+      'account/read',
+      'account/rateLimits/read',
+      'account/rateLimits/read',
+    ]);
+    expect(states.at(-1)?.rateLimits).toEqual({ primary: { usedPercent: 60, windowMinutes: 300 } });
+  });
+
   it('进程退出时登录中断，记一条错误', async () => {
     const { account } = setup({
       'account/read': signedOut,
