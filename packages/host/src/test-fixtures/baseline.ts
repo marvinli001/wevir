@@ -161,6 +161,33 @@ export function seedProjectNote(
 export const C0_PROMPT =
   'invoiceTotal 算出来的总额不对，请修好它。改完跑 `npm test` 和 `npm run lint` 确认，最后告诉我这两项检查各自的结果。';
 
+/**
+ * 工具预设（0.61.0）的测量组合：`full` 与不选相同（对照），`core` 是精简预设，`core+all` 在 core 之上把另外四组都加回来（应与 full
+ * 的工具相同，只差顺序之外的东西时说明分组漏了工具）。
+ */
+export const BASELINE_TOOL_PRESETS = {
+  full: { id: 'full' },
+  core: { id: 'core' },
+  'core+all': { id: 'core', groups: ['browser', 'lsp', 'processes', 'plugins'] },
+} as const;
+export type BaselinePresetName = keyof typeof BASELINE_TOOL_PRESETS;
+
+/**
+ * core 预设下仍要发给模型的工具（请求里的名字以它们结尾）：读历史、联网、记忆读写、任务清单、读会话。读历史与联网是另外的 MCP
+ * 服务，不经过预设；其余是 Wevir 应用级工具的 core 组。
+ */
+export const CORE_REQUIRED_TOOLS = [
+  'read_session_history',
+  'web_fetch',
+  'wevir_memory_list',
+  'wevir_memory_read',
+  'wevir_memory_save',
+  'wevir_tasks',
+  'wevir_task_create',
+  'wevir_task_update',
+  'wevir_session_read',
+] as const;
+
 /** 记忆：用户的纠正，要求以后的会话也遵守。 */
 export const MEMORY_CORRECTION =
   '以后在这个项目里，折扣计算也必须先换算成整数分再算，四舍五入只在最后一步做一次。这条请记住，以后的会话也要遵守。这一轮不用改代码。';
@@ -357,6 +384,41 @@ export interface RecordedRequest {
   body: Record<string, unknown>;
   headers: IncomingHttpHeaders;
   at: number;
+  /** 转发代理：上游在响应里报的用量（Responses 的 `response.completed`）；没报时省略。 */
+  usage?: RecordedUsage;
+}
+
+/** 上游报的一个请求的 token 数。 */
+export interface RecordedUsage {
+  input: number;
+  cachedInput: number;
+  output: number;
+}
+
+/** 从 Responses 的流（或非流式 JSON）里找上游报的用量；只取数字，不留响应正文。 */
+export function usageOf(text: string): RecordedUsage | undefined {
+  let found: RecordedUsage | undefined;
+  for (const line of text.split('\n')) {
+    const data = line.startsWith('data:') ? line.slice(5).trim() : line.trim();
+    if (!data.includes('"usage"')) continue;
+    try {
+      const value = JSON.parse(data) as {
+        usage?: Record<string, unknown>;
+        response?: { usage?: Record<string, unknown> };
+      };
+      const usage = value.response?.usage ?? value.usage;
+      if (usage === undefined || typeof usage.input_tokens !== 'number') continue;
+      const details = usage.input_tokens_details as { cached_tokens?: number } | undefined;
+      found = {
+        input: usage.input_tokens,
+        cachedInput: details?.cached_tokens ?? 0,
+        output: typeof usage.output_tokens === 'number' ? usage.output_tokens : 0,
+      };
+    } catch {
+      // 不是完整的 JSON 行，跳过。
+    }
+  }
+  return found;
 }
 
 export interface Recorder {
@@ -489,8 +551,16 @@ export function startForwardingRecorder(upstream: string): Promise<Recorder> {
           res.end();
           return;
         }
-        for await (const chunk of response.body) res.write(chunk);
+        // 用量只从内存里的响应取数字，响应正文不留下。
+        const decoder = new TextDecoder();
+        let text = '';
+        for await (const chunk of response.body) {
+          res.write(chunk);
+          text += decoder.decode(chunk, { stream: true });
+        }
         res.end();
+        const usage = usageOf(text);
+        if (usage !== undefined) request.usage = usage;
       } catch {
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'baseline proxy: upstream failed' } }));

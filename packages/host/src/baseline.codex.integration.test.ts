@@ -3,10 +3,10 @@
 //
 //   WEVIR_BASELINE=1 pnpm vitest run --project host baseline
 //
-// 本地假模型的部分总是跑（结果是确定的）：每个角色与每种上游协议实际发出的工具数与字节、记忆在 A / B 两个项目间是否串、旧格式
-// 笔记能否读、长约定交给新来源时是否被摘要截断。另设 WEVIR_TEST_API_KEY 与 WEVIR_TEST_PROVIDER=deepseek-official 时加跑真实
-// 模型（每个场景 WEVIR_BASELINE_REPEAT 次，默认 3）：C0 修 bug（独立核对文件与测试，不看模型怎么说）、记忆的保存与再用、接力后
-// 是否还守最后一条约定。真实模型的请求经本地记录代理转发，Key 只在请求头里，不进报告。报告写到 WEVIR_BASELINE_OUT（默认
+// 本地假模型的部分总是跑（结果是确定的）：每个角色、每个工具预设与每种上游协议实际发出的工具数与字节、记忆在 A / B 两个项目间
+// 是否串、旧格式笔记能否读、长约定交给新来源时是否被摘要截断。另设 WEVIR_TEST_API_KEY 与 WEVIR_TEST_PROVIDER=deepseek-official
+// 时加跑真实模型（每个场景 WEVIR_BASELINE_REPEAT 次，默认 3）：C0 修 bug（独立核对文件与测试，不看模型怎么说；
+// WEVIR_BASELINE_PRESETS=full,core 时在每个工具预设下各跑一遍，默认只有 full）、记忆的保存与再用、接力后是否还守最后一条约定。真实模型的请求经本地记录代理转发，Key 只在请求头里，不进报告。报告写到 WEVIR_BASELINE_OUT（默认
 // .wevir-dev/baseline/<时刻>.json），摘要打印到标准输出。
 
 import { execFileSync } from 'node:child_process';
@@ -37,8 +37,11 @@ import { homePath } from './home.js';
 import { startHost } from './host-process.js';
 import { createLogger } from './logger.js';
 import {
+  BASELINE_TOOL_PRESETS,
+  type BaselinePresetName,
   C0_PROMPT,
   type CatalogStats,
+  CORE_REQUIRED_TOOLS,
   chatCatalog,
   checkC0,
   checkHandoffResult,
@@ -77,6 +80,11 @@ const REAL_KEY =
 /** 只认标题请求：交给默认脚本回 JSON 标题。 */
 const TITLE_PROMPT = '你为 Wevir 的会话起标题';
 const ROLES = ['explorer', 'planner', 'reviewer', 'advisor', 'worker'] as const;
+/** 真实模型的 C0 在哪些工具预设下各跑一遍（逗号分隔，默认只有 full，同以前）。 */
+const REAL_PRESETS = (process.env.WEVIR_BASELINE_PRESETS ?? 'full')
+  .split(',')
+  .map((name) => name.trim())
+  .filter((name): name is BaselinePresetName => name in BASELINE_TOOL_PRESETS);
 
 let binary: string | undefined;
 try {
@@ -333,13 +341,29 @@ async function newSession(
   workspaceId: string,
   providerId: string,
   permissionMode = 'on_request',
+  /** 工具预设（0.61.0）；不给时同以前，不带这一项。 */
+  preset?: BaselinePresetName,
 ): Promise<string> {
   const { session } = await client.request('session.create', {
     workspaceId,
     providerId,
     permissionMode,
+    ...(preset !== undefined && { toolPreset: BASELINE_TOOL_PRESETS[preset] }),
   });
   return session.id as string;
+}
+
+/** 转发代理记下的上游用量之和（报了用量的请求）。 */
+function usageTotal(
+  requests: readonly { usage?: { input: number; cachedInput: number; output: number } }[],
+) {
+  const reported = requests.filter((request) => request.usage !== undefined);
+  return {
+    requestsWithUsage: reported.length,
+    input: reported.reduce((sum, request) => sum + (request.usage?.input ?? 0), 0),
+    cachedInput: reported.reduce((sum, request) => sum + (request.usage?.cachedInput ?? 0), 0),
+    output: reported.reduce((sum, request) => sum + (request.usage?.output ?? 0), 0),
+  };
 }
 
 /** 回合里调过的记忆工具：`save` / `read` / `list` / `delete` 与参数里的名字。 */
@@ -464,6 +488,15 @@ const script: MockScript = (view) => {
   if (prompt.includes('[list-notes]') && !done) {
     return { toolCalls: [call(view, 'wevir_memory_list', {})] };
   }
+  if (prompt.includes('[core-calls]') && !done) {
+    return {
+      toolCalls: [
+        call(view, 'wevir_memory_list', {}),
+        call(view, 'wevir_tasks', {}),
+        call(view, 'wevir_session_list', {}),
+      ],
+    };
+  }
   return { text: ['ok'] };
 };
 
@@ -520,6 +553,84 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
           'openai-completions': summarize(chatCatalog(await probe('chat', chat))),
           'anthropic-messages': summarize(messagesCatalog(await probe('messages', messages))),
         });
+      } finally {
+        await host.close();
+        await Promise.all([mock.close(), chat.close(), messages.close()]);
+      }
+    });
+
+    it('工具预设：每个预设与每种上游协议实际发出的工具；core 下必需的工具仍可调用（假模型）', {
+      timeout: 300_000,
+    }, async () => {
+      const mock = await startMockModel(script);
+      const chat = await startChatRecorder();
+      const messages = await startMessagesRecorder();
+      const host = await boot([
+        mockProvider('mock', mock.baseURL),
+        compatible('chat', 'openai-completions', chat.baseURL, 'baseline-chat'),
+        compatible('messages', 'anthropic-messages', messages.baseURL, 'baseline-messages'),
+      ]);
+      try {
+        const { client, a } = host;
+        const probe = async (
+          providerId: string,
+          recorder: { requests: { body: unknown }[] },
+          preset?: BaselinePresetName,
+        ) => {
+          const before = recorder.requests.length;
+          const session = await newSession(client, a.id, providerId, 'on_request', preset);
+          await runTurn(client, session, '[probe] Reply ok.', 60_000);
+          const first = agentRequests(recorder.requests.slice(before))[0];
+          expect(first, `${providerId} ${preset ?? 'none'} 的请求`).toBeDefined();
+          return (first?.body ?? {}) as Json;
+        };
+        const plain = responsesCatalog(await probe('mock', mock));
+        const byPreset: Json = {};
+        for (const preset of Object.keys(BASELINE_TOOL_PRESETS) as BaselinePresetName[]) {
+          const responses = responsesCatalog(await probe('mock', mock, preset));
+          const chatStats = chatCatalog(await probe('chat', chat, preset));
+          const messagesStats = messagesCatalog(await probe('messages', messages, preset));
+          byPreset[preset] = {
+            'openai-responses': summarize(responses, true),
+            'openai-completions': summarize(chatStats),
+            'anthropic-messages': summarize(messagesStats),
+          };
+          if (preset === 'full') {
+            // full 与不选的会话发出同样的工具（字节相同）。
+            expect(responses.names).toEqual(plain.names);
+            expect(responses.toolBytes).toBe(plain.toolBytes);
+          }
+          if (preset === 'core+all')
+            expect([...responses.names].sort()).toEqual([...plain.names].sort());
+          if (preset === 'core') {
+            for (const stats of [responses, chatStats, messagesStats]) {
+              for (const tool of CORE_REQUIRED_TOOLS) {
+                expect(
+                  stats.names.some((name) => name.endsWith(tool)),
+                  tool,
+                ).toBe(true);
+              }
+              expect(stats.names.some((name) => /browser_|lsp_|wevir_process_/.test(name))).toBe(
+                false,
+              );
+            }
+          }
+        }
+        // core 会话里真的调一次记忆、任务清单与读会话：都有结果，不是“不可用”。
+        const before = mock.requests.length;
+        const session = await newSession(client, a.id, 'mock', 'on_request', 'core');
+        const turn = await runTurn(client, session, '[core-calls]', 60_000);
+        const outputs = JSON.stringify(
+          agentRequests(mock.requests.slice(before))[1]?.body.input ?? '',
+        );
+        const coreCalls = {
+          tools: turn.tools.map((tool) => tool.name),
+          outcome: turn.outcome,
+          refused: outputs.includes('is not available to this session'),
+        };
+        expect(coreCalls.refused).toBe(false);
+        expect(coreCalls.tools).toHaveLength(3);
+        section('mock', 'catalogByPreset', { ...byPreset, coreCalls });
       } finally {
         await host.close();
         await Promise.all([mock.close(), chat.close(), messages.close()]);
@@ -623,51 +734,66 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
     });
 
     describe.skipIf(REAL_KEY === undefined)(`真实模型：deepseek-official/${DEEPSEEK_MODEL}`, () => {
-      it(`C0：修 bug 并如实报告检查结果 ×${REPEAT}`, { timeout: REPEAT * 600_000 }, async () => {
-        const runs: Json[] = [];
-        for (let run = 0; run < REPEAT; run++) {
-          const proxy = await startForwardingRecorder(DEEPSEEK);
-          const host = await boot([deepseek()], { deepseekBaseURL: proxy.baseURL });
-          try {
-            const { client, a, home } = host;
-            seedProjectNote(home, a.id, STALE_NOTE);
-            const session = await newSession(client, a.id, 'deepseek-official');
-            const started = Date.now();
-            const turn = await runTurn(
-              client,
-              session,
-              C0_PROMPT,
-              540_000,
-              () => proxy.requests.length > REAL_REQUEST_CAP,
-            );
-            const check = checkC0(a.dir);
-            const agent = agentRequests(proxy.requests);
-            runs.push({
-              outcome: turn.outcome,
-              wallMs: Date.now() - started,
-              requests: { agent: agent.length, other: proxy.requests.length - agent.length },
-              catalog: agent[0] === undefined ? null : summarize(responsesCatalog(agent[0].body)),
-              approvals: turn.approvals,
-              questions: turn.questions,
-              ...(turn.lastEvents !== undefined && { lastEvents: turn.lastEvents }),
-              commands: turn.commands,
-              memoryCalls: memoryCalls(turn),
-              staleNoteUsed: turn.commands.some((command) => STALE_NOTE.misuse.test(command)),
-              check,
-              reportsLintFailure: reportsLintFailure(turn.finalText),
-              finalText: turn.finalText.slice(0, 800),
-            });
-            section('real', 'c0', { partial: true, runs });
-          } finally {
-            await host.close();
-            await proxy.close();
+      it(`C0：修 bug 并如实报告检查结果 ×${REPEAT}（工具预设：${REAL_PRESETS.join('、')}）`, {
+        timeout: REPEAT * REAL_PRESETS.length * 600_000,
+      }, async () => {
+        const byPreset: Json = {};
+        for (const preset of REAL_PRESETS) {
+          const runs: Json[] = [];
+          for (let run = 0; run < REPEAT; run++) {
+            const proxy = await startForwardingRecorder(DEEPSEEK);
+            const host = await boot([deepseek()], { deepseekBaseURL: proxy.baseURL });
+            try {
+              const { client, a, home } = host;
+              seedProjectNote(home, a.id, STALE_NOTE);
+              // full 时不带预设，与以前的报告同一个会话。
+              const session = await newSession(
+                client,
+                a.id,
+                'deepseek-official',
+                'on_request',
+                preset === 'full' ? undefined : preset,
+              );
+              const started = Date.now();
+              const turn = await runTurn(
+                client,
+                session,
+                C0_PROMPT,
+                540_000,
+                () => proxy.requests.length > REAL_REQUEST_CAP,
+              );
+              const check = checkC0(a.dir);
+              const agent = agentRequests(proxy.requests);
+              runs.push({
+                outcome: turn.outcome,
+                wallMs: Date.now() - started,
+                requests: { agent: agent.length, other: proxy.requests.length - agent.length },
+                usage: { agent: usageTotal(agent), all: usageTotal(proxy.requests) },
+                catalog: agent[0] === undefined ? null : summarize(responsesCatalog(agent[0].body)),
+                approvals: turn.approvals,
+                questions: turn.questions,
+                ...(turn.lastEvents !== undefined && { lastEvents: turn.lastEvents }),
+                commands: turn.commands,
+                tools: turn.tools.map((tool) => tool.name),
+                memoryCalls: memoryCalls(turn),
+                staleNoteUsed: turn.commands.some((command) => STALE_NOTE.misuse.test(command)),
+                check,
+                reportsLintFailure: reportsLintFailure(turn.finalText),
+                finalText: turn.finalText.slice(0, 800),
+              });
+              byPreset[preset] = { partial: true, runs };
+              section('real', 'c0', { prompt: C0_PROMPT, byPreset });
+            } finally {
+              await host.close();
+              await proxy.close();
+            }
           }
+          byPreset[preset] = {
+            runs,
+            successRate: `${runs.filter((run) => (run.check as { success: boolean }).success).length}/${runs.length}`,
+          };
+          section('real', 'c0', { prompt: C0_PROMPT, byPreset });
         }
-        section('real', 'c0', {
-          prompt: C0_PROMPT,
-          runs,
-          successRate: `${runs.filter((run) => (run.check as { success: boolean }).success).length}/${runs.length}`,
-        });
       });
 
       it(`记忆：保存纠正、新会话再用、B 项目不串 ×${REPEAT}`, {
