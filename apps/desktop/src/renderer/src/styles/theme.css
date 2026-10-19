@@ -196,6 +196,9 @@
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-ring-soft: var(--ring-soft);
+  --color-selected: var(--selected);
+  --color-selected-border: var(--selected-border);
   --color-brand: var(--brand);
   --color-running: var(--running);
   --color-success: var(--success);

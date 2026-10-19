@@ -100,7 +100,7 @@ function FileBrowser({ scope, refreshKey }: { scope: FileScope; refreshKey: stri
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
-        <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-muted/60 px-2 text-muted-foreground focus-within:bg-muted focus-within:ring-2 focus-within:ring-ring/40">
+        <label className="flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg bg-muted/60 px-2 text-muted-foreground focus-within:bg-muted focus-within:ring-1 focus-within:ring-ring-soft">
           <Search aria-hidden className="size-3.5 shrink-0" />
           <input
             value={query}
@@ -321,7 +321,7 @@ function EntryRow({
       title={entry.path}
       className={cn(
         'flex h-6.5 w-full items-center gap-1.5 pr-3 text-left text-sm outline-none transition-colors duration-100 hover:bg-accent/70 focus-visible:bg-accent focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset',
-        active && 'bg-accent text-accent-foreground',
+        active && 'bg-selected ring-1 ring-selected-border ring-inset text-accent-foreground',
         entry.ignored && 'opacity-55',
       )}
       style={{ paddingLeft: 8 + depth * INDENT_PX }}

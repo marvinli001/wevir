@@ -173,7 +173,7 @@ export function SettingsRoute() {
           {t('settings.title')}
         </h1>
         <div className="px-2.5 pb-2">
-          <label className="flex h-8 items-center gap-2 rounded-full bg-sidebar-accent/70 px-3 text-muted-foreground transition-colors focus-within:bg-sidebar-accent focus-within:ring-2 focus-within:ring-ring/40">
+          <label className="flex h-8 items-center gap-2 rounded-full bg-sidebar-accent/70 px-3 text-muted-foreground transition-colors focus-within:bg-sidebar-accent focus-within:ring-1 focus-within:ring-ring-soft">
             <Search aria-hidden className="size-3.5 shrink-0" />
             <input
               value={query}
@@ -252,9 +252,9 @@ function TabList({ query, state }: { query: string; state: unknown }) {
                     data-settings-tab={id}
                     className={({ isActive }) =>
                       cn(
-                        'flex h-8 items-center gap-2.5 rounded-lg px-2 text-base text-soft-foreground outline-none transition-colors duration-150 hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50',
+                        'flex h-8 items-center gap-2.5 rounded-lg px-2 text-base text-soft-foreground outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50',
                         isActive &&
-                          'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent',
+                          'bg-sidebar-accent/70 text-sidebar-accent-foreground ring-1 ring-selected-border ring-inset hover:bg-sidebar-accent/70',
                       )
                     }
                   >

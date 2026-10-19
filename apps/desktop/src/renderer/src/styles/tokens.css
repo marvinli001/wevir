@@ -128,6 +128,12 @@
   /* 控件边框用强分隔线；焦点环用运行色（方向稿的 :focus-visible）。 */
   --input: var(--border-strong);
   --ring: var(--running);
+  /* 输入框获得焦点时的细边（§63）：运行色与强分隔线各半，外面再配一圈 2 px 的 ring/12 淡光；键盘焦点环仍用 --ring。 */
+  --ring-soft: color-mix(in oklab, var(--running) 50%, var(--border-strong));
+
+  /* 选中（§63）：很淡的墨色底加一圈 1 px 的细边，不用整块底色。用法 `bg-selected ring-1 ring-selected-border ring-inset`。 */
+  --selected: color-mix(in oklab, var(--foreground) 3.5%, transparent);
+  --selected-border: color-mix(in oklab, var(--foreground) 14%, transparent);
 
   /* 侧栏（左栏与右栏共用）：选中的行是表面色，悬停是它的 60%。 */
   --sidebar-foreground: var(--foreground);

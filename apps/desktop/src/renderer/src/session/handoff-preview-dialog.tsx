@@ -296,13 +296,13 @@ export function HandoffPreviewDialog({
             ) : selectable.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('handoff.preview.notesEmpty')}</p>
             ) : (
-              <div className="max-h-48 divide-y divide-border overflow-y-auto rounded-lg border border-border">
+              <div className="max-h-48 space-y-0.5 overflow-y-auto rounded-lg border border-border p-1">
                 {selectable.map((note) => {
                   const checked = notes.some((choice) => noteKey(choice) === noteKey(note));
                   return (
                     <label
                       key={noteKey(note)}
-                      className="flex cursor-default items-start gap-2.5 px-3 py-2 text-sm transition-colors duration-150 hover:bg-muted/50 has-data-checked:bg-muted"
+                      className="flex cursor-default items-start gap-2.5 rounded-md px-2.5 py-2 text-sm transition-[background-color,box-shadow] duration-150 ease-smooth hover:bg-muted/50 has-data-checked:bg-selected has-data-checked:ring-1 has-data-checked:ring-selected-border has-data-checked:ring-inset"
                       data-handoff-note={noteKey(note)}
                     >
                       <Checkbox

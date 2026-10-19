@@ -160,7 +160,8 @@ function SourceTile({
         className={cn(
           'group/tile flex h-full w-full flex-col gap-3 px-4 pt-4 pb-3.5 text-left outline-none transition-colors duration-150',
           'focus-visible:bg-accent/60 enabled:hover:bg-accent/40',
-          selected && 'bg-accent/70 enabled:hover:bg-accent/70',
+          selected &&
+            'bg-selected ring-1 ring-selected-border ring-inset enabled:hover:bg-selected',
           soon && 'cursor-default',
         )}
       >

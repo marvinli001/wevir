@@ -513,7 +513,7 @@ function ColorField({
     }
   };
   return (
-    <div className="flex h-8 w-32 items-center gap-2 rounded-full border border-input bg-card pr-3 pl-1.5 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
+    <div className="flex h-8 w-32 items-center gap-2 rounded-full border border-input bg-card pr-3 pl-1.5 transition-colors focus-within:border-ring-soft focus-within:ring-2 focus-within:ring-ring/12">
       <span
         className="relative size-5 shrink-0 overflow-hidden rounded-full ring-1 ring-foreground/15"
         style={{ background: value }}
