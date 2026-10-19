@@ -128,6 +128,15 @@ describe('sessions', () => {
     expect(s.sessions.get('ses_02')?.origin).toEqual(origin);
   });
 
+  it('工具预设（0010）：存取一致；以前建的会话没有这一项', () => {
+    const s = storage();
+    seedSession(s);
+    expect(s.sessions.get('ses_01')).not.toHaveProperty('toolPreset');
+    const toolPreset = { id: 'core', groups: ['browser', 'lsp'] };
+    seedSession(s, { id: 'ses_02', engineSessionId: 'e2', toolPreset });
+    expect(s.sessions.get('ses_02')?.toolPreset).toEqual(toolPreset);
+  });
+
   it('支线会话（0006）：来源与支线存取一致；默认不列出，也不算进挡移除的计数', () => {
     const s = storage();
     seedSession(s);

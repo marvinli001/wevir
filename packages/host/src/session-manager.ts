@@ -132,6 +132,7 @@ import {
 import { deleteSessionData, measureUsage } from './session-delete.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
+import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
 
 /**
  * 取消后等回合结算的时限（domain-model §4.1 #9）。T0.3 实测 ACP 引擎 3–64 ms 结算；超过它仍没有终结
@@ -248,8 +249,8 @@ export interface RecoveryReport {
   unknownSends: number;
 }
 
-/** 正在建、还没写进存储的会话（`SessionManager.creating`）：以后会写进它的记录的这两项。 */
-export type CreatingSession = Pick<SessionRecord, 'workspaceId' | 'origin'>;
+/** 正在建、还没写进存储的会话（`SessionManager.creating`）：以后会写进它的记录的这几项。 */
+export type CreatingSession = Pick<SessionRecord, 'workspaceId' | 'origin' | 'toolPreset'>;
 
 interface ToolInfo {
   toolName: string;
@@ -571,7 +572,7 @@ export class SessionManager {
   /**
    * 正在建的会话（新建、分支与支线）所在的工作区与来历（`origin`，Agent 开的会话的预设角色在里面）：引擎会话建好之后才写进
    * 存储，而引擎在建的时候就会连应用级工具（Codex 起 thread 时连 MCP、取说明，也可能列工具），那时要靠它认出会话属于哪个项目
-   * （`workspaceOf`）、受哪个角色限制（`creating`）。
+   * （`workspaceOf`）、受哪个角色限制（`creating`）、用哪个工具预设（`toolPresetOf`）。
    */
   readonly #creating = new Map<SessionId, CreatingSession>();
   /** 接力时恢复失败过的引擎会话（0.59.0）：之后的接力与预览直接按新建算，不再试。只在内存里，Host 重启后重新试。 */
@@ -711,12 +712,25 @@ export class SessionManager {
   }
 
   /**
+   * 会话的工具预设：自己记录里的（或正在建的会话将要写进去的），子会话（引擎派出的子 agent）沿用父会话的。没有选过（以前建的会话、
+   * 调用方不明）时 `undefined`，等同 `full`。
+   */
+  toolPresetOf(sessionId: SessionId): ToolPreset | undefined {
+    let record: Pick<SessionRecord, 'parentSessionId' | 'toolPreset'> | undefined =
+      this.#storage.sessions.get(sessionId) ?? this.#creating.get(sessionId);
+    for (let depth = 0; depth < 8 && record?.parentSessionId !== undefined; depth += 1) {
+      record = this.#storage.sessions.get(record.parentSessionId);
+    }
+    return record?.toolPreset as ToolPreset | undefined;
+  }
+
+  /**
    * `session.create`：先建引擎会话，成功后才写 `session.created`（#1）。返回的会话是 `idle`、
    * `lastSeq` 为 1。
    */
   async create(
     params: MethodParams<'session.create'>,
-    options: { openedBy?: SessionId; role?: string } = {},
+    options: { openedBy?: SessionId; role?: string; toolPreset?: ToolPreset } = {},
   ): Promise<Session> {
     this.#assertOpen();
     const provider = this.#storage.providers.get(params.providerId);
@@ -727,6 +741,14 @@ export class SessionManager {
     const chat = this.#chats?.isChats(workspace) === true;
     await assertDirectory(workspace.rootPath);
     const permissionMode = this.#permissionMode(params.permissionMode);
+    // 工具预设：明说的，或 Agent 开的会话沿用开它的会话的；都没有时不记（等同 full）。
+    const chosen = options.toolPreset;
+    const toolPreset =
+      chosen !== undefined
+        ? normalizeToolPreset(chosen)
+        : options.openedBy === undefined
+          ? undefined
+          : this.toolPresetOf(options.openedBy);
     const origin = this.#claimTask(params, workspace.id);
     try {
       return await this.#create(
@@ -738,6 +760,7 @@ export class SessionManager {
         origin,
         options.openedBy,
         options.role,
+        toolPreset,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -806,6 +829,7 @@ export class SessionManager {
     origin: MethodParams<'session.create'>['origin'],
     openedBy: SessionId | undefined,
     role: string | undefined,
+    toolPreset: ToolPreset | undefined,
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
@@ -829,6 +853,7 @@ export class SessionManager {
     this.#creating.set(sessionId, {
       workspaceId: workspace.id,
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
+      ...(toolPreset !== undefined && { toolPreset }),
     });
     try {
       engineSession = await this.#adapter.createSession(this.#engineConfig(sessionId, config));
@@ -864,6 +889,7 @@ export class SessionManager {
       if (prepared.extraRoots.length > 0) record.extraRoots = prepared.extraRoots;
       if (prepared.worktrees.length > 0) record.worktrees = prepared.worktrees;
       if (recordOrigin !== undefined) record.origin = recordOrigin;
+      if (toolPreset !== undefined) record.toolPreset = toolPreset;
       this.#storage.sessions.insert(record);
       this.#events.append(sessionId, {
         type: 'session.created',
@@ -2483,7 +2509,7 @@ export class SessionManager {
    * `session.fork`：从顶层会话分出一个新会话。被分的会话不能是子会话、支线、只读、出错或已关闭，要有完成的回合；引擎会话没挂上时
    * 先自动恢复。排在被分会话的命令队列里；它的回合进行中也可以（只分到完成的回合）。新会话沿用它的项目、目录、Provider、模型、推理
    * 档位、权限模式与环境字段（不含 worktree），事件流从 `session.created`（带 `forkedFrom`）开始。被分的会话是用预设角色开的时，
-   * 新会话的记录带 `origin: { kind: 'fork', role }`，受同一个角色的工具限制。
+   * 新会话的记录带 `origin: { kind: 'fork', role }`，受同一个角色的工具限制；工具预设也抄过去（对话里用过的工具还在）。
    *
    * - 支线（`side: true`，0.17.0，domain-model §3.12）：到最近一个完成的回合，带 `side`，不进 `session.list`。
    * - 分支（不带 `side`，0.38.0，§3.18）：到 `turnId`（省略时最近一个完成的回合），普通的顶层会话，标题同被分的会话；
@@ -2544,6 +2570,7 @@ export class SessionManager {
       this.#creating.set(sessionId, {
         workspaceId: record.workspaceId,
         ...(origin !== undefined && { origin }),
+        ...(record.toolPreset !== undefined && { toolPreset: record.toolPreset }),
       });
       try {
         engineSession = await fork(
@@ -2584,6 +2611,7 @@ export class SessionManager {
         if (record.environmentId !== undefined) forked.environmentId = record.environmentId;
         if (record.extraRoots !== undefined) forked.extraRoots = record.extraRoots;
         if (origin !== undefined) forked.origin = origin;
+        if (record.toolPreset !== undefined) forked.toolPreset = record.toolPreset;
         this.#storage.sessions.insert(forked);
         this.#events.append(sessionId, {
           type: 'session.created',

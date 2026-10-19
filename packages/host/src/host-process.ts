@@ -15,7 +15,7 @@ import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
 import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
-import { APP_TOOLS_INSTRUCTIONS, AppTools, engineSessionResolver } from './app-tools.js';
+import { AppTools, engineSessionResolver } from './app-tools.js';
 import { BrowserBroker } from './browser-broker.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
@@ -367,7 +367,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         filterTools: (sessionId, list) => tools.filterTools(sessionId, list),
         version: HOST_VERSION,
         instructions: instructionsWithMemory({
-          base: APP_TOOLS_INSTRUCTIONS,
+          base: (sessionId) => tools.instructions(sessionId),
           memory,
           workspaceOf: (sessionId) => manager.workspaceOf(sessionId),
           enabled: () => settings.get().autoMemory !== false,

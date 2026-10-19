@@ -21,7 +21,12 @@ import type { AppToolsEndpoint, EngineSession, SessionConfig } from '@wevir/runt
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppMcpServer } from './app-mcp.js';
-import { AppTools, engineSessionResolver, reportText } from './app-tools.js';
+import {
+  APP_TOOLS_INSTRUCTIONS,
+  AppTools,
+  engineSessionResolver,
+  reportText,
+} from './app-tools.js';
 import { EventStore } from './event-store.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
@@ -30,6 +35,7 @@ import { SessionManager } from './session-manager.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { identity, useStorages, useTempDir, zip } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
+import type { ToolPreset } from './tool-presets.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -141,6 +147,7 @@ async function setup(
   mcp = new AppMcpServer({
     tools: tools.tools,
     filterTools: (sessionId, list) => appTools.filterTools(sessionId, list),
+    instructions: (sessionId) => appTools.instructions(sessionId),
     version: '0.0.0',
     onError: (e) => errors.push(e),
     engineSession: engineSessionResolver(storage, 'echo'),
@@ -213,6 +220,7 @@ async function setup(
   const send = (sessionId: SessionId, text: string) =>
     manager.send({ sessionId, content: [{ type: 'text', text }] }, identity);
   return {
+    root,
     storage,
     events,
     manager,
@@ -1341,6 +1349,212 @@ describe('预设角色', () => {
     const plainBranch = (await h.manager.fork({ sessionId: caller })).id;
     expect(h.storage.sessions.get(plainBranch)?.origin).toBeUndefined();
     expect(await visible(h, plainBranch)).toContain('wevir_session_create');
+  });
+});
+
+describe('工具预设', () => {
+  type Setup = Awaited<ReturnType<typeof setup>>;
+  const CORE_NAMES = [
+    'wevir_session_list',
+    'wevir_session_read',
+    'wevir_models',
+    'wevir_roles',
+    'wevir_tasks',
+    'wevir_task_create',
+    'wevir_task_update',
+    'wevir_session_create',
+    'wevir_session_send',
+    'wevir_session_wait',
+    'wevir_session_progress',
+    'wevir_session_interrupt',
+    'wevir_session_close',
+    'wevir_session_archive',
+    'wevir_show',
+    'wevir_share_file',
+  ];
+  const visible = async (h: Setup, sessionId: SessionId) => {
+    const list = await h.rpc(sessionId, 'tools/list');
+    return (list.body.result.tools as Array<{ name: string }>).map((tool) => tool.name);
+  };
+  const instructionsOf = async (h: Setup, sessionId: SessionId) =>
+    (await h.rpc(sessionId, 'initialize', { protocolVersion: '2025-06-18', capabilities: {} })).body
+      .result.instructions as string;
+  const createWith = async (h: Setup, toolPreset?: ToolPreset) =>
+    (
+      await h.manager.create(
+        { workspaceId: 'ws_1', providerId: 'mock' },
+        toolPreset === undefined ? {} : { toolPreset },
+      )
+    ).id;
+
+  it('core：tools/list 不列、tools/call 拒绝去掉的组；另加的组照常可用；说明里也没有去掉的组', async () => {
+    const h = await setup(0, true);
+    const core = await createWith(h, { id: 'core' });
+    const withPlugins = await createWith(h, { id: 'core', groups: ['plugins'] });
+    expect(await visible(h, core)).toEqual(CORE_NAMES);
+    const blocked = await h.call(core, 'wevir_plugins_list');
+    expect(blocked.error).toBe('wevir_plugins_list is not available to this session.');
+    // 留下的照常用：读会话、任务清单。
+    expect(await h.call(core, 'wevir_session_list')).toHaveProperty('sessions');
+    expect(await h.call(core, 'wevir_tasks')).toHaveProperty('tasks');
+    expect(await visible(h, withPlugins)).toEqual([
+      ...CORE_NAMES,
+      'wevir_plugins_list',
+      'wevir_plugin_install',
+      'wevir_skill_install',
+      'wevir_connector_add',
+    ]);
+    expect(await h.call(withPlugins, 'wevir_plugins_list')).toHaveProperty('connectors');
+    const text = await instructionsOf(h, core);
+    for (const gone of ['- browser_*', '- lsp_*', '- wevir_process_*', '- wevir_plugins_list']) {
+      expect(text).not.toContain(gone);
+    }
+    expect(text).toContain('- wevir_tasks');
+    expect(text).toContain('- wevir_memory_*');
+    expect(await instructionsOf(h, withPlugins)).toContain('- wevir_plugins_list');
+    // 存的是规范写法。
+    expect(h.storage.sessions.get(core)?.toolPreset).toEqual({ id: 'core' });
+    expect(h.storage.sessions.get(withPlugins)?.toolPreset).toEqual({
+      id: 'core',
+      groups: ['plugins'],
+    });
+  });
+
+  it('full 与没选的会话：工具目录与说明同以前逐字节相同', async () => {
+    const h = await setup(0, true);
+    const plain = await createWith(h);
+    const full = await createWith(h, { id: 'full', groups: ['browser'] });
+    expect(h.storage.sessions.get(plain)).not.toHaveProperty('toolPreset');
+    expect(h.storage.sessions.get(full)?.toolPreset).toEqual({ id: 'full' });
+    const raw = async (sessionId: SessionId) =>
+      JSON.stringify((await h.rpc(sessionId, 'tools/list')).body.result);
+    expect(await raw(full)).toBe(await raw(plain));
+    expect(JSON.parse(await raw(plain)).tools).toHaveLength(h.tools.tools.length);
+    expect(await instructionsOf(h, plain)).toBe(APP_TOOLS_INSTRUCTIONS);
+    expect(await instructionsOf(h, full)).toBe(APP_TOOLS_INSTRUCTIONS);
+    // 调用方不明（引擎令牌不带会话头）时照旧：全部列出，说明不变。
+    expect(await h.tools.filterTools(undefined, h.tools.tools)).toBe(h.tools.tools);
+    expect(h.tools.instructions(undefined)).toBe(APP_TOOLS_INSTRUCTIONS);
+  });
+
+  it('引擎在会话写进存储之前就取说明、列工具，也按预设', async () => {
+    const h = await setup(0, true);
+    const seen: Array<{ tools: string[]; instructions: string }> = [];
+    h.adapter.onCreate = async (config) => {
+      const post = async (method: string, params: unknown = {}) => {
+        const response = await fetch(`http://127.0.0.1:${h.port}/mcp`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.appTools?.token}`,
+          },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        });
+        // biome-ignore lint/suspicious/noExplicitAny: 测试里读 JSON-RPC 回复。
+        return ((await response.json()) as any).result;
+      };
+      const init = await post('initialize', { protocolVersion: '2025-06-18', capabilities: {} });
+      const list = await post('tools/list');
+      seen.push({
+        instructions: init.instructions,
+        tools: (list.tools as Array<{ name: string }>).map((tool) => tool.name),
+      });
+    };
+    const core = await createWith(h, { id: 'core' });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.tools).toEqual(CORE_NAMES);
+    expect(seen[0]?.tools).toEqual(await visible(h, core));
+    expect(seen[0]?.instructions).toBe(await instructionsOf(h, core));
+    expect(seen[0]?.instructions).not.toContain('- wevir_plugins_list');
+  });
+
+  it('与角色取交集；Agent 开的会话、子会话、分支与支线沿用预设', async () => {
+    const h = await setup(0, true);
+    const caller = await createWith(h, { id: 'core' });
+    const explorer = (
+      await h.call(caller, 'wevir_session_create', {
+        message: 'look around',
+        role: 'explorer',
+        reportBack: false,
+      })
+    ).sessionId as SessionId;
+    expect(h.storage.sessions.get(explorer)?.toolPreset).toEqual({ id: 'core' });
+    const seen = await visible(h, explorer);
+    // 只读角色 ∩ core：没有开会话（角色不许），也没有插件清单（只读，但 core 不带）。
+    expect(seen).toContain('wevir_session_list');
+    expect(seen).not.toContain('wevir_session_create');
+    expect(seen).not.toContain('wevir_plugins_list');
+    // full 的会话开出来的 explorer 有插件清单：预设只收窄，不放宽。
+    const fullCaller = await createWith(h);
+    const fullExplorer = (
+      await h.call(fullCaller, 'wevir_session_create', {
+        message: 'look around',
+        role: 'explorer',
+        reportBack: false,
+      })
+    ).sessionId as SessionId;
+    expect(h.storage.sessions.get(fullExplorer)).not.toHaveProperty('toolPreset');
+    expect(await visible(h, fullExplorer)).toContain('wevir_plugins_list');
+    expect(await visible(h, fullExplorer)).not.toContain('wevir_session_create');
+
+    // 引擎派出的子会话沿用父会话的（它的记录里没有这一项）。
+    const record = h.storage.sessions.get(caller);
+    if (record === undefined) throw new Error('no caller');
+    h.storage.sessions.insert({
+      ...record,
+      id: 'ses_child',
+      engineSessionId: 'engine-child',
+      parentSessionId: caller,
+      toolPreset: undefined,
+    });
+    expect(h.manager.toolPresetOf('ses_child' as SessionId)).toEqual({ id: 'core' });
+    expect(
+      (await h.tools.filterTools('ses_child' as SessionId, h.tools.tools)).map((tool) => tool.name),
+    ).toEqual(CORE_NAMES);
+
+    // 分支与支线抄被分会话的。
+    await h.send(caller, 'hello');
+    await h.settle(caller);
+    const side = (await h.manager.fork({ sessionId: caller, side: true })).id;
+    const branch = (await h.manager.fork({ sessionId: caller })).id;
+    expect(h.storage.sessions.get(side)?.toolPreset).toEqual({ id: 'core' });
+    expect(h.storage.sessions.get(branch)?.toolPreset).toEqual({ id: 'core' });
+  });
+
+  it('Host 重启后预设还在；以前建的会话没有这一项，按 full', async () => {
+    const h = await setup(0, true);
+    const core = await createWith(h, { id: 'core', groups: ['plugins'] });
+    const plain = await createWith(h);
+    // 新的连接与管理器（同重启：没有正在建的会话，只读存储）。
+    const storage = storages.open(join(h.root, 'data'));
+    const events = new EventStore({ storage, deltaWindowMs: 5 });
+    const adapter = new EchoAdapter({});
+    const manager = new SessionManager({ storage, events, adapter });
+    cleanups.push(async () => {
+      await manager.dispose();
+      await adapter.dispose();
+    });
+    const tools = new AppTools({
+      storage,
+      events,
+      sessions: manager,
+      hostId: 'host_test' as HostId,
+      sendWhileBusy: () => 'queue',
+      roles: new RoleStore({ dir: h.rolesDir }),
+    });
+    expect(storage.sessions.get(core)?.toolPreset).toEqual({ id: 'core', groups: ['plugins'] });
+    expect(manager.toolPresetOf(core)).toEqual({ id: 'core', groups: ['plugins'] });
+    expect(manager.toolPresetOf(plain)).toBeUndefined();
+    const all = [...h.tools.tools];
+    expect((await tools.filterTools(core, all)).map((tool) => tool.name)).toEqual([
+      ...CORE_NAMES,
+      'wevir_plugins_list',
+      'wevir_plugin_install',
+      'wevir_skill_install',
+      'wevir_connector_add',
+    ]);
+    expect(await tools.filterTools(plain, all)).toEqual(all);
+    expect(tools.instructions(plain)).toBe(APP_TOOLS_INSTRUCTIONS);
   });
 });
 

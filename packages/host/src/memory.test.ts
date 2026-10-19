@@ -864,7 +864,7 @@ describe('记忆经 MCP 端点', () => {
     const tools = new AppTools({
       storage,
       events: new EventStore({ storage, deltaWindowMs: 5 }),
-      sessions: {} as SessionManager,
+      sessions: { toolPresetOf: () => undefined } as unknown as SessionManager,
       hostId: 'host_test' as HostId,
       sendWhileBusy: () => 'queue',
       memory,
@@ -1058,5 +1058,30 @@ describe('新会话的记忆索引', () => {
     ]);
     expect(manager.workspaceOf(session.id)).toBe('ws_1');
     expect(manager.workspaceOf('ses_01JA2B3C4D5E6F7G8H9JKMNPQZ' as SessionId)).toBeUndefined();
+  });
+});
+
+describe('按会话生成的工具说明', () => {
+  it('base 给函数时按调用方生成，记忆索引照旧接在后面；自动记忆关着时同样去掉讲记忆的那一行', async () => {
+    const memory = new MemoryStore({ dir: join(tempDir(), 'memory') });
+    await memory.save('global', undefined, note());
+    let enabled = true;
+    const calls: Array<SessionId | undefined> = [];
+    const instructions = instructionsWithMemory({
+      base: (sessionId) => {
+        calls.push(sessionId);
+        return sessionId === SES ? 'trimmed\n- wevir_memory_*: notes' : APP_TOOLS_INSTRUCTIONS;
+      },
+      memory,
+      workspaceOf: () => undefined,
+      enabled: () => enabled,
+    });
+    expect(await instructions(SES)).toMatch(/^trimmed\n- wevir_memory_\*: notes\n\nSaved memory/);
+    expect(await instructions(undefined)).toMatch(
+      /^You are running inside Wevir[\s\S]*Saved memory/,
+    );
+    enabled = false;
+    expect(await instructions(SES)).toBe('trimmed');
+    expect(calls).toEqual([SES, undefined, SES]);
   });
 });

@@ -44,6 +44,11 @@ export interface SessionRecord {
    * 带角色的会话分出来的分支或支线（`sessionId` 是被分的会话，`role` 抄它的）。建会话后不变。
    */
   origin?: { kind: string; sessionId: string; taskId?: string; role?: string };
+  /**
+   * 工具预设（0010_tool_preset）：`id` 是 `full` 或 `core`，`groups` 是在 `core` 之上另加的组。省略表示没有选，等同 `full`。建会话后
+   * 不变；只管 Host 的应用级工具。
+   */
+  toolPreset?: { id: string; groups?: string[] };
   /** 支线会话（U23.1，0006_side_sessions）：从哪个会话、到它哪个完成的回合为止分出来。建会话后不变。 */
   forkedFrom?: { sessionId: string; turnId?: string };
   side?: true;
@@ -140,13 +145,13 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const insert = db.prepare(`
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
-      permission_mode, environment_id, extra_roots, worktrees, origin, forked_from, side, parent_session_id,
-      parent_tool_call_id,
+      permission_mode, environment_id, extra_roots, worktrees, origin, tool_preset, forked_from, side,
+      parent_session_id, parent_tool_call_id,
       title, title_source, state, active_turn, last_error, last_seq, created_at, updated_at
     ) VALUES (
       :id, :workspaceId, :cwd, :engine, :engineSessionId, :providerId, :modelId, :reasoningEffort,
-      :permissionMode, :environmentId, :extraRoots, :worktrees, :origin, :forkedFrom, :side, :parentSessionId,
-      :parentToolCallId,
+      :permissionMode, :environmentId, :extraRoots, :worktrees, :origin, :toolPreset, :forkedFrom, :side,
+      :parentSessionId, :parentToolCallId,
       :title, :titleSource, :state, :activeTurn, :lastError, :lastSeq, :createdAt, :updatedAt
     )`);
   const get = db.prepare('SELECT * FROM sessions WHERE id = ?');
@@ -203,6 +208,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         extraRoots: record.extraRoots ? JSON.stringify(record.extraRoots) : null,
         worktrees: record.worktrees ? JSON.stringify(record.worktrees) : null,
         origin: toNullableJson(record.origin),
+        toolPreset: toNullableJson(record.toolPreset),
         forkedFrom: toNullableJson(record.forkedFrom),
         side: record.side ? 1 : null,
         parentSessionId: record.parentSessionId ?? null,
@@ -322,6 +328,10 @@ function fromRow(row: SqlRow): SessionRecord {
   if (row.side === 1) record.side = true;
   const origin = optionalJson(row, 'origin');
   if (origin !== undefined) record.origin = origin as NonNullable<SessionRecord['origin']>;
+  const toolPreset = optionalJson(row, 'tool_preset');
+  if (toolPreset !== undefined) {
+    record.toolPreset = toolPreset as NonNullable<SessionRecord['toolPreset']>;
+  }
   const parentSessionId = optionalText(row, 'parent_session_id');
   if (parentSessionId !== undefined) record.parentSessionId = parentSessionId;
   const parentToolCallId = optionalText(row, 'parent_tool_call_id');

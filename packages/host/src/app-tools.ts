@@ -43,17 +43,13 @@ import { PluginAppTools } from './plugin-app-tools.js';
 import type { PluginRegistry } from './plugins.js';
 import { noticeText, processTools } from './process-tools.js';
 import type { ProcessManager, ProcessNotice } from './processes.js';
-import {
-  ROLE_READONLY_TOOLS,
-  type RoleDefinition,
-  type RoleStore,
-  roleAllowsTool,
-} from './roles.js';
+import { ROLE_READONLY_TOOLS, type RoleDefinition, type RoleStore } from './roles.js';
 import type { SessionManager } from './session-manager.js';
 import { type SessionProgress, sessionProgress } from './session-progress.js';
 import { describeSharedFile, SharedFileError } from './shared-files.js';
 import type { TaskBoardStore } from './task-board.js';
 import { taskTools } from './task-tools.js';
+import { toolPresetInstructions, toolsAllowed } from './tool-presets.js';
 
 /** 一页最多几条、默认几条、每条默认多少字（同读历史的工具）。 */
 export const READ_PAGE_LIMIT = 50;
@@ -1263,8 +1259,9 @@ export class AppTools {
   }
 
   /**
-   * 这个会话能用的工具（app-mcp.ts 的 `filterTools`）：预设角色限制的去掉，没有角色的会话（调用方不明时也一样）不限；自动记忆
-   * 关着（Host 设置的 `autoMemory`）时记忆工具一律去掉。
+   * 这个会话能用的工具（app-mcp.ts 的 `filterTools`）：预设角色限制的去掉，再按会话的工具预设（tool-presets.ts）收窄——角色是
+   * 上限，预设不会放宽它。没有角色、没有预设的会话（调用方不明时也一样）不限；自动记忆关着（Host 设置的 `autoMemory`）时记忆工具
+   * 一律去掉。只管这里的应用级工具：引擎自带的工具与用户接入的 MCP 不经过它。
    */
   async filterTools(
     sessionId: SessionId | undefined,
@@ -1274,8 +1271,22 @@ export class AppTools {
     const allowed = memoryOff
       ? tools.filter((tool) => !(MEMORY_TOOLS as readonly string[]).includes(tool.name))
       : tools;
-    const role = sessionId === undefined ? undefined : await this.#roleOf(sessionId);
-    return role === undefined ? allowed : allowed.filter((tool) => roleAllowsTool(role, tool));
+    if (sessionId === undefined) return allowed;
+    return toolsAllowed(allowed, {
+      role: await this.#roleOf(sessionId),
+      preset: this.#options.sessions.toolPresetOf(sessionId),
+    });
+  }
+
+  /**
+   * 给这个会话的工具说明（`AppMcpServer` 的 `instructions`，记忆索引由 memory-tools.ts 的 `instructionsWithMemory` 接在后面）：按工具
+   * 预设去掉没有的组那几行。没有预设、`full` 与调用方不明时就是 `APP_TOOLS_INSTRUCTIONS`。
+   */
+  instructions(sessionId: SessionId | undefined): string {
+    return toolPresetInstructions(
+      APP_TOOLS_INSTRUCTIONS,
+      sessionId === undefined ? undefined : this.#options.sessions.toolPresetOf(sessionId),
+    );
   }
 
   #describe(session: Session, callerId: SessionId): Record<string, unknown> {

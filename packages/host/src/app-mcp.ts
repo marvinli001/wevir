@@ -67,7 +67,7 @@ export interface AppMcpServerOptions {
     | ((sessionId: SessionId | undefined) => string | undefined | Promise<string | undefined>);
   onError?: (error: unknown) => void;
   /**
-   * 这个会话能用哪些工具（预设角色的限制，roles.ts；Host 设置关掉的记忆工具）：`tools/list` 只列留下的，`tools/call` 拒绝没留下
+   * 这个会话能用哪些工具（预设角色的限制，roles.ts；会话的工具预设，tool-presets.ts；Host 设置关掉的记忆工具）：`tools/list` 只列留下的，`tools/call` 拒绝没留下
    * 的。调用方不明（引擎令牌的 `tools/list` 不带会话头）时 `sessionId` 是 `undefined`，照样经过它（角色不限，Host 设置照样算）。
    * 不给时都能用。
    */
