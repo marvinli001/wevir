@@ -79,13 +79,16 @@ describe.skipIf(!binaryAvailable())(
       const model = await startMockModel(script);
       cleanups.push(() => model.close());
       const home = join(tempDir(), 'home');
+      const adapter = new CodexRuntime({
+        home,
+        binary: resolveCodexBinary(),
+        clientInfo: { name: 'wevir', version: '0.0.0' },
+        // 同 adapter-codex 的测试 harness：Windows 并行冷启动可能超过默认的 15 s。
+        ...(process.platform === 'win32' && { initializeTimeoutMs: 60_000 }),
+      });
       const host = await startHost({
         home,
-        adapter: new CodexRuntime({
-          home,
-          binary: resolveCodexBinary(),
-          clientInfo: { name: 'wevir', version: '0.0.0' },
-        }),
+        adapter,
         engine: 'codex',
         logger: createLogger({ level: 'error', mirror: () => {} }),
       });
@@ -107,6 +110,8 @@ describe.skipIf(!binaryAvailable())(
         apiKey: 'wevir-mock-key-not-a-secret',
       });
 
+      // 冷启动单独等，避免 session.create 的 RPC 时限（Windows 20 s）先于 initialize 到期。
+      await adapter.gateway.process.start();
       const { session } = await client.request('session.create', {
         providerId: 'wevir-mock',
         permissionMode: 'full_access',

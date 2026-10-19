@@ -55,8 +55,9 @@ describe('接力（SessionManager）', () => {
       createdAt: T0,
       updatedAt: T0,
     });
-    const api = new EchoAdapter({ stepDelayMs: 0 });
-    const claude = new EchoAdapter({ stepDelayMs: 0 });
+    // 这里只断言整段接力内容；加大分片，避免 Windows 的短定时器把长材料拖过等待时限。
+    const api = new EchoAdapter({ stepDelayMs: 0, chunkSize: 1024 });
+    const claude = new EchoAdapter({ stepDelayMs: 0, chunkSize: 1024 });
     const router = new EngineRouter([
       { name: 'echo', adapter: api, kinds: ['openai-compatible'] },
       { name: 'echo-claude', adapter: claude, kinds: ['claude'] },
@@ -416,7 +417,7 @@ describe('接力（SessionManager）', () => {
       const first = await env.manager.send(message, identity);
       const again = await env.manager.send(message, identity);
       expect(again).toEqual(first);
-      // 同 `turn`：echo 按块回显，材料长时 Windows 上（定时器约 15 ms）要一秒多。
+      // 同 `turn`：等回合结算之后再查已提交消息。
       await vi.waitFor(
         () => expect(env.events.snapshot(env.sessionId)?.session.state).toBe('idle'),
         { timeout: 5000 },
