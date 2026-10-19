@@ -202,7 +202,7 @@ export type UpdateState = UpdatePhase & {
   channel: UpdateChannel;
   /** 上次检查完成的时间（ISO 8601）。 */
   lastCheckedAt?: string;
-  /** 上次检查或下载用的线路（`global` / `optimized`）与取清单的用时。 */
+  /** 上次检查或下载用的线路（`global` / `github`）与取清单的用时。 */
   mirror?: { id: string; latencyMs: number };
 };
 

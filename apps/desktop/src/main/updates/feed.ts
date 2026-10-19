@@ -14,7 +14,7 @@ import type { UpdateChannel } from '../../shared/desktop-api.js';
 
 /** 一条下载线路。Wevir 自己的线路只认自己的域名，后面换服务商只改 DNS；GitHub 线路是 Release 的下载地址。 */
 export interface UpdateMirror {
-  /** 稳定的 ID，记在状态里给界面显示（`global` / `optimized` / `github`）。 */
+  /** 稳定的 ID，记在状态里给界面显示（`global` / `github`）。 */
   id: string;
   /** 线路的根地址，不带末尾的 `/`。 */
   url: string;
@@ -26,15 +26,14 @@ export interface UpdateMirror {
 export const GITHUB_MIRROR_URL =
   'https://github.com/marvinli001/wevir/releases/download/desktop-updates';
 
-/** 内置的三条线路（维护者 2026-10-16 定前两条，2026-10-17 加 GitHub，面向海外）。 */
+/** 内置的两条线路：Bunny CDN 与 GitHub Release（2026-10-20 去掉自建的 download2.wevir.si，国内实测比 Bunny 慢）。 */
 export const UPDATE_MIRRORS: readonly UpdateMirror[] = [
   { id: 'global', url: 'https://download.wevir.si' },
-  { id: 'optimized', url: 'https://download2.wevir.si' },
   { id: 'github', url: GITHUB_MIRROR_URL, layout: 'release' },
 ];
 
 /**
- * 排查与本机验收用：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,optimized=http://127.0.0.1:8702` 换掉内置线路。
+ * 排查与本机验收用：`WEVIR_UPDATE_MIRRORS=global=http://127.0.0.1:8701,local2=http://127.0.0.1:8702` 换掉内置线路。
  * 地址里有 `/releases/download/` 的按 GitHub Release 的布局读。清单照样要验签，换线路换不掉签名检查。格式不对时返回
  * undefined（用内置的）。
  */

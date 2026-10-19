@@ -22,7 +22,7 @@ import {
 import { UPDATE_PUBLIC_KEYS } from './keys.js';
 
 const GLOBAL = { id: 'global', url: 'https://download.example' };
-const OPTIMIZED = { id: 'optimized', url: 'https://download2.example' };
+const SECOND = { id: 'second', url: 'https://second.example' };
 const GITHUB = {
   id: 'github',
   url: 'https://github.example/o/r/releases/download/desktop-updates',
@@ -30,10 +30,9 @@ const GITHUB = {
 };
 
 describe('线路与清单的位置', () => {
-  it('内置三条线路：维护者定的两个域名与 GitHub Release，内置了公钥', () => {
+  it('内置两条线路：Bunny 的域名与 GitHub Release，内置了公钥', () => {
     expect(UPDATE_MIRRORS.map((m) => m.url)).toEqual([
       'https://download.wevir.si',
-      'https://download2.wevir.si',
       'https://github.com/marvinli001/wevir/releases/download/desktop-updates',
     ]);
     expect(UPDATE_MIRRORS.find((m) => m.url === GITHUB_MIRROR_URL)?.layout).toBe('release');
@@ -65,12 +64,10 @@ describe('线路与清单的位置', () => {
   });
 
   it('WEVIR_UPDATE_MIRRORS 换线路，格式不对时不用', () => {
-    expect(mirrorsFromEnv('global=http://127.0.0.1:8701/,optimized=http://127.0.0.1:8702')).toEqual(
-      [
-        { id: 'global', url: 'http://127.0.0.1:8701' },
-        { id: 'optimized', url: 'http://127.0.0.1:8702' },
-      ],
-    );
+    expect(mirrorsFromEnv('global=http://127.0.0.1:8701/,second=http://127.0.0.1:8702')).toEqual([
+      { id: 'global', url: 'http://127.0.0.1:8701' },
+      { id: 'second', url: 'http://127.0.0.1:8702' },
+    ]);
     expect(mirrorsFromEnv('github=http://127.0.0.1:8703/o/r/releases/download/x')).toEqual([
       { id: 'github', url: 'http://127.0.0.1:8703/o/r/releases/download/x', layout: 'release' },
     ]);
@@ -169,17 +166,17 @@ describe('readMirror / raceMirrors', () => {
   it('还没发过正式版：开发版只读 beta；该通道一份清单都没有时报 empty（不是连不上）', async () => {
     const betaOnly = fakeServer({
       ...routes(GLOBAL, undefined, '0.0.1-beta.180'),
-      ...routes(OPTIMIZED, undefined, '0.0.1-beta.180'),
+      ...routes(SECOND, undefined, '0.0.1-beta.180'),
     });
     const dev = await raceMirrors({
-      mirrors: [GLOBAL, OPTIMIZED],
+      mirrors: [GLOBAL, SECOND],
       timeoutMs: 1000,
       read: read(betaOnly.fetcher, 'dev'),
     });
     expect(dev.first.info.version).toBe('0.0.1-beta.180');
 
     const error = await raceMirrors({
-      mirrors: [GLOBAL, OPTIMIZED],
+      mirrors: [GLOBAL, SECOND],
       timeoutMs: 1000,
       read: read(betaOnly.fetcher, 'stable'),
     }).catch((e: unknown) => e);
@@ -189,11 +186,11 @@ describe('readMirror / raceMirrors', () => {
 
     // 一条线路没有清单、另一条连不上：不算 empty。
     const half: Fetcher = (url, init) =>
-      url.startsWith(OPTIMIZED.url)
+      url.startsWith(SECOND.url)
         ? Promise.reject(new Error('connect ECONNREFUSED'))
         : betaOnly.fetcher(url, init);
     const mixed = await raceMirrors({
-      mirrors: [GLOBAL, OPTIMIZED],
+      mirrors: [GLOBAL, SECOND],
       timeoutMs: 1000,
       read: read(half, 'stable'),
     }).catch((e: unknown) => e);
@@ -221,15 +218,15 @@ describe('readMirror / raceMirrors', () => {
 
   it('先给出验过签的清单的线路胜出；慢的那条在后台跑完，结果给测速用', async () => {
     const server = fakeServer(
-      { ...routes(GLOBAL, '0.2.0'), ...routes(OPTIMIZED, '0.2.0') },
+      { ...routes(GLOBAL, '0.2.0'), ...routes(SECOND, '0.2.0') },
       { delayMs: { [GLOBAL.url]: 80 } },
     );
     const { first, rest } = await raceMirrors({
-      mirrors: [GLOBAL, OPTIMIZED],
+      mirrors: [GLOBAL, SECOND],
       timeoutMs: 1000,
       read: read(server.fetcher, 'stable'),
     });
-    expect(first.mirror.id).toBe('optimized');
+    expect(first.mirror.id).toBe('second');
     expect((await rest).map((m) => m.mirror.id)).toEqual(['global']);
   });
 
@@ -238,17 +235,17 @@ describe('readMirror / raceMirrors', () => {
       ...routes(GLOBAL, '0.2.0'),
       [`${base(GLOBAL)}latest-mac.yml`]: manifestText('9.9.9'),
     };
-    const server = fakeServer({ ...tampered, ...routes(OPTIMIZED, '0.2.0') });
+    const server = fakeServer({ ...tampered, ...routes(SECOND, '0.2.0') });
     const { first } = await raceMirrors({
-      mirrors: [GLOBAL, OPTIMIZED],
+      mirrors: [GLOBAL, SECOND],
       timeoutMs: 1000,
       read: read(server.fetcher, 'stable'),
     });
-    expect(first.mirror.id).toBe('optimized');
+    expect(first.mirror.id).toBe('second');
 
     const none = fakeServer(tampered);
     const error = await raceMirrors({
-      mirrors: [GLOBAL, OPTIMIZED],
+      mirrors: [GLOBAL, SECOND],
       timeoutMs: 1000,
       read: read(none.fetcher, 'stable'),
     }).catch((e: unknown) => e);
@@ -256,7 +253,7 @@ describe('readMirror / raceMirrors', () => {
     expect((error as UpdateFeedError).tampered).toBe(true);
     expect((error as UpdateFeedError).failures.map((f) => [f.mirror.id, f.reason]).sort()).toEqual([
       ['global', 'signature'],
-      ['optimized', 'empty'],
+      ['second', 'empty'],
     ]);
   });
 
@@ -279,18 +276,18 @@ describe('pickDownloadMirror', () => {
   const zip = new Uint8Array(PROBE_BYTES * 2);
   const files = {
     [`${GLOBAL.url}/desktop/darwin-arm64/Wevir-0.2.0-mac-arm64.zip`]: zip,
-    [`${OPTIMIZED.url}/desktop/darwin-arm64/Wevir-0.2.0-mac-arm64.zip`]: zip,
+    [`${SECOND.url}/desktop/darwin-arm64/Wevir-0.2.0-mac-arm64.zip`]: zip,
   };
 
   it('按安装包开头一段的下载速度选，不按谁先给清单', async () => {
     const server = fakeServer(files, { delayMs: { [GLOBAL.url]: 60 } });
     const { chosen, bytesPerMs } = await pickDownloadMirror({
-      candidates: [candidate(GLOBAL, 5), candidate(OPTIMIZED, 40)],
+      candidates: [candidate(GLOBAL, 5), candidate(SECOND, 40)],
       file: (c) => c.baseUrl + installerFile(c.info, 'darwin'),
       fetcher: server.fetcher,
       timeoutMs: 1000,
     });
-    expect(chosen.mirror.id).toBe('optimized');
+    expect(chosen.mirror.id).toBe('second');
     expect(bytesPerMs.size).toBe(2);
     expect(server.requests.every((r) => r.range === `bytes=0-${PROBE_BYTES - 1}`)).toBe(true);
   });
@@ -298,7 +295,7 @@ describe('pickDownloadMirror', () => {
   it('不认 Range 的线路不参加比较；只有一条时不测', async () => {
     const server = fakeServer(files, { rangeless: true });
     const { chosen } = await pickDownloadMirror({
-      candidates: [candidate(GLOBAL, 5), candidate(OPTIMIZED, 40)],
+      candidates: [candidate(GLOBAL, 5), candidate(SECOND, 40)],
       file: (c) => c.baseUrl + installerFile(c.info, 'darwin'),
       fetcher: server.fetcher,
       timeoutMs: 1000,

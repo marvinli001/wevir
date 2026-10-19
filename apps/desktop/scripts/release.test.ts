@@ -226,7 +226,7 @@ describe('waitForCdn', () => {
 });
 
 describe('uploadInstallers', () => {
-  const lines = [{ id: 'global' }, { id: 'optimized' }, { id: 'github' }];
+  const lines = [{ id: 'global' }, { id: 'second' }, { id: 'github' }];
 
   function record(failVerify = false) {
     const events: string[] = [];
@@ -264,7 +264,7 @@ describe('uploadInstallers', () => {
       'upload global',
       'verify',
       `sleep ${CDN_SETTLE_MS}`,
-      'upload optimized',
+      'upload second',
       'upload github',
     ]);
     wake();
@@ -281,10 +281,10 @@ describe('uploadInstallers', () => {
   it('不核对全球线路（没有 Bunny 密钥）或没有全球线路时依次上传、不等', async () => {
     const { events, steps } = record();
     await uploadInstallers(lines, { ...steps, global: undefined });
-    expect(events).toEqual(['upload global', 'upload optimized', 'upload github']);
+    expect(events).toEqual(['upload global', 'upload second', 'upload github']);
     const second = record();
-    await uploadInstallers([{ id: 'optimized' }], second.steps);
-    expect(second.events).toEqual(['upload optimized']);
+    await uploadInstallers([{ id: 'second' }], second.steps);
+    expect(second.events).toEqual(['upload second']);
   });
 });
 

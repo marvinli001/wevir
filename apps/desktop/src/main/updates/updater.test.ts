@@ -12,7 +12,7 @@ import {
 } from './updater.js';
 
 const GLOBAL = { id: 'global', url: 'https://download.example' };
-const OPTIMIZED = { id: 'optimized', url: 'https://download2.example' };
+const SECOND = { id: 'second', url: 'https://second.example' };
 const { privateKey, publicKey } = testKeyPair();
 
 /** 照 electron-updater 的事件顺序：检查时向 provider 要清单，比当前版本新就 update-available。 */
@@ -54,11 +54,7 @@ class FakeUpdater extends EventEmitter {
   }
 }
 
-function serve(
-  version: string,
-  mirrors = [GLOBAL, OPTIMIZED],
-  delayMs: Record<string, number> = {},
-) {
+function serve(version: string, mirrors = [GLOBAL, SECOND], delayMs: Record<string, number> = {}) {
   const routes: Record<string, string | Uint8Array> = {};
   for (const mirror of mirrors) {
     const base = `${mirror.url}/desktop/darwin-arm64/`;
@@ -85,7 +81,7 @@ function controller(options: {
     currentVersion: options.updater.currentVersion,
     platform: 'darwin',
     arch: 'arm64',
-    mirrors: [GLOBAL, OPTIMIZED],
+    mirrors: [GLOBAL, SECOND],
     publicKeys: options.keys ?? [publicKey],
     fetcher: options.fetcher,
     packaged: options.packaged ?? true,
@@ -124,8 +120,8 @@ describe('UpdateController', () => {
 
   it('检查 → 有新版本（按速度选线路）→ 下载 → 下载好 → 安装', async () => {
     const updater = new FakeUpdater('0.1.0');
-    // 全球线路取清单快，但下载慢：选优化线路下载。
-    const { fetcher } = serve('0.2.0', [GLOBAL, OPTIMIZED], { [OPTIMIZED.url]: 5 });
+    // 全球线路取清单快，但下载慢：选第二条线路下载。
+    const { fetcher } = serve('0.2.0', [GLOBAL, SECOND], { [SECOND.url]: 5 });
     const slowZip: typeof fetcher = async (url, init) => {
       if (url.startsWith(GLOBAL.url) && url.endsWith('.zip'))
         await new Promise((r) => setTimeout(r, 60));
@@ -138,7 +134,7 @@ describe('UpdateController', () => {
     expect(ctl.state).toMatchObject({
       phase: 'available',
       version: '0.2.0',
-      mirror: { id: 'optimized' },
+      mirror: { id: 'second' },
     });
     expect(ctl.state.lastCheckedAt).toBeDefined();
     await ctl.download();
@@ -150,7 +146,7 @@ describe('UpdateController', () => {
       'downloading',
       'downloaded',
     ]);
-    expect(updater.downloads[0]).toContain(OPTIMIZED.url);
+    expect(updater.downloads[0]).toContain(SECOND.url);
     ctl.install();
     expect(ctl.state.phase).toBe('installing');
     expect(updater.installed).toEqual([[true, true]]);
@@ -188,11 +184,11 @@ describe('UpdateController', () => {
     const updater = new FakeUpdater('0.1.0');
     const { ctl } = controller({
       updater,
-      fetcher: serve('0.2.0', [GLOBAL, OPTIMIZED], { [OPTIMIZED.url]: 40 }).fetcher,
+      fetcher: serve('0.2.0', [GLOBAL, SECOND], { [SECOND.url]: 40 }).fetcher,
     });
     await ctl.check();
     const first = ctl.state.mirror?.id;
-    updater.failDownloadsFrom.add(first === 'global' ? GLOBAL.url : OPTIMIZED.url);
+    updater.failDownloadsFrom.add(first === 'global' ? GLOBAL.url : SECOND.url);
     await ctl.download();
     await new Promise((r) => setTimeout(r, 100));
     expect(updater.downloads).toHaveLength(2);
@@ -202,7 +198,7 @@ describe('UpdateController', () => {
 
   it('两条线路都下载失败：报 download', async () => {
     const updater = new FakeUpdater('0.1.0');
-    updater.failDownloadsFrom.add(GLOBAL.url).add(OPTIMIZED.url);
+    updater.failDownloadsFrom.add(GLOBAL.url).add(SECOND.url);
     const { ctl } = controller({ updater, fetcher: serve('0.2.0').fetcher });
     await ctl.check();
     await ctl.download();

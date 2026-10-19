@@ -195,49 +195,19 @@ export interface Mirror {
   publicUrl: string;
   /** 环境变量前缀，`<前缀>_S3_ENDPOINT` 等。 */
   env: string;
-  /** 这条线路的 S3 接口收不收 Cache-Control（Bunny 不收）。 */
-  cacheControl: boolean;
-  /**
-   * 大文件能不能分片上传。Bunny 不能：它把分片上传的文件复制到其他地区的存储副本时会丢片或混进旧的分片
-   * （2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 正好少了一个 8 MiB 的分片，CDN 清缓存后回源仍是坏的），
-   * 所以全球线路每个文件都用一次 PutObject 整个传（S3 单次上限 5 GB）。
-   */
-  multipart: boolean;
-  /**
-   * 公网地址就是 S3 接口（path-style，`<地址>/<桶>/<键>`）：发布目录的 `desktop/` 是桶本身，桶名必须是 `desktop`，
-   * 键里不再带 `desktop/`。否则桶是公网地址的根，键是 `desktop/<平台>-<架构>/<文件>`。
-   */
-  bucketIsDesktop: boolean;
 }
 
 /**
- * 两条线路。每条要 `<前缀>_S3_ENDPOINT`、`_S3_BUCKET`、`_S3_ACCESS_KEY_ID`、`_S3_SECRET_ACCESS_KEY`，可选 `_S3_REGION`。
- * 全球线路是 Bunny Storage 的 S3 接口（拉取区 download.wevir.si），设了 BUNNY_API_KEY 时写完清单清 CDN 缓存；
- * 优化线路是维护者自己的 RustFS，download2.wevir.si 就是它的 S3 接口，桶 `desktop` 可匿名读。
+ * S3 线路。要 `<前缀>_S3_ENDPOINT`、`_S3_BUCKET`、`_S3_ACCESS_KEY_ID`、`_S3_SECRET_ACCESS_KEY`，可选 `_S3_REGION`。
+ * 全球线路是 Bunny Storage 的 S3 接口（拉取区 download.wevir.si），桶是公网地址的根，键是
+ * `desktop/<平台>-<架构>/<文件>`；设了 BUNNY_API_KEY 时写完清单清 CDN 缓存。
  */
 export const MIRRORS: readonly Mirror[] = [
-  {
-    id: 'global',
-    publicUrl: 'https://download.wevir.si',
-    env: 'WEVIR_GLOBAL',
-    cacheControl: false,
-    multipart: false,
-    bucketIsDesktop: false,
-  },
-  {
-    id: 'optimized',
-    publicUrl: 'https://download2.wevir.si',
-    env: 'WEVIR_OPTIMIZED',
-    cacheControl: true,
-    multipart: true,
-    bucketIsDesktop: true,
-  },
+  { id: 'global', publicUrl: 'https://download.wevir.si', env: 'WEVIR_GLOBAL' },
 ];
 
 interface MirrorTarget extends Mirror {
   bucket: string;
-  /** 键的前缀：`desktop/`，或桶就是 `desktop` 时为空。 */
-  root: string;
   awsEnv: NodeJS.ProcessEnv;
 }
 
@@ -247,16 +217,9 @@ function mirrorTarget(mirror: Mirror, env: NodeJS.ProcessEnv): MirrorTarget {
     if (required && value === '') throw new Error(`${mirror.env}_${name} is not set`);
     return value;
   };
-  const bucket = read('S3_BUCKET');
-  if (mirror.bucketIsDesktop && bucket !== 'desktop') {
-    throw new Error(
-      `${mirror.env}_S3_BUCKET must be desktop: ${mirror.publicUrl}/desktop/ is the bucket`,
-    );
-  }
   return {
     ...mirror,
-    bucket,
-    root: mirror.bucketIsDesktop ? '' : 'desktop/',
+    bucket: read('S3_BUCKET'),
     awsEnv: {
       PATH: env.PATH,
       HOME: env.HOME,
@@ -293,37 +256,27 @@ function contentType(name: string): string {
   return 'application/octet-stream';
 }
 
-function upload(mirror: MirrorTarget, file: string, key: string, noCache = false): void {
+/**
+ * 每个文件都用一次 PutObject 整个传（S3 单次上限 5 GB），不分片：Bunny 把分片上传的文件复制到其他地区的存储副本时
+ * 会丢片或混进旧的分片（2026-10-16 悉尼副本上 beta.210 的 arm64 dmg 正好少了一个 8 MiB 的分片，CDN 清缓存后回源
+ * 仍是坏的）。Bunny 的 S3 接口不收 Cache-Control，清单靠写完后清 CDN 缓存。
+ */
+function upload(mirror: MirrorTarget, file: string, key: string): void {
   const name = key.slice(key.lastIndexOf('/') + 1);
-  const cache = noCache && mirror.cacheControl ? ['--cache-control', 'no-cache'] : [];
-  if (mirror.multipart) {
-    aws(mirror, [
-      's3',
-      'cp',
-      file,
-      `s3://${mirror.bucket}/${key}`,
-      '--only-show-errors',
-      '--content-type',
-      contentType(name),
-      ...cache,
-    ]);
-  } else {
-    aws(mirror, [
-      's3api',
-      'put-object',
-      '--bucket',
-      mirror.bucket,
-      '--key',
-      key,
-      '--body',
-      file,
-      '--content-type',
-      contentType(name),
-      ...cache,
-      '--output',
-      'json',
-    ]);
-  }
+  aws(mirror, [
+    's3api',
+    'put-object',
+    '--bucket',
+    mirror.bucket,
+    '--key',
+    key,
+    '--body',
+    file,
+    '--content-type',
+    contentType(name),
+    '--output',
+    'json',
+  ]);
   console.log(`[${mirror.id}] ${key}`);
 }
 
@@ -365,8 +318,7 @@ interface Line {
   id: string;
   /** 文件的公网地址（客户端与 CDN 核对用）。 */
   url(dir: string, name: string): string;
-  /** `manifest`：清单与签名，要求不缓存。 */
-  upload(dir: string, name: string, file: string, manifest: boolean): void;
+  upload(dir: string, name: string, file: string): void;
   /** 现有文件的内容；没有时返回 undefined。 */
   read(dir: string, name: string): string | undefined;
   list(dir: string): string[];
@@ -374,13 +326,13 @@ interface Line {
 }
 
 function s3Line(mirror: MirrorTarget): Line {
-  const key = (dir: string, name: string) => `${mirror.root}${dir}/${name}`;
+  const key = (dir: string, name: string) => `desktop/${dir}/${name}`;
   return {
     id: mirror.id,
     url: (dir, name) => `${mirror.publicUrl}/desktop/${dir}/${name}`,
-    upload: (dir, name, file, manifest) => upload(mirror, file, key(dir, name), manifest),
+    upload: (dir, name, file) => upload(mirror, file, key(dir, name)),
     read: (dir, name) => download(mirror, key(dir, name)),
-    list: (dir) => list(mirror, `${mirror.root}${dir}/`),
+    list: (dir) => list(mirror, `desktop/${dir}/`),
     remove: (dir, name) => {
       aws(mirror, ['s3api', 'delete-object', '--bucket', mirror.bucket, '--key', key(dir, name)]);
       console.log(`[${mirror.id}] deleted ${key(dir, name)}`);
@@ -774,7 +726,7 @@ async function publish(options: {
     upload(mirror) {
       for (const release of releases) {
         for (const name of release.payload)
-          mirror.upload(release.dir, name, join(options.dir, release.dir, name), false);
+          mirror.upload(release.dir, name, join(options.dir, release.dir, name));
       }
     },
     global:
@@ -807,7 +759,7 @@ async function publish(options: {
     const written: string[] = [];
     for (const release of releases) {
       for (const name of [release.manifest, `${release.manifest}.sig`]) {
-        mirror.upload(release.dir, name, join(options.dir, release.dir, name), true);
+        mirror.upload(release.dir, name, join(options.dir, release.dir, name));
         written.push(mirror.url(release.dir, name));
       }
     }
