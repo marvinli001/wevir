@@ -1,7 +1,13 @@
 // 接力（0.25.0，domain-model §3.14）的纯逻辑：已有会话能换到哪些来源、当前的引擎能做什么、切换处那一行写什么。
 
 import type { SessionNotice } from '@wevir/client-sdk';
-import type { EngineFeatures, ProviderProfile, Session, SessionState } from '@wevir/protocol';
+import type {
+  EngineFeatures,
+  HandoffPreview,
+  ProviderProfile,
+  Session,
+  SessionState,
+} from '@wevir/protocol';
 import { sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
 
@@ -55,6 +61,83 @@ export interface HandoffDetailRow {
  * 有没有把摘要交给新来源，不说模型理解了没有。
  */
 export function handoffDetailRows(notice: HandoffNoticeOf): HandoffDetailRow[] {
+  const rows = materialRows(notice);
+  // 递交记录（0.59.0）：旧 Host 写的事件没有。
+  const { receipt } = notice;
+  if (receipt !== undefined) {
+    if (receipt.omitted.length > 0) {
+      rows.push({
+        key: 'omitted',
+        label: t('handoff.detail.omitted'),
+        value: receipt.omitted
+          .map((range) =>
+            range.first === range.last
+              ? range.first
+              : t('handoff.detail.omittedRange', {
+                  first: range.first,
+                  last: range.last,
+                  count: range.count,
+                }),
+          )
+          .join(t('common.listSeparator')),
+      });
+    }
+    rows.push({
+      key: 'constraints',
+      label: t('handoff.detail.constraints'),
+      value: t('handoff.detail.count', { count: receipt.constraints }),
+    });
+    rows.push({
+      key: 'notes',
+      label: t('handoff.detail.notes'),
+      value:
+        receipt.notes.length === 0
+          ? t('handoff.detail.none')
+          : receipt.notes
+              .map((note) => `${note.name} · ${note.revision.slice(0, 8)}`)
+              .join(t('common.listSeparator')),
+    });
+    rows.push({
+      key: 'bytes',
+      label: t('handoff.detail.bytes'),
+      value: t('handoff.preview.budgetUsed', {
+        used: receipt.bytes.toLocaleString(),
+        budget: receipt.budgetBytes.toLocaleString(),
+      }),
+    });
+    rows.push({ key: 'hash', label: t('handoff.detail.hash'), value: receipt.hash.slice(0, 16) });
+  }
+  const { delivery } = notice;
+  rows.push({
+    key: 'status',
+    label: t('handoff.detail.status'),
+    value: `${t(`handoff.detail.status.${delivery.status}`)} · ${t(`handoff.detail.statusHint.${delivery.status}`)}`,
+    tone:
+      delivery.status === 'delivered'
+        ? 'success'
+        : delivery.status === 'failed'
+          ? 'warning'
+          : 'muted',
+  });
+  return rows;
+}
+
+/** 换来源之前的预览（0.60.0）：同详情的方式、引擎会话、范围、条目与读历史，没有递交状态。 */
+export function handoffPreviewRows(preview: HandoffPreview): HandoffDetailRow[] {
+  return materialRows({
+    ...preview,
+    // 预览总给出能不能读历史；没有材料时不需要。
+    ...(preview.context === undefined && preview.overBudget === undefined
+      ? { historyTool: undefined }
+      : {}),
+  });
+}
+
+function materialRows(
+  notice: Pick<HandoffNoticeOf, 'strategy' | 'resumed' | 'covered' | 'items' | 'omittedItems'> & {
+    historyTool?: boolean | undefined;
+  },
+): HandoffDetailRow[] {
   const strategy =
     notice.strategy === 'full_thread_summary'
       ? t('handoff.detail.strategy.full')
@@ -97,18 +180,6 @@ export function handoffDetailRows(notice: HandoffNoticeOf): HandoffDetailRow[] {
       ...(!notice.historyTool && { tone: 'warning' as const }),
     });
   }
-  const { delivery } = notice;
-  rows.push({
-    key: 'status',
-    label: t('handoff.detail.status'),
-    value: `${t(`handoff.detail.status.${delivery.status}`)} · ${t(`handoff.detail.statusHint.${delivery.status}`)}`,
-    tone:
-      delivery.status === 'delivered'
-        ? 'success'
-        : delivery.status === 'failed'
-          ? 'warning'
-          : 'muted',
-  });
   return rows;
 }
 

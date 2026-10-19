@@ -129,4 +129,42 @@ describe('接力的纯逻辑（0.25.0）', () => {
     // 不说“模型已理解”。
     expect(JSON.stringify(handoffDetailRows(notice))).not.toMatch(/理解/);
   });
+
+  it('handoffDetailRows：有递交记录（0.59.0）时列出省略的段、约束条数、笔记与版本、大小与散列', () => {
+    const notice: HandoffNoticeOf = {
+      kind: 'handoff',
+      providerId: 'claude',
+      modelId: 'm',
+      fromProviderId: 'mock',
+      fromModelId: 'm',
+      resumed: false,
+      strategy: 'full_thread_summary',
+      covered: { fromSeq: 1, toSeq: 30 },
+      items: 5,
+      omittedItems: 4,
+      context: 'Context handoff',
+      historyTool: true,
+      receipt: {
+        bytes: 15234,
+        budgetBytes: 16000,
+        hash: 'abcdef0123456789'.repeat(4),
+        omitted: [
+          { first: 'e3', last: 'e9', count: 3 },
+          { first: 'e12', last: 'e12', count: 1 },
+        ],
+        constraints: 2,
+        notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+      },
+      delivery: { status: 'prepared' },
+    };
+    const rows = Object.fromEntries(handoffDetailRows(notice).map((row) => [row.key, row.value]));
+    expect(rows).toMatchObject({
+      omitted: 'e3–e9（3 条）、e12',
+      constraints: '2 条',
+      notes: 'invoice-cents · 3f1c2a9b',
+      bytes: `${(15234).toLocaleString()} / ${(16000).toLocaleString()} 字节`,
+      hash: 'abcdef0123456789',
+    });
+    expect(Object.keys(rows).at(-1)).toBe('status');
+  });
 });
