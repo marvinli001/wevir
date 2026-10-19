@@ -2,13 +2,17 @@ import { hostSupports, isRpcError } from '@wevir/client-sdk';
 import type {
   MemoryNote,
   MemoryScope,
+  MemorySource,
   MemorySummary,
   MethodResult,
+  Session,
+  SessionId,
   WorkspaceId,
 } from '@wevir/protocol';
 import { MEMORY_DESCRIPTION_MAX, MEMORY_MAX_PER_SCOPE } from '@wevir/protocol';
 import { Pencil, Trash2 } from 'lucide-react';
-import { type FormEvent, useEffect, useId, useMemo, useState } from 'react';
+import { type FormEvent, Fragment, useEffect, useId, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Switch } from '@/components/switch';
@@ -39,6 +43,9 @@ import {
   draftValid,
   MEMORY_TYPE_LABELS,
   type MemoryDraft,
+  memorySourceRows,
+  sourceSessionPath,
+  sourceSessions,
   splitMemory,
   updatePatch,
 } from './memory-model';
@@ -343,14 +350,22 @@ function MemoryRow({
   );
 }
 
-function updatedText(updatedAt: string): string {
-  const time = Date.parse(updatedAt);
-  if (!Number.isFinite(time)) return t('settings.memory.updatedUnknown');
+/** 时刻按当前语言显示；不是合法时刻时 `undefined`。 */
+function formatTime(at: string): string | undefined {
+  const time = Date.parse(at);
+  if (!Number.isFinite(time)) return undefined;
   const format = new Intl.DateTimeFormat(currentLocale(), {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
-  return t('settings.memory.updated', { time: format.format(new Date(time)) });
+  return format.format(new Date(time));
+}
+
+function updatedText(updatedAt: string): string {
+  const time = formatTime(updatedAt);
+  return time === undefined
+    ? t('settings.memory.updatedUnknown')
+    : t('settings.memory.updated', { time });
 }
 
 /**
@@ -492,6 +507,7 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
                   data-testid="memory-content"
                 />
               </div>
+              {note && <MemorySources note={note} onOpened={onClose} />}
             </div>
           )}
           {error && (
@@ -544,5 +560,128 @@ function MemoryEditor({ target, onClose }: { target: MemoryTarget; onClose: () =
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * 详情里的来源（0.58.0）：首次保存与最近修改各是谁、在哪个会话。Agent 写的可以打开那个会话；会话删了、写下它的回合撤回了都标出来，
+ * 打开时发现会话已经不在也说明。旧笔记显示未记录。
+ */
+function MemorySources({ note, onOpened }: { note: MemoryNote; onOpened: () => void }) {
+  const { client } = useHostConnection();
+  const navigate = useNavigate();
+  const rows = memorySourceRows(note);
+  const wanted = sourceSessions(rows).join(',');
+  const [sessions, setSessions] = useState<Record<string, Session | 'missing'>>({});
+  const [error, setError] = useState<string>();
+  const markMissing = (sessionId: SessionId) =>
+    setSessions((previous) => ({ ...previous, [sessionId]: 'missing' }));
+
+  useEffect(() => {
+    if (!client || wanted === '') return;
+    let stopped = false;
+    for (const sessionId of wanted.split(',') as SessionId[]) {
+      client.request('session.get', { sessionId }).then(
+        ({ session }) => {
+          if (!stopped) setSessions((previous) => ({ ...previous, [sessionId]: session }));
+        },
+        (reason: unknown) => {
+          if (!stopped && isRpcError(reason, 'SESSION_NOT_FOUND')) {
+            setSessions((previous) => ({ ...previous, [sessionId]: 'missing' }));
+          }
+        },
+      );
+    }
+    return () => {
+      stopped = true;
+    };
+  }, [client, wanted]);
+
+  const open = async (sessionId: SessionId) => {
+    if (!client) return;
+    setError(undefined);
+    try {
+      const { session } = await client.request('session.get', { sessionId });
+      onOpened();
+      navigate(sourceSessionPath(session));
+    } catch (reason) {
+      if (isRpcError(reason, 'SESSION_NOT_FOUND')) markMissing(sessionId);
+      setError(t('settings.memory.source.openFailed', { error: describe(reason) }));
+    }
+  };
+
+  const line = (source: MemorySource | undefined) => {
+    if (source === undefined) {
+      return (
+        <span className="text-muted-foreground">{t('settings.memory.source.unrecorded')}</span>
+      );
+    }
+    const time = formatTime(source.at) ?? t('settings.memory.source.timeUnknown');
+    if (source.by === 'user') return `${t('settings.memory.source.user')} · ${time}`;
+    if (source.sessionId === undefined)
+      return `${t('settings.memory.source.agentNoSession')} · ${time}`;
+    const sessionId = source.sessionId;
+    const loaded = sessions[sessionId];
+    const deleted = source.status === 'deleted' || loaded === 'missing';
+    const title =
+      typeof loaded === 'object' ? loaded.title || t('settings.memory.source.untitled') : '…';
+    return (
+      <span className="flex flex-wrap items-center gap-1.5" data-memory-source={sessionId}>
+        <span>
+          {deleted
+            ? t('settings.memory.source.agentPlain')
+            : t('settings.memory.source.agent', { title })}{' '}
+          · {time}
+        </span>
+        {deleted ? (
+          <span
+            className="rounded bg-warning/10 px-1.5 py-px text-warning"
+            data-source-status="deleted"
+          >
+            {t('settings.memory.source.deleted')}
+          </span>
+        ) : (
+          <>
+            {source.status === 'withdrawn' && (
+              <span
+                className="rounded bg-warning/10 px-1.5 py-px text-warning"
+                data-source-status="withdrawn"
+              >
+                {t('settings.memory.source.withdrawn')}
+              </span>
+            )}
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              onClick={() => void open(sessionId)}
+              data-action="open-memory-source"
+            >
+              {t('settings.memory.source.open')}
+            </Button>
+          </>
+        )}
+      </span>
+    );
+  };
+
+  return (
+    <div className="space-y-1.5 rounded-lg bg-muted/50 px-3 py-2 text-xs" data-memory-sources>
+      <p className="text-sm font-medium">{t('settings.memory.source.title')}</p>
+      <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5">
+        {rows.map((row) => (
+          <Fragment key={row.label}>
+            <dt className="text-muted-foreground">{t(row.label)}</dt>
+            <dd className="min-w-0">{line(row.source)}</dd>
+          </Fragment>
+        ))}
+      </dl>
+      <p className="text-muted-foreground">{t('settings.memory.source.hint')}</p>
+      {error && (
+        <p role="alert" className="text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

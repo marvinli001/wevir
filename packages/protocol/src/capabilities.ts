@@ -216,7 +216,7 @@ export const HOST_FEATURES = {
   sharedFiles: 'shared_files',
   /**
    * 记忆管理（0.57.0，domain-model §3.21）：`memory.*` 方法、`memory.changed` 通知与 Host 设置的 `autoMemory`；笔记带 `enabled`，
-   * 停用的 Agent 看不到。与引擎无关。
+   * 停用的 Agent 看不到。与引擎无关。0.58.0 起笔记带来源（`origin` / `lastEdit`），Agent 的保存与删除也按版本检查。
    */
   memory: 'memory',
 } as const;

@@ -11,9 +11,11 @@ import type {
   MethodName,
   MethodParams,
   MethodResult,
+  MemorySource as ProtocolMemorySource,
   ProviderProfile,
   Session,
   SessionId,
+  WevirEvent,
   Workspace,
   WorkspaceId,
 } from '@wevir/protocol';
@@ -35,7 +37,13 @@ import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from '.
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
-import { MemoryError, type MemoryNote, type MemoryScope, type MemoryStore } from './memory.js';
+import {
+  MemoryError,
+  type MemoryNote,
+  type MemoryScope,
+  type MemorySource,
+  type MemoryStore,
+} from './memory.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
 import type { SessionManager } from './session-manager.js';
@@ -232,6 +240,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
     }
     return workspaceId;
+  };
+  /**
+   * `memory.read` 里来源会话现在怎样（0.58.0）：会话删了是 `deleted`；写下笔记的回合被撤回、或撤销了还没重做是 `withdrawn`。用户在设置里
+   * 改的（没有会话）不加。
+   */
+  const withSourceStatus = (source: MemorySource | undefined): ProtocolMemorySource | undefined => {
+    if (source?.sessionId === undefined) return source;
+    const sessionId = source.sessionId;
+    if (storage.sessions.get(sessionId) === undefined) return { ...source, status: 'deleted' };
+    const withdrawn =
+      source.turnId !== undefined && turnWithdrawn(events.readSince(sessionId, 0), source.turnId);
+    return { ...source, status: withdrawn ? 'withdrawn' : 'available' };
   };
   /** MemoryStore 的错误换成 Host API 的：找不到是 `MEMORY_NOT_FOUND`，其余（不合规、超出上限）是 `INVALID_PARAMS`。 */
   const memoryCall = async <T>(run: () => Promise<T>): Promise<T> => {
@@ -865,10 +885,17 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'memory.read': async ({ scope, workspaceId, name }) => {
       const memory = memoryStore();
       const workspace = memoryWorkspace(scope, workspaceId);
+      const note = toMemoryNote(
+        await memoryCall(() => memory.read(scope, workspace, name, { includeDisabled: true })),
+      );
+      const origin = withSourceStatus(note.origin);
+      const lastEdit = withSourceStatus(note.lastEdit);
       return {
-        note: toMemoryNote(
-          await memoryCall(() => memory.read(scope, workspace, name, { includeDisabled: true })),
-        ),
+        note: {
+          ...note,
+          ...(origin !== undefined && { origin }),
+          ...(lastEdit !== undefined && { lastEdit }),
+        },
       };
     },
 
@@ -1069,7 +1096,29 @@ function toEnvironment(record: EnvironmentRecord): Environment {
 /** 线缆上的笔记：只有协议里的字段。 */
 function toMemoryNote(note: MemoryNote): MemoryNote {
   const { scope, name, type, description, content, updatedAt, enabled, revision } = note;
-  return { scope, name, type, description, content, updatedAt, enabled, revision };
+  return {
+    scope,
+    name,
+    type,
+    description,
+    content,
+    updatedAt,
+    enabled,
+    revision,
+    ...(note.origin !== undefined && { origin: note.origin }),
+    ...(note.lastEdit !== undefined && { lastEdit: note.lastEdit }),
+  };
+}
+
+/** 回合现在看不看得见：被撤回（`turn.rewound`）就不在了；撤销（`turn.undone`）了要看之后有没有重做（`turn.redone`）。 */
+function turnWithdrawn(sessionEvents: readonly WevirEvent[], turnId: string): boolean {
+  let withdrawn = false;
+  for (const event of sessionEvents) {
+    if (event.type === 'turn.rewound' && event.payload.turnId === turnId) return true;
+    if (event.type === 'turn.undone' && event.payload.turnId === turnId) withdrawn = true;
+    if (event.type === 'turn.redone' && event.payload.turnId === turnId) withdrawn = false;
+  }
+  return withdrawn;
 }
 
 function invalidParams(path: string[], message: string): HostError<'INVALID_PARAMS'> {

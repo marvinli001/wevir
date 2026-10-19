@@ -238,6 +238,14 @@ export class AppTools {
                 throw new AppToolError('This Wevir session no longer exists.');
               return record.workspaceId;
             },
+            anchorOf: (sessionId) => {
+              const session = options.events.snapshot(sessionId)?.session;
+              if (session === undefined) return {};
+              return {
+                ...(session.activeTurn !== undefined && { turnId: session.activeTurn.turnId }),
+                seq: session.lastSeq,
+              };
+            },
           })),
       ...(options.browser === undefined
         ? []

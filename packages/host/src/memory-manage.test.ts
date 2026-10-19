@@ -117,6 +117,9 @@ describe('memory.*（Host + 两个客户端）', () => {
       description: 'Money is stored in integer cents',
     });
     expect(updated.conflict).toBeUndefined();
+    // 用户编辑记成用户（0.58.0）；旧笔记没有首次来源，不补造。
+    expect(updated.note.lastEdit).toEqual({ by: 'user', at: expect.any(String) });
+    expect(updated.note.origin).toBeUndefined();
     await second.client.until(
       () =>
         second.client
@@ -146,6 +149,23 @@ describe('memory.*（Host + 两个客户端）', () => {
       content: 'overwrite',
     });
     expect(stale).toEqual({ note: updated.note, conflict: true });
+
+    // 客户端给不了来源：参数里夹带的来源字段不认，照样记成用户编辑。
+    const forged = await second.client.request('memory.update', {
+      scope: 'project',
+      workspaceId: wsA,
+      name: 'invoice-cents',
+      revision: updated.note.revision,
+      content: 'Edited again.',
+      origin: { by: 'agent', at: '2026-10-01T00:00:00.000Z', sessionId: 'ses_forged' },
+      lastEdit: { by: 'agent', at: '2026-10-01T00:00:00.000Z', sessionId: 'ses_forged' },
+    } as never);
+    expect(forged.note.lastEdit).toEqual({ by: 'user', at: expect.any(String) });
+    expect(forged.note.origin).toBeUndefined();
+    expect(
+      readFileSync(join(home, 'memory', 'projects', wsA, 'invoice-cents.md'), 'utf8'),
+    ).not.toContain('ses_forged');
+    updated.note = forged.note;
 
     const off = await second.client.request('memory.setEnabled', {
       scope: 'global',

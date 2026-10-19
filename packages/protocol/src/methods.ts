@@ -1115,6 +1115,7 @@ export const MemoryListResultSchema = z.object({
   unreadable: z.array(z.object({ scope: MemoryScopeSchema, name: MemoryNameSchema })),
 });
 
+/** 读一条（含停用的）。0.58.0 起结果里带 Agent 来源的 `origin` / `lastEdit` 有 `status`：来源会话还在没有、那个回合撤回了没有。 */
 export const MemoryReadParamsSchema = z.object(MemoryTarget);
 
 export const MemoryNoteResultSchema = z.object({
@@ -1122,7 +1123,7 @@ export const MemoryNoteResultSchema = z.object({
 });
 
 /**
- * 用户改一条笔记：只改给出的字段，`updatedAt` 换成现在。`revision` 是编辑基于的那一版；笔记在那之后被改过（Agent 存了、
+ * 用户改一条笔记：只改给出的字段，`updatedAt` 换成现在，`lastEdit` 记成 `by: 'user'`（0.58.0）。`revision` 是编辑基于的那一版；笔记在那之后被改过（Agent 存了、
  * 另一个窗口改了）就不写，结果带 `conflict` 与现在的版本，客户端留着草稿让用户决定。字段的规则同 Agent 保存：说明一行、
  * 不超过 `MEMORY_DESCRIPTION_MAX` 字，正文不空、不超过 `MEMORY_CONTENT_MAX_BYTES` 字节，像密钥的内容拒绝（`INVALID_PARAMS`）。
  */

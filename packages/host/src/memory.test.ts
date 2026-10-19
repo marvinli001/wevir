@@ -1,20 +1,30 @@
 // 跨会话记忆（memory.ts）与它的应用级工具（memory-tools.ts）。
 
-import { mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import type { HostId, SessionId, WorkspaceId } from '@wevir/protocol';
+import type { HostId, SessionId, TurnId, WorkspaceId } from '@wevir/protocol';
+import { MethodSchemas } from '@wevir/protocol';
 import {
   APP_TOOLS_NO_APPROVAL,
   type EngineSession,
   type SessionConfig,
 } from '@wevir/runtime-adapter';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
+import { FileSecretStore } from '@wevir/storage';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AppMcpServer, AppToolError } from './app-mcp.js';
 import { APP_TOOLS_INSTRUCTIONS, AppTools } from './app-tools.js';
 import { EventStore } from './event-store.js';
+import { createHostMethods } from './host-methods.js';
 import {
   MEMORY_CONTENT_MAX_BYTES,
   MEMORY_INDEX_MAX_BYTES,
@@ -29,7 +39,7 @@ import {
   memoryTools,
 } from './memory-tools.js';
 import { SessionManager } from './session-manager.js';
-import { SES, SES2, seedSession, T0, useStorages, useTempDir } from './test-utils.js';
+import { ev, SES, SES2, seedSession, T0, useStorages, useTempDir } from './test-utils.js';
 
 const tempDir = useTempDir();
 const storages = useStorages();
@@ -400,9 +410,10 @@ describe('memoryTools', () => {
     await expect(call('wevir_memory_list', {})).rejects.toThrow(/no longer exists/);
   });
 
-  it('给 Agent 的结果里没有启用状态与版本', async () => {
+  it('给 Agent 的结果里没有启用状态与来源；读与保存带版本', async () => {
     const { call } = setup();
-    await call('wevir_memory_save', { scope: 'project', ...note() });
+    const saved = await call('wevir_memory_save', { scope: 'project', ...note() });
+    expect(saved.structuredContent).toMatchObject({ revision: expect.any(String) });
     const listed = (await call('wevir_memory_list', {})).structuredContent as {
       notes: Record<string, unknown>[];
     };
@@ -415,8 +426,11 @@ describe('memoryTools', () => {
     ]);
     const read = (await call('wevir_memory_read', { scope: 'project', name: 'avoid-rm-f' }))
       .structuredContent as Record<string, unknown>;
-    expect(read).not.toHaveProperty('revision');
+    expect(read.revision).toBe((saved.structuredContent as { revision: string }).revision);
     expect(read).not.toHaveProperty('enabled');
+    expect(read).not.toHaveProperty('origin');
+    expect(read).not.toHaveProperty('lastEdit');
+    expect(read).not.toHaveProperty('editedByUser');
   });
 
   it('自动记忆关着时每个工具都拒绝，不碰文件', async () => {
@@ -435,6 +449,386 @@ describe('memoryTools', () => {
     expect(await memory.list('ws_1')).toEqual([]);
     enabled = true;
     await expect(call('wevir_memory_list', {})).resolves.toBeDefined();
+  });
+});
+
+describe('来源与版本（0.58.0）', () => {
+  const managers: SessionManager[] = [];
+  afterEach(async () => {
+    await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
+  });
+  const A = { sessionId: SES, turnId: 'trn_A1' as TurnId, seq: 7 };
+  const B = { sessionId: SES2 };
+  const signal = new AbortController().signal;
+
+  function clockedStore(dir = join(tempDir(), 'memory')) {
+    let tick = 0;
+    return new MemoryStore({ dir, now: () => new Date(Date.UTC(2026, 9, 19, 0, 0, tick++)) });
+  }
+
+  it('Agent 保存记下会话、回合与事件；改写保留首次来源；用户修改记成用户；启停不改来源；旧笔记不补造', async () => {
+    const dir = join(tempDir(), 'memory');
+    const store = clockedStore(dir);
+    const { note: first } = await store.save('project', 'ws_1', note(), { writer: A });
+    const source = { by: 'agent', at: '2026-10-19T00:00:00.000Z', ...A };
+    expect(first).toMatchObject({ origin: source, lastEdit: source });
+    const file = join(dir, 'projects', 'ws_1', 'avoid-rm-f.md');
+    expect(readFileSync(file, 'utf8')).toContain(
+      [
+        'type: feedback',
+        'created: 2026-10-19T00:00:00.000Z',
+        'created-by: agent',
+        `created-session: ${SES}`,
+        'created-turn: trn_A1',
+        'created-seq: 7',
+        'updated: 2026-10-19T00:00:00.000Z',
+        'updated-by: agent',
+        `updated-session: ${SES}`,
+      ].join('\n'),
+    );
+
+    const { note: again } = await store.save('project', 'ws_1', note({ content: 'v2' }), {
+      writer: { sessionId: SES, seq: 9 },
+    });
+    expect(again.origin).toEqual(source);
+    expect(again.lastEdit).toEqual({
+      by: 'agent',
+      at: '2026-10-19T00:00:01.000Z',
+      sessionId: SES,
+      seq: 9,
+    });
+
+    const { note: edited } = await store.update('project', 'ws_1', 'avoid-rm-f', again.revision, {
+      content: 'user v3',
+    });
+    expect(edited.origin).toEqual(source);
+    expect(edited.lastEdit).toEqual({ by: 'user', at: '2026-10-19T00:00:02.000Z' });
+    const off = await store.setEnabled('project', 'ws_1', 'avoid-rm-f', false);
+    expect(off).toMatchObject({ origin: source, lastEdit: edited.lastEdit });
+    expect((await store.listAll('ws_1')).notes[0]).toMatchObject({
+      origin: source,
+      lastEdit: edited.lastEdit,
+    });
+
+    // 旧笔记：没有来源，用户改了也只记最近修改，不补造首次来源；Agent 改写同样。
+    writeFileSync(
+      join(dir, 'projects', 'ws_1', 'old-note.md'),
+      '---\nname: old-note\ndescription: From before sources\ntype: project\n---\n\nOld body.\n',
+    );
+    const old = await store.read('project', 'ws_1', 'old-note');
+    expect(old.origin).toBeUndefined();
+    expect(old.lastEdit).toBeUndefined();
+    const { note: rewritten } = await store.save(
+      'project',
+      'ws_1',
+      note({ name: 'old-note', content: 'Agent rewrite.' }),
+      { writer: B },
+    );
+    expect(rewritten.origin).toBeUndefined();
+    expect(rewritten.lastEdit).toMatchObject({ by: 'agent', sessionId: SES2 });
+  });
+
+  it('只改文件的修改时间：版本与来源都不变', async () => {
+    const dir = join(tempDir(), 'memory');
+    const store = clockedStore(dir);
+    const { note: saved } = await store.save('global', undefined, note(), { writer: A });
+    const file = join(dir, 'global', 'avoid-rm-f.md');
+    utimesSync(file, new Date('2030-01-01T00:00:00Z'), new Date('2030-01-01T00:00:00Z'));
+    const read = await store.read('global', undefined, 'avoid-rm-f');
+    expect(read).toEqual(saved);
+    expect(read.updatedAt).toBe('2026-10-19T00:00:00.000Z');
+  });
+
+  it('手改坏的来源字段只丢掉那一项；认不出的作者当作没有记录', async () => {
+    const dir = join(tempDir(), 'memory');
+    mkdirSync(join(dir, 'global'), { recursive: true });
+    writeFileSync(
+      join(dir, 'global', 'hand.md'),
+      '---\nname: hand\ndescription: Hand edited\ntype: user\ncreated: 2026-10-01T00:00:00.000Z\ncreated-by: agent\ncreated-session: ../../etc\ncreated-turn: trn_ok\ncreated-seq: 0\nupdated-by: robot\n---\n\nBody.\n',
+    );
+    const read = await new MemoryStore({ dir }).read('global', undefined, 'hand');
+    expect(read.origin).toEqual({ by: 'agent', at: '2026-10-01T00:00:00.000Z', turnId: 'trn_ok' });
+    expect(read.lastEdit).toBeUndefined();
+  });
+
+  it('Agent 改写：带版本时被改过就冲突；不带版本时别人写的冲突，旧笔记与自己写的可以直接覆盖；停用先挡', async () => {
+    const dir = join(tempDir(), 'memory');
+    const store = clockedStore(dir);
+    const { note: base } = await store.save('global', undefined, note(), { writer: A });
+    const { note: user } = await store.update('global', undefined, 'avoid-rm-f', base.revision, {
+      content: 'user edit',
+    });
+
+    // 读过旧版本的会话：冲突，内容不动，错误里有现在的版本。
+    const stale = await store
+      .save('global', undefined, note({ content: 'agent' }), {
+        writer: A,
+        revision: base.revision,
+      })
+      .catch((error: unknown) => error);
+    expect(stale).toBeInstanceOf(MemoryError);
+    expect(stale).toMatchObject({ code: 'conflict', current: user });
+    expect((stale as Error).message).toMatch(/the user in Wevir settings/);
+    // 没读过也不带版本：用户最近改过，同样冲突。
+    await expect(
+      store.save('global', undefined, note({ content: 'blind' }), { writer: A }),
+    ).rejects.toMatchObject({ code: 'conflict' });
+    expect((await store.read('global', undefined, 'avoid-rm-f')).content).toBe('user edit');
+    // 带着现在的版本：写进去。
+    const { note: merged } = await store.save(
+      'global',
+      undefined,
+      note({ content: 'user edit + agent' }),
+      { writer: A, revision: user.revision },
+    );
+    expect(merged.lastEdit).toMatchObject({ by: 'agent', sessionId: SES });
+    // 自己最近写的：不带版本可以再覆盖；别的会话写的不行。
+    await store.save('global', undefined, note({ content: 'again' }), { writer: A });
+    await expect(
+      store.save('global', undefined, note({ content: 'other session' }), { writer: B }),
+    ).rejects.toMatchObject({ code: 'conflict', message: /another session/ });
+    // 读过之后被删掉：带版本的保存是冲突（没有现在的版本），不带版本就是新建。
+    const { note: gone } = await store.save('global', undefined, note({ name: 'gone' }), {
+      writer: B,
+    });
+    await store.delete('global', undefined, 'gone', { includeDisabled: true });
+    await expect(
+      store.save('global', undefined, note({ name: 'gone' }), {
+        writer: B,
+        revision: gone.revision,
+      }),
+    ).rejects.toMatchObject({ code: 'conflict', current: undefined });
+    // 旧笔记（没有来源）：不带版本照旧覆盖。
+    writeFileSync(
+      join(dir, 'global', 'legacy.md'),
+      '---\nname: legacy\ndescription: Old\ntype: user\n---\n\nOld.\n',
+    );
+    await expect(
+      store.save('global', undefined, note({ name: 'legacy' }), { writer: B }),
+    ).resolves.toMatchObject({ created: false });
+    // 停用：带着正确的版本也不能存回去。
+    const current = await store.read('global', undefined, 'legacy');
+    await store.setEnabled('global', undefined, 'legacy', false);
+    const disabled = await store.read('global', undefined, 'legacy', { includeDisabled: true });
+    await expect(
+      store.save('global', undefined, note({ name: 'legacy' }), {
+        writer: B,
+        revision: disabled.revision,
+      }),
+    ).rejects.toMatchObject({ code: 'disabled' });
+    expect(current.revision).not.toBe(disabled.revision);
+  });
+
+  it('Agent 删除：别人写的要带版本，被改过就不删；停用的删不到', async () => {
+    const store = clockedStore();
+    const { note: saved } = await store.save('global', undefined, note(), { writer: A });
+    expect(await store.delete('global', undefined, 'avoid-rm-f', { writer: B })).toEqual({
+      conflict: expect.objectContaining({ revision: saved.revision }),
+    });
+    const { note: user } = await store.update('global', undefined, 'avoid-rm-f', saved.revision, {
+      content: 'user',
+    });
+    expect(
+      await store.delete('global', undefined, 'avoid-rm-f', {
+        writer: A,
+        revision: saved.revision,
+      }),
+    ).toEqual({ conflict: user });
+    await store.setEnabled('global', undefined, 'avoid-rm-f', false);
+    await expect(
+      store.delete('global', undefined, 'avoid-rm-f', { writer: A, revision: user.revision }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await store.setEnabled('global', undefined, 'avoid-rm-f', true);
+    const enabled = await store.read('global', undefined, 'avoid-rm-f');
+    expect(
+      await store.delete('global', undefined, 'avoid-rm-f', {
+        writer: B,
+        revision: enabled.revision,
+      }),
+    ).toEqual({});
+  });
+
+  it('同时编辑：两个会话拿着同一个版本同时保存，恰好一个写进去，另一个冲突；用户与 Agent 同时改也一样', async () => {
+    const store = clockedStore();
+    const { note: base } = await store.save('project', 'ws_1', note(), { writer: A });
+    for (let round = 0; round < 5; round += 1) {
+      const current = await store.read('project', 'ws_1', 'avoid-rm-f');
+      const results = await Promise.allSettled([
+        store.save('project', 'ws_1', note({ content: `a${round}` }), {
+          writer: A,
+          revision: current.revision,
+        }),
+        store.save('project', 'ws_1', note({ content: `b${round}` }), {
+          writer: B,
+          revision: current.revision,
+        }),
+        store.update('project', 'ws_1', 'avoid-rm-f', current.revision, {
+          content: `user${round}`,
+        }),
+      ]);
+      const written = results.filter(
+        (result) =>
+          result.status === 'fulfilled' && !('conflict' in result.value && result.value.conflict),
+      );
+      expect(written).toHaveLength(1);
+      expect(
+        results.filter(
+          (result) =>
+            (result.status === 'rejected' && result.reason.code === 'conflict') ||
+            (result.status === 'fulfilled' && 'conflict' in result.value && result.value.conflict),
+        ),
+      ).toHaveLength(2);
+    }
+    expect(base.revision).toBeDefined();
+  });
+
+  it('工具：来源由 Host 按调用会话填写，模型给的来源字段不认；读过才能改别人写的；读过之后被改了就冲突', async () => {
+    const memory = new MemoryStore({ dir: join(tempDir(), 'memory') });
+    const tools = memoryTools({
+      memory,
+      workspaceOf: () => 'ws_1',
+      anchorOf: (sessionId) =>
+        sessionId === SES ? { turnId: 'trn_A1' as TurnId, seq: 12 } : { seq: 0 },
+    });
+    const call = (sessionId: SessionId, name: string, args: Record<string, unknown>) =>
+      (tools.find((tool) => tool.name === name) as (typeof tools)[number]).call(args, {
+        sessionId,
+        signal,
+      });
+    await call(SES, 'wevir_memory_save', {
+      scope: 'project',
+      ...note(),
+      origin: { by: 'user', sessionId: SES2 },
+      sessionId: SES2,
+    });
+    const stored = await memory.read('project', 'ws_1', 'avoid-rm-f');
+    expect(stored.origin).toMatchObject({ by: 'agent', sessionId: SES, turnId: 'trn_A1', seq: 12 });
+
+    // 另一个会话没读过就改：冲突；读了以后（不带版本也行）可以改，来源的序号为 0 时不记。
+    await expect(
+      call(SES2, 'wevir_memory_save', { scope: 'project', ...note({ content: 'b' }) }),
+    ).rejects.toThrow(/another session.*wevir_memory_read/);
+    const read = await call(SES2, 'wevir_memory_read', { scope: 'project', name: 'avoid-rm-f' });
+    expect(read.structuredContent).toMatchObject({ revision: stored.revision });
+    await call(SES2, 'wevir_memory_save', { scope: 'project', ...note({ content: 'b' }) });
+    const afterB = await memory.read('project', 'ws_1', 'avoid-rm-f');
+    expect(afterB.lastEdit).toEqual({ by: 'agent', at: expect.any(String), sessionId: SES2 });
+    expect(afterB.origin).toEqual(stored.origin);
+
+    // 第一个会话读过、用户随后在设置里改了：不带版本（用读到的那一版）也冲突；重读后能存，结果里看得到用户改过。
+    await call(SES, 'wevir_memory_read', { scope: 'project', name: 'avoid-rm-f' });
+    await memory.update('project', 'ws_1', 'avoid-rm-f', afterB.revision, { content: 'user' });
+    await expect(
+      call(SES, 'wevir_memory_save', { scope: 'project', ...note({ content: 'a2' }) }),
+    ).rejects.toThrow(/changed after this session read it.*the user in Wevir settings/);
+    await expect(
+      call(SES, 'wevir_memory_save', {
+        scope: 'project',
+        ...note({ content: 'a2' }),
+        revision: afterB.revision,
+      }),
+    ).rejects.toThrow(/changed after this session read it/);
+    expect((await memory.read('project', 'ws_1', 'avoid-rm-f')).content).toBe('user');
+    const reread = await call(SES, 'wevir_memory_read', { scope: 'project', name: 'avoid-rm-f' });
+    expect(reread.structuredContent).toMatchObject({ content: 'user', editedByUser: true });
+    const merged = await call(SES, 'wevir_memory_save', {
+      scope: 'project',
+      ...note({ content: 'user + a2' }),
+    });
+    expect(merged.structuredContent).toMatchObject({ created: false });
+
+    // 删除：另一个会话拿着旧版本删不掉；读过之后能删。
+    await expect(
+      call(SES2, 'wevir_memory_delete', { scope: 'project', name: 'avoid-rm-f' }),
+    ).rejects.toThrow(/changed after this session read it/);
+    await call(SES2, 'wevir_memory_read', { scope: 'project', name: 'avoid-rm-f' });
+    await call(SES2, 'wevir_memory_delete', { scope: 'project', name: 'avoid-rm-f' });
+    await expect(memory.read('project', 'ws_1', 'avoid-rm-f')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    // 被删之后再存：第一个会话记着的旧版本让它冲突一次，之后就是新建。
+    await expect(call(SES, 'wevir_memory_save', { scope: 'project', ...note() })).rejects.toThrow(
+      /was deleted/,
+    );
+    await expect(
+      call(SES, 'wevir_memory_save', { scope: 'project', ...note() }),
+    ).resolves.toMatchObject({ structuredContent: { created: true } });
+  });
+
+  it('memory.read 给出来源会话的状态：还在、回合撤回或撤销（重做后恢复）、会话已删除；用户编辑没有状态', async () => {
+    const root = tempDir();
+    const storage = storages.open(join(root, 'data'));
+    seedSession(storage, SES);
+    seedSession(storage, SES2);
+    const events = new EventStore({ storage, deltaWindowMs: 5 });
+    const store = new MemoryStore({ dir: join(root, 'memory') });
+    const manager = new SessionManager({ storage, events, adapter: new EchoAdapter() });
+    managers.push(manager);
+    const methods = createHostMethods({
+      storage,
+      events,
+      sessions: manager,
+      secrets: new FileSecretStore(join(root, 'data')),
+      memory: store,
+    });
+    const T1 = 'trn_T1' as TurnId;
+    const T2 = 'trn_T2' as TurnId;
+    events.append(SES, ev.created());
+    for (const turnId of [T1, T2]) {
+      events.append(SES, { type: 'turn.started', source: 'engine', payload: { turnId } });
+      events.append(SES, {
+        type: 'turn.finished',
+        source: 'engine',
+        payload: { turnId, outcome: 'completed', durationMs: 1 },
+      });
+    }
+    await store.save('global', undefined, note({ name: 'from-t1' }), {
+      writer: { sessionId: SES, turnId: T1, seq: 3 },
+    });
+    await store.save('global', undefined, note({ name: 'from-t2' }), {
+      writer: { sessionId: SES, turnId: T2 },
+    });
+    const { note: other } = await store.save('global', undefined, note({ name: 'from-ses2' }), {
+      writer: { sessionId: SES2 },
+    });
+    await store.update('global', undefined, 'from-ses2', other.revision, { content: 'by user' });
+    const read = async (name: string) =>
+      (
+        await methods['memory.read'](
+          { scope: 'global', name },
+          {
+            client: { deviceId: 'd', clientId: 'c', clientKind: 'cli' },
+            capabilities: {},
+          },
+        )
+      ).note;
+
+    expect((await read('from-t1')).origin).toMatchObject({ turnId: T1, status: 'available' });
+    events.append(SES, { type: 'turn.undone', source: 'host', payload: { turnId: T2 } });
+    expect((await read('from-t2')).origin?.status).toBe('withdrawn');
+    expect((await read('from-t1')).origin?.status).toBe('available');
+    events.append(SES, { type: 'turn.redone', source: 'host', payload: { turnId: T2 } });
+    expect((await read('from-t2')).origin?.status).toBe('available');
+    events.append(SES, { type: 'turn.rewound', source: 'host', payload: { turnId: T2 } });
+    expect((await read('from-t2')).lastEdit?.status).toBe('withdrawn');
+    const fromUser = await read('from-ses2');
+    expect(fromUser.origin).toMatchObject({ sessionId: SES2, status: 'available' });
+    expect(fromUser.lastEdit).toEqual({ by: 'user', at: expect.any(String) });
+    expect(MethodSchemas['memory.read'].result.safeParse({ note: fromUser }).success).toBe(true);
+
+    storage.sessions.remove([SES2]);
+    expect((await read('from-ses2')).origin?.status).toBe('deleted');
+    // 列表不算状态（详情才算）。
+    const listed = await methods['memory.list'](
+      {},
+      {
+        client: { deviceId: 'd', clientId: 'c', clientKind: 'cli' },
+        capabilities: {},
+      },
+    );
+    expect(listed.notes.find((entry) => entry.name === 'from-ses2')?.origin).not.toHaveProperty(
+      'status',
+    );
   });
 });
 

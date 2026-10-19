@@ -884,6 +884,33 @@ export const MEMORY_CONTENT_MAX_BYTES = 4096;
 /** 每个范围最多几条：`memory.list` 不分页，一个范围的笔记一次给全。 */
 export const MEMORY_MAX_PER_SCOPE = 100;
 
+/** 谁写的（0.58.0）：`agent` 是会话里的 Agent 用 `wevir_memory_save` 存的，`user` 是用户在设置里改的（`memory.update`）。 */
+export const MemoryAuthorSchema = z.enum(['agent', 'user']);
+export type MemoryAuthor = z.infer<typeof MemoryAuthorSchema>;
+
+/**
+ * 来源会话现在怎样（0.58.0，只在 `memory.read` 里有）：`available` 会话还在；`withdrawn` 会话还在，但写下笔记的那个回合已被撤回
+ * （`session.rewind`）或撤销（`session.undo`，重做后又是 `available`）；`deleted` 会话已删除。
+ */
+export const MemorySourceStatusSchema = z.enum(['available', 'withdrawn', 'deleted']);
+export type MemorySourceStatus = z.infer<typeof MemorySourceStatusSchema>;
+
+/**
+ * 一次写入的来源（0.58.0）：由 Host 按调用方填写，客户端与 Agent 都不能指定。Agent 保存时带上调工具的会话、当时进行中的回合与
+ * 会话最后一个事件的 `seq`；用户在设置里改时只有 `by: 'user'` 与时刻。来源只说明笔记在哪里写下，不说明内容属实。
+ */
+export const MemorySourceSchema = z.object({
+  by: MemoryAuthorSchema,
+  /** 写入的时刻；手改过的文件里可能不是合法时刻，客户端照原样当作不明。 */
+  at: z.string(),
+  sessionId: SessionIdSchema.optional(),
+  turnId: TurnIdSchema.optional(),
+  seq: SeqSchema.optional(),
+  /** 只在 `memory.read` 里有，且只对带 `sessionId` 的来源。 */
+  status: MemorySourceStatusSchema.optional(),
+});
+export type MemorySource = z.infer<typeof MemorySourceSchema>;
+
 /** 一条笔记，不含正文（`memory.list`）。 */
 export const MemorySummarySchema = z.object({
   scope: MemoryScopeSchema,
@@ -896,6 +923,12 @@ export const MemorySummarySchema = z.object({
   enabled: z.boolean(),
   /** 这一版的标识（不透明）：文件每次改动都会变。`memory.update` / `memory.delete` 带着它检查有没有被别人改过。 */
   revision: z.string().min(1),
+  /**
+   * 第一次写下这条笔记的来源（0.58.0）。0.58.0 之前存的笔记没有记录，省略；Host 不会补造。之后被改写也不变（删掉再存是新的一条）。
+   */
+  origin: MemorySourceSchema.optional(),
+  /** 最近一次改正文、说明或种类的来源（0.58.0）；没有记录时省略。启用、停用不改它。 */
+  lastEdit: MemorySourceSchema.optional(),
 });
 export type MemorySummary = z.infer<typeof MemorySummarySchema>;
 

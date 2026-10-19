@@ -1,4 +1,4 @@
-import type { MemorySummary, Workspace } from '@wevir/protocol';
+import type { MemorySource, MemorySummary, SessionId, Workspace } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import {
@@ -6,6 +6,9 @@ import {
   defaultMemoryWorkspace,
   draftChanged,
   draftValid,
+  memorySourceRows,
+  sourceSessionPath,
+  sourceSessions,
   splitMemory,
   updatePatch,
 } from './memory-model';
@@ -79,5 +82,48 @@ describe('设置 → 记忆', () => {
       type: 'user',
       description: 'Cents',
     });
+  });
+
+  it('来源：旧笔记只有一行“未记录”；同一次写入不重复列；最近修改不同时列两行', () => {
+    const S1 = 'ses_1' as SessionId;
+    const agent: MemorySource = { by: 'agent', at: '2026-10-19T00:00:00.000Z', sessionId: S1 };
+    expect(memorySourceRows({})).toEqual([
+      { label: 'settings.memory.source.origin', source: undefined },
+    ]);
+    expect(
+      memorySourceRows({ origin: agent, lastEdit: { ...agent, status: 'available' } }),
+    ).toEqual([{ label: 'settings.memory.source.origin', source: agent }]);
+    const user: MemorySource = { by: 'user', at: '2026-10-19T01:00:00.000Z' };
+    expect(memorySourceRows({ origin: agent, lastEdit: user })).toEqual([
+      { label: 'settings.memory.source.origin', source: agent },
+      { label: 'settings.memory.source.lastEdit', source: user },
+    ]);
+    expect(memorySourceRows({ lastEdit: user })).toHaveLength(2);
+  });
+
+  it('要取标题的来源会话去重，跳过用户编辑与已删除的；子会话在父会话的子智能体窗格打开', () => {
+    const S1 = 'ses_1' as SessionId;
+    const S2 = 'ses_2' as SessionId;
+    expect(
+      sourceSessions([
+        { label: 'settings.memory.source.origin', source: { by: 'agent', at: '', sessionId: S1 } },
+        {
+          label: 'settings.memory.source.lastEdit',
+          source: { by: 'agent', at: '', sessionId: S1, status: 'withdrawn' },
+        },
+        {
+          label: 'settings.memory.source.lastEdit',
+          source: { by: 'agent', at: '', sessionId: S2, status: 'deleted' },
+        },
+        { label: 'settings.memory.source.lastEdit', source: { by: 'user', at: '' } },
+        { label: 'settings.memory.source.origin', source: undefined },
+      ]),
+    ).toEqual([S1]);
+    expect(sourceSessionPath({ id: S1, workspaceId: 'ws_1' as never })).toBe(
+      '/workspace/ws_1/session/ses_1',
+    );
+    expect(sourceSessionPath({ id: S2, workspaceId: 'ws_1' as never, parentSessionId: S1 })).toBe(
+      '/workspace/ws_1/session/ses_1/agent/ses_2',
+    );
   });
 });

@@ -10,6 +10,7 @@ import type {
   BoardTask,
   Environment,
   MemoryNote,
+  MemorySource,
   MemorySummary,
   PendingMessage,
   PromptSuggestion,
@@ -1069,6 +1070,12 @@ const memorySummary: MemorySummary = {
 const memoryNote: MemoryNote = {
   ...memorySummary,
   content: 'Compute discounts in integer cents and round once.\nWhy: the user corrected this.',
+};
+/** 0.58.0：Agent 在一个回合里存下、之后用户在设置里改过的笔记。 */
+const memorySourced: MemoryNote = {
+  ...memoryNote,
+  origin: { by: 'agent', at: TS, sessionId: ids.session, turnId: ids.turn, seq: 12 },
+  lastEdit: { by: 'user', at: TS },
 };
 
 export const methodSamples: MethodSamples = {
@@ -2743,9 +2750,25 @@ export const methodSamples: MethodSamples = {
           unreadable: [{ scope: 'project', name: 'broken-note' }],
         },
         { notes: [{ ...memorySummary, updatedAt: '' }], unreadable: [] },
+        {
+          notes: [
+            {
+              ...memorySummary,
+              origin: { by: 'agent', at: TS, sessionId: ids.session, seq: 3 },
+              lastEdit: { by: 'agent', at: '', sessionId: ids.childSession },
+            },
+          ],
+          unreadable: [],
+        },
       ],
       invalid: [
         { notes: [] },
+        { notes: [{ ...memorySummary, origin: { at: TS } }], unreadable: [] },
+        { notes: [{ ...memorySummary, origin: { by: 'model', at: TS } }], unreadable: [] },
+        {
+          notes: [{ ...memorySummary, origin: { by: 'agent', at: TS, sessionId: 'abc' } }],
+          unreadable: [],
+        },
         { notes: [{ ...memorySummary, type: 'secret' }], unreadable: [] },
         { notes: [{ ...memorySummary, name: 'Bad Name' }], unreadable: [] },
         { notes: [{ ...memorySummary, revision: '' }], unreadable: [] },
@@ -2761,8 +2784,33 @@ export const methodSamples: MethodSamples = {
       invalid: [{ scope: 'team', name: 'x' }, { scope: 'global', name: '-x' }, { scope: 'global' }],
     },
     result: {
-      valid: [{ note: memoryNote }],
-      invalid: [{ note: memorySummary }, {}],
+      valid: [
+        { note: memoryNote },
+        {
+          note: {
+            ...memorySourced,
+            origin: { ...(memorySourced.origin as MemorySource), status: 'withdrawn' },
+          },
+        },
+        {
+          note: {
+            ...memorySourced,
+            origin: { ...(memorySourced.origin as MemorySource), status: 'deleted' },
+            lastEdit: { by: 'agent', at: TS, sessionId: ids.childSession, status: 'available' },
+          },
+        },
+      ],
+      invalid: [
+        { note: memorySummary },
+        {},
+        {
+          note: {
+            ...memorySourced,
+            origin: { ...(memorySourced.origin as MemorySource), status: 'gone' },
+          },
+        },
+        { note: { ...memorySourced, lastEdit: { by: 'user', at: TS, seq: 0 } } },
+      ],
     },
   },
   'memory.update': {
@@ -2785,7 +2833,7 @@ export const methodSamples: MethodSamples = {
       ],
     },
     result: {
-      valid: [{ note: memoryNote }, { note: memoryNote, conflict: true }],
+      valid: [{ note: memoryNote }, { note: memoryNote, conflict: true }, { note: memorySourced }],
       invalid: [{ note: memoryNote, conflict: false }, {}],
     },
   },

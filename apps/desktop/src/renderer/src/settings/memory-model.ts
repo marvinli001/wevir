@@ -1,15 +1,20 @@
-// 设置 → 记忆（0.57.0）的纯逻辑：默认看哪个项目、列表按范围拆开、编辑框的草稿与冲突。界面在 memory-settings.tsx。
+// 设置 → 记忆（0.57.0）的纯逻辑：默认看哪个项目、列表按范围拆开、编辑框的草稿与冲突、详情里的来源（0.58.0）。界面在
+// memory-settings.tsx。
 
 import type {
   HostSettings,
   MemoryNote,
   MemoryScope,
+  MemorySource,
   MemorySummary,
   MemoryType,
   MethodResult,
+  Session,
+  SessionId,
 } from '@wevir/protocol';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import type { PlainMessageKey } from '@/i18n';
+import { paths } from '@/routes/paths';
 
 /** 自动记忆开着没有：旧 Host 的设置里没有这一项，当作开着。 */
 export function autoMemoryOn(settings: Pick<HostSettings, 'autoMemory'>): boolean {
@@ -93,4 +98,46 @@ export function updatePatch(
     }),
     ...(draft.content.trim() !== note.content.trim() && { content: draft.content }),
   };
+}
+
+/** 详情里“来源”的一行：首次保存（没有记录时 `source` 是 `undefined`），以及与它不同的最近修改。 */
+export interface MemorySourceRow {
+  label: PlainMessageKey;
+  source: MemorySource | undefined;
+}
+
+const sameWrite = (a: MemorySource, b: MemorySource) =>
+  a.by === b.by && a.at === b.at && a.sessionId === b.sessionId && a.turnId === b.turnId;
+
+/** “来源”的几行：首次保存总在（旧笔记显示未记录）；最近修改与首次保存是同一次写入时不重复列。 */
+export function memorySourceRows(
+  note: Pick<MemorySummary, 'origin' | 'lastEdit'>,
+): MemorySourceRow[] {
+  const rows: MemorySourceRow[] = [{ label: 'settings.memory.source.origin', source: note.origin }];
+  if (
+    note.lastEdit !== undefined &&
+    (note.origin === undefined || !sameWrite(note.origin, note.lastEdit))
+  ) {
+    rows.push({ label: 'settings.memory.source.lastEdit', source: note.lastEdit });
+  }
+  return rows;
+}
+
+/** 要取标题的来源会话：Agent 写的、有会话、Host 没说已删除的，去重。 */
+export function sourceSessions(rows: readonly MemorySourceRow[]): SessionId[] {
+  const ids = rows.flatMap(({ source }) =>
+    source?.by === 'agent' && source.sessionId !== undefined && source.status !== 'deleted'
+      ? [source.sessionId]
+      : [],
+  );
+  return [...new Set(ids)];
+}
+
+/** 打开来源会话的路由：子会话在父会话的“子智能体”窗格里打开。 */
+export function sourceSessionPath(
+  session: Pick<Session, 'id' | 'workspaceId' | 'parentSessionId'>,
+): string {
+  return session.parentSessionId === undefined
+    ? paths.session(session.workspaceId, session.id)
+    : paths.agent(session.workspaceId, session.parentSessionId, session.id);
 }

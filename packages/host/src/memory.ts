@@ -7,6 +7,11 @@
 // 也不能用同名保存把它换掉；用户改动带着读到的版本（文件内容的散列），中间被 Agent 或别的窗口改过就不写。认不出的 frontmatter
 // 字段改写时原样留着（新版本加的字段不会被旧逻辑丢掉）。
 //
+// 来源（0.58.0）：每次写入记下谁写的。Agent 保存时由 Host 从调工具的会话填上会话、进行中的回合与最后一个事件（`created-*` 是第一次
+// 写下的，`updated-*` 是最近一次改写的），用户在设置里改时记 `updated-by: user`；之前存的笔记没有这些字段，不补造。Agent 改写或删除
+// 别人（用户或别的会话）写的笔记要带着读到的版本，否则当作冲突：不会悄悄覆盖用户刚改的内容。来源只说明在哪写下，不说明内容属实；
+// 文件的修改时间不参与任何判断。
+//
 // 布局：`<数据目录>/memory/global/<名字>.md`，`<数据目录>/memory/projects/<工作区 ID>/<名字>.md`。
 
 import { createHash, randomBytes } from 'node:crypto';
@@ -17,7 +22,11 @@ import {
   MEMORY_DESCRIPTION_MAX,
   MEMORY_MAX_PER_SCOPE,
   MemoryScopeSchema,
+  MemorySourceSchema,
   MemoryTypeSchema,
+  type MemorySource as ProtocolMemorySource,
+  type SessionId,
+  type TurnId,
 } from '@wevir/protocol';
 
 export { MEMORY_CONTENT_MAX_BYTES, MEMORY_DESCRIPTION_MAX, MEMORY_MAX_PER_SCOPE };
@@ -43,18 +52,41 @@ export interface MemoryNote {
   enabled: boolean;
   /** 这一版的标识：文件内容的散列，文件每次改动都会变。 */
   revision: string;
+  /** 第一次写下的来源；0.58.0 之前存的笔记没有。 */
+  origin?: MemorySource;
+  /** 最近一次改写的来源；没有记录时省略。 */
+  lastEdit?: MemorySource;
+}
+
+/** 一次写入的来源（Host 填写，见文件头）。线缆上 `memory.read` 另加 `status`。 */
+export type MemorySource = Omit<ProtocolMemorySource, 'status'>;
+
+/** Agent 保存或删除时的调用方：调工具的会话，加上当时进行中的回合与会话最后一个事件。 */
+export interface MemoryAgentWriter {
+  sessionId: SessionId;
+  turnId?: TurnId;
+  seq?: number;
 }
 
 export type MemorySummary = Omit<MemoryNote, 'content'>;
 
-export type MemoryErrorCode = 'invalid' | 'not_found' | 'limit' | 'no_project' | 'disabled';
+export type MemoryErrorCode =
+  | 'invalid'
+  | 'not_found'
+  | 'limit'
+  | 'no_project'
+  | 'disabled'
+  | 'conflict';
 
-/** 参数不合规、找不到、超出上限：消息给模型看，写得能让它改正。 */
+/** 参数不合规、找不到、超出上限、版本冲突：消息给模型看，写得能让它改正。 */
 export class MemoryError extends Error {
   readonly code: MemoryErrorCode;
-  constructor(code: MemoryErrorCode, message: string) {
+  /** `conflict` 时现在的版本；笔记已被删掉时没有。 */
+  readonly current: MemoryNote | undefined;
+  constructor(code: MemoryErrorCode, message: string, current?: MemoryNote) {
     super(message);
     this.code = code;
+    this.current = current;
   }
 }
 
@@ -72,6 +104,17 @@ export interface MemorySaveInput {
   type: MemoryType;
   description: string;
   content: string;
+}
+
+/** Agent 保存的条件（0.58.0）。 */
+export interface MemorySaveOptions {
+  /** 调工具的会话（Host 填）；省略时不记来源（测试与旧调用方）。 */
+  writer?: MemoryAgentWriter;
+  /**
+   * 基于的版本：给了就必须等于现在的版本，笔记在那之后被改过或删掉都是 `conflict`。没给且笔记已存在时，只有没有来源记录的旧笔记和
+   * 同一个会话自己最近写的才能直接覆盖，别人写的是 `conflict`（要先读）。
+   */
+  revision?: string;
 }
 
 /** 用户改一条笔记时给出的字段。 */
@@ -164,25 +207,48 @@ export class MemoryStore {
     scope: MemoryScope,
     workspaceId: string | undefined,
     input: MemorySaveInput,
+    options: MemorySaveOptions = {},
   ): Promise<{ note: MemoryNote; created: boolean }> {
     const name = checkName(input.name);
     const fields = checkFields(input);
     const dir = this.#dir(scope, workspaceId);
     const result = await this.#exclusive(dir, async () => {
       const existing = await this.#load(scope, workspaceId, name);
+      // 停用的先挡：带不带版本都不能借保存把它换回来。
       if (existing.kind === 'note' && !existing.note.enabled) {
         throw new MemoryError(
           'disabled',
           `The user turned off the ${scope} note "${name}" in Wevir settings, so it cannot be saved again. Do not save the same fact under another name; if this is a different fact, use a different name.`,
         );
       }
+      if (existing.kind === 'missing' && options.revision !== undefined) {
+        throw new MemoryError(
+          'conflict',
+          `The ${scope} note "${name}" was deleted after this session read it. Save it again only if the fact still holds.`,
+        );
+      }
+      if (existing.kind === 'note') {
+        const conflict = writeConflict(existing.note, options.revision, options.writer);
+        if (conflict !== undefined) throw conflict;
+      }
       if (existing.kind === 'missing') await this.#checkRoom(dir, scope);
+      const at = this.#now().toISOString();
+      const source: MemorySource | undefined =
+        options.writer === undefined ? undefined : { by: 'agent', at, ...options.writer };
+      const origin =
+        existing.kind === 'note'
+          ? existing.note.origin
+          : existing.kind === 'missing'
+            ? source
+            : undefined;
       const note = await this.#write(dir, {
         scope,
         name,
         ...fields,
-        updatedAt: this.#now().toISOString(),
+        updatedAt: at,
         enabled: true,
+        ...(origin !== undefined && { origin }),
+        ...(source !== undefined && { lastEdit: source }),
         extra: existing.kind === 'note' ? existing.note.extra : [],
       });
       return { note, created: existing.kind === 'missing' };
@@ -222,11 +288,13 @@ export class MemoryStore {
         return { note: publicNote(current) };
       }
       changed = true;
+      const at = this.#now().toISOString();
       return {
         note: await this.#write(dir, {
           ...current,
           ...fields,
-          updatedAt: this.#now().toISOString(),
+          updatedAt: at,
+          lastEdit: { by: 'user', at },
         }),
       };
     });
@@ -256,13 +324,13 @@ export class MemoryStore {
 
   /**
    * 删一条。Agent 删不到停用的（看不到它们）；用户管理时给 `includeDisabled`，可带 `revision`：文件在那之后变过就不删，返回现在的
-   * 版本。读不出来的文件（没有版本）照样能删。
+   * 版本。Agent 删除给 `writer`，版本规则同 `save`（别人写的要带版本）。读不出来的文件（没有版本）照样能删。
    */
   async delete(
     scope: MemoryScope,
     workspaceId: string | undefined,
     name: string,
-    options: { includeDisabled?: boolean; revision?: string } = {},
+    options: { includeDisabled?: boolean; revision?: string; writer?: MemoryAgentWriter } = {},
   ): Promise<{ conflict?: MemoryNote }> {
     const dir = this.#dir(scope, workspaceId);
     const file = join(dir, `${checkName(name)}.md`);
@@ -271,7 +339,7 @@ export class MemoryStore {
       if (loaded.kind === 'missing') throw notFound(scope, name);
       if (loaded.kind === 'note') {
         if (!loaded.note.enabled && options.includeDisabled !== true) throw notFound(scope, name);
-        if (options.revision !== undefined && loaded.note.revision !== options.revision) {
+        if (writeConflict(loaded.note, options.revision, options.writer) !== undefined) {
           return { conflict: publicNote(loaded.note) };
         }
       }
@@ -410,6 +478,41 @@ const isNoteFile = (file: string) =>
 const notFound = (scope: MemoryScope, name: string) =>
   new MemoryError('not_found', `No ${scope} memory named "${name}". Use wevir_memory_list.`);
 
+/**
+ * Agent 写入（保存或删除）现有笔记的版本检查：给了版本就要相同；没给版本时，有来源记录、而且最近不是这个会话写的（用户改过，或别的
+ * 会话存的）就不让直接覆盖。没有调用方（`writer`）也没给版本时不检查（用户管理与旧调用方）。返回冲突的错误，没有冲突时 `undefined`。
+ */
+function writeConflict(
+  note: StoredNote,
+  revision: string | undefined,
+  writer: MemoryAgentWriter | undefined,
+): MemoryError | undefined {
+  const by =
+    note.lastEdit === undefined
+      ? 'someone'
+      : note.lastEdit.by === 'user'
+        ? 'the user in Wevir settings'
+        : note.lastEdit.sessionId === writer?.sessionId
+          ? 'this session'
+          : 'another session';
+  if (revision !== undefined) {
+    if (note.revision === revision) return undefined;
+    return new MemoryError(
+      'conflict',
+      `The ${note.scope} note "${note.name}" changed after this session read it (last saved by ${by}). Read it again with wevir_memory_read, merge your change into the current text, and try again.`,
+      publicNote(note),
+    );
+  }
+  if (writer === undefined || note.lastEdit === undefined) return undefined;
+  if (note.lastEdit.by === 'agent' && note.lastEdit.sessionId === writer.sessionId)
+    return undefined;
+  return new MemoryError(
+    'conflict',
+    `The ${note.scope} note "${note.name}" was last saved by ${by}. Read it with wevir_memory_read first, then try again with your change merged into its current text, so you do not overwrite their version.`,
+    publicNote(note),
+  );
+}
+
 const revisionOf = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 16);
 
 function publicNote({ extra: _extra, ...note }: StoredNote): MemoryNote {
@@ -477,7 +580,53 @@ async function readOrUndefined(file: string): Promise<string | undefined> {
 }
 
 /** frontmatter 里 Host 自己写的字段；其余的原样留着。 */
-const KNOWN_FIELDS = new Set(['name', 'description', 'type', 'updated', 'disabled']);
+const SOURCE_FIELDS = ['by', 'session', 'turn', 'seq'] as const;
+const KNOWN_FIELDS = new Set([
+  'name',
+  'description',
+  'type',
+  'updated',
+  'disabled',
+  'created',
+  ...SOURCE_FIELDS.flatMap((field) => [`created-${field}`, `updated-${field}`]),
+]);
+
+/** 来源写成的 frontmatter 行：`<前缀>` 是时刻，`<前缀>-by` 等是其余字段。 */
+function sourceLines(prefix: 'created' | 'updated', source: MemorySource | undefined): string[] {
+  if (source === undefined) return [];
+  return [
+    ...(prefix === 'created' ? [`created: ${source.at}`] : []),
+    `${prefix}-by: ${source.by}`,
+    ...(source.sessionId === undefined ? [] : [`${prefix}-session: ${source.sessionId}`]),
+    ...(source.turnId === undefined ? [] : [`${prefix}-turn: ${source.turnId}`]),
+    ...(source.seq === undefined ? [] : [`${prefix}-seq: ${source.seq}`]),
+  ];
+}
+
+/** 读回来源；没有 `<前缀>-by` 就是没有记录。手改坏的会话、回合或序号丢掉那一项，不让坏值进到线缆上。 */
+function parseSource(
+  fields: ReadonlyMap<string, string>,
+  prefix: 'created' | 'updated',
+): MemorySource | undefined {
+  const by = fields.get(`${prefix}-by`);
+  if (by !== 'agent' && by !== 'user') return undefined;
+  const seq = Number(fields.get(`${prefix}-seq`));
+  const candidate = {
+    by,
+    at: fields.get(prefix) ?? '',
+    sessionId: fields.get(`${prefix}-session`),
+    turnId: fields.get(`${prefix}-turn`),
+    seq: Number.isInteger(seq) ? seq : undefined,
+  };
+  const source: MemorySource = { by, at: candidate.at };
+  for (const key of ['sessionId', 'turnId', 'seq'] as const) {
+    const value = candidate[key];
+    if (value === undefined) continue;
+    const checked = MemorySourceSchema.safeParse({ by, at: candidate.at, [key]: value });
+    if (checked.success) Object.assign(source, { [key]: value });
+  }
+  return source;
+}
 
 function renderNote(note: Omit<StoredNote, 'revision'>): string {
   return [
@@ -485,7 +634,9 @@ function renderNote(note: Omit<StoredNote, 'revision'>): string {
     `name: ${note.name}`,
     `description: ${note.description}`,
     `type: ${note.type}`,
+    ...sourceLines('created', note.origin),
     `updated: ${note.updatedAt}`,
+    ...sourceLines('updated', note.lastEdit),
     ...(note.enabled ? [] : ['disabled: true']),
     ...note.extra.map(([key, value]) => `${key}: ${value}`),
     '---',
@@ -513,6 +664,8 @@ function parseNote(scope: MemoryScope, name: string, text: string): StoredNote |
   const description = fields.get('description');
   if (type === undefined || !(MEMORY_TYPES as readonly string[]).includes(type)) return undefined;
   if (description === undefined || description === '') return undefined;
+  const origin = parseSource(fields, 'created');
+  const lastEdit = parseSource(fields, 'updated');
   return {
     scope,
     name,
@@ -522,6 +675,8 @@ function parseNote(scope: MemoryScope, name: string, text: string): StoredNote |
     updatedAt: fields.get('updated') ?? '',
     enabled: fields.get('disabled') !== 'true',
     revision: revisionOf(text),
+    ...(origin !== undefined && { origin }),
+    ...(lastEdit !== undefined && { lastEdit }),
     extra,
   };
 }
