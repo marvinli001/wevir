@@ -69,11 +69,13 @@ export interface SessionProjection {
   readonly current?: { readonly providerId: string; readonly engineSessionId: string };
   /**
    * 当前的引擎会话的上下文里有会话到哪个 `seq` 为止的内容：每个回合结束（`turn.finished`）推到那条事件，接力摘要还没交出去
-   * 时只有以 `interrupted` 以外的结局结束的回合才算（那时摘要随回合交出去了）。
+   * 时只有以 `interrupted` 以外的结局结束、不是由命令开始的回合才算（那时摘要随回合交出去了）。
    */
   readonly currentSeen: number;
   /** 还没随消息交给当前引擎的接力摘要（最近一次 `session.handoff` 的 `context`）。 */
   readonly handoffContext?: string;
+  /** 进行中的回合由命令开始（`turn.started` 带 `command`）：它不带接力摘要，结束时摘要仍没交出去。 */
+  readonly commandTurnId?: TurnId;
   /** 仍是 `pending` 的审批，按请求先后排列。 */
   readonly pendingApprovals: readonly ApprovalRequest[];
   /** 最近一次 `todo.updated`。 */
@@ -339,6 +341,7 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
           : undefined;
       if (clientMessageId !== undefined) activeTurn.clientMessageId = clientMessageId;
       next.activeTurn = activeTurn;
+      next.commandTurnId = event.payload.command === undefined ? undefined : turnId;
       if (projection.subagent !== undefined) {
         const { endedAt: _ended, ...rest } = projection.subagent;
         next.subagent = { ...rest, status: 'running' };
@@ -348,10 +351,16 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
     case 'turn.finished':
       if (projection.activeTurn?.turnId === event.payload.turnId) next.activeTurn = undefined;
       // 接力摘要随这个回合的消息交出去了；回合在引擎那边没开始（`interrupted`）时下一条消息再带。
-      if (projection.handoffContext === undefined || event.payload.outcome !== 'interrupted') {
+      // 由命令开始的回合（压缩、审查）没带摘要，摘要留给下一条消息。
+      if (
+        projection.handoffContext === undefined ||
+        (event.payload.outcome !== 'interrupted' &&
+          projection.commandTurnId !== event.payload.turnId)
+      ) {
         next.currentSeen = event.seq;
         next.handoffContext = undefined;
       }
+      if (projection.commandTurnId === event.payload.turnId) next.commandTurnId = undefined;
       if (projection.subagent !== undefined) {
         next.subagent = {
           ...projection.subagent,

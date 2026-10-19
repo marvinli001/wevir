@@ -152,6 +152,29 @@ describe('接力（SessionManager）', () => {
     expect(lastAnswer(env, sessionId)).not.toContain('Context handoff');
   });
 
+  it('接力后先压缩：压缩的回合不带摘要，摘要留给下一条消息', async () => {
+    const env = setup();
+    const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+    const sessionId = id as SessionId;
+    await turn(env, sessionId, '第一句');
+    await env.manager.configure({ sessionId, providerId: 'claude' });
+    const { turnId } = await env.manager.compact(sessionId);
+    await vi.waitFor(() =>
+      expect(
+        env.events
+          .readSince(sessionId, 0)
+          .some((event) => event.type === 'turn.finished' && event.payload.turnId === turnId),
+      ).toBe(true),
+    );
+    expect(env.events.handoffState(sessionId)).toMatchObject({
+      currentSeen: 0,
+      context: expect.stringContaining('Context handoff'),
+    });
+    await turn(env, sessionId, '接着来');
+    expect(lastAnswer(env, sessionId)).toContain('Context handoff (full_thread_summary)');
+    expect(env.events.handoffState(sessionId)?.context).toBeUndefined();
+  });
+
   it('出错的会话可以接力：转回 idle；原来的引擎会话关掉', async () => {
     const env = setup();
     const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
