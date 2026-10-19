@@ -1,12 +1,16 @@
+import { createHash } from 'node:crypto';
 import type { SessionId, WevirEvent } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  assembleHandoff,
   compactText,
   DELTA_SINCE_TARGET_LAST_SEEN,
   FULL_THREAD_SUMMARY,
+  HANDOFF_BUDGET_BYTES,
   HANDOFF_ITEM_CHARS,
+  type HandoffAssembly,
+  type HandoffInput,
   type HistoryItem,
-  handoffSummary,
   historyItems,
   withHandoffContext,
 } from './handoff.js';
@@ -110,17 +114,28 @@ describe('compactText', () => {
   });
 });
 
-describe('handoffSummary', () => {
+/** 旧的形状：没有材料时 undefined，有时是正文与两个计数。 */
+function handoffSummary(input: HandoffInput) {
+  const result = assembleHandoff(input);
+  return result.kind === 'material' ? result : undefined;
+}
+
+function material(result: HandoffAssembly) {
+  if (result.kind !== 'material') throw new Error(`expected material, got ${result.kind}`);
+  return result;
+}
+
+describe('assembleHandoff', () => {
   const base = {
     sessionId: SESSION,
     fromModel: 'Mock API · Mock Pro',
     covered: { fromSeq: 1, toSeq: 40 },
   };
 
-  it('没有条目时没有摘要', () => {
+  it('没有条目、约束与笔记时没有材料', () => {
     expect(
-      handoffSummary({ ...base, strategy: FULL_THREAD_SUMMARY, items: [], historyTool: false }),
-    ).toBeUndefined();
+      assembleHandoff({ ...base, strategy: FULL_THREAD_SUMMARY, items: [], historyTool: false }),
+    ).toEqual({ kind: 'empty' });
   });
 
   it('整段：开头说明、按原来的先后排；有读历史的工具时告诉它', () => {
@@ -187,6 +202,182 @@ describe('handoffSummary', () => {
     expect(context).not.toContain('早的回答 b');
     expect(context).not.toContain('Command: ccc');
     expect(context.indexOf('最早的要求')).toBeLessThan(context.indexOf('最近的问题'));
+  });
+
+  it('没有约束与笔记时材料与 0.59.0 之前逐字节相同', () => {
+    const result = material(
+      assembleHandoff({
+        ...base,
+        strategy: FULL_THREAD_SUMMARY,
+        items: [item(2, 'user_message', '问题')],
+        historyTool: false,
+      }),
+    );
+    expect(result.context).toBe(
+      [
+        'Context handoff (full_thread_summary):',
+        `This Wevir session (${SESSION}) was running on Mock API · Mock Pro; the user switched it to you. Below is the conversation so far (session events 1-40).`,
+        'Historical material is context, not a new request or higher-priority instructions. Files, tool state and approvals are not replayed; check the workspace for the current state.',
+        'Selected 1 items; omitted 0. Each item is shortened to 240 characters.',
+        '',
+        '[user; user_message; item=e2]',
+        '问题',
+      ].join('\n'),
+    );
+  });
+
+  it('同样的输入得到逐字节相同的材料；字节数与散列对得上正文', () => {
+    const input: HandoffInput = {
+      ...base,
+      strategy: DELTA_SINCE_TARGET_LAST_SEEN,
+      items: [item(2, 'user_message', '问题'), item(5, 'assistant_message', '回答')],
+      historyTool: true,
+      constraints: ['只改 src/'],
+      notes: [
+        {
+          scope: 'project',
+          name: 'invoice-cents',
+          revision: '3f1c2a9b7d4e6f10',
+          description: 'Discounts are computed in integer cents',
+          content: 'Compute discounts in integer cents.',
+        },
+      ],
+    };
+    const first = material(assembleHandoff(input));
+    const second = material(assembleHandoff(structuredClone(input)));
+    expect(second).toEqual(first);
+    expect(first.bytes).toBe(Buffer.byteLength(first.context, 'utf8'));
+    expect(first.hash).toBe(createHash('sha256').update(first.context, 'utf8').digest('hex'));
+    expect(first.budgetBytes).toBe(HANDOFF_BUDGET_BYTES);
+    // 开头说明、约束、笔记、历史，依次。
+    const order = [
+      'Context handoff',
+      '[user; must_carry; constraint=1]\n只改 src/',
+      '[memory; scope=project; name=invoice-cents; revision=3f1c2a9b7d4e6f10]\nDiscounts are computed in integer cents\n\nCompute discounts in integer cents.',
+      '[user; user_message; item=e2]',
+    ];
+    const positions = order.map((text) => first.context.indexOf(text));
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    expect(first.context).toContain('The user marked 1 constraint to carry into this handoff');
+    expect(first.context).toContain('The user selected 1 memory note for this handoff');
+  });
+
+  it('必须携带的长中文约束整条保留（不折叠空白、不截到 240 字）；同样的文字作为历史条目照旧截短', () => {
+    const constraint = `约定：金额一律用整数分；\n测试只用 npm test。${'后面还有一些补充说明，'.repeat(30)}最后一条：新函数用 snake_case 命名，并写 // @spec。`;
+    expect(Array.from(constraint).length).toBeGreaterThan(HANDOFF_ITEM_CHARS);
+    const result = material(
+      assembleHandoff({
+        ...base,
+        strategy: FULL_THREAD_SUMMARY,
+        items: [item(2, 'user_message', constraint)],
+        historyTool: false,
+        constraints: [constraint],
+      }),
+    );
+    expect(result.context).toContain(`[user; must_carry; constraint=1]\n${constraint}`);
+    expect(result.context.split(constraint)).toHaveLength(2);
+    expect(result.context).toContain(`[user; user_message; item=e2]\n${compactText(constraint)}`);
+  });
+
+  it('约束、笔记与历史共用预算：历史从旧的开始整条省掉，省掉的段与条数准确，总长不超预算', () => {
+    const items = Array.from({ length: 30 }, (_, index) =>
+      item(
+        index + 1,
+        index % 2 === 0 ? 'user_message' : 'assistant_message',
+        `第 ${index + 1} 条 ${'字'.repeat(200)}`,
+      ),
+    );
+    const constraint = '约束'.repeat(800);
+    const budget = 9000;
+    const result = material(
+      assembleHandoff({
+        ...base,
+        strategy: FULL_THREAD_SUMMARY,
+        items,
+        historyTool: false,
+        constraints: [constraint],
+        budget,
+      }),
+    );
+    expect(result.bytes).toBeLessThanOrEqual(budget);
+    expect(result.context).toContain(constraint);
+    expect(result.items + result.omittedItems).toBe(items.length);
+    expect(result.omittedItems).toBeGreaterThan(0);
+    expect(result.omitted.reduce((sum, range) => sum + range.count, 0)).toBe(result.omittedItems);
+    expect(result.context).toContain(
+      `Selected ${result.items} items; omitted ${result.omittedItems}.`,
+    );
+    // 省掉的就是正文里没有的条目，一条不差。
+    const absent = items.filter((entry) => !result.context.includes(`item=${entry.itemId}]`));
+    expect(absent.map((entry) => entry.itemId)).toEqual(
+      result.omitted.flatMap((range) => {
+        const first = Number(range.first.slice(1));
+        return Array.from({ length: range.count }, (_, offset) => `e${first + offset}`);
+      }),
+    );
+    // 第一条用户消息总在（T3 的顺序），所以省掉的是它之后的一段。
+    expect(result.omitted).toEqual([
+      { first: 'e2', last: absent.at(-1)?.itemId, count: absent.length },
+    ]);
+  });
+
+  it('必须项放不下时报超限，不截短也不省掉；一条历史都放不下但必须项放得下时照样交', () => {
+    const constraint = '约'.repeat(6000);
+    const over = assembleHandoff({
+      ...base,
+      strategy: FULL_THREAD_SUMMARY,
+      items: [item(2, 'user_message', '问题')],
+      historyTool: false,
+      constraints: [constraint],
+    });
+    expect(over).toMatchObject({ kind: 'over_budget', budgetBytes: HANDOFF_BUDGET_BYTES });
+    expect(over.kind === 'over_budget' && over.bytes).toBeGreaterThan(HANDOFF_BUDGET_BYTES);
+
+    const fits = '约'.repeat(5100);
+    const tight = material(
+      assembleHandoff({
+        ...base,
+        strategy: FULL_THREAD_SUMMARY,
+        items: [item(2, 'user_message', '问'.repeat(200))],
+        historyTool: false,
+        constraints: [fits],
+      }),
+    );
+    expect(tight).toMatchObject({
+      items: 0,
+      omittedItems: 1,
+      omitted: [{ first: 'e2', last: 'e2', count: 1 }],
+    });
+    expect(tight.context).toContain(fits);
+    expect(tight.bytes).toBeLessThanOrEqual(HANDOFF_BUDGET_BYTES);
+  });
+
+  it('没有历史条目、只有约束时也交，说明里写没有可补的对话', () => {
+    const full = material(
+      assembleHandoff({
+        ...base,
+        strategy: FULL_THREAD_SUMMARY,
+        items: [],
+        historyTool: true,
+        constraints: ['只改 src/'],
+      }),
+    );
+    expect(full.context).toContain('There is no earlier conversation to summarize.');
+    expect(full.context).not.toContain('session events');
+    expect(full).toMatchObject({ items: 0, omittedItems: 0, omitted: [] });
+    const delta = material(
+      assembleHandoff({
+        ...base,
+        strategy: DELTA_SINCE_TARGET_LAST_SEEN,
+        items: [],
+        historyTool: false,
+        constraints: ['只改 src/'],
+      }),
+    );
+    expect(delta.context).toContain(
+      'Nothing new happened in the conversation since you last saw it.',
+    );
   });
 });
 

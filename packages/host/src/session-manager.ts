@@ -14,6 +14,7 @@ import {
   type EngineFeatures,
   type EnvironmentId,
   type FilesRestore,
+  type HandoffMaterialRequest,
   IMAGE_MAX_PER_MESSAGE,
   type MessageFrom,
   type MethodParams,
@@ -97,14 +98,17 @@ import {
   WorktreeError,
 } from './git-worktree.js';
 import {
+  assembleHandoff,
   DELTA_SINCE_TARGET_LAST_SEEN,
   FULL_THREAD_SUMMARY,
-  handoffSummary,
+  type HandoffAssembly,
+  type HandoffNote,
   historyItems,
   withHandoffContext,
 } from './handoff.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import { MemoryError, type MemoryStore } from './memory.js';
 import {
   parseSuggestion,
   SUGGESTION_EVENT_WINDOW,
@@ -198,6 +202,10 @@ export interface SessionManagerOptions {
    * `<会话 ID>.json`。没给时不写，摘要里也不提这个工具。
    */
   historyDir?: string;
+  /** 接力时用户选入的记忆笔记从这里读（0.59.0）。没给时不能选笔记。 */
+  memory?: Pick<MemoryStore, 'read'>;
+  /** Host 设置的 `autoMemory`（0.57.0）：返回 false 时接力不能选笔记。省略当作开着。 */
+  memoryEnabled?: () => boolean;
   /** 大输出与后台进程的日志（tool-output.ts，`<数据目录>/tool-output`）：删除会话时随会话删，存储页算进会话的文件。 */
   toolOutputDir?: string;
   /**
@@ -309,6 +317,53 @@ interface SessionRuntime {
 
 const ACTIVE_STATES: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
 
+/** 用户为一次接力选的材料（0.59.0）：必须携带的约束与读好的笔记。 */
+interface HandoffExtras {
+  constraints: readonly string[];
+  notes: readonly HandoffNote[];
+}
+
+/** 一次接力的材料与怎么算出来的（0.59.0，`#handoffPlan`）。 */
+interface HandoffPlan {
+  /** 按接着用这个来源以前的引擎会话算的。 */
+  resumed: boolean;
+  strategy: typeof FULL_THREAD_SUMMARY | typeof DELTA_SINCE_TARGET_LAST_SEEN;
+  /** 材料算到的事件（会话此刻的 `lastSeq`）。 */
+  toSeq: number;
+  historyTool: boolean;
+  /** 历史条目覆盖的事件；没有历史条目时省略。 */
+  covered?: { fromSeq: number; toSeq: number };
+  extras: HandoffExtras;
+  assembly: HandoffAssembly;
+}
+
+/** 材料（必须项、笔记与开头说明）放不下（0.59.0）：要用户缩减，不截短、不省掉。 */
+function handoffOverBudget(assembly: { bytes: number; budgetBytes: number }): HostError {
+  const message = `the handoff material is ${assembly.bytes} bytes, over the budget of ${assembly.budgetBytes} bytes; shorten the constraints or select fewer notes`;
+  return new HostError('INVALID_PARAMS', message, { issues: [{ path: ['handoff'], message }] });
+}
+
+/** `session.handoff` 里材料的部分：摘要正文、条目数与递交记录（0.59.0）。没有材料时只有两个 0。 */
+function handoffReceipt(plan: HandoffPlan) {
+  const { assembly, extras } = plan;
+  if (assembly.kind !== 'material') return { items: 0, omittedItems: 0 };
+  return {
+    ...(plan.covered !== undefined && { covered: plan.covered }),
+    context: assembly.context,
+    items: assembly.items,
+    omittedItems: assembly.omittedItems,
+    bytes: assembly.bytes,
+    budgetBytes: assembly.budgetBytes,
+    hash: assembly.hash,
+    ...(assembly.omitted.length > 0 && { omitted: assembly.omitted }),
+    historyTool: plan.historyTool,
+    ...(extras.constraints.length > 0 && { constraints: extras.constraints.length }),
+    ...(extras.notes.length > 0 && {
+      notes: extras.notes.map(({ scope, name, revision }) => ({ scope, name, revision })),
+    }),
+  };
+}
+
 /** 命令开的回合（0.24.0）里的插话改为排队时记下的原因。 */
 /**
  * 分支到新会话时抄过去的事件（0.38.0，`#branchHistory`）：消息记录里的。子会话、建议的任务与它们的结局照抄，指向原会话派出的会话。
@@ -414,6 +469,8 @@ export class SessionManager {
   readonly #checkpoints: TurnCheckpoints | undefined;
   readonly #engineFeatures: Readonly<Record<string, EngineFeatures>> | undefined;
   readonly #historyDir: string | undefined;
+  readonly #memory: SessionManagerOptions['memory'];
+  readonly #memoryEnabled: () => boolean;
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
@@ -430,6 +487,8 @@ export class SessionManager {
    * （`workspaceOf`）、受哪个角色限制（`creating`）。
    */
   readonly #creating = new Map<SessionId, CreatingSession>();
+  /** 接力时恢复失败过的引擎会话（0.59.0）：之后的接力与预览直接按新建算，不再试。只在内存里，Host 重启后重新试。 */
+  readonly #unresumable = new Set<string>();
   /** `dispose` 时完成，让还在等引擎的命令（取消）不再等下去。 */
   readonly #whenDisposed = deferred();
   /** `shutdown()` 开始后为 true：新命令一律 `HOST_SHUTTING_DOWN`，已排队的照常执行。 */
@@ -458,6 +517,8 @@ export class SessionManager {
     this.#checkpoints = options.checkpoints;
     this.#engineFeatures = options.engineFeatures;
     this.#historyDir = options.historyDir;
+    this.#memory = options.memory;
+    this.#memoryEnabled = options.memoryEnabled ?? (() => true);
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#onTurnFinished = options.onTurnFinished;
@@ -1769,13 +1830,10 @@ export class SessionManager {
         throw invalid('providerId', `the engine of ${target.id} has no additional folders`);
       }
       await assertDirectory(record.cwd);
+      // 用户为这次接力选的材料（0.59.0）：先读好笔记，材料放不下时在动原来的引擎会话之前就拒绝。
+      const extras = await this.#handoffExtras(runtime, params.handoff);
       // 子会话跟着原来的引擎：还在跑的先停下（父会话空闲时一般没有）。
       await this.#cancelChildren(runtime, 'turn_cancelled');
-
-      const config: SessionConfig = { cwd: record.cwd, providerId: target.id, modelId };
-      if (reasoningEffort !== undefined) config.reasoningEffort = reasoningEffort;
-      if (permissionMode !== undefined) config.permissionMode = permissionMode;
-      if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
 
       // 当前的引擎会话先放下：之后换回这个来源时再恢复它。
       const from = {
@@ -1783,6 +1841,25 @@ export class SessionManager {
         modelId: session.modelId,
         engineSessionId: runtime.engineSessionId,
       };
+      const previous = this.#events
+        .handoffState(runtime.id)
+        ?.engines?.find((engine) => engine.providerId === target.id);
+      // 这个来源以前的引擎会话恢复过一次失败的，不再试（Host 重启后重新试）。
+      const resumable = previous !== undefined && !this.#unresumable.has(previous.engineSessionId);
+      const plan = this.#handoffPlan(
+        runtime,
+        from,
+        resumable ? previous : undefined,
+        features,
+        extras,
+      );
+      if (plan.assembly.kind === 'over_budget') throw handoffOverBudget(plan.assembly);
+
+      const config: SessionConfig = { cwd: record.cwd, providerId: target.id, modelId };
+      if (reasoningEffort !== undefined) config.reasoningEffort = reasoningEffort;
+      if (permissionMode !== undefined) config.permissionMode = permissionMode;
+      if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
+
       const attachment = runtime.attachment;
       if (attachment) {
         attachment.detached = true;
@@ -1795,10 +1872,8 @@ export class SessionManager {
         this.#detach(runtime);
       }
 
-      const state = this.#events.handoffState(runtime.id);
-      const previous = state?.engines?.find((engine) => engine.providerId === target.id);
       let engine: EngineSession | undefined;
-      if (previous !== undefined) {
+      if (resumable) {
         try {
           engine = await this.#adapter.resumeSession(
             previous.engineSessionId,
@@ -1806,6 +1881,7 @@ export class SessionManager {
           );
         } catch (error) {
           // 以前的引擎会话恢复不了：新建一个，交给它整段对话。
+          this.#unresumable.add(previous.engineSessionId);
           this.#onWarning('接力时恢复以前的引擎会话失败，改为新建', {
             sessionId: runtime.id,
             providerId: target.id,
@@ -1824,21 +1900,20 @@ export class SessionManager {
         }
       }
 
-      // 摘要：新引擎没看到的那段（第一次用这个来源时是整段对话）。
-      const seen = resumed ? (previous?.seenSeq ?? 0) : 0;
-      const toSeq = this.#snapshot(runtime).session.lastSeq;
+      // 材料：新引擎没看到的那段（第一次用这个来源、或以前的恢复不了时是整段对话），加上用户选的。
+      const final =
+        resumed === plan.resumed
+          ? plan
+          : this.#handoffPlan(runtime, from, undefined, features, extras);
+      if (final.assembly.kind === 'over_budget') {
+        await this.#adapter.close(engine.engineSessionId).catch(() => {});
+        throw handoffOverBudget(final.assembly);
+      }
+      const material = final.assembly.kind === 'material' ? final.assembly : undefined;
       const describe = (provider: string, model: string) => this.#describeModel(provider, model);
-      const items = historyItems(this.#events.readSince(runtime.id, seen), describe);
-      const historyTool = features?.historyTool === true && this.#historyDir !== undefined;
-      const summary = handoffSummary({
-        sessionId: runtime.id,
-        strategy: seen === 0 ? FULL_THREAD_SUMMARY : DELTA_SINCE_TARGET_LAST_SEEN,
-        fromModel: describe(from.providerId, from.modelId),
-        covered: { fromSeq: seen + 1, toSeq },
-        items,
-        historyTool,
-      });
-      if (historyTool && summary !== undefined) this.#writeHistory(runtime.id, toSeq, describe);
+      if (final.historyTool && material !== undefined) {
+        this.#writeHistory(runtime.id, final.toSeq, describe);
+      }
 
       runtime.engineSessionId = engine.engineSessionId;
       const inputs: AppendInput[] = [
@@ -1857,13 +1932,8 @@ export class SessionManager {
             }),
             ...(permissionMode !== undefined && { permissionMode }),
             resumed,
-            strategy: seen === 0 ? FULL_THREAD_SUMMARY : DELTA_SINCE_TARGET_LAST_SEEN,
-            ...(summary !== undefined && {
-              covered: { fromSeq: seen + 1, toSeq },
-              context: summary.context,
-            }),
-            items: summary?.items ?? 0,
-            omittedItems: summary?.omittedItems ?? 0,
+            strategy: final.strategy,
+            ...handoffReceipt(final),
             ...(engine.engineVersion !== undefined && { engineVersion: engine.engineVersion }),
           },
         },
@@ -1878,6 +1948,92 @@ export class SessionManager {
       }
       return this.#snapshot(runtime).session;
     });
+  }
+
+  /**
+   * 接力的材料（0.59.0，预览与正式递交共用）：`previous` 是要接着用的这个来源以前的引擎会话（没有时新建，交整段对话），历史从它
+   * 看到的地方之后读到此刻，再加上用户选的约束与笔记，交给 `assembleHandoff`。同样的输入得到逐字节相同的材料。
+   */
+  #handoffPlan(
+    runtime: SessionRuntime,
+    from: { providerId: string; modelId: string },
+    previous: { seenSeq: number } | undefined,
+    features: EngineFeatures | undefined,
+    extras: HandoffExtras,
+  ): HandoffPlan {
+    const seen = previous?.seenSeq ?? 0;
+    const toSeq = this.#snapshot(runtime).session.lastSeq;
+    const describe = (provider: string, model: string) => this.#describeModel(provider, model);
+    const items = historyItems(this.#events.readSince(runtime.id, seen), describe);
+    const historyTool = features?.historyTool === true && this.#historyDir !== undefined;
+    const strategy = seen === 0 ? FULL_THREAD_SUMMARY : DELTA_SINCE_TARGET_LAST_SEEN;
+    const covered = { fromSeq: seen + 1, toSeq };
+    return {
+      resumed: previous !== undefined,
+      strategy,
+      toSeq,
+      historyTool,
+      ...(items.length > 0 && { covered }),
+      extras,
+      assembly: assembleHandoff({
+        sessionId: runtime.id,
+        strategy,
+        fromModel: describe(from.providerId, from.modelId),
+        covered,
+        items,
+        historyTool,
+        constraints: extras.constraints,
+        notes: extras.notes,
+      }),
+    };
+  }
+
+  /**
+   * 用户为这次接力选的材料（0.59.0）：约束原样；笔记从记忆里读（`project` 是会话所在项目的），要是启用的。自动记忆关着时不能选笔记，
+   * 同一条选两次、找不到、停用的都拒绝。
+   */
+  async #handoffExtras(
+    runtime: SessionRuntime,
+    request: HandoffMaterialRequest | undefined,
+  ): Promise<HandoffExtras> {
+    const constraints = request?.constraints ?? [];
+    const wanted = request?.notes ?? [];
+    if (wanted.length === 0) return { constraints, notes: [] };
+    const refuse = (path: (string | number)[], message: string) =>
+      new HostError('INVALID_PARAMS', message, { issues: [{ path, message }] });
+    const memory = this.#memory;
+    if (memory === undefined || !this.#memoryEnabled()) {
+      throw refuse(
+        ['handoff', 'notes'],
+        'automatic memory is off; notes cannot be added to a handoff',
+      );
+    }
+    const { workspaceId } = this.#record(runtime);
+    const notes: HandoffNote[] = [];
+    for (const [index, ref] of wanted.entries()) {
+      const label = `${ref.scope} note ${ref.name}`;
+      if (notes.some((note) => note.scope === ref.scope && note.name === ref.name)) {
+        throw refuse(['handoff', 'notes', index], `${label} is selected twice`);
+      }
+      const note = await memory
+        .read(ref.scope, ref.scope === 'project' ? workspaceId : undefined, ref.name, {
+          includeDisabled: true,
+        })
+        .catch((error: unknown) => {
+          if (!(error instanceof MemoryError)) throw error;
+          if (error.code === 'not_found') throw new HostError('MEMORY_NOT_FOUND', error.message);
+          throw refuse(['handoff', 'notes', index], error.message);
+        });
+      if (!note.enabled) throw refuse(['handoff', 'notes', index], `${label} is turned off`);
+      notes.push({
+        scope: note.scope,
+        name: note.name,
+        revision: note.revision,
+        description: note.description,
+        content: note.content,
+      });
+    }
+    return { constraints, notes };
   }
 
   /** 一种 Provider 的引擎能做什么（0.25.0）；没给 `engineFeatures` 时只看适配器自己的。 */

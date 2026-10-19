@@ -598,15 +598,24 @@ describe.skipIf(!ENABLED || binary === undefined || process.platform === 'win32'
       ]);
       try {
         const { client, a } = host;
-        const session = await newSession(client, a.id, 'mock-a');
-        await runTurn(client, session, HANDOFF_CONSTRAINTS, 60_000);
-        await client.request('session.configure', { sessionId: session, providerId: 'mock-b' });
-        const before = mock.requests.length;
-        await runTurn(client, session, HANDOFF_TASK, 60_000);
-        const first = agentRequests(mock.requests.slice(before)).find(
-          (request) => request.body.model === 'wevir-mock-b',
-        );
-        section('mock', 'handoff', handoffMaterial(first?.body as Json | undefined));
+        // 一次照原样换来源，一次把这条约定标为必须携带（0.59.0 的 `handoff.constraints`）。
+        const measure = async (handoff?: { constraints: string[] }) => {
+          const session = await newSession(client, a.id, 'mock-a');
+          await runTurn(client, session, HANDOFF_CONSTRAINTS, 60_000);
+          await client.request('session.configure', {
+            sessionId: session,
+            providerId: 'mock-b',
+            ...(handoff !== undefined && { handoff }),
+          });
+          const before = mock.requests.length;
+          await runTurn(client, session, HANDOFF_TASK, 60_000);
+          const first = agentRequests(mock.requests.slice(before)).find(
+            (request) => request.body.model === 'wevir-mock-b',
+          );
+          return handoffMaterial(first?.body as Json | undefined);
+        };
+        section('mock', 'handoff', await measure());
+        section('mock', 'handoffMustCarry', await measure({ constraints: [HANDOFF_CONSTRAINTS] }));
       } finally {
         await host.close();
         await mock.close();
@@ -860,6 +869,7 @@ function handoffMaterial(body: Json | undefined): Json {
     omitted: Number(counts?.[2] ?? 0),
     constraintChars: Array.from(HANDOFF_CONSTRAINTS).length,
     constraintKeptWhole: context.includes(HANDOFF_CONSTRAINTS),
+    mustCarry: context.includes(`[user; must_carry; constraint=1]\n${HANDOFF_CONSTRAINTS}`),
     tailConstraintKept: context.includes(HANDOFF_TAIL_MARKER),
   };
 }

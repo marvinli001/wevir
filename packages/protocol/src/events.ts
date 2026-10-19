@@ -21,6 +21,9 @@ import {
   CompactionTriggerSchema,
   EngineErrorCategorySchema,
   FilesRestoreSchema,
+  HandoffHashSchema,
+  HandoffNoteRefSchema,
+  HandoffOmittedRangeSchema,
   HandoffStrategySchema,
   MessageFromSchema,
   PendingMessageSchema,
@@ -169,6 +172,17 @@ export const EventPayloadSchemas = {
     context: z.string().min(1).optional(),
     /** 建立或恢复 `to` 的引擎版本。适配器不报时省略。 */
     engineVersion: z.string().optional(),
+    /**
+     * 递交记录（0.59.0，有 `context` 时才有）：材料的 UTF-8 字节数、预算与散列，省掉的历史条目是哪几段，新来源能不能用读历史的工具，
+     * 用户标为必须携带的约束有几条（正文在 `context` 里），选入了哪几条笔记、各是哪一版。0.59.0 之前的 Host 不写。
+     */
+    bytes: z.int().min(1).optional(),
+    budgetBytes: z.int().min(1).optional(),
+    hash: HandoffHashSchema.optional(),
+    omitted: z.array(HandoffOmittedRangeSchema).optional(),
+    historyTool: z.boolean().optional(),
+    constraints: z.int().min(1).optional(),
+    notes: z.array(HandoffNoteRefSchema).min(1).optional(),
   }),
   'session.state_changed': z.object({
     from: SessionStateSchema,

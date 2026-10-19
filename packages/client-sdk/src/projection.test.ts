@@ -482,6 +482,50 @@ describe('TranscriptProjection：会话级事件', () => {
     ]);
   });
 
+  it('接力的递交记录（0.59.0）：事件带了才有；historyTool 以事件的字段为准', () => {
+    const { list, add } = events();
+    const payload = {
+      from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'e1' },
+      to: { providerId: 'claude', modelId: 'claude-opus-5-5', engineSessionId: 'e2' },
+      resumed: false,
+      strategy: 'full_thread_summary',
+      covered: { fromSeq: 1, toSeq: 2 },
+      items: 1,
+      omittedItems: 3,
+      context:
+        'Context handoff (full_thread_summary):\nRead the full history with the read_session_history tool',
+    } as const;
+    add('session.handoff', payload);
+    add('session.handoff', {
+      ...payload,
+      bytes: 2336,
+      budgetBytes: 16000,
+      hash: 'a'.repeat(64),
+      omitted: [{ first: 'e2', last: 'e4', count: 3 }],
+      historyTool: false,
+      constraints: 1,
+      notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+    });
+    const notices = projectTranscript(list).messages.flatMap((message) =>
+      message.parts.flatMap((part) =>
+        part.type === 'notice' && part.notice.kind === 'handoff' ? [part.notice] : [],
+      ),
+    );
+    expect(notices[0]?.receipt).toBeUndefined();
+    expect(notices[0]?.historyTool).toBe(true);
+    expect(notices[1]).toMatchObject({
+      historyTool: false,
+      receipt: {
+        bytes: 2336,
+        budgetBytes: 16000,
+        hash: 'a'.repeat(64),
+        omitted: [{ first: 'e2', last: 'e4', count: 3 }],
+        constraints: 1,
+        notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+      },
+    });
+  });
+
   it('接力摘要的递交状态：interrupted 与命令开的回合不算，由消息开始的回合结束才算；没交出去又换来源时失败', () => {
     const { list, add, turn } = events();
     const handoff = (context?: string) =>

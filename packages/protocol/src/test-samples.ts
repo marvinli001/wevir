@@ -688,9 +688,16 @@ export const eventPayloads: PayloadSamples = {
       strategy: 'full_thread_summary',
       covered: { fromSeq: 1, toSeq: 11 },
       items: 2,
-      omittedItems: 0,
+      omittedItems: 1,
       context: 'Context handoff (full_thread_summary):\n…',
       engineVersion: '2.1.0',
+      bytes: 2336,
+      budgetBytes: 16000,
+      hash: '9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a',
+      omitted: [{ first: 'e4', last: 'e4', count: 1 }],
+      historyTool: true,
+      constraints: 1,
+      notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
     },
     invalid: {
       from: { providerId: 'deepseek-official', modelId: 'deepseek-chat', engineSessionId: 'e1' },
@@ -2264,12 +2271,45 @@ export const methodSamples: MethodSamples = {
         { sessionId: ids.session, permissionMode: 'auto_review' },
         { sessionId: ids.session, providerId: 'claude', modelId: 'claude-opus-5-5' },
         { sessionId: ids.session, providerId: 'claude' },
+        // 0.59.0：必须携带的约束与选入的笔记。
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          handoff: {
+            constraints: ['金额一律用整数分；测试只用 npm test，不改 test/ 目录。'],
+            notes: [
+              { scope: 'project', name: 'invoice-cents' },
+              { scope: 'global', name: 'reply-language' },
+            ],
+          },
+        },
       ],
       invalid: [
         { modelId: 'deepseek-v4-pro' },
         { sessionId: ids.session, modelId: '' },
         { sessionId: ids.session, permissionMode: 'ask' },
         { sessionId: ids.session, providerId: 'Claude' },
+        { sessionId: ids.session, providerId: 'claude', handoff: { constraints: ['  '] } },
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          handoff: { constraints: ['x'.repeat(2001)] },
+        },
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          handoff: { notes: [{ scope: 'workspace', name: 'invoice-cents' }] },
+        },
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          handoff: {
+            notes: Array.from({ length: 6 }, (_, index) => ({
+              scope: 'global',
+              name: `n${index}`,
+            })),
+          },
+        },
       ],
     },
     result: {

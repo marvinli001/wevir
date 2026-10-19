@@ -28,6 +28,8 @@ import type {
   CompactionTrigger,
   EngineErrorCategory,
   EngineErrorInfo,
+  HandoffNoteRef,
+  HandoffOmittedRange,
   HandoffStrategy,
   IsoTime,
   MessageFrom,
@@ -103,6 +105,15 @@ export type SessionNotice =
       context?: string;
       /** 新来源能不能用读历史的工具拿全文；没有摘要时省略（这时不需要）。 */
       historyTool?: boolean;
+      /** 递交记录（0.59.0，旧 Host 没有）：材料的字节数、预算与散列，省掉的历史条目，必须携带的约束条数，选入的笔记与版本。 */
+      receipt?: {
+        bytes: number;
+        budgetBytes: number;
+        hash: string;
+        omitted: readonly HandoffOmittedRange[];
+        constraints: number;
+        notes: readonly HandoffNoteRef[];
+      };
       delivery: HandoffDelivery;
     };
 
@@ -370,8 +381,8 @@ interface MutableMessage {
 const EMPTY_APPROVALS: ReadonlyMap<ApprovalId, ApprovalRequest> = new Map();
 
 /**
- * 接力摘要的开头说明里讲读历史工具的那一行（Host 的 `handoff.ts`，0.25.0 起不变）：只在新来源挂了这个工具时写，事件里没有单独的
- * 字段，由它判断。
+ * 接力摘要的开头说明里讲读历史工具的那一行（Host 的 `handoff.ts`，0.25.0 起不变）：只在新来源挂了这个工具时写。0.59.0 起事件里有
+ * `historyTool`，更早的 Host 写的事件由这一行判断。
  */
 const HISTORY_TOOL_LINE = 'Read the full history with the read_session_history tool';
 
@@ -524,6 +535,8 @@ export class TranscriptProjection {
       case 'session.handoff': {
         const { from, to, resumed, strategy, covered, items, omittedItems, context } =
           event.payload;
+        const { bytes, budgetBytes, hash, omitted, constraints, notes, historyTool } =
+          event.payload;
         this.#readOnly = undefined;
         // 上一份摘要还没交出去就又换了来源：它不会再交了。
         this.#setHandoffDelivery({ status: 'failed', reason: 'superseded' });
@@ -540,8 +553,20 @@ export class TranscriptProjection {
           omittedItems,
           ...(context !== undefined && {
             context,
-            historyTool: context.includes(HISTORY_TOOL_LINE),
+            historyTool: historyTool ?? context.includes(HISTORY_TOOL_LINE),
           }),
+          ...(bytes !== undefined &&
+            budgetBytes !== undefined &&
+            hash !== undefined && {
+              receipt: {
+                bytes,
+                budgetBytes,
+                hash,
+                omitted: omitted ?? [],
+                constraints: constraints ?? 0,
+                notes: notes ?? [],
+              },
+            }),
           delivery: context === undefined ? { status: 'none' } : { status: 'prepared' },
         });
         if (context !== undefined) this.#pendingHandoff = `n:${event.seq}`;

@@ -219,6 +219,11 @@ export const HOST_FEATURES = {
    * 停用的 Agent 看不到。与引擎无关。0.58.0 起笔记带来源（`origin` / `lastEdit`），Agent 的保存与删除也按版本检查。
    */
   memory: 'memory',
+  /**
+   * 接力的额外材料（0.59.0，domain-model §3.14）：`session.configure` 的 `handoff`（必须携带的约束、选入的笔记），`session.handoff`
+   * 事件带递交记录（字节数、散列、省掉的条目、笔记的版本）。有 `session_handoff` 时声明。
+   */
+  handoffMaterial: 'handoff_material',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -267,6 +272,7 @@ export const HostFeaturesSchema = z.looseObject({
   chat_sessions: z.boolean().optional(),
   shared_files: z.boolean().optional(),
   memory: z.boolean().optional(),
+  handoff_material: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

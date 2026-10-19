@@ -1058,6 +1058,48 @@ export type SessionRecap = z.infer<typeof SessionRecapSchema>;
 export const HandoffStrategySchema = z.string().min(1);
 export type HandoffStrategy = z.infer<typeof HandoffStrategySchema>;
 
+/** 一次接力里用户标为必须携带的约束最多几条、每条最多多少个字符（0.59.0）。 */
+export const HANDOFF_MAX_CONSTRAINTS = 10;
+export const HANDOFF_CONSTRAINT_MAX_CHARS = 2000;
+/** 一次接力里用户选入的记忆笔记最多几条（0.59.0）。 */
+export const HANDOFF_MAX_NOTES = 5;
+
+/**
+ * 这次接力额外交给新来源的材料（0.59.0，Host 功能 `handoff_material`，domain-model §3.14）：用户标为必须携带的约束原样整条放进
+ * 材料，不截短；用户选入的记忆笔记（启用的，`project` 是会话所在项目的）整条放进材料。两者与历史摘要共用同一个材料预算，连同开头
+ * 说明放不下时 Host 拒绝（`INVALID_PARAMS`），不截短、不省掉。Host 设置的 `autoMemory` 关着时不能选笔记。
+ */
+export const HandoffMaterialRequestSchema = z.object({
+  constraints: z
+    .array(z.string().trim().min(1).max(HANDOFF_CONSTRAINT_MAX_CHARS))
+    .max(HANDOFF_MAX_CONSTRAINTS)
+    .optional(),
+  notes: z
+    .array(z.object({ scope: MemoryScopeSchema, name: MemoryNameSchema }))
+    .max(HANDOFF_MAX_NOTES)
+    .optional(),
+});
+export type HandoffMaterialRequest = z.infer<typeof HandoffMaterialRequestSchema>;
+
+/** 交出去的一条笔记（0.59.0）：哪一条、哪一版。 */
+export const HandoffNoteRefSchema = z.object({
+  scope: MemoryScopeSchema,
+  name: MemoryNameSchema,
+  revision: z.string().min(1),
+});
+export type HandoffNoteRef = z.infer<typeof HandoffNoteRefSchema>;
+
+/** 因预算省掉的一段连续的历史条目（0.59.0）：第一条与最后一条的 `itemId`（同读历史工具）与条数。 */
+export const HandoffOmittedRangeSchema = z.object({
+  first: z.string().min(1),
+  last: z.string().min(1),
+  count: z.int().min(1),
+});
+export type HandoffOmittedRange = z.infer<typeof HandoffOmittedRangeSchema>;
+
+/** 材料的散列（0.59.0）：`context` 的 UTF-8 字节的 SHA-256，小写十六进制。 */
+export const HandoffHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
+
 // ── 环境（0.15.0，U22.1） ──────────────────────────────────────────────
 
 /**

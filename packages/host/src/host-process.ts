@@ -284,6 +284,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       checkpoints,
       engineFeatures,
       historyDir: homePath(home, 'historyDir'),
+      // 接力时用户选入的笔记（0.59.0）；自动记忆关着时不能选。
+      memory,
+      memoryEnabled: () => settings.get().autoMemory !== false,
       toolOutputDir: toolOutput.dir,
       images,
     });
@@ -423,6 +426,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         session_archive: true,
         session_delete: true,
         session_handoff: true,
+        handoff_material: true,
         subagent_cancel: true,
         environments: true,
         session_worktree: true,

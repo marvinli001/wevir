@@ -44,6 +44,10 @@ import {
   GitFileChangeSchema,
   GitObjectIdSchema,
   GoalStatusSchema,
+  HandoffHashSchema,
+  HandoffMaterialRequestSchema,
+  HandoffNoteRefSchema,
+  HandoffOmittedRangeSchema,
   HandoffStrategySchema,
   HostFeaturesSchema,
   HostFrameSchema,
@@ -1420,6 +1424,46 @@ const standaloneCases: Case[] = [
     schema: MemoryAuthorSchema,
     valid: ['agent', 'user'],
     invalid: ['model', ''],
+  },
+  {
+    name: 'HandoffMaterialRequest',
+    schema: HandoffMaterialRequestSchema,
+    valid: [
+      {},
+      { constraints: ['只改 src/'] },
+      { notes: [{ scope: 'project', name: 'invoice-cents' }] },
+      { constraints: ['x'.repeat(2000)], notes: [] },
+    ],
+    invalid: [
+      { constraints: [''] },
+      { constraints: Array.from({ length: 11 }, () => 'x') },
+      { notes: [{ scope: 'project', name: 'Invoice Cents' }] },
+      { notes: [{ scope: 'project' }] },
+    ],
+  },
+  {
+    name: 'HandoffNoteRef',
+    schema: HandoffNoteRefSchema,
+    valid: [{ scope: 'global', name: 'reply-language', revision: '3f1c2a9b7d4e6f10' }],
+    invalid: [
+      { scope: 'global', name: 'reply-language' },
+      { scope: 'global', name: 'reply-language', revision: '' },
+    ],
+  },
+  {
+    name: 'HandoffOmittedRange',
+    schema: HandoffOmittedRangeSchema,
+    valid: [{ first: 'e2', last: 'e9', count: 8 }],
+    invalid: [
+      { first: 'e2', last: 'e2', count: 0 },
+      { first: '', last: 'e2', count: 1 },
+    ],
+  },
+  {
+    name: 'HandoffHash',
+    schema: HandoffHashSchema,
+    valid: ['0'.repeat(64)],
+    invalid: ['0'.repeat(63), 'A'.repeat(64), `sha256:${'0'.repeat(64)}`],
   },
   {
     name: 'MemorySourceStatus',

@@ -96,6 +96,7 @@ describe('接力（0.25.0）', () => {
   it('hello 声明 session_handoff，engineFeatures 按 Provider 种类给出引擎', async () => {
     const { hello } = await start();
     expect(hello.features.session_handoff).toBe(true);
+    expect(hello.features.handoff_material).toBe(true);
     expect(hello.engineFeatures['openai-compatible']).toMatchObject({ engine: 'echo' });
     expect(hello.engineFeatures.claude).toMatchObject({
       engine: 'echo-subscriptions',

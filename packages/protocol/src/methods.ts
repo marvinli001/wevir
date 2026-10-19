@@ -36,6 +36,7 @@ import {
   EnvironmentSchema,
   FilesRestoreSchema,
   GOAL_OBJECTIVE_MAX_CHARS,
+  HandoffMaterialRequestSchema,
   HostSettingsSchema,
   HttpUrlSchema,
   MemoryNameSchema,
@@ -955,6 +956,11 @@ export const SessionConfigureParamsSchema = z.object({
   reasoningEffort: z.string().min(1).nullable().optional(),
   /** 省略：不改。 */
   permissionMode: PermissionModeSchema.optional(),
+  /**
+   * 接力时额外交给新来源的材料（0.59.0，Host 功能 `handoff_material`）：必须携带的约束与选入的笔记。只在换到别的 Provider 时起作用；
+   * 旧 Host 不认这个字段（会忽略），客户端要先看功能位。
+   */
+  handoff: HandoffMaterialRequestSchema.optional(),
 });
 
 export const SessionListParamsSchema = z.object({

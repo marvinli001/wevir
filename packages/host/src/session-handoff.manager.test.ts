@@ -8,6 +8,7 @@ import type { HistoryFile } from '@wevir/runtime-adapter/history-tool';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EngineRouter } from './engine-router.js';
 import { EventStore } from './event-store.js';
+import { MemoryStore } from './memory.js';
 import { SessionManager } from './session-manager.js';
 import { identity, useStorages, useTempDir } from './test-utils.js';
 
@@ -21,7 +22,7 @@ describe('接力（SessionManager）', () => {
     await Promise.all(managers.splice(0).map((manager) => manager.dispose()));
   });
 
-  function setup(options: { claudeModes?: boolean } = {}) {
+  function setup(options: { claudeModes?: boolean; autoMemory?: () => boolean } = {}) {
     const root = join(realpathSync(tempDir()), `h${managers.length}`);
     mkdirSync(root);
     const storage = storages.open(join(root, 'data'));
@@ -77,6 +78,7 @@ describe('接力（SessionManager）', () => {
     };
     const events = new EventStore({ storage, deltaWindowMs: 5 });
     const historyDir = join(root, 'data', 'history');
+    const memory = new MemoryStore({ dir: join(root, 'data', 'memory') });
     const manager = new SessionManager({
       storage,
       events,
@@ -84,9 +86,11 @@ describe('接力（SessionManager）', () => {
       engine: 'echo',
       engineFeatures,
       historyDir,
+      memory,
+      ...(options.autoMemory !== undefined && { memoryEnabled: options.autoMemory }),
     });
     managers.push(manager);
-    return { storage, events, manager, api, claude, historyDir };
+    return { storage, events, manager, api, claude, historyDir, memory };
   }
 
   async function turn(env: ReturnType<typeof setup>, sessionId: SessionId, text: string) {
@@ -259,5 +263,194 @@ describe('接力（SessionManager）', () => {
     await expect(
       env.manager.configure({ sessionId: side.id as SessionId, providerId: 'claude' }),
     ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+  });
+
+  describe('必须携带的约束与选入的笔记（0.59.0）', () => {
+    const LONG = `约定：金额一律用整数分；测试只用 npm test，不改 test/ 目录；不加新依赖。${'后面还有一些补充说明，'.repeat(30)}最后一条：新函数用 snake_case 命名，并在上方写一行 // @spec 注释。`;
+
+    async function seeded(options: Parameters<typeof setup>[0] = {}) {
+      const env = setup(options);
+      await env.memory.save('project', 'ws_1', {
+        name: 'invoice-cents',
+        type: 'feedback',
+        description: 'Discounts are computed in integer cents',
+        content: 'Compute discounts in integer cents and round once.',
+      });
+      await env.memory.save('global', undefined, {
+        name: 'reply-language',
+        type: 'user',
+        description: 'Reply in Chinese',
+        content: 'The user prefers answers in Chinese.',
+      });
+      const { id } = await env.manager.create({ workspaceId: 'ws_1', providerId: 'mock' });
+      const sessionId = id as SessionId;
+      await turn(env, sessionId, LONG);
+      return { ...env, sessionId };
+    }
+
+    it('约束整条、笔记整条随下一条消息交给新引擎；事件里有递交记录', async () => {
+      const env = await seeded();
+      const note = await env.memory.read('project', 'ws_1', 'invoice-cents');
+      await env.manager.configure({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff: {
+          constraints: [LONG],
+          notes: [
+            { scope: 'project', name: 'invoice-cents' },
+            { scope: 'global', name: 'reply-language' },
+          ],
+        },
+      });
+      const [handoff] = handoffs(env, env.sessionId);
+      const payload = handoff?.payload;
+      const context = payload?.context ?? '';
+      expect(context).toContain(`[user; must_carry; constraint=1]\n${LONG}`);
+      expect(context).toContain('Compute discounts in integer cents and round once.');
+      expect(payload).toMatchObject({
+        constraints: 1,
+        notes: [
+          { scope: 'project', name: 'invoice-cents', revision: note.revision },
+          { scope: 'global', name: 'reply-language' },
+        ],
+        bytes: Buffer.byteLength(context),
+        budgetBytes: 16_000,
+        historyTool: true,
+        items: 2,
+        omittedItems: 0,
+      });
+      expect(payload?.hash).toMatch(/^[0-9a-f]{64}$/);
+      await turn(env, env.sessionId, '接着做');
+      // echo 把收到的整条输入原样说回来：交给引擎的就是事件里的材料，一字不差。
+      expect(lastAnswer(env, env.sessionId)).toBe(`Echo: ${context}\n\nUser message:\n接着做`);
+    });
+
+    it('停用的、找不到的、选了两次的笔记与自动记忆关着时都拒绝，在动原来的引擎会话之前', async () => {
+      let autoMemory = true;
+      const env = await seeded({ autoMemory: () => autoMemory });
+      await env.memory.setEnabled('project', 'ws_1', 'invoice-cents', false);
+      const attempt = (notes: { scope: 'project' | 'global'; name: string }[]) =>
+        env.manager.configure({
+          sessionId: env.sessionId,
+          providerId: 'claude',
+          handoff: { notes },
+        });
+      await expect(attempt([{ scope: 'project', name: 'invoice-cents' }])).rejects.toMatchObject({
+        code: 'INVALID_PARAMS',
+        message: expect.stringContaining('turned off'),
+      });
+      await expect(attempt([{ scope: 'project', name: 'nope' }])).rejects.toMatchObject({
+        code: 'MEMORY_NOT_FOUND',
+      });
+      await expect(
+        attempt([
+          { scope: 'global', name: 'reply-language' },
+          { scope: 'global', name: 'reply-language' },
+        ]),
+      ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+      autoMemory = false;
+      await expect(attempt([{ scope: 'global', name: 'reply-language' }])).rejects.toMatchObject({
+        code: 'INVALID_PARAMS',
+        message: expect.stringContaining('automatic memory is off'),
+      });
+      // 约束不受自动记忆影响。
+      expect(handoffs(env, env.sessionId)).toHaveLength(0);
+      expect(env.events.snapshot(env.sessionId)?.session.providerId).toBe('mock');
+      await turn(env, env.sessionId, '还在');
+      expect(lastAnswer(env, env.sessionId)).toBe('Echo: 还在');
+      await env.manager.configure({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff: { constraints: ['只改 src/'] },
+      });
+      expect(handoffs(env, env.sessionId)[0]?.payload.constraints).toBe(1);
+    });
+
+    it('别的项目的笔记选不到：project 指会话所在的项目', async () => {
+      const env = await seeded();
+      await env.memory.save('project', 'ws_2', {
+        name: 'other-secret',
+        type: 'project',
+        description: 'Other project',
+        content: 'Should not leak.',
+      });
+      await expect(
+        env.manager.configure({
+          sessionId: env.sessionId,
+          providerId: 'claude',
+          handoff: { notes: [{ scope: 'project', name: 'other-secret' }] },
+        }),
+      ).rejects.toMatchObject({ code: 'MEMORY_NOT_FOUND' });
+    });
+
+    it('约束加开头说明超出预算时报超限，不截短、不写事件，会话还是原来的来源', async () => {
+      const env = await seeded();
+      await expect(
+        env.manager.configure({
+          sessionId: env.sessionId,
+          providerId: 'claude',
+          handoff: { constraints: ['约'.repeat(2000), '定'.repeat(2000), '束'.repeat(2000)] },
+        }),
+      ).rejects.toMatchObject({
+        code: 'INVALID_PARAMS',
+        message: expect.stringMatching(/over the budget of 16000 bytes/),
+      });
+      expect(handoffs(env, env.sessionId)).toHaveLength(0);
+      expect(env.events.snapshot(env.sessionId)?.session.providerId).toBe('mock');
+      await turn(env, env.sessionId, '还在');
+      expect(lastAnswer(env, env.sessionId)).toBe('Echo: 还在');
+    });
+
+    it('同一条消息重发（clientMessageId 相同）不重复附加；之后的消息不再带', async () => {
+      const env = await seeded();
+      await env.manager.configure({
+        sessionId: env.sessionId,
+        providerId: 'claude',
+        handoff: { constraints: ['只改 src/'] },
+      });
+      const message = {
+        sessionId: env.sessionId,
+        content: [{ type: 'text' as const, text: '接着做' }],
+        clientMessageId: 'msg-retry',
+      };
+      const first = await env.manager.send(message, identity);
+      const again = await env.manager.send(message, identity);
+      expect(again).toEqual(first);
+      await vi.waitFor(() =>
+        expect(env.events.snapshot(env.sessionId)?.session.state).toBe('idle'),
+      );
+      const answers = env.events
+        .readSince(env.sessionId, 0)
+        .flatMap((event) => (event.type === 'assistant.message' ? [event.payload.text] : []));
+      expect(
+        answers.filter((text) => text.includes('[user; must_carry; constraint=1]')),
+      ).toHaveLength(1);
+      await turn(env, env.sessionId, '第三句');
+      expect(lastAnswer(env, env.sessionId)).toBe('Echo: 第三句');
+    });
+
+    it('换回旧来源仍是增量；恢复不了时改交整段（不带绑定时的原有行为）', async () => {
+      const env = await seeded();
+      await env.manager.configure({ sessionId: env.sessionId, providerId: 'claude' });
+      await turn(env, env.sessionId, '在 Claude 上');
+      await env.manager.configure({ sessionId: env.sessionId, providerId: 'mock' });
+      expect(handoffs(env, env.sessionId).at(-1)?.payload).toMatchObject({
+        resumed: true,
+        strategy: 'delta_since_target_last_seen',
+      });
+      await turn(env, env.sessionId, '回到 API');
+      // Claude 那边以前的引擎会话没了：恢复失败，新建、交整段。
+      const resume = vi
+        .spyOn(env.claude, 'resumeSession')
+        .mockRejectedValue(new Error('session_lost'));
+      await env.manager.configure({ sessionId: env.sessionId, providerId: 'claude' });
+      expect(handoffs(env, env.sessionId).at(-1)?.payload).toMatchObject({
+        resumed: false,
+        strategy: 'full_thread_summary',
+        covered: { fromSeq: 1 },
+      });
+      expect(resume).toHaveBeenCalledTimes(1);
+      resume.mockRestore();
+    });
   });
 });
