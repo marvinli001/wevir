@@ -27,6 +27,7 @@ import type {
   TaskId,
   TitleSource,
   TodoItem,
+  ToolPreset,
   TurnId,
   TurnOutcome,
   Usage,
@@ -686,6 +687,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
       taskId: record.origin.taskId as TaskId,
     };
   }
+  if (record.toolPreset !== undefined) session.toolPreset = record.toolPreset as ToolPreset;
   if (record.parentSessionId !== undefined) {
     session.parentSessionId = record.parentSessionId as SessionId;
   }

@@ -1309,6 +1309,54 @@ export const SessionOpenedBySchema = z.object({
 });
 export type SessionOpenedBy = z.infer<typeof SessionOpenedBySchema>;
 
+// ── 工具预设（0.61.0，Host 功能 `tool_presets`） ─────────────────────────
+
+/**
+ * Wevir 应用级工具（Host 的 `wevir` MCP 服务）的组。只是这些工具：引擎自带的工具、读历史与联网、用户接入的 MCP 连接器都不在
+ * 任何组里，不受预设管。
+ */
+export const TOOL_GROUPS = [
+  'sessions',
+  'catalog',
+  'tasks',
+  'memory',
+  'workbench',
+  'browser',
+  'lsp',
+  'processes',
+  'plugins',
+] as const;
+export const ToolGroupSchema = z.enum(TOOL_GROUPS);
+export type ToolGroup = z.infer<typeof ToolGroupSchema>;
+
+/** `full` 是全部应用级工具（没选预设的会话就是它）；`core` 只带核心的几组，别的组另加。 */
+export const ToolPresetIdSchema = z.enum(['full', 'core']);
+export type ToolPresetId = z.infer<typeof ToolPresetIdSchema>;
+
+/**
+ * 会话的工具预设，建会话时选定，之后不变。`groups` 只对 `core` 有意义：在它之上另加的组（Host 去重、按 `TOOL_GROUPS` 排序，`core`
+ * 本来就有的组与 `full` 的 `groups` 都丢掉）。预设只能在角色允许的工具里再收窄，不是权限；调用仍逐次检查。
+ */
+export const ToolPresetSchema = z.object({
+  id: ToolPresetIdSchema,
+  groups: z.array(ToolGroupSchema).max(32).optional(),
+});
+export type ToolPreset = z.infer<typeof ToolPresetSchema>;
+
+/** `tools.presets` 里的一个预设：它总带的组。 */
+export const ToolPresetInfoSchema = z.object({
+  id: ToolPresetIdSchema,
+  groups: z.array(ToolGroupSchema),
+});
+export type ToolPresetInfo = z.infer<typeof ToolPresetInfoSchema>;
+
+/** `tools.presets` 里的一个组：这个 Host 上实际有的工具名（没有浏览器、LSP 等时是空的）。 */
+export const ToolGroupInfoSchema = z.object({
+  id: ToolGroupSchema,
+  tools: z.array(z.string().min(1)),
+});
+export type ToolGroupInfo = z.infer<typeof ToolGroupInfoSchema>;
+
 // ── 共享任务清单（0.52.0，domain-model §3.15） ───────────────────────────
 
 /** 任务清单里一项的状态。 */
@@ -1439,6 +1487,8 @@ export const SessionSchema = z.object({
   origin: SessionOriginSchema.optional(),
   /** 由另一个会话里的 agent 开出来的会话（0.30.0）。 */
   openedBy: SessionOpenedBySchema.optional(),
+  /** 工具预设（0.61.0，Host 功能 `tool_presets`）；省略表示没选，等同 `full`。子会话不带，沿用父会话的。 */
+  toolPreset: ToolPresetSchema.optional(),
   /** 支线会话（0.17.0，domain-model §3.12）。 */
   ...SessionSideFields,
   createdAt: IsoTimeSchema,

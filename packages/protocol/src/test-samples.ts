@@ -656,6 +656,7 @@ export const eventPayloads: PayloadSamples = {
         },
       ],
       openedBy: { sessionId: ids.childSession, role: 'explorer' },
+      toolPreset: { id: 'core', groups: ['browser'] },
     },
     invalid: { workspaceId: ids.workspace, cwd: '/x', providerId: 'DeepSeek', modelId: 'm' },
   },
@@ -2193,6 +2194,13 @@ export const methodSamples: MethodSamples = {
         },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', worktree: 'new' },
         { providerId: 'deepseek-official', permissionMode: 'full_access' },
+        // 0.61.0：工具预设。
+        { providerId: 'deepseek-official', toolPreset: { id: 'full' } },
+        {
+          workspaceId: ids.workspace,
+          providerId: 'deepseek-official',
+          toolPreset: { id: 'core', groups: ['browser', 'lsp'] },
+        },
       ],
       invalid: [
         { workspaceId: ids.workspace },
@@ -2205,9 +2213,20 @@ export const methodSamples: MethodSamples = {
         },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', permissionMode: 'never' },
         { workspaceId: ids.workspace, providerId: 'deepseek-official', environmentId: 'e1' },
+        { providerId: 'deepseek-official', toolPreset: { id: 'minimal' } },
+        { providerId: 'deepseek-official', toolPreset: { id: 'core', groups: ['terminal'] } },
       ],
     },
-    result: { valid: [{ session }], invalid: [{ session: { ...session, state: 'paused' } }] },
+    result: {
+      valid: [
+        { session },
+        { session: { ...session, toolPreset: { id: 'core', groups: ['lsp'] } } },
+      ],
+      invalid: [
+        { session: { ...session, state: 'paused' } },
+        { session: { ...session, toolPreset: { groups: [] } } },
+      ],
+    },
   },
   'session.list': {
     params: {
@@ -3027,6 +3046,40 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{}, { conflict: true, note: memoryNote }],
       invalid: [{ conflict: false }],
+    },
+  },
+  'tools.presets': {
+    params: empty,
+    result: {
+      valid: [
+        {
+          presets: [
+            {
+              id: 'full',
+              groups: [
+                'sessions',
+                'catalog',
+                'tasks',
+                'memory',
+                'workbench',
+                'browser',
+                'lsp',
+                'processes',
+                'plugins',
+              ],
+            },
+            { id: 'core', groups: ['sessions', 'catalog', 'tasks', 'memory', 'workbench'] },
+          ],
+          groups: [
+            { id: 'sessions', tools: ['wevir_session_list', 'wevir_session_read'] },
+            { id: 'browser', tools: [] },
+          ],
+        },
+      ],
+      invalid: [
+        { presets: [{ id: 'minimal', groups: [] }], groups: [] },
+        { presets: [], groups: [{ id: 'terminal', tools: [] }] },
+      ],
     },
   },
   'question.respond': {

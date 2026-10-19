@@ -49,7 +49,7 @@ import { type SessionProgress, sessionProgress } from './session-progress.js';
 import { describeSharedFile, SharedFileError } from './shared-files.js';
 import type { TaskBoardStore } from './task-board.js';
 import { taskTools } from './task-tools.js';
-import { toolPresetInstructions, toolsAllowed } from './tool-presets.js';
+import { toolPresetInstructions, toolPresetsInfo, toolsAllowed } from './tool-presets.js';
 
 /** 一页最多几条、默认几条、每条默认多少字（同读历史的工具）。 */
 export const READ_PAGE_LIMIT = 50;
@@ -1276,6 +1276,11 @@ export class AppTools {
       role: await this.#roleOf(sessionId),
       preset: this.#options.sessions.toolPresetOf(sessionId),
     });
+  }
+
+  /** 工具预设的清单（`tools.presets`）：两个预设各自总带的组，与每个组在这个 Host 上实际有的工具。 */
+  presets(): ReturnType<typeof toolPresetsInfo> {
+    return toolPresetsInfo(this.tools);
   }
 
   /**

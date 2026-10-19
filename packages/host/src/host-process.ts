@@ -379,6 +379,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       });
     }
     const mcp = appMcp;
+    const presetTools = appTools;
     // 文件预览的流式地址（0.32.0，file-urls.ts）：与 MCP 端点同在 RPC 的 HTTP 服务上，监听之后才知道端口。
     const fileUrls = new FileUrls({
       onError: (error) => logger.warn('file preview request failed', { error }),
@@ -409,6 +410,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         chats,
         memory,
         ...(options.web !== undefined && { web: options.web }),
+        ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -450,6 +452,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(mcp !== undefined && { app_tools: true }),
         ...(mcp !== undefined && { shared_files: true }),
         ...(mcp !== undefined && { task_board: true }),
+        ...(mcp !== undefined && { tool_presets: true }),
         ...(suggestionInstructions !== undefined && { prompt_suggestions: true }),
         ...(browsers !== undefined && { browser_tools: true }),
         ...(options.web !== undefined && { web_tools: true }),

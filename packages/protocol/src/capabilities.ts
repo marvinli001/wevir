@@ -229,6 +229,11 @@ export const HOST_FEATURES = {
    * `handoff_material` 时声明。
    */
   handoffPreview: 'handoff_preview',
+  /**
+   * 工具预设（0.61.0）：`session.create` 的 `toolPreset`、`Session.toolPreset` 与 `session.created` 的 `toolPreset`、只读的
+   * `tools.presets`。只管 Wevir 应用级工具，有应用级工具时声明（同 `app_tools`）。
+   */
+  toolPresets: 'tool_presets',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -279,6 +284,7 @@ export const HostFeaturesSchema = z.looseObject({
   memory: z.boolean().optional(),
   handoff_material: z.boolean().optional(),
   handoff_preview: z.boolean().optional(),
+  tool_presets: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

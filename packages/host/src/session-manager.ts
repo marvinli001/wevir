@@ -741,8 +741,8 @@ export class SessionManager {
     const chat = this.#chats?.isChats(workspace) === true;
     await assertDirectory(workspace.rootPath);
     const permissionMode = this.#permissionMode(params.permissionMode);
-    // 工具预设：明说的，或 Agent 开的会话沿用开它的会话的；都没有时不记（等同 full）。
-    const chosen = options.toolPreset;
+    // 工具预设（0.61.0）：明说的，或 Agent 开的会话沿用开它的会话的；都没有时不记（等同 full）。
+    const chosen = params.toolPreset ?? options.toolPreset;
     const toolPreset =
       chosen !== undefined
         ? normalizeToolPreset(chosen)
@@ -910,6 +910,7 @@ export class SessionManager {
           ...(openedBy !== undefined && {
             openedBy: { sessionId: openedBy, ...(role !== undefined && { role }) },
           }),
+          ...(toolPreset !== undefined && { toolPreset }),
         },
       });
     } catch (error) {
@@ -2633,6 +2634,9 @@ export class SessionManager {
             ...(side && { side: true as const }),
             ...(engineSession.engineVersion !== undefined && {
               engineVersion: engineSession.engineVersion,
+            }),
+            ...(record.toolPreset !== undefined && {
+              toolPreset: record.toolPreset as ToolPreset,
             }),
           },
         });

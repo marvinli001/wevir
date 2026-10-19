@@ -5,22 +5,17 @@
 // 联网这两个另外的 MCP 服务、用户自己接入的 MCP 连接器都不受预设管。预设也不是权限：角色（roles.ts）是上限，预设只能在它之内再收窄，
 // 调用仍在 `tools/call` 检查。
 
+import {
+  TOOL_GROUPS,
+  type ToolGroup,
+  type ToolGroupInfo,
+  type ToolPreset,
+  type ToolPresetInfo,
+} from '@wevir/protocol';
 import type { AppTool } from './app-mcp.js';
 import { type RoleDefinition, roleAllowsTool } from './roles.js';
 
-/** 工具组，按给模型看的顺序。 */
-export const TOOL_GROUPS = [
-  'sessions',
-  'catalog',
-  'tasks',
-  'memory',
-  'workbench',
-  'browser',
-  'lsp',
-  'processes',
-  'plugins',
-] as const;
-export type ToolGroup = (typeof TOOL_GROUPS)[number];
+export { TOOL_GROUPS, type ToolGroup, type ToolPreset };
 
 /** `core` 总带的组。 */
 export const CORE_TOOL_GROUPS: readonly ToolGroup[] = [
@@ -35,15 +30,6 @@ export const CORE_TOOL_GROUPS: readonly ToolGroup[] = [
 export const OPTIONAL_TOOL_GROUPS: readonly ToolGroup[] = TOOL_GROUPS.filter(
   (group) => !CORE_TOOL_GROUPS.includes(group),
 );
-
-export const TOOL_PRESET_IDS = ['full', 'core'] as const;
-export type ToolPresetId = (typeof TOOL_PRESET_IDS)[number];
-
-/** 会话的工具预设。`groups` 只对 `core` 有意义：在它之上另加的组。 */
-export interface ToolPreset {
-  id: ToolPresetId;
-  groups?: ToolGroup[];
-}
 
 /** 按名字前缀归组（先比完整名字，再比前缀）。 */
 const EXACT: Readonly<Record<string, ToolGroup>> = {
@@ -134,13 +120,27 @@ export function instructionLineGroup(line: string): ToolGroup | undefined {
   return token === undefined ? undefined : toolGroupOf(token);
 }
 
-/** 预设清单：每个组在这个 Host 上实际有哪些工具（没有浏览器、LSP 等时对应的组是空的）。 */
+/** 每个组在这个 Host 上实际有哪些工具（没有浏览器、LSP 等时对应的组是空的）。 */
 export function toolGroupContents(
   tools: readonly Pick<AppTool, 'name'>[],
-): Array<{ id: ToolGroup; core: boolean; tools: string[] }> {
+): Array<ToolGroupInfo & { core: boolean }> {
   return TOOL_GROUPS.map((id) => ({
     id,
     core: CORE_TOOL_GROUPS.includes(id),
     tools: tools.filter((tool) => toolGroupOf(tool.name) === id).map((tool) => tool.name),
   }));
+}
+
+/** `tools.presets` 的结果：两个预设各自总带的组，与每个组的工具。 */
+export function toolPresetsInfo(tools: readonly Pick<AppTool, 'name'>[]): {
+  presets: ToolPresetInfo[];
+  groups: ToolGroupInfo[];
+} {
+  return {
+    presets: [
+      { id: 'full', groups: [...TOOL_GROUPS] },
+      { id: 'core', groups: [...CORE_TOOL_GROUPS] },
+    ],
+    groups: toolGroupContents(tools).map(({ id, tools }) => ({ id, tools })),
+  };
 }

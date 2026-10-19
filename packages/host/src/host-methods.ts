@@ -117,6 +117,8 @@ export interface HostMethodsOptions {
   chats?: ChatFolders;
   /** 跨会话记忆（0.57.0，`memory.*`）；省略时 `memory.*` 回 `INVALID_PARAMS`（测试）。 */
   memory?: MemoryStore;
+  /** 工具预设的清单（0.61.0，`tools.presets`，AppTools 的 `presets`）；没有应用级工具时省略，方法回 `INVALID_PARAMS`。 */
+  toolPresets?: () => MethodResult<'tools.presets'>;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -938,6 +940,13 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return result.conflict === undefined
         ? {}
         : { conflict: true as const, note: toMemoryNote(result.conflict) };
+    },
+
+    'tools.presets': async () => {
+      if (options.toolPresets === undefined) {
+        throw invalidParams([], 'this host has no Wevir app tools');
+      }
+      return options.toolPresets();
     },
 
     'web.get': async () => ({ web: webService().settings() }),

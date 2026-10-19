@@ -47,6 +47,7 @@ import {
   TodoItemSchema,
   ToolDisplaySchema,
   ToolOutputSchema,
+  ToolPresetSchema,
   TurnCommandSchema,
   TurnOutcomeSchema,
   TurnTriggerSchema,
@@ -96,6 +97,8 @@ export const EventPayloadSchemas = {
     ...SessionSideFields,
     /** 由另一个会话里的 agent 开出来的（0.30.0）。 */
     openedBy: SessionOpenedBySchema.optional(),
+    /** 工具预设（0.61.0）；没选时省略，等同 `full`。 */
+    toolPreset: ToolPresetSchema.optional(),
     /** 只有子会话有（0.6.0，domain-model §3.3.1）：父会话与派出它的工具调用。 */
     parent: z
       .object({

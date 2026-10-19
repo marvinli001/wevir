@@ -63,6 +63,9 @@ import {
   SessionRecapSchema,
   SessionSchema,
   SessionSnapshotSchema,
+  ToolGroupInfoSchema,
+  ToolPresetInfoSchema,
+  ToolPresetSchema,
   UserContentPartSchema,
   UserImageMimeTypeSchema,
   UserImagePartSchema,
@@ -936,6 +939,11 @@ export const SessionCreateParamsSchema = z.object({
   worktree: WorktreeModeSchema.optional(),
   /** 从一项建议开出来（0.16.0，Host 功能 `suggested_tasks`）。 */
   origin: SessionOriginSchema.optional(),
+  /**
+   * 工具预设（0.61.0，Host 功能 `tool_presets`）：这个会话给模型看哪些 Wevir 应用级工具，建好后不能改。省略时不选（等同 `full`）。
+   * 旧 Host 不认这个字段（会忽略），客户端要先看功能位。
+   */
+  toolPreset: ToolPresetSchema.optional(),
 });
 
 export const SessionResultSchema = z.object({
@@ -1185,6 +1193,16 @@ export const MemoryDeleteParamsSchema = z.object({
 export const MemoryDeleteResultSchema = z.object({
   conflict: z.literal(true).optional(),
   note: MemoryNoteSchema.optional(),
+});
+
+/**
+ * `tools.presets`（0.61.0，Host 功能 `tool_presets`）：可选的工具预设（各自总带的组）与每个组在这个 Host 上实际有的工具，只读。客户端
+ * 用它显示一个预设带来哪些组、大约几个工具；`core` 可以另加的组是 `full` 的组去掉 `core` 的。只是 Wevir 应用级工具的数目，不含
+ * 引擎自带的工具与用户接入的 MCP。
+ */
+export const ToolsPresetsResultSchema = z.object({
+  presets: z.array(ToolPresetInfoSchema),
+  groups: z.array(ToolGroupInfoSchema),
 });
 
 /**
@@ -1681,6 +1699,12 @@ export const MethodSchemas = {
     params: MemoryDeleteParamsSchema,
     result: MemoryDeleteResultSchema,
     permission: 'host.manage',
+  },
+
+  'tools.presets': {
+    params: EmptySchema,
+    result: ToolsPresetsResultSchema,
+    permission: 'session.read',
   },
 
   'question.respond': {
