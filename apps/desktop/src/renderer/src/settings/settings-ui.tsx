@@ -106,7 +106,8 @@ export function SettingsRow({
 }
 
 /**
- * 分段切换（主题、回合进行中按回车）：轨道是次表面色，选中的一段是滑块色，滑块在两段之间滑动（宽度按选项均分）。
+ * 分段切换（主题、回合进行中按回车）：轨道是次表面色，选中的一段是滑块色，滑块在两段之间滑动（宽度按选项均分），
+ * 走 press 弹簧（同输入框里的“插话 | 排队”，desktop-tokens.md §62）。
  * 与输入框里的“插话 | 排队”同一套颜色。
  */
 export function Segmented<T extends string>({
@@ -135,7 +136,7 @@ export function Segmented<T extends string>({
       <legend className="sr-only">{label}</legend>
       <span
         aria-hidden
-        className="absolute inset-y-0.5 left-0.5 rounded-md bg-switch-thumb shadow-xs ring-1 ring-border transition-transform duration-200 ease-out"
+        className="absolute inset-y-0.5 left-0.5 rounded-md bg-switch-thumb shadow-xs ring-1 ring-border transition-transform duration-(--spring-press-duration) ease-spring-press"
         style={{
           width: `calc((100% - 4px) / ${options.length})`,
           transform: `translateX(${index * 100}%)`,

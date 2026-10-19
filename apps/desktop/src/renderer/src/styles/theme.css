@@ -195,6 +195,9 @@
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-ring-soft: var(--ring-soft);
+  --color-selected: var(--selected);
+  --color-selected-border: var(--selected-border);
   --color-brand: var(--brand);
   --color-running: var(--running);
   --color-success: var(--success);
@@ -231,22 +234,22 @@
   --ease-spring-snap: var(--spring-snap);
 }
 
-/* 按压（按钮，交互手感一轮）：按下 70 ms ease-out 缩到 --press-scale（默认 97%），松开走 press 弹簧回来；颜色、边框与
- * 阴影 150 ms ease-smooth。按下与松开各用自己那一侧的过渡：:active 里的写按下，平时的写松开。带 aria-haspopup 的
+/* 按压（按钮，交互手感一轮）：按下 70 ms ease-out 缩到 --press-scale（默认 97%），松开走 press 弹簧回来；颜色、边框、
+ * 阴影与不透明度（停用与可用之间，§62）150 ms ease-smooth。按下与松开各用自己那一侧的过渡：:active 里的写按下，平时的写松开。带 aria-haspopup 的
  * （菜单的触发按钮）不缩放。 */
 @utility pressable {
-  transition-property: color, background-color, border-color, box-shadow, scale;
-  transition-duration: 150ms, 150ms, 150ms, 150ms, var(--spring-press-duration);
+  transition-property: color, background-color, border-color, box-shadow, opacity, scale;
+  transition-duration: 150ms, 150ms, 150ms, 150ms, 150ms, var(--spring-press-duration);
   transition-timing-function:
     var(--ease-smooth), var(--ease-smooth), var(--ease-smooth), var(--ease-smooth),
-    var(--spring-press);
+    var(--ease-smooth), var(--spring-press);
 
   &:active:not([aria-haspopup]) {
     scale: var(--press-scale, 0.97);
-    transition-duration: 150ms, 150ms, 150ms, 150ms, 70ms;
+    transition-duration: 150ms, 150ms, 150ms, 150ms, 150ms, 70ms;
     transition-timing-function:
       var(--ease-smooth), var(--ease-smooth), var(--ease-smooth), var(--ease-smooth),
-      cubic-bezier(0, 0, 0.2, 1);
+      var(--ease-smooth), cubic-bezier(0, 0, 0.2, 1);
   }
 }
 
@@ -271,6 +274,37 @@
   to {
     clip-path: inset(0);
   }
+}
+
+/* 勾选框的勾与半选的横线（§62）：路径写 pathLength="1"，从起点画到终点，220 ms ease-fall。 */
+@utility check-stroke {
+  stroke-dasharray: 1;
+  animation: check-stroke 220ms var(--ease-fall) both;
+}
+
+@keyframes check-stroke {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* 单选的圆点（§62）：从无到有，press 弹簧。 */
+@utility dot-pop {
+  animation: dot-pop var(--spring-press-duration) var(--spring-press) both;
+}
+
+@keyframes dot-pop {
+  from {
+    scale: 0;
+  }
+}
+
+/* 凹下去的小块（Provider 图标的底、订阅来源的地址框，§62）：一道向内的浅阴影，颜色随主题。 */
+@utility inset-well {
+  box-shadow: var(--inset-well);
 }
 
 /* 状态文字换了一句、进行中的列表多了一行（§55）：从下方 6 px 上浮、淡入，240 ms ease-rise。 */

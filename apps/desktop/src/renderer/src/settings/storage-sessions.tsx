@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -247,18 +248,16 @@ export function SessionStorageCard({
               className="-mx-1 max-h-[min(60vh,28rem)] overflow-y-auto rounded-lg border border-border"
               data-testid="storage-chats"
             >
-              <div className="divide-y divide-border">
+              <div className="space-y-0.5 p-1">
                 {chats.map((row) => (
                   <label
                     key={row.session.id}
-                    className="flex min-h-14 cursor-default items-center gap-3 px-3.5 py-2.5 text-sm transition-colors hover:bg-muted/50"
+                    className="flex min-h-13 cursor-default items-center gap-3 rounded-lg px-3 py-2 text-sm transition-[background-color,box-shadow] duration-150 ease-smooth hover:bg-muted/50 has-data-checked:bg-selected has-data-checked:ring-1 has-data-checked:ring-selected-border has-data-checked:ring-inset"
                     data-storage-chat={row.session.id}
                   >
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-primary"
+                    <Checkbox
                       checked={selected.has(row.session.id as SessionId)}
-                      onChange={() => toggle(row.session.id as SessionId)}
+                      onCheckedChange={() => toggle(row.session.id as SessionId)}
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate">
@@ -289,17 +288,19 @@ export function SessionStorageCard({
           )}
           <DialogFooter className="items-center sm:justify-between">
             <label className="flex cursor-default items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                className="size-4 accent-primary"
+              <Checkbox
                 checked={allSelected}
+                indeterminate={!allSelected && chosen.length > 0}
                 disabled={chats.length === 0}
-                onChange={toggleAll}
+                onCheckedChange={toggleAll}
                 data-select-all
               />
               <span className="text-muted-foreground">{t('settings.storage.selectAll')}</span>
               {chosen.length > 0 && (
-                <span className="text-xs text-muted-foreground tabular-nums">
+                <span
+                  key={chosenBytes}
+                  className="text-xs text-muted-foreground tabular-nums rise-in"
+                >
                   {t('settings.storage.deleteSize', { size: size(chosenBytes) })}
                 </span>
               )}

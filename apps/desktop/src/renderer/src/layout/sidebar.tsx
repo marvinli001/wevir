@@ -49,11 +49,12 @@ import { ProjectContextMenuItems } from './project-context-menu';
 import { RoleLabel } from './role-label';
 import { SessionContextMenuItems } from './session-context-menu';
 
-/** 侧栏的一行：悬停是表面色的淡底，当前项是表面色（照 Codex 桌面端，U5）。 */
+/** 侧栏的一行：悬停是表面色的淡底，当前项是同样的淡底加一圈 1 px 的选中细边（U5，§63 起不再是整块表面色）。 */
 const ROW =
   'flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-base outline-none ' +
-  'transition-colors duration-150 hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50';
-const ROW_ACTIVE = 'bg-sidebar-accent text-sidebar-accent-foreground hover:bg-sidebar-accent';
+  'transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50';
+const ROW_ACTIVE =
+  'bg-sidebar-accent/70 text-sidebar-accent-foreground ring-1 ring-selected-border ring-inset hover:bg-sidebar-accent/70';
 /** 行右边悬停出现的置顶与归档（U34）：22 px、6 px 圆角，说明文字色，悬停时前景色加一层淡底。 */
 const ROW_ACTION =
   'size-[22px] rounded-md text-muted-foreground hover:bg-sidebar-foreground/8 hover:text-foreground dark:hover:bg-sidebar-foreground/10';
@@ -184,7 +185,10 @@ function ViewButton({
       label={t(view === 'status' ? 'sidebar.view.status' : 'sidebar.view.project')}
       size="icon-xs"
       aria-pressed={active}
-      className={cn('text-muted-foreground', active && 'bg-sidebar-accent text-foreground')}
+      className={cn(
+        'text-muted-foreground',
+        active && 'bg-sidebar-accent/70 text-foreground ring-1 ring-selected-border ring-inset',
+      )}
       onClick={() => layoutPrefs.set((prefs) => ({ ...prefs, sidebarView: view }))}
       data-testid={`sidebar-view-${view}`}
     >

@@ -256,7 +256,7 @@ function ProviderCard({
       <div className="flex items-center gap-3.5">
         <span
           className={cn(
-            'flex size-9 shrink-0 items-center justify-center rounded-[10px] border border-border bg-background shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] transition-opacity duration-150',
+            'flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background inset-well transition-opacity duration-150',
             !enabled && 'opacity-50',
           )}
         >

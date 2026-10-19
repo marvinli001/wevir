@@ -44,7 +44,8 @@ export function ProviderCatalogDialog({
                         onClick={() => onSelect(entry)}
                         className={cn(
                           'flex h-11 w-full items-center gap-2.5 rounded-lg border border-transparent px-3 text-left text-sm outline-none transition-[background-color,border-color,transform] duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.98] disabled:pointer-events-none',
-                          entry.id === selected && 'border-border-strong bg-muted',
+                          entry.id === selected &&
+                            'border-selected-border bg-selected hover:bg-selected',
                         )}
                       >
                         <ProviderLogo

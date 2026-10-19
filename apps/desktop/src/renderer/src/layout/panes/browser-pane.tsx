@@ -77,7 +77,9 @@ function TabButton({
     <div
       className={cn(
         'group flex h-7 max-w-44 min-w-24 shrink-0 items-center gap-1.5 rounded-md pr-1 pl-2 text-xs',
-        selected ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60',
+        selected
+          ? 'bg-selected ring-1 ring-selected-border ring-inset text-foreground'
+          : 'text-muted-foreground hover:bg-muted/60',
       )}
     >
       <button

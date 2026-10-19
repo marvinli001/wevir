@@ -329,7 +329,7 @@ function Kbd({ primary = false, children }: { primary?: boolean; children: React
     <kbd
       aria-hidden
       className={cn(
-        'flex h-4.5 min-w-4.5 items-center justify-center rounded-[5px] border px-1 font-sans text-[0.6875rem] leading-none font-normal',
+        'flex h-4.5 min-w-4.5 items-center justify-center rounded-sm border px-1 font-sans text-[0.6875rem] leading-none font-normal',
         primary
           ? 'border-primary-foreground/25 text-primary-foreground/80'
           : 'border-border-strong text-muted-foreground',

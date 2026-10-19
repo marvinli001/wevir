@@ -53,7 +53,7 @@ export function Select<Value extends string>({
         data-slot="select-trigger"
         aria-label={ariaLabel}
         className={cn(
-          'flex h-8 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-card px-2.5 text-left text-sm text-foreground outline-none transition-colors duration-150 select-none hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-disabled:pointer-events-none data-disabled:opacity-50 data-popup-open:bg-muted/60',
+          'flex h-8 w-full min-w-0 items-center gap-2 rounded-lg border border-input bg-card px-2.5 text-left text-sm text-foreground outline-none transition-colors duration-150 select-none hover:bg-muted/60 focus-visible:border-ring-soft focus-visible:ring-2 focus-visible:ring-ring/12 data-disabled:pointer-events-none data-disabled:opacity-50 data-popup-open:bg-muted/60',
           className,
         )}
         {...rest}

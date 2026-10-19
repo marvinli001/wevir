@@ -118,7 +118,7 @@ export function LogoWell({
   return (
     <span
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-[10px] border border-border bg-background shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)]',
+        'flex shrink-0 items-center justify-center rounded-lg border border-border bg-background inset-well',
         size === 'md' ? 'size-9' : 'size-7 rounded-lg',
         className,
       )}
@@ -160,7 +160,8 @@ function SourceTile({
         className={cn(
           'group/tile flex h-full w-full flex-col gap-3 px-4 pt-4 pb-3.5 text-left outline-none transition-colors duration-150',
           'focus-visible:bg-accent/60 enabled:hover:bg-accent/40',
-          selected && 'bg-accent/70 enabled:hover:bg-accent/70',
+          selected &&
+            'bg-selected ring-1 ring-selected-border ring-inset enabled:hover:bg-selected',
           soon && 'cursor-default',
         )}
       >
@@ -523,7 +524,7 @@ function CommandLine({ command }: { command: string }) {
     return () => clearTimeout(timer);
   }, [copied]);
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 py-1 pr-1 pl-3 shadow-[inset_0_1px_2px_rgb(0_0_0/0.04)]">
+    <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 py-1 pr-1 pl-3 inset-well">
       <span aria-hidden className="font-mono text-xs text-muted-foreground select-none">
         $
       </span>

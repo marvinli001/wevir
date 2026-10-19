@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
+import { Slider } from '@/components/ui/slider';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { describe } from '@/host/host-connection';
@@ -334,17 +335,13 @@ export function AppearanceSettings() {
                 data-setting="contrast"
                 control={
                   <>
-                    <input
-                      type="range"
+                    <Slider
                       min={0}
                       max={100}
                       step={1}
                       value={appearance.contrast}
                       aria-label={t('settings.appearance.contrast')}
-                      onChange={(event) =>
-                        updateAppearance({ contrast: Number(event.target.value) })
-                      }
-                      className="w-40 accent-primary"
+                      onValueChange={(contrast) => updateAppearance({ contrast })}
                     />
                     <span className="w-7 text-right text-sm tabular-nums">
                       {appearance.contrast}
@@ -431,10 +428,7 @@ function MiniWindow({ tone, className }: { tone: ResolvedTheme; className?: stri
         {bar('80%', c.line)}
         {bar('65%', c.line)}
         {bar('35%', c.strong, 'ml-auto')}
-        <span
-          className="mt-auto block h-2.5 rounded-[3px] border"
-          style={{ borderColor: c.line }}
-        />
+        <span className="mt-auto block h-2.5 rounded-xs border" style={{ borderColor: c.line }} />
       </span>
     </span>
   );
@@ -519,7 +513,7 @@ function ColorField({
     }
   };
   return (
-    <div className="flex h-8 w-32 items-center gap-2 rounded-full border border-input bg-card pr-3 pl-1.5 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50">
+    <div className="flex h-8 w-32 items-center gap-2 rounded-full border border-input bg-card pr-3 pl-1.5 transition-colors focus-within:border-ring-soft focus-within:ring-2 focus-within:ring-ring/12">
       <span
         className="relative size-5 shrink-0 overflow-hidden rounded-full ring-1 ring-foreground/15"
         style={{ background: value }}

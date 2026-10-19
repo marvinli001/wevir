@@ -124,8 +124,10 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
             )}
             <div
               className={cn(
-                'group/tab flex h-7 items-center rounded-lg',
-                selected ? 'bg-accent text-foreground' : 'hover:bg-accent/60',
+                'group/tab flex h-7 items-center rounded-lg transition-[background-color,box-shadow] duration-150 ease-smooth',
+                selected
+                  ? 'bg-selected ring-1 ring-selected-border ring-inset text-foreground'
+                  : 'hover:bg-accent/60',
               )}
             >
               <button

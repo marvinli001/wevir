@@ -3,7 +3,9 @@ import { ArrowLeft, ExternalLink, Plus, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useId, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Radio, RadioGroup } from '@/components/ui/radio-group';
 import { Select } from '@/components/ui/select';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -342,7 +344,6 @@ export function ModelsField({
   errors: FormErrors;
   onChange: (patch: Partial<ProviderForm>) => void;
 }) {
-  const ids = useId();
   const general = errors.models ?? errors.defaultModelId;
   const setRow = (index: number, patch: Partial<ProviderForm['models'][number]>) =>
     onChange({
@@ -362,7 +363,12 @@ export function ModelsField({
   return (
     <fieldset className="space-y-1.5">
       <legend className="mb-1.5 text-sm font-medium">{t('provider.form.models')}</legend>
-      <div className="grid grid-cols-[auto_1fr_10rem_auto_auto] items-center gap-x-2 gap-y-1.5">
+      <RadioGroup
+        value={String(form.defaultIndex)}
+        onValueChange={(value) => onChange({ defaultIndex: Number(value) })}
+        aria-label={t('provider.form.defaultModel')}
+        className="grid grid-cols-[auto_1fr_10rem_auto_auto] items-center gap-x-2 gap-y-1.5"
+      >
         <span className="text-xs text-muted-foreground">{t('provider.form.default')}</span>
         <span className="text-xs text-muted-foreground">{t('provider.form.modelId')}</span>
         <span className="text-xs text-muted-foreground">{t('provider.form.contextWindow')}</span>
@@ -373,12 +379,9 @@ export function ModelsField({
           const contextError = errors[`models.${index}.contextWindow`];
           return (
             <div key={row.key} className="contents" data-model-row={index}>
-              <input
-                type="radio"
-                name={`${ids}-default`}
-                className="mx-auto size-4 accent-primary"
-                checked={form.defaultIndex === index}
-                onChange={() => onChange({ defaultIndex: index })}
+              <Radio
+                value={String(index)}
+                className="mx-auto"
                 aria-label={t('provider.form.defaultModel')}
               />
               <div>
@@ -414,11 +417,10 @@ export function ModelsField({
                   )
                 )}
               </div>
-              <input
-                type="checkbox"
-                className="mx-auto size-4 accent-primary"
+              <Checkbox
+                className="mx-auto"
                 checked={row.images}
-                onChange={(event) => setRow(index, { images: event.target.checked })}
+                onCheckedChange={(images) => setRow(index, { images })}
                 aria-label={t('provider.form.images')}
                 data-model-images={index}
               />
@@ -432,7 +434,7 @@ export function ModelsField({
             </div>
           );
         })}
-      </div>
+      </RadioGroup>
       <Button
         type="button"
         variant="ghost"
