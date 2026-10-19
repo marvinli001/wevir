@@ -231,6 +231,49 @@ describe('ChatgptAccount', () => {
     });
   });
 
+  it('模型单独的额度（rateLimitsByLimitId）另成窗口，额度名在 scope；稀疏更新按 limitId 合进对应的额度', async () => {
+    const byLimit = () => ({
+      ...usage(),
+      rateLimitsByLimitId: {
+        codex: { limitId: 'codex', ...usage().rateLimits },
+        codex_bengalfox: {
+          limitId: 'codex_bengalfox',
+          limitName: 'GPT-5.3-Codex-Spark',
+          primary: { usedPercent: 5, windowDurationMins: 300, resetsAt: null },
+          secondary: null,
+          planType: 'plus',
+        },
+      },
+    });
+    const { account } = setup({ 'account/read': signedIn, 'account/rateLimits/read': byLimit });
+    await account.read();
+    const main = {
+      primary: { usedPercent: 23, windowMinutes: 300, resetsAt: '2026-10-14T06:00:11.000Z' },
+      secondary: { usedPercent: 40, windowMinutes: 10080 },
+    };
+    expect(account.state.rateLimits).toEqual({
+      ...main,
+      windows: [
+        main.primary,
+        main.secondary,
+        { usedPercent: 5, windowMinutes: 300, scope: 'GPT-5.3-Codex-Spark' },
+      ],
+    });
+    // Spark 的更新不覆盖主额度。
+    account.onNotification('account/rateLimits/updated', {
+      rateLimits: {
+        limitId: 'codex_bengalfox',
+        primary: { usedPercent: 70, windowDurationMins: 300, resetsAt: null },
+      },
+    });
+    expect(account.state.rateLimits?.primary).toEqual(main.primary);
+    expect(account.state.rateLimits?.windows?.[2]).toEqual({
+      usedPercent: 70,
+      windowMinutes: 300,
+      scope: 'GPT-5.3-Codex-Spark',
+    });
+  });
+
   it('进程退出时登录中断，记一条错误', async () => {
     const { account } = setup({
       'account/read': signedOut,

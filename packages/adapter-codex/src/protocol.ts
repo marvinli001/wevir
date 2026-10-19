@@ -837,8 +837,13 @@ export interface RateLimitWindow {
   resetsAt: number | null;
 }
 
-/** v2/RateLimitSnapshot.ts 里本包读的。 */
+/**
+ * v2/RateLimitSnapshot.ts 里本包读的。`limitId` 是计量的额度（`codex` 是主额度，其余是某些模型单独的额度，如 Spark），
+ * `limitName` 是后者给人看的名字。
+ */
 export interface RateLimitSnapshot {
+  limitId?: string | null;
+  limitName?: string | null;
   primary: RateLimitWindow | null;
   secondary: RateLimitWindow | null;
   planType: string | null;
@@ -847,6 +852,8 @@ export interface RateLimitSnapshot {
 /** v2/GetAccountRateLimitsResponse.ts（`account/rateLimits/read`）里本包读的。 */
 export interface GetAccountRateLimitsResponse {
   rateLimits: RateLimitSnapshot;
+  /** 全部额度，键是 `limitId`；旧版本没有。 */
+  rateLimitsByLimitId?: Record<string, RateLimitSnapshot> | null;
 }
 
 /** v2/AccountRateLimitsUpdatedNotification.ts（`account/rateLimits/updated`，稀疏更新）。 */
