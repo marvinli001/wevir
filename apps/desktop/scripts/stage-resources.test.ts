@@ -14,9 +14,11 @@ import { actoolVersion, builderArgs, MAC_FALLBACK_ICON, macIconArgs } from './pa
 import {
   checkHostTree,
   EXCLUDED_PACKAGES,
+  entryFiles,
   hostTarget,
   nodePlatform,
   pruneDependencies,
+  pruneUnusedFiles,
 } from './stage-resources.js';
 
 describe('hostTarget', () => {
@@ -126,5 +128,91 @@ describe('pruneDependencies / checkHostTree', () => {
     expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).toThrow(
       /符号链接[\s\S]*vite 有 postinstall 脚本[\s\S]*不该进安装包的包/,
     );
+  });
+});
+
+describe('pruneUnusedFiles', () => {
+  let root: string;
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  function file(path: string, content = ''): void {
+    mkdirSync(join(root, path, '..'), { recursive: true });
+    writeFileSync(join(root, path), content);
+  }
+
+  it('删掉 TypeScript 文件、source map 与包根目录的测试目录，留下入口、许可证与 JS', () => {
+    root = mkdtempSync(join(tmpdir(), 'wevir-stage-'));
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: '@wevir/host' }));
+    const zod = pkg(root, 'zod', {
+      exports: {
+        '.': {
+          '@zod/source': './src/index.ts',
+          types: './index.d.cts',
+          import: './index.js',
+          require: './index.cjs',
+        },
+      },
+    });
+    file('node_modules/zod/index.js');
+    file('node_modules/zod/index.cjs');
+    file('node_modules/zod/index.d.cts');
+    file('node_modules/zod/index.d.ts');
+    file('node_modules/zod/index.js.map');
+    file('node_modules/zod/src/index.ts');
+    file('node_modules/zod/src/v4/core.ts');
+    file('node_modules/zod/LICENSE');
+    pkg(root, 'domino', { main: './lib/index.js' });
+    file('node_modules/domino/lib/index.js');
+    file('node_modules/domino/test/w3c/a.js');
+    file('node_modules/domino/test/b.html');
+    file('node_modules/domino/.yarn/plugins/x.cjs');
+    // 不在包根目录的 test 目录是包的一部分，留下；嵌套的 node_modules 里的包同样处理。
+    file('node_modules/domino/lib/test/helper.js');
+    pkg(join(root, 'node_modules', 'domino'), 'inner', { main: 'index.js' });
+    file('node_modules/domino/node_modules/inner/index.js');
+    file('node_modules/domino/node_modules/inner/index.d.mts');
+    file('node_modules/domino/node_modules/inner/tests/t.js');
+
+    expect(pruneUnusedFiles(root)).toBe(10);
+    const has = (path: string) => existsSync(join(root, path));
+    for (const kept of [
+      'node_modules/zod/index.js',
+      'node_modules/zod/index.cjs',
+      'node_modules/zod/LICENSE',
+      'node_modules/domino/lib/index.js',
+      'node_modules/domino/lib/test/helper.js',
+      'node_modules/domino/node_modules/inner/index.js',
+    ]) {
+      expect(has(kept), kept).toBe(true);
+    }
+    for (const gone of [
+      'node_modules/zod/index.d.ts',
+      'node_modules/zod/index.js.map',
+      'node_modules/zod/src',
+      'node_modules/domino/test',
+      'node_modules/domino/.yarn',
+      'node_modules/domino/node_modules/inner/index.d.mts',
+      'node_modules/domino/node_modules/inner/tests',
+    ]) {
+      expect(has(gone), gone).toBe(false);
+    }
+    expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).not.toThrow();
+    // 入口被删掉时 checkHostTree 报出来。
+    rmSync(join(zod, 'index.cjs'));
+    expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).toThrow('zod 的入口不在：./index.cjs');
+  });
+
+  it('entryFiles 只取 Node 会加载的文件', () => {
+    expect(
+      entryFiles({
+        main: 'main.js',
+        bin: { a: './bin/a.js' },
+        exports: {
+          '.': { '@x/source': './src/index.ts', types: './index.d.ts', default: './index.js' },
+          './features/*': './features/*.js',
+          './list': ['./list.mjs', './list.cjs'],
+        },
+      }),
+    ).toEqual(['main.js', './bin/a.js', './index.js', './list.mjs', './list.cjs']);
   });
 });
