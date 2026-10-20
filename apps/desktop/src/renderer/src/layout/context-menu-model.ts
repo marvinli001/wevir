@@ -15,7 +15,7 @@ export type SessionMenuItem =
 export interface SessionMenuAvailability {
   rename: boolean;
   branch: boolean;
-  /** 新建发进这个会话的自动化（0.71.0）。 */
+  /** 新建发进这个会话的自动化（0.73.0）。 */
   automate?: boolean;
   archive: boolean;
   delete: boolean;

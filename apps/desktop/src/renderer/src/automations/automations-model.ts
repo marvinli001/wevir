@@ -19,7 +19,7 @@ import type { ModelChoice } from '@/session/model-picker';
 
 export type AutomationsAvailability = 'pending' | 'unsupported' | 'ready';
 
-/** Host 支持发进已有会话与检查脚本（0.71.0，功能 `automation_conditions`）。 */
+/** Host 支持发进已有会话与检查脚本（0.73.0，功能 `automation_conditions`）。 */
 export function conditionsSupported(features: HostFeatures | undefined): boolean {
   return features !== undefined && hostSupports(features, 'automation_conditions');
 }
@@ -366,7 +366,7 @@ export function isRunActive(run: AutomationRun | undefined): boolean {
 
 /**
  * 一次运行的状态变了，要不要发系统通知：`waiting`（等审批或回答）与 `failed` 除了“从不”都提醒；`completed` 在“每次”时提醒，
- * “重要更新”时 Agent 没标记无事可报才提醒，“仅有变化”（0.71.0）还要求结果与上次不同；其余（检查中、运行中、跳过、取消、
+ * “重要更新”时 Agent 没标记无事可报才提醒，“仅有变化”（0.73.0）还要求结果与上次不同；其余（检查中、运行中、跳过、取消、
  * 检查脚本没唤醒）不提醒。
  */
 export function shouldNotify(notify: AutomationNotify, run: AutomationRun): boolean {
@@ -397,9 +397,9 @@ export interface AutomationDraft {
   model?: ModelChoice;
   permissionMode: PermissionMode;
   newSessionEachRun: boolean;
-  /** 发进的已有会话（0.71.0）：有时项目与模型取那个会话的，`newSessionEachRun` 不起作用。 */
+  /** 发进的已有会话（0.73.0）：有时项目与模型取那个会话的，`newSessionEachRun` 不起作用。 */
   sessionId?: string;
-  /** 检查脚本（0.71.0）；undefined 表示没有。 */
+  /** 检查脚本（0.73.0）；undefined 表示没有。 */
   check?: AutomationCheck;
   notify: AutomationNotify;
   enabled: boolean;
@@ -492,7 +492,7 @@ export function createParams(
 
 /**
  * 编辑：整份表单写回（项目、模型档位清掉时传 null）。发进已有会话时不写项目与模型，会话换了才传 `sessionId`；`conditions`
- * 为 false（Host 不到 0.71.0）时不传新字段。
+ * 为 false（Host 不到 0.73.0）时不传新字段。
  */
 export function updateParams(
   automation: Automation,

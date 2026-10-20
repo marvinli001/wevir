@@ -143,7 +143,7 @@ export function NotificationCoordinator() {
   const deliverRef = useRef(deliver);
   deliverRef.current = deliver;
 
-  // 会话事件 → 提醒。自动化开的会话、自动化的运行正在里面进行的已有会话（0.71.0）不在这里提醒，按自动化的通知设置走
+  // 会话事件 → 提醒。自动化开的会话、自动化的运行正在里面进行的已有会话（0.73.0）不在这里提醒，按自动化的通知设置走
   // 下面的运行状态（0.66.0）。
   const quietSessions = useRef(new Set<string>());
   useEffect(() => {

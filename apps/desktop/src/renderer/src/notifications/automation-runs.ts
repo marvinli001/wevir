@@ -1,7 +1,7 @@
 // 自动化运行的提醒（0.66.0，Host 功能 `automations`）：通知协调器（notification-coordinator.tsx）用它。先读一次
 // `automation.list`（Host 只把 `automation.changed` 发给调用过 `automation.*` 的连接），记下每个自动化的标题与通知设置；
 // 一次运行有了会话就把会话放进列表（Host 开的会话本端还不知道）；状态变了按 automations-model.ts 的 `shouldNotify` 决定
-// 要不要提醒。发进已有会话（不是自动化开的，0.71.0）的运行也按自动化的设置提醒：运行进行中把那个会话记进 `quietSessions`，
+// 要不要提醒。发进已有会话（不是自动化开的，0.73.0）的运行也按自动化的设置提醒：运行进行中把那个会话记进 `quietSessions`，
 // 通知协调器这期间不按会话事件提醒它。
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';

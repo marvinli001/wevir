@@ -35,7 +35,7 @@ export const AUTOMATION_PROMPT_MAX_LENGTH = 20_000;
 export const AUTOMATION_RUNS_KEPT = 50;
 /** `AutomationRun.summary` 的长度上限。 */
 export const AUTOMATION_RUN_SUMMARY_MAX_LENGTH = 2_000;
-/** 自动化检查脚本（0.71.0）命令的长度上限。 */
+/** 自动化检查脚本（0.73.0）命令的长度上限。 */
 export const AUTOMATION_CHECK_COMMAND_MAX_LENGTH = 4_000;
 /** 检查脚本省略 `timeoutSeconds` 时的超时（秒）。 */
 export const AUTOMATION_CHECK_DEFAULT_TIMEOUT_SECONDS = 60;

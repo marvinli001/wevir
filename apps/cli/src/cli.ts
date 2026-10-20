@@ -52,7 +52,7 @@ const str = (value: string | boolean | undefined): string | undefined =>
 
 const json = { json: { type: 'boolean' } } as const;
 
-/** 检查脚本的选项（0.71.0）：`create`、`update` 与 `test-check` 共用。 */
+/** 检查脚本的选项（0.73.0）：`create`、`update` 与 `test-check` 共用。 */
 const CHECK_OPTIONS: ParseArgsOptionsConfig = {
   check: { type: 'string' },
   wake: { type: 'string' },

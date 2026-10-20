@@ -435,7 +435,7 @@ const settle = async () => {
   for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
-describe('发进已有会话（0.71.0）', () => {
+describe('发进已有会话（0.73.0）', () => {
   it('用会话的项目与模型，不另开会话；消息前面有一行说明', async () => {
     const h = await harness({ message: true });
     h.addSession('ses_mine');
@@ -507,7 +507,7 @@ describe('发进已有会话（0.71.0）', () => {
   });
 });
 
-describe('检查脚本（0.71.0）', () => {
+describe('检查脚本（0.73.0）', () => {
   const exitCode = { command: './has-news.sh', wake: 'exit_code' } as const;
 
   it('退出码 1 不唤醒，连着的并成一条；0 唤醒并附上输出；别的算失败', async () => {
@@ -704,7 +704,7 @@ describe('检查脚本（0.71.0）', () => {
   });
 });
 
-describe('与上次相同（0.71.0）', () => {
+describe('与上次相同（0.73.0）', () => {
   it('完成的回答与上一次完成的相同时记 unchanged', async () => {
     const h = await harness();
     const { id } = await h.service.create(daily, { kind: 'user' });

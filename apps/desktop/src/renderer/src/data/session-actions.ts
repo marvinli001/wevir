@@ -209,7 +209,7 @@ export interface SessionActions {
   rename?: () => void;
   archive?: () => void;
   branch?: () => void;
-  /** 新建发进这个会话的自动化（0.71.0，Host 功能 `automation_conditions`）。 */
+  /** 新建发进这个会话的自动化（0.73.0，Host 功能 `automation_conditions`）。 */
   automate?: () => void;
   remove?: () => void;
   toggleUnread(): void;

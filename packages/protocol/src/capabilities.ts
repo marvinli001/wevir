@@ -294,7 +294,7 @@ export const HOST_FEATURES = {
    */
   userTerminal: 'user_terminal',
   /**
-   * 自动化的条件与目标（0.71.0）：`automation.create` / `update` 的 `sessionId`（发进已有会话）与 `check`（检查脚本决定唤不唤醒
+   * 自动化的条件与目标（0.73.0）：`automation.create` / `update` 的 `sessionId`（发进已有会话）与 `check`（检查脚本决定唤不唤醒
    * Agent）、`automation.testCheck`、运行状态 `checking` / `silent`、通知 `changes` 与连续失败自动停用（`autoPausedAt`）。
    * 有 `automations` 时声明。
    */

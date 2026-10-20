@@ -2037,7 +2037,7 @@ export const MethodSchemas = {
     result: AutomationRunResultSchema,
     permission: 'session.write',
   },
-  /** 0.71.0：试跑检查脚本（Host 执行命令，要 `session.write`）。 */
+  /** 0.73.0：试跑检查脚本（Host 执行命令，要 `session.write`）。 */
   'automation.testCheck': {
     params: AutomationTestCheckParamsSchema,
     result: AutomationTestCheckResultSchema,

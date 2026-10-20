@@ -47,9 +47,9 @@ export interface AutomationFlags {
   notify?: string;
   sameSession?: boolean;
   newSession?: boolean;
-  /** 发进这个已有会话（0.71.0）。 */
+  /** 发进这个已有会话（0.73.0）。 */
   session?: string;
-  /** 检查脚本（0.71.0）。 */
+  /** 检查脚本（0.73.0）。 */
   check?: string;
   wake?: string;
   checkTimeout?: string;

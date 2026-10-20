@@ -447,7 +447,7 @@ This session is a run of the Wevir automation "${automation.title}" (automationI
 }
 
 /**
- * 一次运行发给 Agent 的消息（0.71.0）：指令；检查脚本唤醒时接上输出的末尾；发进不是这个自动化开的会话时（那里没有运行须知）
+ * 一次运行发给 Agent 的消息（0.73.0）：指令；检查脚本唤醒时接上输出的末尾；发进不是这个自动化开的会话时（那里没有运行须知）
  * 前面加一行说明是谁发的、没有要报告的怎么说。
  */
 export function automationRunMessage(

@@ -140,7 +140,7 @@ it('提醒：等待处理与失败除了“从不”都提醒，完成看设置�
   expect(shouldNotify('always', run({ quiet: true }))).toBe(true);
   expect(shouldNotify('failures', run({}))).toBe(false);
   expect(shouldNotify('always', run({ status: 'skipped' }))).toBe(false);
-  // 仅有变化（0.71.0）：与上次相同、无事可报都不提醒；检查脚本没唤醒的不提醒。
+  // 仅有变化（0.73.0）：与上次相同、无事可报都不提醒；检查脚本没唤醒的不提醒。
   expect(shouldNotify('changes', run({}))).toBe(true);
   expect(shouldNotify('changes', run({ unchanged: true }))).toBe(false);
   expect(shouldNotify('changes', run({ quiet: true }))).toBe(false);

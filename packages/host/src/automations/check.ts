@@ -1,4 +1,4 @@
-// 自动化的检查脚本（0.71.0，domain-model §3.26）：每次运行前 Host 先跑它，按退出码或输出有没有变决定这次唤不唤醒 Agent。
+// 自动化的检查脚本（0.73.0，domain-model §3.26）：每次运行前 Host 先跑它，按退出码或输出有没有变决定这次唤不唤醒 Agent。
 //
 // 用户的登录 shell、自成进程组、去掉 `WEVIR_*` 的环境，同后台进程（processes.ts 的 `shellCommand` / `childEnv`）；不进
 // “进程输出”，它不属于哪个会话。超时先 SIGTERM 整个进程组，宽限后 SIGKILL。输出只留末尾给人与 Agent 看；`output_changed`

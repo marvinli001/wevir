@@ -10,7 +10,7 @@
 // 改标题、发出指令，回合结束时按结果记 `completed` / `failed` / `cancelled`，摘下最后一条回答作 `summary`；回合等用户批准或回答
 // 时是 `waiting`。Host 重启时还在跑的运行记为 `cancelled`（回合已被打断）。
 //
-// 0.71.0：可以指定一个已有会话（`sessionId`），用它的项目与模型，每次往里面发一条消息；有检查脚本（`check`）时运行先是
+// 0.73.0：可以指定一个已有会话（`sessionId`），用它的项目与模型，每次往里面发一条消息；有检查脚本（`check`）时运行先是
 // `checking`，Host 跑完脚本（check.ts）按结论唤醒 Agent，或记 `silent`（连着的几次并成一条，不开回合）。`output_changed`
 // 的基准（上一次输出的摘要）与连着失败的次数存在同一个文件里，不出现在协议里；连着失败 `AUTOMATION_MAX_CONSECUTIVE_FAILURES`
 // 次自动停用，记 `autoPausedAt`。完成的运行的 `summary` 与上一次完成的相同时记 `unchanged`（`notify: "changes"`）。
