@@ -194,16 +194,19 @@ export const TurnView = memo(
               {...(writingPlan && { label: t('plan.writing') })}
             />
           )}
-          {fold.finished && fold.changes.files > 0 && (
-            <ChangesChip
-              turnId={turnId}
-              messages={messages}
-              hasSubagents={hasSubagents}
-              fold={fold}
-            />
-          )}
-          {fold.finished && checks && (
-            <ChecksChip checks={checks} spaced={fold.changes.files > 0} />
+          {fold.finished && (fold.changes.files > 0 || checks) && (
+            // 两颗药丸放进同一行 flex 居中：各自 inline-flex 时按基线对齐，“检查”以图标开头，基线落在图标底边，会比“已更改”高。
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {fold.changes.files > 0 && (
+                <ChangesChip
+                  turnId={turnId}
+                  messages={messages}
+                  hasSubagents={hasSubagents}
+                  fold={fold}
+                />
+              )}
+              {checks && <ChecksChip checks={checks} />}
+            </div>
           )}
           {fold.finished && (answer !== '' || branch !== undefined) && (
             // 回答下面的“复制”（U36）与“分支到新会话”（0.38.0）：最后一个回合的一直显示，别的悬停时出现。占一行高度：消息流的
@@ -359,7 +362,7 @@ function ChangesChip({
       type="button"
       onClick={expand}
       data-turn-changes
-      className="mt-3 inline-flex h-7 items-center gap-2 rounded-full border border-border bg-card pr-1.5 pl-3 text-sm text-soft-foreground outline-none hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-card pr-1.5 pl-3 text-sm text-soft-foreground outline-none hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
     >
       {t('turn.changes', { count: fold.changes.files })}
       <DiffStat stats={fold.changes} />
@@ -376,7 +379,7 @@ const CHECK_ICONS = {
 } as const;
 
 /** 回答下面的“检查通过 2/2”（0.65.0）：这个回合触发的最近一轮检查；详情在会话侧栏的“检查”卡片里。 */
-function ChecksChip({ checks, spaced }: { checks: ChecksSummary; spaced: boolean }) {
+function ChecksChip({ checks }: { checks: ChecksSummary }) {
   const Icon = CHECK_ICONS[checks.tone];
   const plain = TURN_CHECK_LABELS[checks.tone];
   const label =
@@ -389,10 +392,7 @@ function ChecksChip({ checks, spaced }: { checks: ChecksSummary; spaced: boolean
   return (
     <span
       data-turn-checks={checks.tone}
-      className={cn(
-        'mt-3 inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground',
-        spaced && 'ml-2',
-      )}
+      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
     >
       <Icon
         aria-hidden
