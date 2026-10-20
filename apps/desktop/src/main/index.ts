@@ -64,6 +64,14 @@ import { BROWSER_PARTITION_DIR, cleanLogs, measureStorage } from './storage.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
 import {
+  finishInstallTiming,
+  INSTALL_TIMING_LOG,
+  markInstallTiming,
+  PENDING_INSTALL_FILE,
+  type StartupMarks,
+  startInstallTiming,
+} from './updates/install-timing.js';
+import {
   DEFAULT_WINDOW_APPEARANCE,
   loadWindowAppearance,
   parseWindowAppearanceInput,
@@ -138,6 +146,37 @@ function run(): void {
     mainWindow.focus();
   };
 
+  // 启动各阶段的时间点：窗口显示且 Host 就绪（或失败）后记一行日志；刚装完更新时连同旧版本记下的时间点追加到
+  // logs/update-timing.log（install-timing.ts）。
+  const installTimingFile = join(app.getPath('userData'), PENDING_INSTALL_FILE);
+  const startup: StartupMarks = {
+    processAt: process.getCreationTime() ?? Date.now() - process.uptime() * 1000,
+  };
+  const markStartup = (key: 'windowAt' | 'hostAt') => {
+    if (startup[key] !== undefined) return;
+    startup[key] = Date.now();
+    if (startup.windowAt === undefined || startup.hostAt === undefined) return;
+    const since = (at: number | undefined) =>
+      at === undefined ? undefined : Math.round(at - startup.processAt);
+    log('info', 'startup timing', {
+      appReadyMs: since(startup.readyAt),
+      windowMs: since(startup.windowAt),
+      hostMs: since(startup.hostAt),
+    });
+    try {
+      const timing = finishInstallTiming({
+        file: installTimingFile,
+        logFile: join(home, HOME_LAYOUT.logsDir, INSTALL_TIMING_LOG),
+        currentVersion: app.getVersion(),
+        marks: startup,
+        now: Date.now(),
+      });
+      if (timing !== undefined) log('info', 'update install timing', { ...timing });
+    } catch (error) {
+      log('warn', 'failed to record the update install timing', { error: String(error) });
+    }
+  };
+
   // Host 与窗口并行准备。首次只尝试一次，失败时 getHostConnection 把原因交给渲染进程显示；之后拥有的 Host
   // 意外退出由 HostLifecycle 重新拉起，状态经 hostStatus 推给渲染进程（T5.5）。
   const host = (async () => {
@@ -165,7 +204,8 @@ function run(): void {
   })();
   void host
     .then(({ lifecycle }) => lifecycle.start())
-    .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+    .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }))
+    .finally(() => markStartup('hostAt'));
   /** 连 HostLifecycle 都建不起来（找不到 Node、Host 没有构建）时，界面看到的状态。 */
   const setupFailure = (error: unknown): HostProcessStatus => ({
     phase: 'failed',
@@ -415,9 +455,16 @@ function run(): void {
   const updates = createUpdateController(
     log,
     process.platform === 'win32'
-      ? { prepareInstall: () => host.then(({ lifecycle }) => lifecycle.stop()) }
+      ? {
+          prepareInstall: async () => {
+            await host.then(({ lifecycle }) => lifecycle.stop());
+            markInstallTiming(installTimingFile, 'hostStoppedAt', Date.now());
+          },
+        }
       : {},
   );
+  /** 这次退出是在安装更新：退出前补上时间点。 */
+  let installingUpdate = false;
   updates.onState((state: UpdateState) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.updateState, state);
@@ -440,7 +487,17 @@ function run(): void {
     // 安装更新要关掉窗口再退出；装不了（状态变成 error）时恢复“关窗口只是隐藏”。Windows 上 Host 已经为安装停掉、不能再
     // 拉起（HostLifecycle 停了就不再启动），这时重新打开应用。
     allowClose = true;
+    if (updates.state.phase === 'downloaded') {
+      installingUpdate = true;
+      startInstallTiming(installTimingFile, {
+        from: app.getVersion(),
+        to: updates.state.version,
+        platform: process.platform,
+        clickedAt: Date.now(),
+      });
+    }
     await updates.install();
+    if (installingUpdate) markInstallTiming(installTimingFile, 'installerAt', Date.now());
     if (updates.state.phase !== 'error') return;
     if (process.platform === 'win32') {
       log('error', 'update install failed after the host was stopped; relaunching');
@@ -592,9 +649,13 @@ function run(): void {
         app.quit();
       });
   });
+  app.on('will-quit', () => {
+    if (installingUpdate) markInstallTiming(installTimingFile, 'quitAt', Date.now());
+  });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => app.quit());
 
   void app.whenReady().then(() => {
+    startup.readyAt = Date.now();
     // 渲染进程不需要任何权限（摄像头、通知、剪贴板读取等），一律拒绝（Electron 安全清单第 5 条）。
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
       callback(false),
@@ -618,6 +679,7 @@ function run(): void {
     nativeTheme.themeSource = windowAppearance.themeMode;
     applyAppIcon();
     mainWindow = createWindow();
+    mainWindow.once('show', () => markStartup('windowAt'));
     // 关窗口（红绿灯、Alt+F4、⌘W）只是隐藏，留在后台；真正退出时才关。
     mainWindow.on('close', (event) => {
       const window = mainWindow;

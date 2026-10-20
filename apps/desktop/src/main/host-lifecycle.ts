@@ -679,9 +679,11 @@ export class HostLifecycle {
     this.#log('info', 'stopping owned host: closing the ownership pipe', {
       pid: child.process.pid,
     });
+    const stopStartedAt = Date.now();
+    const elapsed = () => ({ pid: child.process.pid, ms: Date.now() - stopStartedAt });
     child.process.stdin?.end();
     if (await exitsWithin(child, this.#timeouts.pipeCloseMs)) {
-      this.#log('info', 'owned host exited', { pid: child.process.pid });
+      this.#log('info', 'owned host exited', elapsed());
       return;
     }
 
@@ -695,12 +697,10 @@ export class HostLifecycle {
       );
     }
     if (await exitsWithin(child, this.#timeouts.shutdownMs)) {
-      this.#log('info', 'owned host exited', { pid: child.process.pid });
+      this.#log('info', 'owned host exited', elapsed());
       return;
     }
-    this.#log('error', 'host did not exit after host.shutdown; killing it', {
-      pid: child.process.pid,
-    });
+    this.#log('error', 'host did not exit after host.shutdown; killing it', elapsed());
     await this.#terminate(child);
   }
 
