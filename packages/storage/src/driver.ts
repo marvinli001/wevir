@@ -28,6 +28,9 @@ export interface SqliteStatement {
   get(params: SqlParams, ...anonymous: SqlValue[]): SqlRow | undefined;
   all(...params: SqlValue[]): SqlRow[];
   all(params: SqlParams, ...anonymous: SqlValue[]): SqlRow[];
+  /** 逐行读，不把结果一次全读进内存。迭代完（或中途 `return()`）之前别再用这条语句。 */
+  iterate(...params: SqlValue[]): IterableIterator<SqlRow>;
+  iterate(params: SqlParams, ...anonymous: SqlValue[]): IterableIterator<SqlRow>;
 }
 
 export interface SqliteDatabase {

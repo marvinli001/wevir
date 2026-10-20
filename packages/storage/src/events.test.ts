@@ -36,6 +36,21 @@ describe('events', () => {
     expect(s.events.lastSeq('ses_01')).toBe(3);
   });
 
+  it('iterate 逐行读出与 list 相同的事件，中途放弃后可以再读', () => {
+    const s = storage();
+    seedSession(s);
+    for (let seq = 1; seq <= 5; seq++) s.events.insert(event(seq));
+
+    expect([...s.events.iterate('ses_01')]).toEqual(s.events.list('ses_01'));
+    expect([...s.events.iterate('ses_01', { afterSeq: 3 })]).toEqual([event(4), event(5)]);
+    for (const record of s.events.iterate('ses_01')) {
+      if (record.seq === 2) break;
+    }
+    expect([...s.events.iterate('ses_01', { afterSeq: 4 })]).toEqual([event(5)]);
+    s.events.insert(event(6));
+    expect(s.events.lastSeq('ses_01')).toBe(6);
+  });
+
   it('没有事件时 lastSeq 为 0', () => {
     const s = storage();
     seedSession(s);
