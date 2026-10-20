@@ -12,7 +12,7 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, type SelectOption } from '@/components/ui/select';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { currentLocale, type PlainMessageKey, t } from '@/i18n';
 import { formatRelativeTime } from '@/session/subagent-model';
@@ -299,6 +299,7 @@ function Filters({
   onRange: (range: UsageRange) => void;
   providers: readonly ProviderProfile[];
 }) {
+  const accounts = useAccounts();
   const options = summary?.result.options;
   const listed = filterProviders(providers, options?.providers ?? []);
   const models = [...(options?.models ?? [])];
@@ -330,7 +331,7 @@ function Filters({
               fallback={provider.displayName}
               className="size-3.5"
             />
-            {providerTitle(provider)}
+            {providerTitle(provider, accounts)}
           </Chip>
         ))}
       </fieldset>

@@ -5,6 +5,7 @@
 
 import { hostSupports } from '@wevir/client-sdk';
 import type {
+  AccountState,
   HostFeatures,
   ProviderKind,
   ProviderProfile,
@@ -13,7 +14,7 @@ import type {
   UsageTokens,
 } from '@wevir/protocol';
 import type { ProviderLogoId } from '@/components/provider-logo';
-import { isSourceKind, pickerOrder, SOURCES, sourceOf } from '@/data/sources';
+import { isSourceKind, pickerOrder, SOURCES, sourceOf, sourceTitle } from '@/data/sources';
 import { t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 
@@ -110,10 +111,15 @@ export function filterProviders(
   );
 }
 
-/** 服务商的名字：订阅来源用来源名（同模型选择），API 连接用它的显示名。 */
-export function providerTitle(provider: ProviderProfile): string {
+/** 服务商的名字：订阅来源用来源名（同模型选择，多个账号时带标签或序号），API 连接用它的显示名。 */
+export function providerTitle(
+  provider: ProviderProfile,
+  accounts?: readonly AccountState[],
+): string {
   const source = sourceOf(provider);
-  return source === undefined ? provider.displayName : t(source.name);
+  return source === undefined
+    ? provider.displayName
+    : sourceTitle(provider, accounts, t(source.name));
 }
 
 export function isFiltered(selection: UsageSelection): boolean {

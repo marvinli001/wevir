@@ -20,6 +20,25 @@ const chatgpt: AccountState = {
 };
 
 describe('subscriptionUsage', () => {
+  it('同一来源的多个账号（0.63.0）：按 Provider ID 找账号，带上标签', () => {
+    const added: AccountState = {
+      ...chatgpt,
+      id: 'chatgpt-3f9a',
+      label: '副号',
+      rateLimits: { primary: { usedPercent: 40 } },
+    };
+    const both = [
+      ...providers,
+      { id: 'chatgpt-3f9a', kind: 'chatgpt', models: [] },
+    ] as unknown as ProviderProfile[];
+    expect(subscriptionUsage({ providerId: 'chatgpt-3f9a' }, both, [chatgpt, added])).toMatchObject(
+      { label: '副号', peak: { usedPercent: 40 } },
+    );
+    expect(subscriptionUsage({ providerId: 'chatgpt' }, both, [chatgpt, added])).toMatchObject({
+      peak: { usedPercent: 90 },
+    });
+  });
+
   it('会话的 Provider 来自订阅：给出那个账号的窗口与用得最多的一个，ChatGPT 的套餐换成显示名', () => {
     expect(subscriptionUsage({ providerId: 'chatgpt' }, providers, [chatgpt])).toEqual({
       kind: 'chatgpt',
