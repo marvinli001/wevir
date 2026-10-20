@@ -1166,7 +1166,7 @@ export const SessionSendResultSchema = z.object({
   seq: SeqSchema,
 });
 
-// ── 第二意见（0.71.0，Host 功能 `second_opinion`，domain-model §3.30） ────────
+// ── 第二意见（0.75.0，Host 功能 `second_opinion`，domain-model §3.30） ────────
 
 /** 去掉首尾空白后不能是空的，最多 `max` 个 UTF-16 code unit。 */
 function trimmedText(max: number) {

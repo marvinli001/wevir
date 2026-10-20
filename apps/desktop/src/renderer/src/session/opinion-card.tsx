@@ -35,7 +35,7 @@ function useOpinionSource(opinion: Pick<SecondOpinion, 'providerId' | 'modelId'>
 }
 
 /**
- * 第二意见（0.71.0，desktop-tokens §65）：发起时所在的位置一张卡片。标题行是来源与状态；好了之后是意见全文（很长时收起），下面“引用”
+ * 第二意见（0.75.0，desktop-tokens §65）：发起时所在的位置一张卡片。标题行是来源与状态；好了之后是意见全文（很长时收起），下面“引用”
  * 把意见作为一条消息发给这个会话（会话忙时排在后面），引用过的写“已引用”；“打开会话”去给意见的那个会话。
  */
 export function OpinionCard({ part }: { part: ChatPartOf<'opinion'> }) {

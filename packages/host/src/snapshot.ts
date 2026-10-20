@@ -135,7 +135,7 @@ export interface SessionProjection {
    * `acceptance.changed` 与 `repair.updated` 整份替换。从没有过验证事件时没有。
    */
   readonly verification?: ProjectedVerification;
-  /** 第二意见（0.71.0，domain-model §3.30）：`opinion.updated` 按 `id` 替换，按发起的先后。 */
+  /** 第二意见（0.75.0，domain-model §3.30）：`opinion.updated` 按 `id` 替换，按发起的先后。 */
   readonly opinions: ReadonlyMap<OpinionId, SecondOpinion>;
 }
 
@@ -220,7 +220,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  * - `suggestedTasks`（0.16.0）：`tasks.suggested` 加入，`task.started` 记下会话、`task.reported` 记下结局。
  * - `taskBoard`（0.52.0）：`tasks.board_updated` 整份替换。
  * - `promptSuggestion`（0.53.0）：`suggestion.updated` 设置，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件清空。
- * - `opinions`（0.71.0）：`opinion.updated` 按 `id` 替换。
+ * - `opinions`（0.75.0）：`opinion.updated` 按 `id` 替换。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {

@@ -142,7 +142,7 @@ export interface AppToolsOptions {
   processes?: ProcessManager;
   /** 代码智能：有它时加上 `lsp_*` 工具。 */
   lsp?: LspManager;
-  /** 第二意见（0.71.0）：有它时加上 `wevir_second_opinion`。 */
+  /** 第二意见（0.75.0）：有它时加上 `wevir_second_opinion`。 */
   opinions?: SecondOpinionService;
   /** 跨会话记忆：有它时加上 `wevir_memory_*` 工具。 */
   memory?: MemoryStore;

@@ -91,7 +91,7 @@ export const ids = {
   /** 行级批注（0.67.0）。 */
   reviewComment: `rvc_${ULID}`,
   reviewComment2: 'rvc_01JA2B3C4D5E6F7G8H9JKMNPR1',
-  /** 第二意见（0.71.0）与给意见的会话。 */
+  /** 第二意见（0.75.0）与给意见的会话。 */
   opinion: `opn_${ULID}`,
   opinionSession: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR5',
 } as const;
@@ -760,7 +760,7 @@ export const branchSession: Session = {
   lastSeq: 9,
 };
 
-/** 给意见的会话（0.71.0）：在 Host 开的 worktree 里，用另一个来源。 */
+/** 给意见的会话（0.75.0）：在 Host 开的 worktree 里，用另一个来源。 */
 export const opinionSession: Session = {
   ...idleSession,
   id: ids.opinionSession,
@@ -779,7 +779,7 @@ export const opinionSession: Session = {
   lastSeq: 1,
 };
 
-/** 第二意见（0.71.0）：还在看。 */
+/** 第二意见（0.75.0）：还在看。 */
 export const runningOpinion: SecondOpinion = {
   id: ids.opinion,
   sessionId: ids.opinionSession,
@@ -793,7 +793,7 @@ export const runningOpinion: SecondOpinion = {
   updatedAt: TS,
 };
 
-/** 第二意见（0.71.0）：有了意见，已引用进原会话。 */
+/** 第二意见（0.75.0）：有了意见，已引用进原会话。 */
 export const quotedOpinion: SecondOpinion = {
   ...runningOpinion,
   status: 'ready',

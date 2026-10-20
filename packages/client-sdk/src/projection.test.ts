@@ -1738,7 +1738,7 @@ describe('回合后验证（0.65.0）', () => {
   });
 });
 
-describe('第二意见（0.71.0）', () => {
+describe('第二意见（0.75.0）', () => {
   const OPINION = 'opn_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
   const running = {
     id: OPINION,

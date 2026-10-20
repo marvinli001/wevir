@@ -1,4 +1,4 @@
-// 第二意见（0.71.0，domain-model §3.30）：对着真实的 git 打快照、开意见会话、记下意见、引用，以及拒绝的情形与启动对账。echo 引擎
+// 第二意见（0.75.0，domain-model §3.30）：对着真实的 git 打快照、开意见会话、记下意见、引用，以及拒绝的情形与启动对账。echo 引擎
 // 把收到的消息原样答回来，意见就是发给意见会话的那段材料。
 
 import { execFileSync } from 'node:child_process';

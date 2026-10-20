@@ -585,7 +585,7 @@ export function SessionView({
         : undefined,
     [canReview, runCommand, client, session.id],
   );
-  // 第二意见（0.71.0，desktop-tokens §65）：`/second-opinion` 选来源与模型，Host 开意见会话；意见的卡片随事件出现在消息流里。
+  // 第二意见（0.75.0，desktop-tokens §65）：`/second-opinion` 选来源与模型，Host 开意见会话；意见的卡片随事件出现在消息流里。
   const canOpinion =
     commandsEnabled &&
     !session.side &&

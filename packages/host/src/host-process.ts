@@ -427,7 +427,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('review comments are unavailable', { error });
     }
 
-    // 第二意见（0.71.0）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。上次没跑完的意见在服务客户端之前对账。
+    // 第二意见（0.75.0）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。上次没跑完的意见在服务客户端之前对账。
     try {
       opinions = new SecondOpinionService({
         storage,

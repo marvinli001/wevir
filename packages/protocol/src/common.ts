@@ -24,7 +24,7 @@ export const ImageIdSchema = z.templateLiteral(['img_', IdBodySchema]);
 /** 自动化与它的一次运行（0.66.0）。 */
 export const AutomationIdSchema = z.templateLiteral(['aut_', IdBodySchema]);
 export const AutomationRunIdSchema = z.templateLiteral(['arn_', IdBodySchema]);
-/** 第二意见（0.71.0）。 */
+/** 第二意见（0.75.0）。 */
 export const OpinionIdSchema = z.templateLiteral(['opn_', IdBodySchema]);
 /** Host 实例 ID：每个数据目录一个，跨重启不变。 */
 export const HostIdSchema = z.templateLiteral(['hst_', IdBodySchema]);

@@ -224,7 +224,7 @@ export interface SessionCommandOptions {
   /** Host 能压缩上下文、审查代码（0.24.0）、会话当前的引擎会（0.27.0）且会话可写时给。 */
   onCompact?: () => void;
   onReview?: (target: ReviewTarget) => void;
-  /** 第二意见（0.71.0）：Host 声明 `second_opinion`、顶层会话且可写时给。 */
+  /** 第二意见（0.75.0）：Host 声明 `second_opinion`、顶层会话且可写时给。 */
   onSecondOpinion?: (choice: ModelChoice) => void;
   /** 会话能撤销与重做（0.51.0）且可写时给；`onRedo` 只在有撤销的回合可重做时给。 */
   onUndo?: () => void;
@@ -236,7 +236,7 @@ export interface SessionCommandOptions {
 }
 
 /**
- * `/second-opinion`（0.71.0）：二级菜单里选来源与模型，请它对会话当前的改动给第二意见。别的来源排在前面（意见要独立），会话自己的
+ * `/second-opinion`（0.75.0）：二级菜单里选来源与模型，请它对会话当前的改动给第二意见。别的来源排在前面（意见要独立），会话自己的
  * 来源在后。
  */
 function secondOpinionCommand(

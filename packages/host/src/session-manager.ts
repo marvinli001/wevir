@@ -833,7 +833,7 @@ export class SessionManager {
       toolPreset?: ToolPreset;
       /** 自动化运行开的会话（0.66.0）：记进 `origin`，`Session.automation` 由它来。 */
       automation?: SessionAutomation;
-      /** 第二意见的会话（0.71.0）：记进 `origin`，`Session.opinionOf` 由它来；目录是按 `snapshot` 新开的 worktree。 */
+      /** 第二意见的会话（0.75.0）：记进 `origin`，`Session.opinionOf` 由它来；目录是按 `snapshot` 新开的 worktree。 */
       opinion?: OpinionSessionOptions;
     } = {},
   ): Promise<Session> {
@@ -942,7 +942,7 @@ export class SessionManager {
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
-    // （0.71.0）是原会话目录的快照。
+    // （0.75.0）是原会话目录的快照。
     const prepared = chat
       ? await this.#chatDirectory(sessionId)
       : opinion !== undefined
@@ -1068,7 +1068,7 @@ export class SessionManager {
   }
 
   /**
-   * 第二意见的目录（0.71.0，domain-model §3.30）：在 `<worktreesDir>/<会话 ID>/` 下从原会话目录的 `head` 新开 worktree，再把文件换成
+   * 第二意见的目录（0.75.0，domain-model §3.30）：在 `<worktreesDir>/<会话 ID>/` 下从原会话目录的 `head` 新开 worktree，再把文件换成
    * 快照（`tree`）。失败时什么都不留，抛 `WorktreeError`（说明是 git 的原文）。
    */
   async #prepareSnapshot(
@@ -5349,7 +5349,7 @@ function isoNow(): string {
 }
 
 /** 环境会话准备好的目录（#prepareEnvironment）。 */
-/** `SessionManager.create` 的 `opinion`（0.71.0）。 */
+/** `SessionManager.create` 的 `opinion`（0.75.0）。 */
 export interface OpinionSessionOptions {
   of: SessionOpinionOf;
   /** 原会话目录（realpath）、它当时的 HEAD 与工作树的树散列（`checkpoints.ts` 的 `workingTreeHash`）。 */

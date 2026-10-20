@@ -82,7 +82,7 @@ export async function createWorktree(options: {
 }
 
 /**
- * 第二意见的快照（0.71.0，domain-model §3.30）：把新开的 worktree 的文件换成 `tree`（原会话目录当时的样子，`checkpoints.ts` 的
+ * 第二意见的快照（0.75.0，domain-model §3.30）：把新开的 worktree 的文件换成 `tree`（原会话目录当时的样子，`checkpoints.ts` 的
  * `workingTreeHash`），索引留在 HEAD：原会话没提交的改动在这里也是没提交的改动，新文件是未跟踪文件。照 git-diff.ts 屏蔽仓库配置里
  * 会执行命令的设置。
  */

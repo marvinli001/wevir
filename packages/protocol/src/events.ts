@@ -105,7 +105,7 @@ export const EventPayloadSchemas = {
     ...SessionSideFields,
     /** 由另一个会话里的 agent 开出来的（0.30.0）。 */
     openedBy: SessionOpenedBySchema.optional(),
-    /** 给另一个会话第二意见的会话（0.71.0）。 */
+    /** 给另一个会话第二意见的会话（0.75.0）。 */
     opinionOf: SessionOpinionOfSchema.optional(),
     /** 工具预设（0.61.0）；没选时省略，等同 `full`。 */
     toolPreset: ToolPresetSchema.optional(),
@@ -503,7 +503,7 @@ export const EventPayloadSchemas = {
   /** 自动修复链变了（0.65.0）：开始、每次修复、复验、停下。 */
   'repair.updated': z.object({ repair: RepairChainSchema }),
   /**
-   * 第二意见变了（0.71.0，domain-model §3.30）：发起、意见会话第一个回合结束、被引用。完整的意见，替换同一 `id` 的上一份；写在收到意见的
+   * 第二意见变了（0.75.0，domain-model §3.30）：发起、意见会话第一个回合结束、被引用。完整的意见，替换同一 `id` 的上一份；写在收到意见的
    * 会话里，不开回合、不进引擎上下文。
    */
   'opinion.updated': z.object({ opinion: SecondOpinionSchema }),

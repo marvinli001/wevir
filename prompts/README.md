@@ -17,7 +17,7 @@
 | [`session-recap.md`](session-recap.md) | 离开后摘要：回到离开过的会话时的一到三句话小结 | Host（0.54.0，`packages/host/src/recap.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
-| [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.71.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
+| [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.75.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |

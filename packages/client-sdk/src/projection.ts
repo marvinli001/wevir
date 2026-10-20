@@ -218,7 +218,7 @@ export type ChatPart =
   /** 一项建议开出来的会话回报了结果（`task.reported`），在当时所在的位置（当前回合，空闲时一条系统消息）。 */
   | { type: 'task_report'; key: string; task: SuggestedTask; summary?: string }
   /**
-   * 第二意见（0.71.0，`opinion.updated`）：第一次出现时在当时所在的位置（当前回合，空闲时一条系统消息；`key` 是 `o:<意见 ID>`），之后
+   * 第二意见（0.75.0，`opinion.updated`）：第一次出现时在当时所在的位置（当前回合，空闲时一条系统消息；`key` 是 `o:<意见 ID>`），之后
    * `opinion` 随同一 `id` 的 `opinion.updated` 原位换成最新的。
    */
   | { type: 'opinion'; key: string; opinion: SecondOpinion }
@@ -319,7 +319,7 @@ export interface Transcript {
   pendingQuestions: readonly QuestionRequest[];
   /** 0.16.0：Agent 建议的后续任务，按提出的先后；规则同 Host 快照的 `suggestedTasks`。 */
   suggestedTasks: readonly SuggestedTask[];
-  /** 0.71.0：这个会话收到的第二意见，按发起的先后；规则同 Host 快照的 `opinions`。 */
+  /** 0.75.0：这个会话收到的第二意见，按发起的先后；规则同 Host 快照的 `opinions`。 */
   opinions: readonly SecondOpinion[];
   /**
    * 0.30.0：最近一次 `ui.show`（会话里的 agent 请界面显示的东西）。客户端只对订阅之后新到的打开窗格，用 `seq` 与 `ts` 区分
@@ -466,7 +466,7 @@ export class TranscriptProjection {
   #uiShow: Transcript['uiShow'];
   /** 提出建议的工具调用 → 它的 `tasks` 部件所在的消息。 */
   #taskParts = new Map<string, MutableMessage>();
-  /** 第二意见（0.71.0），按发起的先后；意见 → 它的部件所在的消息。 */
+  /** 第二意见（0.75.0），按发起的先后；意见 → 它的部件所在的消息。 */
   #opinions = new Map<OpinionId, SecondOpinion>();
   #opinionParts = new Map<OpinionId, MutableMessage>();
   /** 最近一条用户消息的协作模式（0.36.0）。 */

@@ -144,7 +144,7 @@ export interface HostMethodsOptions {
   automations?: AutomationService;
   /** 行级批注（0.67.0，`review.*`）；省略时 `review.*` 回 `INVALID_PARAMS`（测试）。 */
   review?: ReviewService;
-  /** 第二意见（0.71.0，`session.secondOpinion` / `session.quoteOpinion`）；省略时这两个方法回 `INVALID_PARAMS`（测试）。 */
+  /** 第二意见（0.75.0，`session.secondOpinion` / `session.quoteOpinion`）；省略时这两个方法回 `INVALID_PARAMS`（测试）。 */
   opinions?: SecondOpinionService;
   /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
   git?: GitService;
@@ -988,7 +988,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.review': ({ sessionId, target }) => sessions.review(sessionId, target),
 
-    // 0.71.0：第二意见。
+    // 0.75.0：第二意见。
     'session.secondOpinion': ({ sessionId, focus, ...request }, { client }) =>
       opinions().request(
         sessionId,

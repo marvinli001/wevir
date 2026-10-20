@@ -294,7 +294,7 @@ export const HOST_FEATURES = {
    */
   userTerminal: 'user_terminal',
   /**
-   * 第二意见（0.71.0，domain-model §3.30）：`session.secondOpinion`、`session.quoteOpinion`、`opinion.updated` 事件、快照的 `opinions`、
+   * 第二意见（0.75.0，domain-model §3.30）：`session.secondOpinion`、`session.quoteOpinion`、`opinion.updated` 事件、快照的 `opinions`、
    * `Session.opinionOf` 与 `MessageFrom.opinion`。Host 能开 worktree 时声明，与引擎无关（意见会话用哪个来源由请求决定）。
    */
   secondOpinion: 'second_opinion',

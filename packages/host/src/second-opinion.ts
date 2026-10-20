@@ -1,4 +1,4 @@
-// 第二意见（0.71.0，`session.secondOpinion` / `session.quoteOpinion`，domain-model §3.30）：请另一个来源看一个会话当前的改动。Host 把会话
+// 第二意见（0.75.0，`session.secondOpinion` / `session.quoteOpinion`，domain-model §3.30）：请另一个来源看一个会话当前的改动。Host 把会话
 // 目录现在的样子（HEAD 加上没提交的改动与未跟踪文件，checkpoints.ts 的 workingTreeHash）放进一个新的 worktree，在那里用 reviewer 角色
 // 开一个会话，把任务、目标、验收与改动的范围交给它（prompts/second-opinion.md）。那个会话第一个回合的回答记成原会话里的一条意见
 // （`opinion.updated`），不进原会话的引擎上下文；用户引用时才拼成一条消息发给原会话。原会话的 agent 用 `wevir_second_opinion` 请的意见，
