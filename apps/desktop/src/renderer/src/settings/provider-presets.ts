@@ -392,7 +392,6 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     // 公开 /v1/models（2026-10-17）：只列声明 tools 的主力编码模型；未给逐模型推理枚举，暂不列力度。
     id: 'redpill',
     name: 'provider.catalog.redpill',
-    note: 'provider.preset.redpill.note',
     api: 'openai-responses',
     baseURL: 'https://api.redpill.ai/v1',
     models: [

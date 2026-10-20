@@ -16,14 +16,12 @@ if (entry?.source?.kind !== 'preset') throw new Error('缺少 RedPill 模板');
 const preset = entry.source.preset;
 
 describe('RedPill 多模型入口', () => {
-  it('国际目录和 Key 入口使用 RedPill，提示普通模型与机密边界', () => {
+  it('国际目录和 Key 入口使用 RedPill', () => {
     expect(entry).toMatchObject({ group: 'global', keyURL: 'https://www.redpill.ai/dashboard' });
     expect(entry.logo).toBeUndefined();
     expect(providerLogo({ kind: 'openai-compatible', baseURL: preset.baseURL })).toBeUndefined();
     expect(t(preset.name)).toBe('RedPill');
-    expect(preset.note && t(preset.note)).toContain('包含非 TEE 模型');
-    expect(preset.note && t(preset.note)).toContain('中国大陆直连未验证');
-    expect(preset.note && t(preset.note)).toContain('TLS');
+    expect(preset.note).toBeUndefined();
     expect(preset.docsURL).toBe(
       'https://docs.redpill.ai/guides/integrations/coding-tools/codex-cli',
     );
