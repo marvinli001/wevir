@@ -29,6 +29,7 @@ import type {
 } from './entities.js';
 import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
+import type { GitStatusResult } from './git.js';
 import {
   IMAGE_UPLOAD_DATA_MAX_LENGTH,
   type MethodName,
@@ -37,6 +38,7 @@ import {
   type NotificationName,
   type NotificationParams,
 } from './methods.js';
+import type { ReviewComment } from './review.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -76,13 +78,101 @@ export const ids = {
   browserRequest: `brq_${ULID}`,
   /** 回合后验证（0.65.0）。 */
   check: `chk_${ULID}`,
+  check2: 'chk_01JA2B3C4D5E6F7G8H9JKMNPR2',
   verificationRun: `vrn_${ULID}`,
   verificationRound: `vrd_${ULID}`,
   repair: `rpr_${ULID}`,
   /** 自动化与它的运行（0.66.0）。 */
   automation: `aut_${ULID}`,
   automationRun: `arn_${ULID}`,
+  /** 行级批注（0.67.0）。 */
+  reviewComment: `rvc_${ULID}`,
+  reviewComment2: 'rvc_01JA2B3C4D5E6F7G8H9JKMNPR1',
 } as const;
+
+const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
+const SHA2 = '9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e';
+
+/** 一条行级批注（0.67.0）：新的一侧，原文挪了位置。 */
+export const reviewComment: ReviewComment = {
+  id: ids.reviewComment,
+  workspaceId: ids.workspace,
+  sessionId: ids.session,
+  path: 'src/convert.ts',
+  side: 'new',
+  startLine: 12,
+  endLine: 14,
+  source: { kind: 'uncommitted' },
+  base: SHA1,
+  branch: 'main',
+  snippet: 'export function toFahrenheit(c: number) {\n  return c * 9 / 5 + 32;\n}',
+  body: '负数要四舍五入',
+  status: 'pending',
+  anchor: { state: 'relocated', startLine: 20, endLine: 22 },
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 已发送、过期的批注（0.67.0）：旧的一侧，回合快照上写的。 */
+export const sentReviewComment: ReviewComment = {
+  ...reviewComment,
+  id: ids.reviewComment2,
+  side: 'old',
+  source: { kind: 'turn', turnId: ids.turn },
+  head: SHA2,
+  status: 'sent',
+  sent: { sessionId: ids.session, at: TS2, turnId: ids.turn },
+  anchor: { state: 'outdated', reason: 'changed' },
+  updatedAt: TS2,
+};
+
+const INDEX_TOKEN = '3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a';
+const GIT_TREE = '7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a';
+
+/** 一个仓库的暂存状态（0.67.0）：一个经 Wevir 暂存的文件、一个之前就暂存的、一个未跟踪的。 */
+export const gitStatusSample: GitStatusResult = {
+  repo: true,
+  head: SHA1,
+  branch: 'main',
+  index: INDEX_TOKEN,
+  files: [
+    {
+      path: 'src/convert.ts',
+      staged: { status: 'modified', added: 3, removed: 1, by: 'wevir' },
+      unstaged: { status: 'modified', added: 1, removed: 0 },
+    },
+    { path: 'docs/notes.md', staged: { status: 'added', added: 4, removed: 0, by: 'external' } },
+    { path: 'scratch.txt', unstaged: { status: 'untracked' } },
+  ],
+  fileCount: 3,
+  stagedTree: GIT_TREE,
+  codeState: { kind: 'git', head: SHA1, tree: SHA2 },
+  verification: {
+    checks: [
+      {
+        checkId: ids.check,
+        name: 'Unit tests',
+        status: 'passed',
+        runId: ids.verificationRun,
+        finishedAt: TS2,
+      },
+      { checkId: ids.check2, name: 'Typecheck', status: 'not_run' },
+    ],
+    stagedMatchesWorkingTree: false,
+  },
+};
+
+/** 还没有提交、正在合并的仓库（0.67.0）。 */
+export const gitStatusUnborn: GitStatusResult = {
+  repo: true,
+  head: null,
+  index: INDEX_TOKEN,
+  files: [{ path: 'a.ts', unstaged: { status: 'modified' }, conflicted: true }],
+  fileCount: 1,
+  truncated: true,
+  operation: 'merge',
+  codeState: { kind: 'none', reason: 'unavailable' },
+};
 
 /** 一项检查（0.65.0）。 */
 export const checkDefinition: CheckDefinition = {
@@ -1793,10 +1883,11 @@ export const methodSamples: MethodSamples = {
           sessionId: ids.session,
           source: { kind: 'turn', turnId: ids.turn },
         },
+        { workspaceId: ids.workspace, sessionId: ids.session, source: { kind: 'staged' } },
       ],
       invalid: [
         { workspaceId: ids.workspace },
-        { workspaceId: ids.workspace, source: { kind: 'staged' } },
+        { workspaceId: ids.workspace, source: { kind: 'index' } },
         { workspaceId: ids.workspace, source: { kind: 'turn' } },
         { workspaceId: ids.session, source: { kind: 'uncommitted' } },
       ],
@@ -3671,6 +3762,224 @@ export const methodSamples: MethodSamples = {
       invalid: [{ text: '' }],
     },
   },
+  'review.list': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session, status: 'pending' },
+      ],
+      invalid: [{}, { workspaceId: ids.workspace, status: 'draft' }],
+    },
+    result: {
+      valid: [{ comments: [] }, { comments: [reviewComment, sentReviewComment] }],
+      invalid: [{}, { comments: [{ ...reviewComment, side: 'left' }] }],
+    },
+  },
+  'review.add': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          source: { kind: 'uncommitted' },
+          base: SHA1,
+          path: 'src/convert.ts',
+          side: 'new',
+          startLine: 12,
+          endLine: 14,
+          body: '负数要四舍五入',
+        },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          source: { kind: 'turn', turnId: ids.turn },
+          base: SHA1,
+          head: SHA2,
+          path: 'src/b.ts',
+          previousPath: 'src/a.ts',
+          side: 'old',
+          startLine: 3,
+          endLine: 3,
+          body: '为什么删掉',
+        },
+      ],
+      invalid: [
+        {
+          workspaceId: ids.workspace,
+          source: { kind: 'uncommitted' },
+          base: 'HEAD',
+          path: 'a.ts',
+          side: 'new',
+          startLine: 1,
+          endLine: 1,
+          body: 'x',
+        },
+        {
+          workspaceId: ids.workspace,
+          source: { kind: 'uncommitted' },
+          base: SHA1,
+          path: 'a.ts',
+          side: 'new',
+          startLine: 0,
+          endLine: 1,
+          body: 'x',
+        },
+      ],
+    },
+    result: {
+      valid: [{ comment: reviewComment }],
+      invalid: [{}, { comment: { ...reviewComment, anchor: { state: 'moved' } } }],
+    },
+  },
+  'review.update': {
+    params: {
+      valid: [{ commentId: ids.reviewComment, body: '改成向下取整' }],
+      invalid: [{ commentId: ids.reviewComment, body: '   ' }, { body: 'x' }],
+    },
+    result: { valid: [{ comment: reviewComment }], invalid: [{}] },
+  },
+  'review.remove': {
+    params: {
+      valid: [{ commentIds: [ids.reviewComment, ids.reviewComment2] }],
+      invalid: [{ commentIds: [] }, { commentIds: [ids.session] }],
+    },
+    result: { valid: [{ removed: 2 }, { removed: 0 }], invalid: [{ removed: -1 }] },
+  },
+  'review.send': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          commentIds: [ids.reviewComment],
+          targetSessionId: ids.session,
+        },
+        {
+          workspaceId: ids.workspace,
+          commentIds: [ids.reviewComment, ids.reviewComment2],
+          targetSessionId: ids.childSession,
+          delivery: 'queue',
+          clientMessageId: 'review-1',
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, commentIds: [], targetSessionId: ids.session },
+        { workspaceId: ids.workspace, commentIds: [ids.reviewComment] },
+      ],
+    },
+    result: {
+      valid: [
+        { comments: [{ ...reviewComment, status: 'sent' }], turnId: ids.turn, seq: 12 },
+        { comments: [], pendingId: ids.pending, seq: 13 },
+      ],
+      invalid: [{ comments: [] }],
+    },
+  },
+  'git.status': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session },
+      ],
+      invalid: [{}, { workspaceId: ids.session }],
+    },
+    result: {
+      valid: [{ repo: false }, gitStatusSample, gitStatusUnborn],
+      invalid: [
+        { ...gitStatusSample, index: 'HEAD' },
+        { ...gitStatusSample, files: [{ path: 'a.ts', staged: { status: 'modified' } }] },
+      ],
+    },
+  },
+  'git.stage': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          paths: ['src/convert.ts', 'docs/notes.md'],
+          expected: { head: SHA1, index: INDEX_TOKEN },
+        },
+        {
+          workspaceId: ids.workspace,
+          paths: ['a.ts'],
+          expected: { head: null, index: INDEX_TOKEN },
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, paths: [], expected: { head: SHA1, index: INDEX_TOKEN } },
+        { workspaceId: ids.workspace, paths: ['a.ts'] },
+        { workspaceId: ids.workspace, paths: ['a.ts'], expected: { head: SHA1, index: 'x' } },
+      ],
+    },
+    result: { valid: [{ status: gitStatusSample }], invalid: [{}] },
+  },
+  'git.unstage': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          paths: ['docs/notes.md'],
+          expected: { head: SHA1, index: INDEX_TOKEN },
+        },
+      ],
+      invalid: [{ workspaceId: ids.workspace, paths: ['a.ts'], expected: { index: INDEX_TOKEN } }],
+    },
+    result: { valid: [{ status: gitStatusSample }], invalid: [{ status: { repo: 'yes' } }] },
+  },
+  'git.commit': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          message: 'Round negative temperatures',
+          expected: { head: SHA1, index: INDEX_TOKEN },
+        },
+        {
+          workspaceId: ids.workspace,
+          message: 'Initial commit',
+          expected: { head: null, index: INDEX_TOKEN },
+          includeExternal: true,
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, message: '', expected: { head: SHA1, index: INDEX_TOKEN } },
+        { workspaceId: ids.workspace, message: 'x' },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          outcome: {
+            kind: 'committed',
+            commit: SHA2,
+            parent: SHA1,
+            tree: GIT_TREE,
+            stagedTree: GIT_TREE,
+            hooks: ['pre-commit', 'commit-msg'],
+          },
+          status: { ...gitStatusSample, head: SHA2, files: [], fileCount: 0 },
+        },
+        {
+          outcome: {
+            kind: 'failed',
+            reason: 'hook_failed',
+            hook: 'pre-commit',
+            exitCode: 1,
+            output: 'lint failed: src/convert.ts',
+          },
+          status: gitStatusSample,
+        },
+        { outcome: { kind: 'failed', reason: 'external_staged' }, status: gitStatusSample },
+      ],
+      invalid: [
+        { outcome: { kind: 'committed', commit: SHA2 }, status: gitStatusSample },
+        { outcome: { kind: 'failed', reason: '' }, status: gitStatusSample },
+      ],
+    },
+  },
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
@@ -4531,6 +4840,10 @@ export const errorDataSamples: ErrorDataSamples = {
   HANDOFF_STALE: {
     valid: { reasons: ['events', 'notes'] },
     invalid: { reasons: [] },
+  },
+  GIT_STATE_CHANGED: {
+    valid: { head: SHA2, index: INDEX_TOKEN },
+    invalid: { head: 'HEAD', index: INDEX_TOKEN },
   },
   WORKSPACE_PATH_INVALID: {
     valid: { path: '/Users/me/gone', reason: 'not_found' },

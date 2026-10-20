@@ -10,6 +10,7 @@ import { createEnvironmentRepository, type EnvironmentRepository } from './envir
 import { createEventRepository, type EventRepository } from './events.js';
 import { migrate } from './migrate.js';
 import { createProviderProfileRepository, type ProviderProfileRepository } from './providers.js';
+import { createReviewCommentRepository, type ReviewCommentRepository } from './review-comments.js';
 import { createSendReceiptRepository, type SendReceiptRepository } from './send-receipts.js';
 import { createSessionRepository, type SessionRepository } from './sessions.js';
 import { transaction } from './transaction.js';
@@ -37,6 +38,8 @@ export interface Storage {
   readonly usage: UsageRepository;
   /** 订阅的多个账号（0013_subscription_accounts）。 */
   readonly accounts: SubscriptionAccountRepository;
+  /** diff 上的行级批注（0015_review_comments）。 */
+  readonly reviewComments: ReviewCommentRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
   freeBytes(): number;
   /** `VACUUM` 并截断 WAL（0.43.0，`session.delete` 之后空闲页多时）：文件变小。不能在事务里调用。 */
@@ -67,6 +70,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       sendReceipts: createSendReceiptRepository(db),
       usage: createUsageRepository(db),
       accounts: createSubscriptionAccountRepository(db),
+      reviewComments: createReviewCommentRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };
         const size = db.prepare('PRAGMA page_size').get() as { page_size: number };

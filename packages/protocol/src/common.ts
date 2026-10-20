@@ -34,6 +34,8 @@ export const VerificationRunIdSchema = z.templateLiteral(['vrn_', IdBodySchema])
 export const VerificationRoundIdSchema = z.templateLiteral(['vrd_', IdBodySchema]);
 /** 一条自动修复链（0.65.0）。 */
 export const RepairIdSchema = z.templateLiteral(['rpr_', IdBodySchema]);
+/** diff 上的一条行级批注（0.67.0）。 */
+export const ReviewCommentIdSchema = z.templateLiteral(['rvc_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -53,6 +55,7 @@ export type VerificationRoundId = z.infer<typeof VerificationRoundIdSchema>;
 export type RepairId = z.infer<typeof RepairIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
+export type ReviewCommentId = z.infer<typeof ReviewCommentIdSchema>;
 
 /** Provider ID 同时是 dsh 的 provider 路由名，会写进 dsh 会话日志，创建后不可改。 */
 export const ProviderIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);

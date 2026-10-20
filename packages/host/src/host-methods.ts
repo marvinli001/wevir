@@ -34,7 +34,14 @@ import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { type FileUrls, isServablePath } from './file-urls.js';
-import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from './git-diff.js';
+import type { GitService } from './git/service.js';
+import {
+  isSafeRelativePath,
+  readBranch,
+  readDiffFile,
+  readStaged,
+  readUncommitted,
+} from './git-diff.js';
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
@@ -47,6 +54,7 @@ import {
 } from './memory.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
+import type { ReviewService } from './review/service.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import type { PricingStore } from './usage/pricing.js';
@@ -129,6 +137,10 @@ export interface HostMethodsOptions {
   verification?: VerificationService;
   /** 自动化（0.66.0，`automation.*`）；省略时 `automation.*` 回 `INVALID_PARAMS`（测试）。 */
   automations?: AutomationService;
+  /** 行级批注（0.67.0，`review.*`）；省略时 `review.*` 回 `INVALID_PARAMS`（测试）。 */
+  review?: ReviewService;
+  /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
+  git?: GitService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -239,6 +251,21 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }
     return options.verification;
   };
+  const review = (): ReviewService => {
+    if (options.review === undefined) throw invalidParams([], 'this host has no review comments');
+    return options.review;
+  };
+  /** 批注所在的目录（同 `workspace.diff`）：realpath，目录相同的会话共用一组批注。 */
+  const reviewDirectory = async (workspaceId: WorkspaceId, sessionId: SessionId | undefined) => ({
+    workspaceId,
+    dir: await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
+  });
+  const gitService = (): GitService => {
+    if (options.git === undefined) throw invalidParams([], 'this host has no git staging');
+    return options.git;
+  };
+  const gitDirectory = (workspaceId: WorkspaceId, sessionId: SessionId | undefined) =>
+    resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
   const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
@@ -514,6 +541,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const dir = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
       if (source.kind === 'uncommitted') return readUncommitted(dir);
       if (source.kind === 'branch') return readBranch(dir);
+      if (source.kind === 'staged') return readStaged(dir);
       if (!options.checkpoints || sessionId === undefined) {
         return { repo: true, unavailable: 'no_checkpoint' };
       }
@@ -1053,6 +1081,49 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'verification.status': ({ sessionId }) => verification().status(sessionId),
     'verification.output': ({ sessionId, runId, offset }) =>
       verification().output(sessionId, runId, offset),
+
+    // 0.67.0：行级批注（ADR-0009）。目录的选法同 workspace.diff。
+    'review.list': async ({ workspaceId, sessionId, status }) => ({
+      comments: await review().list(await reviewDirectory(workspaceId, sessionId), status),
+    }),
+    'review.add': async ({ workspaceId, sessionId, ...input }) => ({
+      comment: await review().add(await reviewDirectory(workspaceId, sessionId), {
+        ...input,
+        ...(sessionId !== undefined && { sessionId }),
+      }),
+    }),
+    'review.update': async ({ commentId, body }) => ({
+      comment: await review().update(commentId, body),
+    }),
+    'review.remove': ({ commentIds }) => ({ removed: review().remove(commentIds) }),
+    'review.send': async ({ workspaceId, sessionId, ...params }, { client }) =>
+      review().send(await reviewDirectory(workspaceId, sessionId), params, client),
+
+    // 0.67.0：暂存与提交（ADR-0009）。只由用户在“变更”窗格发起，目录的选法同 workspace.diff。
+    'git.status': async ({ workspaceId, sessionId }) =>
+      gitService().status(await gitDirectory(workspaceId, sessionId), sessionId),
+    'git.stage': async ({ workspaceId, sessionId, paths, expected }) => ({
+      status: await gitService().stage(
+        await gitDirectory(workspaceId, sessionId),
+        paths,
+        expected,
+        sessionId,
+      ),
+    }),
+    'git.unstage': async ({ workspaceId, sessionId, paths, expected }) => ({
+      status: await gitService().unstage(
+        await gitDirectory(workspaceId, sessionId),
+        paths,
+        expected,
+        sessionId,
+      ),
+    }),
+    'git.commit': async ({ workspaceId, sessionId, message, expected, includeExternal }) =>
+      gitService().commit(
+        await gitDirectory(workspaceId, sessionId),
+        { message, expected, ...(includeExternal !== undefined && { includeExternal }) },
+        sessionId,
+      ),
     'automation.list': async () => ({ automations: automations().list() }),
     'automation.get': async ({ automationId }) => automations().get(automationId),
     'automation.create': async (params) => ({

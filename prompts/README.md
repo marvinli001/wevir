@@ -16,6 +16,7 @@
 | [`prompt-suggestion.md`](prompt-suggestion.md) | 输入建议：预测用户接着会发的一句话 | Host（0.53.0，`packages/host/src/prompt-suggestion.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发（不带工具的单次生成，不另开引擎连接） | 已接入（有 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`session-recap.md`](session-recap.md) | 离开后摘要：回到离开过的会话时的一到三句话小结 | Host（0.54.0，`packages/host/src/recap.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
+| [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
@@ -66,6 +67,10 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `base.md` | `provider_display_name` | Provider 的显示名 |
 | `auto-review.md` | `trusted_destinations` | 用户配置的可信目的地列表；没有配置时填“（无）” |
 | `auto-review.md` | `user_policy` | 用户补充的复核规则；没有时填“（无）” |
+| `review-comments.md` | `count` | 批注条数 |
+| `review-comments.md` | `directory` | 批注所在的目录（仓库或会话的 worktree） |
+| `review-comments.md` | `version` | diff 的两侧：基线提交，以及快照提交或“工作树” |
+| `review-comments.md` | `comments` | 逐条的位置、原文代码块与意见，由 Host 拼好 |
 
 ## 审批自动复核
 

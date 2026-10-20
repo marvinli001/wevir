@@ -10,6 +10,8 @@ import {
   HostIdSchema,
   PROTOCOL_VERSION,
   ProviderKindSchema,
+  type SessionId,
+  type WorkspaceId,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
@@ -25,6 +27,7 @@ import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { EventStore } from './event-store.js';
 import { FileUrls } from './file-urls.js';
+import { GitService } from './git/service.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
@@ -37,6 +40,7 @@ import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { loadRecapInstructions } from './recap.js';
+import { loadReviewTemplate, ReviewService } from './review/service.js';
 import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
 import { discoverRuleFiles } from './rule-files.js';
@@ -387,6 +391,29 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('verification is unavailable', { error });
     }
     const verification = verificationService;
+    // 行级批注（0.67.0，ADR-0009）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。
+    let review: ReviewService | undefined;
+    try {
+      review = new ReviewService({
+        storage,
+        sessions: manager,
+        template: loadReviewTemplate(options.promptsDir),
+      });
+    } catch (error) {
+      logger.warn('review comments are unavailable', { error });
+    }
+
+    // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
+    const sessionStore = storage;
+    const git = new GitService({
+      verification: async (sessionId) => {
+        const record = sessionStore.sessions.get(sessionId);
+        if (verification === undefined || !record) return undefined;
+        const { checks } = await verification.listChecks(record.workspaceId as WorkspaceId);
+        const runs = store.snapshot(sessionId as SessionId)?.verification?.runs ?? [];
+        return { checks, runs };
+      },
+    });
 
     const secrets = new FileSecretStore(home);
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
@@ -512,6 +539,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         usage: { service: usageStats, pricing },
         ...(verification !== undefined && { verification }),
         automations: automationService,
+        ...(review !== undefined && { review }),
+        git,
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -570,6 +599,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(recapInstructions !== undefined && { session_recap: true }),
         ...(verification !== undefined && { verification: true }),
         rule_files: true,
+        ...(review !== undefined && { review_comments: true }),
+        git_commit: true,
       },
       engineFeatures,
       plugins,

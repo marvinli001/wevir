@@ -206,6 +206,7 @@ import {
   errorDataSamples,
   eventOf,
   eventPayloads,
+  gitStatusSample,
   handedOffSession,
   identity,
   ids,
@@ -220,6 +221,8 @@ import {
   readOnlySession,
   repairChain,
   reportedTask,
+  reviewComment,
+  sentReviewComment,
   session,
   sessionRules,
   sessionWithRules,
@@ -1578,8 +1581,13 @@ const standaloneCases: Case[] = [
   {
     name: 'DiffSource',
     schema: DiffSourceSchema,
-    valid: [{ kind: 'uncommitted' }, { kind: 'branch' }, { kind: 'turn', turnId: ids.turn }],
-    invalid: [{ kind: 'turn' }, { kind: 'staged' }, { kind: 'turn', turnId: ids.session }],
+    valid: [
+      { kind: 'uncommitted' },
+      { kind: 'branch' },
+      { kind: 'turn', turnId: ids.turn },
+      { kind: 'staged' },
+    ],
+    invalid: [{ kind: 'turn' }, { kind: 'index' }, { kind: 'turn', turnId: ids.session }],
   },
   {
     name: 'DiffFile',
@@ -2579,6 +2587,98 @@ const standaloneCases: Case[] = [
     schema: protocol.SessionVerificationSchema,
     valid: [{ acceptance: acceptanceSample, runs: [verificationRun], repair: repairChain }],
     invalid: [{ runs: [] }],
+  },
+  {
+    name: 'GitIndexToken',
+    schema: protocol.GitIndexTokenSchema,
+    valid: ['a'.repeat(64)],
+    invalid: ['a'.repeat(40), 'A'.repeat(64)],
+  },
+  {
+    name: 'GitFileSide',
+    schema: protocol.GitFileSideSchema,
+    valid: [{ status: 'modified', added: 1, removed: 0 }, { status: 'untracked' }],
+    invalid: [{ status: '' }, { status: 'modified', added: -1 }],
+  },
+  {
+    name: 'GitStagedBy',
+    schema: protocol.GitStagedBySchema,
+    valid: ['wevir', 'external'],
+    invalid: ['user'],
+  },
+  {
+    name: 'GitStatusFile',
+    schema: protocol.GitStatusFileSchema,
+    valid: [
+      ...(gitStatusSample.files ?? []),
+      { path: 'lib/x.ts', staged: { status: 'added', by: 'external' }, outside: true },
+    ],
+    invalid: [{ path: '' }, { path: 'a.ts', staged: { status: 'added' } }],
+  },
+  {
+    name: 'GitVerificationCheck',
+    schema: protocol.GitVerificationCheckSchema,
+    valid: [...(gitStatusSample.verification?.checks ?? [])],
+    invalid: [{ checkId: ids.check, name: 'x', status: 'unknown' }],
+  },
+  {
+    name: 'GitVerificationSummary',
+    schema: protocol.GitVerificationSummarySchema,
+    valid: [{ checks: [], stagedMatchesWorkingTree: true }],
+    invalid: [{ checks: [] }],
+  },
+  {
+    name: 'GitCommitOutcome',
+    schema: protocol.GitCommitOutcomeSchema,
+    valid: [
+      { kind: 'failed', reason: 'signing_failed', exitCode: 128, output: 'error: gpg failed' },
+      {
+        kind: 'committed',
+        commit: 'a'.repeat(40),
+        parent: null,
+        tree: 'b'.repeat(40),
+        stagedTree: 'c'.repeat(40),
+        treeChanged: true,
+      },
+    ],
+    invalid: [{ kind: 'skipped' }, { kind: 'failed' }],
+  },
+  {
+    name: 'ReviewCommentId',
+    schema: protocol.ReviewCommentIdSchema,
+    valid: [`rvc_${ULID}`],
+    invalid: [`chk_${ULID}`, 'rvc_'],
+  },
+  {
+    name: 'ReviewSide',
+    schema: protocol.ReviewSideSchema,
+    valid: ['old', 'new'],
+    invalid: ['left', 'additions'],
+  },
+  {
+    name: 'ReviewAnchor',
+    schema: protocol.ReviewAnchorSchema,
+    valid: [
+      { state: 'current' },
+      { state: 'relocated', startLine: 4, endLine: 6 },
+      { state: 'outdated', reason: 'ambiguous' },
+    ],
+    invalid: [{ state: 'moved' }, { state: 'relocated', startLine: 0 }],
+  },
+  {
+    name: 'ReviewSent',
+    schema: protocol.ReviewSentSchema,
+    valid: [{ sessionId: `ses_${ULID}`, at: TS, pendingId: `pnd_${ULID}` }],
+    invalid: [{ at: TS }],
+  },
+  {
+    name: 'ReviewComment',
+    schema: protocol.ReviewCommentSchema,
+    valid: [reviewComment, sentReviewComment],
+    invalid: [
+      { ...reviewComment, body: '' },
+      { ...reviewComment, status: 'draft' },
+    ],
   },
 ];
 

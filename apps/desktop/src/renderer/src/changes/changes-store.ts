@@ -48,14 +48,20 @@ export interface ChangesPrefs {
   split: boolean;
   /** 长行自动换行，默认不换（横向滚动）。 */
   wrap: boolean;
+  /** 底部的提交区展开（0.67.0），默认展开。 */
+  commit: boolean;
 }
 
 export const changesPrefs = createPersistedStore<ChangesPrefs>(
   'wevir.changes.v1',
-  { split: false, wrap: false },
+  { split: false, wrap: false, commit: true },
   (raw) => {
     if (raw === null || typeof raw !== 'object') return undefined;
     const value = raw as Partial<Record<keyof ChangesPrefs, unknown>>;
-    return { split: value.split === true, wrap: value.wrap === true };
+    return {
+      split: value.split === true,
+      wrap: value.wrap === true,
+      commit: value.commit !== false,
+    };
   },
 );

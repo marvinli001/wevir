@@ -273,6 +273,16 @@ export const HOST_FEATURES = {
    * 加载了哪些、各是谁读的，Host 设置 `ruleFiles` 可以关掉补给。与引擎无关。
    */
   ruleFiles: 'rule_files',
+  /**
+   * 行级批注（0.67.0，ADR-0009）：`review.*`。“变更”窗格的 diff 上写批注，存在 Host，按原文片段重新定位或标过期，一组发给指定会话。
+   * 与引擎无关。
+   */
+  reviewComments: 'review_comments',
+  /**
+   * 暂存与提交（0.67.0，ADR-0009）：`git.status`、`git.stage`、`git.unstage`、`git.commit` 与 `workspace.diff` 的 `staged`。只由用户在
+   * “变更”窗格发起，不是 Agent 的工具。与引擎无关。
+   */
+  gitCommit: 'git_commit',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -330,6 +340,8 @@ export const HostFeaturesSchema = z.looseObject({
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),
   rule_files: z.boolean().optional(),
+  review_comments: z.boolean().optional(),
+  git_commit: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

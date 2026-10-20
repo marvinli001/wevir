@@ -291,7 +291,7 @@ function within(root: string, candidate: string): boolean {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-async function git(repo: RepoInfo, args: readonly string[], options?: GitRunOptions) {
+export async function git(repo: RepoInfo, args: readonly string[], options?: GitRunOptions) {
   return runGit(repo.cwd, [...repo.config, ...args], options);
 }
 
@@ -300,7 +300,7 @@ async function gitText(repo: RepoInfo, args: readonly string[], options?: GitRun
 }
 
 /** 空树的 ID（还没有提交时旧的一侧）；SHA-256 仓库与 SHA-1 不同，问 git。 */
-async function emptyTree(repo: RepoInfo): Promise<string> {
+export async function emptyTree(repo: RepoInfo): Promise<string> {
   return (await gitText(repo, ['hash-object', '-t', 'tree', '--stdin'])).trim();
 }
 
@@ -615,8 +615,10 @@ async function prepareReviewIndex(repo: RepoInfo): Promise<ReviewIndex> {
 export interface DiffRange {
   /** 旧的一侧：提交或树。 */
   from: string;
-  /** 新的一侧的提交；省略时是工作树（含未跟踪文件）。 */
+  /** 新的一侧的提交；省略时是工作树（含未跟踪文件），`cached` 时是暂存区。 */
   to?: string;
+  /** 新的一侧是暂存区（0.67.0，`staged`）：`git diff --cached`，不加未跟踪文件。 */
+  cached?: boolean;
   /** 只留下这些文件（回合 diff 滤掉 git 带进来的）；undefined 是全部。 */
   keep?: (entry: NumstatEntry) => boolean;
 }
@@ -632,9 +634,15 @@ export interface DiffPayload {
 
 /** 两侧之间的 diff：文件与统计来自 numstat 与 name-status，补丁按文件切开，超过上限的只列出。 */
 export async function readRange(repo: RepoInfo, range: DiffRange): Promise<DiffPayload> {
-  const index = range.to === undefined ? await prepareReviewIndex(repo) : undefined;
+  const index =
+    range.to === undefined && range.cached !== true ? await prepareReviewIndex(repo) : undefined;
   try {
-    const revs = range.to === undefined ? [range.from] : [range.from, range.to];
+    const revs =
+      range.cached === true
+        ? ['--cached', range.from]
+        : range.to === undefined
+          ? [range.from]
+          : [range.from, range.to];
     const env = index?.env;
     const options = env ? { env } : {};
     const { numstat, nameStatus } = splitRawNumstat(
@@ -745,6 +753,21 @@ export function readUncommitted(dir: string): Promise<WorkspaceDiffResult> {
     try {
       const base = repo.head ?? (await emptyTree(repo));
       const diff = await readRange(repo, { from: base });
+      return { repo: true, base, ...branchOf(repo), ...diff };
+    } catch {
+      return NOT_REPO;
+    }
+  });
+}
+
+/** `staged`（0.67.0）：暂存区对 HEAD（还没有提交时对空树），不含未跟踪文件。 */
+export function readStaged(dir: string): Promise<WorkspaceDiffResult> {
+  return shared(`staged\0${dir}`, async () => {
+    const repo = await repoInfo(dir);
+    if (!repo) return NOT_REPO;
+    try {
+      const base = repo.head ?? (await emptyTree(repo));
+      const diff = await readRange(repo, { from: base, cached: true });
       return { repo: true, base, ...branchOf(repo), ...diff };
     } catch {
       return NOT_REPO;

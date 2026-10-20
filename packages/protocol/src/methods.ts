@@ -92,7 +92,28 @@ import {
   WorktreeModeSchema,
 } from './entities.js';
 import { WevirEventSchema } from './events.js';
+import {
+  DiffSourceSchema,
+  GitCommitParamsSchema,
+  GitCommitResultSchema,
+  GitObjectIdSchema,
+  GitPathsParamsSchema,
+  GitPathsResultSchema,
+  GitStatusParamsSchema,
+  GitStatusResultSchema,
+} from './git.js';
 import { PluginMethodSchemas } from './plugins.js';
+import {
+  ReviewAddParamsSchema,
+  ReviewCommentResultSchema,
+  ReviewListParamsSchema,
+  ReviewListResultSchema,
+  ReviewRemoveParamsSchema,
+  ReviewRemoveResultSchema,
+  ReviewSendParamsSchema,
+  ReviewSendResultSchema,
+  ReviewUpdateParamsSchema,
+} from './review.js';
 import {
   UsageChangedParamsSchema,
   UsagePricingParamsSchema,
@@ -296,17 +317,6 @@ export type WorkspaceGitResult = z.infer<typeof WorkspaceGitResultSchema>;
 
 // ── workspace.diff / workspace.diffFile / session.checkpoints（0.20.0） ─────────
 
-/**
- * 读哪一段改动：`uncommitted` 是工作树加暂存区对 HEAD（含未跟踪文件），`branch` 是工作树对默认分支的 merge-base，`turn` 是
- * 会话一个回合前后的快照（host-api.md §3.1）。
- */
-export const DiffSourceSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('uncommitted') }),
-  z.object({ kind: z.literal('branch') }),
-  z.object({ kind: z.literal('turn'), turnId: TurnIdSchema }),
-]);
-export type DiffSource = z.infer<typeof DiffSourceSchema>;
-
 export const WorkspaceDiffParamsSchema = z.object({
   workspaceId: WorkspaceIdSchema,
   /** 读这个会话的目录（环境会话的 worktree）；`turn` 必须给。会话要属于这个工作区。 */
@@ -336,9 +346,6 @@ export type DiffFile = z.infer<typeof DiffFileSchema>;
 
 /** `files` 最多这么多项，多了 `truncated`；`fileCount` 仍是总数。 */
 export const WORKSPACE_DIFF_MAX_FILES = 2000;
-
-/** 提交或树对象的完整 SHA（SHA-1 40 位、SHA-256 64 位，小写）。 */
-export const GitObjectIdSchema = z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/);
 
 /**
  * 一段改动（host-api.md §3.1）。`repo: false`（不是仓库、没有 git、出错或超时）或 `unavailable` 时其余字段都省略。
@@ -1873,6 +1880,53 @@ export const MethodSchemas = {
     params: VerificationOutputParamsSchema,
     result: VerificationOutputResultSchema,
     permission: 'session.read',
+  },
+
+  'review.list': {
+    params: ReviewListParamsSchema,
+    result: ReviewListResultSchema,
+    permission: 'workspace.read',
+  },
+  'review.add': {
+    params: ReviewAddParamsSchema,
+    result: ReviewCommentResultSchema,
+    permission: 'workspace.write',
+  },
+  'review.update': {
+    params: ReviewUpdateParamsSchema,
+    result: ReviewCommentResultSchema,
+    permission: 'workspace.write',
+  },
+  'review.remove': {
+    params: ReviewRemoveParamsSchema,
+    result: ReviewRemoveResultSchema,
+    permission: 'workspace.write',
+  },
+  'review.send': {
+    params: ReviewSendParamsSchema,
+    result: ReviewSendResultSchema,
+    permission: 'session.write',
+  },
+
+  'git.status': {
+    params: GitStatusParamsSchema,
+    result: GitStatusResultSchema,
+    permission: 'workspace.read',
+  },
+  'git.stage': {
+    params: GitPathsParamsSchema,
+    result: GitPathsResultSchema,
+    permission: 'workspace.write',
+  },
+  'git.unstage': {
+    params: GitPathsParamsSchema,
+    result: GitPathsResultSchema,
+    permission: 'workspace.write',
+  },
+  'git.commit': {
+    params: GitCommitParamsSchema,
+    result: GitCommitResultSchema,
+    permission: 'workspace.write',
   },
   'automation.list': {
     params: AutomationListParamsSchema,

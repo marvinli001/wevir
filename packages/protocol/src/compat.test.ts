@@ -66,6 +66,7 @@ import frozen0630 from './compat/0.63.0.json' with { type: 'json' };
 import frozen0640 from './compat/0.64.0.json' with { type: 'json' };
 import frozen0650 from './compat/0.65.0.json' with { type: 'json' };
 import frozen0660 from './compat/0.66.0.json' with { type: 'json' };
+import frozen0670 from './compat/0.67.0.json' with { type: 'json' };
 import frozen0680 from './compat/0.68.0.json' with { type: 'json' };
 import {
   ErrorCode,
@@ -158,6 +159,7 @@ const frozenVersions: FrozenSamples[] = [
   frozen0640,
   frozen0650,
   frozen0660,
+  frozen0670,
   frozen0680,
 ];
 
