@@ -51,12 +51,26 @@ describe('updateWorkspace', () => {
   it('经 workspace.update 改名，然后重读列表', async () => {
     const request = vi.fn(async () => ({}));
     const { store, refresh } = fakeStore();
-    await updateWorkspace({ request } as unknown as WevirClient, store, 'ws_a', '新名字');
+    await updateWorkspace({ request } as unknown as WevirClient, store, 'ws_a', {
+      displayName: '新名字',
+    });
     expect(request).toHaveBeenCalledWith('workspace.update', {
       workspaceId: 'ws_a',
       displayName: '新名字',
     });
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('只换其他源文件夹时不带名字；[] 也照发（清空）', async () => {
+    const request = vi.fn(async () => ({}));
+    const { store } = fakeStore();
+    const client = { request } as unknown as WevirClient;
+    await updateWorkspace(client, store, 'ws_a', { extraFolders: ['/b'] });
+    await updateWorkspace(client, store, 'ws_a', { extraFolders: [] });
+    expect(request.mock.calls).toEqual([
+      ['workspace.update', { workspaceId: 'ws_a', extraFolders: ['/b'] }],
+      ['workspace.update', { workspaceId: 'ws_a', extraFolders: [] }],
+    ]);
   });
 
   it('Host 拒绝时抛出，不重读', async () => {
@@ -65,7 +79,7 @@ describe('updateWorkspace', () => {
     });
     const { store, refresh } = fakeStore();
     await expect(
-      updateWorkspace({ request } as unknown as WevirClient, store, 'ws_a', 'x'),
+      updateWorkspace({ request } as unknown as WevirClient, store, 'ws_a', { displayName: 'x' }),
     ).rejects.toThrow('INVALID_PARAMS');
     expect(refresh).not.toHaveBeenCalled();
   });

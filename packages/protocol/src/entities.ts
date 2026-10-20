@@ -28,6 +28,9 @@ import {
 export const WorkspaceKindSchema = z.enum(['chats']);
 export type WorkspaceKind = z.infer<typeof WorkspaceKindSchema>;
 
+/** 项目除 `rootPath` 外最多几个源文件夹（0.63.0）：加上主文件夹共 8 个，同环境的文件夹上限。 */
+export const WORKSPACE_EXTRA_FOLDERS_MAX = 7;
+
 export const WorkspaceSchema = z.object({
   id: WorkspaceIdSchema,
   /** 目录的 realpath；Host 按它去重。 */
@@ -35,6 +38,11 @@ export const WorkspaceSchema = z.object({
   displayName: z.string(),
   /** 0.39.0；省略表示项目。 */
   kind: WorkspaceKindSchema.optional(),
+  /**
+   * 项目的其他源文件夹（0.63.0，Host 功能 `workspace_folders`）：各自的 realpath，按添加顺序；省略表示只有 `rootPath`。项目里
+   * 的会话把它们作为额外的可写目录交给引擎（`Session.extraRoots`），引擎不支持时不给。
+   */
+  extraFolders: z.array(z.string().min(1)).max(WORKSPACE_EXTRA_FOLDERS_MAX).optional(),
   createdAt: IsoTimeSchema,
   updatedAt: IsoTimeSchema,
 });

@@ -2,7 +2,7 @@
 // 的会话（0.18.0）。
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { WorkspaceId } from '@wevir/protocol';
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
@@ -310,6 +310,79 @@ describe('单独新开 worktree 的会话（0.18.0）', () => {
     ).rejects.toMatchObject({ code: 'INVALID_PARAMS', data: { issues: [{ path: ['worktree'] }] } });
     expect(existsSync(h.worktreesDir) ? readdirSync(h.worktreesDir) : []).toEqual([]);
     expect(git(app.rootPath, 'branch', '--list', 'wevir/*').trim()).toBe('');
+    expect(h.storage.sessions.list()).toEqual([]);
+  });
+});
+
+describe('有多个源文件夹的项目（0.63.0）', () => {
+  /** 一个项目，另带一个普通文件夹作为其他源文件夹。 */
+  async function projectWithDocs(h: ReturnType<typeof setup>) {
+    const app = await h.project('app');
+    const docs = join(realpathSync(tempDir()), 'docs');
+    mkdirSync(docs);
+    const { workspace } = await h.methods['workspace.update'](
+      { workspaceId: app.id, extraFolders: [docs] },
+      context,
+    );
+    return { app: workspace, docs: realpathSync(docs) };
+  }
+
+  it('普通会话与单独新开 worktree 的会话都把其他源文件夹作为额外目录，不为它们开 worktree', async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    const create = vi.spyOn(adapter, 'createSession');
+    const h = setup(adapter);
+    const { app, docs } = await projectWithDocs(h);
+    const { session: plain } = await h.methods['session.create'](
+      { workspaceId: app.id, providerId: 'mock' },
+      context,
+    );
+    expect(plain).toMatchObject({ cwd: app.rootPath, extraRoots: [docs] });
+    expect(plain.environmentId).toBeUndefined();
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ additionalRoots: [docs] });
+
+    const { session: isolated } = await h.methods['session.create'](
+      { workspaceId: app.id, providerId: 'mock', worktree: 'new' },
+      context,
+    );
+    expect(isolated.cwd).toBe(join(h.worktreesDir, isolated.id, '1-app'));
+    expect(isolated.extraRoots).toEqual([docs]);
+    expect(isolated.worktrees).toHaveLength(1);
+  });
+
+  it('按环境建的会话只用环境的文件夹', async () => {
+    const h = setup();
+    const { app } = await projectWithDocs(h);
+    const { environment } = await h.methods['environment.create'](
+      { name: 'env', folders: [{ workspaceId: app.id, worktree: 'none' }] },
+      context,
+    );
+    const { session } = await h.methods['session.create'](
+      { workspaceId: app.id, providerId: 'mock', environmentId: environment.id },
+      context,
+    );
+    expect(session.extraRoots).toBeUndefined();
+  });
+
+  it('引擎不支持额外目录时照常建会话，只是不给其他源文件夹', async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    Object.defineProperty(adapter, 'additionalRoots', { value: undefined });
+    const h = setup(adapter);
+    const { app } = await projectWithDocs(h);
+    const { session } = await h.methods['session.create'](
+      { workspaceId: app.id, providerId: 'mock' },
+      context,
+    );
+    expect(session.cwd).toBe(app.rootPath);
+    expect(session.extraRoots).toBeUndefined();
+  });
+
+  it('其他源文件夹不在了时不建会话（WORKSPACE_PATH_INVALID）', async () => {
+    const h = setup();
+    const { app, docs } = await projectWithDocs(h);
+    rmSync(docs, { recursive: true });
+    await expect(
+      h.methods['session.create']({ workspaceId: app.id, providerId: 'mock' }, context),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_PATH_INVALID', data: { path: docs } });
     expect(h.storage.sessions.list()).toEqual([]);
   });
 });

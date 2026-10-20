@@ -2,7 +2,7 @@
 // MIT License，Copyright (c) 2023 shadcn。
 // Wevir 的改动：去掉 "use client"；U1 起菜单是 rounded-xl、菜单项是 rounded-lg（卡片 12px、列表项 8px）。
 // U10 起出现与消失 150 ms、ease-smooth（原来 100 ms）；交互手感一轮起入场用 reveal 弹簧（theme.css 的 --spring-reveal），
-// 退场 110 ms ease-smooth，不回弹。
+// 退场 110 ms ease-smooth，不回弹。DropdownMenuContent 多收 Positioner 的 anchor（定位到触发按钮以外的元素）。
 // 弹层加 transition-none：duration-* 同时设置 transition-duration，打开时换主题会让弹层的颜色过渡 410 ms，Base UI 等它播完才
 // 隐藏弹层，退场动画先播完，弹层又露出来闪一下。
 
@@ -28,10 +28,14 @@ function DropdownMenuContent({
   alignOffset = 0,
   side = 'bottom',
   sideOffset = 4,
+  anchor,
   className,
   ...props
 }: MenuPrimitive.Popup.Props &
-  Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
+  Pick<
+    MenuPrimitive.Positioner.Props,
+    'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'
+  >) {
   return (
     <MenuPrimitive.Portal>
       <MenuPrimitive.Positioner
@@ -40,6 +44,7 @@ function DropdownMenuContent({
         alignOffset={alignOffset}
         side={side}
         sideOffset={sideOffset}
+        anchor={anchor}
       >
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"

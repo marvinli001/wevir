@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import { Check, ChevronDown, Layers, Pencil, Plus } from 'lucide-react';
+import type { RefObject } from 'react';
 import { COMPACT_DETAIL, COMPACT_ICON, COMPACT_ITEM } from '@/components/compact-menu';
 import {
   DropdownMenu,
@@ -20,17 +21,20 @@ import {
 
 /**
  * 新会话页的“选择环境 ▾”（U22.1，desktop-layout.md §16；截图 01–02 的 Choose environment）：保存的环境、不用环境、新建环境。
- * 选了环境就换到它的主文件夹。Host 没有 `environments` 时不出现。
+ * 选了环境就换到它的主文件夹。Host 没有 `environments` 时不出现。给了 `anchor` 时菜单贴着它的下沿、与它同宽（新会话页的卡片）。
  */
 export function EnvironmentPicker({
   current,
   onSelect,
   className,
+  anchor,
 }: {
   current: WorkspaceEntry | undefined;
   onSelect: (workspaceId: string) => void;
   /** 触发按钮的额外样式（新会话页的卡片里占满一行）。 */
   className?: string;
+  /** 菜单对齐的元素；省略时对齐触发按钮。 */
+  anchor?: RefObject<HTMLElement | null>;
 }) {
   const { supported, environments } = useEnvironments();
   const active = useActiveEnvironment(current?.workspace.id);
@@ -47,7 +51,11 @@ export function EnvironmentPicker({
         {active ? active.name : t('env.choose')}
         <ChevronDown aria-hidden className="size-3.5" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-auto max-w-80 min-w-56">
+      <DropdownMenuContent
+        align="start"
+        anchor={anchor}
+        className={anchor ? undefined : 'w-auto max-w-80 min-w-56'}
+      >
         {environments.map((environment) => (
           <DropdownMenuItem
             key={environment.id}

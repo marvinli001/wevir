@@ -1,6 +1,6 @@
 import { cn } from 'cn';
 import { Check, Folder, Plus } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
+import { type CSSProperties, type ReactNode, useRef } from 'react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { isChats, projectsOf, recentWorkspaces, type WorkspaceEntry } from '@/data/workbench-model';
 import { EnvironmentPicker } from '@/environments/environment-picker';
@@ -57,11 +57,13 @@ export function NewSessionHero({
   const current = selected && !isChats(selected.workspace) ? selected : undefined;
   const workspaces = projectsOf(all);
   const environments = useEnvironments().supported;
+  const card = useRef<HTMLElement>(null);
   const row =
     'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-base outline-none transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50';
   const divider = <div className="mx-2 my-1 h-px bg-border" />;
   return (
     <nav
+      ref={card}
       aria-label={t('home.recentFolders')}
       data-testid="recent-folders"
       className={cn('w-80 max-w-full rounded-xl border border-border bg-card p-1', ENTER)}
@@ -111,7 +113,8 @@ export function NewSessionHero({
           <EnvironmentPicker
             current={current}
             onSelect={onSelect}
-            className="h-9 w-full justify-start px-2"
+            anchor={card}
+            className="h-9 w-full justify-center px-2"
           />
         </>
       )}

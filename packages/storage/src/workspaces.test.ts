@@ -56,4 +56,15 @@ describe('workspaces', () => {
     expect(repo.rename('ws_missing', 'x', T1)).toBe(false);
     expect(repo.get('ws_01')?.createdAt).toBe(T0);
   });
+
+  it('其他源文件夹：插入时带上、整组替换、空数组清空', () => {
+    const repo = storage().workspaces;
+    repo.insert(workspace({ extraFolders: ['/home/u/docs'] }));
+    expect(repo.get('ws_01')?.extraFolders).toEqual(['/home/u/docs']);
+    expect(repo.setExtraFolders('ws_01', ['/b', '/a'], T1)).toBe(true);
+    expect(repo.get('ws_01')).toEqual(workspace({ extraFolders: ['/b', '/a'], updatedAt: T1 }));
+    expect(repo.setExtraFolders('ws_01', [], T2)).toBe(true);
+    expect(repo.get('ws_01')).toEqual(workspace({ updatedAt: T2 }));
+    expect(repo.setExtraFolders('ws_missing', ['/a'], T1)).toBe(false);
+  });
 });

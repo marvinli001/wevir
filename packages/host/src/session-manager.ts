@@ -846,7 +846,7 @@ export class SessionManager {
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
     const prepared = chat
       ? await this.#chatDirectory(sessionId)
-      : await this.#prepareEnvironment(params, sessionId, workspace);
+      : await this.#prepareEnvironment(params, sessionId, workspace, provider.id);
     const config: SessionConfig = {
       cwd: prepared.cwd,
       providerId: provider.id,
@@ -960,6 +960,8 @@ export class SessionManager {
   /**
    * 按环境准备会话的目录（0.15.0，domain-model §3.10）。不带环境、也不要 worktree 时就是工作区目录。带环境时 `workspaceId`
    * 要是主文件夹；`worktree: 'new'`（0.18.0）等于只有这个工作区一个文件夹、要新开 worktree 的环境，只是不记 `environmentId`。
+   * 不带环境时，项目的其他源文件夹（0.63.0，`Workspace.extraFolders`）原样跟在后面作为额外的可写目录（不开 worktree），引擎
+   * 不支持 `additionalRoots` 时不给；带环境时只用环境的文件夹。
    * 依次处理每个文件夹，要新开 worktree 的在 `<worktreesDir>/<会话 ID>/` 下开。任何一步失败都撤回已建的 worktree 并回
    * `INVALID_PARAMS`（工作区不在时 `WORKSPACE_NOT_FOUND`）。
    */
@@ -967,11 +969,20 @@ export class SessionManager {
     params: MethodParams<'session.create'>,
     sessionId: SessionId,
     workspace: { id: string; rootPath: string },
+    providerId: string,
   ): Promise<PreparedEnvironment> {
     const rootPath = workspace.rootPath;
+    const kind = this.#storage.providers.get(providerId)?.kind;
+    const projectFolders =
+      params.environmentId === undefined &&
+      kind !== undefined &&
+      this.#featuresOf(kind)?.additionalRoots === true
+        ? (this.#storage.workspaces.get(workspace.id)?.extraFolders ?? [])
+        : [];
+    for (const folder of projectFolders) await assertDirectory(folder);
     const plain: PreparedEnvironment = {
       cwd: rootPath,
-      extraRoots: [],
+      extraRoots: [...projectFolders],
       worktrees: [],
       undo: async () => {},
     };
@@ -1058,7 +1069,7 @@ export class SessionManager {
       return {
         ...(environmentId !== undefined && { environmentId }),
         cwd: paths[0] ?? rootPath,
-        extraRoots: paths.slice(1),
+        extraRoots: [...paths.slice(1), ...projectFolders],
         worktrees,
         undo,
       };

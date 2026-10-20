@@ -1432,17 +1432,31 @@ export const methodSamples: MethodSamples = {
   'workspace.list': {
     params: empty,
     result: {
-      valid: [{ workspaces: [workspace] }, { workspaces: [workspace, chatsWorkspace] }],
+      valid: [
+        { workspaces: [workspace] },
+        { workspaces: [workspace, chatsWorkspace] },
+        { workspaces: [{ ...workspace, extraFolders: ['/Users/me/projects/wevir-docs'] }] },
+      ],
       invalid: [
         { workspaces: [{ id: 'x' }] },
         { workspaces: [{ ...chatsWorkspace, kind: 'repo' }] },
+        { workspaces: [{ ...workspace, extraFolders: [''] }] },
+        {
+          workspaces: [
+            { ...workspace, extraFolders: Array.from({ length: 8 }, (_, i) => `/f${i}`) },
+          ],
+        },
       ],
     },
   },
   'workspace.add': {
     params: {
-      valid: [{ rootPath: '/Users/me/projects/wevir' }, { rootPath: '/tmp/a', displayName: 'A' }],
-      invalid: [{ rootPath: '' }, { displayName: 'A' }],
+      valid: [
+        { rootPath: '/Users/me/projects/wevir' },
+        { rootPath: '/tmp/a', displayName: 'A' },
+        { rootPath: '/tmp/a', extraFolders: ['/tmp/b', '/tmp/c'] },
+      ],
+      invalid: [{ rootPath: '' }, { displayName: 'A' }, { rootPath: '/tmp/a', extraFolders: [''] }],
     },
     result: {
       valid: [{ workspace, created: true }],
@@ -1455,9 +1469,15 @@ export const methodSamples: MethodSamples = {
   },
   'workspace.update': {
     params: {
-      valid: [{ workspaceId: ids.workspace, displayName: 'Wevir 桌面端' }],
+      valid: [
+        { workspaceId: ids.workspace, displayName: 'Wevir 桌面端' },
+        { workspaceId: ids.workspace, extraFolders: ['/tmp/b'] },
+        { workspaceId: ids.workspace, extraFolders: [] },
+        { workspaceId: ids.workspace, displayName: 'A', extraFolders: ['/tmp/b'] },
+      ],
       invalid: [
         { workspaceId: ids.workspace, displayName: '' },
+        { workspaceId: ids.workspace, extraFolders: [''] },
         { workspaceId: ids.workspace, displayName: 'x'.repeat(201) },
         { workspaceId: ids.session, displayName: 'A' },
         { workspaceId: ids.workspace },

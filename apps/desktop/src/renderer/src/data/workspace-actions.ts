@@ -1,4 +1,4 @@
-// 项目的动作（0.49.0 起右键菜单）：改名经 Host 的 `workspace.update`，移除经 `workspace.remove`（只注销、不删磁盘文件），归档会话
+// 项目的动作（0.49.0 起右键菜单）：改名与改源文件夹（0.63.0）经 Host 的 `workspace.update`，移除经 `workspace.remove`（只注销、不删磁盘文件），归档会话
 // 是对项目里每个会话的 `session.archive`，置顶只记在本机。侧栏的项目菜单与设置 → 项目共用这里；改名、移除与归档的确认框由
 // `requestEditProject`、`requestRemoveProject`、`requestArchiveProject` 打开（projects/ 下的对话框挂在根上）。
 
@@ -55,13 +55,18 @@ export function requestEditProject(workspace: Workspace): void {
   editRequest.set(workspace);
 }
 
+/** 改名与（0.63.0）整组换掉其他源文件夹；省略的不改。 */
 export async function updateWorkspace(
   client: WevirClient,
   store: WorkbenchStore | undefined,
   workspaceId: Workspace['id'],
-  displayName: string,
+  changes: { displayName?: string; extraFolders?: readonly string[] },
 ): Promise<void> {
-  await client.request('workspace.update', { workspaceId, displayName });
+  await client.request('workspace.update', {
+    workspaceId,
+    ...(changes.displayName !== undefined && { displayName: changes.displayName }),
+    ...(changes.extraFolders !== undefined && { extraFolders: [...changes.extraFolders] }),
+  });
   await store?.refresh();
 }
 

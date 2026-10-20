@@ -452,6 +452,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         workspace_diff: true,
         workspace_files: true,
         workspace_update: true,
+        workspace_folders: true,
         file_preview: true,
         session_rename: true,
         session_archive: true,
