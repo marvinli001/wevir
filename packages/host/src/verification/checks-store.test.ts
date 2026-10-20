@@ -49,7 +49,7 @@ describe('ChecksStore', () => {
     await store.setRepair(workspace, { enabled: true, maxAttempts: 3 });
 
     const file = join(dir, `${workspace}.json`);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600);
     const reloaded = new ChecksStore({ dir });
     const listed = await reloaded.list(workspace);
     expect(listed.checks).toEqual([edited]);
