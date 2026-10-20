@@ -607,9 +607,9 @@ function run(): void {
     session.defaultSession.setPermissionCheckHandler(() => false);
     // 文件窗格里的网页（0.32.0）：子框架只许加载 Host 的文件地址，页面里的链接、跳转与 meta refresh 都不让框架离开（Paseo 的 HTML
     // 预览同样要挡导航，CSP 管不到）。新窗口（target=_blank、window.open）照旧由 setWindowOpenHandler 交给系统浏览器，Chromium
-    // 只在用户点了之后才放行弹窗。
+    // 只在用户点了之后才放行弹窗。只拦子框架：其余请求（Host 的文件、图片）不必每个都经主进程走一趟。
     session.defaultSession.webRequest.onBeforeRequest(
-      { urls: ['http://*/*', 'https://*/*'] },
+      { urls: ['http://*/*', 'https://*/*'], types: ['subFrame'] },
       (details, callback) => {
         callback({
           cancel: details.resourceType === 'subFrame' && !isFilePreviewUrl(details.url),

@@ -222,9 +222,13 @@ export function createBrowserHost(options: BrowserHostOptions) {
       });
     });
     // 所有请求（导航、重定向、框架、脚本的 fetch、CDP 的跳转）的统一关口：只放行 http(s) 与页面内部的 data / blob / about。
-    created.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
-      callback({ cancel: !isAllowedRequest(details.url, details.resourceType) });
-    });
+    // http(s) 对哪种请求都放行，不送到这里：网页的几百个资源请求不必每个都在主进程排队等一次回答。
+    created.webRequest.onBeforeRequest(
+      { urls: ['<all_urls>'], excludeUrls: ['http://*/*', 'https://*/*'] },
+      (details, callback) => {
+        callback({ cancel: !isAllowedRequest(details.url, details.resourceType) });
+      },
+    );
     browserSession = created;
     return created;
   }
