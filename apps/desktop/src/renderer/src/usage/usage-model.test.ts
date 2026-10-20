@@ -8,6 +8,7 @@ import {
   bucketLabel,
   cacheHitRate,
   createThrottle,
+  filterProviders,
   formatAxis,
   formatCost,
   formatCostAxis,
@@ -22,9 +23,9 @@ import {
   niceTicks,
   pageCount,
   providerLogoOf,
+  providerTitle,
   selectModel,
   selectProvider,
-  selectSource,
   sourceDisplay,
   speedOf,
   timingSpeed,
@@ -101,20 +102,18 @@ describe('分桶边界', () => {
 });
 
 describe('筛选', () => {
-  it('换来源清掉服务商与模型，换服务商清掉模型', () => {
-    const full = { source: 'claude', providerId: 'p1', model: 'm' } as const;
-    expect(selectSource('cursor')).toEqual({ source: 'cursor' });
-    expect(selectSource(undefined)).toEqual({});
-    expect(selectProvider(full, 'p2')).toEqual({ source: 'claude', providerId: 'p2' });
-    expect(selectProvider(full, undefined)).toEqual({ source: 'claude' });
-    expect(selectModel(full, undefined)).toEqual({ source: 'claude', providerId: 'p1' });
+  it('换服务商清掉模型', () => {
+    const full = { providerId: 'p1', model: 'm' } as const;
+    expect(selectProvider('p2')).toEqual({ providerId: 'p2' });
+    expect(selectProvider(undefined)).toEqual({});
+    expect(selectModel(full, undefined)).toEqual({ providerId: 'p1' });
     expect(selectModel({}, 'x')).toEqual({ model: 'x' });
   });
 
   it('转成 Host 的筛选，什么都没选时省略', () => {
     expect(toFilter({})).toBeUndefined();
-    expect(toFilter({ source: 'claude', model: 'm' })).toEqual({
-      sources: ['claude'],
+    expect(toFilter({ providerId: 'p1', model: 'm' })).toEqual({
+      providerIds: ['p1'],
       models: ['m'],
     });
     expect(pageCount(0)).toBe(1);
@@ -258,6 +257,18 @@ describe('来源', () => {
     expect(providerLogoOf('p_kimi', 'openai-compatible', providers)).toBe('kimi');
     expect(providerLogoOf('p_gone', 'claude', providers)).toBe('claude');
     expect(providerLogoOf('p_gone', 'openai-compatible', providers)).toBeUndefined();
+  });
+
+  it('筛选列出添加的连接：顺序同模型选择，停用的只在有用量时列出；订阅用来源名', () => {
+    const providers = [
+      { id: 'kimi', kind: 'openai-compatible', displayName: 'Kimi' },
+      { id: 'off', kind: 'openai-compatible', displayName: 'Off', enabled: false },
+      { id: 'used', kind: 'openai-compatible', displayName: 'Used', enabled: false },
+      { id: 'claude', kind: 'claude', displayName: 'Claude Agent' },
+    ] as unknown as ProviderProfile[];
+    const listed = filterProviders(providers, [{ id: 'used' }, { id: 'gone' }]);
+    expect(listed.map((provider) => provider.id)).toEqual(['claude', 'kimi', 'used']);
+    expect(listed.map(providerTitle)).toEqual(['Claude', 'Kimi', 'Used']);
   });
 });
 

@@ -80,4 +80,14 @@ describe('usage_records', () => {
     expect(s.usage.page(0, 10_000, { sources: [] }, 0, 10).total).toBe(0);
     expect(s.usage.page(1_001, 1_003, { sources: ['codex'] }, 0, 10).total).toBe(2);
   });
+
+  it('按 Provider 删除记录，别的 Provider 不动', () => {
+    const s = storage();
+    s.usage.insert(row());
+    s.usage.insert(row({ requestId: 'req_2' }));
+    s.usage.insert(row({ requestId: 'req_3', providerId: 'prv_other' }));
+    expect(s.usage.deleteProvider('prv_claude')).toBe(2);
+    expect(s.usage.deleteProvider('prv_claude')).toBe(0);
+    expect(s.usage.range(0, 10_000).map((r) => r.providerId)).toEqual(['prv_other']);
+  });
 });

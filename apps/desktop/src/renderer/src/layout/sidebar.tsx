@@ -69,7 +69,7 @@ const COMPLETED_SHOWN = 10;
 /**
  * 左栏（U5 照 Codex 桌面端）：顶上一条拖动区（后退、前进与侧栏开关浮在它上面，见 window-controls.tsx；浮层里的侧栏把
  * 它们放进 `controls`）、“新建会话”与“插件”（0.42.0，Host 有 `plugins` 功能才有）、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
- * ADR-0007 补记 4）、“使用情况”（0.62.0，Host 有 `usage_stats` 功能才有）与设置入口。不显示与 Host 的连接状态：连上时什么都不
+ * ADR-0007 补记 4）、“使用统计”（0.62.0，Host 有 `usage_stats` 功能才有）与设置入口。不显示与 Host 的连接状态：连上时什么都不
  * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
 export function Sidebar({ controls }: { controls?: ReactNode }) {
@@ -77,7 +77,7 @@ export function Sidebar({ controls }: { controls?: ReactNode }) {
   // Host 有 `plugins` 功能才有“插件”入口（0.42.0）；断线重连期间 client 还在，入口不闪。
   const { client } = useHostConnection();
   const showPlugins = pluginsAvailability(client?.hello.features) === 'ready';
-  // Host 有 `usage_stats` 功能才有“使用情况”入口（0.62.0），在设置上面。
+  // Host 有 `usage_stats` 功能才有“使用统计”入口（0.62.0），在设置上面。
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
   return (
     <div className="flex h-full min-h-0 flex-col">

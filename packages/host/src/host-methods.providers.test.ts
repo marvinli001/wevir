@@ -311,6 +311,29 @@ describe('Provider 桥接（Host 侧）', () => {
     expect(bridge.applied).toHaveLength(3);
   });
 
+  it('删除 Provider 时一并删除它的用量记录', async () => {
+    const { methods, storage } = setup();
+    await methods['provider.upsert'](qwen, context);
+    const usage = (providerId: string, requestId: string) => ({
+      sessionId: 'ses_01',
+      requestId,
+      at: 1_000,
+      source: 'openai-compatible',
+      providerId,
+      providerName: providerId,
+      model: 'm',
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+    });
+    storage.usage.insert(usage('qwen', 'r1'));
+    storage.usage.insert(usage('other', 'r2'));
+    await methods['provider.remove']({ providerId: 'qwen' }, context);
+    expect(storage.usage.range(0, 10_000).map((row) => row.providerId)).toEqual(['other']);
+  });
+
   it('compat 原样保存并交给引擎，含只有模型网关用的开关（0.4.0）', async () => {
     const bridge = fakeBridge();
     const { methods } = setup(bridge);

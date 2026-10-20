@@ -94,6 +94,11 @@ export class UsageService {
     this.#changed();
   }
 
+  /** 记录被删了（删 Provider 时）。 */
+  recordsChanged(): void {
+    this.#changed();
+  }
+
   dispose(): void {
     if (this.#notifyTimer !== undefined) clearTimeout(this.#notifyTimer);
     this.#notifyTimer = undefined;

@@ -1,4 +1,4 @@
-// 使用情况页的本机偏好：上次看的时间段、明细分段与趋势图的指标。只存在本机（lib/store.ts 的 createPersistedStore，读写失败时
+// 使用统计页的本机偏好：上次看的时间段、明细分段与趋势图的指标。只存在本机（lib/store.ts 的 createPersistedStore，读写失败时
 // 只在本次运行内生效）。
 
 import { createPersistedStore } from '@/lib/store';

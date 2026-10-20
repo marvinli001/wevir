@@ -1,6 +1,7 @@
 // 用量统计（0.62.0，Host 功能 `usage_stats`）：Wevir 里每次模型请求用掉的 token 与按 models.dev 价格估的成本。
 //
-// Host 从引擎的 `usage.recorded` 记下每次请求（不进事件流，会话删了记录还在），按客户端给的时间段聚合。成本在查询时按
+// Host 从引擎的 `usage.recorded` 记下每次请求（不进事件流，会话删了记录还在），按客户端给的时间段聚合。每条记录归属于会话用的
+// Provider（模型服务里添加的订阅或 API 连接），`provider.remove` 时一并删除。成本在查询时按
 // Host 当前的价格表算：价格表来自 models.dev（内置来源，不可自定义），每天刷新一次。订阅来源（Claude、ChatGPT…）实际按
 // 订阅计费，这里的成本是按 API 价格折算的估计。时间一律是 Unix 毫秒。
 
@@ -47,7 +48,7 @@ export const UsageRecordSchema = z.object({
   /** 请求所在会话的来源种类。 */
   source: ProviderKindSchema,
   providerId: z.string().min(1),
-  /** 记录时 Provider 的显示名（Provider 删了也能显示）。 */
+  /** 记录时 Provider 的显示名。 */
   providerName: z.string(),
   /** 来源后面实际接的上游（OpenCode 的 `providerID`）。 */
   upstream: z.string().optional(),

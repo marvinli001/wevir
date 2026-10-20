@@ -46,6 +46,8 @@ export interface UsageRepository {
     offset: number,
     limit: number,
   ): { rows: StoredUsageRow[]; total: number };
+  /** 删一个 Provider 的全部记录（删 Provider 时），返回删了几条。 */
+  deleteProvider(providerId: string): number;
 }
 
 export function createUsageRepository(db: SqliteDatabase): UsageRepository {
@@ -70,6 +72,7 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
     `SELECT * FROM usage_records ${where} ORDER BY at DESC, id DESC LIMIT :limit OFFSET :offset`,
   );
   const count = db.prepare(`SELECT COUNT(*) AS n FROM usage_records ${where}`);
+  const deleteProvider = db.prepare('DELETE FROM usage_records WHERE provider_id = ?');
 
   return {
     insert(row) {
@@ -107,6 +110,7 @@ export function createUsageRepository(db: SqliteDatabase): UsageRepository {
         total: integer(count.get(params) ?? {}, 'n'),
       };
     },
+    deleteProvider: (providerId) => Number(deleteProvider.run(providerId).changes),
   };
 }
 

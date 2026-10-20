@@ -18,7 +18,7 @@ export const ROUTE_PATTERNS = {
   /** 插件页（0.42.0，desktop-layout.md §23）：`/plugins` 转到默认分段，`/plugins/:tab` 是分段。 */
   plugins: '/plugins',
   pluginsTab: '/plugins/:tab',
-  /** 使用情况（0.62.0）：每次模型请求的 token 与估算成本。 */
+  /** 使用统计（0.62.0）：每次模型请求的 token 与估算成本。 */
   usage: '/usage',
   /** 首次使用的分步引导（U6），整窗页面。 */
   welcome: '/welcome',

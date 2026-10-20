@@ -1,4 +1,4 @@
-// 使用情况页的明细表：请求记录（分页，点一行看详情）与按服务商、按模型的合计。数字都是完整的分组整数，右对齐、等宽数字。
+// 使用统计页的明细表：请求记录（分页，点一行看详情）与按服务商、按模型的合计。数字都是完整的分组整数，右对齐、等宽数字。
 
 import type {
   ProviderKind,
@@ -25,6 +25,7 @@ import {
   MISSING,
   pageCount,
   providerLogoOf,
+  providerTitle,
   RECORDS_PAGE_SIZE,
   recordTime,
   speedOf,
@@ -38,7 +39,7 @@ const TH = 'h-9 px-3 text-xs font-medium whitespace-nowrap text-muted-foreground
 const TD = 'h-10 px-3 whitespace-nowrap';
 const NUM = 'text-right tabular-nums';
 
-/** 来源的标志与服务商名（表格与详情共用）。 */
+/** 服务商的标志与名字（表格与详情共用）；连接还在时用它现在的名字。 */
 export function ProviderName({
   providerId,
   providerName,
@@ -52,14 +53,16 @@ export function ProviderName({
   providers: readonly ProviderProfile[];
   className?: string;
 }) {
+  const profile = providers.find((provider) => provider.id === providerId);
+  const name = profile === undefined ? providerName : providerTitle(profile);
   return (
     <span className={cn('flex min-w-0 items-center gap-2', className)}>
       <ProviderLogo
         logo={providerLogoOf(providerId, source, providers)}
-        fallback={providerName}
+        fallback={name}
         className="size-4"
       />
-      <span className="min-w-0 truncate">{providerName}</span>
+      <span className="min-w-0 truncate">{name}</span>
     </span>
   );
 }

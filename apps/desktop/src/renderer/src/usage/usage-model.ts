@@ -1,4 +1,4 @@
-// 使用情况页的纯逻辑（0.62.0，Host 功能 `usage_stats`）：功能门控、时间段与分桶的边界、筛选的联动、数字与时间的写法、速度与
+// 使用统计页的纯逻辑（0.62.0，Host 功能 `usage_stats`）：功能门控、时间段与分桶的边界、筛选的联动、数字与时间的写法、速度与
 // 首字、坐标轴刻度、重读的节流。不碰 DOM 与 Host，组件与测试都用它。
 //
 // token 用 Anthropic 的口径：`input` 是不含缓存的新增输入，`reasoning` 已含在 `output` 里；Token 总量是四项之和。
@@ -13,7 +13,7 @@ import type {
   UsageTokens,
 } from '@wevir/protocol';
 import type { ProviderLogoId } from '@/components/provider-logo';
-import { isSourceKind, SOURCES, sourceOf } from '@/data/sources';
+import { isSourceKind, pickerOrder, SOURCES, sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
 
@@ -73,27 +73,15 @@ export function isHourly(range: UsageRange): boolean {
 
 // ---- 筛选 ----
 
-/** 页面上的筛选：来源、服务商、模型，各自单选，省略表示全部。 */
+/** 页面上的筛选：服务商（模型服务里添加的一个订阅或 API 连接）与模型，各自单选，省略表示全部。 */
 export interface UsageSelection {
-  source?: ProviderKind;
   providerId?: string;
   model?: string;
 }
 
-/** 换来源时清掉服务商与模型。 */
-export function selectSource(source: ProviderKind | undefined): UsageSelection {
-  return source === undefined ? {} : { source };
-}
-
 /** 换服务商时清掉模型。 */
-export function selectProvider(
-  selection: UsageSelection,
-  providerId: string | undefined,
-): UsageSelection {
-  return {
-    ...(selection.source !== undefined && { source: selection.source }),
-    ...(providerId !== undefined && { providerId }),
-  };
+export function selectProvider(providerId: string | undefined): UsageSelection {
+  return providerId === undefined ? {} : { providerId };
 }
 
 export function selectModel(selection: UsageSelection, model: string | undefined): UsageSelection {
@@ -103,11 +91,29 @@ export function selectModel(selection: UsageSelection, model: string | undefined
 
 export function toFilter(selection: UsageSelection): UsageFilter | undefined {
   const filter: UsageFilter = {
-    ...(selection.source !== undefined && { sources: [selection.source] }),
     ...(selection.providerId !== undefined && { providerIds: [selection.providerId] }),
     ...(selection.model !== undefined && { models: [selection.model] }),
   };
   return Object.keys(filter).length === 0 ? undefined : filter;
+}
+
+/**
+ * 筛选里列出的服务商：模型服务里添加的连接，顺序同模型选择；停用的只在这段时间有用量时列出。用量随连接删除，所以不列已删的。
+ */
+export function filterProviders(
+  providers: readonly ProviderProfile[],
+  used: readonly { id: string }[],
+): ProviderProfile[] {
+  const ids = new Set(used.map((provider) => provider.id));
+  return pickerOrder(
+    providers.filter((provider) => provider.enabled !== false || ids.has(provider.id)),
+  );
+}
+
+/** 服务商的名字：订阅来源用来源名（同模型选择），API 连接用它的显示名。 */
+export function providerTitle(provider: ProviderProfile): string {
+  const source = sourceOf(provider);
+  return source === undefined ? provider.displayName : t(source.name);
 }
 
 export function isFiltered(selection: UsageSelection): boolean {

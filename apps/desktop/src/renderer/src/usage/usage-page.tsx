@@ -1,8 +1,8 @@
-// 使用情况页（0.62.0，Host 功能 `usage_stats`）：工作台主窗格里的一列。顶上是标题与价格表状态、刷新；下面一行筛选（来源、服务商、
-// 模型、时间段），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，写法与计算见 usage-model.ts。
+// 使用统计页（0.62.0，Host 功能 `usage_stats`）：工作台主窗格里的一列。顶上是标题与价格表状态、刷新；下面是筛选（模型服务里
+// 添加的服务商，模型、时间段），然后是合计卡片、趋势图、明细（请求记录 / 服务商 / 模型）。数据见 use-usage.ts，写法与计算见 usage-model.ts。
 
 import type { WevirClient } from '@wevir/client-sdk';
-import type { ProviderKind, UsageAggregate, UsagePricing, UsageRecord } from '@wevir/protocol';
+import type { ProviderProfile, UsageAggregate, UsagePricing, UsageRecord } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChartColumn, CircleAlert, RefreshCw } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
@@ -22,16 +22,16 @@ import { UsageChart } from './usage-chart';
 import {
   approxNote,
   cacheHitRate,
+  filterProviders,
   formatCost,
   formatInteger,
   formatPercent,
   formatTokensFit,
   isFiltered,
   providerLogoOf,
+  providerTitle,
   selectModel,
   selectProvider,
-  selectSource,
-  sourceDisplay,
   totalTokens,
   USAGE_RANGES,
   USAGE_TABS,
@@ -71,6 +71,15 @@ export function UsagePage({ client }: { client: WevirClient }) {
   const entries = workbench.status === 'ready' ? workbench.workspaces : [];
   const data = useUsage(client, prefs.range, selection, page);
   const summary = data.summary.data;
+
+  // 选中的连接被删了（用量随之删除）：回到全部。
+  const selectedGone =
+    selection.providerId !== undefined &&
+    workbench.status === 'ready' &&
+    !providers.some((provider) => provider.id === selection.providerId);
+  useEffect(() => {
+    if (selectedGone) setSelection({});
+  }, [selectedGone]);
 
   // 换时间段或筛选时回到第一页。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在时间段或筛选变化时触发。
@@ -288,32 +297,10 @@ function Filters({
   range: UsageRange;
   onSelection: (selection: UsageSelection) => void;
   onRange: (range: UsageRange) => void;
-  providers: Parameters<typeof providerLogoOf>[2];
+  providers: readonly ProviderProfile[];
 }) {
   const options = summary?.result.options;
-  const sources = options?.sources ?? [];
-  const providerOptions: SelectOption[] = [
-    { value: ALL, label: t('usage.filter.allProviders') },
-    ...(options?.providers ?? [])
-      .filter((provider) => selection.source === undefined || provider.source === selection.source)
-      .map((provider) => ({
-        value: provider.id,
-        label: provider.name,
-        icon: (
-          <ProviderLogo
-            logo={providerLogoOf(provider.id, provider.source, providers)}
-            fallback={provider.name}
-            className="size-4"
-          />
-        ),
-      })),
-  ];
-  if (
-    selection.providerId !== undefined &&
-    !providerOptions.some((o) => o.value === selection.providerId)
-  ) {
-    providerOptions.push({ value: selection.providerId, label: selection.providerId });
-  }
+  const listed = filterProviders(providers, options?.providers ?? []);
   const models = [...(options?.models ?? [])];
   if (selection.model !== undefined && !models.includes(selection.model))
     models.push(selection.model);
@@ -324,34 +311,30 @@ function Filters({
 
   return (
     <div className="mb-5 space-y-3">
-      <fieldset className="flex min-w-0 flex-wrap items-center gap-1" data-testid="usage-sources">
-        <legend className="sr-only">{t('usage.filter.sources')}</legend>
+      <fieldset className="flex min-w-0 flex-wrap items-center gap-1" data-testid="usage-providers">
+        <legend className="sr-only">{t('usage.filter.provider')}</legend>
         <Chip
-          active={selection.source === undefined}
-          onClick={() => onSelection(selectSource(undefined))}
+          active={selection.providerId === undefined}
+          onClick={() => onSelection(selectProvider(undefined))}
         >
           {t('usage.filter.all')}
         </Chip>
-        {sources.map((source) => (
-          <SourceChip
-            key={source}
-            source={source}
-            active={selection.source === source}
-            onClick={() => onSelection(selectSource(source))}
-          />
+        {listed.map((provider) => (
+          <Chip
+            key={provider.id}
+            active={selection.providerId === provider.id}
+            onClick={() => onSelection(selectProvider(provider.id))}
+          >
+            <ProviderLogo
+              logo={providerLogoOf(provider.id, provider.kind, providers)}
+              fallback={provider.displayName}
+              className="size-3.5"
+            />
+            {providerTitle(provider)}
+          </Chip>
         ))}
       </fieldset>
       <div className="flex flex-wrap items-center gap-2">
-        <Select
-          aria-label={t('usage.filter.provider')}
-          value={selection.providerId ?? ALL}
-          options={providerOptions}
-          onValueChange={(value) =>
-            onSelection(selectProvider(selection, value === ALL ? undefined : value))
-          }
-          className="w-44"
-          data-filter="provider"
-        />
         <Select
           aria-label={t('usage.filter.model')}
           value={selection.model ?? ALL}
@@ -399,24 +382,6 @@ function Chip({
     >
       {children}
     </button>
-  );
-}
-
-function SourceChip({
-  source,
-  active,
-  onClick,
-}: {
-  source: ProviderKind;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const display = sourceDisplay(source);
-  return (
-    <Chip active={active} onClick={onClick}>
-      <ProviderLogo logo={display.logo} fallback={display.name} className="size-3.5" />
-      {display.name}
-    </Chip>
   );
 }
 

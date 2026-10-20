@@ -1,4 +1,4 @@
-// 使用情况页的趋势图：手写的 SVG 柱状图（不引图表库）。Tokens 是四种 token 叠起来的柱（运行蓝两档 + 墨色两档，不用彩色），
+// 使用统计页的趋势图：手写的 SVG 柱状图（不引图表库）。Tokens 是四种 token 叠起来的柱（运行蓝两档 + 墨色两档，不用彩色），
 // 请求与成本是单列的柱；纵轴刻度是紧凑写法，横轴按小时 `HH:mm`、按天 `MM/DD`；悬停一桶显示它的准确数值。
 
 import type { UsageAggregate } from '@wevir/protocol';

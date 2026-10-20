@@ -660,6 +660,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         }
         if (provider.secretRef !== undefined) await secrets.delete(provider.secretRef);
         storage.providers.delete(providerId);
+        // 用量记录归属于 Provider（0.62.0 的用量统计），随它一起删。
+        if (storage.usage.deleteProvider(providerId) > 0) options.usage?.service.recordsChanged();
         await applyProviders();
         return {};
       }),

@@ -1,4 +1,4 @@
-// 使用情况页的数据（0.62.0）：`usage.summary`（合计、分桶、按服务商与模型、筛选菜单的选项、价格表状态）与当前一页
+// 使用统计页的数据（0.62.0）：`usage.summary`（合计、分桶、按服务商与模型、筛选菜单的选项、价格表状态）与当前一页
 // `usage.records`。换时间段或筛选时两者都重读，翻页只重读记录；页面打开期间有变化时两者都重读，至少隔 2 秒。重读时先留着上次的
 // 结果，不闪“正在加载”。连接断开、重连期间发起的请求由 client-sdk 排队。
 
@@ -55,15 +55,14 @@ export function useUsage(
   const [summary, setSummary] = useState<Loadable<SummaryData>>({ loading: true });
   const [records, setRecords] = useState<Loadable<RecordsData>>({ loading: true });
   const [refreshingPricing, setRefreshingPricing] = useState(false);
-  const { source, providerId, model } = selection;
+  const { providerId, model } = selection;
   const filter = useMemo(
     () =>
       toFilter({
-        ...(source !== undefined && { source }),
         ...(providerId !== undefined && { providerId }),
         ...(model !== undefined && { model }),
       }),
-    [source, providerId, model],
+    [providerId, model],
   );
   const query = useRef({ range, filter, page });
   query.current = { range, filter, page };
