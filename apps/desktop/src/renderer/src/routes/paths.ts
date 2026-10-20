@@ -66,6 +66,9 @@ export const paths = {
   home: (): string => ROUTE_PATTERNS.home,
   session: (workspaceId: string, sessionId: string): string =>
     `/workspace/${segment(workspaceId)}/session/${segment(sessionId)}`,
+  /** 会话里的某个事件（0.76.0，任务回顾的出处）：打开会话后滚到它所在的一块。 */
+  sessionAt: (workspaceId: string, sessionId: string, seq: number): string =>
+    `${paths.session(workspaceId, sessionId)}?seq=${seq}`,
   agent: (workspaceId: string, sessionId: string, childId: string): string =>
     `${paths.session(workspaceId, sessionId)}/agent/${segment(childId)}`,
   draft: (workspaceId: string): string => `/workspace/${segment(workspaceId)}/session`,
@@ -79,3 +82,10 @@ export const paths = {
     `${ROUTE_PATTERNS.automations}/${segment(automationId)}`,
   welcome: (): string => ROUTE_PATTERNS.welcome,
 };
+
+/** 地址里的 `?seq=N`（`paths.sessionAt`）；没有或不是正整数时 undefined。 */
+export function seqParam(search: string): number | undefined {
+  const raw = new URLSearchParams(search).get('seq');
+  if (raw === null || !/^[1-9][0-9]{0,15}$/.test(raw)) return undefined;
+  return Number(raw);
+}

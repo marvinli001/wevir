@@ -42,6 +42,7 @@ import {
 } from './methods.js';
 import type { HostProcess } from './processes.js';
 import type { InstallRun, ReadinessReport } from './readiness.js';
+import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
 import type { Terminal } from './terminals.js';
 import type {
@@ -374,6 +375,196 @@ export const lspMissingSample: LspServerStatus = {
       runnable: true,
     },
   ],
+};
+
+/** 一份任务回顾（0.76.0）：改了代码、检查通过但之后又改了文件、有未提交的改动。 */
+export const sessionRetro: SessionRetro = {
+  sessionId: ids.session,
+  title: '温度换算支持开尔文',
+  schemaVersion: 1,
+  throughSeq: 42,
+  builtAt: TS,
+  checkedAt: TS2,
+  build: 'incremental',
+  running: false,
+  goal: {
+    recorded: true,
+    request: {
+      id: 'e2',
+      text: '把温度换算改成支持开尔文',
+      ref: { kind: 'event', seq: 2, turnId: ids.turn },
+    },
+  },
+  done: [
+    {
+      id: 'e9.0',
+      text: '实现 toKelvin',
+      origin: 'todo',
+      status: 'completed',
+      ref: { kind: 'event', seq: 9, turnId: ids.turn },
+    },
+  ],
+  open: [
+    {
+      id: 'b:t2',
+      text: '补文档',
+      origin: 'board',
+      status: 'pending',
+      owner: ids.childSession,
+      ref: { kind: 'event', seq: 30 },
+    },
+  ],
+  boardRecorded: true,
+  turns: [
+    {
+      id: `t:${ids.turn}`,
+      turnId: ids.turn,
+      seq: 3,
+      endSeq: 20,
+      outcome: 'completed',
+      text: '把温度换算改成支持开尔文',
+      kind: 'user',
+      files: ['src/convert.ts'],
+      commands: 2,
+      diff: 'available',
+      fileCount: 1,
+      added: 12,
+      removed: 3,
+      at: TS,
+    },
+  ],
+  hiddenTurns: 1,
+  changes: {
+    recorded: true,
+    repo: true,
+    files: [
+      {
+        id: 'f:src/convert.ts',
+        path: 'src/convert.ts',
+        turnIds: [ids.turn],
+        diff: 'deleted',
+      },
+    ],
+    commits: [{ id: `c:${SHA1}`, sha: SHA1, subject: 'Add kelvin', at: TS2 }],
+    uncommitted: 2,
+    branch: 'main',
+    head: SHA1,
+  },
+  verification: {
+    recorded: true,
+    checks: [
+      {
+        id: `v:${ids.verificationRun}`,
+        checkId: ids.check,
+        runId: ids.verificationRun,
+        name: 'test',
+        command: 'pnpm test',
+        kind: 'test',
+        status: 'passed',
+        evidence: 'outdated',
+        codeState: { kind: 'git', head: SHA1, tree: SHA2 },
+        tests: { passed: 4, failed: 0, skipped: 0 },
+        exitCode: 0,
+        turnId: ids.turn,
+        seq: 24,
+        finishedAt: TS2,
+        earlier: [
+          {
+            runId: 'vrn_01JA2B3C4D5E6F7G8H9JKMNPR2',
+            status: 'failed',
+            reason: 'exit_code',
+            seq: 16,
+            turnId: ids.turn,
+          },
+        ],
+      },
+    ],
+    acceptance: 'unverified',
+    commands: [
+      {
+        id: 'e12',
+        text: 'pnpm test',
+        status: 'completed',
+        ref: { kind: 'event', seq: 12, turnId: ids.turn },
+      },
+    ],
+    codeState: { kind: 'git', head: SHA1, tree: SHA1 },
+  },
+  review: {
+    recorded: true,
+    comments: [
+      {
+        id: `r:${ids.reviewComment}`,
+        text: '这里要处理负数',
+        path: 'src/convert.ts',
+        line: 12,
+        status: 'pending',
+        outdated: true,
+        ref: {
+          kind: 'review',
+          commentId: ids.reviewComment,
+          path: 'src/convert.ts',
+          source: { kind: 'uncommitted' },
+        },
+      },
+    ],
+  },
+  decisions: [
+    { id: 'e15', kind: 'steer', text: '别改公共接口', ref: { kind: 'event', seq: 15 } },
+    { id: 'e40', kind: 'undone', text: '', ref: { kind: 'event', seq: 40 } },
+  ],
+  delivery: {
+    checks: 'outdated',
+    commit: 'uncommitted',
+    push: 'not_pushed',
+    ci: 'unknown',
+    deploy: 'unknown',
+    ahead: 1,
+  },
+  next: [
+    {
+      id: `n:v:${ids.verificationRun}`,
+      kind: 'rerun_check',
+      text: 'test',
+      ref: { kind: 'verification', runId: ids.verificationRun, seq: 24 },
+    },
+  ],
+  sessions: [
+    {
+      id: `s:${ids.childSession}`,
+      text: '补文档',
+      sessionId: ids.childSession,
+      relation: 'opened',
+      source: 'deleted',
+      ref: { kind: 'session', sessionId: ids.childSession },
+    },
+  ],
+  memories: [
+    {
+      id: 'e18',
+      text: 'kelvin-rounding',
+      scope: 'project',
+      name: 'kelvin-rounding',
+      operation: 'save',
+      source: 'available',
+      ref: { kind: 'memory', scope: 'project', name: 'kelvin-rounding' },
+    },
+  ],
+};
+
+/** 一份模型摘要（0.76.0）：一点有出处，一点是推断。 */
+export const retroSummary: RetroSummary = {
+  points: [
+    { text: '开尔文换算已实现，测试通过的是旧版本。', refs: ['e9.0', `v:${ids.verificationRun}`] },
+    { text: '负数处理可能还没做。', refs: [], inferred: true },
+  ],
+  providerId: 'deepseek-official',
+  modelId: 'deepseek-chat',
+  throughSeq: 42,
+  generatedAt: TS2,
+  inputBytes: 3200,
+  outputBytes: 210,
+  usage: { inputTokens: 1100, outputTokens: 80 },
 };
 
 /** Agent 起的后台进程（0.69.0）：还在跑。 */
@@ -4335,6 +4526,26 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ text: 'not ok 4\n', from: 0, next: 9, more: false, bytes: 9 }],
       invalid: [{ text: '' }],
+    },
+  },
+  'retro.get': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, redact: true }],
+      invalid: [{}, { sessionId: ids.session, redact: 'yes' }],
+    },
+    result: {
+      valid: [
+        { retro: sessionRetro },
+        { retro: { ...sessionRetro, summary: { ...retroSummary, outdated: true } }, redactions: 2 },
+      ],
+      invalid: [{}, { retro: { ...sessionRetro, build: 'partial' } }],
+    },
+  },
+  'retro.summarize': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: {
+      valid: [{ summary: retroSummary }, { reason: 'unsupported' }],
+      invalid: [{ summary: { ...retroSummary, points: [] } }],
     },
   },
   'review.list': {

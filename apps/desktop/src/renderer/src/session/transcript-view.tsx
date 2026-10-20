@@ -1,7 +1,7 @@
 import type { Transcript } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
 import { turnOrb } from '@/fx/orb-state';
@@ -13,7 +13,13 @@ import { groupPending } from './pending-model';
 import { useStickToBottom } from './scroll-controller';
 import { type QuoteActions, SelectionToolbar } from './selection-toolbar';
 import { latestTodos } from './todo-model';
-import { groupTurns, isActiveTurn, turnStart } from './turn-model';
+import {
+  blockSeqRange,
+  groupTurns,
+  isActiveTurn,
+  messageIndexForSeq,
+  turnStart,
+} from './turn-model';
 import { TurnView } from './turn-view';
 import { turnChecks } from './verification-model';
 import { WorkspaceRoot } from './work-group';
@@ -23,7 +29,12 @@ export const RENDER_WINDOW = 60;
 
 export interface TranscriptViewHandle {
   jumpToLatest(behavior?: ScrollBehavior): void;
+  /** 滚到某个事件所在的一块并短暂高亮（任务回顾的出处，0.76.0）。消息流里找不到时返回 false。 */
+  revealSeq(seq: number): boolean;
 }
+
+/** 跳到出处后高亮多久。 */
+const REVEAL_HIGHLIGHT_MS = 1600;
 
 /**
  * 消息流：分段渲染（最后 `RENDER_WINDOW` 条起的一段，滚到顶部附近时向前扩展；起点挪到所在回合的开头），按回合成块
@@ -52,7 +63,7 @@ export function TranscriptView({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const { sticky, showJump, jumpToLatest, holdPosition } = useStickToBottom(
+  const { sticky, showJump, jumpToLatest, holdPosition, release } = useStickToBottom(
     containerRef,
     contentRef,
     sessionId,
@@ -80,7 +91,44 @@ export function TranscriptView({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在切换模式与换会话时固定或放开。
   useEffect(() => setPinnedStart(sticky ? undefined : firstRendered), [sticky, sessionId]);
-  useEffect(() => onReady?.({ jumpToLatest }), [onReady, jumpToLatest]);
+  // 要跳到的事件：先转手动、把渲染起点挪到它所在的回合，渲染之后再滚过去。
+  const [reveal, setReveal] = useState<{ seq: number; nonce: number }>();
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const startRef = useRef(start);
+  startRef.current = start;
+  const revealSeq = useMemo(
+    () => (seq: number) => {
+      const index = messageIndexForSeq(messagesRef.current, seq);
+      if (index < 0) return false;
+      release();
+      if (index < startRef.current) setPinnedStart(messagesRef.current[index]?.id);
+      setReveal((current) => ({ seq, nonce: (current?.nonce ?? 0) + 1 }));
+      return true;
+    },
+    [release],
+  );
+  useEffect(() => onReady?.({ jumpToLatest, revealSeq }), [onReady, jumpToLatest, revealSeq]);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    if (!reveal || !container) return;
+    let target: HTMLElement | undefined;
+    for (const element of container.querySelectorAll<HTMLElement>('[data-seq-first]')) {
+      if (Number(element.dataset.seqFirst) <= reveal.seq) target = element;
+      if (Number(element.dataset.seqLast) >= reveal.seq) break;
+    }
+    const element = target;
+    if (!element) return;
+    element.scrollIntoView({ block: 'start', behavior: 'instant' });
+    element.dataset.revealed = 'true';
+    const timer = window.setTimeout(() => {
+      delete element.dataset.revealed;
+    }, REVEAL_HIGHLIGHT_MS);
+    return () => {
+      window.clearTimeout(timer);
+      delete element.dataset.revealed;
+    };
+  }, [reveal]);
   // 新到的块（U10）：贴底时末尾新出现的块淡入上移；首次渲染、向前展开的旧消息不动。在渲染时记下已见过的块。
   const seen = useRef<{ sessionId: string; keys: Set<string> }>(undefined);
   const firstRender = seen.current?.sessionId !== sessionId;
@@ -133,11 +181,14 @@ export function TranscriptView({
                 const active = block.kind === 'turn' && isActiveTurn(block.turnId, transcript);
                 const fresh = !firstRender && sticky && !seenKeys.has(block.key);
                 seenKeys.add(block.key);
+                const [seqFirst, seqLast] = blockSeqRange(block);
                 return (
                   <div
                     key={block.key}
                     className={cn('transcript-item pt-6 first:pt-0', fresh && 'block-enter')}
                     data-message-id={block.key}
+                    data-seq-first={seqFirst}
+                    data-seq-last={seqLast}
                   >
                     {block.kind === 'turn' ? (
                       <TurnView

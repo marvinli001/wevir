@@ -58,6 +58,7 @@ describe('pane-kinds', () => {
       'processes',
       'terminal',
       'browser',
+      'retro',
     ]);
     // 文件预览（U32）只由文件树、文件链接打开。
     expect(openableKinds(true)).not.toContain('file');

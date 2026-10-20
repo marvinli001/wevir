@@ -5,7 +5,11 @@ import { zhCN } from './zh-CN';
 // 删掉后会不会影响使用，不影响就删掉，不要往名单里加。
 
 /** 发给模型的文案（不显示在界面上），不受界面文案规则约束。 */
-const MODEL_FACING = new Set<string>(['history.intro', 'plan.implementPrefix']);
+const MODEL_FACING = new Set<string>([
+  'history.intro',
+  'plan.implementPrefix',
+  'retro.handoffPrefix',
+]);
 /** 自动化模板的指令（0.66.0）：填进指令框、每次运行发给 Agent，按发给模型的文案对待。 */
 const isModelFacing = (key: string) =>
   MODEL_FACING.has(key) || /^automations\.template\.[a-z]+\.prompt$/.test(key);

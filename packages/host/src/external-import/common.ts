@@ -16,8 +16,8 @@ import {
   MemoryTypeSchema,
   type WorkspaceId,
 } from '@wevir/protocol';
-import { SECRET_PATTERNS } from '../memory.js';
 import { record, scanSkills } from '../plugin-skills.js';
+import { SECRET_PATTERNS } from '../secret-patterns.js';
 
 /** Wevir 的一个项目：根目录加其他源文件夹（0.64.0）。 */
 export interface ImportProject {

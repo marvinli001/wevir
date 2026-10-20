@@ -22,6 +22,7 @@ export * from './environments.js';
 export * from './events.js';
 export * from './migrate.js';
 export * from './providers.js';
+export * from './retros.js';
 export * from './review-comments.js';
 export * from './secrets.js';
 export * from './send-receipts.js';

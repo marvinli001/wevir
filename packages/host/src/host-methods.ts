@@ -58,6 +58,7 @@ import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
 import type { ProcessOutputService } from './process-output.js';
 import type { ReadinessService } from './readiness/service.js';
+import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
@@ -155,6 +156,8 @@ export interface HostMethodsOptions {
   readiness?: ReadinessService;
   /** 语言服务器的状态与安装（0.71.0，`lsp.*`）；省略时这些方法回 `INVALID_PARAMS`。 */
   lsp?: LspStatusService;
+  /** 任务回顾（0.76.0，`retro.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  retro?: RetroService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
@@ -284,6 +287,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     workspaceId,
     dir: await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
   });
+  const retroService = (): RetroService => {
+    if (options.retro === undefined) throw invalidParams([], 'this host has no session retro');
+    return options.retro;
+  };
   const gitService = (): GitService => {
     if (options.git === undefined) throw invalidParams([], 'this host has no git staging');
     return options.git;
@@ -1174,6 +1181,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'review.remove': ({ commentIds }) => ({ removed: review().remove(commentIds) }),
     'review.send': async ({ workspaceId, sessionId, ...params }, { client }) =>
       review().send(await reviewDirectory(workspaceId, sessionId), params, client),
+
+    // 0.76.0：任务回顾（ADR-0012）。
+    'retro.get': ({ sessionId, redact }) =>
+      retroService().get(sessionId, redact === undefined ? {} : { redact }),
+    'retro.summarize': ({ sessionId }) => retroService().summarize(sessionId),
 
     // 0.67.0：暂存与提交（ADR-0009）。只由用户在“变更”窗格发起，目录的选法同 workspace.diff。
     'git.status': async ({ workspaceId, sessionId }) =>

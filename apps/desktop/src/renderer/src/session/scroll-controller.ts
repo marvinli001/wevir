@@ -39,6 +39,7 @@ export function jumpVisible(sticky: boolean, distanceFromBottom: number): boolea
 interface Controller {
   jumpToLatest(behavior: ScrollBehavior): void;
   holdPosition(): void;
+  release(): void;
 }
 
 export interface StickToBottom {
@@ -53,6 +54,8 @@ export interface StickToBottom {
    * 底部（内容不满一屏、收起了一处）就回到贴底。
    */
   holdPosition(): void;
+  /** 转为手动模式、不再吸回底部（跳到某个事件的位置，0.76.0）。 */
+  release(): void;
 }
 
 /**
@@ -214,6 +217,13 @@ export function useStickToBottom(
         window.clearTimeout(heldTimer);
         heldTimer = window.setTimeout(settleHold, 200);
       },
+      release() {
+        smoothJump = false;
+        held = false;
+        window.clearTimeout(heldTimer);
+        window.clearTimeout(settleTimer);
+        setMode('manual');
+      },
     };
 
     return () => {
@@ -237,6 +247,7 @@ export function useStickToBottom(
   }, []);
 
   const holdPosition = useCallback(() => controller.current?.holdPosition(), []);
+  const release = useCallback(() => controller.current?.release(), []);
 
-  return { sticky, showJump, jumpToLatest, holdPosition };
+  return { sticky, showJump, jumpToLatest, holdPosition, release };
 }

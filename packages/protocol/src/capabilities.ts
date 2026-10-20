@@ -325,6 +325,11 @@ export const HOST_FEATURES = {
    * `Session.opinionOf` 与 `MessageFrom.opinion`。Host 能开 worktree 时声明，与引擎无关（意见会话用哪个来源由请求决定）。
    */
   secondOpinion: 'second_opinion',
+  /**
+   * 任务回顾（0.76.0，ADR-0012）：`retro.get`（从事件确定性生成的回顾，每行带出处，按需增量更新）与 `retro.summarize`（用户触发的
+   * 模型摘要，引擎实现了 `generateTitle` 时才写得成），有应用级工具时还有 `wevir_session_retro`。与引擎无关。
+   */
+  sessionRetro: 'session_retro',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -392,6 +397,7 @@ export const HostFeaturesSchema = z.looseObject({
   automation_conditions: z.boolean().optional(),
   external_import: z.boolean().optional(),
   second_opinion: z.boolean().optional(),
+  session_retro: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
