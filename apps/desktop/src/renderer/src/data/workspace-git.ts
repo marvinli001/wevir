@@ -5,12 +5,13 @@ import { hostSupports } from '@wevir/client-sdk';
 import type { SessionId, WorkspaceGitResult, WorkspaceId } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
+import { LruMap } from '@/lib/lru';
 import { everyWhileVisible } from '@/lib/visible-interval';
 
 const REFRESH_MS = 10_000;
 
-/** 最近一次读到的，换会话回来时先显示它。 */
-const lastKnown = new Map<string, WorkspaceGitResult>();
+/** 最近一次读到的，换会话回来时先显示它（最近用过的一批）。 */
+const lastKnown = new LruMap<string, WorkspaceGitResult>(100);
 
 export interface WorkspaceGitState {
   /** Host 声明了 `workspace_git`（0.13.0）；没有时 `status` 总是 undefined。 */

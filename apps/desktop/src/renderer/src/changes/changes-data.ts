@@ -12,6 +12,7 @@ import type {
 } from '@wevir/protocol';
 import { useCallback, useEffect, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
+import { LruMap } from '@/lib/lru';
 import { everyWhileVisible } from '@/lib/visible-interval';
 
 const LIVE_REFRESH_MS = 5_000;
@@ -22,9 +23,13 @@ export function useDiffSupported(): boolean {
   return view.status === 'connected' && hostSupports(view.hello.features, 'workspace_diff');
 }
 
-/** 最近一次读到的，换范围、换会话回来时先显示它。 */
-const lastDiff = new Map<string, WorkspaceDiffResult>();
-const lastCheckpoints = new Map<SessionId, readonly TurnCheckpoint[]>();
+/** 最近一次读到的，换范围、换会话回来时先显示它（最近用过的一批；patch 合计最多这么多字符）。 */
+const DIFF_MAX_CHARS = 32 * 1024 * 1024;
+const lastDiff = new LruMap<string, WorkspaceDiffResult>(32, {
+  maxWeight: DIFF_MAX_CHARS,
+  weigh: (diff) => diff.patch?.length ?? 0,
+});
+const lastCheckpoints = new LruMap<SessionId, readonly TurnCheckpoint[]>(64);
 
 export function sourceKey(sessionId: SessionId, source: DiffSource): string {
   return source.kind === 'turn'
