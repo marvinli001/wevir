@@ -621,9 +621,10 @@ function run(): void {
     // 上次的主题模式与底色：窗口一出现就是对的深浅色与底色，不等页面加载完再换。
     windowAppearance = loadWindowAppearance(app.getPath('userData'));
     nativeTheme.themeSource = windowAppearance.themeMode;
-    applyAppIcon();
     mainWindow = createWindow();
     mark('windowCreated');
+    // 建好窗口（页面开始载入）之后再设图标：程序坞图标要解码一张 1024 px 的 PNG，不让页面等它；窗口在首帧之前不显示。
+    applyAppIcon();
     // 关窗口（红绿灯、Alt+F4、⌘W）只是隐藏，留在后台；真正退出时才关。
     mainWindow.on('close', (event) => {
       const window = mainWindow;
