@@ -33,6 +33,7 @@ import { LspManager } from './lsp/manager.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
+import { ProcessOutputService } from './process-output.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { loadRecapInstructions } from './recap.js';
@@ -231,15 +232,19 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     void toolOutput
       .prune()
       .catch((error: unknown) => logger.warn('failed to prune tool output', { error }));
+    // 进程输出（0.68.0，process-output.ts）：客户端看 Agent 的后台进程与检查的进程。
+    const processOutput = new ProcessOutputService({ storage });
     const processes =
       adapter.appTools === true
         ? new ProcessManager({
             output: toolOutput,
             onNotice: (notice) => appTools?.onProcessNotice(notice),
             onWarning: (message, fields) => logger.warn(message, fields),
+            onChange: (change) => processOutput.onChange(change),
           })
         : undefined;
     backgroundProcesses = processes;
+    if (processes !== undefined) processOutput.attachAgent(processes);
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
     await chats.load();
@@ -361,6 +366,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         runner: new CheckRunner({
           dir: toolOutput.dir,
           onWarning: (message, fields) => logger.warn(message, fields),
+          onChange: (change) => processOutput.onChange(change),
         }),
         checkpoints,
         hostId,
@@ -368,6 +374,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         onWarning: (message, fields) => logger.warn(message, fields),
         onError: (error) => logger.error('verification error', { error }),
       });
+      processOutput.attachChecks(verificationService);
       const reconciled = verificationService.recover();
       if (reconciled.cancelledRuns > 0 || reconciled.stoppedRepairs > 0) {
         logger.warn('reconciled verification after unclean shutdown', { ...reconciled });
@@ -502,6 +509,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         usage: { service: usageStats, pricing },
         ...(verification !== undefined && { verification }),
         automations: automationService,
+        ...(processOutput.available && { processes: processOutput }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -559,6 +567,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.injectNote !== undefined && { session_undo: true }),
         ...(recapInstructions !== undefined && { session_recap: true }),
         ...(verification !== undefined && { verification: true }),
+        ...(processOutput.available && { process_output: true }),
       },
       engineFeatures,
       plugins,
@@ -567,6 +576,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       memory,
       usage: usageStats,
       automations: automationService,
+      ...(processOutput.available && { processes: processOutput }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。

@@ -84,6 +84,10 @@ export interface ConnectionHost {
   readonly automations?: {
     watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
   };
+  /** 进程输出（0.68.0）：调过 `process.*` 的连接用它收 `process.changed`。 */
+  readonly processes?: {
+    watch(listener: (change: NotificationParams<'process.changed'>) => void): () => void;
+  };
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
   readonly limits: ConnectionLimits;
@@ -161,6 +165,8 @@ export class RpcConnection {
   #unwatchUsage: (() => void) | undefined;
   /** 调过 `automation.*` 之后：退订 `automation.changed`。 */
   #unwatchAutomations: (() => void) | undefined;
+  /** 调过 `process.*` 之后：退订 `process.changed`。 */
+  #unwatchProcesses: (() => void) | undefined;
   /** `browser.register` 之后：注销这条连接的浏览器提供方。 */
   #unregisterBrowser: (() => void) | undefined;
   /** 这条连接作为浏览器提供方的标识。 */
@@ -460,6 +466,7 @@ export class RpcConnection {
         if (method.startsWith('memory.')) this.#watchMemory();
         if (method.startsWith('usage.')) this.#watchUsage();
         if (method.startsWith('automation.')) this.#watchAutomations();
+        if (method.startsWith('process.')) this.#watchProcesses();
       }
     }
   }
@@ -682,6 +689,20 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `process.*` 的连接之后收 `process.changed`（0.68.0），连接关闭即止。 */
+  #watchProcesses(): void {
+    if (this.#unwatchProcesses !== undefined || this.#host.processes === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchProcesses = this.#host.processes.watch((change) => {
+      const parsed = NotificationSchemas['process.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(new Error(`process.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'process.changed', params: parsed.data });
+    });
+  }
+
   #drop(subscription: Subscription): void {
     if (!subscription.active) return;
     subscription.active = false;
@@ -780,6 +801,8 @@ export class RpcConnection {
     this.#unwatchUsage = undefined;
     this.#unwatchAutomations?.();
     this.#unwatchAutomations = undefined;
+    this.#unwatchProcesses?.();
+    this.#unwatchProcesses = undefined;
     this.#unregisterBrowser?.();
     this.#unregisterBrowser = undefined;
   }

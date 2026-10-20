@@ -267,6 +267,11 @@ export const HOST_FEATURES = {
    * `wevir_automation_*`。按计划反复交给 Agent 的指令，只在 Host 运行时执行。
    */
   automations: 'automations',
+  /**
+   * 进程输出（0.68.0）：`process.list`、`process.output`、`process.stop` 与 `process.changed` 通知。客户端看 Agent 起的后台进程与
+   * 回合后验证的检查进程、读输出、停止；不是终端，不能输入。有后台进程或回合后验证时声明。
+   */
+  processOutput: 'process_output',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -323,6 +328,7 @@ export const HostFeaturesSchema = z.looseObject({
   subscription_accounts: z.boolean().optional(),
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),
+  process_output: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

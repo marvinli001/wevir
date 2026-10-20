@@ -2,16 +2,27 @@
 // 但用单独的实例，Agent 的进程工具看不到也停不了。有超时（SIGTERM，宽限后 SIGKILL）、取消与输出上限；结束后把输出（去掉控制序列）
 // 存成 `<tool-output>/<会话 ID>/verification/<记录 ID>.log`，`verification.output` 从这里读，Host 重启后也在。放在会话的大输出目录
 // 里：删除会话时随会话删、存储页算进会话的文件，同大输出一样七天后清掉（记录里的输出尾部一直在）。
+//
+// 检查的进程在“进程输出”里也看得到（0.68.0，ID `v<n>`）：原始日志留到进程记录被忘掉（每个会话留最近 `CHECK_PROCESSES_KEPT` 个），
+// 客户端在检查跑完后也能按同一套偏移量读完。
 
-import { mkdir, open, rm, stat } from 'node:fs/promises';
+import { mkdir, open, stat } from 'node:fs/promises';
 import { dirname, join, parse } from 'node:path';
-import type { SessionId, VerificationRunId } from '@wevir/protocol';
+import type { SessionId, TurnId, VerificationRunId } from '@wevir/protocol';
 import { VERIFICATION_OUTPUT_PAGE_MAX_BYTES } from '@wevir/protocol';
-import { completeUtf8, PROCESS_KILL_GRACE_MS, ProcessManager } from '../processes.js';
+import {
+  completeUtf8,
+  PROCESS_KILL_GRACE_MS,
+  type ProcessChange,
+  type ProcessCheck,
+  ProcessManager,
+} from '../processes.js';
 import { ToolOutputStore } from '../tool-output.js';
 
 /** 一次检查的日志：到这个大小换一次文件，只留最后一段，开头算丢弃（`truncated`）。 */
 export const VERIFICATION_LOG_ROTATE_BYTES = 8 * 1024 * 1024;
+/** 每个会话留几个已结束的检查进程（连同原始日志）。 */
+export const CHECK_PROCESSES_KEPT = 10;
 
 export interface RunRequest {
   sessionId: SessionId;
@@ -21,6 +32,10 @@ export interface RunRequest {
   cwd: string;
   timeoutMs: number;
   signal: AbortSignal;
+  check?: ProcessCheck;
+  turnId?: TurnId;
+  /** 进程的显示名（检查名），默认记录 ID。 */
+  name?: string;
 }
 
 export interface RunResult {
@@ -52,6 +67,7 @@ export class CheckRunner {
     dir: string;
     onWarning?: (message: string, fields?: Record<string, unknown>) => void;
     env?: NodeJS.ProcessEnv;
+    onChange?: (change: ProcessChange) => void;
   }) {
     this.#dir = options.dir;
     this.#processes = new ProcessManager({
@@ -59,8 +75,17 @@ export class CheckRunner {
       onNotice: () => {},
       ...(options.onWarning !== undefined && { onWarning: options.onWarning }),
       ...(options.env !== undefined && { env: options.env }),
+      ...(options.onChange !== undefined && { onChange: options.onChange }),
       logRotateBytes: VERIFICATION_LOG_ROTATE_BYTES,
+      idPrefix: 'v',
+      maxKept: CHECK_PROCESSES_KEPT,
+      deleteLogsOnForget: true,
     });
+  }
+
+  /** 检查的进程（“进程输出”）。 */
+  get processes(): ProcessManager {
+    return this.#processes;
   }
 
   outputPath(sessionId: SessionId, runId: VerificationRunId): string {
@@ -72,8 +97,10 @@ export class CheckRunner {
     const info = await this.#processes.start(request.sessionId, {
       command: request.command,
       cwd: request.cwd,
-      name: request.runId,
+      name: request.name ?? request.runId,
       notifyOnExit: false,
+      ...(request.check !== undefined && { check: request.check }),
+      ...(request.turnId !== undefined && { turnId: request.turnId }),
     });
     if (info.status === 'exited' && info.error !== undefined) {
       return {
@@ -124,18 +151,18 @@ export class CheckRunner {
     const alive = () => this.#processes.info(sessionId, id)?.status === 'running';
     if (!alive()) return;
     try {
-      this.#processes.signal(sessionId, id, 'SIGTERM');
+      this.#processes.signal(sessionId, id, 'SIGTERM', 'host');
     } catch {}
     const never = new AbortController().signal;
     await this.#processes.wait(sessionId, id, undefined, PROCESS_KILL_GRACE_MS, never);
     if (!alive()) return;
     try {
-      this.#processes.signal(sessionId, id, 'SIGKILL');
+      this.#processes.signal(sessionId, id, 'SIGKILL', 'host');
     } catch {}
     await this.#processes.wait(sessionId, id, undefined, PROCESS_KILL_GRACE_MS, never);
   }
 
-  /** 把进程日志里留着的输出抄成这条记录的日志，删掉进程日志。 */
+  /** 把进程日志里留着的输出抄成这条记录的日志（进程日志留到进程记录被忘掉）。 */
   async #keep(
     sessionId: SessionId,
     id: string,
@@ -163,11 +190,6 @@ export class CheckRunner {
       await file.writeFile(output);
     } finally {
       await file.close();
-    }
-    const logPath = this.#processes.info(sessionId, id)?.logPath;
-    if (logPath !== undefined) {
-      await rm(logPath, { force: true });
-      await rm(`${logPath}.1`, { force: true });
     }
     return { output, bytes: Buffer.byteLength(output), truncated };
   }

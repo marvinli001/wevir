@@ -189,9 +189,11 @@ import {
 } from './index.js';
 import {
   acceptance as acceptanceSample,
+  agentProcess,
   boardTask,
   browserTab,
   checkDefinition,
+  checkProcess,
   childSession,
   compatibleProvider,
   connectingUpstreamAccount,
@@ -2476,6 +2478,34 @@ const standaloneCases: Case[] = [
     schema: protocol.VerificationRunSchema,
     valid: [verificationRun, { ...verificationRun, status: 'stale', reason: 'code_changed' }],
     invalid: [{ ...verificationRun, checkRevision: 0 }],
+  },
+  {
+    name: 'ProcessId',
+    schema: protocol.ProcessIdSchema,
+    valid: ['p1', 'v12'],
+    invalid: ['p', '1', 'proc_1'],
+  },
+  {
+    name: 'ProcessSource',
+    schema: protocol.ProcessSourceSchema,
+    valid: [
+      agentProcess.source,
+      checkProcess.source,
+      { kind: 'agent', sessionId: agentProcess.source.sessionId },
+    ],
+    invalid: [{ kind: 'check', sessionId: agentProcess.source.sessionId }],
+  },
+  {
+    name: 'ProcessStopSignal',
+    schema: protocol.ProcessStopSignalSchema,
+    valid: ['SIGINT', 'SIGTERM', 'SIGKILL'],
+    invalid: ['SIGHUP'],
+  },
+  {
+    name: 'HostProcess',
+    schema: protocol.HostProcessSchema,
+    valid: [agentProcess, checkProcess],
+    invalid: [{ ...agentProcess, status: 'paused' }],
   },
   {
     name: 'AcceptanceStatus',

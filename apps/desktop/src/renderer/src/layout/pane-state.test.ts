@@ -49,7 +49,14 @@ describe('pane-kinds', () => {
   });
 
   it('正式构建只能打开已经实现的种类，开发模式下还有占位', () => {
-    expect(openableKinds(false)).toEqual(['subagents', 'changes', 'files', 'tasks', 'browser']);
+    expect(openableKinds(false)).toEqual([
+      'subagents',
+      'changes',
+      'files',
+      'tasks',
+      'processes',
+      'browser',
+    ]);
     // 文件预览（U32）只由文件树、文件链接打开。
     expect(openableKinds(true)).not.toContain('file');
     expect(openableKinds(true)).toContain('terminal');

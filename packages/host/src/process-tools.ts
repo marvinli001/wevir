@@ -3,7 +3,7 @@
 
 import { readFile, stat } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { SessionId } from '@wevir/protocol';
+import type { SessionId, TurnId } from '@wevir/protocol';
 import { type AppTool, AppToolError, type AppToolResult } from './app-mcp.js';
 import {
   objectSchema,
@@ -38,11 +38,13 @@ export interface ProcessToolsOptions {
   processes: ProcessManager;
   /** 调工具的会话的目录（会话不在了时抛 AppToolError）。 */
   cwdOf: (sessionId: SessionId) => string;
+  /** 会话此刻进行中的回合（记进进程的来源，客户端的“进程输出”显示）。 */
+  turnOf?: (sessionId: SessionId) => TurnId | undefined;
 }
 
 const text = (value: string): AppToolResult => ({ content: [{ type: 'text', text: value }] });
 
-export function processTools({ processes, cwdOf }: ProcessToolsOptions): AppTool[] {
+export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions): AppTool[] {
   return [
     {
       name: 'wevir_process_start',
@@ -80,6 +82,7 @@ export function processTools({ processes, cwdOf }: ProcessToolsOptions): AppTool
         const name = optionalString(args, 'name');
         const env = envArg(args);
         const notifyOnExit = args.notifyOnExit !== false;
+        const turnId = turnOf?.(call.sessionId);
         const started = await processes.start(call.sessionId, {
           command,
           cwd,
@@ -87,6 +90,7 @@ export function processTools({ processes, cwdOf }: ProcessToolsOptions): AppTool
           ...(env !== undefined && { env }),
           notifyOnExit,
           ...(notifyOn !== undefined && { notifyPattern: notifyOn }),
+          ...(turnId !== undefined && { turnId }),
         });
         const lines = [`Started ${describe(started)}.`, `log: ${started.logPath}`];
         if (started.status === 'exited') {
@@ -348,8 +352,11 @@ export function status(info: ProcessInfo, now = Date.now()): string {
   const ran = duration((info.endedAt ?? now) - info.startedAt);
   if (info.error !== undefined) return `failed to start: ${info.error}`;
   if (info.status === 'running') return `running for ${ran}`;
+  const by = info.stoppedBy === 'user' ? ' (the user stopped it in Wevir)' : '';
   const how =
-    info.signal !== null ? `was stopped by ${info.signal}` : `exited with code ${info.exitCode}`;
+    info.signal !== null
+      ? `was stopped by ${info.signal}${by}`
+      : `exited with code ${info.exitCode}${by}`;
   return `${how} after ${ran}`;
 }
 

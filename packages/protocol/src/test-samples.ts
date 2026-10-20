@@ -36,6 +36,7 @@ import {
   type NotificationName,
   type NotificationParams,
 } from './methods.js';
+import type { HostProcess } from './processes.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -129,6 +130,49 @@ export const verificationRun: VerificationRun = {
   summary: 'not ok 4 - converts -40\n# pass 3\n# fail 1',
   output: { bytes: 1840, truncated: false },
   fingerprint: 'sha256:77aa',
+};
+
+/** Agent 起的后台进程（0.68.0）：还在跑。 */
+export const agentProcess: HostProcess = {
+  id: 'p3',
+  workspaceId: ids.workspace,
+  source: { kind: 'agent', sessionId: ids.session, turnId: ids.turn },
+  name: 'dev server',
+  command: 'pnpm dev',
+  cwd: '/home/u/projects/demo',
+  pid: 4242,
+  status: 'running',
+  exitCode: null,
+  signal: null,
+  startedAt: TS,
+  bytes: 18_204,
+  stopSignals: ['SIGINT', 'SIGTERM', 'SIGKILL'],
+};
+
+/** 检查的进程（0.68.0）：用户取消后退出。 */
+export const checkProcess: HostProcess = {
+  id: 'v1',
+  workspaceId: ids.workspace,
+  source: {
+    kind: 'check',
+    sessionId: ids.session,
+    turnId: ids.turn,
+    runId: ids.verificationRun,
+    checkId: ids.check,
+    trigger: 'after_turn',
+  },
+  name: 'test',
+  command: 'pnpm test',
+  cwd: '/home/u/projects/demo',
+  pid: 4250,
+  status: 'exited',
+  exitCode: null,
+  signal: 'SIGTERM',
+  startedAt: TS,
+  endedAt: TS2,
+  bytes: 1840,
+  stoppedBy: 'user',
+  stopSignals: [],
 };
 
 /** 验收状态（0.65.0）。 */
@@ -3613,6 +3657,36 @@ export const methodSamples: MethodSamples = {
       invalid: [{ text: '' }],
     },
   },
+  'process.list': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace }, { sessionId: ids.session }],
+      invalid: [{ workspaceId: ids.session }],
+    },
+    result: {
+      valid: [{ processes: [] }, { processes: [agentProcess, checkProcess] }],
+      invalid: [{}, { processes: [{ ...agentProcess, id: 'proc-1' }] }],
+    },
+  },
+  'process.output': {
+    params: {
+      valid: [{ processId: 'p3' }, { processId: 'p3', offset: 4096, until: 8192 }],
+      invalid: [{}, { processId: 'p3', offset: -1 }],
+    },
+    result: {
+      valid: [{ text: 'ready on :5173\n', from: 0, next: 15, start: 0, bytes: 15, more: false }],
+      invalid: [{ text: '' }],
+    },
+  },
+  'process.stop': {
+    params: {
+      valid: [{ processId: 'p3' }, { processId: 'p3', signal: 'SIGINT' }],
+      invalid: [{ processId: 'p3', signal: 'SIGHUP' }],
+    },
+    result: {
+      valid: [{ process: checkProcess }],
+      invalid: [{ process: { ...checkProcess, stoppedBy: 'someone' } }],
+    },
+  },
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
@@ -4218,6 +4292,10 @@ export const notificationSamples: NotificationSamples = {
     invalid: [{ settings: {} }],
   },
   'usage.changed': { valid: [{}], invalid: [null, 'x'] },
+  'process.changed': {
+    valid: [{ process: agentProcess }, { removed: { id: 'p3', startedAt: TS } }],
+    invalid: [{}, { removed: { id: 'p3' } }],
+  },
   'automation.changed': {
     valid: [
       { automationId: ids.automation },

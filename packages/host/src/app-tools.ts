@@ -229,6 +229,7 @@ export class AppTools {
         : processTools({
             processes: options.processes,
             cwdOf: (sessionId) => callerCwd(options.storage, sessionId),
+            turnOf: (sessionId) => options.events.snapshot(sessionId)?.session.activeTurn?.turnId,
           })),
       ...(this.lsp?.tools ?? []),
       ...(options.memory === undefined

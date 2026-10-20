@@ -47,6 +47,7 @@ import {
 } from './memory.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
+import type { ProcessOutputService } from './process-output.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import type { PricingStore } from './usage/pricing.js';
@@ -129,6 +130,8 @@ export interface HostMethodsOptions {
   verification?: VerificationService;
   /** 自动化（0.66.0，`automation.*`）；省略时 `automation.*` 回 `INVALID_PARAMS`（测试）。 */
   automations?: AutomationService;
+  /** 进程输出（0.68.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  processes?: ProcessOutputService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -242,6 +245,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
+  };
+  const processOutput = (): ProcessOutputService => {
+    if (options.processes === undefined) throw invalidParams([], 'this host has no process output');
+    return options.processes;
   };
   const automations = (): AutomationService => {
     if (options.automations === undefined) throw invalidParams([], 'this host has no automations');
@@ -1053,6 +1060,17 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'verification.status': ({ sessionId }) => verification().status(sessionId),
     'verification.output': ({ sessionId, runId, offset }) =>
       verification().output(sessionId, runId, offset),
+    'process.list': ({ workspaceId, sessionId }) => ({
+      processes: processOutput().list({
+        ...(workspaceId !== undefined && { workspaceId }),
+        ...(sessionId !== undefined && { sessionId }),
+      }),
+    }),
+    'process.output': ({ processId, offset, until }) =>
+      processOutput().output(processId, offset, until),
+    'process.stop': ({ processId, signal }) => ({
+      process: processOutput().stop(processId, signal),
+    }),
     'automation.list': async () => ({ automations: automations().list() }),
     'automation.get': async ({ automationId }) => automations().get(automationId),
     'automation.create': async (params) => ({

@@ -9,6 +9,7 @@ import {
   ListChecks,
   type LucideIcon,
   MessagesSquare,
+  ScrollText,
   SquareTerminal,
 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense } from 'react';
@@ -20,6 +21,7 @@ import { BrowserPane } from './panes/browser-pane';
 import { FilesPane } from './panes/files-pane';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
+import { ProcessesPane } from './panes/processes-pane';
 import { SessionPane } from './panes/session-pane';
 import { SubagentsPane } from './panes/subagents-pane';
 import { TasksPane } from './panes/tasks-pane';
@@ -92,6 +94,11 @@ const VIEWS: Record<PaneKind, PaneView> = {
     render: (_, context) => <TasksPane context={context} />,
   },
   plan: { icon: ListChecks, name: 'pane.kind.plan', render: placeholder('plan') },
+  processes: {
+    icon: ScrollText,
+    name: 'pane.kind.processes',
+    render: (_, context) => <ProcessesPane context={context} />,
+  },
   terminal: { icon: SquareTerminal, name: 'pane.kind.terminal', render: placeholder('terminal') },
   // 支线会话（U23.1）：参数是支线会话 ID 与问题的开头；agent 请界面显示的会话（0.30.0，`wevir_show`）带它的标题 `label`。
   session: {
