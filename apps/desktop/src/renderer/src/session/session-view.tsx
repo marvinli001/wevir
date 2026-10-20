@@ -60,7 +60,6 @@ import { EnvironmentBar } from './environment-bar';
 import { GoalBanner } from './goal-banner';
 import { parseGoalCommand } from './goal-command';
 import { canHandoffTo, engineFeaturesOf } from './handoff-model';
-import { useHandoffPreview } from './handoff-preview-dialog';
 import { historyDigest } from './history-digest';
 import { useAcceptsImages } from './image-attachments';
 import { type MessageActions, MessageActionsContext } from './message-actions';
@@ -488,22 +487,15 @@ export function SessionView({
 
   // 输入框的斜杠命令与 @ 提及（U33）。
   const writable = client !== undefined && readOnly === undefined;
-  // 换到别的来源先看接力预览（0.60.0），旧 Host 照旧直接切换。
-  const handoffPreview = useHandoffPreview(session);
-  const openPreview = handoffPreview.open;
   const configureModel = useCallback(
     (next: ModelChoice) => {
-      if (next.providerId !== session.providerId && openPreview !== undefined) {
-        openPreview(next);
-        return;
-      }
       client
         ?.request('session.configure', configureParams(session, next))
         .catch((error: unknown) =>
           setNotice(t('model.configureFailed', { error: describe(error) })),
         );
     },
-    [client, session, openPreview],
+    [client, session],
   );
   const switchable = useHandoffTargets(session);
   const permission = useMemo(
@@ -870,7 +862,6 @@ export function SessionView({
           />
         </div>
       </div>
-      {handoffPreview.dialog}
     </div>
   );
 }
@@ -906,7 +897,6 @@ function SessionModelPicker({
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'session_configure');
   const switchable = useHandoffTargets(session);
-  const handoffPreview = useHandoffPreview(session);
   const value: ModelChoice = {
     providerId: session.providerId,
     modelId: session.modelId,
@@ -914,10 +904,6 @@ function SessionModelPicker({
   };
   const configure = async (next: ModelChoice) => {
     if (!client) return;
-    if (next.providerId !== session.providerId && handoffPreview.open !== undefined) {
-      handoffPreview.open(next);
-      return;
-    }
     try {
       await client.request('session.configure', configureParams(session, next));
     } catch (error) {
@@ -925,17 +911,14 @@ function SessionModelPicker({
     }
   };
   return (
-    <>
-      <ModelPicker
-        providers={providers}
-        value={value}
-        lockProvider
-        {...(switchable && { switchable })}
-        readOnly={!supported || !client || session.readOnly !== undefined}
-        onChange={(next) => void configure(next)}
-      />
-      {handoffPreview.dialog}
-    </>
+    <ModelPicker
+      providers={providers}
+      value={value}
+      lockProvider
+      {...(switchable && { switchable })}
+      readOnly={!supported || !client || session.readOnly !== undefined}
+      onChange={(next) => void configure(next)}
+    />
   );
 }
 
