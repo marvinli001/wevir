@@ -198,7 +198,7 @@ function Toolbar({
           spellCheck={false}
           data-testid="browser-address"
           className={cn(
-            'h-7 min-w-0 flex-1 rounded-lg bg-muted/60 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:bg-muted focus:ring-2 focus:ring-ring/40',
+            'h-7 min-w-0 flex-1 rounded-lg bg-muted/60 px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:bg-muted focus:focus-ring',
             error !== undefined && 'ring-2 ring-destructive/50',
           )}
         />

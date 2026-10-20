@@ -163,7 +163,7 @@ export function ComposerThumb({
         type="button"
         onClick={onOpen}
         aria-label={name ?? t('image.preview')}
-        className="size-full overflow-hidden rounded-lg border border-border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="size-full overflow-hidden rounded-lg border border-border bg-muted outline-none focus-visible:focus-field"
       >
         <img src={src} alt="" className={cn('size-full object-cover', uploading && 'opacity-50')} />
       </button>
@@ -178,7 +178,7 @@ export function ComposerThumb({
         onClick={onRemove}
         aria-label={t('composer.removeImage')}
         data-action="remove-image"
-        className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-xs outline-none transition-opacity duration-150 group-hover/thumb:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-border bg-background text-muted-foreground opacity-0 shadow-xs outline-none transition-opacity duration-150 group-hover/thumb:opacity-100 hover:text-foreground focus-visible:opacity-100 focus-visible:focus-field"
       >
         <X aria-hidden className="size-3" />
       </button>
@@ -228,7 +228,7 @@ function MessageImage({ image, onOpen }: { image: UserImagePart; onOpen: (src: s
       aria-label={image.name ?? t('image.preview')}
       data-image-id={image.imageId}
       style={{ width, height: THUMB_HEIGHT }}
-      className="overflow-hidden rounded-xl border border-border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="overflow-hidden rounded-xl border border-border bg-muted outline-none focus-visible:focus-field"
     >
       {src ? (
         <img src={src} alt={image.name ?? ''} className="size-full object-cover" />

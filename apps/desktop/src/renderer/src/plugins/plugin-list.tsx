@@ -142,7 +142,7 @@ function PluginDetail({ plugin }: { plugin: Plugin }) {
           onClick={() =>
             void window.wevir.openExternal(plugin.homepage ?? '').catch(() => undefined)
           }
-          className="block max-w-full truncate rounded-sm text-left text-sm text-muted-foreground underline underline-offset-3 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="block max-w-full truncate rounded-sm text-left text-sm text-muted-foreground underline underline-offset-3 outline-none hover:text-foreground focus-visible:focus-ring"
           data-action="open-homepage"
         >
           {t('plugins.plugin.homepage')}

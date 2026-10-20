@@ -190,7 +190,7 @@ function AddProviderChip() {
     <Link
       to={paths.settings('providers')}
       state={{ from: location }}
-      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed border-border-strong px-2.5 text-xs text-soft-foreground outline-none transition-colors hover:border-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed border-border-strong px-2.5 text-xs text-soft-foreground outline-none transition-colors hover:border-foreground hover:text-foreground focus-visible:focus-field"
     >
       <Plus aria-hidden className="size-3.5" />
       {t('home.addProvider')}

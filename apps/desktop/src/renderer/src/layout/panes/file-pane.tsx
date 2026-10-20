@@ -535,7 +535,7 @@ function OpenInMenu({ path, line }: { path: string; line?: number }) {
             <button
               type="button"
               aria-label={t('files.openWith')}
-              className="flex h-7 w-4 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="flex h-7 w-4 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:focus-ring"
             />
           }
         >

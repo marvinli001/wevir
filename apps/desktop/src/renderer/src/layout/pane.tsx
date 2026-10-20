@@ -53,7 +53,7 @@ export function Pane({ pane, context }: { pane: DisplayPane; context: PaneContex
       tabIndex={-1}
       onPointerDownCapture={() => panes.focus(pane.id)}
       onKeyDown={onKeyDown}
-      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-background outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-background outline-none focus-visible:focus-field"
     >
       {/* biome-ignore lint/a11y/noStaticElementInteractions: 双击窗格头最大化只是鼠标的便捷操作，键盘有最大化按钮与快捷键。 */}
       <header
@@ -136,7 +136,7 @@ function TabStrip({ pane }: { pane: DisplayPane }) {
                 aria-selected={selected}
                 onClick={() => panes.activate(tab.id)}
                 onKeyDown={(event) => onTabKeyDown(event, tab)}
-                className="flex h-full max-w-48 items-center gap-1.5 rounded-lg pr-1 pl-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="flex h-full max-w-48 items-center gap-1.5 rounded-lg pr-1 pl-2 outline-none focus-visible:focus-ring"
               >
                 <Icon className="size-3.5 shrink-0" aria-hidden />
                 <span className="truncate">{title}</span>

@@ -30,7 +30,7 @@ export function Disclosure({
         aria-controls={id}
         onClick={() => setOpen(!open)}
         className={cn(
-          'flex w-full min-w-0 items-center gap-1.5 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+          'flex w-full min-w-0 items-center gap-1.5 rounded-lg text-left outline-none focus-visible:focus-ring',
           summaryClassName,
         )}
       >

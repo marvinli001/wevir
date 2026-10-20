@@ -895,7 +895,7 @@ function PlanChip({ disabled, onExit }: { disabled: boolean; onExit: () => void 
             aria-label={t('composer.planExit')}
             data-testid="composer-plan-chip"
             onClick={onExit}
-            className="group/plan flex h-7 shrink-0 items-center gap-1 rounded-full bg-muted px-2 text-xs font-medium text-foreground outline-none transition-colors duration-150 hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50"
+            className="group/plan flex h-7 shrink-0 items-center gap-1 rounded-full bg-muted px-2 text-xs font-medium text-foreground outline-none transition-colors duration-150 hover:bg-[color-mix(in_oklch,var(--muted),var(--foreground)_6%)] focus-visible:focus-ring disabled:opacity-50"
           />
         }
       >
@@ -923,7 +923,7 @@ function ImplementButton({
   onImplementInNew?: () => void;
 }) {
   const pill =
-    'flex h-8 shrink-0 items-center bg-primary text-sm font-medium text-primary-foreground outline-none transition-colors duration-150 hover:bg-primary/85 focus-visible:ring-2 focus-visible:ring-ring/50';
+    'flex h-8 shrink-0 items-center bg-primary text-sm font-medium text-primary-foreground outline-none transition-colors duration-150 hover:bg-primary/85 focus-visible:focus-ring';
   return (
     <span className="flex shrink-0 items-center" data-testid="plan-implement">
       <button
@@ -977,7 +977,7 @@ function ComposerButton({
 }) {
   const label = t(ACTION_LABELS[action]);
   return (
-    <span className="shrink-0 rounded-full transition-transform duration-150 ease-smooth has-focus-visible:ring-2 has-focus-visible:ring-ring/50 has-[button:active:not(:disabled)]:scale-95">
+    <span className="shrink-0 rounded-full transition-transform duration-150 ease-smooth has-focus-visible:focus-ring has-[button:active:not(:disabled)]:scale-95">
       <MetalCircle strength={action === 'stop' ? 0.55 : 1} flowing={flowing}>
         <Tooltip>
           <TooltipTrigger

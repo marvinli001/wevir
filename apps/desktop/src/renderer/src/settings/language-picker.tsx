@@ -76,7 +76,7 @@ export function LanguagePicker() {
       <PopoverTrigger
         data-testid="language-picker"
         aria-label={t('settings.appearance.language')}
-        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:bg-muted"
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-sm outline-none transition-colors hover:bg-muted focus-visible:focus-field aria-expanded:bg-muted"
       >
         <span className="max-w-40 truncate">{label}</span>
         <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />

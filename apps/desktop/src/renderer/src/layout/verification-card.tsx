@@ -256,7 +256,7 @@ function RunRow({ run, onOpen }: { run: VerificationRun; onOpen: () => void }) {
         title={reason ? `${status} · ${t(reason)}` : status}
         data-run-status={run.status}
         className={cn(
-          '-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+          '-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors focus-visible:focus-ring',
           hasOutput && 'hover:bg-muted',
         )}
       >

@@ -272,7 +272,7 @@ function TurnHeader({
         aria-controls={controls}
         data-turn-header={outcome}
         onClick={onToggle}
-        className="flex min-h-6 max-w-full items-center gap-1.5 rounded-lg text-left text-sm text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex min-h-6 max-w-full items-center gap-1.5 rounded-lg text-left text-sm text-muted-foreground tabular-nums outline-none hover:text-foreground focus-visible:focus-ring"
       >
         <span className={cn('shrink-0', HEADER_TONES[outcome])}>{text}</span>
         {issues && <IssueFlags issues={issues} />}
@@ -362,7 +362,7 @@ function ChangesChip({
       type="button"
       onClick={expand}
       data-turn-changes
-      className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-card pr-1.5 pl-3 text-sm text-soft-foreground outline-none hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="inline-flex h-7 items-center gap-2 rounded-full border border-border bg-card pr-1.5 pl-3 text-sm text-soft-foreground outline-none hover:border-border-strong hover:text-foreground focus-visible:focus-field"
     >
       {t('turn.changes', { count: fold.changes.files })}
       <DiffStat stats={fold.changes} />

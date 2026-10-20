@@ -128,7 +128,7 @@ export function RecordsTable({
                 <td className={TD}>
                   <button
                     type="button"
-                    className="rounded-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                    className="rounded-sm tabular-nums outline-none focus-visible:focus-ring"
                     onClick={(event) => {
                       event.stopPropagation();
                       onOpen(record);

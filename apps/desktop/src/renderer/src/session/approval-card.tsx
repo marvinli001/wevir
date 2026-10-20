@@ -382,7 +382,7 @@ function ApprovalOrigin({
       {href && (
         <Link
           to={href}
-          className="flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="flex shrink-0 items-center gap-0.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
         >
           {t('approval.viewSubagent')}
           <ChevronRight aria-hidden className="size-3.5" />

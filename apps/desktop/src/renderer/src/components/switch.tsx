@@ -29,7 +29,7 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={cn(
-        'group/switch relative inline-flex h-4.5 w-8 shrink-0 items-center rounded-full outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50',
+        'group/switch relative inline-flex h-4.5 w-8 shrink-0 items-center rounded-full outline-none transition-colors duration-150 focus-visible:focus-ring disabled:opacity-50',
         checked ? 'bg-primary' : 'bg-muted ring-1 ring-border-strong ring-inset',
         className,
       )}

@@ -31,6 +31,11 @@ const RULES: { name: string; pattern: RegExp }[] = [
   },
   { name: '阶梯外的圆角（rounded-[Npx]）', pattern: /rounded-\[\d/ },
   {
+    name: '粗焦点环（用 focus-ring / focus-field，§63）',
+    pattern:
+      /focus(-visible|-within)?:(ring-(2|3|\[)|ring-(sidebar-)?ring(\/|(?![\w-]))|outline-(\d|ring)|border-ring\b)/,
+  },
+  {
     name: '写死颜色的阴影（shadow-[…rgb / #…]）',
     pattern: /shadow-\[[^\]]*(rgb|hsl|#[0-9a-fA-F]{3})/,
   },

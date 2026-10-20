@@ -30,7 +30,7 @@ function Slider({
           <SliderPrimitive.Indicator className="rounded-full bg-primary select-none" />
           <SliderPrimitive.Thumb
             aria-label={ariaLabel}
-            className="size-4 rounded-full bg-switch-thumb shadow-xs ring-1 ring-border-strong transition-[scale,box-shadow] duration-(--spring-press-duration) ease-spring-press select-none hover:scale-110 has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 data-dragging:scale-115"
+            className="size-4 rounded-full bg-switch-thumb shadow-xs ring-1 ring-border-strong transition-[scale,box-shadow] duration-(--spring-press-duration) ease-spring-press select-none hover:scale-110 has-[:focus-visible]:focus-ring data-dragging:scale-115"
           />
         </SliderPrimitive.Track>
       </SliderPrimitive.Control>

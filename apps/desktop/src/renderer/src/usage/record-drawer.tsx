@@ -181,7 +181,7 @@ function RecordDetail({
             <Link
               to={session.to}
               onClick={onClose}
-              className="rounded-sm underline-offset-4 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="rounded-sm underline-offset-4 outline-none hover:underline focus-visible:focus-ring"
               title={session.title}
             >
               {session.title}

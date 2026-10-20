@@ -59,7 +59,7 @@ export function NewSessionHero({
   const environments = useEnvironments().supported;
   const card = useRef<HTMLElement>(null);
   const row =
-    'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-base outline-none transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50';
+    'flex h-9 w-full min-w-0 items-center gap-2.5 rounded-lg px-2 text-left text-base outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-ring';
   const divider = <div className="mx-2 my-1 h-px bg-border" />;
   return (
     <nav

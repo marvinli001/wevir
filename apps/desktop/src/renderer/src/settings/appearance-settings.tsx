@@ -230,7 +230,7 @@ export function AppearanceSettings() {
             type="button"
             aria-expanded={advancedOpen}
             onClick={() => setAdvancedOpen((open) => !open)}
-            className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 text-sm font-semibold outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 text-sm font-semibold outline-none hover:text-foreground focus-visible:focus-ring"
           >
             {t('settings.appearance.advanced')}
             <ChevronDown
@@ -247,7 +247,7 @@ export function AppearanceSettings() {
             disabled={isDefault}
             onClick={() => appearanceStore.set(DEFAULT_APPEARANCE)}
             data-action="reset-appearance"
-            className="rounded-md px-1 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+            className="rounded-md px-1 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring disabled:pointer-events-none disabled:opacity-50"
           >
             {t('settings.appearance.reset')}
           </button>
@@ -463,10 +463,10 @@ function ModePicker({
                   data-segment={mode}
                   onClick={() => onChange(mode)}
                   className={cn(
-                    'relative h-12 w-19 overflow-hidden rounded-lg outline-none transition-[box-shadow,transform] duration-150 ease-smooth active:scale-[0.97] focus-visible:ring-offset-2 focus-visible:ring-offset-card',
+                    'relative h-12 w-19 overflow-hidden rounded-lg outline-none transition-[box-shadow,transform] duration-150 ease-smooth active:scale-[0.97]',
                     checked
                       ? 'ring-2 ring-ring'
-                      : 'ring-1 ring-border-strong hover:ring-foreground/30 focus-visible:ring-2 focus-visible:ring-ring/60',
+                      : 'ring-1 ring-border-strong hover:ring-foreground/30 focus-visible:focus-ring',
                   )}
                 />
               }
@@ -513,7 +513,7 @@ function ColorField({
     }
   };
   return (
-    <div className="flex h-8 w-32 items-center gap-2 rounded-full border border-input bg-card pr-3 pl-1.5 transition-colors focus-within:border-ring-soft focus-within:ring-2 focus-within:ring-ring/12">
+    <div className="flex h-8 w-32 items-center gap-2 rounded-full border border-input bg-card pr-3 pl-1.5 transition-colors focus-within:focus-field">
       <span
         className="relative size-5 shrink-0 overflow-hidden rounded-full ring-1 ring-foreground/15"
         style={{ background: value }}

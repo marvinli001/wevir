@@ -56,7 +56,7 @@ import { SessionContextMenuItems } from './session-context-menu';
 /** 侧栏的一行：悬停是表面色的淡底，当前项是同样的淡底加一圈 1 px 的选中细边（U5，§63 起不再是整块表面色）。 */
 const ROW =
   'flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-base outline-none ' +
-  'transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:ring-2 focus-visible:ring-sidebar-ring/50';
+  'transition-[color,background-color,box-shadow] duration-150 ease-smooth hover:bg-sidebar-accent/70 focus-visible:focus-ring';
 const ROW_ACTIVE =
   'bg-sidebar-accent/70 text-sidebar-accent-foreground ring-1 ring-selected-border ring-inset hover:bg-sidebar-accent/70';
 /** 行右边悬停出现的置顶与归档（U34）：22 px、6 px 圆角，说明文字色，悬停时前景色加一层淡底。 */
@@ -165,7 +165,7 @@ function ProjectsSection() {
           onClick={() =>
             layoutPrefs.set((p) => ({ ...p, projectsCollapsed: !p.projectsCollapsed }))
           }
-          className="flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring/50"
+          className="flex h-6 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
         >
           {title}
           <ChevronDown

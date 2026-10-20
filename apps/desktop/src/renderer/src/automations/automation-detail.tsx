@@ -100,7 +100,7 @@ export function AutomationDetail({
         <div className="mx-auto w-full max-w-200 px-5 pt-6 pb-16 sm:px-10">
           <Link
             to={paths.automations()}
-            className="mb-4 inline-flex items-center gap-1 rounded-md text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="mb-4 inline-flex items-center gap-1 rounded-md text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
           >
             <ChevronLeft aria-hidden className="size-4" />
             {t('automations.title')}
@@ -326,7 +326,7 @@ function RunRow({ run, timezone }: { run: AutomationRun; timezone: string }) {
         <button
           type="button"
           onClick={() => navigate(to)}
-          className="flex w-full items-start gap-3 px-4 py-3 text-left outline-none transition-colors duration-150 first:rounded-t-xl hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+          className="flex w-full items-start gap-3 px-4 py-3 text-left outline-none transition-colors duration-150 first:rounded-t-xl hover:bg-muted/40 focus-visible:ring-1 focus-visible:ring-ring-soft focus-visible:ring-inset"
         >
           {content}
         </button>

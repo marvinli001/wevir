@@ -125,7 +125,7 @@ export function PermissionPicker({
               aria-label={t('permission.label', { mode: t(label) })}
               className={cn(
                 chipClass,
-                'focus-visible:ring-2 focus-visible:ring-ring/50',
+                'focus-visible:focus-ring',
                 warning
                   ? 'hover:bg-warning/10 aria-expanded:bg-warning/10'
                   : 'hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground',

@@ -43,7 +43,7 @@ function Owner({ owner }: { owner: SessionRef }) {
       <Link
         to={owner.to}
         data-testid="task-owner"
-        className="truncate rounded-sm underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="truncate rounded-sm underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:focus-ring"
       >
         {owner.title}
       </Link>
@@ -105,7 +105,7 @@ function TaskRow({ row, open, onToggle }: { row: BoardRow; open: boolean; onTogg
           onClick={onToggle}
           className={cn(
             line,
-            '-mx-1.5 w-[calc(100%+0.75rem)] rounded-md px-1.5 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50',
+            '-mx-1.5 w-[calc(100%+0.75rem)] rounded-md px-1.5 outline-none transition-colors hover:bg-muted focus-visible:focus-ring',
           )}
         >
           {content}

@@ -55,7 +55,7 @@ export function SubagentMarker({ part }: { part: ChatPartOf<'subagent'> }) {
       data-subagent-marker={ended ?? 'started'}
       className={cn(
         className,
-        'outline-none hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+        'outline-none hover:border-border-strong hover:text-foreground focus-visible:focus-field',
       )}
     >
       {content}

@@ -68,7 +68,7 @@ function OutputRow({ file, onOpen }: { file: OutputFile; onOpen?: () => void }) 
           onClick={onOpen}
           className={cn(
             row,
-            '-mx-1.5 w-[calc(100%+0.75rem)] rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50',
+            '-mx-1.5 w-[calc(100%+0.75rem)] rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring',
           )}
         >
           {content}

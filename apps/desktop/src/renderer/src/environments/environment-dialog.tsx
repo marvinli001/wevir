@@ -120,7 +120,7 @@ function EnvironmentForm({
       <form onSubmit={submit} className="flex min-w-0 flex-col gap-5">
         <label
           htmlFor={nameId}
-          className="flex h-10 items-center gap-2.5 rounded-lg border border-input bg-card px-3 transition-colors focus-within:border-ring-soft focus-within:ring-2 focus-within:ring-ring/12"
+          className="flex h-10 items-center gap-2.5 rounded-lg border border-input bg-card px-3 transition-colors focus-within:focus-field"
         >
           <Layers aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           <input

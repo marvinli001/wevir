@@ -182,7 +182,7 @@ function AutomationForm({
           data-field="title"
         />
 
-        <div className="rounded-xl border border-input bg-card focus-within:border-ring-soft focus-within:ring-2 focus-within:ring-ring/12">
+        <div className="rounded-xl border border-input bg-card focus-within:focus-field">
           <Textarea
             value={draft.prompt}
             onChange={(event) => patch({ prompt: event.target.value })}
@@ -217,7 +217,7 @@ function AutomationForm({
         <div>
           <button
             type="button"
-            className="flex items-center gap-1 rounded-md text-sm font-medium text-soft-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="flex items-center gap-1 rounded-md text-sm font-medium text-soft-foreground outline-none hover:text-foreground focus-visible:focus-ring"
             aria-expanded={advanced}
             onClick={() => setAdvanced((open) => !open)}
             data-action="advanced"
@@ -307,7 +307,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const TIME_INPUT =
-  'h-8 rounded-lg border border-input bg-card px-2 text-sm tabular-nums outline-none focus-visible:border-ring-soft focus-visible:ring-2 focus-visible:ring-ring/12 [color-scheme:light] dark:[color-scheme:dark]';
+  'h-8 rounded-lg border border-input bg-card px-2 text-sm tabular-nums outline-none focus-visible:focus-field [color-scheme:light] dark:[color-scheme:dark]';
 
 function ScheduleCard({
   draft,
@@ -354,7 +354,7 @@ function ScheduleCard({
                     })
                   }
                   className={cn(
-                    'h-7 min-w-9 rounded-full px-2 text-xs outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50',
+                    'h-7 min-w-9 rounded-full px-2 text-xs outline-none transition-colors duration-150 focus-visible:focus-ring',
                     on
                       ? 'bg-primary text-primary-foreground'
                       : 'bg-muted text-soft-foreground hover:text-foreground',

@@ -307,7 +307,7 @@ function MemoryRow({
       <button
         type="button"
         onClick={onEdit}
-        className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:focus-ring"
       >
         <p className={note.enabled ? 'truncate text-sm' : 'truncate text-sm text-muted-foreground'}>
           {note.description}

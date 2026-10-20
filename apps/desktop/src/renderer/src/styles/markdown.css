@@ -166,8 +166,10 @@
   }
 
   .markdown .md-code-copy:focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 1px;
+    outline: none;
+    box-shadow:
+      0 0 0 1px var(--ring-soft),
+      0 0 0 3px color-mix(in oklab, var(--ring) 12%, transparent);
   }
 
   .markdown .md-code pre {
@@ -223,8 +225,10 @@
   }
 
   .markdown .md-mermaid-views button:focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 1px;
+    outline: none;
+    box-shadow:
+      0 0 0 1px var(--ring-soft),
+      0 0 0 3px color-mix(in oklab, var(--ring) 12%, transparent);
   }
 
   .markdown .md-mermaid-rendered {

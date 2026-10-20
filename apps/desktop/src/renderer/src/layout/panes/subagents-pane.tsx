@@ -141,7 +141,7 @@ function SubagentItems({
             <Link
               to={hrefFor(summary)}
               data-subagent-item={summary.sessionId}
-              className="flex h-10 items-center gap-3 rounded-lg px-2 text-sm outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="flex h-10 items-center gap-3 rounded-lg px-2 text-sm outline-none hover:bg-accent focus-visible:focus-ring"
             >
               <SubagentAvatar
                 sessionId={summary.sessionId}
@@ -220,7 +220,7 @@ function useTasksCard({ sessionId, entry }: RailContext) {
               onClick={() =>
                 navigate(paths.agent(entry.workspace.id, sessionId, summary.sessionId))
               }
-              className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
             >
               <SubagentAvatar sessionId={summary.sessionId} status={summary.status} size={16} />
               <span className="min-w-0 flex-1 truncate">{subagentTitle(summary)}</span>
@@ -251,7 +251,7 @@ function useTasksCard({ sessionId, entry }: RailContext) {
             <button
               type="button"
               onClick={() => panes?.open({ kind: 'subagents' })}
-              className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] items-center gap-1 rounded-md px-1.5 text-left text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] items-center gap-1 rounded-md px-1.5 text-left text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:focus-ring"
             >
               {t('rail.tasks.done', { count: done.length })}
               <ChevronRight aria-hidden className="size-3.5" />

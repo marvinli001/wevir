@@ -367,7 +367,7 @@ export function ZoomableImage({ src, name }: { src: string; name: string }) {
         aria-label={t('files.zoomableImage', { name })}
         // biome-ignore lint/a11y/noNoninteractiveTabindex: T3 的做法，键盘能缩放与平移。
         tabIndex={0}
-        className="max-h-full max-w-full overflow-auto overscroll-contain rounded-sm shadow-xs outline-none focus-visible:outline-2 focus-visible:outline-ring"
+        className="max-h-full max-w-full overflow-auto overscroll-contain rounded-sm shadow-xs outline-none focus-visible:focus-ring"
         style={{
           width: width || undefined,
           height: height || undefined,
@@ -642,7 +642,7 @@ export function SpreadsheetView({ src, name }: { src: string; name: string }) {
               aria-selected={entry === info}
               onClick={() => setActive(index)}
               className={cn(
-                'h-6 shrink-0 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+                'h-6 shrink-0 rounded-md px-2 text-xs text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:focus-ring',
                 entry === info && 'bg-accent text-foreground',
               )}
             >
