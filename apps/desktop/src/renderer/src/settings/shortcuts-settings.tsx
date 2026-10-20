@@ -18,6 +18,7 @@ export function ShortcutsSettings() {
       [
         ['shortcuts.newSession', key(SHORTCUTS.newSession)],
         ['shortcuts.settings', key(SHORTCUTS.settings)],
+        ['shortcuts.search', key(SHORTCUTS.search)],
         ['shortcuts.back', key(SHORTCUTS.back)],
         ['shortcuts.forward', key(SHORTCUTS.forward)],
         ['shortcuts.toggleSidebar', key(SHORTCUTS.toggleSidebar)],

@@ -14,6 +14,7 @@ export { adaptEventForClient, InvalidResultError } from './rpc-connection.js';
 export * from './rpc-server.js';
 export * from './runtime-file.js';
 export * from './session-manager.js';
+export * from './session-search.js';
 export * from './snapshot.js';
 export * from './truncate.js';
 export { WebService, type WebServiceOptions } from './web/service.js';

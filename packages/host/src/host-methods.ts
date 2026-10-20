@@ -57,6 +57,7 @@ import type { PluginRegistry } from './plugins.js';
 import type { ProcessOutputService } from './process-output.js';
 import type { ReviewService } from './review/service.js';
 import type { SessionManager } from './session-manager.js';
+import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import type { TerminalService } from './terminals.js';
 import type { PricingStore } from './usage/pricing.js';
@@ -149,6 +150,8 @@ export interface HostMethodsOptions {
   processes?: ProcessOutputService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
   terminals?: TerminalService;
+  /** 会话全文搜索（0.72.0，`search.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  search?: SessionSearch;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -258,6 +261,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       throw invalidParams([], 'this host has no verification service');
     }
     return options.verification;
+  };
+  const search = (): SessionSearch => {
+    if (options.search === undefined) throw invalidParams([], 'this host has no session search');
+    return options.search;
   };
   const review = (): ReviewService => {
     if (options.review === undefined) throw invalidParams([], 'this host has no review comments');
@@ -1099,6 +1106,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'verification.status': ({ sessionId }) => verification().status(sessionId),
     'verification.output': ({ sessionId, runId, offset }) =>
       verification().output(sessionId, runId, offset),
+
+    // 0.72.0：会话全文搜索。客户端（用户）可以搜全部项目；Agent 的 wevir_session_search 只限它的项目（app-tools.ts）。
+    'search.query': (params) => {
+      try {
+        return search().query(params);
+      } catch (error) {
+        if (error instanceof SearchQueryError) throw invalidParams(['query'], error.message);
+        throw error;
+      }
+    },
+    'search.status': () => search().status(),
+    'search.rebuild': () => search().rebuild(),
 
     // 0.67.0：行级批注（ADR-0009）。目录的选法同 workspace.diff。
     'review.list': async ({ workspaceId, sessionId, status }) => ({

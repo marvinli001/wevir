@@ -1497,6 +1497,27 @@ const usageAggregate = {
   },
 };
 
+/** 会话全文搜索（0.72.0）。 */
+export const searchHit: MethodResult<'search.query'>['hits'][number] = {
+  sessionId: ids.session,
+  workspaceId: ids.workspace,
+  sessionTitle: '修复登录流程',
+  seq: 12,
+  itemId: 'e12',
+  turnId: ids.turn,
+  kind: 'assistant_message',
+  providerId: 'deepseek-official',
+  ts: TS,
+  snippet: '…已把 packages/host/src/event-store.ts 的登录审批改为…',
+  highlights: [{ start: 3, end: 36 }],
+};
+export const searchIndexStatus: MethodResult<'search.status'> = {
+  state: 'ready',
+  fts: true,
+  pendingSessions: 0,
+  pendingEvents: 0,
+};
+
 export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
@@ -3297,6 +3318,68 @@ export const methodSamples: MethodSamples = {
         },
       ],
       invalid: [{ repo: true }, { repo: true, turns: [{ turnId: ids.session }] }],
+    },
+  },
+  'search.query': {
+    params: {
+      valid: [
+        { query: 'event-store.ts' },
+        {
+          query: '登录 "审批 流程"',
+          scope: {
+            workspaceIds: [ids.workspace],
+            sessionIds: [ids.session],
+            kinds: ['user_message', 'command'],
+            providerIds: ['deepseek-official'],
+            since: TS,
+            until: TS2,
+            includeArchived: true,
+          },
+          sort: 'recent',
+          limit: 20,
+          offset: 20,
+        },
+      ],
+      invalid: [{ query: '' }, { query: 'x', limit: 0 }, { query: 'x', sort: 'oldest' }],
+    },
+    result: {
+      valid: [
+        { hits: [searchHit], nextOffset: 20, mode: 'index', index: searchIndexStatus },
+        {
+          hits: [{ ...searchHit, kind: 'command', archived: true, highlights: [] }],
+          nextOffset: null,
+          mode: 'scan',
+          reason: 'short_query',
+          scan: { examined: 20000, limit: 20000, complete: false },
+          index: { state: 'indexing', fts: true, pendingSessions: 3, pendingEvents: 1200 },
+        },
+      ],
+      invalid: [
+        { hits: [], nextOffset: null, mode: 'fuzzy', index: searchIndexStatus },
+        {
+          hits: [{ ...searchHit, seq: 0 }],
+          nextOffset: null,
+          mode: 'index',
+          index: searchIndexStatus,
+        },
+      ],
+    },
+  },
+  'search.status': {
+    params: empty,
+    result: {
+      valid: [
+        searchIndexStatus,
+        { state: 'indexing', fts: false, pendingSessions: 1, pendingEvents: 5 },
+      ],
+      invalid: [{ ...searchIndexStatus, state: 'stale' }, { state: 'ready' }],
+    },
+  },
+  'search.rebuild': {
+    params: empty,
+    result: {
+      valid: [{ state: 'indexing', fts: true, pendingSessions: 300, pendingEvents: 200000 }],
+      invalid: [{}],
     },
   },
   'pending.update': {

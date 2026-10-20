@@ -35,6 +35,14 @@ function store(sessionId: string, entries: ReadonlyArray<readonly [string, boole
   for (const listener of listeners) listener();
 }
 
+/** 在消息流之外设置一处（跳到搜索结果时展开收起的回合，transcript-view.tsx）。 */
+export function setFolds(sessionId: string, keys: readonly string[], open: boolean): void {
+  store(
+    sessionId,
+    keys.map((key) => [key, open] as const),
+  );
+}
+
 interface FoldScope {
   sessionId: string;
   /** 用户点开或收起了一处：消息流保持当前位置，不被拉回底部（scroll-controller.ts 的 holdPosition）。 */

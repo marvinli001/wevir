@@ -124,6 +124,11 @@ import {
   ReviewUpdateParamsSchema,
 } from './review.js';
 import {
+  SearchIndexStatusSchema,
+  SearchQueryParamsSchema,
+  SearchQueryResultSchema,
+} from './search.js';
+import {
   TerminalAttachParamsSchema,
   TerminalAttachResultSchema,
   TerminalChangedParamsSchema,
@@ -1771,6 +1776,23 @@ export const MethodSchemas = {
     params: SessionCheckpointsParamsSchema,
     result: SessionCheckpointsResultSchema,
     permission: 'session.read',
+  },
+  /** 会话全文搜索（0.72.0）。 */
+  'search.query': {
+    params: SearchQueryParamsSchema,
+    result: SearchQueryResultSchema,
+    permission: 'session.read',
+  },
+  'search.status': {
+    params: EmptySchema,
+    result: SearchIndexStatusSchema,
+    permission: 'session.read',
+  },
+  /** 删掉索引从头建（派生数据，不动事件）。 */
+  'search.rebuild': {
+    params: EmptySchema,
+    result: SearchIndexStatusSchema,
+    permission: 'host.manage',
   },
   'pending.update': {
     params: PendingUpdateParamsSchema,

@@ -23,6 +23,8 @@ import { ArchiveProjectDialog } from '@/projects/archive-project-dialog';
 import { CreateProjectDialog } from '@/projects/create-project';
 import { EditProjectDialog } from '@/projects/edit-project-dialog';
 import { RemoveProjectDialog } from '@/projects/remove-project-dialog';
+import { SearchDialog } from '@/search/search-dialog';
+import { searchOpen } from '@/search/search-model';
 import { DeleteSessionDialog } from '@/session/delete-session-dialog';
 import { RenameDialog } from '@/session/rename-dialog';
 import { SideSessionCloser } from '@/session/side-session';
@@ -87,7 +89,7 @@ export const router = createHashRouter([
   },
 ]);
 
-/** 路由根：记历史序号（窗口左上角的后退 / 前进）、全局快捷键（后退 / 前进，U35 起新建会话与设置）、全局对话框。 */
+/** 路由根：记历史序号（窗口左上角的后退 / 前进）、全局快捷键（后退 / 前进，U35 起新建会话与设置，0.72.0 起搜索）、全局对话框。 */
 function AppRoot() {
   useTrackHistory();
   const history = useHistoryNav();
@@ -108,6 +110,10 @@ function AppRoot() {
         // U35：在项目里时开这个项目的草稿页，否则回首页。
         event.preventDefault();
         navigate(workspaceId ? paths.draft(workspaceId) : paths.home());
+      } else if (matchesShortcut(event, SHORTCUTS.search)) {
+        // 0.72.0：会话全文搜索；再按一次关上。
+        event.preventDefault();
+        searchOpen.set((open) => !open);
       } else if (matchesShortcut(event, SHORTCUTS.settings)) {
         event.preventDefault();
         if (!location.pathname.startsWith(ROUTE_PATTERNS.settings)) {
@@ -141,6 +147,7 @@ function AppRoot() {
       <RemoveProjectDialog />
       <ArchiveProjectDialog />
       <SideSessionCloser />
+      <SearchDialog />
     </>
   );
 }

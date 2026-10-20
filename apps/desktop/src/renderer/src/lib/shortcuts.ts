@@ -16,6 +16,8 @@ export const SHORTCUTS = {
   /** U35：新建会话（当前项目的草稿页，没有项目时回首页）与打开设置。 */
   newSession: { code: 'KeyN', mod: true },
   settings: { code: 'Comma', mod: true },
+  /** 0.72.0：会话全文搜索的浮窗（search/search-dialog.tsx）。 */
+  search: { code: 'KeyK', mod: true },
   toggleSidebar: { code: 'KeyB', mod: true },
   back: { code: 'BracketLeft', mod: true },
   forward: { code: 'BracketRight', mod: true },

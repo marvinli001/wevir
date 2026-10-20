@@ -293,6 +293,11 @@ export const HOST_FEATURES = {
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',
+  /**
+   * 会话全文搜索（0.72.0）：`search.query`、`search.status`、`search.rebuild`。索引是 Host 从事件派生的，与引擎无关；运行时的
+   * SQLite 没有 FTS5 trigram 时照样声明，查询都是有上限的扫描（`search.status` 的 `fts` 为 false）。
+   */
+  sessionSearch: 'session_search',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -354,6 +359,7 @@ export const HostFeaturesSchema = z.looseObject({
   git_commit: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
+  session_search: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

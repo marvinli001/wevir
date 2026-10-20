@@ -32,6 +32,7 @@ import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { RoleStore } from './roles.js';
 import { SessionManager } from './session-manager.js';
+import { SessionSearch } from './session-search.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { identity, useStorages, useTempDir, zip } from './test-utils.js';
 import { ToolOutputStore } from './tool-output.js';
@@ -139,6 +140,7 @@ async function setup(
     storage,
     events,
     sessions: manager,
+    search: new SessionSearch({ storage, onError: (e) => errors.push(e) }),
     hostId: 'host_test' as HostId,
     sendWhileBusy: () => busyDelivery,
     onWarning: (message, fields) => errors.push({ message, fields }),
@@ -300,6 +302,7 @@ describe('应用级工具的端点', () => {
     expect(tools.map((tool) => tool.name)).toEqual([
       'wevir_session_list',
       'wevir_session_read',
+      'wevir_session_search',
       'wevir_models',
       'wevir_roles',
       'wevir_tasks',
@@ -376,7 +379,7 @@ describe('引擎令牌（OpenCode：一个进程服务所有会话）', () => {
     // 不带会话：能列工具（插件启动时），不能调用。
     const list = await engineRpc(h.port, endpoint.token, undefined, 'tools/list');
     expect(list.status).toBe(200);
-    expect(list.body.result.tools).toHaveLength(16);
+    expect(list.body.result.tools).toHaveLength(17);
     const anonymous = await engineRpc(h.port, endpoint.token, undefined, 'tools/call', {
       name: 'wevir_session_list',
       arguments: {},
@@ -449,6 +452,51 @@ describe('应用级工具', () => {
     expect(rest.items[0]).toMatchObject({ role: 'assistant' });
     expect(await h.call(a, 'wevir_session_read', { sessionId: 'ses_nope' })).toEqual({
       error: 'No Wevir session ses_nope.',
+    });
+  });
+
+  it('搜索：只搜自己的项目，命中能接 wevir_session_read；短词标明只扫了最新的', async () => {
+    const h = await setup();
+    const a = await h.create();
+    const b = await h.create();
+    await h.send(b, '排查登录审批 event-store.ts');
+    await h.settle(b);
+    // 另一个项目里的会话：Agent 搜不到。
+    const other = join(h.root, 'other');
+    mkdirSync(other);
+    h.storage.workspaces.insert({
+      id: 'ws_2',
+      rootPath: other,
+      displayName: 'other',
+      createdAt: T0,
+      updatedAt: T0,
+    });
+    const c = await h.create({ workspaceId: 'ws_2' });
+    await h.send(c, '排查登录审批 event-store.ts');
+    await h.settle(c);
+
+    const found = await h.call(a, 'wevir_session_search', {
+      query: 'event-store.ts',
+      kinds: ['user_message'],
+    });
+    expect(found.mode).toBe('index');
+    expect(found.hits.map((hit: { sessionId: string }) => hit.sessionId)).toEqual([b]);
+    const [hit] = found.hits;
+    expect(hit).toMatchObject({ kind: 'user_message', itemId: 'e2', position: 1 });
+    expect(hit.snippet).toContain('**event-store.ts**');
+    const item = await h.call(a, 'wevir_session_read', { sessionId: b, itemId: hit.itemId });
+    expect(item.item.text).toBe('排查登录审批 event-store.ts');
+
+    const short = await h.call(a, 'wevir_session_search', { query: '登录' });
+    expect(short.mode).toBe('scan');
+    expect(new Set(short.hits.map((x: { sessionId: string }) => x.sessionId))).toEqual(
+      new Set([b]),
+    );
+    expect(
+      await h.call(a, 'wevir_session_search', { query: 'event-store.ts', sessionId: c }),
+    ).toMatchObject({ hits: [] });
+    expect(await h.call(a, 'wevir_session_search', { query: '""' })).toEqual({
+      error: 'The query has no words.',
     });
   });
 
@@ -1357,6 +1405,7 @@ describe('工具预设', () => {
   const CORE_NAMES = [
     'wevir_session_list',
     'wevir_session_read',
+    'wevir_session_search',
     'wevir_models',
     'wevir_roles',
     'wevir_tasks',

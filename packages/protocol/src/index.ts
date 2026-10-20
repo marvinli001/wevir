@@ -13,6 +13,7 @@ export * from './origins.js';
 export * from './plugins.js';
 export * from './processes.js';
 export * from './review.js';
+export * from './search.js';
 export * from './search-ranking.js';
 export * from './terminals.js';
 export * from './usage.js';

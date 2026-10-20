@@ -47,6 +47,7 @@ import { HostRpcServer } from './rpc-server.js';
 import { discoverRuleFiles } from './rule-files.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
+import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { loadTerminalModules, TerminalService } from './terminals.js';
@@ -167,6 +168,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let verificationService: VerificationService | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
+  let sessionSearch: SessionSearch | undefined;
   try {
     const hostId = await loadHostId(home, logger);
     storage = openStorage({ dataDir: home });
@@ -175,6 +177,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.error('event store error', { error }),
     });
     events = store;
+    // 会话全文搜索（0.72.0）：索引从事件派生，后台按批追上，新事件写入后稍后追。出错只记日志，不影响会话。
+    sessionSearch = new SessionSearch({
+      storage,
+      onError: (error) => logger.warn('session search index error', { error }),
+    });
+    const search = sessionSearch;
+    store.listenAll(() => search.notify());
+    search.start();
     // 适配器能生成标题时才读提示词；读不到只是没有模型生成的标题，不阻止 Host 启动。
     let titleInstructions: string | undefined;
     if (adapter.generateTitle !== undefined) {
@@ -507,6 +517,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         roles,
         tasks: taskBoards,
         automations: automationService,
+        search,
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;
@@ -566,6 +577,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(terminals !== undefined && { terminals }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
+        search,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -626,6 +638,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         git_commit: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
+        session_search: true,
       },
       engineFeatures,
       plugins,
@@ -675,6 +688,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           automations: automationService,
           checkpoints,
           events: store,
+          search,
           storage: db,
           runtimeFile,
           ...(options.web !== undefined && { web: options.web }),
@@ -706,6 +720,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await adapter.dispose().catch(() => {});
     await options.web?.close().catch(() => {});
     try {
+      sessionSearch?.close();
       events?.close();
       storage?.close();
     } catch {
@@ -738,6 +753,7 @@ interface ShutdownParts {
   automations: AutomationService;
   checkpoints: TurnCheckpoints;
   events: EventStore;
+  search: SessionSearch;
   storage: Storage;
   runtimeFile: RuntimeFile;
   web?: WebService;
@@ -803,6 +819,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 引擎（和它挂着的桥脚本）停了之后再关联网服务的端点。
   if (parts.web !== undefined) await step('close_web', () => parts.web?.close(), true);
   await step('flush_storage', () => {
+    parts.search.close();
     parts.events.close();
     parts.storage.close();
   });

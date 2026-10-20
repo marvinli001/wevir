@@ -1,3 +1,4 @@
+import { hostSupports } from '@wevir/client-sdk';
 import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
@@ -9,6 +10,7 @@ import {
   FolderOpen,
   Plus,
   Rows3,
+  Search,
   Settings,
   SquarePen,
 } from 'lucide-react';
@@ -40,11 +42,13 @@ import { Orb } from '@/fx/orb';
 import { turnOrb } from '@/fx/orb-state';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { formatShortcut, SHORTCUTS } from '@/lib/shortcuts';
 import { pluginsAvailability } from '@/plugins/plugins-model';
 import { workspaceLabel } from '@/projects/chats';
 import { openCreateProject } from '@/projects/create-project';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
+import { searchOpen } from '@/search/search-model';
 import { UpdateEntryButton } from '@/updates/update-entry';
 import { usageAvailability } from '@/usage/usage-model';
 import { layoutPrefs, toggleWorkspace } from './layout-state';
@@ -83,6 +87,8 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
   // Host 有 `automations` 功能才有“自动化”入口（0.66.0），在“新建会话”下面。
   const showAutomations = automationsAvailability(client?.hello.features) === 'ready';
+  // Host 有 `session_search` 功能才有“搜索”入口（0.72.0），在“新建会话”下面。
+  const showSearch = client !== undefined && hostSupports(client.hello.features, 'session_search');
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
@@ -98,6 +104,20 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
           <SquarePen className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           {t('sidebar.newSession')}
         </NavLink>
+        {showSearch && (
+          <button
+            type="button"
+            onClick={() => searchOpen.set(true)}
+            className={cn(ROW, 'group/search w-full text-left')}
+            data-testid="sidebar-search"
+          >
+            <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="flex-1">{t('sidebar.search')}</span>
+            <kbd className="font-sans text-xs text-muted-foreground opacity-0 group-hover/search:opacity-100 group-focus-visible/search:opacity-100">
+              {formatShortcut(SHORTCUTS.search)}
+            </kbd>
+          </button>
+        )}
         {showAutomations && (
           <NavLink
             to={paths.automations()}

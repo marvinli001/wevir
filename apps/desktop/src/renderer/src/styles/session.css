@@ -62,3 +62,24 @@
   width: 100%;
   height: 100%;
 }
+
+/* 跳到搜索结果（0.72.0，session/transcript-focus.ts）：命中的文字短暂加底色；找不到文字时整条消息闪一下。 */
+::highlight(wevir-search-hit) {
+  background-color: color-mix(in oklab, var(--warning) 28%, transparent);
+  color: var(--foreground);
+}
+
+[data-search-focus] {
+  border-radius: var(--radius-lg, 0.75rem);
+  animation: search-focus 2.4s var(--ease-smooth, ease-out);
+}
+
+@keyframes search-focus {
+  from,
+  30% {
+    background-color: var(--accent);
+  }
+  to {
+    background-color: transparent;
+  }
+}

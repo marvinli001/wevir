@@ -6,13 +6,20 @@ import { useScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
 import { turnOrb } from '@/fx/orb-state';
 import { t } from '@/i18n';
-import { FoldScopeProvider } from './fold-state';
+import { FoldScopeProvider, setFolds } from './fold-state';
 import type { LiveState } from './live-indicator';
 import { SystemMessage } from './message-view';
 import { groupPending } from './pending-model';
 import { useStickToBottom } from './scroll-controller';
 import { type QuoteActions, SelectionToolbar } from './selection-toolbar';
 import { latestTodos } from './todo-model';
+import {
+  FOCUS_HIGHLIGHT,
+  FOCUS_HIGHLIGHT_MS,
+  findTextRange,
+  messageIndexOfSeq,
+  transcriptFocus,
+} from './transcript-focus';
 import { groupTurns, isActiveTurn, turnStart } from './turn-model';
 import { TurnView } from './turn-view';
 import { turnChecks } from './verification-model';
@@ -52,7 +59,7 @@ export function TranscriptView({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const { sticky, showJump, jumpToLatest, holdPosition } = useStickToBottom(
+  const { sticky, showJump, jumpToLatest, holdPosition, leaveBottom } = useStickToBottom(
     containerRef,
     contentRef,
     sessionId,
@@ -63,11 +70,12 @@ export function TranscriptView({
   // 渲染从哪条消息开始。贴底时不固定：只渲染最后 RENDER_WINDOW 条，新消息进来时窗口随之后移，DOM 不随会话
   // 增长；手动阅读时固定在当前第一条，新消息只追加，正在读的内容不会被挪走。向前扩展同样固定。
   const [pinnedStart, setPinnedStart] = useState<string>();
+  // 跳到搜索结果（transcript-focus.ts）：那条消息一直在渲染的一段里，直到回到贴底。
+  const [focusPin, setFocusPin] = useState<string>();
   const pinnedIndex = pinnedStart ? messages.findIndex((m) => m.id === pinnedStart) : -1;
-  const start = turnStart(
-    messages,
-    pinnedIndex >= 0 ? pinnedIndex : Math.max(0, messages.length - RENDER_WINDOW),
-  );
+  const focusIndex = focusPin ? messages.findIndex((m) => m.id === focusPin) : -1;
+  const baseIndex = pinnedIndex >= 0 ? pinnedIndex : Math.max(0, messages.length - RENDER_WINDOW);
+  const start = turnStart(messages, focusIndex >= 0 ? Math.min(baseIndex, focusIndex) : baseIndex);
   const hidden = start;
   const firstRendered = messages[start]?.id;
   // 停在输入框上方的清单属于哪个回合（U20）：那个回合的消息里不再画它。
@@ -80,6 +88,55 @@ export function TranscriptView({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在切换模式与换会话时固定或放开。
   useEffect(() => setPinnedStart(sticky ? undefined : firstRendered), [sticky, sessionId]);
+  useEffect(() => {
+    if (sticky) setFocusPin(undefined);
+  }, [sticky]);
+
+  // 跳到搜索结果：事件追到那条之后认领，转为手动阅读、把它放进渲染的一段，下一帧滚过去（scrollToFocus）。
+  const focus = transcriptFocus.use();
+  const focusTarget = useRef<FocusTarget>(undefined);
+  const [focusTick, setFocusTick] = useState(0);
+  useEffect(() => {
+    if (focus?.sessionId !== sessionId) return;
+    const index = messageIndexOfSeq(messages, focus.seq);
+    if (index < 0) return;
+    transcriptFocus.set(undefined);
+    const message = messages[index] as (typeof messages)[number];
+    leaveBottom();
+    setFocusPin(message.id);
+    focusTarget.current = {
+      messageId: message.id,
+      ...(message.role !== 'system' && { turnId: message.turnId }),
+      ...(focus.text !== undefined && { text: focus.text }),
+      tries: 0,
+    };
+    setFocusTick((tick) => tick + 1);
+  }, [focus, sessionId, messages, leaveBottom]);
+  // 每次认领（focusTick）起一个逐帧的循环，直到位置稳定；用户自己滚动就停下。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在认领时开始。
+  useEffect(() => {
+    const target = focusTarget.current;
+    const container = containerRef.current;
+    if (!target || !container) return;
+    const cancel = () => {
+      target.cancelled = true;
+    };
+    const inputs = ['wheel', 'touchmove', 'pointerdown', 'keydown'] as const;
+    for (const type of inputs) container.addEventListener(type, cancel, { passive: true });
+    let frame = 0;
+    const step = () => {
+      if (scrollToFocus(container, sessionId, target) === 'retry') {
+        frame = requestAnimationFrame(step);
+      } else if (focusTarget.current === target) {
+        focusTarget.current = undefined;
+      }
+    };
+    frame = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(frame);
+      for (const type of inputs) container.removeEventListener(type, cancel);
+    };
+  }, [focusTick]);
   useEffect(() => onReady?.({ jumpToLatest }), [onReady, jumpToLatest]);
   // 新到的块（U10）：贴底时末尾新出现的块淡入上移；首次渲染、向前展开的旧消息不动。在渲染时记下已见过的块。
   const seen = useRef<{ sessionId: string; keys: Set<string> }>(undefined);
@@ -196,4 +253,81 @@ function liveState(transcript: Transcript): LiveState {
     : state === 'cancelling'
       ? 'stopping'
       : 'running';
+}
+
+interface FocusTarget {
+  messageId: string;
+  turnId?: string;
+  text?: string;
+  tries: number;
+  /** 收起的回合已经展开过。 */
+  unfolded?: boolean;
+  /** 第一次校正的时间。视口外的回合按估高排版（content-visibility），打开会话时侧栏展开又会改变行宽，滚到之后还要逐帧校正。 */
+  startedAt?: number;
+  /** 最近一次移动的时间。 */
+  movedAt?: number;
+  /** 已经标出命中的文字（或闪过那条消息）。 */
+  marked?: boolean;
+  /** 用户动了滚动：不再校正。 */
+  cancelled?: boolean;
+}
+
+/** 最多等几帧让目标出现在 DOM 里。 */
+const FOCUS_MAX_TRIES = 16;
+/** 最多校正多久。 */
+const FOCUS_MAX_MS = 1500;
+/** 位置多久不变算稳定（侧栏展开的过渡在这之内）。 */
+const FOCUS_SETTLE_MS = 300;
+
+/**
+ * 滚到目标，每帧调用一次：先在那条消息里找命中的文字，找不到而回合是收起的就展开再来；把目标放在视口上三分之一处，文字用
+ * CSS Custom Highlight 标出（Range 随排版移动），找不到文字时整条消息闪一下；之后逐帧校正排版变化带来的偏差，位置稳定、
+ * 超时或用户自己滚动时结束。
+ */
+function scrollToFocus(
+  container: HTMLElement,
+  sessionId: string,
+  target: FocusTarget,
+): 'retry' | 'done' {
+  if (target.cancelled) return 'done';
+  const message = container.querySelector(`[data-chat-message="${CSS.escape(target.messageId)}"]`);
+  const turn =
+    target.turnId === undefined
+      ? null
+      : container.querySelector(`[data-turn="${CSS.escape(target.turnId)}"]`);
+  if (!message && !turn) {
+    target.tries += 1;
+    return target.tries < FOCUS_MAX_TRIES ? 'retry' : 'done';
+  }
+  const range =
+    message && target.text !== undefined ? findTextRange(message, target.text) : undefined;
+  if (!range && !target.unfolded && target.turnId && turn?.hasAttribute('data-turn-folded')) {
+    target.unfolded = true;
+    setFolds(sessionId, [`turn:${target.turnId}`], true);
+    return 'retry';
+  }
+  const box =
+    message && getComputedStyle(message).display !== 'contents' ? message : (turn ?? message);
+  const rect = (range ?? box)?.getBoundingClientRect();
+  const offset = rect
+    ? rect.top - container.getBoundingClientRect().top - container.clientHeight / 3
+    : 0;
+  const before = container.scrollTop;
+  container.scrollTop += offset;
+  const moved = Math.abs(container.scrollTop - before) > 1;
+  const now = performance.now();
+  target.startedAt ??= now;
+  if (moved || target.movedAt === undefined) target.movedAt = now;
+  const settled = now - target.movedAt >= FOCUS_SETTLE_MS || now - target.startedAt >= FOCUS_MAX_MS;
+  if (!target.marked && (!moved || settled)) {
+    target.marked = true;
+    if (range && typeof Highlight !== 'undefined' && CSS.highlights) {
+      CSS.highlights.set(FOCUS_HIGHLIGHT, new Highlight(range));
+      window.setTimeout(() => CSS.highlights.delete(FOCUS_HIGHLIGHT), FOCUS_HIGHLIGHT_MS);
+    } else if (box instanceof HTMLElement) {
+      box.setAttribute('data-search-focus', '');
+      window.setTimeout(() => box.removeAttribute('data-search-focus'), FOCUS_HIGHLIGHT_MS);
+    }
+  }
+  return settled ? 'done' : 'retry';
 }

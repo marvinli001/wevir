@@ -225,6 +225,8 @@ import {
   repairChain,
   reportedTask,
   reviewComment,
+  searchHit,
+  searchIndexStatus,
   sentReviewComment,
   session,
   sessionRules,
@@ -2726,6 +2728,65 @@ const standaloneCases: Case[] = [
       { ...reviewComment, body: '' },
       { ...reviewComment, status: 'draft' },
     ],
+  },
+  {
+    name: 'SearchKind',
+    schema: protocol.SearchKindSchema,
+    valid: [...protocol.SEARCH_KINDS, 'plan'],
+    invalid: ['', 3],
+  },
+  {
+    name: 'SearchScope',
+    schema: protocol.SearchScopeSchema,
+    valid: [{}, { workspaceIds: [`ws_${ULID}`], includeArchived: false }],
+    invalid: [{ workspaceIds: ['project'] }, { since: 'yesterday' }],
+  },
+  {
+    name: 'SearchHighlight',
+    schema: protocol.SearchHighlightSchema,
+    valid: [{ start: 0, end: 4 }],
+    invalid: [{ start: -1, end: 2 }, { start: 1 }],
+  },
+  {
+    name: 'SearchHit',
+    schema: protocol.SearchHitSchema,
+    valid: [searchHit, { ...searchHit, parentSessionId: `ses_${ULID}`, turnId: undefined }],
+    invalid: [
+      { ...searchHit, itemId: '' },
+      { ...searchHit, archived: false },
+    ],
+  },
+  {
+    name: 'SearchIndexStatus',
+    schema: protocol.SearchIndexStatusSchema,
+    valid: [searchIndexStatus],
+    invalid: [{ ...searchIndexStatus, pendingEvents: -1 }],
+  },
+  {
+    name: 'SearchScan',
+    schema: protocol.SearchScanSchema,
+    valid: [{ examined: 0, limit: 20000, complete: true }],
+    invalid: [{ examined: 1, limit: 0, complete: true }],
+  },
+  {
+    name: 'SearchQueryParams',
+    schema: protocol.SearchQueryParamsSchema,
+    valid: [{ query: 'abc' }],
+    invalid: [{ query: 'x'.repeat(protocol.SEARCH_QUERY_MAX_LENGTH + 1) }],
+  },
+  {
+    name: 'SearchQueryResult',
+    schema: protocol.SearchQueryResultSchema,
+    valid: [
+      {
+        hits: [],
+        nextOffset: null,
+        mode: 'mixed',
+        scan: { examined: 3, limit: 2000, complete: true },
+        index: searchIndexStatus,
+      },
+    ],
+    invalid: [{ hits: [], mode: 'index', index: searchIndexStatus }],
   },
 ];
 

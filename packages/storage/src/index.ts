@@ -23,6 +23,7 @@ export * from './events.js';
 export * from './migrate.js';
 export * from './providers.js';
 export * from './review-comments.js';
+export * from './search.js';
 export * from './secrets.js';
 export * from './send-receipts.js';
 export * from './sessions.js';

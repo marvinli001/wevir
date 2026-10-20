@@ -112,11 +112,14 @@ export const TurnView = memo(
     return (
       <TurnOrb value={orb}>
         <div data-turn={turnId} data-turn-folded={folded || undefined} className="group/turn">
-          {messages
-            .slice(0, lead)
-            .map((message) =>
-              message.role === 'user' ? <UserMessage key={message.id} message={message} /> : null,
-            )}
+          {messages.slice(0, lead).map((message) =>
+            message.role === 'user' ? (
+              // 搜索结果跳到这条（transcript-focus.ts）：只作标记，不占盒子。
+              <div key={message.id} className="contents" data-chat-message={message.id}>
+                <UserMessage message={message} />
+              </div>
+            ) : null,
+          )}
           {fold.showHeader && fold.finished && (
             <TurnHeader
               controls={id}
@@ -131,7 +134,7 @@ export const TurnView = memo(
             {messages.slice(lead).map((message) => {
               if (message.role === 'user') {
                 return (
-                  <div key={message.id} className="mt-3">
+                  <div key={message.id} className="mt-3" data-chat-message={message.id}>
                     <UserMessage message={message} />
                   </div>
                 );
@@ -150,7 +153,12 @@ export const TurnView = memo(
               );
               if (!fold.showHeader) {
                 return (
-                  <div key={message.id} className="mt-3" data-message-role="assistant">
+                  <div
+                    key={message.id}
+                    className="mt-3"
+                    data-message-role="assistant"
+                    data-chat-message={message.id}
+                  >
                     {view(parts)}
                   </div>
                 );
@@ -160,14 +168,23 @@ export const TurnView = memo(
               if (segments.every((segment) => !segment.kept)) {
                 return (
                   <Collapse key={message.id} open={!folded} fromOpen={justFolded}>
-                    <div className="mt-3" data-message-role="assistant">
+                    <div
+                      className="mt-3"
+                      data-message-role="assistant"
+                      data-chat-message={message.id}
+                    >
                       {view(parts)}
                     </div>
                   </Collapse>
                 );
               }
               return (
-                <div key={message.id} className="mt-3" data-message-role="assistant">
+                <div
+                  key={message.id}
+                  className="mt-3"
+                  data-message-role="assistant"
+                  data-chat-message={message.id}
+                >
                   {segments.map((segment) =>
                     segment.kept ? (
                       <Fragment key={segment.key}>{view(segment.parts)}</Fragment>
