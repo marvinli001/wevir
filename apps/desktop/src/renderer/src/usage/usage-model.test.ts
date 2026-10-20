@@ -161,16 +161,22 @@ describe('数字的写法', () => {
     ko: ['1.23만', '2.28억', '325억'],
     ru: ['12,35 тыс.', '228 млн', '32,5 млрд'],
   };
+  // CLDR 48 才给意大利语加上千的紧凑写法；更早的 ICU（如 Node 22.19）和德语一样写完整数字。
+  const APPROX_BEFORE_CLDR_48: Record<string, [string, string, string]> = {
+    it: ['12.345', '228 Mln', '32,5 Mld'],
+  };
+  const cldrMajor = Number(process.versions.cldr?.split('.')[0] ?? 0);
 
   it('十种界面语言的约数都核对过', () => {
     expect(Object.keys(APPROX).sort()).toEqual([...LOCALES].sort());
     for (const locale of LOCALES) {
+      const expected = (cldrMajor < 48 && APPROX_BEFORE_CLDR_48[locale]) || APPROX[locale];
       expect(
         [12_345, 228_000_000, 32_500_000_000].map((value) =>
           plain(formatTokensApprox(value, locale)),
         ),
         locale,
-      ).toEqual(APPROX[locale]);
+      ).toEqual(expected);
     }
   });
 
