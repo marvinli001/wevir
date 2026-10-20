@@ -1,5 +1,5 @@
-// 设置 → 项目 → 检查（0.65.0，Host 功能 `verification`）：所选项目的检查（添加、编辑、移除）与仓库里声明的命令（只列出，
-// 不执行；添加后才是检查，脚本正文变了要重新保存）。配置存在 Host，不写回仓库。旧 Host 不显示这一节。
+// 设置 → 项目 → 检查与自动修复（0.65.0，Host 功能 `verification`）：所选项目的检查（添加、编辑、移除）、仓库里声明的命令（只列出，
+// 不执行；添加后才是检查，脚本正文变了要重新保存）与自动修复的开关和上限。配置存在 Host，不写回仓库。旧 Host 不显示这一节。
 
 import { hostSupports } from '@wevir/client-sdk';
 import type {
@@ -7,6 +7,7 @@ import type {
   CheckDefinition,
   CheckKind,
   CheckTrigger,
+  RepairSettings,
   WorkspaceId,
 } from '@wevir/protocol';
 import { CHECK_COMMAND_MAX_LENGTH, CHECK_NAME_MAX_LENGTH } from '@wevir/protocol';
@@ -14,6 +15,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { type FormEvent, useCallback, useEffect, useId, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { IconButton } from '@/components/icon-button';
+import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -26,7 +28,7 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import type { WorkspaceEntry } from '@/data/workbench-model';
 import { describe, useHostConnection } from '@/host/host-connection';
-import { t } from '@/i18n';
+import { currentLocale, t } from '@/i18n';
 import { useLastLocation } from '@/routes/last-location';
 import {
   type CheckDraft,
@@ -36,6 +38,9 @@ import {
   draftValid,
   inputOf,
   KIND_LABELS,
+  REPAIR_ATTEMPT_OPTIONS,
+  REPAIR_DURATION_OPTIONS_MIN,
+  REPAIR_TOKEN_OPTIONS,
   sourceText,
   TRIGGER_LABELS,
 } from './checks-model';
@@ -46,6 +51,7 @@ import {
   type Notice,
   NoticeBanner,
   Segmented,
+  SettingsRow,
   SettingsSection,
 } from './settings-ui';
 
@@ -56,6 +62,7 @@ export function ChecksSettings({ projects }: { projects: readonly WorkspaceEntry
   const last = useLastLocation();
   const [picked, setPicked] = useState<string>();
   const [checks, setChecks] = useState<CheckDefinition[]>();
+  const [repair, setRepair] = useState<RepairSettings>();
   const [candidates, setCandidates] = useState<CheckCandidate[]>();
   const [notice, setNotice] = useState<Notice>();
   const [editing, setEditing] = useState<CheckDraft>();
@@ -74,6 +81,7 @@ export function ChecksSettings({ projects }: { projects: readonly WorkspaceEntry
         client.request('checks.candidates', { workspaceId }),
       ]);
       setChecks(listed.checks);
+      setRepair(listed.repair);
       setCandidates(found.candidates);
     } catch (reason) {
       setNotice({
@@ -87,11 +95,26 @@ export function ChecksSettings({ projects }: { projects: readonly WorkspaceEntry
     if (!supported) return;
     setChecks(undefined);
     setCandidates(undefined);
+    setRepair(undefined);
     setNotice(undefined);
     void reload();
   }, [supported, reload]);
 
   if (!supported || projects.length === 0 || workspaceId === undefined) return null;
+
+  const updateRepair = async (patch: Partial<RepairSettings>) => {
+    if (!client) return;
+    setNotice(undefined);
+    try {
+      const result = await client.request('checks.setRepair', { workspaceId, repair: patch });
+      setRepair(result.repair);
+    } catch (reason) {
+      setNotice({
+        tone: 'error',
+        text: t('settings.checks.saveFailed', { error: describe(reason) }),
+      });
+    }
+  };
 
   const remove = async () => {
     if (!client || !removing) return;
@@ -100,6 +123,7 @@ export function ChecksSettings({ projects }: { projects: readonly WorkspaceEntry
   };
 
   const unsaved = (candidates ?? []).filter((item) => !candidateSaved(item, checks ?? []));
+  const numberFormat = new Intl.NumberFormat(currentLocale(), { notation: 'compact' });
 
   return (
     <>
@@ -185,6 +209,80 @@ export function ChecksSettings({ projects }: { projects: readonly WorkspaceEntry
         </SettingsSection>
       )}
 
+      {repair && (
+        <SettingsSection title={t('settings.checks.repair')} data-testid="checks-repair">
+          <div className={LIST_CARD}>
+            <SettingsRow
+              title={t('settings.checks.repair.enabled')}
+              control={
+                <Switch
+                  checked={repair.enabled}
+                  label={t('settings.checks.repair.enabled')}
+                  onChange={(enabled) => void updateRepair({ enabled })}
+                  data-action="toggle-repair"
+                />
+              }
+            />
+            {repair.enabled && (
+              <>
+                <SettingsRow
+                  title={t('settings.checks.repair.attempts')}
+                  control={
+                    <Select
+                      aria-label={t('settings.checks.repair.attempts')}
+                      className="w-36"
+                      value={String(repair.maxAttempts)}
+                      onValueChange={(value) => void updateRepair({ maxAttempts: Number(value) })}
+                      options={REPAIR_ATTEMPT_OPTIONS.map((n) => ({
+                        value: String(n),
+                        label: String(n),
+                      }))}
+                    />
+                  }
+                />
+                <SettingsRow
+                  title={t('settings.checks.repair.duration')}
+                  control={
+                    <Select
+                      aria-label={t('settings.checks.repair.duration')}
+                      className="w-36"
+                      value={String(repair.maxDurationMs / 60_000)}
+                      onValueChange={(value) =>
+                        void updateRepair({ maxDurationMs: Number(value) * 60_000 })
+                      }
+                      options={withCurrent(
+                        REPAIR_DURATION_OPTIONS_MIN,
+                        repair.maxDurationMs / 60_000,
+                      ).map((n) => ({
+                        value: String(n),
+                        label: t('settings.checks.repair.minutes', { count: n }),
+                      }))}
+                    />
+                  }
+                />
+                <SettingsRow
+                  title={t('settings.checks.repair.tokens')}
+                  control={
+                    <Select
+                      aria-label={t('settings.checks.repair.tokens')}
+                      className="w-36"
+                      value={String(repair.maxTokens)}
+                      onValueChange={(value) => void updateRepair({ maxTokens: Number(value) })}
+                      options={withCurrent(REPAIR_TOKEN_OPTIONS, repair.maxTokens).map((n) => ({
+                        value: String(n),
+                        label: t('settings.checks.repair.tokenCount', {
+                          count: numberFormat.format(n),
+                        }),
+                      }))}
+                    />
+                  }
+                />
+              </>
+            )}
+          </div>
+        </SettingsSection>
+      )}
+
       {editing && (
         <CheckEditor
           workspaceId={workspaceId}
@@ -208,6 +306,11 @@ export function ChecksSettings({ projects }: { projects: readonly WorkspaceEntry
       </ConfirmDialog>
     </>
   );
+}
+
+/** 选项里补上当前值（CLI 或旧版本设的不在列表里的值）。 */
+function withCurrent(options: readonly number[], current: number): number[] {
+  return options.includes(current) ? [...options] : [...options, current].sort((a, b) => a - b);
 }
 
 function CheckRow({

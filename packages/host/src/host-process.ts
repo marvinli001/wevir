@@ -47,7 +47,7 @@ import { PricingStore } from './usage/pricing.js';
 import { UsageService } from './usage/usage-service.js';
 import { ChecksStore } from './verification/checks-store.js';
 import { CheckRunner } from './verification/runner.js';
-import { VerificationService } from './verification/service.js';
+import { loadRepairTemplate, VerificationService } from './verification/service.js';
 import type { WebService } from './web/service.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
@@ -329,13 +329,14 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ) {
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
-    // 回合后验证（0.65.0，ADR-0008）：检查配置存在 Host，检查进程由 Host 起（与 Agent 的后台进程分开）。上次没跑完的检查在服务
-    // 客户端之前对账，什么都不重开。
+    // 回合后验证（0.65.0，ADR-0008）：检查配置存在 Host，检查进程由 Host 起（与 Agent 的后台进程分开）。上次没跑完的检查与修复链
+    // 在服务客户端之前对账，什么都不重开。修复材料的模板读不到时不阻止 Host 启动，只是没有这个功能。
     try {
       verificationService = new VerificationService({
         storage,
         events: store,
         listenAll: (listener) => store.listenAll(listener),
+        sessions: manager,
         checks: new ChecksStore({
           dir: homePath(home, 'checksDir'),
           onWarning: (message, fields) => logger.warn(message, fields),
@@ -345,11 +346,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           onWarning: (message, fields) => logger.warn(message, fields),
         }),
         checkpoints,
+        hostId,
+        repairTemplate: loadRepairTemplate(options.promptsDir),
         onWarning: (message, fields) => logger.warn(message, fields),
         onError: (error) => logger.error('verification error', { error }),
       });
       const reconciled = verificationService.recover();
-      if (reconciled.cancelledRuns > 0) {
+      if (reconciled.cancelledRuns > 0 || reconciled.stoppedRepairs > 0) {
         logger.warn('reconciled verification after unclean shutdown', { ...reconciled });
       }
     } catch (error) {

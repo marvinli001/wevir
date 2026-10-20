@@ -9,6 +9,7 @@ import {
   Reply,
   ScanSearch,
   SquareTerminal,
+  Wrench,
 } from 'lucide-react';
 import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
@@ -48,6 +49,7 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   const actions = useMessageActions();
   const [editing, setEditing] = useState(false);
   if (message.from?.process !== undefined) return <ProcessReport message={message} />;
+  if (message.from?.repair !== undefined) return <RepairReport message={message} />;
   if (message.from?.kind === 'report') return <SessionReport message={message} />;
   // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
@@ -265,6 +267,30 @@ function SessionReport({ message }: { message: UserChatMessage }) {
           {content}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * 自动修复的回合（0.65.0）：Host 把检查失败的输出交给模型，正文不显示成用户气泡，标记一行“自动修复 · 第 1/2 次”，悬停看全文。
+ */
+function RepairReport({ message }: { message: UserChatMessage }) {
+  const repair = message.from?.repair;
+  if (repair === undefined) return null;
+  const text = message.parts
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join('\n');
+  return (
+    <div className="my-2 flex" data-message-role="user" data-repair-report={repair.repairId}>
+      <span
+        className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground"
+        title={text}
+      >
+        <Wrench aria-hidden className="size-4 shrink-0" />
+        <span className="truncate">
+          {t('transcript.repair', { attempt: repair.attempt, max: repair.maxAttempts })}
+        </span>
+      </span>
     </div>
   );
 }

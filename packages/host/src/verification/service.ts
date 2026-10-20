@@ -1,20 +1,28 @@
-// 回合后验证（0.65.0，Host 功能 `verification`，ADR-0008）。
+// 回合后验证与有限自动修复（0.65.0，Host 功能 `verification`，ADR-0008）。
 //
 // - **检查配置**存在 Host（ChecksStore），仓库里的命令只是候选；用户保存才算认可，脚本正文变了要重新认可。
 // - **验证记录**是会话事件流里的 `verification.updated`，与回合分开；一次触发是一轮（`roundId`），一轮里的检查按顺序跑，每个工作区
 //   同时最多 `VERIFICATION_MAX_CONCURRENT` 个。每条记录绑定开始时的代码状态，结束时代码状态变了就是 `stale`。
 // - **验收状态**（`acceptance.changed`）按最近一轮算，与引擎的回合状态分开；之后的回合改了代码就回到 `unverified`。
 // - **回合后自动运行**：普通会话的回合以 `completed` 结束、改到了文件时，按适用条件跑 `after_turn` 的检查；同一回合只跑一轮。
+// - **自动修复**（默认关闭）：`after_turn` 的一轮有可修的失败时开一条修复链，每次修复是一个带 `from.repair` 的回合，回合结束后
+//   重跑原来那一轮的检查；同一错误再次出现、达到次数、超出预算、环境不可用、权限被拒、用户停止或发了消息时停下。修复回合结束后
+//   不走回合后自动运行（防递归）；Host 重启时进行中的链停下（`host_restarted`），不会重开。
 //
 // 事件直接追加到事件库（不经 SessionManager 的状态机，这些事件不改会话状态）；会话里的动静从事件总线的 `listenAll` 收。
 
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   CheckCandidate,
   CheckDefinition,
   CheckId,
   CheckInput,
+  ClientIdentity,
   CodeState,
+  HostId,
+  RepairChain,
+  RepairId,
   RepairSettings,
   SessionAcceptance,
   SessionId,
@@ -34,14 +42,51 @@ import type { TurnCheckpoints } from '../checkpoints.js';
 import { HostError } from '../errors.js';
 import type { AppendInput, EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
+import type { SessionManager } from '../session-manager.js';
+import { defaultPromptsDir } from '../title.js';
 import { findCandidates, readScript, scriptHash } from './candidates.js';
 import { type ChecksStore, normalizeRelative, type WorkspaceChecks } from './checks-store.js';
 import { readCodeState, sameCodeState } from './code-state.js';
-import { errorFingerprint, judgeOutcome, summarize, validExpectOutput } from './outcome.js';
+import {
+  errorFingerprint,
+  judgeOutcome,
+  REPAIRABLE_REASONS,
+  roundFingerprint,
+  summarize,
+  validExpectOutput,
+} from './outcome.js';
 import { type CheckRunner, environmentPrecheck } from './runner.js';
 
 /** 每个工作区同时最多跑几个检查。 */
 export const VERIFICATION_MAX_CONCURRENT = 2;
+/** 交给 Agent 的材料里每个失败检查的输出最多这么多字；整份材料最多 `REPAIR_MATERIAL_MAX_LENGTH`。 */
+export const REPAIR_OUTPUT_MAX_LENGTH = 6000;
+export const REPAIR_MATERIAL_MAX_LENGTH = 24_000;
+
+/** 读 `verification-repair.md`：删掉注释与开头的空行；只能有 `attempt`、`max_attempts`、`failures` 三个变量。 */
+export function loadRepairTemplate(dir: string = defaultPromptsDir()): string {
+  const text = readFileSync(join(dir, 'verification-repair.md'), 'utf8')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^\s*\n/, '');
+  const rest = text.replace(/\{\{\s*(attempt|max_attempts|failures)\s*\}\}/g, '');
+  if (rest.includes('{{')) {
+    throw new Error('verification-repair.md 里有不认识的变量（prompts/README.md 模板语法）');
+  }
+  return text;
+}
+
+/** 渲染修复材料：先替换模板里的变量，再放进失败材料（材料里出现 `{{` 也不会被当成变量）。 */
+export function renderRepairMaterial(
+  template: string,
+  vars: { attempt: number; maxAttempts: number; failures: string },
+): string {
+  const [head, tail = ''] = template
+    .replace(/\{\{\s*attempt\s*\}\}/g, String(vars.attempt))
+    .replace(/\{\{\s*max_attempts\s*\}\}/g, String(vars.maxAttempts))
+    .split(/\{\{\s*failures\s*\}\}/);
+  return `${head ?? ''}${vars.failures}${tail}`.trim();
+}
+
 /** 适用条件：回合改到的文件（相对会话目录）有一个命中 `paths` 的某一项。 */
 export function matchesPaths(
   paths: readonly string[] | undefined,
@@ -132,6 +177,8 @@ interface Round {
   readonly workspaceId: WorkspaceId;
   readonly trigger: VerificationTrigger;
   readonly turnId?: TurnId;
+  readonly repairId?: RepairId;
+  readonly attempt?: number;
   /** 会话目录（检查的 cwd 相对它）。 */
   readonly root: string;
   readonly checks: ReadonlyMap<VerificationRunId, CheckDefinition>;
@@ -140,14 +187,34 @@ interface Round {
   cancelReason?: string;
 }
 
+interface Chain {
+  chain: RepairChain;
+  readonly settings: RepairSettings;
+  readonly startedAtMs: number;
+  readonly startTokens: number | undefined;
+  /** 原来那一轮的检查（复验跑它们）。 */
+  readonly checkIds: readonly CheckId[];
+  lastFingerprint: string;
+  /** 进行中的修复回合。 */
+  turnId?: TurnId;
+  permissionDenied: boolean;
+  /** 是 Host 自己停下修复回合时的原因（超出时长、用户发了消息）。 */
+  stopping?: string;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
 export interface VerificationServiceOptions {
   storage: Storage;
   events: EventStore;
   /** 事件总线的 `listenAll`。 */
   listenAll: (listener: (event: WevirEvent) => void) => () => void;
+  sessions: Pick<SessionManager, 'startRepairTurn' | 'cancel'>;
   checks: ChecksStore;
   runner: CheckRunner;
   checkpoints?: Pick<TurnCheckpoints, 'changedPaths'>;
+  hostId: HostId;
+  /** 修复材料的模板；省略时读仓库里的 `prompts/verification-repair.md`。 */
+  repairTemplate?: string;
   maxConcurrent?: number;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
   onError?: (error: unknown) => void;
@@ -156,28 +223,41 @@ export interface VerificationServiceOptions {
 export class VerificationService {
   readonly #storage: Storage;
   readonly #events: EventStore;
+  readonly #sessions: VerificationServiceOptions['sessions'];
   readonly #checks: ChecksStore;
   readonly #runner: CheckRunner;
   readonly #checkpoints: VerificationServiceOptions['checkpoints'];
+  readonly #template: string;
+  readonly #identity: ClientIdentity;
   readonly #maxConcurrent: number;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #onError: (error: unknown) => void;
   readonly #unlisten: () => void;
   readonly #rounds = new Map<VerificationRoundId, Round>();
+  readonly #chains = new Map<SessionId, Chain>();
   /** 每个会话的回合后处理排队执行。 */
   readonly #tails = new Map<SessionId, Promise<unknown>>();
   /** 每个工作区正在跑的检查数与排队等的。 */
   readonly #slots = new Map<WorkspaceId, { running: number; waiting: Array<() => void> }>();
   /** 已经处理过的回合（同一回合只开一轮）。 */
   readonly #handledTurns = new Set<TurnId>();
+  /** 修复回合（`user.message` 带 `from.repair`）：结束后不走回合后自动运行，防止修复再触发修复。 */
+  readonly #repairTurns = new Set<TurnId>();
   #disposed = false;
 
   constructor(options: VerificationServiceOptions) {
     this.#storage = options.storage;
     this.#events = options.events;
+    this.#sessions = options.sessions;
     this.#checks = options.checks;
     this.#runner = options.runner;
     this.#checkpoints = options.checkpoints;
+    this.#template = options.repairTemplate ?? loadRepairTemplate();
+    this.#identity = {
+      deviceId: options.hostId,
+      clientId: 'wevir-verification',
+      clientKind: 'desktop',
+    };
     this.#maxConcurrent = options.maxConcurrent ?? VERIFICATION_MAX_CONCURRENT;
     this.#onWarning = options.onWarning ?? (() => {});
     this.#onError =
@@ -225,7 +305,14 @@ export class VerificationService {
     patch: Partial<RepairSettings>,
   ): Promise<RepairSettings> {
     this.#workspace(workspaceId);
-    return this.#checks.setRepair(workspaceId, patch);
+    const repair = await this.#checks.setRepair(workspaceId, patch);
+    // 用户关掉自动修复：进行中的链停下（已经开始的修复回合照常结束，之后不再修）。
+    if (!repair.enabled) {
+      for (const [sessionId, chain] of this.#chains) {
+        if (this.#record(sessionId)?.workspaceId === workspaceId) chain.stopping ??= 'disabled';
+      }
+    }
+    return repair;
   }
 
   #workspace(workspaceId: WorkspaceId) {
@@ -272,14 +359,26 @@ export class VerificationService {
         issues: [{ path: ['sessionId'], message: 'no checks configured' }],
       });
     }
+    // 手动运行时用户可能正在停修复链之外的东西：进行中的链此刻一定在等复验或下一次修复之间，交给用户。
+    this.#stopChain(sessionId, 'user_message');
     const round = this.#startRound(record, { trigger: 'manual' }, chosen);
     return { roundId: round.id, runs: [...round.runs] };
   }
 
-  /** `verification.cancel`：取消会话里还在跑或排着的检查。 */
+  /** `verification.cancel`：取消会话里还在跑或排着的检查，停下修复链；修复回合进行中时一并停下它。 */
   cancel(sessionId: SessionId): { cancelled: number } {
     this.#session(sessionId);
-    return { cancelled: this.#cancelRounds(sessionId, 'user') };
+    const cancelled = this.#cancelRounds(sessionId, 'user');
+    const chain = this.#chains.get(sessionId);
+    if (chain !== undefined) {
+      if (chain.turnId !== undefined) {
+        chain.stopping ??= 'user_cancelled';
+        void this.#sessions.cancel(sessionId).catch(() => {});
+      } else {
+        this.#stopChain(sessionId, 'user_cancelled');
+      }
+    }
+    return { cancelled };
   }
 
   /** `verification.status`：重算此刻的代码状态；与验收那一轮的不同时，验收回到 `unverified`（`code_changed`）。 */
@@ -342,7 +441,7 @@ export class VerificationService {
 
   #startRound(
     record: SessionRecord,
-    meta: { trigger: VerificationTrigger; turnId?: TurnId },
+    meta: { trigger: VerificationTrigger; turnId?: TurnId; repairId?: RepairId; attempt?: number },
     checks: readonly CheckDefinition[],
     notRun: ReadonlyArray<{ check: CheckDefinition; reason: string }> = [],
   ): Round {
@@ -361,6 +460,8 @@ export class VerificationService {
       kind: check.kind,
       trigger: meta.trigger,
       ...(meta.turnId !== undefined && { turnId: meta.turnId }),
+      ...(meta.repairId !== undefined && { repairId: meta.repairId }),
+      ...(meta.attempt !== undefined && { attempt: meta.attempt }),
       status: 'running',
       queuedAt: now,
     });
@@ -379,6 +480,8 @@ export class VerificationService {
       workspaceId: record.workspaceId as WorkspaceId,
       trigger: meta.trigger,
       ...(meta.turnId !== undefined && { turnId: meta.turnId }),
+      ...(meta.repairId !== undefined && { repairId: meta.repairId }),
+      ...(meta.attempt !== undefined && { attempt: meta.attempt }),
       root: record.cwd,
       checks: definitions,
       runs,
@@ -569,7 +672,7 @@ export class VerificationService {
     return cancelled;
   }
 
-  /** 一轮跑完：写验收状态。 */
+  /** 一轮跑完：写验收状态，再看修复链。 */
   #roundFinished(round: Round): void {
     if (this.#disposed) return;
     const acceptance = acceptanceOf(round.runs, {
@@ -578,6 +681,8 @@ export class VerificationService {
       at: isoNow(),
     });
     this.#write(round.sessionId, [acceptanceChanged(acceptance)]);
+    if (round.trigger === 'manual') return;
+    this.#enqueue(round.sessionId, () => this.#afterRound(round, acceptance));
   }
 
   // ── 会话里的动静 ─────────────────────────────────────────────
@@ -586,18 +691,68 @@ export class VerificationService {
     if (this.#disposed) return;
     const sessionId = event.sessionId;
     switch (event.type) {
-      case 'turn.started':
+      case 'turn.started': {
         // 新回合开始：这个会话还在跑的检查反正会过期，取消掉。
         this.#cancelRounds(sessionId, 'turn_started');
+        const chain = this.#chains.get(sessionId);
+        if (
+          chain !== undefined &&
+          chain.turnId !== event.payload.turnId &&
+          !this.#isRepairTurn(sessionId, event.payload.turnId)
+        ) {
+          // 修复链在两次修复之间（复验中）时用户开了回合：交给用户。
+          this.#stopChain(sessionId, 'user_message');
+        }
         break;
+      }
+      case 'user.message': {
+        const repair = event.payload.from?.repair;
+        if (repair !== undefined) this.#repairTurns.add(event.payload.turnId);
+        const chain = this.#chains.get(sessionId);
+        if (repair !== undefined && chain?.chain.id === repair.repairId) {
+          chain.turnId = event.payload.turnId;
+          this.#updateChain(sessionId, {
+            turnIds: [...chain.chain.turnIds, event.payload.turnId],
+          });
+        }
+        break;
+      }
+      case 'pending.added': {
+        const chain = this.#chains.get(sessionId);
+        // 用户的消息（不是别的会话或进程通知）：修复回合由 SessionManager 停下，这里记下原因；在复验中则直接停链。
+        if (chain !== undefined && event.payload.pending.from === undefined) {
+          if (chain.turnId !== undefined) chain.stopping ??= 'user_message';
+          else {
+            this.#cancelRounds(sessionId, 'turn_started');
+            this.#stopChain(sessionId, 'user_message');
+          }
+        }
+        break;
+      }
+      case 'approval.resolved': {
+        const chain = this.#chains.get(sessionId);
+        if (chain?.turnId !== undefined && event.payload.status === 'denied') {
+          chain.permissionDenied = true;
+        }
+        break;
+      }
       case 'turn.finished': {
         const { turnId, outcome } = event.payload;
-        this.#enqueue(sessionId, () => this.#afterTurn(sessionId, turnId, outcome));
+        const chain = this.#chains.get(sessionId);
+        if (chain?.turnId === turnId) {
+          this.#enqueue(sessionId, () => this.#repairTurnFinished(sessionId, chain, outcome));
+        } else {
+          this.#enqueue(sessionId, () => this.#afterTurn(sessionId, turnId, outcome));
+        }
         break;
       }
       default:
         break;
     }
+  }
+
+  #isRepairTurn(sessionId: SessionId, turnId: TurnId): boolean {
+    return this.#chains.get(sessionId)?.chain.turnIds.includes(turnId) === true;
   }
 
   #enqueue(sessionId: SessionId, task: () => Promise<void> | void): void {
@@ -614,7 +769,7 @@ export class VerificationService {
 
   /** 回合后自动运行（决策 11）。 */
   async #afterTurn(sessionId: SessionId, turnId: TurnId, outcome: TurnOutcome): Promise<void> {
-    if (this.#disposed || this.#handledTurns.has(turnId)) return;
+    if (this.#disposed || this.#handledTurns.has(turnId) || this.#repairTurns.has(turnId)) return;
     this.#handledTurns.add(turnId);
     if (outcome !== 'completed') return;
     const record = this.#record(sessionId);
@@ -667,14 +822,307 @@ export class VerificationService {
       this.#markUnverified(sessionId, 'code_changed');
   }
 
+  // ── 自动修复（决策 12） ──────────────────────────────────────
+
+  async #afterRound(round: Round, acceptance: SessionAcceptance): Promise<void> {
+    if (this.#disposed) return;
+    const sessionId = round.sessionId;
+    if (round.trigger === 'repair') {
+      const chain = this.#chains.get(sessionId);
+      if (chain === undefined || chain.chain.id !== round.repairId) return;
+      this.#updateChain(sessionId, { lastRoundId: round.id });
+      await this.#continueChain(sessionId, chain, round, acceptance);
+      return;
+    }
+    if (
+      round.trigger !== 'after_turn' ||
+      acceptance.status !== 'failed' ||
+      round.turnId === undefined
+    )
+      return;
+    const { repair } = await this.#checks.list(round.workspaceId);
+    if (!repair.enabled) return;
+    if (this.#chains.has(sessionId)) return;
+    const failed = round.runs.filter(
+      (run) => run.status === 'failed' || run.status === 'timed_out',
+    );
+    const repairable = failed.every(
+      (run) => run.status === 'failed' && REPAIRABLE_REASONS.has(run.reason ?? ''),
+    );
+    const now = isoNow();
+    const chain: Chain = {
+      chain: {
+        id: newId('rpr'),
+        roundId: round.id,
+        originTurnId: round.turnId,
+        status: 'running',
+        attempt: 0,
+        maxAttempts: repair.maxAttempts,
+        turnIds: [],
+        lastRoundId: round.id,
+        startedAt: now,
+        updatedAt: now,
+      },
+      settings: repair,
+      startedAtMs: Date.now(),
+      startTokens: this.#events.snapshot(sessionId)?.usage?.totalTokens,
+      checkIds: round.runs.filter((run) => run.status !== 'not_run').map((run) => run.checkId),
+      lastFingerprint: roundFingerprint(failed.map((run) => run.fingerprint ?? run.id)),
+      permissionDenied: false,
+    };
+    this.#chains.set(sessionId, chain);
+    this.#write(sessionId, [repairUpdated(chain.chain)]);
+    if (!repairable) {
+      this.#stopChain(sessionId, 'not_repairable');
+      return;
+    }
+    await this.#attempt(sessionId, chain, failed);
+  }
+
+  /** 修复后复验的一轮跑完。 */
+  async #continueChain(
+    sessionId: SessionId,
+    chain: Chain,
+    round: Round,
+    acceptance: SessionAcceptance,
+  ): Promise<void> {
+    if (chain.stopping !== undefined) {
+      this.#stopChain(sessionId, chain.stopping);
+      return;
+    }
+    if (acceptance.status === 'accepted') {
+      this.#endChain(sessionId, { status: 'passed' });
+      return;
+    }
+    if (acceptance.status === 'environment_unavailable') {
+      this.#stopChain(sessionId, 'environment_unavailable');
+      return;
+    }
+    if (acceptance.status !== 'failed') {
+      this.#stopChain(sessionId, acceptance.reason ?? 'not_repairable');
+      return;
+    }
+    const failed = round.runs.filter(
+      (run) => run.status === 'failed' || run.status === 'timed_out',
+    );
+    const fingerprint = roundFingerprint(failed.map((run) => run.fingerprint ?? run.id));
+    if (fingerprint === chain.lastFingerprint) {
+      this.#stopChain(sessionId, 'repeated_failure');
+      return;
+    }
+    chain.lastFingerprint = fingerprint;
+    if (
+      !failed.every((run) => run.status === 'failed' && REPAIRABLE_REASONS.has(run.reason ?? ''))
+    ) {
+      this.#stopChain(sessionId, 'not_repairable');
+      return;
+    }
+    if (chain.chain.attempt >= chain.chain.maxAttempts) {
+      this.#stopChain(sessionId, 'limit');
+      return;
+    }
+    await this.#attempt(sessionId, chain, failed);
+  }
+
+  /** 开一次修复：先写 `repair.updated`（次数加一），再开修复回合。 */
+  async #attempt(
+    sessionId: SessionId,
+    chain: Chain,
+    failed: readonly VerificationRun[],
+  ): Promise<void> {
+    const budget = this.#overBudget(sessionId, chain);
+    if (budget) {
+      this.#stopChain(sessionId, 'budget');
+      return;
+    }
+    const workspaceId = this.#record(sessionId)?.workspaceId as WorkspaceId | undefined;
+    const current =
+      workspaceId === undefined ? undefined : (await this.#checks.list(workspaceId)).repair;
+    if (current?.enabled !== true) {
+      this.#stopChain(sessionId, 'disabled');
+      return;
+    }
+    const attempt = chain.chain.attempt + 1;
+    this.#updateChain(sessionId, { attempt });
+    const content = renderRepairMaterial(this.#template, {
+      attempt,
+      maxAttempts: chain.chain.maxAttempts,
+      failures: await this.#failureMaterial(sessionId, chain, failed),
+    });
+    const result = await this.#sessions
+      .startRepairTurn(sessionId, {
+        content: [{ type: 'text', text: content }],
+        sentBy: this.#identity,
+        from: {
+          sessionId,
+          kind: 'report',
+          repair: {
+            repairId: chain.chain.id,
+            attempt,
+            maxAttempts: chain.chain.maxAttempts,
+            roundId: chain.chain.lastRoundId ?? chain.chain.roundId,
+            originTurnId: chain.chain.originTurnId,
+          },
+        },
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof HostError)) this.#onError(error);
+        return { skipped: 'session_unavailable' };
+      });
+    if ('skipped' in result) {
+      this.#stopChain(sessionId, result.skipped);
+      return;
+    }
+    chain.turnId = result.turnId;
+    // 修复回合进行中超出总时长：停下它（之后按 budget 停链）。
+    const left = chain.settings.maxDurationMs - (Date.now() - chain.startedAtMs);
+    chain.timer = setTimeout(
+      () => {
+        if (chain.turnId !== result.turnId) return;
+        chain.stopping ??= 'budget';
+        void this.#sessions.cancel(sessionId).catch(() => {});
+      },
+      Math.max(0, left),
+    );
+  }
+
+  #overBudget(sessionId: SessionId, chain: Chain): boolean {
+    if (Date.now() - chain.startedAtMs >= chain.settings.maxDurationMs) return true;
+    const tokens = this.#events.snapshot(sessionId)?.usage?.totalTokens;
+    if (tokens !== undefined && chain.startTokens !== undefined) {
+      return tokens - chain.startTokens >= chain.settings.maxTokens;
+    }
+    return false;
+  }
+
+  /** 修复回合结束。 */
+  async #repairTurnFinished(
+    sessionId: SessionId,
+    chain: Chain,
+    outcome: TurnOutcome,
+  ): Promise<void> {
+    if (chain.timer !== undefined) clearTimeout(chain.timer);
+    const turnId = chain.turnId;
+    chain.turnId = undefined;
+    if (this.#chains.get(sessionId) !== chain) return;
+    if (turnId !== undefined) this.#handledTurns.add(turnId);
+    if (outcome === 'cancelled') {
+      this.#stopChain(sessionId, chain.stopping ?? 'user_cancelled');
+      return;
+    }
+    if (outcome !== 'completed') {
+      this.#stopChain(sessionId, chain.stopping ?? 'turn_failed');
+      return;
+    }
+    if (chain.permissionDenied) {
+      this.#stopChain(sessionId, 'permission_denied');
+      return;
+    }
+    if (chain.stopping !== undefined) {
+      this.#stopChain(sessionId, chain.stopping);
+      return;
+    }
+    const record = this.#record(sessionId);
+    if (!record) return;
+    const { checks } = await this.#checks.list(record.workspaceId as WorkspaceId);
+    const again = checks.filter((check) => chain.checkIds.includes(check.id));
+    if (again.length === 0) {
+      this.#stopChain(sessionId, 'not_repairable');
+      return;
+    }
+    const snapshot = this.#events.snapshot(sessionId);
+    if (snapshot?.session.state !== 'idle' || (snapshot.pendingMessages ?? []).length > 0) {
+      this.#stopChain(sessionId, 'user_message');
+      return;
+    }
+    this.#startRound(
+      record,
+      {
+        trigger: 'repair',
+        ...(turnId !== undefined && { turnId }),
+        repairId: chain.chain.id,
+        attempt: chain.chain.attempt,
+      },
+      again,
+    );
+  }
+
+  /** 失败材料：每个失败检查一个 `<check-output>` 块，带来源；输出只给尾部，整份有上限。 */
+  async #failureMaterial(
+    sessionId: SessionId,
+    chain: Chain,
+    failed: readonly VerificationRun[],
+  ): Promise<string> {
+    const blocks: string[] = [];
+    let budget = REPAIR_MATERIAL_MAX_LENGTH;
+    for (const run of failed) {
+      const page = await this.#runner.read(sessionId, run.id).catch(() => undefined);
+      const full = page?.text ?? run.summary ?? '';
+      const tail =
+        full.length > REPAIR_OUTPUT_MAX_LENGTH
+          ? `…\n${full.slice(-REPAIR_OUTPUT_MAX_LENGTH)}`
+          : full;
+      const state = run.codeState;
+      const attrs = [
+        `check="${escapeAttr(run.name)}"`,
+        `revision="${run.checkRevision}"`,
+        `command="${escapeAttr(run.command)}"`,
+        `cwd="${escapeAttr(run.cwd === '' ? '.' : run.cwd)}"`,
+        `status="${run.status}"`,
+        ...(run.reason !== undefined ? [`reason="${run.reason}"`] : []),
+        ...(run.exitCode !== undefined && run.exitCode !== null
+          ? [`exit_code="${run.exitCode}"`]
+          : []),
+        ...(run.tests !== undefined
+          ? [
+              `tests="passed ${run.tests.passed}, failed ${run.tests.failed}, skipped ${run.tests.skipped}"`,
+            ]
+          : []),
+        ...(state?.kind === 'git'
+          ? [`code_state="${state.head ?? 'no-commit'} ${state.tree}"`]
+          : []),
+        `original_turn="${chain.chain.originTurnId}"`,
+        `full_output="${escapeAttr(this.#runner.outputPath(sessionId, run.id))}"`,
+      ];
+      const body = tail.replace(/<\/check-output>/gi, '</check-output_>');
+      let block = `<check-output ${attrs.join(' ')}>\n${body}\n</check-output>`;
+      if (block.length > budget)
+        block = `${block.slice(0, Math.max(0, budget - 40))}\n…\n</check-output>`;
+      budget -= block.length;
+      blocks.push(block);
+      if (budget <= 200) break;
+    }
+    return blocks.join('\n\n');
+  }
+
+  #updateChain(sessionId: SessionId, patch: Partial<RepairChain>): void {
+    const chain = this.#chains.get(sessionId);
+    if (chain === undefined) return;
+    chain.chain = { ...chain.chain, ...patch, updatedAt: isoNow() };
+    this.#write(sessionId, [repairUpdated(chain.chain)]);
+  }
+
+  #stopChain(sessionId: SessionId, reason: string): void {
+    this.#endChain(sessionId, { status: 'stopped', stopReason: reason });
+  }
+
+  #endChain(sessionId: SessionId, patch: Pick<RepairChain, 'status'> & Partial<RepairChain>): void {
+    const chain = this.#chains.get(sessionId);
+    if (chain === undefined) return;
+    if (chain.timer !== undefined) clearTimeout(chain.timer);
+    this.#updateChain(sessionId, patch);
+    this.#chains.delete(sessionId);
+  }
+
   // ── 生命周期 ─────────────────────────────────────────────────
 
   /**
-   * Host 启动对账：上次没跑完的检查记为 `cancelled`（`host_restarted`），验证中的验收回到 `unverified`。
+   * Host 启动对账：上次没跑完的检查记为 `cancelled`（`host_restarted`），验证中的验收回到 `unverified`，进行中的修复链停下。
    * 什么都不重开。在服务客户端之前调用一次。
    */
-  recover(): { cancelledRuns: number } {
+  recover(): { cancelledRuns: number; stoppedRepairs: number } {
     let cancelledRuns = 0;
+    let stoppedRepairs = 0;
     const records = this.#storage.sessions.list({
       includeRemovedWorkspaces: true,
       includeChildren: false,
@@ -698,15 +1146,29 @@ export class VerificationService {
           acceptanceChanged({ status: 'unverified', reason: 'host_restarted', updatedAt: now }),
         );
       }
+      if (verification.repair?.status === 'running') {
+        stoppedRepairs++;
+        inputs.push(
+          repairUpdated({
+            ...verification.repair,
+            status: 'stopped',
+            stopReason: 'host_restarted',
+            updatedAt: now,
+          }),
+        );
+      }
       if (inputs.length > 0) this.#write(sessionId, inputs);
     }
-    return { cancelledRuns };
+    return { cancelledRuns, stoppedRepairs };
   }
 
-  /** 删除会话：取消它的检查、结束检查进程（输出随会话的大输出目录删）。 */
+  /** 删除会话：取消它的检查、停链、结束检查进程（输出随会话的大输出目录删）。 */
   async removeSessions(sessionIds: readonly SessionId[]): Promise<void> {
     for (const sessionId of sessionIds) {
       this.#cancelRounds(sessionId, 'session_closed');
+      const chain = this.#chains.get(sessionId);
+      if (chain?.timer !== undefined) clearTimeout(chain.timer);
+      this.#chains.delete(sessionId);
     }
     await this.#runner.removeSessions(sessionIds);
   }
@@ -718,6 +1180,9 @@ export class VerificationService {
     for (const round of this.#rounds.values()) {
       round.cancelReason ??= 'host_shutdown';
       round.abort.abort();
+    }
+    for (const chain of this.#chains.values()) {
+      if (chain.timer !== undefined) clearTimeout(chain.timer);
     }
     await this.#runner.close();
   }
@@ -741,6 +1206,18 @@ function acceptanceChanged(acceptance: SessionAcceptance): AppendInput {
   return { type: 'acceptance.changed', source: 'host', payload: { acceptance } };
 }
 
+function repairUpdated(repair: RepairChain): AppendInput {
+  return { type: 'repair.updated', source: 'host', payload: { repair } };
+}
+
 function turnOf(meta: { turnId?: TurnId }): { turnId?: TurnId } {
   return meta.turnId === undefined ? {} : { turnId: meta.turnId };
+}
+
+function escapeAttr(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/\n/g, ' ');
 }

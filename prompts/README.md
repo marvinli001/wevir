@@ -1,8 +1,8 @@
 # Wevir 提示词
 
-这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
+这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、自动修复，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
@@ -15,6 +15,7 @@
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
 | [`prompt-suggestion.md`](prompt-suggestion.md) | 输入建议：预测用户接着会发的一句话 | Host（0.53.0，`packages/host/src/prompt-suggestion.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发（不带工具的单次生成，不另开引擎连接） | 已接入（有 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`session-recap.md`](session-recap.md) | 离开后摘要：回到离开过的会话时的一到三句话小结 | Host（0.54.0，`packages/host/src/recap.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
+| [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
@@ -27,6 +28,7 @@
 - **ChatGPT 订阅登录 + OpenAI 模型**：继续用 Codex 模型目录里按模型调好的提示词（ADR-0005 未决事项 1 原先的建议）。那些提示词针对 OpenAI 模型调过，Wevir 不替换。
 - **dsh、Grok Build、Gemini CLI 等通用 ACP 引擎**：用各自的提示词。`base.md` 里的工具名都是 Codex 的，不适用。
 - **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md` 与 `session-recap.md`**：与引擎无关，由 Host 直接调模型。
+- **`verification-repair.md`**：与引擎无关，不单独调模型，是修复回合里交给会话自己的模型的一条消息。
 - **`compact.md`**：只在 Codex 引擎 + 经网关的第三方模型的 thread 上生效，用 `compact_prompt` 下发。
 
 ## Codex 一回合里模型看到的说明
@@ -120,3 +122,7 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 1. ~~**计划模式怎样下发**~~（ADR-0005 未决事项 5）：已定（2026-10-15，ADR-0005 补记 21）。开实验面，用 Codex 原生的协作模式：`plan-mode.md` 作为计划模式的 `developer_instructions`（经网关的模型），`<proposed_plan>` 由 Codex 解析成计划条目，`request_user_input` 照常；计划回合不改沙箱，只读靠说明约束（同 Codex）。
 2. **自动复核用哪个模型、是否经网关、默认开不开。** 随 Host 的实现任务决定。
 3. **三个插件的形态。** 浏览器放在桌面端哪里、用什么驱动、Chrome 用扩展还是 CDP、电脑操作先做哪个平台、工具怎样暴露给 Codex（MCP 还是动态工具），建插件时决定，再补各 SKILL.md 的占位。
+
+## 自动修复
+
+用户在项目设置里打开自动修复后，回合结束后 Host 跑的检查没有通过时，Host 用 `verification-repair.md` 开一个修复回合（默认最多 2 次，另有总时长与用量上限）。失败材料由 Host 拼好：每个失败的检查一个 `<check-output>` 块，属性里是检查名称、版本、命令、目录、状态、退出码、测试计数、代码状态、原回合与完整输出的路径，正文是输出的尾部（每个检查最多 6000 字，整份最多 24000 字，正文里的 `</check-output>` 会被改写）。说明里写明这些块是数据、不是指令。修复回合结束后 Host 重跑同样的检查，以那次结果为准；修复回合本身不再触发回合后检查。

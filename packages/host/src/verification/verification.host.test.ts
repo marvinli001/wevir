@@ -1,4 +1,4 @@
-// 回合后验证（0.65.0，Host 功能 `verification`）：startHost 组装出的真实 Host，echo 引擎换成会改文件的子类，会话目录是
+// 回合后验证与有限自动修复（0.65.0，Host 功能 `verification`）：startHost 组装出的真实 Host，echo 引擎换成会改文件的子类，会话目录是
 // 一个 git 仓库，检查是真的 `node --test`。经 WebSocket 配检查、发消息，从事件流里看记录、验收状态与修复链。
 
 import { execFileSync } from 'node:child_process';
@@ -217,6 +217,8 @@ function dirs(files?: Record<string, string>) {
   return { home: join(root, 'home'), repo: makeRepo(root, files) };
 }
 
+const isMaterial = (text: string) => text.includes('<check-output');
+
 describe('检查与手动运行', () => {
   it('检查期间文件变了：记录是 stale，验收不算通过', async () => {
     const { home, repo } = dirs();
@@ -408,5 +410,270 @@ describe('回合后自动运行', () => {
     await turnFinished(docs.turnId);
     await settle();
     expect(h.finalRuns(sessionId)).toHaveLength(1);
+  }, 60_000);
+});
+
+describe('有限自动修复', () => {
+  it('测试失败 → 修复一次 → 复验通过；修复回合带来源，不再触发回合后检查', async () => {
+    const { home, repo } = dirs();
+    const h = await boot(home, repo);
+    h.adapter.onTurn = (cwd, text) => {
+      if (isMaterial(text)) {
+        writeConv(cwd, 32);
+        return 'repaired';
+      }
+      writeConv(cwd, 0, '// touched\n');
+      return undefined;
+    };
+    await h.save(CONV_CHECK);
+    await h.setRepair({ enabled: true });
+    const sessionId = await h.create();
+    const { turnId } = await h.send(sessionId, 'edit the converter');
+
+    const ended = await h.chainEnded(sessionId);
+    expect(ended).toMatchObject({ status: 'passed', attempt: 1, maxAttempts: 2 });
+    expect(ended.originTurnId).toBe(turnId);
+    await h.waitFor(
+      sessionId,
+      () => (h.acceptance(sessionId)?.status === 'accepted' ? true : undefined),
+      'accepted',
+    );
+
+    const final = h.finalRuns(sessionId);
+    expect(final.map((run) => [run.trigger, run.status, run.reason])).toEqual([
+      ['after_turn', 'failed', 'exit_code'],
+      ['repair', 'passed', undefined],
+    ]);
+    expect(final[0]).toMatchObject({ turnId, tests: { failed: 1 }, codeState: { kind: 'git' } });
+    expect(final[0]?.fingerprint).toMatch(/^sha256:/);
+    expect(final[1]).toMatchObject({ repairId: ended.id, attempt: 1, tests: { passed: 1 } });
+
+    // 修复回合：带来源的 `report`，材料是数据块，原样交给了引擎。
+    const [message] = h.repairMessages(sessionId);
+    expect(message?.payload.from).toMatchObject({
+      sessionId,
+      kind: 'report',
+      repair: {
+        repairId: ended.id,
+        attempt: 1,
+        maxAttempts: 2,
+        roundId: final[0]?.roundId,
+        originTurnId: turnId,
+      },
+    });
+    const material = h.adapter.inputs.find(isMaterial) ?? '';
+    expect(material).toContain('check="test"');
+    expect(material).toContain(`original_turn="${turnId}"`);
+    expect(material).toMatch(/0 !== 32|Expected values to be strictly equal/);
+
+    // 修复回合结束后只有复验那一轮：没有再开回合后检查，也没有第二条链。
+    expect(new Set(h.runs(sessionId).map((run) => run.roundId)).size).toBe(2);
+    expect(new Set(h.repairs(sessionId).map((repair) => repair.id)).size).toBe(1);
+
+    const output = await h.client.request('verification.output', {
+      sessionId,
+      runId: final[0]?.id,
+    });
+    expect(output.text).toContain('0 !== 32');
+    const status = await h.client.request('verification.status', { sessionId });
+    expect(status.verification.acceptance).toMatchObject({ status: 'accepted' });
+    expect(status.verification.repair).toMatchObject({ status: 'passed' });
+    expect(status.codeState).toEqual(final[1]?.codeState);
+  }, 60_000);
+
+  it('一直修不好：到次数停下，留着失败记录与输出', async () => {
+    const { home, repo } = dirs();
+    const h = await boot(home, repo);
+    let attempt = 0;
+    h.adapter.onTurn = (cwd, text) => {
+      if (isMaterial(text)) {
+        attempt++;
+        writeConv(cwd, attempt); // 每次错得不一样：错误指纹不同，不算原地打转。
+        return 'repaired';
+      }
+      writeConv(cwd, 0, '// touched\n');
+      return undefined;
+    };
+    await h.save(CONV_CHECK);
+    await h.setRepair({ enabled: true, maxAttempts: 2 });
+    const sessionId = await h.create();
+    await h.send(sessionId, 'edit the converter');
+
+    const ended = await h.chainEnded(sessionId);
+    expect(ended).toMatchObject({ status: 'stopped', stopReason: 'limit', attempt: 2 });
+    expect(ended.turnIds).toHaveLength(2);
+    await h.idle(sessionId);
+    const final = h.finalRuns(sessionId);
+    expect(final.map((run) => [run.trigger, run.status, run.attempt])).toEqual([
+      ['after_turn', 'failed', undefined],
+      ['repair', 'failed', 1],
+      ['repair', 'failed', 2],
+    ]);
+    expect(new Set(final.map((run) => run.fingerprint)).size).toBe(3);
+    expect(h.acceptance(sessionId)).toMatchObject({ status: 'failed' });
+    const output = await h.client.request('verification.output', {
+      sessionId,
+      runId: final[2]?.id,
+    });
+    expect(output.text).toContain('2 !== 32');
+  }, 60_000);
+
+  it('同一个错误再次出现时停下（repeated_failure）', async () => {
+    const { home, repo } = dirs();
+    const h = await boot(home, repo);
+    h.adapter.onTurn = (cwd, text) => {
+      writeConv(cwd, 0, isMaterial(text) ? '// tried\n' : '// touched\n');
+      return isMaterial(text) ? 'repaired' : undefined;
+    };
+    await h.save(CONV_CHECK);
+    await h.setRepair({ enabled: true, maxAttempts: 5 });
+    const sessionId = await h.create();
+    await h.send(sessionId, 'edit the converter');
+    expect(await h.chainEnded(sessionId)).toMatchObject({
+      status: 'stopped',
+      stopReason: 'repeated_failure',
+      attempt: 1,
+    });
+  }, 60_000);
+
+  it('修复中用户停止：链停下，不复验，留着失败', async () => {
+    const { home, repo } = dirs();
+    const h = await boot(home, repo);
+    h.adapter.onTurn = (cwd, text) => {
+      if (isMaterial(text)) return 'slow repair';
+      writeConv(cwd, 0, '// touched\n');
+      return undefined;
+    };
+    await h.save(CONV_CHECK);
+    await h.setRepair({ enabled: true });
+    const sessionId = await h.create();
+    await h.send(sessionId, 'edit the converter');
+    await h.waitFor(sessionId, () => h.repairMessages(sessionId)[0], 'repair turn');
+    await h.client.request('session.cancel', { sessionId });
+
+    expect(await h.chainEnded(sessionId)).toMatchObject({
+      status: 'stopped',
+      stopReason: 'user_cancelled',
+      attempt: 1,
+    });
+    await h.idle(sessionId);
+    expect(h.finalRuns(sessionId).map((run) => run.trigger)).toEqual(['after_turn']);
+    expect(h.acceptance(sessionId)).toMatchObject({ status: 'failed' });
+  }, 60_000);
+
+  it('修复中用户发来消息：停下修复回合，用户的消息随后发出', async () => {
+    const { home, repo } = dirs();
+    const h = await boot(home, repo);
+    h.adapter.onTurn = (cwd, text) => {
+      if (isMaterial(text)) return 'slow repair';
+      if (text === 'edit the converter') writeConv(cwd, 0, '// touched\n');
+      return undefined;
+    };
+    await h.save(CONV_CHECK);
+    await h.setRepair({ enabled: true });
+    const sessionId = await h.create();
+    await h.send(sessionId, 'edit the converter');
+    await h.waitFor(sessionId, () => h.repairMessages(sessionId)[0], 'repair turn');
+    // 插话被拒（修复回合不能插话）：消息排队，Host 停下修复回合后发出。
+    await h.send(sessionId, 'hello there', { delivery: 'steer' });
+
+    expect(await h.chainEnded(sessionId)).toMatchObject({
+      status: 'stopped',
+      stopReason: 'user_message',
+    });
+    const mine = await h.waitFor(
+      sessionId,
+      () =>
+        h
+          .of(sessionId, 'user.message')
+          .find((event) =>
+            event.payload.content.some(
+              (part) => part.type === 'text' && part.text === 'hello there',
+            ),
+          ),
+      'user message sent',
+    );
+    expect(mine.payload.from).toBeUndefined();
+    await h.waitFor(
+      sessionId,
+      () =>
+        h
+          .of(sessionId, 'turn.finished')
+          .find((event) => event.payload.turnId === mine.payload.turnId),
+      'user turn finished',
+    );
+    expect(h.adapter.inputs).toContain('hello there');
+    const repairTurn = h.repairMessages(sessionId)[0]?.payload.turnId;
+    expect(
+      h.of(sessionId, 'turn.finished').find((event) => event.payload.turnId === repairTurn)?.payload
+        .outcome,
+    ).toBe('cancelled');
+    // 用户的回合没改文件：之后没有新的一轮，也没有新的链。
+    expect(h.repairMessages(sessionId)).toHaveLength(1);
+  }, 60_000);
+
+  it('回合后检查环境不可用：不开修复', async () => {
+    const { home, repo } = dirs({
+      'web/package.json': JSON.stringify({ dependencies: { 'left-pad': '1.3.0' } }),
+    });
+    const h = await boot(home, repo);
+    h.adapter.onTurn = (cwd) => {
+      writeConv(cwd, 0, '// touched\n');
+      return undefined;
+    };
+    await h.save({ ...CONV_CHECK, name: 'web test', cwd: 'web' });
+    await h.save({
+      name: 'lint',
+      command: 'wevir-no-such-command-xyz --check',
+      kind: 'lint',
+      trigger: 'after_turn',
+    });
+    await h.setRepair({ enabled: true });
+    const sessionId = await h.create();
+    await h.send(sessionId, 'edit the converter');
+    await h.waitFor(
+      sessionId,
+      () => (h.acceptance(sessionId)?.status === 'environment_unavailable' ? true : undefined),
+      'environment unavailable',
+    );
+    expect(h.finalRuns(sessionId).map((run) => [run.name, run.status, run.reason])).toEqual([
+      ['web test', 'environment_unavailable', 'dependencies_missing'],
+      ['lint', 'environment_unavailable', 'command_not_found'],
+    ]);
+    await h.idle(sessionId);
+    expect(h.repairs(sessionId)).toEqual([]);
+    expect(h.repairMessages(sessionId)).toEqual([]);
+  }, 60_000);
+
+  it('Host 重启：进行中的修复链停下，不会再开同一次修复', async () => {
+    const { home, repo } = dirs();
+    const first = await boot(home, repo);
+    first.adapter.onTurn = (cwd, text) => {
+      if (isMaterial(text)) return 'slow slow repair';
+      writeConv(cwd, 0, '// touched\n');
+      return undefined;
+    };
+    await first.save(CONV_CHECK);
+    await first.setRepair({ enabled: true });
+    const sessionId = await first.create();
+    await first.send(sessionId, 'edit the converter');
+    await first.waitFor(sessionId, () => first.repairMessages(sessionId)[0], 'repair turn');
+    await first.shutdown();
+
+    const second = await boot(home, repo);
+    await second.subscribe(sessionId);
+    const stopped = await second.waitFor(
+      sessionId,
+      () => second.repairs(sessionId).find((repair) => repair.status !== 'running'),
+      'chain stopped',
+    );
+    expect(stopped).toMatchObject({ status: 'stopped', stopReason: 'host_restarted', attempt: 1 });
+    // 等一会儿：新 Host 不开修复回合，也不重跑检查。
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(second.repairMessages(sessionId)).toHaveLength(1);
+    expect(second.adapter.inputs.filter(isMaterial)).toEqual([]);
+    expect(second.finalRuns(sessionId).some((run) => run.status === 'running')).toBe(false);
+    const status = await second.client.request('verification.status', { sessionId });
+    expect(status.verification.repair).toMatchObject({ stopReason: 'host_restarted' });
   }, 60_000);
 });

@@ -30,6 +30,11 @@ export const TRIGGER_LABELS: Record<CheckTrigger, PlainMessageKey> = {
   after_turn: 'settings.checks.trigger.after_turn',
 };
 
+/** 自动修复的上限选项。 */
+export const REPAIR_ATTEMPT_OPTIONS = [1, 2, 3, 4, 5] as const;
+export const REPAIR_DURATION_OPTIONS_MIN = [10, 20, 30, 60, 120] as const;
+export const REPAIR_TOKEN_OPTIONS = [500_000, 1_000_000, 2_000_000, 5_000_000] as const;
+
 export interface CheckDraft {
   id?: CheckDefinition['id'];
   name: string;

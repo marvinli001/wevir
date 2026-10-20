@@ -1,4 +1,4 @@
-// 会话侧栏的“检查”卡片（0.65.0，Host 功能 `verification`）：验收状态（与引擎的回合状态分开）、最近一轮的记录；“运行检查”
+// 会话侧栏的“检查”卡片（0.65.0，Host 功能 `verification`）：验收状态（与引擎的回合状态分开）、最近一轮的记录、修复链；“运行检查”
 // 与“停止”；点一条记录看完整输出。只在项目里的普通会话里有（子会话、“对话”里没有），旧 Host 没有这张卡片。
 
 import { hostSupports } from '@wevir/client-sdk';
@@ -23,6 +23,9 @@ import {
   latestRound,
   RUN_LABELS,
   reasonLabel,
+  repairActive,
+  repairForRound,
+  stopLabel,
   testCount,
 } from '@/session/verification-model';
 import { VerificationOutputDialog } from '@/session/verification-output';
@@ -143,7 +146,8 @@ function VerificationDetails({
   const [pending, setPending] = useState(false);
   const acceptance = verification?.acceptance;
   const runs = latestRound(verification);
-  const running = acceptance?.status === 'verifying';
+  const repair = repairForRound(verification?.repair, runs[0]?.roundId);
+  const running = acceptance?.status === 'verifying' || repairActive(repair);
   const status = acceptance?.status ?? 'unverified';
   const reason = status === 'accepted' ? undefined : reasonLabel(acceptance?.reason);
 
@@ -175,6 +179,24 @@ function VerificationDetails({
             <RunRow key={run.id} run={run} onOpen={() => setViewing(run)} />
           ))}
         </ul>
+      )}
+      {repair && (
+        <p
+          className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+          data-testid="rail-repair"
+        >
+          <span className="shrink-0">
+            {t('verification.repair', { attempt: repair.attempt, max: repair.maxAttempts })}
+          </span>
+          <span className="min-w-0 truncate">
+            ·{' '}
+            {repair.status === 'running'
+              ? t('verification.repair.running')
+              : repair.status === 'passed'
+                ? t('verification.repair.passed')
+                : t(stopLabel(repair.stopReason) ?? 'verification.repair.stopped')}
+          </span>
+        </p>
       )}
       {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       <div className="mt-3 flex h-6 items-center gap-2">
