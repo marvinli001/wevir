@@ -1,5 +1,5 @@
 // “变更”窗格的数据（0.20.0，host-api.md §3.1）：`workspace.diff` 的一段改动与 `session.checkpoints` 的回合列表。Host 每次现读；
-// 这里在窗格显示时读，之后窗口获得焦点、会话的回合开始或结束（`refreshKey` 变了）、点“刷新”时重读，回合进行中再每 5 s 读一次。
+// 这里在窗格显示时读，之后窗口获得焦点、会话的回合开始或结束（`refreshKey` 变了）、点“刷新”时重读，回合进行中再每 5 s（窗口看得见时）读一次。
 // 已经结束的回合的 diff 不会再变，读到一次就不再读。
 
 import { hostSupports } from '@wevir/client-sdk';
@@ -12,6 +12,8 @@ import type {
 } from '@wevir/protocol';
 import { useCallback, useEffect, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
+import { LruMap } from '@/lib/lru';
+import { everyWhileVisible } from '@/lib/visible-interval';
 
 const LIVE_REFRESH_MS = 5_000;
 
@@ -21,9 +23,13 @@ export function useDiffSupported(): boolean {
   return view.status === 'connected' && hostSupports(view.hello.features, 'workspace_diff');
 }
 
-/** 最近一次读到的，换范围、换会话回来时先显示它。 */
-const lastDiff = new Map<string, WorkspaceDiffResult>();
-const lastCheckpoints = new Map<SessionId, readonly TurnCheckpoint[]>();
+/** 最近一次读到的，换范围、换会话回来时先显示它（最近用过的一批；patch 合计最多这么多字符）。 */
+const DIFF_MAX_CHARS = 32 * 1024 * 1024;
+const lastDiff = new LruMap<string, WorkspaceDiffResult>(32, {
+  maxWeight: DIFF_MAX_CHARS,
+  weigh: (diff) => diff.patch?.length ?? 0,
+});
+const lastCheckpoints = new LruMap<SessionId, readonly TurnCheckpoint[]>(64);
 
 export function sourceKey(sessionId: SessionId, source: DiffSource): string {
   return source.kind === 'turn'
@@ -84,11 +90,11 @@ export function useWorkspaceDiff(
     };
     read();
     const watch = !(source.kind === 'turn' && !live);
-    const timer = live ? window.setInterval(read, LIVE_REFRESH_MS) : undefined;
+    const stopTimer = live ? everyWhileVisible(read, LIVE_REFRESH_MS) : undefined;
     if (watch) window.addEventListener('focus', read);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      stopTimer?.();
       window.removeEventListener('focus', read);
     };
   }, [client, supported, workspaceId, sessionId, key, live, refreshKey, manual]);

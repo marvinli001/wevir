@@ -1,7 +1,7 @@
 // 文件窗格与 @ 提及的数据（0.22.0，host-api.md §3.1 的 `workspace.files` / `listDir` / `readFile`；0.32.0 起还有
 // `workspace.fileUrl` 的流式地址与 `workspace.writeFile` 的写回）。Host 每次现读；目录与
-// 文件内容在窗格显示时读，之后窗口获得焦点、会话的回合结束（`refreshKey` 变了）、点“刷新”时重读。最近一次读到的留在内存里，
-// 换回来时先显示它。
+// 文件内容在窗格显示时读，之后窗口获得焦点、会话的回合结束（`refreshKey` 变了）、点“刷新”时重读。最近一次读到的留在内存里
+// （最近用过的一批，有上限），换回来时先显示它。
 
 import { hostSupports } from '@wevir/client-sdk';
 import type {
@@ -15,6 +15,7 @@ import type {
 } from '@wevir/protocol';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { describe, type HostConnectionView, useHostConnection } from '@/host/host-connection';
+import { LruMap } from '@/lib/lru';
 
 /** 读哪个目录：会话的目录（环境会话的 worktree），没有会话时是工作区的根目录。 */
 export interface FileScope {
@@ -93,8 +94,14 @@ function useHostRead<T>(
   return { value: current.value, error: current.error, loading, refresh };
 }
 
-const directories = new Map<string, readonly WorkspaceEntry[]>();
-const files = new Map<string, WorkspaceReadFileResult>();
+/** 留在内存里的文件内容最多这么多字符（文本与图片的 base64 合计）。 */
+const FILES_MAX_CHARS = 32 * 1024 * 1024;
+
+const directories = new LruMap<string, readonly WorkspaceEntry[]>(500);
+const files = new LruMap<string, WorkspaceReadFileResult>(64, {
+  maxWeight: FILES_MAX_CHARS,
+  weigh: (file) => (file.text?.length ?? 0) + (file.image?.data.length ?? 0),
+});
 
 /** 一个目录的直接子项；`enabled` 为 false（折叠着）时不读。 */
 export function useDirectory(
@@ -157,7 +164,7 @@ export function useFilePreviewSupported(): boolean {
   return hasFilePreview(useHostConnection().view);
 }
 
-const fileUrls = new Map<string, WorkspaceFileUrlResult>();
+const fileUrls = new LruMap<string, WorkspaceFileUrlResult>(500);
 
 /**
  * 一个文件的流式地址（`workspace.fileUrl`）；`enabled` 为 false 或 Host 没有 `file_preview` 时不读。地址后面加上修改时间

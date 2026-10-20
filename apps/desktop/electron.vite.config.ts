@@ -47,7 +47,11 @@ export default defineConfig(({ command }) => {
       html: { cspNonce: command === 'serve' ? nonce : CSP_NONCE_PLACEHOLDER },
       // 字体总是单独成文件：Vite 默认把小于 4 KiB 的资源内联成 data: URI，而 CSP 的
       // font-src 只放行 'self'（src/shared/csp.ts）。其他资源仍按默认规则。
-      build: { assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined) },
+      // electron-vite 给渲染进程的默认是不压缩：几 MB 的启动包每次都要原样解析，这里打开（Vite 默认的 esbuild）。
+      build: {
+        minify: true,
+        assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined),
+      },
       // “变更”窗格的高亮 worker（@pierre/diffs 的 worker.js）里有动态 import（Shiki 的语法与 WASM 引擎），默认的 iife 格式不能
       // 分包，打成 ES 模块（`new Worker(url, { type: 'module' })`，同 origin 的单独文件，CSP 的 worker-src 'self'）。
       worker: { format: 'es' },

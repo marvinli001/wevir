@@ -3,6 +3,7 @@
 // localStorage，不同步到其他设备。
 
 import type { Session } from '@wevir/protocol';
+import { useSyncExternalStore } from 'react';
 import { createPersistedStore } from '@/lib/store';
 
 type SeenMap = Readonly<Record<string, number>>;
@@ -44,3 +45,8 @@ export function isUnread(map: SeenMap, session: Session): boolean {
 }
 
 export const useSeenSessions = seen.use;
+
+/** 一个会话是否未读。打开着的会话每条事件都会记一次已读，只订阅这一个布尔值的组件不跟着重渲染。 */
+export function useUnread(session: Session): boolean {
+  return useSyncExternalStore(seen.subscribe, () => isUnread(seen.get(), session));
+}

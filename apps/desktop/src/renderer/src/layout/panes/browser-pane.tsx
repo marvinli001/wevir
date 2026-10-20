@@ -264,13 +264,29 @@ function overlapsOverlay(rect: DOMRect): boolean {
   return false;
 }
 
-/** 网页的位置：每一帧量一次占位的位置，变了就告诉主进程；看不见（标签页被切走、窗格收起、被弹层盖住）时收起。 */
+/** 有东西可能挪动了占位（见 Viewport）之后，接着每帧量多久：过渡、弹层的入场动画都在这段时间里，期间有新的变化就再延长。 */
+const SETTLE_MS = 500;
+
+/** 会挪动占位或盖住它的事件：过渡与动画（侧栏开合、弹层入场）、滚动。 */
+const LAYOUT_EVENTS = [
+  'transitionrun',
+  'transitionend',
+  'animationstart',
+  'animationend',
+  'scroll',
+] as const;
+
+/**
+ * 网页的位置：量占位的位置，变了就告诉主进程；看不见（标签页被切走、窗格收起、被弹层盖住）时收起。窗口与窗格的大小、DOM（弹层
+ * 插入、窗格挪动、分隔条拖动）、过渡与动画、滚动有变化时每一帧量一次，量到稳定为止；什么都没变时不出帧。
+ */
 function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState | undefined }) {
   const ref = useRef<HTMLDivElement>(null);
   const tabId = tab?.id;
   useEffect(() => {
     const browser = window.wevir.browser;
     let frame = 0;
+    let settleUntil = 0;
     let last: string | undefined;
     const measure = () => {
       const element = ref.current;
@@ -293,15 +309,31 @@ function Viewport({ sessionId, tab }: { sessionId: string; tab: BrowserTabState 
       if (bounds) void browser.show(bounds, sessionId).catch(() => {});
       else void browser.hide().catch(() => {});
     };
-    // 每一帧量一次（拖分隔条时跟得上）；窗口被挡住时浏览器不出帧，另有一个慢一些的定时器兜底。
-    const tick = () => {
-      frame = requestAnimationFrame(tick);
+    // 有变化时每一帧量一次（拖分隔条时跟得上）；窗口被挡住时浏览器不出帧，另有一个慢一些的定时器兜底。
+    const tick = (now: number) => {
       measure();
+      frame = now < settleUntil ? requestAnimationFrame(tick) : 0;
     };
-    tick();
+    const wake = () => {
+      settleUntil = performance.now() + SETTLE_MS;
+      if (frame === 0) frame = requestAnimationFrame(tick);
+    };
+    measure();
+    wake();
+    const resizes = new ResizeObserver(wake);
+    resizes.observe(document.documentElement);
+    if (ref.current) resizes.observe(ref.current);
+    const mutations = new MutationObserver(wake);
+    mutations.observe(document.body, { subtree: true, childList: true, attributes: true });
+    for (const type of LAYOUT_EVENTS) {
+      document.addEventListener(type, wake, { capture: true, passive: true });
+    }
     const timer = setInterval(measure, 250);
     return () => {
       cancelAnimationFrame(frame);
+      resizes.disconnect();
+      mutations.disconnect();
+      for (const type of LAYOUT_EVENTS) document.removeEventListener(type, wake, { capture: true });
       clearInterval(timer);
       void browser.hide().catch(() => {});
     };

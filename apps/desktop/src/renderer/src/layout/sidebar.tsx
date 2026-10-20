@@ -12,7 +12,7 @@ import {
   Settings,
   SquarePen,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { memo, type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { automationsAvailability } from '@/automations/automations-model';
 import { Collapse } from '@/components/collapse';
@@ -74,7 +74,7 @@ const COMPLETED_SHOWN = 10;
  * ADR-0007 补记 4）、“使用统计”（0.62.0，Host 有 `usage_stats` 功能才有）与设置入口。不显示与 Host 的连接状态：连上时什么都不
  * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
-export function Sidebar({ controls }: { controls?: ReactNode }) {
+export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNode }) {
   const location = useLocation();
   // Host 有 `plugins` 功能才有“插件”入口（0.42.0）；断线重连期间 client 还在，入口不闪。
   const { client } = useHostConnection();
@@ -146,7 +146,7 @@ export function Sidebar({ controls }: { controls?: ReactNode }) {
       </div>
     </div>
   );
-}
+});
 
 /**
  * 会话一节：标题点一下收起整节（Codex 的“项目 ⌄”），右边是按状态 / 按项目的切换（U19，desktop-layout.md §13）与创建项目的
@@ -559,22 +559,38 @@ const MARKERS: Record<SessionMarker, { tone: StatusTone; label: string }> = {
   error: { tone: 'danger', label: t('session.marker.error') },
 };
 
-/**
- * 会话行：标题与项目名对齐（左边一格是状态：运行中是这个回合的 thinking orb，待审批时 orb 停住；出错是状态点），右侧
- * “待审批”标签或未读点。orb 与消息流里的是同一种（fx/orb-state.ts 按会话与回合 ID 定）。
- */
-function SessionRow({
-  workspaceId,
-  session,
-  unread,
-  project,
-}: {
+interface SessionRowProps {
   workspaceId: string;
   session: Session;
   unread: boolean;
   /** 按状态分组时（U19）行右边写项目名，悬停提示是“项目名 · 路径”。 */
   project?: { displayName: string; rootPath: string };
-}) {
+}
+
+/**
+ * 列表每次更新只换掉有新事件的那个会话对象，其余的会话对象不变：行按内容比较，流式回答时左栏其他行不跟着重渲染。
+ * `project` 由列表每次现算（“对话”的那份是新对象），比较它的两个字段。
+ */
+function sameRow(a: SessionRowProps, b: SessionRowProps): boolean {
+  return (
+    a.workspaceId === b.workspaceId &&
+    a.session === b.session &&
+    a.unread === b.unread &&
+    a.project?.displayName === b.project?.displayName &&
+    a.project?.rootPath === b.project?.rootPath
+  );
+}
+
+/**
+ * 会话行：标题与项目名对齐（左边一格是状态：运行中是这个回合的 thinking orb，待审批时 orb 停住；出错是状态点），右侧
+ * “待审批”标签或未读点。orb 与消息流里的是同一种（fx/orb-state.ts 按会话与回合 ID 定）。
+ */
+const SessionRow = memo(function SessionRow({
+  workspaceId,
+  session,
+  unread,
+  project,
+}: SessionRowProps) {
   const marker = sessionMarker(session);
   const markerInfo = marker && MARKERS[marker];
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';
@@ -711,4 +727,4 @@ function SessionRow({
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+}, sameRow);
