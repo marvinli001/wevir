@@ -109,6 +109,15 @@ describe.skipIf(binary === undefined)(
       expect(result.find((e) => e.type === 'usage.updated')).toMatchObject({
         contextSize: 128_000,
       });
+      // 每次请求的用量（0.62.0）：模型是会话的，回合开始量起的时长与首个 token。
+      expect(result.filter((e) => e.type === 'usage.recorded')).toEqual([
+        expect.objectContaining({
+          model: MOCK_MODEL,
+          requestId: expect.stringMatching(/:\d+$/),
+          durationMs: expect.any(Number),
+          firstTokenMs: expect.any(Number),
+        }),
+      ]);
       // 基础提示词是 Wevir 的 base.md，按会话的 Provider 与模型渲染（模型请求里的第一条 developer 消息）。
       const first = mock.requests.at(-1)?.body.input[0];
       expect(JSON.stringify(first)).toContain('底层模型是 Wevir Mock，由 Wevir Mock 提供');

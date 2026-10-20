@@ -33,6 +33,8 @@ export const HOME_LAYOUT = {
   rolesDir: 'roles',
   /** 共享任务清单（task-board.ts）：每个会话树的根一个 `<根会话 ID>.json`（0600）。 */
   tasksDir: 'tasks',
+  /** 用量统计的价格表（0.62.0，usage/pricing.ts）：从 models.dev 取来、压缩过的单价，每天刷新（0600）。 */
+  pricingFile: 'pricing.json',
 } as const;
 
 export interface ResolveHomeOptions {

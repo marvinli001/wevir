@@ -64,9 +64,10 @@ describe('OpenCodeTurnMapper 回放真实录音', () => {
       'assistant.delta',
       'assistant.message',
       'assistant.stream_ended',
+      'usage.recorded',
       'usage.updated',
     ]);
-    const [first, second, message, ended, usage] = events;
+    const [first, second, message, ended, recorded, usage] = events;
     expect(first).toMatchObject({ kind: 'text', text: 'Hello from ', blockIndex: 0 });
     expect(second).toMatchObject({ text: 'the mock model.' });
     const attemptId = (first as { attemptId: string }).attemptId;
@@ -77,6 +78,18 @@ describe('OpenCodeTurnMapper 回放真实录音', () => {
     });
     expect(ended).toMatchObject({ attemptId, outcome: 'committed' });
     expect(usage).toMatchObject({ contextUsed: 132, contextSize: 128_000, totalTokens: 132 });
+    // 每次调用的用量（0.62.0）：时长到 text part 结束，首个 token 是 text part 开始。
+    expect(recorded).toEqual({
+      type: 'usage.recorded',
+      engineSessionId: recording.sessionID,
+      requestId: 'msg_13e26fdd2001lU3DllkZDPbCo1',
+      model: 'echo',
+      upstream: 'mock',
+      inputTokens: 120,
+      outputTokens: 12,
+      durationMs: 424,
+      firstTokenMs: 423,
+    });
     expect(mapper.lastFinish).toBe('stop');
     expect(mapper.finish()).toEqual([]);
   });
@@ -124,6 +137,18 @@ describe('OpenCodeTurnMapper 回放真实录音', () => {
     expect(attempts.size).toBe(1);
     expect(events.filter((event) => event.type === 'usage.updated')).toHaveLength(2);
     expect(events.at(-1)).toMatchObject({ type: 'usage.updated', totalTokens: 264 });
+    // 调工具的那次：时长只到工具开始跑（不含工具的一秒），没有文本就没有首个 token 的时间。
+    expect(events.filter((event) => event.type === 'usage.recorded')).toEqual([
+      expect.objectContaining({ requestId: 'msg_13e270030001jFyjCqagNJjvlQ', durationMs: 12 }),
+      expect.objectContaining({
+        requestId: 'msg_13e27046b001kcNvA3X3Tz4o8a',
+        durationMs: 10,
+        firstTokenMs: 9,
+      }),
+    ]);
+    expect(events.find((event) => event.type === 'usage.recorded')).not.toHaveProperty(
+      'firstTokenMs',
+    );
   });
 
   it('审批：tool part 还是 pending 时请求审批，用请求的 metadata 先报开始；bash 运行中的输出作增量', () => {
@@ -286,5 +311,47 @@ describe('辅助函数', () => {
       { type: 'assistant.message', text: 'Hello' },
     ]);
     expect(mapper.part({ ...base, id: 'prt_2', text: 'x', synthetic: true })).toEqual([]);
+  });
+});
+
+describe('每次调用的用量（0.62.0）', () => {
+  it('输出加回推理；缓存原样；没拿到用量（第一个 step 前中断）的不报', () => {
+    const mapper = new OpenCodeTurnMapper('s');
+    const base = {
+      id: 'msg_1',
+      sessionID: 's',
+      role: 'assistant',
+      time: { created: 1_000, completed: 3_000 },
+      parentID: 'msg_0',
+      modelID: 'claude-sonnet-4-5',
+      providerID: 'anthropic',
+      mode: 'build',
+      agent: 'build',
+      path: { cwd: '/', root: '/' },
+      cost: 0,
+    } as const;
+    const events = mapper.message({
+      ...base,
+      tokens: { input: 50, output: 200, reasoning: 80, cache: { read: 9000, write: 300 } },
+    });
+    expect(events.find((event) => event.type === 'usage.recorded')).toEqual({
+      type: 'usage.recorded',
+      engineSessionId: 's',
+      requestId: 'msg_1',
+      model: 'claude-sonnet-4-5',
+      upstream: 'anthropic',
+      inputTokens: 50,
+      outputTokens: 280,
+      cacheReadTokens: 9000,
+      cacheWriteTokens: 300,
+      reasoningTokens: 80,
+      durationMs: 2000,
+    });
+    const aborted = mapper.message({
+      ...base,
+      id: 'msg_2',
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    });
+    expect(aborted.some((event) => event.type === 'usage.recorded')).toBe(false);
   });
 });

@@ -1086,6 +1086,27 @@ const memorySourced: MemoryNote = {
   lastEdit: { by: 'user', at: TS },
 };
 
+/** 0.62.0：一组请求的合计。 */
+const usageAggregate = {
+  requests: 1_212,
+  tokens: {
+    input: 2_424,
+    output: 1_450_210,
+    cacheRead: 227_000_000,
+    cacheWrite: 512_340,
+    reasoning: 0,
+  },
+  cost: 87.05,
+  unpriced: 3,
+  timing: {
+    timedRequests: 900,
+    outputTokens: 1_300_000,
+    durationMs: 14_400_000,
+    firstTokenCount: 800,
+    firstTokenMs: 1_280_000,
+  },
+};
+
 export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
@@ -3048,6 +3069,124 @@ export const methodSamples: MethodSamples = {
       invalid: [{ conflict: false }],
     },
   },
+  'usage.summary': {
+    params: {
+      valid: [
+        { edges: [1_760_918_400_000, 1_761_004_800_000] },
+        {
+          edges: [1_760_918_400_000, 1_760_922_000_000, 1_760_925_600_000],
+          filter: { sources: ['claude', 'chatgpt'], providerIds: ['prv_1'], models: [] },
+        },
+      ],
+      invalid: [
+        {},
+        { edges: [1] },
+        { edges: [-1, 2] },
+        { edges: [1, 2], filter: { sources: ['nope'] } },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          totals: usageAggregate,
+          buckets: [usageAggregate, { ...usageAggregate, requests: 0 }],
+          byProvider: [
+            {
+              ...usageAggregate,
+              providerId: 'prv_claude',
+              providerName: 'Claude',
+              source: 'claude',
+            },
+          ],
+          byModel: [{ ...usageAggregate, model: 'claude-opus-5-5' }],
+          options: {
+            sources: ['claude'],
+            providers: [{ id: 'prv_claude', name: 'Claude', source: 'claude' }],
+            models: ['claude-opus-5-5'],
+          },
+          pricing: {
+            source: 'models.dev',
+            fetchedAt: 1_760_918_400_000,
+            models: 4_210,
+            refreshing: false,
+          },
+        },
+      ],
+      invalid: [{ totals: usageAggregate }],
+    },
+  },
+  'usage.records': {
+    params: {
+      valid: [
+        { from: 0, to: 1_761_004_800_000 },
+        { from: 0, to: 1, filter: { models: ['gpt-5.5'] }, offset: 50, limit: 50 },
+      ],
+      invalid: [{ from: 0 }, { from: 0, to: 1, limit: 0 }],
+    },
+    result: {
+      valid: [
+        { records: [], total: 0 },
+        {
+          records: [
+            {
+              id: '42',
+              at: 1_760_937_254_000,
+              sessionId: ids.session,
+              requestId: 'msg_011CgCXLLe7JJph3wyFYBkJD',
+              source: 'claude',
+              providerId: 'prv_claude',
+              providerName: 'Claude',
+              model: 'claude-opus-5-5',
+              tokens: { input: 2, output: 159, cacheRead: 225_678, cacheWrite: 697, reasoning: 0 },
+              cost: {
+                input: 0.00001,
+                output: 0.0032,
+                cacheRead: 0.0451,
+                cacheWrite: 0.0056,
+                total: 0.0539,
+              },
+              price: { input: 5, output: 20, cacheRead: 0.2, cacheWrite: 8 },
+              priceSource: 'anthropic',
+              durationMs: 2_800,
+              firstTokenMs: 1_400,
+            },
+            {
+              id: '43',
+              at: 1_760_937_255_000,
+              sessionId: 'ses_deleted',
+              requestId: 'msg_c2f1',
+              source: 'opencode',
+              providerId: 'prv_opencode',
+              providerName: 'OpenCode',
+              upstream: 'github-copilot',
+              model: 'gpt-5.5',
+              tokens: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, reasoning: 5 },
+            },
+          ],
+          total: 2,
+        },
+      ],
+      invalid: [{ records: [{ id: '1' }], total: 1 }],
+    },
+  },
+  'usage.pricing': {
+    params: { valid: [{}, { refresh: true }], invalid: [{ refresh: 'yes' }] },
+    result: {
+      valid: [
+        { pricing: { source: 'models.dev', models: 0, refreshing: true } },
+        {
+          pricing: {
+            source: 'models.dev',
+            fetchedAt: 1_760_918_400_000,
+            models: 4_210,
+            refreshing: false,
+            lastError: 'HTTP 503',
+          },
+        },
+      ],
+      invalid: [{ pricing: { source: 'models.dev' } }],
+    },
+  },
   'tools.presets': {
     params: empty,
     result: {
@@ -3523,6 +3662,7 @@ export const notificationSamples: NotificationSamples = {
     ],
     invalid: [{ settings: {} }],
   },
+  'usage.changed': { valid: [{}], invalid: [null, 'x'] },
   'memory.changed': {
     valid: [
       { scope: 'global', name: 'reply-language' },

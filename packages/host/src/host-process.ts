@@ -43,6 +43,8 @@ import { HostSettingsStore } from './settings.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
 import { loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
+import { PricingStore } from './usage/pricing.js';
+import { UsageService } from './usage/usage-service.js';
 import type { WebService } from './web/service.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
@@ -249,6 +251,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     void taskBoards
       .sweep((sessionId) => sessionsDb.sessions.get(sessionId) !== undefined)
       .catch((error: unknown) => logger.warn('task board sweep failed', { error }));
+    // 用量统计（0.62.0）：每次模型请求记进用量表；成本按 models.dev 的价格表算，价格表每天刷新。
+    let usage: UsageService | undefined;
+    const pricing = new PricingStore({
+      file: homePath(home, 'pricingFile'),
+      onChange: () => usage?.pricingChanged(),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    usage = new UsageService({
+      storage,
+      pricing,
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    const usageStats = usage;
+    void pricing.start();
     const manager = new SessionManager({
       storage,
       events: store,
@@ -266,6 +282,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         dispose: () => appTools?.plugins?.close(),
       },
       onTurnFinished: (info) => appTools?.onTurnFinished(info),
+      onUsage: (context, event) => usageStats.record(context, event),
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
       onWarning: (message, fields) => logger.warn(message, fields),
@@ -409,6 +426,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         fileUrls,
         chats,
         memory,
+        usage: { service: usageStats, pricing },
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -436,6 +454,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         provider_enabled: true,
         chat_sessions: true,
         memory: true,
+        usage_stats: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),
@@ -467,6 +486,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(accounts !== undefined && { accounts }),
       settings,
       memory,
+      usage: usageStats,
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。

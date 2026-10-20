@@ -1798,7 +1798,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       // 忽略；其余一律原样保留。
       const events =
         method === 'thread/tokenUsage/updated' || method === 'mcpServer/startupStatus/updated'
-          ? session.mapper.map(method, params)
+          ? session.mapper.map(method, params, { stale: true })
           : (IGNORED_NOTIFICATIONS as readonly string[]).includes(method)
             ? []
             : [session.mapper.raw(method, params)];
@@ -2517,10 +2517,12 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    * 登录的模型在 Codex 自己的目录里，大小取 Codex 报的，阈值不报。
    */
   #usageOptions(model: () => ProviderModelConfig): CodexEventMapperOptions {
-    if (this.#chatgpt) return { contextSize: () => model().contextWindow };
+    // 每次请求的用量记会话当前的模型（0.62.0）。
+    if (this.#chatgpt) return { contextSize: () => model().contextWindow, model: () => model().id };
     return {
       contextSize: () => contextWindowOf(model()),
       autoCompactAt: () => autoCompactLimit(model()),
+      model: () => model().id,
     };
   }
 

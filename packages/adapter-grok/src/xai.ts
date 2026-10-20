@@ -140,6 +140,71 @@ export function promptCompleteOf(method: string, params: unknown): XAiPromptComp
   return complete;
 }
 
+/** 一个回合里一个模型的用量（0.62.0，`usage.recorded` 去掉 `type`、`engineSessionId` 与 `requestId`）。 */
+export interface XAiModelUsage {
+  model?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  durationMs?: number;
+}
+
+/**
+ * `turn_completed` 带的回合用量（0.62.0）。录到的 Grok 1.0.41：`usage` 有 `inputTokens`、`outputTokens`、`totalTokens`、
+ * `cachedReadTokens`、`cacheCreationTokens`、`reasoningTokens`、`modelCalls`、`apiDurationMs`，`modelUsage` 按模型各一份
+ * 同样的字段。`totalTokens` 是输入加输出，所以输入含缓存（OpenAI 口径，减掉缓存的读写才是事件的口径），推理含在输出里。
+ * 按模型各报一条（没有 `modelUsage` 时报整份、不带模型），时长是这些请求的 `apiDurationMs` 之和；首个 token 的时间不报
+ * （一个回合可能有几次调用）。后台任务的回合（`task-completed-*`）也算，它们同样花了 token。没有用量时 undefined。
+ */
+export function turnUsageOf(
+  method: string,
+  params: unknown,
+): { sessionId: string; promptId: string; models: XAiModelUsage[] } | undefined {
+  if (!XAI_SESSION_NOTIFICATION_METHODS.includes(method)) return undefined;
+  const fields = record(params);
+  const sessionId = nonEmpty(fields?.sessionId);
+  const update = record(fields?.update);
+  if (sessionId === undefined || update?.sessionUpdate !== 'turn_completed') return undefined;
+  const promptId = nonEmpty(update.prompt_id) ?? nonEmpty(update.promptId);
+  const usage = record(update.usage);
+  if (promptId === undefined || usage === undefined) return undefined;
+  const byModel = record(usage.modelUsage);
+  const entries: Array<[string | undefined, Record<string, unknown>]> =
+    byModel === undefined
+      ? [[undefined, usage]]
+      : Object.entries(byModel).flatMap(([model, value]) => {
+          const entry = record(value);
+          return entry === undefined ? [] : [[nonEmpty(model), entry] as const];
+        });
+  const models = entries.flatMap(([model, entry]) => {
+    const parsed = modelUsageOf(entry);
+    return parsed === undefined ? [] : [{ ...(model !== undefined && { model }), ...parsed }];
+  });
+  return models.length === 0 ? undefined : { sessionId, promptId, models };
+}
+
+function modelUsageOf(entry: Record<string, unknown>): XAiModelUsage | undefined {
+  const count = (value: unknown) =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+  const input = count(entry.inputTokens);
+  const output = count(entry.outputTokens);
+  if (input + output === 0) return undefined;
+  const cacheRead = Math.min(count(entry.cachedReadTokens), input);
+  const cacheWrite = Math.min(count(entry.cacheCreationTokens), input - cacheRead);
+  const reasoning = Math.min(count(entry.reasoningTokens), output);
+  const duration = count(entry.apiDurationMs);
+  return {
+    inputTokens: input - cacheRead - cacheWrite,
+    outputTokens: output,
+    ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+    ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+    ...(reasoning > 0 && { reasoningTokens: reasoning }),
+    ...(duration > 0 && { durationMs: duration }),
+  };
+}
+
 function optional<K extends string>(key: K, value: string | undefined): { [P in K]?: string } {
   return (value === undefined ? {} : { [key]: value }) as { [P in K]?: string };
 }

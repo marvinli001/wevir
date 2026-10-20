@@ -764,6 +764,26 @@ describe('跨会话记忆（0.57.0）', () => {
   });
 });
 
+describe('用量统计（0.62.0）', () => {
+  it('onUsageChanged：usage.changed 与重连后都通知；退订后不再通知', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { usage_stats: true } } }));
+    const { client } = await connect(host);
+    let calls = 0;
+    const stop = client.onUsageChanged(() => {
+      calls += 1;
+    });
+    host.last.notify('usage.changed', {});
+    await vi.waitFor(() => expect(calls).toBe(1));
+    host.last.drop();
+    await vi.waitFor(() => expect(calls).toBe(2));
+    stop();
+    host.last.notify('usage.changed', {});
+    await tick();
+    expect(calls).toBe(2);
+  });
+});
+
 describe('浏览器提供方（0.33.0）', () => {
   const request = {
     requestId: 'brq_01JA2B3C4D5E6F7G8H9JKMNPQR',

@@ -164,6 +164,7 @@ describe('ChatGPT 账号（account.*）', () => {
       session_compact: true,
       session_review: true,
       session_goals: true,
+      usage_stats: true,
       user_images: true,
       plan_mode: true,
     });
@@ -204,6 +205,7 @@ describe('ChatGPT 账号（account.*）', () => {
       session_compact: true,
       session_review: true,
       session_goals: true,
+      usage_stats: true,
       user_images: true,
       plan_mode: true,
     });

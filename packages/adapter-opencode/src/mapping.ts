@@ -14,9 +14,9 @@
 //   增量块（`message.part.delta` → `assistant.delta`），part 带上结束时间或消息完成时提交（`assistant.message` /
 //   `assistant.thought` 替换这个块），消息完成时报 `assistant.stream_ended`；
 // - tool part 按 `callID` 报 `tool.started` / `tool.updated` / `tool.finished`；question 工具不报（提问由 `question.asked` 报）；
-// - step-finish 与 assistant 消息带 token 用量，消息完成时报 `usage.updated`。
+// - step-finish 与 assistant 消息带 token 用量，消息完成时报 `usage.updated` 与这次调用的 `usage.recorded`（0.62.0）。
 
-import type { AgentEvent, TodoItem } from '@wevir/runtime-adapter';
+import type { AgentEvent, TodoItem, UsageRecordedEvent } from '@wevir/runtime-adapter';
 import { engineToolName } from './app-tools.js';
 import type { Message, Part } from './sdk.js';
 import { openCodeToolDisplay } from './tool-display.js';
@@ -44,6 +44,13 @@ interface Attempt {
   /** 发过增量：结束时要报 `assistant.stream_ended`。 */
   streamed: boolean;
   ended: boolean;
+}
+
+/** 一次模型调用的输出时刻（0.62.0，opencode 的时间戳）：第一个与最后一个 token，有没有调工具。 */
+interface CallTiming {
+  firstAt?: number;
+  lastAt?: number;
+  tools: boolean;
 }
 
 interface ToolState {
@@ -107,6 +114,8 @@ export class OpenCodeTurnMapper {
   readonly #tools = new Map<string, ToolState>();
   /** 计过用量的 assistant 消息。 */
   readonly #counted = new Set<string>();
+  /** assistant 消息 ID → 它的输出时刻。 */
+  readonly #timings = new Map<string, CallTiming>();
   /** 最近一条完成的 assistant 消息的 `finish`（回合结束的 stopReason）。 */
   lastFinish: string | undefined;
 
@@ -117,6 +126,7 @@ export class OpenCodeTurnMapper {
 
   /** `message.part.updated`（assistant 消息的 part；用户消息的由调用方滤掉）。 */
   part(part: Part): AgentEvent[] {
+    this.#noteTiming(part);
     switch (part.type) {
       case 'text':
         if (part.synthetic === true || part.ignored === true) return [];
@@ -159,6 +169,8 @@ export class OpenCodeTurnMapper {
           info.tokens.reasoning;
       const usage = this.#options.usage;
       if (usage !== undefined) usage.totalTokens += total;
+      const recorded = this.#record(info);
+      if (recorded !== undefined) events.push(recorded);
       const contextUsed = contextTokens(info.tokens);
       const contextSize = this.#options.contextSize?.();
       if (contextUsed !== undefined && contextSize !== undefined) {
@@ -172,6 +184,74 @@ export class OpenCodeTurnMapper {
       }
     }
     return events;
+  }
+
+  /**
+   * text / reasoning part 的 `time.start` 是第一段输出到的时刻（opencode 在 `text-start` 时建 part），`time.end` 是这块结束；
+   * tool part 的 `state.time.start` 是模型写完这次调用、工具开始跑的时刻。
+   */
+  #noteTiming(part: Part): void {
+    const times: number[] = [];
+    let first: number | undefined;
+    if (part.type === 'text' || part.type === 'reasoning') {
+      if (part.time === undefined) return;
+      first = part.time.start;
+      times.push(part.time.start, ...(part.time.end === undefined ? [] : [part.time.end]));
+    } else if (part.type === 'tool') {
+      if ('time' in part.state) times.push(part.state.time.start);
+    } else {
+      return;
+    }
+    const timing = this.#timings.get(part.messageID) ?? { tools: false };
+    this.#timings.set(part.messageID, timing);
+    if (part.type === 'tool') timing.tools = true;
+    if (first !== undefined && (timing.firstAt === undefined || first < timing.firstAt))
+      timing.firstAt = first;
+    for (const time of times) {
+      if (timing.lastAt === undefined || time > timing.lastAt) timing.lastAt = time;
+    }
+  }
+
+  /**
+   * 这次调用的 `usage.recorded`（0.62.0）。opencode 的 `tokens.input` 已经减掉缓存的读写（`Session.getUsage`），`output` 减掉
+   * 了 `reasoning`，事件的输出要含推理，所以加回去。时长从消息建立（opencode 发请求之前）算到最后一段输出；消息的
+   * `time.completed` 在工具跑完之后，只有没调工具时才拿它兜底。
+   */
+  #record(info: AssistantMessage): UsageRecordedEvent | undefined {
+    const tokens = info.tokens;
+    const count = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+    const input = count(tokens.input);
+    const reasoning = count(tokens.reasoning);
+    const output = count(tokens.output) + reasoning;
+    const cacheRead = count(tokens.cache?.read);
+    const cacheWrite = count(tokens.cache?.write);
+    // 中断在第一个 step 结束之前：opencode 没拿到用量。
+    if (input + output + cacheRead + cacheWrite === 0) return undefined;
+    const timing = this.#timings.get(info.id);
+    this.#timings.delete(info.id);
+    const created = info.time.created;
+    const last = timing?.lastAt ?? (timing?.tools === true ? undefined : info.time.completed);
+    const durationMs =
+      last !== undefined && last >= created ? Math.round(last - created) : undefined;
+    const firstTokenMs =
+      timing?.firstAt !== undefined && timing.firstAt >= created
+        ? Math.round(timing.firstAt - created)
+        : undefined;
+    return {
+      type: 'usage.recorded',
+      engineSessionId: this.#engineSessionId,
+      requestId: info.id,
+      ...(info.modelID !== '' && { model: info.modelID }),
+      ...(info.providerID !== '' && { upstream: info.providerID }),
+      inputTokens: input,
+      outputTokens: output,
+      ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+      ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+      ...(reasoning > 0 && { reasoningTokens: reasoning }),
+      ...(durationMs !== undefined && { durationMs }),
+      ...(firstTokenMs !== undefined && { firstTokenMs }),
+    };
   }
 
   /** 工具调用的名字（审批要用）；没见过时 undefined。 */

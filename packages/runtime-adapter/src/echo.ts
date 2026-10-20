@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import type { AgentRuntimeAdapter, CancelOptions } from './adapter.js';
 import { AdapterError } from './errors.js';
 import { EventHub } from './event-hub.js';
-import type { AgentEvent, ApprovalCancelledEvent, EngineExitedEvent } from './events.js';
+import type {
+  AgentEvent,
+  ApprovalCancelledEvent,
+  EngineExitedEvent,
+  UsageRecordedEvent,
+} from './events.js';
 import type { EnginePluginConfig, EnginePluginSource } from './plugins.js';
 import type {
   AgentInput,
@@ -692,6 +697,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     let attemptId = `${engineSessionId}:${session.turnCount}`;
     let blocks: ReplyBlock[] = [];
     const slowSteps = /slow/i.test(text) ? 10 : 1;
+    const startedAt = Date.now();
     const notes = session.notes.splice(0);
     const earlier = session.history.slice();
     session.history.push(text);
@@ -894,6 +900,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         contextSize: ECHO_CONTEXT_SIZE,
         totalTokens: 1200 * session.turnCount,
       });
+      emit(echoUsageRecord(session, text, Date.now() - startedAt));
       emit({ type: 'turn.settled', engineSessionId, outcome: 'completed', stopReason: 'end_turn' });
       outcome = 'completed';
     } catch (error) {
@@ -1232,6 +1239,33 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     }
     return session;
   }
+}
+
+/**
+ * 回合的假用量（0.62.0，`usage.recorded`），让开发期的 Host 有用量统计的样本：模型是会话的，输入随消息长度、缓存随回合数增长，
+ * 时长是这个回合实际跑的时间，首个 token 取其中的四分之一。`requestId` 带随机后缀：Echo 的会话不落盘，Host 重启后同一个 ID
+ * 的会话从第一回合重新数。
+ */
+function echoUsageRecord(
+  session: EchoSession,
+  text: string,
+  elapsedMs: number,
+): UsageRecordedEvent {
+  const durationMs = Math.max(1, Math.round(elapsedMs));
+  const cacheRead = 900 * (session.turnCount - 1);
+  return {
+    type: 'usage.recorded',
+    engineSessionId: session.id,
+    requestId: `${session.id}:${session.turnCount}:${randomUUID().slice(0, 8)}`,
+    model: session.config.modelId,
+    inputTokens: 200 + text.length,
+    outputTokens: 120,
+    ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+    cacheWriteTokens: 300,
+    reasoningTokens: 40,
+    durationMs,
+    firstTokenMs: Math.max(1, Math.round(durationMs / 4)),
+  };
 }
 
 /** 等 `promise`；`signal` 先被打断时以它的 reason reject。 */

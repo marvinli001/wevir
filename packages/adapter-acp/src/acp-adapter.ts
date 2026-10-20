@@ -22,6 +22,7 @@ import {
   type SessionConfig,
   type TurnFailedEvent,
   type TurnSettledEvent,
+  type UsageRecordedEvent,
   type UserQuestion,
 } from '@wevir/runtime-adapter';
 import {
@@ -605,6 +606,20 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
           }
         : settledEvent(engineSessionId, completion.stopReason),
     );
+    return true;
+  }
+
+  /**
+   * 引擎在扩展通知里报的用量（0.62.0，`usage.recorded`；Grok 的 `turn_completed`）：按到达顺序进会话的事件流，回合外也报。
+   * 没有挂着的会话时返回 false。
+   */
+  protected recordUsage(
+    engineSessionId: string,
+    usage: Omit<UsageRecordedEvent, 'type' | 'engineSessionId'>,
+  ): boolean {
+    const session = this.#sessions.get(engineSessionId);
+    if (session?.status !== 'open') return false;
+    session.queue.usage({ type: 'usage.recorded', engineSessionId: session.id, ...usage });
     return true;
   }
 

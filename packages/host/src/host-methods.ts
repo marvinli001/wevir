@@ -48,6 +48,8 @@ import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
+import type { PricingStore } from './usage/pricing.js';
+import type { UsageService } from './usage/usage-service.js';
 import type { WebService } from './web/service.js';
 import {
   DEFAULT_FILES_LIMIT,
@@ -119,6 +121,8 @@ export interface HostMethodsOptions {
   memory?: MemoryStore;
   /** 工具预设的清单（0.61.0，`tools.presets`，AppTools 的 `presets`）；没有应用级工具时省略，方法回 `INVALID_PARAMS`。 */
   toolPresets?: () => MethodResult<'tools.presets'>;
+  /** 用量统计（0.62.0，`usage.*`）；省略时 `usage.*` 回 `INVALID_PARAMS`（测试）。 */
+  usage?: { service: UsageService; pricing: PricingStore };
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -221,6 +225,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   };
   // 0.22.0：@ 提及与文件窗格的名字搜索，按目录缓存几秒。
   const fileIndex = new FileIndex();
+  const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
+    if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
+    return options.usage;
+  };
   const memoryStore = (): MemoryStore => {
     if (options.memory === undefined) throw invalidParams([], 'this host has no memory store');
     return options.memory;
@@ -942,6 +950,16 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         : { conflict: true as const, note: toMemoryNote(result.conflict) };
     },
 
+    'usage.summary': async ({ edges, filter }) => usageStats().service.summary(edges, filter),
+    'usage.records': async (params) => {
+      if (params.to < params.from) throw invalidParams(['to'], 'to must not be before from');
+      return usageStats().service.records(params);
+    },
+    'usage.pricing': async ({ refresh }) => {
+      const { pricing } = usageStats();
+      if (refresh === true) await pricing.refresh();
+      return { pricing: pricing.status() };
+    },
     'tools.presets': async () => {
       if (options.toolPresets === undefined) {
         throw invalidParams([], 'this host has no Wevir app tools');

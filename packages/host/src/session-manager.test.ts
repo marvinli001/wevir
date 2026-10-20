@@ -2168,6 +2168,32 @@ describe('SessionManager：其他', () => {
     await expect(send(h, id, 'hi')).rejects.toMatchObject({ code: 'HOST_SHUTTING_DOWN' });
   });
 
+  it('引擎的 usage.recorded 交给 onUsage，带会话此刻的 Provider 与模型，不写事件流', async () => {
+    const injected = new EventHub<AgentEvent>();
+    const onUsage = vi.fn();
+    const h = setup({ manager: { onUsage } });
+    const subscribe = h.adapter.subscribe.bind(h.adapter);
+    vi.spyOn(h.adapter, 'subscribe').mockImplementation((engineSessionId) =>
+      withInjected(subscribe(engineSessionId), injected, engineSessionId),
+    );
+    const id = await create(h);
+    const engineSessionId = h.storage.sessions.get(id)?.engineSessionId as string;
+    const event: AgentEvent = {
+      type: 'usage.recorded',
+      engineSessionId,
+      requestId: 'msg_1',
+      inputTokens: 3,
+      outputTokens: 7,
+    };
+    injected.emit(event);
+    await vi.waitFor(() => expect(onUsage).toHaveBeenCalledTimes(1));
+    expect(onUsage).toHaveBeenCalledWith(
+      { sessionId: id, providerId: 'deepseek-official', modelId: 'deepseek-chat' },
+      event,
+    );
+    expect(all(h, id).map((e) => e.type)).not.toContain('usage.recorded');
+  });
+
   it('上面的用例走过了 domain-model §4.1 的每一条状态转换', () => {
     const expected = SESSION_TRANSITIONS.flatMap((t) =>
       t.from.map((from) => `${from}→${t.to}:${t.reason}`),

@@ -21,6 +21,7 @@ import {
   parseExitPlanMode,
   promptCompleteOf,
   toUserQuestions,
+  turnUsageOf,
   XAiPromptFailure,
 } from './xai.js';
 
@@ -53,6 +54,76 @@ describe('启动参数与审批选项', () => {
         ]),
       ).map((option) => option.optionId),
     ).toEqual(['allow-edits-session', 'allow-once', 'reject-once']);
+  });
+});
+
+describe('回合的用量（0.62.0）', () => {
+  const notification = (prompt_id: string, usage: unknown) => ({
+    sessionId: 's',
+    update: { sessionUpdate: 'turn_completed', prompt_id, stop_reason: 'end_turn', usage },
+  });
+
+  it('按模型各一份；没有 modelUsage 时整份不带模型；后台任务的回合也算', () => {
+    expect(
+      turnUsageOf(
+        '_x.ai/session_notification',
+        notification('p1', {
+          inputTokens: 1000,
+          outputTokens: 90,
+          modelUsage: {
+            'grok-4.7-build': {
+              inputTokens: 800,
+              outputTokens: 60,
+              cachedReadTokens: 500,
+              cacheCreationTokens: 100,
+              reasoningTokens: 40,
+              apiDurationMs: 3000,
+            },
+            'grok-4.7-build-fast': { inputTokens: 200, outputTokens: 30 },
+          },
+        }),
+      ),
+    ).toEqual({
+      sessionId: 's',
+      promptId: 'p1',
+      models: [
+        {
+          model: 'grok-4.7-build',
+          inputTokens: 200,
+          outputTokens: 60,
+          cacheReadTokens: 500,
+          cacheWriteTokens: 100,
+          reasoningTokens: 40,
+          durationMs: 3000,
+        },
+        { model: 'grok-4.7-build-fast', inputTokens: 200, outputTokens: 30 },
+      ],
+    });
+    expect(
+      turnUsageOf(
+        'x.ai/session_notification',
+        notification('task-completed-1', { inputTokens: 10, outputTokens: 2 }),
+      ),
+    ).toEqual({
+      sessionId: 's',
+      promptId: 'task-completed-1',
+      models: [{ inputTokens: 10, outputTokens: 2 }],
+    });
+  });
+
+  it('没有用量、用量全是零或不是 turn_completed 时没有', () => {
+    expect(turnUsageOf('_x.ai/session_notification', notification('p1', undefined))).toBe(
+      undefined,
+    );
+    expect(
+      turnUsageOf(
+        '_x.ai/session_notification',
+        notification('p1', { inputTokens: 0, outputTokens: 0 }),
+      ),
+    ).toBeUndefined();
+    expect(
+      turnUsageOf('_x.ai/session/prompt_complete', { sessionId: 's', promptId: 'p1' }),
+    ).toBeUndefined();
   });
 });
 

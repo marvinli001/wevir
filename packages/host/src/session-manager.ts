@@ -78,6 +78,7 @@ import {
   type SubagentUpdatedEvent,
   type TurnStartedEvent,
   type TurnSteeredEvent,
+  type UsageRecordedEvent,
   type UsageUpdatedEvent,
 } from '@wevir/runtime-adapter';
 import { writeHistoryFile } from '@wevir/runtime-adapter/history-tool';
@@ -231,6 +232,14 @@ export interface SessionManagerOptions {
   };
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
+  /**
+   * 引擎报了一次模型请求的用量（0.62.0 的用量统计，`usage.recorded`）：不写事件流，交给它记到用量表。给出会话此刻的 Provider 与
+   * 模型，引擎没报模型时用会话的。
+   */
+  onUsage?: (
+    context: { sessionId: SessionId; providerId: string; modelId: string },
+    event: UsageRecordedEvent,
+  ) => void;
 }
 
 /** `session.send` 之外的发送参数（0.30.0）。 */
@@ -564,6 +573,7 @@ export class SessionManager {
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
+  readonly #onUsage: SessionManagerOptions['onUsage'];
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
@@ -610,6 +620,7 @@ export class SessionManager {
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#onTurnFinished = options.onTurnFinished;
+    this.#onUsage = options.onUsage;
   }
 
   /** 引擎会话的配置：存下的配置加上这个会话的应用级工具（适配器能挂时）。 */
@@ -3481,6 +3492,12 @@ export class SessionManager {
         ]);
         this.#checkAutoCompaction(runtime, event);
         return;
+      case 'usage.recorded': {
+        if (this.#onUsage === undefined) return;
+        const { providerId, modelId } = this.#snapshot(runtime).session;
+        this.#onUsage({ sessionId, providerId, modelId }, event);
+        return;
+      }
       case 'subagent.started':
         this.#subagentStarted(runtime, event);
         return;

@@ -246,6 +246,7 @@ export class WevirClient {
   readonly #settingsWatchers = new Set<SettingsWatcher>();
   readonly #pluginsWatchers = new Set<PluginsWatcher>();
   readonly #memoryWatchers = new Set<MemoryWatcher>();
+  readonly #usageListeners = new Set<() => void>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
   #browserProvider: BrowserProviderEntry | undefined;
   #state: ConnectionState = { status: 'connecting' };
@@ -467,6 +468,25 @@ export class WevirClient {
     this.#memoryWatchers.add(watcher);
     if (this.#connection !== undefined) this.#readMemory(watcher);
     return () => this.#memoryWatchers.delete(watcher);
+  }
+
+  /**
+   * 用量统计变了（0.62.0，`usage.changed`）：有了新的请求记录或价格表换了，以及每次重连上之后（Host 只给调过 `usage.*` 的连接
+   * 发通知，重连后要重新读一次才会再收到）。客户端自己重读它在看的。返回取消函数。
+   */
+  onUsageChanged(listener: () => void): () => void {
+    this.#usageListeners.add(listener);
+    return () => this.#usageListeners.delete(listener);
+  }
+
+  #usageChanged(): void {
+    for (const listener of [...this.#usageListeners]) {
+      try {
+        listener();
+      } catch (error) {
+        this.#warn('a usage listener threw', { error });
+      }
+    }
   }
 
   #readMemory(watcher: MemoryWatcher): void {
@@ -750,6 +770,7 @@ export class WevirClient {
         for (const watcher of this.#settingsWatchers) this.#readSettings(watcher);
         for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
         for (const watcher of this.#memoryWatchers) this.#readMemory(watcher);
+        if (this.supports('usage_stats')) this.#usageChanged();
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         return;
       }
@@ -991,6 +1012,10 @@ export class WevirClient {
       for (const watcher of [...this.#memoryWatchers]) {
         if (scope === 'global' || watcher.workspaceId === workspaceId) this.#readMemory(watcher);
       }
+      return;
+    }
+    if (method === 'usage.changed') {
+      this.#usageChanged();
       return;
     }
     if (method === 'browser.request') {

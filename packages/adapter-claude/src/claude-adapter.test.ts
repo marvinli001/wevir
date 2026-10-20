@@ -366,6 +366,70 @@ describe('审批（录音 approval.*）', () => {
   });
 });
 
+describe('每次请求的用量（0.62.0）', () => {
+  it('顶层按流式事件报：message_delta 的最终用量，ttft_ms 是首个 token 的时间', async () => {
+    const { adapter } = harness();
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    const records = log.events.filter((event) => event.type === 'usage.recorded');
+    expect(records).toEqual([
+      {
+        type: 'usage.recorded',
+        engineSessionId,
+        requestId: 'msg_011Cg3JvccShYYC2vMpt5t77',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: 10,
+        outputTokens: 45,
+        cacheReadTokens: 11661,
+        cacheWriteTokens: 3350,
+        reasoningTokens: 38,
+        durationMs: expect.any(Number),
+        firstTokenMs: 1159,
+      },
+    ]);
+    const [record] = records;
+    if (record?.type !== 'usage.recorded') throw new Error('unreachable');
+    expect(record.durationMs).toBeGreaterThanOrEqual(1159);
+    // 先于回合结算报。
+    expect(log.events.indexOf(record)).toBeLessThan(log.events.findIndex(isTurnTerminal));
+  });
+
+  it('子 agent 的请求记在子会话上，最后一个请求用 Agent 结果里的最终用量', async () => {
+    const { adapter } = harness();
+    const { engineSessionId } = await adapter.createSession(CONFIG);
+    const parent = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Please start a subagent'));
+    const started = await parent.until((event) => event.type === 'subagent.started');
+    if (started.type !== 'subagent.started') throw new Error('unreachable');
+    const child = collect(adapter, started.childEngineSessionId);
+    await child.until(isTurnTerminal);
+    await parent.until(isTurnTerminal);
+    expect(child.events.filter((event) => event.type === 'usage.recorded')).toEqual([
+      {
+        type: 'usage.recorded',
+        engineSessionId: started.childEngineSessionId,
+        requestId: 'msg_011Cg3JxQXEBVKpgHDs8sdEb',
+        model: 'claude-haiku-4-5-20251001',
+        inputTokens: 10,
+        outputTokens: 45,
+        cacheReadTokens: 8405,
+        cacheWriteTokens: 2905,
+        reasoningTokens: 37,
+      },
+    ]);
+    expect(
+      parent.events
+        .filter((event) => event.type === 'usage.recorded')
+        .map((event) => event.type === 'usage.recorded' && [event.requestId, event.outputTokens]),
+    ).toEqual([
+      ['msg_011Cg3JxFM5GLHx9hGkTVMms', 199],
+      ['msg_011Cg3JxXySR94KnSf3btyJX', 53],
+    ]);
+  });
+});
+
 describe('子 agent（录音 subagent）', () => {
   it('Agent 工具：父会话报 subagent.started，子会话的回合由引擎开始，Agent 的结果结算子回合', async () => {
     const { adapter } = harness();

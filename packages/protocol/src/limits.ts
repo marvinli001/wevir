@@ -19,3 +19,8 @@ export const JSON_STRING_MAX_LENGTH = 16 * 1024;
 export const JSON_VALUE_MAX_LENGTH = 128 * 1024;
 /** `TruncatedJson.preview` 的长度。 */
 export const JSON_PREVIEW_LENGTH = 4 * 1024;
+
+/** `usage.summary` 一次最多的分桶数（`edges` 最多多一个）。 */
+export const USAGE_MAX_BUCKETS = 400;
+/** `usage.records` 一页最多的条数，也是省略 `limit` 时的条数。 */
+export const USAGE_RECORDS_PAGE_MAX = 200;

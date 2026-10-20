@@ -31,6 +31,7 @@ import { AGENT_SEGMENT, DEFAULT_SETTINGS_TAB, paths, ROUTE_PATTERNS } from './pa
 import { PluginsRoute } from './plugins-route';
 import { SessionRoute } from './session-route';
 import { SettingsRoute } from './settings-route';
+import { UsageRoute } from './usage-route';
 
 /**
  * 动效样张（U3，fx/fx-gallery.tsx）：开发模式下有；正式构建只有 `VITE_WEVIR_FX_GALLERY=1` 时才带（在生产 CSP 下核对
@@ -52,6 +53,8 @@ export const router = createHashRouter([
           // 插件页（0.42.0）：在工作台里，左栏照常。
           { path: ROUTE_PATTERNS.plugins, Component: PluginsRoute },
           { path: ROUTE_PATTERNS.pluginsTab, Component: PluginsRoute },
+          // 使用情况（0.62.0）：同插件页，在工作台里。
+          { path: ROUTE_PATTERNS.usage, Component: UsageRoute },
           {
             path: ROUTE_PATTERNS.session,
             Component: SessionRoute,

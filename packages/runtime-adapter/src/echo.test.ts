@@ -65,9 +65,23 @@ describe('EchoAdapter', () => {
       'assistant.stream_ended',
       'assistant.message',
       'usage.updated',
+      'usage.recorded',
       'turn.settled',
     ]);
     expect(textOf(events, 'text')).toBe('Echo: hello');
+    // 每个回合一条假的请求用量（0.62.0），模型是会话的。
+    expect(events.find((event) => event.type === 'usage.recorded')).toEqual({
+      type: 'usage.recorded',
+      engineSessionId: session.id,
+      requestId: expect.stringMatching(new RegExp(`^${session.id}:1:[0-9a-f]{8}$`)),
+      model: expect.any(String),
+      inputTokens: 205,
+      outputTokens: 120,
+      cacheWriteTokens: 300,
+      reasoningTokens: 40,
+      durationMs: expect.any(Number),
+      firstTokenMs: expect.any(Number),
+    });
     const deltas = events.filter((event) => event.type === 'assistant.delta');
     expect(deltas.map((delta) => delta.text)).toEqual(['Echo', ': he', 'llo']);
     const attemptId = deltas[0]?.attemptId;
@@ -281,7 +295,12 @@ describe('EchoAdapter', () => {
     const session = await open({ incrementalStream: false });
     await session.send('hello');
     const events = await session.readUntil(settled);
-    expect(types(events)).toEqual(['assistant.message', 'usage.updated', 'turn.settled']);
+    expect(types(events)).toEqual([
+      'assistant.message',
+      'usage.updated',
+      'usage.recorded',
+      'turn.settled',
+    ]);
     expect(events[0]).toMatchObject({ text: 'Echo: hello', replaces: [] });
   });
 
@@ -372,6 +391,7 @@ describe('EchoAdapter 子会话（subagent）', () => {
       'assistant.stream_ended',
       'assistant.message',
       'usage.updated',
+      'usage.recorded',
       'turn.settled',
     ]);
     const started = parent[1];

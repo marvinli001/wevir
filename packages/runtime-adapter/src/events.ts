@@ -26,8 +26,8 @@ import type {
 //   domain-model §3.3.1）与普通会话的目标回合（0.35.0）由引擎开始：`turn.started` 之后到终结事件之前的事件属于它。
 // - 每个回合恰好一个终结事件：`turn.settled`、`turn.failed`，或（进程死了）`engine.exited`。
 //   回合内的其他事件都在终结事件之前发出。
-// - 回合之间只可能出现 `engine.exited`、`engine.raw`、`usage.updated`（0.50.0：回合结束后才算出来的上下文分布）、`subagent.*`、
-//   `goal.updated` 与引擎开始的回合的 `turn.started`。
+// - 回合之间只可能出现 `engine.exited`、`engine.raw`、`usage.updated`（0.50.0：回合结束后才算出来的上下文分布）、
+//   `usage.recorded`（0.62.0：回合结束时才补发的请求用量）、`subagent.*`、`goal.updated` 与引擎开始的回合的 `turn.started`。
 // - `engine.exited` 之后该会话的订阅结束。
 // - 子会话：父会话的流里先有 `subagent.started`，子会话的流在第一个订阅者到来之前缓冲（`EventHub` 的
 //   `bufferUntilSubscribed`），Host 收到 `subagent.started` 再订阅不会漏事件。
@@ -199,6 +199,34 @@ export interface UsageUpdatedEvent {
   autoCompactAt?: number;
   /** 上下文的分布（0.50.0）；引擎不报或这次没算时省略（Host 与客户端沿用上一次的）。 */
   breakdown?: UsageBreakdown;
+}
+
+/**
+ * 一次模型请求用掉的 token（0.62.0，用量统计）。引擎按请求报的（Claude 的每条 assistant 消息、Codex 的 `last`、OpenCode 的
+ * 每条 assistant 消息）每个请求一条；只按回合报的（Cursor、ACP 的 `session/prompt` 结果）每个回合一条。Host 不写进事件流，
+ * 只记到用量表；同一会话里同一个 `requestId` 只记第一次。
+ *
+ * token 用 Anthropic 的口径：`inputTokens` 不含缓存命中与缓存写入（OpenAI 口径的输入要先减去缓存命中），`reasoningTokens`
+ * 已含在 `outputTokens` 里。
+ */
+export interface UsageRecordedEvent {
+  type: 'usage.recorded';
+  engineSessionId: string;
+  /** 这次请求在这个引擎会话里唯一（引擎的消息 ID、回合 ID 等）。 */
+  requestId: string;
+  /** 实际回答的模型（引擎报的原值）；引擎不报时省略，Host 用会话的模型。 */
+  model?: string;
+  /** 来源后面实际接的上游（0.62.0，OpenCode 的 `providerID`）；没有时省略。 */
+  upstream?: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  /** 请求从发出到最后一个 token 的毫秒数；引擎不报、适配器也量不出时省略。 */
+  durationMs?: number;
+  /** 从发出到第一个输出 token 的毫秒数；同上。 */
+  firstTokenMs?: number;
 }
 
 /**
@@ -381,6 +409,7 @@ export type AgentEvent =
   | QuestionRequestedEvent
   | QuestionCancelledEvent
   | UsageUpdatedEvent
+  | UsageRecordedEvent
   | ContextCompactingEvent
   | ContextCompactedEvent
   | TurnSettledEvent

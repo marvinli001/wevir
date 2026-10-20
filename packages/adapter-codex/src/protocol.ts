@@ -632,6 +632,8 @@ export interface TokenUsageBreakdown {
   totalTokens: number;
   inputTokens: number;
   cachedInputTokens: number;
+  /** 缓存写入（Responses 的 `input_tokens_details.cache_write_tokens`）；和缓存命中一样含在 `inputTokens` 里。老版本没有。 */
+  cacheWriteInputTokens?: number;
   outputTokens: number;
   reasoningOutputTokens: number;
 }

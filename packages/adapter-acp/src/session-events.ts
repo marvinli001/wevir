@@ -8,6 +8,7 @@ import {
   type QuestionRequestedEvent,
   type TodoItem,
   type TurnTerminalEvent,
+  type UsageRecordedEvent,
 } from '@wevir/runtime-adapter';
 import {
   type AcpRawReason,
@@ -152,6 +153,14 @@ export class SessionEventQueue {
   plan(event: PlanProposedEvent): void {
     if (!this.#inTurn) return;
     this.#flushChunks();
+    this.#hub.emit(event);
+  }
+
+  /**
+   * 一次模型请求或一个回合的用量（0.62.0，引擎的扩展通知，例如 Grok 的 `turn_completed`）。和 `usage.updated` 一样不是可见
+   * 内容，不截断正在流式的一块；回合外（引擎自己开的回合）也照发，Host 只把它记到用量表。
+   */
+  usage(event: UsageRecordedEvent): void {
     this.#hub.emit(event);
   }
 

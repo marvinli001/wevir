@@ -82,6 +82,7 @@ import {
 } from './todos.js';
 import { claudeToolDisplay, isSubagentTool } from './tool-display.js';
 import { isAbortedResult, resultFailure } from './turn-result.js';
+import { type ClaudeRequest, claudeUsageRecord, mergeClaudeUsage } from './usage-record.js';
 
 /** `cancel` 等回合结算的时限；超过就关掉进程（照样算取消成功，进程没了回合必然已停）。 */
 export const CANCEL_TIMEOUT_MS = 10_000;
@@ -271,6 +272,8 @@ interface RootSession extends Owner {
   /** 子 agent：派出它的工具调用 ID → 子会话（各层都登记在顶层会话上）。 */
   children: Map<string, ChildSession>;
   stream?: { attemptId: string; blocks: Map<number, StreamBlock> };
+  /** 正在流式的 API 请求的用量（0.62.0），`message_stop` 时报 `usage.recorded`。 */
+  request?: ClaudeRequest;
   engineVersion?: string;
 }
 
@@ -284,6 +287,8 @@ interface ChildSession extends Owner {
   /** Agent 工具立即返回、子 agent 在后台跑（等 `task_notification` 结束）。 */
   background: boolean;
   sawMessage: boolean;
+  /** 子 agent 最近一次 API 请求的快照用量（0.62.0），下一个请求开始或子回合结束时报。 */
+  request?: ClaudeRequest;
 }
 
 type Session = RootSession | ChildSession;
@@ -1403,9 +1408,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       | { type: 'turn.settled'; outcome: TurnSettledEvent['outcome']; stopReason: string }
       | Omit<TurnFailedEvent, 'engineSessionId'>,
     finalText?: string,
+    finalUsage?: unknown,
   ): void {
     if (!child.running) return;
     child.running = false;
+    this.#flushChildRequest(child, finalUsage);
     for (const entry of [...child.approvals.values()]) {
       entry.end(
         terminal.type === 'turn.settled' && terminal.outcome === 'cancelled'
@@ -1453,6 +1460,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     }
     switch (message.type) {
       case 'stream_event':
+        if (message.parent_tool_use_id === null) this.#requestUsage(session, message);
         if (message.parent_tool_use_id === null && session.turn !== undefined) {
           this.#noteSteers(session, message);
           this.#streamEvent(session, message.event);
@@ -1466,6 +1474,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
         this.#user(session, message);
         return;
       case 'result':
+        this.#flushRequest(session);
         this.#result(session, message);
         return;
       case 'rate_limit_event':
@@ -1515,6 +1524,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
           this.#compacted(session, message);
           return;
         }
+        if (message.subtype === 'api_retry') this.#flushRequest(session);
         if (message.subtype === 'api_retry' && session.stream !== undefined) {
           session.hub.emit({
             type: 'assistant.stream_ended',
@@ -1708,6 +1718,9 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   #assistant(session: RootSession, message: Extract<SDKMessage, { type: 'assistant' }>): void {
     const turn = session.turn;
     const owner = this.#owner(session, message.parent_tool_use_id);
+    // 子 agent 在后台跑时回合可能已经结束，它的请求照样记。
+    if (owner !== undefined && owner !== session)
+      this.#childRequest(owner as ChildSession, message);
     if (owner === undefined || turn === undefined) {
       this.#raw(session, message);
       return;
@@ -1800,6 +1813,78 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   }
 
   /**
+   * 顶层会话一次 API 请求的用量（0.62.0，`usage.recorded`）。assistant 快照按内容块到，同一 `id` 的几条快照带的都是
+   * `message_start` 时的用量（`output_tokens` 只有开头的一两个，SDK 也说快照的 usage 不是最终的），所以不用快照：
+   * `message_start` 记下模型、输入与缓存和 `ttft_ms`，`message_delta` 带最终的累计用量，`message_stop` 时报。顶层的请求
+   * 一个接一个，没等到 `message_stop` 的（中断、`api_retry`）在下一个请求开始、结果到或回合结算时按已知的报（输入与缓存
+   * 已经算了钱，输出只是收到的部分，不报时长）。不在回合里的请求（Claude 自己开的一轮）照样记。
+   */
+  #requestUsage(
+    session: RootSession,
+    message: Extract<SDKMessage, { type: 'stream_event' }>,
+  ): void {
+    const event = message.event;
+    switch (event.type) {
+      case 'message_start':
+        this.#flushRequest(session);
+        session.request = {
+          id: event.message.id,
+          model: event.message.model,
+          usage: {},
+          startedAt: Date.now(),
+          ...(typeof message.ttft_ms === 'number' && { ttftMs: message.ttft_ms }),
+        };
+        mergeClaudeUsage(session.request, event.message.usage);
+        return;
+      case 'message_delta':
+        if (session.request === undefined) return;
+        mergeClaudeUsage(session.request, event.usage);
+        session.request.endedAt = Date.now();
+        return;
+      case 'message_stop':
+        this.#flushRequest(session);
+        return;
+      default:
+        return;
+    }
+  }
+
+  #flushRequest(session: RootSession): void {
+    const request = session.request;
+    if (request === undefined) return;
+    session.request = undefined;
+    session.hub.emit(claudeUsageRecord(session.id, request));
+  }
+
+  /**
+   * 子 agent 的请求（0.62.0）：`claude` 不转发子 agent 的流式事件，只有快照，快照的输入与缓存是准的、`output_tokens` 不是。
+   * 快照换了 `id` 就是上一个请求结束了，按快照报；最后一个请求等 Agent 工具的结果，结果的 `usage` 是子 agent 最后一条
+   * 消息的最终用量（输入与缓存对得上时用它）。没有时长。
+   */
+  #childRequest(child: ChildSession, message: Extract<SDKMessage, { type: 'assistant' }>): void {
+    const usage = message.message.usage as unknown;
+    if (usage === undefined || usage === null || message.message.model === '<synthetic>') return;
+    if (child.request?.id === message.message.id) return;
+    this.#flushChildRequest(child);
+    child.request = { id: message.message.id, model: message.message.model, usage: {} };
+    mergeClaudeUsage(child.request, usage);
+    // 子回合已经结算（父回合结束时取消的）之后还到的消息：没有下一次机会了，直接报。
+    if (!child.running) this.#flushChildRequest(child);
+  }
+
+  #flushChildRequest(child: ChildSession, finalUsage?: unknown): void {
+    const request = child.request;
+    if (request === undefined) return;
+    child.request = undefined;
+    const final = record(finalUsage);
+    const same = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].every(
+      (key) => (final[key] ?? 0) === (request.usage[key] ?? 0),
+    );
+    if (typeof final.output_tokens === 'number' && same) mergeClaudeUsage(request, final);
+    child.hub.emit(claudeUsageRecord(child.id, request));
+  }
+
+  /**
    * 回合结束时向 `claude` 要一份上下文分布（0.50.0）。`summary` 只用上一次响应的用量和本地估算，不额外调 token 计数接口；
    * 结果异步回来，回合可能已经结算（`usage.updated` 回合之间也可以报），进程已经换掉或关掉就不报了。
    */
@@ -1877,6 +1962,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
               ? { type: 'turn.failed', category: 'unknown', message: text ?? 'the subagent failed' }
               : { type: 'turn.settled', outcome: 'completed', stopReason: 'end_turn' },
             text,
+            record(structured).usage,
           );
         }
       }
@@ -1964,6 +2050,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     turn.settled = true;
     this.#flushStream(session);
     session.stream = undefined;
+    this.#flushRequest(session);
     const cancelled = terminal.type === 'turn.settled' && terminal.outcome === 'cancelled';
     for (const entry of [...session.approvals.values()])
       entry.end(cancelled ? 'turn_cancelled' : 'turn_ended');

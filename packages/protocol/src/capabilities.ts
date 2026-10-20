@@ -234,6 +234,11 @@ export const HOST_FEATURES = {
    * `tools.presets`。只管 Wevir 应用级工具，有应用级工具时声明（同 `app_tools`）。
    */
   toolPresets: 'tool_presets',
+  /**
+   * 用量统计（0.62.0）：`usage.summary`、`usage.records`、`usage.pricing` 与 `usage.changed` 通知。每次模型请求的 token 与按
+   * models.dev 价格估的成本。与引擎无关，哪些来源有记录取决于各引擎报不报。
+   */
+  usageStats: 'usage_stats',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -285,6 +290,7 @@ export const HostFeaturesSchema = z.looseObject({
   handoff_material: z.boolean().optional(),
   handoff_preview: z.boolean().optional(),
   tool_presets: z.boolean().optional(),
+  usage_stats: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

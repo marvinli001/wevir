@@ -9,6 +9,7 @@ import { createProviderProfileRepository, type ProviderProfileRepository } from 
 import { createSendReceiptRepository, type SendReceiptRepository } from './send-receipts.js';
 import { createSessionRepository, type SessionRepository } from './sessions.js';
 import { transaction } from './transaction.js';
+import { createUsageRepository, type UsageRepository } from './usage.js';
 import { createWorkspaceRepository, type WorkspaceRepository } from './workspaces.js';
 
 /** 数据库文件名，位于数据目录下（另有 `-wal`、`-shm` 两个伴随文件）。 */
@@ -28,6 +29,8 @@ export interface Storage {
   readonly events: EventRepository;
   readonly approvals: ApprovalRepository;
   readonly sendReceipts: SendReceiptRepository;
+  /** 用量统计（0011_usage_records）。 */
+  readonly usage: UsageRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
   freeBytes(): number;
   /** `VACUUM` 并截断 WAL（0.43.0，`session.delete` 之后空闲页多时）：文件变小。不能在事务里调用。 */
@@ -56,6 +59,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       events: createEventRepository(db),
       approvals: createApprovalRepository(db),
       sendReceipts: createSendReceiptRepository(db),
+      usage: createUsageRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };
         const size = db.prepare('PRAGMA page_size').get() as { page_size: number };

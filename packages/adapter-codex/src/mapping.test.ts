@@ -106,8 +106,20 @@ describe('回放 codex-app-server 的通知', () => {
       'assistant.delta',
       'assistant.message',
       'assistant.stream_ended',
+      'usage.recorded',
       'usage.updated',
       'turn.settled',
+    ]);
+    // 每次请求的用量（0.62.0）：没有 `reset` 就没有开始时刻，不报时长。
+    expect(of(events, 'usage.recorded')).toEqual([
+      {
+        type: 'usage.recorded',
+        engineSessionId: threadId,
+        requestId: '01a1383b-5255-7fa2-843a-d4ce5e9f243a:1020',
+        inputTokens: 1000,
+        outputTokens: 20,
+        reasoningTokens: 2,
+      },
     ]);
     const [thought] = of(events, 'assistant.thought');
     const [message] = of(events, 'assistant.message');
@@ -714,5 +726,118 @@ describe('映射的边界情况', () => {
       category: 'unknown',
       message: 'boom\nmore',
     });
+  });
+});
+
+describe('每次请求的用量（0.62.0）', () => {
+  const breakdown = (
+    input: number,
+    cached: number,
+    write: number,
+    output: number,
+    reasoning = 0,
+  ) => ({
+    totalTokens: input + output,
+    inputTokens: input,
+    cachedInputTokens: cached,
+    cacheWriteInputTokens: write,
+    outputTokens: output,
+    reasoningOutputTokens: reasoning,
+  });
+  const usage = (
+    turnId: string,
+    total: ReturnType<typeof breakdown>,
+    last: ReturnType<typeof breakdown>,
+  ) => ({ threadId: 't', turnId, tokenUsage: { total, last, modelContextWindow: null } });
+
+  function mapper() {
+    let now = 1_000;
+    const clock = { advance: (ms: number) => (now += ms) };
+    const mapped = new CodexEventMapper('t', {
+      contextSize: () => 128_000,
+      model: () => 'deepseek-v4',
+      now: () => now,
+    });
+    return { mapped, clock };
+  }
+
+  it('输入减去缓存的命中与写入；时长从回合开始量到最后一段输出，首个 token 是第一段增量', () => {
+    const { mapped, clock } = mapper();
+    mapped.reset();
+    clock.advance(400);
+    mapped.map('item/agentMessage/delta', { itemId: 'm1', delta: 'Hi' });
+    clock.advance(600);
+    mapped.map('item/completed', { item: { type: 'agentMessage', id: 'm1', text: 'Hi' } });
+    clock.advance(50);
+    const first = mapped.map(
+      'thread/tokenUsage/updated',
+      usage('turn-1', breakdown(1000, 600, 100, 50, 10), breakdown(1000, 600, 100, 50, 10)),
+    );
+    expect(first.filter((event) => event.type === 'usage.recorded')).toEqual([
+      {
+        type: 'usage.recorded',
+        engineSessionId: 't',
+        requestId: 'turn-1:1050',
+        model: 'deepseek-v4',
+        inputTokens: 300,
+        outputTokens: 50,
+        cacheReadTokens: 600,
+        cacheWriteTokens: 100,
+        reasoningTokens: 10,
+        durationMs: 1000,
+        firstTokenMs: 400,
+      },
+    ]);
+
+    // 第二个请求只调工具：从上一个用量到达算起，没有增量就不报首个 token。
+    clock.advance(300);
+    mapped.map('item/started', {
+      item: { type: 'commandExecution', id: 'c1', command: 'ls', cwd: '/', commandActions: [] },
+    });
+    clock.advance(5_000);
+    const second = mapped.map(
+      'thread/tokenUsage/updated',
+      usage('turn-1', breakdown(2200, 1600, 100, 80, 10), breakdown(1200, 1000, 0, 30)),
+    );
+    expect(second.find((event) => event.type === 'usage.recorded')).toEqual({
+      type: 'usage.recorded',
+      engineSessionId: 't',
+      requestId: 'turn-1:2280',
+      model: 'deepseek-v4',
+      inputTokens: 200,
+      outputTokens: 30,
+      cacheReadTokens: 1000,
+      durationMs: 300,
+    });
+  });
+
+  it('累计没变的重复通知（限额更新、压缩后重估）与不属于回合的（resume 重放）不记', () => {
+    const { mapped } = mapper();
+    const total = breakdown(5000, 0, 0, 200);
+    // resume 后的重放：只更新累计。
+    const replayed = mapped.map(
+      'thread/tokenUsage/updated',
+      usage('turn-0', total, breakdown(2000, 0, 0, 100)),
+      { stale: true },
+    );
+    expect(replayed.some((event) => event.type === 'usage.recorded')).toBe(false);
+    mapped.reset();
+    const again = mapped.map(
+      'thread/tokenUsage/updated',
+      usage('turn-1', total, breakdown(0, 0, 0, 0)),
+    );
+    expect(again.some((event) => event.type === 'usage.recorded')).toBe(false);
+    const next = mapped.map(
+      'thread/tokenUsage/updated',
+      usage('turn-1', breakdown(6000, 0, 0, 300), breakdown(1000, 0, 0, 100)),
+    );
+    expect(next.filter((event) => event.type === 'usage.recorded')).toMatchObject([
+      { requestId: 'turn-1:6300', inputTokens: 1000, outputTokens: 100 },
+    ]);
+    const duplicate = mapped.map(
+      'thread/tokenUsage/updated',
+      usage('turn-1', breakdown(6000, 0, 0, 300), breakdown(1000, 0, 0, 100)),
+    );
+    expect(duplicate.some((event) => event.type === 'usage.recorded')).toBe(false);
   });
 });

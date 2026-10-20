@@ -69,6 +69,8 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
         replaces: [{ attemptId: 'run-1:text:1', blockIndex: 0 }],
       },
       { type: 'assistant.stream_ended', attemptId: 'run-1:text:1', outcome: 'committed' },
+      // turn-ended 带的用量（0.62.0）：每个回合一条，按 run ID。
+      { type: 'usage.recorded', requestId: 'run-1', inputTokens: 10, outputTokens: 5 },
     ]);
     expect(mapper.answered).toBe(true);
     expect(mapper.reply.failure).toBeUndefined();
@@ -255,5 +257,33 @@ describe('CursorTurnMapper（回放 test-fixtures/updates.ts）', () => {
   it('回答只是一段传输诊断时 reply.failure 认出它', () => {
     const { mapper } = replay(TRANSPORT_FAILURE_UPDATES);
     expect(mapper.reply.failure).toBe('Error: ConnectError: [unavailable] upstream connect error');
+  });
+});
+
+describe('回合的用量（0.62.0）', () => {
+  it('缓存与推理原样带上；只报一次；没有用量的 turn-ended 不报', () => {
+    const usage = {
+      inputTokens: 40,
+      outputTokens: 300,
+      cacheReadTokens: 12_000,
+      cacheWriteTokens: 800,
+      reasoningTokens: 120,
+    };
+    const { events } = replay([
+      { type: 'turn-ended', usage },
+      { type: 'turn-ended', usage },
+    ]);
+    expect(strip(events)).toEqual([
+      {
+        type: 'usage.recorded',
+        requestId: 'run-1',
+        inputTokens: 40,
+        outputTokens: 300,
+        cacheReadTokens: 12_000,
+        cacheWriteTokens: 800,
+        reasoningTokens: 120,
+      },
+    ]);
+    expect(replay([{ type: 'turn-ended' }]).events).toEqual([]);
   });
 });

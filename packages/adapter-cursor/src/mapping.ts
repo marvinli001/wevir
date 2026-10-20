@@ -12,7 +12,7 @@
 // 发出 `assistant.message` 替换它的增量；思考同理（`<runId>:reasoning:<n>`）。
 
 import type { InteractionUpdate, ToolCall } from '@cursor/sdk';
-import type { AgentEvent, TodoItem } from '@wevir/runtime-adapter';
+import type { AgentEvent, TodoItem, UsageRecordedEvent } from '@wevir/runtime-adapter';
 import { todoItems, toolDisplay, toolFailed, toolName, toolOutput } from './tool-display.js';
 import { CursorTransportFailure } from './transport-failure.js';
 
@@ -61,6 +61,8 @@ export class CursorTurnMapper {
   readonly #reasoning: TextStream = { kind: 'reasoning', current: undefined, count: 0 };
   readonly #tools = new Map<string, OpenTool>();
   #finished = false;
+  /** 报过这个 run 的 `usage.recorded`（0.62.0）。 */
+  #recorded = false;
 
   constructor(engineSessionId: string, runId: string) {
     this.engineSessionId = engineSessionId;
@@ -92,8 +94,13 @@ export class CursorTurnMapper {
           ...this.#tool(update),
         ];
       case 'step-completed':
-      case 'turn-ended':
         return [...this.#complete(this.#text), ...this.#complete(this.#reasoning)];
+      case 'turn-ended':
+        return [
+          ...this.#complete(this.#text),
+          ...this.#complete(this.#reasoning),
+          ...this.#usage(update.usage),
+        ];
       case 'shell-output-delta':
         return this.#shellOutput(update.event);
       default:
@@ -109,6 +116,36 @@ export class CursorTurnMapper {
           },
         ];
     }
+  }
+
+  /**
+   * `turn-ended` 带的这个 run 的用量（0.62.0，`usage.recorded`，每个回合一条，`requestId` 是 run ID）。SDK 的口径与事件相同：
+   * `inputTokens` 不含缓存的读写（它的 `totalTokens` 是四项之和），`reasoningTokens` 含在输出里。SDK 不报实际的模型，也只按
+   * 回合报：一个回合里有几次模型调用、中间跑了多久的工具都不知道，所以不报时长。
+   */
+  #usage(usage: Extract<InteractionUpdate, { type: 'turn-ended' }>['usage']): UsageRecordedEvent[] {
+    if (usage === undefined || this.#recorded) return [];
+    const count = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+    const input = count(usage.inputTokens);
+    const output = count(usage.outputTokens);
+    const cacheRead = count(usage.cacheReadTokens);
+    const cacheWrite = count(usage.cacheWriteTokens);
+    const reasoning = Math.min(count(usage.reasoningTokens), output);
+    if (input + output + cacheRead + cacheWrite === 0) return [];
+    this.#recorded = true;
+    return [
+      {
+        type: 'usage.recorded',
+        engineSessionId: this.engineSessionId,
+        requestId: this.runId,
+        inputTokens: input,
+        outputTokens: output,
+        ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+        ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+        ...(reasoning > 0 && { reasoningTokens: reasoning }),
+      },
+    ];
   }
 
   /**

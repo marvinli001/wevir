@@ -10,4 +10,5 @@ export * from './methods.js';
 export * from './origins.js';
 export * from './plugins.js';
 export * from './search-ranking.js';
+export * from './usage.js';
 export * from './version.js';

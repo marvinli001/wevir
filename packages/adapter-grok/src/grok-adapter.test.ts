@@ -70,6 +70,21 @@ describe('GrokAdapter：样本回放', () => {
     });
     // 中途的 session_info_update / available_commands_update 不把一块内容截成两块。
     expect(types(turn).filter((type) => type === 'assistant.thought')).toHaveLength(1);
+    // turn_completed 带的用量（0.62.0）：按模型一条，在结算之前；输入减掉缓存，推理含在输出里。
+    const usage = turn.filter((event) => event.type === 'usage.recorded');
+    expect(usage).toEqual([
+      {
+        type: 'usage.recorded',
+        engineSessionId,
+        requestId: expect.stringMatching(/^[0-9a-f]{8}:wevir-on_request-\d+:grok-4\.7-build$/),
+        model: 'grok-4.7-build',
+        inputTokens: 22229 - 1664,
+        outputTokens: 34,
+        cacheReadTokens: 1664,
+        reasoningTokens: 31,
+        durationMs: 1942,
+      },
+    ]);
 
     const sent = readLog(log);
     const initialize = sent.find((message) => message.method === 'initialize');

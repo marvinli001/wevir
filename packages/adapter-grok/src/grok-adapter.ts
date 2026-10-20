@@ -10,6 +10,7 @@
 // 按权限模式各开一个 `GrokModeAdapter`（一个 `grok agent stdio` 进程，`AcpAdapter` 的子类），会话交给它所在模式的那个。
 // Host 订阅的是这里的每会话事件流：换模式时会话从一个进程挪到另一个，Host 的订阅不断。
 
+import { randomUUID } from 'node:crypto';
 import {
   AcpAdapter,
   AcpProcess,
@@ -50,6 +51,7 @@ import {
   parseExitPlanMode,
   promptCompleteOf,
   toUserQuestions,
+  turnUsageOf,
   XAI_ASK_USER_QUESTION_METHODS,
   XAI_EXIT_PLAN_MODE_METHODS,
 } from './xai.js';
@@ -86,6 +88,8 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
   /** 每个会话进行中的回合的 `promptId`。 */
   readonly #prompts = new Map<string, string>();
   #nextPrompt = 0;
+  /** `usage.recorded.requestId` 的前缀：`promptId` 只在这个实例里唯一。 */
+  readonly #instance = randomUUID().slice(0, 8);
 
   constructor(options: GrokModeAdapterOptions) {
     const { mode, workDir, accounts } = options;
@@ -154,6 +158,17 @@ export class GrokModeAdapter extends AcpAdapter<AcpProcess> {
    * 的按会话认。之前的 `session/update` 都已入队。
    */
   protected override extNotification(method: string, params: unknown): void {
+    // 回合的用量（0.62.0）在结算之前报。Wevir 的 `promptId` 是进程里的序号，Host 重启后会重复，所以 `requestId` 前面加上
+    // 这个适配器实例的随机前缀。
+    const usage = turnUsageOf(method, params);
+    if (usage !== undefined) {
+      for (const entry of usage.models) {
+        this.recordUsage(usage.sessionId, {
+          requestId: `${this.#instance}:${usage.promptId}:${entry.model ?? ''}`,
+          ...entry,
+        });
+      }
+    }
     const complete = promptCompleteOf(method, params);
     if (complete === undefined) return;
     const current = this.#prompts.get(complete.sessionId);

@@ -31,6 +31,8 @@ describe('路由', () => {
       tab: 'about',
     });
     expect(paths.settings()).toBe('/settings/general');
+    expect(paths.usage()).toBe('/usage');
+    expect(matchPath(ROUTE_PATTERNS.usage, paths.usage())).not.toBeNull();
   });
 
   it('ID 里的特殊字符被编码，路由器匹配后还原（手改 URL 也不会串到别的路由）', () => {

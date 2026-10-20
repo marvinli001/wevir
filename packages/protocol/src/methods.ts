@@ -77,6 +77,15 @@ import {
 } from './entities.js';
 import { WevirEventSchema } from './events.js';
 import { PluginMethodSchemas } from './plugins.js';
+import {
+  UsageChangedParamsSchema,
+  UsagePricingParamsSchema,
+  UsagePricingResultSchema,
+  UsageRecordsParamsSchema,
+  UsageRecordsResultSchema,
+  UsageSummaryParamsSchema,
+  UsageSummaryResultSchema,
+} from './usage.js';
 import { ProtocolVersionSchema } from './version.js';
 
 // Host API v0 的方法与通知。语义、错误与示例报文见 docs/architecture/host-api.md。
@@ -1707,6 +1716,22 @@ export const MethodSchemas = {
     permission: 'session.read',
   },
 
+  'usage.summary': {
+    params: UsageSummaryParamsSchema,
+    result: UsageSummaryResultSchema,
+    permission: 'session.read',
+  },
+  'usage.records': {
+    params: UsageRecordsParamsSchema,
+    result: UsageRecordsResultSchema,
+    permission: 'session.read',
+  },
+  'usage.pricing': {
+    params: UsagePricingParamsSchema,
+    result: UsagePricingResultSchema,
+    permission: 'session.read',
+  },
+
   'question.respond': {
     params: QuestionRespondParamsSchema,
     result: QuestionRespondResultSchema,
@@ -1766,6 +1791,8 @@ export const NotificationSchemas = {
   'settings.updated': { params: SettingsUpdatedParamsSchema },
   /** 发给调用过 `memory.*` 的连接（0.57.0）。 */
   'memory.changed': { params: MemoryChangedParamsSchema },
+  /** 发给调用过 `usage.*` 的连接（0.62.0）。 */
+  'usage.changed': { params: UsageChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;

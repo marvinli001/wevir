@@ -8,6 +8,7 @@ import type {
   TurnFailedEvent,
   TurnSettledEvent,
   UsageBreakdown,
+  UsageRecordedEvent,
 } from '@wevir/runtime-adapter';
 import { APP_TOOLS_SERVER } from '@wevir/runtime-adapter';
 import { HISTORY_TOOL_SERVER } from '@wevir/runtime-adapter/history-tool';
@@ -162,32 +163,64 @@ export interface CodexEventMapperOptions {
   contextSize?: () => number | undefined;
   /** Codex 自动压缩的阈值（0.29.0，`autoCompactLimit`）；不知道时（ChatGPT 登录的模型）不报。 */
   autoCompactAt?: () => number | undefined;
+  /** 会话当前的模型（0.62.0，`usage.recorded.model`）：Codex 的用量通知不带模型。 */
+  model?: () => string | undefined;
+  /** 量请求时长用的时钟（测试替换）。 */
+  now?: () => number;
 }
+
+/** 量一次请求的时刻（0.62.0）：开始、第一段与最后一段模型输出。 */
+interface RequestTiming {
+  startedAt?: number;
+  firstAt?: number;
+  lastAt?: number;
+}
+
+/** 模型输出的增量（第一个 token 的时刻看它们）。 */
+const OUTPUT_DELTAS: ReadonlySet<string> = new Set([
+  'item/agentMessage/delta',
+  'item/reasoning/textDelta',
+  'item/reasoning/summaryTextDelta',
+  'item/plan/delta',
+]);
 
 export class CodexEventMapper {
   readonly engineSessionId: string;
   readonly #items = new Map<string, ItemState>();
   readonly #contextSize: () => number | undefined;
   readonly #autoCompactAt: () => number | undefined;
+  readonly #model: () => string | undefined;
+  readonly #now: () => number;
   /** 这个回合里的压缩怎么来的：`compact` 开的回合是 `manual`，其余是引擎自己压缩（0.24.0）。 */
   #compaction: 'manual' | 'auto' = 'auto';
+  /** 上一条用量通知的 thread 累计（0.62.0）：累计没变的通知不是新的请求。 */
+  #usageTotal?: TokenUsageBreakdown;
+  #timing: RequestTiming = {};
 
   constructor(engineSessionId: string, options: CodexEventMapperOptions = {}) {
     this.engineSessionId = engineSessionId;
     this.#contextSize = options.contextSize ?? (() => undefined);
     this.#autoCompactAt = options.autoCompactAt ?? (() => undefined);
+    this.#model = options.model ?? (() => undefined);
+    this.#now = options.now ?? Date.now;
   }
 
   /** 回合开始（或结束）：丢掉上一个回合的 item 状态。`compaction`：这个回合里的压缩记为哪种（0.24.0）。 */
   reset(compaction: 'manual' | 'auto' = 'auto'): void {
     this.#items.clear();
     this.#compaction = compaction;
+    // 回合的第一个请求从这里算起（0.62.0）。
+    this.#timing = { startedAt: this.#now() };
   }
 
-  /** 一条通知对应的 AgentEvent，按发出顺序。`turn/completed` 的最后一个事件是回合的终结事件。 */
-  map(method: string, params: unknown): AgentEvent[] {
+  /**
+   * 一条通知对应的 AgentEvent，按发出顺序。`turn/completed` 的最后一个事件是回合的终结事件。`stale`：不属于进行中回合的
+   * 通知（适配器判断），它的用量只更新累计、不记成请求（0.62.0）。
+   */
+  map(method: string, params: unknown, context: { stale?: boolean } = {}): AgentEvent[] {
     if ((IGNORED_NOTIFICATIONS as readonly string[]).includes(method)) return [];
     if (!isRecord(params)) return [this.raw(method, params)];
+    if (context.stale !== true) this.#observeOutput(method, params);
     switch (method) {
       case 'item/started':
         return isItemNotification(params) ? this.#itemStarted(params) : [this.raw(method, params)];
@@ -234,7 +267,9 @@ export class CodexEventMapper {
       case 'item/fileChange/patchUpdated':
         return isPatchUpdated(params) ? this.#patchUpdated(params) : [this.raw(method, params)];
       case 'thread/tokenUsage/updated':
-        return isTokenUsage(params) ? this.#usage(params) : [this.raw(method, params)];
+        return isTokenUsage(params)
+          ? this.#usage(params, context.stale === true)
+          : [this.raw(method, params)];
       case 'mcpServer/startupStatus/updated':
         // Wevir 自己的 MCP 服务（§6.8、§6.10、§6.11）每个 thread 起一次：正常启动不出事件，起不来的照常留 engine.raw。
         return WEVIR_MCP_SERVERS.includes(params.name as string) &&
@@ -643,12 +678,40 @@ export class CodexEventMapper {
     };
   }
 
-  /** 已用量取最近一次请求的 `last.totalTokens`（codex-notes §2.7 的口径），上下文大小优先取模型目录。 */
-  #usage(params: TokenUsageNotification): AgentEvent[] {
+  /** 量请求时长（0.62.0）：模型输出的增量记第一个与最后一个 token 的时刻，工具 item 开始与消息、推理 item 完成也算输出到了。 */
+  #observeOutput(method: string, params: Record<string, unknown>): void {
+    const output =
+      OUTPUT_DELTAS.has(method) ||
+      (method === 'item/started' && isToolItem(params.item)) ||
+      (method === 'item/completed' &&
+        isRecord(params.item) &&
+        (params.item.type === 'agentMessage' ||
+          params.item.type === 'reasoning' ||
+          params.item.type === PLAN_ITEM));
+    if (!output) return;
+    const now = this.#now();
+    if (OUTPUT_DELTAS.has(method)) this.#timing.firstAt ??= now;
+    this.#timing.lastAt = now;
+  }
+
+  /**
+   * 已用量取最近一次请求的 `last.totalTokens`（codex-notes §2.7 的口径），上下文大小优先取模型目录。
+   *
+   * 每次请求的用量（0.62.0，`usage.recorded`）取 `last`。同一个请求 Codex 可能报不止一次（限额更新、压缩后重估上下文只改
+   * `last` 的估算、`thread/resume` 与 `thread/fork` 时重放），这些通知的 thread 累计 `total` 都没有新增，所以只有累计变了、
+   * `last` 有输入输出、又属于进行中回合的才记；`requestId` 是回合 ID 加累计的总数，同一个请求重复报也是同一个。Codex 的
+   * `inputTokens` 含缓存的命中与写入（OpenAI 口径），减掉才是事件的口径。时长从回合开始或上一个请求的用量到达（Codex 等
+   * 工具跑完才报用量，下一个请求紧接着发出）算到最后一段输出，首个 token 是第一段增量；只有工具调用、没有增量的请求不报
+   * 首个 token 的时间。
+   */
+  #usage(params: TokenUsageNotification, stale: boolean): AgentEvent[] {
+    const recorded = this.#recordUsage(params, stale);
     const contextSize = this.#contextSize() ?? params.tokenUsage.modelContextWindow ?? undefined;
-    if (contextSize === undefined) return [this.raw('thread/tokenUsage/updated', params)];
+    if (contextSize === undefined)
+      return [...recorded, this.raw('thread/tokenUsage/updated', params)];
     const autoCompactAt = this.#autoCompactAt();
     return [
+      ...recorded,
       {
         type: 'usage.updated',
         engineSessionId: this.engineSessionId,
@@ -660,6 +723,50 @@ export class CodexEventMapper {
         }),
         ...(autoCompactAt !== undefined && { autoCompactAt }),
         breakdown: codexContextBreakdown(params.tokenUsage.last, contextSize, autoCompactAt),
+      },
+    ];
+  }
+
+  #recordUsage(params: TokenUsageNotification, stale: boolean): UsageRecordedEvent[] {
+    const { total, last } = params.tokenUsage;
+    const previous = this.#usageTotal;
+    if (isRecord(total) && typeof total.totalTokens === 'number') this.#usageTotal = total;
+    if (stale || !isRecord(total) || typeof total.totalTokens !== 'number') return [];
+    if (previous !== undefined && previous.totalTokens === total.totalTokens) return [];
+    const count = (value: unknown) =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+    const input = count(last.inputTokens);
+    const output = count(last.outputTokens);
+    if (input + output === 0) return [];
+    const cacheRead = Math.min(count(last.cachedInputTokens), input);
+    const cacheWrite = Math.min(count(last.cacheWriteInputTokens), input - cacheRead);
+    const reasoning = Math.min(count(last.reasoningOutputTokens), output);
+    const timing = this.#timing;
+    const now = this.#now();
+    this.#timing = { startedAt: now };
+    const startedAt = timing.startedAt;
+    const durationMs =
+      startedAt !== undefined && timing.lastAt !== undefined && timing.lastAt >= startedAt
+        ? timing.lastAt - startedAt
+        : undefined;
+    const firstTokenMs =
+      startedAt !== undefined && timing.firstAt !== undefined && timing.firstAt >= startedAt
+        ? timing.firstAt - startedAt
+        : undefined;
+    const model = this.#model();
+    return [
+      {
+        type: 'usage.recorded',
+        engineSessionId: this.engineSessionId,
+        requestId: `${params.turnId}:${count(total.totalTokens)}`,
+        ...(model !== undefined && model !== '' && { model }),
+        inputTokens: input - cacheRead - cacheWrite,
+        outputTokens: output,
+        ...(cacheRead > 0 && { cacheReadTokens: cacheRead }),
+        ...(cacheWrite > 0 && { cacheWriteTokens: cacheWrite }),
+        ...(reasoning > 0 && { reasoningTokens: reasoning }),
+        ...(durationMs !== undefined && { durationMs }),
+        ...(firstTokenMs !== undefined && { firstTokenMs }),
       },
     ];
   }
