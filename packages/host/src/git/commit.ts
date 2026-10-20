@@ -72,7 +72,7 @@ function spawnCommit(
 ): Promise<{ exitCode: number | null; output: string; timedOut: boolean }> {
   return new Promise((done) => {
     const posix = process.platform !== 'win32';
-    // 单独的进程组：超时时连同钩子起的进程一起停下。
+    // 单独的进程组：超时时连同钩子起的进程一起停下（Windows 上用 taskkill /T 结束整棵进程树）。
     const child = spawn('git', ['commit', '-F', '-'], {
       cwd,
       env,
@@ -90,8 +90,14 @@ function spawnCommit(
     };
     const signal = (name: NodeJS.Signals) => {
       try {
-        if (posix && child.pid !== undefined) process.kill(-child.pid, name);
-        else child.kill(name);
+        if (child.pid === undefined) child.kill(name);
+        else if (posix) process.kill(-child.pid, name);
+        else {
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }).on(
+            'error',
+            () => {},
+          );
+        }
       } catch {}
     };
     let killTimer: NodeJS.Timeout | undefined;

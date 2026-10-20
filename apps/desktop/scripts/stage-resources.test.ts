@@ -280,7 +280,10 @@ describe('trimNodePty', () => {
       'prebuilds/darwin-arm64/pty.node',
       'prebuilds/darwin-arm64/spawn-helper',
     ]);
-    expect(statSync(join(dir, 'prebuilds/darwin-arm64/spawn-helper')).mode & 0o111).toBe(0o111);
+    // Windows 的文件系统没有执行位，只在能表达它的平台上查。
+    if (process.platform !== 'win32') {
+      expect(statSync(join(dir, 'prebuilds/darwin-arm64/spawn-helper')).mode & 0o111).toBe(0o111);
+    }
   });
 
   it('Windows：去掉调试符号与用不到的 conpty.dll，winpty 留给旧版 Windows；Linux 没有预编译时整个去掉', () => {
