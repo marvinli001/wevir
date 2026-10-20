@@ -104,6 +104,7 @@ import {
   GitStatusParamsSchema,
   GitStatusResultSchema,
 } from './git.js';
+import { ImportMethodSchemas } from './imports.js';
 import {
   LspCancelInstallParamsSchema,
   LspCancelInstallResultSchema,
@@ -1493,6 +1494,7 @@ export interface MethodSpec {
  */
 export const MethodSchemas = {
   ...PluginMethodSchemas,
+  ...ImportMethodSchemas,
   'host.hello': {
     params: HostHelloParamsSchema,
     result: HostHelloResultSchema,

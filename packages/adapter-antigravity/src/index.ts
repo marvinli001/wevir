@@ -27,6 +27,7 @@ export {
 } from './installation.js';
 export { antigravityModelsFromSetup } from './models.js';
 export { type AntigravityPaths, antigravityPaths } from './process.js';
+export { antigravityUserSkillDirectories } from './profile.js';
 export {
   ANTIGRAVITY_DOWNLOAD_ORIGIN,
   ANTIGRAVITY_RELEASE_VERSION,

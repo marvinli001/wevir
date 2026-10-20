@@ -1,13 +1,14 @@
 // “添加 / 编辑连接器”对话框（0.42.0，desktop-layout.md §23）：添加有“命令”“地址”“粘贴 JSON”三个模式，编辑沿用前两个的字段、传输方式固定。
 // 校验失败与名字冲突就地显示在对话框里。纯逻辑在 connector-form.ts、connector-import.ts。
 
-import type { Connector } from '@wevir/protocol';
+import type { Connector, WorkspaceId } from '@wevir/protocol';
 import { Plus, Undo2, X } from 'lucide-react';
 import { type FormEvent, type ReactNode, useMemo, useState } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { describe } from '@/host/host-connection';
 import { type PlainMessageKey, t } from '@/i18n';
@@ -36,7 +37,7 @@ import {
   withoutAdded,
 } from './connector-import';
 import { usePluginsContext } from './plugins-context';
-import { replaceConnector } from './plugins-model';
+import { conflictingNames, replaceConnector } from './plugins-model';
 
 export type ConnectorDialogRequest = { kind: 'add' } | { kind: 'edit'; connector: Connector };
 
@@ -78,8 +79,11 @@ function ConnectorDialogBody({
   request: ConnectorDialogRequest;
   onClose: () => void;
 }) {
-  const { client, list, data, notify } = usePluginsContext();
+  const { client, list, data, notify, scoped, workspaces } = usePluginsContext();
   const editing = request.kind === 'edit' ? request.connector : undefined;
+  // 范围（0.74.0）：添加时选全局或某个项目；编辑时沿用连接器的，不能改。
+  const [scope, setScope] = useState<string>('global');
+  const workspaceId = editing ? editing.workspaceId : scope === 'global' ? undefined : scope;
   const [tab, setTab] = useState<Tab>(editing ? editing.config.transport : 'stdio');
   const [form, setForm] = useState<ConnectorForm>(() =>
     editing ? formFromConnector(editing) : emptyForm(),
@@ -89,7 +93,10 @@ function ConnectorDialogBody({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
-  const existing = useMemo(() => new Set(list.connectors.map((item) => item.name)), [list]);
+  const existing = useMemo(
+    () => conflictingNames(list.connectors, workspaceId, editing?.id),
+    [list, workspaceId, editing],
+  );
   const errors = formErrors(form, existing, editing?.name);
   const imported: ImportResult = useMemo(
     () => withoutAdded(withExisting(parseConnectorJson(jsonText), existing), added),
@@ -129,6 +136,7 @@ function ConnectorDialogBody({
         const { connector } = await client.request('connector.add', {
           name: form.name.trim(),
           config: buildConfig(form),
+          ...(workspaceId !== undefined && { workspaceId: workspaceId as WorkspaceId }),
         });
         await data.refresh();
         notify({ tone: 'success', text: t('plugins.connector.added', { name: connector.name }) });
@@ -151,7 +159,11 @@ function ConnectorDialogBody({
     const failures: string[] = [];
     for (const entry of imported.entries) {
       try {
-        await client.request('connector.add', { name: entry.name, config: entry.config });
+        await client.request('connector.add', {
+          name: entry.name,
+          config: entry.config,
+          ...(workspaceId !== undefined && { workspaceId: workspaceId as WorkspaceId }),
+        });
         done.add(entry.name);
       } catch (reason) {
         failures.push(t('plugins.json.partial', { name: entry.source, error: describe(reason) }));
@@ -196,6 +208,21 @@ function ConnectorDialogBody({
         />
       )}
       <form onSubmit={submit} className="flex min-w-0 flex-col gap-4">
+        {!editing && scoped && (
+          <div className="space-y-1.5">
+            <span className="block text-sm font-medium">{t('plugins.connector.scope')}</span>
+            <Select
+              aria-label={t('plugins.connector.scope')}
+              value={scope}
+              onValueChange={setScope}
+              options={[
+                { value: 'global', label: t('plugins.scope.global') },
+                ...workspaces.map((entry) => ({ value: entry.id, label: entry.label })),
+              ]}
+              data-field="scope"
+            />
+          </div>
+        )}
         {tab === 'json' ? (
           <JsonFields text={jsonText} onChange={setJsonText} result={imported} />
         ) : (
@@ -370,6 +397,8 @@ function KeyValueEditor({
   onChange: (rows: KeyValueRow[]) => void;
   kind: 'env' | 'headers';
 }) {
+  // 打开时光标落在第一个待填的值上（导入的连接器点“需填写”进来）。
+  const firstMissing = rows.find((row) => row.missing)?.id;
   return (
     <fieldset className="min-w-0 space-y-1.5" data-rows={kind}>
       <legend className="p-0 text-sm font-medium">{label}</legend>
@@ -390,7 +419,15 @@ function KeyValueEditor({
             type={row.existing ? 'password' : 'text'}
             value={row.value}
             disabled={row.removed}
-            placeholder={row.existing ? t('plugins.secret.keep') : t('plugins.field.value')}
+            placeholder={
+              row.missing
+                ? t('plugins.secret.missing')
+                : row.existing
+                  ? t('plugins.secret.keep')
+                  : t('plugins.field.value')
+            }
+            aria-invalid={row.missing && row.value === '' && !row.removed ? true : undefined}
+            autoFocus={row.id === firstMissing}
             onChange={(event) => onChange(updateRow(rows, row.id, { value: event.target.value }))}
             autoComplete="off"
             spellCheck={false}

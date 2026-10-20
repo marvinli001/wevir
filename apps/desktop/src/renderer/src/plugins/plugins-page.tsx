@@ -1,15 +1,18 @@
 // 插件页（0.42.0，docs/architecture/desktop-layout.md §23、desktop-tokens.md §52）：主窗格里的一列，顶上是分段切换与“添加”，下面是
 // 当前分段的列表；整页是拖放区。数据是 `plugins.list`（use-plugins.ts），各组件经 PluginsContext 取用。
 
-import type { WevirClient } from '@wevir/client-sdk';
+import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type { Connector, HostFeatures } from '@wevir/protocol';
 import { Plus } from 'lucide-react';
 import { type DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useWorkbenchData } from '@/data/workbench-data';
+import { chatsOf, projectsOf } from '@/data/workbench-model';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { workspaceLabel } from '@/projects/chats';
 import { type PluginsTab, paths } from '@/routes/paths';
 import { type Notice, NoticeBanner, Segmented } from '@/settings/settings-ui';
 import { AddDialog, type AddRequest } from './add-dialog';
@@ -32,6 +35,15 @@ export function PluginsPage({
 }) {
   const navigate = useNavigate();
   const data = usePlugins();
+  const workbench = useWorkbenchData();
+  const scoped = hostSupports(features, 'external_import');
+  const workspaces = useMemo(() => {
+    if (workbench.status !== 'ready') return [];
+    const chats = chatsOf(workbench.workspaces);
+    return [...projectsOf(workbench.workspaces), ...(chats === undefined ? [] : [chats])].map(
+      (entry) => ({ id: entry.workspace.id, label: workspaceLabel(entry.workspace) }),
+    );
+  }, [workbench]);
   const [notice, setNotice] = useState<Notice>();
   // 每个分段各自展开的一行。
   const [expanded, setExpanded] = useState<Partial<Record<PluginsTab, string>>>({});
@@ -75,9 +87,11 @@ export function PluginsPage({
               navigate(paths.plugins('plugins'), { replace: true });
             },
             editConnector: (target: Connector) => setConnector({ kind: 'edit', connector: target }),
+            scoped,
+            workspaces,
           }
         : undefined,
-    [client, state, data, busy, run, navigate],
+    [client, state, data, busy, run, navigate, scoped, workspaces],
   );
 
   const openAdd = (init: Omit<AddRequest, 'id'> = {}) => {

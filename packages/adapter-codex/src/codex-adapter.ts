@@ -96,7 +96,7 @@ import {
   prepareCodexHome,
   resolveCodexBinary,
 } from './paths.js';
-import { CodexPlugins, pluginsToml } from './plugins.js';
+import { CodexPlugins, pluginsToml, threadConnectorsConfig } from './plugins.js';
 import { BasePrompt, defaultPromptsDir } from './prompts.js';
 import {
   APPROVAL_REQUESTS,
@@ -314,6 +314,8 @@ interface CodexSession {
   permission: PermissionMode;
   /** 环境会话的额外目录（0.15.0）：沙箱的 writableRoots。 */
   readonly roots: readonly string[];
+  /** 只挂在这个 thread 上的项目连接器（0.74.0）里启用的名字：它们的 MCP 确认按用户连接器处理。 */
+  readonly connectors: ReadonlySet<string>;
   /** 子会话（子 agent 的 thread）的父会话（R4）。 */
   readonly parentId?: string;
   /** open：挂在当前进程上；closed：已 close；detached：进程退出或重启后脱开（`resumeSession` 接回）。 */
@@ -728,7 +730,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     try {
       const params: ThreadStartParams = {
         cwd: config.cwd,
-        ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
+        ...this.#threadSettings(
+          provider,
+          model,
+          config.reasoningEffort,
+          config.appTools,
+          config.connectors,
+        ),
         ...threadDeveloperInstructions(config),
       };
       let response: ThreadStartResponse;
@@ -746,6 +754,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.reasoningEffort,
         config.permissionMode,
         config.additionalRoots,
+        config.connectors,
       );
       return engineSession(id, response);
     } finally {
@@ -776,7 +785,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       const params: ThreadResumeParams = {
         threadId: engineSessionId,
         cwd: config.cwd,
-        ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
+        ...this.#threadSettings(
+          provider,
+          model,
+          config.reasoningEffort,
+          config.appTools,
+          config.connectors,
+        ),
         ...threadDeveloperInstructions(config),
         excludeTurns: true,
       };
@@ -789,6 +804,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.reasoningEffort,
         config.permissionMode,
         config.additionalRoots,
+        config.connectors,
       );
       // 0.35.0：记下 thread 的目标（停止回合时要知道它是不是进行中）；Codex 恢复时的那次通知可能早于登记。
       const session = this.#sessions.get(engineSessionId);
@@ -1181,7 +1197,13 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         threadId: engineSessionId,
         ...(lastTurnId !== undefined && { lastTurnId }),
         cwd: config.cwd,
-        ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
+        ...this.#threadSettings(
+          provider,
+          model,
+          config.reasoningEffort,
+          config.appTools,
+          config.connectors,
+        ),
         ephemeral: side,
         excludeTurns: true,
       };
@@ -1200,6 +1222,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         config.reasoningEffort,
         config.permissionMode,
         config.additionalRoots,
+        config.connectors,
       );
       if (!side) return engineSession(id, response);
       const inject: ThreadInjectItemsParams = {
@@ -1916,6 +1939,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       effort: parent.effort,
       permission: parent.permission,
       roots: parent.roots,
+      connectors: parent.connectors,
       parentId: parent.id,
       status: 'open',
       // Host 收到 subagent.started 才订阅：之前的事件先存着。
@@ -2163,6 +2187,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     });
   }
 
+  /** 这个 thread（子 agent 的看它的父会话）挂着这个项目连接器（0.74.0）。 */
+  #threadConnector(threadId: string, name: string): boolean {
+    const session = this.#sessions.get(threadId);
+    if (session === undefined) return false;
+    if (session.connectors.has(name)) return true;
+    return session.parentId !== undefined && this.#threadConnector(session.parentId, name);
+  }
+
   /**
    * 批准一次应用级工具的调用（0.30.0，codex-event-mapping.md §6.11）：`mcpServer/elicitation/request` 里 `wevir` 服务的
    * `mcp_tool_call` 批准，0.41.0 起也包括 Host 启用的用户连接器。属于挂着的会话进行中的回合时上报为 `approval.requested`，
@@ -2176,7 +2208,9 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       !isRecord(params) ||
       typeof params.threadId !== 'string' ||
       typeof params.serverName !== 'string' ||
-      (params.serverName !== APP_TOOLS_SERVER && !this.#plugins.hasConnector(params.serverName)) ||
+      (params.serverName !== APP_TOOLS_SERVER &&
+        !this.#plugins.hasConnector(params.serverName) &&
+        !this.#threadConnector(params.threadId, params.serverName)) ||
       meta?.codex_approval_kind !== MCP_TOOL_APPROVAL_KIND
     ) {
       this.#warnOnce('mcp_elicitation', 'Codex 的 MCP 确认不是应用级工具的批准，拒绝', {
@@ -2445,8 +2479,17 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     model: ProviderModelConfig,
     reasoningEffort: string | undefined,
     appTools: AppToolsEndpoint | undefined,
+    connectors: SessionConfig['connectors'],
   ): Omit<ThreadStartParams, 'cwd'> {
-    const tools = appTools === undefined ? {} : appToolsConfig(appTools);
+    // 项目的连接器（0.74.0）只挂在这个 thread 上（`mcp_servers.<名字>` 的覆盖），全局的在 config.toml 里。
+    const projectTools =
+      connectors === undefined || connectors.length === 0
+        ? {}
+        : threadConnectorsConfig(connectors, (value) => this.#logger.addSecret?.(value));
+    const tools = {
+      ...projectTools,
+      ...(appTools === undefined ? {} : appToolsConfig(appTools)),
+    };
     if (this.#chatgpt) {
       // ChatGPT 登录的 OpenAI 模型用 Codex 内置的、按模型调好的提示词（补记 2），不覆盖 baseInstructions。
       return {
@@ -2500,12 +2543,14 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     reasoningEffort: string | undefined,
     permission: PermissionMode = 'on_request',
     roots: readonly string[] = [],
+    connectors: SessionConfig['connectors'] = [],
   ): void {
     // thread/start 结果到达之前这个 thread 的通知（状态变化）没人认领，不需要补。
     this.#unknownThreads.delete(id);
     this.#sessions.set(id, {
       id,
       cwd,
+      connectors: new Set(connectors.filter((item) => item.enabled).map((item) => item.name)),
       providerId: provider.id,
       model,
       effort: reasoningEffort === undefined ? null : toCodexEffort(reasoningEffort),

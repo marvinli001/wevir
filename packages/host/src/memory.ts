@@ -12,12 +12,17 @@
 // 别人（用户或别的会话）写的笔记要带着读到的版本，否则当作冲突：不会悄悄覆盖用户刚改的内容。来源只说明在哪写下，不说明内容属实；
 // 文件的修改时间不参与任何判断。
 //
+// 导入（0.74.0，`import.apply`）：用户从 Claude Code、Codex 导入的笔记只新建、不覆盖同名的；来源记 `by: user` 加上 `importedFrom`
+// （应用与源文件路径，写成 frontmatter 的 `created-imported-app` 等键）。
+//
 // 布局：`<数据目录>/memory/global/<名字>.md`，`<数据目录>/memory/projects/<工作区 ID>/<名字>.md`。
 
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  type ImportedFrom,
+  ImportedFromSchema,
   MEMORY_CONTENT_MAX_BYTES,
   MEMORY_DESCRIPTION_MAX,
   MEMORY_MAX_PER_SCOPE,
@@ -76,7 +81,8 @@ export type MemoryErrorCode =
   | 'limit'
   | 'no_project'
   | 'disabled'
-  | 'conflict';
+  | 'conflict'
+  | 'exists';
 
 /** 参数不合规、找不到、超出上限、版本冲突：消息给模型看，写得能让它改正。 */
 export class MemoryError extends Error {
@@ -90,8 +96,8 @@ export class MemoryError extends Error {
   }
 }
 
-/** 密钥不落地（AGENTS.md 规则 5）：像私钥、令牌的内容拒绝保存。 */
-const SECRET_PATTERNS: readonly RegExp[] = [
+/** 密钥不落地（AGENTS.md 规则 5）：像私钥、令牌的内容拒绝保存。导入（0.74.0）也用它判断 MCP 的参数与地址。 */
+export const SECRET_PATTERNS: readonly RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /\bsk-[A-Za-z0-9_-]{20,}/,
   /\bgh[pousr]_[A-Za-z0-9]{30,}/,
@@ -255,6 +261,65 @@ export class MemoryStore {
     });
     this.#emit(scope, workspaceId, name);
     return result;
+  }
+
+  /**
+   * 和已有的同名笔记比（0.74.0 导入）：没有是 `new`；种类、说明与正文规整后都相同是 `same`；别的（含读不出来的文件）是 `exists`。
+   */
+  async compare(
+    scope: MemoryScope,
+    workspaceId: string | undefined,
+    input: MemorySaveInput,
+  ): Promise<'new' | 'exists' | 'same'> {
+    const loaded = await this.#load(scope, workspaceId, checkName(input.name));
+    if (loaded.kind === 'missing') return 'new';
+    if (loaded.kind === 'unreadable') return 'exists';
+    const note = loaded.note;
+    return note.type === input.type &&
+      note.description === oneLine(input.description) &&
+      note.content === input.content.trim()
+      ? 'same'
+      : 'exists';
+  }
+
+  /**
+   * 用户从别的应用导入一条（0.74.0）：只新建，同名的已有就是 `exists`（不覆盖，停用的、读不出来的也算）。规则同保存（名字、上限、
+   * 说明与正文、密钥）；来源记 `by: user` 与 `importedFrom`。
+   */
+  async importNote(
+    scope: MemoryScope,
+    workspaceId: string | undefined,
+    input: MemorySaveInput,
+    importedFrom: ImportedFrom,
+  ): Promise<MemoryNote> {
+    const name = checkName(input.name);
+    const fields = checkFields(input);
+    const from = ImportedFromSchema.safeParse(importedFrom);
+    if (!from.success || /[\r\n]/.test(from.data.path)) {
+      throw new MemoryError('invalid', 'Unusable import source.');
+    }
+    const dir = this.#dir(scope, workspaceId);
+    const note = await this.#exclusive(dir, async () => {
+      const existing = await this.#load(scope, workspaceId, name);
+      if (existing.kind !== 'missing') {
+        throw new MemoryError('exists', `A ${scope} note named "${name}" already exists.`);
+      }
+      await this.#checkRoom(dir, scope);
+      const at = this.#now().toISOString();
+      const source: MemorySource = { by: 'user', at, importedFrom: from.data };
+      return this.#write(dir, {
+        scope,
+        name,
+        ...fields,
+        updatedAt: at,
+        enabled: true,
+        origin: source,
+        lastEdit: source,
+        extra: [],
+      });
+    });
+    this.#emit(scope, workspaceId, name);
+    return note;
   }
 
   /**
@@ -579,8 +644,8 @@ async function readOrUndefined(file: string): Promise<string | undefined> {
   }
 }
 
-/** frontmatter 里 Host 自己写的字段；其余的原样留着。 */
-const SOURCE_FIELDS = ['by', 'session', 'turn', 'seq'] as const;
+/** frontmatter 里 Host 自己写的字段；其余的原样留着。`imported-*` 是导入的出处（0.74.0）。 */
+const SOURCE_FIELDS = ['by', 'session', 'turn', 'seq', 'imported-app', 'imported-path'] as const;
 const KNOWN_FIELDS = new Set([
   'name',
   'description',
@@ -600,6 +665,12 @@ function sourceLines(prefix: 'created' | 'updated', source: MemorySource | undef
     ...(source.sessionId === undefined ? [] : [`${prefix}-session: ${source.sessionId}`]),
     ...(source.turnId === undefined ? [] : [`${prefix}-turn: ${source.turnId}`]),
     ...(source.seq === undefined ? [] : [`${prefix}-seq: ${source.seq}`]),
+    ...(source.importedFrom === undefined
+      ? []
+      : [
+          `${prefix}-imported-app: ${source.importedFrom.app}`,
+          `${prefix}-imported-path: ${source.importedFrom.path}`,
+        ]),
   ];
 }
 
@@ -625,6 +696,11 @@ function parseSource(
     const checked = MemorySourceSchema.safeParse({ by, at: candidate.at, [key]: value });
     if (checked.success) Object.assign(source, { [key]: value });
   }
+  const importedFrom = ImportedFromSchema.safeParse({
+    app: fields.get(`${prefix}-imported-app`),
+    path: fields.get(`${prefix}-imported-path`),
+  });
+  if (importedFrom.success) source.importedFrom = importedFrom.data;
   return source;
 }
 

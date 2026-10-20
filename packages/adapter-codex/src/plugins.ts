@@ -34,6 +34,25 @@ export function connectorConfig(
   };
 }
 
+/**
+ * 只给一个 thread 的连接器（0.74.0，项目范围）：`thread/start` / `thread/resume` / `thread/fork` 的 `config` 覆盖里的
+ * `mcp_servers.<名字>`，和应用级工具的挂法一样；环境变量与请求头的值交给 `secret` 打码。
+ */
+export function threadConnectorsConfig(
+  connectors: EnginePluginConfig['connectors'],
+  secret: (value: string) => void,
+): Record<string, unknown> {
+  const config: Record<string, unknown> = {};
+  for (const item of connectors) {
+    for (const value of Object.values(
+      item.config.transport === 'stdio' ? (item.config.env ?? {}) : (item.config.headers ?? {}),
+    ))
+      if (value !== '') secret(value);
+    config[`mcp_servers.${item.name}`] = connectorConfig(item.config, item.enabled);
+  }
+  return config;
+}
+
 export function pluginsToml(toml: string, config: EnginePluginConfig | undefined): string {
   if (config === undefined) return toml;
   return [

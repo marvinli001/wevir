@@ -318,6 +318,8 @@ export const HOST_FEATURES = {
    * 有 `automations` 时声明。
    */
   automationConditions: 'automation_conditions',
+  /** 从 Claude Code、Codex、Grok Build、Antigravity 导入记忆、MCP 服务器与 skills（0.74.0）：`import.*` 方法。 */
+  externalImport: 'external_import',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -383,6 +385,7 @@ export const HostFeaturesSchema = z.looseObject({
   lsp_status: z.boolean().optional(),
   question_timeout: z.boolean().optional(),
   automation_conditions: z.boolean().optional(),
+  external_import: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
