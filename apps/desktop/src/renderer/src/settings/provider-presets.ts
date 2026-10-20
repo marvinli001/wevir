@@ -310,6 +310,31 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration',
   },
   {
+    // Responses 只认函数工具与 auto；namespace 待实测，保守摊平。M3.1 窗口照官方 Codex 指南，M3 的 effort 只开关思考（providers.md §7.15）。
+    id: 'minimax',
+    name: 'provider.catalog.minimax',
+    note: 'provider.preset.minimax.note',
+    api: 'openai-responses',
+    baseURL: 'https://api.minimax.cn/v1',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    models: [
+      {
+        id: 'MiniMax-M3.1-Flash',
+        contextWindow: 524288,
+        supportsImages: true,
+        reasoningEfforts: FIVE_EFFORTS,
+      },
+      {
+        id: 'MiniMax-M3',
+        contextWindow: 1000000,
+        supportsImages: true,
+        reasoningEfforts: ['off', 'high'],
+      },
+    ],
+    defaultModelId: 'MiniMax-M3.1-Flash',
+    docsURL: 'https://platform.minimax.cn/docs/api-reference/responses-create',
+  },
+  {
     id: 'deepseek-openai',
     name: 'provider.preset.deepseekOpenai',
     api: 'openai-completions',

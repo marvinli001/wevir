@@ -1200,6 +1200,8 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.mimo': 'Xiaomi MiMo',
   'provider.preset.mimo.note': 'MiMo 플랫폼 종량제 API 키 필요',
+  'provider.catalog.minimax': 'MiniMax',
+  'provider.preset.minimax.note': '국제 사이트: https://api.minimax.io/v1',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

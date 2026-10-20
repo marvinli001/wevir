@@ -40,6 +40,11 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
     compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
   },
   {
+    matches: isMinimaxHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
     matches: isZaiHost,
     api: 'openai-responses',
     compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
@@ -249,6 +254,11 @@ export function isMimoHost(baseURL: string): boolean {
   return (
     /(^|\.)xiaomimimo\.com$/.test(host) && !/(^|\.)token-plan(?:-[a-z0-9-]+)?(\.|$)/.test(host)
   );
+}
+
+/** MiniMax 国内（minimax.cn，minimaxi.com 是旧别名）与国际（minimax.io）开放平台（model-gateway.md §3.12）。 */
+export function isMinimaxHost(baseURL: string): boolean {
+  return /(^|\.)(minimax\.cn|minimaxi\.com|minimax\.io)$/.test(hostnameOf(baseURL));
 }
 
 /** 已核对的 Phala / RedPill 按量 API（model-gateway.md §3.10），不匹配其他子域或路径。 */

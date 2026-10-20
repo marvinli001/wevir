@@ -11,6 +11,7 @@ import gemini from '@/assets/provider-logos/gemini-color.svg';
 import grok from '@/assets/provider-logos/grok.svg';
 import kimi from '@/assets/provider-logos/kimi-color.svg';
 import kimiLight from '@/assets/provider-logos/kimi-color-light.svg';
+import minimax from '@/assets/provider-logos/minimax-color.svg';
 import ollama from '@/assets/provider-logos/ollama.svg';
 import openai from '@/assets/provider-logos/openai.svg';
 import opencode from '@/assets/provider-logos/opencode.svg';
@@ -41,6 +42,7 @@ const LOGOS = {
   qwen: { src: qwen, mono: false },
   kimi: { src: kimi, mono: false, light: kimiLight },
   mimo: { src: mimo, mono: true },
+  minimax: { src: minimax, mono: false },
   zhipu: { src: zhipu, mono: false },
   zai: { src: zai, mono: true },
   xai: { src: xai, mono: true },

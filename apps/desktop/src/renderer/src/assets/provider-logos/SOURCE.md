@@ -15,6 +15,7 @@
 | `kimi-color-light.svg` | Kimi（浅色主题） | `fb386854f341fa4d03ffcc21827eee59ae72ec9bb0542479177ce20ae619ddfb` |
 | `zai.svg` | Z.ai | `e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1` |
 | `zhipu-color.svg` | 智谱 GLM | `8174e65ff71647d5c705c920c953a82bd723d9e3e42887bdd4ffc9dfe51207a0` |
+| `minimax-color.svg` | MiniMax | `7f7187fa6d9b341ac5f22f6c5a970523afb439dc45566d64eb4f4b9b604d6b01` |
 | `xiaomimimo.svg` | 小米 MiMo | `b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71` |
 | `xai.svg` | SpaceXAI（原 xAI；保留旧标志） | `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451` |
 | `ollama.svg` | Ollama | `3a268218fb2e6e81fa31df70f70b51331625047794db81db21d35359428fae7a` |

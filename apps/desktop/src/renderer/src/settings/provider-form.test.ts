@@ -315,6 +315,57 @@ describe('预设模板（providers.md §7）', () => {
     ).toBeUndefined();
   });
 
+  it('MiniMax 按量模板保存 Responses、两款模型的档位与代理兼容值', () => {
+    const entry = catalogEntry('minimax');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 MiniMax 模板');
+    expect(entry).toMatchObject({
+      group: 'cn',
+      logo: 'minimax',
+      keyURL: 'https://platform.minimax.cn/user-center/basic-information/interface-key',
+    });
+    const preset = entry.source.preset;
+    const form = { ...newOpenAIForm(preset, []), apiKey: 'placeholder-not-a-real-key' };
+    expect(validateForm(form, [])).toEqual({});
+    expect(upsertSchema.parse(toUpsertParams(form))).toMatchObject({
+      api: 'openai-responses',
+      baseURL: 'https://api.minimax.cn/v1',
+      defaultModelId: 'MiniMax-M3.1-Flash',
+      compat: {
+        supportsCustomTools: false,
+        supportsNamespaceTools: false,
+        toolChoice: 'auto_only',
+      },
+      models: [
+        {
+          id: 'MiniMax-M3.1-Flash',
+          contextWindow: 524288,
+          supportsImages: true,
+          reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+        {
+          id: 'MiniMax-M3',
+          contextWindow: 1000000,
+          supportsImages: true,
+          reasoningEfforts: ['off', 'high'],
+        },
+      ],
+    });
+    expect(toUpsertParams({ ...form, baseURL: 'https://proxy.example.org/v1' })).toHaveProperty(
+      'compat',
+      preset.compat,
+    );
+    expect(preset.note).toBe('provider.preset.minimax.note');
+    for (const baseURL of [
+      preset.baseURL,
+      'https://api.minimaxi.com/v1',
+      'https://api.minimax.io/v1',
+    ])
+      expect(providerLogo({ kind: 'openai-compatible', baseURL })).toBe('minimax');
+    expect(
+      providerLogo({ kind: 'openai-compatible', baseURL: 'https://api.minimax.io.fake.org/v1' }),
+    ).toBeUndefined();
+  });
+
   it('已有 MiMo Profile 保留旧模型、档位、协议与显式 compat', () => {
     const old = profile({
       id: 'mimo',
