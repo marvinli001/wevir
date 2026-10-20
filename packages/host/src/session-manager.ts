@@ -291,6 +291,10 @@ interface TurnRuntime {
   /** 由命令开始的回合（0.24.0，domain-model §4.7）：不能插话，插话一律排队。 */
   readonly command?: TurnCommand;
   /**
+   * 自动修复的回合（0.65.0，ADR-0008）：不能插话；用户这时发来消息，Host 停下这个回合，消息在停止后照常发出。
+   */
+  readonly repair?: true;
+  /**
    * 这个回合里的自动压缩（`#checkAutoCompaction`）：`pending` 是刚压缩完、还没看到之后的第一次用量；`fruitless` 是连续几次
    * 自动压缩之后的第一次用量仍不低于压缩线。
    */
@@ -495,6 +499,7 @@ const BRANCH_HISTORY_EVENTS: ReadonlySet<string> = new Set<WevirEventType>([
 ]);
 
 const COMMAND_TURN_NOT_STEERABLE = 'a compact or review turn cannot be steered';
+const REPAIR_TURN_NOT_STEERABLE = 'an automatic repair turn stops for your message instead';
 
 /** 引擎会话恢复不了的原因（适配器的 `session_lost`）→ 会话只读的原因。 */
 const READ_ONLY_REASONS = {
@@ -1138,6 +1143,60 @@ export class SessionManager {
   }
 
   /**
+   * 自动修复的回合（0.65.0，ADR-0008 决策 12）：Host 把检查失败的材料作为一条 `from.repair` 的消息交给 Agent。只在会话空闲、
+   * 没有待审批 / 待回答 / 待发消息、目标没在进行时开始（用户的操作优先），否则不开始并返回原因：`user_message`（用户有了新的
+   * 消息或操作）、`goal_active`、`session_unavailable`（会话出错、关闭、只读或恢复不了）、`not_repairable`（子会话）。排进命令队列。
+   */
+  async startRepairTurn(
+    sessionId: SessionId,
+    input: { content: UserContentPart[]; from: MessageFrom; sentBy: ClientIdentity },
+  ): Promise<{ turnId: TurnId } | { skipped: string }> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    if (runtime.parentId !== undefined) return { skipped: 'not_repairable' };
+    const blocked = (): string | undefined => {
+      const snapshot = this.#snapshot(runtime);
+      const { session } = snapshot;
+      if (
+        session.readOnly !== undefined ||
+        session.state === 'error' ||
+        session.state === 'closed'
+      ) {
+        return 'session_unavailable';
+      }
+      if (
+        session.state !== 'idle' ||
+        (snapshot.pendingMessages ?? []).length > 0 ||
+        snapshot.pendingApprovals.length > 0 ||
+        (snapshot.pendingQuestions?.length ?? 0) > 0
+      ) {
+        return 'user_message';
+      }
+      if (session.goal?.status === 'active') return 'goal_active';
+      return undefined;
+    };
+    return this.#serial(runtime, async () => {
+      if (this.#shuttingDown || this.#disposed) return { skipped: 'session_unavailable' };
+      const before = blocked();
+      if (before !== undefined) return { skipped: before };
+      try {
+        if (!runtime.attachment) await this.#autoResume(runtime);
+      } catch (error) {
+        if (isHostError(error)) return { skipped: 'session_unavailable' };
+        throw error;
+      }
+      const after = blocked();
+      if (after !== undefined) return { skipped: after };
+      const { turnId } = await this.#startTurn(runtime, {
+        content: input.content,
+        sentBy: input.sentBy,
+        from: input.from,
+      });
+      return { turnId };
+    });
+  }
+
+  /**
    * `session.compact`（0.24.0，domain-model §4.7）：开始一个由命令开始的回合，引擎压缩会话的上下文。前提同 `send`（没有排队）。
    */
   compact(sessionId: SessionId): Promise<MethodResult<'session.compact'>> {
@@ -1461,6 +1520,7 @@ export class SessionManager {
       tools: new Map(),
       finished: deferred(),
       addedWhileCancelling: new Set(),
+      ...(from?.repair !== undefined && { repair: true as const }),
     };
 
     // 回合前的快照（0.20.0）：打完再交给引擎，免得快照里混进这个回合的改动。不会抛错。
@@ -1572,8 +1632,14 @@ export class SessionManager {
     const wantsSteer = params.delivery === 'steer';
     // 命令开的回合（0.24.0）不能插话：Codex 的 review、compact 回合拒绝 `turn/steer`，Claude 的 `/compact` 是本地命令。
     const commandTurn = runtime.turn?.command !== undefined;
+    // 自动修复的回合（0.65.0）也不插话：用户的消息让它停下，停止后再发。
+    const repairTurn = runtime.turn?.repair === true;
     const steerable =
-      wantsSteer && state !== 'cancelling' && !commandTurn && this.#adapter.steer !== undefined;
+      wantsSteer &&
+      state !== 'cancelling' &&
+      !commandTurn &&
+      !repairTurn &&
+      this.#adapter.steer !== undefined;
     const now = isoNow();
     const pending: PendingMessage = {
       id: newId('pnd'),
@@ -1593,7 +1659,9 @@ export class SessionManager {
           ? { reason: 'turn_ended' }
           : commandTurn
             ? { reason: 'rejected', message: COMMAND_TURN_NOT_STEERABLE }
-            : { reason: 'unsupported' };
+            : repairTurn
+              ? { reason: 'rejected', message: REPAIR_TURN_NOT_STEERABLE }
+              : { reason: 'unsupported' };
     }
     const { clientMessageId } = params;
     const [event] = this.#write(
@@ -1619,6 +1687,13 @@ export class SessionManager {
     if (!event) throw new Error('pending.added 未写入');
     if (state === 'cancelling') runtime.turn?.addedWhileCancelling.add(pending.id);
     if (steerable) await this.#handOver(runtime, pending);
+    // 用户在自动修复的回合里发了消息（0.65.0）：让位给用户，停下这个回合，这条消息在停止后照常发出（不暂停）。
+    if (repairTurn && from === undefined && state !== 'cancelling') {
+      runtime.turn?.addedWhileCancelling.add(pending.id);
+      void this.cancel(runtime.id).catch((error: unknown) => {
+        if (!isHostError(error)) this.#onError(error);
+      });
+    }
     return { pendingId: pending.id, seq: event.seq };
   }
 

@@ -55,6 +55,11 @@ import {
   UsageBreakdownSchema,
   UserContentPartSchema,
 } from './entities.js';
+import {
+  RepairChainSchema,
+  SessionAcceptanceSchema,
+  VerificationRunSchema,
+} from './verification.js';
 
 // 会话事件目录 v0，含义与来源见 docs/architecture/domain-model.md §6。
 
@@ -474,6 +479,15 @@ export const EventPayloadSchemas = {
     files: z.array(SharedFileSchema).min(1).max(SHARED_FILES_MAX),
     turnId: TurnIdSchema.optional(),
   }),
+  /**
+   * 一条验证记录变了（0.65.0，ADR-0008）：检查排队、开始、结束，每次带完整记录，替换同一 `id` 的上一份。与回合分开：`turnId` 只说明
+   * 它验证的是哪个回合之后的代码。
+   */
+  'verification.updated': z.object({ run: VerificationRunSchema }),
+  /** 会话的验收状态变了（0.65.0）：与引擎的回合状态分开。 */
+  'acceptance.changed': z.object({ acceptance: SessionAcceptanceSchema }),
+  /** 自动修复链变了（0.65.0）：开始、每次修复、复验、停下。 */
+  'repair.updated': z.object({ repair: RepairChainSchema }),
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -563,6 +577,9 @@ export const PendingUpdatedEventSchema = eventSchema('pending.updated');
 export const UserSteeredEventSchema = eventSchema('user.steered');
 export const UiShowEventSchema = eventSchema('ui.show');
 export const FileSharedEventSchema = eventSchema('file.shared');
+export const VerificationUpdatedEventSchema = eventSchema('verification.updated');
+export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
+export const RepairUpdatedEventSchema = eventSchema('repair.updated');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -611,6 +628,9 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   UserSteeredEventSchema,
   UiShowEventSchema,
   FileSharedEventSchema,
+  VerificationUpdatedEventSchema,
+  AcceptanceChangedEventSchema,
+  RepairUpdatedEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

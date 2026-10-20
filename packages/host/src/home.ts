@@ -27,7 +27,10 @@ export const HOME_LAYOUT = {
   webFile: 'web.json',
   /** 不在项目里的会话（0.39.0，chats.ts）：“对话”工作区，每个会话一个 `<会话 ID>/` 文件夹（0700）。 */
   chatsDir: 'chats',
-  /** 应用级工具太长的结果与后台进程的日志（tool-output.ts、processes.ts），每个会话一个 `<会话 ID>/`（0700），七天后删。 */
+  /**
+   * 应用级工具太长的结果与后台进程的日志（tool-output.ts、processes.ts），每个会话一个 `<会话 ID>/`（0700），七天后删；验证记录的完整
+   * 输出（0.65.0）在 `<会话 ID>/verification/` 里。
+   */
   toolOutputDir: 'tool-output',
   /** 跨会话记忆（memory.ts）：`global/` 与 `projects/<工作区 ID>/`，每条一个 .md（0700）。 */
   memoryDir: 'memory',
@@ -37,6 +40,8 @@ export const HOME_LAYOUT = {
   tasksDir: 'tasks',
   /** 用量统计的价格表（0.62.0，usage/pricing.ts）：从 models.dev 取来、压缩过的单价，每天刷新（0600）。 */
   pricingFile: 'pricing.json',
+  /** 回合后验证的检查配置（0.65.0，verification/checks-store.ts）：每个工作区一个 `<工作区 ID>.json`（0600），不写回仓库。 */
+  checksDir: 'checks',
 } as const;
 
 export interface ResolveHomeOptions {

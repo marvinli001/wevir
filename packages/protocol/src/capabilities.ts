@@ -256,6 +256,12 @@ export const HOST_FEATURES = {
    * `label`、`localLogin`、`multiAccount`。哪些种类能添加看 `multiAccount`。
    */
   subscriptionAccounts: 'subscription_accounts',
+  /**
+   * 回合后验证与有限自动修复（0.65.0，ADR-0008）：`checks.*`（工作区的检查配置、仓库里的候选、自动修复设置）、`verification.*`
+   * （运行、取消、重算、读完整输出），会话流里的 `verification.updated`、`acceptance.changed`、`repair.updated` 与快照的
+   * `verification`，`MessageFrom.repair`。与引擎无关。
+   */
+  verification: 'verification',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -310,6 +316,7 @@ export const HostFeaturesSchema = z.looseObject({
   tool_presets: z.boolean().optional(),
   usage_stats: z.boolean().optional(),
   subscription_accounts: z.boolean().optional(),
+  verification: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

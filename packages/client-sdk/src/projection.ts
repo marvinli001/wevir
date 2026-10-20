@@ -37,11 +37,14 @@ import type {
   PendingMessageId,
   QuestionId,
   QuestionRequest,
+  RepairChain,
+  SessionAcceptance,
   SessionGoal,
   SessionId,
   SessionReadOnly,
   SessionReadOnlyReason,
   SessionState,
+  SessionVerification,
   SharedFile,
   StreamBlockRef,
   SubagentStatus,
@@ -59,10 +62,16 @@ import type {
   Usage,
   UserContentPart,
   UserImagePart,
+  VerificationRun,
+  VerificationRunId,
   WevirEvent,
   WevirEventOf,
 } from '@wevir/protocol';
-import { PROMPT_SUGGESTION_VOIDING_EVENTS, type PromptSuggestion } from '@wevir/protocol';
+import {
+  PROMPT_SUGGESTION_VOIDING_EVENTS,
+  type PromptSuggestion,
+  VERIFICATION_RUNS_KEPT,
+} from '@wevir/protocol';
 
 /** 工具部件的状态。`awaiting_approval`：同一 `toolCallId` 有未决审批。 */
 export type ToolPartStatus =
@@ -331,6 +340,12 @@ export interface Transcript {
    * 开始、回合被撤回 / 撤销 / 重做）出现后没有。规则同 Host 快照的 `promptSuggestion`。
    */
   promptSuggestion: PromptSuggestion | undefined;
+  /**
+   * 0.65.0：回合后验证——验收状态（最近一次 `acceptance.changed`）、最近的验证记录（`verification.updated` 按 `id` 替换，按最近一次
+   * 变化的先后，最多 `VERIFICATION_RUNS_KEPT` 条）与最近的修复链（`repair.updated`）。没收到过验证事件时没有。规则同 Host 快照的
+   * `verification`。
+   */
+  verification: SessionVerification | undefined;
   lastSeq: number;
 }
 
@@ -430,6 +445,9 @@ export class TranscriptProjection {
   #goal: SessionGoal | undefined;
   #taskBoard: readonly BoardTask[] = [];
   #promptSuggestion: PromptSuggestion | undefined;
+  #acceptance: SessionAcceptance | undefined;
+  #runs = new Map<VerificationRunId, VerificationRun>();
+  #repair: RepairChain | undefined;
   #subagents: SubagentSummary[] = [];
   /** 子会话 ID → 它的部件（开始与结束）所在的消息。 */
   #subagentParts = new Map<SessionId, MutableMessage[]>();
@@ -480,6 +498,9 @@ export class TranscriptProjection {
     this.#goal = undefined;
     this.#taskBoard = [];
     this.#promptSuggestion = undefined;
+    this.#acceptance = undefined;
+    this.#runs.clear();
+    this.#repair = undefined;
     this.#subagents = [];
     this.#subagentParts.clear();
     this.#parent = undefined;
@@ -529,6 +550,24 @@ export class TranscriptProjection {
         return;
       case 'suggestion.updated':
         this.#promptSuggestion = event.payload;
+        return;
+      case 'verification.updated': {
+        const { run } = event.payload;
+        this.#runs.delete(run.id);
+        this.#runs.set(run.id, run);
+        for (const id of this.#runs.keys()) {
+          if (this.#runs.size <= VERIFICATION_RUNS_KEPT) break;
+          this.#runs.delete(id);
+        }
+        this.#acceptance ??= { status: 'unverified', updatedAt: event.ts };
+        return;
+      }
+      case 'acceptance.changed':
+        this.#acceptance = event.payload.acceptance;
+        return;
+      case 'repair.updated':
+        this.#repair = event.payload.repair;
+        this.#acceptance ??= { status: 'unverified', updatedAt: event.ts };
         return;
       case 'session.configured':
         return;
@@ -764,6 +803,14 @@ export class TranscriptProjection {
       redoTurnIds: this.#redo,
       taskBoard: this.#taskBoard,
       promptSuggestion: this.#promptSuggestion,
+      verification:
+        this.#acceptance === undefined
+          ? undefined
+          : {
+              acceptance: this.#acceptance,
+              runs: [...this.#runs.values()],
+              ...(this.#repair !== undefined && { repair: this.#repair }),
+            },
       lastSeq: this.#lastSeq,
     };
     this.#dirty = false;

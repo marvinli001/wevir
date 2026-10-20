@@ -1653,3 +1653,56 @@ describe('交给用户的文件（0.40.0）', () => {
     });
   });
 });
+
+describe('回合后验证（0.65.0）', () => {
+  const run = {
+    id: 'vrn_01JA2B3C4D5E6F7G8H9JKMNPQR',
+    roundId: 'vrd_01JA2B3C4D5E6F7G8H9JKMNPQR',
+    checkId: 'chk_01JA2B3C4D5E6F7G8H9JKMNPQR',
+    checkRevision: 1,
+    name: 'test',
+    command: 'pnpm test',
+    cwd: '',
+    kind: 'test',
+    trigger: 'after_turn',
+    turnId: TURN,
+    status: 'running',
+    queuedAt: '2026-10-13T08:00:00.000Z',
+  } as const;
+
+  it('记录按 id 替换，验收与修复链取最近一次；没有这些事件时是 undefined', () => {
+    const { list, add, turn } = events();
+    turn();
+    const before = projectTranscript(list);
+    expect(before.verification).toBeUndefined();
+    add('verification.updated', { run });
+    add('acceptance.changed', {
+      acceptance: { status: 'verifying', roundId: run.roundId, updatedAt: run.queuedAt },
+    });
+    add('verification.updated', {
+      run: { ...run, status: 'failed', reason: 'exit_code', finishedAt: run.queuedAt },
+    });
+    add('acceptance.changed', {
+      acceptance: { status: 'failed', roundId: run.roundId, updatedAt: run.queuedAt },
+    });
+    add('repair.updated', {
+      repair: {
+        id: 'rpr_01JA2B3C4D5E6F7G8H9JKMNPQR',
+        roundId: run.roundId,
+        originTurnId: TURN,
+        status: 'running',
+        attempt: 1,
+        maxAttempts: 2,
+        turnIds: [],
+        startedAt: run.queuedAt,
+        updatedAt: run.queuedAt,
+      },
+    });
+    const { verification } = projectTranscript(list);
+    expect(verification?.acceptance.status).toBe('failed');
+    expect(verification?.runs.map((item) => [item.id, item.status])).toEqual([[run.id, 'failed']]);
+    expect(verification?.repair).toMatchObject({ status: 'running', attempt: 1 });
+    // 验证事件不是消息：消息记录里没有它们。
+    expect(projectTranscript(list).messages).toEqual(before.messages);
+  });
+});

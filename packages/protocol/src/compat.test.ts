@@ -64,6 +64,7 @@ import frozen0610 from './compat/0.61.0.json' with { type: 'json' };
 import frozen0620 from './compat/0.62.0.json' with { type: 'json' };
 import frozen0630 from './compat/0.63.0.json' with { type: 'json' };
 import frozen0640 from './compat/0.64.0.json' with { type: 'json' };
+import frozen0650 from './compat/0.65.0.json' with { type: 'json' };
 import {
   ErrorCode,
   type ErrorCodeName,
@@ -153,6 +154,7 @@ const frozenVersions: FrozenSamples[] = [
   frozen0620,
   frozen0630,
   frozen0640,
+  frozen0650,
 ];
 
 function issuesOf(schema: z.ZodType, value: unknown) {

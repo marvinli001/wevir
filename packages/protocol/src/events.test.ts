@@ -100,6 +100,12 @@ function describeEvent(event: WevirEvent): string {
       return event.payload.target.kind;
     case 'file.shared':
       return event.payload.files[0]?.name ?? '';
+    case 'verification.updated':
+      return event.payload.run.status;
+    case 'acceptance.changed':
+      return event.payload.acceptance.status;
+    case 'repair.updated':
+      return event.payload.repair.status;
     default: {
       const unhandled: never = event;
       return unhandled;

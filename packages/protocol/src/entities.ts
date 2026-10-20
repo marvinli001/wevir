@@ -16,6 +16,7 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
+import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
 
 // 领域实体的线缆形状，字段含义见 docs/architecture/domain-model.md §3。
 
@@ -826,6 +827,11 @@ export const MessageFromSchema = z.object({
       signal: z.string().optional(),
     })
     .optional(),
+  /**
+   * 自动修复（0.65.0，ADR-0008）：Host 为修复链交给 Agent 的检查失败材料。`kind` 是 `report`、`sessionId` 是这个会话自己（旧客户端照
+   * 回报显示）。
+   */
+  repair: RepairFromSchema.optional(),
 });
 export type MessageFrom = z.infer<typeof MessageFromSchema>;
 
@@ -1577,5 +1583,7 @@ export const SessionSnapshotSchema = z.object({
    * 输入建议（0.53.0）：最近一次 `suggestion.updated`，用户有了新消息、回合重新开始或回合被撤回 / 撤销 / 重做后就没有了；没有时省略。
    */
   promptSuggestion: PromptSuggestionSchema.optional(),
+  /** 回合后验证（0.65.0）：验收状态、最近的验证记录与修复链；会话里从没有过验证时省略。 */
+  verification: SessionVerificationSchema.optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

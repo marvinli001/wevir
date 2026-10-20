@@ -13,6 +13,7 @@ import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { openCreateProject } from '@/projects/create-project';
 import { paths } from '@/routes/paths';
+import { ChecksSettings } from './checks-settings';
 import {
   EmptyList,
   LIST_CARD,
@@ -23,7 +24,8 @@ import {
 
 /**
  * 设置 → 项目（T5.4 的工作区，U5 改叫项目）：“创建项目”打开与侧栏相同的对话框（projects/create-project.tsx），
- * 列出路径；编辑与移除打开的对话框与侧栏项目的右键菜单是同一个（projects/），移除只注销、不删文件。
+ * 列出路径；编辑与移除打开的对话框与侧栏项目的右键菜单是同一个（projects/），移除只注销、不删文件。下面是所选项目的检查与
+ * 自动修复（0.65.0，checks-settings.tsx）。
  */
 export function WorkspaceSettings() {
   const data = useWorkbenchData();
@@ -35,39 +37,42 @@ export function WorkspaceSettings() {
   const projects = projectsOf(data.workspaces);
 
   return (
-    <SettingsSection
-      title={t('settings.section.projects')}
-      action={
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => openCreateProject({ onCreated: () => {} })}
-          disabled={!client}
-          data-action="add-workspace"
-        >
-          <FolderPlus data-icon="inline-start" />
-          {t('project.create.title')}
-        </Button>
-      }
-    >
-      <div className="space-y-3">
-        {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
-        {projects.length === 0 ? (
-          <EmptyList>{t('project.empty')}</EmptyList>
-        ) : (
-          <ul className={LIST_CARD}>
-            {projects.map((entry) => (
-              <WorkspaceRow
-                key={entry.workspace.id}
-                entry={entry}
-                disabled={!client}
-                canEdit={manage.update}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-    </SettingsSection>
+    <>
+      <SettingsSection
+        title={t('settings.section.projects')}
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openCreateProject({ onCreated: () => {} })}
+            disabled={!client}
+            data-action="add-workspace"
+          >
+            <FolderPlus data-icon="inline-start" />
+            {t('project.create.title')}
+          </Button>
+        }
+      >
+        <div className="space-y-3">
+          {!client && <NoticeBanner notice={{ tone: 'info', text: t('settings.noHost') }} />}
+          {projects.length === 0 ? (
+            <EmptyList>{t('project.empty')}</EmptyList>
+          ) : (
+            <ul className={LIST_CARD}>
+              {projects.map((entry) => (
+                <WorkspaceRow
+                  key={entry.workspace.id}
+                  entry={entry}
+                  disabled={!client}
+                  canEdit={manage.update}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      </SettingsSection>
+      <ChecksSettings projects={projects} />
+    </>
   );
 }
 

@@ -177,6 +177,48 @@ export class TurnCheckpoints {
   }
 
   /**
+   * 回合前后快照之间改到的文件（0.65.0，回合后验证的适用条件）：相对会话目录，`/` 分隔，含删除与重命名前后的路径。目录不在仓库里、
+   * 这个回合缺前或后的快照、git 出错时是 undefined（不知道改了什么）。
+   */
+  async changedPaths(
+    sessionId: string,
+    cwd: string,
+    turnId: string,
+  ): Promise<string[] | undefined> {
+    await this.settled(sessionId);
+    const repo = await repoInfo(cwd);
+    if (!repo) return undefined;
+    try {
+      const [before, after] = await Promise.all([
+        resolveRef(repo, checkpointRef(sessionId, turnId, 'before')),
+        resolveRef(repo, checkpointRef(sessionId, turnId, 'after')),
+      ]);
+      if (before === undefined || after === undefined) return undefined;
+      const { stdout } = await runGit(repo.cwd, [
+        ...repo.config,
+        'diff',
+        '--name-status',
+        '-z',
+        '--no-renames',
+        '--relative',
+        before,
+        after,
+        '--',
+        '.',
+      ]);
+      const parts = stdout.toString('utf8').split('\0');
+      const paths: string[] = [];
+      for (let index = 0; index + 1 < parts.length; index += 2) {
+        const path = parts[index + 1];
+        if (path) paths.push(path);
+      }
+      return paths;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
    * `session.undo` 的文件部分（0.51.0）：目录还原到这个回合开始前的样子。先把现在的样子存成 `undone`。目录不在 git 仓库里、这个回合没有
    * “前”快照、HEAD 动过、现在的样子存不了（`captureBlocker` 的原因）时什么都不动，结果说明原因；还原中途出错时把目录放回原样再抛错。
    */
@@ -369,7 +411,10 @@ export class TurnCheckpoints {
 // ── 打快照（T3 captureCheckpoint） ───────────────────────────────────
 
 /** 打不了快照的原因：sparse checkout、未跟踪文件太多或太大。 */
-async function captureBlocker(repo: RepoInfo, signal: AbortSignal): Promise<string | undefined> {
+export async function captureBlocker(
+  repo: RepoInfo,
+  signal: AbortSignal,
+): Promise<string | undefined> {
   const sparse = await runGit(
     repo.cwd,
     [...repo.config, 'config', '--bool', 'core.sparseCheckout'],
@@ -406,8 +451,40 @@ interface CaptureInput {
 }
 
 /** 会话目录现在的样子写成一个提交（父提交是 HEAD），挂到 `ref` 上。只在临时索引上操作。 */
-export async function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Promise<string> {
-  const { signal } = input;
+export function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Promise<string> {
+  return withWorkingTree(repo, input.signal, async (tree, run) => {
+    const message = await input.message(tree);
+    const commit = (
+      await run([
+        'commit-tree',
+        '--no-gpg-sign',
+        tree,
+        ...(repo.head !== undefined ? ['-p', repo.head] : []),
+        '-m',
+        message,
+      ])
+    ).stdout
+      .toString('utf8')
+      .trim();
+    if (commit === '') throw new Error('git commit-tree returned no commit');
+    await run(['update-ref', input.ref, commit]);
+    return commit;
+  });
+}
+
+/**
+ * 会话目录现在的样子（HEAD 加上工作树的改动与未跟踪、未忽略的文件）的树散列（0.65.0，验证记录的代码状态）。只在临时索引上操作，
+ * 不动用户的索引与引用；文件的 blob 照样写进对象库（同回合快照）。
+ */
+export function workingTreeHash(repo: RepoInfo, signal: AbortSignal): Promise<string> {
+  return withWorkingTree(repo, signal, async (tree) => tree);
+}
+
+async function withWorkingTree<T>(
+  repo: RepoInfo,
+  signal: AbortSignal,
+  use: (tree: string, run: IndexRun) => Promise<T>,
+): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'wevir-checkpoint-'));
   const indexFile = join(dir, 'index');
   const env = { ...AUTHOR, GIT_INDEX_FILE: indexFile };
@@ -432,22 +509,7 @@ export async function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Pr
     }
     const tree = (await run(['write-tree'])).stdout.toString('utf8').trim();
     if (tree === '') throw new Error('git write-tree returned no tree');
-    const message = await input.message(tree);
-    const commit = (
-      await run([
-        'commit-tree',
-        '--no-gpg-sign',
-        tree,
-        ...(repo.head !== undefined ? ['-p', repo.head] : []),
-        '-m',
-        message,
-      ])
-    ).stdout
-      .toString('utf8')
-      .trim();
-    if (commit === '') throw new Error('git commit-tree returned no commit');
-    await run(['update-ref', input.ref, commit]);
-    return commit;
+    return await use(tree, run);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

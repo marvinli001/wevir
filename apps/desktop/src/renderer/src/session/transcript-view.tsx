@@ -1,7 +1,7 @@
 import type { Transcript } from '@wevir/client-sdk';
 import { cn } from 'cn';
 import { ArrowDown } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
 import { turnOrb } from '@/fx/orb-state';
@@ -15,6 +15,7 @@ import { type QuoteActions, SelectionToolbar } from './selection-toolbar';
 import { latestTodos } from './todo-model';
 import { groupTurns, isActiveTurn, turnStart } from './turn-model';
 import { TurnView } from './turn-view';
+import { turnChecks } from './verification-model';
 import { WorkspaceRoot } from './work-group';
 
 /** 一次渲染的消息条数；往上滚到顶时再多渲染这么多（分段渲染，长会话不一次铺满 DOM）。 */
@@ -71,6 +72,11 @@ export function TranscriptView({
   const firstRendered = messages[start]?.id;
   // 停在输入框上方的清单属于哪个回合（U20）：那个回合的消息里不再画它。
   const dockedTodos = latestTodos(transcript)?.turnId;
+  // 每个回合触发的检查（0.65.0），画在回答下面。
+  const checksByTurn = useMemo(
+    () => turnChecks(transcript.verification),
+    [transcript.verification],
+  );
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在切换模式与换会话时固定或放开。
   useEffect(() => setPinnedStart(sticky ? undefined : firstRendered), [sticky, sessionId]);
@@ -147,6 +153,9 @@ export function TranscriptView({
                         hasSubagents={transcript.subagents.length > 0}
                         hideTodos={block.turnId === dockedTodos}
                         lastTurn={index === blocks.length - 1}
+                        {...(checksByTurn.has(block.turnId) && {
+                          checks: checksByTurn.get(block.turnId),
+                        })}
                       />
                     ) : (
                       block.message.role === 'system' && <SystemMessage message={block.message} />
