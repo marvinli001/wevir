@@ -111,7 +111,7 @@ export function handoffDetailRows(notice: HandoffNoticeOf): HandoffDetailRow[] {
   rows.push({
     key: 'status',
     label: t('handoff.detail.status'),
-    value: `${t(`handoff.detail.status.${delivery.status}`)} · ${t(`handoff.detail.statusHint.${delivery.status}`)}`,
+    value: t(`handoff.detail.status.${delivery.status}`),
     tone:
       delivery.status === 'delivered'
         ? 'success'

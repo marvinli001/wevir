@@ -8,17 +8,12 @@ afterEach(() => setLocale('zh-CN', zhCN));
 
 describe('RedPill / Phala 路由错误的文案', () => {
   it.each([
-    [
-      'phala_no_route',
-      404,
-      '没有符合条件的 RedPill 路由',
-      '确认端点提供所选模型，并检查路由条件。',
-    ],
+    ['phala_no_route', 404, '没有符合条件的 RedPill 路由', '检查模型与路由条件'],
     [
       'phala_attestation_unavailable',
       503,
       'RedPill 暂无可证明的上游',
-      '稍后重试，或选择其他支持工具的 TEE 模型。',
+      '稍后重试或换用其他 TEE 模型',
     ],
   ] as const)('%s 在连接测试与 Codex 会话使用同一说法', (code, status, title, hint) => {
     const detail = `[${code}] upstream details`;

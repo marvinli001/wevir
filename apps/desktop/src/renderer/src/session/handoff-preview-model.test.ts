@@ -86,11 +86,11 @@ describe('接力预览的纯逻辑（0.60.0）', () => {
 
   it('handoffPreviewRows：同详情的方式、引擎会话、范围、条目与读历史；没有材料时不说读历史', () => {
     expect(handoffPreviewRows(preview).map((row) => [row.key, row.value])).toEqual([
-      ['strategy', '完整：整段对话'],
+      ['strategy', '完整'],
       ['engine', '新建'],
       ['covered', '事件 1–12'],
       ['items', '选入 3 条，省略 0 条'],
-      ['history', '可读取全文'],
+      ['history', '全文'],
     ]);
     const { context: _c, bytes: _b, hash: _h, covered: _v, ...empty } = preview;
     expect(handoffPreviewRows({ ...empty, items: 0 }).map((row) => row.key)).toEqual([

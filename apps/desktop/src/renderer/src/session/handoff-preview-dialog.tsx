@@ -213,7 +213,6 @@ export function HandoffPreviewDialog({
                   style={{ width: `${Math.max(usage.ratio * 100, usage.used > 0 ? 1 : 0)}%` }}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">{t('handoff.preview.budgetHint')}</p>
               {usage.over && (
                 <p className="text-sm text-destructive" data-testid="handoff-over-budget">
                   {t('handoff.preview.overBudget')}
@@ -223,12 +222,7 @@ export function HandoffPreviewDialog({
           )}
 
           <section className="grid gap-2">
-            <div className="flex items-baseline justify-between gap-3">
-              <h3 className="text-sm font-medium">{t('handoff.preview.constraints')}</h3>
-              <span className="text-xs text-muted-foreground">
-                {t('handoff.preview.constraintsHint')}
-              </span>
-            </div>
+            <h3 className="text-sm font-medium">{t('handoff.preview.constraints')}</h3>
             {constraints.map((text, index) => (
               // biome-ignore lint/suspicious/noArrayIndexKey: 约束只在末尾增加、按位置删除，位置就是身份。
               <div key={index} className="flex items-start gap-1.5">

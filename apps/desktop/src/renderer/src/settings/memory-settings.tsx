@@ -207,7 +207,6 @@ export function MemorySettings() {
         <div className={LIST_CARD}>
           <SettingsRow
             title={t('settings.memory.auto')}
-            description={t('settings.memory.autoHint')}
             data-setting="auto-memory"
             control={
               <Switch
@@ -619,7 +618,7 @@ function MemorySources({ note, onOpened }: { note: MemoryNote; onOpened: () => v
     const time = formatTime(source.at) ?? t('settings.memory.source.timeUnknown');
     if (source.by === 'user') return `${t('settings.memory.source.user')} · ${time}`;
     if (source.sessionId === undefined)
-      return `${t('settings.memory.source.agentNoSession')} · ${time}`;
+      return `${t('settings.memory.source.agentPlain')} · ${time}`;
     const sessionId = source.sessionId;
     const loaded = sessions[sessionId];
     const deleted = source.status === 'deleted' || loaded === 'missing';
@@ -676,7 +675,6 @@ function MemorySources({ note, onOpened }: { note: MemoryNote; onOpened: () => v
           </Fragment>
         ))}
       </dl>
-      <p className="text-muted-foreground">{t('settings.memory.source.hint')}</p>
       {error && (
         <p role="alert" className="text-destructive">
           {error}

@@ -96,12 +96,12 @@ describe('接力的纯逻辑（0.25.0）', () => {
       delivery: { status: 'delivered', turnId: 'trn_01JA2B3C4D5E6F7G8H9JKMNPQR' },
     };
     expect(handoffDetailRows(notice).map((row) => [row.key, row.value, row.tone])).toEqual([
-      ['strategy', '增量：只补这个来源错过的部分', undefined],
-      ['engine', '沿用以前的', undefined],
+      ['strategy', '增量', undefined],
+      ['engine', '恢复', undefined],
       ['covered', '事件 7–12', undefined],
       ['items', '选入 3 条，省略 2 条', 'warning'],
-      ['history', '只有摘要', 'warning'],
-      ['status', '已递交 · 已随消息交给新来源', 'success'],
+      ['history', '仅摘要', 'warning'],
+      ['status', '已递交', 'success'],
     ]);
     const none = handoffDetailRows({
       ...notice,
@@ -115,17 +115,17 @@ describe('接力的纯逻辑（0.25.0）', () => {
       delivery: { status: 'none' },
     });
     expect(none.map((row) => row.value)).toEqual([
-      '完整：整段对话',
+      '完整',
       '新建',
       '无',
       '选入 0 条，省略 0 条',
-      '无需材料 · 新来源没有错过的内容',
+      '无需材料',
     ]);
     const failed = handoffDetailRows({
       ...notice,
       delivery: { status: 'failed', reason: 'superseded' },
     });
-    expect(failed.at(-1)).toMatchObject({ value: '失败 · 交出之前又切换了来源', tone: 'warning' });
+    expect(failed.at(-1)).toMatchObject({ value: '已作废', tone: 'warning' });
     // 不说“模型已理解”。
     expect(JSON.stringify(handoffDetailRows(notice))).not.toMatch(/理解/);
   });

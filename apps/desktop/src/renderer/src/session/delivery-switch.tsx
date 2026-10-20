@@ -48,7 +48,7 @@ export function DeliverySwitch({
       {OPTIONS.map((delivery) => {
         const checked = delivery === value;
         return (
-          <Tooltip key={delivery}>
+          <Tooltip key={delivery} disabled={checked}>
             <TooltipTrigger
               render={
                 <button
@@ -69,12 +69,7 @@ export function DeliverySwitch({
               {t(delivery === 'steer' ? 'session.sendSteer' : 'session.sendQueue')}
             </TooltipTrigger>
             <TooltipContent>
-              {t(
-                delivery === 'steer'
-                  ? 'settings.chat.sendWhileBusy.steerHint'
-                  : 'settings.chat.sendWhileBusy.queueHint',
-              )}
-              {!checked && <kbd className="ml-1.5 font-sans opacity-70">Tab</kbd>}
+              <kbd className="font-sans">Tab</kbd>
             </TooltipContent>
           </Tooltip>
         );
