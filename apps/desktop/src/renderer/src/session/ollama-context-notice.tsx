@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
+import { everyWhileVisible } from '@/lib/visible-interval';
 import { lowOllamaContext, ollamaEndpoint } from '@/settings/ollama-model';
 
 export function OllamaContextNotice({
@@ -48,11 +49,11 @@ export function OllamaContextNotice({
       }
     };
     void refresh();
-    const timer = running ? window.setInterval(() => void refresh(), 10_000) : undefined;
+    const stopTimer = running ? everyWhileVisible(() => void refresh(), 10_000) : undefined;
     window.addEventListener('focus', refresh);
     return () => {
       disposed = true;
-      if (timer !== undefined) window.clearInterval(timer);
+      stopTimer?.();
       window.removeEventListener('focus', refresh);
     };
   }, [client, enabled, providerId, modelId, running]);

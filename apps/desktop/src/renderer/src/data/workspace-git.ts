@@ -1,10 +1,11 @@
 // 工作区的 git 状态（U18，host-api.md §3.1 的 `workspace.git`），给会话侧栏的“环境”与“变更”卡片。Host 每次现读，
-// 这里在侧栏显示时读一次，之后每 10 s、窗口获得焦点、`refreshKey` 变了（会话的回合结束）时重读。
+// 这里在侧栏显示时读一次，之后每 10 s（窗口看得见时）、窗口获得焦点、`refreshKey` 变了（会话的回合结束）时重读。
 
 import { hostSupports } from '@wevir/client-sdk';
 import type { SessionId, WorkspaceGitResult, WorkspaceId } from '@wevir/protocol';
 import { useEffect, useState } from 'react';
 import { useHostConnection } from '@/host/host-connection';
+import { everyWhileVisible } from '@/lib/visible-interval';
 
 const REFRESH_MS = 10_000;
 
@@ -50,11 +51,11 @@ export function useWorkspaceGit(
         });
     };
     read();
-    const timer = window.setInterval(read, REFRESH_MS);
+    const stopTimer = everyWhileVisible(read, REFRESH_MS);
     window.addEventListener('focus', read);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      stopTimer();
       window.removeEventListener('focus', read);
     };
   }, [client, supported, active, workspaceId, sessionId, key, refreshKey]);
