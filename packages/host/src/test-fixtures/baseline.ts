@@ -537,6 +537,10 @@ export function startForwardingRecorder(upstream: string): Promise<Recorder> {
       if (!res.writableFinished) controller.abort();
     });
     void (async () => {
+      // 用量只从内存里的响应取数字，响应正文不留下。下游（Codex）读到 `response.completed` 就断开，上游流随之中断，
+      // 所以中断或出错时也要从已经收到的部分取用量。
+      const decoder = new TextDecoder();
+      let text = '';
       try {
         const response = await fetch(`${base}${request.path}`, {
           method: 'POST',
@@ -551,19 +555,18 @@ export function startForwardingRecorder(upstream: string): Promise<Recorder> {
           res.end();
           return;
         }
-        // 用量只从内存里的响应取数字，响应正文不留下。
-        const decoder = new TextDecoder();
-        let text = '';
         for await (const chunk of response.body) {
           res.write(chunk);
           text += decoder.decode(chunk, { stream: true });
         }
         res.end();
-        const usage = usageOf(text);
-        if (usage !== undefined) request.usage = usage;
       } catch {
         if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ error: { message: 'baseline proxy: upstream failed' } }));
+      } finally {
+        text += decoder.decode();
+        const usage = usageOf(text);
+        if (usage !== undefined) request.usage = usage;
       }
     })();
   });
