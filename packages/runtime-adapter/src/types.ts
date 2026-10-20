@@ -45,6 +45,34 @@ export interface SessionConfig {
    * Wevir 会话，Host 重启后作废，恢复会话时给新的。
    */
   appTools?: AppToolsEndpoint;
+  /**
+   * Host 补给的规则文件（0.68.0，domain-model §3.27）：引擎自己不读的 AGENTS.md / CLAUDE.md / GEMINI.md / Cursor 规则，已排好、带
+   * 来源路径的一段正文。只有 `ruleFiles(providerId).instructions` 为 true 的适配器会收到；适配器把它放进引擎每次请求都带的系统或
+   * 开发者说明（Codex 的 `developerInstructions`、Claude 的 `systemPrompt.append`、OpenCode 每条消息的 `system`），恢复会话时
+   * Host 按当时的文件重新给。
+   */
+  ruleInstructions?: string;
+}
+
+/** 规则文件的种类（0.68.0，protocol 的 `RuleFileKind` 已知的那几个）。 */
+export type RuleFileKind = 'agents' | 'claude' | 'gemini' | 'cursor';
+
+/**
+ * 引擎自己读哪些规则文件（0.68.0，`AgentRuntimeAdapter.ruleFiles`）。`user` 指 Host 找的那几份用户级文件（`agents`：Codex 的
+ * `~/.codex/AGENTS.md`；`claude`：`~/.claude/CLAUDE.md`；`gemini`：`~/.gemini/GEMINI.md`），引擎读的是自己目录里另一份同名文件
+ * 时不算；`project` 指从仓库根到会话目录一路上的那种文件。`imports`：引擎自己展开 CLAUDE.md / GEMINI.md 里的 `@路径`。
+ * `instructions`：适配器把 `SessionConfig.ruleInstructions` 放进引擎的说明；false 时 Host 把正文放在下一条消息的开头。
+ */
+export interface EngineRuleFiles {
+  user: readonly RuleFileKind[];
+  project: readonly RuleFileKind[];
+  /**
+   * 项目里一份 `project` 的种类都没有时引擎才读的（OpenCode：没有 AGENTS.md 时读 CLAUDE.md；Claude Code 2.1.277 起：没有 CLAUDE.md
+   * 时读 AGENTS.md）。
+   */
+  projectFallback?: readonly RuleFileKind[];
+  imports: boolean;
+  instructions: boolean;
 }
 
 /** Host 里的 `wevir` MCP 服务（0.30.0）。 */

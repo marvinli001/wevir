@@ -19,6 +19,7 @@ import type {
 import {
   AdapterError,
   type AgentInput,
+  type EngineRuleFiles,
   type EngineSession,
   type PermissionMode,
   type SessionConfig,
@@ -81,6 +82,14 @@ export class WorkBuddyAdapter extends AcpAdapter {
   ];
   readonly #settings: Map<string, Settings>;
   readonly #processVersion: () => string | undefined;
+
+  /**
+   * 0.68.0：CodeBuddy 读它自己的 CODEBUDDY.md；它读不读 AGENTS.md / CLAUDE.md 没有核对过，当作都不读（宁可多补一份，不让规则
+   * 丢掉）。ACP 没有放说明的地方，随下一条消息交。
+   */
+  ruleFiles(): EngineRuleFiles {
+    return { user: [], project: [], imports: false, instructions: false };
+  }
 
   constructor(options: WorkBuddyAdapterOptions) {
     const workDir = `${options.home}/engines/workbuddy`;

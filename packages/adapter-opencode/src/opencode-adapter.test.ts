@@ -1,11 +1,14 @@
 // OpenCodeAdapter 在假的 opencode 上（test-fixtures/fake-opencode.ts 回放真实录音）：提问、审批的三种回复、子会话、失败、规则集、
 // 服务器退出与重起、回合开始前的旧 idle；插话的交接与没用上的插话、标题、支线与补充说明。
 
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { AgentEvent } from '@wevir/runtime-adapter';
 import { isTurnTerminal } from '@wevir/runtime-adapter';
 import { DEFAULT_CONTRACT_PROMPTS } from '@wevir/runtime-adapter/contract';
 import { afterEach, describe, expect, it } from 'vitest';
-import { STEER_IDLE_GRACE_MS } from './opencode-adapter.js';
+import { openCodeRuleFiles, STEER_IDLE_GRACE_MS } from './opencode-adapter.js';
 import {
   childPermissionRules,
   DECLINE_FEEDBACK,
@@ -158,6 +161,40 @@ describe('OpenCodeAdapter（假 opencode）', () => {
       outcome: 'completed',
       stopReason: 'stop',
     });
+  });
+
+  it('规则文件（0.68.0）：Host 补的每次作为 system 带上，换模型后照旧；没有时不带', async () => {
+    const h = setup();
+    const plain = await openSession(h);
+    await h.adapter.send(plain.id, text('one'));
+    await plain.log.terminal();
+    const { id, log } = await openSession(h, { ruleInstructions: '# Rules\nUse tabs.' });
+    await h.adapter.configureSession(id, { modelId: MODEL, reasoningEffort: 'high' });
+    await h.adapter.send(id, text('two'));
+    await log.terminal();
+    const prompts = calls(h, 'promptAsync').map((args) => args[0] as Record<string, unknown>);
+    expect(prompts[0]).not.toHaveProperty('system');
+    expect(prompts[1]).toMatchObject({ system: '# Rules\nUse tabs.', variant: 'high' });
+  });
+
+  it('规则文件（0.68.0）：读哪些照 OpenCode 的 CLAUDE.md 后备与环境变量', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'wevir-oc-rules-'));
+    try {
+      expect(await openCodeRuleFiles({ HOME: home })).toEqual({
+        user: ['claude'],
+        project: ['agents'],
+        projectFallback: ['claude'],
+        imports: false,
+        instructions: true,
+      });
+      mkdirSync(join(home, '.config', 'opencode'), { recursive: true });
+      writeFileSync(join(home, '.config', 'opencode', 'AGENTS.md'), 'own');
+      expect((await openCodeRuleFiles({ HOME: home })).user).toEqual([]);
+      const off = await openCodeRuleFiles({ HOME: home, OPENCODE_DISABLE_CLAUDE_CODE: '1' });
+      expect(off.projectFallback).toBeUndefined();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   it('模型不是 <上游>/<模型> 时报 invalid_input', async () => {
