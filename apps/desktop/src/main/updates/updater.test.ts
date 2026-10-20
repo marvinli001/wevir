@@ -75,6 +75,7 @@ function controller(options: {
   readOnlyLocation?: boolean;
   timing?: Pick<UpdateControllerOptions, 'firstCheckMs' | 'staleAfterMs' | 'now'>;
   mirrors?: UpdateControllerOptions['mirrors'];
+  prepareInstall?: UpdateControllerOptions['prepareInstall'];
 }) {
   let prefs: UpdatePrefs = options.prefs ?? {};
   const states: UpdateState[] = [];
@@ -94,6 +95,7 @@ function controller(options: {
     },
     log: () => {},
     ...options.timing,
+    ...(options.prepareInstall !== undefined && { prepareInstall: options.prepareInstall }),
   });
   ctl.onState((state) => states.push(state));
   return { ctl, states, prefs: () => prefs };
@@ -149,9 +151,38 @@ describe('UpdateController', () => {
       'downloaded',
     ]);
     expect(updater.downloads[0]).toContain(SECOND.url);
-    ctl.install();
+    await ctl.install();
     expect(ctl.state.phase).toBe('installing');
     expect(updater.installed).toEqual([[true, true]]);
+  });
+
+  it('安装前先做完 prepareInstall（Windows 先停 Host），它失败也照常安装', async () => {
+    for (const fail of [false, true]) {
+      const updater = new FakeUpdater('0.1.0');
+      let release = () => {};
+      const prepared = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const order: string[] = [];
+      const { ctl } = controller({
+        updater,
+        fetcher: serve('0.2.0').fetcher,
+        prepareInstall: async () => {
+          order.push('prepare');
+          await prepared;
+          if (fail) throw new Error('host did not stop');
+        },
+      });
+      await ctl.check();
+      await ctl.download();
+      const installing = ctl.install();
+      expect(ctl.state.phase).toBe('installing');
+      expect(updater.installed).toEqual([]);
+      release();
+      await installing;
+      expect(order).toEqual(['prepare']);
+      expect(updater.installed).toEqual([[true, true]]);
+    }
   });
 
   it('已是最新：latest', async () => {

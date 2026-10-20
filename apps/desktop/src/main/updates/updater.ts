@@ -78,6 +78,11 @@ export interface UpdateControllerOptions {
   readPrefs(): UpdatePrefs;
   writePrefs(prefs: UpdatePrefs): void;
   log: UpdateLog;
+  /**
+   * 交给安装程序之前要做完的事（index.ts 在 Windows 上先停自己拉起的 Host）。失败只记日志，照常安装：退出时 before-quit
+   * 还会再停一次。
+   */
+  prepareInstall?: () => Promise<void>;
   /** 启动后第一次检查的延迟，默认 30 s。 */
   firstCheckMs?: number;
   /** 之后每隔多久检查一次，默认 1 h。 */
@@ -213,10 +218,20 @@ export class UpdateController implements FeedSource {
     }
   }
 
-  install(): void {
+  async install(): Promise<void> {
     if (this.#state.phase !== 'downloaded') return;
-    this.#set({ phase: 'installing', version: this.#state.version });
-    this.#options.log('info', 'installing update', { version: this.#state.version });
+    const { version } = this.#state;
+    this.#set({ phase: 'installing', version });
+    this.#options.log('info', 'installing update', { version });
+    if (this.#options.prepareInstall !== undefined) {
+      try {
+        await this.#options.prepareInstall();
+      } catch (error) {
+        this.#options.log('warn', 'preparing the update install failed', {
+          error: (error as Error).message,
+        });
+      }
+    }
     try {
       // macOS 的 Squirrel 在应用退出后替换并重新打开；Windows 静默运行 NSIS 安装程序，装完重新打开。
       this.#options.updater.quitAndInstall(true, true);

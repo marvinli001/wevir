@@ -410,7 +410,14 @@ function run(): void {
   );
 
   // 自动更新（ADR-0007 补记 4）：开发构建里是 disabled，界面不显示入口。
-  const updates = createUpdateController(log);
+  // Windows 的 NSIS 安装程序在应用退出之前就启动，一两秒后查安装目录里还在跑的进程（Host 也是 Wevir.exe，引擎在资源目录里），
+  // 找到就强制结束再循环等待：先把自己拉起的 Host 优雅停完，再交给安装程序。macOS 的 Squirrel 等应用退出后才替换，不用提前停。
+  const updates = createUpdateController(
+    log,
+    process.platform === 'win32'
+      ? { prepareInstall: () => host.then(({ lifecycle }) => lifecycle.stop()) }
+      : {},
+  );
   updates.onState((state: UpdateState) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.updateState, state);
@@ -430,10 +437,18 @@ function run(): void {
   });
   ipcMain.handle(IPC_CHANNELS.installUpdate, async (event): Promise<void> => {
     assertSender(event);
-    // 安装更新要关掉窗口再退出；装不了（状态变成 error）时恢复“关窗口只是隐藏”。
+    // 安装更新要关掉窗口再退出；装不了（状态变成 error）时恢复“关窗口只是隐藏”。Windows 上 Host 已经为安装停掉、不能再
+    // 拉起（HostLifecycle 停了就不再启动），这时重新打开应用。
     allowClose = true;
-    updates.install();
-    if (updates.state.phase === 'error') allowClose = false;
+    await updates.install();
+    if (updates.state.phase !== 'error') return;
+    if (process.platform === 'win32') {
+      log('error', 'update install failed after the host was stopped; relaunching');
+      app.relaunch();
+      app.quit();
+    } else {
+      allowClose = false;
+    }
   });
   // macOS 的 Squirrel 在关窗口之前发这个事件，不经过 before-quit。
   autoUpdater.on('before-quit-for-update', () => {
