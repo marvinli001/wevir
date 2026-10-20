@@ -30,7 +30,7 @@ afterEach(async () => {
 
 function setup(
   env: NodeJS.ProcessEnv = { PATH: process.env.PATH, SHELL: '/bin/sh' },
-  extra: { logRotateBytes?: number } = {},
+  extra: { logRotateBytes?: number; notifyBatchMs?: number; notifyIntervalMs?: number } = {},
 ) {
   const root = tempDir();
   const notices: ProcessNotice[] = [];
@@ -136,16 +136,19 @@ describe.runIf(posix)('ProcessManager', () => {
     );
   });
 
-  it('notifyPattern 只通知一次；wait 的模式不算之前的输出；等到的匹配不另通知', async () => {
-    const h = setup();
+  it('notifyPattern 把一阵匹配合成一条通知；wait 的模式不算之前的输出；等到的匹配不另通知', async () => {
+    const h = setup(undefined, { notifyBatchMs: 100 });
     await h.manager.start(A, {
       command: 'echo starting; sleep 0.2; echo ready at 1; echo ready at 2; sleep 30',
       cwd: h.root,
       notifyPattern: /ready/,
     });
     await vi.waitFor(() => expect(h.notices).toHaveLength(1), { timeout: 5000 });
-    expect(h.notices[0]).toMatchObject({ event: 'match', line: 'ready at 1' });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(h.notices[0]).toMatchObject({
+      event: 'match',
+      matches: { lines: ['ready at 1', 'ready at 2'], count: 2, remaining: 9 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
     expect(h.notices).toHaveLength(1);
 
     await h.manager.start(A, {
@@ -163,6 +166,87 @@ describe.runIf(posix)('ProcessManager', () => {
     const pending = h.manager.wait(A, 'p2', undefined, 5000, aborted.signal);
     aborted.abort();
     expect(await pending).toEqual({ reason: 'aborted' });
+  });
+
+  it('notifyPattern 的通知之间隔开 notifyIntervalMs，发满 notifyLimit 条就停', async () => {
+    const h = setup();
+    const at: number[] = [];
+    const manager = new ProcessManager({
+      output: new ToolOutputStore(join(h.root, 'tool-output-2')),
+      onNotice: (notice) => {
+        at.push(Date.now());
+        h.notices.push(notice);
+      },
+      env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
+      notifyBatchMs: 20,
+      notifyIntervalMs: 400,
+    });
+    managers.push(manager);
+    await manager.start(A, {
+      command: 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo tick $i; sleep 0.1; done; sleep 30',
+      cwd: h.root,
+      notifyPattern: /tick/,
+      notifyLimit: 2,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(2), { timeout: 5000 });
+    expect(h.notices[0]?.matches).toMatchObject({ lines: ['tick 1'], count: 1, remaining: 1 });
+    expect(h.notices[1]?.matches?.lines[0]).toBe('tick 2');
+    expect(h.notices[1]?.matches?.count).toBeGreaterThan(1);
+    expect(h.notices[1]?.matches?.remaining).toBe(0);
+    expect((at[1] as number) - (at[0] as number)).toBeGreaterThanOrEqual(390);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(h.notices).toHaveLength(2);
+  });
+
+  it('不带换行的提示匹配时通知一次，补齐成一行时不再算', async () => {
+    const h = setup(undefined, { notifyBatchMs: 20, notifyIntervalMs: 50 });
+    await h.manager.start(A, {
+      command:
+        'printf "Pass"; sleep 0.2; printf "word: "; sleep 0.3; echo; sleep 0.3; echo "Password ok"; sleep 30',
+      cwd: h.root,
+      notifyPattern: /Password/,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(2), { timeout: 5000 });
+    expect(h.notices.map((notice) => notice.matches?.lines)).toEqual([
+      ['Password: '],
+      ['Password ok'],
+    ]);
+  });
+
+  it('退出时还攒着的匹配并进退出通知；不通知退出时单发；被停的不发', async () => {
+    const h = setup(undefined, { notifyBatchMs: 5000 });
+    await h.manager.start(A, {
+      command: 'echo FAIL a; exit 1',
+      cwd: h.root,
+      notifyPattern: /FAIL/,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(1), { timeout: 5000 });
+    expect(h.notices[0]).toMatchObject({
+      event: 'exit',
+      matches: { lines: ['FAIL a'], count: 1 },
+      process: { exitCode: 1 },
+    });
+    expect(h.notices[0]?.matches?.remaining).toBeUndefined();
+
+    await h.manager.start(A, {
+      command: 'echo FAIL b; exit 0',
+      cwd: h.root,
+      notifyPattern: /FAIL/,
+      notifyOnExit: false,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(2), { timeout: 5000 });
+    expect(h.notices[1]).toMatchObject({ event: 'match', matches: { lines: ['FAIL b'] } });
+
+    await h.manager.start(A, {
+      command: 'echo FAIL c; sleep 30',
+      cwd: h.root,
+      notifyPattern: /FAIL/,
+    });
+    await vi.waitFor(() => expect(h.manager.tail(A, 'p3')).toBe('FAIL c'), { timeout: 5000 });
+    h.manager.signal(A, 'p3', 'SIGTERM');
+    expect(await h.manager.wait(A, 'p3', undefined, 5000, h.never)).toEqual({ reason: 'exit' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(h.notices).toHaveLength(2);
   });
 
   it('kill 结束整个进程组，agent 结束的不通知；SIGHUP 之类不算结束', async () => {
