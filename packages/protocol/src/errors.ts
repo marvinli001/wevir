@@ -10,6 +10,7 @@ import {
   SessionReadOnlySchema,
   SessionStateSchema,
 } from './entities.js';
+import { GitExpectedStateSchema } from './git.js';
 import { ProtocolVersionSchema } from './version.js';
 
 /**
@@ -54,6 +55,8 @@ export const ErrorCode = {
   PENDING_NOT_EDITABLE: -32025,
   /** 接力预览的绑定过期了（0.60.0，`session.configure` 的 `handoff.binding`）：重新预览后再切换。 */
   HANDOFF_STALE: -32026,
+  /** 仓库的 HEAD 或索引与读状态时不同（0.67.0，`git.stage` / `git.unstage` / `git.commit` 的 `expected`）：重新读状态再操作。 */
+  GIT_STATE_CHANGED: -32027,
 
   WORKSPACE_PATH_INVALID: -32040,
   ENGINE_ERROR: -32041,
@@ -126,6 +129,8 @@ export const ErrorDataSchemas = {
   HANDOFF_STALE: z.object({
     reasons: z.array(z.string().min(1)).min(1),
   }),
+  /** 现在的 HEAD 与索引（0.67.0）。 */
+  GIT_STATE_CHANGED: GitExpectedStateSchema,
   WORKSPACE_PATH_INVALID: z.object({
     path: z.string(),
     reason: z.enum(['not_absolute', 'not_found', 'not_directory', 'not_accessible']),

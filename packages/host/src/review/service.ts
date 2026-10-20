@@ -98,6 +98,10 @@ export class ReviewService {
   }
 
   async add(where: ReviewDirectory, input: ReviewAddInput): Promise<ReviewComment> {
+    // 暂存的 diff 新的一侧是索引，读不出片段，也不会随文件重新定位。
+    if (input.source.kind === 'staged') {
+      throw invalid(['source'], 'comments are not available on the staged diff');
+    }
     for (const [key, value] of [
       ['path', input.path],
       ['previousPath', input.previousPath],

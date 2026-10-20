@@ -272,6 +272,11 @@ export const HOST_FEATURES = {
    * 与引擎无关。
    */
   reviewComments: 'review_comments',
+  /**
+   * 暂存与提交（0.67.0，ADR-0009）：`git.status`、`git.stage`、`git.unstage`、`git.commit` 与 `workspace.diff` 的 `staged`。只由用户在
+   * “变更”窗格发起，不是 Agent 的工具。与引擎无关。
+   */
+  gitCommit: 'git_commit',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -329,6 +334,7 @@ export const HostFeaturesSchema = z.looseObject({
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),
   review_comments: z.boolean().optional(),
+  git_commit: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -92,7 +92,16 @@ import {
   WorktreeModeSchema,
 } from './entities.js';
 import { WevirEventSchema } from './events.js';
-import { DiffSourceSchema, GitObjectIdSchema } from './git.js';
+import {
+  DiffSourceSchema,
+  GitCommitParamsSchema,
+  GitCommitResultSchema,
+  GitObjectIdSchema,
+  GitPathsParamsSchema,
+  GitPathsResultSchema,
+  GitStatusParamsSchema,
+  GitStatusResultSchema,
+} from './git.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   ReviewAddParamsSchema,
@@ -1897,6 +1906,27 @@ export const MethodSchemas = {
     params: ReviewSendParamsSchema,
     result: ReviewSendResultSchema,
     permission: 'session.write',
+  },
+
+  'git.status': {
+    params: GitStatusParamsSchema,
+    result: GitStatusResultSchema,
+    permission: 'workspace.read',
+  },
+  'git.stage': {
+    params: GitPathsParamsSchema,
+    result: GitPathsResultSchema,
+    permission: 'workspace.write',
+  },
+  'git.unstage': {
+    params: GitPathsParamsSchema,
+    result: GitPathsResultSchema,
+    permission: 'workspace.write',
+  },
+  'git.commit': {
+    params: GitCommitParamsSchema,
+    result: GitCommitResultSchema,
+    permission: 'workspace.write',
   },
   'automation.list': {
     params: AutomationListParamsSchema,

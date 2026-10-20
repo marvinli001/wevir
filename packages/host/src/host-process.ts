@@ -9,6 +9,8 @@ import {
   HostIdSchema,
   PROTOCOL_VERSION,
   ProviderKindSchema,
+  type SessionId,
+  type WorkspaceId,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { FileSecretStore, openStorage, type Storage } from '@wevir/storage';
@@ -24,6 +26,7 @@ import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { EventStore } from './event-store.js';
 import { FileUrls } from './file-urls.js';
+import { GitService } from './git/service.js';
 import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
@@ -390,6 +393,18 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('review comments are unavailable', { error });
     }
 
+    // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
+    const sessionStore = storage;
+    const git = new GitService({
+      verification: async (sessionId) => {
+        const record = sessionStore.sessions.get(sessionId);
+        if (verification === undefined || !record) return undefined;
+        const { checks } = await verification.listChecks(record.workspaceId as WorkspaceId);
+        const runs = store.snapshot(sessionId as SessionId)?.verification?.runs ?? [];
+        return { checks, runs };
+      },
+    });
+
     const secrets = new FileSecretStore(home);
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
     // 0.63.0：添加的账号各有自己的引擎，在把 Provider 交给引擎之前建好，它们的 Provider 才交得到对的引擎。
@@ -515,6 +530,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(verification !== undefined && { verification }),
         automations: automationService,
         ...(review !== undefined && { review }),
+        git,
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -573,6 +589,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(recapInstructions !== undefined && { session_recap: true }),
         ...(verification !== undefined && { verification: true }),
         ...(review !== undefined && { review_comments: true }),
+        git_commit: true,
       },
       engineFeatures,
       plugins,

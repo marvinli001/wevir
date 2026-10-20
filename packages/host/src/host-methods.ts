@@ -34,7 +34,14 @@ import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
 import { type FileUrls, isServablePath } from './file-urls.js';
-import { isSafeRelativePath, readBranch, readDiffFile, readUncommitted } from './git-diff.js';
+import type { GitService } from './git/service.js';
+import {
+  isSafeRelativePath,
+  readBranch,
+  readDiffFile,
+  readStaged,
+  readUncommitted,
+} from './git-diff.js';
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
@@ -132,6 +139,8 @@ export interface HostMethodsOptions {
   automations?: AutomationService;
   /** 行级批注（0.67.0，`review.*`）；省略时 `review.*` 回 `INVALID_PARAMS`（测试）。 */
   review?: ReviewService;
+  /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
+  git?: GitService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -251,6 +260,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     workspaceId,
     dir: await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
   });
+  const gitService = (): GitService => {
+    if (options.git === undefined) throw invalidParams([], 'this host has no git staging');
+    return options.git;
+  };
+  const gitDirectory = (workspaceId: WorkspaceId, sessionId: SessionId | undefined) =>
+    resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
   const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
@@ -526,6 +541,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const dir = await resolveWorkspacePath(diffDirectory(workspaceId, sessionId));
       if (source.kind === 'uncommitted') return readUncommitted(dir);
       if (source.kind === 'branch') return readBranch(dir);
+      if (source.kind === 'staged') return readStaged(dir);
       if (!options.checkpoints || sessionId === undefined) {
         return { repo: true, unavailable: 'no_checkpoint' };
       }
@@ -1082,6 +1098,32 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'review.remove': ({ commentIds }) => ({ removed: review().remove(commentIds) }),
     'review.send': async ({ workspaceId, sessionId, ...params }, { client }) =>
       review().send(await reviewDirectory(workspaceId, sessionId), params, client),
+
+    // 0.67.0：暂存与提交（ADR-0009）。只由用户在“变更”窗格发起，目录的选法同 workspace.diff。
+    'git.status': async ({ workspaceId, sessionId }) =>
+      gitService().status(await gitDirectory(workspaceId, sessionId), sessionId),
+    'git.stage': async ({ workspaceId, sessionId, paths, expected }) => ({
+      status: await gitService().stage(
+        await gitDirectory(workspaceId, sessionId),
+        paths,
+        expected,
+        sessionId,
+      ),
+    }),
+    'git.unstage': async ({ workspaceId, sessionId, paths, expected }) => ({
+      status: await gitService().unstage(
+        await gitDirectory(workspaceId, sessionId),
+        paths,
+        expected,
+        sessionId,
+      ),
+    }),
+    'git.commit': async ({ workspaceId, sessionId, message, expected, includeExternal }) =>
+      gitService().commit(
+        await gitDirectory(workspaceId, sessionId),
+        { message, expected, ...(includeExternal !== undefined && { includeExternal }) },
+        sessionId,
+      ),
     'automation.list': async () => ({ automations: automations().list() }),
     'automation.get': async ({ automationId }) => automations().get(automationId),
     'automation.create': async (params) => ({

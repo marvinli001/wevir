@@ -295,7 +295,7 @@ describe('review.send', () => {
       storage,
       sessions: {
         send: async () => {
-          throw new HostError('SESSION_BUSY', 'busy');
+          throw new HostError('SESSION_BUSY', 'busy', { state: 'running' });
         },
       },
       template: loadReviewTemplate(),
