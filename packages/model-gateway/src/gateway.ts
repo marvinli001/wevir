@@ -1,6 +1,5 @@
-// 模型协议网关的 HTTP 服务（ADR-0005 决策 2，docs/architecture/model-gateway.md）。改写自
-// spikes/codex-app-server/src/gateway.ts 的 startGateway：从单个上游改成按 Provider 路由，令牌改为常量时间比较，
-// 加上请求体的大小与编码处理、上游错误的整理、日志口径与关闭时的清理。
+// 模型协议网关的 HTTP 服务（ADR-0005 决策 2，docs/architecture/model-gateway.md）。
+// 按 Provider 路由，令牌用常量时间比较，并处理请求体的大小与编码、上游错误的整理、日志口径与关闭时的清理。
 //
 // 在 Host 进程里监听 127.0.0.1 的随机端口，对 Codex 只暴露 POST /v1/p/<providerId>/responses。Codex 只拿到
 // 本实例的令牌（每个实例随机生成、只在内存）；上游 Key 只在 setProviders 交来的配置里。

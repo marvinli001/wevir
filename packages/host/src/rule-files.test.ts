@@ -143,9 +143,9 @@ describe('discoverRuleFiles', () => {
 describe('importPaths', () => {
   it('只取 ASCII 文件名字符，去掉句末句点，跳过不像路径的 @', () => {
     expect(importPaths('@AGENTS.md。 @team and @scope/pkg. @./a.md.', '/r', '/h')).toEqual([
-      '/r/AGENTS.md',
-      '/r/scope/pkg',
-      '/r/a.md',
+      join('/r', 'AGENTS.md'),
+      join('/r', 'scope', 'pkg'),
+      join('/r', 'a.md'),
     ]);
   });
 });

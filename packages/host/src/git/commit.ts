@@ -72,7 +72,7 @@ function spawnCommit(
 ): Promise<{ exitCode: number | null; output: string; timedOut: boolean }> {
   return new Promise((done) => {
     const posix = process.platform !== 'win32';
-    // 单独的进程组：超时时连同钩子起的进程一起停下。
+    // 单独的进程组：超时时连同钩子起的进程一起停下（Windows 上用 taskkill /T 结束整棵进程树）。
     const child = spawn('git', ['commit', '-F', '-'], {
       cwd,
       env,
@@ -89,10 +89,23 @@ function spawnCommit(
       }
     };
     const signal = (name: NodeJS.Signals) => {
+      const kill = () => {
+        try {
+          child.kill(name);
+        } catch {}
+      };
       try {
-        if (posix && child.pid !== undefined) process.kill(-child.pid, name);
-        else child.kill(name);
-      } catch {}
+        if (child.pid === undefined) kill();
+        else if (posix) process.kill(-child.pid, name);
+        else {
+          // 整棵进程树；taskkill 失败或够不到时至少结束 git 本身。
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true })
+            .on('error', kill)
+            .on('exit', kill);
+        }
+      } catch {
+        kill();
+      }
     };
     let killTimer: NodeJS.Timeout | undefined;
     const timer = setTimeout(() => {
@@ -103,7 +116,10 @@ function spawnCommit(
     child.stdout.on('data', append);
     child.stderr.on('data', append);
     child.stdin.on('error', () => {});
+    let settled = false;
     const finish = (exitCode: number | null) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       if (killTimer !== undefined) clearTimeout(killTimer);
       done({ exitCode, output: output.slice(-GIT_COMMIT_OUTPUT_MAX_LENGTH), timedOut });
@@ -111,6 +127,14 @@ function spawnCommit(
     child.on('error', (error) => {
       append(Buffer.from(`git commit: ${error.message}\n`));
       finish(null);
+    });
+    // 平常等输出读完（close）；超时停下之后 git 一退出就收尾：没被结束的孙进程（Windows 上钩子起的 MSYS 进程）还拿着管道时，
+    // close 要等它自己跑完。
+    child.on('exit', (code) => {
+      if (!timedOut) return;
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish(code);
     });
     child.on('close', (code) => finish(code));
     child.stdin.end(message);

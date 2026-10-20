@@ -1,5 +1,5 @@
-// Responses 请求 → Chat Completions 请求。改写自 spikes/codex-app-server/src/gateway.ts（mapInput 等），
-// 映射表见 docs/architecture/model-gateway.md §4.1（codex-notes §5.1 的表加上 Spike 没做的部分）。
+// Responses 请求 → Chat Completions 请求。
+// 映射表见 docs/architecture/model-gateway.md §4.1（codex-notes §5.1 的表加上早期验证没做的部分）。
 
 import { effectiveCompat, isGeminiHost, isOpenAIOfficial } from '../providers.js';
 import {

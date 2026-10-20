@@ -1,5 +1,4 @@
-// 改写自 spikes/codex-app-server/src/model-script.ts：脚本化模型的公共部分。用例只描述“模型这一步做什么”（Reply），
-// 由 Responses mock 与 Chat mock 各自渲染成线上格式；另加 Spike 没有的异常：finish_reason、流中的错误、提前断开。
+// 脚本化模型的公共部分。用例只描述“模型这一步做什么”（Reply），由 Responses mock 与 Chat mock 各自渲染成线上格式；另有异常：finish_reason、流中的错误、提前断开。
 
 export interface ModelView {
   /** 第几个请求（从 0 起，每个 mock 各自计数）。 */

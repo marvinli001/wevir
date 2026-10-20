@@ -7,9 +7,9 @@ Wevir 是本地优先、开源、多模型的 AI Agent 工作台：以 OpenAI Co
 ## 仓库规则
 
 1. **一次改动只做一件事。** 不顺手做别的；发现文档与代码不符，先改文档再改代码。
-2. **引擎在适配器后面。** 每个引擎的 npm 包只能由它的适配器包 import 和声明：`@openai/codex*` 只在 `packages/adapter-codex`（它目前不依赖任何 npm 包，运行官方发布的 `codex-app-server` 独立二进制），`@anthropic-ai/claude-agent-sdk` 与 `@anthropic-ai/claude-code` 只在 `packages/adapter-claude`，`@cursor/sdk*` 只在 `packages/adapter-cursor`，`@opencode-ai/*` 与 `@opencode/*` 只在 `packages/adapter-opencode`。Grok Build 的 CLI（`@xai-official/grok`）由用户自己装，谁都不声明，`packages/adapter-grok` 只启动它。WorkBuddy 经 `packages/adapter-workbuddy` 启动用户自己装的 `codebuddy --acp`，不声明或分发 `@tencent-ai/codebuddy-code` / `@tencent-ai/agent-sdk`。Antigravity 的运行体不是 npm 包，`packages/adapter-antigravity` 只依赖 `@wevir/adapter-acp` 与解 ZIP 的 `yauzl`。`spikes/` 是不进入产品构建的一次性验证代码，可以直接用引擎；反过来，产品代码不得引用 `spikes/`。`pnpm lint` 用两道检查强制：
-   - Biome `noRestrictedImports`（`biome.json`）：拦截静态 import、`import type`、`export … from`、动态 `import()`、子路径，以及指向 `spikes/` 的导入。
-   - `scripts/check-engine-boundary.mjs`：检查根目录和各工作区包的依赖声明（含 `npm:` 别名、指向 `spikes/` 的 `file:`/`link:`）。pnpm 的 node_modules 是隔离的，没声明的包解析不到，所以 `require()`、`createRequire()` 这类 lint 看不见的写法在运行时也会失败。例外是 `NODE_PATH`：pnpm 默认让 `node_modules/.bin` 的命令 shim 把私有提升目录 `node_modules/.pnpm/node_modules` 写进 `NODE_PATH`，经 shim 启动的 Vitest 及其子进程里这类写法能解析到，测试通过、生产失败。仓库在 `pnpm-workspace.yaml` 设了 `extendNodePath: false` 关掉它；这个设置只在创建 shim 时生效，之前装过依赖的 checkout 要 `pnpm install --force` 一次；`pnpm lint` 会检查已生成的 shim，发现导出 `NODE_PATH` 就失败。因此不要开启 `node-linker=hoisted`、`shamefully-hoist`、`enableGlobalVirtualStore`、`preferSymlinkedExecutables`，不要用 `public-hoist-pattern` 提升引擎包，也不要去掉 `extendNodePath: false`。
+2. **引擎在适配器后面。** 每个引擎的 npm 包只能由它的适配器包 import 和声明：`@openai/codex*` 只在 `packages/adapter-codex`（它目前不依赖任何 npm 包，运行官方发布的 `codex-app-server` 独立二进制），`@anthropic-ai/claude-agent-sdk` 与 `@anthropic-ai/claude-code` 只在 `packages/adapter-claude`，`@cursor/sdk*` 只在 `packages/adapter-cursor`，`@opencode-ai/*` 与 `@opencode/*` 只在 `packages/adapter-opencode`。Grok Build 的 CLI（`@xai-official/grok`）由用户自己装，谁都不声明，`packages/adapter-grok` 只启动它。WorkBuddy 经 `packages/adapter-workbuddy` 启动用户自己装的 `codebuddy --acp`，不声明或分发 `@tencent-ai/codebuddy-code` / `@tencent-ai/agent-sdk`。Antigravity 的运行体不是 npm 包，`packages/adapter-antigravity` 只依赖 `@wevir/adapter-acp` 与解 ZIP 的 `yauzl`。`pnpm lint` 用两道检查强制：
+   - Biome `noRestrictedImports`（`biome.json`）：拦截静态 import、`import type`、`export … from`、动态 `import()`、子路径。
+   - `scripts/check-engine-boundary.mjs`：检查根目录和各工作区包的依赖声明（含 `npm:` 别名）。pnpm 的 node_modules 是隔离的，没声明的包解析不到，所以 `require()`、`createRequire()` 这类 lint 看不见的写法在运行时也会失败。例外是 `NODE_PATH`：pnpm 默认让 `node_modules/.bin` 的命令 shim 把私有提升目录 `node_modules/.pnpm/node_modules` 写进 `NODE_PATH`，经 shim 启动的 Vitest 及其子进程里这类写法能解析到，测试通过、生产失败。仓库在 `pnpm-workspace.yaml` 设了 `extendNodePath: false` 关掉它；这个设置只在创建 shim 时生效，之前装过依赖的 checkout 要 `pnpm install --force` 一次；`pnpm lint` 会检查已生成的 shim，发现导出 `NODE_PATH` 就失败。因此不要开启 `node-linker=hoisted`、`shamefully-hoist`、`enableGlobalVirtualStore`、`preferSymlinkedExecutables`，不要用 `public-hoist-pattern` 提升引擎包，也不要去掉 `extendNodePath: false`。
 3. **`upstream/` 只读。** 那里是上游仓库的参考克隆，不修改、不提交。移植上游代码时，在文件头写明来源仓库、路径、提交 SHA 和许可证，并登记到 `docs/upstream/UPSTREAM.md`。OpenWork 的 `ee/` 目录禁止参考和移植。
 4. **密钥不落地。** 模型 API Key 等密钥不得写入仓库、日志或测试快照。
 5. **先查文档再写 API。** 涉及第三方库、框架或上游项目的 API 时，先查当前文档或 `upstream/` 中的源码，不凭记忆写。
@@ -55,7 +55,6 @@ wevir/
 ├─ patches/             pnpm 的依赖补丁（`pnpm-workspace.yaml` 的 `patchedDependencies`）
 ├─ prompts/             Wevir 自己的提示词，随安装包分发
 ├─ scripts/             仓库脚本（引擎边界检查、上游同步、Codex 下载等）
-├─ spikes/              一次性验证代码，不进入产品构建
 ├─ docs/upstream/       上游移植登记与第三方版权声明
 ├─ biome.json           lint 与格式化（含引擎边界规则）
 ├─ tsconfig.base.json   所有包共用的 TypeScript 配置

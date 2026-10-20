@@ -284,49 +284,53 @@ describe('辅助函数', () => {
     });
   });
 
-  it('onChange：起来、输出变多（节流）、被停与忘掉都报；ID 前缀与留存上限可配，忘掉时可连日志一起删', async () => {
-    const root = tempDir();
-    const changes: ProcessChange[] = [];
-    const manager = new ProcessManager({
-      output: new ToolOutputStore(join(root, 'tool-output')),
-      onNotice: () => {},
-      env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
-      idPrefix: 'v',
-      maxKept: 1,
-      deleteLogsOnForget: true,
-      onChange: (change) => changes.push(change),
-    });
-    managers.push(manager);
-    const never = new AbortController().signal;
-    const first = await manager.start(A, {
-      command: 'i=0; while [ $i -lt 5 ]; do echo $i; i=$((i+1)); sleep 0.1; done; sleep 30',
-      cwd: root,
-      turnId: 'trn_1' as TurnId,
-    });
-    expect(first).toMatchObject({ id: 'v1', turnId: 'trn_1' });
-    expect(manager.find('v1')?.id).toBe('v1');
-    expect(manager.listAll().map((info) => info.id)).toEqual(['v1']);
-    await vi.waitFor(() => expect(manager.find('v1')?.bytes).toBe(10), { timeout: 5000 });
-    await vi.waitFor(
-      () => expect(changes.some((c) => 'process' in c && c.process.bytes === 10)).toBe(true),
-      { timeout: 5000 },
-    );
-    // 一秒里五行输出最多报三次左右（每 500 ms 一次），不是每行一次。
-    const growing = changes.filter((c) => 'process' in c && c.process.status === 'running');
-    expect(growing.length).toBeLessThanOrEqual(5);
-    manager.signal(A, 'v1', 'SIGTERM', 'user');
-    await manager.wait(A, 'v1', undefined, 5000, never);
-    await vi.waitFor(() =>
-      expect(changes.at(-1)).toMatchObject({
-        process: { id: 'v1', status: 'exited', killed: true, stoppedBy: 'user' },
-      }),
-    );
-    // 第二个进程起来时第一个（已退出）被忘掉，日志一起删。
-    await manager.start(A, { command: 'true', cwd: root });
-    expect(changes.find((c) => 'removed' in c)).toMatchObject({ removed: { id: 'v1' } });
-    expect(manager.find('v1')).toBeUndefined();
-    await vi.waitFor(() => expect(existsSync(first.logPath)).toBe(false));
-  });
+  // 命令是 sh 脚本，与上面的 ProcessManager 用例一样只在 POSIX 上跑。
+  it.runIf(posix)(
+    'onChange：起来、输出变多（节流）、被停与忘掉都报；ID 前缀与留存上限可配，忘掉时可连日志一起删',
+    async () => {
+      const root = tempDir();
+      const changes: ProcessChange[] = [];
+      const manager = new ProcessManager({
+        output: new ToolOutputStore(join(root, 'tool-output')),
+        onNotice: () => {},
+        env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
+        idPrefix: 'v',
+        maxKept: 1,
+        deleteLogsOnForget: true,
+        onChange: (change) => changes.push(change),
+      });
+      managers.push(manager);
+      const never = new AbortController().signal;
+      const first = await manager.start(A, {
+        command: 'i=0; while [ $i -lt 5 ]; do echo $i; i=$((i+1)); sleep 0.1; done; sleep 30',
+        cwd: root,
+        turnId: 'trn_1' as TurnId,
+      });
+      expect(first).toMatchObject({ id: 'v1', turnId: 'trn_1' });
+      expect(manager.find('v1')?.id).toBe('v1');
+      expect(manager.listAll().map((info) => info.id)).toEqual(['v1']);
+      await vi.waitFor(() => expect(manager.find('v1')?.bytes).toBe(10), { timeout: 5000 });
+      await vi.waitFor(
+        () => expect(changes.some((c) => 'process' in c && c.process.bytes === 10)).toBe(true),
+        { timeout: 5000 },
+      );
+      // 一秒里五行输出最多报三次左右（每 500 ms 一次），不是每行一次。
+      const growing = changes.filter((c) => 'process' in c && c.process.status === 'running');
+      expect(growing.length).toBeLessThanOrEqual(5);
+      manager.signal(A, 'v1', 'SIGTERM', 'user');
+      await manager.wait(A, 'v1', undefined, 5000, never);
+      await vi.waitFor(() =>
+        expect(changes.at(-1)).toMatchObject({
+          process: { id: 'v1', status: 'exited', killed: true, stoppedBy: 'user' },
+        }),
+      );
+      // 第二个进程起来时第一个（已退出）被忘掉，日志一起删。
+      await manager.start(A, { command: 'true', cwd: root });
+      expect(changes.find((c) => 'removed' in c)).toMatchObject({ removed: { id: 'v1' } });
+      expect(manager.find('v1')).toBeUndefined();
+      await vi.waitFor(() => expect(existsSync(first.logPath)).toBe(false));
+    },
+  );
 
   it('read 的 until 与对齐：往前翻页读到 until 为止，起点落在半个字符上时往后挪', async () => {
     const h = setup();
