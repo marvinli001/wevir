@@ -209,7 +209,7 @@ export class PluginRegistry {
           expandConnector(item.config, plugin.values, join(this.packagesRoot, plugin.id)),
         );
         if (!parsed.success) {
-          this.#warning(`Connector ${engineName(plugin, item.name)} has an invalid configuration`);
+          this.#warning(`MCP server ${engineName(plugin, item.name)} has an invalid configuration`);
           continue;
         }
         connectors.push({
@@ -259,7 +259,7 @@ export class PluginRegistry {
         }
       }
     } catch {
-      this.#warning('Could not read connector runtime status');
+      this.#warning('Could not read MCP server runtime status');
     }
     return { connectors, skills, plugins };
   }
@@ -385,9 +385,9 @@ export class PluginRegistry {
           for (const item of pkg.connectors) {
             const name = engineName(pkg, item.name);
             if (!ConnectorNameSchema.safeParse(name).success)
-              throw invalid(`Invalid connector name "${item.name}"`);
+              throw invalid(`Invalid MCP server name "${item.name}"`);
             if (others.connectors.some((connector) => connector.name === name))
-              throw invalid(`Connector "${name}" conflicts with an installed connector`);
+              throw invalid(`MCP server "${name}" conflicts with an installed MCP server`);
           }
           const target = join(this.packagesRoot, pkg.id);
           moved = { target };
@@ -477,7 +477,7 @@ export class PluginRegistry {
       async (next) => {
         this.#checkName(next, name);
         const parsed = McpServerConfigSchema.safeParse(config);
-        if (!parsed.success) throw invalid('Invalid connector configuration');
+        if (!parsed.success) throw invalid('Invalid MCP server configuration');
         const item = {
           id: `con_${randomUUID()}`,
           name,
@@ -501,7 +501,7 @@ export class PluginRegistry {
         const owned = plugin.connectors.find((value) => value.id === id);
         if (!owned) continue;
         if (patch.name !== undefined || patch.config !== undefined)
-          throw invalid(`Connector belongs to plugin "${plugin.id}"; only enabled can change`);
+          throw invalid(`MCP server belongs to plugin "${plugin.id}"; only enabled can change`);
         owned.enabled = patch.enabled ?? owned.enabled;
         owned.config.enabled = owned.enabled;
         return {
@@ -513,7 +513,7 @@ export class PluginRegistry {
         };
       }
       const item = next.connectors.find((value) => value.id === id);
-      if (!item) throw invalid('Connector not found');
+      if (!item) throw invalid('MCP server not found');
       if (patch.name !== undefined && patch.name !== item.name) {
         this.#checkName(next, patch.name);
         item.name = patch.name;
@@ -534,7 +534,7 @@ export class PluginRegistry {
             ),
           });
         const parsed = McpServerConfigSchema.safeParse(merged);
-        if (!parsed.success) throw invalid('Invalid connector configuration');
+        if (!parsed.success) throw invalid('Invalid MCP server configuration');
         item.config = parsed.data;
       }
       item.enabled = patch.enabled ?? patch.config?.enabled ?? item.enabled;
@@ -547,8 +547,8 @@ export class PluginRegistry {
     return this.#mutate(async (next) => {
       const plugin = next.plugins.find((item) => item.connectors.some((c) => c.id === id));
       if (plugin)
-        throw invalid(`Connector belongs to plugin "${plugin.id}"; remove the plugin instead`);
-      if (!next.connectors.some((item) => item.id === id)) throw invalid('Connector not found');
+        throw invalid(`MCP server belongs to plugin "${plugin.id}"; remove the plugin instead`);
+      if (!next.connectors.some((item) => item.id === id)) throw invalid('MCP server not found');
       next.connectors = next.connectors.filter((item) => item.id !== id);
     });
   }
@@ -645,14 +645,14 @@ export class PluginRegistry {
 
   #checkName(state: Registry, name: string): void {
     if (!ConnectorNameSchema.safeParse(name).success)
-      throw invalid('Invalid or reserved connector name');
+      throw invalid('Invalid or reserved MCP server name');
     if (
       state.connectors.some((item) => item.name === name) ||
       state.plugins.some((plugin) =>
         plugin.connectors.some((item) => engineName(plugin, item.name) === name),
       )
     )
-      throw invalid('Connector name already exists');
+      throw invalid('MCP server name already exists');
   }
 
   #mutate<T>(
@@ -776,7 +776,7 @@ function storedConnector(
     !names.safeParse(item.name).success ||
     typeof item.enabled !== 'boolean'
   )
-    throw new Error('Invalid connector registry');
+    throw new Error('Invalid MCP server registry');
   return {
     id: item.id,
     name: item.name as string,

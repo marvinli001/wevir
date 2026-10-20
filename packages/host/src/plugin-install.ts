@@ -161,7 +161,7 @@ export async function readMcpServers(
   // Codex 的行内 mcpServers 是服务表，.mcp.json / Claude 常用 mcpServers 包装。
   const servers = 'mcpServers' in data ? record(data.mcpServers) : data;
   for (const [name, value] of Object.entries(servers)) {
-    if (!names.safeParse(name).success) throw new Error(`Invalid connector name "${name}"`);
+    if (!names.safeParse(name).success) throw new Error(`Invalid MCP server name "${name}"`);
     const entry = record(value);
     const allowed = new Set([
       'type',
