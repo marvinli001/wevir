@@ -119,7 +119,7 @@ describe('审批标题按会话的边界', () => {
     expect(title(mcp('mcp__wevir__wevir_session_archive'), codex)).toBe('允许归档其他会话？');
     expect(title(mcp('mcp__wevir__wevir_plugin_install'), codex)).toBe('允许安装此插件？');
     expect(title(mcp('mcp__wevir__wevir_skill_install'), claude)).toBe('允许安装 Skills？');
-    expect(title(mcp('mcp__wevir__wevir_connector_add'), codex)).toBe('允许添加此连接器？');
+    expect(title(mcp('mcp__wevir__wevir_connector_add'), codex)).toBe('允许添加此 MCP 服务？');
     expect(title(mcp('mcp__other__wevir_session_create'), claude)).toBe('允许执行此操作？');
   });
 

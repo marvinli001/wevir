@@ -402,7 +402,7 @@ describe('Wevir plugin packages', () => {
       (m: Record<string, unknown>) => {
         m.connectors = './connectors.json';
       },
-      'Connector file not found',
+      'MCP server file not found',
     ],
     [
       '图标不存在',

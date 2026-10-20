@@ -50,7 +50,7 @@ Wevir is an open-source, local-first workspace for AI coding agents. Agent sessi
 - **Built-in browser**: The agent can open pages, read accessibility snapshots, and interact with them inside the app.
 - **Web access**: Web search (Bocha or Tavily) and page fetching for models connected through the gateway.
 - **Workspace tools**: Background processes, project and global memory, a shared task board, starting and messaging other sessions, and roles that preset a model, permissions, and instructions.
-- **Plugins**: MCP connectors, Skills, and plugin packages (Wevir, Codex, and Claude formats). The agent can install them from chat after you approve.
+- **Plugins**: MCP servers, Skills, and plugin packages (Wevir, Codex, and Claude formats). The agent can install them from chat after you approve.
 
 ### Local Host
 

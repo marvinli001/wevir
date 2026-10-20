@@ -62,7 +62,7 @@ export class PluginAppTools {
         name: 'wevir_plugins_list',
         title: 'List Wevir plugins',
         description:
-          'List global plugins, connectors and skills, including enabled state. Never returns secrets. ' +
+          'List global plugins, MCP servers and skills, including enabled state. Never returns secrets. ' +
           AVAILABILITY,
         inputSchema: { type: 'object', properties: {}, additionalProperties: false },
         annotations: {
@@ -85,13 +85,13 @@ export class PluginAppTools {
               ? 'Install a Wevir plugin'
               : name === 'wevir_skill_install'
                 ? 'Install a skill'
-                : 'Add an MCP connector',
+                : 'Add an MCP server',
           description:
             (name === 'wevir_plugin_install'
               ? "Install a Wevir, Claude or Codex plugin folder or ZIP from this session's folder. To create a plugin, write wevir-plugin.json and its contents there first. Supply declared inputs; if required inputs are missing, ask the user for the listed keys and retry. Does not replace an installed plugin. "
               : name === 'wevir_skill_install'
                 ? "Install a skill folder, SKILL.md or ZIP from this session's folder. Write or download it there first. Uses Codex SKILL.md frontmatter (name, description); paths may be relative to cwd or absolute, but must stay inside the session folder. "
-                : 'Add a global MCP connector. Fields follow McpServerConfig: stdio command/args/env/cwd or Streamable HTTP url/headers; optional enabled and toolTimeoutSec. Credentials belong in env or headers. ') +
+                : 'Add a global MCP server. Fields follow McpServerConfig: stdio command/args/env/cwd or Streamable HTTP url/headers; optional enabled and toolTimeoutSec. Credentials belong in env or headers. ') +
             "Requires the user's approval of the actual contents before changing configuration. " +
             AVAILABILITY,
           inputSchema: mutationSchema(name),
@@ -223,7 +223,7 @@ export class PluginAppTools {
       const parsed = PluginMethodSchemas['connector.add'].params.safeParse({ name, config });
       if (!parsed.success)
         throw new AppToolError(
-          'Invalid connector name or McpServerConfig. Use stdio command/args/env/cwd or http url/headers.',
+          'Invalid MCP server name or McpServerConfig. Use stdio command/args/env/cwd or http url/headers.',
         );
       prepared.summary = { name: parsed.data.name, ...safeConnector(parsed.data.config) };
       prepared.run = async (signal) => ({

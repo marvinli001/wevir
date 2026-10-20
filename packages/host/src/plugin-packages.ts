@@ -71,15 +71,17 @@ export function inputRefs(config: McpServerConfig): string[] {
 function checkPlaceholders(name: string, config: McpServerConfig, keys: Set<string>): void {
   if (config.transport === 'stdio') {
     if (refs(config.command).length > 0 || refs(config.cwd ?? '').length > 0)
-      throw new Error(`Connector "${name}": inputs can only be used in args, env, headers and url`);
+      throw new Error(
+        `MCP server "${name}": inputs can only be used in args, env, headers and url`,
+      );
   } else if (
     [config.url, ...Object.values(config.headers ?? {})].some((value) =>
       value.includes(PLUGIN_DIR_PLACEHOLDER),
     )
   )
-    throw new Error(`Connector "${name}": \${pluginDir} is only available to stdio connectors`);
+    throw new Error(`MCP server "${name}": \${pluginDir} is only available to stdio servers`);
   for (const key of inputRefs(config))
-    if (!keys.has(key)) throw new Error(`Connector "${name}" uses undeclared input "${key}"`);
+    if (!keys.has(key)) throw new Error(`MCP server "${name}" uses undeclared input "${key}"`);
 }
 
 /** 交给引擎前展开占位符；没填的输入项展开成空字符串（必填项缺失的连接器调用方先排除）。 */
@@ -136,16 +138,16 @@ async function readWevir(root: string, raw: unknown): Promise<PluginPackage> {
       data = await readJson(file);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-        throw new Error(`Connector file not found: ${manifest.connectors}`);
+        throw new Error(`MCP server file not found: ${manifest.connectors}`);
       throw error;
     }
     const entries = Object.entries(record(data));
     if (entries.length === 0 && (data === null || typeof data !== 'object' || Array.isArray(data)))
-      throw new Error(`Invalid connector file: ${manifest.connectors}`);
+      throw new Error(`Invalid MCP server file: ${manifest.connectors}`);
     for (const [name, value] of entries) {
       const config = McpServerConfigSchema.safeParse(value);
       if (!PluginConnectorNameSchema.safeParse(name).success || !config.success)
-        throw new Error(`Invalid connector "${name}" in ${manifest.connectors}`);
+        throw new Error(`Invalid MCP server "${name}" in ${manifest.connectors}`);
       servers[name] = config.data;
     }
   } else if (manifest.connectors) servers = manifest.connectors;
@@ -303,6 +305,6 @@ export async function readPluginPackage(root: string): Promise<PluginPackage> {
     names.add(skill.name);
   }
   if (pkg.skills.length === 0 && pkg.connectors.length === 0)
-    throw new Error('No skills or connectors found');
+    throw new Error('No skills or MCP servers found');
   return pkg;
 }
