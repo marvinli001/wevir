@@ -229,195 +229,212 @@ async function harness(
 
 const plan = (report: ReadinessReport) => report.plans[0] as ReadinessReport['plans'][number];
 
-describe.skipIf(process.platform === 'win32')('ReadinessService 与真实的 npm', () => {
-  it('私有仓库认证失败 → 存凭据后装上；postinstall 跑了；令牌不进日志、记录与通知', async () => {
-    const registry = await startRegistry();
-    const h = await harness();
-    writeProject(h.root, registry);
+// 真实的 npm 一次安装在忙的 CI 机器上就要几秒，用例超时与 waitRun 的期限一致。
+describe.skipIf(process.platform === 'win32')(
+  'ReadinessService 与真实的 npm',
+  { timeout: 60_000 },
+  () => {
+    it('私有仓库认证失败 → 存凭据后装上；postinstall 跑了；令牌不进日志、记录与通知', async () => {
+      const registry = await startRegistry();
+      const h = await harness();
+      writeProject(h.root, registry);
 
-    const before = await h.service.get({ workspaceId: h.workspaceId });
-    expect(before.status).toBe('not_ready');
-    expect(plan(before)).toMatchObject({
-      command: 'npm ci',
-      credentials: [{ name: 'REG_TOKEN', source: 'missing' }],
-      scripts: { dependencies: 'run' },
+      const before = await h.service.get({ workspaceId: h.workspaceId });
+      expect(before.status).toBe('not_ready');
+      expect(plan(before)).toMatchObject({
+        command: 'npm ci',
+        credentials: [{ name: 'REG_TOKEN', source: 'missing' }],
+        scripts: { dependencies: 'run' },
+      });
+      expect(before.network.registries).toContainEqual(
+        expect.objectContaining({ url: registry.url, source: '.npmrc', auth: 'missing' }),
+      );
+
+      await h.service.install({ workspaceId: h.workspaceId, planId: plan(before).id });
+      const failed = await h.waitRun(['failed', 'succeeded']);
+      expect(failed).toMatchObject({ status: 'failed', reason: 'registry_auth' });
+      const afterFailure = await h.service.get({ workspaceId: h.workspaceId });
+      expect(afterFailure.items.find((item) => item.id === 'dependencies::')).toMatchObject({
+        status: 'permission',
+        reason: 'registry_auth',
+      });
+      expect(afterFailure.network.advice).toContain('last_install_auth');
+
+      expect(
+        await h.service.setCredential({
+          workspaceId: h.workspaceId,
+          name: 'REG_TOKEN',
+          value: TOKEN,
+        }),
+      ).toEqual({
+        credentials: ['REG_TOKEN'],
+      });
+      const ready = await h.service.get({ workspaceId: h.workspaceId });
+      expect(plan(ready).credentials).toEqual([{ name: 'REG_TOKEN', source: 'wevir' }]);
+      await h.service.install({ workspaceId: h.workspaceId, planId: plan(ready).id });
+      const succeeded = await h.waitRun(['failed', 'succeeded']);
+      expect(succeeded.status, succeeded.summary).toBe('succeeded');
+      expect(existsSync(join(h.root, 'node_modules', 'left', 'index.js'))).toBe(true);
+      expect(existsSync(join(h.root, 'postinstall-ran'))).toBe(true);
+
+      // 装完之后重新预检并通知。
+      const deadline = Date.now() + 10_000;
+      while (
+        !h.changes.some((change) => change.report?.status === 'ready') &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      expect(h.changes.some((change) => change.report?.status === 'ready')).toBe(true);
+      const output = await h.service.output(succeeded.id);
+      expect(output.bytes).toBeGreaterThan(0);
+      const files = [
+        readFileSync(join(h.data, 'readiness', 'runs.json'), 'utf8'),
+        readFileSync(join(h.data, 'readiness', 'logs', `${failed.id}.log`), 'utf8'),
+        readFileSync(join(h.data, 'readiness', 'logs', `${succeeded.id}.log`), 'utf8'),
+        readFileSync(join(h.data, 'readiness', 'credentials.json'), 'utf8'),
+      ];
+      expect(`${JSON.stringify(h.changes)}${output.text}${files.join('')}`).not.toContain(TOKEN);
+      expect(files[3]).toContain('REG_TOKEN');
     });
-    expect(before.network.registries).toContainEqual(
-      expect.objectContaining({ url: registry.url, source: '.npmrc', auth: 'missing' }),
-    );
 
-    await h.service.install({ workspaceId: h.workspaceId, planId: plan(before).id });
-    const failed = await h.waitRun(['failed', 'succeeded']);
-    expect(failed).toMatchObject({ status: 'failed', reason: 'registry_auth' });
-    const afterFailure = await h.service.get({ workspaceId: h.workspaceId });
-    expect(afterFailure.items.find((item) => item.id === 'dependencies::')).toMatchObject({
-      status: 'permission',
-      reason: 'registry_auth',
-    });
-    expect(afterFailure.network.advice).toContain('last_install_auth');
-
-    expect(
+    it('有缓存时仓库关掉也装得上；没有缓存时离线是网络失败', async () => {
+      const registry = await startRegistry();
+      const cache = temp('wevir-readiness-cache-');
+      const h = await harness({ cache });
+      writeProject(h.root, registry);
       await h.service.setCredential({
         workspaceId: h.workspaceId,
         name: 'REG_TOKEN',
         value: TOKEN,
-      }),
-    ).toEqual({
-      credentials: ['REG_TOKEN'],
-    });
-    const ready = await h.service.get({ workspaceId: h.workspaceId });
-    expect(plan(ready).credentials).toEqual([{ name: 'REG_TOKEN', source: 'wevir' }]);
-    await h.service.install({ workspaceId: h.workspaceId, planId: plan(ready).id });
-    const succeeded = await h.waitRun(['failed', 'succeeded']);
-    expect(succeeded.status, succeeded.summary).toBe('succeeded');
-    expect(existsSync(join(h.root, 'node_modules', 'left', 'index.js'))).toBe(true);
-    expect(existsSync(join(h.root, 'postinstall-ran'))).toBe(true);
+      });
+      const first = await h.service.get({ workspaceId: h.workspaceId });
+      await h.service.install({ workspaceId: h.workspaceId, planId: plan(first).id });
+      expect((await h.waitRun(['failed', 'succeeded'])).status).toBe('succeeded');
 
-    // 装完之后重新预检并通知。
-    const deadline = Date.now() + 10_000;
-    while (
-      !h.changes.some((change) => change.report?.status === 'ready') &&
-      Date.now() < deadline
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    expect(h.changes.some((change) => change.report?.status === 'ready')).toBe(true);
-    const output = await h.service.output(succeeded.id);
-    expect(output.bytes).toBeGreaterThan(0);
-    const files = [
-      readFileSync(join(h.data, 'readiness', 'runs.json'), 'utf8'),
-      readFileSync(join(h.data, 'readiness', 'logs', `${failed.id}.log`), 'utf8'),
-      readFileSync(join(h.data, 'readiness', 'logs', `${succeeded.id}.log`), 'utf8'),
-      readFileSync(join(h.data, 'readiness', 'credentials.json'), 'utf8'),
-    ];
-    expect(`${JSON.stringify(h.changes)}${output.text}${files.join('')}`).not.toContain(TOKEN);
-    expect(files[3]).toContain('REG_TOKEN');
-  });
+      // 有缓存：删掉依赖、关掉仓库再装。
+      rmSync(join(h.root, 'node_modules'), { recursive: true, force: true });
+      await registry.close();
+      const cached = await h.service.get({ workspaceId: h.workspaceId });
+      expect(cached.items.find((item) => item.id === 'dependencies::')?.status).toBe('missing');
+      h.changes.length = 0;
+      await h.service.install({ workspaceId: h.workspaceId, planId: plan(cached).id });
+      const offlineWithCache = await h.waitRun(['failed', 'succeeded']);
+      expect(offlineWithCache.status, offlineWithCache.summary).toBe('succeeded');
 
-  it('有缓存时仓库关掉也装得上；没有缓存时离线是网络失败', async () => {
-    const registry = await startRegistry();
-    const cache = temp('wevir-readiness-cache-');
-    const h = await harness({ cache });
-    writeProject(h.root, registry);
-    await h.service.setCredential({ workspaceId: h.workspaceId, name: 'REG_TOKEN', value: TOKEN });
-    const first = await h.service.get({ workspaceId: h.workspaceId });
-    await h.service.install({ workspaceId: h.workspaceId, planId: plan(first).id });
-    expect((await h.waitRun(['failed', 'succeeded'])).status).toBe('succeeded');
-
-    // 有缓存：删掉依赖、关掉仓库再装。
-    rmSync(join(h.root, 'node_modules'), { recursive: true, force: true });
-    await registry.close();
-    const cached = await h.service.get({ workspaceId: h.workspaceId });
-    expect(cached.items.find((item) => item.id === 'dependencies::')?.status).toBe('missing');
-    h.changes.length = 0;
-    await h.service.install({ workspaceId: h.workspaceId, planId: plan(cached).id });
-    const offlineWithCache = await h.waitRun(['failed', 'succeeded']);
-    expect(offlineWithCache.status, offlineWithCache.summary).toBe('succeeded');
-
-    // 没有缓存：换一个空的缓存目录（新的 Host 数据目录与项目副本）。
-    const fresh = await harness();
-    writeProject(fresh.root, registry);
-    await fresh.service.setCredential({
-      workspaceId: fresh.workspaceId,
-      name: 'REG_TOKEN',
-      value: TOKEN,
-    });
-    const offline = await fresh.service.get({ workspaceId: fresh.workspaceId });
-    await fresh.service.install({ workspaceId: fresh.workspaceId, planId: plan(offline).id });
-    const failed = await fresh.waitRun(['failed', 'succeeded']);
-    expect(failed).toMatchObject({ status: 'failed', reason: 'network' });
-    const after = await fresh.service.get({ workspaceId: fresh.workspaceId });
-    expect(after.items.find((item) => item.id === 'dependencies::')).toMatchObject({
-      status: 'network',
-      reason: 'last_install_network',
-    });
-    expect(after.network.advice).toContain('last_install_network');
-  });
-
-  it('安装中取消、再重试；同一目录不能同时装；方案过期被拒', async () => {
-    const registry = await startRegistry();
-    registry.delayMs = 20_000;
-    const h = await harness();
-    writeProject(h.root, registry);
-    await h.service.setCredential({ workspaceId: h.workspaceId, name: 'REG_TOKEN', value: TOKEN });
-    const report = await h.service.get({ workspaceId: h.workspaceId });
-    const run = await h.service.install({ workspaceId: h.workspaceId, planId: plan(report).id });
-    expect(run.status).toBe('running');
-    await expect(
-      h.service.install({ workspaceId: h.workspaceId, planId: plan(report).id }),
-    ).rejects.toMatchObject({
-      code: 'RESOURCE_IN_USE',
-    });
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    h.service.cancel(run.id);
-    const cancelled = await h.waitRun(['cancelled', 'failed', 'succeeded']);
-    expect(cancelled).toMatchObject({ id: run.id, status: 'cancelled', reason: 'user' });
-
-    registry.delayMs = 0;
-    const retry = await h.service.get({ workspaceId: h.workspaceId });
-    expect(retry.install?.id).toBe(run.id);
-    h.changes.length = 0;
-    await h.service.install({ workspaceId: h.workspaceId, planId: plan(retry).id });
-    expect((await h.waitRun(['failed', 'succeeded'])).status).toBe('succeeded');
-
-    // 锁文件与清单不一致：方案换成 `npm install`（会写锁文件），旧的方案 ID 被拒。
-    const manifest = JSON.parse(readFileSync(join(h.root, 'package.json'), 'utf8')) as Record<
-      string,
-      Record<string, string>
-    >;
-    manifest.dependencies = { ...manifest.dependencies, extra: '1.0.0' };
-    writeFileSync(join(h.root, 'package.json'), JSON.stringify(manifest));
-    const mismatch = await h.service.get({ workspaceId: h.workspaceId });
-    expect(mismatch.items.find((item) => item.id === 'lockfile::')).toMatchObject({
-      status: 'incompatible',
-      reason: 'lockfile_mismatch',
-    });
-    expect(plan(mismatch)).toMatchObject({ command: 'npm install', writesLockfile: true });
-    const error = await h.service
-      .install({ workspaceId: h.workspaceId, planId: plan(retry).id })
-      .catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(HostError);
-    expect(error).toMatchObject({
-      code: 'INVALID_PARAMS',
-      data: { issues: [{ path: ['planId'], message: 'plan_changed' }] },
-    });
-  });
-
-  it('Host 退出时取消进行中的安装；重启后没跑完的记成取消', async () => {
-    const registry = await startRegistry();
-    registry.delayMs = 20_000;
-    const dir = temp('wevir-readiness-data-');
-    const h = await harness({ dir });
-    writeProject(h.root, registry);
-    await h.service.setCredential({ workspaceId: h.workspaceId, name: 'REG_TOKEN', value: TOKEN });
-    const report = await h.service.get({ workspaceId: h.workspaceId });
-    const run = await h.service.install({ workspaceId: h.workspaceId, planId: plan(report).id });
-    await h.service.dispose();
-    const runs = JSON.parse(
-      readFileSync(join(dir, 'readiness', 'runs.json'), 'utf8'),
-    ) as InstallRun[];
-    expect(runs.find((item) => item.id === run.id)).toMatchObject({
-      status: 'cancelled',
-      reason: 'host_restarted',
+      // 没有缓存：换一个空的缓存目录（新的 Host 数据目录与项目副本）。
+      const fresh = await harness();
+      writeProject(fresh.root, registry);
+      await fresh.service.setCredential({
+        workspaceId: fresh.workspaceId,
+        name: 'REG_TOKEN',
+        value: TOKEN,
+      });
+      const offline = await fresh.service.get({ workspaceId: fresh.workspaceId });
+      await fresh.service.install({ workspaceId: fresh.workspaceId, planId: plan(offline).id });
+      const failed = await fresh.waitRun(['failed', 'succeeded']);
+      expect(failed).toMatchObject({ status: 'failed', reason: 'network' });
+      const after = await fresh.service.get({ workspaceId: fresh.workspaceId });
+      expect(after.items.find((item) => item.id === 'dependencies::')).toMatchObject({
+        status: 'network',
+        reason: 'last_install_network',
+      });
+      expect(after.network.advice).toContain('last_install_network');
     });
 
-    // 模拟没来得及收尾的 Host：记录里还是 running。
-    writeFileSync(
-      join(dir, 'readiness', 'runs.json'),
-      JSON.stringify([{ ...run, status: 'running' }]),
-    );
-    const again = new ReadinessService({
-      storage: h.storage,
-      secrets: new FileSecretStore(dir),
-      dir: join(dir, 'readiness'),
-      defaultEngine: 'echo',
+    it('安装中取消、再重试；同一目录不能同时装；方案过期被拒', async () => {
+      const registry = await startRegistry();
+      registry.delayMs = 20_000;
+      const h = await harness();
+      writeProject(h.root, registry);
+      await h.service.setCredential({
+        workspaceId: h.workspaceId,
+        name: 'REG_TOKEN',
+        value: TOKEN,
+      });
+      const report = await h.service.get({ workspaceId: h.workspaceId });
+      const run = await h.service.install({ workspaceId: h.workspaceId, planId: plan(report).id });
+      expect(run.status).toBe('running');
+      await expect(
+        h.service.install({ workspaceId: h.workspaceId, planId: plan(report).id }),
+      ).rejects.toMatchObject({
+        code: 'RESOURCE_IN_USE',
+      });
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      h.service.cancel(run.id);
+      const cancelled = await h.waitRun(['cancelled', 'failed', 'succeeded']);
+      expect(cancelled).toMatchObject({ id: run.id, status: 'cancelled', reason: 'user' });
+
+      registry.delayMs = 0;
+      const retry = await h.service.get({ workspaceId: h.workspaceId });
+      expect(retry.install?.id).toBe(run.id);
+      h.changes.length = 0;
+      await h.service.install({ workspaceId: h.workspaceId, planId: plan(retry).id });
+      expect((await h.waitRun(['failed', 'succeeded'])).status).toBe('succeeded');
+
+      // 锁文件与清单不一致：方案换成 `npm install`（会写锁文件），旧的方案 ID 被拒。
+      const manifest = JSON.parse(readFileSync(join(h.root, 'package.json'), 'utf8')) as Record<
+        string,
+        Record<string, string>
+      >;
+      manifest.dependencies = { ...manifest.dependencies, extra: '1.0.0' };
+      writeFileSync(join(h.root, 'package.json'), JSON.stringify(manifest));
+      const mismatch = await h.service.get({ workspaceId: h.workspaceId });
+      expect(mismatch.items.find((item) => item.id === 'lockfile::')).toMatchObject({
+        status: 'incompatible',
+        reason: 'lockfile_mismatch',
+      });
+      expect(plan(mismatch)).toMatchObject({ command: 'npm install', writesLockfile: true });
+      const error = await h.service
+        .install({ workspaceId: h.workspaceId, planId: plan(retry).id })
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(HostError);
+      expect(error).toMatchObject({
+        code: 'INVALID_PARAMS',
+        data: { issues: [{ path: ['planId'], message: 'plan_changed' }] },
+      });
     });
-    expect(await again.recover()).toBe(1);
-    const recovered = await again.get({ workspaceId: h.workspaceId });
-    expect(recovered.install).toMatchObject({
-      id: run.id,
-      status: 'cancelled',
-      reason: 'host_restarted',
+
+    it('Host 退出时取消进行中的安装；重启后没跑完的记成取消', async () => {
+      const registry = await startRegistry();
+      registry.delayMs = 20_000;
+      const dir = temp('wevir-readiness-data-');
+      const h = await harness({ dir });
+      writeProject(h.root, registry);
+      await h.service.setCredential({
+        workspaceId: h.workspaceId,
+        name: 'REG_TOKEN',
+        value: TOKEN,
+      });
+      const report = await h.service.get({ workspaceId: h.workspaceId });
+      const run = await h.service.install({ workspaceId: h.workspaceId, planId: plan(report).id });
+      await h.service.dispose();
+      const runs = JSON.parse(
+        readFileSync(join(dir, 'readiness', 'runs.json'), 'utf8'),
+      ) as InstallRun[];
+      expect(runs.find((item) => item.id === run.id)).toMatchObject({
+        status: 'cancelled',
+        reason: 'host_restarted',
+      });
+
+      // 模拟没来得及收尾的 Host：记录里还是 running。
+      writeFileSync(
+        join(dir, 'readiness', 'runs.json'),
+        JSON.stringify([{ ...run, status: 'running' }]),
+      );
+      const again = new ReadinessService({
+        storage: h.storage,
+        secrets: new FileSecretStore(dir),
+        dir: join(dir, 'readiness'),
+        defaultEngine: 'echo',
+      });
+      expect(await again.recover()).toBe(1);
+      const recovered = await again.get({ workspaceId: h.workspaceId });
+      expect(recovered.install).toMatchObject({
+        id: run.id,
+        status: 'cancelled',
+        reason: 'host_restarted',
+      });
     });
-  });
-});
+  },
+);
