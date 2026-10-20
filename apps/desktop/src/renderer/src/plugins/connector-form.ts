@@ -19,6 +19,8 @@ export interface KeyValueRow {
   existing: boolean;
   /** 已有的键被移除（补丁里写 null）。 */
   removed: boolean;
+  /** 已有的键还没有值（导入的连接器，0.71.0），要用户填。 */
+  missing?: boolean;
 }
 
 export interface ConnectorForm {
@@ -48,8 +50,8 @@ export function isHttpUrl(value: string): boolean {
 
 let rowId = 0;
 
-export function newRow(key = '', existing = false): KeyValueRow {
-  return { id: ++rowId, key, value: '', existing, removed: false };
+export function newRow(key = '', existing = false, missing = false): KeyValueRow {
+  return { id: ++rowId, key, value: '', existing, removed: false, ...(missing && { missing }) };
 }
 
 export function emptyForm(mode: ConnectorMode = 'stdio'): ConnectorForm {
@@ -60,19 +62,23 @@ export function emptyForm(mode: ConnectorMode = 'stdio'): ConnectorForm {
 export function formFromConnector(connector: Connector): ConnectorForm {
   const { config } = connector;
   const base = { ...emptyForm(config.transport), name: connector.name };
+  // 散装连接器的 missingInputs 是还没填值的键（导入的连接器）；插件的是插件输入项，与这里无关。
+  const missing = new Set(connector.pluginId === undefined ? (connector.missingInputs ?? []) : []);
+  const rows = (keys: Record<string, true> | undefined) =>
+    Object.keys(keys ?? {}).map((key) => newRow(key, true, missing.has(key)));
   if (config.transport === 'stdio') {
     return {
       ...base,
       command: config.command,
       args: (config.args ?? []).join('\n'),
       cwd: config.cwd ?? '',
-      env: Object.keys(config.env ?? {}).map((key) => newRow(key, true)),
+      env: rows(config.env),
     };
   }
   return {
     ...base,
     url: config.url,
-    headers: Object.keys(config.headers ?? {}).map((key) => newRow(key, true)),
+    headers: rows(config.headers),
   };
 }
 

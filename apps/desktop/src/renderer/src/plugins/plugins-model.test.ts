@@ -2,10 +2,13 @@ import type { Connector, HostFeatures, Plugin, PluginsList, Skill } from '@wevir
 import { describe, expect, it } from 'vitest';
 import {
   byName,
+  commandLine,
+  conflictingNames,
   connectorState,
   defaultTab,
   groupSkills,
   missingRequiredInputs,
+  missingSecretKeys,
   originName,
   pluginItems,
   pluginsAvailability,
@@ -248,5 +251,29 @@ describe('本地合并', () => {
   it('不在列表里的 ID 不新增，没有 plugins 的老 Host 也不出错', () => {
     expect(replaceConnector(list(), connector({ id: 'gone' })).connectors).toHaveLength(2);
     expect(replacePlugin({ connectors: [], skills: [] }, plugin()).plugins).toEqual([]);
+  });
+});
+
+describe('连接器的范围与待填键（0.71.0）', () => {
+  const list = [
+    connector({ id: 'a', name: 'global-one' }),
+    connector({ id: 'b', name: 'in-x', workspaceId: 'ws_x' }),
+    connector({ id: 'c', name: 'in-y', workspaceId: 'ws_y' }),
+  ];
+
+  it('全局与所有连接器比，项目与全局及同一项目比，编辑时不算自己', () => {
+    expect(conflictingNames(list, undefined)).toEqual(new Set(['global-one', 'in-x', 'in-y']));
+    expect(conflictingNames(list, 'ws_x')).toEqual(new Set(['global-one', 'in-x']));
+    expect(conflictingNames(list, 'ws_x', 'b')).toEqual(new Set(['global-one']));
+  });
+
+  it('只有散装连接器的 missingInputs 是待填的键', () => {
+    expect(missingSecretKeys(connector({ missingInputs: ['TOKEN'] }))).toEqual(['TOKEN']);
+    expect(missingSecretKeys(connector({ pluginId: 'p', missingInputs: ['KEY'] }))).toEqual([]);
+    expect(missingSecretKeys(connector())).toEqual([]);
+  });
+
+  it('命令行带空白的参数加引号', () => {
+    expect(commandLine('npx', ['-y', 'a b'])).toBe('npx -y "a b"');
   });
 });
