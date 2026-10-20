@@ -101,6 +101,7 @@ import {
   QuestionAnswerSchema,
   QuestionIdSchema,
   QuestionRequestSchema,
+  QuestionResolutionReasonSchema,
   QuestionResolutionSchema,
   QuestionStatusSchema,
   ResolvedApprovalStatusSchema,
@@ -1649,6 +1650,7 @@ const standaloneCases: Case[] = [
     invalid: [
       { id: 'a', question: '', options: [] },
       { question: 'q', options: [] },
+      { id: 'a', question: 'q', options: [], defaultOption: '' },
     ],
   },
   {
@@ -1664,13 +1666,20 @@ const standaloneCases: Case[] = [
     invalid: ['skipped'],
   },
   {
+    name: 'QuestionResolutionReason',
+    schema: QuestionResolutionReasonSchema,
+    valid: ['user', 'turn_cancelled', 'host_restarted', 'timeout'],
+    invalid: ['expired', ''],
+  },
+  {
     name: 'QuestionResolution',
     schema: QuestionResolutionSchema,
     valid: [
       { reason: 'user', answers: { scope: { answers: ['全链路'] } }, answeredBy: identity },
       { reason: 'turn_cancelled' },
+      { reason: 'timeout', answers: { scope: { answers: ['全链路'] } } },
     ],
-    invalid: [{}, { reason: 'timeout' }],
+    invalid: [{}, { reason: 'expired' }],
   },
   {
     name: 'QuestionRequest',
@@ -1679,6 +1688,7 @@ const standaloneCases: Case[] = [
     invalid: [
       { ...pendingQuestion, questions: [] },
       { ...pendingQuestion, id: ids.approval },
+      { ...pendingQuestion, autoAnswerAt: '5 minutes' },
     ],
   },
   {

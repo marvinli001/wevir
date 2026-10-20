@@ -617,6 +617,11 @@ export const UserQuestionSchema = z.object({
   allowOther: z.boolean().optional(),
   /** 回答不回显（密码类）。 */
   secret: z.boolean().optional(),
+  /**
+   * 推荐的选项（0.71.0）：某个选项的 `label`。引擎给了用引擎的；没给时 Host 取标签以“(Recommended)”或“（推荐）”结尾的那个，
+   * 都没有就取第一个。没有选项时省略。超时自动回答时按它回答。
+   */
+  defaultOption: z.string().min(1).optional(),
 });
 export type UserQuestion = z.infer<typeof UserQuestionSchema>;
 
@@ -627,12 +632,19 @@ export type QuestionAnswer = z.infer<typeof QuestionAnswerSchema>;
 export const QuestionStatusSchema = z.enum(['pending', 'answered', 'cancelled']);
 export type QuestionStatus = z.infer<typeof QuestionStatusSchema>;
 
-/** 结束一组问题的原因：用户回答了，或同审批一样随回合、会话、引擎、Host 一起取消。 */
-export const QuestionResolutionReasonSchema = ApprovalResolutionReasonSchema;
+/**
+ * 结束一组问题的原因：用户回答了，或同审批一样随回合、会话、引擎、Host 一起取消。`timeout`（0.71.0）：到了 `autoAnswerAt` 没人
+ * 回答，Host 按每题的 `defaultOption` 回答（状态 `answered`，没有选项的题跳过）。
+ */
+export const QuestionResolutionReasonSchema = z.enum([
+  ...ApprovalResolutionReasonSchema.options,
+  'timeout',
+]);
+export type QuestionResolutionReason = z.infer<typeof QuestionResolutionReasonSchema>;
 
 export const QuestionResolutionSchema = z.object({
   reason: QuestionResolutionReasonSchema,
-  /** `reason` 为 `user` 时必有：按问题 ID。 */
+  /** `reason` 为 `user` 或 `timeout` 时必有：按问题 ID。 */
   answers: z.record(z.string(), QuestionAnswerSchema).optional(),
   /** `reason` 为 `user` 时必有。 */
   answeredBy: ClientIdentitySchema.optional(),
@@ -649,6 +661,11 @@ export const QuestionRequestSchema = z.object({
   questions: z.array(UserQuestionSchema).min(1),
   status: QuestionStatusSchema,
   createdAt: IsoTimeSchema,
+  /**
+   * 到这个时间还没人回答，Host 按推荐的选项回答（0.71.0，Host 功能 `question_timeout`）。无人值守的会话（自动化开的、子会话、
+   * 另一个会话里的 agent 开的）才有；省略表示一直等。
+   */
+  autoAnswerAt: IsoTimeSchema.optional(),
   resolvedAt: IsoTimeSchema.optional(),
   resolution: QuestionResolutionSchema.optional(),
 });

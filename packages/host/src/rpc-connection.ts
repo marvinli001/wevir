@@ -922,6 +922,17 @@ export function adaptEventForClient(
         break;
     }
   }
+  // COMPAT(questionTimeout): added in 0.71.0, remove gate after 2027-06-01
+  if (
+    event.type === 'question.resolved' &&
+    event.payload.resolution.reason === 'timeout' &&
+    capabilities.question_timeout !== true
+  ) {
+    return {
+      ...event,
+      payload: { ...event.payload, resolution: { ...event.payload.resolution, reason: 'user' } },
+    };
+  }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (
     event.type === 'session.title_changed' &&
@@ -945,6 +956,13 @@ export function adaptResultForClient(
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   const value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  // COMPAT(questionTimeout): added in 0.71.0, remove gate after 2027-06-01
+  if (method === 'question.respond' && capabilities.question_timeout !== true) {
+    const answered = value as MethodResult<'question.respond'>;
+    if (answered.resolution.reason === 'timeout') {
+      return { ...answered, resolution: { ...answered.resolution, reason: 'user' } };
+    }
+  }
   return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
 }
 

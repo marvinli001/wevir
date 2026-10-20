@@ -859,6 +859,9 @@ export const messages: Messages = {
   'question.failed': '제출 실패: {error}',
   'question.skipped': '건너뜀',
   'question.cancelled': '질문 취소됨',
+  'question.recommended': '추천',
+  'question.autoAnswer': '{time} 후 추천 답변',
+  'question.timedOut': '시간 초과, 추천 답변 선택',
 
   'client.desktop': '데스크톱',
   'client.cli': 'CLI',

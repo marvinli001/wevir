@@ -443,7 +443,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
 });
 
 /**
- * 消息流里的一组提问（0.10.0）：等回答时不显示（卡片在输入框上方），回答后每题一行“题目 → 回答”，取消时一行说明。
+ * 消息流里的一组提问（0.10.0）：等回答时不显示（卡片在输入框上方），回答后每题一行“题目 → 回答”，取消时一行说明。超时由
+ * Host 按推荐回答的（0.71.0）最后多一行说明。
  */
 function QuestionPart({ part }: { part: ChatPartOf<'question'> }) {
   const { question } = part;
@@ -470,6 +471,9 @@ function QuestionPart({ part }: { part: ChatPartOf<'question'> }) {
           </li>
         );
       })}
+      {question.resolution?.reason === 'timeout' && (
+        <li className="text-xs text-muted-foreground">{t('question.timedOut')}</li>
+      )}
     </ul>
   );
 }

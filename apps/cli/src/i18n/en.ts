@@ -336,6 +336,7 @@ Also:
   'render.questionCancelled': 'Question cancelled',
   'render.answerSkipped': '(skipped)',
   'render.answered': '✓ Answered: {answers}',
+  'render.answeredTimeout': '✓ Timed out, recommended answer used: {answers}',
   'render.turnFinished': '── Turn {outcome} · {duration} ──',
   'render.from': ' (from {client})',
   'render.steerEchoed': '(steer added to this turn)',

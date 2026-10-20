@@ -6,6 +6,7 @@ import type {
   SessionId,
   SessionState,
   UserContentPart,
+  UserQuestion,
   WevirEvent,
   WevirEventOf,
   WevirEventType,
@@ -16,7 +17,7 @@ import type { Storage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
-import { SessionManager, type SessionManagerOptions } from './session-manager.js';
+import { defaultOptionOf, SessionManager, type SessionManagerOptions } from './session-manager.js';
 import { SESSION_TRANSITIONS } from './snapshot.js';
 import { useStorages, useTempDir } from './test-utils.js';
 
@@ -2529,6 +2530,79 @@ describe('SessionManager：向用户提问（0.10.0）', () => {
       { questionId: question.id, status: 'cancelled', resolution: { reason: 'turn_cancelled' } },
     ]);
     expect(snapshot(h, id).pendingQuestions).toBeUndefined();
+  });
+
+  it('推荐的选项：引擎给的（要是选项之一）、标了 (Recommended) / （推荐）的，或第一个；没有选项时没有', () => {
+    const options = (...labels: string[]) => labels.map((label) => ({ label }));
+    const q = (extra: Partial<UserQuestion>): UserQuestion => ({
+      id: 'q',
+      question: '?',
+      options: options('A', 'B (Recommended)', 'C'),
+      ...extra,
+    });
+    expect(defaultOptionOf(q({}))).toBe('B (Recommended)');
+    expect(defaultOptionOf(q({ defaultOption: 'C' }))).toBe('C');
+    expect(defaultOptionOf(q({ defaultOption: 'Z' }))).toBe('B (Recommended)');
+    expect(defaultOptionOf(q({ options: options('甲', '乙（推荐）') }))).toBe('乙（推荐）');
+    expect(defaultOptionOf(q({ options: options('A', 'B') }))).toBe('A');
+    expect(defaultOptionOf(q({ options: [] }))).toBeUndefined();
+  });
+
+  it('交互会话一直等，不带 autoAnswerAt；推荐的选项取引擎给的，没给时取第一个', async () => {
+    const h = setup({ manager: { questionTimeoutMs: 20 } });
+    const id = await create(h);
+    const question = await ask(h, id);
+    expect(question.autoAnswerAt).toBeUndefined();
+    expect(question.questions.map((q) => q.defaultOption)).toEqual(['Full stack', 'macOS']);
+    await delay(60);
+    expect(snapshot(h, id).pendingQuestions).toHaveLength(1);
+  });
+
+  it('无人值守的会话：到 autoAnswerAt 没人回答，按推荐回答（timeout），回合接着做', async () => {
+    const h = setup({ manager: { questionTimeoutMs: 30 } });
+    const parent = await create(h);
+    const { id } = await h.manager.create(
+      { workspaceId: 'ws_1', providerId: 'deepseek-official' },
+      { openedBy: parent },
+    );
+    const question = await ask(h, id);
+    expect(Date.parse(question.autoAnswerAt ?? '') - Date.parse(question.createdAt)).toBe(30);
+    await waitForState(h, id, 'idle');
+    expect(ofType(h, id, 'question.resolved').map((e) => e.payload)).toEqual([
+      {
+        questionId: question.id,
+        status: 'answered',
+        resolution: {
+          reason: 'timeout',
+          answers: { scope: { answers: ['Full stack'] }, targets: { answers: ['macOS'] } },
+        },
+      },
+    ]);
+    const reply = ofType(h, id, 'assistant.message').at(-1)?.payload.text ?? '';
+    expect(reply).toContain('Answers: scope=Full stack; targets=macOS');
+    // 超时之后再回答：返回超时的结局。
+    const again = await h.manager.respondToQuestion({ questionId: question.id, answers: {} }, cli);
+    expect(again.resolution.reason).toBe('timeout');
+  });
+
+  it('无人值守的会话里先回答了：不再超时', async () => {
+    const h = setup({ manager: { questionTimeoutMs: 40 } });
+    const { id } = await h.manager.create(
+      { workspaceId: 'ws_1', providerId: 'deepseek-official' },
+      { automation: { automationId: 'aut_1' as never, runId: 'arn_1' as never } },
+    );
+    const question = await ask(h, id);
+    expect(question.autoAnswerAt).toBeDefined();
+    await h.manager.respondToQuestion(
+      { questionId: question.id, answers: { scope: { answers: ['UI only'] } } },
+      desktop,
+    );
+    await waitForState(h, id, 'idle');
+    await delay(80);
+    expect(ofType(h, id, 'question.resolved').map((e) => e.payload.resolution.reason)).toEqual([
+      'user',
+    ]);
+    expect(h.errors).toEqual([]);
   });
 
   it('Host 重启：未答的问题以 cancelled（host_restarted）结束', async () => {

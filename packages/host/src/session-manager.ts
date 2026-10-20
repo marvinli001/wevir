@@ -54,6 +54,7 @@ import {
   type TurnOutcome,
   type UiShowTarget,
   type UserContentPart,
+  type UserQuestion,
   type WevirEvent,
   type WevirEventType,
   type WorkspaceId,
@@ -144,6 +145,11 @@ import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
 export const CANCEL_TIMEOUT_MS = 5000;
 
 /**
+ * 无人值守的会话（自动化开的、子会话、另一个会话里的 agent 开的）里，提问等多久没人回答就按推荐的选项回答（0.71.0）。
+ */
+export const QUESTION_TIMEOUT_MS = 5 * 60_000;
+
+/**
  * 连续几次自动压缩之后用量仍不低于压缩线，Host 就停下回合（`#checkAutoCompaction`）：这时再压缩也降不下来，引擎却会在每个
  * 请求之后接着压缩，一直花额度。
  */
@@ -162,6 +168,8 @@ export interface SessionManagerOptions {
   engine?: string;
   /** 默认 `CANCEL_TIMEOUT_MS`。 */
   cancelTimeoutMs?: number;
+  /** 无人值守的会话里提问的超时（0.71.0）；默认 `QUESTION_TIMEOUT_MS`，0 表示一直等。 */
+  questionTimeoutMs?: number;
   /** 后台错误：处理引擎事件失败、丢弃的引擎事件等。默认打到 stderr。 */
   onError?: (error: unknown) => void;
   /**
@@ -568,6 +576,7 @@ export class SessionManager {
   readonly #adapter: AgentRuntimeAdapter;
   readonly #engine: string;
   readonly #cancelTimeoutMs: number;
+  readonly #questionTimeoutMs: number;
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
@@ -594,6 +603,8 @@ export class SessionManager {
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
+  /** 到时按推荐回答的提问（0.71.0，`autoAnswerAt`）；问题结束时清掉。只在内存里：Host 重启后未答的问题都已取消。 */
+  readonly #questionTimers = new Map<QuestionId, ReturnType<typeof setTimeout>>();
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
   /**
@@ -617,6 +628,7 @@ export class SessionManager {
     this.#adapter = options.adapter;
     this.#engine = options.engine ?? 'echo';
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#questionTimeoutMs = options.questionTimeoutMs ?? QUESTION_TIMEOUT_MS;
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] session manager:', error));
     this.#onWarning =
@@ -2609,7 +2621,9 @@ export class SessionManager {
       this.#recaps.forget(id);
     }
     for (const [questionId, sessionId] of this.#questionSessions) {
-      if (ids.has(sessionId)) this.#questionSessions.delete(questionId);
+      if (!ids.has(sessionId)) continue;
+      this.#questionSessions.delete(questionId);
+      this.#clearQuestionTimer(questionId);
     }
   }
 
@@ -3245,6 +3259,8 @@ export class SessionManager {
     this.#whenDisposed.resolve();
     for (const settle of this.#appApprovals.values()) settle(false);
     this.#appApprovals.clear();
+    for (const timer of this.#questionTimers.values()) clearTimeout(timer);
+    this.#questionTimers.clear();
     this.#appTools?.dispose?.();
     this.#recaps.clear();
     for (const runtime of this.#runtimes.values()) this.#detach(runtime);
@@ -4019,19 +4035,27 @@ export class SessionManager {
     turn: TurnRuntime,
     event: QuestionRequestedEvent,
   ): void {
-    const { state } = this.#snapshot(runtime).session;
+    const { session } = this.#snapshot(runtime);
     const questionId = newId('qst');
+    const now = Date.now();
+    const timeoutMs =
+      this.#questionTimeoutMs > 0 && unattended(session) ? this.#questionTimeoutMs : undefined;
     const question: QuestionRequest = {
       id: questionId,
       sessionId: runtime.id,
       turnId: turn.turnId,
       ...(event.toolCallId !== undefined && { toolCallId: event.toolCallId }),
-      questions: event.questions.map((item) => ({
-        ...item,
-        options: item.options.map((option) => ({ ...option })),
-      })),
+      questions: event.questions.map((item) => {
+        const defaultOption = defaultOptionOf(item);
+        return {
+          ...item,
+          options: item.options.map((option) => ({ ...option })),
+          ...(defaultOption !== undefined && { defaultOption }),
+        };
+      }),
       status: 'pending',
-      createdAt: isoNow(),
+      createdAt: new Date(now).toISOString(),
+      ...(timeoutMs !== undefined && { autoAnswerAt: new Date(now + timeoutMs).toISOString() }),
     };
     runtime.questionIds.set(event.requestId, questionId);
     runtime.questionRequests.set(questionId, event.requestId);
@@ -4039,10 +4063,46 @@ export class SessionManager {
     const inputs: AppendInput[] = [
       { type: 'question.requested', source: 'engine', payload: { question } },
     ];
-    if (state === 'cancelling') {
+    if (session.state === 'cancelling') {
       inputs.push(questionResolved(questionId, 'cancelled', { reason: 'turn_cancelled' }));
+    } else if (timeoutMs !== undefined) {
+      const timer = setTimeout(() => {
+        this.#questionTimers.delete(questionId);
+        this.#autoAnswer(runtime, questionId).catch(this.#onError);
+      }, timeoutMs);
+      timer.unref?.();
+      this.#questionTimers.set(questionId, timer);
     }
     this.#write(runtime, inputs);
+  }
+
+  #clearQuestionTimer(questionId: QuestionId): void {
+    const timer = this.#questionTimers.get(questionId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.#questionTimers.delete(questionId);
+  }
+
+  /**
+   * 到了 `autoAnswerAt` 还没人回答（0.71.0）：按每题的 `defaultOption` 回答（没有选项的题跳过），写 `question.resolved`
+   * （`answered`，`timeout`）。排在会话的命令队列里，在这之前回答了或取消了就什么都不做。
+   */
+  async #autoAnswer(runtime: SessionRuntime, questionId: QuestionId): Promise<void> {
+    if (this.#shuttingDown || this.#disposed) return;
+    await this.#serial(runtime, async () => {
+      const question = this.#events.question(runtime.id, questionId);
+      if (question?.status !== 'pending') return;
+      const answers = Object.fromEntries(
+        question.questions.map((item) => [
+          item.id,
+          item.defaultOption === undefined ? [] : [item.defaultOption],
+        ]),
+      );
+      await this.#answerQuestion(runtime, questionId, answers, {
+        reason: 'timeout',
+        answers: toAnswerRecord(answers),
+      });
+    });
   }
 
   /** 引擎侧结掉的提问；引擎退出时不在这里结算，随后的 `engine.exited` 一并处理。 */
@@ -4084,38 +4144,51 @@ export class SessionManager {
       const question = this.#events.question(runtime.id, questionId);
       if (!question) throw new HostError('QUESTION_NOT_FOUND', `question ${questionId} not found`);
       const answers = checkAnswers(question, params.answers);
-      const requestId = runtime.questionRequests.get(questionId);
-      if (requestId === undefined) throw new Error(`问题 ${questionId} 没有对应的引擎请求`);
-      const respond = this.#adapter.respondToQuestion?.bind(this.#adapter);
-      if (respond === undefined) throw new Error('引擎不支持提问，却提了问题');
       const resolution: QuestionResolution = {
         reason: 'user',
-        answers: Object.fromEntries(
-          Object.entries(answers).map(([id, list]) => [id, { answers: list }]),
-        ),
+        answers: toAnswerRecord(answers),
         answeredBy,
       };
-      let failure: { error: unknown } | undefined;
-      runtime.holds += 1;
-      try {
-        try {
-          await respond(runtime.engineSessionId, requestId, answers);
-        } catch (error) {
-          failure = { error };
-        }
-        if (!failure) {
-          this.#write(runtime, [questionResolved(questionId, 'answered', resolution)]);
-        } else if (!isAdapterError(failure.error, 'question_not_found')) {
-          this.#engineFailed(runtime, engineErrorInfo(failure.error));
-        }
-      } finally {
-        this.#release(runtime);
+      if (await this.#answerQuestion(runtime, questionId, answers, resolution)) {
+        return { questionId, status: 'answered' as const, resolution };
       }
-      if (!failure) return { questionId, status: 'answered' as const, resolution };
       const after = outcome();
       if (after) return after;
       throw new Error(`引擎报告问题 ${questionId} 已结束，但没有上报结束事件`);
     });
+  }
+
+  /**
+   * 把回答交给引擎，成功后写 `question.resolved`（`answered`）。引擎侧已经结束（`question_not_found`）时返回 false，它的
+   * `question.cancelled` 在暂扣的事件里；别的失败当作引擎异常。要在会话的命令队列里调用。
+   */
+  async #answerQuestion(
+    runtime: SessionRuntime,
+    questionId: QuestionId,
+    answers: Record<string, string[]>,
+    resolution: QuestionResolution,
+  ): Promise<boolean> {
+    const requestId = runtime.questionRequests.get(questionId);
+    if (requestId === undefined) throw new Error(`问题 ${questionId} 没有对应的引擎请求`);
+    const respond = this.#adapter.respondToQuestion?.bind(this.#adapter);
+    if (respond === undefined) throw new Error('引擎不支持提问，却提了问题');
+    let failure: { error: unknown } | undefined;
+    runtime.holds += 1;
+    try {
+      try {
+        await respond(runtime.engineSessionId, requestId, answers);
+      } catch (error) {
+        failure = { error };
+      }
+      if (!failure) {
+        this.#write(runtime, [questionResolved(questionId, 'answered', resolution)]);
+      } else if (!isAdapterError(failure.error, 'question_not_found')) {
+        this.#engineFailed(runtime, engineErrorInfo(failure.error));
+      }
+    } finally {
+      this.#release(runtime);
+    }
+    return failure === undefined;
   }
 
   // ── 子会话（R4，domain-model §3.3.1、§4.5） ─────────────────────────────
@@ -4706,6 +4779,7 @@ export class SessionManager {
           runtime.approvalIds.delete(requestId);
         }
       } else if (event.type === 'question.resolved') {
+        this.#clearQuestionTimer(event.payload.questionId);
         const requestId = runtime.questionRequests.get(event.payload.questionId);
         if (requestId !== undefined) {
           runtime.questionRequests.delete(event.payload.questionId);
@@ -4837,6 +4911,31 @@ function questionResolved(
   resolution: QuestionResolution,
 ): AppendInput {
   return { type: 'question.resolved', source: 'host', payload: { questionId, status, resolution } };
+}
+
+function toAnswerRecord(answers: Record<string, string[]>): QuestionResolution['answers'] {
+  return Object.fromEntries(Object.entries(answers).map(([id, list]) => [id, { answers: list }]));
+}
+
+/** 没人盯着回答提问的会话（0.71.0）：自动化开的、引擎派出的子会话、另一个会话里的 agent 开的。 */
+function unattended(session: Session): boolean {
+  return (
+    session.automation !== undefined ||
+    session.parentSessionId !== undefined ||
+    session.openedBy !== undefined
+  );
+}
+
+/** 标签末尾的“(Recommended)”“（推荐）”一类标记：Claude 与 Codex 的提问工具都让模型这样标出推荐的选项。 */
+const RECOMMENDED_LABEL = /[(（]\s*(?:recommended|推荐|建议)\s*[)）]\s*$/i;
+
+/** 推荐的选项（0.71.0）：引擎给的、标签标了推荐的，或第一个；没有选项时没有。 */
+export function defaultOptionOf(question: UserQuestion): string | undefined {
+  const labels = question.options.map((option) => option.label);
+  if (question.defaultOption !== undefined && labels.includes(question.defaultOption)) {
+    return question.defaultOption;
+  }
+  return labels.find((label) => RECOMMENDED_LABEL.test(label)) ?? labels[0];
 }
 
 /** 未答的问题随回合、会话、引擎或 Host 一起取消（原因同审批）。 */

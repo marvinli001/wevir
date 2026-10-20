@@ -36,6 +36,9 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   /** 认得 `UserContentPart` 的 `image`；没有时 Host 把事件与结果里的图片换成文本 `[image]`。 */
   userImages: 'user_images',
+  // COMPAT(questionTimeout): added in 0.71.0, remove gate after 2027-06-01
+  /** 认得 `QuestionResolutionReason` 的 `timeout`；没有时 Host 把它降级成 `user`（回答照旧，没有 `answeredBy`）。 */
+  questionTimeout: 'question_timeout',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
@@ -47,6 +50,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   subscription_kinds: z.boolean().optional(),
   subscription_accounts: z.boolean().optional(),
   user_images: z.boolean().optional(),
+  question_timeout: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
@@ -293,6 +297,11 @@ export const HOST_FEATURES = {
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',
+  /**
+   * 提问超时（0.71.0）：无人值守的会话里，问题带 `autoAnswerAt`，到时没人回答就按 `defaultOption` 回答（`timeout`）。Host 有
+   * `user_questions` 时声明。
+   */
+  questionTimeout: 'question_timeout',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -354,6 +363,7 @@ export const HostFeaturesSchema = z.looseObject({
   git_commit: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
+  question_timeout: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

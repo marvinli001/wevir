@@ -914,16 +914,21 @@ export const pendingQuestion: QuestionRequest = {
         { label: '全链路', description: '协议、Host 与界面一起' },
       ],
       allowOther: true,
+      // 0.71.0：推荐的选项。
+      defaultOption: '全链路',
     },
     {
       id: 'targets',
       question: '要覆盖哪些平台？',
       options: [{ label: 'macOS' }, { label: 'Windows' }, { label: 'Linux' }],
       multiSelect: true,
+      defaultOption: 'macOS',
     },
   ],
   status: 'pending',
   createdAt: TS,
+  // 0.71.0：无人值守的会话里到时按推荐回答。
+  autoAnswerAt: TS2,
 };
 
 export const snapshot: SessionSnapshot = {
@@ -1192,13 +1197,13 @@ export const eventPayloads: PayloadSamples = {
     valid: {
       questionId: ids.question,
       status: 'answered',
+      // 0.71.0：超时，按推荐回答。
       resolution: {
-        reason: 'user',
-        answers: { scope: { answers: ['全链路'] }, targets: { answers: ['macOS', 'Linux'] } },
-        answeredBy: identity,
+        reason: 'timeout',
+        answers: { scope: { answers: ['全链路'] }, targets: { answers: ['macOS'] } },
       },
     },
-    invalid: { questionId: ids.question, status: 'pending', resolution: { reason: 'user' } },
+    invalid: { questionId: ids.question, status: 'answered', resolution: { reason: 'expired' } },
   },
   'usage.updated': {
     valid: {
