@@ -2,13 +2,14 @@
 
 import type { SessionNotice } from '@wevir/client-sdk';
 import type {
+  AccountState,
   EngineFeatures,
   HandoffPreview,
   ProviderProfile,
   Session,
   SessionState,
 } from '@wevir/protocol';
-import { sourceOf } from '@/data/sources';
+import { sourceOf, sourceTitle } from '@/data/sources';
 import { t } from '@/i18n';
 
 const ACTIVE: readonly SessionState[] = ['running', 'awaiting_approval', 'cancelling'];
@@ -183,15 +184,19 @@ function materialRows(
   return rows;
 }
 
-/** “来源 · 模型”：订阅写软件名，API 写服务的名字；认不出的照原样。 */
+/**
+ * “来源 · 模型”：订阅写软件名，API 写服务的名字；认不出的照原样。同一来源有多个账号时软件名带账号的标签或序号（0.63.0）。
+ */
 export function modelLabel(
   providers: readonly ProviderProfile[],
   providerId: string,
   modelId: string,
+  accounts?: readonly AccountState[],
 ): string {
   const provider = providers.find((candidate) => candidate.id === providerId);
   if (provider === undefined) return modelId;
   const source = sourceOf(provider);
   const model = provider.models.find((candidate) => candidate.id === modelId);
-  return `${source ? t(source.name) : provider.displayName} · ${model?.displayName ?? modelId}`;
+  const name = source ? sourceTitle(provider, accounts, t(source.name)) : provider.displayName;
+  return `${name} · ${model?.displayName ?? modelId}`;
 }

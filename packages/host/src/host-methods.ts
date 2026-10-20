@@ -294,18 +294,23 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       const message = 'the engine does not accept this provider: no ChatGPT account in this host';
       throw new HostError('INVALID_PARAMS', message, { issues: [{ path: ['kind'], message }] });
     }
-    const { models } = await accounts.models('chatgpt');
+    // 0.63.0：`id` 可以是添加的 ChatGPT 账号。
+    const id = params.id;
+    if (id !== CHATGPT_PROVIDER_ID && accounts.kindOf(id) !== 'chatgpt') {
+      throw invalidParams(['id'], `${id} is not a ChatGPT account`);
+    }
+    const { models } = await accounts.models({ kind: 'chatgpt', id });
     if (!models.some((model) => model.id === params.defaultModelId)) {
       throw invalidParams(['defaultModelId'], 'defaultModelId must be one of the account models');
     }
     return serialProvider(async () => {
-      const existing = storage.providers.get(CHATGPT_PROVIDER_ID);
+      const existing = storage.providers.get(id);
       if (existing && existing.kind !== 'chatgpt') {
-        throw invalidParams(['kind'], `kind of provider ${CHATGPT_PROVIDER_ID} cannot be changed`);
+        throw invalidParams(['kind'], `kind of provider ${id} cannot be changed`);
       }
       const now = isoNow();
       const record: ProviderProfileRecord = {
-        id: CHATGPT_PROVIDER_ID,
+        id,
         kind: 'chatgpt',
         displayName: params.displayName,
         models,
@@ -409,7 +414,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
 
-    // 0.49.0：改显示名（去掉首尾空白后不能是空的），rootPath 不可改；“对话”工作区不能改。0.63.0 起也能整组换掉其他源文件夹。
+    // 0.49.0：改显示名（去掉首尾空白后不能是空的），rootPath 不可改；“对话”工作区不能改。0.64.0 起也能整组换掉其他源文件夹。
     'workspace.update': ({ workspaceId, displayName, extraFolders }) => {
       const workspace = storage.workspaces.get(workspaceId);
       if (!workspace || workspace.removedAt !== undefined) {
@@ -755,10 +760,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return { accounts: list };
     },
 
-    'account.get': async ({ kind, refresh }) => {
+    'account.get': async ({ kind, id, refresh }) => {
       const accounts = requireAccounts();
-      const account = await accounts.read(kind, refresh === true ? { refresh } : undefined);
-      if (refresh !== true) accounts.usage.nudge(kind);
+      const account = await accounts.read({ kind, id }, refresh === true ? { refresh } : undefined);
+      if (refresh !== true) accounts.usage.nudge(id ?? kind);
       return { account };
     },
 
@@ -768,8 +773,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'account.install': async ({ kind }) => ({ account: await requireAccounts().install(kind) }),
 
-    'account.login': async ({ kind, method, upstream, option, apiKey }) => ({
-      account: await requireAccounts().login(kind, method, {
+    'account.login': async ({ kind, id, method, upstream, option, apiKey }) => ({
+      account: await requireAccounts().login({ kind, id }, method, {
         ...(upstream !== undefined && { upstream }),
         ...(option !== undefined && { option }),
         ...(apiKey !== undefined && { apiKey }),
@@ -780,12 +785,34 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       upstreams: await requireAccounts().upstreams(kind),
     }),
 
-    'account.cancelLogin': async ({ kind, loginId }) => ({
-      account: await requireAccounts().cancelLogin(kind, loginId),
+    'account.cancelLogin': async ({ kind, id, loginId }) => ({
+      account: await requireAccounts().cancelLogin({ kind, id }, loginId),
     }),
 
-    'account.logout': async ({ kind, upstream }) => ({
-      account: await requireAccounts().logout(kind, upstream === undefined ? {} : { upstream }),
+    'account.logout': async ({ kind, id, upstream }) => ({
+      account: await requireAccounts().logout(
+        { kind, id },
+        upstream === undefined ? {} : { upstream },
+      ),
+    }),
+
+    // 0.63.0：同一来源的多个账号。
+    'account.add': async ({ kind, label }) => ({
+      account: await requireAccounts().add(kind, label),
+    }),
+
+    'account.remove': async ({ id }) => {
+      await requireAccounts().remove(id, () =>
+        storage.sessions
+          .list({ includeRemovedWorkspaces: true })
+          .filter((session) => session.providerId === id && session.state !== 'closed')
+          .map((session) => session.id),
+      );
+      return {};
+    },
+
+    'account.setLabel': async ({ id, label }) => ({
+      account: await requireAccounts().setLabel(id, label),
     }),
 
     'session.create': async (params) => ({ session: await sessions.create(params) }),
@@ -1047,7 +1074,7 @@ async function resolveWorkspacePath(rootPath: string): Promise<string> {
 }
 
 /**
- * 项目的其他源文件夹（0.63.0）：每个都按 `workspace.add` 的规矩查（错误带出问题的那个路径），取 realpath；不能是主文件夹、
+ * 项目的其他源文件夹（0.64.0）：每个都按 `workspace.add` 的规矩查（错误带出问题的那个路径），取 realpath；不能是主文件夹、
  * 不能重复、不能是放对话的目录。
  */
 async function resolveExtraFolders(

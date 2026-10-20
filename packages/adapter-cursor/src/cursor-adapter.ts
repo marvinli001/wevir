@@ -72,6 +72,11 @@ export interface CursorAdapterOptions {
   logger?: CursorAdapterLogger;
   /** Host 进程的环境变量（`CURSOR_API_KEY`）；省略时当作空。 */
   env?: NodeJS.ProcessEnv;
+  /**
+   * 0.63.0：添加的账号把铸出的 API Key 存在这里（`<数据目录>/accounts/<id>/cursor/auth.json`）；省略时是首个账号的
+   * `engines/cursor/auth.json`。
+   */
+  credentialsPath?: string;
   /** 测试用：换掉 SDK。 */
   sdk?: () => Promise<CursorSdk>;
   cancelTimeoutMs?: number;
@@ -210,7 +215,7 @@ export class CursorAdapter implements AgentRuntimeAdapter {
     const logger = options.logger;
     this.accounts = new CursorAccounts({
       sdk: () => this.#sdk(),
-      credentialsPath: cursorCredentialsPath(options.home),
+      credentialsPath: options.credentialsPath ?? cursorCredentialsPath(options.home),
       ...(options.env !== undefined && { env: options.env }),
       ...(logger?.addSecret !== undefined && { addSecret: (value) => logger.addSecret?.(value) }),
       onSignedOut: () =>

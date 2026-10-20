@@ -72,7 +72,7 @@ Wevir is an open-source, local-first workspace for AI coding agents. Agent sessi
 
 ## Run from source
 
-Requires Node.js **22.19+** (Node 24 LTS recommended) and pnpm **12.6.0**.
+Requires Node.js **24.15+** (Node 24 LTS) and pnpm **12.6.0**.
 
 ```bash
 git clone https://github.com/marvinli001/wevir.git

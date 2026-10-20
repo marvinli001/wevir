@@ -37,6 +37,11 @@
       "types": "./dist/npm-package.d.ts",
       "default": "./dist/npm-package.js"
     },
+    "./private-home": {
+      "@wevir/source": "./src/private-home.ts",
+      "types": "./dist/private-home.d.ts",
+      "default": "./dist/private-home.js"
+    },
     "./contract": {
       "@wevir/source": "./src/contract.ts",
       "types": "./dist/contract.d.ts",

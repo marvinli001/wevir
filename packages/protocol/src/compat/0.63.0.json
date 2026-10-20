@@ -264,6 +264,84 @@
             }
           },
           "permissions": ["host.manage", "session.read", "session.write"]
+        },
+        {
+          "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "hostVersion": "0.0.0",
+          "protocolVersion": "0.35.0",
+          "minProtocolVersion": "0.1.0",
+          "features": {
+            "session_goals": true
+          },
+          "engineFeatures": {
+            "deepseek-official": {
+              "engine": "codex",
+              "commands": ["compact", "review"],
+              "goals": true
+            },
+            "claude": {
+              "engine": "claude",
+              "commands": ["compact"]
+            },
+            "cursor": {
+              "engine": "cursor",
+              "commands": []
+            }
+          },
+          "permissions": ["host.manage", "session.read", "session.write"]
+        },
+        {
+          "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "hostVersion": "0.0.0",
+          "protocolVersion": "0.36.0",
+          "minProtocolVersion": "0.1.0",
+          "features": {
+            "plan_mode": true
+          },
+          "engineFeatures": {
+            "deepseek-official": {
+              "engine": "codex",
+              "commands": ["compact", "review"],
+              "planMode": true
+            },
+            "claude": {
+              "engine": "claude",
+              "commands": ["compact"],
+              "planMode": true
+            },
+            "cursor": {
+              "engine": "cursor",
+              "commands": []
+            }
+          },
+          "permissions": ["host.manage", "session.read", "session.write"]
+        },
+        {
+          "hostId": "hst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "hostVersion": "0.0.0",
+          "protocolVersion": "0.38.0",
+          "minProtocolVersion": "0.1.0",
+          "features": {
+            "side_sessions": true,
+            "session_branches": true,
+            "session_rewind": true,
+            "session_undo": true
+          },
+          "engineFeatures": {
+            "deepseek-official": {
+              "engine": "codex",
+              "fork": true,
+              "commands": ["compact", "review"],
+              "branch": true,
+              "rewind": true
+            },
+            "claude": {
+              "engine": "claude",
+              "fork": true,
+              "commands": ["compact"]
+            }
+          },
+          "permissions": ["host.manage", "session.read", "session.write"]
         }
       ]
     },
@@ -375,18 +453,6 @@
               "updatedAt": "2026-10-12T08:00:00.000Z"
             }
           ]
-        },
-        {
-          "workspaces": [
-            {
-              "id": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "rootPath": "/Users/me/projects/wevir",
-              "displayName": "wevir",
-              "createdAt": "2026-10-12T08:00:00.000Z",
-              "updatedAt": "2026-10-12T08:00:00.000Z",
-              "extraFolders": ["/Users/me/projects/wevir-docs"]
-            }
-          ]
         }
       ]
     },
@@ -398,10 +464,6 @@
         {
           "rootPath": "/tmp/a",
           "displayName": "A"
-        },
-        {
-          "rootPath": "/tmp/a",
-          "extraFolders": ["/tmp/b", "/tmp/c"]
         }
       ],
       "result": [
@@ -412,17 +474,6 @@
             "displayName": "wevir",
             "createdAt": "2026-10-12T08:00:00.000Z",
             "updatedAt": "2026-10-12T08:00:00.000Z"
-          },
-          "created": true
-        },
-        {
-          "workspace": {
-            "id": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-            "rootPath": "/Users/me/projects/wevir",
-            "displayName": "wevir",
-            "createdAt": "2026-10-12T08:00:00.000Z",
-            "updatedAt": "2026-10-12T08:00:00.000Z",
-            "extraFolders": ["/Users/me/projects/wevir-docs"]
           },
           "created": true
         }
@@ -441,14 +492,6 @@
         {
           "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
           "displayName": "Wevir 桌面端"
-        },
-        {
-          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "extraFolders": ["/tmp/b"]
-        },
-        {
-          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-          "extraFolders": []
         }
       ],
       "result": [
@@ -467,8 +510,17 @@
             "rootPath": "/Users/me/projects/wevir",
             "displayName": "wevir",
             "createdAt": "2026-10-12T08:00:00.000Z",
-            "updatedAt": "2026-10-12T08:00:00.000Z",
-            "extraFolders": ["/Users/me/projects/wevir-docs"]
+            "updatedAt": "2026-10-12T08:00:00.000Z"
+          }
+        },
+        {
+          "workspace": {
+            "id": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "rootPath": "/Users/me/Library/Application Support/Wevir/chats",
+            "displayName": "Chats",
+            "kind": "chats",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:00.000Z"
           }
         }
       ]
@@ -1120,6 +1172,72 @@
               "updatedAt": "2026-10-18T00:00:00.000Z"
             }
           ]
+        },
+        {
+          "providers": [
+            {
+              "id": "local-ollama",
+              "kind": "openai-compatible",
+              "displayName": "本机 Ollama",
+              "api": "openai-completions",
+              "baseURL": "http://127.0.0.1:11434/v1",
+              "compat": {
+                "supportsDeveloperRole": false,
+                "maxTokensField": "max_tokens"
+              },
+              "models": [
+                {
+                  "id": "qwen3:8b",
+                  "displayName": "Qwen3 8B",
+                  "contextWindow": 32768
+                },
+                {
+                  "id": "qwen3-vl:8b",
+                  "contextWindow": 262144,
+                  "maxTokens": 32768,
+                  "supportsImages": true,
+                  "reasoningEfforts": ["off", "high"]
+                }
+              ],
+              "defaultModelId": "qwen3:8b",
+              "hasSecret": false,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z",
+              "enabled": true
+            },
+            {
+              "id": "claude",
+              "kind": "claude",
+              "displayName": "Claude Agent",
+              "models": [
+                {
+                  "id": "claude-opus-5-5",
+                  "displayName": "Claude Opus 5.5",
+                  "reasoningEfforts": ["low", "high"]
+                }
+              ],
+              "defaultModelId": "claude-opus-5-5",
+              "hasSecret": false,
+              "enabled": false,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            },
+            {
+              "id": "workbuddy",
+              "kind": "workbuddy",
+              "displayName": "WorkBuddy",
+              "models": [
+                {
+                  "id": "workbuddy-auto",
+                  "displayName": "Auto"
+                }
+              ],
+              "defaultModelId": "workbuddy-auto",
+              "hasSecret": false,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            }
+          ]
         }
       ]
     },
@@ -1236,6 +1354,12 @@
           "compat": {
             "geminiToolSchema": true
           }
+        },
+        {
+          "id": "chatgpt-0b1c",
+          "kind": "chatgpt",
+          "displayName": "ChatGPT",
+          "defaultModelId": "gpt-6.1-sol"
         }
       ],
       "result": [
@@ -1499,6 +1623,60 @@
               "version": "2.168.2"
             }
           ]
+        },
+        {
+          "accounts": [
+            {
+              "kind": "chatgpt",
+              "status": "signed_in",
+              "email": "me@example.com",
+              "plan": "plus",
+              "rateLimits": {
+                "primary": {
+                  "usedPercent": 23,
+                  "windowMinutes": 300,
+                  "resetsAt": "2026-10-12T08:00:05.250Z"
+                },
+                "secondary": {
+                  "usedPercent": 40.5,
+                  "windowMinutes": 10080
+                }
+              }
+            },
+            {
+              "kind": "claude",
+              "status": "signed_in",
+              "email": "me@example.com",
+              "plan": "max",
+              "planLabel": "Max 20x",
+              "signIn": "command",
+              "loginCommand": "claude auth login",
+              "installed": true,
+              "version": "2.1.140",
+              "executablePath": "/Users/me/.local/bin/claude",
+              "installCommand": "npm install -g @anthropic-ai/claude-code"
+            },
+            {
+              "kind": "antigravity",
+              "status": "signed_out",
+              "signIn": "in_app",
+              "loginMethods": ["browser"],
+              "installed": false,
+              "canInstall": true,
+              "installing": {
+                "completedBytes": 1048576,
+                "totalBytes": 293601280
+              }
+            },
+            {
+              "kind": "workbuddy",
+              "status": "signed_in",
+              "signIn": "command",
+              "loginCommand": "codebuddy",
+              "installed": true,
+              "version": "2.168.2"
+            }
+          ]
         }
       ]
     },
@@ -1516,6 +1694,11 @@
         },
         {
           "kind": "workbuddy",
+          "refresh": true
+        },
+        {
+          "kind": "claude",
+          "id": "claude-3f9a",
           "refresh": true
         }
       ],
@@ -1624,6 +1807,41 @@
             "installed": true,
             "version": "2.168.2"
           }
+        },
+        {
+          "account": {
+            "kind": "claude",
+            "id": "claude-3f9a",
+            "label": "工作",
+            "multiAccount": true,
+            "status": "signed_in",
+            "email": "work@example.com",
+            "plan": "max",
+            "planLabel": "Max 5x",
+            "signIn": "in_app",
+            "loginMethods": ["browser"],
+            "installed": true,
+            "version": "2.1.140"
+          }
+        },
+        {
+          "account": {
+            "kind": "claude",
+            "status": "signed_in",
+            "email": "me@example.com",
+            "plan": "max",
+            "planLabel": "Max 20x",
+            "signIn": "command",
+            "loginCommand": "claude auth login",
+            "installed": true,
+            "version": "2.1.140",
+            "executablePath": "/Users/me/.local/bin/claude",
+            "installCommand": "npm install -g @anthropic-ai/claude-code",
+            "id": "claude",
+            "label": "主号",
+            "localLogin": true,
+            "multiAccount": true
+          }
         }
       ]
     },
@@ -1664,6 +1882,11 @@
           "kind": "workbuddy",
           "method": "browser",
           "option": "external"
+        },
+        {
+          "kind": "chatgpt",
+          "id": "chatgpt-0b1c",
+          "method": "device_code"
         }
       ],
       "result": [
@@ -1741,6 +1964,10 @@
         {
           "kind": "chatgpt",
           "loginId": "27c40a56-caa5-4314-9ca0-f2606104ac35"
+        },
+        {
+          "kind": "chatgpt",
+          "id": "chatgpt-0b1c"
         }
       ],
       "result": [
@@ -1760,6 +1987,10 @@
         {
           "kind": "opencode",
           "upstream": "opencode-go"
+        },
+        {
+          "kind": "grok",
+          "id": "grok-77d0"
         }
       ],
       "result": [
@@ -2964,6 +3195,741 @@
             "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
             "text": "跑一下测试"
           }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "todos": [
+            {
+              "content": "列出本周提交",
+              "status": "in_progress"
+            }
+          ],
+          "usage": {
+            "contextUsed": 5120,
+            "contextSize": 262144,
+            "totalTokens": 182400,
+            "autoCompactAt": 235929,
+            "breakdown": {
+              "categories": [
+                {
+                  "name": "System prompt",
+                  "tokens": 9600,
+                  "kind": "used"
+                },
+                {
+                  "name": "Messages",
+                  "tokens": 105200,
+                  "kind": "used"
+                },
+                {
+                  "name": "Autocompact buffer",
+                  "tokens": 33000,
+                  "kind": "buffer"
+                },
+                {
+                  "name": "Free space",
+                  "tokens": 297700,
+                  "kind": "free"
+                },
+                {
+                  "name": "MCP tools (deferred)",
+                  "tokens": 274800,
+                  "kind": "deferred"
+                }
+              ],
+              "groups": [
+                {
+                  "group": "memory_files",
+                  "count": 2,
+                  "items": [
+                    {
+                      "name": "/Users/me/projects/wevir/AGENTS.md",
+                      "source": "Project",
+                      "tokens": 2400
+                    },
+                    {
+                      "name": "/Users/me/.claude/CLAUDE.md",
+                      "source": "User",
+                      "tokens": 600
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "subagents": [
+            {
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "parentToolCallId": "call_wevir_spawn_1",
+              "parentTurnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "title": "核对周报里的提交数",
+              "modelId": "deepseek-chat",
+              "reasoningEffort": "medium",
+              "nickname": "Kuhn",
+              "status": "running",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "pendingApprovals": [
+                {
+                  "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPR1",
+                  "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+                  "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPR1",
+                  "toolCallId": "call_child_1",
+                  "options": [
+                    {
+                      "optionId": "accept",
+                      "label": "是，继续",
+                      "kind": "allow_accept",
+                      "category": "allow"
+                    },
+                    {
+                      "optionId": "decline",
+                      "label": "否，不运行并继续",
+                      "kind": "reject_decline",
+                      "category": "reject"
+                    }
+                  ],
+                  "detail": {
+                    "toolName": "write",
+                    "display": {
+                      "kind": "write",
+                      "summary": "/tmp/wevir-outside.txt",
+                      "paths": ["/tmp/wevir-outside.txt"]
+                    },
+                    "input": {
+                      "file_path": "/tmp/wevir-outside.txt",
+                      "content": "hello",
+                      "sandbox_permissions": "danger-full-access",
+                      "justification": "write outside workspace"
+                    },
+                    "justification": "write outside workspace",
+                    "sandboxPermissions": "danger-full-access"
+                  },
+                  "status": "pending",
+                  "createdAt": "2026-10-12T08:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "todos": [
+            {
+              "content": "列出本周提交",
+              "status": "in_progress"
+            }
+          ],
+          "usage": {
+            "contextUsed": 5120,
+            "contextSize": 262144,
+            "totalTokens": 182400,
+            "autoCompactAt": 235929,
+            "breakdown": {
+              "categories": [
+                {
+                  "name": "System prompt",
+                  "tokens": 9600,
+                  "kind": "used"
+                },
+                {
+                  "name": "Messages",
+                  "tokens": 105200,
+                  "kind": "used"
+                },
+                {
+                  "name": "Autocompact buffer",
+                  "tokens": 33000,
+                  "kind": "buffer"
+                },
+                {
+                  "name": "Free space",
+                  "tokens": 297700,
+                  "kind": "free"
+                },
+                {
+                  "name": "MCP tools (deferred)",
+                  "tokens": 274800,
+                  "kind": "deferred"
+                }
+              ],
+              "groups": [
+                {
+                  "group": "memory_files",
+                  "count": 2,
+                  "items": [
+                    {
+                      "name": "/Users/me/projects/wevir/AGENTS.md",
+                      "source": "Project",
+                      "tokens": 2400
+                    },
+                    {
+                      "name": "/Users/me/.claude/CLAUDE.md",
+                      "source": "User",
+                      "tokens": 600
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "suggestedTasks": [
+            {
+              "id": "tsk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "title": "补齐导出接口的测试",
+              "prompt": "给 src/export.ts 的三个导出函数补单元测试，跑通 pnpm test。",
+              "reason": "这次改了导出格式，还没有测试覆盖",
+              "toolCallId": "call_suggest_1",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "status": "suggested"
+            },
+            {
+              "id": "tsk_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "title": "补齐导出接口的测试",
+              "prompt": "给 src/export.ts 的三个导出函数补单元测试，跑通 pnpm test。",
+              "reason": "这次改了导出格式，还没有测试覆盖",
+              "toolCallId": "call_suggest_1",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "status": "reported",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "outcome": "completed"
+            }
+          ]
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "todos": [
+            {
+              "content": "列出本周提交",
+              "status": "in_progress"
+            }
+          ],
+          "usage": {
+            "contextUsed": 5120,
+            "contextSize": 262144,
+            "totalTokens": 182400,
+            "autoCompactAt": 235929,
+            "breakdown": {
+              "categories": [
+                {
+                  "name": "System prompt",
+                  "tokens": 9600,
+                  "kind": "used"
+                },
+                {
+                  "name": "Messages",
+                  "tokens": 105200,
+                  "kind": "used"
+                },
+                {
+                  "name": "Autocompact buffer",
+                  "tokens": 33000,
+                  "kind": "buffer"
+                },
+                {
+                  "name": "Free space",
+                  "tokens": 297700,
+                  "kind": "free"
+                },
+                {
+                  "name": "MCP tools (deferred)",
+                  "tokens": 274800,
+                  "kind": "deferred"
+                }
+              ],
+              "groups": [
+                {
+                  "group": "memory_files",
+                  "count": 2,
+                  "items": [
+                    {
+                      "name": "/Users/me/projects/wevir/AGENTS.md",
+                      "source": "Project",
+                      "tokens": 2400
+                    },
+                    {
+                      "name": "/Users/me/.claude/CLAUDE.md",
+                      "source": "User",
+                      "tokens": 600
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "taskBoard": [
+            {
+              "id": "t1",
+              "subject": "补齐导出接口的测试",
+              "description": "给 src/export.ts 的三个导出函数补单元测试，跑通 pnpm test。",
+              "status": "in_progress",
+              "owner": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "blockedBy": [],
+              "notes": [
+                {
+                  "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+                  "text": "两个函数已覆盖",
+                  "at": "2026-10-12T08:00:05.250Z"
+                }
+              ],
+              "createdBy": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:05.250Z"
+            },
+            {
+              "id": "t2",
+              "subject": "汇总测试结果",
+              "status": "pending",
+              "blockedBy": ["t1"],
+              "notes": [],
+              "createdBy": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            }
+          ]
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "todos": [
+            {
+              "content": "列出本周提交",
+              "status": "in_progress"
+            }
+          ],
+          "usage": {
+            "contextUsed": 5120,
+            "contextSize": 262144,
+            "totalTokens": 182400,
+            "autoCompactAt": 235929,
+            "breakdown": {
+              "categories": [
+                {
+                  "name": "System prompt",
+                  "tokens": 9600,
+                  "kind": "used"
+                },
+                {
+                  "name": "Messages",
+                  "tokens": 105200,
+                  "kind": "used"
+                },
+                {
+                  "name": "Autocompact buffer",
+                  "tokens": 33000,
+                  "kind": "buffer"
+                },
+                {
+                  "name": "Free space",
+                  "tokens": 297700,
+                  "kind": "free"
+                },
+                {
+                  "name": "MCP tools (deferred)",
+                  "tokens": 274800,
+                  "kind": "deferred"
+                }
+              ],
+              "groups": [
+                {
+                  "group": "memory_files",
+                  "count": 2,
+                  "items": [
+                    {
+                      "name": "/Users/me/projects/wevir/AGENTS.md",
+                      "source": "Project",
+                      "tokens": 2400
+                    },
+                    {
+                      "name": "/Users/me/.claude/CLAUDE.md",
+                      "source": "User",
+                      "tokens": 600
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "taskBoard": []
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "todos": [
+            {
+              "content": "列出本周提交",
+              "status": "in_progress"
+            }
+          ],
+          "usage": {
+            "contextUsed": 5120,
+            "contextSize": 262144,
+            "totalTokens": 182400,
+            "autoCompactAt": 235929,
+            "breakdown": {
+              "categories": [
+                {
+                  "name": "System prompt",
+                  "tokens": 9600,
+                  "kind": "used"
+                },
+                {
+                  "name": "Messages",
+                  "tokens": 105200,
+                  "kind": "used"
+                },
+                {
+                  "name": "Autocompact buffer",
+                  "tokens": 33000,
+                  "kind": "buffer"
+                },
+                {
+                  "name": "Free space",
+                  "tokens": 297700,
+                  "kind": "free"
+                },
+                {
+                  "name": "MCP tools (deferred)",
+                  "tokens": 274800,
+                  "kind": "deferred"
+                }
+              ],
+              "groups": [
+                {
+                  "group": "memory_files",
+                  "count": 2,
+                  "items": [
+                    {
+                      "name": "/Users/me/projects/wevir/AGENTS.md",
+                      "source": "Project",
+                      "tokens": 2400
+                    },
+                    {
+                      "name": "/Users/me/.claude/CLAUDE.md",
+                      "source": "User",
+                      "tokens": 600
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "promptSuggestion": {
+            "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "text": "跑一下测试"
+          }
         }
       ]
     },
@@ -3308,6 +4274,31 @@
             "title": "",
             "titleSource": "first_prompt",
             "state": "idle",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 9,
+            "forkedFrom": {
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            }
+          }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPR4",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
             "createdAt": "2026-10-12T08:00:00.000Z",
             "updatedAt": "2026-10-12T08:00:05.250Z",
             "lastSeq": 9,
@@ -3777,6 +4768,57 @@
                 "deviceId": "dev-6f1c2a",
                 "clientId": "cli-3e9b70",
                 "clientKind": "cli"
+              },
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            },
+            {
+              "id": "pnd_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "然后提交"
+                }
+              ],
+              "delivery": "queue",
+              "status": "held",
+              "fallback": {
+                "reason": "rejected",
+                "message": "cannot steer a review turn"
+              },
+              "collaborationMode": "plan",
+              "sentBy": {
+                "deviceId": "dev-6f1c2a",
+                "clientId": "cli-3e9b70",
+                "clientKind": "cli"
+              },
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:05.250Z"
+            }
+          ]
+        },
+        {
+          "pendingMessages": [
+            {
+              "id": "pnd_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "顺便把测试也跑一下"
+                }
+              ],
+              "delivery": "steer",
+              "status": "waiting",
+              "clientMessageId": "msg-3",
+              "sentBy": {
+                "deviceId": "dev-6f1c2a",
+                "clientId": "cli-3e9b70",
+                "clientKind": "cli"
+              },
+              "from": {
+                "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+                "kind": "message",
+                "reportBack": true
               },
               "createdAt": "2026-10-12T08:00:00.000Z",
               "updatedAt": "2026-10-12T08:00:00.000Z"
@@ -5787,6 +6829,132 @@
             "models": 4210,
             "refreshing": false,
             "lastError": "HTTP 503"
+          }
+        }
+      ]
+    },
+    "provider.discoverModels": {
+      "params": [
+        {
+          "providerId": "local-ollama"
+        },
+        {
+          "baseURL": "http://127.0.0.1:11434/v1",
+          "modelId": "gpt-oss:20b"
+        },
+        {
+          "baseURL": "https://ollama.com/v1",
+          "apiKey": "placeholder-key"
+        }
+      ],
+      "result": [
+        {
+          "ok": true,
+          "models": []
+        },
+        {
+          "ok": false,
+          "models": [],
+          "reason": "network"
+        },
+        {
+          "ok": true,
+          "models": [
+            {
+              "model": {
+                "id": "gpt-oss:20b",
+                "contextWindow": 4096,
+                "reasoningEfforts": ["low", "medium", "high"]
+              },
+              "maxContextWindow": 131072,
+              "contextSource": "running",
+              "detailsAvailable": true
+            }
+          ]
+        }
+      ]
+    },
+    "account.add": {
+      "params": [
+        {
+          "kind": "claude"
+        },
+        {
+          "kind": "chatgpt",
+          "label": "副号"
+        }
+      ],
+      "result": [
+        {
+          "account": {
+            "kind": "chatgpt",
+            "id": "chatgpt-0b1c",
+            "label": "副号",
+            "multiAccount": true,
+            "status": "signed_out",
+            "signIn": "in_app",
+            "loginMethods": ["browser", "device_code"]
+          }
+        }
+      ]
+    },
+    "account.remove": {
+      "params": [
+        {
+          "id": "claude-3f9a"
+        }
+      ],
+      "result": [{}]
+    },
+    "account.setLabel": {
+      "params": [
+        {
+          "id": "claude",
+          "label": "主号"
+        },
+        {
+          "id": "claude-3f9a",
+          "label": "Work"
+        },
+        {
+          "id": "claude-3f9a",
+          "label": null
+        }
+      ],
+      "result": [
+        {
+          "account": {
+            "kind": "claude",
+            "id": "claude-3f9a",
+            "label": "工作",
+            "multiAccount": true,
+            "status": "signed_in",
+            "email": "work@example.com",
+            "plan": "max",
+            "planLabel": "Max 5x",
+            "signIn": "in_app",
+            "loginMethods": ["browser"],
+            "installed": true,
+            "version": "2.1.140"
+          }
+        },
+        {
+          "account": {
+            "kind": "claude",
+            "status": "signed_in",
+            "email": "me@example.com",
+            "plan": "max",
+            "planLabel": "Max 20x",
+            "signIn": "command",
+            "loginCommand": "claude auth login",
+            "installed": true,
+            "version": "2.1.140",
+            "executablePath": "/Users/me/.local/bin/claude",
+            "installCommand": "npm install -g @anthropic-ai/claude-code",
+            "id": "claude",
+            "label": "主号",
+            "localLogin": true,
+            "multiAccount": true
           }
         }
       ]

@@ -16,7 +16,7 @@ import {
 } from './source-folders';
 
 /**
- * 编辑项目（`workspace.update`）：名称（0.49.0）与源文件夹（0.63.0，版式同创建项目）。主文件夹是 `rootPath`，不能改也不能移除；
+ * 编辑项目（`workspace.update`）：名称（0.49.0）与源文件夹（0.64.0，版式同创建项目）。主文件夹是 `rootPath`，不能改也不能移除；
  * 其余的可以加减，Host 没有 `workspace_folders` 时只列主文件夹。侧栏项目的右键菜单与设置 → 项目经 `requestEditProject` 打开；
  * 回车保存，空白的名称不能保存，失败时框不关、在框里显示原因。挂在路由根上。
  */

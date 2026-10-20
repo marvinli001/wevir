@@ -1,4 +1,4 @@
-// 项目的源文件夹列表（0.63.0，照 Codex 桌面端“编辑项目”）：创建项目与编辑项目共用。一张卡片，每行一个文件夹（名字 + 上一级
+// 项目的源文件夹列表（0.64.0，照 Codex 桌面端“编辑项目”）：创建项目与编辑项目共用。一张卡片，每行一个文件夹（名字 + 上一级
 // 目录，悬停看完整路径，× 移除），最后一行“添加文件夹”。第一个是主文件夹（Host 的 `rootPath`），其余是 `extraFolders`。
 
 import { hostSupports } from '@wevir/client-sdk';
@@ -12,7 +12,7 @@ import { abbreviateHome, parentDirectory } from '@/layout/rail-model';
 /** 主文件夹加其他源文件夹最多几个。 */
 export const SOURCE_FOLDERS_MAX = WORKSPACE_EXTRA_FOLDERS_MAX + 1;
 
-/** Host 能给项目多个源文件夹（0.63.0）；不能时只有主文件夹。 */
+/** Host 能给项目多个源文件夹（0.64.0）；不能时只有主文件夹。 */
 export function useMultipleSourceFolders(): boolean {
   const { view } = useHostConnection();
   return view.status === 'connected' && hostSupports(view.hello.features, 'workspace_folders');

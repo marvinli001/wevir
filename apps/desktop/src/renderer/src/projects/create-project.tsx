@@ -1,5 +1,5 @@
 // “创建项目”对话框（U5，照 Codex 桌面端）：项目名称与源文件夹。界面上的“项目”就是 Host 的工作区
-// （workspace.add 的 displayName 与 rootPath；0.63.0 起第二个起的源文件夹是 extraFolders）。侧栏“项目”一节的 +、首页的项目
+// （workspace.add 的 displayName 与 rootPath；0.64.0 起第二个起的源文件夹是 extraFolders）。侧栏“项目”一节的 +、首页的项目
 // 下拉、设置 → 项目都打开它；首页没有项目时按发送也先打开它，建好后接着发（onCreated）。
 
 import { isRpcError } from '@wevir/client-sdk';

@@ -7,7 +7,7 @@ export interface WorkspaceRecord {
   /** 目录的 realpath，唯一。 */
   rootPath: string;
   displayName: string;
-  /** 其他源文件夹的 realpath（0.63.0），按添加顺序；省略或空表示只有 `rootPath`。 */
+  /** 其他源文件夹的 realpath（0.64.0），按添加顺序；省略或空表示只有 `rootPath`。 */
   extraFolders?: string[];
   createdAt: string;
   updatedAt: string;

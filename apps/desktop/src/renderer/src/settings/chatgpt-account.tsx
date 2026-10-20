@@ -1,4 +1,4 @@
-import type { WevirClient } from '@wevir/client-sdk';
+import { accountId as idOf, type WevirClient } from '@wevir/client-sdk';
 import type { AccountRateLimitWindow, AccountState, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Copy, ExternalLink, LoaderCircle, LogIn, LogOut } from 'lucide-react';
@@ -7,7 +7,8 @@ import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
-import { useWorkbenchStore } from '@/data/workbench-data';
+import { accountRef } from '@/data/sources';
+import { useAccounts, useAccountsStore, useWorkbenchStore } from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import {
@@ -28,36 +29,46 @@ import { NoticeBanner } from './settings-ui';
  */
 export function ChatgptAccountSection({
   client,
+  accountId = 'chatgpt',
   provider,
   embedded = false,
 }: {
   client: WevirClient;
+  /** 哪个 ChatGPT 账号（0.63.0）：首个是 `chatgpt`，添加的账号状态从账号列表里取。 */
+  accountId?: string;
   /** 登录成功后 Host 建的 `chatgpt` Provider（还没建时省略）。 */
   provider: ProviderProfile | undefined;
   /** 放在订阅格子的详情里（0.19.0）：不画自己的卡片与标题，名称与状态由详情的头部给出。 */
   embedded?: boolean;
 }) {
   const store = useWorkbenchStore();
-  const [account, setAccount] = useState<AccountState>();
+  const accountsStore = useAccountsStore();
+  const first = accountId === 'chatgpt';
+  const listed = useAccounts()?.find((each) => idOf(each) === accountId);
+  const [watched, setWatched] = useState<AccountState>();
+  // 首个账号照旧单独跟着（旧 Host 也有）；添加的账号跟着账号列表，本端操作的结果合进列表。
+  const account = first ? watched : listed;
+  const setAccount = (next: AccountState) =>
+    first ? setWatched(next) : accountsStore?.merge(next);
+  const ref = accountRef({ kind: 'chatgpt', id: accountId });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmLogout, setConfirmLogout] = useState(false);
   /** 本窗口发起的浏览器登录：登录页已经交给系统浏览器打开过。 */
   const opened = useRef(new Set<string>());
 
-  useEffect(
-    () =>
-      client.watchAccount(
-        'chatgpt',
-        (next) => {
-          setAccount(next);
-          // 登录成功后 Host 在后台建（或刷新）chatgpt Provider，列表跟着重读。
-          if (next.status === 'signed_in') void store?.refresh();
-        },
-        (reason) => setError(describe(reason)),
-      ),
-    [client, store],
-  );
+  useEffect(() => {
+    if (!first) return;
+    return client.watchAccount(
+      'chatgpt',
+      (next) => {
+        setWatched(next);
+        // 登录成功后 Host 在后台建（或刷新）chatgpt Provider，列表跟着重读。
+        if (next.status === 'signed_in') void store?.refresh();
+      },
+      (reason) => setError(describe(reason)),
+    );
+  }, [client, store, first]);
 
   const run = async (op: () => Promise<{ account: AccountState }>) => {
     setBusy(true);
@@ -75,7 +86,7 @@ export function ChatgptAccountSection({
   };
 
   const login = async (method: 'browser' | 'device_code') => {
-    const next = await run(() => client.request('account.login', { kind: 'chatgpt', method }));
+    const next = await run(() => client.request('account.login', { ...ref, method }));
     const authUrl = next?.login?.authUrl;
     if (method === 'browser' && next?.login !== undefined && authUrl !== undefined) {
       opened.current.add(next.login.loginId);
@@ -83,7 +94,7 @@ export function ChatgptAccountSection({
     }
   };
   const cancel = (loginId: string) =>
-    void run(() => client.request('account.cancelLogin', { kind: 'chatgpt', loginId }));
+    void run(() => client.request('account.cancelLogin', { ...ref, loginId }));
 
   const phase = accountPhase(account);
   return (
@@ -161,7 +172,7 @@ export function ChatgptAccountSection({
           title={t('account.chatgpt.logout.title')}
           confirmLabel={t('account.chatgpt.logout')}
           onConfirm={async () => {
-            const { account: next } = await client.request('account.logout', { kind: 'chatgpt' });
+            const { account: next } = await client.request('account.logout', { ...ref });
             setAccount(next);
           }}
           failure={(reason) => t('account.chatgpt.logout.failed', { error: reason })}
@@ -328,7 +339,7 @@ function SignedIn({
     onError(undefined);
     try {
       await client.request('provider.upsert', {
-        id: 'chatgpt',
+        id: provider.id,
         kind: 'chatgpt',
         displayName: provider.displayName,
         defaultModelId,

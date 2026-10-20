@@ -18,6 +18,8 @@ import type {
  *   按 kind 分支的地方都处理了它（没有 Key、没有地址，桌面端在“ChatGPT 账号”一节里显示）。
  * - `subscription_kinds`（0.19.0）：`ProviderKind` 与 `AccountKind` 的订阅来源。CLI 的 `provider list` 写“订阅登录”，桌面端的
  *   表单只管 DeepSeek 官方与 OpenAI 兼容，订阅来源在设置的订阅一节与模型选择里按种类显示。
+ * - `subscription_accounts`（0.63.0）：同一来源的多个账号（`AccountState.id`）。`watchAccounts` 按账号 ID 替换，`watchAccount`
+ *   只跟首个账号；CLI 只管 ChatGPT 的首个账号，桌面端的订阅一节与模型选择按账号显示。
  * - `user_images`（0.28.0）：`UserContentPart` 的 `image`。消息投影把它投成图片段（`ChatPart` 的 `image`），CLI 写成
  *   “[图片]”，桌面端经 `image.read` 读出来显示。
  */
@@ -26,6 +28,7 @@ export const DEFAULT_CLIENT_CAPABILITIES = {
   provider_kind_chatgpt: true,
   provider_kind_google_vertex: true,
   subscription_kinds: true,
+  subscription_accounts: true,
   user_images: true,
 } as const satisfies Record<ClientCapability, true>;
 

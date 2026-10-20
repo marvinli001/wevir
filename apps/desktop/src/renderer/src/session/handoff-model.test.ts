@@ -79,6 +79,20 @@ describe('接力的纯逻辑（0.25.0）', () => {
     expect(modelLabel([], 'gone', 'x')).toBe('x');
   });
 
+  it('modelLabel：同一来源有多个账号时软件名带标签或序号', () => {
+    const second = provider('claude-3f9a', 'claude');
+    const accounts = [
+      { kind: 'claude', id: 'claude', status: 'signed_in', label: '工作' },
+      { kind: 'claude', id: 'claude-3f9a', status: 'signed_in' },
+    ] as const;
+    expect(modelLabel([claude, second], 'claude', 'm', [...accounts])).toBe(
+      'Claude · 工作 · Model M',
+    );
+    expect(modelLabel([claude, second], 'claude-3f9a', 'm', [...accounts])).toBe(
+      'Claude 2 · Model M',
+    );
+  });
+
   it('handoffDetailRows：方式、引擎会话、范围、条目、读历史与递交状态都来自事件；没有摘要时不说读历史', () => {
     const notice: HandoffNoticeOf = {
       kind: 'handoff',

@@ -1,14 +1,29 @@
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { CodexRuntime, resolveCodexBinary, resolvePromptsDir } from '@wevir/adapter-codex';
-import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
+import {
+  CodexAdapter,
+  CodexRuntime,
+  resolveCodexBinary,
+  resolvePromptsDir,
+} from '@wevir/adapter-codex';
+import { type AccountKind, SUBSCRIPTION_KINDS, type SubscriptionKind } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { type AppToolsBridge, appToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
-import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
+import {
+  EchoAccounts,
+  type EchoAccountsOptions,
+  EchoAdapter,
+  parseEchoScenarios,
+} from '@wevir/runtime-adapter/echo';
 import { type HistoryToolServer, historyToolServer } from '@wevir/runtime-adapter/history-tool';
 import type { WebToolServer } from '@wevir/runtime-adapter/web-tool';
 import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
 import { EngineRouter } from './engine-router.js';
-import { isIgnorableEngineRejection, subscriptionEngines } from './engines.js';
+import {
+  isIgnorableEngineRejection,
+  subscriptionAccountEngines,
+  subscriptionEngines,
+} from './engines.js';
 import { EXIT_CODE } from './exit-code.js';
 import { homePath, resolveHome } from './home.js';
 import {
@@ -119,6 +134,9 @@ export interface AdapterContext {
   webTool?: WebToolServer;
 }
 
+/** echo 的假订阅里能添加账号的种类（0.63.0），同真实引擎的第一轮。 */
+const ECHO_ACCOUNT_KINDS: readonly AccountKind[] = ['claude', 'cursor', 'grok', 'antigravity'];
+
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex 或 echo）。 */
 const GATEWAY_KINDS = [
   'deepseek-official',
@@ -134,9 +152,11 @@ const GATEWAY_KINDS = [
 class EchoSubscriptionEngine extends EchoAdapter {
   readonly accounts: EchoAccounts;
 
-  constructor(scenarios: string | undefined) {
+  constructor(scenarios: string | undefined, added?: EchoAccountsOptions['added']) {
     super();
-    this.accounts = new EchoAccounts({ scenarios: parseEchoScenarios(scenarios) });
+    this.accounts = new EchoAccounts(
+      added === undefined ? { scenarios: parseEchoScenarios(scenarios) } : { added },
+    );
     Object.assign(this, { review: undefined });
   }
 
@@ -151,14 +171,27 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
     case 'echo': {
       const scenarios = context.env?.WEVIR_ECHO_SUBSCRIPTIONS;
       if (scenarios === undefined || scenarios === '') return new EchoAdapter();
-      return new EngineRouter([
-        { name: 'echo', adapter: new EchoAdapter(), kinds: GATEWAY_KINDS },
+      // 添加的账号（0.63.0）：每个一个只有这一种的假引擎，在应用内登录。
+      return new EngineRouter(
+        [
+          { name: 'echo', adapter: new EchoAdapter(), kinds: GATEWAY_KINDS },
+          {
+            name: 'echo-subscriptions',
+            adapter: new EchoSubscriptionEngine(scenarios),
+            kinds: SUBSCRIPTION_KINDS,
+          },
+        ],
         {
-          name: 'echo-subscriptions',
-          adapter: new EchoSubscriptionEngine(scenarios),
-          kinds: SUBSCRIPTION_KINDS,
+          accountEngines: {
+            kinds: ECHO_ACCOUNT_KINDS,
+            create: (kind, { id }) =>
+              new EchoSubscriptionEngine(undefined, {
+                kind: kind as SubscriptionKind,
+                email: `${id}@example.com`,
+              }),
+          },
         },
-      ]);
+      );
     }
     case 'codex': {
       // 两个 codex-app-server 进程（网关进程与 ChatGPT 进程，ADR-0005 补记 10）都在第一次用到时才启动（Provider 只交给
@@ -170,7 +203,7 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         homePath(context.home, 'historyDir'),
       );
       // 联网工具（0.34.0）：只挂在 Codex 上，其余引擎有自己的联网工具（docs/architecture/web-tools.md §5）。
-      const codex = new CodexRuntime({
+      const codexOptions = {
         home: context.home,
         binary: resolveCodexBinary(),
         promptsDir: resolvePromptsDir(context.env ?? {}),
@@ -178,19 +211,37 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         logger: context.logger,
         historyTool,
         ...(context.webTool !== undefined && { webTool: context.webTool }),
-      });
-      // 订阅来源各自的引擎（ADR-0005 补记 14）；没有时 Host 只有 Codex。
+      };
+      const codex = new CodexRuntime(codexOptions);
+      // 订阅来源各自的引擎（ADR-0005 补记 14）。
       // 应用级工具（0.30.0）：Codex、Claude、Cursor 直接连 HTTP，ACP 的引擎经 stdio 桥。
-      const subscriptions = subscriptionEngines({
+      const engineContext = {
         ...context,
         historyTool,
         appToolsBridge: appToolsBridge(homePath(context.home, 'mcpDir')),
-      });
-      if (subscriptions.length === 0) return codex;
-      return new EngineRouter([
-        { name: 'codex', adapter: codex, kinds: GATEWAY_KINDS },
-        ...subscriptions,
-      ]);
+      };
+      const subscriptions = subscriptionEngines(engineContext);
+      // 添加的账号（0.63.0）：ChatGPT 的是又一个 ChatGPT 进程（自己的 CODEX_HOME 与 Provider ID），其余见 engines.ts。
+      const accounts = subscriptionAccountEngines(engineContext);
+      return new EngineRouter(
+        [{ name: 'codex', adapter: codex, kinds: GATEWAY_KINDS }, ...subscriptions],
+        {
+          accountEngines: {
+            kinds: ['chatgpt', ...accounts.kinds],
+            create: (kind, account) =>
+              kind === 'chatgpt'
+                ? new CodexAdapter({
+                    ...codexOptions,
+                    mode: 'chatgpt',
+                    account: {
+                      codexHome: join(account.root, 'codex'),
+                      providerId: account.id,
+                    },
+                  })
+                : accounts.create(kind, account),
+          },
+        },
+      );
     }
   }
 }

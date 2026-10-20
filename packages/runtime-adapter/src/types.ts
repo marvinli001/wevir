@@ -447,6 +447,14 @@ export interface AccountLoginOptions {
 /** 与 @wevir/protocol 的 `AccountState` 同形（domain-model §3.6）。 */
 export interface AccountState {
   kind: AccountKind;
+  /**
+   * 0.63.0 多账号的字段：账号 ID、标签、本机登录、能不能添加账号。由 Host 按它的账号登记填，引擎不填（一个引擎实例只有一个
+   * 这种账号，见 Host 的 accounts.ts）。
+   */
+  id?: string;
+  label?: string;
+  localLogin?: true;
+  multiAccount?: true;
   status: 'signed_out' | 'signing_in' | 'signed_in';
   email?: string;
   plan?: string;

@@ -1,4 +1,4 @@
-// workspace.update（0.49.0）：项目改名，经方法表对着真实存储；0.63.0 起也改其他源文件夹。
+// workspace.update（0.49.0）：项目改名，经方法表对着真实存储；0.64.0 起也改其他源文件夹。
 
 import { mkdirSync, realpathSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';

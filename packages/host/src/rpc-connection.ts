@@ -601,6 +601,8 @@ export class RpcConnection {
       // COMPAT(subscriptionKinds): added in 0.19.0, remove gate after 2027-06-01
       if (!subscriptionKindSupported(account.kind, this.#capabilities, this.#protocolVersion))
         return;
+      // COMPAT(subscriptionAccounts): added in 0.63.0, remove gate after 2027-06-01
+      if (!accountSupported(account, this.#capabilities)) return;
       const parsed = NotificationSchemas['account.updated'].params.safeParse({ account });
       if (!parsed.success) {
         this.#host.onError(new Error(`account.updated does not match its schema: ${parsed.error}`));
@@ -858,8 +860,11 @@ function adaptKindsAndTitles(
     const value = result as MethodResult<'account.list'>;
     return {
       ...value,
-      accounts: value.accounts.filter((a) =>
-        subscriptionKindSupported(a.kind, capabilities, protocolVersion),
+      accounts: value.accounts.filter(
+        (a) =>
+          subscriptionKindSupported(a.kind, capabilities, protocolVersion) &&
+          // COMPAT(subscriptionAccounts): added in 0.63.0, remove gate after 2027-06-01
+          accountSupported(a, capabilities),
       ),
     };
   }
@@ -976,6 +981,18 @@ function subscriptionKindSupported(
     !isSubscriptionKind(kind) ||
     (capabilities.subscription_kinds === true &&
       (kind !== 'workbuddy' || compareProtocolVersions(protocolVersion, '0.55.0') >= 0))
+  );
+}
+
+/** 0.63.0 之前的客户端按种类找账号：只给它们每种的首个账号（ID 等于种类）。 */
+function accountSupported(
+  account: { kind: string; id?: string },
+  capabilities: ClientCapabilities,
+): boolean {
+  return (
+    capabilities.subscription_accounts === true ||
+    account.id === undefined ||
+    account.id === account.kind
   );
 }
 

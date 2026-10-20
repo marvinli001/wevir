@@ -9,7 +9,7 @@ import { ProviderLogo } from '@/components/provider-logo';
 import { StatusDot } from '@/components/status-dot';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
-import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
+import { isPickable, pickerOrder, sourceOf, sourceTitle } from '@/data/sources';
 import { useAccounts, useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
@@ -337,7 +337,9 @@ function SourceSummary({ providers }: { providers: readonly ProviderProfile[] })
             <span
               key={provider.id}
               className="flex size-7 items-center justify-center rounded-full border border-border bg-card shadow-xs ring-2 ring-background"
-              title={source ? t(source.name) : provider.displayName}
+              title={
+                source ? sourceTitle(provider, accounts, t(source.name)) : provider.displayName
+              }
             >
               <ProviderLogo
                 logo={source?.logo ?? providerLogo(provider)}

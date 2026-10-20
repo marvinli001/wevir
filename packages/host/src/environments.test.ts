@@ -314,7 +314,7 @@ describe('单独新开 worktree 的会话（0.18.0）', () => {
   });
 });
 
-describe('有多个源文件夹的项目（0.63.0）', () => {
+describe('有多个源文件夹的项目（0.64.0）', () => {
   /** 一个项目，另带一个普通文件夹作为其他源文件夹。 */
   async function projectWithDocs(h: ReturnType<typeof setup>) {
     const app = await h.project('app');

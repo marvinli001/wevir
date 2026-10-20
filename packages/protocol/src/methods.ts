@@ -25,6 +25,7 @@ import {
 } from './common.js';
 import {
   AccountKindSchema,
+  AccountLabelSchema,
   AccountLoginMethodSchema,
   AccountStateSchema,
   AccountUpstreamSchema,
@@ -148,7 +149,7 @@ export const WorkspaceAddParamsSchema = z.object({
   /** 省略时取目录名。 */
   displayName: z.string().min(1).optional(),
   /**
-   * 其他源文件夹（0.63.0，Host 功能 `workspace_folders`）：绝对路径，Host 取 realpath，检查同 `rootPath`，不能与主文件夹或彼此
+   * 其他源文件夹（0.64.0，Host 功能 `workspace_folders`）：绝对路径，Host 取 realpath，检查同 `rootPath`，不能与主文件夹或彼此
    * 重复。只在新建时用；`rootPath` 已有工作区（`created: false`）时不改它的文件夹。
    */
   extraFolders: z.array(z.string().min(1)).max(WORKSPACE_EXTRA_FOLDERS_MAX).optional(),
@@ -169,7 +170,7 @@ export const WORKSPACE_NAME_MAX_LENGTH = 200;
 
 /**
  * `workspace.update`（0.49.0，Host 功能 `workspace_update`）：改项目的显示名。`rootPath` 不可改。`displayName` 去掉首尾空白后不能是
- * 空的；“对话”工作区不能改。0.63.0（Host 功能 `workspace_folders`）起也能整组换掉其他源文件夹（`[]` 清空），两项都可省略，省略
+ * 空的；“对话”工作区不能改。0.64.0（Host 功能 `workspace_folders`）起也能整组换掉其他源文件夹（`[]` 清空），两项都可省略，省略
  * 的不改；已经开着的会话不受影响，之后新建的会话才用新的文件夹。
  */
 export const WorkspaceUpdateParamsSchema = z
@@ -584,10 +585,11 @@ export const ProviderUpsertParamsSchema = z.discriminatedUnion('kind', [
   /**
    * ChatGPT 订阅（0.7.0）：没有 Key、地址与 compat；`models` 由 Host 从引擎取（ChatGPT 登录成功时 Host 会自己建这个
    * Provider，客户端用 upsert 改显示名与默认模型）。`defaultModelId` 要在引擎给的模型列表里。只在 Host 声明了
-   * `chatgpt_account` 功能时可用，否则 `INVALID_PARAMS`。
+   * `chatgpt_account` 功能时可用，否则 `INVALID_PARAMS`。0.63.0 起 `id` 可以是添加的 ChatGPT 账号（`account.add`）的 ID，
+   * 不是 ChatGPT 账号时 `INVALID_PARAMS`。
    */
   z.object({
-    id: z.literal('chatgpt'),
+    id: ProviderIdSchema,
     kind: z.literal('chatgpt'),
     displayName: z.string().min(1),
     defaultModelId: z.string().min(1),
@@ -681,8 +683,15 @@ export const AccountKindParamsSchema = z.object({
   kind: AccountKindSchema,
 });
 
+/**
+ * 0.63.0：`account.get` / `login` / `cancelLogin` / `logout` 可带账号 ID（`AccountState.id`），省略时是这种的首个账号；ID 与
+ * `kind` 对不上时 `INVALID_PARAMS`。
+ */
+const AccountIdField = { id: ProviderIdSchema.optional() };
+
 /** `account.get`（0.19.0 起可带 `refresh`）。 */
 export const AccountGetParamsSchema = AccountKindParamsSchema.extend({
+  ...AccountIdField,
   /** 重新检测（重新找可执行文件、重读登录状态），用户在终端里登录之后用；省略时引擎可以用最近一次的结果。 */
   refresh: z.boolean().optional(),
 });
@@ -710,6 +719,7 @@ export const ACCOUNT_API_KEY_MAX_LENGTH = 8192;
  */
 export const AccountLoginParamsSchema = z.object({
   kind: AccountKindSchema,
+  ...AccountIdField,
   method: AccountLoginMethodSchema,
   upstream: z.string().min(1).optional(),
   option: z.string().min(1).max(64).optional(),
@@ -718,6 +728,7 @@ export const AccountLoginParamsSchema = z.object({
 
 /** `account.logout`；0.56.0 起可带 `upstream`，只断开这一家（省略时同以前：整个账号）。 */
 export const AccountLogoutParamsSchema = AccountKindParamsSchema.extend({
+  ...AccountIdField,
   upstream: z.string().min(1).optional(),
 });
 
@@ -731,12 +742,36 @@ export const AccountUpstreamsResultSchema = z.object({
 
 export const AccountCancelLoginParamsSchema = z.object({
   kind: AccountKindSchema,
+  ...AccountIdField,
   /** 省略时取消当前的登录；与当前的不符时什么都不做。 */
   loginId: z.string().min(1).optional(),
 });
 
 export const AccountResultSchema = z.object({
   account: AccountStateSchema,
+});
+
+/**
+ * `account.add`（0.63.0，Host 功能 `subscription_accounts`）：给这种来源添加一个账号，未登录，凭据与会话在 Wevir 数据目录里
+ * 单独的目录（与别的账号互不相通）。种类不能添加账号（状态没有 `multiAccount`）时 `INVALID_PARAMS`。
+ */
+export const AccountAddParamsSchema = z.object({
+  kind: AccountKindSchema,
+  label: AccountLabelSchema.optional(),
+});
+
+/**
+ * `account.remove`（0.63.0）：删掉添加的账号：登出、关掉用它的会话，删它的 Provider、用量记录与它在数据目录里的整个目录。
+ * 首个账号不能删（用 `account.logout` 或 `provider.setEnabled`），`INVALID_PARAMS`。
+ */
+export const AccountRemoveParamsSchema = z.object({
+  id: ProviderIdSchema,
+});
+
+/** `account.setLabel`（0.63.0）：设或清掉（`null`）账号的标签；首个账号也能设。 */
+export const AccountSetLabelParamsSchema = z.object({
+  id: ProviderIdSchema,
+  label: AccountLabelSchema.nullable(),
 });
 
 /** `account.updated` 通知：账号状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化），带完整的状态。 */
@@ -1530,6 +1565,21 @@ export const MethodSchemas = {
   },
   'account.install': {
     params: AccountKindParamsSchema,
+    result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+  'account.add': {
+    params: AccountAddParamsSchema,
+    result: AccountResultSchema,
+    permission: 'provider.write',
+  },
+  'account.remove': {
+    params: AccountRemoveParamsSchema,
+    result: EmptySchema,
+    permission: 'provider.write',
+  },
+  'account.setLabel': {
+    params: AccountSetLabelParamsSchema,
     result: AccountResultSchema,
     permission: 'provider.write',
   },
