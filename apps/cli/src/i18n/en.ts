@@ -29,6 +29,7 @@ Environment:
   'group.provider': 'Providers (model services)',
   'group.web': 'Web search',
   'group.session': 'Sessions',
+  'group.automation': 'Automations',
 
   'usage.seeHelp': 'Run wevir --help',
   'usage.seeCommandHelp': 'Run wevir {command} --help',
@@ -123,6 +124,65 @@ Keys:
   Ctrl-C    Cancel the current run; press again to leave attach
   Ctrl-D    Leave attach; the session is kept
   /resume   Send held messages`,
+  'cmd.automation.list.summary': 'List automations',
+  'cmd.automation.list.usage': 'wevir automation list [--json]',
+  'cmd.automation.show.summary': 'Show an automation’s settings and recent runs',
+  'cmd.automation.show.usage': 'wevir automation show <ID> [--json]',
+  'cmd.automation.show.help': `The ID can be a unique prefix (aut_ may be omitted)
+
+Options:
+  --json   Print the settings and runs as JSON`,
+  'cmd.automation.create.summary': 'Create an automation',
+  'cmd.automation.create.usage': 'wevir automation create --title <name> [options] "<prompt>"',
+  'cmd.automation.create.help': `The prompt can also come from stdin; automations run only while the Host is running
+
+Schedule (at most one, default --manual):
+  --manual                  Run only on demand
+  --once <date-time>        Run once, e.g. 2026-10-21T09:00; local time without an offset
+  --every <minutes>         Every N minutes, at least 5
+  --daily <HH:MM>           Every day
+  --days <days>             With --daily: mon,wed, weekdays, weekends or 0–6 (0 is Sunday)
+  --monthly <day> <HH:MM>   Every month on that day; the last day in shorter months
+  --timezone <zone>         IANA time zone, e.g. Europe/Berlin; default: the Host computer’s
+
+Run:
+  --title <name>            Name (required)
+  --project <path|ID>       Project folder or workspace ID; a new folder is added as a workspace.
+                            Default: no project
+  --provider <ID>           Provider; optional when there is only one
+  --model <model ID>        Model; default: the provider’s default model
+  --effort <level>          Reasoning effort
+  --permission <mode>       on_request (default), auto_review or full_access
+  --notify <when>           always, important (default), failures or never
+  --same-session            Send every run to the same session instead of a new one
+  --disabled                Create it disabled
+  --json                    Print as JSON
+
+Examples:
+  wevir automation create --title Standup --daily 09:00 --days weekdays --project . "Summarise commits since yesterday"
+  wevir automation create --title "Dependency check" --monthly 1 10:00 < prompt.md`,
+  'cmd.automation.update.summary': 'Change an automation (only the given options)',
+  'cmd.automation.update.usage': 'wevir automation update <ID> [options]',
+  'cmd.automation.update.help': `Schedule and run options as for wevir automation create; a schedule option replaces the whole schedule
+
+Also:
+  --prompt <prompt>         New prompt; - reads it from stdin
+  --no-project              Run outside a project
+  --default-model           Use the provider’s default model
+  --default-effort          Clear the reasoning effort
+  --new-session             Start a new session for each run`,
+  'cmd.automation.enable.summary': 'Enable an automation',
+  'cmd.automation.enable.usage': 'wevir automation enable <ID>',
+  'cmd.automation.disable.summary': 'Disable an automation',
+  'cmd.automation.disable.usage': 'wevir automation disable <ID>',
+  'cmd.automation.run.summary': 'Run an automation now',
+  'cmd.automation.run.usage': 'wevir automation run <ID> [--json]',
+  'cmd.automation.run.help':
+    'Disabled automations can run too; the schedule is unchanged. Exit code 1 when the run could not start',
+  'cmd.automation.delete.summary': 'Delete an automation and its runs',
+  'cmd.automation.delete.usage': 'wevir automation delete <ID>',
+  'cmd.automation.delete.help':
+    'Sessions opened by its runs are kept; a run in progress is not cancelled',
 
   'err.hostNotRunning': 'Wevir Host is not running',
   'err.hostNotRunning.hint': 'Run wevir host start',
@@ -161,6 +221,8 @@ Keys:
   'err.providerNotFound.hint': 'Run wevir provider list, or wevir provider add',
   'err.sessionNotFound': 'Session not found',
   'err.sessionNotFound.hint': 'Run wevir session list',
+  'err.automationNotFound': 'Automation not found',
+  'err.automationNotFound.hint': 'Run wevir automation list',
   'err.approvalNotFound': 'Approval not found',
   'err.readOnly': 'Read-only session: {reason} ({message})',
   'err.readOnly.hint':
@@ -549,4 +611,105 @@ Options:
   'web.reason.quota': 'out of balance or quota',
   'web.reason.invalid_response': 'unexpected response format',
   'identity.invalid': '{path} does not contain a valid ID',
+
+  'automation.unsupported': 'Host {version} does not support automations',
+  'automation.unsupported.hint': 'Upgrade the Wevir Host (protocol 0.66.0 or later)',
+  'automation.none': 'No automations',
+  'automation.notFound': 'No automation {id}',
+  'automation.notFound.hint': 'Run wevir automation list',
+  'automation.ambiguous': '{id} matches several automations: {ids}',
+  'automation.ambiguous.hint': 'Give a longer ID prefix',
+  'automation.missingTitle': 'Missing --title <name>',
+  'automation.missingPrompt': 'Missing prompt',
+  'automation.missingPrompt.hint': 'Give the prompt as an argument or on stdin',
+  'automation.manySchedules': 'Only one schedule option allowed: {flags}',
+  'automation.daysNeedDaily': '--days needs --daily',
+  'automation.badTime': '{flag} needs HH:MM: {value}',
+  'automation.badOnce': '--once needs a date and time, e.g. 2026-10-21T09:00: {value}',
+  'automation.oncePast': '--once is in the past: {value}',
+  'automation.badEvery': '--every needs a whole number of minutes, at least {min}: {value}',
+  'automation.badMonthly': '--monthly needs <day> <HH:MM>, e.g. --monthly 15 09:00: {value}',
+  'automation.badDays': 'Unknown day: {value}',
+  'automation.badPermission': 'Unknown permission mode: {value}',
+  'automation.badPermission.hint': 'Use on_request, auto_review or full_access',
+  'automation.badNotify': 'Unknown notification setting: {value}',
+  'automation.badNotify.hint': 'Use always, important, failures or never',
+  'automation.conflict': '{a} and {b} cannot be used together',
+  'automation.nothingToUpdate': 'Nothing to change',
+  'automation.created': 'Automation created: {title} ({id})',
+  'automation.updated': 'Automation updated: {title} ({id})',
+  'automation.enabled': 'Enabled: {title}',
+  'automation.disabled': 'Disabled: {title}',
+  'automation.deleted': 'Automation deleted: {title} ({id})',
+  'automation.nextRun': 'Next run {time}',
+  'automation.runStarted': 'Run started: {title} ({id})',
+  'automation.runFailed': 'The run could not start: {error}',
+  'automation.fullAccessWarning':
+    'Runs unattended with full access; commands and changes are not approved',
+  'automation.col.state': 'STATE',
+  'automation.col.title': 'NAME',
+  'automation.col.schedule': 'SCHEDULE',
+  'automation.col.next': 'NEXT RUN',
+  'automation.col.last': 'LAST RUN',
+  'automation.col.started': 'STARTED',
+  'automation.col.trigger': 'TRIGGER',
+  'automation.col.status': 'RESULT',
+  'automation.col.session': 'SESSION',
+  'automation.col.result': 'SUMMARY',
+  'automation.state.enabled': 'Enabled',
+  'automation.state.disabled': 'Disabled',
+  'automation.field.state': 'State',
+  'automation.field.schedule': 'Schedule',
+  'automation.field.timezone': 'Time zone',
+  'automation.field.next': 'Next run',
+  'automation.field.project': 'Project',
+  'automation.field.model': 'Model',
+  'automation.field.effort': 'Reasoning effort',
+  'automation.field.permission': 'Permissions',
+  'automation.field.runsIn': 'Runs in',
+  'automation.field.notify': 'Notifications',
+  'automation.field.creator': 'Created by',
+  'automation.field.created': 'Created',
+  'automation.field.runCount': 'Runs',
+  'automation.field.prompt': 'Instructions',
+  'automation.runs': 'Runs',
+  'automation.noRuns': 'No runs yet',
+  'automation.moreRuns': '{count, plural, one {# more run} other {# more runs}}; --json shows all',
+  'automation.noProject': 'No project',
+  'automation.defaultModel': 'default model',
+  'automation.runsIn.new': 'New session each run',
+  'automation.runsIn.same': 'Same session',
+  'automation.creator.user': 'You',
+  'automation.creator.agent': 'Agent (session {id})',
+  'automation.schedule.manual': 'Manual',
+  'automation.schedule.once': 'Once · {at}',
+  'automation.schedule.every': 'Every {minutes, plural, one {minute} other {# minutes}}',
+  'automation.schedule.daily': 'Daily at {time}',
+  'automation.schedule.weekdays': 'Weekdays at {time}',
+  'automation.schedule.weekly': 'Every {days} at {time}',
+  'automation.schedule.monthly': 'Monthly on day {day} at {time}',
+  'automation.notify.always': 'Every run',
+  'automation.notify.important': 'Important updates',
+  'automation.notify.failures': 'Failures only',
+  'automation.notify.never': 'Never',
+  'automation.run.running': 'Running',
+  'automation.run.waiting': 'Needs attention',
+  'automation.run.completed': 'Completed',
+  'automation.run.failed': 'Failed',
+  'automation.run.cancelled': 'Cancelled',
+  'automation.run.skipped': 'Skipped',
+  'automation.run.quiet': 'Nothing to report',
+  'automation.trigger.schedule': 'Scheduled',
+  'automation.trigger.manual': 'Manual',
+  'automation.trigger.catch_up': 'Catch-up',
+  'permission.on_request': 'Ask for approval',
+  'permission.auto_review': 'Auto-approve',
+  'permission.full_access': 'Full access',
+  'weekday.0': 'Sun',
+  'weekday.1': 'Mon',
+  'weekday.2': 'Tue',
+  'weekday.3': 'Wed',
+  'weekday.4': 'Thu',
+  'weekday.5': 'Fri',
+  'weekday.6': 'Sat',
 };

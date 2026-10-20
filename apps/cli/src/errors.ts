@@ -135,6 +135,9 @@ function describeRpcError(error: WevirRpcError): Described {
   if (error.is('SESSION_NOT_FOUND')) {
     return { message: t('err.sessionNotFound'), hint: t('err.sessionNotFound.hint') };
   }
+  if (error.is('AUTOMATION_NOT_FOUND')) {
+    return { message: t('err.automationNotFound'), hint: t('err.automationNotFound.hint') };
+  }
   if (error.is('APPROVAL_NOT_FOUND')) return { message: t('err.approvalNotFound') };
   if (error.is('INVALID_STATE')) {
     const data = error.data;

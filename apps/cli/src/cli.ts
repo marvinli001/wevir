@@ -7,6 +7,17 @@ import {
   accountStatus,
   parseAccountKind,
 } from './commands/account.js';
+import {
+  type AutomationFlags,
+  automationCreate,
+  automationDelete,
+  automationList,
+  automationRun,
+  automationSetEnabled,
+  automationShow,
+  automationUpdate,
+  joinMonthlyArgs,
+} from './commands/automation.js';
 import { hostStart, hostStatus, hostStop } from './commands/host.js';
 import { providerAdd, providerList, providerTest } from './commands/provider.js';
 import { sessionAttach, sessionList, sessionNew } from './commands/session.js';
@@ -30,11 +41,68 @@ interface CommandDef {
   help?: PlainMessageKey;
   options: ParseArgsOptionsConfig;
   positionals: { min: number; max: number };
+  /** 交给 parseArgs 之前改写参数（`--monthly 15 09:00` 这类两个词的值）。 */
+  rewriteArgs?(args: readonly string[]): string[];
   run(ctx: Context, values: Values, positionals: string[]): Promise<number>;
 }
 
 const str = (value: string | boolean | undefined): string | undefined =>
   typeof value === 'string' ? value : undefined;
+
+const json = { json: { type: 'boolean' } } as const;
+
+/** `automation create` 与 `update` 共用的选项。 */
+const AUTOMATION_OPTIONS: ParseArgsOptionsConfig = {
+  title: { type: 'string' },
+  manual: { type: 'boolean' },
+  once: { type: 'string' },
+  every: { type: 'string' },
+  daily: { type: 'string' },
+  days: { type: 'string' },
+  monthly: { type: 'string' },
+  timezone: { type: 'string' },
+  project: { type: 'string' },
+  provider: { type: 'string' },
+  model: { type: 'string' },
+  effort: { type: 'string' },
+  permission: { type: 'string' },
+  notify: { type: 'string' },
+  'same-session': { type: 'boolean' },
+  ...json,
+};
+
+const AUTOMATION_FLAG_KEYS = {
+  title: 'title',
+  prompt: 'prompt',
+  manual: 'manual',
+  once: 'once',
+  every: 'every',
+  daily: 'daily',
+  days: 'days',
+  monthly: 'monthly',
+  timezone: 'timezone',
+  project: 'project',
+  'no-project': 'noProject',
+  provider: 'provider',
+  model: 'model',
+  'default-model': 'defaultModel',
+  effort: 'effort',
+  'default-effort': 'defaultEffort',
+  permission: 'permission',
+  notify: 'notify',
+  'same-session': 'sameSession',
+  'new-session': 'newSession',
+  disabled: 'disabled',
+} as const satisfies Record<string, keyof AutomationFlags>;
+
+function automationFlags(values: Values): AutomationFlags {
+  const flags: Record<string, string | boolean> = {};
+  for (const [option, key] of Object.entries(AUTOMATION_FLAG_KEYS)) {
+    const value = values[option];
+    if (value !== undefined) flags[key] = value;
+  }
+  return flags as AutomationFlags;
+}
 
 const COMMANDS: Record<string, Record<string, CommandDef>> = {
   host: {
@@ -260,6 +328,82 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       run: (ctx, _v, [id]) => sessionAttach(ctx, id as string),
     },
   },
+  automation: {
+    list: {
+      summary: 'cmd.automation.list.summary',
+      usage: 'cmd.automation.list.usage',
+      options: json,
+      positionals: { min: 0, max: 0 },
+      run: (ctx, v) => automationList(ctx, { json: v.json === true }),
+    },
+    show: {
+      summary: 'cmd.automation.show.summary',
+      usage: 'cmd.automation.show.usage',
+      help: 'cmd.automation.show.help',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [id]) => automationShow(ctx, id as string, { json: v.json === true }),
+    },
+    create: {
+      summary: 'cmd.automation.create.summary',
+      usage: 'cmd.automation.create.usage',
+      help: 'cmd.automation.create.help',
+      options: { ...AUTOMATION_OPTIONS, disabled: { type: 'boolean' } },
+      positionals: { min: 0, max: Number.POSITIVE_INFINITY },
+      rewriteArgs: joinMonthlyArgs,
+      run: (ctx, v, words) =>
+        automationCreate(ctx, words, automationFlags(v), { json: v.json === true }),
+    },
+    update: {
+      summary: 'cmd.automation.update.summary',
+      usage: 'cmd.automation.update.usage',
+      help: 'cmd.automation.update.help',
+      options: {
+        ...AUTOMATION_OPTIONS,
+        prompt: { type: 'string' },
+        'no-project': { type: 'boolean' },
+        'default-model': { type: 'boolean' },
+        'default-effort': { type: 'boolean' },
+        'new-session': { type: 'boolean' },
+      },
+      positionals: { min: 1, max: 1 },
+      rewriteArgs: joinMonthlyArgs,
+      run: (ctx, v, [id]) =>
+        automationUpdate(ctx, id as string, automationFlags(v), { json: v.json === true }),
+    },
+    enable: {
+      summary: 'cmd.automation.enable.summary',
+      usage: 'cmd.automation.enable.usage',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [id]) =>
+        automationSetEnabled(ctx, id as string, true, { json: v.json === true }),
+    },
+    disable: {
+      summary: 'cmd.automation.disable.summary',
+      usage: 'cmd.automation.disable.usage',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [id]) =>
+        automationSetEnabled(ctx, id as string, false, { json: v.json === true }),
+    },
+    run: {
+      summary: 'cmd.automation.run.summary',
+      usage: 'cmd.automation.run.usage',
+      help: 'cmd.automation.run.help',
+      options: json,
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [id]) => automationRun(ctx, id as string, { json: v.json === true }),
+    },
+    delete: {
+      summary: 'cmd.automation.delete.summary',
+      usage: 'cmd.automation.delete.usage',
+      help: 'cmd.automation.delete.help',
+      options: {},
+      positionals: { min: 1, max: 1 },
+      run: (ctx, _v, [id]) => automationDelete(ctx, id as string),
+    },
+  },
 };
 
 const GROUP_TITLES: Record<string, PlainMessageKey> = {
@@ -268,6 +412,7 @@ const GROUP_TITLES: Record<string, PlainMessageKey> = {
   provider: 'group.provider',
   web: 'group.web',
   session: 'group.session',
+  automation: 'group.automation',
 };
 
 /** 总帮助里的一行：用法 + 概要。 */
@@ -387,7 +532,7 @@ export async function runCli(io: CliIO): Promise<number> {
     let parsed: { values: Values; positionals: string[] };
     try {
       parsed = parseArgs({
-        args: rest,
+        args: def.rewriteArgs?.(rest) ?? rest,
         options: {
           ...def.options,
           home: { type: 'string' },
