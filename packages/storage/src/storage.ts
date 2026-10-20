@@ -10,6 +10,7 @@ import { createEnvironmentRepository, type EnvironmentRepository } from './envir
 import { createEventRepository, type EventRepository } from './events.js';
 import { migrate } from './migrate.js';
 import { createProviderProfileRepository, type ProviderProfileRepository } from './providers.js';
+import { createRetroRepository, type RetroRepository } from './retros.js';
 import { createReviewCommentRepository, type ReviewCommentRepository } from './review-comments.js';
 import { createSearchRepository, type SearchRepository } from './search.js';
 import { createSendReceiptRepository, type SendReceiptRepository } from './send-receipts.js';
@@ -41,7 +42,9 @@ export interface Storage {
   readonly accounts: SubscriptionAccountRepository;
   /** diff 上的行级批注（0015_review_comments）。 */
   readonly reviewComments: ReviewCommentRepository;
-  /** 会话全文搜索的派生索引（协议 0.72.0）：不走迁移，打开库时按索引版本建表，可以整体重建。 */
+  /** 任务回顾的投影与模型摘要（0016_session_retros）。 */
+  readonly retros: RetroRepository;
+  /** 会话全文搜索的派生索引（协议 0.77.0）：不走迁移，打开库时按索引版本建表，可以整体重建。 */
   readonly search: SearchRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
   freeBytes(): number;
@@ -74,6 +77,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       usage: createUsageRepository(db),
       accounts: createSubscriptionAccountRepository(db),
       reviewComments: createReviewCommentRepository(db),
+      retros: createRetroRepository(db),
       search: createSearchRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };

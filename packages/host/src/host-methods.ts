@@ -33,6 +33,7 @@ import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError } from './errors.js';
 import type { EventStore } from './event-store.js';
+import type { ExternalImport } from './external-import/service.js';
 import { type FileUrls, isServablePath } from './file-urls.js';
 import type { GitService } from './git/service.js';
 import {
@@ -45,6 +46,7 @@ import {
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import type { LspStatusService } from './lsp/service.js';
 import {
   MemoryError,
   type MemoryNote,
@@ -55,7 +57,10 @@ import {
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
 import type { ProcessOutputService } from './process-output.js';
+import type { ReadinessService } from './readiness/service.js';
+import type { RetroService } from './retro/service.js';
 import type { ReviewService } from './review/service.js';
+import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
 import { SearchQueryError, type SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
@@ -144,13 +149,23 @@ export interface HostMethodsOptions {
   automations?: AutomationService;
   /** 行级批注（0.67.0，`review.*`）；省略时 `review.*` 回 `INVALID_PARAMS`（测试）。 */
   review?: ReviewService;
+  /** 第二意见（0.75.0，`session.secondOpinion` / `session.quoteOpinion`）；省略时这两个方法回 `INVALID_PARAMS`（测试）。 */
+  opinions?: SecondOpinionService;
   /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
   git?: GitService;
+  /** 项目环境就绪（0.70.0，`readiness.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  readiness?: ReadinessService;
+  /** 语言服务器的状态与安装（0.71.0，`lsp.*`）；省略时这些方法回 `INVALID_PARAMS`。 */
+  lsp?: LspStatusService;
+  /** 任务回顾（0.76.0，`retro.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  retro?: RetroService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
   terminals?: TerminalService;
-  /** 会话全文搜索（0.72.0，`search.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  /** 从其他应用导入（0.74.0，`import.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  externalImport?: ExternalImport;
+  /** 会话全文搜索（0.77.0，`search.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   search?: SessionSearch;
 }
 
@@ -262,6 +277,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }
     return options.verification;
   };
+  const opinions = (): SecondOpinionService => {
+    if (options.opinions === undefined) throw invalidParams([], 'this host has no second opinions');
+    return options.opinions;
+  };
   const search = (): SessionSearch => {
     if (options.search === undefined) throw invalidParams([], 'this host has no session search');
     return options.search;
@@ -275,6 +294,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     workspaceId,
     dir: await resolveWorkspacePath(diffDirectory(workspaceId, sessionId)),
   });
+  const retroService = (): RetroService => {
+    if (options.retro === undefined) throw invalidParams([], 'this host has no session retro');
+    return options.retro;
+  };
   const gitService = (): GitService => {
     if (options.git === undefined) throw invalidParams([], 'this host has no git staging');
     return options.git;
@@ -285,6 +308,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
   };
+  const lspStatus = (): LspStatusService => {
+    if (options.lsp === undefined) throw invalidParams([], 'this host has no language servers');
+    return options.lsp;
+  };
   const processOutput = (): ProcessOutputService => {
     if (options.processes === undefined) throw invalidParams([], 'this host has no process output');
     return options.processes;
@@ -293,9 +320,18 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     if (options.terminals === undefined) throw invalidParams([], 'this host has no user terminal');
     return options.terminals;
   };
+  const readiness = (): ReadinessService => {
+    if (options.readiness === undefined)
+      throw invalidParams([], 'this host has no readiness checks');
+    return options.readiness;
+  };
   const automations = (): AutomationService => {
     if (options.automations === undefined) throw invalidParams([], 'this host has no automations');
     return options.automations;
+  };
+  const importer = (): ExternalImport => {
+    if (options.externalImport === undefined) throw invalidParams([], 'this host cannot import');
+    return options.externalImport;
   };
   const memoryStore = (): MemoryStore => {
     if (options.memory === undefined) throw invalidParams([], 'this host has no memory store');
@@ -394,9 +430,20 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
   return {
     'plugins.list': () => plugins().list(),
-    'connector.add': async ({ name, config, enabled }) => ({
-      connector: await plugins().add(name, config, enabled),
-    }),
+    'connector.add': async ({ name, config, enabled, workspaceId }) => {
+      // 0.74.0：只给一个项目的连接器，项目要在、没被移除。
+      if (workspaceId !== undefined) {
+        const workspace = storage.workspaces.get(workspaceId);
+        if (!workspace || workspace.removedAt !== undefined) {
+          throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+        }
+      }
+      return {
+        connector: await plugins().add(name, config, enabled, undefined, {
+          ...(workspaceId !== undefined && { workspaceId }),
+        }),
+      };
+    },
     'connector.update': async ({ id, ...patch }) => ({
       connector: await plugins().update(id, patch),
     }),
@@ -408,6 +455,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       connector: await plugins().update(id, { enabled }),
     }),
     'skill.install': ({ path }) => plugins().install(path),
+    // 0.74.0：从 Claude Code、Codex、Grok Build、Antigravity 导入。
+    'import.scan': ({ app }) => importer().scan(app),
+    'import.apply': async ({ app, items }) => ({ results: await importer().apply(app, items) }),
     'skill.remove': async ({ id }) => {
       await plugins().removeSkill(id);
       return {};
@@ -478,6 +528,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }
       // 不属于会话的用户终端也随项目结束（0.69.0）。
       options.terminals?.removeWorkspace(workspaceId);
+      void options.readiness?.removeWorkspace(workspaceId as WorkspaceId);
       storage.workspaces.markRemoved(workspaceId, isoNow());
       return {};
     },
@@ -988,6 +1039,20 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
 
     'session.review': ({ sessionId, target }) => sessions.review(sessionId, target),
 
+    // 0.75.0：第二意见。
+    'session.secondOpinion': ({ sessionId, focus, ...request }, { client }) =>
+      opinions().request(
+        sessionId,
+        {
+          ...request,
+          ...(focus !== undefined && { focus: focus.trim() }),
+          requestedBy: 'user',
+        },
+        client,
+      ),
+
+    'session.quoteOpinion': (params, { client }) => opinions().quote(params, client),
+
     // 0.35.0：会话目标。
     'session.setGoal': (params, { client }) => sessions.setGoal(params, client),
 
@@ -1107,7 +1172,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'verification.output': ({ sessionId, runId, offset }) =>
       verification().output(sessionId, runId, offset),
 
-    // 0.72.0：会话全文搜索。客户端（用户）可以搜全部项目；Agent 的 wevir_session_search 只限它的项目（app-tools.ts）。
+    // 0.77.0：会话全文搜索。客户端（用户）可以搜全部项目；Agent 的 wevir_session_search 只限它的项目（app-tools.ts）。
     'search.query': (params) => {
       try {
         return search().query(params);
@@ -1136,6 +1201,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'review.send': async ({ workspaceId, sessionId, ...params }, { client }) =>
       review().send(await reviewDirectory(workspaceId, sessionId), params, client),
 
+    // 0.76.0：任务回顾（ADR-0012）。
+    'retro.get': ({ sessionId, redact }) =>
+      retroService().get(sessionId, redact === undefined ? {} : { redact }),
+    'retro.summarize': ({ sessionId }) => retroService().summarize(sessionId),
+
     // 0.67.0：暂存与提交（ADR-0009）。只由用户在“变更”窗格发起，目录的选法同 workspace.diff。
     'git.status': async ({ workspaceId, sessionId }) =>
       gitService().status(await gitDirectory(workspaceId, sessionId), sessionId),
@@ -1161,6 +1231,24 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         { message, expected, ...(includeExternal !== undefined && { includeExternal }) },
         sessionId,
       ),
+    'lsp.status': async ({ workspaceId, sessionId, refresh }) =>
+      lspStatus().status(await gitDirectory(workspaceId, sessionId), refresh === true),
+    'lsp.restart': async ({ workspaceId, sessionId, serverId, root }) => ({
+      server: await lspStatus().restart(await gitDirectory(workspaceId, sessionId), serverId, root),
+    }),
+    'lsp.log': async ({ workspaceId, sessionId, serverId, root }) => ({
+      log: await lspStatus().log(await gitDirectory(workspaceId, sessionId), serverId, root),
+    }),
+    'lsp.install': async ({ workspaceId, sessionId, serverId, root, planId, confirmGlobal }) => ({
+      run: await lspStatus().install(
+        await gitDirectory(workspaceId, sessionId),
+        serverId,
+        root,
+        planId,
+        confirmGlobal === true,
+      ),
+    }),
+    'lsp.cancelInstall': async ({ installId }) => ({ run: lspStatus().cancel(installId) }),
     'process.list': ({ workspaceId, sessionId }) => ({
       processes: processOutput().list({
         ...(workspaceId !== undefined && { workspaceId }),
@@ -1172,6 +1260,25 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'process.stop': ({ processId, signal }) => ({
       process: processOutput().stop(processId, signal),
     }),
+    'readiness.get': async ({ workspaceId, sessionId, refresh }) => ({
+      report: await readiness().get({
+        workspaceId,
+        ...(sessionId !== undefined && { sessionId }),
+        ...(refresh !== undefined && { refresh }),
+      }),
+    }),
+    'readiness.install': async ({ workspaceId, sessionId, planId, timeoutMs }) => ({
+      run: await readiness().install({
+        workspaceId,
+        ...(sessionId !== undefined && { sessionId }),
+        planId,
+        ...(timeoutMs !== undefined && { timeoutMs }),
+      }),
+    }),
+    'readiness.cancel': async ({ runId }) => ({ run: readiness().cancel(runId) }),
+    'readiness.output': ({ runId, offset }) => readiness().output(runId, offset),
+    'readiness.setCredential': ({ workspaceId, name, value }) =>
+      readiness().setCredential({ workspaceId, name, ...(value !== undefined && { value }) }),
     'terminal.create': async (params) => ({ terminal: await terminals().create(params) }),
     'terminal.list': (params) => ({ terminals: terminals().list(params) }),
     'terminal.input': (params) => {
@@ -1198,6 +1305,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     },
     'automation.run': async ({ automationId }) => ({
       run: await automations().runNow(automationId),
+    }),
+    'automation.testCheck': async (params) => ({
+      result: await automations().testCheck(params),
     }),
     'tools.presets': async () => {
       if (options.toolPresets === undefined) {

@@ -36,6 +36,7 @@ import {
   type SessionAutomation,
   type SessionGoal,
   type SessionId,
+  type SessionOpinionOf,
   type SessionReadOnlyReason,
   type SessionRecap,
   type SessionSnapshot,
@@ -54,6 +55,7 @@ import {
   type TurnOutcome,
   type UiShowTarget,
   type UserContentPart,
+  type UserQuestion,
   type WevirEvent,
   type WevirEventType,
   type WorkspaceId,
@@ -99,6 +101,7 @@ import {
   type CreatedWorktree,
   createWorktree,
   removeWorktree,
+  restoreSnapshot,
   WorktreeError,
 } from './git-worktree.js';
 import {
@@ -144,6 +147,11 @@ import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
 export const CANCEL_TIMEOUT_MS = 5000;
 
 /**
+ * 无人值守的会话（自动化开的、子会话、另一个会话里的 agent 开的）里，提问等多久没人回答就按推荐的选项回答（0.72.0）。
+ */
+export const QUESTION_TIMEOUT_MS = 5 * 60_000;
+
+/**
  * 连续几次自动压缩之后用量仍不低于压缩线，Host 就停下回合（`#checkAutoCompaction`）：这时再压缩也降不下来，引擎却会在每个
  * 请求之后接着压缩，一直花额度。
  */
@@ -162,6 +170,8 @@ export interface SessionManagerOptions {
   engine?: string;
   /** 默认 `CANCEL_TIMEOUT_MS`。 */
   cancelTimeoutMs?: number;
+  /** 无人值守的会话里提问的超时（0.72.0）；默认 `QUESTION_TIMEOUT_MS`，0 表示一直等。 */
+  questionTimeoutMs?: number;
   /** 后台错误：处理引擎事件失败、丢弃的引擎事件等。默认打到 stderr。 */
   onError?: (error: unknown) => void;
   /**
@@ -241,6 +251,11 @@ export interface SessionManagerOptions {
     forget?(sessionIds: readonly SessionId[]): void;
     dispose?(): void;
   };
+  /**
+   * 只给某个项目的连接器（0.74.0，plugins.ts 的 `projectConnectors`）：建立或恢复引擎会话时按会话所在的工作区取，随
+   * `SessionConfig.connectors` 交给适配器。没给时不交。
+   */
+  projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
   /**
@@ -568,6 +583,7 @@ export class SessionManager {
   readonly #adapter: AgentRuntimeAdapter;
   readonly #engine: string;
   readonly #cancelTimeoutMs: number;
+  readonly #questionTimeoutMs: number;
   readonly #onError: (error: unknown) => void;
   readonly #onWarning: (message: string, fields?: Record<string, unknown>) => void;
   readonly #titleInstructions: string | undefined;
@@ -587,6 +603,7 @@ export class SessionManager {
   readonly #ruleFiles: SessionManagerOptions['ruleFiles'];
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
+  readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
@@ -594,6 +611,8 @@ export class SessionManager {
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
+  /** 到时按推荐回答的提问（0.72.0，`autoAnswerAt`）；问题结束时清掉。只在内存里：Host 重启后未答的问题都已取消。 */
+  readonly #questionTimers = new Map<QuestionId, ReturnType<typeof setTimeout>>();
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
   /**
@@ -617,6 +636,7 @@ export class SessionManager {
     this.#adapter = options.adapter;
     this.#engine = options.engine ?? 'echo';
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
+    this.#questionTimeoutMs = options.questionTimeoutMs ?? QUESTION_TIMEOUT_MS;
     this.#onError =
       options.onError ?? ((error) => console.error('[wevir-host] session manager:', error));
     this.#onWarning =
@@ -637,6 +657,7 @@ export class SessionManager {
     this.#ruleFiles = options.ruleFiles;
     this.#images = options.images;
     this.#appTools = options.appTools;
+    this.#projectConnectors = options.projectConnectors;
     this.#onTurnFinished = options.onTurnFinished;
     this.#onUsage = options.onUsage;
   }
@@ -652,9 +673,17 @@ export class SessionManager {
       rules?.text !== undefined && rules.rules.channel === 'instructions'
         ? { ...config, ruleInstructions: rules.text }
         : config;
-    if (this.#adapter.appTools !== true) return withRules;
+    // 项目的连接器（0.74.0）：按会话所在的工作区，不按 cwd（worktree 里的会话 cwd 不在项目根下）。
+    const workspaceId = this.workspaceOf(sessionId);
+    const connectors =
+      workspaceId === undefined ? undefined : this.#projectConnectors?.(workspaceId);
+    const withConnectors =
+      connectors === undefined || connectors.length === 0
+        ? withRules
+        : { ...withRules, connectors };
+    if (this.#adapter.appTools !== true) return withConnectors;
     const appTools = this.#appTools?.grant(sessionId);
-    return appTools === undefined ? withRules : { ...withRules, appTools };
+    return appTools === undefined ? withConnectors : { ...withConnectors, appTools };
   }
 
   /**
@@ -831,6 +860,8 @@ export class SessionManager {
       toolPreset?: ToolPreset;
       /** 自动化运行开的会话（0.66.0）：记进 `origin`，`Session.automation` 由它来。 */
       automation?: SessionAutomation;
+      /** 第二意见的会话（0.75.0）：记进 `origin`，`Session.opinionOf` 由它来；目录是按 `snapshot` 新开的 worktree。 */
+      opinion?: OpinionSessionOptions;
     } = {},
   ): Promise<Session> {
     this.#assertOpen();
@@ -863,6 +894,7 @@ export class SessionManager {
         options.role,
         toolPreset,
         options.automation,
+        options.opinion,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -933,12 +965,16 @@ export class SessionManager {
     role: string | undefined,
     toolPreset: ToolPreset | undefined,
     automation?: SessionAutomation,
+    opinion?: OpinionSessionOptions,
   ): Promise<Session> {
     const sessionId = newId('ses');
-    // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
+    // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
+    // （0.75.0）是原会话目录的快照。
     const prepared = chat
       ? await this.#chatDirectory(sessionId)
-      : await this.#prepareEnvironment(params, sessionId, workspace, provider.id);
+      : opinion !== undefined
+        ? await this.#prepareSnapshot(sessionId, workspace.id, opinion.snapshot)
+        : await this.#prepareEnvironment(params, sessionId, workspace, provider.id);
     const config: SessionConfig = {
       cwd: prepared.cwd,
       providerId: provider.id,
@@ -949,11 +985,18 @@ export class SessionManager {
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     const recordOrigin: SessionRecord['origin'] =
       origin ??
-      (automation !== undefined
-        ? { kind: 'automation', ...automation }
-        : openedBy === undefined
-          ? undefined
-          : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
+      (opinion !== undefined
+        ? {
+            kind: 'second_opinion',
+            sessionId: opinion.of.sessionId,
+            opinionId: opinion.of.opinionId,
+            ...(role !== undefined && { role }),
+          }
+        : automation !== undefined
+          ? { kind: 'automation', ...automation }
+          : openedBy === undefined
+            ? undefined
+            : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     this.#creating.set(sessionId, {
       workspaceId: workspace.id,
@@ -1018,6 +1061,7 @@ export class SessionManager {
           ...(openedBy !== undefined && {
             openedBy: { sessionId: openedBy, ...(role !== undefined && { role }) },
           }),
+          ...(opinion !== undefined && { opinionOf: opinion.of }),
           ...(toolPreset !== undefined && { toolPreset }),
         },
       });
@@ -1048,6 +1092,46 @@ export class SessionManager {
       this.#engineFailed(runtime, engineErrorInfo(error));
     }
     return this.#snapshot(runtime).session;
+  }
+
+  /**
+   * 第二意见的目录（0.75.0，domain-model §3.30）：在 `<worktreesDir>/<会话 ID>/` 下从原会话目录的 `head` 新开 worktree，再把文件换成
+   * 快照（`tree`）。失败时什么都不留，抛 `WorktreeError`（说明是 git 的原文）。
+   */
+  async #prepareSnapshot(
+    sessionId: SessionId,
+    workspaceId: string,
+    snapshot: OpinionSessionOptions['snapshot'],
+  ): Promise<PreparedEnvironment> {
+    if (this.#worktreesDir === undefined)
+      throw new WorktreeError('this host has no place for worktrees');
+    const dir = join(this.#worktreesDir, sessionId);
+    let created: CreatedWorktree | undefined;
+    const undo = async () => {
+      if (created !== undefined) await removeWorktree(created, dir).catch(this.#onError);
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    };
+    try {
+      created = await createWorktree({
+        workspaceRoot: snapshot.from,
+        dir,
+        index: 1,
+        branch: `wevir/opinion-${sessionId.slice(-8).toLowerCase()}`,
+        commit: snapshot.head,
+      });
+      await restoreSnapshot(created.root, snapshot.tree);
+      return {
+        cwd: created.path,
+        extraRoots: [],
+        worktrees: [
+          { workspaceId: workspaceId as WorkspaceId, path: created.path, branch: created.branch },
+        ],
+        undo,
+      };
+    } catch (error) {
+      await undo();
+      throw error;
+    }
   }
 
   /** 对话的文件夹（0.39.0）：`<对话工作区>/<会话 ID>`，新建、空的。 */
@@ -2609,7 +2693,9 @@ export class SessionManager {
       this.#recaps.forget(id);
     }
     for (const [questionId, sessionId] of this.#questionSessions) {
-      if (ids.has(sessionId)) this.#questionSessions.delete(questionId);
+      if (!ids.has(sessionId)) continue;
+      this.#questionSessions.delete(questionId);
+      this.#clearQuestionTimer(questionId);
     }
   }
 
@@ -3245,6 +3331,8 @@ export class SessionManager {
     this.#whenDisposed.resolve();
     for (const settle of this.#appApprovals.values()) settle(false);
     this.#appApprovals.clear();
+    for (const timer of this.#questionTimers.values()) clearTimeout(timer);
+    this.#questionTimers.clear();
     this.#appTools?.dispose?.();
     this.#recaps.clear();
     for (const runtime of this.#runtimes.values()) this.#detach(runtime);
@@ -3329,7 +3417,13 @@ export class SessionManager {
     try {
       if (!options.enabled()) return;
       const record = this.#record(runtime);
-      if (record.side || record.origin?.kind === 'agent') return;
+      if (
+        record.side ||
+        record.origin?.kind === 'agent' ||
+        record.origin?.kind === 'second_opinion'
+      ) {
+        return;
+      }
       const snapshot = this.#snapshot(runtime);
       const { session } = snapshot;
       if (
@@ -3470,6 +3564,78 @@ export class SessionManager {
         });
       }
       return undefined;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * 用会话当前的来源与模型发一次不带工具的请求（0.76.0，任务回顾的模型摘要，ADR-0012 决策 9）：同离开后摘要，经适配器的
+   * `generateTitle`。这是用户明确点的，所以引擎会话没挂着、会话空闲时先恢复（同 `session.fork`）。不写事件、不改会话；回合进行中、
+   * 有待审批或待回答的提问时不发。失败不抛错，回 `reason`：`unsupported`、`sub_session`、`running`、`unavailable`、`failed`。
+   */
+  async generateOnce(
+    sessionId: SessionId,
+    request: {
+      instructions: string;
+      input: string;
+      outputSchema: Record<string, unknown>;
+      timeoutMs: number;
+      onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
+    },
+  ): Promise<{ text: string; providerId: string; modelId: string } | { reason: string }> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
+    if (generate === undefined) return { reason: 'unsupported' };
+    if (runtime.parentId !== undefined) return { reason: 'sub_session' };
+    const busy = () => {
+      const { session } = this.#snapshot(runtime);
+      return (
+        session.state === 'running' ||
+        session.state === 'cancelling' ||
+        session.state === 'awaiting_approval' ||
+        session.awaitingInput === true
+      );
+    };
+    if (busy()) return { reason: 'running' };
+    try {
+      await this.#serial(runtime, async () => {
+        const { session } = this.#snapshot(runtime);
+        if (session.state === 'closed') throw new Error('session closed');
+        if (!runtime.attachment) await this.#autoResume(runtime);
+      });
+    } catch (error) {
+      this.#onWarning('生成回顾摘要前恢复引擎会话失败', {
+        sessionId: runtime.id,
+        error: errorText(error),
+      });
+      return { reason: 'unavailable' };
+    }
+    if (busy()) return { reason: 'running' };
+    const record = this.#record(runtime);
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), request.timeoutMs);
+    const stop = () => abort.abort();
+    void this.#whenDisposed.promise.then(stop);
+    try {
+      const text = await generate(runtime.engineSessionId, {
+        instructions: request.instructions,
+        input: request.input,
+        outputSchema: { ...request.outputSchema },
+        signal: abort.signal,
+        ...(request.onUsage !== undefined && { onUsage: request.onUsage }),
+      });
+      if (this.#disposed || abort.signal.aborted) return { reason: 'failed' };
+      return { text, providerId: record.providerId, modelId: record.modelId };
+    } catch (error) {
+      if (!this.#disposed) {
+        this.#onWarning('生成回顾摘要失败', {
+          sessionId: runtime.id,
+          error: abort.signal.aborted ? `${request.timeoutMs} ms 内没有结果` : errorText(error),
+        });
+      }
+      return { reason: 'failed' };
     } finally {
       clearTimeout(timer);
     }
@@ -4019,19 +4185,27 @@ export class SessionManager {
     turn: TurnRuntime,
     event: QuestionRequestedEvent,
   ): void {
-    const { state } = this.#snapshot(runtime).session;
+    const { session } = this.#snapshot(runtime);
     const questionId = newId('qst');
+    const now = Date.now();
+    const timeoutMs =
+      this.#questionTimeoutMs > 0 && unattended(session) ? this.#questionTimeoutMs : undefined;
     const question: QuestionRequest = {
       id: questionId,
       sessionId: runtime.id,
       turnId: turn.turnId,
       ...(event.toolCallId !== undefined && { toolCallId: event.toolCallId }),
-      questions: event.questions.map((item) => ({
-        ...item,
-        options: item.options.map((option) => ({ ...option })),
-      })),
+      questions: event.questions.map((item) => {
+        const defaultOption = defaultOptionOf(item);
+        return {
+          ...item,
+          options: item.options.map((option) => ({ ...option })),
+          ...(defaultOption !== undefined && { defaultOption }),
+        };
+      }),
       status: 'pending',
-      createdAt: isoNow(),
+      createdAt: new Date(now).toISOString(),
+      ...(timeoutMs !== undefined && { autoAnswerAt: new Date(now + timeoutMs).toISOString() }),
     };
     runtime.questionIds.set(event.requestId, questionId);
     runtime.questionRequests.set(questionId, event.requestId);
@@ -4039,10 +4213,46 @@ export class SessionManager {
     const inputs: AppendInput[] = [
       { type: 'question.requested', source: 'engine', payload: { question } },
     ];
-    if (state === 'cancelling') {
+    if (session.state === 'cancelling') {
       inputs.push(questionResolved(questionId, 'cancelled', { reason: 'turn_cancelled' }));
+    } else if (timeoutMs !== undefined) {
+      const timer = setTimeout(() => {
+        this.#questionTimers.delete(questionId);
+        this.#autoAnswer(runtime, questionId).catch(this.#onError);
+      }, timeoutMs);
+      timer.unref?.();
+      this.#questionTimers.set(questionId, timer);
     }
     this.#write(runtime, inputs);
+  }
+
+  #clearQuestionTimer(questionId: QuestionId): void {
+    const timer = this.#questionTimers.get(questionId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.#questionTimers.delete(questionId);
+  }
+
+  /**
+   * 到了 `autoAnswerAt` 还没人回答（0.72.0）：按每题的 `defaultOption` 回答（没有选项的题跳过），写 `question.resolved`
+   * （`answered`，`timeout`）。排在会话的命令队列里，在这之前回答了或取消了就什么都不做。
+   */
+  async #autoAnswer(runtime: SessionRuntime, questionId: QuestionId): Promise<void> {
+    if (this.#shuttingDown || this.#disposed) return;
+    await this.#serial(runtime, async () => {
+      const question = this.#events.question(runtime.id, questionId);
+      if (question?.status !== 'pending') return;
+      const answers = Object.fromEntries(
+        question.questions.map((item) => [
+          item.id,
+          item.defaultOption === undefined ? [] : [item.defaultOption],
+        ]),
+      );
+      await this.#answerQuestion(runtime, questionId, answers, {
+        reason: 'timeout',
+        answers: toAnswerRecord(answers),
+      });
+    });
   }
 
   /** 引擎侧结掉的提问；引擎退出时不在这里结算，随后的 `engine.exited` 一并处理。 */
@@ -4084,38 +4294,51 @@ export class SessionManager {
       const question = this.#events.question(runtime.id, questionId);
       if (!question) throw new HostError('QUESTION_NOT_FOUND', `question ${questionId} not found`);
       const answers = checkAnswers(question, params.answers);
-      const requestId = runtime.questionRequests.get(questionId);
-      if (requestId === undefined) throw new Error(`问题 ${questionId} 没有对应的引擎请求`);
-      const respond = this.#adapter.respondToQuestion?.bind(this.#adapter);
-      if (respond === undefined) throw new Error('引擎不支持提问，却提了问题');
       const resolution: QuestionResolution = {
         reason: 'user',
-        answers: Object.fromEntries(
-          Object.entries(answers).map(([id, list]) => [id, { answers: list }]),
-        ),
+        answers: toAnswerRecord(answers),
         answeredBy,
       };
-      let failure: { error: unknown } | undefined;
-      runtime.holds += 1;
-      try {
-        try {
-          await respond(runtime.engineSessionId, requestId, answers);
-        } catch (error) {
-          failure = { error };
-        }
-        if (!failure) {
-          this.#write(runtime, [questionResolved(questionId, 'answered', resolution)]);
-        } else if (!isAdapterError(failure.error, 'question_not_found')) {
-          this.#engineFailed(runtime, engineErrorInfo(failure.error));
-        }
-      } finally {
-        this.#release(runtime);
+      if (await this.#answerQuestion(runtime, questionId, answers, resolution)) {
+        return { questionId, status: 'answered' as const, resolution };
       }
-      if (!failure) return { questionId, status: 'answered' as const, resolution };
       const after = outcome();
       if (after) return after;
       throw new Error(`引擎报告问题 ${questionId} 已结束，但没有上报结束事件`);
     });
+  }
+
+  /**
+   * 把回答交给引擎，成功后写 `question.resolved`（`answered`）。引擎侧已经结束（`question_not_found`）时返回 false，它的
+   * `question.cancelled` 在暂扣的事件里；别的失败当作引擎异常。要在会话的命令队列里调用。
+   */
+  async #answerQuestion(
+    runtime: SessionRuntime,
+    questionId: QuestionId,
+    answers: Record<string, string[]>,
+    resolution: QuestionResolution,
+  ): Promise<boolean> {
+    const requestId = runtime.questionRequests.get(questionId);
+    if (requestId === undefined) throw new Error(`问题 ${questionId} 没有对应的引擎请求`);
+    const respond = this.#adapter.respondToQuestion?.bind(this.#adapter);
+    if (respond === undefined) throw new Error('引擎不支持提问，却提了问题');
+    let failure: { error: unknown } | undefined;
+    runtime.holds += 1;
+    try {
+      try {
+        await respond(runtime.engineSessionId, requestId, answers);
+      } catch (error) {
+        failure = { error };
+      }
+      if (!failure) {
+        this.#write(runtime, [questionResolved(questionId, 'answered', resolution)]);
+      } else if (!isAdapterError(failure.error, 'question_not_found')) {
+        this.#engineFailed(runtime, engineErrorInfo(failure.error));
+      }
+    } finally {
+      this.#release(runtime);
+    }
+    return failure === undefined;
   }
 
   // ── 子会话（R4，domain-model §3.3.1、§4.5） ─────────────────────────────
@@ -4706,6 +4929,7 @@ export class SessionManager {
           runtime.approvalIds.delete(requestId);
         }
       } else if (event.type === 'question.resolved') {
+        this.#clearQuestionTimer(event.payload.questionId);
         const requestId = runtime.questionRequests.get(event.payload.questionId);
         if (requestId !== undefined) {
           runtime.questionRequests.delete(event.payload.questionId);
@@ -4837,6 +5061,31 @@ function questionResolved(
   resolution: QuestionResolution,
 ): AppendInput {
   return { type: 'question.resolved', source: 'host', payload: { questionId, status, resolution } };
+}
+
+function toAnswerRecord(answers: Record<string, string[]>): QuestionResolution['answers'] {
+  return Object.fromEntries(Object.entries(answers).map(([id, list]) => [id, { answers: list }]));
+}
+
+/** 没人盯着回答提问的会话（0.72.0）：自动化开的、引擎派出的子会话、另一个会话里的 agent 开的。 */
+function unattended(session: Session): boolean {
+  return (
+    session.automation !== undefined ||
+    session.parentSessionId !== undefined ||
+    session.openedBy !== undefined
+  );
+}
+
+/** 标签末尾的“(Recommended)”“（推荐）”一类标记：Claude 与 Codex 的提问工具都让模型这样标出推荐的选项。 */
+const RECOMMENDED_LABEL = /[(（]\s*(?:recommended|推荐|建议)\s*[)）]\s*$/i;
+
+/** 推荐的选项（0.72.0）：引擎给的、标签标了推荐的，或第一个；没有选项时没有。 */
+export function defaultOptionOf(question: UserQuestion): string | undefined {
+  const labels = question.options.map((option) => option.label);
+  if (question.defaultOption !== undefined && labels.includes(question.defaultOption)) {
+    return question.defaultOption;
+  }
+  return labels.find((label) => RECOMMENDED_LABEL.test(label)) ?? labels[0];
 }
 
 /** 未答的问题随回合、会话、引擎或 Host 一起取消（原因同审批）。 */
@@ -5286,6 +5535,13 @@ function isoNow(): string {
 }
 
 /** 环境会话准备好的目录（#prepareEnvironment）。 */
+/** `SessionManager.create` 的 `opinion`（0.75.0）。 */
+export interface OpinionSessionOptions {
+  of: SessionOpinionOf;
+  /** 原会话目录（realpath）、它当时的 HEAD 与工作树的树散列（`checkpoints.ts` 的 `workingTreeHash`）。 */
+  snapshot: { from: string; head: string; tree: string };
+}
+
 interface PreparedEnvironment {
   environmentId?: EnvironmentId;
   cwd: string;

@@ -61,7 +61,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # 与 pnpm lint 里的同一组检查，单独成一步，失败时一眼看出是引擎边界（AGENTS.md 仓库规则第 2 条）。
-      # --only 会把 spikes/ 里关掉的规则以 warning 打开，--diagnostic-level=error 只看真正的违规。
+      # --only 会把配置里关掉的规则以 warning 打开，--diagnostic-level=error 只看真正的违规。
       # 引擎边界、Lint、Typecheck 与平台无关，只在 macOS 上跑，Windows 的作业（最慢的一个）省下这半分钟。
       - name: 引擎边界（每个引擎的 npm 包只能由它的适配器包依赖）
         if: runner.os == 'macOS'

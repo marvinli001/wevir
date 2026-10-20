@@ -11,12 +11,14 @@ import type {
 import { describe, expect, it } from 'vitest';
 import { currentAction, groupWork, type WorkEntry } from './tool-model';
 import {
+  blockSeqRange,
   foldedParts,
   foldSegments,
   foldTurn,
   groupTurns,
   isActiveTurn,
   lastTurnId,
+  messageIndexForSeq,
   turnHeaderText,
   turnStart,
 } from './turn-model';
@@ -389,5 +391,29 @@ describe('foldTurn', () => {
     const { messages } = s.project();
     expect(foldTurn(messages, true, false)).toMatchObject({ hasProcess: false, showHeader: false });
     expect(foldTurn(messages, false, false)).toMatchObject({ hasProcess: true, showHeader: true });
+  });
+});
+
+describe('按 seq 找位置', () => {
+  const message = (id: string, turnId: TurnId, seqRange: [number, number]) =>
+    ({ id, role: 'assistant', turnId, parts: [], seqRange }) as unknown as ChatMessage;
+  const messages = [
+    message('a', TURN, [1, 4]),
+    message('b', TURN, [5, 9]),
+    message('c', TURN2, [12, 20]),
+  ];
+
+  it('包含 seq 的那条；落在空隙里取之前最近的一条；比第一条还早时 -1', () => {
+    expect(messageIndexForSeq(messages, 6)).toBe(1);
+    expect(messageIndexForSeq(messages, 12)).toBe(2);
+    expect(messageIndexForSeq(messages, 10)).toBe(1);
+    expect(messageIndexForSeq(messages, 99)).toBe(2);
+    expect(messageIndexForSeq([message('x', TURN, [3, 4])], 1)).toBe(-1);
+  });
+
+  it('一块的范围是它所有消息的并集', () => {
+    const [first, second] = groupTurns(messages);
+    expect(first && blockSeqRange(first)).toEqual([1, 9]);
+    expect(second && blockSeqRange(second)).toEqual([12, 20]);
   });
 });

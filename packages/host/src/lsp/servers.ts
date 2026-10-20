@@ -6,9 +6,11 @@
 // 修改：不用 Effect；只留六种语言；不自动下载、不 `npm install`、不 `go install`，找不到时给出缺什么与怎么装；TypeScript 优先用
 // 项目里 TypeScript 7 自带的原生语言服务器（`tsc --lsp --stdio`，或 `@typescript/native-preview` 的 `tsgo`），TypeScript 5/6
 // 才用 typescript-language-server；在 PATH 之外再找常见的安装位置（Host 由桌面端拉起时只有 GUI 的 PATH，同 adapter-claude 的
-// executable.ts）；项目根往上找到会话目录为止。
+// executable.ts）；项目根往上找到会话目录为止；读版本与最低版本，给出安装方案（opencode 自己装，Wevir 只在用户发起时运行，
+// 见 service.ts）；项目里没有 TypeScript 时也用全局装的 TypeScript 7。
 //
-// 代码智能（LSP 工具，domain-model §3.15）：每种语言用哪个语言服务器、从哪里找、项目根怎么定。
+// 代码智能（LSP 工具，domain-model §3.15）：每种语言用哪个语言服务器、从哪里找、项目根怎么定；0.71.0 起还有版本从哪儿读、最低版本，
+// 与找不到或版本过旧时的安装方案（项目级优先用项目已有的依赖与包管理器；Host 只在用户发起 `lsp.install` 时运行它们）。
 
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -20,6 +22,12 @@ export interface ServerLaunch {
   args: string[];
   /** 结果里给模型看的名字，例如 `tsc --lsp (TypeScript 7.0.2)`。 */
   label: string;
+  /** 已知的版本（从 package.json 读到的）；没有时按 `versionArgs` 运行一次可执行文件读。 */
+  version?: string;
+  /** 读版本的参数（`--version`、`version`）；起不来或退出码非 0 时这个服务器算没装好。 */
+  versionArgs?: string[];
+  /** 低于它时不用（`outdated`）。 */
+  minVersion?: string;
   /** `initialize` 的 `initializationOptions`。 */
   initializationOptions?: Record<string, unknown>;
   /** 回 `workspace/configuration` 用的设置（按 section 取）。 */
@@ -29,6 +37,16 @@ export interface ServerLaunch {
 /** 找不到语言服务器：缺什么、怎么装。 */
 export interface ServerMissing {
   missing: string;
+}
+
+/** 安装方案（protocol 的 `LspInstallPlan` 加上 Host 要的参数）：`argv[0]` 是程序名，运行时按同样的 PATH 找到它。 */
+export interface InstallPlan {
+  id: string;
+  scope: 'project' | 'user' | 'system';
+  argv: string[];
+  /** 在哪儿运行；用户级与系统的方案省略（用户主目录）。 */
+  cwd?: string;
+  runnable: boolean;
 }
 
 export interface ServerSpec {
@@ -45,6 +63,8 @@ export interface ServerSpec {
    */
   root(file: string, stop: string): Promise<string>;
   resolve(root: string, env: NodeJS.ProcessEnv): Promise<ServerLaunch | ServerMissing>;
+  /** 找不到、跑不起来或版本过旧时的安装方案，项目级在前。 */
+  plans?(root: string, env: NodeJS.ProcessEnv): Promise<InstallPlan[]>;
 }
 
 /** 扩展名 → `textDocument/didOpen` 的 languageId（opencode language.ts 里这六种语言的部分）。 */
@@ -187,16 +207,102 @@ async function findPackage(dir: string, name: string): Promise<string | undefine
   }
 }
 
-async function packageVersion(dir: string): Promise<string | undefined> {
+async function readJson(file: string): Promise<Record<string, unknown> | undefined> {
   try {
-    const value = JSON.parse(await readFile(path.join(dir, 'package.json'), 'utf8')) as {
-      version?: unknown;
-    };
-    return typeof value.version === 'string' ? value.version : undefined;
+    const value: unknown = JSON.parse(await readFile(file, 'utf8'));
+    return value !== null && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : undefined;
   } catch {
     return undefined;
   }
 }
+
+async function packageVersion(dir: string): Promise<string | undefined> {
+  const value = await readJson(path.join(dir, 'package.json'));
+  return typeof value?.version === 'string' ? value.version : undefined;
+}
+
+/**
+ * npm 装的可执行文件属于哪个包：按真实路径往上找名字是 `name` 的 package.json（`.bin` 里的链接、全局 bin 目录的链接都指向包里），
+ * 返回包目录。
+ */
+export async function packageOfExecutable(exe: string, name: string): Promise<string | undefined> {
+  let dir = path.dirname(await realpath(exe).catch(() => exe));
+  for (let depth = 0; depth < 5; depth += 1) {
+    const value = await readJson(path.join(dir, 'package.json'));
+    if (value?.name === name) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
+/** 比较两个点分版本号（只看数字部分）：`a` 小于 `b` 时为负。 */
+export function compareVersions(a: string, b: string): number {
+  const parts = (value: string) =>
+    (value.match(/\d+(?:\.\d+)*/)?.[0] ?? '0').split('.').map((part) => Number(part));
+  const left = parts(a);
+  const right = parts(b);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const diff = (left[index] ?? 0) - (right[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+/** 项目用哪个包管理器：锁文件，其次 package.json 的 `packageManager`，都没有时 npm。 */
+export async function projectPackageManager(
+  root: string,
+): Promise<'npm' | 'pnpm' | 'yarn' | 'bun'> {
+  if (await exists(path.join(root, 'pnpm-lock.yaml'))) return 'pnpm';
+  if (await exists(path.join(root, 'yarn.lock'))) return 'yarn';
+  if ((await exists(path.join(root, 'bun.lock'))) || (await exists(path.join(root, 'bun.lockb')))) {
+    return 'bun';
+  }
+  if (await exists(path.join(root, 'package-lock.json'))) return 'npm';
+  const declared = (await readJson(path.join(root, 'package.json')))?.packageManager;
+  if (typeof declared === 'string') {
+    const name = declared.split('@')[0];
+    if (name === 'pnpm' || name === 'yarn' || name === 'bun' || name === 'npm') return name;
+  }
+  return 'npm';
+}
+
+/** 往项目加一个开发依赖的命令（pnpm 工作区的根要 `-w`）。 */
+async function addDevDependency(root: string, pm: string, name: string): Promise<string[]> {
+  if (pm === 'pnpm') {
+    const workspace = await exists(path.join(root, 'pnpm-workspace.yaml'));
+    return ['pnpm', 'add', '-D', ...(workspace ? ['-w'] : []), name];
+  }
+  if (pm === 'yarn') return ['yarn', 'add', '-D', name];
+  if (pm === 'bun') return ['bun', 'add', '-d', name];
+  return ['npm', 'install', '-D', name];
+}
+
+/** 一个方案：程序找得到才能运行。 */
+async function plan(
+  env: NodeJS.ProcessEnv,
+  id: string,
+  scope: InstallPlan['scope'],
+  argv: string[],
+  cwd?: string,
+): Promise<InstallPlan> {
+  const program = argv[0] ?? '';
+  const runnable = path.isAbsolute(program)
+    ? await isFile(program)
+    : (await findExecutable(program, env)) !== undefined;
+  return { id, scope, argv, ...(cwd !== undefined && { cwd }), runnable };
+}
+
+/** 只能手动做的方案（要图形安装器或管理员权限）。 */
+const manual = (id: string, scope: InstallPlan['scope'], argv: string[]): InstallPlan => ({
+  id,
+  scope,
+  argv,
+  runnable: false,
+});
 
 /**
  * TypeScript 7 与 native-preview 的原生可执行文件：`@typescript/<包名>-<平台>-<架构>/lib/<bin>`，按 Node 规则从包目录往上找
@@ -208,6 +314,22 @@ async function nativeTypeScript(packageDir: string, base: string, bin: string) {
   if (dir === undefined) return undefined;
   const exe = path.join(dir, 'lib', process.platform === 'win32' ? `${bin}.exe` : bin);
   return (await isFile(exe)) ? exe : undefined;
+}
+
+/** Wevir 用 `initializationOptions.tsserver.path` 指定项目的 TypeScript，typescript-language-server 2.1.0 起才认。 */
+export const TS_LANGUAGE_SERVER_MIN = '2.1.0';
+
+/** PATH 上的 `tsc` 是 TypeScript 7（全局装的）时它的原生语言服务器。 */
+async function globalNativeTypeScript(env: NodeJS.ProcessEnv) {
+  const tsc = await findExecutable('tsc', env);
+  if (tsc === undefined) return undefined;
+  const dir = await packageOfExecutable(tsc, 'typescript');
+  const version = dir === undefined ? undefined : await packageVersion(dir);
+  if (dir === undefined || version === undefined || Number.parseInt(version, 10) < 7) {
+    return undefined;
+  }
+  const exe = await nativeTypeScript(dir, 'typescript', 'tsc');
+  return exe === undefined ? undefined : { exe, version };
 }
 
 const TS_INSTALL =
@@ -230,6 +352,7 @@ export const TYPESCRIPT: ServerSpec = {
           command: exe,
           args: ['--lsp', '--stdio'],
           label: `tsc --lsp (TypeScript ${version})`,
+          ...(version !== undefined && { version }),
         };
       }
     }
@@ -242,12 +365,23 @@ export const TYPESCRIPT: ServerSpec = {
           command: exe,
           args: ['--lsp', '--stdio'],
           label: `tsgo --lsp (native-preview ${previewVersion ?? '?'})`,
+          ...(previewVersion !== undefined && { version: previewVersion }),
         };
       }
     }
     const tsserver =
       typescript === undefined ? undefined : path.join(typescript, 'lib', 'tsserver.js');
     if (tsserver === undefined || !(await isFile(tsserver))) {
+      // 项目里没有 TypeScript：用全局装的 TypeScript 7（`npm install -g typescript`）。
+      const global = typescript === undefined ? await globalNativeTypeScript(env) : undefined;
+      if (global !== undefined) {
+        return {
+          command: global.exe,
+          args: ['--lsp', '--stdio'],
+          label: `tsc --lsp (TypeScript ${global.version})`,
+          version: global.version,
+        };
+      }
       return {
         missing: `No TypeScript found for ${root}${version === undefined ? '' : ` (typescript ${version} has no language server binary for this platform)`}. ${TS_INSTALL}`,
       };
@@ -260,12 +394,75 @@ export const TYPESCRIPT: ServerSpec = {
         missing: `typescript-language-server not found (the project uses TypeScript ${version}). Install it: npm i -g typescript-language-server`,
       };
     }
+    const serverPackage = await packageOfExecutable(server, 'typescript-language-server');
+    const serverVersion =
+      serverPackage === undefined ? undefined : await packageVersion(serverPackage);
     return {
       command: server,
       args: ['--stdio'],
       label: `typescript-language-server (TypeScript ${version})`,
+      ...(serverVersion === undefined
+        ? { versionArgs: ['--version'] }
+        : { version: serverVersion }),
+      minVersion: TS_LANGUAGE_SERVER_MIN,
       initializationOptions: { tsserver: { path: tsserver } },
     };
+  },
+  async plans(root, env) {
+    const manifest = await readJson(path.join(root, 'package.json'));
+    const pm = await projectPackageManager(root);
+    const declared = (name: string) =>
+      [manifest?.dependencies, manifest?.devDependencies].some(
+        (deps) => deps !== null && typeof deps === 'object' && name in deps,
+      );
+    const typescript = await findPackage(root, 'typescript');
+    const version = typescript === undefined ? undefined : await packageVersion(typescript);
+    const native = version !== undefined && Number.parseInt(version, 10) >= 7;
+    const plans: InstallPlan[] = [];
+    if (manifest !== undefined) {
+      const missingTypeScript =
+        declared('typescript') &&
+        (typescript === undefined ||
+          (native && (await nativeTypeScript(typescript, 'typescript', 'tsc')) === undefined));
+      const missingServer =
+        declared('typescript-language-server') &&
+        (await findPackage(root, 'typescript-language-server')) === undefined;
+      if (missingTypeScript || missingServer) {
+        // 项目已经声明了依赖、只是没装（或少了平台包）：按项目的锁文件装。
+        plans.push(await plan(env, 'project-install', 'project', [pm, 'install'], root));
+      } else if (typescript !== undefined && !native) {
+        plans.push(
+          await plan(
+            env,
+            'project-add-server',
+            'project',
+            await addDevDependency(root, pm, 'typescript-language-server'),
+            root,
+          ),
+        );
+      } else if (typescript === undefined) {
+        plans.push(
+          await plan(
+            env,
+            'project-add-typescript',
+            'project',
+            await addDevDependency(root, pm, 'typescript'),
+            root,
+          ),
+        );
+      }
+    }
+    plans.push(
+      typescript !== undefined && !native
+        ? await plan(env, 'user-server', 'user', [
+            'npm',
+            'install',
+            '-g',
+            'typescript-language-server@latest',
+          ])
+        : await plan(env, 'user-typescript', 'user', ['npm', 'install', '-g', 'typescript@latest']),
+    );
+    return plans;
   },
 };
 
@@ -316,12 +513,60 @@ export const PYTHON: ServerSpec = {
         break;
       }
     }
+    const label = path.basename(server).replace(/\.(exe|cmd|bat)$/i, '');
+    // npm 装的 pyright 从 package.json 读版本；pip 装的 basedpyright 旁边有 `basedpyright --version`，langserver 本身没有。
+    const npmPackage = await packageOfExecutable(server, 'pyright');
+    const version = npmPackage === undefined ? undefined : await packageVersion(npmPackage);
     return {
       command: server,
       args: ['--stdio'],
-      label: path.basename(server).replace(/\.(exe|cmd|bat)$/i, ''),
+      label,
+      ...(version !== undefined && { version }),
       ...(pythonPath !== undefined && { settings: { python: { pythonPath } } }),
     };
+  },
+  async plans(root, env) {
+    const plans: InstallPlan[] = [];
+    const venvs = await venvBins(root, env);
+    const python = process.platform === 'win32' ? 'python.exe' : 'python';
+    if (await exists(path.join(root, 'uv.lock'))) {
+      plans.push(
+        await plan(env, 'project-uv', 'project', ['uv', 'add', '--dev', 'basedpyright'], root),
+      );
+    } else if (await exists(path.join(root, 'poetry.lock'))) {
+      plans.push(
+        await plan(
+          env,
+          'project-poetry',
+          'project',
+          ['poetry', 'add', '--group', 'dev', 'basedpyright'],
+          root,
+        ),
+      );
+    } else {
+      for (const bin of venvs) {
+        if (await isFile(path.join(bin, python))) {
+          plans.push(
+            await plan(
+              env,
+              'project-venv',
+              'project',
+              [path.join(bin, python), '-m', 'pip', 'install', 'basedpyright'],
+              root,
+            ),
+          );
+          break;
+        }
+      }
+    }
+    if ((await findExecutable('pipx', env)) !== undefined) {
+      plans.push(await plan(env, 'user-pipx', 'user', ['pipx', 'install', 'basedpyright']));
+    } else if ((await findExecutable('uv', env)) !== undefined) {
+      plans.push(await plan(env, 'user-uv', 'user', ['uv', 'tool', 'install', 'basedpyright']));
+    } else {
+      plans.push(await plan(env, 'user-npm', 'user', ['npm', 'install', '-g', 'pyright']));
+    }
+    return plans;
   },
 };
 
@@ -343,7 +588,12 @@ export const GO: ServerSpec = {
     if (server === undefined) {
       return { missing: `gopls not found. ${GO_INSTALL}` };
     }
-    return { command: server, args: [], label: 'gopls' };
+    return { command: server, args: [], label: 'gopls', versionArgs: ['version'] };
+  },
+  async plans(_root, env) {
+    return [
+      await plan(env, 'user-go', 'user', ['go', 'install', 'golang.org/x/tools/gopls@latest']),
+    ];
   },
 };
 
@@ -373,7 +623,14 @@ export const RUST: ServerSpec = {
     if (server === undefined) {
       return { missing: `rust-analyzer not found. ${RUST_INSTALL}` };
     }
-    return { command: server, args: [], label: 'rust-analyzer' };
+    // ~/.cargo/bin 里的 rust-analyzer 是 rustup 的代理：没装组件时它在，但一运行就报错，读版本时就能发现。
+    return { command: server, args: [], label: 'rust-analyzer', versionArgs: ['--version'] };
+  },
+  async plans(root, env) {
+    // 在项目根运行：rust-toolchain.toml 指定的工具链装上组件。
+    return [
+      await plan(env, 'user-rustup', 'user', ['rustup', 'component', 'add', 'rust-analyzer'], root),
+    ];
   },
 };
 
@@ -403,7 +660,24 @@ export const C: ServerSpec = {
           'clangd not found. Install it (macOS: xcode-select --install or brew install llvm; Linux: apt install clangd).',
       };
     }
-    return { command: server, args: ['--background-index'], label: 'clangd' };
+    return {
+      command: server,
+      args: ['--background-index'],
+      label: 'clangd',
+      versionArgs: ['--version'],
+    };
+  },
+  async plans(_root, env) {
+    if (process.platform === 'darwin') {
+      return [
+        manual('system-xcode', 'system', ['xcode-select', '--install']),
+        await plan(env, 'system-brew', 'system', ['brew', 'install', 'llvm']),
+      ];
+    }
+    if (process.platform === 'win32') {
+      return [await plan(env, 'system-winget', 'system', ['winget', 'install', 'LLVM.LLVM'])];
+    }
+    return [manual('system-apt', 'system', ['sudo', 'apt', 'install', 'clangd'])];
   },
 };
 
@@ -421,6 +695,11 @@ export const SWIFT: ServerSpec = {
       };
     }
     return { command: server, args: [], label: 'sourcekit-lsp' };
+  },
+  async plans() {
+    return process.platform === 'darwin'
+      ? [manual('system-xcode', 'system', ['xcode-select', '--install'])]
+      : [];
   },
 };
 

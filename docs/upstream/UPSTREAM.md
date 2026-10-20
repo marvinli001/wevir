@@ -329,9 +329,9 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 
 | Wevir 文件 | 来源路径（sst/opencode） | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|
-| `packages/host/src/lsp/servers.ts` | `packages/opencode/src/lsp/server.ts`（Typescript、Pyright、Gopls、RustAnalyzer、Clangd、SourceKit、NearestRoot）、`lsp/language.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：只留六种语言，不自动下载与安装，找不到时给出安装命令；TypeScript 7 用原生 `tsc --lsp`；PATH 之外找常见的安装位置；项目根到会话目录为止 |
-| `packages/host/src/lsp/client.ts` | `packages/opencode/src/lsp/client.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写成类，不用 Effect；加 didSave、打开文档上限、递归监视转发 didChangeWatchedFiles、stderr 末尾、拒绝 applyEdit、shutdown / exit 后结束进程 |
-| `packages/host/src/lsp/manager.ts` | `packages/opencode/src/lsp/lsp.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：失败 3 次的窗口代替永久的 `broken`，加空闲关闭、上限、回收与引擎改动文件的记录 |
+| `packages/host/src/lsp/servers.ts` | `packages/opencode/src/lsp/server.ts`（Typescript、Pyright、Gopls、RustAnalyzer、Clangd、SourceKit、NearestRoot）、`lsp/language.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：只留六种语言，不自动下载与安装，找不到时给出安装命令；TypeScript 7 用原生 `tsc --lsp`；PATH 之外找常见的安装位置；项目根到会话目录为止；读版本、对照最低版本，找不到或过旧时给出项目级与用户级安装方案（只在用户发起时运行）；没有项目 TypeScript 时用全局的 TypeScript 7 |
+| `packages/host/src/lsp/client.ts` | `packages/opencode/src/lsp/client.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写成类，不用 Effect；加 didSave、打开文档上限、递归监视转发 didChangeWatchedFiles、stderr 末尾、拒绝 applyEdit、shutdown / exit 后结束进程；记下声明的能力名与最近一次诊断的时间 |
+| `packages/host/src/lsp/manager.ts` | `packages/opencode/src/lsp/lsp.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：失败 3 次的窗口代替永久的 `broken`，加空闲关闭、上限、回收与引擎改动文件的记录；起服务器前读版本，记下每个服务器的状态、能力与启动日志，可以重启 |
 | `packages/host/src/lsp-tools.ts` | `packages/opencode/src/tool/lsp.ts`、`tool/lsp.txt`、`lsp/diagnostic.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：一个 `lsp` 工具拆成七个应用级工具，结果写成路径:行:列加那一行，位置可给符号名，加诊断工具与改动文件的错误反馈，说明文字重写 |
 
 ### 4.1 其他第三方来源的文件
@@ -465,7 +465,7 @@ R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），�
 
 7. **密钥检查。** 同一个测试文件的密钥用例：网关令牌与上游 Key 不出现在数据目录（含 CODEX_HOME 的 rollout、SQLite 库、`shell_snapshots/`）的任何文件、stderr 与日志里，模型跑的命令看不到 `WEVIR_*`。`env.ts` 的白名单与 `shell_environment_policy` 的排除规则按新版本核对一次（新版本可能读新的环境变量，例如别的 `*_API_KEY`）。
 
-8. **网关与提示词。** Codex 发的 Responses 请求变了（新字段、新的输入项类型、`tool_choice` 等）：用 `spikes/codex-app-server/src/record-requests.ts` 重录 `packages/model-gateway/src/test-fixtures/codex-requests/`，跑网关的转换测试与快照（model-gateway.md）。`prompts/base.md` 的工具说明按新版本的工具清单核对（prompts/README.md「Codex 一回合里模型看到的说明」）；`prompts/` 下改写自 Codex 的文件按 §4 核对来源提交。
+8. **网关与提示词。** Codex 发的 Responses 请求变了（新字段、新的输入项类型、`tool_choice` 等）：用 `spikes/codex-app-server/src/record-requests.ts`（`spikes/` 已移出公开仓库，只在维护者本机）重录 `packages/model-gateway/src/test-fixtures/codex-requests/`，跑网关的转换测试与快照（model-gateway.md）。`prompts/base.md` 的工具说明按新版本的工具清单核对（prompts/README.md「Codex 一回合里模型看到的说明」）；`prompts/` 下改写自 Codex 的文件按 §4 核对来源提交。
 
 9. **ChatGPT 进程（R6）。** `account/*`、`model/list` 与 `v2/Account*.ts`、`LoginAccount*.ts`、`RateLimit*.ts`、`Model.ts` 的 schema 对照 `protocol.ts` 的“账号”一节；`cli_auth_credentials_store`、`forced_login_method`、`mcp_oauth_credentials_store`、`features.apps` 还在不在；登录服务与后端的地址与环境变量（`CODEX_APP_SERVER_LOGIN_ISSUER`、`CODEX_REFRESH_TOKEN_URL_OVERRIDE`、`chatgpt_base_url`、`openai_base_url`）、`/wham/accounts/check` 的形状变了没有。跑 `codex-runtime.chatgpt.integration.test.ts`（真实二进制 + mock 登录服务）；mock 的端点要跟着改。有真实 ChatGPT 账号时在桌面端登录一次、问一句，看外连（codex-event-mapping.md §8.5）。
 

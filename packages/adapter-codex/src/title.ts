@@ -63,11 +63,17 @@ export async function titleViaGateway(
       `生成标题的请求失败：HTTP ${response.status} ${text.slice(0, 500)}`,
     );
   }
-  return readResponsesText(response.body);
+  return readResponsesText(response.body, request.onUsage);
 }
 
-/** 读 Responses 的流：拼 `response.output_text.delta`，`response.completed` 里有完整的消息时以它为准。 */
-async function readResponsesText(stream: ReadableStream<Uint8Array>): Promise<string> {
+/**
+ * 读 Responses 的流：拼 `response.output_text.delta`，`response.completed` 里有完整的消息时以它为准；那里的 `usage` 报给
+ * `onUsage`（0.76.0）。
+ */
+async function readResponsesText(
+  stream: ReadableStream<Uint8Array>,
+  onUsage?: TitleRequest['onUsage'],
+): Promise<string> {
   const parser = new SseParser();
   let text = '';
   let completed: string | undefined;
@@ -84,6 +90,14 @@ async function readResponsesText(stream: ReadableStream<Uint8Array>): Promise<st
       text += event.delta;
     } else if (event.type === 'response.completed' && isRecord(event.response)) {
       completed = outputText(event.response.output);
+      const usage = event.response.usage;
+      if (onUsage !== undefined && isRecord(usage)) {
+        const input = usage.input_tokens;
+        const output = usage.output_tokens;
+        if (typeof input === 'number' && typeof output === 'number') {
+          onUsage({ inputTokens: input, outputTokens: output });
+        }
+      }
     } else if (event.type === 'response.failed' || event.type === 'error') {
       throw new AdapterError('engine_unavailable', `生成标题失败：${data.slice(0, 500)}`);
     }

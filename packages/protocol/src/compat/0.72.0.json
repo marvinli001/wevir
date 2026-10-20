@@ -1,6 +1,6 @@
 {
   "protocolVersion": "0.72.0",
-  "frozenAt": "2026-10-21",
+  "frozenAt": "2026-10-20",
   "methods": {
     "plugins.list": {
       "params": [{}],
@@ -6782,121 +6782,6 @@
         }
       ],
       "result": [{}]
-    },
-    "search.query": {
-      "params": [
-        {
-          "query": "event-store.ts"
-        },
-        {
-          "query": "登录 \"审批 流程\"",
-          "scope": {
-            "workspaceIds": ["ws_01JA2B3C4D5E6F7G8H9JKMNPQR"],
-            "sessionIds": ["ses_01JA2B3C4D5E6F7G8H9JKMNPQR"],
-            "kinds": ["user_message", "command"],
-            "providerIds": ["deepseek-official"],
-            "since": "2026-10-12T08:00:00.000Z",
-            "until": "2026-10-12T08:00:05.250Z",
-            "includeArchived": true
-          },
-          "sort": "recent",
-          "limit": 20,
-          "offset": 20
-        }
-      ],
-      "result": [
-        {
-          "hits": [
-            {
-              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "sessionTitle": "修复登录流程",
-              "seq": 12,
-              "itemId": "e12",
-              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "kind": "assistant_message",
-              "providerId": "deepseek-official",
-              "ts": "2026-10-12T08:00:00.000Z",
-              "snippet": "…已把 packages/host/src/event-store.ts 的登录审批改为…",
-              "highlights": [
-                {
-                  "start": 3,
-                  "end": 36
-                }
-              ]
-            }
-          ],
-          "nextOffset": 20,
-          "mode": "index",
-          "index": {
-            "state": "ready",
-            "fts": true,
-            "pendingSessions": 0,
-            "pendingEvents": 0
-          }
-        },
-        {
-          "hits": [
-            {
-              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "sessionTitle": "修复登录流程",
-              "seq": 12,
-              "itemId": "e12",
-              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
-              "kind": "command",
-              "providerId": "deepseek-official",
-              "ts": "2026-10-12T08:00:00.000Z",
-              "snippet": "…已把 packages/host/src/event-store.ts 的登录审批改为…",
-              "highlights": [],
-              "archived": true,
-              "side": true
-            }
-          ],
-          "nextOffset": null,
-          "mode": "scan",
-          "reason": "short_query",
-          "scan": {
-            "examined": 20000,
-            "limit": 20000,
-            "complete": false
-          },
-          "index": {
-            "state": "indexing",
-            "fts": true,
-            "pendingSessions": 3,
-            "pendingEvents": 1200
-          }
-        }
-      ]
-    },
-    "search.status": {
-      "params": [{}],
-      "result": [
-        {
-          "state": "ready",
-          "fts": true,
-          "pendingSessions": 0,
-          "pendingEvents": 0
-        },
-        {
-          "state": "indexing",
-          "fts": false,
-          "pendingSessions": 1,
-          "pendingEvents": 5
-        }
-      ]
-    },
-    "search.rebuild": {
-      "params": [{}],
-      "result": [
-        {
-          "state": "indexing",
-          "fts": true,
-          "pendingSessions": 300,
-          "pendingEvents": 200000
-        }
-      ]
     }
   },
   "notifications": {
@@ -9201,6 +9086,82 @@
           }
         },
         "collaborationMode": "plan"
+      }
+    },
+    {
+      "seq": 92,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "question.requested",
+      "source": "host",
+      "payload": {
+        "question": {
+          "id": "qst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "toolCallId": "call_ask_1",
+          "questions": [
+            {
+              "id": "scope",
+              "header": "范围",
+              "question": "这次改动做到哪一步？",
+              "options": [
+                {
+                  "label": "只做界面",
+                  "description": "协议另开任务"
+                },
+                {
+                  "label": "全链路",
+                  "description": "协议、Host 与界面一起"
+                }
+              ],
+              "allowOther": true,
+              "defaultOption": "全链路"
+            },
+            {
+              "id": "targets",
+              "question": "要覆盖哪些平台？",
+              "options": [
+                {
+                  "label": "macOS"
+                },
+                {
+                  "label": "Windows"
+                },
+                {
+                  "label": "Linux"
+                }
+              ],
+              "multiSelect": true,
+              "defaultOption": "macOS"
+            }
+          ],
+          "status": "pending",
+          "createdAt": "2026-10-12T08:00:00.000Z",
+          "autoAnswerAt": "2026-10-12T08:00:05.250Z"
+        }
+      }
+    },
+    {
+      "seq": 93,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "question.resolved",
+      "source": "host",
+      "payload": {
+        "questionId": "qst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "status": "answered",
+        "resolution": {
+          "reason": "timeout",
+          "answers": {
+            "scope": {
+              "answers": ["全链路"]
+            },
+            "targets": {
+              "answers": ["macOS"]
+            }
+          }
+        }
       }
     }
   ],

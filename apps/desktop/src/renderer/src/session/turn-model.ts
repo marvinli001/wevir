@@ -33,6 +33,32 @@ export function groupTurns(messages: readonly ChatMessage[]): TranscriptBlock[] 
 }
 
 /**
+ * 某个事件在消息流里的位置（任务回顾跳到出处，0.76.0）：seq 范围包含它的那条消息；没有时取它之前最近的一条（事件没有
+ * 自己的消息，例如审批、检查）。都没有时 -1。
+ */
+export function messageIndexForSeq(messages: readonly ChatMessage[], seq: number): number {
+  let before = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    const [first, last] = (messages[index] as ChatMessage).seqRange;
+    if (first <= seq && seq <= last) return index;
+    if (first <= seq) before = index;
+  }
+  return before;
+}
+
+/** 一块（回合或系统消息）覆盖的 seq 范围。 */
+export function blockSeqRange(block: TranscriptBlock): readonly [number, number] {
+  const messages = block.kind === 'turn' ? block.messages : [block.message];
+  let first = Number.POSITIVE_INFINITY;
+  let last = 0;
+  for (const message of messages) {
+    first = Math.min(first, message.seqRange[0]);
+    last = Math.max(last, message.seqRange[1]);
+  }
+  return [first, last];
+}
+
+/**
  * 分段渲染的起点往前挪到所在回合的第一条消息：一个回合不会只渲染后半截（折叠要看到整个回合）。
  */
 export function turnStart(messages: readonly ChatMessage[], index: number): number {
@@ -77,7 +103,7 @@ export interface TurnFold {
 }
 
 /**
- * 插话（R11）、错误部件、建议的任务（U23：卡片与回报）、上下文压缩（0.24.0）、计划（0.36.0）与交给用户的文件（0.40.0）始终显示，
+ * 插话（R11）、错误部件、建议的任务（U23：卡片与回报）、上下文压缩（0.24.0）、计划（0.36.0）、交给用户的文件（0.40.0）与第二意见（0.75.0）始终显示，
  * 收起的回合里也在。
  */
 export function alwaysShown(part: ChatPart): boolean {
@@ -86,6 +112,7 @@ export function alwaysShown(part: ChatPart): boolean {
     part.type === 'plan' ||
     part.type === 'tasks' ||
     part.type === 'task_report' ||
+    part.type === 'opinion' ||
     part.type === 'files' ||
     part.type === 'compaction'
   );

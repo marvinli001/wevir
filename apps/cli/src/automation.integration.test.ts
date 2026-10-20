@@ -1,7 +1,7 @@
 // wevir automation 的命令对着进程内的真实 Host（startHost + EchoAdapter）：建、列、看、改、启停、运行与删除，
 // 以及选项检查与 --json。计划、时区的换算本身在 commands/automation.test.ts。
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { RunningHost } from '@wevir/host';
 import type { Automation, AutomationRun } from '@wevir/protocol';
@@ -233,6 +233,97 @@ describe('wevir automation', () => {
     expect(gone.code).toBe(1);
     expect(gone.err).toContain(`错误：没有自动化 ${created.id}`);
     expect(gone.err).toContain('下一步：运行 wevir automation list 查看');
+  });
+
+  it('检查脚本：不唤醒时记“无变化”、不开会话；唤醒时把输出附给 Agent；test-check 试跑', async () => {
+    const { home, project } = await setup();
+    const created = await run(
+      [
+        'automation',
+        'create',
+        '--title',
+        '等发布',
+        '--project',
+        project,
+        '--check',
+        'test -f released && echo v1.2.0 || exit 1',
+        '--json',
+        '说明新版本',
+      ],
+      { home },
+    );
+    expect(created.code, created.err).toBe(0);
+    // --project 登记新目录时先打一行说明，JSON 在它后面。
+    const automation = JSON.parse(created.out.slice(created.out.indexOf('{'))) as Automation;
+    expect(automation.check).toEqual({
+      command: 'test -f released && echo v1.2.0 || exit 1',
+      wake: 'exit_code',
+    });
+
+    const tried = await run(['automation', 'test-check', automation.id], { home });
+    expect(tried.code, tried.err).toBe(0);
+    expect(tried.out).toMatch(/不唤醒\s+退出码 1/);
+
+    const started = await run(['automation', 'run', automation.id], { home });
+    expect(started.code, started.err).toBe(0);
+    expect(started.out).toMatch(/正在检查：等发布（arn_\w+）/);
+    let runs = await waitForRun(home, automation.id, 'silent');
+    expect(runs[0]).toMatchObject({ check: { decision: 'silent', exitCode: 1 } });
+    expect(runs[0]?.sessionId).toBeUndefined();
+
+    writeFileSync(join(project, 'released'), '');
+    await run(['automation', 'run', automation.id], { home });
+    runs = await waitForRun(home, automation.id, 'completed');
+    expect(runs[0]).toMatchObject({
+      // Windows 的 cmd 把 `||` 前的空格也算进 echo 的输出。
+      check: { decision: 'wake', exitCode: 0, output: expect.stringMatching(/^v1\.2\.0 ?\n$/) },
+      sessionId: expect.stringMatching(/^ses_/),
+    });
+    // Echo 引擎原样回显收到的消息：指令后面附着检查输出。
+    expect(runs[0]?.summary).toContain('<check_output command=');
+    expect(runs[0]?.summary).toContain('v1.2.0');
+
+    const shown = await run(['automation', 'show', automation.id], { home });
+    expect(shown.out).toMatch(/检查脚本\s+test -f released .*（退出码 0 唤醒）/);
+    expect(shown.out).toMatch(/手动\s+无变化/);
+
+    const removed = await run(['automation', 'update', automation.id, '--no-check', '--json'], {
+      home,
+    });
+    expect((JSON.parse(removed.out) as Automation).check).toBeUndefined();
+  });
+
+  it('--session 发进已有会话，用它的项目与模型', async () => {
+    const { home, project } = await setup();
+    const session = await run(['session', 'new', '-w', project, '--detach', 'hello'], { home });
+    expect(session.code, session.err).toBe(0);
+    const sessionId = /已创建会话 (ses_\w+)/.exec(session.out)?.[1] as string;
+    const created = await run(
+      ['automation', 'create', '--title', '跟进', '--session', sessionId, '--json', '继续'],
+      { home },
+    );
+    expect(created.code, created.err).toBe(0);
+    const automation = JSON.parse(created.out) as Automation;
+    expect(automation).toMatchObject({
+      sessionId,
+      newSessionEachRun: false,
+      providerId: 'echo-test',
+      workspaceId: expect.stringMatching(/^ws_/),
+    });
+    // attach 等到这个会话的回合结束。
+    const attached = await run(['session', 'attach', sessionId], { home });
+    expect(attached.out).toContain('空闲');
+    await run(['automation', 'run', automation.id], { home });
+    const runs = await waitForRun(home, automation.id, 'completed');
+    expect(runs[0]?.sessionId).toBe(sessionId);
+    // 不是自动化开的会话：消息前面一行说明。
+    expect(runs[0]?.summary).toContain('[Wevir automation "跟进"');
+
+    const fresh = await run(['automation', 'update', automation.id, '--new-session', '--json'], {
+      home,
+    });
+    expect(JSON.parse(fresh.out)).toMatchObject({ newSessionEachRun: true });
+    expect((JSON.parse(fresh.out) as Automation).sessionId).toBeUndefined();
   });
 
   it('选项与指令的用法错误；Host 拒绝的参数', async () => {

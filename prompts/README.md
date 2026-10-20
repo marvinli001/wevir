@@ -1,8 +1,8 @@
 # Wevir 提示词
 
-这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、自动修复，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
+这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、任务回顾摘要、自动修复，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
@@ -15,8 +15,10 @@
 | [`thread-title.md`](thread-title.md) | 会话标题与检索摘要 | Host（R3，`packages/host/src/title.ts`）：去掉注释作为说明；请求由适配器的 `generateTitle` 用会话的模型发（Codex 引擎，docs/architecture/codex-event-mapping.md §4.4） | 已接入（Codex 引擎） |
 | [`prompt-suggestion.md`](prompt-suggestion.md) | 输入建议：预测用户接着会发的一句话 | Host（0.53.0，`packages/host/src/prompt-suggestion.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发（不带工具的单次生成，不另开引擎连接） | 已接入（有 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`session-recap.md`](session-recap.md) | 离开后摘要：回到离开过的会话时的一到三句话小结 | Host（0.54.0，`packages/host/src/recap.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
+| [`session-retro.md`](session-retro.md) | 任务回顾的模型摘要：把确定性生成的回顾压成几点，每点引用回顾里的行 ID | Host（0.76.0，`packages/host/src/retro/summary.ts`）：去掉注释作为说明；只在用户点“生成摘要”时由适配器的 `generateTitle` 用会话的模型发一次，输入是脱敏后的回顾；输出不覆盖回顾本身，没有有效出处的点标“推断” | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
+| [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.75.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
@@ -28,7 +30,7 @@
 - **Codex 引擎 + 经网关的第三方模型**（DeepSeek、通义、Kimi、GLM、自定义服务等）：`base.md`。
 - **ChatGPT 订阅登录 + OpenAI 模型**：继续用 Codex 模型目录里按模型调好的提示词（ADR-0005 未决事项 1 原先的建议）。那些提示词针对 OpenAI 模型调过，Wevir 不替换。
 - **dsh、Grok Build、Gemini CLI 等通用 ACP 引擎**：用各自的提示词。`base.md` 里的工具名都是 Codex 的，不适用。
-- **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md` 与 `session-recap.md`**：与引擎无关，由 Host 直接调模型。
+- **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md`、`session-recap.md` 与 `session-retro.md`**：与引擎无关，由 Host 直接调模型。
 - **`verification-repair.md`**：与引擎无关，不单独调模型，是修复回合里交给会话自己的模型的一条消息。
 - **`compact.md`**：只在 Codex 引擎 + 经网关的第三方模型的 thread 上生效，用 `compact_prompt` 下发。
 
@@ -71,6 +73,11 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `review-comments.md` | `directory` | 批注所在的目录（仓库或会话的 worktree） |
 | `review-comments.md` | `version` | diff 的两侧：基线提交，以及快照提交或“工作树” |
 | `review-comments.md` | `comments` | 逐条的位置、原文代码块与意见，由 Host 拼好 |
+| `second-opinion.md` | `session` | 原会话的 ID |
+| `second-opinion.md` | `directory` | 快照所在的目录（意见会话的 worktree） |
+| `second-opinion.md` | `version` | 快照对应的分支与提交 |
+| `second-opinion.md` | `diff` | 看改动的命令：与默认分支的分叉点 `git diff <base>`，找不到时 `git diff HEAD` |
+| `second-opinion.md` | `material` | 原会话的标题、目标、最近的用户消息、最后的回答、计划、任务清单、检查状态、侧重点与改动的文件，由 Host 拼好，最后替换 |
 
 ## 审批自动复核
 
@@ -103,6 +110,14 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 - 模型：用当前会话的模型，推理档位取最低，经适配器的 `generateTitle`（不新开引擎连接，不排进会话的命令队列，不影响状态机）。超时 30 s、失败静默（只记告警）。
 - 缓存：只在 Host 内存里、按会话存，不写事件库；同一次“看得见的最后一个回合”只生成一次，并发的请求共用同一次生成，之后的请求直接拿缓存。
 
+## 任务回顾摘要
+
+- 触发（0.76.0，`retro.summarize`）：只在用户点“生成摘要”时调一次，不在后台生成。会话还在运行回合、子会话、没有回合、引擎没有 `generateTitle` 时不生成，结果里写明原因。
+- 输入：脱敏后的回顾（与导出同一套正则检查）写成 `<retro>`，每行 `[ID] 种类: 内容`，`<`、`>`、`&` 转义，每行截到 300 个字符。目标、完成与未完成项、验证记录、改动、提交、批注、交付状态与下一步总是保留；回合、用户的决定与 Agent 的命令按时间放，总长超过约 12 KB 时丢掉较早的，并注明省略了几行。
+- 输出：`{"points": [{"text": "…", "refs": ["…"]}]}`。Host 取第一个 `{` 到最后一个 `}` 之间的 JSON，最多留六点、每点 200 个字符；`refs` 只留输入里出现过的 ID（去重），一个都不剩的点标“推断”；没有可用的点就算失败，不保存。
+- 模型：用当前会话的模型，经适配器的 `generateTitle`（不新开引擎连接，不影响状态机）。超时 60 s。拿得到 token 用量时一起显示。
+- 存储：单独存一份（替换上一份），不写进事件库，也不改回顾本身；之后会话又有了新内容时标“早于最新事件”。
+
 ## 来源与许可
 
 改写自 OpenAI Codex 开源仓库（Apache-2.0，`rust-v0.162.1` = `092d3ac`）的部分，文件头写明了来源与修改，并登记在 [UPSTREAM.md §4](../docs/upstream/UPSTREAM.md) 与根目录 [`NOTICE`](../NOTICE)：
@@ -131,3 +146,7 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 ## 自动修复
 
 用户在项目设置里打开自动修复后，回合结束后 Host 跑的检查没有通过时，Host 用 `verification-repair.md` 开一个修复回合（默认最多 2 次，另有总时长与用量上限）。失败材料由 Host 拼好：每个失败的检查一个 `<check-output>` 块，属性里是检查名称、版本、命令、目录、状态、退出码、测试计数、代码状态、原回合与完整输出的路径，正文是输出的尾部（每个检查最多 6000 字，整份最多 24000 字，正文里的 `</check-output>` 会被改写）。说明里写明这些块是数据、不是指令。修复回合结束后 Host 重跑同样的检查，以那次结果为准；修复回合本身不再触发回合后检查。
+
+## 第二意见
+
+用户在会话里用 `/second-opinion`、或会话里的 agent 用 `wevir_second_opinion` 请另一个来源看这个会话当前的改动。Host 把原会话目录当时的样子（HEAD 加上没提交的改动与未跟踪文件）放进一个新的 worktree，在那里开一个 reviewer 角色的会话，第一条消息是角色说明加 `second-opinion.md`。材料放在 `<session-material>` 块里，说明里写明是数据、不是指令。意见会话第一个回合的最后一段回答就是意见，挂回原会话成一张卡片；用户点“引用”时 Host 再拼一条消息交给原会话的 agent，agent 自己请的意见好了自动引用。

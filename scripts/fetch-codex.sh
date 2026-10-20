@@ -2,7 +2,7 @@
 # 下载锁定版本的 codex-app-server 独立二进制并按 sha256 校验。默认装到开发缓存 .wevir-dev/bin/（gitignore），给
 # packages/adapter-codex 用（ADR-0005 决策 1.2）；--target / --out 给构建安装包用：按目标平台取二进制，放进桌面端的
 # 资源目录（ADR-0007 决策 5，apps/desktop 的 `pnpm resources`）。
-# 改写自 spikes/codex-app-server/scripts/fetch-binary.sh：写全 6 个平台（含 Windows 的 .exe）。
+# 写全 6 个平台（含 Windows 的 .exe）。
 #
 # Linux 另带 bwrap（Codex 的 Linux 沙箱；PATH 上没有 bwrap 时，Codex 用可执行文件旁边的 codex-resources/bwrap，
 # upstream/codex/codex-rs/linux-sandbox/README.md）。bwrap 是 LGPL-2.0-or-later，源码在 Codex 锁定提交的

@@ -235,7 +235,13 @@ describe('按预设裁剪说明', () => {
 
   it('core 去掉浏览器、LSP、进程、插件那几行，别的行原样；另加的组留下它那一行', () => {
     const core = toolPresetInstructions(APP_TOOLS_INSTRUCTIONS, CORE);
-    for (const gone of ['- browser_*', '- lsp_*', '- wevir_process_*', '- wevir_plugins_list']) {
+    for (const gone of [
+      '- browser_*',
+      '- lsp_*',
+      '- wevir_process_*',
+      '- wevir_workspace_readiness',
+      '- wevir_plugins_list',
+    ]) {
       expect(core).not.toContain(gone);
     }
     for (const kept of [
@@ -252,7 +258,7 @@ describe('按预设裁剪说明', () => {
       expect(core).toContain(kept);
     }
     const kept = new Set(core.split('\n'));
-    expect(APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => !kept.has(line))).toHaveLength(4);
+    expect(APP_TOOLS_INSTRUCTIONS.split('\n').filter((line) => !kept.has(line))).toHaveLength(5);
     expect(Buffer.byteLength(APP_TOOLS_INSTRUCTIONS) - Buffer.byteLength(core)).toBeGreaterThan(
       2000,
     );

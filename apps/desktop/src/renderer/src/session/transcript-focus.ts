@@ -1,12 +1,11 @@
-// 跳到消息流里的一处（0.72.0，会话搜索的结果）：搜索浮窗打开会话前把目标放进这里，那个会话的消息流（主窗格或子智能体窗格）
+// 跳到消息流里的一处（0.77.0，会话搜索的结果）：搜索浮窗打开会话前把目标放进这里，那个会话的消息流（主窗格或子智能体窗格）
 // 挂上、事件追到那条之后滚过去、闪一下命中的文字，然后清掉。按会话 ID 认领，不经路由：子会话在父会话的窗格里打开也一样。
 
-import type { ChatMessage } from '@wevir/client-sdk';
 import { createStore } from '@/lib/store';
 
 export interface TranscriptFocus {
   sessionId: string;
-  /** 事件的 `seq`：落在哪条消息的 `seqRange` 里就滚到哪条。 */
+  /** 事件的 `seq`：消息流追到它之后滚到它所在的消息（turn-model.ts 的 `messageIndexForSeq`）。 */
   seq: number;
   /** 命中的原文：在那条消息里找到它就滚到它并高亮。 */
   text?: string;
@@ -21,11 +20,6 @@ let nonce = 0;
 export function focusTranscript(target: Omit<TranscriptFocus, 'nonce'>): void {
   nonce += 1;
   transcriptFocus.set({ ...target, nonce });
-}
-
-/** `seq` 所在的消息（`seqRange` 含两端）；还没收到那条事件时是 -1。 */
-export function messageIndexOfSeq(messages: readonly ChatMessage[], seq: number): number {
-  return messages.findIndex(({ seqRange: [first, last] }) => first <= seq && seq <= last);
 }
 
 /** CSS Custom Highlight 的名字（styles/session.css）。 */

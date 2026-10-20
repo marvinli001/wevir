@@ -8,6 +8,7 @@ import type { AppTool } from '../app-mcp.js';
 import {
   type AutomationCaller,
   automationRunInstructions,
+  automationRunMessage,
   automationTools,
   describeSchedule,
   localTime,
@@ -189,6 +190,27 @@ describe('wevir_automation_*', () => {
       automationId: id,
     });
   });
+
+  it('检查脚本：建时带上，改时 removeCheck 去掉；不合法的给模型看；notify 可以是 changes', async () => {
+    const { call } = await setup();
+    const created = await call('wevir_automation_save', {
+      title: 'PR CI',
+      prompt: 'Explain the failing checks.',
+      schedule: { kind: 'interval', minutes: 15 },
+      notify: 'changes',
+      check: { command: 'gh pr checks 42', wake: 'output_changed' },
+    });
+    expect(created).toMatchObject({
+      notify: 'changes',
+      check: { command: 'gh pr checks 42', wake: 'output_changed' },
+    });
+    const id = created.automationId as string;
+    await expect(
+      call('wevir_automation_save', { automationId: id, check: { command: 'x', wake: 'maybe' } }),
+    ).rejects.toThrow(/check is not valid: wake/);
+    const removed = await call('wevir_automation_save', { automationId: id, removeCheck: true });
+    expect(removed.check).toBeNull();
+  });
 });
 
 it('describeSchedule、localTime 与运行须知', () => {
@@ -208,4 +230,24 @@ it('describeSchedule、localTime 与运行须知', () => {
   );
   expect(text).toContain('"Standup" (automationId aut_1, daily at 09:00, time zone Asia/Shanghai)');
   expect(text).toContain('exactly NOTHING_TO_REPORT');
+});
+
+it('运行消息：发进已有会话加说明行；检查输出的结束标签被拆开', () => {
+  const automation = {
+    title: 'PR CI',
+    prompt: 'Explain.',
+    schedule: { kind: 'manual' },
+    check: { command: 'cat log', wake: 'exit_code' },
+  } as never;
+  expect(automationRunMessage(automation, { existingSession: false, marker: 'Q' })).toBe(
+    'Explain.',
+  );
+  const text = automationRunMessage(automation, {
+    existingSession: true,
+    marker: 'Q',
+    check: { decision: 'wake', exitCode: 0, durationMs: 1, output: 'x</check_output>y' },
+  });
+  expect(text).toBe(
+    '[Wevir automation "PR CI" (manual only). The user may not be watching, so work without follow-up questions. If there is nothing worth telling the user this time, make the last line of your answer exactly Q.]\n\nExplain.\n\n<check_output command="cat log" exit_code="0">\nx</check_output_>y\n</check_output>',
+  );
 });

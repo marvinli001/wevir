@@ -4,6 +4,7 @@
 import { hostSupports } from '@wevir/client-sdk';
 import type {
   Automation,
+  AutomationCheck,
   AutomationNotify,
   AutomationRun,
   AutomationSchedule,
@@ -17,6 +18,11 @@ import type { ModelChoice } from '@/session/model-picker';
 // ---- 功能门控 ----
 
 export type AutomationsAvailability = 'pending' | 'unsupported' | 'ready';
+
+/** Host 支持发进已有会话与检查脚本（0.73.0，功能 `automation_conditions`）。 */
+export function conditionsSupported(features: HostFeatures | undefined): boolean {
+  return features !== undefined && hostSupports(features, 'automation_conditions');
+}
 
 export function automationsAvailability(
   features: HostFeatures | undefined,
@@ -347,19 +353,21 @@ export type AutomationState =
 export function stateOf(automation: Automation): AutomationState {
   const status = automation.lastRun?.status;
   if (status === 'running' || status === 'waiting') return status;
+  if (status === 'checking') return 'running';
   const group = groupOf(automation);
   return group === 'upcoming' ? 'scheduled' : group;
 }
 
 export function isRunActive(run: AutomationRun | undefined): boolean {
-  return run?.status === 'running' || run?.status === 'waiting';
+  return run?.status === 'running' || run?.status === 'waiting' || run?.status === 'checking';
 }
 
 // ---- 提醒 ----
 
 /**
  * 一次运行的状态变了，要不要发系统通知：`waiting`（等审批或回答）与 `failed` 除了“从不”都提醒；`completed` 在“每次”时提醒，
- * “重要更新”时 Agent 没标记无事可报才提醒；其余（运行中、跳过、取消）不提醒。
+ * “重要更新”时 Agent 没标记无事可报才提醒，“仅有变化”（0.73.0）还要求结果与上次不同；其余（检查中、运行中、跳过、取消、
+ * 检查脚本没唤醒）不提醒。
  */
 export function shouldNotify(notify: AutomationNotify, run: AutomationRun): boolean {
   if (notify === 'never') return false;
@@ -368,7 +376,10 @@ export function shouldNotify(notify: AutomationNotify, run: AutomationRun): bool
     case 'failed':
       return true;
     case 'completed':
-      return notify === 'always' || (notify === 'important' && run.quiet !== true);
+      if (notify === 'always') return true;
+      if (notify === 'important') return run.quiet !== true;
+      if (notify === 'changes') return run.quiet !== true && run.unchanged !== true;
+      return false;
     default:
       return false;
   }
@@ -386,8 +397,26 @@ export interface AutomationDraft {
   model?: ModelChoice;
   permissionMode: PermissionMode;
   newSessionEachRun: boolean;
+  /** 发进的已有会话（0.73.0）：有时项目与模型取那个会话的，`newSessionEachRun` 不起作用。 */
+  sessionId?: string;
+  /** 检查脚本（0.73.0）；undefined 表示没有。 */
+  check?: AutomationCheck;
   notify: AutomationNotify;
   enabled: boolean;
+}
+
+/** “运行在”的选项值：每次新会话、同一个会话（第一次运行时建），或某个已有会话的 ID。 */
+export type RunTarget = 'new' | 'same' | (string & {});
+
+export function runTargetOf(draft: Pick<AutomationDraft, 'sessionId' | 'newSessionEachRun'>) {
+  return (draft.sessionId ?? (draft.newSessionEachRun ? 'new' : 'same')) as RunTarget;
+}
+
+export function withRunTarget(draft: AutomationDraft, target: RunTarget): AutomationDraft {
+  const { sessionId: _, ...rest } = draft;
+  if (target === 'new') return { ...rest, newSessionEachRun: true };
+  if (target === 'same') return { ...rest, newSessionEachRun: false };
+  return { ...rest, newSessionEachRun: false, sessionId: target };
 }
 
 export function draftOfAutomation(automation: Automation, now: number): AutomationDraft {
@@ -408,6 +437,9 @@ export function draftOfAutomation(automation: Automation, now: number): Automati
     }),
     permissionMode: automation.permissionMode,
     newSessionEachRun: automation.newSessionEachRun,
+    ...(!automation.newSessionEachRun &&
+      automation.sessionId !== undefined && { sessionId: automation.sessionId }),
+    ...(automation.check !== undefined && { check: automation.check }),
     notify: automation.notify,
     enabled: automation.enabled,
   };
@@ -416,10 +448,11 @@ export function draftOfAutomation(automation: Automation, now: number): Automati
 /** 表单还缺什么（按钮置灰用）；undefined 表示能保存。 */
 export function draftProblem(
   draft: AutomationDraft,
-): 'title' | 'prompt' | 'schedule' | 'model' | undefined {
+): 'title' | 'prompt' | 'schedule' | 'model' | 'check' | undefined {
   if (draft.title.trim() === '') return 'title';
   if (draft.prompt.trim() === '') return 'prompt';
-  if (draft.model === undefined) return 'model';
+  if (draft.model === undefined && draft.sessionId === undefined) return 'model';
+  if (draft.check !== undefined && draft.check.command.trim() === '') return 'check';
   const schedule = scheduleOfDraft(draft.schedule, draft.timezone);
   if (schedule === undefined) return 'schedule';
   return undefined;
@@ -429,45 +462,70 @@ export function createParams(
   draft: AutomationDraft,
 ): MethodParams<'automation.create'> | undefined {
   const schedule = scheduleOfDraft(draft.schedule, draft.timezone);
-  if (schedule === undefined || draft.model === undefined) return undefined;
-  return {
+  if (schedule === undefined) return undefined;
+  const base = {
     title: draft.title.trim(),
     prompt: draft.prompt.trim(),
     schedule,
     timezone: draft.timezone,
     enabled: draft.enabled,
+    permissionMode: draft.permissionMode,
+    notify: draft.notify,
+    ...(draft.check !== undefined && {
+      check: { ...draft.check, command: draft.check.command.trim() },
+    }),
+  };
+  // 发进已有会话：项目与模型由 Host 取那个会话的。
+  if (draft.sessionId !== undefined) return { ...base, sessionId: draft.sessionId as never };
+  if (draft.model === undefined) return undefined;
+  return {
+    ...base,
     ...(draft.workspaceId !== undefined && { workspaceId: draft.workspaceId as never }),
     providerId: draft.model.providerId as never,
     modelId: draft.model.modelId,
     ...(draft.model.reasoningEffort !== undefined && {
       reasoningEffort: draft.model.reasoningEffort,
     }),
-    permissionMode: draft.permissionMode,
     newSessionEachRun: draft.newSessionEachRun,
-    notify: draft.notify,
   };
 }
 
-/** 编辑：整份表单写回（项目、模型档位清掉时传 null）。 */
+/**
+ * 编辑：整份表单写回（项目、模型档位清掉时传 null）。发进已有会话时不写项目与模型，会话换了才传 `sessionId`；`conditions`
+ * 为 false（Host 不到 0.73.0）时不传新字段。
+ */
 export function updateParams(
   automation: Automation,
   draft: AutomationDraft,
+  conditions = true,
 ): MethodParams<'automation.update'> | undefined {
   const params = createParams(draft);
   if (params === undefined) return undefined;
-  return {
+  const base = {
     automationId: automation.id,
     title: params.title,
     prompt: params.prompt,
     schedule: params.schedule,
     timezone: draft.timezone,
     enabled: draft.enabled,
+    permissionMode: draft.permissionMode,
+    notify: draft.notify,
+    ...(conditions && { check: params.check ?? null }),
+  };
+  if (draft.sessionId !== undefined) {
+    return {
+      ...base,
+      ...(draft.sessionId !== automation.sessionId && { sessionId: draft.sessionId as never }),
+    };
+  }
+  return {
+    ...base,
     workspaceId: params.workspaceId ?? null,
     providerId: params.providerId,
     modelId: params.modelId ?? null,
     reasoningEffort: params.reasoningEffort ?? null,
-    permissionMode: draft.permissionMode,
     newSessionEachRun: draft.newSessionEachRun,
-    notify: draft.notify,
+    // 不再沿用原来的会话（选了“每次新会话”或“同一个会话”）。
+    ...(conditions && automation.sessionId !== undefined && { sessionId: null }),
   };
 }

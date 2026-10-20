@@ -7,7 +7,7 @@
 // 滚到底，手动（manual）时不动；只有真实的输入手势（滚轮、触摸、导航键、拖滚动条）才能切换模式，布局钳位与
 // 程序滚动触发的 scroll 事件不算；手势滚到底部回到贴底；贴底时键盘焦点等把旧内容滚进视野也转为手动；
 // overflow-anchor 贴底时为 none、手动时为 auto（手动阅读时由浏览器锚定位置）；发送消息即回到贴底。U2：用户在消息流里
-// 点开或收起一处（工作组、回合）时转为手动、保持位置，不被拉回底部（holdPosition）；跳到搜索结果时直接转为手动（leaveBottom）。去掉
+// 点开或收起一处（工作组、回合）时转为手动、保持位置，不被拉回底部（holdPosition）；跳到某个事件时直接转为手动（release）。去掉
 // 移动端轮次留白、滚动位置与几何信息的持久化、历史分页、“跳到消息开头”，状态不进全局 store，只交出
 // “是否贴底”给“跳到最新”按钮。交互手感一轮：手势停下时离底部不超过 RESNAP_GAP_PX 就吸回贴底；“跳到最新”只在离底部超过
 // JUMP_VISIBLE_GAP_PX 时出现，轻推几像素不闪出来。
@@ -39,7 +39,7 @@ export function jumpVisible(sticky: boolean, distanceFromBottom: number): boolea
 interface Controller {
   jumpToLatest(behavior: ScrollBehavior): void;
   holdPosition(): void;
-  leaveBottom(): void;
+  release(): void;
 }
 
 export interface StickToBottom {
@@ -54,8 +54,11 @@ export interface StickToBottom {
    * 底部（内容不满一屏、收起了一处）就回到贴底。
    */
   holdPosition(): void;
-  /** 跳到消息流里的一处（搜索结果）：转为手动，之后非手势的滚动到了底部也不回到贴底，直到用户自己滚动。 */
-  leaveBottom(): void;
+  /**
+   * 转为手动模式、不再吸回底部（跳到某个事件的位置：任务回顾的出处 0.76.0、搜索结果 0.77.0）；之后非手势的滚动（滚动锚定、
+   * 程序滚动）到了底部也不回到贴底，直到用户自己滚动或跳到最新。
+   */
+  release(): void;
 }
 
 /**
@@ -83,7 +86,7 @@ export function useStickToBottom(
     let lastKnownTop = container.scrollTop;
     /** holdPosition 之后、布局之前：布局完仍在底部就回到贴底。 */
     let held = false;
-    /** leaveBottom 之后：非手势的滚动（滚动锚定、程序滚动）到了底部也不回到贴底，直到用户自己滚动或跳到最新。 */
+    /** release 之后：非手势的滚动（滚动锚定、程序滚动）到了底部也不回到贴底，直到用户自己滚动或跳到最新。 */
     let parked = false;
     let heldTimer: number | undefined;
     let settleTimer: number | undefined;
@@ -221,11 +224,12 @@ export function useStickToBottom(
         window.clearTimeout(heldTimer);
         heldTimer = window.setTimeout(settleHold, 200);
       },
-      leaveBottom() {
+      release() {
         smoothJump = false;
         parked = true;
         held = false;
         window.clearTimeout(heldTimer);
+        window.clearTimeout(settleTimer);
         setMode('manual');
       },
     };
@@ -251,7 +255,7 @@ export function useStickToBottom(
   }, []);
 
   const holdPosition = useCallback(() => controller.current?.holdPosition(), []);
-  const leaveBottom = useCallback(() => controller.current?.leaveBottom(), []);
+  const release = useCallback(() => controller.current?.release(), []);
 
-  return { sticky, showJump, jumpToLatest, holdPosition, leaveBottom };
+  return { sticky, showJump, jumpToLatest, holdPosition, release };
 }

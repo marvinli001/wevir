@@ -19,6 +19,7 @@ import {
   MessagesSquare,
   Pencil,
   Redo2,
+  Scale,
   ScanSearch,
   Shield,
   SquarePen,
@@ -223,6 +224,8 @@ export interface SessionCommandOptions {
   /** Host 能压缩上下文、审查代码（0.24.0）、会话当前的引擎会（0.27.0）且会话可写时给。 */
   onCompact?: () => void;
   onReview?: (target: ReviewTarget) => void;
+  /** 第二意见（0.75.0）：Host 声明 `second_opinion`、顶层会话且可写时给。 */
+  onSecondOpinion?: (choice: ModelChoice) => void;
   /** 会话能撤销与重做（0.51.0）且可写时给；`onRedo` 只在有撤销的回合可重做时给。 */
   onUndo?: () => void;
   onRedo?: () => void;
@@ -230,6 +233,45 @@ export interface SessionCommandOptions {
   goalEnabled?: boolean;
   /** 会话当前的引擎有计划模式（0.36.0）且会话可写时给。 */
   plan?: PlanCommandOptions;
+}
+
+/**
+ * `/second-opinion`（0.75.0）：二级菜单里选来源与模型，请它对会话当前的改动给第二意见。别的来源排在前面（意见要独立），会话自己的
+ * 来源在后。
+ */
+function secondOpinionCommand(
+  providers: readonly ProviderProfile[],
+  current: ModelChoice,
+  accounts: ReturnType<typeof useAccounts>,
+  onPick: (choice: ModelChoice) => void,
+): ComposerCommand {
+  return {
+    name: 'second-opinion',
+    label: t('command.secondOpinion'),
+    icon: Scale,
+    plus: true,
+    items: () => {
+      const listed = pickerOrder(providers.filter((candidate) => isPickable(candidate, accounts)));
+      const ordered = [
+        ...listed.filter((candidate) => candidate.id !== current.providerId),
+        ...listed.filter((candidate) => candidate.id === current.providerId),
+      ];
+      return ordered.flatMap((candidate) => {
+        const source = sourceOf(candidate);
+        const group = source
+          ? sourceTitle(candidate, accounts, t(source.name))
+          : candidate.displayName;
+        const logo = source?.logo ?? providerLogo(candidate);
+        return modelsOf(candidate).map<ComposerCommandItem>((model) => ({
+          id: `${candidate.id}/${model.id}`,
+          label: model.displayName ?? model.id,
+          detail: group,
+          icon: <ProviderLogo logo={logo} fallback={group} className="size-4" />,
+          run: () => onPick({ providerId: candidate.id, modelId: model.id }),
+        }));
+      });
+    },
+  };
 }
 
 /** `/goal`（0.35.0）：选中后输入框里是 `/goal `，接着写目标；也在“+”菜单里。 */
@@ -260,6 +302,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    onSecondOpinion,
     onUndo,
     onRedo,
     goalEnabled,
@@ -311,6 +354,9 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
         ],
       });
     }
+    if (onSecondOpinion) {
+      commands.push(secondOpinionCommand(providers, model, accounts, onSecondOpinion));
+    }
     commands.push(statusCommand(showContext));
     if (onRename) commands.push(simple('rename', t('command.rename'), Pencil, onRename));
     if (onArchive) commands.push(simple('archive', t('command.archive'), Archive, onArchive));
@@ -324,6 +370,7 @@ export function useSessionCommands(options: SessionCommandOptions): ComposerComm
     onArchive,
     onCompact,
     onReview,
+    onSecondOpinion,
     onUndo,
     onRedo,
     goalEnabled,

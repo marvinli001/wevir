@@ -44,7 +44,7 @@ import { usePanes } from '@/layout/pane-controller';
 import { draftScopeKey } from '@/layout/pane-state';
 import { movePaneScope } from '@/layout/pane-store';
 import { rememberWorkspace } from '@/routes/last-location';
-import { paths } from '@/routes/paths';
+import { paths, seqParam } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
 import { useRegisterCompact } from './compact-action';
 import {
@@ -56,6 +56,7 @@ import {
   setDraft,
 } from './composer';
 import { ContextMeter } from './context-meter';
+import { type DraftOrigin, draftOrigin, newSessionDraftKey } from './draft-origin';
 import { EnvironmentBar } from './environment-bar';
 import { GoalBanner } from './goal-banner';
 import { parseGoalCommand } from './goal-command';
@@ -585,6 +586,33 @@ export function SessionView({
         : undefined,
     [canReview, runCommand, client, session.id],
   );
+  // 第二意见（0.75.0，desktop-tokens §65）：`/second-opinion` 选来源与模型，Host 开意见会话；意见的卡片随事件出现在消息流里。
+  const canOpinion =
+    commandsEnabled &&
+    !session.side &&
+    session.opinionOf === undefined &&
+    hostSupports(view.hello.features, 'second_opinion');
+  const onSecondOpinion = useMemo(
+    () =>
+      client && canOpinion
+        ? (choice: ModelChoice) =>
+            void (async () => {
+              setNotice(undefined);
+              try {
+                const { session: reviewer } = await client.request('session.secondOpinion', {
+                  sessionId: session.id,
+                  providerId: choice.providerId,
+                  modelId: choice.modelId,
+                });
+                store?.upsertSession(reviewer);
+                transcriptRef.current?.jumpToLatest('auto');
+              } catch (error) {
+                setNotice(t('opinion.startFailed', { error: describe(error) }));
+              }
+            })()
+        : undefined,
+    [canOpinion, client, session.id, store],
+  );
   // 撤销与重做（0.51.0，desktop-tokens §58）：撤销最后一个回合——文件回到回合开始前、回合从消息记录里隐藏；用户写的文字放回输入框。
   // 之后会话没开始新回合时可以重做（横幅与 `/redo`）。文件没动时用提示说明原因。
   const undoAvailable =
@@ -658,6 +686,7 @@ export function SessionView({
     ...(onArchive && { onArchive }),
     ...(onCompact && { onCompact }),
     ...(onReview && { onReview }),
+    ...(onSecondOpinion && { onSecondOpinion }),
     ...(onUndo && { onUndo }),
     ...(onRedo && { onRedo }),
     goalEnabled: goalsEnabled,
@@ -695,6 +724,17 @@ export function SessionView({
   const onReady = useCallback((handle: TranscriptViewHandle) => {
     transcriptRef.current = handle;
   }, []);
+
+  // 跳到某个事件（任务回顾的出处，0.76.0）：主窗格地址里的 `?seq=N`，消息流追上之后滚过去，再从地址里去掉。
+  const location = useLocation();
+  const revealTarget = variant === 'main' ? seqParam(location.search) : undefined;
+  const caughtUp = state?.caughtUp === true;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 只在目标出现或消息流追上时跳一次，location.state 原样带回。
+  useEffect(() => {
+    if (revealTarget === undefined || !caughtUp) return;
+    transcriptRef.current?.revealSeq(revealTarget);
+    void navigate({ search: '' }, { replace: true, state: location.state });
+  }, [revealTarget, caughtUp, navigate]);
 
   const resume = useCallback(async () => {
     if (!client) return;
@@ -996,25 +1036,6 @@ function SessionPermissionPicker({
 
 const NO_PROVIDERS: readonly ProviderProfile[] = [];
 
-/** 新会话草稿页输入框的草稿归属。 */
-function newSessionDraftKey(workspaceId: string): string {
-  return `draft:${workspaceId}`;
-}
-
-/** 从只读会话“基于历史新建”时带给草稿页的路由 state。 */
-interface DraftOrigin {
-  providerId: string;
-  fromTitle: string;
-}
-
-function draftOrigin(state: unknown): DraftOrigin | undefined {
-  if (state === null || typeof state !== 'object') return undefined;
-  const { providerId, fromTitle } = state as Record<string, unknown>;
-  return typeof providerId === 'string' && typeof fromTitle === 'string'
-    ? { providerId, fromTitle }
-    : undefined;
-}
-
 /**
  * 新会话草稿（`/workspace/:wid/session`）：选工作区与模型，发出第一条消息时才建会话，建好后跳到会话页。U14 起与首页同一个
  * 版式（session/new-session.tsx：标题居中、输入框贴底），换项目即换到那个项目的草稿页。
@@ -1126,7 +1147,9 @@ export function DraftView({ entry }: { entry: WorkspaceEntry }) {
               data-testid="draft-from-history"
               className="mb-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
             >
-              {t('history.draftNotice', { title: origin.fromTitle })}
+              {t(origin.material === 'retro' ? 'retro.draftNotice' : 'history.draftNotice', {
+                title: origin.fromTitle,
+              })}
             </p>
           )}
           {noProvider && (

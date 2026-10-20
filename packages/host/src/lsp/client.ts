@@ -60,6 +60,35 @@ const SYNC_INCREMENTAL = 2;
 
 export class LspRequestError extends Error {}
 
+/** `initialize` 结果里声明了的能力（0.71.0 的 `lsp.status`），按 LSP 的方法名去掉 `Provider`。 */
+const CAPABILITY_NAMES: ReadonlyArray<[keyof ServerCapabilities, string]> = [
+  ['definitionProvider', 'definition'],
+  ['typeDefinitionProvider', 'typeDefinition'],
+  ['implementationProvider', 'implementation'],
+  ['referencesProvider', 'references'],
+  ['hoverProvider', 'hover'],
+  ['documentSymbolProvider', 'documentSymbol'],
+  ['workspaceSymbolProvider', 'workspaceSymbol'],
+  ['callHierarchyProvider', 'callHierarchy'],
+  ['diagnosticProvider', 'pullDiagnostics'],
+  ['completionProvider', 'completion'],
+  ['signatureHelpProvider', 'signatureHelp'],
+  ['renameProvider', 'rename'],
+  ['codeActionProvider', 'codeAction'],
+  ['documentFormattingProvider', 'formatting'],
+  ['documentRangeFormattingProvider', 'rangeFormatting'],
+  ['inlayHintProvider', 'inlayHint'],
+  ['semanticTokensProvider', 'semanticTokens'],
+  ['executeCommandProvider', 'executeCommand'],
+];
+
+export function capabilityNames(capabilities: ServerCapabilities): string[] {
+  return CAPABILITY_NAMES.flatMap(([key, name]) => {
+    const value = capabilities[key];
+    return value === undefined || value === null || value === false ? [] : [name];
+  });
+}
+
 interface OpenDocument {
   version: number;
   text: string;
@@ -145,6 +174,8 @@ export class LspClient {
   readonly label: string;
   /** 最近一次使用（请求或同步文档）的时间。 */
   usedAt = Date.now();
+  /** 最近一次取完诊断的时间（0.71.0 的 `lsp.status`）。 */
+  diagnosticsAt: number | undefined;
   readonly #options: LspClientOptions;
   readonly #process: ChildProcessWithoutNullStreams;
   readonly #connection: ProtocolConnection;
@@ -554,10 +585,12 @@ export class LspClient {
       }
       if (handled) {
         this.#pulled.set(file, dedupe(items));
+        this.diagnosticsAt = Date.now();
         return { diagnostics: this.known(file) ?? [], timedOut: false };
       }
     }
     const fresh = await this.#waitForPush(file, Math.max(0, deadline - Date.now()));
+    this.diagnosticsAt = Date.now();
     return { diagnostics: this.known(file) ?? [], timedOut: !fresh };
   }
 

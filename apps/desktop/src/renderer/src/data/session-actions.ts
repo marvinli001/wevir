@@ -4,6 +4,7 @@
 
 import { hostSupports, type WevirClient } from '@wevir/client-sdk';
 import type { HostFeatures, Session, SessionId } from '@wevir/protocol';
+import { openAutomationDialog } from '@/automations/automation-dialog';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { createPersistedStore, createStore } from '@/lib/store';
@@ -208,6 +209,8 @@ export interface SessionActions {
   rename?: () => void;
   archive?: () => void;
   branch?: () => void;
+  /** 新建发进这个会话的自动化（0.73.0，Host 功能 `automation_conditions`）。 */
+  automate?: () => void;
   remove?: () => void;
   toggleUnread(): void;
   copyId(): void;
@@ -232,6 +235,14 @@ export function useSessionActions(session: Session): SessionActions {
   const branchable =
     view.status === 'connected' && canBranchSession(session, view.hello.features, engine);
 
+  const automatable =
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'automation_conditions') &&
+    session.parentSessionId === undefined &&
+    session.readOnly === undefined &&
+    session.automation === undefined &&
+    session.state !== 'closed';
+
   const guard = (failure: ActionFailure, task: () => Promise<unknown>) => () => {
     task().catch((error: unknown) => reportActionFailure(t(failure, { error: describe(error) })));
   };
@@ -253,6 +264,9 @@ export function useSessionActions(session: Session): SessionActions {
       client && {
         branch: guard('message.branchFailed', () => branchSession(client, store, session)),
       }),
+    ...(automatable && {
+      automate: () => openAutomationDialog({ kind: 'create', sessionId: session.id }),
+    }),
     ...(manage.remove && manage.archive && { remove: () => requestDelete(session) }),
     copyId: copy(session.id),
     copyCwd: copy(session.cwd),

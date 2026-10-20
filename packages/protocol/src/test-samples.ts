@@ -1,7 +1,7 @@
 // 仅供测试：各 schema 的合法与非法样例。不从 index.ts 导出，不进入构建产物。
 // 合法样例以 TS 类型约束（与 z.infer 一致），非法样例各自只破坏一处，便于定位。
 
-import type { Automation, AutomationRun } from './automations.js';
+import type { Automation, AutomationCheckResult, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
 import type { ClientIdentity } from './common.js';
 import type {
@@ -17,6 +17,7 @@ import type {
   PromptSuggestion,
   ProviderProfile,
   QuestionRequest,
+  SecondOpinion,
   Session,
   SessionGoal,
   SessionRules,
@@ -30,6 +31,7 @@ import type {
 import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
 import type { GitStatusResult } from './git.js';
+import type { LspInstallRun, LspServerStatus } from './lsp.js';
 import {
   IMAGE_UPLOAD_DATA_MAX_LENGTH,
   type MethodName,
@@ -39,6 +41,8 @@ import {
   type NotificationParams,
 } from './methods.js';
 import type { HostProcess } from './processes.js';
+import type { InstallRun, ReadinessReport } from './readiness.js';
+import type { RetroSummary, SessionRetro } from './retro.js';
 import type { ReviewComment } from './review.js';
 import type { Terminal } from './terminals.js';
 import type {
@@ -90,6 +94,11 @@ export const ids = {
   /** 行级批注（0.67.0）。 */
   reviewComment: `rvc_${ULID}`,
   reviewComment2: 'rvc_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  /** 项目安装（0.70.0）。 */
+  installRun: `ins_${ULID}`,
+  /** 第二意见（0.75.0）与给意见的会话。 */
+  opinion: `opn_${ULID}`,
+  opinionSession: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR5',
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -222,6 +231,340 @@ export const verificationRun: VerificationRun = {
   summary: 'not ok 4 - converts -40\n# pass 3\n# fail 1',
   output: { bytes: 1840, truncated: false },
   fingerprint: 'sha256:77aa',
+};
+
+/** 一次项目安装（0.70.0）：网络失败。 */
+export const installRun: InstallRun = {
+  id: ids.installRun,
+  workspaceId: ids.workspace,
+  root: '/home/u/projects/demo',
+  planId: 'pln_5c2a91e0',
+  path: '',
+  manager: 'pnpm',
+  command: 'pnpm install --frozen-lockfile',
+  status: 'failed',
+  reason: 'network',
+  startedAt: TS,
+  finishedAt: TS2,
+  durationMs: 5250,
+  exitCode: 1,
+  timeoutMs: 900_000,
+  bytes: 420,
+  summary: 'ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND',
+};
+
+/** 项目环境的预检报告（0.70.0）：依赖比锁文件旧，有一个安装方案。 */
+export const readinessReport: ReadinessReport = {
+  workspaceId: ids.workspace,
+  root: '/home/u/projects/demo',
+  status: 'not_ready',
+  checkedAt: TS,
+  durationMs: 320,
+  projects: [{ path: '', ecosystems: ['node'] }],
+  items: [
+    {
+      id: 'package_manager::pnpm',
+      kind: 'package_manager',
+      name: 'pnpm',
+      path: '',
+      status: 'ready',
+      required: '12.6.0',
+      found: '12.6.0',
+      blocking: true,
+      evidence: [
+        { kind: 'file', path: 'package.json', detail: 'packageManager: pnpm@12.6.0' },
+        { kind: 'command', command: 'pnpm --version', exitCode: 0, output: '12.6.0' },
+      ],
+    },
+    {
+      id: 'dependencies::node',
+      kind: 'dependencies',
+      name: 'node_modules',
+      path: '',
+      status: 'incompatible',
+      reason: 'dependencies_outdated',
+      blocking: true,
+      evidence: [
+        { kind: 'file', path: 'node_modules/.modules.yaml', detail: 'older than pnpm-lock.yaml' },
+      ],
+    },
+    {
+      id: `check::${ids.check}`,
+      kind: 'check',
+      name: 'test',
+      path: '',
+      status: 'ready',
+      blocking: false,
+      checkId: ids.check,
+      evidence: [{ kind: 'file', path: 'package.json', detail: 'scripts.test' }],
+    },
+  ],
+  plans: [
+    {
+      id: 'pln_5c2a91e0',
+      path: '',
+      manager: 'pnpm',
+      command: 'pnpm install --frozen-lockfile',
+      lockfile: 'pnpm-lock.yaml',
+      writesLockfile: false,
+      reason: 'dependencies_outdated',
+      scripts: { project: ['postinstall'], dependencies: 'restricted' },
+      credentials: [{ name: 'NPM_TOKEN', source: 'wevir' }],
+    },
+  ],
+  network: {
+    registries: [
+      { ecosystem: 'node', url: 'https://registry.npmjs.org/', source: 'default', auth: 'none' },
+      { ecosystem: 'node', url: 'https://npm.example.com/', source: '.npmrc', auth: 'configured' },
+    ],
+    proxy: ['HTTPS_PROXY'],
+    agent: {
+      engine: 'codex',
+      permissionMode: 'on_request',
+      network: 'sandboxed',
+      domains: 'not_enforced',
+    },
+    advice: ['install_by_user', 'domains_not_enforced'],
+  },
+  install: installRun,
+};
+
+/** 一次语言服务器安装（0.71.0）：装完验证通过。 */
+export const lspInstallSample: LspInstallRun = {
+  id: 'lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T',
+  serverId: 'typescript',
+  root: '/home/u/projects/demo',
+  planId: 'project-add-typescript',
+  scope: 'project',
+  command: 'pnpm add -D typescript',
+  status: 'succeeded',
+  startedAt: TS,
+  endedAt: TS2,
+  exitCode: 0,
+  output: '$ pnpm add -D typescript\n+ typescript 7.0.2\n',
+  verification: { server: 'tsc --lsp (TypeScript 7.0.2)', file: 'src/index.ts', diagnostics: 2 },
+};
+
+/** 语言服务器的状态（0.71.0）：在运行的，与没装、带方案的。 */
+export const lspRunningSample: LspServerStatus = {
+  serverId: 'typescript',
+  language: 'TypeScript/JavaScript',
+  root: '/home/u/projects/demo',
+  state: 'running',
+  name: 'tsc --lsp (TypeScript 7.0.2)',
+  path: '/home/u/projects/demo/node_modules/@typescript/typescript-darwin-arm64/lib/tsc',
+  source: 'project',
+  version: '7.0.2',
+  capabilities: ['definition', 'references', 'hover', 'rename', 'codeAction'],
+  startedAt: TS,
+  lastDiagnosticsAt: TS2,
+  install: lspInstallSample,
+};
+
+export const lspMissingSample: LspServerStatus = {
+  serverId: 'go',
+  language: 'Go',
+  root: '/home/u/projects/demo/tool',
+  state: 'missing',
+  reason: 'gopls not found. Install it: go install golang.org/x/tools/gopls@latest',
+  plans: [
+    {
+      id: 'user-go',
+      scope: 'user',
+      command: 'go install golang.org/x/tools/gopls@latest',
+      runnable: true,
+    },
+  ],
+};
+
+/** 一份任务回顾（0.76.0）：改了代码、检查通过但之后又改了文件、有未提交的改动。 */
+export const sessionRetro: SessionRetro = {
+  sessionId: ids.session,
+  title: '温度换算支持开尔文',
+  schemaVersion: 1,
+  throughSeq: 42,
+  builtAt: TS,
+  checkedAt: TS2,
+  build: 'incremental',
+  running: false,
+  goal: {
+    recorded: true,
+    request: {
+      id: 'e2',
+      text: '把温度换算改成支持开尔文',
+      ref: { kind: 'event', seq: 2, turnId: ids.turn },
+    },
+  },
+  done: [
+    {
+      id: 'e9.0',
+      text: '实现 toKelvin',
+      origin: 'todo',
+      status: 'completed',
+      ref: { kind: 'event', seq: 9, turnId: ids.turn },
+    },
+  ],
+  open: [
+    {
+      id: 'b:t2',
+      text: '补文档',
+      origin: 'board',
+      status: 'pending',
+      owner: ids.childSession,
+      ref: { kind: 'event', seq: 30 },
+    },
+  ],
+  boardRecorded: true,
+  turns: [
+    {
+      id: `t:${ids.turn}`,
+      turnId: ids.turn,
+      seq: 3,
+      endSeq: 20,
+      outcome: 'completed',
+      text: '把温度换算改成支持开尔文',
+      kind: 'user',
+      files: ['src/convert.ts'],
+      commands: 2,
+      diff: 'available',
+      fileCount: 1,
+      added: 12,
+      removed: 3,
+      at: TS,
+    },
+  ],
+  hiddenTurns: 1,
+  changes: {
+    recorded: true,
+    repo: true,
+    files: [
+      {
+        id: 'f:src/convert.ts',
+        path: 'src/convert.ts',
+        turnIds: [ids.turn],
+        diff: 'deleted',
+      },
+    ],
+    commits: [{ id: `c:${SHA1}`, sha: SHA1, subject: 'Add kelvin', at: TS2 }],
+    uncommitted: 2,
+    branch: 'main',
+    head: SHA1,
+  },
+  verification: {
+    recorded: true,
+    checks: [
+      {
+        id: `v:${ids.verificationRun}`,
+        checkId: ids.check,
+        runId: ids.verificationRun,
+        name: 'test',
+        command: 'pnpm test',
+        kind: 'test',
+        status: 'passed',
+        evidence: 'outdated',
+        codeState: { kind: 'git', head: SHA1, tree: SHA2 },
+        tests: { passed: 4, failed: 0, skipped: 0 },
+        exitCode: 0,
+        turnId: ids.turn,
+        seq: 24,
+        finishedAt: TS2,
+        earlier: [
+          {
+            runId: 'vrn_01JA2B3C4D5E6F7G8H9JKMNPR2',
+            status: 'failed',
+            reason: 'exit_code',
+            seq: 16,
+            turnId: ids.turn,
+          },
+        ],
+      },
+    ],
+    acceptance: 'unverified',
+    commands: [
+      {
+        id: 'e12',
+        text: 'pnpm test',
+        status: 'completed',
+        ref: { kind: 'event', seq: 12, turnId: ids.turn },
+      },
+    ],
+    codeState: { kind: 'git', head: SHA1, tree: SHA1 },
+  },
+  review: {
+    recorded: true,
+    comments: [
+      {
+        id: `r:${ids.reviewComment}`,
+        text: '这里要处理负数',
+        path: 'src/convert.ts',
+        line: 12,
+        status: 'pending',
+        outdated: true,
+        ref: {
+          kind: 'review',
+          commentId: ids.reviewComment,
+          path: 'src/convert.ts',
+          source: { kind: 'uncommitted' },
+        },
+      },
+    ],
+  },
+  decisions: [
+    { id: 'e15', kind: 'steer', text: '别改公共接口', ref: { kind: 'event', seq: 15 } },
+    { id: 'e40', kind: 'undone', text: '', ref: { kind: 'event', seq: 40 } },
+  ],
+  delivery: {
+    checks: 'outdated',
+    commit: 'uncommitted',
+    push: 'not_pushed',
+    ci: 'unknown',
+    deploy: 'unknown',
+    ahead: 1,
+  },
+  next: [
+    {
+      id: `n:v:${ids.verificationRun}`,
+      kind: 'rerun_check',
+      text: 'test',
+      ref: { kind: 'verification', runId: ids.verificationRun, seq: 24 },
+    },
+  ],
+  sessions: [
+    {
+      id: `s:${ids.childSession}`,
+      text: '补文档',
+      sessionId: ids.childSession,
+      relation: 'opened',
+      source: 'deleted',
+      ref: { kind: 'session', sessionId: ids.childSession },
+    },
+  ],
+  memories: [
+    {
+      id: 'e18',
+      text: 'kelvin-rounding',
+      scope: 'project',
+      name: 'kelvin-rounding',
+      operation: 'save',
+      source: 'available',
+      ref: { kind: 'memory', scope: 'project', name: 'kelvin-rounding' },
+    },
+  ],
+};
+
+/** 一份模型摘要（0.76.0）：一点有出处，一点是推断。 */
+export const retroSummary: RetroSummary = {
+  points: [
+    { text: '开尔文换算已实现，测试通过的是旧版本。', refs: ['e9.0', `v:${ids.verificationRun}`] },
+    { text: '负数处理可能还没做。', refs: [], inferred: true },
+  ],
+  providerId: 'deepseek-official',
+  modelId: 'deepseek-chat',
+  throughSeq: 42,
+  generatedAt: TS2,
+  inputBytes: 3200,
+  outputBytes: 210,
+  usage: { inputTokens: 1100, outputTokens: 80 },
 };
 
 /** Agent 起的后台进程（0.69.0）：还在跑。 */
@@ -756,6 +1099,49 @@ export const branchSession: Session = {
   lastSeq: 9,
 };
 
+/** 给意见的会话（0.75.0）：在 Host 开的 worktree 里，用另一个来源。 */
+export const opinionSession: Session = {
+  ...idleSession,
+  id: ids.opinionSession,
+  cwd: '/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir',
+  providerId: 'claude',
+  modelId: 'claude-opus-5-5',
+  title: '第二意见：修复登录',
+  worktrees: [
+    {
+      workspaceId: ids.workspace,
+      path: '/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir',
+      branch: 'wevir/opinion-8h9jkmnpr5',
+    },
+  ],
+  opinionOf: { sessionId: ids.session, opinionId: ids.opinion },
+  lastSeq: 1,
+};
+
+/** 第二意见（0.75.0）：还在看。 */
+export const runningOpinion: SecondOpinion = {
+  id: ids.opinion,
+  sessionId: ids.opinionSession,
+  providerId: 'claude',
+  modelId: 'claude-opus-5-5',
+  requestedBy: 'user',
+  focus: '登录失败后的重试是否会重复提交',
+  basis: { turnId: ids.turn, head: SHA1, branch: 'fix-login', base: SHA2 },
+  status: 'running',
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 第二意见（0.75.0）：有了意见，已引用进原会话。 */
+export const quotedOpinion: SecondOpinion = {
+  ...runningOpinion,
+  status: 'ready',
+  outcome: 'completed',
+  text: '1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。',
+  quoted: { at: TS2, turnId: ids.turn },
+  updatedAt: TS2,
+};
+
 export const toolDisplay: ToolDisplay = {
   kind: 'write',
   summary: '/tmp/wevir-outside.txt',
@@ -914,16 +1300,21 @@ export const pendingQuestion: QuestionRequest = {
         { label: '全链路', description: '协议、Host 与界面一起' },
       ],
       allowOther: true,
+      // 0.72.0：推荐的选项。
+      defaultOption: '全链路',
     },
     {
       id: 'targets',
       question: '要覆盖哪些平台？',
       options: [{ label: 'macOS' }, { label: 'Windows' }, { label: 'Linux' }],
       multiSelect: true,
+      defaultOption: 'macOS',
     },
   ],
   status: 'pending',
   createdAt: TS,
+  // 0.72.0：无人值守的会话里到时按推荐回答。
+  autoAnswerAt: TS2,
 };
 
 export const snapshot: SessionSnapshot = {
@@ -1063,7 +1454,11 @@ export const eventPayloads: PayloadSamples = {
       content: [{ type: 'text', text: '帮我整理本周周报' }, imagePart],
       sentBy: identity,
       pendingId: ids.pending2,
-      from: { sessionId: ids.childSession, kind: 'report' },
+      from: {
+        sessionId: ids.opinionSession,
+        kind: 'report',
+        opinion: { opinionId: ids.opinion, note: '按第 1 条改' },
+      },
       collaborationMode: 'plan',
     },
     invalid: { turnId: ids.turn, content: [], sentBy: identity },
@@ -1192,13 +1587,13 @@ export const eventPayloads: PayloadSamples = {
     valid: {
       questionId: ids.question,
       status: 'answered',
+      // 0.72.0：超时，按推荐回答。
       resolution: {
-        reason: 'user',
-        answers: { scope: { answers: ['全链路'] }, targets: { answers: ['macOS', 'Linux'] } },
-        answeredBy: identity,
+        reason: 'timeout',
+        answers: { scope: { answers: ['全链路'] }, targets: { answers: ['macOS'] } },
       },
     },
-    invalid: { questionId: ids.question, status: 'pending', resolution: { reason: 'user' } },
+    invalid: { questionId: ids.question, status: 'answered', resolution: { reason: 'expired' } },
   },
   'usage.updated': {
     valid: {
@@ -1338,6 +1733,10 @@ export const eventPayloads: PayloadSamples = {
     valid: { repair: repairChain },
     invalid: { repair: { ...repairChain, attempt: -1 } },
   },
+  'opinion.updated': {
+    valid: { opinion: quotedOpinion },
+    invalid: { opinion: { ...runningOpinion, status: 'done' } },
+  },
 };
 
 export function eventOf<T extends WevirEventType>(type: T, seq = 7): WevirEventOf<T> {
@@ -1385,6 +1784,35 @@ const automationRunFailedSample: AutomationRun = {
   error: 'provider deepseek not found',
 };
 
+const automationRunSilentSample: AutomationRun = {
+  id: 'arn_01JA2B3C4D5E6F7G8H9JKMNPR2',
+  automationId: ids.automation,
+  trigger: 'schedule',
+  status: 'silent',
+  startedAt: '2026-10-20T21:00:00.000Z',
+  finishedAt: '2026-10-20T21:00:02.000Z',
+  check: { decision: 'silent', exitCode: 1, durationMs: 1840, output: 'no new failures\n' },
+};
+
+const automationRunCheckFailedSample: AutomationRun = {
+  id: 'arn_01JA2B3C4D5E6F7G8H9JKMNPR3',
+  automationId: ids.automation,
+  trigger: 'manual',
+  status: 'failed',
+  startedAt: '2026-10-20T22:00:00.000Z',
+  finishedAt: '2026-10-20T22:01:00.000Z',
+  error: 'The check timed out after 60 s.',
+  check: {
+    decision: 'failed',
+    exitCode: null,
+    timedOut: true,
+    durationMs: 60_000,
+    output: '…waiting',
+    truncated: true,
+    error: 'The check timed out after 60 s.',
+  },
+};
+
 const automationSample: Automation = {
   id: ids.automation,
   title: '依赖更新检查',
@@ -1404,6 +1832,18 @@ const automationSample: Automation = {
   nextRunAt: '2026-10-21T20:00:00.000Z',
   lastRun: automationRunSample,
   runCount: 3,
+};
+
+const automationCheckedSample: Automation = {
+  ...automationSample,
+  schedule: { kind: 'interval', minutes: 15 },
+  newSessionEachRun: false,
+  sessionId: ids.session,
+  notify: 'changes',
+  check: { command: 'gh pr checks 42', wake: 'output_changed', timeoutSeconds: 30 },
+  enabled: false,
+  autoPausedAt: '2026-10-20T22:01:00.000Z',
+  lastRun: { ...automationRunSample, unchanged: true },
 };
 
 const connector = {
@@ -1449,6 +1889,30 @@ const pluginConnector = {
   },
   enabled: true,
 };
+/** 0.74.0：只给一个项目、从 Claude Code 导入的连接器与从 Codex 导入的 skill。 */
+const importedConnector = {
+  ...connector,
+  id: 'con_imported',
+  name: 'supabase',
+  workspaceId: ids.workspace,
+  importedFrom: { app: 'claude' as const, path: '/Users/me/project/.mcp.json' },
+};
+const pluginList071 = {
+  connectors: [connector, importedConnector],
+  skills: [
+    skill,
+    {
+      ...skill,
+      id: 'skl_imported',
+      name: 'imported-skill',
+      source: 'user' as const,
+      importedFrom: {
+        app: 'codex' as const,
+        path: '/Users/me/.codex/skills/imported-skill/SKILL.md',
+      },
+    },
+  ],
+};
 const pluginList042 = {
   connectors: [connector, pluginConnector],
   skills: [skill, { ...skill, id: 'skl_plugin', name: 'plugin-skill', pluginId: plugin.id }],
@@ -1476,6 +1940,90 @@ const memorySourced: MemoryNote = {
   lastEdit: { by: 'user', at: TS },
 };
 
+/** 0.74.0：用户从 Claude Code 导入的笔记。 */
+const memoryImported: MemoryNote = {
+  ...memoryNote,
+  origin: {
+    by: 'user',
+    at: TS,
+    importedFrom: {
+      app: 'claude',
+      path: '/Users/me/.claude/projects/-Users-me-shop/memory/invoice-cents.md',
+    },
+  },
+  lastEdit: { by: 'user', at: TS },
+};
+
+/** 0.74.0：一次扫描 Claude Code 的结果。 */
+const importScan = {
+  app: 'claude' as const,
+  found: true,
+  home: '/Users/me/.claude',
+  memories: [
+    {
+      key: 'mem:4f2a9c',
+      path: '/Users/me/.claude/projects/-Users-me-shop/memory/invoice-cents.md',
+      status: 'new' as const,
+      recommended: true,
+      project: '/Users/me/shop',
+      name: 'invoice-cents',
+      type: 'feedback' as const,
+      description: 'Discounts are computed in integer cents',
+      content: 'Compute discounts in integer cents.',
+      scope: 'project' as const,
+      workspaceId: ids.workspace,
+    },
+    {
+      key: 'mem:77b0e1',
+      path: '/Users/me/.claude/projects/-Users-me-old/memory/huge.md',
+      status: 'new' as const,
+      problem: 'too_large',
+      recommended: false,
+      project: '/Users/me/old',
+      name: 'huge',
+      type: 'reference' as const,
+      description: 'Long notes',
+      content: '',
+      scope: 'global' as const,
+    },
+  ],
+  connectors: [
+    {
+      key: 'con:91c3d0',
+      path: '/Users/me/shop/.mcp.json',
+      status: 'new' as const,
+      recommended: true,
+      project: '/Users/me/shop',
+      name: 'supabase',
+      config: {
+        transport: 'http' as const,
+        url: 'https://mcp.supabase.com/mcp',
+        headers: { Authorization: true as const },
+      },
+      workspaceId: ids.workspace,
+    },
+    {
+      key: 'con:0d5e7a',
+      path: '/Users/me/.claude.json',
+      status: 'exists' as const,
+      problem: 'unsupported_transport',
+      recommended: false,
+      name: 'legacy',
+    },
+  ],
+  skills: [
+    {
+      key: 'skl:5a1b2c',
+      path: '/Users/me/.claude/skills/review/SKILL.md',
+      status: 'same' as const,
+      recommended: false,
+      name: 'review',
+      description: 'Review the current diff',
+    },
+  ],
+  unsupported: [],
+};
+
 /** 0.62.0：一组请求的合计。 */
 const usageAggregate = {
   requests: 1_212,
@@ -1497,7 +2045,7 @@ const usageAggregate = {
   },
 };
 
-/** 会话全文搜索（0.72.0）。 */
+/** 会话全文搜索（0.77.0）。 */
 export const searchHit: MethodResult<'search.query'>['hits'][number] = {
   sessionId: ids.session,
   workspaceId: ids.workspace,
@@ -1522,8 +2070,16 @@ export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
     result: {
-      valid: [pluginList, pluginList042],
-      invalid: [{ connectors: [] }, { ...pluginList042, plugins: [{ ...plugin, source: 'npm' }] }],
+      valid: [pluginList, pluginList042, pluginList071],
+      invalid: [
+        { connectors: [] },
+        { ...pluginList042, plugins: [{ ...plugin, source: 'npm' }] },
+        { ...pluginList071, connectors: [{ ...importedConnector, workspaceId: 'project-1' }] },
+        {
+          ...pluginList071,
+          connectors: [{ ...importedConnector, importedFrom: { app: 'cursor', path: '/x' } }],
+        },
+      ],
     },
   },
   'connector.add': {
@@ -1542,9 +2098,15 @@ export const methodSamples: MethodSamples = {
             toolTimeoutSec: 20,
           },
         },
+        {
+          name: 'project-db',
+          config: { transport: 'stdio', command: 'npx', args: ['db-mcp'] },
+          workspaceId: ids.workspace,
+        },
       ],
       invalid: [
         { name: 'wevir_bad', config: { transport: 'stdio', command: 'node' } },
+        { name: 'x', config: { transport: 'stdio', command: 'node' }, workspaceId: 'ws-' },
         { name: 'Upper', config: { transport: 'stdio', command: 'node' } },
       ],
     },
@@ -2811,8 +3373,14 @@ export const methodSamples: MethodSamples = {
         { ...snapshot, taskBoard: [boardTask, waitingBoardTask] },
         { ...snapshot, taskBoard: [] },
         { ...snapshot, promptSuggestion },
+        {
+          ...snapshot,
+          opinions: [runningOpinion, { ...quotedOpinion, id: 'opn_01JA2B3C4D5E6F7G8H9JKMNPR1' }],
+        },
+        { session: opinionSession, pendingApprovals: [] },
       ],
       invalid: [
+        { ...snapshot, opinions: [{ ...quotedOpinion, text: '' }] },
         { ...snapshot, promptSuggestion: { turnId: ids.turn, text: '' } },
         { ...snapshot, promptSuggestion: { text: '跑一下测试' } },
         { session },
@@ -3218,6 +3786,54 @@ export const methodSamples: MethodSamples = {
       invalid: [{ turnId: ids.session, seq: 12 }],
     },
   },
+  'session.secondOpinion': {
+    params: {
+      valid: [
+        { sessionId: ids.session, providerId: 'claude' },
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          modelId: 'claude-opus-5-5',
+          reasoningEffort: 'high',
+          focus: '登录失败后的重试是否会重复提交',
+        },
+      ],
+      invalid: [
+        { sessionId: ids.session },
+        { sessionId: ids.session, providerId: 'claude', focus: '   ' },
+        { sessionId: ids.session, providerId: 'claude', focus: 'x'.repeat(2001) },
+      ],
+    },
+    result: {
+      valid: [{ opinion: runningOpinion, session: opinionSession }],
+      invalid: [{ opinion: runningOpinion }],
+    },
+  },
+  'session.quoteOpinion': {
+    params: {
+      valid: [
+        { sessionId: ids.session, opinionId: ids.opinion },
+        {
+          sessionId: ids.session,
+          opinionId: ids.opinion,
+          note: '按第 1 条改',
+          clientMessageId: 'msg-7',
+          delivery: 'queue',
+        },
+      ],
+      invalid: [
+        { sessionId: ids.session, opinionId: ids.task },
+        { sessionId: ids.session, opinionId: ids.opinion, note: '' },
+      ],
+    },
+    result: {
+      valid: [
+        { turnId: ids.turn, seq: 12, opinion: quotedOpinion },
+        { pendingId: ids.pending, seq: 13, opinion: quotedOpinion },
+      ],
+      invalid: [{ turnId: ids.turn, seq: 12 }],
+    },
+  },
   'session.rename': {
     params: {
       valid: [{ sessionId: ids.session, title: '修复登录' }],
@@ -3569,6 +4185,7 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [
         { note: memoryNote },
+        { note: memoryImported },
         {
           note: {
             ...memorySourced,
@@ -3593,7 +4210,74 @@ export const methodSamples: MethodSamples = {
           },
         },
         { note: { ...memorySourced, lastEdit: { by: 'user', at: TS, seq: 0 } } },
+        {
+          note: {
+            ...memoryImported,
+            origin: { by: 'user', at: TS, importedFrom: { app: 'claude' } },
+          },
+        },
       ],
+    },
+  },
+  'import.scan': {
+    params: {
+      valid: [{ app: 'claude' }, { app: 'codex' }, { app: 'grok' }, { app: 'antigravity' }],
+      invalid: [{}, { app: 'cursor' }],
+    },
+    result: {
+      valid: [
+        importScan,
+        {
+          app: 'grok',
+          found: false,
+          home: '/Users/me/.grok',
+          memories: [],
+          connectors: [],
+          skills: [],
+          unsupported: ['memory', 'connector'],
+        },
+      ],
+      invalid: [
+        { ...importScan, unsupported: ['rules'] },
+        { ...importScan, memories: [{ ...importScan.memories[0], status: 'conflict' }] },
+        { ...importScan, memories: [{ ...importScan.memories[0], name: 'Invoice Cents' }] },
+        { ...importScan, home: '' },
+      ],
+    },
+  },
+  'import.apply': {
+    params: {
+      valid: [
+        { app: 'claude', items: [{ key: 'mem:4f2a9c' }] },
+        {
+          app: 'claude',
+          items: [
+            { key: 'mem:4f2a9c', scope: 'global', name: 'invoice-cents-2' },
+            { key: 'con:91c3d0', workspaceId: ids.workspace },
+            { key: 'skl:5a1b2c' },
+          ],
+        },
+      ],
+      invalid: [
+        { app: 'claude', items: [] },
+        { app: 'claude', items: [{ key: '' }] },
+        { app: 'claude', items: [{ key: 'mem:1', workspaceId: 'ws' }] },
+        { items: [{ key: 'mem:1' }] },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          results: [
+            { key: 'mem:4f2a9c', outcome: 'imported', kind: 'memory', name: 'invoice-cents' },
+            { key: 'skl:5a1b2c', outcome: 'skipped', kind: 'skill', name: 'review' },
+            { key: 'con:0d5e7a', outcome: 'failed', kind: 'connector', reason: 'exists' },
+            { key: 'mem:gone', outcome: 'failed', reason: 'not_found' },
+          ],
+        },
+        { results: [] },
+      ],
+      invalid: [{}, { results: [{ key: 'mem:1', outcome: 'done' }] }],
     },
   },
   'memory.update': {
@@ -3927,6 +4611,26 @@ export const methodSamples: MethodSamples = {
       invalid: [{ text: '' }],
     },
   },
+  'retro.get': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, redact: true }],
+      invalid: [{}, { sessionId: ids.session, redact: 'yes' }],
+    },
+    result: {
+      valid: [
+        { retro: sessionRetro },
+        { retro: { ...sessionRetro, summary: { ...retroSummary, outdated: true } }, redactions: 2 },
+      ],
+      invalid: [{}, { retro: { ...sessionRetro, build: 'partial' } }],
+    },
+  },
+  'retro.summarize': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: {
+      valid: [{ summary: retroSummary }, { reason: 'unsupported' }],
+      invalid: [{ summary: { ...retroSummary, points: [] } }],
+    },
+  },
   'review.list': {
     params: {
       valid: [
@@ -4175,6 +4879,74 @@ export const methodSamples: MethodSamples = {
       invalid: [{ process: { ...checkProcess, stoppedBy: 'someone' } }],
     },
   },
+  'readiness.get': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session, refresh: true },
+      ],
+      invalid: [{}, { workspaceId: ids.session }],
+    },
+    result: {
+      valid: [{ report: readinessReport }],
+      invalid: [{ report: { ...readinessReport, status: 'partly' } }],
+    },
+  },
+  'readiness.install': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, planId: 'pln_5c2a91e0', acceptScripts: true },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          planId: 'pln_5c2a91e0',
+          acceptScripts: true,
+          timeoutMs: 600_000,
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, planId: 'pln_5c2a91e0' },
+        { workspaceId: ids.workspace, planId: 'pln_5c2a91e0', acceptScripts: false },
+      ],
+    },
+    result: {
+      valid: [{ run: { ...installRun, status: 'running', reason: undefined } }],
+      invalid: [{ run: { ...installRun, status: 'done' } }],
+    },
+  },
+  'readiness.cancel': {
+    params: { valid: [{ runId: ids.installRun }], invalid: [{ runId: ids.session }] },
+    result: {
+      valid: [{ run: { ...installRun, status: 'cancelled', reason: 'user' } }],
+      invalid: [{}],
+    },
+  },
+  'readiness.output': {
+    params: {
+      valid: [{ runId: ids.installRun }, { runId: ids.installRun, offset: 128 }],
+      invalid: [{ runId: ids.installRun, offset: -1 }],
+    },
+    result: {
+      valid: [{ text: 'Progress: resolved 12', from: 0, next: 21, more: false, bytes: 21 }],
+      invalid: [{ text: '' }],
+    },
+  },
+  'readiness.setCredential': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, name: 'NPM_TOKEN', value: 'npm_xxx' },
+        { workspaceId: ids.workspace, name: 'NPM_TOKEN' },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, name: 'NPM TOKEN', value: 'x' },
+        { workspaceId: ids.workspace, name: 'NPM_TOKEN', value: '' },
+      ],
+    },
+    result: {
+      valid: [{ credentials: [] }, { credentials: ['NPM_TOKEN'] }],
+      invalid: [{ credentials: ['1BAD'] }],
+    },
+  },
   'terminal.create': {
     params: {
       valid: [
@@ -4233,10 +5005,104 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ terminalId: terminalSample.id }], invalid: [{ terminalId: 'p3' }] },
     result: { valid: [{}], invalid: [null] },
   },
+  'lsp.status': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session, refresh: true },
+      ],
+      invalid: [{}, { workspaceId: ids.session }],
+    },
+    result: {
+      valid: [
+        { dir: '/home/u/projects/demo', servers: [] },
+        {
+          dir: '/home/u/projects/demo',
+          servers: [
+            lspRunningSample,
+            lspMissingSample,
+            {
+              ...lspMissingSample,
+              serverId: 'rust',
+              language: 'Rust',
+              state: 'failed',
+              reason: 'rust-analyzer exited (code 101).',
+              failures: 3,
+              retryAt: TS2,
+              plans: undefined,
+            },
+          ],
+          truncated: true,
+        },
+      ],
+      invalid: [
+        { servers: [] },
+        { dir: '/x', servers: [{ ...lspMissingSample, state: 'broken' }] },
+      ],
+    },
+  },
+  'lsp.restart': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, serverId: 'typescript', root: '/home/u/projects/demo' },
+      ],
+      invalid: [{ workspaceId: ids.workspace, serverId: 'typescript' }],
+    },
+    result: {
+      valid: [{ server: lspRunningSample }],
+      invalid: [{ server: { ...lspRunningSample, source: 'global' } }],
+    },
+  },
+  'lsp.log': {
+    params: {
+      valid: [{ workspaceId: ids.workspace, serverId: 'go', root: '/home/u/projects/demo/tool' }],
+      invalid: [{ workspaceId: ids.workspace, root: '/x' }],
+    },
+    result: {
+      valid: [{ log: '' }, { log: '2026-10-20T00:00:00.000Z start: gopls in /x' }],
+      invalid: [{}],
+    },
+  },
+  'lsp.install': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          serverId: 'go',
+          root: '/home/u/projects/demo/tool',
+          planId: 'user-go',
+          confirmGlobal: true,
+        },
+      ],
+      invalid: [{ workspaceId: ids.workspace, serverId: 'go', root: '/x' }],
+    },
+    result: {
+      valid: [
+        { run: lspInstallSample },
+        {
+          run: {
+            ...lspInstallSample,
+            status: 'running',
+            endedAt: undefined,
+            exitCode: undefined,
+            verification: undefined,
+          },
+        },
+      ],
+      invalid: [{ run: { ...lspInstallSample, status: 'done' } }],
+    },
+  },
+  'lsp.cancelInstall': {
+    params: { valid: [{ installId: lspInstallSample.id }], invalid: [{ installId: 'p3' }] },
+    result: {
+      valid: [{ run: { ...lspInstallSample, status: 'cancelled', reason: 'Cancelled.' } }],
+      invalid: [{}],
+    },
+  },
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [{ automations: [] }, { automations: [automationSample] }],
+      valid: [{ automations: [] }, { automations: [automationSample, automationCheckedSample] }],
       invalid: [{}, { automations: [{ ...automationSample, runCount: -1 }] }],
     },
   },
@@ -4249,6 +5115,10 @@ export const methodSamples: MethodSamples = {
       valid: [
         { automation: automationSample, runs: [] },
         { automation: automationSample, runs: [automationRunSample, automationRunFailedSample] },
+        {
+          automation: automationCheckedSample,
+          runs: [automationRunCheckFailedSample, automationRunSilentSample],
+        },
       ],
       invalid: [{ automation: automationSample }],
     },
@@ -4281,6 +5151,14 @@ export const methodSamples: MethodSamples = {
           prompt: 'y',
           schedule: { kind: 'monthly', time: '23:59', day: 31 },
           providerId: 'deepseek',
+        },
+        {
+          title: 'CI 状态',
+          prompt: '看一下 CI 失败的原因。',
+          schedule: { kind: 'interval', minutes: 10 },
+          sessionId: ids.session,
+          notify: 'changes',
+          check: { command: 'gh pr checks 42', wake: 'output_changed' },
         },
       ],
       invalid: [
@@ -4322,7 +5200,21 @@ export const methodSamples: MethodSamples = {
           schedule: { kind: 'cron', expr: '* * * * *' },
           providerId: 'deepseek',
         },
-        { title: 'x', prompt: 'y', schedule: { kind: 'manual' } },
+        { title: 'x', prompt: 'y', schedule: { kind: 'manual' }, providerId: '' },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'manual' },
+          providerId: 'deepseek',
+          check: { command: 'true', wake: 'exit_zero' },
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'manual' },
+          providerId: 'deepseek',
+          check: { command: '  ', wake: 'exit_code' },
+        },
       ],
     },
     result: {
@@ -4342,11 +5234,21 @@ export const methodSamples: MethodSamples = {
           timezone: 'Asia/Shanghai',
           notify: 'never',
         },
+        { automationId: ids.automation, sessionId: null, check: null },
+        {
+          automationId: ids.automation,
+          sessionId: ids.session,
+          check: { command: './scripts/has-news.sh', wake: 'exit_code', timeoutSeconds: 600 },
+        },
       ],
       invalid: [
         {},
         { automationId: ids.automation, title: '' },
         { automationId: ids.automation, permissionMode: 'yolo' },
+        {
+          automationId: ids.automation,
+          check: { command: 'x', wake: 'exit_code', timeoutSeconds: 601 },
+        },
       ],
     },
     result: { valid: [{ automation: automationSample }], invalid: [{ automation: {} }] },
@@ -4360,6 +5262,31 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ run: automationRunSample }, { run: automationRunFailedSample }],
       invalid: [{ run: { ...automationRunSample, status: 'done' } }],
+    },
+  },
+  'automation.testCheck': {
+    params: {
+      valid: [
+        { check: { command: 'gh pr checks 42', wake: 'output_changed' } },
+        {
+          check: { command: 'git status --short', wake: 'output_changed' },
+          sessionId: ids.session,
+        },
+        {
+          check: { command: './check.sh', wake: 'exit_code', timeoutSeconds: 5 },
+          workspaceId: ids.workspace,
+          automationId: ids.automation,
+        },
+      ],
+      invalid: [{}, { check: { command: 'x' } }],
+    },
+    result: {
+      valid: [
+        { result: automationRunSilentSample.check as AutomationCheckResult },
+        { result: automationRunCheckFailedSample.check as AutomationCheckResult },
+        { result: { decision: 'wake', exitCode: 0, durationMs: 12, output: '' } },
+      ],
+      invalid: [{ result: { decision: 'maybe', exitCode: 0, durationMs: 0, output: '' } }],
     },
   },
   'tools.presets': {
@@ -4842,9 +5769,20 @@ export const notificationSamples: NotificationSamples = {
     valid: [{ process: agentProcess }, { removed: { id: 'p3', startedAt: TS } }],
     invalid: [{}, { removed: { id: 'p3' } }],
   },
+  'readiness.changed': {
+    valid: [
+      { workspaceId: ids.workspace, root: '/home/u/projects/demo', run: installRun },
+      { workspaceId: ids.workspace, root: '/home/u/projects/demo', report: readinessReport },
+    ],
+    invalid: [{ workspaceId: ids.workspace }],
+  },
   'terminal.output': {
     valid: [{ terminalId: terminalSample.id, offset: 0, data: '\u001b[1mhi\u001b[0m' }],
     invalid: [{ terminalId: terminalSample.id, data: 'x' }],
+  },
+  'lsp.changed': {
+    valid: [{}, { serverId: 'typescript', root: '/home/u/projects/demo' }],
+    invalid: [{ serverId: '' }],
   },
   'terminal.changed': {
     valid: [{ terminal: terminalSample }, { removed: { id: terminalSample.id } }],
@@ -4854,6 +5792,7 @@ export const notificationSamples: NotificationSamples = {
     valid: [
       { automationId: ids.automation },
       { automationId: ids.automation, run: automationRunSample },
+      { automationId: ids.automation, run: automationRunSilentSample },
       { automationId: ids.automation, deleted: true },
     ],
     invalid: [{}, { automationId: ids.automation, deleted: false }],

@@ -5,7 +5,11 @@ import { zhCN } from './zh-CN';
 // 删掉后会不会影响使用，不影响就删掉，不要往名单里加。
 
 /** 发给模型的文案（不显示在界面上），不受界面文案规则约束。 */
-const MODEL_FACING = new Set<string>(['history.intro', 'plan.implementPrefix']);
+const MODEL_FACING = new Set<string>([
+  'history.intro',
+  'plan.implementPrefix',
+  'retro.handoffPrefix',
+]);
 /** 自动化模板的指令（0.66.0）：填进指令框、每次运行发给 Agent，按发给模型的文案对待。 */
 const isModelFacing = (key: string) =>
   MODEL_FACING.has(key) || /^automations\.template\.[a-z]+\.prompt$/.test(key);
@@ -63,6 +67,8 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'automations.delete.body',
   // 安全提醒：自动化无人值守，完全访问时命令与改动都不经批准。
   'automations.dialog.fullAccessWarning',
+  // 安全提醒：安装脚本会在本机执行代码，确认安装前必须看到。
+  'readiness.install.scriptsWarning',
 ]);
 
 /** 口语、解释腔与举例的写法。 */

@@ -30,7 +30,7 @@ afterEach(async () => {
 
 function setup(
   env: NodeJS.ProcessEnv = { PATH: process.env.PATH, SHELL: '/bin/sh' },
-  extra: { logRotateBytes?: number } = {},
+  extra: { logRotateBytes?: number; notifyBatchMs?: number; notifyIntervalMs?: number } = {},
 ) {
   const root = tempDir();
   const notices: ProcessNotice[] = [];
@@ -136,16 +136,19 @@ describe.runIf(posix)('ProcessManager', () => {
     );
   });
 
-  it('notifyPattern 只通知一次；wait 的模式不算之前的输出；等到的匹配不另通知', async () => {
-    const h = setup();
+  it('notifyPattern 把一阵匹配合成一条通知；wait 的模式不算之前的输出；等到的匹配不另通知', async () => {
+    const h = setup(undefined, { notifyBatchMs: 100 });
     await h.manager.start(A, {
       command: 'echo starting; sleep 0.2; echo ready at 1; echo ready at 2; sleep 30',
       cwd: h.root,
       notifyPattern: /ready/,
     });
     await vi.waitFor(() => expect(h.notices).toHaveLength(1), { timeout: 5000 });
-    expect(h.notices[0]).toMatchObject({ event: 'match', line: 'ready at 1' });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(h.notices[0]).toMatchObject({
+      event: 'match',
+      matches: { lines: ['ready at 1', 'ready at 2'], count: 2, remaining: 9 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
     expect(h.notices).toHaveLength(1);
 
     await h.manager.start(A, {
@@ -163,6 +166,88 @@ describe.runIf(posix)('ProcessManager', () => {
     const pending = h.manager.wait(A, 'p2', undefined, 5000, aborted.signal);
     aborted.abort();
     expect(await pending).toEqual({ reason: 'aborted' });
+  });
+
+  it('notifyPattern 的通知之间隔开 notifyIntervalMs，发满 notifyLimit 条就停', async () => {
+    const h = setup();
+    const at: number[] = [];
+    const manager = new ProcessManager({
+      output: new ToolOutputStore(join(h.root, 'tool-output-2')),
+      onNotice: (notice) => {
+        at.push(Date.now());
+        h.notices.push(notice);
+      },
+      env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
+      notifyBatchMs: 20,
+      notifyIntervalMs: 400,
+    });
+    managers.push(manager);
+    await manager.start(A, {
+      // tick 2 之后的几行一起出来：机器再慢，间隔到期时也已攒了不止一条。
+      command: 'echo tick 1; sleep 0.2; for i in 2 3 4 5 6; do echo tick $i; done; sleep 30',
+      cwd: h.root,
+      notifyPattern: /tick/,
+      notifyLimit: 2,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(2), { timeout: 5000 });
+    expect(h.notices[0]?.matches).toMatchObject({ lines: ['tick 1'], count: 1, remaining: 1 });
+    expect(h.notices[1]?.matches?.lines[0]).toBe('tick 2');
+    expect(h.notices[1]?.matches?.count).toBeGreaterThan(1);
+    expect(h.notices[1]?.matches?.remaining).toBe(0);
+    expect((at[1] as number) - (at[0] as number)).toBeGreaterThanOrEqual(390);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(h.notices).toHaveLength(2);
+  });
+
+  it('不带换行的提示匹配时通知一次，补齐成一行时不再算', async () => {
+    const h = setup(undefined, { notifyBatchMs: 20, notifyIntervalMs: 50 });
+    await h.manager.start(A, {
+      command:
+        'printf "Pass"; sleep 0.2; printf "word: "; sleep 0.3; echo; sleep 0.3; echo "Password ok"; sleep 30',
+      cwd: h.root,
+      notifyPattern: /Password/,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(2), { timeout: 5000 });
+    expect(h.notices.map((notice) => notice.matches?.lines)).toEqual([
+      ['Password: '],
+      ['Password ok'],
+    ]);
+  });
+
+  it('退出时还攒着的匹配并进退出通知；不通知退出时单发；被停的不发', async () => {
+    const h = setup(undefined, { notifyBatchMs: 5000 });
+    await h.manager.start(A, {
+      command: 'echo FAIL a; exit 1',
+      cwd: h.root,
+      notifyPattern: /FAIL/,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(1), { timeout: 5000 });
+    expect(h.notices[0]).toMatchObject({
+      event: 'exit',
+      matches: { lines: ['FAIL a'], count: 1 },
+      process: { exitCode: 1 },
+    });
+    expect(h.notices[0]?.matches?.remaining).toBeUndefined();
+
+    await h.manager.start(A, {
+      command: 'echo FAIL b; exit 0',
+      cwd: h.root,
+      notifyPattern: /FAIL/,
+      notifyOnExit: false,
+    });
+    await vi.waitFor(() => expect(h.notices).toHaveLength(2), { timeout: 5000 });
+    expect(h.notices[1]).toMatchObject({ event: 'match', matches: { lines: ['FAIL b'] } });
+
+    await h.manager.start(A, {
+      command: 'echo FAIL c; sleep 30',
+      cwd: h.root,
+      notifyPattern: /FAIL/,
+    });
+    await vi.waitFor(() => expect(h.manager.tail(A, 'p3')).toBe('FAIL c'), { timeout: 5000 });
+    h.manager.signal(A, 'p3', 'SIGTERM');
+    expect(await h.manager.wait(A, 'p3', undefined, 5000, h.never)).toEqual({ reason: 'exit' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(h.notices).toHaveLength(2);
   });
 
   it('kill 结束整个进程组，agent 结束的不通知；SIGHUP 之类不算结束', async () => {
@@ -284,49 +369,53 @@ describe('辅助函数', () => {
     });
   });
 
-  it('onChange：起来、输出变多（节流）、被停与忘掉都报；ID 前缀与留存上限可配，忘掉时可连日志一起删', async () => {
-    const root = tempDir();
-    const changes: ProcessChange[] = [];
-    const manager = new ProcessManager({
-      output: new ToolOutputStore(join(root, 'tool-output')),
-      onNotice: () => {},
-      env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
-      idPrefix: 'v',
-      maxKept: 1,
-      deleteLogsOnForget: true,
-      onChange: (change) => changes.push(change),
-    });
-    managers.push(manager);
-    const never = new AbortController().signal;
-    const first = await manager.start(A, {
-      command: 'i=0; while [ $i -lt 5 ]; do echo $i; i=$((i+1)); sleep 0.1; done; sleep 30',
-      cwd: root,
-      turnId: 'trn_1' as TurnId,
-    });
-    expect(first).toMatchObject({ id: 'v1', turnId: 'trn_1' });
-    expect(manager.find('v1')?.id).toBe('v1');
-    expect(manager.listAll().map((info) => info.id)).toEqual(['v1']);
-    await vi.waitFor(() => expect(manager.find('v1')?.bytes).toBe(10), { timeout: 5000 });
-    await vi.waitFor(
-      () => expect(changes.some((c) => 'process' in c && c.process.bytes === 10)).toBe(true),
-      { timeout: 5000 },
-    );
-    // 一秒里五行输出最多报三次左右（每 500 ms 一次），不是每行一次。
-    const growing = changes.filter((c) => 'process' in c && c.process.status === 'running');
-    expect(growing.length).toBeLessThanOrEqual(5);
-    manager.signal(A, 'v1', 'SIGTERM', 'user');
-    await manager.wait(A, 'v1', undefined, 5000, never);
-    await vi.waitFor(() =>
-      expect(changes.at(-1)).toMatchObject({
-        process: { id: 'v1', status: 'exited', killed: true, stoppedBy: 'user' },
-      }),
-    );
-    // 第二个进程起来时第一个（已退出）被忘掉，日志一起删。
-    await manager.start(A, { command: 'true', cwd: root });
-    expect(changes.find((c) => 'removed' in c)).toMatchObject({ removed: { id: 'v1' } });
-    expect(manager.find('v1')).toBeUndefined();
-    await vi.waitFor(() => expect(existsSync(first.logPath)).toBe(false));
-  });
+  // 命令是 sh 脚本，与上面的 ProcessManager 用例一样只在 POSIX 上跑。
+  it.runIf(posix)(
+    'onChange：起来、输出变多（节流）、被停与忘掉都报；ID 前缀与留存上限可配，忘掉时可连日志一起删',
+    async () => {
+      const root = tempDir();
+      const changes: ProcessChange[] = [];
+      const manager = new ProcessManager({
+        output: new ToolOutputStore(join(root, 'tool-output')),
+        onNotice: () => {},
+        env: { PATH: process.env.PATH, SHELL: '/bin/sh' },
+        idPrefix: 'v',
+        maxKept: 1,
+        deleteLogsOnForget: true,
+        onChange: (change) => changes.push(change),
+      });
+      managers.push(manager);
+      const never = new AbortController().signal;
+      const first = await manager.start(A, {
+        command: 'i=0; while [ $i -lt 5 ]; do echo $i; i=$((i+1)); sleep 0.1; done; sleep 30',
+        cwd: root,
+        turnId: 'trn_1' as TurnId,
+      });
+      expect(first).toMatchObject({ id: 'v1', turnId: 'trn_1' });
+      expect(manager.find('v1')?.id).toBe('v1');
+      expect(manager.listAll().map((info) => info.id)).toEqual(['v1']);
+      await vi.waitFor(() => expect(manager.find('v1')?.bytes).toBe(10), { timeout: 5000 });
+      await vi.waitFor(
+        () => expect(changes.some((c) => 'process' in c && c.process.bytes === 10)).toBe(true),
+        { timeout: 5000 },
+      );
+      // 一秒里五行输出最多报三次左右（每 500 ms 一次），不是每行一次。
+      const growing = changes.filter((c) => 'process' in c && c.process.status === 'running');
+      expect(growing.length).toBeLessThanOrEqual(5);
+      manager.signal(A, 'v1', 'SIGTERM', 'user');
+      await manager.wait(A, 'v1', undefined, 5000, never);
+      await vi.waitFor(() =>
+        expect(changes.at(-1)).toMatchObject({
+          process: { id: 'v1', status: 'exited', killed: true, stoppedBy: 'user' },
+        }),
+      );
+      // 第二个进程起来时第一个（已退出）被忘掉，日志一起删。
+      await manager.start(A, { command: 'true', cwd: root });
+      expect(changes.find((c) => 'removed' in c)).toMatchObject({ removed: { id: 'v1' } });
+      expect(manager.find('v1')).toBeUndefined();
+      await vi.waitFor(() => expect(existsSync(first.logPath)).toBe(false));
+    },
+  );
 
   it('read 的 until 与对齐：往前翻页读到 until 为止，起点落在半个字符上时往后挪', async () => {
     const h = setup();

@@ -85,6 +85,14 @@ export interface ConnectionHost {
   readonly automations?: {
     watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
   };
+  /** 项目环境就绪（0.70.0）：调过 `readiness.*` 的连接用它收 `readiness.changed`。 */
+  readonly readiness?: {
+    watch(listener: (change: NotificationParams<'readiness.changed'>) => void): () => void;
+  };
+  /** 语言服务器（0.71.0）：调过 `lsp.*` 的连接用它收 `lsp.changed`。 */
+  readonly lsp?: {
+    watch(listener: (change: NotificationParams<'lsp.changed'>) => void): () => void;
+  };
   /** 进程输出（0.69.0）：调过 `process.*` 的连接用它收 `process.changed`。 */
   readonly processes?: {
     watch(listener: (change: NotificationParams<'process.changed'>) => void): () => void;
@@ -170,6 +178,10 @@ export class RpcConnection {
   #unwatchAutomations: (() => void) | undefined;
   /** 调过 `process.*` 之后：退订 `process.changed`。 */
   #unwatchProcesses: (() => void) | undefined;
+  /** 调过 `readiness.*` 之后：退订 `readiness.changed`。 */
+  #unwatchReadiness: (() => void) | undefined;
+  /** 调过 `lsp.*` 之后：退订 `lsp.changed`。 */
+  #unwatchLsp: (() => void) | undefined;
   /** 调过 `terminal.*` 之后：退订 `terminal.changed`。 */
   #unwatchTerminals: (() => void) | undefined;
   /** `terminal.attach` 过的终端：不再收它的输出。 */
@@ -507,6 +519,8 @@ export class RpcConnection {
         if (method.startsWith('usage.')) this.#watchUsage();
         if (method.startsWith('automation.')) this.#watchAutomations();
         if (method.startsWith('process.')) this.#watchProcesses();
+        if (method.startsWith('readiness.')) this.#watchReadiness();
+        if (method.startsWith('lsp.')) this.#watchLsp();
         if (method.startsWith('terminal.')) this.#watchTerminals();
       }
     }
@@ -730,6 +744,36 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `readiness.*` 的连接之后收 `readiness.changed`（0.70.0），连接关闭即止。 */
+  #watchReadiness(): void {
+    if (this.#unwatchReadiness !== undefined || this.#host.readiness === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchReadiness = this.#host.readiness.watch((change) => {
+      const parsed = NotificationSchemas['readiness.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`readiness.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'readiness.changed', params: parsed.data });
+    });
+  }
+
+  /** 调过 `lsp.*` 的连接之后收 `lsp.changed`（0.71.0），连接关闭即止。 */
+  #watchLsp(): void {
+    if (this.#unwatchLsp !== undefined || this.#host.lsp === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchLsp = this.#host.lsp.watch((change) => {
+      const parsed = NotificationSchemas['lsp.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(new Error(`lsp.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'lsp.changed', params: parsed.data });
+    });
+  }
+
   /** 调过 `process.*` 的连接之后收 `process.changed`（0.69.0），连接关闭即止。 */
   #watchProcesses(): void {
     if (this.#unwatchProcesses !== undefined || this.#host.processes === undefined) return;
@@ -869,6 +913,10 @@ export class RpcConnection {
     this.#unwatchAutomations = undefined;
     this.#unwatchProcesses?.();
     this.#unwatchProcesses = undefined;
+    this.#unwatchReadiness?.();
+    this.#unwatchReadiness = undefined;
+    this.#unwatchLsp?.();
+    this.#unwatchLsp = undefined;
     this.#unwatchTerminals?.();
     this.#unwatchTerminals = undefined;
     for (const detach of this.#terminalAttachments.values()) detach();
@@ -922,6 +970,17 @@ export function adaptEventForClient(
         break;
     }
   }
+  // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
+  if (
+    event.type === 'question.resolved' &&
+    event.payload.resolution.reason === 'timeout' &&
+    capabilities.question_timeout !== true
+  ) {
+    return {
+      ...event,
+      payload: { ...event.payload, resolution: { ...event.payload.resolution, reason: 'user' } },
+    };
+  }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (
     event.type === 'session.title_changed' &&
@@ -945,6 +1004,13 @@ export function adaptResultForClient(
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   const value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
+  // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
+  if (method === 'question.respond' && capabilities.question_timeout !== true) {
+    const answered = value as MethodResult<'question.respond'>;
+    if (answered.resolution.reason === 'timeout') {
+      return { ...answered, resolution: { ...answered.resolution, reason: 'user' } };
+    }
+  }
   return adaptKindsAndTitles(method, value, capabilities, protocolVersion);
 }
 

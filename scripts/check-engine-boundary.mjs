@@ -15,8 +15,6 @@
 // 否则命令 shim 会把 node_modules/.pnpm/node_modules 写进 NODE_PATH，require() 经它解析到没声明的包
 // （ADR-0004 补记 3）。这一条在安装时才生效，所以本脚本还检查已生成的 shim：设置被去掉、或者 checkout 在
 // 设置之前装过依赖（要 pnpm install --force 才会重写 shim），lint 都会失败，而不是让测试静默放过违规写法。
-//
-// 同时禁止通过 file: / link: / portal: 依赖指向 spikes/，避免绕过 import 规则。
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -117,9 +115,6 @@ for (const dir of dirs) {
             message: `${field}.${name} — 只有 ${engine.owner} 可以依赖 ${engine.label}`,
           });
         }
-      }
-      if (/^(file|link|portal):/.test(spec) && /(^|[/\\:])spikes([/\\]|$)/.test(spec)) {
-        violations.push({ file: where, message: `${field}.${name} — 不得依赖 spikes/ 下的代码` });
       }
     }
   }

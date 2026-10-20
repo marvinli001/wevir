@@ -1,4 +1,4 @@
-// 改写自 spikes/codex-app-server/src/mock-responses.ts：脚本化的 OpenAI Responses 流式服务（POST …/responses）。
+// 脚本化的 OpenAI Responses 流式服务（POST …/responses）。
 // 事件格式照 upstream/codex/codex-rs/core/tests/common/responses.rs 的 ev_* 帮手。custom 工具调用按请求里的
 // 工具定义渲染：请求里有同名的 custom 工具就回 custom_tool_call，否则回参数是 `{"input"}` 的 function_call
 // （模拟网关把 custom 工具摊平之后的上游）。

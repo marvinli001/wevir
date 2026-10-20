@@ -17,10 +17,15 @@ import {
   FOCUS_HIGHLIGHT,
   FOCUS_HIGHLIGHT_MS,
   findTextRange,
-  messageIndexOfSeq,
   transcriptFocus,
 } from './transcript-focus';
-import { groupTurns, isActiveTurn, turnStart } from './turn-model';
+import {
+  blockSeqRange,
+  groupTurns,
+  isActiveTurn,
+  messageIndexForSeq,
+  turnStart,
+} from './turn-model';
 import { TurnView } from './turn-view';
 import { turnChecks } from './verification-model';
 import { WorkspaceRoot } from './work-group';
@@ -30,7 +35,12 @@ export const RENDER_WINDOW = 60;
 
 export interface TranscriptViewHandle {
   jumpToLatest(behavior?: ScrollBehavior): void;
+  /** 滚到某个事件所在的消息并短暂高亮（任务回顾的出处，0.76.0）。消息流里找不到时返回 false。 */
+  revealSeq(seq: number): boolean;
 }
+
+/** 跳过去之后，所在的一块闪多久（styles/session.css 的 `seq-reveal`）。 */
+const REVEAL_HIGHLIGHT_MS = 1600;
 
 /**
  * 消息流：分段渲染（最后 `RENDER_WINDOW` 条起的一段，滚到顶部附近时向前扩展；起点挪到所在回合的开头），按回合成块
@@ -59,7 +69,7 @@ export function TranscriptView({
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const { sticky, showJump, jumpToLatest, holdPosition, leaveBottom } = useStickToBottom(
+  const { sticky, showJump, jumpToLatest, holdPosition, release } = useStickToBottom(
     containerRef,
     contentRef,
     sessionId,
@@ -92,26 +102,40 @@ export function TranscriptView({
     if (sticky) setFocusPin(undefined);
   }, [sticky]);
 
-  // 跳到搜索结果：事件追到那条之后认领，转为手动阅读、把它放进渲染的一段，下一帧滚过去（scrollToFocus）。
-  const focus = transcriptFocus.use();
+  // 跳到某个事件（任务回顾的出处 `revealSeq`，0.76.0；搜索结果 transcript-focus.ts，0.77.0）：转为手动阅读、把它所在的消息
+  // 放进渲染的一段，下一帧起滚过去（scrollToFocus）。
   const focusTarget = useRef<FocusTarget>(undefined);
   const [focusTick, setFocusTick] = useState(0);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+  const claim = useMemo(
+    () => (index: number, text?: string) => {
+      const message = messagesRef.current[index];
+      if (!message) return false;
+      release();
+      setFocusPin(message.id);
+      focusTarget.current = {
+        messageId: message.id,
+        ...(message.role !== 'system' && { turnId: message.turnId }),
+        ...(text !== undefined && { text }),
+        tries: 0,
+      };
+      setFocusTick((tick) => tick + 1);
+      return true;
+    },
+    [release],
+  );
+  const revealSeq = useMemo(
+    () => (seq: number) => claim(messageIndexForSeq(messagesRef.current, seq)),
+    [claim],
+  );
+  // 搜索结果：消息流追到那个事件之后认领。
+  const focus = transcriptFocus.use();
   useEffect(() => {
-    if (focus?.sessionId !== sessionId) return;
-    const index = messageIndexOfSeq(messages, focus.seq);
-    if (index < 0) return;
+    if (focus?.sessionId !== sessionId || transcript.lastSeq < focus.seq) return;
     transcriptFocus.set(undefined);
-    const message = messages[index] as (typeof messages)[number];
-    leaveBottom();
-    setFocusPin(message.id);
-    focusTarget.current = {
-      messageId: message.id,
-      ...(message.role !== 'system' && { turnId: message.turnId }),
-      ...(focus.text !== undefined && { text: focus.text }),
-      tries: 0,
-    };
-    setFocusTick((tick) => tick + 1);
-  }, [focus, sessionId, messages, leaveBottom]);
+    claim(messageIndexForSeq(messages, focus.seq), focus.text);
+  }, [focus, sessionId, messages, transcript.lastSeq, claim]);
   // 每次认领（focusTick）起一个逐帧的循环，直到位置稳定；用户自己滚动就停下。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在认领时开始。
   useEffect(() => {
@@ -137,7 +161,7 @@ export function TranscriptView({
       for (const type of inputs) container.removeEventListener(type, cancel);
     };
   }, [focusTick]);
-  useEffect(() => onReady?.({ jumpToLatest }), [onReady, jumpToLatest]);
+  useEffect(() => onReady?.({ jumpToLatest, revealSeq }), [onReady, jumpToLatest, revealSeq]);
   // 新到的块（U10）：贴底时末尾新出现的块淡入上移；首次渲染、向前展开的旧消息不动。在渲染时记下已见过的块。
   const seen = useRef<{ sessionId: string; keys: Set<string> }>(undefined);
   const firstRender = seen.current?.sessionId !== sessionId;
@@ -190,11 +214,14 @@ export function TranscriptView({
                 const active = block.kind === 'turn' && isActiveTurn(block.turnId, transcript);
                 const fresh = !firstRender && sticky && !seenKeys.has(block.key);
                 seenKeys.add(block.key);
+                const [seqFirst, seqLast] = blockSeqRange(block);
                 return (
                   <div
                     key={block.key}
                     className={cn('transcript-item pt-6 first:pt-0', fresh && 'block-enter')}
                     data-message-id={block.key}
+                    data-seq-first={seqFirst}
+                    data-seq-last={seqLast}
                   >
                     {block.kind === 'turn' ? (
                       <TurnView
@@ -266,7 +293,7 @@ interface FocusTarget {
   startedAt?: number;
   /** 最近一次移动的时间。 */
   movedAt?: number;
-  /** 已经标出命中的文字（或闪过那条消息）。 */
+  /** 已经标出命中的文字（或闪过所在的一块）。 */
   marked?: boolean;
   /** 用户动了滚动：不再校正。 */
   cancelled?: boolean;
@@ -281,7 +308,7 @@ const FOCUS_SETTLE_MS = 300;
 
 /**
  * 滚到目标，每帧调用一次：先在那条消息里找命中的文字，找不到而回合是收起的就展开再来；把目标放在视口上三分之一处，文字用
- * CSS Custom Highlight 标出（Range 随排版移动），找不到文字时整条消息闪一下；之后逐帧校正排版变化带来的偏差，位置稳定、
+ * CSS Custom Highlight 标出（Range 随排版移动），没有或找不到文字时所在的一块闪一下；之后逐帧校正排版变化带来的偏差，位置稳定、
  * 超时或用户自己滚动时结束。
  */
 function scrollToFocus(
@@ -324,9 +351,14 @@ function scrollToFocus(
     if (range && typeof Highlight !== 'undefined' && CSS.highlights) {
       CSS.highlights.set(FOCUS_HIGHLIGHT, new Highlight(range));
       window.setTimeout(() => CSS.highlights.delete(FOCUS_HIGHLIGHT), FOCUS_HIGHLIGHT_MS);
-    } else if (box instanceof HTMLElement) {
-      box.setAttribute('data-search-focus', '');
-      window.setTimeout(() => box.removeAttribute('data-search-focus'), FOCUS_HIGHLIGHT_MS);
+    } else {
+      const block = box?.closest<HTMLElement>('.transcript-item');
+      if (block) {
+        block.dataset.revealed = 'true';
+        window.setTimeout(() => {
+          delete block.dataset.revealed;
+        }, REVEAL_HIGHLIGHT_MS);
+      }
     }
   }
   return settled ? 'done' : 'retry';

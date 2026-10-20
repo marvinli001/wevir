@@ -14,6 +14,12 @@
     contain-intrinsic-size: auto 240px;
   }
 
+  /* 跳到某个事件（任务回顾的出处 0.76.0、搜索结果 0.77.0）：这一块的底色淡出一次。 */
+  .transcript-item[data-revealed] {
+    border-radius: var(--radius-lg);
+    animation: seq-reveal 1600ms var(--ease-smooth) both;
+  }
+
   /* 进行中的文字（U2：工作组的当前动作、“正在思考”）：一道亮光从右往左扫过，同方向稿的 .shimmer。 */
   .shimmer {
     background: linear-gradient(
@@ -63,23 +69,17 @@
   height: 100%;
 }
 
-/* 跳到搜索结果（0.72.0，session/transcript-focus.ts）：命中的文字短暂加底色；找不到文字时整条消息闪一下。 */
-::highlight(wevir-search-hit) {
-  background-color: color-mix(in oklab, var(--warning) 28%, transparent);
-  color: var(--foreground);
-}
-
-[data-search-focus] {
-  border-radius: var(--radius-lg, 0.75rem);
-  animation: search-focus 2.4s var(--ease-smooth, ease-out);
-}
-
-@keyframes search-focus {
-  from,
-  30% {
-    background-color: var(--accent);
+@keyframes seq-reveal {
+  from {
+    background-color: color-mix(in oklab, var(--ring) 14%, transparent);
   }
   to {
     background-color: transparent;
   }
+}
+
+/* 跳到搜索结果（0.77.0，session/transcript-focus.ts）：命中的文字短暂加底色；没找到文字时所在的一块按上面的 seq-reveal 闪一下。 */
+::highlight(wevir-search-hit) {
+  background-color: color-mix(in oklab, var(--warning) 28%, transparent);
+  color: var(--foreground);
 }

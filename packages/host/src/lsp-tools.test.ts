@@ -303,19 +303,24 @@ describe('LSP tools on a fake language server', () => {
     );
   }, 15_000);
 
-  it('reports a missing server with how to install it', async () => {
+  it('reports a missing server as an environment problem with how to install it', async () => {
     const spec: ServerSpec = {
       ...fakeSpec(),
       resolve: async () => ({ missing: 'fake-lsp not found. Install it: brew install fake-lsp' }),
     };
     const { call, write } = setup({ spec });
     write('a.fake', 'def alpha\n');
-    await expect(call('lsp_hover', { path: 'a.fake', line: 1, column: 5 })).rejects.toThrow(
-      'fake-lsp not found. Install it: brew install fake-lsp',
+    const hover = call('lsp_hover', { path: 'a.fake', line: 1, column: 5 });
+    await expect(hover).rejects.toThrow(
+      'Language server unavailable (missing): fake-lsp not found. Install it: brew install fake-lsp\n' +
+        'This is a problem with the language server environment, not with the code: do not change code because of it.',
     );
-    expect(await call('lsp_diagnostics', { paths: ['a.fake'] })).toBe(
-      'a.fake: not checked: fake-lsp not found. Install it: brew install fake-lsp\nNo diagnostics: 1 file not checked.',
+    const diagnostics = await call('lsp_diagnostics', { paths: ['a.fake'] });
+    expect(diagnostics).toMatch(
+      /^a\.fake: not checked: language server unavailable \(missing\): fake-lsp not found\. Install it: brew install fake-lsp\nNo diagnostics: 1 file not checked\.\nFiles not checked say nothing about errors in them\. This is a problem with the language server environment/,
     );
+    // 不会被读成“0 errors”。
+    expect(diagnostics).not.toMatch(/\b0 errors\b/);
   });
 });
 
@@ -365,6 +370,7 @@ describe('language servers', () => {
       command: exe,
       args: ['--lsp', '--stdio'],
       label: 'tsc --lsp (TypeScript 7.0.2)',
+      version: '7.0.2',
     });
   });
 

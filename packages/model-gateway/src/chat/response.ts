@@ -1,5 +1,5 @@
-// Chat Completions 的流式响应 → Responses 的流事件。改写自 spikes/codex-app-server/src/gateway.ts 的响应部分，
-// 补上 Spike 没做的：finish_reason 为 length / content_filter → response.incomplete、上游流里的错误与提前断开 →
+// Chat Completions 的流式响应 → Responses 的流事件。
+// 覆盖的异常：finish_reason 为 length / content_filter → response.incomplete、上游流里的错误与提前断开 →
 // response.failed、并行工具调用的多个 index 交错到达、上游无视 stream 回整个 JSON。
 //
 // 事件的形状以 Codex 的解析为准（upstream/codex/codex-rs/codex-api/src/sse/responses.rs）：历史与工具调用只取

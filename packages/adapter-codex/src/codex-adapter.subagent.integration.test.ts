@@ -191,6 +191,13 @@ describe.skipIf(binary === undefined)('子会话 + 真实 codex-app-server', { t
     const started = await waitForEvent(events, ofType('subagent.started'), 'subagent.started');
     const child = collectEvents(adapter, started.childEngineSessionId);
     await waitForEvent(child, ofType('assistant.delta'), '子 agent 开始回答');
+    // 子 agent 先开始回答时，父 agent 的 wait 可能还没发出；等它开始了再取消，否则下面找不到 wait 的结果。
+    await waitForEvent(
+      events,
+      (event): event is Extract<AgentEvent, { type: 'tool.started' }> =>
+        event.type === 'tool.started' && event.toolName === 'collabAgentToolCall.wait',
+      '父 agent 开始等待',
+    );
 
     await adapter.cancel(id);
     const parentEnd = await waitForEvent(events, ofType('turn.settled'), '父回合结束');

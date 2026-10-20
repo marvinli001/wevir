@@ -1,5 +1,6 @@
 // 测试用的假语言服务器（lsp-tools.test.ts）：经 stdio 讲 LSP。文档里的 `def NAME` 是定义，其他地方出现的 NAME 是引用；
-// 含 `ERROR` 的行推送一条错误诊断（只推送，不支持拉取）；`FAKE_LSP_CRASH=1` 时启动就退出；`FAKE_LSP_LOG` 是记下收到的通知的文件。
+// 含 `ERROR` 的行推送一条错误诊断（只推送，不支持拉取）；`FAKE_LSP_CRASH=1` 时启动就退出，`FAKE_LSP_CRASH_AFTER_MS` 是
+// initialized 之后过这么久崩溃；`FAKE_LSP_LOG` 是记下收到的通知的文件。
 
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -92,7 +93,16 @@ connection.onRequest('initialize', () => ({
     callHierarchyProvider: true,
   },
 }));
-connection.onNotification('initialized', () => log('initialized'));
+connection.onNotification('initialized', () => {
+  log('initialized');
+  const crashAfter = Number(process.env.FAKE_LSP_CRASH_AFTER_MS);
+  if (crashAfter > 0) {
+    setTimeout(() => {
+      process.stderr.write('fake-lsp: segmentation fault after start\n');
+      process.exit(139);
+    }, crashAfter);
+  }
+});
 connection.onNotification('textDocument/didOpen', ({ textDocument }) => {
   log(`open ${fileURLToPath(textDocument.uri)}`);
   documents.set(textDocument.uri, textDocument.text);

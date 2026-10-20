@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  AUTOMATION_QUIET_MARKER,
   type ClientIdentity,
   DESKTOP_RENDERER_ORIGINS,
   type EngineFeatures,
@@ -19,6 +20,7 @@ import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
 import { AppTools, engineSessionResolver } from './app-tools.js';
+import { automationRunMessage } from './automations/automation-tools.js';
 import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { ChatFolders } from './chats.js';
@@ -26,6 +28,7 @@ import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { EventStore } from './event-store.js';
+import { ExternalImport } from './external-import/service.js';
 import { FileUrls } from './file-urls.js';
 import { GitService } from './git/service.js';
 import { homePath } from './home.js';
@@ -34,18 +37,23 @@ import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import type { Logger } from './logger.js';
 import { LspManager } from './lsp/manager.js';
+import { LspStatusService } from './lsp/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessOutputService } from './process-output.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
+import { ReadinessService } from './readiness/service.js';
 import { loadRecapInstructions } from './recap.js';
+import { RetroService } from './retro/service.js';
+import { loadRetroInstructions } from './retro/summary.js';
 import { loadReviewTemplate, ReviewService } from './review/service.js';
 import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
 import { discoverRuleFiles } from './rule-files.js';
 import { RuntimeFile } from './runtime-file.js';
+import { loadOpinionTemplate, SecondOpinionService } from './second-opinion.js';
 import { SessionManager } from './session-manager.js';
 import { SessionSearch } from './session-search.js';
 import { HostSettingsStore } from './settings.js';
@@ -86,6 +94,11 @@ export interface StartHostOptions {
   pluginUserHome?: string;
   /** 找用户级规则文件（0.68.0，`~/.codex/AGENTS.md` 等）的家目录；省略时同 `pluginUserHome`，再省略是 os.homedir()。 */
   userHome?: string;
+  /**
+   * 导入（0.74.0）读的环境变量（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`）；省略是 `process.env`。导入找用户目录的家目录同
+   * `userHome`。
+   */
+  importEnv?: Readonly<Record<string, string | undefined>>;
   /** 数据目录（绝对路径），见 `resolveHome`。 */
   home: string;
   /** 引擎适配器，由 Host 独占，退出时 `dispose`。 */
@@ -166,6 +179,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let backgroundProcesses: ProcessManager | undefined;
   let userTerminals: TerminalService | undefined;
   let verificationService: VerificationService | undefined;
+  let readiness: ReadinessService | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   let sessionSearch: SessionSearch | undefined;
@@ -177,7 +191,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onError: (error) => logger.error('event store error', { error }),
     });
     events = store;
-    // 会话全文搜索（0.72.0）：索引从事件派生，后台按批追上，新事件写入后稍后追。出错只记日志，不影响会话。
+    // 会话全文搜索（0.77.0）：索引从事件派生，后台按批追上，新事件写入后稍后追。出错只记日志，不影响会话。
     sessionSearch = new SessionSearch({
       storage,
       onError: (error) => logger.warn('session search index error', { error }),
@@ -247,6 +261,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 与 Host 设置，下面建好之后再接上。
     let appMcp: AppMcpServer | undefined;
     let appTools: AppTools | undefined;
+    let opinions: SecondOpinionService | undefined;
     // 大输出落盘与后台进程（tool-output.ts、processes.ts）：过期的文件启动时在后台清掉。
     const toolOutput = new ToolOutputStore(homePath(home, 'toolOutputDir'));
     void toolOutput
@@ -282,6 +297,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
     // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
+    // 从其他应用导入（0.74.0）：读用户自己的 Claude Code、Codex、Grok Build、Antigravity 目录。
+    const externalImport = new ExternalImport({
+      userHome: options.userHome ?? options.pluginUserHome ?? homedir(),
+      env: options.importEnv ?? process.env,
+      workspaces: {
+        list: () => sessionsDb.workspaces.list(),
+        get: (id) => sessionsDb.workspaces.get(id),
+      },
+      memory,
+      plugins,
+    });
     // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
     const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
     // 共享任务清单（task-board.ts）：根会话已经不在的清单启动时清掉。
@@ -327,9 +353,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         dispose: () => appTools?.plugins?.close(),
       },
+      // 只给某个项目的连接器（0.74.0）：按会话所在的工作区交给引擎。
+      projectConnectors: (workspaceId) => plugins.projectConnectors(workspaceId),
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);
         automations?.onTurnFinished(info);
+        opinions?.onTurnFinished(info);
         // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。账号 ID 就是它的 Provider 的 ID；不是账号
         // （API Key 的 Provider）时 `turnEnded` 什么都不做。
         const providerId = storage?.sessions.get(info.sessionId)?.providerId;
@@ -378,6 +407,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const workspace = storage?.workspaces.get(workspaceId);
         return workspace !== undefined && chats.isChats(workspace);
       },
+      message: (automation, context) =>
+        automationRunMessage(automation, { ...context, marker: AUTOMATION_QUIET_MARKER }),
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     const automationService = automations;
@@ -389,6 +420,29 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ) {
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
+    const secrets = new FileSecretStore(home);
+    const checksStore = new ChecksStore({
+      dir: homePath(home, 'checksDir'),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    // 项目环境就绪（0.70.0，readiness/service.ts）：只读的预检、用户发起的安装与安装凭据；回合后验证据它把失败记成环境不可用。上次没
+    // 跑完的安装记成取消。
+    const readinessService = new ReadinessService({
+      storage,
+      checks: async (workspaceId) => (await checksStore.list(workspaceId)).checks,
+      secrets,
+      dir: homePath(home, 'readinessDir'),
+      defaultEngine: options.engine,
+      isChats: (workspaceId) => {
+        const workspace = storage?.workspaces.get(workspaceId);
+        return workspace !== undefined && chats.isChats(workspace);
+      },
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    readiness = readinessService;
+    const abandonedInstalls = await readinessService.recover();
+    if (abandonedInstalls > 0)
+      logger.warn('marked unfinished installs as cancelled', { count: abandonedInstalls });
     // 回合后验证（0.65.0，ADR-0008）：检查配置存在 Host，检查进程由 Host 起（与 Agent 的后台进程分开）。上次没跑完的检查与修复链
     // 在服务客户端之前对账，什么都不重开。修复材料的模板读不到时不阻止 Host 启动，只是没有这个功能。
     try {
@@ -397,10 +451,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         events: store,
         listenAll: (listener) => store.listenAll(listener),
         sessions: manager,
-        checks: new ChecksStore({
-          dir: homePath(home, 'checksDir'),
-          onWarning: (message, fields) => logger.warn(message, fields),
-        }),
+        checks: checksStore,
+        readiness: readinessService,
         runner: new CheckRunner({
           dir: toolOutput.dir,
           onWarning: (message, fields) => logger.warn(message, fields),
@@ -434,6 +486,48 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('review comments are unavailable', { error });
     }
 
+    // 第二意见（0.75.0）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。上次没跑完的意见在服务客户端之前对账。
+    try {
+      opinions = new SecondOpinionService({
+        storage,
+        events: store,
+        sessions: manager,
+        hostId,
+        template: loadOpinionTemplate(options.promptsDir),
+        onWarning: (message, fields) => logger.warn(message, fields),
+      });
+      const fixed = opinions.recover();
+      if (fixed > 0) logger.warn('reconciled second opinions after unclean shutdown', { fixed });
+    } catch (error) {
+      opinions = undefined;
+      logger.warn('second opinions are unavailable', { error });
+    }
+    const secondOpinions = opinions;
+    // 任务回顾（0.76.0，ADR-0012）：投影存在 SQLite，按需生成；模型摘要同离开后摘要，适配器能生成才读提示词，读不到只是没有摘要。
+    let retroInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        retroInstructions = loadRetroInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the session retro prompt; retro summaries are unavailable', {
+          error,
+        });
+      }
+    }
+    const retro = new RetroService({
+      storage,
+      events: store,
+      checkpoints,
+      ...(review !== undefined && { review }),
+      memory,
+      resolveDir: (dir) => realpath(dir),
+      ...(retroInstructions !== undefined && {
+        instructions: retroInstructions,
+        generate: (sessionId, request) => manager.generateOnce(sessionId, request),
+      }),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+
     // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
     const sessionStore = storage;
     const git = new GitService({
@@ -446,7 +540,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
     });
 
-    const secrets = new FileSecretStore(home);
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
     // 0.63.0：添加的账号各有自己的引擎，在把 Provider 交给引擎之前建好，它们的 Provider 才交得到对的引擎。
     const providerLock = createProviderLock();
@@ -497,10 +590,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
     // 代码智能（lsp_* 工具）：语言服务器按需启动，空闲关闭，Host 退出时回收。
+    // 0.71.0：`lsp.*` 看语言服务器的状态、重启、由用户发起安装。
+    let lspStatus: LspStatusService | undefined;
     const lsp =
       adapter.appTools === true
-        ? new LspManager({ onWarning: (message, fields) => logger.warn(message, fields) })
+        ? new LspManager({
+            onWarning: (message, fields) => logger.warn(message, fields),
+            onChange: (serverId, root) => lspStatus?.changed({ serverId, root }),
+          })
         : undefined;
+    if (lsp !== undefined) {
+      lspStatus = new LspStatusService({
+        lsp,
+        onWarning: (message, fields) => logger.warn(message, fields),
+      });
+    }
     if (adapter.appTools === true) {
       appTools = new AppTools({
         plugins,
@@ -511,12 +615,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sendWhileBusy: () => settings.get().sendWhileBusy,
         ...(browsers !== undefined && { browser: browsers }),
         ...(processes !== undefined && { processes }),
+        readiness: readinessService,
         ...(lsp !== undefined && { lsp }),
         memory,
         memoryEnabled: () => settings.get().autoMemory !== false,
         roles,
         tasks: taskBoards,
         automations: automationService,
+        ...(secondOpinions !== undefined && { opinions: secondOpinions }),
+        retro,
         search,
         onWarning: (message, fields) => logger.warn(message, fields),
       });
@@ -572,11 +679,16 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(verification !== undefined && { verification }),
         automations: automationService,
         ...(review !== undefined && { review }),
+        ...(secondOpinions !== undefined && { opinions: secondOpinions }),
+        retro,
         git,
         ...(processOutput.available && { processes: processOutput }),
+        readiness: readinessService,
         ...(terminals !== undefined && { terminals }),
+        ...(lspStatus !== undefined && { lsp: lspStatus }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
+        externalImport,
         search,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
@@ -606,6 +718,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         memory: true,
         usage_stats: true,
         automations: true,
+        automation_conditions: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),
@@ -613,6 +726,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(accounts?.canAddAccounts === true && { subscription_accounts: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),
+        ...(adapter.respondToQuestion !== undefined && { question_timeout: true }),
         ...(adapter.permissionModes !== undefined && { permission_modes: true }),
         ...(adapter.suggestedTasks === true && { suggested_tasks: true }),
         ...(adapter.fork !== undefined && { side_sessions: true }),
@@ -636,8 +750,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         rule_files: true,
         ...(review !== undefined && { review_comments: true }),
         git_commit: true,
+        session_retro: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
+        workspace_readiness: true,
+        ...(lspStatus !== undefined && { lsp_status: true }),
+        external_import: true,
+        ...(secondOpinions !== undefined && { second_opinion: true }),
         session_search: true,
       },
       engineFeatures,
@@ -648,7 +767,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
+      readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
+      ...(lspStatus !== undefined && { lsp: lspStatus }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
@@ -681,7 +802,9 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           processes,
           terminals,
           verification,
+          readiness: readinessService,
           lsp,
+          lspStatus,
           sessions: manager,
           adapter,
           accounts,
@@ -711,6 +834,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 回收已建好的部分；这里的失败不掩盖原始错误。
     await rpc?.close().catch(() => {});
     await verificationService?.dispose().catch(() => {});
+    await readiness?.dispose().catch(() => {});
     await backgroundProcesses?.close().catch(() => {});
     await userTerminals?.dispose().catch(() => {});
     accounts?.dispose();
@@ -744,8 +868,12 @@ interface ShutdownParts {
   terminals: TerminalService | undefined;
   /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
   verification: VerificationService | undefined;
+  /** 项目环境就绪（0.70.0）：还在跑的安装要停掉。 */
+  readiness: ReadinessService | undefined;
   /** 代码智能的语言服务器；引擎挂不上应用级工具时没有。 */
   lsp: LspManager | undefined;
+  /** 语言服务器的安装（0.71.0）：结束还在跑的安装命令。 */
+  lspStatus: LspStatusService | undefined;
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
@@ -787,6 +915,10 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   if (parts.verification !== undefined) {
     await step('stop_verification', () => parts.verification?.dispose(), true);
   }
+  // 用户发起的安装：SIGTERM，宽限后 SIGKILL，记成取消（`host_restarted`）。
+  if (parts.readiness !== undefined) {
+    await step('stop_installs', () => parts.readiness?.dispose(), true);
+  }
   // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
   if (parts.processes !== undefined) {
     await step('stop_processes', () => parts.processes?.close(), true);
@@ -815,6 +947,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 超时的话引擎进程留给适配器自己回收（ACP 引擎读到 stdin EOF 即退出）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
   // 语言服务器：先 shutdown / exit，不退出的结束进程。
+  parts.lspStatus?.close();
   if (parts.lsp !== undefined) await step('close_lsp', () => parts.lsp?.close(), true);
   // 引擎（和它挂着的桥脚本）停了之后再关联网服务的端点。
   if (parts.web !== undefined) await step('close_web', () => parts.web?.close(), true);

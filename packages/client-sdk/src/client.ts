@@ -11,6 +11,7 @@ import {
   type HostFeature,
   HostHelloResultSchema,
   type HostSettings,
+  LspChangedParamsSchema,
   MemoryChangedParamsSchema,
   type MethodName,
   type MethodParams,
@@ -21,6 +22,7 @@ import {
   PING_INTERVAL_MS,
   PROTOCOL_VERSION,
   ProcessChangedParamsSchema,
+  ReadinessChangedParamsSchema,
   type SessionId,
   SettingsUpdatedParamsSchema,
   TerminalChangedParamsSchema,
@@ -32,8 +34,12 @@ import { DEFAULT_CLIENT_CAPABILITIES, hostSupports } from './capabilities.js';
 
 /** `automation.changed` 的内容（0.66.0）。 */
 export type AutomationChange = NotificationParams<'automation.changed'>;
+/** `lsp.changed` 的内容（0.71.0）。 */
+export type LspChange = NotificationParams<'lsp.changed'>;
 /** `process.changed` 的内容（0.69.0）。 */
 export type ProcessChange = NotificationParams<'process.changed'>;
+/** `readiness.changed` 的内容（0.70.0）。 */
+export type ReadinessChange = NotificationParams<'readiness.changed'>;
 /** `terminal.changed` 与 `terminal.output` 的内容（0.69.0）。 */
 export type TerminalChange = NotificationParams<'terminal.changed'>;
 export type TerminalOutput = NotificationParams<'terminal.output'>;
@@ -268,6 +274,8 @@ export class WevirClient {
   readonly #usageListeners = new Set<() => void>();
   readonly #automationListeners = new Set<(change: AutomationChange | undefined) => void>();
   readonly #processListeners = new Set<(change: ProcessChange | undefined) => void>();
+  readonly #readinessListeners = new Set<(change: ReadinessChange | undefined) => void>();
+  readonly #lspListeners = new Set<(change: LspChange | undefined) => void>();
   readonly #terminalListeners = new Set<(change: TerminalChange | undefined) => void>();
   readonly #terminalOutputListeners = new Set<(output: TerminalOutput) => void>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
@@ -522,6 +530,25 @@ export class WevirClient {
   }
 
   /**
+   * 项目环境就绪变了（0.70.0，`readiness.changed`）：安装开始、输出变多、结束，或装完后重新预检的报告。重连上之后以 `undefined` 调一次
+   * （Host 只给调过 `readiness.*` 的连接发通知），客户端重新读报告。返回取消函数。
+   */
+  onReadinessChanged(listener: (change: ReadinessChange | undefined) => void): () => void {
+    this.#readinessListeners.add(listener);
+    return () => this.#readinessListeners.delete(listener);
+  }
+
+  #readinessChanged(change: ReadinessChange | undefined): void {
+    for (const listener of [...this.#readinessListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a readiness listener threw', { error });
+      }
+    }
+  }
+
+  /**
    * 用户终端变了（0.69.0，`terminal.changed`）：开、退出、标题、前台进程、尺寸、attach 的连接数，或被忘掉（`removed`）。重连上之后以
    * `undefined` 调一次：连接断开时 Host 已经不再给这条连接发输出，客户端重新列出，并带上自己读到的位置重新 `terminal.attach`。返回取消函数。
    */
@@ -542,6 +569,25 @@ export class WevirClient {
         listener(change);
       } catch (error) {
         this.#warn('a terminal listener threw', { error });
+      }
+    }
+  }
+
+  /**
+   * 语言服务器的状态变了（0.71.0，`lsp.changed`）：起来、退出、崩溃，或安装有进展。重连上之后以 `undefined` 调一次（Host 只给调过
+   * `lsp.*` 的连接发通知，重连后要重新读一次才会再收到）。返回取消函数。
+   */
+  onLspChanged(listener: (change: LspChange | undefined) => void): () => void {
+    this.#lspListeners.add(listener);
+    return () => this.#lspListeners.delete(listener);
+  }
+
+  #lspChanged(change: LspChange | undefined): void {
+    for (const listener of [...this.#lspListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('an lsp listener threw', { error });
       }
     }
   }
@@ -860,6 +906,8 @@ export class WevirClient {
         if (this.supports('usage_stats')) this.#usageChanged();
         if (this.supports('automations')) this.#automationsChanged(undefined);
         if (this.supports('process_output')) this.#processesChanged(undefined);
+        if (this.supports('workspace_readiness')) this.#readinessChanged(undefined);
+        if (this.supports('lsp_status')) this.#lspChanged(undefined);
         if (this.supports('user_terminal')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         return;
@@ -1116,6 +1164,24 @@ export class WevirClient {
         return;
       }
       this.#automationsChanged(parsed.data);
+      return;
+    }
+    if (method === 'readiness.changed') {
+      const parsed = ReadinessChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed readiness.changed notification');
+        return;
+      }
+      this.#readinessChanged(parsed.data);
+      return;
+    }
+    if (method === 'lsp.changed') {
+      const parsed = LspChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed lsp.changed notification');
+        return;
+      }
+      this.#lspChanged(parsed.data);
       return;
     }
     if (method === 'process.changed') {

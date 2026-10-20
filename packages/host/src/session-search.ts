@@ -1,4 +1,4 @@
-// 会话全文搜索（0.72.0，Host 功能 `session_search`）：用户和 Agent 显式查找以前的工作，结果带原文入口（会话、回合、`seq`）。
+// 会话全文搜索（0.77.0，Host 功能 `session_search`）：用户和 Agent 显式查找以前的工作，结果带原文入口（会话、回合、`seq`）。
 //
 // 索引（storage 的 `search.ts`）是从事件派生的：只看已提交的用户消息与插话、Agent 的最终回答、命令与改动的文件名，与
 // `wevir_session_read` 的条目一一对应（handoff.ts 的 `historyItems`），不看增量、思考与工具的完整输出。索引不存正文，片段与高亮在

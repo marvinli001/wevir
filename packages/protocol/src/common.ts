@@ -24,6 +24,8 @@ export const ImageIdSchema = z.templateLiteral(['img_', IdBodySchema]);
 /** 自动化与它的一次运行（0.66.0）。 */
 export const AutomationIdSchema = z.templateLiteral(['aut_', IdBodySchema]);
 export const AutomationRunIdSchema = z.templateLiteral(['arn_', IdBodySchema]);
+/** 第二意见（0.75.0）。 */
+export const OpinionIdSchema = z.templateLiteral(['opn_', IdBodySchema]);
 /** Host 实例 ID：每个数据目录一个，跨重启不变。 */
 export const HostIdSchema = z.templateLiteral(['hst_', IdBodySchema]);
 /** 工作区的一项检查（0.65.0，回合后验证）。 */
@@ -38,6 +40,10 @@ export const RepairIdSchema = z.templateLiteral(['rpr_', IdBodySchema]);
 export const ReviewCommentIdSchema = z.templateLiteral(['rvc_', IdBodySchema]);
 /** 用户的交互终端（0.69.0）。 */
 export const TerminalIdSchema = z.templateLiteral(['trm_', IdBodySchema]);
+/** 用户发起的一次项目安装（0.70.0）。 */
+export const InstallRunIdSchema = z.templateLiteral(['ins_', IdBodySchema]);
+/** 一次语言服务器安装（0.71.0）。 */
+export const LspInstallIdSchema = z.templateLiteral(['lsi_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -56,9 +62,12 @@ export type VerificationRunId = z.infer<typeof VerificationRunIdSchema>;
 export type VerificationRoundId = z.infer<typeof VerificationRoundIdSchema>;
 export type RepairId = z.infer<typeof RepairIdSchema>;
 export type TerminalId = z.infer<typeof TerminalIdSchema>;
+export type InstallRunId = z.infer<typeof InstallRunIdSchema>;
+export type LspInstallId = z.infer<typeof LspInstallIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
 export type ReviewCommentId = z.infer<typeof ReviewCommentIdSchema>;
+export type OpinionId = z.infer<typeof OpinionIdSchema>;
 
 /** Provider ID 同时是 dsh 的 provider 路由名，会写进 dsh 会话日志，创建后不可改。 */
 export const ProviderIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);

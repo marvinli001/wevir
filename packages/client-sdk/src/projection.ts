@@ -33,11 +33,13 @@ import type {
   HandoffStrategy,
   IsoTime,
   MessageFrom,
+  OpinionId,
   PendingMessage,
   PendingMessageId,
   QuestionId,
   QuestionRequest,
   RepairChain,
+  SecondOpinion,
   SessionAcceptance,
   SessionGoal,
   SessionId,
@@ -216,6 +218,11 @@ export type ChatPart =
   /** 一项建议开出来的会话回报了结果（`task.reported`），在当时所在的位置（当前回合，空闲时一条系统消息）。 */
   | { type: 'task_report'; key: string; task: SuggestedTask; summary?: string }
   /**
+   * 第二意见（0.75.0，`opinion.updated`）：第一次出现时在当时所在的位置（当前回合，空闲时一条系统消息；`key` 是 `o:<意见 ID>`），之后
+   * `opinion` 随同一 `id` 的 `opinion.updated` 原位换成最新的。
+   */
+  | { type: 'opinion'; key: string; opinion: SecondOpinion }
+  /**
    * Agent 交给用户的文件（0.40.0，`file.shared`）：在当时所在的位置（`key` 是 `f:<seq>`），`path` 相对会话的 `cwd`。
    */
   | { type: 'files'; key: string; files: readonly SharedFile[] };
@@ -312,6 +319,8 @@ export interface Transcript {
   pendingQuestions: readonly QuestionRequest[];
   /** 0.16.0：Agent 建议的后续任务，按提出的先后；规则同 Host 快照的 `suggestedTasks`。 */
   suggestedTasks: readonly SuggestedTask[];
+  /** 0.75.0：这个会话收到的第二意见，按发起的先后；规则同 Host 快照的 `opinions`。 */
+  opinions: readonly SecondOpinion[];
   /**
    * 0.30.0：最近一次 `ui.show`（会话里的 agent 请界面显示的东西）。客户端只对订阅之后新到的打开窗格，用 `seq` 与 `ts` 区分
    * 历史里的。
@@ -457,6 +466,9 @@ export class TranscriptProjection {
   #uiShow: Transcript['uiShow'];
   /** 提出建议的工具调用 → 它的 `tasks` 部件所在的消息。 */
   #taskParts = new Map<string, MutableMessage>();
+  /** 第二意见（0.75.0），按发起的先后；意见 → 它的部件所在的消息。 */
+  #opinions = new Map<OpinionId, SecondOpinion>();
+  #opinionParts = new Map<OpinionId, MutableMessage>();
   /** 最近一条用户消息的协作模式（0.36.0）。 */
   #collaborationMode: CollaborationMode = 'default';
   #latestPlan: LatestPlan | undefined;
@@ -506,6 +518,8 @@ export class TranscriptProjection {
     this.#parent = undefined;
     this.#tasks.clear();
     this.#taskParts.clear();
+    this.#opinions.clear();
+    this.#opinionParts.clear();
     this.#pending = [];
     this.#collaborationMode = 'default';
     this.#latestPlan = undefined;
@@ -749,6 +763,9 @@ export class TranscriptProjection {
       case 'ui.show':
         this.#uiShow = { seq: event.seq, ts: event.ts, target: event.payload.target };
         return;
+      case 'opinion.updated':
+        this.#opinion(event);
+        return;
       case 'file.shared':
         this.#target(event.payload.turnId, event.seq).parts.push({
           type: 'files',
@@ -796,6 +813,7 @@ export class TranscriptProjection {
         (question) => question.status === 'pending',
       ),
       suggestedTasks: [...this.#tasks.values()],
+      opinions: [...this.#opinions.values()],
       uiShow: this.#uiShow,
       goal: this.#goal,
       collaborationMode: this.#collaborationMode,
@@ -1454,6 +1472,25 @@ export class TranscriptProjection {
         ...(event.payload.summary !== undefined && { summary: event.payload.summary }),
       });
     }
+  }
+
+  // ── 第二意见 ─────────────────────────────────────────────────────────
+
+  /** `opinion.updated`：新的意见在当时所在的位置加一个 `opinion` 部件，之后原位换成最新的。 */
+  #opinion(event: WevirEventOf<'opinion.updated'>): void {
+    const { opinion } = event.payload;
+    this.#opinions.set(opinion.id, opinion);
+    const message = this.#opinionParts.get(opinion.id);
+    if (message === undefined) {
+      const target = this.#target(this.#activeTurnId, event.seq);
+      target.parts.push({ type: 'opinion', key: `o:${opinion.id}`, opinion });
+      this.#opinionParts.set(opinion.id, target);
+      return;
+    }
+    this.#touch(message, event.seq);
+    message.parts = message.parts.map((part) =>
+      part.type === 'opinion' && part.opinion.id === opinion.id ? { ...part, opinion } : part,
+    );
   }
 
   // ── 错误与调试 ───────────────────────────────────────────────────────

@@ -12,7 +12,8 @@ import { type PlainMessageKey, t } from '@/i18n';
 import { formatTokens } from '@/layout/rail-model';
 import { formatDuration } from './format';
 
-const TITLES: Record<GoalStatus, PlainMessageKey> = {
+/** 目标状态的名称（任务回顾也用）。 */
+export const GOAL_STATUS_LABELS: Record<GoalStatus, PlainMessageKey> = {
   active: 'goal.status.active',
   paused: 'goal.status.paused',
   blocked: 'goal.status.blocked',
@@ -43,7 +44,7 @@ export function presentGoal(goal: SessionGoal, working: boolean): GoalPresentati
   if (goal.timeUsedSeconds > 0) usage.push(formatDuration(goal.timeUsedSeconds * 1000));
   const active = goal.status === 'active';
   return {
-    title: t(active && !working ? 'goal.status.set' : TITLES[goal.status]),
+    title: t(active && !working ? 'goal.status.set' : GOAL_STATUS_LABELS[goal.status]),
     usage: usage.length === 0 ? undefined : usage.join(' · '),
     canPause: active,
     // 空闲时进行中的目标（例如后台服务重启之后）也能继续：引擎随即接着做。

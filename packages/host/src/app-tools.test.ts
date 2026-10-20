@@ -30,6 +30,7 @@ import {
 import { EventStore } from './event-store.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
+import { RetroService } from './retro/service.js';
 import { RoleStore } from './roles.js';
 import { SessionManager } from './session-manager.js';
 import { SessionSearch } from './session-search.js';
@@ -66,6 +67,7 @@ async function setup(
   withPlugins = false,
   withProcesses = false,
   busyDelivery: PendingDelivery = 'queue',
+  withRetro = false,
 ) {
   const root = realpathSync(tempDir());
   const storage = storages.open(join(root, 'data'));
@@ -137,6 +139,7 @@ async function setup(
     }),
     ...(plugins && { plugins }),
     ...(processes && { processes }),
+    ...(withRetro && { retro: new RetroService({ storage, events }) }),
     storage,
     events,
     sessions: manager,
@@ -453,6 +456,33 @@ describe('应用级工具', () => {
     expect(await h.call(a, 'wevir_session_read', { sessionId: 'ses_nope' })).toEqual({
       error: 'No Wevir session ses_nope.',
     });
+  });
+
+  it('任务回顾：默认读自己，可读别的会话，脱敏，没有验证记录写未验证', async () => {
+    const h = await setup(0, false, false, 'queue', true);
+    const a = await h.create();
+    const b = await h.create();
+    const secret = `sk-${'a1B2'.repeat(8)}`;
+    await h.send(b, `fix the parser, key ${secret}`);
+    await h.settle(b);
+    const own = await h.rpc(a, 'tools/call', { name: 'wevir_session_retro', arguments: {} });
+    const ownText = own.body.result.content[0].text as string;
+    expect(ownText).toContain('# Task retro');
+    expect(ownText).toContain(`Session ${a}`);
+    const other = await h.rpc(a, 'tools/call', {
+      name: 'wevir_session_retro',
+      arguments: { sessionId: b },
+    });
+    const text = other.body.result.content[0].text as string;
+    expect(text).toContain(`Session ${b}`);
+    expect(text).toContain('fix the parser');
+    expect(text).toContain('Unverified: no verification records.');
+    expect(text).not.toContain(secret);
+    const missing = await h.rpc(a, 'tools/call', {
+      name: 'wevir_session_retro',
+      arguments: { sessionId: 'ses_nope' },
+    });
+    expect(missing.body.result.isError).toBe(true);
   });
 
   it('搜索：只搜自己的项目，命中能接 wevir_session_read；短词标明只扫了最新的', async () => {
@@ -1694,6 +1724,43 @@ describe.runIf(process.platform !== 'win32')('后台进程与大输出落盘', (
     const listed = await callText(h, a, 'wevir_process_list');
     expect(listed.text).toContain('p1 "dev server"');
     expect(listed.text).toContain('exited with code 2');
+  });
+
+  it('notifyOn：输出匹配时把攒下的几行作为消息发回会话并开一个回合，发满 notifyLimit 条说明不再发', async () => {
+    const h = await setup(0, false, true);
+    const a = await h.create();
+    const started = await callText(h, a, 'wevir_process_start', {
+      command: 'sleep 0.2; echo "FAIL one"; echo ok; echo "FAIL two"; sleep 30',
+      notifyOn: 'FAIL',
+      notifyLimit: 1,
+      notifyOnExit: false,
+    });
+    expect(started.text).toContain(
+      'Wevir will message you when lines match /FAIL/ (at most 1 message).',
+    );
+    await vi.waitFor(
+      () =>
+        expect(
+          h.all(a).some((e) => e.type === 'user.message' && e.payload.from?.process !== undefined),
+        ).toBe(true),
+      { timeout: 5000 },
+    );
+    const notice = h
+      .all(a)
+      .find((e) => e.type === 'user.message' && e.payload.from?.process !== undefined);
+    expect(notice?.payload).toMatchObject({
+      from: { kind: 'report', process: { id: 'p1', event: 'match' } },
+    });
+    const text = (
+      (notice?.type === 'user.message' ? notice.payload.content[0] : undefined) as { text: string }
+    ).text;
+    expect(text).toContain(
+      'printed 2 lines matching your notifyOn pattern /FAIL/:\nFAIL one\nFAIL two\n',
+    );
+    expect(text).toContain('notifyLimit reached');
+    await h.settle(a);
+    expect(h.all(a).some((e) => e.type === 'turn.started')).toBe(true);
+    await callText(h, a, 'wevir_process_kill', { id: 'p1' });
   });
 
   it('读输出：最后几行、since、grep；大输出落盘后只回开头结尾与路径', async () => {

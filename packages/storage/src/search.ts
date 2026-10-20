@@ -1,7 +1,7 @@
 import type { SqliteDatabase, SqliteStatement, SqlParams, SqlRow, SqlValue } from './driver.js';
 import { integer, optionalText, text } from './rows.js';
 
-// 会话全文搜索的索引（协议 0.72.0）：从事件派生，可以整体删掉重建。
+// 会话全文搜索的索引（协议 0.77.0）：从事件派生，可以整体删掉重建。
 //
 // - **不存正文。** FTS5 是无内容表（`content=''`），只存 trigram 倒排；`search_docs` 只记一条索引对应哪个事件（会话、seq、回合、
 //   种类、时间）与它现在看不看得见。正文、片段与高亮都在查询时从 `events` 里那条事件重新取，事件库仍是唯一事实来源。

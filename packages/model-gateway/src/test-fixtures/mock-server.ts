@@ -1,5 +1,4 @@
 // 两个 mock 上游共用的 HTTP 外壳：记录每个请求（头部的 Key 只记方案与长度）、中断与否。
-// 改写自 spikes/codex-app-server/src/mock-responses.ts 的 startMockResponses / redactHeaders。
 
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';

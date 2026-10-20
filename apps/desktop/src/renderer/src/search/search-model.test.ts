@@ -1,6 +1,4 @@
-import type { ChatMessage } from '@wevir/client-sdk';
 import { describe, expect, it } from 'vitest';
-import { messageIndexOfSeq } from '@/session/transcript-focus';
 import {
   focusText,
   hitPath,
@@ -88,15 +86,5 @@ describe('搜索浮窗的纯函数', () => {
       { id: 'c', updatedAt: '2026-10-02T00:00:00.000Z' },
     ];
     expect(recentSessions(sessions as never, 5).map((session) => session.id)).toEqual(['c', 'a']);
-  });
-
-  it('seq 落在哪条消息的范围里', () => {
-    const messages = [
-      { id: 'u', seqRange: [2, 2] },
-      { id: 'a', seqRange: [3, 9] },
-    ] as unknown as ChatMessage[];
-    expect(messageIndexOfSeq(messages, 2)).toBe(0);
-    expect(messageIndexOfSeq(messages, 7)).toBe(1);
-    expect(messageIndexOfSeq(messages, 10)).toBe(-1);
   });
 });

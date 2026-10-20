@@ -114,6 +114,40 @@ function connectorStateKey(connector: Connector, plugin?: Plugin): ConnectorStat
   }
 }
 
+/** 命令与参数的显示写法：带空白的参数加引号（只用于显示）。 */
+export function commandLine(command: string, args: readonly string[] = []): string {
+  return [command, ...args.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg))].join(' ');
+}
+
+// ---- 范围与来源（0.74.0） ----
+
+/**
+ * 名字与这个范围冲突的连接器（添加、编辑时校验重名）：名字在全局与同一项目之间唯一，不同项目可以重名，所以全局的新名字与
+ * 所有连接器比，项目的与全局及同一项目的比。`exceptId` 是编辑时它自己。
+ */
+export function conflictingNames(
+  connectors: readonly Connector[],
+  workspaceId: string | undefined,
+  exceptId?: string,
+): Set<string> {
+  return new Set(
+    connectors
+      .filter(
+        (item) =>
+          item.id !== exceptId &&
+          (workspaceId === undefined ||
+            item.workspaceId === undefined ||
+            item.workspaceId === workspaceId),
+      )
+      .map((item) => item.name),
+  );
+}
+
+/** 散装连接器还没填值的环境变量或请求头键（导入的连接器）；插件的输入项不算，那些在插件详情里填。 */
+export function missingSecretKeys(connector: Connector): string[] {
+  return connector.pluginId === undefined ? (connector.missingInputs ?? []) : [];
+}
+
 // ---- Skills ----
 
 export interface SkillGroups {

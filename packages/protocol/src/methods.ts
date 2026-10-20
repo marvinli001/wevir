@@ -11,6 +11,8 @@ import {
   AutomationResultSchema,
   AutomationRunParamsSchema,
   AutomationRunResultSchema,
+  AutomationTestCheckParamsSchema,
+  AutomationTestCheckResultSchema,
   AutomationUpdateParamsSchema,
 } from './automations.js';
 import { BrowserRequestSchema, BrowserResponseSchema } from './browser.js';
@@ -27,6 +29,7 @@ import {
   EnvironmentIdSchema,
   HostIdSchema,
   ImageIdSchema,
+  OpinionIdSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
   QuestionIdSchema,
@@ -73,6 +76,9 @@ import {
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
   ReviewTargetSchema,
+  SECOND_OPINION_FOCUS_MAX_LENGTH,
+  SECOND_OPINION_NOTE_MAX_LENGTH,
+  SecondOpinionSchema,
   SessionGoalSchema,
   SessionOriginSchema,
   SessionRecapSchema,
@@ -102,6 +108,20 @@ import {
   GitStatusParamsSchema,
   GitStatusResultSchema,
 } from './git.js';
+import { ImportMethodSchemas } from './imports.js';
+import {
+  LspCancelInstallParamsSchema,
+  LspCancelInstallResultSchema,
+  LspChangedParamsSchema,
+  LspInstallParamsSchema,
+  LspInstallResultSchema,
+  LspLogParamsSchema,
+  LspLogResultSchema,
+  LspRestartParamsSchema,
+  LspRestartResultSchema,
+  LspStatusParamsSchema,
+  LspStatusResultSchema,
+} from './lsp.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   ProcessChangedParamsSchema,
@@ -112,6 +132,25 @@ import {
   ProcessStopParamsSchema,
   ProcessStopResultSchema,
 } from './processes.js';
+import {
+  ReadinessCancelParamsSchema,
+  ReadinessCancelResultSchema,
+  ReadinessChangedParamsSchema,
+  ReadinessGetParamsSchema,
+  ReadinessGetResultSchema,
+  ReadinessInstallParamsSchema,
+  ReadinessInstallResultSchema,
+  ReadinessOutputParamsSchema,
+  ReadinessOutputResultSchema,
+  ReadinessSetCredentialParamsSchema,
+  ReadinessSetCredentialResultSchema,
+} from './readiness.js';
+import {
+  RetroGetParamsSchema,
+  RetroGetResultSchema,
+  RetroSummarizeParamsSchema,
+  RetroSummarizeResultSchema,
+} from './retro.js';
 import {
   ReviewAddParamsSchema,
   ReviewCommentResultSchema,
@@ -1167,6 +1206,59 @@ export const SessionSendResultSchema = z.object({
   seq: SeqSchema,
 });
 
+// ── 第二意见（0.75.0，Host 功能 `second_opinion`，domain-model §3.30） ────────
+
+/** 去掉首尾空白后不能是空的，最多 `max` 个 UTF-16 code unit。 */
+function trimmedText(max: number) {
+  return z
+    .string()
+    .refine((value) => value.trim() !== '', { message: 'text is empty' })
+    .refine((value) => value.trim().length <= max, { message: `at most ${max} characters` });
+}
+
+/**
+ * 请另一个来源对会话当前的改动给第二意见：Host 把会话目录现在的样子放进一个新的 worktree，在那里用 `providerId` / `modelId` 开一个只读
+ * 审阅的会话，交给它任务、目标、验收与改动的范围，回合结束后把回答作为意见记在这个会话里（`opinion.updated`）。会话要是顶层会话（不是
+ * 子会话、支线或别的意见会话）、目录在 git 仓库里、仓库已有提交；同时进行中的意见最多 `SECOND_OPINION_RUNNING_MAX` 条。不满足时
+ * `INVALID_STATE`。
+ */
+export const SessionSecondOpinionParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  providerId: ProviderIdSchema,
+  /** 省略时用 Provider 的默认模型。 */
+  modelId: z.string().min(1).optional(),
+  reasoningEffort: z.string().min(1).optional(),
+  /** 要它特别看的地方；Host 去掉首尾空白。 */
+  focus: trimmedText(SECOND_OPINION_FOCUS_MAX_LENGTH).optional(),
+});
+
+/** 同一个会话里同时进行中的第二意见最多几条。 */
+export const SECOND_OPINION_RUNNING_MAX = 3;
+
+export const SessionSecondOpinionResultSchema = z.object({
+  opinion: SecondOpinionSchema,
+  /** 给意见的会话。 */
+  session: SessionSchema,
+});
+
+/**
+ * 引用第二意见：Host 把意见与用户的附言拼成一条消息发给这个会话（`user.message` 的 `from.opinion`），送达规则同 `session.send`。意见要
+ * 是 `ready`、还没引用过；否则 `INVALID_STATE`。
+ */
+export const SessionQuoteOpinionParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  opinionId: OpinionIdSchema,
+  /** 用户附的话；Host 去掉首尾空白。 */
+  note: trimmedText(SECOND_OPINION_NOTE_MAX_LENGTH).optional(),
+  clientMessageId: ClientTokenSchema.optional(),
+  delivery: PendingDeliverySchema.optional(),
+});
+
+/** 同 `session.send` 的结果，加上标为已引用的意见。 */
+export const SessionQuoteOpinionResultSchema = SessionSendResultSchema.extend({
+  opinion: SecondOpinionSchema,
+});
+
 // ── pending.*（0.8.0） ─────────────────────────────────────────────
 
 export const PendingUpdateParamsSchema = z.object({
@@ -1470,6 +1562,7 @@ export interface MethodSpec {
  */
 export const MethodSchemas = {
   ...PluginMethodSchemas,
+  ...ImportMethodSchemas,
   'host.hello': {
     params: HostHelloParamsSchema,
     result: HostHelloResultSchema,
@@ -1737,6 +1830,16 @@ export const MethodSchemas = {
     result: SessionCommandResultSchema,
     permission: 'session.write',
   },
+  'session.secondOpinion': {
+    params: SessionSecondOpinionParamsSchema,
+    result: SessionSecondOpinionResultSchema,
+    permission: 'session.write',
+  },
+  'session.quoteOpinion': {
+    params: SessionQuoteOpinionParamsSchema,
+    result: SessionQuoteOpinionResultSchema,
+    permission: 'session.write',
+  },
   'session.setGoal': {
     params: SessionSetGoalParamsSchema,
     result: SessionCommandResultSchema,
@@ -1777,7 +1880,7 @@ export const MethodSchemas = {
     result: SessionCheckpointsResultSchema,
     permission: 'session.read',
   },
-  /** 会话全文搜索（0.72.0）。 */
+  /** 会话全文搜索（0.77.0）。 */
   'search.query': {
     params: SearchQueryParamsSchema,
     result: SearchQueryResultSchema,
@@ -1930,6 +2033,17 @@ export const MethodSchemas = {
     result: VerificationOutputResultSchema,
     permission: 'session.read',
   },
+  // 0.76.0：任务回顾（ADR-0012）。
+  'retro.get': {
+    params: RetroGetParamsSchema,
+    result: RetroGetResultSchema,
+    permission: 'session.read',
+  },
+  'retro.summarize': {
+    params: RetroSummarizeParamsSchema,
+    result: RetroSummarizeResultSchema,
+    permission: 'session.write',
+  },
 
   'review.list': {
     params: ReviewListParamsSchema,
@@ -1992,6 +2106,31 @@ export const MethodSchemas = {
     result: ProcessStopResultSchema,
     permission: 'session.write',
   },
+  'readiness.get': {
+    params: ReadinessGetParamsSchema,
+    result: ReadinessGetResultSchema,
+    permission: 'workspace.read',
+  },
+  'readiness.install': {
+    params: ReadinessInstallParamsSchema,
+    result: ReadinessInstallResultSchema,
+    permission: 'workspace.write',
+  },
+  'readiness.cancel': {
+    params: ReadinessCancelParamsSchema,
+    result: ReadinessCancelResultSchema,
+    permission: 'workspace.write',
+  },
+  'readiness.output': {
+    params: ReadinessOutputParamsSchema,
+    result: ReadinessOutputResultSchema,
+    permission: 'workspace.read',
+  },
+  'readiness.setCredential': {
+    params: ReadinessSetCredentialParamsSchema,
+    result: ReadinessSetCredentialResultSchema,
+    permission: 'workspace.write',
+  },
   'terminal.create': {
     params: TerminalCreateParamsSchema,
     result: TerminalCreateResultSchema,
@@ -2027,6 +2166,31 @@ export const MethodSchemas = {
     result: TerminalCloseResultSchema,
     permission: 'session.write',
   },
+  'lsp.status': {
+    params: LspStatusParamsSchema,
+    result: LspStatusResultSchema,
+    permission: 'workspace.read',
+  },
+  'lsp.restart': {
+    params: LspRestartParamsSchema,
+    result: LspRestartResultSchema,
+    permission: 'workspace.write',
+  },
+  'lsp.log': {
+    params: LspLogParamsSchema,
+    result: LspLogResultSchema,
+    permission: 'workspace.read',
+  },
+  'lsp.install': {
+    params: LspInstallParamsSchema,
+    result: LspInstallResultSchema,
+    permission: 'workspace.write',
+  },
+  'lsp.cancelInstall': {
+    params: LspCancelInstallParamsSchema,
+    result: LspCancelInstallResultSchema,
+    permission: 'workspace.write',
+  },
   'automation.list': {
     params: AutomationListParamsSchema,
     result: AutomationListResultSchema,
@@ -2055,6 +2219,12 @@ export const MethodSchemas = {
   'automation.run': {
     params: AutomationRunParamsSchema,
     result: AutomationRunResultSchema,
+    permission: 'session.write',
+  },
+  /** 0.73.0：试跑检查脚本（Host 执行命令，要 `session.write`）。 */
+  'automation.testCheck': {
+    params: AutomationTestCheckParamsSchema,
+    result: AutomationTestCheckResultSchema,
     permission: 'session.write',
   },
 
@@ -2123,10 +2293,14 @@ export const NotificationSchemas = {
   'automation.changed': { params: AutomationChangedParamsSchema },
   /** 发给调用过 `process.*` 的连接（0.69.0）。 */
   'process.changed': { params: ProcessChangedParamsSchema },
+  /** 发给调用过 `readiness.*` 的连接（0.70.0）。 */
+  'readiness.changed': { params: ReadinessChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */
   'terminal.changed': { params: TerminalChangedParamsSchema },
+  /** 发给调用过 `lsp.*` 的连接（0.71.0）。 */
+  'lsp.changed': { params: LspChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;

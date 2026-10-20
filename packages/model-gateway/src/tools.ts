@@ -1,4 +1,4 @@
-// 改写自 spikes/codex-app-server/src/gateway.ts（mapTools 与工具调用的还原）。
+// Codex 工具的映射（mapTools 与工具调用的还原）。
 //
 // 只支持函数工具的上游（Chat Completions，以及声明不支持自定义工具的 Responses 上游）看不到 Codex 的两类工具：
 // - custom（apply_patch，Lark 语法）：摊平成只有一个字符串参数 `input` 的函数，语法全文写进描述；

@@ -32,14 +32,23 @@ function git(cwd: string, ...args: string[]): string {
   });
 }
 
-function setup(adapter = new EchoAdapter({ stepDelayMs: 0 })) {
+function setup(
+  adapter = new EchoAdapter({ stepDelayMs: 0 }),
+  projectConnectors?: ConstructorParameters<typeof SessionManager>[0]['projectConnectors'],
+) {
   const root = realpathSync(tempDir());
   const dataDir = join(root, 'data');
   mkdirSync(dataDir);
   const storage = storages.open(dataDir);
   const events = new EventStore({ storage, deltaWindowMs: 5 });
   const worktreesDir = join(dataDir, 'worktrees');
-  const sessions = new SessionManager({ storage, events, adapter, worktreesDir });
+  const sessions = new SessionManager({
+    storage,
+    events,
+    adapter,
+    worktreesDir,
+    ...(projectConnectors !== undefined && { projectConnectors }),
+  });
   const methods = createHostMethods({
     storage,
     events,
@@ -282,6 +291,36 @@ describe('单独新开 worktree 的会话（0.18.0）', () => {
     );
     expect(local.session.cwd).toBe(app.rootPath);
     expect(local.session.worktrees).toBeUndefined();
+  });
+
+  it('项目的连接器（0.74.0）按会话所在的项目交给引擎，worktree 里的会话 cwd 不在项目根下也拿得到', async () => {
+    const adapter = new EchoAdapter({ stepDelayMs: 0 });
+    const create = vi.spyOn(adapter, 'createSession');
+    const resume = vi.spyOn(adapter, 'resumeSession');
+    const connector = {
+      name: 'proj_docs',
+      config: { transport: 'stdio' as const, command: 'docs' },
+      enabled: true,
+    };
+    let appId = '';
+    const h = setup(adapter, (workspaceId) => (workspaceId === appId ? [connector] : []));
+    const app = await h.project('app');
+    const other = await h.project('other');
+    appId = app.id;
+    const { session } = await h.methods['session.create'](
+      { workspaceId: app.id, providerId: 'mock', worktree: 'new' },
+      context,
+    );
+    expect(session.cwd.startsWith(h.worktreesDir)).toBe(true);
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      cwd: session.cwd,
+      connectors: [connector],
+    });
+    await h.methods['session.create']({ workspaceId: other.id, providerId: 'mock' }, context);
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('connectors');
+    await h.methods['session.close']({ sessionId: session.id }, context);
+    await h.methods['session.resume']({ sessionId: session.id }, context);
+    expect(resume.mock.calls.at(-1)?.[1]).toMatchObject({ connectors: [connector] });
   });
 
   it('不是仓库、与 environmentId 同时给时不建会话，也不留 worktree', async () => {

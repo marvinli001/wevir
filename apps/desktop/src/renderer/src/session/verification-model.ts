@@ -10,6 +10,7 @@ import type {
   VerificationStatus,
 } from '@wevir/protocol';
 import type { PlainMessageKey } from '@/i18n';
+import { readinessReasonLabel } from '@/layout/readiness-model';
 
 export const ACCEPTANCE_LABELS: Record<AcceptanceStatus, PlainMessageKey> = {
   unverified: 'verification.acceptance.unverified',
@@ -46,6 +47,7 @@ const REASON_LABELS: Record<string, PlainMessageKey> = {
   host_restarted: 'verification.reason.host_restarted',
   host_shutdown: 'verification.reason.host_restarted',
   no_checks: 'verification.reason.no_checks',
+  environment_not_ready: 'verification.reason.environment_not_ready',
 };
 
 /** 修复链停下的原因。 */
@@ -66,8 +68,9 @@ const STOP_LABELS: Record<string, PlainMessageKey> = {
   code_changed: 'verification.reason.code_changed',
 };
 
+/** 环境不可用的记录带的是预检那一项的原因（0.70.0），用“依赖”卡片的文案。 */
 export function reasonLabel(reason: string | undefined): PlainMessageKey | undefined {
-  return reason === undefined ? undefined : REASON_LABELS[reason];
+  return reason === undefined ? undefined : (REASON_LABELS[reason] ?? readinessReasonLabel(reason));
 }
 
 export function stopLabel(reason: string | undefined): PlainMessageKey | undefined {

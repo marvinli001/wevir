@@ -32,9 +32,11 @@ import {
   QuestionRequestSchema,
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
+  SecondOpinionSchema,
   SessionEnvironmentFields,
   SessionGoalSchema,
   SessionOpenedBySchema,
+  SessionOpinionOfSchema,
   SessionReadOnlyReasonSchema,
   SessionRulesSchema,
   SessionSideFields,
@@ -103,6 +105,8 @@ export const EventPayloadSchemas = {
     ...SessionSideFields,
     /** 由另一个会话里的 agent 开出来的（0.30.0）。 */
     openedBy: SessionOpenedBySchema.optional(),
+    /** 给另一个会话第二意见的会话（0.75.0）。 */
+    opinionOf: SessionOpinionOfSchema.optional(),
     /** 工具预设（0.61.0）；没选时省略，等同 `full`。 */
     toolPreset: ToolPresetSchema.optional(),
     /** 只有子会话有（0.6.0，domain-model §3.3.1）：父会话与派出它的工具调用。 */
@@ -498,6 +502,11 @@ export const EventPayloadSchemas = {
   'acceptance.changed': z.object({ acceptance: SessionAcceptanceSchema }),
   /** 自动修复链变了（0.65.0）：开始、每次修复、复验、停下。 */
   'repair.updated': z.object({ repair: RepairChainSchema }),
+  /**
+   * 第二意见变了（0.75.0，domain-model §3.30）：发起、意见会话第一个回合结束、被引用。完整的意见，替换同一 `id` 的上一份；写在收到意见的
+   * 会话里，不开回合、不进引擎上下文。
+   */
+  'opinion.updated': z.object({ opinion: SecondOpinionSchema }),
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -591,6 +600,7 @@ export const FileSharedEventSchema = eventSchema('file.shared');
 export const VerificationUpdatedEventSchema = eventSchema('verification.updated');
 export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
 export const RepairUpdatedEventSchema = eventSchema('repair.updated');
+export const OpinionUpdatedEventSchema = eventSchema('opinion.updated');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -643,6 +653,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   VerificationUpdatedEventSchema,
   AcceptanceChangedEventSchema,
   RepairUpdatedEventSchema,
+  OpinionUpdatedEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

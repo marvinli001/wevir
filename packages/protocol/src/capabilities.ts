@@ -36,6 +36,9 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   /** 认得 `UserContentPart` 的 `image`；没有时 Host 把事件与结果里的图片换成文本 `[image]`。 */
   userImages: 'user_images',
+  // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
+  /** 认得 `QuestionResolutionReason` 的 `timeout`；没有时 Host 把它降级成 `user`（回答照旧，没有 `answeredBy`）。 */
+  questionTimeout: 'question_timeout',
 } as const;
 export type ClientCapability = (typeof CLIENT_CAPABILITIES)[keyof typeof CLIENT_CAPABILITIES];
 
@@ -47,6 +50,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   subscription_kinds: z.boolean().optional(),
   subscription_accounts: z.boolean().optional(),
   user_images: z.boolean().optional(),
+  question_timeout: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
 
@@ -294,7 +298,40 @@ export const HOST_FEATURES = {
    */
   userTerminal: 'user_terminal',
   /**
-   * 会话全文搜索（0.72.0）：`search.query`、`search.status`、`search.rebuild`。索引是 Host 从事件派生的，与引擎无关；运行时的
+   * 项目环境就绪（0.70.0）：`readiness.*` 方法与 `readiness.changed` 通知（只读的预检、用户发起的项目安装、安装凭据），`VerificationRun`
+   * 的 `readiness`，有应用级工具时还有只读的 `wevir_workspace_readiness`。与引擎无关。
+   */
+  workspaceReadiness: 'workspace_readiness',
+  /**
+   * 语言服务器的状态与安装（0.71.0）：`lsp.status`、`lsp.restart`、`lsp.log`、`lsp.install`、`lsp.cancelInstall` 与 `lsp.changed`
+   * 通知。有代码智能（`lsp_*` 工具）时声明。
+   */
+  lspStatus: 'lsp_status',
+  /**
+   * 提问超时（0.72.0）：无人值守的会话里，问题带 `autoAnswerAt`，到时没人回答就按 `defaultOption` 回答（`timeout`）。Host 有
+   * `user_questions` 时声明。
+   */
+  questionTimeout: 'question_timeout',
+  /**
+   * 自动化的条件与目标（0.73.0）：`automation.create` / `update` 的 `sessionId`（发进已有会话）与 `check`（检查脚本决定唤不唤醒
+   * Agent）、`automation.testCheck`、运行状态 `checking` / `silent`、通知 `changes` 与连续失败自动停用（`autoPausedAt`）。
+   * 有 `automations` 时声明。
+   */
+  automationConditions: 'automation_conditions',
+  /** 从 Claude Code、Codex、Grok Build、Antigravity 导入记忆、MCP 服务器与 skills（0.74.0）：`import.*` 方法。 */
+  externalImport: 'external_import',
+  /**
+   * 第二意见（0.75.0，domain-model §3.30）：`session.secondOpinion`、`session.quoteOpinion`、`opinion.updated` 事件、快照的 `opinions`、
+   * `Session.opinionOf` 与 `MessageFrom.opinion`。Host 能开 worktree 时声明，与引擎无关（意见会话用哪个来源由请求决定）。
+   */
+  secondOpinion: 'second_opinion',
+  /**
+   * 任务回顾（0.76.0，ADR-0012）：`retro.get`（从事件确定性生成的回顾，每行带出处，按需增量更新）与 `retro.summarize`（用户触发的
+   * 模型摘要，引擎实现了 `generateTitle` 时才写得成），有应用级工具时还有 `wevir_session_retro`。与引擎无关。
+   */
+  sessionRetro: 'session_retro',
+  /**
+   * 会话全文搜索（0.77.0）：`search.query`、`search.status`、`search.rebuild`。索引是 Host 从事件派生的，与引擎无关；运行时的
    * SQLite 没有 FTS5 trigram 时照样声明，查询都是有上限的扫描（`search.status` 的 `fts` 为 false）。
    */
   sessionSearch: 'session_search',
@@ -359,6 +396,13 @@ export const HostFeaturesSchema = z.looseObject({
   git_commit: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
+  workspace_readiness: z.boolean().optional(),
+  lsp_status: z.boolean().optional(),
+  question_timeout: z.boolean().optional(),
+  automation_conditions: z.boolean().optional(),
+  external_import: z.boolean().optional(),
+  second_opinion: z.boolean().optional(),
+  session_retro: z.boolean().optional(),
   session_search: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;

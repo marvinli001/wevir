@@ -1158,6 +1158,7 @@ describe('应用级工具（0.30.0）', () => {
     expect(options?.allowedTools).toEqual([
       'mcp__wevir__wevir_session_list',
       'mcp__wevir__wevir_session_read',
+      'mcp__wevir__wevir_session_retro',
       'mcp__wevir__wevir_session_wait',
       'mcp__wevir__wevir_session_progress',
       'mcp__wevir__wevir_models',

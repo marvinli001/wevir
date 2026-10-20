@@ -15,10 +15,15 @@ import {
   WAIT_MAX_MS,
 } from './app-tools.js';
 import {
+  PROCESS_NOTIFY_BATCH_MS,
+  PROCESS_NOTIFY_DEFAULT_LIMIT,
+  PROCESS_NOTIFY_INTERVAL_MS,
+  PROCESS_NOTIFY_MAX_LIMIT,
   PROCESS_SIGNALS,
   PROCESS_TAIL_LINES,
   type ProcessInfo,
   type ProcessManager,
+  type ProcessNotice,
   type ProcessSignal,
   stripAnsi,
 } from './processes.js';
@@ -55,8 +60,12 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
         'it exits, you stop it with wevir_process_kill, or the session is deleted or Wevir quits. Runs in your login ' +
         "shell (no terminal), in this session's folder or a folder inside it. stdout and stderr go to a log file " +
         '(path in the result) that you can read with wevir_process_output or rg / tail. When it exits on its own ' +
-        'Wevir tells you with a message (notifyOnExit, default true), so you can end your turn instead of polling; ' +
-        'notifyOn sends one message when an output line matches a regular expression (for example "error|ready"). ' +
+        'Wevir tells you with a message (notifyOnExit, default true), so you can end your turn instead of polling. ' +
+        'notifyOn messages you whenever output lines match a regular expression (for example "error|FAIL|ready", or ' +
+        '"." for every line), which starts a turn if you are idle: use it to watch CI, logs or long tests without ' +
+        `polling. Matches are batched (lines within ${PROCESS_NOTIFY_BATCH_MS / 1000} s of each other go in one message, ` +
+        `messages are at least ${PROCESS_NOTIFY_INTERVAL_MS / 1000} s apart) and notifyLimit caps how many messages it ` +
+        `sends (default ${PROCESS_NOTIFY_DEFAULT_LIMIT}, at most ${PROCESS_NOTIFY_MAX_LIMIT}); keep the pattern specific. ` +
         'waitFor waits in this call until a line matches (for example "Local:.*http" for a dev server), the process ' +
         'exits, or timeoutMs passes. Patterns are JavaScript regular expressions, optionally written as /pattern/i.',
       inputSchema: objectSchema(
@@ -67,6 +76,7 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
           env: { type: 'object', additionalProperties: { type: 'string' } },
           notifyOnExit: { type: 'boolean' },
           notifyOn: { type: 'string' },
+          notifyLimit: { type: 'integer', minimum: 1, maximum: PROCESS_NOTIFY_MAX_LIMIT },
           waitFor: { type: 'string' },
           timeoutMs: { type: 'integer', minimum: 0, maximum: WAIT_MAX_MS },
         },
@@ -77,6 +87,9 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
         const command = requiredString(args, 'command');
         const cwd = await processCwd(cwdOf(call.sessionId), optionalString(args, 'cwd'));
         const notifyOn = pattern(args, 'notifyOn');
+        const notifyLimit =
+          optionalInt(args, 'notifyLimit', 1, PROCESS_NOTIFY_MAX_LIMIT) ??
+          PROCESS_NOTIFY_DEFAULT_LIMIT;
         const waitFor = pattern(args, 'waitFor');
         const timeoutMs = optionalInt(args, 'timeoutMs', 0, WAIT_MAX_MS) ?? WAIT_DEFAULT_MS;
         const name = optionalString(args, 'name');
@@ -89,7 +102,7 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
           ...(name !== undefined && { name }),
           ...(env !== undefined && { env }),
           notifyOnExit,
-          ...(notifyOn !== undefined && { notifyPattern: notifyOn }),
+          ...(notifyOn !== undefined && { notifyPattern: notifyOn, notifyLimit }),
           ...(turnId !== undefined && { turnId }),
         });
         const lines = [`Started ${describe(started)}.`, `log: ${started.logPath}`];
@@ -112,6 +125,11 @@ export function processTools({ processes, cwdOf, turnOf }: ProcessToolsOptions):
               ? 'Wevir will message you when it exits.'
               : 'It will not message you when it exits (notifyOnExit is false).',
           );
+          if (notifyOn !== undefined) {
+            lines.push(
+              `Wevir will message you when lines match ${String(notifyOn)} (at most ${notifyLimit} ${notifyLimit === 1 ? 'message' : 'messages'}).`,
+            );
+          }
         }
         return text(lines.join('\n'));
       },
@@ -400,19 +418,34 @@ export function duration(ms: number): string {
 }
 
 /** 通知给模型的文本（app-tools.ts 发回会话）。 */
-export function noticeText(notice: {
-  process: ProcessInfo;
-  event: 'exit' | 'match';
-  line?: string;
-  tail: string;
-}): string {
-  const { process: info } = notice;
-  const head =
+export function noticeText(notice: ProcessNotice): string {
+  const { process: info, matches } = notice;
+  const parts =
     notice.event === 'exit'
-      ? `[Wevir] Background process ${describe(info)} ${status(info)}.`
-      : `[Wevir] Background process ${describe(info)} printed a line matching your notifyOn pattern: ${notice.line ?? ''}\nIt is ${status(info)}.`;
+      ? [`[Wevir] Background process ${describe(info)} ${status(info)}.`]
+      : [];
+  if (matches !== undefined) {
+    const lines = `${matches.count} ${matches.count === 1 ? 'line' : 'lines'}`;
+    parts.push(
+      notice.event === 'exit'
+        ? `Before that, ${lines} matched your notifyOn pattern ${String(matches.pattern)}:`
+        : `[Wevir] Background process ${describe(info)} printed ${lines} matching your notifyOn pattern ${String(matches.pattern)}:`,
+      matches.lines.join('\n'),
+    );
+    const more = matches.count - matches.lines.length;
+    if (more > 0) parts.push(`(${more} more matching lines not shown; see the log)`);
+    if (notice.event === 'match') {
+      parts.push(`It is ${status(info)}.`);
+      if (matches.remaining === 0) {
+        parts.push(
+          'That was the last notifyOn message for this process (notifyLimit reached); later matches are not sent. ' +
+            'Use wevir_process_wait or wevir_process_output, or start the command again with a higher notifyLimit.',
+        );
+      }
+    }
+  }
   return [
-    head,
+    ...parts,
     notice.tail === '' ? '(no output)' : `Last lines:\n${notice.tail}`,
     `Full log: ${info.logPath}`,
   ].join('\n');

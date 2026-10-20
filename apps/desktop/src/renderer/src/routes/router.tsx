@@ -89,7 +89,7 @@ export const router = createHashRouter([
   },
 ]);
 
-/** 路由根：记历史序号（窗口左上角的后退 / 前进）、全局快捷键（后退 / 前进，U35 起新建会话与设置，0.72.0 起搜索）、全局对话框。 */
+/** 路由根：记历史序号（窗口左上角的后退 / 前进）、全局快捷键（后退 / 前进，U35 起新建会话与设置，0.77.0 起搜索）、全局对话框。 */
 function AppRoot() {
   useTrackHistory();
   const history = useHistoryNav();
@@ -111,7 +111,7 @@ function AppRoot() {
         event.preventDefault();
         navigate(workspaceId ? paths.draft(workspaceId) : paths.home());
       } else if (matchesShortcut(event, SHORTCUTS.search)) {
-        // 0.72.0：会话全文搜索；再按一次关上。
+        // 0.77.0：会话全文搜索；再按一次关上。
         event.preventDefault();
         searchOpen.set((open) => !open);
       } else if (matchesShortcut(event, SHORTCUTS.settings)) {

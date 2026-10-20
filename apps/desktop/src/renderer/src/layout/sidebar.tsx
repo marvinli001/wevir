@@ -87,7 +87,7 @@ export const Sidebar = memo(function Sidebar({ controls }: { controls?: ReactNod
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
   // Host 有 `automations` 功能才有“自动化”入口（0.66.0），在“新建会话”下面。
   const showAutomations = automationsAvailability(client?.hello.features) === 'ready';
-  // Host 有 `session_search` 功能才有“搜索”入口（0.72.0），在“新建会话”下面。
+  // Host 有 `session_search` 功能才有“搜索”入口（0.77.0），在“新建会话”下面。
   const showSearch = client !== undefined && hostSupports(client.hello.features, 'session_search');
   return (
     <div className="flex h-full min-h-0 flex-col">

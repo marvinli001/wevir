@@ -1,6 +1,7 @@
 import {
   Activity,
   Bot,
+  ClipboardList,
   FileText,
   FolderTree,
   GitCompare,
@@ -22,6 +23,7 @@ import { FilesPane } from './panes/files-pane';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
 import { ProcessesPane } from './panes/processes-pane';
+import { RetroPane } from './panes/retro-pane';
 import { SessionPane } from './panes/session-pane';
 import { SubagentsPane } from './panes/subagents-pane';
 import { TasksPane } from './panes/tasks-pane';
@@ -127,6 +129,11 @@ const VIEWS: Record<PaneKind, PaneView> = {
     icon: Globe,
     name: 'pane.kind.browser',
     render: (_, context) => <BrowserPane context={context} />,
+  },
+  retro: {
+    icon: ClipboardList,
+    name: 'pane.kind.retro',
+    render: (_, context) => <RetroPane context={context} />,
   },
 };
 

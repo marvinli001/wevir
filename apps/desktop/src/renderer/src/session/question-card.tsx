@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
+import { formatDuration } from './format';
 
 /** 输入框上方的提问（U11，照 Claude Code 的提问卡片）：一次一组，一题一页。 */
 export function QuestionDock({
@@ -30,7 +31,8 @@ const OTHER = '\u0000other';
 
 /**
  * 一组问题（protocol 0.10.0 的 `QuestionRequest`）：顶上是“第几题 / 共几题”与题目，下面是选项（单选点一下即选中，多选是
- * 勾选框），允许时最后一项是“其他”加输入框；数字键选选项，⌘↵ 下一题，最后一题是提交。跳过的题回答为空。
+ * 勾选框），允许时最后一项是“其他”加输入框；数字键选选项，⌘↵ 下一题，最后一题是提交。跳过的题回答为空。推荐的选项
+ * （0.72.0 的 `defaultOption`）带标记；无人值守的会话里底栏左边倒数到 `autoAnswerAt`，到时 Host 按推荐回答。
  */
 function QuestionCard({
   request,
@@ -179,6 +181,7 @@ function QuestionCard({
                   description={option.description}
                   number={optionIndex + 1}
                   multi={question.multiSelect === true}
+                  recommended={option.label === question.defaultOption}
                   checked={selected.includes(option.label)}
                   onToggle={() => toggle(option.label)}
                 />
@@ -216,6 +219,7 @@ function QuestionCard({
             </p>
           )}
           <footer className="flex items-center justify-end gap-2 px-3.5 pt-3 pb-3">
+            {request.autoAnswerAt && <AutoAnswerCountdown at={request.autoAnswerAt} />}
             <Button size="sm" variant="secondary" disabled={busy} onClick={skip}>
               {t('question.skip')}
             </Button>
@@ -237,11 +241,28 @@ function QuestionCard({
   );
 }
 
+/** 离 Host 按推荐回答还有多久（0.72.0），每秒刷新。 */
+function AutoAnswerCountdown({ at }: { at: string }) {
+  const deadline = Date.parse(at);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const remaining = Math.ceil(Math.max(0, deadline - now) / 1000) * 1000;
+  return (
+    <p className="mr-auto text-xs text-muted-foreground tabular-nums" data-auto-answer={at}>
+      {t('question.autoAnswer', { time: formatDuration(remaining) })}
+    </p>
+  );
+}
+
 function OptionRow({
   label,
   description,
   number,
   multi,
+  recommended = false,
   checked,
   onToggle,
   children,
@@ -250,6 +271,7 @@ function OptionRow({
   description?: string | undefined;
   number: number;
   multi: boolean;
+  recommended?: boolean;
   checked: boolean;
   onToggle: () => void;
   children?: ReactNode;
@@ -282,7 +304,14 @@ function OptionRow({
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">{label}</span>
+          <span className="block text-sm font-medium">
+            {label}
+            {recommended && (
+              <span className="ml-1.5 rounded-sm bg-brand/15 px-1 align-[1px] text-[0.6875rem] leading-4 font-medium text-brand">
+                {t('question.recommended')}
+              </span>
+            )}
+          </span>
           {description && (
             <span className="mt-0.5 block text-xs text-muted-foreground">{description}</span>
           )}

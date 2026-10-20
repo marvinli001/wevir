@@ -20,8 +20,7 @@ import {
   startMockModel,
 } from './test-fixtures/mock-model.js';
 
-// 外连与密钥（ADR-0005 决策 5 最后一条，改写自 spikes/codex-app-server/src/network-audit.ts 与 run-all.ts 的
-// secrets 场景）：生成的配置下 codex-app-server 不连任何外部地址；网关令牌与上游 Key 不落盘、不进日志；模型跑的命令
+// 外连与密钥（ADR-0005 决策 5 最后一条）：生成的配置下 codex-app-server 不连任何外部地址；网关令牌与上游 Key 不落盘、不进日志；模型跑的命令
 // 看不到 WEVIR_*。
 
 const binary = codexBinaryOrSkip('adapter-codex 外连与密钥');
