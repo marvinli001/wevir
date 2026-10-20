@@ -12,8 +12,8 @@
  *   resources/engines/codex/LICENSE、NOTICE          Codex 的 Apache-2.0 全文与署名（licenses/codex/，取自锁定提交）
  *   resources/prompts/                               仓库的 prompts/（不含 README.md）
  *   resources/host/                                  wevir-host（dist/main.js）与它的生产依赖：pnpm deploy 的 hoisted
- *                                                    布局（没有符号链接），不含 EXCLUDED_PACKAGES；桌面端用 Electron
- *                                                    自带的 Node 运行
+ *                                                    布局（没有符号链接），不含 EXCLUDED_PACKAGES 与运行时用不到的
+ *                                                    文件（pruneUnusedFiles）；桌面端用 Electron 自带的 Node 运行
  *
  * `--target` 默认是本机平台；打别的平台的安装包时给出那个平台的三元组（fetch-codex.sh 的列表），Host 的平台可选依赖
  * 也按它装。`WEVIR_GITHUB_MIRROR` 同 fetch-codex.sh。
@@ -164,9 +164,80 @@ export function pruneDependencies(root: string, excluded: readonly string[]): st
   return removed;
 }
 
+/** 运行时不会读的文件：Node 不加载 node_modules 里的 TypeScript（含 `.d.ts`），Host 也不开 source map。 */
+const UNUSED_FILE = /\.(?:[cm]?ts|map)$/;
+/** 包根目录下运行时不会读的目录（例如 domino 随 npm 包发布了约 960 个测试文件）。 */
+const UNUSED_DIRS: readonly string[] = ['test', 'tests', '__tests__', '.github', '.yarn'];
+
+/**
+ * 删掉 Host 依赖里运行时用不到的文件（`UNUSED_FILE`、包根目录的 `UNUSED_DIRS`），以及因此空掉的目录。安装包少了上千个
+ * 文件，Windows 一键安装要逐个删除旧文件、解压并复制新文件，文件数直接决定“重启以更新”要等多久。包的入口仍在由
+ * `checkHostTree` 核对。返回删掉的文件数。
+ */
+export function pruneUnusedFiles(root: string): number {
+  let count = 0;
+  const removeTree = (path: string) => {
+    count += countFiles(path);
+    rmSync(path, { recursive: true, force: true });
+  };
+  const walk = (dir: string, packageRoot: boolean): boolean => {
+    let empty = true;
+    for (const entry of readdirSync(dir)) {
+      const path = join(dir, entry);
+      const stat = lstatSync(path);
+      if (stat.isDirectory()) {
+        if (entry === 'node_modules') {
+          for (const name of packagesIn(path)) walk(join(path, name), true);
+          empty = false;
+        } else if (packageRoot && UNUSED_DIRS.includes(entry)) {
+          removeTree(path);
+        } else if (walk(path, false)) {
+          rmSync(path, { recursive: true });
+        } else {
+          empty = false;
+        }
+      } else if (UNUSED_FILE.test(entry)) {
+        rmSync(path);
+        count += 1;
+      } else {
+        empty = false;
+      }
+    }
+    return empty;
+  };
+  const top = join(root, 'node_modules');
+  if (existsSync(top)) for (const name of packagesIn(top)) walk(join(top, name), true);
+  return count;
+}
+
+function countFiles(path: string): number {
+  if (!lstatSync(path).isDirectory()) return 1;
+  return readdirSync(path).reduce((sum, entry) => sum + countFiles(join(path, entry)), 0);
+}
+
+/** package.json 里 Node 会解析到的文件：`main`、`bin` 与 `exports`（不含 `types` 条件、TypeScript 文件与通配）。 */
+export function entryFiles(manifest: Record<string, unknown>): string[] {
+  const files: string[] = [];
+  const add = (value: unknown, key?: string) => {
+    if (key === 'types' || key === 'typings') return;
+    if (typeof value === 'string') {
+      if (!value.includes('*') && !/\.[cm]?ts$/.test(value)) files.push(value);
+    } else if (Array.isArray(value)) {
+      for (const item of value) add(item);
+    } else if (value !== null && typeof value === 'object') {
+      for (const [k, v] of Object.entries(value)) add(v, k);
+    }
+  };
+  add(manifest.main);
+  add(manifest.bin);
+  add(manifest.exports);
+  return files;
+}
+
 /**
  * 安装包里的 Host 要满足的条件，不满足就报错：没有被排除的包；没有符号链接（签名与 extraResources 的复制都不处理它）；
- * 留下的包都没有安装脚本（deploy 用 `--ignore-scripts`，交叉准备别的平台时脚本也跑不了，新依赖需要脚本时要先在这里想清楚）。
+ * 留下的包都没有安装脚本（deploy 用 `--ignore-scripts`，交叉准备别的平台时脚本也跑不了，新依赖需要脚本时要先在这里想清楚）；
+ * 每个包的入口（`entryFiles`）都在，`pruneUnusedFiles` 没有删掉运行时要用的文件。
  */
 export function checkHostTree(root: string, excluded: readonly string[]): void {
   const problems: string[] = [];
@@ -184,9 +255,13 @@ export function checkHostTree(root: string, excluded: readonly string[]): void {
     for (const name of packagesIn(nodeModules)) {
       const dir = join(nodeModules, name);
       if (excluded.includes(name)) problems.push(`不该进安装包的包：${dir}`);
-      const scripts = readManifest(dir).scripts ?? {};
+      const manifest = readManifest(dir);
+      const scripts = manifest.scripts ?? {};
       for (const hook of ['preinstall', 'install', 'postinstall']) {
         if (scripts[hook] !== undefined) problems.push(`${name} 有 ${hook} 脚本`);
+      }
+      for (const file of entryFiles(manifest as Record<string, unknown>)) {
+        if (!existsSync(join(dir, file))) problems.push(`${name} 的入口不在：${file}`);
       }
       visitPackages(join(dir, 'node_modules'));
     }
@@ -247,9 +322,11 @@ function stageHost(dir: string, target: string): void {
   for (const file of ['pnpm-lock.yaml', 'pnpm-workspace.yaml'])
     rmSync(join(dir, file), { force: true });
   const removed = pruneDependencies(dir, EXCLUDED_PACKAGES);
+  const files = pruneUnusedFiles(dir);
   checkHostTree(dir, EXCLUDED_PACKAGES);
   console.log(
-    `resources/host：去掉了 ${removed.length} 个包（${EXCLUDED_PACKAGES.join('、')} 与只被它们用到的）`,
+    `resources/host：去掉了 ${removed.length} 个包（${EXCLUDED_PACKAGES.join('、')} 与只被它们用到的）、` +
+      `${files} 个运行时用不到的文件`,
   );
 }
 

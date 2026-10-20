@@ -67,6 +67,14 @@ import { BROWSER_PARTITION_DIR, cleanLogs, measureStorage } from './storage.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
 import {
+  finishInstallTiming,
+  INSTALL_TIMING_LOG,
+  markInstallTiming,
+  PENDING_INSTALL_FILE,
+  type StartupMarks,
+  startInstallTiming,
+} from './updates/install-timing.js';
+import {
   DEFAULT_WINDOW_APPEARANCE,
   loadWindowAppearance,
   parseWindowAppearanceInput,
@@ -146,6 +154,37 @@ function run(): void {
     mainWindow.focus();
   };
 
+  // 启动各阶段的时间点：窗口显示且 Host 就绪（或失败）后记一行日志；刚装完更新时连同旧版本记下的时间点追加到
+  // logs/update-timing.log（install-timing.ts）。
+  const installTimingFile = join(app.getPath('userData'), PENDING_INSTALL_FILE);
+  const startup: StartupMarks = {
+    processAt: process.getCreationTime() ?? Date.now() - process.uptime() * 1000,
+  };
+  const markInstallStartup = (key: 'windowAt' | 'hostAt') => {
+    if (startup[key] !== undefined) return;
+    startup[key] = Date.now();
+    if (startup.windowAt === undefined || startup.hostAt === undefined) return;
+    const since = (at: number | undefined) =>
+      at === undefined ? undefined : Math.round(at - startup.processAt);
+    log('info', 'startup timing', {
+      appReadyMs: since(startup.readyAt),
+      windowMs: since(startup.windowAt),
+      hostMs: since(startup.hostAt),
+    });
+    try {
+      const timing = finishInstallTiming({
+        file: installTimingFile,
+        logFile: join(home, HOME_LAYOUT.logsDir, INSTALL_TIMING_LOG),
+        currentVersion: app.getVersion(),
+        marks: startup,
+        now: Date.now(),
+      });
+      if (timing !== undefined) log('info', 'update install timing', { ...timing });
+    } catch (error) {
+      log('warn', 'failed to record the update install timing', { error: String(error) });
+    }
+  };
+
   // Host 与窗口并行准备。首次只尝试一次，失败时 getHostConnection 把原因交给渲染进程显示；之后拥有的 Host
   // 意外退出由 HostLifecycle 重新拉起，状态经 hostStatus 推给渲染进程（T5.5）。
   // 在这里（app ready 之前）就拉起：Host 是打开后可用的关键路径，身份文件并行读，只有探活的 hello 等它。
@@ -173,7 +212,8 @@ function run(): void {
     void lifecycle
       .start()
       .then(() => mark('hostReady'))
-      .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+      .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }))
+      .finally(() => markInstallStartup('hostAt'));
     try {
       return { identity: await identity, lifecycle };
     } catch (error) {
@@ -182,7 +222,10 @@ function run(): void {
       throw error;
     }
   })();
-  void host.catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+  void host.catch((error: unknown) => {
+    log('error', 'host unavailable', { error: String(error) });
+    markInstallStartup('hostAt');
+  });
   /** 连 HostLifecycle 都建不起来（找不到 Node、Host 没有构建）时，界面看到的状态。 */
   const setupFailure = (error: unknown): HostProcessStatus => ({
     phase: 'failed',
@@ -429,7 +472,21 @@ function run(): void {
   );
 
   // 自动更新（ADR-0007 补记 4）：开发构建里是 disabled，界面不显示入口。
-  const updates = createUpdateController(log);
+  // Windows 的 NSIS 安装程序在应用退出之前就启动，一两秒后查安装目录里还在跑的进程（Host 也是 Wevir.exe，引擎在资源目录里），
+  // 找到就强制结束再循环等待：先把自己拉起的 Host 优雅停完，再交给安装程序。macOS 的 Squirrel 等应用退出后才替换，不用提前停。
+  const updates = createUpdateController(
+    log,
+    process.platform === 'win32'
+      ? {
+          prepareInstall: async () => {
+            await host.then(({ lifecycle }) => lifecycle.stop());
+            markInstallTiming(installTimingFile, 'hostStoppedAt', Date.now());
+          },
+        }
+      : {},
+  );
+  /** 这次退出是在安装更新：退出前补上时间点。 */
+  let installingUpdate = false;
   updates.onState((state: UpdateState) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send(IPC_CHANNELS.updateState, state);
@@ -449,10 +506,28 @@ function run(): void {
   });
   ipcMain.handle(IPC_CHANNELS.installUpdate, async (event): Promise<void> => {
     assertSender(event);
-    // 安装更新要关掉窗口再退出；装不了（状态变成 error）时恢复“关窗口只是隐藏”。
+    // 安装更新要关掉窗口再退出；装不了（状态变成 error）时恢复“关窗口只是隐藏”。Windows 上 Host 已经为安装停掉、不能再
+    // 拉起（HostLifecycle 停了就不再启动），这时重新打开应用。
     allowClose = true;
-    updates.install();
-    if (updates.state.phase === 'error') allowClose = false;
+    if (updates.state.phase === 'downloaded') {
+      installingUpdate = true;
+      startInstallTiming(installTimingFile, {
+        from: app.getVersion(),
+        to: updates.state.version,
+        platform: process.platform,
+        clickedAt: Date.now(),
+      });
+    }
+    await updates.install();
+    if (installingUpdate) markInstallTiming(installTimingFile, 'installerAt', Date.now());
+    if (updates.state.phase !== 'error') return;
+    if (process.platform === 'win32') {
+      log('error', 'update install failed after the host was stopped; relaunching');
+      app.relaunch();
+      app.quit();
+    } else {
+      allowClose = false;
+    }
   });
   // macOS 的 Squirrel 在关窗口之前发这个事件，不经过 before-quit。
   autoUpdater.on('before-quit-for-update', () => {
@@ -596,10 +671,14 @@ function run(): void {
         app.quit();
       });
   });
+  app.on('will-quit', () => {
+    if (installingUpdate) markInstallTiming(installTimingFile, 'quitAt', Date.now());
+  });
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => app.quit());
 
   void app.whenReady().then(() => {
     mark('appReady');
+    startup.readyAt = Date.now();
     // 渲染进程不需要任何权限（摄像头、通知、剪贴板读取等），一律拒绝（Electron 安全清单第 5 条）。
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
       callback(false),
@@ -623,6 +702,7 @@ function run(): void {
     nativeTheme.themeSource = windowAppearance.themeMode;
     mainWindow = createWindow();
     mark('windowCreated');
+    mainWindow.once('show', () => markInstallStartup('windowAt'));
     // 建好窗口（页面开始载入）之后再设图标：程序坞图标要解码一张 1024 px 的 PNG，不让页面等它；窗口在首帧之前不显示。
     applyAppIcon();
     // 关窗口（红绿灯、Alt+F4、⌘W）只是隐藏，留在后台；真正退出时才关。

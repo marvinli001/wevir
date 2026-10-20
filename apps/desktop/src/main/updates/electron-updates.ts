@@ -8,7 +8,13 @@ import electronUpdater from 'electron-updater';
 import type { UpdateChannel } from '../../shared/desktop-api.js';
 import { type Fetcher, mirrorsFromEnv, UPDATE_MIRRORS } from './feed.js';
 import { UPDATE_PUBLIC_KEYS } from './keys.js';
-import { UpdateController, type UpdateLog, type UpdatePrefs, type UpdaterLike } from './updater.js';
+import {
+  UpdateController,
+  type UpdateControllerOptions,
+  type UpdateLog,
+  type UpdatePrefs,
+  type UpdaterLike,
+} from './updater.js';
 
 /** macOS 上应用从 dmg 直接打开（/Volumes）或被系统转移到临时位置（AppTranslocation）时，Squirrel 换不了它。 */
 export function isReadOnlyLocation(platform: NodeJS.Platform, execPath: string): boolean {
@@ -20,7 +26,10 @@ function isChannel(value: unknown): value is UpdateChannel {
   return value === 'stable' || value === 'dev';
 }
 
-export function createUpdateController(log: UpdateLog): UpdateController {
+export function createUpdateController(
+  log: UpdateLog,
+  hooks: Pick<UpdateControllerOptions, 'prepareInstall'> = {},
+): UpdateController {
   const prefsPath = join(app.getPath('userData'), 'updates.json');
   const readPrefs = (): UpdatePrefs => {
     try {
@@ -53,6 +62,7 @@ export function createUpdateController(log: UpdateLog): UpdateController {
     readPrefs,
     writePrefs,
     log,
+    ...hooks,
     ...(process.env.WEVIR_UPDATE_FIRST_CHECK_MS !== undefined && {
       firstCheckMs: Number(process.env.WEVIR_UPDATE_FIRST_CHECK_MS),
     }),
