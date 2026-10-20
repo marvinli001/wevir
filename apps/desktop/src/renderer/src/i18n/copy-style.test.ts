@@ -6,6 +6,9 @@ import { zhCN } from './zh-CN';
 
 /** 发给模型的文案（不显示在界面上），不受界面文案规则约束。 */
 const MODEL_FACING = new Set<string>(['history.intro', 'plan.implementPrefix']);
+/** 自动化模板的指令（0.66.0）：填进指令框、每次运行发给 Agent，按发给模型的文案对待。 */
+const isModelFacing = (key: string) =>
+  MODEL_FACING.has(key) || /^automations\.template\.[a-z]+\.prompt$/.test(key);
 
 /** 说明、提示、副标题一类的 key。只允许下面这些：错误的处理建议、确认框里的后果、配置事实与必要的安全提醒。 */
 const EXPLANATORY_KEY =
@@ -52,6 +55,10 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'plugins.connector.delete.body',
   'plugins.skill.delete.body',
   'settings.storage.browserWarning',
+  // 确认框里的后果：运行记录一起删掉，会话留着。
+  'automations.delete.body',
+  // 安全提醒：自动化无人值守，完全访问时命令与改动都不经批准。
+  'automations.dialog.fullAccessWarning',
 ]);
 
 /** 口语、解释腔与举例的写法。 */
@@ -87,14 +94,15 @@ describe('界面文案的写法', () => {
 
   it('不用口语、举例与解释腔', () => {
     const colloquial = entries.filter(
-      ([key, value]) => !MODEL_FACING.has(key) && COLLOQUIAL.test(plain(value)),
+      ([key, value]) => !isModelFacing(key) && COLLOQUIAL.test(plain(value)),
     );
     expect(colloquial, '用名词短语或短句，不写“请”“你”“这个”“例如”“不代表”').toEqual([]);
   });
 
   it(`去掉参数后不超过 ${MAX_LENGTH} 个字符`, () => {
     const long = entries.filter(
-      ([key, value]) => !LONG_ALLOWED.has(key) && plain(value).length > MAX_LENGTH,
+      ([key, value]) =>
+        !LONG_ALLOWED.has(key) && !isModelFacing(key) && plain(value).length > MAX_LENGTH,
     );
     expect(long, '过长的文案多半在解释，删到只剩必要信息').toEqual([]);
   });

@@ -1,4 +1,4 @@
-// 自动化的应用级工具（0.66.0，domain-model §3.22）：会话里的 Agent 建、改、删、立即运行自动化（AutomationService）。
+// 自动化的应用级工具（0.66.0，domain-model §3.26）：会话里的 Agent 建、改、删、立即运行自动化（AutomationService）。
 //
 // 说明的写法参照几家成熟产品的工具说明：ChatGPT 的 automations（标题与指令怎么写、只按一次运行来写指令、结果以工具返回为准）、
 // Codex 的 automation_update（优先改已有的、不给用户看原始规则、静音改通知不改指令）、Claude 桌面端的 scheduled tasks（指令要能

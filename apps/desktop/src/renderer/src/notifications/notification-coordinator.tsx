@@ -3,9 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Toast, type ToastTone } from '@/components/toast';
 import { Button } from '@/components/ui/button';
 import { useWorkbenchData, useWorkbenchStore } from '@/data/workbench-data';
+import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
+import { useAutomationRuns } from './automation-runs';
 import {
   deliveryFor,
   isFresh,
@@ -67,6 +69,7 @@ function openSession(workspaceId: string, sessionId: string): void {
  */
 export function NotificationCoordinator() {
   const store = useWorkbenchStore();
+  const { client } = useHostConnection();
   const data = useWorkbenchData();
   const settings = useNotificationSettings();
   const [toasts, setToasts] = useState<ShownToast[]>([]);
@@ -95,58 +98,74 @@ export function NotificationCoordinator() {
     }
   };
 
-  // 会话事件 → 提醒。
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 回调里读的都是 ref 与模块级的取值函数。
+  /** 发一条提醒：前台看别的会话时在右下角，后台时发系统通知（点击回到会话）。`title` 是提醒里写的会话或自动化名。 */
+  const deliver = (
+    kind: NotificationKind,
+    target: { sessionId: string; workspaceId: string; title: string },
+    key: string,
+  ) => {
+    const current = getNotificationSettings();
+    const delivery = deliveryFor(
+      kind,
+      { focused: windowFocused(), viewing: currentSessionId() === target.sessionId },
+      current,
+    );
+    if (delivery.toast) {
+      setToasts((shown) => {
+        const kept = shown.filter((toast) => toast.sessionId !== target.sessionId);
+        const next: ShownToast = { key, kind, ...target, open: true };
+        const open = kept.filter((toast) => toast.open);
+        const overflow = new Set(
+          open.slice(0, Math.max(0, open.length - (MAX_TOASTS - 1))).map((toast) => toast.key),
+        );
+        return [
+          ...kept.map((toast) => (overflow.has(toast.key) ? { ...toast, open: false } : toast)),
+          next,
+        ];
+      });
+    }
+    if (delivery.system) {
+      void window.wevir
+        .notify({
+          tag: notificationTag(target.sessionId),
+          title: t(TITLES[kind]),
+          body: target.title,
+          sound: current.sound,
+        })
+        .then((shown) => {
+          if (!shown) return;
+          delivered.current.add(target.sessionId);
+          updateBadge();
+        })
+        .catch(() => undefined);
+    }
+  };
+  const deliverRef = useRef(deliver);
+  deliverRef.current = deliver;
+
+  // 会话事件 → 提醒。自动化开的会话不在这里提醒，按自动化的通知设置走下面的运行状态（0.66.0）。
   useEffect(() => {
     if (!store) return;
     return store.onSessionEvent((event: WevirEvent, session: Session) => {
+      if (session.automation !== undefined) return;
       const kind = notificationKind(event, session);
       if (!kind || !isFresh(event, Date.now())) return;
-      const current = getNotificationSettings();
-      const delivery = deliveryFor(
+      deliverRef.current(
         kind,
-        { focused: windowFocused(), viewing: currentSessionId() === session.id },
-        current,
+        {
+          sessionId: session.id,
+          workspaceId: session.workspaceId,
+          title: session.title || t('session.untitled'),
+        },
+        `${session.id}:${event.seq}`,
       );
-      const title = session.title || t('session.untitled');
-      if (delivery.toast) {
-        setToasts((shown) => {
-          const kept = shown.filter((toast) => toast.sessionId !== session.id);
-          const next: ShownToast = {
-            key: `${session.id}:${event.seq}`,
-            kind,
-            sessionId: session.id,
-            workspaceId: session.workspaceId,
-            title,
-            open: true,
-          };
-          const open = kept.filter((toast) => toast.open);
-          const overflow = new Set(
-            open.slice(0, Math.max(0, open.length - (MAX_TOASTS - 1))).map((toast) => toast.key),
-          );
-          return [
-            ...kept.map((toast) => (overflow.has(toast.key) ? { ...toast, open: false } : toast)),
-            next,
-          ];
-        });
-      }
-      if (delivery.system) {
-        void window.wevir
-          .notify({
-            tag: notificationTag(session.id),
-            title: t(TITLES[kind]),
-            body: title,
-            sound: current.sound,
-          })
-          .then((shown) => {
-            if (!shown) return;
-            delivered.current.add(session.id);
-            updateBadge();
-          })
-          .catch(() => undefined);
-      }
     });
   }, [store]);
+
+  // 自动化的运行 → 提醒（0.66.0）：运行开出的会话先放进列表；状态变成等待处理、失败或完成时按自动化的通知设置提醒。
+  useAutomationRuns(client, store, sessions, (kind, target, key) =>
+    deliverRef.current(kind, target, key),
+  );
 
   // 窗口回到前台：收回全部系统通知，清掉角标。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在挂载时注册。
