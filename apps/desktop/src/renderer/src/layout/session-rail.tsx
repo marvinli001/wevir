@@ -140,7 +140,7 @@ function RailCardView({
         type="button"
         aria-expanded={open}
         onClick={() => toggleRailCard(id)}
-        className="flex h-10 w-full items-center gap-1 rounded-xl px-3 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex h-10 w-full items-center gap-1 rounded-xl px-3 text-left text-sm outline-none focus-visible:focus-ring"
       >
         <span className="shrink-0 font-medium">{title}</span>
         <ChevronRight

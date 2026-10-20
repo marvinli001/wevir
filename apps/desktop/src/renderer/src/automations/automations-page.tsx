@@ -261,7 +261,7 @@ function AutomationRow({
       <button
         type="button"
         onClick={open}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left outline-none focus-visible:focus-ring"
       >
         <span
           className={cn(
@@ -327,7 +327,7 @@ function TemplateGrid() {
             key={template.id}
             type="button"
             onClick={() => openAutomationDialog({ kind: 'create', template })}
-            className="flex flex-col items-start gap-3 rounded-xl border border-border bg-card p-4 text-left outline-none transition-[background-color,border-color] duration-150 hover:border-border-strong hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="flex flex-col items-start gap-3 rounded-xl border border-border bg-card p-4 text-left outline-none transition-[background-color,border-color] duration-150 hover:border-border-strong hover:bg-muted/40 focus-visible:focus-field"
             data-template={template.id}
           >
             <span className="flex size-9 items-center justify-center rounded-lg bg-muted text-soft-foreground">

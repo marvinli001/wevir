@@ -58,7 +58,7 @@ export function DeliverySwitch({
                   data-delivery-option={delivery}
                   onClick={() => !checked && onChange(delivery)}
                   className={cn(
-                    'relative min-w-11 rounded-full px-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60',
+                    'relative min-w-11 rounded-full px-2 outline-none focus-visible:focus-ring disabled:opacity-60',
                     checked
                       ? 'font-medium text-foreground'
                       : 'text-muted-foreground hover:text-foreground',

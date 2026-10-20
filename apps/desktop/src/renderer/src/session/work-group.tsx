@@ -163,7 +163,7 @@ export function WorkGroup({
         aria-controls={id}
         onClick={() => setOpen(!open)}
         className={cn(
-          'flex max-w-full min-h-6 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+          'flex max-w-full min-h-6 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring',
           open && 'text-foreground',
         )}
       >
@@ -315,7 +315,7 @@ function WorkLine({
         aria-controls={hasDetail ? id : undefined}
         disabled={!hasDetail}
         onClick={() => setOpen(!open)}
-        className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex min-h-6 w-full min-w-0 items-center gap-2 rounded-lg text-left text-sm text-muted-foreground outline-none enabled:hover:text-foreground focus-visible:focus-ring"
       >
         <Icon aria-hidden className="size-3.5 shrink-0 opacity-85" />
         <span className={cn('shrink-0', LINE_TONES[view.tone])}>{view.label}</span>

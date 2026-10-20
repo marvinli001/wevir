@@ -39,7 +39,7 @@ const ITEM =
   'inline-flex h-7 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs text-soft-foreground [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground';
 /** 点得开菜单的那几项（项目、此计算机）。 */
 const TRIGGER =
-  'outline-none transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:bg-muted aria-expanded:text-foreground';
+  'outline-none transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:focus-ring aria-expanded:bg-muted aria-expanded:text-foreground';
 
 /**
  * 新会话输入框上方的环境栏（U12，照 Codex 桌面端）：在哪个项目里（点开换项目或创建项目）、在哪里运行（此计算机；Host 能单独
@@ -292,7 +292,7 @@ function Row({
       title={title}
       className={cn(
         className,
-        'outline-none transition-colors duration-150 enabled:hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60',
+        'outline-none transition-colors duration-150 enabled:hover:bg-muted focus-visible:focus-ring disabled:opacity-60',
       )}
     >
       {content}

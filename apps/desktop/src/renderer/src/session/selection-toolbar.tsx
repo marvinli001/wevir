@@ -318,7 +318,7 @@ function ToolbarButton({
       onClick={onClick}
       className={cn(
         'h-7 rounded-lg px-2.5 text-sm whitespace-nowrap text-popover-foreground outline-none pressable [--press-scale:0.97]',
-        'hover:bg-muted focus-visible:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50',
+        'hover:bg-muted focus-visible:bg-muted focus-visible:focus-ring',
       )}
     >
       {children}

@@ -44,7 +44,7 @@ export function EnvironmentPicker({
       <DropdownMenuTrigger
         data-testid="environment-picker"
         className={cn(
-          'inline-flex h-7 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:text-foreground',
+          'inline-flex h-7 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring aria-expanded:text-foreground',
           className,
         )}
       >

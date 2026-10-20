@@ -50,7 +50,7 @@ function TodoCard({
         aria-expanded={open}
         onClick={() => setChoice(!open)}
         className={cn(
-          'flex w-full items-center gap-1 rounded-xl px-3 text-left text-xs text-muted-foreground outline-none transition-[height] focus-visible:ring-2 focus-visible:ring-ring/50',
+          'flex w-full items-center gap-1 rounded-xl px-3 text-left text-xs text-muted-foreground outline-none transition-[height] focus-visible:focus-ring',
           open ? 'h-7' : 'h-9',
         )}
       >

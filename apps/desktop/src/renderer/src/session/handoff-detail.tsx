@@ -69,7 +69,7 @@ export function HandoffDetailDialog({
               ref={contextRef}
               // biome-ignore lint/a11y/noNoninteractiveTabindex: 可滚动的正文要能用键盘滚动。
               tabIndex={0}
-              className="max-h-[min(50vh,24rem)] overflow-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="max-h-[min(50vh,24rem)] overflow-auto rounded-lg border border-border bg-muted/40 px-3 py-2 font-mono text-xs break-words whitespace-pre-wrap outline-none focus-visible:focus-field"
               data-testid="handoff-context"
             >
               {notice.context}

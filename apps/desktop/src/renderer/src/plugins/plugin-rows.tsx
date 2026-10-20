@@ -43,7 +43,7 @@ export function ExpandableRow({
           aria-controls={detailId}
           onClick={onToggle}
           data-action="toggle-row"
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:focus-ring"
         >
           {leading}
           <span className="min-w-0 flex-1">

@@ -73,7 +73,7 @@ export function AccountSwitcher({
             data-account={id}
             className={cn(
               'flex h-7 max-w-56 items-center gap-1.5 rounded-md border border-border bg-background px-2 text-xs outline-none transition-colors duration-150',
-              'hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring',
+              'hover:bg-accent/50 focus-visible:focus-field',
               active && 'bg-selected ring-1 ring-selected-border ring-inset hover:bg-selected',
             )}
           >

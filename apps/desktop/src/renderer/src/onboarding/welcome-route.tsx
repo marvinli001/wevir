@@ -374,7 +374,7 @@ function ProviderTile({
       className={cn(
         'group relative flex h-30 flex-col items-center justify-center gap-2.5 rounded-xl border bg-card px-2 text-sm outline-none',
         'transition-[border-color,box-shadow,transform,background-color] duration-200 ease-out',
-        'hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring/50 active:translate-y-0 active:scale-[0.98]',
+        'hover:-translate-y-0.5 hover:shadow-md focus-visible:focus-field active:translate-y-0 active:scale-[0.98]',
         selected ? 'border-foreground/70 shadow-md ring-1 ring-foreground/70' : 'border-border',
         !available && 'pointer-events-none bg-transparent',
       )}
@@ -514,7 +514,7 @@ function ProviderFields({
               <button
                 type="button"
                 onClick={() => entry.keyURL && void window.wevir.openExternal(entry.keyURL)}
-                className="inline-flex items-center gap-1 rounded-sm text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="inline-flex items-center gap-1 rounded-sm text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
               >
                 {t('welcome.getKey')}
                 <ExternalLink className="size-3" />

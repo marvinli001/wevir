@@ -101,7 +101,7 @@ function SessionTasks({ workspaceId, sessionId }: { workspaceId: string; session
               type="button"
               aria-expanded={showDone}
               onClick={() => setShowDone((value) => !value)}
-              className="flex h-6 items-center gap-1 rounded-md px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="flex h-6 items-center gap-1 rounded-md px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
             >
               {t('tasks.done', { count: done.length })}
               <ChevronRight
@@ -156,7 +156,7 @@ function TaskItem({
           type="button"
           aria-expanded={expanded}
           onClick={() => setExpanded((value) => !value)}
-          className="-mx-1 min-w-0 flex-1 rounded-md px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="-mx-1 min-w-0 flex-1 rounded-md px-1 text-left outline-none focus-visible:focus-ring"
         >
           <span className="flex min-w-0 items-center gap-2">
             <SubagentAvatar sessionId={summary.sessionId} status={summary.status} size={16} />

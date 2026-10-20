@@ -52,7 +52,7 @@ export function ContextMeter({
         data-testid="context-meter"
         data-tone={usage.tone}
         aria-label={t('rail.context.meter', { percent: usage.percent })}
-        className="flex size-7 shrink-0 items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:bg-muted"
+        className="flex size-7 shrink-0 items-center justify-center rounded-full outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-ring aria-expanded:bg-muted"
       >
         <svg
           viewBox="0 0 16 16"

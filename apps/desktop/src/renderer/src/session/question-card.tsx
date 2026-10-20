@@ -204,7 +204,7 @@ function QuestionCard({
                     type={question.secret ? 'password' : 'text'}
                     placeholder={t('question.otherPlaceholder')}
                     aria-label={t('question.other')}
-                    className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring-soft focus-visible:ring-2 focus-visible:ring-ring/12"
+                    className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none transition-colors placeholder:text-muted-foreground focus-visible:focus-field"
                   />
                 </OptionRow>
               </li>
@@ -268,7 +268,7 @@ function OptionRow({
         type="button"
         aria-pressed={checked}
         onClick={onToggle}
-        className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left outline-none focus-visible:focus-ring"
       >
         {multi && (
           <span

@@ -26,7 +26,7 @@ function ScrollArea({
         ref={viewportRef}
         data-slot="scroll-area-viewport"
         className={cn(
-          'size-full rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1',
+          'size-full rounded-[inherit] outline-none focus-visible:ring-1 focus-visible:ring-ring-soft focus-visible:ring-inset',
           fade ? 'scroll-fade' : 'transition-[color,box-shadow]',
         )}
       >

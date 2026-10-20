@@ -88,7 +88,7 @@ function PathRow({ name, path }: { name: string; path: string }) {
         title={copied ? t('environment.copied') : t('environment.copyPath')}
         aria-label={`${t('environment.copyPath')}：${path}`}
         onClick={() => void window.wevir.copyText(path).then(() => setCopied(true))}
-        className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="-mx-1.5 flex h-7 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2.5 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
       >
         <span className="shrink-0 text-muted-foreground [&_svg]:size-4" aria-hidden>
           {copied ? <Check className="confirm-pop text-success" /> : <Folder />}
@@ -191,7 +191,7 @@ function FileRow({ file, onOpen }: { file: GitFileChange; onOpen?: (path: string
         <button
           type="button"
           onClick={() => onOpen(file.path)}
-          className="-mx-1.5 flex h-6 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="-mx-1.5 flex h-6 w-[calc(100%+0.75rem)] min-w-0 items-center gap-2 rounded-md px-1.5 text-left outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
         >
           {content}
         </button>
@@ -242,7 +242,7 @@ function useChangesCard({ git, sessionId }: RailContext) {
               type="button"
               onClick={() => open()}
               data-testid="rail-changes-open"
-              className="-mx-1.5 mt-1.5 flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-soft-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="-mx-1.5 mt-1.5 flex h-7 items-center gap-1 rounded-md px-1.5 text-xs text-soft-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:focus-ring"
             >
               {t('rail.changes.open')}
               <ChevronRight aria-hidden className="size-3.5 text-muted-foreground" />

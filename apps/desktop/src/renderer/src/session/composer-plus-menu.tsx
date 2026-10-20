@@ -60,7 +60,7 @@ export function ComposerPlusMenu({
               disabled={disabled}
               aria-label={t('composer.add')}
               data-testid="composer-plus"
-              className="flex size-7 shrink-0 items-center justify-center rounded-full text-soft-foreground outline-none transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 aria-expanded:bg-muted aria-expanded:text-foreground"
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-soft-foreground outline-none transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:focus-ring disabled:opacity-50 aria-expanded:bg-muted aria-expanded:text-foreground"
             />
           }
         >

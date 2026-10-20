@@ -152,7 +152,7 @@ export function Segmented<T extends string>({
             data-segment={option.value}
             onClick={() => onChange(option.value)}
             className={cn(
-              'relative z-10 inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-xs whitespace-nowrap outline-none transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-60 [&_svg]:size-3.5',
+              'relative z-10 inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-3 text-xs whitespace-nowrap outline-none transition-colors duration-150 focus-visible:focus-ring disabled:opacity-60 [&_svg]:size-3.5',
               checked
                 ? 'font-medium text-foreground'
                 : 'text-muted-foreground hover:text-foreground',

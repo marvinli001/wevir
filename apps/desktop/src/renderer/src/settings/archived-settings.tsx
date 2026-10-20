@@ -88,7 +88,7 @@ export function ArchivedSettings() {
   return (
     <SettingsSection>
       <div className="mb-4 flex items-center gap-2">
-        <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full bg-muted/70 px-3 text-muted-foreground focus-within:bg-muted focus-within:ring-1 focus-within:ring-ring-soft">
+        <label className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-full bg-muted/70 px-3 text-muted-foreground focus-within:bg-muted focus-within:focus-ring">
           <Search aria-hidden className="size-3.5 shrink-0" />
           <input
             value={query}

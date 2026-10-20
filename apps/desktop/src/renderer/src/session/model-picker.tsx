@@ -133,7 +133,7 @@ export function ModelPicker({
         aria-label={t('model.picker.label', { model: name })}
         className={cn(
           chipClass,
-          'hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 aria-expanded:bg-muted aria-expanded:text-foreground',
+          'hover:bg-muted hover:text-foreground focus-visible:focus-ring aria-expanded:bg-muted aria-expanded:text-foreground',
         )}
       >
         {chip}
@@ -152,7 +152,7 @@ export function ModelPicker({
                 <button
                   type="button"
                   onClick={() => setView('models')}
-                  className="inline-flex max-w-full items-center gap-0.5 rounded-md px-1.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="inline-flex max-w-full items-center gap-0.5 rounded-md px-1.5 text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:focus-ring"
                   data-action="choose-model"
                 >
                   <span className="truncate">{name}</span>
@@ -430,7 +430,7 @@ function EffortSlider({
       onPointerDown={onPointerDown}
       onPointerMove={(event) => event.buttons === 1 && pick(event.clientX)}
       onKeyDown={onKeyDown}
-      className="relative h-7 cursor-pointer touch-none rounded-full bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="relative h-7 cursor-pointer touch-none rounded-full bg-muted outline-none focus-visible:focus-ring"
     >
       <span
         aria-hidden

@@ -375,7 +375,7 @@ function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        'inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs whitespace-nowrap pressable outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth focus-visible:ring-2 focus-visible:ring-ring/50',
+        'inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-xs whitespace-nowrap pressable outline-none transition-[color,background-color,box-shadow] duration-150 ease-smooth focus-visible:focus-ring',
         active
           ? 'bg-selected font-medium text-foreground ring-1 ring-selected-border ring-inset'
           : 'text-muted-foreground hover:bg-muted hover:text-foreground',

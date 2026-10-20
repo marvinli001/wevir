@@ -307,6 +307,19 @@
   box-shadow: var(--inset-well);
 }
 
+/* 焦点（§63）：全应用同一种细焦点，1 px 的 ring-soft 细线外加 2 px 的 ring/12 淡光，不用粗的蓝环。带边框的控件
+ * （输入框、按钮、勾选框）写 focus-visible:focus-field / focus-within:focus-field，把边框换成细线；没有边框的写
+ * focus-visible:focus-ring，用 ring-offset 画出那条细线。贴着列表边缘、外圈会被裁掉的行用
+ * ring-1 ring-ring-soft ring-inset。 */
+@utility focus-field {
+  border-color: var(--ring-soft);
+  @apply ring-2 ring-ring/12;
+}
+
+@utility focus-ring {
+  @apply ring-2 ring-ring/12 ring-offset-1 ring-offset-ring-soft;
+}
+
 /* 状态文字换了一句、进行中的列表多了一行（§55）：从下方 6 px 上浮、淡入，240 ms ease-rise。 */
 @utility rise-in {
   animation: rise-in 240ms var(--ease-rise) both;

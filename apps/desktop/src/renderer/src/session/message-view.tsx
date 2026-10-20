@@ -181,7 +181,7 @@ function UserBubble({ text }: { text: string }) {
           type="button"
           aria-expanded={!folded}
           onClick={() => setExpanded(!expanded)}
-          className="mt-1 rounded-md px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="mt-1 rounded-md px-1 text-xs text-muted-foreground outline-none hover:text-foreground focus-visible:focus-ring"
         >
           {t(folded ? 'message.expand' : 'message.collapse')}
         </button>
@@ -217,7 +217,7 @@ function FromSession({ from }: { from: MessageFrom }) {
       {source ? (
         <Link
           to={paths.session(source.workspaceId, source.id)}
-          className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          className="rounded-sm outline-none hover:text-foreground focus-visible:focus-ring"
         >
           {label}
         </Link>
@@ -257,7 +257,7 @@ function SessionReport({ message }: { message: UserChatMessage }) {
           title={text}
           className={cn(
             className,
-            'hover:border-border-strong hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+            'hover:border-border-strong hover:text-foreground focus-visible:focus-field',
           )}
         >
           {content}

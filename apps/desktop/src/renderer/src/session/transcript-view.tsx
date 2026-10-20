@@ -178,7 +178,7 @@ export function TranscriptView({
             title={t('transcript.jumpToLatest')}
             onClick={() => jumpToLatest('smooth')}
             data-action="jump-to-latest"
-            className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            className="pointer-events-auto flex size-8 items-center justify-center rounded-full border border-border bg-card text-soft-foreground shadow-md outline-none pressable [--press-scale:0.95] animate-in fade-in zoom-in-90 hover:bg-muted hover:text-foreground focus-visible:focus-field"
           >
             <ArrowDown aria-hidden className="size-4" />
           </button>

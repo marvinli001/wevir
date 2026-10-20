@@ -106,7 +106,7 @@ export function ContextDetails({
               disabled={busy}
               data-testid="context-compact"
               onClick={onCompact}
-              className="pressable inline-flex h-7 shrink-0 items-center rounded-lg border border-border px-2.5 text-xs outline-none transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+              className="pressable inline-flex h-7 shrink-0 items-center rounded-lg border border-border px-2.5 text-xs outline-none transition-colors duration-150 hover:bg-muted focus-visible:focus-field disabled:pointer-events-none disabled:opacity-50"
             >
               {t('command.compact')}
             </button>
@@ -158,7 +158,7 @@ function GroupRow({ group }: { group: BreakdownGroup }) {
         aria-expanded={open}
         aria-controls={panel}
         onClick={() => setOpen((value) => !value)}
-        className="-mx-1.5 flex h-6 w-[calc(100%+0.75rem)] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50"
+        className="-mx-1.5 flex h-6 w-[calc(100%+0.75rem)] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-xs outline-none transition-colors hover:bg-muted focus-visible:focus-ring"
       >
         <ChevronRight
           aria-hidden

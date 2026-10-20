@@ -531,7 +531,7 @@ function FileHeader({
       }
       title={previous ? `${previous} → ${path}` : path}
       onClick={() => onToggle(item.id)}
-      className="flex w-full min-w-0 items-center gap-1.5 px-2 text-left font-sans text-xs outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+      className="flex w-full min-w-0 items-center gap-1.5 px-2 text-left font-sans text-xs outline-none transition-colors hover:bg-muted/60 focus-visible:ring-1 focus-visible:ring-ring-soft focus-visible:ring-inset"
       data-changes-file={path}
     >
       <ChevronRight

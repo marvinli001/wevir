@@ -20,7 +20,7 @@ export function UpdateEntryButton({ className }: { className?: string }) {
       onClick={() => onClick(entry)}
       className={cn(
         'group relative flex h-8 w-full min-w-0 items-center gap-2 overflow-hidden rounded-lg px-2 text-base outline-none',
-        'transition-colors duration-300 ease-smooth focus-visible:ring-2 focus-visible:ring-sidebar-ring/50 disabled:cursor-default',
+        'transition-colors duration-300 ease-smooth focus-visible:focus-ring disabled:cursor-default',
         filled && 'text-primary-foreground',
         (entry.kind === 'available' || entry.kind === 'failed') && 'hover:bg-sidebar-accent/70',
         entry.kind === 'downloading' && 'bg-sidebar-foreground/[0.06]',

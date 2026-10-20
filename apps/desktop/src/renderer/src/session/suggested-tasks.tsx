@@ -133,7 +133,7 @@ function TaskStatus({
       </>
     );
   const className = cn(
-    'inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
+    'inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs outline-none transition-colors focus-visible:focus-ring',
     failed ? 'text-destructive' : 'text-muted-foreground hover:text-foreground',
   );
   if (!workspaceId || !task.sessionId) return <span className={className}>{content}</span>;
@@ -182,7 +182,7 @@ export function TaskReportMarker({ part }: { part: ChatPartOf<'task_report'> }) 
           title={part.summary}
           className={cn(
             className,
-            'hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring/50',
+            'hover:border-border-strong focus-visible:focus-field',
             ok && 'hover:text-foreground',
           )}
         >
