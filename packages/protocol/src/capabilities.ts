@@ -293,6 +293,11 @@ export const HOST_FEATURES = {
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',
+  /**
+   * 项目环境就绪（0.70.0）：`readiness.*` 方法与 `readiness.changed` 通知（只读的预检、用户发起的项目安装、安装凭据），`VerificationRun`
+   * 的 `readiness`，有应用级工具时还有只读的 `wevir_workspace_readiness`。与引擎无关。
+   */
+  workspaceReadiness: 'workspace_readiness',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -354,6 +359,7 @@ export const HostFeaturesSchema = z.looseObject({
   git_commit: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
+  workspace_readiness: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

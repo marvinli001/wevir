@@ -42,6 +42,7 @@ afterEach(async () => {
 
 const SHUTDOWN_STEPS = [
   'stop_verification',
+  'stop_installs',
   ...(userTerminal ? ['stop_terminals'] : []),
   'stop_accepting',
   'cancel_turns',
@@ -240,6 +241,7 @@ describe('startHost', () => {
       lines.filter((l) => String(l.msg).startsWith('shutdown step')).map((l) => [l.msg, l.step]),
     ).toEqual([
       ['shutdown step done', 'stop_verification'],
+      ['shutdown step done', 'stop_installs'],
       ...(userTerminal ? [['shutdown step done', 'stop_terminals']] : []),
       ['shutdown step done', 'stop_accepting'],
       ['shutdown step timed out', 'cancel_turns'],

@@ -63,6 +63,8 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'automations.delete.body',
   // 安全提醒：自动化无人值守，完全访问时命令与改动都不经批准。
   'automations.dialog.fullAccessWarning',
+  // 安全提醒：安装脚本会在本机执行代码，确认安装前必须看到。
+  'readiness.install.scriptsWarning',
 ]);
 
 /** 口语、解释腔与举例的写法。 */

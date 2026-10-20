@@ -51,6 +51,7 @@ import { Splitter } from './splitter';
 import './rail-cards';
 import './rules-card';
 import './usage-card';
+import './readiness-card';
 import './verification-card';
 import './outputs-card';
 import './task-board-card';

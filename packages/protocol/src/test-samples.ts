@@ -39,6 +39,7 @@ import {
   type NotificationParams,
 } from './methods.js';
 import type { HostProcess } from './processes.js';
+import type { InstallRun, ReadinessReport } from './readiness.js';
 import type { ReviewComment } from './review.js';
 import type { Terminal } from './terminals.js';
 import type {
@@ -90,6 +91,8 @@ export const ids = {
   /** 行级批注（0.67.0）。 */
   reviewComment: `rvc_${ULID}`,
   reviewComment2: 'rvc_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  /** 项目安装（0.70.0）。 */
+  installRun: `ins_${ULID}`,
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -222,6 +225,102 @@ export const verificationRun: VerificationRun = {
   summary: 'not ok 4 - converts -40\n# pass 3\n# fail 1',
   output: { bytes: 1840, truncated: false },
   fingerprint: 'sha256:77aa',
+};
+
+/** 一次项目安装（0.70.0）：网络失败。 */
+export const installRun: InstallRun = {
+  id: ids.installRun,
+  workspaceId: ids.workspace,
+  root: '/home/u/projects/demo',
+  planId: 'pln_5c2a91e0',
+  path: '',
+  manager: 'pnpm',
+  command: 'pnpm install --frozen-lockfile',
+  status: 'failed',
+  reason: 'network',
+  startedAt: TS,
+  finishedAt: TS2,
+  durationMs: 5250,
+  exitCode: 1,
+  timeoutMs: 900_000,
+  bytes: 420,
+  summary: 'ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND',
+};
+
+/** 项目环境的预检报告（0.70.0）：依赖比锁文件旧，有一个安装方案。 */
+export const readinessReport: ReadinessReport = {
+  workspaceId: ids.workspace,
+  root: '/home/u/projects/demo',
+  status: 'not_ready',
+  checkedAt: TS,
+  durationMs: 320,
+  projects: [{ path: '', ecosystems: ['node'] }],
+  items: [
+    {
+      id: 'package_manager::pnpm',
+      kind: 'package_manager',
+      name: 'pnpm',
+      path: '',
+      status: 'ready',
+      required: '12.6.0',
+      found: '12.6.0',
+      blocking: true,
+      evidence: [
+        { kind: 'file', path: 'package.json', detail: 'packageManager: pnpm@12.6.0' },
+        { kind: 'command', command: 'pnpm --version', exitCode: 0, output: '12.6.0' },
+      ],
+    },
+    {
+      id: 'dependencies::node',
+      kind: 'dependencies',
+      name: 'node_modules',
+      path: '',
+      status: 'incompatible',
+      reason: 'dependencies_outdated',
+      blocking: true,
+      evidence: [
+        { kind: 'file', path: 'node_modules/.modules.yaml', detail: 'older than pnpm-lock.yaml' },
+      ],
+    },
+    {
+      id: `check::${ids.check}`,
+      kind: 'check',
+      name: 'test',
+      path: '',
+      status: 'ready',
+      blocking: false,
+      checkId: ids.check,
+      evidence: [{ kind: 'file', path: 'package.json', detail: 'scripts.test' }],
+    },
+  ],
+  plans: [
+    {
+      id: 'pln_5c2a91e0',
+      path: '',
+      manager: 'pnpm',
+      command: 'pnpm install --frozen-lockfile',
+      lockfile: 'pnpm-lock.yaml',
+      writesLockfile: false,
+      reason: 'dependencies_outdated',
+      scripts: { project: ['postinstall'], dependencies: 'restricted' },
+      credentials: [{ name: 'NPM_TOKEN', source: 'wevir' }],
+    },
+  ],
+  network: {
+    registries: [
+      { ecosystem: 'node', url: 'https://registry.npmjs.org/', source: 'default', auth: 'none' },
+      { ecosystem: 'node', url: 'https://npm.example.com/', source: '.npmrc', auth: 'configured' },
+    ],
+    proxy: ['HTTPS_PROXY'],
+    agent: {
+      engine: 'codex',
+      permissionMode: 'on_request',
+      network: 'sandboxed',
+      domains: 'not_enforced',
+    },
+    advice: ['install_by_user', 'domains_not_enforced'],
+  },
+  install: installRun,
 };
 
 /** Agent 起的后台进程（0.69.0）：还在跑。 */
@@ -4092,6 +4191,74 @@ export const methodSamples: MethodSamples = {
       invalid: [{ process: { ...checkProcess, stoppedBy: 'someone' } }],
     },
   },
+  'readiness.get': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session, refresh: true },
+      ],
+      invalid: [{}, { workspaceId: ids.session }],
+    },
+    result: {
+      valid: [{ report: readinessReport }],
+      invalid: [{ report: { ...readinessReport, status: 'partly' } }],
+    },
+  },
+  'readiness.install': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, planId: 'pln_5c2a91e0', acceptScripts: true },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          planId: 'pln_5c2a91e0',
+          acceptScripts: true,
+          timeoutMs: 600_000,
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, planId: 'pln_5c2a91e0' },
+        { workspaceId: ids.workspace, planId: 'pln_5c2a91e0', acceptScripts: false },
+      ],
+    },
+    result: {
+      valid: [{ run: { ...installRun, status: 'running', reason: undefined } }],
+      invalid: [{ run: { ...installRun, status: 'done' } }],
+    },
+  },
+  'readiness.cancel': {
+    params: { valid: [{ runId: ids.installRun }], invalid: [{ runId: ids.session }] },
+    result: {
+      valid: [{ run: { ...installRun, status: 'cancelled', reason: 'user' } }],
+      invalid: [{}],
+    },
+  },
+  'readiness.output': {
+    params: {
+      valid: [{ runId: ids.installRun }, { runId: ids.installRun, offset: 128 }],
+      invalid: [{ runId: ids.installRun, offset: -1 }],
+    },
+    result: {
+      valid: [{ text: 'Progress: resolved 12', from: 0, next: 21, more: false, bytes: 21 }],
+      invalid: [{ text: '' }],
+    },
+  },
+  'readiness.setCredential': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, name: 'NPM_TOKEN', value: 'npm_xxx' },
+        { workspaceId: ids.workspace, name: 'NPM_TOKEN' },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, name: 'NPM TOKEN', value: 'x' },
+        { workspaceId: ids.workspace, name: 'NPM_TOKEN', value: '' },
+      ],
+    },
+    result: {
+      valid: [{ credentials: [] }, { credentials: ['NPM_TOKEN'] }],
+      invalid: [{ credentials: ['1BAD'] }],
+    },
+  },
   'terminal.create': {
     params: {
       valid: [
@@ -4758,6 +4925,13 @@ export const notificationSamples: NotificationSamples = {
   'process.changed': {
     valid: [{ process: agentProcess }, { removed: { id: 'p3', startedAt: TS } }],
     invalid: [{}, { removed: { id: 'p3' } }],
+  },
+  'readiness.changed': {
+    valid: [
+      { workspaceId: ids.workspace, root: '/home/u/projects/demo', run: installRun },
+      { workspaceId: ids.workspace, root: '/home/u/projects/demo', report: readinessReport },
+    ],
+    invalid: [{ workspaceId: ids.workspace }],
   },
   'terminal.output': {
     valid: [{ terminalId: terminalSample.id, offset: 0, data: '\u001b[1mhi\u001b[0m' }],

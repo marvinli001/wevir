@@ -645,6 +645,61 @@ describe('有限自动修复', () => {
     expect(h.repairMessages(sessionId)).toEqual([]);
   }, 60_000);
 
+  it('检查失败、而预检显示依赖没装全：环境不可用，带上预检的项，不开修复', async () => {
+    // 有 node_modules（运行前的检查放行），但清单里的依赖不在里面：测试失败不是代码的问题。
+    const { home, repo } = dirs({
+      'package.json': JSON.stringify({ type: 'module', dependencies: { 'left-pad': '1.3.0' } }),
+      'node_modules/.keep': '',
+    });
+    const h = await boot(home, repo);
+    let turns = 0;
+    h.adapter.onTurn = (cwd, text) => {
+      if (isMaterial(text)) return 'repairing';
+      turns++;
+      writeConv(cwd, 0, `// touched ${turns}\n`);
+      return undefined;
+    };
+    await h.save(CONV_CHECK);
+    await h.setRepair({ enabled: true });
+    const sessionId = await h.create();
+    await h.send(sessionId, 'edit the converter');
+    await h.waitFor(
+      sessionId,
+      () => (h.acceptance(sessionId)?.status === 'environment_unavailable' ? true : undefined),
+      'environment unavailable',
+    );
+    const [run] = h.finalRuns(sessionId);
+    expect(run).toMatchObject({
+      status: 'environment_unavailable',
+      reason: 'dependencies_missing',
+      exitCode: 1,
+      readiness: [
+        {
+          kind: 'dependencies',
+          name: 'node_modules',
+          path: '',
+          status: 'missing',
+          reason: 'dependencies_missing',
+        },
+      ],
+    });
+    expect(run?.fingerprint).toBeUndefined();
+    await h.idle(sessionId);
+    expect(h.repairs(sessionId)).toEqual([]);
+    expect(h.repairMessages(sessionId)).toEqual([]);
+
+    // 依赖装上之后同样的失败就是代码的问题：记失败、开修复。
+    mkdirSync(join(repo, 'node_modules', 'left-pad'), { recursive: true });
+    writeFileSync(join(repo, 'node_modules', 'left-pad', 'package.json'), '{"name":"left-pad"}');
+    await h.send(sessionId, 'edit again');
+    await h.waitFor(sessionId, () => h.repairs(sessionId)[0], 'repair started');
+    expect(
+      h
+        .finalRuns(sessionId)
+        .some((item) => item.status === 'failed' && item.reason === 'exit_code'),
+    ).toBe(true);
+  }, 60_000);
+
   it('Host 重启：进行中的修复链停下，不会再开同一次修复', async () => {
     const { home, repo } = dirs();
     const first = await boot(home, repo);
