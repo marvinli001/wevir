@@ -44,6 +44,8 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'provider.preset.minimax.note',
   // TokenHub 的地域地址与 Key 不通用，配置前必须区分广州、新加坡与美国。
   'provider.preset.tencent.note',
+  // 国内按量与国际站的地址 / Key 须区分，按服务接入要求显示地域和大陆直连事实。
+  'provider.preset.stepfun.note',
   // 402 的开通后付费操作是连接失败时的必要修复建议。
   'provider.tokenhub.activation.hint',
   'provider.preset.zai.note',

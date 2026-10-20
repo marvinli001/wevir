@@ -160,6 +160,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://console.cloud.tencent.com/tokenhub/apikey',
   },
   {
+    id: 'stepfun',
+    name: 'provider.catalog.stepfun',
+    logo: 'stepfun',
+    group: 'cn',
+    source: preset('stepfun'),
+    keyURL: 'https://platform.stepfun.com/interface-key',
+  },
+  {
     id: 'ollama-cloud',
     name: 'provider.catalog.ollamaCloud',
     logo: 'ollama',
@@ -217,6 +225,7 @@ const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/(^|\.)xiaomimimo\.com$/, 'mimo'],
   [/(^|\.)(minimax\.cn|minimaxi\.com|minimax\.io)$/, 'minimax'],
   [/(^|\.)(tencentcloudmaas\.com|tencentmaas\.com|tencentcloudmaas\.tech)$/, 'tencent'],
+  [/(^|\.)stepfun\.(com|ai)$/, 'stepfun'],
 ];
 
 /** 已有 Provider 的标志：DeepSeek 官方与 ChatGPT 按种类，其余按地址的主机名，本机 11434 端口当作 Ollama。 */

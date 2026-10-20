@@ -50,6 +50,11 @@ export const PROVIDER_COMPAT_DEFAULTS: readonly {
     compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
   },
   {
+    matches: isStepfunHost,
+    api: 'openai-responses',
+    compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+  },
+  {
     matches: isZaiHost,
     api: 'openai-responses',
     compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
@@ -264,6 +269,21 @@ export function isMimoHost(baseURL: string): boolean {
 /** MiniMax 国内（minimax.cn，minimaxi.com 是旧别名）与国际（minimax.io）开放平台（model-gateway.md §3.12）。 */
 export function isMinimaxHost(baseURL: string): boolean {
   return /(^|\.)(minimax\.cn|minimaxi\.com|minimax\.io)$/.test(hostnameOf(baseURL));
+}
+
+/** StepFun 国内 / 国际按量 API；仅 /v1，不为 Step Plan 主机名或路径补值（model-gateway.md §3.14）。 */
+export function isStepfunHost(baseURL: string): boolean {
+  try {
+    const url = new URL(baseURL);
+    return (
+      ['http:', 'https:'].includes(url.protocol) &&
+      /(^|\.)stepfun\.(com|ai)$/.test(url.hostname) &&
+      !/(^|[.-])(?:step[_-]?plan|coding(?:-plan)?|token-?plan)([.-]|$)/.test(url.hostname) &&
+      /^\/v1\/*$/.test(url.pathname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /** TokenHub 按量 API 的三个域名；仅根路径或 /v1，不为套餐主机名或路径补值（model-gateway.md §3.13）。 */

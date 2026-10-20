@@ -1403,6 +1403,9 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'MiMo 플랫폼 종량제 API 키 필요',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': '국제 사이트: https://api.minimax.io/v1',
+  'provider.catalog.stepfun': 'StepFun',
+  'provider.preset.stepfun.note':
+    '중국 종량제, 중국 본토에서 직접 연결 가능. 글로벌은 별도 URL과 키 사용',
   'provider.catalog.tencent': 'Tencent Cloud TokenHub',
   'provider.preset.tencent.note':
     '광저우 종량제, 중국 본토에서 직접 연결 가능. 싱가포르·미국은 지역별 주소와 키 필요',

@@ -17,6 +17,7 @@
 | `zhipu-color.svg` | 智谱 GLM | `8174e65ff71647d5c705c920c953a82bd723d9e3e42887bdd4ffc9dfe51207a0` |
 | `minimax-color.svg` | MiniMax | `7f7187fa6d9b341ac5f22f6c5a970523afb439dc45566d64eb4f4b9b604d6b01` |
 | `tencentcloud-color.svg` | 腾讯云 TokenHub | `f860dae064a3afd24970efd2bc5892f39438526bf52c3a9748f61fc05c1cfd58` |
+| `stepfun-color.svg` | 阶跃星辰 StepFun | `f55afc0e6004c8854f76bd5bbcc0fce9fc0ed9316691d54fb02d088c24fab40d` |
 | `xiaomimimo.svg` | 小米 MiMo | `b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71` |
 | `xai.svg` | SpaceXAI（原 xAI；保留旧标志） | `89eb7de9f0d02a41cfecd9109e253d7fd3529e27467dee4254faa67f3ac21451` |
 | `ollama.svg` | Ollama | `3a268218fb2e6e81fa31df70f70b51331625047794db81db21d35359428fae7a` |

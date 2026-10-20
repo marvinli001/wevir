@@ -1438,6 +1438,9 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'Нужен ключ API MiMo с оплатой по использованию',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': 'Международный: https://api.minimax.io/v1',
+  'provider.catalog.stepfun': 'StepFun',
+  'provider.preset.stepfun.note':
+    'Китай, оплата по использованию, прямой доступ с материка; для глобального API отдельные URL и ключ',
   'provider.catalog.tencent': 'Tencent Cloud TokenHub',
   'provider.preset.tencent.note':
     'Гуанчжоу, оплата по использованию; прямой доступ из материкового Китая. Для Сингапура и США нужны региональные адреса и ключи.',

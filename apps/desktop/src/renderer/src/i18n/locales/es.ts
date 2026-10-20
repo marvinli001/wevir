@@ -1432,6 +1432,9 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'Requiere una clave API de pago por uso de la plataforma MiMo',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': 'Internacional: https://api.minimax.io/v1',
+  'provider.catalog.stepfun': 'StepFun',
+  'provider.preset.stepfun.note':
+    'Pago por uso en China, acceso directo continental; URL y clave distintas para global',
   'provider.catalog.tencent': 'Tencent Cloud TokenHub',
   'provider.preset.tencent.note':
     'Pago por uso en Guangzhou, acceso directo desde China continental. Singapur/EE. UU. requieren URL y clave regionales.',

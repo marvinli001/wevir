@@ -379,6 +379,32 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://intl.cloud.tencent.com/zh/document/product/1300/82454',
   },
   {
+    // 按量 Responses；custom 按厂商 Codex 指南暂保留，namespace 保守摊平（providers.md §7.17）。
+    id: 'stepfun',
+    name: 'provider.catalog.stepfun',
+    note: 'provider.preset.stepfun.note',
+    api: 'openai-responses',
+    baseURL: 'https://api.stepfun.com/v1',
+    compat: { supportsCustomTools: true, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    models: [
+      {
+        id: 'step-5-preview',
+        contextWindow: 1000000,
+        maxTokens: 64000,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+      {
+        id: 'step-3.7-flash',
+        contextWindow: 256000,
+        supportsImages: true,
+        reasoningEfforts: ['low', 'medium', 'high'],
+      },
+    ],
+    defaultModelId: 'step-5-preview',
+    docsURL: 'https://platform.stepfun.com/docs/zh/api-reference/responses/responses-create.md',
+  },
+  {
     id: 'deepseek-openai',
     name: 'provider.preset.deepseekOpenai',
     api: 'openai-completions',

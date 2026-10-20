@@ -1430,6 +1430,9 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'Clé API à l’usage de la plateforme MiMo requise',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': 'International : https://api.minimax.io/v1',
+  'provider.catalog.stepfun': 'StepFun',
+  'provider.preset.stepfun.note':
+    'Chine à la consommation, accès direct continental ; URL et clé distinctes à l’international',
   'provider.catalog.tencent': 'Tencent Cloud TokenHub',
   'provider.preset.tencent.note':
     'Guangzhou à l’usage, accès direct depuis la Chine continentale. Singapour/États-Unis exigent une URL et une clé régionales.',

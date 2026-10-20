@@ -1400,6 +1400,8 @@ export const messages: Messages = {
   'provider.preset.mimo.note': '需開放平台按量 API Key',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': '國際站：https://api.minimax.io/v1',
+  'provider.catalog.stepfun': '階躍星辰',
+  'provider.preset.stepfun.note': '中國大陸按量、可直連；國際站另設網址與 Key',
   'provider.catalog.tencent': '騰訊雲 TokenHub',
   'provider.preset.tencent.note': '廣州按量，大陸可直連；新加坡、美國另配網址與 Key',
   'provider.tokenhub.activation.title': '模型未開通後付費',

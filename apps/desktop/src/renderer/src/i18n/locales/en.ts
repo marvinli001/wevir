@@ -1412,6 +1412,9 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'Requires a MiMo platform pay-as-you-go API key',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': 'International: https://api.minimax.io/v1',
+  'provider.catalog.stepfun': 'StepFun',
+  'provider.preset.stepfun.note':
+    'China pay-as-you-go, direct mainland access; separate URL and key for global',
   'provider.catalog.tencent': 'Tencent Cloud TokenHub',
   'provider.preset.tencent.note':
     'Guangzhou pay-as-you-go; direct access from mainland China. Singapore/US require matching regional URLs and keys.',

@@ -7,6 +7,7 @@ import {
   isDeepSeekHost,
   isKimiHost,
   isMinimaxHost,
+  isStepfunHost,
   isTencentHost,
   isXaiHost,
 } from './providers.js';
@@ -183,6 +184,17 @@ export const tokenhubMcpInstructions: DialectFix = {
     provider.kind === 'openai-compatible' &&
     provider.api === 'openai-responses' &&
     isTencentHost(provider.baseURL ?? '') &&
+    effectiveCompat(provider).supportsNamespaceTools === false,
+  apply: (body) => ({ body: withMcpNotes(body) }),
+};
+
+/** StepFun 保守摊平 namespace 前保留 MCP 使用说明，显式支持 namespace 时不改（§3.14）。 */
+export const stepfunMcpInstructions: DialectFix = {
+  id: 'stepfun-mcp-instructions',
+  applies: (provider) =>
+    provider.kind === 'openai-compatible' &&
+    provider.api === 'openai-responses' &&
+    isStepfunHost(provider.baseURL ?? '') &&
     effectiveCompat(provider).supportsNamespaceTools === false,
   apply: (body) => ({ body: withMcpNotes(body) }),
 };
@@ -395,6 +407,7 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   minimaxReasoning,
   deepseekNamespaceDescription,
   tokenhubMcpInstructions,
+  stepfunMcpInstructions,
   autoOnlyToolChoice,
   flattenCustomTools,
   flattenNamespaceTools,

@@ -1413,6 +1413,8 @@ export const zhCN = {
   'provider.preset.mimo.note': '需开放平台按量 API Key',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': '国际站：https://api.minimax.io/v1',
+  'provider.catalog.stepfun': '阶跃星辰',
+  'provider.preset.stepfun.note': '国内按量，大陆直连；国际站另配地址与 Key',
   'provider.catalog.tencent': '腾讯云 TokenHub',
   'provider.preset.tencent.note': '广州按量，大陆直连；新加坡、美国另配地址与 Key',
   'provider.tokenhub.activation.title': '模型未开通后付费',
