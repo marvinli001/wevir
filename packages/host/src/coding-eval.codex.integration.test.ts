@@ -192,6 +192,33 @@ describe('coding 评测：分类器的纯函数', () => {
       expect(looksLikeShellWrite(command), command).toBe(false);
   });
 
+  it('LSP 样本的回答：只认单独成行的 文件:行号；解释里提到或链接到 notes.ts 不算误报', () => {
+    const check = (text: string) =>
+      sampleById('lsp-locate').answerChecks?.(text).noNotesFalsePositive;
+    const sites = LSP_CALL_SITES.join('\n');
+    expect(check(`${sites}\n\n已排除 [notes.ts](src/notes.ts:1) 里的注释与字符串。`)).toBe(true);
+    expect(check(`已排除 \`src/notes.ts\` 第 1 行注释。\n${sites}`)).toBe(true);
+    expect(check(`${sites}\nsrc/notes.ts:2`)).toBe(false);
+    expect(check(`- \`src/notes.ts:1\``)).toBe(false);
+  });
+
+  it('流里上游报 response.failed（HTTP 200）记为上游故障', () => {
+    const failed = {
+      index: 3,
+      url: '',
+      path: '/responses',
+      at: 0,
+      events: {},
+      bytes: 0,
+      body: {},
+      status: 200,
+      terminal: 'response.failed',
+    };
+    expect(classify({ requests: [failed], events: [], root: '/w' }).gatewayFailures).toEqual([
+      { kind: 'upstream', detail: 'request 3: response.failed in the stream' },
+    ]);
+  });
+
   it('流里的用量：Responses、Chat（含 DeepSeek 的 prompt_cache_hit_tokens）', () => {
     expect(
       usageFromEvent({
