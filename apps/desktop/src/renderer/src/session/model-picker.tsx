@@ -2,11 +2,19 @@ import type { ProviderModel, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
 import { Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search } from 'lucide-react';
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
+import { AccountBadge } from '@/components/account-badge';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { ScrollFade } from '@/components/scroll-fade';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
+import {
+  accountOfProvider,
+  hasSiblingAccounts,
+  isPickable,
+  pickerOrder,
+  sourceOf,
+  sourceTitle,
+} from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
 import { type PlainMessageKey, t } from '@/i18n';
 import { providerLogo } from '@/settings/provider-catalog';
@@ -76,6 +84,8 @@ export function ModelPicker({
   const efforts = model?.reasoningEfforts ?? [];
   const name = modelName(model, value.modelId);
   const source = provider && sourceOf(provider);
+  // 同一来源有多个账号时（0.63.0）芯片在标志后面带账号的角标；没设标签时与只有一个账号一样。
+  const account = provider && accountOfProvider(provider, accounts);
   // 列表：能选的 Provider（停用的、订阅没登录的不列，当前用的照列），订阅来源在前（0.19.0，data/sources.ts）。
   const listed = pickerOrder(
     providers.filter(
@@ -88,6 +98,7 @@ export function ModelPicker({
       {source && (
         <ProviderLogo logo={source.logo} fallback={t(source.name)} className="size-3.5 shrink-0" />
       )}
+      <AccountBadge label={account?.label} size="sm" />
       <span className="truncate">{name}</span>
       {efforts.length > 0 && <EffortChipLabel efforts={efforts} value={value.reasoningEffort} />}
     </>
@@ -211,19 +222,29 @@ function ModelList({
   onChoose: (providerId: string, model: ProviderModel) => void;
 }) {
   const [query, setQuery] = useState('');
+  const accounts = useAccounts();
   const needle = query.trim().toLowerCase();
   const groups = providers
     .map((provider) => {
       const source = sourceOf(provider);
-      const label = source ? t(source.name) : provider.displayName;
+      // 同一来源的多个账号（0.63.0）：组头写账号的角标与邮箱；没设标签的添加的账号组名带序号（“Claude 2”）。
+      const account = accountOfProvider(provider, accounts);
+      const label = !source
+        ? provider.displayName
+        : account?.label !== undefined
+          ? t(source.name)
+          : sourceTitle(provider, accounts, t(source.name));
+      const email = hasSiblingAccounts(provider, accounts) ? account?.email : undefined;
       const models = modelsOf(provider).filter(
         (model) =>
           needle === '' ||
           modelName(model, model.id).toLowerCase().includes(needle) ||
           model.id.toLowerCase().includes(needle) ||
-          label.toLowerCase().includes(needle),
+          label.toLowerCase().includes(needle) ||
+          (account?.label?.toLowerCase().includes(needle) ?? false) ||
+          (email?.toLowerCase().includes(needle) ?? false),
       );
-      return { provider, source, label, models };
+      return { provider, source, label, badge: account?.label, email, models };
     })
     .filter((group) => group.models.length > 0);
   const anySource = groups.some((group) => group.source !== undefined);
@@ -252,7 +273,7 @@ function ModelList({
             {t('model.picker.empty')}
           </p>
         )}
-        {groups.map(({ provider, source, label, models }) => {
+        {groups.map(({ provider, source, label, badge, email, models }) => {
           const locked = isLocked(provider);
           return (
             <section
@@ -267,7 +288,15 @@ function ModelList({
                   fallback={label}
                   className={cn('size-3.5', locked && 'opacity-50')}
                 />
-                <span className="min-w-0 truncate">{label}</span>
+                <span className={cn('min-w-0 truncate', email !== undefined && 'shrink-0')}>
+                  {label}
+                </span>
+                <AccountBadge label={badge} size="sm" />
+                {email !== undefined && (
+                  <span className="min-w-0 truncate text-muted-foreground/80" data-account-email>
+                    {email}
+                  </span>
+                )}
                 <span className="ml-auto shrink-0 rounded-sm border border-border px-1 text-[0.625rem] leading-4 tracking-wide">
                   {t(source ? 'model.picker.subscription' : 'model.picker.api')}
                 </span>

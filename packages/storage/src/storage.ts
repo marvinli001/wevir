@@ -1,5 +1,9 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  createSubscriptionAccountRepository,
+  type SubscriptionAccountRepository,
+} from './accounts.js';
 import { type ApprovalRepository, createApprovalRepository } from './approvals.js';
 import { openDatabase, type SqliteDatabase } from './driver.js';
 import { createEnvironmentRepository, type EnvironmentRepository } from './environments.js';
@@ -31,6 +35,8 @@ export interface Storage {
   readonly sendReceipts: SendReceiptRepository;
   /** 用量统计（0011_usage_records）。 */
   readonly usage: UsageRepository;
+  /** 订阅的多个账号（0013_subscription_accounts）。 */
+  readonly accounts: SubscriptionAccountRepository;
   /** 库文件里空闲页的字节数（0.43.0）：删掉行之后文件不会自己变小。 */
   freeBytes(): number;
   /** `VACUUM` 并截断 WAL（0.43.0，`session.delete` 之后空闲页多时）：文件变小。不能在事务里调用。 */
@@ -60,6 +66,7 @@ export function openStorage(options: { dataDir: string }): Storage {
       approvals: createApprovalRepository(db),
       sendReceipts: createSendReceiptRepository(db),
       usage: createUsageRepository(db),
+      accounts: createSubscriptionAccountRepository(db),
       freeBytes: () => {
         const free = db.prepare('PRAGMA freelist_count').get() as { freelist_count: number };
         const size = db.prepare('PRAGMA page_size').get() as { page_size: number };

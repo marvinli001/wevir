@@ -343,6 +343,10 @@ export interface ClaudeAccountsOptions {
   sdk: ClaudeSdk;
   /** 探测会话的工作目录（Wevir 数据目录下的 engines/claude）。 */
   workDir: string;
+  /** Wevir 下载的 `claude` 放在哪里，默认 `<workDir>/runtime`（0.63.0：添加的账号与首个账号共用一份）。 */
+  runtimeDir?: string;
+  /** 0.63.0：添加的账号的 `CLAUDE_CONFIG_DIR`；在终端里登录的命令要带上它。 */
+  configDir?: string;
   env?: NodeJS.ProcessEnv;
   /** 测试用：替换版本探测。 */
   probeVersion?: typeof probeClaudeVersion;
@@ -577,7 +581,7 @@ export class ClaudeAccounts implements EngineAccounts {
     if (state.status !== 'signed_in') {
       throw new AdapterError(
         'missing_credentials',
-        `Claude is not signed in: run \`${CLAUDE_LOGIN_COMMAND}\` in a terminal, then check again`,
+        `Claude is not signed in: run \`${state.loginCommand ?? CLAUDE_LOGIN_COMMAND}\` in a terminal, then check again`,
       );
     }
     return this.#installation;
@@ -647,7 +651,7 @@ export class ClaudeAccounts implements EngineAccounts {
     const spec = claudeNpmPackage(system.platform ?? process.platform);
     if (spec === undefined) return undefined;
     return new NpmPackageInstaller({
-      directory: path.join(this.#options.workDir, 'runtime'),
+      directory: this.#options.runtimeDir ?? path.join(this.#options.workDir, 'runtime'),
       spec,
       // 下载来的程序要能跑：`claude --version` 有答复。
       validate: async (file, _version, signal) => {
@@ -712,7 +716,11 @@ export class ClaudeAccounts implements EngineAccounts {
         ? { signIn: 'in_app' as const, loginMethods: ['browser' as const] }
         : {
             signIn: 'command' as const,
-            loginCommand: claudeLoginCommand(executablePath, isManaged),
+            loginCommand: withConfigDir(
+              claudeLoginCommand(executablePath, isManaged),
+              this.#options.configDir,
+              this.#options.system?.platform ?? process.platform,
+            ),
           }),
       ...(this.#customPath !== null && { customPath: this.#customPath }),
     };
@@ -821,4 +829,19 @@ export class ClaudeAccounts implements EngineAccounts {
       }
     }
   }
+}
+
+/**
+ * 添加的账号（0.63.0）在终端里登录的命令：先把 `CLAUDE_CONFIG_DIR` 设成它的配置目录。Windows 写 PowerShell 的写法（默认的终端），
+ * 其余是 POSIX shell。
+ */
+export function withConfigDir(
+  command: string,
+  configDir: string | undefined,
+  platform: NodeJS.Platform,
+): string {
+  if (configDir === undefined) return command;
+  if (platform === 'win32')
+    return `$env:CLAUDE_CONFIG_DIR='${configDir.replaceAll("'", "''")}'; ${command}`;
+  return `CLAUDE_CONFIG_DIR='${configDir.replaceAll("'", "'\\''")}' ${command}`;
 }

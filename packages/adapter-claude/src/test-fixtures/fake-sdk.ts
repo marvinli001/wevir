@@ -449,7 +449,11 @@ export class FakeClaudeSdk implements ClaudeSdk {
     return { sessionId: forked };
   }
 
-  async sessionExists(sessionId: string): Promise<boolean> {
+  /** `sessionExists` 收到的配置目录（0.63.0 添加的账号），按调用顺序。 */
+  readonly existsConfigDirs: (string | undefined)[] = [];
+
+  async sessionExists(sessionId: string, _dir?: string, configDir?: string): Promise<boolean> {
+    this.existsConfigDirs.push(configDir);
     return this.sessions.has(sessionId);
   }
 

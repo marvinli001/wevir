@@ -274,7 +274,7 @@ describe('来源', () => {
     ] as unknown as ProviderProfile[];
     const listed = filterProviders(providers, [{ id: 'used' }, { id: 'gone' }]);
     expect(listed.map((provider) => provider.id)).toEqual(['claude', 'kimi', 'used']);
-    expect(listed.map(providerTitle)).toEqual(['Claude', 'Kimi', 'Used']);
+    expect(listed.map((provider) => providerTitle(provider))).toEqual(['Claude', 'Kimi', 'Used']);
   });
 });
 

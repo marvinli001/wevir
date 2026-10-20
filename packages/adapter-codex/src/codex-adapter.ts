@@ -203,6 +203,11 @@ export interface CodexAdapterOptions {
    * openai Provider 与它自己的模型目录，没有网关，`accounts` 可用。Host 用的 `CodexRuntime` 两种各建一个。
    */
   mode?: CodexFlavor;
+  /**
+   * 0.63.0：添加的 ChatGPT 账号（`mode: 'chatgpt'`）：它自己的 `CODEX_HOME`（凭据、rollout 与配置都在里面，与首个账号的进程
+   * 互不相通）与它的 Provider ID（就是账号 ID）。省略时是首个账号：`engines/codex-chatgpt` 与 `chatgpt`。
+   */
+  account?: { codexHome: string; providerId: string };
   /** 测试用：ChatGPT 进程的登录服务与后端指向本机 mock（`ChatgptEndpoints`）。 */
   chatgptEndpoints?: ChatgptEndpoints;
   /** codex-app-server 可执行文件，默认 `resolveCodexBinary()`（`WEVIR_CODEX_BIN` → 开发缓存）。 */
@@ -388,7 +393,7 @@ class Launcher implements CodexLauncher {
   #versionChecked = false;
 
   constructor(options: CodexAdapterOptions, logger: CodexAdapterLogger, prompt: BasePrompt) {
-    this.paths = codexPaths(options.home, options.mode);
+    this.paths = codexPaths(options.home, options.mode, options.account?.codexHome);
     this.#options = options;
     this.vertexAuth = new VertexTokenCache({
       fetch: options.gateway?.fetch ?? options.providerTest?.fetch,
@@ -1591,9 +1596,10 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       if (provider.kind !== 'chatgpt') {
         return [{ path: ['kind'], message: 'ChatGPT 进程只承载 chatgpt 类的 Provider' }];
       }
-      return provider.id === CHATGPT_PROVIDER_ID
+      const id = this.#options.account?.providerId ?? CHATGPT_PROVIDER_ID;
+      return provider.id === id
         ? []
-        : [{ path: ['id'], message: `ChatGPT Provider 的 ID 只能是 ${CHATGPT_PROVIDER_ID}` }];
+        : [{ path: ['id'], message: `这个 ChatGPT 进程的 Provider 的 ID 只能是 ${id}` }];
     }
     const issues = validateProvider(provider);
     if (provider.models.length === 0)

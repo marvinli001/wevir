@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } fr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { CodexAdapter } from './codex-adapter.js';
 import {
   CODEX_VERSION,
   checkCodexVersion,
@@ -107,5 +108,33 @@ describe('codexPaths', () => {
     expect(paths.configFile).toBe(join(paths.codexHome, 'config.toml'));
     prepareCodexHome(paths);
     if (process.platform !== 'win32') expect(statSync(paths.codexHome).mode & 0o777).toBe(0o700);
+  });
+
+  it('添加的 ChatGPT 账号（0.63.0）用它自己的 CODEX_HOME', () => {
+    const own = join(dir, 'data', 'accounts', 'chatgpt-0b1c', 'codex');
+    expect(codexPaths(join(dir, 'data'), 'chatgpt', own).codexHome).toBe(own);
+    expect(() => codexPaths(join(dir, 'data'), 'chatgpt', 'relative')).toThrow('绝对路径');
+  });
+});
+
+describe('CodexAdapter 的 ChatGPT 账号（0.63.0）', () => {
+  it('添加的账号的进程只认它自己的 Provider ID，凭据在它自己的 CODEX_HOME', async () => {
+    const own = join(dir, 'data', 'accounts', 'chatgpt-0b1c', 'codex');
+    const adapter = new CodexAdapter({
+      home: join(dir, 'data'),
+      mode: 'chatgpt',
+      account: { codexHome: own, providerId: 'chatgpt-0b1c' },
+    });
+    const provider = (id: string) => ({
+      id,
+      kind: 'chatgpt' as const,
+      displayName: 'ChatGPT',
+      models: [],
+      defaultModelId: 'gpt-6.1-sol',
+    });
+    expect(adapter.validateProvider(provider('chatgpt-0b1c'))).toEqual([]);
+    expect(adapter.validateProvider(provider('chatgpt'))).toHaveLength(1);
+    expect(adapter.accounts?.kinds).toEqual(['chatgpt']);
+    await adapter.dispose();
   });
 });

@@ -225,8 +225,9 @@ describe('ChatGPT 账号（account.*）', () => {
     const { connect } = await start(adapter);
     const watcher = (await connect()).client;
     const other = (await connect()).client;
+    // 0.63.0 起 Host 给每个账号盖上账号 ID（首个账号等于种类）。
     expect(await watcher.request('account.get', { kind: 'chatgpt' })).toEqual({
-      account: { kind: 'chatgpt', status: 'signed_out' },
+      account: { kind: 'chatgpt', id: 'chatgpt', status: 'signed_out' },
     });
     const { account } = await watcher.request('account.login', {
       kind: 'chatgpt',
@@ -245,7 +246,7 @@ describe('ChatGPT 账号（account.*）', () => {
     expect(other.notifications('account.updated')).toEqual([]);
     expect(
       await watcher.request('account.cancelLogin', { kind: 'chatgpt', loginId: 'login-1' }),
-    ).toEqual({ account: { kind: 'chatgpt', status: 'signed_out' } });
+    ).toEqual({ account: { kind: 'chatgpt', id: 'chatgpt', status: 'signed_out' } });
     expect(adapter.accounts.calls).toContain('cancel:login-1');
     expect((await watcher.request('account.logout', { kind: 'chatgpt' })).account.status).toBe(
       'signed_out',

@@ -1,16 +1,17 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentEvent, ApprovalRequestedEvent } from '@wevir/runtime-adapter';
 import { isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ClaudeAccounts } from './account.js';
+import { ClaudeAccounts, withConfigDir } from './account.js';
 import { ClaudeAdapter, claudeProposedPlan, PLAN_CAPTURED_MESSAGE } from './claude-adapter.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
 import { FakeClaudeSdk, loadRecording } from './test-fixtures/fake-sdk.js';
 import {
   FAKE_CLAUDE,
   type FakeHarness,
+  fakeAccounts,
   newFakeAdapter,
   removeHome,
 } from './test-fixtures/harness.js';
@@ -1156,5 +1157,50 @@ describe('应用级工具（0.30.0）', () => {
       'mcp__wevir__lsp_call_hierarchy',
       'mcp__wevir__lsp_diagnostics',
     ]);
+  });
+});
+
+describe('添加的账号（0.63.0）', () => {
+  it('会话的 claude 用账号自己的 CLAUDE_CONFIG_DIR，用户的 CLAUDE.md 与 skills 链进去，恢复时在这个目录里找会话', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'wevir-claude-account-'));
+    const user = join(home, 'user-claude');
+    mkdirSync(join(user, 'skills'), { recursive: true });
+    writeFileSync(join(user, 'CLAUDE.md'), '# mine');
+    const configDir = join(home, 'accounts', 'claude-1a2b', 'claude');
+    const sdk = new FakeClaudeSdk();
+    const adapter = new ClaudeAdapter({
+      home,
+      sdk,
+      accounts: fakeAccounts(sdk, join(home, 'accounts', 'claude-1a2b', 'work')),
+      env: { PATH: '/usr/bin', HOME: '/home/test' },
+      account: { configDir, workDir: join(home, 'accounts', 'claude-1a2b', 'work') },
+      userConfigDir: user,
+    });
+    harnesses.push({ sdk, adapter, home });
+    const config = { ...CONFIG, providerId: 'claude-1a2b' };
+    const { engineSessionId } = await adapter.createSession(config);
+    const log = collect(adapter, engineSessionId);
+    await adapter.send(engineSessionId, text('Reply with exactly the word hello.'));
+    await log.until(isTurnTerminal);
+    expect(sessionQueries(sdk)[0]?.options.env?.CLAUDE_CONFIG_DIR).toBe(configDir);
+    if (process.platform !== 'win32') {
+      expect(readlinkSync(join(configDir, 'CLAUDE.md'))).toBe(join(user, 'CLAUDE.md'));
+      expect(readlinkSync(join(configDir, 'skills'))).toBe(join(user, 'skills'));
+    }
+    const lost = await adapter
+      .resumeSession('22222222-2222-4222-8222-222222222222', config)
+      .catch((error: unknown) => error);
+    expect(isAdapterError(lost) && lost.code).toBe('session_lost');
+    expect(sdk.existsConfigDirs).toEqual([configDir]);
+  });
+
+  it('终端里登录的命令带上配置目录', () => {
+    expect(withConfigDir('claude auth login', undefined, 'darwin')).toBe('claude auth login');
+    expect(withConfigDir('claude auth login', "/tmp/it's", 'linux')).toBe(
+      "CLAUDE_CONFIG_DIR='/tmp/it'\\''s' claude auth login",
+    );
+    expect(withConfigDir('claude auth login', 'C:\\W\\claude', 'win32')).toBe(
+      "$env:CLAUDE_CONFIG_DIR='C:\\W\\claude'; claude auth login",
+    );
   });
 });

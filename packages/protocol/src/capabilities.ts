@@ -27,6 +27,12 @@ export const CLIENT_CAPABILITIES = {
    * `account.list` 的结果里去掉它们，也不发它们的 `account.updated`。
    */
   subscriptionKinds: 'subscription_kinds',
+  // COMPAT(subscriptionAccounts): added in 0.63.0, remove gate after 2027-06-01
+  /**
+   * 认得同一来源的多个账号（`AccountState.id`）；没有时 Host 从 `account.list` 里去掉添加的账号，也不发它们的
+   * `account.updated`（客户端按种类找账号，会把它们当成首个账号）。
+   */
+  subscriptionAccounts: 'subscription_accounts',
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   /** 认得 `UserContentPart` 的 `image`；没有时 Host 把事件与结果里的图片换成文本 `[image]`。 */
   userImages: 'user_images',
@@ -39,6 +45,7 @@ export const ClientCapabilitiesSchema = z.looseObject({
   provider_kind_chatgpt: z.boolean().optional(),
   provider_kind_google_vertex: z.boolean().optional(),
   subscription_kinds: z.boolean().optional(),
+  subscription_accounts: z.boolean().optional(),
   user_images: z.boolean().optional(),
 });
 export type ClientCapabilities = z.infer<typeof ClientCapabilitiesSchema>;
@@ -239,6 +246,11 @@ export const HOST_FEATURES = {
    * models.dev 价格估的成本。与引擎无关，哪些来源有记录取决于各引擎报不报。
    */
   usageStats: 'usage_stats',
+  /**
+   * 订阅多账号（0.63.0）：`account.add`、`account.remove`、`account.setLabel`，`account.*` 的 `id`，`AccountState` 的 `id`、
+   * `label`、`localLogin`、`multiAccount`。哪些种类能添加看 `multiAccount`。
+   */
+  subscriptionAccounts: 'subscription_accounts',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -291,6 +303,7 @@ export const HostFeaturesSchema = z.looseObject({
   handoff_preview: z.boolean().optional(),
   tool_presets: z.boolean().optional(),
   usage_stats: z.boolean().optional(),
+  subscription_accounts: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

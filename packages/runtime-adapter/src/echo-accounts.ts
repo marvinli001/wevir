@@ -193,22 +193,37 @@ export function parseEchoScenarios(
 
 export interface EchoAccountsOptions {
   scenarios?: Partial<Record<SubscriptionKind, EchoAccountScenario>>;
+  /**
+   * 0.63.0：添加的账号（Host 给它单开一个引擎）：只有这一种、未登录、在应用内登录（凭据在 Wevir 的私有目录，不是终端的登录），
+   * 登录后的邮箱是 `email`。
+   */
+  added?: { kind: SubscriptionKind; email: string };
   /** 应用内登录、下载安装多久完成，默认 1500 ms。 */
   delayMs?: number;
 }
 
 /** 假的订阅账号：状态在内存里，登录与安装过一会儿自己完成。 */
 export class EchoAccounts implements EngineAccounts {
-  readonly kinds: readonly AccountKind[] = ECHO_SUBSCRIPTION_KINDS;
+  readonly kinds: readonly AccountKind[];
   readonly #states = new Map<SubscriptionKind, AccountState>();
   readonly #listeners = new Set<(state: AccountState) => void>();
   readonly #timers = new Set<ReturnType<typeof setTimeout>>();
   readonly #delayMs: number;
+  readonly #email: string;
   /** 假的 OpenCode 里接上的上游。 */
   readonly #connected = new Set<string>(['opencode']);
 
   constructor(options: EchoAccountsOptions = {}) {
     this.#delayMs = options.delayMs ?? 1500;
+    this.#email = options.added?.email ?? 'me@example.com';
+    if (options.added !== undefined) {
+      const { kind } = options.added;
+      this.kinds = [kind];
+      const { loginCommand: _command, ...state } = initialState(kind, 'signed_out');
+      this.#states.set(kind, { ...state, signIn: 'in_app', loginMethods: ['browser'] });
+      return;
+    }
+    this.kinds = ECHO_SUBSCRIPTION_KINDS;
     for (const kind of ECHO_SUBSCRIPTION_KINDS) {
       const scenario = options.scenarios?.[kind] ?? DEFAULT_SCENARIOS[kind];
       this.#states.set(kind, initialState(kind, scenario));
@@ -253,7 +268,7 @@ export class EchoAccounts implements EngineAccounts {
       this.#set({
         ...withoutLogin(current),
         status: 'signed_in',
-        email: 'me@example.com',
+        email: this.#email,
         ...PLANS[kind as SubscriptionKind],
         ...echoRateLimits(kind as SubscriptionKind),
       });

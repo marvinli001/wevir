@@ -25,6 +25,8 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'settings.memory.editor.description',
   'settings.appearance.importHint',
   'source.soon.body',
+  // 确认框里的后果：删掉账号的凭据与用量，会话不能继续。
+  'source.account.remove.body',
   'account.chatgpt.device.warning',
   'account.chatgpt.logout.body',
   'provider.preset.azureOpenai.note',

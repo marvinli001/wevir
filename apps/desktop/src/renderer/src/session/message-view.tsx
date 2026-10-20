@@ -15,7 +15,7 @@ import { Link } from 'react-router';
 import { GoalIcon } from '@/components/command-icons';
 import { ProviderLogo } from '@/components/provider-logo';
 import { sourceOf } from '@/data/sources';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
 import { phalaErrorPresentation } from '@/host/phala-error';
 import { currentLocale, t } from '@/i18n';
 import { paths } from '@/routes/paths';
@@ -541,11 +541,12 @@ function NoticePart({ part }: { part: ChatPartOf<'notice'> }) {
 /** 换了来源的那一行（0.25.0）：新来源的标志与“已切换到 来源 · 模型”，点开是这次接力的详情。 */
 function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
   const data = useWorkbenchData();
+  const accounts = useAccounts();
   const [open, setOpen] = useState(false);
   const providers = data.status === 'ready' ? data.providers : [];
   const provider = providers.find((candidate) => candidate.id === notice.providerId);
   const source = provider && sourceOf(provider);
-  const label = modelLabel(providers, notice.providerId, notice.modelId);
+  const label = modelLabel(providers, notice.providerId, notice.modelId, accounts);
   return (
     <div className="my-3 flex justify-center">
       <button
@@ -571,7 +572,7 @@ function HandoffNotice({ notice }: { notice: HandoffNoticeOf }) {
       <HandoffDetailDialog
         notice={notice}
         target={label}
-        from={modelLabel(providers, notice.fromProviderId, notice.fromModelId)}
+        from={modelLabel(providers, notice.fromProviderId, notice.fromModelId, accounts)}
         open={open}
         onOpenChange={setOpen}
       />

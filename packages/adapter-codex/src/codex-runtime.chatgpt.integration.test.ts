@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AccountState, ProviderConfig } from '@wevir/runtime-adapter';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { CodexAdapter } from './codex-adapter.js';
 import { CodexRuntime } from './codex-runtime.js';
 import {
   codexBinaryOrSkip,
@@ -225,3 +226,43 @@ describe.skipIf(binary === undefined)('ChatGPT 进程（mock 登录服务）', {
     await codex.accounts.logout('chatgpt');
   });
 });
+
+describe.skipIf(binary === undefined)(
+  '添加的 ChatGPT 账号（0.63.0，mock 登录服务）',
+  { timeout: 90_000 },
+  () => {
+    it('自己的进程、自己的 CODEX_HOME：登录后凭据只在它的目录，首个账号仍未登录', async () => {
+      const { runtime: codex, home } = runtime();
+      const codexHome = join(home, 'accounts', 'chatgpt-0b1c', 'codex');
+      const added = new CodexAdapter({
+        home,
+        binary,
+        mode: 'chatgpt',
+        account: { codexHome, providerId: 'chatgpt-0b1c' },
+        logger: collectingLogger(),
+        providerExtra: NO_RETRIES,
+        chatgptEndpoints: chatgpt.endpoints,
+        providers: [{ ...CHATGPT, id: 'chatgpt-0b1c' }],
+      });
+      try {
+        const accounts = added.accounts;
+        if (accounts === undefined) throw new Error('no accounts');
+        const states: AccountState[] = [];
+        accounts.onChange((state) => states.push(state));
+        await accounts.login('chatgpt', 'device_code');
+        chatgpt.approveDeviceCode();
+        await waitFor('添加的账号登录成功', () =>
+          states.find((state) => state.status === 'signed_in' && state.email !== undefined),
+        );
+        expect(existsSync(join(codexHome, 'auth.json'))).toBe(true);
+        expect(existsSync(join(home, 'engines', 'codex-chatgpt', 'auth.json'))).toBe(false);
+        expect(await codex.accounts.read('chatgpt')).toEqual({
+          kind: 'chatgpt',
+          status: 'signed_out',
+        });
+      } finally {
+        await added.dispose();
+      }
+    });
+  },
+);

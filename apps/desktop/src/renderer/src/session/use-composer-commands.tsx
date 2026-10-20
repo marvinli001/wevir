@@ -29,7 +29,7 @@ import { useNavigate } from 'react-router';
 import { openChanges } from '@/changes/changes-store';
 import { GoalIcon } from '@/components/command-icons';
 import { ProviderLogo } from '@/components/provider-logo';
-import { isPickable, pickerOrder, sourceOf } from '@/data/sources';
+import { isPickable, pickerOrder, sourceOf, sourceTitle } from '@/data/sources';
 import { useAccounts } from '@/data/workbench-data';
 import { openFiles } from '@/files/files-store';
 import { currentLocale, t } from '@/i18n';
@@ -70,7 +70,9 @@ function modelCommand(
       );
       return listed.flatMap((candidate) => {
         const source = sourceOf(candidate);
-        const group = source ? t(source.name) : candidate.displayName;
+        const group = source
+          ? sourceTitle(candidate, accounts, t(source.name))
+          : candidate.displayName;
         const logo = source?.logo ?? providerLogo(candidate);
         return modelsOf(candidate).map<ComposerCommandItem>((model) => ({
           id: `${candidate.id}/${model.id}`,

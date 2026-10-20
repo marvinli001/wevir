@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { useHostSettings } from '@/data/host-settings';
-import { useWorkbenchData } from '@/data/workbench-data';
+import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { handoffPreviewRows, modelLabel } from './handoff-model';
@@ -363,6 +363,7 @@ export function useHandoffPreview(session: Session): {
 } {
   const { view } = useHostConnection();
   const data = useWorkbenchData();
+  const accounts = useAccounts();
   const providers = data.status === 'ready' ? data.providers : [];
   const supported =
     view.status === 'connected' && hostSupports(view.hello.features, 'handoff_preview');
@@ -373,7 +374,7 @@ export function useHandoffPreview(session: Session): {
       <HandoffPreviewDialog
         session={session}
         target={target}
-        label={modelLabel(providers, target.providerId, target.modelId)}
+        label={modelLabel(providers, target.providerId, target.modelId, accounts)}
         onClose={() => setTarget(undefined)}
       />
     ),

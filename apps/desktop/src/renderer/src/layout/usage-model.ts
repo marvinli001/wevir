@@ -8,12 +8,14 @@ import type {
   ProviderProfile,
   Session,
 } from '@wevir/protocol';
-import { sourceOf } from '@/data/sources';
+import { accountOfProvider, sourceOf } from '@/data/sources';
 import { t } from '@/i18n';
 import { planLabel, resetLabel, usageTone, usageWindows } from '@/settings/chatgpt-account-model';
 
 export interface SubscriptionUsage {
   kind: AccountKind;
+  /** 账号的标签（0.63.0）：卡片里写角标。 */
+  label?: string;
   /** 套餐给人看的说法，引擎没给时是原值。 */
   plan?: string;
   /** 短的在前（5 小时、每周、每月）；0.45.0 起可以多于两个。 */
@@ -33,7 +35,8 @@ export function subscriptionUsage(
   const provider = providers.find((candidate) => candidate.id === session.providerId);
   const source = provider && sourceOf(provider);
   if (!source) return undefined;
-  const account = accounts?.find((candidate) => candidate.kind === source.kind);
+  // 账号 ID 就是 Provider ID（0.63.0，同一来源可以有多个账号）。
+  const account = accountOfProvider(provider, accounts);
   if (account?.status !== 'signed_in') return undefined;
   const windows = usageWindows(account.rateLimits);
   const [first] = windows;
@@ -47,6 +50,7 @@ export function subscriptionUsage(
     account.planLabel ?? (source.kind === 'chatgpt' ? planLabel(account.plan) : account.plan);
   return {
     kind: source.kind,
+    ...(account.label !== undefined && { label: account.label }),
     ...(plan !== undefined && { plan }),
     windows,
     peak,

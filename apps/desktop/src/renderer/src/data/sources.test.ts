@@ -1,12 +1,18 @@
 import type { AccountState, ProviderProfile } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
 import {
+  accountMark,
+  accountOfProvider,
+  accountSuffix,
   GIT_FOR_WINDOWS_URL,
+  hasSiblingAccounts,
   isPickable,
   pickerOrder,
   SOURCE_KINDS,
+  SOURCES,
   sourceOf,
   sourcePhase,
+  sourceTitle,
   tileFillers,
 } from './sources';
 
@@ -124,5 +130,41 @@ describe('订阅来源', () => {
       kind: 'signed_out',
       signIn: 'command',
     });
+  });
+});
+
+describe('同一来源的多个账号（0.63.0）', () => {
+  const first: AccountState = { kind: 'claude', id: 'claude', status: 'signed_in', label: '主号' };
+  const second: AccountState = { kind: 'claude', id: 'claude-3f9a', status: 'signed_in' };
+  const third: AccountState = { kind: 'claude', id: 'claude-77d0', status: 'signed_out' };
+  const accounts = [first, second, third];
+
+  it('按 Provider ID 找账号；旧 Host 的账号没有 ID 时按种类', () => {
+    expect(accountOfProvider(provider('claude-3f9a', 'claude'), accounts)).toBe(second);
+    expect(
+      accountOfProvider(provider('claude', 'claude'), [{ kind: 'claude', status: 'signed_in' }]),
+    ).toMatchObject({ kind: 'claude' });
+    expect(accountOfProvider(provider('deepseek-official', 'deepseek-official'), accounts)).toBe(
+      undefined,
+    );
+  });
+
+  it('isPickable 看的是这个 Provider 自己的账号', () => {
+    expect(isPickable(provider('claude-3f9a', 'claude'), accounts)).toBe(true);
+    expect(isPickable(provider('claude-77d0', 'claude'), accounts)).toBe(false);
+  });
+
+  it('角标取标签的第一个字，拉丁字母大写；名字带标签或序号', () => {
+    expect(accountMark('主号')).toBe('主');
+    expect(accountMark('work')).toBe('W');
+    expect(accountMark('👩‍💻 dev')).toBe('👩‍💻');
+    expect(accountMark(undefined)).toBeUndefined();
+    expect(accountSuffix(provider('claude', 'claude'), accounts)).toBe('主号');
+    expect(accountSuffix(provider('claude-3f9a', 'claude'), accounts)).toBe('2');
+    expect(sourceTitle(provider('claude', 'claude'), accounts, 'Claude')).toBe('Claude · 主号');
+    expect(sourceTitle(provider('claude-3f9a', 'claude'), accounts, 'Claude')).toBe('Claude 2');
+    expect(sourceTitle(provider('claude', 'claude'), [second], 'Claude')).toBe('Claude');
+    expect(hasSiblingAccounts(provider('claude', 'claude'), accounts)).toBe(true);
+    expect(hasSiblingAccounts(provider('grok', 'grok'), accounts)).toBe(false);
   });
 });

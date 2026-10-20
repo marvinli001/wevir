@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
+import { useAccounts } from '@/data/workbench-data';
 import { t } from '@/i18n';
 import {
   averageFirstToken,
@@ -53,8 +54,9 @@ export function ProviderName({
   providers: readonly ProviderProfile[];
   className?: string;
 }) {
+  const accounts = useAccounts();
   const profile = providers.find((provider) => provider.id === providerId);
-  const name = profile === undefined ? providerName : providerTitle(profile);
+  const name = profile === undefined ? providerName : providerTitle(profile, accounts);
   return (
     <span className={cn('flex min-w-0 items-center gap-2', className)}>
       <ProviderLogo

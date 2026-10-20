@@ -1,4 +1,4 @@
-import type { WevirClient } from '@wevir/client-sdk';
+import { accountId, type WevirClient } from '@wevir/client-sdk';
 import type { AccountKind, AccountState, ProviderProfile } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
@@ -10,6 +10,7 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
+  Plus,
   RotateCw,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useState } from 'react';
@@ -20,26 +21,41 @@ import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  accountRef,
+  accountsOfKind,
   SOURCE_KINDS,
   SOURCES,
   type SourceInfo,
   type SourcePhase,
   sourcePhase,
+  sourceTitle,
   tileFillers,
 } from '@/data/sources';
-import { useAccounts, useAccountsStore, useWorkbenchStore } from '@/data/workbench-data';
+import {
+  useAccounts,
+  useAccountsStore,
+  useWorkbenchData,
+  useWorkbenchStore,
+} from '@/data/workbench-data';
 import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { ChatgptAccountSection, UsageBar } from './chatgpt-account';
 import { planLabel, usageWindows } from './chatgpt-account-model';
 import { NoticeBanner } from './settings-ui';
+import {
+  AccountLabelControl,
+  AccountSwitcher,
+  RemoveAccountButton,
+  RemoveAccountDialog,
+} from './subscription-accounts';
 import { UpstreamList } from './subscription-upstreams';
 
 /**
  * 设置 → 模型服务的“订阅”（0.19.0，照 T3 Code 的 Bring your own sub，desktop-tokens.md §32）：各种订阅排成一张三列的格子卡（最后一行补空格），
  * 每格是软件标志（放在内凹的“器皿”里）、名称与一行状态；点一格，卡片下半部展开它的详情——登录（应用内，或给出终端命令再
  * 重新检测）、安装（命令、下载、指定路径）、账号与套餐、用量、模型、在模型选择里显示的开关。这个 Host 还没有引擎的种类写
- * “即将支持”，不能点。
+ * “即将支持”，不能点。一种来源可以有多个账号（0.63.0）：有两个以上时格子写账号数，详情顶部是账号的切换条，下面是选中账号的
+ * 内容；每个账号一个 Provider（ID 就是账号 ID）。
  */
 export function SubscriptionSources({
   client,
@@ -56,8 +72,15 @@ export function SubscriptionSources({
     if (selected !== undefined) setShown(selected);
   }, [selected]);
 
-  const accountOf = (kind: AccountKind) => accounts?.find((account) => account.kind === kind);
-  const providerOf = (kind: AccountKind) => providers.find((provider) => provider.id === kind);
+  // 每种来源在详情里选中的账号；没选过或选中的被删了时是首个账号。
+  const [chosen, setChosen] = useState<Partial<Record<AccountKind, string>>>({});
+
+  const accountsOf = (kind: AccountKind) => accountsOfKind(kind, accounts);
+  const accountOf = (kind: AccountKind) => {
+    const list = accountsOf(kind);
+    return list.find((account) => accountId(account) === chosen[kind]) ?? list[0];
+  };
+  const providerOf = (id: string) => providers.find((provider) => provider.id === id);
 
   return (
     <div
@@ -70,7 +93,8 @@ export function SubscriptionSources({
           <SourceTile
             key={kind}
             source={SOURCES[kind]}
-            phase={accounts === undefined ? undefined : sourcePhase(accountOf(kind))}
+            phase={accounts === undefined ? undefined : sourcePhase(tileAccount(accountsOf(kind)))}
+            count={accountsOf(kind).length}
             provider={providerOf(kind)}
             selected={selected === kind}
             onSelect={() => setSelected((current) => (current === kind ? undefined : kind))}
@@ -94,13 +118,24 @@ export function SubscriptionSources({
             key={shown}
             client={client}
             source={SOURCES[shown]}
+            accounts={accountsOf(shown)}
             account={accountOf(shown)}
-            provider={providerOf(shown)}
+            providerOf={providerOf}
+            onSelect={(id) => setChosen((current) => ({ ...current, [shown]: id }))}
           />
         )}
       </Collapse>
     </div>
   );
+}
+
+/** 有多个账号时格子的状态跟着哪个账号：正在登录或下载的，其次已登录的，都没有时首个账号。 */
+function tileAccount(list: readonly AccountState[]): AccountState | undefined {
+  const busy = (account: AccountState) => {
+    const kind = sourcePhase(account).kind;
+    return kind === 'signing_in' || kind === 'installing';
+  };
+  return list.find(busy) ?? list.find((account) => account.status === 'signed_in') ?? list[0];
 }
 
 /** 软件标志放在内凹的小器皿里：次表面色、细边、内阴影（“静器”）。 */
@@ -135,6 +170,7 @@ export function LogoWell({
 function SourceTile({
   source,
   phase,
+  count,
   provider,
   selected,
   onSelect,
@@ -142,6 +178,8 @@ function SourceTile({
   source: SourceInfo;
   /** 还没读到账号时 undefined。 */
   phase: SourcePhase | undefined;
+  /** 这种来源的账号数；两个以上时状态写账号数。 */
+  count: number;
   provider: ProviderProfile | undefined;
   selected: boolean;
   onSelect: () => void;
@@ -183,8 +221,13 @@ function SourceTile({
             {name}
           </span>
           <span className="mt-0.5 block truncate text-xs text-muted-foreground" data-status>
-            {phase === undefined ? t('common.loading') : phaseText(phase, source)}
-            {provider?.enabled === false &&
+            {phase === undefined
+              ? t('common.loading')
+              : count > 1
+                ? t('source.status.accounts', { count })
+                : phaseText(phase, source)}
+            {count <= 1 &&
+              provider?.enabled === false &&
               phase?.kind === 'signed_in' &&
               ` · ${t('source.disabled')}`}
           </span>
@@ -240,36 +283,80 @@ function phaseText(phase: SourcePhase, source: SourceInfo): string {
   }
 }
 
-/** 展开的详情：头部（标志、名称、账号、在模型选择里显示），下面按状态给登录、安装或账号的内容。 */
+/**
+ * 展开的详情：头部（标志、名称、账号、在模型选择里显示），下面按状态给登录、安装或账号的内容。有多个账号时头部下面是账号的
+ * 切换条；能添加账号的种类（`multiAccount`）在最下面给标签、删除与添加账号。
+ */
 function SourceDetail({
   client,
   source,
+  accounts,
   account,
-  provider,
+  providerOf,
+  onSelect,
 }: {
   client: WevirClient;
   source: SourceInfo;
+  /** 这种来源的全部账号，首个账号在前。 */
+  accounts: readonly AccountState[];
+  /** 选中的账号；还没读到时 undefined。 */
   account: AccountState | undefined;
-  provider: ProviderProfile | undefined;
+  providerOf: (id: string) => ProviderProfile | undefined;
+  onSelect: (id: string) => void;
 }) {
   const store = useWorkbenchStore();
+  const accountsStore = useAccountsStore();
+  const data = useWorkbenchData();
   const [toggling, setToggling] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [labeling, setLabeling] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const [error, setError] = useState<string>();
   const phase = sourcePhase(account);
   const name = t(source.name);
+  const id = account === undefined ? source.kind : accountId(account);
+  const provider = providerOf(id);
+  const several = accounts.length > 1;
+  const canAdd =
+    client.supports('subscription_accounts') && accounts.some((each) => each.multiAccount === true);
+  const added = account !== undefined && id !== account.kind;
 
+  const attempt = async (op: () => Promise<void>) => {
+    setError(undefined);
+    try {
+      await op();
+    } catch (reason) {
+      setError(describe(reason));
+    }
+  };
   const setEnabled = async (enabled: boolean) => {
     if (provider === undefined) return;
     setToggling(true);
-    setError(undefined);
-    try {
+    await attempt(async () => {
       await client.request('provider.setEnabled', { providerId: provider.id, enabled });
       await store?.refresh();
-    } catch (reason) {
-      setError(describe(reason));
-    } finally {
-      setToggling(false);
-    }
+    });
+    setToggling(false);
+  };
+  const addAccount = async () => {
+    setAdding(true);
+    await attempt(async () => {
+      const result = await client.request('account.add', { kind: source.kind });
+      accountsStore?.merge(result.account);
+      onSelect(accountId(result.account));
+    });
+    setAdding(false);
+  };
+  const setLabel = async (label: string | null) => {
+    if (account === undefined) return;
+    setLabeling(true);
+    await attempt(async () => {
+      const result = await client.request('account.setLabel', { id, label });
+      accountsStore?.merge(result.account);
+      // Provider 的显示名跟着标签（“Claude · 工作”）。
+      await store?.refresh();
+    });
+    setLabeling(false);
   };
 
   return (
@@ -280,7 +367,11 @@ function SourceDetail({
       <div className="flex items-center gap-3">
         <LogoWell logo={source.logo} fallback={name} size="sm" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{name}</p>
+          <p className="truncate text-sm font-medium">
+            {several && account !== undefined
+              ? sourceTitle({ id, kind: source.kind }, accounts, name)
+              : name}
+          </p>
           {account?.status === 'signed_in' && account.email !== undefined && (
             <p className="truncate text-xs text-muted-foreground" data-account-email>
               {account.email}
@@ -300,15 +391,34 @@ function SourceDetail({
           </div>
         )}
       </div>
+      {several && (
+        <div className="mt-4">
+          <AccountSwitcher
+            source={source}
+            accounts={accounts}
+            selected={id}
+            onSelect={onSelect}
+            adding={adding}
+            onAdd={canAdd ? () => void addAccount() : undefined}
+          />
+        </div>
+      )}
       <div className="mt-4">
         {source.kind === 'chatgpt' ? (
           client.supports('chatgpt_account') ? (
-            <ChatgptAccountSection client={client} provider={provider} embedded />
+            <ChatgptAccountSection
+              key={id}
+              client={client}
+              accountId={id}
+              provider={provider}
+              embedded
+            />
           ) : (
             <p className="text-sm text-muted-foreground">{t('source.soon.body')}</p>
           )
         ) : (
           <SubscriptionBody
+            key={id}
             client={client}
             kind={source.kind}
             name={name}
@@ -318,10 +428,49 @@ function SourceDetail({
           />
         )}
       </div>
+      {canAdd && account !== undefined && (
+        <div
+          className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border pt-3"
+          data-account-actions
+        >
+          {several && (
+            <AccountLabelControl account={account} disabled={labeling} onChange={setLabel} />
+          )}
+          {added && <RemoveAccountButton disabled={removing} onClick={() => setRemoving(true)} />}
+          {!several && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={adding}
+              onClick={() => void addAccount()}
+              data-action="add-account"
+            >
+              {adding ? <LoaderCircle className="animate-spin" /> : <Plus />}
+              {t('source.account.add')}
+            </Button>
+          )}
+        </div>
+      )}
       {error !== undefined && (
         <div className="mt-3">
           <NoticeBanner notice={{ tone: 'error', text: error }} />
         </div>
+      )}
+      {removing && account !== undefined && (
+        <RemoveAccountDialog
+          client={client}
+          title={sourceTitle({ id, kind: source.kind }, accounts, name)}
+          account={account}
+          sessions={
+            data.status === 'ready' ? data.workspaces.flatMap((entry) => entry.sessions) : []
+          }
+          onClose={() => setRemoving(false)}
+          onRemoved={async () => {
+            accountsStore?.forget(id);
+            onSelect(source.kind);
+            await store?.refresh();
+          }}
+        />
       )}
     </div>
   );
@@ -345,6 +494,7 @@ function SubscriptionBody({
   const accounts = useAccountsStore();
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
+  const ref = accountRef(account ?? { kind });
 
   const run = async (label: string, op: () => Promise<{ account: AccountState }>) => {
     setBusy(label);
@@ -361,7 +511,7 @@ function SubscriptionBody({
     }
   };
   const refresh = () =>
-    run('refresh', () => client.request('account.get', { kind, refresh: true }));
+    run('refresh', () => client.request('account.get', { ...ref, refresh: true }));
   // OpenCode 后面接着好几家上游（0.56.0）：已登录与否都列出来，在这里接上、断开。
   const upstreams =
     kind === 'opencode' &&
@@ -369,7 +519,7 @@ function SubscriptionBody({
     client.supports('subscription_upstreams');
   const login = async () => {
     const next = await run('login', () =>
-      client.request('account.login', { kind, method: 'browser' }),
+      client.request('account.login', { ...ref, method: 'browser' }),
     );
     const url = next?.login?.authUrl;
     if (url !== undefined) void window.wevir.openExternal(url);
@@ -400,7 +550,6 @@ function SubscriptionBody({
           {phase.kind === 'signed_in' && (
             <SignedIn
               client={client}
-              kind={kind}
               account={account}
               provider={provider}
               busy={busy}
@@ -465,7 +614,7 @@ function SubscriptionBody({
                 onClick={() =>
                   void run('cancel', () =>
                     client.request('account.cancelLogin', {
-                      kind,
+                      ...ref,
                       ...(account.login !== undefined && { loginId: account.login.loginId }),
                     }),
                   )
@@ -479,7 +628,6 @@ function SubscriptionBody({
       ) : (
         <SignedIn
           client={client}
-          kind={kind}
           account={account}
           provider={provider}
           busy={busy}
@@ -563,6 +711,7 @@ function InstallStep({
 }) {
   const [editing, setEditing] = useState(false);
   const [path, setPath] = useState(account.customPath ?? '');
+  const ref = accountRef(account);
   const installing = phase.kind === 'installing';
   if (phase.kind === 'missing' && phase.requires === 'git') {
     return (
@@ -586,7 +735,9 @@ function InstallStep({
               size="sm"
               disabled={busy !== undefined}
               onClick={() =>
-                void onRun('refresh', () => client.request('account.get', { kind, refresh: true }))
+                void onRun('refresh', () =>
+                  client.request('account.get', { ...ref, refresh: true }),
+                )
               }
               data-action="recheck"
             >
@@ -640,7 +791,7 @@ function InstallStep({
                 disabled={busy !== undefined}
                 onClick={() =>
                   void onRun('refresh', () =>
-                    client.request('account.get', { kind, refresh: true }),
+                    client.request('account.get', { ...ref, refresh: true }),
                   )
                 }
                 data-action="recheck"
@@ -719,7 +870,6 @@ function Progress({ percent }: { percent: number | undefined }) {
 
 function SignedIn({
   client,
-  kind,
   account,
   provider,
   busy,
@@ -728,7 +878,6 @@ function SignedIn({
   signOut = true,
 }: {
   client: WevirClient;
-  kind: AccountKind;
   account: AccountState;
   provider: ProviderProfile | undefined;
   busy: string | undefined;
@@ -737,6 +886,7 @@ function SignedIn({
   /** 账号整体登出；上游各自断开的来源（OpenCode）不给。 */
   signOut?: boolean;
 }) {
+  const ref = accountRef(account);
   const windows = usageWindows(account.rateLimits);
   const facts: [string, ReactNode][] = [];
   const plan = account.planLabel ?? account.plan;
@@ -803,7 +953,7 @@ function SignedIn({
             variant="ghost"
             size="sm"
             disabled={busy !== undefined}
-            onClick={() => void onRun('logout', () => client.request('account.logout', { kind }))}
+            onClick={() => void onRun('logout', () => client.request('account.logout', { ...ref }))}
             data-action="logout"
           >
             <LogOut />

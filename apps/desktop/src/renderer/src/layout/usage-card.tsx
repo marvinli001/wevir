@@ -4,6 +4,7 @@
 
 import { Settings } from 'lucide-react';
 import { useNavigate } from 'react-router';
+import { AccountBadge } from '@/components/account-badge';
 import { IconButton } from '@/components/icon-button';
 import { ProviderLogo } from '@/components/provider-logo';
 import { SOURCES } from '@/data/sources';
@@ -60,6 +61,7 @@ function useUsageCard({ session, providers, visible }: RailContext) {
         </ul>
         <div className="mt-3 flex h-6 items-center gap-2 text-xs text-muted-foreground">
           <ProviderLogo logo={source.logo} className="size-3.5" />
+          <AccountBadge label={usage.label} size="sm" />
           <span className="min-w-0 truncate">
             {t(source.name)}
             {usage.plan !== undefined && ` · ${usage.plan}`}

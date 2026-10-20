@@ -29,6 +29,7 @@ import { AntigravityInstallation, type AntigravityInstallationOptions } from './
 import {
   type AntigravityLauncher,
   type AntigravityRuntimeContext,
+  antigravityAccountPaths,
   antigravityPaths,
   createAntigravityProcess,
   validateAntigravityRuntime,
@@ -49,6 +50,11 @@ export interface AntigravityAdapterOptions {
   home: string;
   logger?: AdapterLogger;
   env?: NodeJS.ProcessEnv;
+  /**
+   * 0.63.0：添加的账号：profile（登录凭据）、临时目录与模型缓存放在这里（`<数据目录>/accounts/<id>/antigravity`）；运行体仍是
+   * `engines/antigravity/runtime` 里共用的那份。省略时是首个账号。
+   */
+  accountRoot?: string;
   /** BROWSER 钩子用的 Node；默认 Host 自己（process.execPath）。 */
   nodeExecutable?: string;
   /** 测试用：换掉钉住的发布、下载与校验。 */
@@ -88,7 +94,9 @@ export class AntigravityAdapter extends AcpAdapter {
           `[adapter-antigravity] ${message}${fields === undefined ? '' : ` ${JSON.stringify(fields)}`}\n`,
         ),
     };
-    const paths = antigravityPaths(options.home);
+    const shared = antigravityPaths(options.home);
+    const paths =
+      options.accountRoot === undefined ? shared : antigravityAccountPaths(options.accountRoot);
     let accounts: AntigravityAccounts | undefined;
     const context: AntigravityRuntimeContext = {
       // 构造顺序：installation 在下面赋值，进程只在第一次用到时才启动。
@@ -103,7 +111,7 @@ export class AntigravityAdapter extends AcpAdapter {
       }),
     };
     const installation = new AntigravityInstallation({
-      directory: paths.root,
+      directory: shared.root,
       env,
       validate: (executable, version, signal) =>
         validateAntigravityRuntime(context, executable, version, signal),
