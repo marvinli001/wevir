@@ -11,6 +11,9 @@
 // Host 订阅的是这里的每会话事件流：换模式时会话从一个进程挪到另一个，Host 的订阅不断。
 
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   AcpAdapter,
   AcpProcess,
@@ -37,6 +40,7 @@ import {
   historyToolCommand,
   writeHistoryToolScript,
 } from '@wevir/runtime-adapter/history-tool';
+import { linkUserEntries } from '@wevir/runtime-adapter/private-home';
 import { GrokAccounts, type GrokAccountsOptions } from './accounts.js';
 import { agentVersionOf, GROK_ENGINE, isAuthRequired } from './engine.js';
 import { GROK_LOGIN_COMMAND, GrokLauncher, XAI_API_KEY_ENV } from './launch.js';
@@ -251,6 +255,13 @@ export interface GrokAdapterOptions {
   logger?: AdapterLogger;
   /** 交给 `grok` 的环境的来源，默认 `process.env`。 */
   env?: NodeJS.ProcessEnv;
+  /**
+   * 0.63.0：添加的账号的 `GROK_HOME`（登录、会话记录与设置都在里面，与用户自己的 `~/.grok` 互不相通）与探测、进程的工作目录；
+   * 用户 `~/.grok` 里的说明与扩展链进来。环境里的 `XAI_API_KEY` 不交给它（用它自己的登录）。省略时是首个账号。
+   */
+  account?: { grokHome: string; workDir: string };
+  /** 测试用：用户自己的 `~/.grok`。 */
+  userGrokHome?: string;
   cancelTimeoutMs?: number;
   /** 测试用：账号检测的替身（可执行文件的查找、`initialize` 探测、时钟）。 */
   accounts?: Pick<GrokAccountsOptions, 'findExecutable' | 'probeInitialize' | 'now'>;
@@ -261,6 +272,9 @@ export interface GrokAdapterOptions {
   /** 应用级工具的 stdio 桥（0.30.0）：会话带 `appTools` 时经 ACP 挂上。 */
   appToolsBridge?: AppToolsBridge;
 }
+
+/** 链进添加的账号的 `GROK_HOME` 的用户条目（0.63.0）：说明与扩展，不含凭据与 config.toml。 */
+export const GROK_USER_ENTRIES: readonly string[] = ['AGENTS.md', 'skills', 'agents', 'commands'];
 
 /** 一个会话在路由里的记录。 */
 interface GrokSession {
@@ -304,10 +318,23 @@ export class GrokAdapter implements AgentRuntimeAdapter {
     this.#options = options;
     this.historyTool = options.historyTool !== undefined;
     this.appTools = options.appToolsBridge !== undefined;
-    this.#workDir = `${options.home}/engines/grok`;
+    const { account } = options;
+    this.#workDir = account?.workDir ?? `${options.home}/engines/grok`;
+    if (account !== undefined) {
+      const { [XAI_API_KEY_ENV]: _key, ...parent } = options.env ?? process.env;
+      this.#options = { ...options, env: { ...parent, GROK_HOME: account.grokHome } };
+      mkdirSync(account.grokHome, { recursive: true, mode: 0o700 });
+      void linkUserEntries({
+        privateDir: account.grokHome,
+        userDir: options.userGrokHome ?? path.join(os.homedir(), '.grok'),
+        entries: GROK_USER_ENTRIES,
+        warn: (message, fields) => options.logger?.warn(message, fields),
+      });
+    }
+    const env = this.#options.env;
     this.accounts = new GrokAccounts({
       workDir: this.#workDir,
-      ...(options.env !== undefined && { env: options.env }),
+      ...(env !== undefined && { env }),
       ...options.accounts,
     });
   }

@@ -58,6 +58,16 @@ export function antigravityPaths(home: string): AntigravityPaths {
   };
 }
 
+/** 添加的账号（0.63.0）自己的 profile、临时目录与模型缓存，在 `<数据目录>/accounts/<id>/antigravity` 下。 */
+export function antigravityAccountPaths(root: string): AntigravityPaths {
+  return {
+    root,
+    profile: path.join(root, 'profile'),
+    temp: path.join(root, 'tmp'),
+    models: path.join(root, 'models.json'),
+  };
+}
+
 /** 会话进程、登录进程与校验共用的东西。 */
 export interface AntigravityRuntimeContext {
   installation: AntigravityInstallation;

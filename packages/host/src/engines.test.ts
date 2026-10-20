@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { subscriptionEngines } from './engines.js';
+import { subscriptionAccountEngines, subscriptionEngines } from './engines.js';
 import { createLogger } from './logger.js';
 
 const home = mkdtempSync(join(tmpdir(), 'wevir-engines-'));
@@ -40,5 +40,31 @@ describe('subscriptionEngines', () => {
       'workbuddy',
     ]);
     expect(lines.filter((line) => line.includes('engine sdk not installed'))).toHaveLength(2);
+  });
+});
+
+describe('subscriptionAccountEngines（0.63.0）', () => {
+  it('能添加账号的是 Claude、Cursor、Grok、Antigravity；SDK 没装的不能；建出的引擎只有这一种账号，构造时不起进程', async () => {
+    const context = { home, logger: createLogger({ mirror: () => {} }), env: {} };
+    expect(subscriptionAccountEngines(context).kinds).toEqual([
+      'claude',
+      'cursor',
+      'grok',
+      'antigravity',
+    ]);
+    expect(subscriptionAccountEngines(context, { claude: false, cursor: false }).kinds).toEqual([
+      'grok',
+      'antigravity',
+    ]);
+    const factory = subscriptionAccountEngines(context);
+    for (const kind of factory.kinds) {
+      const adapter = factory.create(kind, {
+        id: `${kind}-0001`,
+        root: join(home, 'accounts', kind),
+      });
+      expect(adapter.accounts?.kinds).toEqual([kind]);
+      await adapter.dispose();
+    }
+    expect(() => factory.create('opencode', { id: 'opencode-0001', root: home })).toThrow();
   });
 });

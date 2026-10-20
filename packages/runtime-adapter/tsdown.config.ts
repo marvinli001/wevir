@@ -9,6 +9,7 @@ export default defineConfig({
     'src/app-tools-bridge.ts',
     'src/web-tool.ts',
     'src/npm-package.ts',
+    'src/private-home.ts',
     'src/contract.ts',
   ],
   platform: 'node',

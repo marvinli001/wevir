@@ -146,14 +146,23 @@ export interface CodexPaths {
   catalogFile: string;
 }
 
-/** 由 Wevir 数据目录得出 Codex 的目录。数据目录必须是绝对路径。 */
-export function codexPaths(wevirHome: string, flavor: CodexFlavor = 'gateway'): CodexPaths {
+/**
+ * 由 Wevir 数据目录得出 Codex 的目录。数据目录必须是绝对路径。`codexHome` 给了时用它（0.63.0：添加的 ChatGPT 账号各有自己的
+ * `<数据目录>/accounts/<id>/codex`），也必须是绝对路径。
+ */
+export function codexPaths(
+  wevirHome: string,
+  flavor: CodexFlavor = 'gateway',
+  codexHomeOverride?: string,
+): CodexPaths {
   if (!isAbsolute(wevirHome)) throw new Error(`数据目录必须是绝对路径：${wevirHome}`);
-  const codexHome = join(
-    resolve(wevirHome),
-    'engines',
-    flavor === 'chatgpt' ? 'codex-chatgpt' : 'codex',
-  );
+  if (codexHomeOverride !== undefined && !isAbsolute(codexHomeOverride)) {
+    throw new Error(`CODEX_HOME 必须是绝对路径：${codexHomeOverride}`);
+  }
+  const codexHome =
+    codexHomeOverride !== undefined
+      ? resolve(codexHomeOverride)
+      : join(resolve(wevirHome), 'engines', flavor === 'chatgpt' ? 'codex-chatgpt' : 'codex');
   return {
     codexHome,
     configFile: join(codexHome, 'config.toml'),

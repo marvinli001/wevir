@@ -62,17 +62,46 @@ export type {
 /** 适配器用到的 SDK 函数。 */
 export interface ClaudeSdk {
   query(params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }): Query;
+  /** `configDir`（0.63.0）：会话在这个 `CLAUDE_CONFIG_DIR` 里（添加的账号）；省略时是 Host 自己的环境里的。 */
   forkSession(
     sessionId: string,
     options?: { dir?: string; upToMessageId?: string; title?: string },
+    configDir?: string,
   ): Promise<{ sessionId: string }>;
-  /** 会话在不在（`resumeSession` 判断 `session_lost`）。 */
-  sessionExists(sessionId: string, dir: string): Promise<boolean>;
+  /** 会话在不在（`resumeSession` 判断 `session_lost`）。`configDir` 同 `forkSession`。 */
+  sessionExists(sessionId: string, dir: string, configDir?: string): Promise<boolean>;
 }
 
 export const realClaudeSdk: ClaudeSdk = {
   query: (params) => loadedSdk().query(params),
-  forkSession: (sessionId, options) => loadedSdk().forkSession(sessionId, options),
-  sessionExists: async (sessionId, dir) =>
-    (await loadedSdk().getSessionInfo(sessionId, { dir })) !== undefined,
+  forkSession: (sessionId, options, configDir) =>
+    inConfigDir(configDir, () => loadedSdk().forkSession(sessionId, options)),
+  sessionExists: (sessionId, dir, configDir) =>
+    inConfigDir(
+      configDir,
+      async () => (await loadedSdk().getSessionInfo(sessionId, { dir })) !== undefined,
+    ),
 };
+
+let configDirQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * 在 Host 进程里跑的 SDK 函数（读会话、分支）按 `process.env.CLAUDE_CONFIG_DIR` 找会话（`uc()`），不收环境参数；添加的账号
+ * （0.63.0）各有自己的配置目录，调用时临时换上。这类调用一次一个（换着环境时别的调用会找错目录），省略 `configDir` 的照样排队、
+ * 不换环境。
+ */
+export function inConfigDir<T>(configDir: string | undefined, op: () => Promise<T>): Promise<T> {
+  const run = configDirQueue.then(async () => {
+    if (configDir === undefined) return op();
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    try {
+      return await op();
+    } finally {
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+    }
+  });
+  configDirQueue = run.catch(() => {});
+  return run;
+}

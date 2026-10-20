@@ -1,5 +1,11 @@
+import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { CodexRuntime, resolveCodexBinary, resolvePromptsDir } from '@wevir/adapter-codex';
+import {
+  CodexAdapter,
+  CodexRuntime,
+  resolveCodexBinary,
+  resolvePromptsDir,
+} from '@wevir/adapter-codex';
 import { type AccountKind, SUBSCRIPTION_KINDS, type SubscriptionKind } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { type AppToolsBridge, appToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
@@ -13,7 +19,11 @@ import { type HistoryToolServer, historyToolServer } from '@wevir/runtime-adapte
 import type { WebToolServer } from '@wevir/runtime-adapter/web-tool';
 import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
 import { EngineRouter } from './engine-router.js';
-import { isIgnorableEngineRejection, subscriptionEngines } from './engines.js';
+import {
+  isIgnorableEngineRejection,
+  subscriptionAccountEngines,
+  subscriptionEngines,
+} from './engines.js';
 import { EXIT_CODE } from './exit-code.js';
 import { homePath, resolveHome } from './home.js';
 import {
@@ -193,7 +203,7 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         homePath(context.home, 'historyDir'),
       );
       // 联网工具（0.34.0）：只挂在 Codex 上，其余引擎有自己的联网工具（docs/architecture/web-tools.md §5）。
-      const codex = new CodexRuntime({
+      const codexOptions = {
         home: context.home,
         binary: resolveCodexBinary(),
         promptsDir: resolvePromptsDir(context.env ?? {}),
@@ -201,19 +211,37 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
         logger: context.logger,
         historyTool,
         ...(context.webTool !== undefined && { webTool: context.webTool }),
-      });
-      // 订阅来源各自的引擎（ADR-0005 补记 14）；没有时 Host 只有 Codex。
+      };
+      const codex = new CodexRuntime(codexOptions);
+      // 订阅来源各自的引擎（ADR-0005 补记 14）。
       // 应用级工具（0.30.0）：Codex、Claude、Cursor 直接连 HTTP，ACP 的引擎经 stdio 桥。
-      const subscriptions = subscriptionEngines({
+      const engineContext = {
         ...context,
         historyTool,
         appToolsBridge: appToolsBridge(homePath(context.home, 'mcpDir')),
-      });
-      if (subscriptions.length === 0) return codex;
-      return new EngineRouter([
-        { name: 'codex', adapter: codex, kinds: GATEWAY_KINDS },
-        ...subscriptions,
-      ]);
+      };
+      const subscriptions = subscriptionEngines(engineContext);
+      // 添加的账号（0.63.0）：ChatGPT 的是又一个 ChatGPT 进程（自己的 CODEX_HOME 与 Provider ID），其余见 engines.ts。
+      const accounts = subscriptionAccountEngines(engineContext);
+      return new EngineRouter(
+        [{ name: 'codex', adapter: codex, kinds: GATEWAY_KINDS }, ...subscriptions],
+        {
+          accountEngines: {
+            kinds: ['chatgpt', ...accounts.kinds],
+            create: (kind, account) =>
+              kind === 'chatgpt'
+                ? new CodexAdapter({
+                    ...codexOptions,
+                    mode: 'chatgpt',
+                    account: {
+                      codexHome: join(account.root, 'codex'),
+                      providerId: account.id,
+                    },
+                  })
+                : accounts.create(kind, account),
+          },
+        },
+      );
     }
   }
 }

@@ -245,12 +245,26 @@ export class HostAccounts {
     );
   }
 
-  login(
+  async login(
     ref: AccountRef,
     method: AccountLoginMethod,
     options?: AccountLoginOptions,
   ): Promise<AccountState> {
     const slot = this.#slot(ref);
+    // ChatGPT 的浏览器登录回调在本机固定的 1455 端口上（每个 ChatGPT 进程各听一次）：别的 ChatGPT 账号正在浏览器登录时先取消它，
+    // 新的登录替换旧的（同一个账号里也是这样）。
+    if (slot.kind === 'chatgpt' && method === 'browser') {
+      for (const other of this.#slots.values()) {
+        const login = this.#last.get(other.id)?.login;
+        if (other === slot || other.kind !== 'chatgpt' || login?.method !== 'browser') continue;
+        await other.engine.cancelLogin(other.kind, login.loginId).catch((error: unknown) =>
+          this.#options.onWarning('failed to cancel another ChatGPT sign-in', {
+            id: other.id,
+            error,
+          }),
+        );
+      }
+    }
     return this.#stamped(slot, () => slot.engine.login(slot.kind, method, options));
   }
 
@@ -582,8 +596,17 @@ export class HostAccounts {
   #onChange(id: string, raw: AccountState): void {
     const slot = this.#slots.get(id);
     if (slot === undefined) return;
-    const previous = this.#last.get(id)?.status;
+    const before = this.#last.get(id);
+    const previous = before?.status;
     this.#last.set(id, raw);
+    // 首个账号的引擎装好了（Antigravity 的运行体由 Wevir 下载，账号们共用）：添加的账号重新检测，才看得到它。
+    if (!slot.added && raw.installed === true && before?.installed === false) {
+      for (const other of this.#slots.values()) {
+        if (other.added && other.kind === slot.kind) {
+          this.read(other, { refresh: true }).catch(() => undefined);
+        }
+      }
+    }
     // 刚登录成功：建或刷新这个账号的 Provider（模型列表随账号的套餐变化）。
     if (raw.status === 'signed_in' && previous !== 'signed_in') {
       this.#modelsRefreshedAt.delete(id);

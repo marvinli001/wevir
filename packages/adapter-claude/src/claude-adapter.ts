@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
   AdapterError,
@@ -41,6 +42,7 @@ import {
   historyToolCommand,
   writeHistoryToolScript,
 } from '@wevir/runtime-adapter/history-tool';
+import { linkUserEntries } from '@wevir/runtime-adapter/private-home';
 import { ClaudeAccounts, type ClaudeInstallation } from './account.js';
 import { claudeContextBreakdown } from './context-breakdown.js';
 import { claudeEnv } from './env.js';
@@ -134,7 +136,18 @@ export interface ClaudeAdapterOptions {
    * 读历史的本机 MCP 服务（0.25.0，接力）：挂进每个会话的 `mcpServers`，它的工具不用审批（`allowedTools`）。省略时不挂。
    */
   historyTool?: HistoryToolServer;
+  /**
+   * 0.63.0：添加的账号。`CLAUDE_CONFIG_DIR` 指向 `configDir`（凭据、会话与设置都在里面，钥匙串里的条目名也按它加后缀，与用户自己的
+   * `~/.claude` 互不相通），探测、登录与生成标题在 `workDir` 里跑；Wevir 下载的 `claude` 仍在 `<home>/engines/claude/runtime`
+   * 共用。用户 `~/.claude` 里的 CLAUDE.md、skills、agents、commands 链进 `configDir`。省略时是首个账号：用户本机的登录。
+   */
+  account?: { configDir: string; workDir: string };
+  /** 测试用：用户自己的配置目录，默认 `~/.claude`。 */
+  userConfigDir?: string;
 }
+
+/** 链进添加的账号的配置目录的用户条目（0.63.0）。 */
+export const CLAUDE_USER_ENTRIES: readonly string[] = ['CLAUDE.md', 'skills', 'agents', 'commands'];
 
 /** 推给 `query()` 的输入：异步迭代的队列。 */
 class PushQueue<T> implements AsyncIterable<T> {
@@ -468,19 +481,45 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   readonly #workDir: string;
   readonly #cancelTimeoutMs: number;
   readonly #sessions = new Map<string, Session>();
+  /** 添加的账号的 `CLAUDE_CONFIG_DIR`（0.63.0）。 */
+  readonly #configDir: string | undefined;
+  /** 添加的账号：用户条目链好之前不起会话。 */
+  readonly #prepared: Promise<void>;
   #disposed = false;
 
   constructor(options: ClaudeAdapterOptions) {
     this.#sdk = options.sdk ?? realClaudeSdk;
-    this.#env = options.env ?? process.env;
+    const parentEnv = options.env ?? process.env;
+    const { account } = options;
+    this.#configDir = account?.configDir;
+    this.#env =
+      account === undefined ? parentEnv : { ...parentEnv, CLAUDE_CONFIG_DIR: account.configDir };
     this.#logger = options.logger;
-    this.#workDir = path.join(options.home, 'engines', 'claude');
+    const engineDir = path.join(options.home, 'engines', 'claude');
+    this.#workDir = account?.workDir ?? engineDir;
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? CANCEL_TIMEOUT_MS;
     this.#historyTool = options.historyTool;
     this.historyTool = options.historyTool !== undefined;
     this.accounts =
       options.accounts ??
-      new ClaudeAccounts({ sdk: this.#sdk, workDir: this.#workDir, env: this.#env });
+      new ClaudeAccounts({
+        sdk: this.#sdk,
+        workDir: this.#workDir,
+        env: this.#env,
+        ...(account !== undefined && {
+          runtimeDir: path.join(engineDir, 'runtime'),
+          configDir: account.configDir,
+        }),
+      });
+    this.#prepared =
+      account === undefined
+        ? Promise.resolve()
+        : linkUserEntries({
+            privateDir: account.configDir,
+            userDir: options.userConfigDir ?? path.join(os.homedir(), '.claude'),
+            entries: CLAUDE_USER_ENTRIES,
+            warn: (message, fields) => this.#logger?.warn(message, fields),
+          });
   }
 
   // ── 会话 ──────────────────────────────────────────────────────────────────
@@ -488,6 +527,7 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
   async createSession(config: SessionConfig): Promise<EngineSession> {
     this.#ensureAlive();
     this.#validateConfig(config);
+    await this.#prepared;
     const installation = await this.accounts.installation();
     this.#ensureAlive();
     const session = this.#newRoot(randomUUID(), config, { persisted: false, side: false });
@@ -503,13 +543,16 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       throw new AdapterError('invalid_input', 'subagent sessions are not resumed');
     }
     if (existing?.open === true) return this.#engineSession(existing);
+    await this.#prepared;
     const installation = await this.accounts.installation();
     this.#ensureAlive();
     // 本实例里关掉的会话不用再问磁盘（没发过消息的会话还没有记录，下次照样用 sessionId 起）。
     if (existing === undefined) {
       const found =
         UUID_RE.test(engineSessionId) &&
-        (await this.#sdk.sessionExists(engineSessionId, config.cwd).catch(() => false));
+        (await this.#sdk
+          .sessionExists(engineSessionId, config.cwd, this.#configDir)
+          .catch(() => false));
       if (!found) {
         throw new AdapterError(
           'session_lost',
@@ -661,10 +704,14 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     this.#ensureAlive();
     let forked: { sessionId: string };
     try {
-      forked = await this.#sdk.forkSession(source.id, {
-        dir: source.config.cwd,
-        ...(upTo !== undefined && { upToMessageId: upTo }),
-      });
+      forked = await this.#sdk.forkSession(
+        source.id,
+        {
+          dir: source.config.cwd,
+          ...(upTo !== undefined && { upToMessageId: upTo }),
+        },
+        this.#configDir,
+      );
     } catch (error) {
       throw new AdapterError(
         'engine_unavailable',

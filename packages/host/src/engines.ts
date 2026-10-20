@@ -6,6 +6,7 @@
 // 引擎应当懒启动：构造适配器时不起进程、不联网，第一次读账号或建会话时才去找可执行文件。Host 启动时会在后台读一遍每种
 // 订阅的账号状态（host-process.ts）。
 
+import { join } from 'node:path';
 import { AntigravityAdapter } from '@wevir/adapter-antigravity';
 import { ClaudeAdapter, claudeSdkInstalled } from '@wevir/adapter-claude';
 import {
@@ -16,8 +17,10 @@ import {
 import { GrokAdapter } from '@wevir/adapter-grok';
 import { OpenCodeAdapter } from '@wevir/adapter-opencode';
 import { WorkBuddyAdapter } from '@wevir/adapter-workbuddy';
+import type { AccountKind } from '@wevir/protocol';
+import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import type { AdapterContext } from './cli.js';
-import type { EngineRoute } from './engine-router.js';
+import type { AccountEngineFactory, EngineRoute } from './engine-router.js';
 
 /** 要连同 SDK 一起装的引擎：这个 Host 里有没有它们的 SDK。 */
 export interface EngineSdks {
@@ -110,6 +113,71 @@ export function subscriptionEngines(
   return routes.filter(
     (route) => (route.name !== 'claude' || sdks.claude) && (route.name !== 'cursor' || sdks.cursor),
   );
+}
+
+/**
+ * 添加的订阅账号（0.63.0）的引擎：同 `subscriptionEngines` 的那一种，凭据与会话放进账号自己的目录（`<数据目录>/accounts/<id>/`）。
+ * 第一轮是 Claude、Cursor、Grok 与 Antigravity（ChatGPT 的在 cli.ts）；OpenCode 隔离起来就没了用户自己的配置与上游，WorkBuddy
+ * 没有能换的登录位置、也不能登出，都只有首个账号。SDK 没装的种类不能添加。
+ */
+export function subscriptionAccountEngines(
+  context: AdapterContext,
+  sdks: EngineSdks = { claude: claudeSdkInstalled(), cursor: cursorSdkInstalled() },
+): AccountEngineFactory {
+  const env = context.env ?? process.env;
+  const creators: Partial<Record<AccountKind, (root: string) => AgentRuntimeAdapter>> = {
+    ...(sdks.claude && {
+      claude: (root: string) =>
+        new ClaudeAdapter({
+          home: context.home,
+          logger: context.logger,
+          env,
+          account: { configDir: join(root, 'claude'), workDir: join(root, 'work') },
+          ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
+        }),
+    }),
+    ...(sdks.cursor && {
+      cursor: (root: string) =>
+        new CursorAdapter({
+          home: context.home,
+          logger: context.logger,
+          // 环境里的 CURSOR_API_KEY 是首个账号的事：添加的账号用它自己登录铸的 Key。
+          env: withoutKeys(env, ['CURSOR_API_KEY']),
+          credentialsPath: join(root, 'cursor', 'auth.json'),
+        }),
+    }),
+    grok: (root) =>
+      new GrokAdapter({
+        home: context.home,
+        logger: context.logger,
+        env,
+        account: { grokHome: join(root, 'grok'), workDir: join(root, 'work') },
+        ...(context.historyTool !== undefined && { historyTool: context.historyTool }),
+        ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+    antigravity: (root) =>
+      new AntigravityAdapter({
+        home: context.home,
+        logger: context.logger,
+        env,
+        accountRoot: join(root, 'antigravity'),
+        ...(context.appToolsBridge !== undefined && { appToolsBridge: context.appToolsBridge }),
+      }),
+  };
+  return {
+    kinds: Object.keys(creators) as AccountKind[],
+    create: (kind, { root }) => {
+      const create = creators[kind];
+      if (create === undefined) throw new Error(`${kind} accounts cannot be added`);
+      return create(root);
+    },
+  };
+}
+
+function withoutKeys(env: NodeJS.ProcessEnv, keys: readonly string[]): NodeJS.ProcessEnv {
+  const next = { ...env };
+  for (const key of keys) delete next[key];
+  return next;
 }
 
 /**
