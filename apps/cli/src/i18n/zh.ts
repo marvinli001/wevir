@@ -331,6 +331,7 @@ export const zh = {
   'render.questionCancelled': '提问已取消',
   'render.answerSkipped': '（跳过）',
   'render.answered': '✓ 已回答：{answers}',
+  'render.answeredTimeout': '✓ 超时，按推荐回答：{answers}',
   'render.turnFinished': '── 本轮{outcome} · {duration} ──',
   'render.from': '（来自 {client}）',
   'render.steerEchoed': '（插话已并入本回合）',

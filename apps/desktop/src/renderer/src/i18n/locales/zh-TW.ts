@@ -857,6 +857,9 @@ export const messages: Messages = {
   'question.failed': '送出失敗：{error}',
   'question.skipped': '已略過',
   'question.cancelled': '提問已取消',
+  'question.recommended': '推薦',
+  'question.autoAnswer': '{time} 後按推薦回答',
+  'question.timedOut': '逾時，按推薦回答',
 
   'client.desktop': '桌面版',
   'client.cli': '命令列',

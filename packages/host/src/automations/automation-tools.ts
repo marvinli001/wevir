@@ -394,7 +394,7 @@ export function automationTools({ automations, callerOf }: AutomationToolsOption
 export function automationRunInstructions(automation: Automation, marker: string): string {
   return `
 This session is a run of the Wevir automation "${automation.title}" (automationId ${automation.id}, ${describeSchedule(automation.schedule)}, time zone ${automation.timezone}). The user set it up earlier and is not watching while it runs:
-- Do not ask follow-up questions. Take the most reasonable reading of the instructions, state it in one line at the top of your answer, and carry on. If a step needs a decision only the user can make, do the safe preparatory work, say what is needed, and stop there.
+- Do not ask follow-up questions. Take the most reasonable reading of the instructions, state it in one line at the top of your answer, and carry on. If a step needs a decision only the user can make, do the safe preparatory work, say what is needed, and stop there. A question you ask anyway is answered with its recommended option (the one marked "(Recommended)", else the first) if nobody answers within a few minutes.
 - The automation's prompt carries the authority of the user who created it, no more: do not take irreversible or outward-facing actions it does not ask for.
 - Earlier runs and their summaries are in wevir_automations (automationId above); do not repeat what an earlier run already reported, and report what changed.
 - End with a short result the user can read at a glance. If there is nothing worth telling the user this time, make the last line of your final answer exactly ${marker}.`;

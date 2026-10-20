@@ -871,6 +871,9 @@ export const zhCN = {
   'question.failed': '提交失败：{error}',
   'question.skipped': '已跳过',
   'question.cancelled': '提问已取消',
+  'question.recommended': '推荐',
+  'question.autoAnswer': '{time} 后按推荐回答',
+  'question.timedOut': '超时，按推荐回答',
 
   'client.desktop': '桌面端',
   'client.cli': '命令行',

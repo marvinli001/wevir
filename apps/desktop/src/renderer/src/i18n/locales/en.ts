@@ -863,6 +863,9 @@ export const messages: Messages = {
   'question.failed': 'Submit failed: {error}',
   'question.skipped': 'Skipped',
   'question.cancelled': 'Question cancelled',
+  'question.recommended': 'Recommended',
+  'question.autoAnswer': 'Recommended answer in {time}',
+  'question.timedOut': 'Timed out, recommended answer used',
 
   'client.desktop': 'desktop app',
   'client.cli': 'CLI',

@@ -234,7 +234,8 @@ export class EventRenderer {
         const answers = Object.entries(resolution.answers ?? {})
           .map(([id, answer]) => `${id}=${joinList(answer.answers) || t('render.answerSkipped')}`)
           .join(t('list.semicolon'));
-        this.#sink.line(this.#s.dim(t('render.answered', { answers })));
+        const key = resolution.reason === 'timeout' ? 'render.answeredTimeout' : 'render.answered';
+        this.#sink.line(this.#s.dim(t(key, { answers })));
         return;
       }
       case 'engine.error': {

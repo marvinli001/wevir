@@ -883,6 +883,9 @@ export const messages: Messages = {
   'question.failed': 'Не удалось отправить: {error}',
   'question.skipped': 'Пропущено',
   'question.cancelled': 'Вопрос отменён',
+  'question.recommended': 'Рекомендуется',
+  'question.autoAnswer': 'Рекомендуемый ответ через {time}',
+  'question.timedOut': 'Время истекло, выбран рекомендуемый ответ',
 
   'client.desktop': 'Приложение',
   'client.cli': 'Командная строка',

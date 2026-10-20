@@ -161,3 +161,32 @@ describe('user_images', () => {
     });
   });
 });
+
+// 0.72.0：超时自动回答的 `timeout` 只发给声明了 `question_timeout` 的连接，其余连接看到 `user`（回答照旧，没有 `answeredBy`）。
+describe('question_timeout', () => {
+  const resolution = { reason: 'timeout' as const, answers: { scope: { answers: ['全链路'] } } };
+  const resolved: WevirEventOf<'question.resolved'> = {
+    seq: 9,
+    sessionId: SES,
+    ts: T0,
+    type: 'question.resolved',
+    source: 'host',
+    payload: { questionId: 'qst_1' as never, status: 'answered', resolution },
+  };
+
+  it('事件与 question.respond 的结果降级成 user', () => {
+    expect(adaptEventForClient(resolved, {})).toEqual({
+      ...resolved,
+      payload: { ...resolved.payload, resolution: { ...resolution, reason: 'user' } },
+    });
+    expect(adaptEventForClient(resolved, { question_timeout: true })).toBe(resolved);
+    const result = { questionId: 'qst_1' as never, status: 'answered' as const, resolution };
+    expect(adaptResultForClient('question.respond', result, {})).toEqual({
+      ...result,
+      resolution: { ...resolution, reason: 'user' },
+    });
+    expect(adaptResultForClient('question.respond', result, { question_timeout: true })).toEqual(
+      result,
+    );
+  });
+});

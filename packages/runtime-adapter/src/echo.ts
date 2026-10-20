@@ -1299,6 +1299,7 @@ const ECHO_QUESTIONS: readonly UserQuestion[] = [
       { label: 'Full stack', description: 'Protocol, Host and UI together' },
     ],
     allowOther: true,
+    defaultOption: 'Full stack',
   },
   {
     id: 'targets',

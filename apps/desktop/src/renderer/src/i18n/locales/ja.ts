@@ -865,6 +865,9 @@ export const messages: Messages = {
   'question.failed': '送信に失敗しました: {error}',
   'question.skipped': 'スキップ済み',
   'question.cancelled': '質問はキャンセルされました',
+  'question.recommended': '推奨',
+  'question.autoAnswer': '{time} 後に推奨の回答',
+  'question.timedOut': 'タイムアウト、推奨の回答を選択',
 
   'client.desktop': 'デスクトップ',
   'client.cli': 'コマンドライン',

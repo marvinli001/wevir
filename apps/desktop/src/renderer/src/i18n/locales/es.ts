@@ -875,6 +875,9 @@ export const messages: Messages = {
   'question.failed': 'Error al enviar: {error}',
   'question.skipped': 'Omitida',
   'question.cancelled': 'Pregunta cancelada',
+  'question.recommended': 'Recomendada',
+  'question.autoAnswer': 'Respuesta recomendada en {time}',
+  'question.timedOut': 'Tiempo agotado, respuesta recomendada elegida',
 
   'client.desktop': 'la app de escritorio',
   'client.cli': 'la CLI',
