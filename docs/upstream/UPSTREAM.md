@@ -465,7 +465,7 @@ R3 建立。Codex 的 app-server 仍标 experimental（codex-notes §2.6），�
 
 7. **密钥检查。** 同一个测试文件的密钥用例：网关令牌与上游 Key 不出现在数据目录（含 CODEX_HOME 的 rollout、SQLite 库、`shell_snapshots/`）的任何文件、stderr 与日志里，模型跑的命令看不到 `WEVIR_*`。`env.ts` 的白名单与 `shell_environment_policy` 的排除规则按新版本核对一次（新版本可能读新的环境变量，例如别的 `*_API_KEY`）。
 
-8. **网关与提示词。** Codex 发的 Responses 请求变了（新字段、新的输入项类型、`tool_choice` 等）：用 `spikes/codex-app-server/src/record-requests.ts` 重录 `packages/model-gateway/src/test-fixtures/codex-requests/`，跑网关的转换测试与快照（model-gateway.md）。`prompts/base.md` 的工具说明按新版本的工具清单核对（prompts/README.md「Codex 一回合里模型看到的说明」）；`prompts/` 下改写自 Codex 的文件按 §4 核对来源提交。
+8. **网关与提示词。** Codex 发的 Responses 请求变了（新字段、新的输入项类型、`tool_choice` 等）：用 `spikes/codex-app-server/src/record-requests.ts`（`spikes/` 已移出公开仓库，只在维护者本机）重录 `packages/model-gateway/src/test-fixtures/codex-requests/`，跑网关的转换测试与快照（model-gateway.md）。`prompts/base.md` 的工具说明按新版本的工具清单核对（prompts/README.md「Codex 一回合里模型看到的说明」）；`prompts/` 下改写自 Codex 的文件按 §4 核对来源提交。
 
 9. **ChatGPT 进程（R6）。** `account/*`、`model/list` 与 `v2/Account*.ts`、`LoginAccount*.ts`、`RateLimit*.ts`、`Model.ts` 的 schema 对照 `protocol.ts` 的“账号”一节；`cli_auth_credentials_store`、`forced_login_method`、`mcp_oauth_credentials_store`、`features.apps` 还在不在；登录服务与后端的地址与环境变量（`CODEX_APP_SERVER_LOGIN_ISSUER`、`CODEX_REFRESH_TOKEN_URL_OVERRIDE`、`chatgpt_base_url`、`openai_base_url`）、`/wham/accounts/check` 的形状变了没有。跑 `codex-runtime.chatgpt.integration.test.ts`（真实二进制 + mock 登录服务）；mock 的端点要跟着改。有真实 ChatGPT 账号时在桌面端登录一次、问一句，看外连（codex-event-mapping.md §8.5）。
 
