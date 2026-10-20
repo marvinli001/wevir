@@ -30,6 +30,7 @@ import type {
 import type { ErrorData, ErrorDataSchemas } from './errors.js';
 import type { WevirEventOf, WevirEventPayload, WevirEventType } from './events.js';
 import type { GitStatusResult } from './git.js';
+import type { LspInstallRun, LspServerStatus } from './lsp.js';
 import {
   IMAGE_UPLOAD_DATA_MAX_LENGTH,
   type MethodName,
@@ -222,6 +223,54 @@ export const verificationRun: VerificationRun = {
   summary: 'not ok 4 - converts -40\n# pass 3\n# fail 1',
   output: { bytes: 1840, truncated: false },
   fingerprint: 'sha256:77aa',
+};
+
+/** 一次语言服务器安装（0.70.0）：装完验证通过。 */
+export const lspInstallSample: LspInstallRun = {
+  id: 'lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T',
+  serverId: 'typescript',
+  root: '/home/u/projects/demo',
+  planId: 'project-add-typescript',
+  scope: 'project',
+  command: 'pnpm add -D typescript',
+  status: 'succeeded',
+  startedAt: TS,
+  endedAt: TS2,
+  exitCode: 0,
+  output: '$ pnpm add -D typescript\n+ typescript 7.0.2\n',
+  verification: { server: 'tsc --lsp (TypeScript 7.0.2)', file: 'src/index.ts', diagnostics: 2 },
+};
+
+/** 语言服务器的状态（0.70.0）：在运行的，与没装、带方案的。 */
+export const lspRunningSample: LspServerStatus = {
+  serverId: 'typescript',
+  language: 'TypeScript/JavaScript',
+  root: '/home/u/projects/demo',
+  state: 'running',
+  name: 'tsc --lsp (TypeScript 7.0.2)',
+  path: '/home/u/projects/demo/node_modules/@typescript/typescript-darwin-arm64/lib/tsc',
+  source: 'project',
+  version: '7.0.2',
+  capabilities: ['definition', 'references', 'hover', 'rename', 'codeAction'],
+  startedAt: TS,
+  lastDiagnosticsAt: TS2,
+  install: lspInstallSample,
+};
+
+export const lspMissingSample: LspServerStatus = {
+  serverId: 'go',
+  language: 'Go',
+  root: '/home/u/projects/demo/tool',
+  state: 'missing',
+  reason: 'gopls not found. Install it: go install golang.org/x/tools/gopls@latest',
+  plans: [
+    {
+      id: 'user-go',
+      scope: 'user',
+      command: 'go install golang.org/x/tools/gopls@latest',
+      runnable: true,
+    },
+  ],
 };
 
 /** Agent 起的后台进程（0.69.0）：还在跑。 */
@@ -4150,6 +4199,100 @@ export const methodSamples: MethodSamples = {
     params: { valid: [{ terminalId: terminalSample.id }], invalid: [{ terminalId: 'p3' }] },
     result: { valid: [{}], invalid: [null] },
   },
+  'lsp.status': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session, refresh: true },
+      ],
+      invalid: [{}, { workspaceId: ids.session }],
+    },
+    result: {
+      valid: [
+        { dir: '/home/u/projects/demo', servers: [] },
+        {
+          dir: '/home/u/projects/demo',
+          servers: [
+            lspRunningSample,
+            lspMissingSample,
+            {
+              ...lspMissingSample,
+              serverId: 'rust',
+              language: 'Rust',
+              state: 'failed',
+              reason: 'rust-analyzer exited (code 101).',
+              failures: 3,
+              retryAt: TS2,
+              plans: undefined,
+            },
+          ],
+          truncated: true,
+        },
+      ],
+      invalid: [
+        { servers: [] },
+        { dir: '/x', servers: [{ ...lspMissingSample, state: 'broken' }] },
+      ],
+    },
+  },
+  'lsp.restart': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, serverId: 'typescript', root: '/home/u/projects/demo' },
+      ],
+      invalid: [{ workspaceId: ids.workspace, serverId: 'typescript' }],
+    },
+    result: {
+      valid: [{ server: lspRunningSample }],
+      invalid: [{ server: { ...lspRunningSample, source: 'global' } }],
+    },
+  },
+  'lsp.log': {
+    params: {
+      valid: [{ workspaceId: ids.workspace, serverId: 'go', root: '/home/u/projects/demo/tool' }],
+      invalid: [{ workspaceId: ids.workspace, root: '/x' }],
+    },
+    result: {
+      valid: [{ log: '' }, { log: '2026-10-20T00:00:00.000Z start: gopls in /x' }],
+      invalid: [{}],
+    },
+  },
+  'lsp.install': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          serverId: 'go',
+          root: '/home/u/projects/demo/tool',
+          planId: 'user-go',
+          confirmGlobal: true,
+        },
+      ],
+      invalid: [{ workspaceId: ids.workspace, serverId: 'go', root: '/x' }],
+    },
+    result: {
+      valid: [
+        { run: lspInstallSample },
+        {
+          run: {
+            ...lspInstallSample,
+            status: 'running',
+            endedAt: undefined,
+            exitCode: undefined,
+            verification: undefined,
+          },
+        },
+      ],
+      invalid: [{ run: { ...lspInstallSample, status: 'done' } }],
+    },
+  },
+  'lsp.cancelInstall': {
+    params: { valid: [{ installId: lspInstallSample.id }], invalid: [{ installId: 'p3' }] },
+    result: {
+      valid: [{ run: { ...lspInstallSample, status: 'cancelled', reason: 'Cancelled.' } }],
+      invalid: [{}],
+    },
+  },
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
@@ -4762,6 +4905,10 @@ export const notificationSamples: NotificationSamples = {
   'terminal.output': {
     valid: [{ terminalId: terminalSample.id, offset: 0, data: '\u001b[1mhi\u001b[0m' }],
     invalid: [{ terminalId: terminalSample.id, data: 'x' }],
+  },
+  'lsp.changed': {
+    valid: [{}, { serverId: 'typescript', root: '/home/u/projects/demo' }],
+    invalid: [{ serverId: '' }],
   },
   'terminal.changed': {
     valid: [{ terminal: terminalSample }, { removed: { id: terminalSample.id } }],

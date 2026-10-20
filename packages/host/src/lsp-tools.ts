@@ -618,7 +618,7 @@ export class LspTools {
       return { content: [{ type: 'text', text }] };
     } catch (error) {
       if (error instanceof LspUnavailableError || error instanceof LspRequestError) {
-        throw new AppToolError(error.message);
+        throw new AppToolError(unavailableText(error));
       }
       throw error;
     }
@@ -677,7 +677,7 @@ export class LspTools {
       return { file, server: client.label, ...result };
     } catch (error) {
       if (error instanceof LspUnavailableError || error instanceof LspRequestError) {
-        return { file, error: error.message };
+        return { file, error: `${unavailableLabel(error)}: ${error.message}` };
       }
       throw error;
     }
@@ -787,11 +787,37 @@ function formatDiagnostics(
     ...(unchecked > 0 ? [`${files(unchecked)} not checked`] : []),
     ...(incomplete > 0 ? [`${files(incomplete)} may be incomplete`] : []),
   ];
+  // 没检查到不是“没有错误”：说清这是环境问题，不要据此改代码。
+  const environment =
+    unchecked > 0
+      ? `\nFiles not checked say nothing about errors in them. ${ENVIRONMENT_NOTE}`
+      : '';
   const summary =
     checked === 0
-      ? `No diagnostics: ${files(unchecked)} not checked.`
+      ? `No diagnostics: ${files(unchecked)} not checked.${environment}`
       : `${errors} error${errors === 1 ? '' : 's'}${max >= 2 ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : ''} in ${files(checked)}${servers.length > 0 ? ` (${servers.join(', ')})` : ''}${notes.length > 0 ? `; ${notes.join('; ')}` : ''}.`;
-  return `${blocks.join('\n')}\n${summary}`;
+  return `${blocks.join('\n')}\n${summary}${checked === 0 ? '' : environment}`;
+}
+
+/** 语言服务器用不了或出错时给模型看的说明：这是环境问题，不是代码的问题。 */
+const ENVIRONMENT_NOTE =
+  'This is a problem with the language server environment, not with the code: do not change code because of it. ' +
+  "Check the code with the project's build or test commands instead, and tell the user if code intelligence is needed " +
+  '(the user can see, install and restart language servers in Wevir).';
+
+function unavailableLabel(error: LspUnavailableError | LspRequestError): string {
+  if (error instanceof LspRequestError) return 'language server error';
+  return error.state === 'unsupported'
+    ? 'no language server for this file type'
+    : `language server unavailable (${error.state})`;
+}
+
+function unavailableText(error: LspUnavailableError | LspRequestError): string {
+  const label = unavailableLabel(error);
+  if (error instanceof LspUnavailableError && error.state === 'unsupported') {
+    return `${label[0]?.toUpperCase()}${label.slice(1)}. ${error.message}`;
+  }
+  return `${label[0]?.toUpperCase()}${label.slice(1)}: ${error.message}\n${ENVIRONMENT_NOTE}`;
 }
 
 function compareRange(a: Range, b: Range): number {

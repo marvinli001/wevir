@@ -293,6 +293,11 @@ export const HOST_FEATURES = {
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',
+  /**
+   * 语言服务器的状态与安装（0.70.0）：`lsp.status`、`lsp.restart`、`lsp.log`、`lsp.install`、`lsp.cancelInstall` 与 `lsp.changed`
+   * 通知。有代码智能（`lsp_*` 工具）时声明。
+   */
+  lspStatus: 'lsp_status',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -354,6 +359,7 @@ export const HostFeaturesSchema = z.looseObject({
   git_commit: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
+  lsp_status: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

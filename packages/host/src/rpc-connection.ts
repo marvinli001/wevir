@@ -86,6 +86,10 @@ export interface ConnectionHost {
     watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
   };
   /** 进程输出（0.69.0）：调过 `process.*` 的连接用它收 `process.changed`。 */
+  /** 语言服务器（0.70.0）：调过 `lsp.*` 的连接用它收 `lsp.changed`。 */
+  readonly lsp?: {
+    watch(listener: (change: NotificationParams<'lsp.changed'>) => void): () => void;
+  };
   readonly processes?: {
     watch(listener: (change: NotificationParams<'process.changed'>) => void): () => void;
   };
@@ -170,6 +174,8 @@ export class RpcConnection {
   #unwatchAutomations: (() => void) | undefined;
   /** 调过 `process.*` 之后：退订 `process.changed`。 */
   #unwatchProcesses: (() => void) | undefined;
+  /** 调过 `lsp.*` 之后：退订 `lsp.changed`。 */
+  #unwatchLsp: (() => void) | undefined;
   /** 调过 `terminal.*` 之后：退订 `terminal.changed`。 */
   #unwatchTerminals: (() => void) | undefined;
   /** `terminal.attach` 过的终端：不再收它的输出。 */
@@ -507,6 +513,7 @@ export class RpcConnection {
         if (method.startsWith('usage.')) this.#watchUsage();
         if (method.startsWith('automation.')) this.#watchAutomations();
         if (method.startsWith('process.')) this.#watchProcesses();
+        if (method.startsWith('lsp.')) this.#watchLsp();
         if (method.startsWith('terminal.')) this.#watchTerminals();
       }
     }
@@ -731,6 +738,20 @@ export class RpcConnection {
   }
 
   /** 调过 `process.*` 的连接之后收 `process.changed`（0.69.0），连接关闭即止。 */
+  /** 调过 `lsp.*` 的连接之后收 `lsp.changed`（0.70.0），连接关闭即止。 */
+  #watchLsp(): void {
+    if (this.#unwatchLsp !== undefined || this.#host.lsp === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchLsp = this.#host.lsp.watch((change) => {
+      const parsed = NotificationSchemas['lsp.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(new Error(`lsp.changed does not match its schema: ${parsed.error}`));
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'lsp.changed', params: parsed.data });
+    });
+  }
+
   #watchProcesses(): void {
     if (this.#unwatchProcesses !== undefined || this.#host.processes === undefined) return;
     if (this.#phase !== 'ready') return;
@@ -869,6 +890,8 @@ export class RpcConnection {
     this.#unwatchAutomations = undefined;
     this.#unwatchProcesses?.();
     this.#unwatchProcesses = undefined;
+    this.#unwatchLsp?.();
+    this.#unwatchLsp = undefined;
     this.#unwatchTerminals?.();
     this.#unwatchTerminals = undefined;
     for (const detach of this.#terminalAttachments.values()) detach();
