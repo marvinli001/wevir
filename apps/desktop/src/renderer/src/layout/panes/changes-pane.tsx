@@ -4,12 +4,14 @@
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：数据换成 Wevir 的协议（workspace.diff / workspace.diffFile / session.checkpoints）；文件头由这里画（文件名与目录
 // 分开），不用 Pierre 的；去掉 T3 的比较对象选择、忽略空白、文件树、在编辑器中打开与分批加载；大 diff 默认折叠与省略文件的
-// 列表是 Wevir 的；界面换成 Wevir 的组件与文案。行级批注（0.67.0）照 T3 的 AnnotatableCodeView 接回来，批注存在 Host（review.*）。
+// 列表是 Wevir 的；界面换成 Wevir 的组件与文案。行级批注（0.67.0）照 T3 的 AnnotatableCodeView 接回来，批注存在 Host（review.*）；
+// 底部的提交区（0.67.0，git.*）是 Wevir 的。
 //
 // “变更”窗格（0.20.0，desktop-layout.md §18，desktop-tokens.md §33）：当前会话目录的 diff。顶上一行是范围（未提交、本分支、
 // 最近一回合、“回合”子菜单里的第 N 回合）、+N −M 与刷新、全部展开 / 收起、统一 / 并排、自动换行；下面是 Pierre 的虚拟化
 // CodeView，每个文件一个可折叠的头（文件名、目录、增删数），大 diff 默认折叠，“N 行未修改”可以点开。Host 有 `review_comments`
-// 时行号旁的“+”与拖选写批注，顶栏的“批注”列出没发的、发给一个会话。
+// 时行号旁的“+”与拖选写批注，顶栏的“批注”列出没发的、发给一个会话。Host 有 `git_commit` 时范围多一项“已暂存”（没有全文展开、
+// 不能写批注），底部是提交区（changes/commit-panel.tsx）。
 
 import {
   type CodeViewDiffItem,
@@ -56,6 +58,7 @@ import {
   turnOptions,
 } from '@/changes/changes-model';
 import { changesPrefs, selectScope, useChangesSelection } from '@/changes/changes-store';
+import { CommitPanel } from '@/changes/commit-panel';
 import { DiffCommentDraft, DiffCommentNote } from '@/changes/diff-comment';
 import { createDiffFileContentsLoader } from '@/changes/diff-file-contents';
 import {
@@ -69,6 +72,7 @@ import {
   resolveFileDiffPath,
 } from '@/changes/diff-rendering';
 import { PREFERRED_HIGHLIGHTER } from '@/changes/diff-worker-pool';
+import { useGitStatus, useGitSupported } from '@/changes/git-data';
 import { useReviewComments, useReviewSupported } from '@/changes/review-data';
 import {
   type DiffView,
@@ -203,13 +207,22 @@ function SessionChanges({
   const { client } = useHostConnection();
   const { resolved: theme } = useTheme();
   const prefs = changesPrefs.use();
-  const selection = useChangesSelection(sessionId);
+  const stored = useChangesSelection(sessionId);
+  const gitSupported = useGitSupported();
+  // 旧 Host 不认 `staged`：退回“未提交”。
+  const selection =
+    stored.scope.kind === 'staged' && !gitSupported
+      ? { ...stored, scope: { kind: 'uncommitted' as const } }
+      : stored;
   const transcript = useTranscript(sessionId)?.transcript;
   const sessionState = transcript?.state;
   const activeTurnId = transcript?.activeTurnId;
   // 回合开始、结束时重读：改动多半刚发生。
   const refreshKey = `${sessionState ?? ''}:${activeTurnId ?? ''}`;
   const checkpoints = useCheckpoints(sessionId, refreshKey);
+  // 暂存与提交（0.67.0）：暂存状态变了（索引或 HEAD）时 diff 一起重读。
+  const git = useGitStatus(workspaceId, sessionId, refreshKey);
+  const gitKey = `${git.status?.head ?? ''}:${git.status?.index ?? ''}`;
   const messages = transcript?.messages;
   const numbers = useMemo(() => turnNumbers(messages ?? []), [messages]);
   const turns = useMemo(() => turnOptions(checkpoints ?? [], numbers), [checkpoints, numbers]);
@@ -218,7 +231,11 @@ function SessionChanges({
     source?.kind === 'turn' ? turns.find((turn) => turn.turnId === source.turnId) : undefined;
   const running = sessionState === 'running' || sessionState === 'awaiting_approval';
   const live = source?.kind === 'turn' ? sourceTurn?.live === true && running : running;
-  const diff = useWorkspaceDiff(workspaceId, sessionId, source, { refreshKey, live });
+  const diff = useWorkspaceDiff(workspaceId, sessionId, source, {
+    refreshKey: `${refreshKey}:${gitKey}`,
+    live,
+  });
+  const staged = source?.kind === 'staged';
   const result = diff.result;
   const scopeKey = source === undefined ? undefined : sourceKey(sessionId, source);
 
@@ -282,7 +299,8 @@ function SessionChanges({
     `${scopeKey}:${fnv1a32(result?.patch ?? '')}`,
   );
   const view = useMemo<DiffView>(() => ({ base: result?.base, head: result?.head }), [result]);
-  const commentable = reviewSupported && source !== undefined && result?.base !== undefined;
+  const commentable =
+    reviewSupported && source !== undefined && !staged && result?.base !== undefined;
   const [draft, setDraft] = useState<Draft>();
   const [selectedLines, setSelectedLines] = useState<CodeViewLineSelection | null>(null);
   const placed = useMemo(() => {
@@ -411,7 +429,8 @@ function SessionChanges({
   }, [reveal, entries, codeView, updateCollapsed]);
 
   const loadDiffFiles = useMemo(() => {
-    if (!client || result?.base === undefined || scopeKey === undefined) return undefined;
+    // 暂存的 diff 新的一侧是索引，没有全文可读。
+    if (!client || staged || result?.base === undefined || scopeKey === undefined) return undefined;
     return createDiffFileContentsLoader(client, {
       workspaceId,
       sessionId,
@@ -419,7 +438,7 @@ function SessionChanges({
       head: result.head,
       cacheKey: `${scopeKey}:${fnv1a32(result.patch ?? '')}`,
     });
-  }, [client, workspaceId, sessionId, result, scopeKey]);
+  }, [client, workspaceId, sessionId, result, scopeKey, staged]);
 
   const omitted = useMemo(
     () => (result?.files ?? []).filter((file) => file.omitted !== undefined),
@@ -500,6 +519,7 @@ function SessionChanges({
           scope={selection.scope}
           turns={turns}
           label={scopeLabel(selection.scope, turns)}
+          staged={gitSupported}
         />
         {selection.scope.kind === 'branch' && result?.baseRef && (
           <span
@@ -569,6 +589,16 @@ function SessionChanges({
         </IconButton>
       </div>
       <div className="relative min-h-0 flex-1">{body}</div>
+      {gitSupported && (
+        <CommitPanel
+          git={git}
+          open={prefs.commit}
+          onOpenChange={(open) => changesPrefs.set((current) => ({ ...current, commit: open }))}
+          onReveal={(path, inIndex) =>
+            selectScope(sessionId, { kind: inIndex ? 'staged' : 'uncommitted' }, path)
+          }
+        />
+      )}
     </div>
   );
 }
@@ -578,11 +608,14 @@ function ScopeMenu({
   scope,
   turns,
   label,
+  staged,
 }: {
   sessionId: SessionId;
   scope: ChangesScope;
   turns: readonly TurnOption[];
   label: string;
+  /** Host 有 `git_commit`：多一项“已暂存”。 */
+  staged: boolean;
 }) {
   const top = scope.kind === 'turn' && turns[0]?.turnId === scope.turnId ? 'latest' : scope.kind;
   const turnValue =
@@ -609,7 +642,12 @@ function ScopeMenu({
         <DropdownMenuRadioGroup
           value={top}
           onValueChange={(value) => {
-            if (value === 'uncommitted' || value === 'branch' || value === 'latest') {
+            if (
+              value === 'uncommitted' ||
+              value === 'staged' ||
+              value === 'branch' ||
+              value === 'latest'
+            ) {
               choose({ kind: value });
             }
           }}
@@ -617,6 +655,11 @@ function ScopeMenu({
           <DropdownMenuRadioItem value="uncommitted" closeOnClick>
             {t('changes.scope.uncommitted')}
           </DropdownMenuRadioItem>
+          {staged && (
+            <DropdownMenuRadioItem value="staged" closeOnClick>
+              {t('changes.scope.staged')}
+            </DropdownMenuRadioItem>
+          )}
           <DropdownMenuRadioItem value="branch" closeOnClick>
             {t('changes.scope.branch')}
           </DropdownMenuRadioItem>

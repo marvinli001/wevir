@@ -10,9 +10,10 @@ import type { ChatMessage } from '@wevir/client-sdk';
 import type { DiffSource, TurnCheckpoint, TurnId } from '@wevir/protocol';
 import { t } from '@/i18n';
 
-/** 窗格选的范围：未提交、本分支、最近一回合（跟着会话走）、第 N 回合。 */
+/** 窗格选的范围：未提交、已暂存（0.67.0）、本分支、最近一回合（跟着会话走）、第 N 回合。 */
 export type ChangesScope =
   | { kind: 'uncommitted' }
+  | { kind: 'staged' }
   | { kind: 'branch' }
   | { kind: 'latest' }
   | { kind: 'turn'; turnId: TurnId };
@@ -69,6 +70,7 @@ export function resolveSource(
 ): DiffSource | undefined {
   switch (scope.kind) {
     case 'uncommitted':
+    case 'staged':
     case 'branch':
       return { kind: scope.kind };
     case 'turn':
@@ -91,6 +93,8 @@ export function scopeLabel(scope: ChangesScope, turns: readonly TurnOption[]): s
   switch (scope.kind) {
     case 'uncommitted':
       return t('changes.scope.uncommitted');
+    case 'staged':
+      return t('changes.scope.staged');
     case 'branch':
       return t('changes.scope.branch');
     case 'latest':
