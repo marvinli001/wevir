@@ -222,9 +222,13 @@ export function createBrowserHost(options: BrowserHostOptions) {
       });
     });
     // 所有请求（导航、重定向、框架、脚本的 fetch、CDP 的跳转）的统一关口：只放行 http(s) 与页面内部的 data / blob / about。
-    created.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
-      callback({ cancel: !isAllowedRequest(details.url, details.resourceType) });
-    });
+    // http(s) 对哪种请求都放行，不送到这里：网页的几百个资源请求不必每个都在主进程排队等一次回答。
+    created.webRequest.onBeforeRequest(
+      { urls: ['<all_urls>'], excludeUrls: ['http://*/*', 'https://*/*'] },
+      (details, callback) => {
+        callback({ cancel: !isAllowedRequest(details.url, details.resourceType) });
+      },
+    );
     browserSession = created;
     return created;
   }
@@ -572,11 +576,16 @@ export function createBrowserHost(options: BrowserHostOptions) {
     sendState();
   }
 
+  /**
+   * 渲染进程在窗格位置变化的每一帧都会调（拖分隔条、缩放窗口）。位置不在推给渲染进程的状态里，只有正在看的会话变了才推，
+   * 不然每一帧都要把整份标签页状态送回去、让窗格重新渲染一遍。
+   */
   function showPane(bounds: BrowserBounds, sessionId: string): boolean {
+    const visible = registry.visibleSessionId();
     registry.setVisibleSession(sessionId);
     paneBounds = toWindowBounds(bounds);
     place();
-    sendState();
+    if (registry.visibleSessionId() !== visible) sendState();
     return paneBounds !== undefined;
   }
 

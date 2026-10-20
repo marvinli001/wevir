@@ -1,6 +1,8 @@
 // Wevir 桌面主进程（T5.1）：窗口与安全基线、Host 的附着 / 拉起 / 停止、给 preload 的 IPC。
 // Host 的生命周期见 host-lifecycle.ts（ADR-0002 §6）；渲染进程只经 client-sdk 与 Host 通信。
 
+// 第一个求值：冷启动计时的起点在其他模块之前（startup-timing.ts）。
+import './startup-timing.js';
 import { existsSync } from 'node:fs';
 import { copyFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
@@ -60,6 +62,7 @@ import { loadDesktopIdentity } from './identity.js';
 import { isBadgeCount, parseDesktopNotification } from './notification-input.js';
 import { inspectInstallSource, readSkillFile } from './plugin-source.js';
 import { serveRendererFile } from './renderer-files.js';
+import { markStartup, type StartupMark } from './startup-timing.js';
 import { BROWSER_PARTITION_DIR, cleanLogs, measureStorage } from './storage.js';
 import { type AppTray, createAppTray, parseTrayLabels } from './tray.js';
 import { createUpdateController } from './updates/electron-updates.js';
@@ -82,6 +85,11 @@ const log: Log = (level, message, detail) => {
   if (level === 'info') console.log(line);
   else console.error(line);
 };
+
+/** 冷启动各段的计时（startup-timing.ts），齐了打一行日志。 */
+const mark = (name: StartupMark) =>
+  markStartup(name, (timings) => log('info', 'startup timings (ms since process start)', timings));
+mark('mainEvaluated');
 
 /** 开发模式：没有打包、且 electron-vite dev 给了开发服务器地址。打包后的应用不认这个环境变量。 */
 const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
@@ -140,8 +148,9 @@ function run(): void {
 
   // Host 与窗口并行准备。首次只尝试一次，失败时 getHostConnection 把原因交给渲染进程显示；之后拥有的 Host
   // 意外退出由 HostLifecycle 重新拉起，状态经 hostStatus 推给渲染进程（T5.5）。
+  // 在这里（app ready 之前）就拉起：Host 是打开后可用的关键路径，身份文件并行读，只有探活的 hello 等它。
   const host = (async () => {
-    const identity = await loadDesktopIdentity(home);
+    const identity = loadDesktopIdentity(home);
     // Host 跑在 Electron 自带的 Node 上，用户不用装 Node（ADR-0007 决策 4）。
     const runtime = hostRuntime();
     const lifecycle = new HostLifecycle({
@@ -161,11 +170,19 @@ function run(): void {
         mainWindow.webContents.send(IPC_CHANNELS.hostStatus, status);
       }
     });
-    return { identity, lifecycle };
+    void lifecycle
+      .start()
+      .then(() => mark('hostReady'))
+      .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+    try {
+      return { identity: await identity, lifecycle };
+    } catch (error) {
+      // 读不了身份就同连 HostLifecycle 都建不起来一样（setupFailure）；已经拉起的 Host 停掉。
+      void lifecycle.stop();
+      throw error;
+    }
   })();
-  void host
-    .then(({ lifecycle }) => lifecycle.start())
-    .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+  void host.catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
   /** 连 HostLifecycle 都建不起来（找不到 Node、Host 没有构建）时，界面看到的状态。 */
   const setupFailure = (error: unknown): HostProcessStatus => ({
     phase: 'failed',
@@ -192,7 +209,9 @@ function run(): void {
   ipcMain.handle(IPC_CHANNELS.getHostConnection, async (event): Promise<HostConnection> => {
     assertSender(event);
     const { identity, lifecycle } = await host;
-    return { ...(await lifecycle.endpoint()), identity };
+    const connection = { ...(await lifecycle.endpoint()), identity };
+    mark('hostConnection');
+    return connection;
   });
   ipcMain.handle(IPC_CHANNELS.getHostStatus, async (event): Promise<HostProcessStatus> => {
     assertSender(event);
@@ -580,6 +599,7 @@ function run(): void {
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => app.quit());
 
   void app.whenReady().then(() => {
+    mark('appReady');
     // 渲染进程不需要任何权限（摄像头、通知、剪贴板读取等），一律拒绝（Electron 安全清单第 5 条）。
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) =>
       callback(false),
@@ -587,9 +607,9 @@ function run(): void {
     session.defaultSession.setPermissionCheckHandler(() => false);
     // 文件窗格里的网页（0.32.0）：子框架只许加载 Host 的文件地址，页面里的链接、跳转与 meta refresh 都不让框架离开（Paseo 的 HTML
     // 预览同样要挡导航，CSP 管不到）。新窗口（target=_blank、window.open）照旧由 setWindowOpenHandler 交给系统浏览器，Chromium
-    // 只在用户点了之后才放行弹窗。
+    // 只在用户点了之后才放行弹窗。只拦子框架：其余请求（Host 的文件、图片）不必每个都经主进程走一趟。
     session.defaultSession.webRequest.onBeforeRequest(
-      { urls: ['http://*/*', 'https://*/*'] },
+      { urls: ['http://*/*', 'https://*/*'], types: ['subFrame'] },
       (details, callback) => {
         callback({
           cancel: details.resourceType === 'subFrame' && !isFilePreviewUrl(details.url),
@@ -601,8 +621,10 @@ function run(): void {
     // 上次的主题模式与底色：窗口一出现就是对的深浅色与底色，不等页面加载完再换。
     windowAppearance = loadWindowAppearance(app.getPath('userData'));
     nativeTheme.themeSource = windowAppearance.themeMode;
-    applyAppIcon();
     mainWindow = createWindow();
+    mark('windowCreated');
+    // 建好窗口（页面开始载入）之后再设图标：程序坞图标要解码一张 1024 px 的 PNG，不让页面等它；窗口在首帧之前不显示。
+    applyAppIcon();
     // 关窗口（红绿灯、Alt+F4、⌘W）只是隐藏，留在后台；真正退出时才关。
     mainWindow.on('close', (event) => {
       const window = mainWindow;
@@ -756,6 +778,7 @@ function createWindow(): BrowserWindow {
   // Windows / Linux 不显示 Electron 默认菜单栏（File Edit View Window）；菜单仍在，快捷键照常可用。
   if (process.platform !== 'darwin') window.setMenuBarVisibility(false);
   window.once('ready-to-show', () => {
+    mark('readyToShow');
     if (state.maximized) window.maximize();
     window.show();
   });
@@ -766,6 +789,7 @@ function createWindow(): BrowserWindow {
   window.on('enter-full-screen', pushWindowChrome);
   window.on('leave-full-screen', pushWindowChrome);
   window.webContents.on('dom-ready', pushWindowChrome);
+  window.webContents.once('did-finish-load', () => mark('rendererLoaded'));
   void window.loadURL(devServerUrl ?? APP_ENTRY_URL);
   return window;
 }

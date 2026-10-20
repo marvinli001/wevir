@@ -270,6 +270,41 @@ describe('HostLifecycle', () => {
     await shutdownHost(home, existing);
   });
 
+  it('上次的 Host 没有正常退出、留下 host.json：不探活，立即拉起，不等身份文件', async () => {
+    const home = join(tempDir, 'home');
+    const gone = spawn(process.execPath, ['-e', '']);
+    await new Promise((resolve) => gone.once('exit', resolve));
+    mkdirSync(join(home, 'run'), { recursive: true });
+    writeFileSync(
+      runtimeFile(home),
+      JSON.stringify({
+        pid: gone.pid,
+        startedAt: new Date().toISOString(),
+        protocolVersion: PROTOCOL_VERSION,
+        hostVersion: '0.0.0',
+        url: 'ws://127.0.0.1:9/',
+        token: 'stale',
+      }),
+    );
+    let resolveIdentity!: (value: ClientIdentity) => void;
+    const { lifecycle: host, logs } = lifecycle(home, {
+      identity: new Promise((resolve) => {
+        resolveIdentity = resolve;
+      }),
+    });
+
+    const ready = host.start();
+    // 读 host.json 与拉起都不经过一次 I/O：下一轮事件循环之前子进程已经在启动。
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(logs.map((l) => l.message)).toEqual([
+      'host.json is left over from a host that has exited; launching one',
+      'launching host',
+    ]);
+    resolveIdentity(identity);
+    expect((await ready).ownership.kind).toBe('owned');
+    expect(readRuntime(home).pid).not.toBe(gone.pid);
+  });
+
   it('拉起的 Host 以退出码 3 结束（别的 Host 先占住了数据目录）：等它就绪后附着', async () => {
     const home = join(tempDir, 'home');
     // 占位：一个活着的进程（本测试进程）正在启动 Host，还没有地址。

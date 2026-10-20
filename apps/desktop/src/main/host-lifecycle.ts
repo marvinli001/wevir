@@ -88,8 +88,10 @@ export type Log = (level: LogLevel, message: string, detail?: Record<string, unk
 export interface HostLifecycleOptions {
   /** Host 的数据目录（绝对路径），与 wevir-host 的解析规则相同（`resolveHome`）。 */
   home: string;
-  /** 探活与 `host.shutdown` 时 hello 用的身份。 */
-  identity: ClientIdentity;
+  /**
+   * 探活与 `host.shutdown` 时 hello 用的身份。可以是还在读的 Promise：拉起 Host 不等它，只有 hello 用到时才等。
+   */
+  identity: ClientIdentity | Promise<ClientIdentity>;
   /**
    * 启动 Host 的可执行文件。桌面端默认是 Electron 自己，环境里要有 `ELECTRON_RUN_AS_NODE=1`（`hostRuntime`）；
    * 测试里是运行测试的 Node。
@@ -463,10 +465,20 @@ export class HostLifecycle {
     return this.#launch();
   }
 
-  /** host.json 里有地址且探活成功就附着；没有文件、正在启动、探活失败都返回 undefined。 */
+  /**
+   * host.json 里有地址且探活成功就附着；没有文件、正在启动、记着的进程已经退出（上次没有正常退出留下的）、探活失败都返回
+   * undefined。host.json 同步读：桌面端启动时主线程要先忙完 app ready 与建窗口，异步读要排在它们后面，没有 Host 时
+   * 拉起会因此晚一百多毫秒。
+   */
   async #tryAttach(): Promise<HostReady | undefined> {
-    const info = await this.#readRuntimeInfo();
+    const info = this.#readRuntimeInfoNow();
     if (info?.url === undefined) return undefined;
+    if (!isProcessAlive(info.pid)) {
+      this.#log('info', 'host.json is left over from a host that has exited; launching one', {
+        pid: info.pid,
+      });
+      return undefined;
+    }
     try {
       const hello = await this.#probe();
       return { ownership: { kind: 'attached', pid: info.pid, startedAt: info.startedAt }, hello };
@@ -655,7 +667,7 @@ export class HostLifecycle {
     const client = await WevirClient.connect({
       endpoint: () => readHostEndpoint(this.#options.home),
       transport: webSocketTransport(WebSocket),
-      identity: this.#options.identity,
+      identity: await this.#options.identity,
       timeouts: { connectMs: this.#timeouts.probeMs },
     });
     try {
@@ -720,7 +732,7 @@ export class HostLifecycle {
     const client = await WevirClient.connect({
       endpoint: await readHostEndpoint(this.#options.home),
       transport: webSocketTransport(WebSocket),
-      identity: this.#options.identity,
+      identity: await this.#options.identity,
       timeouts: { connectMs: this.#timeouts.probeMs, requestMs: this.#timeouts.probeMs },
     });
     try {
@@ -730,10 +742,21 @@ export class HostLifecycle {
     }
   }
 
+  get #runtimeFile(): string {
+    return join(this.#options.home, HOME_LAYOUT.runDir, RUNTIME_FILE);
+  }
+
   async #readRuntimeInfo(): Promise<HostRuntimeInfo | undefined> {
-    const path = join(this.#options.home, HOME_LAYOUT.runDir, RUNTIME_FILE);
     try {
-      return parseRuntimeInfo(await readFile(path, 'utf8'));
+      return parseRuntimeInfo(await readFile(this.#runtimeFile, 'utf8'));
+    } catch {
+      return undefined;
+    }
+  }
+
+  #readRuntimeInfoNow(): HostRuntimeInfo | undefined {
+    try {
+      return parseRuntimeInfo(readFileSync(this.#runtimeFile, 'utf8'));
     } catch {
       return undefined;
     }
