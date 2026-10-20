@@ -133,6 +133,13 @@ describe('TokenHub Responses 工具与推理回放', () => {
       baseURL: 'https://tokenhub-intl.tencentcloudmaas.com/v1',
     },
     { model: 'hy3', effort: 'high', baseURL: 'https://tokenhub-us.tencentcloudmaas.tech/v1' },
+    {
+      model: 'deepseek-v4-pro',
+      effort: 'max',
+      baseURL: 'https://tokenhub.tencentcloudmaas.com/v1',
+    },
+    { model: 'glm-5.3', effort: 'max', baseURL: 'https://tokenhub.tencentcloudmaas.com/v1' },
+    { model: 'kimi-k3', effort: 'max', baseURL: 'https://tokenhub.tencentcloudmaas.com/v1' },
   ])(
     '$model 的 $effort 按地址默认完成工具、后续回合与连接探测',
     async ({ model, effort, baseURL }) => {

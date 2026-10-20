@@ -1082,7 +1082,7 @@ describe('本地检查', () => {
 });
 
 describe('TokenHub 按量模板', () => {
-  it('广州模板保存 Hy3 / Hy4 的能力与工具兼容值，地域地址可手动更换', () => {
+  it('广州模板保存五款模型的能力与工具兼容值，地域地址可手动更换', () => {
     const entry = catalogEntry('tencent');
     if (entry?.source?.kind !== 'preset') throw new Error('缺少 TokenHub 模板');
     expect(entry).toMatchObject({
@@ -1119,9 +1119,34 @@ describe('TokenHub 按量模板', () => {
           maxTokens: 64000,
           reasoningEfforts: ['off', 'high'],
         },
+        {
+          id: 'deepseek-v4-pro',
+          contextWindow: 1000000,
+          maxTokens: 384000,
+          reasoningEfforts: ['off', 'low', 'high', 'max'],
+        },
+        {
+          id: 'glm-5.3',
+          contextWindow: 1000000,
+          maxTokens: 128000,
+          reasoningEfforts: ['low', 'high', 'max'],
+        },
+        {
+          id: 'kimi-k3',
+          contextWindow: 1000000,
+          maxTokens: 1048576,
+          supportsImages: true,
+          reasoningEfforts: ['low', 'high', 'max'],
+        },
       ],
     });
-    expect(created.models).toHaveLength(2);
+    expect(created.models).toHaveLength(5);
+    const saved = profile({ ...created, hasSecret: true } as Partial<EditableProvider>);
+    expect(toUpsertParams(editForm(saved))).toMatchObject({
+      models: created.models,
+      defaultModelId: 'hy3',
+      compat: created.compat,
+    });
     expect(preset.note).toBe('provider.preset.tencent.note');
     expect(preset.docsURL).toBe('https://intl.cloud.tencent.com/zh/document/product/1300/82454');
     for (const baseURL of [

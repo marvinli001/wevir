@@ -88,10 +88,14 @@ describe('TokenHub 按量 Responses', () => {
     expect(prepared.payload).toEqual(expected);
   });
 
-  it.each(CODEX_SAMPLES)('%s 摊平工具与历史，保留完整推理与缓存字段', (name) => {
+  it.each(
+    ['hy3', 'hy4-preview', 'deepseek-v4-pro', 'glm-5.3', 'kimi-k3'].flatMap((model) =>
+      CODEX_SAMPLES.map((name) => ({ model, name })),
+    ),
+  )('$model / $name 摊平工具与历史，保留完整推理与缓存字段', ({ model, name }) => {
     const body: ResponsesRequest = {
       ...codexRequest(name).body,
-      model: 'hy3',
+      model,
       tool_choice: { type: 'custom', name: 'apply_patch' },
     };
     const original = structuredClone(body);
@@ -100,6 +104,7 @@ describe('TokenHub 按量 Responses', () => {
     expect(prepared.mode).toBe('responses');
     expect(prepared.url).toBe('https://tokenhub.tencentcloudmaas.com/v1/responses');
     const forwarded = prepared.payload as ResponsesRequest;
+    expect(forwarded.model).toBe(model);
     for (const field of ['client_metadata', 'thinking', 'reasoning_effort', 'max_output_tokens'])
       expect(forwarded).not.toHaveProperty(field);
     for (const field of [

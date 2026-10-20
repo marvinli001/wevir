@@ -1,4 +1,4 @@
-// 真实锁定 Codex + 本机 mock：核对普通 Responses、Hy3 / Hy4 的档位 与 custom 摊平后的 apply_patch，未访问腾讯云。
+// 真实锁定 Codex + 本机 mock：核对 Hy3 / Hy4 与托管模型的档位、custom 摊平后的 apply_patch，未访问腾讯云。
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -29,9 +29,21 @@ describe.skipIf(binary === undefined)(
       { model: 'hy3', effort: 'high', wireEffort: 'high' },
       { model: 'hy4-preview', effort: 'off', wireEffort: 'none' },
       { model: 'hy4-preview', effort: 'high', wireEffort: 'high' },
+      { model: 'deepseek-v4-pro', effort: 'off', wireEffort: 'none' },
+      { model: 'deepseek-v4-pro', effort: 'max', wireEffort: 'max' },
+      { model: 'glm-5.3', effort: 'max', wireEffort: 'max' },
+      { model: 'kimi-k3', effort: 'max', wireEffort: 'max' },
     ])('$model / $effort 使用函数工具改文件并回放结果', async ({ model, effort, wireEffort }) => {
       const contextWindow = model === 'hy3' ? 262144 : 1000000;
-      const efforts = model === 'hy3' ? ['off', 'low', 'high'] : ['off', 'high'];
+      const efforts =
+        model === 'hy3'
+          ? ['off', 'low', 'high']
+          : model === 'hy4-preview'
+            ? ['off', 'high']
+            : model === 'deepseek-v4-pro'
+              ? ['off', 'low', 'high', 'max']
+              : ['low', 'high', 'max'];
+      const supportsImages = model === 'kimi-k3';
       const { home, workspace } = dirs.make('tokenhub');
       const patch = '*** Begin Patch\n*** Add File: tokenhub.txt\n+TokenHub mock\n*** End Patch';
       const mock = await startMockModel((view) => {
@@ -41,7 +53,7 @@ describe.skipIf(binary === undefined)(
         ) {
           return { httpError: { status: 400, message: 'mock requires ordinary function tools' } };
         }
-        const reasoning = effort === 'high' ? { reasoning: ['先用补丁修改文件。'] } : {};
+        const reasoning = effort !== 'off' ? { reasoning: ['先用补丁修改文件。'] } : {};
         return view.toolOutputs.length === 0
           ? {
               ...reasoning,
@@ -64,6 +76,7 @@ describe.skipIf(binary === undefined)(
               {
                 id: model,
                 contextWindow,
+                supportsImages,
                 reasoningEfforts: efforts,
               },
             ],
@@ -92,7 +105,7 @@ describe.skipIf(binary === undefined)(
         slug: model,
         apply_patch_tool_type: 'freeform',
         context_window: contextWindow,
-        input_modalities: ['text'],
+        input_modalities: supportsImages ? ['text', 'image'] : ['text'],
         supported_reasoning_levels: efforts.map((effort) => ({
           effort: effort === 'off' ? 'none' : effort,
         })),
@@ -125,7 +138,7 @@ describe.skipIf(binary === undefined)(
         arguments: JSON.stringify({ input: patch }),
       });
       expect(history.some((item) => item.type === 'function_call_output')).toBe(true);
-      if (effort === 'high') {
+      if (effort !== 'off') {
         expect(history.find((item) => item.type === 'reasoning')).toMatchObject({
           content: [{ type: 'reasoning_text', text: '先用补丁修改文件。' }],
         });
