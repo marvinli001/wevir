@@ -357,3 +357,17 @@
     background-position: 200% 0;
   }
 }
+
+/* 呼吸（侧栏里失焦的会话在跑）：透明度在 0.3 与 1 之间缓慢往返。在 utilities 层里，减少动效时由 index.css 的全局规则停下。 */
+@utility animate-breathe {
+  animation: breathe 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes breathe {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.3;
+  }
+}
