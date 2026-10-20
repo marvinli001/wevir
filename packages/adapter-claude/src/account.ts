@@ -309,6 +309,11 @@ export async function probeClaudeAccount(
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
     if (signal?.aborted === true) throw new Error('the Claude probe was aborted');
+    const loading = sdk.load?.();
+    if (loading !== undefined) {
+      await loading;
+      if (abortController.signal.aborted) throw new Error('the Claude probe was aborted');
+    }
     const q = sdk.query({
       // biome-ignore lint/correctness/useYield: 探测的 prompt 永远不产出，不让 claude 向 Anthropic 发请求（T3 同）。
       prompt: (async function* (): AsyncGenerator<SDKUserMessage> {

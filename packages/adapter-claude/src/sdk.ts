@@ -20,25 +20,52 @@ import type {
 
 type SdkModule = typeof import('@anthropic-ai/claude-agent-sdk');
 
-/**
- * 动态 import：没装 SDK 时 Host 照常启动，只是不挂 Claude 引擎（`claudeSdkInstalled`，host 的 engines.ts）。2026-10-16 起安装包
- * 不带 SDK（ADR-0007 补记 3），2026-10-17 起又随安装包带上（补记 6）；留着这条路给只装了部分依赖的 Host。只把“找不到这个模块”
- * 当成没装，别的加载错误照样抛出。
- */
-const sdkModule: SdkModule | undefined = await import('@anthropic-ai/claude-agent-sdk').catch(
-  (error: unknown) => {
-    if ((error as { code?: unknown } | null)?.code === 'ERR_MODULE_NOT_FOUND') return undefined;
-    throw error;
-  },
-);
+let sdkModule: SdkModule | undefined;
+let loading: Promise<void> | undefined;
 
-/** 这个 Host 能不能用 Claude Agent SDK（开发环境经 pnpm 装上，安装包里随 Host 带上）。 */
+/**
+ * 这个 Host 能不能用 Claude Agent SDK（开发环境经 pnpm 装上，安装包里随 Host 带上）。只解析、不加载：没装 SDK 时 Host 照常启动，只是
+ * 不挂 Claude 引擎（`claudeSdkInstalled`，host 的 engines.ts）。2026-10-16 起安装包不带 SDK（ADR-0007 补记 3），2026-10-17 起又随
+ * 安装包带上（补记 6）；留着这条路给只装了部分依赖的 Host。
+ */
 export function claudeSdkInstalled(): boolean {
-  return sdkModule !== undefined;
+  try {
+    import.meta.resolve('@anthropic-ai/claude-agent-sdk');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 第一次用到时才加载 SDK（它要几十毫秒、几十 MB 内存，不用 Claude 的 Host 不必付出）。已加载时返回 `undefined`，调用方不必让出事件循环；
+ * 加载失败时下次再试。
+ */
+export function loadClaudeSdk(): Promise<void> | undefined {
+  if (sdkModule !== undefined) return undefined;
+  loading ??= import('@anthropic-ai/claude-agent-sdk').then(
+    (sdk) => {
+      sdkModule = sdk;
+    },
+    (error: unknown) => {
+      loading = undefined;
+      if ((error as { code?: unknown } | null)?.code === 'ERR_MODULE_NOT_FOUND') {
+        throw new Error('Claude Agent SDK is not installed in this build', { cause: error });
+      }
+      throw error;
+    },
+  );
+  return loading;
 }
 
 function loadedSdk(): SdkModule {
-  if (sdkModule === undefined) throw new Error('Claude Agent SDK is not installed in this build');
+  if (sdkModule === undefined) {
+    throw new Error(
+      claudeSdkInstalled()
+        ? 'Claude Agent SDK is not loaded yet (call load() first)'
+        : 'Claude Agent SDK is not installed in this build',
+    );
+  }
   return sdkModule;
 }
 
@@ -61,6 +88,8 @@ export type {
 
 /** 适配器用到的 SDK 函数。 */
 export interface ClaudeSdk {
+  /** 用 `query` 之前加载 SDK（`loadClaudeSdk`）；已加载或不需要加载时返回 `undefined`。 */
+  load?(): Promise<void> | undefined;
   query(params: { prompt: string | AsyncIterable<SDKUserMessage>; options?: Options }): Query;
   /** `configDir`（0.63.0）：会话在这个 `CLAUDE_CONFIG_DIR` 里（添加的账号）；省略时是 Host 自己的环境里的。 */
   forkSession(
@@ -73,14 +102,18 @@ export interface ClaudeSdk {
 }
 
 export const realClaudeSdk: ClaudeSdk = {
+  load: loadClaudeSdk,
   query: (params) => loadedSdk().query(params),
   forkSession: (sessionId, options, configDir) =>
-    inConfigDir(configDir, () => loadedSdk().forkSession(sessionId, options)),
+    inConfigDir(configDir, async () => {
+      await loadClaudeSdk();
+      return loadedSdk().forkSession(sessionId, options);
+    }),
   sessionExists: (sessionId, dir, configDir) =>
-    inConfigDir(
-      configDir,
-      async () => (await loadedSdk().getSessionInfo(sessionId, { dir })) !== undefined,
-    ),
+    inConfigDir(configDir, async () => {
+      await loadClaudeSdk();
+      return (await loadedSdk().getSessionInfo(sessionId, { dir })) !== undefined;
+    }),
 };
 
 let configDirQueue: Promise<unknown> = Promise.resolve();

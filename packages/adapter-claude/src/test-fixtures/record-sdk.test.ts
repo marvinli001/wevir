@@ -174,6 +174,7 @@ describe.skipIf(!RECORD)('录制 Claude Agent SDK 的消息', () => {
         },
       };
       let interrupt: () => void = () => {};
+      await realClaudeSdk.load?.();
       const q = realClaudeSdk.query({
         prompt: input,
         options: {

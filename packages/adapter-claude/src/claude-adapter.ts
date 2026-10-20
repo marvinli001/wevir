@@ -631,6 +631,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     session.turn = turn;
     try {
       const installation = await this.accounts.installation();
+      const loading = this.#loadSdk();
+      if (loading !== undefined) await loading;
       this.#ensureAlive();
       if (!session.open)
         throw new AdapterError('session_closed', `session ${session.id} is closed`);
@@ -870,6 +872,8 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
     if (!session.open)
       throw new AdapterError('session_closed', `session ${engineSessionId} is closed`);
     const installation = await this.accounts.installation();
+    const loading = this.#loadSdk();
+    if (loading !== undefined) await loading;
     const abortController = new AbortController();
     const onAbort = () => abortController.abort();
     request.signal?.addEventListener('abort', onAbort, { once: true });
@@ -1024,6 +1028,17 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       mode: session.planning ? 'plan' : mode,
       dangerous: mode === 'bypassPermissions',
     };
+  }
+
+  /**
+   * 第一次 `query` 前加载 SDK（`ClaudeSdk.load`）。已加载时返回 `undefined`，调用方不必让出事件循环；加载失败是 `engine_unavailable`。
+   */
+  #loadSdk(): Promise<void> | undefined {
+    return this.#sdk.load?.()?.catch((error: unknown) => {
+      throw new AdapterError('engine_unavailable', `Claude could not start: ${describe(error)}`, {
+        cause: error,
+      });
+    });
   }
 
   /** 这个会话可用的进程：没有就起一个；设置变了就在进程里改，改不了就重起（只在回合之间）。 */
