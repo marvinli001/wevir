@@ -112,6 +112,61 @@
               "skills": ["skl_plugin"]
             }
           ]
+        },
+        {
+          "connectors": [
+            {
+              "id": "con_test",
+              "name": "sample",
+              "config": {
+                "transport": "stdio",
+                "command": "node",
+                "env": {
+                  "KEY": true
+                }
+              },
+              "enabled": true
+            },
+            {
+              "id": "con_imported",
+              "name": "supabase",
+              "config": {
+                "transport": "stdio",
+                "command": "node",
+                "env": {
+                  "KEY": true
+                }
+              },
+              "enabled": true,
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "importedFrom": {
+                "app": "claude",
+                "path": "/Users/me/project/.mcp.json"
+              }
+            }
+          ],
+          "skills": [
+            {
+              "id": "skl_test",
+              "name": "sample",
+              "description": "A sample skill",
+              "source": "wevir",
+              "path": "/data/plugins/skills/sample/SKILL.md",
+              "enabled": true
+            },
+            {
+              "id": "skl_imported",
+              "name": "imported-skill",
+              "description": "A sample skill",
+              "source": "user",
+              "path": "/data/plugins/skills/sample/SKILL.md",
+              "enabled": true,
+              "importedFrom": {
+                "app": "codex",
+                "path": "/Users/me/.codex/skills/imported-skill/SKILL.md"
+              }
+            }
+          ]
         }
       ]
     },
@@ -137,6 +192,15 @@
             },
             "toolTimeoutSec": 20
           }
+        },
+        {
+          "name": "project-db",
+          "config": {
+            "transport": "stdio",
+            "command": "npx",
+            "args": ["db-mcp"]
+          },
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       ],
       "result": [
@@ -666,6 +730,12 @@
             "sendWhileBusy": "steer",
             "autoMemory": false
           }
+        },
+        {
+          "settings": {
+            "sendWhileBusy": "steer",
+            "ruleFiles": false
+          }
         }
       ]
     },
@@ -693,6 +763,11 @@
         },
         {
           "settings": {}
+        },
+        {
+          "settings": {
+            "ruleFiles": false
+          }
         }
       ],
       "result": [
@@ -1030,6 +1105,13 @@
           "source": {
             "kind": "turn",
             "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+          }
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "source": {
+            "kind": "staged"
           }
         }
       ],
@@ -3592,6 +3674,206 @@
             "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
             "text": "跑一下测试"
           }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "deepseek-official",
+            "modelId": "deepseek-chat",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "awaiting_approval",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12
+          },
+          "pendingApprovals": [
+            {
+              "id": "apr_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "toolCallId": "call_mv4pwxip_1",
+              "options": [
+                {
+                  "optionId": "allow-once",
+                  "label": "Allow once",
+                  "kind": "allow_once",
+                  "category": "allow"
+                },
+                {
+                  "optionId": "reject-once",
+                  "label": "Reject",
+                  "kind": "reject_once",
+                  "category": "reject"
+                }
+              ],
+              "detail": {
+                "toolName": "write",
+                "display": {
+                  "kind": "write",
+                  "summary": "/tmp/wevir-outside.txt",
+                  "paths": ["/tmp/wevir-outside.txt"]
+                },
+                "input": {
+                  "file_path": "/tmp/wevir-outside.txt",
+                  "content": "hello",
+                  "sandbox_permissions": "danger-full-access",
+                  "justification": "write outside workspace"
+                },
+                "justification": "write outside workspace",
+                "sandboxPermissions": "danger-full-access"
+              },
+              "status": "pending",
+              "createdAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "todos": [
+            {
+              "content": "列出本周提交",
+              "status": "in_progress"
+            }
+          ],
+          "usage": {
+            "contextUsed": 5120,
+            "contextSize": 262144,
+            "totalTokens": 182400,
+            "autoCompactAt": 235929,
+            "breakdown": {
+              "categories": [
+                {
+                  "name": "System prompt",
+                  "tokens": 9600,
+                  "kind": "used"
+                },
+                {
+                  "name": "Messages",
+                  "tokens": 105200,
+                  "kind": "used"
+                },
+                {
+                  "name": "Autocompact buffer",
+                  "tokens": 33000,
+                  "kind": "buffer"
+                },
+                {
+                  "name": "Free space",
+                  "tokens": 297700,
+                  "kind": "free"
+                },
+                {
+                  "name": "MCP tools (deferred)",
+                  "tokens": 274800,
+                  "kind": "deferred"
+                }
+              ],
+              "groups": [
+                {
+                  "group": "memory_files",
+                  "count": 2,
+                  "items": [
+                    {
+                      "name": "/Users/me/projects/wevir/AGENTS.md",
+                      "source": "Project",
+                      "tokens": 2400
+                    },
+                    {
+                      "name": "/Users/me/.claude/CLAUDE.md",
+                      "source": "User",
+                      "tokens": 600
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "opinions": [
+            {
+              "id": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+              "providerId": "claude",
+              "modelId": "claude-opus-5-5",
+              "requestedBy": "user",
+              "focus": "登录失败后的重试是否会重复提交",
+              "basis": {
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+                "branch": "fix-login",
+                "base": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+              },
+              "status": "running",
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            },
+            {
+              "id": "opn_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+              "providerId": "claude",
+              "modelId": "claude-opus-5-5",
+              "requestedBy": "user",
+              "focus": "登录失败后的重试是否会重复提交",
+              "basis": {
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+                "branch": "fix-login",
+                "base": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+              },
+              "status": "ready",
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:05.250Z",
+              "outcome": "completed",
+              "text": "1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。",
+              "quoted": {
+                "at": "2026-10-12T08:00:05.250Z",
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+              }
+            }
+          ]
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "claude",
+            "modelId": "claude-opus-5-5",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "第二意见：修复登录",
+            "titleSource": "first_prompt",
+            "state": "idle",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 1,
+            "worktrees": [
+              {
+                "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "path": "/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir",
+                "branch": "wevir/opinion-8h9jkmnpr5"
+              }
+            ],
+            "opinionOf": {
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "opinionId": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            }
+          },
+          "pendingApprovals": []
         }
       ]
     },
@@ -3729,6 +4011,83 @@
               }
             ]
           }
+        },
+        {
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/projects/wevir",
+            "engine": {
+              "kind": "codex",
+              "sessionId": "claude-6a1e0c2f"
+            },
+            "providerId": "claude",
+            "modelId": "claude-opus-5-5",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "整理本周周报",
+            "titleSource": "first_prompt",
+            "state": "idle",
+            "activeTurn": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "clientMessageId": "msg-1"
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 12,
+            "engines": [
+              {
+                "providerId": "deepseek-official",
+                "modelId": "deepseek-chat",
+                "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14",
+                "seenSeq": 11
+              },
+              {
+                "providerId": "claude",
+                "modelId": "claude-opus-5-5",
+                "sessionId": "claude-6a1e0c2f",
+                "seenSeq": 0
+              }
+            ],
+            "rules": {
+              "providerId": "claude",
+              "files": [
+                {
+                  "path": "/Users/me/.claude/CLAUDE.md",
+                  "scope": "user",
+                  "kind": "claude",
+                  "delivery": "engine",
+                  "bytes": 412
+                },
+                {
+                  "path": "/Users/me/projects/wevir/AGENTS.md",
+                  "scope": "project",
+                  "kind": "agents",
+                  "delivery": "wevir",
+                  "bytes": 9120
+                },
+                {
+                  "path": "/Users/me/projects/wevir/CLAUDE.md",
+                  "scope": "project",
+                  "kind": "claude",
+                  "delivery": "engine",
+                  "bytes": 38
+                },
+                {
+                  "path": "/Users/me/projects/wevir/.cursor/rules/style.mdc",
+                  "scope": "project",
+                  "kind": "cursor",
+                  "delivery": "skipped",
+                  "bytes": 9120,
+                  "skipReason": "duplicate"
+                }
+              ],
+              "channel": "instructions",
+              "bytes": 9390,
+              "budgetBytes": 32768
+            }
+          }
         }
       ]
     },
@@ -3838,6 +4197,89 @@
             },
             "constraints": 3,
             "notes": []
+          }
+        },
+        {
+          "preview": {
+            "providerId": "claude",
+            "strategy": "full_thread_summary",
+            "resumed": false,
+            "historyTool": true,
+            "covered": {
+              "fromSeq": 1,
+              "toSeq": 11
+            },
+            "budgetBytes": 16000,
+            "items": 2,
+            "omittedItems": 1,
+            "omitted": [
+              {
+                "first": "e4",
+                "last": "e4",
+                "count": 1
+              }
+            ],
+            "context": "Context handoff (full_thread_summary):\n…",
+            "bytes": 2336,
+            "hash": "9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a",
+            "constraints": 1,
+            "notes": [
+              {
+                "scope": "project",
+                "name": "invoice-cents",
+                "revision": "3f1c2a9b7d4e6f10"
+              }
+            ],
+            "rules": {
+              "providerId": "claude",
+              "files": [
+                {
+                  "path": "/Users/me/.claude/CLAUDE.md",
+                  "scope": "user",
+                  "kind": "claude",
+                  "delivery": "engine",
+                  "bytes": 412
+                },
+                {
+                  "path": "/Users/me/projects/wevir/AGENTS.md",
+                  "scope": "project",
+                  "kind": "agents",
+                  "delivery": "wevir",
+                  "bytes": 9120
+                },
+                {
+                  "path": "/Users/me/projects/wevir/CLAUDE.md",
+                  "scope": "project",
+                  "kind": "claude",
+                  "delivery": "engine",
+                  "bytes": 38
+                },
+                {
+                  "path": "/Users/me/projects/wevir/.cursor/rules/style.mdc",
+                  "scope": "project",
+                  "kind": "cursor",
+                  "delivery": "skipped",
+                  "bytes": 9120,
+                  "skipReason": "duplicate"
+                }
+              ],
+              "channel": "instructions",
+              "bytes": 9390,
+              "budgetBytes": 32768
+            }
+          },
+          "binding": {
+            "providerId": "claude",
+            "throughSeq": 11,
+            "strategy": "full_thread_summary",
+            "notes": [
+              {
+                "scope": "project",
+                "name": "invoice-cents",
+                "revision": "3f1c2a9b7d4e6f10"
+              }
+            ],
+            "hash": "9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a"
           }
         }
       ]
@@ -4871,6 +5313,30 @@
               "status": "available"
             }
           }
+        },
+        {
+          "note": {
+            "scope": "project",
+            "name": "invoice-cents",
+            "type": "feedback",
+            "description": "Discounts are computed in integer cents",
+            "updatedAt": "2026-10-12T08:00:00.000Z",
+            "enabled": true,
+            "revision": "3f1c2a9b7d4e6f10",
+            "content": "Compute discounts in integer cents and round once.\nWhy: the user corrected this.",
+            "origin": {
+              "by": "user",
+              "at": "2026-10-12T08:00:00.000Z",
+              "importedFrom": {
+                "app": "claude",
+                "path": "/Users/me/.claude/projects/-Users-me-shop/memory/invoice-cents.md"
+              }
+            },
+            "lastEdit": {
+              "by": "user",
+              "at": "2026-10-12T08:00:00.000Z"
+            }
+          }
         }
       ]
     },
@@ -5183,7 +5649,7 @@
                 "reasoning": 0
               },
               "cost": {
-                "input": 0.00001,
+                "input": 1e-5,
                 "output": 0.0032,
                 "cacheRead": 0.0451,
                 "cacheWrite": 0.0056,
@@ -5652,6 +6118,91 @@
               "runCount": 3
             }
           ]
+        },
+        {
+          "automations": [
+            {
+              "id": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "title": "依赖更新检查",
+              "prompt": "检查过期的依赖与安全公告。",
+              "schedule": {
+                "kind": "daily",
+                "time": "09:00",
+                "weekdays": [1, 2, 3, 4, 5]
+              },
+              "timezone": "Pacific/Auckland",
+              "enabled": true,
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "providerId": "deepseek",
+              "modelId": "deepseek-chat",
+              "permissionMode": "auto_review",
+              "newSessionEachRun": true,
+              "notify": "always",
+              "createdBy": {
+                "kind": "agent",
+                "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+              },
+              "createdAt": "2026-10-18T01:00:00.000Z",
+              "updatedAt": "2026-10-20T20:03:12.000Z",
+              "nextRunAt": "2026-10-21T20:00:00.000Z",
+              "lastRun": {
+                "id": "arn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "trigger": "schedule",
+                "status": "completed",
+                "startedAt": "2026-10-20T20:00:00.000Z",
+                "finishedAt": "2026-10-20T20:03:12.000Z",
+                "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "summary": "没有过期的依赖。"
+              },
+              "runCount": 3
+            },
+            {
+              "id": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "title": "依赖更新检查",
+              "prompt": "检查过期的依赖与安全公告。",
+              "schedule": {
+                "kind": "interval",
+                "minutes": 15
+              },
+              "timezone": "Pacific/Auckland",
+              "enabled": false,
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "providerId": "deepseek",
+              "modelId": "deepseek-chat",
+              "permissionMode": "auto_review",
+              "newSessionEachRun": false,
+              "notify": "changes",
+              "createdBy": {
+                "kind": "agent",
+                "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+              },
+              "createdAt": "2026-10-18T01:00:00.000Z",
+              "updatedAt": "2026-10-20T20:03:12.000Z",
+              "nextRunAt": "2026-10-21T20:00:00.000Z",
+              "lastRun": {
+                "id": "arn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "trigger": "schedule",
+                "status": "completed",
+                "startedAt": "2026-10-20T20:00:00.000Z",
+                "finishedAt": "2026-10-20T20:03:12.000Z",
+                "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "summary": "没有过期的依赖。",
+                "unchanged": true
+              },
+              "runCount": 3,
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "check": {
+                "command": "gh pr checks 42",
+                "wake": "output_changed",
+                "timeoutSeconds": 30
+              },
+              "autoPausedAt": "2026-10-20T22:01:00.000Z"
+            }
+          ]
         }
       ]
     },
@@ -5762,6 +6313,86 @@
               "error": "provider deepseek not found"
             }
           ]
+        },
+        {
+          "automation": {
+            "id": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "title": "依赖更新检查",
+            "prompt": "检查过期的依赖与安全公告。",
+            "schedule": {
+              "kind": "interval",
+              "minutes": 15
+            },
+            "timezone": "Pacific/Auckland",
+            "enabled": false,
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "providerId": "deepseek",
+            "modelId": "deepseek-chat",
+            "permissionMode": "auto_review",
+            "newSessionEachRun": false,
+            "notify": "changes",
+            "createdBy": {
+              "kind": "agent",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            },
+            "createdAt": "2026-10-18T01:00:00.000Z",
+            "updatedAt": "2026-10-20T20:03:12.000Z",
+            "nextRunAt": "2026-10-21T20:00:00.000Z",
+            "lastRun": {
+              "id": "arn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "trigger": "schedule",
+              "status": "completed",
+              "startedAt": "2026-10-20T20:00:00.000Z",
+              "finishedAt": "2026-10-20T20:03:12.000Z",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "summary": "没有过期的依赖。",
+              "unchanged": true
+            },
+            "runCount": 3,
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "check": {
+              "command": "gh pr checks 42",
+              "wake": "output_changed",
+              "timeoutSeconds": 30
+            },
+            "autoPausedAt": "2026-10-20T22:01:00.000Z"
+          },
+          "runs": [
+            {
+              "id": "arn_01JA2B3C4D5E6F7G8H9JKMNPR3",
+              "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "trigger": "manual",
+              "status": "failed",
+              "startedAt": "2026-10-20T22:00:00.000Z",
+              "finishedAt": "2026-10-20T22:01:00.000Z",
+              "error": "The check timed out after 60 s.",
+              "check": {
+                "decision": "failed",
+                "exitCode": null,
+                "timedOut": true,
+                "durationMs": 60000,
+                "output": "…waiting",
+                "truncated": true,
+                "error": "The check timed out after 60 s."
+              }
+            },
+            {
+              "id": "arn_01JA2B3C4D5E6F7G8H9JKMNPR2",
+              "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "trigger": "schedule",
+              "status": "silent",
+              "startedAt": "2026-10-20T21:00:00.000Z",
+              "finishedAt": "2026-10-20T21:00:02.000Z",
+              "check": {
+                "decision": "silent",
+                "exitCode": 1,
+                "durationMs": 1840,
+                "output": "no new failures\n"
+              }
+            }
+          ]
         }
       ]
     },
@@ -5803,6 +6434,20 @@
             "day": 31
           },
           "providerId": "deepseek"
+        },
+        {
+          "title": "CI 状态",
+          "prompt": "看一下 CI 失败的原因。",
+          "schedule": {
+            "kind": "interval",
+            "minutes": 10
+          },
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "notify": "changes",
+          "check": {
+            "command": "gh pr checks 42",
+            "wake": "output_changed"
+          }
         }
       ],
       "result": [
@@ -5870,6 +6515,20 @@
           },
           "timezone": "Asia/Shanghai",
           "notify": "never"
+        },
+        {
+          "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": null,
+          "check": null
+        },
+        {
+          "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "check": {
+            "command": "./scripts/has-news.sh",
+            "wake": "exit_code",
+            "timeoutSeconds": 600
+          }
         }
       ],
       "result": [
@@ -7333,6 +7992,1533 @@
           "reason": "unsupported"
         }
       ]
+    },
+    "review.list": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "status": "pending"
+        }
+      ],
+      "result": [
+        {
+          "comments": []
+        },
+        {
+          "comments": [
+            {
+              "id": "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "path": "src/convert.ts",
+              "side": "new",
+              "startLine": 12,
+              "endLine": 14,
+              "source": {
+                "kind": "uncommitted"
+              },
+              "base": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "branch": "main",
+              "snippet": "export function toFahrenheit(c: number) {\n  return c * 9 / 5 + 32;\n}",
+              "body": "负数要四舍五入",
+              "status": "pending",
+              "anchor": {
+                "state": "relocated",
+                "startLine": 20,
+                "endLine": 22
+              },
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            },
+            {
+              "id": "rvc_01JA2B3C4D5E6F7G8H9JKMNPR1",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "path": "src/convert.ts",
+              "side": "old",
+              "startLine": 12,
+              "endLine": 14,
+              "source": {
+                "kind": "turn",
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+              },
+              "base": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "branch": "main",
+              "snippet": "export function toFahrenheit(c: number) {\n  return c * 9 / 5 + 32;\n}",
+              "body": "负数要四舍五入",
+              "status": "sent",
+              "anchor": {
+                "state": "outdated",
+                "reason": "changed"
+              },
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:05.250Z",
+              "head": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e",
+              "sent": {
+                "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "at": "2026-10-12T08:00:05.250Z",
+                "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "review.add": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "source": {
+            "kind": "uncommitted"
+          },
+          "base": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+          "path": "src/convert.ts",
+          "side": "new",
+          "startLine": 12,
+          "endLine": 14,
+          "body": "负数要四舍五入"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "source": {
+            "kind": "turn",
+            "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+          },
+          "base": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+          "head": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e",
+          "path": "src/b.ts",
+          "previousPath": "src/a.ts",
+          "side": "old",
+          "startLine": 3,
+          "endLine": 3,
+          "body": "为什么删掉"
+        }
+      ],
+      "result": [
+        {
+          "comment": {
+            "id": "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "path": "src/convert.ts",
+            "side": "new",
+            "startLine": 12,
+            "endLine": 14,
+            "source": {
+              "kind": "uncommitted"
+            },
+            "base": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "snippet": "export function toFahrenheit(c: number) {\n  return c * 9 / 5 + 32;\n}",
+            "body": "负数要四舍五入",
+            "status": "pending",
+            "anchor": {
+              "state": "relocated",
+              "startLine": 20,
+              "endLine": 22
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:00.000Z"
+          }
+        }
+      ]
+    },
+    "review.update": {
+      "params": [
+        {
+          "commentId": "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "body": "改成向下取整"
+        }
+      ],
+      "result": [
+        {
+          "comment": {
+            "id": "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "path": "src/convert.ts",
+            "side": "new",
+            "startLine": 12,
+            "endLine": 14,
+            "source": {
+              "kind": "uncommitted"
+            },
+            "base": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "snippet": "export function toFahrenheit(c: number) {\n  return c * 9 / 5 + 32;\n}",
+            "body": "负数要四舍五入",
+            "status": "pending",
+            "anchor": {
+              "state": "relocated",
+              "startLine": 20,
+              "endLine": 22
+            },
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:00.000Z"
+          }
+        }
+      ]
+    },
+    "review.remove": {
+      "params": [
+        {
+          "commentIds": ["rvc_01JA2B3C4D5E6F7G8H9JKMNPQR", "rvc_01JA2B3C4D5E6F7G8H9JKMNPR1"]
+        }
+      ],
+      "result": [
+        {
+          "removed": 2
+        },
+        {
+          "removed": 0
+        }
+      ]
+    },
+    "review.send": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "commentIds": ["rvc_01JA2B3C4D5E6F7G8H9JKMNPQR"],
+          "targetSessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "commentIds": ["rvc_01JA2B3C4D5E6F7G8H9JKMNPQR", "rvc_01JA2B3C4D5E6F7G8H9JKMNPR1"],
+          "targetSessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR1",
+          "delivery": "queue",
+          "clientMessageId": "review-1"
+        }
+      ],
+      "result": [
+        {
+          "comments": [
+            {
+              "id": "rvc_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "path": "src/convert.ts",
+              "side": "new",
+              "startLine": 12,
+              "endLine": 14,
+              "source": {
+                "kind": "uncommitted"
+              },
+              "base": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "branch": "main",
+              "snippet": "export function toFahrenheit(c: number) {\n  return c * 9 / 5 + 32;\n}",
+              "body": "负数要四舍五入",
+              "status": "sent",
+              "anchor": {
+                "state": "relocated",
+                "startLine": 20,
+                "endLine": 22
+              },
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "updatedAt": "2026-10-12T08:00:00.000Z"
+            }
+          ],
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 12
+        },
+        {
+          "comments": [],
+          "pendingId": "pnd_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 13
+        }
+      ]
+    },
+    "git.status": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "repo": false
+        },
+        {
+          "repo": true,
+          "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+          "branch": "main",
+          "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+          "files": [
+            {
+              "path": "src/convert.ts",
+              "staged": {
+                "status": "modified",
+                "added": 3,
+                "removed": 1,
+                "by": "wevir"
+              },
+              "unstaged": {
+                "status": "modified",
+                "added": 1,
+                "removed": 0
+              }
+            },
+            {
+              "path": "docs/notes.md",
+              "staged": {
+                "status": "added",
+                "added": 4,
+                "removed": 0,
+                "by": "external"
+              }
+            },
+            {
+              "path": "scratch.txt",
+              "unstaged": {
+                "status": "untracked"
+              }
+            }
+          ],
+          "fileCount": 3,
+          "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+          "codeState": {
+            "kind": "git",
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+          },
+          "verification": {
+            "checks": [
+              {
+                "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "name": "Unit tests",
+                "status": "passed",
+                "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "finishedAt": "2026-10-12T08:00:05.250Z"
+              },
+              {
+                "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                "name": "Typecheck",
+                "status": "not_run"
+              }
+            ],
+            "stagedMatchesWorkingTree": false
+          }
+        },
+        {
+          "repo": true,
+          "head": null,
+          "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+          "files": [
+            {
+              "path": "a.ts",
+              "unstaged": {
+                "status": "modified"
+              },
+              "conflicted": true
+            }
+          ],
+          "fileCount": 1,
+          "truncated": true,
+          "operation": "merge",
+          "codeState": {
+            "kind": "none",
+            "reason": "unavailable"
+          }
+        }
+      ]
+    },
+    "git.stage": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "paths": ["src/convert.ts", "docs/notes.md"],
+          "expected": {
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
+          }
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "paths": ["a.ts"],
+          "expected": {
+            "head": null,
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
+          }
+        }
+      ],
+      "result": [
+        {
+          "status": {
+            "repo": true,
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "files": [
+              {
+                "path": "src/convert.ts",
+                "staged": {
+                  "status": "modified",
+                  "added": 3,
+                  "removed": 1,
+                  "by": "wevir"
+                },
+                "unstaged": {
+                  "status": "modified",
+                  "added": 1,
+                  "removed": 0
+                }
+              },
+              {
+                "path": "docs/notes.md",
+                "staged": {
+                  "status": "added",
+                  "added": 4,
+                  "removed": 0,
+                  "by": "external"
+                }
+              },
+              {
+                "path": "scratch.txt",
+                "unstaged": {
+                  "status": "untracked"
+                }
+              }
+            ],
+            "fileCount": 3,
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "codeState": {
+              "kind": "git",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "verification": {
+              "checks": [
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "name": "Unit tests",
+                  "status": "passed",
+                  "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "finishedAt": "2026-10-12T08:00:05.250Z"
+                },
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                  "name": "Typecheck",
+                  "status": "not_run"
+                }
+              ],
+              "stagedMatchesWorkingTree": false
+            }
+          }
+        }
+      ]
+    },
+    "git.unstage": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "paths": ["docs/notes.md"],
+          "expected": {
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
+          }
+        }
+      ],
+      "result": [
+        {
+          "status": {
+            "repo": true,
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "files": [
+              {
+                "path": "src/convert.ts",
+                "staged": {
+                  "status": "modified",
+                  "added": 3,
+                  "removed": 1,
+                  "by": "wevir"
+                },
+                "unstaged": {
+                  "status": "modified",
+                  "added": 1,
+                  "removed": 0
+                }
+              },
+              {
+                "path": "docs/notes.md",
+                "staged": {
+                  "status": "added",
+                  "added": 4,
+                  "removed": 0,
+                  "by": "external"
+                }
+              },
+              {
+                "path": "scratch.txt",
+                "unstaged": {
+                  "status": "untracked"
+                }
+              }
+            ],
+            "fileCount": 3,
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "codeState": {
+              "kind": "git",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "verification": {
+              "checks": [
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "name": "Unit tests",
+                  "status": "passed",
+                  "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "finishedAt": "2026-10-12T08:00:05.250Z"
+                },
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                  "name": "Typecheck",
+                  "status": "not_run"
+                }
+              ],
+              "stagedMatchesWorkingTree": false
+            }
+          }
+        }
+      ]
+    },
+    "git.commit": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "message": "Round negative temperatures",
+          "expected": {
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
+          }
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "message": "Initial commit",
+          "expected": {
+            "head": null,
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a"
+          },
+          "includeExternal": true
+        }
+      ],
+      "result": [
+        {
+          "outcome": {
+            "kind": "committed",
+            "commit": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e",
+            "parent": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "tree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "hooks": ["pre-commit", "commit-msg"]
+          },
+          "status": {
+            "repo": true,
+            "head": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e",
+            "branch": "main",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "files": [],
+            "fileCount": 0,
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "codeState": {
+              "kind": "git",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "verification": {
+              "checks": [
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "name": "Unit tests",
+                  "status": "passed",
+                  "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "finishedAt": "2026-10-12T08:00:05.250Z"
+                },
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                  "name": "Typecheck",
+                  "status": "not_run"
+                }
+              ],
+              "stagedMatchesWorkingTree": false
+            }
+          }
+        },
+        {
+          "outcome": {
+            "kind": "failed",
+            "reason": "hook_failed",
+            "hook": "pre-commit",
+            "exitCode": 1,
+            "output": "lint failed: src/convert.ts"
+          },
+          "status": {
+            "repo": true,
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "files": [
+              {
+                "path": "src/convert.ts",
+                "staged": {
+                  "status": "modified",
+                  "added": 3,
+                  "removed": 1,
+                  "by": "wevir"
+                },
+                "unstaged": {
+                  "status": "modified",
+                  "added": 1,
+                  "removed": 0
+                }
+              },
+              {
+                "path": "docs/notes.md",
+                "staged": {
+                  "status": "added",
+                  "added": 4,
+                  "removed": 0,
+                  "by": "external"
+                }
+              },
+              {
+                "path": "scratch.txt",
+                "unstaged": {
+                  "status": "untracked"
+                }
+              }
+            ],
+            "fileCount": 3,
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "codeState": {
+              "kind": "git",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "verification": {
+              "checks": [
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "name": "Unit tests",
+                  "status": "passed",
+                  "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "finishedAt": "2026-10-12T08:00:05.250Z"
+                },
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                  "name": "Typecheck",
+                  "status": "not_run"
+                }
+              ],
+              "stagedMatchesWorkingTree": false
+            }
+          }
+        },
+        {
+          "outcome": {
+            "kind": "failed",
+            "reason": "external_staged"
+          },
+          "status": {
+            "repo": true,
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "main",
+            "index": "3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855a",
+            "files": [
+              {
+                "path": "src/convert.ts",
+                "staged": {
+                  "status": "modified",
+                  "added": 3,
+                  "removed": 1,
+                  "by": "wevir"
+                },
+                "unstaged": {
+                  "status": "modified",
+                  "added": 1,
+                  "removed": 0
+                }
+              },
+              {
+                "path": "docs/notes.md",
+                "staged": {
+                  "status": "added",
+                  "added": 4,
+                  "removed": 0,
+                  "by": "external"
+                }
+              },
+              {
+                "path": "scratch.txt",
+                "unstaged": {
+                  "status": "untracked"
+                }
+              }
+            ],
+            "fileCount": 3,
+            "stagedTree": "7c1e9a0b2d3f4e5a6b7c8d9e0f1a2b3c4d5e6f7a",
+            "codeState": {
+              "kind": "git",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "tree": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "verification": {
+              "checks": [
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "name": "Unit tests",
+                  "status": "passed",
+                  "runId": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                  "finishedAt": "2026-10-12T08:00:05.250Z"
+                },
+                {
+                  "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPR2",
+                  "name": "Typecheck",
+                  "status": "not_run"
+                }
+              ],
+              "stagedMatchesWorkingTree": false
+            }
+          }
+        }
+      ]
+    },
+    "readiness.get": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "refresh": true
+        }
+      ],
+      "result": [
+        {
+          "report": {
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "root": "/home/u/projects/demo",
+            "status": "not_ready",
+            "checkedAt": "2026-10-12T08:00:00.000Z",
+            "durationMs": 320,
+            "projects": [
+              {
+                "path": "",
+                "ecosystems": ["node"]
+              }
+            ],
+            "items": [
+              {
+                "id": "package_manager::pnpm",
+                "kind": "package_manager",
+                "name": "pnpm",
+                "path": "",
+                "status": "ready",
+                "required": "12.6.0",
+                "found": "12.6.0",
+                "blocking": true,
+                "evidence": [
+                  {
+                    "kind": "file",
+                    "path": "package.json",
+                    "detail": "packageManager: pnpm@12.6.0"
+                  },
+                  {
+                    "kind": "command",
+                    "command": "pnpm --version",
+                    "exitCode": 0,
+                    "output": "12.6.0"
+                  }
+                ]
+              },
+              {
+                "id": "dependencies::node",
+                "kind": "dependencies",
+                "name": "node_modules",
+                "path": "",
+                "status": "incompatible",
+                "reason": "dependencies_outdated",
+                "blocking": true,
+                "evidence": [
+                  {
+                    "kind": "file",
+                    "path": "node_modules/.modules.yaml",
+                    "detail": "older than pnpm-lock.yaml"
+                  }
+                ]
+              },
+              {
+                "id": "check::chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "kind": "check",
+                "name": "test",
+                "path": "",
+                "status": "ready",
+                "blocking": false,
+                "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "evidence": [
+                  {
+                    "kind": "file",
+                    "path": "package.json",
+                    "detail": "scripts.test"
+                  }
+                ]
+              }
+            ],
+            "plans": [
+              {
+                "id": "pln_5c2a91e0",
+                "path": "",
+                "manager": "pnpm",
+                "command": "pnpm install --frozen-lockfile",
+                "lockfile": "pnpm-lock.yaml",
+                "writesLockfile": false,
+                "reason": "dependencies_outdated",
+                "scripts": {
+                  "project": ["postinstall"],
+                  "dependencies": "restricted"
+                },
+                "credentials": [
+                  {
+                    "name": "NPM_TOKEN",
+                    "source": "wevir"
+                  }
+                ]
+              }
+            ],
+            "network": {
+              "registries": [
+                {
+                  "ecosystem": "node",
+                  "url": "https://registry.npmjs.org/",
+                  "source": "default",
+                  "auth": "none"
+                },
+                {
+                  "ecosystem": "node",
+                  "url": "https://npm.example.com/",
+                  "source": ".npmrc",
+                  "auth": "configured"
+                }
+              ],
+              "proxy": ["HTTPS_PROXY"],
+              "agent": {
+                "engine": "codex",
+                "permissionMode": "on_request",
+                "network": "sandboxed",
+                "domains": "not_enforced"
+              },
+              "advice": ["install_by_user", "domains_not_enforced"]
+            },
+            "install": {
+              "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "root": "/home/u/projects/demo",
+              "planId": "pln_5c2a91e0",
+              "path": "",
+              "manager": "pnpm",
+              "command": "pnpm install --frozen-lockfile",
+              "status": "failed",
+              "reason": "network",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "finishedAt": "2026-10-12T08:00:05.250Z",
+              "durationMs": 5250,
+              "exitCode": 1,
+              "timeoutMs": 900000,
+              "bytes": 420,
+              "summary": "ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND"
+            }
+          }
+        }
+      ]
+    },
+    "readiness.install": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "planId": "pln_5c2a91e0",
+          "acceptScripts": true
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "planId": "pln_5c2a91e0",
+          "acceptScripts": true,
+          "timeoutMs": 600000
+        }
+      ],
+      "result": [
+        {
+          "run": {
+            "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "root": "/home/u/projects/demo",
+            "planId": "pln_5c2a91e0",
+            "path": "",
+            "manager": "pnpm",
+            "command": "pnpm install --frozen-lockfile",
+            "status": "running",
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "finishedAt": "2026-10-12T08:00:05.250Z",
+            "durationMs": 5250,
+            "exitCode": 1,
+            "timeoutMs": 900000,
+            "bytes": 420,
+            "summary": "ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND"
+          }
+        }
+      ]
+    },
+    "readiness.cancel": {
+      "params": [
+        {
+          "runId": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "run": {
+            "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "root": "/home/u/projects/demo",
+            "planId": "pln_5c2a91e0",
+            "path": "",
+            "manager": "pnpm",
+            "command": "pnpm install --frozen-lockfile",
+            "status": "cancelled",
+            "reason": "user",
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "finishedAt": "2026-10-12T08:00:05.250Z",
+            "durationMs": 5250,
+            "exitCode": 1,
+            "timeoutMs": 900000,
+            "bytes": 420,
+            "summary": "ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND"
+          }
+        }
+      ]
+    },
+    "readiness.output": {
+      "params": [
+        {
+          "runId": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "runId": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "offset": 128
+        }
+      ],
+      "result": [
+        {
+          "text": "Progress: resolved 12",
+          "from": 0,
+          "next": 21,
+          "more": false,
+          "bytes": 21
+        }
+      ]
+    },
+    "readiness.setCredential": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "name": "NPM_TOKEN",
+          "value": "npm_xxx"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "name": "NPM_TOKEN"
+        }
+      ],
+      "result": [
+        {
+          "credentials": []
+        },
+        {
+          "credentials": ["NPM_TOKEN"]
+        }
+      ]
+    },
+    "lsp.status": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "refresh": true
+        }
+      ],
+      "result": [
+        {
+          "dir": "/home/u/projects/demo",
+          "servers": []
+        },
+        {
+          "dir": "/home/u/projects/demo",
+          "servers": [
+            {
+              "serverId": "typescript",
+              "language": "TypeScript/JavaScript",
+              "root": "/home/u/projects/demo",
+              "state": "running",
+              "name": "tsc --lsp (TypeScript 7.0.2)",
+              "path": "/home/u/projects/demo/node_modules/@typescript/typescript-darwin-arm64/lib/tsc",
+              "source": "project",
+              "version": "7.0.2",
+              "capabilities": ["definition", "references", "hover", "rename", "codeAction"],
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "lastDiagnosticsAt": "2026-10-12T08:00:05.250Z",
+              "install": {
+                "id": "lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T",
+                "serverId": "typescript",
+                "root": "/home/u/projects/demo",
+                "planId": "project-add-typescript",
+                "scope": "project",
+                "command": "pnpm add -D typescript",
+                "status": "succeeded",
+                "startedAt": "2026-10-12T08:00:00.000Z",
+                "endedAt": "2026-10-12T08:00:05.250Z",
+                "exitCode": 0,
+                "output": "$ pnpm add -D typescript\n+ typescript 7.0.2\n",
+                "verification": {
+                  "server": "tsc --lsp (TypeScript 7.0.2)",
+                  "file": "src/index.ts",
+                  "diagnostics": 2
+                }
+              }
+            },
+            {
+              "serverId": "go",
+              "language": "Go",
+              "root": "/home/u/projects/demo/tool",
+              "state": "missing",
+              "reason": "gopls not found. Install it: go install golang.org/x/tools/gopls@latest",
+              "plans": [
+                {
+                  "id": "user-go",
+                  "scope": "user",
+                  "command": "go install golang.org/x/tools/gopls@latest",
+                  "runnable": true
+                }
+              ]
+            },
+            {
+              "serverId": "rust",
+              "language": "Rust",
+              "root": "/home/u/projects/demo/tool",
+              "state": "failed",
+              "reason": "rust-analyzer exited (code 101).",
+              "failures": 3,
+              "retryAt": "2026-10-12T08:00:05.250Z"
+            }
+          ],
+          "truncated": true
+        }
+      ]
+    },
+    "lsp.restart": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "serverId": "typescript",
+          "root": "/home/u/projects/demo"
+        }
+      ],
+      "result": [
+        {
+          "server": {
+            "serverId": "typescript",
+            "language": "TypeScript/JavaScript",
+            "root": "/home/u/projects/demo",
+            "state": "running",
+            "name": "tsc --lsp (TypeScript 7.0.2)",
+            "path": "/home/u/projects/demo/node_modules/@typescript/typescript-darwin-arm64/lib/tsc",
+            "source": "project",
+            "version": "7.0.2",
+            "capabilities": ["definition", "references", "hover", "rename", "codeAction"],
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "lastDiagnosticsAt": "2026-10-12T08:00:05.250Z",
+            "install": {
+              "id": "lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T",
+              "serverId": "typescript",
+              "root": "/home/u/projects/demo",
+              "planId": "project-add-typescript",
+              "scope": "project",
+              "command": "pnpm add -D typescript",
+              "status": "succeeded",
+              "startedAt": "2026-10-12T08:00:00.000Z",
+              "endedAt": "2026-10-12T08:00:05.250Z",
+              "exitCode": 0,
+              "output": "$ pnpm add -D typescript\n+ typescript 7.0.2\n",
+              "verification": {
+                "server": "tsc --lsp (TypeScript 7.0.2)",
+                "file": "src/index.ts",
+                "diagnostics": 2
+              }
+            }
+          }
+        }
+      ]
+    },
+    "lsp.log": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "serverId": "go",
+          "root": "/home/u/projects/demo/tool"
+        }
+      ],
+      "result": [
+        {
+          "log": ""
+        },
+        {
+          "log": "2026-10-20T00:00:00.000Z start: gopls in /x"
+        }
+      ]
+    },
+    "lsp.install": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "serverId": "go",
+          "root": "/home/u/projects/demo/tool",
+          "planId": "user-go",
+          "confirmGlobal": true
+        }
+      ],
+      "result": [
+        {
+          "run": {
+            "id": "lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T",
+            "serverId": "typescript",
+            "root": "/home/u/projects/demo",
+            "planId": "project-add-typescript",
+            "scope": "project",
+            "command": "pnpm add -D typescript",
+            "status": "succeeded",
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "endedAt": "2026-10-12T08:00:05.250Z",
+            "exitCode": 0,
+            "output": "$ pnpm add -D typescript\n+ typescript 7.0.2\n",
+            "verification": {
+              "server": "tsc --lsp (TypeScript 7.0.2)",
+              "file": "src/index.ts",
+              "diagnostics": 2
+            }
+          }
+        },
+        {
+          "run": {
+            "id": "lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T",
+            "serverId": "typescript",
+            "root": "/home/u/projects/demo",
+            "planId": "project-add-typescript",
+            "scope": "project",
+            "command": "pnpm add -D typescript",
+            "status": "running",
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "output": "$ pnpm add -D typescript\n+ typescript 7.0.2\n"
+          }
+        }
+      ]
+    },
+    "lsp.cancelInstall": {
+      "params": [
+        {
+          "installId": "lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T"
+        }
+      ],
+      "result": [
+        {
+          "run": {
+            "id": "lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T",
+            "serverId": "typescript",
+            "root": "/home/u/projects/demo",
+            "planId": "project-add-typescript",
+            "scope": "project",
+            "command": "pnpm add -D typescript",
+            "status": "cancelled",
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "endedAt": "2026-10-12T08:00:05.250Z",
+            "exitCode": 0,
+            "output": "$ pnpm add -D typescript\n+ typescript 7.0.2\n",
+            "verification": {
+              "server": "tsc --lsp (TypeScript 7.0.2)",
+              "file": "src/index.ts",
+              "diagnostics": 2
+            },
+            "reason": "Cancelled."
+          }
+        }
+      ]
+    },
+    "automation.testCheck": {
+      "params": [
+        {
+          "check": {
+            "command": "gh pr checks 42",
+            "wake": "output_changed"
+          }
+        },
+        {
+          "check": {
+            "command": "git status --short",
+            "wake": "output_changed"
+          },
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "check": {
+            "command": "./check.sh",
+            "wake": "exit_code",
+            "timeoutSeconds": 5
+          },
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "result": {
+            "decision": "silent",
+            "exitCode": 1,
+            "durationMs": 1840,
+            "output": "no new failures\n"
+          }
+        },
+        {
+          "result": {
+            "decision": "failed",
+            "exitCode": null,
+            "timedOut": true,
+            "durationMs": 60000,
+            "output": "…waiting",
+            "truncated": true,
+            "error": "The check timed out after 60 s."
+          }
+        },
+        {
+          "result": {
+            "decision": "wake",
+            "exitCode": 0,
+            "durationMs": 12,
+            "output": ""
+          }
+        }
+      ]
+    },
+    "import.scan": {
+      "params": [
+        {
+          "app": "claude"
+        },
+        {
+          "app": "codex"
+        },
+        {
+          "app": "grok"
+        },
+        {
+          "app": "antigravity"
+        }
+      ],
+      "result": [
+        {
+          "app": "claude",
+          "found": true,
+          "home": "/Users/me/.claude",
+          "memories": [
+            {
+              "key": "mem:4f2a9c",
+              "path": "/Users/me/.claude/projects/-Users-me-shop/memory/invoice-cents.md",
+              "status": "new",
+              "recommended": true,
+              "project": "/Users/me/shop",
+              "name": "invoice-cents",
+              "type": "feedback",
+              "description": "Discounts are computed in integer cents",
+              "content": "Compute discounts in integer cents.",
+              "scope": "project",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            },
+            {
+              "key": "mem:77b0e1",
+              "path": "/Users/me/.claude/projects/-Users-me-old/memory/huge.md",
+              "status": "new",
+              "problem": "too_large",
+              "recommended": false,
+              "project": "/Users/me/old",
+              "name": "huge",
+              "type": "reference",
+              "description": "Long notes",
+              "content": "",
+              "scope": "global"
+            }
+          ],
+          "connectors": [
+            {
+              "key": "con:91c3d0",
+              "path": "/Users/me/shop/.mcp.json",
+              "status": "new",
+              "recommended": true,
+              "project": "/Users/me/shop",
+              "name": "supabase",
+              "config": {
+                "transport": "http",
+                "url": "https://mcp.supabase.com/mcp",
+                "headers": {
+                  "Authorization": true
+                }
+              },
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            },
+            {
+              "key": "con:0d5e7a",
+              "path": "/Users/me/.claude.json",
+              "status": "exists",
+              "problem": "unsupported_transport",
+              "recommended": false,
+              "name": "legacy"
+            }
+          ],
+          "skills": [
+            {
+              "key": "skl:5a1b2c",
+              "path": "/Users/me/.claude/skills/review/SKILL.md",
+              "status": "same",
+              "recommended": false,
+              "name": "review",
+              "description": "Review the current diff"
+            }
+          ],
+          "unsupported": []
+        },
+        {
+          "app": "grok",
+          "found": false,
+          "home": "/Users/me/.grok",
+          "memories": [],
+          "connectors": [],
+          "skills": [],
+          "unsupported": ["memory", "connector"]
+        }
+      ]
+    },
+    "import.apply": {
+      "params": [
+        {
+          "app": "claude",
+          "items": [
+            {
+              "key": "mem:4f2a9c"
+            }
+          ]
+        },
+        {
+          "app": "claude",
+          "items": [
+            {
+              "key": "mem:4f2a9c",
+              "scope": "global",
+              "name": "invoice-cents-2"
+            },
+            {
+              "key": "con:91c3d0",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            },
+            {
+              "key": "skl:5a1b2c"
+            }
+          ]
+        }
+      ],
+      "result": [
+        {
+          "results": [
+            {
+              "key": "mem:4f2a9c",
+              "outcome": "imported",
+              "kind": "memory",
+              "name": "invoice-cents"
+            },
+            {
+              "key": "skl:5a1b2c",
+              "outcome": "skipped",
+              "kind": "skill",
+              "name": "review"
+            },
+            {
+              "key": "con:0d5e7a",
+              "outcome": "failed",
+              "kind": "connector",
+              "reason": "exists"
+            },
+            {
+              "key": "mem:gone",
+              "outcome": "failed",
+              "reason": "not_found"
+            }
+          ]
+        },
+        {
+          "results": []
+        }
+      ]
+    },
+    "session.secondOpinion": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "providerId": "claude"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "providerId": "claude",
+          "modelId": "claude-opus-5-5",
+          "reasoningEffort": "high",
+          "focus": "登录失败后的重试是否会重复提交"
+        }
+      ],
+      "result": [
+        {
+          "opinion": {
+            "id": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+            "providerId": "claude",
+            "modelId": "claude-opus-5-5",
+            "requestedBy": "user",
+            "focus": "登录失败后的重试是否会重复提交",
+            "basis": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "branch": "fix-login",
+              "base": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "status": "running",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:00.000Z"
+          },
+          "session": {
+            "id": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir",
+            "engine": {
+              "kind": "dsh",
+              "sessionId": "6b0f4c1e-7d2a-4e8b-9f31-2a5c7e9d0b14"
+            },
+            "providerId": "claude",
+            "modelId": "claude-opus-5-5",
+            "reasoningEffort": "high",
+            "permissionMode": "on_request",
+            "title": "第二意见：修复登录",
+            "titleSource": "first_prompt",
+            "state": "idle",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "lastSeq": 1,
+            "worktrees": [
+              {
+                "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+                "path": "/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir",
+                "branch": "wevir/opinion-8h9jkmnpr5"
+              }
+            ],
+            "opinionOf": {
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "opinionId": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            }
+          }
+        }
+      ]
+    },
+    "session.quoteOpinion": {
+      "params": [
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "opinionId": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "opinionId": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "note": "按第 1 条改",
+          "clientMessageId": "msg-7",
+          "delivery": "queue"
+        }
+      ],
+      "result": [
+        {
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 12,
+          "opinion": {
+            "id": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+            "providerId": "claude",
+            "modelId": "claude-opus-5-5",
+            "requestedBy": "user",
+            "focus": "登录失败后的重试是否会重复提交",
+            "basis": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "branch": "fix-login",
+              "base": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "status": "ready",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "outcome": "completed",
+            "text": "1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。",
+            "quoted": {
+              "at": "2026-10-12T08:00:05.250Z",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            }
+          }
+        },
+        {
+          "pendingId": "pnd_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "seq": 13,
+          "opinion": {
+            "id": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+            "providerId": "claude",
+            "modelId": "claude-opus-5-5",
+            "requestedBy": "user",
+            "focus": "登录失败后的重试是否会重复提交",
+            "basis": {
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+              "branch": "fix-login",
+              "base": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+            },
+            "status": "ready",
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "updatedAt": "2026-10-12T08:00:05.250Z",
+            "outcome": "completed",
+            "text": "1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。",
+            "quoted": {
+              "at": "2026-10-12T08:00:05.250Z",
+              "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+            }
+          }
+        }
+      ]
     }
   },
   "notifications": {
@@ -7470,6 +9656,23 @@
       {
         "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
         "deleted": true
+      },
+      {
+        "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "run": {
+          "id": "arn_01JA2B3C4D5E6F7G8H9JKMNPR2",
+          "automationId": "aut_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "trigger": "schedule",
+          "status": "silent",
+          "startedAt": "2026-10-20T21:00:00.000Z",
+          "finishedAt": "2026-10-20T21:00:02.000Z",
+          "check": {
+            "decision": "silent",
+            "exitCode": 1,
+            "durationMs": 1840,
+            "output": "no new failures\n"
+          }
+        }
       }
     ],
     "memory.changed": [
@@ -7729,6 +9932,174 @@
         "removed": {
           "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
+      }
+    ],
+    "readiness.changed": [
+      {
+        "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "root": "/home/u/projects/demo",
+        "run": {
+          "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "root": "/home/u/projects/demo",
+          "planId": "pln_5c2a91e0",
+          "path": "",
+          "manager": "pnpm",
+          "command": "pnpm install --frozen-lockfile",
+          "status": "failed",
+          "reason": "network",
+          "startedAt": "2026-10-12T08:00:00.000Z",
+          "finishedAt": "2026-10-12T08:00:05.250Z",
+          "durationMs": 5250,
+          "exitCode": 1,
+          "timeoutMs": 900000,
+          "bytes": 420,
+          "summary": "ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND"
+        }
+      },
+      {
+        "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "root": "/home/u/projects/demo",
+        "report": {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "root": "/home/u/projects/demo",
+          "status": "not_ready",
+          "checkedAt": "2026-10-12T08:00:00.000Z",
+          "durationMs": 320,
+          "projects": [
+            {
+              "path": "",
+              "ecosystems": ["node"]
+            }
+          ],
+          "items": [
+            {
+              "id": "package_manager::pnpm",
+              "kind": "package_manager",
+              "name": "pnpm",
+              "path": "",
+              "status": "ready",
+              "required": "12.6.0",
+              "found": "12.6.0",
+              "blocking": true,
+              "evidence": [
+                {
+                  "kind": "file",
+                  "path": "package.json",
+                  "detail": "packageManager: pnpm@12.6.0"
+                },
+                {
+                  "kind": "command",
+                  "command": "pnpm --version",
+                  "exitCode": 0,
+                  "output": "12.6.0"
+                }
+              ]
+            },
+            {
+              "id": "dependencies::node",
+              "kind": "dependencies",
+              "name": "node_modules",
+              "path": "",
+              "status": "incompatible",
+              "reason": "dependencies_outdated",
+              "blocking": true,
+              "evidence": [
+                {
+                  "kind": "file",
+                  "path": "node_modules/.modules.yaml",
+                  "detail": "older than pnpm-lock.yaml"
+                }
+              ]
+            },
+            {
+              "id": "check::chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "kind": "check",
+              "name": "test",
+              "path": "",
+              "status": "ready",
+              "blocking": false,
+              "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "evidence": [
+                {
+                  "kind": "file",
+                  "path": "package.json",
+                  "detail": "scripts.test"
+                }
+              ]
+            }
+          ],
+          "plans": [
+            {
+              "id": "pln_5c2a91e0",
+              "path": "",
+              "manager": "pnpm",
+              "command": "pnpm install --frozen-lockfile",
+              "lockfile": "pnpm-lock.yaml",
+              "writesLockfile": false,
+              "reason": "dependencies_outdated",
+              "scripts": {
+                "project": ["postinstall"],
+                "dependencies": "restricted"
+              },
+              "credentials": [
+                {
+                  "name": "NPM_TOKEN",
+                  "source": "wevir"
+                }
+              ]
+            }
+          ],
+          "network": {
+            "registries": [
+              {
+                "ecosystem": "node",
+                "url": "https://registry.npmjs.org/",
+                "source": "default",
+                "auth": "none"
+              },
+              {
+                "ecosystem": "node",
+                "url": "https://npm.example.com/",
+                "source": ".npmrc",
+                "auth": "configured"
+              }
+            ],
+            "proxy": ["HTTPS_PROXY"],
+            "agent": {
+              "engine": "codex",
+              "permissionMode": "on_request",
+              "network": "sandboxed",
+              "domains": "not_enforced"
+            },
+            "advice": ["install_by_user", "domains_not_enforced"]
+          },
+          "install": {
+            "id": "ins_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "root": "/home/u/projects/demo",
+            "planId": "pln_5c2a91e0",
+            "path": "",
+            "manager": "pnpm",
+            "command": "pnpm install --frozen-lockfile",
+            "status": "failed",
+            "reason": "network",
+            "startedAt": "2026-10-12T08:00:00.000Z",
+            "finishedAt": "2026-10-12T08:00:05.250Z",
+            "durationMs": 5250,
+            "exitCode": 1,
+            "timeoutMs": 900000,
+            "bytes": 420,
+            "summary": "ERR_PNPM_META_FETCH_FAIL GET https://registry.npmjs.org/zod: getaddrinfo ENOTFOUND"
+          }
+        }
+      }
+    ],
+    "lsp.changed": [
+      {},
+      {
+        "serverId": "typescript",
+        "root": "/home/u/projects/demo"
       }
     ]
   },
@@ -9637,6 +12008,195 @@
           }
         },
         "collaborationMode": "plan"
+      }
+    },
+    {
+      "seq": 90,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "verification.updated",
+      "source": "host",
+      "payload": {
+        "run": {
+          "id": "vrn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "roundId": "vrd_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "checkId": "chk_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "checkRevision": 2,
+          "name": "test",
+          "command": "pnpm test",
+          "cwd": "",
+          "kind": "test",
+          "trigger": "after_turn",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "status": "environment_unavailable",
+          "reason": "dependencies_outdated",
+          "codeState": {
+            "kind": "git",
+            "head": "4f1c2e9a",
+            "tree": "9d8e7f6a"
+          },
+          "queuedAt": "2026-10-12T08:00:00.000Z",
+          "startedAt": "2026-10-12T08:00:00.000Z",
+          "finishedAt": "2026-10-12T08:00:05.250Z",
+          "durationMs": 5250,
+          "exitCode": 1,
+          "tests": {
+            "passed": 3,
+            "failed": 1,
+            "skipped": 0
+          },
+          "summary": "not ok 4 - converts -40\n# pass 3\n# fail 1",
+          "output": {
+            "bytes": 1840,
+            "truncated": false
+          },
+          "readiness": [
+            {
+              "kind": "dependencies",
+              "name": "node_modules",
+              "path": "",
+              "status": "incompatible",
+              "reason": "dependencies_outdated"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "seq": 92,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "question.requested",
+      "source": "host",
+      "payload": {
+        "question": {
+          "id": "qst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "toolCallId": "call_ask_1",
+          "questions": [
+            {
+              "id": "scope",
+              "header": "范围",
+              "question": "这次改动做到哪一步？",
+              "options": [
+                {
+                  "label": "只做界面",
+                  "description": "协议另开任务"
+                },
+                {
+                  "label": "全链路",
+                  "description": "协议、Host 与界面一起"
+                }
+              ],
+              "allowOther": true,
+              "defaultOption": "全链路"
+            },
+            {
+              "id": "targets",
+              "question": "要覆盖哪些平台？",
+              "options": [
+                {
+                  "label": "macOS"
+                },
+                {
+                  "label": "Windows"
+                },
+                {
+                  "label": "Linux"
+                }
+              ],
+              "multiSelect": true,
+              "defaultOption": "macOS"
+            }
+          ],
+          "status": "pending",
+          "createdAt": "2026-10-12T08:00:00.000Z",
+          "autoAnswerAt": "2026-10-12T08:00:05.250Z"
+        }
+      }
+    },
+    {
+      "seq": 93,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:00.000Z",
+      "type": "question.resolved",
+      "source": "host",
+      "payload": {
+        "questionId": "qst_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "status": "answered",
+        "resolution": {
+          "reason": "timeout",
+          "answers": {
+            "scope": {
+              "answers": ["全链路"]
+            },
+            "targets": {
+              "answers": ["macOS"]
+            }
+          }
+        }
+      }
+    },
+    {
+      "seq": 92,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:05.250Z",
+      "type": "opinion.updated",
+      "source": "host",
+      "payload": {
+        "opinion": {
+          "id": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+          "providerId": "claude",
+          "modelId": "claude-opus-5-5",
+          "requestedBy": "user",
+          "focus": "登录失败后的重试是否会重复提交",
+          "basis": {
+            "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "head": "4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e",
+            "branch": "fix-login",
+            "base": "9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e"
+          },
+          "status": "ready",
+          "createdAt": "2026-10-12T08:00:00.000Z",
+          "updatedAt": "2026-10-12T08:00:05.250Z",
+          "outcome": "completed",
+          "text": "1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。",
+          "quoted": {
+            "at": "2026-10-12T08:00:05.250Z",
+            "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR"
+          }
+        }
+      }
+    },
+    {
+      "seq": 93,
+      "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+      "ts": "2026-10-12T08:00:05.250Z",
+      "type": "user.message",
+      "source": "host",
+      "payload": {
+        "turnId": "trn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "content": [
+          {
+            "type": "text",
+            "text": "第二意见……"
+          }
+        ],
+        "sentBy": {
+          "deviceId": "dev-1",
+          "clientId": "cli-1",
+          "clientKind": "desktop"
+        },
+        "from": {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPR5",
+          "kind": "report",
+          "opinion": {
+            "opinionId": "opn_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "note": "按第 1 条改"
+          }
+        }
       }
     }
   ],
