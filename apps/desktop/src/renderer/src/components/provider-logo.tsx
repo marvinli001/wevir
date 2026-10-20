@@ -10,6 +10,7 @@ import deepseek from '@/assets/provider-logos/deepseek-color.svg';
 import gemini from '@/assets/provider-logos/gemini-color.svg';
 import grok from '@/assets/provider-logos/grok.svg';
 import kimi from '@/assets/provider-logos/kimi-color.svg';
+import kimiLight from '@/assets/provider-logos/kimi-color-light.svg';
 import ollama from '@/assets/provider-logos/ollama.svg';
 import openai from '@/assets/provider-logos/openai.svg';
 import opencode from '@/assets/provider-logos/opencode.svg';
@@ -20,7 +21,16 @@ import mimo from '@/assets/provider-logos/xiaomimimo.svg';
 import zai from '@/assets/provider-logos/zai.svg';
 import zhipu from '@/assets/provider-logos/zhipu-color.svg';
 
-/** 模型服务的标志（来源见 assets/provider-logos/SOURCE.md）。`mono` 的是单色字形，画成文字色。 */
+interface LogoEntry {
+  src: string;
+  mono: boolean;
+  light?: string;
+}
+
+/**
+ * 模型服务的标志（来源见 assets/provider-logos/SOURCE.md）。`mono` 的是单色字形，画成文字色；彩色的有 `light` 时浅色主题用它
+ * （原图有为深色底画的白色部分）。
+ */
 const LOGOS = {
   openai: { src: openai, mono: true },
   anthropic: { src: anthropic, mono: true },
@@ -29,7 +39,7 @@ const LOGOS = {
   azure: { src: azure, mono: false },
   deepseek: { src: deepseek, mono: false },
   qwen: { src: qwen, mono: false },
-  kimi: { src: kimi, mono: false },
+  kimi: { src: kimi, mono: false, light: kimiLight },
   mimo: { src: mimo, mono: true },
   zhipu: { src: zhipu, mono: false },
   zai: { src: zai, mono: true },
@@ -43,7 +53,7 @@ const LOGOS = {
   opencode: { src: opencode, mono: true },
   grok: { src: grok, mono: true },
   antigravity: { src: antigravity, mono: false },
-} as const;
+} satisfies Record<string, LogoEntry>;
 
 export type ProviderLogoId = keyof typeof LOGOS;
 
@@ -61,7 +71,7 @@ export function ProviderLogo({
   fallback?: string;
   className?: string;
 }) {
-  const entry = logo && LOGOS[logo];
+  const entry: LogoEntry | undefined = logo ? LOGOS[logo] : undefined;
   if (!entry) {
     return (
       <span
@@ -83,6 +93,24 @@ export function ProviderLogo({
         className={cn('block size-5 shrink-0 bg-current', className)}
         style={{ mask, WebkitMask: mask }}
       />
+    );
+  }
+  if (entry.light !== undefined) {
+    return (
+      <>
+        <img
+          src={entry.light}
+          alt=""
+          aria-hidden
+          className={cn('size-5 shrink-0 dark:hidden', className)}
+        />
+        <img
+          src={entry.src}
+          alt=""
+          aria-hidden
+          className={cn('hidden size-5 shrink-0 dark:inline', className)}
+        />
+      </>
     );
   }
   return <img src={entry.src} alt="" aria-hidden className={cn('size-5 shrink-0', className)} />;

@@ -1,6 +1,6 @@
 # 模型服务的标志
 
-首次引导与 Provider 列表（`components/provider-logo.tsx`）用的标志，原样取自 [lobehub/lobe-icons](https://github.com/lobehub/lobe-icons) 的 npm 包 `@lobehub/icons-static-svg@1.95.1`（`icons/` 目录），文件内容未改。许可证 MIT，`Copyright (c) 2023 LobeHub`，署名在仓库根目录的 `NOTICE` 第 9 节。各标志是对应公司的商标，只用来指认服务。
+首次引导与 Provider 列表（`components/provider-logo.tsx`）用的标志，原样取自 [lobehub/lobe-icons](https://github.com/lobehub/lobe-icons) 的 npm 包 `@lobehub/icons-static-svg@1.95.1`（`icons/` 目录），文件内容未改（下面注明的浅色版除外）。许可证 MIT，`Copyright (c) 2023 LobeHub`，署名在仓库根目录的 `NOTICE` 第 9 节。各标志是对应公司的商标，只用来指认服务。
 
 | 文件 | 用于 | sha256 |
 |---|---|---|
@@ -12,6 +12,7 @@
 | `deepseek-color.svg` | DeepSeek | `deba5f98a5c1796e20fcac3149bcd7eb8a32f0bdd04d048819400b1f28bd1439` |
 | `qwen-color.svg` | 通义千问 | `77f5768c66d08ce1d3d14e73373975c1bc0454be88c81523ddd0ffd7e2974029` |
 | `kimi-color.svg` | Kimi | `74a7292aeb0220445d14c5d397d75760e2e8c6ed6a9e5fe4f3023471bf62a9ff` |
+| `kimi-color-light.svg` | Kimi（浅色主题） | `fb386854f341fa4d03ffcc21827eee59ae72ec9bb0542479177ce20ae619ddfb` |
 | `zai.svg` | Z.ai | `e748cb5108ce37b116d7a5ba97d37e0ae97eadf6849b0de11afb248e244a01e1` |
 | `zhipu-color.svg` | 智谱 GLM | `8174e65ff71647d5c705c920c953a82bd723d9e3e42887bdd4ffc9dfe51207a0` |
 | `xiaomimimo.svg` | 小米 MiMo | `b04ad7dad52af2212c4567daf0ee6856f2c4625c92c680a27f9880295d558b71` |
@@ -28,3 +29,5 @@
 订阅来源的标志（0.19.0）是软件本身的标志（Claude 用 Claude 的标志，不用 Claude Code 的，照 Anthropic 对第三方的品牌要求）。
 
 单色的（`fill="currentColor"`）经 CSS 遮罩画成文字色，彩色的（`-color`）用 `<img>` 原样显示。
+
+`kimi-color-light.svg` 是唯一改过的文件：由 `kimi-color.svg` 把 K 字的 `fill="#fff"` 改成 `#000`，其余不变；原图的 K 是白色，浅色主题下看不见。
