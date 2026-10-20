@@ -449,7 +449,9 @@ export class EventStore {
       throw new SessionNotFoundError(sessionId);
     // 缓存比库还新只可能是库被换掉了，从头重放。
     let projection = cached && cached.lastSeq < lastSeq ? cached : INITIAL_PROJECTION;
-    for (const record of this.#storage.events.list(sessionId, { afterSeq: projection.lastSeq })) {
+    for (const record of this.#storage.events.iterate(sessionId, {
+      afterSeq: projection.lastSeq,
+    })) {
       projection = applyEvent(projection, fromRecord(record));
     }
     return projection;

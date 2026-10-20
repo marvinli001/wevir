@@ -1,4 +1,4 @@
-import type { SqliteDatabase, SqlParams, SqlRow } from './driver.js';
+import type { SqliteDatabase, SqliteStatement, SqlParams, SqlRow } from './driver.js';
 import { changed, integer, optionalJson, optionalText, text, toNullableJson } from './rows.js';
 
 /** 与 protocol `ActiveTurn` 同形。 */
@@ -157,6 +157,8 @@ const PATCH_COLUMNS = {
 } as const satisfies Record<keyof SessionCachePatch, string>;
 
 export function createSessionRepository(db: SqliteDatabase): SessionRepository {
+  // update() 的语句按列组合缓存：事件库每次提交都写一次缓存列，组合只有少数几种。
+  const updates = new Map<string, SqliteStatement>();
   const insert = db.prepare(`
     INSERT INTO sessions (
       id, workspace_id, cwd, engine, engine_session_id, provider_id, model_id, reasoning_effort,
@@ -299,9 +301,13 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
             : (value as string | number | null);
       }
       if (sets.length === 0) throw new TypeError('SessionCachePatch 至少要有一个字段');
-      return changed(
-        db.prepare(`UPDATE sessions SET ${sets.join(', ')} WHERE id = :id`).run(params),
-      );
+      const columns = sets.join(', ');
+      let statement = updates.get(columns);
+      if (statement === undefined) {
+        statement = db.prepare(`UPDATE sessions SET ${columns} WHERE id = :id`);
+        updates.set(columns, statement);
+      }
+      return changed(statement.run(params));
     },
     countOpenByWorkspace: (workspaceId) =>
       integer(countOpenByWorkspace.get(workspaceId) ?? {}, 'n'),

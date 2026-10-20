@@ -24,6 +24,11 @@ export interface EventRepository {
   insert(event: EventRecord): void;
   /** 按 `seq` 升序读取 `seq > afterSeq`（默认 0，即从头）的事件，最多 `limit` 条（默认不限）。 */
   list(sessionId: string, options?: { afterSeq?: number; limit?: number }): EventRecord[];
+  /**
+   * 同 `list`（不限条数），但逐行读出，不把结果一次全读进内存：长会话从头重放时内存不随会话长度涨。迭代完（或中途放弃）之前别再
+   * 调用它。
+   */
+  iterate(sessionId: string, options?: { afterSeq?: number }): IterableIterator<EventRecord>;
   /** 会话里最大的 `seq`；没有事件时为 0。 */
   lastSeq(sessionId: string): number;
   /** 每个会话的事件 payload 的字节数之和（0.43.0，`session.usage`）；没有事件的会话不在里面。 */
@@ -41,6 +46,7 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
   // LIMIT -1 表示不限。
   const list = db.prepare(`
     SELECT * FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?`);
+  const iterate = db.prepare('SELECT * FROM events WHERE session_id = ? AND seq > ? ORDER BY seq');
   const lastSeq = db.prepare(
     'SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE session_id = ?',
   );
@@ -65,6 +71,10 @@ export function createEventRepository(db: SqliteDatabase): EventRepository {
     },
     list(sessionId, options) {
       return list.all(sessionId, options?.afterSeq ?? 0, options?.limit ?? -1).map(fromRow);
+    },
+    *iterate(sessionId, options) {
+      // for…of 在中途放弃时调用行迭代器的 return()，语句随之复位，不留着读事务。
+      for (const row of iterate.iterate(sessionId, options?.afterSeq ?? 0)) yield fromRow(row);
     },
     lastSeq: (sessionId) => integer(lastSeq.get(sessionId) ?? {}, 'seq'),
     payloadBytes() {

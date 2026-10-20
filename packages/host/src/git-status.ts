@@ -7,7 +7,7 @@ import {
   WORKSPACE_GIT_MAX_FILES,
   type WorkspaceGitResult,
 } from '@wevir/protocol';
-import { safeConfig } from './git-diff.js';
+import { safeConfig, splitRawNumstat } from './git-diff.js';
 
 /** 每条 git 命令的时限；超时按“不是仓库”处理。 */
 const TIMEOUT_MS = 5_000;
@@ -35,7 +35,7 @@ export function readGitStatus(root: string): Promise<WorkspaceGitResult> {
 async function read(root: string): Promise<WorkspaceGitResult> {
   const config = await safeConfig(root, TIMEOUT_MS).catch(() => undefined);
   if (config === undefined) return NOT_REPO;
-  const git = (args: string[]) => run(root, config, args);
+  const git = (args: string[], maxBuffer?: number) => run(root, config, args, maxBuffer);
   const inside = await git(['rev-parse', '--is-inside-work-tree']);
   if (inside?.trim() !== 'true') return NOT_REPO;
 
@@ -46,13 +46,14 @@ async function read(root: string): Promise<WorkspaceGitResult> {
   const hasHead = head !== undefined && head.trim() !== '';
   // 还没有提交时（新仓库、孤立分支）只能比较暂存区。
   const base = hasHead ? ['HEAD', '--'] : ['--cached', '--'];
-  const [numstat, nameStatus, untracked] = await Promise.all([
-    git(['diff', '--numstat', '-z', ...DIFF_ARGS, ...base]),
-    git(['diff', '--name-status', '-z', ...DIFF_ARGS, ...base]),
+  const [diff, untracked] = await Promise.all([
+    // numstat 与 name-status 一次跑出（`splitRawNumstat`），上限也按两份算。
+    git(['diff', '--raw', '--numstat', '-z', ...DIFF_ARGS, ...base], MAX_BUFFER * 2),
     git(['ls-files', '--others', '--exclude-standard', '-z']),
   ]);
-  if (numstat === undefined || nameStatus === undefined || untracked === undefined) return NOT_REPO;
+  if (diff === undefined || untracked === undefined) return NOT_REPO;
 
+  const { numstat, nameStatus } = splitRawNumstat(diff);
   const lines = parseNumstat(numstat);
   const statuses = parseNameStatus(nameStatus);
   const tracked: GitFileChange[] = lines.map(({ path, added, removed }) => ({
@@ -76,7 +77,12 @@ async function read(root: string): Promise<WorkspaceGitResult> {
 }
 
 /** 跑一条 git 命令，成功时是 stdout，失败（退出码非 0、没有 git、超时）时是 undefined。 */
-function run(cwd: string, config: readonly string[], args: string[]): Promise<string | undefined> {
+function run(
+  cwd: string,
+  config: readonly string[],
+  args: string[],
+  maxBuffer = MAX_BUFFER,
+): Promise<string | undefined> {
   return new Promise((resolve) => {
     execFile(
       'git',
@@ -86,7 +92,7 @@ function run(cwd: string, config: readonly string[], args: string[]): Promise<st
         env: gitEnv(),
         encoding: 'utf8',
         timeout: TIMEOUT_MS,
-        maxBuffer: MAX_BUFFER,
+        maxBuffer,
         windowsHide: true,
       },
       (error, stdout) => resolve(error ? undefined : stdout),

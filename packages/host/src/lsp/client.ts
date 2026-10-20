@@ -13,19 +13,26 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { type FSWatcher, watch } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import {
-  CancellationTokenSource,
-  createProtocolConnection,
-  type Diagnostic,
-  type InitializeResult,
-  type ProtocolConnection,
-  type ServerCapabilities,
-  StreamMessageReader,
-  StreamMessageWriter,
+import type {
+  Diagnostic,
+  InitializeResult,
+  ProtocolConnection,
+  ServerCapabilities,
 } from 'vscode-languageserver-protocol/node';
 import { languageId, type ServerLaunch } from './servers.js';
+
+type LspProtocol = typeof import('vscode-languageserver-protocol/node');
+
+let protocol: LspProtocol | undefined;
+
+/** vscode-languageserver-protocol（CommonJS）在第一次起语言服务器时才加载：Host 启动时不必为没用到的 LSP 工具付出加载时间与内存。 */
+function lspProtocol(): LspProtocol {
+  protocol ??= createRequire(import.meta.url)('vscode-languageserver-protocol/node') as LspProtocol;
+  return protocol;
+}
 
 export type { Diagnostic };
 
@@ -191,6 +198,7 @@ export class LspClient {
         if (this.#process.pid === undefined) gone(null, null);
       });
     });
+    const { createProtocolConnection, StreamMessageReader, StreamMessageWriter } = lspProtocol();
     this.#connection = createProtocolConnection(
       new StreamMessageReader(this.#process.stdout),
       new StreamMessageWriter(this.#process.stdin),
@@ -318,7 +326,7 @@ export class LspClient {
   async request<T>(method: string, params: unknown, timeoutMs: number): Promise<T> {
     if (this.#exited) throw new LspRequestError(`${this.label} is not running.`);
     this.usedAt = Date.now();
-    const source = new CancellationTokenSource();
+    const source = new (lspProtocol().CancellationTokenSource)();
     try {
       return await this.#guard(
         this.#connection.sendRequest<T>(method, params, source.token),

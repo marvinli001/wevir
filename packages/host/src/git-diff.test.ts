@@ -23,6 +23,7 @@ import {
   readDiffFile,
   readUncommitted,
   splitPatch,
+  splitRawNumstat,
   UNTRACKED_MAX_FILES,
 } from './git-diff.js';
 import { useTempDir } from './test-utils.js';
@@ -330,6 +331,21 @@ describe('解析', () => {
       ['y', 'copied'],
       ['d', 'deleted'],
     ]);
+  });
+
+  it('raw 加 numstat 一次的输出拆回 name-status 与 numstat 两份', () => {
+    const raw =
+      ':100644 100644 1111111 0000000 M\0:odd.txt\0' +
+      ':100644 100644 2222222 3333333 R087\0old\0new\0' +
+      ':000000 100644 0000000 4444444 A\0' +
+      '1\t2\tlooks like numstat\0' +
+      ':100644 100644 5555555 6666666 C100\0x\0y\0';
+    const numstat = '3\t1\t:odd.txt\0' + '0\t0\t\0old\0new\0' + '1\t0\t1\t2\tlooks like numstat\0';
+    expect(splitRawNumstat(raw + numstat)).toEqual({
+      nameStatus: 'M\0:odd.txt\0R087\0old\0new\0A\0' + '1\t2\tlooks like numstat\0C100\0x\0y\0',
+      numstat,
+    });
+    expect(splitRawNumstat('')).toEqual({ nameStatus: '', numstat: '' });
   });
 
   it('补丁按文件切开，认出每段的文件', () => {
