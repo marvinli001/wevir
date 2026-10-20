@@ -148,8 +148,9 @@ function run(): void {
 
   // Host 与窗口并行准备。首次只尝试一次，失败时 getHostConnection 把原因交给渲染进程显示；之后拥有的 Host
   // 意外退出由 HostLifecycle 重新拉起，状态经 hostStatus 推给渲染进程（T5.5）。
+  // 在这里（app ready 之前）就拉起：Host 是打开后可用的关键路径，身份文件并行读，只有探活的 hello 等它。
   const host = (async () => {
-    const identity = await loadDesktopIdentity(home);
+    const identity = loadDesktopIdentity(home);
     // Host 跑在 Electron 自带的 Node 上，用户不用装 Node（ADR-0007 决策 4）。
     const runtime = hostRuntime();
     const lifecycle = new HostLifecycle({
@@ -169,12 +170,19 @@ function run(): void {
         mainWindow.webContents.send(IPC_CHANNELS.hostStatus, status);
       }
     });
-    return { identity, lifecycle };
+    void lifecycle
+      .start()
+      .then(() => mark('hostReady'))
+      .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+    try {
+      return { identity: await identity, lifecycle };
+    } catch (error) {
+      // 读不了身份就同连 HostLifecycle 都建不起来一样（setupFailure）；已经拉起的 Host 停掉。
+      void lifecycle.stop();
+      throw error;
+    }
   })();
-  void host
-    .then(({ lifecycle }) => lifecycle.start())
-    .then(() => mark('hostReady'))
-    .catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
+  void host.catch((error: unknown) => log('error', 'host unavailable', { error: String(error) }));
   /** 连 HostLifecycle 都建不起来（找不到 Node、Host 没有构建）时，界面看到的状态。 */
   const setupFailure = (error: unknown): HostProcessStatus => ({
     phase: 'failed',
