@@ -11,10 +11,12 @@ import { useTranscript } from '@/data/workbench-data';
 import { useEnvironments } from '@/environments/environments';
 import { t } from '@/i18n';
 import { workspaceLabel } from '@/projects/chats';
+import { useCompactAction } from '@/session/compact-action';
+import { isBusy } from '@/session/composer';
 import { ContextBar } from './context-bar';
-import { ContextBreakdown } from './context-breakdown';
+import { ContextDetails } from './context-breakdown';
 import { usePanes } from './pane-controller';
-import { abbreviateHome, contextUsage, formatTokens, parentDirectory } from './rail-model';
+import { abbreviateHome, contextUsage, parentDirectory } from './rail-model';
 import { type RailContext, registerRailCard } from './session-rail';
 
 const COPIED_MS = 1500;
@@ -111,34 +113,22 @@ registerRailCard({
 
 function useContextCard({ sessionId, session, providers }: RailContext) {
   const state = useTranscript(sessionId);
+  const onCompact = useCompactAction(sessionId);
   const usage = contextUsage(state?.transcript.usage, session, providers);
   if (!usage) return null;
-  const size = formatTokens(usage.size);
   return {
     summary: (
       <>
         <span className="tabular-nums">{usage.percent}%</span>
-        <ContextBar usage={usage} mark={false} className="w-8" />
+        <ContextBar usage={usage} mark={false} className="h-2 w-6" />
       </>
     ),
     details: (
-      <div data-testid="rail-context">
-        <div className="flex items-baseline justify-between gap-2">
-          <span>{t('rail.context.used', { percent: usage.percent })}</span>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {formatTokens(usage.used)} /{' '}
-            {usage.estimated ? t('rail.context.approx', { size }) : size}
-          </span>
-        </div>
-        <ContextBar usage={usage} className="mt-2" />
-        {usage.autoCompactAt !== undefined && (
-          <div className="mt-2 flex justify-between gap-2 text-xs text-muted-foreground">
-            <span>{t('rail.context.autoCompact')}</span>
-            <span className="tabular-nums">{formatTokens(usage.autoCompactAt)}</span>
-          </div>
-        )}
-        <ContextBreakdown breakdown={usage.breakdown} />
-      </div>
+      <ContextDetails
+        usage={usage}
+        busy={isBusy(session.state)}
+        {...(onCompact && { onCompact })}
+      />
     ),
   };
 }

@@ -1,16 +1,16 @@
 // 输入框底栏的上下文用量表（0.29.0，照 Codex 桌面端与 T3 Code）：一个随用量填满的圆环，悬停或点开是用量、累计用量、
-// 自动压缩的线与“压缩上下文”按钮。圆环与弹层的结构照 T3 Code 的 apps/web/src/components/chat/ContextWindowMeter.tsx
-// （MIT，ec1313c）改写；用量的推导用会话侧栏的 contextUsage（layout/rail-model.ts），token 数用 formatTokens。
+// 离自动压缩还有多少与“压缩上下文”按钮（会话侧栏“上下文”卡片的 ContextDetails，只画条与最后一行）。圆环与弹层的结构照
+// T3 Code 的 apps/web/src/components/chat/ContextWindowMeter.tsx（MIT，ec1313c）改写；用量的推导用会话侧栏的 contextUsage
+// （layout/rail-model.ts）。
 
 import type { ProviderProfile, Session } from '@wevir/protocol';
 import { cn } from 'cn';
-import { FoldVertical } from 'lucide-react';
 import { useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useTranscript } from '@/data/workbench-data';
 import { t } from '@/i18n';
-import { ContextBar } from '@/layout/context-bar';
-import { type ContextUsage, contextUsage, formatTokens } from '@/layout/rail-model';
+import { ContextDetails } from '@/layout/context-breakdown';
+import { type ContextUsage, contextUsage } from '@/layout/rail-model';
 import { composerPrefs } from './composer-prefs';
 
 const TONE_TEXT: Record<ContextUsage['tone'], string> = {
@@ -43,7 +43,6 @@ export function ContextMeter({
   const [open, setOpen] = useState(false);
   const shown = composerPrefs.use().showContext;
   if (!usage || !shown) return null;
-  const size = formatTokens(usage.size);
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
@@ -86,48 +85,20 @@ export function ContextMeter({
         side="top"
         align="center"
         sideOffset={8}
-        className="w-64 gap-2 p-3 text-xs"
+        className="w-64 p-3 text-sm"
         data-testid="context-meter-popover"
       >
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="font-medium text-sm">{t('rail.context')}</span>
-          <span className="text-muted-foreground tabular-nums">
-            {t('rail.context.used', { percent: usage.percent })} · {formatTokens(usage.used)} /{' '}
-            {usage.estimated ? t('rail.context.approx', { size }) : size}
-          </span>
-        </div>
-        <ContextBar usage={usage} />
-        {(usage.total !== undefined || usage.autoCompactAt !== undefined) && (
-          <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 text-muted-foreground">
-            {usage.autoCompactAt !== undefined && (
-              <>
-                <dt>{t('rail.context.autoCompact')}</dt>
-                <dd className="tabular-nums">{formatTokens(usage.autoCompactAt)}</dd>
-              </>
-            )}
-            {usage.total !== undefined && (
-              <>
-                <dt>{t('rail.context.total')}</dt>
-                <dd className="tabular-nums">{formatTokens(usage.total)}</dd>
-              </>
-            )}
-          </dl>
-        )}
-        {onCompact && (
-          <button
-            type="button"
-            disabled={busy}
-            data-testid="context-meter-compact"
-            onClick={() => {
+        <ContextDetails
+          usage={usage}
+          compact
+          busy={busy}
+          {...(onCompact && {
+            onCompact: () => {
               setOpen(false);
               onCompact();
-            }}
-            className="pressable mt-1 inline-flex h-7 items-center justify-center gap-1.5 rounded-lg border border-border px-2.5 text-xs outline-none transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
-          >
-            <FoldVertical aria-hidden className="size-3.5" />
-            {t('command.compact')}
-          </button>
-        )}
+            },
+          })}
+        />
       </PopoverContent>
     </Popover>
   );

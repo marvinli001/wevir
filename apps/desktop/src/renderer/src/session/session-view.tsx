@@ -46,6 +46,7 @@ import { movePaneScope } from '@/layout/pane-store';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
 import { ApprovalDock } from './approval-card';
+import { useRegisterCompact } from './compact-action';
 import {
   Composer,
   type ComposerPlan,
@@ -67,6 +68,7 @@ import { type ModelChoice, ModelPicker } from './model-picker';
 import { NewSessionHero, NewSessionLayout } from './new-session';
 import { OllamaContextNotice } from './ollama-context-notice';
 import { PendingArea } from './pending-area';
+import { steersInline } from './pending-model';
 import { PermissionPicker, usePermissionChoice } from './permission-picker';
 import { usePlanControl } from './plan-mode';
 import { suggestionsEnabled, visibleSuggestion } from './prompt-suggestion';
@@ -579,6 +581,8 @@ export function SessionView({
         : undefined,
     [canCompact, runCommand, client, session.id],
   );
+  // 会话侧栏的“上下文”卡片也有“压缩上下文”（compact-action.ts）。
+  useRegisterCompact(session.id, onCompact);
   const onReview = useMemo(
     () =>
       client && canReview
@@ -812,6 +816,7 @@ export function SessionView({
               <PendingArea
                 sessionId={session.id}
                 pending={transcript.pendingMessages}
+                steerInline={steersInline(transcript)}
                 state={sessionState}
                 client={client}
                 onError={setNotice}

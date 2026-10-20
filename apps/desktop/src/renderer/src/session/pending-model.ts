@@ -1,5 +1,12 @@
-import type { MessageFrom, PendingDelivery, PendingMessage, SessionState } from '@wevir/protocol';
+import type {
+  MessageFrom,
+  PendingDelivery,
+  PendingMessage,
+  SessionState,
+  TurnId,
+} from '@wevir/protocol';
 import { t } from '@/i18n';
+import { isActiveTurn } from './turn-model';
 
 // 回合进行中发消息（R11，domain-model §3.3.2、§4.6）的纯逻辑：待发区的分组、说法与输入框的按键。
 
@@ -46,6 +53,17 @@ export function processNoticeLabel(process: NonNullable<MessageFrom['process']>)
 export function noticeLabel(from: MessageFrom, title: string): string {
   if (from.process !== undefined) return processNoticeLabel(from.process);
   return t(from.kind === 'report' ? 'transcript.reportFrom' : 'transcript.fromSession', { title });
+}
+
+/**
+ * 插话画在消息流里进行中的回合末尾（transcript-view.tsx），待发区不再列：有进行中的回合时为 true。没有时（理应不会，插话只在
+ * 回合进行中才有）仍列在待发区，免得看不见。
+ */
+export function steersInline(transcript: {
+  activeTurnId: TurnId | undefined;
+  state: SessionState | undefined;
+}): boolean {
+  return transcript.activeTurnId !== undefined && isActiveTurn(transcript.activeTurnId, transcript);
 }
 
 export function otherDelivery(delivery: PendingDelivery): PendingDelivery {

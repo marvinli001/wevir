@@ -1,5 +1,5 @@
 import type { ChatPart, ChatPartOf, SystemChatMessage, UserChatMessage } from '@wevir/client-sdk';
-import type { MessageFrom, TurnCommand } from '@wevir/protocol';
+import type { MessageFrom, PendingMessage, TurnCommand } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ArrowLeftRight,
@@ -28,7 +28,7 @@ import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
-import { processNoticeLabel } from './pending-model';
+import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
 import { SharedFilesCard } from './shared-files-card';
 import { SubagentRow } from './subagent-marker';
@@ -108,6 +108,31 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 交给模型、还没插进回合的插话（R11），照 Claude 桌面端画在进行中的回合末尾：同用户消息的气泡，下面一直显示“复制”与“已提交”。
+ * 插进回合后由那条 `steered` 的用户消息接替；回合结束前没插成的转为排队，回到输入框上方的待发区。
+ */
+export function PendingSteerMessage({ message }: { message: PendingMessage }) {
+  const text = pendingText(message);
+  const images = message.content.flatMap((part) => (part.type === 'image' ? [part] : []));
+  return (
+    <div
+      className="flex flex-col items-end animate-in fade-in slide-in-from-bottom-1 duration-200 ease-smooth"
+      data-message-role="user"
+      data-pending-steer={message.id}
+    >
+      {images.length > 0 && (
+        <MessageImages images={images} className={text !== '' ? 'mb-1.5' : undefined} />
+      )}
+      {text !== '' && <UserBubble text={text} />}
+      <div className="mt-1 flex h-6 items-center gap-0.5">
+        {text !== '' && <CopyButton text={text} className="text-muted-foreground" />}
+        <span className="px-1 text-xs text-muted-foreground">{t('pending.steerLocked')}</span>
+      </div>
     </div>
   );
 }

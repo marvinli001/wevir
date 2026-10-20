@@ -139,7 +139,7 @@ export const messages: Messages = {
   'rail.context.used': '{percent}% 使用',
   'rail.context.approx': '約 {size}',
   'rail.context.total': '累計使用量',
-  'rail.context.autoCompact': '自動圧縮のしきい値',
+  'rail.context.untilAutoCompact': '自動圧縮まで {size}',
   'rail.context.meter': 'コンテキスト {percent}% 使用',
   'rail.context.cat.messages': 'メッセージ',
   'rail.context.cat.systemPrompt': 'システムプロンプト',

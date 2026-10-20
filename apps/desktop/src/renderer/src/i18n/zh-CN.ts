@@ -146,7 +146,7 @@ export const zhCN = {
   'rail.context.used': '已用 {percent}%',
   'rail.context.approx': '约 {size}',
   'rail.context.total': '累计用量',
-  'rail.context.autoCompact': '自动压缩阈值',
+  'rail.context.untilAutoCompact': '距自动压缩 {size}',
   'rail.context.meter': '上下文已用 {percent}%',
   'rail.context.cat.messages': '消息',
   'rail.context.cat.systemPrompt': '系统提示',
