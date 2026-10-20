@@ -11,6 +11,7 @@ import { describe } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { IS_MAC } from '@/lib/shortcuts';
 import { MarkdownView } from '@/session/markdown/markdown-view';
+import { IMPORT_APP_LABEL } from '@/settings/import-model';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
 import { removeSkill, setSkillEnabled } from './plugin-actions';
 import { DetailActions, DetailSection, ExpandableRow, MonoBlock } from './plugin-rows';
@@ -72,7 +73,9 @@ function SkillRow({
 }) {
   const { client, data, plugins, busy, run } = usePluginsContext();
   const plugin = skill.pluginId === undefined ? undefined : plugins.get(skill.pluginId);
-  const origin = originName(skill.pluginId, plugins);
+  const origin =
+    originName(skill.pluginId, plugins) ??
+    (skill.importedFrom && t(IMPORT_APP_LABEL[skill.importedFrom.app]));
   // 名称后面的小字：来自哪个插件；项目 Skills 写项目文件夹名。
   const note =
     origin !== undefined

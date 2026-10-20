@@ -168,6 +168,16 @@ describe('编辑', () => {
     expect(remote.headers).toMatchObject([{ key: 'Authorization', existing: true }]);
   });
 
+  it('散装连接器待填的键标成 missing，插件的输入项不算', () => {
+    const form = formFromConnector({ ...stdioConnector, missingInputs: ['TOKEN'] });
+    expect(form.env.map((row) => [row.key, row.missing === true])).toEqual([
+      ['TOKEN', true],
+      ['REGION', false],
+    ]);
+    const owned = formFromConnector({ ...stdioConnector, pluginId: 'p', missingInputs: ['TOKEN'] });
+    expect(owned.env.some((row) => row.missing)).toBe(false);
+  });
+
   it('没改动时补丁只有命令、参数，密钥一个都不送（留空表示不变）', () => {
     expect(buildPatch(formFromConnector(stdioConnector), stdioConnector)).toEqual({
       config: {

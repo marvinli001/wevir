@@ -35,6 +35,7 @@ import { describe, useHostConnection } from '@/host/host-connection';
 import { currentLocale, t } from '@/i18n';
 import { workspaceLabel } from '@/projects/chats';
 import { useLastLocation } from '@/routes/last-location';
+import { IMPORT_APP_LABEL } from './import-model';
 import {
   autoMemoryOn,
   defaultMemoryWorkspace,
@@ -616,6 +617,16 @@ function MemorySources({ note, onOpened }: { note: MemoryNote; onOpened: () => v
       );
     }
     const time = formatTime(source.at) ?? t('settings.memory.source.timeUnknown');
+    if (source.importedFrom !== undefined) {
+      return (
+        <span title={source.importedFrom.path} data-memory-imported={source.importedFrom.app}>
+          {t('settings.memory.source.imported', {
+            app: t(IMPORT_APP_LABEL[source.importedFrom.app]),
+          })}{' '}
+          · {time}
+        </span>
+      );
+    }
     if (source.by === 'user') return `${t('settings.memory.source.user')} · ${time}`;
     if (source.sessionId === undefined)
       return `${t('settings.memory.source.agentPlain')} · ${time}`;

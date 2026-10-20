@@ -7,6 +7,7 @@ import {
   Folder,
   Globe,
   HardDrive,
+  Import,
   Info,
   Keyboard,
   type LucideIcon,
@@ -28,6 +29,7 @@ import { WindowControls } from '@/layout/window-controls';
 import { AppearanceSettings } from '@/settings/appearance-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
 import { GeneralSettings } from '@/settings/general-settings';
+import { ImportSettings } from '@/settings/import-settings';
 import { MemorySettings } from '@/settings/memory-settings';
 import { NotificationSettingsPage } from '@/settings/notification-settings-page';
 import { ProviderSettings } from '@/settings/provider-settings';
@@ -116,6 +118,18 @@ const TABS: Record<SettingsTab, TabInfo> = {
     icon: Brain,
     keywords: ['settings.memory.auto', 'settings.memory.global'],
   },
+  import: {
+    label: 'settings.tab.import',
+    icon: Import,
+    keywords: [
+      'import.app.claude',
+      'import.app.codex',
+      'import.app.grok',
+      'import.app.antigravity',
+      'settings.import.group.connector',
+      'settings.import.group.skill',
+    ],
+  },
   workspaces: {
     label: 'settings.tab.workspaces',
     icon: Folder,
@@ -144,7 +158,10 @@ const GROUPS: { label: PlainMessageKey; tabs: SettingsTab[] }[] = [
     label: 'settings.group.app',
     tabs: ['general', 'appearance', 'notifications', 'shortcuts', 'storage', 'about'],
   },
-  { label: 'settings.group.work', tabs: ['providers', 'web', 'memory', 'workspaces', 'archived'] },
+  {
+    label: 'settings.group.work',
+    tabs: ['providers', 'web', 'memory', 'import', 'workspaces', 'archived'],
+  },
 ];
 
 /** 打开设置前所在的位置（左栏“设置”链接带上），历史里退无可退时后退回到那里。 */
@@ -321,6 +338,8 @@ function SettingsTabContent({ tab }: { tab: SettingsTab }) {
       return <WebSettingsPage />;
     case 'memory':
       return <MemorySettings />;
+    case 'import':
+      return <ImportSettings />;
     case 'workspaces':
       return <WorkspaceSettings />;
     case 'archived':

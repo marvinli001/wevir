@@ -9,11 +9,19 @@ import { StatusDot } from '@/components/status-dot';
 import { Switch } from '@/components/switch';
 import { Button } from '@/components/ui/button';
 import { t } from '@/i18n';
+import { IMPORT_APP_LABEL } from '@/settings/import-model';
 import { EmptyList, LIST_CARD } from '@/settings/settings-ui';
 import { removeConnector, setConnectorEnabled } from './plugin-actions';
 import { ConfigLine, DetailActions, DetailSection, ExpandableRow, MonoBlock } from './plugin-rows';
 import { usePluginsContext } from './plugins-context';
-import { byName, CONNECTOR_STATE_LABEL, connectorState, originName } from './plugins-model';
+import {
+  byName,
+  CONNECTOR_STATE_LABEL,
+  commandLine,
+  connectorState,
+  missingSecretKeys,
+  originName,
+} from './plugins-model';
 
 export function ConnectorList({
   expanded,
@@ -47,11 +55,25 @@ function ConnectorRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const { client, data, plugins, busy, run } = usePluginsContext();
+  const { client, data, plugins, busy, run, scoped, workspaces, editConnector } =
+    usePluginsContext();
   const plugin = connector.pluginId === undefined ? undefined : plugins.get(connector.pluginId);
   const state = connectorState(connector, plugin);
-  const origin = originName(connector.pluginId, plugins);
+  const origin =
+    originName(connector.pluginId, plugins) ??
+    (connector.importedFrom && t(IMPORT_APP_LABEL[connector.importedFrom.app]));
   const stateLabel = t(CONNECTOR_STATE_LABEL[state.key]);
+  // 名称下面的小字：范围（全局或项目名），来自哪个插件或应用。
+  const scope = scoped
+    ? connector.workspaceId === undefined
+      ? t('plugins.scope.global')
+      : (workspaces.find((entry) => entry.id === connector.workspaceId)?.label ??
+        connector.workspaceId)
+    : undefined;
+  const meta = [scope, origin !== undefined && t('plugins.from', { name: origin })]
+    .filter(Boolean)
+    .join(' · ');
+  const fill = missingSecretKeys(connector).length > 0;
   return (
     <ExpandableRow
       id={connector.id}
@@ -70,22 +92,35 @@ function ConnectorRow({
           </span>
         </>
       }
-      meta={origin !== undefined && t('plugins.from', { name: origin })}
+      meta={meta}
       summary={stateLabel}
       control={
-        <Switch
-          checked={connector.enabled}
-          label={t('plugins.connector.enabled', { name: connector.name })}
-          disabled={plugin?.enabled === false || busy.has(connector.id)}
-          onChange={(next) =>
-            run(
-              connector.id,
-              () => setConnectorEnabled(client, data, connector.id, next),
-              (error) => t('plugins.toggleFailed', { error }),
-            )
-          }
-          data-action="toggle-connector"
-        />
+        <>
+          {fill && (
+            <Button
+              variant="outline"
+              size="xs"
+              className="border-warning/40 text-warning"
+              onClick={() => editConnector(connector)}
+              data-action="fill-connector"
+            >
+              {t('plugins.secret.missing')}
+            </Button>
+          )}
+          <Switch
+            checked={connector.enabled}
+            label={t('plugins.connector.enabled', { name: connector.name })}
+            disabled={plugin?.enabled === false || busy.has(connector.id)}
+            onChange={(next) =>
+              run(
+                connector.id,
+                () => setConnectorEnabled(client, data, connector.id, next),
+                (error) => t('plugins.toggleFailed', { error }),
+              )
+            }
+            data-action="toggle-connector"
+          />
+        </>
       }
     >
       <ConnectorDetail connector={connector} plugin={plugin} />
@@ -96,7 +131,8 @@ function ConnectorRow({
 function ConnectorDetail({ connector, plugin }: { connector: Connector; plugin?: Plugin }) {
   const { client, data, notify, openPlugin, editConnector } = usePluginsContext();
   const [confirming, setConfirming] = useState(false);
-  const missing = connector.missingInputs ?? [];
+  // 插件连接器缺的是插件的输入项；散装的（导入的）缺的是环境变量或请求头的值，在配置里逐键标出。
+  const missing = connector.pluginId === undefined ? [] : (connector.missingInputs ?? []);
   const tools = connector.tools ?? [];
   return (
     <>
@@ -178,14 +214,10 @@ function ConnectorDetail({ connector, plugin }: { connector: Connector; plugin?:
   );
 }
 
-/** 命令与参数的显示写法：带空白的参数加引号（只用于显示）。 */
-function commandLine(command: string, args: readonly string[] = []): string {
-  return [command, ...args.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg))].join(' ');
-}
-
 /** 配置：传输方式对应的字段，环境变量与请求头只有键，值写“已设置”。 */
 function ConnectorConfig({ connector }: { connector: Connector }) {
   const { config } = connector;
+  const missing = new Set(missingSecretKeys(connector));
   const secrets = config.transport === 'stdio' ? config.env : config.headers;
   const secretLabel =
     config.transport === 'stdio' ? t('plugins.field.env') : t('plugins.field.headers');
@@ -213,9 +245,15 @@ function ConnectorConfig({ connector }: { connector: Connector }) {
             {Object.keys(secrets).map((key) => (
               <div key={key} className="flex gap-3">
                 <span className="min-w-0 flex-1">{key}</span>
-                <span className="shrink-0 font-sans text-muted-foreground">
-                  {t('plugins.secret.set')}
-                </span>
+                {missing.has(key) ? (
+                  <span className="shrink-0 font-sans text-warning" data-secret-missing={key}>
+                    {t('plugins.secret.missing')}
+                  </span>
+                ) : (
+                  <span className="shrink-0 font-sans text-muted-foreground">
+                    {t('plugins.secret.set')}
+                  </span>
+                )}
               </div>
             ))}
           </MonoBlock>
