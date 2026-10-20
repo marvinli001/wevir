@@ -15,6 +15,7 @@ import {
   automationRun,
   automationSetEnabled,
   automationShow,
+  automationTestCheck,
   automationUpdate,
   joinMonthlyArgs,
 } from './commands/automation.js';
@@ -51,6 +52,13 @@ const str = (value: string | boolean | undefined): string | undefined =>
 
 const json = { json: { type: 'boolean' } } as const;
 
+/** 检查脚本的选项（0.73.0）：`create`、`update` 与 `test-check` 共用。 */
+const CHECK_OPTIONS: ParseArgsOptionsConfig = {
+  check: { type: 'string' },
+  wake: { type: 'string' },
+  'check-timeout': { type: 'string' },
+};
+
 /** `automation create` 与 `update` 共用的选项。 */
 const AUTOMATION_OPTIONS: ParseArgsOptionsConfig = {
   title: { type: 'string' },
@@ -68,6 +76,8 @@ const AUTOMATION_OPTIONS: ParseArgsOptionsConfig = {
   permission: { type: 'string' },
   notify: { type: 'string' },
   'same-session': { type: 'boolean' },
+  session: { type: 'string' },
+  ...CHECK_OPTIONS,
   ...json,
 };
 
@@ -92,6 +102,11 @@ const AUTOMATION_FLAG_KEYS = {
   notify: 'notify',
   'same-session': 'sameSession',
   'new-session': 'newSession',
+  session: 'session',
+  check: 'check',
+  wake: 'wake',
+  'check-timeout': 'checkTimeout',
+  'no-check': 'noCheck',
   disabled: 'disabled',
 } as const satisfies Record<string, keyof AutomationFlags>;
 
@@ -365,6 +380,7 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
         'default-model': { type: 'boolean' },
         'default-effort': { type: 'boolean' },
         'new-session': { type: 'boolean' },
+        'no-check': { type: 'boolean' },
       },
       positionals: { min: 1, max: 1 },
       rewriteArgs: joinMonthlyArgs,
@@ -394,6 +410,15 @@ const COMMANDS: Record<string, Record<string, CommandDef>> = {
       options: json,
       positionals: { min: 1, max: 1 },
       run: (ctx, v, [id]) => automationRun(ctx, id as string, { json: v.json === true }),
+    },
+    'test-check': {
+      summary: 'cmd.automation.testCheck.summary',
+      usage: 'cmd.automation.testCheck.usage',
+      help: 'cmd.automation.testCheck.help',
+      options: { ...CHECK_OPTIONS, ...json },
+      positionals: { min: 1, max: 1 },
+      run: (ctx, v, [id]) =>
+        automationTestCheck(ctx, id as string, automationFlags(v), { json: v.json === true }),
     },
     delete: {
       summary: 'cmd.automation.delete.summary',

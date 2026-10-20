@@ -312,6 +312,12 @@ export const HOST_FEATURES = {
    * `user_questions` 时声明。
    */
   questionTimeout: 'question_timeout',
+  /**
+   * 自动化的条件与目标（0.73.0）：`automation.create` / `update` 的 `sessionId`（发进已有会话）与 `check`（检查脚本决定唤不唤醒
+   * Agent）、`automation.testCheck`、运行状态 `checking` / `silent`、通知 `changes` 与连续失败自动停用（`autoPausedAt`）。
+   * 有 `automations` 时声明。
+   */
+  automationConditions: 'automation_conditions',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -376,6 +382,7 @@ export const HostFeaturesSchema = z.looseObject({
   workspace_readiness: z.boolean().optional(),
   lsp_status: z.boolean().optional(),
   question_timeout: z.boolean().optional(),
+  automation_conditions: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

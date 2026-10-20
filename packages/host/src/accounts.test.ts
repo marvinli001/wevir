@@ -179,6 +179,7 @@ describe('ChatGPT 账号（account.*）', () => {
       session_goals: true,
       usage_stats: true,
       automations: true,
+      automation_conditions: true,
       user_images: true,
       plan_mode: true,
     });
@@ -230,6 +231,7 @@ describe('ChatGPT 账号（account.*）', () => {
       session_goals: true,
       usage_stats: true,
       automations: true,
+      automation_conditions: true,
       user_images: true,
       plan_mode: true,
     });

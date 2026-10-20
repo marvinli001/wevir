@@ -1,8 +1,11 @@
 import { resolve } from 'node:path';
 import type { WevirClient } from '@wevir/client-sdk';
 import {
+  AUTOMATION_CHECK_MAX_TIMEOUT_SECONDS,
   AUTOMATION_MIN_INTERVAL_MINUTES,
   type Automation,
+  type AutomationCheck,
+  type AutomationCheckResult,
   type AutomationNotify,
   AutomationNotifySchema,
   type AutomationRun,
@@ -10,6 +13,8 @@ import {
   type MethodParams,
   type PermissionMode,
   PermissionModeSchema,
+  type SessionId,
+  SessionIdSchema,
   type WorkspaceId,
   WorkspaceIdSchema,
 } from '@wevir/protocol';
@@ -42,6 +47,13 @@ export interface AutomationFlags {
   notify?: string;
   sameSession?: boolean;
   newSession?: boolean;
+  /** 发进这个已有会话（0.73.0）。 */
+  session?: string;
+  /** 检查脚本（0.73.0）。 */
+  check?: string;
+  wake?: string;
+  checkTimeout?: string;
+  noCheck?: boolean;
   disabled?: boolean;
 }
 
@@ -222,11 +234,61 @@ export function parseNotify(value: string): AutomationNotify {
   return parsed.data;
 }
 
+/** `--wake`：`exit-code`（默认）或 `output-changed`。 */
+export function parseWake(value: string | undefined): AutomationCheck['wake'] {
+  const word = (value ?? 'exit-code').trim().toLowerCase().replaceAll('-', '_');
+  if (word === 'exit_code' || word === 'output_changed') return word;
+  throw new UsageError(t('automation.badWake', { value: value ?? '' }));
+}
+
+/** `--check` / `--wake` / `--check-timeout` 换成 `AutomationCheck`；没给 `--check` 时 undefined。 */
+export function parseCheck(flags: AutomationFlags): AutomationCheck | undefined {
+  if (flags.check === undefined) {
+    if (flags.wake !== undefined || flags.checkTimeout !== undefined) {
+      throw new UsageError(t('automation.checkOptionsNeedCheck'));
+    }
+    return undefined;
+  }
+  const command = flags.check.trim();
+  if (command === '') throw new UsageError(t('automation.missingCheck'));
+  let timeoutSeconds: number | undefined;
+  if (flags.checkTimeout !== undefined) {
+    timeoutSeconds = Number(flags.checkTimeout.trim());
+    if (
+      !Number.isInteger(timeoutSeconds) ||
+      timeoutSeconds < 1 ||
+      timeoutSeconds > AUTOMATION_CHECK_MAX_TIMEOUT_SECONDS
+    ) {
+      throw new UsageError(
+        t('automation.badCheckTimeout', {
+          value: flags.checkTimeout,
+          max: AUTOMATION_CHECK_MAX_TIMEOUT_SECONDS,
+        }),
+      );
+    }
+  }
+  return {
+    command,
+    wake: parseWake(flags.wake),
+    ...(timeoutSeconds !== undefined && { timeoutSeconds }),
+  };
+}
+
+function parseSessionId(value: string): SessionId {
+  const id = value.trim();
+  if (!SessionIdSchema.safeParse(id).success) {
+    throw new UsageError(t('automation.badSession', { value }));
+  }
+  return id as SessionId;
+}
+
 interface CommonFields {
   title?: string;
   schedule?: AutomationSchedule;
   permissionMode?: PermissionMode;
   notify?: AutomationNotify;
+  sessionId?: SessionId;
+  check?: AutomationCheck;
 }
 
 /** `create` / `update` 共同的检查与换算；用法错误的下一步指向 `command` 的帮助。 */
@@ -237,6 +299,14 @@ function parseCommon(flags: AutomationFlags, command: string): CommonFields {
       ['--model', flags.model !== undefined, '--default-model', flags.defaultModel === true],
       ['--effort', flags.effort !== undefined, '--default-effort', flags.defaultEffort === true],
       ['--same-session', flags.sameSession === true, '--new-session', flags.newSession === true],
+      ['--session', flags.session !== undefined, '--new-session', flags.newSession === true],
+      ['--session', flags.session !== undefined, '--same-session', flags.sameSession === true],
+      ['--session', flags.session !== undefined, '--project', flags.project !== undefined],
+      ['--session', flags.session !== undefined, '--no-project', flags.noProject === true],
+      ['--session', flags.session !== undefined, '--provider', flags.provider !== undefined],
+      ['--session', flags.session !== undefined, '--model', flags.model !== undefined],
+      ['--session', flags.session !== undefined, '--effort', flags.effort !== undefined],
+      ['--check', flags.check !== undefined, '--no-check', flags.noCheck === true],
     ];
     for (const [a, hasA, b, hasB] of pairs) {
       if (hasA && hasB) throw new UsageError(t('automation.conflict', { a, b }));
@@ -244,9 +314,12 @@ function parseCommon(flags: AutomationFlags, command: string): CommonFields {
     const title = flags.title?.trim();
     if (flags.title !== undefined && !title) throw new UsageError(t('automation.missingTitle'));
     const schedule = parseSchedule(flags);
+    const check = parseCheck(flags);
     return {
       ...(title !== undefined && { title }),
       ...(schedule !== undefined && { schedule }),
+      ...(flags.session !== undefined && { sessionId: parseSessionId(flags.session) }),
+      ...(check !== undefined && { check }),
       ...(flags.permission !== undefined && { permissionMode: parsePermission(flags.permission) }),
       ...(flags.notify !== undefined && { notify: parseNotify(flags.notify) }),
     };
@@ -342,13 +415,21 @@ export function scheduleLabel(schedule: AutomationSchedule): string {
   }
 }
 
+function checkText(check: AutomationCheck): string {
+  return `${check.command}${t('common.parenAfter', { text: t(`automation.wake.${check.wake}`) })}`;
+}
+
 const runStatusLabel = (run: AutomationRun): string =>
   run.quiet && run.status === 'completed'
     ? t('automation.run.quiet')
     : t(`automation.run.${run.status}`);
 
 const stateText = (automation: Automation): string =>
-  automation.enabled ? t('automation.state.enabled') : t('automation.state.disabled');
+  automation.enabled
+    ? t('automation.state.enabled')
+    : automation.autoPausedAt !== undefined
+      ? t('automation.state.autoPaused')
+      : t('automation.state.disabled');
 
 function modelText(automation: Automation): string {
   return `${automation.providerId}/${automation.modelId ?? t('automation.defaultModel')}`;
@@ -435,6 +516,10 @@ export async function automationShow(
       ],
       [t('automation.field.notify'), t(`automation.notify.${automation.notify}`)],
       [
+        t('automation.field.check'),
+        automation.check === undefined ? '-' : checkText(automation.check),
+      ],
+      [
         t('automation.field.creator'),
         automation.createdBy.kind === 'user'
           ? t('automation.creator.user')
@@ -470,7 +555,7 @@ export async function automationShow(
             t(`automation.trigger.${run.trigger}`),
             runStatusLabel(run),
             run.sessionId ?? '-',
-            truncate(run.error ?? run.summary ?? '', 50),
+            truncate(run.error ?? run.summary ?? run.check?.output.trim() ?? '', 50),
           ]),
       ),
     );
@@ -506,7 +591,7 @@ export async function automationCreate(
   options: OutputOptions,
 ): Promise<number> {
   const parsed = parseCommon(flags, 'automation create');
-  const { title, permissionMode, notify } = parsed;
+  const { title, permissionMode, notify, sessionId, check } = parsed;
   if (title === undefined) {
     throw new UsageError(
       t('automation.missingTitle'),
@@ -516,15 +601,29 @@ export async function automationCreate(
   const schedule = parsed.schedule ?? { kind: 'manual' };
   const prompt = await readPrompt(ctx, words);
   return withAutomations(ctx, async (client) => {
+    if (
+      (sessionId !== undefined || check !== undefined) &&
+      !client.supports('automation_conditions')
+    ) {
+      throw new CliError(
+        t('automation.conditionsUnsupported', { version: client.hello.hostVersion }),
+        t('automation.unsupported.hint'),
+      );
+    }
     const workspaceId =
       flags.project === undefined ? undefined : await resolveProject(ctx, client, flags.project);
-    const { providers } = await client.request('provider.list');
-    const provider = pickProvider(providers, flags.provider);
+    let providerId: string | undefined;
+    if (sessionId === undefined) {
+      const { providers } = await client.request('provider.list');
+      providerId = pickProvider(providers, flags.provider).id;
+    }
     const params: MethodParams<'automation.create'> = {
       title,
       prompt,
       schedule,
-      providerId: provider.id,
+      ...(providerId !== undefined && { providerId }),
+      ...(sessionId !== undefined && { sessionId }),
+      ...(check !== undefined && { check }),
       ...(flags.timezone !== undefined && { timezone: flags.timezone }),
       ...(flags.disabled === true && { enabled: false }),
       ...(workspaceId !== undefined && { workspaceId }),
@@ -548,7 +647,10 @@ export async function automationUpdate(
   flags: AutomationFlags,
   options: OutputOptions,
 ): Promise<number> {
-  const { title, schedule, permissionMode, notify } = parseCommon(flags, 'automation update');
+  const { title, schedule, permissionMode, notify, sessionId, check } = parseCommon(
+    flags,
+    'automation update',
+  );
   const prompt = flags.prompt === undefined ? undefined : await readPrompt(ctx, [flags.prompt]);
   return withAutomations(ctx, async (client) => {
     const found = await resolveAutomation(client, id);
@@ -570,6 +672,11 @@ export async function automationUpdate(
       ...(permissionMode !== undefined && { permissionMode }),
       ...(flags.sameSession === true && { newSessionEachRun: false }),
       ...(flags.newSession === true && { newSessionEachRun: true }),
+      ...(flags.newSession === true &&
+        client.supports('automation_conditions') && { sessionId: null }),
+      ...(sessionId !== undefined && { sessionId }),
+      ...(check !== undefined && { check }),
+      ...(flags.noCheck === true && { check: null }),
       ...(notify !== undefined && { notify }),
     };
     if (Object.keys(params).length === 1) {
@@ -629,7 +736,12 @@ export async function automationRun(
     if (failed) {
       throw new CliError(t('automation.runFailed', { error: run.error ?? run.status }));
     }
-    ctx.print(t('automation.runStarted', { title: found.title, id: run.id }));
+    ctx.print(
+      t(run.status === 'checking' ? 'automation.runChecking' : 'automation.runStarted', {
+        title: found.title,
+        id: run.id,
+      }),
+    );
     if (run.sessionId !== undefined) {
       ctx.print(ctx.styles.dim(t('error.hint', { hint: `wevir session attach ${run.sessionId}` })));
     }
@@ -643,5 +755,58 @@ export async function automationDelete(ctx: Context, id: string): Promise<number
     await client.request('automation.delete', { automationId: found.id });
     ctx.print(t('automation.deleted', { title: found.title, id: found.id }));
     return EXIT.ok;
+  });
+}
+
+function printCheckResult(ctx: Context, result: AutomationCheckResult): void {
+  ctx.print(
+    `${t(`automation.check.${result.decision}`)}  ${ctx.styles.dim(
+      t('automation.check.detail', {
+        exit: result.exitCode === null ? '-' : String(result.exitCode),
+        seconds: (result.durationMs / 1000).toFixed(1),
+      }),
+    )}`,
+  );
+  if (result.error !== undefined) ctx.print(ctx.styles.dim(result.error));
+  if (result.output.trim() !== '') {
+    ctx.print();
+    if (result.truncated === true) ctx.print(ctx.styles.dim(t('automation.check.truncated')));
+    for (const line of result.output.replace(/\n$/, '').split('\n')) ctx.print(`  ${line}`);
+  }
+}
+
+/**
+ * `wevir automation test-check <ID> [--check <命令> --wake <规则> --check-timeout <秒>]`：试跑检查脚本（自动化的，或给出的），
+ * 不唤醒 Agent、不记运行。结论是失败时退出码 1。
+ */
+export async function automationTestCheck(
+  ctx: Context,
+  id: string,
+  flags: AutomationFlags,
+  options: OutputOptions,
+): Promise<number> {
+  const given = parseCheck(flags);
+  return withAutomations(ctx, async (client) => {
+    if (!client.supports('automation_conditions')) {
+      throw new CliError(
+        t('automation.conditionsUnsupported', { version: client.hello.hostVersion }),
+        t('automation.unsupported.hint'),
+      );
+    }
+    const found = await resolveAutomation(client, id);
+    const check = given ?? found.check;
+    if (check === undefined) {
+      throw new UsageError(
+        t('automation.noCheck', { title: found.title }),
+        t('usage.seeCommandHelp', { command: 'automation test-check' }),
+      );
+    }
+    const { result } = await client.request('automation.testCheck', {
+      check,
+      automationId: found.id,
+    });
+    if (options.json) printJson(ctx, result);
+    else printCheckResult(ctx, result);
+    return result.decision === 'failed' ? EXIT.failure : EXIT.ok;
   });
 }

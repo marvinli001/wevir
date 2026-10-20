@@ -154,9 +154,16 @@ export const zh = {
   --model <模型 ID>         模型，默认为 Provider 的默认模型
   --effort <强度>           推理强度
   --permission <模式>       on_request（默认）、auto_review 或 full_access
-  --notify <方式>           always、important（默认）、failures 或 never
+  --notify <方式>           always、important（默认）、changes、failures 或 never
   --same-session            每次运行发进同一个会话，默认每次新会话
+  --session <会话 ID>       每次运行发进这个已有会话，用它的项目与模型
   --disabled                创建后先停用
+
+检查脚本（每次运行前先跑，由它决定是否唤醒 Agent）：
+  --check <命令>            shell 命令，在项目目录运行（不在项目中时为主目录）
+  --wake <规则>             exit-code（默认：0 唤醒，1 不唤醒，其他算失败）
+                            或 output-changed（输出与上次不同时唤醒）
+  --check-timeout <秒>      默认 60，最多 600
   --json                    以 JSON 输出
 
 示例：
@@ -171,7 +178,8 @@ export const zh = {
   --no-project              改为不在项目中
   --default-model           改用 Provider 的默认模型
   --default-effort          清除推理强度
-  --new-session             改为每次运行新会话`,
+  --new-session             改为每次运行新会话
+  --no-check                去掉检查脚本`,
   'cmd.automation.enable.summary': '启用自动化',
   'cmd.automation.enable.usage': 'wevir automation enable <ID>',
   'cmd.automation.disable.summary': '停用自动化',
@@ -179,6 +187,11 @@ export const zh = {
   'cmd.automation.run.summary': '立即运行一次',
   'cmd.automation.run.usage': 'wevir automation run <ID> [--json]',
   'cmd.automation.run.help': '停用的自动化也可运行；不改变计划。没能开始时退出码为 1',
+  'cmd.automation.testCheck.summary': '试跑自动化的检查脚本',
+  'cmd.automation.testCheck.usage':
+    'wevir automation test-check <ID> [--check <命令> --wake <规则> --check-timeout <秒>] [--json]',
+  'cmd.automation.testCheck.help':
+    '立即跑一次检查脚本，不唤醒 Agent、不记运行、不改基准；--check 在自动化的目录里试另一条命令。检查失败时退出码为 1',
   'cmd.automation.delete.summary': '删除自动化与运行记录',
   'cmd.automation.delete.usage': 'wevir automation delete <ID>',
   'cmd.automation.delete.help': '运行开出的会话保留；进行中的运行不取消',
@@ -624,7 +637,7 @@ export const zh = {
   'automation.badPermission': '未知权限模式：{value}',
   'automation.badPermission.hint': '可用 on_request、auto_review 或 full_access',
   'automation.badNotify': '未知提醒方式：{value}',
-  'automation.badNotify.hint': '可用 always、important、failures 或 never',
+  'automation.badNotify.hint': '可用 always、important、changes、failures 或 never',
   'automation.conflict': '{a} 与 {b} 不能同时使用',
   'automation.nothingToUpdate': '未给出要修改的选项',
   'automation.created': '已创建自动化：{title}（{id}）',
@@ -634,6 +647,26 @@ export const zh = {
   'automation.deleted': '已删除自动化：{title}（{id}）',
   'automation.nextRun': '下次运行 {time}',
   'automation.runStarted': '已开始运行：{title}（{id}）',
+  'automation.conditionsUnsupported': 'Host {version} 不支持检查脚本或发进已有会话',
+  'automation.badWake': '未知唤醒规则：{value}；可用 exit-code 或 output-changed',
+  'automation.checkOptionsNeedCheck': '--wake 与 --check-timeout 需要与 --check 一起用',
+  'automation.missingCheck': '检查命令为空',
+  'automation.badCheckTimeout': '检查超时无效：{value}；应为 1 到 {max} 的整数秒',
+  'automation.badSession': '会话 ID 无效：{value}',
+  'automation.noCheck': '{title} 没有检查脚本；用 --check 给出',
+  'automation.runChecking': '正在检查：{title}（{id}）',
+  'automation.state.autoPaused': '连续失败已停用',
+  'automation.field.check': '检查脚本',
+  'automation.wake.exit_code': '退出码 0 唤醒',
+  'automation.wake.output_changed': '输出变化时唤醒',
+  'automation.notify.changes': '仅有变化',
+  'automation.run.checking': '检查中',
+  'automation.run.silent': '无变化',
+  'automation.check.wake': '唤醒 Agent',
+  'automation.check.silent': '不唤醒',
+  'automation.check.failed': '检查失败',
+  'automation.check.detail': '退出码 {exit} · {seconds} 秒',
+  'automation.check.truncated': '（输出开头已省略）',
   'automation.runFailed': '运行没能开始：{error}',
   'automation.fullAccessWarning': '无人值守时以完全访问运行，命令与改动不经批准',
   'automation.col.state': '状态',

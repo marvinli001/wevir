@@ -11,6 +11,8 @@ import {
   AutomationResultSchema,
   AutomationRunParamsSchema,
   AutomationRunResultSchema,
+  AutomationTestCheckParamsSchema,
+  AutomationTestCheckResultSchema,
   AutomationUpdateParamsSchema,
 } from './automations.js';
 import { BrowserRequestSchema, BrowserResponseSchema } from './browser.js';
@@ -2109,6 +2111,12 @@ export const MethodSchemas = {
   'automation.run': {
     params: AutomationRunParamsSchema,
     result: AutomationRunResultSchema,
+    permission: 'session.write',
+  },
+  /** 0.73.0：试跑检查脚本（Host 执行命令，要 `session.write`）。 */
+  'automation.testCheck': {
+    params: AutomationTestCheckParamsSchema,
+    result: AutomationTestCheckResultSchema,
     permission: 'session.write',
   },
 

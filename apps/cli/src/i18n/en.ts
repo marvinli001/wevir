@@ -153,9 +153,16 @@ Run:
   --model <model ID>        Model; default: the provider’s default model
   --effort <level>          Reasoning effort
   --permission <mode>       on_request (default), auto_review or full_access
-  --notify <when>           always, important (default), failures or never
+  --notify <when>           always, important (default), changes, failures or never
   --same-session            Send every run to the same session instead of a new one
+  --session <session ID>    Send every run into this existing session, with its project and model
   --disabled                Create it disabled
+
+Check script (runs before each run; the agent wakes only when it says so):
+  --check <command>         Shell command, run in the project folder (home folder without a project)
+  --wake <rule>             exit-code (default: 0 wakes, 1 stays silent, others fail)
+                            or output-changed (wakes when the output differs from the last check)
+  --check-timeout <seconds> Default 60, at most 600
   --json                    Print as JSON
 
 Examples:
@@ -170,7 +177,8 @@ Also:
   --no-project              Run outside a project
   --default-model           Use the provider’s default model
   --default-effort          Clear the reasoning effort
-  --new-session             Start a new session for each run`,
+  --new-session             Start a new session for each run
+  --no-check                Remove the check script`,
   'cmd.automation.enable.summary': 'Enable an automation',
   'cmd.automation.enable.usage': 'wevir automation enable <ID>',
   'cmd.automation.disable.summary': 'Disable an automation',
@@ -179,6 +187,10 @@ Also:
   'cmd.automation.run.usage': 'wevir automation run <ID> [--json]',
   'cmd.automation.run.help':
     'Disabled automations can run too; the schedule is unchanged. Exit code 1 when the run could not start',
+  'cmd.automation.testCheck.summary': 'Try an automation’s check script',
+  'cmd.automation.testCheck.usage':
+    'wevir automation test-check <ID> [--check <command> --wake <rule> --check-timeout <seconds>] [--json]',
+  'cmd.automation.testCheck.help': `Runs the check script now without waking the agent, recording a run or moving its baseline. --check tries another command in the automation’s folder. Exit code 1 when the check fails`,
   'cmd.automation.delete.summary': 'Delete an automation and its runs',
   'cmd.automation.delete.usage': 'wevir automation delete <ID>',
   'cmd.automation.delete.help':
@@ -634,7 +646,7 @@ Options:
   'automation.badPermission': 'Unknown permission mode: {value}',
   'automation.badPermission.hint': 'Use on_request, auto_review or full_access',
   'automation.badNotify': 'Unknown notification setting: {value}',
-  'automation.badNotify.hint': 'Use always, important, failures or never',
+  'automation.badNotify.hint': 'Use always, important, changes, failures or never',
   'automation.conflict': '{a} and {b} cannot be used together',
   'automation.nothingToUpdate': 'Nothing to change',
   'automation.created': 'Automation created: {title} ({id})',
@@ -644,6 +656,27 @@ Options:
   'automation.deleted': 'Automation deleted: {title} ({id})',
   'automation.nextRun': 'Next run {time}',
   'automation.runStarted': 'Run started: {title} ({id})',
+  'automation.conditionsUnsupported':
+    'Host {version} does not support check scripts or sending runs to an existing session',
+  'automation.badWake': 'Unknown wake rule: {value}; use exit-code or output-changed',
+  'automation.checkOptionsNeedCheck': '--wake and --check-timeout need --check',
+  'automation.missingCheck': 'The check command is empty',
+  'automation.badCheckTimeout': 'Invalid check timeout: {value}; use whole seconds from 1 to {max}',
+  'automation.badSession': 'Invalid session ID: {value}',
+  'automation.noCheck': '{title} has no check script; give one with --check',
+  'automation.runChecking': 'Checking: {title} ({id})',
+  'automation.state.autoPaused': 'Paused after failures',
+  'automation.field.check': 'Check',
+  'automation.wake.exit_code': 'exit 0 wakes',
+  'automation.wake.output_changed': 'wakes on changed output',
+  'automation.notify.changes': 'Changes only',
+  'automation.run.checking': 'Checking',
+  'automation.run.silent': 'No change',
+  'automation.check.wake': 'Wakes the agent',
+  'automation.check.silent': 'Stays silent',
+  'automation.check.failed': 'Check failed',
+  'automation.check.detail': 'exit code {exit} · {seconds} s',
+  'automation.check.truncated': '(beginning of the output omitted)',
   'automation.runFailed': 'The run could not start: {error}',
   'automation.fullAccessWarning':
     'Runs unattended with full access; commands and changes are not approved',

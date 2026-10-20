@@ -4,6 +4,7 @@ import { setLocale } from '../i18n/index.js';
 import { run, useTempDir } from '../test-utils.js';
 import {
   joinMonthlyArgs,
+  parseCheck,
   parseDays,
   parseSchedule,
   requireAutomations,
@@ -83,6 +84,36 @@ describe('计划选项', () => {
   });
 });
 
+describe('检查脚本选项', () => {
+  it('换成协议的检查脚本；默认按退出码', () => {
+    expect(parseCheck({})).toBeUndefined();
+    expect(parseCheck({ check: ' ./has-news.sh ' })).toEqual({
+      command: './has-news.sh',
+      wake: 'exit_code',
+    });
+    expect(
+      parseCheck({ check: 'gh pr checks 42', wake: 'output-changed', checkTimeout: '30' }),
+    ).toEqual({ command: 'gh pr checks 42', wake: 'output_changed', timeoutSeconds: 30 });
+  });
+
+  it('不合法时说明原因', () => {
+    expect(() => parseCheck({ wake: 'exit-code' })).toThrow('--wake 与 --check-timeout 需要');
+    expect(() => parseCheck({ check: '  ' })).toThrow('检查命令为空');
+    expect(() => parseCheck({ check: 'x', wake: 'sometimes' })).toThrow('未知唤醒规则');
+    expect(() => parseCheck({ check: 'x', checkTimeout: '601' })).toThrow('1 到 600');
+  });
+
+  it('--session 与项目、模型选项冲突', async () => {
+    const result = await run(
+      ['automation', 'create', '--title', 'x', '--session', 'ses_1', '--project', '.', 'y'],
+      { home: tempDir() },
+    );
+    expect(result.code).toBe(2);
+    expect(result.err).toContain('--session');
+    expect(result.err).toContain('--project');
+  });
+});
+
 describe('Host 版本', () => {
   it('Host 没有 automations 功能时说明需要升级', () => {
     const old = { supports: () => false, hello: { hostVersion: '0.9.0' } } as unknown as Parameters<
@@ -119,6 +150,7 @@ describe('帮助', () => {
       'wevir automation enable <ID>',
       'wevir automation disable <ID>',
       'wevir automation run <ID> [--json]',
+      'wevir automation test-check <ID>',
       'wevir automation delete <ID>',
     ]) {
       expect(main.out).toContain(usage);
@@ -126,6 +158,8 @@ describe('帮助', () => {
     const create = await run(['automation', 'create', '--help'], { home, lang: 'en' });
     expect(create.code).toBe(0);
     expect(create.out).toContain('--monthly <day> <HH:MM>');
+    expect(create.out).toContain('--check <command>');
+    expect(create.out).toContain('--session <session ID>');
     const unknown = await run(['automation', 'pause', 'x'], { home });
     expect(unknown.code).toBe(2);
     expect(unknown.err).toContain('未知命令：wevir automation pause');

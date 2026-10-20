@@ -1,5 +1,6 @@
 import { cn } from 'cn';
 import {
+  CalendarClock,
   Copy,
   Eye,
   FolderOpen,
@@ -42,6 +43,7 @@ export function SessionContextMenuItems({
   const groups = sessionMenuGroups({
     rename: actions.rename !== undefined,
     branch: actions.branch !== undefined,
+    automate: actions.automate !== undefined,
     archive: actions.archive !== undefined,
     delete: actions.remove !== undefined,
   });
@@ -64,6 +66,11 @@ export function SessionContextMenuItems({
     branch: () => (
       <MenuItem id="branch" icon={<GitBranch />} onClick={actions.branch}>
         {t('message.branch')}
+      </MenuItem>
+    ),
+    automate: () => (
+      <MenuItem id="automate" icon={<CalendarClock />} onClick={actions.automate}>
+        {t('session.automate')}
       </MenuItem>
     ),
     copy: () => (

@@ -311,8 +311,55 @@ const standaloneCases: Case[] = [
   {
     name: 'AutomationNotify',
     schema: protocol.AutomationNotifySchema,
-    valid: ['always', 'important', 'failures', 'never'],
+    valid: ['always', 'important', 'changes', 'failures', 'never'],
     invalid: ['loud'],
+  },
+  {
+    name: 'AutomationCheckWake',
+    schema: protocol.AutomationCheckWakeSchema,
+    valid: ['exit_code', 'output_changed'],
+    invalid: ['exit_zero', 'always'],
+  },
+  {
+    name: 'AutomationCheck',
+    schema: protocol.AutomationCheckSchema,
+    valid: [
+      { command: 'gh pr checks 42', wake: 'output_changed' },
+      { command: './has-news.sh', wake: 'exit_code', timeoutSeconds: 600 },
+    ],
+    invalid: [
+      { command: '', wake: 'exit_code' },
+      { command: 'x' },
+      { command: 'x', wake: 'exit_code', timeoutSeconds: 0 },
+      { command: 'x', wake: 'exit_code', timeoutSeconds: 1.5 },
+    ],
+  },
+  {
+    name: 'AutomationCheckDecision',
+    schema: protocol.AutomationCheckDecisionSchema,
+    valid: ['wake', 'silent', 'failed'],
+    invalid: ['baseline'],
+  },
+  {
+    name: 'AutomationCheckResult',
+    schema: protocol.AutomationCheckResultSchema,
+    valid: [
+      { decision: 'wake', exitCode: 0, durationMs: 3, output: 'new release 1.2.0\n' },
+      {
+        decision: 'failed',
+        exitCode: null,
+        timedOut: true,
+        durationMs: 60_000,
+        output: '',
+        truncated: true,
+        error: 'timed out',
+      },
+    ],
+    invalid: [
+      { decision: 'wake', durationMs: 3, output: '' },
+      { decision: 'wake', exitCode: 0, durationMs: -1, output: '' },
+      { decision: 'wake', exitCode: 0, durationMs: 1, output: '', timedOut: false },
+    ],
   },
   {
     name: 'AutomationCreator',
@@ -329,7 +376,16 @@ const standaloneCases: Case[] = [
   {
     name: 'AutomationRunStatus',
     schema: protocol.AutomationRunStatusSchema,
-    valid: ['running', 'waiting', 'completed', 'failed', 'cancelled', 'skipped'],
+    valid: [
+      'checking',
+      'running',
+      'waiting',
+      'completed',
+      'failed',
+      'cancelled',
+      'skipped',
+      'silent',
+    ],
     invalid: ['succeeded'],
   },
   {
