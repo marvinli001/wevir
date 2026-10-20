@@ -56,6 +56,15 @@ export const McpServerViewSchema = z.discriminatedUnion('transport', [
   z.object({ transport: z.literal('stdio'), ...stdio, env: markers.optional(), ...common }),
   z.object({ transport: z.literal('http'), url: httpUrl, headers: markers.optional(), ...common }),
 ]);
+/** 从哪个应用导入（0.71.0，`import.*`）：`claude` Claude Code、`codex` Codex、`grok` Grok Build、`antigravity` Antigravity。 */
+export const ImportAppSchema = z.enum(['claude', 'codex', 'grok', 'antigravity']);
+export type ImportApp = z.infer<typeof ImportAppSchema>;
+/** 导入时记下的出处（0.71.0）：应用与源文件的绝对路径。只说明从哪里来，导入后与源文件不再同步。 */
+export const ImportedFromSchema = z.object({ app: ImportAppSchema, path: text });
+export type ImportedFrom = z.infer<typeof ImportedFromSchema>;
+/** 同 common.ts 的 WorkspaceIdSchema；本文件只依赖 zod，这里另写一份。 */
+const workspaceId = z.string().regex(/^ws_[0-9A-Za-z]{1,64}$/);
+
 export const ConnectorSchema = z.object({
   id: text,
   /** 引擎里的名字；插件里的连接器是 `<插件 id>_<清单里的名字>`（0.42.0）。 */
@@ -69,6 +78,10 @@ export const ConnectorSchema = z.object({
   status: z.string().optional(),
   authStatus: z.string().optional(),
   tools: z.array(z.object({ name: text, description: z.string().optional() })).optional(),
+  /** 只给这个项目的会话（0.71.0）；省略是全局的。名字在全局与同一项目之间唯一，不同项目可以重名。 */
+  workspaceId: workspaceId.optional(),
+  /** 从别的应用导入的（0.71.0）。 */
+  importedFrom: ImportedFromSchema.optional(),
 });
 export type Connector = z.infer<typeof ConnectorSchema>;
 export const SkillSchema = z.object({
@@ -82,6 +95,8 @@ export const SkillSchema = z.object({
   enabled: z.boolean(),
   /** 所属插件（0.42.0）；散装与外部的没有。 */
   pluginId: text.optional(),
+  /** 从别的应用导入的（0.71.0）。 */
+  importedFrom: ImportedFromSchema.optional(),
 });
 export type Skill = z.infer<typeof SkillSchema>;
 // ---- Wevir 插件包（0.42.0）----
@@ -220,6 +235,8 @@ export const PluginMethodSchemas = {
       name: ConnectorNameSchema,
       config: McpServerConfigSchema,
       enabled: z.boolean().optional(),
+      /** 只给这个项目（0.71.0）；省略是全局的。 */
+      workspaceId: workspaceId.optional(),
     }),
     result: connectorResult,
     permission: 'host.manage',

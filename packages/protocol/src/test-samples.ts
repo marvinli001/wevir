@@ -1449,6 +1449,30 @@ const pluginConnector = {
   },
   enabled: true,
 };
+/** 0.71.0：只给一个项目、从 Claude Code 导入的连接器与从 Codex 导入的 skill。 */
+const importedConnector = {
+  ...connector,
+  id: 'con_imported',
+  name: 'supabase',
+  workspaceId: ids.workspace,
+  importedFrom: { app: 'claude' as const, path: '/Users/me/project/.mcp.json' },
+};
+const pluginList071 = {
+  connectors: [connector, importedConnector],
+  skills: [
+    skill,
+    {
+      ...skill,
+      id: 'skl_imported',
+      name: 'imported-skill',
+      source: 'user' as const,
+      importedFrom: {
+        app: 'codex' as const,
+        path: '/Users/me/.codex/skills/imported-skill/SKILL.md',
+      },
+    },
+  ],
+};
 const pluginList042 = {
   connectors: [connector, pluginConnector],
   skills: [skill, { ...skill, id: 'skl_plugin', name: 'plugin-skill', pluginId: plugin.id }],
@@ -1476,6 +1500,90 @@ const memorySourced: MemoryNote = {
   lastEdit: { by: 'user', at: TS },
 };
 
+/** 0.71.0：用户从 Claude Code 导入的笔记。 */
+const memoryImported: MemoryNote = {
+  ...memoryNote,
+  origin: {
+    by: 'user',
+    at: TS,
+    importedFrom: {
+      app: 'claude',
+      path: '/Users/me/.claude/projects/-Users-me-shop/memory/invoice-cents.md',
+    },
+  },
+  lastEdit: { by: 'user', at: TS },
+};
+
+/** 0.71.0：一次扫描 Claude Code 的结果。 */
+const importScan = {
+  app: 'claude' as const,
+  found: true,
+  home: '/Users/me/.claude',
+  memories: [
+    {
+      key: 'mem:4f2a9c',
+      path: '/Users/me/.claude/projects/-Users-me-shop/memory/invoice-cents.md',
+      status: 'new' as const,
+      recommended: true,
+      project: '/Users/me/shop',
+      name: 'invoice-cents',
+      type: 'feedback' as const,
+      description: 'Discounts are computed in integer cents',
+      content: 'Compute discounts in integer cents.',
+      scope: 'project' as const,
+      workspaceId: ids.workspace,
+    },
+    {
+      key: 'mem:77b0e1',
+      path: '/Users/me/.claude/projects/-Users-me-old/memory/huge.md',
+      status: 'new' as const,
+      problem: 'too_large',
+      recommended: false,
+      project: '/Users/me/old',
+      name: 'huge',
+      type: 'reference' as const,
+      description: 'Long notes',
+      content: '',
+      scope: 'global' as const,
+    },
+  ],
+  connectors: [
+    {
+      key: 'con:91c3d0',
+      path: '/Users/me/shop/.mcp.json',
+      status: 'new' as const,
+      recommended: true,
+      project: '/Users/me/shop',
+      name: 'supabase',
+      config: {
+        transport: 'http' as const,
+        url: 'https://mcp.supabase.com/mcp',
+        headers: { Authorization: true as const },
+      },
+      workspaceId: ids.workspace,
+    },
+    {
+      key: 'con:0d5e7a',
+      path: '/Users/me/.claude.json',
+      status: 'exists' as const,
+      problem: 'unsupported_transport',
+      recommended: false,
+      name: 'legacy',
+    },
+  ],
+  skills: [
+    {
+      key: 'skl:5a1b2c',
+      path: '/Users/me/.claude/skills/review/SKILL.md',
+      status: 'same' as const,
+      recommended: false,
+      name: 'review',
+      description: 'Review the current diff',
+    },
+  ],
+  unsupported: [],
+};
+
 /** 0.62.0：一组请求的合计。 */
 const usageAggregate = {
   requests: 1_212,
@@ -1501,8 +1609,16 @@ export const methodSamples: MethodSamples = {
   'plugins.list': {
     params: empty,
     result: {
-      valid: [pluginList, pluginList042],
-      invalid: [{ connectors: [] }, { ...pluginList042, plugins: [{ ...plugin, source: 'npm' }] }],
+      valid: [pluginList, pluginList042, pluginList071],
+      invalid: [
+        { connectors: [] },
+        { ...pluginList042, plugins: [{ ...plugin, source: 'npm' }] },
+        { ...pluginList071, connectors: [{ ...importedConnector, workspaceId: 'project-1' }] },
+        {
+          ...pluginList071,
+          connectors: [{ ...importedConnector, importedFrom: { app: 'cursor', path: '/x' } }],
+        },
+      ],
     },
   },
   'connector.add': {
@@ -1521,9 +1637,15 @@ export const methodSamples: MethodSamples = {
             toolTimeoutSec: 20,
           },
         },
+        {
+          name: 'project-db',
+          config: { transport: 'stdio', command: 'npx', args: ['db-mcp'] },
+          workspaceId: ids.workspace,
+        },
       ],
       invalid: [
         { name: 'wevir_bad', config: { transport: 'stdio', command: 'node' } },
+        { name: 'x', config: { transport: 'stdio', command: 'node' }, workspaceId: 'ws-' },
         { name: 'Upper', config: { transport: 'stdio', command: 'node' } },
       ],
     },
@@ -3486,6 +3608,7 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [
         { note: memoryNote },
+        { note: memoryImported },
         {
           note: {
             ...memorySourced,
@@ -3510,7 +3633,74 @@ export const methodSamples: MethodSamples = {
           },
         },
         { note: { ...memorySourced, lastEdit: { by: 'user', at: TS, seq: 0 } } },
+        {
+          note: {
+            ...memoryImported,
+            origin: { by: 'user', at: TS, importedFrom: { app: 'claude' } },
+          },
+        },
       ],
+    },
+  },
+  'import.scan': {
+    params: {
+      valid: [{ app: 'claude' }, { app: 'codex' }, { app: 'grok' }, { app: 'antigravity' }],
+      invalid: [{}, { app: 'cursor' }],
+    },
+    result: {
+      valid: [
+        importScan,
+        {
+          app: 'grok',
+          found: false,
+          home: '/Users/me/.grok',
+          memories: [],
+          connectors: [],
+          skills: [],
+          unsupported: ['memory', 'connector'],
+        },
+      ],
+      invalid: [
+        { ...importScan, unsupported: ['rules'] },
+        { ...importScan, memories: [{ ...importScan.memories[0], status: 'conflict' }] },
+        { ...importScan, memories: [{ ...importScan.memories[0], name: 'Invoice Cents' }] },
+        { ...importScan, home: '' },
+      ],
+    },
+  },
+  'import.apply': {
+    params: {
+      valid: [
+        { app: 'claude', items: [{ key: 'mem:4f2a9c' }] },
+        {
+          app: 'claude',
+          items: [
+            { key: 'mem:4f2a9c', scope: 'global', name: 'invoice-cents-2' },
+            { key: 'con:91c3d0', workspaceId: ids.workspace },
+            { key: 'skl:5a1b2c' },
+          ],
+        },
+      ],
+      invalid: [
+        { app: 'claude', items: [] },
+        { app: 'claude', items: [{ key: '' }] },
+        { app: 'claude', items: [{ key: 'mem:1', workspaceId: 'ws' }] },
+        { items: [{ key: 'mem:1' }] },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          results: [
+            { key: 'mem:4f2a9c', outcome: 'imported', kind: 'memory', name: 'invoice-cents' },
+            { key: 'skl:5a1b2c', outcome: 'skipped', kind: 'skill', name: 'review' },
+            { key: 'con:0d5e7a', outcome: 'failed', kind: 'connector', reason: 'exists' },
+            { key: 'mem:gone', outcome: 'failed', reason: 'not_found' },
+          ],
+        },
+        { results: [] },
+      ],
+      invalid: [{}, { results: [{ key: 'mem:1', outcome: 'done' }] }],
     },
   },
   'memory.update': {

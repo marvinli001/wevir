@@ -102,6 +102,7 @@ import {
   GitStatusParamsSchema,
   GitStatusResultSchema,
 } from './git.js';
+import { ImportMethodSchemas } from './imports.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   ProcessChangedParamsSchema,
@@ -1465,6 +1466,7 @@ export interface MethodSpec {
  */
 export const MethodSchemas = {
   ...PluginMethodSchemas,
+  ...ImportMethodSchemas,
   'host.hello': {
     params: HostHelloParamsSchema,
     result: HostHelloResultSchema,
