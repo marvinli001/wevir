@@ -16,7 +16,11 @@ import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import { afterEach, describe, expect, it } from 'vitest';
 import { type RunningHost, startHost } from './host-process.js';
 import { createLogger } from './logger.js';
+import { loadTerminalModules } from './terminals.js';
 import { TestRpcClient, useTempDir } from './test-utils.js';
+
+/** node-pty 装得上的平台（macOS、Windows）才有用户终端。 */
+const userTerminal = loadTerminalModules(() => {}) !== undefined;
 
 const tempDir = useTempDir();
 const running: RunningHost[] = [];
@@ -158,6 +162,7 @@ describe('ChatGPT 账号（account.*）', () => {
       user_questions: true,
       verification: true,
       process_output: true,
+      ...(userTerminal && { user_terminal: true }),
       permission_modes: true,
       suggested_tasks: true,
       side_sessions: true,
@@ -203,6 +208,7 @@ describe('ChatGPT 账号（account.*）', () => {
       user_questions: true,
       verification: true,
       process_output: true,
+      ...(userTerminal && { user_terminal: true }),
       permission_modes: true,
       suggested_tasks: true,
       side_sessions: true,

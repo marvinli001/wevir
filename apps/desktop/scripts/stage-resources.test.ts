@@ -2,8 +2,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -17,6 +19,7 @@ import {
   hostTarget,
   nodePlatform,
   pruneDependencies,
+  trimNodePty,
 } from './stage-resources.js';
 
 describe('hostTarget', () => {
@@ -126,5 +129,85 @@ describe('pruneDependencies / checkHostTree', () => {
     expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).toThrow(
       /符号链接[\s\S]*vite 有 postinstall 脚本[\s\S]*不该进安装包的包/,
     );
+  });
+});
+
+describe('trimNodePty', () => {
+  let root: string;
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  /** 照 node-pty 1.1.0 的 npm 包：各平台的预编译、源码、安装脚本，spawn-helper 没有执行位。 */
+  function nodePty(): string {
+    root = mkdtempSync(join(tmpdir(), 'wevir-pty-'));
+    const dir = pkg(root, 'node-pty', {
+      scripts: { install: 'node scripts/prebuild.js || node-gyp rebuild', postinstall: 'x' },
+      dependencies: { 'node-addon-api': '*' },
+    });
+    const files = [
+      'LICENSE',
+      'lib/index.js',
+      'src/unix/pty.cc',
+      'deps/winpty/x.h',
+      'third_party/conpty/1/win10-x64/conpty.dll',
+      'binding.gyp',
+      'scripts/prebuild.js',
+      'prebuilds/darwin-arm64/pty.node',
+      'prebuilds/darwin-arm64/spawn-helper',
+      'prebuilds/darwin-x64/pty.node',
+      'prebuilds/win32-x64/conpty.node',
+      'prebuilds/win32-x64/conpty.pdb',
+      'prebuilds/win32-x64/conpty_console_list.node',
+      'prebuilds/win32-x64/pty.node',
+      'prebuilds/win32-x64/winpty.dll',
+      'prebuilds/win32-x64/winpty-agent.exe',
+      'prebuilds/win32-x64/conpty/conpty.dll',
+    ];
+    for (const file of files) {
+      mkdirSync(join(dir, file, '..'), { recursive: true });
+      writeFileSync(join(dir, file), '');
+    }
+    return dir;
+  }
+
+  const listing = (dir: string): string[] => {
+    const out: string[] = [];
+    const walk = (at: string, prefix: string) => {
+      for (const entry of readdirSync(at, { withFileTypes: true })) {
+        if (entry.isDirectory()) walk(join(at, entry.name), `${prefix}${entry.name}/`);
+        else out.push(`${prefix}${entry.name}`);
+      }
+    };
+    walk(dir, '');
+    return out.sort();
+  };
+
+  it('macOS：只留目标架构的预编译，spawn-helper 补上执行位；审查过的安装脚本不挡 checkHostTree', () => {
+    const dir = nodePty();
+    expect(() => checkHostTree(root, EXCLUDED_PACKAGES)).not.toThrow();
+    expect(trimNodePty(root, 'darwin', 'arm64')).toBe(join(dir, 'prebuilds', 'darwin-arm64'));
+    expect(listing(dir)).toEqual([
+      'LICENSE',
+      'lib/index.js',
+      'package.json',
+      'prebuilds/darwin-arm64/pty.node',
+      'prebuilds/darwin-arm64/spawn-helper',
+    ]);
+    expect(statSync(join(dir, 'prebuilds/darwin-arm64/spawn-helper')).mode & 0o111).toBe(0o111);
+  });
+
+  it('Windows：去掉调试符号与用不到的 conpty.dll，winpty 留给旧版 Windows；Linux 没有预编译时整个去掉', () => {
+    const dir = nodePty();
+    trimNodePty(root, 'win32', 'x64');
+    expect(listing(join(dir, 'prebuilds'))).toEqual([
+      'win32-x64/conpty.node',
+      'win32-x64/conpty_console_list.node',
+      'win32-x64/pty.node',
+      'win32-x64/winpty-agent.exe',
+      'win32-x64/winpty.dll',
+    ]);
+    rmSync(root, { recursive: true, force: true });
+    nodePty();
+    expect(trimNodePty(root, 'linux', 'x64')).toBeUndefined();
+    expect(existsSync(join(root, 'node_modules', 'node-pty'))).toBe(false);
   });
 });

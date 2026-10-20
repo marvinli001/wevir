@@ -34,6 +34,8 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 | `vscode-jsonrpc` | 9.0.3 | MIT | Copyright (c) Microsoft Corporation | 同上（`vscode-languageserver-protocol` 的依赖） |
 | `vscode-languageserver-types` | 3.18.4 | MIT | Copyright (c) Microsoft Corporation | 同上 |
 | `mute-stream` | 3.0.0 | ISC | Copyright (c) Isaac Z. Schlueter and Contributors | `@wevir/cli`（T4.2，未提交，以提交时为准） |
+| `node-pty` | 1.1.0 | MIT | Copyright (c) 2012-2015, Christopher Jeffrey；Copyright (c) 2016, Daniel Imms；Copyright (c) 2018 - present Microsoft Corporation（三段都在包内 `LICENSE`） | `@wevir/host` 的可选依赖，用户终端（0.68.0）。安装包只带目标平台的预编译（`pty.node`，macOS 另有 `spawn-helper`；Windows 是 `conpty.node`、`conpty_console_list.node` 与 winpty 的 `pty.node`、`winpty.dll`、`winpty-agent.exe`，winpty 同为 MIT），不带源码与调试符号；它的依赖 `node-addon-api` 只有编译用的头文件，不进安装包 |
+| `@xterm/headless`、`@xterm/addon-serialize` | 6.0.0、0.14.0 | MIT | Copyright (c) 2017-2019, The xterm.js authors；Copyright (c) 2014-2016, SourceLair Private Company；Copyright (c) 2012-2013, Christopher Jeffrey（包内没有 `LICENSE`，用 xterm.js 仓库的许可证全文） | `@wevir/host`，用户终端重连时的屏幕快照 |
 
 ### 2.2 打进桌面端产物的库
 
@@ -78,6 +80,7 @@ Host 目前用本机的 Node 运行（`HostLifecycle`，`WEVIR_NODE` 可指定�
 | `cytoscape`、`cytoscape-cose-bilkent`、`cytoscape-fcose`、`cose-base`、`layout-base` | 3.34.3、4.1.0、2.2.0、1.0.3 / 2.2.0、1.0.2 / 2.0.1 | MIT | Copyright (c) 2016-2026, The Cytoscape Consortium；cose-base 与 layout-base Copyright (c) 2016 – present, iVis@Bilkent |
 | `dagre-d3-es`、`lodash-es`、`dayjs`、`roughjs`（`hachure-fill`、`path-data-parser`、`points-on-curve`、`points-on-path`）、`stylis`、`uuid`、`khroma`、`@braintree/sanitize-url`、`@upsetjs/venn.js`、`@iconify/utils`（`@antfu/install-pkg`、`package-manager-detector`、`import-meta-resolve`）、`es-toolkit`、`marked` 16.4.2、`ts-dedent`、`fastdom`、`strictdom` | 见 lockfile | MIT | Copyright (c) 2013 Chris Pettitt（dagre-d3）；OpenJS Foundation；iamkun；Preet Shihn；Sultan Tarimo；Robert Kieffer；Fabio Spampinato, Andrew Maney；Braintree；各包 `LICENSE` |
 | `robust-predicates` | 3.0.3 | Unlicense | Vladimir Agafonkin（公有领域） |
+| `@xterm/xterm`、`@xterm/addon-fit` | 6.0.0、0.11.0 | MIT | Copyright (c) 2017-2019, The xterm.js authors；Copyright (c) 2014-2016, SourceLair Private Company；Copyright (c) 2012-2013, Christopher Jeffrey（`@xterm/addon-fit` 包内没有 `LICENSE`，同上） | 0.68.0 的“终端”窗格，打开时才加载 |
 | `commander`、`iconv-lite`、`safer-buffer` | 7.2.0 / 8.3.0、0.6.3、2.1.2 | MIT | Mermaid 依赖树里的 Node 端工具，渲染进程的产物里不会用到，以构建产物为准 |
 
 非 MIT 的：Apache-2.0 两个（`class-variance-authority`、按选择的 `dompurify`）加 0.20.0 的 `@pierre/*` 三个、BSD-3-Clause 两个（`highlight.js`、0.20.0 的 `diff`）、ISC 两个（`lucide-react`、0.20.0 的 `@ungap/structured-clone`）。0.32.0 加的（文件预览：`mermaid`、`katex`、`marked-katex-extension`、`htmlparser2` 与它们的闭包，均钉住版本，发布满两周）里非 MIT 的：ISC 的 `d3` 一族、BSD-3-Clause 的 `d3-sankey` 等五个与 `rw`、BSD-2-Clause 的 `domhandler` 等四个、Unlicense 的 `robust-predicates`、`@mermaid-js/parser` 打包的 Chevrotain（Apache-2.0，没有 `NOTICE`）。与 ADR-0004 补记 5、6、10 记下的一致。`@pierre/theme` 带 `NOTICE`，内容要收进声明（已抄在根目录 `NOTICE` §11）。另有 `metal-fx` 打包进来的 Paper Shaders 代码是 Apache-2.0，它带 `NOTICE`，内容要收进声明（§3.1，已抄在根目录 `NOTICE` §8；ADR-0004 补记 9）。

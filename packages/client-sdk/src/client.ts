@@ -23,6 +23,8 @@ import {
   ProcessChangedParamsSchema,
   type SessionId,
   SettingsUpdatedParamsSchema,
+  TerminalChangedParamsSchema,
+  TerminalOutputParamsSchema,
   WevirEventEnvelopeSchema,
   type WorkspaceId,
 } from '@wevir/protocol';
@@ -32,6 +34,9 @@ import { DEFAULT_CLIENT_CAPABILITIES, hostSupports } from './capabilities.js';
 export type AutomationChange = NotificationParams<'automation.changed'>;
 /** `process.changed` 的内容（0.68.0）。 */
 export type ProcessChange = NotificationParams<'process.changed'>;
+/** `terminal.changed` 与 `terminal.output` 的内容（0.68.0）。 */
+export type TerminalChange = NotificationParams<'terminal.changed'>;
+export type TerminalOutput = NotificationParams<'terminal.output'>;
 
 import {
   ClientClosedError,
@@ -263,6 +268,8 @@ export class WevirClient {
   readonly #usageListeners = new Set<() => void>();
   readonly #automationListeners = new Set<(change: AutomationChange | undefined) => void>();
   readonly #processListeners = new Set<(change: ProcessChange | undefined) => void>();
+  readonly #terminalListeners = new Set<(change: TerminalChange | undefined) => void>();
+  readonly #terminalOutputListeners = new Set<(output: TerminalOutput) => void>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
   #browserProvider: BrowserProviderEntry | undefined;
   #state: ConnectionState = { status: 'connecting' };
@@ -512,6 +519,31 @@ export class WevirClient {
   onProcessesChanged(listener: (change: ProcessChange | undefined) => void): () => void {
     this.#processListeners.add(listener);
     return () => this.#processListeners.delete(listener);
+  }
+
+  /**
+   * 用户终端变了（0.68.0，`terminal.changed`）：开、退出、标题、前台进程、尺寸、attach 的连接数，或被忘掉（`removed`）。重连上之后以
+   * `undefined` 调一次：连接断开时 Host 已经不再给这条连接发输出，客户端重新列出，并带上自己读到的位置重新 `terminal.attach`。返回取消函数。
+   */
+  onTerminalsChanged(listener: (change: TerminalChange | undefined) => void): () => void {
+    this.#terminalListeners.add(listener);
+    return () => this.#terminalListeners.delete(listener);
+  }
+
+  /** 用户终端的输出（0.68.0，`terminal.output`）：这条连接 `terminal.attach` 过的终端。返回取消函数。 */
+  onTerminalOutput(listener: (output: TerminalOutput) => void): () => void {
+    this.#terminalOutputListeners.add(listener);
+    return () => this.#terminalOutputListeners.delete(listener);
+  }
+
+  #terminalsChanged(change: TerminalChange | undefined): void {
+    for (const listener of [...this.#terminalListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('a terminal listener threw', { error });
+      }
+    }
   }
 
   #processesChanged(change: ProcessChange | undefined): void {
@@ -828,6 +860,7 @@ export class WevirClient {
         if (this.supports('usage_stats')) this.#usageChanged();
         if (this.supports('automations')) this.#automationsChanged(undefined);
         if (this.supports('process_output')) this.#processesChanged(undefined);
+        if (this.supports('user_terminal')) this.#terminalsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         return;
       }
@@ -1092,6 +1125,30 @@ export class WevirClient {
         return;
       }
       this.#processesChanged(parsed.data);
+      return;
+    }
+    if (method === 'terminal.output') {
+      const parsed = TerminalOutputParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed terminal.output notification');
+        return;
+      }
+      for (const listener of [...this.#terminalOutputListeners]) {
+        try {
+          listener(parsed.data);
+        } catch (error) {
+          this.#warn('a terminal output listener threw', { error });
+        }
+      }
+      return;
+    }
+    if (method === 'terminal.changed') {
+      const parsed = TerminalChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed terminal.changed notification');
+        return;
+      }
+      this.#terminalsChanged(parsed.data);
       return;
     }
     if (method === 'browser.request') {

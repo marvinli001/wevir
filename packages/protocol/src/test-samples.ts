@@ -37,6 +37,7 @@ import {
   type NotificationParams,
 } from './methods.js';
 import type { HostProcess } from './processes.js';
+import type { Terminal } from './terminals.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -173,6 +174,43 @@ export const checkProcess: HostProcess = {
   bytes: 1840,
   stoppedBy: 'user',
   stopSignals: [],
+};
+
+/** 用户的交互终端（0.68.0）：在跑，前台是 vim。 */
+export const terminalSample: Terminal = {
+  id: `trm_${ULID}`,
+  workspaceId: ids.workspace,
+  sessionId: ids.session,
+  cwd: '/home/u/projects/demo',
+  shell: '/bin/zsh',
+  pid: 4300,
+  title: 'vim README.md',
+  foreground: 'vim',
+  cols: 120,
+  rows: 32,
+  status: 'running',
+  exitCode: null,
+  signal: null,
+  createdAt: TS,
+  clients: 1,
+};
+
+/** 用户的交互终端（0.68.0）：shell 自己退出了，还没关。 */
+export const exitedTerminal: Terminal = {
+  id: `trm_${ULID}`,
+  workspaceId: ids.workspace,
+  cwd: '/home/u/projects/demo',
+  shell: '/bin/zsh',
+  pid: 4301,
+  title: '',
+  cols: 80,
+  rows: 24,
+  status: 'exited',
+  exitCode: 0,
+  signal: null,
+  createdAt: TS,
+  endedAt: TS2,
+  clients: 0,
 };
 
 /** 验收状态（0.65.0）。 */
@@ -3687,6 +3725,64 @@ export const methodSamples: MethodSamples = {
       invalid: [{ process: { ...checkProcess, stoppedBy: 'someone' } }],
     },
   },
+  'terminal.create': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, cols: 80, rows: 24 },
+        { workspaceId: ids.workspace, sessionId: ids.session, cwd: '/tmp', cols: 120, rows: 32 },
+      ],
+      invalid: [{ workspaceId: ids.workspace }, { workspaceId: ids.workspace, cols: 0, rows: 24 }],
+    },
+    result: {
+      valid: [{ terminal: terminalSample }],
+      invalid: [{ terminal: { ...terminalSample, id: 'p3' } }],
+    },
+  },
+  'terminal.list': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace }, { sessionId: ids.session }],
+      invalid: [{ workspaceId: ids.session }],
+    },
+    result: {
+      valid: [{ terminals: [] }, { terminals: [terminalSample, exitedTerminal] }],
+      invalid: [{}, { terminals: [{ ...terminalSample, status: 'stopped' }] }],
+    },
+  },
+  'terminal.attach': {
+    params: {
+      valid: [{ terminalId: terminalSample.id }, { terminalId: terminalSample.id, since: 4096 }],
+      invalid: [{}, { terminalId: terminalSample.id, since: -1 }],
+    },
+    result: {
+      valid: [
+        { terminal: terminalSample, reset: false, data: 'ls\r\n', next: 4100 },
+        { terminal: terminalSample, reset: true, data: '\u001b[?1049h', next: 9000 },
+      ],
+      invalid: [{ terminal: terminalSample, data: '', next: 0 }],
+    },
+  },
+  'terminal.detach': {
+    params: { valid: [{ terminalId: terminalSample.id }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'terminal.input': {
+    params: {
+      valid: [{ terminalId: terminalSample.id, data: '\u0003' }],
+      invalid: [{ terminalId: terminalSample.id, data: '' }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'terminal.resize': {
+    params: {
+      valid: [{ terminalId: terminalSample.id, cols: 100, rows: 30 }],
+      invalid: [{ terminalId: terminalSample.id, cols: 100, rows: 0 }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'terminal.close': {
+    params: { valid: [{ terminalId: terminalSample.id }], invalid: [{ terminalId: 'p3' }] },
+    result: { valid: [{}], invalid: [null] },
+  },
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
@@ -4295,6 +4391,14 @@ export const notificationSamples: NotificationSamples = {
   'process.changed': {
     valid: [{ process: agentProcess }, { removed: { id: 'p3', startedAt: TS } }],
     invalid: [{}, { removed: { id: 'p3' } }],
+  },
+  'terminal.output': {
+    valid: [{ terminalId: terminalSample.id, offset: 0, data: '\u001b[1mhi\u001b[0m' }],
+    invalid: [{ terminalId: terminalSample.id, data: 'x' }],
+  },
+  'terminal.changed': {
+    valid: [{ terminal: terminalSample }, { removed: { id: terminalSample.id } }],
+    invalid: [{}, { removed: {} }],
   },
   'automation.changed': {
     valid: [

@@ -34,6 +34,8 @@ export const VerificationRunIdSchema = z.templateLiteral(['vrn_', IdBodySchema])
 export const VerificationRoundIdSchema = z.templateLiteral(['vrd_', IdBodySchema]);
 /** 一条自动修复链（0.65.0）。 */
 export const RepairIdSchema = z.templateLiteral(['rpr_', IdBodySchema]);
+/** 用户的交互终端（0.68.0）。 */
+export const TerminalIdSchema = z.templateLiteral(['trm_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -51,6 +53,7 @@ export type CheckId = z.infer<typeof CheckIdSchema>;
 export type VerificationRunId = z.infer<typeof VerificationRunIdSchema>;
 export type VerificationRoundId = z.infer<typeof VerificationRoundIdSchema>;
 export type RepairId = z.infer<typeof RepairIdSchema>;
+export type TerminalId = z.infer<typeof TerminalIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
 

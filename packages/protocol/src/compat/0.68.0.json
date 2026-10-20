@@ -6600,6 +6600,188 @@
           }
         }
       ]
+    },
+    "terminal.create": {
+      "params": [
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "cols": 80,
+          "rows": 24
+        },
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "cwd": "/tmp",
+          "cols": 120,
+          "rows": 32
+        }
+      ],
+      "result": [
+        {
+          "terminal": {
+            "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/home/u/projects/demo",
+            "shell": "/bin/zsh",
+            "pid": 4300,
+            "title": "vim README.md",
+            "foreground": "vim",
+            "cols": 120,
+            "rows": 32,
+            "status": "running",
+            "exitCode": null,
+            "signal": null,
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "clients": 1
+          }
+        }
+      ]
+    },
+    "terminal.list": {
+      "params": [
+        {},
+        {
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [
+        {
+          "terminals": []
+        },
+        {
+          "terminals": [
+            {
+              "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "cwd": "/home/u/projects/demo",
+              "shell": "/bin/zsh",
+              "pid": 4300,
+              "title": "vim README.md",
+              "foreground": "vim",
+              "cols": 120,
+              "rows": 32,
+              "status": "running",
+              "exitCode": null,
+              "signal": null,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "clients": 1
+            },
+            {
+              "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+              "cwd": "/home/u/projects/demo",
+              "shell": "/bin/zsh",
+              "pid": 4301,
+              "title": "",
+              "cols": 80,
+              "rows": 24,
+              "status": "exited",
+              "exitCode": 0,
+              "signal": null,
+              "createdAt": "2026-10-12T08:00:00.000Z",
+              "endedAt": "2026-10-12T08:00:05.250Z",
+              "clients": 0
+            }
+          ]
+        }
+      ]
+    },
+    "terminal.attach": {
+      "params": [
+        {
+          "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        },
+        {
+          "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "since": 4096
+        }
+      ],
+      "result": [
+        {
+          "terminal": {
+            "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/home/u/projects/demo",
+            "shell": "/bin/zsh",
+            "pid": 4300,
+            "title": "vim README.md",
+            "foreground": "vim",
+            "cols": 120,
+            "rows": 32,
+            "status": "running",
+            "exitCode": null,
+            "signal": null,
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "clients": 1
+          },
+          "reset": false,
+          "data": "ls\r\n",
+          "next": 4100
+        },
+        {
+          "terminal": {
+            "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+            "cwd": "/home/u/projects/demo",
+            "shell": "/bin/zsh",
+            "pid": 4300,
+            "title": "vim README.md",
+            "foreground": "vim",
+            "cols": 120,
+            "rows": 32,
+            "status": "running",
+            "exitCode": null,
+            "signal": null,
+            "createdAt": "2026-10-12T08:00:00.000Z",
+            "clients": 1
+          },
+          "reset": true,
+          "data": "\u001b[?1049h",
+          "next": 9000
+        }
+      ]
+    },
+    "terminal.detach": {
+      "params": [
+        {
+          "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [{}]
+    },
+    "terminal.input": {
+      "params": [
+        {
+          "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "data": "\u0003"
+        }
+      ],
+      "result": [{}]
+    },
+    "terminal.resize": {
+      "params": [
+        {
+          "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "cols": 100,
+          "rows": 30
+        }
+      ],
+      "result": [{}]
+    },
+    "terminal.close": {
+      "params": [
+        {
+          "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR"
+        }
+      ],
+      "result": [{}]
     }
   },
   "notifications": {
@@ -6962,6 +7144,39 @@
         "removed": {
           "id": "p3",
           "startedAt": "2026-10-12T08:00:00.000Z"
+        }
+      }
+    ],
+    "terminal.output": [
+      {
+        "terminalId": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+        "offset": 0,
+        "data": "\u001b[1mhi\u001b[0m"
+      }
+    ],
+    "terminal.changed": [
+      {
+        "terminal": {
+          "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "workspaceId": "ws_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "sessionId": "ses_01JA2B3C4D5E6F7G8H9JKMNPQR",
+          "cwd": "/home/u/projects/demo",
+          "shell": "/bin/zsh",
+          "pid": 4300,
+          "title": "vim README.md",
+          "foreground": "vim",
+          "cols": 120,
+          "rows": 32,
+          "status": "running",
+          "exitCode": null,
+          "signal": null,
+          "createdAt": "2026-10-12T08:00:00.000Z",
+          "clients": 1
+        }
+      },
+      {
+        "removed": {
+          "id": "trm_01JA2B3C4D5E6F7G8H9JKMNPQR"
         }
       }
     ]

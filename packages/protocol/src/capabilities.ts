@@ -272,6 +272,11 @@ export const HOST_FEATURES = {
    * 回合后验证的检查进程、读输出、停止；不是终端，不能输入。有后台进程或回合后验证时声明。
    */
   processOutput: 'process_output',
+  /**
+   * 用户的交互终端（0.68.0）：`terminal.*` 方法、`terminal.output` 与 `terminal.changed` 通知。Host 上的 PTY，跑用户的登录 shell，
+   * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
+   */
+  userTerminal: 'user_terminal',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -329,6 +334,7 @@ export const HostFeaturesSchema = z.looseObject({
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),
   process_output: z.boolean().optional(),
+  user_terminal: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

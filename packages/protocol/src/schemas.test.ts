@@ -202,6 +202,7 @@ import {
   errorDataSamples,
   eventOf,
   eventPayloads,
+  exitedTerminal,
   handedOffSession,
   identity,
   ids,
@@ -223,6 +224,7 @@ import {
   subagentSummary,
   suggestedTask,
   TS,
+  terminalSample,
   toolDisplay,
   ULID,
   userResolution,
@@ -2373,6 +2375,12 @@ const standaloneCases: Case[] = [
     invalid: [`rp_${ULID}`],
   },
   {
+    name: 'TerminalId',
+    schema: protocol.TerminalIdSchema,
+    valid: [`trm_${ULID}`],
+    invalid: ['p3', `ses_${ULID}`],
+  },
+  {
     name: 'CheckKind',
     schema: protocol.CheckKindSchema,
     valid: ['test', 'build', 'typecheck', 'lint', 'other'],
@@ -2506,6 +2514,15 @@ const standaloneCases: Case[] = [
     schema: protocol.HostProcessSchema,
     valid: [agentProcess, checkProcess],
     invalid: [{ ...agentProcess, status: 'paused' }],
+  },
+  {
+    name: 'Terminal',
+    schema: protocol.TerminalSchema,
+    valid: [terminalSample, exitedTerminal],
+    invalid: [
+      { ...terminalSample, cols: 1 },
+      { ...terminalSample, title: 'x'.repeat(201) },
+    ],
   },
   {
     name: 'AcceptanceStatus',

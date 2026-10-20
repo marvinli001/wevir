@@ -103,6 +103,24 @@ import {
   ProcessStopResultSchema,
 } from './processes.js';
 import {
+  TerminalAttachParamsSchema,
+  TerminalAttachResultSchema,
+  TerminalChangedParamsSchema,
+  TerminalCloseParamsSchema,
+  TerminalCloseResultSchema,
+  TerminalCreateParamsSchema,
+  TerminalCreateResultSchema,
+  TerminalDetachParamsSchema,
+  TerminalDetachResultSchema,
+  TerminalInputParamsSchema,
+  TerminalInputResultSchema,
+  TerminalListParamsSchema,
+  TerminalListResultSchema,
+  TerminalOutputParamsSchema,
+  TerminalResizeParamsSchema,
+  TerminalResizeResultSchema,
+} from './terminals.js';
+import {
   UsageChangedParamsSchema,
   UsagePricingParamsSchema,
   UsagePricingResultSchema,
@@ -1898,6 +1916,41 @@ export const MethodSchemas = {
     result: ProcessStopResultSchema,
     permission: 'session.write',
   },
+  'terminal.create': {
+    params: TerminalCreateParamsSchema,
+    result: TerminalCreateResultSchema,
+    permission: 'session.write',
+  },
+  'terminal.list': {
+    params: TerminalListParamsSchema,
+    result: TerminalListResultSchema,
+    permission: 'session.read',
+  },
+  'terminal.attach': {
+    params: TerminalAttachParamsSchema,
+    result: TerminalAttachResultSchema,
+    permission: 'session.read',
+  },
+  'terminal.detach': {
+    params: TerminalDetachParamsSchema,
+    result: TerminalDetachResultSchema,
+    permission: 'session.read',
+  },
+  'terminal.input': {
+    params: TerminalInputParamsSchema,
+    result: TerminalInputResultSchema,
+    permission: 'session.write',
+  },
+  'terminal.resize': {
+    params: TerminalResizeParamsSchema,
+    result: TerminalResizeResultSchema,
+    permission: 'session.write',
+  },
+  'terminal.close': {
+    params: TerminalCloseParamsSchema,
+    result: TerminalCloseResultSchema,
+    permission: 'session.write',
+  },
   'automation.list': {
     params: AutomationListParamsSchema,
     result: AutomationListResultSchema,
@@ -1994,6 +2047,10 @@ export const NotificationSchemas = {
   'automation.changed': { params: AutomationChangedParamsSchema },
   /** 发给调用过 `process.*` 的连接（0.68.0）。 */
   'process.changed': { params: ProcessChangedParamsSchema },
+  /** 发给 `terminal.attach` 过这个终端的连接（0.68.0）。 */
+  'terminal.output': { params: TerminalOutputParamsSchema },
+  /** 发给调用过 `terminal.*` 的连接（0.68.0）。 */
+  'terminal.changed': { params: TerminalChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;

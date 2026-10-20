@@ -191,6 +191,20 @@ function removeTab(state: ScopePanes, tabId: string): ScopePanes {
   return { ...state, groups: replaceGroup(state.groups, { ...group, tabs, activeTabId }) };
 }
 
+/** 换掉一个标签的参数（终端开好之后记下终端 ID 与标题）。参数没变时原样返回，不触发保存。 */
+export function setTabParams(state: ScopePanes, tabId: string, params: PaneParams): ScopePanes {
+  const found = findTab(state, tabId);
+  if (!found) return state;
+  const { group, tab } = found;
+  const current = tab.params ?? {};
+  const same =
+    Object.keys(current).length === Object.keys(params).length &&
+    Object.entries(params).every(([key, value]) => current[key] === value);
+  if (same) return state;
+  const tabs = group.tabs.map((item) => (item.id === tabId ? { ...item, params } : item));
+  return { ...state, groups: replaceGroup(state.groups, { ...group, tabs }) };
+}
+
 export function closeTab(state: ScopePanes, tabId: string): ScopePanes {
   return removeTab(state, tabId);
 }

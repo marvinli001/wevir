@@ -20,6 +20,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -77,9 +78,53 @@ export function nodePlatform(target: string): { os: NodeJS.Platform; cpu: string
  *   deploy 便带上了它和 Vite 那一串；
  * - `@cursor/sdk`：许可证是“All rights reserved”，维护者定不随应用再分发（ADR-0007 补记 3）。没有它时 Host 不挂 Cursor
  *   引擎（host 的 engines.ts）。Claude Agent SDK 2026-10-17 起随安装包（补记 6），只带它的 JS，不带原生的 `claude`；
- * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.286 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）。
+ * - `@anthropic-ai/sdk`：Claude Agent SDK 0.3.286 的 peer，只在它的 `.d.ts` 里用到类型，运行时不加载（14 MB）；
+ * - `node-addon-api`：node-pty（用户终端）的依赖，只有编译原生模块用的 C++ 头文件，运行时不加载。
  */
-export const EXCLUDED_PACKAGES: readonly string[] = ['vitest', '@cursor/sdk', '@anthropic-ai/sdk'];
+export const EXCLUDED_PACKAGES: readonly string[] = [
+  'vitest',
+  '@cursor/sdk',
+  '@anthropic-ai/sdk',
+  'node-addon-api',
+];
+
+/**
+ * 审查过、可以带着安装脚本进安装包的包（deploy 用 `--ignore-scripts`，脚本不会跑，要的东西由 `trimNodePty` 准备好）：
+ * - `node-pty`（用户终端，Host 的可选依赖）：install 只核对 prebuilds/<平台> 在不在、不在就 node-gyp 现编；postinstall 清 build/Release，
+ *   Windows 上把 third_party 的 conpty.dll 复制过去（只有 `useConptyDll` 时才用，Wevir 不用）。pnpm-workspace.yaml 的 allowBuilds 同样拒绝。
+ */
+export const REVIEWED_INSTALL_SCRIPTS: readonly string[] = ['node-pty'];
+
+/**
+ * 只留 node-pty 在目标平台要的文件：`lib/`、`package.json`、`LICENSE` 与 `prebuilds/<平台>-<架构>/`（去掉调试符号 `.pdb` 与只有
+ * `useConptyDll` 才用的 `conpty/`）。Windows 10 1903（内部版本 18309）之前没有系统的 ConPTY，node-pty 改用 winpty，所以 winpty 的文件留着。
+ * macOS 的 `spawn-helper` 在 npm 包里没有执行位，这里补上（之后由签名一并签名）。没有这个平台的预编译（Linux）时整个去掉：Host 不声明
+ * `user_terminal`。返回留下的目录，去掉时返回 undefined。
+ */
+export function trimNodePty(root: string, os: NodeJS.Platform, cpu: string): string | undefined {
+  const dir = join(root, 'node_modules', 'node-pty');
+  if (!existsSync(dir)) return undefined;
+  const platform = `${os}-${cpu}`;
+  if (!existsSync(join(dir, 'prebuilds', platform))) {
+    rmSync(dir, { recursive: true, force: true });
+    return undefined;
+  }
+  const keep = new Set(['lib', 'package.json', 'LICENSE', 'prebuilds']);
+  for (const entry of readdirSync(dir)) {
+    if (!keep.has(entry)) rmSync(join(dir, entry), { recursive: true, force: true });
+  }
+  for (const entry of readdirSync(join(dir, 'prebuilds'))) {
+    if (entry !== platform) rmSync(join(dir, 'prebuilds', entry), { recursive: true, force: true });
+  }
+  const prebuilds = join(dir, 'prebuilds', platform);
+  rmSync(join(prebuilds, 'conpty'), { recursive: true, force: true });
+  for (const entry of readdirSync(prebuilds)) {
+    if (entry.endsWith('.pdb')) rmSync(join(prebuilds, entry));
+  }
+  const helper = join(prebuilds, 'spawn-helper');
+  if (existsSync(helper)) chmodSync(helper, 0o755);
+  return prebuilds;
+}
 
 interface Manifest {
   name?: string;
@@ -166,9 +211,14 @@ export function pruneDependencies(root: string, excluded: readonly string[]): st
 
 /**
  * 安装包里的 Host 要满足的条件，不满足就报错：没有被排除的包；没有符号链接（签名与 extraResources 的复制都不处理它）；
- * 留下的包都没有安装脚本（deploy 用 `--ignore-scripts`，交叉准备别的平台时脚本也跑不了，新依赖需要脚本时要先在这里想清楚）。
+ * 留下的包都没有安装脚本（deploy 用 `--ignore-scripts`，交叉准备别的平台时脚本也跑不了，新依赖需要脚本时要先在这里想清楚），
+ * `REVIEWED_INSTALL_SCRIPTS` 里审查过的除外。
  */
-export function checkHostTree(root: string, excluded: readonly string[]): void {
+export function checkHostTree(
+  root: string,
+  excluded: readonly string[],
+  reviewed: readonly string[] = REVIEWED_INSTALL_SCRIPTS,
+): void {
   const problems: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir)) {
@@ -184,7 +234,7 @@ export function checkHostTree(root: string, excluded: readonly string[]): void {
     for (const name of packagesIn(nodeModules)) {
       const dir = join(nodeModules, name);
       if (excluded.includes(name)) problems.push(`不该进安装包的包：${dir}`);
-      const scripts = readManifest(dir).scripts ?? {};
+      const scripts = reviewed.includes(name) ? {} : (readManifest(dir).scripts ?? {});
       for (const hook of ['preinstall', 'install', 'postinstall']) {
         if (scripts[hook] !== undefined) problems.push(`${name} 有 ${hook} 脚本`);
       }
@@ -248,8 +298,14 @@ function stageHost(dir: string, target: string): void {
     rmSync(join(dir, file), { force: true });
   const removed = pruneDependencies(dir, EXCLUDED_PACKAGES);
   checkHostTree(dir, EXCLUDED_PACKAGES);
+  const pty = trimNodePty(dir, os, cpu);
   console.log(
     `resources/host：去掉了 ${removed.length} 个包（${EXCLUDED_PACKAGES.join('、')} 与只被它们用到的）`,
+  );
+  console.log(
+    pty === undefined
+      ? `resources/host：${os}-${cpu} 没有 node-pty 的预编译，已去掉，这个平台没有用户终端`
+      : `resources/host：node-pty 只留 ${os}-${cpu}`,
   );
 }
 

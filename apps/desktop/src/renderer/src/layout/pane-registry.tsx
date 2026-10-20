@@ -47,6 +47,10 @@ const placeholder = (kind: PaneKind) => () => <PlaceholderPane name={t(VIEWS[kin
 const ChangesPane = lazy(() =>
   import('./panes/changes-pane').then((module) => ({ default: module.ChangesPane })),
 );
+// “终端”带着 xterm.js（0.68.0），第一次打开时才加载。
+const TerminalPane = lazy(() =>
+  import('./panes/terminal-pane').then((module) => ({ default: module.TerminalPane })),
+);
 // “文件预览”同样带着 Pierre 与 Shiki（U32）；文件树不带，直接打进主包。
 const FilePane = lazy(() =>
   import('./panes/file-pane').then((module) => ({ default: module.FilePane })),
@@ -99,7 +103,17 @@ const VIEWS: Record<PaneKind, PaneView> = {
     name: 'pane.kind.processes',
     render: (_, context) => <ProcessesPane context={context} />,
   },
-  terminal: { icon: SquareTerminal, name: 'pane.kind.terminal', render: placeholder('terminal') },
+  // 用户的交互终端（0.68.0）：参数是终端 ID 与标签名（程序设的标题或 shell 名）。
+  terminal: {
+    icon: SquareTerminal,
+    name: 'pane.kind.terminal',
+    title: (tab) => tab.params?.label,
+    render: (tab, context) => (
+      <Suspense fallback={null}>
+        <TerminalPane tab={tab} context={context} />
+      </Suspense>
+    ),
+  },
   // 支线会话（U23.1）：参数是支线会话 ID 与问题的开头；agent 请界面显示的会话（0.30.0，`wevir_show`）带它的标题 `label`。
   session: {
     icon: MessagesSquare,

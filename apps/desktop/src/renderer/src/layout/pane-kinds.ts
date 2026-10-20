@@ -56,13 +56,14 @@ export const PANE_KIND_SPECS: Readonly<Record<PaneKind, PaneKindSpec>> = {
   plan: { minWidth: 280, minHeight: 160, shape: 'compact', multiple: false, available: false },
   // 0.68.0：Host 起的后台进程（Agent 的与检查的）的输出与停止，不是终端。
   processes: { minWidth: 320, minHeight: 200, shape: 'tall', multiple: false, available: true },
+  // 0.68.0：用户的交互终端（ADR-0010），Host 上的 PTY；按终端 ID 多开，“打开窗格”每次开一个新的。
   terminal: {
     minWidth: 360,
     minHeight: 160,
     shape: 'compact',
     multiple: true,
     identityParam: 'id',
-    available: false,
+    available: true,
   },
   session: {
     minWidth: 400,

@@ -46,6 +46,7 @@ import type { EventStore } from './event-store.js';
 import { assertSessionVisible, type HostMethods, type RequestContext } from './host-methods.js';
 import { newId } from './ids.js';
 import type { MemoryChange } from './memory.js';
+import type { TerminalService } from './terminals.js';
 
 /** 一条连接的时限与容量。默认值见 `HostRpcServer`。 */
 export interface ConnectionLimits {
@@ -88,6 +89,8 @@ export interface ConnectionHost {
   readonly processes?: {
     watch(listener: (change: NotificationParams<'process.changed'>) => void): () => void;
   };
+  /** 用户的交互终端（0.68.0）：`terminal.attach` 把连接登记到终端上，调过 `terminal.*` 的连接收 `terminal.changed`。 */
+  readonly terminals?: Pick<TerminalService, 'attach' | 'watch'>;
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
   readonly limits: ConnectionLimits;
@@ -167,6 +170,10 @@ export class RpcConnection {
   #unwatchAutomations: (() => void) | undefined;
   /** 调过 `process.*` 之后：退订 `process.changed`。 */
   #unwatchProcesses: (() => void) | undefined;
+  /** 调过 `terminal.*` 之后：退订 `terminal.changed`。 */
+  #unwatchTerminals: (() => void) | undefined;
+  /** `terminal.attach` 过的终端：不再收它的输出。 */
+  readonly #terminalAttachments = new Map<string, () => void>();
   /** `browser.register` 之后：注销这条连接的浏览器提供方。 */
   #unregisterBrowser: (() => void) | undefined;
   /** 这条连接作为浏览器提供方的标识。 */
@@ -434,6 +441,39 @@ export class RpcConnection {
         this.#respond(id, method, {});
         return;
       }
+      case 'terminal.attach': {
+        const terminals = this.#terminalService();
+        const attach = params as MethodParams<'terminal.attach'>;
+        this.#terminalAttachments.get(attach.terminalId)?.();
+        this.#terminalAttachments.delete(attach.terminalId);
+        const { result, start } = await terminals.attach(attach, {
+          // 输出由 Host 自己拼出（每 16 ms 一条），不再逐条按 schema 校验。
+          send: (output) =>
+            this.#sendText(
+              JSON.stringify({
+                jsonrpc: JSONRPC_VERSION,
+                method: 'terminal.output',
+                params: output,
+              }),
+            ),
+          backlog: () => this.#backlog(),
+        });
+        if (this.#respond(id, method, result) && this.#phase === 'ready') {
+          this.#terminalAttachments.get(attach.terminalId)?.();
+          this.#terminalAttachments.set(attach.terminalId, start());
+        }
+        this.#watchTerminals();
+        return;
+      }
+      case 'terminal.detach': {
+        const { terminalId } = params as MethodParams<'terminal.detach'>;
+        this.#terminalService();
+        this.#terminalAttachments.get(terminalId)?.();
+        this.#terminalAttachments.delete(terminalId);
+        this.#respond(id, method, {});
+        this.#watchTerminals();
+        return;
+      }
       case 'browser.unregister':
         this.#unregisterBrowser?.();
         this.#unregisterBrowser = undefined;
@@ -467,6 +507,7 @@ export class RpcConnection {
         if (method.startsWith('usage.')) this.#watchUsage();
         if (method.startsWith('automation.')) this.#watchAutomations();
         if (method.startsWith('process.')) this.#watchProcesses();
+        if (method.startsWith('terminal.')) this.#watchTerminals();
       }
     }
   }
@@ -703,6 +744,31 @@ export class RpcConnection {
     });
   }
 
+  #terminalService(): NonNullable<ConnectionHost['terminals']> {
+    if (this.#host.terminals === undefined) {
+      throw new HostError('INVALID_PARAMS', 'this host has no user terminal', {
+        issues: [{ path: [], message: 'this host has no user terminal' }],
+      });
+    }
+    return this.#host.terminals;
+  }
+
+  /** 调过 `terminal.*` 的连接之后收 `terminal.changed`（0.68.0），连接关闭即止。 */
+  #watchTerminals(): void {
+    if (this.#unwatchTerminals !== undefined || this.#host.terminals === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchTerminals = this.#host.terminals.watch((change) => {
+      const parsed = NotificationSchemas['terminal.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`terminal.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'terminal.changed', params: parsed.data });
+    });
+  }
+
   #drop(subscription: Subscription): void {
     if (!subscription.active) return;
     subscription.active = false;
@@ -803,6 +869,10 @@ export class RpcConnection {
     this.#unwatchAutomations = undefined;
     this.#unwatchProcesses?.();
     this.#unwatchProcesses = undefined;
+    this.#unwatchTerminals?.();
+    this.#unwatchTerminals = undefined;
+    for (const detach of this.#terminalAttachments.values()) detach();
+    this.#terminalAttachments.clear();
     this.#unregisterBrowser?.();
     this.#unregisterBrowser = undefined;
   }
