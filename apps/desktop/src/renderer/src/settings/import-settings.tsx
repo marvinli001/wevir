@@ -95,7 +95,7 @@ function reasonText(reason: string): string {
 }
 
 /**
- * 设置 → 导入（0.71.0）：选一个应用（Claude Code、Codex、Grok、Antigravity），Host 列出它的记忆、MCP 服务器与 skills，逐条
+ * 设置 → 导入（0.74.0）：选一个应用（Claude Code、Codex、Grok、Antigravity），Host 列出它的记忆、MCP 服务器与 skills，逐条
  * 勾选、选目标（全局或某个项目）、同名的换名字，再一次导入；结果汇总在上方，失败的逐条列出原因，导入后重新读一遍。
  */
 export function ImportSettings() {

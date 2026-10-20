@@ -150,7 +150,7 @@ export interface HostMethodsOptions {
   processes?: ProcessOutputService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
   terminals?: TerminalService;
-  /** 从其他应用导入（0.71.0，`import.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  /** 从其他应用导入（0.74.0，`import.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   externalImport?: ExternalImport;
 }
 
@@ -395,7 +395,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   return {
     'plugins.list': () => plugins().list(),
     'connector.add': async ({ name, config, enabled, workspaceId }) => {
-      // 0.71.0：只给一个项目的连接器，项目要在、没被移除。
+      // 0.74.0：只给一个项目的连接器，项目要在、没被移除。
       if (workspaceId !== undefined) {
         const workspace = storage.workspaces.get(workspaceId);
         if (!workspace || workspace.removedAt !== undefined) {
@@ -419,7 +419,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       connector: await plugins().update(id, { enabled }),
     }),
     'skill.install': ({ path }) => plugins().install(path),
-    // 0.71.0：从 Claude Code、Codex、Grok Build、Antigravity 导入。
+    // 0.74.0：从 Claude Code、Codex、Grok Build、Antigravity 导入。
     'import.scan': ({ app }) => importer().scan(app),
     'import.apply': async ({ app, items }) => ({ results: await importer().apply(app, items) }),
     'skill.remove': async ({ id }) => {

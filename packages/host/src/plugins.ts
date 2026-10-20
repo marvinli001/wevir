@@ -41,17 +41,17 @@ interface StoredConnector {
   name: string;
   config: McpServerConfig;
   enabled: boolean;
-  /** 只给这个项目的会话（0.71.0）；没有是全局的。 */
+  /** 只给这个项目的会话（0.74.0）；没有是全局的。 */
   workspaceId?: string;
-  /** 从别的应用导入的（0.71.0）。 */
+  /** 从别的应用导入的（0.74.0）。 */
   importedFrom?: ImportedFrom;
   /**
-   * 导入时留空、等用户填的环境变量或请求头的键（0.71.0）。还是空值的键就是 `missingInputs`，这时连接器不交给引擎；用
+   * 导入时留空、等用户填的环境变量或请求头的键（0.74.0）。还是空值的键就是 `missingInputs`，这时连接器不交给引擎；用
    * `connector.update` 给了值（或删掉这个键）就不再等它。
    */
   pending?: string[];
 }
-/** 散装连接器的额外属性（0.71.0 的项目范围与导入）。 */
+/** 散装连接器的额外属性（0.74.0 的项目范围与导入）。 */
 export interface ConnectorExtra {
   workspaceId?: string;
   importedFrom?: ImportedFrom;
@@ -208,7 +208,7 @@ export class PluginRegistry {
 
   async engineConfig(cwd?: string): Promise<EnginePluginConfig> {
     const state = this.#state;
-    // 项目的连接器（0.71.0）不在这里：只交给那个项目的会话（`projectConnectors`）。
+    // 项目的连接器（0.74.0）不在这里：只交给那个项目的会话（`projectConnectors`）。
     const connectors: EnginePluginConfig['connectors'] = engineConnectors(
       state.connectors.filter((item) => item.workspaceId === undefined),
     );
@@ -253,7 +253,7 @@ export class PluginRegistry {
   }
 
   /**
-   * 只给这个项目的会话的连接器（0.71.0）：Host 建立或恢复会话时按会话所在的项目取（`SessionConfig.connectors`），不看 cwd，
+   * 只给这个项目的会话的连接器（0.74.0）：Host 建立或恢复会话时按会话所在的项目取（`SessionConfig.connectors`），不看 cwd，
    * worktree 里的会话也拿得到。还有键没填的不给。
    */
   projectConnectors(workspaceId: string): EnginePluginConfig['connectors'] {
@@ -262,12 +262,12 @@ export class PluginRegistry {
     );
   }
 
-  /** 已知的全部 skills（受管的、插件里的与外部的），不问引擎状态（0.71.0 导入比对用）。 */
+  /** 已知的全部 skills（受管的、插件里的与外部的），不问引擎状态（0.74.0 导入比对用）。 */
   skills(): Promise<Skill[]> {
     return this.#skills(undefined, this.#state);
   }
 
-  /** 全部连接器的视图（散装的与插件里的），不问引擎状态（0.71.0 导入比对用）。 */
+  /** 全部连接器的视图（散装的与插件里的），不问引擎状态（0.74.0 导入比对用）。 */
   connectors(): Connector[] {
     const state = this.#state;
     return [
@@ -518,7 +518,7 @@ export class PluginRegistry {
   }
 
   /**
-   * 加一个散装连接器。`extra.workspaceId`（0.71.0）只给那个项目（调用方先确认项目在）；名字在全局与同一项目之间唯一。
+   * 加一个散装连接器。`extra.workspaceId`（0.74.0）只给那个项目（调用方先确认项目在）；名字在全局与同一项目之间唯一。
    * 导入的带 `importedFrom` 与 `pending`（留空等用户填的键）。
    */
   add(
@@ -585,7 +585,7 @@ export class PluginRegistry {
       if (patch.config !== undefined) {
         const old = item.config;
         const config = patch.config;
-        // 导入时留空的键：给了值或删掉就不再等（0.71.0）；又给成空串的继续等。
+        // 导入时留空的键：给了值或删掉就不再等（0.74.0）；又给成空串的继续等。
         if (item.pending !== undefined) {
           const touched = config.transport === 'stdio' ? config.env : config.headers;
           const pending = item.pending.filter((key) => {
@@ -618,7 +618,7 @@ export class PluginRegistry {
   }
 
   /**
-   * 导入一个 skill 文件夹（0.71.0）：同 `skill.install` 复制进 Wevir 的 skills 目录，记下 `importedFrom`。已有同名的 skill 时不导入，
+   * 导入一个 skill 文件夹（0.74.0）：同 `skill.install` 复制进 Wevir 的 skills 目录，记下 `importedFrom`。已有同名的 skill 时不导入，
    * 返回 `exists`。
    */
   async importSkill(
@@ -766,7 +766,7 @@ export class PluginRegistry {
   }
 
   /**
-   * 名字在“全局 ∪ 同一项目”里唯一（0.71.0）：项目的连接器不能与全局的或同一项目的重名，全局的不能与任何项目里的重名（会一起交给
+   * 名字在“全局 ∪ 同一项目”里唯一（0.74.0）：项目的连接器不能与全局的或同一项目的重名，全局的不能与任何项目里的重名（会一起交给
    * 那个项目的会话）；不同项目之间可以重名。`self` 是改名的那一个。
    */
   #checkName(state: Registry, name: string, workspaceId?: string, self?: string): void {
@@ -837,7 +837,7 @@ export class PluginRegistry {
   }
 }
 
-/** 还在等用户填的键（0.71.0）：`pending` 里值仍是空串的。 */
+/** 还在等用户填的键（0.74.0）：`pending` 里值仍是空串的。 */
 function pendingKeys(item: StoredConnector): string[] {
   const values = item.config.transport === 'stdio' ? item.config.env : item.config.headers;
   return (item.pending ?? []).filter((key) => values?.[key] === '');

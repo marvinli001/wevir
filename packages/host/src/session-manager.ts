@@ -242,7 +242,7 @@ export interface SessionManagerOptions {
     dispose?(): void;
   };
   /**
-   * 只给某个项目的连接器（0.71.0，plugins.ts 的 `projectConnectors`）：建立或恢复引擎会话时按会话所在的工作区取，随
+   * 只给某个项目的连接器（0.74.0，plugins.ts 的 `projectConnectors`）：建立或恢复引擎会话时按会话所在的工作区取，随
    * `SessionConfig.connectors` 交给适配器。没给时不交。
    */
   projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
@@ -659,7 +659,7 @@ export class SessionManager {
       rules?.text !== undefined && rules.rules.channel === 'instructions'
         ? { ...config, ruleInstructions: rules.text }
         : config;
-    // 项目的连接器（0.71.0）：按会话所在的工作区，不按 cwd（worktree 里的会话 cwd 不在项目根下）。
+    // 项目的连接器（0.74.0）：按会话所在的工作区，不按 cwd（worktree 里的会话 cwd 不在项目根下）。
     const workspaceId = this.workspaceOf(sessionId);
     const connectors =
       workspaceId === undefined ? undefined : this.#projectConnectors?.(workspaceId);

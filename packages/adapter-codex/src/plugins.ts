@@ -35,7 +35,7 @@ export function connectorConfig(
 }
 
 /**
- * 只给一个 thread 的连接器（0.71.0，项目范围）：`thread/start` / `thread/resume` / `thread/fork` 的 `config` 覆盖里的
+ * 只给一个 thread 的连接器（0.74.0，项目范围）：`thread/start` / `thread/resume` / `thread/fork` 的 `config` 覆盖里的
  * `mcp_servers.<名字>`，和应用级工具的挂法一样；环境变量与请求头的值交给 `secret` 打码。
  */
 export function threadConnectorsConfig(

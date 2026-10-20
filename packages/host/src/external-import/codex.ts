@@ -1,4 +1,4 @@
-// 从 Codex 导入（0.71.0）：记忆、MCP 服务器与 skills。用户目录是 `CODEX_HOME` 或 `~/.codex`。
+// 从 Codex 导入（0.74.0）：记忆、MCP 服务器与 skills。用户目录是 `CODEX_HOME` 或 `~/.codex`。
 //
 // - 记忆：`memories/MEMORY.md` 是 Codex 自己整理的手册（codex-rs/memories/write/templates/memories/consolidation.md，提交
 //   092d3acd6bec3e3a14bdc7e7a2810ab628ab759d），每节以 `# Task Group: <标题>` 开头，节里有 `applies_to: cwd=<目录>; …`。一节一条

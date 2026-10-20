@@ -87,7 +87,7 @@ export interface StartHostOptions {
   /** 找用户级规则文件（0.68.0，`~/.codex/AGENTS.md` 等）的家目录；省略时同 `pluginUserHome`，再省略是 os.homedir()。 */
   userHome?: string;
   /**
-   * 导入（0.71.0）读的环境变量（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`）；省略是 `process.env`。导入找用户目录的家目录同
+   * 导入（0.74.0）读的环境变量（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`）；省略是 `process.env`。导入找用户目录的家目录同
    * `userHome`。
    */
   importEnv?: Readonly<Record<string, string | undefined>>;
@@ -278,7 +278,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
     // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
-    // 从其他应用导入（0.71.0）：读用户自己的 Claude Code、Codex、Grok Build、Antigravity 目录。
+    // 从其他应用导入（0.74.0）：读用户自己的 Claude Code、Codex、Grok Build、Antigravity 目录。
     const externalImport = new ExternalImport({
       userHome: options.userHome ?? options.pluginUserHome ?? homedir(),
       env: options.importEnv ?? process.env,
@@ -334,7 +334,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         dispose: () => appTools?.plugins?.close(),
       },
-      // 只给某个项目的连接器（0.71.0）：按会话所在的工作区交给引擎。
+      // 只给某个项目的连接器（0.74.0）：按会话所在的工作区交给引擎。
       projectConnectors: (workspaceId) => plugins.projectConnectors(workspaceId),
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);

@@ -1,4 +1,4 @@
-// 导入（0.71.0）经 RPC：hello 声明 external_import；import.scan / import.apply；memory.read 带出 importedFrom；connector.add 的
+// 导入（0.74.0）经 RPC：hello 声明 external_import；import.scan / import.apply；memory.read 带出 importedFrom；connector.add 的
 // workspaceId；项目的连接器按会话所在的项目交给引擎（echo 报出它拿到的连接器）。
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';

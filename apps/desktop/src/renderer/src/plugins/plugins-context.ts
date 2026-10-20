@@ -23,7 +23,7 @@ export interface PluginsContextValue {
   openPlugin(pluginId: string): void;
   /** 打开连接器的编辑对话框。 */
   editConnector(connector: Connector): void;
-  /** Host 支持只给某个项目的连接器（0.71.0 的 `external_import`）。 */
+  /** Host 支持只给某个项目的连接器（0.74.0 的 `external_import`）。 */
   scoped: boolean;
   /** 可选的项目（范围选择用），项目在前，“对话”在最后。 */
   workspaces: readonly { id: string; label: string }[];

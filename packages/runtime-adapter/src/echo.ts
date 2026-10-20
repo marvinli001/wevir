@@ -288,7 +288,7 @@ export class EchoAdapter implements AgentRuntimeAdapter {
       modelId: config.modelId,
       ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
       ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
-      // 项目的连接器（0.71.0）按恢复时的设置。
+      // 项目的连接器（0.74.0）按恢复时的设置。
       ...(config.connectors !== undefined && { connectors: config.connectors }),
     };
     return this.#describe(session);

@@ -1,4 +1,4 @@
-// 从 Antigravity 导入（0.71.0）：skills 与 MCP 服务器。用户目录是 `~/.gemini`（Wevir 给 Antigravity 账号建的私有目录不扫）。
+// 从 Antigravity 导入（0.74.0）：skills 与 MCP 服务器。用户目录是 `~/.gemini`（Wevir 给 Antigravity 账号建的私有目录不扫）。
 //
 // - skills：运行体读的两个用户目录（adapter-antigravity 的 `antigravityUserSkillDirectories`），加上 `config/skills.json` 的
 //   `entries[].path`（用户另加的 skills 目录，常见的是 `~/.codex/skills`，与 Codex 的重复由导入去重）。

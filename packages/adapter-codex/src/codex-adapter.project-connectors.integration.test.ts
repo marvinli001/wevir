@@ -1,4 +1,4 @@
-// 项目的连接器（0.71.0）：真实 codex-app-server + 网关 + mock 模型 + 测试里的 HTTP MCP 服务。`SessionConfig.connectors` 经
+// 项目的连接器（0.74.0）：真实 codex-app-server + 网关 + mock 模型 + 测试里的 HTTP MCP 服务。`SessionConfig.connectors` 经
 // `thread/start` 的 config 覆盖只挂在这一个 thread 上：同一个进程里的别的会话看不到它的工具；它的工具调用按用户连接器上报审批。
 // 二进制不在时跳过。
 

@@ -293,7 +293,7 @@ describe('单独新开 worktree 的会话（0.18.0）', () => {
     expect(local.session.worktrees).toBeUndefined();
   });
 
-  it('项目的连接器（0.71.0）按会话所在的项目交给引擎，worktree 里的会话 cwd 不在项目根下也拿得到', async () => {
+  it('项目的连接器（0.74.0）按会话所在的项目交给引擎，worktree 里的会话 cwd 不在项目根下也拿得到', async () => {
     const adapter = new EchoAdapter({ stepDelayMs: 0 });
     const create = vi.spyOn(adapter, 'createSession');
     const resume = vi.spyOn(adapter, 'resumeSession');

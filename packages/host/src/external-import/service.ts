@@ -1,4 +1,4 @@
-// `import.scan` / `import.apply`（0.71.0）：按应用调扫描器，和 Wevir 里已有的比出状态；导入时重新扫描，按 `key` 找到条目再写入
+// `import.scan` / `import.apply`（0.74.0）：按应用调扫描器，和 Wevir 里已有的比出状态；导入时重新扫描，按 `key` 找到条目再写入
 // （客户端只给 key、目标与改名，内容总从源文件读）。只增不改：同名的已有就不写。
 
 import { readFile } from 'node:fs/promises';

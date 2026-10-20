@@ -1,4 +1,4 @@
-// 从 Grok Build 导入（0.71.0）：只有 skills（`<GROK_HOME 或 ~/.grok>/skills/*/SKILL.md`）。记忆与 MCP 的格式还没支持。
+// 从 Grok Build 导入（0.74.0）：只有 skills（`<GROK_HOME 或 ~/.grok>/skills/*/SKILL.md`）。记忆与 MCP 的格式还没支持。
 
 import { join } from 'node:path';
 import { type AppScan, exists, type ScanContext, skillDrafts } from './common.js';

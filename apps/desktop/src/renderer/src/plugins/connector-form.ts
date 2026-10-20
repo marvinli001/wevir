@@ -19,7 +19,7 @@ export interface KeyValueRow {
   existing: boolean;
   /** 已有的键被移除（补丁里写 null）。 */
   removed: boolean;
-  /** 已有的键还没有值（导入的连接器，0.71.0），要用户填。 */
+  /** 已有的键还没有值（导入的连接器，0.74.0），要用户填。 */
   missing?: boolean;
 }
 

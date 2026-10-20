@@ -952,7 +952,7 @@ export const MemorySourceSchema = z.object({
   seq: SeqSchema.optional(),
   /** 只在 `memory.read` 里有，且只对带 `sessionId` 的来源。 */
   status: MemorySourceStatusSchema.optional(),
-  /** 用户从别的应用导入的（0.71.0，`import.apply`）：这时 `by` 是 `user`，没有会话。 */
+  /** 用户从别的应用导入的（0.74.0，`import.apply`）：这时 `by` 是 `user`，没有会话。 */
   importedFrom: ImportedFromSchema.optional(),
 });
 export type MemorySource = z.infer<typeof MemorySourceSchema>;

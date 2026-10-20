@@ -1449,7 +1449,7 @@ const pluginConnector = {
   },
   enabled: true,
 };
-/** 0.71.0：只给一个项目、从 Claude Code 导入的连接器与从 Codex 导入的 skill。 */
+/** 0.74.0：只给一个项目、从 Claude Code 导入的连接器与从 Codex 导入的 skill。 */
 const importedConnector = {
   ...connector,
   id: 'con_imported',
@@ -1500,7 +1500,7 @@ const memorySourced: MemoryNote = {
   lastEdit: { by: 'user', at: TS },
 };
 
-/** 0.71.0：用户从 Claude Code 导入的笔记。 */
+/** 0.74.0：用户从 Claude Code 导入的笔记。 */
 const memoryImported: MemoryNote = {
   ...memoryNote,
   origin: {
@@ -1514,7 +1514,7 @@ const memoryImported: MemoryNote = {
   lastEdit: { by: 'user', at: TS },
 };
 
-/** 0.71.0：一次扫描 Claude Code 的结果。 */
+/** 0.74.0：一次扫描 Claude Code 的结果。 */
 const importScan = {
   app: 'claude' as const,
   found: true,

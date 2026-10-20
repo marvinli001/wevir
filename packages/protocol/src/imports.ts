@@ -3,7 +3,7 @@ import { WorkspaceIdSchema } from './common.js';
 import { MemoryNameSchema, MemoryScopeSchema, MemoryTypeSchema } from './entities.js';
 import { ConnectorNameSchema, ImportAppSchema, McpServerViewSchema } from './plugins.js';
 
-// ── 从其他应用导入（0.71.0，Host 功能 `external_import`） ─────────────────────
+// ── 从其他应用导入（0.74.0，Host 功能 `external_import`） ─────────────────────
 //
 // Host 读本机用户自己的 Claude Code、Codex、Grok Build、Antigravity 目录，列出能导入的记忆、MCP 服务器与 skills（`import.scan`），
 // 用户勾选后再由 Host 重新读源文件写入（`import.apply`）。只增不改：不覆盖 Wevir 里已有的同名条目；MCP 的环境变量与请求头只带键名，

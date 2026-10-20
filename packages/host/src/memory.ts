@@ -12,7 +12,7 @@
 // 别人（用户或别的会话）写的笔记要带着读到的版本，否则当作冲突：不会悄悄覆盖用户刚改的内容。来源只说明在哪写下，不说明内容属实；
 // 文件的修改时间不参与任何判断。
 //
-// 导入（0.71.0，`import.apply`）：用户从 Claude Code、Codex 导入的笔记只新建、不覆盖同名的；来源记 `by: user` 加上 `importedFrom`
+// 导入（0.74.0，`import.apply`）：用户从 Claude Code、Codex 导入的笔记只新建、不覆盖同名的；来源记 `by: user` 加上 `importedFrom`
 // （应用与源文件路径，写成 frontmatter 的 `created-imported-app` 等键）。
 //
 // 布局：`<数据目录>/memory/global/<名字>.md`，`<数据目录>/memory/projects/<工作区 ID>/<名字>.md`。
@@ -96,7 +96,7 @@ export class MemoryError extends Error {
   }
 }
 
-/** 密钥不落地（AGENTS.md 规则 5）：像私钥、令牌的内容拒绝保存。导入（0.71.0）也用它判断 MCP 的参数与地址。 */
+/** 密钥不落地（AGENTS.md 规则 5）：像私钥、令牌的内容拒绝保存。导入（0.74.0）也用它判断 MCP 的参数与地址。 */
 export const SECRET_PATTERNS: readonly RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /\bsk-[A-Za-z0-9_-]{20,}/,
@@ -264,7 +264,7 @@ export class MemoryStore {
   }
 
   /**
-   * 和已有的同名笔记比（0.71.0 导入）：没有是 `new`；种类、说明与正文规整后都相同是 `same`；别的（含读不出来的文件）是 `exists`。
+   * 和已有的同名笔记比（0.74.0 导入）：没有是 `new`；种类、说明与正文规整后都相同是 `same`；别的（含读不出来的文件）是 `exists`。
    */
   async compare(
     scope: MemoryScope,
@@ -283,7 +283,7 @@ export class MemoryStore {
   }
 
   /**
-   * 用户从别的应用导入一条（0.71.0）：只新建，同名的已有就是 `exists`（不覆盖，停用的、读不出来的也算）。规则同保存（名字、上限、
+   * 用户从别的应用导入一条（0.74.0）：只新建，同名的已有就是 `exists`（不覆盖，停用的、读不出来的也算）。规则同保存（名字、上限、
    * 说明与正文、密钥）；来源记 `by: user` 与 `importedFrom`。
    */
   async importNote(
@@ -644,7 +644,7 @@ async function readOrUndefined(file: string): Promise<string | undefined> {
   }
 }
 
-/** frontmatter 里 Host 自己写的字段；其余的原样留着。`imported-*` 是导入的出处（0.71.0）。 */
+/** frontmatter 里 Host 自己写的字段；其余的原样留着。`imported-*` 是导入的出处（0.74.0）。 */
 const SOURCE_FIELDS = ['by', 'session', 'turn', 'seq', 'imported-app', 'imported-path'] as const;
 const KNOWN_FIELDS = new Set([
   'name',

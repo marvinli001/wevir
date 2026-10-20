@@ -55,7 +55,7 @@ export interface SessionConfig {
    */
   ruleInstructions?: string;
   /**
-   * 只给这个会话所在项目的连接器（0.71.0，domain-model §3.19）：Host 按会话的工作区给，不看 `cwd`（worktree 里的会话也拿得到），
+   * 只给这个会话所在项目的连接器（0.74.0，domain-model §3.19）：Host 按会话的工作区给，不看 `cwd`（worktree 里的会话也拿得到），
    * 恢复会话时按当时的设置重新给。全局的连接器仍经 `bindPlugins` 的 `read`。接用户连接器的适配器（Codex）把它们只挂到这一个引擎
    * 会话上，别的适配器忽略。
    */

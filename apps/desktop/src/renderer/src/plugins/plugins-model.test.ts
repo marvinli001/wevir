@@ -254,7 +254,7 @@ describe('本地合并', () => {
   });
 });
 
-describe('连接器的范围与待填键（0.71.0）', () => {
+describe('连接器的范围与待填键（0.74.0）', () => {
   const list = [
     connector({ id: 'a', name: 'global-one' }),
     connector({ id: 'b', name: 'in-x', workspaceId: 'ws_x' }),

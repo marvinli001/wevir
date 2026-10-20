@@ -81,7 +81,7 @@ function ConnectorDialogBody({
 }) {
   const { client, list, data, notify, scoped, workspaces } = usePluginsContext();
   const editing = request.kind === 'edit' ? request.connector : undefined;
-  // 范围（0.71.0）：添加时选全局或某个项目；编辑时沿用连接器的，不能改。
+  // 范围（0.74.0）：添加时选全局或某个项目；编辑时沿用连接器的，不能改。
   const [scope, setScope] = useState<string>('global');
   const workspaceId = editing ? editing.workspaceId : scope === 'global' ? undefined : scope;
   const [tab, setTab] = useState<Tab>(editing ? editing.config.transport : 'stdio');

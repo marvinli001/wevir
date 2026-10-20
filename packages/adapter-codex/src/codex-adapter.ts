@@ -314,7 +314,7 @@ interface CodexSession {
   permission: PermissionMode;
   /** 环境会话的额外目录（0.15.0）：沙箱的 writableRoots。 */
   readonly roots: readonly string[];
-  /** 只挂在这个 thread 上的项目连接器（0.71.0）里启用的名字：它们的 MCP 确认按用户连接器处理。 */
+  /** 只挂在这个 thread 上的项目连接器（0.74.0）里启用的名字：它们的 MCP 确认按用户连接器处理。 */
   readonly connectors: ReadonlySet<string>;
   /** 子会话（子 agent 的 thread）的父会话（R4）。 */
   readonly parentId?: string;
@@ -2187,7 +2187,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     });
   }
 
-  /** 这个 thread（子 agent 的看它的父会话）挂着这个项目连接器（0.71.0）。 */
+  /** 这个 thread（子 agent 的看它的父会话）挂着这个项目连接器（0.74.0）。 */
   #threadConnector(threadId: string, name: string): boolean {
     const session = this.#sessions.get(threadId);
     if (session === undefined) return false;
@@ -2481,7 +2481,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
     appTools: AppToolsEndpoint | undefined,
     connectors: SessionConfig['connectors'],
   ): Omit<ThreadStartParams, 'cwd'> {
-    // 项目的连接器（0.71.0）只挂在这个 thread 上（`mcp_servers.<名字>` 的覆盖），全局的在 config.toml 里。
+    // 项目的连接器（0.74.0）只挂在这个 thread 上（`mcp_servers.<名字>` 的覆盖），全局的在 config.toml 里。
     const projectTools =
       connectors === undefined || connectors.length === 0
         ? {}

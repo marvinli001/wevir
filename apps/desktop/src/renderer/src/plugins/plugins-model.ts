@@ -119,7 +119,7 @@ export function commandLine(command: string, args: readonly string[] = []): stri
   return [command, ...args.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg))].join(' ');
 }
 
-// ---- 范围与来源（0.71.0） ----
+// ---- 范围与来源（0.74.0） ----
 
 /**
  * 名字与这个范围冲突的连接器（添加、编辑时校验重名）：名字在全局与同一项目之间唯一，不同项目可以重名，所以全局的新名字与

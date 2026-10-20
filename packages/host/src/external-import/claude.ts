@@ -1,4 +1,4 @@
-// 从 Claude Code 导入（0.71.0）：记忆、MCP 服务器与 skills。
+// 从 Claude Code 导入（0.74.0）：记忆、MCP 服务器与 skills。
 //
 // 位置照 Claude Agent SDK 0.3.286 打包的 Claude Code：配置目录是 `CLAUDE_CONFIG_DIR` 或 `~/.claude`；全局配置文件是
 // `join(CLAUDE_CONFIG_DIR || homedir(), '.claude.json')`（设了 `CLAUDE_CONFIG_DIR` 时在那个目录里，否则在主目录）。项目目录名是路径把

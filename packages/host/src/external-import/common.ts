@@ -1,4 +1,4 @@
-// 从其他应用导入（0.71.0，`import.*`）各家扫描器共用的部分：候选的内部形状、`key`、路径比较（含 Windows 写法）、记忆与 MCP 配置的
+// 从其他应用导入（0.74.0，`import.*`）各家扫描器共用的部分：候选的内部形状、`key`、路径比较（含 Windows 写法）、记忆与 MCP 配置的
 // 转换、密钥判断与 skills 扫描。扫描器只读用户自己的目录，不读 OAuth 令牌文件；导入时 Host 按 `key` 重新扫描再写入，不用客户端传的内容。
 
 import { createHash } from 'node:crypto';

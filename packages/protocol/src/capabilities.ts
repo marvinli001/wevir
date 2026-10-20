@@ -293,7 +293,7 @@ export const HOST_FEATURES = {
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',
-  /** 从 Claude Code、Codex、Grok Build、Antigravity 导入记忆、MCP 服务器与 skills（0.71.0）：`import.*` 方法。 */
+  /** 从 Claude Code、Codex、Grok Build、Antigravity 导入记忆、MCP 服务器与 skills（0.74.0）：`import.*` 方法。 */
   externalImport: 'external_import',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
