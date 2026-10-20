@@ -588,8 +588,16 @@ export class LspTools {
                   : `None of the changed files has a supported language (${lsp.languages}).`;
               }
             }
+            // 先把所有文件同步给服务器再取诊断：一个文件的错误可能来自另一个刚改过的文件。
+            const synced = await Promise.all(
+              files.map((file) => this.#syncForDiagnostics(file, cwd)),
+            );
             const reports = await Promise.all(
-              files.map((file) => this.#fileDiagnostics(file, cwd, timeoutMs)),
+              synced.map((entry) =>
+                'client' in entry
+                  ? this.#fileDiagnostics(entry.file, entry.client, timeoutMs)
+                  : entry,
+              ),
             );
             return formatDiagnostics(cwd, reports, severity);
           },
@@ -667,19 +675,32 @@ export class LspTools {
     return { client, point: { file, line: line - 1, character }, label };
   }
 
-  /** 一个文件的诊断：启动服务器、同步磁盘内容、等结果。 */
-  async #fileDiagnostics(file: string, cwd: string, timeoutMs: number): Promise<FileDiagnostics> {
+  /** 取诊断前的一步：启动服务器、同步磁盘内容。出错时直接是这个文件的结果。 */
+  async #syncForDiagnostics(
+    file: string,
+    cwd: string,
+  ): Promise<{ file: string; client: LspClient } | FileDiagnostics> {
     try {
       const client = await this.#client(file, cwd);
       const sync = await client.sync(file);
       if (sync === undefined) return { file, error: 'file no longer exists' };
+      return { file, client };
+    } catch (error) {
+      return diagnosticsError(file, error);
+    }
+  }
+
+  /** 一个已同步文件的诊断：等结果。 */
+  async #fileDiagnostics(
+    file: string,
+    client: LspClient,
+    timeoutMs: number,
+  ): Promise<FileDiagnostics> {
+    try {
       const result = await client.diagnostics(file, timeoutMs);
       return { file, server: client.label, ...result };
     } catch (error) {
-      if (error instanceof LspUnavailableError || error instanceof LspRequestError) {
-        return { file, error: `${unavailableLabel(error)}: ${error.message}` };
-      }
-      throw error;
+      return diagnosticsError(file, error);
     }
   }
 
@@ -804,6 +825,14 @@ const ENVIRONMENT_NOTE =
   'This is a problem with the language server environment, not with the code: do not change code because of it. ' +
   "Check the code with the project's build or test commands instead, and tell the user if code intelligence is needed " +
   '(the user can see, install and restart language servers in Wevir).';
+
+/** 服务器起不来、请求出错时，这个文件的结果写成错误；别的错误照抛。 */
+function diagnosticsError(file: string, error: unknown): FileDiagnostics {
+  if (error instanceof LspUnavailableError || error instanceof LspRequestError) {
+    return { file, error: `${unavailableLabel(error)}: ${error.message}` };
+  }
+  throw error;
+}
 
 function unavailableLabel(error: LspUnavailableError | LspRequestError): string {
   if (error instanceof LspRequestError) return 'language server error';
