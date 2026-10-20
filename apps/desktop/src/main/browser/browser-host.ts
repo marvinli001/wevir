@@ -576,11 +576,16 @@ export function createBrowserHost(options: BrowserHostOptions) {
     sendState();
   }
 
+  /**
+   * 渲染进程在窗格位置变化的每一帧都会调（拖分隔条、缩放窗口）。位置不在推给渲染进程的状态里，只有正在看的会话变了才推，
+   * 不然每一帧都要把整份标签页状态送回去、让窗格重新渲染一遍。
+   */
   function showPane(bounds: BrowserBounds, sessionId: string): boolean {
+    const visible = registry.visibleSessionId();
     registry.setVisibleSession(sessionId);
     paneBounds = toWindowBounds(bounds);
     place();
-    sendState();
+    if (registry.visibleSessionId() !== visible) sendState();
     return paneBounds !== undefined;
   }
 
