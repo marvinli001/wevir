@@ -262,6 +262,11 @@ export const HOST_FEATURES = {
    * `verification`，`MessageFrom.repair`。与引擎无关。
    */
   verification: 'verification',
+  /**
+   * 自动化（0.66.0）：`automation.*` 方法、`automation.changed` 通知、`Session.automation`，有应用级工具时还有
+   * `wevir_automation_*`。按计划反复交给 Agent 的指令，只在 Host 运行时执行。
+   */
+  automations: 'automations',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -317,6 +322,7 @@ export const HostFeaturesSchema = z.looseObject({
   usage_stats: z.boolean().optional(),
   subscription_accounts: z.boolean().optional(),
   verification: z.boolean().optional(),
+  automations: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

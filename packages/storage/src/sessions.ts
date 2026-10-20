@@ -41,9 +41,24 @@ export interface SessionRecord {
   /**
    * 会话是怎么来的（U23，0005_session_origin）：`suggested_task` 是从一项建议开出来的（提出建议的会话与建议的 ID）；`agent`（0.30.0）
    * 是另一个会话里的 agent 用应用级工具开出来的（`sessionId` 是那个会话，没有 `taskId`；用预设角色开的带 `role`，角色名）；`fork` 是从
-   * 带角色的会话分出来的分支或支线（`sessionId` 是被分的会话，`role` 抄它的）。建会话后不变。
+   * 带角色的会话分出来的分支或支线（`sessionId` 是被分的会话，`role` 抄它的）；`automation`（0.66.0）是一次自动化运行开的
+   * （自动化与运行的 ID）。建会话后不变。
    */
-  origin?: { kind: string; sessionId: string; taskId?: string; role?: string };
+  origin?:
+    | {
+        kind: 'suggested_task' | 'agent' | 'fork';
+        sessionId: string;
+        taskId?: string;
+        role?: string;
+      }
+    | {
+        kind: 'automation';
+        automationId: string;
+        runId: string;
+        sessionId?: undefined;
+        taskId?: undefined;
+        role?: undefined;
+      };
   /**
    * 工具预设（0010_tool_preset）：`id` 是 `full` 或 `core`，`groups` 是在 `core` 之上另加的组。省略表示没有选，等同 `full`。建会话后
    * 不变；只管 Host 的应用级工具。

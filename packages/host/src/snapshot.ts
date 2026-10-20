@@ -1,6 +1,8 @@
 import type {
   ActiveTurn,
   ApprovalRequest,
+  AutomationId,
+  AutomationRunId,
   BoardTask,
   EngineErrorInfo,
   EnvironmentId,
@@ -725,6 +727,11 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     session.openedBy = {
       sessionId: record.origin.sessionId as SessionId,
       ...(record.origin.role !== undefined && { role: record.origin.role }),
+    };
+  } else if (record.origin?.kind === 'automation') {
+    session.automation = {
+      automationId: record.origin.automationId as AutomationId,
+      runId: record.origin.runId as AutomationRunId,
     };
   } else if (record.origin?.taskId !== undefined) {
     session.origin = {

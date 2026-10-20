@@ -61,7 +61,10 @@ export async function sessionNew(
   }
 }
 
-function pickProvider(providers: ProviderProfile[], wanted: string | undefined): ProviderProfile {
+export function pickProvider(
+  providers: ProviderProfile[],
+  wanted: string | undefined,
+): ProviderProfile {
   if (wanted !== undefined) {
     const found = providers.find((p) => p.id === wanted);
     if (!found) {

@@ -20,6 +20,9 @@ export const ROUTE_PATTERNS = {
   pluginsTab: '/plugins/:tab',
   /** 使用统计（0.62.0）：每次模型请求的 token 与估算成本。 */
   usage: '/usage',
+  /** 自动化（0.66.0）：列表与模板；`/automations/:automationId` 是一个自动化的详情。 */
+  automations: '/automations',
+  automation: '/automations/:automationId',
   /** 首次使用的分步引导（U6），整窗页面。 */
   welcome: '/welcome',
 } as const;
@@ -70,5 +73,8 @@ export const paths = {
   plugins: (tab?: PluginsTab): string =>
     tab === undefined ? ROUTE_PATTERNS.plugins : `${ROUTE_PATTERNS.plugins}/${tab}`,
   usage: (): string => ROUTE_PATTERNS.usage,
+  automations: (): string => ROUTE_PATTERNS.automations,
+  automation: (automationId: string): string =>
+    `${ROUTE_PATTERNS.automations}/${segment(automationId)}`,
   welcome: (): string => ROUTE_PATTERNS.welcome,
 };

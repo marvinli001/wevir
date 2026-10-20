@@ -1,3 +1,4 @@
+export * from './automations.js';
 export * from './browser.js';
 export * from './capabilities.js';
 export * from './common.js';

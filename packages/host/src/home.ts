@@ -42,6 +42,8 @@ export const HOME_LAYOUT = {
   pricingFile: 'pricing.json',
   /** 回合后验证的检查配置（0.65.0，verification/checks-store.ts）：每个工作区一个 `<工作区 ID>.json`（0600），不写回仓库。 */
   checksDir: 'checks',
+  /** 自动化（0.66.0，automations/service.ts）：每个自动化一个 `<自动化 ID>.json`，含最近的运行（0700 / 0600）。 */
+  automationsDir: 'automations',
 } as const;
 
 export interface ResolveHomeOptions {

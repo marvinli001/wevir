@@ -24,3 +24,14 @@ export const JSON_PREVIEW_LENGTH = 4 * 1024;
 export const USAGE_MAX_BUCKETS = 400;
 /** `usage.records` 一页最多的条数，也是省略 `limit` 时的条数。 */
 export const USAGE_RECORDS_PAGE_MAX = 200;
+
+/** 自动化 `interval` 计划的最短间隔（分钟）。 */
+export const AUTOMATION_MIN_INTERVAL_MINUTES = 5;
+/** 自动化标题的长度上限。 */
+export const AUTOMATION_TITLE_MAX_LENGTH = 120;
+/** 自动化指令的长度上限。 */
+export const AUTOMATION_PROMPT_MAX_LENGTH = 20_000;
+/** 每个自动化保留的运行记录条数，更早的删除。 */
+export const AUTOMATION_RUNS_KEPT = 50;
+/** `AutomationRun.summary` 的长度上限。 */
+export const AUTOMATION_RUN_SUMMARY_MAX_LENGTH = 2_000;

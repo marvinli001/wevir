@@ -34,6 +34,7 @@ export const zh = {
   'group.provider': 'Provider（模型服务）',
   'group.web': '联网搜索',
   'group.session': '会话',
+  'group.automation': '自动化',
 
   'usage.seeHelp': '运行 wevir --help',
   'usage.seeCommandHelp': '运行 wevir {command} --help',
@@ -125,6 +126,62 @@ export const zh = {
   Ctrl-C    取消当前运行；再按一次退出 attach
   Ctrl-D    退出 attach，会话保留
   /resume   发送暂停的消息`,
+  'cmd.automation.list.summary': '列出自动化',
+  'cmd.automation.list.usage': 'wevir automation list [--json]',
+  'cmd.automation.show.summary': '查看自动化的设置与最近运行',
+  'cmd.automation.show.usage': 'wevir automation show <ID> [--json]',
+  'cmd.automation.show.help': `ID 可用唯一前缀（可省略 aut_）
+
+选项：
+  --json   以 JSON 输出设置与运行记录`,
+  'cmd.automation.create.summary': '新建自动化',
+  'cmd.automation.create.usage': 'wevir automation create --title <名称> [选项] "<指令>"',
+  'cmd.automation.create.help': `指令也可经 stdin 传入；只在 Host 运行时按计划执行
+
+计划（最多一个，默认 --manual）：
+  --manual                  只手动运行
+  --once <日期时间>         运行一次，例如 2026-10-21T09:00；无时区偏移时按本机时间
+  --every <分钟>            每隔若干分钟，至少 5
+  --daily <HH:MM>           每天
+  --days <星期>             与 --daily 一起：mon,wed、weekdays、weekends 或 0–6（0 为周日）
+  --monthly <日> <HH:MM>    每月该日；月份无该日时为月末
+  --timezone <时区>         IANA 时区，例如 Asia/Shanghai；默认 Host 所在电脑的时区
+
+运行：
+  --title <名称>            名称（必填）
+  --project <路径|ID>       项目目录或工作区 ID；目录未登记时自动登记。默认不在项目中
+  --provider <ID>           Provider；仅有一个时可省略
+  --model <模型 ID>         模型，默认为 Provider 的默认模型
+  --effort <强度>           推理强度
+  --permission <模式>       on_request（默认）、auto_review 或 full_access
+  --notify <方式>           always、important（默认）、failures 或 never
+  --same-session            每次运行发进同一个会话，默认每次新会话
+  --disabled                创建后先停用
+  --json                    以 JSON 输出
+
+示例：
+  wevir automation create --title 每日站会 --daily 09:00 --days weekdays --project . "汇总昨天以来的提交"
+  wevir automation create --title 依赖检查 --monthly 1 10:00 < prompt.md`,
+  'cmd.automation.update.summary': '修改自动化（只改给出的选项）',
+  'cmd.automation.update.usage': 'wevir automation update <ID> [选项]',
+  'cmd.automation.update.help': `计划与运行选项同 wevir automation create；给出计划选项时替换整个计划
+
+另有：
+  --prompt <指令>           新的指令；- 表示从 stdin 读
+  --no-project              改为不在项目中
+  --default-model           改用 Provider 的默认模型
+  --default-effort          清除推理强度
+  --new-session             改为每次运行新会话`,
+  'cmd.automation.enable.summary': '启用自动化',
+  'cmd.automation.enable.usage': 'wevir automation enable <ID>',
+  'cmd.automation.disable.summary': '停用自动化',
+  'cmd.automation.disable.usage': 'wevir automation disable <ID>',
+  'cmd.automation.run.summary': '立即运行一次',
+  'cmd.automation.run.usage': 'wevir automation run <ID> [--json]',
+  'cmd.automation.run.help': '停用的自动化也可运行；不改变计划。没能开始时退出码为 1',
+  'cmd.automation.delete.summary': '删除自动化与运行记录',
+  'cmd.automation.delete.usage': 'wevir automation delete <ID>',
+  'cmd.automation.delete.help': '运行开出的会话保留；进行中的运行不取消',
 
   // errors.ts：describeError
   'err.hostNotRunning': 'Wevir Host 未运行',
@@ -163,6 +220,8 @@ export const zh = {
   'err.providerNotFound.hint': '运行 wevir provider list 查看，或 wevir provider add 添加',
   'err.sessionNotFound': '会话不存在',
   'err.sessionNotFound.hint': '运行 wevir session list 查看',
+  'err.automationNotFound': '自动化不存在',
+  'err.automationNotFound.hint': '运行 wevir automation list 查看',
   'err.approvalNotFound': '审批不存在',
   'err.readOnly': '会话只读：{reason}（{message}）',
   'err.readOnly.hint': '历史可用 wevir session attach 查看；继续对话需新建会话',
@@ -541,6 +600,107 @@ export const zh = {
   'web.reason.quota': '余额或额度不足',
   'web.reason.invalid_response': '响应格式不符',
   'identity.invalid': '{path} 中的 ID 无效',
+
+  // commands/automation.ts
+  'automation.unsupported': 'Host {version} 不支持自动化',
+  'automation.unsupported.hint': '升级 Wevir Host（需要协议 0.66.0）',
+  'automation.none': '暂无自动化',
+  'automation.notFound': '没有自动化 {id}',
+  'automation.notFound.hint': '运行 wevir automation list 查看',
+  'automation.ambiguous': '{id} 匹配多个自动化：{ids}',
+  'automation.ambiguous.hint': '给出更长的 ID 前缀',
+  'automation.missingTitle': '缺少 --title <名称>',
+  'automation.missingPrompt': '缺少指令',
+  'automation.missingPrompt.hint': '在参数中给出指令，或经 stdin 传入',
+  'automation.manySchedules': '计划选项只能给一个：{flags}',
+  'automation.daysNeedDaily': '--days 只能与 --daily 一起使用',
+  'automation.badTime': '{flag} 需为 HH:MM：{value}',
+  'automation.badOnce': '--once 需为日期与时间，例如 2026-10-21T09:00：{value}',
+  'automation.oncePast': '--once 的时间已过：{value}',
+  'automation.badEvery': '--every 需为不小于 {min} 的整数（分钟）：{value}',
+  'automation.badMonthly': '--monthly 需为 <日> <HH:MM>，例如 --monthly 15 09:00：{value}',
+  'automation.badDays': '无法识别的星期：{value}',
+  'automation.badPermission': '未知权限模式：{value}',
+  'automation.badPermission.hint': '可用 on_request、auto_review 或 full_access',
+  'automation.badNotify': '未知提醒方式：{value}',
+  'automation.badNotify.hint': '可用 always、important、failures 或 never',
+  'automation.conflict': '{a} 与 {b} 不能同时使用',
+  'automation.nothingToUpdate': '未给出要修改的选项',
+  'automation.created': '已创建自动化：{title}（{id}）',
+  'automation.updated': '已更新自动化：{title}（{id}）',
+  'automation.enabled': '已启用：{title}',
+  'automation.disabled': '已停用：{title}',
+  'automation.deleted': '已删除自动化：{title}（{id}）',
+  'automation.nextRun': '下次运行 {time}',
+  'automation.runStarted': '已开始运行：{title}（{id}）',
+  'automation.runFailed': '运行没能开始：{error}',
+  'automation.fullAccessWarning': '无人值守时以完全访问运行，命令与改动不经批准',
+  'automation.col.state': '状态',
+  'automation.col.title': '名称',
+  'automation.col.schedule': '计划',
+  'automation.col.next': '下次运行',
+  'automation.col.last': '上次运行',
+  'automation.col.started': '开始',
+  'automation.col.trigger': '方式',
+  'automation.col.status': '结果',
+  'automation.col.session': '会话',
+  'automation.col.result': '摘要',
+  'automation.state.enabled': '已启用',
+  'automation.state.disabled': '已停用',
+  'automation.field.state': '状态',
+  'automation.field.schedule': '计划',
+  'automation.field.timezone': '时区',
+  'automation.field.next': '下次运行',
+  'automation.field.project': '项目',
+  'automation.field.model': '模型',
+  'automation.field.effort': '推理强度',
+  'automation.field.permission': '权限',
+  'automation.field.runsIn': '运行于',
+  'automation.field.notify': '通知',
+  'automation.field.creator': '创建者',
+  'automation.field.created': '创建于',
+  'automation.field.runCount': '运行次数',
+  'automation.field.prompt': '指令',
+  'automation.runs': '运行记录',
+  'automation.noRuns': '暂无运行记录',
+  'automation.moreRuns': '另有 {count} 条，--json 查看全部',
+  'automation.noProject': '不在项目中',
+  'automation.defaultModel': '默认模型',
+  'automation.runsIn.new': '每次新会话',
+  'automation.runsIn.same': '同一会话',
+  'automation.creator.user': '用户',
+  'automation.creator.agent': 'Agent（会话 {id}）',
+  'automation.schedule.manual': '手动运行',
+  'automation.schedule.once': '一次 · {at}',
+  'automation.schedule.every': '每 {minutes} 分钟',
+  'automation.schedule.daily': '每天 {time}',
+  'automation.schedule.weekdays': '工作日 {time}',
+  'automation.schedule.weekly': '每{days} {time}',
+  'automation.schedule.monthly': '每月 {day} 日 {time}',
+  'automation.notify.always': '每次运行',
+  'automation.notify.important': '重要更新',
+  'automation.notify.failures': '仅失败',
+  'automation.notify.never': '从不',
+  'automation.run.running': '运行中',
+  'automation.run.waiting': '等待处理',
+  'automation.run.completed': '已完成',
+  'automation.run.failed': '失败',
+  'automation.run.cancelled': '已取消',
+  'automation.run.skipped': '已跳过',
+  'automation.run.quiet': '无更新',
+  'automation.trigger.schedule': '按计划',
+  'automation.trigger.manual': '手动',
+  'automation.trigger.catch_up': '补运行',
+  'permission.on_request': '请求批准',
+  'permission.auto_review': '自动批准',
+  'permission.full_access': '完全访问',
+  'weekday.0': '周日',
+  'weekday.1': '周一',
+  'weekday.2': '周二',
+  'weekday.3': '周三',
+  'weekday.4': '周四',
+  'weekday.5': '周五',
+  'weekday.6': '周六',
 } as const;
 
 export type MessageKey = keyof typeof zh;

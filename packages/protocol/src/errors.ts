@@ -43,6 +43,8 @@ export const ErrorCode = {
   IMAGE_NOT_FOUND: -32017,
   /** 这个范围里没有这个名字的笔记（0.57.0，`memory.*`）。 */
   MEMORY_NOT_FOUND: -32018,
+  /** 没有这个自动化（0.66.0，`automation.*`）。 */
+  AUTOMATION_NOT_FOUND: -32019,
 
   INVALID_STATE: -32020,
   SESSION_BUSY: -32021,

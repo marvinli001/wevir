@@ -2,6 +2,7 @@ import type { Session } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   Blocks,
+  CalendarClock,
   ChartColumn,
   ChevronDown,
   Folder,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useState } from 'react';
 import { NavLink, useLocation, useNavigate, useParams } from 'react-router';
+import { automationsAvailability } from '@/automations/automations-model';
 import { Collapse } from '@/components/collapse';
 import { IconButton } from '@/components/icon-button';
 import { ArchiveIcon, PinIcon } from '@/components/session-icons';
@@ -68,7 +70,7 @@ const COMPLETED_SHOWN = 10;
 
 /**
  * 左栏（U5 照 Codex 桌面端）：顶上一条拖动区（后退、前进与侧栏开关浮在它上面，见 window-controls.tsx；浮层里的侧栏把
- * 它们放进 `controls`）、“新建会话”与“插件”（0.42.0，Host 有 `plugins` 功能才有）、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
+ * 它们放进 `controls`）、“新建会话”“自动化”（0.66.0，Host 有 `automations` 功能才有）与“插件”（0.42.0，Host 有 `plugins` 功能才有）、会话（U19 起默认按状态分三组，可切换成“项目 → 会话”两级树）、底部的更新入口（有新版本时，
  * ADR-0007 补记 4）、“使用统计”（0.62.0，Host 有 `usage_stats` 功能才有）与设置入口。不显示与 Host 的连接状态：连上时什么都不
  * 显示，断线时只有窗口右下角的连接通知（host/connection-toast.tsx）。
  */
@@ -79,6 +81,8 @@ export function Sidebar({ controls }: { controls?: ReactNode }) {
   const showPlugins = pluginsAvailability(client?.hello.features) === 'ready';
   // Host 有 `usage_stats` 功能才有“使用统计”入口（0.62.0），在设置上面。
   const showUsage = usageAvailability(client?.hello.features) === 'ready';
+  // Host 有 `automations` 功能才有“自动化”入口（0.66.0），在“新建会话”下面。
+  const showAutomations = automationsAvailability(client?.hello.features) === 'ready';
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
@@ -94,6 +98,16 @@ export function Sidebar({ controls }: { controls?: ReactNode }) {
           <SquarePen className="size-4 shrink-0 text-muted-foreground" aria-hidden />
           {t('sidebar.newSession')}
         </NavLink>
+        {showAutomations && (
+          <NavLink
+            to={paths.automations()}
+            className={({ isActive }) => cn(ROW, isActive && ROW_ACTIVE)}
+            data-testid="sidebar-automations"
+          >
+            <CalendarClock className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            {t('sidebar.automations')}
+          </NavLink>
+        )}
         {showPlugins && (
           <NavLink
             to={paths.plugins()}

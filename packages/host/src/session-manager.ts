@@ -33,6 +33,7 @@ import {
   type ReviewTarget,
   SESSION_RECAP_MIN_AWAY_MS,
   type Session,
+  type SessionAutomation,
   type SessionGoal,
   type SessionId,
   type SessionReadOnlyReason,
@@ -746,7 +747,13 @@ export class SessionManager {
    */
   async create(
     params: MethodParams<'session.create'>,
-    options: { openedBy?: SessionId; role?: string; toolPreset?: ToolPreset } = {},
+    options: {
+      openedBy?: SessionId;
+      role?: string;
+      toolPreset?: ToolPreset;
+      /** 自动化运行开的会话（0.66.0）：记进 `origin`，`Session.automation` 由它来。 */
+      automation?: SessionAutomation;
+    } = {},
   ): Promise<Session> {
     this.#assertOpen();
     const provider = this.#storage.providers.get(params.providerId);
@@ -777,6 +784,7 @@ export class SessionManager {
         options.openedBy,
         options.role,
         toolPreset,
+        options.automation,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -846,6 +854,7 @@ export class SessionManager {
     openedBy: SessionId | undefined,
     role: string | undefined,
     toolPreset: ToolPreset | undefined,
+    automation?: SessionAutomation,
   ): Promise<Session> {
     const sessionId = newId('ses');
     // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
@@ -862,9 +871,11 @@ export class SessionManager {
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     const recordOrigin: SessionRecord['origin'] =
       origin ??
-      (openedBy === undefined
-        ? undefined
-        : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
+      (automation !== undefined
+        ? { kind: 'automation', ...automation }
+        : openedBy === undefined
+          ? undefined
+          : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     this.#creating.set(sessionId, {
       workspaceId: workspace.id,
