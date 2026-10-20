@@ -135,7 +135,7 @@ export const messages: Messages = {
   'rail.context.used': '{percent}% 사용됨',
   'rail.context.approx': '약 {size}',
   'rail.context.total': '누적 사용량',
-  'rail.context.autoCompact': '자동 압축 기준',
+  'rail.context.untilAutoCompact': '자동 압축까지 {size}',
   'rail.context.meter': '컨텍스트 {percent}% 사용됨',
   'rail.context.cat.messages': '메시지',
   'rail.context.cat.systemPrompt': '시스템 프롬프트',

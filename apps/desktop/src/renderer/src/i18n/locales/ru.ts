@@ -136,7 +136,7 @@ export const messages: Messages = {
   'rail.context.used': 'Использовано {percent}%',
   'rail.context.approx': '≈ {size}',
   'rail.context.total': 'Всего использовано',
-  'rail.context.autoCompact': 'Автосжатие при',
+  'rail.context.untilAutoCompact': '{size} до автосжатия',
   'rail.context.meter': 'Контекст: использовано {percent}%',
   'rail.context.cat.messages': 'Сообщения',
   'rail.context.cat.systemPrompt': 'Системный промпт',

@@ -1,5 +1,5 @@
 import type { ChatMessage } from '@wevir/client-sdk';
-import type { TurnId, TurnOutcome } from '@wevir/protocol';
+import type { PendingMessage, TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
 import { ChevronRight } from 'lucide-react';
 import { Fragment, memo, useContext, useEffect, useId, useRef } from 'react';
@@ -11,12 +11,18 @@ import { Elapsed } from './elapsed';
 import { useFold, useFoldSetter } from './fold-state';
 import { AWAITING_PILL, LiveIndicator, type LiveState, TurnOrb } from './live-indicator';
 import { BranchButton, useMessageActions } from './message-actions';
-import { PartsView, UserMessage } from './message-view';
+import { PartsView, PendingSteerMessage, UserMessage } from './message-view';
 import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
 import { OpenTurnChanges } from './turn-changes';
 import { foldSegments, foldTurn, type TurnFold, turnHeaderText } from './turn-model';
 import { DiffStat, IssueFlags } from './work-group';
+
+const NO_STEERS: readonly PendingMessage[] = [];
+
+function sameItems<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item, index) => item === b[index]);
+}
 
 const HEADER_TONES: Record<TurnOutcome, string> = {
   completed: '',
@@ -42,6 +48,7 @@ export const TurnView = memo(
     hasSubagents,
     hideTodos = false,
     lastTurn = false,
+    steers = NO_STEERS,
   }: {
     turnId: TurnId;
     messages: readonly ChatMessage[];
@@ -56,6 +63,8 @@ export const TurnView = memo(
     hideTodos?: boolean;
     /** 会话最后一个回合：回答下面的操作行一直显示（照 Codex 桌面端），别的回合悬停时才出现。 */
     lastTurn?: boolean;
+    /** 进行中的回合：交给模型、还没插进来的插话，画在末尾（当前动作那一行之前）。 */
+    steers?: readonly PendingMessage[];
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
     const { branch } = useMessageActions();
@@ -168,6 +177,11 @@ export const TurnView = memo(
               );
             })}
           </div>
+          {steers.map((message) => (
+            <div key={message.id} className="mt-3">
+              <PendingSteerMessage message={message} />
+            </div>
+          ))}
           {live && !liveTail && (
             <LiveLine
               live={live}
@@ -215,6 +229,7 @@ export const TurnView = memo(
     prev.orb === next.orb &&
     prev.hasSubagents === next.hasSubagents &&
     prev.lastTurn === next.lastTurn &&
+    sameItems(prev.steers ?? NO_STEERS, next.steers ?? NO_STEERS) &&
     prev.messages.length === next.messages.length &&
     prev.messages.every((message, index) => message === next.messages[index]),
 );

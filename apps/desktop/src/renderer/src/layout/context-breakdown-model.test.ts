@@ -72,7 +72,7 @@ describe('contextBreakdown', () => {
     });
     expect(view?.rows.map((row) => row.label)).toEqual(['消息', 'Plugin thing', 'Another new one']);
     const swatches = view?.rows.map((row) => row.swatch) ?? [];
-    expect(swatches[0]).toBe('bg-running');
+    expect(swatches[0]).toBe('bg-chart-3');
     expect(new Set(swatches).size).toBe(3);
     // 不认识的 kind 按占用算。
     expect(view?.rows[2]?.kind).toBe('used');

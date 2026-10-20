@@ -32,35 +32,38 @@ const GROUP_LABELS = {
 } satisfies Record<string, () => string>;
 
 /**
- * 色块：已知的类别各有固定的一格（换回合颜色不跳），不认识的按出现顺序轮着用。类名要写全，Tailwind 才扫得到。
+ * 色块：已知的类别各有固定的一格（换回合颜色不跳），照 Claude 桌面端只给消息、MCP 工具、系统工具、技能这几类上色，其余是
+ * 深浅不同的灰；不认识的也是灰，按出现顺序先取这一组分布里没被占着的，不够了再轮回来。类名要写全，Tailwind 才扫得到。
  * 剩余空间与压缩余量另有颜色（`FREE_SWATCH`、`BUFFER_SWATCH`）。
  */
 const SWATCHES = [
-  'bg-running',
-  'bg-success',
-  'bg-warning',
-  'bg-brand',
-  'bg-running/50',
-  'bg-success/50',
-  'bg-warning/50',
-  'bg-brand/50',
-  'bg-soft-foreground',
+  'bg-chart-3',
+  'bg-chart-4',
+  'bg-chart-5',
+  'bg-chart-1',
+  'bg-chart-2',
+  'bg-chart-6',
+  'bg-soft-foreground/80',
   'bg-muted-foreground',
+  'bg-muted-foreground/70',
+  'bg-muted-foreground/50',
 ] as const;
+/** 灰的几格，不认识的类别从这里取。 */
+const GRAYS = [6, 7, 8, 9];
 const FIXED_SWATCH: Record<string, number> = {
   messages: 0,
   'mcp tools': 1,
-  skills: 2,
-  'system prompt': 3,
-  'system tools': 4,
-  'mcp server instructions': 5,
-  'memory files': 6,
-  'custom agents': 7,
-  'slash commands': 8,
+  'system tools': 2,
+  skills: 3,
+  'slash commands': 4,
+  'system prompt': 6,
+  'memory files': 7,
+  'mcp server instructions': 8,
+  'custom agents': 9,
   input: 0,
-  'cached input': 4,
+  'cached input': 2,
   output: 1,
-  reasoning: 2,
+  reasoning: 3,
 };
 export const FREE_SWATCH = 'bg-muted';
 export const BUFFER_SWATCH = 'bg-border-strong';
@@ -126,21 +129,22 @@ export function contextBreakdown(
   const total = windowed.reduce((sum, row) => sum + row.tokens, 0);
   if (total <= 0) return undefined;
 
-  // 不认识的类别用这一组分布里没被已知类别占着的色块，按出现顺序取，不够了再轮回来。
+  // 不认识的类别用这一组分布里没被已知类别占着的灰，按出现顺序取；都占着或不够了就在灰里轮。
   const taken = new Set(
     windowed.flatMap((row) => {
       const fixed = FIXED_SWATCH[row.name.replace(DEFERRED_SUFFIX, '').toLowerCase()];
       return fixed === undefined ? [] : [fixed];
     }),
   );
-  const spare = SWATCHES.map((_, index) => index).filter((index) => !taken.has(index));
+  const free = GRAYS.filter((index) => !taken.has(index));
+  const spare = free.length > 0 ? free : GRAYS;
   let nextSpare = 0;
   const swatchFor = (name: string, kind: BreakdownKind): string => {
     if (kind === 'free') return FREE_SWATCH;
     if (kind === 'buffer') return BUFFER_SWATCH;
     const fixed = FIXED_SWATCH[name.replace(DEFERRED_SUFFIX, '').toLowerCase()];
     if (fixed !== undefined) return SWATCHES[fixed] as string;
-    const index = spare.length > 0 ? (spare[nextSpare % spare.length] as number) : 0;
+    const index = spare[nextSpare % spare.length] as number;
     nextSpare += 1;
     return SWATCHES[index] as string;
   };

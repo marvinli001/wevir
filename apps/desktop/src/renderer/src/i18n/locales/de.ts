@@ -138,7 +138,7 @@ export const messages: Messages = {
   'rail.context.used': '{percent} % belegt',
   'rail.context.approx': 'ca. {size}',
   'rail.context.total': 'Gesamtverbrauch',
-  'rail.context.autoCompact': 'Automatisch komprimieren ab',
+  'rail.context.untilAutoCompact': 'Noch {size} bis zur Komprimierung',
   'rail.context.meter': 'Kontext zu {percent} % belegt',
   'rail.context.cat.messages': 'Nachrichten',
   'rail.context.cat.systemPrompt': 'Systemprompt',

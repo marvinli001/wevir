@@ -31,7 +31,8 @@ import {
 import { useSessions } from './suggested-tasks';
 
 /**
- * 输入框上方的待发区（R11，domain-model §3.3.2）：插话（等这一步结束）、排队（回合结束后）、已暂停三组。排队的与暂停的
+ * 输入框上方的待发区（R11，domain-model §3.3.2）：插话（等这一步结束；有进行中的回合时画在消息流里，见 `steerInline`）、排队
+ * （回合结束后）、已暂停三组。排队的与暂停的
  * 可以编辑、删除，排队的在回合进行中可以改为插话；交给模型的插话只能看。暂停的有“继续发送”。别的会话的 agent 发来的回报与
  * 消息、后台进程的通知（`from` 不是空的）不是用户写的：单独一行说明，不当作用户的排队消息，不能编辑。没有待发消息时不显示。
  */
@@ -41,16 +42,25 @@ export function PendingArea({
   state,
   client,
   onError,
+  steerInline = false,
 }: {
   sessionId: SessionId;
   pending: readonly PendingMessage[];
   state: SessionState | undefined;
+  /** 插话画在消息流里（pending-model.ts 的 steersInline），这里不列。 */
+  steerInline?: boolean;
   client: WevirClient | undefined;
   onError: (message: string) => void;
 }) {
   const [editing, setEditing] = useState<string>();
-  if (pending.length === 0) return null;
   const groups = groupPending(pending);
+  if (steerInline) groups.steer = [];
+  if (
+    groups.notices.length + groups.steer.length + groups.queue.length + groups.held.length ===
+    0
+  ) {
+    return null;
+  }
 
   const run = async (op: (client: WevirClient) => Promise<unknown>) => {
     if (!client) return;

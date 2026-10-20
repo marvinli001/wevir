@@ -9,6 +9,7 @@ import { t } from '@/i18n';
 import { FoldScopeProvider } from './fold-state';
 import type { LiveState } from './live-indicator';
 import { SystemMessage } from './message-view';
+import { groupPending } from './pending-model';
 import { useStickToBottom } from './scroll-controller';
 import { type QuoteActions, SelectionToolbar } from './selection-toolbar';
 import { latestTodos } from './todo-model';
@@ -123,6 +124,7 @@ export function TranscriptView({
           <FoldScopeProvider sessionId={sessionId} onToggle={holdPosition}>
             <WorkspaceRoot value={cwd}>
               {groupTurns(messages.slice(start)).map((block, index, blocks) => {
+                const active = block.kind === 'turn' && isActiveTurn(block.turnId, transcript);
                 const fresh = !firstRender && sticky && !seenKeys.has(block.key);
                 seenKeys.add(block.key);
                 return (
@@ -135,10 +137,12 @@ export function TranscriptView({
                       <TurnView
                         turnId={block.turnId}
                         messages={block.messages}
-                        turnActive={isActiveTurn(block.turnId, transcript)}
-                        {...(isActiveTurn(block.turnId, transcript) && {
+                        turnActive={active}
+                        {...(active && {
                           live: liveState(transcript),
                           orb: turnOrb(sessionId, block.turnId),
+                          // 交给模型、还没插进来的插话画在进行中的回合末尾（照 Claude 桌面端），不在输入框上方的待发区。
+                          steers: groupPending(transcript.pendingMessages).steer,
                         })}
                         hasSubagents={transcript.subagents.length > 0}
                         hideTodos={block.turnId === dockedTodos}

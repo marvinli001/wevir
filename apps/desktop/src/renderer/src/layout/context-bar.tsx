@@ -1,10 +1,10 @@
-// 上下文的用量条（0.29.0）：颜色随用量（rail-model.ts 的 `tone`），有自动压缩的线时画一道竖线。
+// 上下文的用量条（0.29.0）：颜色随用量（rail-model.ts 的 `tone`，平时同分布里“消息”的蓝），有自动压缩的线时画一道竖线。
 
 import { cn } from 'cn';
 import type { ContextUsage } from './rail-model';
 
 const TONE_FILL: Record<ContextUsage['tone'], string> = {
-  normal: 'bg-muted-foreground',
+  normal: 'bg-chart-3',
   warning: 'bg-warning',
   danger: 'bg-destructive',
 };

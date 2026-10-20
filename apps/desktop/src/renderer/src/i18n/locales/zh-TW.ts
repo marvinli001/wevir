@@ -133,7 +133,7 @@ export const messages: Messages = {
   'rail.context.used': '已用 {percent}%',
   'rail.context.approx': '約 {size}',
   'rail.context.total': '累計用量',
-  'rail.context.autoCompact': '自動壓縮閾值',
+  'rail.context.untilAutoCompact': '距自動壓縮 {size}',
   'rail.context.meter': '上下文已用 {percent}%',
   'rail.context.cat.messages': '訊息',
   'rail.context.cat.systemPrompt': '系統提示',

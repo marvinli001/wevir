@@ -142,7 +142,7 @@ export const messages: Messages = {
   'rail.context.used': '{percent} % usado',
   'rail.context.approx': 'aprox. {size}',
   'rail.context.total': 'Uso total',
-  'rail.context.autoCompact': 'Compactación automática en',
+  'rail.context.untilAutoCompact': '{size} hasta compactación automática',
   'rail.context.meter': 'Contexto: {percent} % usado',
   'rail.context.cat.messages': 'Mensajes',
   'rail.context.cat.systemPrompt': 'Prompt del sistema',
