@@ -30,6 +30,7 @@ import {
 import { EventStore } from './event-store.js';
 import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
+import { RetroService } from './retro/service.js';
 import { RoleStore } from './roles.js';
 import { SessionManager } from './session-manager.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
@@ -65,6 +66,7 @@ async function setup(
   withPlugins = false,
   withProcesses = false,
   busyDelivery: PendingDelivery = 'queue',
+  withRetro = false,
 ) {
   const root = realpathSync(tempDir());
   const storage = storages.open(join(root, 'data'));
@@ -136,6 +138,7 @@ async function setup(
     }),
     ...(plugins && { plugins }),
     ...(processes && { processes }),
+    ...(withRetro && { retro: new RetroService({ storage, events }) }),
     storage,
     events,
     sessions: manager,
@@ -450,6 +453,33 @@ describe('应用级工具', () => {
     expect(await h.call(a, 'wevir_session_read', { sessionId: 'ses_nope' })).toEqual({
       error: 'No Wevir session ses_nope.',
     });
+  });
+
+  it('任务回顾：默认读自己，可读别的会话，脱敏，没有验证记录写未验证', async () => {
+    const h = await setup(0, false, false, 'queue', true);
+    const a = await h.create();
+    const b = await h.create();
+    const secret = `sk-${'a1B2'.repeat(8)}`;
+    await h.send(b, `fix the parser, key ${secret}`);
+    await h.settle(b);
+    const own = await h.rpc(a, 'tools/call', { name: 'wevir_session_retro', arguments: {} });
+    const ownText = own.body.result.content[0].text as string;
+    expect(ownText).toContain('# Task retro');
+    expect(ownText).toContain(`Session ${a}`);
+    const other = await h.rpc(a, 'tools/call', {
+      name: 'wevir_session_retro',
+      arguments: { sessionId: b },
+    });
+    const text = other.body.result.content[0].text as string;
+    expect(text).toContain(`Session ${b}`);
+    expect(text).toContain('fix the parser');
+    expect(text).toContain('Unverified: no verification records.');
+    expect(text).not.toContain(secret);
+    const missing = await h.rpc(a, 'tools/call', {
+      name: 'wevir_session_retro',
+      arguments: { sessionId: 'ses_nope' },
+    });
+    expect(missing.body.result.isError).toBe(true);
   });
 
   it('新开会话：记下 openedBy 与 from，回合结束后结果作为 report 发回', async () => {

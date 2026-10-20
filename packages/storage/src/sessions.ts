@@ -208,6 +208,8 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const removeApprovals = db.prepare('DELETE FROM approvals WHERE session_id = ?');
   const removeReceipts = db.prepare('DELETE FROM send_receipts WHERE session_id = ?');
   const removeReviewComments = db.prepare('DELETE FROM review_comments WHERE session_id = ?');
+  const removeRetro = db.prepare('DELETE FROM session_retros WHERE session_id = ?');
+  const removeRetroSummary = db.prepare('DELETE FROM session_retro_summaries WHERE session_id = ?');
   const removeSession = db.prepare('DELETE FROM sessions WHERE id = ?');
 
   return {
@@ -283,6 +285,8 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         removeApprovals.run(id);
         removeReceipts.run(id);
         removeReviewComments.run(id);
+        removeRetro.run(id);
+        removeRetroSummary.run(id);
         removed += removeSession.run(id).changes > 0 ? 1 : 0;
       }
       return removed;

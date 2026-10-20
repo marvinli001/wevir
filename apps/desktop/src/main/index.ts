@@ -4,7 +4,7 @@
 // 第一个求值：冷启动计时的起点在其他模块之前（startup-timing.ts）。
 import './startup-timing.js';
 import { existsSync } from 'node:fs';
-import { copyFile, stat } from 'node:fs/promises';
+import { copyFile, stat, writeFile } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOME_LAYOUT, LOG_FILE, resolveHome } from '@wevir/host/runtime';
@@ -467,6 +467,29 @@ function run(): void {
         return 'cancelled';
       }
       await copyFile(path, result.filePath);
+      return 'saved';
+    },
+  );
+  // 任务回顾的导出（0.73.0）：渲染进程给文件名与文本，目标由用户在保存对话框里选。
+  ipcMain.handle(
+    IPC_CHANNELS.saveTextAs,
+    async (event, name: unknown, text: unknown): Promise<'saved' | 'cancelled'> => {
+      assertSender(event);
+      if (typeof name !== 'string' || typeof text !== 'string' || text.length > MAX_COPY_LENGTH) {
+        throw new Error('a file name and a string of at most 8M characters are required');
+      }
+      const fileName = basename(name.replaceAll('\\', '/'));
+      if (!/\.(?:md|json)$/i.test(fileName))
+        throw new Error('only .md and .json files can be saved');
+      const options = { defaultPath: join(app.getPath('downloads'), fileName) };
+      const result =
+        mainWindow && !mainWindow.isDestroyed()
+          ? await dialog.showSaveDialog(mainWindow, options)
+          : await dialog.showSaveDialog(options);
+      if (result.canceled || result.filePath === undefined || result.filePath === '') {
+        return 'cancelled';
+      }
+      await writeFile(result.filePath, text, 'utf8');
       return 'saved';
     },
   );

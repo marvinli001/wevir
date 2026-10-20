@@ -33,6 +33,32 @@ export function groupTurns(messages: readonly ChatMessage[]): TranscriptBlock[] 
 }
 
 /**
+ * 某个事件在消息流里的位置（任务回顾跳到出处，0.73.0）：seq 范围包含它的那条消息；没有时取它之前最近的一条（事件没有
+ * 自己的消息，例如审批、检查）。都没有时 -1。
+ */
+export function messageIndexForSeq(messages: readonly ChatMessage[], seq: number): number {
+  let before = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    const [first, last] = (messages[index] as ChatMessage).seqRange;
+    if (first <= seq && seq <= last) return index;
+    if (first <= seq) before = index;
+  }
+  return before;
+}
+
+/** 一块（回合或系统消息）覆盖的 seq 范围。 */
+export function blockSeqRange(block: TranscriptBlock): readonly [number, number] {
+  const messages = block.kind === 'turn' ? block.messages : [block.message];
+  let first = Number.POSITIVE_INFINITY;
+  let last = 0;
+  for (const message of messages) {
+    first = Math.min(first, message.seqRange[0]);
+    last = Math.max(last, message.seqRange[1]);
+  }
+  return [first, last];
+}
+
+/**
  * 分段渲染的起点往前挪到所在回合的第一条消息：一个回合不会只渲染后半截（折叠要看到整个回合）。
  */
 export function turnStart(messages: readonly ChatMessage[], index: number): number {

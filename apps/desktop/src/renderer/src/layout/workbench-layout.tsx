@@ -54,6 +54,7 @@ import './usage-card';
 import './verification-card';
 import './outputs-card';
 import './task-board-card';
+import './retro-card';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';
 import { RailToggle, SessionRail } from './session-rail';
 import { WindowControls } from './window-controls';

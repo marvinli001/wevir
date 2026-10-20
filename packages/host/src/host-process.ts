@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, realpath, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -41,6 +41,8 @@ import { ProcessOutputService } from './process-output.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { loadRecapInstructions } from './recap.js';
+import { RetroService } from './retro/service.js';
+import { loadRetroInstructions } from './retro/summary.js';
 import { loadReviewTemplate, ReviewService } from './review/service.js';
 import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
@@ -424,6 +426,31 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('review comments are unavailable', { error });
     }
 
+    // 任务回顾（0.73.0，ADR-0012）：投影存在 SQLite，按需生成；模型摘要同离开后摘要，适配器能生成才读提示词，读不到只是没有摘要。
+    let retroInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        retroInstructions = loadRetroInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the session retro prompt; retro summaries are unavailable', {
+          error,
+        });
+      }
+    }
+    const retro = new RetroService({
+      storage,
+      events: store,
+      checkpoints,
+      ...(review !== undefined && { review }),
+      memory,
+      resolveDir: (dir) => realpath(dir),
+      ...(retroInstructions !== undefined && {
+        instructions: retroInstructions,
+        generate: (sessionId, request) => manager.generateOnce(sessionId, request),
+      }),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+
     // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
     const sessionStore = storage;
     const git = new GitService({
@@ -507,6 +534,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         roles,
         tasks: taskBoards,
         automations: automationService,
+        retro,
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;
@@ -561,6 +589,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(verification !== undefined && { verification }),
         automations: automationService,
         ...(review !== undefined && { review }),
+        retro,
         git,
         ...(processOutput.available && { processes: processOutput }),
         ...(terminals !== undefined && { terminals }),
@@ -624,6 +653,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         rule_files: true,
         ...(review !== undefined && { review_comments: true }),
         git_commit: true,
+        session_retro: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
       },

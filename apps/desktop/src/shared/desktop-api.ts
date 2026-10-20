@@ -368,6 +368,11 @@ export interface DesktopApi {
    * 是 `cancelled`。
    */
   saveFileAs(path: string, name: string): Promise<'saved' | 'cancelled'>;
+  /**
+   * 把一段文本另存为（0.73.0，任务回顾的导出）：弹出保存对话框（默认在“下载”里、用 `name`），写入 `text`（UTF-8）。只认 `.md` 与
+   * `.json`；用户取消时是 `cancelled`。
+   */
+  saveTextAs(name: string, text: string): Promise<'saved' | 'cancelled'>;
   /** 自动更新的状态（ADR-0007 补记 4）。 */
   getUpdateState(): Promise<UpdateState>;
   /** 订阅自动更新状态的变化，返回取消订阅的函数。 */
@@ -415,6 +420,7 @@ export const IPC_CHANNELS = {
   previewFile: 'wevir:preview-file',
   openPath: 'wevir:open-path',
   saveFileAs: 'wevir:save-file-as',
+  saveTextAs: 'wevir:save-text-as',
   getUpdateState: 'wevir:get-update-state',
   /** 主进程 → 渲染进程的推送。 */
   updateState: 'wevir:update-state',

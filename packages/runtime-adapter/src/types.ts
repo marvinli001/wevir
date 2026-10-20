@@ -107,6 +107,7 @@ export const APP_TOOLS_SERVER = 'wevir';
 export const APP_TOOLS_NO_APPROVAL: readonly string[] = Object.freeze([
   'wevir_session_list',
   'wevir_session_read',
+  'wevir_session_retro',
   'wevir_session_wait',
   'wevir_session_progress',
   'wevir_models',
@@ -249,6 +250,10 @@ export interface TitleRequest {
   outputSchema: Record<string, unknown>;
   /** Host 不再需要结果时（超时、会话被改名）中止。 */
   signal?: AbortSignal;
+  /**
+   * 这次请求的 token 用量（0.73.0，任务回顾的模型摘要要显示消耗）：拿得到时适配器调一次，拿不到不调。只是报给 Host 看，不进用量统计。
+   */
+  onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
 }
 
 /** 引擎给的一个审批选项，全部字段原样。 */

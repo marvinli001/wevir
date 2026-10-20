@@ -28,6 +28,7 @@ import {
   type SessionId,
   type TurnId,
 } from '@wevir/protocol';
+import { looksLikeSecret } from './secret-patterns.js';
 
 export { MEMORY_CONTENT_MAX_BYTES, MEMORY_DESCRIPTION_MAX, MEMORY_MAX_PER_SCOPE };
 
@@ -89,15 +90,6 @@ export class MemoryError extends Error {
     this.current = current;
   }
 }
-
-/** 密钥不落地（AGENTS.md 规则 5）：像私钥、令牌的内容拒绝保存。 */
-const SECRET_PATTERNS: readonly RegExp[] = [
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  /\bsk-[A-Za-z0-9_-]{20,}/,
-  /\bgh[pousr]_[A-Za-z0-9]{30,}/,
-  /\bAKIA[0-9A-Z]{16}\b/,
-  /\bBearer\s+[A-Za-z0-9._~+/-]{24,}/i,
-];
 
 export interface MemorySaveInput {
   name: string;
@@ -553,7 +545,8 @@ function checkFields(input: Pick<MemorySaveInput, 'type' | 'description' | 'cont
       `content is ${bytes} bytes; a memory holds at most ${MEMORY_CONTENT_MAX_BYTES}. Save the essentials and put long material in a project file.`,
     );
   }
-  if (SECRET_PATTERNS.some((pattern) => pattern.test(content) || pattern.test(description))) {
+  // 密钥不落地（AGENTS.md 规则 5）：像私钥、令牌的内容拒绝保存。
+  if (looksLikeSecret(content) || looksLikeSecret(description)) {
     throw new MemoryError(
       'invalid',
       'This looks like a secret (key or token). Memories never hold secrets.',

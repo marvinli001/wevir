@@ -113,6 +113,12 @@ import {
   ProcessStopResultSchema,
 } from './processes.js';
 import {
+  RetroGetParamsSchema,
+  RetroGetResultSchema,
+  RetroSummarizeParamsSchema,
+  RetroSummarizeResultSchema,
+} from './retro.js';
+import {
   ReviewAddParamsSchema,
   ReviewCommentResultSchema,
   ReviewListParamsSchema,
@@ -1907,6 +1913,17 @@ export const MethodSchemas = {
     params: VerificationOutputParamsSchema,
     result: VerificationOutputResultSchema,
     permission: 'session.read',
+  },
+  // 0.73.0：任务回顾（ADR-0012）。
+  'retro.get': {
+    params: RetroGetParamsSchema,
+    result: RetroGetResultSchema,
+    permission: 'session.read',
+  },
+  'retro.summarize': {
+    params: RetroSummarizeParamsSchema,
+    result: RetroSummarizeResultSchema,
+    permission: 'session.write',
   },
 
   'review.list': {

@@ -14,6 +14,12 @@
     contain-intrinsic-size: auto 240px;
   }
 
+  /* 从任务回顾跳到出处（0.73.0）：这一块的底色淡出一次。 */
+  .transcript-item[data-revealed] {
+    border-radius: var(--radius-lg);
+    animation: seq-reveal 1600ms var(--ease-smooth) both;
+  }
+
   /* 进行中的文字（U2：工作组的当前动作、“正在思考”）：一道亮光从右往左扫过，同方向稿的 .shimmer。 */
   .shimmer {
     background: linear-gradient(
@@ -61,4 +67,13 @@
 .image-reveal.image-gen-root > .image-gen-child {
   width: 100%;
   height: 100%;
+}
+
+@keyframes seq-reveal {
+  from {
+    background-color: color-mix(in oklab, var(--ring) 14%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
 }

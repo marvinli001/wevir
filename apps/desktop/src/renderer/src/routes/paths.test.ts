@@ -7,6 +7,7 @@ import {
   PLUGINS_TABS,
   paths,
   ROUTE_PATTERNS,
+  seqParam,
 } from './paths';
 
 describe('路由', () => {
@@ -101,5 +102,17 @@ describe('路由', () => {
     expect(isSettingsTab('appearance')).toBe(true);
     expect(isSettingsTab('billing')).toBe(false);
     expect(isSettingsTab(undefined)).toBe(false);
+  });
+});
+
+describe('跳到事件', () => {
+  it('sessionAt 带 ?seq=，seqParam 只认正整数', () => {
+    const path = paths.sessionAt('ws_a', 'ses_1', 42);
+    expect(path).toBe('/workspace/ws_a/session/ses_1?seq=42');
+    expect(seqParam('?seq=42')).toBe(42);
+    expect(seqParam('')).toBeUndefined();
+    for (const bad of ['?seq=0', '?seq=-1', '?seq=1.5', '?seq=abc', '?seq=']) {
+      expect(seqParam(bad)).toBeUndefined();
+    }
   });
 });

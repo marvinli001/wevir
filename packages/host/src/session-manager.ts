@@ -3475,6 +3475,78 @@ export class SessionManager {
     }
   }
 
+  /**
+   * 用会话当前的来源与模型发一次不带工具的请求（0.73.0，任务回顾的模型摘要，ADR-0012 决策 9）：同离开后摘要，经适配器的
+   * `generateTitle`。这是用户明确点的，所以引擎会话没挂着、会话空闲时先恢复（同 `session.fork`）。不写事件、不改会话；回合进行中、
+   * 有待审批或待回答的提问时不发。失败不抛错，回 `reason`：`unsupported`、`sub_session`、`running`、`unavailable`、`failed`。
+   */
+  async generateOnce(
+    sessionId: SessionId,
+    request: {
+      instructions: string;
+      input: string;
+      outputSchema: Record<string, unknown>;
+      timeoutMs: number;
+      onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
+    },
+  ): Promise<{ text: string; providerId: string; modelId: string } | { reason: string }> {
+    this.#assertOpen();
+    const runtime = this.#runtime(sessionId);
+    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
+    if (generate === undefined) return { reason: 'unsupported' };
+    if (runtime.parentId !== undefined) return { reason: 'sub_session' };
+    const busy = () => {
+      const { session } = this.#snapshot(runtime);
+      return (
+        session.state === 'running' ||
+        session.state === 'cancelling' ||
+        session.state === 'awaiting_approval' ||
+        session.awaitingInput === true
+      );
+    };
+    if (busy()) return { reason: 'running' };
+    try {
+      await this.#serial(runtime, async () => {
+        const { session } = this.#snapshot(runtime);
+        if (session.state === 'closed') throw new Error('session closed');
+        if (!runtime.attachment) await this.#autoResume(runtime);
+      });
+    } catch (error) {
+      this.#onWarning('生成回顾摘要前恢复引擎会话失败', {
+        sessionId: runtime.id,
+        error: errorText(error),
+      });
+      return { reason: 'unavailable' };
+    }
+    if (busy()) return { reason: 'running' };
+    const record = this.#record(runtime);
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), request.timeoutMs);
+    const stop = () => abort.abort();
+    void this.#whenDisposed.promise.then(stop);
+    try {
+      const text = await generate(runtime.engineSessionId, {
+        instructions: request.instructions,
+        input: request.input,
+        outputSchema: { ...request.outputSchema },
+        signal: abort.signal,
+        ...(request.onUsage !== undefined && { onUsage: request.onUsage }),
+      });
+      if (this.#disposed || abort.signal.aborted) return { reason: 'failed' };
+      return { text, providerId: record.providerId, modelId: record.modelId };
+    } catch (error) {
+      if (!this.#disposed) {
+        this.#onWarning('生成回顾摘要失败', {
+          sessionId: runtime.id,
+          error: abort.signal.aborted ? `${request.timeoutMs} ms 内没有结果` : errorText(error),
+        });
+      }
+      return { reason: 'failed' };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   // ── 命令的组成部分 ──────────────────────────────────────────────────
 
   /** `clientMessageId` 已有回执时：内容相同返回原结果，不同抛 `CLIENT_MESSAGE_CONFLICT`。 */
