@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { clampSidebarWidth, LAYOUT, planSidebar, type SidebarInput } from './layout-rules';
+import {
+  clampSidebarWidth,
+  LAYOUT,
+  planSidebar,
+  type SidebarInput,
+  settingsNavWidth,
+} from './layout-rules';
 
 const base: SidebarInput = {
   viewportWidth: 1280,
@@ -46,5 +52,25 @@ describe('planSidebar', () => {
       'overlay',
     );
     expect(planSidebar({ ...base, viewportWidth: 780 }).sidebar).toBe('docked');
+  });
+});
+
+describe('settingsNavWidth', () => {
+  it('侧栏停靠得下时与停靠的侧栏一样宽', () => {
+    for (const [viewportWidth, sidebarWidth] of <[number, number][]>[
+      [1280, 300],
+      [1280, 420],
+      [900, 400],
+      [780, 300],
+    ]) {
+      expect(settingsNavWidth(viewportWidth, sidebarWidth)).toBe(
+        planSidebar({ ...base, viewportWidth, sidebarWidth }).sidebarWidth,
+      );
+    }
+  });
+
+  it('侧栏停靠不下时不收起，最窄 192', () => {
+    expect(settingsNavWidth(760, 300)).toBe(200);
+    expect(settingsNavWidth(600, 300)).toBe(LAYOUT.settingsNavMin);
   });
 });

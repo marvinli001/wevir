@@ -15,12 +15,15 @@ import {
   Settings2,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { type Location, NavLink, useLocation, useNavigate, useParams } from 'react-router';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useHostConnection } from '@/host/host-connection';
 import { hostIndicator } from '@/host/host-status';
 import { type PlainMessageKey, t } from '@/i18n';
+import { clampSidebarWidth, LAYOUT, settingsNavWidth } from '@/layout/layout-rules';
+import { layoutPrefs, useViewportWidth } from '@/layout/layout-state';
+import { Splitter } from '@/layout/splitter';
 import { WindowControls } from '@/layout/window-controls';
 import { AppearanceSettings } from '@/settings/appearance-settings';
 import { ArchivedSettings } from '@/settings/archived-settings';
@@ -152,6 +155,8 @@ interface SettingsState {
 /**
  * `/settings/:tab`：整窗的设置页（U7 照 Codex 桌面端）。左边是设置自己的侧栏：后退 / 前进、“设置”标题、搜索框、分组的
  * 页面列表；右边一列最宽 720px，页面标题下面是一组组卡片（settings/settings-ui.tsx）。
+ *
+ * 左栏与工作台的侧栏共用宽度偏好（layout-rules.ts 的 settingsNavWidth）：从对话进设置左栏不变宽窄，在这里拖也改那边。
  */
 export function SettingsRoute() {
   const { tab } = useParams();
@@ -159,12 +164,23 @@ export function SettingsRoute() {
   const navigate = useNavigate();
   const from = (location.state as SettingsState | null)?.from;
   const [query, setQuery] = useState('');
+  const viewportWidth = useViewportWidth();
+  const preferredWidth = layoutPrefs.use().sidebarWidth;
+  // 拖动分隔条时的草稿宽度，松开才写进偏好。
+  const [dragWidth, setDragWidth] = useState<number>();
+  const dragStart = useRef(0);
+  const navWidth = settingsNavWidth(viewportWidth, dragWidth ?? preferredWidth);
+  const commitWidth = (width: number) => {
+    setDragWidth(undefined);
+    layoutPrefs.set((current) => ({ ...current, sidebarWidth: clampSidebarWidth(width) }));
+  };
 
   return (
-    <div className="flex h-full" data-translucent-root>
+    <div className="relative flex h-full" data-translucent-root>
       <nav
         aria-label={t('settings.title')}
-        className="translucent-sidebar flex w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground max-md:w-48"
+        className="translucent-sidebar flex shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+        style={{ width: navWidth }}
       >
         <div className="app-drag flex h-11 shrink-0 items-center pl-[max(0.5rem,var(--traffic-lights-inset))]">
           <WindowControls onBack={() => navigate(from ?? paths.home())} />
@@ -199,6 +215,22 @@ export function SettingsRoute() {
           <TabList query={query} state={location.state} />
         </ScrollArea>
       </nav>
+      <Splitter
+        orientation="vertical"
+        label={t('layout.resizeSidebar')}
+        valueNow={navWidth}
+        valueMin={LAYOUT.sidebarMin}
+        valueMax={LAYOUT.sidebarMax}
+        onResizeStart={() => {
+          dragStart.current = navWidth;
+        }}
+        onResize={(delta) => setDragWidth(clampSidebarWidth(dragStart.current + delta))}
+        onResizeEnd={(delta) => commitWidth(dragStart.current + delta)}
+        onResizeCancel={() => setDragWidth(undefined)}
+        onReset={() => commitWidth(LAYOUT.sidebarDefault)}
+        className="absolute inset-y-0 z-20 -ml-1"
+        style={{ left: navWidth }}
+      />
       <main className="translucent-content flex min-w-0 flex-1 flex-col">
         {/* 内容区没有顶栏，留一条与左侧顶栏同高的空白作标题栏，窗口从这里也能拖动。 */}
         <div className="app-drag h-11 shrink-0" />
