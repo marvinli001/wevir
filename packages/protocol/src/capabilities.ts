@@ -36,7 +36,7 @@ export const CLIENT_CAPABILITIES = {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   /** 认得 `UserContentPart` 的 `image`；没有时 Host 把事件与结果里的图片换成文本 `[image]`。 */
   userImages: 'user_images',
-  // COMPAT(questionTimeout): added in 0.71.0, remove gate after 2027-06-01
+  // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
   /** 认得 `QuestionResolutionReason` 的 `timeout`；没有时 Host 把它降级成 `user`（回答照旧，没有 `answeredBy`）。 */
   questionTimeout: 'question_timeout',
 } as const;
@@ -298,7 +298,7 @@ export const HOST_FEATURES = {
    */
   userTerminal: 'user_terminal',
   /**
-   * 提问超时（0.71.0）：无人值守的会话里，问题带 `autoAnswerAt`，到时没人回答就按 `defaultOption` 回答（`timeout`）。Host 有
+   * 提问超时（0.72.0）：无人值守的会话里，问题带 `autoAnswerAt`，到时没人回答就按 `defaultOption` 回答（`timeout`）。Host 有
    * `user_questions` 时声明。
    */
   questionTimeout: 'question_timeout',

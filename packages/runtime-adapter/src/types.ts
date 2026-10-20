@@ -314,7 +314,7 @@ export interface UserQuestion {
   multiSelect?: boolean;
   allowOther?: boolean;
   secret?: boolean;
-  /** 引擎标出的推荐选项的 `label`（0.71.0）；没有时 Host 自己判断。 */
+  /** 引擎标出的推荐选项的 `label`（0.72.0）；没有时 Host 自己判断。 */
   defaultOption?: string;
 }
 

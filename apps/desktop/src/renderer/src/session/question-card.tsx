@@ -32,7 +32,7 @@ const OTHER = '\u0000other';
 /**
  * 一组问题（protocol 0.10.0 的 `QuestionRequest`）：顶上是“第几题 / 共几题”与题目，下面是选项（单选点一下即选中，多选是
  * 勾选框），允许时最后一项是“其他”加输入框；数字键选选项，⌘↵ 下一题，最后一题是提交。跳过的题回答为空。推荐的选项
- * （0.71.0 的 `defaultOption`）带标记；无人值守的会话里底栏左边倒数到 `autoAnswerAt`，到时 Host 按推荐回答。
+ * （0.72.0 的 `defaultOption`）带标记；无人值守的会话里底栏左边倒数到 `autoAnswerAt`，到时 Host 按推荐回答。
  */
 function QuestionCard({
   request,
@@ -241,7 +241,7 @@ function QuestionCard({
   );
 }
 
-/** 离 Host 按推荐回答还有多久（0.71.0），每秒刷新。 */
+/** 离 Host 按推荐回答还有多久（0.72.0），每秒刷新。 */
 function AutoAnswerCountdown({ at }: { at: string }) {
   const deadline = Date.parse(at);
   const [now, setNow] = useState(() => Date.now());

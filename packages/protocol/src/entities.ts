@@ -618,7 +618,7 @@ export const UserQuestionSchema = z.object({
   /** 回答不回显（密码类）。 */
   secret: z.boolean().optional(),
   /**
-   * 推荐的选项（0.71.0）：某个选项的 `label`。引擎给了用引擎的；没给时 Host 取标签以“(Recommended)”或“（推荐）”结尾的那个，
+   * 推荐的选项（0.72.0）：某个选项的 `label`。引擎给了用引擎的；没给时 Host 取标签以“(Recommended)”或“（推荐）”结尾的那个，
    * 都没有就取第一个。没有选项时省略。超时自动回答时按它回答。
    */
   defaultOption: z.string().min(1).optional(),
@@ -633,7 +633,7 @@ export const QuestionStatusSchema = z.enum(['pending', 'answered', 'cancelled'])
 export type QuestionStatus = z.infer<typeof QuestionStatusSchema>;
 
 /**
- * 结束一组问题的原因：用户回答了，或同审批一样随回合、会话、引擎、Host 一起取消。`timeout`（0.71.0）：到了 `autoAnswerAt` 没人
+ * 结束一组问题的原因：用户回答了，或同审批一样随回合、会话、引擎、Host 一起取消。`timeout`（0.72.0）：到了 `autoAnswerAt` 没人
  * 回答，Host 按每题的 `defaultOption` 回答（状态 `answered`，没有选项的题跳过）。
  */
 export const QuestionResolutionReasonSchema = z.enum([
@@ -662,7 +662,7 @@ export const QuestionRequestSchema = z.object({
   status: QuestionStatusSchema,
   createdAt: IsoTimeSchema,
   /**
-   * 到这个时间还没人回答，Host 按推荐的选项回答（0.71.0，Host 功能 `question_timeout`）。无人值守的会话（自动化开的、子会话、
+   * 到这个时间还没人回答，Host 按推荐的选项回答（0.72.0，Host 功能 `question_timeout`）。无人值守的会话（自动化开的、子会话、
    * 另一个会话里的 agent 开的）才有；省略表示一直等。
    */
   autoAnswerAt: IsoTimeSchema.optional(),

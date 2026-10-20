@@ -914,7 +914,7 @@ export const pendingQuestion: QuestionRequest = {
         { label: '全链路', description: '协议、Host 与界面一起' },
       ],
       allowOther: true,
-      // 0.71.0：推荐的选项。
+      // 0.72.0：推荐的选项。
       defaultOption: '全链路',
     },
     {
@@ -927,7 +927,7 @@ export const pendingQuestion: QuestionRequest = {
   ],
   status: 'pending',
   createdAt: TS,
-  // 0.71.0：无人值守的会话里到时按推荐回答。
+  // 0.72.0：无人值守的会话里到时按推荐回答。
   autoAnswerAt: TS2,
 };
 
@@ -1197,7 +1197,7 @@ export const eventPayloads: PayloadSamples = {
     valid: {
       questionId: ids.question,
       status: 'answered',
-      // 0.71.0：超时，按推荐回答。
+      // 0.72.0：超时，按推荐回答。
       resolution: {
         reason: 'timeout',
         answers: { scope: { answers: ['全链路'] }, targets: { answers: ['macOS'] } },

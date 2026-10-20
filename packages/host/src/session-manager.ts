@@ -145,7 +145,7 @@ import { normalizeToolPreset, type ToolPreset } from './tool-presets.js';
 export const CANCEL_TIMEOUT_MS = 5000;
 
 /**
- * 无人值守的会话（自动化开的、子会话、另一个会话里的 agent 开的）里，提问等多久没人回答就按推荐的选项回答（0.71.0）。
+ * 无人值守的会话（自动化开的、子会话、另一个会话里的 agent 开的）里，提问等多久没人回答就按推荐的选项回答（0.72.0）。
  */
 export const QUESTION_TIMEOUT_MS = 5 * 60_000;
 
@@ -168,7 +168,7 @@ export interface SessionManagerOptions {
   engine?: string;
   /** 默认 `CANCEL_TIMEOUT_MS`。 */
   cancelTimeoutMs?: number;
-  /** 无人值守的会话里提问的超时（0.71.0）；默认 `QUESTION_TIMEOUT_MS`，0 表示一直等。 */
+  /** 无人值守的会话里提问的超时（0.72.0）；默认 `QUESTION_TIMEOUT_MS`，0 表示一直等。 */
   questionTimeoutMs?: number;
   /** 后台错误：处理引擎事件失败、丢弃的引擎事件等。默认打到 stderr。 */
   onError?: (error: unknown) => void;
@@ -603,7 +603,7 @@ export class SessionManager {
   readonly #runtimes = new Map<SessionId, SessionRuntime>();
   /** 提过的问题属于哪个会话（0.10.0）：`question.respond` 只给 QuestionId。Host 重启后未答的问题都已取消，不必恢复。 */
   readonly #questionSessions = new Map<QuestionId, SessionId>();
-  /** 到时按推荐回答的提问（0.71.0，`autoAnswerAt`）；问题结束时清掉。只在内存里：Host 重启后未答的问题都已取消。 */
+  /** 到时按推荐回答的提问（0.72.0，`autoAnswerAt`）；问题结束时清掉。只在内存里：Host 重启后未答的问题都已取消。 */
   readonly #questionTimers = new Map<QuestionId, ReturnType<typeof setTimeout>>();
   /** 正在开成会话的建议（0.16.0）：同一项建议同时只能开一次。 */
   readonly #startingTasks = new Set<TaskId>();
@@ -4084,7 +4084,7 @@ export class SessionManager {
   }
 
   /**
-   * 到了 `autoAnswerAt` 还没人回答（0.71.0）：按每题的 `defaultOption` 回答（没有选项的题跳过），写 `question.resolved`
+   * 到了 `autoAnswerAt` 还没人回答（0.72.0）：按每题的 `defaultOption` 回答（没有选项的题跳过），写 `question.resolved`
    * （`answered`，`timeout`）。排在会话的命令队列里，在这之前回答了或取消了就什么都不做。
    */
   async #autoAnswer(runtime: SessionRuntime, questionId: QuestionId): Promise<void> {
@@ -4917,7 +4917,7 @@ function toAnswerRecord(answers: Record<string, string[]>): QuestionResolution['
   return Object.fromEntries(Object.entries(answers).map(([id, list]) => [id, { answers: list }]));
 }
 
-/** 没人盯着回答提问的会话（0.71.0）：自动化开的、引擎派出的子会话、另一个会话里的 agent 开的。 */
+/** 没人盯着回答提问的会话（0.72.0）：自动化开的、引擎派出的子会话、另一个会话里的 agent 开的。 */
 function unattended(session: Session): boolean {
   return (
     session.automation !== undefined ||
@@ -4929,7 +4929,7 @@ function unattended(session: Session): boolean {
 /** 标签末尾的“(Recommended)”“（推荐）”一类标记：Claude 与 Codex 的提问工具都让模型这样标出推荐的选项。 */
 const RECOMMENDED_LABEL = /[(（]\s*(?:recommended|推荐|建议)\s*[)）]\s*$/i;
 
-/** 推荐的选项（0.71.0）：引擎给的、标签标了推荐的，或第一个；没有选项时没有。 */
+/** 推荐的选项（0.72.0）：引擎给的、标签标了推荐的，或第一个；没有选项时没有。 */
 export function defaultOptionOf(question: UserQuestion): string | undefined {
   const labels = question.options.map((option) => option.label);
   if (question.defaultOption !== undefined && labels.includes(question.defaultOption)) {

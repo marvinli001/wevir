@@ -922,7 +922,7 @@ export function adaptEventForClient(
         break;
     }
   }
-  // COMPAT(questionTimeout): added in 0.71.0, remove gate after 2027-06-01
+  // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
   if (
     event.type === 'question.resolved' &&
     event.payload.resolution.reason === 'timeout' &&
@@ -956,7 +956,7 @@ export function adaptResultForClient(
 ): unknown {
   // COMPAT(userImages): added in 0.28.0, remove gate after 2027-06-01
   const value = capabilities.user_images === true ? result : resultWithoutImages(method, result);
-  // COMPAT(questionTimeout): added in 0.71.0, remove gate after 2027-06-01
+  // COMPAT(questionTimeout): added in 0.72.0, remove gate after 2027-06-01
   if (method === 'question.respond' && capabilities.question_timeout !== true) {
     const answered = value as MethodResult<'question.respond'>;
     if (answered.resolution.reason === 'timeout') {

@@ -162,7 +162,7 @@ describe('user_images', () => {
   });
 });
 
-// 0.71.0：超时自动回答的 `timeout` 只发给声明了 `question_timeout` 的连接，其余连接看到 `user`（回答照旧，没有 `answeredBy`）。
+// 0.72.0：超时自动回答的 `timeout` 只发给声明了 `question_timeout` 的连接，其余连接看到 `user`（回答照旧，没有 `answeredBy`）。
 describe('question_timeout', () => {
   const resolution = { reason: 'timeout' as const, answers: { scope: { answers: ['全链路'] } } };
   const resolved: WevirEventOf<'question.resolved'> = {

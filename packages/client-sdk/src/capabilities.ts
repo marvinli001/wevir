@@ -22,7 +22,7 @@ import type {
  *   只跟首个账号；CLI 只管 ChatGPT 的首个账号，桌面端的订阅一节与模型选择按账号显示。
  * - `user_images`（0.28.0）：`UserContentPart` 的 `image`。消息投影把它投成图片段（`ChatPart` 的 `image`），CLI 写成
  *   “[图片]”，桌面端经 `image.read` 读出来显示。
- * - `question_timeout`（0.71.0）：`QuestionResolutionReason` 的 `timeout`。回答照常投影；桌面端在回答下面写“超时，按推荐回答”，
+ * - `question_timeout`（0.72.0）：`QuestionResolutionReason` 的 `timeout`。回答照常投影；桌面端在回答下面写“超时，按推荐回答”，
  *   CLI 在回答前加“超时”。
  */
 export const DEFAULT_CLIENT_CAPABILITIES = {
