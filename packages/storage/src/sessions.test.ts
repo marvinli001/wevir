@@ -123,7 +123,7 @@ describe('sessions', () => {
     const s = storage();
     seedSession(s);
     expect(s.sessions.get('ses_01')).not.toHaveProperty('origin');
-    const origin = { kind: 'suggested_task', sessionId: 'ses_01', taskId: 'tsk_01' };
+    const origin = { kind: 'suggested_task' as const, sessionId: 'ses_01', taskId: 'tsk_01' };
     seedSession(s, { id: 'ses_02', engineSessionId: 'e2', origin });
     expect(s.sessions.get('ses_02')?.origin).toEqual(origin);
   });

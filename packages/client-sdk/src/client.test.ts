@@ -784,6 +784,29 @@ describe('用量统计（0.62.0）', () => {
   });
 });
 
+describe('自动化（0.66.0）', () => {
+  it('onAutomationsChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { automations: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onAutomationsChanged((change) => changes.push(change));
+    host.last.notify('automation.changed', { automationId: 'aut_1', deleted: true });
+    await vi.waitFor(() => expect(changes).toEqual([{ automationId: 'aut_1', deleted: true }]));
+    host.last.notify('automation.changed', { automationId: 'nope' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed automation.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+    host.last.notify('automation.changed', { automationId: 'aut_1' });
+    await tick();
+    expect(changes).toHaveLength(2);
+  });
+});
+
 describe('浏览器提供方（0.33.0）', () => {
   const request = {
     requestId: 'brq_01JA2B3C4D5E6F7G8H9JKMNPQR',

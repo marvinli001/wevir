@@ -24,6 +24,7 @@ import {
   type MethodResult,
   MethodSchemas,
   MIN_PROTOCOL_VERSION,
+  type NotificationParams,
   NotificationSchemas,
   negotiateProtocolVersion,
   PERMISSIONS,
@@ -79,6 +80,10 @@ export interface ConnectionHost {
   readonly memory?: { watch(listener: (change: MemoryChange) => void): () => void };
   /** 用量统计（0.62.0）：调过 `usage.*` 的连接用它收 `usage.changed`。 */
   readonly usage?: { watch(listener: () => void): () => void };
+  /** 自动化（0.66.0）：调过 `automation.*` 的连接用它收 `automation.changed`。 */
+  readonly automations?: {
+    watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
+  };
   /** 内置浏览器（0.33.0）：`browser.register` 把连接登记到这里。省略时（测试）登记不生效，回答一律不收。 */
   readonly browsers?: BrowserBroker;
   readonly limits: ConnectionLimits;
@@ -154,6 +159,8 @@ export class RpcConnection {
   #unwatchMemory: (() => void) | undefined;
   /** 调过 `usage.*` 之后：退订 `usage.changed`。 */
   #unwatchUsage: (() => void) | undefined;
+  /** 调过 `automation.*` 之后：退订 `automation.changed`。 */
+  #unwatchAutomations: (() => void) | undefined;
   /** `browser.register` 之后：注销这条连接的浏览器提供方。 */
   #unregisterBrowser: (() => void) | undefined;
   /** 这条连接作为浏览器提供方的标识。 */
@@ -452,6 +459,7 @@ export class RpcConnection {
         if (/^(plugins?|connector|skill)\./.test(method)) this.#watchPlugins();
         if (method.startsWith('memory.')) this.#watchMemory();
         if (method.startsWith('usage.')) this.#watchUsage();
+        if (method.startsWith('automation.')) this.#watchAutomations();
       }
     }
   }
@@ -658,6 +666,22 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `automation.*` 的连接之后收 `automation.changed`（0.66.0），连接关闭即止。 */
+  #watchAutomations(): void {
+    if (this.#unwatchAutomations !== undefined || this.#host.automations === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchAutomations = this.#host.automations.watch((change) => {
+      const parsed = NotificationSchemas['automation.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`automation.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'automation.changed', params: parsed.data });
+    });
+  }
+
   #drop(subscription: Subscription): void {
     if (!subscription.active) return;
     subscription.active = false;
@@ -754,6 +778,8 @@ export class RpcConnection {
     this.#unwatchMemory = undefined;
     this.#unwatchUsage?.();
     this.#unwatchUsage = undefined;
+    this.#unwatchAutomations?.();
+    this.#unwatchAutomations = undefined;
     this.#unregisterBrowser?.();
     this.#unregisterBrowser = undefined;
   }

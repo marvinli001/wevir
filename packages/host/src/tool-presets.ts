@@ -42,9 +42,11 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
   wevir_plugin_install: 'plugins',
   wevir_skill_install: 'plugins',
   wevir_connector_add: 'plugins',
+  wevir_automations: 'sessions',
 };
 const PREFIXES: ReadonlyArray<readonly [string, ToolGroup]> = [
   ['wevir_session_', 'sessions'],
+  ['wevir_automation_', 'sessions'],
   ['wevir_task_', 'tasks'],
   ['wevir_memory_', 'memory'],
   ['wevir_process_', 'processes'],

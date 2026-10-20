@@ -1,6 +1,7 @@
 // 仅供测试：各 schema 的合法与非法样例。不从 index.ts 导出，不进入构建产物。
 // 合法样例以 TS 类型约束（与 z.infer 一致），非法样例各自只破坏一处，便于定位。
 
+import type { Automation, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
 import type { ClientIdentity } from './common.js';
 import type {
@@ -66,6 +67,9 @@ export const ids = {
   image: `img_${ULID}`,
   /** 浏览器请求（0.33.0）。 */
   browserRequest: `brq_${ULID}`,
+  /** 自动化与它的运行（0.66.0）。 */
+  automation: `aut_${ULID}`,
+  automationRun: `arn_${ULID}`,
 } as const;
 
 /** 浏览器的一个标签页（0.33.0）。 */
@@ -1040,6 +1044,49 @@ type MethodSamples = {
 };
 
 const empty = { valid: [{}], invalid: [null, 'x'] };
+
+const automationRunSample: AutomationRun = {
+  id: ids.automationRun,
+  automationId: ids.automation,
+  trigger: 'schedule',
+  status: 'completed',
+  startedAt: '2026-10-20T20:00:00.000Z',
+  finishedAt: '2026-10-20T20:03:12.000Z',
+  sessionId: ids.session,
+  turnId: ids.turn,
+  summary: '没有过期的依赖。',
+};
+
+const automationRunFailedSample: AutomationRun = {
+  id: 'arn_01JA2B3C4D5E6F7G8H9JKMNPR1',
+  automationId: ids.automation,
+  trigger: 'catch_up',
+  status: 'failed',
+  startedAt: '2026-10-19T20:00:00.000Z',
+  finishedAt: '2026-10-19T20:00:01.000Z',
+  error: 'provider deepseek not found',
+};
+
+const automationSample: Automation = {
+  id: ids.automation,
+  title: '依赖更新检查',
+  prompt: '检查过期的依赖与安全公告。',
+  schedule: { kind: 'daily', time: '09:00', weekdays: [1, 2, 3, 4, 5] },
+  timezone: 'Pacific/Auckland',
+  enabled: true,
+  workspaceId: ids.workspace,
+  providerId: 'deepseek',
+  modelId: 'deepseek-chat',
+  permissionMode: 'auto_review',
+  newSessionEachRun: true,
+  notify: 'always',
+  createdBy: { kind: 'agent', sessionId: ids.session },
+  createdAt: '2026-10-18T01:00:00.000Z',
+  updatedAt: '2026-10-20T20:03:12.000Z',
+  nextRunAt: '2026-10-21T20:00:00.000Z',
+  lastRun: automationRunSample,
+  runCount: 3,
+};
 
 const connector = {
   id: 'con_test',
@@ -2369,9 +2416,16 @@ export const methodSamples: MethodSamples = {
           sessions: [{ ...session, openedBy: { sessionId: ids.childSession, role: 'reviewer' } }],
         },
         { sessions: [{ ...session, state: 'idle', goal: { ...sessionGoal, status: 'paused' } }] },
+        // 0.66.0：自动化开出来的会话。
+        {
+          sessions: [
+            { ...session, automation: { automationId: ids.automation, runId: ids.automationRun } },
+          ],
+        },
       ],
       invalid: [
         { sessions: [{ ...session, lastSeq: -1 }] },
+        { sessions: [{ ...session, automation: { automationId: ids.automation } }] },
         { sessions: [{ ...session, openedBy: { sessionId: ids.workspace } }] },
         { sessions: [{ ...session, openedBy: { sessionId: ids.childSession, role: '' } }] },
         { sessions: [{ ...session, archivedAt: 'yesterday' }] },
@@ -3287,6 +3341,135 @@ export const methodSamples: MethodSamples = {
       invalid: [{ pricing: { source: 'models.dev' } }],
     },
   },
+  'automation.list': {
+    params: { valid: [{}], invalid: [null] },
+    result: {
+      valid: [{ automations: [] }, { automations: [automationSample] }],
+      invalid: [{}, { automations: [{ ...automationSample, runCount: -1 }] }],
+    },
+  },
+  'automation.get': {
+    params: {
+      valid: [{ automationId: ids.automation }],
+      invalid: [{}, { automationId: ids.session }],
+    },
+    result: {
+      valid: [
+        { automation: automationSample, runs: [] },
+        { automation: automationSample, runs: [automationRunSample, automationRunFailedSample] },
+      ],
+      invalid: [{ automation: automationSample }],
+    },
+  },
+  'automation.create': {
+    params: {
+      valid: [
+        {
+          title: '依赖更新检查',
+          prompt: '检查过期的依赖与安全公告。',
+          schedule: { kind: 'daily', time: '09:00', weekdays: [1] },
+          providerId: 'deepseek',
+        },
+        {
+          title: '提醒',
+          prompt: '提醒发周报。',
+          schedule: { kind: 'once', at: '2026-10-23T09:00:00.000Z' },
+          timezone: 'Pacific/Auckland',
+          enabled: false,
+          workspaceId: ids.workspace,
+          providerId: 'deepseek',
+          modelId: 'deepseek-chat',
+          reasoningEffort: 'high',
+          permissionMode: 'auto_review',
+          newSessionEachRun: false,
+          notify: 'failures',
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'monthly', time: '23:59', day: 31 },
+          providerId: 'deepseek',
+        },
+      ],
+      invalid: [
+        { title: '', prompt: 'y', schedule: { kind: 'manual' }, providerId: 'deepseek' },
+        { title: 'x', prompt: '  ', schedule: { kind: 'manual' }, providerId: 'deepseek' },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'interval', minutes: 1 },
+          providerId: 'deepseek',
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'daily', time: '9:00' },
+          providerId: 'deepseek',
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'daily', time: '09:00', weekdays: [7] },
+          providerId: 'deepseek',
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'daily', time: '09:00', weekdays: [] },
+          providerId: 'deepseek',
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'monthly', time: '09:00', day: 0 },
+          providerId: 'deepseek',
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'cron', expr: '* * * * *' },
+          providerId: 'deepseek',
+        },
+        { title: 'x', prompt: 'y', schedule: { kind: 'manual' } },
+      ],
+    },
+    result: {
+      valid: [{ automation: automationSample }],
+      invalid: [{}],
+    },
+  },
+  'automation.update': {
+    params: {
+      valid: [
+        { automationId: ids.automation },
+        { automationId: ids.automation, enabled: false },
+        { automationId: ids.automation, workspaceId: null, modelId: null, reasoningEffort: null },
+        {
+          automationId: ids.automation,
+          schedule: { kind: 'interval', minutes: 60 },
+          timezone: 'Asia/Shanghai',
+          notify: 'never',
+        },
+      ],
+      invalid: [
+        {},
+        { automationId: ids.automation, title: '' },
+        { automationId: ids.automation, permissionMode: 'yolo' },
+      ],
+    },
+    result: { valid: [{ automation: automationSample }], invalid: [{ automation: {} }] },
+  },
+  'automation.delete': {
+    params: { valid: [{ automationId: ids.automation }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'automation.run': {
+    params: { valid: [{ automationId: ids.automation }], invalid: [{ automationId: 'aut_' }] },
+    result: {
+      valid: [{ run: automationRunSample }, { run: automationRunFailedSample }],
+      invalid: [{ run: { ...automationRunSample, status: 'done' } }],
+    },
+  },
   'tools.presets': {
     params: empty,
     result: {
@@ -3763,6 +3946,14 @@ export const notificationSamples: NotificationSamples = {
     invalid: [{ settings: {} }],
   },
   'usage.changed': { valid: [{}], invalid: [null, 'x'] },
+  'automation.changed': {
+    valid: [
+      { automationId: ids.automation },
+      { automationId: ids.automation, run: automationRunSample },
+      { automationId: ids.automation, deleted: true },
+    ],
+    invalid: [{}, { automationId: ids.automation, deleted: false }],
+  },
   'memory.changed': {
     valid: [
       { scope: 'global', name: 'reply-language' },

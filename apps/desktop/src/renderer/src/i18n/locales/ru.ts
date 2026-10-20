@@ -73,6 +73,7 @@ export const messages: Messages = {
   'rpcError.ENVIRONMENT_NOT_FOUND': 'Окружение не найдено',
   'rpcError.IMAGE_NOT_FOUND': 'Изображение не найдено',
   'rpcError.MEMORY_NOT_FOUND': 'Заметка не найдена',
+  'rpcError.AUTOMATION_NOT_FOUND': 'Автоматизация не найдена',
   'rpcError.INVALID_STATE': 'Недоступно в текущем состоянии сессии',
   'rpcError.SESSION_BUSY': 'Сессия занята',
   'rpcError.ALREADY_DECIDED': 'Решение уже принято',

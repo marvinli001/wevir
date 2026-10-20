@@ -75,6 +75,7 @@ export const messages: Messages = {
   'rpcError.ENVIRONMENT_NOT_FOUND': '環境が見つかりません',
   'rpcError.IMAGE_NOT_FOUND': '画像が見つかりません',
   'rpcError.MEMORY_NOT_FOUND': 'メモが見つかりません',
+  'rpcError.AUTOMATION_NOT_FOUND': '自動化が見つかりません',
   'rpcError.INVALID_STATE': 'セッションの現在の状態では実行できません',
   'rpcError.SESSION_BUSY': 'セッション処理中',
   'rpcError.ALREADY_DECIDED': '承認は処理済みです',

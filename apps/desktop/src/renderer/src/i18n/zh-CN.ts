@@ -83,6 +83,7 @@ export const zhCN = {
   'rpcError.ENVIRONMENT_NOT_FOUND': '环境不存在',
   'rpcError.IMAGE_NOT_FOUND': '图片不存在',
   'rpcError.MEMORY_NOT_FOUND': '笔记不存在',
+  'rpcError.AUTOMATION_NOT_FOUND': '自动化不存在',
   'rpcError.INVALID_STATE': '会话当前状态不支持此操作',
   'rpcError.SESSION_BUSY': '会话正忙',
   'rpcError.ALREADY_DECIDED': '审批已处理',

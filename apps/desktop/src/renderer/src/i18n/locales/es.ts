@@ -79,6 +79,7 @@ export const messages: Messages = {
   'rpcError.ENVIRONMENT_NOT_FOUND': 'Entorno no encontrado',
   'rpcError.IMAGE_NOT_FOUND': 'Imagen no encontrada',
   'rpcError.MEMORY_NOT_FOUND': 'Nota no encontrada',
+  'rpcError.AUTOMATION_NOT_FOUND': 'Automatización no encontrada',
   'rpcError.INVALID_STATE': 'No disponible en el estado actual de la sesión',
   'rpcError.SESSION_BUSY': 'Sesión ocupada',
   'rpcError.ALREADY_DECIDED': 'Aprobación ya resuelta',

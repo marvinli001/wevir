@@ -1,4 +1,18 @@
 import { z } from 'zod';
+import {
+  AutomationChangedParamsSchema,
+  AutomationCreateParamsSchema,
+  AutomationDeleteParamsSchema,
+  AutomationDeleteResultSchema,
+  AutomationGetParamsSchema,
+  AutomationGetResultSchema,
+  AutomationListParamsSchema,
+  AutomationListResultSchema,
+  AutomationResultSchema,
+  AutomationRunParamsSchema,
+  AutomationRunResultSchema,
+  AutomationUpdateParamsSchema,
+} from './automations.js';
 import { BrowserRequestSchema, BrowserResponseSchema } from './browser.js';
 import {
   ClientCapabilitiesSchema,
@@ -1782,6 +1796,37 @@ export const MethodSchemas = {
     permission: 'session.read',
   },
 
+  'automation.list': {
+    params: AutomationListParamsSchema,
+    result: AutomationListResultSchema,
+    permission: 'session.read',
+  },
+  'automation.get': {
+    params: AutomationGetParamsSchema,
+    result: AutomationGetResultSchema,
+    permission: 'session.read',
+  },
+  'automation.create': {
+    params: AutomationCreateParamsSchema,
+    result: AutomationResultSchema,
+    permission: 'session.write',
+  },
+  'automation.update': {
+    params: AutomationUpdateParamsSchema,
+    result: AutomationResultSchema,
+    permission: 'session.write',
+  },
+  'automation.delete': {
+    params: AutomationDeleteParamsSchema,
+    result: AutomationDeleteResultSchema,
+    permission: 'session.write',
+  },
+  'automation.run': {
+    params: AutomationRunParamsSchema,
+    result: AutomationRunResultSchema,
+    permission: 'session.write',
+  },
+
   'question.respond': {
     params: QuestionRespondParamsSchema,
     result: QuestionRespondResultSchema,
@@ -1843,6 +1888,8 @@ export const NotificationSchemas = {
   'memory.changed': { params: MemoryChangedParamsSchema },
   /** 发给调用过 `usage.*` 的连接（0.62.0）。 */
   'usage.changed': { params: UsageChangedParamsSchema },
+  /** 发给调用过 `automation.*` 的连接（0.66.0）。 */
+  'automation.changed': { params: AutomationChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;

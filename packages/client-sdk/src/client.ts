@@ -2,6 +2,7 @@ import {
   type AccountKind,
   type AccountState,
   AccountUpdatedParamsSchema,
+  AutomationChangedParamsSchema,
   type BrowserRequest,
   type BrowserResponse,
   type ClientCapabilities,
@@ -15,6 +16,7 @@ import {
   type MethodParams,
   type MethodResult,
   MethodSchemas,
+  type NotificationParams,
   NotificationSchemas,
   PING_INTERVAL_MS,
   PROTOCOL_VERSION,
@@ -24,6 +26,10 @@ import {
   type WorkspaceId,
 } from '@wevir/protocol';
 import { DEFAULT_CLIENT_CAPABILITIES, hostSupports } from './capabilities.js';
+
+/** `automation.changed` 的内容（0.66.0）。 */
+export type AutomationChange = NotificationParams<'automation.changed'>;
+
 import {
   ClientClosedError,
   ConnectionLostError,
@@ -252,6 +258,7 @@ export class WevirClient {
   readonly #pluginsWatchers = new Set<PluginsWatcher>();
   readonly #memoryWatchers = new Set<MemoryWatcher>();
   readonly #usageListeners = new Set<() => void>();
+  readonly #automationListeners = new Set<(change: AutomationChange | undefined) => void>();
   /** `provideBrowser` 登记的浏览器提供方（0.33.0），一个客户端只有一个。 */
   #browserProvider: BrowserProviderEntry | undefined;
   #state: ConnectionState = { status: 'connecting' };
@@ -483,6 +490,25 @@ export class WevirClient {
   onUsageChanged(listener: () => void): () => void {
     this.#usageListeners.add(listener);
     return () => this.#usageListeners.delete(listener);
+  }
+
+  /**
+   * 自动化变了（0.66.0，`automation.changed`）：建、改、删，或一次运行开始、状态变了（`change.run`）。重连上之后以 `undefined`
+   * 调一次（Host 只给调过 `automation.*` 的连接发通知，重连后要重新读一次才会再收到），客户端整个重读。返回取消函数。
+   */
+  onAutomationsChanged(listener: (change: AutomationChange | undefined) => void): () => void {
+    this.#automationListeners.add(listener);
+    return () => this.#automationListeners.delete(listener);
+  }
+
+  #automationsChanged(change: AutomationChange | undefined): void {
+    for (const listener of [...this.#automationListeners]) {
+      try {
+        listener(change);
+      } catch (error) {
+        this.#warn('an automation listener threw', { error });
+      }
+    }
   }
 
   #usageChanged(): void {
@@ -777,6 +803,7 @@ export class WevirClient {
         for (const watcher of this.#pluginsWatchers) this.#readPlugins(watcher);
         for (const watcher of this.#memoryWatchers) this.#readMemory(watcher);
         if (this.supports('usage_stats')) this.#usageChanged();
+        if (this.supports('automations')) this.#automationsChanged(undefined);
         if (this.#browserProvider !== undefined) this.#registerBrowser(this.#browserProvider);
         return;
       }
@@ -1023,6 +1050,15 @@ export class WevirClient {
     }
     if (method === 'usage.changed') {
       this.#usageChanged();
+      return;
+    }
+    if (method === 'automation.changed') {
+      const parsed = AutomationChangedParamsSchema.safeParse(params);
+      if (!parsed.success) {
+        this.#warn('ignored a malformed automation.changed notification');
+        return;
+      }
+      this.#automationsChanged(parsed.data);
       return;
     }
     if (method === 'browser.request') {

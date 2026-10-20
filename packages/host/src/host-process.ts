@@ -16,6 +16,7 @@ import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
 import { AppTools, engineSessionResolver } from './app-tools.js';
+import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { ChatFolders } from './chats.js';
 import { TurnCheckpoints } from './checkpoints.js';
@@ -146,6 +147,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let storage: Storage | undefined;
   let events: EventStore | undefined;
   let sessions: SessionManager | undefined;
+  let automations: AutomationService | undefined;
   let rpc: HostRpcServer | undefined;
   let backgroundProcesses: ProcessManager | undefined;
   let accounts: HostAccounts | undefined;
@@ -283,6 +285,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);
+        automations?.onTurnFinished(info);
         // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。账号 ID 就是它的 Provider 的 ID；不是账号
         // （API Key 的 Provider）时 `turnEnded` 什么都不做。
         const providerId = storage?.sessions.get(info.sessionId)?.providerId;
@@ -314,6 +317,20 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       images,
     });
     sessions = manager;
+    // 自动化（0.66.0，automations/service.ts）：Host 自己计时，到点开会话、发指令；对账之后再开始计时。
+    automations = new AutomationService({
+      dir: homePath(home, 'automationsDir'),
+      storage,
+      events: store,
+      sessions: manager,
+      identity: { deviceId: hostId, clientId: 'wevir-automations', clientKind: 'desktop' },
+      isChats: (workspaceId) => {
+        const workspace = storage?.workspaces.get(workspaceId);
+        return workspace !== undefined && chats.isChats(workspace);
+      },
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    const automationService = automations;
     const recovery = manager.recover();
     if (
       recovery.expiredApprovals > 0 ||
@@ -355,6 +372,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
 
     // 已登录账号的用量由 Host 定时重读，推给看着账号的客户端（usage-refresh.ts）。
     accounts?.usage.start();
+    await automationService.start();
     if (accounts?.hasSubscriptions === true) {
       // 用户指定的可执行文件先交给引擎，再在后台检测一遍订阅来源：已登录的种类建好 Provider，模型选择里才看得到。
       // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。
@@ -392,6 +410,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         memoryEnabled: () => settings.get().autoMemory !== false,
         roles,
         tasks: taskBoards,
+        automations: automationService,
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;
@@ -443,6 +462,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         chats,
         memory,
         usage: { service: usageStats, pricing },
+        automations: automationService,
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -471,6 +491,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         chat_sessions: true,
         memory: true,
         usage_stats: true,
+        automations: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),
@@ -504,6 +525,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       settings,
       memory,
       usage: usageStats,
+      automations: automationService,
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
@@ -538,6 +560,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           sessions: manager,
           adapter,
           accounts,
+          automations: automationService,
           checkpoints,
           events: store,
           storage: db,
@@ -563,6 +586,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await rpc?.close().catch(() => {});
     await backgroundProcesses?.close().catch(() => {});
     accounts?.dispose();
+    automations?.dispose();
     await turnCheckpoints?.dispose();
     await sessions?.dispose().catch(() => {});
     await adapter.dispose().catch(() => {});
@@ -592,6 +616,8 @@ interface ShutdownParts {
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
+  /** 自动化（0.66.0）：先停计时，回合取消后等运行记录写完。 */
+  automations: AutomationService;
   checkpoints: TurnCheckpoints;
   events: EventStore;
   storage: Storage;
@@ -627,6 +653,8 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   if (parts.processes !== undefined) {
     await step('stop_processes', () => parts.processes?.close(), true);
   }
+  // 自动化不再开始新的运行；进行中的随回合取消记为 cancelled。
+  parts.automations.stop();
   // 新连接回 503、新请求回 HOST_SHUTTING_DOWN，等在途请求结束；已连上的客户端继续收事件。
   await step('stop_accepting', () => parts.rpc.stopAccepting(), true);
   // 取消回合的事件经订阅推送出去，所以连接要留到后面再关。
@@ -637,6 +665,9 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
     });
   }
   parts.accounts?.dispose();
+  // 自动化的运行记录（随回合取消记下的 cancelled）写完再关，不超过预算。
+  await beforeDeadline(parts.automations.flush(), deadline);
+  parts.automations.dispose();
   // 回合结束后的快照不再等：没打完的回合，diff 对着工作树（live）。进行中的 git 停下后等它退出（不超过预算）。
   await beforeDeadline(parts.checkpoints.dispose(), deadline);
   // 超时的话引擎进程留给适配器自己回收（ACP 引擎读到 stdin EOF 即退出）。

@@ -37,6 +37,8 @@ export const HOME_LAYOUT = {
   tasksDir: 'tasks',
   /** 用量统计的价格表（0.62.0，usage/pricing.ts）：从 models.dev 取来、压缩过的单价，每天刷新（0600）。 */
   pricingFile: 'pricing.json',
+  /** 自动化（0.66.0，automations/service.ts）：每个自动化一个 `<自动化 ID>.json`，含最近的运行（0700 / 0600）。 */
+  automationsDir: 'automations',
 } as const;
 
 export interface ResolveHomeOptions {

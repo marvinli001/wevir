@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   ApprovalIdSchema,
+  AutomationIdSchema,
+  AutomationRunIdSchema,
   ClientIdentitySchema,
   EnvironmentIdSchema,
   ImageIdSchema,
@@ -1443,6 +1445,13 @@ export const SharedFileSchema = z.object({
 });
 export type SharedFile = z.infer<typeof SharedFileSchema>;
 
+/** 会话由哪次自动化运行开出来（0.66.0，`Session.automation`）。 */
+export const SessionAutomationSchema = z.object({
+  automationId: AutomationIdSchema,
+  runId: AutomationRunIdSchema,
+});
+export type SessionAutomation = z.infer<typeof SessionAutomationSchema>;
+
 /** 会话是怎么来的（0.16.0）：现在只有“从一项建议开出来”。 */
 export const SessionOriginSchema = z.object({
   kind: z.literal('suggested_task'),
@@ -1508,6 +1517,11 @@ export const SessionSchema = z.object({
   origin: SessionOriginSchema.optional(),
   /** 由另一个会话里的 agent 开出来的会话（0.30.0）。 */
   openedBy: SessionOpenedBySchema.optional(),
+  /**
+   * 由自动化开出来的会话（0.66.0，Host 功能 `automations`）：建它的那次运行。`newSessionEachRun` 为 `false` 的自动化之后
+   * 的运行也发进这个会话，这里仍是第一次。
+   */
+  automation: SessionAutomationSchema.optional(),
   /** 工具预设（0.61.0，Host 功能 `tool_presets`）；省略表示没选，等同 `full`。子会话不带，沿用父会话的。 */
   toolPreset: ToolPresetSchema.optional(),
   /** 支线会话（0.17.0，domain-model §3.12）。 */

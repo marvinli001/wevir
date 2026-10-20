@@ -28,6 +28,7 @@ import type {
   WorkspaceRecord,
 } from '@wevir/storage';
 import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
+import type { AutomationService } from './automations/service.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
 import { HostError } from './errors.js';
@@ -123,6 +124,8 @@ export interface HostMethodsOptions {
   toolPresets?: () => MethodResult<'tools.presets'>;
   /** 用量统计（0.62.0，`usage.*`）；省略时 `usage.*` 回 `INVALID_PARAMS`（测试）。 */
   usage?: { service: UsageService; pricing: PricingStore };
+  /** 自动化（0.66.0，`automation.*`）；省略时 `automation.*` 回 `INVALID_PARAMS`（测试）。 */
+  automations?: AutomationService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -228,6 +231,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
+  };
+  const automations = (): AutomationService => {
+    if (options.automations === undefined) throw invalidParams([], 'this host has no automations');
+    return options.automations;
   };
   const memoryStore = (): MemoryStore => {
     if (options.memory === undefined) throw invalidParams([], 'this host has no memory store');
@@ -998,6 +1005,19 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (refresh === true) await pricing.refresh();
       return { pricing: pricing.status() };
     },
+    'automation.list': async () => ({ automations: automations().list() }),
+    'automation.get': async ({ automationId }) => automations().get(automationId),
+    'automation.create': async (params) => ({
+      automation: await automations().create(params, { kind: 'user' }),
+    }),
+    'automation.update': async (params) => ({ automation: await automations().update(params) }),
+    'automation.delete': async ({ automationId }) => {
+      await automations().delete(automationId);
+      return {};
+    },
+    'automation.run': async ({ automationId }) => ({
+      run: await automations().runNow(automationId),
+    }),
     'tools.presets': async () => {
       if (options.toolPresets === undefined) {
         throw invalidParams([], 'this host has no Wevir app tools');
