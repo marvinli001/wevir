@@ -888,6 +888,11 @@ export const HostSettingsSchema = z.object({
    * 说明，`wevir_memory_*` 工具不再列出，调用也被拒绝；用户照样能用 `memory.*` 管理已有笔记。省略按开着（默认）。
    */
   autoMemory: z.boolean().optional(),
+  /**
+   * 跨引擎的规则文件（0.68.0，Host 功能 `rule_files`）：会话的引擎自己不读的 AGENTS.md / CLAUDE.md / GEMINI.md / Cursor 规则由 Host
+   * 补给它。关掉后不再补，从下一次建会话、恢复或接力起生效；`session.rules` 照样记下引擎自己读的。省略按开着（默认）。
+   */
+  ruleFiles: z.boolean().optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
@@ -896,6 +901,7 @@ export const DEFAULT_HOST_SETTINGS: HostSettings = Object.freeze({
   promptSuggestions: true,
   sessionRecap: true,
   autoMemory: true,
+  ruleFiles: true,
 });
 
 // ── 跨会话记忆（0.57.0） ────────────────────────────────────────────────
@@ -1163,6 +1169,65 @@ export type HandoffConfigure = z.infer<typeof HandoffConfigureSchema>;
  * 接着用这个来源以前的引擎会话算的（它恢复过一次失败时按新建算）；正式切换时恢复失败，带绑定的切换回 `HANDOFF_STALE`，
  * 再预览就是新建、整段。`overBudget` 时没有材料，要用户缩减约束或少选笔记。
  */
+// ── 规则文件（0.68.0） ────────────────────────────────────────────────
+
+/**
+ * 规则文件的种类（0.68.0，domain-model §3.27），开放字符串：`agents`（AGENTS.md）、`claude`（CLAUDE.md、.claude/CLAUDE.md、
+ * CLAUDE.local.md）、`gemini`（GEMINI.md）、`cursor`（.cursor/rules 里总是应用的规则与 .cursorrules）。`@` 引入的文件跟着引入它的
+ * 那个文件的种类。
+ */
+export const RuleFileKindSchema = z.string().min(1);
+export type RuleFileKind = z.infer<typeof RuleFileKindSchema>;
+
+/** 用户级（家目录里各工具的那份）还是项目里的（从仓库根到会话目录一路上的）。 */
+export const RuleFileScopeSchema = z.enum(['user', 'project']);
+export type RuleFileScope = z.infer<typeof RuleFileScopeSchema>;
+
+/**
+ * 这个文件怎么到的模型：`engine` 会话的引擎自己读（Host 按引擎的规则推断）；`wevir` 引擎不读，Host 补给它；`skipped` 没给，原因见
+ * `skipReason`。
+ */
+export const RuleFileDeliverySchema = z.enum(['engine', 'wevir', 'skipped']);
+export type RuleFileDelivery = z.infer<typeof RuleFileDeliverySchema>;
+
+/** 一个规则文件（0.68.0）。 */
+export const RuleFileSchema = z.object({
+  /** 绝对路径。 */
+  path: z.string().min(1),
+  scope: RuleFileScopeSchema,
+  kind: RuleFileKindSchema,
+  delivery: RuleFileDeliverySchema,
+  /** 文件的 UTF-8 字节数（Cursor 规则不含 frontmatter）。 */
+  bytes: z.int().min(0),
+  /** `wevir` 补给的、因预算只给了开头一段。 */
+  truncated: z.boolean().optional(),
+  /**
+   * `skipped` 的原因，开放字符串：`duplicate`（与引擎自己读的内容相同）、`over_budget`（预算用完）、`disabled`（Host 设置
+   * `ruleFiles` 关着）、`empty`、`unreadable`。
+   */
+  skipReason: z.string().min(1).optional(),
+  /** 由另一个规则文件 `@` 引入的：那个文件的路径。 */
+  importedFrom: z.string().min(1).optional(),
+});
+export type RuleFile = z.infer<typeof RuleFileSchema>;
+
+/** Host 补给的规则交给引擎的方式：`instructions` 进引擎的系统或开发者说明，`message` 放在下一条消息的开头。 */
+export const RuleDeliveryChannelSchema = z.enum(['instructions', 'message']);
+export type RuleDeliveryChannel = z.infer<typeof RuleDeliveryChannelSchema>;
+
+/** 一个会话（对它当前的来源）加载了哪些规则文件（0.68.0）。 */
+export const SessionRulesSchema = z.object({
+  providerId: ProviderIdSchema,
+  /** 用户级在前，项目里的从仓库根到会话目录；引入的文件紧跟在引入它的后面。 */
+  files: z.array(RuleFileSchema),
+  /** 有 `wevir` 的文件时才有。 */
+  channel: RuleDeliveryChannelSchema.optional(),
+  /** 补给的正文的 UTF-8 字节数与预算；没有补给时省略。 */
+  bytes: z.int().min(1).optional(),
+  budgetBytes: z.int().min(1).optional(),
+});
+export type SessionRules = z.infer<typeof SessionRulesSchema>;
+
 export const HandoffPreviewSchema = z.object({
   providerId: ProviderIdSchema,
   strategy: HandoffStrategySchema,
@@ -1184,6 +1249,11 @@ export const HandoffPreviewSchema = z.object({
   overBudget: z.object({ bytes: z.int().min(1) }).optional(),
   constraints: z.int().min(0),
   notes: z.array(HandoffNoteRefSchema),
+  /**
+   * 新来源会加载的规则文件（0.68.0，Host 功能 `rule_files`）：它自己读的，与 Host 补给它的。规则不占接力材料的预算；接着用以前的
+   * 引擎会话、规则已随消息交过时，`message` 方式的不再补。
+   */
+  rules: SessionRulesSchema.optional(),
 });
 export type HandoffPreview = z.infer<typeof HandoffPreviewSchema>;
 
@@ -1557,6 +1627,8 @@ export const SessionSchema = z.object({
   archivedAt: IsoTimeSchema.optional(),
   /** 会话的目标（0.35.0，`session.goal_changed`）；没有或已清除时省略。 */
   goal: SessionGoalSchema.optional(),
+  /** 这个会话当前的来源加载的规则文件（0.68.0，最近一次 `session.rules`）；Host 没记过时省略。 */
+  rules: SessionRulesSchema.optional(),
 });
 export type Session = z.infer<typeof SessionSchema>;
 

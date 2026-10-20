@@ -17,6 +17,7 @@ import {
 } from '@wevir/adapter-acp/sdk';
 import {
   type AgentInput,
+  type EngineRuleFiles,
   type EngineSession,
   isAdapterError,
   type PermissionMode,
@@ -85,6 +86,14 @@ export class AntigravityAdapter extends AcpAdapter {
   readonly installation: AntigravityInstallation;
   readonly #launcher: AntigravityLauncher;
   readonly #sessions = new Map<string, SessionSettings>();
+
+  /**
+   * 0.68.0：Antigravity 读项目里一路上的 GEMINI.md 与 AGENTS.md（IDE 里 language_server 带的说明；ACP 运行体没有核对过）。它的
+   * `GEMINI_HOME` 是 Wevir 的私有目录，用户的 `~/.gemini/GEMINI.md` 读不到，由 Host 补。ACP 没有放说明的地方，随下一条消息交。
+   */
+  ruleFiles(): EngineRuleFiles {
+    return { user: [], project: ['gemini', 'agents'], imports: false, instructions: false };
+  }
 
   constructor(options: AntigravityAdapterOptions) {
     const env = options.env ?? process.env;

@@ -249,6 +249,18 @@ export interface AgentRuntimeAdapter {
   bindEngineAppTools?(grant: EngineAppToolsGrant): void;
 
   /**
+   * 引擎自己读哪些规则文件（0.68.0，domain-model §3.27）：Host 据此只补引擎不读的那些，并在 `session.rules` 里标出谁读的。按
+   * Provider 问（多引擎的路由交给承载它的引擎），每次建立或恢复引擎会话前问一次，可以按引擎版本或用户的配置作答。不实现（或
+   * 返回 `undefined`）时 Host 不补、不记：只有声明了的引擎参与。
+   */
+  ruleFiles?(
+    providerId: string,
+  ):
+    | import('./types.js').EngineRuleFiles
+    | undefined
+    | Promise<import('./types.js').EngineRuleFiles | undefined>;
+
+  /**
    * 往会话的引擎上下文补一条说明，不开回合（0.16.0，U23：用户开出的任务会话回报结果，domain-model §3.11）。模型从下一次
    * 请求起看得到；回合进行中也可以调用。不实现时 Host 只写事件（Codex：`thread/inject_items`）。
    * 错误：`session_not_found`、`session_closed`（会话没挂着）、`disposed`。

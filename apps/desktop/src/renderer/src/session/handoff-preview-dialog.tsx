@@ -22,6 +22,7 @@ import { useHostSettings } from '@/data/host-settings';
 import { useAccounts, useWorkbenchData } from '@/data/workbench-data';
 import { describe, useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
+import { RuleFileList } from '@/layout/rules-card';
 import { handoffPreviewRows, modelLabel } from './handoff-model';
 import {
   budgetUsage,
@@ -317,6 +318,13 @@ export function HandoffPreviewDialog({
               </div>
             )}
           </section>
+
+          {shown?.preview.rules !== undefined && shown.preview.rules.files.length > 0 && (
+            <section className="grid gap-1.5" data-testid="handoff-rules">
+              <h3 className="text-sm font-medium">{t('handoff.preview.rules')}</h3>
+              <RuleFileList rules={shown.preview.rules} cwd={session.cwd} />
+            </section>
+          )}
 
           {shown !== undefined &&
             (shown.preview.context !== undefined ? (

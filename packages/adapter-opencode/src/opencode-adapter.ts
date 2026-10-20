@@ -24,6 +24,7 @@
 // 加一条 `noReply` 的边界消息，标题（§5.11）在临时会话里同步 `prompt`（title.ts）。
 
 import { stat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -34,6 +35,7 @@ import {
   type ApprovalCancelledEvent,
   type ApprovalDecision,
   type EngineAppToolsGrant,
+  type EngineRuleFiles,
   type EngineSession,
   EventHub,
   isAdapterError,
@@ -119,6 +121,8 @@ interface SessionSettings {
   additionalRoots?: string[];
   /** 这个会话看不到的应用级工具（Host 按角色与工具预设去掉的，`#hiddenAppTools`），在规则末尾写成 deny。 */
   hiddenTools?: string[];
+  /** Host 补给的规则文件（0.68.0，`SessionConfig.ruleInstructions`）：每次 `promptAsync` 作为 `system` 带上。 */
+  system?: string;
 }
 
 /** 交给进行中回合的一次插话。 */
@@ -316,6 +320,15 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
   acceptsImages(): boolean {
     return true;
   }
+
+  /**
+   * 0.68.0：OpenCode 读哪些规则文件（它的 rules 文档）：项目里从 cwd 往上到仓库根的 AGENTS.md，没有时读 CLAUDE.md；用户级的是它
+   * 自己的 `~/.config/opencode/AGENTS.md`，没有时读 `~/.claude/CLAUDE.md`。`OPENCODE_DISABLE_CLAUDE_CODE` 关掉所有 CLAUDE.md，
+   * `OPENCODE_DISABLE_CLAUDE_CODE_PROMPT` 只关掉用户级的。补给的每次作为 `system` 带上。
+   */
+  async ruleFiles(): Promise<EngineRuleFiles> {
+    return openCodeRuleFiles(this.#options.env ?? process.env);
+  }
   readonly #options: OpenCodeAdapterOptions;
   readonly #runtime: OpenCodeRuntime;
   readonly #sessions = new Map<string, Session>();
@@ -457,6 +470,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
           messageID: messageId,
           model,
           ...variantOf(session.settings),
+          ...(session.settings.system !== undefined && { system: session.settings.system }),
           parts,
         },
         turn.prompt.signal,
@@ -517,6 +531,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
           messageID: steer.messageId,
           model,
           ...variantOf(session.settings),
+          ...(session.settings.system !== undefined && { system: session.settings.system }),
           parts,
         },
         steer.abort.signal,
@@ -660,6 +675,7 @@ export class OpenCodeAdapter implements AgentRuntimeAdapter {
       ...(session.settings.hiddenTools !== undefined && {
         hiddenTools: session.settings.hiddenTools,
       }),
+      ...(session.settings.system !== undefined && { system: session.settings.system }),
     };
     const rules = sessionRules(session.settings);
     if (JSON.stringify(rules) === JSON.stringify(session.rules)) return;
@@ -1746,14 +1762,39 @@ function variantOf(settings: SessionSettings): { variant?: string } {
   return settings.reasoningEffort === undefined ? {} : { variant: settings.reasoningEffort };
 }
 
+/** `OpenCodeAdapter.ruleFiles`（0.68.0）。 */
+export async function openCodeRuleFiles(env: NodeJS.ProcessEnv): Promise<EngineRuleFiles> {
+  const flag = (name: string) => {
+    const value = env[name]?.trim().toLowerCase();
+    return value !== undefined && value !== '' && value !== '0' && value !== 'false';
+  };
+  const noClaude = flag('OPENCODE_DISABLE_CLAUDE_CODE');
+  const home = env.HOME?.trim() ? env.HOME : homedir();
+  const configHome = env.XDG_CONFIG_HOME?.trim() ? env.XDG_CONFIG_HOME : path.join(home, '.config');
+  const ownGlobal = await stat(path.join(configHome, 'opencode', 'AGENTS.md')).then(
+    (info) => info.isFile(),
+    () => false,
+  );
+  const userClaude = !noClaude && !flag('OPENCODE_DISABLE_CLAUDE_CODE_PROMPT') && !ownGlobal;
+  return {
+    user: userClaude ? ['claude'] : [],
+    project: ['agents'],
+    ...(!noClaude && { projectFallback: ['claude'] }),
+    imports: false,
+    instructions: true,
+  };
+}
+
 function settingsOf(config: {
   modelId: string;
   reasoningEffort?: string;
   permissionMode?: PermissionMode;
   additionalRoots?: string[];
+  ruleInstructions?: string;
 }): SessionSettings {
   return {
     modelId: config.modelId,
+    ...(config.ruleInstructions !== undefined && { system: config.ruleInstructions }),
     ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
     ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
     ...(config.additionalRoots !== undefined &&

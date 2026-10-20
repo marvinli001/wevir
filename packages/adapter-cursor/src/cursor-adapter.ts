@@ -28,6 +28,7 @@ import {
   APP_TOOLS_SERVER,
   type ApprovalDecision,
   type AppToolsEndpoint,
+  type EngineRuleFiles,
   type EngineSession,
   EventHub,
   isAdapterError,
@@ -199,6 +200,20 @@ export class CursorAdapter implements AgentRuntimeAdapter {
   readonly permissionModes = PERMISSION_MODES;
   /** 应用级工具（0.30.0）：HTTP 的 MCP 服务交给 agent；Cursor 没有审批，工具直接调用。 */
   readonly appTools = true;
+
+  /**
+   * 0.68.0：Cursor 的 SDK 从 cwd 一路往上读 `.cursor/rules`、AGENTS.md、CLAUDE.md 与 CLAUDE.local.md，仓库根的 .cursorrules（打包的
+   * 689.js，`loadRulesFromDirAndAncestors`）；用户级的规则在 Cursor 的账号设置里，不是文件。SDK 的 `systemPrompt` 会整个换掉
+   * Cursor 的提示词，不能用来补，所以补给的随下一条消息交。
+   */
+  ruleFiles(): EngineRuleFiles {
+    return {
+      user: [],
+      project: ['agents', 'claude', 'cursor'],
+      imports: false,
+      instructions: false,
+    };
+  }
 
   /** 图片（0.28.0）：经 SDK 的 `images` 交给 Cursor，模型由它挑。 */
   acceptsImages(): boolean {

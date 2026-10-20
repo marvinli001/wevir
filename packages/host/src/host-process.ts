@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   type ClientIdentity,
@@ -38,6 +39,7 @@ import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { loadRecapInstructions } from './recap.js';
 import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
+import { discoverRuleFiles } from './rule-files.js';
 import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
@@ -75,6 +77,8 @@ export type ShutdownTrigger =
 export interface StartHostOptions {
   /** 测试时与隔离的引擎 HOME 一致；产品默认 os.homedir()。 */
   pluginUserHome?: string;
+  /** 找用户级规则文件（0.68.0，`~/.codex/AGENTS.md` 等）的家目录；省略时同 `pluginUserHome`，再省略是 os.homedir()。 */
+  userHome?: string;
   /** 数据目录（绝对路径），见 `resolveHome`。 */
   home: string;
   /** 引擎适配器，由 Host 独占，退出时 `dispose`。 */
@@ -320,6 +324,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // 接力时用户选入的笔记（0.59.0）；自动记忆关着时不能选。
       memory,
       memoryEnabled: () => settings.get().autoMemory !== false,
+      // 跨引擎的规则文件（0.68.0）：引擎不读的由 Host 补；设置关掉时只记引擎自己读的。
+      ruleFiles: {
+        discover: (cwd) =>
+          discoverRuleFiles({ cwd, home: options.userHome ?? options.pluginUserHome ?? homedir() }),
+        enabled: () => settings.get().ruleFiles !== false,
+      },
       toolOutputDir: toolOutput.dir,
       images,
     });
@@ -559,6 +569,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.injectNote !== undefined && { session_undo: true }),
         ...(recapInstructions !== undefined && { session_recap: true }),
         ...(verification !== undefined && { verification: true }),
+        rule_files: true,
       },
       engineFeatures,
       plugins,

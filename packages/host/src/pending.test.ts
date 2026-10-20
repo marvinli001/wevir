@@ -52,6 +52,7 @@ describe('Host 设置（settings.*）', () => {
         promptSuggestions: true,
         sessionRecap: true,
         autoMemory: true,
+        ruleFiles: true,
       },
     });
 
@@ -64,6 +65,7 @@ describe('Host 设置（settings.*）', () => {
         promptSuggestions: true,
         sessionRecap: true,
         autoMemory: true,
+        ruleFiles: true,
       },
     });
     await watcher.until(
@@ -77,6 +79,7 @@ describe('Host 设置（settings.*）', () => {
       promptSuggestions: true,
       sessionRecap: true,
       autoMemory: true,
+      ruleFiles: true,
     });
     // 值没变不通知。
     await updater.request('settings.update', { settings: { sendWhileBusy: 'queue' } });
@@ -91,6 +94,7 @@ describe('Host 设置（settings.*）', () => {
         promptSuggestions: false,
         sessionRecap: true,
         autoMemory: true,
+        ruleFiles: true,
       },
     });
     await watcher.until(
@@ -105,6 +109,7 @@ describe('Host 设置（settings.*）', () => {
       promptSuggestions: false,
       sessionRecap: true,
       autoMemory: true,
+      ruleFiles: true,
     });
 
     // 离开后摘要的开关（0.54.0）：默认开，关掉后写进文件，只改给出的字段。
@@ -118,6 +123,7 @@ describe('Host 设置（settings.*）', () => {
         promptSuggestions: false,
         sessionRecap: false,
         autoMemory: true,
+        ruleFiles: true,
       },
     });
     expect(JSON.parse(readFileSync(join(home, 'settings.json'), 'utf8'))).toEqual({
@@ -125,6 +131,7 @@ describe('Host 设置（settings.*）', () => {
       promptSuggestions: false,
       sessionRecap: false,
       autoMemory: true,
+      ruleFiles: true,
     });
 
     // Host 重启后从文件读回。
@@ -138,6 +145,7 @@ describe('Host 设置（settings.*）', () => {
         promptSuggestions: false,
         sessionRecap: false,
         autoMemory: true,
+        ruleFiles: true,
       },
     });
   });

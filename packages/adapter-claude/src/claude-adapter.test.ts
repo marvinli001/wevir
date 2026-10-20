@@ -5,7 +5,12 @@ import type { AgentEvent, ApprovalRequestedEvent } from '@wevir/runtime-adapter'
 import { isAdapterError, isTurnTerminal } from '@wevir/runtime-adapter';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ClaudeAccounts, withConfigDir } from './account.js';
-import { ClaudeAdapter, claudeProposedPlan, PLAN_CAPTURED_MESSAGE } from './claude-adapter.js';
+import {
+  ClaudeAdapter,
+  claudeProposedPlan,
+  claudeRuleFiles,
+  PLAN_CAPTURED_MESSAGE,
+} from './claude-adapter.js';
 import { SIDE_BOUNDARY_NOTE } from './side.js';
 import { FakeClaudeSdk, loadRecording } from './test-fixtures/fake-sdk.js';
 import {
@@ -160,6 +165,38 @@ describe('一问一答（录音 plain）', () => {
     expect(sessionQueries(sdk)[0]?.prompts[0]).toMatchObject({
       type: 'user',
       message: { role: 'user', content: 'Reply with exactly the word hello.' },
+    });
+  });
+
+  it('规则文件（0.68.0）：Host 补的接在预设系统提示词后面；不补时只有预设；读哪些按 claude 的版本', async () => {
+    const { adapter, sdk } = harness();
+    const plain = await adapter.createSession(CONFIG);
+    const rules = await adapter.createSession({
+      ...CONFIG,
+      ruleInstructions: '# Rules\nUse tabs.',
+    });
+    for (const id of [plain.engineSessionId, rules.engineSessionId]) {
+      const log = collect(adapter, id);
+      await adapter.send(id, text('hi'));
+      await log.until(isTurnTerminal);
+    }
+    expect(sessionQueries(sdk)[0]?.options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+    });
+    expect(sessionQueries(sdk)[1]?.options.systemPrompt).toEqual({
+      type: 'preset',
+      preset: 'claude_code',
+      append: '# Rules\nUse tabs.',
+    });
+    // 录音里的 claude 是 2.1.287：项目没有 CLAUDE.md 时它读 AGENTS.md。
+    expect(await adapter.ruleFiles()).toMatchObject({ projectFallback: ['agents'], imports: true });
+    expect(claudeRuleFiles('2.1.226').projectFallback).toBeUndefined();
+    expect(claudeRuleFiles(undefined)).toEqual({
+      user: ['claude'],
+      project: ['claude'],
+      imports: true,
+      instructions: true,
     });
   });
 

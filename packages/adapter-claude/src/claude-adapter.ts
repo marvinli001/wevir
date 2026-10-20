@@ -24,6 +24,7 @@ import {
   type ApprovalDecision,
   type AppToolsEndpoint,
   type CancelOptions,
+  type EngineRuleFiles,
   type EngineSession,
   EventHub,
   type PendingApproval,
@@ -52,6 +53,7 @@ import {
   claudeApiModelId,
   claudeContextWindow,
   claudeEffort,
+  compareVersions,
   lowestClaudeEffort,
 } from './model-catalog.js';
 import {
@@ -148,6 +150,26 @@ export interface ClaudeAdapterOptions {
 
 /** 链进添加的账号的配置目录的用户条目（0.63.0）。 */
 export const CLAUDE_USER_ENTRIES: readonly string[] = ['CLAUDE.md', 'skills', 'agents', 'commands'];
+
+/** Claude Code 从这个版本起在项目没有 CLAUDE.md 时读 AGENTS.md（`instructionFiles` 默认 `claude-md-or-agents-md`）。 */
+export const CLAUDE_AGENTS_MD_FALLBACK_VERSION = '2.1.277';
+
+/**
+ * Claude Code 读哪些规则文件（0.68.0，domain-model §3.27）：用户的 `~/.claude/CLAUDE.md`（添加的账号链回它）、项目里一路上的
+ * CLAUDE.md / .claude/CLAUDE.md / CLAUDE.local.md 与它们 `@` 引入的文件；`CLAUDE_AGENTS_MD_FALLBACK_VERSION` 起项目没有
+ * CLAUDE.md 时也读 AGENTS.md。补给的接在 `systemPrompt.append`。版本不知道时按老的算：宁可多补一份，不让规则丢掉。
+ */
+export function claudeRuleFiles(version: string | undefined): EngineRuleFiles {
+  const fallback =
+    version !== undefined && compareVersions(version, CLAUDE_AGENTS_MD_FALLBACK_VERSION) >= 0;
+  return {
+    user: ['claude'],
+    project: ['claude'],
+    ...(fallback && { projectFallback: ['agents'] }),
+    imports: true,
+    instructions: true,
+  };
+}
 
 /** 推给 `query()` 的输入：异步迭代的队列。 */
 class PushQueue<T> implements AsyncIterable<T> {
@@ -467,6 +489,15 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
    * `allowedTools`，其余经 `canUseTool` 走审批。
    */
   readonly appTools = true;
+
+  /**
+   * 0.68.0：Claude Code 读哪些规则文件（`claudeRuleFiles`，按装着的 claude 的版本）。还找不到 claude 或没登录时按老版本答（不当
+   * 作会读 AGENTS.md），反正建会话会报那个错。
+   */
+  async ruleFiles(): Promise<EngineRuleFiles> {
+    const installation = await this.accounts.installation().catch(() => undefined);
+    return claudeRuleFiles(installation?.version);
+  }
 
   /** 图片（0.28.0）：Claude 的模型都收（model-catalog 里 `supportsImages` 恒为 true）。 */
   acceptsImages(): boolean {
@@ -1084,7 +1115,11 @@ export class ClaudeAdapter implements AgentRuntimeAdapter {
       // T3：要思考的摘要（新模型默认不显示思考内容）。
       thinking: { type: 'adaptive', display: 'summarized' },
       settings: { showThinkingSummaries: true },
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      // 规则文件（0.68.0）：Claude Code 自己不读的（AGENTS.md 等）由 Host 补，接在预设系统提示词的后面。
+      systemPrompt:
+        session.config.ruleInstructions === undefined
+          ? { type: 'preset', preset: 'claude_code' }
+          : { type: 'preset', preset: 'claude_code', append: session.config.ruleInstructions },
       ...(session.persisted ? { resume: session.id } : { sessionId: session.id }),
       ...(session.side && { persistSession: false }),
       ...(process.platform !== 'win32' && { spawnClaudeCodeProcess: spawnProcessGroup }),

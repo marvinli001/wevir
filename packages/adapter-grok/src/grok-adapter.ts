@@ -27,6 +27,7 @@ import {
   type AgentInput,
   type AgentRuntimeAdapter,
   type ApprovalDecision,
+  type EngineRuleFiles,
   type EngineSession,
   EventHub,
   type PendingApproval,
@@ -307,6 +308,14 @@ export class GrokAdapter implements AgentRuntimeAdapter {
   /** 图片（0.28.0）：各模式的进程照通用 ACP 适配器发图片内容块（`GROK_ENGINE.images`）。 */
   acceptsImages(): boolean {
     return true;
+  }
+
+  /**
+   * 0.68.0：Grok Build 读项目里的 AGENTS.md（xAI 的说明；用户级的是它自己的 `~/.grok/AGENTS.md`，不是 Host 找的那几份）。ACP 的
+   * `session/new` 没有放说明的地方，补给的随下一条消息交。
+   */
+  ruleFiles(): EngineRuleFiles {
+    return { user: [], project: ['agents'], imports: false, instructions: false };
   }
   readonly #options: GrokAdapterOptions;
   readonly #workDir: string;

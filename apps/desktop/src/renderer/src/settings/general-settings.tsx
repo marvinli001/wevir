@@ -38,6 +38,9 @@ export function GeneralSettings() {
   // 离开后回顾（0.54.0）：Host 能生成（有 `session_recap`）时才有这一行。
   const recapAvailable =
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'session_recap');
+  // 跨引擎的规则文件（0.68.0）：Host 声明了 `rule_files` 才有这一行。
+  const ruleFilesSupported =
+    supported && view.status === 'connected' && hostSupports(view.hello.features, 'rule_files');
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const preventSleep = preventSleepPref.use();
@@ -124,6 +127,20 @@ export function GeneralSettings() {
                   label={t('settings.chat.recap')}
                   disabled={saving}
                   onChange={(sessionRecap) => void save({ sessionRecap })}
+                />
+              }
+            />
+          )}
+          {ruleFilesSupported && (
+            <SettingsRow
+              title={t('settings.chat.ruleFiles')}
+              data-setting="rule-files"
+              control={
+                <Switch
+                  checked={settings.ruleFiles !== false}
+                  label={t('settings.chat.ruleFiles')}
+                  disabled={saving}
+                  onChange={(ruleFiles) => void save({ ruleFiles })}
                 />
               }
             />
