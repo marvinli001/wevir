@@ -2033,7 +2033,7 @@ export const messages: Messages = {
   'automations.template.news.prompt':
     '의존성 목록으로 이 프로젝트가 쓰는 주요 프레임워크와 도구를 파악한 뒤, 지난 1주일 동안의 새 릴리스, 지원 중단 공지, 보안 권고를 웹에서 찾아보세요. 영향이 큰 순서로 나열하고 항목마다 출처 링크와 이 프로젝트에 미치는 영향을 덧붙이세요.',
 
-  // 任务回顾（0.73.0）
+  // 任务回顾（0.76.0）
   'rail.retro': '작업 회고',
   'retro.open': '전체 회고',
   'retro.refresh': '새로 고침',

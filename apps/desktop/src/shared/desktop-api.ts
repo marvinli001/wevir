@@ -369,7 +369,7 @@ export interface DesktopApi {
    */
   saveFileAs(path: string, name: string): Promise<'saved' | 'cancelled'>;
   /**
-   * 把一段文本另存为（0.73.0，任务回顾的导出）：弹出保存对话框（默认在“下载”里、用 `name`），写入 `text`（UTF-8）。只认 `.md` 与
+   * 把一段文本另存为（0.76.0，任务回顾的导出）：弹出保存对话框（默认在“下载”里、用 `name`），写入 `text`（UTF-8）。只认 `.md` 与
    * `.json`；用户取消时是 `cancelled`。
    */
   saveTextAs(name: string, text: string): Promise<'saved' | 'cancelled'>;

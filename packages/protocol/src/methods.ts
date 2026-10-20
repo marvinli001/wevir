@@ -1914,7 +1914,7 @@ export const MethodSchemas = {
     result: VerificationOutputResultSchema,
     permission: 'session.read',
   },
-  // 0.73.0：任务回顾（ADR-0012）。
+  // 0.76.0：任务回顾（ADR-0012）。
   'retro.get': {
     params: RetroGetParamsSchema,
     result: RetroGetResultSchema,

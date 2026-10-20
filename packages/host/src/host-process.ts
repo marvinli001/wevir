@@ -426,7 +426,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('review comments are unavailable', { error });
     }
 
-    // 任务回顾（0.73.0，ADR-0012）：投影存在 SQLite，按需生成；模型摘要同离开后摘要，适配器能生成才读提示词，读不到只是没有摘要。
+    // 任务回顾（0.76.0，ADR-0012）：投影存在 SQLite，按需生成；模型摘要同离开后摘要，适配器能生成才读提示词，读不到只是没有摘要。
     let retroInstructions: string | undefined;
     if (adapter.generateTitle !== undefined) {
       try {

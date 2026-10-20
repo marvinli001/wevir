@@ -150,7 +150,7 @@ export interface AppToolsOptions {
   tasks?: TaskBoardStore;
   /** 自动化（0.66.0）：有它时加上 `wevir_automation*`，自动化开的会话的说明里多一段运行须知。 */
   automations?: AutomationService;
-  /** 任务回顾（0.73.0）：有它时加上 `wevir_session_retro`。 */
+  /** 任务回顾（0.76.0）：有它时加上 `wevir_session_retro`。 */
   retro?: RetroService;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
 }
@@ -456,7 +456,7 @@ export class AppTools {
     };
   }
 
-  /** `wevir_session_retro`（0.73.0，ADR-0012 决策 12）：读一个会话的任务回顾，脱敏后的英文 Markdown。只读。 */
+  /** `wevir_session_retro`（0.76.0，ADR-0012 决策 12）：读一个会话的任务回顾，脱敏后的英文 Markdown。只读。 */
   #retroTool(retro: RetroService): AppTool {
     return {
       name: 'wevir_session_retro',

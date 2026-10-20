@@ -65,7 +65,7 @@ export const paths = {
   home: (): string => ROUTE_PATTERNS.home,
   session: (workspaceId: string, sessionId: string): string =>
     `/workspace/${segment(workspaceId)}/session/${segment(sessionId)}`,
-  /** 会话里的某个事件（0.73.0，任务回顾的出处）：打开会话后滚到它所在的一块。 */
+  /** 会话里的某个事件（0.76.0，任务回顾的出处）：打开会话后滚到它所在的一块。 */
   sessionAt: (workspaceId: string, sessionId: string, seq: number): string =>
     `${paths.session(workspaceId, sessionId)}?seq=${seq}`,
   agent: (workspaceId: string, sessionId: string, childId: string): string =>

@@ -33,7 +33,7 @@ export function groupTurns(messages: readonly ChatMessage[]): TranscriptBlock[] 
 }
 
 /**
- * 某个事件在消息流里的位置（任务回顾跳到出处，0.73.0）：seq 范围包含它的那条消息；没有时取它之前最近的一条（事件没有
+ * 某个事件在消息流里的位置（任务回顾跳到出处，0.76.0）：seq 范围包含它的那条消息；没有时取它之前最近的一条（事件没有
  * 自己的消息，例如审批、检查）。都没有时 -1。
  */
 export function messageIndexForSeq(messages: readonly ChatMessage[], seq: number): number {

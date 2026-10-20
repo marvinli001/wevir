@@ -2072,7 +2072,7 @@ export const messages: Messages = {
   'automations.template.news.prompt':
     'Ricava dai manifest delle dipendenze i principali framework e strumenti di questo progetto e cerca sul web le loro nuove versioni, gli avvisi di deprecazione e i bollettini di sicurezza dell’ultima settimana. Elencali per impatto, ognuno con il link alla fonte e cosa comporta per questo progetto.',
 
-  // 任务回顾（0.73.0）
+  // 任务回顾（0.76.0）
   'rail.retro': 'Riepilogo attività',
   'retro.open': 'Riepilogo completo',
   'retro.refresh': 'Aggiorna',

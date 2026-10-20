@@ -1,4 +1,4 @@
-// 任务回顾的可选模型摘要（0.73.0，ADR-0012 决策 9）：从骨架组输入（每行带 ID）、解析模型的输出、核对出处。发请求的是
+// 任务回顾的可选模型摘要（0.76.0，ADR-0012 决策 9）：从骨架组输入（每行带 ID）、解析模型的输出、核对出处。发请求的是
 // SessionManager.generateOnce（适配器的 `generateTitle`，会话当前的模型）。
 
 import { readFileSync } from 'node:fs';

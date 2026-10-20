@@ -68,7 +68,7 @@ export async function titleViaGateway(
 
 /**
  * 读 Responses 的流：拼 `response.output_text.delta`，`response.completed` 里有完整的消息时以它为准；那里的 `usage` 报给
- * `onUsage`（0.73.0）。
+ * `onUsage`（0.76.0）。
  */
 async function readResponsesText(
   stream: ReadableStream<Uint8Array>,

@@ -2082,7 +2082,7 @@ export const messages: Messages = {
   'automations.template.news.prompt':
     'Déduis des manifestes de dépendances les principaux frameworks et outils de ce projet, puis cherche sur le web leurs nouvelles versions, avis de dépréciation et alertes de sécurité de la semaine passée. Classe-les par impact, chacun avec un lien vers la source et ce que cela implique pour ce projet.',
 
-  // 任务回顾（0.73.0）
+  // 任务回顾（0.76.0）
   'rail.retro': 'Bilan de tâche',
   'retro.open': 'Bilan complet',
   'retro.refresh': 'Actualiser',

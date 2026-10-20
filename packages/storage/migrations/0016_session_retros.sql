@@ -1,4 +1,4 @@
--- 0016_session_retros：任务回顾（协议 0.73.0 的 retro.*，ADR-0012）。
+-- 0016_session_retros：任务回顾（协议 0.76.0 的 retro.*，ADR-0012）。
 --
 -- session_retros 是会话事件的投影：版本是 (session_id, through_seq, schema_version)，state 是归约状态的 JSON，全部能从事件重建；
 -- 读出来解析不了、形状不对或 schema_version 不同时 Host 从头重放。session_retro_summaries 是用户触发的模型摘要：不是投影，

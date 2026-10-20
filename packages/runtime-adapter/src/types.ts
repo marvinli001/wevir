@@ -251,7 +251,7 @@ export interface TitleRequest {
   /** Host 不再需要结果时（超时、会话被改名）中止。 */
   signal?: AbortSignal;
   /**
-   * 这次请求的 token 用量（0.73.0，任务回顾的模型摘要要显示消耗）：拿得到时适配器调一次，拿不到不调。只是报给 Host 看，不进用量统计。
+   * 这次请求的 token 用量（0.76.0，任务回顾的模型摘要要显示消耗）：拿得到时适配器调一次，拿不到不调。只是报给 Host 看，不进用量统计。
    */
   onUsage?: (usage: { inputTokens: number; outputTokens: number }) => void;
 }

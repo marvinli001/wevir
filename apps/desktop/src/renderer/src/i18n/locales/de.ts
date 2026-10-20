@@ -2070,7 +2070,7 @@ export const messages: Messages = {
   'automations.template.news.prompt':
     'Ermittle anhand der Abhängigkeitsdateien die wichtigsten Frameworks und Tools dieses Projekts und suche im Web nach ihren Releases, Deprecation-Hinweisen und Sicherheitsmeldungen der letzten Woche. Liste sie nach Auswirkung auf, jeweils mit Quellenlink und Bedeutung für dieses Projekt.',
 
-  // 任务回顾（0.73.0）
+  // 任务回顾（0.76.0）
   'rail.retro': 'Aufgabenrückblick',
   'retro.open': 'Vollständiger Rückblick',
   'retro.refresh': 'Aktualisieren',

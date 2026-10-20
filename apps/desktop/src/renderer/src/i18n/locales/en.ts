@@ -2051,7 +2051,7 @@ export const messages: Messages = {
   'automations.template.news.prompt':
     'Work out the main frameworks and tools this project uses from its dependency manifests, then search the web for their releases, deprecation notices and security advisories from the past week. List them by impact, each with a source link and what it means for this project.',
 
-  // 任务回顾（0.73.0）
+  // 任务回顾（0.76.0）
   'rail.retro': 'Task retro',
   'retro.open': 'Full retro',
   'retro.refresh': 'Refresh',

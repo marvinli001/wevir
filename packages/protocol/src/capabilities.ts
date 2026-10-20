@@ -294,7 +294,7 @@ export const HOST_FEATURES = {
    */
   userTerminal: 'user_terminal',
   /**
-   * 任务回顾（0.73.0，ADR-0012）：`retro.get`（从事件确定性生成的回顾，每行带出处，按需增量更新）与 `retro.summarize`（用户触发的
+   * 任务回顾（0.76.0，ADR-0012）：`retro.get`（从事件确定性生成的回顾，每行带出处，按需增量更新）与 `retro.summarize`（用户触发的
    * 模型摘要，引擎实现了 `generateTitle` 时才写得成），有应用级工具时还有 `wevir_session_retro`。与引擎无关。
    */
   sessionRetro: 'session_retro',

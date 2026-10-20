@@ -14,7 +14,7 @@
     contain-intrinsic-size: auto 240px;
   }
 
-  /* 从任务回顾跳到出处（0.73.0）：这一块的底色淡出一次。 */
+  /* 从任务回顾跳到出处（0.76.0）：这一块的底色淡出一次。 */
   .transcript-item[data-revealed] {
     border-radius: var(--radius-lg);
     animation: seq-reveal 1600ms var(--ease-smooth) both;

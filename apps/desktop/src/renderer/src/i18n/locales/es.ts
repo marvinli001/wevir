@@ -2077,7 +2077,7 @@ export const messages: Messages = {
   'automations.template.news.prompt':
     'Deduce de los manifiestos de dependencias los principales frameworks y herramientas de este proyecto y busca en la web sus versiones, avisos de obsolescencia y alertas de seguridad de la última semana. Enuméralos por impacto, cada uno con un enlace a la fuente y lo que supone para este proyecto.',
 
-  // 任务回顾（0.73.0）
+  // 任务回顾（0.76.0）
   'rail.retro': 'Resumen de la tarea',
   'retro.open': 'Resumen completo',
   'retro.refresh': 'Actualizar',

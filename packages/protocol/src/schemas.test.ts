@@ -2729,7 +2729,7 @@ const standaloneCases: Case[] = [
       { ...reviewComment, status: 'draft' },
     ],
   },
-  // 0.73.0：任务回顾。
+  // 0.76.0：任务回顾。
   {
     name: 'RetroRef',
     schema: protocol.RetroRefSchema,

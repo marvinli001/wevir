@@ -470,7 +470,7 @@ function run(): void {
       return 'saved';
     },
   );
-  // 任务回顾的导出（0.73.0）：渲染进程给文件名与文本，目标由用户在保存对话框里选。
+  // 任务回顾的导出（0.76.0）：渲染进程给文件名与文本，目标由用户在保存对话框里选。
   ipcMain.handle(
     IPC_CHANNELS.saveTextAs,
     async (event, name: unknown, text: unknown): Promise<'saved' | 'cancelled'> => {

@@ -2025,7 +2025,7 @@ export const messages: Messages = {
   'automations.template.news.prompt':
     '從相依清單判斷這個專案使用的主要框架與工具，上網查詢它們過去一週的新版本、棄用通知與安全公告，依影響由大到小列出，每項附上來源連結並說明對這個專案的影響。',
 
-  // 任务回顾（0.73.0）
+  // 任务回顾（0.76.0）
   'rail.retro': '任務回顧',
   'retro.open': '完整回顧',
   'retro.refresh': '重新整理',

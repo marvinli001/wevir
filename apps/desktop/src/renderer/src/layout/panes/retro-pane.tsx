@@ -5,7 +5,7 @@ import { useRetroSupported } from '@/retro/retro-data';
 import { RetroView } from '@/retro/retro-view';
 import type { PaneContext } from '../pane-registry';
 
-/** “任务回顾”窗格（0.73.0）：当前会话的回顾，每行点开出处。旧 Host 没有 `session_retro` 时只写不支持。 */
+/** “任务回顾”窗格（0.76.0）：当前会话的回顾，每行点开出处。旧 Host 没有 `session_retro` 时只写不支持。 */
 export function RetroPane({ context }: { context: PaneContext }) {
   const supported = useRetroSupported();
   const { entry, sessionId } = context;

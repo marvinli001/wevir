@@ -146,7 +146,7 @@ export interface HostMethodsOptions {
   review?: ReviewService;
   /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
   git?: GitService;
-  /** 任务回顾（0.73.0，`retro.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  /** 任务回顾（0.76.0，`retro.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   retro?: RetroService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
@@ -1124,7 +1124,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'review.send': async ({ workspaceId, sessionId, ...params }, { client }) =>
       review().send(await reviewDirectory(workspaceId, sessionId), params, client),
 
-    // 0.73.0：任务回顾（ADR-0012）。
+    // 0.76.0：任务回顾（ADR-0012）。
     'retro.get': ({ sessionId, redact }) =>
       retroService().get(sessionId, redact === undefined ? {} : { redact }),
     'retro.summarize': ({ sessionId }) => retroService().summarize(sessionId),

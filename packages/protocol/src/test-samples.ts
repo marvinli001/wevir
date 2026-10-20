@@ -225,7 +225,7 @@ export const verificationRun: VerificationRun = {
   fingerprint: 'sha256:77aa',
 };
 
-/** 一份任务回顾（0.73.0）：改了代码、检查通过但之后又改了文件、有未提交的改动。 */
+/** 一份任务回顾（0.76.0）：改了代码、检查通过但之后又改了文件、有未提交的改动。 */
 export const sessionRetro: SessionRetro = {
   sessionId: ids.session,
   title: '温度换算支持开尔文',
@@ -400,7 +400,7 @@ export const sessionRetro: SessionRetro = {
   ],
 };
 
-/** 一份模型摘要（0.73.0）：一点有出处，一点是推断。 */
+/** 一份模型摘要（0.76.0）：一点有出处，一点是推断。 */
 export const retroSummary: RetroSummary = {
   points: [
     { text: '开尔文换算已实现，测试通过的是旧版本。', refs: ['e9.0', `v:${ids.verificationRun}`] },

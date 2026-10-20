@@ -29,7 +29,7 @@ export const RENDER_WINDOW = 60;
 
 export interface TranscriptViewHandle {
   jumpToLatest(behavior?: ScrollBehavior): void;
-  /** 滚到某个事件所在的一块并短暂高亮（任务回顾的出处，0.73.0）。消息流里找不到时返回 false。 */
+  /** 滚到某个事件所在的一块并短暂高亮（任务回顾的出处，0.76.0）。消息流里找不到时返回 false。 */
   revealSeq(seq: number): boolean;
 }
 

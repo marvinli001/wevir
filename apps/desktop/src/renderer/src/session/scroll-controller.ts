@@ -54,7 +54,7 @@ export interface StickToBottom {
    * 底部（内容不满一屏、收起了一处）就回到贴底。
    */
   holdPosition(): void;
-  /** 转为手动模式、不再吸回底部（跳到某个事件的位置，0.73.0）。 */
+  /** 转为手动模式、不再吸回底部（跳到某个事件的位置，0.76.0）。 */
   release(): void;
 }
 

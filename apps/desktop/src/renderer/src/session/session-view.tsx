@@ -697,7 +697,7 @@ export function SessionView({
     transcriptRef.current = handle;
   }, []);
 
-  // 跳到某个事件（任务回顾的出处，0.73.0）：主窗格地址里的 `?seq=N`，消息流追上之后滚过去，再从地址里去掉。
+  // 跳到某个事件（任务回顾的出处，0.76.0）：主窗格地址里的 `?seq=N`，消息流追上之后滚过去，再从地址里去掉。
   const location = useLocation();
   const revealTarget = variant === 'main' ? seqParam(location.search) : undefined;
   const caughtUp = state?.caughtUp === true;
