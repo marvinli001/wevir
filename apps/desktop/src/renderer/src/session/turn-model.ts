@@ -77,7 +77,7 @@ export interface TurnFold {
 }
 
 /**
- * 插话（R11）、错误部件、建议的任务（U23：卡片与回报）、上下文压缩（0.24.0）、计划（0.36.0）与交给用户的文件（0.40.0）始终显示，
+ * 插话（R11）、错误部件、建议的任务（U23：卡片与回报）、上下文压缩（0.24.0）、计划（0.36.0）、交给用户的文件（0.40.0）与第二意见（0.75.0）始终显示，
  * 收起的回合里也在。
  */
 export function alwaysShown(part: ChatPart): boolean {
@@ -86,6 +86,7 @@ export function alwaysShown(part: ChatPart): boolean {
     part.type === 'plan' ||
     part.type === 'tasks' ||
     part.type === 'task_report' ||
+    part.type === 'opinion' ||
     part.type === 'files' ||
     part.type === 'compaction'
   );

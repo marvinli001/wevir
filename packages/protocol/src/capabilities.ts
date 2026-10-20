@@ -320,6 +320,11 @@ export const HOST_FEATURES = {
   automationConditions: 'automation_conditions',
   /** 从 Claude Code、Codex、Grok Build、Antigravity 导入记忆、MCP 服务器与 skills（0.74.0）：`import.*` 方法。 */
   externalImport: 'external_import',
+  /**
+   * 第二意见（0.75.0，domain-model §3.30）：`session.secondOpinion`、`session.quoteOpinion`、`opinion.updated` 事件、快照的 `opinions`、
+   * `Session.opinionOf` 与 `MessageFrom.opinion`。Host 能开 worktree 时声明，与引擎无关（意见会话用哪个来源由请求决定）。
+   */
+  secondOpinion: 'second_opinion',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -386,6 +391,7 @@ export const HostFeaturesSchema = z.looseObject({
   question_timeout: z.boolean().optional(),
   automation_conditions: z.boolean().optional(),
   external_import: z.boolean().optional(),
+  second_opinion: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

@@ -17,6 +17,7 @@ import type {
   PromptSuggestion,
   ProviderProfile,
   QuestionRequest,
+  SecondOpinion,
   Session,
   SessionGoal,
   SessionRules,
@@ -94,6 +95,9 @@ export const ids = {
   reviewComment2: 'rvc_01JA2B3C4D5E6F7G8H9JKMNPR1',
   /** 项目安装（0.70.0）。 */
   installRun: `ins_${ULID}`,
+  /** 第二意见（0.75.0）与给意见的会话。 */
+  opinion: `opn_${ULID}`,
+  opinionSession: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR5',
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -904,6 +908,49 @@ export const branchSession: Session = {
   lastSeq: 9,
 };
 
+/** 给意见的会话（0.75.0）：在 Host 开的 worktree 里，用另一个来源。 */
+export const opinionSession: Session = {
+  ...idleSession,
+  id: ids.opinionSession,
+  cwd: '/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir',
+  providerId: 'claude',
+  modelId: 'claude-opus-5-5',
+  title: '第二意见：修复登录',
+  worktrees: [
+    {
+      workspaceId: ids.workspace,
+      path: '/Users/me/.wevir/worktrees/ses_01JA2B3C4D5E6F7G8H9JKMNPR5/1-wevir',
+      branch: 'wevir/opinion-8h9jkmnpr5',
+    },
+  ],
+  opinionOf: { sessionId: ids.session, opinionId: ids.opinion },
+  lastSeq: 1,
+};
+
+/** 第二意见（0.75.0）：还在看。 */
+export const runningOpinion: SecondOpinion = {
+  id: ids.opinion,
+  sessionId: ids.opinionSession,
+  providerId: 'claude',
+  modelId: 'claude-opus-5-5',
+  requestedBy: 'user',
+  focus: '登录失败后的重试是否会重复提交',
+  basis: { turnId: ids.turn, head: SHA1, branch: 'fix-login', base: SHA2 },
+  status: 'running',
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 第二意见（0.75.0）：有了意见，已引用进原会话。 */
+export const quotedOpinion: SecondOpinion = {
+  ...runningOpinion,
+  status: 'ready',
+  outcome: 'completed',
+  text: '1. src/login.ts:42 重试前没有清掉上一次的 token，第二次提交会带旧 token。',
+  quoted: { at: TS2, turnId: ids.turn },
+  updatedAt: TS2,
+};
+
 export const toolDisplay: ToolDisplay = {
   kind: 'write',
   summary: '/tmp/wevir-outside.txt',
@@ -1216,7 +1263,11 @@ export const eventPayloads: PayloadSamples = {
       content: [{ type: 'text', text: '帮我整理本周周报' }, imagePart],
       sentBy: identity,
       pendingId: ids.pending2,
-      from: { sessionId: ids.childSession, kind: 'report' },
+      from: {
+        sessionId: ids.opinionSession,
+        kind: 'report',
+        opinion: { opinionId: ids.opinion, note: '按第 1 条改' },
+      },
       collaborationMode: 'plan',
     },
     invalid: { turnId: ids.turn, content: [], sentBy: identity },
@@ -1490,6 +1541,10 @@ export const eventPayloads: PayloadSamples = {
   'repair.updated': {
     valid: { repair: repairChain },
     invalid: { repair: { ...repairChain, attempt: -1 } },
+  },
+  'opinion.updated': {
+    valid: { opinion: quotedOpinion },
+    invalid: { opinion: { ...runningOpinion, status: 'done' } },
   },
 };
 
@@ -3106,8 +3161,14 @@ export const methodSamples: MethodSamples = {
         { ...snapshot, taskBoard: [boardTask, waitingBoardTask] },
         { ...snapshot, taskBoard: [] },
         { ...snapshot, promptSuggestion },
+        {
+          ...snapshot,
+          opinions: [runningOpinion, { ...quotedOpinion, id: 'opn_01JA2B3C4D5E6F7G8H9JKMNPR1' }],
+        },
+        { session: opinionSession, pendingApprovals: [] },
       ],
       invalid: [
+        { ...snapshot, opinions: [{ ...quotedOpinion, text: '' }] },
         { ...snapshot, promptSuggestion: { turnId: ids.turn, text: '' } },
         { ...snapshot, promptSuggestion: { text: '跑一下测试' } },
         { session },
@@ -3511,6 +3572,54 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ turnId: ids.turn, seq: 12 }],
       invalid: [{ turnId: ids.session, seq: 12 }],
+    },
+  },
+  'session.secondOpinion': {
+    params: {
+      valid: [
+        { sessionId: ids.session, providerId: 'claude' },
+        {
+          sessionId: ids.session,
+          providerId: 'claude',
+          modelId: 'claude-opus-5-5',
+          reasoningEffort: 'high',
+          focus: '登录失败后的重试是否会重复提交',
+        },
+      ],
+      invalid: [
+        { sessionId: ids.session },
+        { sessionId: ids.session, providerId: 'claude', focus: '   ' },
+        { sessionId: ids.session, providerId: 'claude', focus: 'x'.repeat(2001) },
+      ],
+    },
+    result: {
+      valid: [{ opinion: runningOpinion, session: opinionSession }],
+      invalid: [{ opinion: runningOpinion }],
+    },
+  },
+  'session.quoteOpinion': {
+    params: {
+      valid: [
+        { sessionId: ids.session, opinionId: ids.opinion },
+        {
+          sessionId: ids.session,
+          opinionId: ids.opinion,
+          note: '按第 1 条改',
+          clientMessageId: 'msg-7',
+          delivery: 'queue',
+        },
+      ],
+      invalid: [
+        { sessionId: ids.session, opinionId: ids.task },
+        { sessionId: ids.session, opinionId: ids.opinion, note: '' },
+      ],
+    },
+    result: {
+      valid: [
+        { turnId: ids.turn, seq: 12, opinion: quotedOpinion },
+        { pendingId: ids.pending, seq: 13, opinion: quotedOpinion },
+      ],
+      invalid: [{ turnId: ids.turn, seq: 12 }],
     },
   },
   'session.rename': {

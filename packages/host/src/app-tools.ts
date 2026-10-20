@@ -30,6 +30,8 @@ import type {
 import {
   AUTOMATION_QUIET_MARKER,
   DEFAULT_PERMISSION_MODE,
+  SECOND_OPINION_FOCUS_MAX_LENGTH,
+  SECOND_OPINION_RUNNING_MAX,
   SHARED_FILES_MAX,
 } from '@wevir/protocol';
 import type { SessionRecord, Storage } from '@wevir/storage';
@@ -52,6 +54,7 @@ import type { ProcessManager, ProcessNotice } from './processes.js';
 import type { ReadinessService } from './readiness/service.js';
 import { readinessTools } from './readiness-tools.js';
 import { ROLE_READONLY_TOOLS, type RoleDefinition, type RoleStore } from './roles.js';
+import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
 import { type SessionProgress, sessionProgress } from './session-progress.js';
 import { describeSharedFile, SharedFileError } from './shared-files.js';
@@ -90,6 +93,7 @@ const PERMISSION_RANK: Record<PermissionMode, number> = {
 export const APP_TOOLS_INSTRUCTIONS = `You are running inside Wevir, a desktop app where the user keeps several agent sessions side by side. The \`wevir\` tools act on the app itself:
 - wevir_session_list / wevir_session_read: see the user's other sessions and read their conversations (read-only).
 - wevir_session_create: open a new top-level session that works on its own and shows up in the user's sidebar. Use it for independent work the user asked to run separately or in parallel; prefer your own built-in subagent tools for quick helper work inside this task. By default its result is reported back to you as a message when its first turn ends, so end your turn instead of polling.
+- wevir_second_opinion: ask another provider or model to review your current changes from a snapshot of this session's folder; its review arrives here as a message when it is done, so end your turn instead of waiting. Worth it before committing to a risky approach and before calling substantial work done; prefer a provider other than yours.
 - wevir_session_send: send a message to another session (for example to follow up on one you opened). Add reportBack to get its answer back as a message.
 - wevir_session_wait: wait for a session to finish its current turn when you need the result in this turn. A timeout does not stop it.
 - wevir_session_progress: see what a session (or one of your own subagents) is doing right now: current action, elapsed time, finished tools, changed files, todo progress and the answer so far. Use it instead of waiting blindly on long work. If a session you asked for a result gets stuck waiting for the user (an approval or a question), Wevir messages you about it.
@@ -143,6 +147,8 @@ export interface AppToolsOptions {
   readiness?: Pick<ReadinessService, 'get'>;
   /** 代码智能：有它时加上 `lsp_*` 工具。 */
   lsp?: LspManager;
+  /** 第二意见（0.75.0）：有它时加上 `wevir_second_opinion`。 */
+  opinions?: SecondOpinionService;
   /** 跨会话记忆：有它时加上 `wevir_memory_*` 工具。 */
   memory?: MemoryStore;
   /** Host 设置的 `autoMemory`（0.57.0）：返回 false 时 `filterTools` 去掉记忆工具，调用也被拒绝。省略当作开着。 */
@@ -220,6 +226,7 @@ export class AppTools {
             },
           })),
       this.#createTool(),
+      ...(options.opinions === undefined ? [] : [this.#secondOpinionTool(options.opinions)]),
       this.#sendTool(),
       this.#waitTool(),
       this.#progressTool(),
@@ -762,6 +769,63 @@ export class AppTools {
     };
   }
 
+  #secondOpinionTool(opinions: SecondOpinionService): AppTool {
+    return {
+      name: 'wevir_second_opinion',
+      title: 'Ask for a second opinion',
+      description:
+        'Ask another provider or model for a second opinion on your current changes. Wevir snapshots this ' +
+        "session's folder (committed and uncommitted changes, untracked files) into a separate git worktree and " +
+        'opens a read-only reviewer session there with your task, goal, checks and the list of changed files; it ' +
+        'cannot touch your files. Its review arrives here as a message when it finishes, so end your turn instead of ' +
+        'waiting or polling. Pick providerId (and modelId) from wevir_models, preferably a provider other than ' +
+        'yours so the review is independent; focus says what to look at hardest. Needs a git repository with at ' +
+        `least one commit; at most ${SECOND_OPINION_RUNNING_MAX} run at once.`,
+      inputSchema: objectSchema(
+        {
+          providerId: { type: 'string' },
+          modelId: { type: 'string' },
+          reasoningEffort: { type: 'string' },
+          focus: { type: 'string', maxLength: SECOND_OPINION_FOCUS_MAX_LENGTH },
+        },
+        ['providerId'],
+      ),
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      call: async (args, { sessionId }) => {
+        this.#callerRecord(sessionId);
+        const focus = optionalString(args, 'focus')?.trim();
+        if (focus !== undefined && focus.length > SECOND_OPINION_FOCUS_MAX_LENGTH) {
+          throw new AppToolError(
+            `focus is longer than ${SECOND_OPINION_FOCUS_MAX_LENGTH} characters.`,
+          );
+        }
+        const modelId = optionalString(args, 'modelId');
+        const reasoningEffort = optionalString(args, 'reasoningEffort');
+        const { opinion, session } = await this.#host(() =>
+          opinions.request(
+            sessionId,
+            {
+              providerId: requiredString(args, 'providerId'),
+              ...(modelId !== undefined && { modelId }),
+              ...(reasoningEffort !== undefined && { reasoningEffort }),
+              ...(focus !== undefined && focus !== '' && { focus }),
+              requestedBy: 'agent',
+            },
+            undefined,
+          ),
+        );
+        return jsonResult({
+          opinionId: opinion.id,
+          sessionId: session.id,
+          providerId: opinion.providerId,
+          modelId: opinion.modelId,
+          status: opinion.status,
+          note: 'The review arrives here as a message when it finishes; end your turn instead of waiting.',
+        });
+      },
+    };
+  }
+
   #sendTool(): AppTool {
     return {
       name: 'wevir_session_send',
@@ -1238,7 +1302,9 @@ export class AppTools {
       const up =
         record?.parentSessionId ??
         record?.forkedFrom?.sessionId ??
-        (record?.origin?.kind === 'agent' ? record.origin.sessionId : undefined);
+        (record?.origin?.kind === 'agent' || record?.origin?.kind === 'second_opinion'
+          ? record.origin.sessionId
+          : undefined);
       if (up === undefined || storage.sessions.get(up) === undefined) break;
       current = up;
     }

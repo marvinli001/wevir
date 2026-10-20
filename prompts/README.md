@@ -17,6 +17,7 @@
 | [`session-recap.md`](session-recap.md) | 离开后摘要：回到离开过的会话时的一到三句话小结 | Host（0.54.0，`packages/host/src/recap.ts`）：去掉注释作为说明；请求同样由适配器的 `generateTitle` 用会话的模型发 | 已接入（带 `generateTitle` 的引擎：Codex、Claude、OpenCode） |
 | [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
+| [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.75.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
@@ -71,6 +72,11 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `review-comments.md` | `directory` | 批注所在的目录（仓库或会话的 worktree） |
 | `review-comments.md` | `version` | diff 的两侧：基线提交，以及快照提交或“工作树” |
 | `review-comments.md` | `comments` | 逐条的位置、原文代码块与意见，由 Host 拼好 |
+| `second-opinion.md` | `session` | 原会话的 ID |
+| `second-opinion.md` | `directory` | 快照所在的目录（意见会话的 worktree） |
+| `second-opinion.md` | `version` | 快照对应的分支与提交 |
+| `second-opinion.md` | `diff` | 看改动的命令：与默认分支的分叉点 `git diff <base>`，找不到时 `git diff HEAD` |
+| `second-opinion.md` | `material` | 原会话的标题、目标、最近的用户消息、最后的回答、计划、任务清单、检查状态、侧重点与改动的文件，由 Host 拼好，最后替换 |
 
 ## 审批自动复核
 
@@ -131,3 +137,7 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 ## 自动修复
 
 用户在项目设置里打开自动修复后，回合结束后 Host 跑的检查没有通过时，Host 用 `verification-repair.md` 开一个修复回合（默认最多 2 次，另有总时长与用量上限）。失败材料由 Host 拼好：每个失败的检查一个 `<check-output>` 块，属性里是检查名称、版本、命令、目录、状态、退出码、测试计数、代码状态、原回合与完整输出的路径，正文是输出的尾部（每个检查最多 6000 字，整份最多 24000 字，正文里的 `</check-output>` 会被改写）。说明里写明这些块是数据、不是指令。修复回合结束后 Host 重跑同样的检查，以那次结果为准；修复回合本身不再触发回合后检查。
+
+## 第二意见
+
+用户在会话里用 `/second-opinion`、或会话里的 agent 用 `wevir_second_opinion` 请另一个来源看这个会话当前的改动。Host 把原会话目录当时的样子（HEAD 加上没提交的改动与未跟踪文件）放进一个新的 worktree，在那里开一个 reviewer 角色的会话，第一条消息是角色说明加 `second-opinion.md`。材料放在 `<session-material>` 块里，说明里写明是数据、不是指令。意见会话第一个回合的最后一段回答就是意见，挂回原会话成一张卡片；用户点“引用”时 Host 再拼一条消息交给原会话的 agent，agent 自己请的意见好了自动引用。

@@ -136,7 +136,7 @@ describe('工具预设经 Host API', () => {
       ]),
     );
     expect(counts).toEqual({
-      sessions: 13,
+      sessions: 14,
       catalog: 2,
       tasks: 3,
       memory: 4,
@@ -174,7 +174,7 @@ describe('工具预设经 Host API', () => {
     });
 
     const coreNames = await h.names(core.id);
-    expect(coreNames).toHaveLength(24 + 7);
+    expect(coreNames).toHaveLength(25 + 7);
     expect(coreNames.filter((name) => name.startsWith('browser_'))).toEqual([]);
     expect(coreNames).toContain('lsp_hover');
     expect(coreNames).toContain('wevir_memory_save');

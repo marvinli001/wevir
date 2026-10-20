@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import type {
   ActiveTurn,
   ApprovalRequest,
@@ -7,6 +8,7 @@ import type {
   EngineErrorInfo,
   EnvironmentId,
   IsoTime,
+  OpinionId,
   PendingMessage,
   PendingMessageId,
   PendingStatus,
@@ -15,6 +17,7 @@ import type {
   QuestionId,
   QuestionRequest,
   RepairChain,
+  SecondOpinion,
   Session,
   SessionAcceptance,
   SessionEngine,
@@ -132,6 +135,8 @@ export interface SessionProjection {
    * `acceptance.changed` 与 `repair.updated` 整份替换。从没有过验证事件时没有。
    */
   readonly verification?: ProjectedVerification;
+  /** 第二意见（0.75.0，domain-model §3.30）：`opinion.updated` 按 `id` 替换，按发起的先后。 */
+  readonly opinions: ReadonlyMap<OpinionId, SecondOpinion>;
 }
 
 export interface ProjectedVerification {
@@ -179,6 +184,7 @@ export const INITIAL_PROJECTION: SessionProjection = {
   pendings: new Map(),
   questions: new Map(),
   suggestedTasks: new Map(),
+  opinions: new Map(),
 };
 
 /** 投影里的验证部分；还没有时是“未验收”、没有记录。 */
@@ -214,6 +220,7 @@ const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
  * - `suggestedTasks`（0.16.0）：`tasks.suggested` 加入，`task.started` 记下会话、`task.reported` 记下结局。
  * - `taskBoard`（0.52.0）：`tasks.board_updated` 整份替换。
  * - `promptSuggestion`（0.53.0）：`suggestion.updated` 设置，`PROMPT_SUGGESTION_VOIDING_EVENTS` 里的事件清空。
+ * - `opinions`（0.75.0）：`opinion.updated` 按 `id` 替换。
  */
 export function applyEvent(projection: SessionProjection, event: WevirEvent): SessionProjection {
   const next: { -readonly [K in keyof SessionProjection]: SessionProjection[K] } = {
@@ -233,6 +240,11 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
           startedAt: event.ts,
         };
       }
+      break;
+    }
+    case 'opinion.updated': {
+      const { opinion } = event.payload;
+      next.opinions = new Map(projection.opinions).set(opinion.id, opinion);
       break;
     }
     case 'subagent.started':
@@ -683,6 +695,26 @@ export function checkEvent(
         reject(`建议 ${e.payload.taskId} 不在等开始`);
       }
       break;
+    case 'opinion.updated': {
+      const { opinion } = e.payload;
+      const previous = projection.opinions.get(opinion.id);
+      if (previous === undefined) {
+        if (opinion.status !== 'running' || opinion.quoted !== undefined) {
+          reject(`新意见 ${opinion.id} 的状态必须是 running、没有引用`);
+        }
+        break;
+      }
+      if (previous.sessionId !== opinion.sessionId) {
+        reject(`意见 ${opinion.id} 属于会话 ${previous.sessionId}`);
+      }
+      if (previous.status !== 'running' && opinion.status !== previous.status) {
+        reject(`意见 ${opinion.id} 已是 ${previous.status}，不再变化`);
+      }
+      if (previous.quoted !== undefined && !isDeepStrictEqual(previous.quoted, opinion.quoted)) {
+        reject(`意见 ${opinion.id} 已经引用过`);
+      }
+      break;
+    }
     case 'task.reported': {
       const task = projection.suggestedTasks.get(e.payload.taskId);
       if (task?.status !== 'started' || task.sessionId !== e.payload.sessionId) {
@@ -761,6 +793,11 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
       automationId: record.origin.automationId as AutomationId,
       runId: record.origin.runId as AutomationRunId,
     };
+  } else if (record.origin?.kind === 'second_opinion') {
+    session.opinionOf = {
+      sessionId: record.origin.sessionId as SessionId,
+      opinionId: record.origin.opinionId as OpinionId,
+    };
   } else if (record.origin?.taskId !== undefined) {
     session.origin = {
       kind: 'suggested_task',
@@ -794,6 +831,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
     snapshot.pendingQuestions = pendingQuestions;
     session.awaitingInput = true;
   }
+  if (projection.opinions.size > 0) snapshot.opinions = [...projection.opinions.values()];
   if (projection.verification) {
     const { acceptance, runs, repair } = projection.verification;
     snapshot.verification = {

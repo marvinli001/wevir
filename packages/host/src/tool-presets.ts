@@ -44,6 +44,7 @@ const EXACT: Readonly<Record<string, ToolGroup>> = {
   wevir_connector_add: 'plugins',
   wevir_automations: 'sessions',
   wevir_workspace_readiness: 'processes',
+  wevir_second_opinion: 'sessions',
 };
 const PREFIXES: ReadonlyArray<readonly [string, ToolGroup]> = [
   ['wevir_session_', 'sessions'],

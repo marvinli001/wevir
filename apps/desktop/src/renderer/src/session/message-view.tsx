@@ -29,6 +29,7 @@ import { MessageImages } from './image-attachments';
 import type { LiveState } from './live-indicator';
 import { MarkdownView } from './markdown/markdown-view';
 import { EditButton, UserMessageEditor, useMessageActions } from './message-actions';
+import { OpinionCard, OpinionQuote } from './opinion-card';
 import { pendingText, processNoticeLabel } from './pending-model';
 import { PlanCard } from './plan-card';
 import { SharedFilesCard } from './shared-files-card';
@@ -50,6 +51,7 @@ function PlainUserMessage({ message }: { message: UserChatMessage }) {
   const [editing, setEditing] = useState(false);
   if (message.from?.process !== undefined) return <ProcessReport message={message} />;
   if (message.from?.repair !== undefined) return <RepairReport message={message} />;
+  if (message.from?.opinion !== undefined) return <OpinionQuote message={message} />;
   if (message.from?.kind === 'report') return <SessionReport message={message} />;
   // 引擎自己开的目标回合（0.35.0）没有用户消息：用户一侧写“继续目标”。
   if (message.trigger === 'goal' && message.parts.length === 0) return <GoalContinuation />;
@@ -433,6 +435,8 @@ const PartView = memo(function PartView({ part }: { part: ChatPart }) {
       return <CompactionPart part={part} />;
     case 'plan':
       return <PlanCard part={part} />;
+    case 'opinion':
+      return <OpinionCard part={part} />;
     // 思考、工具、调试信息与子智能体由 groupWork 收进工作组与子智能体行。
     case 'reasoning':
     case 'tool':

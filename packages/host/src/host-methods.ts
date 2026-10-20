@@ -59,6 +59,7 @@ import type { PluginRegistry } from './plugins.js';
 import type { ProcessOutputService } from './process-output.js';
 import type { ReadinessService } from './readiness/service.js';
 import type { ReviewService } from './review/service.js';
+import type { SecondOpinionService } from './second-opinion.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import type { TerminalService } from './terminals.js';
@@ -146,6 +147,8 @@ export interface HostMethodsOptions {
   automations?: AutomationService;
   /** 行级批注（0.67.0，`review.*`）；省略时 `review.*` 回 `INVALID_PARAMS`（测试）。 */
   review?: ReviewService;
+  /** 第二意见（0.75.0，`session.secondOpinion` / `session.quoteOpinion`）；省略时这两个方法回 `INVALID_PARAMS`（测试）。 */
+  opinions?: SecondOpinionService;
   /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
   git?: GitService;
   /** 项目环境就绪（0.70.0，`readiness.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
@@ -267,6 +270,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       throw invalidParams([], 'this host has no verification service');
     }
     return options.verification;
+  };
+  const opinions = (): SecondOpinionService => {
+    if (options.opinions === undefined) throw invalidParams([], 'this host has no second opinions');
+    return options.opinions;
   };
   const review = (): ReviewService => {
     if (options.review === undefined) throw invalidParams([], 'this host has no review comments');
@@ -1017,6 +1024,20 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'session.compact': ({ sessionId }) => sessions.compact(sessionId),
 
     'session.review': ({ sessionId, target }) => sessions.review(sessionId, target),
+
+    // 0.75.0：第二意见。
+    'session.secondOpinion': ({ sessionId, focus, ...request }, { client }) =>
+      opinions().request(
+        sessionId,
+        {
+          ...request,
+          ...(focus !== undefined && { focus: focus.trim() }),
+          requestedBy: 'user',
+        },
+        client,
+      ),
+
+    'session.quoteOpinion': (params, { client }) => opinions().quote(params, client),
 
     // 0.35.0：会话目标。
     'session.setGoal': (params, { client }) => sessions.setGoal(params, client),
