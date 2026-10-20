@@ -5,13 +5,20 @@
 //
 // 进程只在内存里登记，Host 退出时全部结束（SIGTERM，3 秒后 SIGKILL），删除会话时结束它的。stdout 与 stderr 按到达顺序写进
 // `<数据目录>/tool-output/<会话 ID>/process-<ID>.log`（tool-output.ts），超过 `PROCESS_LOG_ROTATE_BYTES` 时换到 `.1`。
+// 客户端经 `process.*`（0.69.0，process-output.ts）也看得到、停得了这些进程；`onChange` 报起来、退出、被停与输出变多。
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createWriteStream, type WriteStream } from 'node:fs';
-import { open, rename, stat } from 'node:fs/promises';
+import { open, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import type { SessionId } from '@wevir/protocol';
+import type {
+  CheckId,
+  SessionId,
+  TurnId,
+  VerificationRunId,
+  VerificationTrigger,
+} from '@wevir/protocol';
 import { AppToolError } from './app-mcp.js';
 import type { ToolOutputStore } from './tool-output.js';
 
@@ -27,6 +34,8 @@ export const PROCESS_KILL_GRACE_MS = 3000;
 export const PROCESS_TAIL_LINES = 20;
 /** 读输出时一次最多读多少字节（更多的经 tool-output 落盘）。 */
 export const PROCESS_READ_MAX_BYTES = 256 * 1024;
+/** 同一个进程的输出变多时最多每隔这么久报一次 `onChange`。 */
+export const PROCESS_CHANGE_THROTTLE_MS = 500;
 
 export const PROCESS_SIGNALS = [
   'SIGINT',
@@ -55,11 +64,28 @@ export interface ProcessInfo {
   logPath: string;
   /** 从启动起写过的字节数（读输出的偏移量按它算）。 */
   bytes: number;
-  /** agent 用 `wevir_process_kill` 结束的（退出时不通知）。 */
+  /** agent 用 `wevir_process_kill` 结束的、或用户与 Host 停的（退出时不通知）。 */
   killed: boolean;
+  /** 谁停的（`killed` 时有）。 */
+  stoppedBy?: ProcessStopper;
+  /** 起它时进行中的回合。 */
+  turnId?: TurnId;
+  /** 回合后验证的检查（verification/runner.ts 起的）。 */
+  check?: ProcessCheck;
   /** 启动失败（找不到 shell 等）的原因。 */
   error?: string;
 }
+
+export type ProcessStopper = 'agent' | 'user' | 'host';
+
+export interface ProcessCheck {
+  runId: VerificationRunId;
+  checkId: CheckId;
+  trigger: VerificationTrigger;
+}
+
+/** `onChange`：进程的最新状态，或它被忘掉了。 */
+export type ProcessChange = { process: ProcessInfo } | { removed: ProcessInfo };
 
 /** 退出或输出匹配时交给 app-tools 发回会话的通知。 */
 export interface ProcessNotice {
@@ -80,6 +106,8 @@ export interface StartOptions {
   notifyOnExit?: boolean;
   /** 输出的某一行匹配时通知一次。 */
   notifyPattern?: RegExp;
+  turnId?: TurnId;
+  check?: ProcessCheck;
 }
 
 export interface WaitResult {
@@ -97,6 +125,14 @@ export interface ProcessManagerOptions {
   platform?: NodeJS.Platform;
   /** 日志换文件的大小，默认 `PROCESS_LOG_ROTATE_BYTES`（测试用小值）。 */
   logRotateBytes?: number;
+  /** 进程 ID 的前缀，默认 `p`（检查用 `v`，两个实例的 ID 不重）。 */
+  idPrefix?: string;
+  /** 一个会话记着最多几个进程，默认 `PROCESS_MAX_KEPT`。 */
+  maxKept?: number;
+  /** 忘掉已退出的进程时连日志一起删（检查的原始日志，输出另有一份）。 */
+  deleteLogsOnForget?: boolean;
+  /** 起来、退出、被停、输出变多（节流）与忘掉时调用。 */
+  onChange?: (change: ProcessChange) => void;
 }
 
 interface Waiter {
@@ -124,6 +160,8 @@ interface Managed {
   notifyPattern: RegExp | undefined;
   waiters: Set<Waiter>;
   exited: Promise<void>;
+  /** 输出变多后待发的 `onChange`。 */
+  changeTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
 /** 终端控制序列（颜色、光标）：匹配与给模型看的文本里去掉。 */
@@ -154,7 +192,7 @@ export class ProcessManager {
       );
     }
     this.#forgetOld(sessionId);
-    const id = `p${this.#nextId++}`;
+    const id = `${this.#options.idPrefix ?? 'p'}${this.#nextId++}`;
     const dir = await this.#options.output.sessionDir(sessionId);
     const logPath = join(dir, `process-${id}.log`);
     const info: ProcessInfo = {
@@ -172,6 +210,8 @@ export class ProcessManager {
       logPath,
       bytes: 0,
       killed: false,
+      ...(options.turnId !== undefined && { turnId: options.turnId }),
+      ...(options.check !== undefined && { check: options.check }),
     };
     let markExited = () => {};
     const managed: Managed = {
@@ -191,6 +231,7 @@ export class ProcessManager {
       exited: new Promise<void>((resolve) => {
         markExited = resolve;
       }),
+      changeTimer: undefined,
     };
     managed.log?.on('error', (error) => {
       this.#options.onWarning?.('后台进程的日志写不进去', { id, error: String(error) });
@@ -232,7 +273,19 @@ export class ProcessManager {
       this.#finish(managed, code, signal);
       markExited();
     });
+    this.#changed(managed);
     return { ...info };
+  }
+
+  /** 所有会话的进程（`process.list`）。 */
+  listAll(): ProcessInfo[] {
+    return [...this.#processes.values()].map((managed) => ({ ...managed.info }));
+  }
+
+  /** 按 ID 找，不看会话（`process.*`）；没有时 undefined。 */
+  find(id: string): ProcessInfo | undefined {
+    const managed = this.#processes.get(id);
+    return managed === undefined ? undefined : { ...managed.info };
   }
 
   list(sessionId: SessionId): ProcessInfo[] {
@@ -259,29 +312,50 @@ export class ProcessManager {
     sessionId: SessionId,
     id: string,
     since?: number,
-  ): Promise<{ text: string; from: number; next: number; dropped: number; more: boolean }> {
+    until?: number,
+  ): Promise<{
+    text: string;
+    from: number;
+    next: number;
+    dropped: number;
+    more: boolean;
+    start: number;
+    bytes: number;
+  }> {
     const managed = this.#get(sessionId, id);
     await managed.writing;
     await flush(managed.log);
     // 以文件里实际有的为准：写日志出过错（磁盘满、文件被删）时偏移量不再对得上，别读到文件之外。
     const size = (await stat(managed.info.logPath).catch(() => undefined))?.size ?? 0;
-    const end = Math.min(managed.info.bytes, managed.logStart + size);
-    const from = Math.max(since ?? managed.logStart, managed.logStart);
-    const dropped = since !== undefined && since < managed.logStart ? managed.logStart - since : 0;
-    const length = Math.min(end - from, PROCESS_READ_MAX_BYTES);
-    if (length <= 0) return { text: '', from, next: end, dropped, more: false };
+    const start = managed.logStart;
+    const available = Math.min(managed.info.bytes, start + size);
+    const end = until === undefined ? available : Math.max(start, Math.min(until, available));
+    let from = Math.max(since ?? start, start);
+    const dropped = since !== undefined && since < start ? start - since : 0;
+    const base = { dropped, start, bytes: managed.info.bytes };
+    if (end - from <= 0) return { text: '', from, next: end, more: false, ...base };
     const handle = await open(managed.info.logPath, 'r');
     try {
+      // 从任意偏移量读起（客户端往前翻页）时可能落在半个 UTF-8 字符上：往后挪到下一个字符的开头。
+      if (from > start) {
+        const probe = Buffer.alloc(Math.min(3, end - from));
+        const { bytesRead } = await handle.read(probe, 0, probe.length, from - start);
+        let skip = 0;
+        while (skip < bytesRead && ((probe[skip] ?? 0) & 0xc0) === 0x80) skip += 1;
+        from += skip;
+      }
+      const length = Math.min(end - from, PROCESS_READ_MAX_BYTES);
+      if (length <= 0) return { text: '', from, next: from, more: false, ...base };
       const buffer = Buffer.alloc(length);
-      const { bytesRead } = await handle.read(buffer, 0, length, from - managed.logStart);
+      const { bytesRead } = await handle.read(buffer, 0, length, from - start);
       const usable =
-        from + bytesRead < end ? completeUtf8(buffer.subarray(0, bytesRead)) : bytesRead;
+        from + bytesRead < available ? completeUtf8(buffer.subarray(0, bytesRead)) : bytesRead;
       return {
         text: stripAnsi(buffer.subarray(0, usable).toString('utf8')),
         from,
         next: from + usable,
-        dropped,
         more: from + usable < end,
+        ...base,
       };
     } finally {
       await handle.close();
@@ -299,16 +373,32 @@ export class ProcessManager {
     if (eof) stdin.end();
   }
 
-  /** 发信号（POSIX 发给整个进程组；Windows 上一律结束进程树）。 */
-  signal(sessionId: SessionId, id: string, signal: ProcessSignal): void {
+  /** 发信号（POSIX 发给整个进程组；Windows 上一律结束进程树）。`by` 记下是谁停的。 */
+  signal(
+    sessionId: SessionId,
+    id: string,
+    signal: ProcessSignal,
+    by: ProcessStopper = 'agent',
+  ): void {
     const managed = this.#get(sessionId, id);
     if (managed.info.status !== 'running') {
       throw new AppToolError(`Process ${id} has already exited.`);
     }
     if (signal === 'SIGKILL' || signal === 'SIGTERM' || signal === 'SIGINT') {
       managed.info.killed = true;
+      managed.info.stoppedBy ??= by;
+      this.#changed(managed);
     }
     this.#kill(managed, signal);
+  }
+
+  /** 记下谁要停它（检查的取消由 runner 发信号，先记下是用户要停的）。已退出时什么都不做。 */
+  markStopped(sessionId: SessionId, id: string, by: ProcessStopper): void {
+    const managed = this.#get(sessionId, id);
+    if (managed.info.status !== 'running') return;
+    managed.info.killed = true;
+    managed.info.stoppedBy ??= by;
+    this.#changed(managed);
   }
 
   /**
@@ -348,6 +438,7 @@ export class ProcessManager {
       managed.notifyPattern = undefined;
       ending.push(this.#end(managed));
       this.#processes.delete(key);
+      this.#removed(managed);
     }
     await Promise.all(ending);
   }
@@ -382,6 +473,7 @@ export class ProcessManager {
   async #end(managed: Managed): Promise<void> {
     if (managed.info.status !== 'running') return;
     managed.info.killed = true;
+    managed.info.stoppedBy ??= 'host';
     this.#kill(managed, 'SIGTERM');
     const timer = setTimeout(() => this.#kill(managed, 'SIGKILL'), PROCESS_KILL_GRACE_MS);
     await managed.exited;
@@ -412,6 +504,13 @@ export class ProcessManager {
     const { info } = managed;
     info.bytes += chunk.length;
     this.#writeLog(managed, chunk);
+    if (managed.changeTimer === undefined && this.#options.onChange !== undefined) {
+      managed.changeTimer = setTimeout(() => {
+        managed.changeTimer = undefined;
+        if (this.#processes.get(info.id) === managed) this.#changed(managed);
+      }, PROCESS_CHANGE_THROTTLE_MS);
+      managed.changeTimer.unref?.();
+    }
     const text = managed.partial + managed.decoder.write(chunk);
     const lines = text.split(/\r?\n/);
     managed.partial = lines.pop() ?? '';
@@ -515,6 +614,29 @@ export class ProcessManager {
         tail: lastLines(managed, PROCESS_TAIL_LINES),
       });
     }
+    clearTimeout(managed.changeTimer);
+    managed.changeTimer = undefined;
+    // 退出时的最后一次：等日志写完，客户端读得到全部输出。
+    void managed.writing.then(() => this.#changed(managed));
+  }
+
+  #changed(managed: Managed): void {
+    if (this.#processes.get(managed.info.id) !== managed) return;
+    try {
+      this.#options.onChange?.({ process: { ...managed.info } });
+    } catch (error) {
+      this.#options.onWarning?.('进程的变化没发出去', { error: String(error) });
+    }
+  }
+
+  #removed(managed: Managed): void {
+    clearTimeout(managed.changeTimer);
+    managed.changeTimer = undefined;
+    try {
+      this.#options.onChange?.({ removed: { ...managed.info } });
+    } catch (error) {
+      this.#options.onWarning?.('进程的变化没发出去', { error: String(error) });
+    }
   }
 
   /** 已退出的进程超过 `PROCESS_MAX_KEPT` 时丢最早退出的（日志文件留着）。 */
@@ -525,10 +647,17 @@ export class ProcessManager {
     const exited = mine
       .filter((managed) => managed.info.status === 'exited')
       .sort((a, b) => (a.info.endedAt ?? 0) - (b.info.endedAt ?? 0));
-    while (mine.length >= PROCESS_MAX_KEPT && exited.length > 0) {
+    while (mine.length >= (this.#options.maxKept ?? PROCESS_MAX_KEPT) && exited.length > 0) {
       const oldest = exited.shift() as Managed;
       this.#processes.delete(oldest.info.id);
       mine.splice(mine.indexOf(oldest), 1);
+      this.#removed(oldest);
+      if (this.#options.deleteLogsOnForget) {
+        const path = oldest.info.logPath;
+        void oldest.writing
+          .then(() => Promise.all([rm(path, { force: true }), rm(`${path}.1`, { force: true })]))
+          .catch(() => {});
+      }
     }
   }
 }

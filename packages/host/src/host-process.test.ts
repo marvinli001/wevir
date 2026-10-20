@@ -24,7 +24,11 @@ import {
 } from './host-process.js';
 import { createLogger } from './logger.js';
 import { HostAlreadyRunningError, type HostRuntimeInfo } from './runtime-file.js';
+import { loadTerminalModules } from './terminals.js';
 import { identity, TestRpcClient, useTempDir } from './test-utils.js';
+
+/** node-pty 装得上的平台（macOS、Windows）才有用户终端，退出时多一步。 */
+const userTerminal = loadTerminalModules(() => {}) !== undefined;
 
 const tempDir = useTempDir();
 const running: RunningHost[] = [];
@@ -38,6 +42,7 @@ afterEach(async () => {
 
 const SHUTDOWN_STEPS = [
   'stop_verification',
+  ...(userTerminal ? ['stop_terminals'] : []),
   'stop_accepting',
   'cancel_turns',
   'dispose_adapter',
@@ -235,6 +240,7 @@ describe('startHost', () => {
       lines.filter((l) => String(l.msg).startsWith('shutdown step')).map((l) => [l.msg, l.step]),
     ).toEqual([
       ['shutdown step done', 'stop_verification'],
+      ...(userTerminal ? [['shutdown step done', 'stop_terminals']] : []),
       ['shutdown step done', 'stop_accepting'],
       ['shutdown step timed out', 'cancel_turns'],
       ['shutdown step timed out', 'dispose_adapter'],

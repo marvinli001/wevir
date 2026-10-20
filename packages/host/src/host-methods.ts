@@ -54,9 +54,11 @@ import {
 } from './memory.js';
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
+import type { ProcessOutputService } from './process-output.js';
 import type { ReviewService } from './review/service.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
+import type { TerminalService } from './terminals.js';
 import type { PricingStore } from './usage/pricing.js';
 import type { UsageService } from './usage/usage-service.js';
 import type { VerificationService } from './verification/service.js';
@@ -83,7 +85,7 @@ export type MethodHandler<M extends MethodName> = (
   context: RequestContext,
 ) => MethodResult<M> | Promise<MethodResult<M>>;
 
-/** 由 RPC 连接自己处理的方法：握手、心跳、退出、订阅与浏览器提供方（0.33.0，登记的是这条连接）。 */
+/** 由 RPC 连接自己处理的方法：握手、心跳、退出、订阅、浏览器提供方（0.33.0）与终端的 attach（0.69.0），登记的都是这条连接。 */
 export type ConnectionMethodName =
   | 'host.hello'
   | 'host.ping'
@@ -92,7 +94,9 @@ export type ConnectionMethodName =
   | 'events.unsubscribe'
   | 'browser.register'
   | 'browser.unregister'
-  | 'browser.respond';
+  | 'browser.respond'
+  | 'terminal.attach'
+  | 'terminal.detach';
 
 /** 其余方法的实现表，RPC 层按方法注册表校验参数后分发到这里（host-api.md §3）。 */
 export type HostMethodName = Exclude<MethodName, ConnectionMethodName>;
@@ -141,6 +145,10 @@ export interface HostMethodsOptions {
   review?: ReviewService;
   /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
   git?: GitService;
+  /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  processes?: ProcessOutputService;
+  /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
+  terminals?: TerminalService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -269,6 +277,14 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
+  };
+  const processOutput = (): ProcessOutputService => {
+    if (options.processes === undefined) throw invalidParams([], 'this host has no process output');
+    return options.processes;
+  };
+  const terminals = (): TerminalService => {
+    if (options.terminals === undefined) throw invalidParams([], 'this host has no user terminal');
+    return options.terminals;
   };
   const automations = (): AutomationService => {
     if (options.automations === undefined) throw invalidParams([], 'this host has no automations');
@@ -453,6 +469,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
           sessionIds: open.map((session) => session.id as SessionId),
         });
       }
+      // 不属于会话的用户终端也随项目结束（0.69.0）。
+      options.terminals?.removeWorkspace(workspaceId);
       storage.workspaces.markRemoved(workspaceId, isoNow());
       return {};
     },
@@ -1124,6 +1142,31 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         { message, expected, ...(includeExternal !== undefined && { includeExternal }) },
         sessionId,
       ),
+    'process.list': ({ workspaceId, sessionId }) => ({
+      processes: processOutput().list({
+        ...(workspaceId !== undefined && { workspaceId }),
+        ...(sessionId !== undefined && { sessionId }),
+      }),
+    }),
+    'process.output': ({ processId, offset, until }) =>
+      processOutput().output(processId, offset, until),
+    'process.stop': ({ processId, signal }) => ({
+      process: processOutput().stop(processId, signal),
+    }),
+    'terminal.create': async (params) => ({ terminal: await terminals().create(params) }),
+    'terminal.list': (params) => ({ terminals: terminals().list(params) }),
+    'terminal.input': (params) => {
+      terminals().input(params);
+      return {};
+    },
+    'terminal.resize': (params) => {
+      terminals().resize(params);
+      return {};
+    },
+    'terminal.close': (params) => {
+      terminals().close(params);
+      return {};
+    },
     'automation.list': async () => ({ automations: automations().list() }),
     'automation.get': async ({ automationId }) => automations().get(automationId),
     'automation.create': async (params) => ({

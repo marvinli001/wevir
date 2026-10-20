@@ -195,9 +195,11 @@ import {
 } from './index.js';
 import {
   acceptance as acceptanceSample,
+  agentProcess,
   boardTask,
   browserTab,
   checkDefinition,
+  checkProcess,
   childSession,
   compatibleProvider,
   connectingUpstreamAccount,
@@ -206,6 +208,7 @@ import {
   errorDataSamples,
   eventOf,
   eventPayloads,
+  exitedTerminal,
   gitStatusSample,
   handedOffSession,
   identity,
@@ -232,6 +235,7 @@ import {
   subagentSummary,
   suggestedTask,
   TS,
+  terminalSample,
   toolDisplay,
   ULID,
   userResolution,
@@ -2438,6 +2442,12 @@ const standaloneCases: Case[] = [
     invalid: [`rp_${ULID}`],
   },
   {
+    name: 'TerminalId',
+    schema: protocol.TerminalIdSchema,
+    valid: [`trm_${ULID}`],
+    invalid: ['p3', `ses_${ULID}`],
+  },
+  {
     name: 'CheckKind',
     schema: protocol.CheckKindSchema,
     valid: ['test', 'build', 'typecheck', 'lint', 'other'],
@@ -2543,6 +2553,43 @@ const standaloneCases: Case[] = [
     schema: protocol.VerificationRunSchema,
     valid: [verificationRun, { ...verificationRun, status: 'stale', reason: 'code_changed' }],
     invalid: [{ ...verificationRun, checkRevision: 0 }],
+  },
+  {
+    name: 'ProcessId',
+    schema: protocol.ProcessIdSchema,
+    valid: ['p1', 'v12'],
+    invalid: ['p', '1', 'proc_1'],
+  },
+  {
+    name: 'ProcessSource',
+    schema: protocol.ProcessSourceSchema,
+    valid: [
+      agentProcess.source,
+      checkProcess.source,
+      { kind: 'agent', sessionId: agentProcess.source.sessionId },
+    ],
+    invalid: [{ kind: 'check', sessionId: agentProcess.source.sessionId }],
+  },
+  {
+    name: 'ProcessStopSignal',
+    schema: protocol.ProcessStopSignalSchema,
+    valid: ['SIGINT', 'SIGTERM', 'SIGKILL'],
+    invalid: ['SIGHUP'],
+  },
+  {
+    name: 'HostProcess',
+    schema: protocol.HostProcessSchema,
+    valid: [agentProcess, checkProcess],
+    invalid: [{ ...agentProcess, status: 'paused' }],
+  },
+  {
+    name: 'Terminal',
+    schema: protocol.TerminalSchema,
+    valid: [terminalSample, exitedTerminal],
+    invalid: [
+      { ...terminalSample, cols: 1 },
+      { ...terminalSample, title: 'x'.repeat(201) },
+    ],
   },
   {
     name: 'AcceptanceStatus',

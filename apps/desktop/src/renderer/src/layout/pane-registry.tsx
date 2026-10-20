@@ -9,6 +9,7 @@ import {
   ListChecks,
   type LucideIcon,
   MessagesSquare,
+  ScrollText,
   SquareTerminal,
 } from 'lucide-react';
 import { lazy, type ReactNode, Suspense } from 'react';
@@ -20,6 +21,7 @@ import { BrowserPane } from './panes/browser-pane';
 import { FilesPane } from './panes/files-pane';
 import { OverviewPane } from './panes/overview-pane';
 import { PlaceholderPane } from './panes/placeholder-pane';
+import { ProcessesPane } from './panes/processes-pane';
 import { SessionPane } from './panes/session-pane';
 import { SubagentsPane } from './panes/subagents-pane';
 import { TasksPane } from './panes/tasks-pane';
@@ -44,6 +46,10 @@ const placeholder = (kind: PaneKind) => () => <PlaceholderPane name={t(VIEWS[kin
 // “变更”窗格带着 @pierre/diffs 与 Shiki，第一次打开时才加载（0.20.0）。
 const ChangesPane = lazy(() =>
   import('./panes/changes-pane').then((module) => ({ default: module.ChangesPane })),
+);
+// “终端”带着 xterm.js（0.69.0），第一次打开时才加载。
+const TerminalPane = lazy(() =>
+  import('./panes/terminal-pane').then((module) => ({ default: module.TerminalPane })),
 );
 // “文件预览”同样带着 Pierre 与 Shiki（U32）；文件树不带，直接打进主包。
 const FilePane = lazy(() =>
@@ -92,7 +98,22 @@ const VIEWS: Record<PaneKind, PaneView> = {
     render: (_, context) => <TasksPane context={context} />,
   },
   plan: { icon: ListChecks, name: 'pane.kind.plan', render: placeholder('plan') },
-  terminal: { icon: SquareTerminal, name: 'pane.kind.terminal', render: placeholder('terminal') },
+  processes: {
+    icon: ScrollText,
+    name: 'pane.kind.processes',
+    render: (_, context) => <ProcessesPane context={context} />,
+  },
+  // 用户的交互终端（0.69.0）：参数是终端 ID 与标签名（程序设的标题或 shell 名）。
+  terminal: {
+    icon: SquareTerminal,
+    name: 'pane.kind.terminal',
+    title: (tab) => tab.params?.label,
+    render: (tab, context) => (
+      <Suspense fallback={null}>
+        <TerminalPane tab={tab} context={context} />
+      </Suspense>
+    ),
+  },
   // 支线会话（U23.1）：参数是支线会话 ID 与问题的开头；agent 请界面显示的会话（0.30.0，`wevir_show`）带它的标题 `label`。
   session: {
     icon: MessagesSquare,

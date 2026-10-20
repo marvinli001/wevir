@@ -42,6 +42,7 @@ import type { TurnCheckpoints } from '../checkpoints.js';
 import { HostError } from '../errors.js';
 import type { AppendInput, EventStore } from '../event-store.js';
 import { newId } from '../ids.js';
+import type { ProcessManager } from '../processes.js';
 import type { SessionManager } from '../session-manager.js';
 import { defaultPromptsDir } from '../title.js';
 import { findCandidates, readScript, scriptHash } from './candidates.js';
@@ -226,6 +227,8 @@ export class VerificationService {
   readonly #sessions: VerificationServiceOptions['sessions'];
   readonly #checks: ChecksStore;
   readonly #runner: CheckRunner;
+  /** 正在跑的检查各自的取消（`cancelRun`）。 */
+  readonly #runAborts = new Map<VerificationRunId, AbortController>();
   readonly #checkpoints: VerificationServiceOptions['checkpoints'];
   readonly #template: string;
   readonly #identity: ClientIdentity;
@@ -379,6 +382,29 @@ export class VerificationService {
       }
     }
     return { cancelled };
+  }
+
+  /**
+   * 只取消一次检查（`process.stop` 停检查的进程，0.69.0）：这次记 `cancelled`（`user`），同一轮里别的检查照跑；修复链在两次修复之间
+   * 时停下（`user_cancelled`），同 `verification.cancel`。不在跑时返回 false。
+   */
+  cancelRun(sessionId: SessionId, runId: VerificationRunId): boolean {
+    const abort = this.#runAborts.get(runId);
+    const round = this.#activeRounds(sessionId).find((item) =>
+      item.runs.some((run) => run.id === runId && run.status === 'running'),
+    );
+    if (abort === undefined || round === undefined) return false;
+    abort.abort();
+    const chain = this.#chains.get(sessionId);
+    if (chain !== undefined && chain.turnId === undefined) {
+      this.#stopChain(sessionId, 'user_cancelled');
+    }
+    return true;
+  }
+
+  /** 检查的进程（`process.*`）。 */
+  get checkProcesses(): ProcessManager {
+    return this.#runner.processes;
   }
 
   /** `verification.status`：重算此刻的代码状态；与验收那一轮的不同时，验收回到 `unverified`（`code_changed`）。 */
@@ -539,6 +565,12 @@ export class VerificationService {
     const started: VerificationRun = { ...queued, codeState: before, startedAt: isoNow() };
     this.#replace(round, started);
     this.#write(round.sessionId, [updated(started)]);
+    // 这一次检查自己的取消（`cancelRun`，用户在“进程输出”里停的）；整轮取消时一起取消。
+    const abort = new AbortController();
+    const onRoundAbort = () => abort.abort();
+    round.abort.signal.addEventListener('abort', onRoundAbort, { once: true });
+    if (round.abort.signal.aborted) abort.abort();
+    this.#runAborts.set(queued.id, abort);
     const result = await this.#runner
       .run({
         sessionId: round.sessionId,
@@ -546,11 +578,18 @@ export class VerificationService {
         command: check.command,
         cwd,
         timeoutMs: check.timeoutMs,
-        signal: round.abort.signal,
+        signal: abort.signal,
+        name: check.name,
+        check: { runId: queued.id, checkId: check.id, trigger: round.trigger },
+        ...(round.turnId !== undefined && { turnId: round.turnId }),
       })
       .catch((error: unknown) => {
         this.#onWarning('检查进程起不来', { runId: queued.id, error: String(error) });
         return undefined;
+      })
+      .finally(() => {
+        round.abort.signal.removeEventListener('abort', onRoundAbort);
+        this.#runAborts.delete(queued.id);
       });
     if (result === undefined) {
       this.#finishRun(round, started, {

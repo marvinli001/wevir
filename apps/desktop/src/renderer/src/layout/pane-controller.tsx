@@ -2,6 +2,7 @@ import { createContext, useContext, useMemo } from 'react';
 import type { AuxPlan } from './arrange';
 import { transientLayout } from './layout-state';
 import { emitPanesClosed } from './pane-events';
+import type { PaneParams } from './pane-kinds';
 import {
   activateTab,
   closeGroup,
@@ -14,6 +15,7 @@ import {
   openPane,
   type ScopePanes,
   type SplitDirection,
+  setTabParams,
   splitTab,
   toggleAux,
 } from './pane-state';
@@ -34,6 +36,8 @@ export interface PaneController {
   open(request: OpenRequest): void;
   activate(tabId: string): void;
   closeTab(tabId: string): void;
+  /** 换掉标签的参数（不打开、不聚焦）。 */
+  setParams(tabId: string, params: PaneParams): void;
   closeGroups(groupIds: readonly string[]): void;
   focus(id: string): void;
   split(tabId: string, direction: SplitDirection): void;
@@ -104,6 +108,9 @@ export function usePaneController(
         const found = findTab(scope, tabId);
         update((current) => closeTab(current, tabId));
         if (found) emitPanesClosed([found.tab]);
+      },
+      setParams(tabId, params) {
+        update((current) => setTabParams(current, tabId, params));
       },
       closeGroups(groupIds) {
         if (maximized !== undefined && groupIds.includes(maximized))

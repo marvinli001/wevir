@@ -68,6 +68,10 @@ export interface HostRpcServerOptions {
   usage?: { watch(listener: () => void): () => void };
   /** 自动化（0.66.0）：调过 `automation.*` 的连接经它收 `automation.changed`。 */
   automations?: ConnectionHost['automations'];
+  /** 进程输出（0.69.0）：调过 `process.*` 的连接经它收 `process.changed`。 */
+  processes?: ConnectionHost['processes'];
+  /** 用户的交互终端（0.69.0）：`terminal.attach` 登记连接，调过 `terminal.*` 的连接收 `terminal.changed`。 */
+  terminals?: ConnectionHost['terminals'];
   /** 内置浏览器（0.33.0）：连接用 `browser.register` 登记为浏览器提供方。 */
   browsers?: BrowserBroker;
   /** 默认 0：由系统分配，`listen()` 之后从 `url` / `port` 读取。 */
@@ -159,6 +163,8 @@ export class HostRpcServer {
       ...(options.memory !== undefined && { memory: options.memory }),
       ...(options.usage !== undefined && { usage: options.usage }),
       ...(options.automations !== undefined && { automations: options.automations }),
+      ...(options.processes !== undefined && { processes: options.processes }),
+      ...(options.terminals !== undefined && { terminals: options.terminals }),
       ...(options.browsers !== undefined && { browsers: options.browsers }),
       limits,
       resultValidation:

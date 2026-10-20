@@ -807,6 +807,54 @@ describe('自动化（0.66.0）', () => {
   });
 });
 
+describe('进程输出（0.69.0）', () => {
+  it('onProcessesChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { process_output: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onProcessesChanged((change) => changes.push(change));
+    const removed = { removed: { id: 'p1', startedAt: '2026-10-20T08:00:00.000Z' } };
+    host.last.notify('process.changed', removed);
+    await vi.waitFor(() => expect(changes).toEqual([removed]));
+    host.last.notify('process.changed', { removed: { id: 'nope' } });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed process.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+    host.last.notify('process.changed', removed);
+    await tick();
+    expect(changes).toHaveLength(2);
+  });
+});
+
+describe('用户终端（0.69.0）', () => {
+  it('onTerminalOutput / onTerminalsChanged：带上通知的内容，重连后 changed 以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { user_terminal: true } } }));
+    const { client, warnings } = await connect(host);
+    const outputs: unknown[] = [];
+    const changes: unknown[] = [];
+    const stopOutput = client.onTerminalOutput((output) => outputs.push(output));
+    const stopChanges = client.onTerminalsChanged((change) => changes.push(change));
+    const id = 'trm_01JA2B3C4D5E6F7G8H9JKMNPQR';
+    host.last.notify('terminal.output', { terminalId: id, offset: 0, data: '$ ' });
+    host.last.notify('terminal.output', { terminalId: id, data: 'no offset' });
+    host.last.notify('terminal.changed', { removed: { id } });
+    await vi.waitFor(() => expect(changes).toEqual([{ removed: { id } }]));
+    expect(outputs).toEqual([{ terminalId: id, offset: 0, data: '$ ' }]);
+    expect(warnings.join('\n')).toMatch(/malformed terminal.output/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stopOutput();
+    stopChanges();
+  });
+});
+
 describe('浏览器提供方（0.33.0）', () => {
   const request = {
     requestId: 'brq_01JA2B3C4D5E6F7G8H9JKMNPQR',

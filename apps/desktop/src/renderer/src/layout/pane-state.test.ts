@@ -24,6 +24,7 @@ import {
   scopeOf,
   setAuxRatio,
   setSplitRatios,
+  setTabParams,
   splitTab,
   storeScope,
   tabCount,
@@ -49,10 +50,18 @@ describe('pane-kinds', () => {
   });
 
   it('正式构建只能打开已经实现的种类，开发模式下还有占位', () => {
-    expect(openableKinds(false)).toEqual(['subagents', 'changes', 'files', 'tasks', 'browser']);
+    expect(openableKinds(false)).toEqual([
+      'subagents',
+      'changes',
+      'files',
+      'tasks',
+      'processes',
+      'terminal',
+      'browser',
+    ]);
     // 文件预览（U32）只由文件树、文件链接打开。
     expect(openableKinds(true)).not.toContain('file');
-    expect(openableKinds(true)).toContain('terminal');
+    expect(openableKinds(true)).toContain('plan');
     // 支线窗格（U23.1）只由 /btw 打开。
     expect(openableKinds(true)).not.toContain('session');
   });
@@ -100,6 +109,22 @@ describe('openPane', () => {
   it('在收起的窗格区里激活已有的标签会显示窗格区', () => {
     const hidden = { ...opened({ kind: 'overview' }), auxVisible: false };
     expect(openPane(hidden, { kind: 'overview' }, ids()).auxVisible).toBe(true);
+  });
+});
+
+describe('标签参数', () => {
+  it('终端开好之后写回 ID 与标签名；没变时原样返回，之后按 ID 认得出同一个', () => {
+    const state = opened({ kind: 'terminal' });
+    const tabId = state.groups[0]?.tabs[0]?.id as string;
+    const named = setTabParams(state, tabId, { id: 'trm_1', label: 'zsh' });
+    expect(named.groups[0]?.tabs[0]).toMatchObject({
+      kind: 'terminal',
+      params: { id: 'trm_1', label: 'zsh' },
+    });
+    expect(setTabParams(named, tabId, { id: 'trm_1', label: 'zsh' })).toBe(named);
+    expect(setTabParams(named, 'nope', { id: 'x' })).toBe(named);
+    const again = openPane(named, { kind: 'terminal', params: { id: 'trm_1' } }, ids());
+    expect(again.groups[0]?.tabs).toHaveLength(1);
   });
 });
 

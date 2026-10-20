@@ -53,8 +53,11 @@ describe('构建产物', () => {
     expect(new Set(specifiers.filter((s) => !s.startsWith('.')))).toEqual(
       new Set(['@wevir/protocol']),
     );
+    // Node 的全局 `process`（协议里的 `process.*` 方法名不算）。
+    const nodeGlobals =
+      /\brequire\s*\(|\bprocess\.(?:env|argv|platform|exit|cwd|nextTick|stdout|stderr|stdin|versions?|on|pid|hrtime)\b|\bBuffer\b/;
     for (const file of browser.keys()) {
-      expect(readFileSync(file, 'utf8')).not.toMatch(/\brequire\s*\(|\bprocess\.|\bBuffer\b/);
+      expect(readFileSync(file, 'utf8')).not.toMatch(nodeGlobals);
     }
 
     // 对照：node 入口确实用到了 Node 内置模块，说明上面的扫描能发现它们。

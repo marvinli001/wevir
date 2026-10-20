@@ -38,7 +38,9 @@ import {
   type NotificationName,
   type NotificationParams,
 } from './methods.js';
+import type { HostProcess } from './processes.js';
 import type { ReviewComment } from './review.js';
+import type { Terminal } from './terminals.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -220,6 +222,86 @@ export const verificationRun: VerificationRun = {
   summary: 'not ok 4 - converts -40\n# pass 3\n# fail 1',
   output: { bytes: 1840, truncated: false },
   fingerprint: 'sha256:77aa',
+};
+
+/** Agent 起的后台进程（0.69.0）：还在跑。 */
+export const agentProcess: HostProcess = {
+  id: 'p3',
+  workspaceId: ids.workspace,
+  source: { kind: 'agent', sessionId: ids.session, turnId: ids.turn },
+  name: 'dev server',
+  command: 'pnpm dev',
+  cwd: '/home/u/projects/demo',
+  pid: 4242,
+  status: 'running',
+  exitCode: null,
+  signal: null,
+  startedAt: TS,
+  bytes: 18_204,
+  stopSignals: ['SIGINT', 'SIGTERM', 'SIGKILL'],
+};
+
+/** 检查的进程（0.69.0）：用户取消后退出。 */
+export const checkProcess: HostProcess = {
+  id: 'v1',
+  workspaceId: ids.workspace,
+  source: {
+    kind: 'check',
+    sessionId: ids.session,
+    turnId: ids.turn,
+    runId: ids.verificationRun,
+    checkId: ids.check,
+    trigger: 'after_turn',
+  },
+  name: 'test',
+  command: 'pnpm test',
+  cwd: '/home/u/projects/demo',
+  pid: 4250,
+  status: 'exited',
+  exitCode: null,
+  signal: 'SIGTERM',
+  startedAt: TS,
+  endedAt: TS2,
+  bytes: 1840,
+  stoppedBy: 'user',
+  stopSignals: [],
+};
+
+/** 用户的交互终端（0.69.0）：在跑，前台是 vim。 */
+export const terminalSample: Terminal = {
+  id: `trm_${ULID}`,
+  workspaceId: ids.workspace,
+  sessionId: ids.session,
+  cwd: '/home/u/projects/demo',
+  shell: '/bin/zsh',
+  pid: 4300,
+  title: 'vim README.md',
+  foreground: 'vim',
+  cols: 120,
+  rows: 32,
+  status: 'running',
+  exitCode: null,
+  signal: null,
+  createdAt: TS,
+  clients: 1,
+};
+
+/** 用户的交互终端（0.69.0）：shell 自己退出了，还没关。 */
+export const exitedTerminal: Terminal = {
+  id: `trm_${ULID}`,
+  workspaceId: ids.workspace,
+  cwd: '/home/u/projects/demo',
+  shell: '/bin/zsh',
+  pid: 4301,
+  title: '',
+  cols: 80,
+  rows: 24,
+  status: 'exited',
+  exitCode: 0,
+  signal: null,
+  createdAt: TS,
+  endedAt: TS2,
+  clients: 0,
 };
 
 /** 验收状态（0.65.0）。 */
@@ -3980,6 +4062,94 @@ export const methodSamples: MethodSamples = {
       ],
     },
   },
+  'process.list': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace }, { sessionId: ids.session }],
+      invalid: [{ workspaceId: ids.session }],
+    },
+    result: {
+      valid: [{ processes: [] }, { processes: [agentProcess, checkProcess] }],
+      invalid: [{}, { processes: [{ ...agentProcess, id: 'proc-1' }] }],
+    },
+  },
+  'process.output': {
+    params: {
+      valid: [{ processId: 'p3' }, { processId: 'p3', offset: 4096, until: 8192 }],
+      invalid: [{}, { processId: 'p3', offset: -1 }],
+    },
+    result: {
+      valid: [{ text: 'ready on :5173\n', from: 0, next: 15, start: 0, bytes: 15, more: false }],
+      invalid: [{ text: '' }],
+    },
+  },
+  'process.stop': {
+    params: {
+      valid: [{ processId: 'p3' }, { processId: 'p3', signal: 'SIGINT' }],
+      invalid: [{ processId: 'p3', signal: 'SIGHUP' }],
+    },
+    result: {
+      valid: [{ process: checkProcess }],
+      invalid: [{ process: { ...checkProcess, stoppedBy: 'someone' } }],
+    },
+  },
+  'terminal.create': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, cols: 80, rows: 24 },
+        { workspaceId: ids.workspace, sessionId: ids.session, cwd: '/tmp', cols: 120, rows: 32 },
+      ],
+      invalid: [{ workspaceId: ids.workspace }, { workspaceId: ids.workspace, cols: 0, rows: 24 }],
+    },
+    result: {
+      valid: [{ terminal: terminalSample }],
+      invalid: [{ terminal: { ...terminalSample, id: 'p3' } }],
+    },
+  },
+  'terminal.list': {
+    params: {
+      valid: [{}, { workspaceId: ids.workspace }, { sessionId: ids.session }],
+      invalid: [{ workspaceId: ids.session }],
+    },
+    result: {
+      valid: [{ terminals: [] }, { terminals: [terminalSample, exitedTerminal] }],
+      invalid: [{}, { terminals: [{ ...terminalSample, status: 'stopped' }] }],
+    },
+  },
+  'terminal.attach': {
+    params: {
+      valid: [{ terminalId: terminalSample.id }, { terminalId: terminalSample.id, since: 4096 }],
+      invalid: [{}, { terminalId: terminalSample.id, since: -1 }],
+    },
+    result: {
+      valid: [
+        { terminal: terminalSample, reset: false, data: 'ls\r\n', next: 4100 },
+        { terminal: terminalSample, reset: true, data: '\u001b[?1049h', next: 9000 },
+      ],
+      invalid: [{ terminal: terminalSample, data: '', next: 0 }],
+    },
+  },
+  'terminal.detach': {
+    params: { valid: [{ terminalId: terminalSample.id }], invalid: [{}] },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'terminal.input': {
+    params: {
+      valid: [{ terminalId: terminalSample.id, data: '\u0003' }],
+      invalid: [{ terminalId: terminalSample.id, data: '' }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'terminal.resize': {
+    params: {
+      valid: [{ terminalId: terminalSample.id, cols: 100, rows: 30 }],
+      invalid: [{ terminalId: terminalSample.id, cols: 100, rows: 0 }],
+    },
+    result: { valid: [{}], invalid: [null] },
+  },
+  'terminal.close': {
+    params: { valid: [{ terminalId: terminalSample.id }], invalid: [{ terminalId: 'p3' }] },
+    result: { valid: [{}], invalid: [null] },
+  },
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
@@ -4585,6 +4755,18 @@ export const notificationSamples: NotificationSamples = {
     invalid: [{ settings: {} }],
   },
   'usage.changed': { valid: [{}], invalid: [null, 'x'] },
+  'process.changed': {
+    valid: [{ process: agentProcess }, { removed: { id: 'p3', startedAt: TS } }],
+    invalid: [{}, { removed: { id: 'p3' } }],
+  },
+  'terminal.output': {
+    valid: [{ terminalId: terminalSample.id, offset: 0, data: '\u001b[1mhi\u001b[0m' }],
+    invalid: [{ terminalId: terminalSample.id, data: 'x' }],
+  },
+  'terminal.changed': {
+    valid: [{ terminal: terminalSample }, { removed: { id: terminalSample.id } }],
+    invalid: [{}, { removed: {} }],
+  },
   'automation.changed': {
     valid: [
       { automationId: ids.automation },

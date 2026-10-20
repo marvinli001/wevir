@@ -37,6 +37,7 @@ import { LspManager } from './lsp/manager.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
+import { ProcessOutputService } from './process-output.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { loadRecapInstructions } from './recap.js';
@@ -48,6 +49,7 @@ import { RuntimeFile } from './runtime-file.js';
 import { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
+import { loadTerminalModules, TerminalService } from './terminals.js';
 import { loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
 import { PricingStore } from './usage/pricing.js';
@@ -161,6 +163,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let automations: AutomationService | undefined;
   let rpc: HostRpcServer | undefined;
   let backgroundProcesses: ProcessManager | undefined;
+  let userTerminals: TerminalService | undefined;
   let verificationService: VerificationService | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
@@ -239,15 +242,30 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     void toolOutput
       .prune()
       .catch((error: unknown) => logger.warn('failed to prune tool output', { error }));
+    // 用户的交互终端（0.69.0，terminals.ts）：node-pty 加载不了时没有，不声明 user_terminal。
+    const terminalModules = loadTerminalModules((message, fields) => logger.warn(message, fields));
+    const terminals =
+      terminalModules !== undefined
+        ? new TerminalService({
+            storage,
+            modules: terminalModules,
+            onWarning: (message, fields) => logger.warn(message, fields),
+          })
+        : undefined;
+    userTerminals = terminals;
+    // 进程输出（0.69.0，process-output.ts）：客户端看 Agent 的后台进程与检查的进程。
+    const processOutput = new ProcessOutputService({ storage });
     const processes =
       adapter.appTools === true
         ? new ProcessManager({
             output: toolOutput,
             onNotice: (notice) => appTools?.onProcessNotice(notice),
             onWarning: (message, fields) => logger.warn(message, fields),
+            onChange: (change) => processOutput.onChange(change),
           })
         : undefined;
     backgroundProcesses = processes;
+    if (processes !== undefined) processOutput.attachAgent(processes);
     // 不在项目里的会话（0.39.0）：“对话”工作区与每个会话的文件夹。
     const chats = new ChatFolders({ dir: homePath(home, 'chatsDir') });
     await chats.load();
@@ -294,6 +312,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           appTools?.plugins?.resolved(sessionId, toolCallId, approved),
         forget: (sessionIds) => {
           void processes?.removeSessions(sessionIds);
+          terminals?.removeSessions(sessionIds);
           void verificationService?.removeSessions(sessionIds);
         },
         dispose: () => appTools?.plugins?.close(),
@@ -375,6 +394,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         runner: new CheckRunner({
           dir: toolOutput.dir,
           onWarning: (message, fields) => logger.warn(message, fields),
+          onChange: (change) => processOutput.onChange(change),
         }),
         checkpoints,
         hostId,
@@ -382,6 +402,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         onWarning: (message, fields) => logger.warn(message, fields),
         onError: (error) => logger.error('verification error', { error }),
       });
+      processOutput.attachChecks(verificationService);
       const reconciled = verificationService.recover();
       if (reconciled.cancelledRuns > 0 || reconciled.stoppedRepairs > 0) {
         logger.warn('reconciled verification after unclean shutdown', { ...reconciled });
@@ -541,6 +562,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         automations: automationService,
         ...(review !== undefined && { review }),
         git,
+        ...(processOutput.available && { processes: processOutput }),
+        ...(terminals !== undefined && { terminals }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -601,6 +624,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         rule_files: true,
         ...(review !== undefined && { review_comments: true }),
         git_commit: true,
+        ...(processOutput.available && { process_output: true }),
+        ...(terminals !== undefined && { user_terminal: true }),
       },
       engineFeatures,
       plugins,
@@ -609,6 +634,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       memory,
       usage: usageStats,
       automations: automationService,
+      ...(processOutput.available && { processes: processOutput }),
+      ...(terminals !== undefined && { terminals }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
@@ -639,6 +666,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           rpc: server,
           appMcp: mcp,
           processes,
+          terminals,
           verification,
           lsp,
           sessions: manager,
@@ -670,6 +698,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     await rpc?.close().catch(() => {});
     await verificationService?.dispose().catch(() => {});
     await backgroundProcesses?.close().catch(() => {});
+    await userTerminals?.dispose().catch(() => {});
     accounts?.dispose();
     automations?.dispose();
     await turnCheckpoints?.dispose();
@@ -696,6 +725,8 @@ interface ShutdownParts {
   appMcp: AppMcpServer | undefined;
   /** 后台进程（processes.ts）；没有应用级工具时没有。 */
   processes: ProcessManager | undefined;
+  /** 用户的交互终端（0.69.0）；node-pty 加载不了时没有。 */
+  terminals: TerminalService | undefined;
   /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
   verification: VerificationService | undefined;
   /** 代码智能的语言服务器；引擎挂不上应用级工具时没有。 */
@@ -743,6 +774,10 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
   if (parts.processes !== undefined) {
     await step('stop_processes', () => parts.processes?.close(), true);
+  }
+  // 用户终端：SIGHUP，宽限后 SIGKILL。
+  if (parts.terminals !== undefined) {
+    await step('stop_terminals', () => parts.terminals?.dispose(), true);
   }
   // 自动化不再开始新的运行；进行中的随回合取消记为 cancelled。
   parts.automations.stop();
