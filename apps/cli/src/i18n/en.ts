@@ -309,6 +309,7 @@ Also:
   'approvalEnd.engine_exited': 'Approval cancelled (engine exited)',
   'approvalEnd.host_shutdown': 'Approval cancelled (Host shut down)',
   'approvalEnd.host_restarted': 'Approval expired (Host restarted)',
+  'approvalEnd.rule': 'Allowed by rule',
   'providerTest.missing_key': 'no key',
   'providerTest.network': 'unreachable',
   'providerTest.timeout': 'timed out',

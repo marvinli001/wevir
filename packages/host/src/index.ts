@@ -2,6 +2,7 @@
 // WebSocket JSON-RPC 服务与 Host API 方法（T2.4）、进程组装与运行时文件（T2.5）。可执行入口
 // `wevir-host` 是 src/main.ts，不从这里导出。
 
+export * from './approval-rules/service.js';
 export * from './errors.js';
 export type { EventListener } from './event-bus.js';
 export * from './event-store.js';

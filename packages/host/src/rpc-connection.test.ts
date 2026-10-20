@@ -190,3 +190,24 @@ describe('question_timeout', () => {
     );
   });
 });
+
+// 0.78.0：按审批规则自动允许的 `rule` 只发给声明了 `approval_rules` 的连接，其余连接看到 `user`（没有 `decidedBy`）。
+describe('approval_rules', () => {
+  const resolution = { reason: 'rule' as const, optionId: 'accept', ruleIds: ['arl_1' as never] };
+  const resolved: WevirEventOf<'approval.resolved'> = {
+    seq: 9,
+    sessionId: SES,
+    ts: T0,
+    type: 'approval.resolved',
+    source: 'host',
+    payload: { approvalId: 'apr_1' as never, status: 'approved', resolution },
+  };
+
+  it('事件降级成 user', () => {
+    expect(adaptEventForClient(resolved, {})).toEqual({
+      ...resolved,
+      payload: { ...resolved.payload, resolution: { ...resolution, reason: 'user' } },
+    });
+    expect(adaptEventForClient(resolved, { approval_rules: true })).toBe(resolved);
+  });
+});

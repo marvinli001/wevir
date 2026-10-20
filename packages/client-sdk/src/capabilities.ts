@@ -24,6 +24,7 @@ import type {
  *   “[图片]”，桌面端经 `image.read` 读出来显示。
  * - `question_timeout`（0.72.0）：`QuestionResolutionReason` 的 `timeout`。回答照常投影；桌面端在回答下面写“超时，按推荐回答”，
  *   CLI 在回答前加“超时”。
+ * - `approval_rules`（0.78.0）：`ApprovalResolutionReason` 的 `rule`。桌面端与 CLI 写“已按规则允许”。
  */
 export const DEFAULT_CLIENT_CAPABILITIES = {
   title_source_generated: true,
@@ -33,6 +34,7 @@ export const DEFAULT_CLIENT_CAPABILITIES = {
   subscription_accounts: true,
   user_images: true,
   question_timeout: true,
+  approval_rules: true,
 } as const satisfies Record<ClientCapability, true>;
 
 /** Host 是否声明了这项功能（host-api.md §10：客户端只在一处判断，功能内部不写降级路径）。 */

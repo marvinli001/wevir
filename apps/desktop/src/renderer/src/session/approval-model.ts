@@ -118,6 +118,28 @@ export function approvalLayout(options: readonly ApprovalOption[]): ApprovalLayo
   };
 }
 
+/**
+ * “总是允许”（0.78.0）：审批带 Host 提议的规则时，允许类选项旁边多一个按钮，按 `remember` 加规则后允许这一次（数字键 3）。
+ * 用的是“允许”那个选项。
+ */
+export function alwaysAllow(
+  approval: Pick<ApprovalRequest, 'proposedRule' | 'options'>,
+): { option: ApprovalOption; prefix: string } | undefined {
+  const option = approval.options.find((candidate) => candidate.category === 'allow');
+  const prefixes = approval.proposedRule?.prefixes;
+  if (option === undefined || prefixes === undefined) return undefined;
+  return { option, prefix: prefixes.map(prefixText).join('、') };
+}
+
+/** 显示用的前缀：`git status`，含空白或引号的词加单引号（与 Host 的 `formatPrefix` 一致）。 */
+export function prefixText(prefix: readonly string[]): string {
+  return prefix
+    .map((token) =>
+      /^[A-Za-z0-9._:@%+=,/-]+$/.test(token) ? token : `'${token.replaceAll("'", "'\\''")}'`,
+    )
+    .join(' ');
+}
+
 /** 选项按钮的文字：认识的 kind 本地化，不认识的显示引擎给的 label（与 CLI 的 optionLabel 一致）。 */
 export function optionLabel(option: Pick<ApprovalOption, 'kind' | 'label'>): string {
   const key = OPTION_LABELS[option.kind];
@@ -154,6 +176,7 @@ export function resolutionText(
   resolution: ApprovalResolution,
   self: ClientIdentity | undefined,
 ): string {
+  if (resolution.reason === 'rule') return t('approval.byRule');
   if (resolution.reason !== 'user') return t(`approval.ended.${resolution.reason}`);
   const option = approval.options.find((candidate) => candidate.optionId === resolution.optionId);
   const decision = option ? optionLabel(option) : (resolution.optionId ?? '');

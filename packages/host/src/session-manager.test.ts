@@ -15,6 +15,7 @@ import { AdapterError, type AgentEvent, EventHub } from '@wevir/runtime-adapter'
 import { EchoAdapter } from '@wevir/runtime-adapter/echo';
 import type { Storage } from '@wevir/storage';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApprovalRuleService } from './approval-rules/service.js';
 import { HostError } from './errors.js';
 import { EventStore } from './event-store.js';
 import { defaultOptionOf, SessionManager, type SessionManagerOptions } from './session-manager.js';
@@ -579,6 +580,128 @@ describe('SessionManager：审批', () => {
   });
 });
 
+/** echo 的 `approve` 换成一条命令审批：`approve: <命令>` 里冒号之后是命令（模拟 Codex 等引擎的命令审批）。 */
+class ShellEchoAdapter extends EchoAdapter {
+  override subscribe(engineSessionId: string): AsyncIterable<AgentEvent> {
+    const source = super.subscribe(engineSessionId);
+    return {
+      async *[Symbol.asyncIterator]() {
+        for await (const event of source) {
+          if (event.type === 'tool.started' && event.toolName === 'echo_write') {
+            const content = String((event.input as { content?: string }).content ?? '');
+            const command = content.slice(content.indexOf(':') + 1).trim();
+            yield {
+              ...event,
+              toolName: 'exec_command',
+              display: { kind: 'shell', summary: command, command },
+              input: { command },
+            };
+          } else {
+            yield event;
+          }
+        }
+      },
+    };
+  }
+}
+
+describe('SessionManager：审批规则（0.78.0）', () => {
+  function setupRules() {
+    let rules: ApprovalRuleService | undefined;
+    const service = () => rules as ApprovalRuleService;
+    const h = setup({
+      adapter: new ShellEchoAdapter({ stepDelayMs: 1 }),
+      manager: {
+        approvalRules: {
+          match: (...args) => service().match(...args),
+          propose: (...args) => service().propose(...args),
+          remember: (...args) => service().remember(...args),
+          recordUse: (...args) => service().recordUse(...args),
+        },
+      },
+    });
+    rules = new ApprovalRuleService({ storage: h.storage });
+    return { h, rules };
+  }
+
+  it('没有规则时提议前缀；选总是允许（项目）后加规则，下一次同前缀的命令由 Host 允许', async () => {
+    const { h, rules } = setupRules();
+    const id = await create(h);
+    await send(h, id, 'approve: git status --short');
+    const approval = await waitForApproval(h, id);
+    expect(approval.proposedRule).toEqual({ prefixes: [['git', 'status']] });
+
+    const result = await h.manager.respondToApproval(
+      { approvalId: approval.id, optionId: 'allow-once', remember: 'project' },
+      desktop,
+    );
+    const [rule] = rules.list();
+    expect(rule).toMatchObject({
+      workspaceId: 'ws_1',
+      prefix: ['git', 'status'],
+      source: 'approval',
+      sourceSessionId: id,
+      sourceApprovalId: approval.id,
+      useCount: 0,
+    });
+    expect(result.resolution).toEqual({
+      reason: 'user',
+      optionId: 'allow-once',
+      decidedBy: desktop,
+      ruleIds: [rule?.id],
+    });
+    await waitForState(h, id, 'idle');
+
+    await send(h, id, "approve: bash -lc 'git status && git status -s'");
+    await vi.waitFor(() => expect(ofType(h, id, 'approval.resolved')).toHaveLength(2));
+    await waitForState(h, id, 'idle');
+    const auto = ofType(h, id, 'approval.resolved')[1];
+    expect(auto?.payload).toMatchObject({
+      status: 'approved',
+      resolution: { reason: 'rule', optionId: 'allow-once', ruleIds: [rule?.id] },
+    });
+    expect(auto?.payload.resolution.decidedBy).toBeUndefined();
+    expect(ofType(h, id, 'approval.requested')[1]?.payload.approval.proposedRule).toBeUndefined();
+    expect(ofType(h, id, 'tool.finished').at(-1)?.payload.status).toBe('completed');
+    await vi.waitFor(() => expect(rules.list()[0]?.useCount).toBe(1));
+    expect(h.errors).toEqual([]);
+  });
+
+  it('只覆盖一部分、带展开或重定向的命令照常问；规则删了之后也照常问', async () => {
+    const { h, rules } = setupRules();
+    const rule = rules.add(['git', 'status']);
+    const id = await create(h);
+    for (const command of ['git status; rm -rf build', 'git status > /tmp/x', 'git status $(id)']) {
+      await send(h, id, `approve: ${command}`);
+      const approval = await waitForApproval(h, id);
+      expect(approval.proposedRule, command).toBeUndefined();
+      await h.manager.respondToApproval(
+        { approvalId: approval.id, optionId: 'reject-once' },
+        desktop,
+      );
+      await waitForState(h, id, 'idle');
+    }
+    expect(rules.delete(rule.id)).toBe(true);
+    await send(h, id, 'approve: git status');
+    const approval = await waitForApproval(h, id);
+    expect(approval.proposedRule).toEqual({ prefixes: [['git', 'status']] });
+  });
+
+  it('remember 要有提议、要选允许类选项', async () => {
+    const { h } = setupRules();
+    const id = await create(h);
+    await send(h, id, 'approve: rm -rf build');
+    const approval = await waitForApproval(h, id);
+    expect(approval.proposedRule).toBeUndefined();
+    await expect(
+      h.manager.respondToApproval(
+        { approvalId: approval.id, optionId: 'allow-once', remember: 'global' },
+        desktop,
+      ),
+    ).rejects.toMatchObject({ code: 'INVALID_PARAMS' });
+    expect(snapshot(h, id).pendingApprovals).toHaveLength(1);
+  });
+});
 describe('SessionManager：取消与关闭', () => {
   it('#5 #8：取消时未决审批结为 cancelled，失败的工具记为 cancelled', async () => {
     const h = setup();

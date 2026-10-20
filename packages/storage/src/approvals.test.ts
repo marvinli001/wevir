@@ -114,4 +114,39 @@ describe('approvals', () => {
     expect(ids(s.approvals.listBySession('ses_01', { status: 'expired' }))).toEqual(['apr_1']);
     expect(ids(s.approvals.listPending())).toEqual(['apr_2', 'apr_3']);
   });
+
+  it('用户手动允许过的审批带项目，最近的在前，可按项目过滤', () => {
+    const s = storage();
+    seedSession(s, { id: 'ses_a', workspaceId: 'ws_a' });
+    seedSession(s, { id: 'ses_b', workspaceId: 'ws_b', engineSessionId: 'eng_b' });
+    const approve = (
+      id: string,
+      sessionId: string,
+      at: string,
+      reason = 'user',
+      status = 'approved',
+    ) => {
+      s.approvals.insert(approval({ id, sessionId, createdAt: at }));
+      s.approvals.resolve(id, {
+        status,
+        resolvedAt: at,
+        resolution: {
+          reason,
+          optionId: 'allow-once',
+          ...(reason === 'user' && { decidedBy: desktop }),
+        },
+      });
+    };
+    approve('apr_1', 'ses_a', T0);
+    approve('apr_2', 'ses_b', T1);
+    approve('apr_3', 'ses_a', T2, 'rule');
+    approve('apr_4', 'ses_a', T2, 'user', 'denied');
+    const ids = (records: { id: string; workspaceId: string }[]) =>
+      records.map((r) => `${r.id}@${r.workspaceId}`);
+    expect(ids(s.approvals.listUserApproved({ limit: 10 }))).toEqual(['apr_2@ws_b', 'apr_1@ws_a']);
+    expect(ids(s.approvals.listUserApproved({ workspaceId: 'ws_a', limit: 10 }))).toEqual([
+      'apr_1@ws_a',
+    ]);
+    expect(ids(s.approvals.listUserApproved({ limit: 1 }))).toEqual(['apr_2@ws_b']);
+  });
 });

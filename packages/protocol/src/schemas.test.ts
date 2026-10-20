@@ -206,6 +206,7 @@ import {
 import {
   acceptance as acceptanceSample,
   agentProcess,
+  approvalRule,
   boardTask,
   browserTab,
   checkDefinition,
@@ -242,6 +243,7 @@ import {
   reportedTask,
   retroSummary,
   reviewComment,
+  ruleResolution,
   runningOpinion,
   searchHit,
   searchIndexStatus,
@@ -1172,8 +1174,8 @@ const standaloneCases: Case[] = [
   {
     name: 'ApprovalResolution',
     schema: ApprovalResolutionSchema,
-    valid: [userResolution, { reason: 'engine_exited' }],
-    invalid: [{ optionId: 'allow-once' }],
+    valid: [userResolution, { reason: 'engine_exited' }, ruleResolution],
+    invalid: [{ optionId: 'allow-once' }, { ...ruleResolution, ruleIds: [ids.approval] }],
   },
   {
     name: 'ResolvedApprovalStatus',
@@ -1184,8 +1186,15 @@ const standaloneCases: Case[] = [
   {
     name: 'ApprovalRequest',
     schema: ApprovalRequestSchema,
-    valid: [pendingApproval, { ...pendingApproval, detail: null }],
-    invalid: [{ ...pendingApproval, detail: undefined }],
+    valid: [
+      pendingApproval,
+      { ...pendingApproval, detail: null },
+      { ...pendingApproval, proposedRule: { prefixes: [['git', 'status'], ['head']] } },
+    ],
+    invalid: [
+      { ...pendingApproval, detail: undefined },
+      { ...pendingApproval, proposedRule: { prefixes: [] } },
+    ],
   },
   { name: 'SessionState', schema: SessionStateSchema, valid: ['cancelling'], invalid: ['stopped'] },
   {
@@ -1755,7 +1764,7 @@ const standaloneCases: Case[] = [
       { reason: 'turn_cancelled' },
       { reason: 'timeout', answers: { scope: { answers: ['全链路'] } } },
     ],
-    invalid: [{}, { reason: 'expired' }],
+    invalid: [{}, { reason: 'expired' }, { reason: 'rule' }],
   },
   {
     name: 'QuestionRequest',
@@ -3381,6 +3390,65 @@ const standaloneCases: Case[] = [
   },
 ];
 
+const approvalRuleCases: Case[] = [
+  {
+    name: 'CommandPrefix',
+    schema: protocol.CommandPrefixSchema,
+    valid: [
+      ['git', 'status'],
+      ['touch', '/tmp/a b'],
+    ],
+    invalid: [[], [''], Array(protocol.APPROVAL_RULE_PREFIX_MAX_TOKENS + 1).fill('x')],
+  },
+  {
+    name: 'ApprovalRuleScope',
+    schema: protocol.ApprovalRuleScopeSchema,
+    valid: ['project', 'global'],
+    invalid: ['session'],
+  },
+  {
+    name: 'ApprovalRuleSource',
+    schema: protocol.ApprovalRuleSourceSchema,
+    valid: ['approval', 'suggestion', 'someday'],
+    invalid: [''],
+  },
+  {
+    name: 'ApprovalRuleId',
+    schema: protocol.ApprovalRuleIdSchema,
+    valid: [ids.approvalRule],
+    invalid: [ids.approval],
+  },
+  {
+    name: 'ApprovalRule',
+    schema: protocol.ApprovalRuleSchema,
+    valid: [approvalRule, { ...approvalRule, workspaceId: undefined, sourceSessionId: undefined }],
+    invalid: [
+      { ...approvalRule, prefix: [] },
+      { ...approvalRule, useCount: 1.5 },
+    ],
+  },
+  {
+    name: 'ProposedApprovalRule',
+    schema: protocol.ProposedApprovalRuleSchema,
+    valid: [{ prefixes: [['git', 'status']] }],
+    invalid: [{ prefixes: [] }, { prefixes: [[]] }],
+  },
+  {
+    name: 'ApprovalRuleSuggestion',
+    schema: protocol.ApprovalRuleSuggestionSchema,
+    valid: [
+      {
+        prefix: ['pnpm', 'test'],
+        workspaceId: ids.workspace,
+        count: 2,
+        lastApprovedAt: TS,
+        example: 'pnpm test',
+      },
+    ],
+    invalid: [{ prefix: ['pnpm', 'test'], count: 2, lastApprovedAt: TS, example: 'pnpm test' }],
+  },
+];
+
 const registryCases: Case[] = [
   ...Object.entries(MethodSchemas).flatMap(([method, spec]) => {
     const samples = methodSamples[method as protocol.MethodName];
@@ -3412,7 +3480,7 @@ const registryCases: Case[] = [
   }),
 ];
 
-const allCases = [...standaloneCases, ...registryCases];
+const allCases = [...standaloneCases, ...approvalRuleCases, ...registryCases];
 
 describe('每个 schema 的合法与非法样例', () => {
   for (const { name, schema, valid, invalid } of allCases) {

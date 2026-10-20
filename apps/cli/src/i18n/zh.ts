@@ -305,6 +305,7 @@ export const zh = {
   'approvalEnd.engine_exited': '审批已取消（引擎退出）',
   'approvalEnd.host_shutdown': '审批已取消（Host 退出）',
   'approvalEnd.host_restarted': '审批已过期（Host 已重启）',
+  'approvalEnd.rule': '已按规则允许',
   'providerTest.missing_key': '未设置 Key',
   'providerTest.network': '无法连接',
   'providerTest.timeout': '超时',

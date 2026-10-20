@@ -1,5 +1,16 @@
 import { z } from 'zod';
 import {
+  ApprovalRuleAddParamsSchema,
+  ApprovalRuleDeleteParamsSchema,
+  ApprovalRuleDeleteResultSchema,
+  ApprovalRuleListParamsSchema,
+  ApprovalRuleListResultSchema,
+  ApprovalRuleResultSchema,
+  ApprovalRuleScopeSchema,
+  ApprovalRuleSuggestParamsSchema,
+  ApprovalRuleSuggestResultSchema,
+} from './approval-rules.js';
+import {
   AutomationChangedParamsSchema,
   AutomationCreateParamsSchema,
   AutomationDeleteParamsSchema,
@@ -1500,6 +1511,11 @@ export const ApprovalRespondParamsSchema = z.object({
   approvalId: ApprovalIdSchema,
   /** 必须是该审批 `options` 里的一个，否则 `INVALID_PARAMS`。 */
   optionId: z.string().min(1),
+  /**
+   * “总是允许”（0.78.0，Host 功能 `approval_rules`）：按审批的 `proposedRule` 加规则，`project` 只对这个会话的项目有效。审批没有
+   * `proposedRule`、或选的不是允许类选项时 `INVALID_PARAMS`。规则在引擎接受回复之后才加，加了的 ID 在结果的 `resolution.ruleIds`。
+   */
+  remember: ApprovalRuleScopeSchema.optional(),
 });
 
 export const ApprovalRespondResultSchema = z.object({
@@ -2237,6 +2253,27 @@ export const MethodSchemas = {
     params: ApprovalRespondParamsSchema,
     result: ApprovalRespondResultSchema,
     permission: 'session.write',
+  },
+  /** 审批规则（0.78.0）。 */
+  'approvalRule.list': {
+    params: ApprovalRuleListParamsSchema,
+    result: ApprovalRuleListResultSchema,
+    permission: 'session.read',
+  },
+  'approvalRule.add': {
+    params: ApprovalRuleAddParamsSchema,
+    result: ApprovalRuleResultSchema,
+    permission: 'host.manage',
+  },
+  'approvalRule.delete': {
+    params: ApprovalRuleDeleteParamsSchema,
+    result: ApprovalRuleDeleteResultSchema,
+    permission: 'host.manage',
+  },
+  'approvalRule.suggest': {
+    params: ApprovalRuleSuggestParamsSchema,
+    result: ApprovalRuleSuggestResultSchema,
+    permission: 'session.read',
   },
 
   'browser.register': {

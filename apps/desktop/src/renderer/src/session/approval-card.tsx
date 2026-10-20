@@ -13,15 +13,22 @@ import type {
   ApprovalId,
   ApprovalOption,
   ApprovalRequest,
+  ApprovalRuleScope,
   ClientIdentity,
   Session,
   SubagentSummary,
 } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useWorkbenchData } from '@/data/workbench-data';
 import { Beam } from '@/fx/beam';
 import { describe } from '@/host/host-connection';
@@ -30,6 +37,7 @@ import { IS_MAC } from '@/lib/shortcuts';
 import {
   type ApprovalLayout,
   type ApprovalScope,
+  alwaysAllow,
   approvalLayout,
   approvalScope,
   decidedHere,
@@ -97,12 +105,20 @@ export function ApprovalDock({
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  const respond = async (approval: ApprovalRequest, optionId: string) => {
+  const respond = async (
+    approval: ApprovalRequest,
+    optionId: string,
+    remember?: ApprovalRuleScope,
+  ) => {
     if (!client) return;
     setSubmitting(approval.id);
     setNotice(undefined);
     try {
-      await client.request('approval.respond', { approvalId: approval.id, optionId });
+      await client.request('approval.respond', {
+        approvalId: approval.id,
+        optionId,
+        ...(remember !== undefined && { remember }),
+      });
     } catch (error) {
       if (isRpcError(error, 'ALREADY_DECIDED') && error.data) {
         // 另一端抢先一步：提示它的决定。
@@ -145,7 +161,7 @@ export function ApprovalDock({
             recap={recap}
             busy={submitting === current.id}
             error={notice?.tone === 'error' ? notice.text : undefined}
-            onRespond={(optionId) => void respond(current, optionId)}
+            onRespond={(optionId, remember) => void respond(current, optionId, remember)}
           />
         </Beam>
       )}
@@ -195,10 +211,11 @@ function ApprovalCard({
   recap: ReactNode;
   busy: boolean;
   error: string | undefined;
-  onRespond: (optionId: string) => void;
+  onRespond: (optionId: string, remember?: ApprovalRuleScope) => void;
 }) {
   const presentation = presentApproval(approval, scope);
   const layout = useMemo(() => approvalLayout(approval.options), [approval.options]);
+  const always = useMemo(() => alwaysAllow(approval), [approval]);
   const titleId = `approval-${approval.id}`;
   const cardRef = useRef<HTMLElement>(null);
   const respond = useRef(onRespond);
@@ -224,6 +241,12 @@ function ApprovalCard({
       if (scope && scope !== card) return;
       if (!scope && isEditable(target)) return;
       if (document.querySelector('[role="dialog"]')) return;
+      // 数字键 3：总是允许，只对这个项目（“所有项目”要从按钮的菜单里选）。
+      if (always && event.key === '3' && !hasModifier(event)) {
+        event.preventDefault();
+        respond.current(always.option.optionId, 'project');
+        return;
+      }
       const option = shortcutOption(event, layout);
       if (!option) return;
       event.preventDefault();
@@ -231,7 +254,7 @@ function ApprovalCard({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [busy, layout]);
+  }, [busy, layout, always]);
 
   const button = (option: ApprovalOption | undefined) => {
     if (option === undefined) return null;
@@ -317,7 +340,42 @@ function ApprovalCard({
       </div>
       <footer className="mt-3.5 flex flex-wrap items-center gap-2 px-3 pb-3">
         {button(layout.reject)}
-        <span className="ml-auto">{button(layout.allow)}</span>
+        <span className="ml-auto flex min-w-0 items-center gap-2">
+          {always && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                disabled={busy}
+                data-testid="approval-always"
+                className={cn(
+                  buttonVariants({ size: 'sm', variant: 'secondary' }),
+                  'h-8 min-w-0 gap-1.5 pr-1.5 pl-3',
+                )}
+              >
+                <span className="truncate">
+                  {t('approval.alwaysAllow')}{' '}
+                  <code className="font-mono text-xs">{always.prefix}</code>
+                </span>
+                <Kbd>3</Kbd>
+                <ChevronDown aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-auto min-w-36">
+                <DropdownMenuItem
+                  closeOnClick
+                  onClick={() => onRespond(always.option.optionId, 'project')}
+                >
+                  {t('approval.scope.project')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  closeOnClick
+                  onClick={() => onRespond(always.option.optionId, 'global')}
+                >
+                  {t('approval.scope.global')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {button(layout.allow)}
+        </span>
       </footer>
     </section>
   );
@@ -340,9 +398,13 @@ function Kbd({ primary = false, children }: { primary?: boolean; children: React
   );
 }
 
+function hasModifier(event: KeyboardEvent): boolean {
+  return event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
+}
+
 /** 这次按键选哪个选项：数字键、⌘↵（允许）、Esc（拒绝）。 */
 function shortcutOption(event: KeyboardEvent, layout: ApprovalLayout): ApprovalOption | undefined {
-  const modified = event.metaKey || event.ctrlKey || event.altKey || event.shiftKey;
+  const modified = hasModifier(event);
   if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) return layout.allow;
   if (modified) return undefined;
   if (event.key === 'Escape') return layout.reject;

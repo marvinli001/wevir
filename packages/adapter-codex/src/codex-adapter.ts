@@ -2178,6 +2178,15 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         : FILE_CHANGE_APPROVAL_OPTIONS
       ).map((option) => ({ ...option })),
     };
+    const amendment = (params as CommandExecutionRequestApprovalParams).proposedExecpolicyAmendment;
+    if (
+      method === 'item/commandExecution/requestApproval' &&
+      Array.isArray(amendment) &&
+      amendment.length > 0 &&
+      amendment.every((token) => typeof token === 'string')
+    ) {
+      info.proposedPrefix = [...amendment];
+    }
     return new Promise<unknown>((reply) => {
       session.approvals.set(info.requestId, { info, rpcId: request.id, reply });
       this.#approvalsByRpc.set(request.id, { session, requestId: info.requestId });
@@ -2766,7 +2775,11 @@ function reportsChild(method: string, item: CollabAgentToolCallItem, childId: st
 }
 
 function copyApproval(info: PendingApproval): PendingApproval {
-  return { ...info, options: info.options.map((option) => ({ ...option })) };
+  return {
+    ...info,
+    options: info.options.map((option) => ({ ...option })),
+    ...(info.proposedPrefix !== undefined && { proposedPrefix: [...info.proposedPrefix] }),
+  };
 }
 
 /** 通知所属的回合：多数通知带 `turnId`，`turn/*` 带 `turn.id`。 */

@@ -865,6 +865,10 @@ export const messages: Messages = {
   'approval.ended.host_shutdown':
     'Aprobación cancelada: el servicio en segundo plano se está cerrando',
   'approval.ended.host_restarted': 'Aprobación caducada: el servicio en segundo plano se reinició',
+  'approval.alwaysAllow': 'Permitir siempre',
+  'approval.scope.project': 'Este proyecto',
+  'approval.scope.global': 'Todos los proyectos',
+  'approval.byRule': 'Permitido por regla',
 
   'question.label': 'Preguntas pendientes',
   'question.multi': 'Selección múltiple',
@@ -1037,6 +1041,17 @@ export const messages: Messages = {
   'settings.tab.archived': 'Archivadas',
   'settings.tab.web': 'Búsqueda web',
   'settings.tab.memory': 'Memoria',
+  'settings.tab.approvalRules': 'Reglas de aprobación',
+  'settings.approvalRules.rules': 'Reglas',
+  'settings.approvalRules.suggested': 'Sugerencias',
+  'settings.approvalRules.empty': 'Sin reglas',
+  'settings.approvalRules.global': 'Todos los proyectos',
+  'settings.approvalRules.count': '{count} usos',
+  'settings.approvalRules.delete': 'Eliminar',
+  'settings.approvalRules.add': 'Añadir',
+  'settings.approvalRules.failed': 'Error en la acción: {error}',
+  'settings.approvalRules.unsupported':
+    'La versión del servicio en segundo plano no admite reglas de aprobación',
   'settings.tab.import': 'Importar',
   'settings.memory.auto': 'Memoria automática',
   'settings.memory.global': 'Todos los proyectos',

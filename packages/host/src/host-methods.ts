@@ -28,6 +28,7 @@ import type {
   WorkspaceRecord,
 } from '@wevir/storage';
 import { CHATGPT_PROVIDER_ID, type HostAccounts } from './accounts.js';
+import type { ApprovalRuleService } from './approval-rules/service.js';
 import type { AutomationService } from './automations/service.js';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
@@ -167,6 +168,8 @@ export interface HostMethodsOptions {
   externalImport?: ExternalImport;
   /** 会话全文搜索（0.77.0，`search.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   search?: SessionSearch;
+  /** 审批规则（0.78.0，`approvalRule.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  approvalRules?: ApprovalRuleService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -280,6 +283,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const opinions = (): SecondOpinionService => {
     if (options.opinions === undefined) throw invalidParams([], 'this host has no second opinions');
     return options.opinions;
+  };
+  const approvalRules = (): ApprovalRuleService => {
+    if (options.approvalRules === undefined)
+      throw invalidParams([], 'this host has no approval rules');
+    return options.approvalRules;
   };
   const search = (): SessionSearch => {
     if (options.search === undefined) throw invalidParams([], 'this host has no session search');
@@ -1323,7 +1331,38 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'question.respond': (params, { client }) => sessions.respondToQuestion(params, client),
 
     'approval.respond': (params, { client }) => sessions.respondToApproval(params, client),
+
+    // 0.78.0：审批规则。项目要存在（未移除）。
+    'approvalRule.list': ({ workspaceId }) => {
+      if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
+      // 移除了的项目的规则留着（项目加回来时还在），只是不列。
+      const rules = approvalRules()
+        .list(workspaceId)
+        .filter(
+          (rule) =>
+            rule.workspaceId === undefined ||
+            storage.workspaces.get(rule.workspaceId)?.removedAt === undefined,
+        );
+      return { rules };
+    },
+    'approvalRule.add': ({ prefix, workspaceId }) => {
+      if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
+      return { rule: approvalRules().add(prefix, workspaceId) };
+    },
+    'approvalRule.delete': ({ ruleId }) => ({ deleted: approvalRules().delete(ruleId) }),
+    'approvalRule.suggest': ({ workspaceId }) => {
+      if (workspaceId !== undefined) requireWorkspace(storage, workspaceId);
+      return { suggestions: approvalRules().suggest(workspaceId) };
+    },
   };
+}
+
+/** 工作区存在且未被移除，否则抛 `WORKSPACE_NOT_FOUND`。 */
+function requireWorkspace(storage: Storage, workspaceId: string): void {
+  const workspace = storage.workspaces.get(workspaceId);
+  if (!workspace || workspace.removedAt !== undefined) {
+    throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+  }
 }
 
 /**

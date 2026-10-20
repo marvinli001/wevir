@@ -981,6 +981,17 @@ export function adaptEventForClient(
       payload: { ...event.payload, resolution: { ...event.payload.resolution, reason: 'user' } },
     };
   }
+  // COMPAT(approvalRules): added in 0.78.0, remove gate after 2027-06-01
+  if (
+    event.type === 'approval.resolved' &&
+    event.payload.resolution.reason === 'rule' &&
+    capabilities.approval_rules !== true
+  ) {
+    return {
+      ...event,
+      payload: { ...event.payload, resolution: { ...event.payload.resolution, reason: 'user' } },
+    };
+  }
   // COMPAT(titleSourceGenerated): added in 0.5.0, remove gate after 2027-06-01
   if (
     event.type === 'session.title_changed' &&

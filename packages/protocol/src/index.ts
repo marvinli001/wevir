@@ -1,3 +1,4 @@
+export * from './approval-rules.js';
 export * from './automations.js';
 export * from './browser.js';
 export * from './capabilities.js';
