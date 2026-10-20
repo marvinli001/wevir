@@ -1,7 +1,7 @@
 // 仅供测试：各 schema 的合法与非法样例。不从 index.ts 导出，不进入构建产物。
 // 合法样例以 TS 类型约束（与 z.infer 一致），非法样例各自只破坏一处，便于定位。
 
-import type { Automation, AutomationRun } from './automations.js';
+import type { Automation, AutomationCheckResult, AutomationRun } from './automations.js';
 import type { BrowserTabInfo } from './browser.js';
 import type { ClientIdentity } from './common.js';
 import type {
@@ -1385,6 +1385,35 @@ const automationRunFailedSample: AutomationRun = {
   error: 'provider deepseek not found',
 };
 
+const automationRunSilentSample: AutomationRun = {
+  id: 'arn_01JA2B3C4D5E6F7G8H9JKMNPR2',
+  automationId: ids.automation,
+  trigger: 'schedule',
+  status: 'silent',
+  startedAt: '2026-10-20T21:00:00.000Z',
+  finishedAt: '2026-10-20T21:00:02.000Z',
+  check: { decision: 'silent', exitCode: 1, durationMs: 1840, output: 'no new failures\n' },
+};
+
+const automationRunCheckFailedSample: AutomationRun = {
+  id: 'arn_01JA2B3C4D5E6F7G8H9JKMNPR3',
+  automationId: ids.automation,
+  trigger: 'manual',
+  status: 'failed',
+  startedAt: '2026-10-20T22:00:00.000Z',
+  finishedAt: '2026-10-20T22:01:00.000Z',
+  error: 'The check timed out after 60 s.',
+  check: {
+    decision: 'failed',
+    exitCode: null,
+    timedOut: true,
+    durationMs: 60_000,
+    output: '…waiting',
+    truncated: true,
+    error: 'The check timed out after 60 s.',
+  },
+};
+
 const automationSample: Automation = {
   id: ids.automation,
   title: '依赖更新检查',
@@ -1404,6 +1433,18 @@ const automationSample: Automation = {
   nextRunAt: '2026-10-21T20:00:00.000Z',
   lastRun: automationRunSample,
   runCount: 3,
+};
+
+const automationCheckedSample: Automation = {
+  ...automationSample,
+  schedule: { kind: 'interval', minutes: 15 },
+  newSessionEachRun: false,
+  sessionId: ids.session,
+  notify: 'changes',
+  check: { command: 'gh pr checks 42', wake: 'output_changed', timeoutSeconds: 30 },
+  enabled: false,
+  autoPausedAt: '2026-10-20T22:01:00.000Z',
+  lastRun: { ...automationRunSample, unchanged: true },
 };
 
 const connector = {
@@ -4153,7 +4194,7 @@ export const methodSamples: MethodSamples = {
   'automation.list': {
     params: { valid: [{}], invalid: [null] },
     result: {
-      valid: [{ automations: [] }, { automations: [automationSample] }],
+      valid: [{ automations: [] }, { automations: [automationSample, automationCheckedSample] }],
       invalid: [{}, { automations: [{ ...automationSample, runCount: -1 }] }],
     },
   },
@@ -4166,6 +4207,10 @@ export const methodSamples: MethodSamples = {
       valid: [
         { automation: automationSample, runs: [] },
         { automation: automationSample, runs: [automationRunSample, automationRunFailedSample] },
+        {
+          automation: automationCheckedSample,
+          runs: [automationRunCheckFailedSample, automationRunSilentSample],
+        },
       ],
       invalid: [{ automation: automationSample }],
     },
@@ -4198,6 +4243,14 @@ export const methodSamples: MethodSamples = {
           prompt: 'y',
           schedule: { kind: 'monthly', time: '23:59', day: 31 },
           providerId: 'deepseek',
+        },
+        {
+          title: 'CI 状态',
+          prompt: '看一下 CI 失败的原因。',
+          schedule: { kind: 'interval', minutes: 10 },
+          sessionId: ids.session,
+          notify: 'changes',
+          check: { command: 'gh pr checks 42', wake: 'output_changed' },
         },
       ],
       invalid: [
@@ -4239,7 +4292,21 @@ export const methodSamples: MethodSamples = {
           schedule: { kind: 'cron', expr: '* * * * *' },
           providerId: 'deepseek',
         },
-        { title: 'x', prompt: 'y', schedule: { kind: 'manual' } },
+        { title: 'x', prompt: 'y', schedule: { kind: 'manual' }, providerId: '' },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'manual' },
+          providerId: 'deepseek',
+          check: { command: 'true', wake: 'exit_zero' },
+        },
+        {
+          title: 'x',
+          prompt: 'y',
+          schedule: { kind: 'manual' },
+          providerId: 'deepseek',
+          check: { command: '  ', wake: 'exit_code' },
+        },
       ],
     },
     result: {
@@ -4259,11 +4326,21 @@ export const methodSamples: MethodSamples = {
           timezone: 'Asia/Shanghai',
           notify: 'never',
         },
+        { automationId: ids.automation, sessionId: null, check: null },
+        {
+          automationId: ids.automation,
+          sessionId: ids.session,
+          check: { command: './scripts/has-news.sh', wake: 'exit_code', timeoutSeconds: 600 },
+        },
       ],
       invalid: [
         {},
         { automationId: ids.automation, title: '' },
         { automationId: ids.automation, permissionMode: 'yolo' },
+        {
+          automationId: ids.automation,
+          check: { command: 'x', wake: 'exit_code', timeoutSeconds: 601 },
+        },
       ],
     },
     result: { valid: [{ automation: automationSample }], invalid: [{ automation: {} }] },
@@ -4277,6 +4354,31 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ run: automationRunSample }, { run: automationRunFailedSample }],
       invalid: [{ run: { ...automationRunSample, status: 'done' } }],
+    },
+  },
+  'automation.testCheck': {
+    params: {
+      valid: [
+        { check: { command: 'gh pr checks 42', wake: 'output_changed' } },
+        {
+          check: { command: 'git status --short', wake: 'output_changed' },
+          sessionId: ids.session,
+        },
+        {
+          check: { command: './check.sh', wake: 'exit_code', timeoutSeconds: 5 },
+          workspaceId: ids.workspace,
+          automationId: ids.automation,
+        },
+      ],
+      invalid: [{}, { check: { command: 'x' } }],
+    },
+    result: {
+      valid: [
+        { result: automationRunSilentSample.check as AutomationCheckResult },
+        { result: automationRunCheckFailedSample.check as AutomationCheckResult },
+        { result: { decision: 'wake', exitCode: 0, durationMs: 12, output: '' } },
+      ],
+      invalid: [{ result: { decision: 'maybe', exitCode: 0, durationMs: 0, output: '' } }],
     },
   },
   'tools.presets': {
@@ -4771,6 +4873,7 @@ export const notificationSamples: NotificationSamples = {
     valid: [
       { automationId: ids.automation },
       { automationId: ids.automation, run: automationRunSample },
+      { automationId: ids.automation, run: automationRunSilentSample },
       { automationId: ids.automation, deleted: true },
     ],
     invalid: [{}, { automationId: ids.automation, deleted: false }],

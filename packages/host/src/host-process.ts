@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  AUTOMATION_QUIET_MARKER,
   type ClientIdentity,
   DESKTOP_RENDERER_ORIGINS,
   type EngineFeatures,
@@ -19,6 +20,7 @@ import packageJson from '../package.json' with { type: 'json' };
 import { HostAccounts } from './accounts.js';
 import { AppMcpServer } from './app-mcp.js';
 import { AppTools, engineSessionResolver } from './app-tools.js';
+import { automationRunMessage } from './automations/automation-tools.js';
 import { AutomationService } from './automations/service.js';
 import { BrowserBroker } from './browser-broker.js';
 import { ChatFolders } from './chats.js';
@@ -368,6 +370,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         const workspace = storage?.workspaces.get(workspaceId);
         return workspace !== undefined && chats.isChats(workspace);
       },
+      message: (automation, context) =>
+        automationRunMessage(automation, { ...context, marker: AUTOMATION_QUIET_MARKER }),
       onWarning: (message, fields) => logger.warn(message, fields),
     });
     const automationService = automations;
@@ -594,6 +598,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         memory: true,
         usage_stats: true,
         automations: true,
+        automation_conditions: true,
         ...(adapter.googleVertex === true && { google_vertex: true }),
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),

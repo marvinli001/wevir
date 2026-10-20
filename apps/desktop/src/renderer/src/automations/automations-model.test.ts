@@ -8,11 +8,13 @@ import {
   draftProblem,
   formatMoment,
   groupAutomations,
+  runTargetOf,
   scheduleOfDraft,
   scheduleText,
   shouldNotify,
   stateOf,
   updateParams,
+  withRunTarget,
   zonedTimeToUtc,
 } from './automations-model';
 
@@ -138,6 +140,13 @@ it('提醒：等待处理与失败除了“从不”都提醒，完成看设置�
   expect(shouldNotify('always', run({ quiet: true }))).toBe(true);
   expect(shouldNotify('failures', run({}))).toBe(false);
   expect(shouldNotify('always', run({ status: 'skipped' }))).toBe(false);
+  // 仅有变化（0.71.0）：与上次相同、无事可报都不提醒；检查脚本没唤醒的不提醒。
+  expect(shouldNotify('changes', run({}))).toBe(true);
+  expect(shouldNotify('changes', run({ unchanged: true }))).toBe(false);
+  expect(shouldNotify('changes', run({ quiet: true }))).toBe(false);
+  expect(shouldNotify('changes', run({ status: 'failed' }))).toBe(true);
+  expect(shouldNotify('always', run({ status: 'silent' }))).toBe(false);
+  expect(stateOf(automation({ lastRun: run({ status: 'checking' }) }))).toBe('running');
 });
 
 describe('表单', () => {
@@ -168,5 +177,45 @@ describe('表单', () => {
       model: { providerId: 'kimi', modelId: 'k2' },
     });
     expect(params).toMatchObject({ workspaceId: null, reasoningEffort: null, modelId: 'k2' });
+    expect(params?.check).toBeNull();
+    expect(params).not.toHaveProperty('sessionId');
+    expect(updateParams(automation(), draft, false)).not.toHaveProperty('check');
+  });
+
+  it('发进已有会话：不带项目与模型；会话没换不传 sessionId；改回新会话传 null', () => {
+    const inSession = withRunTarget(draft, 'ses_mine');
+    expect(runTargetOf(inSession)).toBe('ses_mine');
+    expect(createParams({ ...inSession, model: undefined })).toEqual({
+      title: 'Standup',
+      prompt: 'Summarize.',
+      schedule: { kind: 'daily', time: '09:00' },
+      timezone: TZ,
+      enabled: true,
+      permissionMode: 'on_request',
+      notify: 'important',
+      sessionId: 'ses_mine',
+    });
+    expect(draftProblem({ ...inSession, model: undefined })).toBeUndefined();
+    const bound = automation({ newSessionEachRun: false, sessionId: 'ses_mine' as never });
+    const edited = updateParams(bound, draftOfAutomation(bound, NOW));
+    expect(edited).not.toHaveProperty('sessionId');
+    expect(edited).not.toHaveProperty('workspaceId');
+    const fresh = withRunTarget(draftOfAutomation(bound, NOW), 'new');
+    expect(updateParams(bound, { ...fresh, model: draft.model })).toMatchObject({
+      sessionId: null,
+      newSessionEachRun: true,
+    });
+  });
+
+  it('检查脚本：去掉命令两头空白，命令为空时不能保存', () => {
+    const checked = {
+      ...draft,
+      check: { command: ' gh pr checks 1 ', wake: 'output_changed' as const },
+    };
+    expect(createParams(checked)?.check).toEqual({
+      command: 'gh pr checks 1',
+      wake: 'output_changed',
+    });
+    expect(draftProblem({ ...draft, check: { command: ' ', wake: 'exit_code' } })).toBe('check');
   });
 });

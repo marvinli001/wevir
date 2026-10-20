@@ -143,11 +143,13 @@ export function NotificationCoordinator() {
   const deliverRef = useRef(deliver);
   deliverRef.current = deliver;
 
-  // 会话事件 → 提醒。自动化开的会话不在这里提醒，按自动化的通知设置走下面的运行状态（0.66.0）。
+  // 会话事件 → 提醒。自动化开的会话、自动化的运行正在里面进行的已有会话（0.71.0）不在这里提醒，按自动化的通知设置走
+  // 下面的运行状态（0.66.0）。
+  const quietSessions = useRef(new Set<string>());
   useEffect(() => {
     if (!store) return;
     return store.onSessionEvent((event: WevirEvent, session: Session) => {
-      if (session.automation !== undefined) return;
+      if (session.automation !== undefined || quietSessions.current.has(session.id)) return;
       const kind = notificationKind(event, session);
       if (!kind || !isFresh(event, Date.now())) return;
       deliverRef.current(
@@ -163,8 +165,12 @@ export function NotificationCoordinator() {
   }, [store]);
 
   // 自动化的运行 → 提醒（0.66.0）：运行开出的会话先放进列表；状态变成等待处理、失败或完成时按自动化的通知设置提醒。
-  useAutomationRuns(client, store, sessions, (kind, target, key) =>
-    deliverRef.current(kind, target, key),
+  useAutomationRuns(
+    client,
+    store,
+    sessions,
+    (kind, target, key) => deliverRef.current(kind, target, key),
+    quietSessions,
   );
 
   // 窗口回到前台：收回全部系统通知，清掉角标。

@@ -9,15 +9,24 @@
 // 一次运行：按自动化的设置开会话（`newSessionEachRun` 为 `false` 时沿用 `sessionId`，那个会话不能用了就另开一个并换成它），
 // 改标题、发出指令，回合结束时按结果记 `completed` / `failed` / `cancelled`，摘下最后一条回答作 `summary`；回合等用户批准或回答
 // 时是 `waiting`。Host 重启时还在跑的运行记为 `cancelled`（回合已被打断）。
+//
+// 0.71.0：可以指定一个已有会话（`sessionId`），用它的项目与模型，每次往里面发一条消息；有检查脚本（`check`）时运行先是
+// `checking`，Host 跑完脚本（check.ts）按结论唤醒 Agent，或记 `silent`（连着的几次并成一条，不开回合）。`output_changed`
+// 的基准（上一次输出的摘要）与连着失败的次数存在同一个文件里，不出现在协议里；连着失败 `AUTOMATION_MAX_CONSECUTIVE_FAILURES`
+// 次自动停用，记 `autoPausedAt`。完成的运行的 `summary` 与上一次完成的相同时记 `unchanged`（`notify: "changes"`）。
 
 import { randomBytes } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  AUTOMATION_MAX_CONSECUTIVE_FAILURES,
   AUTOMATION_QUIET_MARKER,
   AUTOMATION_RUN_SUMMARY_MAX_LENGTH,
   AUTOMATION_RUNS_KEPT,
   type Automation,
+  type AutomationCheck,
+  type AutomationCheckResult,
   type AutomationCreator,
   type AutomationId,
   type AutomationRun,
@@ -37,6 +46,7 @@ import {
 import type { Storage } from '@wevir/storage';
 import { HostError } from '../errors.js';
 import { newId } from '../ids.js';
+import { type CheckExecutor, checkTimeoutMs, decide, runCheck } from './check.js';
 import { isValidTimezone, localTimezone, nextOccurrence } from './schedule.js';
 
 export type AutomationChanged = NotificationParams<'automation.changed'>;
@@ -77,20 +87,42 @@ export interface AutomationServiceOptions {
   identity: ClientIdentity;
   /** 这个工作区是不是“对话”工作区（不在项目中）；Host 没有对话时省略，此时自动化必须有项目。 */
   isChats?: (workspaceId: string) => boolean;
+  /** 跑检查脚本（测试换成假的）；省略时用 check.ts 的 `runCheck`。 */
+  runCheck?: CheckExecutor;
+  /** 不在项目中的检查脚本在哪个目录跑；省略时用户主目录。 */
+  homeDir?: string;
+  /**
+   * 发给 Agent 的消息（automation-tools.ts 的 `automationRunMessage`）：`existingSession` 表示发进的会话不是这个自动化开的，
+   * 那里没有运行须知。省略时只发指令。
+   */
+  message?: (
+    automation: Automation,
+    context: { existingSession: boolean; check?: AutomationCheckResult },
+  ) => string;
   now?: () => number;
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
+}
+
+/** 不出现在协议里的状态。 */
+interface EntryState {
+  /** `output_changed` 的基准：上一次检查的输出摘要。 */
+  checkBaseline?: string;
+  /** 连着失败的次数（完成或 `silent` 清零）。 */
+  failures?: number;
 }
 
 interface Entry {
   automation: Omit<Automation, 'lastRun'>;
   /** 新的在前。 */
   runs: AutomationRun[];
+  state: EntryState;
 }
 
 interface StoredFile {
   version: 1;
   automation: Omit<Automation, 'lastRun'>;
   runs: AutomationRun[];
+  state?: EntryState;
 }
 
 /** 进行中的运行。 */
@@ -145,6 +177,11 @@ export function answerOf(text: string): { summary?: string; quiet?: true } {
   };
 }
 
+/** 去掉命令两头的空白（schema 只校验 trim 后不空）。 */
+function normalizeCheck(check: AutomationCheck): AutomationCheck {
+  return { ...check, command: check.command.trim() };
+}
+
 const FINISHED: Record<TurnOutcome, AutomationRunStatus> = {
   completed: 'completed',
   failed: 'failed',
@@ -160,6 +197,8 @@ export class AutomationService {
   readonly #active = new Map<string, ActiveRun>();
   readonly #listeners = new Set<(change: AutomationChanged) => void>();
   readonly #writes = new Map<string, Promise<void>>();
+  /** 运行 ID → 在跑的检查脚本。 */
+  readonly #checks = new Map<string, { automationId: AutomationId; abort: AbortController }>();
   #timer: ReturnType<typeof setInterval> | undefined;
   #ticking = false;
   #loaded = false;
@@ -190,6 +229,7 @@ export class AutomationService {
         this.#entries.set(stored.automation.id, {
           automation: stored.automation,
           runs: Array.isArray(stored.runs) ? stored.runs : [],
+          state: typeof stored.state === 'object' && stored.state !== null ? stored.state : {},
         });
       } catch (error) {
         this.#options.onWarning?.('automation file unreadable', { file, error });
@@ -199,7 +239,7 @@ export class AutomationService {
     for (const entry of this.#entries.values()) {
       let changed = false;
       for (const run of entry.runs) {
-        if (run.status === 'running' || run.status === 'waiting') {
+        if (run.status === 'running' || run.status === 'waiting' || run.status === 'checking') {
           run.status = 'cancelled';
           run.finishedAt = iso(now);
           run.error = 'Interrupted when Wevir stopped.';
@@ -226,6 +266,8 @@ export class AutomationService {
 
   dispose(): void {
     this.stop();
+    for (const check of this.#checks.values()) check.abort.abort();
+    this.#checks.clear();
     for (const active of this.#active.values()) active.unsubscribe();
     this.#active.clear();
     this.#listeners.clear();
@@ -273,11 +315,21 @@ export class AutomationService {
   async create(params: CreateParams, createdBy: AutomationCreator): Promise<Automation> {
     const now = this.#now();
     const timezone = params.timezone ?? localTimezone();
-    this.#checkTarget({
-      timezone,
-      providerId: params.providerId,
-      workspaceId: params.workspaceId,
-    });
+    const target =
+      params.sessionId !== undefined
+        ? this.#targetOf(params.sessionId)
+        : {
+            ...(params.workspaceId !== undefined && { workspaceId: params.workspaceId }),
+            providerId: params.providerId,
+            ...(params.modelId !== undefined && { modelId: params.modelId }),
+            ...(params.reasoningEffort !== undefined && {
+              reasoningEffort: params.reasoningEffort,
+            }),
+          };
+    if (target.providerId === undefined) {
+      throw invalid('providerId', 'providerId is required unless sessionId is given');
+    }
+    this.#checkTarget({ timezone, providerId: target.providerId, workspaceId: target.workspaceId });
     this.#checkSchedule(params.schedule, now);
     const automation: Entry['automation'] = {
       id: newId('aut'),
@@ -286,13 +338,16 @@ export class AutomationService {
       schedule: params.schedule,
       timezone,
       enabled: params.enabled ?? true,
-      ...(params.workspaceId !== undefined && { workspaceId: params.workspaceId }),
-      providerId: params.providerId,
-      ...(params.modelId !== undefined && { modelId: params.modelId }),
-      ...(params.reasoningEffort !== undefined && { reasoningEffort: params.reasoningEffort }),
+      ...(target.workspaceId !== undefined && { workspaceId: target.workspaceId }),
+      providerId: target.providerId,
+      ...(target.modelId !== undefined && { modelId: target.modelId }),
+      ...(target.reasoningEffort !== undefined && { reasoningEffort: target.reasoningEffort }),
       permissionMode: params.permissionMode ?? 'on_request',
-      newSessionEachRun: params.newSessionEachRun ?? true,
+      newSessionEachRun:
+        params.sessionId === undefined ? (params.newSessionEachRun ?? true) : false,
       notify: params.notify ?? 'important',
+      ...(params.check !== undefined && { check: normalizeCheck(params.check) }),
+      ...(params.sessionId !== undefined && { sessionId: params.sessionId }),
       createdBy,
       createdAt: iso(now),
       updatedAt: iso(now),
@@ -300,7 +355,7 @@ export class AutomationService {
     };
     const next = automation.enabled ? this.#next(automation, now) : undefined;
     if (next !== undefined) automation.nextRunAt = iso(next);
-    const entry: Entry = { automation, runs: [] };
+    const entry: Entry = { automation, runs: [], state: {} };
     this.#entries.set(automation.id, entry);
     await this.#save(entry);
     this.#emit({ automationId: automation.id });
@@ -343,9 +398,33 @@ export class AutomationService {
     if (params.permissionMode !== undefined) next.permissionMode = params.permissionMode;
     if (params.newSessionEachRun !== undefined) next.newSessionEachRun = params.newSessionEachRun;
     if (params.notify !== undefined) next.notify = params.notify;
+    let resetBaseline = false;
+    if (params.check !== undefined) {
+      const check = params.check === null ? undefined : normalizeCheck(params.check);
+      if (JSON.stringify(check) !== JSON.stringify(current.check)) resetBaseline = true;
+      if (check === undefined) delete next.check;
+      else next.check = check;
+    }
+    if (params.sessionId === null) {
+      delete next.sessionId;
+      if (params.newSessionEachRun === undefined) next.newSessionEachRun = true;
+    }
+    if (params.sessionId != null) {
+      const target = this.#targetOf(params.sessionId);
+      if (target.workspaceId === undefined) delete next.workspaceId;
+      else next.workspaceId = target.workspaceId;
+      next.providerId = target.providerId;
+      if (target.modelId === undefined) delete next.modelId;
+      else next.modelId = target.modelId;
+      if (target.reasoningEffort === undefined) delete next.reasoningEffort;
+      else next.reasoningEffort = target.reasoningEffort;
+      next.sessionId = params.sessionId;
+      next.newSessionEachRun = false;
+    }
     this.#checkTarget(next);
     // 换了项目，沿用的会话不再适用。
-    if (next.workspaceId !== current.workspaceId) delete next.sessionId;
+    if (next.workspaceId !== current.workspaceId && params.sessionId == null) delete next.sessionId;
+    if (params.enabled === true) delete next.autoPausedAt;
     const timing =
       params.schedule !== undefined ||
       params.timezone !== undefined ||
@@ -358,6 +437,8 @@ export class AutomationService {
     }
     next.updatedAt = iso(now);
     entry.automation = next;
+    if (resetBaseline) delete entry.state.checkBaseline;
+    if (params.enabled === true) delete entry.state.failures;
     await this.#save(entry);
     this.#emit({ automationId: next.id });
     return this.#view(entry);
@@ -367,6 +448,11 @@ export class AutomationService {
     const entry = this.#entry(automationId);
     const id = entry.automation.id;
     this.#entries.delete(id);
+    for (const [runId, check] of this.#checks) {
+      if (check.automationId !== id) continue;
+      check.abort.abort();
+      this.#checks.delete(runId);
+    }
     for (const [runId, active] of this.#active) {
       if (active.automationId !== id) continue;
       active.unsubscribe();
@@ -382,7 +468,43 @@ export class AutomationService {
     if (this.#running(entry)) {
       throw invalid('automationId', 'a run of this automation is still in progress');
     }
+    const bound = this.#boundSession(entry.automation);
+    if (bound !== undefined && bound.state !== 'idle' && bound.state !== 'error') {
+      throw invalid('automationId', `its session ${bound.id} is busy; try again when it is idle`);
+    }
     return this.#run(entry, 'manual');
+  }
+
+  /**
+   * 试跑一次检查脚本（`automation.testCheck`）：不唤醒、不记运行、不改基准。
+   */
+  async testCheck(params: MethodParams<'automation.testCheck'>): Promise<AutomationCheckResult> {
+    const entry = params.automationId === undefined ? undefined : this.#entry(params.automationId);
+    let cwd: string;
+    if (params.sessionId !== undefined) {
+      const session = this.#options.events.snapshot(params.sessionId)?.session;
+      if (session === undefined) {
+        throw new HostError('SESSION_NOT_FOUND', `session ${params.sessionId} not found`);
+      }
+      cwd = session.cwd;
+    } else if (params.workspaceId !== undefined) {
+      const workspace = this.#options.storage.workspaces.get(params.workspaceId);
+      if (workspace === undefined || workspace.removedAt !== undefined) {
+        throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${params.workspaceId} not found`);
+      }
+      cwd = this.#isChatsWorkspace(params.workspaceId) ? this.#homeDir() : workspace.rootPath;
+    } else {
+      cwd = entry === undefined ? this.#homeDir() : this.#checkDir(entry.automation);
+    }
+    const check = normalizeCheck(params.check);
+    const outcome = await (this.#options.runCheck ?? runCheck)({
+      command: check.command,
+      cwd,
+      timeoutMs: checkTimeoutMs(check),
+    });
+    const sameCheck =
+      entry !== undefined && JSON.stringify(entry.automation.check) === JSON.stringify(check);
+    return decide(check, outcome, sameCheck ? entry.state.checkBaseline : undefined).result;
   }
 
   /** 看一遍到点的自动化（定时器调用，测试直接调）。 */
@@ -493,19 +615,113 @@ export class AutomationService {
       id: newId('arn'),
       automationId: automation.id,
       trigger,
-      status: 'running',
+      status: automation.check === undefined ? 'running' : 'checking',
       startedAt: iso(now),
     };
     this.#addRun(entry, run);
     await this.#save(entry);
     this.#emit({ automationId: automation.id, run: { ...run } });
+    if (automation.check === undefined) {
+      await this.#wake(entry, run);
+    } else {
+      // 检查脚本可能跑上几分钟：不挡住计时与 `automation.run` 的返回。
+      void this.#checkThenWake(entry, run, automation.check);
+    }
+    return { ...run };
+  }
+
+  /** 跑检查脚本，按结论唤醒 Agent、记 `silent` 或 `failed`。 */
+  async #checkThenWake(entry: Entry, run: AutomationRun, check: AutomationCheck): Promise<void> {
+    const automationId = entry.automation.id;
+    const abort = new AbortController();
+    this.#checks.set(run.id, { automationId, abort });
+    let result: AutomationCheckResult;
+    const before = entry.state.checkBaseline;
+    try {
+      const outcome = await (this.#options.runCheck ?? runCheck)({
+        command: check.command,
+        cwd: this.#checkDir(entry.automation),
+        timeoutMs: checkTimeoutMs(check),
+        signal: abort.signal,
+      });
+      const decided = decide(check, outcome, entry.state.checkBaseline);
+      result = decided.result;
+      if (decided.baseline !== undefined) entry.state.checkBaseline = decided.baseline;
+    } catch (error) {
+      result = {
+        decision: 'failed',
+        exitCode: null,
+        durationMs: 0,
+        output: '',
+        error: errorMessage(error),
+      };
+    } finally {
+      this.#checks.delete(run.id);
+    }
+    // 跑的期间自动化删了。
+    if (this.#entries.get(automationId) !== entry || abort.signal.aborted) return;
+    run.check = result;
+    if (result.decision === 'failed') {
+      this.#finish(automationId, run.id, 'failed', { error: result.error ?? 'The check failed.' });
+      return;
+    }
+    if (result.decision === 'silent') {
+      this.#silent(entry, run);
+      return;
+    }
+    // 等脚本的期间，沿用的会话被用户用上了：这次算跳过，基准不动，下一次照样看得出变化。
+    const bound = this.#boundSession(entry.automation);
+    if (bound !== undefined && bound.state !== 'idle' && bound.state !== 'error') {
+      if (before === undefined) delete entry.state.checkBaseline;
+      else entry.state.checkBaseline = before;
+      this.#finish(automationId, run.id, 'skipped', { error: 'Its session was busy.' });
+      return;
+    }
+    run.status = 'running';
+    void this.#save(entry);
+    this.#emit({ automationId, run: { ...run } });
+    await this.#wake(entry, run);
+  }
+
+  /** 检查脚本判定不用唤醒：记 `silent`；上一条也是 `silent` 时并进它。 */
+  #silent(entry: Entry, run: AutomationRun): void {
+    const now = iso(this.#now());
+    entry.state.failures = 0;
+    const index = entry.runs.indexOf(run);
+    const previous = index === -1 ? undefined : entry.runs[index + 1];
+    let kept = run;
+    if (index === 0 && previous?.status === 'silent') {
+      entry.runs.splice(0, 1);
+      previous.trigger = run.trigger;
+      previous.startedAt = run.startedAt;
+      if (run.check !== undefined) previous.check = run.check;
+      kept = previous;
+    }
+    kept.status = 'silent';
+    kept.finishedAt = now;
+    void this.#save(entry);
+    this.#emit({ automationId: entry.automation.id, run: { ...kept } });
+  }
+
+  /** 开会话（或用沿用的）、发出指令、盯住回合。 */
+  async #wake(entry: Entry, run: AutomationRun): Promise<void> {
+    const { automation } = entry;
     try {
       const sessionId = await this.#sessionFor(entry, run);
       run.sessionId = sessionId;
+      const origin = this.#options.storage.sessions.get(sessionId)?.origin;
+      const existingSession = !(
+        origin?.kind === 'automation' && origin.automationId === automation.id
+      );
+      const text =
+        this.#options.message?.(this.#view(entry), {
+          existingSession,
+          ...(run.check !== undefined && { check: run.check }),
+        }) ?? automation.prompt;
       const sent = await this.#options.sessions.send(
         {
           sessionId,
-          content: [{ type: 'text', text: automation.prompt }],
+          content: [{ type: 'text', text }],
           clientMessageId: run.id,
         },
         this.#options.identity,
@@ -518,7 +734,6 @@ export class AutomationService {
     } catch (error) {
       this.#finish(automation.id, run.id, 'failed', { error: errorMessage(error) });
     }
-    return { ...run };
   }
 
   /** 这次运行发进哪个会话：沿用的会话还能用就用它，否则开一个新的。 */
@@ -619,8 +834,38 @@ export class AutomationService {
     if (detail.error !== undefined) run.error = detail.error;
     if (detail.summary !== undefined) run.summary = detail.summary;
     if (detail.quiet === true) run.quiet = true;
+    if (status === 'completed') {
+      entry.state.failures = 0;
+      const previous = entry.runs
+        .slice(entry.runs.indexOf(run) + 1)
+        .find((candidate) => candidate.status === 'completed');
+      if (
+        previous !== undefined &&
+        (previous.summary ?? '') === (run.summary ?? '') &&
+        previous.quiet === run.quiet
+      ) {
+        run.unchanged = true;
+      }
+    }
+    if (status === 'failed') this.#failed(entry);
     void this.#save(entry);
     this.#emit({ automationId, run: { ...run } });
+  }
+
+  /** 又失败一次；连着 `AUTOMATION_MAX_CONSECUTIVE_FAILURES` 次时停用。 */
+  #failed(entry: Entry): void {
+    const failures = (entry.state.failures ?? 0) + 1;
+    entry.state.failures = failures;
+    const { automation } = entry;
+    if (failures < AUTOMATION_MAX_CONSECUTIVE_FAILURES || !automation.enabled) return;
+    automation.enabled = false;
+    delete automation.nextRunAt;
+    automation.autoPausedAt = iso(this.#now());
+    automation.updatedAt = automation.autoPausedAt;
+    this.#options.onWarning?.('automation paused after repeated failures', {
+      automationId: automation.id,
+      failures,
+    });
   }
 
   /** 回合最后一条回答：开头作 `summary`；以 `AUTOMATION_QUIET_MARKER` 结尾时是 `quiet`。 */
@@ -638,8 +883,10 @@ export class AutomationService {
     for (const active of this.#active.values()) {
       if (active.automationId === entry.automation.id) return true;
     }
-    // 刚记下、还在开会话的运行（还没进 #active）。
-    return entry.runs.some((run) => run.status === 'running' && run.turnId === undefined);
+    // 在跑检查脚本，或刚记下、还在开会话的运行（还没进 #active）。
+    return entry.runs.some(
+      (run) => run.status === 'checking' || (run.status === 'running' && run.turnId === undefined),
+    );
   }
 
   #addRun(entry: Entry, run: AutomationRun): void {
@@ -692,6 +939,50 @@ export class AutomationService {
     }
   }
 
+  /** 发进已有会话时自动化的项目与模型取那个会话的（`sessionId`）。 */
+  #targetOf(sessionId: SessionId): {
+    workspaceId?: Automation['workspaceId'];
+    providerId: Automation['providerId'];
+    modelId?: string;
+    reasoningEffort?: string;
+  } {
+    const record = this.#options.storage.sessions.get(sessionId);
+    const session = this.#options.events.snapshot(sessionId)?.session;
+    if (record === undefined || session === undefined) {
+      throw new HostError('SESSION_NOT_FOUND', `session ${sessionId} not found`);
+    }
+    if (record.archivedAt !== undefined) throw invalid('sessionId', 'the session is archived');
+    if (session.state === 'closed') throw invalid('sessionId', 'the session is closed');
+    if (session.readOnly !== undefined || session.parentSessionId !== undefined) {
+      throw invalid('sessionId', 'the session cannot take new messages');
+    }
+    return {
+      ...(!this.#isChatsWorkspace(session.workspaceId) && { workspaceId: session.workspaceId }),
+      providerId: session.providerId,
+      modelId: session.modelId,
+      ...(session.reasoningEffort !== undefined && { reasoningEffort: session.reasoningEffort }),
+    };
+  }
+
+  /** 检查脚本在哪跑：沿用的会话的目录 > 项目目录 > 用户主目录。 */
+  #checkDir(automation: Entry['automation']): string {
+    const bound = this.#boundSession(automation);
+    if (bound !== undefined) return bound.cwd;
+    if (automation.workspaceId !== undefined) {
+      const workspace = this.#options.storage.workspaces.get(automation.workspaceId);
+      if (workspace !== undefined && workspace.removedAt === undefined) return workspace.rootPath;
+    }
+    return this.#homeDir();
+  }
+
+  #homeDir(): string {
+    return this.#options.homeDir ?? homedir();
+  }
+
+  #isChatsWorkspace(workspaceId: string): boolean {
+    return this.#options.isChats?.(workspaceId) === true;
+  }
+
   #entry(automationId: string): Entry {
     const entry = this.#entries.get(automationId as AutomationId);
     if (entry === undefined) {
@@ -727,7 +1018,12 @@ export class AutomationService {
     return this.#queue(id, async () => {
       if (!this.#entries.has(id)) return;
       await mkdir(this.#options.dir, { recursive: true, mode: 0o700 });
-      const stored: StoredFile = { version: 1, automation: entry.automation, runs: entry.runs };
+      const stored: StoredFile = {
+        version: 1,
+        automation: entry.automation,
+        runs: entry.runs,
+        ...(Object.keys(entry.state).length > 0 && { state: entry.state }),
+      };
       const file = this.#file(id);
       const tmp = `${file}.${randomBytes(4).toString('hex')}.tmp`;
       await writeFile(tmp, `${JSON.stringify(stored, null, 2)}\n`, { mode: 0o600 });

@@ -1180,6 +1180,9 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'automation.run': async ({ automationId }) => ({
       run: await automations().runNow(automationId),
     }),
+    'automation.testCheck': async (params) => ({
+      result: await automations().testCheck(params),
+    }),
     'tools.presets': async () => {
       if (options.toolPresets === undefined) {
         throw invalidParams([], 'this host has no Wevir app tools');

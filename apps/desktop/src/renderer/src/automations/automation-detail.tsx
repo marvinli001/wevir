@@ -1,13 +1,15 @@
 // 自动化详情（0.66.0，`/automations/:automationId`）：标题与启用开关、立即运行、编辑、⋯；设置一张卡片（计划、下一次、项目、模型、
-// 权限、通知、运行方式、创建者）；指令；运行记录（新的在前，点开运行所在的会话）。
+// 权限、通知、运行方式、检查脚本、创建者）；连续失败自动暂停时一行说明（0.71.0）；指令；运行记录（新的在前，点开运行所在的会话）。
 
 import type { WevirClient } from '@wevir/client-sdk';
-import type {
-  Automation,
-  AutomationId,
-  AutomationNotify,
-  AutomationRun,
-  AutomationRunStatus,
+import {
+  AUTOMATION_MAX_CONSECUTIVE_FAILURES,
+  type Automation,
+  type AutomationCheckWake,
+  type AutomationId,
+  type AutomationNotify,
+  type AutomationRun,
+  type AutomationRunStatus,
 } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
@@ -15,6 +17,7 @@ import {
   CalendarClock,
   ChevronLeft,
   CircleCheck,
+  CircleMinus,
   CircleX,
   Hand,
   LoaderCircle,
@@ -45,6 +48,7 @@ import { useAutomation } from './use-automations';
 const NOTIFY_LABEL: Record<AutomationNotify, PlainMessageKey> = {
   always: 'automations.notify.always',
   important: 'automations.notify.important',
+  changes: 'automations.notify.changes',
   failures: 'automations.notify.failures',
   never: 'automations.notify.never',
 };
@@ -53,12 +57,19 @@ const RUN_META: Record<
   AutomationRunStatus,
   { label: PlainMessageKey; icon: typeof Play; tone: string }
 > = {
+  checking: { label: 'automations.run.checking', icon: LoaderCircle, tone: 'text-running' },
   running: { label: 'automations.run.running', icon: LoaderCircle, tone: 'text-running' },
   waiting: { label: 'automations.run.waiting', icon: Hand, tone: 'text-warning' },
   completed: { label: 'automations.run.completed', icon: CircleCheck, tone: 'text-success' },
   failed: { label: 'automations.run.failed', icon: CircleX, tone: 'text-destructive' },
   cancelled: { label: 'automations.run.cancelled', icon: Ban, tone: 'text-muted-foreground' },
   skipped: { label: 'automations.run.skipped', icon: SkipForward, tone: 'text-muted-foreground' },
+  silent: { label: 'automations.run.silent', icon: CircleMinus, tone: 'text-muted-foreground' },
+};
+
+const WAKE_LABEL: Record<AutomationCheckWake, PlainMessageKey> = {
+  exit_code: 'automations.wake.exit_code',
+  output_changed: 'automations.wake.output_changed',
 };
 
 export function AutomationDetail({
@@ -153,6 +164,16 @@ export function AutomationDetail({
               <NoticeBanner notice={notice} />
             </div>
           )}
+          {automation.autoPausedAt !== undefined && !automation.enabled && (
+            <div className="mb-4" data-testid="automation-auto-paused">
+              <NoticeBanner
+                notice={{
+                  tone: 'error',
+                  text: t('automations.autoPaused', { count: AUTOMATION_MAX_CONSECUTIVE_FAILURES }),
+                }}
+              />
+            </div>
+          )}
 
           <Settings automation={automation} />
 
@@ -238,6 +259,19 @@ function Settings({ automation }: { automation: Automation }) {
           ? sessionLink(ready?.workspaces, automation.sessionId, t('automations.runsIn.same'))
           : t('automations.runsIn.same'),
     ],
+    ...(automation.check === undefined
+      ? []
+      : [
+          [
+            'automations.field.check',
+            <span key="check" className="flex flex-col gap-0.5">
+              <code className="font-mono text-xs break-all">{automation.check.command}</code>
+              <span className="text-xs text-muted-foreground">
+                {t('automations.field.wake')} · {t(WAKE_LABEL[automation.check.wake])}
+              </span>
+            </span>,
+          ] as [PlainMessageKey, ReactNode],
+        ]),
     ['automations.field.creator', creator],
   ];
   return (
@@ -289,7 +323,10 @@ function RunRow({ run, timezone }: { run: AutomationRun; timezone: string }) {
     run.sessionId !== undefined && workbench.status === 'ready'
       ? sessionPath(workbench.workspaces, run.sessionId)
       : undefined;
-  const detail = run.error ?? (run.quiet ? t('automations.run.quiet') : run.summary);
+  const detail =
+    run.error ??
+    (run.quiet ? t('automations.run.quiet') : run.summary) ??
+    (run.check === undefined ? undefined : checkDetail(run.check));
   const content = (
     <>
       <Icon
@@ -297,7 +334,7 @@ function RunRow({ run, timezone }: { run: AutomationRun; timezone: string }) {
         className={cn(
           'mt-0.5 size-4 shrink-0',
           meta.tone,
-          run.status === 'running' && 'animate-spin',
+          (run.status === 'running' || run.status === 'checking') && 'animate-spin',
         )}
       />
       <span className="min-w-0 flex-1">
@@ -335,4 +372,14 @@ function RunRow({ run, timezone }: { run: AutomationRun; timezone: string }) {
       )}
     </li>
   );
+}
+
+/** 没有回答的运行（检查脚本没唤醒）显示脚本输出的最后一行，没有输出时显示退出码。 */
+function checkDetail(check: NonNullable<AutomationRun['check']>): string {
+  const last = check.output
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1);
+  return last ?? t('automations.check.exitCode', { code: check.exitCode ?? '—' });
 }

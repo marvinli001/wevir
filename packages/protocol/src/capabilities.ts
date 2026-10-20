@@ -293,6 +293,12 @@ export const HOST_FEATURES = {
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',
+  /**
+   * 自动化的条件与目标（0.71.0）：`automation.create` / `update` 的 `sessionId`（发进已有会话）与 `check`（检查脚本决定唤不唤醒
+   * Agent）、`automation.testCheck`、运行状态 `checking` / `silent`、通知 `changes` 与连续失败自动停用（`autoPausedAt`）。
+   * 有 `automations` 时声明。
+   */
+  automationConditions: 'automation_conditions',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -354,6 +360,7 @@ export const HostFeaturesSchema = z.looseObject({
   git_commit: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
+  automation_conditions: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
