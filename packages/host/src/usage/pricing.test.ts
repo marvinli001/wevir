@@ -155,6 +155,9 @@ describe('PricingStore', () => {
       input: 4,
       output: 18,
     });
+    expect(store.lookup('gemini-3-pro-high', { source: 'antigravity' }, 1)?.price).toEqual(
+      store.lookup('gemini-3-pro', { source: 'antigravity' }, 1)?.price,
+    );
   });
 
   it('自填的 Provider 按地址认；路径最长的那家优先', async () => {
@@ -251,6 +254,15 @@ describe('价格表的辅助函数', () => {
     expect(modelCandidates('gemini-3-pro-2026-01-15')).toEqual([
       'gemini-3-pro-2026-01-15',
       'gemini-3-pro',
+    ]);
+    // Antigravity 的思考档位。
+    expect(modelCandidates('gemini-3.8-flash-high')).toEqual([
+      'gemini-3.8-flash-high',
+      'gemini-3.8-flash',
+    ]);
+    expect(modelCandidates('claude-opus-4-6-thinking')).toEqual([
+      'claude-opus-4-6-thinking',
+      'claude-opus-4-6',
     ]);
   });
 

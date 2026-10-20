@@ -368,6 +368,9 @@ importers:
       '@wevir/runtime-adapter':
         specifier: workspace:*
         version: link:../runtime-adapter
+      '@wevir/storage':
+        specifier: workspace:*
+        version: link:../storage
       yauzl:
         specifier: 3.4.0
         version: 3.4.0

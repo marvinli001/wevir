@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { BUSY_TIMEOUT_MS, openDatabase } from './driver.js';
+import { BUSY_TIMEOUT_MS, openDatabase, openReadOnlyDatabase } from './driver.js';
 import { useTempDir, useTempStorage } from './test-utils.js';
 
 describe('openDatabase', () => {
@@ -31,6 +31,29 @@ describe('openDatabase', () => {
     } finally {
       db.close();
     }
+  });
+});
+
+describe('openReadOnlyDatabase', () => {
+  const dataDir = useTempDir();
+
+  it('读得到别人写的库（含 WAL 里没合并的），写不进，不建文件', () => {
+    const file = join(dataDir(), 'other.db');
+    const writer = openDatabase(file);
+    try {
+      writer.exec('CREATE TABLE t (v INTEGER); INSERT INTO t VALUES (7)');
+      const reader = openReadOnlyDatabase(file);
+      try {
+        expect(reader.prepare('SELECT v FROM t').all()).toEqual([{ v: 7 }]);
+        expect(() => reader.exec('INSERT INTO t VALUES (8)')).toThrow(/readonly/);
+      } finally {
+        reader.close();
+      }
+    } finally {
+      writer.close();
+    }
+    expect(() => openReadOnlyDatabase(join(dataDir(), 'missing.db'))).toThrow();
+    expect(existsSync(join(dataDir(), 'missing.db'))).toBe(false);
   });
 });
 

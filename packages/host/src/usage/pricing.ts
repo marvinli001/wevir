@@ -303,7 +303,7 @@ function tierFor(entry: ModelPrice, promptTokens: number): UsagePrice {
 
 /**
  * 模型 ID 的几种写法，越靠前越精确：原样、去掉 `厂商/` 前缀、去掉 `[1m]` 这类后缀、去掉日期（`-20251001`、`-2025-10-01`）、
- * 去掉 `-latest`。
+ * 去掉 `-latest`、去掉思考档位（Antigravity 的 `gemini-3.8-flash-high`、`…-thinking`；价格表里只有不带档位的）。
  */
 export function modelCandidates(model: string): string[] {
   const out: string[] = [];
@@ -323,7 +323,9 @@ export function modelCandidates(model: string): string[] {
   add(id);
   const undated = id.replace(/-(\d{8}|\d{4}-\d{2}-\d{2})$/, '');
   add(undated);
-  add(undated.replace(/-latest$/, ''));
+  const unaliased = undated.replace(/-latest$/, '');
+  add(unaliased);
+  add(unaliased.replace(/(-(minimal|low|medium|high|xhigh|extra-high|thinking))+$/i, ''));
   return out;
 }
 
