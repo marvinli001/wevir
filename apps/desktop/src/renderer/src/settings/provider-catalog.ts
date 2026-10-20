@@ -152,6 +152,14 @@ export const PROVIDER_CATALOG: readonly CatalogEntry[] = [
     keyURL: 'https://platform.minimax.cn/user-center/basic-information/interface-key',
   },
   {
+    id: 'tencent',
+    name: 'provider.catalog.tencent',
+    logo: 'tencent',
+    group: 'cn',
+    source: preset('tencent'),
+    keyURL: 'https://console.cloud.tencent.com/tokenhub/apikey',
+  },
+  {
     id: 'ollama-cloud',
     name: 'provider.catalog.ollamaCloud',
     logo: 'ollama',
@@ -208,6 +216,7 @@ const HOST_LOGOS: [RegExp, ProviderLogoId][] = [
   [/(^|\.)bigmodel\.cn$/, 'zhipu'],
   [/(^|\.)xiaomimimo\.com$/, 'mimo'],
   [/(^|\.)(minimax\.cn|minimaxi\.com|minimax\.io)$/, 'minimax'],
+  [/(^|\.)(tencentcloudmaas\.com|tencentmaas\.com|tencentcloudmaas\.tech)$/, 'tencent'],
 ];
 
 /** 已有 Provider 的标志：DeepSeek 官方与 ChatGPT 按种类，其余按地址的主机名，本机 11434 端口当作 Ollama。 */

@@ -1332,6 +1332,11 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'MiMo 開放プラットフォームの従量課金 API キーが必要',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': '国際版: https://api.minimax.io/v1',
+  'provider.catalog.tencent': 'Tencent Cloud TokenHub',
+  'provider.preset.tencent.note':
+    '広州の従量課金、中国本土から直接接続可。シンガポール・米国は地域別 URL とキーが必要',
+  'provider.tokenhub.activation.title': 'モデルの従量課金が未有効',
+  'provider.tokenhub.activation.hint': 'Tencent Cloud コンソールでこのモデルの従量課金を有効にする',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

@@ -7,6 +7,7 @@ import {
   isDeepSeekHost,
   isKimiHost,
   isMinimaxHost,
+  isTencentHost,
   isXaiHost,
 } from './providers.js';
 import {
@@ -173,6 +174,17 @@ export const autoOnlyToolChoice: DialectFix = {
     }
     return { body: { ...body, tool_choice: choice } };
   },
+};
+
+/** TokenHub 摊平 namespace 前保留 MCP 使用说明；显式支持 namespace 时不改（§3.13）。 */
+export const tokenhubMcpInstructions: DialectFix = {
+  id: 'tokenhub-mcp-instructions',
+  applies: (provider) =>
+    provider.kind === 'openai-compatible' &&
+    provider.api === 'openai-responses' &&
+    isTencentHost(provider.baseURL ?? '') &&
+    effectiveCompat(provider).supportsNamespaceTools === false,
+  apply: (body) => ({ body: withMcpNotes(body) }),
 };
 
 const azureResponses = (provider: GatewayProvider): boolean =>
@@ -382,6 +394,7 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   kimiDataImagesOnly,
   minimaxReasoning,
   deepseekNamespaceDescription,
+  tokenhubMcpInstructions,
   autoOnlyToolChoice,
   flattenCustomTools,
   flattenNamespaceTools,

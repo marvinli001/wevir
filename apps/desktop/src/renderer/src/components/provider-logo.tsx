@@ -16,6 +16,7 @@ import ollama from '@/assets/provider-logos/ollama.svg';
 import openai from '@/assets/provider-logos/openai.svg';
 import opencode from '@/assets/provider-logos/opencode.svg';
 import qwen from '@/assets/provider-logos/qwen-color.svg';
+import tencent from '@/assets/provider-logos/tencentcloud-color.svg';
 import vertex from '@/assets/provider-logos/vertexai-color.svg';
 import xai from '@/assets/provider-logos/xai.svg';
 import mimo from '@/assets/provider-logos/xiaomimimo.svg';
@@ -43,6 +44,7 @@ const LOGOS = {
   kimi: { src: kimi, mono: false, light: kimiLight },
   mimo: { src: mimo, mono: true },
   minimax: { src: minimax, mono: false },
+  tencent: { src: tencent, mono: false },
   zhipu: { src: zhipu, mono: false },
   zai: { src: zai, mono: true },
   xai: { src: xai, mono: true },

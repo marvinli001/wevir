@@ -1322,6 +1322,11 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'MiMo 플랫폼 종량제 API 키 필요',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': '국제 사이트: https://api.minimax.io/v1',
+  'provider.catalog.tencent': 'Tencent Cloud TokenHub',
+  'provider.preset.tencent.note':
+    '광저우 종량제, 중국 본토에서 직접 연결 가능. 싱가포르·미국은 지역별 주소와 키 필요',
+  'provider.tokenhub.activation.title': '모델 후불 요금제 비활성화',
+  'provider.tokenhub.activation.hint': 'Tencent Cloud 콘솔에서 해당 모델의 후불 요금제 활성화',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

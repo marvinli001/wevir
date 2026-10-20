@@ -1081,7 +1081,118 @@ describe('本地检查', () => {
   });
 });
 
+describe('TokenHub 按量模板', () => {
+  it('广州模板保存 Hy3 / Hy4 的能力与工具兼容值，地域地址可手动更换', () => {
+    const entry = catalogEntry('tencent');
+    if (entry?.source?.kind !== 'preset') throw new Error('缺少 TokenHub 模板');
+    expect(entry).toMatchObject({
+      group: 'cn',
+      logo: 'tencent',
+      keyURL: 'https://console.cloud.tencent.com/tokenhub/apikey',
+    });
+    const preset = entry.source.preset;
+    const form = { ...newOpenAIForm(preset, []), apiKey: 'placeholder-not-a-real-key' };
+    expect(validateForm(form, [])).toEqual({});
+    const created = upsertSchema.parse(toUpsertParams(form));
+    if (created.kind !== 'openai-compatible') throw new Error('TokenHub 的 Provider 类型不对');
+    expect(created).toMatchObject({
+      id: 'tencent',
+      displayName: '腾讯云 TokenHub',
+      api: 'openai-responses',
+      baseURL: 'https://tokenhub.tencentcloudmaas.com/v1',
+      defaultModelId: 'hy3',
+      compat: {
+        supportsCustomTools: false,
+        supportsNamespaceTools: false,
+        toolChoice: 'auto_only',
+      },
+      models: [
+        {
+          id: 'hy3',
+          contextWindow: 262144,
+          maxTokens: 131072,
+          reasoningEfforts: ['off', 'low', 'high'],
+        },
+        {
+          id: 'hy4-preview',
+          contextWindow: 1000000,
+          maxTokens: 64000,
+          reasoningEfforts: ['off', 'high'],
+        },
+      ],
+    });
+    expect(created.models).toHaveLength(2);
+    expect(preset.note).toBe('provider.preset.tencent.note');
+    expect(preset.docsURL).toBe('https://intl.cloud.tencent.com/zh/document/product/1300/82454');
+    for (const baseURL of [
+      'https://tokenhub.tencentmaas.com/v1',
+      'https://tokenhub-intl.tencentcloudmaas.com/v1',
+      'https://tokenhub-us.tencentcloudmaas.tech/v1',
+    ]) {
+      const regional = upsertSchema.parse(toUpsertParams({ ...form, baseURL }));
+      expect(regional).toMatchObject({ baseURL, compat: created.compat, models: created.models });
+      expect(providerLogo({ kind: 'openai-compatible', baseURL })).toBe('tencent');
+    }
+    expect(toUpsertParams({ ...form, baseURL: 'https://proxy.example.org/v1' })).toHaveProperty(
+      'compat',
+      preset.compat,
+    );
+    expect(
+      providerLogo({
+        kind: 'openai-compatible',
+        baseURL: 'https://tokenhub.tencentmaas.com.fake.org/v1',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('不迁移已有 Chat Provider 的模型与显式配置', () => {
+    const old = profile({
+      id: 'tencent',
+      displayName: 'My TokenHub',
+      api: 'openai-completions',
+      baseURL: 'https://tokenhub.tencentcloudmaas.com/v1',
+      models: [{ id: 'hy3', contextWindow: 128000 }],
+      defaultModelId: 'hy3',
+      compat: { thinkingFormat: 'tencent', toolChoice: 'any' },
+    });
+    expect(toUpsertParams(editForm(old))).toMatchObject({
+      api: old.api,
+      baseURL: old.baseURL,
+      models: old.models,
+      compat: old.compat,
+    });
+    expect(toUpsertParams(editForm(old))).not.toHaveProperty('apiKey');
+  });
+});
+
 describe('测试连接的结果', () => {
+  it('TokenHub 未开通后付费时给出开通模型的提示，保留诊断原文', () => {
+    expect(
+      presentTestResult({
+        ok: false,
+        reason: 'unknown',
+        httpStatus: 402,
+        error: {
+          category: 'unknown',
+          code: 'tokenhub_model_not_enabled',
+          message: '401007 · postpaid disabled',
+        },
+      }),
+    ).toEqual({
+      ok: false,
+      title: '模型未开通后付费',
+      hint: '在腾讯云控制台开通该模型的后付费',
+      detail: '401007 · postpaid disabled',
+    });
+    expect(
+      presentTestResult({
+        ok: false,
+        reason: 'unknown',
+        httpStatus: 402,
+        error: { category: 'unknown', message: 'other payment required' },
+      }),
+    ).toEqual({ ok: false, title: '测试失败', detail: 'other payment required' });
+  });
   it('成功：带用时，不到 1 秒用毫秒', () => {
     expect(presentTestResult({ ok: true, latencyMs: 812 }).title).toBe('连接成功，用时 812 毫秒');
     expect(presentTestResult({ ok: true, latencyMs: 2345 }).title).toBe('连接成功，用时 2.3 秒');

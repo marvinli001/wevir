@@ -5,7 +5,13 @@
 import type { ProviderTestFailure, ProviderTestResult } from '@wevir/runtime-adapter';
 import { normalizeErrorBody, phalaRoutingError } from './errors.js';
 import { UPSTREAM_PROTOCOL_ERROR } from './messages/response.js';
-import { describeIssues, isOllamaHost, isXaiHost, validateProvider } from './providers.js';
+import {
+  describeIssues,
+  isOllamaHost,
+  isTencentHost,
+  isXaiHost,
+  validateProvider,
+} from './providers.js';
 import { SseParser } from './sse.js';
 import { isObject } from './tools.js';
 import type { GatewayProvider, ResponsesRequest } from './types.js';
@@ -113,6 +119,27 @@ export async function testProvider(
             category: 'provider',
             code: routingError.error.code,
             message: routingError.error.message.slice(0, MAX_DETAIL_CHARS),
+          },
+        };
+      }
+      // TokenHub 的 402 也可能是欠费，按官方业务码区分，不把“未开通”当成模型不存在或凭据无效。
+      if (status === 402 && isTencentHost(provider.baseURL ?? '')) {
+        const code = normalized.error.code;
+        const activation = code === '401007' || code === '401008';
+        const message = activation
+          ? '在腾讯云控制台开通该模型的后付费'
+          : code === '403004'
+            ? '账户欠费，充值后在腾讯云控制台重新启用该模型'
+            : '在腾讯云控制台检查该模型的开通状态、额度与余额';
+        return {
+          ok: false,
+          reason: 'unknown',
+          httpStatus: status,
+          latencyMs: latency(),
+          error: {
+            category: 'unknown',
+            ...(activation ? { code: 'tokenhub_model_not_enabled' } : {}),
+            message: `${message}（HTTP ${status}）${detail(errorOf(parseJson(body)) ?? body, redact)}`,
           },
         };
       }

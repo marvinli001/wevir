@@ -1348,6 +1348,12 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'Requiere una clave API de pago por uso de la plataforma MiMo',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': 'Internacional: https://api.minimax.io/v1',
+  'provider.catalog.tencent': 'Tencent Cloud TokenHub',
+  'provider.preset.tencent.note':
+    'Pago por uso en Guangzhou, acceso directo desde China continental. Singapur/EE. UU. requieren URL y clave regionales.',
+  'provider.tokenhub.activation.title': 'Pago por uso del modelo desactivado',
+  'provider.tokenhub.activation.hint':
+    'Activar el pago por uso de este modelo en la consola de Tencent Cloud',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

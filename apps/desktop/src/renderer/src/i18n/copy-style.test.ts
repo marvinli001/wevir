@@ -38,6 +38,10 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'provider.phala.phala_attestation_unavailable.hint',
   'provider.preset.kimi.note',
   'provider.preset.minimax.note',
+  // TokenHub 的地域地址与 Key 不通用，配置前必须区分广州、新加坡与美国。
+  'provider.preset.tencent.note',
+  // 402 的开通后付费操作是连接失败时的必要修复建议。
+  'provider.tokenhub.activation.hint',
   'provider.preset.zai.note',
   'provider.preset.zhipu.note',
   'provider.preset.xai.note',

@@ -49,6 +49,14 @@ export function presentTestResult(result: MethodResult<'provider.test'>): TestPr
   const phala = result.error && phalaErrorPresentation(result.error);
   if (phala) return { ok: false, ...phala, detail: result.error?.message };
   const reason = result.reason ?? 'unknown';
+  if (result.error?.code === 'tokenhub_model_not_enabled') {
+    return {
+      ok: false,
+      title: t('provider.tokenhub.activation.title'),
+      hint: t('provider.tokenhub.activation.hint'),
+      detail: result.error.message,
+    };
+  }
   const hint = REASON_HINT[reason];
   const presentation: TestPresentation = { ok: false, title: t(REASON_TITLE[reason]) };
   if (hint) presentation.hint = t(hint);

@@ -335,6 +335,31 @@ export const OPENAI_PRESETS: readonly OpenAIPreset[] = [
     docsURL: 'https://platform.minimax.cn/docs/api-reference/responses-create',
   },
   {
+    // TokenHub 广州按量 Responses；namespace 待实测，保守摊平（providers.md §7.16）。
+    id: 'tencent',
+    name: 'provider.catalog.tencent',
+    note: 'provider.preset.tencent.note',
+    api: 'openai-responses',
+    baseURL: 'https://tokenhub.tencentcloudmaas.com/v1',
+    compat: { supportsCustomTools: false, supportsNamespaceTools: false, toolChoice: 'auto_only' },
+    models: [
+      {
+        id: 'hy3',
+        contextWindow: 262144,
+        maxTokens: 131072,
+        reasoningEfforts: ['off', 'low', 'high'],
+      },
+      {
+        id: 'hy4-preview',
+        contextWindow: 1000000,
+        maxTokens: 64000,
+        reasoningEfforts: ['off', 'high'],
+      },
+    ],
+    defaultModelId: 'hy3',
+    docsURL: 'https://intl.cloud.tencent.com/zh/document/product/1300/82454',
+  },
+  {
     id: 'deepseek-openai',
     name: 'provider.preset.deepseekOpenai',
     api: 'openai-completions',

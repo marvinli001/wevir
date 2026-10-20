@@ -1330,6 +1330,12 @@ export const messages: Messages = {
   'provider.preset.mimo.note': 'Requires a MiMo platform pay-as-you-go API key',
   'provider.catalog.minimax': 'MiniMax',
   'provider.preset.minimax.note': 'International: https://api.minimax.io/v1',
+  'provider.catalog.tencent': 'Tencent Cloud TokenHub',
+  'provider.preset.tencent.note':
+    'Guangzhou pay-as-you-go; direct access from mainland China. Singapore/US require matching regional URLs and keys.',
+  'provider.tokenhub.activation.title': 'Model postpaid access disabled',
+  'provider.tokenhub.activation.hint':
+    'Enable postpaid access for this model in the Tencent Cloud console',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',
