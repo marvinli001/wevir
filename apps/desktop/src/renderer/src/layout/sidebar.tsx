@@ -566,6 +566,9 @@ function SessionRow({
   const badge = marker === 'awaiting_approval' || marker === 'awaiting_input';
   // 目标进行中（0.35.0，照 T3 Code 的侧栏）：回合之间也标着，agent 还会接着做。
   const goal = session.goal?.status === 'active';
+  // 在跑的会话不按未读加粗：失焦时右边是灰色呼吸点，跑完了（没在看）才加粗并换成未读点。
+  const working = marker === 'running';
+  const settledUnread = unread && !working;
   // 右键菜单与悬停的按钮用同一套动作（data/session-actions.ts）。
   const actions = useSessionActions(session);
   const { pinned } = actions;
@@ -596,55 +599,72 @@ function SessionRow({
             )
           }
         >
-          <span className="flex w-4 shrink-0 justify-center">
-            {(marker === 'running' ||
-              marker === 'awaiting_approval' ||
-              marker === 'awaiting_input') &&
-            markerInfo ? (
-              <span role="img" aria-label={markerInfo.label} className="flex">
-                <Orb
-                  state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
-                  paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
-                />
+          {({ isActive }) => (
+            <>
+              <span className="flex w-4 shrink-0 justify-center">
+                {(marker === 'running' ||
+                  marker === 'awaiting_approval' ||
+                  marker === 'awaiting_input') &&
+                markerInfo ? (
+                  <span role="img" aria-label={markerInfo.label} className="flex">
+                    <Orb
+                      state={turnOrb(session.id, session.activeTurn?.turnId ?? session.id)}
+                      paused={marker === 'awaiting_approval' || marker === 'awaiting_input'}
+                    />
+                  </span>
+                ) : (
+                  markerInfo && <StatusDot tone={markerInfo.tone} label={markerInfo.label} />
+                )}
               </span>
-            ) : (
-              markerInfo && <StatusDot tone={markerInfo.tone} label={markerInfo.label} />
-            )}
-          </span>
-          <span
-            className={cn('min-w-0 flex-1 truncate', unread && 'font-semibold text-foreground')}
-          >
-            {session.title || t('session.untitled')}
-          </span>
-          {session.openedBy?.role !== undefined && (
-            <RoleLabel
-              role={session.openedBy.role}
-              className="group-focus-within/session:hidden group-hover/session:hidden"
-            />
-          )}
-          {/* 悬停时让出位置给置顶与归档（U34）。 */}
-          <span className="flex shrink-0 items-center group-focus-within/session:hidden group-hover/session:hidden">
-            {badge ? (
-              <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
-                {markerInfo?.label}
-              </span>
-            ) : goal ? (
               <span
-                data-goal
-                className="shrink-0 rounded-sm bg-running/10 px-1.5 text-xs leading-5 font-medium text-running"
+                className={cn(
+                  'min-w-0 flex-1 truncate',
+                  settledUnread && 'font-semibold text-foreground',
+                )}
               >
-                {t('session.marker.goal')}
+                {session.title || t('session.untitled')}
               </span>
-            ) : unread ? (
-              <StatusDot tone="accent" label={t('session.marker.unread')} className="size-1.5" />
-            ) : (
-              project && (
-                <span className="max-w-40 shrink-0 truncate text-xs text-muted-foreground">
-                  {project.displayName}
-                </span>
-              )
-            )}
-          </span>
+              {session.openedBy?.role !== undefined && (
+                <RoleLabel
+                  role={session.openedBy.role}
+                  className="group-focus-within/session:hidden group-hover/session:hidden"
+                />
+              )}
+              {/* 悬停时让出位置给置顶与归档（U34）。 */}
+              <span className="flex shrink-0 items-center group-focus-within/session:hidden group-hover/session:hidden">
+                {badge ? (
+                  <span className="shrink-0 rounded-sm bg-warning/10 px-1.5 text-xs leading-5 font-medium text-warning">
+                    {markerInfo?.label}
+                  </span>
+                ) : goal ? (
+                  <span
+                    data-goal
+                    className="shrink-0 rounded-sm bg-running/10 px-1.5 text-xs leading-5 font-medium text-running"
+                  >
+                    {t('session.marker.goal')}
+                  </span>
+                ) : working && !isActive ? (
+                  <span
+                    role="img"
+                    aria-label={t('session.marker.running')}
+                    className="inline-block size-1.5 shrink-0 animate-breathe rounded-full bg-muted-foreground"
+                  />
+                ) : settledUnread ? (
+                  <StatusDot
+                    tone="accent"
+                    label={t('session.marker.unread')}
+                    className="size-1.5"
+                  />
+                ) : (
+                  project && (
+                    <span className="max-w-40 shrink-0 truncate text-xs text-muted-foreground">
+                      {project.displayName}
+                    </span>
+                  )
+                )}
+              </span>
+            </>
+          )}
         </NavLink>
         <div
           data-row-actions=""
