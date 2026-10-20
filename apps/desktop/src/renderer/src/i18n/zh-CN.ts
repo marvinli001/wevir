@@ -1217,6 +1217,8 @@ export const zhCN = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.mimo': '小米 MiMo',
   'provider.preset.mimo.note': '需开放平台按量 API Key',
+  'provider.catalog.minimax': 'MiniMax',
+  'provider.preset.minimax.note': '国际站：https://api.minimax.io/v1',
   'provider.catalog.zhipu': '智谱 GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

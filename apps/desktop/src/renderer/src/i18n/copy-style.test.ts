@@ -38,6 +38,7 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'provider.phala.phala_no_route.hint',
   'provider.phala.phala_attestation_unavailable.hint',
   'provider.preset.kimi.note',
+  'provider.preset.minimax.note',
   'provider.preset.zai.note',
   'provider.preset.zhipu.note',
   'provider.preset.xai.note',

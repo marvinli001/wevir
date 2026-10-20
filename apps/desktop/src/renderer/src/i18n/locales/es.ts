@@ -1232,6 +1232,8 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.mimo': 'Xiaomi MiMo',
   'provider.preset.mimo.note': 'Requiere una clave API de pago por uso de la plataforma MiMo',
+  'provider.catalog.minimax': 'MiniMax',
+  'provider.preset.minimax.note': 'Internacional: https://api.minimax.io/v1',
   'provider.catalog.zhipu': 'Zhipu GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',

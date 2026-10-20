@@ -6,6 +6,7 @@ import {
   isAzureHost,
   isDeepSeekHost,
   isKimiHost,
+  isMinimaxHost,
   isXaiHost,
 } from './providers.js';
 import {
@@ -109,6 +110,28 @@ export const xaiReasoningEffort: DialectFix = {
     return mapped === effort
       ? { body }
       : { body: { ...body, reasoning: { ...body.reasoning, effort: mapped } } };
+  },
+};
+
+/**
+ * MiniMax Responses（§3.12）：reasoning 只有 effort，去掉 summary（官方 Codex 目录设 default_reasoning_summary: none，
+ * 厂商测过的请求不带它）；M3.1 总在思考，none 报 400，none / minimal 改 low。M3 的 none 关思考、M2.x 忽略，原样发送。
+ */
+export const minimaxReasoning: DialectFix = {
+  id: 'minimax-reasoning',
+  applies: (provider) =>
+    provider.kind === 'openai-compatible' &&
+    provider.api === 'openai-responses' &&
+    isMinimaxHost(provider.baseURL ?? ''),
+  apply(body) {
+    if (!isObject(body.reasoning)) return { body };
+    const { summary, ...reasoning } = body.reasoning;
+    const effort = reasoning.effort;
+    const alwaysThinks = /^minimax-m3\.1(?:$|-)/i.test(String(body.model));
+    if (alwaysThinks && (effort === 'none' || effort === 'minimal')) reasoning.effort = 'low';
+    return summary === undefined && reasoning.effort === effort
+      ? { body }
+      : { body: { ...body, reasoning } };
   },
 };
 
@@ -357,6 +380,7 @@ export const RESPONSES_DIALECTS: readonly DialectFix[] = [
   azureNamespaceDescription,
   azureEncryptedReasoning,
   kimiDataImagesOnly,
+  minimaxReasoning,
   deepseekNamespaceDescription,
   autoOnlyToolChoice,
   flattenCustomTools,

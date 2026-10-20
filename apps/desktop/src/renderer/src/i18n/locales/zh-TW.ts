@@ -1204,6 +1204,8 @@ export const messages: Messages = {
   'provider.catalog.zai': 'Z.ai',
   'provider.catalog.mimo': '小米 MiMo',
   'provider.preset.mimo.note': '需開放平台按量 API Key',
+  'provider.catalog.minimax': 'MiniMax',
+  'provider.preset.minimax.note': '國際站：https://api.minimax.io/v1',
   'provider.catalog.zhipu': '智譜 GLM',
   'provider.catalog.ollama': 'Ollama',
   'provider.catalog.redpill': 'RedPill',
