@@ -2,8 +2,8 @@
 // 移植自 pingdotgg/t3code apps/web/src/components/diffs/StyledDiffCodeView.tsx
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
-// 修改：文件头由窗格自己画（renderCustomHeader），这里只给它定位与底色；去掉行选择与批注的样式（Wevir 不做 diff
-// 批注）；颜色与字体换成 Wevir 的变量；展开的淡入遵守减弱动效。
+// 修改：文件头由窗格自己画（renderCustomHeader），这里只给它定位与底色；颜色与字体换成 Wevir 的变量；展开的淡入遵守减弱
+// 动效。选中的行与批注的样式（0.67.0 起 Wevir 也有行级批注）照搬 T3。
 //
 // Pierre 的虚拟化 CodeView 加上 Wevir 的样式（desktop-tokens.md §33）：样式写进它的 shadow root（unsafeCSS），与虚拟
 // 列表用的尺寸（itemMetrics）放在一起，改一边就要核对另一边。
@@ -23,6 +23,62 @@ export const DIFF_HEADER_HEIGHT = 32;
 const HUNK_SEPARATOR_HEIGHT = 24;
 
 export const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
+/* 选中的行（写批注时）：底色混一点修改色，行号一侧画一条竖线。（T3） */
+:is(
+  [data-line],
+  [data-line-annotation],
+  [data-no-newline]
+)[data-selected-line] {
+  --diffs-line-bg: light-dark(
+    color-mix(
+      in lab,
+      var(--code-background) 88%,
+      color-mix(in srgb, var(--code-background) 50%, var(--diffs-modified-base))
+    ),
+    color-mix(
+      in lab,
+      var(--code-background) 80%,
+      color-mix(in srgb, var(--code-background) 70%, var(--diffs-modified-base))
+    )
+  ) !important;
+}
+
+:is([data-gutter-buffer], [data-column-number])[data-selected-line] {
+  --diffs-line-bg: light-dark(
+    color-mix(
+      in lab,
+      var(--code-background) 91%,
+      color-mix(in srgb, var(--code-background) 35%, var(--diffs-modified-base))
+    ),
+    color-mix(
+      in lab,
+      var(--code-background) 85%,
+      color-mix(in srgb, var(--code-background) 60%, var(--diffs-modified-base))
+    )
+  ) !important;
+}
+
+[data-indicators="bars"]
+  :is([data-column-number], [data-gutter-buffer="annotation"])[data-selected-line] {
+  position: relative;
+}
+
+[data-indicators="bars"]
+  :is([data-column-number], [data-gutter-buffer="annotation"])[data-selected-line]::before {
+  position: absolute !important;
+  inset-block: 0 !important;
+  inset-inline-start: 0 !important;
+  display: block !important;
+  width: 4px !important;
+  min-width: 4px !important;
+  max-width: 4px !important;
+  height: auto !important;
+  padding: 0 !important;
+  content: "" !important;
+  background-color: var(--diffs-modified-base) !important;
+  background-image: none !important;
+}
+
 [data-file-info] {
   background-color: var(--code-background) !important;
   border-block-color: transparent !important;
@@ -90,26 +146,29 @@ export const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}
 }
 `;
 
-export type StyledDiffCodeViewOptions = Omit<
-  NonNullable<CodeViewProps<undefined, undefined>['options']>,
+export type StyledDiffCodeViewOptions<LAnnotation = undefined> = Omit<
+  NonNullable<CodeViewProps<LAnnotation, undefined>['options']>,
   'unsafeCSS' | 'itemMetrics' | 'layout'
 >;
 
-type StyledDiffCodeViewProps = Omit<ControlledCodeViewProps<undefined, undefined>, 'options'> & {
-  readonly options?: StyledDiffCodeViewOptions;
-  readonly viewerRef?: Ref<CodeViewHandle<undefined, undefined>>;
+type StyledDiffCodeViewProps<LAnnotation> = Omit<
+  ControlledCodeViewProps<LAnnotation, undefined>,
+  'options'
+> & {
+  readonly options?: StyledDiffCodeViewOptions<LAnnotation>;
+  readonly viewerRef?: Ref<CodeViewHandle<LAnnotation, undefined>>;
 };
 
 /** 变更窗格的 CodeView：Wevir 的样式与虚拟化的尺寸在这里配对。 */
-export function StyledDiffCodeView({
+export function StyledDiffCodeView<LAnnotation = undefined>({
   options,
   viewerRef,
   className,
   ...props
-}: StyledDiffCodeViewProps) {
+}: StyledDiffCodeViewProps<LAnnotation>) {
   return (
     <DiffWorkerPoolProvider>
-      <CodeView
+      <CodeView<LAnnotation, undefined>
         {...props}
         {...(viewerRef ? { ref: viewerRef } : {})}
         // 元素本身可以获得焦点（键盘滚动），它的原生轮廓画在窗格的裁切边界外，所以去掉；里面的控件保留自己的焦点环。

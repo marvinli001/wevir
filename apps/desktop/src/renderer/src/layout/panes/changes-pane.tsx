@@ -3,21 +3,25 @@
 // 来源提交 ec1313c8f8333292506f05a355bb72d308a455d8
 // Copyright (c) 2026 T3 Tools Inc.
 // 修改：数据换成 Wevir 的协议（workspace.diff / workspace.diffFile / session.checkpoints）；文件头由这里画（文件名与目录
-// 分开），不用 Pierre 的；去掉 T3 的比较对象选择、忽略空白、文件树、diff 批注、在编辑器中打开与分批加载；大 diff 默认
-// 折叠与省略文件的列表是 Wevir 的；界面换成 Wevir 的组件与文案。
+// 分开），不用 Pierre 的；去掉 T3 的比较对象选择、忽略空白、文件树、在编辑器中打开与分批加载；大 diff 默认折叠与省略文件的
+// 列表是 Wevir 的；界面换成 Wevir 的组件与文案。行级批注（0.67.0）照 T3 的 AnnotatableCodeView 接回来，批注存在 Host（review.*）。
 //
 // “变更”窗格（0.20.0，desktop-layout.md §18，desktop-tokens.md §33）：当前会话目录的 diff。顶上一行是范围（未提交、本分支、
 // 最近一回合、“回合”子菜单里的第 N 回合）、+N −M 与刷新、全部展开 / 收起、统一 / 并排、自动换行；下面是 Pierre 的虚拟化
-// CodeView，每个文件一个可折叠的头（文件名、目录、增删数），大 diff 默认折叠，“N 行未修改”可以点开。
+// CodeView，每个文件一个可折叠的头（文件名、目录、增删数），大 diff 默认折叠，“N 行未修改”可以点开。Host 有 `review_comments`
+// 时行号旁的“+”与拖选写批注，顶栏的“批注”列出没发的、发给一个会话。
 
 import {
   type CodeViewDiffItem,
   type CodeViewItem,
+  type CodeViewLineSelection,
+  type DiffLineAnnotation,
   type FileDiffMetadata,
+  type SelectedLineRange,
   setDiffsText,
 } from '@pierre/diffs';
 import type { CodeViewHandle } from '@pierre/diffs/react';
-import type { DiffFile, SessionId, WorkspaceId } from '@wevir/protocol';
+import type { DiffFile, ReviewComment, Session, SessionId, WorkspaceId } from '@wevir/protocol';
 import { cn } from 'cn';
 import {
   ChevronDown,
@@ -52,6 +56,7 @@ import {
   turnOptions,
 } from '@/changes/changes-model';
 import { changesPrefs, selectScope, useChangesSelection } from '@/changes/changes-store';
+import { DiffCommentDraft, DiffCommentNote } from '@/changes/diff-comment';
 import { createDiffFileContentsLoader } from '@/changes/diff-file-contents';
 import {
   buildFileDiffContentVersion,
@@ -64,6 +69,15 @@ import {
   resolveFileDiffPath,
 } from '@/changes/diff-rendering';
 import { PREFERRED_HIGHLIGHTER } from '@/changes/diff-worker-pool';
+import { useReviewComments, useReviewSupported } from '@/changes/review-data';
+import {
+  type DiffView,
+  pierreSide,
+  placeComment,
+  type ReviewRange,
+  toReviewRange,
+} from '@/changes/review-model';
+import { lineLabel, ReviewPanel } from '@/changes/review-panel';
 import { DIFF_HEADER_HEIGHT, StyledDiffCodeView } from '@/changes/styled-code-view';
 import { IconButton } from '@/components/icon-button';
 import { ScrollFade } from '@/components/scroll-fade';
@@ -97,7 +111,13 @@ export function ChangesPane({ context }: { context: PaneContext }) {
   const { entry, sessionId } = context;
   if (!entry || sessionId === undefined) return <Note>{t('changes.noSession')}</Note>;
   if (!supported) return <Note>{t('changes.unsupported')}</Note>;
-  return <SessionChanges workspaceId={entry.workspace.id} sessionId={sessionId as SessionId} />;
+  return (
+    <SessionChanges
+      workspaceId={entry.workspace.id}
+      sessionId={sessionId as SessionId}
+      sessions={entry.sessions}
+    />
+  );
 }
 
 function Note({ children }: { children: ReactNode }) {
@@ -138,12 +158,47 @@ interface CollapsedState {
 
 const NO_KEYS: ReadonlySet<string> = new Set();
 
+/** 画在 diff 里的一组批注（同一侧同一行结尾的放在一起）：已存的与正在写的草稿。 */
+type ReviewEntry = { kind: 'draft' } | { kind: 'comment'; comment: ReviewComment };
+interface ReviewGroup {
+  entries: ReviewEntry[];
+}
+type ReviewAnnotation = DiffLineAnnotation<ReviewGroup>;
+
+interface Draft {
+  fileKey: string;
+  path: string;
+  previousPath?: string;
+  range: ReviewRange;
+}
+
+function addAnnotation(
+  annotations: ReviewAnnotation[],
+  range: ReviewRange,
+  entry: ReviewEntry,
+): ReviewAnnotation[] {
+  const side = pierreSide(range.side);
+  const index = annotations.findIndex(
+    (annotation) => annotation.side === side && annotation.lineNumber === range.endLine,
+  );
+  if (index < 0) {
+    return [...annotations, { side, lineNumber: range.endLine, metadata: { entries: [entry] } }];
+  }
+  return annotations.map((annotation, position) =>
+    position === index
+      ? { ...annotation, metadata: { entries: [...annotation.metadata.entries, entry] } }
+      : annotation,
+  );
+}
+
 function SessionChanges({
   workspaceId,
   sessionId,
+  sessions,
 }: {
   workspaceId: WorkspaceId;
   sessionId: SessionId;
+  sessions: readonly Session[];
 }) {
   const { client } = useHostConnection();
   const { resolved: theme } = useTheme();
@@ -219,23 +274,126 @@ function SessionChanges({
     updateCollapsed((keys) => toggleAll(fileKeys, keys));
   };
 
-  const items = useMemo<CodeViewDiffItem[]>(
+  // 行级批注（0.67.0）：Host 有 review_comments、这段 diff 读到了基线时才能写。
+  const reviewSupported = useReviewSupported();
+  const review = useReviewComments(
+    workspaceId,
+    sessionId,
+    `${scopeKey}:${fnv1a32(result?.patch ?? '')}`,
+  );
+  const view = useMemo<DiffView>(() => ({ base: result?.base, head: result?.head }), [result]);
+  const commentable = reviewSupported && source !== undefined && result?.base !== undefined;
+  const [draft, setDraft] = useState<Draft>();
+  const [selectedLines, setSelectedLines] = useState<CodeViewLineSelection | null>(null);
+  const placed = useMemo(() => {
+    const byPath = new Map<string, { comment: ReviewComment; range: ReviewRange }[]>();
+    if (!reviewSupported) return byPath;
+    for (const comment of review.comments) {
+      const range = placeComment(comment, view);
+      if (!range) continue;
+      byPath.set(comment.path, [...(byPath.get(comment.path) ?? []), { comment, range }]);
+    }
+    return byPath;
+  }, [reviewSupported, review.comments, view]);
+
+  const items = useMemo<CodeViewDiffItem<ReviewGroup>[]>(
     () =>
-      entries.map(({ fileDiff, fileKey, fileVersion }) => {
+      entries.map(({ fileDiff, fileKey, fileVersion, path }) => {
         const folded = collapsed.has(fileKey);
+        let annotations: ReviewAnnotation[] = [];
+        for (const { comment, range } of placed.get(path) ?? []) {
+          annotations = addAnnotation(annotations, range, { kind: 'comment', comment });
+        }
+        if (draft?.fileKey === fileKey) {
+          annotations = addAnnotation(annotations, draft.range, { kind: 'draft' });
+        }
+        const marks = annotations
+          .flatMap((annotation) =>
+            annotation.metadata.entries.map((entry) =>
+              entry.kind === 'draft'
+                ? `draft:${annotation.lineNumber}`
+                : `${entry.comment.id}:${annotation.lineNumber}:${entry.comment.body}`,
+            ),
+          )
+          .join(':');
         return {
           id: fileKey,
           type: 'diff',
           fileDiff,
           collapsed: folded,
-          version: fnv1a32(`${fileVersion}:${folded ? '1' : '0'}`),
+          annotations,
+          version: fnv1a32(`${fileVersion}:${folded ? '1' : '0'}:${marks}`),
         };
       }),
-    [entries, collapsed],
+    [entries, collapsed, placed, draft],
+  );
+
+  const beginComment = useCallback(
+    (range: SelectedLineRange | null, context: { item: CodeViewItem<ReviewGroup> }) => {
+      const item = context.item;
+      if (!range || item.type !== 'diff') return;
+      const path = resolveFileDiffPath(item.fileDiff);
+      const previous = item.fileDiff.prevName;
+      setDraft({
+        fileKey: item.id,
+        path,
+        ...(previous !== undefined && previous !== path && { previousPath: previous }),
+        range: toReviewRange(item.fileDiff, range),
+      });
+    },
+    [],
+  );
+  const saveDraft = useCallback(
+    async (body: string) => {
+      if (!draft || source === undefined || result?.base === undefined) return;
+      await review.add({
+        source,
+        base: result.base,
+        ...(result.head !== undefined && { head: result.head }),
+        path: draft.path,
+        ...(draft.previousPath !== undefined && { previousPath: draft.previousPath }),
+        side: draft.range.side,
+        startLine: draft.range.startLine,
+        endLine: draft.range.endLine,
+        body,
+      });
+      setDraft(undefined);
+      setSelectedLines(null);
+    },
+    [draft, source, result, review],
+  );
+  const cancelDraft = useCallback(() => {
+    setDraft(undefined);
+    setSelectedLines(null);
+  }, []);
+  const removeComment = review.remove;
+  const renderAnnotation = useCallback(
+    (annotation: DiffLineAnnotation<ReviewGroup>) => (
+      <div className="divide-y divide-border/40">
+        {annotation.metadata.entries.map((entry) =>
+          entry.kind === 'draft' ? (
+            <DiffCommentDraft
+              key="draft"
+              rangeLabel={draft ? lineLabel(draft.range.startLine, draft.range.endLine) : ''}
+              onCancel={cancelDraft}
+              onSave={saveDraft}
+            />
+          ) : (
+            <DiffCommentNote
+              key={entry.comment.id}
+              text={entry.comment.body}
+              state={entry.comment.anchor.state}
+              onDelete={() => void removeComment([entry.comment.id]).catch(() => {})}
+            />
+          ),
+        )}
+      </div>
+    ),
+    [draft, cancelDraft, saveDraft, removeComment],
   );
 
   // 从入口带来的文件：展开它、滚过去。
-  const [codeView, setCodeView] = useState<CodeViewHandle<undefined, undefined> | null>(null);
+  const [codeView, setCodeView] = useState<CodeViewHandle<ReviewGroup, undefined> | null>(null);
   const revealed = useRef<number>(undefined);
   const reveal = selection.reveal;
   useEffect(() => {
@@ -272,7 +430,7 @@ function SessionChanges({
     [omitted],
   );
   const renderHeader = useCallback(
-    (item: CodeViewItem<undefined>) =>
+    (item: CodeViewItem<ReviewGroup>) =>
       item.type === 'diff' ? (
         <FileHeader item={item} collapsed={item.collapsed === true} onToggle={toggleFile} />
       ) : null,
@@ -306,14 +464,20 @@ function SessionChanges({
     );
   } else {
     body = (
-      <StyledDiffCodeView
+      <StyledDiffCodeView<ReviewGroup>
         key={`${scopeKey}:${revision}`}
         viewerRef={setCodeView}
         className="h-full min-h-0 overflow-auto"
         items={items}
         renderCustomHeader={renderHeader}
         renderCodeViewFooter={renderFooter}
+        selectedLines={selectedLines}
+        onSelectedLinesChange={setSelectedLines}
+        renderAnnotation={renderAnnotation}
         options={{
+          enableGutterUtility: commentable && draft === undefined,
+          enableLineSelection: commentable && draft === undefined,
+          onGutterUtilityClick: beginComment,
           diffStyle: prefs.split ? 'split' : 'unified',
           lineDiffType: 'none',
           overflow: prefs.wrap ? 'wrap' : 'scroll',
@@ -346,6 +510,14 @@ function SessionChanges({
           </span>
         )}
         <div className="min-w-1 flex-1" />
+        {reviewSupported && (
+          <ReviewPanel
+            review={review}
+            sessions={sessions}
+            sessionId={sessionId}
+            onReveal={(path) => selectScope(sessionId, selection.scope, path)}
+          />
+        )}
         {hasFiles && (
           <span
             className="mr-1 shrink-0 font-mono text-xs tabular-nums"
@@ -510,7 +682,7 @@ function FileHeader({
   collapsed,
   onToggle,
 }: {
-  item: CodeViewDiffItem;
+  item: CodeViewDiffItem<ReviewGroup>;
   collapsed: boolean;
   onToggle: (fileKey: string) => void;
 }) {
