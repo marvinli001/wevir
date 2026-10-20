@@ -183,7 +183,8 @@ describe.runIf(posix)('ProcessManager', () => {
     });
     managers.push(manager);
     await manager.start(A, {
-      command: 'for i in 1 2 3 4 5 6 7 8 9 10 11 12; do echo tick $i; sleep 0.1; done; sleep 30',
+      // tick 2 之后的几行一起出来：机器再慢，间隔到期时也已攒了不止一条。
+      command: 'echo tick 1; sleep 0.2; for i in 2 3 4 5 6; do echo tick $i; done; sleep 30',
       cwd: h.root,
       notifyPattern: /tick/,
       notifyLimit: 2,

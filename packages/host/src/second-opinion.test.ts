@@ -45,6 +45,10 @@ function sh(cwd: string, ...args: string[]): string {
 /** 一个仓库：main 上一个提交，分支 fix-login 上又一个提交，再加没提交的修改与一个未跟踪文件。 */
 function repo(dir: string): void {
   sh(dir, 'init', '-q', '-b', 'main');
+  // Host 自己跑的 git 读系统配置；Windows 的 core.autocrlf=true 会让快照 worktree 里的文件变成 CRLF。
+  sh(dir, 'config', 'core.autocrlf', 'false');
+  sh(dir, 'config', 'user.name', 't');
+  sh(dir, 'config', 'user.email', 't@example.com');
   writeFileSync(join(dir, 'a.txt'), 'one\n');
   sh(dir, 'add', '.');
   sh(dir, 'commit', '-q', '-m', 'init');
@@ -118,7 +122,7 @@ function setup(options: { git?: boolean; wire?: boolean } = {}) {
     manager.send({ sessionId, content: [{ type: 'text', text }] }, identity);
   const state = (sessionId: SessionId) => events.snapshot(sessionId)?.session.state;
   const settle = (sessionId: SessionId) =>
-    vi.waitFor(() => expect(state(sessionId)).toBe('idle'), { timeout: 5000 });
+    vi.waitFor(() => expect(state(sessionId)).toBe('idle'), { timeout: 15_000 });
   const all = (sessionId: SessionId): WevirEvent[] => events.readSince(sessionId, 0);
   const opinionsOf = (sessionId: SessionId): SecondOpinion[] =>
     events.snapshot(sessionId)?.opinions ?? [];

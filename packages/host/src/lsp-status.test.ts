@@ -270,7 +270,8 @@ describe('lsp.restart / lsp.log', () => {
     expect(crashed.reason).toContain('segmentation fault after start');
     expect(changes).toContainEqual({ serverId: 'fake', root: dir });
     const log = await status.log(dir, 'fake', dir);
-    expect(log).toMatch(/start: .*fake-lsp\.mjs \(system, 1\.0\.0\) in /);
+    // node 装在家目录下时来源记作 user（CI 的 hostedtoolcache 就是这样）。
+    expect(log).toMatch(/start: .*fake-lsp\.mjs \((?:system|user), 1\.0\.0\) in /);
     expect(log).toContain('initialized: definition, references');
     expect(log).toContain('exited (code 139)');
     expect(log).toContain('  | fake-lsp: segmentation fault after start');
@@ -318,7 +319,9 @@ describe('lsp.install', () => {
     expect(server.state).toBe('running');
     expect(server.lastDiagnosticsAt).toBeDefined();
     expect(changes.length).toBeGreaterThan(2);
-    expect(await status.log(dir, 'fake', dir)).toContain('checked src/a.fake: 1 diagnostics');
+    expect(await status.log(dir, 'fake', dir)).toContain(
+      `checked ${join('src', 'a.fake')}: 1 diagnostics`,
+    );
   });
 
   it('安装失败：failed，原因是输出的最后几行；服务器仍是 missing', async () => {

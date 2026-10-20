@@ -275,7 +275,8 @@ describe('wevir automation', () => {
     await run(['automation', 'run', automation.id], { home });
     runs = await waitForRun(home, automation.id, 'completed');
     expect(runs[0]).toMatchObject({
-      check: { decision: 'wake', exitCode: 0, output: 'v1.2.0\n' },
+      // Windows 的 cmd 把 `||` 前的空格也算进 echo 的输出。
+      check: { decision: 'wake', exitCode: 0, output: expect.stringMatching(/^v1\.2\.0 ?\n$/) },
       sessionId: expect.stringMatching(/^ses_/),
     });
     // Echo 引擎原样回显收到的消息：指令后面附着检查输出。

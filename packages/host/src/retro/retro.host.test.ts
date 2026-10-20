@@ -100,6 +100,9 @@ function makeRepo(root: string): string {
   writeFileSync(join(repo, 'conv.test.mjs'), CONV_TEST);
   writeConv(repo, 32);
   git(repo, 'init', '-q', '-b', 'main');
+  // Host 提交时不带 GIT_* 环境变量（GIT_CONFIG_GLOBAL 也不带），身份写进仓库自己的配置。
+  git(repo, 'config', 'user.name', 'Test');
+  git(repo, 'config', 'user.email', 't@example.com');
   git(repo, 'add', '-A');
   git(repo, 'commit', '-q', '-m', 'init');
   return repo;

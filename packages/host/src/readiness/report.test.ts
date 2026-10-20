@@ -619,7 +619,12 @@ describe('检查命令', () => {
     expect(status('chk_01JA2B3C4D5E6F7G8H9JKMNP02')).toEqual(['missing', 'script_missing', '']);
     expect(status('chk_01JA2B3C4D5E6F7G8H9JKMNP03')).toEqual(['missing', 'bin_missing', '']);
     expect(status('chk_01JA2B3C4D5E6F7G8H9JKMNP04')).toEqual(['ready', undefined, '']);
-    expect(status('chk_01JA2B3C4D5E6F7G8H9JKMNP05')).toEqual(['permission', 'not_executable', '']);
+    // Windows 没有可执行位，文件在就算能执行。
+    expect(status('chk_01JA2B3C4D5E6F7G8H9JKMNP05')).toEqual(
+      process.platform === 'win32'
+        ? ['ready', undefined, '']
+        : ['permission', 'not_executable', ''],
+    );
     expect(status('chk_01JA2B3C4D5E6F7G8H9JKMNP06')).toEqual([
       'missing',
       'command_not_found',
