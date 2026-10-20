@@ -633,6 +633,18 @@ export class OpenCodeAccounts implements EngineAccounts {
     };
   }
 
+  /** 只重读 OpenCode Go 的用量（Host 定时刷新）：不起服务器，用上次读到的上游列表；变了才发布。 */
+  async refreshUsage(kind: AccountKind): Promise<void> {
+    this.#check(kind);
+    const state = this.#state;
+    if (state?.status !== 'signed_in' || this.#probing !== undefined) return;
+    if (this.#providers?.connected.includes(OPENCODE_GO_PROVIDER) !== true) return;
+    const rateLimits = await this.#readUsage();
+    if (this.#state !== state || rateLimits === undefined) return;
+    if (JSON.stringify(rateLimits) === JSON.stringify(state.rateLimits)) return;
+    this.#publish({ ...state, rateLimits });
+  }
+
   /** OpenCode Go 的用量；读不到时是上一次的（usage.ts）。 */
   async #readUsage(): Promise<AccountState['rateLimits']> {
     try {

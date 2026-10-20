@@ -159,6 +159,20 @@ export class CursorAccounts implements EngineAccounts {
     });
   }
 
+  /** 只重读本周期的用量（Host 定时刷新）：用同一把 Key、读到了而且变了才更新；不重读账号与模型。 */
+  async refreshUsage(kind: AccountKind): Promise<void> {
+    this.#check(kind);
+    const state = this.#state;
+    const catalog = this.#catalog;
+    if (this.#flow !== undefined || state.status !== 'signed_in' || catalog === undefined) return;
+    const credential = await this.#credential();
+    if (credential === undefined || credential.apiKey !== catalog.apiKey) return;
+    const read = await this.#readUsage(credential);
+    if (!read.ok || this.#state !== state || read.rateLimits === undefined) return;
+    if (JSON.stringify(read.rateLimits) === JSON.stringify(state.rateLimits)) return;
+    this.#set({ ...state, rateLimits: read.rateLimits });
+  }
+
   async login(kind: AccountKind, method: AccountLoginMethod): Promise<AccountState> {
     this.#check(kind);
     if (method !== 'browser') {

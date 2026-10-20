@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { AccountState } from '@wevir/runtime-adapter';
 import { afterAll, describe, expect, it } from 'vitest';
 import { GrokAccounts } from './accounts.js';
 import { fakeGrokEnv, tempRoot } from './test-fixtures/harness.js';
@@ -149,6 +151,37 @@ describe('GrokAccounts 的邮箱与用量', () => {
       const unused = await subject.read('grok', { refresh: true });
       expect(unused.email).toBe('me@example.com');
       expect(unused.rateLimits).toBeUndefined();
+    } finally {
+      subject.dispose();
+    }
+  });
+
+  it('refreshUsage 只读计费接口（不起 CLI），变了才经 onChange 报；读失败时不动', async () => {
+    const respond = { current: json(BILLING) };
+    const http = fakeFetch(() => respond.current());
+    const dir = temp.dir('refresh-usage');
+    const log = join(dir, 'grok.log');
+    const subject = new GrokAccounts({
+      workDir: join(dir, 'engines', 'grok'),
+      env: fakeGrokEnv({ FAKE_GROK_LOG: log, GROK_HOME: '/g' }),
+      fetch: http.fetch,
+      readFile: files({ '/g/auth.json': AUTH }),
+    });
+    const states: AccountState[] = [];
+    subject.onChange((state) => states.push(state));
+    try {
+      await subject.read('grok');
+      const runs = readFileSync(log, 'utf8');
+      const before = states.length;
+      await subject.refreshUsage('grok');
+      expect(states).toHaveLength(before);
+      respond.current = json({ config: { ...BILLING.config, creditUsagePercent: 80 } });
+      await subject.refreshUsage('grok');
+      expect(states.at(-1)?.rateLimits?.primary?.usedPercent).toBe(80);
+      respond.current = json({}, 500);
+      await subject.refreshUsage('grok');
+      expect(states.at(-1)?.rateLimits?.primary?.usedPercent).toBe(80);
+      expect(readFileSync(log, 'utf8')).toBe(runs);
     } finally {
       subject.dispose();
     }

@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
+  type AccountKind,
   type ClientIdentity,
   DESKTOP_RENDERER_ORIGINS,
   type EngineFeatures,
@@ -281,7 +282,15 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         forget: (sessionIds) => void processes?.removeSessions(sessionIds),
         dispose: () => appTools?.plugins?.close(),
       },
-      onTurnFinished: (info) => appTools?.onTurnFinished(info),
+      onTurnFinished: (info) => {
+        appTools?.onTurnFinished(info);
+        // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。
+        const providerId = storage?.sessions.get(info.sessionId)?.providerId;
+        const kind =
+          providerId === undefined ? undefined : storage?.providers.get(providerId)?.kind;
+        // 不是账号的种类（API Key 的 Provider）时 `turnEnded` 什么都不做。
+        if (kind !== undefined) accounts?.usage.turnEnded(kind as AccountKind);
+      },
       onUsage: (context, event) => usageStats.record(context, event),
       engine: options.engine,
       onError: (error) => logger.error('session manager error', { error }),
@@ -342,6 +351,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               onWarning: (message, fields) => logger.warn(message, fields),
             }),
           });
+    // 已登录账号的用量由 Host 定时重读，推给看着账号的客户端（usage-refresh.ts）。
+    accounts?.usage.start();
     if (accounts?.hasSubscriptions === true) {
       // 用户指定的可执行文件先交给引擎，再在后台检测一遍订阅来源：已登录的种类建好 Provider，模型选择里才看得到。
       // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。

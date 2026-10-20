@@ -726,11 +726,20 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         return { provider: toProviderProfile(record) };
       }),
 
-    'account.list': async () => ({ accounts: await requireAccounts().list() }),
+    // 客户端读账号（连上、回到前台）时顺带让过期的用量在后台重读，结果经 account.updated 到（usage-refresh.ts）。
+    'account.list': async () => {
+      const accounts = requireAccounts();
+      const list = await accounts.list();
+      accounts.usage.nudge();
+      return { accounts: list };
+    },
 
-    'account.get': async ({ kind, refresh }) => ({
-      account: await requireAccounts().read(kind, refresh === true ? { refresh } : undefined),
-    }),
+    'account.get': async ({ kind, refresh }) => {
+      const accounts = requireAccounts();
+      const account = await accounts.read(kind, refresh === true ? { refresh } : undefined);
+      if (refresh !== true) accounts.usage.nudge(kind);
+      return { account };
+    },
 
     'account.setPath': async ({ kind, path }) => ({
       account: await requireAccounts().setPath(kind, path),

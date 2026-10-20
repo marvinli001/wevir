@@ -2589,6 +2589,10 @@ function chatgptAccounts(account: ChatgptAccount): EngineAccounts {
       check(kind);
       return account.models();
     },
+    refreshUsage: async (kind) => {
+      check(kind);
+      await account.refreshUsage();
+    },
     onChange: (listener) => account.onChange(listener),
   };
 }

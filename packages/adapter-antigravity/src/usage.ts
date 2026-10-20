@@ -10,6 +10,10 @@
 // 登录时写的）带 OAuth 的 client 与 refresh token。这里只读它、不写：用 refresh token 换一个只在内存里的 access token（快过期
 // 时再换），再调 Cloud Code 的 `retrieveUserQuotaSummary`（按额度分组的 5 小时、每周窗口；Gemini 一份，Claude 与 GPT 共用一份），
 // 没有时退回 `fetchAvailableModels` 里按模型的额度（老账号，没有窗口长度，不猜）。
+//
+// 2026-10-20 补 Gemini 4 Argon：付费 AI Pro 的 Argon 有单独的每周额度（`gemini-argon-…` 桶，组名 “Gemini 4 Argon”），只在
+// `retrieveUserQuotaSummary` 里有，Cloud Code 只给 2.16 以上的客户端版本，所以 User-Agent 报 `ANTIGRAVITY_HUB_VERSION`；
+// Ultra 的 Argon 算在 Gemini 那份里，不另报。
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -25,6 +29,10 @@ export const REQUEST_TIMEOUT_MS = 10_000;
 export const PROBE_TIMEOUT_MS = 30_000;
 /** access token 剩不到这么久就重新换（T3：60 s）。 */
 const TOKEN_MARGIN_MS = 60_000;
+/** User-Agent 里报的 Antigravity 版本：低于 2.16 时 Cloud Code 不给 Argon 那组额度（2026-10-20 核对本机 2.24.0）。 */
+export const ANTIGRAVITY_HUB_VERSION = '2.24.0';
+/** Argon 的额度名。 */
+export const ARGON_SCOPE = 'Gemini 4 Argon';
 const FIVE_HOURS = 5 * 60;
 const ONE_WEEK = 7 * 24 * 60;
 
@@ -83,8 +91,9 @@ interface Bucket extends Quota {
 }
 
 /**
- * `retrieveUserQuotaSummary` → 窗口（T3 的 `summaryWindows`）：`gemini-` 开头的桶是 Gemini，`3p-` 开头的是 Claude 与 GPT 共用的
- * 那份，别的用组名或桶 ID。`5h` / `weekly` 给窗口长度，别的窗口把桶名接在额度名后面。停用的桶不报。
+ * `retrieveUserQuotaSummary` → 窗口（T3 的 `summaryWindows`）：`gemini-argon` 开头的桶（或组名带 Argon）是 Argon 单独的那份，
+ * 别的 `gemini-` 开头的桶是 Gemini，`3p-` 开头的是 Claude 与 GPT 共用的那份，别的用组名或桶 ID。`5h` / `weekly` 给窗口长度，
+ * 别的窗口把桶名接在额度名后面。停用的桶不报；额度名与长度都相同的几个桶（Argon 有过两个每周的桶）只留用得最多的。
  */
 export function summaryWindows(summary: unknown): AccountRateLimitWindow[] {
   const value = summary as {
@@ -105,26 +114,34 @@ export function summaryWindows(summary: unknown): AccountRateLimitWindow[] {
         continue;
       }
       const groupName = typeof group.displayName === 'string' ? group.displayName.trim() : '';
-      const family = bucket.bucketId.startsWith('gemini-')
-        ? 'Gemini'
-        : bucket.bucketId.startsWith('3p-')
-          ? 'Claude & GPT'
-          : groupName || bucket.bucketId;
+      const family =
+        bucket.bucketId.startsWith('gemini-argon') || /\bargon\b/i.test(groupName)
+          ? ARGON_SCOPE
+          : bucket.bucketId.startsWith('gemini-')
+            ? 'Gemini'
+            : bucket.bucketId.startsWith('3p-')
+              ? 'Claude & GPT'
+              : groupName || bucket.bucketId;
       const minutes =
         bucket.window === '5h' ? FIVE_HOURS : bucket.window === 'weekly' ? ONE_WEEK : undefined;
       const bucketName = typeof bucket.displayName === 'string' ? bucket.displayName.trim() : '';
       const scope =
         minutes === undefined && bucketName !== '' ? `${family} · ${bucketName}` : family;
       const window = quotaWindow(bucket, scope, minutes);
-      if (window !== undefined) windows.set(bucket.bucketId, window);
+      if (window === undefined) continue;
+      const key = minutes === undefined ? `bucket:${bucket.bucketId}` : `${scope}\0${minutes}`;
+      const previous = windows.get(key);
+      if (previous === undefined || window.usedPercent > previous.usedPercent) {
+        windows.set(key, window);
+      }
     }
   }
   return [...windows.values()];
 }
 
 /**
- * `fetchAvailableModels` → 窗口（T3 的 `modelWindows`，老账号）：按模型的家族（Gemini、Claude、GPT）合并，同一家族取用得最多
- * 的那个模型；`quotaInfo` 没有长度，`weeklyQuotaInfo` 是每周。
+ * `fetchAvailableModels` → 窗口（T3 的 `modelWindows`，老账号）：按模型的家族（Gemini、Gemini 4 Argon、Claude、GPT）合并，同一
+ * 家族取用得最多的那个模型；`quotaInfo` 没有长度，`weeklyQuotaInfo` 是每周。
  */
 export function modelWindows(response: unknown): AccountRateLimitWindow[] {
   const models = (response as { models?: Record<string, unknown> } | null)?.models;
@@ -132,8 +149,9 @@ export function modelWindows(response: unknown): AccountRateLimitWindow[] {
   const windows = new Map<string, AccountRateLimitWindow>();
   for (const [modelId, raw] of Object.entries(models)) {
     const model = raw as { modelProvider?: unknown; quotaInfo?: Quota; weeklyQuotaInfo?: Quota };
-    const family =
-      model.modelProvider === 'MODEL_PROVIDER_GOOGLE' || modelId.startsWith('gemini-')
+    const family = /^gemini-[\d.]+-argon\b/.test(modelId)
+      ? ARGON_SCOPE
+      : model.modelProvider === 'MODEL_PROVIDER_GOOGLE' || modelId.startsWith('gemini-')
         ? 'Gemini'
         : model.modelProvider === 'MODEL_PROVIDER_ANTHROPIC' || modelId.startsWith('claude-')
           ? 'Claude'
@@ -284,7 +302,7 @@ export class AntigravityUsage {
             headers: {
               Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
-              'User-Agent': `antigravity/hub/1.0.0 (aidev_client; os_type=${process.platform}; arch=${process.arch}; cl=963137146)`,
+              'User-Agent': `antigravity/hub/${ANTIGRAVITY_HUB_VERSION} (aidev_client; os_type=${process.platform}; arch=${process.arch}; cl=963137146)`,
             },
             body,
           }),

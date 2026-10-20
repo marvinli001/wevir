@@ -532,6 +532,29 @@ export class GrokAccounts implements EngineAccounts {
     };
   }
 
+  /**
+   * 只重读用量（Host 定时刷新）：读 `grok login` 的 auth.json 与本周期的额度，不起 CLI；还是同一个账号、读到了而且变了才发布。
+   * 用 xAI API Key 时没有额度。
+   */
+  async refreshUsage(kind: AccountKind): Promise<void> {
+    this.#check(kind);
+    const state = this.#state;
+    if (state?.status !== 'signed_in' || state.plan === 'apiKey' || this.#probing !== undefined) {
+      return;
+    }
+    const account = await readGrokUsage({
+      env: this.#options.env ?? process.env,
+      ...(this.#options.fetch !== undefined && { fetch: this.#options.fetch }),
+      ...(this.#options.readFile !== undefined && { readFile: this.#options.readFile }),
+    });
+    if (this.#state !== state || account === undefined || !account.usage.ok) return;
+    if (account.email !== state.email) return;
+    const rateLimits = account.usage.rateLimits && accountRateLimits(account.usage.rateLimits);
+    if (rateLimits === undefined) return;
+    if (JSON.stringify(rateLimits) === JSON.stringify(state.rateLimits)) return;
+    this.#publish({ ...state, rateLimits });
+  }
+
   #publish(state: AccountState): void {
     this.#state = state;
     this.#emit();

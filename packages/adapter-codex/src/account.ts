@@ -22,6 +22,7 @@ import type {
   LoginAccountResponse,
   ModelListParams,
   ModelListResponse,
+  RateLimitSnapshot,
   RateLimitWindow,
 } from './protocol.js';
 
@@ -45,12 +46,23 @@ export interface ChatgptAccountOptions {
 /** Wevir 的推理档位（protocol `ProviderReasoningLevel`）；Codex 多出来的（如 `ultra`）不列。 */
 const WEVIR_EFFORTS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
+/** 主额度的 `limitId`；其余的是某些模型单独的额度（Codex 的 `additional_rate_limits`）。 */
+const MAIN_LIMIT = 'codex';
+
+/** 一份额度：主窗口与次窗口，模型单独的额度带名字。 */
+export interface CodexRateLimit {
+  name?: string;
+  primary?: AccountRateLimitWindow;
+  secondary?: AccountRateLimitWindow;
+}
+
 /** 账号本身（不含进行中的登录）。 */
 interface Base {
   signedIn: boolean;
   email?: string;
   plan?: string;
-  rateLimits?: AccountState['rateLimits'];
+  /** 按 `limitId` 记的额度；主额度是 `codex`。 */
+  limits?: Record<string, CodexRateLimit>;
   lastError?: string;
 }
 
@@ -86,9 +98,8 @@ export class ChatgptAccount {
     if (base.signedIn) {
       if (base.email !== undefined) state.email = base.email;
       if (base.plan !== undefined) state.plan = base.plan;
-      if (base.rateLimits !== undefined && this.#login === undefined) {
-        state.rateLimits = base.rateLimits;
-      }
+      const rateLimits = base.limits && codexRateLimits(base.limits);
+      if (rateLimits !== undefined && this.#login === undefined) state.rateLimits = rateLimits;
     }
     if (this.#login !== undefined) state.login = { ...this.#login };
     else if (base.lastError !== undefined) state.lastError = base.lastError;
@@ -123,8 +134,8 @@ export class ChatgptAccount {
       const plan = nonEmpty((account as { planType?: unknown }).planType);
       if (email !== undefined) base.email = email;
       if (plan !== undefined) base.plan = plan;
-      const rateLimits = await this.#readRateLimits(rpc);
-      if (rateLimits !== undefined) base.rateLimits = rateLimits;
+      const limits = await this.#readRateLimits(rpc);
+      if (limits !== undefined) base.limits = limits;
       this.#base = base;
     } else {
       this.#base = {
@@ -299,16 +310,32 @@ export class ChatgptAccount {
     this.#reread();
   }
 
+  /** 稀疏更新：只换带来的窗口，记到它的 `limitId` 下（没有时是主额度），别的额度不动。 */
   #onRateLimits(params: AccountRateLimitsUpdatedNotification): void {
     if (this.#base?.signedIn !== true) return;
     const update = params?.rateLimits;
     if (update === undefined || update === null) return;
-    const rateLimits = { ...this.#base.rateLimits };
+    const id = nonEmpty(update.limitId) ?? MAIN_LIMIT;
+    const limit: CodexRateLimit = { ...this.#base.limits?.[id] };
+    const name = nonEmpty(update.limitName);
     const primary = rateLimitWindow(update.primary);
     const secondary = rateLimitWindow(update.secondary);
-    if (primary !== undefined) rateLimits.primary = primary;
-    if (secondary !== undefined) rateLimits.secondary = secondary;
-    this.#base.rateLimits = rateLimits;
+    if (name !== undefined) limit.name = name;
+    if (primary !== undefined) limit.primary = primary;
+    if (secondary !== undefined) limit.secondary = secondary;
+    if (limit.primary === undefined && limit.secondary === undefined) return;
+    this.#base.limits = { ...this.#base.limits, [id]: limit };
+    this.#publish();
+  }
+
+  /** 只重读用量（Host 定时刷新）；没登录、正在登录或读不到时什么都不做。 */
+  async refreshUsage(): Promise<void> {
+    if (this.#base?.signedIn !== true || this.#login !== undefined) return;
+    const rpc = await this.#options.rpc().catch(() => undefined);
+    if (rpc === undefined) return;
+    const limits = await this.#readRateLimits(rpc);
+    if (limits === undefined || this.#base?.signedIn !== true) return;
+    this.#base = { ...this.#base, limits };
     this.#publish();
   }
 
@@ -318,21 +345,37 @@ export class ChatgptAccount {
     );
   }
 
-  async #readRateLimits(rpc: AccountRpc): Promise<AccountState['rateLimits']> {
+  /** 全部额度（`rateLimitsByLimitId`，旧版本只有 `rateLimits`）；读不到时是上一次的。 */
+  async #readRateLimits(rpc: AccountRpc): Promise<Base['limits']> {
     try {
       const response = await rpc.request<GetAccountRateLimitsResponse>('account/rateLimits/read', {
         excludeResetCreditDetails: true,
       });
-      const primary = rateLimitWindow(response.rateLimits?.primary);
-      const secondary = rateLimitWindow(response.rateLimits?.secondary);
-      if (primary === undefined && secondary === undefined) return undefined;
-      return {
-        ...(primary !== undefined && { primary }),
-        ...(secondary !== undefined && { secondary }),
-      };
+      const snapshots: [string, RateLimitSnapshot | null | undefined][] = Object.entries(
+        response.rateLimitsByLimitId ?? {},
+      );
+      if (!snapshots.some(([id]) => id === MAIN_LIMIT)) {
+        snapshots.unshift([
+          nonEmpty(response.rateLimits?.limitId) ?? MAIN_LIMIT,
+          response.rateLimits,
+        ]);
+      }
+      const limits: Record<string, CodexRateLimit> = {};
+      for (const [id, snapshot] of snapshots) {
+        const primary = rateLimitWindow(snapshot?.primary);
+        const secondary = rateLimitWindow(snapshot?.secondary);
+        if (primary === undefined && secondary === undefined) continue;
+        const name = nonEmpty(snapshot?.limitName);
+        limits[id] = {
+          ...(name !== undefined && { name }),
+          ...(primary !== undefined && { primary }),
+          ...(secondary !== undefined && { secondary }),
+        };
+      }
+      return Object.keys(limits).length === 0 ? undefined : limits;
     } catch {
       // 用量只是附带的，读不到不影响账号状态。
-      return this.#base?.rateLimits;
+      return this.#base?.limits;
     }
   }
 
@@ -379,6 +422,35 @@ export function accountModels(data: readonly CodexModel[]): AccountModels {
   }
   defaultModelId ??= models[0]?.id;
   return { models, ...(defaultModelId !== undefined && { defaultModelId }) };
+}
+
+/**
+ * 额度 → 账号的 `rateLimits`：主额度的两个窗口是 `primary` / `secondary`；有模型单独的额度时 `windows` 先列主额度的，再列它们的
+ * （`scope` 是额度名，如“GPT-5.3-Codex-Spark · 5 小时用量”）。只有主额度时不带 `windows`（与 0.45.0 之前一样）。
+ */
+export function codexRateLimits(
+  limits: Record<string, CodexRateLimit>,
+): AccountState['rateLimits'] {
+  const main = limits[MAIN_LIMIT];
+  const extra = Object.entries(limits)
+    .filter(([id]) => id !== MAIN_LIMIT)
+    .sort(([a], [b]) => a.localeCompare(b));
+  const windows: AccountRateLimitWindow[] = [];
+  if (main?.primary !== undefined) windows.push(main.primary);
+  if (main?.secondary !== undefined) windows.push(main.secondary);
+  for (const [id, limit] of extra) {
+    const scope = limit.name ?? id;
+    if (limit.primary !== undefined) windows.push({ ...limit.primary, scope });
+    if (limit.secondary !== undefined) windows.push({ ...limit.secondary, scope });
+  }
+  if (windows.length === 0) return undefined;
+  const primary = main?.primary ?? windows[0];
+  const secondary = main === undefined ? windows[1] : main.secondary;
+  return {
+    ...(primary !== undefined && { primary }),
+    ...(secondary !== undefined && { secondary }),
+    ...(extra.length > 0 && { windows }),
+  };
 }
 
 function rateLimitWindow(

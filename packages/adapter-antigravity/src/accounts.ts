@@ -269,6 +269,13 @@ export class AntigravityAccounts implements EngineAccounts {
     return this.#update();
   }
 
+  /** 只重读用量（Host 定时刷新）：已登录时不看 5 分钟的缓存，读到变化经 onChange 报。 */
+  async refreshUsage(kind: AccountKind): Promise<void> {
+    this.#check(kind);
+    if (this.#flow !== undefined || this.#state.status !== 'signed_in') return;
+    await this.#refreshUsage(true);
+  }
+
   async models(kind: AccountKind): Promise<AccountModels> {
     this.#check(kind);
     this.#models ??= await loadModels(this.#context.paths.models);

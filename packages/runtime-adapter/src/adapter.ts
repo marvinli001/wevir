@@ -402,6 +402,12 @@ export interface EngineAccounts {
    */
   install?(kind: AccountKind): Promise<AccountState>;
   /**
+   * 只重读用量（Host 的自动刷新用，usage-refresh.ts）：不重新找可执行文件、不重新检测登录，尽量不起进程（HTTP 或本地文件），
+   * 读到变化经 `onChange` 发布。没登录、这类账号不报用量或读不到时什么都不做，不抛错。不实现时 Host 改用不带 `refresh` 的
+   * `read`（引擎缓存过期才真的去读）。
+   */
+  refreshUsage?(kind: AccountKind): Promise<void>;
+  /**
    * 状态变了（登录开始、完成、失败、取消，登出，套餐或用量变化）时调用，带完整的状态。返回退订函数。监听器里抛错不影响别的
    * 监听器。
    */

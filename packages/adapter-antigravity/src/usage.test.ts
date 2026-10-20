@@ -11,7 +11,13 @@ import {
   tempDir,
   waitFor,
 } from './test-fixtures/runtime.js';
-import { AntigravityUsage, GOOGLE_TOKEN_URL, modelWindows, summaryWindows } from './usage.js';
+import {
+  ANTIGRAVITY_HUB_VERSION,
+  AntigravityUsage,
+  GOOGLE_TOKEN_URL,
+  modelWindows,
+  summaryWindows,
+} from './usage.js';
 
 // 两个 Cloud Code 接口的形状照 T3 的 schema（groups[].buckets[] 的 remainingFraction / resetTime / window，models 的
 // quotaInfo / weeklyQuotaInfo）；没有真实账号的录制，数是编的。
@@ -99,6 +105,43 @@ describe('summaryWindows / modelWindows', () => {
     ]);
   });
 
+  it('Gemini 4 Argon 单独一份（gemini-argon 桶或组名带 Argon），同名同长度的桶只留用得最多的', () => {
+    // 形状照第三方额度工具报告的 Argon 分组（openusage #1397），数是编的。
+    const windows = summaryWindows({
+      groups: [
+        ...SUMMARY.groups,
+        {
+          displayName: 'Gemini 4 Argon',
+          buckets: [
+            {
+              bucketId: 'gemini-argon-wtu-weekly',
+              displayName: 'Gemini 4 Argon Weekly Limit',
+              window: 'weekly',
+              remainingFraction: 0.75,
+              resetTime: '2026-10-22T23:24:33Z',
+            },
+            { bucketId: 'gemini-argon-weekly', window: 'weekly', remainingFraction: 0.9 },
+          ],
+        },
+        {
+          displayName: 'Argon preview',
+          buckets: [{ bucketId: 'x-5h', window: '5h', remainingFraction: 1 }],
+        },
+      ],
+    });
+    expect(windows.filter((window) => window.scope === 'Gemini 4 Argon')).toEqual([
+      {
+        usedPercent: 25,
+        scope: 'Gemini 4 Argon',
+        windowMinutes: 10080,
+        resetsAt: '2026-10-22T23:24:33.000Z',
+      },
+      { usedPercent: 0, scope: 'Gemini 4 Argon', windowMinutes: 300 },
+    ]);
+    // Gemini 那份不受影响。
+    expect(windows.filter((window) => window.scope === 'Gemini')).toHaveLength(2);
+  });
+
   it('没有分组时读顶层的 buckets；别的窗口把桶名接在额度名后面', () => {
     expect(
       summaryWindows({
@@ -119,6 +162,10 @@ describe('summaryWindows / modelWindows', () => {
             weeklyQuotaInfo: { remainingFraction: 0.5, resetTime: '2026-10-20T00:00:00Z' },
           },
           'mystery-1': { quotaInfo: { remainingFraction: 0 } },
+          'gemini-4-argon-high': {
+            modelProvider: 'MODEL_PROVIDER_GOOGLE',
+            quotaInfo: { remainingFraction: 0.6 },
+          },
         },
       }),
     ).toEqual([
@@ -129,6 +176,7 @@ describe('summaryWindows / modelWindows', () => {
         windowMinutes: 10080,
         resetsAt: '2026-10-20T00:00:00.000Z',
       },
+      { usedPercent: 40, scope: 'Gemini 4 Argon' },
     ]);
   });
 });
@@ -167,6 +215,26 @@ describe('AntigravityUsage', () => {
     usage.clear();
     await usage.read();
     expect(http.calls.filter((call) => call.url === GOOGLE_TOKEN_URL)).toHaveLength(3);
+  });
+
+  it('User-Agent 报的版本够新（低于 2.16 时 Cloud Code 不给 Argon 那组）', async () => {
+    const agents: string[] = [];
+    const usage = new AntigravityUsage({
+      tokenPath: '/profile/token.json',
+      readFile: read(TOKEN),
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url === GOOGLE_TOKEN_URL) return json({ access_token: 'a', expires_in: 3600 })();
+        agents.push(new Headers(init?.headers).get('user-agent') ?? '');
+        return json(SUMMARY)();
+      }) as typeof fetch,
+    });
+    expect((await usage.read()).ok).toBe(true);
+    expect(agents[0]).toMatch(
+      new RegExp(`^antigravity/hub/${ANTIGRAVITY_HUB_VERSION.replaceAll('.', '\\.')} `),
+    );
+    const [major = 0, minor = 0] = ANTIGRAVITY_HUB_VERSION.split('.').map(Number);
+    expect(major > 2 || (major === 2 && minor >= 16)).toBe(true);
   });
 
   it('第一个端点失败换第二个；汇总没有窗口时退回按模型的额度', async () => {
