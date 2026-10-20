@@ -9,7 +9,6 @@ import {
   isPickable,
   pickerOrder,
   SOURCE_KINDS,
-  SOURCES,
   sourceOf,
   sourcePhase,
   sourceTitle,

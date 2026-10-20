@@ -267,7 +267,7 @@ export function SelectionToolbar({
     const keys = ['Tab', 'ArrowLeft', 'ArrowRight'];
     if (!keys.includes(event.key) || event.metaKey || event.ctrlKey || event.altKey) return;
     const buttons = Array.from(event.currentTarget.querySelectorAll('button'));
-    const index = buttons.findIndex((button) => button === document.activeElement);
+    const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
     const backward = event.key === 'ArrowLeft' || (event.key === 'Tab' && event.shiftKey);
     event.preventDefault();
     buttons[(index + (backward ? -1 : 1) + buttons.length) % buttons.length]?.focus();
