@@ -2143,7 +2143,7 @@ export const NotificationSchemas = {
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */
   'terminal.changed': { params: TerminalChangedParamsSchema },
-  /** 发给调用过 `lsp.*` 的连接（0.70.0）。 */
+  /** 发给调用过 `lsp.*` 的连接（0.71.0）。 */
   'lsp.changed': { params: LspChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },

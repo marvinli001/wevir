@@ -9,7 +9,7 @@
 // executable.ts）；项目根往上找到会话目录为止；读版本与最低版本，给出安装方案（opencode 自己装，Wevir 只在用户发起时运行，
 // 见 service.ts）；项目里没有 TypeScript 时也用全局装的 TypeScript 7。
 //
-// 代码智能（LSP 工具，domain-model §3.15）：每种语言用哪个语言服务器、从哪里找、项目根怎么定；0.70.0 起还有版本从哪儿读、最低版本，
+// 代码智能（LSP 工具，domain-model §3.15）：每种语言用哪个语言服务器、从哪里找、项目根怎么定；0.71.0 起还有版本从哪儿读、最低版本，
 // 与找不到或版本过旧时的安装方案（项目级优先用项目已有的依赖与包管理器；Host 只在用户发起 `lsp.install` 时运行它们）。
 
 import { readFile, realpath, stat } from 'node:fs/promises';

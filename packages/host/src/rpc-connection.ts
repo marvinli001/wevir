@@ -86,7 +86,7 @@ export interface ConnectionHost {
     watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
   };
   /** 进程输出（0.69.0）：调过 `process.*` 的连接用它收 `process.changed`。 */
-  /** 语言服务器（0.70.0）：调过 `lsp.*` 的连接用它收 `lsp.changed`。 */
+  /** 语言服务器（0.71.0）：调过 `lsp.*` 的连接用它收 `lsp.changed`。 */
   readonly lsp?: {
     watch(listener: (change: NotificationParams<'lsp.changed'>) => void): () => void;
   };
@@ -738,7 +738,7 @@ export class RpcConnection {
   }
 
   /** 调过 `process.*` 的连接之后收 `process.changed`（0.69.0），连接关闭即止。 */
-  /** 调过 `lsp.*` 的连接之后收 `lsp.changed`（0.70.0），连接关闭即止。 */
+  /** 调过 `lsp.*` 的连接之后收 `lsp.changed`（0.71.0），连接关闭即止。 */
   #watchLsp(): void {
     if (this.#unwatchLsp !== undefined || this.#host.lsp === undefined) return;
     if (this.#phase !== 'ready') return;

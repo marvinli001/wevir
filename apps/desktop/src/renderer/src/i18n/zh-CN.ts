@@ -2037,7 +2037,7 @@ export const zhCN = {
   'automations.template.news.prompt':
     '从依赖清单判断这个项目用到的主要框架与工具，联网查它们过去一周的新版本、弃用通知与安全公告，按影响从大到小列出，每条附来源链接并说明对这个项目的影响。',
 
-  // 语言服务器（0.70.0）
+  // 语言服务器（0.71.0）
   'rail.lsp': '语言服务器',
   'lsp.state.missing': '未安装',
   'lsp.state.outdated': '版本过旧',

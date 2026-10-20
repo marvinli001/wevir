@@ -1,4 +1,4 @@
-// 语言服务器的状态与安装（0.70.0，lsp/service.ts、lsp/scan.ts、lsp/probe.ts）：没装任何服务器、只有项目内的 TypeScript、全局的
+// 语言服务器的状态与安装（0.71.0，lsp/service.ts、lsp/scan.ts、lsp/probe.ts）：没装任何服务器、只有项目内的 TypeScript、全局的
 // 版本过旧、起来后崩溃、安装失败、安装成功后诊断出来、monorepo 多个根、rustup 代理跑不起来；用户级方案要明确确认。装的东西都在
 // 临时目录里（假的安装命令、假的语言服务器），不碰全局。
 

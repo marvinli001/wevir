@@ -146,7 +146,7 @@ export interface HostMethodsOptions {
   review?: ReviewService;
   /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
   git?: GitService;
-  /** 语言服务器的状态与安装（0.70.0，`lsp.*`）；省略时这些方法回 `INVALID_PARAMS`。 */
+  /** 语言服务器的状态与安装（0.71.0，`lsp.*`）；省略时这些方法回 `INVALID_PARAMS`。 */
   lsp?: LspStatusService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;

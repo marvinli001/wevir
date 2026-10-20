@@ -38,7 +38,7 @@ export const RepairIdSchema = z.templateLiteral(['rpr_', IdBodySchema]);
 export const ReviewCommentIdSchema = z.templateLiteral(['rvc_', IdBodySchema]);
 /** 用户的交互终端（0.69.0）。 */
 export const TerminalIdSchema = z.templateLiteral(['trm_', IdBodySchema]);
-/** 一次语言服务器安装（0.70.0）。 */
+/** 一次语言服务器安装（0.71.0）。 */
 export const LspInstallIdSchema = z.templateLiteral(['lsi_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;

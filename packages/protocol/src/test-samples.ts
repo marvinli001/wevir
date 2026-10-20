@@ -225,7 +225,7 @@ export const verificationRun: VerificationRun = {
   fingerprint: 'sha256:77aa',
 };
 
-/** 一次语言服务器安装（0.70.0）：装完验证通过。 */
+/** 一次语言服务器安装（0.71.0）：装完验证通过。 */
 export const lspInstallSample: LspInstallRun = {
   id: 'lsi_01JBZ8Y5W1ZK3M4N5P6Q7R8S9T',
   serverId: 'typescript',
@@ -241,7 +241,7 @@ export const lspInstallSample: LspInstallRun = {
   verification: { server: 'tsc --lsp (TypeScript 7.0.2)', file: 'src/index.ts', diagnostics: 2 },
 };
 
-/** 语言服务器的状态（0.70.0）：在运行的，与没装、带方案的。 */
+/** 语言服务器的状态（0.71.0）：在运行的，与没装、带方案的。 */
 export const lspRunningSample: LspServerStatus = {
   serverId: 'typescript',
   language: 'TypeScript/JavaScript',

@@ -60,7 +60,7 @@ const SYNC_INCREMENTAL = 2;
 
 export class LspRequestError extends Error {}
 
-/** `initialize` 结果里声明了的能力（0.70.0 的 `lsp.status`），按 LSP 的方法名去掉 `Provider`。 */
+/** `initialize` 结果里声明了的能力（0.71.0 的 `lsp.status`），按 LSP 的方法名去掉 `Provider`。 */
 const CAPABILITY_NAMES: ReadonlyArray<[keyof ServerCapabilities, string]> = [
   ['definitionProvider', 'definition'],
   ['typeDefinitionProvider', 'typeDefinition'],
@@ -174,7 +174,7 @@ export class LspClient {
   readonly label: string;
   /** 最近一次使用（请求或同步文档）的时间。 */
   usedAt = Date.now();
-  /** 最近一次取完诊断的时间（0.70.0 的 `lsp.status`）。 */
+  /** 最近一次取完诊断的时间（0.71.0 的 `lsp.status`）。 */
   diagnosticsAt: number | undefined;
   readonly #options: LspClientOptions;
   readonly #process: ChildProcessWithoutNullStreams;

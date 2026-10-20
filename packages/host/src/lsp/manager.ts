@@ -4,7 +4,7 @@
 // Copyright (c) 2025 opencode，MIT License
 // 修改：不用 Effect；opencode 起不来的服务器整个实例期间不再试（`broken`），Wevir 改为 5 分钟内崩溃或起不来 3 次才停，过了窗口
 // 再试；加上空闲关闭、同时运行的上限、Host 退出时回收；按会话记下引擎改过的文件（Codex 的 fileChange、其他引擎修改 / 写文件的
-// 工具调用），交给已在运行的服务器并留给下一次 LSP 工具的结果。0.70.0 起：起服务器前读一次版本（跑不起来或过旧的不用）、记下每个
+// 工具调用），交给已在运行的服务器并留给下一次 LSP 工具的结果。0.71.0 起：起服务器前读一次版本（跑不起来或过旧的不用）、记下每个
 // 服务器的状态、能力、启动日志与最近一次诊断的时间（`lsp.status`），可以重启。
 //
 // 代码智能（LSP 工具，domain-model §3.15）：Host 里所有语言服务器的管理。
@@ -355,7 +355,7 @@ export class LspManager {
     this.#notify(entry);
   }
 
-  // ── 状态（0.70.0，lsp.status） ─────────────────────────────────────
+  // ── 状态（0.71.0，lsp.status） ─────────────────────────────────────
 
   /** 一个服务器（种类 × 项目根）现在的状态；不启动服务器。`refresh` 时重新查找。 */
   async status(spec: ServerSpec, root: string, refresh = false): Promise<LspServerStatus> {

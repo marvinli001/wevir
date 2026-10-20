@@ -33,7 +33,7 @@ import { DEFAULT_CLIENT_CAPABILITIES, hostSupports } from './capabilities.js';
 
 /** `automation.changed` 的内容（0.66.0）。 */
 export type AutomationChange = NotificationParams<'automation.changed'>;
-/** `lsp.changed` 的内容（0.70.0）。 */
+/** `lsp.changed` 的内容（0.71.0）。 */
 export type LspChange = NotificationParams<'lsp.changed'>;
 /** `process.changed` 的内容（0.69.0）。 */
 export type ProcessChange = NotificationParams<'process.changed'>;
@@ -551,7 +551,7 @@ export class WevirClient {
   }
 
   /**
-   * 语言服务器的状态变了（0.70.0，`lsp.changed`）：起来、退出、崩溃，或安装有进展。重连上之后以 `undefined` 调一次（Host 只给调过
+   * 语言服务器的状态变了（0.71.0，`lsp.changed`）：起来、退出、崩溃，或安装有进展。重连上之后以 `undefined` 调一次（Host 只给调过
    * `lsp.*` 的连接发通知，重连后要重新读一次才会再收到）。返回取消函数。
    */
   onLspChanged(listener: (change: LspChange | undefined) => void): () => void {

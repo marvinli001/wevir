@@ -488,7 +488,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
     // 代码智能（lsp_* 工具）：语言服务器按需启动，空闲关闭，Host 退出时回收。
-    // 0.70.0：`lsp.*` 看语言服务器的状态、重启、由用户发起安装。
+    // 0.71.0：`lsp.*` 看语言服务器的状态、重启、由用户发起安装。
     let lspStatus: LspStatusService | undefined;
     const lsp =
       adapter.appTools === true
@@ -747,7 +747,7 @@ interface ShutdownParts {
   verification: VerificationService | undefined;
   /** 代码智能的语言服务器；引擎挂不上应用级工具时没有。 */
   lsp: LspManager | undefined;
-  /** 语言服务器的安装（0.70.0）：结束还在跑的安装命令。 */
+  /** 语言服务器的安装（0.71.0）：结束还在跑的安装命令。 */
   lspStatus: LspStatusService | undefined;
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;

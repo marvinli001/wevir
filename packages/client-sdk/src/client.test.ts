@@ -831,7 +831,7 @@ describe('进程输出（0.69.0）', () => {
   });
 });
 
-describe('语言服务器（0.70.0）', () => {
+describe('语言服务器（0.71.0）', () => {
   it('onLspChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();
     host.on('host.hello', () => ({ result: { ...HELLO, features: { lsp_status: true } } }));

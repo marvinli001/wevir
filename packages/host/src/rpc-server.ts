@@ -70,7 +70,7 @@ export interface HostRpcServerOptions {
   automations?: ConnectionHost['automations'];
   /** 进程输出（0.69.0）：调过 `process.*` 的连接经它收 `process.changed`。 */
   processes?: ConnectionHost['processes'];
-  /** 语言服务器（0.70.0）：调过 `lsp.*` 的连接经它收 `lsp.changed`。 */
+  /** 语言服务器（0.71.0）：调过 `lsp.*` 的连接经它收 `lsp.changed`。 */
   lsp?: ConnectionHost['lsp'];
   /** 用户的交互终端（0.69.0）：`terminal.attach` 登记连接，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   terminals?: ConnectionHost['terminals'];
