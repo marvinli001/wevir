@@ -5,6 +5,7 @@
 // 原样存 JSON、类型为 unknown；小而稳定的结构（ActiveTurn、ClientIdentity 等）按同形单独声明。
 // 记录与线缆类型之间的转换由 Host 负责。
 
+export * from './accounts.js';
 export * from './approvals.js';
 export {
   BUSY_TIMEOUT_MS,

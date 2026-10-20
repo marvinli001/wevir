@@ -351,6 +351,31 @@ export const connectingUpstreamAccount: AccountState = {
   },
 };
 
+/** 0.63.0：添加的第二个 Claude 账号，带标签，凭据在 Wevir 的私有目录（不是本机终端的登录）。 */
+export const labeledClaudeAccount: AccountState = {
+  kind: 'claude',
+  id: 'claude-3f9a',
+  label: '工作',
+  multiAccount: true,
+  status: 'signed_in',
+  email: 'work@example.com',
+  plan: 'max',
+  planLabel: 'Max 5x',
+  signIn: 'in_app',
+  loginMethods: ['browser'],
+  installed: true,
+  version: '2.1.140',
+};
+
+/** 0.63.0：首个 Claude 账号用的是本机终端里的登录。 */
+export const localClaudeAccount: AccountState = {
+  ...claudeAccount,
+  id: 'claude',
+  label: '主号',
+  localLogin: true,
+  multiAccount: true,
+};
+
 export const signingInAccount: AccountState = {
   kind: 'chatgpt',
   status: 'signing_in',
@@ -1829,11 +1854,18 @@ export const methodSamples: MethodSamples = {
           apiKey: null,
         },
         { id: 'chatgpt', kind: 'chatgpt', displayName: 'ChatGPT', defaultModelId: 'gpt-6.1-sol' },
+        // 0.63.0：添加的 ChatGPT 账号
+        {
+          id: 'chatgpt-0b1c',
+          kind: 'chatgpt',
+          displayName: 'ChatGPT',
+          defaultModelId: 'gpt-6.1-sol',
+        },
       ],
       invalid: [
-        // chatgpt 的 id 固定
+        // chatgpt 的 id 要合 Provider ID 的格式
         {
-          id: 'my-chatgpt',
+          id: 'My ChatGPT',
           kind: 'chatgpt',
           displayName: 'ChatGPT',
           defaultModelId: 'gpt-6.1-sol',
@@ -1988,8 +2020,15 @@ export const methodSamples: MethodSamples = {
         { kind: 'claude', refresh: true },
         { kind: 'grok' },
         { kind: 'workbuddy', refresh: true },
+        // 0.63.0：按账号 ID 读添加的账号。
+        { kind: 'claude', id: 'claude-3f9a', refresh: true },
       ],
-      invalid: [{}, { kind: 'gemini' }, { kind: 'claude', refresh: 'yes' }],
+      invalid: [
+        {},
+        { kind: 'gemini' },
+        { kind: 'claude', refresh: 'yes' },
+        { kind: 'claude', id: 'Claude 2' },
+      ],
     },
     result: {
       valid: [
@@ -1998,9 +2037,15 @@ export const methodSamples: MethodSamples = {
         { account: { kind: 'chatgpt', status: 'signed_out', lastError: 'Login timed out' } },
         { account: claudeAccount },
         { account: multiWindowAccount },
+        { account: labeledClaudeAccount },
+        { account: localClaudeAccount },
       ],
       invalid: [
         { account: { kind: 'chatgpt', status: 'expired' } },
+        { account: { ...labeledClaudeAccount, label: '' } },
+        { account: { ...labeledClaudeAccount, label: ' 工作' } },
+        { account: { ...labeledClaudeAccount, label: 'x'.repeat(17) } },
+        { account: { ...localClaudeAccount, localLogin: false } },
         { account: { ...claudeAccount, installUrl: 'x.ai/cli' } },
         {
           account: {
@@ -2035,6 +2080,8 @@ export const methodSamples: MethodSamples = {
         { kind: 'opencode', method: 'browser', upstream: 'openai', option: 'default' },
         // 没有 upstream 时 option 是 loginOptions 里的一项。
         { kind: 'workbuddy', method: 'browser', option: 'external' },
+        // 0.63.0：登录添加的账号。
+        { kind: 'chatgpt', id: 'chatgpt-0b1c', method: 'device_code' },
       ],
       invalid: [
         { kind: 'chatgpt' },
@@ -2079,8 +2126,12 @@ export const methodSamples: MethodSamples = {
       valid: [
         { kind: 'chatgpt' },
         { kind: 'chatgpt', loginId: '27c40a56-caa5-4314-9ca0-f2606104ac35' },
+        { kind: 'chatgpt', id: 'chatgpt-0b1c' },
       ],
-      invalid: [{ kind: 'chatgpt', loginId: '' }],
+      invalid: [
+        { kind: 'chatgpt', loginId: '' },
+        { kind: 'chatgpt', id: '' },
+      ],
     },
     result: {
       valid: [{ account: { kind: 'chatgpt', status: 'signed_out' } }],
@@ -2161,8 +2212,12 @@ export const methodSamples: MethodSamples = {
   },
   'account.logout': {
     params: {
-      valid: [{ kind: 'chatgpt' }, { kind: 'opencode', upstream: 'opencode-go' }],
-      invalid: [{ kind: 1 }, { kind: 'opencode', upstream: '' }],
+      valid: [
+        { kind: 'chatgpt' },
+        { kind: 'opencode', upstream: 'opencode-go' },
+        { kind: 'grok', id: 'grok-77d0' },
+      ],
+      invalid: [{ kind: 1 }, { kind: 'opencode', upstream: '' }, { kind: 'grok', id: 7 }],
     },
     result: {
       valid: [{ account: { kind: 'chatgpt', status: 'signed_out' } }],
@@ -2194,6 +2249,51 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ account: antigravityInstalling }],
       invalid: [{ account: { ...antigravityInstalling, canInstall: 'yes' } }],
+    },
+  },
+  'account.add': {
+    params: {
+      valid: [{ kind: 'claude' }, { kind: 'chatgpt', label: '副号' }],
+      invalid: [
+        {},
+        { kind: 'gemini' },
+        { kind: 'claude', label: '' },
+        { kind: 'claude', label: 3 },
+      ],
+    },
+    result: {
+      valid: [
+        {
+          account: {
+            kind: 'chatgpt',
+            id: 'chatgpt-0b1c',
+            label: '副号',
+            multiAccount: true,
+            status: 'signed_out',
+            signIn: 'in_app',
+            loginMethods: ['browser', 'device_code'],
+          },
+        },
+      ],
+      invalid: [{ account: { kind: 'chatgpt', id: 'ChatGPT', status: 'signed_out' } }],
+    },
+  },
+  'account.remove': {
+    params: { valid: [{ id: 'claude-3f9a' }], invalid: [{}, { id: '' }, { kind: 'claude' }] },
+    result: empty,
+  },
+  'account.setLabel': {
+    params: {
+      valid: [
+        { id: 'claude', label: '主号' },
+        { id: 'claude-3f9a', label: 'Work' },
+        { id: 'claude-3f9a', label: null },
+      ],
+      invalid: [{ id: 'claude' }, { id: 'claude', label: '' }, { id: 'claude', label: '工作 ' }],
+    },
+    result: {
+      valid: [{ account: labeledClaudeAccount }, { account: localClaudeAccount }],
+      invalid: [{ account: { ...labeledClaudeAccount, multiAccount: false } }],
     },
   },
   'session.create': {

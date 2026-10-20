@@ -2,6 +2,9 @@
 // OpenCode、Grok、Antigravity），所以 Host 拿到的是把几个引擎拼在一起的路由。会话按 Provider 的种类交给一个引擎，之后的调用按
 // 引擎会话 ID 找回它（子会话与支线跟着派出它的引擎）；账号按种类合并。照 adapter-codex 的 CodexRuntime（两个进程按种类分会话）
 // 推广到任意个引擎。
+//
+// 订阅多账号（0.63.0）：同一来源添加的账号各是同类引擎的一个新实例，作为一条只认自己 Provider ID 的路由在运行时加进来
+// （`accountPool`）；按 Provider 找引擎时认领了这个 ID 的路由优先，其余仍按种类。
 
 import type { EngineFeatures, SessionCommand } from '@wevir/protocol';
 import type {
@@ -37,6 +40,29 @@ export interface EngineRoute {
   name: string;
   adapter: AgentRuntimeAdapter;
   kinds: readonly ProviderKind[];
+  /**
+   * 0.63.0：只认这些 Provider（添加的账号，ID 就是账号 ID），不按种类接别的 Provider；`kinds` 是这个账号的种类。省略时按
+   * `kinds` 接没被认领的 Provider。
+   */
+  providerIds?: readonly string[];
+}
+
+/**
+ * 给添加的账号建引擎（0.63.0）：`kinds` 是能添加账号的种类；`create` 建一个只有这一个账号的同类引擎，凭据与会话放在 `root`
+ * （`<数据目录>/accounts/<id>/`）下。引擎应当懒启动，同 engines.ts 的约定。
+ */
+export interface AccountEngineFactory {
+  readonly kinds: readonly AccountKind[];
+  create(kind: AccountKind, account: { id: string; root: string }): AgentRuntimeAdapter;
+}
+
+/** Host 的账号登记用它给添加的账号开、关引擎（accounts.ts）。 */
+export interface AccountPool {
+  readonly kinds: readonly AccountKind[];
+  /** 建这个账号的引擎并挂上路由，返回它的账号接口（只有 `kind` 这一种）。 */
+  open(kind: AccountKind, account: { id: string; root: string }): EngineAccounts;
+  /** 停掉这个账号的引擎、去掉路由；没有时什么都不做。 */
+  close(id: string): Promise<void>;
 }
 
 /** 权限模式的固定顺序，合并各引擎的模式时用。 */
@@ -45,7 +71,6 @@ const PERMISSION_ORDER: readonly PermissionMode[] = ['on_request', 'auto_review'
 export class EngineRouter implements AgentRuntimeAdapter {
   readonly mcpServers: boolean;
   readonly skills: boolean;
-  readonly routes: readonly EngineRoute[];
   readonly permissionModes?: readonly PermissionMode[];
   readonly additionalRoots?: boolean;
   readonly googleVertex?: boolean;
@@ -55,6 +80,8 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly planMode?: boolean;
   readonly branches?: boolean;
   readonly accounts?: EngineAccounts;
+  /** 0.63.0：能给添加的账号开引擎时有（构造时给了 `accountEngines`）。 */
+  readonly accountPool?: AccountPool;
 
   // 可选方法：至少一个引擎有时才有，Host 据此声明功能；会话所在的引擎没有时报 `invalid_input`。
   readonly steer?: AgentRuntimeAdapter['steer'];
@@ -73,17 +100,32 @@ export class EngineRouter implements AgentRuntimeAdapter {
   readonly bindEngineAppTools?: AgentRuntimeAdapter['bindEngineAppTools'];
   readonly deleteSession?: AgentRuntimeAdapter['deleteSession'];
 
-  /** Provider 种类 → 引擎。 */
+  /** 全部引擎：构造时的，加上之后添加的账号的。 */
+  readonly #routes: EngineRoute[];
+  /** Provider 种类 → 引擎（不含只认 Provider ID 的路由）。 */
   readonly #byKind = new Map<ProviderKind, EngineRoute>();
+  /** Provider ID → 认领它的路由（添加的账号）。 */
+  readonly #claimed = new Map<string, EngineRoute>();
   /** Provider ID → 种类（`configureProviders` 时记下）。 */
   #kinds = new Map<string, ProviderKind>();
+  /** 最近一次 `configureProviders` 的全部 Provider：后加的路由要分到它的那份。 */
+  #providers: readonly ProviderConfig[] = [];
+  #pluginSource: import('@wevir/runtime-adapter').EnginePluginSource | undefined;
+  #appToolsGrant: Parameters<NonNullable<AgentRuntimeAdapter['bindEngineAppTools']>>[0] | undefined;
   /** 引擎会话 ID → 承载它的引擎。 */
   readonly #owners = new Map<string, EngineRoute>();
 
-  constructor(routes: readonly EngineRoute[]) {
+  constructor(
+    routes: readonly EngineRoute[],
+    options: { accountEngines?: AccountEngineFactory } = {},
+  ) {
     if (routes.length === 0) throw new Error('EngineRouter needs at least one engine');
-    this.routes = routes;
+    this.#routes = [...routes];
     for (const route of routes) {
+      if (route.providerIds !== undefined) {
+        for (const id of route.providerIds) this.#claimed.set(id, route);
+        continue;
+      }
       for (const kind of route.kinds) {
         if (this.#byKind.has(kind)) throw new Error(`provider kind ${kind} has two engines`);
         this.#byKind.set(kind, route);
@@ -108,9 +150,19 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (adapters.some((adapter) => adapter.planMode === true)) this.planMode = true;
     if (adapters.some((adapter) => adapter.branches === true)) this.branches = true;
     const accounts = routes.flatMap((route) =>
-      route.adapter.accounts === undefined ? [] : [route.adapter.accounts],
+      route.adapter.accounts === undefined || route.providerIds !== undefined
+        ? []
+        : [route.adapter.accounts],
     );
     if (accounts.length > 0) this.accounts = new MergedAccounts(accounts);
+    const factory = options.accountEngines;
+    if (factory !== undefined && factory.kinds.length > 0) {
+      this.accountPool = {
+        kinds: factory.kinds,
+        open: (kind, account) => this.#openAccount(factory, kind, account),
+        close: (id) => this.#closeAccount(id),
+      };
+    }
 
     if (adapters.some((adapter) => adapter.steer !== undefined)) {
       this.steer = async (id, steerId, input) =>
@@ -143,21 +195,15 @@ export class EngineRouter implements AgentRuntimeAdapter {
         this.#method(id, 'respondToQuestion').respondToQuestion(id, requestId, answers);
     }
     if (adapters.some((adapter) => adapter.acceptsImages !== undefined)) {
-      // 按 Provider 的种类问承载它的引擎；不认识的 Provider 当作不收。
-      this.acceptsImages = (config) => {
-        const kind = this.#kinds.get(config.providerId);
-        const route = kind === undefined ? undefined : this.#byKind.get(kind);
-        return route?.adapter.acceptsImages?.(config) === true;
-      };
+      // 问承载这个 Provider 的引擎；不认识的 Provider 当作不收。
+      this.acceptsImages = (config) =>
+        this.#routeOf(config.providerId)?.adapter.acceptsImages?.(config) === true;
     }
     if (adapters.some((adapter) => adapter.bindEngineAppTools !== undefined)) {
       // 引擎令牌只认交给这个引擎的 Provider 种类：别的引擎的会话冒充不了。
       this.bindEngineAppTools = (grant) => {
-        for (const route of routes) {
-          route.adapter.bindEngineAppTools?.((kinds) =>
-            grant(kinds.filter((kind) => route.kinds.includes(kind))),
-          );
-        }
+        this.#appToolsGrant = grant;
+        for (const route of this.#routes) bindAppTools(route, grant);
       };
     }
     if (adapters.some((adapter) => adapter.generateTitle !== undefined)) {
@@ -187,6 +233,11 @@ export class EngineRouter implements AgentRuntimeAdapter {
       this.updateGoal = async (id, status) => this.#method(id, 'updateGoal').updateGoal(id, status);
       this.clearGoal = async (id) => this.#method(id, 'clearGoal').clearGoal(id);
     }
+  }
+
+  /** 全部引擎（构造时的与添加的账号的）。 */
+  get routes(): readonly EngineRoute[] {
+    return this.#routes;
   }
 
   /** 会话所在的引擎有没有这个方法（0.24.0）、计划模式（0.36.0）或分支（0.38.0）：Host 在开始命令回合、分支与撤回之前问。 */
@@ -254,7 +305,9 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (engineSessionId !== undefined) {
       return this.#forSession(engineSessionId).adapter.listPendingApprovals(engineSessionId);
     }
-    const all = await Promise.all(this.routes.map((route) => route.adapter.listPendingApprovals()));
+    const all = await Promise.all(
+      this.#routes.map((route) => route.adapter.listPendingApprovals()),
+    );
     return all.flat();
   }
 
@@ -275,12 +328,11 @@ export class EngineRouter implements AgentRuntimeAdapter {
   }
 
   async configureProviders(providers: readonly ProviderConfig[]): Promise<void> {
+    this.#providers = providers;
     this.#kinds = new Map(providers.map((provider) => [provider.id, provider.kind]));
     await Promise.all(
-      this.routes.map((route) =>
-        route.adapter.configureProviders?.(
-          providers.filter((provider) => route.kinds.includes(provider.kind)),
-        ),
+      this.#routes.map((route) =>
+        route.adapter.configureProviders?.(this.#providersFor(route, providers)),
       ),
     );
   }
@@ -298,19 +350,20 @@ export class EngineRouter implements AgentRuntimeAdapter {
   }
 
   async dispose(): Promise<void> {
-    await Promise.all(this.routes.map((route) => route.adapter.dispose()));
+    await Promise.all(this.#routes.map((route) => route.adapter.dispose()));
   }
 
   bindPlugins(source: import('@wevir/runtime-adapter').EnginePluginSource): void {
-    for (const route of this.routes) route.adapter.bindPlugins?.(source);
+    this.#pluginSource = source;
+    for (const route of this.#routes) route.adapter.bindPlugins?.(source);
   }
   async reloadPlugins(): Promise<void> {
-    await Promise.all(this.routes.map((route) => route.adapter.reloadPlugins?.()));
+    await Promise.all(this.#routes.map((route) => route.adapter.reloadPlugins?.()));
   }
   async listConnectorStatus() {
     return (
       await Promise.all(
-        this.routes.map(async (route) => (await route.adapter.listConnectorStatus?.()) ?? []),
+        this.#routes.map(async (route) => (await route.adapter.listConnectorStatus?.()) ?? []),
       )
     ).flat();
   }
@@ -318,7 +371,8 @@ export class EngineRouter implements AgentRuntimeAdapter {
   /** 每种 Provider 的会话由哪个引擎跑、能做什么（0.25.0，`host.hello` 的 `engineFeatures`）。 */
   engineFeatures(): Record<string, EngineFeatures> {
     const features: Record<string, EngineFeatures> = {};
-    for (const route of this.routes) {
+    for (const route of this.#routes) {
+      if (route.providerIds !== undefined) continue;
       const value = engineFeaturesOf(route.name, route.adapter);
       for (const kind of route.kinds) features[kind] = value;
     }
@@ -336,12 +390,71 @@ export class EngineRouter implements AgentRuntimeAdapter {
     return rest;
   }
 
-  #forProvider(providerId: string): EngineRoute {
+  /** 承载这个 Provider 的引擎：认领了它的路由，否则按它的种类。 */
+  #routeOf(providerId: string): EngineRoute | undefined {
+    const claimed = this.#claimed.get(providerId);
+    if (claimed !== undefined) return claimed;
     const kind = this.#kinds.get(providerId);
-    const route = kind === undefined ? undefined : this.#byKind.get(kind);
+    return kind === undefined ? undefined : this.#byKind.get(kind);
+  }
+
+  /** 交给这个引擎的 Provider：认领的只有它们自己，按种类的是这些种类里没被别的路由认领的。 */
+  #providersFor(route: EngineRoute, providers: readonly ProviderConfig[]): ProviderConfig[] {
+    if (route.providerIds !== undefined) {
+      const ids = route.providerIds;
+      return providers.filter((provider) => ids.includes(provider.id));
+    }
+    return providers.filter(
+      (provider) => route.kinds.includes(provider.kind) && !this.#claimed.has(provider.id),
+    );
+  }
+
+  /**
+   * 添加的账号的引擎（0.63.0）：同类引擎的新实例，只认这个账号的 Provider。之前给过的插件来源、应用级工具与 Provider
+   * 都补给它；按种类的路由重新分一次 Provider，交出被认领的那个。
+   */
+  #openAccount(
+    factory: AccountEngineFactory,
+    kind: AccountKind,
+    account: { id: string; root: string },
+  ): EngineAccounts {
+    if (this.#claimed.has(account.id)) throw new Error(`account ${account.id} is already open`);
+    const adapter = factory.create(kind, account);
+    if (adapter.accounts === undefined || !adapter.accounts.kinds.includes(kind)) {
+      void adapter.dispose();
+      throw new Error(`the ${kind} engine for account ${account.id} has no ${kind} account`);
+    }
+    const route: EngineRoute = {
+      name: `${kind}:${account.id}`,
+      adapter,
+      kinds: [kind],
+      providerIds: [account.id],
+    };
+    this.#routes.push(route);
+    this.#claimed.set(account.id, route);
+    if (this.#pluginSource !== undefined) adapter.bindPlugins?.(this.#pluginSource);
+    if (this.#appToolsGrant !== undefined) bindAppTools(route, this.#appToolsGrant);
+    if (this.#providers.length > 0) {
+      void this.configureProviders(this.#providers).catch(() => {});
+    }
+    return adapter.accounts;
+  }
+
+  async #closeAccount(id: string): Promise<void> {
+    const route = this.#claimed.get(id);
+    if (route === undefined) return;
+    this.#claimed.delete(id);
+    this.#routes.splice(this.#routes.indexOf(route), 1);
+    for (const [session, owner] of this.#owners) if (owner === route) this.#owners.delete(session);
+    await route.adapter.dispose();
+  }
+
+  #forProvider(providerId: string): EngineRoute {
+    const route = this.#routeOf(providerId);
     if (route !== undefined) return route;
+    const kind = this.#kinds.get(providerId);
     // 不认识的 Provider：只有一个引擎时交给它，由它报错（与单引擎的 Host 相同）。
-    if (this.routes.length === 1 && this.routes[0] !== undefined) return this.routes[0];
+    if (this.#routes.length === 1 && this.#routes[0] !== undefined) return this.#routes[0];
     throw new AdapterError(
       'invalid_input',
       kind === undefined
@@ -352,7 +465,7 @@ export class EngineRouter implements AgentRuntimeAdapter {
 
   /** 不认识的会话交给第一个引擎，由它报 `session_not_found`（`cancel` 等幂等的方法直接成功）。 */
   #forSession(engineSessionId: string): EngineRoute {
-    return this.#owners.get(engineSessionId) ?? (this.routes[0] as EngineRoute);
+    return this.#owners.get(engineSessionId) ?? (this.#routes[0] as EngineRoute);
   }
 
   #method<M extends OptionalMethod>(
@@ -363,6 +476,16 @@ export class EngineRouter implements AgentRuntimeAdapter {
     if (route.adapter[method] === undefined) throw unsupported(route, method);
     return route.adapter as unknown as Required<Pick<AgentRuntimeAdapter, M>>;
   }
+}
+
+/** 引擎令牌只认交给这个引擎的 Provider 种类：别的引擎的会话冒充不了。 */
+function bindAppTools(
+  route: EngineRoute,
+  grant: Parameters<NonNullable<AgentRuntimeAdapter['bindEngineAppTools']>>[0],
+): void {
+  route.adapter.bindEngineAppTools?.((kinds) =>
+    grant(kinds.filter((kind) => route.kinds.includes(kind))),
+  );
 }
 
 /** `EngineFeatures.commands` 的顺序（0.27.0），对应适配器的 `compact` / `review`。 */

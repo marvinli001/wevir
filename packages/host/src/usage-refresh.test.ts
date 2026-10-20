@@ -15,13 +15,13 @@ import {
 // UsageRefresher 对着假的账号：记下每次 refreshUsage，状态由测试经 observe 推进去。
 
 function setup(kinds: AccountKind[] = ['cursor', 'grok']) {
-  const calls: AccountKind[] = [];
+  const calls: string[] = [];
   let observer: ((state: AccountState) => void) | undefined;
   const target: UsageRefreshTarget & { watching: boolean } = {
-    kinds,
+    ids: kinds,
     watching: true,
-    refreshUsage: async (kind) => {
-      calls.push(kind);
+    refreshUsage: async (id) => {
+      calls.push(id);
     },
     observe: (listener) => {
       observer = listener;
@@ -127,6 +127,22 @@ describe('UsageRefresher', () => {
     sleep(2 * 60_000);
     await advance(USAGE_TICK_MS);
     expect(calls).toEqual(['cursor', 'grok']);
+    refresher.dispose();
+  });
+
+  it('同一种的两个账号（0.63.0）按账号 ID 分开读；之后添加的账号报了状态就算上，删掉的不再读', async () => {
+    const { refresher, calls, advance, push } = setup(['cursor']);
+    push(signedIn('cursor', { primary: { usedPercent: 10 } }));
+    push({ ...signedIn('cursor', { primary: { usedPercent: 20 } }), id: 'cursor-1a2b' });
+    refresher.start();
+    refresher.turnEnded('cursor-1a2b');
+    await advance(USAGE_AFTER_TURN_MS);
+    expect(calls).toEqual(['cursor-1a2b']);
+    refresher.forget('cursor-1a2b');
+    await advance(USAGE_NUDGE_MIN_MS);
+    refresher.nudge();
+    await advance(USAGE_TICK_MS);
+    expect(calls).toEqual(['cursor-1a2b', 'cursor']);
     refresher.dispose();
   });
 

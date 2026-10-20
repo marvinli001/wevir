@@ -2,7 +2,6 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
-  type AccountKind,
   type ClientIdentity,
   DESKTOP_RENDERER_ORIGINS,
   type EngineFeatures,
@@ -284,12 +283,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);
-        // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。
+        // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。账号 ID 就是它的 Provider 的 ID；不是账号
+        // （API Key 的 Provider）时 `turnEnded` 什么都不做。
         const providerId = storage?.sessions.get(info.sessionId)?.providerId;
-        const kind =
-          providerId === undefined ? undefined : storage?.providers.get(providerId)?.kind;
-        // 不是账号的种类（API Key 的 Provider）时 `turnEnded` 什么都不做。
-        if (kind !== undefined) accounts?.usage.turnEnded(kind as AccountKind);
+        if (providerId !== undefined) accounts?.usage.turnEnded(providerId);
       },
       onUsage: (context, event) => usageStats.record(context, event),
       engine: options.engine,
@@ -326,17 +323,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
 
-    // 把已存的 Provider（含 Key）交给引擎（T3.4）。失败不阻止 Host 启动：会话建不起来时报引擎错误。
     const secrets = new FileSecretStore(home);
-    await syncProviders(storage, secrets, adapter).catch((error: unknown) =>
-      logger.error('failed to apply providers to the engine', { error }),
-    );
-    // 联网服务（0.34.0）：引擎第一次启动时要它的端点，所以在开始服务之前就监听。
-    await options.web?.start(secrets);
-
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
+    // 0.63.0：添加的账号各有自己的引擎，在把 Provider 交给引擎之前建好，它们的 Provider 才交得到对的引擎。
     const providerLock = createProviderLock();
     const db = storage;
+    const pool = adapter instanceof EngineRouter ? adapter.accountPool : undefined;
     accounts =
       adapter.accounts === undefined
         ? undefined
@@ -350,7 +342,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
               path: homePath(home, 'enginesFile'),
               onWarning: (message, fields) => logger.warn(message, fields),
             }),
+            ...(pool !== undefined && { pool, accountsDir: homePath(home, 'accountsDir') }),
+            onUsageRemoved: () => usageStats.recordsChanged(),
           });
+
+    // 把已存的 Provider（含 Key）交给引擎（T3.4）。失败不阻止 Host 启动：会话建不起来时报引擎错误。
+    await syncProviders(storage, secrets, adapter).catch((error: unknown) =>
+      logger.error('failed to apply providers to the engine', { error }),
+    );
+    // 联网服务（0.34.0）：引擎第一次启动时要它的端点，所以在开始服务之前就监听。
+    await options.web?.start(secrets);
+
     // 已登录账号的用量由 Host 定时重读，推给看着账号的客户端（usage-refresh.ts）。
     accounts?.usage.start();
     if (accounts?.hasSubscriptions === true) {
@@ -358,10 +360,13 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       // ChatGPT 不在这里读（它的进程第一次用到时才启动，R6）。
       const subscriptions = accounts;
       await subscriptions.applySavedPaths();
+      // 添加的账号也一样（0.63.0）。
       void Promise.all(
-        subscriptions.kinds
-          .filter((kind) => kind !== 'chatgpt')
-          .map((kind) => subscriptions.read(kind).catch(() => undefined)),
+        subscriptions.ids.flatMap((id) => {
+          const kind = subscriptions.kindOf(id);
+          if (kind === undefined || kind === 'chatgpt') return [];
+          return [subscriptions.read({ kind, id }).catch(() => undefined)];
+        }),
       );
     }
 
@@ -470,6 +475,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(accounts?.kinds.includes('chatgpt') === true && { chatgpt_account: true }),
         ...(accounts?.hasSubscriptions === true && { subscription_sources: true }),
         ...(accounts?.hasUpstreams === true && { subscription_upstreams: true }),
+        ...(accounts?.canAddAccounts === true && { subscription_accounts: true }),
         ...(adapter.configureSession !== undefined && { session_configure: true }),
         ...(adapter.respondToQuestion !== undefined && { user_questions: true }),
         ...(adapter.permissionModes !== undefined && { permission_modes: true }),

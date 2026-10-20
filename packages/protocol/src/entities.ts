@@ -188,6 +188,16 @@ export type ProviderProfile = z.infer<typeof ProviderProfileSchema>;
 export const AccountKindSchema = z.enum(['chatgpt', ...SUBSCRIPTION_KINDS]);
 export type AccountKind = z.infer<typeof AccountKindSchema>;
 
+/** 账号标签（0.63.0）最长多少字符。 */
+export const ACCOUNT_LABEL_MAX_LENGTH = 16;
+
+/** 账号标签（0.63.0）：一到十六个字符，不以空白开头或结尾。 */
+export const AccountLabelSchema = z
+  .string()
+  .min(1)
+  .max(ACCOUNT_LABEL_MAX_LENGTH)
+  .regex(/^\S(?:.*\S)?$/s);
+
 /** `browser`：在浏览器里打开 `authUrl`，回调落在本机；`device_code`：在任意设备上打开 `verificationUrl` 输入 `userCode`。 */
 export const AccountLoginMethodSchema = z.enum(['browser', 'device_code']);
 export type AccountLoginMethod = z.infer<typeof AccountLoginMethodSchema>;
@@ -271,6 +281,17 @@ export type AccountRateLimitWindow = z.infer<typeof AccountRateLimitWindowSchema
  */
 export const AccountStateSchema = z.object({
   kind: AccountKindSchema,
+  /**
+   * 0.63.0：账号 ID，也是这个账号的 Provider 的 ID。每种的首个账号等于种类（`claude`），之后添加的是 `<种类>-<4 位十六进制>`
+   * （`account.add`）。新 Host 总是带；省略时是首个账号。
+   */
+  id: ProviderIdSchema.optional(),
+  /** 0.63.0：用户给账号的标签（`account.setLabel`，如“主号”“工作”），界面显示它的首字角标。 */
+  label: AccountLabelSchema.optional(),
+  /** 0.63.0：用的是用户本机终端里的登录（Claude、Grok 的首个账号）：登出会让终端也登出。 */
+  localLogin: z.literal(true).optional(),
+  /** 0.63.0：这种来源能添加账号（`account.add`，Host 功能 `subscription_accounts`）；每个账号的状态都带。 */
+  multiAccount: z.literal(true).optional(),
   status: z.enum(['signed_out', 'signing_in', 'signed_in']),
   /** 已登录的账号邮箱；登录中时是之前登录的账号（换号登录）。 */
   email: z.string().optional(),

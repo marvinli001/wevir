@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as protocol from './index.js';
 import {
   AccountKindSchema,
+  AccountLabelSchema,
   AccountLoginMethodSchema,
   AccountLoginOptionSchema,
   AccountLoginSchema,
@@ -1071,6 +1072,12 @@ const standaloneCases: Case[] = [
     schema: AccountRateLimitWindowSchema,
     valid: [{ usedPercent: 0 }, { usedPercent: 99.5, windowMinutes: 300, resetsAt: TS }],
     invalid: [{ usedPercent: 10, windowMinutes: 0 }],
+  },
+  {
+    name: 'AccountLabel',
+    schema: AccountLabelSchema,
+    valid: ['主号', 'Work', '工作 2', 'x'.repeat(16)],
+    invalid: ['', ' 工作', '工作 ', 'x'.repeat(17), 3],
   },
   {
     name: 'AccountLoginOption',

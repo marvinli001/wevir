@@ -61,10 +61,15 @@ interface AccountWatcher {
 interface AccountListWatcher {
   readonly listener: (accounts: AccountState[]) => void;
   readonly onError?: (error: unknown) => void;
-  /** 当前的全部账号，按 Host 给的顺序；通知按种类替换其中一项。 */
+  /** 当前的全部账号，按 Host 给的顺序；通知按账号 ID 替换其中一项。 */
   accounts: AccountState[];
   /** 收到的 `account.updated` 数：读全部的结果晚于其间到达的通知时，它是旧的，丢掉。 */
   updates: number;
+}
+
+/** 账号的 ID（0.63.0）：`AccountState.id`，旧 Host 没有时是种类（那时一种只有一个账号）。 */
+export function accountId(account: Pick<AccountState, 'kind' | 'id'>): string {
+  return account.id ?? account.kind;
 }
 
 /** 浏览器提供方（0.33.0）：执行 Host 交来的一个请求；回答不含 `requestId`，由客户端补上。 */
@@ -295,7 +300,8 @@ export class WevirClient {
 
   /**
    * 跟着一个账号的状态（R6，host-api.md §3.1）：现在与每次（重）连上之后各调一次 `account.get`，结果与之后的每条
-   * `account.updated` 都交给 `listener`（Host 只给调过 `account.*` 的连接发通知，所以重连后要再调）。Host 没有
+   * `account.updated` 都交给 `listener`（Host 只给调过 `account.*` 的连接发通知，所以重连后要再调）。0.63.0 起一种可以有
+   * 多个账号，这里跟的是这种的首个账号（ID 等于种类）。Host 没有
    * `chatgpt_account`（订阅来源：`subscription_sources`）功能时什么都不做。`account.get` 失败交给 `onError`。返回取消函数。
    */
   watchAccount(
@@ -316,7 +322,7 @@ export class WevirClient {
 
   /**
    * 跟着全部账号（0.19.0，host-api.md §3.1 `account.list`）：现在与每次（重）连上之后读一次全部，之后每条 `account.updated`
-   * 按种类替换其中一项，每次都把整张表交给 `listener`。Host 有 `subscription_sources` 时读 `account.list`；只有
+   * 按账号 ID（`accountId`，0.63.0 之前的 Host 没有 ID，就是种类）替换其中一项，每次都把整张表交给 `listener`。Host 有 `subscription_sources` 时读 `account.list`；只有
    * `chatgpt_account` 时只读 ChatGPT；都没有时交给它空表。读失败交给 `onError`。返回取消函数。
    */
   watchAccounts(
@@ -972,14 +978,15 @@ export class WevirClient {
         return;
       }
       const { account } = parsed.data;
+      const id = accountId(account);
       for (const watcher of [...this.#accountWatchers]) {
-        if (watcher.kind !== account.kind) continue;
+        if (watcher.kind !== id) continue;
         watcher.updates += 1;
         this.#deliverAccount(watcher, account);
       }
       for (const watcher of [...this.#accountListWatchers]) {
         watcher.updates += 1;
-        const index = watcher.accounts.findIndex((item) => item.kind === account.kind);
+        const index = watcher.accounts.findIndex((item) => accountId(item) === id);
         if (index >= 0) watcher.accounts[index] = account;
         else watcher.accounts.push(account);
         this.#deliverAccountList(watcher);

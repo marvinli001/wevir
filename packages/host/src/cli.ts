@@ -1,9 +1,14 @@
 import { parseArgs } from 'node:util';
 import { CodexRuntime, resolveCodexBinary, resolvePromptsDir } from '@wevir/adapter-codex';
-import { SUBSCRIPTION_KINDS } from '@wevir/protocol';
+import { type AccountKind, SUBSCRIPTION_KINDS, type SubscriptionKind } from '@wevir/protocol';
 import type { AgentRuntimeAdapter } from '@wevir/runtime-adapter';
 import { type AppToolsBridge, appToolsBridge } from '@wevir/runtime-adapter/app-tools-bridge';
-import { EchoAccounts, EchoAdapter, parseEchoScenarios } from '@wevir/runtime-adapter/echo';
+import {
+  EchoAccounts,
+  type EchoAccountsOptions,
+  EchoAdapter,
+  parseEchoScenarios,
+} from '@wevir/runtime-adapter/echo';
 import { type HistoryToolServer, historyToolServer } from '@wevir/runtime-adapter/history-tool';
 import type { WebToolServer } from '@wevir/runtime-adapter/web-tool';
 import { HOST_CLI_TEXT, type HostCliLocale, hostCliLocale } from './cli-text.js';
@@ -119,6 +124,9 @@ export interface AdapterContext {
   webTool?: WebToolServer;
 }
 
+/** echo 的假订阅里能添加账号的种类（0.63.0），同真实引擎的第一轮。 */
+const ECHO_ACCOUNT_KINDS: readonly AccountKind[] = ['claude', 'cursor', 'grok', 'antigravity'];
+
 /** 经网关或 Codex 自己的 Provider 种类，交给默认引擎（Codex 或 echo）。 */
 const GATEWAY_KINDS = [
   'deepseek-official',
@@ -134,9 +142,11 @@ const GATEWAY_KINDS = [
 class EchoSubscriptionEngine extends EchoAdapter {
   readonly accounts: EchoAccounts;
 
-  constructor(scenarios: string | undefined) {
+  constructor(scenarios: string | undefined, added?: EchoAccountsOptions['added']) {
     super();
-    this.accounts = new EchoAccounts({ scenarios: parseEchoScenarios(scenarios) });
+    this.accounts = new EchoAccounts(
+      added === undefined ? { scenarios: parseEchoScenarios(scenarios) } : { added },
+    );
     Object.assign(this, { review: undefined });
   }
 
@@ -151,14 +161,27 @@ export function createAdapter(kind: AdapterKind, context: AdapterContext): Agent
     case 'echo': {
       const scenarios = context.env?.WEVIR_ECHO_SUBSCRIPTIONS;
       if (scenarios === undefined || scenarios === '') return new EchoAdapter();
-      return new EngineRouter([
-        { name: 'echo', adapter: new EchoAdapter(), kinds: GATEWAY_KINDS },
+      // 添加的账号（0.63.0）：每个一个只有这一种的假引擎，在应用内登录。
+      return new EngineRouter(
+        [
+          { name: 'echo', adapter: new EchoAdapter(), kinds: GATEWAY_KINDS },
+          {
+            name: 'echo-subscriptions',
+            adapter: new EchoSubscriptionEngine(scenarios),
+            kinds: SUBSCRIPTION_KINDS,
+          },
+        ],
         {
-          name: 'echo-subscriptions',
-          adapter: new EchoSubscriptionEngine(scenarios),
-          kinds: SUBSCRIPTION_KINDS,
+          accountEngines: {
+            kinds: ECHO_ACCOUNT_KINDS,
+            create: (kind, { id }) =>
+              new EchoSubscriptionEngine(undefined, {
+                kind: kind as SubscriptionKind,
+                email: `${id}@example.com`,
+              }),
+          },
         },
-      ]);
+      );
     }
     case 'codex': {
       // 两个 codex-app-server 进程（网关进程与 ChatGPT 进程，ADR-0005 补记 10）都在第一次用到时才启动（Provider 只交给

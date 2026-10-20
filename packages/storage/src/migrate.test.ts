@@ -14,6 +14,7 @@ const TABLES = [
   'schema_version',
   'send_receipts',
   'sessions',
+  'subscription_accounts',
   'usage_records',
   'workspaces',
 ];
@@ -36,10 +37,10 @@ describe('migrate', () => {
       expect(schemaVersion(db)).toBe(0);
       expect(migrate(db)).toEqual({
         from: 0,
-        to: 12,
-        applied: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+        to: 13,
+        applied: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
       });
-      expect(schemaVersion(db)).toBe(12);
+      expect(schemaVersion(db)).toBe(13);
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name")
         .all()
@@ -59,6 +60,7 @@ describe('migrate', () => {
         { version: 10, name: 'tool_preset' },
         { version: 11, name: 'usage_records' },
         { version: 12, name: 'usage_by_provider' },
+        { version: 13, name: 'subscription_accounts' },
       ]);
     } finally {
       db.close();
@@ -69,9 +71,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      expect(migrate(db)).toEqual({ from: 12, to: 12, applied: [] });
-      expect(migrate(db)).toEqual({ from: 12, to: 12, applied: [] });
-      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(12);
+      expect(migrate(db)).toEqual({ from: 13, to: 13, applied: [] });
+      expect(migrate(db)).toEqual({ from: 13, to: 13, applied: [] });
+      expect(db.prepare('SELECT COUNT(*) AS n FROM schema_version').get()?.n).toBe(13);
     } finally {
       db.close();
     }
@@ -83,7 +85,7 @@ describe('migrate', () => {
     first.close();
     const second = openStorage({ dataDir: dataDir() });
     try {
-      expect(schemaVersion(second.db)).toBe(12);
+      expect(schemaVersion(second.db)).toBe(13);
       expect(second.workspaces.get('ws_01')).toEqual(workspace());
     } finally {
       second.close();
@@ -94,9 +96,9 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       migrate(db);
-      const dir = migrationsWith({ '0013_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 12, to: 13, applied: [13] });
-      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 13, to: 13, applied: [] });
+      const dir = migrationsWith({ '0014_add_notes.sql': 'CREATE TABLE notes (id TEXT) STRICT;' });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 13, to: 14, applied: [14] });
+      expect(migrate(db, loadMigrations(dir))).toEqual({ from: 14, to: 14, applied: [] });
     } finally {
       db.close();
     }
@@ -118,7 +120,7 @@ describe('migrate', () => {
       );
       insert.run('r1', 'prv_kept');
       insert.run('r2', 'prv_gone');
-      expect(migrate(db, migrations)).toEqual({ from: 11, to: 12, applied: [12] });
+      expect(migrate(db, migrations.slice(0, 12))).toEqual({ from: 11, to: 12, applied: [12] });
       expect(db.prepare('SELECT provider_id FROM usage_records').all()).toEqual([
         { provider_id: 'prv_kept' },
       ]);
@@ -131,12 +133,12 @@ describe('migrate', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
       const dir = migrationsWith({
-        '0013_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
-        '0014_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
+        '0014_ok.sql': 'CREATE TABLE notes (id TEXT) STRICT;',
+        '0015_broken.sql': 'CREATE TABLE tags (id TEXT) STRICT;\nTHIS IS NOT SQL;',
       });
       expect(() => migrate(db, loadMigrations(dir))).toThrow(/syntax error/);
       expect(db.isTransaction).toBe(false);
-      // 0001–0013 与 0014 的前半段都在同一个事务里，一起回滚。
+      // 0001–0014 与 0015 的前半段都在同一个事务里，一起回滚。
       expect(schemaVersion(db)).toBe(0);
       const tables = db.prepare("SELECT name FROM sqlite_schema WHERE type = 'table'").all();
       expect(tables).toEqual([]);
@@ -148,15 +150,15 @@ describe('migrate', () => {
   it('数据库版本高于程序已知的最新版本时拒绝运行', () => {
     const db = openDatabase(join(dataDir(), 'wevir.db'));
     try {
-      migrate(db, loadMigrations(migrationsWith({ '0013_x.sql': 'SELECT 1;' })));
-      expect(() => migrate(db)).toThrow(/schema 版本 13 高于本程序支持的 12/);
+      migrate(db, loadMigrations(migrationsWith({ '0014_x.sql': 'SELECT 1;' })));
+      expect(() => migrate(db)).toThrow(/schema 版本 14 高于本程序支持的 13/);
     } finally {
       db.close();
     }
   });
 
   it('迁移文件名不合规或版本号不连续时报错', () => {
-    expect(() => loadMigrations(migrationsWith({ '0014_gap.sql': 'SELECT 1;' }))).toThrow(
+    expect(() => loadMigrations(migrationsWith({ '0015_gap.sql': 'SELECT 1;' }))).toThrow(
       /从 1 开始连续/,
     );
   });
