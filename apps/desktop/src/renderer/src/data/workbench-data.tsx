@@ -1,4 +1,4 @@
-import type { AccountState, SessionId } from '@wevir/protocol';
+import type { AccountState, ProviderProfile, SessionId } from '@wevir/protocol';
 import {
   createContext,
   type ReactNode,
@@ -70,6 +70,18 @@ export function WorkbenchDataProvider({ children }: { children: ReactNode }) {
 export function useWorkbenchData(): WorkbenchData {
   const store = useContext(StoresContext)?.workbench;
   return useSyncExternalStore(store?.subscribe ?? noop, store?.get ?? (() => LOADING));
+}
+
+/**
+ * 只要 Provider 列表时用它（列表读到以前为 undefined）：会话的每条事件都会换掉整份 WorkbenchData，Provider 列表本身只在重读时换，
+ * 订阅它的组件不随事件重渲染。
+ */
+export function useWorkbenchProviders(): readonly ProviderProfile[] | undefined {
+  const store = useContext(StoresContext)?.workbench;
+  return useSyncExternalStore(store?.subscribe ?? noop, () => {
+    const data = store?.get();
+    return data?.status === 'ready' ? data.providers : undefined;
+  });
 }
 
 /** 列表的写入口（新建会话后立即放进列表等）；还没连上 Host 时为 undefined。 */

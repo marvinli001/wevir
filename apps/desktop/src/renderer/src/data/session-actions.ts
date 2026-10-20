@@ -11,8 +11,8 @@ import { paths } from '@/routes/paths';
 import { router } from '@/routes/router';
 import { engineFeaturesOf } from '@/session/handoff-model';
 import { reportActionFailure } from './action-notices';
-import { isUnread, markSeen, markUnread, useSeenSessions } from './seen-sessions';
-import { useWorkbenchData, useWorkbenchStore } from './workbench-data';
+import { markSeen, markUnread, useUnread } from './seen-sessions';
+import { useWorkbenchProviders, useWorkbenchStore } from './workbench-data';
 import type { WorkbenchStore } from './workbench-store';
 
 /** Host 能改名、能归档（0.23.0）、能永久删除（0.43.0）。 */
@@ -219,14 +219,15 @@ export interface SessionActions {
 export function useSessionActions(session: Session): SessionActions {
   const { client, view } = useHostConnection();
   const store = useWorkbenchStore();
-  const workbench = useWorkbenchData();
+  // 左栏每行都调用：只订阅 Provider 列表与这个会话的未读，不随别的会话的事件重渲染。
+  const providers = useWorkbenchProviders();
   const manage = useSessionManagement();
   const pinned = usePinnedSessions().includes(session.id);
-  const unread = isUnread(useSeenSessions(), session);
+  const unread = useUnread(session);
 
   const engine =
-    view.status === 'connected' && workbench.status === 'ready'
-      ? engineFeaturesOf(view.hello.engineFeatures, workbench.providers, session.providerId)
+    view.status === 'connected' && providers !== undefined
+      ? engineFeaturesOf(view.hello.engineFeatures, providers, session.providerId)
       : undefined;
   const branchable =
     view.status === 'connected' && canBranchSession(session, view.hello.features, engine);
