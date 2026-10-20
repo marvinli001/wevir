@@ -36,6 +36,16 @@ export const PROCESS_TAIL_LINES = 20;
 export const PROCESS_READ_MAX_BYTES = 256 * 1024;
 /** 同一个进程的输出变多时最多每隔这么久报一次 `onChange`。 */
 export const PROCESS_CHANGE_THROTTLE_MS = 500;
+/** `notifyPattern` 匹配后再攒这么久，一阵连着的匹配（报错的堆栈）合成一条通知。 */
+export const PROCESS_NOTIFY_BATCH_MS = 1000;
+/** 同一个进程两条匹配通知之间至少隔这么久，期间的匹配攒到下一条。 */
+export const PROCESS_NOTIFY_INTERVAL_MS = 10_000;
+/** 一个进程最多发几条匹配通知：默认与上限。 */
+export const PROCESS_NOTIFY_DEFAULT_LIMIT = 10;
+export const PROCESS_NOTIFY_MAX_LIMIT = 100;
+/** 一条通知最多列几行匹配的、每行最多多少字符。 */
+export const PROCESS_NOTIFY_MAX_LINES = 50;
+export const PROCESS_NOTIFY_LINE_CHARS = 500;
 
 export const PROCESS_SIGNALS = [
   'SIGINT',
@@ -91,10 +101,19 @@ export type ProcessChange = { process: ProcessInfo } | { removed: ProcessInfo };
 export interface ProcessNotice {
   process: ProcessInfo;
   event: 'exit' | 'match';
-  /** `match`：匹配的那一行。 */
-  line?: string;
+  /** 上一条通知之后匹配 `notifyPattern` 的行（最多 `PROCESS_NOTIFY_MAX_LINES` 行；退出通知里是退出前还没发的）。 */
+  matches?: ProcessMatches;
   /** 最后几行（去掉了终端控制序列）。 */
   tail: string;
+}
+
+export interface ProcessMatches {
+  pattern: RegExp;
+  lines: string[];
+  /** 匹配的总行数（比 `lines` 多的没列）。 */
+  count: number;
+  /** `match`：之后还能发几条匹配通知（0 时不再发）；退出通知里没有。 */
+  remaining?: number;
 }
 
 export interface StartOptions {
@@ -104,8 +123,10 @@ export interface StartOptions {
   env?: Record<string, string>;
   /** 退出时通知（默认 true）。 */
   notifyOnExit?: boolean;
-  /** 输出的某一行匹配时通知一次。 */
+  /** 输出的行匹配时通知：一阵匹配合成一条，两条之间至少隔 `PROCESS_NOTIFY_INTERVAL_MS`。 */
   notifyPattern?: RegExp;
+  /** 最多发几条匹配通知（默认 `PROCESS_NOTIFY_DEFAULT_LIMIT`）。 */
+  notifyLimit?: number;
   turnId?: TurnId;
   check?: ProcessCheck;
 }
@@ -133,11 +154,27 @@ export interface ProcessManagerOptions {
   deleteLogsOnForget?: boolean;
   /** 起来、退出、被停、输出变多（节流）与忘掉时调用。 */
   onChange?: (change: ProcessChange) => void;
+  /** 匹配通知的攒批与间隔，默认 `PROCESS_NOTIFY_BATCH_MS` / `PROCESS_NOTIFY_INTERVAL_MS`（测试用小值）。 */
+  notifyBatchMs?: number;
+  notifyIntervalMs?: number;
 }
 
 interface Waiter {
   pattern: RegExp | undefined;
   resolve: (result: WaitResult) => void;
+}
+
+/** 输出匹配时的通知：攒着的行、发了几条。 */
+interface Notify {
+  pattern: RegExp;
+  limit: number;
+  sent: number;
+  lines: string[];
+  count: number;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  lastAt: number;
+  /** 不带换行的这一段已经匹配过：它补齐成一行时不再算一次。 */
+  partialMatched: boolean;
 }
 
 interface Managed {
@@ -157,7 +194,7 @@ interface Managed {
   /** 最后几行（已去掉控制序列）。 */
   tail: string[];
   notifyOnExit: boolean;
-  notifyPattern: RegExp | undefined;
+  notify: Notify | undefined;
   waiters: Set<Waiter>;
   exited: Promise<void>;
   /** 输出变多后待发的 `onChange`。 */
@@ -226,7 +263,19 @@ export class ProcessManager {
       partial: '',
       tail: [],
       notifyOnExit: options.notifyOnExit !== false,
-      notifyPattern: options.notifyPattern,
+      notify:
+        options.notifyPattern === undefined
+          ? undefined
+          : {
+              pattern: options.notifyPattern,
+              limit: options.notifyLimit ?? PROCESS_NOTIFY_DEFAULT_LIMIT,
+              sent: 0,
+              lines: [],
+              count: 0,
+              timer: undefined,
+              lastAt: 0,
+              partialMatched: false,
+            },
       waiters: new Set(),
       exited: new Promise<void>((resolve) => {
         markExited = resolve;
@@ -435,7 +484,7 @@ export class ProcessManager {
     for (const [key, managed] of this.#processes) {
       if (!ids.has(managed.info.sessionId)) continue;
       managed.notifyOnExit = false;
-      managed.notifyPattern = undefined;
+      this.#stopNotify(managed);
       ending.push(this.#end(managed));
       this.#processes.delete(key);
       this.#removed(managed);
@@ -449,7 +498,7 @@ export class ProcessManager {
     await Promise.all(
       [...this.#processes.values()].map((managed) => {
         managed.notifyOnExit = false;
-        managed.notifyPattern = undefined;
+        this.#stopNotify(managed);
         return this.#end(managed);
       }),
     );
@@ -535,17 +584,66 @@ export class ProcessManager {
         delivered = true;
       }
     }
-    const pattern = managed.notifyPattern;
-    if (pattern !== undefined && (complete || !delivered) && test(pattern, line)) {
-      managed.notifyPattern = undefined;
-      if (delivered) return;
-      this.#options.onNotice({
-        process: { ...managed.info },
-        event: 'match',
-        line,
-        tail: lastLines(managed, PROCESS_TAIL_LINES),
-      });
+    const notify = managed.notify;
+    if (notify === undefined) return;
+    if (!complete) {
+      // 不带换行的提示每来一块数据就再试一次：匹配过一次就不再算，补齐成一行时也不算。
+      if (notify.partialMatched || !test(notify.pattern, line)) return;
+      notify.partialMatched = true;
+    } else if (notify.partialMatched) {
+      notify.partialMatched = false;
+      return;
+    } else if (!test(notify.pattern, line)) {
+      return;
     }
+    // 正被 wait 等着的行由 wait 交给 agent，不另通知。
+    if (!delivered) this.#queueMatch(managed, notify, line);
+  }
+
+  /** 攒下一行匹配的：第一行之后再等 `notifyBatchMs`，且离上一条通知至少 `notifyIntervalMs`。 */
+  #queueMatch(managed: Managed, notify: Notify, line: string): void {
+    notify.count += 1;
+    if (notify.lines.length < PROCESS_NOTIFY_MAX_LINES) {
+      notify.lines.push(
+        line.length > PROCESS_NOTIFY_LINE_CHARS
+          ? `${line.slice(0, PROCESS_NOTIFY_LINE_CHARS)}…`
+          : line,
+      );
+    }
+    if (notify.timer !== undefined) return;
+    const delay = Math.max(
+      this.#options.notifyBatchMs ?? PROCESS_NOTIFY_BATCH_MS,
+      notify.lastAt + (this.#options.notifyIntervalMs ?? PROCESS_NOTIFY_INTERVAL_MS) - Date.now(),
+    );
+    notify.timer = setTimeout(() => this.#flushMatches(managed), delay);
+    notify.timer.unref?.();
+  }
+
+  #flushMatches(managed: Managed): void {
+    const notify = managed.notify;
+    if (notify === undefined) return;
+    notify.timer = undefined;
+    const matches = takeMatches(notify);
+    if (matches === undefined || this.#processes.get(managed.info.id) !== managed) return;
+    notify.sent += 1;
+    notify.lastAt = Date.now();
+    const remaining = Math.max(0, notify.limit - notify.sent);
+    if (remaining === 0) managed.notify = undefined;
+    this.#options.onNotice({
+      process: { ...managed.info },
+      event: 'match',
+      matches: { ...matches, remaining },
+      tail: lastLines(managed, PROCESS_TAIL_LINES),
+    });
+  }
+
+  /** 不再发匹配通知，攒着的也不发了；返回攒着的。 */
+  #stopNotify(managed: Managed): Omit<ProcessMatches, 'remaining'> | undefined {
+    const notify = managed.notify;
+    if (notify === undefined) return undefined;
+    clearTimeout(notify.timer);
+    managed.notify = undefined;
+    return takeMatches(notify);
   }
 
   #writeLog(managed: Managed, chunk: Buffer): void {
@@ -607,12 +705,24 @@ export class ProcessManager {
       waiter.resolve({ reason: 'exit' });
       delivered = true;
     }
-    if (managed.notifyOnExit && !info.killed && !delivered && !this.#closed) {
-      this.#options.onNotice({
-        process: { ...info },
-        event: 'exit',
-        tail: lastLines(managed, PROCESS_TAIL_LINES),
-      });
+    // 还攒着的匹配：退出要通知时并进退出通知，不通知退出时单发一条；agent 等到了退出、或进程是被停的，就不发了。
+    const matches = this.#stopNotify(managed);
+    if (!info.killed && !delivered && !this.#closed) {
+      if (managed.notifyOnExit) {
+        this.#options.onNotice({
+          process: { ...info },
+          event: 'exit',
+          ...(matches !== undefined && { matches }),
+          tail: lastLines(managed, PROCESS_TAIL_LINES),
+        });
+      } else if (matches !== undefined) {
+        this.#options.onNotice({
+          process: { ...info },
+          event: 'match',
+          matches,
+          tail: lastLines(managed, PROCESS_TAIL_LINES),
+        });
+      }
     }
     clearTimeout(managed.changeTimer);
     managed.changeTimer = undefined;
@@ -660,6 +770,14 @@ export class ProcessManager {
       }
     }
   }
+}
+
+function takeMatches(notify: Notify): Omit<ProcessMatches, 'remaining'> | undefined {
+  if (notify.count === 0) return undefined;
+  const matches = { pattern: notify.pattern, lines: notify.lines, count: notify.count };
+  notify.lines = [];
+  notify.count = 0;
+  return matches;
 }
 
 function lastLines(managed: Managed, count: number): string {
