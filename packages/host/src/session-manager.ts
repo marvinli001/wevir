@@ -131,6 +131,7 @@ import {
   RecapCache,
   recapInput,
 } from './recap.js';
+import { type FoundRuleFile, planRules, type RulePlan, sameRules } from './rule-files.js';
 import { deleteSessionData, measureUsage } from './session-delete.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
@@ -212,6 +213,15 @@ export interface SessionManagerOptions {
   memory?: Pick<MemoryStore, 'read'>;
   /** Host 设置的 `autoMemory`（0.57.0）：返回 false 时接力不能选笔记。省略当作开着。 */
   memoryEnabled?: () => boolean;
+  /**
+   * 跨引擎的规则文件（0.68.0，rule-files.ts）：建立、恢复、分支与接力引擎会话时找出会话目录的规则文件，引擎自己不读的补给它，
+   * 并写 `session.rules`。没给时不找、不写。
+   */
+  ruleFiles?: {
+    discover(cwd: string): Promise<FoundRuleFile[]>;
+    /** Host 设置的 `ruleFiles`：返回 false 时只记引擎自己读的、不补。省略当作开着。 */
+    enabled?: () => boolean;
+  };
   /** 大输出与后台进程的日志（tool-output.ts，`<数据目录>/tool-output`）：删除会话时随会话删，存储页算进会话的文件。 */
   toolOutputDir?: string;
   /**
@@ -574,6 +584,7 @@ export class SessionManager {
   readonly #historyDir: string | undefined;
   readonly #memory: SessionManagerOptions['memory'];
   readonly #memoryEnabled: () => boolean;
+  readonly #ruleFiles: SessionManagerOptions['ruleFiles'];
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
@@ -623,6 +634,7 @@ export class SessionManager {
     this.#historyDir = options.historyDir;
     this.#memory = options.memory;
     this.#memoryEnabled = options.memoryEnabled ?? (() => true);
+    this.#ruleFiles = options.ruleFiles;
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#onTurnFinished = options.onTurnFinished;
@@ -630,10 +642,76 @@ export class SessionManager {
   }
 
   /** 引擎会话的配置：存下的配置加上这个会话的应用级工具（适配器能挂时）。 */
-  #engineConfig(sessionId: SessionId, config: SessionConfig): SessionConfig {
-    if (this.#adapter.appTools !== true) return config;
+  #engineConfig(
+    sessionId: SessionId,
+    config: SessionConfig,
+    rules?: RulePlan | undefined,
+  ): SessionConfig {
+    // 规则文件（0.68.0）：进引擎说明的那种随配置交过去，每次建立或恢复都按当时的文件。
+    const withRules =
+      rules?.text !== undefined && rules.rules.channel === 'instructions'
+        ? { ...config, ruleInstructions: rules.text }
+        : config;
+    if (this.#adapter.appTools !== true) return withRules;
     const appTools = this.#appTools?.grant(sessionId);
-    return appTools === undefined ? config : { ...config, appTools };
+    return appTools === undefined ? withRules : { ...withRules, appTools };
+  }
+
+  /**
+   * 这个目录交给这个来源时的规则文件（0.68.0）。没接上规则文件、或承载这个来源的引擎没声明读哪些时 `undefined`；找文件出错只记
+   * 告警，不让建立或恢复会话失败。
+   */
+  async #rulePlan(cwd: string, providerId: string): Promise<RulePlan | undefined> {
+    const options = this.#ruleFiles;
+    if (options === undefined || this.#adapter.ruleFiles === undefined) return undefined;
+    try {
+      // 只有声明了读哪些规则文件的引擎参与（echo 等测试引擎不声明）。
+      const engine = await this.#adapter.ruleFiles(providerId);
+      if (engine === undefined) return undefined;
+      return planRules(await options.discover(cwd), {
+        providerId,
+        engine,
+        enabled: options.enabled?.() !== false,
+      });
+    } catch (error) {
+      this.#onWarning('failed to read rule files', { cwd, providerId, error: errorText(error) });
+      return undefined;
+    }
+  }
+
+  /**
+   * 建立或恢复引擎会话之后要写的 `session.rules`（0.68.0）；不用写时 `undefined`。`fresh`：新建的引擎会话（建会话、接力新建、
+   * 分支），一定写。随消息补的：给过这个引擎会话的不再带正文（它的历史里有），没给过的带上，等下一条消息交出去；分出来的会话
+   * （`inherited`）沿用被分会话的引擎历史，也不带。列表与要交的正文都没变时不写。
+   */
+  #rulesInput(
+    sessionId: SessionId,
+    plan: RulePlan | undefined,
+    engineSessionId: string,
+    { fresh, inherited = false }: { fresh: boolean; inherited?: boolean },
+  ): AppendInput | undefined {
+    if (plan === undefined) return undefined;
+    const state = this.#events.rulesState(sessionId);
+    // 一个规则文件都没有、之前也没记过：不写。
+    if (plan.rules.files.length === 0 && state?.rules === undefined) return undefined;
+    const delivered = !fresh && state?.sentTo.includes(engineSessionId) === true;
+    const context =
+      plan.rules.channel === 'message' && !inherited && !delivered ? plan.text : undefined;
+    const pending = state?.pending;
+    const samePending =
+      context === undefined
+        ? pending === undefined
+        : pending?.engineSessionId === engineSessionId && pending.context === context;
+    if (!fresh && samePending && sameRules(state?.rules, plan.rules)) return undefined;
+    return {
+      type: 'session.rules',
+      source: 'host',
+      payload: {
+        ...plan.rules,
+        engineSessionId,
+        ...(context !== undefined && { context }),
+      },
+    };
   }
 
   /**
@@ -882,8 +960,11 @@ export class SessionManager {
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
       ...(toolPreset !== undefined && { toolPreset }),
     });
+    const rules = await this.#rulePlan(config.cwd, provider.id);
     try {
-      engineSession = await this.#adapter.createSession(this.#engineConfig(sessionId, config));
+      engineSession = await this.#adapter.createSession(
+        this.#engineConfig(sessionId, config, rules),
+      );
     } catch (error) {
       this.#creating.delete(sessionId);
       await prepared.undo();
@@ -940,6 +1021,10 @@ export class SessionManager {
           ...(toolPreset !== undefined && { toolPreset }),
         },
       });
+      const rulesInput = this.#rulesInput(sessionId, rules, engineSession.engineSessionId, {
+        fresh: true,
+      });
+      if (rulesInput !== undefined) this.#events.append(sessionId, rulesInput);
     } catch (error) {
       // 会话没建成，尽力回收引擎会话与 worktree。
       await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
@@ -1540,13 +1625,16 @@ export class SessionManager {
       await this.#checkpoints?.beforeTurn(runtime.id, checkpointCwd, turnId);
     }
 
-    // 接力（0.25.0）：还没交出去的历史摘要放在这条消息的开头交给新引擎；消息记录里只有用户写的。
+    // 接力（0.25.0）：还没交出去的历史摘要放在这条消息的开头交给新引擎；消息记录里只有用户写的。规则文件（0.68.0）要随消息补的
+    // 也放在开头，在摘要之前。
+    const pendingRules = this.#events.rulesState(runtime.id)?.pending;
+    const rules =
+      pendingRules?.engineSessionId === runtime.engineSessionId ? pendingRules.context : undefined;
     const handoff = this.#events.handoffState(runtime.id)?.context;
+    const prefix = [rules, handoff].filter((part) => part !== undefined).join('\n\n');
     try {
       const engineInput =
-        handoff === undefined
-          ? agentInput
-          : await this.#agentInput(withHandoffContext(handoff, content));
+        prefix === '' ? agentInput : await this.#agentInput(withHandoffContext(prefix, content));
       if (goal === undefined) {
         await this.#adapter.send(
           runtime.engineSessionId,
@@ -2066,6 +2154,9 @@ export class SessionManager {
       if (permissionMode !== undefined) config.permissionMode = permissionMode;
       if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
 
+      // 规则文件（0.68.0）：新来源自己不读的，在它的说明里或随下一条消息补给它。
+      const rules = await this.#rulePlan(record.cwd, target.id);
+
       const attachment = runtime.attachment;
       if (attachment) {
         attachment.detached = true;
@@ -2083,7 +2174,7 @@ export class SessionManager {
         try {
           engine = await this.#adapter.resumeSession(
             previous.engineSessionId,
-            this.#engineConfig(runtime.id, config),
+            this.#engineConfig(runtime.id, config, rules),
           );
         } catch (error) {
           this.#unresumable.add(previous.engineSessionId);
@@ -2107,7 +2198,7 @@ export class SessionManager {
       const resumed = engine !== undefined;
       if (engine === undefined) {
         try {
-          engine = await this.#adapter.createSession(this.#engineConfig(runtime.id, config));
+          engine = await this.#adapter.createSession(this.#engineConfig(runtime.id, config, rules));
         } catch (error) {
           if (isAdapterError(error, 'invalid_input')) throw invalid('providerId', errorText(error));
           const info = engineErrorInfo(error);
@@ -2156,6 +2247,10 @@ export class SessionManager {
       const { state: sessionState } = this.#snapshot(runtime).session;
       if (sessionState !== 'idle') inputs.push(stateChanged(sessionState, 'idle', 'resumed'));
       this.#write(runtime, inputs);
+      const rulesInput = this.#rulesInput(runtime.id, rules, engine.engineSessionId, {
+        fresh: !resumed,
+      });
+      if (rulesInput !== undefined) this.#write(runtime, [rulesInput]);
       try {
         this.#attach(runtime);
       } catch (error) {
@@ -2195,14 +2290,14 @@ export class SessionManager {
       }
       const extras = await this.#handoffExtras(runtime, params.handoff);
       const from = { providerId: session.providerId, modelId: session.modelId };
-      const plan = this.#handoffPlan(
-        runtime,
-        from,
-        this.#previousEngine(runtime, target.id),
-        features,
-        extras,
-      );
-      return handoffPreviewOf(target.id, plan);
+      const previous = this.#previousEngine(runtime, target.id);
+      const plan = this.#handoffPlan(runtime, from, previous, features, extras);
+      const result = handoffPreviewOf(target.id, plan);
+      // 规则文件（0.68.0）：新来源会加载的，不进材料的预算与散列。
+      const rules = await this.#rulePlan(record.cwd, target.id);
+      return rules === undefined
+        ? result
+        : { ...result, preview: { ...result.preview, rules: rules.rules } };
     });
   }
 
@@ -2598,10 +2693,11 @@ export class SessionManager {
       }
       await assertDirectory(record.cwd);
       let engine: EngineSession;
+      const rules = await this.#rulePlan(record.cwd, record.providerId);
       try {
         engine = await this.#adapter.resumeSession(
           runtime.engineSessionId,
-          this.#engineConfig(runtime.id, sessionConfig(record)),
+          this.#engineConfig(runtime.id, sessionConfig(record), rules),
         );
         if (!runtime.attachment) this.#attach(runtime);
       } catch (error) {
@@ -2609,7 +2705,14 @@ export class SessionManager {
         this.#write(runtime, [engineError(info, false), ...readOnlyInputs(snapshot, error)]);
         throw new HostError('ENGINE_ERROR', info.message, info);
       }
-      this.#write(runtime, [resumedEvent(engine), stateChanged(session.state, 'idle', 'resumed')]);
+      const rulesInput = this.#rulesInput(runtime.id, rules, runtime.engineSessionId, {
+        fresh: false,
+      });
+      this.#write(runtime, [
+        resumedEvent(engine),
+        ...(rulesInput === undefined ? [] : [rulesInput]),
+        stateChanged(session.state, 'idle', 'resumed'),
+      ]);
       return this.#snapshot(runtime).session;
     });
   }
@@ -2681,10 +2784,11 @@ export class SessionManager {
         ...(origin !== undefined && { origin }),
         ...(record.toolPreset !== undefined && { toolPreset: record.toolPreset }),
       });
+      const rules = await this.#rulePlan(record.cwd, record.providerId);
       try {
         engineSession = await fork(
           source.engineSessionId,
-          this.#engineConfig(sessionId, config),
+          this.#engineConfig(sessionId, config, rules),
           side ? { kind: 'side' } : { kind: 'branch', dropTurns: turns.length - 1 - index },
         );
       } catch (error) {
@@ -2758,6 +2862,12 @@ export class SessionManager {
             });
           }
         }
+        // 规则文件（0.68.0）：分出来的引擎会话带着被分会话的上下文，随消息补过的不再补。
+        const rulesInput = this.#rulesInput(sessionId, rules, engineSession.engineSessionId, {
+          fresh: true,
+          inherited: true,
+        });
+        if (rulesInput !== undefined) this.#events.append(sessionId, rulesInput);
       } catch (error) {
         await this.#adapter.close(engineSession.engineSessionId).catch(this.#onError);
         throw error;
@@ -3399,10 +3509,11 @@ export class SessionManager {
     const record = this.#record(runtime);
     await assertDirectory(record.cwd);
     let engine: EngineSession;
+    const rules = await this.#rulePlan(record.cwd, record.providerId);
     try {
       engine = await this.#adapter.resumeSession(
         runtime.engineSessionId,
-        this.#engineConfig(runtime.id, sessionConfig(record)),
+        this.#engineConfig(runtime.id, sessionConfig(record), rules),
       );
       this.#attach(runtime);
     } catch (error) {
@@ -3419,8 +3530,15 @@ export class SessionManager {
       throw new HostError('ENGINE_ERROR', info.message, info);
     }
     // 等待期间引擎可能已经报了退出（会话转 error），那时不再记恢复。
-    if (this.#snapshot(runtime).session.state === 'idle')
-      this.#write(runtime, [resumedEvent(engine)]);
+    if (this.#snapshot(runtime).session.state === 'idle') {
+      const rulesInput = this.#rulesInput(runtime.id, rules, runtime.engineSessionId, {
+        fresh: false,
+      });
+      this.#write(runtime, [
+        resumedEvent(engine),
+        ...(rulesInput === undefined ? [] : [rulesInput]),
+      ]);
+    }
   }
 
   /** #5，然后等结算（#8）或判定无法确认（#9）。不在活动状态时什么都不做。 */

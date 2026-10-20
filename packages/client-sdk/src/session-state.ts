@@ -65,6 +65,12 @@ export function applySessionEvent(session: Session, event: WevirEvent): Session 
       delete next.readOnly;
       break;
     }
+    case 'session.rules': {
+      // 0.68.0：当前来源加载的规则文件；交给引擎的正文与引擎会话不放进 `Session`。
+      const { engineSessionId: _engine, context: _context, ...rules } = event.payload;
+      next.rules = rules;
+      break;
+    }
     case 'session.configured':
       next.modelId = event.payload.modelId;
       if (event.payload.reasoningEffort === undefined) delete next.reasoningEffort;

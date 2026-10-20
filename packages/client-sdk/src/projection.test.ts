@@ -765,6 +765,37 @@ describe('计划模式（0.36.0）', () => {
     );
     expect(back).not.toHaveProperty('collaborationMode');
   });
+
+  it('applySessionEvent：session.rules 换掉会话的规则文件，不带正文与引擎会话（0.68.0）', () => {
+    const { add } = events();
+    const base = { id: SES, lastSeq: 1 } as Session;
+    const file = {
+      path: '/w/CLAUDE.md',
+      scope: 'project',
+      kind: 'claude',
+      delivery: 'wevir',
+      bytes: 9,
+    } as const;
+    const next = applySessionEvent(
+      base,
+      add('session.rules', {
+        providerId: 'grok',
+        files: [file],
+        channel: 'message',
+        bytes: 120,
+        budgetBytes: 32768,
+        engineSessionId: 'e1',
+        context: '# Rule files',
+      }),
+    );
+    expect(next.rules).toEqual({
+      providerId: 'grok',
+      files: [file],
+      channel: 'message',
+      bytes: 120,
+      budgetBytes: 32768,
+    });
+  });
 });
 
 describe('提问（0.10.0）', () => {

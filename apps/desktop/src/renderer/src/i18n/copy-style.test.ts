@@ -22,7 +22,6 @@ const EXPLANATORY_ALLOWED = new Set<string>([
   'engineError.hint.cancel_unconfirmed',
   'engineError.hint.session_unavailable',
   'engineError.hint.unknown',
-  'handoff.preview.notesHint',
   'history.intro',
   'settings.memory.deleteBody',
   'settings.memory.editor.description',

@@ -22,6 +22,7 @@ import {
   type EngineExitedEvent,
   type EngineGoal,
   type EnginePluginSource,
+  type EngineRuleFiles,
   type EngineSession,
   EventHub,
   type ForkOptions,
@@ -569,6 +570,11 @@ export class CodexAdapter implements AgentRuntimeAdapter {
    */
   readonly appTools = true;
 
+  /** 0.68.0：Codex 读哪些规则文件（`CODEX_RULE_FILES`）。 */
+  ruleFiles(): EngineRuleFiles {
+    return CODEX_RULE_FILES;
+  }
+
   /**
    * 计划模式（0.36.0，codex-event-mapping.md §4.10）：Codex 的协作模式，每个 `turn/start` 带 `collaborationMode`；计划是
    * `plan` item。
@@ -723,7 +729,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
       const params: ThreadStartParams = {
         cwd: config.cwd,
         ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
-        ...extraRootsInstructions(config.additionalRoots),
+        ...threadDeveloperInstructions(config),
       };
       let response: ThreadStartResponse;
       try {
@@ -771,7 +777,7 @@ export class CodexAdapter implements AgentRuntimeAdapter {
         threadId: engineSessionId,
         cwd: config.cwd,
         ...this.#threadSettings(provider, model, config.reasoningEffort, config.appTools),
-        ...extraRootsInstructions(config.additionalRoots),
+        ...threadDeveloperInstructions(config),
         excludeTurns: true,
       };
       const response = await this.#resumeThread(params);
@@ -2647,6 +2653,28 @@ export function permissionSettings(
       };
   }
 }
+
+/**
+ * `thread/start` 与 `thread/resume` 的 `developerInstructions`：额外目录的说明，加上 Host 补给的规则文件（0.68.0，Codex 自己只读
+ * 项目里的 AGENTS.md；`CODEX_HOME` 是 Wevir 的私有目录，用户的 `~/.codex/AGENTS.md` 它也读不到）。两样都没有时不带。
+ */
+export function threadDeveloperInstructions(config: SessionConfig): {
+  developerInstructions?: string;
+} {
+  const parts = [
+    extraRootsInstructions(config.additionalRoots).developerInstructions,
+    config.ruleInstructions,
+  ].filter((part): part is string => part !== undefined && part !== '');
+  return parts.length === 0 ? {} : { developerInstructions: parts.join('\n\n') };
+}
+
+/** Codex 自己读哪些规则文件（0.68.0）：项目里从仓库根到 cwd 的 AGENTS.md；补给的放进 `developerInstructions`。 */
+export const CODEX_RULE_FILES: EngineRuleFiles = {
+  user: [],
+  project: ['agents'],
+  imports: false,
+  instructions: true,
+};
 
 /** 环境会话（0.15.0）：告诉模型 cwd 之外这个会话还能读写哪些文件夹（thread/start 与 thread/resume）。 */
 export function extraRootsInstructions(roots: readonly string[] | undefined): {

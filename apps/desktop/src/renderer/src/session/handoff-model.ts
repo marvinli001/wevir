@@ -4,7 +4,6 @@ import type { SessionNotice } from '@wevir/client-sdk';
 import type {
   AccountState,
   EngineFeatures,
-  HandoffPreview,
   ProviderProfile,
   Session,
   SessionState,
@@ -101,7 +100,7 @@ export function handoffDetailRows(notice: HandoffNoticeOf): HandoffDetailRow[] {
     rows.push({
       key: 'bytes',
       label: t('handoff.detail.bytes'),
-      value: t('handoff.preview.budgetUsed', {
+      value: t('handoff.detail.budgetUsed', {
         used: receipt.bytes.toLocaleString(),
         budget: receipt.budgetBytes.toLocaleString(),
       }),
@@ -121,17 +120,6 @@ export function handoffDetailRows(notice: HandoffNoticeOf): HandoffDetailRow[] {
           : 'muted',
   });
   return rows;
-}
-
-/** 换来源之前的预览（0.60.0）：同详情的方式、引擎会话、范围、条目与读历史，没有递交状态。 */
-export function handoffPreviewRows(preview: HandoffPreview): HandoffDetailRow[] {
-  return materialRows({
-    ...preview,
-    // 预览总给出能不能读历史；没有材料时不需要。
-    ...(preview.context === undefined && preview.overBudget === undefined
-      ? { historyTool: undefined }
-      : {}),
-  });
 }
 
 function materialRows(

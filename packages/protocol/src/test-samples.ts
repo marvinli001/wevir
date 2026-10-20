@@ -19,6 +19,7 @@ import type {
   QuestionRequest,
   Session,
   SessionGoal,
+  SessionRules,
   SessionSnapshot,
   SubagentSummary,
   SuggestedTask,
@@ -521,6 +522,48 @@ export const handedOffSession: Session = {
   ],
 };
 
+/** 规则文件（0.68.0）：换到 Claude 后，它自己读 CLAUDE.md，AGENTS.md 与 Cursor 规则由 Host 补给。 */
+export const sessionRules: SessionRules = {
+  providerId: 'claude',
+  files: [
+    {
+      path: '/Users/me/.claude/CLAUDE.md',
+      scope: 'user',
+      kind: 'claude',
+      delivery: 'engine',
+      bytes: 412,
+    },
+    {
+      path: '/Users/me/projects/wevir/AGENTS.md',
+      scope: 'project',
+      kind: 'agents',
+      delivery: 'wevir',
+      bytes: 9120,
+    },
+    {
+      path: '/Users/me/projects/wevir/CLAUDE.md',
+      scope: 'project',
+      kind: 'claude',
+      delivery: 'engine',
+      bytes: 38,
+    },
+    {
+      path: '/Users/me/projects/wevir/.cursor/rules/style.mdc',
+      scope: 'project',
+      kind: 'cursor',
+      delivery: 'skipped',
+      bytes: 9120,
+      skipReason: 'duplicate',
+    },
+  ],
+  channel: 'instructions',
+  bytes: 9390,
+  budgetBytes: 32768,
+};
+
+/** 接力过、记下了规则文件的会话（0.68.0）。 */
+export const sessionWithRules: Session = { ...handedOffSession, rules: sessionRules };
+
 /** 支线会话（0.17.0）。 */
 const { activeTurn: _activeTurn, ...idleSession } = session;
 export const sideSession: Session = {
@@ -819,6 +862,14 @@ export const eventPayloads: PayloadSamples = {
       strategy: 'full_thread_summary',
       items: 0,
       omittedItems: 0,
+    },
+  },
+  'session.rules': {
+    valid: { ...sessionRules, engineSessionId: 'claude-6a1e0c2f' },
+    invalid: {
+      ...sessionRules,
+      engineSessionId: 'claude-6a1e0c2f',
+      files: [{ ...sessionRules.files[0], delivery: 'model' }],
     },
   },
   'session.goal_changed': {
@@ -1561,12 +1612,15 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', sessionRecap: false } },
         // 0.57.0：自动记忆的开关。
         { settings: { sendWhileBusy: 'steer', autoMemory: false } },
+        // 0.68.0：跨引擎规则文件的开关。
+        { settings: { sendWhileBusy: 'steer', ruleFiles: false } },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
         { settings: { sendWhileBusy: 'steer', promptSuggestions: 'yes' } },
         { settings: { sendWhileBusy: 'steer', sessionRecap: 'off' } },
         { settings: { sendWhileBusy: 'steer', autoMemory: 'off' } },
+        { settings: { sendWhileBusy: 'steer', ruleFiles: 'on' } },
         {},
       ],
     },
@@ -1578,6 +1632,7 @@ export const methodSamples: MethodSamples = {
         { settings: { promptSuggestions: false } },
         { settings: { sessionRecap: false } },
         { settings: { autoMemory: false } },
+        { settings: { ruleFiles: false } },
         { settings: {} },
       ],
       invalid: [
@@ -1585,6 +1640,7 @@ export const methodSamples: MethodSamples = {
         { settings: { promptSuggestions: 0 } },
         { settings: { sessionRecap: 1 } },
         { settings: { autoMemory: 'no' } },
+        { settings: { ruleFiles: 1 } },
         {},
       ],
     },
@@ -2638,7 +2694,7 @@ export const methodSamples: MethodSamples = {
       ],
     },
     result: {
-      valid: [{ session }, { session: handedOffSession }],
+      valid: [{ session }, { session: handedOffSession }, { session: sessionWithRules }],
       invalid: [
         {},
         {
@@ -2686,6 +2742,8 @@ export const methodSamples: MethodSamples = {
             hash: '9f2c4e6a8b0d1f3a5c7e9b1d3f5a7c9e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a',
             constraints: 1,
             notes: [{ scope: 'project', name: 'invoice-cents', revision: '3f1c2a9b7d4e6f10' }],
+            // 0.68.0：新来源会加载的规则文件。
+            rules: sessionRules,
           },
           binding: {
             providerId: 'claude',

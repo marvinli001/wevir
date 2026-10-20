@@ -10,6 +10,7 @@ import {
   SeqCursorSchema,
   type SessionId,
   SessionIdSchema,
+  type SessionRules,
   type SessionSnapshot,
   type SuggestedTask,
   type TaskId,
@@ -58,6 +59,13 @@ export interface HandoffState {
   engines?: ProjectedEngine[];
   currentSeen: number;
   context?: string;
+}
+
+/** `rulesState` 的结果（0.68.0）。 */
+export interface RulesState {
+  rules?: SessionRules;
+  pending?: { engineSessionId: string; context: string };
+  sentTo: string[];
 }
 
 export interface EventStoreOptions {
@@ -310,6 +318,20 @@ export class EventStore {
       ...(engines !== undefined && { engines: [...engines] }),
       currentSeen,
       ...(handoffContext !== undefined && { context: handoffContext }),
+    };
+  }
+
+  /**
+   * 规则文件的状态（0.68.0）：最近一次 `session.rules`、还没随消息交出去的规则正文与它给的引擎会话、已经随消息收到规则的引擎
+   * 会话。会话不存在时为 `undefined`。
+   */
+  rulesState(sessionId: SessionId): RulesState | undefined {
+    if (!this.#storage.sessions.get(sessionId)) return undefined;
+    const { rules, rulesPending, rulesSentTo } = this.#projection(sessionId);
+    return {
+      ...(rules !== undefined && { rules: structuredClone(rules) }),
+      ...(rulesPending !== undefined && { pending: { ...rulesPending } }),
+      sentTo: [...(rulesSentTo ?? [])],
     };
   }
 

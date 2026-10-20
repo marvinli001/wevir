@@ -36,6 +36,8 @@ export interface PromptInput {
   model: { providerID: string; modelID: string };
   /** 模型的变体（opencode 的推理档位）。 */
   variant?: string;
+  /** 接在 opencode 自己的系统提示之后（0.68.0：Host 补给的规则文件），只对这一轮请求有效，每次都要带。 */
+  system?: string;
   /** 图片（0.28.0）是 `file` 部件：opencode 自己读 `file://` 地址的文件（同 T3 Code 的 toOpenCodeFileParts）。 */
   parts: Array<
     { type: 'text'; text: string } | { type: 'file'; mime: string; filename?: string; url: string }

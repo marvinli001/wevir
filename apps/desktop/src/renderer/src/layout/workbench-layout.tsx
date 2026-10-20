@@ -49,6 +49,7 @@ import { RoleLabel } from './role-label';
 import { Sidebar } from './sidebar';
 import { Splitter } from './splitter';
 import './rail-cards';
+import './rules-card';
 import './usage-card';
 import './verification-card';
 import './outputs-card';

@@ -267,6 +267,12 @@ export const HOST_FEATURES = {
    * `wevir_automation_*`。按计划反复交给 Agent 的指令，只在 Host 运行时执行。
    */
   automations: 'automations',
+  /**
+   * 跨引擎的规则文件（0.68.0，domain-model §3.27）：Host 找出用户与项目的 AGENTS.md / CLAUDE.md / GEMINI.md / Cursor 规则，会话的引擎
+   * 自己不读的那些由 Host 补给它（建会话、恢复与接力时）；`session.rules` 事件、`Session.rules`、接力预览的 `rules` 说明这个会话
+   * 加载了哪些、各是谁读的，Host 设置 `ruleFiles` 可以关掉补给。与引擎无关。
+   */
+  ruleFiles: 'rule_files',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -323,6 +329,7 @@ export const HostFeaturesSchema = z.looseObject({
   subscription_accounts: z.boolean().optional(),
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),
+  rule_files: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 

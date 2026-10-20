@@ -21,6 +21,7 @@ import type {
   SessionGoal,
   SessionId,
   SessionReadOnly,
+  SessionRules,
   SessionSnapshot,
   SessionState,
   StateChangeReason,
@@ -81,6 +82,14 @@ export interface SessionProjection {
   readonly currentSeen: number;
   /** 还没随消息交给当前引擎的接力摘要（最近一次 `session.handoff` 的 `context`）。 */
   readonly handoffContext?: string;
+  /**
+   * 规则文件（0.68.0）：最近一次 `session.rules`，不含 `engineSessionId` 与 `context`。
+   */
+  readonly rules?: SessionRules;
+  /** 还没随消息交给引擎的规则正文（`channel` 是 `message` 的 `session.rules` 的 `context`）与它给的引擎会话。 */
+  readonly rulesPending?: { readonly engineSessionId: string; readonly context: string };
+  /** 已经随消息收到规则正文的引擎会话：接力回到它、恢复它时不再补。 */
+  readonly rulesSentTo?: readonly string[];
   /** 进行中的回合由命令开始（`turn.started` 带 `command`）：它不带接力摘要，结束时摘要仍没交出去。 */
   readonly commandTurnId?: TurnId;
   /** 仍是 `pending` 的审批，按请求先后排列。 */
@@ -329,6 +338,12 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       };
       break;
     }
+    case 'session.rules': {
+      const { engineSessionId, context, ...rules } = event.payload;
+      next.rules = rules;
+      next.rulesPending = context === undefined ? undefined : { engineSessionId, context };
+      break;
+    }
     case 'session.configured':
       next.model = {
         modelId: event.payload.modelId,
@@ -387,6 +402,18 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       ) {
         next.currentSeen = event.seq;
         next.handoffContext = undefined;
+      }
+      // 规则正文同接力摘要：随这个回合的消息交出去了，那个引擎会话以后不再补。
+      if (
+        projection.rulesPending !== undefined &&
+        event.payload.outcome !== 'interrupted' &&
+        projection.commandTurnId !== event.payload.turnId
+      ) {
+        next.rulesSentTo = [
+          ...(projection.rulesSentTo ?? []),
+          projection.rulesPending.engineSessionId,
+        ];
+        next.rulesPending = undefined;
       }
       if (projection.commandTurnId === event.payload.turnId) next.commandTurnId = undefined;
       if (projection.subagent !== undefined) {
@@ -704,6 +731,7 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (projection.activeTurn) session.activeTurn = projection.activeTurn;
   if (projection.lastError) session.lastError = projection.lastError;
   if (projection.readOnly) session.readOnly = projection.readOnly;
+  if (projection.rules !== undefined) session.rules = structuredClone(projection.rules);
   if (record.environmentId !== undefined) {
     session.environmentId = record.environmentId as EnvironmentId;
   }
