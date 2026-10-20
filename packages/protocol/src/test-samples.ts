@@ -36,6 +36,7 @@ import {
   type NotificationName,
   type NotificationParams,
 } from './methods.js';
+import type { ReviewComment } from './review.js';
 import type {
   CheckDefinition,
   RepairChain,
@@ -81,7 +82,46 @@ export const ids = {
   /** 自动化与它的运行（0.66.0）。 */
   automation: `aut_${ULID}`,
   automationRun: `arn_${ULID}`,
+  /** 行级批注（0.67.0）。 */
+  reviewComment: `rvc_${ULID}`,
+  reviewComment2: 'rvc_01JA2B3C4D5E6F7G8H9JKMNPR1',
 } as const;
+
+const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
+const SHA2 = '9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e';
+
+/** 一条行级批注（0.67.0）：新的一侧，原文挪了位置。 */
+export const reviewComment: ReviewComment = {
+  id: ids.reviewComment,
+  workspaceId: ids.workspace,
+  sessionId: ids.session,
+  path: 'src/convert.ts',
+  side: 'new',
+  startLine: 12,
+  endLine: 14,
+  source: { kind: 'uncommitted' },
+  base: SHA1,
+  branch: 'main',
+  snippet: 'export function toFahrenheit(c: number) {\n  return c * 9 / 5 + 32;\n}',
+  body: '负数要四舍五入',
+  status: 'pending',
+  anchor: { state: 'relocated', startLine: 20, endLine: 22 },
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 已发送、过期的批注（0.67.0）：旧的一侧，回合快照上写的。 */
+export const sentReviewComment: ReviewComment = {
+  ...reviewComment,
+  id: ids.reviewComment2,
+  side: 'old',
+  source: { kind: 'turn', turnId: ids.turn },
+  head: SHA2,
+  status: 'sent',
+  sent: { sessionId: ids.session, at: TS2, turnId: ids.turn },
+  anchor: { state: 'outdated', reason: 'changed' },
+  updatedAt: TS2,
+};
 
 /** 一项检查（0.65.0）。 */
 export const checkDefinition: CheckDefinition = {
@@ -3611,6 +3651,119 @@ export const methodSamples: MethodSamples = {
     result: {
       valid: [{ text: 'not ok 4\n', from: 0, next: 9, more: false, bytes: 9 }],
       invalid: [{ text: '' }],
+    },
+  },
+  'review.list': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace },
+        { workspaceId: ids.workspace, sessionId: ids.session, status: 'pending' },
+      ],
+      invalid: [{}, { workspaceId: ids.workspace, status: 'draft' }],
+    },
+    result: {
+      valid: [{ comments: [] }, { comments: [reviewComment, sentReviewComment] }],
+      invalid: [{}, { comments: [{ ...reviewComment, side: 'left' }] }],
+    },
+  },
+  'review.add': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          source: { kind: 'uncommitted' },
+          base: SHA1,
+          path: 'src/convert.ts',
+          side: 'new',
+          startLine: 12,
+          endLine: 14,
+          body: '负数要四舍五入',
+        },
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          source: { kind: 'turn', turnId: ids.turn },
+          base: SHA1,
+          head: SHA2,
+          path: 'src/b.ts',
+          previousPath: 'src/a.ts',
+          side: 'old',
+          startLine: 3,
+          endLine: 3,
+          body: '为什么删掉',
+        },
+      ],
+      invalid: [
+        {
+          workspaceId: ids.workspace,
+          source: { kind: 'uncommitted' },
+          base: 'HEAD',
+          path: 'a.ts',
+          side: 'new',
+          startLine: 1,
+          endLine: 1,
+          body: 'x',
+        },
+        {
+          workspaceId: ids.workspace,
+          source: { kind: 'uncommitted' },
+          base: SHA1,
+          path: 'a.ts',
+          side: 'new',
+          startLine: 0,
+          endLine: 1,
+          body: 'x',
+        },
+      ],
+    },
+    result: {
+      valid: [{ comment: reviewComment }],
+      invalid: [{}, { comment: { ...reviewComment, anchor: { state: 'moved' } } }],
+    },
+  },
+  'review.update': {
+    params: {
+      valid: [{ commentId: ids.reviewComment, body: '改成向下取整' }],
+      invalid: [{ commentId: ids.reviewComment, body: '   ' }, { body: 'x' }],
+    },
+    result: { valid: [{ comment: reviewComment }], invalid: [{}] },
+  },
+  'review.remove': {
+    params: {
+      valid: [{ commentIds: [ids.reviewComment, ids.reviewComment2] }],
+      invalid: [{ commentIds: [] }, { commentIds: [ids.session] }],
+    },
+    result: { valid: [{ removed: 2 }, { removed: 0 }], invalid: [{ removed: -1 }] },
+  },
+  'review.send': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          sessionId: ids.session,
+          commentIds: [ids.reviewComment],
+          targetSessionId: ids.session,
+        },
+        {
+          workspaceId: ids.workspace,
+          commentIds: [ids.reviewComment, ids.reviewComment2],
+          targetSessionId: ids.childSession,
+          delivery: 'queue',
+          clientMessageId: 'review-1',
+        },
+      ],
+      invalid: [
+        { workspaceId: ids.workspace, commentIds: [], targetSessionId: ids.session },
+        { workspaceId: ids.workspace, commentIds: [ids.reviewComment] },
+      ],
+    },
+    result: {
+      valid: [
+        { comments: [{ ...reviewComment, status: 'sent' }], turnId: ids.turn, seq: 12 },
+        { comments: [], pendingId: ids.pending, seq: 13 },
+      ],
+      invalid: [{ comments: [] }],
     },
   },
   'automation.list': {

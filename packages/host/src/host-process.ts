@@ -36,6 +36,7 @@ import { PluginRegistry } from './plugins.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
 import { loadRecapInstructions } from './recap.js';
+import { loadReviewTemplate, ReviewService } from './review/service.js';
 import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
 import { RuntimeFile } from './runtime-file.js';
@@ -377,6 +378,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('verification is unavailable', { error });
     }
     const verification = verificationService;
+    // 行级批注（0.67.0，ADR-0009）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。
+    let review: ReviewService | undefined;
+    try {
+      review = new ReviewService({
+        storage,
+        sessions: manager,
+        template: loadReviewTemplate(options.promptsDir),
+      });
+    } catch (error) {
+      logger.warn('review comments are unavailable', { error });
+    }
 
     const secrets = new FileSecretStore(home);
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
@@ -502,6 +514,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         usage: { service: usageStats, pricing },
         ...(verification !== undefined && { verification }),
         automations: automationService,
+        ...(review !== undefined && { review }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -559,6 +572,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.injectNote !== undefined && { session_undo: true }),
         ...(recapInstructions !== undefined && { session_recap: true }),
         ...(verification !== undefined && { verification: true }),
+        ...(review !== undefined && { review_comments: true }),
       },
       engineFeatures,
       plugins,

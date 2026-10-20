@@ -128,7 +128,7 @@ export interface SessionRepository {
    */
   family(id: string): SessionRecord[];
   /**
-   * 删掉这些会话的行与它们的事件、审批、发送回执（0.43.0）。要在调用方的事务里；`ids` 里的子会话要排在父会话之后（`family` 的顺序），
+   * 删掉这些会话的行与它们的事件、审批、发送回执（0.43.0）以及在它们里面写的行级批注（0.67.0）。要在调用方的事务里；`ids` 里的子会话要排在父会话之后（`family` 的顺序），
    * 按倒序删。返回删掉的会话数。
    */
   remove(ids: readonly string[]): number;
@@ -205,6 +205,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
   const removeEvents = db.prepare('DELETE FROM events WHERE session_id = ?');
   const removeApprovals = db.prepare('DELETE FROM approvals WHERE session_id = ?');
   const removeReceipts = db.prepare('DELETE FROM send_receipts WHERE session_id = ?');
+  const removeReviewComments = db.prepare('DELETE FROM review_comments WHERE session_id = ?');
   const removeSession = db.prepare('DELETE FROM sessions WHERE id = ?');
 
   return {
@@ -279,6 +280,7 @@ export function createSessionRepository(db: SqliteDatabase): SessionRepository {
         removeEvents.run(id);
         removeApprovals.run(id);
         removeReceipts.run(id);
+        removeReviewComments.run(id);
         removed += removeSession.run(id).changes > 0 ? 1 : 0;
       }
       return removed;

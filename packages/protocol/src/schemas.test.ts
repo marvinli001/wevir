@@ -214,6 +214,8 @@ import {
   readOnlySession,
   repairChain,
   reportedTask,
+  reviewComment,
+  sentReviewComment,
   session,
   signedInAccount,
   signingInAccount,
@@ -2520,6 +2522,43 @@ const standaloneCases: Case[] = [
     schema: protocol.SessionVerificationSchema,
     valid: [{ acceptance: acceptanceSample, runs: [verificationRun], repair: repairChain }],
     invalid: [{ runs: [] }],
+  },
+  {
+    name: 'ReviewCommentId',
+    schema: protocol.ReviewCommentIdSchema,
+    valid: [`rvc_${ULID}`],
+    invalid: [`chk_${ULID}`, 'rvc_'],
+  },
+  {
+    name: 'ReviewSide',
+    schema: protocol.ReviewSideSchema,
+    valid: ['old', 'new'],
+    invalid: ['left', 'additions'],
+  },
+  {
+    name: 'ReviewAnchor',
+    schema: protocol.ReviewAnchorSchema,
+    valid: [
+      { state: 'current' },
+      { state: 'relocated', startLine: 4, endLine: 6 },
+      { state: 'outdated', reason: 'ambiguous' },
+    ],
+    invalid: [{ state: 'moved' }, { state: 'relocated', startLine: 0 }],
+  },
+  {
+    name: 'ReviewSent',
+    schema: protocol.ReviewSentSchema,
+    valid: [{ sessionId: `ses_${ULID}`, at: TS, pendingId: `pnd_${ULID}` }],
+    invalid: [{ at: TS }],
+  },
+  {
+    name: 'ReviewComment',
+    schema: protocol.ReviewCommentSchema,
+    valid: [reviewComment, sentReviewComment],
+    invalid: [
+      { ...reviewComment, body: '' },
+      { ...reviewComment, status: 'draft' },
+    ],
   },
 ];
 

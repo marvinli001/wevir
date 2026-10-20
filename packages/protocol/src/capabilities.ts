@@ -267,6 +267,11 @@ export const HOST_FEATURES = {
    * `wevir_automation_*`。按计划反复交给 Agent 的指令，只在 Host 运行时执行。
    */
   automations: 'automations',
+  /**
+   * 行级批注（0.67.0，ADR-0009）：`review.*`。“变更”窗格的 diff 上写批注，存在 Host，按原文片段重新定位或标过期，一组发给指定会话。
+   * 与引擎无关。
+   */
+  reviewComments: 'review_comments',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -323,6 +328,7 @@ export const HostFeaturesSchema = z.looseObject({
   subscription_accounts: z.boolean().optional(),
   verification: z.boolean().optional(),
   automations: z.boolean().optional(),
+  review_comments: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
