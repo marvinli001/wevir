@@ -85,6 +85,10 @@ export interface ConnectionHost {
   readonly automations?: {
     watch(listener: (change: NotificationParams<'automation.changed'>) => void): () => void;
   };
+  /** 项目环境就绪（0.70.0）：调过 `readiness.*` 的连接用它收 `readiness.changed`。 */
+  readonly readiness?: {
+    watch(listener: (change: NotificationParams<'readiness.changed'>) => void): () => void;
+  };
   /** 进程输出（0.69.0）：调过 `process.*` 的连接用它收 `process.changed`。 */
   readonly processes?: {
     watch(listener: (change: NotificationParams<'process.changed'>) => void): () => void;
@@ -170,6 +174,8 @@ export class RpcConnection {
   #unwatchAutomations: (() => void) | undefined;
   /** 调过 `process.*` 之后：退订 `process.changed`。 */
   #unwatchProcesses: (() => void) | undefined;
+  /** 调过 `readiness.*` 之后：退订 `readiness.changed`。 */
+  #unwatchReadiness: (() => void) | undefined;
   /** 调过 `terminal.*` 之后：退订 `terminal.changed`。 */
   #unwatchTerminals: (() => void) | undefined;
   /** `terminal.attach` 过的终端：不再收它的输出。 */
@@ -507,6 +513,7 @@ export class RpcConnection {
         if (method.startsWith('usage.')) this.#watchUsage();
         if (method.startsWith('automation.')) this.#watchAutomations();
         if (method.startsWith('process.')) this.#watchProcesses();
+        if (method.startsWith('readiness.')) this.#watchReadiness();
         if (method.startsWith('terminal.')) this.#watchTerminals();
       }
     }
@@ -730,6 +737,22 @@ export class RpcConnection {
     });
   }
 
+  /** 调过 `readiness.*` 的连接之后收 `readiness.changed`（0.70.0），连接关闭即止。 */
+  #watchReadiness(): void {
+    if (this.#unwatchReadiness !== undefined || this.#host.readiness === undefined) return;
+    if (this.#phase !== 'ready') return;
+    this.#unwatchReadiness = this.#host.readiness.watch((change) => {
+      const parsed = NotificationSchemas['readiness.changed'].params.safeParse(change);
+      if (!parsed.success) {
+        this.#host.onError(
+          new Error(`readiness.changed does not match its schema: ${parsed.error}`),
+        );
+        return;
+      }
+      this.#send({ jsonrpc: JSONRPC_VERSION, method: 'readiness.changed', params: parsed.data });
+    });
+  }
+
   /** 调过 `process.*` 的连接之后收 `process.changed`（0.69.0），连接关闭即止。 */
   #watchProcesses(): void {
     if (this.#unwatchProcesses !== undefined || this.#host.processes === undefined) return;
@@ -869,6 +892,8 @@ export class RpcConnection {
     this.#unwatchAutomations = undefined;
     this.#unwatchProcesses?.();
     this.#unwatchProcesses = undefined;
+    this.#unwatchReadiness?.();
+    this.#unwatchReadiness = undefined;
     this.#unwatchTerminals?.();
     this.#unwatchTerminals = undefined;
     for (const detach of this.#terminalAttachments.values()) detach();

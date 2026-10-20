@@ -44,6 +44,11 @@ export const HOME_LAYOUT = {
   checksDir: 'checks',
   /** 自动化（0.66.0，automations/service.ts）：每个自动化一个 `<自动化 ID>.json`，含最近的运行（0700 / 0600）。 */
   automationsDir: 'automations',
+  /**
+   * 项目环境就绪（0.70.0，readiness/service.ts）：`runs.json` 最近的安装记录、`credentials.json` 每个工作区存了哪些安装凭据（只有名字，
+   * 值在 `secrets.json`）、`logs/<安装 ID>.log` 安装的输出（凭据已遮住）、`probe/` 探测工具时用的空目录（0700 / 0600）。
+   */
+  readinessDir: 'readiness',
 } as const;
 
 export interface ResolveHomeOptions {

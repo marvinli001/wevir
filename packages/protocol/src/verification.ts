@@ -16,6 +16,7 @@ import {
   VerificationRunIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
+import { ReadinessStatusSchema } from './readiness.js';
 
 /** 每个工作区最多的检查数。 */
 export const CHECKS_MAX_PER_WORKSPACE = 20;
@@ -168,7 +169,8 @@ export type CodeState = z.infer<typeof CodeStateSchema>;
  * 一次检查运行的状态：`not_run` 没有运行（`reason`：`approval_required` 脚本正文变了待重新认可、`not_applicable`、
  * `changes_unknown` 不知道回合改了什么）、`running`、`passed`、`failed`（`exit_code` / `no_tests` / `tests_unconfirmed` /
  * `expect_unmatched`）、`timed_out`、`cancelled`（`user` / `turn_started` / `host_restarted` / `session_closed`）、
- * `environment_unavailable`（`cwd_missing` / `dependencies_missing` / `command_not_found` / `spawn_failed`）、`stale`（检查期间代码变了，
+ * `environment_unavailable`（`cwd_missing` / `dependencies_missing` / `command_not_found` / `spawn_failed`；0.70.0 起还有预检的原因，
+ * 例如 `dependencies_outdated`、`lockfile_mismatch`、`version_mismatch`、`not_found`）、`stale`（检查期间代码变了，
  * `code_changed`）。`reason` 是开放字符串。
  */
 export const VerificationStatusSchema = z.enum([
@@ -229,6 +231,22 @@ export const VerificationRunSchema = z.object({
   output: z.object({ bytes: z.int().min(0), truncated: z.boolean() }).optional(),
   /** 失败的错误指纹（同一错误反复出现时相同）。 */
   fingerprint: z.string().optional(),
+  /**
+   * 检查失败、而项目环境的预检有不就绪的阻塞项时（0.70.0，Host 功能 `workspace_readiness`），记成 `environment_unavailable`
+   * （`reason` 是第一项的原因），这里列出那几项。
+   */
+  readiness: z
+    .array(
+      z.object({
+        kind: z.string().min(1).max(40),
+        name: z.string().min(1).max(100),
+        path: z.string().max(500),
+        status: ReadinessStatusSchema,
+        reason: z.string().min(1).max(80).optional(),
+      }),
+    )
+    .max(8)
+    .optional(),
 });
 export type VerificationRun = z.infer<typeof VerificationRunSchema>;
 

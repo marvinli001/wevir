@@ -34,7 +34,7 @@ export interface RailCardContent {
  */
 export interface RailCard {
   id: string;
-  /** 从上到下：环境 10、上下文 20、规则文件 22、用量 25、变更 30、检查 32、输出 35、任务清单 37、后台任务 40。 */
+  /** 从上到下：环境 10、上下文 20、规则文件 22、用量 25、变更 30、依赖 31、检查 32、输出 35、任务清单 37、后台任务 40。 */
   order: number;
   title: () => string;
   useCard: (context: RailContext) => RailCardContent | null;

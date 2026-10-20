@@ -831,6 +831,32 @@ describe('进程输出（0.69.0）', () => {
   });
 });
 
+describe('项目环境就绪（0.70.0）', () => {
+  it('onReadinessChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({
+      result: { ...HELLO, features: { workspace_readiness: true } },
+    }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onReadinessChanged((change) => changes.push(change));
+    const change = { workspaceId: 'ws_01JA2B3C4D5E6F7G8H9JKMNPQR', root: '/p' };
+    host.last.notify('readiness.changed', change);
+    await vi.waitFor(() => expect(changes).toEqual([change]));
+    host.last.notify('readiness.changed', { root: '/p' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed readiness.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+    host.last.notify('readiness.changed', change);
+    await tick();
+    expect(changes).toHaveLength(2);
+  });
+});
+
 describe('用户终端（0.69.0）', () => {
   it('onTerminalOutput / onTerminalsChanged：带上通知的内容，重连后 changed 以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

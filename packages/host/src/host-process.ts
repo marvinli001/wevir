@@ -40,6 +40,7 @@ import { PluginRegistry } from './plugins.js';
 import { ProcessOutputService } from './process-output.js';
 import { ProcessManager } from './processes.js';
 import { loadSuggestionInstructions } from './prompt-suggestion.js';
+import { ReadinessService } from './readiness/service.js';
 import { loadRecapInstructions } from './recap.js';
 import { loadReviewTemplate, ReviewService } from './review/service.js';
 import { RoleStore } from './roles.js';
@@ -165,6 +166,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let backgroundProcesses: ProcessManager | undefined;
   let userTerminals: TerminalService | undefined;
   let verificationService: VerificationService | undefined;
+  let readiness: ReadinessService | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   try {
@@ -379,6 +381,29 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ) {
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
+    const secrets = new FileSecretStore(home);
+    const checksStore = new ChecksStore({
+      dir: homePath(home, 'checksDir'),
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    // 项目环境就绪（0.70.0，readiness/service.ts）：只读的预检、用户发起的安装与安装凭据；回合后验证据它把失败记成环境不可用。上次没
+    // 跑完的安装记成取消。
+    const readinessService = new ReadinessService({
+      storage,
+      checks: async (workspaceId) => (await checksStore.list(workspaceId)).checks,
+      secrets,
+      dir: homePath(home, 'readinessDir'),
+      defaultEngine: options.engine,
+      isChats: (workspaceId) => {
+        const workspace = storage?.workspaces.get(workspaceId);
+        return workspace !== undefined && chats.isChats(workspace);
+      },
+      onWarning: (message, fields) => logger.warn(message, fields),
+    });
+    readiness = readinessService;
+    const abandonedInstalls = await readinessService.recover();
+    if (abandonedInstalls > 0)
+      logger.warn('marked unfinished installs as cancelled', { count: abandonedInstalls });
     // 回合后验证（0.65.0，ADR-0008）：检查配置存在 Host，检查进程由 Host 起（与 Agent 的后台进程分开）。上次没跑完的检查与修复链
     // 在服务客户端之前对账，什么都不重开。修复材料的模板读不到时不阻止 Host 启动，只是没有这个功能。
     try {
@@ -387,10 +412,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         events: store,
         listenAll: (listener) => store.listenAll(listener),
         sessions: manager,
-        checks: new ChecksStore({
-          dir: homePath(home, 'checksDir'),
-          onWarning: (message, fields) => logger.warn(message, fields),
-        }),
+        checks: checksStore,
+        readiness: readinessService,
         runner: new CheckRunner({
           dir: toolOutput.dir,
           onWarning: (message, fields) => logger.warn(message, fields),
@@ -436,7 +459,6 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       },
     });
 
-    const secrets = new FileSecretStore(home);
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
     // 0.63.0：添加的账号各有自己的引擎，在把 Provider 交给引擎之前建好，它们的 Provider 才交得到对的引擎。
     const providerLock = createProviderLock();
@@ -501,6 +523,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         sendWhileBusy: () => settings.get().sendWhileBusy,
         ...(browsers !== undefined && { browser: browsers }),
         ...(processes !== undefined && { processes }),
+        readiness: readinessService,
         ...(lsp !== undefined && { lsp }),
         memory,
         memoryEnabled: () => settings.get().autoMemory !== false,
@@ -563,6 +586,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(review !== undefined && { review }),
         git,
         ...(processOutput.available && { processes: processOutput }),
+        readiness: readinessService,
         ...(terminals !== undefined && { terminals }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
@@ -626,6 +650,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         git_commit: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
+        workspace_readiness: true,
       },
       engineFeatures,
       plugins,
@@ -635,6 +660,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       usage: usageStats,
       automations: automationService,
       ...(processOutput.available && { processes: processOutput }),
+      readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
@@ -668,6 +694,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           processes,
           terminals,
           verification,
+          readiness: readinessService,
           lsp,
           sessions: manager,
           adapter,
@@ -697,6 +724,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 回收已建好的部分；这里的失败不掩盖原始错误。
     await rpc?.close().catch(() => {});
     await verificationService?.dispose().catch(() => {});
+    await readiness?.dispose().catch(() => {});
     await backgroundProcesses?.close().catch(() => {});
     await userTerminals?.dispose().catch(() => {});
     accounts?.dispose();
@@ -729,6 +757,8 @@ interface ShutdownParts {
   terminals: TerminalService | undefined;
   /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
   verification: VerificationService | undefined;
+  /** 项目环境就绪（0.70.0）：还在跑的安装要停掉。 */
+  readiness: ReadinessService | undefined;
   /** 代码智能的语言服务器；引擎挂不上应用级工具时没有。 */
   lsp: LspManager | undefined;
   sessions: SessionManager;
@@ -770,6 +800,10 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 回合后验证：不再接新的回合事件，还在跑的检查 SIGTERM（宽限后 SIGKILL）；下次启动时对账为 `cancelled`。
   if (parts.verification !== undefined) {
     await step('stop_verification', () => parts.verification?.dispose(), true);
+  }
+  // 用户发起的安装：SIGTERM，宽限后 SIGKILL，记成取消（`host_restarted`）。
+  if (parts.readiness !== undefined) {
+    await step('stop_installs', () => parts.readiness?.dispose(), true);
   }
   // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
   if (parts.processes !== undefined) {

@@ -113,6 +113,19 @@ import {
   ProcessStopResultSchema,
 } from './processes.js';
 import {
+  ReadinessCancelParamsSchema,
+  ReadinessCancelResultSchema,
+  ReadinessChangedParamsSchema,
+  ReadinessGetParamsSchema,
+  ReadinessGetResultSchema,
+  ReadinessInstallParamsSchema,
+  ReadinessInstallResultSchema,
+  ReadinessOutputParamsSchema,
+  ReadinessOutputResultSchema,
+  ReadinessSetCredentialParamsSchema,
+  ReadinessSetCredentialResultSchema,
+} from './readiness.js';
+import {
   ReviewAddParamsSchema,
   ReviewCommentResultSchema,
   ReviewListParamsSchema,
@@ -1970,6 +1983,31 @@ export const MethodSchemas = {
     result: ProcessStopResultSchema,
     permission: 'session.write',
   },
+  'readiness.get': {
+    params: ReadinessGetParamsSchema,
+    result: ReadinessGetResultSchema,
+    permission: 'workspace.read',
+  },
+  'readiness.install': {
+    params: ReadinessInstallParamsSchema,
+    result: ReadinessInstallResultSchema,
+    permission: 'workspace.write',
+  },
+  'readiness.cancel': {
+    params: ReadinessCancelParamsSchema,
+    result: ReadinessCancelResultSchema,
+    permission: 'workspace.write',
+  },
+  'readiness.output': {
+    params: ReadinessOutputParamsSchema,
+    result: ReadinessOutputResultSchema,
+    permission: 'workspace.read',
+  },
+  'readiness.setCredential': {
+    params: ReadinessSetCredentialParamsSchema,
+    result: ReadinessSetCredentialResultSchema,
+    permission: 'workspace.write',
+  },
   'terminal.create': {
     params: TerminalCreateParamsSchema,
     result: TerminalCreateResultSchema,
@@ -2101,6 +2139,8 @@ export const NotificationSchemas = {
   'automation.changed': { params: AutomationChangedParamsSchema },
   /** 发给调用过 `process.*` 的连接（0.69.0）。 */
   'process.changed': { params: ProcessChangedParamsSchema },
+  /** 发给调用过 `readiness.*` 的连接（0.70.0）。 */
+  'readiness.changed': { params: ReadinessChangedParamsSchema },
   /** 发给 `terminal.attach` 过这个终端的连接（0.69.0）。 */
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */

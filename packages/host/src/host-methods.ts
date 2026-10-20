@@ -55,6 +55,7 @@ import {
 import { discoverOllamaModels, ollamaOrigin } from './ollama-models.js';
 import type { PluginRegistry } from './plugins.js';
 import type { ProcessOutputService } from './process-output.js';
+import type { ReadinessService } from './readiness/service.js';
 import type { ReviewService } from './review/service.js';
 import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
@@ -145,6 +146,8 @@ export interface HostMethodsOptions {
   review?: ReviewService;
   /** 暂存与提交（0.67.0，`git.*`）；省略时 `git.*` 回 `INVALID_PARAMS`（测试）。 */
   git?: GitService;
+  /** 项目环境就绪（0.70.0，`readiness.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  readiness?: ReadinessService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
@@ -285,6 +288,11 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const terminals = (): TerminalService => {
     if (options.terminals === undefined) throw invalidParams([], 'this host has no user terminal');
     return options.terminals;
+  };
+  const readiness = (): ReadinessService => {
+    if (options.readiness === undefined)
+      throw invalidParams([], 'this host has no readiness checks');
+    return options.readiness;
   };
   const automations = (): AutomationService => {
     if (options.automations === undefined) throw invalidParams([], 'this host has no automations');
@@ -471,6 +479,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       }
       // 不属于会话的用户终端也随项目结束（0.69.0）。
       options.terminals?.removeWorkspace(workspaceId);
+      void options.readiness?.removeWorkspace(workspaceId as WorkspaceId);
       storage.workspaces.markRemoved(workspaceId, isoNow());
       return {};
     },
@@ -1153,6 +1162,25 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'process.stop': ({ processId, signal }) => ({
       process: processOutput().stop(processId, signal),
     }),
+    'readiness.get': async ({ workspaceId, sessionId, refresh }) => ({
+      report: await readiness().get({
+        workspaceId,
+        ...(sessionId !== undefined && { sessionId }),
+        ...(refresh !== undefined && { refresh }),
+      }),
+    }),
+    'readiness.install': async ({ workspaceId, sessionId, planId, timeoutMs }) => ({
+      run: await readiness().install({
+        workspaceId,
+        ...(sessionId !== undefined && { sessionId }),
+        planId,
+        ...(timeoutMs !== undefined && { timeoutMs }),
+      }),
+    }),
+    'readiness.cancel': async ({ runId }) => ({ run: readiness().cancel(runId) }),
+    'readiness.output': ({ runId, offset }) => readiness().output(runId, offset),
+    'readiness.setCredential': ({ workspaceId, name, value }) =>
+      readiness().setCredential({ workspaceId, name, ...(value !== undefined && { value }) }),
     'terminal.create': async (params) => ({ terminal: await terminals().create(params) }),
     'terminal.list': (params) => ({ terminals: terminals().list(params) }),
     'terminal.input': (params) => {

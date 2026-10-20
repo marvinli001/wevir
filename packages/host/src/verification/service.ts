@@ -21,6 +21,7 @@ import type {
   ClientIdentity,
   CodeState,
   HostId,
+  ReadinessItem,
   RepairChain,
   RepairId,
   RepairSettings,
@@ -213,6 +214,17 @@ export interface VerificationServiceOptions {
   checks: ChecksStore;
   runner: CheckRunner;
   checkpoints?: Pick<TurnCheckpoints, 'changedPaths'>;
+  /**
+   * 项目环境就绪（0.70.0）：检查失败后看预检里与它相关的不就绪阻塞项，有就记“环境不可用”（不让模型去改本来正确的代码）。省略时只按
+   * 输出判断。
+   */
+  readiness?: {
+    blockingFor(
+      workspaceId: WorkspaceId,
+      sessionId: SessionId,
+      check: Pick<CheckDefinition, 'id' | 'cwd' | 'command'>,
+    ): Promise<ReadinessItem[]>;
+  };
   hostId: HostId;
   /** 修复材料的模板；省略时读仓库里的 `prompts/verification-repair.md`。 */
   repairTemplate?: string;
@@ -230,6 +242,7 @@ export class VerificationService {
   /** 正在跑的检查各自的取消（`cancelRun`）。 */
   readonly #runAborts = new Map<VerificationRunId, AbortController>();
   readonly #checkpoints: VerificationServiceOptions['checkpoints'];
+  readonly #readiness: VerificationServiceOptions['readiness'];
   readonly #template: string;
   readonly #identity: ClientIdentity;
   readonly #maxConcurrent: number;
@@ -255,6 +268,7 @@ export class VerificationService {
     this.#checks = options.checks;
     this.#runner = options.runner;
     this.#checkpoints = options.checkpoints;
+    this.#readiness = options.readiness;
     this.#template = options.repairTemplate ?? loadRepairTemplate();
     this.#identity = {
       deviceId: options.hostId,
@@ -638,6 +652,35 @@ export class VerificationService {
       output: result.output,
       ...(check.expectOutput !== undefined && { expectOutput: check.expectOutput }),
     });
+    // 失败、而预检显示这个检查相关的环境没准备好（依赖缺失或过期、锁文件与清单不一致、工具缺失或版本不对）：环境不可用。
+    if (
+      outcome.status === 'failed' &&
+      REPAIRABLE_REASONS.has(outcome.reason ?? '') &&
+      this.#readiness
+    ) {
+      const items = await this.#readiness
+        .blockingFor(round.workspaceId, round.sessionId, check)
+        .catch((error: unknown) => {
+          this.#onWarning('环境预检失败', { runId: queued.id, error: String(error) });
+          return [] as ReadinessItem[];
+        });
+      if (items.length > 0) {
+        this.#finishRun(round, started, {
+          status: 'environment_unavailable',
+          reason: items[0]?.reason ?? 'environment_not_ready',
+          ...(outcome.tests !== undefined && { tests: outcome.tests }),
+          readiness: items.slice(0, 8).map((item) => ({
+            kind: item.kind,
+            name: item.name,
+            path: item.path,
+            status: item.status,
+            ...(item.reason !== undefined && { reason: item.reason }),
+          })),
+          ...facts,
+        });
+        return;
+      }
+    }
     const fingerprint =
       outcome.status === 'failed'
         ? errorFingerprint({
