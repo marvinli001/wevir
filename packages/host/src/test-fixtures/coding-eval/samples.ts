@@ -830,8 +830,9 @@ const lspLocate: Sample = {
         ];
       }),
     ),
-    // 只看按 `文件:行号` 列出的条目；解释里提到“已排除 notes.ts 第 1 行注释”不算。
-    noNotesFalsePositive: !/notes\.ts:\d/.test(text),
+    // 只看单独成行的 `文件:行号` 条目（可带列表符号与反引号）；解释里提到“已排除 notes.ts 第 1 行注释”、
+    // 或写成 [notes.ts](src/notes.ts:1) 的链接都不算。
+    noNotesFalsePositive: !/^\s*(?:[-*]\s+|\d+\.\s+)?`?(?:src\/)?notes\.ts:\d+`?\s*$/m.test(text),
   }),
   estimatedRequests: 4,
 };

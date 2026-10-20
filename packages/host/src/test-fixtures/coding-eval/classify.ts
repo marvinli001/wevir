@@ -295,7 +295,7 @@ export interface Classified {
   /** 审批：请求数、被拒数。 */
   approvals: { requested: number; denied: number };
   /** 上游 HTTP 错误、网络错误与 engine.error。 */
-  gatewayFailures: Array<{ kind: 'http' | 'network' | 'engine'; detail: string }>;
+  gatewayFailures: Array<{ kind: 'http' | 'network' | 'upstream' | 'engine'; detail: string }>;
   toolNames: string[];
 }
 
@@ -454,6 +454,12 @@ export function classify({ requests, events, root }: ClassifyInput): Classified 
       gatewayFailures.push({
         kind: 'http',
         detail: `request ${request.index}: HTTP ${request.status}`,
+      });
+    // HTTP 200 的流里上游报失败（Responses 的 `response.failed`）：Codex 会重试，但这一个请求是上游故障。
+    else if (request.terminal === 'response.failed')
+      gatewayFailures.push({
+        kind: 'upstream',
+        detail: `request ${request.index}: response.failed in the stream`,
       });
   }
   for (const event of events) {
