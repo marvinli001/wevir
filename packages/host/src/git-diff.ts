@@ -412,6 +412,27 @@ export function parseNameStatus(output: string): Map<string, string> {
   return statuses;
 }
 
+/**
+ * 一次 `diff --raw --numstat -z` 的输出拆回单独跑 `--name-status -z` 与 `--numstat -z` 时的两份，交给上面两个解析：一次 diff 代替两次。
+ * raw 的记录都在前面，每条是 `:旧模式 新模式 旧对象 新对象 状态\0路径\0`，重命名与复制带两个路径；之后是 numstat 的记录。
+ */
+export function splitRawNumstat(output: string): { nameStatus: string; numstat: string } {
+  const parts = output.split('\0');
+  const nameStatus: string[] = [];
+  let index = 0;
+  while (index < parts.length && (parts[index] as string).startsWith(':')) {
+    const meta = parts[index] as string;
+    const status = meta.slice(meta.lastIndexOf(' ') + 1);
+    const paths = status.startsWith('R') || status.startsWith('C') ? 2 : 1;
+    nameStatus.push(status, ...parts.slice(index + 1, index + 1 + paths));
+    index += 1 + paths;
+  }
+  return {
+    nameStatus: nameStatus.length === 0 ? '' : `${nameStatus.join('\0')}\0`,
+    numstat: parts.slice(index).join('\0'),
+  };
+}
+
 /** 按 `diff --git ` 开头的行把补丁切成每个文件一段。 */
 export function splitPatch(patch: string): string[] {
   const chunks: string[] = [];
@@ -616,10 +637,13 @@ export async function readRange(repo: RepoInfo, range: DiffRange): Promise<DiffP
     const revs = range.to === undefined ? [range.from] : [range.from, range.to];
     const env = index?.env;
     const options = env ? { env } : {};
-    const [numstat, nameStatus] = await Promise.all([
-      gitText(repo, ['diff', '--numstat', '-z', ...DIFF_ARGS, ...revs, '--'], options),
-      gitText(repo, ['diff', '--name-status', '-z', ...DIFF_ARGS, ...revs, '--'], options),
-    ]);
+    const { numstat, nameStatus } = splitRawNumstat(
+      // 一次跑出两份，上限也按两份算。
+      await gitText(repo, ['diff', '--raw', '--numstat', '-z', ...DIFF_ARGS, ...revs, '--'], {
+        ...options,
+        maxBytes: LIST_MAX_BYTES * 2,
+      }),
+    );
     const statuses = parseNameStatus(nameStatus);
     const entries = parseNumstat(numstat).filter((entry) => range.keep?.(entry) ?? true);
     const files: DiffFile[] = entries.map((entry) => {
