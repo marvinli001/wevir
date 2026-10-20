@@ -1,11 +1,12 @@
 // node:sqlite 的唯一适配点（ADR-0003 决策 1）：整个仓库只有这个模块加载 node:sqlite，其他模块只用
 // 这里声明的 SqliteDatabase / SqliteStatement。将来换驱动（如 better-sqlite3）只改这一个文件。
 //
-// 兼容范围：engines 下限 Node 22.19 到 Node 26。只用 22.19 已有的 API；更新的 API 先判断是否存在。
+// 兼容范围：engines 下限 Node 24.15（node:sqlite 进入 RC）到 Node 26。只用 24.15 已有的 API；更新的 API
+// 先判断是否存在。
 // - 类名：Node 26.11 起叫 Database，DatabaseSync 成为弃用别名（DEP0210）。先取 Database。
-// - 用 process.getBuiltinModule（22.3 加入）在第一次打开数据库时才加载模块，而不是在文件顶部
-//   import：Node 22 上加载 node:sqlite 会打印实验性警告，只 import 本包而不开库（例如只用
-//   SecretStore）时不该出现；ESM 的命名空间导入还会读到全部导出，包括弃用的 DatabaseSync 别名。
+// - 用 process.getBuiltinModule 在第一次打开数据库时才加载模块，而不是在文件顶部 import：只 import
+//   本包而不开库（例如只用 SecretStore）时不必加载 node:sqlite；ESM 的命名空间导入还会读到全部导出，
+//   包括弃用的 DatabaseSync 别名。
 
 /** 可以绑定到参数、也可能从结果里读出的值。 */
 export type SqlValue = null | number | bigint | string | Uint8Array;
@@ -34,7 +35,7 @@ export interface SqliteDatabase {
   prepare(sql: string): SqliteStatement;
   close(): void;
   readonly isOpen: boolean;
-  /** 连接当前是否在事务中（`sqlite3_get_autocommit` 的反面，Node 22.16 加入）。 */
+  /** 连接当前是否在事务中（`sqlite3_get_autocommit` 的反面）。 */
   readonly isTransaction: boolean;
 }
 
@@ -57,13 +58,11 @@ function databaseClass(): DatabaseConstructor {
  */
 export function openDatabase(path: string): SqliteDatabase {
   const Database = databaseClass();
-  // enableForeignKeyConstraints 自 22.10 起存在且默认开启；仍显式传入，下面再用 PRAGMA 设一次。
+  // enableForeignKeyConstraints 默认开启；仍显式传入，下面再用 PRAGMA 设一次。
   const db = new Database(path, { enableForeignKeyConstraints: true });
   try {
-    // defensive 在 24.12 加入、24.14 起默认开启：禁用能让普通 SQL 故意损坏数据库文件的功能。
-    // 22.x 没有，跳过。
-    const native = db as { enableDefensive?: (active: boolean) => void };
-    if (typeof native.enableDefensive === 'function') native.enableDefensive(true);
+    // defensive（24.12 加入、24.14 起默认开启）禁用能让普通 SQL 故意损坏数据库文件的功能；仍显式打开。
+    db.enableDefensive(true);
 
     // busy_timeout 放在最前：切换 WAL 本身也可能要等锁。
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);

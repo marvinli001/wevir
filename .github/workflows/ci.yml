@@ -1,4 +1,4 @@
-# T6.2：macOS 上的 lint、typecheck，macOS 与 Windows 上的 test，另跑一次 engines 下限 Node 22.19。
+# T6.2：macOS 上的 lint、typecheck，macOS 与 Windows 上的 test。
 #
 # 真实模型的测试不跑：下面把 WEVIR_TEST_API_KEY 显式置空，相关用例按设计跳过并打印原因；仓库 secret 也不传进来。
 #
@@ -78,49 +78,6 @@ jobs:
         run: pnpm typecheck
 
       # 部分测试启动 dist/ 里的 wevir-host 子进程（AGENTS.md「写代码的约定」），要先构建。
-      - name: Build
-        run: pnpm build
-
-      - name: 缓存 codex-app-server
-        uses: actions/cache@v6
-        with:
-          path: .wevir-dev/bin
-          key: codex-app-server-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/fetch-codex.sh') }}
-
-      - name: 下载 codex-app-server
-        run: bash scripts/fetch-codex.sh
-
-      - name: Test
-        run: pnpm test
-
-  node-min:
-    # ADR-0003：node:sqlite 的 API 在 22 / 24 / 26 之间有差异，storage 的驱动只用 22.19 已有的 API。
-    # 跑全部测试（含 storage 与 host），覆盖运行在 engines 下限上的所有代码。
-    name: ${{ matrix.os }} · Node 22.19（engines 下限）
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22.19.0
-          cache: pnpm
-
-      - name: 版本
-        run: |
-          node -v && pnpm -v
-          node -e "if (process.version !== 'v22.19.0') { console.error('期望 Node v22.19.0，实际 ' + process.version); process.exit(1); }"
-
-      - name: 安装依赖
-        run: pnpm install --frozen-lockfile
-
       - name: Build
         run: pnpm build
 

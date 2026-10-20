@@ -72,7 +72,7 @@ Wevir 是开源、本地优先的 AI 编程 Agent 工作台。Agent 会话、审
 
 ## 从源码运行
 
-需要 Node.js **22.19+**（推荐 24 LTS）与 pnpm **12.6.0**。
+需要 Node.js **24.15+**（Node 24 LTS）与 pnpm **12.6.0**。
 
 ```bash
 git clone https://github.com/marvinli001/wevir.git

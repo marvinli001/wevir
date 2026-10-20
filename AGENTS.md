@@ -66,7 +66,7 @@ wevir/
 
 ## 常用命令
 
-环境：Node ≥ 22.19（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。
+环境：Node ≥ 24.15（`.node-version` 为 24 LTS），pnpm 版本见 `package.json` 的 `packageManager`。
 
 | 命令 | 作用 |
 |---|---|
