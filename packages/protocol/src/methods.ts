@@ -29,6 +29,7 @@ import {
   EnvironmentIdSchema,
   HostIdSchema,
   ImageIdSchema,
+  InsightIdSchema,
   OpinionIdSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
@@ -80,6 +81,7 @@ import {
   SECOND_OPINION_NOTE_MAX_LENGTH,
   SecondOpinionSchema,
   SessionGoalSchema,
+  SessionInsightSchema,
   SessionOriginSchema,
   SessionRecapSchema,
   SessionSchema,
@@ -1259,6 +1261,22 @@ export const SessionQuoteOpinionResultSchema = SessionSendResultSchema.extend({
   opinion: SecondOpinionSchema,
 });
 
+// ── 你应该知道（0.78.0，Host 功能 `session_insights`，domain-model §3.33） ────────
+
+/**
+ * 处理一条“你应该知道”：`known` 标为已知（之后的检查不再提这个话题），`dismissed` 忽略。只有 `open` 的会变；已经处理过的原样返回，
+ * 不写事件。没有这一条时 `INVALID_PARAMS`。
+ */
+export const SessionRespondInsightParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  insightId: InsightIdSchema,
+  response: z.enum(['known', 'dismissed']),
+});
+
+export const SessionRespondInsightResultSchema = z.object({
+  insight: SessionInsightSchema,
+});
+
 // ── pending.*（0.8.0） ─────────────────────────────────────────────
 
 export const PendingUpdateParamsSchema = z.object({
@@ -1838,6 +1856,11 @@ export const MethodSchemas = {
   'session.quoteOpinion': {
     params: SessionQuoteOpinionParamsSchema,
     result: SessionQuoteOpinionResultSchema,
+    permission: 'session.write',
+  },
+  'session.respondInsight': {
+    params: SessionRespondInsightParamsSchema,
+    result: SessionRespondInsightResultSchema,
     permission: 'session.write',
   },
   'session.setGoal': {

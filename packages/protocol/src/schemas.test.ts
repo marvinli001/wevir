@@ -225,11 +225,13 @@ import {
   ids,
   imagePart,
   installRun,
+  knownInsight,
   lspInstallSample,
   lspMissingSample,
   lspRunningSample,
   methodSamples,
   notificationSamples,
+  openInsight,
   pendingApproval,
   pendingHeld,
   pendingQuestion,
@@ -946,7 +948,11 @@ const standaloneCases: Case[] = [
   {
     name: 'HostSettings（离开后摘要开关可省略）',
     schema: HostSettingsSchema,
-    valid: [{ sendWhileBusy: 'steer' }, { sendWhileBusy: 'queue', sessionRecap: false }],
+    valid: [
+      { sendWhileBusy: 'steer' },
+      { sendWhileBusy: 'queue', sessionRecap: false },
+      { sendWhileBusy: 'steer', sessionInsights: true },
+    ],
     invalid: [{ sessionRecap: true }, { sendWhileBusy: 'steer', sessionRecap: 'yes' }],
   },
   {
@@ -3034,6 +3040,35 @@ const standaloneCases: Case[] = [
       { ...runningOpinion, basis: { turnId: `trn_${ULID}` } },
       { ...quotedOpinion, text: 'x'.repeat(20_001) },
       { ...runningOpinion, focus: '' },
+    ],
+  },
+  {
+    name: 'InsightId',
+    schema: protocol.InsightIdSchema,
+    valid: [`isg_${ULID}`],
+    invalid: [`ins_${ULID}`, 'isg_'],
+  },
+  {
+    name: 'SessionInsightTag',
+    schema: protocol.SessionInsightTagSchema,
+    valid: ['heads_up', 'should_know'],
+    invalid: ['fyi'],
+  },
+  {
+    name: 'SessionInsightStatus',
+    schema: protocol.SessionInsightStatusSchema,
+    valid: ['open', 'known', 'dismissed'],
+    invalid: ['seen'],
+  },
+  {
+    name: 'SessionInsight',
+    schema: protocol.SessionInsightSchema,
+    valid: [openInsight, knownInsight, { ...openInsight, tag: 'should_know', status: 'dismissed' }],
+    invalid: [
+      { ...openInsight, title: '' },
+      { ...openInsight, detail: 'x'.repeat(3001) },
+      { ...openInsight, status: 'seen' },
+      { ...openInsight, throughSeq: -1 },
     ],
   },
   {

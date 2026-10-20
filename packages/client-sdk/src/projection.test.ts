@@ -1784,3 +1784,38 @@ describe('第二意见（0.75.0）', () => {
     expect(projection.snapshot().opinions).toEqual([]);
   });
 });
+
+describe('你应该知道（0.78.0）', () => {
+  it('insight.updated 按 id 替换，按提出的先后，不进消息流；reset 清掉', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const before = projection.snapshot();
+    const open = {
+      id: 'isg_01JA2B3C4D5E6F7G8H9JKMNPQR' as const,
+      turnId: TURN,
+      tag: 'heads_up' as const,
+      summary: 'agent 改了全局的 npm 设置。',
+      title: '全局 npm 设置被改了',
+      detail: '写进了 ~/.npmrc。',
+      status: 'open' as const,
+      throughSeq: 3,
+      createdAt: '2026-10-21T00:00:00.000Z',
+      updatedAt: '2026-10-21T00:00:00.000Z',
+    };
+    const second = { ...open, id: 'isg_01JA2B3C4D5E6F7G8H9JKMNPR1' as const };
+    projection.apply(add('insight.updated', { insight: open }));
+    projection.apply(add('insight.updated', { insight: second }));
+    projection.apply(add('insight.updated', { insight: { ...open, status: 'known' } }));
+    const after = projection.snapshot();
+    expect(after.insights.map((item) => [item.id, item.status])).toEqual([
+      [open.id, 'known'],
+      [second.id, 'open'],
+    ]);
+    expect(after.messages).toEqual(before.messages);
+    projection.reset();
+    expect(projection.snapshot().insights).toEqual([]);
+  });
+});

@@ -1032,6 +1032,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     'session.rewind': (params) => sessions.rewind(params),
     'session.undo': (params) => sessions.undo(params),
     'session.recap': (params) => sessions.recap(params),
+    'session.respondInsight': (params) => sessions.respondInsight(params),
     'session.redo': (params) => sessions.redo(params),
 
     // 0.24.0：由命令开始的回合，没有 user.message（domain-model §4.7）。

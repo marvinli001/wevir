@@ -35,6 +35,7 @@ import { homePath } from './home.js';
 import { createHostMethods, createProviderLock, syncProviders } from './host-methods.js';
 import { newId } from './ids.js';
 import { ImageStore } from './images.js';
+import { loadInsightInstructions } from './insight.js';
 import type { Logger } from './logger.js';
 import { LspManager } from './lsp/manager.js';
 import { LspStatusService } from './lsp/service.js';
@@ -226,6 +227,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         logger.warn('failed to load the session recap prompt; recaps are unavailable', { error });
       }
     }
+    // 你应该知道（0.78.0）：同标题，适配器能生成才读提示词；读不到只是没有这个功能。
+    let insightInstructions: string | undefined;
+    if (adapter.generateTitle !== undefined) {
+      try {
+        insightInstructions = loadInsightInstructions(options.promptsDir);
+      } catch (error) {
+        logger.warn('failed to load the session insight prompt; insights are unavailable', {
+          error,
+        });
+      }
+    }
     // Host 设置（R11，domain-model §3.7）：文件有问题时用默认值并告警。
     const settings = new HostSettingsStore({
       path: homePath(home, 'settingsFile'),
@@ -377,6 +389,12 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       }),
       ...(recapInstructions !== undefined && { recapInstructions }),
       recapEnabled: () => settings.get().sessionRecap !== false,
+      ...(insightInstructions !== undefined && {
+        insight: {
+          instructions: insightInstructions,
+          enabled: () => settings.get().sessionInsights === true,
+        },
+      }),
       // 环境会话新开的 worktree（0.15.0，domain-model §3.10）。
       worktreesDir: join(home, 'worktrees'),
       chats,
@@ -746,6 +764,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.rewind !== undefined && { session_rewind: true }),
         ...(adapter.injectNote !== undefined && { session_undo: true }),
         ...(recapInstructions !== undefined && { session_recap: true }),
+        ...(insightInstructions !== undefined && { session_insights: true }),
         ...(verification !== undefined && { verification: true }),
         rule_files: true,
         ...(review !== undefined && { review_comments: true }),

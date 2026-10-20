@@ -206,6 +206,11 @@ export const HOST_FEATURES = {
    */
   sessionRecap: 'session_recap',
   /**
+   * 你应该知道（0.78.0，domain-model §3.33）：`insight.updated` 事件、快照的 `insights` 与 `session.respondInsight`。Host 设置
+   * `sessionInsights` 开着时（默认关），回合结束后按频率限制用会话的模型在后台看一遍会话。取决于引擎能不能生成文字（`generateTitle`）。
+   */
+  sessionInsights: 'session_insights',
+  /**
    * 订阅来源的上游（0.56.0，domain-model §3.6）：`account.upstreams`，`account.login` 的 `upstream` / `option` / `apiKey`，
    * `account.logout` 的 `upstream`。取决于引擎（OpenCode 有，别的订阅来源没有）。
    */
@@ -378,6 +383,7 @@ export const HostFeaturesSchema = z.looseObject({
   session_rewind: z.boolean().optional(),
   session_undo: z.boolean().optional(),
   session_recap: z.boolean().optional(),
+  session_insights: z.boolean().optional(),
   subscription_upstreams: z.boolean().optional(),
   task_board: z.boolean().optional(),
   prompt_suggestions: z.boolean().optional(),

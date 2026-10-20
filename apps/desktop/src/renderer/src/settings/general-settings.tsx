@@ -39,6 +39,10 @@ export function GeneralSettings() {
   const recapAvailable =
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'session_recap');
   // 跨引擎的规则文件（0.68.0）：Host 声明了 `rule_files` 才有这一行。
+  const insightsAvailable =
+    supported &&
+    view.status === 'connected' &&
+    hostSupports(view.hello.features, 'session_insights');
   const ruleFilesSupported =
     supported && view.status === 'connected' && hostSupports(view.hello.features, 'rule_files');
   const [error, setError] = useState<string>();
@@ -127,6 +131,20 @@ export function GeneralSettings() {
                   label={t('settings.chat.recap')}
                   disabled={saving}
                   onChange={(sessionRecap) => void save({ sessionRecap })}
+                />
+              }
+            />
+          )}
+          {insightsAvailable && (
+            <SettingsRow
+              title={t('settings.chat.insights')}
+              data-setting="insights"
+              control={
+                <Switch
+                  checked={settings.sessionInsights === true}
+                  label={t('settings.chat.insights')}
+                  disabled={saving}
+                  onChange={(sessionInsights) => void save({ sessionInsights })}
                 />
               }
             />

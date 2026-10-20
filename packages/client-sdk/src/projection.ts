@@ -11,7 +11,7 @@
 // （`turn.started.trigger`）的用户消息带 `trigger`；引擎自己开的目标回合没有 `user.message`，投影成一条带 `trigger`、没有文字的
 // 用户消息。会话的目标（`session.goal_changed`）是 `Transcript.goal`。0.52.0：共享任务清单（`tasks.board_updated`，写在会话树的
 // 根会话里）是 `Transcript.taskBoard`。0.53.0：输入建议（`suggestion.updated`）是 `Transcript.promptSuggestion`，用户有了新消息、
-// 回合重新开始或被撤回 / 撤销 / 重做时清掉。
+// 回合重新开始或被撤回 / 撤销 / 重做时清掉。0.78.0：你应该知道（`insight.updated`）是 `Transcript.insights`，不进消息流。
 //
 // 性能：事件只改动它涉及的那条消息。`snapshot()` 只为改动过的消息生成新对象，其余沿用上一次的对象，渲染层
 // 按对象身份跳过没变的消息；部件同样整体替换、不原地修改。调用方可以攒一批事件再取一次快照（桌面按帧）。
@@ -31,6 +31,7 @@ import type {
   HandoffNoteRef,
   HandoffOmittedRange,
   HandoffStrategy,
+  InsightId,
   IsoTime,
   MessageFrom,
   OpinionId,
@@ -43,6 +44,7 @@ import type {
   SessionAcceptance,
   SessionGoal,
   SessionId,
+  SessionInsight,
   SessionReadOnly,
   SessionReadOnlyReason,
   SessionState,
@@ -321,6 +323,8 @@ export interface Transcript {
   suggestedTasks: readonly SuggestedTask[];
   /** 0.75.0：这个会话收到的第二意见，按发起的先后；规则同 Host 快照的 `opinions`。 */
   opinions: readonly SecondOpinion[];
+  /** 0.78.0：你应该知道，按提出的先后，含已处理的；规则同 Host 快照的 `insights`。 */
+  insights: readonly SessionInsight[];
   /**
    * 0.30.0：最近一次 `ui.show`（会话里的 agent 请界面显示的东西）。客户端只对订阅之后新到的打开窗格，用 `seq` 与 `ts` 区分
    * 历史里的。
@@ -469,6 +473,8 @@ export class TranscriptProjection {
   /** 第二意见（0.75.0），按发起的先后；意见 → 它的部件所在的消息。 */
   #opinions = new Map<OpinionId, SecondOpinion>();
   #opinionParts = new Map<OpinionId, MutableMessage>();
+  /** 你应该知道（0.78.0），按提出的先后。 */
+  #insights = new Map<InsightId, SessionInsight>();
   /** 最近一条用户消息的协作模式（0.36.0）。 */
   #collaborationMode: CollaborationMode = 'default';
   #latestPlan: LatestPlan | undefined;
@@ -520,6 +526,7 @@ export class TranscriptProjection {
     this.#taskParts.clear();
     this.#opinions.clear();
     this.#opinionParts.clear();
+    this.#insights.clear();
     this.#pending = [];
     this.#collaborationMode = 'default';
     this.#latestPlan = undefined;
@@ -766,6 +773,9 @@ export class TranscriptProjection {
       case 'opinion.updated':
         this.#opinion(event);
         return;
+      case 'insight.updated':
+        this.#insights.set(event.payload.insight.id, event.payload.insight);
+        return;
       case 'file.shared':
         this.#target(event.payload.turnId, event.seq).parts.push({
           type: 'files',
@@ -814,6 +824,7 @@ export class TranscriptProjection {
       ),
       suggestedTasks: [...this.#tasks.values()],
       opinions: [...this.#opinions.values()],
+      insights: [...this.#insights.values()],
       uiShow: this.#uiShow,
       goal: this.#goal,
       collaborationMode: this.#collaborationMode,

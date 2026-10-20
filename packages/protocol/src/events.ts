@@ -35,6 +35,7 @@ import {
   SecondOpinionSchema,
   SessionEnvironmentFields,
   SessionGoalSchema,
+  SessionInsightSchema,
   SessionOpenedBySchema,
   SessionOpinionOfSchema,
   SessionReadOnlyReasonSchema,
@@ -507,6 +508,11 @@ export const EventPayloadSchemas = {
    * 会话里，不开回合、不进引擎上下文。
    */
   'opinion.updated': z.object({ opinion: SecondOpinionSchema }),
+  /**
+   * 一条“你应该知道”变了（0.78.0，domain-model §3.33）：Host 在回合结束后的后台检查里提出（`open`），用户标为已知或忽略。完整的一条，
+   * 替换同一 `id` 的上一份；不开回合、不进引擎上下文。Host 设置 `sessionInsights` 关着时不会有新的。
+   */
+  'insight.updated': z.object({ insight: SessionInsightSchema }),
 } as const;
 
 export type WevirEventType = keyof typeof EventPayloadSchemas;
@@ -601,6 +607,7 @@ export const VerificationUpdatedEventSchema = eventSchema('verification.updated'
 export const AcceptanceChangedEventSchema = eventSchema('acceptance.changed');
 export const RepairUpdatedEventSchema = eventSchema('repair.updated');
 export const OpinionUpdatedEventSchema = eventSchema('opinion.updated');
+export const InsightUpdatedEventSchema = eventSchema('insight.updated');
 
 /** 已知事件的判别联合，按 `type` 区分 `payload`。 */
 export const WevirEventSchema = z.discriminatedUnion('type', [
@@ -654,6 +661,7 @@ export const WevirEventSchema = z.discriminatedUnion('type', [
   AcceptanceChangedEventSchema,
   RepairUpdatedEventSchema,
   OpinionUpdatedEventSchema,
+  InsightUpdatedEventSchema,
 ]);
 export type WevirEvent = z.infer<typeof WevirEventSchema>;
 export type WevirEventOf<T extends WevirEventType> = Extract<WevirEvent, { type: T }>;

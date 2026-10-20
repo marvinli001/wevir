@@ -20,6 +20,7 @@ import type {
   SecondOpinion,
   Session,
   SessionGoal,
+  SessionInsight,
   SessionRules,
   SessionSnapshot,
   SubagentSummary,
@@ -99,6 +100,8 @@ export const ids = {
   /** 第二意见（0.75.0）与给意见的会话。 */
   opinion: `opn_${ULID}`,
   opinionSession: 'ses_01JA2B3C4D5E6F7G8H9JKMNPR5',
+  /** 你应该知道（0.78.0）。 */
+  insight: `isg_${ULID}`,
 } as const;
 
 const SHA1 = '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e';
@@ -1142,6 +1145,24 @@ export const quotedOpinion: SecondOpinion = {
   updatedAt: TS2,
 };
 
+/** 你应该知道（0.78.0）：刚提出，等用户处理。 */
+export const openInsight: SessionInsight = {
+  id: ids.insight,
+  turnId: ids.turn,
+  tag: 'heads_up',
+  summary: '为了让构建通过，agent 改了全局的 ~/.npmrc，别的项目也会受影响。',
+  title: '全局 npm 配置被改了',
+  detail:
+    '- **~/.npmrc** 是这台电脑上所有项目共用的 npm 设置。\n- 这次加了 `legacy-peer-deps=true`，别的项目装依赖时也会跳过版本检查。\n- 只想对这个项目生效，**改到项目里的 .npmrc**。',
+  status: 'open',
+  throughSeq: 41,
+  createdAt: TS,
+  updatedAt: TS,
+};
+
+/** 你应该知道（0.78.0）：用户标为已知。 */
+export const knownInsight: SessionInsight = { ...openInsight, status: 'known', updatedAt: TS2 };
+
 export const toolDisplay: ToolDisplay = {
   kind: 'write',
   summary: '/tmp/wevir-outside.txt',
@@ -1736,6 +1757,10 @@ export const eventPayloads: PayloadSamples = {
   'opinion.updated': {
     valid: { opinion: quotedOpinion },
     invalid: { opinion: { ...runningOpinion, status: 'done' } },
+  },
+  'insight.updated': {
+    valid: { insight: openInsight },
+    invalid: { insight: { ...openInsight, tag: 'fyi' } },
   },
 };
 
@@ -2369,6 +2394,8 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', autoMemory: false } },
         // 0.68.0：跨引擎规则文件的开关。
         { settings: { sendWhileBusy: 'steer', ruleFiles: false } },
+        // 0.78.0：你应该知道的开关。
+        { settings: { sendWhileBusy: 'steer', sessionInsights: true } },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -3378,9 +3405,14 @@ export const methodSamples: MethodSamples = {
           opinions: [runningOpinion, { ...quotedOpinion, id: 'opn_01JA2B3C4D5E6F7G8H9JKMNPR1' }],
         },
         { session: opinionSession, pendingApprovals: [] },
+        {
+          ...snapshot,
+          insights: [knownInsight, { ...openInsight, id: 'isg_01JA2B3C4D5E6F7G8H9JKMNPR1' }],
+        },
       ],
       invalid: [
         { ...snapshot, opinions: [{ ...quotedOpinion, text: '' }] },
+        { ...snapshot, insights: [{ ...openInsight, summary: '' }] },
         { ...snapshot, promptSuggestion: { turnId: ids.turn, text: '' } },
         { ...snapshot, promptSuggestion: { text: '跑一下测试' } },
         { session },
@@ -3832,6 +3864,23 @@ export const methodSamples: MethodSamples = {
         { pendingId: ids.pending, seq: 13, opinion: quotedOpinion },
       ],
       invalid: [{ turnId: ids.turn, seq: 12 }],
+    },
+  },
+  'session.respondInsight': {
+    params: {
+      valid: [
+        { sessionId: ids.session, insightId: ids.insight, response: 'known' },
+        { sessionId: ids.session, insightId: ids.insight, response: 'dismissed' },
+      ],
+      invalid: [
+        { sessionId: ids.session, insightId: ids.insight },
+        { sessionId: ids.session, insightId: ids.insight, response: 'expanded' },
+        { sessionId: ids.session, insightId: ids.opinion, response: 'known' },
+      ],
+    },
+    result: {
+      valid: [{ insight: knownInsight }],
+      invalid: [{ insight: { ...knownInsight, status: 'seen' } }, {}],
     },
   },
   'session.rename': {

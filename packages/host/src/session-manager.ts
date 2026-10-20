@@ -116,6 +116,18 @@ import {
 } from './handoff.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import {
+  INSIGHT_EVENT_WINDOW,
+  INSIGHT_OUTPUT_SCHEMA,
+  INSIGHT_TIMEOUT_MS,
+  type InsightCheck,
+  insightHistory,
+  insightInput,
+  insightItems,
+  outcomeOf,
+  parseInsight,
+  shouldCheck,
+} from './insight.js';
 import { MemoryError, type MemoryStore } from './memory.js';
 import {
   parseSuggestion,
@@ -192,6 +204,12 @@ export interface SessionManagerOptions {
   recapInstructions?: string;
   /** 设置里的“离开后摘要”开着没有（0.54.0，`HostSettings.sessionRecap`）；每次请求时读，不给就当开着。 */
   recapEnabled?: () => boolean;
+  /**
+   * 你应该知道（0.78.0，domain-model §3.33）：给了、并且适配器实现了 `generateTitle` 时，回合结束后按频率限制用会话的模型在后台看一遍
+   * 会话（prompts/session-insight.md，`loadInsightInstructions`）。`enabled` 每次回合结束时问一次（Host 设置 `sessionInsights`，默认关），
+   * 关着就不发请求。`now` 只给测试用。
+   */
+  insight?: { instructions: string; enabled: () => boolean; now?: () => number };
   /** 不影响状态的告警（生成标题失败等）。默认打到 stderr。 */
   onWarning?: (message: string, fields?: Record<string, unknown>) => void;
   /**
@@ -592,6 +610,11 @@ export class SessionManager {
   readonly #recapEnabled: (() => boolean) | undefined;
   /** 离开后摘要的缓存（0.54.0）：只在内存里，不写事件库。 */
   readonly #recaps = new RecapCache();
+  readonly #insight: SessionManagerOptions['insight'];
+  /** 你应该知道（0.78.0）：每个会话上次检查的时刻与位置（频率限制），只在内存里。 */
+  readonly #insightChecks = new Map<SessionId, InsightCheck>();
+  /** 正在检查的会话；会话删掉、Host 关闭时中止。 */
+  readonly #insightRuns = new Map<SessionId, AbortController>();
   readonly #worktreesDir: string | undefined;
   readonly #toolOutputDir: string | undefined;
   readonly #chats: ChatFolders | undefined;
@@ -646,6 +669,7 @@ export class SessionManager {
     this.#suggestion = options.suggestion;
     this.#recapInstructions = options.recapInstructions;
     this.#recapEnabled = options.recapEnabled;
+    this.#insight = options.insight;
     this.#worktreesDir = options.worktreesDir;
     this.#toolOutputDir = options.toolOutputDir;
     this.#chats = options.chats;
@@ -2691,6 +2715,9 @@ export class SessionManager {
       this.#detach(runtime);
       this.#runtimes.delete(id);
       this.#recaps.forget(id);
+      this.#insightRuns.get(id)?.abort();
+      this.#insightRuns.delete(id);
+      this.#insightChecks.delete(id);
     }
     for (const [questionId, sessionId] of this.#questionSessions) {
       if (!ids.has(sessionId)) continue;
@@ -3335,6 +3362,8 @@ export class SessionManager {
     this.#questionTimers.clear();
     this.#appTools?.dispose?.();
     this.#recaps.clear();
+    for (const abort of this.#insightRuns.values()) abort.abort();
+    this.#insightRuns.clear();
     for (const runtime of this.#runtimes.values()) this.#detach(runtime);
     await Promise.all([...this.#runtimes.values()].map((runtime) => runtime.tail));
   }
@@ -3487,6 +3516,135 @@ export class SessionManager {
         clearTimeout(timer);
         if (runtime.suggestion === mine) runtime.suggestion = undefined;
       });
+  }
+
+  /**
+   * 你应该知道（0.78.0，domain-model §3.33）：回合 `turnId` 结束（正常或出错）后，用会话的模型发一次不带工具的请求，让它旁观会话，
+   * 有值得说的事就写 `insight.updated`（`open`）。只在值得的时候检查——设置开着；会话是顶层的、不是支线、不是 agent 开的、不是只读或
+   * 归档的；空闲，没有待审批 / 待回答 / 排着的消息；没有还没处理的一条；距上次检查过了 `INSIGHT_MIN_INTERVAL_MS`，之后 agent 又做了
+   * `INSIGHT_MIN_NEW_ACTIONS` 件事——同一个会话同时只检查一次。失败、超时、解析不出来、模型说没有，都只是没有提示：它是锦上添花，
+   * 不影响会话；失败只记告警。不排进会话的命令队列，也不影响状态机。
+   */
+  #checkInsight(runtime: SessionRuntime, turnId: TurnId): void {
+    const options = this.#insight;
+    const generate = this.#adapter.generateTitle?.bind(this.#adapter);
+    if (options === undefined || generate === undefined || this.#disposed) return;
+    if (runtime.parentId !== undefined || this.#insightRuns.has(runtime.id)) return;
+    const now = options.now?.() ?? Date.now();
+    let input: string;
+    let throughSeq: number;
+    try {
+      if (!options.enabled()) return;
+      const record = this.#record(runtime);
+      if (
+        record.side ||
+        record.origin?.kind === 'agent' ||
+        record.origin?.kind === 'second_opinion'
+      ) {
+        return;
+      }
+      const snapshot = this.#snapshot(runtime);
+      const { session } = snapshot;
+      if (
+        session.state !== 'idle' ||
+        session.activeTurn !== undefined ||
+        session.readOnly !== undefined ||
+        session.archivedAt !== undefined ||
+        snapshot.pendingApprovals.length > 0 ||
+        (snapshot.pendingQuestions?.length ?? 0) > 0 ||
+        (snapshot.pendingMessages ?? []).some((pending) => pending.status === 'waiting')
+      ) {
+        return;
+      }
+      const events = this.#events.readSince(
+        runtime.id,
+        Math.max(0, session.lastSeq - INSIGHT_EVENT_WINDOW),
+      );
+      const items = insightItems(events);
+      const insights = snapshot.insights ?? [];
+      const last = this.#insightChecks.get(runtime.id);
+      if (!shouldCheck({ now, last, items, insights })) return;
+      throughSeq = session.lastSeq;
+      input = insightInput(items, outcomeOf(events, turnId), insightHistory(insights));
+    } catch (error) {
+      // 会话在这期间被删了，等等：这次不检查。
+      this.#onWarning('准备“你应该知道”的检查失败', {
+        sessionId: runtime.id,
+        error: errorText(error),
+      });
+      return;
+    }
+    this.#insightChecks.set(runtime.id, { at: now, throughSeq });
+    const abort = new AbortController();
+    this.#insightRuns.set(runtime.id, abort);
+    const timer = setTimeout(() => abort.abort(), INSIGHT_TIMEOUT_MS);
+    void this.#whenDisposed.promise.then(() => abort.abort());
+    generate(runtime.engineSessionId, {
+      instructions: options.instructions,
+      input,
+      outputSchema: { ...INSIGHT_OUTPUT_SCHEMA },
+      signal: abort.signal,
+    })
+      .then((output) => {
+        if (this.#disposed || abort.signal.aborted) return;
+        const parsed = parseInsight(output);
+        if (parsed === undefined) return;
+        // 等待期间用户可能开了新回合：提示照样有效（说的是已经发生的事），照写。
+        if ((this.#snapshot(runtime).insights ?? []).some((item) => item.status === 'open')) return;
+        const ts = new Date().toISOString();
+        this.#write(runtime, [
+          {
+            type: 'insight.updated',
+            source: 'host',
+            payload: {
+              insight: {
+                id: newId('isg'),
+                turnId,
+                ...parsed,
+                status: 'open',
+                throughSeq,
+                createdAt: ts,
+                updatedAt: ts,
+              },
+            },
+          },
+        ]);
+      })
+      .catch((error: unknown) => {
+        if (this.#disposed || abort.signal.aborted) return;
+        this.#onWarning('“你应该知道”的检查失败', {
+          sessionId: runtime.id,
+          error: errorText(error),
+        });
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        if (this.#insightRuns.get(runtime.id) === abort) this.#insightRuns.delete(runtime.id);
+      });
+  }
+
+  /**
+   * `session.respondInsight`（0.78.0）：用户把一条“你应该知道”标为已知或忽略，写 `insight.updated`。已经处理过的原样返回，不写事件；
+   * 没有这一条时 `INVALID_PARAMS`。
+   */
+  respondInsight(
+    params: MethodParams<'session.respondInsight'>,
+  ): MethodResult<'session.respondInsight'> {
+    this.#assertOpen();
+    const runtime = this.#runtime(params.sessionId);
+    const insight = (this.#snapshot(runtime).insights ?? []).find(
+      (item) => item.id === params.insightId,
+    );
+    if (insight === undefined) {
+      const message = `insight ${params.insightId} not found in session ${params.sessionId}`;
+      throw new HostError('INVALID_PARAMS', message, {
+        issues: [{ path: ['insightId'], message }],
+      });
+    }
+    if (insight.status !== 'open') return { insight };
+    const next = { ...insight, status: params.response, updatedAt: new Date().toISOString() };
+    this.#write(runtime, [{ type: 'insight.updated', source: 'host', payload: { insight: next } }]);
+    return { insight: next };
   }
 
   /**
@@ -4913,6 +5071,10 @@ export class SessionManager {
         if (event.payload.outcome === 'completed') {
           const { turnId } = event.payload;
           queueMicrotask(() => this.#suggest(runtime, turnId));
+        }
+        if (event.payload.outcome === 'completed' || event.payload.outcome === 'failed') {
+          const { turnId } = event.payload;
+          queueMicrotask(() => this.#checkInsight(runtime, turnId));
         }
       } else if (event.type === 'approval.resolved') {
         const requestId = runtime.requestIds.get(event.payload.approvalId);
