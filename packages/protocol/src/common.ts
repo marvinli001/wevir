@@ -23,6 +23,14 @@ export const EnvironmentIdSchema = z.templateLiteral(['env_', IdBodySchema]);
 export const ImageIdSchema = z.templateLiteral(['img_', IdBodySchema]);
 /** Host 实例 ID：每个数据目录一个，跨重启不变。 */
 export const HostIdSchema = z.templateLiteral(['hst_', IdBodySchema]);
+/** 工作区的一项检查（0.65.0，回合后验证）。 */
+export const CheckIdSchema = z.templateLiteral(['chk_', IdBodySchema]);
+/** 一次检查运行，即一条验证记录（0.65.0）。 */
+export const VerificationRunIdSchema = z.templateLiteral(['vrn_', IdBodySchema]);
+/** 同一次触发的一轮检查（0.65.0）。 */
+export const VerificationRoundIdSchema = z.templateLiteral(['vrd_', IdBodySchema]);
+/** 一条自动修复链（0.65.0）。 */
+export const RepairIdSchema = z.templateLiteral(['rpr_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -36,6 +44,10 @@ export type PendingMessageId = z.infer<typeof PendingMessageIdSchema>;
 export type QuestionId = z.infer<typeof QuestionIdSchema>;
 export type ImageId = z.infer<typeof ImageIdSchema>;
 export type HostId = z.infer<typeof HostIdSchema>;
+export type CheckId = z.infer<typeof CheckIdSchema>;
+export type VerificationRunId = z.infer<typeof VerificationRunIdSchema>;
+export type VerificationRoundId = z.infer<typeof VerificationRoundIdSchema>;
+export type RepairId = z.infer<typeof RepairIdSchema>;
 
 /** Provider ID 同时是 dsh 的 provider 路由名，会写进 dsh 会话日志，创建后不可改。 */
 export const ProviderIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);

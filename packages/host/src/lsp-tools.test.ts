@@ -314,7 +314,7 @@ describe('LSP tools on a fake language server', () => {
       'fake-lsp not found. Install it: brew install fake-lsp',
     );
     expect(await call('lsp_diagnostics', { paths: ['a.fake'] })).toBe(
-      'a.fake: not checked: fake-lsp not found. Install it: brew install fake-lsp\n0 errors, 0 warnings in 1 file.',
+      'a.fake: not checked: fake-lsp not found. Install it: brew install fake-lsp\nNo diagnostics: 1 file not checked.',
     );
   });
 });

@@ -1,7 +1,7 @@
 import type { ChatMessage } from '@wevir/client-sdk';
 import type { PendingMessage, TurnId, TurnOutcome } from '@wevir/protocol';
 import { cn } from 'cn';
-import { ChevronRight } from 'lucide-react';
+import { ChevronRight, CircleAlert, CircleCheck, CircleX, LoaderCircle } from 'lucide-react';
 import { Fragment, memo, useContext, useEffect, useId, useRef } from 'react';
 import type { OrbState } from 'thinking-orbs';
 import { Collapse } from '@/components/collapse';
@@ -16,6 +16,7 @@ import { visibleParts } from './subagent-model';
 import { editStats, groupWork } from './tool-model';
 import { OpenTurnChanges } from './turn-changes';
 import { foldSegments, foldTurn, type TurnFold, turnHeaderText } from './turn-model';
+import { type ChecksSummary, TURN_CHECK_LABELS } from './verification-model';
 import { DiffStat, IssueFlags } from './work-group';
 
 const NO_STEERS: readonly PendingMessage[] = [];
@@ -49,6 +50,7 @@ export const TurnView = memo(
     hideTodos = false,
     lastTurn = false,
     steers = NO_STEERS,
+    checks,
   }: {
     turnId: TurnId;
     messages: readonly ChatMessage[];
@@ -65,6 +67,8 @@ export const TurnView = memo(
     lastTurn?: boolean;
     /** 进行中的回合：交给模型、还没插进来的插话，画在末尾（当前动作那一行之前）。 */
     steers?: readonly PendingMessage[];
+    /** 这个回合触发的最近一轮检查（0.65.0）。 */
+    checks?: ChecksSummary;
   }) {
     const fold = foldTurn(messages, hasSubagents, turnActive);
     const { branch } = useMessageActions();
@@ -198,6 +202,9 @@ export const TurnView = memo(
               fold={fold}
             />
           )}
+          {fold.finished && checks && (
+            <ChecksChip checks={checks} spaced={fold.changes.files > 0} />
+          )}
           {fold.finished && (answer !== '' || branch !== undefined) && (
             // 回答下面的“复制”（U36）与“分支到新会话”（0.38.0）：最后一个回合的一直显示，别的悬停时出现。占一行高度：消息流的
             // 每一块有 `content-visibility: auto`（绘制裁在块里），叠到块外面的按钮既看不见也点不着。
@@ -230,6 +237,7 @@ export const TurnView = memo(
     prev.hasSubagents === next.hasSubagents &&
     prev.lastTurn === next.lastTurn &&
     sameItems(prev.steers ?? NO_STEERS, next.steers ?? NO_STEERS) &&
+    prev.checks?.key === next.checks?.key &&
     prev.messages.length === next.messages.length &&
     prev.messages.every((message, index) => message === next.messages[index]),
 );
@@ -356,5 +364,47 @@ function ChangesChip({
       {t('turn.changes', { count: fold.changes.files })}
       <DiffStat stats={fold.changes} />
     </button>
+  );
+}
+
+const CHECK_ICONS = {
+  running: LoaderCircle,
+  passed: CircleCheck,
+  failed: CircleX,
+  environment_unavailable: CircleAlert,
+  unverified: CircleAlert,
+} as const;
+
+/** 回答下面的“检查通过 2/2”（0.65.0）：这个回合触发的最近一轮检查；详情在会话侧栏的“检查”卡片里。 */
+function ChecksChip({ checks, spaced }: { checks: ChecksSummary; spaced: boolean }) {
+  const Icon = CHECK_ICONS[checks.tone];
+  const plain = TURN_CHECK_LABELS[checks.tone];
+  const label =
+    plain !== undefined
+      ? t(plain)
+      : t(checks.tone === 'passed' ? 'turn.checks.passed' : 'turn.checks.failed', {
+          passed: checks.passed,
+          total: checks.total,
+        });
+  return (
+    <span
+      data-turn-checks={checks.tone}
+      className={cn(
+        'mt-3 inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-card pr-3 pl-2 text-sm text-soft-foreground',
+        spaced && 'ml-2',
+      )}
+    >
+      <Icon
+        aria-hidden
+        className={cn(
+          'size-4 shrink-0',
+          checks.tone === 'running' && 'animate-spin text-running',
+          checks.tone === 'passed' && 'text-success',
+          checks.tone === 'failed' && 'text-destructive',
+          checks.tone === 'environment_unavailable' && 'text-warning',
+        )}
+      />
+      {label}
+    </span>
   );
 }

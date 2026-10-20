@@ -369,7 +369,10 @@ export class TurnCheckpoints {
 // ── 打快照（T3 captureCheckpoint） ───────────────────────────────────
 
 /** 打不了快照的原因：sparse checkout、未跟踪文件太多或太大。 */
-async function captureBlocker(repo: RepoInfo, signal: AbortSignal): Promise<string | undefined> {
+export async function captureBlocker(
+  repo: RepoInfo,
+  signal: AbortSignal,
+): Promise<string | undefined> {
   const sparse = await runGit(
     repo.cwd,
     [...repo.config, 'config', '--bool', 'core.sparseCheckout'],
@@ -406,8 +409,40 @@ interface CaptureInput {
 }
 
 /** 会话目录现在的样子写成一个提交（父提交是 HEAD），挂到 `ref` 上。只在临时索引上操作。 */
-export async function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Promise<string> {
-  const { signal } = input;
+export function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Promise<string> {
+  return withWorkingTree(repo, input.signal, async (tree, run) => {
+    const message = await input.message(tree);
+    const commit = (
+      await run([
+        'commit-tree',
+        '--no-gpg-sign',
+        tree,
+        ...(repo.head !== undefined ? ['-p', repo.head] : []),
+        '-m',
+        message,
+      ])
+    ).stdout
+      .toString('utf8')
+      .trim();
+    if (commit === '') throw new Error('git commit-tree returned no commit');
+    await run(['update-ref', input.ref, commit]);
+    return commit;
+  });
+}
+
+/**
+ * 会话目录现在的样子（HEAD 加上工作树的改动与未跟踪、未忽略的文件）的树散列（0.65.0，验证记录的代码状态）。只在临时索引上操作，
+ * 不动用户的索引与引用；文件的 blob 照样写进对象库（同回合快照）。
+ */
+export function workingTreeHash(repo: RepoInfo, signal: AbortSignal): Promise<string> {
+  return withWorkingTree(repo, signal, async (tree) => tree);
+}
+
+async function withWorkingTree<T>(
+  repo: RepoInfo,
+  signal: AbortSignal,
+  use: (tree: string, run: IndexRun) => Promise<T>,
+): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'wevir-checkpoint-'));
   const indexFile = join(dir, 'index');
   const env = { ...AUTHOR, GIT_INDEX_FILE: indexFile };
@@ -432,22 +467,7 @@ export async function captureCheckpoint(repo: RepoInfo, input: CaptureInput): Pr
     }
     const tree = (await run(['write-tree'])).stdout.toString('utf8').trim();
     if (tree === '') throw new Error('git write-tree returned no tree');
-    const message = await input.message(tree);
-    const commit = (
-      await run([
-        'commit-tree',
-        '--no-gpg-sign',
-        tree,
-        ...(repo.head !== undefined ? ['-p', repo.head] : []),
-        '-m',
-        message,
-      ])
-    ).stdout
-      .toString('utf8')
-      .trim();
-    if (commit === '') throw new Error('git commit-tree returned no commit');
-    await run(['update-ref', input.ref, commit]);
-    return commit;
+    return await use(tree, run);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -37,6 +37,7 @@ afterEach(async () => {
 });
 
 const SHUTDOWN_STEPS = [
+  'stop_verification',
   'stop_accepting',
   'cancel_turns',
   'dispose_adapter',
@@ -233,6 +234,7 @@ describe('startHost', () => {
     expect(
       lines.filter((l) => String(l.msg).startsWith('shutdown step')).map((l) => [l.msg, l.step]),
     ).toEqual([
+      ['shutdown step done', 'stop_verification'],
       ['shutdown step done', 'stop_accepting'],
       ['shutdown step timed out', 'cancel_turns'],
       ['shutdown step timed out', 'dispose_adapter'],

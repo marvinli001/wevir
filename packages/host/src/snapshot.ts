@@ -12,7 +12,9 @@ import type {
   PromptSuggestion,
   QuestionId,
   QuestionRequest,
+  RepairChain,
   Session,
+  SessionAcceptance,
   SessionEngine,
   SessionGoal,
   SessionId,
@@ -31,10 +33,12 @@ import type {
   TurnId,
   TurnOutcome,
   Usage,
+  VerificationRun,
+  VerificationRunId,
   WevirEvent,
   WorkspaceId,
 } from '@wevir/protocol';
-import { PROMPT_SUGGESTION_VOIDING_EVENTS } from '@wevir/protocol';
+import { PROMPT_SUGGESTION_VOIDING_EVENTS, VERIFICATION_RUNS_KEPT } from '@wevir/protocol';
 import type { SessionCachePatch, SessionRecord } from '@wevir/storage';
 
 // 会话快照：由事件序列推导出的产品状态（domain-model §3.3、§4；ADR-0002 §3）。`applyEvent` 是纯函数，
@@ -112,6 +116,17 @@ export interface SessionProjection {
    * 按提出的先后。
    */
   readonly suggestedTasks: ReadonlyMap<TaskId, SuggestedTask>;
+  /**
+   * 回合后验证（0.65.0，ADR-0008）：`verification.updated` 按 `id` 替换（只留最近 `VERIFICATION_RUNS_KEPT` 条）、
+   * `acceptance.changed` 与 `repair.updated` 整份替换。从没有过验证事件时没有。
+   */
+  readonly verification?: ProjectedVerification;
+}
+
+export interface ProjectedVerification {
+  readonly acceptance: SessionAcceptance;
+  readonly runs: ReadonlyMap<VerificationRunId, VerificationRun>;
+  readonly repair?: RepairChain;
 }
 
 /** 会话挂过的一个引擎会话（0.25.0）。 */
@@ -154,6 +169,16 @@ export const INITIAL_PROJECTION: SessionProjection = {
   questions: new Map(),
   suggestedTasks: new Map(),
 };
+
+/** 投影里的验证部分；还没有时是“未验收”、没有记录。 */
+function verificationOf(projection: SessionProjection, ts: IsoTime): ProjectedVerification {
+  return (
+    projection.verification ?? {
+      acceptance: { status: 'unverified', updatedAt: ts },
+      runs: new Map(),
+    }
+  );
+}
 
 /** 子会话的回合结果 → 子会话的状态（domain-model §3.3.1）。 */
 const SUBAGENT_STATUS_OF_OUTCOME: Record<TurnOutcome, SubagentStatus> = {
@@ -406,6 +431,27 @@ export function applyEvent(projection: SessionProjection, event: WevirEvent): Se
       break;
     case 'suggestion.updated':
       next.promptSuggestion = event.payload;
+      break;
+    case 'verification.updated': {
+      const current = verificationOf(projection, event.ts);
+      const runs = new Map(current.runs);
+      runs.delete(event.payload.run.id);
+      runs.set(event.payload.run.id, event.payload.run);
+      for (const id of runs.keys()) {
+        if (runs.size <= VERIFICATION_RUNS_KEPT) break;
+        runs.delete(id);
+      }
+      next.verification = { ...current, runs };
+      break;
+    }
+    case 'acceptance.changed':
+      next.verification = {
+        ...verificationOf(projection, event.ts),
+        acceptance: event.payload.acceptance,
+      };
+      break;
+    case 'repair.updated':
+      next.verification = { ...verificationOf(projection, event.ts), repair: event.payload.repair };
       break;
     case 'usage.updated':
       next.usage = {
@@ -712,6 +758,14 @@ export function toSnapshot(record: SessionRecord, projection: SessionProjection)
   if (pendingQuestions.length > 0) {
     snapshot.pendingQuestions = pendingQuestions;
     session.awaitingInput = true;
+  }
+  if (projection.verification) {
+    const { acceptance, runs, repair } = projection.verification;
+    snapshot.verification = {
+      acceptance,
+      runs: [...runs.values()],
+      ...(repair !== undefined && { repair }),
+    };
   }
   return structuredClone(snapshot);
 }

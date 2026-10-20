@@ -35,6 +35,12 @@ import {
   type NotificationName,
   type NotificationParams,
 } from './methods.js';
+import type {
+  CheckDefinition,
+  RepairChain,
+  SessionAcceptance,
+  VerificationRun,
+} from './verification.js';
 
 export const ULID = '01JA2B3C4D5E6F7G8H9JKMNPQR';
 export const TS = '2026-10-12T08:00:00.000Z';
@@ -66,7 +72,84 @@ export const ids = {
   image: `img_${ULID}`,
   /** 浏览器请求（0.33.0）。 */
   browserRequest: `brq_${ULID}`,
+  /** 回合后验证（0.65.0）。 */
+  check: `chk_${ULID}`,
+  verificationRun: `vrn_${ULID}`,
+  verificationRound: `vrd_${ULID}`,
+  repair: `rpr_${ULID}`,
 } as const;
+
+/** 一项检查（0.65.0）。 */
+export const checkDefinition: CheckDefinition = {
+  id: ids.check,
+  name: 'test',
+  command: 'pnpm test',
+  cwd: '',
+  timeoutMs: 600_000,
+  kind: 'test',
+  trigger: 'after_turn',
+  paths: ['src/', 'test/**/*.ts'],
+  source: {
+    kind: 'package_script',
+    file: 'package.json',
+    script: 'test',
+    scriptHash: 'sha256:ab12',
+  },
+  revision: 2,
+  approvedAt: TS,
+  createdAt: TS,
+  updatedAt: TS2,
+};
+
+/** 一条验证记录（0.65.0）：测试失败。 */
+export const verificationRun: VerificationRun = {
+  id: ids.verificationRun,
+  roundId: ids.verificationRound,
+  checkId: ids.check,
+  checkRevision: 2,
+  name: 'test',
+  command: 'pnpm test',
+  cwd: '',
+  kind: 'test',
+  trigger: 'after_turn',
+  turnId: ids.turn,
+  status: 'failed',
+  reason: 'exit_code',
+  codeState: { kind: 'git', head: '4f1c2e9a', tree: '9d8e7f6a' },
+  queuedAt: TS,
+  startedAt: TS,
+  finishedAt: TS2,
+  durationMs: 5250,
+  exitCode: 1,
+  tests: { passed: 3, failed: 1, skipped: 0 },
+  summary: 'not ok 4 - converts -40\n# pass 3\n# fail 1',
+  output: { bytes: 1840, truncated: false },
+  fingerprint: 'sha256:77aa',
+};
+
+/** 验收状态（0.65.0）。 */
+export const acceptance: SessionAcceptance = {
+  status: 'failed',
+  roundId: ids.verificationRound,
+  turnId: ids.turn,
+  codeState: { kind: 'git', head: '4f1c2e9a', tree: '9d8e7f6a' },
+  updatedAt: TS2,
+};
+
+/** 修复链（0.65.0）。 */
+export const repairChain: RepairChain = {
+  id: ids.repair,
+  roundId: ids.verificationRound,
+  originTurnId: ids.turn,
+  status: 'stopped',
+  attempt: 2,
+  maxAttempts: 2,
+  turnIds: [ids.childTurn],
+  lastRoundId: ids.verificationRound,
+  stopReason: 'limit',
+  startedAt: TS,
+  updatedAt: TS2,
+};
 
 /** 浏览器的一个标签页（0.33.0）。 */
 export const browserTab: BrowserTabInfo = {
@@ -1015,6 +1098,18 @@ export const eventPayloads: PayloadSamples = {
       turnId: ids.turn,
     },
     invalid: { files: [], turnId: ids.turn },
+  },
+  'verification.updated': {
+    valid: { run: verificationRun },
+    invalid: { run: { ...verificationRun, status: 'green' } },
+  },
+  'acceptance.changed': {
+    valid: { acceptance },
+    invalid: { acceptance: { status: 'done', updatedAt: TS } },
+  },
+  'repair.updated': {
+    valid: { repair: repairChain },
+    invalid: { repair: { ...repairChain, attempt: -1 } },
   },
 };
 
@@ -3305,6 +3400,163 @@ export const methodSamples: MethodSamples = {
         },
       ],
       invalid: [{ pricing: { source: 'models.dev' } }],
+    },
+  },
+  'checks.list': {
+    params: { valid: [{ workspaceId: ids.workspace }], invalid: [{}, { workspaceId: 'x' }] },
+    result: {
+      valid: [
+        {
+          checks: [checkDefinition],
+          repair: {
+            enabled: false,
+            maxAttempts: 2,
+            maxDurationMs: 1_200_000,
+            maxTokens: 1_000_000,
+          },
+        },
+      ],
+      invalid: [{ checks: [] }],
+    },
+  },
+  'checks.candidates': {
+    params: { valid: [{ workspaceId: ids.workspace }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          candidates: [
+            {
+              name: 'test',
+              command: 'pnpm run test',
+              cwd: '',
+              kind: 'test',
+              source: {
+                kind: 'package_script',
+                file: 'package.json',
+                script: 'test',
+                body: 'vitest run',
+              },
+            },
+            {
+              name: 'pnpm typecheck',
+              command: 'pnpm typecheck',
+              cwd: '',
+              kind: 'typecheck',
+              source: { kind: 'instructions', file: 'AGENTS.md', line: 78 },
+            },
+          ],
+        },
+        { candidates: [] },
+      ],
+      invalid: [{ candidates: [{ name: 'x' }] }],
+    },
+  },
+  'checks.save': {
+    params: {
+      valid: [
+        {
+          workspaceId: ids.workspace,
+          check: { name: 'test', command: 'npm test', kind: 'test', trigger: 'manual' },
+        },
+        {
+          workspaceId: ids.workspace,
+          check: {
+            id: ids.check,
+            name: 'test',
+            command: 'pnpm run test',
+            cwd: 'packages/host',
+            timeoutMs: 120_000,
+            kind: 'test',
+            trigger: 'after_turn',
+            paths: ['src/'],
+            expectOutput: 'Tests\\s+\\d+ passed',
+            source: { kind: 'package_script', file: 'packages/host/package.json', script: 'test' },
+          },
+        },
+      ],
+      invalid: [
+        {
+          workspaceId: ids.workspace,
+          check: { name: '', command: 'x', kind: 'test', trigger: 'manual' },
+        },
+        {
+          workspaceId: ids.workspace,
+          check: { name: 'x', command: 'x', kind: 'test', trigger: 'manual', timeoutMs: 10 },
+        },
+      ],
+    },
+    result: { valid: [{ check: checkDefinition }], invalid: [{ check: { id: ids.check } }] },
+  },
+  'checks.remove': {
+    params: {
+      valid: [{ workspaceId: ids.workspace, checkId: ids.check }],
+      invalid: [{ workspaceId: ids.workspace }],
+    },
+    result: { valid: [{ removed: true }, { removed: false }], invalid: [{}] },
+  },
+  'checks.setRepair': {
+    params: {
+      valid: [
+        { workspaceId: ids.workspace, repair: { enabled: true } },
+        { workspaceId: ids.workspace, repair: { maxAttempts: 3, maxDurationMs: 600_000 } },
+      ],
+      invalid: [{ workspaceId: ids.workspace, repair: { maxAttempts: 9 } }],
+    },
+    result: {
+      valid: [
+        {
+          repair: { enabled: true, maxAttempts: 2, maxDurationMs: 1_200_000, maxTokens: 1_000_000 },
+        },
+      ],
+      invalid: [{ repair: { enabled: true } }],
+    },
+  },
+  'verification.run': {
+    params: {
+      valid: [{ sessionId: ids.session }, { sessionId: ids.session, checkIds: [ids.check] }],
+      invalid: [{ sessionId: ids.session, checkIds: [] }],
+    },
+    result: {
+      valid: [
+        {
+          roundId: ids.verificationRound,
+          runs: [{ ...verificationRun, trigger: 'manual', status: 'running', reason: undefined }],
+        },
+      ],
+      invalid: [{ runs: [] }],
+    },
+  },
+  'verification.cancel': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: { valid: [{ cancelled: 0 }, { cancelled: 2 }], invalid: [{ cancelled: -1 }] },
+  },
+  'verification.status': {
+    params: { valid: [{ sessionId: ids.session }], invalid: [{}] },
+    result: {
+      valid: [
+        {
+          verification: { acceptance, runs: [verificationRun], repair: repairChain },
+          codeState: { kind: 'git', head: null, tree: '9d8e7f6a' },
+        },
+        {
+          verification: { acceptance: { status: 'unverified', updatedAt: TS }, runs: [] },
+          codeState: { kind: 'none', reason: 'not_git' },
+        },
+      ],
+      invalid: [{ verification: { runs: [] } }],
+    },
+  },
+  'verification.output': {
+    params: {
+      valid: [
+        { sessionId: ids.session, runId: ids.verificationRun },
+        { sessionId: ids.session, runId: ids.verificationRun, offset: 4096 },
+      ],
+      invalid: [{ sessionId: ids.session, runId: ids.verificationRun, offset: -1 }],
+    },
+    result: {
+      valid: [{ text: 'not ok 4\n', from: 0, next: 9, more: false, bytes: 9 }],
+      invalid: [{ text: '' }],
     },
   },
   'tools.presets': {

@@ -88,6 +88,26 @@ import {
   UsageSummaryParamsSchema,
   UsageSummaryResultSchema,
 } from './usage.js';
+import {
+  ChecksCandidatesParamsSchema,
+  ChecksCandidatesResultSchema,
+  ChecksListParamsSchema,
+  ChecksListResultSchema,
+  ChecksRemoveParamsSchema,
+  ChecksRemoveResultSchema,
+  ChecksSaveParamsSchema,
+  ChecksSaveResultSchema,
+  ChecksSetRepairParamsSchema,
+  ChecksSetRepairResultSchema,
+  VerificationCancelParamsSchema,
+  VerificationCancelResultSchema,
+  VerificationOutputParamsSchema,
+  VerificationOutputResultSchema,
+  VerificationRunParamsSchema,
+  VerificationRunResultSchema,
+  VerificationStatusParamsSchema,
+  VerificationStatusResultSchema,
+} from './verification.js';
 import { ProtocolVersionSchema } from './version.js';
 
 // Host API v0 的方法与通知。语义、错误与示例报文见 docs/architecture/host-api.md。
@@ -1792,6 +1812,52 @@ export const MethodSchemas = {
   'usage.pricing': {
     params: UsagePricingParamsSchema,
     result: UsagePricingResultSchema,
+    permission: 'session.read',
+  },
+
+  'checks.list': {
+    params: ChecksListParamsSchema,
+    result: ChecksListResultSchema,
+    permission: 'workspace.read',
+  },
+  'checks.candidates': {
+    params: ChecksCandidatesParamsSchema,
+    result: ChecksCandidatesResultSchema,
+    permission: 'workspace.read',
+  },
+  'checks.save': {
+    params: ChecksSaveParamsSchema,
+    result: ChecksSaveResultSchema,
+    permission: 'workspace.write',
+  },
+  'checks.remove': {
+    params: ChecksRemoveParamsSchema,
+    result: ChecksRemoveResultSchema,
+    permission: 'workspace.write',
+  },
+  'checks.setRepair': {
+    params: ChecksSetRepairParamsSchema,
+    result: ChecksSetRepairResultSchema,
+    permission: 'workspace.write',
+  },
+  'verification.run': {
+    params: VerificationRunParamsSchema,
+    result: VerificationRunResultSchema,
+    permission: 'session.write',
+  },
+  'verification.cancel': {
+    params: VerificationCancelParamsSchema,
+    result: VerificationCancelResultSchema,
+    permission: 'session.write',
+  },
+  'verification.status': {
+    params: VerificationStatusParamsSchema,
+    result: VerificationStatusResultSchema,
+    permission: 'session.read',
+  },
+  'verification.output': {
+    params: VerificationOutputParamsSchema,
+    result: VerificationOutputResultSchema,
     permission: 'session.read',
   },
 

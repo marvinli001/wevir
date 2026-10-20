@@ -778,7 +778,19 @@ function formatDiagnostics(
     );
   }
   const servers = [...new Set(reports.flatMap((report) => report.server ?? []))];
-  const summary = `${errors} error${errors === 1 ? '' : 's'}${max >= 2 ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : ''} in ${reports.length} file${reports.length === 1 ? '' : 's'}${servers.length > 0 ? ` (${servers.join(', ')})` : ''}.`;
+  // 没检查到的文件（服务器起不来、文件没了）不算进“0 errors”；没等到结果的另说明可能不全。
+  const checked = reports.filter((report) => report.error === undefined).length;
+  const unchecked = reports.length - checked;
+  const incomplete = reports.filter((report) => report.timedOut === true).length;
+  const files = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
+  const notes = [
+    ...(unchecked > 0 ? [`${files(unchecked)} not checked`] : []),
+    ...(incomplete > 0 ? [`${files(incomplete)} may be incomplete`] : []),
+  ];
+  const summary =
+    checked === 0
+      ? `No diagnostics: ${files(unchecked)} not checked.`
+      : `${errors} error${errors === 1 ? '' : 's'}${max >= 2 ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : ''} in ${files(checked)}${servers.length > 0 ? ` (${servers.join(', ')})` : ''}${notes.length > 0 ? `; ${notes.join('; ')}` : ''}.`;
   return `${blocks.join('\n')}\n${summary}`;
 }
 

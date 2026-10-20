@@ -487,3 +487,48 @@ describe('写入前的校验', () => {
     });
   });
 });
+
+describe('验证记录（0.65.0）', () => {
+  const dir = useTempDir();
+  const { open } = useStorages();
+
+  it('快照里有验收状态、最近的记录（按 id 替换、有上限）与修复链；重开后一样；不改会话状态', () => {
+    const storage = open(dir());
+    const store = createStore(storage);
+    const run = (n: number) => ({
+      id: `vrn_${String(n).padStart(26, '0')}` as const,
+      roundId: 'vrd_00000000000000000000000001' as const,
+      checkId: 'chk_00000000000000000000000001' as const,
+      checkRevision: 1,
+      name: 'test',
+      command: 'pnpm test',
+      cwd: '',
+      kind: 'test' as const,
+      trigger: 'manual' as const,
+      status: 'running' as const,
+      queuedAt: '2026-10-13T00:00:00.000Z',
+    });
+    for (let n = 0; n < 35; n++) {
+      store.append(SES, { type: 'verification.updated', source: 'host', payload: { run: run(n) } });
+    }
+    store.append(SES, {
+      type: 'verification.updated',
+      source: 'host',
+      payload: { run: { ...run(34), status: 'passed' } },
+    });
+    store.append(SES, {
+      type: 'acceptance.changed',
+      source: 'host',
+      payload: { acceptance: { status: 'accepted', updatedAt: '2026-10-13T00:00:01.000Z' } },
+    });
+    const snapshot = store.snapshot(SES) as SessionSnapshot;
+    expect(SessionSnapshotSchema.parse(snapshot)).toEqual(snapshot);
+    expect(snapshot.session.state).toBe('idle');
+    expect(snapshot.verification?.acceptance.status).toBe('accepted');
+    expect(snapshot.verification?.runs).toHaveLength(30);
+    expect(snapshot.verification?.runs.at(-1)).toMatchObject({ id: run(34).id, status: 'passed' });
+    expect(snapshot.verification?.repair).toBeUndefined();
+    const reopened = new EventStore({ storage });
+    expect(reopened.snapshot(SES)?.verification).toEqual(snapshot.verification);
+  });
+});

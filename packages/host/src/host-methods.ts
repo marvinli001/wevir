@@ -50,6 +50,7 @@ import type { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import type { PricingStore } from './usage/pricing.js';
 import type { UsageService } from './usage/usage-service.js';
+import type { VerificationService } from './verification/service.js';
 import type { WebService } from './web/service.js';
 import {
   DEFAULT_FILES_LIMIT,
@@ -123,6 +124,8 @@ export interface HostMethodsOptions {
   toolPresets?: () => MethodResult<'tools.presets'>;
   /** 用量统计（0.62.0，`usage.*`）；省略时 `usage.*` 回 `INVALID_PARAMS`（测试）。 */
   usage?: { service: UsageService; pricing: PricingStore };
+  /** 回合后验证（0.65.0，`checks.*`、`verification.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
+  verification?: VerificationService;
 }
 
 /** Provider 的写操作要跨 await（先写 Key 再写行），串行执行，避免同一 ID 的两次写入交错。 */
@@ -227,6 +230,12 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   };
   // 0.22.0：@ 提及与文件窗格的名字搜索，按目录缓存几秒。
   const fileIndex = new FileIndex();
+  const verification = (): VerificationService => {
+    if (options.verification === undefined) {
+      throw invalidParams([], 'this host has no verification service');
+    }
+    return options.verification;
+  };
   const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
@@ -1019,6 +1028,24 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (refresh === true) await pricing.refresh();
       return { pricing: pricing.status() };
     },
+    'checks.list': ({ workspaceId }) => verification().listChecks(workspaceId),
+    'checks.candidates': async ({ workspaceId }) => ({
+      candidates: await verification().candidates(workspaceId),
+    }),
+    'checks.save': async ({ workspaceId, check }) => ({
+      check: await verification().saveCheck(workspaceId, check),
+    }),
+    'checks.remove': async ({ workspaceId, checkId }) => ({
+      removed: await verification().removeCheck(workspaceId, checkId),
+    }),
+    'checks.setRepair': async ({ workspaceId, repair }) => ({
+      repair: await verification().setRepair(workspaceId, repair),
+    }),
+    'verification.run': ({ sessionId, checkIds }) => verification().run(sessionId, checkIds),
+    'verification.cancel': ({ sessionId }) => verification().cancel(sessionId),
+    'verification.status': ({ sessionId }) => verification().status(sessionId),
+    'verification.output': ({ sessionId, runId, offset }) =>
+      verification().output(sessionId, runId, offset),
     'tools.presets': async () => {
       if (options.toolPresets === undefined) {
         throw invalidParams([], 'this host has no Wevir app tools');

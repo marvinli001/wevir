@@ -45,6 +45,9 @@ import { loadTitleInstructions } from './title.js';
 import { ToolOutputStore } from './tool-output.js';
 import { PricingStore } from './usage/pricing.js';
 import { UsageService } from './usage/usage-service.js';
+import { ChecksStore } from './verification/checks-store.js';
+import { CheckRunner } from './verification/runner.js';
+import { VerificationService } from './verification/service.js';
 import type { WebService } from './web/service.js';
 
 /** Host 软件版本（`@wevir/host` 的 version），写进 hello 结果与 `host.json`。 */
@@ -148,6 +151,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   let sessions: SessionManager | undefined;
   let rpc: HostRpcServer | undefined;
   let backgroundProcesses: ProcessManager | undefined;
+  let verificationService: VerificationService | undefined;
   let accounts: HostAccounts | undefined;
   let turnCheckpoints: TurnCheckpoints | undefined;
   try {
@@ -278,7 +282,10 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         resolved: (sessionId, toolCallId, approved) =>
           appTools?.plugins?.resolved(sessionId, toolCallId, approved),
-        forget: (sessionIds) => void processes?.removeSessions(sessionIds),
+        forget: (sessionIds) => {
+          void processes?.removeSessions(sessionIds);
+          void verificationService?.removeSessions(sessionIds);
+        },
         dispose: () => appTools?.plugins?.close(),
       },
       onTurnFinished: (info) => {
@@ -322,6 +329,32 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     ) {
       logger.warn('recovered from unclean shutdown', { ...recovery });
     }
+    // 回合后验证（0.65.0，ADR-0008）：检查配置存在 Host，检查进程由 Host 起（与 Agent 的后台进程分开）。上次没跑完的检查在服务
+    // 客户端之前对账，什么都不重开。
+    try {
+      verificationService = new VerificationService({
+        storage,
+        events: store,
+        checks: new ChecksStore({
+          dir: homePath(home, 'checksDir'),
+          onWarning: (message, fields) => logger.warn(message, fields),
+        }),
+        runner: new CheckRunner({
+          dir: toolOutput.dir,
+          onWarning: (message, fields) => logger.warn(message, fields),
+        }),
+        onWarning: (message, fields) => logger.warn(message, fields),
+        onError: (error) => logger.error('verification error', { error }),
+      });
+      const reconciled = verificationService.recover();
+      if (reconciled.cancelledRuns > 0) {
+        logger.warn('reconciled verification after unclean shutdown', { ...reconciled });
+      }
+    } catch (error) {
+      verificationService = undefined;
+      logger.warn('verification is unavailable', { error });
+    }
+    const verification = verificationService;
 
     const secrets = new FileSecretStore(home);
     // 账号（R6 的 ChatGPT，0.19.0 起还有订阅来源）：引擎有账号时才有，Host 据此声明 chatgpt_account 与 subscription_sources。
@@ -443,6 +476,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         chats,
         memory,
         usage: { service: usageStats, pricing },
+        ...(verification !== undefined && { verification }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -498,6 +532,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(adapter.rewind !== undefined && { session_rewind: true }),
         ...(adapter.injectNote !== undefined && { session_undo: true }),
         ...(recapInstructions !== undefined && { session_recap: true }),
+        ...(verification !== undefined && { verification: true }),
       },
       engineFeatures,
       plugins,
@@ -535,6 +570,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           rpc: server,
           appMcp: mcp,
           processes,
+          verification,
           lsp,
           sessions: manager,
           adapter,
@@ -562,6 +598,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
   } catch (error) {
     // 回收已建好的部分；这里的失败不掩盖原始错误。
     await rpc?.close().catch(() => {});
+    await verificationService?.dispose().catch(() => {});
     await backgroundProcesses?.close().catch(() => {});
     accounts?.dispose();
     await turnCheckpoints?.dispose();
@@ -588,6 +625,8 @@ interface ShutdownParts {
   appMcp: AppMcpServer | undefined;
   /** 后台进程（processes.ts）；没有应用级工具时没有。 */
   processes: ProcessManager | undefined;
+  /** 回合后验证（0.65.0）；修复模板读不到时没有。 */
+  verification: VerificationService | undefined;
   /** 代码智能的语言服务器；引擎挂不上应用级工具时没有。 */
   lsp: LspManager | undefined;
   sessions: SessionManager;
@@ -624,6 +663,10 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   };
   // 应用级工具不再接新调用，进行中的等待（wevir_session_wait）随即返回。
   parts.appMcp?.close();
+  // 回合后验证：不再接新的回合事件，还在跑的检查 SIGTERM（宽限后 SIGKILL）；下次启动时对账为 `cancelled`。
+  if (parts.verification !== undefined) {
+    await step('stop_verification', () => parts.verification?.dispose(), true);
+  }
   // 后台进程：SIGTERM，宽限期后 SIGKILL，不再通知。
   if (parts.processes !== undefined) {
     await step('stop_processes', () => parts.processes?.close(), true);
