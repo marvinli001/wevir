@@ -36,8 +36,11 @@ import {
   validateAntigravityRuntime,
 } from './process.js';
 import { antigravityQuestion } from './protocol.js';
+import { AntigravityStepUsage } from './step-usage.js';
 
 const PERMISSION_CANCELLED: RequestPermissionResponse = { outcome: { outcome: 'cancelled' } };
+/** 回合结束时会话库里还有没结束的步骤：隔这么久再读一次（只再读一次，剩下的随下一个回合）。 */
+const USAGE_RETRY_MS = 2_000;
 
 /** Wevir 的权限模式 → Antigravity 的会话模式（T3 的 antigravityPermissionMode）。 */
 export const ANTIGRAVITY_MODES: Readonly<Record<PermissionMode, string>> = Object.freeze({
@@ -74,6 +77,8 @@ interface SessionSettings {
   modes: unknown;
   /** 会话中改了、下一个回合开始前才交给运行体的设置。 */
   pending?: { modelId: string; permissionMode: PermissionMode };
+  /** 运行体会话库里每次模型请求的 token（`step-usage.ts`）。 */
+  usage: AntigravityStepUsage;
 }
 
 export class AntigravityAdapter extends AcpAdapter {
@@ -86,6 +91,8 @@ export class AntigravityAdapter extends AcpAdapter {
   readonly installation: AntigravityInstallation;
   readonly #launcher: AntigravityLauncher;
   readonly #sessions = new Map<string, SessionSettings>();
+  readonly #profile: string;
+  readonly #usageTimers = new Set<NodeJS.Timeout>();
 
   /**
    * 0.68.0：Antigravity 读项目里一路上的 GEMINI.md 与 AGENTS.md（IDE 里 language_server 带的说明；ACP 运行体没有核对过）。它的
@@ -148,6 +155,7 @@ export class AntigravityAdapter extends AcpAdapter {
       ...(options.appToolsBridge !== undefined && { appToolsBridge: options.appToolsBridge }),
     });
     this.installation = installation;
+    this.#profile = paths.profile;
     this.#launcher = launcher as AntigravityLauncher;
     accounts = new AntigravityAccounts({
       context,
@@ -215,6 +223,8 @@ export class AntigravityAdapter extends AcpAdapter {
   }
 
   override async dispose(): Promise<void> {
+    for (const timer of this.#usageTimers) clearTimeout(timer);
+    this.#usageTimers.clear();
     await super.dispose();
     await this.accounts.dispose();
     await this.#launcher.cleanup();
@@ -226,15 +236,41 @@ export class AntigravityAdapter extends AcpAdapter {
     config: SessionConfig,
     setup: AcpSessionSetup,
   ): Promise<unknown> {
+    const usage = new AntigravityStepUsage(this.#profile, engineSessionId);
+    usage.start();
     const settings: SessionSettings = {
       providerId: config.providerId,
       configOptions: setup.configOptions,
       modes: setup.modes,
+      usage,
     };
     this.#sessions.set(engineSessionId, settings);
     this.accounts.noteSessionModels(setup.configOptions);
     await this.#applyMode(engineSessionId, settings, config.permissionMode ?? 'on_request');
     return settings.configOptions;
+  }
+
+  /**
+   * 回合结束后读运行体会话库里这个回合的模型请求，报 `usage.recorded`（运行体不经 ACP 报分项用量，见 `step-usage.ts`）。
+   * 不在结算里同步读：先让出事件循环；还有没结束的步骤时隔 `USAGE_RETRY_MS` 再读一次。
+   */
+  protected override afterTurn(engineSessionId: string): void {
+    const usage = this.#sessions.get(engineSessionId)?.usage;
+    if (usage === undefined) return;
+    const read = (retry: boolean) => {
+      const timer = setTimeout(
+        () => {
+          this.#usageTimers.delete(timer);
+          const result = usage.read();
+          for (const entry of result.usage) this.recordUsage(engineSessionId, entry);
+          if (result.pending && retry) read(false);
+        },
+        retry ? 0 : USAGE_RETRY_MS,
+      );
+      timer.unref?.();
+      this.#usageTimers.add(timer);
+    };
+    read(true);
   }
 
   /**

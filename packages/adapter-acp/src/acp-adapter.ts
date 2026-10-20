@@ -810,8 +810,11 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     await this.process.stop();
   }
 
-  /** 一个回合结算（`turn.settled` / `turn.failed` 已发出）之后调用（dsh：等回合结束的配置重启）。默认什么都不做。 */
-  protected afterTurn(): void {}
+  /**
+   * 一个回合结算（`turn.settled` / `turn.failed` 已发出）之后调用（dsh：等回合结束的配置重启；Antigravity：读会话库里这个回合
+   * 的用量）。默认什么都不做。
+   */
+  protected afterTurn(_engineSessionId: string): void {}
 
   protected assertUsable(): void {
     if (this.#disposed !== undefined) {
@@ -937,7 +940,7 @@ export class AcpAdapter<P extends AcpProcess = AcpProcess> implements AgentRunti
     session.turn = undefined;
     session.queue.endTurn(event);
     turn.finish();
-    this.afterTurn();
+    this.afterTurn(session.id);
   }
 
   /**

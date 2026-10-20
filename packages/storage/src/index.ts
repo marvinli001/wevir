@@ -10,6 +10,7 @@ export * from './approvals.js';
 export {
   BUSY_TIMEOUT_MS,
   openDatabase,
+  openReadOnlyDatabase,
   type SqliteDatabase,
   type SqliteRunResult,
   type SqliteStatement,

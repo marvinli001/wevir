@@ -14,6 +14,7 @@ import {
   waitFor,
   writeFakeToken,
 } from './test-fixtures/runtime.js';
+import { stepDatabase, usageMetadata } from './test-fixtures/step-db.js';
 
 let home: string;
 let workspace: string;
@@ -205,6 +206,43 @@ describe.skipIf(!posix)('AntigravityAdapter', () => {
     await expect(
       second.resumeSession('11111111-1111-4111-8111-111111111111', config()),
     ).rejects.toMatchObject({ code: 'session_lost', lostReason: 'not_found' });
+  });
+
+  it('用量：回合结束后读运行体会话库，每次模型请求报一条 usage.recorded；恢复前已有的步骤不再报', async () => {
+    writeFakeToken(home);
+    const profile = path.join(home, 'engines', 'antigravity', 'profile');
+    const first = await create();
+    const session = await first.createSession(config());
+    const events = collect(first, session);
+    const db = stepDatabase(profile, session.engineSessionId);
+    db.add(0, 3);
+    db.add(1, 3, usageMetadata('resp-a', 1200, 80));
+    db.add(2, 3, usageMetadata('resp-b', 300, 40));
+    await turn(first, session, events, 'hello');
+    const recorded = () => events.filter((event) => event.type === 'usage.recorded');
+    await waitFor(() => recorded().length === 2, 'usage.recorded');
+    expect(recorded()).toEqual([
+      {
+        type: 'usage.recorded',
+        engineSessionId: session.engineSessionId,
+        requestId: 'resp-a',
+        inputTokens: 1200,
+        outputTokens: 80,
+      },
+      expect.objectContaining({ requestId: 'resp-b', inputTokens: 300 }),
+    ]);
+    await first.dispose();
+
+    const second = await create();
+    const resumed = await second.resumeSession(session.engineSessionId, config());
+    const after = collect(second, resumed);
+    db.add(3, 3, usageMetadata('resp-c', 50));
+    await turn(second, resumed, after, 'hello');
+    await waitFor(() => after.some((event) => event.type === 'usage.recorded'), 'usage.recorded');
+    expect(
+      after.filter((event) => event.type === 'usage.recorded').map((event) => event.requestId),
+    ).toEqual(['resp-c']);
+    db.close();
   });
 
   it('登出：先停掉会话进程（会话以 engine.exited config_changed 脱开），再清掉登录', async () => {

@@ -79,3 +79,20 @@ export function openDatabase(path: string): SqliteDatabase {
   }
   return db;
 }
+
+/**
+ * 只读打开别的程序的数据库（引擎自己的会话库，例如 Antigravity 运行体记每一步 token 的 `conversations/<id>.db`）：不建文件、
+ * 不改日志模式，busy timeout 同上。文件不在时抛错。
+ */
+export function openReadOnlyDatabase(path: string): SqliteDatabase {
+  const Database = databaseClass();
+  const db = new Database(path, { readOnly: true });
+  try {
+    db.enableDefensive(true);
+    db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+  } catch (err) {
+    db.close();
+    throw err;
+  }
+  return db;
+}
