@@ -26,6 +26,7 @@ import { TurnCheckpoints } from './checkpoints.js';
 import { EnginePathStore } from './engine-paths.js';
 import { EngineRouter, engineFeaturesOf } from './engine-router.js';
 import { EventStore } from './event-store.js';
+import { ExternalImport } from './external-import/service.js';
 import { FileUrls } from './file-urls.js';
 import { GitService } from './git/service.js';
 import { homePath } from './home.js';
@@ -85,6 +86,11 @@ export interface StartHostOptions {
   pluginUserHome?: string;
   /** 找用户级规则文件（0.68.0，`~/.codex/AGENTS.md` 等）的家目录；省略时同 `pluginUserHome`，再省略是 os.homedir()。 */
   userHome?: string;
+  /**
+   * 导入（0.71.0）读的环境变量（`CLAUDE_CONFIG_DIR`、`CODEX_HOME`、`GROK_HOME`）；省略是 `process.env`。导入找用户目录的家目录同
+   * `userHome`。
+   */
+  importEnv?: Readonly<Record<string, string | undefined>>;
   /** 数据目录（绝对路径），见 `resolveHome`。 */
   home: string;
   /** 引擎适配器，由 Host 独占，退出时 `dispose`。 */
@@ -272,6 +278,17 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 跨会话记忆（memory.ts）：全局一份、每个项目一份，会话开始时索引放进应用级工具的说明；用户经 `memory.*` 管理（0.57.0），
     // Host 设置的 `autoMemory` 关掉时索引与工具都不给。
     const memory = new MemoryStore({ dir: homePath(home, 'memoryDir') });
+    // 从其他应用导入（0.71.0）：读用户自己的 Claude Code、Codex、Grok Build、Antigravity 目录。
+    const externalImport = new ExternalImport({
+      userHome: options.userHome ?? options.pluginUserHome ?? homedir(),
+      env: options.importEnv ?? process.env,
+      workspaces: {
+        list: () => sessionsDb.workspaces.list(),
+        get: (id) => sessionsDb.workspaces.get(id),
+      },
+      memory,
+      plugins,
+    });
     // 预设角色（roles.ts）：内置的加上用户与项目里的 .md。
     const roles = new RoleStore({ dir: homePath(home, 'rolesDir') });
     // 共享任务清单（task-board.ts）：根会话已经不在的清单启动时清掉。
@@ -317,6 +334,8 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         },
         dispose: () => appTools?.plugins?.close(),
       },
+      // 只给某个项目的连接器（0.71.0）：按会话所在的工作区交给引擎。
+      projectConnectors: (workspaceId) => plugins.projectConnectors(workspaceId),
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);
         automations?.onTurnFinished(info);
@@ -566,6 +585,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(terminals !== undefined && { terminals }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
+        externalImport,
       }),
       // 待发消息与设置（R11）、工作区的 git 状态（U18）、改动的 diff（0.20.0）与文件（0.22.0）不依赖引擎：引擎不能插话时 Host 一律排队。
       features: {
@@ -626,6 +646,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         git_commit: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
+        external_import: true,
       },
       engineFeatures,
       plugins,

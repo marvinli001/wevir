@@ -241,6 +241,11 @@ export interface SessionManagerOptions {
     forget?(sessionIds: readonly SessionId[]): void;
     dispose?(): void;
   };
+  /**
+   * 只给某个项目的连接器（0.71.0，plugins.ts 的 `projectConnectors`）：建立或恢复引擎会话时按会话所在的工作区取，随
+   * `SessionConfig.connectors` 交给适配器。没给时不交。
+   */
+  projectConnectors?: (workspaceId: string) => NonNullable<SessionConfig['connectors']>;
   /** 一个回合结束（`turn.finished` 写入之后，异步调用）：应用级工具据此把结果回报给请它做事的会话。 */
   onTurnFinished?: (info: { sessionId: SessionId; turnId: TurnId; outcome: TurnOutcome }) => void;
   /**
@@ -587,6 +592,7 @@ export class SessionManager {
   readonly #ruleFiles: SessionManagerOptions['ruleFiles'];
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
+  readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
   /** 引擎未询问时由 Host 补问的应用工具审批，沿用 approval.respond。 */
   readonly #appApprovals = new Map<string, (approved: boolean) => void>();
   readonly #onTurnFinished: SessionManagerOptions['onTurnFinished'];
@@ -637,6 +643,7 @@ export class SessionManager {
     this.#ruleFiles = options.ruleFiles;
     this.#images = options.images;
     this.#appTools = options.appTools;
+    this.#projectConnectors = options.projectConnectors;
     this.#onTurnFinished = options.onTurnFinished;
     this.#onUsage = options.onUsage;
   }
@@ -652,9 +659,17 @@ export class SessionManager {
       rules?.text !== undefined && rules.rules.channel === 'instructions'
         ? { ...config, ruleInstructions: rules.text }
         : config;
-    if (this.#adapter.appTools !== true) return withRules;
+    // 项目的连接器（0.71.0）：按会话所在的工作区，不按 cwd（worktree 里的会话 cwd 不在项目根下）。
+    const workspaceId = this.workspaceOf(sessionId);
+    const connectors =
+      workspaceId === undefined ? undefined : this.#projectConnectors?.(workspaceId);
+    const withConnectors =
+      connectors === undefined || connectors.length === 0
+        ? withRules
+        : { ...withRules, connectors };
+    if (this.#adapter.appTools !== true) return withConnectors;
     const appTools = this.#appTools?.grant(sessionId);
-    return appTools === undefined ? withRules : { ...withRules, appTools };
+    return appTools === undefined ? withConnectors : { ...withConnectors, appTools };
   }
 
   /**

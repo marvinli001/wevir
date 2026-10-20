@@ -276,13 +276,20 @@ export class EchoAdapter implements AgentRuntimeAdapter {
     session.status = 'open';
     session.hub = new EventHub();
     // 恢复后 Provider、模型、档位与权限模式按 `config` 重新选定（0.25.0 的接力换回用过的来源时用得到）。
-    const { permissionMode: _mode, reasoningEffort: _effort, ...rest } = session.config;
+    const {
+      permissionMode: _mode,
+      reasoningEffort: _effort,
+      connectors: _connectors,
+      ...rest
+    } = session.config;
     session.config = {
       ...rest,
       providerId: config.providerId,
       modelId: config.modelId,
       ...(config.reasoningEffort !== undefined && { reasoningEffort: config.reasoningEffort }),
       ...(config.permissionMode !== undefined && { permissionMode: config.permissionMode }),
+      // 项目的连接器（0.71.0）按恢复时的设置。
+      ...(config.connectors !== undefined && { connectors: config.connectors }),
     };
     return this.#describe(session);
   }
@@ -853,7 +860,10 @@ export class EchoAdapter implements AgentRuntimeAdapter {
         kind: 'text',
         full: `${echo}: ${text}${answered}${noted}${recalled}${
           /plugins/i.test(text) && this.#pluginConfig
-            ? `\nConnectors: ${this.#pluginConfig.connectors
+            ? `\nConnectors: ${[
+                ...this.#pluginConfig.connectors,
+                ...(session.config.connectors ?? []),
+              ]
                 .filter((item) => item.enabled)
                 .map((item) => item.name)
                 .join(', ')}\nSkills: ${this.#pluginConfig.skills

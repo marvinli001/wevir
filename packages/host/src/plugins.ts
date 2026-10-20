@@ -15,6 +15,8 @@ import { dirname, extname, join, relative, resolve } from 'node:path';
 import {
   type Connector,
   ConnectorNameSchema,
+  type ImportedFrom,
+  ImportedFromSchema,
   type McpServerConfig,
   McpServerConfigSchema,
   type McpServerPatch,
@@ -26,6 +28,7 @@ import {
   type PluginsList,
   type Skill,
   SkillSchema,
+  WorkspaceIdSchema,
 } from '@wevir/protocol';
 import type { AgentRuntimeAdapter, EnginePluginConfig } from '@wevir/runtime-adapter';
 import { HostError } from './errors.js';
@@ -38,6 +41,21 @@ interface StoredConnector {
   name: string;
   config: McpServerConfig;
   enabled: boolean;
+  /** 只给这个项目的会话（0.71.0）；没有是全局的。 */
+  workspaceId?: string;
+  /** 从别的应用导入的（0.71.0）。 */
+  importedFrom?: ImportedFrom;
+  /**
+   * 导入时留空、等用户填的环境变量或请求头的键（0.71.0）。还是空值的键就是 `missingInputs`，这时连接器不交给引擎；用
+   * `connector.update` 给了值（或删掉这个键）就不再等它。
+   */
+  pending?: string[];
+}
+/** 散装连接器的额外属性（0.71.0 的项目范围与导入）。 */
+export interface ConnectorExtra {
+  workspaceId?: string;
+  importedFrom?: ImportedFrom;
+  pending?: string[];
 }
 /** Wevir 插件（0.42.0）。连接器存清单里的原样配置（含占位符），交给引擎前展开。 */
 interface StoredPlugin {
@@ -190,7 +208,10 @@ export class PluginRegistry {
 
   async engineConfig(cwd?: string): Promise<EnginePluginConfig> {
     const state = this.#state;
-    const connectors: EnginePluginConfig['connectors'] = structuredClone(state.connectors);
+    // 项目的连接器（0.71.0）不在这里：只交给那个项目的会话（`projectConnectors`）。
+    const connectors: EnginePluginConfig['connectors'] = engineConnectors(
+      state.connectors.filter((item) => item.workspaceId === undefined),
+    );
     const secrets: string[] = [];
     const off = new Set<string>();
     for (const plugin of state.plugins) {
@@ -229,6 +250,35 @@ export class PluginRegistry {
       })),
       ...(secrets.length > 0 && { secrets }),
     };
+  }
+
+  /**
+   * 只给这个项目的会话的连接器（0.71.0）：Host 建立或恢复会话时按会话所在的项目取（`SessionConfig.connectors`），不看 cwd，
+   * worktree 里的会话也拿得到。还有键没填的不给。
+   */
+  projectConnectors(workspaceId: string): EnginePluginConfig['connectors'] {
+    return engineConnectors(
+      this.#state.connectors.filter((item) => item.workspaceId === workspaceId),
+    );
+  }
+
+  /** 已知的全部 skills（受管的、插件里的与外部的），不问引擎状态（0.71.0 导入比对用）。 */
+  skills(): Promise<Skill[]> {
+    return this.#skills(undefined, this.#state);
+  }
+
+  /** 全部连接器的视图（散装的与插件里的），不问引擎状态（0.71.0 导入比对用）。 */
+  connectors(): Connector[] {
+    const state = this.#state;
+    return [
+      ...state.connectors.map((item) => view(item)),
+      ...state.plugins.flatMap((plugin) =>
+        plugin.connectors.map((item) => ({
+          ...view(item, engineName(plugin, item.name)),
+          pluginId: plugin.id,
+        })),
+      ),
+    ];
   }
 
   async list(): Promise<PluginsList> {
@@ -467,22 +517,36 @@ export class PluginRegistry {
     return { plugin: await this.#plugin(result.plugin), ignored: result.ignored };
   }
 
+  /**
+   * 加一个散装连接器。`extra.workspaceId`（0.71.0）只给那个项目（调用方先确认项目在）；名字在全局与同一项目之间唯一。
+   * 导入的带 `importedFrom` 与 `pending`（留空等用户填的键）。
+   */
   add(
     name: string,
     config: McpServerConfig,
     enabled?: boolean,
     signal?: AbortSignal,
+    extra: ConnectorExtra = {},
   ): Promise<Connector> {
     return this.#mutate(
       async (next) => {
-        this.#checkName(next, name);
+        this.#checkName(next, name, extra.workspaceId);
         const parsed = McpServerConfigSchema.safeParse(config);
         if (!parsed.success) throw invalid('Invalid connector configuration');
-        const item = {
+        if (
+          extra.workspaceId !== undefined &&
+          !WorkspaceIdSchema.safeParse(extra.workspaceId).success
+        )
+          throw invalid('Invalid workspace id');
+        const item: StoredConnector = {
           id: `con_${randomUUID()}`,
           name,
           config: { ...parsed.data, enabled: enabled ?? config.enabled ?? true },
           enabled: enabled ?? config.enabled ?? true,
+          ...(extra.workspaceId !== undefined && { workspaceId: extra.workspaceId }),
+          ...(extra.importedFrom !== undefined && { importedFrom: extra.importedFrom }),
+          ...(extra.pending !== undefined &&
+            extra.pending.length > 0 && { pending: [...extra.pending] }),
         };
         next.connectors.push(item);
         return view(item);
@@ -515,12 +579,22 @@ export class PluginRegistry {
       const item = next.connectors.find((value) => value.id === id);
       if (!item) throw invalid('Connector not found');
       if (patch.name !== undefined && patch.name !== item.name) {
-        this.#checkName(next, patch.name);
+        this.#checkName(next, patch.name, item.workspaceId, item.id);
         item.name = patch.name;
       }
       if (patch.config !== undefined) {
         const old = item.config;
         const config = patch.config;
+        // 导入时留空的键：给了值或删掉就不再等（0.71.0）；又给成空串的继续等。
+        if (item.pending !== undefined) {
+          const touched = config.transport === 'stdio' ? config.env : config.headers;
+          const pending = item.pending.filter((key) => {
+            const value = touched?.[key];
+            return value === undefined || value === '';
+          });
+          if (pending.length > 0) item.pending = pending;
+          else delete item.pending;
+        }
         const merged = { ...(old.transport === config.transport ? old : {}), ...config };
         if (config.transport === 'stdio')
           Object.assign(merged, {
@@ -541,6 +615,75 @@ export class PluginRegistry {
       item.config.enabled = item.enabled;
       return view(item);
     });
+  }
+
+  /**
+   * 导入一个 skill 文件夹（0.71.0）：同 `skill.install` 复制进 Wevir 的 skills 目录，记下 `importedFrom`。已有同名的 skill 时不导入，
+   * 返回 `exists`。
+   */
+  async importSkill(
+    folder: string,
+    importedFrom: ImportedFrom,
+    signal?: AbortSignal,
+  ): Promise<{ skill: Skill } | { exists: true }> {
+    const result = await this.#mutate(
+      async (next) => {
+        const stage = await mkdtemp(join(this.dir, '.install-'));
+        const published: string[] = [];
+        try {
+          const root = await stagePlugin(folder, join(stage, 'source'));
+          const skills = await readSkills(root);
+          const skill = skills[0];
+          if (skills.length !== 1 || skill === undefined) throw invalid('Not a single skill');
+          if ((await this.#skills(undefined, next)).some((item) => item.name === skill.name))
+            return { exists: true as const, published };
+          const item = await this.#publishSkill(skill, published, importedFrom);
+          next.skills.push(item);
+          return { skill: item, published };
+        } catch (error) {
+          for (const path of published) await rm(path, { recursive: true, force: true });
+          throw error instanceof HostError
+            ? error
+            : invalid(error instanceof Error ? error.message : 'Skill import failed');
+        } finally {
+          await rm(stage, { recursive: true, force: true });
+        }
+      },
+      async (result) => {
+        for (const path of result.published) await rm(path, { recursive: true, force: true });
+      },
+      signal,
+    );
+    return 'exists' in result ? { exists: true } : { skill: result.skill };
+  }
+
+  /** 把暂存区里的一个 skill 复制进 Wevir 的 skills 目录；新目录记进 `published`（出错时由调用方删掉）。 */
+  async #publishSkill(
+    skill: Skill,
+    published: string[],
+    importedFrom?: ImportedFrom,
+  ): Promise<Skill> {
+    const encoded = encodeURIComponent(skill.name);
+    const folderName =
+      encoded.length <= 180 && !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(encoded)
+        ? encoded
+        : `skill-${createHash('sha256').update(skill.name).digest('hex').slice(0, 24)}`;
+    const folder = join(this.skillsRoot, folderName);
+    try {
+      await lstat(folder);
+      throw invalid('A skill folder with this name already exists');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    published.push(folder);
+    await copyPlugin(dirname(skill.path), folder);
+    return {
+      ...skill,
+      id: `skl_${randomUUID()}`,
+      path: await realpath(join(folder, 'SKILL.md')),
+      enabled: true,
+      ...(importedFrom !== undefined && { importedFrom }),
+    };
   }
 
   removeConnector(id: string): Promise<void> {
@@ -601,29 +744,8 @@ export class PluginRegistry {
             names.add(skill.name);
             if (['.', '..'].includes(skill.name)) throw invalid('Invalid skill name');
           }
-          for (const skill of bundle.skills) {
-            const encoded = encodeURIComponent(skill.name);
-            const folderName =
-              encoded.length <= 180 &&
-              !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(encoded)
-                ? encoded
-                : `skill-${createHash('sha256').update(skill.name).digest('hex').slice(0, 24)}`;
-            const folder = join(this.skillsRoot, folderName);
-            try {
-              await lstat(folder);
-              throw invalid('A skill folder with this name already exists');
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-            }
-            published.push(folder);
-            await copyPlugin(dirname(skill.path), folder);
-            next.skills.push({
-              ...skill,
-              id: `skl_${randomUUID()}`,
-              path: await realpath(join(folder, 'SKILL.md')),
-              enabled: true,
-            });
-          }
+          for (const skill of bundle.skills)
+            next.skills.push(await this.#publishSkill(skill, published));
           // #mutate 的 save 也在本事务里；出错时由 rollback 清理新目录。
           return { published };
         } catch (error) {
@@ -643,11 +765,22 @@ export class PluginRegistry {
     return this.list();
   }
 
-  #checkName(state: Registry, name: string): void {
+  /**
+   * 名字在“全局 ∪ 同一项目”里唯一（0.71.0）：项目的连接器不能与全局的或同一项目的重名，全局的不能与任何项目里的重名（会一起交给
+   * 那个项目的会话）；不同项目之间可以重名。`self` 是改名的那一个。
+   */
+  #checkName(state: Registry, name: string, workspaceId?: string, self?: string): void {
     if (!ConnectorNameSchema.safeParse(name).success)
       throw invalid('Invalid or reserved connector name');
     if (
-      state.connectors.some((item) => item.name === name) ||
+      state.connectors.some(
+        (item) =>
+          item.id !== self &&
+          item.name === name &&
+          (workspaceId === undefined ||
+            item.workspaceId === undefined ||
+            item.workspaceId === workspaceId),
+      ) ||
       state.plugins.some((plugin) =>
         plugin.connectors.some((item) => engineName(plugin, item.name) === name),
       )
@@ -704,7 +837,28 @@ export class PluginRegistry {
   }
 }
 
+/** 还在等用户填的键（0.71.0）：`pending` 里值仍是空串的。 */
+function pendingKeys(item: StoredConnector): string[] {
+  const values = item.config.transport === 'stdio' ? item.config.env : item.config.headers;
+  return (item.pending ?? []).filter((key) => values?.[key] === '');
+}
+/** 交给引擎的散装连接器：键还没填完的不给。 */
+function engineConnectors(items: readonly StoredConnector[]): EnginePluginConfig['connectors'] {
+  return items
+    .filter((item) => pendingKeys(item).length === 0)
+    .map((item) => ({
+      name: item.name,
+      config: structuredClone(item.config),
+      enabled: item.enabled,
+    }));
+}
 function view(item: StoredConnector, name = item.name): Connector {
+  const missing = item.pending === undefined ? [] : pendingKeys(item);
+  const scope = {
+    ...(missing.length > 0 && { missingInputs: missing }),
+    ...(item.workspaceId !== undefined && { workspaceId: item.workspaceId }),
+    ...(item.importedFrom !== undefined && { importedFrom: item.importedFrom }),
+  };
   const config = structuredClone(item.config);
   if (config.transport === 'stdio') {
     const { env, ...rest } = config;
@@ -712,6 +866,7 @@ function view(item: StoredConnector, name = item.name): Connector {
       id: item.id,
       name,
       enabled: item.enabled,
+      ...scope,
       config: {
         ...rest,
         ...(env !== undefined && {
@@ -725,6 +880,7 @@ function view(item: StoredConnector, name = item.name): Connector {
     id: item.id,
     name,
     enabled: item.enabled,
+    ...scope,
     config: {
       ...rest,
       ...(headers !== undefined && {
@@ -777,11 +933,22 @@ function storedConnector(
     typeof item.enabled !== 'boolean'
   )
     throw new Error('Invalid connector registry');
+  if (
+    (item.workspaceId !== undefined && !WorkspaceIdSchema.safeParse(item.workspaceId).success) ||
+    (item.pending !== undefined &&
+      (!Array.isArray(item.pending) || item.pending.some((key) => typeof key !== 'string')))
+  )
+    throw new Error('Invalid connector registry');
   return {
     id: item.id,
     name: item.name as string,
     enabled: item.enabled,
     config: McpServerConfigSchema.parse(item.config),
+    ...(item.workspaceId !== undefined && { workspaceId: item.workspaceId as string }),
+    ...(item.importedFrom !== undefined && {
+      importedFrom: ImportedFromSchema.parse(item.importedFrom),
+    }),
+    ...(item.pending !== undefined && { pending: item.pending as string[] }),
   };
 }
 function storedPlugin(value: unknown, packagesRoot: string): StoredPlugin {
