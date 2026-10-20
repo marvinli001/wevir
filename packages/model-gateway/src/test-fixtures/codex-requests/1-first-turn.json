@@ -1,5 +1,5 @@
 {
-  "recordedBy": "spikes/codex-app-server/src/record-requests.ts",
+  "recordedBy": "一次性录制脚本（不在仓库中）",
   "codex": "rust-v0.162.1 (092d3ac), codex-app-server, Responses mock",
   "description": "第一回合的第一个请求",
   "path": "/v1/responses",

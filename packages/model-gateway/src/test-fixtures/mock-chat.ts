@@ -1,6 +1,5 @@
-// 改写自 spikes/codex-app-server/src/mock-chat.ts：脚本化的 OpenAI Chat Completions 流式服务
-// （POST …/chat/completions），代表只有 Chat 接口的上游。推理按 DeepSeek 的方式放在 delta.reasoning_content；
-// 用法块按 stream_options.include_usage 最后单独发。另加 Spike 没有的：finish_reason、流中的错误、提前断开、原样的 chunk。
+// 脚本化的 OpenAI Chat Completions 流式服务（POST …/chat/completions），代表只有 Chat 接口的上游。推理按 DeepSeek 的方式放在 delta.reasoning_content；
+// 用法块按 stream_options.include_usage 最后单独发。另有 finish_reason、流中的错误、提前断开、原样的 chunk。
 
 import { flatToolName } from '../tools.js';
 import type { ChatRequest } from '../types.js';
