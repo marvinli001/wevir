@@ -329,9 +329,9 @@ P3 的 `packages/host/src/plugin-app-tools.ts` 是 Wevir 自己的应用工具�
 
 | Wevir 文件 | 来源路径（sst/opencode） | 来源提交 | 许可证 | 修改说明 |
 |---|---|---|---|---|
-| `packages/host/src/lsp/servers.ts` | `packages/opencode/src/lsp/server.ts`（Typescript、Pyright、Gopls、RustAnalyzer、Clangd、SourceKit、NearestRoot）、`lsp/language.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：只留六种语言，不自动下载与安装，找不到时给出安装命令；TypeScript 7 用原生 `tsc --lsp`；PATH 之外找常见的安装位置；项目根到会话目录为止 |
-| `packages/host/src/lsp/client.ts` | `packages/opencode/src/lsp/client.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写成类，不用 Effect；加 didSave、打开文档上限、递归监视转发 didChangeWatchedFiles、stderr 末尾、拒绝 applyEdit、shutdown / exit 后结束进程 |
-| `packages/host/src/lsp/manager.ts` | `packages/opencode/src/lsp/lsp.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：失败 3 次的窗口代替永久的 `broken`，加空闲关闭、上限、回收与引擎改动文件的记录 |
+| `packages/host/src/lsp/servers.ts` | `packages/opencode/src/lsp/server.ts`（Typescript、Pyright、Gopls、RustAnalyzer、Clangd、SourceKit、NearestRoot）、`lsp/language.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：只留六种语言，不自动下载与安装，找不到时给出安装命令；TypeScript 7 用原生 `tsc --lsp`；PATH 之外找常见的安装位置；项目根到会话目录为止；读版本、对照最低版本，找不到或过旧时给出项目级与用户级安装方案（只在用户发起时运行）；没有项目 TypeScript 时用全局的 TypeScript 7 |
+| `packages/host/src/lsp/client.ts` | `packages/opencode/src/lsp/client.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写成类，不用 Effect；加 didSave、打开文档上限、递归监视转发 didChangeWatchedFiles、stderr 末尾、拒绝 applyEdit、shutdown / exit 后结束进程；记下声明的能力名与最近一次诊断的时间 |
+| `packages/host/src/lsp/manager.ts` | `packages/opencode/src/lsp/lsp.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：失败 3 次的窗口代替永久的 `broken`，加空闲关闭、上限、回收与引擎改动文件的记录；起服务器前读版本，记下每个服务器的状态、能力与启动日志，可以重启 |
 | `packages/host/src/lsp-tools.ts` | `packages/opencode/src/tool/lsp.ts`、`tool/lsp.txt`、`lsp/diagnostic.ts` | `e3c4eb242585dcd77be1a867391b7c25fd47ce52` | MIT | 改写：一个 `lsp` 工具拆成七个应用级工具，结果写成路径:行:列加那一行，位置可给符号名，加诊断工具与改动文件的错误反馈，说明文字重写 |
 
 ### 4.1 其他第三方来源的文件

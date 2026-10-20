@@ -40,6 +40,8 @@ export const ReviewCommentIdSchema = z.templateLiteral(['rvc_', IdBodySchema]);
 export const TerminalIdSchema = z.templateLiteral(['trm_', IdBodySchema]);
 /** 用户发起的一次项目安装（0.70.0）。 */
 export const InstallRunIdSchema = z.templateLiteral(['ins_', IdBodySchema]);
+/** 一次语言服务器安装（0.71.0）。 */
+export const LspInstallIdSchema = z.templateLiteral(['lsi_', IdBodySchema]);
 
 export type WorkspaceId = z.infer<typeof WorkspaceIdSchema>;
 export type EnvironmentId = z.infer<typeof EnvironmentIdSchema>;
@@ -59,6 +61,7 @@ export type VerificationRoundId = z.infer<typeof VerificationRoundIdSchema>;
 export type RepairId = z.infer<typeof RepairIdSchema>;
 export type TerminalId = z.infer<typeof TerminalIdSchema>;
 export type InstallRunId = z.infer<typeof InstallRunIdSchema>;
+export type LspInstallId = z.infer<typeof LspInstallIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
 export type ReviewCommentId = z.infer<typeof ReviewCommentIdSchema>;

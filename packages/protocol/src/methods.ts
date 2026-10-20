@@ -102,6 +102,19 @@ import {
   GitStatusParamsSchema,
   GitStatusResultSchema,
 } from './git.js';
+import {
+  LspCancelInstallParamsSchema,
+  LspCancelInstallResultSchema,
+  LspChangedParamsSchema,
+  LspInstallParamsSchema,
+  LspInstallResultSchema,
+  LspLogParamsSchema,
+  LspLogResultSchema,
+  LspRestartParamsSchema,
+  LspRestartResultSchema,
+  LspStatusParamsSchema,
+  LspStatusResultSchema,
+} from './lsp.js';
 import { PluginMethodSchemas } from './plugins.js';
 import {
   ProcessChangedParamsSchema,
@@ -2043,6 +2056,31 @@ export const MethodSchemas = {
     result: TerminalCloseResultSchema,
     permission: 'session.write',
   },
+  'lsp.status': {
+    params: LspStatusParamsSchema,
+    result: LspStatusResultSchema,
+    permission: 'workspace.read',
+  },
+  'lsp.restart': {
+    params: LspRestartParamsSchema,
+    result: LspRestartResultSchema,
+    permission: 'workspace.write',
+  },
+  'lsp.log': {
+    params: LspLogParamsSchema,
+    result: LspLogResultSchema,
+    permission: 'workspace.read',
+  },
+  'lsp.install': {
+    params: LspInstallParamsSchema,
+    result: LspInstallResultSchema,
+    permission: 'workspace.write',
+  },
+  'lsp.cancelInstall': {
+    params: LspCancelInstallParamsSchema,
+    result: LspCancelInstallResultSchema,
+    permission: 'workspace.write',
+  },
   'automation.list': {
     params: AutomationListParamsSchema,
     result: AutomationListResultSchema,
@@ -2145,6 +2183,8 @@ export const NotificationSchemas = {
   'terminal.output': { params: TerminalOutputParamsSchema },
   /** 发给调用过 `terminal.*` 的连接（0.69.0）。 */
   'terminal.changed': { params: TerminalChangedParamsSchema },
+  /** 发给调用过 `lsp.*` 的连接（0.71.0）。 */
+  'lsp.changed': { params: LspChangedParamsSchema },
   /** 发给用 `browser.register` 登记过的连接（0.33.0）：请它执行一个浏览器命令，用 `browser.respond` 回答。 */
   'browser.request': { params: BrowserRequestParamsSchema },
 } as const satisfies Record<string, { params: z.ZodType }>;

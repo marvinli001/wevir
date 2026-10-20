@@ -53,6 +53,7 @@ import './rules-card';
 import './usage-card';
 import './readiness-card';
 import './verification-card';
+import './lsp-card';
 import './outputs-card';
 import './task-board-card';
 import { RAIL_DOCKED_WIDTH, type RailRoom, railRoom } from './rail-model';

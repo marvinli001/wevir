@@ -857,6 +857,30 @@ describe('项目环境就绪（0.70.0）', () => {
   });
 });
 
+describe('语言服务器（0.71.0）', () => {
+  it('onLspChanged：带上通知的内容，重连后以 undefined 通知；格式不对的忽略', async () => {
+    const host = new FakeHost();
+    host.on('host.hello', () => ({ result: { ...HELLO, features: { lsp_status: true } } }));
+    const { client, warnings } = await connect(host);
+    const changes: unknown[] = [];
+    const stop = client.onLspChanged((change) => changes.push(change));
+    const change = { serverId: 'typescript', root: '/x' };
+    host.last.notify('lsp.changed', change);
+    await vi.waitFor(() => expect(changes).toEqual([change]));
+    host.last.notify('lsp.changed', { serverId: '' });
+    await tick();
+    expect(changes).toHaveLength(1);
+    expect(warnings.join('\n')).toMatch(/malformed lsp.changed/);
+    host.last.drop();
+    await vi.waitFor(() => expect(changes).toHaveLength(2));
+    expect(changes[1]).toBeUndefined();
+    stop();
+    host.last.notify('lsp.changed', change);
+    await tick();
+    expect(changes).toHaveLength(2);
+  });
+});
+
 describe('用户终端（0.69.0）', () => {
   it('onTerminalOutput / onTerminalsChanged：带上通知的内容，重连后 changed 以 undefined 通知；格式不对的忽略', async () => {
     const host = new FakeHost();

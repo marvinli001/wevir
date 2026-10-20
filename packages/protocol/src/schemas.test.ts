@@ -215,6 +215,9 @@ import {
   ids,
   imagePart,
   installRun,
+  lspInstallSample,
+  lspMissingSample,
+  lspRunningSample,
   methodSamples,
   notificationSamples,
   pendingApproval,
@@ -2577,6 +2580,71 @@ const standaloneCases: Case[] = [
     schema: protocol.ProcessStopSignalSchema,
     valid: ['SIGINT', 'SIGTERM', 'SIGKILL'],
     invalid: ['SIGHUP'],
+  },
+  {
+    name: 'LspInstallId',
+    schema: protocol.LspInstallIdSchema,
+    valid: [`lsi_${ULID}`],
+    invalid: ['p3', `trm_${ULID}`],
+  },
+  {
+    name: 'LspServerSource',
+    schema: protocol.LspServerSourceSchema,
+    valid: ['project', 'user', 'system'],
+    invalid: ['global'],
+  },
+  {
+    name: 'LspServerState',
+    schema: protocol.LspServerStateSchema,
+    valid: ['missing', 'outdated', 'not_started', 'starting', 'running', 'failed'],
+    invalid: ['crashed'],
+  },
+  {
+    name: 'LspInstallScope',
+    schema: protocol.LspInstallScopeSchema,
+    valid: ['project', 'user', 'system'],
+    invalid: ['machine'],
+  },
+  {
+    name: 'LspInstallPlan',
+    schema: protocol.LspInstallPlanSchema,
+    valid: [
+      { id: 'user-go', scope: 'user', command: 'go install x@latest', runnable: true },
+      { id: 'p', scope: 'project', command: 'npm i -D typescript', cwd: '/x', runnable: false },
+    ],
+    invalid: [{ id: 'p', scope: 'project', command: '', runnable: true }],
+  },
+  {
+    name: 'LspInstallStatus',
+    schema: protocol.LspInstallStatusSchema,
+    valid: ['running', 'verifying', 'succeeded', 'failed', 'cancelled', 'timed_out'],
+    invalid: ['done'],
+  },
+  {
+    name: 'LspServerStatus',
+    schema: protocol.LspServerStatusSchema,
+    valid: [
+      lspRunningSample,
+      lspMissingSample,
+      { ...lspMissingSample, state: 'outdated', minVersion: '2.1.0' },
+    ],
+    invalid: [
+      { ...lspMissingSample, state: 'gone' },
+      { ...lspMissingSample, source: 'global' },
+      { ...lspMissingSample, plans: [{ id: 'x', scope: 'machine', command: 'x', runnable: true }] },
+    ],
+  },
+  {
+    name: 'LspInstallRun',
+    schema: protocol.LspInstallRunSchema,
+    valid: [
+      lspInstallSample,
+      { ...lspInstallSample, status: 'verifying', verification: undefined },
+    ],
+    invalid: [
+      { ...lspInstallSample, id: 'ins_1' },
+      { ...lspInstallSample, status: 'paused' },
+    ],
   },
   {
     name: 'HostProcess',

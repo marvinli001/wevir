@@ -34,6 +34,7 @@ import { newId } from './ids.js';
 import { ImageStore } from './images.js';
 import type { Logger } from './logger.js';
 import { LspManager } from './lsp/manager.js';
+import { LspStatusService } from './lsp/service.js';
 import { MemoryStore } from './memory.js';
 import { instructionsWithMemory } from './memory-tools.js';
 import { PluginRegistry } from './plugins.js';
@@ -509,10 +510,21 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 内置浏览器（0.33.0）：桌面端登记为浏览器提供方，应用级工具的 browser_* 经它交给桌面端的浏览器。
     const browsers = adapter.appTools === true ? new BrowserBroker() : undefined;
     // 代码智能（lsp_* 工具）：语言服务器按需启动，空闲关闭，Host 退出时回收。
+    // 0.71.0：`lsp.*` 看语言服务器的状态、重启、由用户发起安装。
+    let lspStatus: LspStatusService | undefined;
     const lsp =
       adapter.appTools === true
-        ? new LspManager({ onWarning: (message, fields) => logger.warn(message, fields) })
+        ? new LspManager({
+            onWarning: (message, fields) => logger.warn(message, fields),
+            onChange: (serverId, root) => lspStatus?.changed({ serverId, root }),
+          })
         : undefined;
+    if (lsp !== undefined) {
+      lspStatus = new LspStatusService({
+        lsp,
+        onWarning: (message, fields) => logger.warn(message, fields),
+      });
+    }
     if (adapter.appTools === true) {
       appTools = new AppTools({
         plugins,
@@ -588,6 +600,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(processOutput.available && { processes: processOutput }),
         readiness: readinessService,
         ...(terminals !== undefined && { terminals }),
+        ...(lspStatus !== undefined && { lsp: lspStatus }),
         ...(options.web !== undefined && { web: options.web }),
         ...(presetTools !== undefined && { toolPresets: () => presetTools.presets() }),
       }),
@@ -651,6 +664,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
         workspace_readiness: true,
+        ...(lspStatus !== undefined && { lsp_status: true }),
       },
       engineFeatures,
       plugins,
@@ -662,6 +676,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       ...(processOutput.available && { processes: processOutput }),
       readiness: readinessService,
       ...(terminals !== undefined && { terminals }),
+      ...(lspStatus !== undefined && { lsp: lspStatus }),
       ...(browsers !== undefined && { browsers }),
       ...(options.port !== undefined && { port: options.port }),
       // 桌面渲染进程的 WebSocket 带 Origin 头（host-api.md §1）。
@@ -696,6 +711,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
           verification,
           readiness: readinessService,
           lsp,
+          lspStatus,
           sessions: manager,
           adapter,
           accounts,
@@ -761,6 +777,8 @@ interface ShutdownParts {
   readiness: ReadinessService | undefined;
   /** 代码智能的语言服务器；引擎挂不上应用级工具时没有。 */
   lsp: LspManager | undefined;
+  /** 语言服务器的安装（0.71.0）：结束还在跑的安装命令。 */
+  lspStatus: LspStatusService | undefined;
   sessions: SessionManager;
   adapter: AgentRuntimeAdapter;
   accounts: HostAccounts | undefined;
@@ -833,6 +851,7 @@ async function shutdownSequence(parts: ShutdownParts): Promise<void> {
   // 超时的话引擎进程留给适配器自己回收（ACP 引擎读到 stdin EOF 即退出）。
   await step('dispose_adapter', () => parts.adapter.dispose(), true);
   // 语言服务器：先 shutdown / exit，不退出的结束进程。
+  parts.lspStatus?.close();
   if (parts.lsp !== undefined) await step('close_lsp', () => parts.lsp?.close(), true);
   // 引擎（和它挂着的桥脚本）停了之后再关联网服务的端点。
   if (parts.web !== undefined) await step('close_web', () => parts.web?.close(), true);

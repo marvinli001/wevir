@@ -72,6 +72,8 @@ export interface HostRpcServerOptions {
   processes?: ConnectionHost['processes'];
   /** 项目环境就绪（0.70.0）：调过 `readiness.*` 的连接经它收 `readiness.changed`。 */
   readiness?: ConnectionHost['readiness'];
+  /** 语言服务器（0.71.0）：调过 `lsp.*` 的连接经它收 `lsp.changed`。 */
+  lsp?: ConnectionHost['lsp'];
   /** 用户的交互终端（0.69.0）：`terminal.attach` 登记连接，调过 `terminal.*` 的连接收 `terminal.changed`。 */
   terminals?: ConnectionHost['terminals'];
   /** 内置浏览器（0.33.0）：连接用 `browser.register` 登记为浏览器提供方。 */
@@ -167,6 +169,7 @@ export class HostRpcServer {
       ...(options.automations !== undefined && { automations: options.automations }),
       ...(options.processes !== undefined && { processes: options.processes }),
       ...(options.readiness !== undefined && { readiness: options.readiness }),
+      ...(options.lsp !== undefined && { lsp: options.lsp }),
       ...(options.terminals !== undefined && { terminals: options.terminals }),
       ...(options.browsers !== undefined && { browsers: options.browsers }),
       limits,

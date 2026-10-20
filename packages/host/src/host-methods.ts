@@ -45,6 +45,7 @@ import {
 import { readGitStatus } from './git-status.js';
 import { newId } from './ids.js';
 import type { ImageStore } from './images.js';
+import type { LspStatusService } from './lsp/service.js';
 import {
   MemoryError,
   type MemoryNote,
@@ -148,6 +149,8 @@ export interface HostMethodsOptions {
   git?: GitService;
   /** 项目环境就绪（0.70.0，`readiness.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   readiness?: ReadinessService;
+  /** 语言服务器的状态与安装（0.71.0，`lsp.*`）；省略时这些方法回 `INVALID_PARAMS`。 */
+  lsp?: LspStatusService;
   /** 进程输出（0.69.0，`process.*`）；省略时这些方法回 `INVALID_PARAMS`（测试）。 */
   processes?: ProcessOutputService;
   /** 用户的交互终端（0.69.0，`terminal.*`）；node-pty 加载不了时省略，这些方法回 `INVALID_PARAMS`。 */
@@ -280,6 +283,10 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
   const usageStats = (): NonNullable<HostMethodsOptions['usage']> => {
     if (options.usage === undefined) throw invalidParams([], 'this host has no usage statistics');
     return options.usage;
+  };
+  const lspStatus = (): LspStatusService => {
+    if (options.lsp === undefined) throw invalidParams([], 'this host has no language servers');
+    return options.lsp;
   };
   const processOutput = (): ProcessOutputService => {
     if (options.processes === undefined) throw invalidParams([], 'this host has no process output');
@@ -1151,6 +1158,24 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         { message, expected, ...(includeExternal !== undefined && { includeExternal }) },
         sessionId,
       ),
+    'lsp.status': async ({ workspaceId, sessionId, refresh }) =>
+      lspStatus().status(await gitDirectory(workspaceId, sessionId), refresh === true),
+    'lsp.restart': async ({ workspaceId, sessionId, serverId, root }) => ({
+      server: await lspStatus().restart(await gitDirectory(workspaceId, sessionId), serverId, root),
+    }),
+    'lsp.log': async ({ workspaceId, sessionId, serverId, root }) => ({
+      log: await lspStatus().log(await gitDirectory(workspaceId, sessionId), serverId, root),
+    }),
+    'lsp.install': async ({ workspaceId, sessionId, serverId, root, planId, confirmGlobal }) => ({
+      run: await lspStatus().install(
+        await gitDirectory(workspaceId, sessionId),
+        serverId,
+        root,
+        planId,
+        confirmGlobal === true,
+      ),
+    }),
+    'lsp.cancelInstall': async ({ installId }) => ({ run: lspStatus().cancel(installId) }),
     'process.list': ({ workspaceId, sessionId }) => ({
       processes: processOutput().list({
         ...(workspaceId !== undefined && { workspaceId }),
