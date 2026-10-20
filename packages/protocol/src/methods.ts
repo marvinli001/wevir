@@ -73,6 +73,7 @@ import {
   VertexConfigSchema,
   WebSearchServiceIdSchema,
   WebSettingsSchema,
+  WORKSPACE_EXTRA_FOLDERS_MAX,
   WorkspaceSchema,
   WorktreeModeSchema,
 } from './entities.js';
@@ -147,6 +148,11 @@ export const WorkspaceAddParamsSchema = z.object({
   rootPath: z.string().min(1),
   /** 省略时取目录名。 */
   displayName: z.string().min(1).optional(),
+  /**
+   * 其他源文件夹（0.64.0，Host 功能 `workspace_folders`）：绝对路径，Host 取 realpath，检查同 `rootPath`，不能与主文件夹或彼此
+   * 重复。只在新建时用；`rootPath` 已有工作区（`created: false`）时不改它的文件夹。
+   */
+  extraFolders: z.array(z.string().min(1)).max(WORKSPACE_EXTRA_FOLDERS_MAX).optional(),
 });
 
 export const WorkspaceAddResultSchema = z.object({
@@ -164,12 +170,19 @@ export const WORKSPACE_NAME_MAX_LENGTH = 200;
 
 /**
  * `workspace.update`（0.49.0，Host 功能 `workspace_update`）：改项目的显示名。`rootPath` 不可改。`displayName` 去掉首尾空白后不能是
- * 空的；“对话”工作区不能改。
+ * 空的；“对话”工作区不能改。0.64.0（Host 功能 `workspace_folders`）起也能整组换掉其他源文件夹（`[]` 清空），两项都可省略，省略
+ * 的不改；已经开着的会话不受影响，之后新建的会话才用新的文件夹。
  */
-export const WorkspaceUpdateParamsSchema = z.object({
-  workspaceId: WorkspaceIdSchema,
-  displayName: z.string().min(1).max(WORKSPACE_NAME_MAX_LENGTH),
-});
+export const WorkspaceUpdateParamsSchema = z
+  .object({
+    workspaceId: WorkspaceIdSchema,
+    displayName: z.string().min(1).max(WORKSPACE_NAME_MAX_LENGTH).optional(),
+    extraFolders: z.array(z.string().min(1)).max(WORKSPACE_EXTRA_FOLDERS_MAX).optional(),
+  })
+  .refine((params) => params.displayName !== undefined || params.extraFolders !== undefined, {
+    message: 'displayName or extraFolders is required',
+    path: ['displayName'],
+  });
 
 export const WorkspaceUpdateResultSchema = z.object({
   workspace: WorkspaceSchema,

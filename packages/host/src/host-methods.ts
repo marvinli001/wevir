@@ -215,6 +215,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     rootPath: record.rootPath,
     displayName: record.displayName,
     ...(options.chats?.isChats(record) === true && { kind: 'chats' as const }),
+    ...(record.extraFolders !== undefined &&
+      record.extraFolders.length > 0 && { extraFolders: record.extraFolders }),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   });
@@ -364,11 +366,15 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
     }),
     'workspace.list': () => ({ workspaces: storage.workspaces.list().map(toWorkspace) }),
 
-    'workspace.add': async ({ rootPath, displayName }) => {
+    'workspace.add': async ({ rootPath, displayName, extraFolders }) => {
       const real = await resolveWorkspacePath(rootPath);
       if (options.chats?.owns(real) === true) {
         throw invalidParams(['rootPath'], 'this folder holds Wevir chats');
       }
+      const extra =
+        extraFolders === undefined
+          ? []
+          : await resolveExtraFolders(real, extraFolders, options.chats);
       // 查重与插入在同一个同步段里，两个并发的 add 不会都插入。
       const existing = storage.workspaces.getByRootPath(real);
       if (existing) {
@@ -380,6 +386,7 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
         id: newId('ws'),
         rootPath: real,
         displayName: displayName ?? (basename(real) || real),
+        ...(extra.length > 0 && { extraFolders: extra }),
         createdAt: now,
         updatedAt: now,
       };
@@ -407,8 +414,8 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       return {};
     },
 
-    // 0.49.0：只改显示名（去掉首尾空白后不能是空的），rootPath 不可改；“对话”工作区不能改。
-    'workspace.update': ({ workspaceId, displayName }) => {
+    // 0.49.0：改显示名（去掉首尾空白后不能是空的），rootPath 不可改；“对话”工作区不能改。0.64.0 起也能整组换掉其他源文件夹。
+    'workspace.update': ({ workspaceId, displayName, extraFolders }) => {
       const workspace = storage.workspaces.get(workspaceId);
       if (!workspace || workspace.removedAt !== undefined) {
         throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
@@ -416,10 +423,24 @@ export function createHostMethods(options: HostMethodsOptions): HostMethods {
       if (options.chats?.isChats(workspace) === true) {
         throw invalidParams(['workspaceId'], 'the chats workspace cannot be renamed');
       }
-      const name = displayName.trim();
+      const name = displayName?.trim();
       if (name === '') throw invalidParams(['displayName'], 'displayName must not be blank');
-      if (name !== workspace.displayName) storage.workspaces.rename(workspaceId, name, isoNow());
-      return { workspace: toWorkspace(mustGetWorkspace(storage, workspaceId)) };
+      // 先查完文件夹再写，任何一项不对都什么都不改；只改名时同步返回。
+      const apply = (extra: string[] | undefined) => {
+        const current = mustGetWorkspace(storage, workspaceId);
+        if (current.removedAt !== undefined) {
+          throw new HostError('WORKSPACE_NOT_FOUND', `workspace ${workspaceId} not found`);
+        }
+        if (name !== undefined && name !== current.displayName) {
+          storage.workspaces.rename(workspaceId, name, isoNow());
+        }
+        if (extra !== undefined && !sameFolders(extra, current.extraFolders ?? [])) {
+          storage.workspaces.setExtraFolders(workspaceId, extra, isoNow());
+        }
+        return { workspace: toWorkspace(mustGetWorkspace(storage, workspaceId)) };
+      };
+      if (extraFolders === undefined) return apply(undefined);
+      return resolveExtraFolders(workspace.rootPath, extraFolders, options.chats).then(apply);
     },
 
     // 0.15.0（U22.1，domain-model §3.10）：保存的环境。
@@ -1050,6 +1071,34 @@ async function resolveWorkspacePath(rootPath: string): Promise<string> {
     throw error;
   }
   return real;
+}
+
+/**
+ * 项目的其他源文件夹（0.64.0）：每个都按 `workspace.add` 的规矩查（错误带出问题的那个路径），取 realpath；不能是主文件夹、
+ * 不能重复、不能是放对话的目录。
+ */
+async function resolveExtraFolders(
+  rootPath: string,
+  folders: readonly string[],
+  chats: ChatFolders | undefined,
+): Promise<string[]> {
+  const resolved: string[] = [];
+  for (const folder of folders) {
+    const real = await resolveWorkspacePath(folder);
+    if (real === rootPath) {
+      throw invalidParams(['extraFolders'], `${folder} is the project's main folder`);
+    }
+    if (resolved.includes(real)) throw invalidParams(['extraFolders'], `${folder} is listed twice`);
+    if (chats?.owns(real) === true) {
+      throw invalidParams(['extraFolders'], 'this folder holds Wevir chats');
+    }
+    resolved.push(real);
+  }
+  return resolved;
+}
+
+function sameFolders(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((folder, index) => folder === b[index]);
 }
 
 function mustGetWorkspace(storage: Storage, id: string): WorkspaceRecord {

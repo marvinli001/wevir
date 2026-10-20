@@ -1,11 +1,11 @@
 // “创建项目”对话框（U5，照 Codex 桌面端）：项目名称与源文件夹。界面上的“项目”就是 Host 的工作区
-// （workspace.add 的 displayName 与 rootPath）。侧栏“项目”一节的 +、首页的项目下拉、设置 → 项目都打开它；首页
-// 没有项目时按发送也先打开它，建好后接着发（onCreated）。
+// （workspace.add 的 displayName 与 rootPath；0.64.0 起第二个起的源文件夹是 extraFolders）。侧栏“项目”一节的 +、首页的项目
+// 下拉、设置 → 项目都打开它；首页没有项目时按发送也先打开它，建好后接着发（onCreated）。
 
 import { isRpcError } from '@wevir/client-sdk';
 import type { Workspace } from '@wevir/protocol';
 import { cn } from 'cn';
-import { Folder, FolderPlus, X } from 'lucide-react';
+import { Folder } from 'lucide-react';
 import { type FormEvent, useEffect, useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,13 @@ import { expandWorkspace } from '@/layout/layout-state';
 import { createStore } from '@/lib/store';
 import { rememberWorkspace } from '@/routes/last-location';
 import { paths } from '@/routes/paths';
+import {
+  basename,
+  chooseSourceFolder,
+  SOURCE_FOLDERS_MAX,
+  SourceFolderList,
+  useMultipleSourceFolders,
+} from './source-folders';
 
 interface CreateProjectRequest {
   /** 建好之后做什么；省略时回到首页并选中它。 */
@@ -52,20 +59,24 @@ function CreateProjectForm({
   const navigate = useNavigate();
   const nameId = useId();
   const [name, setName] = useState('');
-  const [folder, setFolder] = useState<string>();
+  const multiple = useMultipleSourceFolders();
+  const [folders, setFolders] = useState<readonly string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const folder = folders[0];
 
   // 换了文件夹就清掉上次的错误。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只在换文件夹时触发。
-  useEffect(() => setError(undefined), [folder]);
+  useEffect(() => setError(undefined), [folders]);
 
   const choose = async () => {
     try {
-      const path = await window.wevir.selectFolder();
-      if (path !== null) setFolder(path);
+      const path = await chooseSourceFolder();
+      if (path !== null) {
+        setFolders((current) => (current.includes(path) ? current : [...current, path]));
+      }
     } catch (reason) {
-      setError(t('project.selectFailed', { error: describe(reason) }));
+      setError(describe(reason));
     }
   };
 
@@ -78,9 +89,11 @@ function CreateProjectForm({
     setError(undefined);
     try {
       const displayName = name.trim();
+      const extraFolders = folders.slice(1);
       const { workspace, created } = await client.request('workspace.add', {
         rootPath: folder,
         ...(displayName !== '' && { displayName }),
+        ...(extraFolders.length > 0 && { extraFolders }),
       });
       // 同一个文件夹已经是列表里的项目：Host 返回原来的，不改名。
       if (!created && listed.has(workspace.id)) {
@@ -123,44 +136,12 @@ function CreateProjectForm({
 
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium text-soft-foreground">{t('project.create.folder')}</p>
-          {folder ? (
-            <div className="flex items-center gap-2.5 rounded-xl border border-border bg-muted/40 py-2 pr-2 pl-3">
-              <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              <span
-                dir="rtl"
-                title={folder}
-                className="min-w-0 flex-1 truncate text-left font-mono text-sm"
-              >
-                <bdi dir="ltr">{folder}</bdi>
-              </span>
-              <Button type="button" variant="ghost" size="sm" onClick={choose}>
-                {t('project.create.change')}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label={t('project.create.clearFolder')}
-                onClick={() => setFolder(undefined)}
-              >
-                <X />
-              </Button>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-2.5 rounded-xl border border-dashed border-border-strong px-4 py-6">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="rounded-full px-3"
-                onClick={choose}
-                data-action="choose-folder"
-              >
-                <FolderPlus data-icon="inline-start" />
-                {t('project.create.chooseFolder')}
-              </Button>
-            </div>
-          )}
+          <SourceFolderList
+            folders={folders}
+            max={multiple ? SOURCE_FOLDERS_MAX : 1}
+            onAdd={choose}
+            onRemove={(index) => setFolders((current) => current.filter((_, i) => i !== index))}
+          />
         </div>
 
         {error && (
@@ -184,15 +165,6 @@ function CreateProjectForm({
         </div>
       </form>
     </DialogContent>
-  );
-}
-
-function basename(path: string): string {
-  return (
-    path
-      .replace(/[\\/]+$/, '')
-      .split(/[\\/]/)
-      .pop() || path
   );
 }
 

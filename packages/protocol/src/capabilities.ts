@@ -113,6 +113,11 @@ export const HOST_FEATURES = {
   workspaceFiles: 'workspace_files',
   /** 项目改名（0.49.0）：`workspace.update`（只改显示名）。与引擎无关。 */
   workspaceUpdate: 'workspace_update',
+  /**
+   * 项目的多个源文件夹（0.64.0）：`Workspace.extraFolders`，`workspace.add` / `workspace.update` 的 `extraFolders`。项目里的会话
+   * 把它们作为额外的可写目录交给引擎（要引擎的 `additionalRoots`）。
+   */
+  workspaceFolders: 'workspace_folders',
   /** 用户给会话改名（0.23.0）：`session.rename`，标题来源 `user`。与引擎无关。 */
   sessionRename: 'session_rename',
   /** 会话归档（0.23.0）：`session.archive`、`session.list` 的 `archived`、`Session.archivedAt`。与引擎无关。 */
@@ -276,6 +281,7 @@ export const HostFeaturesSchema = z.looseObject({
   workspace_diff: z.boolean().optional(),
   workspace_files: z.boolean().optional(),
   workspace_update: z.boolean().optional(),
+  workspace_folders: z.boolean().optional(),
   session_rename: z.boolean().optional(),
   session_archive: z.boolean().optional(),
   session_delete: z.boolean().optional(),
