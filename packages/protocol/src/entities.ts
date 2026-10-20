@@ -902,6 +902,31 @@ export const PendingMessageSchema = z.object({
 });
 export type PendingMessage = z.infer<typeof PendingMessageSchema>;
 
+// ── 用户的说明与输出风格（0.78.0） ──────────────────────────────────────
+
+/** “给 Agent 的说明”最长多少个字符。 */
+export const AGENT_INSTRUCTIONS_MAX_LENGTH = 16_000;
+export const AgentInstructionsSchema = z.string().max(AGENT_INSTRUCTIONS_MAX_LENGTH);
+
+/**
+ * 输出风格（0.78.0，domain-model §3.34），开放字符串：`default`（不加风格）与 `OUTPUT_STYLES` 里的几种，正文是 prompts/output-styles/
+ * 下的同名文件（`pragmatic`、`friendly` 是 Codex 的两种性格）。Host 只接受它认识的值；客户端遇到不认识的按 `default` 显示。
+ */
+export const OUTPUT_STYLES = [
+  'concise',
+  'explanatory',
+  'learning',
+  'proactive',
+  'pragmatic',
+  'friendly',
+] as const;
+export const OutputStyleSchema = z.string().min(1);
+export type OutputStyle = 'default' | (typeof OUTPUT_STYLES)[number];
+
+export function isOutputStyle(value: string): value is OutputStyle {
+  return value === 'default' || (OUTPUT_STYLES as readonly string[]).includes(value);
+}
+
 // ── Host 设置（0.8.0，R11） ──────────────────────────────────────────────
 
 /** 整个 Host 共用、CLI 与桌面一致的偏好（domain-model §3.7）。字段都有默认值。 */
@@ -928,6 +953,13 @@ export const HostSettingsSchema = z.object({
    * 补给它。关掉后不再补，从下一次建会话、恢复或接力起生效；`session.rules` 照样记下引擎自己读的。省略按开着（默认）。
    */
   ruleFiles: z.boolean().optional(),
+  /**
+   * 给 Agent 的说明（0.78.0，Host 功能 `agent_instructions`，domain-model §3.34）：用户写给所有会话的长期说明，空串表示没有。与
+   * 输出风格一起由 Host 交给引擎，从下一次建会话、恢复或接力起生效。省略按空串。
+   */
+  agentInstructions: AgentInstructionsSchema.optional(),
+  /** 输出风格（0.78.0）：`default` 或 `OUTPUT_STYLES` 之一。省略按 `default`。 */
+  outputStyle: OutputStyleSchema.optional(),
 });
 export type HostSettings = z.infer<typeof HostSettingsSchema>;
 
@@ -1252,16 +1284,30 @@ export type RuleFile = z.infer<typeof RuleFileSchema>;
 export const RuleDeliveryChannelSchema = z.enum(['instructions', 'message']);
 export type RuleDeliveryChannel = z.infer<typeof RuleDeliveryChannelSchema>;
 
+/**
+ * Host 交给这个会话的用户说明（0.78.0，domain-model §3.34）：有没有“给 Agent 的说明”（去掉首尾空白后不空），以及生效的输出风格
+ * （`default` 时省略）。正文与补给的规则文件放在一起，走同一个 `channel`。
+ */
+export const SessionCustomInstructionsSchema = z.object({
+  instructions: z.boolean(),
+  outputStyle: OutputStyleSchema.optional(),
+  /** 这一段正文（说明与风格）的 UTF-8 字节数。 */
+  bytes: z.int().min(1),
+});
+export type SessionCustomInstructions = z.infer<typeof SessionCustomInstructionsSchema>;
+
 /** 一个会话（对它当前的来源）加载了哪些规则文件（0.68.0）。 */
 export const SessionRulesSchema = z.object({
   providerId: ProviderIdSchema,
   /** 用户级在前，项目里的从仓库根到会话目录；引入的文件紧跟在引入它的后面。 */
   files: z.array(RuleFileSchema),
-  /** 有 `wevir` 的文件时才有。 */
+  /** 有 `wevir` 的文件或 `custom` 时才有。 */
   channel: RuleDeliveryChannelSchema.optional(),
-  /** 补给的正文的 UTF-8 字节数与预算；没有补给时省略。 */
+  /** 补给的正文（规则文件加上 `custom`）的 UTF-8 字节数；规则文件的预算。没有补给时省略。 */
   bytes: z.int().min(1).optional(),
   budgetBytes: z.int().min(1).optional(),
+  /** 用户的说明与输出风格（0.78.0）；都没有时省略。 */
+  custom: SessionCustomInstructionsSchema.optional(),
 });
 export type SessionRules = z.infer<typeof SessionRulesSchema>;
 

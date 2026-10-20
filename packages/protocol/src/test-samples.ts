@@ -1428,7 +1428,13 @@ export const eventPayloads: PayloadSamples = {
     },
   },
   'session.rules': {
-    valid: { ...sessionRules, engineSessionId: 'claude-6a1e0c2f' },
+    valid: {
+      ...sessionRules,
+      engineSessionId: 'claude-6a1e0c2f',
+      bytes: 2048,
+      // 0.78.0：用户的说明与输出风格。
+      custom: { instructions: true, outputStyle: 'concise', bytes: 1024 },
+    },
     invalid: {
       ...sessionRules,
       engineSessionId: 'claude-6a1e0c2f',
@@ -2369,6 +2375,14 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', autoMemory: false } },
         // 0.68.0：跨引擎规则文件的开关。
         { settings: { sendWhileBusy: 'steer', ruleFiles: false } },
+        // 0.78.0：给 Agent 的说明与输出风格。
+        {
+          settings: {
+            sendWhileBusy: 'steer',
+            agentInstructions: '回答用中文，代码注释用英文。',
+            outputStyle: 'concise',
+          },
+        },
       ],
       invalid: [
         { settings: { sendWhileBusy: 'interrupt' } },
@@ -2376,6 +2390,8 @@ export const methodSamples: MethodSamples = {
         { settings: { sendWhileBusy: 'steer', sessionRecap: 'off' } },
         { settings: { sendWhileBusy: 'steer', autoMemory: 'off' } },
         { settings: { sendWhileBusy: 'steer', ruleFiles: 'on' } },
+        { settings: { sendWhileBusy: 'steer', agentInstructions: 'x'.repeat(16_001) } },
+        { settings: { sendWhileBusy: 'steer', outputStyle: '' } },
         {},
       ],
     },
@@ -2388,6 +2404,8 @@ export const methodSamples: MethodSamples = {
         { settings: { sessionRecap: false } },
         { settings: { autoMemory: false } },
         { settings: { ruleFiles: false } },
+        { settings: { agentInstructions: '' } },
+        { settings: { outputStyle: 'friendly' } },
         { settings: {} },
       ],
       invalid: [
@@ -2396,6 +2414,7 @@ export const methodSamples: MethodSamples = {
         { settings: { sessionRecap: 1 } },
         { settings: { autoMemory: 'no' } },
         { settings: { ruleFiles: 1 } },
+        { settings: { outputStyle: 1 } },
         {},
       ],
     },

@@ -1,8 +1,8 @@
 # Wevir 提示词
 
-这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、任务回顾摘要、自动修复，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
+这里是 Wevir 自己的提示词：Agent 的基础提示词、计划模式、审批自动复核、会话标题、输入建议、离开后摘要、任务回顾摘要、自动修复、用户说明的开头与输出风格，以及内置浏览器、Chrome、电脑操作三个插件的技能说明。它们是 ADR-0005 未决事项 1（基础提示词）的结果（补记 2）：经网关的第三方模型不再用 Codex 的 `prompt.md` 原文，改用 Wevir 自己的。
 
-`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
+`base.md` 从 R2 起由 adapter-codex 加载（`packages/adapter-codex/src/prompts.ts`），`thread-title.md` 从 R3 起由 Host 加载（`packages/host/src/title.ts`），`prompt-suggestion.md` 从 0.53.0 起由 Host 加载（`packages/host/src/prompt-suggestion.ts`），`session-recap.md` 从 0.54.0 起由 Host 加载（`packages/host/src/recap.ts`），`verification-repair.md` 从 0.65.0 起由 Host 加载（`packages/host/src/verification/service.ts`），`session-retro.md` 从 0.76.0 起由 Host 加载（`packages/host/src/retro/summary.ts`），`user-instructions.md` 与 `output-styles/` 从 0.78.0 起由 Host 加载（`packages/host/src/custom-instructions.ts`），`plan-mode.md` 从 0.36.0 起由 adapter-codex 加载，其余还只是文本。谁来加载、什么时候加载，见下面的表；0.41.0 起 MCP 与 skills 由 Host 全局注册表接入，格式与默认禁用外部项的规则见 docs/architecture/plugins.md；三个内置插件草稿仍是占位。
 
 ## 文件
 
@@ -19,6 +19,8 @@
 | [`verification-repair.md`](verification-repair.md) | 自动修复：回合后的项目检查没通过时交给 Agent 的说明与失败材料 | Host（0.65.0，`packages/host/src/verification/service.ts`）：去掉注释，替换 `attempt`、`max_attempts`、`failures` 后作为一条带 `from.repair` 的消息开修复回合；读不到时 Host 照常启动，只是没有回合后验证 | 已接入，与引擎无关 |
 | [`review-comments.md`](review-comments.md) | 行级批注：用户在“变更”窗格写的一组审阅意见 | Host（0.67.0，`packages/host/src/review/service.ts`）：去掉注释，替换 `count`、`directory`、`version`、`comments` 后作为一条用户消息发给用户选的会话；读不到时 Host 照常启动，只是没有批注 | 已接入，与引擎无关 |
 | [`second-opinion.md`](second-opinion.md) | 第二意见：另一个来源只读地审阅一个会话当前的改动 | Host（0.75.0，`packages/host/src/second-opinion.ts`）：去掉注释，替换 `session`、`directory`、`version`、`diff`、`material` 后接在 reviewer 角色说明后面，作为意见会话的第一条消息；读不到时 Host 照常启动，只是没有第二意见 | 已接入，与引擎无关 |
+| [`user-instructions.md`](user-instructions.md) | 用户说明的开头：交给引擎的“用户的说明”最前面那段，说明优先级与边界 | Host（0.78.0，`packages/host/src/custom-instructions.ts`）：去掉注释，后面接用户的说明与风格的正文 | 已接入，与引擎无关 |
+| [`output-styles/`](output-styles/) | 输出风格：`concise`（简洁）、`explanatory`（讲解）、`learning`（边做边学）、`proactive`（主动）、`pragmatic`（务实）、`friendly`（友好） | Host（0.78.0）：用户在设置里选了哪种就接哪份的正文；开头 `---` 块里的 `reminder` 在每条新回合的消息末尾附上（只有简洁与主动有） | 已接入，与引擎无关 |
 | [`plugins/in-app-browser/SKILL.md`](plugins/in-app-browser/SKILL.md) | 内置浏览器插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/chrome/SKILL.md`](plugins/chrome/SKILL.md) | Chrome 插件的技能说明 | 插件（未建） | 草稿；工具清单是占位 |
 | [`plugins/computer-use/SKILL.md`](plugins/computer-use/SKILL.md) | 电脑操作插件的技能说明 | 插件（未建） | 草稿；工具清单与授权是占位 |
@@ -33,6 +35,7 @@
 - **`auto-review.md`、`thread-title.md`、`prompt-suggestion.md`、`session-recap.md` 与 `session-retro.md`**：与引擎无关，由 Host 直接调模型。
 - **`verification-repair.md`**：与引擎无关，不单独调模型，是修复回合里交给会话自己的模型的一条消息。
 - **`compact.md`**：只在 Codex 引擎 + 经网关的第三方模型的 thread 上生效，用 `compact_prompt` 下发。
+- **`user-instructions.md` 与 `output-styles/`**：与引擎无关，用在所有引擎上（下面「用户说明与输出风格」）。
 
 ## Codex 一回合里模型看到的说明
 
@@ -40,7 +43,7 @@
 
 1. `base.md`（第一条 developer 消息；Codex 不发 Responses 的 `instructions` 字段，codex-notes §5）。
 2. Codex 生成的权限说明：沙箱模式与审批策略（`codex-rs/prompts/templates/permissions/`），Wevir 不改。
-3. 用户自定义指令：经 `thread/start` 的 `developerInstructions` 下发（占位，未做）。
+3. Host 补给的规则文件与用户的说明（0.78.0）：经 `thread/start` / `thread/resume` 的 `developerInstructions` 下发，见下面「用户说明与输出风格」。
 4. 协作模式说明（`<collaboration_mode>`，0.36.0 起每个回合都带）：默认模式用 Codex 内置的 `default.md`；计划模式经网关的模型用 `plan-mode.md`，ChatGPT 登录的模型用 Codex 内置的 `plan.md`。它是单独的一条 developer 消息，不替换第 3 条。
 5. Codex 生成的 skills 列表：0.41.0 起 Host 绑定注册表时打开 skills.include_instructions，逐路径禁用未获 Host 启用的外部 skills（codex-event-mapping.md §10）；未绑定注册表的独立适配器保留关闭默认值。
 6. AGENTS.md 内容与 `<environment_context>`（Codex 生成）。
@@ -59,7 +62,7 @@
 3. `{{ 变量 }}` 替换成变量的值。变量缺失时报错，不要留空。
 4. 渲染结果里不得残留 `{{`。Codex 自己也用 `{{ }}` 作模板变量（模型目录的 `instructions_template`），残留会被它误处理。
 
-SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行，供插件系统读取。
+SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行，供插件系统读取。`output-styles/` 下的文件同样可以在第一行开一个 `---` 块，Host 只认其中的 `reminder: …` 一行（每回合提醒），渲染前去掉整个块。
 
 ### 变量
 
@@ -129,7 +132,7 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 | `auto-review.md` | `codex-rs/prompts/templates/guardian/{policy_template,policy,node_repl_policy}.md` |
 | `thread-title.md` | `codex-rs/tui/src/app/thread_title.rs` 里的说明文字 |
 
-`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。`prompt-suggestion.md` 也是 Wevir 自己写的，参考了网上流传的 Claude Code 输入建议提示词（asgeirtj/system_prompts_leaks，没有许可证）的做法——预测用户而不是助手、简短、拿不准就不输出、不评价不提问——只借鉴做法，没有摘抄原文。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。2026-10-18 起，`compact.md`、`plan-mode.md`、`thread-title.md`、`base.md` 的子智能体与 `update_plan` 两节，以及 Host 内置角色（`packages/host/src/roles.ts`）的说明，参考了同一个仓库里网上流传的 Claude Code 压缩、计划模式、会话标题与重命名、Explore / Plan / general-purpose 子智能体、advisor 工具、`/btw` 的提示词，也只借鉴做法（分节的交接摘要、先找可复用的、标题写成名词短语、只读探查角色的边界、第二意见的用法等）、用自己的话写，没有摘抄。`session-recap.md` 参考的是网上流传的 Claude Code 离开后摘要提示词（同一个仓库，没有许可证），只借鉴“先说高层任务、再说具体的下一步、不做状态播报”的思路，措辞、结构与示例都是 Wevir 的。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的文件（`base.md`、`plan-mode.md`、`auto-review.md`、`thread-title.md`）按 Apache-2.0。
+`base.md` 的授权与确认、自主与坚持、写作与最终回答等部分，以及三个插件的说明和共用规则，是 Wevir 自己写的。`prompt-suggestion.md` 也是 Wevir 自己写的，参考了网上流传的 Claude Code 输入建议提示词（asgeirtj/system_prompts_leaks，没有许可证）的做法——预测用户而不是助手、简短、拿不准就不输出、不评价不提问——只借鉴做法，没有摘抄原文。写的时候参考了维护者提供的 Codex 桌面版提示词资料（非开源），只借鉴做法，没有摘抄原文；“联网与外部信息”一节参考的是网上流传的 Codex gpt-6.1-sol 提示词（asgeirtj/system_prompts_leaks，没有许可证），同样只借鉴做法、用自己的话写。2026-10-18 起，`compact.md`、`plan-mode.md`、`thread-title.md`、`base.md` 的子智能体与 `update_plan` 两节，以及 Host 内置角色（`packages/host/src/roles.ts`）的说明，参考了同一个仓库里网上流传的 Claude Code 压缩、计划模式、会话标题与重命名、Explore / Plan / general-purpose 子智能体、advisor 工具、`/btw` 的提示词，也只借鉴做法（分节的交接摘要、先找可复用的、标题写成名词短语、只读探查角色的边界、第二意见的用法等）、用自己的话写，没有摘抄。`output-styles/` 里简洁、讲解、边做边学、主动四份参考网上流传的 Claude Code 输出风格（Concise、Explanatory、Learning、Proactive，同一个仓库，没有许可证），务实与友好两份参考网上流传的 Codex 性格说明（`personality_pragmatic`、`personality_friendly`，同一个仓库，没有许可证；开源的 Codex 已把 `personality` 参数标为不再选择风格）：只借鉴条目、结构与做法（先说结果、写代码前后的要点、留一处 `TODO(human)` 请用户动手、主动但破坏性操作仍要确认、看重什么与提出异议的方式等），按 Wevir 的工具与计划模式改写，措辞与示例是自己的，没有摘抄原文。`session-recap.md` 参考的是网上流传的 Claude Code 离开后摘要提示词（同一个仓库，没有许可证），只借鉴“先说高层任务、再说具体的下一步、不做状态播报”的思路，措辞、结构与示例都是 Wevir 的。这些文件按 Wevir 的 MIT 许可发布；从 Codex 改写的文件（`base.md`、`plan-mode.md`、`auto-review.md`、`thread-title.md`）按 Apache-2.0。
 
 ## 改提示词时
 
@@ -142,6 +145,20 @@ SKILL.md 开头的 YAML 头（`name`、`description`）保持在文件第一行�
 1. ~~**计划模式怎样下发**~~（ADR-0005 未决事项 5）：已定（2026-10-15，ADR-0005 补记 21）。开实验面，用 Codex 原生的协作模式：`plan-mode.md` 作为计划模式的 `developer_instructions`（经网关的模型），`<proposed_plan>` 由 Codex 解析成计划条目，`request_user_input` 照常；计划回合不改沙箱，只读靠说明约束（同 Codex）。
 2. **自动复核用哪个模型、是否经网关、默认开不开。** 随 Host 的实现任务决定。
 3. **三个插件的形态。** 浏览器放在桌面端哪里、用什么驱动、Chrome 用扩展还是 CDP、电脑操作先做哪个平台、工具怎样暴露给 Codex（MCP 还是动态工具），建插件时决定，再补各 SKILL.md 的占位。
+
+## 用户说明与输出风格
+
+用户在设置 → 个性化里写的“给 Agent 的说明”与选的输出风格（各一份，对所有项目有效），由 Host 在建会话、恢复与接力时拼成一段交给会话的引擎（0.78.0）：
+
+1. `user-instructions.md` 的正文：这些说明优先于项目说明文件与 skill 的一般性要求，用户在对话里的明确要求优先于这里的一切；不放宽沙箱、审批与安全规则；回复语言照常跟随用户。
+2. 用户的说明，包在 `<user_instructions>` 里；去掉首尾空白后为空就不放。
+3. 输出风格的正文；选“默认”时不放。
+
+这一段接在 Host 补给的规则文件后面，走同一个通道：Codex 进 `developerInstructions`，Claude 进 `systemPrompt` 的 `append`，OpenCode 进每条消息的 `system`；Cursor、Grok、Antigravity、WorkBuddy 没有可放的位置，放在下一条用户消息的开头。说明对所有会话都给；风格只给用户直接对话的会话，Agent 开的、带预设角色的、第二意见与自动化开的会话不给（“边做边学”会停下等人写代码，那些会话没有人在看）。
+
+选了带 `reminder` 的风格（简洁、主动）时，每个新回合交给引擎的消息末尾多一段 `<system-reminder>`，消息记录里没有。插话不带。
+
+已经开着的会话不跟着设置变：下一次恢复或接力时按当时的设置重新给。
 
 ## 自动修复
 

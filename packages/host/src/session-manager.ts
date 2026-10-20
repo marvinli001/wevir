@@ -94,6 +94,7 @@ import {
 } from '@wevir/storage';
 import type { ChatFolders } from './chats.js';
 import type { TurnCheckpoints } from './checkpoints.js';
+import { type CustomPlan, styledSession } from './custom-instructions.js';
 import { HostError, isHostError } from './errors.js';
 import type { AppendInput, EventStore } from './event-store.js';
 import { reviewRepo } from './git-diff.js';
@@ -134,7 +135,13 @@ import {
   RecapCache,
   recapInput,
 } from './recap.js';
-import { type FoundRuleFile, planRules, type RulePlan, sameRules } from './rule-files.js';
+import {
+  type FoundRuleFile,
+  planRules,
+  type RulePlan,
+  sameRules,
+  withCustomInstructions,
+} from './rule-files.js';
 import { deleteSessionData, measureUsage } from './session-delete.js';
 import { TERMINAL_PENDING_STATUSES } from './snapshot.js';
 import { parseGeneratedTitle, TITLE_OUTPUT_SCHEMA, TITLE_TIMEOUT_MS, titleInput } from './title.js';
@@ -232,6 +239,14 @@ export interface SessionManagerOptions {
     /** Host 设置的 `ruleFiles`：返回 false 时只记引擎自己读的、不补。省略当作开着。 */
     enabled?: () => boolean;
   };
+  /**
+   * 用户的说明与输出风格（0.78.0，custom-instructions.ts）：按会话是不是用户直接对话的算出要交的那一段，与补给的规则文件一起交给
+   * 引擎（要有 `ruleFiles`）；`reminder` 给出风格的每回合提醒。没给时不交。
+   */
+  customInstructions?: {
+    plan(target: CustomTarget): CustomPlan | undefined;
+    reminder(outputStyle: string | undefined): string | undefined;
+  };
   /** 大输出与后台进程的日志（tool-output.ts，`<数据目录>/tool-output`）：删除会话时随会话删，存储页算进会话的文件。 */
   toolOutputDir?: string;
   /**
@@ -286,6 +301,15 @@ export interface RecoveryReport {
 
 /** 正在建、还没写进存储的会话（`SessionManager.creating`）：以后会写进它的记录的这几项。 */
 export type CreatingSession = Pick<SessionRecord, 'workspaceId' | 'origin' | 'toolPreset'>;
+
+/** 算用户说明的会话（0.78.0）：是不是用户直接对话的会话（给不给风格）。 */
+export interface CustomTarget {
+  styled: boolean;
+}
+
+function customTarget(record: Pick<SessionRecord, 'origin' | 'parentSessionId'>): CustomTarget {
+  return { styled: styledSession(record) };
+}
 
 interface ToolInfo {
   toolName: string;
@@ -601,6 +625,7 @@ export class SessionManager {
   readonly #memory: SessionManagerOptions['memory'];
   readonly #memoryEnabled: () => boolean;
   readonly #ruleFiles: SessionManagerOptions['ruleFiles'];
+  readonly #customInstructions: SessionManagerOptions['customInstructions'];
   readonly #images: ImageStore | undefined;
   readonly #appTools: SessionManagerOptions['appTools'];
   readonly #projectConnectors: SessionManagerOptions['projectConnectors'];
@@ -655,6 +680,7 @@ export class SessionManager {
     this.#memory = options.memory;
     this.#memoryEnabled = options.memoryEnabled ?? (() => true);
     this.#ruleFiles = options.ruleFiles;
+    this.#customInstructions = options.customInstructions;
     this.#images = options.images;
     this.#appTools = options.appTools;
     this.#projectConnectors = options.projectConnectors;
@@ -690,22 +716,38 @@ export class SessionManager {
    * 这个目录交给这个来源时的规则文件（0.68.0）。没接上规则文件、或承载这个来源的引擎没声明读哪些时 `undefined`；找文件出错只记
    * 告警，不让建立或恢复会话失败。
    */
-  async #rulePlan(cwd: string, providerId: string): Promise<RulePlan | undefined> {
+  async #rulePlan(
+    cwd: string,
+    providerId: string,
+    target: CustomTarget,
+  ): Promise<RulePlan | undefined> {
     const options = this.#ruleFiles;
     if (options === undefined || this.#adapter.ruleFiles === undefined) return undefined;
+    let engine: Awaited<ReturnType<NonNullable<AgentRuntimeAdapter['ruleFiles']>>>;
     try {
       // 只有声明了读哪些规则文件的引擎参与（echo 等测试引擎不声明）。
-      const engine = await this.#adapter.ruleFiles(providerId);
+      engine = await this.#adapter.ruleFiles(providerId);
       if (engine === undefined) return undefined;
-      return planRules(await options.discover(cwd), {
-        providerId,
-        engine,
-        enabled: options.enabled?.() !== false,
-      });
     } catch (error) {
       this.#onWarning('failed to read rule files', { cwd, providerId, error: errorText(error) });
       return undefined;
     }
+    // 用户的说明（0.78.0）：找规则文件出错时照样交。
+    let custom: CustomPlan | undefined;
+    try {
+      custom = this.#customInstructions?.plan(target);
+    } catch (error) {
+      this.#onWarning('failed to compose custom instructions', { error: errorText(error) });
+    }
+    let found: FoundRuleFile[] = [];
+    try {
+      found = await options.discover(cwd);
+    } catch (error) {
+      this.#onWarning('failed to read rule files', { cwd, providerId, error: errorText(error) });
+      if (custom === undefined) return undefined;
+    }
+    const plan = planRules(found, { providerId, engine, enabled: options.enabled?.() !== false });
+    return withCustomInstructions(plan, custom, engine);
   }
 
   /**
@@ -722,7 +764,13 @@ export class SessionManager {
     if (plan === undefined) return undefined;
     const state = this.#events.rulesState(sessionId);
     // 一个规则文件都没有、之前也没记过：不写。
-    if (plan.rules.files.length === 0 && state?.rules === undefined) return undefined;
+    if (
+      plan.rules.files.length === 0 &&
+      plan.rules.custom === undefined &&
+      state?.rules === undefined
+    ) {
+      return undefined;
+    }
     const delivered = !fresh && state?.sentTo.includes(engineSessionId) === true;
     const context =
       plan.rules.channel === 'message' && !inherited && !delivered ? plan.text : undefined;
@@ -1003,7 +1051,11 @@ export class SessionManager {
       ...(recordOrigin !== undefined && { origin: recordOrigin }),
       ...(toolPreset !== undefined && { toolPreset }),
     });
-    const rules = await this.#rulePlan(config.cwd, provider.id);
+    const rules = await this.#rulePlan(
+      config.cwd,
+      provider.id,
+      customTarget({ origin: recordOrigin }),
+    );
     try {
       engineSession = await this.#adapter.createSession(
         this.#engineConfig(sessionId, config, rules),
@@ -1716,9 +1768,20 @@ export class SessionManager {
       pendingRules?.engineSessionId === runtime.engineSessionId ? pendingRules.context : undefined;
     const handoff = this.#events.handoffState(runtime.id)?.context;
     const prefix = [rules, handoff].filter((part) => part !== undefined).join('\n\n');
+    // 输出风格的每回合提醒（0.78.0）：按这个会话交给引擎的风格，接在消息末尾；消息记录里没有。
+    const reminder = this.#customInstructions?.reminder(
+      this.#events.rulesState(runtime.id)?.rules?.custom?.outputStyle,
+    );
     try {
-      const engineInput =
+      const withPrefix =
         prefix === '' ? agentInput : await this.#agentInput(withHandoffContext(prefix, content));
+      const engineInput =
+        reminder === undefined
+          ? withPrefix
+          : {
+              ...withPrefix,
+              content: [...withPrefix.content, { type: 'text' as const, text: reminder }],
+            };
       if (goal === undefined) {
         await this.#adapter.send(
           runtime.engineSessionId,
@@ -2239,7 +2302,7 @@ export class SessionManager {
       if (record.extraRoots !== undefined) config.additionalRoots = record.extraRoots;
 
       // 规则文件（0.68.0）：新来源自己不读的，在它的说明里或随下一条消息补给它。
-      const rules = await this.#rulePlan(record.cwd, target.id);
+      const rules = await this.#rulePlan(record.cwd, target.id, customTarget(record));
 
       const attachment = runtime.attachment;
       if (attachment) {
@@ -2378,7 +2441,7 @@ export class SessionManager {
       const plan = this.#handoffPlan(runtime, from, previous, features, extras);
       const result = handoffPreviewOf(target.id, plan);
       // 规则文件（0.68.0）：新来源会加载的，不进材料的预算与散列。
-      const rules = await this.#rulePlan(record.cwd, target.id);
+      const rules = await this.#rulePlan(record.cwd, target.id, customTarget(record));
       return rules === undefined
         ? result
         : { ...result, preview: { ...result.preview, rules: rules.rules } };
@@ -2779,7 +2842,7 @@ export class SessionManager {
       }
       await assertDirectory(record.cwd);
       let engine: EngineSession;
-      const rules = await this.#rulePlan(record.cwd, record.providerId);
+      const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record));
       try {
         engine = await this.#adapter.resumeSession(
           runtime.engineSessionId,
@@ -2870,7 +2933,7 @@ export class SessionManager {
         ...(origin !== undefined && { origin }),
         ...(record.toolPreset !== undefined && { toolPreset: record.toolPreset }),
       });
-      const rules = await this.#rulePlan(record.cwd, record.providerId);
+      const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget({ origin }));
       try {
         engineSession = await fork(
           source.engineSessionId,
@@ -3675,7 +3738,7 @@ export class SessionManager {
     const record = this.#record(runtime);
     await assertDirectory(record.cwd);
     let engine: EngineSession;
-    const rules = await this.#rulePlan(record.cwd, record.providerId);
+    const rules = await this.#rulePlan(record.cwd, record.providerId, customTarget(record));
     try {
       engine = await this.#adapter.resumeSession(
         runtime.engineSessionId,
