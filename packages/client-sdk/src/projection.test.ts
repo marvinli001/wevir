@@ -1737,3 +1737,50 @@ describe('回合后验证（0.65.0）', () => {
     expect(projectTranscript(list).messages).toEqual(before.messages);
   });
 });
+
+describe('第二意见（0.71.0）', () => {
+  const OPINION = 'opn_01JA2B3C4D5E6F7G8H9JKMNPQR' as const;
+  const running = {
+    id: OPINION,
+    sessionId: 'ses_01JA2B3C4D5E6F7G8H9JKMNPZZ' as const,
+    providerId: 'claude',
+    modelId: 'claude-opus-5-5',
+    requestedBy: 'user',
+    basis: { head: '4f1c2e9a7b3d5c6e8f0a1b2c3d4e5f6a7b8c9d0e' },
+    status: 'running' as const,
+    createdAt: '2026-10-20T00:00:00.000Z',
+    updatedAt: '2026-10-20T00:00:00.000Z',
+  };
+
+  it('发起时在当时的位置加一个 opinion 部件，之后原位换成最新的，不另加部件', () => {
+    const { list, add, turn } = events();
+    turn();
+    add('turn.finished', { turnId: TURN, outcome: 'completed', durationMs: 5 });
+    add('session.state_changed', { from: 'running', to: 'idle', reason: 'turn_finished' });
+    add('opinion.updated', { opinion: running });
+    const projection = new TranscriptProjection();
+    for (const event of list) projection.apply(event);
+    const before = projection.snapshot();
+    expect(before.messages.at(-1)).toMatchObject({
+      role: 'system',
+      parts: [{ type: 'opinion', key: `o:${OPINION}`, opinion: running }],
+    });
+    expect(before.opinions).toEqual([running]);
+
+    const ready = {
+      ...running,
+      status: 'ready' as const,
+      outcome: 'completed' as const,
+      text: '没问题',
+    };
+    projection.apply(add('opinion.updated', { opinion: ready }));
+    const after = projection.snapshot();
+    expect(after.messages).toHaveLength(before.messages.length);
+    expect(after.messages.at(-1)?.parts).toEqual([
+      { type: 'opinion', key: `o:${OPINION}`, opinion: ready },
+    ]);
+    expect(after.opinions).toEqual([ready]);
+    projection.reset();
+    expect(projection.snapshot().opinions).toEqual([]);
+  });
+});

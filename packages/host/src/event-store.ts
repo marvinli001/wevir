@@ -3,10 +3,12 @@ import {
   type EventSource,
   EventSourceSchema,
   isKnownEventType,
+  type OpinionId,
   type PendingMessage,
   type PendingMessageId,
   type QuestionId,
   type QuestionRequest,
+  type SecondOpinion,
   SeqCursorSchema,
   type SessionId,
   SessionIdSchema,
@@ -305,6 +307,12 @@ export class EventStore {
   suggestedTask(sessionId: SessionId, taskId: TaskId): SuggestedTask | undefined {
     if (!this.#storage.sessions.get(sessionId)) return undefined;
     return structuredClone(this.#projection(sessionId).suggestedTasks.get(taskId));
+  }
+
+  /** 会话收到的一条第二意见（0.71.0）；会话或意见不存在时为 `undefined`。 */
+  opinion(sessionId: SessionId, opinionId: OpinionId): SecondOpinion | undefined {
+    if (!this.#storage.sessions.get(sessionId)) return undefined;
+    return structuredClone(this.#projection(sessionId).opinions.get(opinionId));
   }
 
   /**

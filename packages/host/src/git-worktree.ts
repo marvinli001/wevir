@@ -49,14 +49,15 @@ function gitEnv(): NodeJS.ProcessEnv {
 }
 
 /**
- * 在 `workspaceRoot` 所在的仓库里，从 HEAD 新开分支 `branch` 与 worktree `<dir>/<序号>-<仓库目录名>`。不是 git 仓库、还没有
- * 提交、分支已存在等都抛 `WorktreeError`（说明是 git 的原文）。
+ * 在 `workspaceRoot` 所在的仓库里，从 HEAD（给了 `commit` 时从它）新开分支 `branch` 与 worktree `<dir>/<序号>-<仓库目录名>`。不是
+ * git 仓库、还没有提交、分支已存在等都抛 `WorktreeError`（说明是 git 的原文）。
  */
 export async function createWorktree(options: {
   workspaceRoot: string;
   dir: string;
   index: number;
   branch: string;
+  commit?: string;
 }): Promise<CreatedWorktree> {
   const emptyHooks = join(options.dir, '.no-hooks');
   mkdirSync(emptyHooks, { recursive: true });
@@ -67,13 +68,32 @@ export async function createWorktree(options: {
     throw new WorktreeError(`${options.workspaceRoot} is not inside a git repository`);
   }
   const root = join(options.dir, `${options.index}-${basename(repo)}`);
-  await git(repo, ['worktree', 'add', '-b', options.branch, root, 'HEAD'], emptyHooks);
+  await git(
+    repo,
+    ['worktree', 'add', '-b', options.branch, root, options.commit ?? 'HEAD'],
+    emptyHooks,
+  );
   return {
     root,
     path: join(root, relative(repo, options.workspaceRoot)),
     branch: options.branch,
     repo,
   };
+}
+
+/**
+ * 第二意见的快照（0.71.0，domain-model §3.30）：把新开的 worktree 的文件换成 `tree`（原会话目录当时的样子，`checkpoints.ts` 的
+ * `workingTreeHash`），索引留在 HEAD：原会话没提交的改动在这里也是没提交的改动，新文件是未跟踪文件。照 git-diff.ts 屏蔽仓库配置里
+ * 会执行命令的设置。
+ */
+export async function restoreSnapshot(root: string, tree: string): Promise<void> {
+  try {
+    const config = await safeConfig(root);
+    await runGit(root, [...config, 'read-tree', '-u', '--reset', tree]);
+    await runGit(root, [...config, 'reset', '--quiet', '--mixed']);
+  } catch (error) {
+    throw new WorktreeError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /** 建会话失败时撤回：删掉 worktree 与分支（尽力而为）。 */

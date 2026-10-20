@@ -24,6 +24,8 @@ export const ImageIdSchema = z.templateLiteral(['img_', IdBodySchema]);
 /** 自动化与它的一次运行（0.66.0）。 */
 export const AutomationIdSchema = z.templateLiteral(['aut_', IdBodySchema]);
 export const AutomationRunIdSchema = z.templateLiteral(['arn_', IdBodySchema]);
+/** 第二意见（0.71.0）。 */
+export const OpinionIdSchema = z.templateLiteral(['opn_', IdBodySchema]);
 /** Host 实例 ID：每个数据目录一个，跨重启不变。 */
 export const HostIdSchema = z.templateLiteral(['hst_', IdBodySchema]);
 /** 工作区的一项检查（0.65.0，回合后验证）。 */
@@ -59,6 +61,7 @@ export type TerminalId = z.infer<typeof TerminalIdSchema>;
 export type AutomationId = z.infer<typeof AutomationIdSchema>;
 export type AutomationRunId = z.infer<typeof AutomationRunIdSchema>;
 export type ReviewCommentId = z.infer<typeof ReviewCommentIdSchema>;
+export type OpinionId = z.infer<typeof OpinionIdSchema>;
 
 /** Provider ID 同时是 dsh 的 provider 路由名，会写进 dsh 会话日志，创建后不可改。 */
 export const ProviderIdSchema = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);

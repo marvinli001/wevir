@@ -585,6 +585,33 @@ export function SessionView({
         : undefined,
     [canReview, runCommand, client, session.id],
   );
+  // 第二意见（0.71.0，desktop-tokens §65）：`/second-opinion` 选来源与模型，Host 开意见会话；意见的卡片随事件出现在消息流里。
+  const canOpinion =
+    commandsEnabled &&
+    !session.side &&
+    session.opinionOf === undefined &&
+    hostSupports(view.hello.features, 'second_opinion');
+  const onSecondOpinion = useMemo(
+    () =>
+      client && canOpinion
+        ? (choice: ModelChoice) =>
+            void (async () => {
+              setNotice(undefined);
+              try {
+                const { session: reviewer } = await client.request('session.secondOpinion', {
+                  sessionId: session.id,
+                  providerId: choice.providerId,
+                  modelId: choice.modelId,
+                });
+                store?.upsertSession(reviewer);
+                transcriptRef.current?.jumpToLatest('auto');
+              } catch (error) {
+                setNotice(t('opinion.startFailed', { error: describe(error) }));
+              }
+            })()
+        : undefined,
+    [canOpinion, client, session.id, store],
+  );
   // 撤销与重做（0.51.0，desktop-tokens §58）：撤销最后一个回合——文件回到回合开始前、回合从消息记录里隐藏；用户写的文字放回输入框。
   // 之后会话没开始新回合时可以重做（横幅与 `/redo`）。文件没动时用提示说明原因。
   const undoAvailable =
@@ -658,6 +685,7 @@ export function SessionView({
     ...(onArchive && { onArchive }),
     ...(onCompact && { onCompact }),
     ...(onReview && { onReview }),
+    ...(onSecondOpinion && { onSecondOpinion }),
     ...(onUndo && { onUndo }),
     ...(onRedo && { onRedo }),
     goalEnabled: goalsEnabled,

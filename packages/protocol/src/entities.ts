@@ -7,6 +7,7 @@ import {
   EnvironmentIdSchema,
   ImageIdSchema,
   IsoTimeSchema,
+  OpinionIdSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
   QuestionIdSchema,
@@ -18,6 +19,7 @@ import {
   TurnIdSchema,
   WorkspaceIdSchema,
 } from './common.js';
+import { GitObjectIdSchema } from './git.js';
 import { RepairFromSchema, SessionVerificationSchema } from './verification.js';
 
 // 领域实体的线缆形状，字段含义见 docs/architecture/domain-model.md §3。
@@ -805,6 +807,11 @@ export type PendingStatus = z.infer<typeof PendingStatusSchema>;
 export const PendingFallbackReasonSchema = z.enum(['unsupported', 'rejected', 'turn_ended']);
 export type PendingFallbackReason = z.infer<typeof PendingFallbackReasonSchema>;
 
+/** 第二意见（0.71.0）的长度上限（按 UTF-16 code unit）：发起时的侧重点、意见正文（超出的截断）与引用时的附言。 */
+export const SECOND_OPINION_FOCUS_MAX_LENGTH = 2000;
+export const SECOND_OPINION_TEXT_MAX_LENGTH = 20_000;
+export const SECOND_OPINION_NOTE_MAX_LENGTH = 8000;
+
 /**
  * 会话之间的消息（0.30.0，应用级工具，domain-model §3.15）：这条消息不是用户写的，是另一个会话里的 agent 用 `wevir_session_send`
  * / `wevir_session_create` 发来的（`message`），或 Host 把一个会话回合的结果回报给请它做事的会话（`report`）。
@@ -834,6 +841,16 @@ export const MessageFromSchema = z.object({
    * 回报显示）。
    */
   repair: RepairFromSchema.optional(),
+  /**
+   * 引用的第二意见（0.71.0）：Host 把意见拼成消息交给原会话。`kind` 是 `report`、`sessionId` 是给意见的会话（旧客户端照回报显示）；
+   * `note` 是用户引用时附的话，原样也在消息正文里。
+   */
+  opinion: z
+    .object({
+      opinionId: OpinionIdSchema,
+      note: z.string().min(1).max(SECOND_OPINION_NOTE_MAX_LENGTH).optional(),
+    })
+    .optional(),
 });
 export type MessageFrom = z.infer<typeof MessageFromSchema>;
 
@@ -1545,6 +1562,62 @@ export const SessionOriginSchema = z.object({
 });
 export type SessionOrigin = z.infer<typeof SessionOriginSchema>;
 
+// ── 第二意见（0.71.0，domain-model §3.30） ────────────────────────────
+
+/**
+ * 第二意见的状态：`running` 意见会话的第一个回合还没结束；`ready` 正常结束、有意见；`failed` 回合没正常结束（看 `outcome`）或结束了却
+ * 没有回答。
+ */
+export const SecondOpinionStatusSchema = z.enum(['running', 'ready', 'failed']);
+export type SecondOpinionStatus = z.infer<typeof SecondOpinionStatusSchema>;
+
+/**
+ * 另一个来源对一个会话当前改动的意见（0.71.0，domain-model §3.30）：Host 把会话目录现在的样子（HEAD 加上没提交的改动与未跟踪文件）
+ * 放进一个新的 worktree，在那里开一个只读审阅的会话（`sessionId`，`Session.opinionOf` 指回来），把任务、目标、验收与改动的范围交给它。
+ * 记在原会话的事件流里（`opinion.updated`），不进原会话的引擎上下文，直到被引用（`quoted`）。
+ */
+export const SecondOpinionSchema = z.object({
+  id: OpinionIdSchema,
+  /** 给意见的会话。 */
+  sessionId: SessionIdSchema,
+  providerId: ProviderIdSchema,
+  modelId: z.string().min(1),
+  /** `user`：用户发起；`agent`：原会话的 agent 用 `wevir_second_opinion` 发起，意见好了 Host 自动引用给它。开放字符串。 */
+  requestedBy: z.string().min(1),
+  /** 发起时给的侧重点。 */
+  focus: z.string().min(1).max(SECOND_OPINION_FOCUS_MAX_LENGTH).optional(),
+  /** 意见针对的代码状态：发起时原会话最后一个回合、目录的 HEAD 与分支、改动的基线（与默认分支的分叉点；找不到时省略）。 */
+  basis: z.object({
+    turnId: TurnIdSchema.optional(),
+    head: GitObjectIdSchema,
+    branch: z.string().min(1).optional(),
+    base: GitObjectIdSchema.optional(),
+  }),
+  status: SecondOpinionStatusSchema,
+  /** 意见会话第一个回合的结局（`running` 时没有）。 */
+  outcome: TurnOutcomeSchema.optional(),
+  /** 意见（那个回合最后一段回答，最多 `SECOND_OPINION_TEXT_MAX_LENGTH` 字）；没有回答时省略。 */
+  text: z.string().min(1).max(SECOND_OPINION_TEXT_MAX_LENGTH).optional(),
+  /** 被引用进原会话的时刻与那条消息开始的回合或成为的待发消息；只引用一次。 */
+  quoted: z
+    .object({
+      at: IsoTimeSchema,
+      turnId: TurnIdSchema.optional(),
+      pendingId: PendingMessageIdSchema.optional(),
+    })
+    .optional(),
+  createdAt: IsoTimeSchema,
+  updatedAt: IsoTimeSchema,
+});
+export type SecondOpinion = z.infer<typeof SecondOpinionSchema>;
+
+/** 给意见的会话（0.71.0）：它为哪个会话的哪条意见而开。 */
+export const SessionOpinionOfSchema = z.object({
+  sessionId: SessionIdSchema,
+  opinionId: OpinionIdSchema,
+});
+export type SessionOpinionOf = z.infer<typeof SessionOpinionOfSchema>;
+
 /**
  * 会话挂过的一个引擎会话（0.25.0，接力，domain-model §3.14）。一个 Wevir 会话可以先后用几个来源，每个来源一个引擎会话；
  * 换回用过的来源时接着用它的引擎会话，只补它错过的那段。
@@ -1601,6 +1674,8 @@ export const SessionSchema = z.object({
   origin: SessionOriginSchema.optional(),
   /** 由另一个会话里的 agent 开出来的会话（0.30.0）。 */
   openedBy: SessionOpenedBySchema.optional(),
+  /** 给另一个会话第二意见的会话（0.71.0，Host 功能 `second_opinion`）。 */
+  opinionOf: SessionOpinionOfSchema.optional(),
   /**
    * 由自动化开出来的会话（0.66.0，Host 功能 `automations`）：建它的那次运行。`newSessionEachRun` 为 `false` 的自动化之后
    * 的运行也发进这个会话，这里仍是第一次。
@@ -1671,5 +1746,7 @@ export const SessionSnapshotSchema = z.object({
   promptSuggestion: PromptSuggestionSchema.optional(),
   /** 回合后验证（0.65.0）：验收状态、最近的验证记录与修复链；会话里从没有过验证时省略。 */
   verification: SessionVerificationSchema.optional(),
+  /** 这个会话收到的第二意见（0.71.0，`opinion.updated` 按 `id` 替换），按发起的先后；没有时省略。 */
+  opinions: z.array(SecondOpinionSchema).optional(),
 });
 export type SessionSnapshot = z.infer<typeof SessionSnapshotSchema>;

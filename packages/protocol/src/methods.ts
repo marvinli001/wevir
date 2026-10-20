@@ -27,6 +27,7 @@ import {
   EnvironmentIdSchema,
   HostIdSchema,
   ImageIdSchema,
+  OpinionIdSchema,
   PendingMessageIdSchema,
   ProviderIdSchema,
   QuestionIdSchema,
@@ -73,6 +74,9 @@ import {
   QuestionResolutionSchema,
   ResolvedApprovalStatusSchema,
   ReviewTargetSchema,
+  SECOND_OPINION_FOCUS_MAX_LENGTH,
+  SECOND_OPINION_NOTE_MAX_LENGTH,
+  SecondOpinionSchema,
   SessionGoalSchema,
   SessionOriginSchema,
   SessionRecapSchema,
@@ -1162,6 +1166,59 @@ export const SessionSendResultSchema = z.object({
   seq: SeqSchema,
 });
 
+// ── 第二意见（0.71.0，Host 功能 `second_opinion`，domain-model §3.30） ────────
+
+/** 去掉首尾空白后不能是空的，最多 `max` 个 UTF-16 code unit。 */
+function trimmedText(max: number) {
+  return z
+    .string()
+    .refine((value) => value.trim() !== '', { message: 'text is empty' })
+    .refine((value) => value.trim().length <= max, { message: `at most ${max} characters` });
+}
+
+/**
+ * 请另一个来源对会话当前的改动给第二意见：Host 把会话目录现在的样子放进一个新的 worktree，在那里用 `providerId` / `modelId` 开一个只读
+ * 审阅的会话，交给它任务、目标、验收与改动的范围，回合结束后把回答作为意见记在这个会话里（`opinion.updated`）。会话要是顶层会话（不是
+ * 子会话、支线或别的意见会话）、目录在 git 仓库里、仓库已有提交；同时进行中的意见最多 `SECOND_OPINION_RUNNING_MAX` 条。不满足时
+ * `INVALID_STATE`。
+ */
+export const SessionSecondOpinionParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  providerId: ProviderIdSchema,
+  /** 省略时用 Provider 的默认模型。 */
+  modelId: z.string().min(1).optional(),
+  reasoningEffort: z.string().min(1).optional(),
+  /** 要它特别看的地方；Host 去掉首尾空白。 */
+  focus: trimmedText(SECOND_OPINION_FOCUS_MAX_LENGTH).optional(),
+});
+
+/** 同一个会话里同时进行中的第二意见最多几条。 */
+export const SECOND_OPINION_RUNNING_MAX = 3;
+
+export const SessionSecondOpinionResultSchema = z.object({
+  opinion: SecondOpinionSchema,
+  /** 给意见的会话。 */
+  session: SessionSchema,
+});
+
+/**
+ * 引用第二意见：Host 把意见与用户的附言拼成一条消息发给这个会话（`user.message` 的 `from.opinion`），送达规则同 `session.send`。意见要
+ * 是 `ready`、还没引用过；否则 `INVALID_STATE`。
+ */
+export const SessionQuoteOpinionParamsSchema = z.object({
+  sessionId: SessionIdSchema,
+  opinionId: OpinionIdSchema,
+  /** 用户附的话；Host 去掉首尾空白。 */
+  note: trimmedText(SECOND_OPINION_NOTE_MAX_LENGTH).optional(),
+  clientMessageId: ClientTokenSchema.optional(),
+  delivery: PendingDeliverySchema.optional(),
+});
+
+/** 同 `session.send` 的结果，加上标为已引用的意见。 */
+export const SessionQuoteOpinionResultSchema = SessionSendResultSchema.extend({
+  opinion: SecondOpinionSchema,
+});
+
 // ── pending.*（0.8.0） ─────────────────────────────────────────────
 
 export const PendingUpdateParamsSchema = z.object({
@@ -1730,6 +1787,16 @@ export const MethodSchemas = {
   'session.review': {
     params: SessionReviewParamsSchema,
     result: SessionCommandResultSchema,
+    permission: 'session.write',
+  },
+  'session.secondOpinion': {
+    params: SessionSecondOpinionParamsSchema,
+    result: SessionSecondOpinionResultSchema,
+    permission: 'session.write',
+  },
+  'session.quoteOpinion': {
+    params: SessionQuoteOpinionParamsSchema,
+    result: SessionQuoteOpinionResultSchema,
     permission: 'session.write',
   },
   'session.setGoal': {

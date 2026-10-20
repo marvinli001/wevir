@@ -46,6 +46,7 @@ import { RoleStore } from './roles.js';
 import { HostRpcServer } from './rpc-server.js';
 import { discoverRuleFiles } from './rule-files.js';
 import { RuntimeFile } from './runtime-file.js';
+import { loadOpinionTemplate, SecondOpinionService } from './second-opinion.js';
 import { SessionManager } from './session-manager.js';
 import { HostSettingsStore } from './settings.js';
 import { boardEventRecorder, TaskBoardStore } from './task-board.js';
@@ -237,6 +238,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
     // 与 Host 设置，下面建好之后再接上。
     let appMcp: AppMcpServer | undefined;
     let appTools: AppTools | undefined;
+    let opinions: SecondOpinionService | undefined;
     // 大输出落盘与后台进程（tool-output.ts、processes.ts）：过期的文件启动时在后台清掉。
     const toolOutput = new ToolOutputStore(homePath(home, 'toolOutputDir'));
     void toolOutput
@@ -320,6 +322,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       onTurnFinished: (info) => {
         appTools?.onTurnFinished(info);
         automations?.onTurnFinished(info);
+        opinions?.onTurnFinished(info);
         // 订阅账号的会话：回合结束后重读那个账号的用量（usage-refresh.ts）。账号 ID 就是它的 Provider 的 ID；不是账号
         // （API Key 的 Provider）时 `turnEnded` 什么都不做。
         const providerId = storage?.sessions.get(info.sessionId)?.providerId;
@@ -424,6 +427,24 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
       logger.warn('review comments are unavailable', { error });
     }
 
+    // 第二意见（0.71.0）：消息模板读不到时不阻止 Host 启动，只是没有这个功能。上次没跑完的意见在服务客户端之前对账。
+    try {
+      opinions = new SecondOpinionService({
+        storage,
+        events: store,
+        sessions: manager,
+        hostId,
+        template: loadOpinionTemplate(options.promptsDir),
+        onWarning: (message, fields) => logger.warn(message, fields),
+      });
+      const fixed = opinions.recover();
+      if (fixed > 0) logger.warn('reconciled second opinions after unclean shutdown', { fixed });
+    } catch (error) {
+      opinions = undefined;
+      logger.warn('second opinions are unavailable', { error });
+    }
+    const secondOpinions = opinions;
+
     // 暂存与提交（0.67.0，ADR-0009）：提交框里显示同一代码状态的验证记录，取会话快照里最近的。
     const sessionStore = storage;
     const git = new GitService({
@@ -507,6 +528,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         roles,
         tasks: taskBoards,
         automations: automationService,
+        ...(secondOpinions !== undefined && { opinions: secondOpinions }),
         onWarning: (message, fields) => logger.warn(message, fields),
       });
       const tools = appTools;
@@ -561,6 +583,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         ...(verification !== undefined && { verification }),
         automations: automationService,
         ...(review !== undefined && { review }),
+        ...(secondOpinions !== undefined && { opinions: secondOpinions }),
         git,
         ...(processOutput.available && { processes: processOutput }),
         ...(terminals !== undefined && { terminals }),
@@ -626,6 +649,7 @@ export async function startHost(options: StartHostOptions): Promise<RunningHost>
         git_commit: true,
         ...(processOutput.available && { process_output: true }),
         ...(terminals !== undefined && { user_terminal: true }),
+        ...(secondOpinions !== undefined && { second_opinion: true }),
       },
       engineFeatures,
       plugins,

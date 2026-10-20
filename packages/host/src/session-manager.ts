@@ -36,6 +36,7 @@ import {
   type SessionAutomation,
   type SessionGoal,
   type SessionId,
+  type SessionOpinionOf,
   type SessionReadOnlyReason,
   type SessionRecap,
   type SessionSnapshot,
@@ -99,6 +100,7 @@ import {
   type CreatedWorktree,
   createWorktree,
   removeWorktree,
+  restoreSnapshot,
   WorktreeError,
 } from './git-worktree.js';
 import {
@@ -831,6 +833,8 @@ export class SessionManager {
       toolPreset?: ToolPreset;
       /** 自动化运行开的会话（0.66.0）：记进 `origin`，`Session.automation` 由它来。 */
       automation?: SessionAutomation;
+      /** 第二意见的会话（0.71.0）：记进 `origin`，`Session.opinionOf` 由它来；目录是按 `snapshot` 新开的 worktree。 */
+      opinion?: OpinionSessionOptions;
     } = {},
   ): Promise<Session> {
     this.#assertOpen();
@@ -863,6 +867,7 @@ export class SessionManager {
         options.role,
         toolPreset,
         options.automation,
+        options.opinion,
       );
     } finally {
       if (origin) this.#startingTasks.delete(origin.taskId);
@@ -933,12 +938,16 @@ export class SessionManager {
     role: string | undefined,
     toolPreset: ToolPreset | undefined,
     automation?: SessionAutomation,
+    opinion?: OpinionSessionOptions,
   ): Promise<Session> {
     const sessionId = newId('ses');
-    // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。
+    // 环境会话（0.15.0，domain-model §3.10）：先准备目录（worktree），失败时什么都不留。对话（0.39.0）是新建的空文件夹。第二意见
+    // （0.71.0）是原会话目录的快照。
     const prepared = chat
       ? await this.#chatDirectory(sessionId)
-      : await this.#prepareEnvironment(params, sessionId, workspace, provider.id);
+      : opinion !== undefined
+        ? await this.#prepareSnapshot(sessionId, workspace.id, opinion.snapshot)
+        : await this.#prepareEnvironment(params, sessionId, workspace, provider.id);
     const config: SessionConfig = {
       cwd: prepared.cwd,
       providerId: provider.id,
@@ -949,11 +958,18 @@ export class SessionManager {
     if (prepared.extraRoots.length > 0) config.additionalRoots = prepared.extraRoots;
     const recordOrigin: SessionRecord['origin'] =
       origin ??
-      (automation !== undefined
-        ? { kind: 'automation', ...automation }
-        : openedBy === undefined
-          ? undefined
-          : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
+      (opinion !== undefined
+        ? {
+            kind: 'second_opinion',
+            sessionId: opinion.of.sessionId,
+            opinionId: opinion.of.opinionId,
+            ...(role !== undefined && { role }),
+          }
+        : automation !== undefined
+          ? { kind: 'automation', ...automation }
+          : openedBy === undefined
+            ? undefined
+            : { kind: 'agent', sessionId: openedBy, ...(role !== undefined && { role }) });
     let engineSession: Awaited<ReturnType<AgentRuntimeAdapter['createSession']>>;
     this.#creating.set(sessionId, {
       workspaceId: workspace.id,
@@ -1018,6 +1034,7 @@ export class SessionManager {
           ...(openedBy !== undefined && {
             openedBy: { sessionId: openedBy, ...(role !== undefined && { role }) },
           }),
+          ...(opinion !== undefined && { opinionOf: opinion.of }),
           ...(toolPreset !== undefined && { toolPreset }),
         },
       });
@@ -1048,6 +1065,46 @@ export class SessionManager {
       this.#engineFailed(runtime, engineErrorInfo(error));
     }
     return this.#snapshot(runtime).session;
+  }
+
+  /**
+   * 第二意见的目录（0.71.0，domain-model §3.30）：在 `<worktreesDir>/<会话 ID>/` 下从原会话目录的 `head` 新开 worktree，再把文件换成
+   * 快照（`tree`）。失败时什么都不留，抛 `WorktreeError`（说明是 git 的原文）。
+   */
+  async #prepareSnapshot(
+    sessionId: SessionId,
+    workspaceId: string,
+    snapshot: OpinionSessionOptions['snapshot'],
+  ): Promise<PreparedEnvironment> {
+    if (this.#worktreesDir === undefined)
+      throw new WorktreeError('this host has no place for worktrees');
+    const dir = join(this.#worktreesDir, sessionId);
+    let created: CreatedWorktree | undefined;
+    const undo = async () => {
+      if (created !== undefined) await removeWorktree(created, dir).catch(this.#onError);
+      await rm(dir, { recursive: true, force: true }).catch(() => {});
+    };
+    try {
+      created = await createWorktree({
+        workspaceRoot: snapshot.from,
+        dir,
+        index: 1,
+        branch: `wevir/opinion-${sessionId.slice(-8).toLowerCase()}`,
+        commit: snapshot.head,
+      });
+      await restoreSnapshot(created.root, snapshot.tree);
+      return {
+        cwd: created.path,
+        extraRoots: [],
+        worktrees: [
+          { workspaceId: workspaceId as WorkspaceId, path: created.path, branch: created.branch },
+        ],
+        undo,
+      };
+    } catch (error) {
+      await undo();
+      throw error;
+    }
   }
 
   /** 对话的文件夹（0.39.0）：`<对话工作区>/<会话 ID>`，新建、空的。 */
@@ -3329,7 +3386,13 @@ export class SessionManager {
     try {
       if (!options.enabled()) return;
       const record = this.#record(runtime);
-      if (record.side || record.origin?.kind === 'agent') return;
+      if (
+        record.side ||
+        record.origin?.kind === 'agent' ||
+        record.origin?.kind === 'second_opinion'
+      ) {
+        return;
+      }
       const snapshot = this.#snapshot(runtime);
       const { session } = snapshot;
       if (
@@ -5286,6 +5349,13 @@ function isoNow(): string {
 }
 
 /** 环境会话准备好的目录（#prepareEnvironment）。 */
+/** `SessionManager.create` 的 `opinion`（0.71.0）。 */
+export interface OpinionSessionOptions {
+  of: SessionOpinionOf;
+  /** 原会话目录（realpath）、它当时的 HEAD 与工作树的树散列（`checkpoints.ts` 的 `workingTreeHash`）。 */
+  snapshot: { from: string; head: string; tree: string };
+}
+
 interface PreparedEnvironment {
   environmentId?: EnvironmentId;
   cwd: string;

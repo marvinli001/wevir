@@ -293,6 +293,11 @@ export const HOST_FEATURES = {
    * Agent 看不到。Host 装得上终端模块（node-pty）时声明。
    */
   userTerminal: 'user_terminal',
+  /**
+   * 第二意见（0.71.0，domain-model §3.30）：`session.secondOpinion`、`session.quoteOpinion`、`opinion.updated` 事件、快照的 `opinions`、
+   * `Session.opinionOf` 与 `MessageFrom.opinion`。Host 能开 worktree 时声明，与引擎无关（意见会话用哪个来源由请求决定）。
+   */
+  secondOpinion: 'second_opinion',
 } as const;
 export type HostFeature = (typeof HOST_FEATURES)[keyof typeof HOST_FEATURES];
 
@@ -354,6 +359,7 @@ export const HostFeaturesSchema = z.looseObject({
   git_commit: z.boolean().optional(),
   process_output: z.boolean().optional(),
   user_terminal: z.boolean().optional(),
+  second_opinion: z.boolean().optional(),
 });
 export type HostFeatures = z.infer<typeof HostFeaturesSchema>;
 
