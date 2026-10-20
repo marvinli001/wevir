@@ -19,7 +19,7 @@ import { DIFF_SURFACE_THEME_UNSAFE_CSS } from './diff-rendering';
 import { DiffWorkerPoolProvider } from './diff-worker-pool';
 
 /** 文件头与分隔条的高度：样式与 itemMetrics 共用，虚拟列表按它们排每一项。 */
-export const DIFF_HEADER_HEIGHT = 32;
+export const DIFF_HEADER_HEIGHT = 36;
 const HUNK_SEPARATOR_HEIGHT = 24;
 
 export const DIFF_VIEW_UNSAFE_CSS = `${DIFF_SURFACE_THEME_UNSAFE_CSS}

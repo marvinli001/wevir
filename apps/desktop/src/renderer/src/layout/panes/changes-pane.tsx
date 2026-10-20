@@ -27,13 +27,15 @@ import type { DiffFile, ReviewComment, Session, SessionId, WorkspaceId } from '@
 import { cn } from 'cn';
 import {
   ChevronDown,
-  ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
   Columns2,
+  Eye,
+  GitBranch,
   GitCompare,
+  MessageSquare,
+  MoveRight,
   RotateCw,
-  Rows3,
   WrapText,
 } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -58,6 +60,7 @@ import {
   turnOptions,
 } from '@/changes/changes-model';
 import { changesPrefs, selectScope, useChangesSelection } from '@/changes/changes-store';
+import { type StageState, stageState } from '@/changes/commit-model';
 import { CommitPanel } from '@/changes/commit-panel';
 import { DiffCommentDraft, DiffCommentNote } from '@/changes/diff-comment';
 import { createDiffFileContentsLoader } from '@/changes/diff-file-contents';
@@ -73,6 +76,7 @@ import {
 } from '@/changes/diff-rendering';
 import { PREFERRED_HIGHLIGHTER } from '@/changes/diff-worker-pool';
 import { useGitStatus, useGitSupported } from '@/changes/git-data';
+import { JumpToFile } from '@/changes/jump-to-file';
 import { useReviewComments, useReviewSupported } from '@/changes/review-data';
 import {
   type DiffView,
@@ -81,11 +85,12 @@ import {
   type ReviewRange,
   toReviewRange,
 } from '@/changes/review-model';
-import { lineLabel, ReviewPanel } from '@/changes/review-panel';
+import { commentState, lineLabel, ReviewPanel } from '@/changes/review-panel';
 import { DIFF_HEADER_HEIGHT, StyledDiffCodeView } from '@/changes/styled-code-view';
 import { IconButton } from '@/components/icon-button';
 import { ScrollFade } from '@/components/scroll-fade';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -98,10 +103,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTranscript } from '@/data/workbench-data';
+import { openFile } from '@/files/files-store';
 import { useHostConnection } from '@/host/host-connection';
 import { t } from '@/i18n';
 import { useTheme } from '@/theme/theme';
+import { usePanes } from '../pane-controller';
 import type { PaneContext } from '../pane-registry';
+import { fileIcon } from './files-pane';
 
 // Pierre 分隔条上的文字（补丁加的 setDiffsText，pnpm-workspace.yaml）。
 setDiffsText({
@@ -163,7 +171,9 @@ interface CollapsedState {
 const NO_KEYS: ReadonlySet<string> = new Set();
 
 /** 画在 diff 里的一组批注（同一侧同一行结尾的放在一起）：已存的与正在写的草稿。 */
-type ReviewEntry = { kind: 'draft' } | { kind: 'comment'; comment: ReviewComment };
+type ReviewEntry =
+  | { kind: 'draft' }
+  | { kind: 'comment'; comment: ReviewComment; range: ReviewRange };
 interface ReviewGroup {
   entries: ReviewEntry[];
 }
@@ -236,6 +246,13 @@ function SessionChanges({
     live,
   });
   const staged = source?.kind === 'staged';
+  // 文件头的勾选框（Host 有 `git_commit`、看的是未提交或已暂存时）：勾上暂存整个文件，取消勾选取消暂存。
+  const panes = usePanes();
+  const staging = gitSupported && (source?.kind === 'uncommitted' || staged);
+  const gitFiles = useMemo(
+    () => new Map((git.status?.files ?? []).map((file) => [file.path, file])),
+    [git.status],
+  );
   const result = diff.result;
   const scopeKey = source === undefined ? undefined : sourceKey(sessionId, source);
 
@@ -320,7 +337,7 @@ function SessionChanges({
         const folded = collapsed.has(fileKey);
         let annotations: ReviewAnnotation[] = [];
         for (const { comment, range } of placed.get(path) ?? []) {
-          annotations = addAnnotation(annotations, range, { kind: 'comment', comment });
+          annotations = addAnnotation(annotations, range, { kind: 'comment', comment, range });
         }
         if (draft?.fileKey === fileKey) {
           annotations = addAnnotation(annotations, draft.range, { kind: 'draft' });
@@ -334,16 +351,18 @@ function SessionChanges({
             ),
           )
           .join(':');
+        // 文件头跟着暂存状态与批注数变：放进版本，虚拟列表才会重画它。
+        const stageMark = staging ? (stageState(gitFiles.get(path)) ?? '') : '';
         return {
           id: fileKey,
           type: 'diff',
           fileDiff,
           collapsed: folded,
           annotations,
-          version: fnv1a32(`${fileVersion}:${folded ? '1' : '0'}:${marks}`),
+          version: fnv1a32(`${fileVersion}:${folded ? '1' : '0'}:${stageMark}:${marks}`),
         };
       }),
-    [entries, collapsed, placed, draft],
+    [entries, collapsed, placed, draft, staging, gitFiles],
   );
 
   const beginComment = useCallback(
@@ -387,7 +406,7 @@ function SessionChanges({
   const removeComment = review.remove;
   const renderAnnotation = useCallback(
     (annotation: DiffLineAnnotation<ReviewGroup>) => (
-      <div className="divide-y divide-border/40">
+      <div className="flex flex-col py-0.5">
         {annotation.metadata.entries.map((entry) =>
           entry.kind === 'draft' ? (
             <DiffCommentDraft
@@ -400,7 +419,9 @@ function SessionChanges({
             <DiffCommentNote
               key={entry.comment.id}
               text={entry.comment.body}
-              state={entry.comment.anchor.state}
+              rangeLabel={lineLabel(entry.range.startLine, entry.range.endLine)}
+              stateLabel={commentState(entry.comment)}
+              outdated={entry.comment.anchor.state === 'outdated'}
               onDelete={() => void removeComment([entry.comment.id]).catch(() => {})}
             />
           ),
@@ -448,12 +469,32 @@ function SessionChanges({
     () => (omitted.length > 0 ? <OmittedFiles files={omitted} /> : null),
     [omitted],
   );
+  const { stage, unstage, busy: gitBusy } = git;
+  const toggleStage = useCallback(
+    (path: string, state: StageState) => {
+      if (state === 'conflicted') return;
+      void (state === 'staged' ? unstage([path]) : stage([path]));
+    },
+    [stage, unstage],
+  );
   const renderHeader = useCallback(
-    (item: CodeViewItem<ReviewGroup>) =>
-      item.type === 'diff' ? (
-        <FileHeader item={item} collapsed={item.collapsed === true} onToggle={toggleFile} />
-      ) : null,
-    [toggleFile],
+    (item: CodeViewItem<ReviewGroup>) => {
+      if (item.type !== 'diff') return null;
+      const path = resolveFileDiffPath(item.fileDiff);
+      return (
+        <FileHeader
+          item={item}
+          collapsed={item.collapsed === true}
+          onToggle={toggleFile}
+          stage={staging ? stageState(gitFiles.get(path)) : undefined}
+          stageBusy={gitBusy}
+          onStage={toggleStage}
+          comments={placed.get(path)?.length ?? 0}
+          onOpen={item.fileDiff.type === 'deleted' ? undefined : () => openFile(panes, path)}
+        />
+      );
+    },
+    [toggleFile, staging, gitFiles, gitBusy, toggleStage, placed, panes],
   );
 
   const stats = {
@@ -511,22 +552,37 @@ function SessionChanges({
     );
   }
 
+  const jumpPaths = useMemo(() => entries.map((entry) => entry.path), [entries]);
+  const branchBase =
+    selection.scope.kind === 'branch' && result?.baseRef !== undefined ? result.baseRef : undefined;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-border px-2">
+      <div className="flex h-11 shrink-0 items-center gap-1.5 px-2">
         <ScopeMenu
           sessionId={sessionId}
           scope={selection.scope}
           turns={turns}
           label={scopeLabel(selection.scope, turns)}
           staged={gitSupported}
+          stats={hasFiles ? stats : undefined}
         />
-        {selection.scope.kind === 'branch' && result?.baseRef && (
+        {branchBase !== undefined && (
           <span
-            className="min-w-0 truncate text-xs text-muted-foreground"
+            className="flex h-7 min-w-0 items-center gap-1 rounded-full border border-border px-2.5 text-xs text-muted-foreground"
+            title={t('changes.against', { base: branchBase })}
             data-testid="changes-base"
           >
-            {t('changes.against', { base: result.baseRef })}
+            <GitBranch aria-hidden className="size-3.5 shrink-0" />
+            {git.status?.branch !== undefined && (
+              <>
+                <span className="min-w-0 truncate font-mono text-foreground">
+                  {git.status.branch}
+                </span>
+                <MoveRight aria-hidden className="size-3 shrink-0" />
+              </>
+            )}
+            <span className="min-w-0 truncate font-mono">{branchBase}</span>
           </span>
         )}
         <div className="min-w-1 flex-1" />
@@ -538,57 +594,54 @@ function SessionChanges({
             onReveal={(path) => selectScope(sessionId, selection.scope, path)}
           />
         )}
-        {hasFiles && (
-          <span
-            className="mr-1 shrink-0 font-mono text-xs tabular-nums"
-            data-testid="changes-stats"
-          >
-            <span className="text-success">+{stats.added.toLocaleString('en-US')}</span>{' '}
-            <span className="text-destructive">−{stats.removed.toLocaleString('en-US')}</span>
-          </span>
-        )}
-        <IconButton
-          label={t('changes.refresh')}
-          onClick={diff.refresh}
-          disabled={source === undefined}
+        <div
+          className="flex shrink-0 items-center gap-px rounded-full border border-border bg-card p-px shadow-xs [&_[data-slot=button]]:rounded-full"
+          data-testid="changes-tools"
         >
-          <RotateCw className={cn(diff.loading && 'animate-spin')} />
-        </IconButton>
-        {entries.length > 0 && (
+          <JumpToFile
+            paths={jumpPaths}
+            onJump={(path) => selectScope(sessionId, selection.scope, path)}
+          />
+          <IconButton
+            label={t('changes.refresh')}
+            size="icon-xs"
+            onClick={() => {
+              diff.refresh();
+              git.refresh();
+            }}
+            disabled={source === undefined}
+          >
+            <RotateCw className={cn(diff.loading && 'animate-spin')} />
+          </IconButton>
+          <IconButton
+            label={t('changes.wrap')}
+            size="icon-xs"
+            aria-pressed={prefs.wrap}
+            className={cn(prefs.wrap && 'bg-accent text-foreground')}
+            onClick={() => changesPrefs.set((current) => ({ ...current, wrap: !current.wrap }))}
+          >
+            <WrapText />
+          </IconButton>
+          <IconButton
+            label={t('changes.split')}
+            size="icon-xs"
+            aria-pressed={prefs.split}
+            className={cn(prefs.split && 'bg-accent text-foreground')}
+            onClick={() => changesPrefs.set((current) => ({ ...current, split: !current.split }))}
+          >
+            <Columns2 />
+          </IconButton>
           <IconButton
             label={allCollapsed ? t('changes.expandAllFiles') : t('changes.collapseAllFiles')}
+            size="icon-xs"
+            disabled={entries.length === 0}
             onClick={toggleAllFiles}
           >
             {allCollapsed ? <ChevronsUpDown /> : <ChevronsDownUp />}
           </IconButton>
-        )}
-        <span aria-hidden className="mx-0.5 h-4 w-px shrink-0 bg-border" />
-        <IconButton
-          label={t('changes.unified')}
-          aria-pressed={!prefs.split}
-          className={cn(!prefs.split && 'bg-accent')}
-          onClick={() => changesPrefs.set((current) => ({ ...current, split: false }))}
-        >
-          <Rows3 />
-        </IconButton>
-        <IconButton
-          label={t('changes.split')}
-          aria-pressed={prefs.split}
-          className={cn(prefs.split && 'bg-accent')}
-          onClick={() => changesPrefs.set((current) => ({ ...current, split: true }))}
-        >
-          <Columns2 />
-        </IconButton>
-        <IconButton
-          label={t('changes.wrap')}
-          aria-pressed={prefs.wrap}
-          className={cn(prefs.wrap && 'bg-accent')}
-          onClick={() => changesPrefs.set((current) => ({ ...current, wrap: !current.wrap }))}
-        >
-          <WrapText />
-        </IconButton>
+        </div>
       </div>
-      <div className="relative min-h-0 flex-1">{body}</div>
+      <div className="relative min-h-0 flex-1 border-t border-border">{body}</div>
       {gitSupported && (
         <CommitPanel
           git={git}
@@ -603,12 +656,22 @@ function SessionChanges({
   );
 }
 
+function Stats({ added, removed }: { added: number; removed: number }) {
+  return (
+    <span className="shrink-0 font-mono text-xs tabular-nums" data-testid="changes-stats">
+      <span className="text-success">+{added.toLocaleString('en-US')}</span>{' '}
+      <span className="text-destructive">−{removed.toLocaleString('en-US')}</span>
+    </span>
+  );
+}
+
 function ScopeMenu({
   sessionId,
   scope,
   turns,
   label,
   staged,
+  stats,
 }: {
   sessionId: SessionId;
   scope: ChangesScope;
@@ -616,6 +679,8 @@ function ScopeMenu({
   label: string;
   /** Host 有 `git_commit`：多一项“已暂存”。 */
   staged: boolean;
+  /** 有改动时按钮里写 +N −M（照 Codex）。 */
+  stats: { added: number; removed: number } | undefined;
 }) {
   const top = scope.kind === 'turn' && turns[0]?.turnId === scope.turnId ? 'latest' : scope.kind;
   const turnValue =
@@ -623,51 +688,33 @@ function ScopeMenu({
   const choose = (next: ChangesScope) => {
     if (!sameScope(next, scope)) selectScope(sessionId, next);
   };
+  const pick = (value: unknown) => {
+    if (value === 'uncommitted' || value === 'staged' || value === 'branch' || value === 'latest') {
+      choose({ kind: value });
+    }
+  };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
         render={
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
-            className="min-w-0 max-w-48 gap-1 px-2 font-medium"
+            className="min-w-0 max-w-64 shrink gap-1.5 rounded-full px-2.5 shadow-xs"
             data-testid="changes-scope"
           />
         }
       >
         <span className="truncate">{label}</span>
         <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        {stats && <Stats added={stats.added} removed={stats.removed} />}
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-48">
-        <DropdownMenuRadioGroup
-          value={top}
-          onValueChange={(value) => {
-            if (
-              value === 'uncommitted' ||
-              value === 'staged' ||
-              value === 'branch' ||
-              value === 'latest'
-            ) {
-              choose({ kind: value });
-            }
-          }}
-        >
-          <DropdownMenuRadioItem value="uncommitted" closeOnClick>
-            {t('changes.scope.uncommitted')}
-          </DropdownMenuRadioItem>
-          {staged && (
-            <DropdownMenuRadioItem value="staged" closeOnClick>
-              {t('changes.scope.staged')}
-            </DropdownMenuRadioItem>
-          )}
-          <DropdownMenuRadioItem value="branch" closeOnClick>
-            {t('changes.scope.branch')}
-          </DropdownMenuRadioItem>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuRadioGroup value={top} onValueChange={pick}>
           <DropdownMenuRadioItem value="latest" closeOnClick disabled={turns.length === 0}>
             {t('changes.scope.latest')}
           </DropdownMenuRadioItem>
         </DropdownMenuRadioGroup>
-        <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger disabled={turns.length === 0}>
             {t('changes.scope.turns')}
@@ -702,6 +749,23 @@ function ScopeMenu({
             </ScrollFade>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup value={top} onValueChange={pick}>
+          <DropdownMenuRadioItem value="uncommitted" closeOnClick>
+            {t('changes.scope.uncommitted')}
+          </DropdownMenuRadioItem>
+          {staged && (
+            <DropdownMenuRadioItem value="staged" closeOnClick>
+              {t('changes.scope.staged')}
+            </DropdownMenuRadioItem>
+          )}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup value={top} onValueChange={pick}>
+          <DropdownMenuRadioItem value="branch" closeOnClick>
+            {t('changes.scope.branch')}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -719,15 +783,29 @@ const STATUS_LABELS: Partial<
   'rename-changed': 'changes.status.renamed',
 };
 
-/** 文件头：折叠箭头、文件名、目录、新增 / 删除 / 重命名、增删行数；整行点一下折叠或展开。高度与 DIFF_HEADER_HEIGHT 一致。 */
+/**
+ * 文件头（照 Codex）：暂存勾选框（可选）、文件图标（新增成功色、删除失败色）、目录与文件名、⌄、新增 / 已删除 / 重命名，右边
+ * 批注数、+a −r 与悬停时的“打开文件”。点文件名一侧折叠或展开。高度与 DIFF_HEADER_HEIGHT 一致。
+ */
 function FileHeader({
   item,
   collapsed,
   onToggle,
+  stage,
+  stageBusy,
+  onStage,
+  comments,
+  onOpen,
 }: {
   item: CodeViewDiffItem<ReviewGroup>;
   collapsed: boolean;
   onToggle: (fileKey: string) => void;
+  /** 没有时不画勾选框（不在未提交 / 已暂存，或 Host 没有 `git_commit`）。 */
+  stage: StageState | undefined;
+  stageBusy: boolean;
+  onStage: (path: string, state: StageState) => void;
+  comments: number;
+  onOpen: (() => void) | undefined;
 }) {
   const { fileDiff } = item;
   const path = resolveFileDiffPath(fileDiff);
@@ -736,39 +814,94 @@ function FileHeader({
   const status = STATUS_LABELS[fileDiff.type];
   const previous =
     fileDiff.prevName !== undefined && fileDiff.prevName !== path ? fileDiff.prevName : undefined;
+  const Icon = fileIcon(path);
   return (
-    <button
-      type="button"
+    <div
       style={{ height: DIFF_HEADER_HEIGHT }}
-      aria-expanded={!collapsed}
-      aria-label={
-        collapsed ? t('changes.expandFile', { path }) : t('changes.collapseFile', { path })
-      }
-      title={previous ? `${previous} → ${path}` : path}
-      onClick={() => onToggle(item.id)}
-      className="flex w-full min-w-0 items-center gap-1.5 px-2 text-left font-sans text-xs outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+      className="group/header flex w-full min-w-0 items-center gap-2 px-3 font-sans text-[13px] transition-colors hover:bg-muted/40"
       data-changes-file={path}
     >
-      <ChevronRight
-        aria-hidden
-        className={cn(
-          'size-3.5 shrink-0 transition-transform duration-200 ease-smooth',
-          !collapsed && 'rotate-90',
-          getDiffCollapseIconClassName(fileDiff),
+      {stage !== undefined && (
+        <Checkbox
+          size="sm"
+          checked={stage === 'staged'}
+          indeterminate={stage === 'partial'}
+          disabled={stageBusy || stage === 'conflicted'}
+          onCheckedChange={() => onStage(path, stage)}
+          aria-label={
+            stage === 'staged' ? t('commit.unstageFile', { path }) : t('commit.stageFile', { path })
+          }
+          data-action={stage === 'staged' ? 'git-unstage' : 'git-stage'}
+          data-stage={stage}
+        />
+      )}
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        aria-label={
+          collapsed ? t('changes.expandFile', { path }) : t('changes.collapseFile', { path })
+        }
+        title={previous ? `${previous} → ${path}` : path}
+        onClick={() => onToggle(item.id)}
+        className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset"
+      >
+        <Icon
+          aria-hidden
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground',
+            getDiffCollapseIconClassName(fileDiff),
+          )}
+        />
+        <span className="flex min-w-0 items-baseline">
+          {dir !== '' && (
+            <span dir="rtl" className="min-w-0 truncate text-left text-muted-foreground">
+              <bdi dir="ltr">{dir}/</bdi>
+            </span>
+          )}
+          <span className="shrink-0 text-foreground">{name}</span>
+        </span>
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ease-smooth',
+            collapsed && '-rotate-90',
+          )}
+        />
+        {status && (
+          <span className="shrink-0 rounded-full bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground">
+            {t(status)}
+          </span>
         )}
-      />
-      <span className="shrink-0 font-medium text-foreground">{name}</span>
-      {dir !== '' && (
-        <span dir="rtl" className="min-w-0 truncate text-left text-muted-foreground">
-          <bdi dir="ltr">{dir}</bdi>
+        {stage === 'conflicted' && (
+          <span className="shrink-0 rounded-full bg-destructive/10 px-1.5 text-[11px] leading-[18px] text-destructive">
+            {t('commit.conflicted')}
+          </span>
+        )}
+      </button>
+      {comments > 0 && (
+        <span
+          className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground tabular-nums"
+          title={t('comments.title')}
+        >
+          <MessageSquare aria-hidden className="size-3" />
+          {comments}
         </span>
       )}
-      {status && <span className="shrink-0 text-muted-foreground">· {t(status)}</span>}
-      <span className="ml-auto shrink-0 pl-2 font-mono tabular-nums">
+      <span className="shrink-0 font-mono text-xs tabular-nums">
         <span className="text-success">+{stat.additions}</span>{' '}
         <span className="text-destructive">−{stat.deletions}</span>
       </span>
-    </button>
+      {onOpen && (
+        <IconButton
+          label={t('changes.openFile')}
+          size="icon-xs"
+          className="-mr-1 text-muted-foreground opacity-0 transition-opacity group-hover/header:opacity-100 focus-visible:opacity-100"
+          onClick={onOpen}
+        >
+          <Eye />
+        </IconButton>
+      )}
+    </div>
   );
 }
 

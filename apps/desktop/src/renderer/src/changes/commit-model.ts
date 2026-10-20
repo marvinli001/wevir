@@ -43,6 +43,21 @@ export function canCommit(
   return groups.staged.length > 0 || groups.external.length > 0;
 }
 
+/** 文件在索引里的情况（diff 文件头的勾选框）：全部暂存、部分暂存、没暂存、冲突（不能暂存）。 */
+export type StageState = 'staged' | 'partial' | 'unstaged' | 'conflicted';
+
+export function stageState(file: GitStatusFile | undefined): StageState | undefined {
+  if (file === undefined || file.outside === true) return undefined;
+  if (file.conflicted === true) return 'conflicted';
+  if (file.staged !== undefined) return file.unstaged !== undefined ? 'partial' : 'staged';
+  return file.unstaged !== undefined ? 'unstaged' : undefined;
+}
+
+/** 目录里有改动的文件数（暂存与否都算一次，目录外的不算）。 */
+export function changedCount(groups: CommitGroups): number {
+  return new Set([...groups.staged, ...groups.unstaged].map((file) => file.path)).size;
+}
+
 /** 文件一侧的状态字母（列表里用）。 */
 export function statusLetter(file: GitStatusFile, side: 'staged' | 'unstaged'): string {
   if (file.conflicted === true) return '!';

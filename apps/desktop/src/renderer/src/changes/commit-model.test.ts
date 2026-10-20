@@ -1,6 +1,13 @@
 import type { GitStatusResult } from '@wevir/protocol';
 import { describe, expect, it } from 'vitest';
-import { canCommit, checkTone, groupFiles, statusLetter } from './commit-model';
+import {
+  canCommit,
+  changedCount,
+  checkTone,
+  groupFiles,
+  stageState,
+  statusLetter,
+} from './commit-model';
 
 const status: GitStatusResult = {
   repo: true,
@@ -40,5 +47,23 @@ describe('提交区的分组', () => {
     expect(
       ['passed', 'timed_out', 'stale', 'cancelled', 'running'].map((s) => checkTone(s as never)),
     ).toEqual(['passed', 'failed', 'stale', 'not_run', 'running']);
+  });
+});
+
+describe('文件头的暂存状态', () => {
+  it('全部、部分、没暂存与冲突；目录外与找不到的没有', () => {
+    const files = status.files ?? [];
+    expect(files.map(stageState)).toEqual([
+      'partial',
+      'staged',
+      undefined,
+      'unstaged',
+      'conflicted',
+    ]);
+    expect(stageState(undefined)).toBeUndefined();
+  });
+
+  it('改动的文件数按路径算一次', () => {
+    expect(changedCount(groupFiles(status))).toBe(4);
   });
 });
